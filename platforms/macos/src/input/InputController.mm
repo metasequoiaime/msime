@@ -1985,7 +1985,7 @@ static NSImage *MSIMECandidateLogoImage() {
     // depend on the composition, so the cache outlives it. Japanese is read on demand from the system tokenizer.
     NSArray<NSString *> *_pronunciationTargets;
     NSOperationQueue *_pronunciationQueue;
-    NSMutableDictionary<NSString *, NSString *> *_englishPronunciations;
+    NSMutableDictionary<NSString *, NSString *> *_sharedPronunciations;
     NSMutableSet<NSString *> *_pronunciationPending;
     NSMutableDictionary<NSString *, NSString *> *_romajiCache;
     MSIMECustomTranslationBatch *_customBatch;
@@ -8655,7 +8655,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     // Romaji is cached per term: a page is drawn more than once per key and the tokenizer is not free.
     if (!_romajiCache || _romajiCache.count > 4096) _romajiCache = [NSMutableDictionary dictionary];
     NSMutableDictionary<NSString *, NSString *> *cache = _romajiCache;
-    return MSIMEGlossPronunciation(candidate[@"text"], translation, _pronunciationTargets, _englishPronunciations,
+    return MSIMEGlossPronunciation(candidate[@"text"], translation, _pronunciationTargets, _sharedPronunciations,
                                    ^NSString *(NSString *term) {
                                        NSString *reading = cache[term];
                                        if (!reading) cache[term] = reading = MSIMEJapaneseRomaji(term);
@@ -8663,8 +8663,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
                                    });
 }
 
-// Asks the shared table for the English texts on the current page it has not answered yet, then redraws. Nothing is
-// asked while the switch is off; turning it on or off redraws the page with or without readings.
+// 把当前页上共享表还没回答过的释义行（以及英文候选）连同各自的语言交给共享表去查，回来后重画。开关关着时什么也不查；打开或关上开关时重画这一页，带上或去掉读音。
 - (void)synchronizePronunciation {
     NSDictionary *query = (_activeClient && _session && !_focusPending) ? [self serviceSnapshotQuery] : nil;
     NSArray<NSString *> *targets = [query[@"candidate_pronunciation"] isEqual:@YES] ? MSIMETranslationTargets(query) : nil;
@@ -8675,13 +8674,18 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     if (!targets) return;
     NSString *resources = [_session.hostOptions[@"resources"] copy];
     if (![resources isKindOfClass:NSString.class] || !resources.isAbsolutePath) return;
-    if (!_englishPronunciations || _englishPronunciations.count > 4096) _englishPronunciations = [NSMutableDictionary dictionary];
+    if (!_sharedPronunciations || _sharedPronunciations.count > 4096) _sharedPronunciations = [NSMutableDictionary dictionary];
     if (!_pronunciationPending) _pronunciationPending = [NSMutableSet set];
     NSMutableOrderedSet<NSString *> *missing = [NSMutableOrderedSet orderedSet];
+    NSMutableArray *items = [NSMutableArray array];
     for (NSDictionary *candidate in _view[@"candidates"]) {
         if (![candidate isKindOfClass:NSDictionary.class] || ![candidate[@"text"] isKindOfClass:NSString.class]) continue;
-        for (NSString *text in MSIMEGlossEnglishTexts(candidate[@"text"], CandidateTranslation(candidate), targets))
-            if (!_englishPronunciations[text] && ![_pronunciationPending containsObject:text]) [missing addObject:text];
+        for (NSDictionary<NSString *, NSString *> *item in MSIMEGlossSharedItems(candidate[@"text"], CandidateTranslation(candidate), targets)) {
+            NSString *key = MSIMEPronunciationKey(item[@"language"], item[@"text"]);
+            if (_sharedPronunciations[key] || [_pronunciationPending containsObject:key] || [missing containsObject:key]) continue;
+            [missing addObject:key];
+            [items addObject:item];
+        }
     }
     if (!missing.count) return;
     [_pronunciationPending addObjectsFromArray:missing.array];
@@ -8690,8 +8694,6 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         _pronunciationQueue.maxConcurrentOperationCount = 1;
         _pronunciationQueue.qualityOfService = NSQualityOfServiceUtility;
     }
-    NSMutableArray *items = [NSMutableArray arrayWithCapacity:missing.count];
-    for (NSString *text in missing) [items addObject:@{@"text": text, @"language": @"en"}];
     NSMutableDictionary *request = [@{@"generation": _view[@"generation"] ?: @0, @"items": items} mutableCopy];
     // 旧配置的活动词库可能位于用户目录，音标表仍随输入法 bundle 分发。
     NSString *supplementary = NSBundle.mainBundle.resourcePath;
@@ -8702,15 +8704,16 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         NSDictionary *result = [MSIMEClientSession pronunciationRequest:request resources:resources error:nil];
         NSMutableDictionary<NSString *, NSString *> *answered = [NSMutableDictionary dictionary];
         for (NSDictionary *entry in [result[@"pronunciations"] isKindOfClass:NSArray.class] ? result[@"pronunciations"] : @[])
-            if ([entry[@"text"] isKindOfClass:NSString.class] && [entry[@"pronunciation"] isKindOfClass:NSString.class])
-                answered[entry[@"text"]] = entry[@"pronunciation"];
+            if ([entry[@"text"] isKindOfClass:NSString.class] && [entry[@"language"] isKindOfClass:NSString.class] &&
+                [entry[@"pronunciation"] isKindOfClass:NSString.class])
+                answered[MSIMEPronunciationKey(entry[@"language"], entry[@"text"])] = entry[@"pronunciation"];
         dispatch_async(dispatch_get_main_queue(), ^{
             MSIMEInputController *current = weakSelf;
             if (!current) return;
             // A text the table does not know is remembered as having no reading, so it is not asked again every key.
-            for (NSString *text in asked) {
-                current->_englishPronunciations[text] = answered[text] ?: @"";
-                [current->_pronunciationPending removeObject:text];
+            for (NSString *key in asked) {
+                current->_sharedPronunciations[key] = answered[key] ?: @"";
+                [current->_pronunciationPending removeObject:key];
             }
             if (current->_activeClient && current->_pronunciationTargets && answered.count) [current renderCandidates];
         });
@@ -10598,7 +10601,8 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         else if (tokens.translation)
             button.translationColor = SkinColor(*tokens.translation);
         else if (button.candidateFixed) button.translationColor = [button.titleColor colorWithAlphaComponent:MSIMECandidateTranslationOpacity];
-        else button.translationColor = button.candidateHighlighted ? SkinColor(tokens.selectedNumber) : SkinColor(tokens.number);
+        // 没有释义色的选中行按 `SelectedRowGloss` 取色：选中序号色在不透明选中底色上不到 4.5:1 时换成加深了不透明度的选中文字色。
+        else button.translationColor = button.candidateHighlighted ? SkinColor(msime::mac::SelectedRowGloss(tokens)) : SkinColor(tokens.number);
         button.numberColor = button.candidateHighlighted ? SkinColor(tokens.selectedNumber) : SkinColor(tokens.number);
         button.barColor = SkinColor(tokens.selectedBar.value_or(tokens.accent));
         button.showSelectedBar = tokens.showSelectedBar;

@@ -14,6 +14,7 @@ import app.msime.android.HttpBodyPolicy;
 import app.msime.android.JsonPolicy;
 import app.msime.android.LayoutPolicy;
 import app.msime.android.NativeClient;
+import app.msime.android.ReadAloudSpeaker;
 import app.msime.android.ThemeColorPolicy;
 import app.msime.android.ViewPolicy;
 import app.msime.android.VocabularyReviewDocument;
@@ -58,6 +59,8 @@ public final class VocabularyReviewPage extends ReloadingDetailPage {
     private static final String[] IMPORT_TYPES = {"text/*", "application/csv", "application/vnd.ms-excel"};
 
     @Nullable private VocabularyReviewModel model;
+    /** 卡片下面的「朗读」：第一次读时才连接系统语音引擎，页面销毁时断开。 */
+    @Nullable private ReadAloudSpeaker speaker;
     /** 在途的请求数。读取、作答和设置只在没有请求在途时发出；导入不依赖当前状态，选完文件就发，不会因为恰好有一次读取在途而丢掉用户选的文件（共享入口的调用都在 {@link HostTask} 的同一个工作线程上排队）。 */
     private int inFlight;
     /** 当前卡片是否已翻开；换到下一张时复位，否则每一轮的第二张卡片会先露出释义。 */
@@ -205,6 +208,10 @@ public final class VocabularyReviewPage extends ReloadingDetailPage {
             review.note("今天的复习已经完成。");
         } else {
             review.addView(cardFace(context, card));
+            // 词头是英文、本机又装着语音引擎时，卡片下面有「朗读」；它不翻开卡片，也不作答。
+            String spoken = NativeClient.readAloudText(card.word(), "");
+            if (spoken != null && ReadAloudSpeaker.engineInstalled(context))
+                review.addView(readAloudButton(context, card.word(), spoken));
             review.addView(answerButtons(context));
         }
         review.footer("答「不认识」的词会在本次复习里再次出现；答「认识」的词按间隔安排到以后的某一天。");
@@ -263,6 +270,29 @@ public final class VocabularyReviewPage extends ReloadingDetailPage {
             render();
         });
         return face;
+    }
+
+    private View readAloudButton(Context context, String word, String spoken) {
+        LinearLayout row = LayoutPolicy.row(context);
+        ViewPolicy.setCenteredHorizontally(row);
+        ViewPolicy.setPaddingDp(context, row, Ui.ROW_PADDING_H, 0, Ui.ROW_PADDING_H, 8);
+        float radius = DimensionPolicy.pixels(context, Ui.GROUP_RADIUS);
+        TextView button = ViewPolicy.textButton(context, "朗读", 15, 500, ThemeColorPolicy.accent(context),
+            ViewPolicy.ripple(context, ThemeColorPolicy.accentSoft(context), radius), Ui.ACTION_BUTTON_MIN_HEIGHT,
+            () -> {
+                if (speaker == null) speaker = new ReadAloudSpeaker(context);
+                speaker.speak(spoken, notice -> MsToast.show(requireContext(), notice));
+            });
+        button.setContentDescription("朗读 " + word);
+        button.setAccessibilityDelegate(HomeButtonPolicy.buttonDelegate("朗读 " + word));
+        row.addView(button, LayoutPolicy.wrapParams());
+        return row;
+    }
+
+    @Override public void onDestroy() {
+        if (speaker != null) speaker.shutdown();
+        speaker = null;
+        super.onDestroy();
     }
 
     private View answerButtons(Context context) {

@@ -9,6 +9,8 @@ import inputMethodEngine from '@ohos.inputMethodEngine';
 import fs from '@ohos.file.fs';
 import util from '@ohos.util';
 import client from 'libmsimeclient.so';
+import { HarmonyReadAloud } from '../speech/HarmonyReadAloud';
+import { ReadAloudPolicy } from '../speech/ReadAloudPolicy';
 import { statusUserId } from '../account/HarmonyAccountRequests';
 import { AccountSessionAdoption } from '../account/AccountSessionAdoption';
 import { utf8Length, utf8WriteComplete } from './Utf8';
@@ -218,7 +220,7 @@ export interface CandidateEntry {
   readonly translation: string | null;
   /** 引擎把这一行作为有把握的纠错放在首选（`confident_correction`），视图据此画强调色下划线、读屏加「，已纠正」。 */
   readonly confidentCorrection: boolean;
-  /** 「显示英文音标」打开时这一行的 `/…/` 音标，画在释义下面单独一行；没有音标或开关关着时为 ""。只用于显示，从不上屏。 */
+  /** 「显示读音」打开时这一行的读音（英文 `/…/` 音标、日文罗马字或其他语言的 IPA），画在释义下面单独一行；没有读音或开关关着时为 ""。只用于显示，从不上屏。 */
   readonly pronunciation: string;
 }
 
@@ -1452,7 +1454,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   private candidateEnglishGloss: boolean = false;
   private candidateGlossEnabled: boolean = false;
   private candidateGlossRows: number = 0;
-  // 「显示英文音标」：开关来自共享偏好，表是随 HAP 暂存到引擎资源旁的 pronunciations/en-phonetic.db。音标按查询文字缓存，与候选代次无关。
+  // 「显示读音」：开关来自共享偏好，表是随 HAP 暂存到引擎资源旁的 pronunciations/en-phonetic.db 和 target-pronunciations/<语言>-phonetic.db。读音按「语言 + 文字」缓存，与候选代次无关。
   private candidatePronunciationEnabled: boolean = false;
   private candidatePronunciationAvailable: boolean = false;
   private candidatePronunciations: Map<string, string> = new Map<string, string>();
@@ -2799,7 +2801,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       glossTargets, preferences.candidate_translations, glossProviders,
       this.installedOfflineGlosses(glossTargets));
     // 开关或表变了，缓存的音标不再对应现在画的东西，整份丢掉。
-    const available: boolean = this.candidatePronunciationEnabled && this.pronunciationTableInstalled();
+    const available: boolean = this.candidatePronunciationEnabled
+      && this.pronunciationTableInstalled(preferences.translation_target_language);
     if (available !== this.candidatePronunciationAvailable) this.candidatePronunciations.clear();
     this.candidatePronunciationAvailable = available;
   }
@@ -2951,7 +2954,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     return CandidateGlossLayoutPolicy.schemeRows(this.candidateGlossRows, this.schemeName === 'korean');
   }
 
-  /** 「显示英文音标」打开且随包的音标表在时，释义下面为音标单独预留的一行。按设置预留，不等音标到了才把候选撑高。 */
+  /** 「显示读音」打开且随包的读音表在时，释义下面为读音单独预留的一行。按设置预留，不等读音到了才把候选撑高。 */
   pronunciationRows(): number {
     return this.pronunciationVisible() ? 1 : 0;
   }
@@ -2961,13 +2964,17 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.candidatePronunciationAvailable);
   }
 
-  /** 这一行查音标用的文字：英文候选是它本身，中文候选是显示出来的英语释义。 */
+  /** 这一行查读音用的键：英文候选是它本身，中文候选是显示出来的释义，按释义的目标语言读。 */
   private pronunciationText(candidate: Candidate): string {
     if (!this.pronunciationVisible()) return '';
     const translation: string | null = this.candidateGlossEnabled
       && !TranslationPolicy.sourceGetsNoGloss(candidate.source) ? candidate.translation ?? null : null;
-    return CandidatePronunciationPolicy.lookupText(candidate.text, translation,
-      this.preparedPreferences?.translation_target_language === 'en');
+    return CandidatePronunciationPolicy.lookupText(candidate.text, translation, this.pronunciationTarget());
+  }
+
+  /** 释义的目标语言，读音按它查表。 */
+  private pronunciationTarget(): string {
+    return this.preparedPreferences?.translation_target_language ?? 'en';
   }
 
   /** 查一批候选里还没缓存的音标。表在本机，与离线释义一样在界面线程上同步查；失败只是不画音标，不影响输入，也不记录查询的文字。 */
@@ -2998,11 +3005,13 @@ export class KeyboardSession implements HardwareKeyTarget {
     return text.length === 0 ? '' : this.candidatePronunciations.get(text) ?? '';
   }
 
-  /** 随 HAP 暂存的音标表是否在引擎资源旁，共享层在那里找它。 */
-  private pronunciationTableInstalled(): boolean {
+  /** 随 HAP 暂存的读音表是否在引擎资源旁，共享层在那里找它：英文表（英文候选总要它），或者释义目标语言的那一张。 */
+  private pronunciationTableInstalled(target: string): boolean {
     try {
       const parent: string = this.resourceDirectory.substring(0, this.resourceDirectory.lastIndexOf('/'));
-      return parent.length > 0 && fs.accessSync(`${parent}/pronunciations/en-phonetic.db`);
+      return parent.length > 0 && (fs.accessSync(`${parent}/pronunciations/en-phonetic.db`)
+        || (target !== 'en' && CandidatePronunciationPolicy.LANGUAGES.includes(target)
+          && fs.accessSync(`${parent}/target-pronunciations/${target}-phonetic.db`)));
     } catch (error) {
       KeyboardLog.error('keyboard.KeyboardSession.pronunciationTableInstalled failed');
       return false;
@@ -3926,6 +3935,24 @@ export class KeyboardSession implements HardwareKeyTarget {
       }
     }
     return PersonalWordbookPolicy.notice(response, route);
+  }
+
+  /** 长按菜单「朗读」要读的英文：经 `msime_client_read_aloud_text` 按候选原文和显示着的释义问共享层。设备没有文本转语音能力、没有能读的英文时为 null，菜单就不出这一项。打开菜单时在主线程调用，不读写文件。 */
+  readAloudText(candidate: string, gloss: string): string | null {
+    if (!HarmonyReadAloud.available()) {
+      return null;
+    }
+    try {
+      return ReadAloudPolicy.textFromReply(client.readAloudText(ReadAloudPolicy.textRequest(candidate, gloss)));
+    } catch (error) {
+      KeyboardLog.warn(`read aloud text failed: ${describeError(error)}`);
+      return null;
+    }
+  }
+
+  /** 用系统语音读出 `text`；读不出来时得到给用户看的那句话。不经过 Engine，组字不变。 */
+  readAloud(text: string): Promise<string | null> {
+    return HarmonyReadAloud.speak(text);
   }
 
   /** 设置应用和键盘共享沙箱的镜像，由扩展在拿到共享目录后交给会话；`fullMode` 每次调用时读当前的安全模式。 */

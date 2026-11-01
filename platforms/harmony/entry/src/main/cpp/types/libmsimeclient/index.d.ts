@@ -184,6 +184,8 @@ export const vocabularyReview: (request: string) => Promise<string>;
 export const personalWordbookAdd: (request: string) => Promise<string>;
 /** 设置应用导入键盘发布的生词本：msime_client_personal_wordbook_merge，请求里是文件路径，同步执行（共享沙箱的导入本来就在主线程上同步进行）。 */
 export const personalWordbookMerge: (request: string) => string;
+/** 「朗读」要读的英文：msime_client_read_aloud_text，请求是 {candidate,gloss?}，应答的 value 是要读的文字或 null。纯函数，同步执行。 */
+export const readAloudText: (request: string) => string;
 /** 键盘清走设置应用已经并过的词：msime_client_personal_wordbook_drain，请求里是文件路径，同步执行（在键盘获得焦点时的共享沙箱同步里）。 */
 export const personalWordbookDrain: (request: string) => string;
 /** Locked mobile history operations; every mutation answers with the latest complete entry list. */

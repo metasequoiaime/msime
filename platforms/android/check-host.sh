@@ -1271,7 +1271,7 @@ if [[ "$legacy_readers" != "platforms/android/java/app/msime/android/settings/Ke
   echo "Android touch key layout styles must read the shared preferences, migrate the two legacy local keys before any settings export or live read, re-render when they change, and draw the number row on 14/18 keys" >&2
   exit 1
 fi
-# 九键滑动输入数字（#10229）：方向在共享偏好 touch_nine_key_swipe_digits 里、随账号同步，判定规则、宽松读法和迁移的纯逻辑由 NineKeySwipePolicySmoke 和 TouchKeyStyleSmoke 覆盖；接线在 InputMethodService、键盘页和迁移里，JVM 冒烟碰不到，这里钉住：本机旧键 platform.android.nine_key_swipe 只有迁移读（AndroidLocalSettings 声明它、KeyLayoutStyleMigration 把它交给 client-core 后删掉，距离不删）；键盘的两条偏好路径都从共享偏好读，滑动判定读服务上的当前值；键盘页这一行读写共享偏好，不再写本机键。
+# 九键滑动输入数字（#10229）：方向在共享偏好 touch_nine_key_swipe_digits 里、随账号同步，判定规则、宽松读法和迁移的纯逻辑由 NineKeySwipePolicySmoke 和 TouchKeyStyleSmoke 覆盖；接线在 InputMethodService、键盘页和迁移里，JVM 冒烟碰不到，这里钉住：本机旧键 platform.android.nine_key_swipe 只有迁移读（AndroidLocalSettings 声明它、KeyLayoutStyleMigration 把它交给 client-core 后删掉，距离不删）；键盘的两条偏好路径都从共享偏好读，滑动判定读服务上的当前值；键盘页这一行读写共享偏好，不再写本机键；反方向弹出的选项跟着这次按压拖选（#10443），移动、抬手和取消都交给字母选项的拖选入口。
 nine_key_legacy_readers=$(rg -l 'AndroidLocalSettings\.NINE_KEY_SWIPE\b' "$repo_root/platforms/android/java" | sed "s#^$repo_root/##" | LC_ALL=C sort | tr '\n' ' ')
 keyboard_options="$repo_root/platforms/android/java/app/msime/android/home/KeyboardOptionsPage.java"
 if [[ "$nine_key_legacy_readers" != "platforms/android/java/app/msime/android/settings/KeyLayoutStyleMigration.java " ]] \
@@ -1290,12 +1290,17 @@ if [[ "$nine_key_legacy_readers" != "platforms/android/java/app/msime/android/se
   || ! sed -n '/private void bindNineKeySwipe(/,/^    }$/p' "$layout_rows" | rg_q_stdin 's\.nineKeySwipeDigits, downY\[0\],' \
   || ! sed -n '/private void bindNineKeySwipe(/,/^    }$/p' "$layout_rows" \
     | rg_q_stdin 's\.localSettings\.integer\(AndroidLocalSettings\.NINE_KEY_SWIPE_DISTANCE\)' \
+  || ! sed -n '/private void bindNineKeySwipe(/,/^    }$/p' "$layout_rows" | rg_q_stdin 'moveLetterOptions\(keyButton, event\);' \
+  || ! sed -n '/private void bindNineKeySwipe(/,/^    }$/p' "$layout_rows" | rg_q_stdin 'finishLetterOptions\(keyButton, event\)' \
+  || ! sed -n '/private void bindNineKeySwipe(/,/^    }$/p' "$layout_rows" | rg_q_stdin 'cancelLetterOptions\(keyButton\);' \
+  || ! sed -n '/private void bindNineKeySwipe(/,/^    }$/p' "$layout_rows" \
+    | rg_q_stdin 'key\.label\(\)\.toLowerCase\(java\.util\.Locale\.ROOT\), true\);' \
   || ! rg -q 'JsonPolicy\.strictString\(preferences\.opt\(NineKeySwipePolicy\.PREFERENCE\)\)' "$keyboard_options" \
   || ! sed -n '/private void pickNineKeySwipe(/,/^    }$/p' "$keyboard_options" | rg_q_stdin 'savePreference\(NineKeySwipePolicy\.PREFERENCE, value\);' \
   || ! rg -q '"沿所选方向滑动输入数字，反方向弹出字母。"' "$keyboard_options" \
   || ! sed -n '/private static String nineKeySwipeLabel(/,/^    }$/p' "$keyboard_options" \
     | rg_q_stdin '"上滑" : SwipeHintPolicy\.DOWN\.equals\(value\) \? "下滑" : "关闭"'; then
-  echo "Android nine-key swipe digits must read and write the shared touch_nine_key_swipe_digits, read the current value on every touch, and leave the legacy local key to KeyLayoutStyleMigration only" >&2
+  echo "Android nine-key swipe digits must read and write the shared touch_nine_key_swipe_digits, read the current value on every touch, and leave the legacy local key to KeyLayoutStyleMigration only, and let the swipe-opened options be drag-selected (#10443)" >&2
   exit 1
 fi
 # 长空格样式留着的工具栏行看用户的 26 键样式和这块键盘的中文键面，不看此刻的中/英（TouchKeyStyle.Styles.keepsToolbarRow，规则由 TouchKeyStyleSmoke 覆盖）；这里钉住宿主的接线：工具栏行和隐藏工具栏时藏起按钮都读 longSpaceToolbarRowKept，英文模式下中文键面取只在中文时更新的 touchLayoutHint。之前读的是按此刻语言算的 longSpaceLayoutActive，工具栏隐藏时每次切中/英这一行都出没一次，键盘高度跟着跳。自动数字行与共享偏好分开传给 drawsNumberRow，自动数字行不扩到 14/18 键。
@@ -1549,6 +1554,23 @@ for manifest in \
     exit 1
   fi
 done
+# 「朗读」靠 queryIntentServices(TTS_SERVICE) 判断装没装语音引擎；Android 11 起清单不声明这个查询就永远看不见引擎，菜单和背单词卡片上都不会出现这一项。
+if ! rg -q '<action android:name="android\.intent\.action\.TTS_SERVICE" />' "$repo_root/platforms/android/AndroidManifest.xml"; then
+  echo "Android manifest must query android.intent.action.TTS_SERVICE for read aloud" >&2
+  exit 1
+fi
+# 「朗读」的接线在 ImeCandidates、MSIMEInputService 和 VocabularyReviewPage 里，JVM 冒烟碰不到，这里钉住：长按菜单加上这一项、点下去交给服务朗读，键盘服务销毁时和背单词页离开时都断开语音引擎。
+read_aloud_candidates="$repo_root/platforms/android/java/app/msime/android/core/ImeCandidates.java"
+read_aloud_service="$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"
+read_aloud_review="$repo_root/platforms/android/java/app/msime/android/home/VocabularyReviewPage.java"
+if ! rg -qF 'popup.getMenu().add(Menu.NONE, CandidateManagementAction.READ_ALOUD_MENU_ITEM,' "$read_aloud_candidates" \
+  || ! rg -qF 'item.getItemId() == CandidateManagementAction.READ_ALOUD_MENU_ITEM' "$read_aloud_candidates" \
+  || ! rg -qF 's.readAloud(readAloud);' "$read_aloud_candidates" \
+  || ! awk '/public void onDestroy\(\)/ { inside = 1 } inside && /readAloudSpeaker\.shutdown\(\);/ { found = 1 } inside && /^    }$/ { exit } END { exit !found }' "$read_aloud_service" \
+  || ! rg -qF 'if (speaker != null) speaker.shutdown();' "$read_aloud_review"; then
+  echo "Android read aloud must add and route the candidate menu item and shut the speaker down with the service and the review page" >&2
+  exit 1
+fi
 # 键区里的系统识别服务是 SpeechRecognizer 回调接线，JVM 冒烟只能覆盖 PlatformSpeechPolicy 和 ImeVoiceEntry.choose 这些纯逻辑，这里守住回调里不能被悄悄改回去的几处（#5553）：两条入口都按错误码提示、空结果不冒用错误码，权限拒绝或聆听前启动失败时转交识别窗口，系统识别服务和豆包流式不被 1.5 s 停顿截断（豆包整句流式说到 15 秒才回第一段结果，#9886），说完后收回音量光圈。
 voice_entry="$repo_root/platforms/android/java/app/msime/android/core/ImeVoiceEntry.java"
 if ! rg -qF 'fail(PlatformSpeechPolicy.message(error))' "$voice_activity" \

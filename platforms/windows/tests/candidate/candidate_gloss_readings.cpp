@@ -34,22 +34,28 @@ int main() {
   // 有假名就是日文；拉丁字母只在英文目标那一行是英文；只有汉字的行只在日文目标那一行是日文。
   const std::vector<std::string> targets{"en", "ja"};
   require(gloss_line_language("hello; hi", 0, targets) == "en", "english line");
-  require(gloss_line_language("chat", 0, {"fr"}).empty(), "french is not english");
+  require(gloss_line_language("chat", 0, {"fr"}) == "fr", "french is read as french, not english");
+  require(gloss_line_language("chat", 0, {"fr", "en"}) == "fr", "only the english target's line is english");
+  require(gloss_line_language("кошка", 1, {"en", "ru"}) == "ru", "a line follows its own target");
+  require(gloss_line_language("chat", 0, {"zh"}).empty(), "a target without a table is not read");
   require(gloss_line_language("こんにちは", 0, {"en"}) == "ja", "kana anywhere");
   require(gloss_line_language("今日", 1, targets) == "ja", "kanji on the japanese target");
   require(gloss_line_language("今日", 0, targets).empty(), "kanji on the english target");
 
   // 英文候选读它自己；中文候选读它的英文释义行；没有释义时什么都不问。
-  require(gloss_english_texts("hello", {"你好"}, {"en"}) == std::vector<std::string>{"hello"},
-          "english candidate");
-  require(gloss_english_texts("你好", {"hello; hi", "こんにちは"}, targets) ==
-              std::vector<std::string>{"hello; hi"},
+  using Items = std::vector<std::pair<std::string, std::string>>;
+  require(gloss_shared_items("hello", {"你好"}, {"en"}) == Items{{"en", "hello"}}, "english candidate");
+  require(gloss_shared_items("你好", {"hello; hi", "こんにちは"}, targets) == Items{{"en", "hello; hi"}},
           "english gloss line");
-  require(gloss_english_texts("hello", {""}, {"en"}).empty(), "no gloss");
+  require(gloss_shared_items("猫", {"chat", "猫", "Katze"}, {"fr", "ja", "de"}) ==
+              Items{{"fr", "chat"}, {"de", "Katze"}},
+          "other target lines go in their language; japanese is read locally");
+  require(gloss_shared_items("hello", {""}, {"en"}).empty(), "no gloss");
 
-  const std::map<std::string, std::string> table{{"hello; hi", "/həˈləʊ/"}, {"hello", "/həˈləʊ/"}};
-  const auto english = [&](const std::string &text) {
-    const auto found = table.find(text);
+  const std::map<std::pair<std::string, std::string>, std::string> table{
+      {{"en", "hello; hi"}, "/həˈləʊ/"}, {{"en", "hello"}, "/həˈləʊ/"}, {{"fr", "chat"}, "/ʃa/"}};
+  const auto english = [&](const std::string &language, const std::string &text) {
+    const auto found = table.find({language, text});
     return found == table.end() ? std::string{} : found->second;
   };
   const auto readings =
@@ -67,6 +73,9 @@ int main() {
   require(gloss_pronunciation_lines("猫", {"猫"}, {"ja"}, english, japanese).empty(),
           "unreadable japanese line");
   require(gloss_pronunciation_lines("你好", {"bonjour"}, {"fr"}, english).empty(), "no reading");
+  require(gloss_pronunciation_lines("猫", {"chat"}, {"fr"}, english) == std::vector<std::string>{"/ʃa/"},
+          "french line reading");
+  require(gloss_pronunciation_lines("猫", {"chat"}, {"en"}, english).empty(), "a french answer is not english");
   require(gloss_pronunciation_lines("hello", {"你好"}, {"en"}, english) ==
               std::vector<std::string>{"/həˈləʊ/"},
           "english candidate reading");

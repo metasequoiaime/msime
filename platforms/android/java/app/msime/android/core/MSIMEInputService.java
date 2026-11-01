@@ -251,6 +251,7 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean candidatePronunciationEnabled;
     private boolean candidatePronunciationAvailable;
     private boolean candidatePronunciationPackInstalled;
+    private boolean candidateTargetPronunciationPackInstalled;
     private java.util.Map<String, String> candidatePronunciations = java.util.Map.of();
     private String candidatePronunciationRequest = "";
     private long candidatePronunciationEpoch;
@@ -2010,6 +2011,7 @@ public final class MSIMEInputService extends InputMethodService {
                 resourcePacks = KeyboardScheme.availablePacks(
                     installedPacks::contains, options.optString("resources", ""));
                 candidatePronunciationPackInstalled = installedPacks.contains(ResourcePacks.PRONUNCIATIONS);
+                candidateTargetPronunciationPackInstalled = installedPacks.contains(ResourcePacks.TARGET_PRONUNCIATIONS);
                 installedResourcePackIds = installedPacks;
                 announceWubiTableMissing();
                 JSONObject preferences = options.optJSONObject("preferences");
@@ -2373,6 +2375,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onDestroy() {
+        if (readAloudSpeaker != null) readAloudSpeaker.shutdown();
         if (imeOcr != null) imeOcr.destroy();
         operationNotice.cancel();
         if (imeWorldClock != null) imeWorldClock.destroy();
@@ -2614,6 +2617,7 @@ public final class MSIMEInputService extends InputMethodService {
         candidatePronunciationEnabled = false;
         candidatePronunciationAvailable = false;
         candidatePronunciationPackInstalled = false;
+        candidateTargetPronunciationPackInstalled = false;
         invalidateCandidatePronunciations();
         candidateGlossStateRoot = "";
         candidateEnglishGloss = false;
@@ -2816,7 +2820,8 @@ public final class MSIMEInputService extends InputMethodService {
             File parent = new File(candidateGlossResources).getParentFile();
             candidatePronunciationAvailable = candidateGlossResources.length() > 0
                 && ((parent != null && new File(parent, "pronunciations/en-phonetic.db").isFile())
-                    || (candidatePronunciationPackInstalled && !candidateGlossStateRoot.isEmpty()));
+                    || ((candidatePronunciationPackInstalled || candidateTargetPronunciationPackInstalled)
+                        && !candidateGlossStateRoot.isEmpty()));
             apply(NativeClient.focus(session, true));
             markPrivateSession();
             view = value(NativeClient.setEnglishMode(session, dedicatedEnglish));
@@ -3391,7 +3396,7 @@ public final class MSIMEInputService extends InputMethodService {
             ? candidateTranslation(candidate) : "";
         String text = CandidatePronunciationPolicy.lookupText(
             InputViewValuePolicy.textOr(candidate, "text", ""), translation,
-            candidateTranslationTargets.contains("en"));
+            candidatePronunciationTarget());
         String reading = candidatePronunciations.getOrDefault(text, "");
         // 保持候选字的基线稳定：音标尚未到达或这个词查不到时，同样占两行次要文字。
         String first = annotation.isEmpty() ? "\u00A0" : annotation;
@@ -3404,17 +3409,21 @@ public final class MSIMEInputService extends InputMethodService {
         String text = CandidatePronunciationPolicy.lookupText(
             InputViewValuePolicy.textOr(candidate, "text", ""),
             candidateEnglishGloss || candidateTranslationsEnabled ? candidateTranslation(candidate) : "",
-            candidateTranslationTargets.contains("en"));
-        String reading = candidatePronunciations.getOrDefault(text, "");
-        return reading.isEmpty() ? "" : "，音标：" + reading;
+            candidatePronunciationTarget());
+        return CandidatePronunciationPolicy.accessibilitySuffix(candidatePronunciations.getOrDefault(text, ""));
+    }
+
+    /** 释义的目标语言，读音按它查表；Android 只显示一种目标语言。 */
+    private String candidatePronunciationTarget() {
+        return candidateTranslationTargets.isEmpty() ? "en" : candidateTranslationTargets.get(0);
     }
 
     private void scheduleCandidatePronunciations() {
         if (!candidatePronunciationVisible() || session == 0 || view == null
                 || candidateGlossResources.isEmpty()) return;
-        boolean englishTarget = candidateTranslationTargets.contains("en");
+        String target = candidatePronunciationTarget();
         boolean glossVisible = candidateEnglishGloss || candidateTranslationsEnabled;
-        String preferencesKey = englishTarget + ":" + glossVisible;
+        String preferencesKey = target + ":" + glossVisible;
         java.util.List<String> suggestions = englishSuggestionsActive()
             ? englishSuggestions : java.util.List.of();
         if (candidatePronunciationSourceView == view
@@ -3431,7 +3440,7 @@ public final class MSIMEInputService extends InputMethodService {
             JSONArray snapshotCandidates = snapshot.optJSONArray("candidates");
             String request = CandidatePronunciationModel.request(generation,
                 snapshotCandidates == null ? new JSONArray() : snapshotCandidates,
-                englishTarget, glossVisible, suggestions);
+                target, glossVisible, suggestions);
             candidatePronunciationSourceView = view;
             candidatePronunciationSourcePanel = candidatePanelSnapshot;
             candidatePronunciationSourceSession = session;
@@ -3444,6 +3453,7 @@ public final class MSIMEInputService extends InputMethodService {
             final long requestedEpoch = candidatePronunciationEpoch;
             final String resources = candidateGlossResources;
             final String supplementaryResources = candidatePronunciationPackInstalled
+                || candidateTargetPronunciationPackInstalled
                 ? new File(candidateGlossStateRoot, "resource-packs").getAbsolutePath() : "";
             candidateGlossWorker.execute(() -> {
                 try {
@@ -4268,7 +4278,7 @@ public final class MSIMEInputService extends InputMethodService {
             String text = englishSuggestions.get(slot);
             ViewPolicy.show(button);
             String reading = candidatePronunciationVisible()
-                ? candidatePronunciations.getOrDefault(text, "") : "";
+                ? candidatePronunciations.getOrDefault(CandidatePronunciationPolicy.key("en", text), "") : "";
             String annotation = CandidatePronunciationPolicy.suggestionAnnotation(
                 candidatePronunciationVisible(), reading);
             button.setText(candidateLabel("", text, annotation, false));
@@ -9414,6 +9424,21 @@ public final class MSIMEInputService extends InputMethodService {
             && schemeShowsGlosses(scheme);
     }
 
+    /** 长按候选菜单的「朗读」：第一次读时才连接系统语音引擎，键盘服务销毁时断开。 */
+    private ReadAloudSpeaker readAloudSpeaker;
+
+    /** 这一行候选「朗读」要读的英文；本机没装语音引擎或没有能读的英文时为 null，菜单就不出这一项。打开菜单时在主线程调用。 */
+    String readAloudText(String text, String translation) {
+        String spoken = NativeClient.readAloudText(text, translation);
+        return CandidateManagementAction.offersReadAloud(spoken, ReadAloudSpeaker.engineInstalled(this)) ? spoken : null;
+    }
+
+    /** 用系统语音读出 {@code text}；读不出来时用 {@link #notice} 说明原因。不经过引擎，组字不变。 */
+    void readAloud(String text) {
+        if (readAloudSpeaker == null) readAloudSpeaker = new ReadAloudSpeaker(this);
+        readAloudSpeaker.speak(text, this::notice);
+    }
+
     /** 「加入生词本」交不出去或存储出错时的提示；其余提示都由共享层给出。 */
     static final String PERSONAL_WORDBOOK_FAILURE = "无法加入生词本";
 
@@ -9449,7 +9474,7 @@ public final class MSIMEInputService extends InputMethodService {
         String text = CandidatePronunciationPolicy.lookupText(
             InputViewValuePolicy.textOr(candidate, "text", ""),
             candidateEnglishGloss || candidateTranslationsEnabled ? candidateTranslation(candidate) : "",
-            candidateTranslationTargets.contains("en"));
+            candidatePronunciationTarget());
         return candidatePronunciations.getOrDefault(text, "");
     }
 

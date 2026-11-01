@@ -1,0 +1,104 @@
+{
+  "source": "https://kaikki.org/dictionary/",
+  "license": "CC-BY-SA-4.0",
+  "edition": "en",
+  "dump_date": "2026-10-25",
+  "wiktionary_dump_date": "2026-10-01",
+  "source_revision": "f9fe161b9dd1e898352c51bef7295e774bba2ef1",
+  "inputs": [
+    {
+      "language": "fr",
+      "url": "https://kaikki.org/dictionary/French/kaikki.org-dictionary-French.jsonl.gz",
+      "etag": "\"6addddad-3874bd6\"",
+      "sha256": "c687b141510232ab79a77df357d161a9e0703411f1822dade7747d61d18f139d",
+      "size": 59198422
+    },
+    {
+      "language": "ja",
+      "url": "https://kaikki.org/dictionary/Japanese/kaikki.org-dictionary-Japanese.jsonl.gz",
+      "etag": "\"6addde02-2e5dd63\"",
+      "sha256": "20462a02d9482075df324c5bcee78e3203fa6297ad7cb8d8fd8811c06df71188",
+      "size": 48618851
+    },
+    {
+      "language": "es",
+      "url": "https://kaikki.org/dictionary/Spanish/kaikki.org-dictionary-Spanish.jsonl.gz",
+      "etag": "\"6adddf03-61c9546\"",
+      "sha256": "996be783916a360124cec643c26aec5f09845aec6e1af62e0ac3f72ca7a8c576",
+      "size": 102536518
+    },
+    {
+      "language": "ru",
+      "url": "https://kaikki.org/dictionary/Russian/kaikki.org-dictionary-Russian.jsonl.gz",
+      "etag": "\"6adde0b8-5696aba\"",
+      "sha256": "8f50d920283181fa94b37575424cdfc7472a417e9328b3cc1e905ddd2f75fc0b",
+      "size": 90794682
+    },
+    {
+      "language": "de",
+      "url": "https://kaikki.org/dictionary/German/kaikki.org-dictionary-German.jsonl.gz",
+      "etag": "\"6adde0fa-5eb1c04\"",
+      "sha256": "46085eaefa9a3d3715fb9327e1aae56d98a1bf000fba2ce4ff2d34895c704597",
+      "size": 99294212
+    },
+    {
+      "language": "ko",
+      "url": "https://kaikki.org/dictionary/Korean/kaikki.org-dictionary-Korean.jsonl.gz",
+      "etag": "\"6adddc15-14911b9\"",
+      "sha256": "e2c7718ff9f5a4808ab7c317685ff7fbfe75c800824a6bb282d9cc056777df71",
+      "size": 21565881
+    }
+  ],
+  "vocabulary": "resources/offline-glosses.lock.json",
+  "sqlite_version": "3.54.1",
+  "filtered_input": {
+    "name": "target-pronunciations-input-2026.10.25.jsonl.gz",
+    "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/target-pronunciations-2026.10.25/target-pronunciations-input-2026.10.25.jsonl.gz",
+    "sha256": "155e7b2fed8d916fe0e512b08be30335ee1e8dbf07eb1393ec4ecf8acf5010cc",
+    "size": 13451949
+  },
+  "built": [
+    {
+      "name": "fr-phonetic.db",
+      "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/target-pronunciations-2026.10.25-r2/fr-phonetic.db",
+      "sha256": "15794020c011c2f7dbe732ccf15fc7e6ecf56ecd82e65f57712ff653cb3c5a3f",
+      "size": 651264
+    },
+    {
+      "name": "ja-phonetic.db",
+      "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/target-pronunciations-2026.10.25-r2/ja-phonetic.db",
+      "sha256": "aa0ec195222386b47bb102a61126fc7a74fec4cf85204f1fd32f3ce0228267e8",
+      "size": 495616
+    },
+    {
+      "name": "es-phonetic.db",
+      "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/target-pronunciations-2026.10.25-r2/es-phonetic.db",
+      "sha256": "3f920098456dc39f59840a7abf00bc4432830ebbbbbb09d0660e131ac1b6db07",
+      "size": 622592
+    },
+    {
+      "name": "ru-phonetic.db",
+      "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/target-pronunciations-2026.10.25-r2/ru-phonetic.db",
+      "sha256": "6602812e4d581be98701866c45fbddb10a33e55b40b684d5d5ace1841e6b1d12",
+      "size": 880640
+    },
+    {
+      "name": "de-phonetic.db",
+      "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/target-pronunciations-2026.10.25-r2/de-phonetic.db",
+      "sha256": "ee03cb8c2e65dfe3a2674d8e141c9db7a35a8da784a4b264eec196e2e1f0e00f",
+      "size": 614400
+    },
+    {
+      "name": "ko-phonetic.db",
+      "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/target-pronunciations-2026.10.25-r2/ko-phonetic.db",
+      "sha256": "b16bea071b69ba67077ce91184d3a03a282ae2139d97c573e17f96f229531580",
+      "size": 483328
+    },
+    {
+      "name": "target-pronunciations-NOTICE.txt",
+      "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/target-pronunciations-2026.10.25-r2/target-pronunciations-NOTICE.txt",
+      "sha256": "d44628bbc79a417c776a38a68d5ec98faec873789b0eb3ea75ae827b0c57ce2d",
+      "size": 1418
+    }
+  ]
+}

@@ -48,6 +48,7 @@ import { HarmonyAccountIdentity } from '../account/HarmonyAccountIdentity';
 import { SharedStateSync } from '../keyboard/SharedStateSync';
 import { HarmonyPrivacyConsent } from '../privacy/HarmonyPrivacyConsent';
 import { ScreenCaptureProtection } from '../keyboard/settings/ScreenCaptureProtection';
+import { HarmonyReadAloud } from '../speech/HarmonyReadAloud';
 
 // Where the badge goes and how long it stays, from platforms/macos/src/input/InputModeHUDPanel.mm: shown long enough to read and gone before the next word. Its size is the floating toolbar's, from InputModeHudPolicy.sizeVp.
 const HUD_SCREEN_MARGIN_VP: number = 8;
@@ -1107,12 +1108,20 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       } else {
         StagedResources.unstage(`${files}/offline-glosses`, `${files}/offline-glosses.ready`);
       }
-      // 候选英文音标表同样暂存到引擎资源旁，共享层在 pronunciations/en-phonetic.db 找它；包里没带时移除旧表，「显示英文音标」就不预留那一行。
+      // 候选英文音标表同样暂存到引擎资源旁，共享层在 pronunciations/en-phonetic.db 找它；包里没带时移除旧表，「显示读音」就不为英文预留那一行。
       const pronunciations: string = `${this.context.resourceDir}/pronunciations`;
       if (fs.accessSync(pronunciations)) {
         StagedResources.stage(pronunciations, `${files}/pronunciations`, `${files}/pronunciations.ready`);
       } else {
         StagedResources.unstage(`${files}/pronunciations`, `${files}/pronunciations.ready`);
+      }
+      // 法日西俄德韩释义行的读音表同样暂存，共享层在 target-pronunciations/<语言>-phonetic.db 找它们。
+      const targetPronunciations: string = `${this.context.resourceDir}/target-pronunciations`;
+      if (fs.accessSync(targetPronunciations)) {
+        StagedResources.stage(targetPronunciations, `${files}/target-pronunciations`,
+          `${files}/target-pronunciations.ready`);
+      } else {
+        StagedResources.unstage(`${files}/target-pronunciations`, `${files}/target-pronunciations.ready`);
       }
       StagedResources.stageLanguageDictionaries(this.context.resourceDir, files);
       StagedResources.stageHandwriting(this.context.resourceDir, files);
@@ -1326,6 +1335,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
 
   /** Undoes everything onCreate installed. Safe to run twice: a failed onCreate and then onDestroy. */
   private teardown(): void {
+    // 长按菜单「朗读」用的引擎：没建过时什么也不做。
+    HarmonyReadAloud.shutdown();
     this.statusPanelGeneration += 1;
     this.tornDown = true;
     this.pending = undefined;

@@ -221,6 +221,11 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_personalWordboo
     return bounded_request(env, request, kPersonalWordbookRequestLimit,
         msime_client_personal_wordbook_add);
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_readAloudTextRaw(JNIEnv *env, jclass, jbyteArray request) {
+    // 与「加入生词本」同一个上限：候选和释义都是一行显示文字。
+    return bounded_request(env, request, kPersonalWordbookRequestLimit,
+        msime_client_read_aloud_text);
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_emojiCatalogRaw(JNIEnv *env, jclass, jbyteArray query, jbyteArray resources) {
     if (!query || !resources) {
         return response(env, msime_client_emoji_catalog_request(nullptr, 0, nullptr, 0));

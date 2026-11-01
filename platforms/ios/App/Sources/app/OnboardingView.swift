@@ -436,16 +436,22 @@ struct InputSettingsView: View {
       DesignToggleRow(title: "离线英文释义", subtitle: "用随键盘打包的离线词库，不联网", isOn: habit(\.glossEnabled))
         .accessibilityIdentifier("candidateGlossToggle")
       DesignDivider()
-      // 与 Android 的「显示英文音标」相同：默认关闭；音标表是约 5.7 MB 的资源包，只有用户在下面那一行点「下载」才联网取，键盘只读本机文件。
-      DesignToggleRow(title: "显示英文音标",
+      // 与 Android 的「显示读音」相同：默认关闭；英文音标表是约 5.7 MB 的资源包，法、日、西、俄、德、韩释义的读音表另一个（不到 4 MB），只有用户在下面那一行点「下载」才联网取，键盘只读本机文件。外语那一行只在主目标语言不是英语时给出。
+      DesignToggleRow(title: "显示读音",
                       subtitle: resourcePacks.available(CandidatePronunciationPreference.packID)
-                        ? "在英文候选和英文释义下面标出音标，不联网"
-                        : "在英文候选和英文释义下面标出音标；需先下载离线英文音标词典",
+                        && (!targetReadingsNeeded || resourcePacks.available(CandidatePronunciationPreference.targetPackID))
+                        ? "在英文候选和释义下面标出读音：英文给音标，日文给罗马音，其他语言给国际音标，不联网"
+                        : "在英文候选和释义下面标出读音；需先下载下面的离线读音词典",
                       isOn: habit(\.pronunciationEnabled))
         .accessibilityIdentifier("candidatePronunciationToggle")
       if habits.pronunciationEnabled && !resourcePacks.available(CandidatePronunciationPreference.packID) {
         DesignDivider()
         packDownloadRow(CandidatePronunciationPreference.packID, title: "离线英文音标词典")
+      }
+      if habits.pronunciationEnabled && targetReadingsNeeded
+        && !resourcePacks.available(CandidatePronunciationPreference.targetPackID) {
+        DesignDivider()
+        packDownloadRow(CandidatePronunciationPreference.targetPackID, title: "离线外语读音词典")
       }
       DesignDivider()
       DesignSelectRow(title: "翻译目标语言",
@@ -458,6 +464,12 @@ struct InputSettingsView: View {
         TranslationProviderSettingsView()
       }
     }
+  }
+
+  /// 主目标语言不是英语时，读音跟着的是那种语言的释义，要用外语读音表。
+  private var targetReadingsNeeded: Bool {
+    let code = CandidateTranslationPreference.language(at: habits.primaryLanguage).code.lowercased()
+    return code != "en" && CandidatePronunciationModel.languages.contains(code)
   }
 
   /// 保存一个输入习惯字段的绑定；保存失败就重新读取，让控件显示实际存下的值。
