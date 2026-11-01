@@ -759,6 +759,9 @@ node "$here/idle-dictionary-lifecycle.test.cjs"
 for source in "$here"/*.test.ts; do
   node "$repo_root/target/harmony-tests/tests/$(basename "${source%.ts}").js"
 done
+# 实际 ArkTS 生命周期适配器在替代系统 API 后执行，补上纯策略测试碰不到的请求接线。
+node "$here/telemetry-adapter.test.cjs"
+bash "$here/check-native-capture.sh"
 # The key-sound renderer is plain C++ over miniaudio with no NAPI in it, so the build machine's compiler checks what it writes and what it refuses.
 out="$repo_root/target/harmony-tests"
 miniaudio="$repo_root/platforms/windows/third_party/miniaudio"

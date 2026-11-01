@@ -299,20 +299,76 @@ export class SharedStateMirrorPolicy {
     return `${text.length.toString(16)}-${hash.toString(16).padStart(8, "0")}`;
   }
 
-  /** 偏好文档的指纹只看 `preferences`，键按字典序排好再算，修订号和键的顺序都不影响它。读不懂的文档按全文算，至少能在它变化时察觉。 */
+  /** 指纹忽略修订号及各沙箱独立的授权元数据，避免本机代次差异造成镜像往返；其余偏好仍按内容比较。 */
   static preferencesFingerprint(documentText: string): string {
     try {
       const parsed: Object = JSON.parse(documentText) as Object;
       const preferences: Object | undefined = (parsed as PreferencesDocument).preferences;
       if (preferences !== undefined && preferences !== null) {
         return SharedStateMirrorPolicy.fingerprintText(
-          SharedStateMirrorPolicy.canonical(preferences),
+          SharedStateMirrorPolicy.canonical(
+            SharedStateMirrorPolicy.withoutReportingConsent(preferences),
+          ),
         );
       }
     } catch {
       // 落到下面按全文计算。
     }
     return SharedStateMirrorPolicy.fingerprintText(documentText);
+  }
+
+  private static withoutReportingConsent(preferences: Object): Object {
+    const fields = preferences as Record<string, Object>;
+    const result: Record<string, Object> = {};
+    for (const key of Object.keys(fields))
+      if (key !== "usage_reporting_consent") result[key] = fields[key];
+    return result;
+  }
+
+  /** 设置应用导入键盘改动时保留自己的统计开关；键盘的陈旧副本不能替用户重新同意。 */
+  static preferencesImport(
+    documentText: string,
+    localText: string,
+    preserveReporting: boolean,
+  ): string | null {
+    try {
+      const incoming: unknown = JSON.parse(documentText);
+      const local: unknown = JSON.parse(localText);
+      if (
+        incoming === null ||
+        typeof incoming !== "object" ||
+        Array.isArray(incoming) ||
+        local === null ||
+        typeof local !== "object" ||
+        Array.isArray(local)
+      )
+        return null;
+      const source = (incoming as Record<string, unknown>).preferences;
+      const current = (local as Record<string, unknown>).preferences;
+      if (
+        source === null ||
+        typeof source !== "object" ||
+        Array.isArray(source) ||
+        current === null ||
+        typeof current !== "object" ||
+        Array.isArray(current)
+      )
+        return null;
+      const preferences = SharedStateMirrorPolicy.withoutReportingConsent(source) as Record<
+        string,
+        unknown
+      >;
+      if (preserveReporting) {
+        const enabled: unknown = (current as Record<string, unknown>).usage_reporting;
+        if (typeof enabled !== "boolean") return null;
+        preferences.usage_reporting = enabled;
+      }
+      const snapshot = local as Record<string, unknown>;
+      snapshot.preferences = preferences;
+      return JSON.stringify(snapshot);
+    } catch {
+      return null;
+    }
   }
 
   /** 目录的指纹：每个文件的相对路径、大小和修改时间，按路径排序。空目录与不存在不同，前者也会被复制过去。 */
