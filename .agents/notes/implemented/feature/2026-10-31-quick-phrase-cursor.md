@@ -14,7 +14,7 @@ Status: implemented
 
 host-api 对上屏做全角、空格处理时同步转换尾段；格式化前后都核对正文后缀，失配时丢弃位置请求。光标边界新增的中英文空格留在光标前，使光标仍紧邻原后缀首字符。脚本实际改写了提交正文时清掉旧定位，不对改写后的文本沿用过时目标。K 模式仍遵守现有的不可改写限制，普通混输短语按普通上屏的授权边界处理。AI 上文只记光标前的实际提交文字。
 
-Android、iOS、macOS、Windows 与 HarmonyOS 原生宿主均已接线 `commit_cursor_suffix`；Android、iOS、Windows 与共享 React 短语表编辑器提供语法说明。Linux 宿主仍未接入，Windows 真实 TSF 编辑器、macOS 跨进程 IMK 与第三方编辑器仍需验收，#10260 尚未完成，PR 保持草稿。macOS 使用读回后的空标记定位，不持有任意短语尾段。共享解析测试不构成任何平台的编辑器光标验收。
+Android、iOS、macOS、Windows 与 HarmonyOS 原生宿主均已接线 `commit_cursor_suffix`；Android、iOS、Windows 与共享 React 短语表编辑器提供语法说明。Linux（IBus／Fcitx5）按维护者 2026-10-31 的决定降级：标记照常从正文去掉，整段上屏，光标停在末尾，不定位，也不模拟方向键。Windows 真实 TSF 编辑器、macOS 跨进程 IMK 与第三方编辑器的验收是已知的验收缺口，不作为合并条件。macOS 使用读回后的空标记定位，不持有任意短语尾段。共享解析测试不构成任何平台的编辑器光标验收。
 
 K 模式的真实引擎收到数字时，现有字符接口先结束原文，而不是选择候选；这一行为保持不变。数字选词只在引擎明确交还数字且没有产生提交时展开所选短语，不能覆盖引擎已经交出的原文。
 
@@ -94,7 +94,7 @@ Fcitx5 从 5.1.2 起有 `InputContext::commitStringWithCursor(text, cursor)`，`
 
 还有独立的过滤边界：[`InputContext::commitStringWithCursor`](https://github.com/fcitx/fcitx5/blob/145e981d6377550ffb39ee8de61452910622652c/src/lib/fcitx/inputcontext.cpp) 先按原正文校验位置，再执行 `Instance::commitFilter`，输出事件仍保留原位置。长度或正文被改写时，不能继续把这个偏移称作已验证的模板位置。外部先运行过滤器再调用提交接口会重复过滤，同样不成立；不通过修改事件的受保护字段或跳过前端队列来绕开公共接口。
 
-这轮只记录调查，不新增未经验证的 Linux 定位路径，不把两套接口降级为完整文字提交后便宣称 Linux 完成。现有 Linux 宿主仍未消费位置字段；普通 GTK／Qt 与 IBus 的原生定位方案、过滤后的对应关系和实际编辑器验收都继续列为缺口。按后缀码位、UTF-16 或字素数发送若干方向键不满足既有 Unicode 位置契约，不能用编译通过代替它的证明。
+这轮只记录调查，不新增未经验证的 Linux 定位路径，不把两套接口降级为完整文字提交后便宣称 Linux 完成。现有 Linux 宿主不消费位置字段，已决定降级为整段上屏；今后若 GTK／Qt 前端实现了原生定位，另开 issue 处理普通 GTK／Qt 与 IBus 的原生定位方案、过滤后的对应关系和实际编辑器验收。按后缀码位、UTF-16 或字素数发送若干方向键不满足既有 Unicode 位置契约，不能用编译通过代替它的证明。
 
 本轮文档分片复跑同源 `verify-local.sh --quick`，退出 0；这次启动已有 Docker 环境，Linux 设置壳 `cargo check` 与原生 IBus／Fcitx5 构建均实际执行，CTest 注册 113 项、执行通过 112 项、既有 `linux-ibus-demand-activation` 环境跳过 1 项。Windows 跨宿主 207 项、完整 x64 交叉链接、i686 480 份源码检查，以及 Rust／Wasm、Android Java、HarmonyOS HAP、macOS 与 Apple bridge 也通过。该结果只验证现有代码，不将 Linux 缺失的位置字段接线记作完成。
 
@@ -123,7 +123,7 @@ Fcitx5 从 5.1.2 起有 `InputContext::commitStringWithCursor(text, cursor)`，`
 - 共享回归覆盖普通短语、单标记、首尾位置、转义、重复标记、未知变量、中文／扩展字符／组合字素后缀，以及非快捷短语来源不解释标记。
 - K 模式、普通混输、各种选择路径与带标点结束在真实运行时产生正确文本和尾段；原样提交、以词定字、失效候选不产生定位。
 - 全角、空格、脚本改写后目标有效；AI 上文只接收光标前已展开文本。原样提交与后续字面标记不属于待删除的模板语法。
-- Windows 已接线、真实 TSF 编辑器验收仍有缺口，Linux 宿主仍未完成；HarmonyOS 已接线，实际系统验收另列；Android 完整系统入口与各平台真机验收仍有缺口；共享层与已接入平台分片完成不能标记整个 issue 完成。
+- Windows 已接线、真实 TSF 编辑器验收仍有缺口，Linux 按决定降级为整段上屏；HarmonyOS 已接线，实际系统验收另列；Android 完整系统入口与各平台真机验收仍有缺口。
 - 本地回归：Engine 快捷短语 25 项、runtime 全部 424 项、host-api 光标定位 3 项与自动空格 8 项通过；相关三个 crate 的全目标 clippy 无警告。笔记与差异门禁通过，quick 门禁及 PR 检查单独记录在 PR 验证段。
 - Android 的 `check-host.sh` 通过 316 项 JVM 冒烟与 256 份设备源码编译；本分支同源 Rust／JNI 与原生 APK 构建、ELF ABI／16 KB 对齐检查通过。API 28、35 的 `CompositionBatchDeviceSmoke` 均通过：批次外读回、非零提取偏移、emoji／组合字符／双向文字、选区与组字替换、原生 LengthFilter、未知／增量／改写快照、拒绝／断连定位、迟到回声均有回归。隔离短语表经安装包真实 Engine、JNI、正式 `MSIMEInputService.apply` 到原生 EditText 的 K 模式及普通混输均定位成功，后续宿主提交写在目标位置。该项属于模拟器内宿主与真实控件验收，未声称覆盖其他应用、系统输入法完整入口或真机。
 - iOS 同源模拟器静态库与原生 App／扩展构建通过。iOS 26.5 的 `InputBridgeResponseTests` 14 项、`QuickPhraseCursorKeyboardTests` 5 项、既有 `PairedPunctuationTests`／`InlineCompositionTests` 13 项全部通过，包括字段解码、正文改写清定位、规范等价但实际编码不同的边界、同事件旧组字替换、同快照的新组字、简繁转换与日语／已转换正文边界；隔离短语表经真实 Engine、Swift 桥、正式控制器到原生 UITextView 后，下一段组字仍写在后缀前。系统 UI 测试 1 项实际通过、未跳过：从正式设置页创建并启用模板，Settings 添加扩展与完全访问后，在独立测试应用的普通 UITextField 选词上屏，下一键 x 得到 `title:"x🌲é"`。该项覆盖模拟器的系统扩展入口与独立原生编辑器，未声称覆盖真机或第三方应用。简繁用例同时设置并恢复权威共享文档和 App Group 镜像，避免镜像被加载时的文档覆盖而误判产品转换。
@@ -134,4 +134,4 @@ Fcitx5 从 5.1.2 起有 `InputContext::commitStringWithCursor(text, cursor)`，`
 
 ## Consequences
 
-跨进程 IMK 的空标记和 Linux 定位接口需要独立验收，不能以编译成功代替真实光标位置。Apple 与 quick 验证复用既有产物目录；HarmonyOS 的同源冷构建放在空间充足的外置卷独立检出中，仍使用平台规定的产物目录。本轮文档补验前检查本机约 60 GB、编译机外置卷约 672 GB 可用，没有新建构建树。接口落地分片提交，所有宿主接入前保持草稿并明确未完成项。数据结构不增加数据库列，但旧宿主会忽略可选后缀字段，因此这份共享切片不能单独作为用户可用能力合并。
+跨进程 IMK 的空标记和 Linux 定位接口需要独立验收，不能以编译成功代替真实光标位置。Apple 与 quick 验证复用既有产物目录；HarmonyOS 的同源冷构建放在空间充足的外置卷独立检出中，仍使用平台规定的产物目录。本轮文档补验前检查本机约 60 GB、编译机外置卷约 672 GB 可用，没有新建构建树。接口落地分片提交。数据结构不增加数据库列；旧宿主或不支持定位的宿主忽略这个可选后缀字段时，仍会完整上屏，这就是有意的降级。
