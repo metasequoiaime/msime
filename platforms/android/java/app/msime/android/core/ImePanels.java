@@ -308,12 +308,16 @@ final class ImePanels {
     }
 
     void showSymbolPanel() {
-        if (s.session == 0 || s.connection == null || s.symbolPanel == null) {
+        // 面板经输入连接上屏、读随包目录，不需要引擎会话：密码框、终端这类不建会话的输入框也能打开（#10517）。
+        if (!SymbolPanelEntryPolicy.opens(s.connection != null, s.symbolPanel != null)) {
             s.notice("符号面板尚未就绪");
             return;
         }
-        s.command(2);
-        if (s.session == 0 || s.connection == null) return;
+        if (s.session != 0) {
+            // 有会话时先结束组字；command 失败会经 fail 停掉会话，这时不再打开。
+            s.command(2);
+            if (s.session == 0 || s.connection == null) return;
+        }
         s.closeCandidatePanel();
         s.closeClipboardHistory();
         s.closeSchemePicker();
@@ -3063,8 +3067,9 @@ final class ImePanels {
                         return;
                     }
                     if (!s.commitText(text, TypingSource.LOCAL)) return;
-                    // 符号面板不经过 Engine，成对补全由宿主按同一个共享开关决定，后半个放在光标右边。
-                    String closing = wholePair && s.pairedPunctuation
+                    // 符号面板不经过 Engine，成对补全由宿主按同一个共享开关决定，后半个放在光标右边；密码框里按字面输入，不补（#10517）。
+                    String closing = wholePair
+                        && SymbolPanelEntryPolicy.pairsClosingMark(s.editorInputType, s.pairedPunctuation)
                         ? PairedPunctuationPolicy.symbolClosing(text) : null;
                     if (closing != null) s.commitClosingMark(closing, TypingSource.LOCAL);
                     if (remember) recordSymbolRecent(text);
@@ -3111,9 +3116,10 @@ final class ImePanels {
         }
     }
 
-    /** 隐私模式和不许个性化学习的输入框不记：「常用」会把在那里输入过什么带到别的输入框里。 */
+    /** 密码框、隐私模式和不许个性化学习的输入框不记：「常用」会把在那里输入过什么带到别的输入框里。 */
     private void recordSymbolRecent(String symbol) {
-        if (symbolPreferences == null || s.learningSuppressed() || !SymbolPanelModel.recordable(symbol)) return;
+        if (symbolPreferences == null || !SymbolPanelModel.recordable(symbol)
+                || !SymbolPanelEntryPolicy.recordsRecent(s.editorInputType, s.learningSuppressed())) return;
         List<String> recents = SymbolPanelModel.recordRecent(loadSymbolRecents(), symbol);
         symbolPreferences.edit().putString(SYMBOL_RECENTS_KEY, new JSONArray(recents).toString()).apply();
         if (s.symbolPanel != null) s.symbolPanel.setRecents(recents);
