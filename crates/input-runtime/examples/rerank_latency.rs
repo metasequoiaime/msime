@@ -482,26 +482,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     options.autocorrect_transposition = autocorrect;
     options.autocorrect_neighbor = autocorrect;
 
-    let model_path = resources.join("sentence-model.safetensors");
-    let bytes = std::fs::read(&model_path).map_err(|error| {
-        format!(
-            "{}: {error}. This measures what the reranker costs, so it needs one to measure.",
-            model_path.display()
-        )
-    })?;
-    let model = std::sync::Arc::new(SentenceModel::load(&bytes)?);
+    // 两臂挂的是同一个模型：`--onnx-model` 时是 ONNX Runtime 后端，否则是随包的句子模型。`--touch-arms` 时两臂各挂一个，只差送不送落点；两臂混用两种模型，量出的差就不是落点的效果，而是两个模型的差。用 ONNX 模型时不读句子模型。
+    let sentence_model = match &onnx_model {
+        Some(_) => None,
+        None => {
+            let model_path = resources.join("sentence-model.safetensors");
+            let bytes = std::fs::read(&model_path).map_err(|error| {
+                format!(
+                    "{}: {error}. This measures what the reranker costs, so it needs one to measure.",
+                    model_path.display()
+                )
+            })?;
+            Some(std::sync::Arc::new(SentenceModel::load(&bytes)?))
+        }
+    };
+    let scorer =
+        || -> Result<Box<dyn msime_input_runtime::CandidateScorer>, Box<dyn std::error::Error>> {
+            match (&onnx_model, &sentence_model) {
+                (Some(directory), _) => onnx_scorer(directory, onnx_threads),
+                (None, Some(model)) => Ok(Box::new(Reranker::new(model.clone()))),
+                (None, None) => {
+                    unreachable!("the sentence model is loaded whenever --onnx-model is absent")
+                }
+            }
+        };
 
     let mut plain = Runtime::new(Session::new(&options)?, 9)?;
     plain.focus(true)?;
     let mut ranked = Runtime::new(Session::new(&options)?, 9)?;
     ranked.focus(true)?;
-    match &onnx_model {
-        Some(directory) => ranked.set_candidate_scorer(Some(onnx_scorer(directory, onnx_threads)?)),
-        None => ranked.set_reranker(Some(Reranker::new(model.clone()))),
-    }
+    ranked.set_candidate_scorer(Some(scorer()?));
     // `--touch-arms`：两臂都挂模型，只差送不送落点。
     if touch_arms {
-        plain.set_reranker(Some(Reranker::new(model)));
+        plain.set_candidate_scorer(Some(scorer()?));
     }
     // 送落点时两臂都注册同一份几何；不送落点的那一臂注册了也用不上。
     let geometry_id = match &touch {

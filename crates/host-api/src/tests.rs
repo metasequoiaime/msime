@@ -8710,21 +8710,31 @@ fn enhanced_mounts_the_runtime_reranker_without_the_engine_layer() {
     assert!(ffi::keyboard_reranker(false, "", None).is_none());
 }
 
-/// 资源目录里有 `rerank-model/` 时，「增强」的逐键重排用它（ONNX Runtime 后端，上文窗口是它训练时的 64 字加候选的余量），模型文件坏了就退回随包的句子模型。用 `crates/onnx-rerank` 测试用的小模型。
+/// 资源目录里有 `rerank-model/` 时，「增强」的逐键重排用它（ONNX Runtime 后端）；再装了 `rerank-model-small/` 时按自测速度在两者之间选；ONNX 模型都读不了就退回随包的句子模型。用 `crates/onnx-rerank` 测试用的小模型，两个目录里放同一份图，只把小模型 `model.json` 的 `context_chars` 改成 48，好从 `context_length`（上文字数加 16）看出挂的是哪一个：大的是 80，小的是 64。
 #[cfg(feature = "onnx-rerank")]
 #[test]
 fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
     let fixtures =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../onnx-rerank/tests/fixtures");
+    let install = |directory: &std::path::Path, context_chars: u64| {
+        std::fs::create_dir(directory).unwrap();
+        for name in ["lm_step.ort", "vocab.json"] {
+            std::fs::copy(fixtures.join(name), directory.join(name)).unwrap();
+        }
+        let mut info: Value =
+            serde_json::from_str(&std::fs::read_to_string(fixtures.join("model.json")).unwrap())
+                .unwrap();
+        info["context_chars"] = json!(context_chars);
+        std::fs::write(directory.join("model.json"), info.to_string()).unwrap();
+    };
+    const LARGE: usize = 80;
+    const SMALL: usize = 64;
     let resources = tempfile::tempdir().unwrap();
     let directory = resources.path().join(ffi::RERANK_MODEL_DIRECTORY);
-    std::fs::create_dir(&directory).unwrap();
-    for name in ["lm_step.ort", "model.json", "vocab.json"] {
-        std::fs::copy(fixtures.join(name), directory.join(name)).unwrap();
-    }
+    install(&directory, 64);
     let root = resources.path().to_str().unwrap();
     let mut scorer = ffi::keyboard_reranker(true, root, None).expect("the ONNX model loads");
-    assert_eq!(scorer.context_length(), 80);
+    assert_eq!(scorer.context_length(), LARGE);
     assert_eq!(
         scorer
             .log_probabilities("我们今天", &["去北京", "去背景"])
@@ -8732,21 +8742,47 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
         2
     );
 
-    // 再装一个小模型：大的在这台机器上很快，自测后留用大的。
-    let small = resources.path().join(ffi::SMALL_RERANK_MODEL_DIRECTORY);
-    std::fs::create_dir(&small).unwrap();
-    for name in ["lm_step.ort", "model.json", "vocab.json"] {
-        std::fs::copy(fixtures.join(name), small.join(name)).unwrap();
-    }
-    assert!(ffi::keyboard_reranker(true, root, None).is_some());
+    // 只装了大的时不自测，预算再小也用它。
+    let large_only = ffi::onnx_reranker_within(resources.path(), 0.0).unwrap();
+    assert_eq!(large_only.context_length(), LARGE);
 
-    // 大的坏了就用小的。
+    // 再装一个小模型，两条路都走一遍：自测值在预算之内留用大的，超过预算换小的。`f64::MAX` 的预算只在自测真的量出了一个有限的时间时才留用大的（自测失败返回无穷大）；0 毫秒的预算任何一次真实的图运行都超过。
+    let small = resources.path().join(ffi::SMALL_RERANK_MODEL_DIRECTORY);
+    install(&small, 48);
+    let fast = ffi::onnx_reranker_within(resources.path(), f64::MAX).unwrap();
+    assert_eq!(fast.context_length(), LARGE);
+    let slow = ffi::onnx_reranker_within(resources.path(), 0.0).unwrap();
+    assert_eq!(slow.context_length(), SMALL);
+    // 宿主用的预算是 10 毫秒，这个两层、32 维的小模型打一页远在其内。
+    assert_eq!(
+        ffi::keyboard_reranker(true, root, None)
+            .unwrap()
+            .context_length(),
+        LARGE
+    );
+
+    // 大的坏了就用小的，不管预算。
     std::fs::write(directory.join("lm_step.ort"), b"not a model").unwrap();
-    assert!(ffi::keyboard_reranker(true, root, None).is_some());
+    assert_eq!(
+        ffi::keyboard_reranker(true, root, None)
+            .unwrap()
+            .context_length(),
+        SMALL
+    );
 
     // 两个都坏，资源目录里也没有随包的句子模型，于是什么都不挂。
     std::fs::write(small.join("lm_step.ort"), b"not a model").unwrap();
     assert!(ffi::keyboard_reranker(true, root, None).is_none());
+
+    // 两个都坏、但有随包的句子模型时退回它。句子模型按路径缓存，上面那次已经把资源目录里的默认路径记成了「没有」，所以这里经 `configured` 指向另一个文件。
+    let sentence = resources.path().join("fallback-sentence-model.safetensors");
+    write_context_free_sentence_model(&sentence);
+    let fallback = ffi::keyboard_reranker(true, root, sentence.to_str())
+        .expect("falls back to the bundled sentence model");
+    let bundled = ffi::sentence_model(root, sentence.to_str()).unwrap();
+    assert_eq!(fallback.context_length(), bundled.context_length());
+    assert_ne!(fallback.context_length(), LARGE);
+    assert_ne!(fallback.context_length(), SMALL);
 }
 
 /// The keyboard model runs inside every keystroke, so it is attached only while `neural_keyboard` (整句联想「增强」) is on: not on the default 标准, attached when the switch turns on, dropped when it turns off again. It is attached to the runtime alone; the Engine's own keyboard-model rerank stays off throughout. It takes the real model from `MSIME_EVAL_RESOURCES` or `MSIME_NEURAL_MODEL_DIR` as the Engine's model tests do, and without one a tiny context-free model (`write_context_free_sentence_model`), so CI, which has no model, still checks that session creation and every preference update use `keyboard_reranker_enabled`.

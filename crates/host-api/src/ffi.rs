@@ -249,10 +249,19 @@ const RERANK_MODEL_THREADS: usize = 2;
 /// 装了两个 ONNX 模型时先加载大的、量它在这台机器上打一页重负载要多久，超过 [`LARGE_RERANK_MODEL_BUDGET_MS`] 就换小的；只装了一个就用那一个。按量出来的速度选，不按机型名单选。
 #[cfg(feature = "onnx-rerank")]
 fn onnx_reranker(resources: &Path) -> Option<Box<dyn msime_input_runtime::CandidateScorer>> {
+    onnx_reranker_within(resources, LARGE_RERANK_MODEL_BUDGET_MS)
+}
+
+/// [`onnx_reranker`] 的实现，自测预算由调用方给：测试用它在同一台机器上分别走「大的够快」和「大的太慢」两条路。
+#[cfg(feature = "onnx-rerank")]
+pub(crate) fn onnx_reranker_within(
+    resources: &Path,
+    budget_ms: f64,
+) -> Option<Box<dyn msime_input_runtime::CandidateScorer>> {
     let small = || load_onnx_reranker(&resources.join(SMALL_RERANK_MODEL_DIRECTORY));
     let chosen = match load_onnx_reranker(&resources.join(RERANK_MODEL_DIRECTORY)) {
         Some(mut large) if resources.join(SMALL_RERANK_MODEL_DIRECTORY).is_dir() => {
-            if large.calibrate() <= LARGE_RERANK_MODEL_BUDGET_MS {
+            if large.calibrate() <= budget_ms {
                 Some(large)
             } else {
                 small().or(Some(large))
