@@ -18529,7 +18529,8 @@ fn pronunciation_request_reads_the_table_beside_resources() {
     );
 
     for invalid in [
-        json!({"generation": 1, "items": [{"text": "愛する", "language": "ja"}]}),
+        json!({"generation": 1, "items": [{"text": "愛", "language": "zh"}]}),
+        json!({"generation": 1, "items": [{"text": "chat", "language": "FR"}]}),
         json!({"generation": 1, "items": [{"text": "", "language": "en"}]}),
         json!({"generation": 1, "items": [{"text": "a\nb", "language": "en"}]}),
         json!({"generation": 1, "items": [], "extra": true}),
@@ -18547,6 +18548,121 @@ fn pronunciation_request_reads_the_table_beside_resources() {
         )
     });
     assert_eq!(refused["ok"], false);
+}
+
+/// 一张 `<language>-phonetic.db` 读音表，和 scripts/build_target_pronunciations.py 写的一样。
+fn install_target_phonetics(directory: &std::path::Path, language: &str, rows: &[(&str, &str)]) {
+    std::fs::create_dir_all(directory).unwrap();
+    let database =
+        rusqlite::Connection::open(directory.join(format!("{language}-phonetic.db"))).unwrap();
+    database
+        .execute_batch(&format!(
+            "CREATE TABLE {language}_phonetics(word TEXT PRIMARY KEY, phonetic TEXT NOT NULL) WITHOUT ROWID;
+             CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
+             INSERT INTO meta VALUES('kind', '{language}_phonetic');
+             PRAGMA user_version = 1;"
+        ))
+        .unwrap();
+    for (word, reading) in rows {
+        database
+            .execute(
+                &format!("INSERT INTO {language}_phonetics VALUES(?1, ?2)"),
+                [word, reading],
+            )
+            .unwrap();
+    }
+}
+
+#[test]
+fn pronunciation_request_reads_each_target_language_from_its_own_table() {
+    let root = tempfile::tempdir().unwrap();
+    let resources = root.path().join("generation");
+    let supplementary = root.path().join("resource-packs");
+    std::fs::create_dir_all(&resources).unwrap();
+    let resources = resources.to_str().unwrap().to_owned();
+    let call = |request: &Value| {
+        let request = serde_json::to_vec(request).unwrap();
+        read(unsafe {
+            msime_client_pronunciation_request(
+                request.as_ptr(),
+                request.len(),
+                resources.as_ptr(),
+                resources.len(),
+            )
+        })
+    };
+    // The same letters are a French and a German line; each is read from its own language.
+    let mut request = json!({"generation": 3, "items": [
+        {"text": "chat, chatte; félin", "language": "fr"},
+        {"text": "Katze, Kater", "language": "de"},
+        {"text": "家猫, 猫", "language": "ja"},
+        {"text": "リンゴ", "language": "ja"},
+        {"text": "Chine; chinois", "language": "fr"},
+        {"text": "pomme de terre", "language": "fr"},
+        {"text": "parterre de fleurs", "language": "fr"},
+        {"text": "кошка, кот", "language": "ru"},
+        {"text": "gato", "language": "es"}
+    ]});
+    // Nothing installed: no reading, not an error.
+    let missing = call(&request);
+    assert_eq!(missing["ok"], true, "{missing}");
+    assert_eq!(missing["value"]["pronunciations"], json!([]));
+
+    install_target_phonetics(
+        &supplementary.join("target-pronunciations"),
+        "fr",
+        &[
+            ("chat", "/ʃa/"),
+            ("Chine", "/ʃin/"),
+            ("pomme de terre", "/pɔm də tɛʁ/"),
+        ],
+    );
+    install_target_phonetics(
+        &supplementary.join("target-pronunciations"),
+        "de",
+        &[("Katze", "/ˈkatsə/")],
+    );
+    install_target_phonetics(
+        &supplementary.join("target-pronunciations"),
+        "ja",
+        &[("家猫", "ieneko"), ("リンゴ", "ringo")],
+    );
+    // Russian is bundled beside the resources; Spanish is installed nowhere.
+    install_target_phonetics(
+        &root.path().join("target-pronunciations"),
+        "ru",
+        &[("кошка", "[ˈkoʂkə]")],
+    );
+    let beside_only = call(&request);
+    assert_eq!(
+        beside_only["value"]["pronunciations"],
+        json!([{"text": "кошка, кот", "language": "ru", "pronunciation": "[ˈkoʂkə]"}])
+    );
+    request["supplementary_resources"] = json!(supplementary);
+    let result = call(&request);
+    assert_eq!(result["ok"], true, "{result}");
+    // A phrase no table has whole is not read word by word.
+    assert_eq!(
+        result["value"],
+        json!({"generation": 3, "pronunciations": [
+            {"text": "chat, chatte; félin", "language": "fr", "pronunciation": "/ʃa/"},
+            {"text": "Katze, Kater", "language": "de", "pronunciation": "/ˈkatsə/"},
+            {"text": "家猫, 猫", "language": "ja", "pronunciation": "ieneko"},
+            {"text": "リンゴ", "language": "ja", "pronunciation": "ringo"},
+            {"text": "Chine; chinois", "language": "fr", "pronunciation": "/ʃin/"},
+            {"text": "pomme de terre", "language": "fr", "pronunciation": "/pɔm də tɛʁ/"},
+            {"text": "кошка, кот", "language": "ru", "pronunciation": "[ˈkoʂkə]"}
+        ]})
+    );
+    // A line that starts a sentence is found by its lowercase; the English table is not asked about French.
+    let request = json!({"generation": 4, "supplementary_resources": supplementary, "items": [
+        {"text": "Chat", "language": "fr"},
+        {"text": "chat", "language": "en"}
+    ]});
+    assert_eq!(
+        call(&request)["value"]["pronunciations"],
+        json!([{"text": "Chat", "language": "fr", "pronunciation": "/ʃa/"}])
+    );
 }
 
 #[test]

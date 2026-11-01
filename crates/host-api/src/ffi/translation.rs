@@ -823,7 +823,7 @@ pub unsafe extern "C" fn msime_client_candidate_gloss_request(
     })
 }
 
-/// 从离线表查询英文候选或英文释义的读音，活动资源旁缺表时可回退到显式补充目录。
+/// 从离线表查询英文候选、英文释义或法日西俄德韩释义行的读音，活动资源旁缺表时可回退到显式补充目录。
 /// 不持有会话状态，可在宿主工作线程调用；返回代次供宿主匹配当前视图。
 ///
 /// # Safety
@@ -869,9 +869,11 @@ pub unsafe extern "C" fn msime_client_pronunciation_request(
         {
             return Err("pronunciation entries exceed limits".into());
         }
-        // English is the only language pronounced from shared data so far; a host that romanises
-        // Japanese does so with its own system API, and asking for it here is a host bug.
-        if request.items.iter().any(|item| item.language != "en") {
+        if request
+            .items
+            .iter()
+            .any(|item| !msime_engine::host::PHONETIC_LANGUAGES.contains(&item.language.as_str()))
+        {
             return Err("invalid pronunciation request".into());
         }
         let resources =
@@ -894,26 +896,53 @@ pub unsafe extern "C" fn msime_client_pronunciation_request(
                 )
             })
             .transpose()?;
-        // 未安装音标表时返回空结果，宿主继续显示原有释义。
-        let Some(database) = crate::pronunciation::english_database_beside(
-            std::path::Path::new(resources),
-            supplementary_resources.map(std::path::Path::new),
-        ) else {
-            return Ok(json!({"generation": request.generation, "pronunciations": []}));
-        };
-        let database = database
-            .to_str()
-            .ok_or("pronunciation dictionary unavailable")?;
-        let texts = request
-            .items
-            .iter()
-            .map(|item| item.text.clone())
-            .collect::<Vec<_>>();
-        let pronunciations = crate::pronunciation::english_pronunciations(database, &texts)?;
+        let resources = std::path::Path::new(resources);
+        let supplementary_resources = supplementary_resources.map(std::path::Path::new);
+        // 每种语言各查一次自己的表，回答按请求里的顺序排；某种语言没装表时它的项没有读音，宿主继续显示原有释义。
+        let mut readings = vec![String::new(); request.items.len()];
+        for language in msime_engine::host::PHONETIC_LANGUAGES {
+            let positions = request
+                .items
+                .iter()
+                .enumerate()
+                .filter(|(_, item)| item.language == language)
+                .map(|(position, _)| position)
+                .collect::<Vec<_>>();
+            if positions.is_empty() {
+                continue;
+            }
+            let database = if language == "en" {
+                crate::pronunciation::english_database_beside(resources, supplementary_resources)
+            } else {
+                crate::pronunciation::target_database_beside(
+                    resources,
+                    supplementary_resources,
+                    language,
+                )
+            };
+            let Some(database) = database else {
+                continue;
+            };
+            let database = database
+                .to_str()
+                .ok_or("pronunciation dictionary unavailable")?;
+            let texts = positions
+                .iter()
+                .map(|&position| request.items[position].text.clone())
+                .collect::<Vec<_>>();
+            let answers = if language == "en" {
+                crate::pronunciation::english_pronunciations(database, &texts)?
+            } else {
+                crate::pronunciation::target_pronunciations(database, language, &texts)?
+            };
+            for (position, answer) in positions.into_iter().zip(answers) {
+                readings[position] = answer;
+            }
+        }
         let pronunciations = request
             .items
             .into_iter()
-            .zip(pronunciations)
+            .zip(readings)
             .filter(|(_, pronunciation)| !pronunciation.is_empty())
             .map(|(item, pronunciation)| {
                 json!({"text": item.text, "language": item.language, "pronunciation": pronunciation})

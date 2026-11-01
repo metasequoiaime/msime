@@ -1,9 +1,10 @@
-//! 英文候选与英文释义的统一读音，供宿主绘制在释义旁。
+//! 候选释义行的统一读音，供宿主绘制在释义下面。
 //!
-//! `scripts/build_pronunciations.py` 从 ECDICT 构建 `pronunciations/en-phonetic.db`。
-//! 优先读取资源目录旁的表，缺失时使用宿主显式传入的随包补充目录；底层查询复用
-//! `english_phonetics`。释义只读首个词组，去掉不定式 `to` 和冠词；任一词未知时
-//! 整组不显示音标，避免把不完整的读音当作完整读音。
+//! 英文：`scripts/build_pronunciations.py` 从 ECDICT 构建 `pronunciations/en-phonetic.db`。释义只读首个词组，去掉不定式 `to` 和冠词；任一词未知时整组不显示音标，避免把不完整的读音当作完整读音。
+//!
+//! 法、日、西、俄、德、韩：`scripts/build_target_pronunciations.py` 从维基词典（与离线释义同一来源）构建 `target-pronunciations/<语言>-phonetic.db`。释义行只读第一个词条，整条查表，查不到就不显示：这几种语言逐词拼读会出错（法语的联诵、俄语的重音随词形变化），所以不像英文那样逐词拼起来。日文给赫本式罗马字，其余给维基词典写的 IPA，连同它的斜线或方括号。
+//!
+//! 两种表都优先读取资源目录旁的，缺失时使用宿主显式传入的补充目录（资源包的根）。
 
 use std::path::{Path, PathBuf};
 
@@ -25,6 +26,97 @@ pub(crate) fn english_database_beside(
     .into_iter()
     .flatten()
     .find(|path| path.is_file())
+}
+
+/// 非英文读音表所在的目录名：随包时在资源目录旁，下载时是资源包 `target-pronunciations` 的安装目录。
+pub(crate) const TARGET_DIRECTORY: &str = "target-pronunciations";
+/// A non-English gloss term longer than this many characters is a phrase no table has.
+const MAX_TARGET_TERM_CHARS: usize = 40;
+
+/// `language` 的读音表：活动资源旁的优先，只在缺失时使用补充目录。`language` 必须是 [`msime_engine::host::PHONETIC_LANGUAGES`] 里英文以外的一种。
+pub(crate) fn target_database_beside(
+    resources: &Path,
+    supplementary_resources: Option<&Path>,
+    language: &str,
+) -> Option<PathBuf> {
+    let name = format!("{language}-phonetic.db");
+    [
+        resources
+            .parent()
+            .map(|root| root.join(TARGET_DIRECTORY).join(&name)),
+        supplementary_resources.map(|root| root.join(TARGET_DIRECTORY).join(&name)),
+    ]
+    .into_iter()
+    .flatten()
+    .find(|path| path.is_file())
+}
+
+/// The term a non-English gloss line teaches: the part before its first separator, without parenthesised notes, trimmed and with single spaces. `None` when nothing is left or it is too long to be a word.
+///
+/// `"chat, chatte; félin"` is `chat`, `"(zoologie) chat"` is `chat`, `"pomme de terre"` stays whole.
+pub(crate) fn target_term(text: &str) -> Option<String> {
+    let first = text
+        .split([';', '；', ',', '，', '、', '/', '?', '？'])
+        .next()
+        .unwrap_or_default();
+    let mut plain = String::with_capacity(first.len());
+    let mut depth = 0_usize;
+    for character in first.chars() {
+        match character {
+            '(' | '（' => depth += 1,
+            ')' | '）' => depth = depth.checked_sub(1)?,
+            _ if depth == 0 => plain.push(character),
+            _ => {}
+        }
+    }
+    if depth != 0 {
+        return None;
+    }
+    let term = plain.split_whitespace().collect::<Vec<_>>().join(" ");
+    (!term.is_empty() && term.chars().count() <= MAX_TARGET_TERM_CHARS).then_some(term)
+}
+
+/// The displayed reading of each non-English gloss line, parallel to `texts`; empty when there is none.
+///
+/// The table is keyed by the word as Wiktionary spells it (`Katze`, `кот`), so the term is looked up as written and then in lowercase, for a line that starts a sentence. Each key is looked up once however many lines share it. The reading is shown as the table holds it.
+pub(crate) fn target_pronunciations(
+    database: &str,
+    language: &str,
+    texts: &[String],
+) -> Result<Vec<String>, String> {
+    let terms = texts
+        .iter()
+        .map(|text| target_term(text))
+        .collect::<Vec<_>>();
+    let mut unique = terms
+        .iter()
+        .flatten()
+        .flat_map(|term| [term.clone(), term.to_lowercase()])
+        .collect::<Vec<_>>();
+    unique.sort();
+    unique.dedup();
+    let readings = msime_engine::host::phonetics(database, language, &unique)
+        .map_err(|_| "pronunciation dictionary unavailable".to_owned())?;
+    if readings.len() != unique.len() {
+        return Err("pronunciation dictionary response mismatch".into());
+    }
+    let known = unique
+        .iter()
+        .zip(&readings)
+        .filter(|(_, reading)| !reading.is_empty())
+        .collect::<std::collections::HashMap<_, _>>();
+    Ok(terms
+        .into_iter()
+        .map(|term| {
+            term.and_then(|term| {
+                known
+                    .get(&term)
+                    .or_else(|| known.get(&term.to_lowercase()))
+                    .map(|reading| (*reading).clone())
+            })
+            .unwrap_or_default()
+        })
+        .collect())
 }
 
 /// The lowercase words that pronounce `text`, or `None` when it is not plain English.
@@ -147,6 +239,29 @@ mod tests {
         assert_eq!(words("(of a person) kind"), Some("kind".into()));
         assert_eq!(words("to"), Some("to".into()));
         assert_eq!(words("a"), Some("a".into()));
+    }
+
+    #[test]
+    fn the_first_term_of_a_target_gloss_line_is_read_whole() {
+        assert_eq!(target_term("chat, chatte; félin"), Some("chat".into()));
+        assert_eq!(target_term("pomme de terre"), Some("pomme de terre".into()));
+        assert_eq!(target_term("(zoologie) chat"), Some("chat".into()));
+        assert_eq!(target_term("  Katze ,Kater"), Some("Katze".into()));
+        assert_eq!(target_term("じゃがいも, 馬鈴薯"), Some("じゃがいも".into()));
+        assert_eq!(target_term("習う、学ぶ"), Some("習う".into()));
+        assert_eq!(
+            target_term("사랑하다,  애정을 품다"),
+            Some("사랑하다".into())
+        );
+        assert_eq!(
+            target_term("estación  de tren"),
+            Some("estación de tren".into())
+        );
+        assert_eq!(target_term(""), None);
+        assert_eq!(target_term("; chat"), None);
+        assert_eq!(target_term("(note seule)"), None);
+        assert_eq!(target_term("(déséquilibré"), None);
+        assert_eq!(target_term(&"a".repeat(41)), None);
     }
 
     #[test]

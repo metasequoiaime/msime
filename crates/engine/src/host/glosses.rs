@@ -367,6 +367,19 @@ fn target_glosses_from(
 
 /// IPA of lowercase English words from a `pronunciations/en-phonetic.db` built by scripts/build_pronunciations.py, parallel to `words`; an unknown word is empty. Like the offline gloss files, the version and kind it states must match, so a gloss database dropped in its place is refused rather than read as IPA; never creates the file.
 pub fn english_phonetics(database_path: &str, words: &[String]) -> Result<Vec<String>> {
+    phonetics(database_path, "en", words)
+}
+
+/// 读音表的语言：英文表来自 ECDICT，其余六种来自维基词典（scripts/build_target_pronunciations.py）。表名和 `meta.kind` 都由它拼出，所以只接受这几个固定值。
+pub const PHONETIC_LANGUAGES: [&str; 7] = ["en", "fr", "ja", "es", "ru", "de", "ko"];
+
+/// The reading of each of `words` from a `<language>-phonetic.db`, parallel to `words`; an unknown word is empty. English is `pronunciations/en-phonetic.db` (lowercase keys, IPA without delimiters); the other languages are `target-pronunciations/<language>-phonetic.db` built by scripts/build_target_pronunciations.py, keyed by the word as Wiktionary spells it, holding IPA with its delimiters or, for Japanese, Hepburn romaji. The file must state version 1 and the kind `<language>_phonetic`, so a gloss database or another language's table dropped in its place is refused; never creates the file.
+pub fn phonetics(database_path: &str, language: &str, words: &[String]) -> Result<Vec<String>> {
+    if !PHONETIC_LANGUAGES.contains(&language) {
+        return Err(EngineError::failed(
+            diagnostics::PRONUNCIATION_KIND_MISMATCH,
+        ));
+    }
     // An empty path would open a private temporary database rather than fail.
     if database_path.is_empty() {
         return Err(EngineError::failed(diagnostics::PRONUNCIATION_UNAVAILABLE));
@@ -400,13 +413,15 @@ pub fn english_phonetics(database_path: &str, words: &[String]) -> Result<Vec<St
         .query_row((), |row| row.get::<_, Option<String>>(0))
         .ok()
         .flatten();
-    if kind.as_deref() != Some("en_phonetic") {
+    if kind.as_deref() != Some(format!("{language}_phonetic").as_str()) {
         return Err(EngineError::failed(
             diagnostics::PRONUNCIATION_KIND_MISMATCH,
         ));
     }
     let mut lookup = connection
-        .prepare("SELECT phonetic FROM en_phonetics WHERE word = ?1")
+        .prepare(&format!(
+            "SELECT phonetic FROM {language}_phonetics WHERE word = ?1"
+        ))
         .map_err(unreadable)?;
     words
         .iter()
