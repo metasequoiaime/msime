@@ -332,31 +332,62 @@ group("移动：同时改抬高和水平位置，大小不变", () => {
   );
 });
 
-group("中间一排按钮在窄外框里跟着缩，不压到左右柄", () => {
-  // 与 KeyboardView 的遮罩尺寸相同：柄 32vp 宽，按钮间隔 16vp，按钮最宽 72vp。
-  const handle = 32;
-  const gap = 16;
-  const widest = 72;
-  check(P.buttonWidthVp(400, 3, handle, gap, widest) === widest, "外框够宽时按钮 72vp");
-  for (const frame of [240, 247, 262, 288, 311, 312, 360, 600]) {
+group("中间一排按钮与 iOS 同尺寸，窄外框里先收间距再收按钮，不压到左右柄", () => {
+  const widest = P.BUTTON_WIDTH_VP;
+  const full = P.buttonRow(400, 3, true);
+  check(widest === 72 && P.BUTTON_SPACING_VP === 28, "按钮 72vp、间距 28vp，与 iOS 相同");
+  check(full.width === 72 && full.gap === 28, "外框够宽时按原尺寸排");
+  // 两侧各让出一个柄再留 4vp：3 × 72 + 2 × 28 + 2 × 36 = 344vp 起才排得下原尺寸。
+  const tight = P.buttonRow(320, 3, true);
+  check(tight.width === 72 && near(tight.gap, 16, 1e-9), "排不下时先收间距，按钮仍是 72vp");
+  const narrow = P.buttonRow(P.MIN_WIDTH_VP, 3, true);
+  check(
+    narrow.gap === P.MIN_BUTTON_SPACING_VP && narrow.width < widest && narrow.width >= 44,
+    "收到 240vp 时间距到 4vp、按钮缩窄，每个仍有 44vp 以上，放得下 30vp 的图标和两个 14fp 的字",
+  );
+  for (const frame of [240, 247, 262, 288, 311, 312, 344, 360, 600]) {
     for (const buttons of [2, 3]) {
-      const width = P.buttonWidthVp(frame, buttons, handle, gap, widest);
-      check(
-        buttons * width + (buttons - 1) * gap <= frame - 2 * handle + 1e-9,
-        `${frame}vp 宽的外框、${buttons} 个按钮：按钮排在两个柄之间`,
-      );
-      check(width <= widest, `${frame}vp、${buttons} 个按钮：不宽于 72vp`);
+      for (const sideHandles of [true, false]) {
+        const row = P.buttonRow(frame, buttons, sideHandles);
+        const sides = sideHandles ? 2 * P.HANDLE_SHORT_VP : 0;
+        const clear = (frame - sides - (buttons * row.width + (buttons - 1) * row.gap)) / 2;
+        check(
+          clear >= (sideHandles ? P.MIN_BUTTON_SPACING_VP : 0) - 1e-9,
+          `${frame}vp 宽的外框、${buttons} 个按钮、${sideHandles ? "有" : "没有"}左右柄：按钮离柄至少 4vp`,
+        );
+        check(
+          row.width <= widest &&
+            row.gap <= P.BUTTON_SPACING_VP &&
+            row.gap >= P.MIN_BUTTON_SPACING_VP,
+          `${frame}vp、${buttons} 个按钮：不宽于 72vp，间距在 4 到 28vp 之间`,
+        );
+        check(
+          row.width === widest || row.gap === P.MIN_BUTTON_SPACING_VP,
+          `${frame}vp、${buttons} 个按钮：间距收到底之前按钮不缩`,
+        );
+      }
     }
   }
   check(
-    P.buttonWidthVp(P.MIN_WIDTH_VP, 3, handle, gap, widest) >= 44,
-    "收到 240vp 时每个按钮仍有 44vp 以上，放得下 30vp 的图标和两个 14fp 的字",
-  );
-  check(
-    P.buttonWidthVp(0, 3, handle, gap, widest) === widest &&
-      P.buttonWidthVp(Number.NaN, 3, handle, gap, widest) === widest,
+    P.buttonRow(0, 3, true).width === widest && P.buttonRow(Number.NaN, 3, true).width === widest,
     "宽度还没量到时按最宽画",
   );
+});
+
+group("上沿柄的横线在工具栏图标上方，不压到图标", () => {
+  // 停靠时外框上沿就是触屏根节点的上沿：先是 8vp 顶部内边距，再是工具条，图标在工具条里上下居中。工具条随「候选栏大小」缩放，图标随 `toolbarScale` 缩放；横线贴着外框上沿画，底边要在每一档的图标上沿之上。
+  const bottom = P.TOP_GRIP_INSET_VP + P.gripSpanVp(3);
+  check(P.gripSpanVp(3) === 12 && P.gripSpanVp(2) === 7, "三道线 12vp 厚，两道线 7vp");
+  for (let percent = 50; percent <= 200; percent += 5) {
+    const strip = KeyboardMetrics.stripHeightVp(percent);
+    const glyph = KeyboardIconPaths.TOOLBAR_SIZE_VP * KeyboardMetrics.toolbarScale(percent);
+    const glyphTop = KeyboardMetrics.TOUCH_ROOT_TOP_PADDING_VP + (strip - glyph) / 2;
+    check(
+      bottom <= glyphTop,
+      `候选栏大小 ${percent}%：横线底边 ${bottom}vp 在图标上沿 ${glyphTop}vp 之上`,
+    );
+  }
+  check(P.TOP_GRIP_INSET_VP > 0, "横线不贴着外框边");
 });
 
 group("读屏名称三端相同，当前值在说明里", () => {
@@ -486,7 +517,12 @@ console.log("功能面板");
 group("离开时只存生效且动过的项，与 Android keyboardAdjustEdits 相同", () => {
   const stored = { height: 0, lift: 40, widthPercent: 70, positionX: 200 };
   const reset = P.DEFAULTS;
-  const landscape = P.saved(stored, stored, { ...reset, height: 12 }, P.availability(false, true, false, false, false));
+  const landscape = P.saved(
+    stored,
+    stored,
+    { ...reset, height: 12 },
+    P.availability(false, true, false, false, false),
+  );
   check(landscape.height === 12, "高度一直生效，取预览值");
   check(
     landscape.lift === 40 && landscape.widthPercent === 70 && landscape.positionX === 200,
@@ -497,9 +533,17 @@ group("离开时只存生效且动过的项，与 Android keyboardAdjustEdits �
     floating.lift === 40 && floating.widthPercent === 70 && floating.positionX === 200,
     "浮动键盘同样不改这三项",
   );
-  const oneHanded = P.saved(stored, stored, reset, P.availability(false, false, false, true, false));
+  const oneHanded = P.saved(
+    stored,
+    stored,
+    reset,
+    P.availability(false, false, false, true, false),
+  );
   check(oneHanded.lift === 0, "单手模式时抬高生效，重置后存 0");
-  check(oneHanded.widthPercent === 70 && oneHanded.positionX === 200, "单手模式时宽度和位置不生效，保留");
+  check(
+    oneHanded.widthPercent === 70 && oneHanded.positionX === 200,
+    "单手模式时宽度和位置不生效，保留",
+  );
   const docked = P.saved(stored, stored, reset, ALL);
   check(
     docked.lift === 0 && docked.widthPercent === 100 && docked.positionX === 500,
@@ -512,7 +556,10 @@ group("离开时只存生效且动过的项，与 Android keyboardAdjustEdits �
     "没动过的项不写：设置页中途存下的值不被打开时的旧值盖掉",
   );
   const moved = P.saved(stored, stored, { ...stored, lift: 64 }, ALL);
-  check(moved.lift === 64 && moved.widthPercent === 70 && moved.positionX === 200, "只取动过的那一项");
+  check(
+    moved.lift === 64 && moved.widthPercent === 70 && moved.positionX === 200,
+    "只取动过的那一项",
+  );
 });
 
 group("原来的「键盘高度」磁贴改名「键盘调整」，图标和位置不变", () => {

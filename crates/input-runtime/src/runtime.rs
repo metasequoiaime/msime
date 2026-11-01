@@ -1730,6 +1730,13 @@ impl<E: InputEngine> Runtime<E> {
     /// 视图里这一行的文字：光标后编辑的首选前面接上固定的那段（`EngineSnapshot::caret_edit_prefix`），其余照旧。runtime 在本模式里不重排，所以首位就是引擎的首行。
     fn displayed_candidate_text(&self, index: usize, text: &str) -> String {
         let text = self.multilingual_candidate(index, text);
+        let text = if self.cached.candidate_sources.get(index)
+            == Some(&(msime_engine::CandidateSource::QuickPhrase as u8))
+        {
+            msime_engine::expand_quick_phrase(&text).text.into_owned()
+        } else {
+            text
+        };
         if index == 0 && !self.cached.caret_edit_prefix.is_empty() {
             let mut shown = self.cached.caret_edit_prefix.clone();
             shown.push_str(&text);
@@ -2524,16 +2531,49 @@ impl<E: InputEngine> Runtime<E> {
             })
     }
 
+    /// 只展开已确认上屏的快捷短语正文；暂存段和标点尾巴保持各自的来源边界。
+    fn expand_quick_phrase_commit(&self, result: &mut EngineResult) -> Option<String> {
+        if !result.has_commit
+            || self.facts.raw
+            || !self.facts.selection.is_some_and(|selection| {
+                selection.source == msime_engine::CandidateSource::QuickPhrase as u8
+                    && selection.outcome == SelectionOutcome::Committed
+                    && selection.how != SelectionHow::Edge
+            })
+        {
+            return None;
+        }
+        let (body, tail) = self.facts.split_commit(&result.commit);
+        let prefix = body.strip_suffix(&self.selected_text)?;
+        let expanded = msime_engine::expand_quick_phrase(&self.selected_text);
+        if matches!(expanded.text, std::borrow::Cow::Borrowed(_)) {
+            return None;
+        }
+        let suffix = expanded.cursor_byte.map(|index| {
+            let mut suffix = expanded.text[index..].to_owned();
+            suffix.push_str(tail);
+            suffix
+        });
+        result.commit = format!("{prefix}{}{tail}", expanded.text);
+        suffix
+    }
+
     fn transition(&mut self, mut result: EngineResult) -> Transition {
         self.convert_multilingual_commit(&mut result);
+        let commit_cursor_suffix = self.expand_quick_phrase_commit(&mut result);
         // 每一次上屏都经过这里，所以 AI 上文只在这一处喂；插件给的行不是用户打的字，不进 AI 和重排的上文。
         if result.has_commit && !self.commits_plugin_row() {
-            self.remember_commit(&result.commit);
+            let before_cursor = commit_cursor_suffix
+                .as_deref()
+                .and_then(|suffix| result.commit.strip_suffix(suffix))
+                .unwrap_or(&result.commit);
+            self.remember_commit(before_cursor);
         }
         Transition {
             commit_context: result.has_commit.then(|| self.output_context()),
             handled: result.handled,
             commit: result.has_commit.then_some(result.commit),
+            commit_cursor_suffix,
             diagnostic: (!result.diagnostic.is_empty()).then_some(result.diagnostic),
             view: self.view(),
         }

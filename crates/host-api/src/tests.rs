@@ -137,6 +137,7 @@ fn completed_transition_keeps_dispatch_view_without_pending_changes() {
         let completed = session.complete_transition(Transition {
             handled: dispatched.handled,
             commit: dispatched.commit,
+            commit_cursor_suffix: dispatched.commit_cursor_suffix,
             commit_context: dispatched.commit_context,
             diagnostic: dispatched.diagnostic,
             view: expected.clone(),
@@ -3058,6 +3059,7 @@ fn completed_commit(
             .complete_transition(Transition {
                 handled: true,
                 commit: Some(commit.to_owned()),
+                commit_cursor_suffix: None,
                 commit_context: Some(msime_input_runtime::OutputContext {
                     scheme,
                     local_mode: local_mode.to_owned(),
@@ -17295,7 +17297,13 @@ fn install_phrase_table(root: &std::path::Path, id: &str, phrases: &[(&str, &str
     std::fs::create_dir_all(&pack).unwrap();
     let rows: String = phrases
         .iter()
-        .map(|(key, text)| format!("[[phrases]]\nkey = \"{key}\"\ntext = \"{text}\"\n"))
+        .map(|(key, text)| {
+            format!(
+                "[[phrases]]\nkey = {}\ntext = {}\n",
+                json!(key),
+                json!(text)
+            )
+        })
         .collect();
     std::fs::write(
         pack.join("plugin.toml"),
@@ -22222,6 +22230,7 @@ mod fuzzy_single;
 mod initial_learning;
 mod lifecycle_traces;
 mod plugin_authoring;
+mod quick_phrase_cursor;
 #[cfg(any(
     target_os = "macos",
     target_os = "windows",

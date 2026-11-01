@@ -3,7 +3,7 @@
 set -euo pipefail
 platform=${1:?platform required}
 shift
-case "$platform" in linux) ;; *) echo "unsupported symbol platform" >&2; exit 1 ;; esac
+case "$platform" in android|linux|harmony|windows7) ;; *) echo "unsupported symbol platform" >&2; exit 1 ;; esac
 [[ $# -gt 0 ]] || { echo "no symbol archives" >&2; exit 1; }
 for archive in "$@"; do [[ -f "$archive" && "$archive" == *.zip ]] || { echo "missing symbol archive" >&2; exit 1; }; done
 tag="$platform-symbols"

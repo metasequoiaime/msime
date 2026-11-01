@@ -1256,6 +1256,123 @@ group("offline dictionaries fill only what the user's own translator left", () =
   );
 });
 
+group("本地识别的停顿时间按用户设置读，缺键和不合规的值按原来的 1500 毫秒（#10310）", () => {
+  check(VoiceRecognitionPolicy.pauseMillis(undefined) === 1500, "缺键按 1500");
+  for (const value of [500, 800, 2500, 5000]) {
+    check(VoiceRecognitionPolicy.pauseMillis(value) === value, `${value} 毫秒原样使用`);
+  }
+  for (const value of [0, 400, 550, 5100, 1500.5, "2000", null, true, -100]) {
+    check(VoiceRecognitionPolicy.pauseMillis(value) === 1500, `${JSON.stringify(value)} 按 1500`);
+  }
+});
+
+group("判停灵敏度越高，VAD 阈值越高，越容易判定说完（#10310）", () => {
+  check(LocalAsrPolicy.vadThreshold(50) === 0.5, "缺省的 50 就是原来写死的 0.5");
+  check(LocalAsrPolicy.vadThreshold(0) === 0.5, "不按停顿结束的会话传 0，沿用 0.5");
+  check(
+    Math.abs(LocalAsrPolicy.vadThreshold(10) - 0.1) < 1e-9 &&
+      Math.abs(LocalAsrPolicy.vadThreshold(90) - 0.9) < 1e-9,
+    "两端是 0.1 和 0.9",
+  );
+  for (let sensitivity = 11; sensitivity <= 90; sensitivity += 1) {
+    if (
+      !(LocalAsrPolicy.vadThreshold(sensitivity) > LocalAsrPolicy.vadThreshold(sensitivity - 1))
+    ) {
+      check(false, `${sensitivity} 的阈值应高于 ${sensitivity - 1}`);
+    }
+  }
+  for (const value of [9, 91, 50.5, -1, Number.NaN]) {
+    check(LocalAsrPolicy.vadThreshold(value) === 0.5, `${value} 越界或非整数时沿用 0.5`);
+  }
+});
+
+group(
+  "本地识别和系统识别由键盘按停顿结束，豆包流式和上传式服务不由键盘掐断（#10310、#9886）",
+  () => {
+    const base: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
+    const factoryDoubao: VoiceInputConfiguration = {
+      ...base,
+      asr_provider: "doubao",
+      asr_token: "",
+      asr_tokens: {},
+      asr_app_key: "",
+    };
+    const configuredDoubao: VoiceInputConfiguration = {
+      ...base,
+      asr_provider: "doubao",
+      asr_token: "synthetic-token",
+    };
+    for (const voice of [
+      { ...base, asr_provider: "local" },
+      { ...base, asr_provider: "system" },
+      { ...base, asr_provider: "" },
+      factoryDoubao,
+    ]) {
+      const name =
+        voice === factoryDoubao ? "没填凭据的豆包（走系统识别）" : voice.asr_provider || "空的服务";
+      check(
+        VoiceRecordingBehaviourPolicy.keyboardStopsOnPause(voice),
+        `${name} 由键盘的停顿计时结束`,
+      );
+      check(VoiceRecordingBehaviourPolicy.endsOnPause(voice), `${name} 的面板提示停顿后自动上屏`);
+    }
+    check(
+      VoiceRecordingBehaviourPolicy.usesSystemRecognizer(factoryDoubao) &&
+        !VoiceRecordingBehaviourPolicy.usesSystemRecognizer(configuredDoubao) &&
+        !VoiceRecordingBehaviourPolicy.usesSystemRecognizer({ ...base, asr_provider: "local" }),
+      "只有没填凭据的豆包退回系统识别",
+    );
+    for (const voice of [
+      configuredDoubao,
+      ...["openai", "siliconflow", "groq", "everyapi", "mistral", "bailian"].map(
+        (provider): VoiceInputConfiguration => ({ ...base, asr_provider: provider }),
+      ),
+    ]) {
+      check(
+        !VoiceRecordingBehaviourPolicy.keyboardStopsOnPause(voice),
+        `${voice.asr_provider} 不经键盘的停顿计时`,
+      );
+      check(
+        !VoiceRecordingBehaviourPolicy.endsOnPause(voice),
+        `${voice.asr_provider} 说完后点「说完了」`,
+      );
+    }
+  },
+);
+
+group(
+  "停顿时间只给本地识别用设置里的值，系统识别固定 1500 毫秒；判停灵敏度只给按停顿结束的本地识别（#10310）",
+  () => {
+    const base: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
+    const local: VoiceInputConfiguration = {
+      ...base,
+      asr_provider: "local",
+      pause_millis: 3000,
+      stop_sensitivity: 80,
+    };
+    const system: VoiceInputConfiguration = { ...local, asr_provider: "system" };
+    check(VoiceRecordingBehaviourPolicy.pauseMillis(local) === 3000, "本地识别用设置里的停顿时间");
+    check(
+      VoiceRecordingBehaviourPolicy.pauseMillis({ ...local, pause_millis: undefined }) === 1500,
+      "本地识别缺键按 1500",
+    );
+    check(VoiceRecordingBehaviourPolicy.pauseMillis(system) === 1500, "系统识别不读本地停顿时间");
+    check(
+      VoiceRecordingBehaviourPolicy.stopSensitivity(local, true) === 80,
+      "点按开始的本地识别用存下的灵敏度",
+    );
+    check(VoiceRecordingBehaviourPolicy.stopSensitivity(local, false) === 0, "按住说话不用灵敏度");
+    check(VoiceRecordingBehaviourPolicy.stopSensitivity(system, true) === 0, "系统识别不用灵敏度");
+    check(
+      VoiceRecordingBehaviourPolicy.stopSensitivity(
+        { ...local, stop_sensitivity: undefined },
+        true,
+      ) === 0,
+      "缺键时交 0，worker 沿用默认阈值",
+    );
+  },
+);
+
 group("a silence timer waits while the VAD still hears speech", () => {
   check(
     VoiceRecognitionPolicy.silenceStops(false),
@@ -1535,6 +1652,12 @@ group("projects the same form factor into every settings capability", () => {
   check(
     phone.touchToolbarTools && !desktop.touchToolbarTools,
     "only the phone keyboard has the toolbar row whose tools and display mode the page offers",
+  );
+  check(
+    phone.voicePauseSettings &&
+      SettingsFormFactorCapabilities.resolve("tablet").voicePauseSettings &&
+      !desktop.voicePauseSettings,
+    "phones and tablets offer the local pause time and stop sensitivity; the 2-in-1 voice panel never ends on a pause",
   );
   check(
     desktop.candidateSkinEditor && !phone.candidateSkinEditor,
@@ -10010,22 +10133,6 @@ group("the recording tones follow the master switch alone", () => {
     VoiceRecordingBehaviourPolicy.playsStartTone(legacy) === true,
     "an older document without the fields takes the shared default rather than falling silent",
   );
-});
-
-group("only a streaming provider gets the listening face, whose stop is a pause", () => {
-  const base: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
-  for (const provider of ["system", "local", "doubao", ""]) {
-    check(
-      VoiceRecordingBehaviourPolicy.streamsPartialResults({ ...base, asr_provider: provider }),
-      `${provider || "the default"} streams words as they are heard`,
-    );
-  }
-  for (const provider of ["openai", "siliconflow", "groq", "everyapi", "mistral", "bailian"]) {
-    check(
-      !VoiceRecordingBehaviourPolicy.streamsPartialResults({ ...base, asr_provider: provider }),
-      `${provider} answers only after a stop, so it keeps 停止录音`,
-    );
-  }
 });
 
 group("partial recognizer output reaches the panel only when asked for", () => {

@@ -10996,6 +10996,7 @@ fn literal_symbol_survives_runtime_punctuation_without_early_commit() {
 }
 
 mod multilingual;
+mod quick_phrase_cursor;
 
 /// 五笔 14 键的真实引擎：拼音主词库给词频，码表在同一个工作副本里。
 fn wubi_grid_runtime(root: &std::path::Path) -> Runtime {
