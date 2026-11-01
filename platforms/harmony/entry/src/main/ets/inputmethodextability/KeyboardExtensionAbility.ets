@@ -1114,6 +1114,14 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       } else {
         StagedResources.unstage(`${files}/pronunciations`, `${files}/pronunciations.ready`);
       }
+      // 法日西俄德韩释义行的读音表同样暂存，共享层在 target-pronunciations/<语言>-phonetic.db 找它们。
+      const targetPronunciations: string = `${this.context.resourceDir}/target-pronunciations`;
+      if (fs.accessSync(targetPronunciations)) {
+        StagedResources.stage(targetPronunciations, `${files}/target-pronunciations`,
+          `${files}/target-pronunciations.ready`);
+      } else {
+        StagedResources.unstage(`${files}/target-pronunciations`, `${files}/target-pronunciations.ready`);
+      }
       StagedResources.stageLanguageDictionaries(this.context.resourceDir, files);
       StagedResources.stageHandwriting(this.context.resourceDir, files);
       // 扩展上下文提供系统颜色模式，视图本身没有可查询的上下文。

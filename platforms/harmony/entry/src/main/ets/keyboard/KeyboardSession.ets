@@ -1450,7 +1450,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   private candidateEnglishGloss: boolean = false;
   private candidateGlossEnabled: boolean = false;
   private candidateGlossRows: number = 0;
-  // 「显示英文音标」：开关来自共享偏好，表是随 HAP 暂存到引擎资源旁的 pronunciations/en-phonetic.db。音标按查询文字缓存，与候选代次无关。
+  // 「显示读音」：开关来自共享偏好，表是随 HAP 暂存到引擎资源旁的 pronunciations/en-phonetic.db 和 target-pronunciations/<语言>-phonetic.db。读音按「语言 + 文字」缓存，与候选代次无关。
   private candidatePronunciationEnabled: boolean = false;
   private candidatePronunciationAvailable: boolean = false;
   private candidatePronunciations: Map<string, string> = new Map<string, string>();
@@ -2795,7 +2795,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       glossTargets, preferences.candidate_translations, glossProviders,
       this.installedOfflineGlosses(glossTargets));
     // 开关或表变了，缓存的音标不再对应现在画的东西，整份丢掉。
-    const available: boolean = this.candidatePronunciationEnabled && this.pronunciationTableInstalled();
+    const available: boolean = this.candidatePronunciationEnabled
+      && this.pronunciationTableInstalled(preferences.translation_target_language);
     if (available !== this.candidatePronunciationAvailable) this.candidatePronunciations.clear();
     this.candidatePronunciationAvailable = available;
   }
@@ -2957,13 +2958,17 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.candidatePronunciationAvailable);
   }
 
-  /** 这一行查音标用的文字：英文候选是它本身，中文候选是显示出来的英语释义。 */
+  /** 这一行查读音用的键：英文候选是它本身，中文候选是显示出来的释义，按释义的目标语言读。 */
   private pronunciationText(candidate: Candidate): string {
     if (!this.pronunciationVisible()) return '';
     const translation: string | null = this.candidateGlossEnabled
       && !TranslationPolicy.sourceGetsNoGloss(candidate.source) ? candidate.translation ?? null : null;
-    return CandidatePronunciationPolicy.lookupText(candidate.text, translation,
-      this.preparedPreferences?.translation_target_language === 'en');
+    return CandidatePronunciationPolicy.lookupText(candidate.text, translation, this.pronunciationTarget());
+  }
+
+  /** 释义的目标语言，读音按它查表。 */
+  private pronunciationTarget(): string {
+    return this.preparedPreferences?.translation_target_language ?? 'en';
   }
 
   /** 查一批候选里还没缓存的音标。表在本机，与离线释义一样在界面线程上同步查；失败只是不画音标，不影响输入，也不记录查询的文字。 */
@@ -2994,11 +2999,13 @@ export class KeyboardSession implements HardwareKeyTarget {
     return text.length === 0 ? '' : this.candidatePronunciations.get(text) ?? '';
   }
 
-  /** 随 HAP 暂存的音标表是否在引擎资源旁，共享层在那里找它。 */
-  private pronunciationTableInstalled(): boolean {
+  /** 随 HAP 暂存的读音表是否在引擎资源旁，共享层在那里找它：英文表（英文候选总要它），或者释义目标语言的那一张。 */
+  private pronunciationTableInstalled(target: string): boolean {
     try {
       const parent: string = this.resourceDirectory.substring(0, this.resourceDirectory.lastIndexOf('/'));
-      return parent.length > 0 && fs.accessSync(`${parent}/pronunciations/en-phonetic.db`);
+      return parent.length > 0 && (fs.accessSync(`${parent}/pronunciations/en-phonetic.db`)
+        || (target !== 'en' && CandidatePronunciationPolicy.LANGUAGES.includes(target)
+          && fs.accessSync(`${parent}/target-pronunciations/${target}-phonetic.db`)));
     } catch (error) {
       KeyboardLog.error('keyboard.KeyboardSession.pronunciationTableInstalled failed');
       return false;

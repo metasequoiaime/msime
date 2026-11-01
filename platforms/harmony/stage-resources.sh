@@ -17,7 +17,7 @@ mkdir -p "$handwriting_staged"
 cp "$repo_root/target/handwriting-model/handwriting-zh_CN.model" \
   "$repo_root/target/handwriting-model/HandwritingModel-LICENSE.txt" "$handwriting_staged/"
 cp resources/licenses/Zinnia-LICENSE.txt "$handwriting_staged/"
-resource_dir=${1:?usage: stage-resources.sh <verified-resource-directory> [offline-glosses-directory] [language-dictionaries-directory] [wordbooks-directory] [pronunciations-directory]}
+resource_dir=${1:?usage: stage-resources.sh <verified-resource-directory> [offline-glosses-directory] [language-dictionaries-directory] [wordbooks-directory] [pronunciations-directory] [target-pronunciations-directory]}
 resource_dir=$(cd "$resource_dir" && pwd)
 # The directory has to match the lock exactly, down to containing no extra file, because the same
 # check runs again on the device inside prepare_host. Failing here is far cheaper than failing there.
@@ -170,5 +170,30 @@ else
 fi
 if [ "${MSIME_REQUIRE_PRONUNCIATIONS:-0}" = 1 ] && [ ! -f "$pronunciations_staged/en-phonetic.db" ]; then
   echo "MSIME_REQUIRE_PRONUNCIATIONS=1 but en-phonetic.db was not staged from $pronunciations_source; run python3 scripts/fetch_gloss_tables.py first" >&2
+  exit 1
+fi
+
+# 法日西俄德韩释义行的读音表（scripts/fetch_gloss_tables.py 取到 target/target-pronunciations 的维基词典产物，许可 CC BY-SA 4.0），放在 resfile/target-pronunciations：六种语言各一个 *-phonetic.db，合计不到 4 MB，同样随 HAP 分发。键盘把它暂存到引擎资源旁的 target-pronunciations/，共享层在那里按释义的目标语言找表。只和必须随它分发的 NOTICE 一起暂存，并按 resources/target-pronunciations.lock.json 核对长度和 SHA-256；没有时这些语言的释义不标读音。MSIME_REQUIRE_PRONUNCIATIONS=1 时它们也必须在。
+target_pronunciations_source=${6:-$repo_root/target/target-pronunciations}
+target_pronunciations_staged="$repo_root/platforms/harmony/entry/src/main/resources/resfile/target-pronunciations"
+rm -rf "$target_pronunciations_staged"
+if [ -f "$target_pronunciations_source/target-pronunciations-NOTICE.txt" ]; then
+  python3 - "$repo_root/resources/target-pronunciations.lock.json" "$target_pronunciations_source" <<'PY'
+import hashlib, json, pathlib, sys
+lock = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+for artifact in lock["built"]:
+    path = pathlib.Path(sys.argv[2]) / artifact["name"]
+    data = path.read_bytes() if path.is_file() else b""
+    if len(data) != artifact["size"] or hashlib.sha256(data).hexdigest() != artifact["sha256"]:
+        sys.exit(f"{path} does not match resources/target-pronunciations.lock.json; refusing to stage it")
+PY
+  mkdir -p "$target_pronunciations_staged"
+  cp "$target_pronunciations_source"/*-phonetic.db "$target_pronunciations_source/target-pronunciations-NOTICE.txt" "$target_pronunciations_staged/"
+  echo "target pronunciations staged for the HAP: $target_pronunciations_staged"
+else
+  echo "no target pronunciations at $target_pronunciations_source; non-English gloss lines have no reading"
+fi
+if [ "${MSIME_REQUIRE_PRONUNCIATIONS:-0}" = 1 ] && [ ! -f "$target_pronunciations_staged/target-pronunciations-NOTICE.txt" ]; then
+  echo "MSIME_REQUIRE_PRONUNCIATIONS=1 but the target pronunciations were not staged from $target_pronunciations_source; run python3 scripts/fetch_gloss_tables.py first" >&2
   exit 1
 fi

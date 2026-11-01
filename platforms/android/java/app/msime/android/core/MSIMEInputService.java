@@ -251,6 +251,7 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean candidatePronunciationEnabled;
     private boolean candidatePronunciationAvailable;
     private boolean candidatePronunciationPackInstalled;
+    private boolean candidateTargetPronunciationPackInstalled;
     private java.util.Map<String, String> candidatePronunciations = java.util.Map.of();
     private String candidatePronunciationRequest = "";
     private long candidatePronunciationEpoch;
@@ -2005,6 +2006,7 @@ public final class MSIMEInputService extends InputMethodService {
                 resourcePacks = KeyboardScheme.availablePacks(
                     installedPacks::contains, options.optString("resources", ""));
                 candidatePronunciationPackInstalled = installedPacks.contains(ResourcePacks.PRONUNCIATIONS);
+                candidateTargetPronunciationPackInstalled = installedPacks.contains(ResourcePacks.TARGET_PRONUNCIATIONS);
                 installedResourcePackIds = installedPacks;
                 announceWubiTableMissing();
                 JSONObject preferences = options.optJSONObject("preferences");
@@ -2609,6 +2611,7 @@ public final class MSIMEInputService extends InputMethodService {
         candidatePronunciationEnabled = false;
         candidatePronunciationAvailable = false;
         candidatePronunciationPackInstalled = false;
+        candidateTargetPronunciationPackInstalled = false;
         invalidateCandidatePronunciations();
         candidateGlossStateRoot = "";
         candidateEnglishGloss = false;
@@ -2811,7 +2814,8 @@ public final class MSIMEInputService extends InputMethodService {
             File parent = new File(candidateGlossResources).getParentFile();
             candidatePronunciationAvailable = candidateGlossResources.length() > 0
                 && ((parent != null && new File(parent, "pronunciations/en-phonetic.db").isFile())
-                    || (candidatePronunciationPackInstalled && !candidateGlossStateRoot.isEmpty()));
+                    || ((candidatePronunciationPackInstalled || candidateTargetPronunciationPackInstalled)
+                        && !candidateGlossStateRoot.isEmpty()));
             apply(NativeClient.focus(session, true));
             markPrivateSession();
             view = value(NativeClient.setEnglishMode(session, dedicatedEnglish));
@@ -3385,7 +3389,7 @@ public final class MSIMEInputService extends InputMethodService {
             ? candidateTranslation(candidate) : "";
         String text = CandidatePronunciationPolicy.lookupText(
             InputViewValuePolicy.textOr(candidate, "text", ""), translation,
-            candidateTranslationTargets.contains("en"));
+            candidatePronunciationTarget());
         String reading = candidatePronunciations.getOrDefault(text, "");
         // 保持候选字的基线稳定：音标尚未到达或这个词查不到时，同样占两行次要文字。
         String first = annotation.isEmpty() ? "\u00A0" : annotation;
@@ -3398,17 +3402,21 @@ public final class MSIMEInputService extends InputMethodService {
         String text = CandidatePronunciationPolicy.lookupText(
             InputViewValuePolicy.textOr(candidate, "text", ""),
             candidateEnglishGloss || candidateTranslationsEnabled ? candidateTranslation(candidate) : "",
-            candidateTranslationTargets.contains("en"));
-        String reading = candidatePronunciations.getOrDefault(text, "");
-        return reading.isEmpty() ? "" : "，音标：" + reading;
+            candidatePronunciationTarget());
+        return CandidatePronunciationPolicy.accessibilitySuffix(candidatePronunciations.getOrDefault(text, ""));
+    }
+
+    /** 释义的目标语言，读音按它查表；Android 只显示一种目标语言。 */
+    private String candidatePronunciationTarget() {
+        return candidateTranslationTargets.isEmpty() ? "en" : candidateTranslationTargets.get(0);
     }
 
     private void scheduleCandidatePronunciations() {
         if (!candidatePronunciationVisible() || session == 0 || view == null
                 || candidateGlossResources.isEmpty()) return;
-        boolean englishTarget = candidateTranslationTargets.contains("en");
+        String target = candidatePronunciationTarget();
         boolean glossVisible = candidateEnglishGloss || candidateTranslationsEnabled;
-        String preferencesKey = englishTarget + ":" + glossVisible;
+        String preferencesKey = target + ":" + glossVisible;
         java.util.List<String> suggestions = englishSuggestionsActive()
             ? englishSuggestions : java.util.List.of();
         if (candidatePronunciationSourceView == view
@@ -3425,7 +3433,7 @@ public final class MSIMEInputService extends InputMethodService {
             JSONArray snapshotCandidates = snapshot.optJSONArray("candidates");
             String request = CandidatePronunciationModel.request(generation,
                 snapshotCandidates == null ? new JSONArray() : snapshotCandidates,
-                englishTarget, glossVisible, suggestions);
+                target, glossVisible, suggestions);
             candidatePronunciationSourceView = view;
             candidatePronunciationSourcePanel = candidatePanelSnapshot;
             candidatePronunciationSourceSession = session;
@@ -3438,6 +3446,7 @@ public final class MSIMEInputService extends InputMethodService {
             final long requestedEpoch = candidatePronunciationEpoch;
             final String resources = candidateGlossResources;
             final String supplementaryResources = candidatePronunciationPackInstalled
+                || candidateTargetPronunciationPackInstalled
                 ? new File(candidateGlossStateRoot, "resource-packs").getAbsolutePath() : "";
             candidateGlossWorker.execute(() -> {
                 try {
@@ -4262,7 +4271,7 @@ public final class MSIMEInputService extends InputMethodService {
             String text = englishSuggestions.get(slot);
             ViewPolicy.show(button);
             String reading = candidatePronunciationVisible()
-                ? candidatePronunciations.getOrDefault(text, "") : "";
+                ? candidatePronunciations.getOrDefault(CandidatePronunciationPolicy.key("en", text), "") : "";
             String annotation = CandidatePronunciationPolicy.suggestionAnnotation(
                 candidatePronunciationVisible(), reading);
             button.setText(candidateLabel("", text, annotation, false));
@@ -9419,7 +9428,7 @@ public final class MSIMEInputService extends InputMethodService {
         String text = CandidatePronunciationPolicy.lookupText(
             InputViewValuePolicy.textOr(candidate, "text", ""),
             candidateEnglishGloss || candidateTranslationsEnabled ? candidateTranslation(candidate) : "",
-            candidateTranslationTargets.contains("en"));
+            candidatePronunciationTarget());
         return candidatePronunciations.getOrDefault(text, "");
     }
 
