@@ -455,11 +455,13 @@ if ! rg -q 'smartPunctuationArmRaw|smartPunctuationDecideRaw' \
   echo "Android smart punctuation must cross the shared Host API through JNI" >&2
   exit 1
 fi
-# 「自动补全成对标点」曾经只是设置页上的一个开关：这个宿主从不读 paired_punctuation，开着也只上屏半个括号（#5608）。键盘标点键的补全规则与 iOS、HarmonyOS 同一份（PairedPunctuationPolicy.completion），符号面板走 symbolClosing，在面板里轻点自动补上的后半个要跨过它（stepOverPairedSymbol），否则面板里补出（|）再点 ）会多一个；补完书名号要经 JNI 通知 Engine 平衡嵌套。
+# 「自动补全成对标点」曾经只是设置页上的一个开关：这个宿主从不读 paired_punctuation，开着也只上屏半个括号（#5608）。键盘标点键的补全规则与 iOS、HarmonyOS 同一份：宿主经 PairedPunctuationPolicy.punctuationCommit 取整段决定，它再按 completion 决定补哪半个（光标短语模板不补）。符号面板走 symbolClosing，在面板里轻点自动补上的后半个要跨过它（stepOverPairedSymbol），否则面板里补出（|）再点 ）会多一个；补完书名号要经 JNI 通知 Engine 平衡嵌套。
 if ! rg -q 'optBoolean\("paired_punctuation"' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
-  || ! rg -q 'PairedPunctuationPolicy\.completion\(' \
+  || ! rg -q 'PairedPunctuationPolicy\.punctuationCommit\(' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+  || ! rg -q 'new PunctuationCommit\(landed, completion\(landed' \
+    "$repo_root/platforms/android/java/app/msime/android/keyboard/PairedPunctuationPolicy.java" \
   || ! rg -q 'PairedPunctuationPolicy\.symbolClosing\(' \
     "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
   || ! rg -q 'stepOverPairedSymbol\(' \

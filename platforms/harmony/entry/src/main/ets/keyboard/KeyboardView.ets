@@ -123,7 +123,7 @@ import {
   HandwritingRecognitionQueue, HandwritingRecognitionTicket
 } from './input/HandwritingRecognitionQueue';
 import { HarmonyVoiceRecognizer } from './input/HarmonyVoiceRecognizer';
-import { VoiceRecognitionPolicy, VOICE_DONE_NOTICE_MS, VOICE_SILENCE_STOP_MS } from './input/VoiceRecognitionPolicy';
+import { VoiceRecognitionPolicy, VOICE_DONE_NOTICE_MS, VOICE_PAUSE_DEFAULT_MS } from './input/VoiceRecognitionPolicy';
 import { VoiceInputConfigurationPolicy } from './input/VoiceInputConfiguration';
 import { ReplyKeyboardPolicy, ReplyStyle } from './ReplyKeyboardPolicy';
 import { CommunityReplyTemplate } from './CommunityReplyLibraryPolicy';
@@ -837,8 +837,12 @@ struct KeyboardView {
   private voiceGeneration: number = 0;
   /** 录音是否由语音快捷键按住；快捷键会自己结束录音，所以说话停顿不能结束它。 */
   private voiceHeldByKey: boolean = false;
-  /** 当前识别服务是否返回中间文字，用于提示停顿自动结束或点「说完了」；在 `voiceBusy` 之前更新，供手机聆听面板读取。 */
-  private voiceStreams: boolean = true;
+  /** 停顿之后录音会不会自己结束（`VoiceRecordingBehaviourPolicy.endsOnPause`），用于提示停顿自动结束或点「说完了」；在 `voiceBusy` 之前更新，供手机聆听面板读取。 */
+  private voiceEndsOnPause: boolean = true;
+  /** 这次聆听由键盘的停顿计时结束：触屏上的本地识别和系统识别（`VoiceRecordingBehaviourPolicy.keyboardStopsOnPause`），开始聆听时固定。 */
+  private voicePauseEnds: boolean = false;
+  /** 这次聆听的停顿时间（`VoiceRecordingBehaviourPolicy.pauseMillis`），开始聆听时固定，改设置从下一次聆听生效。 */
+  private voicePauseMs: number = VOICE_PAUSE_DEFAULT_MS;
   private voiceSilenceTimer: number = -1;
   /** 经过 VAD 的本地整段模型此刻是否听到说话；其他识别器从不报，始终为 false。 */
   private voiceSpeaking: boolean = false;
@@ -994,7 +998,7 @@ struct KeyboardView {
       }
       if (action === VoiceHotkeyAction.LOCK) {
         this.voiceNotice = '已锁定录音，松开按键不会结束。';
-        // 锁定后松开按键不再结束录音，会话从此按点按开始对待：面板给「说完了」和「取消」，流式识别停顿后自动结束，指示区换成水杉娘。快捷键的 STOP、CANCEL 不看这个标志，照常生效。
+        // 锁定后松开按键不再结束录音，会话从此按点按开始对待：面板给「说完了」和「取消」；触屏上本地识别和系统识别停顿后自动结束（`voicePauseEnds`，见 `VoiceRecordingBehaviourPolicy.keyboardStopsOnPause`），豆包流式和上传式识别点「说完了」结束，指示区换成水杉娘。快捷键的 STOP、CANCEL 不看这个标志，照常生效。
         this.voiceHeldByKey = false;
         this.refreshVoiceMascot();
       }
@@ -8596,7 +8600,12 @@ struct KeyboardView {
     this.voiceSpeaking = false;
     this.voiceHeldByKey = fromHotkey;
     const voiceConfiguration = KeyboardSession.shared.voiceInputConfiguration();
-    this.voiceStreams = VoiceRecordingBehaviourPolicy.streamsPartialResults(voiceConfiguration);
+    this.voiceEndsOnPause = VoiceRecordingBehaviourPolicy.endsOnPause(voiceConfiguration);
+    // 停顿时间和判停灵敏度在开始聆听时固定（#10310）。本地识别用设置里的停顿时间，系统识别沿用固定的 1500 毫秒；判停灵敏度只给点按开始、按停顿结束的本地识别，按住说话的录音由松手结束，保留原来的 VAD 阈值。
+    this.voicePauseEnds = this.touchDesign() && VoiceRecordingBehaviourPolicy.keyboardStopsOnPause(voiceConfiguration);
+    this.voicePauseMs = VoiceRecordingBehaviourPolicy.pauseMillis(voiceConfiguration);
+    voiceConfiguration.local_stop_sensitivity =
+      VoiceRecordingBehaviourPolicy.stopSensitivity(voiceConfiguration, this.voicePauseEnds && !fromHotkey);
     this.voiceText = '';
     this.voiceHeard = '';
     this.voiceLevel = 0;
@@ -8616,7 +8625,7 @@ struct KeyboardView {
           this.voiceHeard = this.voiceText;
         }
       }
-      if (!final && text.length > 0) {
+      if (!final && text.length > 0 && this.voicePauseEnds) {
         this.armVoiceSilence();
       }
       if (final && this.voiceGeneration > 0) {
@@ -8704,7 +8713,7 @@ struct KeyboardView {
   }
 
   /**
-   * 流式识别听到文字后停顿 `VOICE_SILENCE_STOP_MS` 自动结束；上传式识别没有中间文字，用户点「说完了」结束。按住空格或快捷键的录音在松手时结束，VAD 仍听到说话时顺延静音计时。
+   * 本地识别和系统识别听到文字后停顿 `voicePauseMs` 自动结束（本地识别是用户设的停顿时间，系统识别固定 1500 毫秒）。豆包流式和上传式识别由用户点「说完了」结束，不经这里（`VoiceRecordingBehaviourPolicy.keyboardStopsOnPause`）。按住空格或快捷键的录音在松手时结束，VAD 仍听到说话时顺延静音计时。
    */
   private armVoiceSilence(): void {
     if (!this.touchDesign() || this.voiceHeldByKey || !this.voiceBusy || this.voiceFinishing) {
@@ -8718,11 +8727,11 @@ struct KeyboardView {
         return;
       }
       this.stopVoice();
-    }, VOICE_SILENCE_STOP_MS);
+    }, this.voicePauseMs);
   }
 
   /**
-   * 经过 VAD 的本地整段模型报告说话状态变化。这类模型只在一段说完后才出文字，连续说话超过 `VOICE_SILENCE_STOP_MS` 时没有新文字可以续上静音计时，所以已经开始的计时在每次变化时从头再计：开始说话时推迟，说完时从这一刻起再等一个完整的停顿。还没听到文字时计时尚未开始，这里不启动它。
+   * 经过 VAD 的本地整段模型报告说话状态变化。这类模型只在一段说完后才出文字，连续说话超过停顿时间时没有新文字可以续上静音计时，所以已经开始的计时在每次变化时从头再计：开始说话时推迟，说完时从这一刻起再等一个完整的停顿。还没听到文字时计时尚未开始，这里不启动它。
    */
   private voiceSpeechChanged(speaking: boolean): void {
     this.voiceSpeaking = speaking;
@@ -8817,7 +8826,7 @@ struct KeyboardView {
     if (this.voiceHeldByKey) {
       return '松开结束录音';
     }
-    return this.voiceStreams ? '停顿后自动上屏，也可点「说完了」' : '说完后点「说完了」，识别后自动上屏';
+    return this.voiceEndsOnPause ? '停顿后自动上屏，也可点「说完了」' : '说完后点「说完了」，识别后自动上屏';
   }
 
   /** 提示行放的是转写文字（已上屏的内容或收尾时最后听到的），放不下一行时从开头省略。 */
