@@ -20,6 +20,7 @@ public final class TypingSourceSmoke {
         check(TypingSource.KOREAN.id().equals("korean"));
         check(TypingSource.resolve(KeyboardScheme.CANTONESE, false, null) == TypingSource.CANTONESE
             && TypingSource.CANTONESE.id().equals("cantonese"));
+        check(TypingSource.resolve(KeyboardScheme.CANTONESE_SHUANGPIN, false, null) == TypingSource.CANTONESE);
         check(TypingSource.resolve(KeyboardScheme.ZHUYIN_NINE_KEY, false, null) == TypingSource.ZHUYIN
             && TypingSource.resolve(KeyboardScheme.ZHUYIN_NINE_KEY, true, null) == TypingSource.ENGLISH);
         check(TypingSource.resolve(KeyboardScheme.ZHUYIN, false, null) == TypingSource.ZHUYIN

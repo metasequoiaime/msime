@@ -12,6 +12,8 @@ import {
 } from "@msime/ui";
 import {
   selectTouchKeyboardScheme,
+  touchKeyboardLanguages,
+  touchKeyboardSchemeInputScheme,
   touchKeyboardSchemeOptions,
   touchKeyboardSchemeTitle,
 } from "../../../../packages/ui/src/settings/touch-keyboard-scheme-helpers";
@@ -103,6 +105,7 @@ test("the helper exposes the complete stable scheme order", () => {
     "fourteen_key",
     "nine_key_shuangpin",
     "eighteen_key",
+    "cantonese_shuangpin",
   ]);
   // 高情商回复是键盘工具栏上的工具，不再是输入方案。
   expect(allTouchKeyboardSchemes as string[]).not.toContain("thoughtful_reply");
@@ -215,7 +218,7 @@ test("selecting Japanese from Vietnamese keeps the remembered Chinese scheme", (
 });
 
 test("Cantonese, Zhuyin, Vietnamese, Tibetan and Stroke are appended after Korean and are opt-in", () => {
-  expect(allTouchKeyboardSchemes).toHaveLength(20);
+  expect(allTouchKeyboardSchemes).toHaveLength(21);
   expect(allTouchKeyboardSchemes.slice(10)).toEqual([
     "korean",
     "cantonese",
@@ -227,6 +230,7 @@ test("Cantonese, Zhuyin, Vietnamese, Tibetan and Stroke are appended after Korea
     "fourteen_key",
     "nine_key_shuangpin",
     "eighteen_key",
+    "cantonese_shuangpin",
   ]);
   expect(defaultTouchKeyboardSchemes).toEqual(allTouchKeyboardSchemes.slice(0, 11));
   // 没有列表的文档出自默认值改成只有中文之前的版本，按那时的默认列表回退（client-core 的 `LEGACY_DEFAULT_ENABLED`），日语和韩语不会在升级后消失。
@@ -481,4 +485,27 @@ test("九键双拼默认关闭，启用后写入全拼方案与独立布局并�
     }),
   ).toBe("nine_key_shuangpin");
   expect(selectTouchKeyboardScheme(next, "quanpin").touch_keyboard_layout).toBe("twenty_six_key");
+});
+
+test("粤语双拼写粤拼方案和 26 键布局，只靠 selected 与粤拼区分，默认不启用", () => {
+  const next = selectTouchKeyboardScheme(
+    {
+      ...preferences,
+      scheme: "quanpin",
+      touch_keyboard_schemes: { enabled: ["quanpin", "cantonese", "cantonese_shuangpin"] },
+    },
+    "cantonese_shuangpin",
+  );
+  expect(next.scheme).toBe("cantonese");
+  expect(next.last_chinese_scheme).toBe("cantonese");
+  expect(next.touch_keyboard_layout).toBe("twenty_six_key");
+  expect(next.touch_keyboard_schemes?.selected).toBe("cantonese_shuangpin");
+  expect(inferredTouchKeyboardScheme(next)).toBe("cantonese_shuangpin");
+  expect(touchKeyboardSchemeTitle(next)).toBe("粤语双拼");
+  expect(touchKeyboardSchemeInputScheme("cantonese_shuangpin")).toBe("cantonese");
+  expect(defaultTouchKeyboardSchemes).not.toContain("cantonese_shuangpin");
+  expect(touchKeyboardLanguages.find(({ id }) => id === "cantonese")?.schemes).toEqual([
+    "cantonese",
+    "cantonese_shuangpin",
+  ]);
 });
