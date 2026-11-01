@@ -24,7 +24,7 @@ export type VoiceInputPreferences = {
   asr_model?: string;
   /** `local` 服务商加载的绝对路径，目录中应包含 `msime-model.json`。 */
   asr_model_path?: string;
-  /** 加在每个模型下载地址前的可选 `https://` 镜像前缀；为空时直接使用目录中的地址。 */
+  /** 加在每个模型下载地址前的可选 `https://` 镜像前缀；填了时先试它；之后不论填没填，都先走本项目镜像 `https://dl.msime.app/gh/`，最后才用目录中的原地址。 */
   asr_model_mirror?: string;
   asr_resource_id?: string;
   commit_mode?: "tsf" | "sendinput" | "ctrl_v";
