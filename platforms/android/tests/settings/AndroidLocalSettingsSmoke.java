@@ -112,6 +112,10 @@ public final class AndroidLocalSettingsSmoke {
         check(!AndroidLocalSettings.spec(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS).synced, "key swap stays local");
         check(!settings.bool(AndroidLocalSettings.NUMBER_ROW), "number row is off by default");
         check(!AndroidLocalSettings.spec(AndroidLocalSettings.NUMBER_ROW).synced, "number row stays on this device");
+        check(!settings.bool(AndroidLocalSettings.CLIPBOARD_DELETE_AUTHENTICATION),
+            "clipboard delete authentication is opt-in");
+        check(!AndroidLocalSettings.spec(AndroidLocalSettings.CLIPBOARD_DELETE_AUTHENTICATION).synced,
+            "clipboard delete authentication stays on this device");
         check(!settings.bool(AndroidLocalSettings.DEVELOPER_INPUT_LOG), "input log default");
         check("one_day".equals(settings.choice(AndroidLocalSettings.MCP_RETENTION)), "retention default");
         check(settings.bool(AndroidLocalSettings.MCP_CRASH_LOGS), "crash logs default");
