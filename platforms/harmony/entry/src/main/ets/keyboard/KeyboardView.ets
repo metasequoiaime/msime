@@ -4517,8 +4517,6 @@ struct KeyboardView {
         BrandTile({
           active: this.brandActive(),
           toggleBackground: this.skin.toggleBackground,
-          logoCirc: this.skin.logoCirc,
-          logoBg: this.skin.logoBg,
           framePath: KeyboardIconPaths.BRAND_FRAME,
           strokePath: KeyboardIconPaths.BRAND_STROKE,
           sizeScale: KeyboardMetrics.toolbarScale(this.settings.candidateScalePercent),

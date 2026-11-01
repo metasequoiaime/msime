@@ -11980,7 +11980,7 @@ group("the icon paths are arc-free absolute commands inside their view box", () 
           value <=
             Math.max(KeyboardIconPaths.BRAND_VIEW_WIDTH, KeyboardIconPaths.BRAND_VIEW_HEIGHT),
       ),
-      "inside the 116 x 132 box",
+      "inside the 132 x 132 box",
     );
   }
   check(

@@ -1,15 +1,10 @@
 # App icon sources
 
-All five launcher icons are derived from `apps/desktop/app-icon.svg`, the vector the Windows frontend ships as `windows/image/msime.ico` (metasequoiaime/MSIME-Windows commit `253b0689`). `platforms/android/scripts/generate_app_icons.py` renders them; nothing here is hand-edited.
+Everywhere else the brand mark is the standalone tile, `packages/ui/src/assets/msime.svg`: a dark rounded square whose green edge is its border, with the white stroke from `apps/desktop/app-icon.svg` on it. A launcher icon cannot carry that edge: the launcher cuts the icon to a shape of its own choosing - a circle on Pixel, a rounded square on most others - and a border drawn into the icon fights whichever shape it did not anticipate. So on Android the mask itself is the container: a field fills the icon and the white stroke sits on it at the size it has inside the tile, with nothing drawn around it. `platforms/android/scripts/generate_app_icons.py` renders every icon; nothing here is hand-edited.
 
-`app_icon_classic` is the artwork's own light green frame. `app_icon_forest`, `app_icon_sky`, `app_icon_dusk` and `app_icon_vermilion` differ from it by exactly one value - the colour of that frame - and stay the alternate styles the 我的 tab offers. The same table drives the iOS alternate icons, so the two platforms show one icon in five washes.
+`app_icon_classic` has the tile's own dark field, `#252525`. `app_icon_forest`, `app_icon_sky`, `app_icon_dusk` and `app_icon_vermilion` differ from it by exactly one value - the field colour, the theme's colour darkened (45% of it into `#1A1A1A`) so the white stroke stays legible - and stay the alternate styles the 我的 tab offers. The same theme table drives the iOS alternate icons, where it colours the tile's edge instead.
 
-The artwork was drawn for the Windows tray, where it floats on whatever is behind it and so supplies its own border, painted as 164 scattered brush stamps. A launcher icon is the opposite case on both counts, so the script departs from the master twice:
-
-- It insets the artwork to 74% of the square, on the mark's own dark field. The container's mask cuts through anything near the edge, and the master's frame comes within 0.32 of the 110-unit canvas edge; shipping it at its native extent loses the top and bottom of the frame.
-- It replaces the brush stamps with one stroke on the same path, at the weight the brush band carried. At icon sizes the frame is about four pixels wide, where the ragged alpha and the gaps between stamps read as a smeared edge rather than as texture.
-
-The dark panel and the white mark are taken from the master unchanged.
+The plain bitmaps are the field and the stroke, square:
 
 | Density | Size |
 | --- | --- |
@@ -21,9 +16,9 @@ The dark panel and the white mark are taken from the master unchanged.
 
 ## Adaptive icons
 
-Each style also ships an `<adaptive-icon>` in `drawable-anydpi-v26`, because a plain bitmap gets the launcher's legacy treatment: shrunk and set on a grey plate the design never asked for. The background layer is `@color/app_icon_field`, the mark's own dark field, so what the mask cuts is that field rather than a plate.
+Each style also ships an `<adaptive-icon>` in `drawable-anydpi-v26`, because a plain bitmap gets the launcher's legacy treatment: shrunk and set on a grey plate the design never asked for. With `minSdk` 28 these are what the launcher and the 我的 tab actually draw.
 
-The foreground is rendered by the same script, from the same artwork, with two differences: it carries no field of its own — the background layer is that field — and it sits at 47% of the canvas rather than 74%. A circular mask shows only the middle 72 of the 108dp canvas, and a square fits inside that disc up to 72/√2 ≈ 51. The 66dp safe zone is sized for artwork that tolerates having its corners cut; this frame is the part that must not be.
+The background layer is the style's field colour (`@color/app_icon_field_<style>`) and the foreground is the white stroke alone, scaled as it would be if the tile filled the 72dp the mask shows. Whatever shape the launcher cuts, the icon is that shape in the field colour with the stroke on it.
 
 | Density | Foreground size |
 | --- | --- |
