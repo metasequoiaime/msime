@@ -1374,7 +1374,8 @@ if ! rg_q_stdin -U 'if \(!groups\.numberRow\(\)\) return;\n\s*GroupCard numbers 
   || ! rg_q_stdin -F 'KeyboardScheme current = SchemePreferences.storedScheme(preferences, edition);' <<< "$style_render" \
   || ! rg_q_stdin -F 'kind = KeyLayoutStylesPolicy.initialKind(kinds, current, shuangpinLayout, wubiLayout);' <<< "$style_render" \
   || ! rg_q_stdin -F 'eighteen = KeyLayoutStylesPolicy.eighteen(current, shuangpinLayout);' <<< "$style_render" \
-  || ! rg_q_stdin -F 'numbers.toggle("顶部数字行", NUMBER_ROW_NOTE, numberRow, checked -> {' <<< "$style_render" \
+  || ! rg_q_stdin -F 'numbers.toggle("顶部数字行", null, numberRow, checked -> {' <<< "$style_render" \
+  || ! rg_q_stdin -F '}).help(NUMBER_ROW_NOTE);' <<< "$style_render" \
   || ! rg_q_stdin -F 'save(edited -> edited.put(TouchKeyStyle.NUMBER_ROW_PREFERENCE, checked));' <<< "$style_render" \
   || ! rg_q_stdin -F 'if (kinds.size() > 1) {' <<< "$style_section" \
   || ! rg_q_stdin -U 'segments\.setOnSelect\(index -> \{\n\s*kind = kinds\.get\(index\);\n\s*refreshStyles\(\);\n\s*\}\);' <<< "$style_section" \
@@ -1405,7 +1406,7 @@ if ! rg -qF 'static final String LONG_SPACE_NOTE = "符号键移到工具栏。"
   || ! rg -qF 'static final String TALL_RETURN_NOTE = "回车竖占两行，符号键在左下角。";' "$style_policy" \
   || rg -q 'TWENTY_SIX_KEY_NOTE|FOURTEEN_KEY_NOTE|NINE_KEY_NOTE' "$style_page" "$style_policy" \
   || ! rg -qF 'static final String NUMBER_ROW_NOTE = "在 26 键、14 键和 18 键上方加一行 1 到 0；横屏时不显示。";' "$style_page" \
-  || ! rg -q -U 'if \(TouchKeyStyle\.Groups\.offeredBy\(edition\)\.any\(\)\)\n\s*layout\.nav\("按键布局", "各类键盘的底行样式、键位和顶部数字行", null,' \
+  || ! rg -q -U 'if \(TouchKeyStyle\.Groups\.offeredBy\(edition\)\.any\(\)\)\n\s*layout\.nav\("按键布局", null, null,\n[^\n]*\)\.help\("各类键盘的底行样式、键位和顶部数字行"\);' \
     "$repo_root/platforms/android/java/app/msime/android/home/KeyboardOptionsPage.java" \
   || ! rg -qF 'if (page == PageId.KEY_LAYOUT_STYLES && !keyLayoutOffered) continue;' \
     "$repo_root/platforms/android/java/app/msime/android/home/KeyboardFragment.java" \
@@ -1426,10 +1427,10 @@ if ! rg -qF '+ ":" + english + ":" + style + ":" + symbolFirst + ":" + numberPad
   || ! rg -qF '|| imeLayoutRows.numberPadSpaceStale()' "$account_service" \
   || ! rg_q_stdin -F 'symbolFirst = preferences.optBoolean(TouchKeyStyle.SYMBOL_FIRST_PREFERENCE, false);' <<< "$style_render" \
   || ! rg_q_stdin -U 'note = caption;\n\n\s*//.*\n\s*GroupCard toggles = GroupCard\.add\(target, null\);\n\s*if \(kinds\.contains\(KeyLayoutStylesPolicy\.Kind\.TWENTY_SIX\)\) \{\n\s*symbolFirstRow = toggles\.toggle\(' <<< "$style_section" \
-  || ! rg_q_stdin -U 'toggles\.toggle\(TouchKeyStyle\.SYMBOL_FIRST_TITLE, TouchKeyStyle\.SYMBOL_FIRST_NOTE, symbolFirst, checked -> \{\n\s*symbolFirst = checked;\n\s*refreshStyles\(\);\n\s*save\(edited -> edited\.put\(TouchKeyStyle\.SYMBOL_FIRST_PREFERENCE, checked\)\);' <<< "$style_section" \
+  || ! rg_q_stdin -U 'toggles\.toggle\(TouchKeyStyle\.SYMBOL_FIRST_TITLE, null, symbolFirst, checked -> \{\n\s*symbolFirst = checked;\n\s*refreshStyles\(\);\n\s*save\(edited -> edited\.put\(TouchKeyStyle\.SYMBOL_FIRST_PREFERENCE, checked\)\);\n\s*\}\)\.help\(TouchKeyStyle\.SYMBOL_FIRST_NOTE\);' <<< "$style_section" \
   || ! rg_q_stdin -F 'if (swap != null) swap.setVisible(shown == KeyLayoutStylesPolicy.Kind.TWENTY_SIX);' <<< "$style_refresh" \
   || ! rg_q_stdin -U 'if \(kind != null\) styleSection\(context, target, kinds\);\n\s*//.*\n\s*if \(groups\.any\(\)\) numberPadSection\(context, target\);\n\s*//.*\n\s*if \(!groups\.numberRow\(\)\) return;' <<< "$style_render" \
-  || ! rg_q_stdin -U 'GroupCard numberPad = GroupCard\.add\(target, TouchKeyStyle\.NUMBER_PAD_SPACE_GROUP\);\n.*\n.*\n\s*numberPad\.addView\(row\);\n\s*numberPadChips = row;\n\s*numberPad\.footer\(TouchKeyStyle\.NUMBER_PAD_SPACE_NOTE\);' <<< "$number_pad_section" \
+  || ! rg_q_stdin -U 'GroupCard numberPad = GroupCard\.add\(target, TouchKeyStyle\.NUMBER_PAD_SPACE_GROUP\);\n.*\n.*\n\s*numberPad\.addView\(row\);\n\s*numberPadChips = row;\n\s*numberPad\.help\(TouchKeyStyle\.NUMBER_PAD_SPACE_NOTE\);' <<< "$number_pad_section" \
   || rg_q_stdin -F 'HorizontalScrollView' <<< "$number_pad_section" \
   || ! rg_q_stdin -F 'for (TouchKeyStyle.NumberPadSpace choice : TouchKeyStyle.NumberPadSpace.CHOICES)' <<< "$number_pad_refresh" \
   || ! rg_q_stdin -F 'addChip(context, row, chip(context, choice.title, choice == numberPadSpace, () -> chooseNumberPadSpace(choice)));' <<< "$number_pad_refresh" \
@@ -1466,7 +1467,7 @@ if [[ "$sidebar_readers" != "platforms/android/java/app/msime/android/settings/K
   || rg -q 'NineKeySidebar|edit_sidebar_key|"九键左侧符号"|"九键数字键盘左侧符号"' "$repo_root/platforms/android/java/app/msime/android/home/KeyboardOptionsPage.java" \
   || ! rg_q_stdin -F 'sidebar.nav(KeyLayoutStylesPolicy.NINE_KEY_SIDEBAR_TITLE, null,' <<< "$sidebar_section" \
   || ! rg_q_stdin -F 'sidebar.nav(KeyLayoutStylesPolicy.DIGIT_SIDEBAR_TITLE, null,' <<< "$sidebar_number_pad" \
-  || ! rg_q_stdin -U 'numberPad\.footer\(TouchKeyStyle\.NUMBER_PAD_SPACE_NOTE\);\n\s*refreshNumberPad\(\);\n\s*//.*\n\s*GroupCard sidebar = GroupCard\.add\(target, null\);' <<< "$sidebar_number_pad" \
+  || ! rg_q_stdin -U 'numberPad\.help\(TouchKeyStyle\.NUMBER_PAD_SPACE_NOTE\);\n\s*refreshNumberPad\(\);\n\s*//.*\n\s*GroupCard sidebar = GroupCard\.add\(target, null\);' <<< "$sidebar_number_pad" \
   || ! rg_q_stdin -F 'if (sidebar != null) ViewPolicy.setVisible(sidebar, shown == KeyLayoutStylesPolicy.Kind.NINE);' <<< "$sidebar_refresh" \
   || ! rg -qF 'KeyboardSheets.save(owner, edited -> edited.put(key, new JSONArray(stored)),' "$sidebar_sheet" \
   || ! rg -qF 'List<String> stored = NineKeySidebarPolicy.toPreference(symbols, defaults);' "$sidebar_sheet" \
@@ -1507,7 +1508,7 @@ if ! rg -qF 'boolean languageLeft = s.languageKeyLeft;' "$bottom_row_file" \
     | rg_q_stdin -F 's.localSettings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS), digits, languageLeft)) {' \
   || ! sed -n '/    boolean tallReturnStale() {$/,/^    }$/p' "$layout_rows" | rg_q_stdin -F 'builtTallReturnLanguageLeft != s.languageKeyLeft' \
   || ! rg_q_stdin -F 'languageLeft = TouchKeyStyle.languageLeft(preferences.opt(TouchKeyStyle.LANGUAGE_KEY_SIDE_PREFERENCE));' <<< "$style_render" \
-  || ! rg_q_stdin -U '\n        \}\n\s*//.*\n\s*toggles\.toggle\(TouchKeyStyle\.LANGUAGE_LEFT_TITLE, TouchKeyStyle\.LANGUAGE_LEFT_NOTE, languageLeft, checked -> \{\n\s*languageLeft = checked;\n\s*refreshStyles\(\);\n\s*save\(edited -> edited\.put\(TouchKeyStyle\.LANGUAGE_KEY_SIDE_PREFERENCE, TouchKeyStyle\.languageKeySideWire\(checked\)\)\);' <<< "$style_section" \
+  || ! rg_q_stdin -U '\n        \}\n\s*//.*\n\s*toggles\.toggle\(TouchKeyStyle\.LANGUAGE_LEFT_TITLE, null, languageLeft, checked -> \{\n\s*languageLeft = checked;\n\s*refreshStyles\(\);\n\s*save\(edited -> edited\.put\(TouchKeyStyle\.LANGUAGE_KEY_SIDE_PREFERENCE, TouchKeyStyle\.languageKeySideWire\(checked\)\)\);\n\s*\}\)\.help\(TouchKeyStyle\.LANGUAGE_LEFT_NOTE\);' <<< "$style_section" \
   || ! rg -qF 'boolean languageLeft = TouchKeyStyle.languageLeft(preferences.opt(TouchKeyStyle.LANGUAGE_KEY_SIDE_PREFERENCE));' "$repo_root/platforms/android/java/app/msime/android/home/StatisticsFragment.java" \
   || ! rg -qF 'KeyHeatmapLayout.nine(styles.nine(), languageLeft)' "$repo_root/platforms/android/java/app/msime/android/home/StatisticsFragment.java" \
   || ! rg -qF '"中/英键放在空格左边"' "$repo_root/platforms/android/java/app/msime/android/home/PageId.java" \
@@ -1864,7 +1865,9 @@ if ! rg -qF 'oneHandedSidePanel = oneHandedSidePanelFrom(preferences);' "$side_p
   || ! rg -qF 's.imeLayoutRows.nineKeyDecimalKey()' "$side_pad_builder" \
   || ! rg -qF 's.imeLetterRows.bindBackspaceRepeat(delete, deleteAction);' "$side_pad_builder" \
   || ! rg -qF 'if (sidePad != null) applySidePadGeometry(sidePad);' "$repo_root/platforms/android/java/app/msime/android/core/ImeStyler.java" \
-  || ! rg -qF 'layout.toggle("大屏单手时侧边显示数字键盘", "单手模式下用九键打字时，空出来的一侧显示数字键盘。只在平板、折叠屏展开和 iPad 全宽键盘上生效，分离式和浮动键盘不变。",' \
+  || ! rg -qF 'layout.toggle("大屏单手时侧边显示数字键盘", null,' \
+    "$repo_root/platforms/android/java/app/msime/android/home/KeyboardOptionsPage.java" \
+  || ! rg -qF '.help("单手模式下用九键打字时，空出来的一侧显示数字键盘。只在平板、折叠屏展开和 iPad 全宽键盘上生效，分离式和浮动键盘不变。");' \
     "$repo_root/platforms/android/java/app/msime/android/home/KeyboardOptionsPage.java" \
   || ! rg -qF 'savePreference(OneHandSidePadPolicy.PREFERENCE_KEY,' "$repo_root/platforms/android/java/app/msime/android/home/KeyboardOptionsPage.java"; then
   echo "Android one-handed side number pad wiring is missing: read touch_one_handed_side_panel into the geometry key and skin hint, place the pad in ImeFrame.applyOneHanded, reuse the digit-layer literal commit and backspace repeat, follow the key geometry, and keep the shared settings wording" >&2

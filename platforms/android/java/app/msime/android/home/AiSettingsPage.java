@@ -98,13 +98,16 @@ public final class AiSettingsPage extends ReloadingDetailPage {
         GroupCard service = GroupCard.add(sectionColumn(target, "服务"), "服务");
         AiProviderSettings.Provider selected = null;
         for (AiProviderSettings.Provider entry : catalog) if (entry.id().equals(provider)) selected = entry;
-        service.nav("服务商", catalog.isEmpty() ? "服务目录暂不可用，仍可手动填写地址与模型" : "选择后自动填写预设地址和模型",
+        // 目录不可用、端点有问题、获取模型的结果是状态，留在副标题；平时的用法说明收进「?」。
+        service.nav("服务商", catalog.isEmpty() ? "服务目录暂不可用，仍可手动填写地址与模型" : null,
             selected == null ? (provider.isEmpty() ? "未设置" : provider) : selected.title(),
-            catalog.isEmpty() ? null : () -> pickProvider(provider, catalog));
+            catalog.isEmpty() ? null : () -> pickProvider(provider, catalog))
+            .help("选择后自动填写预设地址和模型");
         String problem = endpointProblem(endpoint);
-        service.nav("端点 URL", problem != null ? problem : "https 地址，或本机、局域网的 http 地址",
+        service.nav("端点 URL", problem,
             endpoint.isEmpty() ? "未设置" : HomeTextPolicy.shortLabel(endpoint),
-            () -> editEndpoint(endpoint, enabled));
+            () -> editEndpoint(endpoint, enabled))
+            .help("https 地址，或本机、局域网的 http 地址");
         service.nav("凭据", !origin.isEmpty() ? "只用于 " + origin
                 : problem != null ? "公网端点必须用 https，凭据不会明文发出" : "先填写端点", hasToken ? "已设置" : "未设置",
             origin.isEmpty() ? null : () -> editToken(origin));
@@ -118,21 +121,22 @@ public final class AiSettingsPage extends ReloadingDetailPage {
             modelsStatus = null;
         }
         choices.addAll(fetchedModels);
-        service.nav("模型", "从列表选择，也可以自定义模型名称", model.isEmpty() ? "未设置" : model,
-            () -> pickModel(model, List.copyOf(choices)));
-        service.nav("获取模型列表", modelsStatus != null ? modelsStatus : "从当前服务读取可用模型；不会自动联网",
+        service.nav("模型", null, model.isEmpty() ? "未设置" : model,
+            () -> pickModel(model, List.copyOf(choices))).help("从列表选择，也可以自定义模型名称");
+        service.nav("获取模型列表", modelsStatus,
             modelsBusy ? "获取中…" : null,
-            modelsBusy || origin.isEmpty() ? null : () -> fetchModels(request));
+            modelsBusy || origin.isEmpty() ? null : () -> fetchModels(request))
+            .help("从当前服务读取可用模型；不会自动联网");
         if (selected != null && !selected.documentation().isEmpty()) {
             String documentation = selected.documentation();
-            service.nav("AI 接入说明与 API Key", "查看所选服务的官方接入说明", null,
+            service.nav("AI 接入说明与 API Key", null, null,
                 () -> {
                     if (!LinkActions.open(requireContext(), documentation))
                         MsToast.show(requireContext(), "没有可以打开链接的应用");
-                });
+                }).help("查看所选服务的官方接入说明");
         }
         GroupCard.Row[] enabledRow = new GroupCard.Row[1];
-        enabledRow[0] = service.toggle("启用 AI 入口", "在键盘上显示 AI 回复与润色", enabled, checked -> {
+        enabledRow[0] = service.toggle("启用 AI 入口", null, enabled, checked -> {
             if (checked && !AiEndpointPolicy.allowed(endpoint)) {
                 enabledRow[0].setChecked(false);
                 String reason = endpointProblem(endpoint);
@@ -140,16 +144,16 @@ public final class AiSettingsPage extends ReloadingDetailPage {
                 return;
             }
             saveAi(next -> next.put("enabled", checked));
-        });
-        service.note("AI 设计皮肤使用水杉账号服务，请到外观中的「AI 设计皮肤」操作。");
-        service.nav("AI 对话", "在独立页面里对话，同时可以试用键盘", null,
-            () -> ((HomeActivity) requireActivity()).openChatSecondary(false));
+        }).help("在键盘上显示 AI 回复与润色");
+        service.help("AI 设计皮肤使用水杉账号服务，请到外观中的「AI 设计皮肤」操作。");
+        service.nav("AI 对话", null, null,
+            () -> ((HomeActivity) requireActivity()).openChatSecondary(false)).help("在独立页面里对话，同时可以试用键盘");
 
         GroupCard polish = GroupCard.add(sectionColumn(target, "润色"), "润色");
         polish.nav("润色提示词", null, prompt.isEmpty() ? "默认" : HomeTextPolicy.shortLabel(prompt), () -> editText("润色提示词",
             "留空使用默认提示词", prompt, InputType.TYPE_CLASS_TEXT,
             value -> saveAi(next -> next.put(promptKey, value))));
-        polish.footer("凭据只保存在本机，按端点的来源分别存放。留空凭据表示该来源不需要凭据，不会清掉其他来源已存的凭据。");
+        polish.help("凭据只保存在本机，按端点的来源分别存放。留空凭据表示该来源不需要凭据，不会清掉其他来源已存的凭据。");
 
         renderReplies(target);
     }
@@ -169,9 +173,11 @@ public final class AiSettingsPage extends ReloadingDetailPage {
                     item.author().isEmpty() ? null : "@" + item.author(), null, () -> showReply(item)));
             }
         }
-        group.nav("浏览更多回复模板", "搜索社区里的全部回复模板", null,
-            () -> CommunityFragment.browse(context, CommunityRequest.Kind.REPLY));
-        group.footer("别人分享的 AI 回复提示词。手机上暂时只能浏览，还不能添加到键盘的回复面板。");
+        group.nav("浏览更多回复模板", null, null,
+            () -> CommunityFragment.browse(context, CommunityRequest.Kind.REPLY)).help("搜索社区里的全部回复模板");
+        // 这类模板是什么收进组标题的「?」；手机上还不能用是宿主限制，留在原处。
+        group.help("别人分享的 AI 回复提示词。");
+        group.footer("手机上暂时只能浏览，还不能添加到键盘的回复面板。");
     }
 
     /** 回复模板的详情：和完整列表里点开的是同一个面板，没有「添加」，可以举报和屏蔽作者。 */

@@ -83,7 +83,7 @@ public final class WubiLookupPage extends DetailPage {
         field.setContentDescription("要查五笔编码的文字");
         field.setText(state.lookup.text());
         input.card().addView(field, LayoutPolicy.matchWidthWrapParams());
-        input.footer(WubiCodeLookupPolicy.DESCRIPTION);
+        input.help(WubiCodeLookupPolicy.DESCRIPTION);
 
         TextView button = ViewPolicy.textButton(context, "查码", 16, 600, ThemeColorPolicy.onAccent(context), null,
             Ui.ACTION_BUTTON_MIN_HEIGHT, this::lookup);

@@ -16,12 +16,14 @@ public final class KeyboardGestureDescriptionSmoke {
                 && text.contains("row.setValue(swipeDirectionLabel(value));")
                 && text.contains("KeyboardSheets.saveLocal(this, AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION, value,"),
             "滑动方向保存后必须立即更新行尾显示并重载设置页");
-        check(text.contains("gestures.slider(\"九键滑动距离\",\n                \"手指移动超过这个距离才会触发；距离越大越不容易把快速连打误判成滑动\""),
-            "九键滑动距离必须说明阈值和误触影响");
+        // 说明收进标题旁的「?」（GroupCard.Row#help），不再常驻在标题下面。
+        check(text.contains("gestures.slider(\"九键滑动距离\", null,")
+                && text.contains(".help(\"手指移动超过这个距离才会触发；距离越大越不容易把快速连打误判成滑动\")"),
+            "九键滑动距离必须在「?」里说明阈值和误触影响");
         Path expression = repoRoot().resolve("platforms/android/java/app/msime/android/home/ExpressionPage.java");
         String expressionText = Files.readString(expression, StandardCharsets.UTF_8);
-        check(expressionText.contains("QUOTE_STYLE_LABELS, quote), true);"),
-            "引号样式的长说明和值必须纵向排列");
+        check(expressionText.contains("QUOTE_STYLE_LABELS, quote)).help(QUOTE_STYLE_DESCRIPTION);"),
+            "引号样式的长说明必须收进「?」");
         System.out.println("Keyboard gesture descriptions passed");
     }
 
