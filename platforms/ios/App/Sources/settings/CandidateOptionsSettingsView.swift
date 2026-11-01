@@ -87,7 +87,7 @@ struct CandidateOptionsSettingsView: View {
         }
 
         DesignGroup(title: "预编辑") {
-          DesignToggleRow(title: "双拼显示原始按键", info: "关闭后显示按键对应的完整拼音",
+          DesignToggleRow(title: "双拼显示原始按键", info: "关闭后显示按键对应的完整拼音或粤拼",
                           isOn: storedTop("shuangpin_preedit_uses_raw", $shuangpinRaw))
             .accessibilityIdentifier("shuangpinPreeditUsesRaw")
         }

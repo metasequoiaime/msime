@@ -69,14 +69,14 @@ pub fn convert(
 }
 
 /// 被当前路径分数拒绝的词条仍然存在，不能把它当成缺失词条并生成单音节兜底。
-pub(super) enum Lookup {
+pub(crate) enum Lookup {
     Missing,
     Rejected,
     Found(String, LanguageEntry),
 }
 
 /// 在词条借用期间调用 `can_improve(weight)`，只为能改善路径的词条取得所有权；查询顺序和错误传播与 `convert` 相同。
-pub(super) fn convert_filtered(
+pub(crate) fn convert_filtered(
     count: usize,
     pins: &[Span],
     mut best: impl FnMut(usize, usize, &mut dyn FnMut(i64) -> bool) -> Result<Lookup>,

@@ -9357,8 +9357,9 @@ fn cantonese_digits_select_and_the_apostrophe_reaches_the_engine() {
         assert!(boundary.handled && boundary.commit.is_none(), "{route}");
         let typed = compose_cantonese(&mut runtime, "oi");
         assert_eq!(typed.view.editing_text, "ngo oi", "{route}");
-        assert_eq!(texts(&typed.view)[0], "我", "{route}");
-        let picked = character(&mut runtime, b'1');
+        // 首位是两个音节组出的整句（#10557），第二位才是只覆盖 `ngo` 的「我」。
+        assert_eq!(texts(&typed.view)[..2], ["我愛", "我"], "{route}");
+        let picked = character(&mut runtime, b'2');
         assert_eq!(picked.commit.as_deref(), Some("我"), "{route}");
         let rest = character(&mut runtime, b'1');
         assert_eq!(rest.commit.as_deref(), Some("愛"), "{route}");
