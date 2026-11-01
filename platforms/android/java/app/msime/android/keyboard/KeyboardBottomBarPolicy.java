@@ -14,6 +14,8 @@ public final class KeyboardBottomBarPolicy {
     public static final int MIN_PADDING_DP = 0;
     public static final int MAX_PADDING_DP = 160;
     public static final int DEFAULT_PADDING_DP = BAR_HEIGHT_DP;
+    /** 设置页「键盘底部高度」滑块的步进（#10447）；运行时仍接受 1 dp 粒度的旧值。 */
+    public static final int PADDING_STEP_DP = 4;
     /** 导航栏底边低于这个高度才算手势导航的细条；三键导航是 48 dp，手势条常见 16–24 dp。 */
     public static final int THIN_NAVIGATION_MAX_DP = 32;
 
