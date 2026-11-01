@@ -28,7 +28,7 @@ Status: implemented
 
 固定基线 `53df4a89c1db06d264eadf4e57cb0b54758d61fa` 的共享库在本 worktree 构建。原始双会话回归在“同一码只写一次”断言失败；修复后的 72 个双会话场景退出 0，覆盖预编辑三种样式、UI-less、简繁、worker 早到与晚到、连续四码唯一提交、Shift 大写尾部及分段顶字保留。测试执行生产 `WubiCommitOwner`、结果应用器、`ServerWubiCommit`、两份真实会话和 `ReplyComposer`；文档与系统调度边界为合成观察器。改写载荷保留测试不等于真实插件加载的双进程验收。
 
-现代 Windows 两侧会强制开启 `phrase_preedit` 能力，不能用传入 false 假装关闭它。非唯一 `abcdx` 在此能力下把前词保留在 `phrase_prefix`、把 x 留作下一段，尚不写入文档；回归明确核对这个边界，不把它当成自动提交失败。
+现代 Windows 两侧会强制开启 `phrase_preedit` 能力，不能用传入 false 假装关闭它。非唯一 `abcdx` 的顶字在此能力下同样立即上屏，由 Server worker 写入一次，x 留作下一段，`phrase_prefix` 为空；回归核对这个边界。这条曾经是「前词保留在 `phrase_prefix`、尚不写入文档」，改动见[五笔顶字立即上屏，不进暂存词段](2026-11-01-wubi-top-commit-skips-phrase-hold.md)。
 
 提取实际窗口分支、worker 编辑类、收尾、清队列和超时方法的回归在 macOS 与 Linux 容器均 32 项通过。恢复“只清 owner 不清 in-flight”“先改 owner 再校验消息”“现代无 owner 仍允许 token 0 写入”三个缺陷后，相应用例分别出现 1、2、1 项失败；恢复修复后通过。真实 Windows 系统输入框验收尚缺，不据此关闭 issue。
 

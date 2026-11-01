@@ -7279,7 +7279,7 @@ fn mixed_wubi_continues_a_pinyin_reading_past_a_native_four_code() {
 
 /// Android 设备验收「26 键五笔第五码顶字（混输开）」在运行时的对应：`wqiy` 的简拼前缀不挡顶字，`a` 选掉「你」并开始下一组编码。宿主开着 `phrase_preedit`（安卓、现代 Windows）时「你」留在暂存词段、不立即上屏，下一段选词时连同它一起上屏。
 #[test]
-fn a_fifth_letter_after_wqiy_holds_the_topped_word_with_phrase_preedit() {
+fn a_fifth_letter_after_wqiy_commits_the_topped_word_even_with_phrase_preedit() {
     let directory = tempfile::tempdir().unwrap();
     let mut options = real_engine_options(directory.path());
     options.scheme = 2;
@@ -7291,7 +7291,8 @@ fn a_fifth_letter_after_wqiy_holds_the_topped_word_with_phrase_preedit() {
     .unwrap()
     .execute_batch(
         "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
-            INSERT INTO wubi86 VALUES('wqiy','你',100),('aaaa','工',100);
+            INSERT INTO wubi86 VALUES('wqiy','你',100),('aaaa','工',100),('aaaa','式',50),
+            ('ggll','五',100),('ggll','吾',50);
             CREATE TABLE tbl_2_w(key TEXT,jp TEXT,value TEXT,weight INTEGER);
             INSERT INTO tbl_2_w VALUES('wan''qi','wq','晚期',1000);",
     )
@@ -7300,31 +7301,40 @@ fn a_fifth_letter_after_wqiy_holds_the_topped_word_with_phrase_preedit() {
     runtime.set_phrase_preedit(true);
     runtime.set_wubi_fifth_code_top_commit(true);
     runtime.focus(true).unwrap();
-    for value in b"wqiy" {
-        let typed = runtime
+    let type_key = |runtime: &mut Runtime<msime_engine::host::Session>, value: u8| {
+        runtime
             .dispatch(Action::Character {
-                value: *value,
+                value,
                 shift: false,
             })
-            .unwrap();
-        assert!(typed.commit.is_none());
+            .unwrap()
+    };
+    for value in b"wqiy" {
+        assert!(type_key(&mut runtime, *value).commit.is_none());
     }
     assert_eq!(runtime.view().candidates[0].text, "你");
-    let topped = runtime
-        .dispatch(Action::Character {
-            value: b'a',
-            shift: false,
-        })
-        .unwrap();
-    assert!(topped.commit.is_none(), "{topped:?}");
-    assert_eq!(topped.view.phrase_prefix, "你");
+    // 顶字是用户定下的字，不是造词中途的选词：直接上屏，`a` 开始下一组编码。
+    let topped = type_key(&mut runtime, b'a');
+    assert_eq!(topped.commit.as_deref(), Some("你"), "{topped:?}");
+    assert_eq!(topped.view.phrase_prefix, "");
     assert_eq!(topped.view.editing_text, "a");
     assert_eq!(topped.view.candidates[0].text, "工");
-    let id = topped.view.candidates[0].id;
-    let selected = runtime.dispatch(Action::Select(id)).unwrap();
-    assert_eq!(selected.commit.as_deref(), Some("你工"));
-    assert_eq!(selected.view.phrase_prefix, "");
-    assert_eq!(selected.view.editing_text, "");
+    // 连续顶字：每个完整四码后的字母都顶一次，续打的码不会被截在四码外丢掉。
+    for value in b"aaa" {
+        assert!(type_key(&mut runtime, *value).commit.is_none());
+    }
+    let second = type_key(&mut runtime, b'g');
+    assert_eq!(second.commit.as_deref(), Some("工"), "{second:?}");
+    assert_eq!(second.view.editing_text, "g");
+    for value in b"gll" {
+        assert!(type_key(&mut runtime, *value).commit.is_none());
+    }
+    assert_eq!(runtime.view().editing_text, "ggll");
+    // Esc 只取消还没上屏的这组编码，已经顶下来的字都在文档里。
+    let cancelled = runtime.dispatch(Action::Command(Command::Cancel)).unwrap();
+    assert!(cancelled.commit.is_none(), "{cancelled:?}");
+    assert_eq!(cancelled.view.phrase_prefix, "");
+    assert_eq!(cancelled.view.editing_text, "");
 }
 
 #[test]
