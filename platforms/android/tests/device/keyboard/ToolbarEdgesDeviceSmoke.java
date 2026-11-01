@@ -616,7 +616,9 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             check(undo.getVisibility() == View.GONE && !(Boolean) hasUndo.invoke(service),
                 "clipboard undo stayed after restoring");
 
-            remove.invoke(service, java.util.List.of(target));
+            removed[0] = false;
+            remove.invoke(service, java.util.List.of(target), (Runnable) () -> removed[0] = true);
+            check(removed[0], "the second clipboard deletion did not report completion to the selection panel");
             check(undo.getVisibility() == View.VISIBLE, "clipboard undo did not appear after the second deletion");
             field(type, "clipboardUndoDeadline").setLong(service, android.os.SystemClock.uptimeMillis() - 1);
             method(type, "tickClipboardUndo").invoke(service);
