@@ -303,8 +303,9 @@ public final class Telemetry {
         String preferences = reportingPreferences(app);
         JSONObject root = new JSONObject(NativeClient.telemetryConsent(new JSONObject().put("directory", preferences).put("edition", AppEdition.current().id()).toString()));
         JSONObject value = JsonPolicy.objectValue(root);
-        if (value == null || !(value.opt("enabled") instanceof Boolean)) throw new IllegalStateException("diagnostic consent");
-        if (!value.getBoolean("enabled")) return new Consent(preferences, null);
+        Boolean enabled = JsonPolicy.strictBoolean(value == null ? null : value.opt("enabled"));
+        if (enabled == null) throw new IllegalStateException("diagnostic consent");
+        if (!enabled) return new Consent(preferences, null);
         Object since = value.opt("since_unix_ms");
         if (!(since instanceof Long) && !(since instanceof Integer)) throw new IllegalStateException("diagnostic consent time");
         return new Consent(preferences, new DiagnosticConsent.State(value.getString("epoch"), ((Number) since).longValue()));
@@ -403,7 +404,7 @@ public final class Telemetry {
                     if (value == null) throw new IllegalStateException("diagnostic begin");
                     sessionId = captureOnly ? "" : value.optString("session_id", "");
                     sessionBegun = !captureOnly && !sessionId.isEmpty();
-                    if (!JsonPolicy.strictTrue(value.opt("enabled")) || !current.same(sharedConsent(app)))
+                    if (!Boolean.TRUE.equals(JsonPolicy.strictBoolean(value.opt("enabled"))) || !current.same(sharedConsent(app)))
                         throw new IllegalStateException("diagnostic consent changed");
                     DiagnosticConsent.State state = consent.observe(current.state);
                     String path = value.optString("crash_record_path", "");
