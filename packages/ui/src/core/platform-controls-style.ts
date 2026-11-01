@@ -9,17 +9,21 @@ import { controlRow, rowText as sharedRowText, subtleMeta } from "./row-style";
 export const group = "flex min-w-0 flex-col gap-[var(--p-g-title-gap)]";
 /** Shared rounded surface used by mobile groups that do not contain standard setting rows. */
 export const mobileGroupSurface = "overflow-hidden rounded-[20px] bg-[var(--p-group-bg)]";
-export const groupFooter =
-  "m-0 [padding:var(--p-g-title-pad)] text-[13px] leading-[18px] [color:var(--p-sub)]";
 export const groupTitle =
   "m-0 [padding:var(--p-g-title-pad)] [font-size:var(--p-g-title-fs)] [font-weight:var(--p-g-title-w)] [color:var(--p-g-title-fg)]";
+/** 组名一行：组名和收起组内说明的「?」。内边距由这一行承担，组名本身不再留。 */
+export const groupHeader = "flex min-w-0 items-center gap-1 [padding:var(--p-g-title-pad)]";
+export const groupHeaderTitle =
+  "m-0 [font-size:var(--p-g-title-fs)] [font-weight:var(--p-g-title-w)] [color:var(--p-g-title-fg)]";
 /**
  * 细线画在第一个可见行之后的每个可见行上，所以只有一行的分组没有细线，最后一行下方不会多出一条，隐藏的行也不会留下线。
  *
  * 除 HarmonyOS 手机外，所有平台都照旧把它画成 1px 的上边框。HarmonyOS 手机则改用沿行顶边的背景图来画：粗 `--p-row-divider-w`（.5px），从起始边向内 `--p-row-divider-inset`（16px）处开始，一直延伸到末端边，这是边框做不到的。它用展开写法（longhand）书写，让行自身的背景色（按下时的填充）留在下面。每个类名都完整写出，因为样式表只生成它在源码中找到的类名。
+ *
+ * `empty:hidden`：有组名的组里若只有说明段落，它们都收进了组名旁的「?」，卡片里一个子节点也没有；不收起的话卡片高度为 0，外圈的 `--p-group-shadow` 会在组名下面画出一条孤零零的细线。收起后组名和「?」照旧，和 Windows 没有行时收起卡片一致。
  */
 export const groupRows =
-  "settings-glass-group flex flex-col gap-[var(--p-row-gap)] overflow-hidden rounded-[var(--p-group-r)] bg-[var(--p-group-bg)] [box-shadow:var(--p-group-shadow)] [&>:not([hidden])~:not([hidden])]:[border-top:1px_solid_var(--p-row-divider)] harmony:[&>:not([hidden])~:not([hidden])]:[border-top:0] harmony:[&>:not([hidden])~:not([hidden])]:[background-image:linear-gradient(var(--p-row-divider),var(--p-row-divider))] harmony:[&>:not([hidden])~:not([hidden])]:[background-position:right_top] harmony:[&>:not([hidden])~:not([hidden])]:[background-size:calc(100%_-_var(--p-row-divider-inset))_var(--p-row-divider-w)] harmony:[&>:not([hidden])~:not([hidden])]:[background-repeat:no-repeat]";
+  "settings-glass-group flex empty:hidden flex-col gap-[var(--p-row-gap)] overflow-hidden rounded-[var(--p-group-r)] bg-[var(--p-group-bg)] [box-shadow:var(--p-group-shadow)] [&>:not([hidden])~:not([hidden])]:[border-top:1px_solid_var(--p-row-divider)] harmony:[&>:not([hidden])~:not([hidden])]:[border-top:0] harmony:[&>:not([hidden])~:not([hidden])]:[background-image:linear-gradient(var(--p-row-divider),var(--p-row-divider))] harmony:[&>:not([hidden])~:not([hidden])]:[background-position:right_top] harmony:[&>:not([hidden])~:not([hidden])]:[background-size:calc(100%_-_var(--p-row-divider-inset))_var(--p-row-divider-w)] harmony:[&>:not([hidden])~:not([hidden])]:[background-repeat:no-repeat]";
 
 export const row =
   "flex min-h-[var(--p-row-h)] min-w-0 items-center gap-[var(--p-row-ctl-gap)] rounded-[var(--p-row-r)] bg-[var(--p-row-bg)] [padding:var(--p-row-pad)] [box-shadow:var(--p-row-shadow)]";
@@ -28,6 +32,21 @@ export const rowIcon = "size-5 shrink-0 items-center justify-center [display:var
 export const rowText = sharedRowText;
 export const rowTitle = "block [font-size:var(--p-row-fs)] [color:var(--p-text)]";
 export const rowDescription = "block [font-size:var(--p-sub-fs)] [color:var(--p-sub)]";
+/** 行标题与它后面的「?」排在一行。 */
+export const rowTitleLine = "flex min-w-0 items-center gap-1";
+
+// ---- 说明气泡（InfoTip） ----
+
+export const infoTip = "inline-flex shrink-0 items-center align-middle";
+/** 「?」用 `content` 画，不进 DOM 文本：读 `textContent` 的地方（搜索索引、按文字找行的代码和测试）不会多出一个问号。 */
+export const infoTipGlyph =
+  "inline-flex size-[15px] items-center justify-center rounded-full [border:1.2px_solid_currentColor] text-[10.5px] leading-none font-semibold before:content-['?']";
+export const infoTipButton =
+  "inline-flex cursor-help items-center justify-center rounded-full border-0 bg-transparent p-0.5 [color:var(--p-sub)] hover:[color:var(--p-text)] aria-expanded:[color:var(--p-text)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent";
+export const infoTipPassive = "inline-flex cursor-help items-center p-0.5 [color:var(--p-sub)]";
+/** 气泡挂在设置窗口根节点下按固定定位画出；颜色取平台 token，没有时回退到通用表面色，与 AI 服务商菜单一致。 */
+export const infoTipBubble =
+  "z-[100] box-border w-max max-w-[min(340px,calc(100vw-16px))] rounded-[10px] px-3 py-2 text-left text-[12.5px] leading-[1.55] font-normal whitespace-normal break-words [color:var(--p-text,var(--text-primary))] [background:var(--p-bg,var(--surface-raised))] [border:1px_solid_var(--p-hair,var(--border-color))] [box-shadow:0_10px_28px_rgb(0_0_0/0.18)]";
 export const rowControl = controlRow;
 /** 控件要整行宽度的行（文本框、整行滑块）。HarmonyOS 手机只有约 360px 宽，控件放在标题旁边会把说明挤成几个字一行、把地址截断，所以那里控件换到标题下方独占一行，和标题之间只隔 6px；macOS AI 页的长文本也使用标题下方布局，其余页面与 `row` 相同。 */
 export const wideRow = `settings-wide-row ${row} harmony:flex-wrap harmony:gap-y-1.5`;
@@ -89,8 +108,6 @@ export const secretToggle =
 
 export const checks = "m-0 flex min-w-0 flex-col gap-2 border-0 p-0";
 export const checksLegend = "mb-1 p-0 [font-size:var(--p-row-fs)] [color:var(--p-text)]";
-export const checksDescription =
-  "-mt-1 mb-1 block [font-size:var(--p-sub-fs)] [color:var(--p-sub)]";
 export const check =
   "flex cursor-pointer items-center gap-2.5 [font-size:var(--p-row-fs)] [color:var(--p-text)] has-[:disabled]:cursor-default has-[:disabled]:opacity-50";
 /** HarmonyOS 手机的两列复选列表（翻页方式）：简短的标签在说明文字下并排，每个复选框 18px、圆角 4px。 */
@@ -103,14 +120,6 @@ export const checkGridItem =
 
 /** HarmonyOS 手机的选择行和分段行：整行是一个按钮，点开选择弹窗，末端显示当前值和一个小箭头。 */
 export const pickerRow = `${row} w-full cursor-pointer border-0 text-left [font-family:inherit] active:bg-[var(--p-press)] disabled:cursor-default disabled:opacity-50`;
-/** 带说明的选择行：标题和当前值在第一行，说明在下面占满整行。说明与当前值都可能很长（流式接口），并排时说明会被挤成几个字一行。 */
-export const pickerRowDescribed =
-  "grid min-h-[var(--p-row-h)] w-full min-w-0 cursor-pointer grid-cols-[auto_minmax(0,1fr)] items-center gap-x-[var(--p-row-ctl-gap)] gap-y-0.5 rounded-[var(--p-row-r)] border-0 bg-[var(--p-row-bg)] text-left [padding:var(--p-row-pad)] [box-shadow:var(--p-row-shadow)] [font-family:inherit] active:bg-[var(--p-press)] disabled:cursor-default disabled:opacity-50";
-export const pickerRowDescription =
-  "col-span-2 block [font-size:var(--p-sub-fs)] [color:var(--p-sub)]";
-/** 带说明的选择行里，当前值占标题右边剩下的宽度，靠末端对齐，放不下时截断。 */
-export const pickerValueDescribed =
-  "flex min-w-0 items-center justify-self-end gap-1.5 text-[16px] [color:var(--p-sub)]";
 export const pickerValue =
   "flex max-w-[55%] min-w-0 shrink-0 items-center gap-1.5 text-[16px] [color:var(--p-sub)]";
 export const pickerValueText = "min-w-0 truncate";

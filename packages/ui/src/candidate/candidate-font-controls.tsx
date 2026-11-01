@@ -78,7 +78,7 @@ export function CandidateFontControls({
   return (
     <>
       {mainFont && (
-        <Row title="主字体" description={status}>
+        <Row title="主字体" detail={status}>
           {field(
             "主字体",
             value.candidate_font_family ?? defaultCandidateFontFamily,
@@ -91,15 +91,8 @@ export function CandidateFontControls({
       {englishFont && (
         <Row
           title="英文字体"
-          description={
-            mainFont ? (
-              englishDescription
-            ) : (
-              <>
-                {englishDescription} {status}
-              </>
-            )
-          }
+          description={englishDescription}
+          detail={mainFont ? undefined : <>{status}</>}
         >
           {field(
             "英文字体",

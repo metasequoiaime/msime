@@ -69,7 +69,7 @@ export function CollectionDetail({
       <GroupList>
         <SwitchRow
           title="启用此词库"
-          description={`${formatZhNumber(collection.entry_count)} 条${pending}`}
+          detail={`${formatZhNumber(collection.entry_count)} 条${pending}`}
           checked={collection.enabled}
           disabled={busy}
           onChange={onEnabled}
@@ -139,7 +139,7 @@ export function BuiltinDictionaryDetail({
       <GroupList>
         <SwitchRow
           title="启用此词库"
-          description={`内置词库始终启用${count ? `，有 ${formatZhNumber(count)} 条自己的词` : ""}`}
+          detail={`内置词库始终启用${count ? `，有 ${formatZhNumber(count)} 条自己的词` : ""}`}
           checked
           disabled
           onChange={() => undefined}

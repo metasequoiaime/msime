@@ -17,6 +17,8 @@ export interface SelectRowProps extends Omit<
 > {
   title: ReactNode;
   description?: ReactNode;
+  /** 状态、当前值或校验提示，常驻标题下方；解释性说明用 `description`，收进「?」。 */
+  detail?: ReactNode;
   hidden?: boolean;
   children?: ReactNode;
 }
@@ -25,9 +27,9 @@ export interface SelectRowProps extends Omit<
 export function SelectRow(props: SelectRowProps) {
   const form = useOptionalSettingsForm();
   if (form?.settingsPlatform === "harmony") return <SheetSelectRow {...props} />;
-  const { title, description, hidden, children, ...selectProps } = props;
+  const { title, description, detail, hidden, children, ...selectProps } = props;
   return (
-    <Row title={title} description={description} hidden={hidden}>
+    <Row title={title} description={description} detail={detail} hidden={hidden}>
       <Select {...selectProps}>{children}</Select>
     </Row>
   );
@@ -100,6 +102,7 @@ function findChoice(options: readonly SheetOption[], value: string): SheetOption
 function SheetSelectRow({
   title,
   description,
+  detail,
   hidden,
   children,
   value,
@@ -123,6 +126,7 @@ function SheetSelectRow({
     <PickerRow
       title={title}
       description={description}
+      detail={detail}
       hidden={hidden}
       disabled={disabled}
       valueLabel={shown?.label ?? ""}

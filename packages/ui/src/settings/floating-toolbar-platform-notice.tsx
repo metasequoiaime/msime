@@ -10,7 +10,7 @@ export function FloatingToolbarPlatformNotice({
 }) {
   if (gnomeShell)
     return (
-      <SettingsGroupNote>
+      <SettingsGroupNote inline>
         {
           "Linux 不显示悬浮工具栏窗口。当前是 GNOME 桌面，IBus 在输入源菜单里只列出输入模式和设置，没有「工具栏」子菜单，这一页的设置在当前桌面不生效。"
         }
@@ -18,7 +18,7 @@ export function FloatingToolbarPlatformNotice({
     );
   const stillApplies = buttons ? "下方的按钮选择和显示开关仍然生效" : "下方的显示开关仍然生效";
   return (
-    <SettingsGroupNote>
+    <SettingsGroupNote inline>
       {`Linux 不显示悬浮工具栏窗口，工具栏以输入法菜单里的「工具栏」子菜单呈现，工具栏大小不适用；${stillApplies}。GNOME 桌面下的 IBus 只在输入源菜单列出输入模式和设置，没有这个子菜单。`}
     </SettingsGroupNote>
   );
@@ -29,7 +29,7 @@ export function FloatingToolbarLinuxWindowNotice({ gnomeShell = false }: { gnome
   const drawn =
     "Linux 在 X11 上显示悬浮工具栏，Wayland 桌面经 Xwayland 显示，在 Wayland 桌面上离开输入框时工具栏随之收起。使用 xwayland-satellite 的桌面不显示悬浮窗口。";
   return (
-    <SettingsGroupNote>
+    <SettingsGroupNote inline>
       {gnomeShell
         ? `${drawn}当前是 GNOME 桌面，IBus 的输入源菜单里没有「工具栏」子菜单，没有 Xwayland 时就没有工具栏；工具栏只能在这一页打开或关闭，也可以用设置按钮右键菜单里的「隐藏悬浮状态栏」关掉。`
         : `${drawn}显示不出来时，工具栏以输入法菜单里的「工具栏」子菜单呈现，下方的按钮选择和显示开关同样生效。`}

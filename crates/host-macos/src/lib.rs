@@ -8,6 +8,23 @@
 
 use msime_client_core::panels::KeyboardInputRequest;
 
+/// 通过 Foundation 查询遥测使用的 Application Support，与原生输入法遵循同一系统用户目录。
+#[cfg(target_os = "macos")]
+pub fn telemetry_support_directory() -> Option<std::path::PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    unsafe extern "C" {
+        fn msime_macos_telemetry_support_directory() -> *const std::ffi::c_char;
+    }
+    // 原生侧返回进程存活期间有效的只读字节；缺少系统目录时停采，不退回另一套队列。
+    let raw = unsafe { msime_macos_telemetry_support_directory() };
+    if raw.is_null() {
+        return None;
+    }
+    let bytes = unsafe { std::ffi::CStr::from_ptr(raw) }.to_bytes();
+    let support = std::path::PathBuf::from(std::ffi::OsStr::from_bytes(bytes));
+    support.is_absolute().then_some(support)
+}
+
 /// 主线程上将录入的 DOM 物理主键转成当前布局规范键；手工配置与 MCP 不经过此转换。
 #[cfg(target_os = "macos")]
 pub fn normalize_recorded_toggle_chord(text: &str) -> Result<String, &'static str> {

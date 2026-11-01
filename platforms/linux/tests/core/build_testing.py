@@ -12,6 +12,7 @@ def targets(build_dir):
     model_file = reply / index["reply"]["codemodel-v2"]["jsonFile"]
     model = json.loads(model_file.read_text())
     source_root = Path(model["paths"]["source"])
+    build_root = Path(model["paths"]["build"])
     repo_root = source_root.parent.parent
     production = set()
     tests = set()
@@ -25,8 +26,9 @@ def targets(build_dir):
                 for source in target.get("sources", [])
             ]
             is_test = any(
-                path.is_relative_to(repo_root) and "tests" in path.relative_to(repo_root).parts
+                path.is_relative_to(root) and "tests" in path.relative_to(root).parts
                 for path in sources
+                for root in (repo_root, build_root)
             )
             destination = tests if is_test else production
             destination.add(target["name"])
@@ -36,9 +38,7 @@ def targets(build_dir):
 enabled_production, enabled_tests = targets(Path(sys.argv[1]))
 disabled_production, disabled_tests = targets(Path(sys.argv[2]))
 assert enabled_tests, "BUILD_TESTING=ON 没有生成测试目标"
-assert {
-    "ibus-engine-smoke", "msime-linux-online-provider-contract", "fcitx5-native-test"
-} <= enabled_tests, enabled_tests
+assert {"ibus-engine-smoke", "msime-linux-online-provider-contract", "fcitx5-native-test"} <= enabled_tests, enabled_tests
 assert not disabled_tests, f"BUILD_TESTING=OFF 仍生成测试目标：{sorted(disabled_tests)}"
 assert enabled_production == disabled_production, (
     f"测试开关改变了生产目标：{sorted(enabled_production ^ disabled_production)}"

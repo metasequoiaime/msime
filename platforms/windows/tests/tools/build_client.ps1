@@ -20,11 +20,12 @@ try {
     New-Item -ItemType Directory -Force (Split-Path -Parent $settingsSymbols) | Out-Null
     [IO.File]::WriteAllText($settingsSymbols, 'synthetic WinUI symbols')
     foreach ($arch in @('x86', 'x64')) {
-        foreach ($dll in @('MetasequoiaImeTsf.dll', 'msime_host_api.dll')) {
+        foreach ($dll in @('MetasequoiaImeTsf.dll', 'MetasequoiaImeCrashWer.dll', 'msime_host_api.dll')) {
             Write-PEFixture (Join-Path $fixture "target/windows-full/$arch/bin/$dll") $arch dll
         }
     }
     Write-PEFixture (Join-Path $fixture 'target/windows-full/arm64/bin/MetasequoiaImeTsf.dll') arm64x dll
+    Write-PEFixture (Join-Path $fixture 'target/windows-full/arm64/bin/MetasequoiaImeCrashWer.dll') arm64x dll
     Write-PEFixture (Join-Path $fixture 'target/windows-full/arm64/bin/msime_host_api_arm64.dll') arm64 dll
     foreach ($exe in @('MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe', 'msime-client-prepare.exe',
         'msime-mcp.exe', 'msime-client-settings.exe', 'MSIME.exe')) {
@@ -176,6 +177,9 @@ try {
         $calls[15].Values -notcontains 'RelWithDebInfo') { throw 'Build target mismatch' }
     # 设置窗口显示这个版本号，并以它为准检查更新。
     if ($calls[19].Values -notcontains '/p:MsimeVersion=2026.9.1') { throw 'Settings window built without the target version' }
+    if ($calls[19].Values -notcontains "/p:NativeDependenciesInclude=$(Join-Path $x64 'include')") {
+        throw 'Settings window built without the shared native dependency prefix'
+    }
     # With -RustOutputs, as each release edition runs, nothing is compiled by cargo or pnpm and every Rust input comes from that directory.
     $prebuilt = Join-Path $fixture 'prebuilt rust'
     New-Item -ItemType Directory -Force -Path $prebuilt | Out-Null
@@ -252,11 +256,12 @@ try {
     Remove-Item -LiteralPath $alternateSymbols
     # 不是 full 的版本：输出在 target/windows-<id>，host DLL 按版本表改名，并用 lib /DEF 生成同名导入库给原生目标链接；CMake 和设置窗口工程拿到同一个版本。
     foreach ($arch in @('x86', 'x64')) {
-        foreach ($dll in @('MetasequoiaImeTsf.dll', 'msime_host_api_wubi.dll')) {
+        foreach ($dll in @('MetasequoiaImeTsf.dll', 'MetasequoiaImeCrashWer.dll', 'msime_host_api_wubi.dll')) {
             Write-PEFixture (Join-Path $fixture "target/windows-wubi/$arch/bin/$dll") $arch dll
         }
     }
     Write-PEFixture (Join-Path $fixture 'target/windows-wubi/arm64/bin/MetasequoiaImeTsf.dll') arm64x dll
+    Write-PEFixture (Join-Path $fixture 'target/windows-wubi/arm64/bin/MetasequoiaImeCrashWer.dll') arm64x dll
     Write-PEFixture (Join-Path $fixture 'target/windows-wubi/arm64/bin/msime_host_api_wubi_arm64.dll') arm64 dll
     foreach ($exe in @('MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe', 'msime-client-prepare.exe',
         'msime-mcp.exe', 'msime-client-settings.exe', 'MSIME.exe')) {
@@ -309,6 +314,23 @@ try {
     catch { $rejected = $_.Exception.Message -eq 'PE Arm64X hybrid metadata mismatch' }
     if (-not $rejected) { throw 'Build accepted an ARM64 TIP without its ARM64EC half' }
     Write-PEFixture (Join-Path $fixture 'target/windows-full/arm64/bin/MetasequoiaImeTsf.dll') arm64x dll
+    # 三个架构都必须提供对应的 WER helper，不能只检查 TIP 本体。
+    foreach ($arch in @('x86', 'x64', 'arm64')) {
+        $helper = Join-Path $fixture "target/windows-full/$arch/bin/MetasequoiaImeCrashWer.dll"
+        $expectedArch = if ($arch -eq 'arm64') { 'arm64x' } else { $arch }
+        $wrongArch = if ($arch -eq 'x86') { 'x64' } else { 'x86' }
+        Write-PEFixture $helper $wrongArch dll
+        $rejected = $false
+        try { & $entry -RepoRoot $fixture -X64Dependencies $x64 -X86Dependencies $x86 }
+        catch { $rejected = $_.Exception.Message -eq 'PE architecture mismatch' }
+        if (-not $rejected) { throw "Build accepted a wrong-architecture WER helper: $arch" }
+        Remove-Item -LiteralPath $helper
+        $rejected = $false
+        try { & $entry -RepoRoot $fixture -X64Dependencies $x64 -X86Dependencies $x86 }
+        catch { $rejected = $_.Exception.Message -like '*MetasequoiaImeCrashWer.dll*' }
+        if (-not $rejected) { throw "Build accepted a missing WER helper: $arch" }
+        Write-PEFixture $helper $expectedArch dll
+    }
     Write-PEFixture (Join-Path $fixture 'target/windows-full/x64/bin/onnxruntime.dll') x86 dll
     $rejected = $false
     try { & $entry -RepoRoot $fixture -X64Dependencies $x64 -X86Dependencies $x86 }

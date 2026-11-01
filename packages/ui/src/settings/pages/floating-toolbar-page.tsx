@@ -93,8 +93,13 @@ export function FloatingToolbarSettingsPage() {
             !menuToolbar
               ? "快速访问输入法状态与常用功能"
               : gnomeShell
-                ? "当前 GNOME 桌面的输入源菜单没有「工具栏」子菜单，这个开关在这里不生效"
+                ? undefined
                 : "「工具栏」子菜单：IBus 在面板的属性菜单里，Fcitx5 在托盘的状态区菜单里，需要桌面提供托盘"
+          }
+          detail={
+            menuToolbar && gnomeShell
+              ? "当前 GNOME 桌面的输入源菜单没有「工具栏」子菜单，这个开关在这里不生效"
+              : undefined
           }
           checked={floatingToolbar.enabled}
           onChange={(enabled) => onToolbarChange({ enabled })}

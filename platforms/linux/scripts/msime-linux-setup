@@ -1583,6 +1583,15 @@ def main() -> int:
     if arguments.list_downloads:
         print_dictionary_downloads(read_dictionary_lock(install_prefix()), arguments.json)
         return 0
+    # 查询与跨版本委托不初始化采集；配置操作只认领自己实际处理的 options。
+    capture_state = ((arguments.state if not (arguments.register or arguments.unregister) else None)
+                     or config_home() / "msime-client").expanduser()
+    try:
+        import msime_crash_capture
+    except ImportError:
+        pass
+    else:
+        msime_crash_capture.start("setup", options=capture_state / "runtime-options.json")
     if arguments.unregister:
         unregister_input_method()
         return 0

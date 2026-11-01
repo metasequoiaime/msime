@@ -25,6 +25,9 @@ $layout = [ordered]@{
     'tsf/x64' = @(Get-Item -LiteralPath (Join-Path $staging 'tsf_dll/64/MetasequoiaImeTsf.pdb'))
     'host/x86' = @(Get-Item -LiteralPath (Join-Path $bin 'x86/bin/msime_host_api.pdb'))
     'host/x64' = @(Get-Item -LiteralPath (Join-Path $bin 'x64/bin/msime_host_api.pdb'))
+    'wer/x86' = @(Get-Item -LiteralPath (Join-Path $bin 'x86/bin/MetasequoiaImeCrashWer.pdb'))
+    'wer/x64' = @(Get-Item -LiteralPath (Join-Path $bin 'x64/bin/MetasequoiaImeCrashWer.pdb'))
+    'wer/arm64x' = @(Get-Item -LiteralPath (Join-Path $bin 'arm64/bin/MetasequoiaImeCrashWer.pdb'))
     # One PDB covers both halves of the Arm64X TIP.
     'tsf/arm64x' = @(Get-Item -LiteralPath (Join-Path $staging 'tsf_dll/arm64/MetasequoiaImeTsf.pdb'))
     'host/arm64' = @(Get-Item -LiteralPath (Join-Path $bin 'arm64/bin/msime_host_api.pdb'))

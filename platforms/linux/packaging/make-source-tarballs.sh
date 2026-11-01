@@ -62,7 +62,7 @@ release_date=${MSIME_RELEASE_DATE:-$(git log -1 --format=%cs HEAD)}
 }
 
 # --add-virtual-file 的路径不加 --prefix，顶层目录要自己写上。
-git archive --format=tar --prefix="$name/" --add-virtual-file="$name/platforms/linux/release-date.txt:$release_date"$'\n' HEAD | xz -T0 -9 > "$out/$name.tar.xz"
+git archive --format=tar --prefix="$name/" --add-virtual-file="$name/platforms/linux/build-revision.txt:$(git rev-parse HEAD)"$'\n' --add-virtual-file="$name/platforms/linux/release-date.txt:$release_date"$'\n' HEAD | xz -T0 -9 > "$out/$name.tar.xz"
 
 # 在仓库根目录调用，Cargo 才会按 rust-toolchain.toml 选编译器。打印出的配置里 directory 是这台机器上的绝对路径，换成相对的 cargo，构建时再改写成解包后的位置。
 cargo vendor --locked --versioned-dirs "$vendor/cargo" | sed 's|^directory = .*|directory = "cargo"|' > "$vendor/cargo-config.toml"
