@@ -525,6 +525,11 @@ public final class MSIMEInputService extends InputMethodService {
     int splitKeyboardThresholdDp;
     int splitKeyboardGapPercent;
     boolean splitKeyboardPortrait;
+    /** 本地设置「手机横屏分离式键盘」（#10440）；实际画不画还要看方向、窗口和分离后的键宽，见 {@link #splitKeyboardDrawn}。 */
+    boolean splitKeyboardPhoneLandscape;
+    /** 键盘列上一次布局时扣掉左右内边距（系统栏）后给键行的宽度（像素），以及那次布局时的 `screenWidthDp`；配置变了而还没重新布局时不用它。 */
+    private int keyboardContentWidthPx;
+    private int keyboardContentScreenWidthDp = -1;
     /** 共享偏好 `touch_number_row`；实际画不画还要看键面和布局，见 {@link #numberRowDrawn}。 */
     boolean numberRowEnabled;
     private final AutomaticNumberRow automaticNumberRow = new AutomaticNumberRow();
@@ -3133,6 +3138,7 @@ public final class MSIMEInputService extends InputMethodService {
         splitKeyboardEnabled = localSettings.bool(AndroidLocalSettings.SPLIT_KEYBOARD);
         splitKeyboardThresholdDp = localSettings.integer(AndroidLocalSettings.SPLIT_KEYBOARD_THRESHOLD);
         splitKeyboardGapPercent = localSettings.integer(AndroidLocalSettings.SPLIT_KEYBOARD_GAP);
+        splitKeyboardPhoneLandscape = localSettings.bool(AndroidLocalSettings.SPLIT_KEYBOARD_PHONE_LANDSCAPE);
         incognitoEnabled = localSettings.bool(AndroidLocalSettings.INCOGNITO);
         if (incognitoEnabled) clearQuickDeleteUndo();
         // 设置应用里刚切换过时，下一次弹出键盘（onStartInputView 重读本地设置）就跟上；标志没变时不动窗口。
@@ -5582,16 +5588,38 @@ public final class MSIMEInputService extends InputMethodService {
             ? spaceKeyTitle() + "；左右滑动移动光标" : SPACE_CURSOR_DESCRIPTION;
     }
 
-    /** 分离主开关开启、大屏，且方向符合偏好时，26 键一族或韩文键盘分离（{@link SplitKeyboardPolicy#drawn}）；每次按当前窗口配置重算。 */
     int splitKeyboardGapPercent() { return splitKeyboardGapPercent; }
 
+    /** 分离主开关开启、大屏，且方向符合偏好时，26 键一族或韩文键盘分离（{@link SplitKeyboardPolicy#drawn}）；手机横屏另由本机开关和分离后的键宽决定（{@link SplitKeyboardPolicy#phoneDrawn}，#10440）。每次按当前窗口配置重算。 */
     boolean splitKeyboardDrawn() {
         // 浮动键盘是一块窄面板，不分成两半。
         if (floatingDrawn() || imeLetterRows.numberPadDrawn()) return false;
         Configuration configuration = getResources().getConfiguration();
-        return SplitKeyboardPolicy.drawn(splitKeyboardEnabled, configuration.smallestScreenWidthDp,
-            configuration.orientation == Configuration.ORIENTATION_LANDSCAPE, displayedTouchLayout(view),
-            splitKeyboardPortrait, splitKeyboardThresholdDp);
+        boolean landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE;
+        int touchLayout = displayedTouchLayout(view);
+        if (SplitKeyboardPolicy.drawn(splitKeyboardEnabled, configuration.smallestScreenWidthDp, landscape,
+                touchLayout, splitKeyboardPortrait, splitKeyboardThresholdDp)) return true;
+        return splitKeyboardPhoneLandscape && SplitKeyboardPolicy.phoneDrawn(true,
+            configuration.smallestScreenWidthDp, landscape, touchLayout, splitKeyboardThresholdDp,
+            keyboardContentWidthDp(configuration), touchKeySpacingTenths, splitKeyboardGapPercent);
+    }
+
+    /** 键行实际能用的宽度（dp）：键盘列在当前配置下布局过就用它扣掉左右系统栏内边距后的宽度，分屏、侧边导航栏都已算在里面；刚旋转、还没重新布局时先按 `screenWidthDp` 估，布局完由 {@link #onKeyboardContentLayout} 纠正。 */
+    private int keyboardContentWidthDp(Configuration configuration) {
+        if (keyboardContentWidthPx > 0 && keyboardContentScreenWidthDp == configuration.screenWidthDp)
+            return Math.round(DimensionPolicy.fromPixels(this, (float) keyboardContentWidthPx));
+        return configuration.screenWidthDp;
+    }
+
+    /** 键盘列布局完记下键行可用宽度；手机横屏分离按这个宽度判断，宽度变了而键行还是按旧判断建的（旋转、分屏、导航栏换边）就再画一次。 */
+    private void onKeyboardContentLayout(View column) {
+        int width = column.getWidth() - column.getPaddingLeft() - column.getPaddingRight();
+        int screenWidthDp = getResources().getConfiguration().screenWidthDp;
+        if (width == keyboardContentWidthPx && screenWidthDp == keyboardContentScreenWidthDp) return;
+        keyboardContentWidthPx = width;
+        keyboardContentScreenWidthDp = screenWidthDp;
+        // 在布局回调里不重建视图树，排到下一帧。
+        if (splitKeyboardPhoneLandscape && imeLetterRows.splitStale()) column.post(this::render);
     }
 
     /** 现在字母上方要不要画数字行（#6022）：在字母层、窗口够高，共享偏好打开时画在 26 键一族、韩文、14 键和 18 键上，密码框和终端的自动数字行只画在 26 键一族和韩文上（{@link KeyboardLayout#drawsNumberRow(boolean, boolean, KeyboardLayout.Layer, int, int)}）。 */
@@ -10611,6 +10639,8 @@ public final class MSIMEInputService extends InputMethodService {
             if (overlayDrawn()) positionKeyboardSurface();
             return insets;
         });
+        keyboard.addOnLayoutChangeListener((target, left, top, right, bottom,
+                oldLeft, oldTop, oldRight, oldBottom) -> onKeyboardContentLayout(target));
         keyboardSurface.addView(keyboard, LayoutPolicy.frameMatchParentParams());
         imeBottomBar.build(surface);
         japaneseFlickPreview = new JapaneseFlickPreview(this);
