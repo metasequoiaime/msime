@@ -98,7 +98,7 @@ HarmonyOS 版目前不提供语音润色、AI 联想、AI 对话、高情商回�
 
 ### AI 联想（自带端点与密钥）
 
-配置完整才会发起请求，发送内容是当前查询。默认值按平台不同：Windows 与 macOS 跟随来源模板，`ai_assistant.enabled` 默认开启，并预填 DeepSeek 的接口（`https://api.deepseek.com/chat/completions`）与模型（`deepseek-v4-flash`）；Token 默认为空，`chat_completion_http_request`（`crates/client-providers/src/ai.rs`）在没有可用密钥时拒绝构造请求，因此不会发出任何请求。唯一的例外是桌面上的 Ollama：它跑在用户自己的机器或局域网里、不做鉴权，选它时不需要也不发送 Token，接口地址仍按本机和局域网才可用 http 的规则检查。其余宿主默认关闭，接口为空，需要显式启用并自己填写。端点可以改成任意服务，代码对它做校验：必须是 http/https、不得内嵌用户名密码、长度不超过 2048、不含控制字符（`apps/desktop/src-tauri/src/ai.rs`）。常见的 DeepSeek、OpenAI、Groq、SiliconFlow、OpenRouter、EveryAPI 只是文档和测试里出现的示例，仓库不预置任何一家的密钥。AI 和语音服务设置里的「获取模型」只在你点击时联网：向你所填接口同一服务下的模型列表地址（把接口地址结尾的 `/chat/completions` 或 `/audio/transcriptions` 换成 `/models`）发 GET，有 Token 时带上你填的 Token（Anthropic 的接口用它要求的请求头和分页参数），不跟随重定向，不发送任何输入内容；返回的模型名只用来填设置页的下拉列表。
+配置完整才会发起请求，发送内容是当前查询。默认值按平台不同：Windows 与 macOS 跟随来源模板，`ai_assistant.enabled` 默认开启，并预填 DeepSeek 的接口（`https://api.deepseek.com/chat/completions`）与模型（`deepseek-v4-flash`）；Token 默认为空，`chat_completion_http_request`（`crates/client-providers/src/ai.rs`）在没有可用密钥时拒绝构造请求，因此不会发出任何请求。唯一的例外是桌面上的 Ollama：它跑在用户自己的机器或局域网里、不做鉴权，选它时不需要也不发送 Token，接口地址仍按本机和局域网才可用 http 的规则检查。其余宿主默认关闭，接口为空，需要显式启用并自己填写。端点可以改成任意服务，代码对它做校验：必须是 http/https、不得内嵌用户名密码、长度不超过 2048、不含控制字符（`apps/desktop/src-tauri/src/ai.rs`）。常见的 DeepSeek、OpenAI、Groq、SiliconFlow、OpenRouter、EveryAPI 只是文档和测试里出现的示例，仓库不预置任何一家的密钥。AI 和语音服务设置里的「获取模型列表」只在你点击时联网：向你所填接口同一服务下的模型列表地址（把接口地址结尾的 `/chat/completions` 或 `/audio/transcriptions` 换成 `/models`）发 GET，有 Token 时带上你填的 Token（iOS、Android 与 HarmonyOS 上，Anthropic 的接口用它要求的 `x-api-key` 请求头和分页参数；macOS、Windows 与 Linux 一律用 `Authorization: Bearer` 请求头，不分页），不跟随重定向，不发送任何输入内容；返回的模型名只用来填设置页的下拉列表。
 
 ### 账号与同步（需要登录）
 
