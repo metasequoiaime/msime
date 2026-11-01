@@ -236,7 +236,10 @@ export class CandidateManagementAction {
       ? CandidateManagementAction.touchGlossAction(gloss)
       : null;
     if (action === null) {
-      const read: ManagementAction | null = CandidateManagementAction.readAloudAction(spoken, candidate);
+      const read: ManagementAction | null = CandidateManagementAction.readAloudAction(
+        spoken,
+        candidate,
+      );
       return read === null ? [] : [read];
     }
     return [action].concat(
