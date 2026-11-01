@@ -1,8 +1,8 @@
 #pragma once
 
-// 候选释义的英文读音（音标），IBus 和 Fcitx5 两个宿主共用，只用于显示，从不上屏。规则与 macOS 的 platforms/macos/src/candidate/CandidatePronunciation.h、Windows 的 platforms/windows/src/candidate/CandidateGlossReadings.h 相同，只取英文这一半：释义每种目标语言一行，英文目标那一行按它的第一个词读，英文候选在英文目标那一行读它自己；读音来自共享层的离线读音表（msime_client_pronunciation_request）。Linux 没有可用的系统日文分词器，日文释义不标罗马音。
+// 候选释义的读音，IBus 和 Fcitx5 两个宿主共用，只用于显示，从不上屏。规则与 macOS 的 platforms/macos/src/candidate/CandidatePronunciation.h、Windows 的 platforms/windows/src/candidate/CandidateGlossReadings.h 相同：释义每种目标语言一行，每行按它的第一个词读，英文候选在英文目标那一行读它自己；读音都来自共享层的离线读音表（msime_client_pronunciation_request）：英文给音标，法、西、俄、德、韩给 IPA。Linux 没有可用的系统日文分词器，日文行也交给共享层，读出赫本式罗马字。
 //
-// 读音表在资源目录旁的 pronunciations/en-phonetic.db；Linux 的安装包不带它，用户在设置里打开「显示读音」后点「下载」，设置应用把它装进偏好目录下的 resource-packs/pronunciations/，宿主把 resource-packs 作为补充目录交给共享层。两处都没有时共享层回答空列表，候选窗照旧只画释义。
+// 英文读音表在资源目录旁的 pronunciations/en-phonetic.db，其他语言的在 target-pronunciations/<语言>-phonetic.db；Linux 的安装包不带它们，用户在设置里打开「显示读音」后点「下载」，设置应用把它们装进偏好目录下的 resource-packs/pronunciations/ 和 resource-packs/target-pronunciations/，宿主把 resource-packs 作为补充目录交给共享层。都没有时共享层回答空列表，候选窗照旧只画释义。
 
 #include <algorithm>
 #include <cstddef>
@@ -66,11 +66,28 @@ inline std::vector<std::string> gloss_lines(std::string_view translation) {
   return lines;
 }
 
-// 第 `index` 行释义是不是要按英文读：只有英文目标那一行、第一个词是纯英文时才是。法文的 chat 也是纯字母，按英文读会教错音，所以拉丁字母的行不在英文目标上就不读。
-inline bool gloss_line_english(std::string_view line, std::size_t index, const std::vector<std::string> &targets) {
-  if (index >= targets.size() || targets[index] != "en") return false;
+// 共享层有读音表的语言，和 msime_client_pronunciation_request 认的一样。Linux 没有系统日文分词器，日文行也交给共享层读罗马字。
+inline bool pronunciation_language(std::string_view language) {
+  return language == "en" || language == "fr" || language == "ja" || language == "es" || language == "ru" ||
+         language == "de" || language == "ko";
+}
+
+// 一段文字和它的语言合成的键，请求、回答和缓存都按它：同样的字母在别的语言里是另一个词（法文的 chat），释义行里不会有换行。
+inline std::string pronunciation_key(std::string_view language, std::string_view text) {
+  std::string key(language);
+  key.push_back('\n');
+  key += text;
+  return key;
+}
+
+// 第 `index` 行释义按哪种语言读，空串表示不读。英文只在英文目标那一行、第一个词是纯英文时才是：法文的 chat 也是纯字母，按英文读会教错音。其他有读音表的目标语言，那一行就按它读；表里只有那种语言的词，不是的行查不到，不标读音。
+inline std::string gloss_line_language(std::string_view line, std::size_t index, const std::vector<std::string> &targets) {
+  if (index >= targets.size()) return {};
   const auto term = gloss_first_term(line);
-  return !term.empty() && gloss_plain_english(term);
+  if (term.empty()) return {};
+  const auto &target = targets[index];
+  if (target == "en") return gloss_plain_english(term) ? "en" : std::string{};
+  return pronunciation_language(target) ? target : std::string{};
 }
 
 // 英文候选在第 `index` 行读它自己：那一行是它的中文释义，行在英文目标上（没有目标语言时只认第一行）。
@@ -78,28 +95,29 @@ inline bool gloss_line_reads_candidate(std::string_view line, std::size_t index,
   return !line.empty() && (index < targets.size() ? targets[index] == "en" : index == 0);
 }
 
-// 一个候选需要共享读音表回答的文本：英文候选是它自己，其他候选是它的英文释义行，整行发过去，共享那边取第一个词。
-inline std::vector<std::string> gloss_english_texts(const std::string &candidate_text, std::string_view translation,
-                                                    const std::vector<std::string> &targets) {
-  std::vector<std::string> texts;
+// 一个候选需要共享读音表回答的键（pronunciation_key）：英文候选是它自己（英文），其他候选是它每一行有读音表的释义，整行发过去，共享那边取第一个词。
+inline std::vector<std::string> gloss_pronunciation_keys(const std::string &candidate_text, std::string_view translation,
+                                                         const std::vector<std::string> &targets) {
+  std::vector<std::string> keys;
   const auto lines = gloss_lines(translation);
   if (gloss_plain_english(candidate_text)) {
     for (std::size_t index = 0; index < lines.size(); ++index)
       if (gloss_line_reads_candidate(lines[index], index, targets)) {
-        texts.push_back(candidate_text);
+        keys.push_back(pronunciation_key("en", candidate_text));
         break;
       }
-    return texts;
+    return keys;
   }
   for (std::size_t index = 0; index < lines.size(); ++index)
-    if (gloss_line_english(lines[index], index, targets)) texts.push_back(lines[index]);
-  return texts;
+    if (const auto language = gloss_line_language(lines[index], index, targets); !language.empty())
+      keys.push_back(pronunciation_key(language, lines[index]));
+  return keys;
 }
 
-// 一个候选每行释义的读音，按 "\n" 与释义逐行对应；没有一行有读音时是空串。`english` 给出发给共享读音表的文本对应的 "/…/"，查不到时返回空串。
+// 一个候选每行释义的读音，按 "\n" 与释义逐行对应；没有一行有读音时是空串。`lookup` 给出一个键（pronunciation_key）的回答，查不到时返回空串。
 inline std::string gloss_pronunciation(const std::string &candidate_text, std::string_view translation,
                                        const std::vector<std::string> &targets,
-                                       const std::function<std::string(const std::string &)> &english) {
+                                       const std::function<std::string(const std::string &)> &lookup) {
   const auto lines = gloss_lines(translation);
   const bool english_candidate = gloss_plain_english(candidate_text);
   std::string joined;
@@ -107,9 +125,9 @@ inline std::string gloss_pronunciation(const std::string &candidate_text, std::s
   for (std::size_t index = 0; index < lines.size(); ++index) {
     std::string reading;
     if (english_candidate) {
-      if (gloss_line_reads_candidate(lines[index], index, targets)) reading = english(candidate_text);
-    } else if (gloss_line_english(lines[index], index, targets)) {
-      reading = english(lines[index]);
+      if (gloss_line_reads_candidate(lines[index], index, targets)) reading = lookup(pronunciation_key("en", candidate_text));
+    } else if (const auto language = gloss_line_language(lines[index], index, targets); !language.empty()) {
+      reading = lookup(pronunciation_key(language, lines[index]));
     }
     if (index) joined.push_back('\n');
     joined += reading;
@@ -126,60 +144,67 @@ inline std::string pronunciation_supplementary_root(const std::string &preferenc
   return root + (root == "/" ? "" : "/") + "resource-packs";
 }
 
-// 一批翻译回答（[{text, translation}]）里要问读音表的文本，去掉重复，保持先后顺序。
-inline std::vector<std::string> translation_pronunciation_texts(const nlohmann::json &translations,
-                                                                const std::vector<std::string> &targets) {
-  std::vector<std::string> texts;
-  if (!translations.is_array()) return texts;
+// 一批翻译回答（[{text, translation}]）里要问读音表的键，去掉重复，保持先后顺序。
+inline std::vector<std::string> translation_pronunciation_keys(const nlohmann::json &translations,
+                                                               const std::vector<std::string> &targets) {
+  std::vector<std::string> keys;
+  if (!translations.is_array()) return keys;
   std::unordered_set<std::string> seen;
   for (const auto &item : translations) {
     if (!item.is_object()) continue;
     const auto text = item.find("text"), translation = item.find("translation");
     if (text == item.end() || !text->is_string() || translation == item.end() || !translation->is_string()) continue;
-    for (auto &english : gloss_english_texts(text->get<std::string>(), translation->get_ref<const std::string &>(), targets))
-      if (seen.insert(english).second) texts.push_back(std::move(english));
+    for (auto &key : gloss_pronunciation_keys(text->get<std::string>(), translation->get_ref<const std::string &>(), targets))
+      if (seen.insert(key).second) keys.push_back(std::move(key));
   }
-  return texts;
+  return keys;
 }
 
-// msime_client_pronunciation_request 的请求文档。
-inline std::string pronunciation_request(std::uint64_t generation, const std::vector<std::string> &texts,
+// msime_client_pronunciation_request 的请求文档，每个键拆回 {text, language}。
+inline std::string pronunciation_request(std::uint64_t generation, const std::vector<std::string> &keys,
                                          const std::string &supplementary_root) {
   auto items = nlohmann::json::array();
-  for (const auto &text : texts) items.push_back({{"text", text}, {"language", "en"}});
+  for (const auto &key : keys) {
+    const auto cut = key.find('\n');
+    if (cut == std::string::npos || cut == 0) continue;
+    items.push_back({{"text", key.substr(cut + 1)}, {"language", key.substr(0, cut)}});
+  }
   nlohmann::json request{{"generation", generation}, {"items", std::move(items)}};
   if (!supplementary_root.empty()) request["supplementary_resources"] = supplementary_root;
   return request.dump();
 }
 
-// 读音表的回答（响应的 value：{generation, pronunciations:[{text, language, pronunciation}]}）变成 {文本: 读音}。问过的每个文本都有一项，没有音标的记空串，同一个词不再反复去问；回答里不是问过的文本的项不收。
-inline nlohmann::json read_pronunciations(const nlohmann::json &value, const std::vector<std::string> &texts) {
+// 读音表的回答（响应的 value：{generation, pronunciations:[{text, language, pronunciation}]}）变成 {键: 读音}。问过的每个键都有一项，没有读音的记空串，同一个词不再反复去问；回答里不是问过的键的项不收。
+inline nlohmann::json read_pronunciations(const nlohmann::json &value, const std::vector<std::string> &keys) {
   auto answers = nlohmann::json::object();
-  std::unordered_set<std::string> asked(texts.begin(), texts.end());
-  for (const auto &text : texts) answers[text] = "";
+  std::unordered_set<std::string> asked(keys.begin(), keys.end());
+  for (const auto &key : keys) answers[key] = "";
   if (!value.is_object()) return answers;
   const auto entries = value.find("pronunciations");
   if (entries == value.end() || !entries->is_array()) return answers;
   for (const auto &entry : *entries) {
     if (!entry.is_object()) continue;
-    const auto text = entry.find("text"), pronunciation = entry.find("pronunciation");
-    if (text == entry.end() || !text->is_string() || pronunciation == entry.end() || !pronunciation->is_string()) continue;
-    if (!asked.count(text->get_ref<const std::string &>())) continue;
-    answers[text->get<std::string>()] = *pronunciation;
+    const auto text = entry.find("text"), language = entry.find("language"), pronunciation = entry.find("pronunciation");
+    if (text == entry.end() || !text->is_string() || language == entry.end() || !language->is_string() ||
+        pronunciation == entry.end() || !pronunciation->is_string())
+      continue;
+    auto key = pronunciation_key(language->get_ref<const std::string &>(), text->get_ref<const std::string &>());
+    if (!asked.count(key)) continue;
+    answers[std::move(key)] = *pronunciation;
   }
   return answers;
 }
 
-// 在翻译工作线程上为一批翻译回答查读音：`ask` 发出请求文档、交回响应的 value，失败时交回 null。没有要问的文本时不发请求。
+// 在翻译工作线程上为一批翻译回答查读音：`ask` 发出请求文档、交回响应的 value，失败时交回 null。没有要问的键时不发请求。
 inline nlohmann::json lookup_translation_pronunciations(
     const nlohmann::json &translations, const std::vector<std::string> &targets, std::uint64_t generation,
     const std::string &supplementary_root, const std::function<nlohmann::json(const std::string &)> &ask) {
-  const auto texts = translation_pronunciation_texts(translations, targets);
-  if (texts.empty()) return nlohmann::json::object();
-  return read_pronunciations(ask(pronunciation_request(generation, texts, supplementary_root)), texts);
+  const auto keys = translation_pronunciation_keys(translations, targets);
+  if (keys.empty()) return nlohmann::json::object();
+  return read_pronunciations(ask(pronunciation_request(generation, keys, supplementary_root)), keys);
 }
 
-// 宿主记下的读音，按发给读音表的文本存，空串表示问过、没有音标。条目超过上限时整个清掉重来，和 macOS 的 _englishPronunciations 一样。焦点切换时宿主也清掉它：用户刚下载读音表时，之前记下的空串要重新问。
+// 宿主记下的读音，按发给读音表的键（pronunciation_key）存，空串表示问过、没有读音。条目超过上限时整个清掉重来，和 macOS 的 _sharedPronunciations 一样。焦点切换时宿主也清掉它：用户刚下载读音表时，之前记下的空串要重新问。
 class CandidatePronunciations {
 public:
   static constexpr std::size_t kCapacity = 4096;
@@ -200,7 +225,7 @@ public:
   std::string candidate(const std::string &text, std::string_view translation,
                         const std::vector<std::string> &targets) const {
     if (targets.empty() || translation.empty()) return {};
-    return gloss_pronunciation(text, translation, targets, [this](const std::string &english) { return find(english); });
+    return gloss_pronunciation(text, translation, targets, [this](const std::string &key) { return find(key); });
   }
 
 private:

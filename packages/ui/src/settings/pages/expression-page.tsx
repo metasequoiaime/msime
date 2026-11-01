@@ -16,6 +16,17 @@ import { createTranslationSettingsBindings } from "../translation-settings-bindi
 import { MobileInputAiNotice } from "../mobile-input-ai-notice";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
 import { expressionTabs } from "../expression-tabs";
+import type { Preferences } from "../../core/preferences-model";
+
+/** 共享层除英文外还有读音表的释义语言，和 `msime_engine::host::PHONETIC_LANGUAGES` 一致。 */
+const TARGET_READING_LANGUAGES: ReadonlySet<string> = new Set(["fr", "ja", "es", "ru", "de", "ko"]);
+
+/** 主目标语言或第二目标语言有没有外语读音表要用。 */
+function targetReadingLanguage(draft: Partial<Preferences>): boolean {
+  return [draft.translation_target_language, draft.translation_secondary_language].some(
+    (language) => typeof language === "string" && TARGET_READING_LANGUAGES.has(language),
+  );
+}
 
 /**
  * 标点与翻译页：打出来的内容以什么形式出现——标点、其他语言的候选与释义、翻译服务。混入的英文与表情颜文字是候选来源，模糊音改的是拼音怎么解析，两者都在输入页；AI 功能在「工具」组的「AI 辅助」页。
@@ -67,7 +78,7 @@ export function ExpressionSettingsPage() {
     retrySave,
   } = useSettingsForm();
   const { onPreferencesChange, onVoiceChange } = createSettingsDraftActions({ setDraft });
-  // 只有安装包不带音标表的宿主（Linux）列出「离线英文音标词典」；打开「显示英文音标」时在开关下面给出下载行，不自动下载。其他平台这一行不会出现，不读资源包列表。
+  // 只有安装包不带读音表的宿主（Linux）列出「离线英文音标词典」和「离线外语读音词典」；打开「显示读音」时在开关下面给出下载行，不自动下载，外语那一行只在目标语言里有法、日、西、俄、德、韩语时给出。其他平台这两行不会出现，不读资源包列表。
   const pronunciationDownloadable = linuxPlatform && Boolean(client.candidatePronunciation);
   const resourcePacks = useResourcePacks(
     pronunciationDownloadable ? client.resourcePacks : undefined,
@@ -137,8 +148,17 @@ export function ExpressionSettingsPage() {
             onChange={(candidate_pronunciation) => onPreferencesChange({ candidate_pronunciation })}
           />
           {pronunciationDownloadable && draft.candidate_pronunciation && (
-            <ResourcePackRow packs={resourcePacks} id="pronunciations" note="显示英文音标需要它" />
+            <ResourcePackRow packs={resourcePacks} id="pronunciations" note="英文读音需要它" />
           )}
+          {pronunciationDownloadable &&
+            draft.candidate_pronunciation &&
+            targetReadingLanguage(draft) && (
+              <ResourcePackRow
+                packs={resourcePacks}
+                id="target-pronunciations"
+                note="法、日、西、俄、德、韩语释义的读音需要它"
+              />
+            )}
         </>
       ),
   };

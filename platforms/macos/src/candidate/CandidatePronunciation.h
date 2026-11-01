@@ -4,10 +4,7 @@
 
 // How the gloss lines under a candidate are read, drawn after each line and never committed.
 //
-// A gloss is one line per translation target, joined with "\n" in target order (MSIMEJoinedTranslations keeps the
-// empty lines in between). Each line is pronounced by its first term: English through the shared offline table
-// (msime_client_pronunciation_request), Japanese as romaji from the system tokenizer, which reads kanji as well as kana.
-// Nothing else is pronounced; a line without a pronunciation is left as it is.
+// A gloss is one line per translation target, joined with "\n" in target order (MSIMEJoinedTranslations keeps the empty lines in between). Each line is pronounced by its first term: English, French, Spanish, Russian, German and Korean through the shared offline tables (msime_client_pronunciation_request, which answers IPA for each of them), Japanese as romaji from the system tokenizer, which reads kanji as well as kana. A line without a pronunciation is left as it is.
 
 // The part of a gloss line before its first separator, which is the word the line teaches.
 static inline NSString *MSIMEGlossFirstTerm(NSString *line)
@@ -40,9 +37,13 @@ static inline BOOL MSIMEIsPlainEnglish(NSString *text)
     return letter;
 }
 
-// Which language line `index` of a gloss is in, for reading it: the line's target, checked against the text. Kana is
-// Japanese wherever it appears. A Latin line is English only on the English target — French "chat" is plain letters too,
-// and reading it as English would teach the wrong sound — and a kanji-only line is Japanese only on the Japanese target.
+// The targets whose gloss lines the shared tables read besides English (target-pronunciations/<language>-phonetic.db).
+static inline BOOL MSIMEIsSharedReadingTarget(NSString *target)
+{
+    return [@[ @"fr", @"es", @"ru", @"de", @"ko" ] containsObject:target ?: @""];
+}
+
+// Which language line `index` of a gloss is in, for reading it: the line's target, checked against the text. Kana is Japanese wherever it appears. A Latin line is English only on the English target — French "chat" is plain letters too, and reading it as English would teach the wrong sound — and a kanji-only line is Japanese only on the Japanese target. A line on the French, Spanish, Russian, German or Korean target is in that language: its table has only that language's words, so a line that is not one of them simply has no reading.
 static inline NSString *MSIMEGlossLineLanguage(NSString *line, NSUInteger index, NSArray<NSString *> *targets)
 {
     NSString *term = MSIMEGlossFirstTerm(line);
@@ -50,13 +51,17 @@ static inline NSString *MSIMEGlossLineLanguage(NSString *line, NSUInteger index,
     if (MSIMEContainsKana(term)) return @"ja";
     NSString *target = index < targets.count ? targets[index] : nil;
     if ([target isEqual:@"en"]) return MSIMEIsPlainEnglish(term) ? @"en" : nil;
+    if (MSIMEIsSharedReadingTarget(target)) return target;
     return [target isEqual:@"ja"] ? @"ja" : nil;
 }
 
-// Romaji of Japanese text, word by word from the system tokenizer, one space between words: 今日は天気がいいですね reads
-// "kyou wa tenki ga ii desu ne", which a learner can match to the words; run together it cannot be read. The particles
-// は, へ and を are read wa, e and o, as they are spoken, and so is the は that ends a greeting such as こんにちは. Empty
-// when a token has no Latin transcription (the text is not Japanese the tokenizer knows): half a reading is not shown.
+// The key a shared-table answer is kept under: the language and the text asked about. The same letters are a different word in another language (French "chat"), and a gloss line never holds a newline.
+static inline NSString *MSIMEPronunciationKey(NSString *language, NSString *text)
+{
+    return [NSString stringWithFormat:@"%@\n%@", language, text];
+}
+
+// Romaji of Japanese text, word by word from the system tokenizer, one space between words: 今日は天気がいいですね reads "kyou wa tenki ga ii desu ne", which a learner can match to the words; run together it cannot be read. The particles は, へ and を are read wa, e and o, as they are spoken, and so is the は that ends a greeting such as こんにちは. Empty when a token has no Latin transcription (the text is not Japanese the tokenizer knows): half a reading is not shown.
 static inline NSString *MSIMEJapaneseRomaji(NSString *text)
 {
     if (text.length == 0) return @"";
@@ -89,12 +94,9 @@ static inline NSString *MSIMEJapaneseRomaji(NSString *text)
     return complete ? [words componentsJoinedByString:@" "] : @"";
 }
 
-// The per-line pronunciation of a candidate's gloss, "\n"-joined parallel to its lines, or empty when no line has one.
-// `english` maps a text sent to the shared table to its "/…/" answer; English candidates are pronounced by their own
-// text on the English line, since that line is their Chinese gloss. `romaji` reads a Japanese term (a caching wrapper
-// of MSIMEJapaneseRomaji); nil reads it directly.
+// The per-line pronunciation of a candidate's gloss, "\n"-joined parallel to its lines, or empty when no line has one. `shared` maps MSIMEPronunciationKey(language, text) of a text sent to the shared tables to its answer; English candidates are pronounced by their own text on the English line, since that line is their Chinese gloss. `romaji` reads a Japanese term (a caching wrapper of MSIMEJapaneseRomaji); nil reads it directly.
 static inline NSString *MSIMEGlossPronunciation(NSString *candidateText, NSString *translation, NSArray<NSString *> *targets,
-                                                NSDictionary<NSString *, NSString *> *english,
+                                                NSDictionary<NSString *, NSString *> *shared,
                                                 NSString *(^romaji)(NSString *term))
 {
     if (translation.length == 0) return @"";
@@ -107,31 +109,33 @@ static inline NSString *MSIMEGlossPronunciation(NSString *candidateText, NSStrin
         NSString *reading = @"";
         NSString *language = MSIMEGlossLineLanguage(line, index, targets);
         if (englishCandidate && line.length && (index < targets.count ? [targets[index] isEqual:@"en"] : index == 0))
-            reading = english[candidateText] ?: @"";
-        else if ([language isEqual:@"en"])
-            reading = english[line] ?: @"";
+            reading = shared[MSIMEPronunciationKey(@"en", candidateText)] ?: @"";
         else if ([language isEqual:@"ja"])
             reading = (romaji ? romaji(MSIMEGlossFirstTerm(line)) : MSIMEJapaneseRomaji(MSIMEGlossFirstTerm(line))) ?: @"";
+        else if (language)
+            reading = shared[MSIMEPronunciationKey(language, line)] ?: @"";
         any = any || reading.length;
         [readings addObject:reading];
     }
     return any ? [readings componentsJoinedByString:@"\n"] : @"";
 }
 
-// The English texts a candidate needs the shared table for: its own text when it is an English candidate, otherwise its
-// English gloss lines. Sent as whole lines; the shared side picks the first term.
-static inline NSArray<NSString *> *MSIMEGlossEnglishTexts(NSString *candidateText, NSString *translation, NSArray<NSString *> *targets)
+// What a candidate needs the shared tables for, as {text, language} request items: its own text when it is an English candidate (in English), otherwise each gloss line in English, French, Spanish, Russian, German or Korean. Sent as whole lines; the shared side picks the first term. Japanese lines are read by the system tokenizer instead.
+static inline NSArray<NSDictionary<NSString *, NSString *> *> *MSIMEGlossSharedItems(NSString *candidateText, NSString *translation,
+                                                                                 NSArray<NSString *> *targets)
 {
-    NSMutableArray<NSString *> *texts = [NSMutableArray array];
-    if (translation.length == 0) return texts;
+    NSMutableArray<NSDictionary<NSString *, NSString *> *> *items = [NSMutableArray array];
+    if (translation.length == 0) return items;
     if (MSIMEIsPlainEnglish(candidateText)) {
-        [texts addObject:candidateText];
-        return texts;
+        [items addObject:@{ @"text" : candidateText, @"language" : @"en" }];
+        return items;
     }
     NSArray<NSString *> *lines = [translation componentsSeparatedByString:@"\n"];
-    for (NSUInteger index = 0; index < lines.count; ++index)
-        if ([MSIMEGlossLineLanguage(lines[index], index, targets) isEqual:@"en"]) [texts addObject:lines[index]];
-    return texts;
+    for (NSUInteger index = 0; index < lines.count; ++index) {
+        NSString *language = MSIMEGlossLineLanguage(lines[index], index, targets);
+        if (language && ![language isEqual:@"ja"]) [items addObject:@{ @"text" : lines[index], @"language" : language }];
+    }
+    return items;
 }
 
 // The gloss as drawn: each line, then its reading on a line of its own under it. The reading ranges are reported so they can be styled apart, and `lineStarts` gives where each gloss line begins in the result, for underlining an armed column.

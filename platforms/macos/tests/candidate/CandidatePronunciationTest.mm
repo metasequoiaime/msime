@@ -1,5 +1,4 @@
-// The readings drawn after gloss lines: which line is in which language, which texts go to the shared English table,
-// romaji from the system tokenizer, and the display string whose reading ranges and line starts the button draws from.
+// The readings drawn after gloss lines: which line is in which language, which texts go to the shared tables, romaji from the system tokenizer, and the display string whose reading ranges and line starts the button draws from.
 #import "../../src/candidate/CandidatePronunciation.h"
 #include <cstdio>
 #include <cstdlib>
@@ -26,8 +25,11 @@ int main()
         Check([MSIMEGlossLineLanguage(@"愛する, 恋する", 1, enJa) isEqual:@"ja"], "kana is Japanese");
         Check([MSIMEGlossLineLanguage(@"学校; 大学", 1, enJa) isEqual:@"ja"], "kanji-only follows the Japanese target");
         Check(MSIMEGlossLineLanguage(@"学校; 大学", 0, enJa) == nil, "kanji on a non-Japanese target is not guessed");
-        Check(MSIMEGlossLineLanguage(@"chat, chatte", 0, @[ @"fr" ]) == nil, "French letters are not read as English");
-        Check(MSIMEGlossLineLanguage(@"chat, chatte", 0, @[ @"fr", @"en" ]) == nil, "only the English target's line is English");
+        Check([MSIMEGlossLineLanguage(@"chat, chatte", 0, @[ @"fr" ]) isEqual:@"fr"], "French letters are read as French, not English");
+        Check([MSIMEGlossLineLanguage(@"chat, chatte", 0, @[ @"fr", @"en" ]) isEqual:@"fr"], "only the English target's line is English");
+        Check([MSIMEGlossLineLanguage(@"кошка, кот", 1, @[ @"en", @"ru" ]) isEqual:@"ru"], "a line follows its own target");
+        Check([MSIMEGlossLineLanguage(@"고양이", 0, @[ @"ko" ]) isEqual:@"ko"], "Korean is read from the Korean table");
+        Check(MSIMEGlossLineLanguage(@"chat", 0, @[ @"zh" ]) == nil, "a target without a table is not read");
         Check(MSIMEGlossLineLanguage(@"", 0, enJa) == nil, "an empty line has no language");
         Check(MSIMEGlossLineLanguage(@"你好; 您好", 0, enJa) == nil, "a Chinese gloss has no reading of its own");
 
@@ -43,7 +45,12 @@ int main()
         Check([MSIMEJapaneseRomaji(@"こんにちは") isEqual:@"konnichiwa"], "a greeting's final は reads wa");
         Check([MSIMEJapaneseRomaji(@"はな") isEqual:@"hana"], "は inside a word keeps ha");
 
-        NSDictionary *english = @{ @"love; affection" : @"/lʌv/", @"hello" : @"/həˈləu/" };
+        NSDictionary *english = @{
+            MSIMEPronunciationKey(@"en", @"love; affection") : @"/lʌv/",
+            MSIMEPronunciationKey(@"en", @"hello") : @"/həˈləu/",
+            MSIMEPronunciationKey(@"fr", @"chat, chatte; félin") : @"/ʃa/",
+            MSIMEPronunciationKey(@"de", @"Katze") : @"/ˈkatsə/",
+        };
         // A Chinese candidate with an English and a Japanese line: one reading per line.
         Check([MSIMEGlossPronunciation(@"爱", @"love; affection\n愛する, 恋する", enJa, english, nil) isEqual:@"/lʌv/\naisuru"],
               "Chinese candidate reads both lines");
@@ -58,11 +65,21 @@ int main()
                   isEqual:@"\nneko"],
               "readings stay aligned with their lines");
 
-        NSArray *texts = MSIMEGlossEnglishTexts(@"爱", @"love; affection\n愛する", enJa);
-        Check(texts.count == 1 && [texts[0] isEqual:@"love; affection"], "English gloss lines are asked for");
-        texts = MSIMEGlossEnglishTexts(@"hello", @"你好", @[ @"en" ]);
-        Check(texts.count == 1 && [texts[0] isEqual:@"hello"], "an English candidate asks for itself");
-        Check(MSIMEGlossEnglishTexts(@"爱", @"", enJa).count == 0, "no gloss asks for nothing");
+        // French and German lines are read from their own tables; the same letters on the English line would be English.
+        Check([MSIMEGlossPronunciation(@"猫", @"chat, chatte; félin\nKatze", @[ @"fr", @"de" ], english, nil) isEqual:@"/ʃa/\n/ˈkatsə/"],
+              "each target line reads from its own language");
+        Check([MSIMEGlossPronunciation(@"猫", @"chat, chatte; félin", @[ @"en" ], english, nil) isEqual:@""],
+              "a French answer is not an English one");
+
+        NSArray<NSDictionary *> *items = MSIMEGlossSharedItems(@"爱", @"love; affection\n愛する", enJa);
+        Check(items.count == 1 && [items[0] isEqual:(@{ @"text" : @"love; affection", @"language" : @"en" })], "English gloss lines are asked for");
+        items = MSIMEGlossSharedItems(@"hello", @"你好", @[ @"en" ]);
+        Check(items.count == 1 && [items[0] isEqual:(@{ @"text" : @"hello", @"language" : @"en" })], "an English candidate asks for itself");
+        items = MSIMEGlossSharedItems(@"猫", @"chat\n猫\nKatze", @[ @"fr", @"ja", @"de" ]);
+        Check(items.count == 2 && [items[0] isEqual:(@{ @"text" : @"chat", @"language" : @"fr" })] &&
+                  [items[1] isEqual:(@{ @"text" : @"Katze", @"language" : @"de" })],
+              "other target lines are asked for in their language; Japanese is read locally");
+        Check(MSIMEGlossSharedItems(@"爱", @"", enJa).count == 0, "no gloss asks for nothing");
 
         NSMutableArray<NSValue *> *ranges = [NSMutableArray array];
         NSMutableArray<NSNumber *> *starts = [NSMutableArray array];

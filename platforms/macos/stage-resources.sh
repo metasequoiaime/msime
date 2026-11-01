@@ -4,7 +4,7 @@ umask 077
 
 repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$repo_root"
-source_dir=${1:?usage: [MSIME_EDITION=<id>] stage-resources.sh <verified-resource-directory> [settled-model-directory] [offline-glosses-directory] [language-dictionaries-directory] [pronunciations-directory] [character-glosses-directory] [word-glosses-directory] [wordbooks-directory]}
+source_dir=${1:?usage: [MSIME_EDITION=<id>] stage-resources.sh <verified-resource-directory> [settled-model-directory] [offline-glosses-directory] [language-dictionaries-directory] [pronunciations-directory] [character-glosses-directory] [word-glosses-directory] [wordbooks-directory] [target-pronunciations-directory]}
 source_dir=$(cd "$source_dir" && pwd)
 destination="$repo_root/target/macos/EngineResources"
 
@@ -133,6 +133,17 @@ if [ -f "$pronunciations_source/en-phonetic.db" ] && [ -f "$pronunciations_sourc
   echo "pronunciations staged: $pronunciations_destination"
 else
   echo "no pronunciations at $pronunciations_source; English glosses are shown without IPA"
+fi
+# Optional: the readings of the French, Spanish, Russian, German and Korean gloss lines (and Japanese romaji for hosts without a system reader) built from Wiktionary by scripts/build_target_pronunciations.py, one *-phonetic.db per language, read beside the resource directory like the English table. Only staged with the CC BY-SA notice they must travel with. Without them those lines carry no reading; Japanese romaji still comes from the system tokenizer.
+target_pronunciations_source=${9:-$repo_root/target/target-pronunciations}
+target_pronunciations_destination="$repo_root/target/macos/target-pronunciations"
+rm -rf "$target_pronunciations_destination"
+if compgen -G "$target_pronunciations_source/*-phonetic.db" >/dev/null && [ -f "$target_pronunciations_source/target-pronunciations-NOTICE.txt" ]; then
+  mkdir -p "$target_pronunciations_destination"
+  cp "$target_pronunciations_source"/*-phonetic.db "$target_pronunciations_source/target-pronunciations-NOTICE.txt" "$target_pronunciations_destination/"
+  echo "target pronunciations staged: $target_pronunciations_destination"
+else
+  echo "no target pronunciations at $target_pronunciations_source; non-English gloss lines are shown without a reading"
 fi
 # Optional: English glosses for single characters built by scripts/build_character_glosses.py, which english.db leaves out; read beside the resource directory.
 characters_source=${6:-$repo_root/target/character-glosses}
