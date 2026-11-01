@@ -251,6 +251,7 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean candidatePronunciationEnabled;
     private boolean candidatePronunciationAvailable;
     private boolean candidatePronunciationPackInstalled;
+    private boolean candidateTargetPronunciationPackInstalled;
     private java.util.Map<String, String> candidatePronunciations = java.util.Map.of();
     private String candidatePronunciationRequest = "";
     private long candidatePronunciationEpoch;
@@ -432,6 +433,8 @@ public final class MSIMEInputService extends InputMethodService {
     int clipboardColumns = 1;
     /** 本地设置「撤销时长」，删除时读取；改了设置只影响之后的删除。 */
     int clipboardUndoSeconds = ClipboardUndoPolicy.DEFAULT_SECONDS;
+    /** 本地设置「剪贴板删除数据验证」；访客模式下即使关闭也要求认证。 */
+    boolean clipboardDeleteAuthenticationEnabled;
     private ImeInlineAutofill inlineAutofill;
     /** 本地设置 `platform.android.clipboard_suggestion` 的值；工具栏是否真的显示最近复制，还要看剪贴板历史开没开，一律问 {@link #recentClipEnabled()}。 */
     boolean clipboardSuggestionEnabled = true;
@@ -523,6 +526,11 @@ public final class MSIMEInputService extends InputMethodService {
     int splitKeyboardThresholdDp;
     int splitKeyboardGapPercent;
     boolean splitKeyboardPortrait;
+    /** 本地设置「手机横屏分离式键盘」（#10440）；实际画不画还要看方向、窗口和分离后的键宽，见 {@link #splitKeyboardDrawn}。 */
+    boolean splitKeyboardPhoneLandscape;
+    /** 键盘列上一次布局时扣掉左右内边距（系统栏）后给键行的宽度（像素），以及那次布局时的 `screenWidthDp`；配置变了而还没重新布局时不用它。 */
+    private int keyboardContentWidthPx;
+    private int keyboardContentScreenWidthDp = -1;
     /** 共享偏好 `touch_number_row`；实际画不画还要看键面和布局，见 {@link #numberRowDrawn}。 */
     boolean numberRowEnabled;
     private final AutomaticNumberRow automaticNumberRow = new AutomaticNumberRow();
@@ -2003,6 +2011,7 @@ public final class MSIMEInputService extends InputMethodService {
                 resourcePacks = KeyboardScheme.availablePacks(
                     installedPacks::contains, options.optString("resources", ""));
                 candidatePronunciationPackInstalled = installedPacks.contains(ResourcePacks.PRONUNCIATIONS);
+                candidateTargetPronunciationPackInstalled = installedPacks.contains(ResourcePacks.TARGET_PRONUNCIATIONS);
                 installedResourcePackIds = installedPacks;
                 announceWubiTableMissing();
                 JSONObject preferences = options.optJSONObject("preferences");
@@ -2366,6 +2375,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onDestroy() {
+        if (readAloudSpeaker != null) readAloudSpeaker.shutdown();
         if (imeOcr != null) imeOcr.destroy();
         operationNotice.cancel();
         if (imeWorldClock != null) imeWorldClock.destroy();
@@ -2607,6 +2617,7 @@ public final class MSIMEInputService extends InputMethodService {
         candidatePronunciationEnabled = false;
         candidatePronunciationAvailable = false;
         candidatePronunciationPackInstalled = false;
+        candidateTargetPronunciationPackInstalled = false;
         invalidateCandidatePronunciations();
         candidateGlossStateRoot = "";
         candidateEnglishGloss = false;
@@ -2809,7 +2820,8 @@ public final class MSIMEInputService extends InputMethodService {
             File parent = new File(candidateGlossResources).getParentFile();
             candidatePronunciationAvailable = candidateGlossResources.length() > 0
                 && ((parent != null && new File(parent, "pronunciations/en-phonetic.db").isFile())
-                    || (candidatePronunciationPackInstalled && !candidateGlossStateRoot.isEmpty()));
+                    || ((candidatePronunciationPackInstalled || candidateTargetPronunciationPackInstalled)
+                        && !candidateGlossStateRoot.isEmpty()));
             apply(NativeClient.focus(session, true));
             markPrivateSession();
             view = value(NativeClient.setEnglishMode(session, dedicatedEnglish));
@@ -3063,7 +3075,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    /** 日语九键侧列的 ☺：顶部工具栏有表情按钮时两处入口重复，不放；工具栏关掉表情或整条隐藏时才放回来。 */
+    /** 日语九键左列的 符 长按是否打开表情浏览：顶部工具栏有表情按钮时两处入口重复，不接长按；工具栏关掉表情或整条隐藏时才接上，读屏描述跟着改（{@code ImeLayoutRows.japaneseSymbolPanelKey}）。 */
     boolean japaneseSideEmojiKey() {
         return !toolbarEmoji || toolbarHidden;
     }
@@ -3115,6 +3127,7 @@ public final class MSIMEInputService extends InputMethodService {
             localSettings.choice(AndroidLocalSettings.CLIPBOARD_COLUMNS));
         clipboardSuggestionEnabled = localSettings.bool(AndroidLocalSettings.CLIPBOARD_SUGGESTION);
         clipboardUndoSeconds = localSettings.integer(AndroidLocalSettings.CLIPBOARD_UNDO_SECONDS);
+        clipboardDeleteAuthenticationEnabled = localSettings.bool(AndroidLocalSettings.CLIPBOARD_DELETE_AUTHENTICATION);
         clipboardSuggestionActionEnabled = localSettings.bool(AndroidLocalSettings.CLIPBOARD_SUGGESTION_ACTION);
         clipboardSuggestionActionKind = localSettings.choice(AndroidLocalSettings.CLIPBOARD_SUGGESTION_ACTION_KIND);
         toolbarFloating = localSettings.bool(AndroidLocalSettings.TOOLBAR_FLOATING);
@@ -3130,6 +3143,7 @@ public final class MSIMEInputService extends InputMethodService {
         splitKeyboardEnabled = localSettings.bool(AndroidLocalSettings.SPLIT_KEYBOARD);
         splitKeyboardThresholdDp = localSettings.integer(AndroidLocalSettings.SPLIT_KEYBOARD_THRESHOLD);
         splitKeyboardGapPercent = localSettings.integer(AndroidLocalSettings.SPLIT_KEYBOARD_GAP);
+        splitKeyboardPhoneLandscape = localSettings.bool(AndroidLocalSettings.SPLIT_KEYBOARD_PHONE_LANDSCAPE);
         incognitoEnabled = localSettings.bool(AndroidLocalSettings.INCOGNITO);
         if (incognitoEnabled) clearQuickDeleteUndo();
         // 设置应用里刚切换过时，下一次弹出键盘（onStartInputView 重读本地设置）就跟上；标志没变时不动窗口。
@@ -3138,7 +3152,7 @@ public final class MSIMEInputService extends InputMethodService {
         ScreenCaptureProtection.apply(imeWindow == null ? null : imeWindow.getWindow(), screenCaptureProtected);
     }
 
-    /** 键盘高度：本地设置里有设计范围（-46..110）的值就用它，否则沿用共享偏好的 `touch_keyboard_height_adjustment`（-12..48）。 */
+    /** 键盘高度：本地设置里有设计范围（-46..129）的值就用它，否则沿用共享偏好的 `touch_keyboard_height_adjustment`（-12..48）。 */
     private int heightAdjustmentFrom(JSONObject preferences) {
         if (localSettings.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)) {
             return KeyboardHeightPolicy.designHeightAdjustment(
@@ -3382,7 +3396,7 @@ public final class MSIMEInputService extends InputMethodService {
             ? candidateTranslation(candidate) : "";
         String text = CandidatePronunciationPolicy.lookupText(
             InputViewValuePolicy.textOr(candidate, "text", ""), translation,
-            candidateTranslationTargets.contains("en"));
+            candidatePronunciationTarget());
         String reading = candidatePronunciations.getOrDefault(text, "");
         // 保持候选字的基线稳定：音标尚未到达或这个词查不到时，同样占两行次要文字。
         String first = annotation.isEmpty() ? "\u00A0" : annotation;
@@ -3395,17 +3409,21 @@ public final class MSIMEInputService extends InputMethodService {
         String text = CandidatePronunciationPolicy.lookupText(
             InputViewValuePolicy.textOr(candidate, "text", ""),
             candidateEnglishGloss || candidateTranslationsEnabled ? candidateTranslation(candidate) : "",
-            candidateTranslationTargets.contains("en"));
-        String reading = candidatePronunciations.getOrDefault(text, "");
-        return reading.isEmpty() ? "" : "，音标：" + reading;
+            candidatePronunciationTarget());
+        return CandidatePronunciationPolicy.accessibilitySuffix(candidatePronunciations.getOrDefault(text, ""));
+    }
+
+    /** 释义的目标语言，读音按它查表；Android 只显示一种目标语言。 */
+    private String candidatePronunciationTarget() {
+        return candidateTranslationTargets.isEmpty() ? "en" : candidateTranslationTargets.get(0);
     }
 
     private void scheduleCandidatePronunciations() {
         if (!candidatePronunciationVisible() || session == 0 || view == null
                 || candidateGlossResources.isEmpty()) return;
-        boolean englishTarget = candidateTranslationTargets.contains("en");
+        String target = candidatePronunciationTarget();
         boolean glossVisible = candidateEnglishGloss || candidateTranslationsEnabled;
-        String preferencesKey = englishTarget + ":" + glossVisible;
+        String preferencesKey = target + ":" + glossVisible;
         java.util.List<String> suggestions = englishSuggestionsActive()
             ? englishSuggestions : java.util.List.of();
         if (candidatePronunciationSourceView == view
@@ -3422,7 +3440,7 @@ public final class MSIMEInputService extends InputMethodService {
             JSONArray snapshotCandidates = snapshot.optJSONArray("candidates");
             String request = CandidatePronunciationModel.request(generation,
                 snapshotCandidates == null ? new JSONArray() : snapshotCandidates,
-                englishTarget, glossVisible, suggestions);
+                target, glossVisible, suggestions);
             candidatePronunciationSourceView = view;
             candidatePronunciationSourcePanel = candidatePanelSnapshot;
             candidatePronunciationSourceSession = session;
@@ -3435,6 +3453,7 @@ public final class MSIMEInputService extends InputMethodService {
             final long requestedEpoch = candidatePronunciationEpoch;
             final String resources = candidateGlossResources;
             final String supplementaryResources = candidatePronunciationPackInstalled
+                || candidateTargetPronunciationPackInstalled
                 ? new File(candidateGlossStateRoot, "resource-packs").getAbsolutePath() : "";
             candidateGlossWorker.execute(() -> {
                 try {
@@ -4259,7 +4278,7 @@ public final class MSIMEInputService extends InputMethodService {
             String text = englishSuggestions.get(slot);
             ViewPolicy.show(button);
             String reading = candidatePronunciationVisible()
-                ? candidatePronunciations.getOrDefault(text, "") : "";
+                ? candidatePronunciations.getOrDefault(CandidatePronunciationPolicy.key("en", text), "") : "";
             String annotation = CandidatePronunciationPolicy.suggestionAnnotation(
                 candidatePronunciationVisible(), reading);
             button.setText(candidateLabel("", text, annotation, false));
@@ -5579,16 +5598,38 @@ public final class MSIMEInputService extends InputMethodService {
             ? spaceKeyTitle() + "；左右滑动移动光标" : SPACE_CURSOR_DESCRIPTION;
     }
 
-    /** 分离主开关开启、大屏，且方向符合偏好时，26 键一族或韩文键盘分离（{@link SplitKeyboardPolicy#drawn}）；每次按当前窗口配置重算。 */
     int splitKeyboardGapPercent() { return splitKeyboardGapPercent; }
 
+    /** 分离主开关开启、大屏，且方向符合偏好时，26 键一族或韩文键盘分离（{@link SplitKeyboardPolicy#drawn}）；手机横屏另由本机开关和分离后的键宽决定（{@link SplitKeyboardPolicy#phoneDrawn}，#10440）。每次按当前窗口配置重算。 */
     boolean splitKeyboardDrawn() {
         // 浮动键盘是一块窄面板，不分成两半。
         if (floatingDrawn() || imeLetterRows.numberPadDrawn()) return false;
         Configuration configuration = getResources().getConfiguration();
-        return SplitKeyboardPolicy.drawn(splitKeyboardEnabled, configuration.smallestScreenWidthDp,
-            configuration.orientation == Configuration.ORIENTATION_LANDSCAPE, displayedTouchLayout(view),
-            splitKeyboardPortrait, splitKeyboardThresholdDp);
+        boolean landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE;
+        int touchLayout = displayedTouchLayout(view);
+        if (SplitKeyboardPolicy.drawn(splitKeyboardEnabled, configuration.smallestScreenWidthDp, landscape,
+                touchLayout, splitKeyboardPortrait, splitKeyboardThresholdDp)) return true;
+        return splitKeyboardPhoneLandscape && SplitKeyboardPolicy.phoneDrawn(true,
+            configuration.smallestScreenWidthDp, landscape, touchLayout, splitKeyboardThresholdDp,
+            keyboardContentWidthDp(configuration), touchKeySpacingTenths, splitKeyboardGapPercent);
+    }
+
+    /** 键行实际能用的宽度（dp）：键盘列在当前配置下布局过就用它扣掉左右系统栏内边距后的宽度，分屏、侧边导航栏都已算在里面；刚旋转、还没重新布局时先按 `screenWidthDp` 估，布局完由 {@link #onKeyboardContentLayout} 纠正。 */
+    private int keyboardContentWidthDp(Configuration configuration) {
+        if (keyboardContentWidthPx > 0 && keyboardContentScreenWidthDp == configuration.screenWidthDp)
+            return Math.round(DimensionPolicy.fromPixels(this, (float) keyboardContentWidthPx));
+        return configuration.screenWidthDp;
+    }
+
+    /** 键盘列布局完记下键行可用宽度；手机横屏分离按这个宽度判断，宽度变了而键行还是按旧判断建的（旋转、分屏、导航栏换边）就再画一次。 */
+    private void onKeyboardContentLayout(View column) {
+        int width = column.getWidth() - column.getPaddingLeft() - column.getPaddingRight();
+        int screenWidthDp = getResources().getConfiguration().screenWidthDp;
+        if (width == keyboardContentWidthPx && screenWidthDp == keyboardContentScreenWidthDp) return;
+        keyboardContentWidthPx = width;
+        keyboardContentScreenWidthDp = screenWidthDp;
+        // 在布局回调里不重建视图树，排到下一帧。
+        if (splitKeyboardPhoneLandscape && imeLetterRows.splitStale()) column.post(this::render);
     }
 
     /** 现在字母上方要不要画数字行（#6022）：在字母层、窗口够高，共享偏好打开时画在 26 键一族、韩文、14 键和 18 键上，密码框和终端的自动数字行只画在 26 键一族和韩文上（{@link KeyboardLayout#drawsNumberRow(boolean, boolean, KeyboardLayout.Layer, int, int)}）。 */
@@ -6449,7 +6490,9 @@ public final class MSIMEInputService extends InputMethodService {
                 && view.optJSONArray("candidates") != null
                 && candidateSlot < view.optJSONArray("candidates").length()
                 && selectHardwareCandidate(candidateSlot)) return true;
-        if (directEnglishActive() && !event.isCtrlPressed() && !event.isAltPressed()
+        // 数字和电话框的按键交给编辑器自己处理，英文模式也一样：输入法上屏走 InputConnection，交还给应用的回车走按键通道，两条通道不保证先后，快速输入「PIN + 回车」时回车可能先到，系统认证界面拿着不完整的 PIN 去校验（数字密码进框临时切英文后暴露，#10481）。
+        if (directEnglishActive() && !EditorPolicy.numberInput(editorInputType)
+                && !event.isCtrlPressed() && !event.isAltPressed()
                 && !event.isMetaPressed()) {
             if (keyCode == KeyEvent.KEYCODE_DEL) {
                 clearEnglishSuggestions();
@@ -6736,8 +6779,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private Button brandButton(LinearLayout row, Runnable action) {
-        KeyboardBrandButton button = new KeyboardBrandButton(this,
-            () -> Color.parseColor(skin.accent()));
+        KeyboardBrandButton button = new KeyboardBrandButton(this);
         ViewPolicy.setAllCapsFalse(button);
         button.setText("更多");
         imeStyler.styleButton(button, KeyboardKeyRole.GLYPH, skin);
@@ -8893,6 +8935,11 @@ public final class MSIMEInputService extends InputMethodService {
      */
     void removeClipboardItem(ClipboardHistory.Item item) {
         if (clipboardHistory == null) return;
+        authenticateClipboardDelete(() -> removeClipboardItemAfterAuthentication(item));
+    }
+
+    private void removeClipboardItemAfterAuthentication(ClipboardHistory.Item item) {
+        if (clipboardHistory == null) return;
         try {
             holdClipboardUndo(clipboardHistory.removeMany(java.util.List.of(item.text())));
             forgetCurrentClip();
@@ -8902,8 +8949,38 @@ public final class MSIMEInputService extends InputMethodService {
         imePanels.renderClipboardHistory();
     }
 
-    /** 原子删除多选记录；排序、时间戳和固定规则仍由共享存储决定，删除后的撤销见 {@link #holdClipboardUndo}。 */
-    void removeClipboardItems(java.util.List<String> texts) {
+    /**
+     * 原子删除多选记录；排序、时间戳和固定规则仍由共享存储决定，删除后的撤销见 {@link #holdClipboardUndo}。
+     *
+     * <p>整批只认证一次。`removed` 只在认证通过（或不需要认证）、真正发起删除之后执行，面板借它退出多选；认证取消或失败时不调用它，选择原样保留。
+     */
+    void removeClipboardItems(java.util.List<String> texts, Runnable removed) {
+        if (clipboardHistory == null || texts == null || texts.isEmpty()) return;
+        java.util.List<String> snapshot = java.util.List.copyOf(texts);
+        authenticateClipboardDelete(() -> {
+            removeClipboardItemsAfterAuthentication(snapshot);
+            removed.run();
+        });
+    }
+
+    /**
+     * 单条、左滑和多选删除共用的认证门禁（#10408），规则见 {@link ClipboardDeleteAuthenticationPolicy}。
+     *
+     * <p>设备没有任何锁屏凭据时，门禁只来自访客模式（用户没有打开「剪贴板删除数据验证」）就照旧直接删除：访客模式本来就要求认证，但没有凭据的设备谁都能解锁，拦下删除保护不了任何东西，只会让访客剪贴板删不掉，比改动之前更糟。用户自己打开过开关时仍然拒绝，并提示去系统设置开启指纹、图案或密码，或回设置页关闭开关（没有认证器时关闭开关不需要认证）。
+     */
+    private void authenticateClipboardDelete(Runnable delete) {
+        boolean enabled = clipboardDeleteAuthenticationEnabled;
+        if (!ClipboardDeleteAuthenticationPolicy.requiresAuthentication(enabled,
+                clipboardMode == ClipboardModePolicy.Mode.VISITOR)) {
+            delete.run();
+            return;
+        }
+        authenticateClipboard("删除", delete,
+            ClipboardDeleteAuthenticationPolicy.allowsWithoutAuthenticator(enabled)
+                ? delete : () -> notice(CLIPBOARD_DELETE_UNAVAILABLE_NOTICE));
+    }
+
+    private void removeClipboardItemsAfterAuthentication(java.util.List<String> texts) {
         if (clipboardHistory == null || texts == null || texts.isEmpty()) return;
         try {
             if (!holdClipboardUndo(clipboardHistory.removeMany(texts))) return;
@@ -9017,7 +9094,18 @@ public final class MSIMEInputService extends InputMethodService {
     private long clipboardAuthenticationGeneration;
     private boolean clipboardAuthenticationBusy;
 
+    /** 认证桥 `ClipboardAuthenticationActivity` 的结果码；核心编译不依赖那个 Activity 类，这里按值对齐 `RESULT_AUTHENTICATED`、`RESULT_UNAVAILABLE`。 */
+    private static final int CLIPBOARD_AUTH_SUCCEEDED = 2001;
+    private static final int CLIPBOARD_AUTH_UNAVAILABLE = 2002;
+    private static final String CLIPBOARD_AUTH_UNAVAILABLE_NOTICE = "这台设备没有可用的系统认证，请先在系统设置开启指纹、图案或密码";
+    private static final String CLIPBOARD_DELETE_UNAVAILABLE_NOTICE = "这台设备没有可用的系统认证，请先在系统设置开启指纹、图案或密码，或在键盘设置的剪贴板里关闭「剪贴板删除数据验证」";
+
     private void authenticateClipboard(String operation, Runnable after) {
+        authenticateClipboard(operation, after, null);
+    }
+
+    /** `whenUnavailable` 不为 null 时，设备没有可用认证器（桥返回 `RESULT_UNAVAILABLE`）就执行它，否则提示先设置锁屏凭据。 */
+    private void authenticateClipboard(String operation, Runnable after, Runnable whenUnavailable) {
         if (clipboardAuthenticationBusy) return;
         clipboardAuthenticationBusy = true;
         long generation = ++clipboardAuthenticationGeneration;
@@ -9025,9 +9113,11 @@ public final class MSIMEInputService extends InputMethodService {
             @Override protected void onReceiveResult(int code, android.os.Bundle payload) {
                 if (generation != clipboardAuthenticationGeneration) return;
                 clipboardAuthenticationBusy = false;
-                if (code == 2001)
-                    after.run();
-                else notice("未通过系统认证，剪贴板操作已取消");
+                if (code == CLIPBOARD_AUTH_SUCCEEDED) after.run();
+                else if (code == CLIPBOARD_AUTH_UNAVAILABLE) {
+                    if (whenUnavailable != null) whenUnavailable.run();
+                    else notice(CLIPBOARD_AUTH_UNAVAILABLE_NOTICE);
+                } else notice("未通过系统认证，剪贴板操作已取消");
             }
         };
         try {
@@ -9333,6 +9423,21 @@ public final class MSIMEInputService extends InputMethodService {
             && schemeShowsGlosses(scheme);
     }
 
+    /** 长按候选菜单的「朗读」：第一次读时才连接系统语音引擎，键盘服务销毁时断开。 */
+    private ReadAloudSpeaker readAloudSpeaker;
+
+    /** 这一行候选「朗读」要读的英文；本机没装语音引擎或没有能读的英文时为 null，菜单就不出这一项。打开菜单时在主线程调用。 */
+    String readAloudText(String text, String translation) {
+        String spoken = NativeClient.readAloudText(text, translation);
+        return CandidateManagementAction.offersReadAloud(spoken, ReadAloudSpeaker.engineInstalled(this)) ? spoken : null;
+    }
+
+    /** 用系统语音读出 {@code text}；读不出来时用 {@link #notice} 说明原因。不经过引擎，组字不变。 */
+    void readAloud(String text) {
+        if (readAloudSpeaker == null) readAloudSpeaker = new ReadAloudSpeaker(this);
+        readAloudSpeaker.speak(text, this::notice);
+    }
+
     /** 「加入生词本」交不出去或存储出错时的提示；其余提示都由共享层给出。 */
     static final String PERSONAL_WORDBOOK_FAILURE = "无法加入生词本";
 
@@ -9368,7 +9473,7 @@ public final class MSIMEInputService extends InputMethodService {
         String text = CandidatePronunciationPolicy.lookupText(
             InputViewValuePolicy.textOr(candidate, "text", ""),
             candidateEnglishGloss || candidateTranslationsEnabled ? candidateTranslation(candidate) : "",
-            candidateTranslationTargets.contains("en"));
+            candidatePronunciationTarget());
         return candidatePronunciations.getOrDefault(text, "");
     }
 
@@ -10560,6 +10665,8 @@ public final class MSIMEInputService extends InputMethodService {
             if (overlayDrawn()) positionKeyboardSurface();
             return insets;
         });
+        keyboard.addOnLayoutChangeListener((target, left, top, right, bottom,
+                oldLeft, oldTop, oldRight, oldBottom) -> onKeyboardContentLayout(target));
         keyboardSurface.addView(keyboard, LayoutPolicy.frameMatchParentParams());
         imeBottomBar.build(surface);
         japaneseFlickPreview = new JapaneseFlickPreview(this);
@@ -11855,14 +11962,16 @@ public final class MSIMEInputService extends InputMethodService {
             && handwritingCandidateToken != null;
         boolean hasEmailSuffixes = imeEmailSuffixes.active();
         boolean hasNineKeyPunctuation = imeNineKeyQuickPunctuation.active();
-        boolean idle = view == null || (InputViewValuePolicy.editingText(view).isEmpty()
+        // 候选栏是否没有东西可显示：英文直输的当前词只在读音行给「清除」，候选行没有内容，此时照常换回工具栏（#10479）。
+        boolean candidateIdle = view == null || (InputViewValuePolicy.editingText(view).isEmpty()
             && "none".equals(InputViewValuePolicy.textOr(view, "local_mode", "none"))
             && (visibleCandidates == null || visibleCandidates.length() == 0)
             && !hasEnglishSuggestions
-            && !hasEnglishWord
             && !hasEmailSuffixes
             && !hasNineKeyPunctuation
             && !hasHandwritingResults);
+        // 整行空闲：另要求没有可清除的英文当前词，读音行和读音标题按它决定，「清除」留在工具栏上方的读音行里。
+        boolean idle = candidateIdle && !hasEnglishWord;
         if (preedit != null) {
             // 读音的字号由 ImeStyler.applySkin 在 render 末尾统一设置，这里不再另设一份。
             String editingText = view == null ? "" : InputViewValuePolicy.editingText(view);
@@ -11972,12 +12081,12 @@ public final class MSIMEInputService extends InputMethodService {
         }
         boolean keysCollapsed = hardwareKeysCollapsed();
         imeFrame.setKeysCollapsed(keysCollapsed);
-        applyCaretCandidates(!idle || hasDiagnostic);
+        applyCaretCandidates(!candidateIdle || hasDiagnostic);
         // 候选条模式里空闲时工具栏总要显示：展开键在上面，「显示方式：隐藏」时整副键盘会只剩导航栏那一截。
         // 隐藏工具栏时，底行仍能打开表情面板；面板的返回键在工具栏上，打开期间必须临时显示（toolbarExitNeeded）。工具按钮全关时同样不显示这一行（toolbarRowHidden）。
-        boolean toolbarRow = !heightMode && idle && !hasDiagnostic
+        boolean toolbarRow = !heightMode && candidateIdle && !hasDiagnostic
             && (!toolbarRowHidden() || keysCollapsed || toolbarExitNeeded());
-        // 开始打字就收起「最近复制」：用户已经在输入别的内容了。
+        // 开始打字就收起「最近复制」：用户已经在输入别的内容了。这里看 idle 而不是 candidateIdle：无建议框、网址、邮箱或关掉英文建议时打英文没有候选，只有当前词能说明用户开始打字了。
         if (!idle) recentClip.dismiss();
         long nowMs = System.currentTimeMillis();
         // 候选条模式里不换上「最近复制」：它会盖住工具栏上展开软键盘的那个键。
@@ -11997,11 +12106,11 @@ public final class MSIMEInputService extends InputMethodService {
         if (shortcutToolbar != null)
             ViewPolicy.setVisible(shortcutToolbar, toolbarRow && !recentShown && !autofillShown);
         if (candidateLine != null)
-            ViewPolicy.setVisible(candidateLine, !heightMode && !idle && !hasDiagnostic);
+            ViewPolicy.setVisible(candidateLine, !heightMode && !candidateIdle && !hasDiagnostic);
         if (!ViewPolicy.isVisible(replyKeyboard))
             imeBottomRow.updateActionRow();
         if (candidateViewport != null)
-            ViewPolicy.setVisible(candidateViewport, !idle && !hasDiagnostic);
+            ViewPolicy.setVisible(candidateViewport, !candidateIdle && !hasDiagnostic);
         updateCandidateViewportHeight();
         if (scriptShortcutButton != null) {
             ViewPolicy.hide(scriptShortcutButton);

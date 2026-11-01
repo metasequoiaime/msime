@@ -112,11 +112,7 @@
   --animate-splash-name: splash-rise 0.5s 1.1s both;
   --animate-splash-tagline: splash-rise 0.5s 1.35s both;
   --animate-splash-hint: splash-rise 0.5s 1.6s both;
-  /* HarmonyOS 启动页（dc.html `msRipple`、`msLoad`）：接着系统启动窗往下播。启动窗画的是近黑底上的浅色圆盘和空白标志方块，所以开屏第一帧就是这个画面，再把圆盘和方块淡入当季配色，描出标志线条，一圈白环从圆盘向外扩散两次，底部一条细进度条在启动页停留期间填满。设计稿里圆盘落下、标志旋转入场的两段不再播：启动窗已经画好了它们落定的样子，再播一遍就是从头重来。 */
-  /* 淡入当季配色靠盖在上面的启动窗颜色图层淡出，而不是直接对颜色做动画：ArkWeb 在 `color-mix()` 和普通颜色之间插值会算出纯黄、纯红的中间帧。 */
-  --animate-splash-veil: splash-veil 0.6s ease-out 0.1s both;
-  /* 不设 fill mode：圆环在动画前后都停在自身的 `opacity: 0`，只在扩散时可见。 */
-  --animate-splash-ripple: splash-ripple 1.2s ease-out 1.45s 2;
+  /* HarmonyOS 启动页（dc.html `msLoad`）：接着系统启动窗往下播。启动窗画的是启动窗底色上的水杉标志（外面不套圆盘），所以开屏第一帧就是这个画面，标志配色固定、不再淡入季节色；之后光晕泛起、出字，底部一条细进度条在启动页停留期间填满。设计稿里标志旋转入场的一段不再播：启动窗已经画好了它落定的样子，再播一遍就是从头重来。 */
   --animate-splash-load: splash-load 2.4s ease-out both;
   /* 「手写输入」页预览里描一笔（`HandwritingPadPreview`）：时长与组件的 `STROKE_MS` 相同，各笔的先后由行内的 animation-delay 排。 */
   --animate-hand-stroke: splash-draw 0.42s cubic-bezier(0.4, 0, 0.2, 1) both;
@@ -132,22 +128,6 @@
   /* `backwards`, not `both`: a transform animation still in effect after it ends makes the pushed page the containing block for every fixed descendant, so dialogs and their backdrops stopped at the content's height instead of covering the screen. The end state is the element's own style anyway. */
   --animate-ms-push-in: ms-push-in 0.34s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
 
-  @keyframes splash-veil {
-    to {
-      opacity: 0;
-    }
-  }
-  /* 设计用圆盘的 box-shadow 做波纹；改用一个单独的圆环 span 向外缩放，表现同样的动效，又不必每帧重绘圆盘自身的投影。 */
-  @keyframes splash-ripple {
-    from {
-      transform: scale(1);
-      opacity: 0.5;
-    }
-    to {
-      transform: scale(1.2);
-      opacity: 0;
-    }
-  }
   @keyframes splash-load {
     from {
       transform: scaleX(0);
@@ -975,13 +955,14 @@
     --cand-hover: #ececec;
     --cand-selected: #e8e8e8;
   }
-  /* macOS 宿主的默认值：原生候选窗画的 `NativeCandidateTokens`（`platforms/macos/src/candidate/CandidateSkin.cpp`）和 `SkinTokens` 的几何默认值（`CandidateSkin.h`），行上下各留的边距来自 `CandidateChrome.h` 的 `MSIMECandidateRowPadding`。改原生 token 时同步改这里，`candidate-preview-native-tokens.test.ts` 会对照原生源码检查。选中底跟随强调色（调色板换了强调色也跟着换），文字白色、序号 82% 白，不画竖条；调色板没给选中前景色时用 `candidatePaletteStyle` 按选中底推导出的 `--cand-mac-selected-*`。主题的调色板写在内联样式上，仍然压过这里，与原生「主题槽位叠在原生 token 上」一致。Windows 使用同一套默认值；Linux 保留自己的默认值。 */
+  /* macOS 宿主的默认值：原生候选窗画的 `NativeCandidateTokens`（`platforms/macos/src/candidate/CandidateSkin.cpp`）和 `SkinTokens` 的几何默认值（`CandidateSkin.h`），行上下各留的边距来自 `CandidateChrome.h` 的 `MSIMECandidateRowPadding`。改原生 token 时同步改这里，`candidate-preview-native-tokens.test.ts` 会对照原生源码检查。选中底是实心的品牌绿（浅色 #2C7A4B，深色是比强调色更深的 #17783F，白字才到 4.5:1），调色板换了强调色时跟着强调色（`--cand-mac-selected`），文字白色、序号 82% 白，不画竖条；调色板没给选中前景色时用 `candidatePaletteStyle` 按选中底推导出的 `--cand-mac-selected-*`。主题的调色板写在内联样式上，仍然压过这里，与原生「主题槽位叠在原生 token 上」一致。Windows 使用同一套默认值；Linux 保留自己的默认值。 */
   :is([data-platform="mac"]) &[data-preview-theme="light"] {
     --cand-bg: #fffffff7;
     --cand-border: #0000001f;
     --cand-text: #1d1d1f;
     --cand-num: #6e6e73;
     --cand-accent: #2c7a4b;
+    --cand-selected: var(--cand-mac-selected, #2c7a4b);
     --cand-hover: #0000000f;
   }
   :is([data-platform="mac"]) &[data-preview-theme="dark"] {
@@ -990,10 +971,10 @@
     --cand-text: #f5f5f7;
     --cand-num: #98989d;
     --cand-accent: #5fbf84;
+    --cand-selected: var(--cand-mac-selected, #17783f);
     --cand-hover: #ffffff1a;
   }
   :is([data-platform="mac"]) &[data-preview-theme] {
-    --cand-selected: var(--cand-accent);
     --cand-selected-text: var(--cand-mac-selected-text, #ffffff);
     --cand-selected-num: var(--cand-mac-selected-num, #ffffffd1);
     --cand-selected-bar: none;
@@ -1092,6 +1073,7 @@
     --cand-text: #1d1d1f;
     --cand-num: #6e6e73;
     --cand-accent: #2c7a4b;
+    --cand-selected: var(--cand-mac-selected, #2c7a4b);
     --cand-hover: #0000000f;
   }
   :is([data-platform="win"]) &[data-preview-theme="dark"] {
@@ -1100,10 +1082,10 @@
     --cand-text: #f5f5f7;
     --cand-num: #98989d;
     --cand-accent: #5fbf84;
+    --cand-selected: var(--cand-mac-selected, #17783f);
     --cand-hover: #ffffff1a;
   }
   :is([data-platform="win"]) &[data-preview-theme] {
-    --cand-selected: var(--cand-accent);
     --cand-selected-text: var(--cand-mac-selected-text, #ffffff);
     --cand-selected-num: var(--cand-mac-selected-num, #ffffffd1);
     --cand-selected-bar: none;

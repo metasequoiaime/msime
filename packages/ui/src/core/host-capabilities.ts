@@ -177,6 +177,8 @@ export interface HostCapabilities {
   wordbook_packs: boolean;
   /** 符号面板显示已安装的符号集插件。 */
   symbol_set_packs: boolean;
+  /** 宿主能用系统语音读出背单词卡片上的英文词头，卡片上画喇叭。缺省（早于这一项的宿主）按不能读处理。 */
+  read_aloud?: boolean;
   /** 插件页显示「脚本插件（实验）」分组和授权页（macOS 和 Linux 的宿主）。 */
   script_plugins?: boolean;
   /** 宿主提供的输入方案；其他方案显示为禁用。 */

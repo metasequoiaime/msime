@@ -52,6 +52,8 @@ pub(crate) struct Installation {
     pub(crate) wubi_dictionary: bool,
     /// 资源目录旁边随包带着英文音标表 `pronunciations/en-phonetic.db`（macOS 和 Windows 的发布包带着它，Linux 的安装包不带）。还没有运行时选项时按带着处理。
     pub(crate) pronunciations: bool,
+    /// 资源目录旁边随包带着法日西俄德韩的读音表 `target-pronunciations/`（与英文音标表同样只有 Linux 的安装包不带）。还没有运行时选项时按带着处理。
+    pub(crate) target_pronunciations: bool,
     /// 运行的输入法自带本地语音运行库：macOS 上是 `~/Library/Input Methods` 里的输入法 bundle 的 `Contents/Frameworks` 里有 sherpa-onnx 的库；Windows 和 Linux 总是随包带着，为真。
     pub(crate) voice_runtime: bool,
 }
@@ -71,6 +73,7 @@ impl Installation {
                 .is_none_or(msime_host_api::packaged_language_dictionaries),
             wubi_dictionary: host_options.is_none_or(bundled_wubi_dictionary),
             pronunciations: host_options.is_none_or(bundled_pronunciations),
+            target_pronunciations: host_options.is_none_or(bundled_target_pronunciations),
             voice_runtime: bundled_voice_runtime(),
         }
     }
@@ -97,6 +100,20 @@ fn bundled_pronunciations(host_options: &Value) -> bool {
         .map(std::path::Path::new)
         .and_then(std::path::Path::parent)
         .is_some_and(|root| root.join("pronunciations").join("en-phonetic.db").is_file())
+}
+
+/// HostOptions 文档的资源目录旁边有没有外语读音表：host-api 的 `target_database_beside` 先找 `resources` 上一级的 `target-pronunciations/<语言>-phonetic.db`，找不到才看资源包。六种语言随包时一起带，看 NOTICE 在不在就够了。
+fn bundled_target_pronunciations(host_options: &Value) -> bool {
+    host_options
+        .get("resources")
+        .and_then(Value::as_str)
+        .map(std::path::Path::new)
+        .and_then(std::path::Path::parent)
+        .is_some_and(|root| {
+            root.join("target-pronunciations")
+                .join("target-pronunciations-NOTICE.txt")
+                .is_file()
+        })
 }
 
 /// 装在 `~/Library/Input Methods` 里的输入法 bundle 是否自带 sherpa-onnx 运行库。开发构建和锁文件还没固定重签运行库时的发布包都带着；省略了它的发布包要靠 `voice-runtime-macos` 资源包。输入法还没装好时按不带处理：装上的就是这个设置应用里的同一个 bundle。
@@ -149,7 +166,7 @@ const CHINESE_MAIN_COMPONENT: &str = "chinese-main";
 /// - 五笔码表只有 macOS 发布包可以不内置：本版本有五笔方案、而资源目录里没有它时列出（五笔版的发布包总带着它）。
 /// - 日文词典和语言词库只有 macOS 发布包不内置，macOS 上总是列出。Windows 随包带着它们，不列出也不下载。Linux 随包带着日文词典；语言词库只在用得到它的版本（版本表 `language_dictionaries` 非空）没有随包带齐时才列出，例如打包时没有备好词库、或不带它们的 Nix 包，否则粤拼、注音和笔画在这台机器上无从启用。
 /// - 手写模型只认汉字，不提供手写的版本（版本表 `features.handwriting` 为 false：日文、越南文和藏文版）不列出也不下载它。macOS 上提供手写的版本都列出它；Windows 上手写面板先用 Ink，只有 Ink 没有中文识别器、且没有随包或指定的模型时才列出；Linux 上没有随包或指定的模型时才列出。没列出时手写面板照常识别，不等下载。
-/// - 英文音标表（「显示读音」用）只有 Linux 的安装包不带：Linux 上资源目录旁边没有它时列出，由设置页在打开「显示读音」后点「下载」安装，不自动下载；macOS 和 Windows 的发布包带着它，不列出。
+/// - 英文音标表和外语读音表（「显示读音」用）只有 Linux 的安装包不带：Linux 上资源目录旁边没有它时列出，由设置页在打开「显示读音」后点「下载」安装，不自动下载；macOS 和 Windows 的发布包带着它们，不列出。
 /// - 离线释义、Android 语音运行库和 OCR 模块只给 Android 使用，桌面不列出。
 /// - macOS 的语音运行库只在 macOS 上、而且运行的输入法没有自带它时列出（锁文件还没固定它时这个资源包根本不存在）。Windows 和 Linux 随包带着各自的运行库。
 /// - 落定重排模型只给中文整句重排，不带中文主词库（版本表 `resources.components` 没有 `chinese-main`：日文、越南文和藏文版）的版本不列出也不下载它，与打包时不装它的规则相同。其他版本在没有随包模型时列出：会话总是优先用随包的那份，有它时下载的用不上。
@@ -194,6 +211,9 @@ fn offered_by(pack: ResourcePack, edition: &Edition, installation: &Installation
         ResourcePack::GrammarBaishuang => false,
         ResourcePack::Pronunciations => {
             installation.platform == DesktopPlatform::Linux && !installation.pronunciations
+        }
+        ResourcePack::TargetPronunciations => {
+            installation.platform == DesktopPlatform::Linux && !installation.target_pronunciations
         }
         // Android 专属资源不出现在桌面入口。
         ResourcePack::OfflineGlosses
@@ -467,6 +487,7 @@ mod tests {
             language_dictionaries: true,
             wubi_dictionary: true,
             pronunciations: true,
+            target_pronunciations: true,
             voice_runtime: true,
         }
     }
@@ -773,6 +794,56 @@ mod tests {
         .unwrap();
         assert!(bundled_pronunciations(&document));
         assert!(!bundled_pronunciations(&serde_json::json!({})));
+    }
+
+    /// 外语读音表与英文音标表一样：只在 Linux 的安装没有随包带着它时列出，启动时不自动下载。
+    #[test]
+    fn only_a_linux_install_without_the_tables_offers_the_target_pronunciations() {
+        for edition in Edition::all() {
+            assert!(offered_by(
+                ResourcePack::TargetPronunciations,
+                edition,
+                &Installation {
+                    target_pronunciations: false,
+                    ..installation(DesktopPlatform::Linux)
+                }
+            ));
+            assert!(!offered_by(
+                ResourcePack::TargetPronunciations,
+                edition,
+                &installation(DesktopPlatform::Linux)
+            ));
+            for platform in [DesktopPlatform::Macos, DesktopPlatform::Windows] {
+                assert!(!offered_by(
+                    ResourcePack::TargetPronunciations,
+                    edition,
+                    &Installation {
+                        target_pronunciations: false,
+                        ..installation(platform)
+                    }
+                ));
+            }
+        }
+        let preferences = Preferences {
+            candidate_pronunciation: true,
+            ..Preferences::default()
+        };
+        assert!(!needed_by_preferences(&preferences).contains(&ResourcePack::TargetPronunciations));
+
+        let root = tempfile::tempdir().unwrap();
+        let resources = root.path().join("resources");
+        std::fs::create_dir(&resources).unwrap();
+        let document = serde_json::json!({ "resources": resources });
+        assert!(!bundled_target_pronunciations(&document));
+        std::fs::create_dir(root.path().join("target-pronunciations")).unwrap();
+        std::fs::write(
+            root.path()
+                .join("target-pronunciations/target-pronunciations-NOTICE.txt"),
+            b"bundled",
+        )
+        .unwrap();
+        assert!(bundled_target_pronunciations(&document));
+        assert!(!bundled_target_pronunciations(&serde_json::json!({})));
     }
 
     /// Linux 安装没有随包带齐语言词库时，用得到它们的版本列出语言词库资源包，否则粤拼、注音和笔画无从启用；日文词典照旧随包，不列出。Windows 不受影响。

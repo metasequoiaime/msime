@@ -3251,6 +3251,43 @@ pub unsafe extern "C" fn msime_client_personal_wordbook_add(
     })
 }
 
+/// 候选菜单的「朗读」和背单词卡片的喇叭要读的英文：`{candidate, gloss}`，成功时 `value` 是要读的文字，没有能读的时是 `null`。
+///
+/// 只做转接，规则在 `msime_client_services::vocabulary::read_aloud`。不读写任何文件，宿主在打开菜单时调用。
+/// # Safety
+/// `request` points to `length` readable JSON bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_read_aloud_text(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    use msime_client_services::vocabulary::read_aloud;
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Request {
+        candidate: String,
+        #[serde(default)]
+        gloss: String,
+    }
+
+    response(|| {
+        // 和「加入生词本」一样，候选和释义都是一行显示文字。
+        const MAX_REQUEST_BYTES: usize = 64 * 1024;
+        if request.is_null() || length > MAX_REQUEST_BYTES {
+            return Err("invalid read aloud buffer".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: Request =
+            serde_json::from_slice(bytes).map_err(|_| "invalid read aloud request")?;
+        Ok(serde_json::Value::from(read_aloud::read_aloud_text(
+            &request.candidate,
+            &request.gloss,
+        )))
+    })
+}
+
 /// 今日待复习的张数，给菜单栏、托盘菜单这类被动显示的地方用。
 ///
 /// 和 `msime_client_vocabulary_review` 应答里的 `due` 是同一个数，但只读进度文档和选中的那一本书（见 `msime_client_services::vocabulary::session::due_count`）。返回张数（不小于 0）；请求不合法、进度文档损坏或选中的书读不出来时返回 -1，宿主据此隐藏这一项。

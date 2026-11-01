@@ -179,8 +179,8 @@ final class CandidateFontSizeTests: XCTestCase {
     XCTAssertTrue(header.arrangedSubviews.first === mark, "the mark leads the header")
     XCTAssertTrue(spelling.superview === header)
     XCTAssertNotNil(mark.image)
-    XCTAssertEqual(mark.image?.renderingMode, .alwaysTemplate)
-    XCTAssertEqual(mark.tintColor, KeyboardTheme.current.accent)
+    // 固定配色的完整标志，原色绘制，不随皮肤强调色着色。
+    XCTAssertEqual(mark.image?.renderingMode, .alwaysOriginal)
     XCTAssertEqual(mark.bounds.width, 16, accuracy: 0.1)
     XCTAssertEqual(mark.bounds.height, 16, accuracy: 0.1)
     XCTAssertEqual(spelling.frame.minX - mark.frame.maxX, 6, accuracy: 0.5)

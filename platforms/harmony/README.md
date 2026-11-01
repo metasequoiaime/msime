@@ -286,7 +286,9 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 ## 候选英文音标
 
-「显示英文音标」读共享偏好 `candidate_pronunciation`（默认关），设置页在手机「输入 › 翻译」和 2in1 的表达页一直显示这一行（`apps/harmony` 给 `candidatePronunciation`）：英文候选的音标不看释义开关，关掉释义以后仍要能把它关掉。鸿蒙没有资源包下载，ECDICT 生成的 `en-phonetic.db`（约 5.7 MB，MIT）连同 NOTICE 随 HAP 分发：`stage-resources.sh` 第五个参数（默认 `target/pronunciations`，`scripts/fetch_gloss_tables.py` 取来）按 `resources/pronunciations.lock.json` 核对后放进 `resfile/pronunciations`，发版设 `MSIME_REQUIRE_PRONUNCIATIONS=1`，键盘扩展把它暂存到引擎资源旁。`KeyboardSession` 在发布候选前经 NAPI `candidatePronunciations` 同步查还没缓存的文字（英文候选读它本身，中文候选读英语释义的第一行，规则在 `CandidatePronunciationPolicy`），按文字缓存，`CandidateEntry.pronunciation` 带给视图。音标画在释义下面单独一行，按设置预留：`glossRows()` 是 `translationRows()` 加 `pronunciationRows()`；触屏胶囊只放得下词和一行注释，两者都开时 `KeyboardMetrics.touchExtraDetailVp` 让胶囊和工具条各高 11.5vp。2in1 竖排把音标接在旁边，`CandidateWidthPolicy.widthVp` 按音标加宽窗口；只为音标预留了一行（`translationRows()` 为 0）时，横排候选格和触屏胶囊都把译文画回词旁边。带控制字符的释义不查，免得共享层拒绝整批。直接输入英文时的补全不标音标（Android 会标）。展开网格不画释义，也不画音标。见 `.agents/notes/implemented/feature/2026-11-01-mobile-candidate-pronunciation.md`。
+「显示读音」读共享偏好 `candidate_pronunciation`（默认关），设置页在手机「输入 › 翻译」和 2in1 的表达页一直显示这一行（`apps/harmony` 给 `candidatePronunciation`）：英文候选的音标不看释义开关，关掉释义以后仍要能把它关掉。鸿蒙没有资源包下载，ECDICT 生成的 `en-phonetic.db`（约 5.7 MB，MIT）连同 NOTICE 随 HAP 分发：`stage-resources.sh` 第五个参数（默认 `target/pronunciations`，`scripts/fetch_gloss_tables.py` 取来）按 `resources/pronunciations.lock.json` 核对后放进 `resfile/pronunciations`，发版设 `MSIME_REQUIRE_PRONUNCIATIONS=1`，键盘扩展把它暂存到引擎资源旁。`KeyboardSession` 在发布候选前经 NAPI `candidatePronunciations` 同步查还没缓存的文字（英文候选读它本身，中文候选读英语释义的第一行，规则在 `CandidatePronunciationPolicy`），按文字缓存，`CandidateEntry.pronunciation` 带给视图。音标画在释义下面单独一行，按设置预留：`glossRows()` 是 `translationRows()` 加 `pronunciationRows()`；触屏胶囊只放得下词和一行注释，两者都开时 `KeyboardMetrics.touchExtraDetailVp` 让胶囊和工具条各高 11.5vp。2in1 竖排把音标接在旁边，`CandidateWidthPolicy.widthVp` 按音标加宽窗口；只为音标预留了一行（`translationRows()` 为 0）时，横排候选格和触屏胶囊都把译文画回词旁边。带控制字符的释义不查，免得共享层拒绝整批。直接输入英文时的补全不标音标（Android 会标）。展开网格不画释义，也不画音标。见 `.agents/notes/implemented/feature/2026-11-01-mobile-candidate-pronunciation.md`。
+
+法、日、西、俄、德、韩语目标的释义行读外语读音表（维基词典生成，CC BY-SA 4.0，约 3.7 MB）：`stage-resources.sh` 第六个参数（默认 `target/target-pronunciations`）按 `resources/target-pronunciations.lock.json` 核对后连同 NOTICE 放进 `resfile/target-pronunciations`，`MSIME_REQUIRE_PRONUNCIATIONS=1` 时也必须在，键盘扩展同样暂存到引擎资源旁；主目标语言那一行按它的语言查，日语给罗马字。见 `.agents/notes/implemented/feature/2026-11-01-target-language-gloss-readings.md`。
 
 ## 展开候选面板里没有释义，长按也没有反应
 
@@ -438,7 +440,7 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 验证看的是打出来的包而不是源文件——`$media:` 解析不到时会被丢掉而不是报错。解包 `module.json` 后两个元素都带着 `"iconId": 16777217`，说明引用真的解析到了资源。`scripts/test-harmony-manifest.py` 现在查这三件事：模块级重复键、mainElement 有没有 icon、桌面入口有没有 icon，外加包里 `icon` 有没有对应的 `iconId`。对着改之前的清单跑，三条全报。后来又加了一条：两份清单里配置的每个图标都不能含透明像素（分层图标看背景层），原因见下一段。
 
-桌面图标用分层图标 `$media:app_icon_layered`（`AppScope/resources/base/media/app_icon_layered.json`）：背景层 `app_icon_background.png` 是 1024×1024 的 `#252525`，与 Android 经典图标的 `app_icon_field` 同色；前景层 `app_icon_foreground.png` 是 `app_icon.png` 缩到 640 居中，四周留给桌面的圆角遮罩。只有 `app.json5` 和桌面入口 `EntryAbility` 用它；`app_icon.png` 本身是透明底，直接给桌面时圆角方块外透出壁纸，看起来没有底板，而键盘里的品牌键、输入模式提示和启动窗仍按普通图片用它。
+桌面图标用分层图标 `$media:app_icon_layered`（`AppScope/resources/base/media/app_icon_layered.json`）：背景层 `app_icon_background.png` 是 1024×1024 的 `#A8DF8E`，即标志的绿边色；前景层 `app_icon_foreground.png` 是标志 `packages/ui/src/assets/msime.svg` 撑满画布、透明底，所以桌面的圆角遮罩切出来就是标志本身，外面不再套任何底板，与其他平台一致。只有 `app.json5` 和桌面入口 `EntryAbility` 用它；`app_icon.png` 本身是透明底，直接给桌面时圆角方块外透出壁纸，看起来没有底板，而键盘里的品牌键、输入模式提示和启动窗仍按普通图片用它。
 
 输入法扩展 `KeyboardExtensionAbility` 的 `icon`（系统输入法列表和切换器里那枚）用 `app_icon_opaque.png`：分层图标的背景层和前景层压成的一张 1024×1024 不透明图。AppGallery 上架审核要求提审页上传的图标和包内配置的图标都不含透明像素，以前这里直接用透明底的 `app_icon.png`，审核因此退回过。重新生成：在 `AppScope/resources/base/media` 下运行 `magick app_icon_background.png app_icon_foreground.png -compose over -composite -alpha off -strip PNG24:app_icon_opaque.png`。AGC 提审页上传的图标也用这张。
 

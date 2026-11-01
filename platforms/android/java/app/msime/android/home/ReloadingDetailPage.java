@@ -36,6 +36,11 @@ public abstract class ReloadingDetailPage extends ColumnDetailPage {
         KeyboardSheets.saveLocal(this, key, value, null, this::reload);
     }
 
+    /** 一次原子写入几项 Android 本地设置；与 {@link #saveLocalSetting} 一样只在失败时刷新页面，成功时不重建，滑块逐格提交时读屏焦点留在原处。 */
+    protected final void saveLocalSettings(java.util.Map<String, Object> edits) {
+        KeyboardSheets.saveLocal(this, edits, null, this::reload);
+    }
+
     /** Saves shared preferences and refreshes the page after either outcome. */
     protected final void savePreferences(KeyboardSheets.Edit edit) {
         KeyboardSheets.save(this, edit, this::reload, this::reload);
