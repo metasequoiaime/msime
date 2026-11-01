@@ -8,6 +8,8 @@ import { SettingsEmptyMessage } from "./settings-empty-message";
 import { compactPage } from "../core/page-style";
 import { compactMutedNote } from "../core/text-style";
 import { downloadBlob } from "../core/download-blob";
+import { FluentIcon } from "../core/fluent-icons";
+import { readAloudText } from "./read-aloud";
 
 // The largest word list the page reads. The shared layer takes at most 8 MiB of decoded text (`vocabulary::session::MAX_IMPORT_BYTES`), well under the dictionary import's bound, so this keeps the 1 MiB the page has always read rather than following that one.
 const WORDBOOK_FILE_BYTES = 1_048_576;
@@ -38,6 +40,7 @@ const answerKnown =
   "min-h-[44px] rounded-[10px] border-0 bg-accent text-[15px] font-medium text-white not-disabled:hover:opacity-90";
 const field = "flex items-center justify-between gap-3 py-1.5";
 const cardAside = "mt-2.5 flex justify-center";
+const speakLabel = "inline-flex items-center gap-1.5";
 
 /** A word list the host can draw a session from. */
 export type VocabularyWordbook = {
@@ -102,6 +105,8 @@ export interface VocabularyReviewClient {
   removePersonalWord?(word: string): Promise<VocabularyReviewStatus>;
   /** 生词本导出成的 CSV 文本，还没有生词本时是 null。 */
   exportPersonalWordbook?(): Promise<string | null>;
+  /** 用系统自带的语音合成读出卡片上的英文词头（`HostCapabilities.read_aloud`）。宿主读不了时不提供，卡片上就没有喇叭。读不出来时拒绝，带一句给用户看的话。 */
+  speak?(word: string): Promise<void>;
   reset(): Promise<VocabularyReviewStatus>;
 }
 
@@ -460,6 +465,28 @@ export function VocabularyReviewPage({
                   </>
                 }
               />
+              {client.speak && readAloudText(card.word) && (
+                <div className={cardAside}>
+                  <ActionButton
+                    action={async () => {
+                      setError("");
+                      try {
+                        await client.speak!(readAloudText(card.word)!);
+                      } catch (reason) {
+                        setError(reason instanceof Error ? reason.message : String(reason));
+                      }
+                    }}
+                    ariaLabel={`朗读 ${card.word}`}
+                    className="secondary"
+                    label={
+                      <span className={speakLabel}>
+                        <FluentIcon name="speaker_2" size={16} />
+                        朗读
+                      </span>
+                    }
+                  />
+                </div>
+              )}
               <div className={answerRow}>
                 <ActionButton
                   action={() => void answer(false)}
