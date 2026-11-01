@@ -122,11 +122,11 @@ public class KeyLayoutStylesPage extends ReloadingDetailPage {
         // 顶部数字行只画在 26 键、14 键和 18 键上，本版本两类键面都没有（例如只有九键和笔画）时不列这个开关；它和 iOS、鸿蒙一样放在没有标题的一组里。分段停在 9 键时照样显示，预览里 9 键不画数字行。
         if (!groups.numberRow()) return;
         GroupCard numbers = GroupCard.add(target, null);
-        numbers.toggle("顶部数字行", NUMBER_ROW_NOTE, numberRow, checked -> {
+        numbers.toggle("顶部数字行", null, numberRow, checked -> {
             numberRow = checked;
             refreshStyles();
             save(edited -> edited.put(TouchKeyStyle.NUMBER_ROW_PREFERENCE, checked));
-        });
+        }).help(NUMBER_ROW_NOTE);
     }
 
     /** 第一次读到偏好时打开键盘长按带来的那张表的编辑页，之后重读不再打开。本版本不列那一行（字母表要有 9 键分段，数字表要有任一类键盘）时什么也不做。 */
@@ -189,18 +189,18 @@ public class KeyLayoutStylesPage extends ReloadingDetailPage {
         // 说明后面一张卡片放开关，与页面其他开关同样式。「符」与「123」互换只作用于 26 键，只在 26 键分段显示；打开时预览底行把 符 排到 123 左边并高亮这两键（refreshStyles）。
         GroupCard toggles = GroupCard.add(target, null);
         if (kinds.contains(KeyLayoutStylesPolicy.Kind.TWENTY_SIX)) {
-            symbolFirstRow = toggles.toggle(TouchKeyStyle.SYMBOL_FIRST_TITLE, TouchKeyStyle.SYMBOL_FIRST_NOTE, symbolFirst, checked -> {
+            symbolFirstRow = toggles.toggle(TouchKeyStyle.SYMBOL_FIRST_TITLE, null, symbolFirst, checked -> {
                 symbolFirst = checked;
                 refreshStyles();
                 save(edited -> edited.put(TouchKeyStyle.SYMBOL_FIRST_PREFERENCE, checked));
-            });
+            }).help(TouchKeyStyle.SYMBOL_FIRST_NOTE);
         }
         // 「中/英键放在空格左边」三类键面都有中/英，每个分段都显示（26 键排在互换开关之后），三个分段是同一项偏好；打开时预览底行把中/英排到空格左边并高亮它。
-        toggles.toggle(TouchKeyStyle.LANGUAGE_LEFT_TITLE, TouchKeyStyle.LANGUAGE_LEFT_NOTE, languageLeft, checked -> {
+        toggles.toggle(TouchKeyStyle.LANGUAGE_LEFT_TITLE, null, languageLeft, checked -> {
             languageLeft = checked;
             refreshStyles();
             save(edited -> edited.put(TouchKeyStyle.LANGUAGE_KEY_SIDE_PREFERENCE, TouchKeyStyle.languageKeySideWire(checked)));
-        });
+        }).help(TouchKeyStyle.LANGUAGE_LEFT_NOTE);
         // 九键左侧符号接在说明后面，与互换开关同一种写法，只在 9 键分段显示；右侧是当前字母表的摘要，点开进编辑页。
         if (kinds.contains(KeyLayoutStylesPolicy.Kind.NINE)) {
             GroupCard sidebar = GroupCard.add(target, null);
@@ -244,7 +244,7 @@ public class KeyLayoutStylesPage extends ReloadingDetailPage {
         ViewPolicy.setRowPadding(context, row);
         numberPad.addView(row);
         numberPadChips = row;
-        numberPad.footer(TouchKeyStyle.NUMBER_PAD_SPACE_NOTE);
+        numberPad.help(TouchKeyStyle.NUMBER_PAD_SPACE_NOTE);
         refreshNumberPad();
         // 数字表作用于所有九宫格数字键盘（各键面自己的数字层和按 123 借来的那一块），跟着这一组显示，接在组末说明后面。
         GroupCard sidebar = GroupCard.add(target, null);

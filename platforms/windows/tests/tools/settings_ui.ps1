@@ -307,6 +307,11 @@ function Find-ByName($parent, [string]$name) {
     $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, $name)
     return $parent.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
 }
+# 设置项的解释性说明收在标题旁的「?」里（main.cpp 的 info_tip），悬停或聚焦时才以 ToolTip 显示，平时不在界面上。按钮的读屏名称四端一致：有标题时是「<标题>的说明：<正文>」，没有标题时是「说明：<正文>」（main.cpp 的 info_tip_name）。
+function Find-InfoTip($parent, [string]$title, [string]$text) {
+    $name = if ($title) { "$($title)的说明：$text" } else { "说明：$text" }
+    return Find-ByName $parent $name
+}
 function Find-CheckBox($parent, [string]$name) {
     $nameCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, $name)
     $typeCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::CheckBox)
@@ -482,7 +487,7 @@ function Assert-PinyinAutocorrect($window, [string]$scheme) {
             if ($shown -ne ($family -eq $scheme)) { throw "Autocorrect row $name shown=$shown under scheme $scheme" }
         }
     }
-    if ($titles.ContainsKey($scheme) -and -not (Find-ByName $content $descriptions[$scheme])) { throw "Autocorrect transposition description does not follow the shared page under $scheme" }
+    if ($titles.ContainsKey($scheme) -and -not (Find-InfoTip $content $titles[$scheme][2] $descriptions[$scheme])) { throw "Autocorrect transposition description does not follow the shared page under $scheme" }
     if ($titles.ContainsKey($scheme)) {
         $path = Join-Path $state 'preferences.json'
         $toggleable = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::IsTogglePatternAvailableProperty, $true)
@@ -1369,7 +1374,7 @@ try {
                     # 完整版提供手写：照 macOS 分「键盘」「手写」两个标签，打开时是「键盘」；「恢复默认」的说明只提这一页看得到的几项，不再提工具栏按钮。
                     Select-PageTab $window 'osk-tab-keyboard' '打开屏幕键盘'
                     $content = Find-ById $window 'settings-content'
-                    if (-not (Find-ByName $content '高度、间距和顶部语音入口回到默认')) { throw 'Screen keyboard tab is missing the reset row' }
+                    if (-not (Find-InfoTip $content '恢复默认' '高度、间距和顶部语音入口回到默认')) { throw 'Screen keyboard tab is missing the reset row' }
                     if (Find-ByName $content '打开手写识别板') { throw 'Handwriting rendered inside the keyboard tab' }
                     Assert-PageIntro $window 'osk' '调整屏幕键盘布局与外观。'
                 }

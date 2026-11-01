@@ -234,10 +234,10 @@ void toolbar_geometry() {
 }
 
 void colors() {
-  // 系统主题：Adwaita 的白底、深色字，悬停和分隔线是字色的一层淡色，勾和高亮键是 GNOME 的蓝色。
+  // 系统主题：Adwaita 的白底、深色字，悬停和分隔线是字色的一层淡色。工具栏的勾跟候选窗的选中底（白字画在它上面，默认是 Adwaita Blue 5 `kLinuxSelection`），键位图的高亮键是 GNOME 的强调色。
   host::CandidateTheme light;
   const auto toolbar = host::floating_toolbar_colors(light);
-  assert(toolbar.surface == 0xFFFFFF && toolbar.accent == host::kLinuxAccent && !toolbar.dark);
+  assert(toolbar.surface == 0xFFFFFF && toolbar.accent == host::kLinuxSelection && !toolbar.dark);
   assert(toolbar.hover != toolbar.surface && toolbar.divider != toolbar.surface);
   const auto keymap = host::shuangpin_keymap_colors(light);
   assert(keymap.surface == 0xFFFFFF && keymap.accent == host::kLinuxAccent && keymap.accent_text == 0xFFFFFF);

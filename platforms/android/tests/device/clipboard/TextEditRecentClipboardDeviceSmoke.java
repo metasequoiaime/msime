@@ -275,12 +275,12 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
         save(preferences, ++revision, values);
         byte[] beforeCancel = Files.readAllBytes(preferences.toPath());
         openOrderSettings();
-        click("下移 复制");
+        moveDown("复制");
         tap(node -> equalsText("取消", node.getText()) && node.isClickable());
         if (!java.util.Arrays.equals(beforeCancel, Files.readAllBytes(preferences.toPath())))
             throw new AssertionError("Cancelling order draft wrote preferences");
         openOrderSettings();
-        click("下移 复制");
+        moveDown("复制");
         tap(node -> equalsText("保存", node.getText()) && node.isClickable());
         JSONArray changed = new JSONArray(defaults.toString());
         Object first = changed.get(0);
@@ -294,7 +294,7 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
         tap(node -> equalsText("保存", node.getText()) && node.isClickable());
         awaitOrder(preferences, defaults);
         openOrderSettings();
-        click("下移 复制");
+        moveDown("复制");
         tap(node -> equalsText("保存", node.getText()) && node.isClickable());
         awaitOrder(preferences, changed);
         values.put("touch_text_edit_button_order", changed);
@@ -314,7 +314,27 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
         while (!entry.isClickable() && entry.getParent() != null) entry = entry.getParent();
         if (!entry.performAction(AccessibilityNodeInfo.ACTION_CLICK))
             throw new AssertionError("Text edit order row did not open");
-        await(described("下移 复制"));
+        await(orderRow("复制"));
+    }
+
+    /** 排序面板一行的拖动把手：读屏描述是「拖动调整 名称 的顺序」，操作菜单里带「下移」。箭头去掉后（#10392）读屏用户就靠把手上的这个操作排序，这里照读屏的路径走。 */
+    private Predicate<AccessibilityNodeInfo> orderRow(String label) {
+        return node -> node.getContentDescription() != null
+            && node.getContentDescription().toString().equals("拖动调整 " + label + " 的顺序")
+            && action(node, "下移") != null;
+    }
+
+    private void moveDown(String label) throws Exception {
+        dropStaleNodes();
+        AccessibilityNodeInfo handle = await(orderRow(label));
+        if (!handle.performAction(action(handle, "下移").getId()))
+            throw new AssertionError("Order handle refused 下移 for " + label);
+    }
+
+    private static AccessibilityNodeInfo.AccessibilityAction action(AccessibilityNodeInfo node, String label) {
+        for (AccessibilityNodeInfo.AccessibilityAction action : node.getActionList())
+            if (equalsText(label, action.getLabel())) return action;
+        return null;
     }
 
     private void awaitOrder(File preferences, JSONArray expected) throws Exception {

@@ -344,7 +344,7 @@ def main():
             process.wait(timeout=10)
             assert process.returncode == -signal.SIGSEGV, process.returncode
             [record] = crash_records(scratch)
-            # 测试从外部发 SIGSEGV，不是宿主执行出错：摘要写出发送者，即这个测试进程的名字。
+            # 测试从外部发 SIGSEGV，不是宿主执行出错：固定记录头在前，摘要写出发送者，即这个测试进程的名字。
             sender = Path("/proc/self/comm").read_text().strip()
             raw = record.read_text()
             header, summary, stack = raw.split("\n", 2)

@@ -58,6 +58,8 @@ public final class SettingsSearchIndexSmoke {
         }
         // #6132：搜「浮动」要找到键盘页。
         check(pages.get("KEYBOARD_OPTIONS").matches("浮动"), "searching 浮动 finds the keyboard page");
+        // 功能面板的「键盘调整」在设置里没有同名的行，搜它要落到放着键盘高度和底部高度的键盘页。
+        check(pages.get("KEYBOARD_OPTIONS").matches("键盘调整"), "searching 键盘调整 finds the keyboard page");
         check(pages.containsKey("FUZZY_PINYIN") && pages.get("FUZZY_PINYIN").matches("前后鼻音"),
             "searching 前后鼻音 finds the fuzzy-pinyin rule page");
         // #10223：两行左侧符号挪进「按键布局」后，键盘页不再收录它们，搜索只指向新位置。

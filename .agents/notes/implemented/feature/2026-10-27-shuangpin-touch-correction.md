@@ -241,3 +241,5 @@ iOS 三份是测试宿主排出来的，不是键盘扩展在系统里真正注�
 - 验证（Mac Studio，`rbuild`）：`cargo test -p msime-input-runtime --example convert_eval --example rerank_latency` 28 / 25 项通过（`rerank_latency` 新增的跳过计数测试同时核对送落点时的落点和不送落点时按到的键逐个相同）；`cargo test -p msime-engine --lib host::` 124 项通过；`cargo clippy -p msime-input-runtime --all-targets -- -D warnings` 无警告。整句族四个集合，小鹤和微软 × none、clean、noisy、realistic，σ=0.25、b=0，种子 20261027，`--jobs 2`，stderr 打出 `no settled model at …`：加 `--assert-top1-unchanged` 退出 0，报告与提交的 `baseline-shuangpin-touch-sentences.json` 截出的这 8 组（`encoding` 只留这两个方案）逐字节相同；同样的命令改加 `--no-touch-points`，报告与 #10082 提交的平面表基线截出的 8 组逐字节相同。完整的 125 组和词级族没有重跑。
 
 - 参数边界修正：`--touch-tuning` 在解析阶段拒绝 `min > max`，避免评测到触点罚分时触发 `f64::clamp` panic；相等边界仍合法。新增回归后随本轮修复重跑验证。
+
+1–2 音节的完整词补查及其词级对照见[短词触点纠错](2026-10-31-shuangpin-touch-short-words.md)；沿用本篇的既有边界，不启用纠错首选或改变默认参数。

@@ -644,6 +644,15 @@ public class DeviceSmoke extends Instrumentation {
         if (!automation.injectInputEvent(event, true)) throw new AssertionError("Key injection failed");
     }
 
+    /** 用无障碍注入键盘事件；Android 9 的 {@link Instrumentation#sendKeySync} 会拒绝测试进程。 */
+    protected final void injectKeyboardEvent(KeyEvent event) {
+        KeyEvent keyboardEvent = new KeyEvent(event.getDownTime(), event.getEventTime(), event.getAction(),
+            event.getKeyCode(), event.getRepeatCount(), event.getMetaState(), event.getDeviceId(),
+            event.getScanCode(), event.getFlags(), InputDevice.SOURCE_KEYBOARD);
+        if (!automation.injectInputEvent(keyboardEvent, true))
+            throw new AssertionError("Key injection failed");
+    }
+
     /**
      * 翻功能菜单，直到描述为 `description` 的条目出现在屏幕上。
      *

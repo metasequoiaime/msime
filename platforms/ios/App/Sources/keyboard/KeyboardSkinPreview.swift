@@ -131,7 +131,7 @@ struct KeyboardSkinPreview: View {
   /// 用皮肤配色画的空闲工具栏：品牌圆片，各项目等宽排列，最后是收起箭头。
   private func toolbarStrip(_ items: [KeyboardPreviewToolbarItem]) -> some View {
     HStack(spacing: 0) {
-      brandDisc.frame(maxWidth: .infinity)
+      brandMark.frame(maxWidth: .infinity)
       ForEach(Array(items.enumerated()), id: \.offset) { _, item in
         Group {
           if let symbol = item.symbol {
@@ -149,13 +149,11 @@ struct KeyboardSkinPreview: View {
     .frame(height: Self.toolbarStripHeight * stripScale)
   }
 
-  /// 22 点圆片上的应用标志，画法同 AppMarkDisc 但取皮肤配色：圆片用 mix(accent 浅色 14% / 深色 22%, 按键色)，白色描边下的标志框用 mix(accent 82%, black)。
-  private var brandDisc: some View {
-    let accent = resolved(skin.accent)
-    let disc = AppThemePalette.mix(accent, colorScheme == .dark ? 22 : 14, resolved(skin.keyBackground).withAlphaComponent(1))
-    let frame = AppThemePalette.mix(accent, 82, .black)
-    return LogoDisc(diameter: 22 * toolbarContentScale, markSize: 13 * toolbarContentScale,
-                    discFill: Color(uiColor: disc), frameFill: Color(uiColor: frame))
+  /// 键盘品牌键：固定配色的水杉标志本身就是外框，不再垫圆片；占位仍是原来 22 点的圆片，标志按原来的 13 点画。
+  private var brandMark: some View {
+    MSIMELogoMark()
+      .frame(width: 13 * toolbarContentScale, height: 13 * toolbarContentScale)
+      .frame(width: 22 * toolbarContentScale, height: 22 * toolbarContentScale)
   }
 
   /// 按键下方系统画主屏指示条的区域，指示条用按键色。

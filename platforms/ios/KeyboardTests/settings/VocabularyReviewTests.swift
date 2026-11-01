@@ -54,6 +54,30 @@ final class VocabularyReviewTests: XCTestCase {
     XCTAssertNil(PersonalWordbookStore.menuGloss([" ", "\n"]))
   }
 
+  /// 长按菜单的「朗读」和背单词卡片的喇叭读的是共享层答的那段英文：英文释义的第一个义项、几种语言时第一个英文行，没有英文释义时英文候选本身；别的语言不读。
+  func testReadAloudReadsOnlyTheEnglishTheSharedLayerChooses() {
+    XCTAssertEqual(ReadAloudText.menuTitle, "朗读")
+    XCTAssertEqual(ReadAloudText.text(candidate: "面试", gloss: "interview; audition\nmensetsu"), "interview")
+    XCTAssertEqual(ReadAloudText.text(candidate: "面试", gloss: "面接\ninterview"), "interview")
+    XCTAssertEqual(ReadAloudText.text(candidate: "hello"), "hello")
+    XCTAssertEqual(ReadAloudText.text(candidate: "ubiquitous"), "ubiquitous")
+    XCTAssertNil(ReadAloudText.text(candidate: "面试", gloss: "面接"))
+    XCTAssertNil(ReadAloudText.text(candidate: "勉強"))
+  }
+
+  /// 长按菜单最后一组：「朗读」排在「加入生词本」前面；没有完全访问时没有「朗读」，「加入生词本」照样列出；没有释义的英文候选只有「朗读」。
+  func testCandidateMenuLastGroupPutsReadAloudBeforeThePersonalWordbook() {
+    XCTAssertEqual(
+      ReadAloudText.lastGroup(hasFullAccess: true, spoken: "interview", gloss: "interview"),
+      [.readAloud("interview"), .addToPersonalWordbook("interview")])
+    XCTAssertEqual(
+      ReadAloudText.lastGroup(hasFullAccess: false, spoken: "interview", gloss: "interview"),
+      [.addToPersonalWordbook("interview")])
+    XCTAssertEqual(ReadAloudText.lastGroup(hasFullAccess: true, spoken: "hello", gloss: nil), [.readAloud("hello")])
+    XCTAssertEqual(ReadAloudText.lastGroup(hasFullAccess: true, spoken: nil, gloss: "面接"), [.addToPersonalWordbook("面接")])
+    XCTAssertEqual(ReadAloudText.lastGroup(hasFullAccess: false, spoken: "hello", gloss: nil), [])
+  }
+
   /// 单词本插件装在共享状态目录的 `plugins/` 里（插件页和键盘读的是同一份），背单词把它列在导入的词表之前、标成插件；选它就能复习，在背单词里删不掉。
   func testWordbookPluginsAreListedFromTheSharedPluginsFolder() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

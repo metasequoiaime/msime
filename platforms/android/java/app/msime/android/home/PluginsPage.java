@@ -126,7 +126,7 @@ public final class PluginsPage extends ReloadingDetailPage {
                 if (shown.isEmpty() && gone.isEmpty() && !commands) continue;
                 GroupCard group = GroupCard.add(column, PluginCatalogPolicy.kindLabel(kind)).withDividers(Ui.ROW_PADDING_H);
                 if (commands) {
-                    group.note("打开 / 指令后，在键盘的「本地输入」里点「指令」，或在没有输入时按 / 键，再输入指令字母即可使用。启用的指令表按启用顺序排列，同一指令以靠前的表为准；最多启用 "
+                    group.help("打开 / 指令后，在键盘的「本地输入」里点「指令」，或在没有输入时按 / 键，再输入指令字母即可使用。启用的指令表按启用顺序排列，同一指令以靠前的表为准；最多启用 "
                         + PluginCatalogPolicy.MAX_TABLES + " 个。");
                     if (shown.isEmpty() && gone.isEmpty()) group.note("还没有导入指令表。");
                 }
@@ -157,11 +157,11 @@ public final class PluginsPage extends ReloadingDetailPage {
         }
 
         GroupCard create = GroupCard.add(column, "制作插件");
-        create.button("自己制作", PluginEditorPolicy.CREATE_DESCRIPTION, "新建插件",
-            () -> PluginEditorPage.create(context));
+        create.button("自己制作", null, "新建插件",
+            () -> PluginEditorPage.create(context)).help(PluginEditorPolicy.CREATE_DESCRIPTION);
         GroupCard importing = GroupCard.add(column, "导入插件");
-        GroupCard.Row row = importing.button("从文件导入", "只含音频、指令模板等数据，不含可执行内容，每个包须声明许可证",
-            "导入 .zip", this::pickArchive);
+        GroupCard.Row row = importing.button("从文件导入", null,
+            "导入 .zip", this::pickArchive).help("只含音频、指令模板等数据，不含可执行内容，每个包须声明许可证");
         if (row.button() != null) row.button().setEnabled(!this.importing);
         if (!notice.isEmpty()) importing.note(notice);
     }
@@ -211,12 +211,13 @@ public final class PluginsPage extends ReloadingDetailPage {
         column.addView(search, searchParams);
 
         GroupCard filters = GroupCard.add(column, null).withDividers(Ui.ROW_PADDING_H);
-        filters.note("音效、指令表、短语表、辅助码表、单词本与符号集，安装后在「我的插件」中选用。只列这台设备上能用的类型。");
+        // 这一组没有组标题，类型说明挂在「插件类型」这一行的「?」上。
         filters.nav("插件类型", null, communityKind == null ? "全部" : PluginCatalogPolicy.kindLabel(communityKind),
-            this::pickCommunityKind);
+            this::pickCommunityKind)
+            .help("音效、指令表、短语表、辅助码表、单词本与符号集，安装后在「我的插件」中选用。只列这台设备上能用的类型。");
         filters.nav("插件范围", null, communityMine ? "我的作品" : "全部插件", this::pickCommunityScope);
-        filters.button("发布我的插件", "把自己导入或制作的插件分享到社区，要登录水杉账号", "发布",
-            () -> SettingsNavigator.open(context, PageId.PLUGIN_PUBLISH, null));
+        filters.button("发布我的插件", null, "发布",
+            () -> SettingsNavigator.open(context, PageId.PLUGIN_PUBLISH, null)).help("把自己导入或制作的插件分享到社区，要登录水杉账号");
 
         GroupCard list = GroupCard.add(column, null).withDividers(Ui.ROW_PADDING_H);
         if (!communityError.isEmpty()) {

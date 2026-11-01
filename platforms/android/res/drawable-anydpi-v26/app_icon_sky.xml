@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 没有这一层，启动器只能把普通位图缩小摆在它自己生成的灰色底板上。 -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@color/app_icon_field" />
+    <background android:drawable="@color/app_icon_field_sky" />
     <foreground android:drawable="@drawable/app_icon_sky_foreground" />
 </adaptive-icon>

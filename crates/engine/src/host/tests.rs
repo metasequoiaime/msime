@@ -744,6 +744,39 @@ fn english_phonetics_refuse_another_kind_version_or_a_missing_file() {
     );
 }
 
+#[test]
+fn target_phonetics_read_their_own_language_table_only() {
+    let directory = tempfile::tempdir().unwrap();
+    let french = directory.path().join("fr-phonetic.db");
+    Connection::open(&french)
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE fr_phonetics(word TEXT PRIMARY KEY, phonetic TEXT NOT NULL) WITHOUT ROWID;
+             CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
+             INSERT INTO meta VALUES('kind', 'fr_phonetic');
+             INSERT INTO fr_phonetics VALUES('chat', '/ʃa/');
+             INSERT INTO fr_phonetics VALUES('pomme de terre', '/pɔm də tɛʁ/');
+             PRAGMA user_version = 1;",
+        )
+        .unwrap();
+    let path = french.to_str().unwrap();
+    let words = vec![
+        "pomme de terre".to_owned(),
+        "chien".to_owned(),
+        "chat".to_owned(),
+    ];
+    assert_eq!(
+        phonetics(path, "fr", &words).unwrap(),
+        vec!["/pɔm də tɛʁ/", "", "/ʃa/"]
+    );
+    // 法语表被当成西语或英文表来查时拒绝，而不是照读。
+    assert!(phonetics(path, "es", &words).is_err());
+    assert!(english_phonetics(path, &words).is_err());
+    // 表名由语言拼出，所以只接受已知的语言代码。
+    assert!(phonetics(path, "fr_phonetics; --", &words).is_err());
+    assert!(phonetics(path, "", &words).is_err());
+}
+
 #[cfg(unix)]
 #[test]
 fn english_phonetics_rejects_a_linked_database() {

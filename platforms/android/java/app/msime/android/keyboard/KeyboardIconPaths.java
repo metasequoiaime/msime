@@ -96,7 +96,13 @@ public final class KeyboardIconPaths {
         /** Lucide-style pencil (读音行的编辑拼写入口) */
         SPELLING_EDIT(true, 1.7f),
         /** open box ␣ (数字页空格键) */
-        SPACE_BAR(true, 1.7f);
+        SPACE_BAR(true, 1.7f),
+        /** Lucide-style rotate-ccw (键盘调整 重置) */
+        ADJUST_RESET(true, 1.7f),
+        /** Lucide-style move (键盘调整 移动) */
+        ADJUST_MOVE(true, 1.7f),
+        /** Lucide-style circle-check (键盘调整 确认) */
+        ADJUST_CONFIRM(true, 1.7f);
 
         private final boolean stroked;
         private final float strokeWidth;
@@ -197,6 +203,9 @@ public final class KeyboardIconPaths {
             case CLOSE -> appendClose(p);
             case SPELLING_EDIT -> appendSpellingEdit(p);
             case SPACE_BAR -> appendSpaceBar(p);
+            case ADJUST_RESET -> appendAdjustReset(p);
+            case ADJUST_MOVE -> appendAdjustMove(p);
+            case ADJUST_CONFIRM -> appendAdjustConfirm(p);
         }
     }
 
@@ -992,5 +1001,48 @@ public final class KeyboardIconPaths {
         p.lineTo(5f, 14f);
         p.lineTo(19f, 14f);
         p.lineTo(19f, 10.5f);
+    }
+
+    private static void appendAdjustReset(Path p) {
+        p.moveTo(3f, 12f);
+        p.cubicTo(3f, 16.9706f, 7.0294f, 21f, 12f, 21f);
+        p.cubicTo(16.9706f, 21f, 21f, 16.9706f, 21f, 12f);
+        p.cubicTo(21f, 7.0294f, 16.9706f, 3f, 12f, 3f);
+        p.cubicTo(9.484f, 3.0095f, 7.069f, 3.9912f, 5.26f, 5.74f);
+        p.lineTo(3f, 8f);
+        p.moveTo(3f, 3f);
+        p.lineTo(3f, 8f);
+        p.lineTo(8f, 8f);
+    }
+
+    private static void appendAdjustMove(Path p) {
+        p.moveTo(5f, 9f);
+        p.lineTo(2f, 12f);
+        p.lineTo(5f, 15f);
+        p.moveTo(9f, 5f);
+        p.lineTo(12f, 2f);
+        p.lineTo(15f, 5f);
+        p.moveTo(15f, 19f);
+        p.lineTo(12f, 22f);
+        p.lineTo(9f, 19f);
+        p.moveTo(19f, 9f);
+        p.lineTo(22f, 12f);
+        p.lineTo(19f, 15f);
+        p.moveTo(2f, 12f);
+        p.lineTo(22f, 12f);
+        p.moveTo(12f, 2f);
+        p.lineTo(12f, 22f);
+    }
+
+    private static void appendAdjustConfirm(Path p) {
+        p.moveTo(12f, 22f);
+        p.cubicTo(17.5228f, 22f, 22f, 17.5228f, 22f, 12f);
+        p.cubicTo(22f, 6.4772f, 17.5228f, 2f, 12f, 2f);
+        p.cubicTo(6.4772f, 2f, 2f, 6.4772f, 2f, 12f);
+        p.cubicTo(2f, 17.5228f, 6.4772f, 22f, 12f, 22f);
+        p.close();
+        p.moveTo(9f, 12f);
+        p.lineTo(11f, 14f);
+        p.lineTo(15f, 10f);
     }
 }

@@ -1,6 +1,5 @@
-<!-- 几何取自 platforms/android/res/drawable/splash_mark.xml：面板、边框、一笔描边。 -->
+<!-- 单独显示的水杉标志：一块深色圆角正方形，5 宽的绿边就是它的边，上面一笔白色折线。折线取自母版 apps/desktop/app-icon.svg，以外框中心为原点缩到 80%、线宽不变，四周留出边距；圆角半径是边长的 22%。各平台单独显示标志的位图（Windows 的 msime.ico、macOS 输入法和设置 App 的 icns、Linux 的 hicolor 图标、鸿蒙的 app_icon.png、Tauri 图标、iOS 启动屏）都从这张渲染。 -->
 <svg width="110" height="110" viewBox="0 0 110 110" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <path d="M15 5H95V105H15V5Z" fill="#252525"/>
-  <path d="M15 5H95V105H15V5Z" stroke="#A8DF8E" stroke-width="5"/>
-  <path d="M74.7234 14L35.1501 29.1727L74.7234 40.5522L35.1501 59.518C72.562 65.84 107.728 71.024 33 95" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round"/>
+  <rect x="5" y="5" width="100" height="100" rx="22" fill="#252525" stroke="#A8DF8E" stroke-width="5"/>
+  <path d="M70.7787 22.2L39.1201 34.3382L70.7787 43.4418L39.1201 58.6144C69.0496 63.672 97.1824 67.8192 37.4 87" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round"/>
 </svg>
