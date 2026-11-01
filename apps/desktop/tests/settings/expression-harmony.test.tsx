@@ -249,7 +249,7 @@ describe("the HarmonyOS phone 表达 page", () => {
     const save = await mountPhone();
     const service = group("翻译服务");
     fireEvent.click(within(service).getByText("更多选项"));
-    fireEvent.click(within(service).getByRole("button", { name: /^翻译服务/ }));
+    fireEvent.click(within(service).getByRole("button", { name: /^翻译服务(?!的说明)/ }));
     const sheet = screen.getByRole("dialog", { name: "翻译服务" });
     // 鸿蒙没有系统翻译，但离线词库照样出释义，所以 none 叫「不使用在线服务」，不叫「关闭」。
     for (const provider of [
@@ -266,9 +266,9 @@ describe("the HarmonyOS phone 表达 page", () => {
     const saved = await saveAndRead(save, 0);
     expect(saved.niutrans?.enabled).toBe(true);
     expect(saved.tencent_tmt?.enabled).toBe(false);
-    expect(within(service).getByRole("button", { name: /^翻译服务/ }).textContent).toContain(
-      "小牛翻译（NiuTrans）",
-    );
+    expect(
+      within(service).getByRole("button", { name: /^翻译服务(?!的说明)/ }).textContent,
+    ).toContain("小牛翻译（NiuTrans）");
   });
 
   // 「AI 辅助」翻译让大模型逐条生成释义：鸿蒙版拿到 AI 生成类资质之前（`ai_generation` 为 false）不列它，存下的 `translation_ai` 也显示成没有选在线服务，与键盘一侧 `TranslationPolicy.provider` 的处理一致。
@@ -279,7 +279,7 @@ describe("the HarmonyOS phone 表达 page", () => {
     });
     const service = group("翻译服务");
     fireEvent.click(within(service).getByText("更多选项"));
-    const row = within(service).getByRole("button", { name: /^翻译服务/ });
+    const row = within(service).getByRole("button", { name: /^翻译服务(?!的说明)/ });
     expect(row.textContent).toContain("不使用在线服务");
     fireEvent.click(row);
     const sheet = screen.getByRole("dialog", { name: "翻译服务" });
@@ -291,7 +291,7 @@ describe("the HarmonyOS phone 表达 page", () => {
     await mountPhone({}, { ai_generation: true });
     const service = group("翻译服务");
     fireEvent.click(within(service).getByText("更多选项"));
-    fireEvent.click(within(service).getByRole("button", { name: /^翻译服务/ }));
+    fireEvent.click(within(service).getByRole("button", { name: /^翻译服务(?!的说明)/ }));
     const sheet = screen.getByRole("dialog", { name: "翻译服务" });
     expect(within(sheet).getByRole("button", { name: "AI 辅助" })).toBeTruthy();
   });
@@ -301,7 +301,7 @@ describe("the HarmonyOS phone 表达 page", () => {
     await mountPhone();
     const service = group("翻译服务");
     fireEvent.click(within(service).getByText("更多选项"));
-    const row = () => within(service).getByRole("button", { name: /^翻译服务/ });
+    const row = () => within(service).getByRole("button", { name: /^翻译服务(?!的说明)/ });
     expect(row().textContent).toContain("不使用在线服务");
     expect(within(service).queryByLabelText("腾讯云 SecretId")).toBeNull();
     fireEvent.click(row());

@@ -13,6 +13,7 @@ import { ActionButton } from "./action-button";
 import { SettingsManagerActions } from "./settings-manager-actions";
 import * as settings from "./settings-style";
 import { SettingsSubViewHeader } from "./settings-subview-header";
+import { SettingsGroupNote } from "./settings-group-note";
 import { useAsyncGeneration } from "./use-async-generation";
 import {
   builtinShuangpinProfiles,
@@ -390,7 +391,7 @@ function KeyTableEditor<Profile extends string>({
       </GroupList>
       {definition.groups.map(({ part, title, note, maxLength }) => (
         <GroupList key={part} title={title}>
-          <p className={settings.groupNote}>{note}</p>
+          <SettingsGroupNote>{note}</SettingsGroupNote>
           <div
             className={`${settings.groupBlock} grid grid-cols-[repeat(auto-fill,minmax(6.5rem,1fr))] gap-x-3 gap-y-2`}
           >
@@ -420,7 +421,7 @@ function KeyTableEditor<Profile extends string>({
       <GroupList title="保存">
         <Row
           title={active ? "保存键位" : `保存并选用${definition.title}`}
-          description={
+          detail={
             problem === undefined
               ? "正在检查键位…"
               : problem

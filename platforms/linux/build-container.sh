@@ -68,7 +68,8 @@ report = ET.parse(sys.argv[1]).getroot()
 for name in ("fcitx5-candidate-theme-priority", "fcitx5-candidate-theme-hint", "fcitx5-candidate-theme-canvas",
              "ibus-mode-hint-x11-badge", "ibus-mode-hint-x11-badge-no-caret",
              "ibus-mode-hint-x11-badge-point", "ibus-mode-hint-x11-toolbar",
-             "linux-floating-panels-model", "linux-floating-panels-render", "linux-floating-panels-x11"):
+             "linux-floating-panels-model", "linux-floating-panels-render", "linux-floating-panels-x11",
+             "linux-python-crash-capture"):
     tests = [test for test in report.findall("testcase") if test.get("name") == name]
     assert len(tests) == 1, f"{name}: missing from Linux gate"
     assert tests[0].get("status") == "run" and tests[0].find("skipped") is None, f"{name}: skipped"
@@ -85,6 +86,18 @@ PY
     rm -rf /build/stage-full /build/stage-wubi
     DESTDIR=/build/stage-full cmake --install /build/cmake --prefix /usr >/dev/null
     DESTDIR=/build/stage-wubi cmake --install /build/cmake-wubi >/dev/null
+    # 从实际安装目录再跑 Python 入口：同时检查模块分发、相对库路径和非 full 的构建归属。
+    for edition in full wubi; do
+      prefix=$(python3 platforms/linux/scripts/edition_linux.py field --edition "$edition" install_prefix)
+      client=$(python3 platforms/linux/scripts/edition_linux.py field --edition "$edition" client_directory)
+      telemetry=$(python3 platforms/linux/scripts/edition_linux.py field --edition "$edition" fcitx5_addon)
+      installed="/build/stage-$edition$prefix"
+      python3 platforms/linux/tests/core/python_crash_capture.py \
+        --controller /build/cmake/common-capture-only-test \
+        --bridge "$installed/lib/$client/libmsime-python-crash.so" \
+        --paths "$installed/bin/msime_voice_paths.py" --scripts "$installed/bin" \
+        --version "$(cat platforms/linux/version.txt)" --client-directory "$client" --telemetry-directory "$telemetry"
+    done
     if [ -n "$plugin_packs" ]; then
       for pack in script/uuid phrase_table/latex-symbols; do
         installed=/build/stage-full/usr/share/msime-client/plugin-packs/$pack

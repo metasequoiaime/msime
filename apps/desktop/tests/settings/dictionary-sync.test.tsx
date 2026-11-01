@@ -434,13 +434,20 @@ test("a failed sync says why in Chinese", async () => {
 
 test("a sync waiting for its request budget says when it resumes and keeps the error", async () => {
   const until = Date.now() + 20 * 60 * 1000;
+  const waiting = {
+    ...STATUS,
+    last_error: "dictionary_sync_rate_limited",
+    budget_wait_until: until,
+  };
   const host = syncHost({
     run: () => ({
       network: false,
       next_check_ms: 1_200_000,
-      status: { ...STATUS, last_error: "dictionary_sync_rate_limited", budget_wait_until: until },
+      status: waiting,
       error: "dictionary_sync_rate_limited",
     }),
+    // 窗口回到前台时重读的概况和同步结果读的是同一份状态，额度等待时间也在里面；默认的 `STATUS` 没有它，会在同步结果之后把提示冲掉，断言就只能赶在两次响应之间的空档里查到。
+    status: () => waiting,
   });
   renderDictionaryPage({ dictionarySync: host }, { ...base, dictionary_sync_webdav: WEBDAV });
   await settingsFormReady();

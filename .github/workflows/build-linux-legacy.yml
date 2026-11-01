@@ -9,6 +9,7 @@ on:
     inputs:
       ref: {description: Commit to build, required: true, type: string}
       version: {description: Package version (defaults to platforms/linux/version.txt), required: false, type: string, default: ""}
+      publish: {description: Keep the crash symbol archives in the long-lived linux-symbols release, required: false, type: boolean, default: false}
   pull_request:
     paths:
       - .github/workflows/build-linux-legacy.yml
@@ -80,3 +81,29 @@ jobs:
           name: msime-linux-legacy-deb-${{ matrix.arch }}-${{ steps.version.outputs.value }}
           path: target/linux-legacy-release/
           if-no-files-found: error
+      # 名字不以 msime-linux- 开头，publish 取附件时不会把它当成安装包。
+      - name: Keep the legacy native symbols and build manifest
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: crash-symbols-linux-legacy-${{ matrix.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: target/linux-package-legacy-${{ matrix.arch }}/symbols/*.zip
+          if-no-files-found: error
+          retention-days: 90
+  # 只有发布调用才长期保存符号；写权限放在单独的作业里，构建 PR 代码的作业仍只读。
+  symbols:
+    needs: legacy-deb
+    if: ${{ inputs.publish }}
+    runs-on: depot-ubuntu-24.04
+    timeout-minutes: 10
+    permissions: {contents: write}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {ref: "${{ inputs.ref || github.sha }}", persist-credentials: false}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: crash-symbols-linux-legacy-*-${{ github.run_id }}-${{ github.run_attempt }}
+          path: target/linux-legacy-symbols
+          merge-multiple: true
+      - name: Publish the legacy symbols for the release build
+        env: {GH_TOKEN: "${{ github.token }}", MSIME_BUILD_REVISION: "${{ inputs.ref || github.sha }}"}
+        run: bash scripts/publish-crash-symbols.sh linux target/linux-legacy-symbols/*.zip

@@ -5,6 +5,22 @@
 use std::path::Path;
 
 fn main() {
+    if matches!(
+        std::env::var("CARGO_CFG_TARGET_OS").as_deref(),
+        Ok("macos" | "windows" | "linux")
+    ) {
+        println!("cargo:rerun-if-changed=../../platforms/common/CrashRecorder.cpp");
+        println!("cargo:rerun-if-changed=../../platforms/common/CrashRecorder.h");
+        println!("cargo:rerun-if-changed=../../platforms/common/PosixCrashFile.h");
+        cc::Build::new()
+            .cpp(true)
+            .std("c++17")
+            .file("../../platforms/common/CrashRecorder.cpp")
+            .compile("msime_mcp_crash");
+        if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
+            println!("cargo:rustc-link-lib=dl");
+        }
+    }
     println!("cargo:rerun-if-env-changed=MSIME_VERSION");
     let explicit = std::env::var("MSIME_VERSION")
         .ok()

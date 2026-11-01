@@ -39,11 +39,7 @@ export function CrossCommitSpacingSection(props: CrossCommitSpacingSectionProps)
             description="在编写代码、网址或邮箱的应用中保留原样，可将该应用加入排除名单。"
           />
           {apps.entries.map((id) => (
-            <Row
-              key={id}
-              title={apps.names[id] ?? id}
-              description={apps.names[id] ? id : undefined}
-            >
+            <Row key={id} title={apps.names[id] ?? id} detail={apps.names[id] ? id : undefined}>
               <ActionButton
                 action={() => apps.remove(id)}
                 label="移除"
