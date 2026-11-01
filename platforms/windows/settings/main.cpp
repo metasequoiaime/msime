@@ -14738,7 +14738,7 @@ private:
     // 「显示读音」是释义的子行，与共享页一样画在目标语言之后，只在任一释义来源（英文释义或候选词翻译）打开时画出来（建搜索索引时照样收录，与下面几组服务设置相同）；两个开关都会重画，已存的值不动。日文罗马音由系统的微软日语输入法（IFELanguage）读出，没有它时只读纯假名的释义。
     if (glosses || indexing_)
       bool_row(candidates, 0xE8D4, L"显示读音",
-               L"在释义后面标出怎么读：英文释义给音标，日文释义给罗马音。音标来自随输入法打包的离线词表，罗马音由系统生成，都不联网。",
+               L"在释义后面标出怎么读：英文释义给音标，日文释义给罗马音，法、西、俄、德、韩语释义给国际音标。音标来自随输入法打包的离线词表，罗马音由系统生成，都不联网。",
                L"candidate_pronunciation", false);
     // 第二种语言：候选窗在第一种语言下面再画一行。和共享页 CandidateTranslationOptionsSection 的默认布局一样收进「更多选项」（它会上云，所以只折叠不砍），翻译或英文释义打开时可选，「不显示第二种语言」写回 null。
     {
@@ -24813,7 +24813,7 @@ private:
         local_more_open_ || focus_row_ == L"模型下载镜像" || focus_row_ == L"本地模型目录",
         [this](bool expanded) { local_more_open_ = expanded; });
     voice_text_row(rows, 0xE896, L"模型下载镜像",
-                   L"可选。以 https:// 开头的加速前缀，下载地址为“镜像/原始地址”；留空直接从 GitHub 下载",
+                   L"可选。以 https:// 开头的加速前缀，下载地址为“镜像/原始地址”；留空时先走本项目镜像 dl.msime.app，再直连 GitHub",
                    L"模型下载镜像", L"voice_input.asr_model_mirror", false,
                    L"https://mirror.example.com", 2048, [](std::wstring const &value) {
                      return voice_model_setting_accepted(L"asr_model_mirror", value);

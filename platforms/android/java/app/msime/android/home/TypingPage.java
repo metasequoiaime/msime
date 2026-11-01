@@ -406,13 +406,20 @@ public final class TypingPage extends ReloadingDetailPage {
         java.io.File phonetics = new java.io.File(requireContext().getFilesDir(),
             "bootstrap/pronunciations/en-phonetic.db");
         boolean phoneticsReady = phonetics.isFile() || state.packs().contains(ResourcePacks.PRONUNCIATIONS);
-        String pronunciationDescription = phoneticsReady
-            ? pronunciation.description() : "离线音标词典未安装；打开后点下方「下载」，安装完成再进入输入框";
+        // 法、日、西、俄、德、韩语释义的读音在另一个词典里，目标语言是它们之一时才要它。
+        boolean targetReadings = app.msime.android.CandidatePronunciationPolicy.LANGUAGES.contains(targetLanguage)
+            && !"en".equals(targetLanguage);
+        boolean targetReadingsReady = state.packs().contains(ResourcePacks.TARGET_PRONUNCIATIONS);
+        String pronunciationDescription = phoneticsReady && (!targetReadings || targetReadingsReady)
+            ? pronunciation.description() : "离线读音词典未安装；打开后点下方「下载」，安装完成再进入输入框";
         translation.toggle(pronunciation.title(), pronunciationDescription, pronunciationOn,
             checked -> savePreferences(values -> values.put(pronunciation.key(), checked)));
         if (pronunciationOn && !phoneticsReady)
             packRow(translation, state, "离线英文音标词典", "仅供本机候选显示英文音标",
                 ResourcePacks.PRONUNCIATIONS);
+        if (pronunciationOn && targetReadings && !targetReadingsReady)
+            packRow(translation, state, "离线外语读音词典", "仅供本机候选显示法、日、西、俄、德、韩语释义的读音",
+                ResourcePacks.TARGET_PRONUNCIATIONS);
         translation.nav("翻译目标语言", null, labelOf(List.of(TARGET_LANGUAGES), targetLanguage),
             () -> pickTargetLanguage(targetLanguage, glossOn, state));
         if (glossOn && needsGlosses(targetLanguage, state)) {

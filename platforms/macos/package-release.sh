@@ -420,7 +420,7 @@ staged_bundle="$(only target/macos/*.app)"
 python3 "$edition_tool" apply --edition "$edition" "$staged_bundle"
 # 英文释义和音标表也随独立的 InputMethodKit bundle 安装。旧配置可能仍使用较早的 EngineResources，
 # InputController 会把这个 bundle 的 Resources 作为补充词库只读回退。
-for table in character-glosses word-glosses pronunciations; do
+for table in character-glosses word-glosses pronunciations target-pronunciations; do
   source="$repo_root/target/macos/$table"
   if [ -d "$source" ]; then
     ditto "$source" "$staged_bundle/Contents/Resources/$table"
@@ -492,6 +492,11 @@ fi
 pronunciations="$repo_root/target/macos/pronunciations"
 if [ -d "$pronunciations" ]; then
   ditto "$pronunciations" "$app/Contents/Resources/pronunciations"
+fi
+# 其他释义语言的读音表（scripts/build_target_pronunciations.py），可选，同样在 EngineResources 旁边读，总是连同它们的 CC BY-SA 声明一起带上。
+target_pronunciations="$repo_root/target/macos/target-pronunciations"
+if [ -d "$target_pronunciations" ]; then
+  ditto "$target_pronunciations" "$app/Contents/Resources/target-pronunciations"
 fi
 # Single-character English glosses (scripts/build_character_glosses.py), optional and read beside EngineResources.
 characters="$repo_root/target/macos/character-glosses"
@@ -585,6 +590,9 @@ check_app() {
   if [ -d "$pronunciations" ]; then
     test -f "$resources_dir/pronunciations/pronunciations-NOTICE.txt"
   fi
+  if [ -d "$target_pronunciations" ]; then
+    test -f "$resources_dir/target-pronunciations/target-pronunciations-NOTICE.txt"
+  fi
   if [ -d "$characters" ]; then
     test -f "$resources_dir/character-glosses/character-glosses-NOTICE.txt"
   fi
@@ -602,6 +610,10 @@ check_app() {
   if [ -d "$pronunciations" ]; then
     test -f "$nested/Contents/Resources/pronunciations/en-phonetic.db"
     test -f "$nested/Contents/Resources/pronunciations/pronunciations-NOTICE.txt"
+  fi
+  if [ -d "$target_pronunciations" ]; then
+    test -f "$nested/Contents/Resources/target-pronunciations/fr-phonetic.db"
+    test -f "$nested/Contents/Resources/target-pronunciations/target-pronunciations-NOTICE.txt"
   fi
   if [ -d "$characters" ]; then
     test -f "$nested/Contents/Resources/character-glosses/character-glosses-NOTICE.txt"

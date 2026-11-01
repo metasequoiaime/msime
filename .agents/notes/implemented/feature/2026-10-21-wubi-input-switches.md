@@ -40,7 +40,7 @@ Status: implemented
 - **关掉只在混输开启时生效**：`(top_commit_enabled || !mixed_pinyin)`。混输关掉时引擎把码裁回四位，字母无处容纳；宿主已经按下的键不能丢，所以仍按顶字上屏。这正是来源 `ShouldCommitCompleteWubiCodeOnNextKey` 的兜底分支。
 - 为了让 runtime 知道混输状态，`InputEngine` 加 `wubi_mixed_pinyin()`（默认 `false`），`Session` 从 `WubiInputOptions::mixed_pinyin` 转发。runtime 不复制引擎的读音规则。
 - 宿主状态而不是 Engine 状态：改偏好不必等 Engine 空闲重建，下一键生效，与 `wubi_auto_commit_unique` 同一条规矩。
-- 开着 `phrase_preedit` 的宿主（安卓、现代 Windows）上，顶下来的首选和其他组字中途的选词一样进暂存词段（`hold_phrase_progress`：字符键属于选择动作，提交非空且组字还在），不立即写进文档；下一组编码选词或结束组字时连同它一起上屏。Windows 的[五笔提交所有权](../bug-fix/2026-10-23-windows-wubi-commit-owner.md)回归明确核对这个边界。#10419 加的安卓设备验收「26 键五笔第五码顶字」按「立即上屏、读音行画 `a`」断言，与这条约定和安卓默认的拼写写进输入框都不符，develop 的 API 35 设备任务因此一直红（#10442）。改为断言输入框组字区是「你a」、读音行画暂存的「你」，再选「工」核对「你工」一起上屏；运行时回归 `a_fifth_letter_after_wqiy_holds_the_topped_word_with_phrase_preedit` 用真实会话钉住同一行为。顶字该不该立即上屏是产品取舍，改它会同时改变 Windows 的既有行为，不在修红里动。
+- 顶下来的首选立即上屏，开着 `phrase_preedit` 的宿主（六个宿主都开）也不进暂存词段，与 14 键顶字一致。此前这里记的是「和组字中途的选词一样暂存、下一段选词时一起上屏」，那样会挡住之后每次顶字与四码唯一自动上屏，续打的码被截在四码外丢掉，Esc 还连已顶的字一起丢；改动与理由见[五笔顶字立即上屏，不进暂存词段](../bug-fix/2026-11-01-wubi-top-commit-skips-phrase-hold.md)。安卓设备验收「26 键五笔第五码顶字」与运行时回归 `a_fifth_letter_after_wqiy_commits_the_topped_word_even_with_phrase_preedit` 钉住这条。
 
 ### 四码唯一自动上屏
 

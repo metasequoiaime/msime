@@ -66,7 +66,7 @@
                         android:layout_width="52dp"
                         android:layout_height="52dp"
                         android:importantForAccessibility="no"
-                        android:src="@drawable/ms_w2_home_logo_disc" />
+                        android:src="@drawable/ms_w2_home_logo" />
 
                     <LinearLayout
                         android:layout_width="0dp"

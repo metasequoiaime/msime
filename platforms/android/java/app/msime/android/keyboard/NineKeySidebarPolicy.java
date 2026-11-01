@@ -131,7 +131,7 @@ public final class NineKeySidebarPolicy {
         return tallReturn ? TALL_RETURN_LETTER_SYMBOLS : DEFAULT_LETTER_SYMBOLS;
     }
 
-    /** 右侧大回车外框接到出厂字母表末尾的那个 ！ 在表里的位置（{@link #letterSymbols(List, boolean)}）；数字键面、别的样式和自定义的表没有接，返回 -1。它接替拼音九键右列的 ！，带着那个键上滑输入 0、长按选上标 ⁰ 或下标 ₀ 的手势；自定义表里的 ！ 是普通符号，不带。 */
+    /** 右侧大回车外框接到出厂字母表末尾的那个 ！ 在表里的位置（{@link #letterSymbols(List, boolean)}）；数字键面、别的样式和自定义的表没有接，返回 -1。它接替拼音九键右列的 ！，带着那个键滑出 0（方向跟「九键滑动输入数字」，#10441）、长按选上标 ⁰ 或下标 ₀ 的手势；自定义表里的 ！ 是普通符号，不带。 */
     public static int appendedExclamationIndex(boolean digits, List<String> letterStored, boolean tallReturn) {
         return !digits && tallReturn && !custom(letterStored, DEFAULT_LETTER_SYMBOLS)
             ? TALL_RETURN_LETTER_SYMBOLS.size() - 1 : -1;

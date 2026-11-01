@@ -2,6 +2,7 @@
 #import <InputMethodKit/InputMethodKit.h>
 #import <CoreText/CoreText.h>
 #import <CommonCrypto/CommonDigest.h>
+#import <AVFoundation/AVFoundation.h>
 #import "MSIMEClientSession.h"
 #import "../settings/RuntimeOptions.h"
 #import "../../../../shared/apple/TextClient.h"
@@ -97,6 +98,7 @@
 #import <IOKit/hid/IOHIDKeys.h>
 #import <IOKit/hid/IOHIDManager.h>
 #include <atomic>
+#include <cstring>
 #include <memory>
 #include <optional>
 #include <unordered_map>
@@ -225,6 +227,29 @@ static void MSIMEAddToPersonalWordbook(NSString *directory, NSString *candidate,
         if (!notice) msime_macos_diagnostic_write("personal_wordbook: add_failed");
         dispatch_async(dispatch_get_main_queue(), ^{ completion(notice); });
     });
+}
+
+// 候选菜单「朗读」要读的英文：经 `msime_client_read_aloud_text` 按候选原文和这一帧显示着的释义问共享层，没有能读的时为 nil，菜单就不出这一项。不读写文件，打开菜单时调用。
+static NSString *MSIMEReadAloudText(NSString *candidate, NSString *gloss) {
+    NSDictionary *request = @{ @"candidate": candidate ?: @"", @"gloss": gloss ?: @"" };
+    NSData *data = [NSJSONSerialization dataWithJSONObject:request options:0 error:nil];
+    if (!data || data.length > 65536) return nil;
+    auto response = msime::host_api::own_string(
+        msime_client_read_aloud_text(static_cast<const uint8_t *>(data.bytes), data.length));
+    if (!response) return nil;
+    NSData *body = [NSData dataWithBytes:response.get() length:strlen(response.get())];
+    NSDictionary *envelope = [NSJSONSerialization JSONObjectWithData:body options:0 error:nil];
+    if (![envelope isKindOfClass:NSDictionary.class] || !MSIMEStrictBoolean(envelope[@"ok"])) return nil;
+    NSString *text = envelope[@"value"];
+    return [text isKindOfClass:NSString.class] && text.length ? text : nil;
+}
+
+// 读「朗读」用的英文声音：先找美式英语，再找任何一个已安装的英文声音。AVSpeechSynthesizer 只用设备上装着的声音，不联网。一个都没有时为 nil。
+static AVSpeechSynthesisVoice *MSIMEReadAloudVoice(void) {
+    if (AVSpeechSynthesisVoice *voice = [AVSpeechSynthesisVoice voiceWithLanguage:@"en-US"]) return voice;
+    for (AVSpeechSynthesisVoice *voice in AVSpeechSynthesisVoice.speechVoices)
+        if ([voice.language hasPrefix:@"en"]) return voice;
+    return nil;
 }
 
 // The local calendar day of this moment, as the statistics store names days.
@@ -1772,6 +1797,8 @@ static NSImage *MSIMECandidateLogoImage() {
     // Whether the client may still hold marked text this controller's compositions wrote; see MSIMEApplyTransitionTrackingMarkedText. Wrongly YES costs one redundant clear, wrongly NO leaves a composition stranded in the document, so anything that might mark text sets it.
     BOOL _clientHasMarkedText;
     NSObject *_candidateMenuToken;
+    // 候选菜单「朗读」用的合成器，第一次朗读时建，之后一直用它，新的一次先打断上一次。
+    AVSpeechSynthesizer *_readAloudSynthesizer;
     NSPanel *_panel;
     NSRect _candidateAnchorCaret;
     BOOL _candidateAnchorValid;
@@ -1959,7 +1986,7 @@ static NSImage *MSIMECandidateLogoImage() {
     // depend on the composition, so the cache outlives it. Japanese is read on demand from the system tokenizer.
     NSArray<NSString *> *_pronunciationTargets;
     NSOperationQueue *_pronunciationQueue;
-    NSMutableDictionary<NSString *, NSString *> *_englishPronunciations;
+    NSMutableDictionary<NSString *, NSString *> *_sharedPronunciations;
     NSMutableSet<NSString *> *_pronunciationPending;
     NSMutableDictionary<NSString *, NSString *> *_romajiCache;
     MSIMECustomTranslationBatch *_customBatch;
@@ -5402,7 +5429,18 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     MSIMESystemInputModeState &state = MSIMESharedSystemInputModeState();
     // 切进水杉后的第一次采纳要在清掉标记之前读到它：切回时系统落在 中 上，不是用户在水杉里越过 双 选了 中（#10199，见 MSIMESystemInputModeState 的 switchedIn）。只看 current 是否为空不够，激活校准和随后选回 双 都会先写 current。
     const BOOL switchedIn = state.switchedIn;
+    const BOOL restoring = MSIMESystemInputModeRestoring(state, NSProcessInfo.processInfo.systemUptime);
     if (!MSIMEAdoptReportedInputMode(state, value)) return;
+    NSString *reported = [[(NSString *)value componentsSeparatedByString:@"."] lastObject];
+    // 唤醒或解锁后系统恢复输入源时报告的模式：只记下，不改方案和中英状态，把菜单栏选回控制器自己的模式（MSIMESystemInputModeState 的 restoringUntil）。
+    if (restoring) {
+        MSIMEFinishSystemInputModeRestore(state);
+        msime_macos_diagnostic_writef("input_mode_report mode=%s action=ignored reason=system_restore", reported.UTF8String ?: "");
+        [self ensureAppearance];
+        [self applySharedInputPreferencesBeforeFirstUse];
+        [self syncSystemInputModeForClient:sender];
+        return;
+    }
     state.switchedIn = false;
     [self ensureAppearance];
     [self applySharedInputPreferencesBeforeFirstUse];
@@ -5416,6 +5454,9 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         MSIMESchemeForReportedInputMode(mode, scheme, _appearance.lastChineseScheme, [self inputModeAvailability], switchedIn);
     // A mode whose scheme cannot run here (粤, 注 or 笔 without its dictionary) leaves the scheme alone. Adopting it only made the Engine fall back to the Chinese scheme used before it, so the menu bar said 粤 while the keys typed that scheme - shuangpin, for one user who had never picked Cantonese. The mode can be selectable without the dictionary: on macOS 27.0.1 the system turned 粤 on by itself after --register-input-source enabled the bundle, and it came back each time the user removed it.
     if (target && !MSIMEInputSchemeAvailable(target, [self inputSchemeHostOptions])) target = nil;
+    // 诊断日志记下每一次被采纳的报告和它把方案改成了什么：模式名和方案名都不是输入内容。方案莫名其妙被改掉时（开盖后变成注音），这一行能说明是谁报告了哪个模式。
+    msime_macos_diagnostic_writef("input_mode_report mode=%s action=adopted scheme=%s target=%s switched_in=%d", reported.UTF8String ?: "",
+                                  scheme.UTF8String ?: "", target.UTF8String ?: "-", switchedIn ? 1 : 0);
     if (target && ![target isEqualToString:scheme]) {
         // The composition was typed under the old scheme and a scheme switch discards it, so commit it first, as the scheme menu does. A Korean syllable is text the user already wrote.
         if (_session && _activeClient && [_view[@"editing_text"] length]) {
@@ -6471,6 +6512,59 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions, NSString 
     return requested;
 }
 
+// 偏好里的方案缺它的资源包时（发布包不带的五笔码表，粤拼、注音、笔画的语言词库），会话回退到默认方案、偏好照旧，用户看到选着五笔却打出全拼。设置应用只在启动时补装一次，失败也没有提示，升级换了词库锁或从菜单栏、工具栏切到这个方案后就一直缺着，所以输入法收到会话报出的 `missing_resource_pack` 时自己在后台下载，通道和镜像与设置应用相同（偏好的 update_channel 和 voice_input.asr_model_mirror）。同一个资源包同时只装一次，失败后十分钟内不再试，免得每次聚焦都重新联网。装好后下一次聚焦时会话找到它，换回用户选的方案。只在主线程调用。
+static void MSIMEEnsureMissingResourcePack(id pack, NSDictionary *preferences, NSString *stateRoot) {
+    if (![pack isKindOfClass:NSString.class] || ![@[ @"wubi", @"language-dictionaries" ] containsObject:pack] ||
+        ![stateRoot isKindOfClass:NSString.class] || !stateRoot.isAbsolutePath)
+        return;
+    static NSMutableSet<NSString *> *installing;
+    static NSMutableDictionary<NSString *, NSDate *> *failedAt;
+    if (!installing) installing = [NSMutableSet set];
+    if (!failedAt) failedAt = [NSMutableDictionary dictionary];
+    if ([installing containsObject:pack]) return;
+    NSDate *failed = failedAt[pack];
+    if (failed && -failed.timeIntervalSinceNow < 600) return;
+    NSMutableDictionary *request = [@{@"state_root" : stateRoot, @"pack" : pack} mutableCopy];
+    id channel = [preferences isKindOfClass:NSDictionary.class] ? preferences[@"update_channel"] : nil;
+    if ([channel isKindOfClass:NSString.class] && [@[ @"stable", @"beta", @"nightly" ] containsObject:channel])
+        request[@"channel"] = channel;
+    id voice = [preferences isKindOfClass:NSDictionary.class] ? preferences[@"voice_input"] : nil;
+    id mirror = [voice isKindOfClass:NSDictionary.class] ? voice[@"asr_model_mirror"] : nil;
+    if ([mirror isKindOfClass:NSString.class] &&
+        [mirror stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet].length)
+        request[@"sources"] = @[ mirror ];
+    NSData *body = [NSJSONSerialization dataWithJSONObject:request options:0 error:nil];
+    if (!body) return;
+    NSString *name = [pack copy];
+    [installing addObject:name];
+    msime_macos_diagnostic_writef("resource_pack_install_start pack=%s reason=scheme_fallback", name.UTF8String);
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        auto raw = msime::host_api::own_string(
+            msime_client_resource_pack_install(static_cast<const uint8_t *>(body.bytes), body.length, nullptr, nullptr));
+        id response = raw ? [NSJSONSerialization JSONObjectWithData:[NSData dataWithBytes:raw.get() length:std::strlen(raw.get())]
+                                                             options:0
+                                                               error:nil]
+                          : nil;
+        const BOOL installed = [response isKindOfClass:NSDictionary.class] && [response[@"ok"] isEqual:@YES];
+        // 只记共享层的错误码（local_model_network 之类），冒号后的细节可能带路径，不写进诊断日志。
+        id error = [response isKindOfClass:NSDictionary.class] ? response[@"error"] : nil;
+        NSString *reason = [error isKindOfClass:NSString.class]
+            ? [[(NSString *)error componentsSeparatedByString:@":"].firstObject copy]
+            : @"no_response";
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [installing removeObject:name];
+            if (installed) {
+                [failedAt removeObjectForKey:name];
+                msime_macos_diagnostic_writef("resource_pack_installed pack=%s", name.UTF8String);
+            } else {
+                failedAt[name] = [NSDate date];
+                msime_macos_diagnostic_writef("resource_pack_install_failed pack=%s error=%s", name.UTF8String,
+                                              reason.UTF8String);
+            }
+        });
+    });
+}
+
 // The current preferences are available before the first HostSession is
 // constructed. Configure the log from them so failures emitted while that
 // constructor loads plugin tables are not lost before the asynchronous
@@ -6753,6 +6847,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         _preferenceLoadState.applied(revision);
         if (inputPreferences) [_appearance applySharedInputPreferences:inputPreferences];
         [self applySharedToolbarPreferences:snapshot[@"preferences"]];
+        // 在上一行配置好诊断日志之后：选着的方案缺资源包、会话回退了，就在后台补装。
+        MSIMEEnsureMissingResourcePack(result[@"missing_resource_pack"], preferences, _preferencesDirectory);
         // After the preferences, which the session's resolved effect refines with the selected pack.
         [self refreshTypingEffectSettings];
         _view = [session viewWithError:nil] ?: result[@"view"];
@@ -7415,7 +7511,11 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     }
     _smartPunctuationShadowWritten = NO;
     // 在水杉里按过键，之后系统报告的 中 就是用户自己的选择，不再按刚切回处理（#10199）。只看按下：切换输入源用的 Caps Lock、Ctrl 松开是 flagsChanged，可能先于切回时的报告送到。
-    if (event.type == NSEventTypeKeyDown && sender && !selfPosted) MSIMESharedSystemInputModeState().switchedIn = false;
+    // 唤醒或解锁后的第一次按键同样说明用户已经在用水杉了，之后的报告不再按系统恢复处理。
+    if (event.type == NSEventTypeKeyDown && sender && !selfPosted) {
+        MSIMESharedSystemInputModeState().switchedIn = false;
+        MSIMESharedSystemInputModeState().restoringUntil = 0;
+    }
     if (event.type == NSEventTypeKeyDown && sender) {
         [self ensureAppearance];
         if (_appearance.floatingToolbarEnabled)
@@ -8629,7 +8729,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     // Romaji is cached per term: a page is drawn more than once per key and the tokenizer is not free.
     if (!_romajiCache || _romajiCache.count > 4096) _romajiCache = [NSMutableDictionary dictionary];
     NSMutableDictionary<NSString *, NSString *> *cache = _romajiCache;
-    return MSIMEGlossPronunciation(candidate[@"text"], translation, _pronunciationTargets, _englishPronunciations,
+    return MSIMEGlossPronunciation(candidate[@"text"], translation, _pronunciationTargets, _sharedPronunciations,
                                    ^NSString *(NSString *term) {
                                        NSString *reading = cache[term];
                                        if (!reading) cache[term] = reading = MSIMEJapaneseRomaji(term);
@@ -8637,8 +8737,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
                                    });
 }
 
-// Asks the shared table for the English texts on the current page it has not answered yet, then redraws. Nothing is
-// asked while the switch is off; turning it on or off redraws the page with or without readings.
+// 把当前页上共享表还没回答过的释义行（以及英文候选）连同各自的语言交给共享表去查，回来后重画。开关关着时什么也不查；打开或关上开关时重画这一页，带上或去掉读音。
 - (void)synchronizePronunciation {
     NSDictionary *query = (_activeClient && _session && !_focusPending) ? [self serviceSnapshotQuery] : nil;
     NSArray<NSString *> *targets = [query[@"candidate_pronunciation"] isEqual:@YES] ? MSIMETranslationTargets(query) : nil;
@@ -8649,13 +8748,18 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     if (!targets) return;
     NSString *resources = [_session.hostOptions[@"resources"] copy];
     if (![resources isKindOfClass:NSString.class] || !resources.isAbsolutePath) return;
-    if (!_englishPronunciations || _englishPronunciations.count > 4096) _englishPronunciations = [NSMutableDictionary dictionary];
+    if (!_sharedPronunciations || _sharedPronunciations.count > 4096) _sharedPronunciations = [NSMutableDictionary dictionary];
     if (!_pronunciationPending) _pronunciationPending = [NSMutableSet set];
     NSMutableOrderedSet<NSString *> *missing = [NSMutableOrderedSet orderedSet];
+    NSMutableArray *items = [NSMutableArray array];
     for (NSDictionary *candidate in _view[@"candidates"]) {
         if (![candidate isKindOfClass:NSDictionary.class] || ![candidate[@"text"] isKindOfClass:NSString.class]) continue;
-        for (NSString *text in MSIMEGlossEnglishTexts(candidate[@"text"], CandidateTranslation(candidate), targets))
-            if (!_englishPronunciations[text] && ![_pronunciationPending containsObject:text]) [missing addObject:text];
+        for (NSDictionary<NSString *, NSString *> *item in MSIMEGlossSharedItems(candidate[@"text"], CandidateTranslation(candidate), targets)) {
+            NSString *key = MSIMEPronunciationKey(item[@"language"], item[@"text"]);
+            if (_sharedPronunciations[key] || [_pronunciationPending containsObject:key] || [missing containsObject:key]) continue;
+            [missing addObject:key];
+            [items addObject:item];
+        }
     }
     if (!missing.count) return;
     [_pronunciationPending addObjectsFromArray:missing.array];
@@ -8664,8 +8768,6 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         _pronunciationQueue.maxConcurrentOperationCount = 1;
         _pronunciationQueue.qualityOfService = NSQualityOfServiceUtility;
     }
-    NSMutableArray *items = [NSMutableArray arrayWithCapacity:missing.count];
-    for (NSString *text in missing) [items addObject:@{@"text": text, @"language": @"en"}];
     NSMutableDictionary *request = [@{@"generation": _view[@"generation"] ?: @0, @"items": items} mutableCopy];
     // 旧配置的活动词库可能位于用户目录，音标表仍随输入法 bundle 分发。
     NSString *supplementary = NSBundle.mainBundle.resourcePath;
@@ -8676,15 +8778,16 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         NSDictionary *result = [MSIMEClientSession pronunciationRequest:request resources:resources error:nil];
         NSMutableDictionary<NSString *, NSString *> *answered = [NSMutableDictionary dictionary];
         for (NSDictionary *entry in [result[@"pronunciations"] isKindOfClass:NSArray.class] ? result[@"pronunciations"] : @[])
-            if ([entry[@"text"] isKindOfClass:NSString.class] && [entry[@"pronunciation"] isKindOfClass:NSString.class])
-                answered[entry[@"text"]] = entry[@"pronunciation"];
+            if ([entry[@"text"] isKindOfClass:NSString.class] && [entry[@"language"] isKindOfClass:NSString.class] &&
+                [entry[@"pronunciation"] isKindOfClass:NSString.class])
+                answered[MSIMEPronunciationKey(entry[@"language"], entry[@"text"])] = entry[@"pronunciation"];
         dispatch_async(dispatch_get_main_queue(), ^{
             MSIMEInputController *current = weakSelf;
             if (!current) return;
             // A text the table does not know is remembered as having no reading, so it is not asked again every key.
-            for (NSString *text in asked) {
-                current->_englishPronunciations[text] = answered[text] ?: @"";
-                [current->_pronunciationPending removeObject:text];
+            for (NSString *key in asked) {
+                current->_sharedPronunciations[key] = answered[key] ?: @"";
+                [current->_pronunciationPending removeObject:key];
             }
             if (current->_activeClient && current->_pronunciationTargets && answered.count) [current renderCandidates];
         });
@@ -10572,7 +10675,8 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         else if (tokens.translation)
             button.translationColor = SkinColor(*tokens.translation);
         else if (button.candidateFixed) button.translationColor = [button.titleColor colorWithAlphaComponent:MSIMECandidateTranslationOpacity];
-        else button.translationColor = button.candidateHighlighted ? SkinColor(tokens.selectedNumber) : SkinColor(tokens.number);
+        // 没有释义色的选中行按 `SelectedRowGloss` 取色：选中序号色在不透明选中底色上不到 4.5:1 时换成加深了不透明度的选中文字色。
+        else button.translationColor = button.candidateHighlighted ? SkinColor(msime::mac::SelectedRowGloss(tokens)) : SkinColor(tokens.number);
         button.numberColor = button.candidateHighlighted ? SkinColor(tokens.selectedNumber) : SkinColor(tokens.number);
         button.barColor = SkinColor(tokens.selectedBar.value_or(tokens.accent));
         button.showSelectedBar = tokens.showSelectedBar;
@@ -10643,8 +10747,11 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     NSString *text = [candidate[@"text"] isKindOfClass:NSString.class] ? candidate[@"text"] : @"";
     // 「加入生词本」用的是这一帧显示着的释义和读音，菜单打开以后释义再变也不影响这一项。
     NSString *gloss = CandidateTranslation(candidate);
+    // 「朗读」读的英文同样在菜单打开时定下。
+    NSString *readAloud = MSIMEReadAloudText(text, gloss);
     NSDictionary *context = @{@"id":[identifier copy], @"text":text, @"render":_candidateMenuToken,
-                              @"gloss":gloss, @"pronunciation":[self pronunciationForCandidate:candidate] ?: @""};
+                              @"gloss":gloss, @"pronunciation":[self pronunciationForCandidate:candidate] ?: @"",
+                              @"read_aloud":readAloud ?: @""};
     NSMenuItem *(^item)(NSString *, NSInteger) = ^NSMenuItem *(NSString *title, NSInteger tag) {
         NSMenuItem *entry = [[NSMenuItem alloc] initWithTitle:title action:@selector(candidateMenuAction:) keyEquivalent:@""];
         entry.target = self;
@@ -10679,11 +10786,10 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         }
         [menu addItem:remove];
     }
-    // 候选旁有释义时才有「加入生词本」，和 Windows、Linux 的候选菜单放在同一个位置：最后一组，和词库操作隔开。
-    if (gloss.length) {
-        [menu addItem:NSMenuItem.separatorItem];
-        [menu addItem:item(@"加入生词本", 30)];
-    }
+    // 候选旁有释义时才有「加入生词本」，有能读的英文时同一组里先是「朗读」，和 Windows、Linux 的候选菜单放在同一个位置：最后一组，和词库操作隔开。
+    if (gloss.length || readAloud) [menu addItem:NSMenuItem.separatorItem];
+    if (readAloud) [menu addItem:item(@"朗读", 31)];
+    if (gloss.length) [menu addItem:item(@"加入生词本", 30)];
     return menu;
 }
 
@@ -10703,6 +10809,22 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
             if (notice) [controller presentHUDText:notice announcement:notice];
             else NSBeep();
         });
+        return;
+    }
+    // 「朗读」也不经过 Engine。新的一次打断还在读的上一次。
+    if (item.tag == 31) {
+        NSString *text = context[@"read_aloud"];
+        AVSpeechSynthesisVoice *voice = MSIMEReadAloudVoice();
+        if (![text isKindOfClass:NSString.class] || !text.length) return;
+        if (!voice) {
+            [self presentHUDText:@"系统没有可用的朗读语音" announcement:@"系统没有可用的朗读语音"];
+            return;
+        }
+        if (!_readAloudSynthesizer) _readAloudSynthesizer = [AVSpeechSynthesizer new];
+        [_readAloudSynthesizer stopSpeakingAtBoundary:AVSpeechBoundaryImmediate];
+        AVSpeechUtterance *utterance = [AVSpeechUtterance speechUtteranceWithString:text];
+        utterance.voice = voice;
+        [_readAloudSynthesizer speakUtterance:utterance];
         return;
     }
     uint64_t generation = 0; NSUInteger index = 0;

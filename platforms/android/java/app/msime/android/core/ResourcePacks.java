@@ -26,6 +26,8 @@ public final class ResourcePacks {
     public static final String WUBI = "wubi";
     public static final String OFFLINE_GLOSSES = "offline-glosses";
     public static final String PRONUNCIATIONS = "pronunciations";
+    /** 法、日、西、俄、德、韩释义行的读音表 `<语言>-phonetic.db`（维基词典，CC BY-SA 4.0），和英文音标表分开下载。 */
+    public static final String TARGET_PRONUNCIATIONS = "target-pronunciations";
     public static final String OCR_MODULE = "ocr-module-android";
     public static final String VOICE_RUNTIME = "voice-runtime";
 
