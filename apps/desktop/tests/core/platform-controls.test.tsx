@@ -116,7 +116,11 @@ test('a titled group holding only notes keeps its title and "?" and collapses th
       <SettingsGroupNote>按住快捷键说话，松开后文字写进当前输入框。</SettingsGroupNote>
     </GroupList>,
   );
-  expect(screen.getByRole("button", { name: "说明" })).toBeTruthy();
+  expect(
+    screen.getByRole("button", {
+      name: "macOS 输入法语音的说明：按住快捷键说话，松开后文字写进当前输入框。",
+    }),
+  ).toBeTruthy();
   const card = document.querySelector(".settings-glass-group");
   // The note moved into the header's "?", so the card has no children; `:empty` hides it instead of drawing a 0-height ring under the title.
   expect(card?.childNodes.length).toBe(0);
@@ -132,7 +136,8 @@ test("a tip opened by keyboard focus closes when the page scrolls, since its pos
     return selector === ":focus-visible" ? true : matches.call(this, selector);
   });
   render(<InfoTip>这一项控制候选窗的位置。</InfoTip>);
-  const button = screen.getByRole("button", { name: "说明" });
+  // 没有标题时读「说明：<正文>」。
+  const button = screen.getByRole("button", { name: "说明：这一项控制候选窗的位置。" });
   act(() => button.focus());
   const bubbles = () =>
     [...document.querySelectorAll("div[aria-hidden='true']")].filter(
