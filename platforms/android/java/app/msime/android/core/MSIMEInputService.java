@@ -8680,6 +8680,22 @@ public final class MSIMEInputService extends InputMethodService {
         render();
     }
 
+    /**
+     * 多选面板按序号插入几条记录（#10411）：和单条插入走同一条路径，只是先按选中顺序首尾相接、中间不加分隔符，再一次 `commitText`。
+     *
+     * <p>不分条延迟提交：一次提交在编辑器里是一个撤销步，也不会插到一半键盘收起或换了输入框、只进去一部分。和单条插入一样不经系统认证。
+     */
+    void insertClipboardTexts(java.util.List<String> texts) {
+        if (connection == null || !app.msime.android.ClipboardSelectionPolicy.canInsert(texts.size())) return;
+        String joined = app.msime.android.ClipboardSelectionPolicy.insertionText(texts);
+        if (!ClipboardHistoryPolicy.hasText(joined)) return;
+        command(2);
+        commitText(joined);
+        recentClip.dismiss();
+        closeClipboardHistory();
+        render();
+    }
+
     /** 系统剪贴板里当前的那一条文字：文字本身、系统给的复制时刻（读不到时为 0）和是否被标为敏感。 */
     record PrimaryClip(String text, long copiedAtMs, boolean sensitive) {
         String identity() { return ClipboardCapturePolicy.identity(copiedAtMs, text); }
