@@ -22,6 +22,21 @@ public final class ChineseOutputPolicy {
         return !dedicatedEnglish && schemeConverts && !"temporary_japanese".equals(localMode);
     }
 
+    /** 粤拼和粤语双拼（Engine 里同为方案 5）的词库是繁体：在这个方案下，简繁开关切换的是粤拼自己的输出字形 `cantonese_simplified_output`，繁转简在 Engine 里做；全局的 `traditional_chinese_output` 不动。 */
+    public static boolean switchFollowsCantonese(int scheme) {
+        return scheme == InputSchemeTraits.CANTONESE;
+    }
+
+    /** 简繁开关显示的字形：粤拼下看粤拼自己的选择（默认繁体），其余方案看全局开关。 */
+    public static boolean showsTraditional(int scheme, boolean traditional, boolean cantoneseSimplified) {
+        return switchFollowsCantonese(scheme) ? !cantoneseSimplified : traditional;
+    }
+
+    /** 简繁开关在偏好文档里写的键。 */
+    public static String preferenceKey(int scheme) {
+        return switchFollowsCantonese(scheme) ? "cantonese_simplified_output" : "traditional_chinese_output";
+    }
+
     public static String output(String text, boolean traditional, boolean applies,
                                 Converter converter) {
         if (!traditional || !applies || text.isEmpty()) return text;

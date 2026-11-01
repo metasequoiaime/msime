@@ -966,6 +966,8 @@ interface PreparedPreferences {
   menu_theme?: string;
   theme: string;
   traditional_chinese_output: boolean;
+  /** 粤拼和粤语双拼输出简体，繁转简在 Engine 里做；关着时文档里没有这个键。 */
+  cantonese_simplified_output?: boolean;
   chinese_punctuation: boolean;
   smart_punctuation: boolean;
   smart_punctuation_repeat: boolean;
@@ -2157,6 +2159,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.schemeName = preferences.scheme;
       this.profileName = preferences.shuangpin_profile;
       this.traditional = preferences.traditional_chinese_output;
+      this.cantoneseSimplified = preferences.cantonese_simplified_output === true;
       this.chinesePunctuation = preferences.chinese_punctuation;
       this.smartPunctuation = preferences.smart_punctuation !== false;
       this.smartPunctuationRepeat = preferences.smart_punctuation_repeat !== false;
@@ -2500,6 +2503,17 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** Whether the Engine's output is being converted to traditional. */
   usesTraditional(): boolean {
     return this.traditional;
+  }
+
+  /** 简繁按钮和功能面板「繁」显示的字形：粤拼下看粤拼自己的选择（默认繁体），其余方案看全局开关。 */
+  showsTraditional(): boolean {
+    return ChineseOutputPolicy.showsTraditional(this.characterSetFollowsCantonese(), this.traditional,
+      this.cantoneseSimplified);
+  }
+
+  /** 见 `ChineseOutputPolicy.switchFollowsCantonese`。 */
+  private characterSetFollowsCantonese(): boolean {
+    return ChineseOutputPolicy.switchFollowsCantonese(this.schemeName, this.englishMode);
   }
 
   /** What the user chose for the keyboard's appearance and scheme. */
@@ -3308,7 +3322,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       capsLock: this.capsLock,
       // Korean and Vietnamese write ASCII punctuation whatever the switch says (`uses_chinese_punctuation`), and the face reports what is written. 固定标点锁定时按锁定值显示（usesChinesePunctuation）。
       chinesePunctuation: this.usesChinesePunctuation() && !this.writesAsciiPunctuation(),
-      fullWidth: this.fullWidth, traditional: this.traditional
+      fullWidth: this.fullWidth, traditional: this.showsTraditional()
     };
   }
 
@@ -3419,6 +3433,13 @@ export class KeyboardSession implements HardwareKeyTarget {
    * The switch moves only once the store has taken the write: the reload that follows skips this session's own revision, so a refused write that still flipped the flag would convert output the settings page says is off. Returns the state now in effect.
    */
   toggleCharacterSet(): boolean {
+    if (this.characterSetFollowsCantonese()) {
+      // 繁转简在 Engine 里做：偏好交给会话后 Engine 在空闲时重建，组字中切换时等这段组字结束才生效。
+      if (this.writePreference('cantonese_simplified_output', !this.cantoneseSimplified)) {
+        this.cantoneseSimplified = !this.cantoneseSimplified;
+      }
+      return this.showsTraditional();
+    }
     if (!this.writePreference('traditional_chinese_output', !this.traditional)) {
       return this.traditional;
     }
@@ -5161,6 +5182,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** 上一下按键振动还没交给振动服务。这时再按一下就不振了：排队的振动会在手指离开后才一串串地振。 */
   private vibrationPending: boolean = false;
   private traditional: boolean = false;
+  /** 共享偏好 `cantonese_simplified_output`，见 `characterSetFollowsCantonese`。 */
+  private cantoneseSimplified: boolean = false;
   private chinesePunctuation: boolean = true;
   private smartPunctuation: boolean = true;
   private smartPunctuationRepeat: boolean = true;

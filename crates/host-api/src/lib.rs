@@ -51,7 +51,7 @@ use msime_engine::{
     validate_nine_key_shuangpin_table, validate_shuangpin_custom_profile, CandidateEdge,
     NineKeyShuangpinError, NineKeyShuangpinKeyHint, NineKeyShuangpinKind, NineKeyShuangpinTable,
     SchemeSet, SchemeType, ShuangpinCustomProfileError, ShuangpinCustomTable,
-    ShuangpinCustomTablePart, ShuangpinProfileKind,
+    ShuangpinCustomTablePart, ShuangpinProfileKind, TextConversion,
 };
 #[cfg(unix)]
 use msime_input_runtime::TranslationQuery;
@@ -375,6 +375,15 @@ const CARET_EDIT_SUFFIX_HOST: bool = cfg!(any(
 
 fn caret_edit_suffix_applies(preferences: &Preferences) -> bool {
     CARET_EDIT_SUFFIX_HOST && preferences.caret_edit_suffix
+}
+
+/// 粤拼候选的输出转换：用户在粤拼下选了简体（`cantonese_simplified_output`）时交给 Engine 繁转简，转换和去重都在 Engine 里做完，视图的 `script_conversion` 对粤拼仍为 false，宿主不再转换。
+fn cantonese_output_conversion(preferences: &Preferences) -> Option<TextConversion> {
+    preferences
+        .cantonese_simplified_output
+        .then_some(TextConversion(
+            msime_client_core::chinese_conversion::cantonese_to_simplified,
+        ))
 }
 
 fn multilingual_languages_for(
@@ -832,6 +841,7 @@ impl HostSession {
         options.force_cantonese_shuangpin = scheme == InputScheme::Cantonese
             && preferences.touch_keyboard_schemes.selected
                 == Some(TouchKeyboardScheme::CantoneseShuangpin);
+        options.cantonese_output_conversion = cantonese_output_conversion(&preferences);
         options.single_character_only = preferences.single_character_only;
         options.caret_edit_suffix = caret_edit_suffix_applies(&preferences);
         options.learning = preferences.learning;
@@ -2337,6 +2347,7 @@ impl HostOptions {
             force_cantonese_shuangpin: scheme == InputScheme::Cantonese
                 && self.preferences.touch_keyboard_schemes.selected
                     == Some(TouchKeyboardScheme::CantoneseShuangpin),
+            cantonese_output_conversion: cantonese_output_conversion(&self.preferences),
             single_character_only: self.preferences.single_character_only,
             caret_edit_suffix: caret_edit_suffix_applies(&self.preferences),
             learning: self.preferences.learning,

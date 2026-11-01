@@ -1,7 +1,7 @@
 {
   "version": 1,
   "repository": "https://github.com/metasequoiaime/msime-dictionary",
-  "commit": "232e6dad2fbe788ad8adeb24bfa801ee1ec02c84",
+  "commit": "f04a4d592a1efedc87206f21be7a2ff4eed73379",
   "upstream": {
     "repository": "https://github.com/BYVoid/OpenCC.git",
     "commit": "26753884f1984add422f3b0249ccee8613deaff6"
@@ -31,6 +31,16 @@
       "path": "sources/opencc/STPhrases_GeneratedFromRegionalPhrases.txt",
       "size": 15717,
       "sha256": "9ab40618a9b162cca6dae9ec6767a8c4669017a20b2d6da5f94b7a7f99d09170"
+    },
+    {
+      "path": "sources/opencc/TSCharacters.txt",
+      "size": 104516,
+      "sha256": "737c21c66f55a419dd6956cb3089476cdefc5a36877452631617696df1e5d925"
+    },
+    {
+      "path": "sources/opencc/TSPhrases.txt",
+      "size": 8786,
+      "sha256": "362fa1b9a7d6edd04b462a32e12c9fef3adae822ab1dee9c83561cc37c06cb1f"
     },
     {
       "path": "sources/opencc/TWPhrases.txt",

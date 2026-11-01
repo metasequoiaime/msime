@@ -232,6 +232,26 @@ final class SchemeDocumentSettingsTests: XCTestCase {
     XCTAssertTrue(ChineseOutputPreference.usesTraditional)
   }
 
+  /// 粤拼下的简繁按钮只写 `cantonese_simplified_output`，全局简繁开关保持原值；默认是繁体。
+  func testCantoneseSimplifiedOutputLeavesTheGlobalSwitchAlone() throws {
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: state) {
+      $0[ChineseOutputPreference.documentKey] = true
+    })
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    XCTAssertFalse(bridge.cantoneseSimplifiedOutput)
+    XCTAssertTrue(bridge.setCantoneseSimplifiedOutput(true))
+    XCTAssertTrue(bridge.cantoneseSimplifiedOutput)
+    var document = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state))
+    XCTAssertEqual(document["cantonese_simplified_output"] as? Bool, true)
+    XCTAssertEqual(document[ChineseOutputPreference.documentKey] as? Bool, true)
+
+    XCTAssertTrue(bridge.setCantoneseSimplifiedOutput(false))
+    XCTAssertFalse(bridge.cantoneseSimplifiedOutput)
+    document = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state))
+    XCTAssertNotEqual(document["cantonese_simplified_output"] as? Bool, true)
+    XCTAssertEqual(document[ChineseOutputPreference.documentKey] as? Bool, true)
+  }
+
   func testTraditionalOutputReachesTheDocument() throws {
     _ = MetasequoiaInputSessionBridge(stateRoot: state)
     XCTAssertTrue(ChineseOutputPreference.save(true, stateRoot: state))

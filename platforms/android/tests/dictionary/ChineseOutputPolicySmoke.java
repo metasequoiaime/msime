@@ -41,6 +41,17 @@ public final class ChineseOutputPolicySmoke {
         check(ChineseOutputPolicy.candidateOutput("hello網絡中国", true, true, 18, han)
             .equals("hello網絡中国"));
         check(ChineseOutputPolicy.candidateOutput("中国", true, true, 0, han).equals("中國"));
+        // 粤拼下的简繁开关只切粤拼自己的字形，默认繁体；其余方案照旧看全局开关。
+        check(ChineseOutputPolicy.switchFollowsCantonese(5));
+        check(!ChineseOutputPolicy.switchFollowsCantonese(0));
+        check(!ChineseOutputPolicy.switchFollowsCantonese(6));
+        check(!ChineseOutputPolicy.switchFollowsCantonese(-1));
+        check(ChineseOutputPolicy.showsTraditional(5, false, false));
+        check(!ChineseOutputPolicy.showsTraditional(5, true, true));
+        check(ChineseOutputPolicy.showsTraditional(0, true, true));
+        check(!ChineseOutputPolicy.showsTraditional(0, false, false));
+        check(ChineseOutputPolicy.preferenceKey(5).equals("cantonese_simplified_output"));
+        check(ChineseOutputPolicy.preferenceKey(0).equals("traditional_chinese_output"));
         System.out.println("Android Chinese output: boundaries and conversion failure fallback passed");
     }
 }

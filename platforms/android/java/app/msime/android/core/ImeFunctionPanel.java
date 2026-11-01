@@ -138,7 +138,7 @@ final class ImeFunctionPanel {
             case FUZZY_PINYIN -> add(entries, states, enabled, glyph(item, "≈", s::toggleFuzzyPinyin),
                 toggle(s.fuzzyPinyinEnabled), ready && !s.panelPreferenceSaving);
             case TRADITIONAL -> add(entries, states, enabled, glyph(item, "繁", s::toggleChineseOutput),
-                toggle(s.traditionalChineseOutput), s.traditionalOutputToolAvailable());
+                toggle(s.characterSetShowsTraditional()), s.traditionalOutputToolAvailable());
             case SCHEME -> add(entries, states, enabled,
                 icon(item, KeyboardIconPaths.Icon.TOOLBAR_SCHEME, () -> {
                     s.closeMoreTools();

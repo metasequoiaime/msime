@@ -170,6 +170,7 @@ impl InputSession {
             options.japanese_dictionary.clone(),
         )?;
         engine.set_force_cantonese_shuangpin(options.force_cantonese_shuangpin);
+        engine.set_cantonese_output_conversion(options.cantonese_output_conversion);
         engine.set_autocorrect_types(0);
         engine.set_quanpin_helpcode_enabled(true);
         engine.set_strict_quanpin_helpcode(options.strict_quanpin_helpcode);

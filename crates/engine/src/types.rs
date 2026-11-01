@@ -1505,6 +1505,28 @@ pub struct MixedExpressiveOptions {
     pub symbol_candidates: bool,
 }
 
+/// 宿主交给引擎的一段文字转换，例如粤拼输出简体时的繁转简（`SessionOptions::cantonese_output_conversion`）。引擎不带转换数据，宿主从自己的共享层传入函数；两个转换按函数地址判断相等。
+#[derive(Clone, Copy)]
+pub struct TextConversion(pub fn(&str) -> String);
+
+impl TextConversion {
+    pub fn apply(self, text: &str) -> String {
+        (self.0)(text)
+    }
+}
+
+impl PartialEq for TextConversion {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::fn_addr_eq(self.0, other.0)
+    }
+}
+
+impl std::fmt::Debug for TextConversion {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("TextConversion(..)")
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct WubiInputOptions {
     /// Answer an unmatched wubi code with quanpin candidates for the same letters.

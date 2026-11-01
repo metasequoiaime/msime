@@ -16,7 +16,7 @@ use crate::types::{
     FrequencyAdjustmentOptions, FuzzyPinyinOptions, LocalModeOptions, MentionEntry,
     MixedExpressiveOptions, PluginCommand, QuickPhraseEntry, SchemeSet, SchemeType,
     SentenceAssociationOptions, ShuangpinCustomTable, ShuangpinHelpcodeModes, ShuangpinProfileKind,
-    WubiInputOptions, WubiProfileKind, DEFAULT_FIRST_PAGE_ROWS,
+    TextConversion, WubiInputOptions, WubiProfileKind, DEFAULT_FIRST_PAGE_ROWS,
 };
 use crate::user_dictionary::generation::{merge_downloaded_wubi, prepare_runtime_paths_for};
 use crate::vietnamese::{InputMethod as VietnameseInputMethod, ToneStyle as VietnameseToneStyle};
@@ -68,6 +68,8 @@ pub struct EngineOptions {
     pub shuangpin_preedit_uses_raw: bool,
     /// 独立粤语双拼入口强制解释同形两键码；其余入口为 false。
     pub force_cantonese_shuangpin: bool,
+    /// 粤拼候选的输出转换（`SessionOptions::cantonese_output_conversion`）；`None` 输出繁体。
+    pub cantonese_output_conversion: Option<TextConversion>,
     pub learning: bool,
     /// 回车上屏英文拼写时是否学进英文词库（`SessionOptions::learn_english_on_enter`）。参照实现出厂为开。门面同时打开 `SessionOptions::learn_typed_spellings_on_enter`，所以学的不只是专用英文里打的词。
     pub learn_english_on_enter: bool,
@@ -229,6 +231,7 @@ pub fn prepare_options_for(
         shuangpin_custom_profile: None,
         shuangpin_preedit_uses_raw: true,
         force_cantonese_shuangpin: false,
+        cantonese_output_conversion: None,
         single_character_only: false,
         caret_edit_suffix: false,
         learning: false,
@@ -355,6 +358,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
         korean_layout,
         cantonese_dictionary: PathBuf::from(&options.cantonese_dictionary),
         force_cantonese_shuangpin: options.force_cantonese_shuangpin,
+        cantonese_output_conversion: options.cantonese_output_conversion,
         zhuyin_dictionary: PathBuf::from(&options.zhuyin_dictionary),
         stroke_dictionary: PathBuf::from(&options.stroke_dictionary),
         japanese_dictionary: PathBuf::from(&options.japanese_dictionary),

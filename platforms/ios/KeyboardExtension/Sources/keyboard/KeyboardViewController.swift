@@ -2747,8 +2747,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }, for: .primaryActionTriggered)
     aiShortcut.addAction(UIAction { [weak self] _ in self?.closeKeyboardPicker(); self?.showKeyboardAI() }, for: .primaryActionTriggered)
     characterSetShortcut.addAction(UIAction { [weak self] _ in
-      guard let self else { return }
-      selectTraditionalOutput(!usesTraditionalOutput)
+      self?.toggleCharacterSet()
     }, for: .primaryActionTriggered)
     fullwidthShortcut.addAction(UIAction { [weak self] _ in
       guard let self else { return }
@@ -2809,10 +2808,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // The switches show their state as a character, the way the Windows floating toolbar does: 简/繁, 全/半, and a Chinese or ASCII comma.
     let pinned = TouchToolbarPreference(in: session.sharedPreferences)
     configure(aiShortcut, title: nil, symbol: "sparkles", label: "AI 润色", id: "aiShortcut")
-    configure(characterSetShortcut, title: usesTraditionalOutput ? "繁" : "简", symbol: nil,
+    let showsTraditional = showsTraditionalCharacterSet
+    configure(characterSetShortcut, title: showsTraditional ? "繁" : "简", symbol: nil,
               label: "简繁切换", id: "characterSetShortcut")
-    characterSetShortcut.accessibilityValue = usesTraditionalOutput ? "繁体" : "简体"
-    characterSetShortcut.isEnabled = !(isChineseMode && !inputScheme.writesChinese)
+    characterSetShortcut.accessibilityValue = showsTraditional ? "繁体" : "简体"
+    characterSetShortcut.isEnabled = characterSetSwitchApplies
     configure(fullwidthShortcut, title: fullWidthInput ? "全" : "半", symbol: nil,
               label: "全角半角", id: "fullwidthShortcut")
     fullwidthShortcut.accessibilityValue = fullWidthInput ? "全角" : "半角"
@@ -2912,9 +2912,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       },
       // 用一个开关而不是一对卡片：输出字形只是一个布尔值。
       KeyboardTool(id: "traditional", title: "繁体", accessibilityLabel: "繁体输出", face: .glyph("繁"), isToggle: true,
-                   selected: usesTraditionalOutput, enabled: !(isChineseMode && !inputScheme.writesChinese)) { [weak self] in
-        guard let self else { return }
-        selectTraditionalOutput(!usesTraditionalOutput)
+                   selected: showsTraditionalCharacterSet, enabled: characterSetSwitchApplies) { [weak self] in
+        self?.toggleCharacterSet()
       },
       KeyboardTool(id: "handwriting", title: "手写", face: .icon(.handwriting),
                    selected: isChineseMode && inputScheme == .handwriting,
@@ -9592,6 +9591,30 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   @objc private func saveKeyboardAdjustOnResign() {
     closeKeyboardAdjust()
+  }
+
+  /// 粤拼和粤语双拼的词库是繁体：在这两个方案下，简繁按钮切换的是粤拼自己的输出字形（`cantonese_simplified_output`，繁转简在 Engine 里做），全局简繁开关不动，切回普通话方案时仍是原来的字形。
+  private var characterSetFollowsCantonese: Bool { isChineseMode && inputScheme.isCantonese }
+
+  /// 简繁按钮和功能菜单「繁体」显示的字形：粤拼下看粤拼自己的选择，其他方案看全局开关。
+  private var showsTraditionalCharacterSet: Bool {
+    characterSetFollowsCantonese ? !session.cantoneseSimplifiedOutput : usesTraditionalOutput
+  }
+
+  /// 不写汉字或自带字形的方案（日文、韩文、注音、笔画等）下简繁按钮不可用；粤拼例外。
+  private var characterSetSwitchApplies: Bool {
+    characterSetFollowsCantonese || !(isChineseMode && !inputScheme.writesChinese)
+  }
+
+  private func toggleCharacterSet() {
+    guard characterSetFollowsCantonese else {
+      selectTraditionalOutput(!usesTraditionalOutput)
+      return
+    }
+    _ = session.setCantoneseSimplifiedOutput(!session.cantoneseSimplifiedOutput)
+    closeCandidatePanel()
+    render(session.currentSnapshot())
+    updateShortcutButtons()
   }
 
   private func selectTraditionalOutput(_ traditional: Bool) {
