@@ -271,6 +271,8 @@ const KEY_HINT_LINE_HEIGHT_VP: number = 12;
 // 角标提示距键上边和右边的距离（Android 的 `KeyHintButton.CORNER_HINT_TOP_DP` / `CORNER_HINT_RIGHT_DP`）。
 const CORNER_HINT_TOP_VP: number = 3;
 const CORNER_HINT_RIGHT_VP: number = 5;
+// 键面文字跟随系统字体放大的上限，与 Android 的 `KeyboardTypographyPolicy.MAX_KEYBOARD_FONT_SCALE` 相同。字号是 fp、会随系统字体放大，键高和给角标留的顶部（CORNER_HINT_TOP_VP + KEY_HINT_LINE_HEIGHT_VP）是 vp、不变；不设上限时系统字体一调大，字母就顶进右上角的角标，和它挤在一起。
+const KEY_MAX_FONT_SCALE: number = 1.15;
 // The glide trail's stroke, about as wide as a fingertip's line reads without hiding the key faces under it.
 const GLIDE_TRAIL_WIDTH_VP: number = 4;
 /** `.cursor { width: 1.5px }` in the source's candidate stylesheets. */
@@ -2032,6 +2034,7 @@ struct KeyboardView {
             .fontSize($$.size)
             .minFontSize(KEY_HINT_FONT_SIZE)
             .maxFontSize($$.size)
+            .maxFontScale(KEY_MAX_FONT_SCALE)
             .heightAdaptivePolicy(TextHeightAdaptivePolicy.LAYOUT_CONSTRAINT_FIRST)
             .layoutWeight(this.keyFaceHasCornerHint($$) ? 1 : 0)
             .fontWeight($$.fontWeight ?? 400)
@@ -2044,6 +2047,7 @@ struct KeyboardView {
         if ($$.hint !== undefined && $$.hint.length > 0) {
           Text($$.hint)
             .fontSize(KEY_HINT_FONT_SIZE)
+            .maxFontScale(KEY_MAX_FONT_SCALE)
             .minFontSize(6)
             .maxFontSize(KEY_HINT_FONT_SIZE)
             .heightAdaptivePolicy(TextHeightAdaptivePolicy.LAYOUT_CONSTRAINT_FIRST)
@@ -2063,6 +2067,7 @@ struct KeyboardView {
       if (this.keyFaceHasCornerHint($$)) {
         Text($$.cornerHint)
           .fontSize(KEY_HINT_FONT_SIZE)
+          .maxFontScale(KEY_MAX_FONT_SCALE)
           .height(KEY_HINT_LINE_HEIGHT_VP)
           .maxLines(1)
           .fontColor(this.skin.secondary)
