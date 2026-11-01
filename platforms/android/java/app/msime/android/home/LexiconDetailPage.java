@@ -24,7 +24,7 @@ import java.util.Locale;
 /**
  * 词库详情：启用开关、搜索词条、词条列表（词、带撇号的拼音、权重）、添加词条和导出。
  *
- * <p>参数是 {@link #ARG_ID}（集合 id，内置拼音词库是 {@link DictionaryCollectionsStore#BUILTIN_PINYIN}）和 {@link #ARG_NAME}（标题）。内置词库常开，开关置灰；它的新词经个人词库队列写入，因为键盘活着时直接编辑会返回 busy，键盘下次启动时应用。命名词库的启用、停用和加词由 client-services 分批送进同一个队列。
+ * <p>参数是 {@link #ARG_ID}（集合 id，内置拼音词库是 {@link DictionaryCollectionsStore#BUILTIN_PINYIN}，粤语词库是 {@link DictionaryCollectionsStore#BUILTIN_CANTONESE}）和 {@link #ARG_NAME}（标题）。粤语词库只有用户自己加的粤语词，编码是以空格分隔的粤拼。内置词库常开，开关置灰；它的新词经个人词库队列写入，因为键盘活着时直接编辑会返回 busy，键盘下次启动时应用。命名词库的启用、停用和加词由 client-services 分批送进同一个队列。
  *
  * <p>集合接口没有列出单个集合词条的操作，所以命名词库只显示条数，搜索和导出只对内置词库提供。
  */
@@ -35,7 +35,6 @@ public final class LexiconDetailPage extends ReloadingDetailPage {
 
     public static final String ARG_ID = "collection_id";
     public static final String ARG_NAME = "name";
-    private static final String BUILTIN_KIND = "pinyin";
     private static final int PAGE_SIZE = 100;
     private static final long SEARCH_DELAY_MILLIS = 250;
 
@@ -77,6 +76,15 @@ public final class LexiconDetailPage extends ReloadingDetailPage {
         return collectionId().startsWith(DictionaryCollectionsStore.BUILTIN_PREFIX);
     }
 
+    /** 内置词库对应的个人词库种类：粤语词库是 `cantonese`，其余（拼音词库）是 `pinyin`。 */
+    private static String builtinKind(String id) {
+        return DictionaryCollectionsStore.BUILTIN_CANTONESE.equals(id) ? "cantonese" : "pinyin";
+    }
+
+    private boolean cantonese() {
+        return "cantonese".equals(builtinKind(collectionId()));
+    }
+
     // ---- 数据 ----
 
     @Override protected void reload() {
@@ -95,9 +103,10 @@ public final class LexiconDetailPage extends ReloadingDetailPage {
 
     private static Model read(Context context, String id, boolean builtin) {
         if (builtin) {
-            DictionaryCollectionsStore.Result<Long> count = DictionaryCollectionsStore.builtinCount(context, BUILTIN_KIND);
+            String kind = builtinKind(id);
+            DictionaryCollectionsStore.Result<Long> count = DictionaryCollectionsStore.builtinCount(context, kind);
             DictionaryCollectionsStore.Result<DictionaryCollectionsStore.WordPage> page =
-                DictionaryCollectionsStore.words(context, BUILTIN_KIND, "", 0, PAGE_SIZE);
+                DictionaryCollectionsStore.words(context, kind, "", 0, PAGE_SIZE);
             return new Model(null, count.ok() ? count.value() : -1,
                 page.ok() ? page.value().words() : List.of(), page.ok() ? "" : page.failure());
         }
@@ -128,7 +137,8 @@ public final class LexiconDetailPage extends ReloadingDetailPage {
         String count = current.count() < 0 ? null : NumberPolicy.groupedCount(current.count());
         String collectionDescription = collection == null ? null
             : count + DictionaryCollectionsStore.pendingDescription(collection.pending());
-        GroupCard.Row toggle = header.toggle("启用此词库", builtin ? (count == null ? "内置词库始终启用" : count + " · 内置词库始终启用") : collectionDescription,
+        String always = cantonese() ? "粤语方案始终启用" : "内置词库始终启用";
+        GroupCard.Row toggle = header.toggle("启用此词库", builtin ? (count == null ? always : count + " · " + always) : collectionDescription,
             builtin || collection.enabled(), this::setEnabled);
         if (builtin) toggle.setEnabled(false);
 
@@ -147,7 +157,7 @@ public final class LexiconDetailPage extends ReloadingDetailPage {
 
         if (builtin) {
             GroupCard export = GroupCard.add(sectionColumn(target, "管理"), null);
-            export.addView(accentRow(null, "导出词库", () -> createDocument.launch("拼音词库.txt")));
+            export.addView(accentRow(null, "导出词库", () -> createDocument.launch(cantonese() ? "粤语词库.txt" : "拼音词库.txt")));
         } else {
             GroupCard manage = GroupCard.add(sectionColumn(target, "管理"), null);
             manage.addView(accentRow(null, "删除此词库", this::confirmDelete));
@@ -163,10 +173,12 @@ public final class LexiconDetailPage extends ReloadingDetailPage {
             if (!current.failure().isEmpty() && query.isEmpty()) {
                 card.note(current.failure());
             } else if (shown.isEmpty()) {
-                card.note(query.isEmpty() ? "还没有自己添加或学到的词。输入拼音可以搜索内置词条。" : "没有找到相关词条。");
+                card.note(!query.isEmpty() ? "没有找到相关词条。" : cantonese()
+                    ? "还没有自己加的粤语词。加进来的词在粤语方案里打同样的粤拼时出现。"
+                    : "还没有自己添加或学到的词。输入拼音可以搜索内置词条。");
             }
             for (DictionaryCollectionsStore.Word word : shown) {
-                card.value(word.value(), DictionaryCollectionsStore.displayCode(word.key()),
+                card.value(word.value(), cantonese() ? word.key() : DictionaryCollectionsStore.displayCode(word.key()),
                     String.format(Locale.ROOT, "%d", word.weight()));
             }
         } else {
@@ -196,17 +208,20 @@ public final class LexiconDetailPage extends ReloadingDetailPage {
         main.postDelayed(() -> search(generation, text), SEARCH_DELAY_MILLIS);
     }
 
-    /** 拼音按编码前缀问 Engine（连内置词一起）；汉字在当前列表里按包含过滤；清空时回到自己的词。 */
+    /** 拼音按编码前缀问 Engine（连内置词一起）；粤语词库按粤拼前缀查自己的粤语词；汉字在当前列表里按包含过滤；清空时回到自己的词。 */
     private void search(int generation, String text) {
         Model current = model;
         if (current == null || contentColumn() == null) return;
-        String code = DictionaryCollectionsStore.normalizePinyin(text).replace("'", "");
+        boolean cantonese = cantonese();
+        String kind = builtinKind(collectionId());
+        String code = cantonese ? DictionaryCollectionsStore.normalizeCantonese(text)
+            : DictionaryCollectionsStore.normalizePinyin(text).replace("'", "");
         if (text.isEmpty()) {
             shown = new ArrayList<>(current.words());
             renderEntries();
             return;
         }
-        if (!DictionaryCollectionsStore.validPinyin(code)) {
+        if (cantonese ? !DictionaryCollectionsStore.validCantonese(code) : !DictionaryCollectionsStore.validPinyin(code)) {
             List<DictionaryCollectionsStore.Word> filtered = new ArrayList<>(current.words().size());
             for (DictionaryCollectionsStore.Word word : current.words()) {
                 if (word.value().contains(text)) filtered.add(word);
@@ -215,7 +230,7 @@ public final class LexiconDetailPage extends ReloadingDetailPage {
             renderEntries();
             return;
         }
-        HostTask.run(this, context -> DictionaryCollectionsStore.words(context, BUILTIN_KIND, code, 0, PAGE_SIZE), page -> {
+        HostTask.run(this, context -> DictionaryCollectionsStore.words(context, kind, code, 0, PAGE_SIZE), page -> {
             if (generation != searchGeneration) return;
             shown = page != null && page.ok() ? new ArrayList<>(page.value().words()) : new ArrayList<>();
             renderEntries();
@@ -241,6 +256,16 @@ public final class LexiconDetailPage extends ReloadingDetailPage {
     private void showAddDialog() {
         InputDialog dialog = new InputDialog(requireContext(), "添加到「" + title() + "」", null);
         dialog.addField("词语", null, 0);
+        if (builtin() && cantonese()) {
+            // 粤拼每个字一个音节，用空格分开；带声调数字也行，Engine 存之前去掉。
+            dialog.addField("粤拼，例如 nei hou", null, android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
+            dialog.setValidator(values -> !values.get(0).isEmpty()
+                && DictionaryCollectionsStore.validCantonese(DictionaryCollectionsStore.normalizeCantonese(values.get(1))));
+            dialog.setPrimary("添加", values -> add(values.get(0), DictionaryCollectionsStore.normalizeCantonese(values.get(1))));
+            dialog.show();
+            return;
+        }
         dialog.addField("拼音，例如 shui'shan", null, android.text.InputType.TYPE_CLASS_TEXT
             | android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
         dialog.setValidator(values -> !values.get(0).isEmpty()
@@ -254,8 +279,9 @@ public final class LexiconDetailPage extends ReloadingDetailPage {
         if (current == null) return;
         DictionaryCollectionsStore.Collection collection = current.collection();
         if (collection == null) {
-            DictionaryCollectionsStore.Word word = new DictionaryCollectionsStore.Word(BUILTIN_KIND, code, value,
-                DictionaryCollectionsStore.DEFAULT_WEIGHT, "user");
+            boolean cantonese = cantonese();
+            DictionaryCollectionsStore.Word word = new DictionaryCollectionsStore.Word(builtinKind(collectionId()), code, value,
+                cantonese ? DictionaryCollectionsStore.CANTONESE_DEFAULT_WEIGHT : DictionaryCollectionsStore.DEFAULT_WEIGHT, "user");
             HostTask.run(this, context -> DictionaryCollectionsStore.queueWord(context, word), result -> {
                 if (result == null || !result.ok()) {
                     MsToast.show(requireContext(), result == null ? DictionaryCollectionsStore.failureMessage("") : result.failure());
@@ -298,7 +324,8 @@ public final class LexiconDetailPage extends ReloadingDetailPage {
 
     private void onExportPicked(@Nullable Uri uri) {
         if (uri == null || getView() == null) return;
-        HostTask.run(this, context -> LexiconPage.exportTo(context, uri, BUILTIN_KIND), message ->
+        String kind = builtinKind(collectionId());
+        HostTask.run(this, context -> LexiconPage.exportTo(context, uri, kind), message ->
             MsToast.show(requireContext(), message == null ? DictionaryCollectionsStore.failureMessage("") : message));
     }
 }

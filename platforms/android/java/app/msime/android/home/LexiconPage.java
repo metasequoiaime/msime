@@ -52,8 +52,9 @@ public final class LexiconPage extends ReloadingDetailPage {
     private static final String BUILTIN_KIND = "pinyin";
     private static final int DISCOVER_LIMIT = 8;
 
-    /** 渲染一次需要的全部数据；`builtinCount` 为负表示读不到。 */
-    private record Model(DictionaryCollectionsStore.View view, long builtinCount, boolean learning, String failure) {}
+    /** 渲染一次需要的全部数据；`builtinCount`、`cantoneseCount` 为负表示读不到。 */
+    private record Model(DictionaryCollectionsStore.View view, long builtinCount, long cantoneseCount, boolean learning,
+                         String failure) {}
 
     @Nullable private Model model;
     @Nullable private JSONObject updateStatus;
@@ -123,13 +124,15 @@ public final class LexiconPage extends ReloadingDetailPage {
         // 打开页面也顺手送一批导入词库的待写入词条：返回的视图和 load 一样，只是多送了一批，不必等用户点刷新。
         DictionaryCollectionsStore.Result<DictionaryCollectionsStore.View> view = DictionaryCollectionsStore.flush(context);
         DictionaryCollectionsStore.Result<Long> count = DictionaryCollectionsStore.builtinCount(context, BUILTIN_KIND);
+        DictionaryCollectionsStore.Result<Long> cantonese = DictionaryCollectionsStore.builtinCount(context, "cantonese");
         JSONObject preferences = KeyboardSheets.preferences(context);
         boolean learning = preferences == null
             ? InputFeatureToggle.LEARNING.enabledByDefault()
             : preferences.optBoolean(InputFeatureToggle.LEARNING.key(), InputFeatureToggle.LEARNING.enabledByDefault());
         DictionaryCollectionsStore.View value = view.ok() ? view.value()
             : new DictionaryCollectionsStore.View(List.of(), List.of(), 0, null);
-        return new Model(value, count.ok() ? count.value() : -1, learning, view.failure());
+        return new Model(value, count.ok() ? count.value() : -1, cantonese.ok() ? cantonese.value() : -1, learning,
+            view.failure());
     }
 
     private void loadDiscover() {
@@ -157,6 +160,11 @@ public final class LexiconPage extends ReloadingDetailPage {
             : NumberPolicy.groupedCount(current.builtinCount());
         installed.addView(KeyboardSheets.badgeNavRow(context, "汉", "拼音词库", builtinCount, "已启用",
             ThemeColorPolicy.accent(context), () -> openDetail(DictionaryCollectionsStore.BUILTIN_PINYIN, "拼音词库")));
+        // 粤语词库只有自己加的粤语词，粤语方案打字时和发布的粤语词一起出候选。
+        String cantoneseCount = current.cantoneseCount() <= 0 ? "自己加的粤语词"
+            : NumberPolicy.groupedCount(current.cantoneseCount()) + "自己的词";
+        installed.addView(KeyboardSheets.badgeNavRow(context, "粤", "粤语词库", cantoneseCount, "已启用",
+            ThemeColorPolicy.accent(context), () -> openDetail(DictionaryCollectionsStore.BUILTIN_CANTONESE, "粤语词库")));
         for (DictionaryCollectionsStore.Collection collection : current.view().collections()) {
             String subtitle = NumberPolicy.groupedCount(collection.entryCount())
                 + DictionaryCollectionsStore.pendingDescription(collection.pending())
