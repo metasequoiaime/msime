@@ -695,9 +695,16 @@ jobs:
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $msbuild = @(& $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\amd64\MSBuild.exe')
           if ($msbuild.Count -lt 1) { throw 'MSBuild not found' }
+          # 设置工程直接由 MSBuild 构建，不经过 Build-Client.ps1，因此这里要显式准备它需要的 nlohmann/json.hpp。
+          $vcpkgRoot = if ($env:VCPKG_INSTALLATION_ROOT) { $env:VCPKG_INSTALLATION_ROOT } else { 'C:\vcpkg' }
+          $nativeDeps = Join-Path $env:GITHUB_WORKSPACE 'target/windows-native-deps/settings'
+          & (Join-Path $vcpkgRoot 'vcpkg.exe') install 'nlohmann-json:x64-windows-static-md' "--x-install-root=$nativeDeps" --disable-metrics
+          if ($LASTEXITCODE -ne 0) { throw 'nlohmann-json install failed' }
+          $nativeInclude = Join-Path $nativeDeps 'x64-windows-static-md/include'
+          if (-not (Test-Path -LiteralPath (Join-Path $nativeInclude 'nlohmann/json.hpp') -PathType Leaf)) { throw 'nlohmann/json.hpp not found after vcpkg install' }
           # 使用与发布脚本相同的完整 Build，确保 Windows SDK 引用和 WinRT 投影均已初始化。
           $output = "$env:GITHUB_WORKSPACE/target/windows-full/x64/settings/"
-          & $msbuild[0] platforms/windows/settings/MSIME.Settings.vcxproj /restore /t:Build /p:Configuration=RelWithDebInfo /p:Platform=x64 /p:TargetName=msime-client-settings /p:HostApiLibrary="$env:GITHUB_WORKSPACE/target/debug/msime_host_api.dll.lib" /p:OutDir="$output" /p:IntDir="$env:GITHUB_WORKSPACE/target/windows-full/x64/settings-obj/" /verbosity:minimal
+          & $msbuild[0] platforms/windows/settings/MSIME.Settings.vcxproj /restore /t:Build /p:Configuration=RelWithDebInfo /p:Platform=x64 /p:TargetName=msime-client-settings /p:HostApiLibrary="$env:GITHUB_WORKSPACE/target/debug/msime_host_api.dll.lib" /p:NativeDependenciesInclude="$nativeInclude" /p:OutDir="$output" /p:IntDir="$env:GITHUB_WORKSPACE/target/windows-full/x64/settings-obj/" /verbosity:minimal
           if ($LASTEXITCODE -ne 0) { throw 'Settings host build failed' }
           Copy-Item target/debug/msime_host_api.dll $output
       # 共享存储替换设置文件时，目标被别的进程短暂打开（杀毒、备份、索引）要等它过去，而不是让设置页把这次保存当成失败、重读旧值。这几条测试在真的 Windows 上打开着目标去替换，macOS 和 Linux 的作业碰不到这种失败。
