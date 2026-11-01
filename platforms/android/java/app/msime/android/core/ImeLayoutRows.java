@@ -1700,9 +1700,30 @@ final class ImeLayoutRows {
     }
 
     void addJapaneseSideKey(LinearLayout column, Button button, float weight) {
-        // 侧列是功能键（123、☺（工具栏没有表情按钮时）、英、切换、⌫、空白）。角色不显式给时由描述推导，假名键的描述被判成功能面、侧列反倒成了字母面，整块配色主次颠倒。回车的角色由 updateReturnKey 跟着组字状态改。
+        // 侧列是功能键（123、符、英、切换、⌫、空白）。角色不显式给时由描述推导，假名键的描述被判成功能面、侧列反倒成了字母面，整块配色主次颠倒。回车的角色由 updateReturnKey 跟着组字状态改。
         if (button instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         column.addView(button, LayoutPolicy.weightedWidthParams(weight));
+    }
+
+    /**
+     * 日语九键左列的 符：点按打开符号面板，记作 `SoftSymbol`。{@code emojiLongPress} 为真时（顶部工具栏没有表情按钮，{@link MSIMEInputService#japaneseSideEmojiKey}）长按打开表情浏览，原来单独占一格的 ☺ 并进这里，左列不会多出第六格；工具栏有表情按钮时不接长按，两处入口不重复。
+     */
+    private Button japaneseSymbolPanelKey(boolean emojiLongPress) {
+        Button symbol = s.keyId(s.keyboardKey("符",
+            emojiLongPress ? "打开符号面板；长按打开表情浏览" : "打开符号面板", () -> {
+                s.imePanels.showSymbolPanel();
+                s.render();
+            }), "SoftSymbol");
+        if (emojiLongPress) {
+            symbol.setOnLongClickListener(ignored -> {
+                s.imeKeyFeedback.playFeedback(symbol);
+                s.imePanels.showEmojiPicker();
+                // 与底行的表情键相同：刷新工具栏的返回动作，隐藏工具栏时面板要临时显示它。
+                s.render();
+                return true;
+            });
+        }
+        return symbol;
     }
 
     void rebuildJapaneseNineKeyRows() {
@@ -1719,7 +1740,7 @@ final class ImeLayoutRows {
             s.imeLetterRows.rebuildKeyRows();
             s.render();
         }), "SoftLayer");
-        // 左列：◀ 光标左移、→ 结束连点切换（或光标右移），再是 123、☺（工具栏没有表情时）、切换，各占一格。
+        // 左列：◀ 光标左移、→ 结束连点切换（或光标右移），再是 123、符、切换，各占一格，最多五格，与日语 26 键一样有符号面板的入口（#10439）。
         addJapaneseSideKey(modeColumn, s.iconKey(KeyboardIconKey.Kind.CURSOR_LEFT, "◀",
             "光标左移", this::moveJapaneseCaretLeft), 1);
         addJapaneseSideKey(modeColumn, s.iconKey(KeyboardIconKey.Kind.TOGGLE_NEXT, "→",
@@ -1731,11 +1752,7 @@ final class ImeLayoutRows {
         s.bindInputMethodPicker(language);
         s.japaneseLanguageKey = language;
         addJapaneseSideKey(modeColumn, swapLanguageNumber ? language : s.japaneseSymbolsKey, 1);
-        boolean emojiKey = s.japaneseSideEmojiKey();
-        if (emojiKey) {
-            addJapaneseSideKey(modeColumn, s.keyId(s.keyboardKey("☺", "打开表情浏览", s.imePanels::showEmojiPicker),
-                "SoftEmoji"), 1);
-        }
+        addJapaneseSideKey(modeColumn, japaneseSymbolPanelKey(s.japaneseSideEmojiKey()), 1);
         if (s.offersGlobeKey()) {
             Button globe = s.keyId(s.keyboardKey("切换", "切换到下一个输入法",
                 s::switchToNextInputMethodAfterCommit), "SoftGlobe");
