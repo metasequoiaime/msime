@@ -208,10 +208,10 @@ struct CustomSkinEditorView: View {
           }
         }.disabled(!hapticsEnabled)
       }
-    } header: { Text("打字反馈") } footer: {
-      Text(KeyboardFeedbackPreference.hapticsAvailable
+    } header: {
+      DesignSectionHeader(subject: "打字反馈", info: KeyboardFeedbackPreference.hapticsAvailable
         ? "音效与振动是所有皮肤共用的键盘设置。按键音受系统静音状态影响，振动需在支持的真机上体验。"
-        : "按键音是所有皮肤共用的键盘设置，受系统静音状态影响。")
+        : "按键音是所有皮肤共用的键盘设置，受系统静音状态影响。") { Text("打字反馈") }
     }
   }
 
@@ -219,7 +219,7 @@ struct CustomSkinEditorView: View {
   Form { Group {
     if section == "背景" { backgroundGallery }
     if section == "设计" {
-      Section("水杉设计 · 14 款") {
+      Section {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
           ForEach(CustomKeyboardSkin.curatedTemplates + Array(CustomKeyboardSkin.templates.prefix(6)), id: \.0) { title, template in
             Button { apply(template) } label: {
@@ -230,8 +230,10 @@ struct CustomSkinEditorView: View {
             }.buttonStyle(.plain).accessibilityIdentifier("skinTemplate_" + title)
           }
         }
+      } header: {
+        DesignSectionHeader(title: "水杉设计 · 14 款",
+                            info: "选择模板后，继续调整背景、按键和文本。修改自动保存；撤销可找回刚才的设计，命名保存可保留多套方案。")
       }
-      Section { Text("选择模板后，继续调整背景、按键和文本。修改自动保存；撤销可找回刚才的设计，命名保存可保留多套方案。").font(.footnote).foregroundStyle(.secondary) }
       Section { Button("重置我的皮肤", role: .destructive) { confirmReset = true } }
     }
     if section == "背景" {
@@ -297,12 +299,11 @@ Section("键帽设计") {
     ForEach(SkinKeyMaterial.allCases, id: \.self) { Text($0.title).tag($0) }
   }.accessibilityIdentifier("customSkinKeyMaterial")
   VStack(alignment: .leading) {
-    Text("键帽不透明度 · \(Int((design.keyOpacity ?? 1) * 100))%")
+    DesignInfoTitle(title: "键帽不透明度 · \(Int((design.keyOpacity ?? 1) * 100))%",
+                    info: design.photo != nil || (design.keyOpacity ?? 1) < 1 ? "半透明键帽会露出背景。可在“背景”中压暗照片，让文字更清晰。" : nil,
+                    font: .body)
     Slider(value: Binding(get: { design.keyOpacity ?? 1 }, set: { update(\.keyOpacity, $0) }), in: 0.25...1, onEditingChanged: trackSlider)
       .accessibilityIdentifier("customSkinKeyOpacity")
-  }
-  if design.photo != nil || (design.keyOpacity ?? 1) < 1 {
-    Text("半透明键帽会露出背景。可在“背景”中压暗照片，让文字更清晰。").font(.footnote).foregroundStyle(.secondary)
   }
   VStack(alignment: .leading) {
     Text("圆角 · \(Int(design.cornerRadius))")

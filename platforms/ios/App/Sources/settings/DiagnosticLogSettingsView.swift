@@ -17,7 +17,7 @@ struct DiagnosticLogSettingsView: View {
     Form {
       Section {
         Toggle(isOn: logBinding) {
-          SettingsOptionLabel(title: "记录键盘诊断日志", detail: "键盘出现、收起、设置应用和出错的时间")
+          SettingsOptionLabel(title: "记录键盘诊断日志", info: "键盘出现、收起、设置应用和出错的时间")
         }.accessibilityIdentifier("diagnosticLogEnabled")
       } footer: {
         Text(saveFailed
@@ -41,9 +41,7 @@ struct DiagnosticLogSettingsView: View {
             .accessibilityIdentifier("diagnosticLogClear")
         }
       } header: {
-        SettingsGroupHeader(title: "日志")
-      } footer: {
-        Text("反馈键盘问题时，可以把日志分享给我们。")
+        DesignSectionHeader(subject: "日志", info: "反馈键盘问题时，可以把日志分享给我们。") { SettingsGroupHeader(title: "日志") }
       }
       .designRow()
       if sizeClass == .regular, size > 0 {
