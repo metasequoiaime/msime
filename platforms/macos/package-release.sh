@@ -493,7 +493,7 @@ pronunciations="$repo_root/target/macos/pronunciations"
 if [ -d "$pronunciations" ]; then
   ditto "$pronunciations" "$app/Contents/Resources/pronunciations"
 fi
-# The readings of the other gloss languages (scripts/build_target_pronunciations.py), optional and read beside EngineResources in the same way, always with their CC BY-SA notice.
+# 其他释义语言的读音表（scripts/build_target_pronunciations.py），可选，同样在 EngineResources 旁边读，总是连同它们的 CC BY-SA 声明一起带上。
 target_pronunciations="$repo_root/target/macos/target-pronunciations"
 if [ -d "$target_pronunciations" ]; then
   ditto "$target_pronunciations" "$app/Contents/Resources/target-pronunciations"

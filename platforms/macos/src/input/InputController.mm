@@ -8637,9 +8637,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
                                    });
 }
 
-// Asks the shared tables for the gloss lines (and English candidates) on the current page they have not answered yet, each
-// with its language, then redraws. Nothing is asked while the switch is off; turning it on or off redraws the page with
-// or without readings.
+// 把当前页上共享表还没回答过的释义行（以及英文候选）连同各自的语言交给共享表去查，回来后重画。开关关着时什么也不查；打开或关上开关时重画这一页，带上或去掉读音。
 - (void)synchronizePronunciation {
     NSDictionary *query = (_activeClient && _session && !_focusPending) ? [self serviceSnapshotQuery] : nil;
     NSArray<NSString *> *targets = [query[@"candidate_pronunciation"] isEqual:@YES] ? MSIMETranslationTargets(query) : nil;

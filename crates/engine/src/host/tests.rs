@@ -769,10 +769,10 @@ fn target_phonetics_read_their_own_language_table_only() {
         phonetics(path, "fr", &words).unwrap(),
         vec!["/pɔm də tɛʁ/", "", "/ʃa/"]
     );
-    // A French table asked for as Spanish, or as English, is refused rather than read.
+    // 法语表被当成西语或英文表来查时拒绝，而不是照读。
     assert!(phonetics(path, "es", &words).is_err());
     assert!(english_phonetics(path, &words).is_err());
-    // The table name is built from the language, so only the known codes are accepted.
+    // 表名由语言拼出，所以只接受已知的语言代码。
     assert!(phonetics(path, "fr_phonetics; --", &words).is_err());
     assert!(phonetics(path, "", &words).is_err());
 }

@@ -134,7 +134,7 @@ if [ -f "$pronunciations_source/en-phonetic.db" ] && [ -f "$pronunciations_sourc
 else
   echo "no pronunciations at $pronunciations_source; English glosses are shown without IPA"
 fi
-# Optional: the readings of the French, Spanish, Russian, German and Korean gloss lines (and Japanese romaji for hosts without a system reader) built from Wiktionary by scripts/build_target_pronunciations.py, one *-phonetic.db per language, read beside the resource directory like the English table. Only staged with the CC BY-SA notice they must travel with. Without them those lines carry no reading; Japanese romaji still comes from the system tokenizer.
+# 可选：scripts/build_target_pronunciations.py 从维基词典生成的法、西、俄、德、韩释义行读音表（以及给没有系统分词器的宿主用的日文罗马字），每种语言一个 *-phonetic.db，和英文表一样在资源目录旁边读。只连同必须随它们分发的 CC BY-SA 声明一起暂存。没有它们时这些行不标读音；日文罗马字仍来自系统分词器。
 target_pronunciations_source=${9:-$repo_root/target/target-pronunciations}
 target_pronunciations_destination="$repo_root/target/macos/target-pronunciations"
 rm -rf "$target_pronunciations_destination"

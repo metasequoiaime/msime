@@ -216,7 +216,7 @@ export interface CandidateEntry {
   readonly translation: string | null;
   /** 引擎把这一行作为有把握的纠错放在首选（`confident_correction`），视图据此画强调色下划线、读屏加「，已纠正」。 */
   readonly confidentCorrection: boolean;
-  /** 「显示英文音标」打开时这一行的 `/…/` 音标，画在释义下面单独一行；没有音标或开关关着时为 ""。只用于显示，从不上屏。 */
+  /** 「显示读音」打开时这一行的读音（英文 `/…/` 音标、日文罗马字或其他语言的 IPA），画在释义下面单独一行；没有读音或开关关着时为 ""。只用于显示，从不上屏。 */
   readonly pronunciation: string;
 }
 
@@ -2948,7 +2948,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     return CandidateGlossLayoutPolicy.schemeRows(this.candidateGlossRows, this.schemeName === 'korean');
   }
 
-  /** 「显示英文音标」打开且随包的音标表在时，释义下面为音标单独预留的一行。按设置预留，不等音标到了才把候选撑高。 */
+  /** 「显示读音」打开且随包的读音表在时，释义下面为读音单独预留的一行。按设置预留，不等读音到了才把候选撑高。 */
   pronunciationRows(): number {
     return this.pronunciationVisible() ? 1 : 0;
   }

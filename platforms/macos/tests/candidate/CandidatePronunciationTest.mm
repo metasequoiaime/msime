@@ -1,4 +1,4 @@
-// The readings drawn after gloss lines: which line is in which language, which texts go to the shared tables, romaji from the system tokenizer, and the display string whose reading ranges and line starts the button draws from.
+// 画在释义行后面的读音：哪一行是哪种语言、哪些文字交给共享表、系统分词器给的罗马字，以及按钮据以绘制读音范围和行首的显示字符串。
 #import "../../src/candidate/CandidatePronunciation.h"
 #include <cstdio>
 #include <cstdlib>
@@ -65,7 +65,7 @@ int main()
                   isEqual:@"\nneko"],
               "readings stay aligned with their lines");
 
-        // French and German lines are read from their own tables; the same letters on the English line would be English.
+        // 法文和德文行从各自的表里读；同样的字母放在英文那一行就按英文读。
         Check([MSIMEGlossPronunciation(@"猫", @"chat, chatte; félin\nKatze", @[ @"fr", @"de" ], english, nil) isEqual:@"/ʃa/\n/ˈkatsə/"],
               "each target line reads from its own language");
         Check([MSIMEGlossPronunciation(@"猫", @"chat, chatte; félin", @[ @"en" ], english, nil) isEqual:@""],

@@ -30,7 +30,7 @@ pub(crate) fn english_database_beside(
 
 /// 非英文读音表所在的目录名：随包时在资源目录旁，下载时是资源包 `target-pronunciations` 的安装目录。
 pub(crate) const TARGET_DIRECTORY: &str = "target-pronunciations";
-/// A non-English gloss term longer than this many characters is a phrase no table has.
+/// 非英文释义词条超过这么多个字符就是哪张表都没有的短语。
 const MAX_TARGET_TERM_CHARS: usize = 40;
 
 /// `language` 的读音表：活动资源旁的优先，只在缺失时使用补充目录。`language` 必须是 [`msime_engine::host::PHONETIC_LANGUAGES`] 里英文以外的一种。
@@ -51,9 +51,9 @@ pub(crate) fn target_database_beside(
     .find(|path| path.is_file())
 }
 
-/// The term a non-English gloss line teaches: the part before its first separator, without parenthesised notes, trimmed and with single spaces. `None` when nothing is left or it is too long to be a word.
+/// 一行非英文释义所教的词条：第一个分隔符前的部分，去掉括号里的注释，去掉首尾空白并把连续空白合成一个空格。什么也不剩或长得不像一个词时为 `None`。
 ///
-/// `"chat, chatte; félin"` is `chat`, `"(zoologie) chat"` is `chat`, `"pomme de terre"` stays whole.
+/// `"chat, chatte; félin"` 是 `chat`，`"(zoologie) chat"` 是 `chat`，`"pomme de terre"` 整条保留。
 pub(crate) fn target_term(text: &str) -> Option<String> {
     let first = text
         .split([';', '；', ',', '，', '、', '/', '?', '？'])
@@ -76,9 +76,9 @@ pub(crate) fn target_term(text: &str) -> Option<String> {
     (!term.is_empty() && term.chars().count() <= MAX_TARGET_TERM_CHARS).then_some(term)
 }
 
-/// The displayed reading of each non-English gloss line, parallel to `texts`; empty when there is none.
+/// 每一行非英文释义要显示的读音，与 `texts` 一一对应；没有读音时为空串。
 ///
-/// The table is keyed by the word as Wiktionary spells it (`Katze`, `кот`), so the term is looked up as written and then in lowercase, for a line that starts a sentence. Each key is looked up once however many lines share it. The reading is shown as the table holds it.
+/// 表的键是维基词典的写法（`Katze`、`кот`），所以词条先按原样查，再按小写查，照顾句首大写的行。不论多少行共用一个键，每个键只查一次。读音按表里存的原样显示。
 pub(crate) fn target_pronunciations(
     database: &str,
     language: &str,

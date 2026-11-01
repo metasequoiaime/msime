@@ -166,7 +166,7 @@ PY
   cp "$pronunciations_source/en-phonetic.db" "$pronunciations_source/pronunciations-NOTICE.txt" "$pronunciations_staged/"
   echo "English pronunciations staged for the HAP: $pronunciations_staged"
 else
-  echo "no English pronunciations at $pronunciations_source; 显示英文音标 has nothing to draw"
+  echo "no English pronunciations at $pronunciations_source; 显示读音 has no English readings to draw"
 fi
 if [ "${MSIME_REQUIRE_PRONUNCIATIONS:-0}" = 1 ] && [ ! -f "$pronunciations_staged/en-phonetic.db" ]; then
   echo "MSIME_REQUIRE_PRONUNCIATIONS=1 but en-phonetic.db was not staged from $pronunciations_source; run python3 scripts/fetch_gloss_tables.py first" >&2

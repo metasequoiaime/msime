@@ -4,7 +4,7 @@
 
 // How the gloss lines under a candidate are read, drawn after each line and never committed.
 //
-// A gloss is one line per translation target, joined with "\n" in target order (MSIMEJoinedTranslations keeps the empty lines in between). Each line is pronounced by its first term: English, French, Spanish, Russian, German and Korean through the shared offline tables (msime_client_pronunciation_request, which answers IPA for each of them), Japanese as romaji from the system tokenizer, which reads kanji as well as kana. A line without a pronunciation is left as it is.
+// 释义每个翻译目标一行，按目标顺序用 "\n" 连起来（MSIMEJoinedTranslations 保留中间的空行）。每一行按它的第一个词条读：英、法、西、俄、德、韩交给共享的离线读音表（msime_client_pronunciation_request，每种都回答 IPA），日文用系统分词器读成罗马字，汉字和假名都能读。没有读音的行保持原样。
 
 // The part of a gloss line before its first separator, which is the word the line teaches.
 static inline NSString *MSIMEGlossFirstTerm(NSString *line)
@@ -37,13 +37,13 @@ static inline BOOL MSIMEIsPlainEnglish(NSString *text)
     return letter;
 }
 
-// The targets whose gloss lines the shared tables read besides English (target-pronunciations/<language>-phonetic.db).
+// 除英文外，共享表还能读哪些目标语言的释义行（target-pronunciations/<language>-phonetic.db）。
 static inline BOOL MSIMEIsSharedReadingTarget(NSString *target)
 {
     return [@[ @"fr", @"es", @"ru", @"de", @"ko" ] containsObject:target ?: @""];
 }
 
-// Which language line `index` of a gloss is in, for reading it: the line's target, checked against the text. Kana is Japanese wherever it appears. A Latin line is English only on the English target — French "chat" is plain letters too, and reading it as English would teach the wrong sound — and a kanji-only line is Japanese only on the Japanese target. A line on the French, Spanish, Russian, German or Korean target is in that language: its table has only that language's words, so a line that is not one of them simply has no reading.
+// 释义第 `index` 行按哪种语言读：这一行的目标语言，再对照文字核对。假名不论出现在哪一行都是日文。拉丁字母的行只有在英语目标上才是英文：法文的 "chat" 也是普通字母，按英文读会教错音；只有汉字的行只有在日语目标上才是日文。法、西、俄、德、韩目标上的行就是那种语言：它的表里只有那种语言的词，不是其中之一的行只是没有读音。
 static inline NSString *MSIMEGlossLineLanguage(NSString *line, NSUInteger index, NSArray<NSString *> *targets)
 {
     NSString *term = MSIMEGlossFirstTerm(line);
@@ -55,13 +55,13 @@ static inline NSString *MSIMEGlossLineLanguage(NSString *line, NSUInteger index,
     return [target isEqual:@"ja"] ? @"ja" : nil;
 }
 
-// The key a shared-table answer is kept under: the language and the text asked about. The same letters are a different word in another language (French "chat"), and a gloss line never holds a newline.
+// 共享表的回答存放用的键：查询的语言和文字。同样的字母在别的语言里是另一个词（法文的 "chat"），释义行里也不会有换行。
 static inline NSString *MSIMEPronunciationKey(NSString *language, NSString *text)
 {
     return [NSString stringWithFormat:@"%@\n%@", language, text];
 }
 
-// Romaji of Japanese text, word by word from the system tokenizer, one space between words: 今日は天気がいいですね reads "kyou wa tenki ga ii desu ne", which a learner can match to the words; run together it cannot be read. The particles は, へ and を are read wa, e and o, as they are spoken, and so is the は that ends a greeting such as こんにちは. Empty when a token has no Latin transcription (the text is not Japanese the tokenizer knows): half a reading is not shown.
+// 日文的罗马字，由系统分词器逐词给出，词与词之间一个空格：今日は天気がいいですね 读作 "kyou wa tenki ga ii desu ne"，学习者能和词一一对上，连在一起就没法读了。助词 は、へ、を 按实际发音读作 wa、e、o，こんにちは 这类问候语末尾的 は 也一样。某个词没有拉丁转写时（不是分词器认识的日文）返回空串：不显示半截读音。
 static inline NSString *MSIMEJapaneseRomaji(NSString *text)
 {
     if (text.length == 0) return @"";
@@ -94,7 +94,7 @@ static inline NSString *MSIMEJapaneseRomaji(NSString *text)
     return complete ? [words componentsJoinedByString:@" "] : @"";
 }
 
-// The per-line pronunciation of a candidate's gloss, "\n"-joined parallel to its lines, or empty when no line has one. `shared` maps MSIMEPronunciationKey(language, text) of a text sent to the shared tables to its answer; English candidates are pronounced by their own text on the English line, since that line is their Chinese gloss. `romaji` reads a Japanese term (a caching wrapper of MSIMEJapaneseRomaji); nil reads it directly.
+// 候选释义逐行的读音，与各行一一对应、用 "\n" 连起来；没有任何一行有读音时为空。`shared` 把交给共享表的文字的 MSIMEPronunciationKey(language, text) 映射到它的回答；英文候选在英文那一行读它自己的文字，因为那一行是它的中文释义。`romaji` 读一个日文词条（MSIMEJapaneseRomaji 加缓存的包装）；为 nil 时直接读。
 static inline NSString *MSIMEGlossPronunciation(NSString *candidateText, NSString *translation, NSArray<NSString *> *targets,
                                                 NSDictionary<NSString *, NSString *> *shared,
                                                 NSString *(^romaji)(NSString *term))
@@ -120,7 +120,7 @@ static inline NSString *MSIMEGlossPronunciation(NSString *candidateText, NSStrin
     return any ? [readings componentsJoinedByString:@"\n"] : @"";
 }
 
-// What a candidate needs the shared tables for, as {text, language} request items: its own text when it is an English candidate (in English), otherwise each gloss line in English, French, Spanish, Russian, German or Korean. Sent as whole lines; the shared side picks the first term. Japanese lines are read by the system tokenizer instead.
+// 一个候选要向共享表查的内容，即 {text, language} 请求项：英文候选是它自己的文字（按英文），否则是英、法、西、俄、德、韩的每一行释义。整行发送，由共享层取第一个词条。日文行改由系统分词器读。
 static inline NSArray<NSDictionary<NSString *, NSString *> *> *MSIMEGlossSharedItems(NSString *candidateText, NSString *translation,
                                                                                  NSArray<NSString *> *targets)
 {
