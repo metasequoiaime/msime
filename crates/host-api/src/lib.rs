@@ -23,10 +23,11 @@ pub mod mcp_clients;
 pub mod settings_dictionary;
 pub mod system_fonts;
 use msime_client_core::preferences::{
-    InputScheme, KoreanLayout, KoreanPreferences, MultilingualLanguage, NineKeyShuangpinProfile,
-    Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinCustomProfile, ShuangpinProfile,
-    TouchKeyboardLayout, TouchKeyboardScheme, TouchShuangpinLayout, TouchWubiLayout,
-    VietnameseInputMethod, VietnamesePreferences, VietnameseToneStyle, WubiProfile,
+    CantoneseInputMethod, InputScheme, KoreanLayout, KoreanPreferences, MultilingualLanguage,
+    NineKeyShuangpinProfile, Preferences, PreferencesSnapshot, PreferencesStore,
+    ShuangpinCustomProfile, ShuangpinProfile, TouchKeyboardLayout, TouchKeyboardScheme,
+    TouchShuangpinLayout, TouchWubiLayout, VietnameseInputMethod, VietnamesePreferences,
+    VietnameseToneStyle, WubiProfile,
 };
 use msime_client_core::punctuation::{
     route as punctuation_route, PunctuationContext, PunctuationRoute,
@@ -144,6 +145,25 @@ fn english_minimum_prefix_for(
     } else {
         msime_client_core::preferences::DEFAULT_MIXED_INPUT_MINIMUM_PREFIX
     }
+}
+
+/// 粤拼会话是否从第一键起按粤语双拼解释。桌面宿主（macOS、Windows、Linux）只读自己的 `cantonese.input_method`，触屏宿主只读当前触屏方案是不是 `cantonese_shuangpin`：从 iOS 同步过来的触屏方案不会把桌面的粤拼改成双拼，桌面的选择也不改触屏键盘。
+fn force_cantonese_shuangpin(scheme: InputScheme, preferences: &Preferences) -> bool {
+    force_cantonese_shuangpin_for(ffi::host::compiled_platform(), scheme, preferences)
+}
+
+fn force_cantonese_shuangpin_for(
+    platform: msime_client_core::host_surface::HostPlatform,
+    scheme: InputScheme,
+    preferences: &Preferences,
+) -> bool {
+    scheme == InputScheme::Cantonese
+        && if platform.is_desktop() {
+            preferences.cantonese.input_method == CantoneseInputMethod::Shuangpin
+        } else {
+            preferences.touch_keyboard_schemes.selected
+                == Some(TouchKeyboardScheme::CantoneseShuangpin)
+        }
 }
 
 /// 会话实际用的 AI 联想候选数量：本库编译到的平台固定了这个数（`HostPlatform::fixed_ai_candidate_limit`，macOS、Windows、Linux、鸿蒙）时用固定值，不读偏好里存的值；否则用偏好。座位配置、在线查询和请求描述都从这里取，`chat_completion_http_request` 要求请求和配置里的数量一致。
@@ -829,9 +849,7 @@ impl HostSession {
         let fallback =
             scheme_fallback.or(profile_fallback.filter(|_| scheme == InputScheme::Shuangpin));
         options.shuangpin_preedit_uses_raw = preferences.shuangpin_preedit_uses_raw;
-        options.force_cantonese_shuangpin = scheme == InputScheme::Cantonese
-            && preferences.touch_keyboard_schemes.selected
-                == Some(TouchKeyboardScheme::CantoneseShuangpin);
+        options.force_cantonese_shuangpin = force_cantonese_shuangpin(scheme, &preferences);
         options.single_character_only = preferences.single_character_only;
         options.caret_edit_suffix = caret_edit_suffix_applies(&preferences);
         options.learning = preferences.learning;
@@ -2334,9 +2352,7 @@ impl HostOptions {
             shuangpin_profile: profile_code(self.preferences.shuangpin_profile),
             shuangpin_custom_profile: None,
             shuangpin_preedit_uses_raw: self.preferences.shuangpin_preedit_uses_raw,
-            force_cantonese_shuangpin: scheme == InputScheme::Cantonese
-                && self.preferences.touch_keyboard_schemes.selected
-                    == Some(TouchKeyboardScheme::CantoneseShuangpin),
+            force_cantonese_shuangpin: force_cantonese_shuangpin(scheme, &self.preferences),
             single_character_only: self.preferences.single_character_only,
             caret_edit_suffix: caret_edit_suffix_applies(&self.preferences),
             learning: self.preferences.learning,

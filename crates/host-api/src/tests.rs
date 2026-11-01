@@ -1771,6 +1771,63 @@ fn an_identical_preferences_resend_answers_like_the_first_update() {
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
 
+/// 桌面宿主只按 `cantonese.input_method` 强制粤语双拼，触屏宿主只按当前触屏方案；两边的字段互不影响，别的方案下都不强制。
+#[test]
+fn cantonese_shuangpin_is_forced_by_each_host_kind_own_field() {
+    let desktop_choice = Preferences {
+        cantonese: msime_client_core::preferences::CantonesePreferences {
+            input_method: CantoneseInputMethod::Shuangpin,
+        },
+        ..Preferences::default()
+    };
+    let mut touch_choice = Preferences::default();
+    touch_choice.touch_keyboard_schemes.selected = Some(TouchKeyboardScheme::CantoneseShuangpin);
+    for platform in [
+        HostPlatform::Macos,
+        HostPlatform::Windows,
+        HostPlatform::Linux,
+    ] {
+        assert!(
+            force_cantonese_shuangpin_for(platform, InputScheme::Cantonese, &desktop_choice),
+            "{platform:?}"
+        );
+        assert!(
+            !force_cantonese_shuangpin_for(platform, InputScheme::Cantonese, &touch_choice),
+            "{platform:?}"
+        );
+        assert!(
+            !force_cantonese_shuangpin_for(platform, InputScheme::Quanpin, &desktop_choice),
+            "{platform:?}"
+        );
+        assert!(
+            !force_cantonese_shuangpin_for(
+                platform,
+                InputScheme::Cantonese,
+                &Preferences::default()
+            ),
+            "{platform:?}"
+        );
+    }
+    for platform in [
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        assert!(
+            force_cantonese_shuangpin_for(platform, InputScheme::Cantonese, &touch_choice),
+            "{platform:?}"
+        );
+        assert!(
+            !force_cantonese_shuangpin_for(platform, InputScheme::Cantonese, &desktop_choice),
+            "{platform:?}"
+        );
+        assert!(
+            !force_cantonese_shuangpin_for(platform, InputScheme::Wubi, &touch_choice),
+            "{platform:?}"
+        );
+    }
+}
+
 /// 不读触发字符数的宿主（macOS、Windows、Linux）一律拿默认的 5，触屏宿主照文档里存的数。
 #[test]
 fn english_minimum_prefix_is_fixed_where_the_host_does_not_read_it() {

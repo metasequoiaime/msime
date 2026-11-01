@@ -13821,9 +13821,14 @@ private:
       segment_row(group, 0xE8AB, L"韩语布局",
                   L"默认两套式，可切换为罗马字。罗马字用 x 输入声母 ㅇ（xa → 아，hangug → 한국），Shift+G/D/B/J/S 输入紧音；退格删除当前拼写的最后一个拉丁字母，标点为半角",
                   L"korean.layout", {{L"dubeolsik", L"两套式"}, {L"romaja", L"罗马字"}}, L"dubeolsik");
+    // 粤语双拼与粤拼共用同一个方案和词典，做成粤拼方案下的选项，说明与共享页的「粤拼方案」相同。
     if (scheme == L"cantonese")
-      add_row(group, 0xE8AB, L"粤拼方案",
-              L"粤拼：按不带声调的粤拼输入，用 ' 分隔音节，数字键选词，候选为繁体字词", nullptr);
+      segment_row(group, 0xE8AB, L"粤拼方案",
+                  document_.String(L"cantonese.input_method", L"jyutping") == L"shuangpin"
+                      ? L"两键一个音节，第一键是声母、第二键是韵母，ing 和 ik 在 ; 键上；从第一键起按双拼解释，与粤拼同形的码（如 oi）也按双拼。数字键选词，候选为繁体字词"
+                      : L"按不带声调的粤拼输入，用 ' 分隔音节，数字键选词，候选为繁体字词",
+                  L"cantonese.input_method", {{L"jyutping", L"粤拼"}, {L"shuangpin", L"粤语双拼"}},
+                  L"jyutping");
     if (scheme == L"zhuyin")
       add_row(group, 0xE8AB, L"注音键盘",
               L"大千：按大千键位输入注音符号，空格为一声，6 3 4 7 为二、三、四声和轻声，候选为繁体字词",

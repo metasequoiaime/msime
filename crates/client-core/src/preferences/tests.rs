@@ -5085,6 +5085,56 @@ fn korean_unknown_disk_layout_falls_back_without_resetting_other_preferences() {
 }
 
 #[test]
+fn cantonese_input_method_is_omitted_at_default_and_roundtrips_shuangpin() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let document = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    // 没选过的文档里没有这一项，旧版本读到的文档与以前相同。
+    assert!(document["preferences"].get("cantonese").is_none());
+    let bytes = serde_json::to_vec(&document).unwrap();
+    fs::write(store.path(), &bytes).unwrap();
+    let loaded = store.load().unwrap();
+    assert_eq!(
+        loaded.preferences.cantonese.input_method,
+        CantoneseInputMethod::Jyutping
+    );
+    assert_eq!(fs::read(store.path()).unwrap(), bytes);
+    let mut preferences = loaded.preferences;
+    preferences.cantonese.input_method = CantoneseInputMethod::Shuangpin;
+    let saved = store.save(loaded.revision, preferences).unwrap();
+    assert_eq!(store.load().unwrap(), saved);
+    assert_eq!(
+        serde_json::to_value(&saved.preferences).unwrap()["cantonese"]["input_method"],
+        "shuangpin"
+    );
+    let mut preferences = saved.preferences.clone();
+    preferences.cantonese.input_method = CantoneseInputMethod::Jyutping;
+    let reverted = store.save(saved.revision, preferences).unwrap();
+    assert!(serde_json::to_value(&reverted.preferences)
+        .unwrap()
+        .get("cantonese")
+        .is_none());
+}
+
+#[test]
+fn cantonese_unknown_disk_input_method_falls_back_without_resetting_other_preferences() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut document = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    document["preferences"]["cantonese"] = serde_json::json!({ "input_method": "future" });
+    document["preferences"]["candidate_page_size"] = 4.into();
+    let bytes = serde_json::to_vec(&document).unwrap();
+    fs::write(store.path(), &bytes).unwrap();
+    let loaded = store.load().unwrap();
+    assert_eq!(
+        loaded.preferences.cantonese.input_method,
+        CantoneseInputMethod::Jyutping
+    );
+    assert_eq!(loaded.preferences.candidate_page_size, 4);
+    assert!(serde_json::from_value::<Preferences>(document["preferences"].clone()).is_err());
+}
+
+#[test]
 fn vietnamese_preferences_reject_unknown_members_and_values() {
     // 多出的成员是更新版本的设置，记为未知键；未知的取值仍然拒绝。
     let mut document = serde_json::to_value(Preferences::default()).unwrap();
