@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 把一个已经发布的 macOS 版本里用户用不到的资产从 macos-vVERSION 搬走，供 relocate-macos-release-extras.yml 调用：Sparkle 更新包（*-input-method.zip、*-settings.zip）搬到 macos-appcast，dSYM（msime-macos-VERSION-dsym.zip）搬到 macos-symbols。之后版本发布页只剩 DMG 和只列 DMG 的 SHA256SUMS，与 release-macos.yml 现在发布的一样。0.54.0 是需要这样搬的版本。
+# 只适用于 0.54.0 前后发 DMG 的旧版本（现在的版本发布页只放 pkg，不需要搬）。把一个已经发布的 macOS 版本里用户用不到的资产从 macos-vVERSION 搬走，供 relocate-macos-release-extras.yml 调用：Sparkle 更新包（*-input-method.zip、*-settings.zip）搬到 macos-appcast，dSYM（msime-macos-VERSION-dsym.zip）搬到 macos-symbols。之后版本发布页只剩 DMG 和只列 DMG 的 SHA256SUMS，与 release-macos.yml 当时发布的一样。0.54.0 是需要这样搬的版本。
 #
 # appcast 带签名（SURequireSignedFeed），只改地址就要重新签，所以 Sparkle 更新包这样搬：
 #   1. 从 macos-vVERSION 下载更新包和 SHA256SUMS，按 SHA256SUMS 核对；从 macos-appcast 下载现行 appcast，用 sparkle-public-key.txt 核对它们的签名，以及它们记录的更新包长度和 sparkle:edSignature 与下载到的文件一致。

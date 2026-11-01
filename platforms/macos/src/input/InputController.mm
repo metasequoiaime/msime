@@ -5521,7 +5521,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
 - (void)showSystemCharacterPalette { [NSApp orderFrontCharacterPalette:nil]; }
 - (void)checkForUpdates:(id)sender {
     (void)sender;
-    // 带 feed 的发布包由 Sparkle 直接更新输入法本体；设置应用的「关于」页只能给出 DMG 的下载链接。
+    // 带 feed 的发布包由 Sparkle 直接更新输入法本体；设置应用的「关于」页只能给出安装包的下载链接。
     if (MSIMEUpdateHostUsesSparkle(NSBundle.mainBundle)) {
         [[MSIMEUpdateController sharedController] checkForUpdates:nil];
         return;

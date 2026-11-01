@@ -659,13 +659,16 @@ class DownloadGuideTests(unittest.TestCase):
     def test_full_edition_comes_first_with_names_from_the_edition_table(self):
         table = json.loads((ROOT / "shared/contracts/editions.json").read_text(encoding="utf-8"))
         names = {entry["id"]: entry["display_name"]["zh-Hans"] for entry in table["editions"]}
-        rows = [line for line in self.guide("--homebrew").splitlines() if line.startswith("| ") and "dmg" in line]
+        guide = self.guide("--homebrew")
+        rows = [line for line in guide.splitlines() if line.startswith("| ") and ".pkg" in line]
         self.assertEqual(len(rows), 3)
         self.assertIn(f"**{names['full']}**", rows[0])
-        self.assertIn(f"({DOWNLOAD}macos-v1.2.0/msime-macos-1.2.0-universal.dmg)", rows[0])
+        self.assertIn(f"({DOWNLOAD}macos-v1.2.0/msime-macos-1.2.0-universal.pkg)", rows[0])
         self.assertIn("`brew install --cask metasequoiaime/tap/msime`", rows[0])
         self.assertIn(names["wubi"], rows[1])
-        self.assertIn("msime-macos-japanese-1.2.0-universal.dmg", rows[2])
+        self.assertIn("msime-macos-japanese-1.2.0-universal.pkg", rows[2])
+        self.assertNotIn(".dmg", guide)
+        self.assertIn("管理员密码", guide)
 
     def test_prerelease_guide_has_no_homebrew_column(self):
         guide = self.guide()

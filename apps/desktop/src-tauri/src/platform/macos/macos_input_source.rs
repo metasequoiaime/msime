@@ -1037,7 +1037,7 @@ pub(crate) enum Refresh {
 
 /// What the start-time check does with the bundle the settings app carries.
 ///
-/// Never a downgrade: the installed copy can legitimately be newer than the one inside the settings app being opened - an older DMG's app opened after a newer one, a newer build installed with `scripts/install.sh`, or, for builds that carry `SUFeedURL`, a Sparkle update - and replacing it would roll the user back. An installed bundle whose version cannot be read is replaced by a readable one, since nothing says it is newer; a bundled copy whose version cannot be read never replaces anything that is already installed.
+/// 从不降级：已装的那份完全可能比正在打开的设置应用随附的新，比如装了新版之后又打开了留在别处的旧版设置应用、用 `scripts/install.sh` 装了更新的构建，或者带 `SUFeedURL` 的构建经 Sparkle 更新过，这时替换会把用户退回旧版本。已装 bundle 的版本读不出来时，换成读得出版本的随附副本，因为没有任何迹象说它更新；随附副本的版本读不出来时，从不替换已经装好的任何东西。
 pub(crate) fn refresh_decision(
     bundled: Option<&BundleVersion>,
     installed: Option<&BundleVersion>,
