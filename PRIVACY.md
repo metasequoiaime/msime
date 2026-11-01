@@ -54,6 +54,19 @@ macOS、iOS、Android 和 Linux 另提供「水杉账号」（`translation_accou
 
 macOS 26 及以上在没有选择任何服务时（候选翻译开启，小牛、自定义、腾讯都未启用，也没有选择水杉账号，手动开启候选翻译后就是这个状态），会用 Apple 系统自带的离线翻译模型为随包词典答不上的中文候选补一行释义。翻译在本机完成，候选词不离开这台 Mac；只用你已经在「系统设置 → 通用 → 语言与地区 → 翻译语言」里下载好的语言对，输入法不会触发下载，没下载就不补。代码在 `platforms/macos/src/backend/translation/BackendOnDeviceGloss.swift`，判定在 `InputController.mm` 的 `currentOnDeviceGlossRequest`。
 
+### 朗读（只在点击时，用系统自带的语音）
+
+候选菜单里的「朗读」和背单词卡片上的喇叭，用操作系统自带的语音合成读出一个英文单词：候选旁英文释义的第一个义项、英文候选本身，或卡片上的英文词头（规则在 `crates/client-services/src/vocabulary/read_aloud.rs`）。只在你点了菜单项或喇叭时发生；读的只是那个英文单词，不写日志、不落盘、不进打字统计。本项目不打包任何声音模型，也不经自己的代码发出网络请求。各平台交给谁合成：
+
+- macOS：输入法用 `AVSpeechSynthesizer`，设置应用的背单词卡片用网页的 `speechSynthesis`，都只用这台 Mac 上已安装的声音。
+- Windows：输入法（Server）用 SAPI 5，声音都装在本机。设置应用的背单词卡片用 WebView2 的 `speechSynthesis`，只挑 `localService` 为真的本机声音；WebView2 本身也不提供 Edge 里的「Online (Natural)」联网声音。
+- Linux：只在系统装了 speech-dispatcher 的命令行 `spd-say` 时才有这一项，输入法和设置应用都把单词交给它（`spd-say -l en <单词>`）。合成由你在 speech-dispatcher 里配置的输出模块完成：常见发行版默认的 espeak-ng 等模块在本机合成，但如果你给它配了一个联网的模块，单词会按那个模块的方式发出去，这一点本项目管不了。
+- iOS：键盘和 App 的背单词页用 `AVSpeechSynthesizer`，只用设备上已安装的英文声音。键盘只在开了「允许完全访问」时有这一项：没有完全访问时 iOS 不让键盘扩展播放自己的声音。
+- Android：键盘和背单词页用系统的 `TextToSpeech`，只挑不需要网络（`Voice.isNetworkConnectionRequired()` 为假）、也不用再下载数据（没有 `KEY_FEATURE_NOT_INSTALLED`）的英文声音，没有这样的声音时不读，只提示原因；没装语音引擎时没有这一项。为了看得见语音引擎，清单里声明了对 `android.intent.action.TTS_SERVICE` 的查询。语音引擎是系统里另一个应用（手机自带的或你装的），声音需不需要网络是引擎自己报的，引擎内部怎么处理交给它的单词由引擎决定，这一点本项目管不了。
+- HarmonyOS：键盘和设置应用的背单词卡片用 Core Speech Kit 的文本转语音，只用离线模式（`online: 1`）和系统的中文声音聆小珊。本项目从不请求下载声音（不调用 `downloadVoice`），也不用要下载的英文声音；系统在离线模式下自己怎么准备声音由系统决定，这一点还没有在真机上核对过。
+
+代码在 `platforms/macos/src/input/InputController.mm`（`MSIMEReadAloudVoice`）、`platforms/windows/src/voice/SystemSpeech.cpp`、`platforms/linux/src/candidates/ReadAloud.h`、`apps/desktop/src-tauri/src/read_aloud.rs`、`apps/desktop/src/core/read-aloud.ts`、`platforms/ios/SharedUI/vocabulary/ReadAloud.swift`、`platforms/android/java/app/msime/android/core/ReadAloudSpeaker.java`（挑声音的规则在 `policy/ReadAloudVoicePolicy.java`）和 `platforms/harmony/entry/src/main/ets/speech/HarmonyReadAloud.ets`。
+
 ### 语音输入（默认凭据为空）
 
 `voice_input.enabled` 默认 `true`，但这只表示功能可用，录音要你主动触发。默认识别服务是豆包（`wss://openspeech.bytedance.com/...`），**`asr_token` 默认为空字符串**，不填就无法使用。可选的识别服务还有 SiliconFlow、OpenAI、Groq、EveryAPI、Mistral Voxtral、阿里云百炼（`bailian`，默认 `https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions`，模型 `qwen3-asr-flash`，录音以 Base64 放进 Chat Completions 请求），以及两种不出设备的选项：
@@ -147,7 +160,8 @@ Android 的检查更新不走上面的 GitHub API：不由 Google Play 更新的
 - 非英文离线释义（法、日、西、俄、德、韩）与本地语音运行库（sherpa-onnx 与 ONNX Runtime 两个原生库）：只有 Android 的 full 与拼音版下载，其他平台和 Android 的其他版本照旧随包。
 - 手写模型：macOS 下载；Windows 只在系统没有中文 Windows Ink 手写识别器、安装目录里也没有模型时下载；Linux 只在安装前缀里没有随包模型时下载（我们自己发布的 deb/rpm 不带它，各发行版仓库的包继续内置）。
 - 桌面神经联想模型（约 25 MB）：三个桌面平台都只在打开「桌面神经联想」时下载，安装布局里已经带着它时不下载。
-- 离线英文音标词典（ECDICT 生成的 `en-phonetic.db` 与许可声明，约 5.7 MB）：只有 Android、iOS 和 Linux 下载，而且只在你打开「显示英文音标」（偏好字段 `candidate_pronunciation`，默认关闭）后、在设置里那一行点「下载」时发生，打开开关本身不联网；macOS 和 Windows 随安装包带着，鸿蒙随 HAP 带着。原地址是 `https://github.com/metasequoiaime/chinese-ime-lm/releases/download/pronunciations-ecdict-.../`，和其他资源包一样依次尝试：填了下载镜像时先走你的镜像，再走本项目的镜像 `https://dl.msime.app/gh/` 加原地址，都失败才直连 GitHub，所以通常是本项目的镜像先收到这个请求，能看到你的 IP 和下载的是这个资源包；长度和 SHA-256 固定在 `resources/pronunciations.lock.json`，不论从哪里取到的都按它校验。装好后打字时只在本机查这张表，不发送候选、释义或任何输入内容；iOS 上它放在 App Group 共享目录的 `MSIME/resource-packs/pronunciations/`，不进 iCloud 备份，删除 App 时一并删除。
+- 离线英文音标词典（ECDICT 生成的 `en-phonetic.db` 与许可声明，约 5.7 MB）：只有 Android、iOS 和 Linux 下载，而且只在你打开「显示读音」（偏好字段 `candidate_pronunciation`，默认关闭）后、在设置里那一行点「下载」时发生，打开开关本身不联网；macOS 和 Windows 随安装包带着，鸿蒙随 HAP 带着。原地址是 `https://github.com/metasequoiaime/chinese-ime-lm/releases/download/pronunciations-ecdict-.../`，和其他资源包一样依次尝试：填了下载镜像时先走你的镜像，再走本项目的镜像 `https://dl.msime.app/gh/` 加原地址，都失败才直连 GitHub，所以通常是本项目的镜像先收到这个请求，能看到你的 IP 和下载的是这个资源包；长度和 SHA-256 固定在 `resources/pronunciations.lock.json`，不论从哪里取到的都按它校验。装好后打字时只在本机查这张表，不发送候选、释义或任何输入内容；iOS 上它放在 App Group 共享目录的 `MSIME/resource-packs/pronunciations/`，不进 iCloud 备份，删除 App 时一并删除。
+- 离线外语读音词典（维基词典生成的法、日、西、俄、德、韩读音表 `<语言>-phonetic.db` 六份与 CC BY-SA 许可声明，合计约 3.7 MB）：和英文音标词典一样只有 Android、iOS 和 Linux 下载，只在你打开「显示读音」、翻译目标语言是这六种之一、并在设置里「离线外语读音词典」那一行点「下载」时发生；macOS 和 Windows 随安装包带着，鸿蒙随 HAP 带着。原地址是 `https://github.com/metasequoiaime/chinese-ime-lm/releases/download/target-pronunciations-.../`，镜像顺序与上一条相同：你的镜像、本项目的镜像 `https://dl.msime.app/gh/` 加原地址、最后直连 GitHub，本项目的镜像同样能看到你的 IP 和下载的是这个资源包；长度和 SHA-256 固定在 `resources/target-pronunciations.lock.json`。装好后只在本机查表，查的是候选旁画出来的释义，不发送任何内容；iOS 上它放在 App Group 共享目录的 `MSIME/resource-packs/target-pronunciations/`，不进 iCloud 备份，删除 App 时一并删除。
 
 三个桌面平台的 octagram 语法模型只在你点「检查更新」或「下载／更新」时读取官方目录 `https://raw.githubusercontent.com/metasequoiaime/msime/develop/resources/grammar-models.catalog.json`；稳定版、测试版和每日构建在本机按已保存的更新通道筛选，不把通道作为请求参数发送。目录返回模型下载地址、大小和 SHA-256；下载由你再次点击后进行，和其他资源包一样依次尝试：填了下载镜像时先走你的镜像，然后是本项目的镜像 `https://dl.msime.app/gh/` 加目录中的上游 HTTPS 地址，都失败才直连上游地址；镜像不提供的文件会被拒绝，请求随即换到下一个来源，但被尝试过的镜像都能看到你的 IP 和请求的是哪个模型。读取目录本身始终直连上面的官方地址。请求只包含固定路径和 User-Agent `msime/<版本号>`，不发送输入内容、账号、设备标识、本地路径或已安装模型列表。已安装模型日常离线使用，不因目录更新自动下载或替换；目录或下载失败时保留旧模型。
 
@@ -159,7 +173,7 @@ Android 的检查更新不走上面的 GitHub API：不由 Google Play 更新的
 | 需要凭据 | 否 |
 | 偏好字段 | 沿用 `voice_input.asr_model_mirror`，默认空字符串，表示不用你自己的镜像，先走本项目的镜像 `https://dl.msime.app/gh/`、再直连 GitHub；下载失败时资源包那一行和手写面板都提供「设置下载镜像」 |
 | 存放位置 | 偏好目录下的 `resource-packs/<资源包>/`：macOS 是 `~/Library/Application Support/app.msime.macos/resource-packs/`，Windows 是输入法服务的数据目录，Linux 是运行时选项记录的状态目录，Android 是应用私有目录 `files/bootstrap/state/resource-packs/`（没下完的部分留在同一目录下的 `.partial-<资源包>/`，下次接着下载）；许可证文本放在数据旁边 |
-| 代码 | `crates/client-providers/src/resource_packs.rs`、`apps/desktop/src-tauri/src/platform/desktop/desktop_resource_packs.rs`，Android 经 `crates/host-api/src/ffi/pack_downloads.rs` 调用同一份实现；地址、长度和 SHA-256 固定在 `resources/desktop-dictionary.lock.json`、`resources/language-dictionaries.lock.json`、`resources/offline-glosses.lock.json`、`resources/pronunciations.lock.json`、`resources/voice-runtime.lock.json` 与 `resources/voice-runtime-android.lock.json`（语音运行库归档和从中取出的两个库）、`resources/voice-runtime-macos.lock.json`（重签的 macOS 语音运行库归档和其中的库）、`resources/handwriting-model.lock.json` 和 `resources/settled-model.lock.json` |
+| 代码 | `crates/client-providers/src/resource_packs.rs`、`apps/desktop/src-tauri/src/platform/desktop/desktop_resource_packs.rs`，Android 经 `crates/host-api/src/ffi/pack_downloads.rs` 调用同一份实现；地址、长度和 SHA-256 固定在 `resources/desktop-dictionary.lock.json`、`resources/language-dictionaries.lock.json`、`resources/offline-glosses.lock.json`、`resources/pronunciations.lock.json`、`resources/target-pronunciations.lock.json`、`resources/voice-runtime.lock.json` 与 `resources/voice-runtime-android.lock.json`（语音运行库归档和从中取出的两个库）、`resources/voice-runtime-macos.lock.json`（重签的 macOS 语音运行库归档和其中的库）、`resources/handwriting-model.lock.json` 和 `resources/settled-model.lock.json` |
 
 镜像规则和上面[本地语音模型](#语音输入默认凭据为空)的相同：必须是 `https://` 地址，镜像运营方能看到你的 IP 和你下载的是哪个资源包，但下载内容按固定的 SHA-256 校验，镜像无法替换文件，校验不过就换下一个来源。不需要这些功能就不会发生这些请求；缺少资源包时对应的方案或手写面板显示为不可用，桌面神经联想保持现有候选；Android 上缺少的语言不出现在键盘里，离线释义只有英文，本地语音识别不可用，中文输入不受影响。
 

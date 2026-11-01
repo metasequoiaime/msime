@@ -975,13 +975,14 @@
     --cand-hover: #ececec;
     --cand-selected: #e8e8e8;
   }
-  /* macOS 宿主的默认值：原生候选窗画的 `NativeCandidateTokens`（`platforms/macos/src/candidate/CandidateSkin.cpp`）和 `SkinTokens` 的几何默认值（`CandidateSkin.h`），行上下各留的边距来自 `CandidateChrome.h` 的 `MSIMECandidateRowPadding`。改原生 token 时同步改这里，`candidate-preview-native-tokens.test.ts` 会对照原生源码检查。选中底跟随强调色（调色板换了强调色也跟着换），文字白色、序号 82% 白，不画竖条；调色板没给选中前景色时用 `candidatePaletteStyle` 按选中底推导出的 `--cand-mac-selected-*`。主题的调色板写在内联样式上，仍然压过这里，与原生「主题槽位叠在原生 token 上」一致。Windows 使用同一套默认值；Linux 保留自己的默认值。 */
+  /* macOS 宿主的默认值：原生候选窗画的 `NativeCandidateTokens`（`platforms/macos/src/candidate/CandidateSkin.cpp`）和 `SkinTokens` 的几何默认值（`CandidateSkin.h`），行上下各留的边距来自 `CandidateChrome.h` 的 `MSIMECandidateRowPadding`。改原生 token 时同步改这里，`candidate-preview-native-tokens.test.ts` 会对照原生源码检查。选中底是实心的品牌绿（浅色 #2C7A4B，深色是比强调色更深的 #17783F，白字才到 4.5:1），调色板换了强调色时跟着强调色（`--cand-mac-selected`），文字白色、序号 82% 白，不画竖条；调色板没给选中前景色时用 `candidatePaletteStyle` 按选中底推导出的 `--cand-mac-selected-*`。主题的调色板写在内联样式上，仍然压过这里，与原生「主题槽位叠在原生 token 上」一致。Windows 使用同一套默认值；Linux 保留自己的默认值。 */
   :is([data-platform="mac"]) &[data-preview-theme="light"] {
     --cand-bg: #fffffff7;
     --cand-border: #0000001f;
     --cand-text: #1d1d1f;
     --cand-num: #6e6e73;
     --cand-accent: #2c7a4b;
+    --cand-selected: var(--cand-mac-selected, #2c7a4b);
     --cand-hover: #0000000f;
   }
   :is([data-platform="mac"]) &[data-preview-theme="dark"] {
@@ -990,10 +991,10 @@
     --cand-text: #f5f5f7;
     --cand-num: #98989d;
     --cand-accent: #5fbf84;
+    --cand-selected: var(--cand-mac-selected, #17783f);
     --cand-hover: #ffffff1a;
   }
   :is([data-platform="mac"]) &[data-preview-theme] {
-    --cand-selected: var(--cand-accent);
     --cand-selected-text: var(--cand-mac-selected-text, #ffffff);
     --cand-selected-num: var(--cand-mac-selected-num, #ffffffd1);
     --cand-selected-bar: none;
@@ -1092,6 +1093,7 @@
     --cand-text: #1d1d1f;
     --cand-num: #6e6e73;
     --cand-accent: #2c7a4b;
+    --cand-selected: var(--cand-mac-selected, #2c7a4b);
     --cand-hover: #0000000f;
   }
   :is([data-platform="win"]) &[data-preview-theme="dark"] {
@@ -1100,10 +1102,10 @@
     --cand-text: #f5f5f7;
     --cand-num: #98989d;
     --cand-accent: #5fbf84;
+    --cand-selected: var(--cand-mac-selected, #17783f);
     --cand-hover: #ffffff1a;
   }
   :is([data-platform="win"]) &[data-preview-theme] {
-    --cand-selected: var(--cand-accent);
     --cand-selected-text: var(--cand-mac-selected-text, #ffffff);
     --cand-selected-num: var(--cand-mac-selected-num, #ffffffd1);
     --cand-selected-bar: none;

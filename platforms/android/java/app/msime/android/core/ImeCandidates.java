@@ -200,11 +200,20 @@ final class ImeCandidates {
         }
         // 「加入生词本」排在最后，和 iOS、鸿蒙的长按菜单、桌面的候选右键菜单同一个位置；只在这一行显示着可上屏的释义时出现。
         boolean personalWordbook = CandidateManagementAction.offersPersonalWordbook(glosses);
+        // 「朗读」紧挨在它前面：有能读的英文（显示着的英文释义，或候选本身是英文）、本机又装着语音引擎时出现。
+        String readAloud = s.readAloudText(text, translation);
+        if (readAloud != null)
+            popup.getMenu().add(Menu.NONE, CandidateManagementAction.READ_ALOUD_MENU_ITEM,
+                CandidateManagementAction.READ_ALOUD_ORDER, CandidateManagementAction.READ_ALOUD_TITLE);
         if (personalWordbook)
             popup.getMenu().add(Menu.NONE, CandidateManagementAction.PERSONAL_WORDBOOK_MENU_ITEM,
                 CandidateManagementAction.PERSONAL_WORDBOOK_ORDER, CandidateManagementAction.PERSONAL_WORDBOOK_TITLE);
         popup.setOnMenuItemClickListener(item -> {
             s.imeKeyFeedback.playFeedback(button);
+            if (readAloud != null && item.getItemId() == CandidateManagementAction.READ_ALOUD_MENU_ITEM) {
+                s.readAloud(readAloud);
+                return true;
+            }
             if (personalWordbook && item.getItemId() == CandidateManagementAction.PERSONAL_WORDBOOK_MENU_ITEM) {
                 s.addCandidateToPersonalWordbook(text, translation,
                     candidate == null ? "" : s.candidateDisplayedReading(candidate));

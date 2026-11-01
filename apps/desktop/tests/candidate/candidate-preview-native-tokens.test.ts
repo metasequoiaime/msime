@@ -66,8 +66,18 @@ test("the macOS selected foregrounds follow the fill that is drawn when the pale
   });
   expect(given).not.toHaveProperty("--cand-mac-selected-text");
   expect(given).not.toHaveProperty("--cand-mac-selected-num");
-  // 既没有 selected 也没有 accent：原生画的是平台强调色，交给样式表里的白字。
+  // 既没有 selected 也没有 accent：原生画的是平台的选中底，交给样式表里的默认值和白字。
   expect(style({ surface: "#FFFFFF" })).not.toHaveProperty("--cand-mac-selected-text");
+  expect(style({ surface: "#FFFFFF" })).not.toHaveProperty("--cand-mac-selected");
+});
+
+test("the macOS selected fill follows a palette's accent only when the palette leaves selected unset", () => {
+  // 原生 `ResolveSkin`：主题给了强调色、没给选中底时选中底跟着强调色；给了选中底就画选中底；都没给时是原生选中底（深色 #17783F，不是强调色）。
+  expect(style({ accent: "#FFEE88" })["--cand-mac-selected"]).toBe("#FFEE88");
+  expect(style({ selected: "#112233", accent: "#FFEE88" })).not.toHaveProperty(
+    "--cand-mac-selected",
+  );
+  expect(style({ text: "#123456" })).not.toHaveProperty("--cand-mac-selected");
 });
 
 test("the selected row reads the selected foregrounds and the bar switch, falling back to the old look", () => {
@@ -145,20 +155,52 @@ test.each([
   ["dark", true],
 ] as const)("the macOS %s preview defaults are the native candidate tokens", (theme, dark) => {
   const native = nativeColours(dark);
+  const selected = native.selected === "tokens.accent" ? native.accent : native.selected;
   expect(declarations(`${mac}[data-preview-theme="${theme}"]`)).toEqual({
     "--cand-bg": native.surface,
     "--cand-border": native.border,
     "--cand-text": native.text,
     "--cand-num": native.number,
     "--cand-accent": native.accent,
+    "--cand-selected": `var(--cand-mac-selected,${selected})`,
     "--cand-hover": native.hover,
   });
 });
 
+/** WCAG 2 对比度：`foreground` 按自己的不透明度合成到不透明的 `fill` 上，两者都是 `#rrggbb` 或 `#rrggbbaa`。 */
+function contrast(foreground: string, fill: string): number {
+  const channels = (hex: string) =>
+    [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255);
+  const alpha = foreground.length === 9 ? parseInt(foreground.slice(7), 16) / 255 : 1;
+  const under = channels(fill);
+  const over = channels(foreground).map(
+    (value, index) => value * alpha + under[index] * (1 - alpha),
+  );
+  const luminance = ([r, g, b]: number[]) =>
+    [0.2126, 0.7152, 0.0722].reduce((sum, weight, index) => {
+      const value = [r, g, b][index];
+      return sum + weight * (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+    }, 0);
+  const [a, b] = [luminance(over), luminance(under)];
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}
+
+test.each([false, true])(
+  "the macOS default selected text reaches WCAG AA on the default fill (dark %s)",
+  (dark) => {
+    const native = nativeColours(dark);
+    const selected = native.selected === "tokens.accent" ? native.accent : native.selected;
+    expect(contrast(native.selectedText, selected)).toBeGreaterThanOrEqual(4.5);
+    // 强调色 #5FBF84 上的白字只有约 2.3:1，深色的选中底因此不是强调色。
+    if (dark) expect(contrast(native.selectedText, native.accent)).toBeLessThan(4.5);
+  },
+);
+
 test("the macOS preview selects with a solid accent, white text and no bar, in the native geometry", () => {
   const native = nativeColours(false);
-  // 选中底跟随强调色（包括调色板换过的强调色），与 `ResolveSkin` 相同。
+  // 浅色的选中底就是强调色；深色是更深的 #17783F。调色板给了强调色时两种都跟着它，与 `ResolveSkin` 相同（`--cand-mac-selected`）。
   expect(native.selected).toBe("tokens.accent");
+  expect(nativeColours(true).selected).toBe("#17783f");
   const tokenField = (name: string) =>
     Number(new RegExp(`float ${name} = ([\\d.]+)f;`).exec(candidateSkinHeader)![1]);
   expect(tokenField("selectedRadius")).toBe(tokenField("candidateRadius"));
@@ -171,7 +213,6 @@ test("the macOS preview selects with a solid accent, white text and no bar, in t
     /constexpr double kCandidateRowPadding = ([\d.]+);/.exec(candidateChromeMetrics)![1],
   );
   expect(declarations(`${mac}[data-preview-theme]`)).toEqual({
-    "--cand-selected": "var(--cand-accent)",
     "--cand-selected-text": `var(--cand-mac-selected-text,${native.selectedText})`,
     "--cand-selected-num": `var(--cand-mac-selected-num,${native.selectedNumber})`,
     "--cand-selected-bar": "none",

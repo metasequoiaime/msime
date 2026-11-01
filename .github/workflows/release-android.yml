@@ -63,7 +63,7 @@ jobs:
         if: env.MSIME_ANDROID_OMIT_ON_DEMAND == '1'
         run: |
           set -euo pipefail
-          packs=(japanese offline-glosses voice-runtime pronunciations)
+          packs=(japanese offline-glosses voice-runtime pronunciations target-pronunciations)
           if [ "${{ matrix.edition }}" = full ]; then packs+=(language-dictionaries wubi); fi
           cargo run --quiet -p msime-client-providers --example install_resource_pack -- "$RUNNER_TEMP/resource-pack-check" "${packs[@]}" >/dev/null
       # 背单词的内置词书：从锁定的 ECDICT 提交生成到 target/wordbooks，build-apk.sh 打进 assets/wordbooks。词书不是按需资源包，每个版本（包括瘦包）都带；MSIME_REQUIRE_WORDBOOKS=1 让缺了它们的 APK 打不出来。

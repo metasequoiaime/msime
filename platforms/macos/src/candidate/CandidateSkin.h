@@ -495,6 +495,12 @@ SkinTokens NativeCandidateTokens(bool dark);
 void ApplyNativeGlassCandidateContrast(SkinTokens &tokens, bool dark);
 // The selected row's foregrounds for a palette that left them to the platform, derived from the fill actually drawn (THEME_CONTRACT §5 step 6): white or near-black on an opaque fill, the number at 0.82 like the native one, and the row's own text and number colours on a translucent fill, where they are what stays readable. On the native solid accent this gives the native white. `translation` 为真且皮肤给了释义色时，选中行的释义色按选中序号同样的规则推导。
 void DeriveSelectedForegrounds(SkinTokens &tokens, bool text, bool number, bool translation = true);
+// WCAG 2 对比度：`foreground` 按自己的不透明度合成到 `fill` 上，再和 `fill` 比；`fill` 当作不透明。
+float ForegroundContrast(Rgba foreground, Rgba fill);
+// 选中行的释义和读音要达到的对比度：WCAG AA 正文的 4.5:1。
+inline constexpr float kSelectedGlossMinContrast = 4.5f;
+// 皮肤没有释义色时选中行的释义色（读音同色），和 Windows 的 `candidate_row_translation_color` 同一规则：选中底色半透明，或选中序号色在它上面已经够 4.5:1 时，就画选中序号色；否则取选中文字的颜色，不透明度从和选中序号一样的 0.82 起往上加，到够 4.5:1 或不透明为止。同一行只有一种前景色，释义不会比候选文字更显眼。默认浅色 #2C7A4B、深色 #17783F 上白色 0.82 都只有约 4.1–4.3:1，所以默认皮肤的释义是白色 0.86–0.89。
+Rgba SelectedRowGloss(const SkinTokens &tokens);
 // A resolved candidate skin with the user's style laid over it, for the candidate window and its preview only: the floating toolbar and the colour wells keep the skin as resolved.
 //
 // The radius goes user value, then the package's corner_radius_dip (already in tokens.radius), then the native card radius, and a row is never rounder than the card it sits in. The opacity reaches the card surface, its border and the package background image and nothing else, so text, numbers and the selected fill stay as legible as the theme made them. The scale multiplies every length the skin carries, the radii, the inset and the package's decoration and minimum width, so the card keeps its proportions at any size; the hairline border keeps its width.
