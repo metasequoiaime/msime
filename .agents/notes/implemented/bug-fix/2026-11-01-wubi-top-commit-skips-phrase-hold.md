@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-六个宿主都向 runtime 请求 `phrase_preedit`（安卓 `MSIMEInputService.java`、iOS `MetasequoiaInputSessionBridge.swift`、鸿蒙 `KeyboardSession.ets`、macOS `InputController.mm`、Linux `ClientEngine.cpp` / `FcitxEngine.cpp`、Windows `PhrasePreeditOptions.h`）。在这个能力下，26 键五笔完整四码后再敲字母（`wqiy` 接 `a`）时，`Runtime::dispatch` 把字符键算作选择动作，`hold_phrase_progress` 看到「有提交、组字还在」，把顶下来的「你」收进 `phrase_prefix`，不写入文档。
+Issue #10486 报告的缺陷。六个宿主都向 runtime 请求 `phrase_preedit`（安卓 `MSIMEInputService.java`、iOS `MetasequoiaInputSessionBridge.swift`、鸿蒙 `KeyboardSession.ets`、macOS `InputController.mm`、Linux `ClientEngine.cpp` / `FcitxEngine.cpp`、Windows `PhrasePreeditOptions.h`）。在这个能力下，26 键五笔完整四码后再敲字母（`wqiy` 接 `a`）时，`Runtime::dispatch` 把字符键算作选择动作，`hold_phrase_progress` 看到「有提交、组字还在」，把顶下来的「你」收进 `phrase_prefix`，不写入文档。
 
 这不只是「晚一点上屏」。顶字判定 `wubi_top_commit_on_next_key` 与四码唯一自动上屏 `wubi_auto_commit_on_fourth_key` 都要求没有暂存词段，所以第一次顶字之后：
 
