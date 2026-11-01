@@ -11182,12 +11182,13 @@ public final class MSIMEInputService extends InputMethodService {
             keyboardAdjustKeyboardTop = floatingLocation[1];
         }
         keyboardAdjustConfiguration = new Configuration(getResources().getConfiguration());
+        // 先进入调整状态再按底栏换算抬高：实体键盘的候选条模式里键区要等调整期间才展开，底栏也要展开后才画（ImeBottomBar.shown 看 hardwareKeysCollapsed）。若按收起时「底栏不画」换算，存着的目标总距离会多算底栏那 40 dp，预览里键盘比按展开键时高出一截。
+        keyboardAdjustActive = true;
         keyboardAdjustLiftDp = KeyboardAdjustPolicy.liftDp(localSettings.bool(AndroidLocalSettings.BOTTOM_PADDING),
             localSettings.integer(AndroidLocalSettings.BOTTOM_PADDING_HEIGHT), imeBottomBar.shown());
         keyboardAdjustOriginalLiftDp = keyboardAdjustLiftDp;
         keyboardAdjustHorizontal = savedKeyboardHorizontal();
         keyboardAdjustOriginalHorizontal = keyboardAdjustHorizontal;
-        keyboardAdjustActive = true;
         render();
         imeStyler.applySkin();
         View top = keyboardAdjustOverlay.part(KeyboardAdjustPolicy.Part.TOP);
