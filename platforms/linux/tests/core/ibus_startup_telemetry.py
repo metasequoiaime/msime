@@ -110,7 +110,11 @@ def run_host(host, registration_bus, scratch, recovered):
 
         options = scratch / "options/runtime-options.json"
         options.parent.mkdir()
-        options.write_text('{"preferences":{}}')
+        # 显式提供偏好目录，让这个夹具表达“用户已同意上报”；没有偏好目录的旧协议现在按未授权处理。
+        options.write_text(json.dumps({
+            "preferences": {},
+            "preferences_directory": str(scratch / "preferences"),
+        }))
         proxy = f"http://127.0.0.1:{endpoint.port}"
         environment = {
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
