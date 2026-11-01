@@ -124,11 +124,16 @@ final class KeyboardSheets {
         return true;
     }
 
-    /** 一次写几项 Android 本地设置（同一次原子写），成功或失败后都回调。 */
-    static void saveLocal(Fragment fragment, java.util.Map<String, Object> edits, Runnable done) {
+    /** 一次写几项 Android 本地设置（同一次原子写），成功时跑 `saved`（可为 null），失败时提示并跑 `failed`。 */
+    static void saveLocal(Fragment fragment, java.util.Map<String, Object> edits, @Nullable Runnable saved,
+            Runnable failed) {
         HostTask.run(fragment, context -> writeLocal(context, edits) ? Boolean.TRUE : null, result -> {
-            if (result == null) MsToast.show(fragment.requireContext(), "保存失败，请重试");
-            done.run();
+            if (result == null) {
+                MsToast.show(fragment.requireContext(), "保存失败，请重试");
+                failed.run();
+            } else if (saved != null) {
+                saved.run();
+            }
         });
     }
 

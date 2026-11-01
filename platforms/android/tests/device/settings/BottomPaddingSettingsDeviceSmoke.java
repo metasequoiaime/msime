@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import org.json.JSONObject;
 
-/** 原生设置页只有一个「键盘底部高度」滑块（#10447）：范围 0–160 dp，拖到正值打开留白并记下高度，拖到 0 只关开关、保留高度，重开后照样显示；不再有独立的「底部留白」开关。 */
+/** 原生设置页只有一个「键盘底部高度」滑块（#10447）：范围 0–160 dp，拖到正值打开留白并记下高度，拖到 0 只关开关、保留高度，重开后照样显示；不再有独立的「底部留白」开关；保存成功后不重建页面，滑块节点保持不变。 */
 public final class BottomPaddingSettingsDeviceSmoke extends DeviceSmoke {
     private static final String TITLE = "键盘底部高度";
     private static final String ENABLED = "platform.android.bottom_padding";
@@ -39,6 +39,10 @@ public final class BottomPaddingSettingsDeviceSmoke extends DeviceSmoke {
             stage = "commit eighty dp from native slider";
             setProgress(slider, 80 / STEP_DP);
             awaitSaved(file, true, 80);
+            // 保存成功后不重建页面：读屏逐格调整时焦点留在同一个滑块节点上。
+            SystemClock.sleep(500);
+            check(slider.refresh() && Math.round(slider.getRangeInfo().getCurrent()) * STEP_DP == 80,
+                "native settings page rebuilt the slider after a successful save");
             stage = "reopen native keyboard options";
             openSettings();
             check(Math.round(heightSlider().getRangeInfo().getCurrent()) * STEP_DP == 80,

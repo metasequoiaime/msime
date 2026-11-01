@@ -212,9 +212,13 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
                 sidePad, checked -> savePreference(OneHandSidePadPolicy.PREFERENCE_KEY,
                     (checked ? OneHandSidePadPolicy.Panel.NUMBER_PAD : OneHandSidePadPolicy.Panel.OFF).wire));
         }
+        GroupCard.Row[] bottomHeight = new GroupCard.Row[1];
         layout.toggle("浮动键盘", "键盘缩小成一块面板悬在应用上面，按住顶部横条拖动位置；也可以在功能面板或工具栏按钮里切换",
             settings.bool(AndroidLocalSettings.FLOATING_KEYBOARD),
-            checked -> saveLocalSetting(AndroidLocalSettings.FLOATING_KEYBOARD, checked));
+            checked -> {
+                saveLocalSetting(AndroidLocalSettings.FLOATING_KEYBOARD, checked);
+                if (bottomHeight[0] != null) bottomHeight[0].setEnabled(!checked);
+            });
         if (showLargeScreenOptions) {
             layout.toggle("物理键盘时候选栏跟随光标", "接实体键盘打字时，候选栏显示在输入光标旁，靠近屏幕底部时显示在光标上方；不打字时不显示工具栏。应用不提供光标位置时仍停在屏幕底部",
                 settings.bool(AndroidLocalSettings.HARDWARE_CARET_CANDIDATES),
@@ -224,10 +228,12 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             settings.bool(AndroidLocalSettings.BOTTOM_BAR),
             checked -> saveLocalSetting(AndroidLocalSettings.BOTTOM_BAR, checked));
         // #10447：只有一个「目标总距离」滑块，底栏画着时它的 40 dp 计在里面；沿用 bottom_padding 和 bottom_padding_height 两个旧字段，拖到 0 只关开关、保留原高度。
-        layout.slider("键盘底部高度", "抬高整块键盘，按键大小不变。底栏显示时，40 dp 以内由底栏占用。",
+        // 浮动键盘时运行时不垫高（extraPaddingDp），滑块置灰；手机横屏和外接键盘收起键区是键盘当时的状态，设置页判断不了，写进说明。
+        bottomHeight[0] = layout.slider("键盘底部高度", "抬高整块键盘，按键大小不变。底栏显示时，40 dp 以内由底栏占用；浮动键盘、手机横屏和接实体键盘收起键区时不生效。",
             KeyboardBottomBarPolicy.MIN_PADDING_DP, KeyboardBottomBarPolicy.MAX_PADDING_DP, KeyboardBottomBarPolicy.PADDING_STEP_DP,
             AndroidLocalSettings.bottomHeightDp(settings), value -> value + " dp",
             value -> saveLocalSettings(AndroidLocalSettings.bottomHeightEdits(value)));
+        bottomHeight[0].setEnabled(!settings.bool(AndroidLocalSettings.FLOATING_KEYBOARD));
 
         GroupCard feedback = GroupCard.add(sectionColumn(target, "反馈"), "按键反馈");
         KeyboardFeedbackStore.Settings local = state.feedback();
