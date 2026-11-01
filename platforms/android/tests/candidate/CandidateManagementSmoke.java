@@ -48,6 +48,21 @@ public final class CandidateManagementSmoke {
         check(!CandidateManagementAction.offersPersonalWordbook(CandidateTranslationPolicy.insertionGlosses("")));
         check(!CandidateManagementAction.offersPersonalWordbook(List.of()));
         check(!CandidateManagementAction.offersPersonalWordbook(null));
-        System.out.println("Android candidate management: menu order, action mapping, position bounds and 加入生词本 placement passed");
+        // 「朗读」紧挨在「加入生词本」前面、所有词库操作后面，id 同样不撞；只在有能读的英文、本机又装着语音引擎时出现。
+        int readAloud = CandidateManagementAction.READ_ALOUD_MENU_ITEM;
+        check(readAloud != item);
+        check(readAloud >= 2000 + CandidateTranslationPolicy.MAX_INSERTION_SENSES || readAloud < 2000);
+        for (CandidateManagementAction action : actions) {
+            check(action.menuItemId() != readAloud);
+            check(action.ordinal() < CandidateManagementAction.READ_ALOUD_ORDER);
+        }
+        check(CandidateManagementAction.READ_ALOUD_ORDER < CandidateManagementAction.PERSONAL_WORDBOOK_ORDER);
+        rejects(() -> CandidateManagementAction.fromMenuItemId(readAloud));
+        check("朗读".equals(CandidateManagementAction.READ_ALOUD_TITLE));
+        check(CandidateManagementAction.offersReadAloud("interview", true));
+        check(!CandidateManagementAction.offersReadAloud("interview", false));
+        check(!CandidateManagementAction.offersReadAloud(null, true));
+        check(!CandidateManagementAction.offersReadAloud("", true));
+        System.out.println("Android candidate management: menu order, action mapping, position bounds, 朗读 and 加入生词本 placement passed");
     }
 }

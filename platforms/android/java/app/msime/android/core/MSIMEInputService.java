@@ -2375,6 +2375,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onDestroy() {
+        if (readAloudSpeaker != null) readAloudSpeaker.shutdown();
         if (imeOcr != null) imeOcr.destroy();
         operationNotice.cancel();
         if (imeWorldClock != null) imeWorldClock.destroy();
@@ -9421,6 +9422,21 @@ public final class MSIMEInputService extends InputMethodService {
         int scheme = InputViewValuePolicy.scheme(view, 0);
         return scheme != 3 && scheme != KoreanInputPolicy.KOREAN_SCHEME
             && schemeShowsGlosses(scheme);
+    }
+
+    /** 长按候选菜单的「朗读」：第一次读时才连接系统语音引擎，键盘服务销毁时断开。 */
+    private ReadAloudSpeaker readAloudSpeaker;
+
+    /** 这一行候选「朗读」要读的英文；本机没装语音引擎或没有能读的英文时为 null，菜单就不出这一项。打开菜单时在主线程调用。 */
+    String readAloudText(String text, String translation) {
+        String spoken = NativeClient.readAloudText(text, translation);
+        return CandidateManagementAction.offersReadAloud(spoken, ReadAloudSpeaker.engineInstalled(this)) ? spoken : null;
+    }
+
+    /** 用系统语音读出 {@code text}；读不出来时用 {@link #notice} 说明原因。不经过引擎，组字不变。 */
+    void readAloud(String text) {
+        if (readAloudSpeaker == null) readAloudSpeaker = new ReadAloudSpeaker(this);
+        readAloudSpeaker.speak(text, this::notice);
     }
 
     /** 「加入生词本」交不出去或存储出错时的提示；其余提示都由共享层给出。 */

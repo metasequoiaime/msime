@@ -761,6 +761,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 按键音效包（`KeySoundPackPolicy`）：要哪个包、已经加载的样本和音量。偏好在键盘出现和重读之后由 `synchronizeKeySoundPack` 更新，按键时只读这几个缓存。
   private let keySounds = KeyboardSoundPlayer()
+  /// 长按候选菜单的「朗读」；键盘收起时停下正在读的。
+  private let readAloudSpeaker = ReadAloudSpeaker()
   private var wantedKeySoundPack: String?
   private var keySoundGain = KeySoundPackPolicy.gain(volume: KeySoundPackPolicy.defaultVolume)
   /// 按键振动的开关和档位都从这一个 App Group 实例读。`KeyboardFeedbackPreference.hapticsEnabled` 这类属性每读一次都新建一个 `UserDefaults`，原来开着振动时按下、松开一次键要建五六个，都压在触摸处理的主线程上。不把值缓存起来：App 的设置页里也有输入框，键盘开着时在那里改振动，下一下按键就要按新的来。
@@ -1254,6 +1256,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
+    readAloudSpeaker.stop()
     candidateCanvasActive = false
     compositionContainer?.canvasVisible = false
     candidatePanel?.canvasVisible = false
@@ -8996,23 +8999,34 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return edges + glosses + management + personal
   }
 
-  /// 长按菜单最后一组的「加入生词本」，和 Android、鸿蒙的长按菜单、桌面的候选右键菜单同一个位置：把候选和它显示着的释义（几种语言各一行）收进背单词的生词本。没有释义时没有这一项。不经过 Engine，组字不变；写文件放在后台，提示回到主线程显示在诊断行并播报。
+  /// 长按菜单最后一组：「朗读」和「加入生词本」，和 Android、鸿蒙的长按菜单、桌面的候选右键菜单同一个位置。「朗读」在有能读的英文（显示着的英文释义，或候选本身是英文）、又开了完全访问时排在前面：没有完全访问时 iOS 不让键盘扩展播放自己的声音，这一项也就不出。「加入生词本」把候选和它显示着的释义（几种语言各一行）收进背单词的生词本，没有释义时没有这一项。两项都不经过 Engine，组字不变。
   private func personalWordbookElements(candidate: String, glosses: [String]) -> [UIMenuElement] {
-    guard let gloss = PersonalWordbookStore.menuGloss(glosses) else { return [] }
-    let action = UIAction(title: PersonalWordbookStore.menuTitle, image: UIImage(systemName: "text.book.closed")) { [weak self] _ in
-      guard let self else { return }
-      playInputClick()
-      // 没有完全访问时键盘写不进 App Group，背单词也就读不到。
-      guard hasFullAccess else {
-        showPersonalWordbookNotice("开启「允许完全访问」后才能加入生词本")
-        return
-      }
-      DispatchQueue.global(qos: .userInitiated).async {
-        let notice = PersonalWordbookStore.add(candidate: candidate, gloss: gloss)
-        DispatchQueue.main.async { [weak self] in self?.showPersonalWordbookNotice(notice) }
+    let gloss = PersonalWordbookStore.menuGloss(glosses)
+    let spoken = hasFullAccess ? ReadAloudText.text(candidate: candidate, gloss: gloss ?? "") : nil
+    let children: [UIMenuElement] = ReadAloudText.lastGroup(hasFullAccess: hasFullAccess, spoken: spoken, gloss: gloss).map { item -> UIMenuElement in
+      switch item {
+      case .readAloud(let spoken):
+        return UIAction(title: ReadAloudText.menuTitle, image: UIImage(systemName: "speaker.wave.2")) { [weak self] _ in
+          guard let self else { return }
+          if let notice = readAloudSpeaker.speak(spoken) { showPersonalWordbookNotice(notice) }
+        }
+      case .addToPersonalWordbook(let gloss):
+        return UIAction(title: PersonalWordbookStore.menuTitle, image: UIImage(systemName: "text.book.closed")) { [weak self] _ in
+          guard let self else { return }
+          playInputClick()
+          // 没有完全访问时键盘写不进 App Group，背单词也就读不到。
+          guard hasFullAccess else {
+            showPersonalWordbookNotice("开启「允许完全访问」后才能加入生词本")
+            return
+          }
+          DispatchQueue.global(qos: .userInitiated).async {
+            let notice = PersonalWordbookStore.add(candidate: candidate, gloss: gloss)
+            DispatchQueue.main.async { [weak self] in self?.showPersonalWordbookNotice(notice) }
+          }
+        }
       }
     }
-    return [UIMenu(title: "", options: .displayInline, children: [action])]
+    return children.isEmpty ? [] : [UIMenu(title: "", options: .displayInline, children: children)]
   }
 
   private func showPersonalWordbookNotice(_ notice: String) {

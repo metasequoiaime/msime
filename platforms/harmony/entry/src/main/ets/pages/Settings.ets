@@ -10,6 +10,8 @@ import { NativeCleanup } from '../keyboard/NativeCleanup';
 import web_webview from '@ohos.web.webview';
 import common from '@ohos.app.ability.common';
 import client, { DoubaoFrameResult } from 'libmsimeclient.so';
+import { HarmonyReadAloud } from '../speech/HarmonyReadAloud';
+import { ReadAloudPolicy } from '../speech/ReadAloudPolicy';
 import pasteboard from '@ohos.pasteboard';
 import Want from '@ohos.app.ability.Want';
 import bundleManager from '@ohos.bundle.bundleManager';
@@ -892,6 +894,8 @@ struct Settings {
 
   aboutToDisappear(): void {
     this.noticeRequest++;
+    // 背单词卡片的喇叭用的引擎：没建过时什么也不做。
+    HarmonyReadAloud.shutdown();
     // The ability outlives this page, so a handler left behind would hold a bridge whose webview
     // has gone.
     EntryAbility.onActivated = undefined;
@@ -1427,6 +1431,8 @@ class SettingsBridge {
       this.customSkinLibrary(payload).then(deliver).catch(failed);
     } else if (kind === 'vocabulary_review') {
       this.vocabularyReview(payload).then(deliver).catch(failed);
+    } else if (kind === 'read_aloud') {
+      this.readAloud(payload).then(deliver).catch(failed);
     } else if (kind === 'repair_preferences') {
       this.repairPreferences().then(deliver).catch(failed);
     } else if (kind === 'dictionary_collections') {
@@ -2332,6 +2338,8 @@ class SettingsBridge {
       value['typing_effects'] = projection.typingEffects;
       value['wordbook_packs'] = projection.wordbookPacks;
       value['symbol_set_packs'] = projection.symbolSetPacks;
+      // 背单词卡片的喇叭：设备没有文本转语音能力时不画。
+      value['read_aloud'] = HarmonyReadAloud.available();
       value['touch_toolbar_tools'] = projection.touchToolbarTools;
       value['touch_key_sound_packs'] = projection.touchKeySoundPacks;
       value['touch_plugin_packs'] = projection.touchPluginPacks;
@@ -2506,6 +2514,20 @@ class SettingsBridge {
       return Promise.resolve(JSON.stringify({ ok: false, error: 'snapshot_unavailable' }));
     }
     return this.accountBridge.snapshot(action, `${this.context.filesDir}/engine`, this.stateDirectory);
+  }
+
+  /**
+   * 背单词卡片的喇叭：页面交来卡片上的词头，先按共享层的规则（`msime_client_read_aloud_text`）核对它是英文，再用系统语音读出。读出来时 `{ok:true}`，读不出来时 `{ok:false,error:给用户看的那句话}`，页面原样显示。
+   */
+  private async readAloud(payload: string): Promise<string> {
+    const word: string | null = ReadAloudPolicy.requestText(payload);
+    const spoken: string | null = word === null ? null
+      : ReadAloudPolicy.textFromReply(client.readAloudText(ReadAloudPolicy.textRequest(word, '')));
+    if (spoken === null) {
+      return JSON.stringify({ ok: false, error: ReadAloudPolicy.FAILED });
+    }
+    const notice: string | null = await HarmonyReadAloud.speak(spoken);
+    return notice === null ? JSON.stringify({ ok: true, value: null }) : JSON.stringify({ ok: false, error: notice });
   }
 
   /**

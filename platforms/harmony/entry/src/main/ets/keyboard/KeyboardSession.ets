@@ -9,6 +9,8 @@ import inputMethodEngine from '@ohos.inputMethodEngine';
 import fs from '@ohos.file.fs';
 import util from '@ohos.util';
 import client from 'libmsimeclient.so';
+import { HarmonyReadAloud } from '../speech/HarmonyReadAloud';
+import { ReadAloudPolicy } from '../speech/ReadAloudPolicy';
 import { statusUserId } from '../account/HarmonyAccountRequests';
 import { AccountSessionAdoption } from '../account/AccountSessionAdoption';
 import { utf8Length, utf8WriteComplete } from './Utf8';
@@ -3920,6 +3922,24 @@ export class KeyboardSession implements HardwareKeyTarget {
       }
     }
     return PersonalWordbookPolicy.notice(response, route);
+  }
+
+  /** 长按菜单「朗读」要读的英文：经 `msime_client_read_aloud_text` 按候选原文和显示着的释义问共享层。设备没有文本转语音能力、没有能读的英文时为 null，菜单就不出这一项。打开菜单时在主线程调用，不读写文件。 */
+  readAloudText(candidate: string, gloss: string): string | null {
+    if (!HarmonyReadAloud.available()) {
+      return null;
+    }
+    try {
+      return ReadAloudPolicy.textFromReply(client.readAloudText(ReadAloudPolicy.textRequest(candidate, gloss)));
+    } catch (error) {
+      KeyboardLog.warn(`read aloud text failed: ${describeError(error)}`);
+      return null;
+    }
+  }
+
+  /** 用系统语音读出 `text`；读不出来时得到给用户看的那句话。不经过 Engine，组字不变。 */
+  readAloud(text: string): Promise<string | null> {
+    return HarmonyReadAloud.speak(text);
   }
 
   /** 设置应用和键盘共享沙箱的镜像，由扩展在拿到共享目录后交给会话；`fullMode` 每次调用时读当前的安全模式。 */

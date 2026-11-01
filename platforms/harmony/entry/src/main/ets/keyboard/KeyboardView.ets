@@ -7787,6 +7787,20 @@ struct KeyboardView {
     this.pendingRemoval = -1;
     this.managing = -1;
     this.touchCandidateMenu = false;
+    if (action.id === 'READ_ALOUD') {
+      // 和「加入生词本」一样先核对这一格还是打开菜单时的那个候选，再读打开菜单时共享层答的那段英文。
+      if (index < 0 || index >= this.candidates.length || action.spoken === undefined ||
+        this.candidates[index].text !== action.candidate) {
+        return;
+      }
+      KeyboardSession.shared.readAloud(action.spoken).then((notice: string | null): void => {
+        if (notice !== null) {
+          this.diagnostic = notice;
+          this.clearDiagnosticLater();
+        }
+      });
+      return;
+    }
     if (action.id === 'ADD_TO_PERSONAL_WORDBOOK') {
       // 和上屏释义一样先核对这一格还是打开菜单时的那个候选（原文和释义都要相同），再交出它的原文和释义；提示等共享层答了再显示。
       if (index < 0 || index >= this.candidates.length) {
@@ -7861,7 +7875,9 @@ struct KeyboardView {
     // A 2in1 touch screen keeps the gloss alone, because its right click already opens management. A phone has no right click, so its long press is the only way to 优先显示, 固定排位 and 删除词条, and opens the whole menu the way Android's does.
     const glossOnly: boolean = KeyboardFormFactor.isDesktop();
     if (glossOnly && CandidateManagementAction.touchActions(
-      candidate.annotation, candidate.annotationIsTranslation).length === 0) {
+      candidate.annotation, candidate.annotationIsTranslation, candidate.text,
+      KeyboardSession.shared.readAloudText(
+        candidate.text, candidate.annotationIsTranslation ? candidate.annotation : '')).length === 0) {
       return;
     }
     this.punctuation = false;
@@ -9319,9 +9335,12 @@ struct KeyboardView {
     const managed: CandidateEntry | null =
       this.managing >= 0 && this.managing < this.candidates.length
         ? this.candidates[this.managing] : null;
+    // 「朗读」要读的英文：显示着的英文释义（Engine 的注释不算），或候选本身是英文。
+    const spoken: string | null = managed === null ? null : KeyboardSession.shared.readAloudText(
+      managed.text, managed.annotationIsTranslation ? managed.annotation : '');
     if (this.touchCandidateMenu) {
       return managed === null ? [] : CandidateManagementAction.touchActions(
-        managed.annotation, managed.annotationIsTranslation, managed.text);
+        managed.annotation, managed.annotationIsTranslation, managed.text, spoken);
     }
     // The gloss is what the source offers here, and until now this host could show a translation without ever letting anyone type it: macOS has Option and a digit, and a touch keyboard has no modifiers to spare.
     return CandidateManagementAction.managementActions(
@@ -9330,7 +9349,7 @@ struct KeyboardView {
       CandidateManagementAction.candidateActionsAvailable(
         KeyboardScheme.engineSchemeName(this.engineScheme), managed === null ? 0 : managed.source),
       CandidateManagementAction.hasMultipleCodePoints(managed === null ? '' : managed.text),
-      managed === null ? '' : managed.text);
+      managed === null ? '' : managed.text, spoken);
   }
 
   @Builder
