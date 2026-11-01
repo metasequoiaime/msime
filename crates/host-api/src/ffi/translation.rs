@@ -898,7 +898,7 @@ pub unsafe extern "C" fn msime_client_pronunciation_request(
             .transpose()?;
         let resources = std::path::Path::new(resources);
         let supplementary_resources = supplementary_resources.map(std::path::Path::new);
-        // 每种语言各查一次自己的表，回答按请求里的顺序排；某种语言没装表时它的项没有读音，宿主继续显示原有释义。
+        // 每种语言各查一次自己的表，回答按请求里的顺序排；某种语言没装表时它的项没有读音，宿主继续显示原有释义。某种语言的表读不了（文件损坏、`kind` 或 `user_version` 不对，比如将来改了格式而旧的下载还在）时也只让这种语言没有读音，不连累同一请求里的其他语言。
         let mut readings = vec![String::new(); request.items.len()];
         for language in msime_engine::host::PHONETIC_LANGUAGES {
             let positions = request
@@ -923,17 +923,20 @@ pub unsafe extern "C" fn msime_client_pronunciation_request(
             let Some(database) = database else {
                 continue;
             };
-            let database = database
-                .to_str()
-                .ok_or("pronunciation dictionary unavailable")?;
+            let Some(database) = database.to_str() else {
+                continue;
+            };
             let texts = positions
                 .iter()
                 .map(|&position| request.items[position].text.clone())
                 .collect::<Vec<_>>();
             let answers = if language == "en" {
-                crate::pronunciation::english_pronunciations(database, &texts)?
+                crate::pronunciation::english_pronunciations(database, &texts)
             } else {
-                crate::pronunciation::target_pronunciations(database, language, &texts)?
+                crate::pronunciation::target_pronunciations(database, language, &texts)
+            };
+            let Ok(answers) = answers else {
+                continue;
             };
             for (position, answer) in positions.into_iter().zip(answers) {
                 readings[position] = answer;
