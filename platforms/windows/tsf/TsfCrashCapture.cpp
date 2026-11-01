@@ -11,6 +11,8 @@
 #include <windows.h>
 #include <werapi.h>
 #include <nlohmann/json.hpp>
+#include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <filesystem>
 #include <memory>
@@ -289,7 +291,10 @@ public:
           FILE_NOTIFY_CHANGE_ATTRIBUTES | FILE_NOTIFY_CHANGE_SECURITY);
     return parent_ != INVALID_HANDLE_VALUE && directory_ != INVALID_HANDLE_VALUE;
   }
+  // 上一次 wait 是否等满了超时、期间没有任何唤醒或目录事件。
+  bool timed_out() const noexcept { return timed_out_; }
   bool wait(HANDLE wake, DWORD timeout) noexcept {
+    timed_out_ = false;
     HANDLE handles[3]{wake};
     DWORD count = 1;
     if (parent_ != INVALID_HANDLE_VALUE) handles[count++] = parent_;
@@ -309,7 +314,8 @@ public:
     }
     if (result == WAIT_TIMEOUT) {
       // 低频兜底同时重新解析父路径，覆盖更上层目录整体替换。
-      if (timeout == 30000) reset();
+      timed_out_ = true;
+      if (timeout >= 30000) reset();
       return true;
     }
     reset();
@@ -322,6 +328,7 @@ private:
   }
   std::filesystem::path path_;
   HANDLE directory_ = INVALID_HANDLE_VALUE, parent_ = INVALID_HANDLE_VALUE;
+  bool timed_out_ = false;
 };
 
 void CALLBACK observe(PTP_CALLBACK_INSTANCE instance, void *context) noexcept {
@@ -331,6 +338,8 @@ void CALLBACK observe(PTP_CALLBACK_INSTANCE instance, void *context) noexcept {
   FreeLibraryWhenCallbackReturns(instance, state.module);
   CallbackMayRunLong(instance);
   PreferenceChanges changes;
+  // 持续失败时兜底间隔从 500 ms 翻倍到 30 s；租约变化和成功都回到快速重试。
+  DWORD retry = 500;
   for (;;) {
     std::uint64_t generation = 0;
     bool finished = false;
@@ -346,6 +355,7 @@ void CALLBACK observe(PTP_CALLBACK_INSTANCE instance, void *context) noexcept {
       } else {
         generation = state.generation;
       }
+      if (WaitForSingleObject(state.wake, 0) == WAIT_OBJECT_0) retry = 500;
       ResetEvent(state.wake);
     }
     if (finished) break;
@@ -361,12 +371,44 @@ void CALLBACK observe(PTP_CALLBACK_INSTANCE instance, void *context) noexcept {
       msime_test_tsf_after_refresh();
 #endif
     }
-    if (!changes.wait(state.wake, stable ? 30000 : 500)) disarm(state);
+    if (!changes.wait(state.wake, stable ? 30000 : retry)) disarm(state);
+    // 只有等满一整轮兜底仍然失败才拉长间隔；目录事件触发的失败不加倍，事件合并或重复不会把恢复拖到几十秒后。
+    retry = stable ? DWORD{500} : changes.timed_out() ? std::min<DWORD>(retry * 2, 30000) : retry;
   }
+}
+
+// AppContainer 与低完整性宿主（开始菜单、搜索、商店应用、受保护模式阅读器）读不到用户状态目录和偏好锁，WER helper 冒用其令牌也写不出记录；直接不建观察者，免得每个这样的进程都永远重试。令牌在进程一生里不变，查一次即可。本 DLL 用 /Zc:threadSafeInit- 编译，缓存放在常量初始化的原子量里（0 未查，1 支持，2 不支持），并发首次查询各自算出同一个值。分配失败抛出的异常交给 acquire 的 try 收住。
+bool capture_supported_host() {
+  static std::atomic<int> cached{0};
+  int value = cached.load(std::memory_order_relaxed);
+  if (value) return value == 1;
+  bool supported = false;
+  HANDLE token = nullptr;
+  if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
+    DWORD app_container = 1, size = 0;
+    if (!GetTokenInformation(token, TokenIsAppContainer, &app_container, sizeof(app_container), &size))
+      // Win7 不认识这个信息类，那里没有 AppContainer。
+      app_container = GetLastError() == ERROR_INVALID_PARAMETER ? 0 : 1;
+    DWORD needed = 0;
+    if (!app_container && !GetTokenInformation(token, TokenIntegrityLevel, nullptr, 0, &needed) &&
+        GetLastError() == ERROR_INSUFFICIENT_BUFFER && needed) {
+      std::vector<unsigned char> data(needed);
+      if (GetTokenInformation(token, TokenIntegrityLevel, data.data(), needed, &needed)) {
+        const PSID label = reinterpret_cast<const TOKEN_MANDATORY_LABEL *>(data.data())->Label.Sid;
+        if (IsValidSid(label) && *GetSidSubAuthorityCount(label))
+          supported = *GetSidSubAuthority(label, *GetSidSubAuthorityCount(label) - 1) >= SECURITY_MANDATORY_MEDIUM_RID;
+      }
+    }
+    CloseHandle(token);
+  }
+  value = supported ? 1 : 2;
+  cached.store(value, std::memory_order_relaxed);
+  return supported;
 }
 
 bool acquire() noexcept {
   try {
+    if (!capture_supported_host()) return false;
     Guard guard;
     if (current_state) {
       if (current_state->leases == MAXDWORD) return false;
