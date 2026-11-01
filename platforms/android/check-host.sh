@@ -223,6 +223,27 @@ if ! rg -q 'livePreferences == null \? options\.optJSONObject\("preferences"\) :
   echo "Android must seed the startup preference copy with the remembered nine-key layout before NativeClient.create when live preferences are missing, and draw from the engine view once it exists (#10389)" >&2
   exit 1
 fi
+# 首帧布局诊断（#10389，.agents/notes/implemented/bug-fix/2026-11-01-android-first-frame-layout-diagnostics.md）。种类怎么取由 TouchLayoutDiagnosticsSmoke 覆盖，种类清单由 ImePrivacyGateSmoke 和 client-services 的诊断包测试钉住；接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：会话到达前画的布局在 NativeClient.create 之前取（focus 可能已经按会话重画键区），窗口没显示时不取（键行是上一个输入框留下的）；会话建好后记偏好来源（是否读到实时偏好、副本是否按提示改过）、会话到达前画的布局和会话给出的布局；实时偏好在建会话时应用上就在建会话里记应用后的布局，否则在 reloadPreferences 里有快照时记，不看重读前有没有快照（键盘里的保存或触控板可能先换上快照），每个会话只记一次、会话结束时清掉标记；不认识的布局不交给日志。
+first_drawn_match=$(rg -n -m 1 'int firstDrawnLayout = imeWindowVisible \? imeLetterRows\.drawnTouchLayout\(\) : -1;' <<< "$start_session_body" || true)
+first_drawn_line=${first_drawn_match%%:*}
+record_touch_layout_body=$(sed -n '/^    private void recordTouchLayout(TouchLayoutDiagnostics\.Stage stage, int layout) {$/,/^    }$/p' "$service_java")
+record_live_layout_body=$(sed -n '/^    private void recordLiveTouchLayout() {$/,/^    }$/p' "$service_java")
+stop_session_state_body=$(sed -n '/^    private void stopSessionState() {$/,/^    }$/p' "$service_java")
+if [ -z "$first_drawn_line" ] || [ "$first_drawn_line" -ge "$startup_create_line" ] \
+  || ! rg -q 'hintedPreferences = true;' <<< "$start_session_body" \
+  || ! rg -q 'imeDebugOverlay\.recordEvent\(TouchLayoutDiagnostics\.sessionPreferences\(livePreferences != null, hintedPreferences\)\);' <<< "$start_session_body" \
+  || ! rg -q 'recordTouchLayout\(TouchLayoutDiagnostics\.Stage\.FIRST_DRAWN, firstDrawnLayout\);' <<< "$start_session_body" \
+  || ! rg -q 'recordTouchLayout\(TouchLayoutDiagnostics\.Stage\.CREATED, displayedTouchLayout\(view\)\);' <<< "$start_session_body" \
+  || ! rg -q 'if \(liveApplied\) recordLiveTouchLayout\(\);' <<< "$start_session_body" \
+  || ! rg -q '^        if \(preferencesSnapshot != null\) recordLiveTouchLayout\(\);$' <<< "$reload_body" \
+  || ! rg -q 'if \(liveTouchLayoutRecorded\) return;' <<< "$record_live_layout_body" \
+  || ! rg -q 'liveTouchLayoutRecorded = true;' <<< "$record_live_layout_body" \
+  || ! rg -q 'recordTouchLayout\(TouchLayoutDiagnostics\.Stage\.LIVE, displayedTouchLayout\(view\)\);' <<< "$record_live_layout_body" \
+  || ! rg -q 'liveTouchLayoutRecorded = false;' <<< "$stop_session_state_body" \
+  || ! rg -q 'if \(kind != null\) imeDebugOverlay\.recordEvent\(kind\);' <<< "$record_touch_layout_body"; then
+  echo "Android must record where the engine session's preferences came from and the touch layout drawn before the session, at creation and once live preferences apply (#10389)" >&2
+  exit 1
+fi
 # 键盘弹出各阶段的耗时和「建会话等第一帧」（#9916，.agents/notes/implemented/bug-fix/2026-10-29-android-first-show-session-after-first-frame.md）。等不等、等多久由 InputViewRefreshPolicySmoke 覆盖；接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：onStartInputView 一开头就开始等第一帧；工作线程交回的建会话经 startEngineSessionAfterFirstFrame，放行时仍核对启动代次；第一帧在画帧前登记帧提交回调（API 28 退到下一帧回调），交出去后才放行等着的建会话，而不是在画帧前直接 post（API 30 上那样会抢在画完的报告前面）；收起时马上放行等着的建会话；onCreate、onCreateInputView、建会话前的偏好读取与词库同步、主线程建会话的整段和销毁旧会话都记下耗时。
 start_view_body=$(sed -n '/^    @Override public void onStartInputView(EditorInfo info, boolean restarting) {$/,/^    }$/p' "$service_java")
 schedule_body=$(sed -n '/^    private void scheduleEngineStartup(String options, long generation) {$/,/^    }$/p' "$service_java")

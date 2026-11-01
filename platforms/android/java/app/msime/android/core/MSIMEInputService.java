@@ -844,6 +844,8 @@ public final class MSIMEInputService extends InputMethodService {
     /** 本输入框的运行时选项在强制关闭学习之前的原样，隐私模式切换时据此重建会话。 */
     private String runtimeOptionsBase = "";
     JSONObject preferencesSnapshot;
+    /** 首帧诊断（#10389）：这个会话已经记过应用实时偏好后的布局（{@link #recordLiveTouchLayout}）。 */
+    private boolean liveTouchLayoutRecorded;
     /** 上次整套应用成功的 loadPreferences 原始响应，和应用前取的 {@link #preferencesApplyInputs}；每次 {@link #applyPreferencesSnapshot} 开头清空，只由每秒重读和建会话的首份快照记下。 */
     private String appliedPreferencesResponse;
     private java.util.List<Object> appliedPreferencesInputs;
@@ -2641,6 +2643,7 @@ public final class MSIMEInputService extends InputMethodService {
         wubiMixedPinyin = false;
         wubiProfile = KeyboardScheme.WUBI_86;
         preferencesSnapshot = null;
+        liveTouchLayoutRecorded = false;
         appliedPreferencesResponse = null;
         appliedPreferencesInputs = null;
         schemeSaving = false;
@@ -2790,12 +2793,18 @@ public final class MSIMEInputService extends InputMethodService {
             options.put("phrase_preedit", true);
             // 没读到实时偏好时（读取失败、建会话的回退路径、没有偏好目录），选项里的偏好是出厂默认的全拼 26 键副本，九键用户的键盘会先跳回 26 键（#10389）。按上次确认的键面把副本换成九键：引擎从九键网格起来，键面照旧只按引擎视图画，画的九键和引擎一致，网格键能打字。实时偏好随后到达时照常换成用户的真实设置。
             JSONObject startupPreferences = livePreferences == null ? options.optJSONObject("preferences") : null;
+            boolean hintedPreferences = false;
             if (startupPreferences != null) {
                 String copyLayout = InputViewValuePolicy.textOr(startupPreferences, "touch_keyboard_layout", "twenty_six_key");
                 String startupLayout = TouchLayoutHintPolicy.startupTouchKeyboardLayout(touchLayoutHint(),
                     InputViewValuePolicy.textOr(startupPreferences, "scheme", "quanpin"), copyLayout);
-                if (!startupLayout.equals(copyLayout)) startupPreferences.put("touch_keyboard_layout", startupLayout);
+                if (!startupLayout.equals(copyLayout)) {
+                    startupPreferences.put("touch_keyboard_layout", startupLayout);
+                    hintedPreferences = true;
+                }
             }
+            // 首帧诊断（#10389）：会话到达之前键行已经按这个布局画着，切输入法时用户先看到的就是它。要在 create 和 focus 之前取，focus 可能已经按会话重画键区。窗口没显示时（会话在 onStartInput 里先于窗口建好）键行还是上一个输入框留下的，用户没看到过，不记：首帧就是会话建好后的布局。
+            int firstDrawnLayout = imeWindowVisible ? imeLetterRows.drawnTouchLayout() : -1;
             // 建会话在主线程上，这段时间里点按都要排队（#10086），单独记下它的耗时，与整段等待分开看。
             long createStartedAt = SystemClock.uptimeMillis();
             String created = NativeClient.create(options.toString());
@@ -2841,6 +2850,10 @@ public final class MSIMEInputService extends InputMethodService {
                 letterCase.reset();
                 imeLetterRows.rebuildKeyRows();
             }
+            // 首帧诊断（#10389）：建会话的偏好从哪来，会话到达前画的布局和会话给出的布局。两个布局不同，说明用户先看到了另一块键盘。
+            imeDebugOverlay.recordEvent(TouchLayoutDiagnostics.sessionPreferences(livePreferences != null, hintedPreferences));
+            recordTouchLayout(TouchLayoutDiagnostics.Stage.FIRST_DRAWN, firstDrawnLayout);
+            recordTouchLayout(TouchLayoutDiagnostics.Stage.CREATED, displayedTouchLayout(view));
             refreshEnglishSuggestions();
             String directory = InputViewValuePolicy.textOr(options, "preferences_directory", "");
             boolean hasPreferencesDirectory = !directory.isEmpty() && new File(directory).isAbsolute();
@@ -2860,6 +2873,7 @@ public final class MSIMEInputService extends InputMethodService {
             // 先清掉「准备中」再画，否则这次 render 还会把过期的模式标签留在读音行上。
             message = "";
             render();
+            if (liveApplied) recordLiveTouchLayout();
             recordEngineSessionTiming(createMillis, SystemClock.uptimeMillis() - startedAt);
             // 会话在建时点下的皮肤、输入方式或要轮换语言的「中」键，此刻会话和（多数时候）偏好都有了；偏好还没读到时由 reloadPreferences 第一次读到后再执行。排到这次建会话之后再做：打开面板出的错不能落进下面的 catch 把刚建好的会话停掉。
             main.post(this::runDeferredToolbarTaps);
@@ -3660,6 +3674,21 @@ public final class MSIMEInputService extends InputMethodService {
                 || !previousView.equals(view == null ? "" : view.toString())) render();
         // 建会话前没读到实时偏好时，会话在建时推迟的点按等到这里第一次有偏好再执行（#10086）。
         if (!previousPreferencesReady && preferencesSnapshot != null) runDeferredToolbarTaps();
+        // 首帧诊断（#10389）：建会话时没应用上实时偏好的会话，在这里第一次有偏好时记下随后画的布局；与建会话时记的布局不同，就是用户看到的那一下跳变。键盘里的保存或触控板可能先把快照换上，所以不看这次重读前有没有快照，只看这个会话记过没有。
+        if (preferencesSnapshot != null) recordLiveTouchLayout();
+    }
+
+    /** 首帧诊断（#10389）：某个时机画的触屏布局写进本机输入事件；不认识的布局不记。 */
+    private void recordTouchLayout(TouchLayoutDiagnostics.Stage stage, int layout) {
+        DiagnosticEventKind kind = TouchLayoutDiagnostics.layout(stage, layout);
+        if (kind != null) imeDebugOverlay.recordEvent(kind);
+    }
+
+    /** 首帧诊断（#10389）：这个会话应用上实时偏好之后画的布局，每个会话只记第一次；{@link #stopSessionState} 清掉标记。 */
+    private void recordLiveTouchLayout() {
+        if (liveTouchLayoutRecorded) return;
+        liveTouchLayoutRecorded = true;
+        recordTouchLayout(TouchLayoutDiagnostics.Stage.LIVE, displayedTouchLayout(view));
     }
 
     /**
