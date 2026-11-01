@@ -142,7 +142,7 @@ def check_input_method_supplementary_tables() -> None:
     check(loop is not None, "package-release.sh has no input method supplementary table staging")
     if loop is None:
         return
-    # 执行真实打包循环，只用文件复制代替 macOS 的 ditto；三张表必须跟随独立输入法安装。
+    # 执行真实打包循环，只用文件复制代替 macOS 的 ditto；四张表必须跟随独立输入法安装。
     probe = """set -euo pipefail
 repo_root=$1
 staged_bundle=$2
@@ -150,6 +150,7 @@ ditto() { cp -R "$1" "$2"; }
 """ + loop.group()
     tables = {
         "pronunciations": ("en-phonetic.db", "pronunciations-NOTICE.txt"),
+        "target-pronunciations": ("fr-phonetic.db", "ko-phonetic.db", "target-pronunciations-NOTICE.txt"),
         "character-glosses": ("zh-en.db", "character-glosses-NOTICE.txt"),
         "word-glosses": ("zh-en.db", "word-glosses-NOTICE.txt"),
     }

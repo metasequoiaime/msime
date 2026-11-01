@@ -46,8 +46,8 @@ public final class ChineseHelpcodeOffDeviceSmoke extends DeviceSmoke {
             long time = SystemClock.uptimeMillis();
             KeyEvent letter = new KeyEvent(time, time, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_O,
                 0, KeyEvent.META_SHIFT_ON | KeyEvent.META_SHIFT_LEFT_ON);
-            sendKeySync(letter);
-            sendKeySync(KeyEvent.changeAction(letter, KeyEvent.ACTION_UP));
+            injectKeyboardEvent(letter);
+            injectKeyboardEvent(KeyEvent.changeAction(letter, KeyEvent.ACTION_UP));
             // 引擎在拼音组字中接收大写字母（#7146），O 以大写并入组字、不上屏；引擎一旦拒收而宿主不处理，O 就会丢，输入框停在 nihao。
             await(field("msime-test-plain").and(node -> equalsText("nihaoO", node.getText())));
             await(key("o"));

@@ -78,6 +78,49 @@ enum KeyboardVoicePanelPolicy {
 
   static func settled(shown: Float, target: Float) -> Bool { abs(clampedLevel(target) - shown) < settleEpsilon }
 
+  // ---- 水杉娘指示区（#10313）----
+
+  /// 点按开始（功能菜单「语音输入」磁贴、读屏操作等 `held: false` 的入口）的会话把圆球换成水杉娘与耳边红线；按住空格说话保留圆球和光晕。Android 工具栏入口与 HarmonyOS 非按住的会话按同一条规则。
+  static func showsMascot(held: Bool) -> Bool { !held }
+
+  /// 人物、耳部和红线画在 320×250 的视口里，数值与 Android 的 `VoiceMascotDrawing` 相同。
+  static let mascotViewport = CGSize(width: 320, height: 250)
+  static let mascotCharacter = CGRect(x: 20, y: 12, width: 228, height: 228)
+  static let mascotEarCenter = CGPoint(x: 218, y: 111)
+  /// 红线从水平向右往上下各张开这么多度。
+  static let mascotArcSweepDegrees: CGFloat = 48
+  static let mascotEarLineWidth: CGFloat = 2.5
+
+  /// 一道红线：半径和线宽是视口单位，`opacity` 是 0…1。
+  struct MascotArc: Equatable {
+    let radius: CGFloat
+    let opacity: CGFloat
+    let lineWidth: CGFloat
+  }
+
+  /// 按显示电平给出要画的红线，由内向外：电平不到 `settleEpsilon` 时一道也不画（不沿用圆球的 `idleHalo`，安静时耳边没有线），第 i 道在电平达到 0.3 × i 时出现，半径 33 + 15i + 12 × 电平，不透明度 (90 + 165 × 电平) / 255，线宽 3 + 2 × 电平。
+  static func mascotArcs(level: Float) -> [MascotArc] {
+    let value = CGFloat(clampedLevel(level))
+    guard value >= CGFloat(settleEpsilon) else { return [] }
+    return (0..<3).compactMap { index in
+      guard value >= 0.3 * CGFloat(index) else { return nil }
+      return MascotArc(radius: 33 + 15 * CGFloat(index) + 12 * value, opacity: (90 + 165 * value) / 255,
+                       lineWidth: 3 + 2 * value)
+    }
+  }
+
+  /// 人物指示区的宽度：高度仍是 `Plan.indicatorSide`（圆球的 1.5 倍），宽度按视口比例放宽，不超过面板宽度。
+  static func mascotWidth(side: CGFloat, available: CGFloat) -> CGFloat {
+    max(0, min(available, side * mascotViewport.width / mascotViewport.height))
+  }
+
+  /// 把视口等比缩放后居中放进 `size` 的变换。
+  static func mascotTransform(in size: CGSize) -> CGAffineTransform {
+    let scale = max(0, min(size.width / mascotViewport.width, size.height / mascotViewport.height))
+    return CGAffineTransform(translationX: (size.width - mascotViewport.width * scale) / 2,
+                             y: (size.height - mascotViewport.height * scale) / 2).scaledBy(x: scale, y: scale)
+  }
+
   /// 两圈光晕的半径：外圈铺满外扩，内圈只到一半；电平为 0 时仍露出 `idleHalo`。
   static func haloRadii(orb: CGFloat, halo: CGFloat, level: Float) -> (outer: CGFloat, inner: CGFloat) {
     let spread = idleHalo + (1 - idleHalo) * CGFloat(clampedLevel(level))
@@ -149,7 +192,7 @@ final class KeyboardVoicePanelView: UIView {
   private(set) var plan: KeyboardVoicePanelPolicy.Plan?
 
   init(dictationHeld held: Bool, skin: KeyboardTheme) {
-    orb = KeyboardVoiceOrbButton(skin: skin)
+    orb = KeyboardVoiceOrbButton(skin: skin, mascot: KeyboardVoicePanelPolicy.showsMascot(held: held))
     self.held = held
     idleCaption = held ? Self.heldCaption : Self.tappedCaption
     actions = UIStackView(arrangedSubviews: [finishButton, cancelButton])
@@ -211,6 +254,7 @@ final class KeyboardVoicePanelView: UIView {
     isCancelling = false
     isRecognizing = true
     orb.isCancelling = false
+    orb.isRecognizing = true
     orb.setLevel(0)
     finishButton.isEnabled = false
     partial = text
@@ -264,7 +308,10 @@ final class KeyboardVoicePanelView: UIView {
     self.plan = plan
     refreshText()
     let side = plan.indicatorSide
-    orb.frame = CGRect(x: bounds.midX - side / 2, y: plan.indicatorCenterY - side / 2, width: side, height: side)
+    // 人物模式的指示区同样高，宽度按视口比例放宽；素材还没到时圆球画在这个方框的中间。
+    let indicatorWidth = orb.showsMascot ? KeyboardVoicePanelPolicy.mascotWidth(side: side, available: bounds.width) : side
+    orb.frame = CGRect(x: bounds.midX - indicatorWidth / 2, y: plan.indicatorCenterY - side / 2,
+                       width: indicatorWidth, height: side)
     orb.setGeometry(orb: plan.orb, halo: plan.halo)
     let width = labelWidth
     let used = min(plan.titleLines, Self.lineCount(statusLabel.text ?? "", font: titleFont, width: width))
@@ -326,11 +373,20 @@ final class KeyboardVoicePanelView: UIView {
 }
 
 /// 语音面板的圆球：强调色的圆，麦克风用在它上面看得清的颜色，后面是随麦克风电平张缩的两圈光晕。按钮本身就是指示区，光晕最大时也不出它的边界。它没有 configuration，所以键盘套皮肤时不会碰它。
+///
+/// `mascot` 为真（点按开始的会话）时，素材解码出来以后改画水杉娘、放大的耳部和随电平出现的三道红线，与 Android 的 `VoiceMascotDrawing` 同一套几何；素材还没到或读不到时仍画圆球。人物是装饰，不进读屏。
 final class KeyboardVoiceOrbButton: UIButton {
   private let outerHalo = CAShapeLayer()
   private let innerHalo = CAShapeLayer()
   private let circleLayer = CAShapeLayer()
   private let micLayer = CAShapeLayer()
+  private let mascotLayer = CALayer()
+  private let earLayer = CAShapeLayer()
+  private let earInnerLayer = CAShapeLayer()
+  private let arcLayers: [CAShapeLayer] = (0..<3).map { _ in CAShapeLayer() }
+  /// 这个会话是否用人物指示区，创建后不变。
+  let showsMascot: Bool
+  private(set) var mascotImage: UIImage?
   private var skin: KeyboardTheme
   private(set) var orbSide = KeyboardVoicePanelPolicy.orbMax
   private(set) var haloSpread = KeyboardVoicePanelPolicy.orbMax * KeyboardVoicePanelPolicy.haloRatio
@@ -340,8 +396,9 @@ final class KeyboardVoiceOrbButton: UIButton {
   private var displayLink: CADisplayLink?
   private var lastFrame: CFTimeInterval?
 
-  init(skin: KeyboardTheme) {
+  init(skin: KeyboardTheme, mascot: Bool = false) {
     self.skin = skin
+    showsMascot = mascot
     super.init(frame: .zero)
     backgroundColor = .clear
     accessibilityTraits = .button
@@ -351,6 +408,21 @@ final class KeyboardVoiceOrbButton: UIButton {
     micLayer.fillColor = nil
     micLayer.lineCap = .round
     micLayer.lineJoin = .round
+    if mascot {
+      for sublayer in [mascotLayer, earLayer, earInnerLayer] + arcLayers { layer.addSublayer(sublayer) }
+      mascotLayer.contentsGravity = .resizeAspect
+      // 耳部与红线的颜色和 Android 的 `VoiceMascotDrawing` 一样固定，不随皮肤变。
+      earLayer.fillColor = UIColor(red: 255 / 255, green: 220 / 255, blue: 196 / 255, alpha: 1).cgColor
+      earLayer.strokeColor = Self.earStroke
+      earInnerLayer.fillColor = nil
+      earInnerLayer.strokeColor = Self.earStroke
+      for shape in [earLayer, earInnerLayer] + arcLayers { shape.lineCap = .round }
+      for arc in arcLayers {
+        arc.fillColor = nil
+        arc.strokeColor = UIColor(red: 211 / 255, green: 47 / 255, blue: 47 / 255, alpha: 1).cgColor
+      }
+      updateMascotVisibility()
+    }
     registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (orb: KeyboardVoiceOrbButton, _: UITraitCollection) in
       orb.applyColors()
     }
@@ -370,6 +442,30 @@ final class KeyboardVoiceOrbButton: UIButton {
   /// 上滑到取消区时圆球换成次要色，和 Android 一样。
   var isCancelling = false {
     didSet { if isCancelling != oldValue { applyColors() } }
+  }
+
+  /// 已结束录音、在识别或润色：人物的红线立即收起，之后的电平也不再画；圆球的光晕照旧按平滑回落。
+  var isRecognizing = false {
+    didSet { if isRecognizing != oldValue { drawHalo() } }
+  }
+
+  /// 此刻画的是人物而不是圆球。
+  var isShowingMascot: Bool { showsMascot && mascotImage != nil }
+
+  /// 此刻画出的红线道数，供测试检查。
+  var visibleMascotArcs: Int { arcLayers.filter { !$0.isHidden && $0.path != nil }.count }
+
+  /// 人物在按钮坐标里占的方框。
+  var mascotFrame: CGRect { mascotLayer.frame }
+
+  /// 解码好的人物素材；`nil` 时退回圆球。
+  func setMascot(_ image: UIImage?) {
+    guard showsMascot else { return }
+    mascotImage = image
+    mascotLayer.contents = image?.cgImage
+    mascotLayer.contentsScale = image?.scale ?? 1
+    updateMascotVisibility()
+    setNeedsLayout()
   }
 
   func apply(skin: KeyboardTheme) {
@@ -399,6 +495,7 @@ final class KeyboardVoiceOrbButton: UIButton {
     circleLayer.path = UIBezierPath(ovalIn: circle(radius: orbSide / 2)).cgPath
     micLayer.path = KeyboardIcon.mic.path(in: CGRect(x: bounds.midX - mic / 2, y: bounds.midY - mic / 2, width: mic, height: mic)).cgPath
     micLayer.lineWidth = KeyboardVoicePanelView.micLineWidth * mic / KeyboardIcon.viewBox
+    if showsMascot { layoutMascot() }
     drawHalo()
     CATransaction.commit()
   }
@@ -406,6 +503,75 @@ final class KeyboardVoiceOrbButton: UIButton {
   override func didMoveToWindow() {
     super.didMoveToWindow()
     updateDisplayLink()
+    if showsMascot, mascotImage == nil, let window {
+      // 回调时按钮可能已经随面板关掉；弱引用到的只会是发起解码的这一个，不会把素材交给别的面板。
+      KeyboardVoiceMascot.load(scale: window.traitCollection.displayScale) { [weak self] image in
+        guard let image else { return }
+        self?.setMascot(image)
+      }
+    }
+  }
+
+  private static let earStroke = UIColor(red: 157 / 255, green: 92 / 255, blue: 77 / 255, alpha: 1).cgColor
+
+  /// 人物和耳部跟着按钮大小摆到视口里；线宽是视口单位，跟着同一个缩放。
+  private func layoutMascot() {
+    var transform = KeyboardVoicePanelPolicy.mascotTransform(in: bounds.size)
+    let scale = transform.a
+    for sublayer in [mascotLayer, earLayer, earInnerLayer] + arcLayers as [CALayer] { sublayer.frame = bounds }
+    mascotLayer.frame = KeyboardVoicePanelPolicy.mascotCharacter.applying(transform)
+    earLayer.path = Self.earOutline.copy(using: &transform)
+    earInnerLayer.path = Self.earInner.copy(using: &transform)
+    earLayer.lineWidth = KeyboardVoicePanelPolicy.mascotEarLineWidth * scale
+    earInnerLayer.lineWidth = KeyboardVoicePanelPolicy.mascotEarLineWidth * scale
+  }
+
+  /// 在原素材右耳的位置画放大的卡通耳部，路径与 Android 的 `VoiceMascotDrawing` 相同。
+  private static let earOutline: CGPath = {
+    let path = CGMutablePath()
+    path.move(to: CGPoint(x: 187, y: 109))
+    path.addCurve(to: CGPoint(x: 234, y: 109), control1: CGPoint(x: 189, y: 76), control2: CGPoint(x: 235, y: 77))
+    path.addCurve(to: CGPoint(x: 213, y: 145), control1: CGPoint(x: 235, y: 127), control2: CGPoint(x: 215, y: 132))
+    path.addCurve(to: CGPoint(x: 190, y: 130), control1: CGPoint(x: 207, y: 158), control2: CGPoint(x: 186, y: 145))
+    path.closeSubpath()
+    return path
+  }()
+
+  private static let earInner: CGPath = {
+    let path = CGMutablePath()
+    path.move(to: CGPoint(x: 199, y: 111))
+    path.addCurve(to: CGPoint(x: 222, y: 109), control1: CGPoint(x: 198, y: 90), control2: CGPoint(x: 224, y: 91))
+    path.addCurve(to: CGPoint(x: 206, y: 131), control1: CGPoint(x: 222, y: 118), control2: CGPoint(x: 205, y: 117))
+    return path
+  }()
+
+  private func updateMascotVisibility() {
+    let mascot = isShowingMascot
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    for shape in [outerHalo, innerHalo, circleLayer, micLayer] { shape.isHidden = mascot }
+    for sublayer in [mascotLayer, earLayer, earInnerLayer] + arcLayers as [CALayer] { sublayer.isHidden = !mascot }
+    CATransaction.commit()
+    drawHalo()
+  }
+
+  /// 按当前显示电平画三道红线；识别阶段一律按 0 画。
+  private func drawMascotArcs() {
+    let arcs = KeyboardVoicePanelPolicy.mascotArcs(level: isRecognizing ? 0 : shownLevel)
+    let transform = KeyboardVoicePanelPolicy.mascotTransform(in: bounds.size)
+    let center = KeyboardVoicePanelPolicy.mascotEarCenter.applying(transform)
+    let sweep = KeyboardVoicePanelPolicy.mascotArcSweepDegrees * .pi / 180
+    for (index, shape) in arcLayers.enumerated() {
+      guard index < arcs.count else {
+        shape.path = nil
+        continue
+      }
+      let arc = arcs[index]
+      shape.path = UIBezierPath(arcCenter: center, radius: arc.radius * transform.a, startAngle: -sweep,
+                                endAngle: sweep, clockwise: true).cgPath
+      shape.lineWidth = arc.lineWidth * transform.a
+      shape.opacity = Float(arc.opacity)
+    }
   }
 
   private func circle(radius: CGFloat) -> CGRect {
@@ -418,6 +584,7 @@ final class KeyboardVoiceOrbButton: UIButton {
     CATransaction.setDisableActions(true)
     outerHalo.path = UIBezierPath(ovalIn: circle(radius: radii.outer)).cgPath
     innerHalo.path = UIBezierPath(ovalIn: circle(radius: radii.inner)).cgPath
+    if isShowingMascot { drawMascotArcs() }
     CATransaction.commit()
   }
 
@@ -465,5 +632,43 @@ final class KeyboardVoiceOrbButton: UIButton {
     circleLayer.fillColor = accent
     micLayer.strokeColor = skin.onAccent.resolvedColor(with: traits).cgColor
     CATransaction.commit()
+  }
+}
+
+/// 点按聆听面板上的水杉娘：随键盘打包的 `stickers/shuishan/01.webp`，与 Android 工具栏面板用的是同一张。按指示区最大时人物的边长下采样，在后台解码一次，进程内缓存，之后的面板直接用。
+enum KeyboardVoiceMascot {
+  static let file = "01.webp"
+  /// 指示区最高是圆球上限的 1.5 倍，人物占视口高 250 里的 228。
+  static var maximumSide: CGFloat {
+    KeyboardVoicePanelPolicy.orbMax * (1 + 2 * KeyboardVoicePanelPolicy.haloRatio)
+      * KeyboardVoicePanelPolicy.mascotCharacter.height / KeyboardVoicePanelPolicy.mascotViewport.height
+  }
+
+  private static var cached: (scale: CGFloat, image: UIImage)?
+  private static let queue = DispatchQueue(label: "app.msime.keyboard.voice-mascot", qos: .userInitiated)
+
+  /// 表情包里的那一张；清单读不到或没有这个文件时为空，面板就一直画圆球。
+  static func sticker(in stickers: [KeyboardStickerCatalog.Sticker]) -> KeyboardStickerCatalog.Sticker? {
+    stickers.first { $0.url.lastPathComponent == file }
+  }
+
+  /// 在主线程回调；读不到或解码失败时给 `nil`，不重试也不下载。
+  static func load(scale: CGFloat, completion: @escaping (UIImage?) -> Void) {
+    if let cached, cached.scale == scale {
+      completion(cached.image)
+      return
+    }
+    guard let sticker = sticker(in: KeyboardStickerCatalog.bundled) else {
+      completion(nil)
+      return
+    }
+    let side = maximumSide
+    queue.async {
+      let image = KeyboardStickerCatalog.thumbnail(sticker, side: side, scale: scale)
+      DispatchQueue.main.async {
+        if let image { cached = (scale, image) }
+        completion(image)
+      }
+    }
   }
 }

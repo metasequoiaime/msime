@@ -8,7 +8,7 @@
 #include <vector>
 
 namespace msime::windows {
-// 候选释义每一行后面画的读音，只用于显示，从不上屏。规则移植自 macOS 的 platforms/macos/src/candidate/CandidatePronunciation.h：释义每种目标语言一行，每行按它的第一个词读；英文走共享的离线读音表（msime_client_pronunciation_request），日文行读罗马字，macOS 的来自系统分词器，Windows 的来自微软日语输入法的 IFELanguage（JapaneseReader.cpp），没有它时只读纯假名的行。
+// 候选释义每一行后面画的读音，只用于显示，从不上屏。规则移植自 macOS 的 platforms/macos/src/candidate/CandidatePronunciation.h：释义每种目标语言一行，每行按它的第一个词读；英文、法文、西班牙文、俄文、德文和韩文走共享的离线读音表（msime_client_pronunciation_request，每种语言一张表），日文行读罗马字，macOS 的来自系统分词器，Windows 的来自微软日语输入法的 IFELanguage（JapaneseReader.cpp），没有它时只读纯假名的行。
 
 namespace gloss_reading_detail {
 // 从 `index` 处解出一个 UTF-8 码位并前移；不合法的字节当作 U+FFFD 前移一个字节。
@@ -90,7 +90,12 @@ inline bool gloss_plain_english(std::string_view text) {
   return letter;
 }
 
-// 第 `index` 行释义按哪种语言读："en"、"ja"，或空表示不读。有假名就是日文；拉丁字母只在英文目标那一行才算英文（法文的 chat 也是纯字母，当英文读会教错音）；只有汉字的行只在日文目标那一行才算日文。
+// 共享层除英文外还有读音表的目标语言（target-pronunciations/<语言>-phonetic.db）；日文由本机读罗马字。
+inline bool gloss_shared_reading_target(std::string_view target) {
+  return target == "fr" || target == "es" || target == "ru" || target == "de" || target == "ko";
+}
+
+// 第 `index` 行释义按哪种语言读："en"、"ja"、"fr"、"es"、"ru"、"de"、"ko"，或空表示不读。有假名就是日文；拉丁字母只在英文目标那一行才算英文（法文的 chat 也是纯字母，当英文读会教错音）；只有汉字的行只在日文目标那一行才算日文；法、西、俄、德、韩目标那一行就是那种语言，它的表里只有那种语言的词，不是的行查不到，不标读音。
 inline std::string gloss_line_language(std::string_view line, size_t index,
                                        const std::vector<std::string> &targets) {
   const auto term = gloss_first_term(line);
@@ -101,34 +106,37 @@ inline std::string gloss_line_language(std::string_view line, size_t index,
   const std::string target = index < targets.size() ? targets[index] : std::string{};
   if (target == "en")
     return gloss_plain_english(term) ? "en" : std::string{};
+  if (gloss_shared_reading_target(target))
+    return target;
   return target == "ja" ? "ja" : std::string{};
 }
 
-// 一个候选需要共享读音表回答的英文文本：英文候选是它自己（它那一行英文目标的释义是中文），其他候选是它的英文释义行，整行发过去，共享那边取第一个词。
-inline std::vector<std::string> gloss_english_texts(const std::string &candidate_text,
-                                                    const std::vector<std::string> &lines,
-                                                    const std::vector<std::string> &targets) {
-  std::vector<std::string> texts;
+// 一个候选需要共享读音表回答的 (语言, 文本)：英文候选是它自己（英文；它那一行英文目标的释义是中文），其他候选是它的英文、法、西、俄、德、韩释义行，整行发过去，共享那边取第一个词。日文行由本机读，不在里面。
+inline std::vector<std::pair<std::string, std::string>>
+gloss_shared_items(const std::string &candidate_text, const std::vector<std::string> &lines,
+                   const std::vector<std::string> &targets) {
+  std::vector<std::pair<std::string, std::string>> items;
   bool any = false;
   for (const auto &line : lines)
     any = any || !line.empty();
   if (!any)
-    return texts;
+    return items;
   if (gloss_plain_english(candidate_text)) {
-    texts.push_back(candidate_text);
-    return texts;
+    items.emplace_back("en", candidate_text);
+    return items;
   }
   for (size_t index = 0; index < lines.size(); ++index)
-    if (gloss_line_language(lines[index], index, targets) == "en")
-      texts.push_back(lines[index]);
-  return texts;
+    if (auto language = gloss_line_language(lines[index], index, targets);
+        !language.empty() && language != "ja")
+      items.emplace_back(std::move(language), lines[index]);
+  return items;
 }
 
-// 一个候选每行释义的读音，和释义逐行对应；没有一行有读音时返回空。`english` 给出发给共享读音表的文本对应的 "/…/"，查不到返回空串；`japanese` 给出日文行第一个词的罗马字，读不全时返回空串，不给时日文行不标读音。
+// 一个候选每行释义的读音，和释义逐行对应；没有一行有读音时返回空。`shared` 给出发给共享读音表的 (语言, 文本) 的回答，查不到返回空串；`japanese` 给出日文行第一个词的罗马字，读不全时返回空串，不给时日文行不标读音。
 inline std::vector<std::string>
 gloss_pronunciation_lines(const std::string &candidate_text, const std::vector<std::string> &lines,
                           const std::vector<std::string> &targets,
-                          const std::function<std::string(const std::string &)> &english,
+                          const std::function<std::string(const std::string &, const std::string &)> &shared,
                           const std::function<std::string(const std::string &)> &japanese = {}) {
   std::vector<std::string> readings;
   readings.reserve(lines.size());
@@ -139,11 +147,12 @@ gloss_pronunciation_lines(const std::string &candidate_text, const std::vector<s
     std::string reading;
     const bool english_line = index < targets.size() ? targets[index] == "en" : index == 0;
     if (english_candidate && !line.empty() && english_line)
-      reading = english(candidate_text);
-    else if (const auto language = gloss_line_language(line, index, targets); language == "en")
-      reading = english(line);
-    else if (language == "ja" && japanese)
-      reading = japanese(gloss_first_term(line));
+      reading = shared("en", candidate_text);
+    else if (const auto language = gloss_line_language(line, index, targets); language == "ja") {
+      if (japanese)
+        reading = japanese(gloss_first_term(line));
+    } else if (!language.empty())
+      reading = shared(language, line);
     any = any || !reading.empty();
     readings.push_back(std::move(reading));
   }

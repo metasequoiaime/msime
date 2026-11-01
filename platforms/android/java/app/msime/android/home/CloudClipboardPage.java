@@ -53,7 +53,7 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
     private static final String KEY_CHANGE = "云端现有的记录会全部删除，其他设备都要在这台设备上重新允许后才能继续同步。";
     private static final String RELAY_DESCRIPTION = "在你的设备之间经自建中继同步，端到端加密，中继只保存密文，关闭即删除";
     private static final String WEBDAV_DESCRIPTION = "在你的设备之间经 WebDAV 网盘同步，端到端加密，网盘只保存密文，关闭即删除";
-    /** WebDAV 网盘的说明，与共享设置页的同一段相同；填写框和设置好之后的卡片脚注里都写。 */
+    /** WebDAV 网盘的说明，与共享设置页的同一段相同；填写框里写，设置好之后收进卡片组标题的「?」。 */
     private static final String WEBDAV_NOTE = "内容在本机加密，网盘只保存密文；打开面板或复制时同步，没有实时推送；坚果云免费账号每 30 分钟 600 次请求与其他应用共用；建议使用专用账号或专用应用密码，移除设备后更换应用密码；已删除的密文可能留在网盘回收站。";
     private static final List<String> RETENTION_LABELS = List.of("1 天", "7 天", "30 天", "一直");
     private record Loaded(CloudClipboardApi api, CloudClipboardApi.Overview overview) {}
@@ -193,9 +193,8 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
         CloudClipboardApi.Overview current = overview;
         CloudClipboardApi.Page page = current == null ? null : current.page();
         GroupCard settings = GroupCard.add(sectionColumn(target, "设置"), null).withDividers(Ui.ROW_PADDING_H);
-        GroupCard.Row toggle = settings.toggle("云剪贴板",
-            viaWebDav() ? WEBDAV_DESCRIPTION : viaRelay() ? RELAY_DESCRIPTION : DESCRIPTION,
-            page != null && page.enabled(), this::setEnabled);
+        GroupCard.Row toggle = settings.toggle("云剪贴板", null,
+            page != null && page.enabled(), this::setEnabled).help(viaWebDav() ? WEBDAV_DESCRIPTION : viaRelay() ? RELAY_DESCRIPTION : DESCRIPTION);
         toggle.setEnabled(page != null);
 
         LinearLayout retention = LayoutPolicy.row(context);
@@ -234,8 +233,10 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
         Relay current = relay;
         if (current == null) return;
         GroupCard card = GroupCard.add(sectionColumn(target, "设置"), null).withDividers(Ui.ROW_PADDING_H);
-        card.nav("同步方式", "自建中继和 WebDAV 网盘都不需要登录水杉账号：内容仍在本机加密，中继或网盘只保存密文，新设备照样要在已有设备上核对后允许",
-            modeLabel(current.mode()), () -> pickSyncMode(current));
+        // 这张卡片没有组标题，选了 WebDAV 时网盘的注意事项也并进「同步方式」这一行的「?」。
+        card.nav("同步方式", null,
+            modeLabel(current.mode()), () -> pickSyncMode(current)).help("自建中继和 WebDAV 网盘都不需要登录水杉账号：内容仍在本机加密，中继或网盘只保存密文，新设备照样要在已有设备上核对后允许"
+                + (current.mode() == Mode.WEBDAV ? "\n\n" + WEBDAV_NOTE : ""));
         switch (current.mode()) {
             case RELAY -> {
                 card.nav("中继地址", null, shorten(current.url()), () -> editRelay(current));
@@ -246,7 +247,7 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
                 card.nav("服务器地址", null, shorten(current.url()), () -> editWebDav(current));
                 card.nav("账号", null, shorten(current.username()), () -> editWebDav(current));
                 card.nav("应用密码", null, current.secretSaved() ? "已填写" : "未填写", () -> editWebDav(current));
-                card.footer("云剪贴板现在经 WebDAV 网盘 " + current.url() + " 同步，网盘出错时也不会改用水杉账号。换了地址或账号后，本机要重新登记，并在其他设备上重新允许；换应用密码不用。\n" + WEBDAV_NOTE);
+                card.footer("云剪贴板现在经 WebDAV 网盘 " + current.url() + " 同步，网盘出错时也不会改用水杉账号。换了地址或账号后，本机要重新登记，并在其他设备上重新允许；换应用密码不用。");
             }
             case ACCOUNT -> { }
         }
@@ -485,7 +486,7 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
         code.addView(digits, digitsParams);
         card.addView(code);
         card.button("重置云剪贴板", "手边没有别的设备时用", "重置", this::confirmReset);
-        card.footer("允许之后这里会显示同步的内容。");
+        card.help("允许之后这里会显示同步的内容。");
     }
 
     /** 等本机允许的其他设备：名称、登记时间、核对码，行尾「拒绝」「允许」。 */

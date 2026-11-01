@@ -387,6 +387,12 @@ impl ShuangpinEngine {
                 );
             }
         }
+        if request.raw_input_with_helpcode_marks.is_empty()
+            && active_helpcode_query(request, self.profile).is_none()
+        {
+            self.dictionary
+                .merge_short_touch_words(&mut candidates, request);
+        }
         settle_confident_correction(&mut candidates, request.raw_input.len());
         candidates
     }

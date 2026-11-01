@@ -20,7 +20,7 @@ const MACOS_NATIVE_FORMAT: &str = "app.msime.client.settings";
 /// 只属于本机、不随设置文件走的偏好：语音、AI 辅助和翻译服务的整组配置（里面有服务密钥，地址、模型和密钥要成对才有意义，本地语音模型的路径也只在这台电脑上成立）、诊断日志开关、匿名使用统计的同意与否、剪贴板历史开关、英文在线候选授权，以及云剪贴板中继、云剪贴板 WebDAV 网盘、词库同步的 WebDAV 网盘、云候选的整组配置（地址、请求头和模板可能含凭据，用户保存的设置文件里不该出现它）、网络代理设置（代理地址常写内网主机和端口，只对这台机器的网络成立）和更新通道（加入测试版或每日构建是对这一台电脑的选择，换电脑导入设置文件不该顺带把新电脑换到预发布）。导出时不写，导入时保留本机的值。
 ///
 /// 剪贴板历史开关跟着本机走有两层原因：记不记录这台电脑复制过的内容是本机的隐私选择；它默认关闭，大多数文件里都是关的，如果跟着文件走，导入时会把本机开着的历史关掉，而关掉就会清空已存的历史，这些记录找不回来。
-pub const LOCAL_SECTIONS: [&str; 16] = [
+pub const LOCAL_SECTIONS: [&str; 17] = [
     "voice_input",
     "ai_assistant",
     "custom_translation",
@@ -28,6 +28,7 @@ pub const LOCAL_SECTIONS: [&str; 16] = [
     "niutrans",
     "diagnostic_log",
     "usage_reporting",
+    "usage_reporting_consent",
     "clipboard_history",
     "clipboard_history_limit",
     "cloud_clipboard_relay",
@@ -277,6 +278,24 @@ mod tests {
             import_document(document.to_string().as_bytes(), &current, Edition::full()).unwrap();
         assert_eq!(imported.usage_reporting, current.usage_reporting);
         assert_eq!(imported.ai_assistant, current.ai_assistant);
+    }
+
+    #[test]
+    fn reporting_consent_history_cannot_leave_or_enter_via_a_settings_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = crate::preferences::PreferencesStore::new(directory.path());
+        let consent = store.usage_reporting_consent().unwrap();
+        let current = store.load().unwrap().preferences;
+        let text = export_document(&current).unwrap();
+        assert!(!text.contains("usage_reporting_consent"));
+        assert!(!text.contains(&consent.unwrap().epoch.to_string()));
+        let mut document: Value = serde_json::from_str(&text).unwrap();
+        document["preferences"]["usage_reporting_consent"] = serde_json::json!({
+            "epoch": "11111111-1111-4111-8111-111111111111", "since_unix_ms": 1
+        });
+        let imported =
+            import_document(document.to_string().as_bytes(), &current, Edition::full()).unwrap();
+        assert_eq!(imported.usage_reporting_consent, consent);
     }
 
     /// 更新通道只属于本机：导出不写，文件里手写的通道被忽略，导入后本机的通道不变。

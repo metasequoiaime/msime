@@ -15,6 +15,7 @@ public final class ClipboardAuthenticationActivity extends FragmentActivity {
     public static final String EXTRA_RESULT = "app.msime.android.clipboard.AUTH_RESULT";
     public static final String EXTRA_SUBTITLE = "app.msime.android.clipboard.AUTH_SUBTITLE";
     public static final int RESULT_AUTHENTICATED = 2001;
+    public static final int RESULT_UNAVAILABLE = 2002;
     private static final int AUTHENTICATORS = SystemAuthenticators.allowed();
     @Nullable private ResultReceiver result;
     private boolean sent;
@@ -34,7 +35,7 @@ public final class ClipboardAuthenticationActivity extends FragmentActivity {
         result = getIntent().getParcelableExtra(EXTRA_RESULT);
         if (BiometricManager.from(this).canAuthenticate(AUTHENTICATORS)
                 != BiometricManager.BIOMETRIC_SUCCESS) {
-            finishWith(false);
+            finishWith(RESULT_UNAVAILABLE);
             return;
         }
         BiometricPrompt prompt = new BiometricPrompt(this, ContextCompat.getMainExecutor(this),
@@ -58,10 +59,23 @@ public final class ClipboardAuthenticationActivity extends FragmentActivity {
 
     @Override public void onBackPressed() { finishWith(false); }
 
+    /** 被系统或任务移除直接结束、没走到 finishWith 时也要回一个取消：发起方（输入法服务的忙标记、设置页开关的等待标记）只在收到结果时才复位，收不到就再也发不起认证。配置变更重建不算结束，新实例会接着认证。 */
+    @Override protected void onDestroy() {
+        if (!sent && isFinishing()) {
+            sent = true;
+            if (result != null) result.send(RESULT_CANCELED, null);
+        }
+        super.onDestroy();
+    }
+
     private void finishWith(boolean authenticated) {
+        finishWith(authenticated ? RESULT_AUTHENTICATED : RESULT_CANCELED);
+    }
+
+    private void finishWith(int code) {
         if (sent) return;
         sent = true;
-        if (result != null) result.send(authenticated ? RESULT_AUTHENTICATED : RESULT_CANCELED, null);
+        if (result != null) result.send(code, null);
         finish();
     }
 }
