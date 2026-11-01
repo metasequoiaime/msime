@@ -263,6 +263,13 @@ run_instrumentation() {
 "$adb" -s "$serial" shell ime set "$ime_id" || stop "selecting $ime_id failed"
 confirm_ime || stop "$ime_id did not stay selected"
 "$adb" -s "$serial" shell am force-stop app.msime.android.test
+# 崩溃专项只准备真实产品进程和测试夹具；完整输入套件会覆盖同一批 instrumentation，既浪费设备时间，也会让 UI 套件的已知问题遮住崩溃链路。
+if [[ "$crash_only" == true ]]; then
+  python3 platforms/android/tests/device/telemetry-watch.py "$serial" || stop "Android telemetry watch acceptance failed"
+  python3 platforms/android/tests/device/telemetry-consent.py "$serial" || stop "Android system-exit acceptance failed"
+  python3 platforms/android/tests/device/telemetry-anr.py "$serial" || stop "Android ANR acceptance failed"
+  finish "Dedicated Android AVD: crash, system-exit and ANR reporting acceptance passed"
+fi
 # ---- 验收：失败记下后继续，只有上面 record_failure 列出的情况才停 ----
 check "System input acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.DeviceSmoke
 [[ ${#failures[@]} -eq 0 ]] || stop "the system input path failed, and every later check types through the same keyboard"

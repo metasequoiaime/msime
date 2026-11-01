@@ -101,7 +101,7 @@ def main():
                          for event in crashes()), "actual system exit collection")
         assert read(ledger) == old, "continuous consent changed at restart"
         print("API 35: actual system exit -> queue; continuous consent survived restart", flush=True)
-        first_id = first[0]["id"]
+        first_id = crashes()[0]["id"]
         stop()
         start()
         assert len(crashes()) == 1 and crashes()[0]["id"] == first_id, "system crash duplicated on restart"
