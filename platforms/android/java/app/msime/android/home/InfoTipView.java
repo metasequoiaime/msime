@@ -4,6 +4,7 @@ import android.content.Context;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.InsetDrawable;
 import android.view.Gravity;
+import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
 import android.widget.PopupWindow;
@@ -87,8 +88,11 @@ public final class InfoTipView extends TextView {
         TextView body = ViewPolicy.styledLabel(context, help, Ui.TEXT_ROW_SUBTITLE, 400, ThemeColorPolicy.text(context));
         ViewPolicy.setSymmetricPaddingDp(context, body, 14, 10);
         int margin = DimensionPolicy.pixels(context, 16);
-        body.setMaxWidth(Math.min(DimensionPolicy.pixels(context, BUBBLE_MAX_WIDTH),
-            DimensionPolicy.screenWidthPixels(context) - 2 * margin));
+        int screen = DimensionPolicy.screenWidthPixels(context);
+        int maxWidth = Math.min(DimensionPolicy.pixels(context, BUBBLE_MAX_WIDTH), screen - 2 * margin);
+        body.setMaxWidth(maxWidth);
+        body.measure(View.MeasureSpec.makeMeasureSpec(maxWidth, View.MeasureSpec.AT_MOST),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
         PopupWindow popup = new PopupWindow(body, ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT, true);
         popup.setBackgroundDrawable(DrawablePolicy.outlined(ThemeColorPolicy.card(context),
@@ -98,8 +102,12 @@ public final class InfoTipView extends TextView {
         ViewPolicy.setElevation(popup, DimensionPolicy.pixels(context, 8));
         popup.setOnDismissListener(() -> bubble = null);
         bubble = popup;
-        // 气泡左缘略早于「?」，读起来像从它下面展开；放不下时系统会翻到上方。
-        popup.showAsDropDown(this, DimensionPolicy.pixels(context, 2), -DimensionPolicy.pixels(context, 4));
+        // 气泡从「?」下面展开；右边放不下时整体左移，离屏幕右缘至少留 16dp。下方放不下时系统会翻到上方。
+        int[] anchor = new int[2];
+        getLocationOnScreen(anchor);
+        int left = Math.max(margin, Math.min(anchor[0] + DimensionPolicy.pixels(context, 2),
+            screen - margin - body.getMeasuredWidth()));
+        popup.showAsDropDown(this, left - anchor[0], -DimensionPolicy.pixels(context, 4));
         // 气泡是独立的窗口，「防止截屏」要单独给它加 FLAG_SECURE。
         ScreenCaptureProtection.apply(popup);
     }
