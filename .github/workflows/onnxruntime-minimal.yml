@@ -45,12 +45,19 @@ jobs:
           ARCH_FLAGS: ${{ matrix.extra }}
         run: |
           python -m pip install --quiet flatbuffers
+          # The windows-2025 image moves between Visual Studio releases (it no longer has 2022), so name the generator of the one it has, as release-windows.yml does. vswhere reports the product line as the major version from Visual Studio 2026 on, so take the full generator name from CMake's own list; ONNX Runtime 1.24.4's build.py accepts both 2022 and 2026.
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $major = ([version](& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationVersion)).Major
+          $generator = @(cmake --help | Select-String -Pattern "Visual Studio $major \d{4}" -AllMatches | ForEach-Object { $_.Matches.Value } | Select-Object -Unique)
+          if ($generator.Count -ne 1) { throw "no single CMake generator for Visual Studio $major" }
+          $generator = $generator[0]
+          Write-Output "CMake generator: $generator"
           $config = "$env:GITHUB_WORKSPACE\tools\onnxruntime-minimal\required_operators_and_types.config"
           $build = "$env:RUNNER_TEMP\build"
           $arguments = @('tools\ci_build\build.py', '--build_dir', $build, '--config', 'MinSizeRel', '--update', '--build', '--parallel',
             '--minimal_build', '--disable_ml_ops', '--disable_rtti', '--disable_exceptions', '--skip_tests',
             '--include_ops_by_config', $config, '--enable_reduced_operator_type_support',
-            '--cmake_generator', 'Visual Studio 17 2022',
+            '--cmake_generator', $generator,
             '--cmake_extra_defines', 'CMAKE_POLICY_VERSION_MINIMUM=3.5', 'onnxruntime_BUILD_UNIT_TESTS=OFF')
           if ($env:ARCH_FLAGS) { $arguments += $env:ARCH_FLAGS }
           Push-Location "$env:RUNNER_TEMP\onnxruntime"
