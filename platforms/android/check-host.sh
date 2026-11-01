@@ -1475,9 +1475,9 @@ if [[ "$sidebar_readers" != "platforms/android/java/app/msime/android/settings/K
   echo "Android nine-key sidebar tables must come from touch_nine_key_sidebar_symbols / touch_nine_key_digit_sidebar_symbols: only KeyLayoutStyleMigration reads and deletes the legacy local keys, the keyboard re-renders and the long press opens 按键布局, and 按键布局 lists both rows and saves only that shared table" >&2
   exit 1
 fi
-# 排序面板按住把手拖动排序（#10392、#10396，#10546 合成一份，.agents/notes/implemented/feature/2026-10-31-android-order-sheets-drag.md）：挪动、位次、落点、贴边滚动步长和序号的规则只在 ReorderPolicy 里，由 ReorderPolicySmoke 覆盖；拖动和读屏操作只在控制器 ReorderList 里，行的内容由各面板画。ReorderList 引用 androidx，JVM 冒烟碰不到，这里钉住：各面板都经 ReorderList 排序、不再有上下箭头；「九键左侧符号」编辑页不再自带一份拖动代码或规则，符号牌念「第 N 项，符号：X」；拖动按下把手就拿起、只改 translationY，落点按布局中线算，松手经 ReorderPolicy.moved 改草稿；手指贴近面板上下边缘时滚动外层 NestedScrollView，滚过的距离算进跟手位移；读屏：行念「第 N 项，名称」，把手状态念「第 N 项」，「上移」「下移」挂在把手上，键盘焦点在把手上时 Alt+↑ / Alt+↓ 挪一格；把手的触控区与原来的箭头一样宽 48 dp、高占满整行；落位动画结束后换回行原来的底色。
+# 排序面板按住把手拖动排序（#10392、#10396，#10546 合成一份，.agents/notes/implemented/feature/2026-10-31-android-order-sheets-drag.md）：挪动、位次、落点、贴边滚动步长和序号的规则只在 ReorderPolicy 里，由 ReorderPolicySmoke 覆盖；拖动和读屏操作只在控制器 ReorderList 里，行的内容由各面板画。ReorderList 引用 androidx，JVM 冒烟碰不到，这里钉住：「文本编辑按键顺序」「符号分类顺序」「按钮顺序」都经 ReorderList 排序、不再有上下箭头；「九键左侧符号」编辑页不再自带一份拖动代码或规则，符号牌念「第 N 项，符号：X」；拖动按下把手就拿起、只改 translationY，落点按布局中线算，松手经 ReorderPolicy.moved 改草稿；手指贴近面板上下边缘时滚动外层 NestedScrollView，滚过的距离算进跟手位移；读屏：行念「第 N 项，名称」，把手状态念「第 N 项」，「上移」「下移」挂在把手上，键盘焦点在把手上时 Alt+↑ / Alt+↓ 挪一格；把手的触控区与原来的箭头一样宽 48 dp、高占满整行；落位动画结束后换回行原来的底色。
 reorder_list="$repo_root/platforms/android/java/app/msime/android/home/ReorderList.java"
-for reorder_sheet in TextEditOrderSheet SymbolCategoryOrderSheet; do
+for reorder_sheet in TextEditOrderSheet SymbolCategoryOrderSheet ToolbarOrderSheet; do
   reorder_sheet_file="$repo_root/platforms/android/java/app/msime/android/home/$reorder_sheet.java"
   if ! rg -qF 'rows = new ReorderList<>(' "$reorder_sheet_file" \
     || rg -q 'addArrow|"↑"|"↓"|上下箭头' "$reorder_sheet_file"; then

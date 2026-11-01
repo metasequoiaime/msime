@@ -46,7 +46,9 @@ Status: implemented
 
 `NineKeySidebarSheet` 去掉了自己的拖动字段和方法，行里照样画序号栏、符号牌、把手和删除键。删除、添加、输入和恢复默认都改成拼出新表后 `setItems`，不再依赖 `moved` 返回可变表；空表提示从列表容器里挪到「当前顺序」卡片里、列表的下面，按表是否为空切换可见。统一后这张页有两处用户能感觉到的变化：把手触控区从 wrap 参数的约 43 dp 变成 48 dp 宽、高占满整行；多了实体键盘的 Alt+↑ / Alt+↓，挪动后键盘焦点跟到把手上。
 
-`check-host.sh` 的接线钉子随之改写：`NineKeySidebarSheet` 必须经 `ReorderList` 画行，不得再有 `setOnTouchListener`、读屏操作或 `NineKeySidebarPolicy` 的拖动规则；`NineKeySidebarPolicy` 不得再声明那几个函数；落位后必须换回原来的底色。
+工具栏「按钮顺序」（`ToolbarOrderSheet`）也接上同一个控制器（issue 列为可以顺带做，单独一个 commit）：去掉 ↑ / ↓ 箭头，改成「名称 + 把手」的行，说明文字改成「按住右侧把手拖动调整顺序，已隐藏的按钮会保留位置。点击保存后生效。」，保存中 `setLocked`。这是 Android 本机设置 `AndroidLocalSettings.TOOLBAR_ORDER`，iOS 和鸿蒙没有对应设置项，不涉及三端同改。行首也多了 12 dp 内边距，与另外两张只有名称的面板一致。设备套件里点「下移 撤销」箭头的那一步（`ToolbarHistoryDeviceChecks`）改成执行「撤销」那一行把手上的「下移」读屏操作，找把手和执行操作的写法从 `TextEditRecentClipboardDeviceSmoke` 挪进 `DeviceSmoke` 共用。
+
+`check-host.sh` 的接线钉子随之改写：「按钮顺序」也在不得有箭头的面板名单里；`NineKeySidebarSheet` 必须经 `ReorderList` 画行，不得再有 `setOnTouchListener`、读屏操作或 `NineKeySidebarPolicy` 的拖动规则；`NineKeySidebarPolicy` 不得再声明那几个函数；落位后必须换回原来的底色。
 
 ## Alternatives considered
 
@@ -69,5 +71,5 @@ Status: implemented
 - `platforms/android/check-host.sh`（经 `rbuild` 在 Studio 上跑）：JVM 冒烟（含 `ReorderPolicySmoke`：相邻挪动、跨两行是挪动而不是互换、首尾项、逐格挪动的累加、越界、不可变、上移下移的边界、序号和读屏描述、拖动途中各行位次与松手后的表一致、落点按中线、贴边滚动的步长和首尾停止）和设备套件源码编译通过。
 - Gradle `:app:compileFullDebugJavaWithJavac` 和 `:app:lintFullRelease`（NewApi）在 Studio 上通过。
 - 设备套件 `TextEditRecentClipboardDeviceSmoke` 的排序验收执行「复制」这一行把手上的「下移」读屏操作，保存、取消、重置、重开的断言不变。
-- #10546 合并时：合并前后各跑一遍 `check-host.sh`（经 `rbuild` 在 Studio 上），冒烟个数和输出除了 `NineKeySidebarPolicySmoke` 的汇总一行外完全相同；Gradle 编译和 lint 通过。「九键左侧符号」编辑页的拖动、删除和添加后再拖、空表提示、保存中把手变灰、落位后底色回到水波纹、TalkBack 念法，都还没有在模拟器上看过。
+- #10546 合并时：合并前后各跑一遍 `check-host.sh`（经 `rbuild` 在 Studio 上），冒烟个数和输出除了 `NineKeySidebarPolicySmoke` 的汇总一行外完全相同；Gradle 编译和 lint 通过。「九键左侧符号」编辑页的拖动、删除和添加后再拖、空表提示、保存中把手变灰、落位后底色回到水波纹、TalkBack 念法，以及「按钮顺序」的拖动和设备套件 `ToolbarEditorDeviceSmoke`，都还没有在模拟器上跑过。
 - 没有在模拟器或真机上看过：拖动跟手和让位动画、序号实时变化、面板不跟着滑、贴边自动滚动的速度和跟手、快速拖过多行后保存再重开的顺序、TalkBack 的「上移」「下移」和位次念法、实体键盘的 Alt+↑ / Alt+↓、深色主题下浮起卡片的样子。
