@@ -390,6 +390,7 @@ public final class MSIMEInputService extends InputMethodService {
     Button emojiShortcutButton;
     Button symbolShortcutButton;
     Button voiceShortcutButton;
+    Button randomDigitsShortcutButton;
     Button aiPolishShortcutButton;
     Button replyShortcutButton;
     Button phraseShortcutButton;
@@ -431,6 +432,8 @@ public final class MSIMEInputService extends InputMethodService {
     int clipboardColumns = 1;
     /** 本地设置「撤销时长」，删除时读取；改了设置只影响之后的删除。 */
     int clipboardUndoSeconds = ClipboardUndoPolicy.DEFAULT_SECONDS;
+    /** 本地设置「剪贴板删除数据验证」；访客模式下即使关闭也要求认证。 */
+    boolean clipboardDeleteAuthenticationEnabled;
     private ImeInlineAutofill inlineAutofill;
     /** 本地设置 `platform.android.clipboard_suggestion` 的值；工具栏是否真的显示最近复制，还要看剪贴板历史开没开，一律问 {@link #recentClipEnabled()}。 */
     boolean clipboardSuggestionEnabled = true;
@@ -3072,7 +3075,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (longSpaceToolbarRowKept()) return false;
         return toolbarHidden || !(toolbarEmoji || toolbarPhrase || toolbarClipboard || toolbarSkin
             || toolbarScheme || toolbarFloating || toolbarTextEdit || toolbarUndo || toolbarRedo
-            || touchVoiceShortcutEnabled);
+            || imeLayoutRows.randomDigitsKeepsToolbarRow() || touchVoiceShortcutEnabled);
     }
 
     /** 工具栏这一行藏着时，打开的面板要不要把它临时显示出来：多数面板（表情等）的返回键就是工具栏上的收起键。剪贴板面板开着、底栏也画着时不用，底栏的剪贴板键再点一次就关上面板。 */
@@ -3114,6 +3117,7 @@ public final class MSIMEInputService extends InputMethodService {
             localSettings.choice(AndroidLocalSettings.CLIPBOARD_COLUMNS));
         clipboardSuggestionEnabled = localSettings.bool(AndroidLocalSettings.CLIPBOARD_SUGGESTION);
         clipboardUndoSeconds = localSettings.integer(AndroidLocalSettings.CLIPBOARD_UNDO_SECONDS);
+        clipboardDeleteAuthenticationEnabled = localSettings.bool(AndroidLocalSettings.CLIPBOARD_DELETE_AUTHENTICATION);
         clipboardSuggestionActionEnabled = localSettings.bool(AndroidLocalSettings.CLIPBOARD_SUGGESTION_ACTION);
         clipboardSuggestionActionKind = localSettings.choice(AndroidLocalSettings.CLIPBOARD_SUGGESTION_ACTION_KIND);
         toolbarFloating = localSettings.bool(AndroidLocalSettings.TOOLBAR_FLOATING);
@@ -8892,6 +8896,11 @@ public final class MSIMEInputService extends InputMethodService {
      */
     void removeClipboardItem(ClipboardHistory.Item item) {
         if (clipboardHistory == null) return;
+        authenticateClipboardDelete(() -> removeClipboardItemAfterAuthentication(item));
+    }
+
+    private void removeClipboardItemAfterAuthentication(ClipboardHistory.Item item) {
+        if (clipboardHistory == null) return;
         try {
             holdClipboardUndo(clipboardHistory.removeMany(java.util.List.of(item.text())));
             forgetCurrentClip();
@@ -8901,8 +8910,38 @@ public final class MSIMEInputService extends InputMethodService {
         imePanels.renderClipboardHistory();
     }
 
-    /** 原子删除多选记录；排序、时间戳和固定规则仍由共享存储决定，删除后的撤销见 {@link #holdClipboardUndo}。 */
-    void removeClipboardItems(java.util.List<String> texts) {
+    /**
+     * 原子删除多选记录；排序、时间戳和固定规则仍由共享存储决定，删除后的撤销见 {@link #holdClipboardUndo}。
+     *
+     * <p>整批只认证一次。`removed` 只在认证通过（或不需要认证）、真正发起删除之后执行，面板借它退出多选；认证取消或失败时不调用它，选择原样保留。
+     */
+    void removeClipboardItems(java.util.List<String> texts, Runnable removed) {
+        if (clipboardHistory == null || texts == null || texts.isEmpty()) return;
+        java.util.List<String> snapshot = java.util.List.copyOf(texts);
+        authenticateClipboardDelete(() -> {
+            removeClipboardItemsAfterAuthentication(snapshot);
+            removed.run();
+        });
+    }
+
+    /**
+     * 单条、左滑和多选删除共用的认证门禁（#10408），规则见 {@link ClipboardDeleteAuthenticationPolicy}。
+     *
+     * <p>设备没有任何锁屏凭据时，门禁只来自访客模式（用户没有打开「剪贴板删除数据验证」）就照旧直接删除：访客模式本来就要求认证，但没有凭据的设备谁都能解锁，拦下删除保护不了任何东西，只会让访客剪贴板删不掉，比改动之前更糟。用户自己打开过开关时仍然拒绝，并提示去系统设置开启指纹、图案或密码，或回设置页关闭开关（没有认证器时关闭开关不需要认证）。
+     */
+    private void authenticateClipboardDelete(Runnable delete) {
+        boolean enabled = clipboardDeleteAuthenticationEnabled;
+        if (!ClipboardDeleteAuthenticationPolicy.requiresAuthentication(enabled,
+                clipboardMode == ClipboardModePolicy.Mode.VISITOR)) {
+            delete.run();
+            return;
+        }
+        authenticateClipboard("删除", delete,
+            ClipboardDeleteAuthenticationPolicy.allowsWithoutAuthenticator(enabled)
+                ? delete : () -> notice(CLIPBOARD_DELETE_UNAVAILABLE_NOTICE));
+    }
+
+    private void removeClipboardItemsAfterAuthentication(java.util.List<String> texts) {
         if (clipboardHistory == null || texts == null || texts.isEmpty()) return;
         try {
             if (!holdClipboardUndo(clipboardHistory.removeMany(texts))) return;
@@ -9016,7 +9055,18 @@ public final class MSIMEInputService extends InputMethodService {
     private long clipboardAuthenticationGeneration;
     private boolean clipboardAuthenticationBusy;
 
+    /** 认证桥 `ClipboardAuthenticationActivity` 的结果码；核心编译不依赖那个 Activity 类，这里按值对齐 `RESULT_AUTHENTICATED`、`RESULT_UNAVAILABLE`。 */
+    private static final int CLIPBOARD_AUTH_SUCCEEDED = 2001;
+    private static final int CLIPBOARD_AUTH_UNAVAILABLE = 2002;
+    private static final String CLIPBOARD_AUTH_UNAVAILABLE_NOTICE = "这台设备没有可用的系统认证，请先在系统设置开启指纹、图案或密码";
+    private static final String CLIPBOARD_DELETE_UNAVAILABLE_NOTICE = "这台设备没有可用的系统认证，请先在系统设置开启指纹、图案或密码，或在键盘设置的剪贴板里关闭「剪贴板删除数据验证」";
+
     private void authenticateClipboard(String operation, Runnable after) {
+        authenticateClipboard(operation, after, null);
+    }
+
+    /** `whenUnavailable` 不为 null 时，设备没有可用认证器（桥返回 `RESULT_UNAVAILABLE`）就执行它，否则提示先设置锁屏凭据。 */
+    private void authenticateClipboard(String operation, Runnable after, Runnable whenUnavailable) {
         if (clipboardAuthenticationBusy) return;
         clipboardAuthenticationBusy = true;
         long generation = ++clipboardAuthenticationGeneration;
@@ -9024,9 +9074,11 @@ public final class MSIMEInputService extends InputMethodService {
             @Override protected void onReceiveResult(int code, android.os.Bundle payload) {
                 if (generation != clipboardAuthenticationGeneration) return;
                 clipboardAuthenticationBusy = false;
-                if (code == 2001)
-                    after.run();
-                else notice("未通过系统认证，剪贴板操作已取消");
+                if (code == CLIPBOARD_AUTH_SUCCEEDED) after.run();
+                else if (code == CLIPBOARD_AUTH_UNAVAILABLE) {
+                    if (whenUnavailable != null) whenUnavailable.run();
+                    else notice(CLIPBOARD_AUTH_UNAVAILABLE_NOTICE);
+                } else notice("未通过系统认证，剪贴板操作已取消");
             }
         };
         try {
@@ -9330,6 +9382,45 @@ public final class MSIMEInputService extends InputMethodService {
         int scheme = InputViewValuePolicy.scheme(view, 0);
         return scheme != 3 && scheme != KoreanInputPolicy.KOREAN_SCHEME
             && schemeShowsGlosses(scheme);
+    }
+
+    /** 「加入生词本」交不出去或存储出错时的提示；其余提示都由共享层给出。 */
+    static final String PERSONAL_WORDBOOK_FAILURE = "无法加入生词本";
+
+    /**
+     * 长按候选菜单的「加入生词本」：把候选文字、显示着的释义和读音写进背单词的生词本，结果用 {@link #notice} 告诉用户。写文件要取词书目录的锁，放在 `commonPhrasesWorker` 上，和「添加到常用语」一样是键盘里对用户内容的一次写入；不经过引擎，组字不变。
+     */
+    void addCandidateToPersonalWordbook(String text, String translation, String reading) {
+        // 与打字统计同一个目录，也就是设置里背单词读的 `HostStore.sharedStateDirectory`。
+        String directory = typingStatisticsDirectory();
+        if (directory.isEmpty()) {
+            notice(PERSONAL_WORDBOOK_FAILURE);
+            return;
+        }
+        try {
+            commonPhrasesWorker.execute(() -> {
+                String answer;
+                try {
+                    answer = NativeClient.personalWordbookAdd(directory, text, translation, reading);
+                } catch (RuntimeException | LinkageError error) {
+                    answer = null;
+                }
+                String shown = answer == null ? PERSONAL_WORDBOOK_FAILURE : answer;
+                main.post(() -> notice(shown));
+            });
+        } catch (java.util.concurrent.RejectedExecutionException error) {
+            notice(PERSONAL_WORDBOOK_FAILURE);
+        }
+    }
+
+    /** 候选旁此刻显示的音标，没有显示或还没查到时为空串；规则同 {@link #candidatePronunciationAnnotation}。 */
+    String candidateDisplayedReading(JSONObject candidate) {
+        if (!candidatePronunciationVisible()) return "";
+        String text = CandidatePronunciationPolicy.lookupText(
+            InputViewValuePolicy.textOr(candidate, "text", ""),
+            candidateEnglishGloss || candidateTranslationsEnabled ? candidateTranslation(candidate) : "",
+            candidateTranslationTargets.contains("en"));
+        return candidatePronunciations.getOrDefault(text, "");
     }
 
     void insertCandidateGloss(int slot, JSONObject id, String text, String gloss) {
@@ -11752,6 +11843,8 @@ public final class MSIMEInputService extends InputMethodService {
                 || imeLayoutRows.numberPadSpaceStale()
                 || imeLetterRows.numberPadStale() || imeLayoutRows.tallReturnStale())
             imeLetterRows.rebuildKeyRows();
+        // 数字页没重建时，临时模式等的进出也会改变随机数字的资格，键面跟着换。
+        imeLayoutRows.syncNumberDigitFaces();
         updateSymbolKeyFaces();
         updateLetterCornerHints();
         updateShuangpinKeyHints();
@@ -12026,6 +12119,15 @@ public final class MSIMEInputService extends InputMethodService {
                 : anyToolbarPanelOpen() ? "返回键盘" : "收起键盘");
             // 候选条模式里收起键朝上，点它展开软键盘。
             if (dismissShortcutButton instanceof KeyboardShortcutButton dismiss) dismiss.setFlipped(keysCollapsed);
+        }
+        if (randomDigitsShortcutButton != null) {
+            // 工具栏整条隐藏时「随」够不到，与关闭入口一样清掉运行时的随机状态。
+            if (!localSettings.bool(AndroidLocalSettings.TOOLBAR_RANDOM_DIGITS) || toolbarHidden)
+                imeLayoutRows.disableRandomDigits();
+            ViewPolicy.setVisible(randomDigitsShortcutButton, imeLayoutRows.randomDigitsEntryVisible());
+            ViewPolicy.setSelected(randomDigitsShortcutButton, imeLayoutRows.randomDigitsEnabled());
+            if (Build.VERSION.SDK_INT >= 30) randomDigitsShortcutButton.setStateDescription(
+                imeLayoutRows.randomDigitsEnabled() ? "已开启" : "已关闭");
         }
         if (voiceShortcutButton != null) {
             ViewPolicy.setVisible(voiceShortcutButton, touchVoiceShortcutEnabled);

@@ -89,6 +89,8 @@ public final class AndroidLocalSettings {
     public static final String CLIPBOARD_SUGGESTION = "platform.android.clipboard_suggestion";
     /** 剪贴板删除记录（单条或多选）后可撤销的秒数（{@link ClipboardUndoPolicy}，#10073、#10080），5 到 9 秒，默认 5 秒。同步字段表里没有这个键，只在本机。 */
     public static final String CLIPBOARD_UNDO_SECONDS = "platform.android.clipboard_undo_seconds";
+    /** 单条或多选删除剪贴板记录前是否要求系统认证（#10408）；访客模式下始终要求认证。只在本机，默认关。 */
+    public static final String CLIPBOARD_DELETE_AUTHENTICATION = "platform.android.clipboard_delete_authentication";
     /** 「复制后自动显示快捷键」（#10079）：最近复制那一行在预览右边多一个分词或分类快捷键，默认开，好让用户知道有这个功能；最近复制不显示时它也不显示。只在本机。 */
     public static final String CLIPBOARD_SUGGESTION_ACTION = "platform.android.clipboard_suggestion_action";
     /** 复制后快捷键的功能（{@link RecentClipboardSuggestion#quickAction}）：`segment` 分词、`category` 移动分类，默认分类。只在本机。 */
@@ -122,6 +124,8 @@ public final class AndroidLocalSettings {
     public static final String TOOLBAR_SIZE_PERCENT = "platform.android.toolbar_size_percent";
     /** 符号面板分类的稳定 ID 排列，只在本机保存。 */
     public static final String SYMBOL_CATEGORY_ORDER = "platform.android.symbol_category_order";
+    /** 中文工具栏上的「随」入口，默认不显示；这里只保存入口可见性，运行时随机开关不持久化。 */
+    public static final String TOOLBAR_RANDOM_DIGITS = "platform.android.toolbar_random_digits";
     /** 工具栏上的「文本编辑」按钮（#6351），点按开关文本编辑面板，默认不显示；同步字段表里没有这个键，先只在本机。 */
     public static final String TOOLBAR_TEXT_EDIT = "platform.android.toolbar_text_edit";
     /** 手势导航下垫在键区下面的底栏（{@link KeyboardBottomBarPolicy}），默认开。是否出现还取决于导航栏的高度，换一台设备时意义不同，同步字段表里也没有这个键，只在本机。 */
@@ -247,6 +251,7 @@ public final class AndroidLocalSettings {
         bool(CLIPBOARD_SUGGESTION, true, false);
         integer(CLIPBOARD_UNDO_SECONDS, ClipboardUndoPolicy.DEFAULT_SECONDS, false,
             ClipboardUndoPolicy.MIN_SECONDS, ClipboardUndoPolicy.MAX_SECONDS, 1);
+        bool(CLIPBOARD_DELETE_AUTHENTICATION, false, false);
         bool(CLIPBOARD_SUGGESTION_ACTION, true, false);
         choice(CLIPBOARD_SUGGESTION_ACTION_KIND, RecentClipboardSuggestion.ACTION_CATEGORY, false,
             RecentClipboardSuggestion.ACTION_SEGMENT, RecentClipboardSuggestion.ACTION_CATEGORY);
@@ -269,6 +274,7 @@ public final class AndroidLocalSettings {
         bool(HARDWARE_CARET_CANDIDATES, false, false);
         bool(TOOLBAR_FLOATING, false, false);
         bool(TOOLBAR_TEXT_EDIT, false, false);
+        bool(TOOLBAR_RANDOM_DIGITS, false, false);
         text(TOOLBAR_ORDER, ToolbarOrderPolicy.format(ToolbarOrderPolicy.DEFAULT_ORDER), false,
             ToolbarOrderPolicy::normalize);
         integer(TOOLBAR_SIZE_PERCENT, ToolbarSizePolicy.DEFAULT_PERCENT, false,
