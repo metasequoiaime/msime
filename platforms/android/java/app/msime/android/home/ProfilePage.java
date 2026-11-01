@@ -228,7 +228,7 @@ public final class ProfilePage extends ReloadingDetailPage {
             if (!linked && !offered(state.providers(), provider)) continue;
             methods.nav(profile.providerName(provider), null, linked ? "已关联" : "关联", linked ? null : this::link);
         }
-        methods.footer("关联后可以用任意一种方式登录同一个账号");
+        methods.help("关联后可以用任意一种方式登录同一个账号");
 
         GroupCard data = GroupCard.add(sectionColumn(target, "数据"), "数据").withDividers(16);
         data.nav("云端数据", state.data() == null ? null : AccountFailureText.anonymousVoice(state.data().anonymousVoice()),
@@ -246,7 +246,7 @@ public final class ProfilePage extends ReloadingDetailPage {
         GroupCard card = GroupCard.add(column, null);
         if ("account_unauthorized".equals(failure)) {
             card.note("登录后可以在这里修改昵称和头像、关联登录方式、导出或删除云端数据。");
-            card.button("登录", "Google、Apple 或邮箱", "登录", this::signIn);
+            card.button("登录", null, "登录", this::signIn).help("Google、Apple 或邮箱");
         } else {
             // 读资料是已有的账号操作，断网时 Rust 报的也是 account_unavailable，分不出是网络还是服务。
             card.note("个人资料暂时读不到，请检查网络后再试。");

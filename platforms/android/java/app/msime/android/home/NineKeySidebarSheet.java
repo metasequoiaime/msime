@@ -65,10 +65,10 @@ final class NineKeySidebarSheet {
             symbols = new ArrayList<>(this.defaults);
             render();
         });
-        addRow = actions.button("添加符号", "从常用符号中选择，最多 " + NineKeySidebarPolicy.MAX_SYMBOLS + " 个",
-            "添加", this::addSymbol);
-        typeRow = actions.button("输入符号", "一项最多 " + NineKeySidebarPolicy.MAX_SYMBOL_CODE_POINTS + " 个字符，如 …… 或 :-)",
-            "输入", this::typeSymbol);
+        addRow = actions.button("添加符号", null,
+            "添加", this::addSymbol).help("从常用符号中选择，最多 " + NineKeySidebarPolicy.MAX_SYMBOLS + " 个");
+        typeRow = actions.button("输入符号", null,
+            "输入", this::typeSymbol).help("一项最多 " + NineKeySidebarPolicy.MAX_SYMBOL_CODE_POINTS + " 个字符，如 …… 或 :-)");
         saveRow = actions.button("保存符号栏", null, "保存", this::save);
         actions.button("放弃本次调整", null, "取消", sheet::dismiss);
         render();

@@ -292,9 +292,9 @@ public final class TypingPage extends ReloadingDetailPage {
             }
             if (language == Language.JAPANESE && offered.contains(KeyboardScheme.JAPANESE_NINE_KEY)) {
                 InputFeatureToggle toggle = InputFeatureToggle.JAPANESE_TOGGLE_INPUT;
-                languages.toggle(toggle.title(), toggle.description(),
+                languages.toggle(toggle.title(), null,
                     preferences.optBoolean(toggle.key(), toggle.enabledByDefault()),
-                    checked -> savePreferences(values -> values.put(toggle.key(), checked)));
+                    checked -> savePreferences(values -> values.put(toggle.key(), checked))).help(toggle.description());
             }
         }
         if (!addable.isEmpty()) {
@@ -313,15 +313,15 @@ public final class TypingPage extends ReloadingDetailPage {
                 }
             }
         }
-        languages.nav("联系人", "导入姓名和手机号，输入姓名时优先显示", null,
-            () -> SettingsNavigator.open(context, PageId.CONTACTS, null));
+        languages.nav("联系人", null, null,
+            () -> SettingsNavigator.open(context, PageId.CONTACTS, null)).help("导入姓名和手机号，输入姓名时优先显示");
 
         // 五笔查码（#6789）：本版本的方案列表里启用了五笔、五笔码表也在本机时才列出，与共享设置页「五笔查码」一组出现的条件一致。瘦包还没下载码表时查不出任何编码，五笔那一行给出下载入口。
         if (enabled.contains(KeyboardScheme.WUBI)
                 && KeyboardScheme.WUBI.installed(state.languageDictionaries(), state.packs())) {
             GroupCard wubi = GroupCard.add(sectionColumn(target, "中文"), "五笔");
-            wubi.nav(PageId.WUBI_LOOKUP.title(), "查汉字的 86、98 五笔编码", null,
-                () -> SettingsNavigator.open(context, PageId.WUBI_LOOKUP, null));
+            wubi.nav(PageId.WUBI_LOOKUP.title(), null, null,
+                () -> SettingsNavigator.open(context, PageId.WUBI_LOOKUP, null)).help("查汉字的 86、98 五笔编码");
         }
 
         GroupCard chinese = GroupCard.add(sectionColumn(target, "中文"), "中文");
@@ -329,29 +329,29 @@ public final class TypingPage extends ReloadingDetailPage {
         boolean traditionalOn = preferences.optBoolean(traditional.key(), traditional.enabledByDefault());
         chinese.nav("中文字符集", null, traditionalOn ? "繁体" : "简体", () -> pickCharset(traditionalOn));
         InputFeatureToggle spacing = InputFeatureToggle.CHINESE_ENGLISH_SPACING;
-        chinese.toggle(spacing.title(), spacing.description(),
+        chinese.toggle(spacing.title(), null,
             preferences.optBoolean(spacing.key(), spacing.enabledByDefault()),
-            checked -> savePreferences(values -> values.put(spacing.key(), checked)));
+            checked -> savePreferences(values -> values.put(spacing.key(), checked))).help(spacing.description());
         JSONObject quanpin = preferences.optJSONObject("quanpin");
         boolean autocorrect = quanpin == null || (quanpin.optBoolean("autocorrect_transposition", true)
             && quanpin.optBoolean("autocorrect_neighbor", true));
-        chinese.toggle("拼音纠错", "纠正相邻键误触和字母顺序颠倒", autocorrect, this::saveAutocorrect);
+        chinese.toggle("拼音纠错", null, autocorrect, this::saveAutocorrect).help("纠正相邻键误触和字母顺序颠倒");
         JSONObject fuzzy = preferences.optJSONObject("fuzzy_pinyin");
-        chinese.toggle("模糊音", "如 z/zh、an/ang 不分", fuzzy != null && fuzzy.optBoolean("enabled", false),
-            checked -> savePreferences(values -> KeyboardSheets.child(values, "fuzzy_pinyin").put("enabled", checked)));
-        chinese.nav("模糊音规则", "逐项选择需要的声母和韵母", null,
-            () -> SettingsNavigator.open(context, PageId.FUZZY_PINYIN, null));
+        chinese.toggle("模糊音", null, fuzzy != null && fuzzy.optBoolean("enabled", false),
+            checked -> savePreferences(values -> KeyboardSheets.child(values, "fuzzy_pinyin").put("enabled", checked))).help("如 z/zh、an/ang 不分");
+        chinese.nav("模糊音规则", null, null,
+            () -> SettingsNavigator.open(context, PageId.FUZZY_PINYIN, null)).help("逐项选择需要的声母和韵母");
         InputFeatureToggle single = InputFeatureToggle.SINGLE_CHARACTER_ONLY;
-        chinese.toggle(single.title(), single.description(),
+        chinese.toggle(single.title(), null,
             preferences.optBoolean(single.key(), single.enabledByDefault()),
-            checked -> savePreferences(values -> values.put(single.key(), checked)));
+            checked -> savePreferences(values -> values.put(single.key(), checked))).help(single.description());
         InputFeatureToggle backspace = InputFeatureToggle.BACKSPACE_REVERTS_SELECTION;
-        chinese.toggle(backspace.title(), backspace.description(),
+        chinese.toggle(backspace.title(), null,
             preferences.optBoolean(backspace.key(), backspace.enabledByDefault()),
-            on -> savePreferences(values -> values.put(backspace.key(), on)));
+            on -> savePreferences(values -> values.put(backspace.key(), on))).help(backspace.description());
         InputFeatureToggle cloud = InputFeatureToggle.CLOUD_CANDIDATES;
-        chinese.toggle(cloud.title(), "联网获取当前拼写的候选", preferences.optBoolean(cloud.key(), cloud.enabledByDefault()),
-            checked -> savePreferences(values -> values.put(cloud.key(), checked)));
+        chinese.toggle(cloud.title(), null, preferences.optBoolean(cloud.key(), cloud.enabledByDefault()),
+            checked -> savePreferences(values -> values.put(cloud.key(), checked))).help("联网获取当前拼写的候选");
         cloudProviderSettings(target, preferences);
         // 临时日语读日文词典；词典没在本机时 host-api 会关掉它，键盘菜单里也置灰，这里给出下载入口。和桌面一样，不会因为它自己去下载。
         if (edition.temporaryJapanese() && !state.packs().contains(KeyboardScheme.JAPANESE_PACK)) {
@@ -364,8 +364,8 @@ public final class TypingPage extends ReloadingDetailPage {
         String schema = helpcode == null ? (shuangpin ? "lantian" : "ziranma") : helpcode.optString("schema", "ziranma");
         boolean helpcodeOn = helpcode == null || helpcode.optBoolean("enabled", true);
         GroupCard aux = GroupCard.add(sectionColumn(target, "辅助码"), "辅助码");
-        aux.toggle("启用辅助码", (shuangpin ? "双拼" : "全拼") + "组字时，先按 Shift 再输入的字母用来缩小候选",
-            helpcodeOn, checked -> saveHelpcode(family, shuangpin, "enabled", checked));
+        aux.toggle("启用辅助码", null,
+            helpcodeOn, checked -> saveHelpcode(family, shuangpin, "enabled", checked)).help((shuangpin ? "双拼" : "全拼") + "组字时，先按 Shift 再输入的字母用来缩小候选");
         if (helpcodeOn) {
             JSONObject plugins = preferences.optJSONObject("plugins");
             String selectedPack = plugins == null ? "" : plugins.optString(HelpcodeChoicePolicy.packKey(shuangpin), "");
@@ -374,33 +374,31 @@ public final class TypingPage extends ReloadingDetailPage {
                 () -> pickHelpcode(family, shuangpin, state, schema, selectedPack));
             // 共享设置页的同一个开关（#6997）：只关显示，Shift 筛选照常可用。缺整个对象时按各自默认（双拼显示、全拼不显示），对象里缺这一项时按 serde 的默认显示。
             boolean shownInCandidates = helpcode == null ? shuangpin : helpcode.optBoolean("show_in_candidate_window", true);
-            aux.toggle(shuangpin ? "在候选栏中显示双拼辅助码" : "在候选栏中显示全拼辅助码",
-                "关掉后候选旁不再标注辅助码，Shift 筛选照常可用", shownInCandidates,
-                checked -> saveHelpcode(family, shuangpin, "show_in_candidate_window", checked));
+            aux.toggle(shuangpin ? "在候选栏中显示双拼辅助码" : "在候选栏中显示全拼辅助码", null, shownInCandidates,
+                checked -> saveHelpcode(family, shuangpin, "show_in_candidate_window", checked)).help("关掉后候选旁不再标注辅助码，Shift 筛选照常可用");
             boolean strictFilter = helpcode != null && helpcode.optBoolean("strict_filter", false);
-            aux.toggle(shuangpin ? "双拼一码严格筛选" : "全拼一码严格筛选",
-                "关闭时一码只把匹配项前移；打开后排除辅助码不匹配的候选，两码始终严格筛选",
-                strictFilter, checked -> saveHelpcode(family, shuangpin, "strict_filter", checked));
+            aux.toggle(shuangpin ? "双拼一码严格筛选" : "全拼一码严格筛选", null,
+                strictFilter, checked -> saveHelpcode(family, shuangpin, "strict_filter", checked)).help("关闭时一码只把匹配项前移；打开后排除辅助码不匹配的候选，两码始终严格筛选");
         }
 
         GroupCard translation = GroupCard.add(sectionColumn(target, "翻译"), "翻译");
         InputFeatureToggle translations = InputFeatureToggle.CANDIDATE_TRANSLATIONS;
         boolean translationsOn = preferences.optBoolean(translations.key(), translations.enabledByDefault());
-        translation.toggle("候选词翻译", "为候选词附上译文；联网翻译用哪个服务在下面的「翻译服务」里选",
-            translationsOn, checked -> savePreferences(values -> values.put(translations.key(), checked)));
+        translation.toggle("候选词翻译", null,
+            translationsOn, checked -> savePreferences(values -> values.put(translations.key(), checked))).help("为候选词附上译文；联网翻译用哪个服务在下面的「翻译服务」里选");
         // 「翻译范围」紧跟在「候选词翻译」下面，与共享设置页相同；候选词翻译关着时置灰，存的值不动。
         CandidateTranslationPolicy.Scope scope =
             CandidateTranslationPolicy.Scope.from(preferences.opt(CandidateTranslationPolicy.Scope.KEY));
-        translation.nav(CandidateTranslationPolicy.Scope.TITLE, CandidateTranslationPolicy.Scope.DESCRIPTION,
-            scope.title(), translationsOn ? () -> pickTranslationScope(scope) : null);
-        translation.nav("翻译服务", "离线释义查不到的词用它补上译文", null,
-            () -> SettingsNavigator.open(requireContext(), PageId.TRANSLATION_SERVICE, null));
+        translation.nav(CandidateTranslationPolicy.Scope.TITLE, null,
+            scope.title(), translationsOn ? () -> pickTranslationScope(scope) : null).help(CandidateTranslationPolicy.Scope.DESCRIPTION);
+        translation.nav("翻译服务", null, null,
+            () -> SettingsNavigator.open(requireContext(), PageId.TRANSLATION_SERVICE, null)).help("离线释义查不到的词用它补上译文");
         InputFeatureToggle gloss = InputFeatureToggle.CANDIDATE_ENGLISH_GLOSS;
         boolean glossOn = preferences.optBoolean(gloss.key(), gloss.enabledByDefault());
         String targetLanguage = InputViewValuePolicy.textOr(preferences, "translation_target_language", "en");
-        translation.toggle("离线英文释义", "给候选词标注离线释义；英语释义随应用自带，其他目标语言要下载离线释义词典",
+        translation.toggle("离线英文释义", null,
             glossOn, checked -> savePreferences(values -> values.put(gloss.key(), checked),
-                () -> { if (checked) ensureGlosses(targetLanguage, state); }));
+                () -> { if (checked) ensureGlosses(targetLanguage, state); })).help("给候选词标注离线释义；英语释义随应用自带，其他目标语言要下载离线释义词典");
         InputFeatureToggle pronunciation = InputFeatureToggle.CANDIDATE_PRONUNCIATION;
         boolean pronunciationOn = preferences.optBoolean(pronunciation.key(), pronunciation.enabledByDefault());
         java.io.File phonetics = new java.io.File(requireContext().getFilesDir(),
@@ -410,10 +408,12 @@ public final class TypingPage extends ReloadingDetailPage {
         boolean targetReadings = app.msime.android.CandidatePronunciationPolicy.LANGUAGES.contains(targetLanguage)
             && !"en".equals(targetLanguage);
         boolean targetReadingsReady = state.packs().contains(ResourcePacks.TARGET_PRONUNCIATIONS);
-        String pronunciationDescription = phoneticsReady && (!targetReadings || targetReadingsReady)
-            ? pronunciation.description() : "离线读音词典未安装；打开后点下方「下载」，安装完成再进入输入框";
-        translation.toggle(pronunciation.title(), pronunciationDescription, pronunciationOn,
-            checked -> savePreferences(values -> values.put(pronunciation.key(), checked)));
+        // 词典没装好是当前状态，留在副标题；功能本身的说明收进「?」。
+        String pronunciationMissing = phoneticsReady && (!targetReadings || targetReadingsReady)
+            ? null : "离线读音词典未安装；打开后点下方「下载」，安装完成再进入输入框";
+        translation.toggle(pronunciation.title(), pronunciationMissing, pronunciationOn,
+            checked -> savePreferences(values -> values.put(pronunciation.key(), checked)))
+            .help(pronunciation.description());
         if (pronunciationOn && !phoneticsReady)
             packRow(translation, state, "离线英文音标词典", "仅供本机候选显示英文音标",
                 ResourcePacks.PRONUNCIATIONS);
@@ -445,19 +445,19 @@ public final class TypingPage extends ReloadingDetailPage {
         return size > 0 ? verb + " " + ResourcePackService.size(size) : verb;
     }
 
-    /** 一行资源包状态：没下载时「下载」，下载中「取消」，校验中按钮置灰，失败「重试」。 */
+    /** 一行资源包状态：没下载时「下载」，下载中「取消」，校验中按钮置灰，失败「重试」。副标题只放状态（需下载多大、进度），这个包是做什么的收进「?」。 */
     private void packRow(GroupCard group, State state, String title, String description, String pack) {
         ResourcePackService.Status status = ResourcePackService.status(pack);
-        String subtitle = status == null ? description + " · " + packState(state, pack) : packState(state, pack);
+        String subtitle = packState(state, pack);
         if (status != null && status.phase() == ResourcePackService.Phase.VERIFYING) {
-            group.button(title, subtitle, "校验中", () -> {}).setEnabled(false);
+            group.button(title, subtitle, "校验中", () -> {}).help(description).setEnabled(false);
             return;
         }
         boolean running = status != null && status.running();
         group.button(title, subtitle, running ? "取消" : status == null ? "下载" : "重试", () -> {
             if (running) ResourcePackService.cancel(pack);
             else ResourcePackService.request(requireContext(), pack, packSize(state, pack));
-        });
+        }).help(description);
     }
 
     /** 已经添加、词典还没到的语言：下载、取消或重试，也可以移除。 */
@@ -679,9 +679,9 @@ public final class TypingPage extends ReloadingDetailPage {
         }
         group.nav("超时", null, provider.optInt("timeout_ms", 2000) + " 毫秒",
             () -> editCloudField(provider, "timeout_ms", "超时（毫秒）", false));
-        group.toggle("缓存云候选", "仅保存在本机内存，无结果缓存 60 秒", provider.optBoolean("cache_enabled"),
-            enabled -> savePreferences(values -> KeyboardSheets.child(values, "cloud_candidate_provider").put("cache_enabled", enabled)));
-        group.footer("当前拼写发送至 " + cloudRecipient(provider) + "；不发送已上屏内容、词库或历史。");
+        group.toggle("缓存云候选", null, provider.optBoolean("cache_enabled"),
+            enabled -> savePreferences(values -> KeyboardSheets.child(values, "cloud_candidate_provider").put("cache_enabled", enabled))).help("仅保存在本机内存，无结果缓存 60 秒");
+        group.help("当前拼写发送至 " + cloudRecipient(provider) + "；不发送已上屏内容、词库或历史。");
     }
 
     private void editCloudField(JSONObject provider, String key, String title, boolean selectCustom) {
