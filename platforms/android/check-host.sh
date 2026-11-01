@@ -65,6 +65,18 @@ if rg -n 'getLongPressTimeout' "$repo_root/platforms/android/java/app/msime/andr
   echo "The Japanese nine-key flick guide must show on touch-down, not after the long-press timeout" >&2
   exit 1
 fi
+# 日语九键左列始终有 符（#10439）：原来只在工具栏没有表情按钮时多一格 ☺，没有符号面板入口。表情改由 符 的长按承担，左列不再单独放 ☺，不会多出第六格。
+japanese_nine_key_rows=$(sed -n '/    void rebuildJapaneseNineKeyRows() {$/,/^    }$/p' "$repo_root/platforms/android/java/app/msime/android/core/ImeLayoutRows.java")
+japanese_symbol_key=$(sed -n '/    private Button japaneseSymbolPanelKey(boolean emojiLongPress) {$/,/^    }$/p' "$repo_root/platforms/android/java/app/msime/android/core/ImeLayoutRows.java")
+if ! rg_q_stdin -F 'addJapaneseSideKey(modeColumn, japaneseSymbolPanelKey(s.japaneseSideEmojiKey()), 1);' <<< "$japanese_nine_key_rows" \
+  || rg_q_stdin -F '"SoftEmoji"' <<< "$japanese_nine_key_rows" \
+  || ! rg_q_stdin -F 's.imePanels.showSymbolPanel();' <<< "$japanese_symbol_key" \
+  || ! rg_q_stdin -F '}), "SoftSymbol");' <<< "$japanese_symbol_key" \
+  || ! rg_q_stdin -U 'if \(emojiLongPress\) \{\n\s*symbol\.setOnLongClickListener' <<< "$japanese_symbol_key" \
+  || ! rg_q_stdin -F 's.imePanels.showEmojiPicker();' <<< "$japanese_symbol_key"; then
+  echo "The Japanese nine-key left column must always carry the 符 symbol-panel key, with emoji on its long press when the toolbar has no emoji button" >&2
+  exit 1
+fi
 # 只改大小写时不重建键行（#6997）：重建出的新键在下一次布局前宽高为 0，Shift 之后立刻按下的字母找不到键而被丢掉。Shift、一次性大写用掉和自动大写都经 refreshLetterCase 就地改键面；字母键的气泡读按下时的键面，不能用建键时记下的那个。触发和重建之间允许夹着 `//` 注释行（Shift 处理里就有一行），不然改回 rebuildKeyRows 时这道检查认不出来。
 if rg -U -n '(consumeLetter\(\)\)\s*\{?|letterCase\.toggle\(SystemClock\.uptimeMillis\(\)\);|applyAutomatic\(next\)\))(\s*//[^\n]*)*\s*imeLetterRows\.rebuildKeyRows\(\)' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \

@@ -3065,7 +3065,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    /** 日语九键侧列的 ☺：顶部工具栏有表情按钮时两处入口重复，不放；工具栏关掉表情或整条隐藏时才放回来。 */
+    /** 日语九键左列的 符 长按是否打开表情浏览：顶部工具栏有表情按钮时两处入口重复，不接长按；工具栏关掉表情或整条隐藏时才接上，读屏描述跟着改（{@code ImeLayoutRows.japaneseSymbolPanelKey}）。 */
     boolean japaneseSideEmojiKey() {
         return !toolbarEmoji || toolbarHidden;
     }
