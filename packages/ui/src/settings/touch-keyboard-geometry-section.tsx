@@ -375,7 +375,7 @@ export function TouchKeyboardGeometrySection({
               onChange={(enabled) => onLetterCornerHintsChange?.(enabled)}
             />
           )}
-          {/* 紧跟 26 键的「滑动方向」，与 Android、iOS 的「手势」组同一位置；它只写共享偏好，和 26 键开关、本机设置的保存都无关，不跟着置灰。 */}
+          {/* 在 26 键「滑动方向」和「显示字母键角标」之后，与 Android、iOS 的「手势」组同一位置；它只写共享偏好，和 26 键开关、本机设置的保存都无关，不跟着置灰。 */}
           {nineKeySwipeDigits !== undefined && (
             <SelectRow
               title="九键滑动输入数字"

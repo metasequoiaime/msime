@@ -16,6 +16,7 @@ Status: implemented
   - HarmonyOS：键盘自己的 `key-feedback.json` 里的 `letterCornerHints`（`FeedbackSettings`，缺省开），经 `KeyboardFeedbackBridge` 给共享设置页，账号同步只带三个反馈字段，`fromShared` 从已存设置沿用它。字母键的 `KeyOptions` 多一个 `showCornerHint`，`keyFaceHasCornerHint` 看它决定画不画；`cornerHint` 照旧交给 `letterHintTouch`。`faceKey()` 带上这一位，键盘开着时改了已画好的字母键会重建，`tests/run.sh` 锁住这几处接线。
 - 共享设置页（HarmonyOS 用）：`MobileKeyboardFeedback.letterCornerHints` 可选，宿主给出时在「手势」组画这一行，保存时整份反馈记录原样送回。
 - 只作用于 26 键字母键。九键、14/18 键、数字层和底行句号键上的角标不在这次范围里。
+- 「手势」组的顺序三端相同：「滑动输入符号」「滑动方向」「显示字母键角标」「九键滑动输入数字」。九键这一行原先紧跟「滑动方向」，iOS 的仓库契约 `scripts/test-ios-key-layout-settings.py` 和共享设置页的测试按新顺序改写并钉住，两端 README 和各处注释里「紧跟 26 键滑动方向」的说法一并更新。
 
 ## Alternatives considered
 
@@ -33,6 +34,7 @@ Status: implemented
 
 - `rbuild cargo test -p msime-client-services --lib -- settings_sync`：41 项通过（同步表多了 `platform.android.letter_corner_hints`，导出和应用往返）。
 - `rbuild cargo fmt --all -- --check`：通过。
+- `rbuild bash scripts/run-checks.sh`（CI「Repository contracts」同一入口）：全部通过，含按新顺序改写的 `ios key layout settings`。
 - `rbuild bash platforms/android/check-host.sh`（编译机上的 Android SDK）：通过，含 `AndroidLocalSettingsSmoke`（缺省开、参与同步、与 client-services 同步表一致）和设置搜索索引检查（`PageId` 加了「显示字母键角标」）。
 - iOS：编译机上 iOS 27.0 模拟器跑 `xcodebuild -scheme MSIMEClientTests -only-testing:MSIMEKeyboardTests/LetterCornerHintTests test`，8 项通过，新加的 `testCornerHintSwitchHidesTheSymbolButKeepsItsGestures` 核对缺省开、关掉后角标行隐藏而 `cornerHint` 和 `onCornerHint` 还在、键盘再次出现时就地收起和画回。
 - HarmonyOS：`bash platforms/harmony/tests/run.sh` 在本机用 node 跑（编译机上没有 node），通过，含新加的 `keyboard-logic.test.ts` 分组（缺省开、旧文件读成开、非布尔值回退、页面读写、账号同步保留、移动和调整键盘时保留）和 `faceKey()`、`showCornerHint` 的接线锁。
