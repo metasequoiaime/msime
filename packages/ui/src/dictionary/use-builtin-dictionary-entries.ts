@@ -2,7 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { useDebouncedCallback } from "../core/use-debounced-callback";
 import { useLatestRef } from "../core/use-latest-ref";
 import { useAsyncGeneration } from "../settings/use-async-generation";
-import { normalizePinyinCode, validPinyinCode } from "./dictionary-collections";
+import {
+  normalizeCantoneseCode,
+  normalizePinyinCode,
+  validCantoneseCode,
+  validPinyinCode,
+} from "./dictionary-collections";
 import type { DictionaryClient } from "./dictionary-contracts";
 import type { DictionaryEntry } from "./dictionary-file";
 
@@ -11,38 +16,38 @@ const ENTRY_PAGE_SIZE = 100;
 
 export interface BuiltinDictionaryEntriesOptions {
   dictionary: Pick<DictionaryClient, "list">;
+  /** 拼音词库，或只有自己加的词的粤语词库。缺省是拼音。 */
+  kind?: "pinyin" | "cantonese";
   onNotice?: (message: string) => void;
 }
 
-/** 持有内置拼音词条的搜索、分页和请求归属，不依赖详情界面或提示容器。 */
+/** 持有内置拼音词条（或个人粤语词条）的搜索、分页和请求归属，不依赖详情界面或提示容器。 */
 export function useBuiltinDictionaryEntries({
   dictionary,
+  kind = "pinyin",
   onNotice,
 }: BuiltinDictionaryEntriesOptions) {
   const [query, setQuery] = useState("");
   const [entries, setEntries] = useState<DictionaryEntry[]>([]);
   const [more, setMore] = useState(false);
   const [loading, setLoading] = useState(true);
-  const generation = useAsyncGeneration(dictionary, query);
+  const generation = useAsyncGeneration(dictionary, query, kind);
   const nextOffset = useRef(0);
   const notice = useLatestRef(onNotice);
 
   useEffect(() => {
     nextOffset.current = 0;
-  }, [dictionary, query]);
+  }, [dictionary, query, kind]);
 
   const load = async (offset: number) => {
     const current = ++generation.current;
     setLoading(true);
-    const code = normalizePinyinCode(query);
-    const byCode = query.trim() !== "" && validPinyinCode(code);
+    const cantonese = kind === "cantonese";
+    const code = cantonese ? normalizeCantoneseCode(query) : normalizePinyinCode(query);
+    const byCode =
+      query.trim() !== "" && (cantonese ? validCantoneseCode(code) : validPinyinCode(code));
     try {
-      const page = await dictionary.list(
-        offset,
-        ENTRY_PAGE_SIZE,
-        "pinyin",
-        byCode ? code : undefined,
-      );
+      const page = await dictionary.list(offset, ENTRY_PAGE_SIZE, kind, byCode ? code : undefined);
       if (current !== generation.current) return;
       // 不像拼音的搜索词按词语过滤已读出的词条，与 Android 的词库详情页相同。
       const found =
@@ -61,7 +66,7 @@ export function useBuiltinDictionaryEntries({
   const { schedule: loadLater } = useDebouncedCallback(() => void load(0), query ? 250 : 0);
   useEffect(() => {
     loadLater();
-  }, [loadLater, query, dictionary]);
+  }, [loadLater, query, dictionary, kind]);
 
   return {
     query,

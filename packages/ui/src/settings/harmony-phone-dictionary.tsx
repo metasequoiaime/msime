@@ -20,9 +20,11 @@ import { useDictionaryCollectionsState } from "../dictionary/use-dictionary-coll
 import { SwitchRow } from "./switch-row";
 
 const BUILTIN = "builtin:pinyin";
+/** 粤语词库：只有自己加的粤语词，不是命名词库，和拼音词库一样常开。 */
+const BUILTIN_CANTONESE = "builtin:cantonese";
 
 /**
- * HarmonyOS 手机的「词库」页，按 Android 的 `LexiconPage` 布局：「已安装」列出拼音词库和用户自己的词库，点进去启用、停用和编辑；「管理」里新建、导入、导出和刷新；「发现词库」是社区词库，「添加」后成为一个可以停用或删除的词库，末尾的「浏览更多词库」切到底部「社区」标签的「词库」分类；然后是学习开关和「更多」。
+ * HarmonyOS 手机的「词库」页，按 Android 的 `LexiconPage` 布局：「已安装」列出拼音词库、粤语词库和用户自己的词库，点进去启用、停用和编辑；「管理」里新建、导入、导出和刷新；「发现词库」是社区词库，「添加」后成为一个可以停用或删除的词库，末尾的「浏览更多词库」切到底部「社区」标签的「词库」分类；然后是学习开关和「更多」。
  *
  * 词库详情在本页内打开，推入一条历史记录，系统返回键和左上角的返回都回到列表。
  */
@@ -57,7 +59,7 @@ export function HarmonyPhoneDictionary() {
   });
   const [creating, setCreating] = useState(false);
   const [addingDictionary, setAddingDictionary] = useState(false);
-  const { view, loadFailure, builtinCount, busy, run, captureOwner } =
+  const { view, loadFailure, builtinCount, cantoneseCount, busy, run, captureOwner } =
     useDictionaryCollectionsState({
       collections,
       dictionary,
@@ -81,6 +83,20 @@ export function HarmonyPhoneDictionary() {
         onExport={
           dictionary.export
             ? () => exportPersonalPinyinDictionary(dictionary, client.saveExport)
+            : undefined
+        }
+      />
+    );
+  }
+  if (detail === BUILTIN_CANTONESE && dictionary) {
+    return (
+      <BuiltinDictionaryDetail
+        kind="cantonese"
+        dictionary={dictionary}
+        count={cantoneseCount}
+        onExport={
+          dictionary.export
+            ? () => exportPersonalPinyinDictionary(dictionary, client.saveExport, "cantonese")
             : undefined
         }
       />
@@ -132,6 +148,18 @@ export function HarmonyPhoneDictionary() {
               description={builtinDescription(builtinCount)}
               value="已启用"
               onClick={() => openDetail(BUILTIN)}
+            />
+          )}
+          {dictionary && (
+            <NavRow
+              variant="me"
+              icon={<Badge>粤</Badge>}
+              title="粤语词库"
+              description={
+                cantoneseCount ? `${formatZhNumber(cantoneseCount)} 条自己的词` : "自己加的粤语词"
+              }
+              value="已启用"
+              onClick={() => openDetail(BUILTIN_CANTONESE)}
             />
           )}
           {view?.collections.map((item) => (

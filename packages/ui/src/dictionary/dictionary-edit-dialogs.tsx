@@ -3,7 +3,9 @@ import { isComposingKeyEvent } from "../core/ime-key-event";
 import { LabeledInputField } from "../core/labeled-input-field";
 import * as dialog from "../community/community-style";
 import {
+  normalizeCantoneseCode,
   normalizePinyinCode,
+  validCantoneseCode,
   validCollectionName,
   validPinyinCode,
 } from "./dictionary-collections";
@@ -151,9 +153,12 @@ export function DictionaryNameDialog({
 export function DictionaryWordDialog({
   onClose,
   onSubmit,
+  cantonese = false,
 }: {
   onClose: () => void;
   onSubmit: (word: string, code: string) => Promise<void>;
+  /** 粤语词库：编码填粤拼，音节用空格分隔。 */
+  cantonese?: boolean;
 }) {
   const [word, setWord] = useState("");
   const [pinyin, setPinyin] = useState("");
@@ -166,13 +171,17 @@ export function DictionaryWordDialog({
       onClose={onClose}
       onSubmit={async () => {
         const value = word.trim();
-        const code = normalizePinyinCode(pinyin);
+        const code = cantonese ? normalizeCantoneseCode(pinyin) : normalizePinyinCode(pinyin);
         if (!value) {
           setError("请填写词语。");
           return;
         }
-        if (!validPinyinCode(code)) {
-          setError("拼音只能是字母，音节之间可以用空格或 ' 分开。");
+        if (cantonese ? !validCantoneseCode(code) : !validPinyinCode(code)) {
+          setError(
+            cantonese
+              ? "粤拼只能是字母，每个字一个音节，音节之间用空格分开。"
+              : "拼音只能是字母，音节之间可以用空格或 ' 分开。",
+          );
           return;
         }
         await onSubmit(value, code);
@@ -187,9 +196,9 @@ export function DictionaryWordDialog({
         }}
       />
       <DialogField
-        label="拼音"
+        label={cantonese ? "粤拼" : "拼音"}
         value={pinyin}
-        placeholder="比如 shui shan"
+        placeholder={cantonese ? "比如 nei hou" : "比如 shui shan"}
         onChange={(value) => {
           setPinyin(value);
           setError("");

@@ -44,13 +44,15 @@ export function dictionaryKindKeyHint(kind: string): string {
       return "1–64 个字母";
     case "pinyin":
       return "完整音节，用 ' 分隔，如 ni'hao";
+    case "cantonese":
+      return "粤拼，每字一个音节，用空格分隔，如 nei hou";
     default:
       return "";
   }
 }
 
 export function personalDictionaryKindTitle(
-  kind: "pinyin" | "wubi" | "wubi98" | "quickPhrase" | "english",
+  kind: "pinyin" | "wubi" | "wubi98" | "quickPhrase" | "english" | "cantonese",
 ): string {
   return kind === "pinyin"
     ? "拼音"
@@ -60,5 +62,7 @@ export function personalDictionaryKindTitle(
         ? "98 五笔"
         : kind === "quickPhrase"
           ? "快捷短语"
-          : "英文";
+          : kind === "cantonese"
+            ? "粤语"
+            : "英文";
 }

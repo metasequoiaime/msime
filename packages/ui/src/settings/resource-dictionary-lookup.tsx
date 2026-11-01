@@ -112,6 +112,7 @@ export function ResourceDictionaryLookup({
         {error && <ErrorAlert>{error}</ErrorAlert>}
         <DictionaryEntryList
           kind={kind}
+          resource
           entries={result.entries}
           busy={busy}
           listRef={listRef}

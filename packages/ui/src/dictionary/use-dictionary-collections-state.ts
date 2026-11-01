@@ -28,6 +28,7 @@ export function useDictionaryCollectionsState({
   const [view, setView] = useState<DictionaryCollectionsView | null>(null);
   const [loadFailure, setLoadFailure] = useState("");
   const [builtinCount, setBuiltinCount] = useState<number | null>(null);
+  const [cantoneseCount, setCantoneseCount] = useState<number | null>(null);
   const reportFailure = useCallback(
     (message: string) => {
       if (message) onNotice(message);
@@ -46,6 +47,13 @@ export function useDictionaryCollectionsState({
         .then(
           (count) =>
             mounted.current && current === reloadGeneration.current && setBuiltinCount(count),
+        )
+        .catch(() => undefined);
+      dictionary
+        .count("cantonese")
+        .then(
+          (count) =>
+            mounted.current && current === reloadGeneration.current && setCantoneseCount(count),
         )
         .catch(() => undefined);
     }
@@ -98,7 +106,7 @@ export function useDictionaryCollectionsState({
     return isCurrentOwner() ? next : undefined;
   };
 
-  return { view, loadFailure, builtinCount, busy, run, captureOwner };
+  return { view, loadFailure, builtinCount, cantoneseCount, busy, run, captureOwner };
 }
 
 export type DictionaryCollectionsState = ReturnType<typeof useDictionaryCollectionsState>;

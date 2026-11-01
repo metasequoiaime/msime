@@ -52,13 +52,14 @@ test("语言资源与个人词库都出现在查询下拉，切到日语即列�
     "wubi98",
     "english",
     "quick_phrase",
-    "japanese",
-    "korean_hanja",
     "cantonese",
-    "zhuyin",
-    "stroke",
+    "resource:japanese",
+    "resource:korean_hanja",
+    "resource:cantonese",
+    "resource:zhuyin",
+    "resource:stroke",
   ]);
-  fireEvent.change(select, { target: { value: "japanese" } });
+  fireEvent.change(select, { target: { value: "resource:japanese" } });
   expect(await screen.findByText("日本")).toBeTruthy();
   expect(browse).toHaveBeenCalledWith(0, 100, "japanese", "");
   expect(screen.queryByRole("button", { name: "新增词条" })).toBeNull();
@@ -117,4 +118,55 @@ test("未安装的词库显示下载说明，区别于空结果", async () => {
   render(<ResourceDictionaryLookup dictionary={dictionary} kind="cantonese" />);
   await waitFor(() => expect(screen.getAllByText(/词库尚未安装/).length).toBeGreaterThan(0));
   expect(screen.queryByText("未找到匹配词条")).toBeNull();
+});
+
+test("粤语的个人词库和基础词库在下拉里分开：个人粤语词可编辑，基础词库走只读浏览", async () => {
+  const snapshot: Snapshot = {
+    format_version: 1,
+    revision: 1,
+    preferences: {
+      scheme: "quanpin",
+      shuangpin_profile: "xiaohe",
+      candidate_page_size: 5,
+      learning: true,
+      chinese_punctuation: true,
+    },
+  };
+  const browse = vi.fn().mockResolvedValue({
+    entries: [
+      { kind: "cantonese", key: "nei hou", value: "你好", weight: 21493, source: "bundled" },
+    ],
+    has_more: false,
+    available: true,
+  });
+  const list = vi.fn().mockImplementation(async (_offset, _limit, kind) => ({
+    entries:
+      kind === "cantonese"
+        ? [{ kind: "cantonese", key: "nei hou", value: "禮好", weight: 100000, source: "user" }]
+        : [],
+    has_more: false,
+  }));
+  const client: SettingsClient = {
+    load: async () => snapshot,
+    save: vi.fn(),
+    dictionary: { browse, list, edit: vi.fn() },
+  };
+  render(<SettingsPage client={client} />);
+  await settingsFormReady();
+  fireEvent.click(screen.getByRole("button", { name: /^(词库|词库管理)$/ }));
+  const select = screen.getByLabelText("本地词库类型");
+  fireEvent.change(select, { target: { value: "cantonese" } });
+  expect(await screen.findByText("禮好")).toBeTruthy();
+  expect(list).toHaveBeenLastCalledWith(0, 100, "cantonese", "");
+  expect(browse).not.toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: "编辑" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "新增词条" }));
+  expect(screen.getByText("粤拼，每字一个音节，用空格分隔，如 nei hou")).toBeTruthy();
+  expect((screen.getByLabelText(/权重/) as HTMLInputElement).value).toBe("100000");
+
+  fireEvent.change(select, { target: { value: "resource:cantonese" } });
+  expect(await screen.findByText("你好")).toBeTruthy();
+  expect(browse).toHaveBeenCalledWith(0, 100, "cantonese", "");
+  expect(screen.queryByRole("button", { name: "编辑" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "新增词条" })).toBeNull();
 });
