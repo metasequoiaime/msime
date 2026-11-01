@@ -6191,7 +6191,8 @@ group("a candidate with a gloss offers the gloss as something to type", () => {
   // 2in1 的触摸长按也要能读到没有释义的英文候选，和右键一样。
   check(
     CandidateManagementAction.touchActions("", false, "hello", "hello")
-      .map((action: ManagementAction) => action.id).join(",") === "READ_ALOUD",
+      .map((action: ManagementAction) => action.id)
+      .join(",") === "READ_ALOUD",
     "a touch long press on an English candidate without a gloss offers 朗读 alone",
   );
   check(
@@ -11139,6 +11140,57 @@ group("the platform accent", () => {
   check(
     GlobalTheme.accentSoft(false) === "#222C7A4B" && GlobalTheme.accentSoft(true) === "#405FBF84",
     "accentSoft is the accent with alpha 0x22 light and 0x40 dark, alpha first",
+  );
+});
+
+group("2in1 默认选中行的字和释义对选中淡底到 WCAG AA", () => {
+  // ArkUI 的颜色是 `#RRGGBB` 或 `#AARRGGBB`；半透明的颜色按 alpha 合成到下面的底色上再算对比度。
+  const channels = (color: string): number[] => {
+    const hex = color.slice(1);
+    const rgb = hex.length === 8 ? hex.slice(2) : hex;
+    return [0, 2, 4].map((at) => parseInt(rgb.slice(at, at + 2), 16) / 255);
+  };
+  const alpha = (color: string): number =>
+    color.length === 9 ? parseInt(color.slice(1, 3), 16) / 255 : 1;
+  const over = (top: string, under: number[]): number[] =>
+    channels(top).map((value, index) => value * alpha(top) + under[index] * (1 - alpha(top)));
+  const luminance = (rgb: number[]): number =>
+    rgb.reduce((sum, value, index) => {
+      const linear = value <= 0.04045 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
+      return sum + [0.2126, 0.7152, 0.0722][index] * linear;
+    }, 0);
+  const contrast = (a: number[], b: number[]): number => {
+    const [x, y] = [luminance(a), luminance(b)];
+    return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+  };
+  for (const dark of [false, true]) {
+    const colors = GlobalTheme.candidateColors(null, dark);
+    const fill = over(colors.selected, channels(colors.surface));
+    const mode = dark ? "dark" : "light";
+    check(contrast(over(colors.selectedText, fill), fill) >= 4.5, `${mode}: the selected word`);
+    const detail = GlobalTheme.candidateDetail(colors, true);
+    check(
+      detail === colors.selectedNumber,
+      `${mode}: the selected row's gloss is the selected number colour`,
+    );
+    check(contrast(over(detail, fill), fill) >= 4.5, `${mode}: the selected gloss and reading`);
+    check(
+      contrast(over(colors.accent, fill), fill) < 4.5,
+      `${mode}: the accent itself does not reach AA on its wash`,
+    );
+    check(
+      GlobalTheme.candidateDetail(colors, false) === colors.secondary,
+      `${mode}: plain rows keep the secondary colour`,
+    );
+  }
+  // 皮肤包给了自己的释义色（次要色和序号色不同）时，选中行照旧用它。
+  const packaged = GlobalTheme.candidateColors(
+    { ...GlobalTheme.candidatePalette({ number: "#808080", secondary: "#3060A0" })! },
+    false,
+  );
+  check(
+    GlobalTheme.candidateDetail(packaged, true) === "#3060A0",
+    "a package's own gloss colour is kept on the selected row",
   );
 });
 
