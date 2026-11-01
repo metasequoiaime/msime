@@ -30,9 +30,8 @@ export function CommunityBlockedAuthorsRow() {
   return (
     <LinkRow
       title={communityBlockedAuthorsTitle}
-      description={
-        signedIn === null ? undefined : signedIn ? "社区里不显示这些作者的作品" : "登录后可用"
-      }
+      description={signedIn ? "社区里不显示这些作者的作品" : undefined}
+      value={signedIn === false ? "登录后可用" : undefined}
       onClick={() => (signedIn === false ? openAccountLogin() : selectPage("blocked-authors"))}
     />
   );

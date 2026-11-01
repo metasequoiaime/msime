@@ -71,7 +71,7 @@ export function CandidateFontPresetRow({
   return (
     <SegmentedRow
       title="候选字体"
-      description={
+      detail={
         preset === null
           ? `当前为自定义字体 ${preferences.candidate_font_family ?? ""}，可在下方修改`
           : platform === "windows"
@@ -112,7 +112,7 @@ export function CandidateScaleRow({
   return (
     <SliderRow
       title={touchStrip ? "候选栏大小" : "整体大小"}
-      description={`${scale}%，${touchStrip ? "候选字和工具栏一起缩放，按键大小不变" : "字号与窗口尺寸一起缩放"}`}
+      description={touchStrip ? "候选字和工具栏一起缩放，按键大小不变" : "字号与窗口尺寸一起缩放"}
       {...(touchStrip ? touchCandidateScaleSlider : candidateScaleSlider)}
       value={scale}
       valueText={`${scale}%`}
@@ -196,7 +196,7 @@ export function CandidateWindowStyleRows({
           description={
             systemOpacity
               ? "系统液态玻璃的不透明度由 macOS 管理；自定义主题可单独调整"
-              : `${opacity}%，文字和焦点高亮保持不透明`
+              : "文字和焦点高亮保持不透明"
           }
           {...candidateOpacitySlider}
           disabled={systemOpacity}
@@ -208,11 +208,8 @@ export function CandidateWindowStyleRows({
       {showCornerRadius && (
         <Row
           title="圆角大小"
-          description={
-            radius === null
-              ? "跟随皮肤；设置后覆盖皮肤自带的圆角"
-              : `${radius}pt，覆盖皮肤自带的圆角`
-          }
+          description="设置后覆盖皮肤自带的圆角"
+          detail={radius === null ? "跟随皮肤" : `${radius}pt`}
         >
           <span className="candidate-color-control">
             <span className={settings.sliderControl}>
@@ -237,11 +234,8 @@ export function CandidateWindowStyleRows({
       {showPadding && !showItemGeometry && (
         <Row
           title="内边距"
-          description={
-            padding === null
-              ? "跟随皮肤；调小后候选离窗口边缘更近，窗口更紧凑"
-              : `${padding}pt，覆盖皮肤自带的内边距`
-          }
+          description="调小后候选离窗口边缘更近，窗口更紧凑；设置后覆盖皮肤自带的内边距"
+          detail={padding === null ? "跟随皮肤" : `${padding}pt`}
         >
           <span className="candidate-color-control">
             <span className={settings.sliderControl}>
@@ -270,7 +264,8 @@ export function CandidateWindowStyleRows({
             <Row
               key={field.key}
               title={field.title}
-              description={value === null ? "跟随皮肤与窗口布局" : `${value}pt，覆盖皮肤与窗口布局`}
+              description="设置后覆盖皮肤与窗口布局"
+              detail={value === null ? "跟随皮肤与窗口布局" : `${value}pt`}
             >
               <span className="candidate-color-control">
                 <span className={settings.sliderControl}>

@@ -4,6 +4,8 @@ import { Row, Switch } from "../core/platform-controls";
 export interface SwitchRowProps {
   title: ReactNode;
   description?: ReactNode;
+  /** 状态、当前值或校验提示，常驻标题下方；解释性说明用 `description`，收进「?」。 */
+  detail?: ReactNode;
   hidden?: boolean;
   checked: boolean;
   disabled?: boolean;
@@ -17,6 +19,7 @@ export interface SwitchRowProps {
 export function SwitchRow({
   title,
   description,
+  detail,
   hidden,
   checked,
   disabled,
@@ -24,7 +27,7 @@ export function SwitchRow({
   ...labels
 }: SwitchRowProps) {
   return (
-    <Row title={title} description={description} hidden={hidden}>
+    <Row title={title} description={description} detail={detail} hidden={hidden}>
       <Switch checked={checked} disabled={disabled} onChange={onChange} {...labels} />
     </Row>
   );

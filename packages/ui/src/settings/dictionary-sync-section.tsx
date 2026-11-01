@@ -297,7 +297,7 @@ function DictionarySyncDevices({ model }: { model: DictionarySyncModel }) {
                 <Row
                   key={device.device_id}
                   title={deviceName(device)}
-                  description={
+                  detail={
                     <>
                       {registeredAt(device.created_at)} 登记 · 核对码{" "}
                       <span
@@ -331,7 +331,7 @@ function DictionarySyncDevices({ model }: { model: DictionarySyncModel }) {
             <Row
               key={device.device_id}
               title={`${deviceName(device)}${device.current ? "（本机）" : ""}`}
-              description={`${registeredAt(device.created_at)} 登记`}
+              detail={`${registeredAt(device.created_at)} 登记`}
             >
               {canManage && !device.current && (
                 <ActionButton

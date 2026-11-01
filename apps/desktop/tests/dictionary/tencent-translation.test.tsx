@@ -106,7 +106,8 @@ test("the copy no longer claims a Linux provider on every platform", async () =>
   fireEvent.change(screen.getByRole("combobox", { name: "候选词翻译服务" }), {
     target: { value: "custom" },
   });
-  const custom = screen.getByRole("group", { name: "自定义翻译服务" });
+  // 说明收进了组名旁的「?」，按整组（含气泡里的说明文字）读。
+  const custom = screen.getByRole("group", { name: "自定义翻译服务" }).closest("section")!;
   expect(custom.textContent).not.toContain("Linux provider");
   expect(custom.textContent).toContain("DeepLX");
   // 同一个自定义服务也接受 DeepL 官方 API 地址，并提示候选词会发送到 DeepL。

@@ -173,7 +173,7 @@ function GroupedPluginListView({
               packs.length === 0 &&
               gone.length === 0 &&
               (!hasClient || catalogState === "loaded") && (
-                <SettingsGroupNote>
+                <SettingsGroupNote inline>
                   {hasClient
                     ? "还没有导入指令表。"
                     : "这台设备还不能导入指令表，内置的 rq、sj、xq 指令照常可用。"}
@@ -213,8 +213,8 @@ function GroupedPluginListView({
           <GroupList title="脚本插件（实验）">
             <SettingsGroupNote>
               脚本插件会在输入法里运行第三方代码，只做你在授权时允许的事；导入后默认不运行，打开它的详情授权后才启用。
-              {scripts.risk ?? ""}
             </SettingsGroupNote>
+            {scripts.risk && <SettingsGroupNote inline>{scripts.risk}</SettingsGroupNote>}
             {scriptPacks.map((pack) => (
               <PluginNavRow
                 key={pack.id}

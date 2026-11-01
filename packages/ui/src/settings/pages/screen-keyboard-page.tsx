@@ -122,7 +122,7 @@ function HarmonyChineseKeyboardRow({
     <SelectRow
       title="中文键盘"
       aria-label="中文键盘"
-      description={group ? undefined : "当前方案只有一种键盘，在「输入」里换方案"}
+      detail={group ? undefined : "当前方案只有一种键盘，在「输入」里换方案"}
       disabled={!group}
       value={current}
       onChange={(event) => {

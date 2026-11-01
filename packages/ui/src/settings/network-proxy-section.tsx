@@ -57,10 +57,8 @@ export function NetworkProxySection({
         {custom && (
           <TextInputRow
             title="代理地址"
-            description={
-              issue ||
-              "形如 127.0.0.1:7890，也可以写 http://127.0.0.1:7890；留空时等同于「跟随系统代理」。"
-            }
+            description="形如 127.0.0.1:7890，也可以写 http://127.0.0.1:7890；留空时等同于「跟随系统代理」。"
+            detail={issue || undefined}
             label="代理地址"
             placeholder="127.0.0.1:7890"
             value={current.proxy_server}
