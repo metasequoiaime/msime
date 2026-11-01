@@ -42,7 +42,7 @@ Status: implemented
 
 - Rust `skin::app_theme::the_first_candidate_meets_aa_on_light_keyboards`：按宿主的 `color-mix` 取整算出四季浅色的键盘底色和底片，`candidate_accent` 对两者都不低于 4.5:1，强调色本身对键盘底色低于 4.5:1（不需要单独字色时测试会提醒去掉），深色 `candidate_accent` 等于 `accent`。`host-api` 的契约测试要求目录和解析结果都带这个字段。
 - iOS `KeyboardSkinTests.testFirstCandidateMeetsAAOnLightSeasonKeyboards`：四个固定季节下跟随系统皮肤的 `candidateAccent` 是上表的值，对 `background` 和 `keyBackground` 都不低于 4.5:1，回车键仍是强调色，深色等于强调色；经典兜底 token 同样检查；纸白的首选仍是自己的强调色。候选条第一个词块的字色测试改成 `candidateAccent`。
-- Android `AppThemePaletteSmoke.firstCandidateContrast`：四季和代码里的秋杉回退，浅色 `candidateAccent` 对 `keyboardBackground`、`keyboardKey` 不低于 4.5:1；`KeyboardSkinSmoke`、`CandidateAppearanceSmoke`、`CandidateCorrectionMarkPolicySmoke` 钉住 classic、秋杉和具名皮肤的 chip 字色。
+- Android `AppThemePaletteSmoke.firstCandidateContrast`：四季和代码里的秋杉回退，浅色 `candidateAccent` 对 `keyboardBackground`、`keyboardKey` 不低于 4.5:1；`KeyboardSkinSmoke` 对 classic 回退按真实颜色算对比度（`candidateSelectedForeground()` 对 `candidateSelectedBackground()` 和 `background()` 都不低于 4.5:1），并和 `CandidateAppearanceSmoke`、`CandidateCorrectionMarkPolicySmoke` 一起钉住 classic、秋杉和具名皮肤的 chip 字色。
 - HarmonyOS `keyboard-logic.test.ts`「浅色跟随系统键盘的首选字色……」：四季和无种子回退，`candidateAccent` 对 `keyBackground`、`background` 不低于 4.5:1，强调色和回车键不变，深色等于强调色，具名主题用自己的强调色，首选字色计入皮肤身份。
 
 ## Alternatives considered
@@ -55,7 +55,7 @@ Status: implemented
 ## Consequences
 
 - **收益**：浅色跟随系统键盘的首选在三端、四季和回退配色下对候选条底片和键盘底色都不低于 4.5:1；四季的值只有 Rust 一份，三端读同一个契约字段；每个平台都有对比度断言，以后改种子或底色时退化会在单测里失败。
-- **代价**：浅色首选比强调色暗，春芽 `#267308` 尤其明显，和回车键不再是同一个绿；Android 展开网格的选中格跟着换色，iOS 和 HarmonyOS 的展开面板仍用强调色（iOS 选中格画在强调色淡底上，HarmonyOS 画开启态的 `toggleForeground`），三端展开面板的首选颜色不一致。应用主题的 C ABI 多了一个字段，读它的宿主（iOS `AppThemePalette.Resolved`、Android `Mode.fromResolved`、HarmonyOS `parseResolved`）缺这个字段时整次解析失败，退回各自的回退配色。
-- **未覆盖**：深色秋杉首选在底片上 4.17:1、iOS 经典兜底深色 2.35:1；iOS 候选条其余位置的固定词仍是强调色画在键盘底色上；具名主题（如纸白 `#2C7A4B` 在 `#E6E1D5` 上约 4.0:1）不在这次范围里，iOS `testSkinTextContrastInBothAppearances` 对所有主题的首选仍只要求 3:1。验证：Rust 和 host-api 的测试经 `rbuild` 在 Studio 上跑过，Android `check-host.sh`（含全部 JVM 冒烟）、HarmonyOS `tests/run.sh`、桌面 `typecheck` 和受影响的 vitest 在本机跑过；iOS 的 Swift 测试只在 PR 的 iOS CI 上跑，没有在本机模拟器上跑；HarmonyOS 没有本机打 HAP，`.ets` 里的两处改动（触屏条 `selectedText`、`sameSeed`）没有经过 ArkTS 编译器，只过了 `scripts/test-harmony-arkts-subset.py`；三端都没有在设备或模拟器上看过画面。
+- **代价**：浅色首选比强调色暗，春芽 `#267308` 尤其明显，和回车键不再是同一个绿；Android 展开网格的选中格跟着换色，iOS 和 HarmonyOS 的展开面板仍用强调色（iOS 选中格画在强调色淡底上，HarmonyOS 画开启态的 `toggleForeground`），三端展开面板的首选颜色不一致。应用主题的 C ABI 多了一个字段。iOS `AppThemePalette.Resolved` 和 HarmonyOS `parseResolved` 每次都从共享层现算，缺这个字段时整次解析失败，退回各自的回退配色。Android 的 `Mode.fromResolved` 还要读 `AppThemeController` 存在 SharedPreferences 里的上一次解析结果，升级前存的没有这个字段；那里缺 `candidate_accent` 时退回 accent，不判为读不懂，否则春芽、夏荫、冬雪的用户在 `follow()` 重写缓存之前，宿主里的键盘预览会画成秋杉。
+- **未覆盖**：深色秋杉首选在底片上 4.17:1、iOS 经典兜底深色 2.35:1；iOS 候选条其余位置的固定词仍是强调色画在键盘底色上；iOS 日语转换时当前所在的词块画在 `skin.accent` 22% 盖在键盘底色上的淡底上，转换停在首个词块时它的字用 `candidateAccent`，浅色四季只有约 3.5 到 3.8:1（春 3.81、夏 3.52、秋 3.63、冬 3.54，改前用强调色是 2.24 到 3.27），是改善但没到 AA；具名主题（如纸白 `#2C7A4B` 在 `#E6E1D5` 上约 4.0:1）不在这次范围里，iOS `testSkinTextContrastInBothAppearances` 对所有主题的首选仍只要求 3:1。验证：Rust 和 host-api 的测试经 `rbuild` 在 Studio 上跑过，Android `check-host.sh`（含全部 JVM 冒烟）、HarmonyOS `tests/run.sh`、桌面 `typecheck` 和受影响的 vitest 在本机跑过；iOS 的 Swift 测试只在 PR 的 iOS CI 上跑，没有在本机模拟器上跑；HarmonyOS 没有本机打 HAP，`.ets` 里的两处改动（触屏条 `selectedText`、`sameSeed`）没有经过 ArkTS 编译器，只过了 `scripts/test-harmony-arkts-subset.py`；三端都没有在设备或模拟器上看过画面。
 
 相关：跟随系统键盘按应用主题取色的来历见 [触屏键盘新装默认跟随系统皮肤](../feature/2026-10-08-touch-keyboard-default-follows-app-theme.md)。

@@ -284,7 +284,9 @@ public final class AppThemePalette {
         /**
          * 一次 `resolveAppTheme` 响应（`{id, season, accent, accent_soft, on_accent, background, card, hair, candidate_accent}`）里的种子色；`accent_soft` 由本类自己推导，不读。
          *
-         * @return 缺字段或颜色读不懂时为 null
+         * <p>只有 `candidate_accent` 可以缺：升级前写进 SharedPreferences 的缓存（`AppThemeController` 的 `app_theme_seed_light` / `app_theme_seed_dark`）没有这个字段，缺了就退回 accent，要是整次判为读不懂，春芽、夏荫、冬雪的用户在下一次 `follow()` 重写缓存之前会看到秋杉的预览。
+         *
+         * @return 缺其余字段或颜色读不懂时为 null
          */
         public static Mode fromResolved(JSONObject response) {
             if (response == null) return null;
@@ -293,9 +295,10 @@ public final class AppThemePalette {
             Integer card = contractColor(response.optString("card", ""));
             Integer hair = contractColor(response.optString("hair", ""));
             Integer onAccent = contractColor(response.optString("on_accent", ""));
-            Integer candidateAccent = contractColor(response.optString("candidate_accent", ""));
-            if (accent == null || background == null || card == null || hair == null || onAccent == null
-                    || candidateAccent == null) return null;
+            if (accent == null || background == null || card == null || hair == null || onAccent == null) return null;
+            String candidateField = response.optString("candidate_accent", "");
+            Integer candidateAccent = candidateField.isEmpty() ? accent : contractColor(candidateField);
+            if (candidateAccent == null) return null;
             return new Mode(accent, background, card, hair, onAccent, candidateAccent);
         }
     }

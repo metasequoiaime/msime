@@ -8808,12 +8808,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 英文音标在释义下面单独一行（与 macOS、Android 相同）；还没到或查不到时留一个占位，行数不变。
     let lines = (reading.map { [$0.isEmpty ? Self.pendingGlossPlaceholder : $0] } ?? []) + glosses
       + (pronunciation.map { [$0.isEmpty ? Self.pendingGlossPlaceholder : $0] } ?? [])
-    // On the keyboard's own colours the first candidate, the one space commits, is the selected one: the accent at weight 600 while the rest stay in the key text colour at 400 (dc.html `mobCands`). The desktop palette marks it with its fill instead.
+    // 键盘自己的配色下，首选（空格会上屏的那个）就是选中项：用皮肤的 `candidateAccent`、600 字重，其余候选用按键文字色、400 字重（dc.html `mobCands`）。浅色跟随系统时 `candidateAccent` 是加深到 WCAG AA 的强调色，其余皮肤就是强调色。桌面调色板改用选中底色标出首选。
     let selected = candidatePalette == nil && number == 1
     let weight: UIFont.Weight = selected ? .semibold : .regular
     // A pinned word takes the accent colour, as it does in the Windows candidate window; chips are reused, so every other word is set back.
     let pinned = markers.contains(where: \.pinned)
-    // 坐了首选的双拼纠错（`confident_correction`）同样用强调色画字；键盘自己的配色里首选本来就是强调色，所以它的纠错注释（纠错前的拼写）和释义行也改用强调色，不画次要色，和没坐首选的纠错区分开。桌面调色板下首个词块画在选中底色上，调色板给了那里的颜色就照用（字用选中文字色，注释用选中翻译色、其次选中文字色），都没给才用强调色：微信外观的选中底色就是强调色，强调色的字会看不见。展开网格是同一条规则（`KeyboardCandidatePanelView.makeChip`）。
+    // 坐了首选的双拼纠错（`confident_correction`）同样用强调色画字；键盘自己的配色里首选本来就用 `candidateAccent` 画字，所以它的纠错注释（纠错前的拼写）和释义行也改用这个颜色，不画次要色，和没坐首选的纠错区分开。桌面调色板下首个词块画在选中底色上，调色板给了那里的颜色就照用（字用选中文字色，注释用选中翻译色、其次选中文字色），都没给才用强调色：微信外观的选中底色就是强调色，强调色的字会看不见。展开网格是同一条规则（`KeyboardCandidatePanelView.makeChip`）。
     // 首个词块用皮肤的 `candidateAccent`（浅色季节配色加深到 AA），其余位置的固定词仍用强调色。
     let accent = candidatePalette?.accent ?? (number == 1 ? skin.candidateAccent : skin.accent)
     let onSelectedFill = candidatePalette != nil && number == 1

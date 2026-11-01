@@ -57,7 +57,7 @@ enum NativeKeyboardTokens {
   static let functionKey = adaptiveColor(0xABB0BB, 0x464648)
   static let text = adaptiveColor(0x000000, 0xFFFFFF)
   static let secondary = adaptiveColor(0x8A8A8E, 0x8E8E93)
-  /// The brand accent: the return key while composing, the selected candidate, switched-on tiles and pills.
+  /// 品牌强调色：输入中的回车键、开启态磁贴和胶囊。候选条首选的字色另见 `candidateAccent`。
   static let accent = adaptiveColor(0x2C7A4B, 0x5FBF84)
   static let accentSoft = adaptiveColor(0x2C7A4B, 0x5FBF84, lightAlpha: 0.14, darkAlpha: 0.26)
   /// 触屏候选条首选的字色。浅色的 `accent` 画在键盘底色 `#D1D4DB` 上只有约 3.5:1，换成同一色相在 OKLCH 里降低明度的 `#15683B`（约 4.6:1，候选底片 `#FFFFFF` 上约 6.8:1）；深色不变。
