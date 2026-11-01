@@ -418,7 +418,10 @@ function start(request: LocalAsrRequest): void {
   } else {
     // FunASR-nano shares a 512-token context between audio and text; past roughly 25 seconds it returns nothing.
     const maxSpeech: number = model.plan.kind === LOCAL_MODEL_OFFLINE_FUNASR_NANO ? 20 : 28;
-    const silero: SileroVadConfig = new SileroVadConfig(model.plan.vad, 0.5, 0.25, 0.5, LOCAL_VAD_WINDOW, maxSpeech);
+    // 判停灵敏度只改判定阈值（#10310）：按停顿结束的会话按用户设的灵敏度，其余沿用 0.5，见 `LocalAsrPolicy.vadThreshold`。
+    const threshold: number = LocalAsrPolicy.vadThreshold(request.stopSensitivity);
+    const silero: SileroVadConfig =
+      new SileroVadConfig(model.plan.vad, threshold, 0.25, 0.5, LOCAL_VAD_WINDOW, maxSpeech);
     current.historyLimit = maxSpeech * LOCAL_ASR_SAMPLE_RATE + LOCAL_VAD_HISTORY_SLACK;
     current.history = new Float32Array(current.historyLimit + LOCAL_ASR_SAMPLE_RATE);
     const ten: TenVadConfig = new TenVadConfig('', 0.5, 0.25, 0.5, 256, 20);

@@ -493,7 +493,7 @@ int local_asr_thread_count(int requested) {
 float local_asr_vad_threshold(int sensitivity_percent) {
   if (sensitivity_percent < 10 || sensitivity_percent > 90)
     return 0.5f;
-  return static_cast<float>(100 - sensitivity_percent) / 100.0f;
+  return static_cast<float>(sensitivity_percent) / 100.0f;
 }
 
 namespace {

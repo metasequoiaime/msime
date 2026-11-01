@@ -538,7 +538,8 @@ public final class VoiceRecognitionActivity extends Activity {
             String text = null;
             String message = null;
             try {
-                running.vadSensitivity(AndroidLocalSettings.load(this).integer(AndroidLocalSettings.VOICE_VAD_SENSITIVITY));
+                // 识别窗口由「完成」结束、不按停顿判停，判停灵敏度在这里换不来好处，传 0 让阈值保持 0.5。
+                running.vadSensitivity(0);
                 text = running.recognize(modelDirectory, files == null ? null : files.toPath(), language,
                     HostOptionsPolicy.readRuntimeOptions(files),
                     hotwordTexts, hotwordPinyin,
