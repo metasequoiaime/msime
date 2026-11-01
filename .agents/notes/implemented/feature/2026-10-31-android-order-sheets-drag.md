@@ -29,9 +29,24 @@ Status: implemented
 
 ## 范围
 
-- `NineKeySidebarSheet` 不动，它的拖动由 #10396 重写。拖动规则（`dragSlot`、`dragTarget`、`edgeScrollStep`、`scrollTowardRoom`、序号和读屏描述）此刻在 `ReorderPolicy` 和 #10396 的 `NineKeySidebarPolicy` 里各有一份，逐条相同；两个 PR 都合进 develop 后，再把两张页的拖动收进同一个控制器、规则只留一份（它的行里还有删除键和符号牌，需要控制器只管拖动、不管行的内容），由 #10546 跟进。
-- 工具栏「按钮顺序」（`ToolbarOrderSheet`）也是箭头，不在 #10392 范围内，另开 issue。
-- `SymbolCategoryOrderPolicy.move`（相邻交换）不再被设置页调用，它的语义与 `ReorderPolicy.moved` 在相邻一格时相同，留着由 `SymbolCategoryOrderPolicySmoke` 继续覆盖。
+- #10392 时 `NineKeySidebarSheet` 不动，它的拖动由 #10396 重写，两个 PR 同时在审、谁都不能依赖对方，于是拖动规则在 `ReorderPolicy` 和 `NineKeySidebarPolicy` 里各有一份，拖动控制代码在 `ReorderList` 和 `NineKeySidebarSheet` 里也各有一份。
+- #10546 在两个 PR 都合进 develop 后把它们合成一份，见下面「#10546：一个控制器、一份规则」。
+- `SymbolCategoryOrderPolicy.move` 和 `ToolbarOrderPolicy.move`（相邻交换）不再被设置页调用，语义与 `ReorderPolicy.moved` 在相邻一格时相同，留着由各自的冒烟继续覆盖。
+
+## #10546：一个控制器、一份规则
+
+规则只留 `home/ReorderPolicy` 一份。`NineKeySidebarPolicy` 删掉了逐字重复的 `moved`、`dragSlot`、`dragTarget`、`edgeScrollStep`、`scrollTowardRoom`、`positionDescription`、`ordinalDescription`，只保留可见序号的写法 `ordinal`（「1.」），因为 iOS `NineKeySidebar.ordinal` 和共享设置页 `nineKeySidebarOrdinal` 的注释把它当三端同一写法引用。符号牌的读屏描述改成 `ReorderPolicy.ordinalDescription(position, "符号：" + text)`，念出来仍是「第 N 项，符号：X」。`NineKeySidebarPolicySmoke` 里的拖动用例按两份的并集并进 `ReorderPolicySmoke`，那边只留序号一条。
+
+`ReorderList` 改成只管拖动的控制器，行由调用方画：
+
+- `RowFactory<T>.create(item, index)` 交回 `Row(row, params, handle, renumber)`：整行、整行的布局参数（行高由调用方定）、行里的把手、按位次改写可见序号和读屏描述的回调。把手统一由 `ReorderList.addHandle` 加进行里，48 dp 宽、高占满整行，读屏描述「拖动调整 名称 的顺序」。
+- 控制器负责拿起、跟手、让位、贴边滚动外层 `NestedScrollView`、落位，把手上的「上移」「下移」（按 `canMove` 给，锁定时撤掉）、「第 N 项」状态、Alt+↑ / Alt+↓，锁定时把手变灰，挪动后把键盘焦点和读屏焦点放回新位置的把手。常量（浮起 8 dp、圆角 12 dp、动画 150 ms、边缘带 56 dp、每帧 12 dp）只在这里。
+- 落位动画开始前记下行原来的底色，结束后换回，所以无底色的行和带点按水波纹的行都对，不需要调用方传参。
+- 只有名称的面板用 `ReorderList(context, items, label)`，内部画成「序号. 名称 + 把手」、行高 48 dp，与之前一样。
+
+`NineKeySidebarSheet` 去掉了自己的拖动字段和方法，行里照样画序号栏、符号牌、把手和删除键。删除、添加、输入和恢复默认都改成拼出新表后 `setItems`，不再依赖 `moved` 返回可变表；空表提示从列表容器里挪到「当前顺序」卡片里、列表的下面，按表是否为空切换可见。统一后这张页有两处用户能感觉到的变化：把手触控区从 wrap 参数的约 43 dp 变成 48 dp 宽、高占满整行；多了实体键盘的 Alt+↑ / Alt+↓，挪动后键盘焦点跟到把手上。
+
+`check-host.sh` 的接线钉子随之改写：`NineKeySidebarSheet` 必须经 `ReorderList` 画行，不得再有 `setOnTouchListener`、读屏操作或 `NineKeySidebarPolicy` 的拖动规则；`NineKeySidebarPolicy` 不得再声明那几个函数；落位后必须换回原来的底色。
 
 ## Alternatives considered
 
@@ -46,7 +61,7 @@ Status: implemented
 
 代价与已知上限：
 
-- 拖动规则暂时有两份（见范围），合并后收拢。
+- 拖动规则和控制代码曾经各有两份（见范围），#10546 已合成一份；以后新的排序面板应当用 `ReorderList` 画行，不要再写一份拖动。
 - 行首加了 12 dp 内边距，好让浮起的圆角卡片不贴着文字，名称比面板标题往右缩进一点。
 
 验证：
@@ -54,4 +69,5 @@ Status: implemented
 - `platforms/android/check-host.sh`（经 `rbuild` 在 Studio 上跑）：JVM 冒烟（含 `ReorderPolicySmoke`：相邻挪动、跨两行是挪动而不是互换、首尾项、逐格挪动的累加、越界、不可变、上移下移的边界、序号和读屏描述、拖动途中各行位次与松手后的表一致、落点按中线、贴边滚动的步长和首尾停止）和设备套件源码编译通过。
 - Gradle `:app:compileFullDebugJavaWithJavac` 和 `:app:lintFullRelease`（NewApi）在 Studio 上通过。
 - 设备套件 `TextEditRecentClipboardDeviceSmoke` 的排序验收执行「复制」这一行把手上的「下移」读屏操作，保存、取消、重置、重开的断言不变。
+- #10546 合并时：合并前后各跑一遍 `check-host.sh`（经 `rbuild` 在 Studio 上），冒烟个数和输出除了 `NineKeySidebarPolicySmoke` 的汇总一行外完全相同；Gradle 编译和 lint 通过。「九键左侧符号」编辑页的拖动、删除和添加后再拖、空表提示、保存中把手变灰、落位后底色回到水波纹、TalkBack 念法，都还没有在模拟器上看过。
 - 没有在模拟器或真机上看过：拖动跟手和让位动画、序号实时变化、面板不跟着滑、贴边自动滚动的速度和跟手、快速拖过多行后保存再重开的顺序、TalkBack 的「上移」「下移」和位次念法、实体键盘的 Alt+↑ / Alt+↓、深色主题下浮起卡片的样子。
