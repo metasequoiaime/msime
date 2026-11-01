@@ -1,10 +1,7 @@
-import { NativeCleanup } from '../keyboard/NativeCleanup';
 import bundleManager from '@ohos.bundle.bundleManager';
 import hiAppEvent from '@ohos.hiviewdfx.hiAppEvent';
 import errorManager from '@ohos.app.ability.errorManager';
 import process from '@ohos.process';
-import fs from '@ohos.file.fs';
-import util from '@ohos.util';
 import client from 'libmsimeclient.so';
 import { KeyboardLog, describeError } from '../keyboard/KeyboardLog';
 import { CrashReport, ReportingConsent, SystemCapture, TelemetryPolicy } from './TelemetryPolicy';
@@ -66,10 +63,6 @@ interface BeginValue {
   crash_record_path?: string;
 }
 
-interface RememberedProcess {
-  pid: number;
-}
-
 interface BeginReply {
   ok: boolean;
   value?: BeginValue;
@@ -120,7 +113,6 @@ export class HarmonyTelemetry {
   private static installedCapture: string | undefined = undefined;
   private static capturePending: boolean = false;
   private static capturePublicationFailed: boolean = false;
-  private static previousKeyboardPid: number | null = null;
 
   /** 设置进程发布，键盘只读；拿不到共享目录时键盘不能自行退回私有授权。 */
   static configureAuthority(groupDirectory: string | null, publisher: boolean): void {
@@ -162,7 +154,6 @@ export class HarmonyTelemetry {
   private static start(stateDirectory: string): number {
     HarmonyTelemetry.stopped = false;
     HarmonyTelemetry.preferences = stateDirectory;
-    HarmonyTelemetry.previousKeyboardPid = HarmonyTelemetry.readRememberedPid();
     HarmonyTelemetry.directory = HarmonyTelemetry.directoryFor(stateDirectory);
     if (HarmonyTelemetry.publisher && HarmonyTelemetry.authority === '') HarmonyTelemetry.authority = `${stateDirectory}/reporting-authority`;
     const generation: number = ++HarmonyTelemetry.startGeneration;
@@ -355,7 +346,6 @@ export class HarmonyTelemetry {
       if (parsed.ok !== true || parsed.value?.enabled !== true || typeof session !== 'string' || session === '') return;
       HarmonyTelemetry.session = session;
       HarmonyTelemetry.began = true;
-      if (!HarmonyTelemetry.publisher) HarmonyTelemetry.rememberPid();
       const consent: ReportingConsent | null = HarmonyTelemetry.sharedConsent(HarmonyTelemetry.preferences);
       HarmonyTelemetry.activeCapture = consent === null ? '' : TelemetryPolicy.systemCapture(session, parsed.value.crash_record_header ?? '', process.pid, Date.now(), consent) ?? '';
       HarmonyTelemetry.activeCrashPath = parsed.value.crash_record_path ?? '';
@@ -417,74 +407,7 @@ export class HarmonyTelemetry {
     if (report.outsideSession === true) request.diagnostic_id = TelemetryPolicy.standaloneRecordName(report);
     else request.diagnostic_capture = original.capture;
     const reply: FlagReply | null = HarmonyTelemetry.flagReply('record', client.telemetryRecordCrash(JSON.stringify(request)));
-    if (reply !== null && reply.value !== true) {
-      const path: string = `${HarmonyTelemetry.directory}/telemetry-crashes/${TelemetryPolicy.standaloneRecordName(report)}`;
-      HarmonyTelemetry.atomicWrite(path, TelemetryPolicy.recordText(report), false);
-    }
     if (reply !== null && flush) HarmonyTelemetry.send(HarmonyTelemetry.request(HarmonyTelemetry.preferences));
-  }
-
-  private static readRememberedPid(): number | null {
-    const path: string = `${HarmonyTelemetry.directory}/harmony-keyboard-process.json`;
-    let handle: fs.File | null = null;
-    try {
-      if (!HarmonyTelemetry.safeTelemetryDirectory()) return null;
-      const expected: fs.Stat = fs.lstatSync(path);
-      if (expected.isSymbolicLink() || !expected.isFile()) return null;
-      handle = fs.openSync(path, fs.OpenMode.READ_ONLY);
-      const stat: fs.Stat = fs.statSync(handle.fd);
-      if (!stat.isFile() || stat.size > 256 || stat.ino !== expected.ino) return null;
-      const buffer: ArrayBuffer = new ArrayBuffer(stat.size + 1);
-      const count: number = fs.readSync(handle.fd, buffer);
-      if (count !== stat.size) return null;
-      return TelemetryPolicy.rememberedPid(util.TextDecoder.create('utf-8').decodeToString(
-        new Uint8Array(buffer, 0, count)));
-    } catch (error) {
-      try {
-        if (fs.accessSync(path)) KeyboardLog.error(`telemetry: keyboard process unreadable: ${describeError(error)}`);
-      } catch { }
-      return null;
-    } finally {
-      if (handle !== null) NativeCleanup.close(handle);
-    }
-  }
-
-  private static rememberPid(): void {
-    const remembered: RememberedProcess = { pid: process.pid };
-    const path: string = `${HarmonyTelemetry.directory}/harmony-keyboard-process.json`;
-    if (!HarmonyTelemetry.prepareTelemetryDirectory()) return;
-    HarmonyTelemetry.atomicWrite(path, JSON.stringify(remembered), true);
-  }
-
-  private static atomicWrite(path: string, text: string, replaceExisting: boolean): boolean {
-    const staging: string = `${path}.${util.generateRandomUUID(false)}.tmp`;
-    let renamed: boolean = false;
-    try {
-      const file: fs.File = fs.openSync(staging, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
-      try { fs.writeSync(file.fd, text); } finally { fs.closeSync(file); }
-      if (!replaceExisting && fs.accessSync(path)) return false;
-      fs.renameSync(staging, path);
-      renamed = true;
-      return true;
-    } finally {
-      if (!renamed) {
-        try { if (fs.accessSync(staging)) fs.unlinkSync(staging); } catch { }
-      }
-    }
-  }
-
-  private static prepareTelemetryDirectory(): boolean {
-    try {
-      if (!fs.accessSync(HarmonyTelemetry.directory)) fs.mkdirSync(HarmonyTelemetry.directory, true);
-      return HarmonyTelemetry.safeTelemetryDirectory();
-    } catch { return false; }
-  }
-
-  private static safeTelemetryDirectory(): boolean {
-    try {
-      const stat: fs.Stat = fs.lstatSync(HarmonyTelemetry.directory);
-      return !stat.isSymbolicLink() && stat.isDirectory();
-    } catch { return false; }
   }
 
   private static installErrorHandler(): void {

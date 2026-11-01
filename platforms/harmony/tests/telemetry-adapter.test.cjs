@@ -58,7 +58,7 @@ function fixture(options = {}) {
     },
     telemetryClear(text) { state.clear.push(JSON.parse(text)); return '{"ok":true,"value":true}'; },
     telemetryEnd(text) { state.end.push(JSON.parse(text)); return '{"ok":true,"value":true}'; },
-    telemetryRecordCrash(text) { state.records.push(JSON.parse(text)); return '{"ok":true,"value":true}'; },
+    telemetryRecordCrash(text) { state.records.push(JSON.parse(text)); return state.recordReply ?? '{"ok":true,"value":true}'; },
     telemetryBegin(text) {
       const request = JSON.parse(text);
       state.begin.push(request);
@@ -336,7 +336,20 @@ async function captureGroups() {
     assert.equal(state.records.length,0,'旧系统参数即使晚装入也不能被新代次认领');
     telemetry.keyboardStopped(); await settle();
   }
-  console.log('harmony telemetry adapter: 11 lifecycle and 4 async capture groups passed');
+  {
+    const {state,telemetry,start} = fixture({group:'/group'});
+    start(); await settle();
+    const original = state.captureSets.at(-1).parameters.msime_capture;
+    // Rust 以 value:false 拒绝（代次不符、授权前的诊断或重复），ArkTS 不能另写独立记录绕过共享授权与去重。
+    state.recordReply = '{"ok":true,"value":false}';
+    const time = Date.now();
+    assert.doesNotThrow(() => state.watcher.onReceive('os',[{appEventInfos:[{name:'crash',params:{time,pid:42,bundle_version:'1.0.0',
+      crash_type:'NativeCrash',msime_capture:original,exception:{signal:{signo:6},frames:[]}}}]}]));
+    assert.equal(state.records.length,1,'同代次崩溃仍交给 Rust 判断');
+    assert.deepEqual(state.writes,[],'Rust 拒绝后不得写任何本地崩溃文件');
+    telemetry.applicationStopped(); await settle();
+  }
+  console.log('harmony telemetry adapter: 11 lifecycle and 5 async capture groups passed');
 }
 captureGroups().catch(error => { console.error(error); process.exitCode=1; });
 
