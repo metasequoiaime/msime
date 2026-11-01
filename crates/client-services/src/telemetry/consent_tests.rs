@@ -39,7 +39,7 @@ fn rotation_preserves_installation_and_rejects_obsolete_store_operations() {
 }
 
 #[test]
-fn late_old_native_records_are_discarded_but_legacy_records_are_migrated() {
+fn late_old_native_records_and_legacy_records_are_discarded() {
     let (_root, store, app) = fixture();
     let first = store.activate_consent_epoch(Uuid::new_v4()).unwrap();
     let old = first.begin_session(&app, SystemTime::now()).unwrap();
@@ -61,17 +61,11 @@ fn late_old_native_records_are_discarded_but_legacy_records_are_migrated() {
     second.record_active(&app, SystemTime::now()).unwrap();
     assert!(!old.crash_record_path.exists());
     assert!(!legacy.exists());
-    let events = second.queued().unwrap();
-    assert_eq!(
-        events.iter().map(|event| event.kind).collect::<Vec<_>>(),
-        vec![TelemetryKind::Active, TelemetryKind::Crash]
-    );
-    let crash = events
+    assert!(second
+        .queued()
+        .unwrap()
         .iter()
-        .find(|event| event.kind == TelemetryKind::Crash)
-        .unwrap();
-    assert_eq!(crash.message, "Synthetic legacy fault");
-    assert_eq!(crash.stack, "synthetic+0x20");
+        .all(|event| event.kind == TelemetryKind::Active));
 }
 
 #[test]

@@ -162,7 +162,9 @@ test.each([
   expect(scale.getAttribute("min")).toBe("50");
   expect(scale.getAttribute("max")).toBe("200");
   expect(scale.getAttribute("step")).toBe("5");
-  expect(screen.getByText("80%，候选字和工具栏一起缩放，按键大小不变")).toBeTruthy();
+  // 数值由滑块的读数显示，说明只讲缩放什么。
+  expect(scale.getAttribute("aria-valuetext")).toBe("80%");
+  expect(screen.getByText("候选字和工具栏一起缩放，按键大小不变")).toBeTruthy();
   fireEvent.change(scale, { target: { value: "50" } });
   expect(onChange).toHaveBeenLastCalledWith({ candidate_scale_percent: 50 });
   fireEvent.change(scale, { target: { value: "100" } });
@@ -179,20 +181,22 @@ test("a HarmonyOS 2in1 card keeps the desktop wording", () => {
 // Linux 的 Fcitx5 主题也按整体大小缩放卡片几何（IBus 面板只缩放字号，由面板限制说明交代），所以和其他宿主同一句说明。
 test("Linux describes overall size like the other hosts", () => {
   renderSection({ platform: "linux" });
-  expect(screen.getByText("100%，字号与窗口尺寸一起缩放")).toBeTruthy();
+  expect(screen.getByText("字号与窗口尺寸一起缩放")).toBeTruthy();
 });
 
 test("the corner radius follows the skin until set, and returns to it", () => {
   const following = renderSection();
   const reset = screen.getByRole("button", { name: "跟随皮肤" });
   expect(reset.getAttribute("aria-pressed")).toBe("true");
-  expect(screen.getByText("跟随皮肤；设置后覆盖皮肤自带的圆角")).toBeTruthy();
+  // 当前值（跟随皮肤或点数）常驻标题下方，覆盖皮肤这句解释收进「?」。
+  expect(screen.getByText("设置后覆盖皮肤自带的圆角")).toBeTruthy();
+  expect(screen.queryByText("10pt")).toBeNull();
   fireEvent.click(reset);
   expect(following.onChange).not.toHaveBeenCalled();
 
   cleanup();
   const set = renderSection({ preferences: { candidate_corner_radius: 10 } });
-  expect(screen.getByText("10pt，覆盖皮肤自带的圆角")).toBeTruthy();
+  expect(screen.getByText("10pt")).toBeTruthy();
   const button = screen.getByRole("button", { name: "跟随皮肤" });
   expect(button.getAttribute("aria-pressed")).toBe("false");
   fireEvent.click(button);
@@ -212,7 +216,10 @@ test("the card padding follows the skin until set, writes the chosen points and 
   expect(slider.getAttribute("min")).toBe("0");
   expect(slider.getAttribute("max")).toBe("16");
   expect(slider.value).toBe(macosNativePad);
-  expect(screen.getByText("跟随皮肤；调小后候选离窗口边缘更近，窗口更紧凑")).toBeTruthy();
+  expect(
+    screen.getByText("调小后候选离窗口边缘更近，窗口更紧凑；设置后覆盖皮肤自带的内边距"),
+  ).toBeTruthy();
+  expect(screen.queryByText("3pt")).toBeNull();
   fireEvent.change(slider, { target: { value: "1" } });
   expect(following.onChange).toHaveBeenLastCalledWith({ candidate_padding: 1 });
 
@@ -221,7 +228,7 @@ test("the card padding follows the skin until set, writes the chosen points and 
     showPadding: true,
     preferences: { candidate_corner_radius: 10, candidate_padding: 3 },
   });
-  expect(screen.getByText("3pt，覆盖皮肤自带的内边距")).toBeTruthy();
+  expect(screen.getByText("3pt")).toBeTruthy();
   expect((screen.getByRole("slider", { name: "内边距" }) as HTMLInputElement).value).toBe("3");
   const resets = screen.getAllByRole("button", { name: "跟随皮肤" });
   expect(resets).toHaveLength(2);

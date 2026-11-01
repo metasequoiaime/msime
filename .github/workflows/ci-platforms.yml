@@ -265,8 +265,8 @@ jobs:
           sudo apt-get install --yes libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev libasound2-dev libssl-dev libxkbcommon-dev libayatana-appindicator3-dev librsvg2-dev libibus-1.0-dev pkgconf
           # Installs the toolchain rust-toolchain.toml pins, with its clippy component.
           rustup toolchain install
-      # Tauri 的构建脚本要求 frontendDist 目录存在；单元测试用不到页面，放一个空页面即可，省掉 pnpm 构建。
-      - name: Clippy and unit tests for msime-desktop
+      # Tauri 的构建脚本要求 frontendDist 目录存在；单元测试用不到页面，放一个空页面即可，省掉 pnpm 构建。msime-mcp-server 的测试（含崩溃采集的同意生命周期和 stdio 集成测试）在别的作业里只编不跑，放在这里一起跑。
+      - name: Clippy and unit tests for msime-desktop and msime-mcp-server
         if: ${{ needs.changes.outputs.linux == 'true' }}
         run: |
           set -euo pipefail
@@ -274,6 +274,8 @@ jobs:
           [ -e apps/desktop/dist/index.html ] || : > apps/desktop/dist/index.html
           cargo clippy --locked -p msime-desktop --all-targets -- -D warnings
           cargo test --locked -p msime-desktop
+          cargo clippy --locked -p msime-mcp-server --all-targets -- -D warnings
+          cargo test --locked -p msime-mcp-server
           # 复用已构建的 Rust 依赖，检查共享 UI 的静态语音目录没有漂移。
           cargo run --quiet --locked -p msime-client-providers --example export_voice_provider_catalog -- --check
           cargo run --quiet --locked -p msime-client-providers --example export_polish_prompt_catalog -- --check
@@ -700,6 +702,18 @@ jobs:
           & $msbuild[0] platforms/windows/settings/MSIME.Settings.vcxproj /restore /t:Build /p:Configuration=RelWithDebInfo /p:Platform=x64 /p:TargetName=msime-client-settings /p:HostApiLibrary="$env:GITHUB_WORKSPACE/target/debug/msime_host_api.dll.lib" /p:OutDir="$output" /p:IntDir="$env:GITHUB_WORKSPACE/target/windows-full/x64/settings-obj/" /verbosity:minimal
           if ($LASTEXITCODE -ne 0) { throw 'Settings host build failed' }
           Copy-Item target/debug/msime_host_api.dll $output
+      # 设置应用和 msime-mcp 的 Windows 路径（崩溃采集经 cc/MSVC 编译 CrashRecorder.cpp、遥测目录、配置路径）在 PR 里没有别的作业编译；这里编译设置应用（只编库和可执行文件：它的测试目标在 Windows 上编不过，macOS 专属的 macos_input_source 测试没有按平台排除）并跑 msime-mcp-server 的测试。Tauri 的构建脚本只要求 frontendDist 存在，放一个空页面。
+      - name: Compile the settings app and test msime-mcp-server
+        if: ${{ needs.changes.outputs.windows == 'true' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force apps/desktop/dist | Out-Null
+          if (-not (Test-Path apps/desktop/dist/index.html)) { New-Item -ItemType File apps/desktop/dist/index.html | Out-Null }
+          cargo check --locked -p msime-desktop -j 2
+          if ($LASTEXITCODE -ne 0) { throw 'Settings app check failed' }
+          cargo test --locked -p msime-mcp-server -j 2
+          if ($LASTEXITCODE -ne 0) { throw 'MCP server tests failed' }
       # 共享存储替换设置文件时，目标被别的进程短暂打开（杀毒、备份、索引）要等它过去，而不是让设置页把这次保存当成失败、重读旧值。这几条测试在真的 Windows 上打开着目标去替换，macOS 和 Linux 的作业碰不到这种失败。
       - name: Test shared storage replacement while the target is open
         if: ${{ needs.changes.outputs.windows == 'true' }}
@@ -741,6 +755,25 @@ jobs:
           ctest --test-dir target/windows7-compat/x64 -C Release --output-on-failure
           if ($LASTEXITCODE -ne 0) { throw 'Compatibility API tests failed' }
           & ./platforms/windows/tests/tools/windows7_imports.ps1
+      # 独立工程复用生产采集器和 helper，只依赖已有的头文件包，不重新构建完整产品或 Rust。
+      - name: Build and run TSF system WER capture (x64 and x86)
+        if: ${{ needs.changes.outputs.windows == 'true' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $jsonConfig = "$env:GITHUB_WORKSPACE/target/windows-native-deps/win7-settings/x64-windows-static-md/share/nlohmann_json"
+          if (-not (Test-Path -LiteralPath "$jsonConfig/nlohmann_jsonConfig.cmake" -PathType Leaf)) { throw 'nlohmann-json configuration not found' }
+          foreach ($architecture in @(@{ Name = 'x64'; Generator = 'x64' }, @{ Name = 'x86'; Generator = 'Win32' })) {
+            $build = "target/windows-full/$($architecture.Name)/wer-lifecycle"
+            cmake -S platforms/windows/tsf/tests/capture_lifecycle -B $build -A $architecture.Generator "-Dnlohmann_json_DIR=$jsonConfig"
+            if ($LASTEXITCODE -ne 0) { throw "$($architecture.Name) TSF WER configuration failed" }
+            cmake --build $build --config RelWithDebInfo --parallel 2
+            if ($LASTEXITCODE -ne 0) { throw "$($architecture.Name) TSF WER build failed" }
+            ctest --test-dir $build -C RelWithDebInfo --output-on-failure --output-junit wer-tests.xml
+            if ($LASTEXITCODE -ne 0) { throw "$($architecture.Name) TSF WER callback or lifecycle test failed" }
+            & platforms/windows/tsf/tests/Invoke-SystemWer.ps1 -BuildDirectory $build -OutputDirectory "$build/system-wer"
+            if ($LASTEXITCODE -ne 0) { throw "$($architecture.Name) TSF system WER capture failed" }
+          }
       - name: Build and test Windows 7 handwriting host
         if: ${{ needs.changes.outputs.windows == 'true' }}
         shell: pwsh
@@ -796,6 +829,14 @@ jobs:
           name: windows-native-settings-screenshots
           path: target/windows-full/x64/settings-screenshots/
           if-no-files-found: warn
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ always() && needs.changes.outputs.windows == 'true' }}
+        with:
+          name: windows-tsf-system-wer
+          path: |
+            target/windows-full/*/wer-lifecycle/system-wer/
+            target/windows-full/*/wer-lifecycle/wer-tests.xml
+          if-no-files-found: warn
       - name: Windows settings unchanged
         if: ${{ needs.changes.outputs.windows != 'true' }}
         run: echo 'No Windows settings changes; native gate skipped.'
@@ -828,7 +869,7 @@ jobs:
         if: ${{ needs.changes.outputs.windows == 'true' }}
         shell: pwsh
         run: |
-          foreach ($test in 'lifecycle', 'watchdog-task', 'tauri-layout', 'tsf-registration', 'signpath-payload', 'installer_entry') {
+          foreach ($test in 'lifecycle', 'watchdog-task', 'tauri-layout', 'tsf-registration', 'signpath-payload', 'installer_entry', 'package-files') {
             Write-Host "== $test"
             & pwsh -NoProfile -File "platforms/windows/installer/tests/$test.ps1"
             if ($LASTEXITCODE -ne 0) { throw "$test failed with exit code $LASTEXITCODE" }

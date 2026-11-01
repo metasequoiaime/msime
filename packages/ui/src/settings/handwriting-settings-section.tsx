@@ -107,8 +107,8 @@ function HarmonyHandwritingPadGroups({
             displayValue={`${width}px`}
             onChange={setWidth}
           />
+          <SettingsGroupNote>{handwritingPrivacyText("harmony")}</SettingsGroupNote>
         </GroupList>
-        <p className={platform.groupFooter}>{handwritingPrivacyText("harmony")}</p>
       </div>
     </>
   );

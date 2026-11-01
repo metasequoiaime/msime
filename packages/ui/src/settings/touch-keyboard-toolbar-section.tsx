@@ -105,7 +105,7 @@ export function TouchKeyboardToolbarSection({
             />
           ))}
           {harmonyRowHidden && (
-            <SettingsGroupNote>
+            <SettingsGroupNote inline>
               {harmonyValues.hidden
                 ? "工具栏已隐藏：键盘变矮，打字时照常显示候选栏。"
                 : "没有打开的工具，工具栏不显示：键盘变矮，打字时照常显示候选栏。"}

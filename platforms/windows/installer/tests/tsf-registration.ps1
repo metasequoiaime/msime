@@ -41,4 +41,19 @@ if (@($records | Where-Object { $_.Value -match '\.pdb"' }).Count -ne 0) {
 if (-not [regex]::IsMatch($script, '(?m)^#define MySystemTipDir "\{sys\}\\IME\\" \+ MyEditionInstallDir\s*$')) {
     throw 'The 64-bit TIP is not installed under System32\IME\<install_dir>'
 }
+# WER 允许列表只登记各架构版本目录的 helper；不能删除整个系统键或借用其他产品的模块。
+$wer = @([regex]::Matches($script, '(?m)^Root:[^\r\n]*') | Where-Object { $_.Value.Contains('\RuntimeExceptionHelperModules"') })
+if ($wer.Count -ne 2) { throw 'Expected only x86 and native WER helper allowlist entries' }
+foreach ($entry in @(@('{commonpf32}\{#MyEditionInstallDir}\{code:GetVersionDir}', $true), @('{#MySystemTipDir}\{code:GetVersionDir}', $false))) {
+    $destination, $x86 = $entry
+    $matched = @($wer | Where-Object { $_.Value.Contains("ValueName: `"$destination\MetasequoiaImeCrashWer.dll`"") })
+    $root = if ($x86) { 'HKLM32' } else { 'HKLM' }
+    if ($matched.Count -ne 1 -or -not $matched[0].Value.Contains("Root: $root;") -or
+        -not $matched[0].Value.Contains('ValueType: dword;') -or -not $matched[0].Value.Contains('ValueData: "0";') -or
+        $matched[0].Value -notmatch '\buninsdeletevalue\b' -or $matched[0].Value -match '\buninsdeletekey\b' -or
+        $matched[0].Value -match '\b32bit\b') {
+        throw "WER helper allowlist ownership mismatch: $destination"
+    }
+}
 Write-Output 'TSF dependencies install without COM registration before matching TIPs'
+Write-Output 'WER allowlist installs and removes only this version and architecture helper values'

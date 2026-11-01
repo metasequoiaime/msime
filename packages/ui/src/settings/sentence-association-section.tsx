@@ -158,11 +158,9 @@ function GrammarModelRow({
       {pack && resourcePacks?.checkGrammarUpdates && (
         <ActionRow
           title="模型更新"
-          description={
-            checkError ??
-            (updatePack === pack
-              ? "发现可选更新；当前模型仍可离线使用。"
-              : "不会自动联网；点击后才检查官方模型目录。")
+          description="不会自动联网；点击后才检查官方模型目录。"
+          detail={
+            checkError ?? (updatePack === pack ? "发现可选更新；当前模型仍可离线使用。" : undefined)
           }
           action={checkUpdates}
           label={checking ? "检查中…" : "检查更新"}
@@ -172,9 +170,8 @@ function GrammarModelRow({
       {pack && updatePack === pack && status?.state === "installed" && resourcePacks && (
         <ActionRow
           title="下载模型更新"
-          description={
-            resourcePacks.errors[pack] ?? "下载并完整校验后替换当前模型；下载失败保留旧模型。"
-          }
+          description="下载并完整校验后替换当前模型；下载失败保留旧模型。"
+          detail={resourcePacks.errors[pack]}
           action={() => resourcePacks.install(pack)}
           label={resourcePacks.progress[pack] ? "下载中…" : "下载更新"}
           disabled={Boolean(resourcePacks.progress[pack])}
@@ -184,9 +181,8 @@ function GrammarModelRow({
       {pack && status?.state === "installed" && resourcePacks && (
         <ActionRow
           title={resourcePackTitles[pack]}
-          description={
-            resourcePacks.errors[pack] ?? "已安装；删除后切换输入框即可退回无语法模型的候选行为。"
-          }
+          description="删除后切换输入框即可退回无语法模型的候选行为。"
+          detail={resourcePacks.errors[pack] ?? "已安装"}
           action={() => resourcePacks.remove(pack)}
           label="删除"
           ariaLabel={`删除${resourcePackTitles[pack]}`}

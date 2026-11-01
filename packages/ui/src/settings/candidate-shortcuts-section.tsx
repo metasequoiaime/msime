@@ -132,7 +132,7 @@ export function CandidateShortcutReference({
       {paging.length > 1 && (
         <Row
           title="向前 / 向后翻页"
-          description={
+          detail={
             <span className={settings.shortcutKeys}>
               {paging.map(([option, chord]) => (
                 <SettingsShortcutKey key={option}>{chord}</SettingsShortcutKey>

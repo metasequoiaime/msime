@@ -322,7 +322,8 @@ function topGroups(page: HTMLElement) {
 
 function groupTitles(page: HTMLElement) {
   return topGroups(page).map(
-    (section) => section.querySelector(":scope > [data-group-title]")?.textContent,
+    (section) =>
+      section.querySelector(":scope > [data-group-header] > [data-group-title]")?.textContent,
   );
 }
 
@@ -354,14 +355,17 @@ test("the HarmonyOS phone 输入 page shows its groups without an outer 更多 f
   expect(groupTitles(page)).not.toContain("更多");
   expect(groupTitles(page)).not.toContain("快捷模式");
   const selection = topGroups(page).find(
-    (section) => section.querySelector(":scope > [data-group-title]")?.textContent === "选词与翻页",
+    (section) =>
+      section.querySelector(":scope > [data-group-header] > [data-group-title]")?.textContent ===
+      "选词与翻页",
   ) as HTMLElement;
   // 以词定字和它的键组合成了一个「关闭 / [ ] / - =」选择。
   expect(within(selection).getByText("以词定字")).toBeTruthy();
   expect(
     topGroups(page).find(
       (section) =>
-        section.querySelector(":scope > [data-group-title]")?.textContent === "拼音方案调频",
+        section.querySelector(":scope > [data-group-header] > [data-group-title]")?.textContent ===
+        "拼音方案调频",
     ),
   ).toBeTruthy();
   expect(within(page).queryByRole("switch", { name: "本地整句联想" })).toBeNull();

@@ -324,9 +324,9 @@ extern "C" bool fcitxVoiceCancelled(void *context) noexcept {
 
 std::unique_ptr<msime::linux_host::WaveOverlaySurface>
 create_fcitx_wave_overlay_surface(
-    msime::linux_host::WaveOverlaySurface::ActionHandler handler) {
+    [[maybe_unused]] msime::linux_host::WaveOverlaySurface::ActionHandler handler) {
   const auto *requested = std::getenv("MSIME_WAVE_OVERLAY_BACKEND");
-  const bool force_auxiliary = requested &&
+  [[maybe_unused]] const bool force_auxiliary = requested &&
       (std::strcmp(requested, "ibus") == 0 ||
        std::strcmp(requested, "auxiliary") == 0);
   const bool wayland_requested = requested && std::strcmp(requested, "wayland") == 0;
@@ -7513,8 +7513,14 @@ public:
     // 与 IBus 宿主相同，使用统计目录按版本分开（LinuxEdition.h）：full 仍是 $XDG_STATE_HOME/msime，其他版本是同级的 msime-<id>。
     root = root.parent_path() / MSIME_EDITION_TELEMETRY_DIRECTORY;
     msime::telemetry::install_crash_handlers();
-    telemetry_job_ = detachedJob([host = msime::telemetry::Host{"linux", MSIME_LINUX_VERSION, root / "fcitx5", std::nullopt, preferences}] {
-      msime::telemetry::begin(host);
+    telemetry_job_ = detachedJob([this, host = msime::telemetry::Host{"linux", MSIME_LINUX_VERSION, root / "fcitx5", std::nullopt, preferences}] {
+      {
+        // 开始与停止在线程间线性化；迟到的启动不能在插件停止后重新武装。
+        std::lock_guard guard(telemetry_lifecycle_);
+        if (telemetry_stopped_) return Json();
+        msime::telemetry::begin(host);
+        telemetry_observer_.emplace();
+      }
       msime::telemetry::flush();
       return Json();
     });
@@ -7535,11 +7541,19 @@ public:
   // The addon's code must not run after Fcitx5 unloads it: wait (bounded, as for the theme worker) for a round in flight, close the session and give the signals back.
   void stopTelemetry() {
     telemetry_timer_.reset();
+    {
+      std::lock_guard guard(telemetry_lifecycle_);
+      telemetry_stopped_ = true;
+      telemetry_observer_.reset();
+      msime::telemetry::end();
+    }
     if (telemetry_job_.valid()) telemetry_job_.wait_for(std::chrono::seconds(2));
-    msime::telemetry::end();
     msime::telemetry::remove_crash_handlers();
   }
   static constexpr uint64_t kTelemetryIntervalUs = 30ull * 60 * 1000000;
+  std::mutex telemetry_lifecycle_;
+  bool telemetry_stopped_ = false;
+  std::optional<msime::telemetry::ConsentObserver> telemetry_observer_;
   std::shared_future<Json> telemetry_job_;
   std::unique_ptr<fcitx::EventSourceTime> telemetry_timer_;
 #endif
