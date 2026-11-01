@@ -209,6 +209,7 @@ private enum PersonalDictionaryBridgeFailure: LocalizedError {
     case .invalid(.wubi), .invalid(.wubi98): "五笔编码使用 1–4 个字母。"
     case .invalid(.quickPhrase): "快捷短语编码只能包含英文字母，长度 1 到 32。"
     case .invalid(.english): "英文编码只能包含字母、连字符和撇号。"
+    case .invalid(.cantonese): "请填写粤拼，每个字一个音节、用空格分隔，例如 nei hou。"
     case .invalid(nil): "个人词条格式无效。"
     }
   }

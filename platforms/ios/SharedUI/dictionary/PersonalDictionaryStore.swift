@@ -2,8 +2,8 @@ import Foundation
 import Darwin
 
 enum PersonalWordKind: String, Codable, CaseIterable, Identifiable, Sendable {
-  /// `wubi` 是 86 五笔的词条，`wubi98` 是 98 五笔的，两套码表的个人词条分开存。
-  case pinyin, wubi, wubi98, quickPhrase, english
+  /// `wubi` 是 86 五笔的词条，`wubi98` 是 98 五笔的，两套码表的个人词条分开存。`cantonese` 是粤语词条，编码是不带声调的粤拼，只存在本机。
+  case pinyin, wubi, wubi98, quickPhrase, english, cantonese
   var id: String { rawValue }
   var title: String {
     switch self {
@@ -12,6 +12,7 @@ enum PersonalWordKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case .wubi98: return "98 五笔"
     case .quickPhrase: return "快捷短语"
     case .english: return "英文"
+    case .cantonese: return "粤语"
     }
   }
 }
