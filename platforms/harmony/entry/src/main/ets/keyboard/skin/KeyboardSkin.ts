@@ -49,8 +49,10 @@ export class KeyboardSkin {
   readonly functionKeyForeground: string;
   /** Hints, spellings and the space-bar label. */
   readonly secondary: string;
-  /** The selected candidate in the strip, drawn as text with no fill. */
+  /** 主题的强调色：拼写、开启态、各处的强调字；没有 `candidateAccent` 的主题里也是候选条首选的字色。 */
   readonly accent: string;
+  /** 触屏候选条首选（画在字母键色的底片上）的字色。`system` 与没有设计、基于 `system` 的自定义主题取季节种子的 `candidate_accent`，没有种子时取 `GlobalTheme.candidateAccent`：浅色加深到 WCAG AA，深色就是强调色。命名主题和用户的键盘设计用自己的强调色。 */
+  readonly candidateAccent: string;
   /** Text on anything filled with `accent`. */
   readonly onAccent: string;
   /** 回车键。主题：已解析出种子时用季节强调色及其配套文字色，否则用平台强调色，文字色按共享的 on-accent 规则（浅色模式为白色，深色模式为强调色混入 25% 黑色），与主题无关。用户的键盘设计用它自己的 `actionBackground`，文字按亮度取黑或白，与 Android 的 `returnBackground` 和 iOS 的 `SkinKeySurfaceView` 一致：季节只给应用和 `system` 键盘着色，不改用户自己设计的键。 */
@@ -111,6 +113,12 @@ export class KeyboardSkin {
     this.secondary = palette.secondary;
     this.accent = palette.accent;
     this.onAccent = palette.on_accent;
+    this.candidateAccent =
+      named || design !== null
+        ? palette.accent
+        : seed === null
+          ? GlobalTheme.candidateAccent(dark)
+          : seed.candidate_accent;
     const platformAccent: string = seed === null ? GlobalTheme.accent(dark) : seed.accent;
     if (design !== null) {
       this.actionBackground = design.actionBackground();
@@ -137,7 +145,14 @@ export class KeyboardSkin {
     const seedKey: string =
       seed === null
         ? ""
-        : [seed.accent, seed.accent_soft, seed.on_accent, seed.background, seed.card].join(",");
+        : [
+            seed.accent,
+            seed.accent_soft,
+            seed.on_accent,
+            seed.background,
+            seed.card,
+            seed.candidate_accent,
+          ].join(",");
     this.shadowRadius = 2;
     this.shadowOffset = 1;
     if (design === null) {

@@ -43,7 +43,8 @@ struct KeyboardTheme: Equatable {
   private static let nativePalette = ThemeKeyboardPalette(
     background: NativeKeyboardTokens.background, key: NativeKeyboardTokens.key, functionKey: NativeKeyboardTokens.functionKey,
     text: NativeKeyboardTokens.text, secondary: NativeKeyboardTokens.secondary, accent: NativeKeyboardTokens.accent,
-    onAccent: UIColor { $0.userInterfaceStyle == .dark ? .black : .white })
+    onAccent: UIColor { $0.userInterfaceStyle == .dark ? .black : .white },
+    candidateAccent: NativeKeyboardTokens.candidateAccent)
 
   /// 实际绘制的配色：没有 `darkPalette` 时就是 `palette`；有时每个颜色按 trait 的明暗在两者之间取。
   private var drawnPalette: ThemeKeyboardPalette? {
@@ -55,7 +56,8 @@ struct KeyboardTheme: Equatable {
       background: byMode(palette.background, darkPalette.background), key: byMode(palette.key, darkPalette.key),
       functionKey: byMode(palette.functionKey, darkPalette.functionKey), text: byMode(palette.text, darkPalette.text),
       secondary: byMode(palette.secondary, darkPalette.secondary), accent: byMode(palette.accent, darkPalette.accent),
-      onAccent: byMode(palette.onAccent, darkPalette.onAccent))
+      onAccent: byMode(palette.onAccent, darkPalette.onAccent),
+      candidateAccent: byMode(palette.candidateAccent ?? palette.accent, darkPalette.candidateAccent ?? darkPalette.accent))
   }
 
   /// The custom theme drawn from `design` alone, for previews of a design that is not applied yet.
@@ -180,6 +182,12 @@ struct KeyboardTheme: Equatable {
   var accent: UIColor {
     if let design { return CustomKeyboardSkin.color(design.accent) }
     return drawnPalette?.accent ?? (isNative ? SystemKeyboardTokens.accent : NativeKeyboardTokens.accent)
+  }
+  /// 候选条首选（空格会上屏的那个）的字色：配色给了 `candidateAccent` 时用它（跟随系统的季节配色和经典兜底，浅色加深到 WCAG AA），否则就是 `accent`；没有配色的经典兜底用 `NativeKeyboardTokens.candidateAccent`。
+  var candidateAccent: UIColor {
+    if design != nil { return accent }
+    if let palette = drawnPalette { return palette.candidateAccent ?? palette.accent }
+    return isNative ? SystemKeyboardTokens.accent : NativeKeyboardTokens.candidateAccent
   }
   /// 回车键使用主题强调色；原生皮肤使用柔和水杉绿，键盘设计使用自己的操作色。
   var actionBackground: UIColor {

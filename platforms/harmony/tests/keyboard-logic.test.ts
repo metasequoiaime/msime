@@ -11311,6 +11311,7 @@ const AUTUMN_LIGHT: AppThemeSeed = {
   on_accent: "#FFFFFF",
   background: "#F6E9DC",
   card: "#FFFBF6",
+  candidate_accent: "#9F4214",
 };
 const AUTUMN_DARK: AppThemeSeed = {
   accent: "#F0975F",
@@ -11318,6 +11319,7 @@ const AUTUMN_DARK: AppThemeSeed = {
   on_accent: "#3C2618",
   background: "#21150F",
   card: "#2E1E15",
+  candidate_accent: "#F0975F",
 };
 
 group("color-mix matches the browser the design tokens were read from", () => {
@@ -11394,10 +11396,12 @@ group("a resolved app theme is read once, colours reordered for ArkUI", () => {
         background: "#F6E9DC",
         card: "#FFFBF6",
         hair: "#B5562B33",
+        candidate_accent: "#9F4214",
       },
     }),
   );
   check(seed !== null, "a complete reply is a seed");
+  check(seed !== null && seed.candidate_accent === "#9F4214", "the first-candidate colour is read");
   check(seed !== null && seed.accent_soft === "#22B5562B", "the trailing alpha moves to the front");
   check(
     seed !== null &&
@@ -11503,6 +11507,85 @@ group("the season seed tints the system keyboard, the return key and the logo", 
     plainDark.keyLabelColor(true) === "#183021" &&
       plainDark.keySurfaceBackground(true) === "#5FBF84",
     "and the emphasized key draws exactly that pair",
+  );
+});
+
+group("浅色跟随系统键盘的首选字色对字母键底片和键盘底色都到 WCAG AA", () => {
+  const rgb = (color: string): number[] => {
+    const hex = color.slice(-6);
+    return [0, 2, 4].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255);
+  };
+  const luminance = (value: number[]): number =>
+    value.reduce((sum, channel, index) => {
+      const linear =
+        channel <= 0.04045 ? channel / 12.92 : Math.pow((channel + 0.055) / 1.055, 2.4);
+      return sum + [0.2126, 0.7152, 0.0722][index] * linear;
+    }, 0);
+  const contrast = (a: string, b: string): number => {
+    const [x, y] = [luminance(rgb(a)), luminance(rgb(b))];
+    return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+  };
+  // 四季的浅色种子（crates/client-services 的 `APP_THEME_SEEDS`，`candidate_accent` 是同一色相在 OKLCH 里降低明度的结果）；首选画在字母键色的底片上，设置页预览把它画在键盘底色上，两者都要到 4.5:1。
+  const season = (accent: string, background: string, candidate: string): AppThemeSeed => ({
+    ...AUTUMN_LIGHT,
+    accent: accent,
+    background: background,
+    candidate_accent: candidate,
+  });
+  const seasons: [string, AppThemeSeed][] = [
+    ["spring", season("#4E9A3A", "#EAF4E0", "#267308")],
+    ["summer", season("#17704A", "#DDEFE4", "#0F6B46")],
+    ["autumn", AUTUMN_LIGHT],
+    ["winter", season("#3A6A8A", "#E6EEF4", "#346484")],
+  ];
+  for (const [name, seed] of seasons) {
+    const skin = KeyboardSkin.fromTheme("system", "跟随系统", null, false, seed);
+    check(
+      skin.candidateAccent === seed.candidate_accent,
+      `${name}: the first candidate takes candidate_accent`,
+    );
+    check(contrast(skin.candidateAccent, skin.keyBackground) >= 4.5, `${name}: on the key chip`);
+    check(contrast(skin.candidateAccent, skin.background) >= 4.5, `${name}: on the keyboard`);
+    check(
+      contrast(skin.accent, skin.background) < 4.5,
+      `${name}: the accent itself does not reach AA`,
+    );
+    check(
+      skin.accent === seed.accent && skin.actionBackground === seed.accent,
+      `${name}: the accent and the return key are unchanged`,
+    );
+  }
+  const plain = KeyboardSkin.fromTheme("system", "跟随系统", null, false);
+  check(plain.candidateAccent === "#1F6F41", "没有种子时首选用加深的平台绿");
+  check(contrast(plain.candidateAccent, plain.keyBackground) >= 4.5, "fallback: on the key chip");
+  check(contrast(plain.candidateAccent, plain.background) >= 4.5, "fallback: on the keyboard");
+  check(contrast(plain.accent, plain.background) < 4.5, "fallback: #2C7A4B itself is about 4.0:1");
+  check(plain.accent === "#2C7A4B", "fallback: the platform accent is unchanged");
+  check(
+    KeyboardSkin.fromTheme("system", "跟随系统", null, true, AUTUMN_DARK).candidateAccent ===
+      "#F0975F" &&
+      KeyboardSkin.fromTheme("system", "跟随系统", null, true).candidateAccent === "#5FBF84",
+    "dark keeps the accent",
+  );
+  const night: KeyboardThemePalette = {
+    background: "#0F1B22",
+    key: "#1D3340",
+    function_key: "#15252E",
+    text: "#E6F1F4",
+    secondary: "#86A6B0",
+    accent: "#4FD1C5",
+    on_accent: "#000000",
+  };
+  check(
+    KeyboardSkin.fromTheme("night", "夜青", night, false, AUTUMN_LIGHT).candidateAccent ===
+      "#4FD1C5",
+    "a named theme keeps its own accent for the first candidate",
+  );
+  const recoloured: AppThemeSeed = { ...AUTUMN_LIGHT, candidate_accent: "#B5562B" };
+  check(
+    KeyboardSkin.fromTheme("system", "跟随系统", null, false, AUTUMN_LIGHT).key() !==
+      KeyboardSkin.fromTheme("system", "跟随系统", null, false, recoloured).key(),
+    "the first-candidate colour is part of the skin's identity",
   );
 });
 

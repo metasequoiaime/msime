@@ -5868,6 +5868,7 @@ fn app_theme_catalog_and_resolution_have_the_documented_shape() {
                 "background",
                 "card",
                 "hair",
+                "candidate_accent",
             ] {
                 assert!(theme[mode][key].is_string(), "{} {mode} {key}", theme["id"]);
             }
@@ -5884,13 +5885,15 @@ fn app_theme_catalog_and_resolution_have_the_documented_shape() {
         autumn["value"],
         json!({
             "id": "siji", "season": "autumn", "accent": "#F0975F", "accent_soft": "#F0975F40",
-            "on_accent": "#3C2618", "background": "#21150F", "card": "#2E1E15", "hair": "#2A2F2A"
+            "on_accent": "#3C2618", "background": "#21150F", "card": "#2E1E15", "hair": "#2A2F2A",
+            "candidate_accent": "#F0975F"
         })
     );
     let fixed = call(json!({"app_theme": "chunya", "month": 10, "dark": false}));
     assert_eq!(fixed["value"]["season"], "spring");
     assert_eq!(fixed["value"]["accent"], "#4E9A3A");
     assert_eq!(fixed["value"]["on_accent"], "#FFFFFF");
+    assert_eq!(fixed["value"]["candidate_accent"], "#267308");
     let without_month = call(json!({"app_theme": "siji", "dark": false}));
     assert_eq!(without_month["ok"], true);
     for (request, why) in [

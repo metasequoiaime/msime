@@ -698,7 +698,7 @@ final class TouchPointTests: XCTestCase {
     report("key-geometry-measure-and-encode", layout)
   }
 
-  /// 坐了首选的双拼纠错（View 的 `confident_correction`）在候选条上：字和纠错前的拼写用强调色，读屏标签以「，已纠正」结尾；没坐首选的纠错照旧画次要色。下一次回应没有这个标记时，复用的词块放回原样。
+  /// 坐了首选的双拼纠错（View 的 `confident_correction`）在候选条上：字和纠错前的拼写用首选的字色（`candidateAccent`），读屏标签以「，已纠正」结尾；没坐首选的纠错照旧画次要色。下一次回应没有这个标记时，复用的词块放回原样。
   func testTheStripMarksAConfidentCorrection() throws {
     let previous = InputSchemePreference.scheme
     let follows = CandidatePalette.defaults.object(forKey: CandidatePalette.followsDesktopKey)
@@ -730,8 +730,8 @@ final class TouchPointTests: XCTestCase {
     controller.view.layoutIfNeeded()
     let first = try chip(1)
     XCTAssertEqual(first.accessibilityLabel, "候选词 1：我们今天去公园，还需输入 womfjbtnqugsyr，已纠正")
-    XCTAssertEqual(first.configuration?.baseForegroundColor, skin.accent)
-    XCTAssertEqual(try hintColor(first, "womfjbtnqugsyr"), skin.accent, "纠错前的拼写用强调色")
+    XCTAssertEqual(first.configuration?.baseForegroundColor, skin.candidateAccent)
+    XCTAssertEqual(try hintColor(first, "womfjbtnqugsyr"), skin.candidateAccent, "纠错前的拼写用首选的字色")
     XCTAssertEqual(try chip(2).accessibilityLabel, "候选词 2：我们今天去公，还需输入 womfjbtnqugs")
     XCTAssertEqual(try chip(2).configuration?.baseForegroundColor, skin.keyForeground)
     XCTAssertEqual(try hintColor(chip(2), "womfjbtnqugs"), skin.secondary, "没坐首选的纠错注释照旧是次要色")
@@ -740,7 +740,7 @@ final class TouchPointTests: XCTestCase {
     controller.render(try bridge.snapshot(from: try InputBridgeResponseTests.viewFixture(confident: nil)))
     controller.view.layoutIfNeeded()
     XCTAssertEqual(try chip(1).accessibilityLabel, "候选词 1：我们今天去公园，还需输入 womfjbtnqugsyr")
-    XCTAssertEqual(try chip(1).configuration?.baseForegroundColor, skin.accent, "键盘自己的配色里首选本来就是强调色")
+    XCTAssertEqual(try chip(1).configuration?.baseForegroundColor, skin.candidateAccent, "键盘自己的配色里首选本来就是首选的字色")
     XCTAssertEqual(try hintColor(chip(1), "womfjbtnqugsyr"), skin.secondary, "默认文档的纠错首选不画强调色注释")
   }
 
