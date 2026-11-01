@@ -15827,6 +15827,12 @@ private:
     weight.Value(previous ? static_cast<double>(previous->weight) : 10.0);
     form.Children().Append(key);
     form.Children().Append(value);
+    // 与共享页 dictionary-entries.tsx 一样，在短语框下说明光标标记的写法。
+    if (kind == L"quick_phrase" && !bundled) {
+      auto note = make_text(pg::quick_phrase_cursor_note, 12, palette_.sub);
+      note.MaxWidth(360);
+      form.Children().Append(note);
+    }
     form.Children().Append(weight);
     ContentDialog dialog;
     dialog.Title(box_value(hstring(previous ? (bundled ? L"调权重" : L"编辑词条") : L"新增词条")));
@@ -22495,6 +22501,7 @@ private:
       body.Children().Append(make_text(L"编码是 K 之后输入的小写字母，最多 32 个；同一个编码可以对应几段文字。文字最多 " +
                                            std::to_wstring(pg::max_text_utf16) + L" 个字符，不能换行。",
                                        12, palette_.sub));
+      body.Children().Append(make_text(pg::phrase_cursor_note, 12, palette_.sub));
       for (std::size_t i = 0; i < std::min(draft.phrases.size(), plugin_editor_shown_); ++i) {
         const auto at = L"第 " + std::to_wstring(i + 1) + L" 条短语";
         auto key = plugin_editor_field(
