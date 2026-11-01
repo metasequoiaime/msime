@@ -41,6 +41,11 @@ public final class TelemetryWatchDeviceSmoke extends Instrumentation {
         if (!saved.getBoolean("ok")) throw new AssertionError("save preferences");
     }
 
+    /** 夹具代表正在显示的键盘：产品只在键盘显示期间轮询授权，开始会话后按 onStartInputView 的顺序恢复观察。 */
+    private void showKeyboard(Class<?> telemetry) throws Exception {
+        telemetry.getMethod("resumeConsentWatch", android.content.Context.class).invoke(null, getTargetContext());
+    }
+
     @Override public void onStart() {
         Bundle result = new Bundle();
         int code = Activity.RESULT_CANCELED;
@@ -53,6 +58,7 @@ public final class TelemetryWatchDeviceSmoke extends Instrumentation {
             Files.createDirectories(root);
             telemetry = getTargetContext().getClassLoader().loadClass("app.msime.android.core.Telemetry");
             telemetry.getMethod("beginInputSession", android.content.Context.class).invoke(null, getTargetContext());
+            showKeyboard(telemetry);
             String completed = "";
             long deadline = SystemClock.uptimeMillis() + 180000;
             while (SystemClock.uptimeMillis() < deadline) {
@@ -109,6 +115,7 @@ public final class TelemetryWatchDeviceSmoke extends Instrumentation {
                 if (command.equals("begin") || command.equals("application")) {
                     telemetry.getMethod(command.equals("begin") ? "beginInputSession" : "start", android.content.Context.class)
                         .invoke(null, getTargetContext());
+                    showKeyboard(telemetry);
                     ended = false;
                 }
                 if (command.equals("finish")) {

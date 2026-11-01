@@ -236,6 +236,8 @@ public final class HomeActivity extends AppCompatActivity {
             runOnUiThread(this::recreateIfSeasonChanged);
         });
         CloudSync.onResume(this);
+        // 设置窗口在前台时才轮询诊断授权，退到后台由 onPause 暂停。
+        Telemetry.resumeConsentWatch(this);
         // 打开了「上传到云端」时补传打字统计；十分钟的节流在共享层，没登录真实账号时什么都不发。
         TypingUpload.onResume(this);
         themeWorker.execute(() -> DictionaryUpdates.request(getApplicationContext(), "automatic", null));
@@ -296,6 +298,11 @@ public final class HomeActivity extends AppCompatActivity {
         if (ViewPolicy.isVisible(intro)) return;
         drawnSeason = season;
         recreate();
+    }
+
+    @Override protected void onPause() {
+        Telemetry.pauseConsentWatch();
+        super.onPause();
     }
 
     @Override protected void onPostResume() {

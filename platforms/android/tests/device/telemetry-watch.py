@@ -262,7 +262,8 @@ def main():
         app_pid = wait(lambda: shell("pidof app.msime.android"), "actual application process")
         time.sleep(2)
         consent(False)
-        time.sleep(1.5)
+        # 前台设置窗口每秒核对一次授权，留出一轮半的余量再触发故障。
+        time.sleep(2.5)
         assert shell("pidof app.msime.android") == app_pid, "application restarted at withdrawal"
         shell("kill -ABRT " + app_pid)
         # Android 会自动重启前台 Activity；核对故障 PID 消失，不能要求新进程也不存在。

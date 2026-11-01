@@ -43,12 +43,15 @@ public final class Telemetry {
     private static final int MAX_CAUSES = 4;
     /** The keyboard process can live for days; a flush when the keyboard is shown, at most this often, sends what is queued and counts a new day's `active`. */
     private static final long INPUT_FLUSH_INTERVAL_MILLIS = 6L * 60 * 60 * 1000;
-    private static final long CONSENT_POLL_MILLIS = 500;
+    /** 与 HarmonyOS 相同的授权核对间隔；只在键盘显示或设置窗口在前台时轮询。 */
+    private static final long CONSENT_POLL_MILLIS = 1000;
     private static final ExecutorService WORKER = Executors.newSingleThreadExecutor(
         ThreadPolicy.namedDaemonFactory("msime-telemetry"));
     private static final ScheduledExecutorService OBSERVER = Executors.newSingleThreadScheduledExecutor(
         ThreadPolicy.namedDaemonFactory("msime-telemetry-consent"));
     private static ScheduledFuture<?> consentWatch;
+    /** 键盘正在显示或设置窗口在前台：只有这时才轮询共享同意，后台不再每秒拿跨进程锁、经 JNI 解析偏好。 */
+    private static boolean consentWatchWanted;
     private static long watchGeneration;
     private static boolean captureActive;
     private static String captureEpoch = "";
@@ -95,10 +98,38 @@ public final class Telemetry {
         installNativeCrashHandler();
         lastInputFlush = System.currentTimeMillis();
         long generation = consentGeneration.incrementAndGet();
-        long watch = ++watchGeneration;
-        consentWatch = OBSERVER.scheduleWithFixedDelay(() -> refreshConsent(app, watch),
-            CONSENT_POLL_MILLIS, CONSENT_POLL_MILLIS, TimeUnit.MILLISECONDS);
+        ++watchGeneration;
+        // 首轮准备交给 WORKER；轮询从一个间隔之后开始，免得与它重复准备同一份捕获。
+        if (consentWatchWanted) startConsentWatch(app, CONSENT_POLL_MILLIS);
         WORKER.execute(() -> { prepareCapture(app, !input, generation); collectSystemExits(app); flush(app); });
+    }
+
+    /** 键盘显示或设置窗口回到前台时恢复授权轮询，先立即核对一次。交给观察线程执行，主线程不等生命周期锁。 */
+    public static void resumeConsentWatch(Context context) {
+        Context app = context.getApplicationContext();
+        OBSERVER.execute(() -> setConsentWatch(app, true));
+    }
+
+    /** 键盘收起或设置窗口退到后台时暂停轮询。已武装的捕获保留最后一次快照，不停采：崩溃写入仍会核对同代次镜像，撤回后晚写的记录由共享代次拒收。 */
+    public static void pauseConsentWatch() {
+        OBSERVER.execute(() -> setConsentWatch(null, false));
+    }
+
+    private static synchronized void setConsentWatch(Context app, boolean wanted) {
+        consentWatchWanted = wanted;
+        if (wanted) startConsentWatch(app, 0);
+        else if (consentWatch != null) {
+            consentWatch.cancel(false);
+            consentWatch = null;
+        }
+    }
+
+    /** 调用方持有 Telemetry.class。 */
+    private static void startConsentWatch(Context app, long initialDelayMillis) {
+        if (!captureActive || consentWatch != null) return;
+        long watch = watchGeneration;
+        consentWatch = OBSERVER.scheduleWithFixedDelay(() -> refreshConsent(app, watch),
+            initialDelayMillis, CONSENT_POLL_MILLIS, TimeUnit.MILLISECONDS);
     }
 
     /** The keyboard was shown. Flushes at most every few hours; call on the main thread. */
@@ -116,6 +147,7 @@ public final class Telemetry {
         String endingSession;
         synchronized (Telemetry.class) {
             captureActive = false;
+            consentWatchWanted = false;
             watchGeneration++;
             if (consentWatch != null) consentWatch.cancel(false);
             consentWatch = null;
