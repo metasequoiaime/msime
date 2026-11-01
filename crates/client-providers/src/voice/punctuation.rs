@@ -118,13 +118,18 @@ pub fn apply(text: &str, mode: PunctuationMode) -> String {
     }
 }
 
+/// 去掉结尾的句读。句读外面还包着收尾的引号、括号时（`他说：“明天见。”`），跳过这些收尾符号去掉里面的句读，再把它们接回去，得到 `他说：“明天见”`。
 fn omit_trailing(text: &str) -> String {
     let chars: Vec<char> = text.trim().chars().collect();
-    let mut end = chars.len();
+    let mut closing_start = chars.len();
+    while closing_start > 0 && is_closing(chars[closing_start - 1]) {
+        closing_start -= 1;
+    }
+    let mut end = closing_start;
     while end > 0 && (chars[end - 1].is_whitespace() || is_removable(&chars[..end], end - 1)) {
         end -= 1;
     }
-    chars[..end].iter().collect()
+    chars[..end].iter().chain(&chars[closing_start..]).collect()
 }
 
 /// 把每一串句读（连同夹在其中、紧挨着它的空白）换掉。`space` 为真时换成一个空格，紧挨着引号、括号内侧时不加；否则只在原来就隔着空白、或两边是要用空格分词的字母数字时留一个空格（`Hello, world` 和 `Hello,world` 都得到 `Hello world`，`你好，世界` 得到 `你好世界`）。
@@ -243,6 +248,28 @@ mod tests {
             ]
             .map(String::from)
         );
+    }
+
+    #[test]
+    fn trailing_punctuation_inside_closing_marks_is_removed() {
+        assert_eq!(
+            apply("他说：“明天见。”", PunctuationMode::OmitTrailing),
+            "他说：“明天见”"
+        );
+        assert_eq!(
+            apply("好吧（真的？）", PunctuationMode::OmitTrailing),
+            "好吧（真的）"
+        );
+        assert_eq!(
+            apply("他问「去哪？！」 ", PunctuationMode::OmitTrailing),
+            "他问「去哪」"
+        );
+        assert_eq!(
+            apply("他说：“好。”）", PunctuationMode::OmitTrailing),
+            "他说：“好”）"
+        );
+        assert_eq!(apply("（。）", PunctuationMode::OmitTrailing), "（）");
+        assert_eq!(apply("”", PunctuationMode::OmitTrailing), "”");
     }
 
     #[test]

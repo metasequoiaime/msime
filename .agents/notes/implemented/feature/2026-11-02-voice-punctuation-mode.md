@@ -30,6 +30,7 @@ Status: implemented
 - 只动识别器会写出的句读：`，。、；：？！…～`、全角句点，以及半角 `, . ; : ? !`。引号、括号、书名号、连字符、撇号、`%`、`@`、半角 `~` 不动。
 - 两边紧挨字母或数字的半角点（3.5、v1.2、example.com）不是句号；两边是数字的 `:`、`：`、`,`（10:30、1,000）不是标点。
 - 去掉标点会让两个拉丁字母或数字粘在一起时补一个空格（`Hello,world` → `Hello world`）；汉字之间直接相连。空格代替标点时，空格不放在左引号、左括号之后，也不放在右引号、右括号之前。
+- 句末标点外面还包着右引号、右括号（`他说：“明天见。”`）时，`omit_trailing` 跳过这串收尾符号去掉里面的句读，再把它们接回去，得到 `他说：“明天见”`；识别器和润色提示词都常写出这种结尾。
 - 整段只有标点时得到空串，宿主按没有识别到文字处理。
 
 与[本地识别的数字规整](2026-10-17-local-voice-accuracy.md)一样只处理最终文本。宿主经 `msime_client_voice_punctuation({text, mode}) -> {text}`（`crates/host-api/src/ffi/voice.rs`）调用，文本上限与热词纠正相同。取值由 `msime_client_mobile_voice_configuration` 的响应字段 `punctuationMode` 给出，已经按 `parse` 归一，宿主不必自己认取值。
@@ -38,7 +39,7 @@ Status: implemented
 
 只处理最终文本，在所有识别服务和润色之后、上屏或存进语音结果之前，每条路径处理一次：
 
-- 键盘里的聆听：`ImeVoiceEntry.delivered()`。本地、豆包、整句上传、系统识别四种引擎和润色后的结果都从这里过，长按锁定后等待发送时显示的、因输入位置变化存进语音结果的，都是处理后的文字。取值在开始聆听时从 `VoiceConfiguration` 读，随 `generation` 一起更新。
+- 键盘里的聆听：`ImeVoiceEntry.delivered()`。本地、豆包、整句上传、系统识别四种引擎和润色后的结果都从这里过，长按锁定后等待发送时显示的、因输入位置变化存进语音结果的，都是处理后的文字。识别出了内容、处理后为空且识别器没报错时，这里补上「没有识别到文字」作为失败提示，与识别窗口一致，不会无声收起。取值在开始聆听时从 `VoiceConfiguration` 读，随 `generation` 一起更新。
 - 识别窗口：`VoiceRecognitionActivity.saveResult()`，它是这个窗口存结果的唯一出口；键盘从语音结果领取时不再处理。
 - 外部应用调起的离线识别窗口：`OfflineVoiceRecognitionActivity` 在工作线程上处理后交给 `returnResult`。
 
@@ -67,7 +68,7 @@ iOS、鸿蒙、桌面三端暂不读这个字段，各自的接线见 #10595、#
 
 ## Verification
 
-- `cargo test -p msime-client-providers --lib voice::punctuation`：取值往返、issue 里的例子、句末一串标点、引号括号、数字和网址、拉丁单词分隔、只剩标点。
+- `cargo test -p msime-client-providers --lib voice::punctuation`：取值往返、issue 里的例子、句末一串标点、引号括号、句末标点在右引号右括号里面、数字和网址、拉丁单词分隔、只剩标点。
 - `cargo test -p msime-client-core --lib voice_punctuation_mode`：缺键读成 `auto` 且不写进文档，选过的值和不认识的值都能读写。
 - `cargo test -p msime-host-api --lib voice_punctuation mobile_voice_configuration_reports`：FFI 的四种方式、未知方式、只剩标点、缺字段、超长、空指针；共享解析给出归一后的 `punctuationMode`。
 - `platforms/android/check-host.sh`：`VoicePunctuationSmoke`（取值、标签、`auto` 不进共享层、调用失败保留原文），设置搜索收录「语音标点」，`client_jni.cpp` 对共享头编译。
