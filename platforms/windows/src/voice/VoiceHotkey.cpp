@@ -31,7 +31,7 @@ constexpr UINT kToggleMessage = WM_APP + 201;
 constexpr UINT kStopMessage = WM_APP + 202;
 constexpr UINT kLockMessage = WM_APP + 203;
 constexpr UINT kCancelMessage = WM_APP + 204;
-// A hold that became a chord drops its recording. Unlike kCancelMessage this does nothing when no recording is running by the time it is handled - the hold may have stopped a locked dictation instead of starting one, or the start may have failed - because cancelling then would also abandon an earlier dictation's recognition still in flight.
+// A hold that became a chord drops the recording that hold started, and nothing else; see voice_chord_cancels_recording. Unlike kCancelMessage it leaves alone a dictation started another way (Ctrl+F9, the toolbar microphone) and, when the hold started nothing, an earlier dictation's recognition still in flight.
 constexpr UINT kChordCancelMessage = WM_APP + 205;
 // dwExtraInfo on the right Alt and the key this hook replays when a hold turns into a chord, so the hook lets its own replay through instead of reading it as a new press. It is deliberately not one of the tip's self-generated markers (IsSelfGeneratedSendInputExtraInfo in tsf/IME/MetasequoiaIME.h): the replayed key stands in for the physical press the hook swallowed and must be classified like one.
 constexpr ULONG_PTR kChordReplayExtraInfo = 0x4D535641u;
@@ -136,14 +136,19 @@ LRESULT VoiceHotkeyController::handle_window(HWND hwnd, UINT message,
   (void)lparam;
   switch (message) {
   case kStartMessage:
-    if (!voice_.recording())
+    hold_session_ = 0;
+    if (!voice_.recording()) {
       voice_.toggle();
+      if (voice_.recording())
+        hold_session_ = voice_.session();
+    }
     return 0;
   case kToggleMessage:
     if (config_provider_().enabled && active_provider_()) voice_.toggle();
     return 0;
   case kStopMessage:
     voice_.stop();
+    hold_session_ = 0;
     return 0;
   case kLockMessage:
     voice_.lock();
@@ -153,8 +158,10 @@ LRESULT VoiceHotkeyController::handle_window(HWND hwnd, UINT message,
     cancel_posted_ = false;
     return 0;
   case kChordCancelMessage:
-    if (voice_.recording())
+    if (voice_chord_cancels_recording(hold_session_, voice_.session(),
+                                      voice_.recording(), voice_.locked()))
       voice_.cancel();
+    hold_session_ = 0;
     return 0;
   default:
     return DefWindowProcW(hwnd, message, wparam, lparam);

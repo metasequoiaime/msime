@@ -14,7 +14,12 @@ Issue #10518：在 PowerPoint 里用五笔，按 Alt+F10 的效果和只按 F10 
 
 右 Alt 的按住（`RAlt`，以及同样吞掉右 Alt 的 `RCtrlRAlt`）期间，用户新按下一个非修饰键，就当作组合键：
 
-- 结束这次按住，丢弃录音、不上屏。取消走新消息 `kChordCancelMessage`，处理时只在仍在录音时调用 `voice_.cancel()`：按住也可能是「停掉一段已锁定的听写」，或者开始录音失败了，这时 `cancel()` 会连带丢掉上一段还在识别的结果。
+- 结束这次按住，只丢弃这次按住自己开始的那段录音，不上屏。取消走新消息 `kChordCancelMessage`。窗口线程处理 `kStartMessage` 时，如果这次按住真的开始了录音，就记下 `VoiceInputSession::session()` 返回的会话代次（`hold_session_`），否则记 0。`kChordCancelMessage` 只在 `voice_chord_cancels_recording` 成立时调用 `voice_.cancel()`：记下的代次不是 0、等于当前代次、仍在录音、没有锁定。下面几种都不取消：
+  - 按住之前已经在录音（Ctrl+F9、自定义切换键、工具栏麦克风、设置页试录开始的免手持听写）：用户按的是快捷键，不是要结束这段听写。修复前这段听写会在右 Alt 松开时被 stop 并上屏，`cancel()` 会把录音直接丢掉，所以不能取消。组合键之后右 Alt 的松开也不再停止它，听写继续。德语、法语布局在听写中按 AltGr+Q 打 @ 就走这条路。
+  - 这次按住停掉的是一段已锁定的听写，或者开始录音失败：此时 `cancel()` 会连带丢掉上一段还在识别的结果。
+  - 按住开始的录音已经结束，另一处又开始了新的一段（代次变了）。
+
+  代次要在窗口线程上、真正调用 `toggle()` 之后取，不在钩子的 `activate()` 里判断：钩子运行时前面投递的消息可能还没处理，比如 Ctrl+F9 的 `kToggleMessage` 还在队列里，这时看到的「没在录音」是过时的。`start()` 和 `cancel()` 都会推进代次，`stop()` 不会，所以代次相等加上仍在录音就能确认还是同一段。
 - 吞掉这次按键，用 `SendInput` 依次补发右 Alt 按下（`KEYEVENTF_EXTENDEDKEY`）和这个键的按下（同 vk、scanCode、扩展键位）。不能只补右 Alt 再放行当前键：注入事件排在当前事件之后，应用会先看到键、再看到 Alt。
 - 之后的松开不再拦截，应用自然收到这个键和右 Alt 的松开，与补发的按下配对。
 - 补发的两条事件 `dwExtraInfo` 带 `kChordReplayExtraInfo`（`0x4D535641`），钩子见到它直接放行，不更新任何状态。这个值故意不进 TIP 的 `IsSelfGeneratedSendInputExtraInfo`：补发的键代替的是被吞掉的物理按键，TIP 要像对物理键一样分类和计入统计。
@@ -44,5 +49,5 @@ Issue #10518：在 PowerPoint 里用五笔，按 Alt+F10 的效果和只按 F10 
 
 ## Testing
 
-- `platforms/windows/tests/voice/voice_hotkey_policy.cpp` 补了 `voice_hold_becomes_chord` 和 `voice_hold_may_activate` 的用例：RAlt 与 RCtrlRAlt 按住时 F10、Q 触发组合键；CtrlWin、无按住、松开、自动重复、注入、已锁定、空格（锁定开着）、Esc、全部修饰键都不触发；空格锁定关掉时右 Alt+空格触发；组合键之后右 Alt 不能重新开始按住，其他键不受影响。在 macOS 上用 `clang++ -std=c++20 -Wall -Wextra -Werror` 编译运行通过；CI 的 `windows-voice-hotkey-policy` 目标会在 MSVC `/W4 /WX` 下再跑一次。
+- `platforms/windows/tests/voice/voice_hotkey_policy.cpp` 补了 `voice_hold_becomes_chord` 和 `voice_hold_may_activate` 的用例：RAlt 与 RCtrlRAlt 按住时 F10、Q 触发组合键；CtrlWin、无按住、松开、自动重复、注入、已锁定、空格（锁定开着）、Esc、全部修饰键都不触发；空格锁定关掉时右 Alt+空格触发；组合键之后右 Alt 不能重新开始按住，其他键不受影响；`voice_chord_cancels_recording` 只在代次非 0、相等、仍在录音、未锁定时成立，按住没开始录音（代次 0）、代次变了、已停止、已锁定都不取消。在 macOS 上用 `clang++ -std=c++20 -Wall -Wextra -Werror` 编译运行通过；CI 的 `windows-voice-hotkey-policy` 目标会在 MSVC `/W4 /WX` 下再跑一次。
 - `VoiceHotkey.cpp` 用 `x86_64-w64-mingw32-g++ -std=c++20 -fsyntax-only -Wall -Wextra -Werror -DMSIME_EDITION_FULL` 做了语法检查，链接和运行交给 Windows CI 与实机。

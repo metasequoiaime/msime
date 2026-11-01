@@ -157,6 +157,14 @@ int main() {
                                     voice_key_ralt, voice_key_lwin, voice_key_rwin})
       REQUIRE(!voice_hold_becomes_chord(modifier, true, false, false, VoiceHoldShortcut::RAlt, all_on, false));
     REQUIRE(!voice_key_is_modifier(f10));
+    // The chord drops the recording its own hold started (epoch 7 here) and nothing else. A dictation started by Ctrl+F9 or the toolbar while right Alt was pressed leaves the hold with epoch 0 and keeps running; so does one that replaced the hold's recording (epoch 8), one already over, and one the user locked.
+    REQUIRE(voice_chord_cancels_recording(7, 7, true, false));
+    REQUIRE(!voice_chord_cancels_recording(0, 7, true, false));
+    REQUIRE(!voice_chord_cancels_recording(0, 0, true, false));
+    REQUIRE(!voice_chord_cancels_recording(7, 8, true, false));
+    REQUIRE(!voice_chord_cancels_recording(7, 7, false, false));
+    REQUIRE(!voice_chord_cancels_recording(7, 7, true, true));
+
     // After a chord, right Alt's auto-repeat must not start a new hold until it is released; other keys are unaffected.
     REQUIRE(!voice_hold_may_activate(voice_key_ralt, true));
     REQUIRE(voice_hold_may_activate(voice_key_ralt, false));

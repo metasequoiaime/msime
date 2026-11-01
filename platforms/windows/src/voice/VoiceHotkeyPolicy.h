@@ -203,7 +203,7 @@ constexpr bool voice_key_is_modifier(unsigned key) {
          key == voice_key_rwin;
 }
 
-// A right-Alt hold that meets another key was a shortcut, not dictation (#10518): right Alt+F10 in PowerPoint reached the application as a bare F10 because the hold had swallowed the Alt. Such a key ends the hold, the recording is dropped, and the hook hands the application right Alt and then this key, in that order.
+// A right-Alt hold that meets another key was a shortcut, not dictation (#10518): right Alt+F10 in PowerPoint reached the application as a bare F10 because the hold had swallowed the Alt. Such a key ends the hold, the recording that hold started is dropped (see voice_chord_cancels_recording), and the hook hands the application right Alt and then this key, in that order.
 //
 // Only a fresh physical press of a non-modifier key does it. A key-up, an auto-repeat of a key already down before the hold began, and input another program injected do not. Space while space-lock is on and Escape keep their own meanings, and a hold the user has locked with space is dictation they asked to keep. Ctrl+Win is not included: it swallows Win, not Alt, and is left as it is.
 constexpr bool voice_hold_becomes_chord(unsigned key, bool down, bool repeat,
@@ -217,6 +217,14 @@ constexpr bool voice_hold_becomes_chord(unsigned key, bool down, bool repeat,
   if (voice_key_is_modifier(key) || key == voice_key_escape)
     return false;
   return !voice_space_locks_hold(key, active, bindings);
+}
+
+// A chord drops only the recording its own hold started. `hold_session` is the session epoch that hold's start produced, 0 when it started nothing: a dictation was already running (Ctrl+F9, a custom toggle hotkey, the toolbar microphone, a settings review capture), the hold stopped a locked dictation, or the start failed. Any other recording keeps running, because the user pressed a shortcut and did not ask to end that dictation; before #10518 its right Alt release would have stopped and submitted it, and cancelling it instead would throw the audio away. A changed epoch means the hold's recording already ended and something else started a new one, and a locked recording is one the user asked to keep.
+constexpr bool voice_chord_cancels_recording(std::uint64_t hold_session,
+                                             std::uint64_t current_session,
+                                             bool recording, bool locked) {
+  return hold_session != 0 && hold_session == current_session && recording &&
+         !locked;
 }
 
 // After a chord the user is still holding right Alt, and its auto-repeat keeps arriving as fresh key-downs. Those must not start a new hold, or the second repeat would begin recording and swallow the Alt the application now holds. The latch ends with right Alt's release.

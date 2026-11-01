@@ -54,6 +54,8 @@ private:
   std::atomic<bool> hold_locked_{false};
   // Set when a right-Alt hold was handed to the application as a chord, until right Alt comes back up; see voice_hold_may_activate.
   std::atomic<bool> ralt_chord_until_up_{false};
+  // Window thread only. The session epoch of the recording the latest voice hold started, 0 when it started none; kChordCancelMessage cancels only that recording.
+  std::uint64_t hold_session_ = 0;
   bool observed_config_ = false;
   bool observed_enabled_ = true;
   bool observed_hotkey_ralt_ = true;
