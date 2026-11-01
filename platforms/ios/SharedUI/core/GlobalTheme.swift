@@ -152,15 +152,15 @@ enum SeasonKeyboardTokens {
         AppThemePalette.resolved(dark: traits.userInterfaceStyle == .dark)?.accent
           ?? NativeKeyboardTokens.accent.resolvedColor(with: traits)
       },
-      // 首选候选用 Rust 给的 `candidate_accent`：浅色是加深到 AA 的强调色，深色就是强调色。
-      candidateAccent: UIColor { traits in
-        AppThemePalette.resolved(dark: traits.userInterfaceStyle == .dark)?.candidateAccent
-          ?? NativeKeyboardTokens.candidateAccent.resolvedColor(with: traits)
-      },
       // 浅色强调色上用白色；深色下用 Rust 的 `on_accent`，即 mix(accent 25%, #000)，因为白色压在深色模式偏浅的强调色上对比度不到 2:1。
       onAccent: UIColor { traits in
         guard traits.userInterfaceStyle == .dark else { return .white }
         return AppThemePalette.resolved(dark: true)?.onAccent ?? .black
+      },
+      // 首选候选用 Rust 给的 `candidate_accent`：浅色是加深到 AA 的强调色，深色就是强调色。
+      candidateAccent: UIColor { traits in
+        AppThemePalette.resolved(dark: traits.userInterfaceStyle == .dark)?.candidateAccent
+          ?? NativeKeyboardTokens.candidateAccent.resolvedColor(with: traits)
       })
   }
 
