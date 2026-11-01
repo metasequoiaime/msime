@@ -45,8 +45,9 @@ public final class EditorPolicy {
         return password(type) || !allowLearning(options);
     }
 
-    /** 进框时临时切成英文的输入框：只看邮箱、密码这几种 variation。网址框不算（#9725）：Android 没有 iOS 的 `.webSearch`，Firefox、Chrome 这些浏览器的地址栏同时是搜索框，却只能声明成 `TYPE_TEXT_VARIATION_URI`，算进来的话九宫格用户每次点地址栏都被切成 26 键英文，「默认中英文」和按应用记住的模式都被盖掉；网址框按默认模式进框，中文模式下打 `www.`、`http:` 由引擎的网址模式接管。`TYPE_TEXT_FLAG_NO_SUGGESTIONS` 不算：React Native 的 `autoCorrect={false}`、Flutter 的 `enableSuggestions: false` 和不少网页输入框都带着它，算进来的话这些聊天框、搜索框每次进框都是英文，「默认中英文」和按应用记住的模式都被盖掉（#5998）。 */
+    /** 进框时临时切成英文的输入框：只看邮箱、密码这几种 variation，数字密码也算（{@link #password}）。数字密码框不走引擎、首页是数字九宫格，但「返回原键盘」切到的字母层按中文键面画的话就是上次记住的九键、注音或笔画，密码框里打不出字母；与文字密码一样临时切英文，字母层就是 26 键，离开时恢复原来的中英（鸿蒙的 `PATTERN_PASSWORD_NUMBER` 同样归入密码）。网址框不算（#9725）：Android 没有 iOS 的 `.webSearch`，Firefox、Chrome 这些浏览器的地址栏同时是搜索框，却只能声明成 `TYPE_TEXT_VARIATION_URI`，算进来的话九宫格用户每次点地址栏都被切成 26 键英文，「默认中英文」和按应用记住的模式都被盖掉；网址框按默认模式进框，中文模式下打 `www.`、`http:` 由引擎的网址模式接管。`TYPE_TEXT_FLAG_NO_SUGGESTIONS` 不算：React Native 的 `autoCorrect={false}`、Flutter 的 `enableSuggestions: false` 和不少网页输入框都带着它，算进来的话这些聊天框、搜索框每次进框都是英文，「默认中英文」和按应用记住的模式都被盖掉（#5998）。 */
     public static boolean prefersLatin(int type) {
+        if (password(type)) return true;
         if ((type & InputType.TYPE_MASK_CLASS) != InputType.TYPE_CLASS_TEXT) return false;
         int variation = type & InputType.TYPE_MASK_VARIATION;
         return variation == InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS

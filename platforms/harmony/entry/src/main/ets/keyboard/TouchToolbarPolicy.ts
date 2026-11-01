@@ -60,7 +60,7 @@ export class TouchToolbarPolicy {
   }
 
   /**
-   * 工具条（工具栏、候选栏或高度条那一行）这一刻显不显示。
+   * 工具条（工具栏或候选栏那一行）这一刻显不显示。
    *
    * @param rowHidden `rowHidden` 的结果
    * @param idle 没有组字、候选、提示这些要占这一行的内容

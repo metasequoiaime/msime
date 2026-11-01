@@ -1509,6 +1509,7 @@ function appThemeClient(initial: AppThemeId = "siji") {
       background: "#F6E9DC",
       card: "#FFFBF6",
       hair: "#0000000F",
+      candidate_accent: "#9F4214",
     }),
     catalog: () => appThemeCatalog,
     subscribe: (listener: () => void) => {

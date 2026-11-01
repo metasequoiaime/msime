@@ -56,7 +56,7 @@ Status: implemented
 - 「数字键盘」一组，在空格位置胶囊和说明之后，一行导航行「数字键盘左侧符号」，跟着这一组显示。Android 原来「没有拼音九键就不列数字行」的条件作废。
 - 9 键预览的左列按用户的字母表画一屏（本端上限内的前几项，等高），自定义时左列每格描强调色；出厂表照旧，不描。右列的 ！ 也记 `SoftPunctuation`，所以三端都不按键 id 加进高亮表：Android 用预览专用的 id `NineKeySidebar`，iOS 与共享页按位置描。
 - 「按键布局」页以外的键盘预览（#10245 让它们跟随按键布局：Android 皮肤页与社区皮肤的 `KeyboardPreview`、iOS `KeyboardSkinPreview`、共享页 `harmonyTouchRowsForPreferences` 画的屏幕键盘页「尺寸」、皮肤卡片和社区皮肤）9 键左列同样按字母表画这一屏、不描边，三端与「按键布局」页取同一张表（Android `KeyLayoutStylesPolicy.Preview` 带上表，iOS `KeyboardPreviewLetterLayer` 取 `TouchKeyLayoutKind.previewSidebar`，共享页的左列栈在 `harmonyStyledRows` 里），各自的画法能画一格里的竖栈。
-- 编辑页两张表共用一个页面：标题同上；顶部说明「拼音九键、九键双拼和笔画共用，多于一屏时上下滑动。」/「所有九宫格数字键盘共用，#+= 固定在最后。」；可删除、可拖动排序；可加入的常用符号是 Android `NineKeySidebarPolicy.ADDABLE_SYMBOLS` 那 51 项里还不在表里的；可手动输入一项（Android 这次补上「输入符号」行，原来只有选择面板）；「恢复默认」；整表不合规时保存键不可点，重复项在加入时挡掉；保存失败照各端现有写法提示并保留原值；编辑页不画预览。
+- 编辑页两张表共用一个页面：标题同上；顶部说明「拼音九键、九键双拼和笔画共用，多于一屏时上下滑动。」/「所有九宫格数字键盘共用，#+= 固定在最后。」；可删除、可拖动排序（每项前的序号和跟手拖动见[序号与跟手拖动](2026-10-31-nine-key-sidebar-order-drag.md)）；可加入的常用符号是 Android `NineKeySidebarPolicy.ADDABLE_SYMBOLS` 那 51 项里还不在表里的；可手动输入一项（Android 这次补上「输入符号」行，原来只有选择面板）；「恢复默认」；整表不合规时保存键不可点，重复项在加入时挡掉；保存失败照各端现有写法提示并保留原值；编辑页不画预览。
 - 设置搜索收两个标题；Android 另收旧名「九键数字键盘左侧符号」作别名。iOS 搜索只到页面一级，命中打开「键盘」页。
 
 上限、可加入的符号、两个标题、两条说明、成对符号表和字母层出厂表由 `scripts/test-nine-key-sidebar-parity.py` 核对三端逐项相同，鸿蒙键盘与共享设置页的两张出厂表也在其中。

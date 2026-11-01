@@ -626,7 +626,7 @@ struct CommunityDesignPreview: View {
   /// 用皮肤配色绘制的空闲工具栏：品牌圆片、五个默认工具和收起箭头，各占等宽的一列。
   private var miniToolbar: some View {
     HStack(spacing: 0) {
-      brandDisc.frame(maxWidth: .infinity)
+      brandMark.frame(maxWidth: .infinity)
       ForEach(["face.smiling", "bubble.left", "doc.on.clipboard", "paintpalette", "keyboard"], id: \.self) { symbol in
         Image(systemName: symbol).font(.system(size: 19)).frame(maxWidth: .infinity)
       }
@@ -635,13 +635,9 @@ struct CommunityDesignPreview: View {
     .foregroundStyle(foreground)
   }
 
-  /// 由设计的强调色绘制的键盘品牌圆片：圆片为 mix(accent 14%, 按键颜色)，标志的边框为 mix(accent 82%, #000)，再加上白色描边。
-  private var brandDisc: some View {
-    let accent = CustomKeyboardSkin.color(design.accent)
-    let disc = AppThemePalette.mix(accent, 14, CustomKeyboardSkin.color(design.keyBackground))
-    let frame = AppThemePalette.mix(accent, 82, .black)
-    return LogoDisc(diameter: 26, markSize: 16,
-                    discFill: Color(uiColor: disc), frameFill: Color(uiColor: frame))
+  /// 键盘品牌键：固定配色的水杉标志本身就是外框，不再垫圆片；占位仍是原来 26 点的圆片，标志按原来的 16 点画。
+  private var brandMark: some View {
+    MSIMELogoMark().frame(width: 16, height: 16).frame(width: 26, height: 26)
   }
 
   /// 一行按键，宽度按各自权重分配，与 MiniKb 的弹性行一致。

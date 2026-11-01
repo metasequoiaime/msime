@@ -10,6 +10,8 @@ Status: implemented
 
 检索审计：[浮动键盘](../../implemented/feature/2026-10-08-android-floating-keyboard.md)部分重叠，它否掉了「停靠时也一直铺满」，本篇只在调整高度这个临时模式里铺满，不改那条决定；[全文预览](../../implemented/feature/2026-10-20-android-clipboard-card-preview.md)部分重叠，本篇复用它「记下打开前的屏幕上沿、按当前窗口原点换算」的 insets 做法；[Android 9 窗口 insets 修复](2026-10-24-android-api28-ime-window-insets.md)部分重叠，API 28 本来就是全高窗口，本篇只给它补上调整期间的固定边界；[键盘高度范围](../../implemented/feature/2026-10-08-android-keyboard-height-range.md)持有 75%–170% 的范围、封顶和内联条的读数，本篇不改。
 
+内联高度条已由 [键盘调整遮罩](../feature/2026-11-01-android-keyboard-adjust-overlay.md) 取代：下面这一套全高窗口、固定避让边界和只把外框算作可触摸区域的做法原样沿用，触发条件从 `inlineHeightActive` 换成 `keyboardAdjustActive`，记下的上沿是 `keyboardAdjustKeyboardTop`；预览除了高度还有底部抬高和收窄，同样只在窗口里变化。「取消」已经没有了。
+
 ## Decision
 
 - 打开内联高度条（`showInlineHeight`）时，先记下键区此刻在屏幕上的上沿 `inlineHeightKeyboardTop`，再把 `inlineHeightActive` 计入 `applyFloatingLayout` 的全高条件：输入法窗口、系统 `inputArea` 与键盘根视图铺满，键盘外框包裹内容贴底。功能面板盖在键区上、与键区同高，记下的就是应用此刻正在避让的边界，所以打开时应用不动。

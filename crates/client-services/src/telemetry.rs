@@ -74,6 +74,8 @@ const MAX_STATE_FILE_BYTES: u64 = 32 * 1024;
 pub(crate) const MAX_CRASH_RECORD_BYTES: u64 = 64 * 1024;
 /// Crash records turned into events per start; a host that crashes in a loop cannot fill the queue with one start's worth of records.
 const MAX_CRASH_RECORDS_PER_START: usize = 8;
+/// 读不出的崩溃记录保留这么久，覆盖短期降级后再升级的情况，之后删除。
+const STALE_UNREADABLE_CRASH: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 /// 记住的未结束会话上限。超过时淘汰最旧的：被淘汰的会话之后再留下崩溃记录，只报 `crash`，不再报 `session_crash`。
 const MAX_OPEN_SESSIONS: usize = 16;
 /// 记住的、已经补报过 `session_crash` 的进程号上限，用来认出系统事后为同一次崩溃再送来的诊断。
@@ -408,8 +410,14 @@ impl TelemetryStore {
         let _lock = unbound.lock()?;
         let mut state = unbound.read_state();
         if state.consent_epoch != Some(epoch) {
-            unbound.clear_locked()?;
-            state = unbound.read_state();
+            if state.consent_epoch.is_none() && !state.consent_required {
+                // 第一次接入持续授权时，旧版本没有代次，留下的会话和原生崩溃文件
+                // 仍可归属于旧会话；清掉旧队列，保留它们做一次性迁移补报。
+                unbound.clear_unbound_queue_locked(&mut state)?;
+            } else {
+                unbound.clear_locked()?;
+                state = unbound.read_state();
+            }
         }
         if state.consent_epoch != Some(epoch) || !state.consent_required {
             state.consent_epoch = Some(epoch);
@@ -932,6 +940,16 @@ impl TelemetryStore {
         Ok(())
     }
 
+    /// 首次接入持续授权时清掉旧队列和收据，但保留没有授权代次的旧会话及其崩溃文件。
+    fn clear_unbound_queue_locked(&self, state: &mut TelemetryState) -> Result<(), TelemetryError> {
+        remove_file(&self.directory.join(QUEUE_FILE))?;
+        state.active_day.clear();
+        state.retry_after_unix_ms = 0;
+        state.crashed_processes.clear();
+        state.received_crashes.clear();
+        self.write_state(state)
+    }
+
     /// The queued events, oldest first.
     pub fn queued(&self) -> Result<Vec<TelemetryEvent>, TelemetryError> {
         let _lock = self.lock()?;
@@ -1090,7 +1108,13 @@ impl TelemetryStore {
                     collected.records.push(path);
                     continue;
                 }
-                Err(CrashRecordSkip::Unavailable) => continue,
+                Err(CrashRecordSkip::Unavailable) => {
+                    // 写入中的记录只在崩溃进程写入期间持锁；空文件、写坏或降级后读不懂的记录过期后删除，避免永久滞留和反复扫描。
+                    if crash_record_is_stale(&path) {
+                        collected.records.push(path);
+                    }
+                    continue;
+                }
             };
             let stem = path
                 .file_stem()
@@ -1181,6 +1205,14 @@ fn crash_record_paths(directory: &Path) -> Result<Vec<PathBuf>, TelemetryError> 
     Ok(records)
 }
 
+fn crash_record_is_stale(path: &Path) -> bool {
+    fs::metadata(path)
+        .and_then(|metadata| metadata.modified())
+        .ok()
+        .and_then(|modified| SystemTime::now().duration_since(modified).ok())
+        .is_some_and(|age| age > STALE_UNREADABLE_CRASH)
+}
+
 enum CrashRecordSkip {
     Revoked,
     Unavailable,
@@ -1221,10 +1253,14 @@ fn crash_event(
             .find(|marker| marker.id == stem)
             .and_then(|marker| marker.context.clone())
     });
-    if consent_epoch.is_some()
-        && context.as_ref().and_then(|context| context.consent_epoch) != consent_epoch
-    {
-        return Err(CrashRecordSkip::Revoked);
+    // 旧版本的会话标记和崩溃文件没有授权代次；用户仍然同意上报时，
+    // 这些记录应按旧会话继续补报。新格式带上下文时才校验它是否属于当前代次。
+    if let Some(current_epoch) = consent_epoch {
+        if let Some(context) = context.as_ref() {
+            if context.consent_epoch != Some(current_epoch) {
+                return Err(CrashRecordSkip::Revoked);
+            }
+        }
     }
     let (platform, version) = match context.as_ref() {
         Some(context) => (context.platform.clone(), context.version.clone()),

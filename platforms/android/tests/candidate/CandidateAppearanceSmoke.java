@@ -29,14 +29,14 @@ public final class CandidateAppearanceSmoke {
         check(system.selected() == 0 && system.border() == 0);
         check(system.hover() == 0x0f191c19);
         check(system.textFor(true) == 0xff2c7a4b && system.textFor(false) == 0xff191c19);
-        // 新设计的首选 chip：底为字母键色、字为强调色 600。
-        check(system.chip() == 0xfffdfefc && system.chipText() == 0xff2c7a4b);
+        // 新设计的首选 chip：底为字母键色、字为皮肤的首选字色 600。跟随系统皮肤的首选字色是同一色相加深到 WCAG AA 的 #267547（#2C7A4B 在键盘底色上约 4.3:1）。
+        check(system.chip() == 0xfffdfefc && system.chipText() == 0xff267547);
         check(system.chipFor(true) == 0xfffdfefc && system.chipFor(false) == 0);
         check(system.weightFor(true) == 600 && system.weightFor(false) == 400);
         check(CandidateAppearance.SELECTED_FONT_WEIGHT == 600);
         CandidateAppearance.Palette dark = CandidateAppearance.fromSkin(KeyboardSkin.system(true));
         check(dark.surface() == 0xff222a24 && dark.accent() == 0xff8fd5a6);
-        check(dark.chip() == 0xff424b45);
+        check(dark.chip() == 0xff424b45 && dark.chipText() == 0xff8fd5a6);
         check(!dark.key().equals(system.key()));
 
         CandidateAppearance.Palette night = CandidateAppearance.fromSkin(KeyboardSkin.palette(

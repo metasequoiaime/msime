@@ -525,7 +525,7 @@ test("candidate pronunciation is host-enabled, defaults off, persists and needs 
   selectSettingsTab("候选释义");
   const toggle = screen.getByRole("switch", { name: "显示读音" }) as HTMLInputElement;
   expect(toggle.checked).toBe(false);
-  expect(screen.getByText(/英文释义给音标，日文释义给罗马音/)).toBeDefined();
+  expect(screen.getByText(/英文释义给音标，日文和韩文释义给罗马音/)).toBeDefined();
   fireEvent.click(toggle);
   saveSettingsNow();
   await screen.findByText("已保存");
@@ -593,7 +593,7 @@ test("Windows describes candidate pronunciation for English and Japanese glosses
   fireEvent.click(await screen.findByRole("button", { name: /^(标点与翻译|标点翻译)$/ }));
   selectSettingsTab("候选释义");
   expect(screen.getByRole("switch", { name: "显示读音" })).toBeDefined();
-  expect(screen.getByText(/英文释义给音标，日文释义给罗马音/)).toBeDefined();
+  expect(screen.getByText(/英文释义给音标，日文和韩文释义给罗马音/)).toBeDefined();
 });
 
 test("HarmonyOS phones offer English pronunciations under the gloss switch, without romaji", async () => {
@@ -614,12 +614,12 @@ test("HarmonyOS phones offer English pronunciations under the gloss switch, with
     />,
   );
   await openInputSettings();
-  // 鸿蒙只标英文音标，不生成日文罗马音，开关和说明都只写英文。
-  const toggle = screen.getByRole("switch", { name: "显示英文音标" }) as HTMLInputElement;
+  // 鸿蒙的读音都来自随包的离线词表，日文罗马音不由系统生成。
+  const toggle = screen.getByRole("switch", { name: "显示读音" }) as HTMLInputElement;
   expect(toggle.checked).toBe(false);
-  expect(screen.queryByRole("switch", { name: "显示读音" })).toBeNull();
-  expect(screen.getByText(/在英文候选和英文释义下面标出音标/)).toBeDefined();
-  expect(screen.queryByText(/日文释义给罗马音/)).toBeNull();
+  expect(screen.queryByRole("switch", { name: "显示英文音标" })).toBeNull();
+  expect(screen.getByText(/在英文候选和释义下面标出读音/)).toBeDefined();
+  expect(screen.queryByText(/罗马音由系统生成/)).toBeNull();
   fireEvent.click(toggle);
   saveSettingsNow();
   await screen.findByText("已保存");
@@ -649,13 +649,13 @@ test("HarmonyOS keeps the English pronunciation switch with every gloss source o
     />,
   );
   await openInputSettings();
-  const phoneToggle = screen.getByRole("switch", { name: "显示英文音标" }) as HTMLInputElement;
+  const phoneToggle = screen.getByRole("switch", { name: "显示读音" }) as HTMLInputElement;
   expect(phoneToggle.checked).toBe(true);
   expect(screen.getByText(/英文候选不用打开释义也会标出/)).toBeDefined();
   expect(screen.queryByText(/需要先打开释义/)).toBeNull();
   phone.unmount();
 
-  // 2in1 的设置页走表达页的「候选释义」分类，同样只写英文音标，不提日文罗马音。
+  // 2in1 的设置页走表达页的「候选释义」分类，说明同样是随包的离线词表，不提系统生成的罗马音。
   render(
     <SettingsPage
       client={{
@@ -669,11 +669,11 @@ test("HarmonyOS keeps the English pronunciation switch with every gloss source o
   );
   fireEvent.click(await screen.findByRole("button", { name: /^(标点与翻译|标点翻译)$/ }));
   selectSettingsTab("候选释义");
-  const tabletToggle = screen.getByRole("switch", { name: "显示英文音标" }) as HTMLInputElement;
+  const tabletToggle = screen.getByRole("switch", { name: "显示读音" }) as HTMLInputElement;
   expect(tabletToggle.checked).toBe(true);
-  expect(screen.queryByRole("switch", { name: "显示读音" })).toBeNull();
-  expect(screen.getByText(/在英文候选和英文释义下面标出音标/)).toBeDefined();
-  expect(screen.queryByText(/日文释义给罗马音/)).toBeNull();
+  expect(screen.queryByRole("switch", { name: "显示英文音标" })).toBeNull();
+  expect(screen.getByText(/在英文候选和释义下面标出读音/)).toBeDefined();
+  expect(screen.queryByText(/罗马音由系统生成/)).toBeNull();
 });
 
 test("Android English suggestions default on and persist independently", async () => {

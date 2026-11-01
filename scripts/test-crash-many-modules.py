@@ -27,13 +27,14 @@ def main():
         subprocess.run([compiler, *shared, str(source), "-o", str(library)], check=True)
         for index in range(620):
             shutil.copyfile(library, root / f"synthetic-{index}.so")
+        shutil.copyfile(library, root / "late.so")
         binary = root / "recorder"
         subprocess.run([compiler, "-std=c++17", "-Wall", "-Wextra", "-Werror",
                         str(ROOT / "platforms/common/CrashRecorder.cpp"),
                         str(ROOT / "platforms/common/tests/crash_many_modules.cpp"),
                         *(["-ldl"] if system == "Linux" else []), "-o", str(binary)], check=True)
         subprocess.run([str(binary), str(root)], check=True)
-    print("620 个独立动态模块后的真实故障：末尾模块身份、相对偏移和原有致命处置通过")
+    print("620 个独立动态模块后的真实故障：末尾模块身份、相对偏移和原有致命处置通过；武装后加载的库在刷新模块快照后同样对得上")
 
 
 if __name__ == "__main__":

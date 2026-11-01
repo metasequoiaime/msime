@@ -633,7 +633,7 @@ void flatten_single_target(const std::string &query_bytes,
 }
 // 日文行的罗马字由本线程上的 IFELanguage 读出（JapaneseReader.h）：TranslationWorker::run 在工作线程的栈上持有一个读音器，经这个指针交给本线程上的读音查询，run 返回时它随栈析构关闭，COM 套间跟着线程。不在工作线程上（指针为空）时不读罗马字。这里不放 thread_local 的读音器对象本身：它的析构要等线程退出回调，那时持着加载器锁，不能 CoUninitialize；MinGW 构建的 thread_local 析构在 Wine 下还会跳到空地址崩溃（windows-translation-worker 测试）。
 thread_local JapaneseReader *active_japanese_reader = nullptr;
-// 这一页候选的读音，和 macOS 的 synchronizePronunciation 一样：只在打开「显示读音」时问，英文释义行（英文候选则是它自己）整行发给共享读音表，日文释义行的第一个词交给本机的微软日语输入法读成罗马字。读音表装在资源目录旁边，没装时共享层回答空列表，不是错误。都在本线程上读本机文件，不联网。
+// 这一页候选的读音，和 macOS 的 synchronizePronunciation 一样：只在打开「显示读音」时问，英文、法、西、俄、德、韩释义行（英文候选则是它自己）整行连同语言发给共享读音表，日文释义行的第一个词交给本机的微软日语输入法读成罗马字。读音表装在资源目录旁边（pronunciations/ 与 target-pronunciations/），没装时共享层回答空列表，不是错误。都在本线程上读本机文件，不联网。
 CandidateReadings candidate_readings(const std::string &query_bytes,
                                      const std::string &translations,
                                      const std::function<bool()> &cancelled) {
@@ -675,12 +675,16 @@ CandidateReadings candidate_readings(const std::string &query_bytes,
           targets.push_back(language.get<std::string>());
     if (targets.empty())
       targets.push_back(query->at("target_language").get<std::string>());
+    // 回答按 (语言, 文本) 存：同样的字母在别的语言里是另一个词（法文的 chat）；释义行里不会有换行。
+    const auto key = [](const std::string &language, const std::string &text) {
+      return language + '\n' + text;
+    };
     auto items = nlohmann::json::array();
     std::unordered_set<std::string> asked;
     for (const auto &[text, translation] : page)
-      for (auto &english : gloss_english_texts(text, translation_lines(translation), targets))
-        if (asked.insert(english).second)
-          items.push_back({{"text", english}, {"language", "en"}});
+      for (auto &[language, line] : gloss_shared_items(text, translation_lines(translation), targets))
+        if (asked.insert(key(language, line)).second)
+          items.push_back({{"text", line}, {"language", language}});
     std::unordered_map<std::string, std::string> answered;
     if (!items.empty() && !cancelled()) {
       const auto request =
@@ -691,12 +695,14 @@ CandidateReadings candidate_readings(const std::string &query_bytes,
           value && value->is_object())
         for (const auto &entry : value->value("pronunciations", nlohmann::json::array()))
           if (entry.is_object() && entry.contains("text") && entry.at("text").is_string() &&
+              entry.contains("language") && entry.at("language").is_string() &&
               entry.contains("pronunciation") && entry.at("pronunciation").is_string())
-            answered.emplace(entry.at("text").get<std::string>(),
+            answered.emplace(key(entry.at("language").get<std::string>(),
+                                 entry.at("text").get<std::string>()),
                              entry.at("pronunciation").get<std::string>());
     }
-    const auto english = [&](const std::string &text) {
-      const auto found = answered.find(text);
+    const auto shared = [&](const std::string &language, const std::string &text) {
+      const auto found = answered.find(key(language, text));
       return found == answered.end() ? std::string{} : found->second;
     };
     const auto japanese = [&](const std::string &term) {
@@ -706,7 +712,7 @@ CandidateReadings candidate_readings(const std::string &query_bytes,
     };
     for (const auto &[text, translation] : page) {
       const auto lines =
-          gloss_pronunciation_lines(text, translation_lines(translation), targets, english, japanese);
+          gloss_pronunciation_lines(text, translation_lines(translation), targets, shared, japanese);
       if (lines.empty())
         continue;
       std::string joined;

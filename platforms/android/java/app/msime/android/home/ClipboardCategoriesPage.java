@@ -26,10 +26,10 @@ public final class ClipboardCategoriesPage extends ReloadingDetailPage {
             card.button("重新读取", null, "重试", this::reload);
             return;
         }
-        card.note("最多 " + value.maxCategories() + " 个分类，名称最多 " + value.maxNameCharacters()
+        card.help("最多 " + value.maxCategories() + " 个分类，名称最多 " + value.maxNameCharacters()
             + " 字，不能重复或使用本机、云端、全部记录、未分类这些内置名称。新记录默认未分类；删除分类只把记录归回未分类，不删除正文。分类只保存在本机。");
         for (ClipboardHistoryStore.Category category : value.categories()) {
-            card.nav(category.name(), "点击修改分类名称", "改名", () -> edit(category));
+            card.nav(category.name(), null, "改名", () -> edit(category)).help("点击修改分类名称");
             card.button("删除分类「" + category.name() + "」", "记录保留并归回未分类", "删除", () -> remove(category));
         }
         if (value.categories().size() < value.maxCategories())

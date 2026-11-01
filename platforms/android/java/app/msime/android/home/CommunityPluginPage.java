@@ -118,9 +118,11 @@ public final class CommunityPluginPage extends ReloadingDetailPage {
                 ? "已安装到插件目录。这是按键旋律，这台设备不播放，可以在电脑上使用。"
                 : "已安装到插件目录，可在「我的插件」中选用。");
         } else {
+            // 会替换本机同 id 的插件是后果，留在副标题；安装做什么收进「?」。
             GroupCard.Row row = install.button("安装", installedLocally
                 ? "已安装同 id 的" + PluginCatalogPolicy.kindLabel(current.kind()) + "“" + current.pluginId() + "”，安装会整体替换它。"
-                : "下载后装进本机，在「我的插件」中选用；要登录水杉账号。", installedLocally ? "替换安装" : "安装", this::install);
+                : null, installedLocally ? "替换安装" : "安装", this::install)
+                .help("下载后装进本机，在「我的插件」中选用；要登录水杉账号。");
             if (row.button() != null) row.button().setEnabled(!busy);
         }
 
@@ -130,14 +132,14 @@ public final class CommunityPluginPage extends ReloadingDetailPage {
                 this::confirmUnpublish);
             if (row.button() != null) row.button().setEnabled(!busy);
         } else {
-            GroupCard.Row rate = moderation.button("我的评分", "安装后可评，可重新选择",
-                current.myRating() > 0 ? stars(current.myRating()) : "评分", this::pickRating);
+            GroupCard.Row rate = moderation.button("我的评分", null,
+                current.myRating() > 0 ? stars(current.myRating()) : "评分", this::pickRating).help("安装后可评，可重新选择");
             if (rate.button() != null) rate.button().setEnabled(!busy);
-            moderation.button("举报", "内容违规或侵权时告诉管理员", "举报", () -> CommunityReportDialog.show(this, current.name(),
+            moderation.button("举报", null, "举报", () -> CommunityReportDialog.show(this, current.name(),
                 (worker, reason, detail) -> {
                     PluginStore.Result<Boolean> result = PluginStore.communityReport(worker, current.id(), reason, detail);
                     return result.succeeded() ? "" : PluginCatalogPolicy.communityMessage(result.code(), result.detail(), false);
-                }));
+                })).help("内容违规或侵权时告诉管理员");
             moderation.button("屏蔽作者", null, "屏蔽", () -> CommunityBlockDialog.show(this, current.author(),
                 "plugins", current.id(), this::blocked));
         }
