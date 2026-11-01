@@ -422,6 +422,14 @@ def main() -> int:
         check(any("MSIME_REQUIRE_WORDBOOKS: '1'" in line for line in lines), f"{name} does not set MSIME_REQUIRE_WORDBOOKS, so a package without the bundled wordbooks would still ship")
 
     check_pkg_naming_and_order(package_text)
+    # 发布工作流：发布页只放 pkg 和 SHA256SUMS，文件名按 X.Y.Z（tag 可以带 -beta，文件名不带），Installer 身份从 secret 接进来，下载指引保留官网认的标记。
+    release = "\n".join(live_lines(RELEASE_WORKFLOW))
+    for expected in ('dist/*.pkg dist/SHA256SUMS', '"dist/${prefix}-${VERSION}-universal.pkg"', "MACOS_INSTALLER_IDENTITY: \"${{ secrets.MACOS_DEVELOPER_ID_INSTALLER }}\"",
+                     "-T /usr/bin/productbuild -T /usr/bin/productsign", "[[ \"$version\" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+$ ]]"):
+        check(expected in release, f"release-macos.yml no longer has {expected}")
+    check(".dmg" not in release, "release-macos.yml still handles DMGs")
+    guide = (ROOT / "platforms/macos/scripts/edition_bundle.py").read_text(encoding="utf-8")
+    check('"<!-- msime-download-guide -->"' in guide, "the download guide lost the marker msime-web skips it by")
     check_productbuild_retry()
     check_installer_package()
     check_core_dictionary_budget()
