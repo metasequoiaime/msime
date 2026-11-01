@@ -135,7 +135,8 @@ def main():
         consent(True)
         start()
         ready = wait(active, "initial capture")
-        assert ready["session_id"] and ready["watching"], "input session with independent observer"
+        assert ready["session_id"] and ready["watching"], "input session with independent observer: " + json.dumps(
+            {key: ready.get(key) for key in ("enabled", "session_id", "watching", "completed")})
         for _ in range(8):
             time.sleep(.25)
             same_process(ready)
