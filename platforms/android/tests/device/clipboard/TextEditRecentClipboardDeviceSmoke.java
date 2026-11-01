@@ -317,18 +317,18 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
         await(orderRow("复制"));
     }
 
-    /** 排序面板的一行：读屏描述是「序号. 名称」，操作菜单里带「下移」。箭头去掉后（#10392）读屏用户就靠这个排序，这里照读屏的路径走。 */
+    /** 排序面板一行的拖动把手：读屏描述是「拖动调整 名称 的顺序」，操作菜单里带「下移」。箭头去掉后（#10392）读屏用户就靠把手上的这个操作排序，这里照读屏的路径走。 */
     private Predicate<AccessibilityNodeInfo> orderRow(String label) {
         return node -> node.getContentDescription() != null
-            && node.getContentDescription().toString().endsWith(". " + label)
+            && node.getContentDescription().toString().equals("拖动调整 " + label + " 的顺序")
             && action(node, "下移") != null;
     }
 
     private void moveDown(String label) throws Exception {
         dropStaleNodes();
-        AccessibilityNodeInfo row = await(orderRow(label));
-        if (!row.performAction(action(row, "下移").getId()))
-            throw new AssertionError("Order row refused 下移 for " + label);
+        AccessibilityNodeInfo handle = await(orderRow(label));
+        if (!handle.performAction(action(handle, "下移").getId()))
+            throw new AssertionError("Order handle refused 下移 for " + label);
     }
 
     private static AccessibilityNodeInfo.AccessibilityAction action(AccessibilityNodeInfo node, String label) {

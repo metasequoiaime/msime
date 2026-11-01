@@ -5,16 +5,14 @@ import android.content.Context;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
-import android.view.ViewGroup;
+import android.view.ViewParent;
+import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.animation.DecelerateInterpolator;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
 import androidx.core.view.ViewCompat;
-import androidx.recyclerview.widget.ItemTouchHelper;
-import androidx.recyclerview.widget.LinearLayoutManager;
-import androidx.recyclerview.widget.RecyclerView;
+import androidx.core.widget.NestedScrollView;
 import app.msime.android.DimensionPolicy;
 import app.msime.android.DrawablePolicy;
 import app.msime.android.ImageViewPolicy;
@@ -22,203 +20,288 @@ import app.msime.android.LayoutPolicy;
 import app.msime.android.R;
 import app.msime.android.ThemeColorPolicy;
 import app.msime.android.ViewPolicy;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
 
 /**
- * 排序面板里的一列「序号. 名称 + 拖动把手」（#10392）：按住把手立即拖动，被拖的行浮起成圆角卡片跟着手指走，其余行让位，行首序号随位置实时改写；读屏用户在每一行的操作菜单里用「上移」「下移」，实体键盘和方向键用户让行拿到焦点后按 Alt+↑ / Alt+↓。
+ * 排序面板里的一列「序号. 名称 + 拖动把手」（#10392）：按住把手立即拖动，被拖的行浮起跟着手指走，其余行滑开让位，行首序号随位次实时变化，贴近面板上下边缘时面板自动滚动；读屏用户在把手的操作菜单里用「上移」「下移」，实体键盘和方向键用户让把手拿到焦点后按 Alt+↑ / Alt+↓。
  *
- * <p>拖动交给 `ItemTouchHelper`：它逐格回调 {@link DragCallback#onMove}，草稿和列表都按「挪动」改（{@link ReorderPolicy#moved} 配 `notifyItemMoved`），屏幕上的顺序就是保存的顺序。拖动中只原地改写已绑定行的文字，不整表重建，被拖的行不会被销毁、手势不会断。
- *
- * <p>列表放在 {@link SettingsSheet} 的 `NestedScrollView` 里：自身不滚动（`setNestedScrollingEnabled(false)`、高度随内容），整张面板一起滚。拖动开始时 `ItemTouchHelper` 请父容器不拦截触摸，面板和滚动区都不会跟着手指走。
+ * <p>拖动模型与「九键左侧符号」编辑页（`NineKeySidebarSheet`，#10396）相同：行的视图在拖动中留在原位、只改 translationY，落点按拿起时各行的布局中线算（{@link ReorderPolicy#dragTarget}），松手才把草稿按 {@link ReorderPolicy#moved} 挪好、重画。列表放在 {@link SettingsSheet} 的 `NestedScrollView` 里、自身不滚动；手指停在滚动区上下边缘带里时每帧滚动那个 `NestedScrollView`，滚过的距离算进跟手位移，被拖行不离开手指。读屏模型也与那张编辑页相同：可见的序号不念，名称念「第 N 项，名称」，把手的状态念「第 N 项」，「上移」「下移」挂在把手上。
  */
 final class ReorderList<T> {
-    private static final int LIFT_MILLIS = 150;
+    /** 拿起的行浮起多高。 */
+    private static final int LIFT_DP = 8;
+    /** 拿起的行换成带圆角的不透明底色，盖在让位的行上面。 */
+    private static final int LIFTED_RADIUS_DP = 12;
+    /** 让位、落位和浮起的动画时长。 */
+    private static final long ANIMATION_MILLIS = 150;
+    /** 滚动区上下各多高的一条边缘带里开始自动滚动。 */
+    private static final int EDGE_DP = 56;
+    /** 自动滚动每帧最多滚多少。 */
+    private static final int EDGE_STEP_DP = 12;
+
+    /** 一行里拖动和重排序号时要改的几个视图。 */
+    private record RowViews(LinearLayout row, TextView title, ImageView handle, String label) {}
 
     private final Context context;
     private final Function<T, String> label;
-    private final RecyclerView view;
-    private final RowAdapter adapter;
-    private final ItemTouchHelper touch;
+    private final LinearLayout rows;
+    private final List<RowViews> rowViews = new ArrayList<>();
+    private final Runnable autoScroll = this::autoScrollStep;
     private List<T> items;
     private boolean locked;
+    /** 正在拖的那一行，没有拖动时为 null；拖动中 {@link #dragFrom} 是它在表里的原位，{@link #dragTo} 是此刻的落点。 */
+    private RowViews dragged;
+    private int dragFrom;
+    private int dragTo;
+    private float downRawY;
+    private float lastRawY;
+    private int rowsTopAtDown;
+    /** 拿起时各行在布局里的中线，判断落点只看它们。 */
+    private float[] centers = new float[0];
+    private NestedScrollView scroller;
 
     /** @param label 一项的显示名，行首序号由这里加 */
     ReorderList(Context context, List<T> items, Function<T, String> label) {
         this.context = context;
         this.label = label;
         this.items = List.copyOf(items);
-        view = new RecyclerView(context);
-        view.setLayoutManager(new LinearLayoutManager(context));
-        view.setNestedScrollingEnabled(false);
-        view.setOverScrollMode(View.OVER_SCROLL_NEVER);
-        adapter = new RowAdapter();
-        view.setAdapter(adapter);
-        touch = new ItemTouchHelper(new DragCallback());
-        touch.attachToRecyclerView(view);
+        rows = LayoutPolicy.column(context);
+        render();
     }
 
     /** 加进面板的视图，宽度占满、高度随内容。 */
-    View view() { return view; }
+    View view() { return rows; }
 
     /** 当前草稿顺序（不可变）。 */
     List<T> items() { return items; }
 
     /** 整表换成 `next`，例如「恢复默认」。 */
-    @SuppressLint("NotifyDataSetChanged")
     void setItems(List<T> next) {
         items = List.copyOf(next);
-        adapter.notifyDataSetChanged();
+        render();
     }
 
     /** 保存进行中锁住排序：把手变灰、不能拖，读屏的「上移」「下移」也撤掉。 */
     void setLocked(boolean locked) {
         this.locked = locked;
-        refreshRows();
+        render();
     }
 
-    private void move(int from, int to) {
-        items = ReorderPolicy.moved(items, from, to);
-        adapter.notifyItemMoved(from, to);
-        refreshRows();
-    }
-
-    private boolean moveBy(Holder holder, int delta) {
-        int from = holder.getBindingAdapterPosition();
-        if (locked || from == RecyclerView.NO_POSITION || !ReorderPolicy.canMove(from, delta, items.size()))
-            return false;
-        move(from, from + delta);
-        return true;
-    }
-
-    /** 实体键盘和方向键：焦点在行上时 Alt+↑ / Alt+↓ 挪一格，和读屏的「上移」「下移」走同一条路径。不带 Alt 的方向键照常在行间移动焦点。 */
-    private boolean onKey(Holder holder, int keyCode, KeyEvent event) {
-        if (event.getAction() != KeyEvent.ACTION_DOWN || !event.isAltPressed()) return false;
-        int delta = keyCode == KeyEvent.KEYCODE_DPAD_UP ? -1 : keyCode == KeyEvent.KEYCODE_DPAD_DOWN ? 1 : 0;
-        if (delta == 0) return false;
-        moveBy(holder, delta);
-        return true;
-    }
-
-    /** 按每一行此刻的位置改写序号、读屏描述和可用的操作；`notifyItemMoved` 之后位置已经是新的。 */
-    private void refreshRows() {
-        for (int index = 0; index < view.getChildCount(); index++) {
-            Holder holder = (Holder) view.getChildViewHolder(view.getChildAt(index));
-            int position = holder.getBindingAdapterPosition();
-            if (position != RecyclerView.NO_POSITION) bind(holder, position);
-        }
-    }
-
-    private void bind(Holder holder, int position) {
-        String text = ReorderPolicy.ordinal(position, label.apply(items.get(position)));
-        holder.title.setText(text);
-        holder.itemView.setContentDescription(text);
-        ViewPolicy.setEnabledWithAlpha(holder.handle, !locked, 0.38f);
-        if (holder.upAction != View.NO_ID) ViewCompat.removeAccessibilityAction(holder.itemView, holder.upAction);
-        if (holder.downAction != View.NO_ID) ViewCompat.removeAccessibilityAction(holder.itemView, holder.downAction);
-        holder.upAction = !locked && ReorderPolicy.canMove(position, -1, items.size())
-            ? ViewCompat.addAccessibilityAction(holder.itemView, "上移", (row, arguments) -> moveBy(holder, -1))
-            : View.NO_ID;
-        holder.downAction = !locked && ReorderPolicy.canMove(position, 1, items.size())
-            ? ViewCompat.addAccessibilityAction(holder.itemView, "下移", (row, arguments) -> moveBy(holder, 1))
-            : View.NO_ID;
-    }
-
-    /** 被拖的行：圆角卡片底色，再抬高一层投影。 */
-    private void lift(View row) {
-        ViewPolicy.setBackground(row, DrawablePolicy.rounded(ThemeColorPolicy.accentSoft(context),
-            DimensionPolicy.pixels(context, 12)));
-        row.animate().translationZ(DimensionPolicy.pixels(context, 6)).setDuration(LIFT_MILLIS);
-    }
-
-    private void drop(View row) {
-        row.animate().cancel();
-        row.setTranslationZ(0);
-        ViewPolicy.setBackground(row, null);
+    private void render() {
+        // 重画时作废进行中的拖动（多指拖动时另一指点了保存或重置也走到这里）。
+        dragged = null;
+        rows.removeCallbacks(autoScroll);
+        rows.removeAllViews();
+        rowViews.clear();
+        for (int index = 0; index < items.size(); index++) addRow(index);
+        renumber();
     }
 
     @SuppressLint("ClickableViewAccessibility")
-    private Holder newHolder() {
+    private void addRow(int index) {
+        String text = label.apply(items.get(index));
         LinearLayout row = LayoutPolicy.row(context);
         ViewPolicy.setCenteredVertically(row);
         ViewPolicy.setPaddingDp(context, row, 12, 0, 0, 0);
-        // 整行是读屏的一个焦点，读「序号. 名称」，排序走这一行的「上移」「下移」；整行也是键盘焦点，排序走 Alt+↑ / Alt+↓（见 onKey）。
-        row.setScreenReaderFocusable(true);
-        row.setFocusable(true);
         TextView title = ViewPolicy.styledLabel(context, "", Ui.TEXT_ROW_TITLE, 400, ThemeColorPolicy.text(context));
         row.addView(title, LayoutPolicy.weightedWrapParams(1));
         ImageView handle = ImageViewPolicy.iconButton(context, R.drawable.ic_ms_drag_handle,
-            ThemeColorPolicy.subText(context), null, 48, null);
-        // 把手只给手指用：读屏和键盘都按住拖不了，排序走整行的操作和按键，所以把手既不进读屏也不停键盘焦点。
-        handle.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        handle.setFocusable(false);
+            ThemeColorPolicy.subText(context), "拖动调整 " + text + " 的顺序", 48, null);
+        ViewPolicy.setEnabledWithAlpha(handle, !locked, 0.38f);
         // 触控区与原来的箭头一样宽 48 dp、高占满整行；用 wrap 会缩成图标加内边距，约 43 dp。
         row.addView(handle, new LinearLayout.LayoutParams(DimensionPolicy.pixels(context, 48),
             LinearLayout.LayoutParams.MATCH_PARENT));
-        row.setLayoutParams(new RecyclerView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-            DimensionPolicy.pixels(context, 48)));
-        Holder holder = new Holder(row, title, handle);
-        row.setOnKeyListener((focused, keyCode, event) -> onKey(holder, keyCode, event));
-        // 按下把手就开始拖，不等长按；返回 false 让 RecyclerView 照常收到这次按下，ItemTouchHelper 靠它定起点。
-        handle.setOnTouchListener((touched, event) -> {
-            if (event.getActionMasked() == MotionEvent.ACTION_DOWN && !locked) touch.startDrag(holder);
-            return false;
-        });
-        return holder;
+        rows.addView(row, LayoutPolicy.matchWidthHeightDp(context, 48));
+        RowViews views = new RowViews(row, title, handle, text);
+        rowViews.add(views);
+        handle.setOnTouchListener((touched, event) -> handleDrag(views, event));
+        // 把手只有触摸拖动；读屏另给「上移」「下移」两个操作，实体键盘在把手上按 Alt+↑ / Alt+↓（见 onKey），与「九键左侧符号」编辑页同一个落点。
+        handle.setOnKeyListener((focused, keyCode, event) -> onKey(views, keyCode, event));
+        if (!locked && ReorderPolicy.canMove(index, -1, items.size()))
+            ViewCompat.addAccessibilityAction(handle, "上移", (view, arguments) -> moveBy(views, -1));
+        if (!locked && ReorderPolicy.canMove(index, 1, items.size()))
+            ViewCompat.addAccessibilityAction(handle, "下移", (view, arguments) -> moveBy(views, 1));
     }
 
-    private static final class Holder extends RecyclerView.ViewHolder {
-        final TextView title;
-        final ImageView handle;
-        int upAction = View.NO_ID;
-        int downAction = View.NO_ID;
-
-        Holder(View row, TextView title, ImageView handle) {
-            super(row);
-            this.title = title;
-            this.handle = handle;
+    /** 按每行此刻的位次写序号和读屏描述：平时就是行号，拖动途中按 {@link ReorderPolicy#dragSlot} 跟着手指变。 */
+    private void renumber() {
+        for (int index = 0; index < rowViews.size(); index++) {
+            RowViews views = rowViews.get(index);
+            int position = dragged == null ? index : ReorderPolicy.dragSlot(index, dragFrom, dragTo);
+            views.title().setText(ReorderPolicy.ordinal(position, views.label()));
+            views.title().setContentDescription(ReorderPolicy.ordinalDescription(position, views.label()));
+            ViewCompat.setStateDescription(views.handle(), ReorderPolicy.positionDescription(position));
         }
     }
 
-    private final class RowAdapter extends RecyclerView.Adapter<Holder> {
-        @NonNull @Override public Holder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-            return newHolder();
-        }
-
-        @Override public void onBindViewHolder(@NonNull Holder holder, int position) { bind(holder, position); }
-
-        @Override public int getItemCount() { return items.size(); }
+    /** 实体键盘和方向键：焦点在把手上时 Alt+↑ / Alt+↓ 挪一格，和读屏的「上移」「下移」走同一条路径。不带 Alt 的方向键照常移动焦点。 */
+    private boolean onKey(RowViews views, int keyCode, KeyEvent event) {
+        if (event.getAction() != KeyEvent.ACTION_DOWN || !event.isAltPressed()) return false;
+        int delta = keyCode == KeyEvent.KEYCODE_DPAD_UP ? -1 : keyCode == KeyEvent.KEYCODE_DPAD_DOWN ? 1 : 0;
+        if (delta == 0) return false;
+        moveBy(views, delta);
+        return true;
     }
 
-    private final class DragCallback extends ItemTouchHelper.Callback {
-        @Override public int getMovementFlags(@NonNull RecyclerView list, @NonNull RecyclerView.ViewHolder holder) {
-            return makeMovementFlags(locked ? 0 : ItemTouchHelper.UP | ItemTouchHelper.DOWN, 0);
+    /** 读屏的「上移」「下移」和 Alt+↑ / Alt+↓：挪一格后重画，键盘焦点和读屏焦点都放回挪过去的那一行的把手上，读屏念出新的位次。 */
+    private boolean moveBy(RowViews views, int delta) {
+        int from = rowViews.indexOf(views);
+        if (locked || dragged != null || from < 0 || !ReorderPolicy.canMove(from, delta, items.size())) return false;
+        boolean focused = views.handle().isFocused();
+        items = ReorderPolicy.moved(items, from, from + delta);
+        render();
+        View handle = rowViews.get(from + delta).handle();
+        if (focused) handle.requestFocus();
+        handle.post(() -> handle.performAccessibilityAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS, null));
+        return true;
+    }
+
+    private boolean handleDrag(RowViews views, MotionEvent event) {
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN -> {
+                return startDrag(views, event.getRawY());
+            }
+            case MotionEvent.ACTION_MOVE -> {
+                if (dragged != views) return false;
+                lastRawY = event.getRawY();
+                followFinger();
+                return true;
+            }
+            case MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (dragged == views) drop();
+                return true;
+            }
+            default -> {
+                return dragged == views;
+            }
         }
+    }
 
-        @Override public boolean isLongPressDragEnabled() { return false; }
-
-        @Override public boolean isItemViewSwipeEnabled() { return false; }
-
-        @Override public boolean onMove(@NonNull RecyclerView list, @NonNull RecyclerView.ViewHolder source,
-                @NonNull RecyclerView.ViewHolder target) {
-            int from = source.getBindingAdapterPosition();
-            int to = target.getBindingAdapterPosition();
-            if (locked || from == RecyclerView.NO_POSITION || to == RecyclerView.NO_POSITION) return false;
-            move(from, to);
-            return true;
+    /** 按住把手拿起这一行：行浮起（不透明底色加阴影，盖在别的行上面），之后跟着手指走；请父容器不拦截触摸，面板和滚动区不会跟着手指滑走。 */
+    private boolean startDrag(RowViews views, float rawY) {
+        if (locked || dragged != null || views.row().getParent() != rows) return false;
+        int from = rowViews.indexOf(views);
+        if (from < 0) return false;
+        centers = new float[rowViews.size()];
+        for (int index = 0; index < rowViews.size(); index++) {
+            LinearLayout row = rowViews.get(index).row();
+            // 上一次松手的落位动画可能还没走完，先归位，各行都从布局位置起算。
+            row.animate().cancel();
+            row.setTranslationY(0);
+            row.setTranslationZ(0);
+            centers[index] = row.getTop() + row.getHeight() / 2f;
         }
+        dragged = views;
+        dragFrom = from;
+        dragTo = from;
+        downRawY = rawY;
+        lastRawY = rawY;
+        rowsTopAtDown = screenTop(rows);
+        scroller = enclosingScroller();
+        rows.requestDisallowInterceptTouchEvent(true);
+        LinearLayout row = views.row();
+        ViewPolicy.setBackground(row, DrawablePolicy.rounded(ThemeColorPolicy.rowBackground(context),
+            DimensionPolicy.pixels(context, LIFTED_RADIUS_DP)));
+        row.animate().translationZ(DimensionPolicy.pixels(context, LIFT_DP)).setDuration(ANIMATION_MILLIS).start();
+        return true;
+    }
 
-        // 滑动方向的标志是 0，这个回调不会来。
-        @Override public void onSwiped(@NonNull RecyclerView.ViewHolder holder, int direction) {}
-
-        @Override public void onSelectedChanged(@Nullable RecyclerView.ViewHolder holder, int actionState) {
-            super.onSelectedChanged(holder, actionState);
-            if (actionState == ItemTouchHelper.ACTION_STATE_DRAG && holder != null) lift(holder.itemView);
+    /** 被拖行跟着手指（含拖动中滚动区滚过的距离），越过别的行的中线时那些行让位、序号跟着变；贴近滚动区上下边缘时接着自动滚动。 */
+    private void followFinger() {
+        if (dragged == null) return;
+        LinearLayout row = dragged.row();
+        float scrolled = rowsTopAtDown - screenTop(rows);
+        float offset = lastRawY - downRawY + scrolled;
+        // 不拖出列表：拖到首尾就夹住。
+        offset = Math.max(-row.getTop(), Math.min(rows.getHeight() - row.getBottom(), offset));
+        row.setTranslationY(offset);
+        int target = ReorderPolicy.dragTarget(centers[dragFrom] + offset, dragFrom, centers);
+        if (target != dragTo) {
+            dragTo = target;
+            makeWay();
+            renumber();
         }
+        scheduleAutoScroll();
+    }
 
-        @Override public void clearView(@NonNull RecyclerView list, @NonNull RecyclerView.ViewHolder holder) {
-            super.clearView(list, holder);
-            drop(holder.itemView);
+    /** 夹在原位和落点之间的行朝原位那一侧让出被拖行的高度，其余的回到布局位置；都用短动画滑过去。 */
+    private void makeWay() {
+        float height = dragged.row().getHeight();
+        for (int index = 0; index < rowViews.size(); index++) {
+            if (index == dragFrom) continue;
+            float shift = (ReorderPolicy.dragSlot(index, dragFrom, dragTo) - index) * height;
+            View row = rowViews.get(index).row();
+            if (row.getTranslationY() == shift) continue;
+            row.animate().translationY(shift).setDuration(ANIMATION_MILLIS)
+                .setInterpolator(new DecelerateInterpolator()).start();
         }
+    }
+
+    /** 松手：草稿按挪动语义改好再重画，其余行此刻已经在新位置上，重画后不动；被拖行从手指处滑进自己的格子、落下阴影。 */
+    private void drop() {
+        RowViews views = dragged;
+        int from = dragFrom;
+        int to = dragTo;
+        rows.removeCallbacks(autoScroll);
+        rows.requestDisallowInterceptTouchEvent(false);
+        float height = views.row().getHeight();
+        float remaining = views.row().getTranslationY() - (to - from) * height;
+        float lift = views.row().getTranslationZ();
+        dragged = null;
+        items = ReorderPolicy.moved(items, from, to);
+        render();
+        if (to >= rowViews.size()) return;
+        LinearLayout landed = rowViews.get(to).row();
+        ViewPolicy.setBackground(landed, DrawablePolicy.rounded(ThemeColorPolicy.rowBackground(context),
+            DimensionPolicy.pixels(context, LIFTED_RADIUS_DP)));
+        landed.setTranslationY(remaining);
+        landed.setTranslationZ(lift);
+        landed.animate().translationY(0).translationZ(0).setDuration(ANIMATION_MILLIS)
+            .setInterpolator(new DecelerateInterpolator())
+            .withEndAction(() -> ViewPolicy.setBackground(landed, null)).start();
+    }
+
+    /** 手指在滚动区上下边缘带里时，下一帧滚一步并重新跟手；滚到尽头、被拖行到了列表首尾或离开边缘带就停。 */
+    private void scheduleAutoScroll() {
+        rows.removeCallbacks(autoScroll);
+        if (edgeScrollStep() != 0) rows.postOnAnimation(autoScroll);
+    }
+
+    private void autoScrollStep() {
+        if (dragged == null || scroller == null) return;
+        int step = edgeScrollStep();
+        if (step == 0) return;
+        int before = scroller.getScrollY();
+        scroller.scrollBy(0, step);
+        if (scroller.getScrollY() == before) return;
+        followFinger();
+    }
+
+    private int edgeScrollStep() {
+        if (scroller == null || dragged == null) return 0;
+        int top = screenTop(scroller);
+        int step = ReorderPolicy.edgeScrollStep(lastRawY, top, top + scroller.getHeight(),
+            DimensionPolicy.pixels(context, EDGE_DP), DimensionPolicy.pixels(context, EDGE_STEP_DP));
+        // 下面还有操作卡片，滚动区往往还能滚；被拖行已经夹在列表首尾时不再滚，免得列表带着它离开手指。
+        LinearLayout row = dragged.row();
+        step = ReorderPolicy.scrollTowardRoom(step, row.getTranslationY(), -row.getTop(),
+            rows.getHeight() - row.getBottom());
+        return scroller.canScrollVertically(step) ? step : 0;
+    }
+
+    /** 面板的滚动区（{@link SettingsSheet} 的 NestedScrollView）；找不到时不自动滚动。 */
+    private NestedScrollView enclosingScroller() {
+        for (ViewParent parent = rows.getParent(); parent != null; parent = parent.getParent()) {
+            if (parent instanceof NestedScrollView scroll) return scroll;
+        }
+        return null;
+    }
+
+    private static int screenTop(View view) {
+        int[] location = new int[2];
+        view.getLocationOnScreen(location);
+        return location[1];
     }
 }

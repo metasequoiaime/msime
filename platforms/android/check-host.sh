@@ -1402,7 +1402,7 @@ if [[ "$sidebar_readers" != "platforms/android/java/app/msime/android/settings/K
   echo "Android nine-key sidebar tables must come from touch_nine_key_sidebar_symbols / touch_nine_key_digit_sidebar_symbols: only KeyLayoutStyleMigration reads and deletes the legacy local keys, the keyboard re-renders and the long press opens 按键布局, and 按键布局 lists both rows and saves only that shared table" >&2
   exit 1
 fi
-# 「文本编辑按键顺序」「符号分类顺序」按住把手拖动排序（#10392，.agents/notes/implemented/feature/2026-10-31-android-order-sheets-drag.md）：挪动、越界和序号由 ReorderPolicySmoke 覆盖；拖动和读屏操作在 ReorderList 里，JVM 冒烟碰不到，这里钉住：两张面板都经 ReorderList 画行、不再有上下箭头；拖动交给 ItemTouchHelper，只从把手开始（不开长按拖动），onMove 经 ReorderPolicy.moved 改草稿并配 notifyItemMoved，保存的就是屏幕上的顺序；列表不自己滚动，跟着面板的 NestedScrollView 滚；去掉箭头后读屏用户靠每一行的「上移」「下移」操作排序，键盘用户靠焦点行上的 Alt+↑ / Alt+↓，把手不停键盘焦点；把手的触控区与原来的箭头一样宽 48 dp、高占满整行。
+# 「文本编辑按键顺序」「符号分类顺序」按住把手拖动排序（#10392，.agents/notes/implemented/feature/2026-10-31-android-order-sheets-drag.md）：挪动、位次、落点、贴边滚动步长和序号由 ReorderPolicySmoke 覆盖；拖动和读屏操作在 ReorderList 里，JVM 冒烟碰不到，这里钉住：两张面板都经 ReorderList 画行、不再有上下箭头；拖动模型与「九键左侧符号」编辑页相同，按下把手就拿起、只改 translationY，落点按布局中线算，松手经 ReorderPolicy.moved 改草稿；手指贴近面板上下边缘时滚动外层 NestedScrollView，滚过的距离算进跟手位移；读屏模型也相同：名称念「第 N 项，名称」，把手状态念「第 N 项」，「上移」「下移」挂在把手上，键盘焦点在把手上时 Alt+↑ / Alt+↓ 挪一格；把手的触控区与原来的箭头一样宽 48 dp、高占满整行。
 reorder_list="$repo_root/platforms/android/java/app/msime/android/home/ReorderList.java"
 for reorder_sheet in TextEditOrderSheet SymbolCategoryOrderSheet; do
   reorder_sheet_file="$repo_root/platforms/android/java/app/msime/android/home/$reorder_sheet.java"
@@ -1412,18 +1412,20 @@ for reorder_sheet in TextEditOrderSheet SymbolCategoryOrderSheet; do
     exit 1
   fi
 done
-if ! rg -qF 'touch = new ItemTouchHelper(new DragCallback());' "$reorder_list" \
-  || ! rg -qF 'isLongPressDragEnabled() { return false; }' "$reorder_list" \
-  || ! rg -qF 'touch.startDrag(holder);' "$reorder_list" \
+if rg -q 'ItemTouchHelper|RecyclerView' "$reorder_list" \
+  || ! rg -qF 'handle.setOnTouchListener((touched, event) -> handleDrag(views, event));' "$reorder_list" \
+  || ! rg -qF 'int target = ReorderPolicy.dragTarget(centers[dragFrom] + offset, dragFrom, centers);' "$reorder_list" \
   || ! rg -qF 'items = ReorderPolicy.moved(items, from, to);' "$reorder_list" \
-  || ! rg -qF 'adapter.notifyItemMoved(from, to);' "$reorder_list" \
-  || ! rg -qF 'view.setNestedScrollingEnabled(false);' "$reorder_list" \
-  || ! rg -qF 'ViewCompat.addAccessibilityAction(holder.itemView, "上移",' "$reorder_list" \
-  || ! rg -qF 'ViewCompat.addAccessibilityAction(holder.itemView, "下移",' "$reorder_list" \
-  || ! rg -qF 'row.setOnKeyListener((focused, keyCode, event) -> onKey(holder, keyCode, event));' "$reorder_list" \
-  || ! rg -qF 'handle.setFocusable(false);' "$reorder_list" \
+  || ! rg -qF 'float scrolled = rowsTopAtDown - screenTop(rows);' "$reorder_list" \
+  || ! rg -qF 'scroller.scrollBy(0, step);' "$reorder_list" \
+  || ! rg -qF 'step = ReorderPolicy.scrollTowardRoom(step,' "$reorder_list" \
+  || ! rg -qF 'ViewCompat.addAccessibilityAction(handle, "上移",' "$reorder_list" \
+  || ! rg -qF 'ViewCompat.addAccessibilityAction(handle, "下移",' "$reorder_list" \
+  || ! rg -qF 'views.title().setContentDescription(ReorderPolicy.ordinalDescription(position, views.label()));' "$reorder_list" \
+  || ! rg -qF 'ViewCompat.setStateDescription(views.handle(), ReorderPolicy.positionDescription(position));' "$reorder_list" \
+  || ! rg -qF 'handle.setOnKeyListener((focused, keyCode, event) -> onKey(views, keyCode, event));' "$reorder_list" \
   || ! rg -qF 'row.addView(handle, new LinearLayout.LayoutParams(DimensionPolicy.pixels(context, 48),' "$reorder_list"; then
-  echo "Android order sheets must drag from the handle with ItemTouchHelper, move the draft the way the list moves, keep 上移 / 下移 for screen readers and Alt+Up / Alt+Down for keyboards, and keep a 48 dp handle" >&2
+  echo "Android order sheets must drag from the handle the way the nine-key sidebar editor does (translationY, layout midlines, edge-scrolling the sheet), keep 上移 / 下移 and the 第 N 项 position on the handle for screen readers and Alt+Up / Alt+Down for keyboards, and keep a 48 dp handle" >&2
   exit 1
 fi
 # 「中/英键放在空格左边」（#10228，`touch_language_key_side`）：排法由 TouchKeyStyleSmoke 覆盖，预览与高亮由 KeyLayoutStylesPolicySmoke 覆盖，这里钉住接线：底行签名带着它、字母层底行和数字九宫格都按它排；右侧大回车九宫格下方那一行按它排，变了经 tallReturnStale 整块重建；设置页三个分段都显示这个开关（不在 26 键的 if 里，排在互换开关之后），改它先重画预览再写 left / right；热力图跟着画；设置搜索登记了标题。
