@@ -22,6 +22,7 @@ Android 通过 Host API 读取共享授权代次和偏好目录，Java 层在 Ap
 ## Verification
 
 - Android shell 脚本、Python 设备夹具和构建身份工具通过语法/差异检查；设备工作流新增 API 35 crash-only 门禁与符号 artifact。
+- `smoke.sh` 显式解析 `--crash-only`，让 API 35 的独立崩溃门禁确实进入专用构建分支，而不是在参数校验阶段退出。
 - 本机没有 Android SDK/模拟器，且磁盘剩余不足以新建构建树，未把静态检查当作 Android 编译或设备通过；由 Android CI 在 API 28/35 运行 Java/JNI、系统退出、ANR、授权撤回和安装验收。
 - develop 已有 Android API 28 `ci-red` 跟踪单；本切片保留独立 crash-only 结果，不把既有完整输入冒烟失败算作采集通过或失败。
 
