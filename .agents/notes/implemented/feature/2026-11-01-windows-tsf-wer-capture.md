@@ -1,0 +1,31 @@
+# Agent Note: Windows TSF 进程外 WER 故障采集
+
+Status: implemented
+
+## Problem
+
+TSF DLL 在外部编辑器进程内运行。把全进程未处理异常处理器或 terminate 处理器装进 TSF 会改变宿主的异常处置，也会把后来被宿主捕获的异常误记成崩溃。现有共享 `CrashRecorder` 不能直接承担这个入口；Windows 还缺少由系统 WER 调用、但不认领宿主异常的进程外 helper。
+
+## Decision
+
+TSF 激活实例建立 `TsfCrashCapture` 租约：正常路径按共享授权代次准备固定长度的记录头、记录路径和自有模块范围；租约释放立即解除武装并唤醒观察任务，后台任务在注销完成前保持 helper 的加载引用。观察任务只监听授权目录变化并以低频兜底复核，不在故障现场读偏好、联网或等待宿主锁。
+
+`WerRegisterRuntimeExceptionModule` 注册 `MetasequoiaImeCrashWer.dll`。三个 WER 回调只读取目标进程地址空间中的有界快照，确认故障地址属于 TSF 或当前 edition 的 Host API 后写入原头、异常码、模块和相对偏移；回调始终不认领宿主异常，不修改 WER 的其他输出。远端读取、授权代次、模块归属、路径边界和临时文件发布均失败即拒绝，首份记录不覆盖。
+
+安装器只为本版本、对应架构登记完整 helper 路径到 WER 允许列表，卸载只删除自己的值。现代 x86/x64、Win7 和 Arm64X 的构建、符号归档及暂存都把 helper 与 TSF 配对；系统 WER 门禁使用独立合成工程和合成目录，不调用产品后台。
+
+本切片只处理 TSF 的进程外 WER 入口及其构建、安装和系统投递门禁。Server、Watchdog、prepare、设置页、面板和其他辅助进程另按独立入口拆 issue；共享授权、队列和记录格式沿用[共享崩溃记录基础](../../implemented/architecture/2026-11-01-shared-crash-reporting-core.md)，不改变任何平台出厂默认值。
+
+## Alternatives considered
+
+- **在 TSF 内安装全进程异常处理器**：接线简单，但会改变宿主编辑器的异常处理并可能重复记录已恢复异常，因此不采用。
+- **在首次 VEH 中直接写崩溃记录**：能绕过 WER 注册，但无法判断异常是否后来被宿主捕获，也不能安全读取共享偏好和网络状态，因此不采用。
+- **让 WER helper 认领异常或写入完整转储**：可得到更多上下文，但会改变系统 WER 行为并扩大诊断内容范围；本切片只保留有界异常和自有模块偏移，因此不采用。
+- **继续每 500 ms 轮询授权文件**：实现直接，但每个加载 TSF 的编辑器都会重复读文件并争用锁；正常状态改用目录通知和低频兜底，失败状态才快速重试。
+
+## Consequences
+
+- x86、x64、Arm64X 及 Win7 的 helper/TSF 接线、精确符号和安装器暂存契约已纳入代码；回调和生命周期测试覆盖非致命故障、外部模块、损坏或过期快照、撤回/重开、迟到准备结果、最后租约释放、注销重试、重复 DLL 装卸和原头不覆盖。
+- Native Platform CI `41254860520` 的 Windows native settings job `124695830432` 通过，包含 x64/x86 系统 WER 投递；同一 PR 的 Core、文档、macOS、iOS 和其他平台门禁也通过。`pnpm run verify-notes` 已通过。
+- 系统 WER 可能被宿主调试器、宿主处理器或系统策略绕过，helper 不能承诺百分之百投递。故障发生在准备前、模块范围外或授权已撤回时会保守丢弃。远端回调运行在 `WerFault` 进程，错误的调用约定或把目标进程指针当作 helper 本地指针都会导致 x86 崩溃或越权，因此保留跨进程读取、ABI 和架构专项门禁。
+- 本切片仍不宣称真实编辑器、Win7/ARM64 产品运行和后台源码还原完成；这些缺口以及 Server、Watchdog、prepare、设置页、面板和其他辅助进程入口留给后续独立 issue。
