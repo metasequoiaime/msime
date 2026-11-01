@@ -7155,6 +7155,15 @@ group("diagnostics are trimmed, bounded and elided", () => {
   check(InputDiagnosticPolicy.visible("   ") === false, "an empty one does not");
 });
 
+group("粤拼下的简繁开关只切粤拼自己的字形", () => {
+  check(ChineseOutputPolicy.switchFollowsCantonese("cantonese", false), "粤拼跟随粤拼开关");
+  check(!ChineseOutputPolicy.switchFollowsCantonese("cantonese", true), "英文模式照旧看全局开关");
+  check(!ChineseOutputPolicy.switchFollowsCantonese("quanpin", false), "全拼看全局开关");
+  check(ChineseOutputPolicy.showsTraditional(true, false, false), "粤拼默认显示繁体");
+  check(!ChineseOutputPolicy.showsTraditional(true, true, true), "粤拼选了简体就显示简体，不看全局");
+  check(ChineseOutputPolicy.showsTraditional(false, true, true), "其他方案看全局开关");
+});
+
 group("traditional output never loses text when conversion fails", () => {
   const upper = (text: string): string => text.toUpperCase();
   check(

@@ -1068,6 +1068,19 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     }
   }
 
+  /// 粤拼和粤语双拼输出简体（`cantonese_simplified_output`）：写进运行中的会话和共享文档。繁转简在 Engine 出候选时做，组字中切换时等这段组字结束才生效；全局的 `traditional_chinese_output` 不动。
+  @discardableResult
+  func setCantoneseSimplifiedOutput(_ enabled: Bool) -> Bool {
+    updateAndPersist { preferences in
+      preferences["cantonese_simplified_output"] = enabled
+    }
+  }
+
+  /// 文档里记的粤拼输出字形；没记过时为繁体（false）。
+  var cantoneseSimplifiedOutput: Bool {
+    sharedPreferences?["cantonese_simplified_output"] as? Bool ?? false
+  }
+
   /// 键盘功能菜单里的模糊音：在运行中的会话和共享文档里切换 `fuzzy_pinyin.enabled`，保留设置 app 选好的规则。如果文档里一条规则都没选，或者从未初始化过，打开时会启用全部规则，这样开关总会改变 Engine 接受的输入。
   ///
   /// 新对象只构建一次，能读到文档时以文档为基础，同一个对象同时交给两处：开关关闭时会话自己那份会丢掉规则列表（`setFuzzyPinyinRules` 传给它的是空集），基于它构建就会把全部规则重新打开，盖掉用户的选择。没有完全访问权限时文档写入会失败，改动只留在运行中的会话里。

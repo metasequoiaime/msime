@@ -27,6 +27,20 @@ export class ChineseOutputPolicy {
     );
   }
 
+  /** 粤拼和粤语双拼（Engine 里同为 `cantonese`）的词库是繁体：在这个方案下（不在英文模式时），简繁开关切换的是粤拼自己的输出字形 `cantonese_simplified_output`，繁转简在 Engine 里做；全局的 `traditional_chinese_output` 不动。 */
+  static switchFollowsCantonese(engineScheme: string, english: boolean): boolean {
+    return !english && engineScheme === "cantonese";
+  }
+
+  /** 简繁开关显示的字形：粤拼下看粤拼自己的选择（默认繁体），其余方案看全局开关。 */
+  static showsTraditional(
+    followsCantonese: boolean,
+    traditional: boolean,
+    cantoneseSimplified: boolean,
+  ): boolean {
+    return followsCantonese ? !cantoneseSimplified : traditional;
+  }
+
   static output(
     text: string,
     traditional: boolean,
