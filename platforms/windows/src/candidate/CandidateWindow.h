@@ -89,6 +89,7 @@ public:
   // word. A change takes effect at the next appearance, since the pinned
   // anchor is only forgotten when the card hides.
   void set_follow_cursor(bool enabled) { follow_cursor_ = enabled; }
+  void set_game_anchor_top(bool enabled) { game_anchor_top_ = enabled; }
   // 「鼠标滚轮翻页」（`navigation.mouse_wheel`），主循环每轮按已发布的偏好设置，和 macOS 每次渲染都重读一样即时生效。关掉时丢掉攒了一半的滚动量，免得重新打开后第一格翻得太早。
   void set_mouse_wheel(bool enabled) {
     if (mouse_wheel_ != enabled)
@@ -311,6 +312,7 @@ private:
   // Minimum card width asked for by the active skin package, in DIPs.
   double skin_min_width_ = 0.0;
   bool follow_cursor_ = true;
+  bool game_anchor_top_ = false;
   // Where this appearance first anchored; cleared in hide().
   std::optional<POINT> anchor_;
   // Decoration artwork: absolute path, how far it rises above the card, and

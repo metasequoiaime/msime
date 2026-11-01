@@ -18,6 +18,8 @@ struct DesktopCandidateSettings {
   std::optional<float> skin_radius;
   double min_width = 0;
   bool follow_cursor = true;
+  // 游戏兜底锚点放客户区上部（game_compatibility.overlay_anchor_top）。
+  bool game_anchor_top = false;
   bool mouse_wheel = false;
   bool keymap_enabled = false;
   // 配色／皮肤值与图像缓存各有代次，普通轮询不会重建字体或重载图片。

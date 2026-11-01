@@ -162,6 +162,7 @@ struct DesktopCandidates::State {
           if (first || settings->style != applied->style) candidates.set_style(settings->style);
           candidates.set_layout(settings->layout);
           candidates.set_follow_cursor(settings->follow_cursor);
+          candidates.set_game_anchor_top(settings->game_anchor_top);
           candidates.set_mouse_wheel(settings->mouse_wheel);
           if (first || settings->appearance_revision != applied->appearance_revision)
             apply_appearance(candidates, keymap ? &*keymap : nullptr, *settings);

@@ -2291,6 +2291,10 @@ pub struct GameCompatibilityPreferences {
     pub overlay_processes: Vec<String>,
     /// 从不由水杉显示候选窗的进程基名，优先于 `overlay_processes` 和内置规则。
     pub excluded_processes: Vec<String>,
+    /// 游戏给不出可信光标时，兜底锚点放在客户区上部而不是下部。默认关闭：多数游戏的
+    /// 聊天输入框在左下角，`GameCandidateAnchor.h` 的落点就是按那里定的。少数游戏的
+    /// 输入框在顶部（DNF 的聊天行在画面上沿），对它们左下角的兜底点离输入处最远。
+    pub overlay_anchor_top: bool,
 }
 
 impl Default for GameCompatibilityPreferences {
@@ -2299,6 +2303,7 @@ impl Default for GameCompatibilityPreferences {
             candidate_overlay: true,
             overlay_processes: Vec::new(),
             excluded_processes: Vec::new(),
+            overlay_anchor_top: false,
         }
     }
 }

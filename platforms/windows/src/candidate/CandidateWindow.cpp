@@ -970,6 +970,7 @@ void CandidateWindow::reposition() {
     if (value->y != invalid_candidate_anchor_y)
       anchor_input.anchor = POINT{value->x, value->y};
     anchor_input.game_host = value->game_host;
+    anchor_input.anchor_top = game_anchor_top_;
     anchor_input.foreground_owned = true;
     anchor_input.client = client_area;
     // client_area 是 PMv2 下的物理像素，缩放取游戏所在显示器的有效 DPI，与它同一单位。

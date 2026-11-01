@@ -14,6 +14,9 @@ struct GameAnchorInput {
   bool foreground_owned = false;
   RECT client{};
   double scale = 1.0;
+  // 兜底点放客户区上部而不是下部（game_compatibility.overlay_anchor_top）。少数游戏
+  // 的聊天输入框在画面上沿（DNF），默认的左下角落点对它们离输入处最远。
+  bool anchor_top = false;
 };
 // 游戏给不出可信光标时，把候选窗放在游戏客户区左下部，那里通常是聊天输入框的位置。只对游戏会话生效：锚点是 INVALID_Y，或是垃圾值（落在客户区外，或贴着客户区顶边；锚点取的是文本 extent 的 {left, bottom}，真实的文本行不会贴着顶边）。锚点可信时返回空，调用方照用宿主给的锚点。
 inline std::optional<POINT> game_candidate_anchor(const GameAnchorInput &in) {
@@ -33,7 +36,10 @@ inline std::optional<POINT> game_candidate_anchor(const GameAnchorInput &in) {
   const double scale = std::isfinite(in.scale) && in.scale > 0.0 ? in.scale : 1.0;
   const int64_t inset = (std::max)(static_cast<int64_t>(std::lround(24.0 * scale)),
                                    width / 20);
-  return POINT{static_cast<LONG>(in.client.left + inset),
-               static_cast<LONG>(in.client.bottom - height / 5)};
+  // 上部落点取 top + height/5，和下部的 bottom - height/5 对称：都留出五分之一的
+  // 余量，卡片不会贴着客户区边缘，也给 card_bounds 留下按锚点上下展开的空间。
+  const int64_t y = in.anchor_top ? in.client.top + height / 5
+                                  : in.client.bottom - height / 5;
+  return POINT{static_cast<LONG>(in.client.left + inset), static_cast<LONG>(y)};
 }
 } // namespace msime::windows

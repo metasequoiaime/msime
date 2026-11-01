@@ -2785,6 +2785,7 @@ fn game_compatibility_defaults_on_and_stays_out_of_the_document() {
             candidate_overlay: false,
             overlay_processes: vec!["Game.EXE".into(), "my game.exe".into()],
             excluded_processes: vec!["launcher.exe".into()],
+            overlay_anchor_top: true,
         },
         ..Preferences::default()
     };
@@ -2795,6 +2796,7 @@ fn game_compatibility_defaults_on_and_stays_out_of_the_document() {
             "candidate_overlay": false,
             "overlay_processes": ["Game.EXE", "my game.exe"],
             "excluded_processes": ["launcher.exe"],
+            "overlay_anchor_top": true,
         })
     );
     let saved = store.save(0, chosen.clone()).unwrap();
