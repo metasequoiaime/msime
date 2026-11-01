@@ -4,7 +4,7 @@ Everywhere else the brand mark is the standalone tile, `packages/ui/src/assets/m
 
 `app_icon_classic` has the tile's own dark field, `#252525`. `app_icon_forest`, `app_icon_sky`, `app_icon_dusk` and `app_icon_vermilion` differ from it by exactly one value - the field colour, the theme's colour darkened (45% of it into `#1A1A1A`) so the white stroke stays legible - and stay the alternate styles the 我的 tab offers. The same theme table drives the iOS alternate icons, where it colours the tile's edge instead.
 
-The plain bitmaps are the field and the stroke, square:
+The plain bitmaps are the icon as a rounded-square launcher shows it: the field as the tile's rounded square, the stroke at its size inside the tile, transparent corners. With `minSdk` 28 no device draws them; they are what someone browsing the repository sees:
 
 | Density | Size |
 | --- | --- |

@@ -47,14 +47,28 @@ def mark() -> str:
     return found.group(0)
 
 
-def artwork(ground: str | None) -> str:
-    """The stroke centred at its in-tile size, on `ground` or on nothing."""
+def foreground() -> str:
+    """The adaptive foreground: the stroke alone, scaled as it is inside the tile when the tile fills the 72dp the mask shows."""
     scale = VISIBLE * 110 / TILE_EXTENT
     return (
         '<svg xmlns="http://www.w3.org/2000/svg" width="110" height="110" viewBox="0 0 110 110"'
         ' fill="none">\n'
-        + (f'<rect width="110" height="110" fill="{ground}"/>\n' if ground else "")
-        + f'<g transform="translate({55 - 55 * scale:.4f} {55 - 55 * scale:.4f}) scale({scale:.6f})">'
+        f'<g transform="translate({55 - 55 * scale:.4f} {55 - 55 * scale:.4f}) scale({scale:.6f})">'
+        f"{mark()}</g>\n</svg>\n"
+    )
+
+
+def plain(ground: str) -> str:
+    """The plain bitmap: what a rounded-square launcher shows of the adaptive icon, drawn whole.
+
+    The tile's outer rounded square - from 2.5 to 107.5 of its 110 units, corner 24.5 - filled with `ground` and scaled to fill the bitmap, with the stroke at the size it has inside the tile and transparent corners. Nothing on a device draws this (with `minSdk` 28 the adaptive icons always win), but it is the file anyone browsing the repository sees, so it shows the icon as a launcher does rather than a square plate.
+    """
+    scale = 110 / TILE_EXTENT
+    return (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="110" height="110" viewBox="0 0 110 110"'
+        ' fill="none">\n'
+        f'<g transform="translate({55 - 55 * scale:.4f} {55 - 55 * scale:.4f}) scale({scale:.6f})">'
+        f'<rect x="2.5" y="2.5" width="105" height="105" rx="24.5" fill="{ground}"/>'
         f"{mark()}</g>\n</svg>\n"
     )
 
@@ -71,14 +85,14 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as directory:
         for name, theme in VARIANTS.items():
             print(f"{name}: field {field(theme)} (res/values/colors.xml app_icon_field_{name})")
-            # The plain bitmap, for anything that draws the icon without the adaptive layers: the field and the stroke, square.
+            # The plain bitmap, for anything that draws the icon without the adaptive layers.
             source = Path(directory) / f"{name}.svg"
-            source.write_text(artwork(field(theme)))
+            source.write_text(plain(field(theme)))
             for density, pixels in DENSITIES.items():
                 render(source, pixels, ROOT / f"res/drawable-{density}/app_icon_{name}.png")
             # The adaptive foreground is the stroke alone; the background layer is the field colour, so the mask cuts through that.
             layer = Path(directory) / f"{name}-foreground.svg"
-            layer.write_text(artwork(None))
+            layer.write_text(foreground())
             for density, pixels in FOREGROUND_DENSITIES.items():
                 render(layer, pixels,
                        ROOT / f"res/drawable-{density}/app_icon_{name}_foreground.png")
