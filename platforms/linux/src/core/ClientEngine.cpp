@@ -58,6 +58,7 @@
 #include "../candidates/PanelRestoreRecord.h"
 #include "../candidates/CandidateActionPolicy.h"
 #include "../candidates/PersonalWordbook.h"
+#include "../candidates/ReadAloud.h"
 #include "../candidates/CandidateLocalModeLabels.h"
 #include "../candidates/CandidatePanelStatus.h"
 #include "../candidates/CandidateScriptAnnotation.h"
@@ -3095,12 +3096,25 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
           ibus_text_new_from_static_string("操作当前页候选"), actions_available, TRUE,
           PROP_STATE_UNCHECKED, nullptr));
     }
-    // 和 macOS、Windows 的候选菜单一样，「加入生词本」在最后一组，只在这一行显示着释义时出现。
-    if (!displayed_candidate_gloss(s, candidate).empty()) {
+    // 和 macOS、Windows 的候选菜单一样，「朗读」「加入生词本」在最后一组：「加入生词本」只在这一行显示着释义时出现，「朗读」在有能读的英文、本机又装着 spd-say 时排在它前面。
+    const auto gloss = displayed_candidate_gloss(s, candidate);
+    const bool read_aloud = msime::linux_host::read_aloud_available() &&
+                            msime::read_aloud::text_for(candidate_text, gloss).has_value();
+    if (read_aloud || !gloss.empty()) {
       const auto separator_name = candidate_action_name("CandidateSeparator", candidate.at("id"));
       ibus_prop_list_append(actions, ibus_property_new(
           separator_name.c_str(), PROP_TYPE_SEPARATOR, nullptr, "", nullptr, TRUE, TRUE,
           PROP_STATE_UNCHECKED, nullptr));
+    }
+    if (read_aloud) {
+      const auto read_name = candidate_action_name("CandidateReadAloud", candidate.at("id"));
+      ibus_prop_list_append(actions, ibus_property_new(
+          read_name.c_str(), PROP_TYPE_NORMAL,
+          ibus_text_new_from_static_string(msime::read_aloud::kMenuLabel), "",
+          ibus_text_new_from_static_string("用系统语音读出这个英文单词"),
+          actions_available, TRUE, PROP_STATE_UNCHECKED, nullptr));
+    }
+    if (!gloss.empty()) {
       const auto personal_name = candidate_action_name("CandidatePersonalWordbook", candidate.at("id"));
       ibus_prop_list_append(actions, ibus_property_new(
           personal_name.c_str(), PROP_TYPE_NORMAL,
@@ -5437,6 +5451,32 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     page(engine, candidate_name == "CandidatePreviousPage"
                    ? MSIME_PREVIOUS_PAGE
                    : MSIME_NEXT_PAGE);
+    return;
+  }
+  if (candidate_name.rfind("CandidateReadAloud", 0) == 0) {
+    if (value != PROP_STATE_UNCHECKED && value != PROP_STATE_CHECKED)
+      return;
+    guarded(engine, "candidate_read_aloud", [&] {
+      auto &s = state(engine);
+      if (!s.session || !s.focused || s.blocked || !s.input_enabled)
+        return;
+      if (s.rendered_session != s.session || !s.rendered_candidates.is_array() ||
+          !s.rendered_view.is_object() ||
+          s.rendered_view.value("generation", uint64_t{0}) !=
+              s.view.value("generation", uint64_t{0}))
+        return;
+      for (const auto &candidate : s.rendered_candidates) {
+        if (candidate_name != candidate_action_name("CandidateReadAloud", candidate.at("id")))
+          continue;
+        // 不经过 Engine，组字不变；起不来 spd-say 时用辅助区域那句提示告诉用户。
+        const auto text = msime::read_aloud::text_for(candidate.value("text", std::string{}),
+                                                      displayed_candidate_gloss(s, candidate));
+        if (text && !msime::linux_host::read_aloud(*text))
+          show_candidate_menu_hint(engine, s.rendered_view.value("generation", uint64_t{0}),
+                                   msime::linux_host::read_aloud_failure_notice);
+        return;
+      }
+    });
     return;
   }
   if (candidate_name.rfind("CandidatePersonalWordbook", 0) == 0) {

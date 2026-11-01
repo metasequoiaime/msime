@@ -2633,6 +2633,11 @@ void CandidateWindow::show_context_menu(const CandidateClick &click,
               personal_wordbook_(*std::exchange(menu_personal_, std::nullopt));
             return;
           }
+          if (choice.command == CandidateMenuCommand::ReadAloud) {
+            if (read_aloud_.speak && menu_read_aloud_)
+              read_aloud_.speak(*std::exchange(menu_read_aloud_, std::nullopt));
+            return;
+          }
           if (!click_)
             return;
           if (const auto action =
@@ -2646,6 +2651,9 @@ void CandidateWindow::show_context_menu(const CandidateClick &click,
   if (personal_wordbook_ && !candidate->pending && !candidate->translation.empty())
     menu_personal_ = PersonalWordbookRequest{candidate->text, candidate->translation,
                                              candidate->pronunciation};
+  menu_read_aloud_.reset();
+  if (read_aloud_.text && read_aloud_.speak && !candidate->pending)
+    menu_read_aloud_ = read_aloud_.text(candidate->text, candidate->translation);
   flyout_->set_palette(palette_);
   POINT screen = client_point;
   if (!ClientToScreen(window_, &screen))
@@ -2653,7 +2661,8 @@ void CandidateWindow::show_context_menu(const CandidateClick &click,
   // 本页第几个候选：「删除」行据此提示 Ctrl+Shift+Alt+N。
   const auto slot = static_cast<size_t>(candidate - painted_->candidates.begin());
   flyout_->open(screen.x, screen.y, code_points, candidate->actions_available,
-                candidate->fixed_position, slot, menu_personal_.has_value());
+                candidate->fixed_position, slot, menu_personal_.has_value(),
+                menu_read_aloud_.has_value());
 }
 LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
                                             WPARAM wparam,
