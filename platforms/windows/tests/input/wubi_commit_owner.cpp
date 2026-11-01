@@ -91,11 +91,12 @@ void scenario(const std::filesystem::path &fixture, bool unique, bool early,
     composer.confirm_delivery(42, 1, request);
   }
   const std::string word = traditional ? "合成國" : "合成国";
-  const std::string expected = unique ? word + word : (capital ? word + "X" : "");
-  require(document == expected && commits == (unique ? 2u : (capital ? 1u : 0u)), "one physical code writes one candidate once");
+  const std::string expected = unique ? word + word : (capital ? word + "X" : word);
+  require(document == expected && commits == (unique ? 2u : 1u), "one physical code writes one candidate once");
   require(remainder == ((!unique && !capital) ? "x" : ""), "top commit retains the next code");
-  require(server.view().value("phrase_prefix", "") == ((!unique && !capital) ? "合成国" : ""),
-          "phrase preedit holds the topped word without an unsolicited document write");
+  // 顶字不是造词中途的选词：即使开着 phrase_preedit，顶下来的词也由 Server worker 立即写入文档，不进暂存词段。
+  require(server.view().value("phrase_prefix", "").empty(),
+          "a topped word goes to the document instead of the held phrase");
 }
 void lifetime() {
   WubiCommitOwner owner;

@@ -2344,7 +2344,7 @@ pub struct VoiceInputPreferences {
     /// Absolute path to the installed model directory the `local` provider runs (one containing `msime-model.json`, see `voice::local_models`). Nothing is uploaded and no endpoint or token applies. Only the path's shape is checked here, since the same document is read on every OS: any absolute form the host OS uses is accepted, and the recognizer finds its files only through `msime-model.json`, so a path without one is a missing model rather than an invalid document.
     #[serde(default)]
     pub asr_model_path: String,
-    /// Optional `https://` prefix placed in front of every local model download URL (ghproxy-style), for networks where GitHub release downloads are slow or blocked. Empty downloads from the catalog URLs as they are.
+    /// Optional `https://` prefix placed in front of every local model download URL (ghproxy-style), for networks where GitHub release downloads are slow or blocked. Whatever is set here, downloads then try the project mirror (`resource_packs::PROJECT_MIRRORS`, `https://dl.msime.app/gh/`) and finally the catalog URLs as they are; empty skips only the user's own mirror.
     #[serde(default)]
     pub asr_model_mirror: String,
     #[serde(default)]
