@@ -3336,10 +3336,12 @@ version = "0.1.0"
 name = "msime-mcp-server"
 version = "0.1.0"
 dependencies = [
+ "cc",
  "libc",
  "msime-client-core",
  "msime-client-services",
  "msime-host-api",
+ "msime-host-macos",
  "msime-host-windows",
  "msime-path-trust",
  "rmcp",
