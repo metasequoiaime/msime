@@ -600,7 +600,7 @@ char *msime_client_repair_preferences(const uint8_t *directory, size_t length);
 char *msime_client_save_preferences(const uint8_t *directory, size_t directory_length,
                                     uint64_t expected_revision,
                                     const uint8_t *snapshot, size_t snapshot_length);
-/* 在会话线程传入 PreferencesSnapshot JSON（最多 1048576 字节）：{format_version:1, revision, preferences:{...}}。修订号按会话递增；相同快照可重试，旧版或冲突快照会被拒绝。返回 {revision, deferred, view, diagnostic?}；仅首选方案无法运行并回退时带 diagnostic。组字期间的 Engine 偏好应用延后到派发或焦点调用使会话空闲，但关闭云候选会立即清除现有云行和旧查询，AI 配置或令牌变化也会立即清除旧 AI 行和查询；释义开关、目标语言或翻译服务变化会清掉旧释义并推进候选代次，旧释义回包将被拒绝。宿主应使用返回的新 view。较新快照替换待应用快照。构建失败时保留旧会话和待应用快照供重试，派发通过 diagnostic 报告重试错误，不丢失已完成输入。本接口不读写偏好文件，宿主提供已加载的快照。 */
+/* 在会话线程传入 PreferencesSnapshot JSON（最多 1048576 字节）：{format_version:1, revision, preferences:{...}}。修订号按会话递增；相同快照可重试，旧版或冲突快照会被拒绝。返回 {revision, deferred, view, diagnostic?, missing_resource_pack?}；仅首选方案无法运行并回退时带 diagnostic。首选方案因本机缺它的词库而回退时另带 missing_resource_pack（"wubi" 或 "language-dictionaries"），宿主可经 msime_client_resource_pack_install 下载，装好后下一次焦点刷新即换回首选方案。组字期间的 Engine 偏好应用延后到派发或焦点调用使会话空闲，但关闭云候选会立即清除现有云行和旧查询，AI 配置或令牌变化也会立即清除旧 AI 行和查询；释义开关、目标语言或翻译服务变化会清掉旧释义并推进候选代次，旧释义回包将被拒绝。宿主应使用返回的新 view。较新快照替换待应用快照。构建失败时保留旧会话和待应用快照供重试，派发通过 diagnostic 报告重试错误，不丢失已完成输入。本接口不读写偏好文件，宿主提供已加载的快照。 */
 char *msime_client_update_preferences(uint64_t session, const uint8_t *snapshot, size_t length);
 /* 获得焦点（true）只重置旧组字，包括 phrase_preedit 暂存的词段，不返回旧组字的提交；失焦（false）按当前方案结束组字，并返回应送出的提交，包括已经选好的暂存词段。 */
 char *msime_client_focus(uint64_t session, bool focused);

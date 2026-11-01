@@ -1353,6 +1353,14 @@ impl HostSession {
         if let Some(fallback) = fallback {
             response["diagnostic"] = fallback.into();
         }
+        // 偏好里的方案缺词库时报出要补的资源包，宿主可以自己下载（macOS 输入法），不必等用户打开设置。按会话此刻的词典路径算，资源包装好、聚焦刷新之后就不再带它。
+        if let Some(pack) = missing_scheme_pack(
+            snapshot.preferences.scheme,
+            &offered_input_schemes(self.edition),
+            &LanguageDictionaries::of_options(&self.options),
+        ) {
+            response["missing_resource_pack"] = pack.id().into();
+        }
         response
     }
 }
@@ -2037,6 +2045,24 @@ pub(crate) fn effective_scheme(
             "Input scheme {preferred:?} unavailable because {reason}; using {fallback:?}."
         )),
     )
+}
+
+/// 偏好里的方案本版本提供、却因为本机缺它的词库跑不了时（[`effective_scheme`] 因此回退），装上哪个资源包它就能跑：五笔是 `wubi`，粤拼、注音和笔画是 `language-dictionaries`。其余情况为 `None`。
+pub(crate) fn missing_scheme_pack(
+    preferred: InputScheme,
+    supported: &[InputScheme],
+    dictionaries: &LanguageDictionaries,
+) -> Option<ResourcePack> {
+    if !supported.contains(&preferred) || dictionaries.serve(preferred) {
+        return None;
+    }
+    match preferred {
+        InputScheme::Wubi => Some(ResourcePack::Wubi),
+        InputScheme::Cantonese | InputScheme::Zhuyin | InputScheme::Stroke => {
+            Some(ResourcePack::LanguageDictionaries)
+        }
+        _ => None,
+    }
 }
 
 /// 偏好里的双拼辅助码触发方式 → 引擎侧同名字段；写入端已归一，这里对消费端再归一一次兜底。
