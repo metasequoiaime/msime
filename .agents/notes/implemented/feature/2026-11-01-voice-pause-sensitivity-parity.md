@@ -30,7 +30,7 @@ Status: implemented
 
 Android #10363 已合入，但灵敏度方向与报告者要求相反。本 PR 同步修正共享 `LocalAsr` 的阈值映射、Android 设置页文案、设备专项夹具、README 和回归断言：三端统一为「数值越高越容易判定说完、结束录音」，默认 50 仍为原来的 0.5。Android 现有的本机键名和范围不迁移，只改变 10–90 值进入 VAD 的方向；没有用户改设置时行为不变。
 
-Android 的 `VoiceRecognitionActivity`、`OfflineVoiceRecognitionActivity` 和按住说话仍沿用既有接线；灵敏度只改变它们调用的本地整段模型阈值，按住说话的自动结束规则仍由松手决定。三端的真实麦克风质量验收仍待设备环境，不能由纯策略测试替代。
+Android 的作用范围同时收窄到与鸿蒙、iOS 一致：判停灵敏度只给键盘内点按开始的本地识别。长按空格经 `ImeVoiceEntry.startHeld` 开始，创建会话时就传 0（阈值保持 0.5），不等 `hold` 设置 `held`，因为工作线程调用 `localSpeechStart` 时会读这个值，事后再改有竞态；松手那一刻才补判出的长按仍按点按开始，保留存下的灵敏度。`VoiceRecognitionActivity` 和 `OfflineVoiceRecognitionActivity` 的本地识别由「完成」结束、不按停顿判停，同样传 0。三端的真实麦克风质量验收仍待设备环境，不能由纯策略测试替代。
 
 该设置还没有随任何发布出去，不需要迁移已存的值。
 
@@ -51,7 +51,7 @@ Android 的 `VoiceRecognitionActivity`、`OfflineVoiceRecognitionActivity` 和�
 
 ## Consequences
 
-- **收益**：三端（Android 待 #10363 跟上）对点按开始的本地识别给出同一组设置、同一个方向和同一个默认值；鸿蒙不再在豆包流式中途掐断长句；iOS 的点按听写用本地模型时停顿后自己结束。
+- **收益**：三端对点按开始的本地识别给出同一组设置、同一个方向和同一个默认值；鸿蒙不再在豆包流式中途掐断长句；iOS 的点按听写用本地模型时停顿后自己结束。
 - **代价与已知上限**：鸿蒙用豆包流式的用户以前停顿后自动结束，现在要点「说完了」。鸿蒙系统识别仍按固定 1500 毫秒的停顿结束，不跟「本地停顿时间」走。iOS 键盘的聆听面板在 App 报来 `endsOnPause` 之前（本地模型加载完之前）显示的仍是「说完后点「说完了」」。判停灵敏度调到 90 时阈值 0.9，轻声说话可能整段不被当作语音、一直不出字；调到 10 时噪声容易被当作说话，录音可能要等时长上限才结束。两端都没有用真实麦克风和本地模型验证识别质量和极端值。
 
 ## Verification
@@ -60,4 +60,5 @@ Android 的 `VoiceRecognitionActivity`、`OfflineVoiceRecognitionActivity` 和�
 - 鸿蒙：`platforms/harmony/tests/run.sh` 的 `keyboard-logic.test.ts` 覆盖 `pauseMillis`、`vadThreshold`、`keyboardStopsOnPause`（本地、系统、没填凭据的豆包由键盘计时，填了凭据的豆包和上传式服务不计时）、`endsOnPause`、`stopSensitivity` 和能力位；同一脚本用 grep 钉住视图、识别器、worker 和设置桥的接线。
 - 共享设置页：`apps/desktop/tests/settings/harmony-voice-pause.test.tsx` 覆盖能力位、2in1 不显示、缺键时的默认值与范围、保存和读回。
 - iOS：`ServiceTests/voice/VoicePauseTests.swift` 覆盖读法、阈值换算、`forDictation`（只有点按开始的听写有停顿设置）和停顿计时；`KeyboardTests/voice/VoiceSessionTests.swift` 覆盖开始命令的 `tapStarted` 和旧命令的兼容、`endsOnPause` 只报一次、App 自己结束录音后键盘照常上屏，以及聆听面板只在点按开始时换成停顿提示。
+- Android：`scripts/test-android-local-voice-pause-wiring.py` 钉住键盘内本地识别按 `startingHeld` 选 0 或存下的灵敏度、长按空格经 `startHeld` 开始，以及两个识别窗口传 0。
 - macOS 偏好覆盖、偏好字段对照和参考配置覆盖脚本通过。
