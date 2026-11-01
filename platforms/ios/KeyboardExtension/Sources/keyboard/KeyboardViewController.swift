@@ -5773,7 +5773,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     originY - y > height * voiceCancelFraction
   }
 
-  /// 长按空格说话。键盘扩展不能录音，录音识别由后台的主 App 做（`VoiceSessionService`）：会话开着时在键区显示聆听界面并开始听写，结果回来直接上屏；会话还没开或已经过期时打开 App 开启它，用户回来再按住空格。`held` 为假时由工具栏、功能菜单或读屏操作开始听写，点「说完了」结束。
+  /// 长按空格说话。键盘扩展不能录音，录音识别由后台的主 App 做（`VoiceSessionService`）：会话开着时在键区显示聆听界面并开始听写，结果回来直接上屏；会话还没开或已经过期时打开 App 开启它，用户回来再按住空格。`held` 为假时由工具栏、功能菜单或读屏操作开始听写，点「说完了」结束；App 用本地模型识别时还会在出字后停顿「本地停顿时间」那么久自己结束（#10310）。
   private func startVoiceFromSpace(held: Bool, originY: CGFloat? = nil) {
     guard hasFullAccess else {
       showDiagnostic("语音输入需要开启键盘的“允许完全访问”。")
@@ -5801,7 +5801,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     voicePanel = panel
     // 按着的手指属于空格键，面板盖住键区时不能让这一行停止接收触摸，否则松开和上滑都收不到。
     installPanel(panel, keepsKeyTouches: held)
-    dictation.start()
+    dictation.start(held: held)
   }
 
   /// 打开 App 的语音会话页。打不开时说明原因，不让长按空格看起来毫无反应。
@@ -5821,6 +5821,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       voicePanel?.showListening(text)
     case .level(let level):
       voicePanel?.setLevel(level)
+    case .endsOnPause:
+      voicePanel?.showEndsOnPause()
     case .recognizing(let text, let message):
       voicePanel?.showRecognizing(text: text, message: message)
     case .finished(let text):
