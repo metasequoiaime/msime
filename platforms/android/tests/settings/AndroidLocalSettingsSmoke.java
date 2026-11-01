@@ -54,6 +54,7 @@ public final class AndroidLocalSettingsSmoke {
         check("siji".equals(settings.choice(AndroidLocalSettings.APP_THEME)), "app theme default");
         check("off".equals(settings.choice(AndroidLocalSettings.ONE_HANDED)), "one-handed default");
         check(!settings.bool(AndroidLocalSettings.SPLIT_KEYBOARD), "split keyboard is off by default");
+        check(!settings.bool(AndroidLocalSettings.SPLIT_KEYBOARD_PHONE_LANDSCAPE), "phone landscape split is off by default");
         check(settings.bool(AndroidLocalSettings.KEY_POPUP), "key popup default");
         check(settings.bool(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS), "swipe default");
         check("up".equals(settings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION)), "swipe direction default");
@@ -242,7 +243,7 @@ public final class AndroidLocalSettingsSmoke {
         for (String local : new String[] {AndroidLocalSettings.INCOGNITO, AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO,
                 AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT, AndroidLocalSettings.FLOATING_KEYBOARD,
                 AndroidLocalSettings.FLOATING_KEYBOARD_X, AndroidLocalSettings.FLOATING_KEYBOARD_Y,
-                AndroidLocalSettings.HARDWARE_CARET_CANDIDATES,
+                AndroidLocalSettings.HARDWARE_CARET_CANDIDATES, AndroidLocalSettings.SPLIT_KEYBOARD_PHONE_LANDSCAPE,
                 AndroidLocalSettings.TOOLBAR_FLOATING, AndroidLocalSettings.TOOLBAR_TEXT_EDIT, AndroidLocalSettings.BOTTOM_BAR, AndroidLocalSettings.BOTTOM_PADDING,
                 AndroidLocalSettings.BOTTOM_PADDING_HEIGHT, AndroidLocalSettings.DEVELOPER_DEBUG_OVERLAY,
                 AndroidLocalSettings.DEVELOPER_LOGGING_ENABLED,
