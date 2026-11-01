@@ -11,6 +11,20 @@
 using namespace msime::windows;
 namespace {
 constexpr wchar_t candidate_class[] = L"MSIME.Client.Preview.Candidates" MSIME_EDITION_NAME_SUFFIX;
+struct Probe { unsigned count = 0, total = 0; HWND candidate = nullptr; };
+// x86 的窗口枚举回调使用 stdcall，不能交给默认调用约定的 lambda。
+BOOL CALLBACK CountCandidateWindows(HWND handle, LPARAM data) {
+  wchar_t name[128]{};
+  if (GetClassNameW(handle, name, 128) && !lstrcmpW(name, candidate_class)) {
+    auto &value = *reinterpret_cast<Probe *>(data);
+    ++value.total;
+    if (GetWindowLongPtrW(handle, GWL_STYLE) & WS_VISIBLE) {
+      ++value.count;
+      value.candidate = handle;
+    }
+  }
+  return TRUE;
+}
 struct Client {
   HDESK desktop;
   std::atomic<DWORD> tid{0};
@@ -31,19 +45,8 @@ struct Client {
       assert(window);
       tid.store(GetCurrentThreadId());
       while (!stopping.load()) {
-        struct Probe { unsigned count = 0, total = 0; HWND candidate = nullptr; } probe;
-        assert(EnumDesktopWindows(desktop, [](HWND handle, LPARAM data) -> BOOL {
-          wchar_t name[128]{};
-          if (GetClassNameW(handle, name, 128) && !lstrcmpW(name, candidate_class)) {
-            auto &value = *reinterpret_cast<Probe *>(data);
-            ++value.total;
-            if (GetWindowLongPtrW(handle, GWL_STYLE) & WS_VISIBLE) {
-              ++value.count;
-              value.candidate = handle;
-            }
-          }
-          return TRUE;
-        }, reinterpret_cast<LPARAM>(&probe)));
+        Probe probe;
+        assert(EnumDesktopWindows(desktop, CountCandidateWindows, reinterpret_cast<LPARAM>(&probe)));
         windows.store(probe.total);
         visible.store(probe.count);
         // 未切换为输入桌面的私有桌面不会自动绘制；显式发绘制消息只验证线程归属与绘制资源。

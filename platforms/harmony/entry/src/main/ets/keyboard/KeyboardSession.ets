@@ -220,7 +220,7 @@ export interface CandidateEntry {
   readonly translation: string | null;
   /** 引擎把这一行作为有把握的纠错放在首选（`confident_correction`），视图据此画强调色下划线、读屏加「，已纠正」。 */
   readonly confidentCorrection: boolean;
-  /** 「显示读音」打开时这一行的读音（英文 `/…/` 音标、日文罗马字或其他语言的 IPA），画在释义下面单独一行；没有读音或开关关着时为 ""。只用于显示，从不上屏。 */
+  /** 「显示读音」打开时这一行的读音（英文 `/…/` 音标，日文和韩文罗马字，法、西、俄、德语的 IPA），画在释义下面单独一行；没有读音或开关关着时为 ""。只用于显示，从不上屏。 */
   readonly pronunciation: string;
 }
 

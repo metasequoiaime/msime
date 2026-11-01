@@ -906,16 +906,15 @@ struct Settings {
   }
 
   /**
-   * 冷启动时盖在网页上的启动画面，和系统启动窗画的是同一个画面：启动窗底色上一个圆盘，盘里是水杉标志（`start_window_icon`）。底色和圆盘取资源（`start_window_background`、`launch_disc`），浅色和深色各一份，跟随系统外观；标志两种外观相同。页面报告设置已经画出来（`launchPainted`）后撤掉它，所以从点图标到设置页是同一个画面淡出，中间不露出还没画出东西的网页，也不露出「正在读取设置」。
+   * 冷启动时盖在网页上的启动画面，和系统启动窗画的是同一个画面：启动窗底色上的水杉标志（`start_window_icon`），外面不套圆盘。底色取资源 `start_window_background`，浅色和深色各一份，跟随系统外观；标志两种外观相同。页面报告设置已经画出来（`launchPainted`）后撤掉它，所以从点图标到设置页是同一个画面淡出，中间不露出还没画出东西的网页，也不露出「正在读取设置」。
    *
-   * 它和首次启动的网页开屏一样按网页区域居中，尺寸照开屏换算：圆盘 180vp，标志是 100vp 标志框里按 116 × 132 等比放下的 `launch_logo.svg`，87.9 × 100vp。
+   * 它和首次启动的网页开屏一样按网页区域居中，尺寸照开屏换算：标志是 150vp 见方的 `launch_logo.svg`。
    */
   @Builder
   launchCoverView() {
     Stack() {
-      Circle().width(180).height(180).fill($r('app.color.launch_disc'))
-      // 同步解码：异步加载时盖板第一帧没有标志，从启动窗接过来会闪一下空圆盘。
-      Image($r('app.media.launch_logo')).width(87.9).height(100).syncLoad(true)
+      // 同步解码：异步加载时盖板第一帧没有标志，从启动窗接过来会闪一下空白。
+      Image($r('app.media.launch_logo')).width(150).height(150).syncLoad(true)
     }
     .width('100%')
     .height('100%')

@@ -6,6 +6,8 @@ Status: implemented
 
 用户反馈：设置页里能调键盘高度，但在键盘里调（拖动把手或 ± 按钮）怎么调都会变回设置里的数值。三端都有这个入口，原因各不相同，而且每端都不止一处。
 
+Android 的内联高度条已由 [键盘调整遮罩](../feature/2026-11-01-android-keyboard-adjust-overlay.md) 取代：「收起即保存」沿用并扩大到高度、底部抬高、宽度和位置四项，调整界面不再有「取消」，下面 Android 一段里「只有点取消才丢掉」不再成立。
+
 ## Decision
 
 键盘里调出来的高度一旦被用户看见，就存进它的权威存储；只有用户明确取消才丢掉。每端各自修掉把旧值写回或读回的路径：
@@ -19,6 +21,10 @@ Status: implemented
   - 设置页（`KeyboardLayoutSettingsView`）只在 `.onAppear` 读一次，而 `save()` 每次写全部四个几何字段：键盘里改过高度之后，在设置页动任何别的控件都会把旧高度写回去。现在回到前台时重新读取，并且只写改动的那个字段（`geometryMapping`、`saveGeometry` 只写给出的字段）。
   - 组字中会话推迟偏好更新，原来的 `updateAndPersist` 在这种情况下连文档也不写；现在 `persistTouchKeyboardGeometry` 总是写文档并返回是否成功，失败时记 `touch_geometry_not_persisted`，并把 App Group 和键盘按文档对齐。
   - `synchronizeSharedTouchPreferences` 原来只把间距和语音入口镜像进 App Group，没有高度，键盘里的调节器打开时用的是 App Group 里的旧值；现在用 `mirrorGeometry` 把高度也镜像过去。
+
+## 后续变化
+
+iOS 键盘里的高度入口后来换成整块键盘的「键盘调整」遮罩，收起键盘、换输入框、切到别的应用也都按确认保存，与这里 Android 的做法一致，见 [iOS 键盘调整遮罩取代内联高度条](../feature/2026-11-01-ios-keyboard-adjust-overlay.md)。
 
 ## Alternatives considered
 

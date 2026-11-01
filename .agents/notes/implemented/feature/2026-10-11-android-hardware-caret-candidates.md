@@ -17,7 +17,7 @@ Status: implemented
 - 退回底部：编辑器拒绝报告（`requestCursorUpdates` 返回假）时这个输入框整个照旧是停在底部的候选条。答应了却在要显示候选栏时等不来位置，这一次退回底部，直到空闲时收到位置才回到光标旁（`dockedAfterAnchor`），不在组字途中把候选栏和应用的排版一起挪走。
 - 窗口复用浮动键盘那一套：`overlayDrawn()` 为真（浮动键盘或跟随光标）时输入法窗口与 `inputArea` 铺满、根视图透明、键盘列不留系统栏内边距、`onComputeInsets` 不让应用让出高度，可触摸区域只有键盘外框。外框与浮动面板同宽（`FloatingKeyboardPolicy.widthDp`）、圆角，没有拖动条；位置由 `positionCaretCandidates` 用平移决定。候选栏不显示时外框是 `INVISIBLE`（仍有大小，位置可以先算好），可触摸区域为空，触摸全部落到应用上（等第一次报告期间、窗口刚被叫出来还没收起的那一刻）。
 - 位置：左边与光标对齐，放在光标所在行下方 4 dp；下方放不下而上方放得下时翻到光标上方；两边都放不下时放在空间大的一侧；始终夹在系统栏之间。外框和根视图每次重新布局都重新摆，所以候选栏换内容变高、旋转、分屏后仍在窗口里。
-- 空闲时什么也不画，这时没有工具栏上的展开键。打开展开候选、内联高度条等要占键区的面板时 `hardwareKeysCollapsed()` 为假，键盘照旧停靠在底部展开。
+- 空闲时什么也不画，这时没有工具栏上的展开键。打开展开候选、「键盘调整」等要占键区的面板时 `hardwareKeysCollapsed()` 为假，键盘照旧停靠在底部展开。
 - 空闲时收起整个输入法窗口（`CaretCandidatePolicy.hidesWindow`，`synchronizeCaretWindow` 里 `requestHideSelf`）。窗口只是什么也不画、却还开着的话，系统仍当键盘在显示：`InputMethodService.handleBack` 拿第一下返回键去收起这个看不见的窗口（API 33 起是输入法登记在应用那边的 `OnBackInvokedCallback`，应用拿不到这一下），应用要按第二下才返回；导航栏也一直是收起键盘的箭头和切换输入法键，应用读到的 `WindowInsets` 里键盘也算显示着。候选栏又有内容时（实体键盘开始组字、联想、英文建议）用 `requestShowSelf` 叫回来，只叫回自己收起的窗口（`caretWindowHidden`），用户按返回键收起的照旧由 `noteHardwareTyping` 在下一次组字时叫出来。
 - 自己的收起不是用户收起键盘：收起要等应用那边的键盘动画，落地（`onFinishInputView(false)`）比请求晚约半秒，其间用户可能已经又开始组字；应用同时要求显示时系统还会把一次收起分几次落地，窗口也可能先被 `onWindowShown` 叫回来。所以请求后 `HIDE_LANDING_MS`（2 s）之内落地的收起都认作自己的（`caretHidePending` 加时刻，离开输入框时清），不做 `finishInputViewPresentation`，也不调系统默认实现（它会 `finishComposingText`），否则这段组字会被上屏、引擎里的组字也丢掉；落地后按此刻的状态决定要不要叫回窗口。应用一见键盘收起就要求再显示时，空闲收起至少隔 `WINDOW_REHIDE_MS`（500 ms），不和它每帧来回打转。
 

@@ -14,6 +14,11 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use unicode_segmentation::UnicodeSegmentation;
 
+mod reporting_authority;
+pub use reporting_authority::{ReportingAuthority, ReportingAuthorization};
+mod reporting_consent;
+pub use reporting_consent::UsageReportingConsent;
+
 /// The largest preference document accepted by the shared host boundary. This
 /// covers a validated custom skin photo while preventing a damaged local file
 /// from forcing an unbounded allocation during startup or recovery.
@@ -2278,6 +2283,13 @@ pub struct Preferences {
     /// 向 `https://api.msime.app/v1/telemetry/events` 发送匿名使用报告（每日活跃、会话结束、崩溃摘要；见 `telemetry` 和 PRIVACY.md）。默认开启；关闭后停止全部上报并清空本地队列。读取方把缺失的键当作开启。
     #[serde(default = "enabled_by_default")]
     pub usage_reporting: bool,
+    /// 只属于本机的持续同意历史，由存储在开关保存时维护；提交方不能指定，损坏时不追认旧历史。
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "reporting_consent::deserialize"
+    )]
+    pub usage_reporting_consent: Option<UsageReportingConsent>,
     /// 桌面应用检查更新跟哪个发布通道，见 [`UpdateChannel`]。只属于本机：不随设置文件走（`settings_document::LOCAL_SECTIONS`），也不进账号同步。等于稳定版时不写进文档，没有这个键的旧文档按稳定版读。
     #[serde(default, skip_serializing_if = "UpdateChannel::is_default")]
     pub update_channel: UpdateChannel,
@@ -4359,6 +4371,7 @@ impl Default for Preferences {
             translation_ai: false,
             translation_ai_migrated: true,
             usage_reporting: true,
+            usage_reporting_consent: None,
             update_channel: UpdateChannel::Stable,
         }
     }
@@ -4984,6 +4997,10 @@ impl Preferences {
     /// 诊断包里的配置快照：整份偏好文档，凭据清单里的每个字段都换成 [`REDACTED`]；此外任何键名符合服务端脱敏规则（含 `token`、`secret`、`password`、`api_key` 或以 `key` 结尾，不分大小写）的值也一律换掉，这样快照上传时一定通过服务端的校验。
     pub fn redacted_for_diagnostics(&self) -> serde_json::Value {
         let mut value = serde_json::to_value(self).unwrap_or(serde_json::Value::Null);
+        // 持续授权身份只留本机，诊断包和凭据脱敏快照同样不能导出它。
+        if let Some(object) = value.as_object_mut() {
+            object.remove("usage_reporting_consent");
+        }
         let mut copy = self.clone();
         for (path, _) in copy.credential_slots() {
             let mut cursor = &mut value;
@@ -5585,7 +5602,7 @@ impl PreferencesStore {
         }
         let preferences = current.preferences.clone();
         // 还没有文件，也就没有未知键。
-        self.save_locked(current, &[], 0, preferences)
+        self.save_locked(current, &[], 0, preferences, false)
     }
 
     /// 修复损坏文件时垫底的默认偏好。
@@ -5697,6 +5714,39 @@ impl PreferencesStore {
     pub fn load(&self) -> Result<PreferencesSnapshot, PreferencesError> {
         let _lock = self.lock()?;
         self.read_locked()
+    }
+
+    /// 在偏好锁内读取持续同意；首次使用从当前时间开始历史，不能追认旧诊断。
+    /// 关闭返回 `None`，读写失败保持错误。普通 `load` 不初始化或推进授权历史。
+    pub fn usage_reporting_consent(
+        &self,
+    ) -> Result<Option<UsageReportingConsent>, PreferencesError> {
+        let _lock = self.lock()?;
+        let (current, unknown) = self.read_locked_keeping_unknown()?;
+        if !current.preferences.usage_reporting {
+            return Ok(None);
+        }
+        if let Some(consent) = current.preferences.usage_reporting_consent {
+            return Ok(Some(consent));
+        }
+        let revision = current.revision;
+        let preferences = current.preferences.clone();
+        self.save_locked(current, &unknown, revision, preferences, true)
+            .map(|snapshot| snapshot.preferences.usage_reporting_consent)
+    }
+
+    /// 在同一偏好锁内核对持续同意并执行本地操作；不初始化历史，也不把读失败当关闭。
+    /// 操作可以再取得遥测队列锁，不能联网或从故障处理器调用。
+    pub fn with_usage_reporting_consent<T>(
+        &self,
+        operation: impl FnOnce(bool, Option<UsageReportingConsent>) -> T,
+    ) -> Result<T, PreferencesError> {
+        let _lock = self.lock()?;
+        let snapshot = self.read_locked()?;
+        Ok(operation(
+            snapshot.preferences.usage_reporting,
+            snapshot.preferences.usage_reporting_consent,
+        ))
     }
 
     /// 同 [`Self::load`]，但偏好文件与 `previous` 读到的逐字节相同时沿用它的快照，不再解析和校验：读出的快照只取决于这些字节。代理设置照样按读到的文档装进 [`crate::network`]。交回的结果供下一次传入。Android 键盘显示期间每秒在工作线程上读一次偏好，文件绝大多数时候没变。偏好文件不存在时每次照常取默认快照：那份快照还取决于目录里的版本记录。
@@ -5818,7 +5868,7 @@ impl PreferencesStore {
     ) -> Result<PreferencesSnapshot, PreferencesError> {
         let _lock = self.lock()?;
         let (current, unknown) = self.read_locked_keeping_unknown()?;
-        self.save_locked(current, &unknown, expected_revision, preferences)
+        self.save_locked(current, &unknown, expected_revision, preferences, false)
     }
 
     /// 把 Android 本机旧开关迁进共享偏好；在同一把锁里核对修订号和原始字段。较新版本写入的样式不能被宽松反序列化后的默认值覆盖，迁移数字行时也要原样保留。
@@ -5927,7 +5977,7 @@ impl PreferencesStore {
                 });
             }
         }
-        self.save_locked(current, &unknown, expected_revision, preferences)
+        self.save_locked(current, &unknown, expected_revision, preferences, false)
     }
 
     /// 「恢复默认设置」：在同一把锁里读出当前文档，换成本存储所属版本的默认偏好（[`Preferences::restored_to_defaults_for`]，服务凭据和 `fuzzy_pinyin.seeded` 保留），再按 `expected_revision` 做比较并交换写回。修订号不符时返回 `Conflict`，什么也不写。
@@ -5939,7 +5989,7 @@ impl PreferencesStore {
         let current = self.read_locked()?;
         let restored = current.preferences.restored_to_defaults_for(self.edition());
         // 恢复默认值连同更新版本写下的设置一起清掉：用户要的是整份回到默认。
-        self.save_locked(current, &[], expected_revision, restored)
+        self.save_locked(current, &[], expected_revision, restored, false)
     }
 
     /// `save` 的主体，调用方已持有锁并读出了 `current`。`unknown` 是盘上文档里本版本不认识的键，写入时原样放回。
@@ -5949,10 +5999,23 @@ impl PreferencesStore {
         unknown: &[UnknownPreferenceField],
         expected_revision: u64,
         mut preferences: Preferences,
+        initialize_reporting: bool,
     ) -> Result<PreferencesSnapshot, PreferencesError> {
         if current.revision != expected_revision {
             return Err(PreferencesError::Conflict);
         }
+        // 授权元数据只由存储产生：不能导入、伪造，旧客户端省略字段也不能抹掉持续同意。
+        preferences.usage_reporting_consent = if !preferences.usage_reporting {
+            None
+        } else if current.preferences.usage_reporting {
+            match current.preferences.usage_reporting_consent {
+                Some(consent) => Some(consent),
+                None if initialize_reporting => Some(UsageReportingConsent::new()?),
+                None => None,
+            }
+        } else {
+            Some(UsageReportingConsent::new()?)
+        };
         // Match the Windows baseline: the first transition from disabled to
         // enabled opts every fuzzy rule in once. The marker is separate from
         // the rule set so intentionally clearing every rule does not reseed
@@ -6050,13 +6113,15 @@ impl PreferencesStore {
         }
         let backup_path = self.write_backup(&bytes, time::OffsetDateTime::now_utc())?;
         // 本版本不认识的键和列表元素（多半出自更新的版本）照保存时那样放回去：修复只换掉读不了的取值，不顺手抹掉更新的版本的设置。
-        let (preferences, salvaged, unknown) = match &document {
+        let (mut preferences, salvaged, unknown) = match &document {
             Some(document) => {
                 let salvage = salvage_preferences(document, self.default_preferences())?;
                 (salvage.preferences, salvage.kept, salvage.unknown)
             }
             None => (self.default_preferences(), false, Vec::new()),
         };
+        // 修复过的文档不能证明旧授权持续有效；下一次确保接口从当时重新开始。
+        preferences.usage_reporting_consent = None;
         let revision = match document
             .as_ref()
             .and_then(|document| document.get("revision"))

@@ -112,11 +112,7 @@
   --animate-splash-name: splash-rise 0.5s 1.1s both;
   --animate-splash-tagline: splash-rise 0.5s 1.35s both;
   --animate-splash-hint: splash-rise 0.5s 1.6s both;
-  /* HarmonyOS 启动页（dc.html `msRipple`、`msLoad`）：接着系统启动窗往下播。启动窗画的是近黑底上的浅色圆盘和空白标志方块，所以开屏第一帧就是这个画面，再把圆盘和方块淡入当季配色，描出标志线条，一圈白环从圆盘向外扩散两次，底部一条细进度条在启动页停留期间填满。设计稿里圆盘落下、标志旋转入场的两段不再播：启动窗已经画好了它们落定的样子，再播一遍就是从头重来。 */
-  /* 淡入当季配色靠盖在上面的启动窗颜色图层淡出，而不是直接对颜色做动画：ArkWeb 在 `color-mix()` 和普通颜色之间插值会算出纯黄、纯红的中间帧。 */
-  --animate-splash-veil: splash-veil 0.6s ease-out 0.1s both;
-  /* 不设 fill mode：圆环在动画前后都停在自身的 `opacity: 0`，只在扩散时可见。 */
-  --animate-splash-ripple: splash-ripple 1.2s ease-out 1.45s 2;
+  /* HarmonyOS 启动页（dc.html `msLoad`）：接着系统启动窗往下播。启动窗画的是启动窗底色上的水杉标志（外面不套圆盘），所以开屏第一帧就是这个画面，标志配色固定、不再淡入季节色；之后光晕泛起、出字，底部一条细进度条在启动页停留期间填满。设计稿里标志旋转入场的一段不再播：启动窗已经画好了它落定的样子，再播一遍就是从头重来。 */
   --animate-splash-load: splash-load 2.4s ease-out both;
   /* 「手写输入」页预览里描一笔（`HandwritingPadPreview`）：时长与组件的 `STROKE_MS` 相同，各笔的先后由行内的 animation-delay 排。 */
   --animate-hand-stroke: splash-draw 0.42s cubic-bezier(0.4, 0, 0.2, 1) both;
@@ -132,22 +128,6 @@
   /* `backwards`, not `both`: a transform animation still in effect after it ends makes the pushed page the containing block for every fixed descendant, so dialogs and their backdrops stopped at the content's height instead of covering the screen. The end state is the element's own style anyway. */
   --animate-ms-push-in: ms-push-in 0.34s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
 
-  @keyframes splash-veil {
-    to {
-      opacity: 0;
-    }
-  }
-  /* 设计用圆盘的 box-shadow 做波纹；改用一个单独的圆环 span 向外缩放，表现同样的动效，又不必每帧重绘圆盘自身的投影。 */
-  @keyframes splash-ripple {
-    from {
-      transform: scale(1);
-      opacity: 0.5;
-    }
-    to {
-      transform: scale(1.2);
-      opacity: 0;
-    }
-  }
   @keyframes splash-load {
     from {
       transform: scaleX(0);

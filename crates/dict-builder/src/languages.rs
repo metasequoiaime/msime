@@ -34,12 +34,16 @@ pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<Strin
         }
         None => Vec::new(),
     };
+    let corpus = hkcancor::parse(&corpus)?;
+    let variants = text::read(&sources.pinned(cantonese::VARIANTS)?)?;
+    let forms = cantonese::hong_kong_forms(&cantonese::parse_variants(&variants)?, &corpus);
     let dictionary = cantonese::build(
         &characters,
         &cantonese::parse_words(&words)?,
         &cantonese::parse_essay(&essay)?,
-        &hkcancor::parse(&corpus)?,
+        &corpus,
         &custom_words,
+        &forms,
     );
     let database = out.join(cantonese::DATABASE);
     cantonese::write(&dictionary, &database, commit)?;
@@ -60,8 +64,13 @@ pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<Strin
         ),
         None => format!("{} is not in the checkout", cantonese::CUSTOM),
     };
+    let forms_summary = forms
+        .iter()
+        .map(|(opencc, form)| format!("{opencc}→{} {}", form.hong_kong, form.corpus_count))
+        .collect::<Vec<_>>()
+        .join(", ");
     summaries.push(format!(
-        "{}: {} syllables, {} character and {} word entries ({} of them from the essay; {} words weighed by the HKCanCor counts at {} each, {} of them held below an essay word of their key; {custom_summary})",
+        "{}: {} syllables, {} character and {} word entries ({} of them from the essay; {} words weighed by the HKCanCor counts at {} each, {} of them held below an essay word of their key; {custom_summary}; {} OpenCC forms spelled the Hong Kong way, with their HKCanCor counts: {forms_summary})",
         cantonese::DATABASE,
         counts.syllables,
         counts.characters,
@@ -69,7 +78,8 @@ pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<Strin
         dictionary.essay_words,
         dictionary.corpus_words,
         dictionary.corpus_scale,
-        dictionary.corpus_capped
+        dictionary.corpus_capped,
+        forms.len()
     ));
 
     let commit = reference_commit(sources, zhuyin::REFERENCE)?;

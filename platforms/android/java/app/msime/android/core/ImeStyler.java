@@ -512,13 +512,13 @@ final class ImeStyler {
         // 浮动（以及候选栏跟随光标）时根视图铺满屏幕，底色透明才看得见下面的应用；导航栏也不再画成键盘底色的一条。
         boolean floating = s.overlayDrawn();
         int rootColor = floating || s.editorPreviewExpanded() ? Color.TRANSPARENT : color(s.skin.background());
-        // 内联高度条打开期间窗口铺满（#10025），与 API 28 一样只在键区所在的底部横带画键盘底色：上方透明露出应用，平板居中键区两侧仍是键盘底色。
-        if (s.stableDockedWindow() || s.inlineHeightActive) {
+        // 「键盘调整」打开期间窗口铺满（#10025），与 API 28 一样只在键区所在的底部横带画键盘底色：上方透明露出应用，平板居中键区两侧仍是键盘底色。
+        if (s.stableDockedWindow() || s.keyboardAdjustActive) {
             dockedBackground.setColor(color(s.skin.background()));
             ViewPolicy.setBackground(s.keyboardRoot, dockedBackground);
             s.keyboardRoot.invalidate();
         } else if (s.keyboardRoot.getBackground() == dockedBackground) {
-            // 高度调整结束：setBackgroundColor 遇到 ColorDrawable 只改颜色，会把只画底部横带的背景留下来，所以换一个普通底色。
+            // 「键盘调整」结束：setBackgroundColor 遇到 ColorDrawable 只改颜色，会把只画底部横带的背景留下来，所以换一个普通底色。
             ViewPolicy.setBackground(s.keyboardRoot, new ColorDrawable(rootColor));
         } else {
             ViewPolicy.setBackgroundColor(s.keyboardRoot, rootColor);
@@ -667,7 +667,7 @@ final class ImeStyler {
         int width = widthDp == 0 ? FrameLayout.LayoutParams.MATCH_PARENT : s.pixels(widthDp);
         FrameLayout.LayoutParams params = LayoutPolicy.frameParamsPx(
             width, s.editorPreviewExpanded() ? s.editorPreviewKeyboardHeight
-                : s.stableDockedWindow() || s.inlineHeightActive ? FrameLayout.LayoutParams.WRAP_CONTENT
+                : s.stableDockedWindow() || s.keyboardAdjustActive ? FrameLayout.LayoutParams.WRAP_CONTENT
                 : FrameLayout.LayoutParams.MATCH_PARENT,
             Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
         s.keyboardSurface.setLayoutParams(params);

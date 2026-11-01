@@ -98,6 +98,7 @@
 #import <IOKit/hid/IOHIDKeys.h>
 #import <IOKit/hid/IOHIDManager.h>
 #include <atomic>
+#include <cstring>
 #include <memory>
 #include <optional>
 #include <unordered_map>
@@ -1969,6 +1970,8 @@ static NSImage *MSIMECandidateLogoImage() {
     // 候选释义的显示开关，来自共享偏好；缺省对齐 Windows v0.11.1 出厂配置（显示词性、显示全部释义）。
     BOOL _glossShowPos;
     BOOL _glossSingleSense;
+    // 共享偏好里「显示读音」的开关（`candidate_pronunciation`），只决定横排为读音预留的行。读音本身仍按 _pronunciationTargets 查和画：那份来自组字时的翻译查询，没在组字时查询为空，每次上屏后都会被清掉，不能拿来定预留，否则每次组字的第一个键都先按矮一行摆窗口。
+    BOOL _glossPronunciation;
     // 候选徽标：AI 来源角标与固定排位角标的完整串（含前导空格），以及算出它们的原始偏好。
     NSString *_aiBadgeString;
     NSString *_fixedBadgeString;
@@ -5428,7 +5431,18 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     MSIMESystemInputModeState &state = MSIMESharedSystemInputModeState();
     // 切进水杉后的第一次采纳要在清掉标记之前读到它：切回时系统落在 中 上，不是用户在水杉里越过 双 选了 中（#10199，见 MSIMESystemInputModeState 的 switchedIn）。只看 current 是否为空不够，激活校准和随后选回 双 都会先写 current。
     const BOOL switchedIn = state.switchedIn;
+    const BOOL restoring = MSIMESystemInputModeRestoring(state, NSProcessInfo.processInfo.systemUptime);
     if (!MSIMEAdoptReportedInputMode(state, value)) return;
+    NSString *reported = [[(NSString *)value componentsSeparatedByString:@"."] lastObject];
+    // 唤醒或解锁后系统恢复输入源时报告的模式：只记下，不改方案和中英状态，把菜单栏选回控制器自己的模式（MSIMESystemInputModeState 的 restoringUntil）。
+    if (restoring) {
+        MSIMEFinishSystemInputModeRestore(state);
+        msime_macos_diagnostic_writef("input_mode_report mode=%s action=ignored reason=system_restore", reported.UTF8String ?: "");
+        [self ensureAppearance];
+        [self applySharedInputPreferencesBeforeFirstUse];
+        [self syncSystemInputModeForClient:sender];
+        return;
+    }
     state.switchedIn = false;
     [self ensureAppearance];
     [self applySharedInputPreferencesBeforeFirstUse];
@@ -5442,6 +5456,9 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         MSIMESchemeForReportedInputMode(mode, scheme, _appearance.lastChineseScheme, [self inputModeAvailability], switchedIn);
     // A mode whose scheme cannot run here (粤, 注 or 笔 without its dictionary) leaves the scheme alone. Adopting it only made the Engine fall back to the Chinese scheme used before it, so the menu bar said 粤 while the keys typed that scheme - shuangpin, for one user who had never picked Cantonese. The mode can be selectable without the dictionary: on macOS 27.0.1 the system turned 粤 on by itself after --register-input-source enabled the bundle, and it came back each time the user removed it.
     if (target && !MSIMEInputSchemeAvailable(target, [self inputSchemeHostOptions])) target = nil;
+    // 诊断日志记下每一次被采纳的报告和它把方案改成了什么：模式名和方案名都不是输入内容。方案莫名其妙被改掉时（开盖后变成注音），这一行能说明是谁报告了哪个模式。
+    msime_macos_diagnostic_writef("input_mode_report mode=%s action=adopted scheme=%s target=%s switched_in=%d", reported.UTF8String ?: "",
+                                  scheme.UTF8String ?: "", target.UTF8String ?: "-", switchedIn ? 1 : 0);
     if (target && ![target isEqualToString:scheme]) {
         // The composition was typed under the old scheme and a scheme switch discards it, so commit it first, as the scheme menu does. A Korean syllable is text the user already wrote.
         if (_session && _activeClient && [_view[@"editing_text"] length]) {
@@ -6497,6 +6514,59 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions, NSString 
     return requested;
 }
 
+// 偏好里的方案缺它的资源包时（发布包不带的五笔码表，粤拼、注音、笔画的语言词库），会话回退到默认方案、偏好照旧，用户看到选着五笔却打出全拼。设置应用只在启动时补装一次，失败也没有提示，升级换了词库锁或从菜单栏、工具栏切到这个方案后就一直缺着，所以输入法收到会话报出的 `missing_resource_pack` 时自己在后台下载，通道和镜像与设置应用相同（偏好的 update_channel 和 voice_input.asr_model_mirror）。同一个资源包同时只装一次，失败后十分钟内不再试，免得每次聚焦都重新联网。装好后下一次聚焦时会话找到它，换回用户选的方案。只在主线程调用。
+static void MSIMEEnsureMissingResourcePack(id pack, NSDictionary *preferences, NSString *stateRoot) {
+    if (![pack isKindOfClass:NSString.class] || ![@[ @"wubi", @"language-dictionaries" ] containsObject:pack] ||
+        ![stateRoot isKindOfClass:NSString.class] || !stateRoot.isAbsolutePath)
+        return;
+    static NSMutableSet<NSString *> *installing;
+    static NSMutableDictionary<NSString *, NSDate *> *failedAt;
+    if (!installing) installing = [NSMutableSet set];
+    if (!failedAt) failedAt = [NSMutableDictionary dictionary];
+    if ([installing containsObject:pack]) return;
+    NSDate *failed = failedAt[pack];
+    if (failed && -failed.timeIntervalSinceNow < 600) return;
+    NSMutableDictionary *request = [@{@"state_root" : stateRoot, @"pack" : pack} mutableCopy];
+    id channel = [preferences isKindOfClass:NSDictionary.class] ? preferences[@"update_channel"] : nil;
+    if ([channel isKindOfClass:NSString.class] && [@[ @"stable", @"beta", @"nightly" ] containsObject:channel])
+        request[@"channel"] = channel;
+    id voice = [preferences isKindOfClass:NSDictionary.class] ? preferences[@"voice_input"] : nil;
+    id mirror = [voice isKindOfClass:NSDictionary.class] ? voice[@"asr_model_mirror"] : nil;
+    if ([mirror isKindOfClass:NSString.class] &&
+        [mirror stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet].length)
+        request[@"sources"] = @[ mirror ];
+    NSData *body = [NSJSONSerialization dataWithJSONObject:request options:0 error:nil];
+    if (!body) return;
+    NSString *name = [pack copy];
+    [installing addObject:name];
+    msime_macos_diagnostic_writef("resource_pack_install_start pack=%s reason=scheme_fallback", name.UTF8String);
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        auto raw = msime::host_api::own_string(
+            msime_client_resource_pack_install(static_cast<const uint8_t *>(body.bytes), body.length, nullptr, nullptr));
+        id response = raw ? [NSJSONSerialization JSONObjectWithData:[NSData dataWithBytes:raw.get() length:std::strlen(raw.get())]
+                                                             options:0
+                                                               error:nil]
+                          : nil;
+        const BOOL installed = [response isKindOfClass:NSDictionary.class] && [response[@"ok"] isEqual:@YES];
+        // 只记共享层的错误码（local_model_network 之类），冒号后的细节可能带路径，不写进诊断日志。
+        id error = [response isKindOfClass:NSDictionary.class] ? response[@"error"] : nil;
+        NSString *reason = [error isKindOfClass:NSString.class]
+            ? [[(NSString *)error componentsSeparatedByString:@":"].firstObject copy]
+            : @"no_response";
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [installing removeObject:name];
+            if (installed) {
+                [failedAt removeObjectForKey:name];
+                msime_macos_diagnostic_writef("resource_pack_installed pack=%s", name.UTF8String);
+            } else {
+                failedAt[name] = [NSDate date];
+                msime_macos_diagnostic_writef("resource_pack_install_failed pack=%s error=%s", name.UTF8String,
+                                              reason.UTF8String);
+            }
+        });
+    });
+}
+
 // The current preferences are available before the first HostSession is
 // constructed. Configure the log from them so failures emitted while that
 // constructor loads plugin tables are not lost before the asynchronous
@@ -6779,6 +6849,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         _preferenceLoadState.applied(revision);
         if (inputPreferences) [_appearance applySharedInputPreferences:inputPreferences];
         [self applySharedToolbarPreferences:snapshot[@"preferences"]];
+        // 在上一行配置好诊断日志之后：选着的方案缺资源包、会话回退了，就在后台补装。
+        MSIMEEnsureMissingResourcePack(result[@"missing_resource_pack"], preferences, _preferencesDirectory);
         // After the preferences, which the session's resolved effect refines with the selected pack.
         [self refreshTypingEffectSettings];
         _view = [session viewWithError:nil] ?: result[@"view"];
@@ -6909,6 +6981,10 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     if ([singleSense isKindOfClass:NSNumber.class] &&
         CFGetTypeID((__bridge CFTypeRef)singleSense) == CFBooleanGetTypeID())
         _glossSingleSense = [singleSense boolValue];
+    id pronunciation = preferences[@"candidate_pronunciation"];
+    if ([pronunciation isKindOfClass:NSNumber.class] &&
+        CFGetTypeID((__bridge CFTypeRef)pronunciation) == CFBooleanGetTypeID())
+        _glossPronunciation = [pronunciation boolValue];
     // 候选角标同样只改画法：记下原始偏好，变了才重算完整徽标串。缺键时保留出厂默认。
     BOOL badgeChanged = NO;
     id fixedBadge = preferences[@"candidate_fixed_badge"];
@@ -7243,11 +7319,13 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
 }
 
 // 预留的释义行：横排每一行都留，竖排只给视图标了 translation_reserved 的那一行留（候选词翻译范围是「仅当前高亮」时的高亮行），行数相同。
+// 打开释义读音时（共享偏好的 `candidate_pronunciation`，见 _glossPronunciation）每行释义下面还有一行读音（MSIMECandidateGlossDisplay），支持的七种目标语言都有读音，所以每种目标语言留两行。读音是异步查回来的，不留这一行的话，每个键先按矮一行的高度摆窗口，读音到了窗口变高；光标靠近屏幕底边时先摆在光标下方、读音一到放不下又翻到上方，每打一个键候选窗上下跳一次。
 - (CGFloat)glossHeightReservedForFont:(NSFont *)glossFont {
     const NSUInteger readingLines = MSIMEKoreanHanjaListOpen(_view) ? 1 : 0;
     const BOOL translations = (_appearance.candidateTranslations || _appearance.candidateEnglishGloss) &&
         !(_glossEnabled && !_glossEnabled.boolValue && !_appearance.candidateEnglishGloss);
-    const NSUInteger lines = readingLines + (translations ? MIN(MAX(_glossTargetLanguages.count, (NSUInteger)1), (NSUInteger)2) : 0);
+    const NSUInteger glossLines = translations ? MIN(MAX(_glossTargetLanguages.count, (NSUInteger)1), (NSUInteger)2) : 0;
+    const NSUInteger lines = readingLines + glossLines * (_glossPronunciation ? 2 : 1);
     if (lines == 0) return 0;
     NSMutableArray<NSString *> *placeholder = [NSMutableArray arrayWithCapacity:lines];
     for (NSUInteger line = 0; line < lines; ++line) [placeholder addObject:@"X"];
@@ -7441,7 +7519,11 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     }
     _smartPunctuationShadowWritten = NO;
     // 在水杉里按过键，之后系统报告的 中 就是用户自己的选择，不再按刚切回处理（#10199）。只看按下：切换输入源用的 Caps Lock、Ctrl 松开是 flagsChanged，可能先于切回时的报告送到。
-    if (event.type == NSEventTypeKeyDown && sender && !selfPosted) MSIMESharedSystemInputModeState().switchedIn = false;
+    // 唤醒或解锁后的第一次按键同样说明用户已经在用水杉了，之后的报告不再按系统恢复处理。
+    if (event.type == NSEventTypeKeyDown && sender && !selfPosted) {
+        MSIMESharedSystemInputModeState().switchedIn = false;
+        MSIMESharedSystemInputModeState().restoringUntil = 0;
+    }
     if (event.type == NSEventTypeKeyDown && sender) {
         [self ensureAppearance];
         if (_appearance.floatingToolbarEnabled)

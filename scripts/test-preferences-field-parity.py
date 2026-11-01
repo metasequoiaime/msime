@@ -44,6 +44,8 @@ RUST_ONLY: dict[str, set[str]] = {
         "next_word_prediction_buttons",
         # 词库 WebDAV 同步（#9880）的核心先合入，各平台的设置界面随之后的平台 PR 接入。
         "dictionary_sync_webdav",
+        # 崩溃上报授权代次是共享基础的本机内部状态；平台设置入口留给后续各宿主 PR，不在共享 React 页提前暴露。
+        "usage_reporting_consent",
 
     },
     "KeybindingPreferences": set(),

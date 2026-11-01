@@ -20,7 +20,7 @@ LICENCES = {
         "rime/rime-cantonese",
         "259f0e48bba840c3a2e0d117539e96937f3d89bc",
         "sources/cantonese/",
-        ("CanCLID", "Linguistic Society of Hong Kong", "Attribution 4.0 International", "tone digits are removed", "jyut6ping3.maps.dict.yaml (released under the Open Data Commons Open Database License 1.0)", "jyut6ping3.phrase.dict.yaml", "Hong Kong Cantonese Corpus", "Luke Kang Kwong", "K. K. Luke and May L. Y. Wong (2015) The Hong Kong Cantonese Corpus: Design and Uses", "custom/cantonese.txt"),
+        ("CanCLID", "Linguistic Society of Hong Kong", "Attribution 4.0 International", "tone digits are removed", "jyut6ping3.maps.dict.yaml (released under the Open Data Commons Open Database License 1.0)", "jyut6ping3.phrase.dict.yaml", "Hong Kong Cantonese Corpus", "Luke Kang Kwong", "K. K. Luke and May L. Y. Wong (2015) The Hong Kong Cantonese Corpus: Design and Uses", "custom/cantonese.txt", "the character is replaced by the Hong Kong form"),
     ),
     "resources/licenses/libchewing-data-LGPL-2.1.txt": (
         "chewing/libchewing-data",
