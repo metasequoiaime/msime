@@ -14,25 +14,24 @@
 import AppKit
 import Foundation
 
-// 标志本身，逐点取自产品图稿 apps/desktop/app-icon.svg 里那条 stroke="white" 的路径：110 单位画布、
-// stroke-width 8、round cap、默认的 miter 接角。坐标 y 向下，与 SVG 一致。
-//
-// 这里原本是一条照着图稿描出来的近似折线（等宽 4.5、round 接角），形状对不上：最后一笔在图稿里是从右上
-// 长扫到左下收尾，描出来那条却收在右下。菜单栏上的记号必须和应用图标是同一个，所以直接用图稿的路径，
-// 旁边的 SVG 与它保持一致，改动其一就要同步另一个。
+// 通用图标是水杉标志 C 的单色版：一整块圆角方形，折线从中间镂空。各平台的标志都是 packages/ui/src/assets/msime.svg 那块深色圆角方形加绿边和白折线；菜单栏只认模板图（只看 alpha，颜色由系统按浅色、深色和高亮填），所以这里用同一个外形，把白折线换成镂空。几何取自 msime.svg 的 110 单位画布：圆角方形的外沿从 2.5 到 107.5、圆角 24.5（5 宽的边压在 5 到 105、圆角 22 的路径上），折线是母版 apps/desktop/app-icon.svg 那一笔以外框中心为原点缩到 80%、线宽 8 不变、round 端帽，坐标 y 向下，与 SVG 一致。改了 msime.svg 的折线就要同步这里和旁边的 MSIMEClientInputMethodMenuIcon.svg，再跑一次本脚本。
+let tileOrigin: CGFloat = 2.5
+let tileSide: CGFloat = 105
+let tileCorner: CGFloat = 24.5
+
 func metasequoiaStroke() -> CGPath {
     let path = CGMutablePath()
-    path.move(to: CGPoint(x: 74.7234, y: 14))
-    path.addLine(to: CGPoint(x: 35.1501, y: 29.1727))
-    path.addLine(to: CGPoint(x: 74.7234, y: 40.5522))
-    path.addLine(to: CGPoint(x: 35.1501, y: 59.518))
-    path.addCurve(to: CGPoint(x: 33, y: 95),
-                  control1: CGPoint(x: 72.562, y: 65.84),
-                  control2: CGPoint(x: 107.728, y: 71.024))
+    path.move(to: CGPoint(x: 70.7787, y: 22.2))
+    path.addLine(to: CGPoint(x: 39.1201, y: 34.3382))
+    path.addLine(to: CGPoint(x: 70.7787, y: 43.4418))
+    path.addLine(to: CGPoint(x: 39.1201, y: 58.6144))
+    path.addCurve(to: CGPoint(x: 37.4, y: 87),
+                  control1: CGPoint(x: 69.0496, y: 63.672),
+                  control2: CGPoint(x: 97.1824, y: 67.8192))
     return path.copy(strokingWithWidth: 8, lineCap: .round, lineJoin: .miter, miterLimit: 4)
 }
 
-// One thirty-second of the tile stays clear on every side so the round caps do not sit on the edge.
+// One thirty-second of the tile stays clear on every side so the rounded square does not sit on the edge.
 let edgeClearanceDivisor: CGFloat = 32
 
 // 画一张空白的模板位图交给 draw，再写成 PNG。整张图是纯黑加 alpha：菜单把它当模板着色，形状只由 alpha 携带，填了底色就会变成一整块实心方块。
@@ -60,19 +59,22 @@ func render(pixels: Int, to url: URL, draw: (CGContext, CGFloat) -> Void) throws
 }
 
 func drawLogo(_ stroked: CGPath, in cg: CGContext, side: CGFloat) {
-    let bounds = stroked.boundingBox
     let inset = side / edgeClearanceDivisor
-    let target = side - inset * 2
-    let scale = min(target / bounds.width, target / bounds.height)
-    // The bitmap's origin is bottom-left and the SVG's is top-left, so the drawing is flipped back after being scaled to fit and centred.
-    var transform = CGAffineTransform.identity
-    transform = transform.translatedBy(x: (side - bounds.width * scale) / 2,
-                                       y: (side - bounds.height * scale) / 2)
-    transform = transform.scaledBy(x: scale, y: -scale)
-    transform = transform.translatedBy(x: -bounds.minX, y: -bounds.maxY)
-    cg.concatenate(transform)
-    cg.addPath(stroked)
+    let scale = (side - inset * 2) / tileSide
+    // The bitmap's origin is bottom-left and the SVG's is top-left: map the 110-unit canvas so the tile's outer edge fills the area inside the clearance, flipped.
+    var transform = CGAffineTransform(translationX: inset, y: side - inset)
+        .scaledBy(x: scale, y: -scale)
+        .translatedBy(x: -tileOrigin, y: -tileOrigin)
+    let tile = CGPath(roundedRect: CGRect(x: tileOrigin, y: tileOrigin, width: tileSide, height: tileSide),
+                      cornerWidth: tileCorner, cornerHeight: tileCorner, transform: &transform)
+    cg.addPath(tile)
     cg.fillPath()
+    // 折线处清成透明：模板图里镂空的地方露出菜单栏本身的底色，和彩色标志上白折线的位置一致。
+    guard let stroke = stroked.copy(using: &transform) else { return }
+    cg.setBlendMode(.clear)
+    cg.addPath(stroke)
+    cg.fillPath()
+    cg.setBlendMode(.normal)
 }
 
 // 模式字的墨迹长边占图块的 3/4，16 像素页约 12 像素；四周留白让系统切换条里的字不会比相邻输入源显得更大。

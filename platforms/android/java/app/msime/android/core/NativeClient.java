@@ -176,6 +176,27 @@ public final class NativeClient {
             return null;
         }
     }
+    /**
+     * 长按候选菜单的「朗读」和背单词卡片的喇叭要读的英文（C ABI {@code msime_client_read_aloud_text}）：取每行释义的第一个义项，第一个是英文的就是答案；没有时候选本身是英文就读候选。没有能读的、请求不合法时返回 null，菜单就不出这一项。不读写文件，可以在主线程打开菜单时调用。背单词卡片把词头当作 {@code candidate}、{@code gloss} 给空串。
+     */
+    public static String readAloudText(String candidate, String gloss) {
+        byte[] bytes;
+        try {
+            bytes = new JSONObject().put("candidate", candidate == null ? "" : candidate)
+                .put("gloss", gloss == null ? "" : gloss).toString().getBytes(StandardCharsets.UTF_8);
+        } catch (JSONException error) {
+            return null;
+        }
+        if (!HttpBodyPolicy.isNonEmptyWithinLimit(bytes, PERSONAL_WORDBOOK_REQUEST_LIMIT)) return null;
+        try {
+            JSONObject envelope = new JSONObject(TextPolicy.utf8(readAloudTextRaw(bytes)));
+            if (!JsonPolicy.strictTrue(envelope.opt("ok"))) return null;
+            String text = JsonPolicy.strictStringOrEmpty(envelope.opt("value"));
+            return text.isEmpty() ? null : text;
+        } catch (JSONException error) {
+            return null;
+        }
+    }
     /** Reads one bounded page from the verified packaged emoji catalog. Call on a worker. */
     public static String emojiCatalog(String query, String resources) {
         byte[] queryBytes = query.getBytes(StandardCharsets.UTF_8);
@@ -1112,6 +1133,7 @@ public final class NativeClient {
     private static native byte[] accountSettingsApplyRaw(byte[] request);
     private static native byte[] vocabularyReviewRaw(byte[] request);
     private static native byte[] personalWordbookAddRaw(byte[] request);
+    private static native byte[] readAloudTextRaw(byte[] request);
     private static native byte[] emojiCatalogRaw(byte[] query, byte[] resources);
     private static native byte[] candidateGlossesRaw(byte[] request, byte[] resources);
     private static native byte[] candidatePronunciationsRaw(byte[] request, byte[] resources);

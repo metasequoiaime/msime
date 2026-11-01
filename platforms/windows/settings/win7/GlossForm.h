@@ -26,7 +26,7 @@ public:
     row(L"STATIC", L"目标语言", SS_LEFT, -1, 446, 24);
     target_ = row(WC_COMBOBOXW, L"目标语言", WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, gloss_target, 480, 240);
     pronunciation_ = row(L"BUTTON", L"显示读音", WS_TABSTOP | BS_AUTOCHECKBOX, gloss_pronunciation, 534, 28);
-    row(L"STATIC", L"在释义后标出英文音标、日文罗马音。音标来自离线词表，罗马音由系统生成，都不联网。", SS_LEFT, -1, 570, 60);
+    row(L"STATIC", L"在释义后标出英文音标、日文和韩文的罗马音，以及法、西、俄、德语的国际音标。音标和韩文罗马音来自离线词表，日文罗马音由系统生成，都不联网。", SS_LEFT, -1, 570, 60);
     row(L"STATIC", L"第二种语言", SS_LEFT, -1, 646, 24);
     secondary_ = row(WC_COMBOBOXW, L"第二种语言", WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, gloss_secondary, 680, 240);
     SendMessageW(secondary_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"不显示第二种语言"));

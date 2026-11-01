@@ -67,7 +67,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
     case .phrases: return ["短语", "快捷回复"]
     case .dictionary: return ["词库", "自造词", "学习"]
     case .plugins: return ["短语表", "指令表", "符号集", "单词本", "音效包", "辅助码表", "社区插件"]
-    case .layout: return ["键盘", "高度", "间距", "按键布局", "数字行", "长空格", "表情键", "中/英键放在空格左边", NineKeySidebar.letterTitle, NineKeySidebar.digitTitle, "按键音", "振动", "AI", "润色", "回复模板", "端点", "模型", "提示词"]
+    case .layout: return ["键盘", "高度", "键盘调整", "底部高度", "键盘宽度", "间距", "按键布局", "数字行", "长空格", "表情键", "中/英键放在空格左边", NineKeySidebar.letterTitle, NineKeySidebar.digitTitle, "按键音", "振动", "AI", "润色", "回复模板", "端点", "模型", "提示词"]
     case .voice: return ["语音", "识别"]
     case .handwriting: return ["手写"]
     case .developer: return ["日志", "诊断", "重置"]
@@ -230,7 +230,7 @@ struct KeyboardStatusCard: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
       HStack(spacing: 12) {
-        AppMarkDisc(diameter: 52, markSize: 30)
+        AppMark(box: 52)
         // 宿主 app 判断不了键盘是否已启用（见上），首行不写「已启用」这类状态，只写当前方案，与共享设置组件没有设置客户端时的卡片一样。
         Text(scheme.shortLabel).font(.system(size: 17, weight: .semibold))
           .accessibilityIdentifier("keyboardStatusScheme")

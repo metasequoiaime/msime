@@ -434,9 +434,10 @@ if (-not $editionOfflineGlosses) {
         Write-Host "No offline glosses with their notice in $glossesSource; candidate glosses stay English only"
     }
 }
-# 候选释义的英文读音表（scripts/build_pronunciations.py）、单字英文释义（scripts/build_character_glosses.py）和 english.db 没收的词的英文释义（scripts/build_word_glosses.py），和 macOS 的 stage-resources.sh 一样装在 resources 旁边：host-api 的 msime_client_pronunciation_request、msime_client_candidate_gloss_request 和 msime_client_gloss_breakdown_request 到那里找。都是可选的，只随各自的授权声明一起装；没有时英文释义不标音标、单字和长尾词没有英文释义、整句候选没有逐词拆解。单字和词的释义按中文候选查，只给提供中文方案的版本。
+# 候选释义的英文读音表（scripts/build_pronunciations.py）、法日西俄德韩释义行的读音表（scripts/build_target_pronunciations.py，六种语言各一个 *-phonetic.db）、单字英文释义（scripts/build_character_glosses.py）和 english.db 没收的词的英文释义（scripts/build_word_glosses.py），和 macOS 的 stage-resources.sh 一样装在 resources 旁边：host-api 的 msime_client_pronunciation_request、msime_client_candidate_gloss_request 和 msime_client_gloss_breakdown_request 到那里找。都是可选的，只随各自的授权声明一起装；没有时英文释义不标音标、其他语言的释义不标读音、单字和长尾词没有英文释义、整句候选没有逐词拆解。单字和词的释义按中文候选查，只给提供中文方案的版本；两张读音表读的是释义行本身，和英文读音表一样不分版本。
 foreach ($table in @(
         @{ Name = 'pronunciations'; Database = 'en-phonetic.db'; Notice = 'pronunciations-NOTICE.txt'; Chinese = $false },
+        @{ Name = 'target-pronunciations'; Database = '*-phonetic.db'; Notice = 'target-pronunciations-NOTICE.txt'; Chinese = $false },
         @{ Name = 'character-glosses'; Database = 'zh-en.db'; Notice = 'character-glosses-NOTICE.txt'; Chinese = $true },
         @{ Name = 'word-glosses'; Database = 'zh-en.db'; Notice = 'word-glosses-NOTICE.txt'; Chinese = $true })) {
     $tableSource = Join-Path $RepoRoot (Join-Path 'target' $table.Name)
@@ -445,11 +446,15 @@ foreach ($table in @(
         Remove-Item -LiteralPath $tableTarget -Recurse -Force
     }
     if ($Light -or ($table.Chinese -and -not $editionOfflineGlosses)) { continue }
-    $tableDatabase = Join-Path $tableSource $table.Database
+    # Database 可以是通配符（外语读音表每种语言一个文件），按它找到的文件都装上。
+    $tableDatabases = @()
+    if (Test-Path -LiteralPath $tableSource -PathType Container) {
+        $tableDatabases = @(Get-ChildItem -LiteralPath $tableSource -Filter $table.Database -File)
+    }
     $tableNotice = Join-Path $tableSource $table.Notice
-    if ((Test-Path -LiteralPath $tableDatabase -PathType Leaf) -and (Test-Path -LiteralPath $tableNotice -PathType Leaf)) {
+    if (($tableDatabases.Count -gt 0) -and (Test-Path -LiteralPath $tableNotice -PathType Leaf)) {
         New-Item -ItemType Directory -Path $tableTarget -Force | Out-Null
-        Copy-Item -LiteralPath $tableDatabase -Destination $tableTarget -Force
+        foreach ($tableDatabase in $tableDatabases) { Copy-Item -LiteralPath $tableDatabase.FullName -Destination $tableTarget -Force }
         Copy-Item -LiteralPath $tableNotice -Destination $tableTarget -Force
         Write-Host "$($table.Name) staged in $tableTarget"
     } else {

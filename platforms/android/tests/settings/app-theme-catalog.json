@@ -5,6 +5,7 @@
         "accent": "#F0975F",
         "accent_soft": "#F0975F40",
         "background": "#21150F",
+        "candidate_accent": "#F0975F",
         "card": "#2E1E15",
         "hair": "#2A2F2A",
         "on_accent": "#3C2618"
@@ -14,6 +15,7 @@
         "accent": "#B5562B",
         "accent_soft": "#B5562B22",
         "background": "#F6E9DC",
+        "candidate_accent": "#9F4214",
         "card": "#FFFBF6",
         "hair": "#B5562B33",
         "on_accent": "#FFFFFF"
@@ -27,6 +29,7 @@
         "accent": "#9AD983",
         "accent_soft": "#9AD98340",
         "background": "#16200F",
+        "candidate_accent": "#9AD983",
         "card": "#202C18",
         "hair": "#2A2F2A",
         "on_accent": "#263621"
@@ -36,6 +39,7 @@
         "accent": "#4E9A3A",
         "accent_soft": "#4E9A3A22",
         "background": "#EAF4E0",
+        "candidate_accent": "#267308",
         "card": "#FAFDF6",
         "hair": "#4E9A3A2E",
         "on_accent": "#FFFFFF"
@@ -49,6 +53,7 @@
         "accent": "#5FD39A",
         "accent_soft": "#5FD39A40",
         "background": "#0C1C14",
+        "candidate_accent": "#5FD39A",
         "card": "#14281D",
         "hair": "#2A2F2A",
         "on_accent": "#183526"
@@ -58,6 +63,7 @@
         "accent": "#17704A",
         "accent_soft": "#17704A22",
         "background": "#DDEFE4",
+        "candidate_accent": "#0F6B46",
         "card": "#F6FBF8",
         "hair": "#17704A2E",
         "on_accent": "#FFFFFF"
@@ -71,6 +77,7 @@
         "accent": "#F0975F",
         "accent_soft": "#F0975F40",
         "background": "#21150F",
+        "candidate_accent": "#F0975F",
         "card": "#2E1E15",
         "hair": "#2A2F2A",
         "on_accent": "#3C2618"
@@ -80,6 +87,7 @@
         "accent": "#B5562B",
         "accent_soft": "#B5562B22",
         "background": "#F6E9DC",
+        "candidate_accent": "#9F4214",
         "card": "#FFFBF6",
         "hair": "#B5562B33",
         "on_accent": "#FFFFFF"
@@ -93,6 +101,7 @@
         "accent": "#93C7E6",
         "accent_soft": "#93C7E640",
         "background": "#0F1820",
+        "candidate_accent": "#93C7E6",
         "card": "#18232D",
         "hair": "#2A2F2A",
         "on_accent": "#25323A"
@@ -102,6 +111,7 @@
         "accent": "#3A6A8A",
         "accent_soft": "#3A6A8A22",
         "background": "#E6EEF4",
+        "candidate_accent": "#346484",
         "card": "#FAFCFE",
         "hair": "#3A6A8A2E",
         "on_accent": "#FFFFFF"

@@ -128,7 +128,7 @@ export class FunctionPanelPolicy {
     toggleGlyph(FunctionPanelPolicy.TRADITIONAL, "繁体", "繁", "繁体输出"),
     toggleIcon(FunctionPanelPolicy.HANDWRITING, "手写", KeyboardIconPaths.HANDWRITING, "手写"),
     actionIcon(FunctionPanelPolicy.DICTIONARY, "词库", KeyboardIconPaths.LEXICON),
-    actionIcon(FunctionPanelPolicy.KEYBOARD_HEIGHT, "键盘高度", KeyboardIconPaths.KEYBOARD_HEIGHT),
+    actionIcon(FunctionPanelPolicy.KEYBOARD_HEIGHT, "键盘调整", KeyboardIconPaths.KEYBOARD_HEIGHT),
     actionIcon(
       FunctionPanelPolicy.SETTINGS,
       "设置",

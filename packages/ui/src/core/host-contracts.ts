@@ -19,6 +19,8 @@ export interface ResolvedAppTheme {
   background: string;
   card: string;
   hair: string;
+  /** 触屏候选条首选的字色：浅色是同一色相加深到 WCAG AA 的强调色，深色等于 `accent`。共享设置页不画它，只为与返回值一致。 */
+  candidate_accent: string;
 }
 
 export interface AppThemeCatalogEntry {

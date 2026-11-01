@@ -185,6 +185,24 @@ int main() {
                     [MSIMESchemeForReportedInputMode(MSIMEInputMode::Shuangpin, @"quanpin", nil, Available, YES) isEqualToString:@"shuangpin"] &&
                     [MSIMESchemeForReportedInputMode(MSIMEInputMode::Japanese, @"shuangpin", nil, Available, YES) isEqualToString:@"japanese"],
                 "中 reported on switching back to the input method moved the scheme off the one in use.");
+        {
+            // 合盖或锁屏到解锁之后几秒：系统恢复输入源的报告不当作用户的选择。
+            MSIMESystemInputModeState state;
+            require(!MSIMESystemInputModeRestoring(state, 100), "A fresh record was taken as restoring.");
+            MSIMEHoldSystemInputModeRestore(state);
+            require(MSIMESystemInputModeRestoring(state, 1e9), "Sleep or lock did not hold until unlock.");
+            // 锁屏会切走，清空记录不能把它一起清掉；锁着屏时的报告也不结束它。
+            MSIMEResetSystemInputModeState(state);
+            MSIMEFinishSystemInputModeRestore(state);
+            require(MSIMESystemInputModeRestoring(state, 1e9) && state.switchedIn,
+                    "Switching away at the lock screen or a report while locked ended the hold.");
+            MSIMEBeginSystemInputModeRestore(state, 100);
+            require(MSIMESystemInputModeRestoring(state, 100 + MSIMESystemInputModeRestoreSeconds - 1) &&
+                        !MSIMESystemInputModeRestoring(state, 100 + MSIMESystemInputModeRestoreSeconds),
+                    "Unlocking did not keep the window for a few seconds and then close it.");
+            MSIMEFinishSystemInputModeRestore(state);
+            require(!MSIMESystemInputModeRestoring(state, 101), "The first report after unlocking did not close the window.");
+        }
         // 和控制器的顺序一致：采纳之前读 switchedIn，采纳之后清掉它。
         auto report = [](MSIMESystemInputModeState &state, NSString *mode, NSString *scheme) -> NSString * {
             const BOOL switchedIn = state.switchedIn;

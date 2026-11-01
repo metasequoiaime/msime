@@ -142,6 +142,7 @@ const NATIVE_KEYBOARD_DARK: KeyboardThemePalette = {
 };
 
 // 2in1 候选窗（设计稿中的 hm2 条目）：白色或 #262626 的卡片、细线边框，选中行用强调色淡底而不是色条。淡底即设计稿中季节的 `accent + '22'` / `accent + '40'`，套用在平台强调色上。
+// 选中行的字和释义要对淡底到 WCAG AA 的 4.5:1：强调色本身压在自己的淡底上只有约 4.4:1（浅色 `#2C7A4B`）和 4.1:1（深色 `#5FBF84`），选中文字换成品牌的强调墨绿（msime-web 的 `--accent-ink`），浅色 `#17783F` 约 4.6:1、深色 `#8FE59C` 约 6.1:1；浅色的选中序号（选中行的释义也用它，见 `candidateDetail`）从 60% 提到 70%，约 5.4:1。淡底、强调色和未选中行不变。
 const NATIVE_CANDIDATE_LIGHT: CandidateColors = {
   surface: "#FFFFFF",
   border: "#0F000000",
@@ -150,8 +151,8 @@ const NATIVE_CANDIDATE_LIGHT: CandidateColors = {
   secondary: "#99182431",
   accent: "#2C7A4B",
   selected: "#222C7A4B",
-  selectedText: "#2C7A4B",
-  selectedNumber: "#99182431",
+  selectedText: "#17783F",
+  selectedNumber: "#B3182431",
   hover: "#0D000000",
   showSelectedBar: false,
 };
@@ -164,7 +165,7 @@ const NATIVE_CANDIDATE_DARK: CandidateColors = {
   secondary: "#99FFFFFF",
   accent: "#5FBF84",
   selected: "#405FBF84",
-  selectedText: "#5FBF84",
+  selectedText: "#8FE59C",
   selectedNumber: "#99FFFFFF",
   hover: "#14FFFFFF",
   showSelectedBar: false,
@@ -186,6 +187,13 @@ function text(value: Object, name: string): string | null {
 }
 
 export class GlobalTheme {
+  /**
+   * 没有季节种子时触屏候选条首选的字色。浅色的平台强调色 `#2C7A4B` 画在原生键盘底色 `#D9E2D6` 上只有约 4.0:1，换成同一色相在 OKLCH 里降低明度的 `#1F6F41`（约 4.6:1，候选底片 `#FCFDFA` 上约 6.0:1）；深色不变。
+   */
+  static candidateAccent(dark: boolean): string {
+    return dark ? "#5FBF84" : "#1F6F41";
+  }
+
   /** The platform accent, which the return key and the function tiles keep whatever the theme. */
   static accent(dark: boolean): string {
     return dark ? "#5FBF84" : "#2C7A4B";
@@ -311,6 +319,15 @@ export class GlobalTheme {
       hover: palette.hover ?? native.hover,
       showSelectedBar: palette.show_selected_bar ?? native.showSelectedBar,
     };
+  }
+
+  /**
+   * 2in1 候选窗一行的释义、注释和编码提示的颜色。未选中的行是次要色；选中行在次要色就是序号色（没有皮肤包自己的释义色）时取选中序号色，和 macOS 把设计稿的 `candSelTr` 画成选中序号色一样，序号和释义在选中淡底上是同一个颜色。皮肤包给了自己的释义色（次要色和序号色不同）时，选中行照旧用它。
+   */
+  static candidateDetail(colors: CandidateColors, highlighted: boolean): string {
+    return highlighted && colors.secondary === colors.number
+      ? colors.selectedNumber
+      : colors.secondary;
   }
 
   static candidatePalette(value: Object | null | undefined): CandidateThemePalette | null {

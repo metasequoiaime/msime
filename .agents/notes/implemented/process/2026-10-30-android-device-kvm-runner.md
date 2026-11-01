@@ -31,3 +31,5 @@ Status: implemented
 ## Consequences
 
 设备 job 重新占用组织的 GitHub 托管并发额度，构建可能变慢；这是恢复可运行设备验收的代价。触发范围、API 级别、测试断言、发版依赖和失败退出保持，硬件缺失时增加明确的错误说明，不降级为无加速模拟器或跳过门禁。Depot CI sandbox 可作为未来独立评估的执行系统。
+
+托管镜像的磁盘余量不稳定：装完 NDK、SDK 和系统镜像后，模拟器开机要为 userdata 分区留出 7.2 GB，2026-11-01 develop 推送的 API 28 两次只剩 6.7 GB，模拟器报 Not enough space 退出，开机步骤空等 10 分钟超时（#10516）。设备 job 因此在装工具之前先删掉用不到的预装工具链（dotnet、Swift、GHC、Boost、CodeQL），并在日志里留下清理前后的 `df`。

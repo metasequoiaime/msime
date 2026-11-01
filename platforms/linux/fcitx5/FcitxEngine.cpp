@@ -32,6 +32,7 @@
 #include <fcitx/userinterface.h>
 #include "../src/candidates/CandidateActionPolicy.h"
 #include "../src/candidates/PersonalWordbook.h"
+#include "../src/candidates/ReadAloud.h"
 #include "../src/candidates/CandidateLocalModeLabels.h"
 #include "../src/candidates/CandidatePanelStatus.h"
 #include "../src/candidates/CandidateScriptAnnotation.h"
@@ -4593,7 +4594,10 @@ std::vector<std::pair<int, std::string>> candidateMenuActions(FcitxState &state,
     if (msime::linux_host::candidate_dictionary_removal_available(scheme, item.source(), item.text()))
       actions.emplace_back(2, msime::linux_host::candidate_remove_label);
   }
-  // 「加入生词本」在最后，和 macOS、Windows 的候选菜单一样；不是词库操作，只要这一行显示着释义就有。
+  // 「朗读」「加入生词本」在最后，和 macOS、Windows 的候选菜单一样；都不是词库操作。「朗读」在有能读的英文、本机又装着 spd-say 时出现，「加入生词本」只要这一行显示着释义就有。
+  if (msime::linux_host::read_aloud_available() &&
+      msime::read_aloud::text_for(item.text(), item.display().translation))
+    actions.emplace_back(31, msime::read_aloud::kMenuLabel);
   if (!item.display().translation.empty())
     actions.emplace_back(30, msime::linux_host::candidate_personal_wordbook_label);
   return actions;
@@ -4611,6 +4615,15 @@ void triggerCandidateMenuAction(FcitxState &state, const FcitxCandidate &item, i
   try {
     if (!state.ensure() || state.session_ != session ||
         msime::linux_host::strict_json_value(state.view_, "generation", uint64_t{}) != generation) return;
+    if (action == 31) {
+      // 不经过 Engine，组字不变；起不来 spd-say 时把提示放在候选上方的辅助行。
+      const auto spoken = msime::read_aloud::text_for(text, translation);
+      if (spoken && !msime::linux_host::read_aloud(*spoken)) {
+        state.ic_.inputPanel().setAuxUp(fcitx::Text(msime::linux_host::read_aloud_failure_notice));
+        state.ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+      }
+      return;
+    }
     if (action == 30) {
       // 不经过 Engine，组字不变；共享层答的那句提示放在候选上方的辅助行，下一次刷新时消失。
       const auto notice = msime::linux_host::add_to_personal_wordbook(

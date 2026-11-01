@@ -156,7 +156,7 @@ final class ImeFunctionPanel {
                 icon(item, KeyboardIconPaths.Icon.LEXICON, () -> host("LEXICON"), null),
                 FunctionPanelView.State.NONE, true);
             case KEYBOARD_HEIGHT -> add(entries, states, enabled,
-                icon(item, KeyboardIconPaths.Icon.KEYBOARD_HEIGHT, s::showInlineHeight, null),
+                icon(item, KeyboardIconPaths.Icon.KEYBOARD_HEIGHT, s::showKeyboardAdjust, null),
                 FunctionPanelView.State.NONE, ready);
             case SETTINGS -> add(entries, states, enabled,
                 icon(item, KeyboardIconPaths.Icon.SETTINGS, () -> host(null), null),

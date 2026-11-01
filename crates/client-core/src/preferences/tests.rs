@@ -2305,6 +2305,36 @@ fn reporting_consent_rotates_across_an_unobserved_disable_enable() {
 }
 
 #[test]
+fn reporting_consent_polling_reuses_unchanged_bytes_and_sees_withdrawal() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    // 初始化授权历史会改写文件，结果不带字节，下一次重新解析。
+    let initialized = store.usage_reporting_consent_reusing(None).unwrap();
+    let consent = initialized.consent.unwrap();
+    assert!(initialized.bytes.is_none());
+    let settled = store
+        .usage_reporting_consent_reusing(Some(initialized))
+        .unwrap();
+    assert_eq!(settled.consent, Some(consent));
+    assert!(settled.bytes.is_some());
+    let revision = store.load().unwrap().revision;
+    let reused = store
+        .usage_reporting_consent_reusing(Some(settled.clone()))
+        .unwrap();
+    assert_eq!(reused.consent, Some(consent));
+    assert_eq!(reused.bytes, settled.bytes);
+    assert_eq!(store.load().unwrap().revision, revision);
+
+    let current = store.load().unwrap();
+    let mut edited = current.preferences;
+    edited.usage_reporting = false;
+    store.save(current.revision, edited).unwrap();
+    let withdrawn = store.usage_reporting_consent_reusing(Some(reused)).unwrap();
+    assert_eq!(withdrawn.consent, None);
+    assert_eq!(store.usage_reporting_consent().unwrap(), None);
+}
+
+#[test]
 fn reporting_consent_cannot_be_supplied_by_a_client() {
     let directory = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(directory.path());

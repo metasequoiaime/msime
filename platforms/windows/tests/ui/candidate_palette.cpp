@@ -76,7 +76,8 @@ int main() {
   require(same(defaults.hover, 1, 1, 1, .10f));
   require(defaults.number == candidate_rgb(0x98989D));
   require(defaults.accent == candidate_rgb(0x5FBF84));
-  require(defaults.selected == defaults.accent);
+  // 深色的选中底是品牌的强调墨绿 #17783F，不是强调色：#5FBF84 上的白字只有约 2.3:1。
+  require(defaults.selected == candidate_rgb(0x17783F));
   require(defaults.selected_text == candidate_rgb(0xFFFFFF));
   require(defaults.selected_number == candidate_rgb(0xFFFFFF, .82f));
   require(!defaults.show_selected_bar && defaults.radius == 10 &&
@@ -196,7 +197,7 @@ int main() {
   tinted.accent = "#FF0000";
   require(candidate_row_text_color(candidate_palette(tinted), normal_text, false, true) ==
           candidate_rgb(0x379AD3));
-  // 没有皮肤释义色时，未高亮的固定排位候选的释义是 #379AD3 的 0.62 倍透明度；高亮行照常用选中序号色。
+  // 没有皮肤释义色时，未高亮的固定排位候选的释义是 #379AD3 的 0.62 倍透明度；高亮行和不固定的高亮行一样（选中行的释义色见下面）。
   require(candidate_row_translation_color(defaults, false, true) ==
           candidate_rgb(0x379AD3, 0.62f));
   require(candidate_row_translation_color(defaults, true, true) ==
@@ -232,14 +233,78 @@ int main() {
   const auto followed = candidate_palette(following);
   require(!followed.translation);
   require(candidate_row_translation_color(followed, false) == followed.number);
-  require(candidate_row_translation_color(followed, true) == followed.selected_number);
+  // selected_number #5FBF84 on the #5FBF84 fill would vanish, so the selected row derives its gloss from the selected text.
+  require(candidate_row_translation_color(followed, true) ==
+          candidate_selected_gloss_color(followed.selected_text, followed.selected));
   CandidatePaletteOverrides translated = numbered;
   translated.secondary = "#9FB4E080";
   const auto own = candidate_palette(translated);
   require(own.translation && *own.translation == candidate_rgb(0x9FB4E0, 0x80 / 255.0f));
   require(candidate_row_translation_color(own, false) == *own.translation);
-  require(candidate_row_translation_color(own, true) == *own.translation);
+  require(candidate_row_translation_color(own, true) ==
+          candidate_selected_gloss_color(own.selected_text, own.selected));
   require(candidate_row_number_color(own, false) == own.number);
+
+  // 选中行的释义和读音跟着选中文字的颜色，同一行只有一种前景色，未选中行不变。默认浅色 #2C7A4B、深色 #17783F 上白色 0.82 只有约 4.1–4.3:1，加到够 4.5:1 为止。
+  for (const auto &base : {defaults, light_defaults}) {
+    const auto gloss = candidate_row_translation_color(base, true);
+    require(gloss.r == base.selected_text.r && gloss.g == base.selected_text.g &&
+            gloss.b == base.selected_text.b);
+    require(gloss.a >= 0.82f);
+    require(candidate_contrast_on(gloss, base.selected) >
+            candidate_contrast_on(base.selected_number, base.selected));
+    require(candidate_row_translation_color(base, false) == base.number);
+    require(candidate_row_translation_color(base, false, true) ==
+            candidate_rgb(0x379AD3, 0.62f));
+  }
+  require(candidate_contrast_on(defaults.selected_number, defaults.selected) < 4.5f &&
+          candidate_contrast_on(light_defaults.selected_number, light_defaults.selected) < 4.5f);
+  // 默认选中行的候选文字和释义（读音同色）对选中底色都到 WCAG AA 的 4.5:1，释义是加深过的白色，不到不透明。
+  for (const auto &base : {defaults, light_defaults}) {
+    require(candidate_contrast_on(candidate_row_text_color(base, base.text, true, false), base.selected) >= 4.5f);
+    const auto gloss = candidate_row_translation_color(base, true);
+    require(gloss.r == 1.0f && gloss.g == 1.0f && gloss.b == 1.0f && gloss.a > 0.82f && gloss.a < 1.0f &&
+            candidate_contrast_on(gloss, base.selected) >= 4.5f);
+  }
+  // 对比度的算法本身：白色对黑色是 21:1，白色对 #5FBF84 约 2.3:1、对 #17783F 约 5.5:1。
+  require(std::abs(candidate_contrast_on(candidate_rgb(0xFFFFFF), candidate_rgb(0x000000)) - 21.0f) < 0.01f);
+  require(std::abs(candidate_contrast_on(candidate_rgb(0xFFFFFF), candidate_rgb(0x5FBF84)) - 2.27f) < 0.02f);
+  require(std::abs(candidate_contrast_on(candidate_rgb(0xFFFFFF), candidate_rgb(0x17783F)) - 5.53f) < 0.02f);
+  // 选中序号色本来就够 4.5:1 时照它画，不推导。
+  CandidatePaletteOverrides readable_number;
+  readable_number.selected = "#202020";
+  readable_number.selected_number = "#E0E0E0";
+  const auto readable = candidate_palette(readable_number);
+  require(candidate_row_translation_color(readable, true) == readable.selected_number);
+  // 皮肤包的释义色在不透明选中底色上换成从选中文字推导的颜色，和 macOS 的 DeriveSelectedForegrounds 一样：#23262F 配 #6B7180、#F2C94C 配 #B8860B 到 4.5:1；#4D6BFE 上选中文字是白色，到不了 4.5:1，取不透明的白色（约 4.3:1，和选中文字一样）。
+  struct PackageCase { const char *selected, *translation; bool reaches_aa; };
+  for (const auto &c : {PackageCase{"#23262F", "#6B7180", true},
+                        PackageCase{"#F2C94C", "#B8860B", true},
+                        PackageCase{"#4D6BFE", "#2F5BD3", false}}) {
+    CandidatePaletteOverrides package;
+    package.selected = c.selected;
+    package.secondary = c.translation;
+    const auto skinned_palette = candidate_palette(package);
+    require(skinned_palette.translation.has_value());
+    const auto gloss = candidate_row_translation_color(skinned_palette, true);
+    require(gloss.a >= 0.82f);
+    require(candidate_row_translation_color(skinned_palette, false) == *skinned_palette.translation);
+    if (c.reaches_aa)
+      require(candidate_contrast_on(gloss, skinned_palette.selected) >= 4.5f);
+    else
+      require(gloss == candidate_rgb(0xFFFFFF) &&
+              candidate_contrast_on(gloss, skinned_palette.selected) > 4.2f);
+  }
+  // 半透明选中底色下面是卡片底色，选中行保留包的释义色；包写了 selected_translation 就照它画。
+  CandidatePaletteOverrides tinted_selection;
+  tinted_selection.selected = "#2F5BD329";
+  tinted_selection.secondary = "#2F5BD3";
+  const auto tinted_palette = candidate_palette(tinted_selection);
+  require(candidate_row_translation_color(tinted_palette, true) ==
+          *tinted_palette.translation);
+  auto given = own;
+  given.selected_translation = candidate_rgb(0xFFEE00);
+  require(candidate_row_translation_color(given, true) == candidate_rgb(0xFFEE00));
 
   // The toolbar is the candidate palette in the toolbar's own geometry, so it follows the theme.
   for (const auto &base : {defaults, light_defaults, papered}) {
