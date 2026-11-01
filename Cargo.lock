@@ -3327,6 +3327,7 @@ dependencies = [
  "chinese-ime-lm",
  "msime-client-core",
  "msime-engine",
+ "msime-onnx-rerank",
  "msime-path-trust",
  "rand 0.10.2",
  "rand_pcg",

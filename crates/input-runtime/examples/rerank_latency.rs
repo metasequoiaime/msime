@@ -282,6 +282,29 @@ fn encode_cases(
     Ok(typed)
 }
 
+#[cfg(feature = "onnx-rerank")]
+fn onnx_scorer(
+    directory: &Path,
+    threads: usize,
+) -> Result<Box<dyn msime_input_runtime::CandidateScorer>, Box<dyn std::error::Error>> {
+    let read = |name: &str| std::fs::read_to_string(directory.join(name));
+    let model = std::fs::read(directory.join("lm_step.ort"))?;
+    Ok(Box::new(msime_onnx_rerank::OnnxScorer::load(
+        &model,
+        &read("model.json")?,
+        &read("vocab.json")?,
+        threads,
+    )?))
+}
+
+#[cfg(not(feature = "onnx-rerank"))]
+fn onnx_scorer(
+    _: &Path,
+    _: usize,
+) -> Result<Box<dyn msime_input_runtime::CandidateScorer>, Box<dyn std::error::Error>> {
+    Err("--onnx-model needs the onnx-rerank feature (and ORT_LIB_LOCATION pointing at a minimal ONNX Runtime build)".into())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut resources: Option<PathBuf> = None;
@@ -298,6 +321,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut touch_mode: Option<TouchMode> = None;
     let mut sigma: Option<f64> = None;
     let mut bias = 0.0;
+    // `--onnx-model <目录>`：模型臂挂 ONNX Runtime 后端（`export_step.py` 导出的 `lm_step.ort`、`model.json`、`vocab.json`），不挂随包的句子模型；`--onnx-threads` 是它一次图运行用几个线程。
+    let mut onnx_model: Option<PathBuf> = None;
+    let mut onnx_threads = 2usize;
     let mut seed = 20261027;
     let mut touch_points = true;
     let mut touch_arms = false;
@@ -337,12 +363,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--seed" => seed = take(&mut index)?.parse()?,
             "--no-touch-points" => touch_points = false,
             "--touch-arms" => touch_arms = true,
+            "--onnx-model" => onnx_model = Some(PathBuf::from(take(&mut index)?)),
+            "--onnx-threads" => onnx_threads = take(&mut index)?.parse()?,
             other => return Err(format!("unknown argument: {other}").into()),
         }
         index += 1;
     }
     let resources = resources.ok_or(
-        "usage: rerank_latency --resources <verified-dir> --set <file.tsv> [--resource-lock <file.json>] [--budget-ms 16] [--warmup 5] [--limit N] [--grid nine|fourteen|shuangpin-<profile>] [--scheme shuangpin --shuangpin-profile <profile> [--autocorrect] [--key-geometry <file.json>... --touch-sigma <σ> [--touch-bias-y <b>] [--touch-mode realistic] [--seed N] [--no-touch-points] [--touch-arms]]]",
+        "usage: rerank_latency --resources <verified-dir> --set <file.tsv> [--resource-lock <file.json>] [--budget-ms 16] [--warmup 5] [--limit N] [--grid nine|fourteen|shuangpin-<profile>] [--scheme shuangpin --shuangpin-profile <profile> [--autocorrect] [--key-geometry <file.json>... --touch-sigma <σ> [--touch-bias-y <b>] [--touch-mode realistic] [--seed N] [--no-touch-points] [--touch-arms]]] [--onnx-model <dir> [--onnx-threads 2]]",
     )?;
     if sets.is_empty() {
         return Err("at least one --set is required".into());
@@ -467,7 +495,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     plain.focus(true)?;
     let mut ranked = Runtime::new(Session::new(&options)?, 9)?;
     ranked.focus(true)?;
-    ranked.set_reranker(Some(Reranker::new(model.clone())));
+    match &onnx_model {
+        Some(directory) => ranked.set_candidate_scorer(Some(onnx_scorer(directory, onnx_threads)?)),
+        None => ranked.set_reranker(Some(Reranker::new(model.clone()))),
+    }
     // `--touch-arms`：两臂都挂模型，只差送不送落点。
     if touch_arms {
         plain.set_reranker(Some(Reranker::new(model)));
