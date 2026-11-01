@@ -455,11 +455,13 @@ if ! rg -q 'smartPunctuationArmRaw|smartPunctuationDecideRaw' \
   echo "Android smart punctuation must cross the shared Host API through JNI" >&2
   exit 1
 fi
-# 「自动补全成对标点」曾经只是设置页上的一个开关：这个宿主从不读 paired_punctuation，开着也只上屏半个括号（#5608）。键盘标点键的补全规则与 iOS、HarmonyOS 同一份（PairedPunctuationPolicy.completion），符号面板走 symbolClosing，在面板里轻点自动补上的后半个要跨过它（stepOverPairedSymbol），否则面板里补出（|）再点 ）会多一个；补完书名号要经 JNI 通知 Engine 平衡嵌套。
+# 「自动补全成对标点」曾经只是设置页上的一个开关：这个宿主从不读 paired_punctuation，开着也只上屏半个括号（#5608）。键盘标点键的补全规则与 iOS、HarmonyOS 同一份：宿主经 PairedPunctuationPolicy.punctuationCommit 取整段决定，它再按 completion 决定补哪半个（光标短语模板不补）。符号面板走 symbolClosing，在面板里轻点自动补上的后半个要跨过它（stepOverPairedSymbol），否则面板里补出（|）再点 ）会多一个；补完书名号要经 JNI 通知 Engine 平衡嵌套。
 if ! rg -q 'optBoolean\("paired_punctuation"' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
-  || ! rg -q 'PairedPunctuationPolicy\.completion\(' \
+  || ! rg -q 'PairedPunctuationPolicy\.punctuationCommit\(' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+  || ! rg -q 'new PunctuationCommit\(landed, completion\(landed' \
+    "$repo_root/platforms/android/java/app/msime/android/keyboard/PairedPunctuationPolicy.java" \
   || ! rg -q 'PairedPunctuationPolicy\.symbolClosing\(' \
     "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
   || ! rg -q 'stepOverPairedSymbol\(' \
@@ -1039,6 +1041,27 @@ if ! rg -q 'ClipboardSelectionPolicy\.canSelect' \
   || ! rg -q 'exportSelectedText' \
     "$repo_root/platforms/android/java/app/msime/android/clipboard/ClipboardHistoryStore.java"; then
   echo "Android clipboard multi-selection must cap at 20 and export the selected records (#9957)" >&2
+  exit 1
+fi
+# 多选「插入」按 ①②③④ 的顺序一次插入 1 到 4 项（#10411）。上限、序号和拼接由 ClipboardSelectionPolicySmoke 覆盖；接线在面板和 InputMethodService 里，JVM 冒烟碰不到，这里钉住：顶行有「插入」并按 canInsert 置灰，选中项的读屏前缀从 ordinal 算出，角标画在承载单列和网格两种排法的左滑格里、并加进卡片自己的浮层（不做兄弟视图，带阴影的皮肤抬高卡片后会把它盖住），每次重画按读出的历史收窄选择（多选中左滑删掉的记录不能再被插入），服务按 canInsert 守住条数、经 insertionText 拼成一次 commitText。
+if ! rg -q 'clipboardAction\(header, "插入"' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
+  || ! rg -q 'ClipboardSelectionPolicy\.canInsert\(clipboardSelectedTexts\.size\(\)\)' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
+  || ! rg -q 'ClipboardSelectionPolicy\.selectedDescription\(ordinal\)' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
+  || ! rg -A 40 'private FrameLayout clipboardSwipeCell\(' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
+    | rg_q_stdin 'ClipboardSelectionPolicy\.ordinalLabel\(ordinal\)' \
+  || ! rg -A 40 'private FrameLayout clipboardSwipeCell\(' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
+    | rg_q_stdin 'card\.getOverlay\(\)\.add\(badge\)' \
+  || ! rg -q 'clipboardSelectedTexts\.retainAll\(listed\)' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
+  || ! rg -A 6 'void insertClipboardTexts\(' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+    | rg_q_stdin 'ClipboardSelectionPolicy\.insertionText\(texts\)'; then
+  echo "Android clipboard multi-selection must insert 1 to 4 records in ordinal order with badges (#10411)" >&2
   exit 1
 fi
 # 长按全文预览的「详情」排在「插入」左边，详情页返回时回到这个预览（#9963）。返回到哪一级由 ClipboardDetailPolicySmoke 覆盖；接线在 PopupWindow 和面板里，JVM 冒烟碰不到，这里钉住：预览先加「详情」再加「插入」，本机记录的预览把详情交给 Origin.PREVIEW，返回经 reopensPreview 决定是否重开预览，顶栏和底部操作行的两个「返回」都按来源给读屏说明。

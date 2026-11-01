@@ -2345,6 +2345,7 @@ class SettingsBridge {
       value['candidate_skin_editor'] = projection.candidateSkinEditor;
       value['touch_one_handed_side_panel'] = projection.oneHandedSidePanel;
       value['touch_keyboard_split'] = projection.splitKeyboard;
+      value['voice_pause_settings'] = projection.voicePauseSettings;
       value['harmony_shared_sandbox'] = this.sharedSandboxAvailable;
       if (release !== null) {
         value['os_version'] = release;

@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <string>
 #include <utility>
+#include <optional>
 
 class CKeyHandlerEditSession : public CEditSessionBase
 {
@@ -12,7 +13,8 @@ class CKeyHandlerEditSession : public CEditSessionBase
     CKeyHandlerEditSession(CMetasequoiaIME *pTextService, ITfContext *pContext, UINT uCode, WCHAR wch,
                            _KEYSTROKE_STATE keyState, uint64_t requestId, LARGE_INTEGER requestStartQpc = {},
                            std::wstring prefetchedText = {}, uint64_t focusToken = 0, UINT localResetToken = 0,
-                           uint64_t expectedCompositionEpoch = 0, uint64_t deferredReplayToken = 0)
+                           uint64_t expectedCompositionEpoch = 0, uint64_t deferredReplayToken = 0,
+                           std::optional<std::size_t> cursorSuffix = std::nullopt)
         : CEditSessionBase(pTextService, pContext)
     {
         _uCode = uCode;
@@ -24,6 +26,7 @@ class CKeyHandlerEditSession : public CEditSessionBase
         _expectedCompositionEpoch = expectedCompositionEpoch;
         _deferredReplayToken = deferredReplayToken;
         _prefetchedText = std::move(prefetchedText);
+        _cursorSuffix = cursorSuffix;
         _requestStartQpc = requestStartQpc;
         if (_requestStartQpc.QuadPart == 0)
         {
@@ -44,5 +47,6 @@ class CKeyHandlerEditSession : public CEditSessionBase
     uint64_t _expectedCompositionEpoch;
     uint64_t _deferredReplayToken;
     std::wstring _prefetchedText;
+    std::optional<std::size_t> _cursorSuffix;
     LARGE_INTEGER _requestStartQpc;
 };

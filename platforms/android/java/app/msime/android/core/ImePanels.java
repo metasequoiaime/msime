@@ -1845,6 +1845,12 @@ final class ImePanels {
                 items = null;
             }
         }
+        // 多选时选中的记录可能已经不在了（多选中照样能左滑删除、长按删除，别处也可能删掉或清空）：每次重画都按刚读出的这份历史收窄选择，不然顶行条数、①②③④ 的序号和 4 项上限都会把它算进去，「插入」还会插进一条已经删掉的文字（#10411）。换分类时会退出多选，所以 items 就是当前能选的全部记录。
+        if (clipboardSelectionMode && items != null) {
+            java.util.Set<String> listed = new java.util.HashSet<>();
+            for (ClipboardHistory.Item item : items) listed.add(item.text());
+            clipboardSelectedTexts.retainAll(listed);
+        }
         // 顶部一行小号操作：本机 / 云端分段（云端可用时）、云端的刷新或本机的搜索、多选和「更多」；返回由工具栏的「返回键盘」负责。
         LinearLayout header = LayoutPolicy.row(s);
         ViewPolicy.setCenteredVertically(header);
@@ -1918,6 +1924,15 @@ final class ImePanels {
                 clipboardSelectedTexts.size() + " 项已选择", 12);
             header.addView(selected, LayoutPolicy.weightedMatchParentParams(1));
             clipboardAction(header, "取消", this::exitClipboardSelection);
+            // 「插入」按角标 ①②③④ 的顺序把选中的几条一次插进输入框（#10411），只在选中 1 到 4 项时可用；导出和删除仍可用到 20 项。
+            Button insert = clipboardAction(header, "插入", () -> {
+                java.util.List<String> selectedTexts = new java.util.ArrayList<>(clipboardSelectedTexts);
+                exitClipboardSelection();
+                s.insertClipboardTexts(selectedTexts);
+            });
+            ViewPolicy.setEnabled(insert, ClipboardSelectionPolicy.canInsert(clipboardSelectedTexts.size()));
+            insert.setContentDescription(clipboardSelectedTexts.size() > ClipboardSelectionPolicy.MAX_INSERTIONS
+                ? "插入不可用，" + ClipboardSelectionPolicy.INSERTION_LIMIT_HINT : "按序号插入选中的剪贴板记录");
             Button export = clipboardAction(header, "导出", () -> {
                 java.util.List<String> selectedTexts = new java.util.ArrayList<>(clipboardSelectedTexts);
                 exitClipboardSelection();
@@ -2034,6 +2049,8 @@ final class ImePanels {
                             clipboardSelectedTexts.remove(item.text());
                         } else if (ClipboardSelectionPolicy.canSelect(clipboardSelectedTexts.size())) {
                             clipboardSelectedTexts.add(item.text());
+                            if (ClipboardSelectionPolicy.exceedsInsertionCap(clipboardSelectedTexts.size()))
+                                s.notice(ClipboardSelectionPolicy.INSERTION_LIMIT_HINT);
                         } else {
                             s.notice("最多只能选择 " + ClipboardSelectionPolicy.MAX_SELECTIONS + " 项");
                         }
@@ -2048,10 +2065,15 @@ final class ImePanels {
                     s.insertClipboardText(item.text());
                 });
                 card.setContentDescription((item.pinned() ? "已置顶；" : "") + "点按插入剪贴板记录，左滑删除，长按预览全文和管理");
+                // 选中项的序号按点选先后算（LinkedHashSet 的迭代顺序），取消一项后后面的各项在这次重画时自然前移（#10411）。
+                int ordinal = clipboardSelectionMode
+                    ? ClipboardSelectionPolicy.ordinal(clipboardSelectedTexts, item.text()) : -1;
                 if (clipboardSelectionMode) {
-                    card.setContentDescription((clipboardSelectedTexts.contains(item.text()) ? "已选择；" : "")
+                    card.setContentDescription(ClipboardSelectionPolicy.selectedDescription(ordinal)
                         + "点按选择剪贴板记录");
-                    ViewPolicy.setSelected(card, clipboardSelectedTexts.contains(item.text()));
+                    ViewPolicy.setSelected(card, ordinal >= 0);
+                    // 右上角要留给序号角标，正文右边多让出一截，长文字不会压在角标底下。
+                    if (ordinal >= 0) LayoutPolicy.setPaddingDp(card, s, 12, 8, 30, 8);
                 }
                 card.setOnLongClickListener(ignored -> {
                     s.imeKeyFeedback.playFeedback(card);
@@ -2063,7 +2085,7 @@ final class ImePanels {
                     showClipboardItemPreview(item);
                     return true;
                 });
-                View cell = clipboardSwipeCell(card, item, swiped, reveal);
+                View cell = clipboardSwipeCell(card, item, swiped, reveal, ordinal);
                 if (!clipboardSelectionMode) {
                     LinearLayout withDetail = LayoutPolicy.row(s);
                     Button detail = MSIMEInputService.role(s.button(withDetail, "ⓘ",
@@ -2634,7 +2656,8 @@ final class ImePanels {
      */
     // 监听只在横滑时接手，其余按压原样交给卡片，点击由它自己发出，见 ClipboardSwipeCell。
     @android.annotation.SuppressLint("ClickableViewAccessibility")
-    private FrameLayout clipboardSwipeCell(Button card, ClipboardHistory.Item item, boolean open, float reveal) {
+    private FrameLayout clipboardSwipeCell(Button card, ClipboardHistory.Item item, boolean open, float reveal,
+            int ordinal) {
         FrameLayout cell = new FrameLayout(s);
         KeyboardIconKey trash = new KeyboardIconKey(s, KeyboardIconKey.Kind.TRASH);
         trash.setKeyboardRole(KeyboardKeyRole.ACCENT);
@@ -2657,12 +2680,25 @@ final class ImePanels {
             FrameLayout.LayoutParams.MATCH_PARENT, Gravity.END);
         cell.addView(trash, trashParams);
         cell.addView(card, LayoutPolicy.frameMatchParentParams());
-        ClipboardPinMarkView pinMark = new ClipboardPinMarkView(s);
-        pinMark.setPinned(item.pinned(), Color.parseColor(s.skin.accent()));
-        FrameLayout.LayoutParams pinParams = new FrameLayout.LayoutParams(s.pixels(20), s.pixels(20), Gravity.TOP | Gravity.END);
-        pinParams.topMargin = s.pixels(2);
-        pinParams.setMarginEnd(s.pixels(2));
-        cell.addView(pinMark, pinParams);
+        if (ordinal >= 0) {
+            // 多选时选中项右上角画序号 ①②③④（#10411），占的正是置顶角标的位置；置顶仍写在卡片的元信息里（「已置顶 · …」），这里不叠两个角标。单列和多列网格放的都是这个左滑格，两种排法都带角标。角标画在卡片自己的浮层里而不是这一格里：带阴影的皮肤会给卡片抬高度，高度为 0 的兄弟视图会被卡片盖住，见 ClipboardOrdinalBadgeDrawable。
+            ClipboardOrdinalBadgeDrawable badge = new ClipboardOrdinalBadgeDrawable(
+                ClipboardSelectionPolicy.ordinalLabel(ordinal),
+                Color.parseColor(s.imeStyler.themed(s.skin).onAccent()));
+            int badgeSize = s.pixels(24);
+            int badgeInset = s.pixels(4);
+            card.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) ->
+                badge.setBounds(right - left - badgeInset - badgeSize, badgeInset,
+                    right - left - badgeInset, badgeInset + badgeSize));
+            card.getOverlay().add(badge);
+        } else {
+            ClipboardPinMarkView pinMark = new ClipboardPinMarkView(s);
+            pinMark.setPinned(item.pinned(), Color.parseColor(s.skin.accent()));
+            FrameLayout.LayoutParams pinParams = new FrameLayout.LayoutParams(s.pixels(20), s.pixels(20), Gravity.TOP | Gravity.END);
+            pinParams.topMargin = s.pixels(2);
+            pinParams.setMarginEnd(s.pixels(2));
+            cell.addView(pinMark, pinParams);
+        }
         ClipboardSwipeCell swipe = new ClipboardSwipeCell(card, trash, item.text(), reveal);
         card.setTranslationX(open ? -reveal : 0f);
         swipe.showTrash(open);
