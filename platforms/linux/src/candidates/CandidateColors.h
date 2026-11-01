@@ -235,7 +235,7 @@ inline CandidateTheme candidate_theme_colors(const nlohmann::json &resolved, boo
       secondary && !(number_slot && number_slot->rgb == secondary->rgb && number_slot->alpha == secondary->alpha))
     colors.translation = over_surface("secondary");
   colors.accent = over_surface("accent").value_or(native.accent);
-  // The selected row: a theme's own fill with its own foregrounds, an accent without a fill drawn solid as the design's Linux selection is, or the native solid #3584E4 with white text.
+  // 选中行：主题自己的选中底配它自己的前景色；只给了强调色时像设计稿的 Linux 选中行那样把强调色画成实心底；都没给时是原生的实心 #1A5FB4 配白字（`kLinuxSelection`）。
   const auto selected = over_surface("selected");
   const auto accent = over_surface("accent");
   const auto selected_text = over_surface("selected_text");
