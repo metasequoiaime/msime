@@ -2521,15 +2521,65 @@ pub fn packaged_settled_model(host_options: &Value) -> Option<PathBuf> {
 }
 
 /// HostOptions 文档（`host_options`）所描述的安装布局是否随包带齐了粤拼、注音和笔画词库，也就是 `language_dictionaries` 记录的目录里三个文件都在。设置应用据此决定 Linux 上要不要提供 `language-dictionaries` 资源包的下载：没带齐的安装（打包时没有词库、或不带它们的 Nix 包）只能靠它补上，会话里每个词库都优先用资源包里的那份。
+///
+/// 记录的目录是词库更新下载的语言代次（[`inside_dictionary_updates`]）时不算：它和下载它时的词库锁绑在一起，升级换锁后会话就不再选用它，只有资源包能长期提供这几份词库。
 pub fn packaged_language_dictionaries(host_options: &Value) -> bool {
+    let state_root = document_state_root(host_options);
     let recorded = host_options
         .get("language_dictionaries")
         .and_then(Value::as_str)
-        .map(Path::new);
+        .map(Path::new)
+        .filter(|recorded| {
+            !state_root
+                .as_deref()
+                .is_some_and(|state| inside_dictionary_updates(recorded, state))
+        });
     let dictionaries = LanguageDictionaries::resolve(None, recorded);
     dictionaries.cantonese.is_some()
         && dictionaries.zhuyin.is_some()
         && dictionaries.stroke.is_some()
+}
+
+/// HostOptions 文档（`host_options`）的资源目录本身是否带着五笔码表 `msime-wubi.db`（普通文件，路径上没有符号链接）。设置应用据此决定 macOS 上要不要提供并在启动时补下 `wubi` 资源包。
+///
+/// 资源目录是词库更新下载的代次（[`inside_dictionary_updates`]）时不算随包，即使代次里有码表：更新只在资源目录或资源包已有码表时才下载它的新版本，所以代次里的码表最初来自不带码表的发布包之前的那一版；代次又和下载它时的词库锁绑在一起，应用升级换锁后 `dictionary_updates::selected` 不再选用它，会话回到不带码表的发布包，五笔就回退到全拼。只有 `wubi` 资源包能跨过换锁一直在。
+pub fn packaged_wubi_dictionary(host_options: &Value) -> bool {
+    let Some(resources) = host_options
+        .get("resources")
+        .and_then(Value::as_str)
+        .map(Path::new)
+        .filter(|resources| resources.is_absolute())
+    else {
+        return false;
+    };
+    if document_state_root(host_options)
+        .is_some_and(|state| inside_dictionary_updates(resources, &state))
+    {
+        return false;
+    }
+    LanguageDictionaries::trusted_regular_file(
+        &resources.join(msime_engine::assets::WUBI_DICTIONARY),
+    )
+}
+
+/// HostOptions 文档的绝对 `preferences_directory`，按需下载的资源包和词库更新都在它下面。
+fn document_state_root(host_options: &Value) -> Option<PathBuf> {
+    absolute_state_root(
+        host_options
+            .get("preferences_directory")
+            .and_then(Value::as_str),
+    )
+}
+
+/// `path` 是否在状态目录 `state_root` 的 `dictionary-updates/` 下，也就是词库在线更新下载的代次。路径和状态目录各按字面和规范化后的写法比较，macOS 的 `/var` 与 `/private/var` 这类别名都认得出。
+fn inside_dictionary_updates(path: &Path, state_root: &Path) -> bool {
+    let canonical =
+        |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let paths = [path.to_path_buf(), canonical(path)];
+    [state_root.to_path_buf(), canonical(state_root)]
+        .iter()
+        .map(|state| state.join("dictionary-updates"))
+        .any(|updates| paths.iter().any(|path| path.starts_with(&updates)))
 }
 
 /// The offline gloss dictionary for one non-English target language installed beside a resource bundle, when one is there: `offline-glosses/zh-<language>.db`, built by `scripts/build_offline_glosses.py` and pinned by `resources/offline-glosses.lock.json`. A sibling of `resources` for the same reason as `settled_model_beside`: the resource directory must match the shared dictionary lock exactly, and a host ships only the languages it wants. Absence is the normal case.
