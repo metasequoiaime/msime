@@ -36,5 +36,6 @@ msime-dictionary 每次合入 `main` 都用 msime `develop` 的构建器发布 `
 
 - 收益：「周杰倫」进库后，`zkgtlp` 在独立双拼入口和自动识别入口的首选都是「周杰倫」（覆盖三个音节，排在只覆盖一个音节的单字前面），`zau/zaau × git/gek × lun/lut/lung/leon` 的组合里没有别的三音节条目和它竞争。以后加粤语词有了固定入口和与构建一致的门禁，不必再动门槛或引擎。实测新库与不带词表的库同为 7,237,632 字节，只多一条记录。
 - 代价：多了一份跨仓文件契约（路径、格式、许可），改它要两边一起改；多音字读音选错仍需人工把关；这个 PR 合入后用户还拿不到这个词，要等词表合入、新的 `dict-v*` 发布，未开自动更新的设备还要等换锁，所以这个 PR 只写 `Refs #10369`，由之后把 `resources/language-dictionaries.lock.json` 换到含「周杰倫」那次发布的 PR 写 `Fixes #10369`。
+- 后来个人词库也能加粤语词，只在本机、不进发布词库，见[粤语个人词条](2026-11-02-cantonese-personal-words.md)；给所有人用的词仍走这份审校词表。
 - 这次只收「周杰倫」一个词，「周傑倫」等异体与评估笔记建议的首批审校词（上傳、我打你等）都没有加入，需要粤语母语者逐条审校后再追加。
 - 验证：`cargo test -p msime-dict-builder`（解析、读音检查、权重只升不降、文件缺失、check-words 的追加与判重、CLI 参数约束）；`cargo test -p msime-engine --lib cantonese` 的 `a_reviewed_three_syllable_word_comes_first_for_its_codes` 固定了有无整词时 `zkgtlp` 的候选顺序；用真实 msime-dictionary checkout 跑 `languages` 并用引擎打开产出的库核对过首选。没有在模拟器或真机上验收。
