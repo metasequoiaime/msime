@@ -10,6 +10,8 @@ Status: implemented
 
 本篇部分取代（supersedes）[移除底部留白设置控件](2026-10-17-remove-redundant-bottom-padding-controls.md)：「不给入口」这一点翻转；「保留旧字段和运行时读取」照旧成立。
 
+下面备选里留给以后的「在键盘里拖下沿」已由 [键盘调整遮罩](2026-11-01-android-keyboard-adjust-overlay.md) 实现：遮罩的下沿柄和「移动」读写的就是本篇这两项，抬高为 0 时只关开关、保留原高度的存法照旧。
+
 ## Decision
 
 键盘页「布局」组的「键盘底栏」开关下面只有一个滑块「键盘底部高度」，说明「抬高整块键盘，按键大小不变。底栏显示时，40 dp 以内由底栏占用；浮动键盘、手机横屏和接实体键盘收起键区时不生效。」，范围 `KeyboardBottomBarPolicy.MIN_PADDING_DP..MAX_PADDING_DP`（0–160 dp），步进 `PADDING_STEP_DP`（4 dp），显示单位 dp。不恢复独立的「底部留白」开关。
