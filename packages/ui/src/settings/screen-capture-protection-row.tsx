@@ -90,10 +90,8 @@ function ScreenCaptureProtectionRow({ client }: { client: ScreenCaptureProtectio
   return (
     <Row
       title="防止截屏"
-      description={
-        error ||
-        "打开后，设置页面和弹出的键盘在截屏、录屏里显示为黑色。第一次打开不需要验证；打开过以后，再打开或关闭都要通过锁屏密码或生物识别验证。"
-      }
+      description="打开后，设置页面和弹出的键盘在截屏、录屏里显示为黑色。第一次打开不需要验证；打开过以后，再打开或关闭都要通过锁屏密码或生物识别验证。"
+      detail={error || undefined}
     >
       <Switch
         checked={enabled ?? false}

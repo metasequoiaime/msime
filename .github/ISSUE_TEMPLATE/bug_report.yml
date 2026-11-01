@@ -45,3 +45,10 @@ body:
     attributes:
       label: 其他信息（可选）
       description: 例如多久出现一次、是不是在所有软件里都会出现。
+  - type: checkboxes
+    id: willing
+    attributes:
+      label: 参与意愿（可选）
+      options:
+        - label: 我愿意自己尝试修复或实现这个问题（这只是告诉维护者，不代表必须做）
+          required: false

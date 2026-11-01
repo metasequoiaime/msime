@@ -347,7 +347,12 @@ fn an_installed_pack_is_read_back_and_recreated_from_its_own_files() {
         id: "my-codes".into(),
     };
     let files = get(state.path(), &BuiltinPaths::default(), &pack).unwrap();
-    let directory = state.path().join("plugins/helpcode/my-codes");
+    // 逐段拼接：Windows 上读回的路径用反斜杠分隔。
+    let directory = state
+        .path()
+        .join("plugins")
+        .join("helpcode")
+        .join("my-codes");
     assert_eq!(
         files,
         PluginFiles {

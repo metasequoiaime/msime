@@ -1054,6 +1054,18 @@ impl MsimeServer {
 
 /// 跨进程串行写入，并限制两次写入开始的最短间隔；守卫覆盖整个写入，包括错误返回和展开。
 fn claim_shared_write(config: &Config) -> Result<file_lock::ScopedFileLock, String> {
+    claim_shared_write_with_clock(config, || {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_millis())
+            .map_err(|_| "the system clock is before 1970".into())
+    })
+}
+
+fn claim_shared_write_with_clock(
+    config: &Config,
+    clock: impl FnOnce() -> Result<u128, String>,
+) -> Result<file_lock::ScopedFileLock, String> {
     let state_dir = config.state_dir(&config.read_options()?)?;
     let file = file_lock::open_private_lock_file(state_dir.join(WRITE_LOCK))
         .map_err(|_| "cannot open the write lock in the state directory")?;
@@ -1063,10 +1075,8 @@ fn claim_shared_write(config: &Config) -> Result<file_lock::ScopedFileLock, Stri
     let bytes = crate::bounded::read(file, WRITE_LOCK_READ_LIMIT)
         .map_err(|_| "cannot read the write lock")?;
     let text = std::str::from_utf8(&bytes).map_err(|_| "cannot read the write lock")?;
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|_| "the system clock is before 1970")?
-        .as_millis();
+    // 新写槽的开始时间在取到文件锁、读取共享状态之后确定。
+    let now = clock()?;
     // 时间戳在当前时间之后表示时钟回拨，不算最近一次写入。
     if let Ok(previous) = text.trim().parse::<u128>() {
         if previous <= now && now - previous < WRITE_INTERVAL.as_millis() {
@@ -1449,6 +1459,25 @@ mod tests {
         server.claim_write().unwrap();
     }
 
+    /// 写工具本身接上进程内限流：上一次写入还在间隔内时，请求在碰配置和词库之前就被拒绝。
+    #[tokio::test]
+    async fn a_write_tool_refuses_inside_the_write_interval() {
+        let server = server(true);
+        *server.last_write.lock().unwrap() = Some(Instant::now());
+        let Err(error) = server
+            .edit_quick_phrases(Parameters(EditRequest {
+                edits: vec![Edit::Remove {
+                    code: "dz".into(),
+                    text: "合成地址".into(),
+                }],
+            }))
+            .await
+        else {
+            panic!("a write inside the interval must be refused");
+        };
+        assert!(error.contains("one a second"), "{error}");
+    }
+
     #[test]
     fn a_running_write_holds_off_the_next() {
         let server = server(true);
@@ -1477,6 +1506,34 @@ mod tests {
             claim_shared_write(&config).unwrap_err(),
             "cannot read the write lock"
         );
+    }
+
+    #[test]
+    fn shared_write_interval_uses_the_persisted_start_time() {
+        let directory = tempfile::tempdir().unwrap();
+        let options = directory.path().join("runtime-options.json");
+        std::fs::write(&options, b"{}").unwrap();
+        let first = Config {
+            options,
+            state_dir: Some(directory.path().to_owned()),
+            allow_write: true,
+            allow_dictionary_read: false,
+        };
+        let second = first.clone();
+        let path = directory.path().join(WRITE_LOCK);
+        drop(claim_shared_write_with_clock(&first, || Ok(10_000)).unwrap());
+        let before = std::fs::read(&path).unwrap();
+        assert_eq!(before, b"10000");
+        assert_eq!(
+            claim_shared_write_with_clock(&second, || Ok(10_999)).unwrap_err(),
+            "writes are limited to one a second; try again shortly"
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        // 拒绝必须释放文件锁且不能延长窗口；恰好到期时另一个配置可以取得写槽。
+        drop(claim_shared_write_with_clock(&first, || Ok(11_000)).unwrap());
+        assert_eq!(std::fs::read(&path).unwrap(), b"11000");
+        drop(claim_shared_write_with_clock(&second, || Ok(9_000)).unwrap());
+        assert_eq!(std::fs::read(&path).unwrap(), b"9000");
     }
 
     #[cfg(all(unix, not(target_os = "android")))]

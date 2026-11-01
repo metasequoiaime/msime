@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Launch an installed provider with the current user's XDG configuration."""
+"""按当前用户的 XDG 配置启动已安装的 provider。"""
 import argparse
 import os
 from pathlib import Path
@@ -19,16 +19,23 @@ def main():
     args = parser.parse_args()
     try:
         runtime = absolute_directory("XDG_RUNTIME_DIR") / "msime-client"
+        config = absolute_directory("XDG_CONFIG_HOME", str(Path.home() / ".config")) / "msime-client"
+        # 在线服务读显式 XDG 偏好；语音的配置只含服务参数，同意仍跟随运行时 options。
+        try:
+            import msime_crash_capture
+        except ImportError:
+            pass
+        else:
+            msime_crash_capture.start("provider-session", preferences=config if args.provider == "online" else None)
         runtime.mkdir(mode=0o700, exist_ok=True)
         info = runtime.lstat()
         if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or
                 info.st_mode & 0o077):
             raise ValueError("runtime directory must be private")
-        config = absolute_directory("XDG_CONFIG_HOME", str(Path.home() / ".config")) / "msime-client"
         executable = Path(__file__).resolve().parent / ("msime-linux-" + args.provider + "-provider")
         command = [str(executable), str(runtime / (args.provider + ".sock"))]
         if args.provider == "online":
-            # Track optional files even when configured after this service starts.
+            # 服务启动后新增的可选配置也继续跟踪。
             command.extend(["--config-directory", str(config)])
         else:
             command.extend(["--config", str(config / "voice-provider.json")])

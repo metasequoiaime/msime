@@ -86,7 +86,7 @@ jobs:
                 echo "build=true" >> "$GITHUB_OUTPUT"; echo "Rust 输入改动: $path"; exit 0 ;;
               # 同 ci-macos.yml:scripts/ 下只有真正进得了这条构建的才触发。run_ui_tests.sh 在 platforms/ios/scripts/ 下,已由 platforms/ios/* 覆盖。
               # fetch_voice_runtime.py 与它读的 lock 决定 MSIMEApp 嵌入的 sherpa-onnx 运行时。
-              scripts/test-ios-doubao-session-lifecycle.py|scripts/fetch_voice_runtime.py|resources/voice-runtime.lock.json|resources/opencc.lock.json|resources/licenses/OpenCC-Apache-2.0.txt|scripts/fetch_opencc.py|scripts/download_retry.py)
+              scripts/test-ios-doubao-session-lifecycle.py|scripts/test-ios-crash-signal-recorder.py|scripts/fetch_voice_runtime.py|resources/voice-runtime.lock.json|resources/opencc.lock.json|resources/licenses/OpenCC-Apache-2.0.txt|scripts/fetch_opencc.py|scripts/download_retry.py)
                 echo "build=true" >> "$GITHUB_OUTPUT"; echo "构建脚本改动: $path"; exit 0 ;;
             esac
           done <<< "$changed"
@@ -143,6 +143,9 @@ jobs:
         run: python3 scripts/test-ios-doubao-session-lifecycle.py
       - name: Test shared AI catalog projection
         run: python3 scripts/test-ios-ai-provider-catalog.py
+      # contracts job 在 ubuntu 上会跳过这个只能在 Darwin 编译的夹具，这里在 macOS 宿主上真正编译运行它。
+      - name: Test crash signal recorder fault fixture
+        run: python3 scripts/test-ios-crash-signal-recorder.py
       - name: Validate keyboard configuration
         run: |
           python3 platforms/ios/tests/settings/ProjectConfigurationTests.py

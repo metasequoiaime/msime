@@ -11,6 +11,8 @@ export interface SegmentedRowOption<T extends string> {
 export interface SegmentedRowProps<T extends string> {
   title: ReactNode;
   description?: ReactNode;
+  /** 状态、当前值或校验提示，常驻标题下方；解释性说明用 `description`，收进「?」。 */
+  detail?: ReactNode;
   hidden?: boolean;
   options: readonly SegmentedRowOption<T>[];
   value: T;
@@ -25,6 +27,7 @@ export interface SegmentedRowProps<T extends string> {
 export function SegmentedRow<T extends string>({
   title,
   description,
+  detail,
   hidden,
   options,
   value,
@@ -39,6 +42,7 @@ export function SegmentedRow<T extends string>({
       <PickerRow
         title={title}
         description={description}
+        detail={detail}
         hidden={hidden}
         disabled={disabled}
         valueLabel={current ? textOf(current.label) : ""}
@@ -68,7 +72,7 @@ export function SegmentedRow<T extends string>({
     );
   }
   return (
-    <Row title={title} description={description} hidden={hidden}>
+    <Row title={title} description={description} detail={detail} hidden={hidden}>
       <Segmented
         options={options}
         value={value}

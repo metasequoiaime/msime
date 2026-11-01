@@ -478,7 +478,7 @@ test("Linux leaves the number and border colours to the theme and says which hos
     "Fcitx5 经典界面中编号跟随正文颜色、固定候选不单独着色，此项仅对 IBus 生效",
   );
   expect(captions).toHaveLength(1);
-  expect(captions[0].parentElement?.textContent).toContain("候选强调色");
+  expect(captions[0].closest("[data-settings-search-label]")?.textContent).toContain("候选强调色");
 });
 
 // 宿主报告读边框色和编号色时（不是现在的 Linux），边框说明照旧讲清 Fcitx5 与 IBus 的区别，编号色同样标明只对 IBus 生效。
@@ -502,8 +502,10 @@ test("a Linux host that reads the border and number colours says which panel dra
   );
   // 每条说明是对应颜色那一行的描述，紧挨着行标题；页码颜色排在强调色之前，紧跟在它所编号的文字颜色之后。
   expect(captions).toHaveLength(2);
-  expect(captions[0].parentElement?.textContent).toContain("候选编号颜色");
-  expect(captions[1].parentElement?.textContent).toContain("候选强调色");
+  expect(captions[0].closest("[data-settings-search-label]")?.textContent).toContain(
+    "候选编号颜色",
+  );
+  expect(captions[1].closest("[data-settings-search-label]")?.textContent).toContain("候选强调色");
 });
 
 // Fcitx5 在 X11 上用原生画布画候选窗时（宿主报告 `renderer: native_canvas`，`apply_linux_native_canvas` 打开选中外观），编号、强调色和固定候选都由它自己画，「仅对 IBus 生效」的说明不再成立。

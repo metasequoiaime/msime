@@ -362,7 +362,8 @@ export function TouchKeyboardSkinEditor({
             <GroupList title="照片壁纸">
               <Row
                 title="照片"
-                description={design.photo ? "已设为键盘背景" : "用自己的照片做键盘背景"}
+                description="用自己的照片做键盘背景"
+                detail={design.photo ? "已设为键盘背景" : undefined}
               >
                 {design.photo && (
                   <button

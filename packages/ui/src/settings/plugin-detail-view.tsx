@@ -189,7 +189,7 @@ function PackContent({ pack }: { pack: PluginPackage }) {
             key={`${index}/${group.title}`}
             title={`${group.tab === "kaomoji" ? "颜文字" : "符号"} · ${group.title}（${group.items.length}）`}
           >
-            <SettingsGroupNote className="wrap-anywhere">
+            <SettingsGroupNote inline className="wrap-anywhere">
               {group.items.slice(0, SYMBOL_PREVIEW_ITEMS).join(" ")}
               {group.items.length > SYMBOL_PREVIEW_ITEMS ? " …" : ""}
             </SettingsGroupNote>
@@ -206,7 +206,7 @@ function PackContent({ pack }: { pack: PluginPackage }) {
           <Row key={word} title={word} />
         ))}
         {(pack.word_count ?? 0) > words.length && (
-          <SettingsGroupNote>只显示前 {words.length} 个单词。</SettingsGroupNote>
+          <SettingsGroupNote inline>只显示前 {words.length} 个单词。</SettingsGroupNote>
         )}
       </GroupList>
     );
@@ -216,10 +216,10 @@ function PackContent({ pack }: { pack: PluginPackage }) {
     return (
       <GroupList title={`辅助码（${pack.entries ?? preview.length} 个字）`}>
         {preview.map((entry) => (
-          <Row key={entry.character} title={entry.character} description={entry.code} />
+          <Row key={entry.character} title={entry.character} detail={entry.code} />
         ))}
         {(pack.entries ?? 0) > preview.length && (
-          <SettingsGroupNote>只显示前 {preview.length} 个字。</SettingsGroupNote>
+          <SettingsGroupNote inline>只显示前 {preview.length} 个字。</SettingsGroupNote>
         )}
       </GroupList>
     );
@@ -230,10 +230,10 @@ function PackContent({ pack }: { pack: PluginPackage }) {
     return (
       <GroupList title={`短语（${phrases.length}）`}>
         {shown.map((phrase, index) => (
-          <Row key={`${index}/${phrase.key}`} title={phrase.key} description={phrase.text} />
+          <Row key={`${index}/${phrase.key}`} title={phrase.key} detail={phrase.text} />
         ))}
         {phrases.length > shown.length && (
-          <SettingsGroupNote>只显示前 {PHRASE_PREVIEW_ROWS} 条。</SettingsGroupNote>
+          <SettingsGroupNote inline>只显示前 {PHRASE_PREVIEW_ROWS} 条。</SettingsGroupNote>
         )}
       </GroupList>
     );
@@ -243,7 +243,7 @@ function PackContent({ pack }: { pack: PluginPackage }) {
     return (
       <GroupList title={`曲目（${tracks.length}）`}>
         {tracks.length === 0 ? (
-          <SettingsGroupNote>没有曲目。</SettingsGroupNote>
+          <SettingsGroupNote inline>没有曲目。</SettingsGroupNote>
         ) : (
           tracks.map((track, index) => <Row key={`${index}/${track}`} title={track} />)
         )}
@@ -255,10 +255,10 @@ function PackContent({ pack }: { pack: PluginPackage }) {
     return (
       <GroupList title={`指令（${commands.length}）`}>
         {commands.length === 0 ? (
-          <SettingsGroupNote>没有指令。</SettingsGroupNote>
+          <SettingsGroupNote inline>没有指令。</SettingsGroupNote>
         ) : (
           commands.map((command) => (
-            <Row key={command.trigger} title={`/${command.trigger}`} description={command.title} />
+            <Row key={command.trigger} title={`/${command.trigger}`} detail={command.title} />
           ))
         )}
       </GroupList>
@@ -466,12 +466,13 @@ function PackActions({
         <>
           <SwitchRow
             title="启用"
-            description={
+            description="启用后排在已启用的指令表之后；同一指令以靠前的表为准。"
+            detail={
               position >= 0
-                ? `第 ${position + 1} 位。同一指令以靠前的表为准。`
+                ? `第 ${position + 1} 位`
                 : full
-                  ? `最多启用 ${MAX_COMMAND_TABLES} 个指令表。`
-                  : "启用后排在已启用的指令表之后。"
+                  ? `最多启用 ${MAX_COMMAND_TABLES} 个指令表`
+                  : undefined
             }
             checked={position >= 0}
             disabled={full}
@@ -555,12 +556,13 @@ function PackActions({
         <>
           <SwitchRow
             title="启用"
-            description={
+            description="启用后排在已启用的短语表之后；同一编码下靠前的表先列出。"
+            detail={
               position >= 0
-                ? `第 ${position + 1} 位。同一编码下靠前的表先列出。`
+                ? `第 ${position + 1} 位`
                 : full
-                  ? `最多启用 ${MAX_PHRASE_TABLES} 个短语表。`
-                  : "启用后排在已启用的短语表之后。"
+                  ? `最多启用 ${MAX_PHRASE_TABLES} 个短语表`
+                  : undefined
             }
             checked={position >= 0}
             disabled={full}
