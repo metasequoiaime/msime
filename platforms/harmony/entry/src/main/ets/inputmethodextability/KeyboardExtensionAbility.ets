@@ -48,6 +48,7 @@ import { HarmonyAccountIdentity } from '../account/HarmonyAccountIdentity';
 import { SharedStateSync } from '../keyboard/SharedStateSync';
 import { HarmonyPrivacyConsent } from '../privacy/HarmonyPrivacyConsent';
 import { ScreenCaptureProtection } from '../keyboard/settings/ScreenCaptureProtection';
+import { HarmonyReadAloud } from '../speech/HarmonyReadAloud';
 
 // Where the badge goes and how long it stays, from platforms/macos/src/input/InputModeHUDPanel.mm: shown long enough to read and gone before the next word. Its size is the floating toolbar's, from InputModeHudPolicy.sizeVp.
 const HUD_SCREEN_MARGIN_VP: number = 8;
@@ -1325,6 +1326,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
 
   /** Undoes everything onCreate installed. Safe to run twice: a failed onCreate and then onDestroy. */
   private teardown(): void {
+    // 长按菜单「朗读」用的引擎：没建过时什么也不做。
+    HarmonyReadAloud.shutdown();
     this.statusPanelGeneration += 1;
     this.tornDown = true;
     this.pending = undefined;

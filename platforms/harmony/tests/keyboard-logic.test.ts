@@ -6143,6 +6143,67 @@ group("a candidate with a gloss offers the gloss as something to type", () => {
       .candidate === "你好",
     "the full menu carries the candidate too",
   );
+  // 「朗读」排在「加入生词本」前面、和它同一组；共享层答不出能读的英文（或设备不能朗读）时没有这一项。
+  const spokenMenu = CandidateManagementAction.managementActions(
+    "interview",
+    true,
+    0,
+    true,
+    true,
+    "面试",
+    "interview",
+  ).map((action: ManagementAction) => action.id);
+  check(
+    spokenMenu.slice(-2).join(",") === "READ_ALOUD,ADD_TO_PERSONAL_WORDBOOK",
+    "朗读 comes right before 加入生词本 at the end of the full menu",
+  );
+  const spokenTouch = CandidateManagementAction.touchActions(
+    "interview",
+    true,
+    "面试",
+    "interview",
+  );
+  check(
+    spokenTouch.map((action: ManagementAction) => action.id).join(",") ===
+      "INSERT_GLOSS,READ_ALOUD,ADD_TO_PERSONAL_WORDBOOK",
+    "the touch long press puts 朗读 in the same place",
+  );
+  check(
+    spokenTouch[1].title === "朗读" &&
+      spokenTouch[1].spoken === "interview" &&
+      spokenTouch[1].candidate === "面试",
+    "朗读 remembers what to read and the candidate it was opened for",
+  );
+  const englishCandidate = CandidateManagementAction.managementActions(
+    "",
+    false,
+    0,
+    true,
+    true,
+    "hello",
+    "hello",
+  ).map((action: ManagementAction) => action.id);
+  check(
+    englishCandidate.slice(-1)[0] === "READ_ALOUD" &&
+      !englishCandidate.includes("ADD_TO_PERSONAL_WORDBOOK"),
+    "an English candidate without a gloss gets 朗读 alone in the last group",
+  );
+  check(
+    !CandidateManagementAction.managementActions("面接", true, 0, true, true, "面试", null).some(
+      (action: ManagementAction) => action.id === "READ_ALOUD",
+    ) && CandidateManagementAction.readAloudAction("", "面试") === null,
+    "nothing to read means no 朗读",
+  );
+  const readAloud = CandidateManagementAction.readAloudAction("interview", "面试");
+  check(
+    readAloud !== null &&
+      !CandidateManagementAction.actionsForFixedPosition(0).some(
+        (action: ManagementAction) => action.menuItemId === readAloud.menuItemId,
+      ) &&
+      readAloud.menuItemId !==
+        CandidateManagementAction.personalWordbookAction("x", true)?.menuItemId,
+    "朗读 has a menu id of its own",
+  );
   check(
     !noGloss.some((action: ManagementAction) => action.id === "REMOVE"),
     "a single character cannot be deleted",

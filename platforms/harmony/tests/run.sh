@@ -753,6 +753,17 @@ if [[ $(grep -cF 'panel.changeFlag(' "$floating_ability") -ne 1 ]] \
   echo "The floating keyboard must change the panel flag only while the panel is hidden and show it again afterwards, never move a fixed panel, refit the floating panel when the display changes, save the dragged position, suspend one-handed mode while floating or split, and stop drawing the split keyboard while floating" >&2
   exit 1
 fi
+# 长按菜单的「朗读」：排在哪里、带着什么由 keyboard-logic.test.ts 覆盖，出声的固定取值由 read-aloud-policy.test.ts 覆盖；视图、会话和设置桥是 ArkTS，node 下编不了，这里钉住接线：菜单把会话经共享层答的英文交给两种菜单，点下去时核对候选再读；引擎只用离线模式，从不下载声音；设置桥的 read_aloud 先经共享层核对词头。
+if ! grep -qF "KeyboardSession.shared.readAloudText(" "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets" \
+  || ! grep -qF "managed.annotation, managed.annotationIsTranslation, managed.text, spoken);" "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets" \
+  || ! grep -qF "managed === null ? '' : managed.text, spoken);" "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets" \
+  || ! grep -qF "KeyboardSession.shared.readAloud(action.spoken)" "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets" \
+  || ! grep -qF "online: ReadAloudPolicy.OFFLINE," "$repo_root/platforms/harmony/entry/src/main/ets/speech/HarmonyReadAloud.ets" \
+  || grep -qF "downloadVoice" "$repo_root/platforms/harmony/entry/src/main/ets/speech/HarmonyReadAloud.ets" \
+  || ! grep -qF "client.readAloudText(ReadAloudPolicy.textRequest(word, ''))" "$repo_root/platforms/harmony/entry/src/main/ets/pages/Settings.ets"; then
+  echo "Harmony read aloud must pass the shared layer's text to both candidate menus, check the candidate before speaking, stay offline without downloading voices, and validate the settings page's word" >&2
+  exit 1
+fi
 "$tsc" --project "$here/tsconfig.json"
 node "$here/idle-dictionary-lifecycle.test.cjs"
 # 上面已编译所有 tests/*.test.ts；逐个运行它们的输出。遍历源文件而不是输出目录，可以避免已删除测试遗留的旧 .js 被运行。

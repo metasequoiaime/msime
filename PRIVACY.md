@@ -61,9 +61,11 @@ macOS 26 及以上在没有选择任何服务时（候选翻译开启，小牛�
 - macOS：输入法用 `AVSpeechSynthesizer`，设置应用的背单词卡片用网页的 `speechSynthesis`，都只用这台 Mac 上已安装的声音。
 - Windows：输入法（Server）用 SAPI 5，声音都装在本机。设置应用的背单词卡片用 WebView2 的 `speechSynthesis`，只挑 `localService` 为真的本机声音；WebView2 本身也不提供 Edge 里的「Online (Natural)」联网声音。
 - Linux：只在系统装了 speech-dispatcher 的命令行 `spd-say` 时才有这一项，输入法和设置应用都把单词交给它（`spd-say -l en <单词>`）。合成由你在 speech-dispatcher 里配置的输出模块完成：常见发行版默认的 espeak-ng 等模块在本机合成，但如果你给它配了一个联网的模块，单词会按那个模块的方式发出去，这一点本项目管不了。
-- iOS、Android、HarmonyOS 还没有这项功能。
+- iOS：键盘和 App 的背单词页用 `AVSpeechSynthesizer`，只用设备上已安装的英文声音。键盘只在开了「允许完全访问」时有这一项：没有完全访问时 iOS 不让键盘扩展播放自己的声音。
+- Android：键盘和背单词页用系统的 `TextToSpeech`，只挑不需要网络（`Voice.isNetworkConnectionRequired()` 为假）、也不用再下载数据（没有 `KEY_FEATURE_NOT_INSTALLED`）的英文声音，没有这样的声音时不读，只提示原因；没装语音引擎时没有这一项。为了看得见语音引擎，清单里声明了对 `android.intent.action.TTS_SERVICE` 的查询。语音引擎是系统里另一个应用（手机自带的或你装的），声音需不需要网络是引擎自己报的，引擎内部怎么处理交给它的单词由引擎决定，这一点本项目管不了。
+- HarmonyOS：键盘和设置应用的背单词卡片用 Core Speech Kit 的文本转语音，只用离线模式（`online: 1`）和随系统提供的中文声音聆小珊，从不下载英文声音，下载弹窗和下载流量都不会出现。
 
-代码在 `platforms/macos/src/input/InputController.mm`（`MSIMEReadAloudVoice`）、`platforms/windows/src/voice/SystemSpeech.cpp`、`platforms/linux/src/candidates/ReadAloud.h`、`apps/desktop/src-tauri/src/read_aloud.rs` 和 `apps/desktop/src/core/read-aloud.ts`。
+代码在 `platforms/macos/src/input/InputController.mm`（`MSIMEReadAloudVoice`）、`platforms/windows/src/voice/SystemSpeech.cpp`、`platforms/linux/src/candidates/ReadAloud.h`、`apps/desktop/src-tauri/src/read_aloud.rs`、`apps/desktop/src/core/read-aloud.ts`、`platforms/ios/SharedUI/vocabulary/ReadAloud.swift`、`platforms/android/java/app/msime/android/core/ReadAloudSpeaker.java`（挑声音的规则在 `policy/ReadAloudVoicePolicy.java`）和 `platforms/harmony/entry/src/main/ets/speech/HarmonyReadAloud.ets`。
 
 ### 语音输入（默认凭据为空）
 

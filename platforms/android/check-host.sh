@@ -1526,6 +1526,11 @@ for manifest in \
     exit 1
   fi
 done
+# 「朗读」靠 queryIntentServices(TTS_SERVICE) 判断装没装语音引擎；Android 11 起清单不声明这个查询就永远看不见引擎，菜单和背单词卡片上都不会出现这一项。
+if ! rg -q '<action android:name="android\.intent\.action\.TTS_SERVICE" />' "$repo_root/platforms/android/AndroidManifest.xml"; then
+  echo "Android manifest must query android.intent.action.TTS_SERVICE for read aloud" >&2
+  exit 1
+fi
 # 键区里的系统识别服务是 SpeechRecognizer 回调接线，JVM 冒烟只能覆盖 PlatformSpeechPolicy 和 ImeVoiceEntry.choose 这些纯逻辑，这里守住回调里不能被悄悄改回去的几处（#5553）：两条入口都按错误码提示、空结果不冒用错误码，权限拒绝或聆听前启动失败时转交识别窗口，系统识别服务和豆包流式不被 1.5 s 停顿截断（豆包整句流式说到 15 秒才回第一段结果，#9886），说完后收回音量光圈。
 voice_entry="$repo_root/platforms/android/java/app/msime/android/core/ImeVoiceEntry.java"
 if ! rg -qF 'fail(PlatformSpeechPolicy.message(error))' "$voice_activity" \

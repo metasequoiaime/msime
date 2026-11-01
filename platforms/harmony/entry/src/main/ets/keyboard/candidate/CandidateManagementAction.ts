@@ -25,6 +25,8 @@ export interface ManagementAction {
   /** 「加入生词本」打开菜单时那一格的候选原文和释义。菜单开着时候选栏可能重建，点下去时拿它们和那一格现在的候选比，不一样就不收。 */
   readonly candidate?: string;
   readonly gloss?: string;
+  /** 「朗读」打开菜单时共享层答的那段英文（`msime_client_read_aloud_text`）。 */
+  readonly spoken?: string;
 }
 
 function action(
@@ -191,6 +193,24 @@ export class CandidateManagementAction {
     };
   }
 
+  /**
+   * 「朗读」：用系统语音读出共享层答的那段英文（显示着的英文释义的第一个义项，或候选本身是英文），排在「加入生词本」前面、和它同一组，和 Android、iOS 的长按菜单、桌面的候选右键菜单同一个位置。`spoken` 为 null（没有能读的，或设备没有文本转语音能力）时没有这一项。打开菜单时的候选原文记在 `candidate` 里，点下去时拿它和那一格现在的候选比。
+   */
+  static readAloudAction(spoken: string | null, candidate: string = ""): ManagementAction | null {
+    if (spoken === null || spoken.length === 0) {
+      return null;
+    }
+    return {
+      id: "READ_ALOUD",
+      title: "朗读",
+      announcement: "",
+      confirmationRequired: false,
+      menuItemId: MENU_ITEM_BASE + 8,
+      candidate: candidate,
+      spoken: spoken,
+    };
+  }
+
   /** 点下「加入生词本」时那一格的候选是否还是打开菜单时的那一个：原文和释义都相同才算。 */
   static samePersonalWordbookSubject(
     opened: ManagementAction,
@@ -209,17 +229,44 @@ export class CandidateManagementAction {
     gloss: string,
     isTranslation: boolean,
     candidate: string = "",
+    spoken: string | null = null,
   ): ManagementAction[] {
     if (!isTranslation) {
       return [];
     }
     const action: ManagementAction | null = CandidateManagementAction.touchGlossAction(gloss);
+    if (action === null) {
+      return [];
+    }
+    return [action].concat(
+      CandidateManagementAction.lastGroup(gloss, isTranslation, candidate, spoken),
+    );
+  }
+
+  /** 菜单最后那一组：「朗读」在前，「加入生词本」在后，各自不满足条件时不出。 */
+  private static lastGroup(
+    gloss: string,
+    isTranslation: boolean,
+    candidate: string,
+    spoken: string | null,
+  ): ManagementAction[] {
+    const group: ManagementAction[] = [];
+    const read: ManagementAction | null = CandidateManagementAction.readAloudAction(
+      spoken,
+      candidate,
+    );
+    if (read !== null) {
+      group.push(read);
+    }
     const personal: ManagementAction | null = CandidateManagementAction.personalWordbookAction(
       gloss,
       isTranslation,
       candidate,
     );
-    return action === null ? [] : personal === null ? [action] : [action, personal];
+    if (personal !== null) {
+      group.push(personal);
+    }
+    return group;
   }
 
   /**
@@ -232,6 +279,7 @@ export class CandidateManagementAction {
     available: boolean,
     includeRemove: boolean,
     candidate: string = "",
+    spoken: string | null = null,
   ): ManagementAction[] {
     const actions: ManagementAction[] = CandidateManagementAction.actionsForFixedPosition(
       fixedPosition,
@@ -241,14 +289,11 @@ export class CandidateManagementAction {
     const glossAction: ManagementAction | null = isTranslation
       ? CandidateManagementAction.glossAction(gloss)
       : null;
-    const personal: ManagementAction | null = CandidateManagementAction.personalWordbookAction(
-      gloss,
-      isTranslation,
-      candidate,
-    );
     const listed: ManagementAction[] =
       glossAction === null ? actions : [glossAction].concat(actions);
-    return personal === null ? listed : listed.concat([personal]);
+    return listed.concat(
+      CandidateManagementAction.lastGroup(gloss, isTranslation, candidate, spoken),
+    );
   }
 
   static validatePosition(position: number): number {

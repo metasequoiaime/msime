@@ -13,6 +13,11 @@ public enum CandidateManagementAction {
     /** 「加入生词本」的排序：比所有词库操作都大，排在菜单最后，和 iOS、鸿蒙的长按菜单、桌面的候选右键菜单同一个位置。 */
     public static final int PERSONAL_WORDBOOK_ORDER = 1000;
     public static final String PERSONAL_WORDBOOK_TITLE = "加入生词本";
+    /** 长按菜单「朗读」的条目 id，紧挨着「加入生词本」，同样避开释义和词库操作的 id。 */
+    public static final int READ_ALOUD_MENU_ITEM = 3001;
+    /** 「朗读」排在「加入生词本」前面、所有词库操作后面，和 iOS、鸿蒙的长按菜单、桌面的候选右键菜单同一个位置。 */
+    public static final int READ_ALOUD_ORDER = 999;
+    public static final String READ_ALOUD_TITLE = "朗读";
     private final String title;
     private final String announcement;
     private final boolean confirmationRequired;
@@ -53,6 +58,11 @@ public enum CandidateManagementAction {
     /** 只在这一行显示着可上屏的释义时才有「加入生词本」：Engine 的注释（例如五笔编码）不是释义，不会出现在 {@code glosses} 里。 */
     public static boolean offersPersonalWordbook(java.util.List<String> glosses) {
         return glosses != null && !glosses.isEmpty();
+    }
+
+    /** 有能读的英文（{@code NativeClient.readAloudText} 答了）、本机又装着语音引擎时才有「朗读」。 */
+    public static boolean offersReadAloud(String text, boolean engineInstalled) {
+        return engineInstalled && text != null && !text.isEmpty();
     }
 
     public static int validatePosition(int position) {
