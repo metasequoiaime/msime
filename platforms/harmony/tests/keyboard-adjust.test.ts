@@ -332,6 +332,33 @@ group("移动：同时改抬高和水平位置，大小不变", () => {
   );
 });
 
+group("中间一排按钮在窄外框里跟着缩，不压到左右柄", () => {
+  // 与 KeyboardView 的遮罩尺寸相同：柄 32vp 宽，按钮间隔 16vp，按钮最宽 72vp。
+  const handle = 32;
+  const gap = 16;
+  const widest = 72;
+  check(P.buttonWidthVp(400, 3, handle, gap, widest) === widest, "外框够宽时按钮 72vp");
+  for (const frame of [240, 247, 262, 288, 311, 312, 360, 600]) {
+    for (const buttons of [2, 3]) {
+      const width = P.buttonWidthVp(frame, buttons, handle, gap, widest);
+      check(
+        buttons * width + (buttons - 1) * gap <= frame - 2 * handle + 1e-9,
+        `${frame}vp 宽的外框、${buttons} 个按钮：按钮排在两个柄之间`,
+      );
+      check(width <= widest, `${frame}vp、${buttons} 个按钮：不宽于 72vp`);
+    }
+  }
+  check(
+    P.buttonWidthVp(P.MIN_WIDTH_VP, 3, handle, gap, widest) >= 44,
+    "收到 240vp 时每个按钮仍有 44vp 以上，放得下 30vp 的图标和两个 14fp 的字",
+  );
+  check(
+    P.buttonWidthVp(0, 3, handle, gap, widest) === widest &&
+      P.buttonWidthVp(Number.NaN, 3, handle, gap, widest) === widest,
+    "宽度还没量到时按最宽画",
+  );
+});
+
 group("读屏名称三端相同，当前值在说明里", () => {
   check(
     P.TOP_LABEL === "键盘高度" &&

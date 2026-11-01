@@ -3,7 +3,7 @@ import { KeyboardGeometry } from "./KeyboardGeometry";
 /**
  * 「键盘调整」遮罩（功能面板的「键盘调整」磁贴）里四项的取值、生效条件、外框换算和各个柄的拖动约束。Android、iOS 按同一份契约实现，三端界面和行为一致，见 `.agents/notes/implemented/feature/2026-11-01-harmony-keyboard-adjust-overlay.md`。
  *
- * 四项：键盘高度（共享偏好 `touch_keyboard_height_adjustment`，-12..48vp）、底部抬高（0–160vp）、宽度（屏幕宽的 60–100%，另有 240vp 下限）、水平位置（剩余空间里的千分比 0–1000，500 居中）。后三项只存本机的按键反馈文件（`KeyboardFeedback`），不进共享偏好、不同步。
+ * 四项：键盘高度（共享偏好 `touch_keyboard_height_adjustment`，-12..48vp）、底部抬高（0–160vp）、宽度（面板宽的 60–100%，另有 240vp 下限；停靠面板通常就是整屏宽）、水平位置（剩余空间里的千分比 0–1000，500 居中）。后三项只存本机的按键反馈文件（`KeyboardFeedback`），不进共享偏好、不同步。
  *
  * 所有长度都是 vp，拖动位移按屏幕坐标、向下和向右为正。这里只做换算，不依赖 ArkUI，供 node 下的逻辑测试直接调用。
  */
@@ -14,7 +14,7 @@ export interface AdjustValues {
   readonly height: number;
   /** 底部抬高（vp）。 */
   readonly lift: number;
-  /** 宽度占屏幕宽的百分比。 */
+  /** 宽度占面板宽的百分比。 */
   readonly widthPercent: number;
   /** 水平位置：键盘两侧剩余空间里左侧所占的千分比。 */
   readonly positionX: number;
@@ -324,6 +324,23 @@ export class KeyboardAdjustPolicy {
     }
     const left: number = Math.max(0, Math.min(free, base.left + dx));
     return KeyboardAdjustPolicy.position((left * KeyboardAdjustPolicy.MAX_POSITION) / free);
+  }
+
+  /**
+   * 遮罩中间一排每个按钮的宽（vp）：`frameWidthVp` 宽的外框里，左右各让出一个 `handleVp` 宽的柄（不画柄时也占着同样宽的位置），按钮之间隔 `gapVp`，剩下的平分给 `buttons` 个按钮，最宽 `widestVp`。键盘收窄到 240vp 时三个 72vp 的按钮加间距要 248vp，柄之间只剩 176vp，不缩就压到左右柄上。
+   */
+  static buttonWidthVp(
+    frameWidthVp: number,
+    buttons: number,
+    handleVp: number,
+    gapVp: number,
+    widestVp: number,
+  ): number {
+    if (!Number.isFinite(frameWidthVp) || frameWidthVp <= 0 || buttons <= 0) {
+      return widestVp;
+    }
+    const room: number = frameWidthVp - 2 * handleVp - (buttons - 1) * gapVp;
+    return Math.max(0, Math.min(widestVp, room / buttons));
   }
 
   /** 上沿柄读屏说明里的当前值：键盘高度的百分比（`KeyboardGeometry.heightPercent`）。 */

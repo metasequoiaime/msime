@@ -870,8 +870,8 @@ struct KeyboardView {
   /** The keyboard's top-left in window coordinates, which the trail canvas is drawn from. */
   private glideOriginX: number = 0;
   private glideOriginY: number = 0;
-  /** 键盘宽度，用于把按键预览气泡限制在键盘内。 */
-  private rootWidth: number = 0;
+  /** 键盘宽度（vp，`keyboardStack` 量到的面板宽），用于把按键预览气泡限制在键盘内；键盘调整的外框和左右沿拖动也按它换算（`adjustPanelWidthVp`），所以是状态，量到新宽度时外框跟着重画。 */
+  @State rootWidth: number = 0;
   /** 按下字母键时其上方的按键预览气泡（按键弹出预览），以相对键盘左上角的 vp 计；未显示时为 null。 */
   @State keyPreview: KeyPreviewFrame | null = null;
   /** 气泡所属按键对应的手指，这样别处抬起的手指不会撤掉仍被按住的键的气泡；未显示时为 -1。 */
@@ -3189,7 +3189,19 @@ struct KeyboardView {
 
   /** 键盘外框在面板里的位置：根节点和遮罩按它在两侧和底下让出键盘底色。 */
   private adjustFrame(): AdjustFrame {
-    return KeyboardAdjustPolicy.frame(this.adjustValues(), this.adjustAvailability(), this.screenWidthVp);
+    return KeyboardAdjustPolicy.frame(this.adjustValues(), this.adjustAvailability(), this.adjustPanelWidthVp());
+  }
+
+  /** 键盘调整换算宽度和位置用的面板宽（vp）：量到的 `rootWidth`，还没量到时退回屏幕宽。不直接用 `screenWidthVp`：停靠面板的宽度是扩展能力建面板时的屏幕宽（`fitTouchPanel` 一直按它 resize），平板转屏或折叠屏开合之后与此刻的屏幕宽不同，按屏幕宽换算会让出比面板还宽的两侧，拖左右沿时对边也不再不动。 */
+  private adjustPanelWidthVp(): number {
+    return this.rootWidth > 0 ? this.rootWidth : this.screenWidthVp;
+  }
+
+  /** 中间一排每个按钮的宽（`KeyboardAdjustPolicy.buttonWidthVp`）：外框窄时按钮跟着缩，不压到左右柄上。 */
+  private adjustButtonWidth(): number {
+    const frame: AdjustFrame = this.adjustFrame();
+    return KeyboardAdjustPolicy.buttonWidthVp(this.adjustPanelWidthVp() - frame.left - frame.right,
+      this.adjustHandles().move ? 3 : 2, ADJUST_HANDLE_SHORT_VP, ADJUST_BUTTONS_SPACE_VP, ADJUST_BUTTON_WIDTH_VP);
   }
 
   /** 此刻算进面板高度的底部抬高（vp），不生效时为 0。 */
@@ -3241,7 +3253,7 @@ struct KeyboardView {
       this.adjustDragHandle = handle;
       this.adjustDragOrigin = [touch.displayX, touch.displayY];
       this.adjustDragBase = this.adjustValues();
-      this.adjustDragWidthVp = this.screenWidthVp;
+      this.adjustDragWidthVp = this.adjustPanelWidthVp();
     } else if (event.type === TouchType.Move && touch !== undefined && this.adjustDragHandle === handle) {
       this.dragAdjust(handle, touch.displayX - this.adjustDragOrigin[0], touch.displayY - this.adjustDragOrigin[1]);
     } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
@@ -11628,7 +11640,7 @@ struct KeyboardView {
         .fontColor(KeyboardAdjustPolicy.INK_COLOR)
         .maxLines(1)
     }
-    .width(ADJUST_BUTTON_WIDTH_VP)
+    .width(this.adjustButtonWidth())
     .padding({ top: ADJUST_BUTTON_GAP_VP, bottom: ADJUST_BUTTON_GAP_VP })
     .accessibilityGroup(true)
     .accessibilityText(this.adjustButtonLabel(kind))

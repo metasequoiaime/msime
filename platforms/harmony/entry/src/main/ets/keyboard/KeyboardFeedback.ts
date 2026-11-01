@@ -65,7 +65,7 @@ export interface FeedbackSettings {
   readonly floatingY: number;
   /** 键盘调整的底部抬高（vp，0–160）。 */
   readonly bottomLift: number;
-  /** 键盘调整的宽度（屏幕宽的百分比，60–100）。 */
+  /** 键盘调整的宽度（面板宽的百分比，60–100）。 */
   readonly widthPercent: number;
   /** 键盘调整的水平位置（两侧剩余空间里的千分比，0–1000，500 居中）。 */
   readonly positionX: number;
