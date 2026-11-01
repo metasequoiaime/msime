@@ -273,13 +273,15 @@ final class TextTrackpadDeviceChecks {
                 awaitOption(preferences, entry[1], expected);
             }
         }
+        // The first slider adjustment can still be overtaken by the page reload the last toggle save scheduled, so only later adjustments assert that the slider node survives.
+        boolean settled = false;
         for (String[] entry : new String[][] {{"水平移动距离", "horizontal_dp", "4", "48", "12"},
                 {"垂直移动距离", "vertical_dp", "8", "96", "28"}}) {
             int min = Integer.parseInt(entry[2]), max = Integer.parseInt(entry[3]);
             for (int desired : new int[] {min, max, Integer.parseInt(entry[4])}) {
                 Bundle args = new Bundle();
                 args.putFloat(AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE, desired - min);
-                actOnSetting(entry[0], true, slider -> {
+                AccessibilityNodeInfo node = actOnSetting(entry[0], true, slider -> {
                     var range = slider.getRangeInfo();
                     if (range == null || range.getMin() != 0 || range.getMax() != max - min)
                         throw new AssertionError("Native slider range differs from Rust options");
@@ -288,18 +290,25 @@ final class TextTrackpadDeviceChecks {
                     AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.getId(), args),
                     "Native slider adjustment rejected");
                 awaitOption(preferences, entry[1], desired);
+                if (settled) {
+                    // A successful distance save must not rebuild the page: TalkBack focus stays on the same slider node while adjusting step by step (#10513).
+                    SystemClock.sleep(500);
+                    if (!node.refresh() || node.getRangeInfo() == null || node.getRangeInfo().getCurrent() != desired - min)
+                        throw new AssertionError("Native settings page rebuilt the trackpad slider after a successful save: " + entry[1]);
+                }
+                settled = true;
             }
         }
         t.restartIme();
     }
 
-    /** Every saved trackpad option reloads the settings page asynchronously, so a node found just before that re-render can belong to a detached view and reject the action. A rejected action is retried on a freshly looked-up node; a node that already shows the target state needs no action. */
-    private void actOnSetting(String title, boolean slider, Predicate<AccessibilityNodeInfo> done,
+    /** Every saved trackpad toggle reloads the settings page asynchronously, so a node found just before that re-render can belong to a detached view and reject the action. A rejected action is retried on a freshly looked-up node; a node that already shows the target state needs no action. Returns the node that accepted the action or already showed the target state. */
+    private AccessibilityNodeInfo actOnSetting(String title, boolean slider, Predicate<AccessibilityNodeInfo> done,
             Predicate<AccessibilityNodeInfo> action, String failure) {
         long deadline = SystemClock.uptimeMillis() + 15000;
         while (true) {
             AccessibilityNodeInfo node = settingsNode(title, slider);
-            if (done.test(node) || action.test(node)) return;
+            if (done.test(node) || action.test(node)) return node;
             if (SystemClock.uptimeMillis() >= deadline) throw new AssertionError(failure);
             SystemClock.sleep(100);
         }

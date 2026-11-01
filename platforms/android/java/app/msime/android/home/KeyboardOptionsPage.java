@@ -791,10 +791,10 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             value.holdToOpen(), checked -> saveTrackpad("hold_to_open", checked));
         group.slider("水平移动距离", "距离越小，左右移动字符越快",
             NumberPolicy.strictInt(horizontal, "minimum", -1), NumberPolicy.strictInt(horizontal, "maximum", -1),
-            1, value.horizontalDp(), number -> number + " dp", number -> saveTrackpad("horizontal_dp", number));
+            1, value.horizontalDp(), number -> number + " dp", number -> saveTrackpadDistance("horizontal_dp", number));
         group.slider("垂直移动距离", "距离越小，上下移动行越快",
             NumberPolicy.strictInt(vertical, "minimum", -1), NumberPolicy.strictInt(vertical, "maximum", -1),
-            1, value.verticalDp(), number -> number + " dp", number -> saveTrackpad("vertical_dp", number));
+            1, value.verticalDp(), number -> number + " dp", number -> saveTrackpadDistance("vertical_dp", number));
         group.toggle("双击选词与三击选行", "编辑器提供足够文字时生效；长按后拖动也可延伸选区",
             value.tapSelection(), checked -> saveTrackpad("tap_selection", checked));
         group.toggle("逐步振动", "跟随键盘振动和系统触感开关", value.haptics(),
@@ -806,6 +806,12 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
 
     private void saveTrackpad(String key, Object value) {
         savePreferences(preferences -> KeyboardSheets.child(preferences, "android_text_trackpad").put(key, value));
+    }
+
+    /** 两个距离滑块保存成功后不重建页面，只在失败时刷新把滑块拨回磁盘上的值：`MsSlider` 对方向键和读屏调整每一格都提交，成功也重建的话旧的 SeekBar 节点被移除，读屏用户每调一格就丢一次焦点（与「键盘底部高度」相同，#10513）。滑块旁的数值由滑块自己更新，其他行不依赖这两个值。 */
+    private void saveTrackpadDistance(String key, int value) {
+        KeyboardSheets.save(this, preferences -> KeyboardSheets.child(preferences, "android_text_trackpad").put(key, value),
+            null, this::reload);
     }
 
     /** 改一个工具栏开关（`touch_toolbar` 的成员、语音的 `touch_voice_shortcut` 或本地设置），写完重画预览（显示方式还会改变按钮行的可用状态）。 */
