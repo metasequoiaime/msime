@@ -529,7 +529,7 @@ impl TranslationDocument<'_> {
         if !offline_gloss_languages.is_empty() {
             query["offline_gloss_languages"] = json!(offline_gloss_languages);
         }
-        // Likewise present only when on: the host then pronounces the gloss lines it draws, English through msime_client_pronunciation_request.
+        // 同样只在打开时出现：宿主把它画出的释义行连同各自的目标语言交给 msime_client_pronunciation_request 去读（有系统日文分词器的宿主可以自己读日文行）。
         if preferences.candidate_pronunciation {
             query["candidate_pronunciation"] = json!(true);
         }

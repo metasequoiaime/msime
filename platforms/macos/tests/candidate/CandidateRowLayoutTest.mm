@@ -1141,7 +1141,7 @@ static void TestPronunciationLine(MSIMEInputController *controller, NSWindow *pa
                            @"candidates": @[@{@"text": @"动画主体", @"translation": @"Animation protagonist", @"highlighted": @YES},
                                             @{@"text": @"东华主题", @"translation": @"Donghua theme"}]};
     [controller setValue:nil forKey:@"pronunciationTargets"];
-    [controller setValue:[@{@"Animation protagonist": ipa} mutableCopy] forKey:@"englishPronunciations"];
+    [controller setValue:[@{MSIMEPronunciationKey(@"en", @"Animation protagonist"): ipa} mutableCopy] forKey:@"sharedPronunciations"];
     [controller setValue:view forKey:@"view"];
     [controller renderCandidates];
     MSIMECandidateButton *plain = CandidateButton(panel.contentView, 0);
@@ -1194,7 +1194,7 @@ static void TestPronunciationLine(MSIMEInputController *controller, NSWindow *pa
 
     // 只有释义变了、格子没变时按钮原地重画，读音跟着新释义换，不留上一条释义的读音。
     [controller setValue:@[@"en"] forKey:@"pronunciationTargets"];
-    [controller setValue:[@{@"ab": @"/ab/", @"ba": @"/ba/"} mutableCopy] forKey:@"englishPronunciations"];
+    [controller setValue:[@{MSIMEPronunciationKey(@"en", @"ab"): @"/ab/", MSIMEPronunciationKey(@"en", @"ba"): @"/ba/"} mutableCopy] forKey:@"sharedPronunciations"];
     NSDictionary *(^swapView)(NSString *) = ^NSDictionary *(NSString *gloss) {
         return @{@"session": @1, @"generation": @3, @"focused": @YES, @"editing_text": @"d", @"page": @0, @"page_count": @1,
                  @"candidates": @[@{@"id": @{@"session": @1, @"generation": @3, @"index": @0}, @"text": @"的", @"translation": gloss, @"highlighted": @YES}]};
@@ -1211,7 +1211,7 @@ static void TestPronunciationLine(MSIMEInputController *controller, NSWindow *pa
     // 竖排：释义仍在候选同一行，读音在释义下面，行高容得下两行。
     appearance.vertical = YES;
     [controller setValue:view forKey:@"view"];
-    [controller setValue:[@{@"Animation protagonist": ipa} mutableCopy] forKey:@"englishPronunciations"];
+    [controller setValue:[@{MSIMEPronunciationKey(@"en", @"Animation protagonist"): ipa} mutableCopy] forKey:@"sharedPronunciations"];
     [controller renderCandidates];
     MSIMECandidateButton *vertical = CandidateButton(panel.contentView, 0);
     assert([vertical.pronunciation isEqual:ipa] && !vertical.itemLayout.translation.below);
@@ -1317,7 +1317,7 @@ static void TestSelectedGlossColour(RowLayoutClient *client)
         [controller setValue:client forKey:@"activeClient"];
         [controller setValue:panel forKey:@"panel"];
         [controller setValue:@[@"en"] forKey:@"pronunciationTargets"];
-        [controller setValue:[@{@"to": @"/tuː/"} mutableCopy] forKey:@"englishPronunciations"];
+        [controller setValue:[@{MSIMEPronunciationKey(@"en", @"to"): @"/tuː/"} mutableCopy] forKey:@"sharedPronunciations"];
         [controller setValue:@{@"focused": @YES, @"editing_text": @"dao", @"page": @0, @"page_count": @1,
                                @"candidates": @[@{@"text": @"到", @"translation": @"to", @"highlighted": @YES}, @{@"text": @"道", @"translation": @"to"}]}
                       forKey:@"view"];

@@ -122,6 +122,43 @@ def check(condition: bool, message: str) -> None:
         failures.append(message)
 
 
+# 法日西俄德韩释义行的读音表（scripts/build_target_pronunciations.py）改编自 CC BY-SA 4.0 的维基词典，NOTICE 必须随数据库一起走。它不进上面那些按平台的许可证渠道，而是和英文音标表、离线释义一样放在数据库旁边：资源包的文件清单就是锁的 `built`，随包分发的三个打包脚本各自只连同 NOTICE 一起暂存数据库。这里核对锁里有 NOTICE、生成器写的 NOTICE 带着署名、许可证和改动说明，以及每个打包脚本暂存数据库的地方都带上了 NOTICE。
+TARGET_PRONUNCIATIONS_LOCK = "resources/target-pronunciations.lock.json"
+TARGET_PRONUNCIATIONS_NOTICE = "target-pronunciations-NOTICE.txt"
+TARGET_PRONUNCIATIONS_NOTICE_MARKERS = (
+    "English Wiktionary (https://en.wiktionary.org/), by Wiktionary contributors",
+    "Wiktextract (https://github.com/tatuylonen/wiktextract)",
+    "kaikki.org",
+    "Wiktextract dump date: {dump_date}",
+    "Wiktextract revision: {source_revision}",
+    "Changes:",
+    "Creative Commons Attribution-ShareAlike 4.0 International License (https://creativecommons.org/licenses/by-sa/4.0/)",
+)
+# 随包带着外语读音表的打包脚本：每个都要在暂存数据库的同一处带上 NOTICE。
+TARGET_PRONUNCIATIONS_CHANNELS = (
+    "platforms/macos/stage-resources.sh",
+    "platforms/harmony/stage-resources.sh",
+    "platforms/windows/installer/Prepare-PackageFiles.ps1",
+)
+
+
+def check_target_pronunciation_notice() -> None:
+    lock = json.loads((ROOT / TARGET_PRONUNCIATIONS_LOCK).read_text(encoding="utf-8"))
+    names = [artifact["name"] for artifact in lock.get("built") or []]
+    check(TARGET_PRONUNCIATIONS_NOTICE in names, f"{TARGET_PRONUNCIATIONS_LOCK} does not pin {TARGET_PRONUNCIATIONS_NOTICE}, so the resource pack would install the databases without it")
+    check(any(name.endswith("-phonetic.db") for name in names), f"{TARGET_PRONUNCIATIONS_LOCK} pins no *-phonetic.db")
+    check(lock.get("license") == "CC-BY-SA-4.0", f"{TARGET_PRONUNCIATIONS_LOCK} no longer records CC-BY-SA-4.0")
+    generator = (ROOT / "scripts/build_target_pronunciations.py").read_text(encoding="utf-8")
+    for marker in TARGET_PRONUNCIATIONS_NOTICE_MARKERS:
+        check(marker in generator, f"scripts/build_target_pronunciations.py writes a NOTICE without {marker!r}")
+    for channel in TARGET_PRONUNCIATIONS_CHANNELS:
+        live = [line for line in (ROOT / channel).read_text(encoding="utf-8").splitlines() if not line.lstrip().startswith("#")]
+        staging = [line for line in live if "phonetic.db" in line and ("cp " in line or "Database" in line)]
+        check(bool(staging), f"{channel} no longer stages the target pronunciation tables")
+        for line in staging:
+            check(TARGET_PRONUNCIATIONS_NOTICE in line or "en-phonetic.db" in line, f"{channel} stages the target pronunciation tables without {TARGET_PRONUNCIATIONS_NOTICE}: {line.strip()[:120]}")
+
+
 def main() -> int:
     lock = json.loads(LOCK.read_text(encoding="utf-8"))
     for relative, (repository, commit, directory, phrases) in LICENCES.items():
@@ -212,6 +249,8 @@ def main() -> int:
             # project.yml 的 `- path:` 条目要整行相等，`../../LICENSE` 才不会被 `../../LICENSE.md` 之类的路径冒充。
             exact = fragment.startswith("- path: ")
             check(any(fragment == line.strip() if exact else fragment in line for line in live), f"{channel} does not ship the GPL-3.0 or MPL-2.0 text: no live line contains {fragment!r}")
+
+    check_target_pronunciation_notice()
 
     if failures:
         for failure in failures:

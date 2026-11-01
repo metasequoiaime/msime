@@ -15,7 +15,7 @@ export interface CandidateWidthEntry {
   readonly annotation: string;
   /** A Korean Hanja row's 훈음, which the vertical list draws beside the word; see CandidateGlossPolicy.hunEum. */
   readonly hunEum?: string;
-  /** 「显示英文音标」打开时的 `/…/` 音标，横排画在释义下面、竖排接在旁边；格子至少要放得下它。 */
+  /** 「显示读音」打开时的读音（英文 `/…/` 音标、日文罗马字或其他语言的 IPA），横排画在释义下面、竖排接在旁边；格子至少要放得下它。 */
   readonly pronunciation?: string;
 }
 
