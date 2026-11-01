@@ -5698,12 +5698,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         insertOwnText(result, source: .ai)
         return true
       }, close: { [weak self] in self?.closeKeyboardService() }))
-    servicePanel = panel
-    addChild(panel)
-    panel.view.frame = view.bounds
-    panel.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-    view.addSubview(panel.view)
-    panel.didMove(toParent: self)
+    attachServicePanel(panel)
   }
 
   private func showKeyboardVoice() {
@@ -5733,12 +5728,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         KeyboardAppLauncher.open(KeyboardAppLauncher.voiceURL, from: self)
       }))
       panel.overrideUserInterfaceStyle = KeyboardAppearancePreference.style(KeyboardAppearancePreference.voiceKey, in: session.sharedPreferences)
-      servicePanel = panel
-      addChild(panel)
-      panel.view.frame = view.bounds
-      panel.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-      view.addSubview(panel.view)
-      panel.didMove(toParent: self)
+      attachServicePanel(panel)
     } catch { showDiagnostic(error.localizedDescription) }
   }
 
@@ -5872,6 +5862,21 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       showDiagnostic(error.localizedDescription)
     }
     renderCandidateStrip()
+  }
+
+  /// 把 AI 润色、语音结果这类服务面板盖在整块键盘上：钉在键盘外框（`keyboardFrameGuide`）上，键盘调整收窄、平移或抬高之后与工具栏和按键一起收窄，不铺到两侧和底下空出来的地方。
+  private func attachServicePanel(_ panel: UIViewController) {
+    servicePanel = panel
+    addChild(panel)
+    panel.view.translatesAutoresizingMaskIntoConstraints = false
+    view.addSubview(panel.view)
+    NSLayoutConstraint.activate([
+      panel.view.leadingAnchor.constraint(equalTo: keyboardFrameGuide.leadingAnchor),
+      panel.view.trailingAnchor.constraint(equalTo: keyboardFrameGuide.trailingAnchor),
+      panel.view.topAnchor.constraint(equalTo: keyboardFrameGuide.topAnchor),
+      panel.view.bottomAnchor.constraint(equalTo: keyboardFrameGuide.bottomAnchor),
+    ])
+    panel.didMove(toParent: self)
   }
 
   private func closeKeyboardService() {
