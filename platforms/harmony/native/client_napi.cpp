@@ -334,6 +334,13 @@ static napi_value TelemetryNativeCapture(napi_env env, napi_callback_info info) 
     }
     return result;
 }
+
+// 按需加载 sherpa-onnx HAR 的原生库后刷新崩溃记录器模块快照。
+static napi_value TelemetryNativeRefreshModules(napi_env env, napi_callback_info) {
+    msime_native_crash_refresh_modules();
+    napi_value result = nullptr;
+    return napi_get_undefined(env, &result) == napi_ok ? result : nullptr;
+}
 TEXT_ENTRY(NoticeDismiss, msime_client_notice_dismiss)
 // 宿主自报的 User-Agent 由 Rust 拼装和清洗（#8201 的 P11）：纯函数，不联网、不读文件。
 TEXT_ENTRY(ClientAgent, msime_client_client_agent)
@@ -1879,6 +1886,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("telemetryFlush", TelemetryFlush),
         ENTRY("telemetryClear", TelemetryClear),
         ENTRY("telemetryNativeCapture", TelemetryNativeCapture),
+        ENTRY("telemetryNativeRefreshModules", TelemetryNativeRefreshModules),
         ENTRY("notices", Notices),
         ENTRY("updateCheck", UpdateCheck),
         ENTRY("noticeDismiss", NoticeDismiss),
