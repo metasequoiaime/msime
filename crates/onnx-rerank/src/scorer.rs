@@ -163,6 +163,46 @@ impl OnnxScorer {
     }
 }
 
+impl OnnxScorer {
+    /// 这台机器上这个模型打一页重负载要多久（毫秒）：32 字的上文之后，9 个 6 字的候选只共享第一个字，一次要新算 37 个前缀，相当于长句打字时尾部的那种按键。先预热一次，再取 3 次的中位数；每次换一组候选，不让缓存帮忙。测完清空缓存。
+    ///
+    /// 宿主拿它在大小两个模型之间选：桌面和新手机上大模型这一页只要几毫秒，老手机上要二三十毫秒，按键预算挡不住。
+    pub fn calibrate(&mut self) -> f64 {
+        let ids: Vec<char> = self.vocabulary.characters().take(64).collect();
+        if ids.len() < 64 {
+            return f64::INFINITY;
+        }
+        let context: String = ids[..32].iter().collect();
+        let mut times = Vec::new();
+        for run in 0..4 {
+            let page: Vec<String> = (0..9)
+                .map(|c| {
+                    let head = ids[32 + run];
+                    let rest = (0..5).map(|t| ids[36 + (c * 3 + t + run * 7) % 28]);
+                    std::iter::once(head).chain(rest).collect()
+                })
+                .collect();
+            let texts: Vec<&str> = page.iter().map(String::as_str).collect();
+            // 上文先编码好，只量按键这一步。
+            self.log_probabilities(&context, &texts[..1]);
+            let started = std::time::Instant::now();
+            let scored = self.log_probabilities(&context, &texts);
+            let elapsed = started.elapsed().as_secs_f64() * 1000.0;
+            if scored.len() != texts.len() {
+                return f64::INFINITY;
+            }
+            if run > 0 {
+                times.push(elapsed);
+            }
+            self.prefixes.clear();
+            self.cache = None;
+            self.context = None;
+        }
+        times.sort_by(f64::total_cmp);
+        times[times.len() / 2]
+    }
+}
+
 impl CandidateScorer for OnnxScorer {
     fn context_length(&self) -> usize {
         self.info.context_chars + CANDIDATE_ROOM

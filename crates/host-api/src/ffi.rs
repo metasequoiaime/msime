@@ -228,9 +228,17 @@ pub(crate) fn keyboard_reranker(
     })
 }
 
-/// 资源目录里放 ONNX Runtime 重排模型的子目录：chinese-ime-lm 的 `neural/choice/export_step.py` 导出的 `lm_step.ort`、`model.json` 和 `vocab.json`。
+/// 资源目录里放 ONNX Runtime 重排模型的子目录：chinese-ime-lm 的 `neural/choice/export_step.py` 导出的 `lm_step.ort`、`model.json` 和 `vocab.json`。这是大的那个（8x448，ctx-v1 有上下文 91.8%、无上下文 83.4%）。
 #[cfg(feature = "onnx-rerank")]
 pub(crate) const RERANK_MODEL_DIRECTORY: &str = "rerank-model";
+
+/// 小的那个（6x256，跳过全字表 softmax，ctx-v1 有上下文 90.1%、无上下文 82.8%），给大模型在按键预算里跑不动的机器。
+#[cfg(feature = "onnx-rerank")]
+pub(crate) const SMALL_RERANK_MODEL_DIRECTORY: &str = "rerank-model-small";
+
+/// 大模型打一页重负载（[`msime_onnx_rerank::OnnxScorer::calibrate`]）超过这么多毫秒就换小模型。2026-11-01 在真机上量的自测值：iPhone 17 是 3.8 到 4.8 ms，Mac 是 4 到 7 ms（机器很忙时），iPhone XR 是 21.9 到 23.4 ms，Pixel 3 XL（四线程）是 30.4 ms。前两台用大模型时整键 p95 在 4 ms 上下；后两台用大模型是 13 到 27 ms，用小模型是 4.4 到 4.9 和 9.3 ms。
+#[cfg(feature = "onnx-rerank")]
+const LARGE_RERANK_MODEL_BUDGET_MS: f64 = 10.0;
 
 /// 一次图运行用几个线程。安卓手机多是四个大核加四个小核：Pixel 3 XL 上用 `rerank_latency` 在真实运行时里量，手机模型每键整键 p95 两线程 10.8 ms、三线程 10.0 ms、四线程 9.3 ms，所以安卓用四线程。苹果的 A 系列芯片只有两个大核，四线程在 iPhone XR 和 iPhone 17 上都比两线程慢；桌面两线程已在预算之内，不多占核。
 #[cfg(all(feature = "onnx-rerank", target_os = "android"))]
@@ -238,15 +246,30 @@ const RERANK_MODEL_THREADS: usize = 4;
 #[cfg(all(feature = "onnx-rerank", not(target_os = "android")))]
 const RERANK_MODEL_THREADS: usize = 2;
 
+/// 装了两个 ONNX 模型时先加载大的、量它在这台机器上打一页重负载要多久，超过 [`LARGE_RERANK_MODEL_BUDGET_MS`] 就换小的；只装了一个就用那一个。按量出来的速度选，不按机型名单选。
 #[cfg(feature = "onnx-rerank")]
 fn onnx_reranker(resources: &Path) -> Option<Box<dyn msime_input_runtime::CandidateScorer>> {
-    let directory = resources.join(RERANK_MODEL_DIRECTORY);
+    let small = || load_onnx_reranker(&resources.join(SMALL_RERANK_MODEL_DIRECTORY));
+    let chosen = match load_onnx_reranker(&resources.join(RERANK_MODEL_DIRECTORY)) {
+        Some(mut large) if resources.join(SMALL_RERANK_MODEL_DIRECTORY).is_dir() => {
+            if large.calibrate() <= LARGE_RERANK_MODEL_BUDGET_MS {
+                Some(large)
+            } else {
+                small().or(Some(large))
+            }
+        }
+        Some(large) => Some(large),
+        None => small(),
+    };
+    chosen.map(|scorer| Box::new(scorer) as Box<dyn msime_input_runtime::CandidateScorer>)
+}
+
+#[cfg(feature = "onnx-rerank")]
+fn load_onnx_reranker(directory: &Path) -> Option<msime_onnx_rerank::OnnxScorer> {
     let model = std::fs::read(directory.join("lm_step.ort")).ok()?;
     let info = std::fs::read_to_string(directory.join("model.json")).ok()?;
     let vocabulary = std::fs::read_to_string(directory.join("vocab.json")).ok()?;
-    msime_onnx_rerank::OnnxScorer::load(&model, &info, &vocabulary, RERANK_MODEL_THREADS)
-        .ok()
-        .map(|scorer| Box::new(scorer) as Box<dyn msime_input_runtime::CandidateScorer>)
+    msime_onnx_rerank::OnnxScorer::load(&model, &info, &vocabulary, RERANK_MODEL_THREADS).ok()
 }
 
 pub mod account;

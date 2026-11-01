@@ -52,6 +52,13 @@ impl Vocabulary {
         Self { ids, unk }
     }
 
+    /// 字表里的字，按编号从小到大。
+    pub fn characters(&self) -> impl Iterator<Item = char> + '_ {
+        let mut chars: Vec<(u32, char)> = self.ids.iter().map(|(&c, &id)| (id, c)).collect();
+        chars.sort_unstable();
+        chars.into_iter().map(|(_, c)| c)
+    }
+
     pub fn encode(&self, text: &str) -> Vec<u32> {
         text.chars()
             .map(|c| self.ids.get(&c).copied().unwrap_or(self.unk))

@@ -127,3 +127,23 @@ fn nothing_to_score_declines() {
     assert!(scorer.log_probabilities("我们", &[]).is_empty());
     assert!(scorer.log_probabilities("我们", &["去", ""]).is_empty());
 }
+
+#[test]
+fn calibration_measures_a_heavy_page_and_leaves_no_cache() {
+    let mut scorer = scorer();
+    let ms = scorer.calibrate();
+    assert!(ms.is_finite() && ms > 0.0, "{ms}");
+    // 量完不留缓存：接着打分与新加载的结果一样。
+    let (context, keystrokes) = &cases()[0];
+    let last = keystrokes.last().unwrap();
+    assert_within(
+        &scorer.log_probabilities(context, &texts(last)),
+        &crate_fresh_scores(context, last),
+        TOLERANCE,
+        "after calibration",
+    );
+}
+
+fn crate_fresh_scores(context: &str, keystroke: &Keystroke) -> Vec<f32> {
+    scorer().log_probabilities(context, &texts(keystroke))
+}

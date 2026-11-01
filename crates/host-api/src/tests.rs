@@ -8711,8 +8711,20 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
         2
     );
 
-    // 坏模型不挂它；资源目录里也没有随包的句子模型，于是什么都不挂。
+    // 再装一个小模型：大的在这台机器上很快，自测后留用大的。
+    let small = resources.path().join(ffi::SMALL_RERANK_MODEL_DIRECTORY);
+    std::fs::create_dir(&small).unwrap();
+    for name in ["lm_step.ort", "model.json", "vocab.json"] {
+        std::fs::copy(fixtures.join(name), small.join(name)).unwrap();
+    }
+    assert!(ffi::keyboard_reranker(true, root, None).is_some());
+
+    // 大的坏了就用小的。
     std::fs::write(directory.join("lm_step.ort"), b"not a model").unwrap();
+    assert!(ffi::keyboard_reranker(true, root, None).is_some());
+
+    // 两个都坏，资源目录里也没有随包的句子模型，于是什么都不挂。
+    std::fs::write(small.join("lm_step.ort"), b"not a model").unwrap();
     assert!(ffi::keyboard_reranker(true, root, None).is_none());
 }
 

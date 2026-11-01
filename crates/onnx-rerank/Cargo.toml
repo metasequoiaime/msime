@@ -10,6 +10,7 @@ rust-version.workspace = true
 [features]
 # 链接 ONNX Runtime 的模型后端。默认关闭：ort 要在构建时找到按模型算子清单精简构建的 ONNX Runtime 静态库（`ORT_LIB_LOCATION`），没有它时这个 crate 只编译不依赖原生库的前缀簿记。
 runtime = ["dep:ort"]
+# 注意：ort-sys 的构建脚本把 `ORT_LIB_LOCATION` 里的静态库复制进它自己的输出目录，之后换了那里的库文件也不会重新复制。换库（比如换了算子清单重编）之后先 `cargo clean -p ort-sys`，不然链进去的还是旧库，加载新模型时报找不到算子的实现。
 
 [dependencies]
 msime-engine = { path = "../engine" }
@@ -18,6 +19,10 @@ serde_json.workspace = true
 thiserror.workspace = true
 # ONNX Runtime 的 Rust 绑定（MIT OR Apache-2.0）。只用 CPU、只读 ORT 格式模型，所以关掉默认特性（下载预编译库、ndarray、tracing），API 级别对齐精简构建所用的 ONNX Runtime 1.24。
 ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "api-24"], optional = true }
+
+[[example]]
+name = "calibrate"
+required-features = ["runtime"]
 
 [lints]
 workspace = true
