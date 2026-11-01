@@ -295,8 +295,8 @@ jobs:
           $innoInstall = Start-Process -FilePath $innoSetup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/ALLUSERS', "/DIR=`"$inno`"") -Wait -PassThru
           if ($innoInstall.ExitCode -ne 0) { throw "Inno Setup 安装失败，退出码：$($innoInstall.ExitCode)" }
           $iscc = Join-Path $inno 'ISCC.exe'
-          $isccVersion = (Get-Item -LiteralPath $iscc).VersionInfo.ProductVersion
-          if ($isccVersion -notlike '6.4.3*') { throw "Inno Setup 版本不是 6.4.3：$isccVersion" }
+          # ISCC.exe 的版本资源是 0.0.0.0，读不出版本；安装程序摘要已经锁定 6.4.3，编译日志的 Compiler engine version 也会打出来。
+          if (-not (Test-Path -LiteralPath $iscc -PathType Leaf)) { throw "找不到 ISCC.exe：$iscc" }
           $isl = "$inno\Languages\ChineseSimplified.isl"
           if (-not (Test-Path -LiteralPath $isl)) {
             Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/jrsoftware/issrc/cfdf48923178df4b4f040e038b423aa555a61ffc/Files/Languages/Unofficial/ChineseSimplified.isl' -OutFile $isl
