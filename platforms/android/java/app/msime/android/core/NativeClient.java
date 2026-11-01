@@ -55,7 +55,7 @@ public final class NativeClient {
     public static String skinResource(String request) { return TextPolicy.utf8(skinResourceRaw(request.getBytes(StandardCharsets.UTF_8))); }
     /** 应用主题目录：`{app_themes:[{id,title,season,seasonal,light,dark}],default}`。纯计算。 */
     public static String appThemeCatalog() { return TextPolicy.utf8(appThemeCatalogRaw()); }
-    /** 应用主题在本地月份与明暗模式下的颜色：`{id,season,accent,accent_soft,on_accent,background,card,hair}`。纯计算，可在主线程调用。 */
+    /** 应用主题在本地月份与明暗模式下的颜色：`{id,season,accent,accent_soft,on_accent,background,card,hair,candidate_accent}`（`candidate_accent` 是触屏候选条首选的字色，浅色加深到 WCAG AA，深色等于 `accent`）。纯计算，可在主线程调用。 */
     public static String resolveAppTheme(String appTheme, int month, boolean dark) {
         validateMonth(month);
         try {

@@ -3,6 +3,22 @@ package app.msime.android;
 public final class KeyboardSkinSmoke {
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }
 
+    /** WCAG 2.x 对比度，只看 `#RRGGBB` 的 RGB。 */
+    static double contrast(String first, String second) {
+        double a = luminance(Integer.parseInt(first.substring(1), 16));
+        double b = luminance(Integer.parseInt(second.substring(1), 16));
+        return (Math.max(a, b) + .05) / (Math.min(a, b) + .05);
+    }
+
+    static double luminance(int rgb) {
+        return .2126 * linear(rgb >> 16) + .7152 * linear(rgb >> 8) + .0722 * linear(rgb);
+    }
+
+    static double linear(int value) {
+        double component = (value & 255) / 255.0;
+        return component <= .04045 ? component / 12.92 : Math.pow((component + .055) / 1.055, 2.4);
+    }
+
     public static void main(String[] args) {
         // `system` 是设计 classic 基础键盘色：按 design-tokens §1.4 的公式由 classic 种子推导。
         KeyboardSkin light = KeyboardSkin.system(false);
@@ -19,6 +35,9 @@ public final class KeyboardSkinSmoke {
         check("#222C7A4B".equals(light.accentSoft()) && "#1F000000".equals(light.hairline()));
         // 首选字色加深到 WCAG AA：#2C7A4B 在键盘底色 #DFECDF 上只有约 4.3:1，#267547 约 4.6:1；回车与开启态仍是 #2C7A4B。
         check("#FDFEFC".equals(light.candidateSelectedBackground()) && "#267547".equals(light.candidateSelectedForeground()));
+        // 浅色 classic 回退的首选字色要按真实对比度到 WCAG AA：首选画在字母键色的底片上，底片外是键盘底色，两处都要 4.5:1。
+        check(contrast(light.candidateSelectedForeground(), light.candidateSelectedBackground()) >= 4.5);
+        check(contrast(light.candidateSelectedForeground(), light.background()) >= 4.5);
         check(light.cornerRadius() == 8 && light.borderWidth() == 0 && light.shadowOpacity() == 0);
         check(!light.designed() && light.pattern() == 0 && light.photo() == null);
         check("#80FDFEFC".equals(light.sidebarBackground()));
