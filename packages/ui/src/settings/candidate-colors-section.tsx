@@ -140,7 +140,7 @@ export function CandidateColorsSection({
           />
         </>
       ) : (
-        <SettingsGroupNote>当前宿主的候选窗口不支持强调或选中行颜色。</SettingsGroupNote>
+        <SettingsGroupNote inline>当前宿主的候选窗口不支持强调或选中行颜色。</SettingsGroupNote>
       )}
       {showSelectionAppearance ? (
         <CandidateColorRow
@@ -152,7 +152,7 @@ export function CandidateColorsSection({
           resetLabel="候选悬停色跟随主题"
         />
       ) : (
-        <SettingsGroupNote>
+        <SettingsGroupNote inline>
           {/* Linux 的边框色跟随主题（`candidate_border_color` 为假）时没有边框取色器，说明只讲悬停。 */}
           {linux
             ? showBorderColor

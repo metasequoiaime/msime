@@ -16,6 +16,11 @@
 - **PR 里的截图和效果图一律上传到 catbox，嵌进 PR 正文。** 改了界面、图标、配色或任何看得见的东西的 PR，正文的「截图」一节必须附改前和改后的图，按真实尺寸、真实底色截或画，系统会再裁剪的图标要按裁剪后的样子给；不改视觉的 PR 在这一节写「无」。上传用 `curl -F reqtype=fileupload -F fileToUpload=@<图片> https://catbox.moe/user/api.php`，返回的 `https://files.catbox.moe/<id>.<扩展名>` 是文件本身的直链，用 `![说明](链接)` 嵌入；贴进正文之前把链接下载回来，确认是图片且与本地文件逐字节一致。只用 files.catbox.moe：tmpfiles.org、file.io 这类靠广告变现的匿名文件站一律不用，它们的落地页有伪装成下载按钮的恶意广告。catbox 的匿名上传是公开的、删不掉，图里不能出现真实输入、账号、个人资料、本机路径或凭据。本机的截图照常留着，上传是另外一份。见 `.agents/notes/implemented/process/2026-11-01-pr-images-on-catbox.md`。
 - **不要把 Tauri 生成的工程当成某个平台的产品去启动、调试或验收。** 每个平台的产品本体都是 `platforms/<os>` 下的原生宿主，Tauri/React 只是公共组件，而且不是每个宿主都承载它：共享 React 设置页只在 macOS、Linux（Tauri 设置应用）和 HarmonyOS（ArkWeb 加载的 rawfile，不经过 Tauri）上作为设置界面出现，Windows 的原生宿主只拉起 Tauri 的共享面板，iOS App 与 Android 发布 APK 两者都不含（见 docs/ARCHITECTURE.md 的「设置界面按平台归属」）。装机、启动和设备验收一律针对原生宿主；`apps/desktop` 的目录名和 Tauri 生成工程里自带的 bundle id 都不构成例外。
 
+## 界面
+
+- **设置项说明一律收进标题旁的「?」，全平台。** 六个平台的设置界面都不在页面上常驻解释性说明：设置项的解释进标题旁的「?」（桌面悬停或聚焦弹出、手机点按弹出），一组共用的解释进组标题旁的「?」；状态、当前值、校验和错误、条目元信息、前置条件、宿主限制、空列表提示和紧贴按钮讲后果的一句话留在原处。共享设置页用 `Row` 的 `description`（进「?」）和 `detail`（常驻），原生设置界面用各自的「?」组件。新增设置项或改界面时按这条写，不要在标题下面加一段灰字说明。规则全文和各平台落地见 [ARCHITECTURE.md](docs/ARCHITECTURE.md) 的「设置项说明收进「?」」。
+- **改界面要留图。** 改动前后的截图都留下，PR 的验证段写明截了哪些画面；验收用的截图不要随临时文件一起删掉。
+
 ## 工具链
 
 - **Xcode 27 的模拟器界面是 `/Applications/Xcode.app/Contents/Applications/DeviceHub.app`，`Simulator.app` 已经不存在了。** `open -a Simulator` 和 `open -b com.apple.iphonesimulator` 都会失败，而 `xcrun simctl` 的 boot、install、launch、screenshot 全都照常工作——于是很容易把「窗口没出现」误判成「模拟器没起来」。设备真实状态以 `xcrun simctl list devices` 为准，要看画面才需要开 DeviceHub。

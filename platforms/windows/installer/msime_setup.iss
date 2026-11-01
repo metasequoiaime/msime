@@ -44,7 +44,7 @@
 #define MyVersionDirBase "msime_v" + MyAppVersion
 ; 64 位 TIP 的系统目录副本，见 [Files] 的 TSF 一节。
 #define MySystemTipDir "{sys}\IME\" + MyEditionInstallDir
-; [Code] 里要看到真正 System32 的 Exec（查、删 MySystemTipDir，按路径停 64 位进程）。Inno 6 在 64 位安装模式下，[Code] 的文件函数和 Exec 都绕开 WOW64 重定向；Inno 7 的 Setup 默认是 32 位进程，Exec 不再绕开，只有 ExecWithNativeSysDir 绕开，用 Exec 会启动 SysWOW64 里的 32 位 cmd 和 PowerShell。CI 的 Win10+ 包用 6.7.1、Win7 包用 6.4.3，本机构建优先用 7（Compile-Installer.ps1）。
+; [Code] 里要看到真正 System32 的 Exec（查、删 MySystemTipDir，按路径停 64 位进程）。Inno 6 在 64 位安装模式下，[Code] 的文件函数和 Exec 都绕开 WOW64 重定向；Inno 7 的 Setup 默认是 32 位进程，Exec 不再绕开，只有 ExecWithNativeSysDir 绕开，用 Exec 会启动 SysWOW64 里的 32 位 cmd 和 PowerShell。CI 的 Win10+ 包用 6.7.1、Win7 包用 6.2.2，本机构建优先用 7（Compile-Installer.ps1）。
 #if Ver >= EncodeVer(7, 0, 0)
 #define ExecNativeSys "ExecWithNativeSysDir"
 #else
@@ -75,7 +75,7 @@ OutputBaseFilename={#MyEditionInstallerBaseName}_v{#MyAppVersion}{#MyOutputSuffi
 SetupIconFile={#MySourceRoot}\MetasequoiaIME.ico
 Compression=lzma2
 SolidCompression=yes
-; 安装和卸载界面自动跟随 Windows 的浅色/深色模式。dynamic 是 Inno Setup 6.6 加的；Win7 包用 6.4.3 编译（见 release-windows7.yml），只用 modern。
+; 安装和卸载界面自动跟随 Windows 的浅色/深色模式。dynamic 是 Inno Setup 6.6 加的；Win7 包用 6.2.2 编译（见 release-windows7.yml），只用 modern。
 #if Ver >= EncodeVer(6, 6, 0)
 WizardStyle=modern dynamic
 #else
@@ -87,11 +87,19 @@ UsedUserAreasWarning=no
 CloseApplicationsFilter=*.exe,*.dll,*.chm,*.db,*.bin,*.dat
 #ifdef Windows7Architecture
 MinVersion=6.1sp1
-#ifdef Windows7X86
-ArchitecturesAllowed=x86os
+; x86os、x64os 是 Inno 6.3 起的写法，Win7 包用的 6.2.2 只认含义相同的 x86、x64。
+#if Ver >= EncodeVer(6, 3, 0)
+#define Win7ArchX86 "x86os"
+#define Win7ArchX64 "x64os"
 #else
-ArchitecturesAllowed=x64os
-ArchitecturesInstallIn64BitMode=x64os
+#define Win7ArchX86 "x86"
+#define Win7ArchX64 "x64"
+#endif
+#ifdef Windows7X86
+ArchitecturesAllowed={#Win7ArchX86}
+#else
+ArchitecturesAllowed={#Win7ArchX64}
+ArchitecturesInstallIn64BitMode={#Win7ArchX64}
 #endif
 #else
 ArchitecturesAllowed=x64compatible
@@ -187,13 +195,17 @@ Source: "{#MySourceRoot}\server_exe\*"; \
     Flags: ignoreversion recursesubdirs createallsubdirs
 
 
-; 资源锁只允许平面目录中的已校验文件。逐项写入编译时摘要，不按时间戳猜测内容相同。
+; 资源锁只允许平面目录中的已校验文件。逐项写入编译时摘要，不按时间戳猜测内容相同。Win7 包用的 Inno 6.2.2 的预处理器没有 GetSHA256OfFile，改用 SHA-1，ResourceNeedsReplacement 按同一个版本条件选对应的运行时函数；这里只判断内容是否相同，不作安全校验。
 #define ResourceFindHandle
 #define ResourceFindResult
 #sub InstallResource
   #define ResourceName FindGetFileName(ResourceFindHandle)
   #define ResourceSource MySourceRoot + "\server_exe\resources\" + ResourceName
+#if Ver >= EncodeVer(6, 3, 0)
 Source: "{#ResourceSource}"; DestDir: "{autopf}\{#MyEditionInstallDir}\server\resources"; Flags: ignoreversion; Check: ResourceNeedsReplacement('{#GetSHA256OfFile(ResourceSource)}')
+#else
+Source: "{#ResourceSource}"; DestDir: "{autopf}\{#MyEditionInstallDir}\server\resources"; Flags: ignoreversion; Check: ResourceNeedsReplacement('{#GetSHA1OfFile(ResourceSource)}')
+#endif
 #endsub
 #for {ResourceFindHandle = ResourceFindResult = FindFirst(MySourceRoot + "\server_exe\resources\*", faReadOnly | faHidden | faSysFile | faArchive); ResourceFindResult; ResourceFindResult = FindNext(ResourceFindHandle)} InstallResource
 #if ResourceFindHandle
@@ -230,6 +242,11 @@ Name: "{group}\{#MyAppName}"; \
 Name: "{group}\卸载 {#MyAppName}"; Filename: "{uninstallexe}"
 
 [Registry]
+; WER helper 由系统服务按完整路径加载；只登记本安装包自己的架构副本，卸载时删除该值。
+Root: HKLM32; Subkey: "Software\Microsoft\Windows\Windows Error Reporting\RuntimeExceptionHelperModules"; ValueType: dword; ValueName: "{commonpf32}\{#MyEditionInstallDir}\{code:GetVersionDir}\MetasequoiaImeCrashWer.dll"; ValueData: "0"; Flags: uninsdeletevalue
+#ifndef Windows7X86
+Root: HKLM; Subkey: "Software\Microsoft\Windows\Windows Error Reporting\RuntimeExceptionHelperModules"; ValueType: dword; ValueName: "{#MySystemTipDir}\{code:GetVersionDir}\MetasequoiaImeCrashWer.dll"; ValueData: "0"; Flags: uninsdeletevalue
+#endif
 Root: HKLM; Subkey: "{#MyEditionRegistryKey}"; \
     ValueType: string; ValueName: "VersionDir"; ValueData: "{code:GetVersionDir}"; \
     Flags: uninsdeletevalue
@@ -1011,7 +1028,11 @@ begin
   if not FileExists(Destination) then
     exit;
   try
+#if Ver >= EncodeVer(6, 3, 0)
     Result := CompareText(GetSHA256OfFile(Destination), ExpectedHash) <> 0;
+#else
+    Result := CompareText(GetSHA1OfFile(Destination), ExpectedHash) <> 0;
+#endif
   except
     Log('Unable to verify existing resource; normal replacement is required.');
   end;

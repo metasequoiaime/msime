@@ -200,40 +200,41 @@ public final class VoicePage extends ReloadingDetailPage {
             punctuation, checked -> saveVoice("doubao_enable_punc", checked));
         punctuationRow.setEnabled(state.punctuationSupported());
 
-        recognition.toggle("离线识别", "无网络时改用选用的本地模型，准确率略低", offline,
+        recognition.toggle("离线识别", null, offline,
             checked -> KeyboardSheets.saveLocal(this, AndroidLocalSettings.VOICE_OFFLINE_FALLBACK, checked, () -> {
                 // 打开离线识别时先备好语音运行库，本地模型才跑得起来。
                 if (checked && !state.runtimeReady()) requestRuntime(state);
                 reload();
-            }, this::reload));
+            }, this::reload)).help("无网络时改用选用的本地模型，准确率略低");
 
         int trigger = trigger(local.bool(AndroidLocalSettings.SPACE_VOICE),
             preferences.optBoolean("touch_voice_shortcut", false));
-        String triggerHint = trigger == TRIGGER_NONE ? TRIGGER_NONE_HINT
-            : preferences.optBoolean("touch_voice_shortcut", false) && local.bool(AndroidLocalSettings.TOOLBAR_HIDDEN)
-                ? TRIGGER_COMBINED_HINT + "。" + TRIGGER_TOOLBAR_HIDDEN_HINT : TRIGGER_COMBINED_HINT;
+        // 两种用法的说明收进「?」；工具栏整体隐藏、按钮暂不显示是当前状态，留在副标题里一眼看到。
+        String triggerHint = trigger == TRIGGER_NONE ? TRIGGER_NONE_HINT : TRIGGER_COMBINED_HINT;
+        String triggerWarning = trigger != TRIGGER_NONE && preferences.optBoolean("touch_voice_shortcut", false)
+            && local.bool(AndroidLocalSettings.TOOLBAR_HIDDEN) ? TRIGGER_TOOLBAR_HIDDEN_HINT : null;
         GroupCard.Row[] triggerRow = new GroupCard.Row[1];
-        triggerRow[0] = recognition.nav("启动方式", triggerHint,
+        triggerRow[0] = recognition.nav("启动方式", triggerWarning,
             TRIGGER_LABELS[trigger],
-            () -> pickTrigger(trigger, triggerRow[0]));
+            () -> pickTrigger(trigger, triggerRow[0])).help(triggerHint);
 
-        recognition.slider("本地停顿时间", "本地识别出字后等待的停顿；按住空格时由松手结束，锁定录音时由发送或取消结束",
+        recognition.slider("本地停顿时间", null,
             AndroidLocalSettings.VOICE_PAUSE_MIN_MILLIS, AndroidLocalSettings.VOICE_PAUSE_MAX_MILLIS, 100,
             local.integer(AndroidLocalSettings.VOICE_PAUSE_MILLIS), value -> value + " 毫秒",
             value -> KeyboardSheets.saveLocal(this, AndroidLocalSettings.VOICE_PAUSE_MILLIS,
-                value, this::reload, this::reload));
-        recognition.slider("本地识别灵敏度", "数值越高越容易识别低声说话，也更容易把噪声当作语音",
+                value, this::reload, this::reload)).help("本地识别出字后停顿这么久就结束录音；按住说话时由松手结束，锁定录音时由发送或取消结束");
+        recognition.slider("判停灵敏度", null,
             10, 90, 1, local.integer(AndroidLocalSettings.VOICE_VAD_SENSITIVITY), value -> value + "%",
             value -> KeyboardSheets.saveLocal(this, AndroidLocalSettings.VOICE_VAD_SENSITIVITY,
-                value, this::reload, this::reload));
-        recognition.footer("停顿时间仅用于键盘内的本地识别；灵敏度仅用于带语音活动检测的本地整段模型。系统识别自行判停，云服务仍由「说完了」或松开空格结束。这两项只保存在本机，下次本地识别生效。");
+                value, this::reload, this::reload)).help("数值越高越容易判定说完、结束录音；调得太高，轻声说的字可能被当成停顿");
+        recognition.help("停顿时间仅用于键盘内的本地识别；灵敏度仅用于点按开始、带语音活动检测的本地整段模型，按住空格时不变。系统识别自行判停，云服务仍由「说完了」或松开空格结束。这两项只保存在本机，下次本地识别生效。");
 
         polishGroup(target, voice, state);
 
         GroupCard privacy = GroupCard.add(sectionColumn(target, "隐私"), "隐私");
         boolean contribute = local.bool(AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO);
-        contributeRow = privacy.toggle("上传语音以改进识别", "语音片段匿名处理，可随时关闭", contribute,
-            this::onContributeChanged);
+        contributeRow = privacy.toggle("上传语音以改进识别", null, contribute,
+            this::onContributeChanged).help("语音片段匿名处理，可随时关闭");
         privacy.button("删除上传过的语音样本", "删掉这台设备之前上传的语音和识别文字，不需要登录", "删除",
             this::confirmDeleteVoiceSamples);
     }
@@ -291,7 +292,7 @@ public final class VoicePage extends ReloadingDetailPage {
                 "火山引擎控制台里开通的识别资源；留空使用 volc.seedasr.sauc.duration", resource,
                 value -> saveVoice("asr_resource_id", value)));
             testRow(service, "voice.asr");
-            service.footer("在火山引擎控制台开通豆包流式语音识别后获取密钥。密钥只保存在本机，不随设置同步。");
+            service.help("在火山引擎控制台开通豆包流式语音识别后获取密钥。密钥只保存在本机，不随设置同步。");
             return;
         }
         service.nav("API Key", null, hasToken ? "已设置" : "未设置", () -> editToken("asr", provider, "API Key"));
@@ -302,7 +303,7 @@ public final class VoicePage extends ReloadingDetailPage {
         service.nav("接口地址", problem, endpoint.isEmpty() ? "默认" : HomeTextPolicy.shortLabel(endpoint),
             () -> editEndpoint("asr", provider, endpoint));
         testRow(service, "voice.asr");
-        service.footer("说完后录音上传到所选服务识别。API Key 只保存在本机，不随设置同步。");
+        service.help("说完后录音上传到所选服务识别。API Key 只保存在本机，不随设置同步。");
     }
 
     private void pickProvider(String selected, State state) {
@@ -349,14 +350,14 @@ public final class VoicePage extends ReloadingDetailPage {
             ResourcePacks.Pack runtime = state.runtimePack();
             ResourcePackService.Status status = ResourcePackService.status(ResourcePacks.VOICE_RUNTIME);
             if (runtime != null && !runtime.importFiles().isEmpty() && (status == null || !status.running())) {
-                preparation.nav("从文件导入运行库", "网络不通时，用自己下载好的运行库安装", null,
+                preparation.nav("从文件导入运行库", null, null,
                     () -> explainImport(ResourcePacks.VOICE_RUNTIME, null,
-                        ResourcePackService.title(ResourcePacks.VOICE_RUNTIME), runtime.importFiles()));
+                        ResourcePackService.title(ResourcePacks.VOICE_RUNTIME), runtime.importFiles())).help("网络不通时，用自己下载好的运行库安装");
             }
         }
-        preparation.footer(chosenModel != null && state.runtimeReady()
-            ? "模型和运行库均已准备好，可以开始语音输入。"
-            : "本地识别需要模型和语音运行库。导入模型后，还需单独准备运行库；「已选用」只表示选中了模型。");
+        // 都准备好了是状态，留在卡片下方；还缺东西时的解释收进组标题的「?」。
+        if (chosenModel != null && state.runtimeReady()) preparation.footer("模型和运行库均已准备好，可以开始语音输入。");
+        else preparation.help("本地识别需要模型和语音运行库。导入模型后，还需单独准备运行库；「已选用」只表示选中了模型。");
         GroupCard group = GroupCard.add(column, "本地模型");
         if (state.modelsError() != null) {
             group.note("读取模型列表失败（" + state.modelsError() + "），请稍后返回重试。");
@@ -390,15 +391,15 @@ public final class VoicePage extends ReloadingDetailPage {
             imports.add(() -> explainImport(key, model.title(), model.title(), model.importFiles()));
         }
         if (!imports.isEmpty()) {
-            group.nav("从文件导入", "网络不通时，用自己下载好的文件安装", null, () -> {
+            group.nav("从文件导入", null, null, () -> {
                 OptionSheet sheet = new OptionSheet(requireContext(), "从文件导入", null);
                 for (int index = 0; index < imports.size(); index++) {
                     sheet.option(importLabels.get(index), false, imports.get(index));
                 }
                 sheet.show();
-            });
+            }).help("网络不通时，用自己下载好的文件安装");
         }
-        group.footer("本地模型在手机上识别，录音不离开本机。模型较大，建议连上 Wi-Fi 再下载；下载完成且还没有选用模型时会自动选用。");
+        group.help("本地模型在手机上识别，录音不离开本机。模型较大，建议连上 Wi-Fi 再下载；下载完成且还没有选用模型时会自动选用。");
     }
 
     /** 说明要自己下载哪些文件，再打开文件选择器；「下载地址」用浏览器打开上游地址。 */
@@ -608,12 +609,12 @@ public final class VoicePage extends ReloadingDetailPage {
         boolean hasToken = hasToken(box, slots, provider);
         String status = VoicePolishSettingsPolicy.status(enabled, state.polishConfigured(), hasToken);
         // 两个开关在共享设置页一起写，任一个开着键盘就会润色，所以关的时候两个都关。
-        polish.toggle("润色识别结果", status != null ? status : "识别后交给大模型整理文字再上屏", enabled, checked -> savePreferences(
+        polish.toggle("润色识别结果", status, enabled, checked -> savePreferences(
             preferences -> {
                 JSONObject next = KeyboardSheets.child(preferences, "voice_input");
                 next.put("polish_text", checked);
                 next.put("polish_enabled", checked);
-            }));
+            })).help("识别后交给大模型整理文字再上屏");
         if (!enabled) return;
         polish.nav("润色服务", state.catalog().available() ? null : "服务目录暂不可用，请稍后返回重试。",
             state.catalog().polishLabel(provider), () -> pickPolishProvider(provider, state.catalog()))
@@ -634,7 +635,7 @@ public final class VoicePage extends ReloadingDetailPage {
                 () -> editCustomPrompt(field, custom));
         }
         testRow(polish, "voice.polish");
-        polish.footer("识别出的文字会发给所选服务整理后再上屏。API Key 只保存在本机，不随设置同步。");
+        polish.help("识别出的文字会发给所选服务整理后再上屏。API Key 只保存在本机，不随设置同步。");
     }
 
     private void pickPolishProvider(String selected, VoiceProviderCatalog catalog) {
@@ -681,7 +682,7 @@ public final class VoicePage extends ReloadingDetailPage {
 
     /** 「测试」行：按存着的配置在网络线程上发一次请求，结果用对话框给出（文案可能超过 Toast 的两行）。请求最长约 15 秒，不能占着设置页读写偏好的那条串行线程。 */
     private void testRow(GroupCard group, String service) {
-        group.button("测试连接", "用现在保存的设置发一次请求，最长约 15 秒", "测试", () -> {
+        group.button("测试连接", null, "测试", () -> {
             MsToast.show(requireContext(), "正在测试…");
             if (!testing.add(service)) return;
             HostTask.runNetwork(this, context -> ServiceCredentialTest.voice(HostStore.directory(context), service), result -> {
@@ -689,7 +690,7 @@ public final class VoicePage extends ReloadingDetailPage {
                 if (!isAdded()) return;
                 MessageDialog.show(requireContext(), VoicePolishSettingsPolicy.testTitle(result.ok()), result.message());
             });
-        });
+        }).help("用现在保存的设置发一次请求，最长约 15 秒");
     }
 
     private void pickLanguage(String selected, GroupCard.Row row) {

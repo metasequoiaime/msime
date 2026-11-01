@@ -1905,6 +1905,8 @@ static NSImage *MSIMECandidateLogoImage() {
     // The ASCII form of the Chinese mark a punctuation commit has just left in the document (from the mark map, not the key pressed), and the client it landed in. A space arriving next rewrites that mark as ASCII; anything else disarms.
     unichar _spaceConvertMark;
     __weak id _spaceConvertClient;
+    // 最近一次 apply: 上屏的是带尾段的光标请求（插入点落在尾段前，不在上屏末字后）。每次 apply: 先清零；`noteCommittedChinesePunctuation:` 和 `handleSmartPunctuation:` 在 apply: 之后据此不再武装空格改写和连按改中文。
+    BOOL _applyPositionedCaret;
     // After a space has turned a Chinese mark into ASCII, the same key within the repeat window writes the Chinese mark back (Windows Kind::AsciiConverted). The key, the mark that was actually replaced, when, and in which client; anything else disarms.
     unichar _spaceRevertKey;
     unichar _spaceRevertChinese;
@@ -2153,7 +2155,7 @@ static NSImage *MSIMECandidateLogoImage() {
         if (ascii && MSIMEKeyProducesEnumerationComma(key, mark, marks)) ascii = key;
     }
     if (!_appearance.smartPunctuation || !_appearance.smartPunctuationSpaceConvert || !ascii ||
-        _pendingPairedClosing || ![self schemeAllowsSmartPunctuationGestures]) {
+        _pendingPairedClosing || _applyPositionedCaret || ![self schemeAllowsSmartPunctuationGestures]) {
         [self clearSmartPunctuationSpaceConversion];
         return;
     }
@@ -2367,6 +2369,8 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
             literal[@"commit"] = MSIMEFullWidthSmartMark(character, _appearance.runtimeFullWidthInput);
             [self apply:literal];
         }
+        // 光标短语带尾段上屏后插入点在模板中间，前一个字是模板原文，不是这次的标点，连按不能去改它。
+        if (_applyPositionedCaret) arm = NO;
         if (!arm) {
             [self resetSmartPunctuationState];
             return YES;
@@ -8529,6 +8533,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
 
 - (void)apply:(NSDictionary *)transition {
     ++_applySequence;
+    _applyPositionedCaret = NO;
     if (!transition || !_activeClient) return;
     // An Engine answer replaces the view the sense page was drawn over, so the page goes with it.
     [self discardGlossSensePage];
@@ -8563,12 +8568,14 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         }
     }
     NSString *commitForTracking = transition[@"commit"];
+    id cursorSuffix = transition[@"commit_cursor_suffix"];
+    const BOOL hasCursorRequest = [commitForTracking isKindOfClass:NSString.class] &&
+        [cursorSuffix isKindOfClass:NSString.class] && [commitForTracking hasSuffix:cursorSuffix];
     if ([commitForTracking isKindOfClass:NSString.class] && commitForTracking.length)
         _armedGlossColumn = 0;
-    // The Engine commits the opening mark alone; closing the pair is this host's job, the way the
-    // Windows TIP appends its closing mark and the Linux host appends its own. What differs is the
-    // caret: those two move it back a character and IMK cannot. So the opening goes in as committed
-    // text and the closing becomes the tail of the marked text until the composition ends.
+    // 引擎只提交开符号，宿主负责补闭符号。IMK 没有直接设置插入点的接口，
+    // 成对标点沿用兼容路径：开符号正常提交，闭符号留在组字尾段，组字结束再提交。
+    // 显式光标模板另走核对文档范围后的定位，不改变普通成对标点的客户端兼容性。
     // With pairing on, every press of a quote key starts a fresh pair.
     //
     // The Engine alternates the quote keys - one press gives “, the next ”, because that is what a
@@ -8592,7 +8599,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     // 直角引号同理：」改回「，』改回『，但只在按的正是出这个字的引号键时改——corner 样式的 `'` `"`；`{` 只出前半个「，`}` 固定出的」是用户要打的后半个，不改。注音的大千键位 `]` `}` 自己出」』（引擎的 `SHIFT_PUNCTUATION`），那是用户要打的后半个，改回前半个就成了再开一对。
     static NSDictionary<NSString *, NSString *> *const reopenings = @{@"”": @"“", @"’": @"‘", @"」": @"「", @"』": @"『"};
     const BOOL cornerQuoteMark = MSIMEIsCornerQuoteMark(mark);
-    if (_appearance.pairedPunctuation && [mark isKindOfClass:NSString.class] && quoteKey && reopenings[mark] &&
+    if (!hasCursorRequest && _appearance.pairedPunctuation && [mark isKindOfClass:NSString.class] && quoteKey && reopenings[mark] &&
         (!cornerQuoteMark || MSIMEKeyProducesCornerQuote(punctuationKey, [mark characterAtIndex:0], MSIMEViewScheme(_view))) &&
         !_pendingPairedClosing && !MSIMEPairedPunctuationExcludedHost()) {
         NSMutableDictionary *reopened = [transition mutableCopy];
@@ -8606,7 +8613,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     // 注音 `[` `{` `]` `}` 出的「』」『同样不补后半个：这个宿主只在出这个字的键上配对，`]` `}` 到了引擎照样再出一个，补了就成了「内容」」。没有按键的整段上屏（例如候选）照旧按字补。
     const BOOL cornerQuoteFromOtherKey = cornerQuoteMark && punctuationKey &&
         !MSIMEKeyProducesCornerQuote(punctuationKey, [mark characterAtIndex:0], MSIMEViewScheme(_view));
-    if ([mark isKindOfClass:NSString.class] && mark.length && !cornerQuoteFromOtherKey &&
+    if (!hasCursorRequest && [mark isKindOfClass:NSString.class] && mark.length && !cornerQuoteFromOtherKey &&
         _appearance.pairedPunctuation && !_pendingPairedClosing && !MSIMEPairedPunctuationExcludedHost()) {
         for (NSArray<NSString *> *pair in MSIMEPunctuationPairs())
             if ([mark isEqualToString:pair[0]]) { openedClosing = pair[1]; break; }
@@ -8615,7 +8622,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     _hostOpenedClosing = nil;
     static NSDictionary<NSString *, NSString *> *const hostOpenings = @{@"}": @"{", @"｝": @"｛", @"」": @"「"};
     NSString *hostOpening = hostOpenedClosing ? hostOpenings[hostOpenedClosing] : nil;
-    if (hostOpening && !openedClosing && [commitForTracking isKindOfClass:NSString.class] &&
+    if (!hasCursorRequest && hostOpening && !openedClosing && [commitForTracking isKindOfClass:NSString.class] &&
         [commitForTracking hasSuffix:hostOpening] &&
         _appearance.pairedPunctuation && !_pendingPairedClosing && !MSIMEPairedPunctuationExcludedHost())
         openedClosing = hostOpenedClosing;
@@ -8628,11 +8635,19 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         for (NSArray<NSString *> *pair in MSIMEPunctuationPairs())
             if ([commitForTracking hasPrefix:pair[0]] && [commitForTracking hasSuffix:pair[1]]) { _pairedPunctuation.push(pair[1].UTF8String); break; }
     }
+    if ([cursorSuffix isKindOfClass:NSString.class] && !hasCursorRequest) {
+        NSMutableDictionary *withoutCursor = [transition mutableCopy];
+        [withoutCursor removeObjectForKey:@"commit_cursor_suffix"];
+        transition = withoutCursor;
+        cursorSuffix = nil;
+    }
     NSDictionary *displayTransition = transition;
     if (_appearance.traditionalOutput && !MSIMEStrictBoolean(transition[@"word_character_converted"]) &&
         MSIMEScriptConversionApplies(transition[@"commit_context"]) && [transition[@"commit"] isKindOfClass:NSString.class]) {
         NSMutableDictionary *converted = [transition mutableCopy];
         converted[@"commit"] = MSIMEChineseOutputString(transition[@"commit"], YES);
+        if ([cursorSuffix isKindOfClass:NSString.class])
+            converted[@"commit_cursor_suffix"] = MSIMEChineseOutputString(cursorSuffix, YES);
         displayTransition = converted;
     }
     const uint64_t applySequence = _applySequence;
@@ -8651,22 +8666,33 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     if (openedClosing) _pendingPairedClosing = openedClosing;
 
     if ([displayTransition[@"commit"] isKindOfClass:NSString.class]) {
-        NSString *landed = pendingClosing.length ? pendingClosing : displayTransition[@"commit"];
-        if (landed.length) [self noteSmartPunctuationShadow:[landed characterAtIndex:landed.length - 1]];
+        // 带尾段的光标请求（后缀加上待补的后半个标点，与 `TextClient.mm` 定位时一致）把插入点放在尾段前，定位失败时才留在末尾，所以上屏末字不一定在插入点左边：改由文档回答，并作废那些假定插入点紧跟上屏末字的手势状态，与 Windows 的光标上屏一致。调用方在 apply: 之后据 `_applyPositionedCaret` 不再重新武装。
+        NSString *cursorTail = displayTransition[@"commit_cursor_suffix"];
+        if ([cursorTail isKindOfClass:NSString.class] && (cursorTail.length || pendingClosing.length)) {
+            _applyPositionedCaret = YES;
+            [self invalidateSmartPunctuationShadow];
+            [self resetSmartPunctuationState];
+            [self clearSmartPunctuationSpaceConversion];
+            [self clearSmartPunctuationSpaceRevert];
+        } else {
+            NSString *landed = pendingClosing.length ? pendingClosing : displayTransition[@"commit"];
+            if (landed.length) [self noteSmartPunctuationShadow:[landed characterAtIndex:landed.length - 1]];
+        }
     }
     id<MSIMETextClient> textClient = (id<MSIMETextClient>)_activeClient;
     BOOL (^isCurrent)(void) = ^BOOL {
         return applySequence == self->_applySequence &&
             textClient == (id<MSIMETextClient>)self->_activeClient;
     };
+    // 未产生新转换的透传键也会改变文档或选区，定位与空格改写都不能越过它。
+    BOOL (^canEditCommittedText)(void) = ^BOOL {
+        return isCurrent() && inputSequence == self->_spacingInputSequence;
+    };
     MSIMEApplyTransitionWithCommitObserver(displayTransition, textClient, preeditStyle, pendingClosing,
         &_clientHasMarkedText, isCurrent, ^(NSString *text) {
-            BOOL (^canFormat)(void) = ^BOOL {
-                return isCurrent() && inputSequence == self->_spacingInputSequence;
-            };
             if (sourceOverride == msime::mac::TypingSource::Unknown)
-                [self formatCrossCommitText:text context:transition[@"commit_context"] client:textClient isCurrent:canFormat];
-        });
+                [self formatCrossCommitText:text context:transition[@"commit_context"] client:textClient isCurrent:canEditCommittedText];
+        }, canEditCommittedText);
     if (isCurrent() && openedClosing) {
         _clientHasMarkedText = YES;
         [textClient setMarkedText:openedClosing selectionRange:NSMakeRange(0, 0)

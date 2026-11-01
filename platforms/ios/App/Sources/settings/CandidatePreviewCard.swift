@@ -47,6 +47,8 @@ struct CandidatePreviewCard: View {
   private var text: UIColor { palette?.text ?? theme.keyForeground }
   private var secondary: UIColor { palette?.number ?? theme.secondary }
   private var accent: UIColor { palette?.accent ?? theme.accent }
+  /// 首选的字色：跟候选条一样用皮肤的 `candidateAccent`，这张卡片把它直接画在键盘底色上。
+  private var firstAccent: UIColor { palette?.accent ?? theme.candidateAccent }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 6) {
@@ -85,7 +87,7 @@ struct CandidatePreviewCard: View {
         Text(word)
           .font(Font(CandidateFontPreference.font(
             .body, scale: CGFloat(fontSize) / CGFloat(CandidateFontPreference.defaultCandidateSize), families: families)))
-          .foregroundStyle(color(index == 0 ? accent : text))
+          .foregroundStyle(color(index == 0 ? firstAccent : text))
           .lineLimit(1).fixedSize()
         if showsGloss {
           Text(gloss).font(.system(size: 12)).foregroundStyle(color(secondary)).lineLimit(1).fixedSize()

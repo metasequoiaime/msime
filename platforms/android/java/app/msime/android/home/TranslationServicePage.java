@@ -40,6 +40,8 @@ public final class TranslationServicePage extends ReloadingDetailPage {
      * 本页刚选过的服务。腾讯的 `enabled` 默认开着，凭据填好之前从偏好里分不出「用户选了腾讯」，所以刚选腾讯时按这里显示，好让用户接着填凭据；离开再回来时按偏好显示。
      */
     @Nullable private Choice chosen;
+    /** 选了自己的服务（小牛、腾讯、自定义、AI）时，候选词怎样发出去、怎样计费。 */
+    private static final String USER_SERVICE_NOTE = "选择自己的服务后，键盘把当前一页的中文候选（最多 10 个，每个不超过 256 字）直接发给该服务，不经过水杉服务器。小牛、自定义和 AI 每个词单独请求一次；设置了第二目标语言时，每种语言各请求一次，都会消耗你在该服务的额度。离线释义查得到的语言仍优先显示离线释义。";
     private boolean testing;
 
     @Override protected void onContentDestroyed() {
@@ -124,16 +126,20 @@ public final class TranslationServicePage extends ReloadingDetailPage {
         Choice selected = chosen == Choice.TENCENT && stored == Choice.NONE && tencentEnabled ? Choice.TENCENT : stored;
         boolean translations = JsonPolicy.strictBoolean(preferences.opt("candidate_translations"), true);
 
+        // 这一组没有组标题：「翻译服务」这一行的「?」除了说明这项做什么，也写明所选服务怎样处理候选词。
+        String routeNote = switch (selected) {
+            case NONE -> "键盘不会把候选词发给任何在线服务；离线释义照常显示。";
+            case ACCOUNT -> "候选词会发送到水杉服务器（api.msime.app）翻译，首次使用会自动创建匿名账号。";
+            default -> selected.userService() ? USER_SERVICE_NOTE : null;
+        };
         GroupCard service = GroupCard.add(sectionColumn(target, "服务"), null);
-        service.nav("翻译服务", "离线释义查不到的词，用这里选的服务补上译文", selected.title(), () -> pick(selected));
+        service.nav("翻译服务", null, selected.title(), () -> pick(selected))
+            .help("离线释义查不到的词，用这里选的服务补上译文。" + (routeNote == null ? "" : "\n\n" + routeNote));
         if (!translations) service.note("「候选词翻译」已关闭，键盘不会联网翻译。打开它在「输入 → 翻译」里。");
 
         switch (selected) {
             case NONE:
-                service.note("键盘不会把候选词发给任何在线服务；离线释义照常显示。");
-                break;
             case ACCOUNT:
-                service.note("候选词会发送到水杉服务器（api.msime.app）翻译，首次使用会自动创建匿名账号。");
                 break;
             case NIUTRANS:
                 renderNiuTrans(target, niutrans);
@@ -158,7 +164,7 @@ public final class TranslationServicePage extends ReloadingDetailPage {
             InputType.TYPE_CLASS_TEXT, TranslationServiceSettingsPolicy::niutransProblem, "niutrans", "app_id"));
         group.nav("API Key", null, filled(InputViewValuePolicy.text(niutrans, "apikey")), () -> edit("API Key", "小牛翻译控制台里的 API Key，保存在本机", "",
             secretInput(), TranslationServiceSettingsPolicy::niutransProblem, "niutrans", "apikey"));
-        group.footer("在小牛翻译开放平台创建应用后取得 App ID 和 API Key。");
+        group.help("在小牛翻译开放平台创建应用后取得 App ID 和 API Key。");
     }
 
     private void renderTencent(LinearLayout target, JSONObject tencent) {
@@ -173,7 +179,7 @@ public final class TranslationServicePage extends ReloadingDetailPage {
             () -> edit("地域", "留空使用 " + CandidateTranslationRoute.DEFAULT_TENCENT_REGION, region,
                 InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS,
                 TranslationServiceSettingsPolicy::regionProblem, "tencent_tmt", "region"));
-        group.footer("建议为输入法单独创建只授权机器翻译的子账号密钥。腾讯一次最多翻译 9 个候选词。");
+        group.help("建议为输入法单独创建只授权机器翻译的子账号密钥。腾讯一次最多翻译 9 个候选词。");
     }
 
     /** AI 辅助没有自己的凭据：显示复用的是哪家服务商的哪个模型，配置不全时说明去哪里补；文案与共享设置页的「复用 AI 辅助配置」相同。 */
@@ -182,21 +188,22 @@ public final class TranslationServicePage extends ReloadingDetailPage {
         group.nav("当前服务商与模型", ready ? null : "请先在「AI 润色与回复」页面填写接口地址、Token 和模型",
             summary.isEmpty() ? "未配置" : summary, () -> SettingsNavigator.open(requireContext(), PageId.AI_SETTINGS, null));
         if (!ready) group.note("AI 配置不完整，键盘暂不联网翻译，也不会改用其他服务。");
-        group.footer("复用「AI 润色与回复」页当前服务商的接口地址、Token 与模型，无需在此重复填写；AI 模型逐条生成释义，成本与延迟高于专用翻译服务。不需要打开「启用 AI 入口」。");
+        group.help("复用「AI 润色与回复」页当前服务商的接口地址、Token 与模型，无需在此重复填写；AI 模型逐条生成释义，成本与延迟高于专用翻译服务。不需要打开「启用 AI 入口」。");
     }
 
     private void renderCustom(LinearLayout target, JSONObject custom, String endpointIssue) {
         GroupCard group = GroupCard.add(sectionColumn(target, "配置"), "自定义接口");
         String endpoint = InputViewValuePolicy.text(custom, "endpoint");
-        group.nav("接口地址", endpointIssue.isEmpty() ? "https 地址，或本机回环的 http 地址" : endpointIssue,
+        group.nav("接口地址", endpointIssue.isEmpty() ? null : endpointIssue,
             endpoint.isEmpty() ? "未设置" : HomeTextPolicy.shortLabel(endpoint), () -> edit("接口地址",
                 "兼容 DeepLX 的 POST 接口，例如 http://127.0.0.1:1188/translate；或 DeepL 官方 API https://api-free.deepl.com/v2/translate",
                 endpoint, InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI,
-                TranslationServicePage::endpointProblem, "custom_translation", "endpoint"));
-        group.nav("API Key", "DeepL 官方 API 必填；DeepLX 没设密钥时留空", filled(InputViewValuePolicy.text(custom, "api_key")),
+                TranslationServicePage::endpointProblem, "custom_translation", "endpoint"))
+            .help("https 地址，或本机回环的 http 地址");
+        group.nav("API Key", null, filled(InputViewValuePolicy.text(custom, "api_key")),
             () -> edit("API Key", "DeepL 填 Auth Key（Free 密钥以 :fx 结尾），保存在本机；留空表示不需要", "",
-                secretInput(), TranslationServiceSettingsPolicy::secretProblem, "custom_translation", "api_key"));
-        group.footer("DeepL 官方地址按 DeepL 的格式请求，并按密钥自动选 Free 或 Pro 主机；其他地址按 DeepLX 的格式请求。使用 DeepL 时候选词会发送到 DeepL，按 DeepL 的数据政策处理。远程服务必须用 https，http 只能指向本机回环地址，不能是局域网地址。");
+                secretInput(), TranslationServiceSettingsPolicy::secretProblem, "custom_translation", "api_key")).help("DeepL 官方 API 必填；DeepLX 没设密钥时留空");
+        group.help("DeepL 官方地址按 DeepL 的格式请求，并按密钥自动选 Free 或 Pro 主机；其他地址按 DeepLX 的格式请求。使用 DeepL 时候选词会发送到 DeepL，按 DeepL 的数据政策处理。远程服务必须用 https，http 只能指向本机回环地址，不能是局域网地址。");
     }
 
     /** 凭据是否齐全的提示和「测试连接」：测试用的是已经保存的值，与键盘实际用的一致。 */
@@ -209,7 +216,7 @@ public final class TranslationServicePage extends ReloadingDetailPage {
             selected == Choice.TENCENT, InputViewValuePolicy.text(tencent, "secret_id"), InputViewValuePolicy.text(tencent, "secret_key"), InputViewValuePolicy.text(tencent, "region"));
         boolean complete = route.userService() && (selected != Choice.CUSTOM || customBuildable);
         if (!complete) group.note("凭据不完整，键盘暂不联网翻译，也不会改用其他服务。");
-        group.button("测试连接", "用已保存的设置翻译一次「测试」，最长约 15 秒", "测试", () -> {
+        group.button("测试连接", null, "测试", () -> {
             if (testing) return;
             testing = true;
             MsToast.show(requireContext(), "正在测试…");
@@ -219,8 +226,7 @@ public final class TranslationServicePage extends ReloadingDetailPage {
                 if (!isAdded()) return;
                 MessageDialog.show(requireContext(), result.ok() ? "测试成功" : "测试未通过", result.message());
             });
-        });
-        group.footer("选择自己的服务后，键盘把当前一页的中文候选（最多 10 个，每个不超过 256 字）直接发给该服务，不经过水杉服务器。小牛、自定义和 AI 每个词单独请求一次；设置了第二目标语言时，每种语言各请求一次，都会消耗你在该服务的额度。离线释义查得到的语言仍优先显示离线释义。");
+        }).help("用已保存的设置翻译一次「测试」，最长约 15 秒");
     }
 
     private static JSONObject testConfig(Choice selected, JSONObject niutrans, JSONObject custom, JSONObject tencent) {

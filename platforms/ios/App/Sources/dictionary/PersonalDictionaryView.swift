@@ -381,9 +381,7 @@ private struct PersonalDictionarySyncView: View {
           .accessibilityIdentifier("personalDictionaryTrial")
           .designRow()
       } header: {
-        Text("键盘同步")
-      } footer: {
-        Text("开启水杉键盘的「允许完全访问」，再打开键盘完成本机同步。保存、删除、导入、搜索编码和导出都在键盘打开时处理。已保存的学习记录和词条不会上传。")
+        DesignSectionHeader(subject: "键盘同步", info: "开启水杉键盘的「允许完全访问」，再打开键盘完成本机同步。保存、删除、导入、搜索编码和导出都在键盘打开时处理。已保存的学习记录和词条不会上传。") { Text("键盘同步") }
       }
       let requests = state.requests.filter { $0.status != .applied }
       if !requests.isEmpty {
@@ -467,7 +465,7 @@ private struct PersonalWordEditor: View {
             .onChange(of: word.key) { _, key in sanitizeCode(key) }
             .onChange(of: word.kind) { _, _ in sanitizeCode(word.key) }
         } footer: {
-          Text(word.kind == .pinyin ? "每个字填写一个完整拼音音节，用空格或英文单引号分隔；ü 用 v。全拼、双拼和九键共用这个词条。" : "五笔使用 1–4 个字母；快捷短语使用英文字母，在键盘“本地输入 → 快捷短语”输入；英文编码使用字母、连字符或撇号，可以和词条不同，例如用 dont 打出 don't。")
+          Text(word.kind == .pinyin ? "每个字填写一个完整拼音音节，用空格或英文单引号分隔；ü 用 v。全拼、双拼和九键共用这个词条。" : "五笔使用 1–4 个字母；快捷短语使用英文字母，在键盘“本地输入 → 快捷短语”输入；英文编码使用字母、连字符或撇号，可以和词条不同，例如用 dont 打出 don't。" + (word.kind == .quickPhrase ? "\n在文字中用 ${cursor} 指定上屏后的光标位置，例如 title:\"${cursor}\" 会输入 title:\"\"，光标停在引号内。只定位第一个标记；要输入标记本身，请写 $${cursor}。编辑器不支持定位时光标留在末尾。以前存过、要照原样输入 ${cursor} 的短语，请改写成 $${cursor}。" : ""))
         }
         }
         Section {
@@ -475,9 +473,7 @@ private struct PersonalWordEditor: View {
             .keyboardType(.numberPad)
             .accessibilityIdentifier("personalWordWeight")
         } header: {
-          Text("权重")
-        } footer: {
-          Text("同一编码下权重越大，候选越靠前。新词默认 \(PersonalWord.defaultWeight)，可填 1–\(PersonalWord.weightRange.upperBound)。")
+          DesignSectionHeader(subject: "权重", info: "同一编码下权重越大，候选越靠前。新词默认 \(PersonalWord.defaultWeight)，可填 1–\(PersonalWord.weightRange.upperBound)。") { Text("权重") }
         }
         if let error { Section { Text(error).foregroundStyle(.red) } }
         Section {} footer: { Text("保存后等待水杉键盘确认同步。这里只保存本机词条，不会发送到 AI 或语音服务。") }

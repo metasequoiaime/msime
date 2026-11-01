@@ -1256,6 +1256,123 @@ group("offline dictionaries fill only what the user's own translator left", () =
   );
 });
 
+group("本地识别的停顿时间按用户设置读，缺键和不合规的值按原来的 1500 毫秒（#10310）", () => {
+  check(VoiceRecognitionPolicy.pauseMillis(undefined) === 1500, "缺键按 1500");
+  for (const value of [500, 800, 2500, 5000]) {
+    check(VoiceRecognitionPolicy.pauseMillis(value) === value, `${value} 毫秒原样使用`);
+  }
+  for (const value of [0, 400, 550, 5100, 1500.5, "2000", null, true, -100]) {
+    check(VoiceRecognitionPolicy.pauseMillis(value) === 1500, `${JSON.stringify(value)} 按 1500`);
+  }
+});
+
+group("判停灵敏度越高，VAD 阈值越高，越容易判定说完（#10310）", () => {
+  check(LocalAsrPolicy.vadThreshold(50) === 0.5, "缺省的 50 就是原来写死的 0.5");
+  check(LocalAsrPolicy.vadThreshold(0) === 0.5, "不按停顿结束的会话传 0，沿用 0.5");
+  check(
+    Math.abs(LocalAsrPolicy.vadThreshold(10) - 0.1) < 1e-9 &&
+      Math.abs(LocalAsrPolicy.vadThreshold(90) - 0.9) < 1e-9,
+    "两端是 0.1 和 0.9",
+  );
+  for (let sensitivity = 11; sensitivity <= 90; sensitivity += 1) {
+    if (
+      !(LocalAsrPolicy.vadThreshold(sensitivity) > LocalAsrPolicy.vadThreshold(sensitivity - 1))
+    ) {
+      check(false, `${sensitivity} 的阈值应高于 ${sensitivity - 1}`);
+    }
+  }
+  for (const value of [9, 91, 50.5, -1, Number.NaN]) {
+    check(LocalAsrPolicy.vadThreshold(value) === 0.5, `${value} 越界或非整数时沿用 0.5`);
+  }
+});
+
+group(
+  "本地识别和系统识别由键盘按停顿结束，豆包流式和上传式服务不由键盘掐断（#10310、#9886）",
+  () => {
+    const base: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
+    const factoryDoubao: VoiceInputConfiguration = {
+      ...base,
+      asr_provider: "doubao",
+      asr_token: "",
+      asr_tokens: {},
+      asr_app_key: "",
+    };
+    const configuredDoubao: VoiceInputConfiguration = {
+      ...base,
+      asr_provider: "doubao",
+      asr_token: "synthetic-token",
+    };
+    for (const voice of [
+      { ...base, asr_provider: "local" },
+      { ...base, asr_provider: "system" },
+      { ...base, asr_provider: "" },
+      factoryDoubao,
+    ]) {
+      const name =
+        voice === factoryDoubao ? "没填凭据的豆包（走系统识别）" : voice.asr_provider || "空的服务";
+      check(
+        VoiceRecordingBehaviourPolicy.keyboardStopsOnPause(voice),
+        `${name} 由键盘的停顿计时结束`,
+      );
+      check(VoiceRecordingBehaviourPolicy.endsOnPause(voice), `${name} 的面板提示停顿后自动上屏`);
+    }
+    check(
+      VoiceRecordingBehaviourPolicy.usesSystemRecognizer(factoryDoubao) &&
+        !VoiceRecordingBehaviourPolicy.usesSystemRecognizer(configuredDoubao) &&
+        !VoiceRecordingBehaviourPolicy.usesSystemRecognizer({ ...base, asr_provider: "local" }),
+      "只有没填凭据的豆包退回系统识别",
+    );
+    for (const voice of [
+      configuredDoubao,
+      ...["openai", "siliconflow", "groq", "everyapi", "mistral", "bailian"].map(
+        (provider): VoiceInputConfiguration => ({ ...base, asr_provider: provider }),
+      ),
+    ]) {
+      check(
+        !VoiceRecordingBehaviourPolicy.keyboardStopsOnPause(voice),
+        `${voice.asr_provider} 不经键盘的停顿计时`,
+      );
+      check(
+        !VoiceRecordingBehaviourPolicy.endsOnPause(voice),
+        `${voice.asr_provider} 说完后点「说完了」`,
+      );
+    }
+  },
+);
+
+group(
+  "停顿时间只给本地识别用设置里的值，系统识别固定 1500 毫秒；判停灵敏度只给按停顿结束的本地识别（#10310）",
+  () => {
+    const base: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
+    const local: VoiceInputConfiguration = {
+      ...base,
+      asr_provider: "local",
+      pause_millis: 3000,
+      stop_sensitivity: 80,
+    };
+    const system: VoiceInputConfiguration = { ...local, asr_provider: "system" };
+    check(VoiceRecordingBehaviourPolicy.pauseMillis(local) === 3000, "本地识别用设置里的停顿时间");
+    check(
+      VoiceRecordingBehaviourPolicy.pauseMillis({ ...local, pause_millis: undefined }) === 1500,
+      "本地识别缺键按 1500",
+    );
+    check(VoiceRecordingBehaviourPolicy.pauseMillis(system) === 1500, "系统识别不读本地停顿时间");
+    check(
+      VoiceRecordingBehaviourPolicy.stopSensitivity(local, true) === 80,
+      "点按开始的本地识别用存下的灵敏度",
+    );
+    check(VoiceRecordingBehaviourPolicy.stopSensitivity(local, false) === 0, "按住说话不用灵敏度");
+    check(VoiceRecordingBehaviourPolicy.stopSensitivity(system, true) === 0, "系统识别不用灵敏度");
+    check(
+      VoiceRecordingBehaviourPolicy.stopSensitivity(
+        { ...local, stop_sensitivity: undefined },
+        true,
+      ) === 0,
+      "缺键时交 0，worker 沿用默认阈值",
+    );
+  },
+);
+
 group("a silence timer waits while the VAD still hears speech", () => {
   check(
     VoiceRecognitionPolicy.silenceStops(false),
@@ -1535,6 +1652,12 @@ group("projects the same form factor into every settings capability", () => {
   check(
     phone.touchToolbarTools && !desktop.touchToolbarTools,
     "only the phone keyboard has the toolbar row whose tools and display mode the page offers",
+  );
+  check(
+    phone.voicePauseSettings &&
+      SettingsFormFactorCapabilities.resolve("tablet").voicePauseSettings &&
+      !desktop.voicePauseSettings,
+    "phones and tablets offer the local pause time and stop sensitivity; the 2-in-1 voice panel never ends on a pause",
   );
   check(
     desktop.candidateSkinEditor && !phone.candidateSkinEditor,
@@ -10012,22 +10135,6 @@ group("the recording tones follow the master switch alone", () => {
   );
 });
 
-group("only a streaming provider gets the listening face, whose stop is a pause", () => {
-  const base: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
-  for (const provider of ["system", "local", "doubao", ""]) {
-    check(
-      VoiceRecordingBehaviourPolicy.streamsPartialResults({ ...base, asr_provider: provider }),
-      `${provider || "the default"} streams words as they are heard`,
-    );
-  }
-  for (const provider of ["openai", "siliconflow", "groq", "everyapi", "mistral", "bailian"]) {
-    check(
-      !VoiceRecordingBehaviourPolicy.streamsPartialResults({ ...base, asr_provider: provider }),
-      `${provider} answers only after a stop, so it keeps 停止录音`,
-    );
-  }
-});
-
 group("partial recognizer output reaches the panel only when asked for", () => {
   const base: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
   check(
@@ -11311,6 +11418,7 @@ const AUTUMN_LIGHT: AppThemeSeed = {
   on_accent: "#FFFFFF",
   background: "#F6E9DC",
   card: "#FFFBF6",
+  candidate_accent: "#9F4214",
 };
 const AUTUMN_DARK: AppThemeSeed = {
   accent: "#F0975F",
@@ -11318,6 +11426,7 @@ const AUTUMN_DARK: AppThemeSeed = {
   on_accent: "#3C2618",
   background: "#21150F",
   card: "#2E1E15",
+  candidate_accent: "#F0975F",
 };
 
 group("color-mix matches the browser the design tokens were read from", () => {
@@ -11394,10 +11503,12 @@ group("a resolved app theme is read once, colours reordered for ArkUI", () => {
         background: "#F6E9DC",
         card: "#FFFBF6",
         hair: "#B5562B33",
+        candidate_accent: "#9F4214",
       },
     }),
   );
   check(seed !== null, "a complete reply is a seed");
+  check(seed !== null && seed.candidate_accent === "#9F4214", "the first-candidate colour is read");
   check(seed !== null && seed.accent_soft === "#22B5562B", "the trailing alpha moves to the front");
   check(
     seed !== null &&
@@ -11503,6 +11614,85 @@ group("the season seed tints the system keyboard, the return key and the logo", 
     plainDark.keyLabelColor(true) === "#183021" &&
       plainDark.keySurfaceBackground(true) === "#5FBF84",
     "and the emphasized key draws exactly that pair",
+  );
+});
+
+group("浅色跟随系统键盘的首选字色对字母键底片和键盘底色都到 WCAG AA", () => {
+  const rgb = (color: string): number[] => {
+    const hex = color.slice(-6);
+    return [0, 2, 4].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255);
+  };
+  const luminance = (value: number[]): number =>
+    value.reduce((sum, channel, index) => {
+      const linear =
+        channel <= 0.04045 ? channel / 12.92 : Math.pow((channel + 0.055) / 1.055, 2.4);
+      return sum + [0.2126, 0.7152, 0.0722][index] * linear;
+    }, 0);
+  const contrast = (a: string, b: string): number => {
+    const [x, y] = [luminance(rgb(a)), luminance(rgb(b))];
+    return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+  };
+  // 四季的浅色种子（crates/client-services 的 `APP_THEME_SEEDS`，`candidate_accent` 是同一色相在 OKLCH 里降低明度的结果）；首选画在字母键色的底片上，设置页预览把它画在键盘底色上，两者都要到 4.5:1。
+  const season = (accent: string, background: string, candidate: string): AppThemeSeed => ({
+    ...AUTUMN_LIGHT,
+    accent: accent,
+    background: background,
+    candidate_accent: candidate,
+  });
+  const seasons: [string, AppThemeSeed][] = [
+    ["spring", season("#4E9A3A", "#EAF4E0", "#267308")],
+    ["summer", season("#17704A", "#DDEFE4", "#0F6B46")],
+    ["autumn", AUTUMN_LIGHT],
+    ["winter", season("#3A6A8A", "#E6EEF4", "#346484")],
+  ];
+  for (const [name, seed] of seasons) {
+    const skin = KeyboardSkin.fromTheme("system", "跟随系统", null, false, seed);
+    check(
+      skin.candidateAccent === seed.candidate_accent,
+      `${name}: the first candidate takes candidate_accent`,
+    );
+    check(contrast(skin.candidateAccent, skin.keyBackground) >= 4.5, `${name}: on the key chip`);
+    check(contrast(skin.candidateAccent, skin.background) >= 4.5, `${name}: on the keyboard`);
+    check(
+      contrast(skin.accent, skin.background) < 4.5,
+      `${name}: the accent itself does not reach AA`,
+    );
+    check(
+      skin.accent === seed.accent && skin.actionBackground === seed.accent,
+      `${name}: the accent and the return key are unchanged`,
+    );
+  }
+  const plain = KeyboardSkin.fromTheme("system", "跟随系统", null, false);
+  check(plain.candidateAccent === "#1F6F41", "没有种子时首选用加深的平台绿");
+  check(contrast(plain.candidateAccent, plain.keyBackground) >= 4.5, "fallback: on the key chip");
+  check(contrast(plain.candidateAccent, plain.background) >= 4.5, "fallback: on the keyboard");
+  check(contrast(plain.accent, plain.background) < 4.5, "fallback: #2C7A4B itself is about 4.0:1");
+  check(plain.accent === "#2C7A4B", "fallback: the platform accent is unchanged");
+  check(
+    KeyboardSkin.fromTheme("system", "跟随系统", null, true, AUTUMN_DARK).candidateAccent ===
+      "#F0975F" &&
+      KeyboardSkin.fromTheme("system", "跟随系统", null, true).candidateAccent === "#5FBF84",
+    "dark keeps the accent",
+  );
+  const night: KeyboardThemePalette = {
+    background: "#0F1B22",
+    key: "#1D3340",
+    function_key: "#15252E",
+    text: "#E6F1F4",
+    secondary: "#86A6B0",
+    accent: "#4FD1C5",
+    on_accent: "#000000",
+  };
+  check(
+    KeyboardSkin.fromTheme("night", "夜青", night, false, AUTUMN_LIGHT).candidateAccent ===
+      "#4FD1C5",
+    "a named theme keeps its own accent for the first candidate",
+  );
+  const recoloured: AppThemeSeed = { ...AUTUMN_LIGHT, candidate_accent: "#B5562B" };
+  check(
+    KeyboardSkin.fromTheme("system", "跟随系统", null, false, AUTUMN_LIGHT).key() !==
+      KeyboardSkin.fromTheme("system", "跟随系统", null, false, recoloured).key(),
+    "the first-candidate colour is part of the skin's identity",
   );
 });
 

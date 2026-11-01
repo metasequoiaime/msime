@@ -48,7 +48,7 @@ pub(crate) struct Installation {
     pub(crate) settled_model: bool,
     /// 安装布局里随包带齐了粤拼、注音和笔画词库。
     pub(crate) language_dictionaries: bool,
-    /// 输入法的资源目录（HostOptions 的 `resources`）带着五笔码表 `msime-wubi.db`。还没有运行时选项时按带着处理。
+    /// 输入法的资源目录（HostOptions 的 `resources`）本身带着五笔码表 `msime-wubi.db`，词库更新下载的代次不算（见 `msime_host_api::packaged_wubi_dictionary`）。还没有运行时选项时按带着处理。
     pub(crate) wubi_dictionary: bool,
     /// 资源目录旁边随包带着英文音标表 `pronunciations/en-phonetic.db`（macOS 和 Windows 的发布包带着它，Linux 的安装包不带）。还没有运行时选项时按带着处理。
     pub(crate) pronunciations: bool,
@@ -71,25 +71,12 @@ impl Installation {
             // 还没有运行时选项（Linux 首次运行）时不知道装了什么，按带齐处理，与设置页可选方案的判断一致。
             language_dictionaries: host_options
                 .is_none_or(msime_host_api::packaged_language_dictionaries),
-            wubi_dictionary: host_options.is_none_or(bundled_wubi_dictionary),
+            wubi_dictionary: host_options.is_none_or(msime_host_api::packaged_wubi_dictionary),
             pronunciations: host_options.is_none_or(bundled_pronunciations),
             target_pronunciations: host_options.is_none_or(bundled_target_pronunciations),
             voice_runtime: bundled_voice_runtime(),
         }
     }
-}
-
-/// HostOptions 文档的资源目录里有没有五笔码表。资源目录是校验过的发布包目录或词库更新目录，macOS 发布包不带它时这里为假。
-fn bundled_wubi_dictionary(host_options: &Value) -> bool {
-    host_options
-        .get("resources")
-        .and_then(Value::as_str)
-        .map(std::path::Path::new)
-        .is_some_and(|resources| {
-            resources
-                .join(msime_client_core::resources::ON_DEMAND_WUBI_ARTIFACTS[0])
-                .is_file()
-        })
 }
 
 /// HostOptions 文档的资源目录旁边有没有英文音标表：host-api 的 `english_database_beside` 先找 `resources` 上一级的 `pronunciations/en-phonetic.db`，找不到才看资源包。
@@ -231,7 +218,16 @@ fn offered_by(pack: ResourcePack, edition: &Edition, installation: &Installation
 }
 
 /// HostOptions 文档；还没准备好运行时选项（Linux 首次运行）时为 `None`。
+///
+/// macOS 上取 `RuntimeOptionsState` 里的那份：`DictionaryHostOptions` 是启动时的快照，启动时的刷新没能换到本版本的词库、之后由「准备词库」（`repair_macos_oobe_resources`）从发布包重新准备时，只有 `RuntimeOptionsState` 跟着换成会话此后真正用的资源目录。
 fn host_options<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Option<Value> {
+    #[cfg(target_os = "macos")]
+    if let Some(document) = app
+        .try_state::<crate::RuntimeOptionsState>()
+        .and_then(|runtime| runtime.snapshot().ok())
+    {
+        return Some(document);
+    }
     app.try_state::<DictionaryHostOptions>()
         .and_then(|options| options.snapshot().ok())
 }
@@ -589,10 +585,35 @@ mod tests {
         ));
         let resources = tempfile::tempdir().unwrap();
         let document = serde_json::json!({ "resources": resources.path() });
-        assert!(!bundled_wubi_dictionary(&document));
+        assert!(!Installation::current(Some(&document)).wubi_dictionary);
         std::fs::write(resources.path().join("msime-wubi.db"), b"bundled").unwrap();
-        assert!(bundled_wubi_dictionary(&document));
-        assert!(!bundled_wubi_dictionary(&serde_json::json!({})));
+        assert!(Installation::current(Some(&document)).wubi_dictionary);
+        assert!(!Installation::current(Some(&serde_json::json!({}))).wubi_dictionary);
+    }
+
+    /// 2026-11-01 的升级：全功能版五笔用户从自带码表的版本升级到不带码表的 0.56.0。HostOptions 还指着升级前词库更新下载的代次，代次里有 `msime-wubi.db`，但它绑在旧的词库锁上，换锁后会话改用不带码表的发布包，五笔回退到全拼。设置应用不能因为那份码表在就不提供、不补下 `wubi` 资源包。
+    #[test]
+    fn a_wubi_table_in_a_dictionary_update_generation_still_needs_the_pack() {
+        let root = tempfile::tempdir().unwrap();
+        let state = root.path().join("state");
+        let generation = state
+            .join("dictionary-updates/generations")
+            .join("7".repeat(64));
+        std::fs::create_dir_all(&generation).unwrap();
+        std::fs::write(generation.join("msime-wubi.db"), b"downloaded").unwrap();
+        let document = serde_json::json!({
+            "resources": generation,
+            "preferences_directory": state,
+        });
+        let current = Installation::current(Some(&document));
+        assert!(!current.wubi_dictionary);
+        let macos = Installation {
+            platform: DesktopPlatform::Macos,
+            ..current
+        };
+        let mut needed = needed_packs(InputScheme::Wubi, Some(ChineseScheme::Wubi));
+        needed.retain(|pack| offered_by(*pack, Edition::full(), &macos));
+        assert_eq!(needed, [ResourcePack::Wubi]);
     }
 
     /// 语音用本地识别、且选用了模型时，启动补齐 macOS 的语音运行库；别的识别服务、或出厂还没选模型时不需要它。

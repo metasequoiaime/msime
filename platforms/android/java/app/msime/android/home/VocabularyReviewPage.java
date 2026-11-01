@@ -183,7 +183,7 @@ public final class VocabularyReviewPage extends ReloadingDetailPage {
 
         GroupCard today = GroupCard.add(target, "今日");
         today.addView(metrics(context, current));
-        today.footer("复习只在这里进行，不会改变打字时的候选或组词。进度保存在本机，不会上传。");
+        today.help("复习只在这里进行，不会改变打字时的候选或组词。进度保存在本机，不会上传。");
 
         GroupCard books = GroupCard.add(target, "词书").withDividers(Ui.ROW_PADDING_H);
         VocabularyReviewModel.Wordbook selected = current.selectedWordbook();
@@ -198,7 +198,7 @@ public final class VocabularyReviewPage extends ReloadingDetailPage {
         if (selected != null && !selected.builtin() && !selected.pack()) {
             books.button("删除这个词表", "连同它的复习进度一起删除", "删除", () -> confirmRemove(selected));
         }
-        books.footer("每行一个词，用逗号或制表符分隔：单词,音标,释义 或 单词,释义。释义里有逗号时用英文引号括起来。");
+        books.help("每行一个词，用逗号或制表符分隔：单词,音标,释义 或 单词,释义。释义里有逗号时用英文引号括起来。");
 
         GroupCard review = GroupCard.add(target, "复习");
         VocabularyReviewModel.Card card = current.current();
@@ -214,7 +214,7 @@ public final class VocabularyReviewPage extends ReloadingDetailPage {
                 review.addView(readAloudButton(context, card.word(), spoken));
             review.addView(answerButtons(context));
         }
-        review.footer("答「不认识」的词会在本次复习里再次出现；答「认识」的词按间隔安排到以后的某一天。");
+        review.help("答「不认识」的词会在本次复习里再次出现；答「认识」的词按间隔安排到以后的某一天。");
 
         GroupCard reset = GroupCard.add(target, null);
         reset.button("清空复习进度", "已经学过的词会从头开始，词表本身会保留", "清空", this::confirmReset);

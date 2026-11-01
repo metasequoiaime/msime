@@ -122,7 +122,7 @@ import {
   HandwritingRecognitionQueue, HandwritingRecognitionTicket
 } from './input/HandwritingRecognitionQueue';
 import { HarmonyVoiceRecognizer } from './input/HarmonyVoiceRecognizer';
-import { VoiceRecognitionPolicy, VOICE_DONE_NOTICE_MS, VOICE_SILENCE_STOP_MS } from './input/VoiceRecognitionPolicy';
+import { VoiceRecognitionPolicy, VOICE_DONE_NOTICE_MS, VOICE_PAUSE_DEFAULT_MS } from './input/VoiceRecognitionPolicy';
 import { VoiceInputConfigurationPolicy } from './input/VoiceInputConfiguration';
 import { ReplyKeyboardPolicy, ReplyStyle } from './ReplyKeyboardPolicy';
 import { CommunityReplyTemplate } from './CommunityReplyLibraryPolicy';
@@ -135,7 +135,7 @@ import display from '@ohos.display';
 import { KeyboardIconPaths } from './KeyboardIconPaths';
 import { BrandTile } from './faces/BrandTile';
 import { KeyboardLineIcon } from './faces/KeyboardLineIcon';
-import { AdjustAvailability, AdjustFrame, AdjustHandles, AdjustRise, AdjustSpan, AdjustValues, KeyboardAdjustPolicy } from './KeyboardAdjustPolicy';
+import { AdjustAvailability, AdjustButtonRow, AdjustFrame, AdjustHandles, AdjustRise, AdjustSpan, AdjustValues, KeyboardAdjustPolicy } from './KeyboardAdjustPolicy';
 import { MiniKeyboardPreview, MoreSkinsTile } from './faces/MiniKeyboardPreview';
 import { PagedTiles } from './faces/PagedTiles';
 import { PanelTile } from './faces/PanelTile';
@@ -147,7 +147,7 @@ import { PrivacyGate } from './PrivacyGate';
 import { AiGenerationGate } from './AiGenerationGate';
 import { PhraseList, PHRASE_LIST_ERROR, PHRASE_LIST_LOADING, PHRASE_LIST_READY } from './faces/PhraseList';
 import { VoiceListening } from './faces/VoiceListening';
-import { VoiceListeningPolicy, VoiceListeningSession } from './faces/VoiceListeningPolicy';
+import { VOICE_MASCOT_FILE, VoiceListeningPolicy, VoiceListeningSession } from './faces/VoiceListeningPolicy';
 
 import { TextPolicy } from './TextPolicy';
 import { ToolbarTools, TouchToolbarPolicy } from './TouchToolbarPolicy';
@@ -376,19 +376,14 @@ const ADJUST_RIGHT: string = 'right';
 const ADJUST_MOVE: string = 'move';
 const ADJUST_RESET: string = 'reset';
 const ADJUST_CONFIRM: string = 'confirm';
-/** 键盘调整遮罩的尺寸（vp）：四角括号的边长和线宽，柄里横线、竖线的长度、粗细和间距，柄的触摸区（长边 × 短边），三个按钮的图标、字号和宽度。 */
+/** 键盘调整遮罩的尺寸（vp）：四角括号的边长和线宽，柄里横线、竖线的长度，柄的触摸区长边，三个按钮的图标、字号和图标与文字的间距。线的粗细和间距、柄的短边、按钮的宽和间距在 `KeyboardAdjustPolicy`，按钮那一排的换算要用到它们。 */
 const ADJUST_CORNER_VP: number = 20;
 const ADJUST_CORNER_STROKE_VP: number = 3;
 const ADJUST_GRIP_LENGTH_VP: number = 24;
-const ADJUST_GRIP_THICKNESS_VP: number = 2;
-const ADJUST_GRIP_GAP_VP: number = 3;
 const ADJUST_HANDLE_LONG_VP: number = 96;
-const ADJUST_HANDLE_SHORT_VP: number = 32;
 const ADJUST_BUTTON_ICON_VP: number = 30;
 const ADJUST_BUTTON_FONT_SIZE: number = 14;
-const ADJUST_BUTTON_WIDTH_VP: number = 72;
 const ADJUST_BUTTON_GAP_VP: number = 6;
-const ADJUST_BUTTONS_SPACE_VP: number = 16;
 const SURFACE_EXPANDED: string = 'expanded';
 const SURFACE_VARIANTS: string = 'variants';
 const SURFACE_VOICE: string = 'voice';
@@ -716,6 +711,8 @@ struct KeyboardView {
   @State voiceHeard: string = '';
   /** 麦克风电平 0–1，聆听面板的光圈跟着它缩放；只在录音中更新，收尾、完成和取消时回到 0。 */
   @State voiceLevel: number = 0;
+  /** 聆听面板的指示区画水杉娘（非按住的会话）还是圆盘，由 `refreshVoiceMascot` 按两个按住标志算出。 */
+  @State voiceMascot: boolean = true;
   @State voiceEnabled: boolean = KeyboardSession.shared.voiceInputEnabled();
   @State replySource: string = '';
   @State replyStyle: string = '高情商';
@@ -832,8 +829,12 @@ struct KeyboardView {
   private voiceGeneration: number = 0;
   /** 录音是否由语音快捷键按住；快捷键会自己结束录音，所以说话停顿不能结束它。 */
   private voiceHeldByKey: boolean = false;
-  /** 当前识别服务是否返回中间文字，用于提示停顿自动结束或点「说完了」；在 `voiceBusy` 之前更新，供手机聆听面板读取。 */
-  private voiceStreams: boolean = true;
+  /** 停顿之后录音会不会自己结束（`VoiceRecordingBehaviourPolicy.endsOnPause`），用于提示停顿自动结束或点「说完了」；在 `voiceBusy` 之前更新，供手机聆听面板读取。 */
+  private voiceEndsOnPause: boolean = true;
+  /** 这次聆听由键盘的停顿计时结束：触屏上的本地识别和系统识别（`VoiceRecordingBehaviourPolicy.keyboardStopsOnPause`），开始聆听时固定。 */
+  private voicePauseEnds: boolean = false;
+  /** 这次聆听的停顿时间（`VoiceRecordingBehaviourPolicy.pauseMillis`），开始聆听时固定，改设置从下一次聆听生效。 */
+  private voicePauseMs: number = VOICE_PAUSE_DEFAULT_MS;
   private voiceSilenceTimer: number = -1;
   /** 经过 VAD 的本地整段模型此刻是否听到说话；其他识别器从不报，始终为 false。 */
   private voiceSpeaking: boolean = false;
@@ -988,8 +989,9 @@ struct KeyboardView {
       }
       if (action === VoiceHotkeyAction.LOCK) {
         this.voiceNotice = '已锁定录音，松开按键不会结束。';
-        // 锁定后松开按键不再结束录音，会话从此按点按开始对待：面板给「说完了」和「取消」，流式识别停顿后自动结束。快捷键的 STOP、CANCEL 不看这个标志，照常生效。
+        // 锁定后松开按键不再结束录音，会话从此按点按开始对待：面板给「说完了」和「取消」；触屏上本地识别和系统识别停顿后自动结束（`voicePauseEnds`，见 `VoiceRecordingBehaviourPolicy.keyboardStopsOnPause`），豆包流式和上传式识别点「说完了」结束，指示区换成水杉娘。快捷键的 STOP、CANCEL 不看这个标志，照常生效。
         this.voiceHeldByKey = false;
+        this.refreshVoiceMascot();
       }
     };
     KeyboardSession.shared.onPanelKey = (key: EmojiPanelKey): boolean => this.panelKey(key);
@@ -1049,6 +1051,12 @@ struct KeyboardView {
       }
       if (this.surface === SURFACE_REPLY) {
         this.replyNotice = '输入位置已变化，请重新选择回复方式';
+      }
+    };
+    KeyboardSession.shared.onEditorAttached = (): void => {
+      // 换输入框时系统不一定先发 inputStop（那会经 `onPanelHidden` 离开），键盘也不一定收起，只来一次新的 inputStart：键盘调整开着就在这里离开，按确认保存（见 `show`），不把遮罩带进新的输入框。
+      if (this.surface === SURFACE_GEOMETRY) {
+        this.show(SURFACE_NONE);
       }
     };
     KeyboardSession.shared.onPanelHidden = (): void => {
@@ -1172,6 +1180,7 @@ struct KeyboardView {
     KeyboardSession.shared.onViewPreferencesReloaded = undefined;
     KeyboardSession.shared.onReplyContextChanged = undefined;
     KeyboardSession.shared.onPanelHidden = undefined;
+    KeyboardSession.shared.onEditorAttached = undefined;
     KeyboardSession.shared.onPanelKey = undefined;
     KeyboardSession.shared.invalidateReplyContext(false);
     this.cancelHoverTip();
@@ -2067,7 +2076,9 @@ struct KeyboardView {
             .minFontSize(KEY_HINT_FONT_SIZE)
             .maxFontSize($$.size)
             .maxFontScale(KEY_MAX_FONT_SCALE)
-            .heightAdaptivePolicy(TextHeightAdaptivePolicy.LAYOUT_CONSTRAINT_FIRST)
+            // 有角标时字母只能用角标下面剩的高度，按高度约束缩字（LAYOUT_CONSTRAINT_FIRST）。没有角标时按单行缩字（MAX_LINES_FIRST）：「123」「发送」这类功能键在收窄的键盘里比键帽宽，高度约束优先只看高度，不缩字，字会被截掉；按单行优先才会在 10 到原字号之间缩到放得下。
+            .heightAdaptivePolicy(this.keyFaceHasCornerHint($$) ? TextHeightAdaptivePolicy.LAYOUT_CONSTRAINT_FIRST
+              : TextHeightAdaptivePolicy.MAX_LINES_FIRST)
             .layoutWeight(this.keyFaceHasCornerHint($$) ? 1 : 0)
             .fontWeight($$.fontWeight ?? 400)
             .maxLines(1)
@@ -3205,11 +3216,12 @@ struct KeyboardView {
     return this.rootWidth > 0 ? this.rootWidth : this.screenWidthVp;
   }
 
-  /** 中间一排每个按钮的宽（`KeyboardAdjustPolicy.buttonWidthVp`）：外框窄时按钮跟着缩，不压到左右柄上。 */
-  private adjustButtonWidth(): number {
+  /** 中间一排按钮的宽和间距（`KeyboardAdjustPolicy.buttonRow`）：外框窄时先收间距再收按钮，不压到左右柄上。 */
+  private adjustButtonRow(): AdjustButtonRow {
     const frame: AdjustFrame = this.adjustFrame();
-    return KeyboardAdjustPolicy.buttonWidthVp(this.adjustPanelWidthVp() - frame.left - frame.right,
-      this.adjustHandles().move ? 3 : 2, ADJUST_HANDLE_SHORT_VP, ADJUST_BUTTONS_SPACE_VP, ADJUST_BUTTON_WIDTH_VP);
+    const handles: AdjustHandles = this.adjustHandles();
+    return KeyboardAdjustPolicy.buttonRow(this.adjustPanelWidthVp() - frame.left - frame.right,
+      handles.move ? 3 : 2, handles.left && handles.right);
   }
 
   /** 此刻算进面板高度的底部抬高（vp），不生效时为 0。 */
@@ -3906,7 +3918,8 @@ struct KeyboardView {
       secondary: this.skin.secondary,
       accent: this.skin.accent,
       selected: TRANSPARENT,
-      selectedText: this.skin.accent,
+      // 首选画在字母键色的底片上，字用皮肤的首选字色（浅色季节配色加深到 WCAG AA）。
+      selectedText: this.skin.candidateAccent,
       selectedNumber: this.skin.accent,
       hover: TRANSPARENT,
       showSelectedBar: false
@@ -8511,6 +8524,8 @@ struct KeyboardView {
     if (this.voiceBusy) {
       return;
     }
+    // 指示区按这次尝试的方式定下来：录音开不了（已关闭、没有麦克风权限、会话不可用）时面板显示原因，也用这一次的指示区，不沿用上一次会话的（#10313）。
+    this.voiceMascot = VoiceListeningPolicy.showsMascot(this.spaceVoiceHeld, fromHotkey);
     if (!KeyboardSession.shared.voiceInputEnabled()) {
       this.voiceEnabled = false;
       this.voiceNotice = '语音输入已在设置中关闭';
@@ -8531,7 +8546,12 @@ struct KeyboardView {
     this.voiceSpeaking = false;
     this.voiceHeldByKey = fromHotkey;
     const voiceConfiguration = KeyboardSession.shared.voiceInputConfiguration();
-    this.voiceStreams = VoiceRecordingBehaviourPolicy.streamsPartialResults(voiceConfiguration);
+    this.voiceEndsOnPause = VoiceRecordingBehaviourPolicy.endsOnPause(voiceConfiguration);
+    // 停顿时间和判停灵敏度在开始聆听时固定（#10310）。本地识别用设置里的停顿时间，系统识别沿用固定的 1500 毫秒；判停灵敏度只给点按开始、按停顿结束的本地识别，按住说话的录音由松手结束，保留原来的 VAD 阈值。
+    this.voicePauseEnds = this.touchDesign() && VoiceRecordingBehaviourPolicy.keyboardStopsOnPause(voiceConfiguration);
+    this.voicePauseMs = VoiceRecordingBehaviourPolicy.pauseMillis(voiceConfiguration);
+    voiceConfiguration.local_stop_sensitivity =
+      VoiceRecordingBehaviourPolicy.stopSensitivity(voiceConfiguration, this.voicePauseEnds && !fromHotkey);
     this.voiceText = '';
     this.voiceHeard = '';
     this.voiceLevel = 0;
@@ -8551,7 +8571,7 @@ struct KeyboardView {
           this.voiceHeard = this.voiceText;
         }
       }
-      if (!final && text.length > 0) {
+      if (!final && text.length > 0 && this.voicePauseEnds) {
         this.armVoiceSilence();
       }
       if (final && this.voiceGeneration > 0) {
@@ -8639,7 +8659,7 @@ struct KeyboardView {
   }
 
   /**
-   * 流式识别听到文字后停顿 `VOICE_SILENCE_STOP_MS` 自动结束；上传式识别没有中间文字，用户点「说完了」结束。按住空格或快捷键的录音在松手时结束，VAD 仍听到说话时顺延静音计时。
+   * 本地识别和系统识别听到文字后停顿 `voicePauseMs` 自动结束（本地识别是用户设的停顿时间，系统识别固定 1500 毫秒）。豆包流式和上传式识别由用户点「说完了」结束，不经这里（`VoiceRecordingBehaviourPolicy.keyboardStopsOnPause`）。按住空格或快捷键的录音在松手时结束，VAD 仍听到说话时顺延静音计时。
    */
   private armVoiceSilence(): void {
     if (!this.touchDesign() || this.voiceHeldByKey || !this.voiceBusy || this.voiceFinishing) {
@@ -8653,11 +8673,11 @@ struct KeyboardView {
         return;
       }
       this.stopVoice();
-    }, VOICE_SILENCE_STOP_MS);
+    }, this.voicePauseMs);
   }
 
   /**
-   * 经过 VAD 的本地整段模型报告说话状态变化。这类模型只在一段说完后才出文字，连续说话超过 `VOICE_SILENCE_STOP_MS` 时没有新文字可以续上静音计时，所以已经开始的计时在每次变化时从头再计：开始说话时推迟，说完时从这一刻起再等一个完整的停顿。还没听到文字时计时尚未开始，这里不启动它。
+   * 经过 VAD 的本地整段模型报告说话状态变化。这类模型只在一段说完后才出文字，连续说话超过停顿时间时没有新文字可以续上静音计时，所以已经开始的计时在每次变化时从头再计：开始说话时推迟，说完时从这一刻起再等一个完整的停顿。还没听到文字时计时尚未开始，这里不启动它。
    */
   private voiceSpeechChanged(speaking: boolean): void {
     this.voiceSpeaking = speaking;
@@ -8752,7 +8772,7 @@ struct KeyboardView {
     if (this.voiceHeldByKey) {
       return '松开结束录音';
     }
-    return this.voiceStreams ? '停顿后自动上屏，也可点「说完了」' : '说完后点「说完了」，识别后自动上屏';
+    return this.voiceEndsOnPause ? '停顿后自动上屏，也可点「说完了」' : '说完后点「说完了」，识别后自动上屏';
   }
 
   /** 提示行放的是转写文字（已上屏的内容或收尾时最后听到的），放不下一行时从开头省略。 */
@@ -8795,6 +8815,18 @@ struct KeyboardView {
     this.show(SURFACE_NONE);
   }
 
+  /** 两个按住标志不是状态变量，快捷键 LOCK 清掉 `voiceHeldByKey` 之后调这里，让面板按新的会话方式换指示区（#10313）；开始录音时 `startVoice` 直接按这次尝试算。 */
+  private refreshVoiceMascot(): void {
+    this.voiceMascot = VoiceListeningPolicy.showsMascot(this.spaceVoiceHeld, this.voiceHeldByKey);
+  }
+
+  /** 聆听面板人物的图片地址：表情包里的 `01.webp`，与 Android、iOS 同一张；表情包读不到时为空，面板画圆盘。清单由 `MascotStickerStore` 缓存，只读一次。 */
+  private voiceMascotUri(): string {
+    const sticker: MascotSticker | undefined = KeyboardSession.shared.mascotStickers.list()
+      .find((candidate: MascotSticker): boolean => candidate.file === VOICE_MASCOT_FILE);
+    return sticker === undefined ? '' : KeyboardSession.shared.mascotStickers.uri(sticker);
+  }
+
   @Builder
   voiceFace() {
     if (this.touchDesign()) {
@@ -8811,6 +8843,9 @@ struct KeyboardView {
           hintTail: this.voiceListeningHintTail(),
           hintPrefix: this.voiceListeningHintPrefix(),
           level: this.voiceLevel,
+          mascot: this.voiceMascot,
+          mascotUri: this.voiceMascot ? this.voiceMascotUri() : '',
+          recording: this.voiceBusy && !this.voiceFinishing,
           primaryLabel: VoiceListeningPolicy.primaryLabel(this.voiceListeningSession()),
           primaryEnabled: !this.voiceFinishing,
           cancelLabel: VoiceListeningPolicy.cancelLabel(this.voiceListeningSession()),
@@ -11528,12 +11563,11 @@ struct KeyboardView {
         Column() {
           this.adjustEdge(ADJUST_TOP)
           Row() {
+            // 左右柄一起画或一起不画；不画时按钮那一排用满外框宽（`adjustButtonRow` 也按此换算），不留占位。
             if (this.adjustHandles().left) {
               this.adjustEdge(ADJUST_LEFT)
-            } else {
-              Column().width(ADJUST_HANDLE_SHORT_VP).height(ADJUST_HANDLE_LONG_VP)
             }
-            Row({ space: ADJUST_BUTTONS_SPACE_VP }) {
+            Row({ space: this.adjustButtonRow().gap }) {
               this.adjustButton(ADJUST_RESET)
               if (this.adjustHandles().move) {
                 this.adjustButton(ADJUST_MOVE)
@@ -11544,8 +11578,6 @@ struct KeyboardView {
             .justifyContent(FlexAlign.Center)
             if (this.adjustHandles().right) {
               this.adjustEdge(ADJUST_RIGHT)
-            } else {
-              Column().width(ADJUST_HANDLE_SHORT_VP).height(ADJUST_HANDLE_LONG_VP)
             }
           }
           .width('100%')
@@ -11554,7 +11586,7 @@ struct KeyboardView {
           if (this.adjustHandles().bottom) {
             this.adjustEdge(ADJUST_BOTTOM)
           } else {
-            Column().width(ADJUST_HANDLE_LONG_VP).height(ADJUST_HANDLE_SHORT_VP)
+            Column().width(ADJUST_HANDLE_LONG_VP).height(KeyboardAdjustPolicy.HANDLE_SHORT_VP)
           }
         }
         .width('100%')
@@ -11594,6 +11626,7 @@ struct KeyboardView {
     .accessibilityLevel('no-hide-descendants')
   }
 
+  /** 一角的括号。浮动时外框的下面两角就是卡片的圆角（`build` 按 `FloatingKeyboardPolicy.CORNER_RADIUS_VP` 裁剪，浮动时不抬高、不收窄），直角括号的拐角会被裁掉，只剩两截短线；这两角改画同样半径的圆角括号，贴着卡片边走。上面两角在拖动条下面，不是卡片的角，仍是直角。 */
   @Builder
   adjustCorner(top: boolean, left: boolean) {
     Column()
@@ -11605,28 +11638,40 @@ struct KeyboardView {
         left: left ? ADJUST_CORNER_STROKE_VP : 0,
         right: left ? 0 : ADJUST_CORNER_STROKE_VP
       })
+      .borderRadius({
+        bottomLeft: !top && left && this.floatingDrawn() ? FloatingKeyboardPolicy.CORNER_RADIUS_VP : 0,
+        bottomRight: !top && !left && this.floatingDrawn() ? FloatingKeyboardPolicy.CORNER_RADIUS_VP : 0
+      })
       .borderColor(this.skin.accent)
   }
 
-  /** 一条边上的把手：上下沿是三道横线，左右沿是两道竖线，触摸区比线大得多。按住拖动只改这条边（`dragAdjust`）。 */
+  /**
+   * 一条边上的把手：上下沿是三道横线，左右沿是两道竖线，触摸区比线大得多。按住拖动只改这条边（`dragAdjust`）。
+   *
+   * 上沿柄的线贴着外框上沿画（`KeyboardAdjustPolicy.TOP_GRIP_INSET_VP`），落在工具栏图标上方那一条空白里，与 Android 相同；居中的话线会画进工具栏那一行、压在图标上，收窄后图标挤得更密时尤其明显（iOS 验收时就是这样）。触摸区照旧 32vp 高，遮罩整层挡住触摸，盖到工具栏上不碍事。
+   */
   @Builder
   adjustEdge(handle: string) {
-    Stack() {
+    Stack({ alignContent: handle === ADJUST_TOP ? Alignment.Top : Alignment.Center }) {
       if (handle === ADJUST_TOP || handle === ADJUST_BOTTOM) {
-        Column({ space: ADJUST_GRIP_GAP_VP }) {
+        // 三道线连同间距的厚度取 gripSpanVp(3)：测试按它断言横线底边在工具栏图标之上，画出来的就是这个厚度。
+        Column({ space: KeyboardAdjustPolicy.GRIP_GAP_VP }) {
           this.adjustGripLine(true)
           this.adjustGripLine(true)
           this.adjustGripLine(true)
         }
+        .height(KeyboardAdjustPolicy.gripSpanVp(3))
       } else {
-        Row({ space: ADJUST_GRIP_GAP_VP }) {
+        Row({ space: KeyboardAdjustPolicy.GRIP_GAP_VP }) {
           this.adjustGripLine(false)
           this.adjustGripLine(false)
         }
+        .width(KeyboardAdjustPolicy.gripSpanVp(2))
       }
     }
-    .width(handle === ADJUST_TOP || handle === ADJUST_BOTTOM ? ADJUST_HANDLE_LONG_VP : ADJUST_HANDLE_SHORT_VP)
-    .height(handle === ADJUST_TOP || handle === ADJUST_BOTTOM ? ADJUST_HANDLE_SHORT_VP : ADJUST_HANDLE_LONG_VP)
+    .width(handle === ADJUST_TOP || handle === ADJUST_BOTTOM ? ADJUST_HANDLE_LONG_VP : KeyboardAdjustPolicy.HANDLE_SHORT_VP)
+    .height(handle === ADJUST_TOP || handle === ADJUST_BOTTOM ? KeyboardAdjustPolicy.HANDLE_SHORT_VP : ADJUST_HANDLE_LONG_VP)
+    .padding({ top: handle === ADJUST_TOP ? KeyboardAdjustPolicy.TOP_GRIP_INSET_VP : 0 })
     .accessibilityGroup(true)
     .accessibilityText(this.adjustHandleLabel(handle))
     .accessibilityDescription(this.adjustHandleDescription(handle))
@@ -11636,9 +11681,9 @@ struct KeyboardView {
   @Builder
   adjustGripLine(horizontal: boolean) {
     Column()
-      .width(horizontal ? ADJUST_GRIP_LENGTH_VP : ADJUST_GRIP_THICKNESS_VP)
-      .height(horizontal ? ADJUST_GRIP_THICKNESS_VP : ADJUST_GRIP_LENGTH_VP)
-      .borderRadius(ADJUST_GRIP_THICKNESS_VP / 2)
+      .width(horizontal ? ADJUST_GRIP_LENGTH_VP : KeyboardAdjustPolicy.GRIP_THICKNESS_VP)
+      .height(horizontal ? KeyboardAdjustPolicy.GRIP_THICKNESS_VP : ADJUST_GRIP_LENGTH_VP)
+      .borderRadius(KeyboardAdjustPolicy.GRIP_THICKNESS_VP / 2)
       .backgroundColor(KeyboardAdjustPolicy.INK_COLOR)
   }
 
@@ -11657,7 +11702,7 @@ struct KeyboardView {
         .fontColor(KeyboardAdjustPolicy.INK_COLOR)
         .maxLines(1)
     }
-    .width(this.adjustButtonWidth())
+    .width(this.adjustButtonRow().width)
     .padding({ top: ADJUST_BUTTON_GAP_VP, bottom: ADJUST_BUTTON_GAP_VP })
     .accessibilityGroup(true)
     .accessibilityText(this.adjustButtonLabel(kind))

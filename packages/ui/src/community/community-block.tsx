@@ -260,7 +260,7 @@ export function CommunityBlockedAuthors({ blocks }: { blocks: CommunityBlocksVal
       )}
       <GroupList>
         {items.map((item) => (
-          <Row key={item.id} title={item.name} description={communityBlockDay(item.created_at)}>
+          <Row key={item.id} title={item.name} detail={communityBlockDay(item.created_at)}>
             <ActionButton
               action={() => unblock(item)}
               disabled={removing.has(item.id)}

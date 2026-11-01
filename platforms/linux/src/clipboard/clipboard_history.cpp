@@ -1,3 +1,4 @@
+#include "../core/AuxiliaryCrashCapture.h"
 #include <nlohmann/json.hpp>
 #include "../core/BoundedCliInput.h"
 #include "ClipboardText.h"
@@ -90,6 +91,7 @@ int main(int argc, char **argv) {
     return 0;
   }
   if (argc < 3) return 2;
+  msime::linux_host::AuxiliaryCrashCapture crash_capture("clipboard");
   const std::filesystem::path path = argv[1];
   const std::string op = argv[2];
   std::string added_text;

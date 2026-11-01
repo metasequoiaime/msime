@@ -429,6 +429,7 @@ test("a HarmonyOS phone takes the app theme's season on its root", () => {
         background: "#F6E9DC",
         card: "#FFFBF6",
         hair: "#E8D6C4",
+        candidate_accent: "#9F4214",
       }}
     />,
   );
@@ -550,6 +551,7 @@ test("a HarmonyOS phone colours the system bars to the splash and then to the st
     background: "#F6E9DC",
     card: "#FFFBF6",
     hair: "#EADBCB",
+    candidate_accent: "#9F4214",
   } as const;
   render(
     <WelcomeFlowPage

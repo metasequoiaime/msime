@@ -44,6 +44,10 @@ export type VoiceInputPreferences = {
   doubao_enable_punc?: boolean;
   doubao_enable_ddc?: boolean;
   doubao_boosting_table_id?: string;
+  /** 点按开始的本地识别出字后停顿多久结束录音（毫秒），500–5000、步进 100；缺键为 1500。只留在本机。 */
+  pause_millis?: number;
+  /** 判停灵敏度 10–90，越高越容易判定说完；缺键为 50。只留在本机。 */
+  stop_sensitivity?: number;
   [key: string]: unknown;
 };
 

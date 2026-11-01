@@ -45,16 +45,16 @@ struct PunctuationSettingsView: View {
       .designRow()
       Section {
         Toggle(isOn: stored("smart_punctuation_repeat", $repeatToChinese)) {
-          SettingsOptionLabel(title: "重复标点转中文", detail: "输出英文标点后，2 秒内再次输入同一标点时替换为中文标点")
+          SettingsOptionLabel(title: "重复标点转中文", info: "输出英文标点后，2 秒内再次输入同一标点时替换为中文标点")
         }.accessibilityIdentifier("smartPunctuationRepeat")
         Toggle(isOn: stored("smart_punctuation_space_convert", $spaceConvert)) {
-          SettingsOptionLabel(title: "中文标点后按空格转换", detail: "刚输入中文标点后按空格，转换为对应英文标点")
+          SettingsOptionLabel(title: "中文标点后按空格转换", info: "刚输入中文标点后按空格，转换为对应英文标点")
         }.accessibilityIdentifier("smartPunctuationSpaceConvert")
         Toggle(isOn: stored("smart_punctuation_direct_digit", $directDigit)) {
-          SettingsOptionLabel(title: "数字后直出", detail: "数字后输入逗号、句点或冒号时保留英文标点")
+          SettingsOptionLabel(title: "数字后直出", info: "数字后输入逗号、句点或冒号时保留英文标点")
         }.accessibilityIdentifier("smartPunctuationDirectDigit")
         Toggle(isOn: stored("smart_punctuation_direct_letter", $directLetter)) {
-          SettingsOptionLabel(title: "字母后直出", detail: "字母后输入逗号、句点或冒号时保留英文标点")
+          SettingsOptionLabel(title: "字母后直出", info: "字母后输入逗号、句点或冒号时保留英文标点")
         }.accessibilityIdentifier("smartPunctuationDirectLetter")
       } footer: {
         Text("以上规则在智能标点开启时生效。")
@@ -63,7 +63,7 @@ struct PunctuationSettingsView: View {
       .designRow()
       Section {
         Toggle(isOn: stored("paired_punctuation", $paired)) {
-          SettingsOptionLabel(title: "成对标点自动补全", detail: "输入左侧括号或引号时同时补上右侧")
+          SettingsOptionLabel(title: "成对标点自动补全", info: "输入左侧括号或引号时同时补上右侧")
         }.accessibilityIdentifier("pairedPunctuation")
       }
       .designRow()
@@ -71,7 +71,7 @@ struct PunctuationSettingsView: View {
         Toggle(isOn: Binding(get: { width == CharacterWidthPreference.fullwidth },
                              set: { stored(CharacterWidthPreference.key, $width).wrappedValue =
                                       $0 ? CharacterWidthPreference.fullwidth : CharacterWidthPreference.halfwidth })) {
-          SettingsOptionLabel(title: "全角输入", detail: "将英文字符和空格提交为全角形式")
+          SettingsOptionLabel(title: "全角输入", info: "将英文字符和空格提交为全角形式")
         }.accessibilityIdentifier("characterWidth")
       } footer: {
         Text("键盘下次出现时生效；键盘功能菜单里的「全角」开关只临时切换当前键盘。")
@@ -79,7 +79,7 @@ struct PunctuationSettingsView: View {
       .designRow()
       Section {
         Toggle(isOn: stored("chinese_english_spacing", $spacing)) {
-          SettingsOptionLabel(title: "中英文之间加空格", detail: "一次上屏的文字里，汉字与英文字母、数字相邻处自动加一个空格，如「用Rust写」上屏为「用 Rust 写」")
+          SettingsOptionLabel(title: "中英文之间加空格", info: "一次上屏的文字里，汉字与英文字母、数字相邻处自动加一个空格，如「用Rust写」上屏为「用 Rust 写」")
         }.accessibilityIdentifier("chineseEnglishSpacing")
       } footer: {
         Text("两次上屏之间不加；网址、日期等快捷模式和全角输入不受影响，译文和释义上屏、常用语、剪贴板和语音结果也不加。")

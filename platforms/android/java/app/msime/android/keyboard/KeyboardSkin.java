@@ -51,6 +51,8 @@ public final class KeyboardSkin {
     private final String platformAccent;
     private final String platformOnAccent;
     private final String platformAccentSoft;
+    /** 触屏候选条首选的字色：跟随系统皮肤取应用主题的 `candidateAccent`（浅色加深到 WCAG AA），其余皮肤就是 accent。 */
+    private final String candidateAccent;
 
     /** A flat palette: the M3 tokens or a resolved theme's keyboard. No border, no shadow, radius 8. */
     private KeyboardSkin(String id, String title, String description, boolean dark,
@@ -66,6 +68,17 @@ public final class KeyboardSkin {
             String background, String keyBackground, String functionBackground, String text,
             String secondary, String accent, String onAccent, String hairline, String toolbarIcon,
             String platformAccent, String platformOnAccent, String platformAccentSoft) {
+        this(id, title, description, dark, background, keyBackground, functionBackground, text,
+            secondary, accent, onAccent, hairline, toolbarIcon, platformAccent, platformOnAccent,
+            platformAccentSoft, accent);
+    }
+
+    /** 同上，另给首选候选的字色。 */
+    private KeyboardSkin(String id, String title, String description, boolean dark,
+            String background, String keyBackground, String functionBackground, String text,
+            String secondary, String accent, String onAccent, String hairline, String toolbarIcon,
+            String platformAccent, String platformOnAccent, String platformAccentSoft,
+            String candidateAccent) {
         this.id = id;
         this.title = title;
         this.description = description;
@@ -102,9 +115,10 @@ public final class KeyboardSkin {
         this.platformAccent = platformAccent;
         this.platformOnAccent = platformOnAccent;
         this.platformAccentSoft = platformAccentSoft;
+        this.candidateAccent = candidateAccent;
         designKey = String.join(",", background, keyBackground, functionBackground, text,
             secondary, accent, onAccent, hairline, toolbarIcon, platformAccent, platformOnAccent,
-            platformAccentSoft);
+            platformAccentSoft, candidateAccent);
     }
 
     private KeyboardSkin(CustomKeyboardSkin design, boolean dark) {
@@ -145,6 +159,7 @@ public final class KeyboardSkin {
         platformAccent = accent;
         platformOnAccent = onAccent;
         platformAccentSoft = alpha(accent, 0x24 / 255.0);
+        candidateAccent = accent;
     }
 
     /**
@@ -179,7 +194,8 @@ public final class KeyboardSkin {
             dark, colorString(palette.keyboardBackground), colorString(palette.keyboardKey),
             colorString(palette.keyboardFunction), colorString(palette.keyboardText),
             colorString(palette.keyboardSub), accent, onAccent, colorString(palette.keyboardHair),
-            colorString(palette.keyboardSub), accent, onAccent, colorString(palette.accentSoft));
+            colorString(palette.keyboardSub), accent, onAccent, colorString(palette.accentSoft),
+            colorString(palette.candidateAccent));
     }
 
     /**
@@ -193,12 +209,12 @@ public final class KeyboardSkin {
         return new KeyboardSkin(id, title, description, dark, background, keyBackground,
             actionBackground, keyForeground, secondary, accent, onAccent, hairline, toolbarIcon,
             colorString(palette.accent), colorString(palette.onAccent),
-            colorString(palette.accentSoft));
+            colorString(palette.accentSoft), candidateAccent);
     }
 
-    /** 设计稿的 classic 应用主题（不可选，只作没有应用主题时的基础色）：浅色 accent #2C7A4B、bg #F7FBF3，深色 accent #8FD5A6、bg #111411、onAccent #003920。 */
+    /** 设计稿的 classic 应用主题（不可选，只作没有应用主题时的基础色）：浅色 accent #2C7A4B、bg #F7FBF3，深色 accent #8FD5A6、bg #111411、onAccent #003920。浅色的首选字色是同一色相加深后的 #267547：#2C7A4B 在键盘底色 #DFECDF 上只有约 4.3:1，#267547 约 4.6:1。 */
     private static final AppThemePalette.Seed CLASSIC = new AppThemePalette.Seed("classic", "classic",
-        new AppThemePalette.Mode(0xFF2C7A4B, 0xFFF7FBF3, 0xFFFFFFFF, 0xFFDDE5DB, 0xFFFFFFFF),
+        new AppThemePalette.Mode(0xFF2C7A4B, 0xFFF7FBF3, 0xFFFFFFFF, 0xFFDDE5DB, 0xFFFFFFFF, 0xFF267547),
         new AppThemePalette.Mode(0xFF8FD5A6, 0xFF111411, 0xFF1B1D1B, AppThemePalette.HAIR_DARK, 0xFF003920));
 
     /** 键盘里的分隔线与未选中页点（kbHair），浅色 / 深色。 */
@@ -334,7 +350,7 @@ public final class KeyboardSkin {
     private KeyboardSkin named(String id, String title) {
         return new KeyboardSkin(id, title, description, dark, background, keyBackground,
             actionBackground, keyForeground, secondary, accent, onAccent, hairline, toolbarIcon,
-            platformAccent, platformOnAccent, platformAccentSoft);
+            platformAccent, platformOnAccent, platformAccentSoft, candidateAccent);
     }
 
     /**
@@ -493,8 +509,8 @@ public final class KeyboardSkin {
     private boolean namedTheme() { return !designed && !"system".equals(id); }
     /** 首选候选 chip 的底：字母键的颜色（kb.key）。 */
     public String candidateSelectedBackground() { return keyBackground; }
-    /** 首选候选 chip 的字：皮肤的强调色，600 字重。 */
-    public String candidateSelectedForeground() { return accent; }
+    /** 首选候选 chip 的字，600 字重：跟随系统皮肤是应用主题的首选字色（浅色加深到 WCAG AA），其余皮肤是自己的强调色。 */
+    public String candidateSelectedForeground() { return candidateAccent; }
     /** 键面角标、空格上的方案短名（kbSub）；与 {@link #secondary()} 相同。 */
     public String hint() { return secondary; }
 }

@@ -201,7 +201,7 @@ struct KeyboardLayoutSettingsView: View {
         DesignDivider()
         DesignSelectRow(
           title: "双拼键盘",
-          subtitle: "当前双拼方案使用的字母键布局",
+          info: "当前双拼方案使用的字母键布局",
           options: TouchShuangpinLayoutPreference.Layout.allCases.map {
             DesignOption(title: $0.title, value: $0, identifier: "shuangpinKeyboard\($0.rawValue)")
           },
@@ -213,7 +213,7 @@ struct KeyboardLayoutSettingsView: View {
         DesignDivider()
         DesignSelectRow(
           title: "五笔键盘",
-          subtitle: "五笔使用的字母键布局，86 和 98 五笔共用",
+          info: "五笔使用的字母键布局，86 和 98 五笔共用",
           options: TouchWubiLayoutPreference.Layout.allCases.map {
             DesignOption(title: $0.title, value: $0, identifier: "wubiKeyboard\($0.rawValue)")
           },
@@ -225,7 +225,7 @@ struct KeyboardLayoutSettingsView: View {
       if TouchKeyLayoutOffering.edition.offersAnyGroup {
         DesignDivider()
         NavigationLink(destination: KeyboardKeyLayoutSettingsView()) {
-          DesignNavRowLabel(title: "按键布局", subtitle: TouchKeyLayoutOffering.entrySubtitle)
+          DesignNavRowLabel(title: "按键布局", info: TouchKeyLayoutOffering.entrySubtitle)
         }
         .buttonStyle(PressFillButtonStyle())
         .accessibilityIdentifier("keyLayoutSettingsLink")
@@ -234,15 +234,15 @@ struct KeyboardLayoutSettingsView: View {
       // 只有双拼方案的 26 键画键位提示；本版本没有双拼时不列这一行。
       if ChineseInputScheme.shuangpin.isOfferedByEdition {
         DesignToggleRow(
-          title: "双拼键位提示", subtitle: "双拼方案的 26 键键盘在字母键底部显示这个键代表的声母和韵母；关闭后键面只留字母",
+          title: "双拼键位提示", info: "双拼方案的 26 键键盘在字母键底部显示这个键代表的声母和韵母；关闭后键面只留字母",
           isOn: Binding(get: { shuangpinKeyHints }, set: { saveShuangpinKeyHints($0) }))
         .accessibilityIdentifier("appShuangpinKeyHintsToggle")
         DesignDivider()
       }
-      DesignToggleRow(title: "组字时保留 Shift", subtitle: "全拼 26 键组字时左下角保留 ⇧，点一下再输字母即辅助码；默认开启，关闭后这一键改为「分词」，用来断开音节",
+      DesignToggleRow(title: "组字时保留 Shift", info: "全拼 26 键组字时左下角保留 ⇧，点一下再输字母即辅助码；默认开启，关闭后这一键改为「分词」，用来断开音节",
                       isOn: Binding(get: { quanpinShift }, set: { saveQuanpinShift($0) }))
         .accessibilityIdentifier("appQuanpinShiftToggle")
-      DesignToggleRow(title: "隐藏中/英键", subtitle: "加宽底行空格键；中英文仍可在工具栏的输入方式中切换",
+      DesignToggleRow(title: "隐藏中/英键", info: "加宽底行空格键；中英文仍可在工具栏的输入方式中切换",
                       isOn: Binding(get: { hideLanguageKey }, set: { enabled in
                         hideLanguageKey = enabled
                         KeyboardLayoutPreference.hideLanguageKey = enabled
@@ -250,7 +250,7 @@ struct KeyboardLayoutSettingsView: View {
         .accessibilityIdentifier("appHideLanguageKeySwitch")
       // iPhone 横屏的分离式键盘只在 iPhone 上列出；iPad 的开关在「iPad」一组。
       if UIDevice.current.userInterfaceIdiom == .phone {
-        DesignToggleRow(title: Self.splitKeyboardTitle, subtitle: Self.phoneSplitKeyboardSubtitle,
+        DesignToggleRow(title: Self.splitKeyboardTitle, info: Self.phoneSplitKeyboardSubtitle,
                         isOn: Binding(get: { phoneSplit }, set: { enabled in
                           phoneSplit = enabled
                           KeyboardLayoutPreference.phoneLandscapeSplit = enabled
@@ -298,14 +298,14 @@ struct KeyboardLayoutSettingsView: View {
     }
   }
 
-  private var feedbackFooter: String {
+  private var feedbackInfo: String {
     let sound = "按键音需要在系统设置里为水杉输入法打开“允许完全访问”。所选音效由水杉输入法自己播放，跟随静音模式和媒体音量，与正在播放的音乐混音，不受“声音与触感 › 键盘反馈 › 声音”影响；音效还没准备好时用系统按键声。"
-    let footer = KeyboardFeedbackPreference.hapticsAvailable ? sound + "振动效果取决于设备与系统支持。" : sound
-    return keySoundSaveFailed ? SettingsSaveFailure.message + "\n\n" + footer : footer
+    return KeyboardFeedbackPreference.hapticsAvailable ? sound + "振动效果取决于设备与系统支持。" : sound
   }
 
   private var feedbackGroup: some View {
-    DesignGroup(title: "按键反馈", footer: feedbackFooter) {
+    DesignGroup(title: "按键反馈", info: feedbackInfo,
+                footer: keySoundSaveFailed ? SettingsSaveFailure.message : nil) {
       DesignToggleRow(title: "按键音", isOn: $soundEnabled.markingSettingsChange())
         .accessibilityIdentifier("keyboardSoundToggle")
       DesignDivider()
@@ -338,7 +338,7 @@ struct KeyboardLayoutSettingsView: View {
   }
 
   private var quickSymbolsGroup: some View {
-    DesignGroup(title: "快捷符号", footer: "修改列表后，手机 26 键轻点输入第一项、长按选择；九键快捷栏按顺序显示。最多 12 个字符，留空恢复默认逗号与句号。") {
+    DesignGroup(title: "快捷符号", info: "修改列表后，手机 26 键轻点输入第一项、长按选择；九键快捷栏按顺序显示。最多 12 个字符，留空恢复默认逗号与句号。") {
       VStack(alignment: .leading, spacing: 8) {
         TextField("，。？！、；：", text: $quickSymbols)
           .textFieldStyle(.roundedBorder)
@@ -360,8 +360,8 @@ struct KeyboardLayoutSettingsView: View {
   }
 
   private var gestureGroup: some View {
-    DesignGroup(title: "手势", footer: "滑行输入只在全拼 26 键的字母键盘上生效，轻点照常输入单个字母。") {
-      DesignToggleRow(title: "滑动输入符号", subtitle: "沿设定方向滑动输入角标符号，默认上滑；长按字母键始终可以输入",
+    DesignGroup(title: "手势", info: "滑行输入只在全拼 26 键的字母键盘上生效，轻点照常输入单个字母。") {
+      DesignToggleRow(title: "滑动输入符号", info: "沿设定方向滑动输入角标符号，默认上滑；长按字母键始终可以输入",
                       isOn: Binding(get: { swipeSymbols }, set: { enabled in
                         swipeSymbols = enabled
                         KeyboardLayoutPreference.swipeSymbols = enabled
@@ -380,7 +380,7 @@ struct KeyboardLayoutSettingsView: View {
       DesignDivider()
       // 九键的滑动与 26 键的开关、方向各管各的，不跟着 26 键置灰；没有拼音九键的版本不列这一行。
       if Self.offersNineKeySwipeDigits {
-        DesignSelectRow(title: NineKeySwipeDigits.title, subtitle: NineKeySwipeDigits.subtitle,
+        DesignSelectRow(title: NineKeySwipeDigits.title, info: NineKeySwipeDigits.subtitle,
                         options: NineKeySwipeDigits.allCases.map {
                           DesignOption(title: $0.optionTitle, value: $0, identifier: Self.nineKeySwipeDigitsIdentifier($0))
                         },
@@ -388,14 +388,14 @@ struct KeyboardLayoutSettingsView: View {
                         sheetTitle: NineKeySwipeDigits.title, identifier: "appNineKeySwipeDigits")
         DesignDivider()
       }
-      DesignToggleRow(title: "滑行输入", subtitle: "在字母键上连续滑动输入拼音，停留可确认经过的键",
+      DesignToggleRow(title: "滑行输入", info: "在字母键上连续滑动输入拼音，停留可确认经过的键",
                       isOn: Binding(get: { glideTyping }, set: { enabled in
                         glideTyping = enabled
                         KeyboardLayoutPreference.glideTyping = enabled
                       }))
       .accessibilityIdentifier("appGlideTypingSwitch")
       DesignDivider()
-      DesignToggleRow(title: "横滑键盘移动光标", subtitle: "无组字时从字符键左右滑动；开启滑行输入时，字母键优先输入拼音",
+      DesignToggleRow(title: "横滑键盘移动光标", info: "无组字时从字符键左右滑动；开启滑行输入时，字母键优先输入拼音",
                       isOn: Binding(get: { cursorSwipe }, set: { enabled in
                         cursorSwipe = enabled
                         KeyboardLayoutPreference.cursorSwipe = enabled
@@ -403,7 +403,7 @@ struct KeyboardLayoutSettingsView: View {
       .accessibilityIdentifier("appCursorSwipeSwitch")
       DesignDivider()
       DesignToggleRow(title: "长按空格语音输入",
-                      subtitle: "开启时长按打开语音；关闭后长按并左右移动可定位光标",
+                      info: "开启时长按打开语音；关闭后长按并左右移动可定位光标",
                       isOn: Binding(get: { spaceVoice }, set: { enabled in
                         spaceVoice = enabled
                         KeyboardLayoutPreference.spaceVoice = enabled
@@ -413,7 +413,7 @@ struct KeyboardLayoutSettingsView: View {
   }
 
   private var tabletGroup: some View {
-    DesignGroup(title: "iPad", footer: "全尺寸键盘在字母上方多一排数字、Q 左边多一个 Tab 键。组字时数字键选候选，Tab 打开全部候选（桌面端的 Tab 翻页）；没有组字时照常输入。浮动键盘和分屏的窄窗口用 iPhone 布局，不显示这两样。\n\n分离式键盘只在横屏时生效：字母、数字行和 123 符号页从中间分成左右两半，中间留空，方便双手握持时用拇指打字；九键、14 键、笔画、手写和注音不分。竖屏、浮动键盘和窄窗口照常显示整块键盘。\n\n功能面板的单手模式在 iPad 全宽键盘上把按键缩到手机大小、贴到一侧；分离式键盘画着时单手模式让位。\n\n外接实体键盘（妙控键盘、蓝牙键盘）时，iOS 不会把实体按键交给任何第三方键盘，实体键盘打出的是系统输入法的结果。要用水杉的拼音、候选和皮肤，请在屏幕键盘上输入。") {
+    DesignGroup(title: "iPad", info: "全尺寸键盘在字母上方多一排数字、Q 左边多一个 Tab 键。组字时数字键选候选，Tab 打开全部候选（桌面端的 Tab 翻页）；没有组字时照常输入。浮动键盘和分屏的窄窗口用 iPhone 布局，不显示这两样。\n\n分离式键盘只在横屏时生效：字母、数字行和 123 符号页从中间分成左右两半，中间留空，方便双手握持时用拇指打字；九键、14 键、笔画、手写和注音不分。竖屏、浮动键盘和窄窗口照常显示整块键盘。\n\n功能面板的单手模式在 iPad 全宽键盘上把按键缩到手机大小、贴到一侧；分离式键盘画着时单手模式让位。\n\n外接实体键盘（妙控键盘、蓝牙键盘）时，iOS 不会把实体按键交给任何第三方键盘，实体键盘打出的是系统输入法的结果。要用水杉的拼音、候选和皮肤，请在屏幕键盘上输入。") {
       DesignToggleRow(title: "数字行与 Tab 键", isOn: Binding(get: { tabletFullKeys }, set: { enabled in
         tabletFullKeys = enabled
         KeyboardLayoutPreference.tabletFullKeys = enabled
@@ -431,7 +431,7 @@ struct KeyboardLayoutSettingsView: View {
       }))
       .accessibilityIdentifier("appTabletSplitSwitch")
       DesignDivider()
-      DesignToggleRow(title: TouchOneHandedSidePanelPreference.title, subtitle: TouchOneHandedSidePanelPreference.subtitle,
+      DesignToggleRow(title: TouchOneHandedSidePanelPreference.title, info: TouchOneHandedSidePanelPreference.subtitle,
                       isOn: Binding(get: { oneHandSidePad }, set: { saveOneHandSidePad($0) }))
         .accessibilityIdentifier("appOneHandSidePadSwitch")
     }
@@ -468,19 +468,19 @@ struct KeyboardLayoutSettingsView: View {
   private var moreGroup: some View {
     DesignGroup(title: "更多") {
       NavigationLink(destination: CandidateOptionsSettingsView()) {
-        DesignNavRowLabel(title: "候选栏", subtitle: "字号、字体、预编辑和候选内容")
+        DesignNavRowLabel(title: "候选栏", info: "字号、字体、预编辑和候选内容")
       }
       .buttonStyle(PressFillButtonStyle())
       .accessibilityIdentifier("candidateOptionsSettingsLink")
       DesignDivider()
       NavigationLink(destination: KeyboardToolbarSettingsView()) {
-        DesignNavRowLabel(title: "键盘工具栏", subtitle: "键盘顶部显示哪些按钮")
+        DesignNavRowLabel(title: "键盘工具栏", info: "键盘顶部显示哪些按钮")
       }
       .buttonStyle(PressFillButtonStyle())
       .accessibilityIdentifier("keyboardToolbarSettingsLink")
       DesignDivider()
       NavigationLink(destination: ServiceSettingsView(kind: .ai)) {
-        DesignNavRowLabel(title: "AI 润色与回复", subtitle: "端点、模型、凭据和提示词")
+        DesignNavRowLabel(title: "AI 润色与回复", info: "端点、模型、凭据和提示词")
       }
       .buttonStyle(PressFillButtonStyle())
       .accessibilityIdentifier("aiSettingsLink")

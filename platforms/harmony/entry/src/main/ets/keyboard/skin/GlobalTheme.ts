@@ -187,6 +187,13 @@ function text(value: Object, name: string): string | null {
 }
 
 export class GlobalTheme {
+  /**
+   * 没有季节种子时触屏候选条首选的字色。浅色的平台强调色 `#2C7A4B` 画在原生键盘底色 `#D9E2D6` 上只有约 4.0:1，换成同一色相在 OKLCH 里降低明度的 `#1F6F41`（约 4.6:1，候选底片 `#FCFDFA` 上约 6.0:1）；深色不变。
+   */
+  static candidateAccent(dark: boolean): string {
+    return dark ? "#5FBF84" : "#1F6F41";
+  }
+
   /** The platform accent, which the return key and the function tiles keep whatever the theme. */
   static accent(dark: boolean): string {
     return dark ? "#5FBF84" : "#2C7A4B";

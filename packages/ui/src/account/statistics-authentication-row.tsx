@@ -46,9 +46,8 @@ export function StatisticsAuthenticationRow({
   return (
     <Row
       title="统计页身份验证"
-      description={
-        error || "开启后使用系统认证，5 分钟内再次进入不用重新验证；未配置锁屏凭据时直接进入"
-      }
+      description="开启后使用系统认证，5 分钟内再次进入不用重新验证；未配置锁屏凭据时直接进入"
+      detail={error || undefined}
       icon={<FluentIcon name="shield_lock" size={18} />}
     >
       <Switch

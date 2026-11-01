@@ -2396,6 +2396,18 @@ pub struct VoiceInputPreferences {
     pub doubao_enable_ddc: bool,
     #[serde(default)]
     pub doubao_boosting_table_id: String,
+    /// 点按开始的本地识别出字后停顿多久结束录音（毫秒），500–5000、步进 100，默认 1500，与 Android 本机设置 `platform.android.voice_pause_millis` 同一范围。鸿蒙和 iOS 读它；Android 的这一项在它自己的本机设置里，不读这个字段。`voice_input` 整组不进设置文件导出，账号同步也不导出这一项，所以只留在本机。默认值不写进文档。
+    #[serde(
+        default = "default_voice_pause_millis",
+        skip_serializing_if = "is_default_voice_pause_millis"
+    )]
+    pub pause_millis: u16,
+    /// 判停灵敏度，10–90、默认 50：越高越容易判定说完、结束录音。只作用于按停顿结束的本地整段模型，宿主把它换成 Silero VAD 的判定阈值（灵敏度 ÷ 100，默认正是原来的 0.5）。与 `pause_millis` 一样只留在本机，默认值不写进文档。
+    #[serde(
+        default = "default_voice_stop_sensitivity",
+        skip_serializing_if = "is_default_voice_stop_sensitivity"
+    )]
+    pub stop_sensitivity: u8,
 }
 
 /// EveryAPI 的识别默认模型以前写成 `openai/whisper-large-v3-turbo`，那是照搬 Apple 预设的名字，EveryAPI 从没有它的渠道（请求返回 503 `model_not_found`）。共享设置页切到 EveryAPI 时会把默认模型写进 `asr_model`，所以选过 EveryAPI 的文档里存的就是这个值。
@@ -2455,6 +2467,8 @@ impl Default for VoiceInputPreferences {
             doubao_enable_punc: true,
             doubao_enable_ddc: source_voice_default(),
             doubao_boosting_table_id: String::new(),
+            pause_millis: VOICE_PAUSE_MILLIS_DEFAULT,
+            stop_sensitivity: VOICE_STOP_SENSITIVITY_DEFAULT,
         }
     }
 }
@@ -4187,6 +4201,30 @@ fn default_doubao_auth_mode() -> String {
     "api_key".to_owned()
 }
 
+/// 本地识别停顿时间的范围、步进和默认值（毫秒），与 Android `AndroidLocalSettings.VOICE_PAUSE_*` 相同；默认值就是改成可调之前写死的 1500。
+pub const VOICE_PAUSE_MILLIS_RANGE: std::ops::RangeInclusive<u16> = 500..=5000;
+pub const VOICE_PAUSE_MILLIS_STEP: u16 = 100;
+pub const VOICE_PAUSE_MILLIS_DEFAULT: u16 = 1500;
+/// 判停灵敏度的范围和默认值；默认 50 对应原来写死的 VAD 阈值 0.5。
+pub const VOICE_STOP_SENSITIVITY_RANGE: std::ops::RangeInclusive<u8> = 10..=90;
+pub const VOICE_STOP_SENSITIVITY_DEFAULT: u8 = 50;
+
+fn default_voice_pause_millis() -> u16 {
+    VOICE_PAUSE_MILLIS_DEFAULT
+}
+
+fn is_default_voice_pause_millis(value: &u16) -> bool {
+    *value == VOICE_PAUSE_MILLIS_DEFAULT
+}
+
+fn default_voice_stop_sensitivity() -> u8 {
+    VOICE_STOP_SENSITIVITY_DEFAULT
+}
+
+fn is_default_voice_stop_sensitivity(value: &u8) -> bool {
+    *value == VOICE_STOP_SENSITIVITY_DEFAULT
+}
+
 impl Default for Preferences {
     fn default() -> Self {
         Self {
@@ -5132,6 +5170,13 @@ impl Preferences {
         {
             return Err(PreferencesError::InvalidVoiceInput);
         }
+        if !VOICE_PAUSE_MILLIS_RANGE.contains(&self.voice_input.pause_millis)
+            || !(self.voice_input.pause_millis - VOICE_PAUSE_MILLIS_RANGE.start())
+                .is_multiple_of(VOICE_PAUSE_MILLIS_STEP)
+            || !VOICE_STOP_SENSITIVITY_RANGE.contains(&self.voice_input.stop_sensitivity)
+        {
+            return Err(PreferencesError::InvalidVoicePause);
+        }
         if !(50..=200).contains(&self.floating_toolbar.scale_percent)
             || !(12..=48).contains(&self.floating_toolbar.font_size)
         {
@@ -5376,6 +5421,8 @@ pub enum PreferencesError {
     InvalidNetwork,
     #[error("voice recognition or polishing provider is not supported")]
     InvalidVoiceInput,
+    #[error("本地识别停顿时间须为 500–5000 毫秒、步进 100，判停灵敏度须为 10–90")]
+    InvalidVoicePause,
     #[error("custom translation endpoint or API key is invalid")]
     InvalidCustomTranslation,
     #[error("Tencent translation credentials or region are invalid")]
@@ -5533,6 +5580,14 @@ enum RecoveryScope {
 pub struct LoadedPreferences {
     bytes: Option<Vec<u8>>,
     pub snapshot: PreferencesSnapshot,
+}
+
+/// [`PreferencesStore::usage_reporting_consent_reusing`] 读到的持续同意，以及读出它的文档原始字节和代理设置。只有文档里的授权已经确定（关闭，或开启且已有代次）时才带字节，下次字节相同就直接沿用。
+#[derive(Debug, Clone)]
+pub struct LoadedUsageReportingConsent {
+    bytes: Option<Vec<u8>>,
+    network: crate::network::NetworkPreferences,
+    pub consent: Option<UsageReportingConsent>,
 }
 
 pub struct PreferencesStore {
@@ -5721,18 +5776,50 @@ impl PreferencesStore {
     pub fn usage_reporting_consent(
         &self,
     ) -> Result<Option<UsageReportingConsent>, PreferencesError> {
+        self.usage_reporting_consent_reusing(None)
+            .map(|loaded| loaded.consent)
+    }
+
+    /// 同 [`Self::usage_reporting_consent`]，但偏好文件与 `previous` 读到的逐字节相同时沿用它的结果，不再解析和校验，供每隔几百毫秒轮询授权的观察线程使用。仍在偏好锁内逐字节核对，撤回照样在下一次读取时生效。需要初始化授权历史（开启但还没有代次）或文件不存在时照常走完整路径，结果不带字节，下一次重新解析。交回的结果供下一次传入。
+    pub fn usage_reporting_consent_reusing(
+        &self,
+        previous: Option<LoadedUsageReportingConsent>,
+    ) -> Result<LoadedUsageReportingConsent, PreferencesError> {
         let _lock = self.lock()?;
-        let (current, unknown) = self.read_locked_keeping_unknown()?;
+        let bytes = self.read_document_bytes()?;
+        if let Some(previous) =
+            previous.filter(|previous| bytes.is_some() && previous.bytes == bytes)
+        {
+            crate::network::install(&previous.network);
+            return Ok(previous);
+        }
+        let (current, unknown) = self.decode_document(bytes.as_deref())?;
+        let network = current.preferences.network.clone();
         if !current.preferences.usage_reporting {
-            return Ok(None);
+            return Ok(LoadedUsageReportingConsent {
+                bytes,
+                network,
+                consent: None,
+            });
         }
         if let Some(consent) = current.preferences.usage_reporting_consent {
-            return Ok(Some(consent));
+            return Ok(LoadedUsageReportingConsent {
+                bytes,
+                network,
+                consent: Some(consent),
+            });
         }
         let revision = current.revision;
         let preferences = current.preferences.clone();
-        self.save_locked(current, &unknown, revision, preferences, true)
-            .map(|snapshot| snapshot.preferences.usage_reporting_consent)
+        let consent = self
+            .save_locked(current, &unknown, revision, preferences, true)?
+            .preferences
+            .usage_reporting_consent;
+        Ok(LoadedUsageReportingConsent {
+            bytes: None,
+            network,
+            consent,
+        })
     }
 
     /// 在同一偏好锁内核对持续同意并执行本地操作；不初始化历史，也不把读失败当关闭。

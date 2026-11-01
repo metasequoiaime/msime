@@ -1753,7 +1753,10 @@ async fn repair_macos_oobe_resources(
         Ok(())
     })
     .await
-    .map_err(|_| CommandError { code: "storage" })?
+    .map_err(|_| CommandError { code: "storage" })??;
+    // 资源目录可能刚从升级前的旧代次换成不带五笔码表的发布包：按新的资源目录再补一次已保存偏好需要的资源包，不必等设置应用下次启动。
+    desktop_resource_packs::ensure_saved_packs(app);
+    Ok(())
 }
 
 async fn save_preferences_impl(
@@ -1797,6 +1800,8 @@ async fn save_preferences_impl(
                 .map_err(CommandError::from)?;
         }
         synced.map_err(CommandError::from)?;
+        #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+        platform::desktop::desktop_crash_reporting::refresh();
         Ok(snapshot)
     })
     .await
@@ -2285,6 +2290,8 @@ fn start_desktop_preferences_monitor(
                 #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
                 std::thread::sleep(std::time::Duration::from_millis(750));
                 monitor.poll(&app, &store, &history);
+                #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+                platform::desktop::desktop_crash_reporting::refresh();
             }
         });
 }
@@ -5595,6 +5602,8 @@ pub fn run() {
                 }
             };
             let preferences = Arc::new(PreferencesStore::new(&directory));
+            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+            platform::desktop::desktop_crash_reporting::start(app.handle(), Arc::clone(&preferences));
             let clipboard_limit = preferences
                 .load()
                 .map(|snapshot| snapshot.preferences.clipboard_history_limit)

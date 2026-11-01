@@ -18,7 +18,7 @@ Status: implemented
 | HarmonyOS 2in1 候选窗 | 浅色 | `#2C7A4B` 13% 淡底 | `#2C7A4B` 4.4:1 | `#182431` 0.6，4.0:1 |
 | HarmonyOS 2in1 候选窗 | 深色 | `#5FBF84` 25% 淡底 | `#5FBF84` 4.1:1 | 白色 0.6，4.5:1 |
 
-iOS、Android 和 HarmonyOS 的触屏候选条不画选中底：首选是画在键盘底色上的强调色文字，默认配色来自季节应用主题（`app_theme.rs` 的种子色），不是 `#5FBF84` 底配白字，不在这次范围里。但它同样到不了 AA，量过三端共用的公式（键盘底色浅色 `mix(accent 12%, background)`、深色 `mix(accent 10%, #161716)`，三端的 `AppThemePalette` 逐位一致）：
+iOS、Android 和 HarmonyOS 的触屏候选条不画强调色的选中底：首选是强调色文字，画在字母键色的底片上（设置页的候选预览直接画在键盘底色上），默认配色来自季节应用主题（`app_theme.rs` 的种子色），不是 `#5FBF84` 底配白字，不在这次范围里。下表按键盘底色量（浅色 `mix(accent 12%, background)`、深色 `mix(accent 10%, #161716)`，三端的 `AppThemePalette` 逐位一致）；按底片量的数字和修法见[触屏候选条浅色首选字色达到 WCAG AA](2026-11-01-mobile-first-candidate-contrast-aa.md)：
 
 | 首选文字在键盘底色上 | 浅色 | 深色 |
 | --- | --- | --- |
@@ -70,4 +70,4 @@ iOS、Android 和 HarmonyOS 的触屏候选条不画选中底：首选是画在�
 
 - **收益**：macOS（非玻璃）、Windows、Linux 的默认选中行，候选文字、释义和读音在两种明暗下都不低于 4.5:1；新的对比度断言让以后改默认色时退化会在单测里失败，Windows 的两项取色测试第一次在 CI 上真正运行。
 - **代价**：深色模式的选中行比原来暗，和强调色不再是同一个绿；macOS 玻璃和非玻璃的深色选中行颜色不同（玻璃 `#5FBF84` 配深色字，非玻璃 `#17783F` 配白字）。Linux 的选中行不再是 GNOME 强调色。默认选中行的序号仍是白色 0.82（`#17783F` 上约 4.3:1，`#2C7A4B` 上约 4.1:1），这次只保证候选文字和释义、读音。
-- **未覆盖**：触屏候选条浅色模式的首选文字在四季和回退配色下都低于 4.5:1（见 Problem 的表），是后续要在 iOS、Android 和 HarmonyOS 一起改的事；HarmonyOS 2in1 未选中行的次要色在浅色白卡片上约 4.2:1，不是选中行，这次不动。PR 的 CI 不编译 ArkTS（HarmonyOS 作业只跑 `tests/run.sh` 和设置页构建，hvigor 只在 `release-harmony.yml` 里跑），HarmonyOS 的改动由 node 下的逻辑测试、`tests/run.sh` 对 `candidateDetailColor` 的接线检查和本机一次 `hvigorw assembleHap`（ArkTS 编译通过，没有错误）验证，没有在 2in1 设备或模拟器上看过。macOS 的改动在 CI 和本机单测上验证，Windows 和 Linux 的画面以 CI 的截图产物和单测为准，没有在真机上看过。
+- **未覆盖**：触屏候选条浅色模式的首选文字在四季和回退配色下对键盘底色都低于 4.5:1（见 Problem 的表），已在 iOS、Android 和 HarmonyOS 一起改成单独的首选字色，见[触屏候选条浅色首选字色达到 WCAG AA](2026-11-01-mobile-first-candidate-contrast-aa.md)，深色秋杉的首选在字母键底片上只有约 4.17:1，那篇记为未覆盖；HarmonyOS 2in1 未选中行的次要色在浅色白卡片上约 4.2:1，不是选中行，这次不动。PR 的 CI 不编译 ArkTS（HarmonyOS 作业只跑 `tests/run.sh` 和设置页构建，hvigor 只在 `release-harmony.yml` 里跑），HarmonyOS 的改动由 node 下的逻辑测试、`tests/run.sh` 对 `candidateDetailColor` 的接线检查和本机一次 `hvigorw assembleHap`（ArkTS 编译通过，没有错误）验证，没有在 2in1 设备或模拟器上看过。macOS 的改动在 CI 和本机单测上验证，Windows 和 Linux 的画面以 CI 的截图产物和单测为准，没有在真机上看过。

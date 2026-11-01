@@ -111,54 +111,54 @@ public final class ExpressionPage extends ReloadingDetailPage {
 
         GroupCard punctuation = GroupCard.add(sectionColumn(target, "标点"), "标点");
         InputFeatureToggle chinese = InputFeatureToggle.CHINESE_PUNCTUATION;
-        punctuation.toggle("使用英文标点", "中文模式下也上屏半角标点",
+        punctuation.toggle("使用英文标点", null,
             !values.optBoolean(chinese.key(), chinese.enabledByDefault()),
-            checked -> savePreferences(edit -> edit.put(chinese.key(), !checked)));
+            checked -> savePreferences(edit -> edit.put(chinese.key(), !checked))).help("中文模式下也上屏半角标点");
         // 两项只在中文标点下起作用，紧跟在中文标点的开关之后。
         int quote = styleIndex(QUOTE_STYLES, values.optString("quote_style", QUOTE_STYLES[0]));
-        punctuation.nav("引号样式", QUOTE_STYLE_DESCRIPTION, QUOTE_STYLE_LABELS[quote],
+        punctuation.nav("引号样式", null, QUOTE_STYLE_LABELS[quote],
             () -> pickStyle("引号样式", QUOTE_STYLE_DESCRIPTION, "quote_style", QUOTE_STYLES,
-                QUOTE_STYLE_LABELS, quote), true);
+                QUOTE_STYLE_LABELS, quote)).help(QUOTE_STYLE_DESCRIPTION);
         int bracket = styleIndex(BRACKET_STYLES, values.optString("bracket_style", BRACKET_STYLES[0]));
-        punctuation.nav("方头括号样式", BRACKET_STYLE_DESCRIPTION, BRACKET_STYLE_LABELS[bracket],
+        punctuation.nav("方头括号样式", null, BRACKET_STYLE_LABELS[bracket],
             () -> pickStyle("方头括号样式", BRACKET_STYLE_DESCRIPTION, "bracket_style", BRACKET_STYLES,
-                BRACKET_STYLE_LABELS, bracket));
+                BRACKET_STYLE_LABELS, bracket)).help(BRACKET_STYLE_DESCRIPTION);
         InputFeatureToggle paired = InputFeatureToggle.PAIRED_PUNCTUATION;
-        punctuation.toggle("自动补全成对标点", paired.description(),
+        punctuation.toggle("自动补全成对标点", null,
             values.optBoolean(paired.key(), paired.enabledByDefault()),
-            checked -> savePreferences(edit -> edit.put(paired.key(), checked)));
+            checked -> savePreferences(edit -> edit.put(paired.key(), checked))).help(paired.description());
         InputFeatureToggle smart = InputFeatureToggle.SMART_PUNCTUATION;
-        punctuation.toggle(smart.title(), smart.description(), values.optBoolean(smart.key(), smart.enabledByDefault()),
-            checked -> savePreferences(edit -> edit.put(smart.key(), checked)));
+        punctuation.toggle(smart.title(), null, values.optBoolean(smart.key(), smart.enabledByDefault()),
+            checked -> savePreferences(edit -> edit.put(smart.key(), checked))).help(smart.description());
 
         GroupCard intelligence = GroupCard.add(sectionColumn(target, "智能"), "智能");
         int sentence = sentenceLevel(values.optJSONObject("sentence_association"));
-        intelligence.nav("整句候选", SENTENCE_DESCRIPTION, SENTENCE_LABELS[sentence], () -> pickSentence(sentence));
-        intelligence.toggle("上屏后联想", "选词上屏后推荐后续文字，点选才上屏；使用现有词库，开启学习时也参考个人词序，隐私输入不显示",
+        intelligence.nav("整句候选", null, SENTENCE_LABELS[sentence], () -> pickSentence(sentence)).help(SENTENCE_DESCRIPTION);
+        intelligence.toggle("上屏后联想", null,
             values.optBoolean("next_word_prediction", false),
-            checked -> savePreferences(edit -> edit.put("next_word_prediction", checked)));
+            checked -> savePreferences(edit -> edit.put("next_word_prediction", checked))).help("选词上屏后推荐后续文字，点选才上屏；使用现有词库，开启学习时也参考个人词序，隐私输入不显示");
         // 联想按键的样式只在开启上屏后联想后可选，关着时整行变灰。
         PredictionButtonsPolicy.Style buttons = PredictionButtonsPolicy.Style.parse(
             values.optString(PredictionButtonsPolicy.PREFERENCE_KEY, ""));
-        intelligence.nav("联想栏按键", PREDICTION_BUTTONS_DESCRIPTION, PREDICTION_BUTTON_LABELS[buttons.ordinal()],
+        intelligence.nav("联想栏按键", null, PREDICTION_BUTTON_LABELS[buttons.ordinal()],
             values.optBoolean("next_word_prediction", false) ? () -> pickStyle("联想栏按键",
                 PREDICTION_BUTTONS_DESCRIPTION, PredictionButtonsPolicy.PREFERENCE_KEY, predictionButtonValues(),
-                PREDICTION_BUTTON_LABELS, buttons.ordinal()) : null, true);
+                PREDICTION_BUTTON_LABELS, buttons.ordinal()) : null).help(PREDICTION_BUTTONS_DESCRIPTION);
         InputFeatureToggle english = InputFeatureToggle.ENGLISH_SUGGESTIONS;
-        intelligence.toggle(english.title(), english.description(),
+        intelligence.toggle(english.title(), null,
             values.optBoolean(english.key(), english.enabledByDefault()),
-            checked -> savePreferences(edit -> edit.put(english.key(), checked)));
+            checked -> savePreferences(edit -> edit.put(english.key(), checked))).help(english.description());
         if (AppEdition.current().offers("quanpin")) {
             multilingualInputRows(intelligence, values);
         }
         JSONObject mixed = values.optJSONObject("mixed_input");
         // 中英混输（#7081）：Engine 和 Android 运行时早就按共享偏好 mixed_input.english / minimum_prefix 在中文候选里补英文词，桌面和 iOS 都能开关、调触发长度，Android 只是没有设置项。滑块行没有副标题，触发长度的说明只能写进开关的副标题；九键、14 键在拼音一行候选都没有且没有锁定拼音时、或处在英文模式时不看这两项照样给英文词，所以副标题不说关闭后完全没有英文。
         boolean mixedEnabled = mixed == null || mixed.optBoolean("enabled", true);
-        intelligence.toggle("候选混输", "在中文候选中补充英文、符号、表情和快捷内容；关闭后保留各项设置",
-            mixedEnabled, checked -> savePreferences(edit -> mixedInput(edit).put("enabled", checked)));
+        intelligence.toggle("候选混输", null,
+            mixedEnabled, checked -> savePreferences(edit -> mixedInput(edit).put("enabled", checked))).help("在中文候选中补充英文、符号、表情和快捷内容；关闭后保留各项设置");
         boolean mixedEnglish = mixed == null || mixed.optBoolean("english", true);
-        intelligence.toggle("中英混输", "中文候选里补充英文；达到下方字母或按键数后补全，26 键中更短的完整词仍可选",
-            mixedEnglish, checked -> savePreferences(edit -> mixedInput(edit).put("english", checked))).setEnabled(mixedEnabled);
+        intelligence.toggle("中英混输", null,
+            mixedEnglish, checked -> savePreferences(edit -> mixedInput(edit).put("english", checked))).help("中文候选里补充英文；达到下方字母或按键数后补全，26 键中更短的完整词仍可选").setEnabled(mixedEnabled);
         GroupCard.Row prefixRow = intelligence.slider("触发字母数", MIXED_PREFIX_MIN, MIXED_PREFIX_MAX, 1,
             mixed == null ? MIXED_PREFIX_DEFAULT : NumberPolicy.strictInt(mixed, "minimum_prefix", MIXED_PREFIX_DEFAULT),
             Integer::toString, value -> savePreferences(edit -> mixedInput(edit).put("minimum_prefix", value)));
@@ -168,16 +168,16 @@ public final class ExpressionPage extends ReloadingDetailPage {
             Integer::toString, value -> savePreferences(edit -> mixedInput(edit).put("first_page_count", value)))
             .setEnabled(mixedEnabled && mixedEnglish);
         // 候选带符号（打拼音出符号）：整段打出符号的名称时，Engine 在候选里接着那个词给出符号（共享偏好 mixed_input.symbols）。后加的可选字段，默认开，开着时文档里没有这个键，所以缺键读作开。
-        intelligence.toggle("候选带符号", "全拼（26 键或 9 键）、双拼输入时，打出符号的名称就在候选里加入对应的符号，紧跟在那个词后面，例如「正负」后面是 ±",
+        intelligence.toggle("候选带符号", null,
             mixed == null || mixed.optBoolean("symbols", true),
-            checked -> savePreferences(edit -> mixedInput(edit).put("symbols", checked))).setEnabled(mixedEnabled);
+            checked -> savePreferences(edit -> mixedInput(edit).put("symbols", checked))).help("全拼（26 键或 9 键）、双拼输入时，打出符号的名称就在候选里加入对应的符号，紧跟在那个词后面，例如「正负」后面是 ±").setEnabled(mixedEnabled);
         // 候选里带 emoji / 颜文字（#5667）：Engine 早就会按拼音从随包的 msime-others.db 找匹配的 emoji 和颜文字插进候选（共享偏好 mixed_input.emoji / kaomoji），Android 只是没有开关，默认又是关的。
-        intelligence.toggle("候选带 emoji", "全拼（26 键或 9 键）、双拼输入时在候选里加入匹配的 emoji，紧跟在它描绘的词后面，例如「美国」后面是 🇺🇸",
+        intelligence.toggle("候选带 emoji", null,
             mixed != null && mixed.optBoolean("emoji", false),
-            checked -> savePreferences(edit -> mixedInput(edit).put("emoji", checked))).setEnabled(mixedEnabled);
-        intelligence.toggle("候选带颜文字", "全拼（26 键或 9 键）、双拼输入时在候选里加入匹配的颜文字，排在同一个词的 emoji 之后",
+            checked -> savePreferences(edit -> mixedInput(edit).put("emoji", checked))).help("全拼（26 键或 9 键）、双拼输入时在候选里加入匹配的 emoji，紧跟在它描绘的词后面，例如「美国」后面是 🇺🇸").setEnabled(mixedEnabled);
+        intelligence.toggle("候选带颜文字", null,
             mixed != null && mixed.optBoolean("kaomoji", false),
-            checked -> savePreferences(edit -> mixedInput(edit).put("kaomoji", checked))).setEnabled(mixedEnabled);
+            checked -> savePreferences(edit -> mixedInput(edit).put("kaomoji", checked))).help("全拼（26 键或 9 键）、双拼输入时在候选里加入匹配的颜文字，排在同一个词的 emoji 之后").setEnabled(mixedEnabled);
 
     }
 
@@ -185,8 +185,8 @@ public final class ExpressionPage extends ReloadingDetailPage {
     private void multilingualInputRows(GroupCard group, JSONObject preferences) {
         JSONObject stored = preferences.optJSONObject("multilingual_input");
         boolean enabled = stored != null && stored.optBoolean("enabled", false);
-        group.toggle("连续多语言输入（实验）", "开启候选混输后，在全拼 26 键连续输入所选语言；完整中文优先、混合结果作为备选，至少需要两种可用语言",
-            enabled, checked -> savePreferences(edit -> KeyboardSheets.child(edit, "multilingual_input").put("enabled", checked)));
+        group.toggle("连续多语言输入（实验）", null,
+            enabled, checked -> savePreferences(edit -> KeyboardSheets.child(edit, "multilingual_input").put("enabled", checked))).help("开启候选混输后，在全拼 26 键连续输入所选语言；完整中文优先、混合结果作为备选，至少需要两种可用语言");
         String[] values = {"chinese", "english", "japanese"};
         String[] labels = {"中文", "英文", "日文"};
         JSONArray selected = stored == null ? null : stored.optJSONArray("languages");
@@ -197,8 +197,7 @@ public final class ExpressionPage extends ReloadingDetailPage {
             if (selected != null) for (int item = 0; item < selected.length(); item++) {
                 if (language.equals(selected.optString(item))) checked = true;
             }
-            group.toggle("连续输入：" + labels[index], "japanese".equals(language)
-                ? "使用已有日文词典，词典未安装或准备中时暂不参与" : null,
+            group.toggle("连续输入：" + labels[index], null,
                 checked, on -> savePreferences(edit -> {
                     JSONObject section = KeyboardSheets.child(edit, "multilingual_input");
                     JSONArray previous = section.optJSONArray("languages");
@@ -210,7 +209,8 @@ public final class ExpressionPage extends ReloadingDetailPage {
                     }
                     if (on) next.put(language);
                     section.put("languages", next);
-                })).setEnabled(enabled);
+                })).help("japanese".equals(language)
+                ? "使用已有日文词典，词典未安装或准备中时暂不参与" : null).setEnabled(enabled);
         }
     }
 

@@ -844,6 +844,8 @@ public final class MSIMEInputService extends InputMethodService {
     /** 本输入框的运行时选项在强制关闭学习之前的原样，隐私模式切换时据此重建会话。 */
     private String runtimeOptionsBase = "";
     JSONObject preferencesSnapshot;
+    /** 首帧诊断（#10389）：这个会话已经记过应用实时偏好后的布局（{@link #recordLiveTouchLayout}）。 */
+    private boolean liveTouchLayoutRecorded;
     /** 上次整套应用成功的 loadPreferences 原始响应，和应用前取的 {@link #preferencesApplyInputs}；每次 {@link #applyPreferencesSnapshot} 开头清空，只由每秒重读和建会话的首份快照记下。 */
     private String appliedPreferencesResponse;
     private java.util.List<Object> appliedPreferencesInputs;
@@ -1340,6 +1342,28 @@ public final class MSIMEInputService extends InputMethodService {
                 // 恢复用户点选的位置之后，回报的选区由编辑器决定，这里不去预测，退回到旧的保守行为。
                 selectionEcho.invalidate();
                 return target.setSelection(start, end);
+            }
+            public void positionCommitCursor(String text, String suffix) {
+                if (target != connection || suffix.isEmpty() || !text.endsWith(suffix)) return;
+                android.view.inputmethod.ExtractedTextRequest request = new android.view.inputmethod.ExtractedTextRequest();
+                request.hintMaxChars = text.length();
+                android.view.inputmethod.ExtractedText actual = target.getExtractedText(request, 0);
+                if (actual == null || actual.text == null || actual.startOffset < 0 || actual.partialStartOffset != -1
+                        || actual.selectionStart != actual.selectionEnd
+                        || actual.selectionStart < text.length()
+                        || actual.selectionStart > actual.text.length()) return;
+                int end = actual.selectionStart;
+                if (!text.contentEquals(actual.text.subSequence(end - text.length(), end))) return;
+                int cursor = Math.addExact(actual.startOffset, end);
+                int destination = cursor - suffix.length();
+                // 读回与选区使用 UTF-16；不按方向键次数猜 emoji、组合字符或双向文本的位置。
+                editorReads.invalidate();
+                selectionEcho.positionAfterCommit(cursor);
+                selectionEcho.expect();
+                if (InputConnectionGuard.setSelection(target, destination, destination)) {
+                    selectionEcho.positionAfterCommit(destination);
+                    selectionEcho.expect();
+                }
             }
             public void end() {
                 target.endBatchEdit();
@@ -2152,6 +2176,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (info != null) automaticNumberRow.enterEditor(info.inputType, info.packageName);
         if (inlineAutofill != null) inlineAutofill.showInput();
         Telemetry.inputViewShown(this);
+        Telemetry.resumeConsentWatch(this);
         cancelInputViewRefresh();
         resumeDeferredInputStart(info);
         // 同一编辑器的键盘视图可以单独收起、再显示。收起时启动代次作废，但这不会触发新的
@@ -2257,6 +2282,8 @@ public final class MSIMEInputService extends InputMethodService {
         firstFrameArmedAt = -1;
         runSessionStartAfterFirstFrame();
         preferencesReloader.stop();
+        // 授权轮询同理只在键盘显示期间进行，下次 onStartInputView 先核对一次再接着轮询。
+        Telemetry.pauseConsentWatch();
         flushTypingStatistics();
         super.onWindowHidden();
     }
@@ -2267,6 +2294,8 @@ public final class MSIMEInputService extends InputMethodService {
         announceWubiTableMissing();
         if (session != 0 && !preferencesDirectory.isEmpty())
             preferencesReloader.start(preferencesDirectory, this::reloadPreferences);
+        // 跟随光标的候选栏自己收起再叫回窗口时不会再走 onStartInputView，这里同样恢复授权轮询；重复调用不会重复排程。
+        Telemetry.resumeConsentWatch(this);
         caretWindowHidden = false;
         // 系统或应用把窗口叫出来时可能正空闲（例如输入框获得焦点），按此刻的状态再收起。
         main.post(caretWindowSync);
@@ -2641,6 +2670,7 @@ public final class MSIMEInputService extends InputMethodService {
         wubiMixedPinyin = false;
         wubiProfile = KeyboardScheme.WUBI_86;
         preferencesSnapshot = null;
+        liveTouchLayoutRecorded = false;
         appliedPreferencesResponse = null;
         appliedPreferencesInputs = null;
         schemeSaving = false;
@@ -2790,12 +2820,18 @@ public final class MSIMEInputService extends InputMethodService {
             options.put("phrase_preedit", true);
             // 没读到实时偏好时（读取失败、建会话的回退路径、没有偏好目录），选项里的偏好是出厂默认的全拼 26 键副本，九键用户的键盘会先跳回 26 键（#10389）。按上次确认的键面把副本换成九键：引擎从九键网格起来，键面照旧只按引擎视图画，画的九键和引擎一致，网格键能打字。实时偏好随后到达时照常换成用户的真实设置。
             JSONObject startupPreferences = livePreferences == null ? options.optJSONObject("preferences") : null;
+            boolean hintedPreferences = false;
             if (startupPreferences != null) {
                 String copyLayout = InputViewValuePolicy.textOr(startupPreferences, "touch_keyboard_layout", "twenty_six_key");
                 String startupLayout = TouchLayoutHintPolicy.startupTouchKeyboardLayout(touchLayoutHint(),
                     InputViewValuePolicy.textOr(startupPreferences, "scheme", "quanpin"), copyLayout);
-                if (!startupLayout.equals(copyLayout)) startupPreferences.put("touch_keyboard_layout", startupLayout);
+                if (!startupLayout.equals(copyLayout)) {
+                    startupPreferences.put("touch_keyboard_layout", startupLayout);
+                    hintedPreferences = true;
+                }
             }
+            // 首帧诊断（#10389）：会话到达之前键行已经按这个布局画着，切输入法时用户先看到的就是它。要在 create 和 focus 之前取，focus 可能已经按会话重画键区。窗口没显示时（会话在 onStartInput 里先于窗口建好）键行还是上一个输入框留下的，用户没看到过，不记：首帧就是会话建好后的布局。
+            int firstDrawnLayout = imeWindowVisible ? imeLetterRows.drawnTouchLayout() : -1;
             // 建会话在主线程上，这段时间里点按都要排队（#10086），单独记下它的耗时，与整段等待分开看。
             long createStartedAt = SystemClock.uptimeMillis();
             String created = NativeClient.create(options.toString());
@@ -2841,6 +2877,10 @@ public final class MSIMEInputService extends InputMethodService {
                 letterCase.reset();
                 imeLetterRows.rebuildKeyRows();
             }
+            // 首帧诊断（#10389）：建会话的偏好从哪来，会话到达前画的布局和会话给出的布局。两个布局不同，说明用户先看到了另一块键盘。
+            imeDebugOverlay.recordEvent(TouchLayoutDiagnostics.sessionPreferences(livePreferences != null, hintedPreferences));
+            recordTouchLayout(TouchLayoutDiagnostics.Stage.FIRST_DRAWN, firstDrawnLayout);
+            recordTouchLayout(TouchLayoutDiagnostics.Stage.CREATED, displayedTouchLayout(view));
             refreshEnglishSuggestions();
             String directory = InputViewValuePolicy.textOr(options, "preferences_directory", "");
             boolean hasPreferencesDirectory = !directory.isEmpty() && new File(directory).isAbsolute();
@@ -2860,6 +2900,7 @@ public final class MSIMEInputService extends InputMethodService {
             // 先清掉「准备中」再画，否则这次 render 还会把过期的模式标签留在读音行上。
             message = "";
             render();
+            if (liveApplied) recordLiveTouchLayout();
             recordEngineSessionTiming(createMillis, SystemClock.uptimeMillis() - startedAt);
             // 会话在建时点下的皮肤、输入方式或要轮换语言的「中」键，此刻会话和（多数时候）偏好都有了；偏好还没读到时由 reloadPreferences 第一次读到后再执行。排到这次建会话之后再做：打开面板出的错不能落进下面的 catch 把刚建好的会话停掉。
             main.post(this::runDeferredToolbarTaps);
@@ -3660,6 +3701,21 @@ public final class MSIMEInputService extends InputMethodService {
                 || !previousView.equals(view == null ? "" : view.toString())) render();
         // 建会话前没读到实时偏好时，会话在建时推迟的点按等到这里第一次有偏好再执行（#10086）。
         if (!previousPreferencesReady && preferencesSnapshot != null) runDeferredToolbarTaps();
+        // 首帧诊断（#10389）：建会话时没应用上实时偏好的会话，在这里第一次有偏好时记下随后画的布局；与建会话时记的布局不同，就是用户看到的那一下跳变。键盘里的保存或触控板可能先把快照换上，所以不看这次重读前有没有快照，只看这个会话记过没有。
+        if (preferencesSnapshot != null) recordLiveTouchLayout();
+    }
+
+    /** 首帧诊断（#10389）：某个时机画的触屏布局写进本机输入事件；不认识的布局不记。 */
+    private void recordTouchLayout(TouchLayoutDiagnostics.Stage stage, int layout) {
+        DiagnosticEventKind kind = TouchLayoutDiagnostics.layout(stage, layout);
+        if (kind != null) imeDebugOverlay.recordEvent(kind);
+    }
+
+    /** 首帧诊断（#10389）：这个会话应用上实时偏好之后画的布局，每个会话只记第一次；{@link #stopSessionState} 清掉标记。 */
+    private void recordLiveTouchLayout() {
+        if (liveTouchLayoutRecorded) return;
+        liveTouchLayoutRecorded = true;
+        recordTouchLayout(TouchLayoutDiagnostics.Stage.LIVE, displayedTouchLayout(view));
     }
 
     /**
@@ -3968,15 +4024,17 @@ public final class MSIMEInputService extends InputMethodService {
             || !InputViewValuePolicy.punctuationMarks(view).equals(
                 InputViewValuePolicy.punctuationMarks(next));
         String commit = result.isNull("commit") ? null : result.getString("commit");
+        String cursorSuffix = result.opt("commit_cursor_suffix") instanceof String
+            ? result.getString("commit_cursor_suffix") : null;
         if (commit != null) {
-            // The runtime widened this already - it holds the character width now, and applies it
-            // to everything it finishes. Widening again here would be the second pass over text
-            // that is already fullwidth, and would put this host's own rule ahead of the shared one.
-            commit = chineseOutput(commit, result.optJSONObject("commit_context"));
+            // 宽度已由共享层处理；正文和后缀只做同一份宿主简繁转换，转换后失配时不定位。
+            JSONObject context = result.optJSONObject("commit_context");
+            commit = chineseOutput(commit, context);
+            if (cursorSuffix != null) cursorSuffix = chineseOutput(cursorSuffix, context);
         }
         String composing = composingText(next, next.getString("editing_text"), true);
         if (connection != null
-                && !bridge.apply(sink(typingSource()), commit, composing)) {
+                && !bridge.apply(sink(typingSource()), commit, composing, cursorSuffix)) {
             throw new InputFailurePolicy.Failure(InputFailurePolicy.Reason.EDITOR_REJECTED);
         }
         view = next;
@@ -5293,7 +5351,7 @@ public final class MSIMEInputService extends InputMethodService {
             String response = reopenPairedQuote(
                 NativeClient.punctuationWithContext(session, ascii, preceding), ascii);
             boolean handled = apply(response);
-            PairedPunctuationPolicy.Completion completion = pairedCompletion(response);
+            PairedPunctuationPolicy.Completion completion = pairedCompletion(response, ascii);
             if (completion != null && commitClosingMark(completion.closing(), typingSource())) {
                 // 补的是书名号时告诉 Engine 这一层已经闭合，否则下一次 < 会被当成嵌套的〈。
                 if (completion.opening() == '<') balanceBookTitleAfterAutoClose();
@@ -5334,24 +5392,31 @@ public final class MSIMEInputService extends InputMethodService {
         return true;
     }
 
-    /** 打开成对补全时，把 Engine 这次上屏末尾的后引号改回前引号，见 {@link PairedPunctuationPolicy#reopenQuote}。 */
+    /** 打开成对补全时，把 Engine 这次上屏末尾的后引号改回前引号；光标短语模板原样落地，见 {@link PairedPunctuationPolicy#punctuationCommit}。 */
     private String reopenPairedQuote(String response, int ascii) throws JSONException {
         if (!pairedPunctuation || (ascii != '"' && ascii != '\'')) return response;
         JSONObject envelope = new JSONObject(response);
         JSONObject result = envelope.optJSONObject("value");
         if (result == null || result.isNull("commit")) return response;
         String commit = result.optString("commit", "");
-        String reopened = PairedPunctuationPolicy.reopenQuote(commit, ascii, true);
+        String reopened = PairedPunctuationPolicy.punctuationCommit(commit, cursorSuffix(result), ascii, true).commit();
         if (reopened.equals(commit)) return response;
         result.put("commit", reopened);
         return envelope.toString();
     }
 
-    private PairedPunctuationPolicy.Completion pairedCompletion(String response) throws JSONException {
+    /** 这次上屏后要补的后半个；光标短语模板不补，因为 apply() 已经把光标移到模板指定的位置，这时补的后半个会写进短语中间。见 {@link PairedPunctuationPolicy#punctuationCommit}。 */
+    private PairedPunctuationPolicy.Completion pairedCompletion(String response, int ascii) throws JSONException {
         if (!pairedPunctuation || connection == null) return null;
         JSONObject result = value(response);
-        return result.isNull("commit") ? null
-            : PairedPunctuationPolicy.completion(result.optString("commit", ""), true);
+        return result.isNull("commit") ? null : PairedPunctuationPolicy.punctuationCommit(
+            result.optString("commit", ""), cursorSuffix(result), ascii, true).completion();
+    }
+
+    /** 回复里的 `commit_cursor_suffix`，不是字符串时为 null。读的是交给 apply() 之前的原始回复，那里上屏文字和后缀还没被转换。 */
+    private static String cursorSuffix(JSONObject result) {
+        Object suffix = result.opt("commit_cursor_suffix");
+        return suffix instanceof String ? (String) suffix : null;
     }
 
     private void balanceBookTitleAfterAutoClose() {

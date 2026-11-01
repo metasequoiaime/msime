@@ -1943,6 +1943,57 @@ fn local_model_mirror_is_empty_or_an_https_prefix() {
     assert!(loaded.voice_input.asr_model_mirror.is_empty());
 }
 
+/// 本地识别的停顿时间和判停灵敏度（#10310）：缺键按改成可调之前写死的 1500 毫秒和 0.5 阈值对应的 50 读，默认值不写进文档；范围、步进与 Android 本机设置相同，范围外和不在步进上的值整份拒绝。
+#[test]
+fn voice_pause_settings_default_to_the_old_fixed_values_and_follow_the_android_bounds() {
+    let defaults = Preferences::default().voice_input;
+    assert_eq!(defaults.pause_millis, 1500);
+    assert_eq!(defaults.stop_sensitivity, 50);
+    let document = serde_json::to_value(Preferences::default()).unwrap();
+    assert!(document["voice_input"].get("pause_millis").is_none());
+    assert!(document["voice_input"].get("stop_sensitivity").is_none());
+
+    let with = |pause_millis: u16, stop_sensitivity: u8| Preferences {
+        voice_input: VoiceInputPreferences {
+            pause_millis,
+            stop_sensitivity,
+            ..Preferences::default().voice_input
+        },
+        ..Preferences::default()
+    };
+    for (pause, sensitivity) in [(500, 10), (2500, 70), (5000, 90), (1500, 50)] {
+        assert!(
+            with(pause, sensitivity).validate().is_ok(),
+            "{pause} / {sensitivity}"
+        );
+    }
+    for (pause, sensitivity) in [
+        (0, 50),
+        (400, 50),
+        (550, 50),
+        (5100, 50),
+        (1500, 0),
+        (1500, 9),
+        (1500, 91),
+    ] {
+        assert!(
+            matches!(
+                with(pause, sensitivity).validate(),
+                Err(PreferencesError::InvalidVoicePause)
+            ),
+            "{pause} / {sensitivity}"
+        );
+    }
+
+    // 改过的值写进文档并原样读回。
+    let document = serde_json::to_value(with(3000, 80)).unwrap();
+    assert_eq!(document["voice_input"]["pause_millis"], 3000);
+    assert_eq!(document["voice_input"]["stop_sensitivity"], 80);
+    let loaded: Preferences = serde_json::from_value(document).unwrap();
+    assert_eq!(loaded.voice_input.pause_millis, 3000);
+    assert_eq!(loaded.voice_input.stop_sensitivity, 80);
+}
+
 #[test]
 fn the_shipped_defaults_are_themselves_reachable() {
     let defaults = Preferences::default();
@@ -2302,6 +2353,36 @@ fn reporting_consent_rotates_across_an_unobserved_disable_enable() {
         Err(PreferencesError::Conflict)
     ));
     assert_eq!(store.usage_reporting_consent().unwrap(), Some(second));
+}
+
+#[test]
+fn reporting_consent_polling_reuses_unchanged_bytes_and_sees_withdrawal() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    // 初始化授权历史会改写文件，结果不带字节，下一次重新解析。
+    let initialized = store.usage_reporting_consent_reusing(None).unwrap();
+    let consent = initialized.consent.unwrap();
+    assert!(initialized.bytes.is_none());
+    let settled = store
+        .usage_reporting_consent_reusing(Some(initialized))
+        .unwrap();
+    assert_eq!(settled.consent, Some(consent));
+    assert!(settled.bytes.is_some());
+    let revision = store.load().unwrap().revision;
+    let reused = store
+        .usage_reporting_consent_reusing(Some(settled.clone()))
+        .unwrap();
+    assert_eq!(reused.consent, Some(consent));
+    assert_eq!(reused.bytes, settled.bytes);
+    assert_eq!(store.load().unwrap().revision, revision);
+
+    let current = store.load().unwrap();
+    let mut edited = current.preferences;
+    edited.usage_reporting = false;
+    store.save(current.revision, edited).unwrap();
+    let withdrawn = store.usage_reporting_consent_reusing(Some(reused)).unwrap();
+    assert_eq!(withdrawn.consent, None);
+    assert_eq!(store.usage_reporting_consent().unwrap(), None);
 }
 
 #[test]

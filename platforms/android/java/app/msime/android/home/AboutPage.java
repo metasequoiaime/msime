@@ -93,8 +93,8 @@ public final class AboutPage extends DetailPage {
 
         if (!play) {
             GroupCard updates = GroupCard.add(sectionColumn(column, "应用"), "更新");
-            updates.toggle("自动更新", "每天在联网时检查一次，下载好后通知你安装", UpdateJobService.autoUpdate(context),
-                this::setAutoUpdate);
+            updates.toggle("自动更新", null, UpdateJobService.autoUpdate(context),
+                this::setAutoUpdate).help("每天在联网时检查一次，下载好后通知你安装");
             channelRow = updates.nav("更新通道", null, UpdateJobService.channel(context).title(), this::chooseChannel);
         }
 
@@ -113,8 +113,8 @@ public final class AboutPage extends DetailPage {
             for (DeviceInfoReport.Entry entry : entries) {
                 device.value(entry.label(), DeviceInfoReport.valueOrUnknown(entry.value()), null);
             }
-            device.button("复制设备信息", "反馈问题时贴进去，方便开发者排查", "复制",
-                () -> ClipboardActions.copyText(context, "设备信息", DeviceInfo.text(context, entries), "已复制设备信息"));
+            device.button("复制设备信息", null, "复制",
+                () -> ClipboardActions.copyText(context, "设备信息", DeviceInfo.text(context, entries), "已复制设备信息")).help("反馈问题时贴进去，方便开发者排查");
         });
 
         GroupCard links = GroupCard.add(sectionColumn(column, "链接"), null).withDividers(Ui.ROW_PADDING_H);
@@ -127,10 +127,10 @@ public final class AboutPage extends DetailPage {
                 "market://details?id=" + context.getPackageName()));
         }
         if (ManagementUi.available()) {
-            links.nav("在管理界面中查看", "更新日志、致谢与更多信息", null, this::openTauriAbout);
+            links.nav("在管理界面中查看", null, null, this::openTauriAbout).help("更新日志、致谢与更多信息");
         }
-        links.nav("开发者选项", "日志、诊断包和开发者访问", null,
-            () -> SettingsNavigator.open(context, PageId.DEVELOPER, null));
+        links.nav("开发者选项", null, null,
+            () -> SettingsNavigator.open(context, PageId.DEVELOPER, null)).help("日志、诊断包和开发者访问");
 
         TextView footer = ViewPolicy.styledLabel(context, "© 2026 Metasequoia · 输入内容默认只在本机处理",
             13, 400, ThemeColorPolicy.subText(context));

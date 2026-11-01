@@ -269,6 +269,17 @@ int main() {
   assert(!msime::telemetry::begin({"linux", "1.2.3", shared, std::nullopt, preferences}));
   assert(queue(shared).empty());
 
+  // 既没有偏好目录也没带开关（例如运行时配置缺 preferences_directory）等同读不出偏好：不开会话、不武装、不入队。
+  {
+    const auto unconfigured = directory / "unconfigured";
+    fs::create_directories(unconfigured);
+    assert(!msime::telemetry::begin({"linux", "1.2.3", unconfigured, std::nullopt, {}}));
+    msime::telemetry::flush();
+    assert(!msime::crash::is_armed());
+    assert(queue(unconfigured).empty());
+    assert(!fs::exists(unconfigured / "telemetry-session.json"));
+  }
+
   // 同目录里还有别的进程的会话：本进程 terminate 时只为自己的会话写一份记录（随后的 SIGABRT 不再写第二份），下次启动只为它补报一次 session_crash，别的进程的会话不算崩溃。
   const auto concurrent = directory / "concurrent";
   fs::create_directories(concurrent);

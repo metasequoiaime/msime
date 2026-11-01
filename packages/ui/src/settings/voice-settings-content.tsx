@@ -36,6 +36,7 @@ import { DoubaoOptionsRows } from "./doubao-options-section";
 import { VoiceRecordingBehaviorSettingsSection } from "./voice-recording-behavior-settings-section";
 import { VoiceCueSwitchesSection } from "./voice-recording-behavior-section";
 import { VoiceStreamPreeditSection } from "./voice-stream-preedit-section";
+import { VoicePauseRows, voicePauseText } from "./voice-pause-rows";
 import { VoiceCredentialControl } from "./voice-credential-control";
 import {
   asrProviderCredentialTestConfig,
@@ -48,6 +49,7 @@ import type { ProviderPresetControlFactory } from "./provider-preset-control";
 import type { useProviderCredentials, VoiceCredentialBindings } from "./use-provider-credentials";
 import { GroupList, LinkRow, MoreOptions } from "../core/platform-controls";
 import * as platform from "../core/platform-controls-style";
+import { SettingsGroupNote } from "./settings-group-note";
 import { SettingsPageFieldset } from "./settings-page-fieldset";
 
 const voiceTabs = [
@@ -136,6 +138,8 @@ export interface VoiceSettingsContentProps extends VoiceCredentialBindings {
   showVoiceCueSwitches: boolean;
   /** 宿主有不止一种录音后端（`voice_capture_backends`）。 */
   showVoiceCaptureBackends: boolean;
+  /** 宿主在点按开始的本地识别里按停顿结束录音（`voice_pause_settings`），给出停顿时间和判停灵敏度；缺省为不给。 */
+  showVoicePauseSettings?: boolean;
   captureBackendOptions: readonly VoiceCaptureBackendOption[];
   /** 语音识别后的 AI 润色（大模型改写识别结果）。不提供 AI 生成类功能的宿主（HarmonyOS）传 false，整组不画；缺省为给出。 */
   showVoicePolish?: boolean;
@@ -187,6 +191,7 @@ export function VoiceSettingsContent({
   showVoiceSpaceLockSwitch,
   showVoiceCueSwitches,
   showVoiceCaptureBackends,
+  showVoicePauseSettings = false,
   captureBackendOptions,
   showVoicePolish = true,
 }: VoiceSettingsContentProps) {
@@ -499,31 +504,44 @@ export function VoiceSettingsContent({
         </SettingsPageFieldset>
       );
     // HarmonyOS 手机与 Android 的 `VoicePage` 一样遵循设计稿：「识别」组放语言、标点和边说边显示，「识别服务」组放总开关、服务和它的配置入口，「录音」组只留两个常用开关。密钥、接口、模型、润色服务、提示音细分和录音设备都在「服务配置」子视图里。设计稿中的「离线识别」「启动方式」「隐私」在 HarmonyOS 上没有对应功能（没有离线回退，没有上传管线，键盘工具栏也不再有可供 `touch_voice_shortcut` 显示的语音按钮），因此不绘制。不画「语音快捷键」：Ctrl+F9、长按右 Alt 这些要连实体键盘才用得上，2in1 照旧显示。
+    const recognitionRows = (
+      <GroupList title="识别">
+        <MobileVoiceLanguageRow
+          language={voiceInput.language}
+          systemVoice={systemVoice}
+          onLanguageChange={(language) => updateVoice({ language })}
+        />
+        <SwitchRow
+          title="自动添加标点"
+          detail={
+            punctuationSupported ? undefined : "当前识别服务不支持，仅豆包语音识别可以自动加标点"
+          }
+          disabled={!punctuationSupported}
+          checked={voiceInput.doubao_enable_punc !== false}
+          onChange={(doubao_enable_punc) => updateVoice({ doubao_enable_punc })}
+        />
+        {showVoiceStreamPreedit && (
+          <SwitchRow
+            title="边说边显示"
+            checked={voiceInput.stream_inline_preedit === true}
+            onChange={(stream_inline_preedit) => updateVoice({ stream_inline_preedit })}
+          />
+        )}
+        {/* 停顿时间和判停灵敏度与 Android `VoicePage` 一样放在「识别」组末尾（#10310），只在报告 `voice_pause_settings` 的宿主上给出。 */}
+        {showVoicePauseSettings && (
+          <VoicePauseRows
+            pauseMillis={voiceInput.pause_millis}
+            stopSensitivity={voiceInput.stop_sensitivity}
+            onPauseMillisChange={(pause_millis) => updateVoice({ pause_millis })}
+            onStopSensitivityChange={(stop_sensitivity) => updateVoice({ stop_sensitivity })}
+          />
+        )}
+        {showVoicePauseSettings && <SettingsGroupNote>{voicePauseText.footer}</SettingsGroupNote>}
+      </GroupList>
+    );
     return (
       <SettingsPageFieldset disabled={disabled} hidden={hidden} ariaLabel="语音输入">
-        <GroupList title="识别">
-          <MobileVoiceLanguageRow
-            language={voiceInput.language}
-            systemVoice={systemVoice}
-            onLanguageChange={(language) => updateVoice({ language })}
-          />
-          <SwitchRow
-            title="自动添加标点"
-            description={
-              punctuationSupported ? undefined : "当前识别服务不支持，仅豆包语音识别可以自动加标点"
-            }
-            disabled={!punctuationSupported}
-            checked={voiceInput.doubao_enable_punc !== false}
-            onChange={(doubao_enable_punc) => updateVoice({ doubao_enable_punc })}
-          />
-          {showVoiceStreamPreedit && (
-            <SwitchRow
-              title="边说边显示"
-              checked={voiceInput.stream_inline_preedit === true}
-              onChange={(stream_inline_preedit) => updateVoice({ stream_inline_preedit })}
-            />
-          )}
-        </GroupList>
+        {recognitionRows}
         <div className={platform.group}>
           <GroupList title="识别服务">
             <VoiceInputServiceRows
@@ -548,14 +566,14 @@ export function VoiceSettingsContent({
             {serviceStatus && (
               <LinkRow title="服务配置" value={serviceStatus} onClick={openPhoneService} />
             )}
+            <SettingsGroupNote>
+              {harmonyPhoneVoiceFooter({
+                localVoice,
+                localVoiceModelsAvailable: Boolean(client.localVoiceModels),
+                systemVoice,
+              })}
+            </SettingsGroupNote>
           </GroupList>
-          <p className={platform.groupFooter}>
-            {harmonyPhoneVoiceFooter({
-              localVoice,
-              localVoiceModelsAvailable: Boolean(client.localVoiceModels),
-              systemVoice,
-            })}
-          </p>
         </div>
         <GroupList title="录音">
           <SwitchRow

@@ -222,18 +222,19 @@ public final class AccountFragment extends HomeTabFragment {
             () -> SettingsNavigator.open(context, PageId.SKINS, null));
         row(group, R.drawable.ic_ms_menu_book, "我的词库", null, null,
             () -> SettingsNavigator.open(context, PageId.LEXICON, null));
-        row(group, R.drawable.ic_ms_sync, "词库同步", "「我的词条」经自己的 WebDAV 网盘同步", null,
-            () -> SettingsNavigator.open(context, PageId.DICTIONARY_SYNC, null));
+        KeyboardSheets.help(row(group, R.drawable.ic_ms_sync, "词库同步", null, null,
+            () -> SettingsNavigator.open(context, PageId.DICTIONARY_SYNC, null)), "词库同步", "「我的词条」经自己的 WebDAV 网盘同步");
         row(group, R.drawable.ic_ms_star, "常用语", null, null,
             () -> SettingsNavigator.open(context, PageId.PHRASES, null));
-        row(group, R.drawable.ic_ms_download, "备份与恢复", "导出到本机文件，换手机时恢复", null,
-            () -> SettingsNavigator.open(context, PageId.BACKUP, null));
+        KeyboardSheets.help(row(group, R.drawable.ic_ms_download, "备份与恢复", null, null,
+            () -> SettingsNavigator.open(context, PageId.BACKUP, null)), "备份与恢复", "导出到本机文件，换手机时恢复");
         row(group, R.drawable.ic_ms_content_paste, "云剪贴板", null,
             online == null || online.clipboard() < 0 ? null : online.clipboard() + " 条",
             () -> SettingsNavigator.open(context, PageId.CLOUD_CLIPBOARD, null));
         // 社区作品的管理界面只在 Tauri 合包里有（P21），保留原来的跳转。
         if (ManagementUi.available()) {
-            row(group, R.drawable.ic_ms_groups, "社区作品", "发布、收藏皮肤、词库和回复", null, this::openCommunityAccount);
+            KeyboardSheets.help(row(group, R.drawable.ic_ms_groups, "社区作品", null, null, this::openCommunityAccount),
+                "社区作品", "发布、收藏皮肤、词库和回复");
         }
     }
 
@@ -269,8 +270,9 @@ public final class AccountFragment extends HomeTabFragment {
         boolean signedIn = state != null && state.signedIn();
         boolean real = signedIn && state.realAccount();
         GroupCard group = GroupCard.add(groups, "同步").withDividers(56);
-        LinearLayout sync = row(group, R.drawable.ic_ms_sync, "云同步",
-            real ? "词库、自造词和设置在设备间同步" : "登录后可用", null, null);
+        // 「登录后可用」是这一行点不了的原因，留在副标题；功能说明收进「?」。
+        LinearLayout sync = KeyboardSheets.help(row(group, R.drawable.ic_ms_sync, "云同步",
+            real ? null : "登录后可用", null, null), "云同步", "词库、自造词和设置在设备间同步");
         MsSwitch toggle = new MsSwitch(context);
         toggle.setChecked(real && state.syncEnabled());
         ViewPolicy.setInteractive(toggle, false);
@@ -297,9 +299,9 @@ public final class AccountFragment extends HomeTabFragment {
         row(group, R.drawable.ic_ms_devices, "我的设备", null, devices,
             signedIn ? () -> SettingsNavigator.open(context, PageId.DEVICES, null) : null);
         // 绑定后在 QQ 群里发 /stats 看打字数据；只有真实账号能绑定。
-        LinearLayout qq = row(group, R.drawable.ic_ms_link, "绑定 QQ 群助手",
-            real ? "在群里发 /stats 查看打字数据" : "登录后可用", null,
-            real ? () -> SettingsNavigator.open(context, PageId.QQ_LINKS, null) : null);
+        LinearLayout qq = KeyboardSheets.help(row(group, R.drawable.ic_ms_link, "绑定 QQ 群助手",
+            real ? null : "登录后可用", null,
+            real ? () -> SettingsNavigator.open(context, PageId.QQ_LINKS, null) : null), "绑定 QQ 群助手", "在群里发 /stats 查看打字数据");
         if (!real) ViewPolicy.setEnabledWithAlpha(qq, false, 0.38f);
     }
 
@@ -335,9 +337,9 @@ public final class AccountFragment extends HomeTabFragment {
             preferences == null ? null : () -> AppThemeSheet.show(this, preferences, this::reload));
         row(group, R.drawable.ic_ms_shield_lock, "隐私", null, "本地优先",
             () -> SettingsNavigator.open(context, PageId.PRIVACY, null));
-        group.toggle("统计页身份验证", "开启后使用系统认证，5 分钟内再次进入不用重新验证；未配置锁屏凭据时直接进入",
+        group.toggle("统计页身份验证", null,
             StatisticsAuthenticationPreference.enabled(context),
-            enabled -> StatisticsAuthenticationPreference.save(context, enabled));
+            enabled -> StatisticsAuthenticationPreference.save(context, enabled)).help("开启后使用系统认证，5 分钟内再次进入不用重新验证；未配置锁屏凭据时直接进入");
         AppIconStyle icon = AppIcons.selected(context);
         group.addView(KeyboardSheets.iconNavRow(context, context.getDrawable(AppIcons.resource(icon)),
             "App 图标", null, icon.title(), this::showIcons));
@@ -358,8 +360,8 @@ public final class AccountFragment extends HomeTabFragment {
             AboutEasterEgg.show(context);
             return true;
         });
-        row(group, R.drawable.ic_ms_keyboard, "新手引导", "四步走完键盘的启用和设置", null,
-            () -> startActivity(new Intent(context, OnboardingActivity.class)));
+        KeyboardSheets.help(row(group, R.drawable.ic_ms_keyboard, "新手引导", null, null,
+            () -> startActivity(new Intent(context, OnboardingActivity.class))), "新手引导", "四步走完键盘的启用和设置");
         // 「开屏动画」只重播开屏，不会接着进入新手引导。
         row(group, R.drawable.ic_ms_circle, "开屏动画", null, "播放", () -> {
             if (getActivity() instanceof HomeActivity home) home.replaySplash();

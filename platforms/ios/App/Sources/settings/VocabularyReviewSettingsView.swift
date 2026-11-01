@@ -59,9 +59,7 @@ struct VocabularyReviewSettingsView: View {
             .accessibilityIdentifier("vocabularyRemoveButton")
         }
       } header: {
-        SettingsGroupHeader(title: "词书")
-      } footer: {
-        Text("每行一个词，用逗号或制表符分隔：单词,音标,释义 或 单词,释义。释义里有逗号时用英文引号括起来。")
+        DesignSectionHeader(subject: "词书", info: "每行一个词，用逗号或制表符分隔：单词,音标,释义 或 单词,释义。释义里有逗号时用英文引号括起来。") { SettingsGroupHeader(title: "词书") }
       }
       .designRow()
 

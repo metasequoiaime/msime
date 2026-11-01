@@ -5,6 +5,8 @@ import * as settings from "./settings-style";
 export interface SliderRowProps {
   title: ReactNode;
   description?: ReactNode;
+  /** 状态、当前值或校验提示，常驻标题下方；解释性说明用 `description`，收进「?」。 */
+  detail?: ReactNode;
   hidden?: boolean;
   value: number;
   min?: number;
@@ -14,6 +16,8 @@ export interface SliderRowProps {
   valueText?: string;
   /** Optional value rendered after the track, while the slider remains the accessible control. */
   displayValue?: ReactNode;
+  /** 读数最宽时的样子（通常是最大值），只用来预留数值列的宽度：拖动时轨道不会因为位数变化而移动。 */
+  widestValue?: ReactNode;
   ticks?: boolean;
   /** 轨道铺满整行：HarmonyOS 手机上放到标题下方，数值在轨道右侧；其余平台与默认相同。 */
   wide?: boolean;
@@ -27,6 +31,7 @@ export interface SliderRowProps {
 export function SliderRow({
   title,
   description,
+  detail,
   hidden,
   value,
   min,
@@ -35,6 +40,7 @@ export function SliderRow({
   disabled,
   valueText,
   displayValue,
+  widestValue,
   ticks,
   wide,
   onChange,
@@ -55,14 +61,21 @@ export function SliderRow({
     />
   );
   return (
-    <Row title={title} description={description} hidden={hidden} wideControl={wide}>
+    <Row title={title} description={description} detail={detail} hidden={hidden} wideControl={wide}>
       {displayValue === undefined ? (
         <span className={control}>{slider}</span>
       ) : (
         <span className={wide ? settings.sliderWithValueWide : settings.sliderWithValue}>
           <span className={control}>{slider}</span>
           <span className={settings.sliderValue} aria-hidden="true">
-            {displayValue}
+            {widestValue === undefined ? (
+              displayValue
+            ) : (
+              <span className={settings.sliderValueStack}>
+                <span className="invisible">{widestValue}</span>
+                <span>{displayValue}</span>
+              </span>
+            )}
           </span>
         </span>
       )}

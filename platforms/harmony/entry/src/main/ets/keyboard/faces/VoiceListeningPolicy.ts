@@ -32,6 +32,49 @@ export const VOICE_INNER_RING_OPACITY: number = 0.26;
 export const VOICE_LEVEL_INTERVAL_MS: number = 100;
 export const VOICE_ELLIPSIS: string = "…";
 
+// ---- 水杉娘指示区（#10313）----
+// 非按住的会话把圆盘换成水杉娘、放大的耳部和随电平出现的红线。几何与 Android 的 `VoiceMascotDrawing`、iOS 的 `KeyboardVoicePanelPolicy` 相同，都画在 320×250 的视口里。
+
+/** 人物用表情包里的这一张，与 Android、iOS 相同。 */
+export const VOICE_MASCOT_FILE: string = "01.webp";
+export const VOICE_MASCOT_VIEWPORT_WIDTH: number = 320;
+export const VOICE_MASCOT_VIEWPORT_HEIGHT: number = 250;
+/** 人物在视口里的方框：左上角 (20, 12)，边长 228。 */
+export const VOICE_MASCOT_CHARACTER_X: number = 20;
+export const VOICE_MASCOT_CHARACTER_Y: number = 12;
+export const VOICE_MASCOT_CHARACTER_SIDE: number = 228;
+/** 红线的圆心，在人物右耳。 */
+export const VOICE_MASCOT_EAR_X: number = 218;
+export const VOICE_MASCOT_EAR_Y: number = 111;
+/** 红线从水平向右往上下各张开这么多度。 */
+export const VOICE_MASCOT_ARC_SWEEP_DEGREES: number = 48;
+export const VOICE_MASCOT_EAR_LINE_WIDTH: number = 2.5;
+export const VOICE_MASCOT_EAR_FILL: string = "#FFDCC4";
+export const VOICE_MASCOT_EAR_STROKE: string = "#9D5C4D";
+export const VOICE_MASCOT_ARC_COLOR: string = "#D32F2F";
+/** 放大的耳部轮廓（闭合）：起点 x、y，之后每六个数是一段三次贝塞尔的两个控制点和终点。 */
+export const VOICE_MASCOT_EAR_OUTLINE: number[] = [
+  187, 109, 189, 76, 235, 77, 234, 109, 235, 127, 215, 132, 213, 145, 207, 158, 186, 145, 190, 130,
+];
+/** 耳内的一笔（不闭合），格式同上。 */
+export const VOICE_MASCOT_EAR_INNER: number[] = [
+  199, 111, 198, 90, 224, 91, 222, 109, 222, 118, 205, 117, 206, 131,
+];
+
+/** 一道红线：半径和线宽是视口单位，`opacity` 是 0–1。 */
+export interface VoiceMascotArc {
+  radius: number;
+  opacity: number;
+  lineWidth: number;
+}
+
+/** 视口放进指示区时的缩放和左上角偏移，单位 vp。 */
+export interface VoiceMascotFrame {
+  scale: number;
+  x: number;
+  y: number;
+}
+
 /** 一次排布的结果，单位 vp。`orb` 是圆盘直径，`halo` 是光圈满音量时超出圆盘的宽度，`titleLines` 是标题位预留的行数，`showsHint` 为 false 时不画提示行，`top` 是整块内容居中后在区域上方让出的距离。 */
 export interface VoiceListeningPlan {
   orb: number;
@@ -176,6 +219,60 @@ export class VoiceListeningPolicy {
     const rms: number = Math.sqrt(sum / samples) / 32768;
     if (rms <= 0.001) return 0;
     return VoiceListeningPolicy.clamp((20 * Math.log10(rms) + 60) / 60);
+  }
+
+  /**
+   * 指示区画不画水杉娘：按住空格（`spaceHeld`）或按住快捷键（`heldByKey`，空格长按开始的会话同样记为按住，松手收尾时也不清）的会话保留圆盘和光圈，与 iOS 的长按空格、Android 的 `hold` 一致；点按开始与快捷键「锁定录音」之后（LOCK 清掉 `heldByKey`）画人物。
+   */
+  static showsMascot(spaceHeld: boolean, heldByKey: boolean): boolean {
+    return !spaceHeld && !heldByKey;
+  }
+
+  /**
+   * 按显示音量给出要画的红线，由内向外：音量不到 `VOICE_LEVEL_SETTLE` 时一道也不画（不沿用圆盘光圈的 `VOICE_LEVEL_IDLE`，安静时耳边没有线），第 i 道在音量达到 0.3 × i 时出现，半径 33 + 15i + 12 × 音量，不透明度 (90 + 165 × 音量) / 255，线宽 3 + 2 × 音量。
+   */
+  static mascotArcs(level: number): VoiceMascotArc[] {
+    const value: number = VoiceListeningPolicy.clamp(level);
+    const arcs: VoiceMascotArc[] = [];
+    if (value < VOICE_LEVEL_SETTLE) return arcs;
+    for (let index: number = 0; index < 3; index++) {
+      if (value < 0.3 * index) continue;
+      arcs.push({
+        radius: 33 + 15 * index + 12 * value,
+        opacity: (90 + 165 * value) / 255,
+        lineWidth: 3 + 2 * value,
+      });
+    }
+    return arcs;
+  }
+
+  /** 人物指示区的宽度：高度仍是方框边长 `box`（圆盘的 1.5 倍），宽度按视口比例放宽，不超过区域宽度。 */
+  static mascotWidth(box: number, available: number): number {
+    return Math.max(
+      0,
+      Math.min(available, (box * VOICE_MASCOT_VIEWPORT_WIDTH) / VOICE_MASCOT_VIEWPORT_HEIGHT),
+    );
+  }
+
+  /** 视口等比缩放后居中放进 `width` × `height` 的指示区。 */
+  static mascotFrame(width: number, height: number): VoiceMascotFrame {
+    const scale: number = Math.max(
+      0,
+      Math.min(width / VOICE_MASCOT_VIEWPORT_WIDTH, height / VOICE_MASCOT_VIEWPORT_HEIGHT),
+    );
+    return {
+      scale: scale,
+      x: (width - VOICE_MASCOT_VIEWPORT_WIDTH * scale) / 2,
+      y: (height - VOICE_MASCOT_VIEWPORT_HEIGHT * scale) / 2,
+    };
+  }
+
+  /** 人物图片的解码边长：方框最大（圆盘上限的 1.5 倍）时人物的边长，只按这一个尺寸解码一次，排布变小时只缩放显示。 */
+  static mascotDecodeSide(): number {
+    return (
+      (VOICE_ORB_MAX_VP * (1 + 2 * VOICE_HALO_RATIO) * VOICE_MASCOT_CHARACTER_SIDE) /
+      VOICE_MASCOT_VIEWPORT_HEIGHT
+    );
   }
 
   /** 中间文字去掉首尾空白，连续的空白（含换行）并成一个空格。 */

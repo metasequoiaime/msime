@@ -39,7 +39,7 @@ export function DictionaryUpdates({
           action={() => action("rollback")}
         />
       )}
-      <SettingsGroupNote>{message}</SettingsGroupNote>
+      <SettingsGroupNote inline>{message}</SettingsGroupNote>
     </GroupList>
   );
 }

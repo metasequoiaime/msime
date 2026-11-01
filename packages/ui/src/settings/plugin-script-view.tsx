@@ -210,7 +210,7 @@ export function ScriptPluginDetailView({
       </GroupList>
       <GroupList title="申请的权限">
         {requested.length === 0 ? (
-          <SettingsGroupNote>
+          <SettingsGroupNote inline>
             没有申请任何权限：只能知道发生了什么事件，读不到也改不了文字。
           </SettingsGroupNote>
         ) : (
@@ -314,7 +314,9 @@ export function ScriptPluginDetailView({
         ) : (
           loadError && (
             <GroupList title="设置">
-              <SettingsGroupNote className="text-danger">{loadError}</SettingsGroupNote>
+              <SettingsGroupNote inline className="text-danger">
+                {loadError}
+              </SettingsGroupNote>
             </GroupList>
           )
         ))}
@@ -358,7 +360,7 @@ export function ScriptPluginDetailView({
         <SettingsGroupNote>
           脚本插件在输入法里的沙箱中运行，只能做你授予的事，读不到文件和网络，也不会在密码框里运行。
         </SettingsGroupNote>
-        {risk && <SettingsGroupNote>{risk}</SettingsGroupNote>}
+        {risk && <SettingsGroupNote inline>{risk}</SettingsGroupNote>}
       </GroupList>
       {!pack.builtin && (
         <GroupList>
