@@ -5,7 +5,8 @@
 
 读音是这门语言的学习者被教的那种读法：
 
-- 法、西、德、俄、韩用 ``sounds[].ipa``，按维基词典原样保留，连同斜线或方括号。斜线的音位标音优先于方括号的语音标音（西语两种都有，俄语和韩语只有方括号），不带地区标签的和标了标准音地区（西班牙、德国、首尔……）的优先于其他地区的。法语例外：dump 把标准的法国读音标成 ``France`` 或 ``Europe``，南部变体反而不带标签，所以法语里标了标准音地区的排在不带标签的前面（细节见 ``TAGGED_STANDARD_FIRST``）。只在联诵时出现的读法（``/tuz‿/``）和只标了一部分的（``[aːt͡s-]``）不用。德语的斜线是维基词典的音位层（``/ˈvasər/``、``/ˈhaːbən/``），学习者在词典里看到的实际读音（``[ˈvasɐ]``、``[ˈhaːbn̩]``）多半只在 ``sounds[].other`` 里或只标了词尾，这里不取它们：音位层是每个词都有、写法一致的那一层。
+- 法、西、德、俄用 ``sounds[].ipa``，按维基词典原样保留，连同斜线或方括号。斜线的音位标音优先于方括号的语音标音（西语两种都有，俄语只有方括号），不带地区标签的和标了标准音地区（西班牙、德国……）的优先于其他地区的。法语例外：dump 把标准的法国读音标成 ``France`` 或 ``Europe``，南部变体反而不带标签，所以法语里标了标准音地区的排在不带标签的前面（细节见 ``TAGGED_STANDARD_FIRST``）。德语反过来让方括号优先：斜线是维基词典的音位层（``/ˈhaːbən/``），方括号才是学习者在词典里看到的实际读音（``[ˈhaː.bən]``），词条没有完整的方括号标音时仍给斜线（细节见 ``BRACKETS_FIRST``）。只在联诵时出现的读法（``/tuz‿/``）和只标了一部分的（``[aːt͡s-]``、``[-bn̩]``）不用。
+- 韩语用文化观光部式罗马字（Revised Romanization，``goyang-i``、``hakgyo``），与日语给罗马字一样：韩文释义本身就是表音的谚文，学习者用的是罗马字，dump 的窄式 IPA（``[ˈsʰo̞(ː)d͡ʑiɦa̠da̠]``）对他们不友好。过滤后的输入里没有现成的罗马字，按规范从谚文拼写和维基词典写的发音谚文生成（``revised_romanization``，规则和取舍见那一节的说明）。
 - 日语用 ``forms[]`` 里标 ``romanization`` 的赫本式罗马字。dump 的 ``sounds`` 有一个很窄的 IPA（``[ne̞ko̞]``），日语学习者从来不学它，还有假名读法（``sounds[].other``）。macOS 和 Windows 早就用系统分词器在日文释义行下面画罗马字，没有分词器的宿主给同一种读音；而且罗马字也能读片假名和平假名的释义行，日文释义大多就是它们，假名读音对它们什么也没加。
 
 几个词条拼法相同时（法语 ``fils``），取最常见词性的第一个词条（按 dump 顺序）的读音；同形词即便读音不同也照样标，因为释义行绝大多数时候是常见义。日语的同形词读音常常完全不同，维基词典又把罕用读法也列成同一词性的词条，而且排在前面的未必是常用的那个（``日`` 先列 ``nichi`` 后列 ``hi``），所以同一词性里先取带假名读法并标了声调的词条（``hi`` 标了 ``[híꜜì]``，``nichi`` 没有），再取带假名读法的（``猫`` 的 ``neko`` 而不是 ``nekoma``），最后才按 dump 顺序。``今日`` 仍会读成 ``konnichi``：这一版 dump 里 ``今日`` 只有 ``konnichi``、``konchi``、``konjitsu`` 三个词条，没有 ``kyō``，macOS 和 Windows 的系统分词器则给 ``kyō``。
@@ -62,6 +63,8 @@ STANDARD_REGIONS = {
 LOCAL_QUALIFIERS = {"Northern", "Southern", "Eastern", "Western"}
 # 这些语言里标了标准音地区的斜线标音排在不带地区标签的前面：法语 dump 把标准的法国读音标成 `France` 或 `Europe`，南部和其他变体反而不带标签（`sept` 是 `/sɛt/` 标 `Europe`、`/sɛtə/` 不带标签，`France` 是 `/fʁɑ̃s/` 标 `France`、`/fʁãⁿsə/` 不带标签）；而它标 `France` 的方括号标音多是窄式记音（`bonjour` 的 `[bõ.ʒuə̯ʁ]`），所以法语先比斜线还是方括号、再比地区。其余语言不带标签的就是标准音（德语 `Chile` 不带标签的 `/ˈt͡ʃiːlə/` 才是通行读法，标 `Germany` 的 `/ˈçiːlə/` 是变体），先比地区：不带标签的、标准音地区的、其他地区的，同一档里斜线优先。
 TAGGED_STANDARD_FIRST = {"fr"}
+# 这些语言在同一档地区里方括号的语音标音排在斜线的音位标音前面，值是在这些语言里另外丢掉的标签。德语的斜线是维基词典的音位层（`/ˈhaːbən/`），方括号才是学习者在词典里看到的实际读音（`[ˈhaː.bən]`、`er` 的 `[ʔeːɐ̯]`）；没有完整方括号标音的词（`Katze`、`Hund`）仍给斜线。方括号优先以后，标 `colloquial` 的口语缩读（`er` 的 `/ɐ/`、`mal` 的 `/ma/`）不能再排在标准读音前面，所以丢掉。只写在 `sounds[].other` 里的方括号（`Wasser` 的 `[ˈva.sɐ]`）不取：那个字段在德语里多半是用法说明里的片段（`der` 的 `[ˈɪnɐ]` 是 `in der` 的读法），和词条本身的读音分不开。
+BRACKETS_FIRST = {"de": {"colloquial"}}
 REGIONAL_TAG = re.compile(r"^[A-Z]")
 # 读音里除字母外还能出现的字符（任何文字的字母都行；IPA 用拉丁、希腊、IPA 扩展字母和修饰字母）。其他字符（数字、汉字、注释、残留的模板）一律拒掉这条读音，而不是把它显示出来。
 READING_MARKS = set(" .ˈˌːˑ‿-‐()[]/|‖ʼ'ʔ̃͜͡")
@@ -196,7 +199,11 @@ def ipa_rank(sound: dict, language: str) -> int | None:
         return None
     regional = [tag for tag in tags if isinstance(tag, str) and REGIONAL_TAG.match(tag)]
     standard = any(tag in STANDARD_REGIONS.get(language, set()) for tag in regional) and not any(tag in LOCAL_QUALIFIERS for tag in regional)
+    if language in BRACKETS_FIRST and any(tag in BRACKETS_FIRST[language] for tag in tags):
+        return None
     phonetic = 1 if str(sound.get("ipa", "")).startswith("[") else 0
+    if language in BRACKETS_FIRST:
+        phonetic = 1 - phonetic
     if language in TAGGED_STANDARD_FIRST:
         region = 0 if standard else 1 if not regional else 2
         return phonetic * 3 + region
@@ -204,7 +211,180 @@ def ipa_rank(sound: dict, language: str) -> int | None:
     return region * 2 + phonetic
 
 
+# ---- 韩语的文化观光部式罗马字（Revised Romanization of Korean，2000 年文化观光部告示第 2000-8 号） ----
+#
+# 过滤后的输入里韩语词条没有现成的罗马字：kaikki 的韩语 dump 把维基词典的罗马字写在 `forms[]` 里，`filter` 只给日语留了 `forms`，锁住的那一周的原始 dump 已被 kaikki.org 覆盖。输入里有的是维基词典按标准发音写的谚文（`sounds[].other`，`읽다` 的 `[익따]`、`국물` 的 `[궁물]`、`한국어` 的 `[한(ː)구거]`），所以罗马字在这里按规范的规则从谚文生成：
+#
+# - 罗马字按发音写（规范第 3 章第 1 项），发音用维基词典写的那一条：连音、鼻音化、流音化、送气、腭化和 ㄴ 添加都已经在里面（`환율` 的 `[화뉼]`、`솜이불` 的 `[솜니불]`），这些靠拼写推不出来。
+# - 紧音化不写（同项附注）：发音里的紧音声母在拼写里是对应的松音时按松音写，`학교` 的 `[학꾜]` 是 `hakgyo`。拼写里本来就是紧音的（`깎아` 的 `[까까]`、`있어` 的 `[이써]`）照写。
+# - 元音按拼写写，不按发音：`희망` 读 `[히망]` 仍写 `huimang`（规范第 2 章附注 1），`차례` 有 `[차레]` 的读法仍写 `charye`。
+# - 体词里 ㄱ、ㄷ、ㅂ 后面跟 ㅎ 时 ㅎ 照写（同项附注），`묵호` 是 `Mukho` 不是 `Muko`；谓词照常送气，`좋다` 是 `jota`。
+# - 音节界线可能读错的地方加连字符（第 3 章第 2 项）：`중앙` 是 `jung-ang`，`반구대` 是 `ban-gudae`，`해운대` 是 `hae-undae`。维基词典在同样的地方用撇号（`goyang'i`），这里按规范用连字符。
+# - 专名（词性 `name`）首字母大写（第 3 章第 3 项），`신라` 是 `Silla`。
+#
+# 维基词典有一部分词条不写发音谚文（`개`、`책`、`세계` 这类元音有 ㅐ/ㅔ 两读、维基词典只给 IPA 的），这时按标准发音法从拼写推出发音（`spelled_pronunciation`），规则只到不需要知道词的构成为止：ㅎ 收音、送气、连音、腭化、收音代表音、鼻音化、ㄹ 的鼻音化和流音化。ㄴ 添加、合成词里的连音（`맛없다`）推不出来，这类词出错的余地在这里。词头不是谚文（汉字、拉丁字母）的词条不标读音：发音谚文和拼写对不上，紧音化无从判断。
+
+HANGUL_INITIALS = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ"
+HANGUL_VOWELS = ("ㅏ", "ㅐ", "ㅑ", "ㅒ", "ㅓ", "ㅔ", "ㅕ", "ㅖ", "ㅗ", "ㅘ", "ㅙ", "ㅚ", "ㅛ", "ㅜ", "ㅝ", "ㅞ", "ㅟ", "ㅠ", "ㅡ", "ㅢ", "ㅣ")
+HANGUL_FINALS = ("", "ㄱ", "ㄲ", "ㄳ", "ㄴ", "ㄵ", "ㄶ", "ㄷ", "ㄹ", "ㄺ", "ㄻ", "ㄼ", "ㄽ", "ㄾ", "ㄿ", "ㅀ", "ㅁ", "ㅂ", "ㅄ", "ㅅ", "ㅆ", "ㅇ", "ㅈ", "ㅊ", "ㅋ", "ㅌ", "ㅍ", "ㅎ")
+RR_INITIALS = dict(zip(HANGUL_INITIALS, ("g", "kk", "n", "d", "tt", "r", "m", "b", "pp", "s", "ss", "", "j", "jj", "ch", "k", "t", "p", "h")))
+RR_VOWELS = dict(zip(HANGUL_VOWELS, ("a", "ae", "ya", "yae", "eo", "e", "yeo", "ye", "o", "wa", "wae", "oe", "yo", "u", "wo", "we", "wi", "yu", "eu", "ui", "i")))
+RR_FINALS = {"": "", "ㄱ": "k", "ㄴ": "n", "ㄷ": "t", "ㄹ": "l", "ㅁ": "m", "ㅂ": "p", "ㅇ": "ng"}
+# 收音的代表音（标准发音法第 9 至 11 条）；ㄺ 和 ㄼ 取多数词的读法（`닭` 是 `[닥]`，`여덟` 是 `[여덜]`）。
+NEUTRAL_FINALS = {
+    "": "", "ㄱ": "ㄱ", "ㄲ": "ㄱ", "ㅋ": "ㄱ", "ㄳ": "ㄱ", "ㄺ": "ㄱ", "ㄴ": "ㄴ", "ㄵ": "ㄴ", "ㄶ": "ㄴ",
+    "ㄷ": "ㄷ", "ㅅ": "ㄷ", "ㅆ": "ㄷ", "ㅈ": "ㄷ", "ㅊ": "ㄷ", "ㅌ": "ㄷ", "ㅎ": "ㄷ",
+    "ㄹ": "ㄹ", "ㄼ": "ㄹ", "ㄽ": "ㄹ", "ㄾ": "ㄹ", "ㅀ": "ㄹ", "ㅁ": "ㅁ", "ㄻ": "ㅁ", "ㅂ": "ㅂ", "ㅍ": "ㅂ", "ㅄ": "ㅂ", "ㄿ": "ㅂ", "ㅇ": "ㅇ",
+}
+# 双收音在连音时留下的前一半和移到下一音节的后一半。
+SPLIT_FINALS = {"ㄳ": ("ㄱ", "ㅅ"), "ㄵ": ("ㄴ", "ㅈ"), "ㄺ": ("ㄹ", "ㄱ"), "ㄻ": ("ㄹ", "ㅁ"), "ㄼ": ("ㄹ", "ㅂ"), "ㄽ": ("ㄹ", "ㅅ"), "ㄾ": ("ㄹ", "ㅌ"), "ㄿ": ("ㄹ", "ㅍ"), "ㅄ": ("ㅂ", "ㅅ")}
+ASPIRATED = {"ㄱ": "ㅋ", "ㄷ": "ㅌ", "ㅂ": "ㅍ", "ㅈ": "ㅊ"}
+TENSE_TO_LAX = {"ㄲ": "ㄱ", "ㄸ": "ㄷ", "ㅃ": "ㅂ", "ㅆ": "ㅅ", "ㅉ": "ㅈ"}
+NASALIZED = {"ㄱ": "ㅇ", "ㄷ": "ㄴ", "ㅂ": "ㅁ"}
+# 拼起来以后会被读成另一个元音的音节交界：`세운` 的 `e` + `u` 会读成 `eu`。
+AMBIGUOUS_VOWEL_JOINS = {"ae", "eo", "eu", "oe", "ui"}
+
+
+def hangul_syllable(character: str) -> list[str] | None:
+    """一个谚文音节的 [声母, 元音, 收音]（收音可以是空串）；不是谚文音节时返回 None。"""
+    index = ord(character) - 0xAC00
+    if not 0 <= index < 11172:
+        return None
+    return [HANGUL_INITIALS[index // 588], HANGUL_VOWELS[index % 588 // 28], HANGUL_FINALS[index % 28]]
+
+
+def spelled_pronunciation(word: list[list[str]]) -> list[list[str]]:
+    """按标准发音法从拼写推出的发音，一个空格分开的词为单位；规则见上面的说明。"""
+    syllables = [list(syllable) for syllable in word]
+    for index in range(len(syllables) - 1):
+        current, following = syllables[index], syllables[index + 1]
+        final, initial = current[2], following[0]
+        # ㅎ 收音（第 12 条）：与后面的 ㄱ、ㄷ、ㅈ 合成送气音，在 ㅅ 前和元音前不发音，在 ㄴ 前读 ㄴ。
+        if final in ("ㅎ", "ㄶ", "ㅀ"):
+            rest = {"ㅎ": "", "ㄶ": "ㄴ", "ㅀ": "ㄹ"}[final]
+            if initial in ("ㄱ", "ㄷ", "ㅈ"):
+                following[0] = ASPIRATED[initial]
+                current[2] = rest
+            elif initial in ("ㅅ", "ㅇ"):
+                current[2] = rest
+            elif initial == "ㄴ":
+                current[2] = rest or "ㄴ"
+            final, initial = current[2], following[0]
+        # ㄱ、ㄷ、ㅂ、ㅈ 与后面的 ㅎ 合成送气音（第 12 条附注 1）。
+        if initial == "ㅎ" and final:
+            kept, moved = SPLIT_FINALS.get(final, ("", final))
+            base = "ㅈ" if moved in ("ㅈ", "ㅊ") else NEUTRAL_FINALS[moved]
+            if base in ASPIRATED:
+                current[2] = kept
+                following[0] = ASPIRATED[base]
+                if following[0] == "ㅌ" and following[1] == "ㅣ":
+                    following[0] = "ㅊ"
+                continue
+        # 连音（第 13、14 条）和腭化（第 17 条）。
+        if initial == "ㅇ" and final and final != "ㅇ":
+            kept, moved = SPLIT_FINALS.get(final, ("", final))
+            if moved in ("ㄷ", "ㅌ") and following[1] == "ㅣ":
+                moved = "ㅈ" if moved == "ㄷ" else "ㅊ"
+            current[2], following[0] = kept, moved
+            continue
+        final = current[2] = NEUTRAL_FINALS[final]
+        # ㄹ 在 ㅁ、ㅇ 后读 ㄴ，在 ㄱ、ㄷ、ㅂ 后也读 ㄴ（第 19 条）；ㄴ 与 ㄹ 相邻读 ㄹㄹ（第 20 条）。
+        if initial == "ㄹ":
+            if final in ("ㅁ", "ㅇ") or final in NASALIZED:
+                following[0] = initial = "ㄴ"
+            elif final == "ㄴ":
+                current[2] = final = "ㄹ"
+        elif initial == "ㄴ" and final == "ㄹ":
+            following[0] = initial = "ㄹ"
+        # 鼻音化（第 18 条）。
+        if initial in ("ㄴ", "ㅁ") and final in NASALIZED:
+            current[2] = NASALIZED[final]
+    if syllables:
+        syllables[-1][2] = NEUTRAL_FINALS[syllables[-1][2]]
+    return syllables
+
+
+def pronounced_hangul(entry: dict, length: int) -> list[list[str]] | None:
+    """维基词典写的发音谚文（`[익따]`），去掉可选长音记号，按音节拆开；第一条音节数与拼写相同的才用。"""
+    for sound in entry.get("sounds") or []:
+        other = sound.get("other") if isinstance(sound, dict) else None
+        if not isinstance(other, str) or sound.get("tags") or not (other.startswith("[") and other.endswith("]")):
+            continue
+        text = other[1:-1].replace("(ː)", "").replace("ː", "").replace(" ", "")
+        syllables = [hangul_syllable(character) for character in text]
+        if syllables and all(syllables) and len(syllables) == length:
+            return syllables
+    return None
+
+
+def revised_romanization(word: str, entry: dict) -> str | None:
+    """谚文词头 ``word`` 的罗马字；词头不全是谚文和空格时返回 None。"""
+    parts = word.split(" ")
+    spelled = [[hangul_syllable(character) for character in part] for part in parts]
+    if not all(spelled) or not all(all(part) for part in spelled):
+        return None
+    flat = [syllable for part in spelled for syllable in part]
+    rules = [syllable for part in spelled for syllable in spelled_pronunciation(part)]
+    pronounced = pronounced_hangul(entry, len(flat))
+    if pronounced is None:
+        pronounced = rules
+    else:
+        # 罗马字按词分写，词与词之间的连音和同化（`누워서 떡 먹기` 的 `[떵 먹끼]`）不写：每个词的末音节收音和下一个词的首音节声母按单独读这个词时的发音。
+        start = 0
+        for part in spelled[:-1]:
+            start += len(part)
+            pronounced[start - 1][2] = rules[start - 1][2]
+            pronounced[start][0] = rules[start][0]
+    noun = entry.get("pos") in ("noun", "name")
+    words, position = [], 0
+    for part in spelled:
+        letters = []
+        for offset in range(len(part)):
+            index = position + offset
+            initial, _, final = pronounced[index]
+            vowel = flat[index][1]
+            spelled_initial = flat[index][0]
+            spelled_before = flat[index - 1][2] if offset else ""
+            # 紧音化不写：发音是紧音、拼写不是它的声母按拼写写（`학꾜` 的 `꾜` 写 `gyo`，外来词的口语紧音 `카페` 的 `[까페]` 也写 `kape`）；拼写是 ㅇ 时紧音是前一个收音移过来的，前一个收音本来就是紧音才照写（`있어` 是 `isseo`，`없이` 的 `[업씨]` 是 `eopsi`）。
+            if initial in TENSE_TO_LAX and spelled_initial != initial:
+                if spelled_initial != "ㅇ":
+                    initial = spelled_initial
+                elif SPLIT_FINALS.get(spelled_before, ("", spelled_before))[1] != initial:
+                    initial = TENSE_TO_LAX[initial]
+            # ㅎ 在 ㄴ、ㄹ、ㅁ、ㅇ 和元音后面按标准发音照读（第 12 条只让 ㅎ 收音在元音前不发音），维基词典写出的弱化读法（`전화` 的 `[저놔]`）不算：恢复 ㅎ 和被它带走的收音。
+            if spelled_initial == "ㅎ" and initial not in ("ㅎ", "ㅋ", "ㅌ", "ㅍ", "ㅊ") and spelled_before in ("", "ㄴ", "ㄹ", "ㅁ", "ㅇ"):
+                initial = "ㅎ"
+                if letters:
+                    text, before_initial, _ = letters[-1]
+                    letters[-1] = (text, before_initial, spelled_before)
+            final = NEUTRAL_FINALS.get(final, "")
+            if offset + 1 < len(part):
+                following = pronounced[index + 1]
+                # 体词里 ㄱ、ㄷ、ㅂ 后面的 ㅎ 照写：恢复被送气吞掉的收音和 ㅎ。
+                if noun and flat[index][2] in ("ㄱ", "ㄷ", "ㅂ") and flat[index + 1][0] == "ㅎ" and following[0] in ("ㅋ", "ㅌ", "ㅍ", "ㅊ") and not final:
+                    final = flat[index][2]
+                    pronounced[index + 1] = ["ㅎ", following[1], following[2]]
+            previous_final = letters[-1][2] if letters else ""
+            text = ("l" if initial == "ㄹ" and previous_final == "ㄹ" else RR_INITIALS[initial]) + RR_VOWELS[vowel]
+            letters.append((text, initial, final))
+        romanized = ""
+        for offset, (text, initial, final) in enumerate(letters):
+            if offset:
+                before = romanized[-1]
+                if (initial == "ㅇ" and (letters[offset - 1][2] == "ㅇ" or (not letters[offset - 1][2] and before + text[0] in AMBIGUOUS_VOWEL_JOINS))) or (letters[offset - 1][2] == "ㄴ" and initial == "ㄱ"):
+                    romanized += "-"
+            romanized += text + RR_FINALS[final]
+        words.append(romanized)
+        position += len(part)
+    reading = " ".join(words)
+    if entry.get("pos") == "name":
+        reading = reading[:1].upper() + reading[1:]
+    return reading if reading and len(reading) <= MAX_PHONETIC_CHARS else None
+
+
 def entry_reading(entry: dict, language: str) -> str | None:
+    if language == "ko":
+        return revised_romanization(unicodedata.normalize("NFC", entry.get("word", "")), entry)
     if language == "ja":
         for form in entry.get("romanizations") or []:
             reading = clean_romaji(form)
@@ -327,7 +507,7 @@ Wiktionary edition: English
 Wiktextract dump date: {dump_date}
 Wiktextract revision: {source_revision}
 
-Changes: only the IPA transcriptions (French, Spanish, German, Russian, Korean) and the Hepburn romanization (Japanese) of each word were kept, one per word; archaic, dialectal and similar transcriptions, transcriptions holding more than one variant, liaison-only forms and partial transcriptions were removed; inflected forms were removed and only the words used by the offline candidate glosses were kept; the result was converted to SQLite.
+Changes: only the IPA transcriptions (French, Spanish, German, Russian; for German the phonetic transcription in square brackets where the entry gives one) and the Hepburn romanization (Japanese) of each word were kept, one per word; the Korean readings are the Revised Romanization of Korean, generated from the Hangul spelling and the Hangul pronunciation the entry gives; archaic, dialectal and similar transcriptions, transcriptions holding more than one variant, liaison-only forms and partial transcriptions were removed; inflected forms were removed and only the words used by the offline candidate glosses were kept; the result was converted to SQLite.
 
 These files are licensed under the Creative Commons Attribution-ShareAlike 4.0 International License (https://creativecommons.org/licenses/by-sa/4.0/), the license of the Wiktionary text they adapt. They are provided as is, without warranties of any kind.
 """
