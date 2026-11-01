@@ -11,7 +11,9 @@ final class MorePanelFoldTests: XCTestCase {
   private let geometryKeys = ["touch_key_spacing_tenths", "touch_row_spacing_tenths", "touch_keyboard_height_adjustment"]
   private let defaultsKeys = [
     KeyboardPrivacyPreference.incognitoKey, KeyboardFeedbackPreference.soundKey, KeyboardFeedbackPreference.hapticsKey,
-    KeyboardLayoutPreference.heightAdjustmentKey,
+    KeyboardLayoutPreference.heightAdjustmentKey, KeyboardLayoutPreference.bottomLiftKey,
+    KeyboardLayoutPreference.widthPercentKey, KeyboardLayoutPreference.positionXKey,
+    KeyboardLayoutPreference.oneHandedKey, KeyboardLayoutPreference.oneHandedDockedTabletKey,
     ImeModeMemoryPreference.enabledKey, ImeModeMemoryPreference.lastChineseKey,
   ]
 
@@ -23,6 +25,12 @@ final class MorePanelFoldTests: XCTestCase {
     // 功能菜单的可用性取决于新键盘初始化时的中英文模式；测试不能继承模拟器上一次运行留下的英文状态。
     KeyboardFeedbackPreference.defaults.set(true, forKey: ImeModeMemoryPreference.enabledKey)
     KeyboardFeedbackPreference.defaults.set(true, forKey: ImeModeMemoryPreference.lastChineseKey)
+    // 键盘调整的用例从缺省开始：高度 0、摆放缺省、单手关；结束后上面存下的原值放回去。
+    KeyboardLayoutPreference.heightAdjustment = 0
+    for key in [KeyboardLayoutPreference.bottomLiftKey, KeyboardLayoutPreference.widthPercentKey,
+                KeyboardLayoutPreference.positionXKey, KeyboardLayoutPreference.oneHandedKey] {
+      KeyboardFeedbackPreference.defaults.removeObject(forKey: key)
+    }
     let document = MetasequoiaInputSessionBridge.loadSharedPreferences() ?? [:]
     savedSharedPreferences = MetasequoiaInputSessionBridge.loadSharedPreferences()
     savedGeometry = document.filter { geometryKeys.contains($0.key) }
@@ -47,7 +55,7 @@ final class MorePanelFoldTests: XCTestCase {
   /// 先是设计稿里的各项，再是在别处没有位置的 iOS 工具；振动相关的项只在有 Taptic Engine 的设备上出现。
   private var expectedTitles: [String] {
     let haptics = KeyboardFeedbackPreference.hapticsAvailable
-    var titles: [String] = ["全角", "中文标点", "模糊音", "繁体", "手写", "词库", "键盘高度", "设置", "按键音"]
+    var titles: [String] = ["全角", "中文标点", "模糊音", "繁体", "手写", "词库", "键盘调整", "设置", "按键音"]
     if haptics { titles.append("振动") }
     // 工具栏不放语音按钮，「语音输入」一直在菜单里。
     titles += ["单手模式", "隐私模式", "反馈", "关于", "AI 润色", "高情商回复", "本地输入", "语音输入"]
@@ -382,77 +390,164 @@ final class MorePanelFoldTests: XCTestCase {
     XCTAssertEqual(stored?.seeded, true)
   }
 
-  /// 「键盘高度」把工具栏换成内联调节条，调节时实时预览，只在点「完成」时保存；「取消」把高度恢复原样。
-  func testKeyboardHeightTileAdjustsInline() throws {
-    KeyboardLayoutPreference.heightAdjustment = 0
+  /// 「键盘调整」在整块键盘上盖一层遮罩：下面的键盘照常画，但触摸都落在遮罩上；手机竖屏四个柄和三个按钮都在。上沿柄实时预览高度，不保存；「确认」才存下并关掉遮罩。
+  func testKeyboardAdjustCoversTheKeyboardAndSavesOnConfirm() throws {
     let controller = makeController(width: 390)
     let heightConstraint = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" })
     let start = heightConstraint.constant
-    _ = try openMenu(in: controller)
-    try tile("moreCard-键盘高度", in: controller).sendActions(for: .primaryActionTriggered)
-    controller.view.layoutIfNeeded()
+    let overlay = try openAdjust(in: controller)
     XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardMorePicker" })
-    let bar = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "inlineHeightBar" } as? InlineHeightBar)
-    let toolbar = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardShortcutBar" })
-    XCTAssertTrue(toolbar.isHidden, "the bar takes the toolbar's place")
-    XCTAssertEqual(bar.percent, 100)
-    XCTAssertEqual(try button("spaceKey", in: controller).superview?.alpha, 1, "the keys stay live under the bar")
+    XCTAssertEqual(overlay.frame, controller.view.bounds, "the overlay covers the whole keyboard view")
+    XCTAssertTrue(overlay.accessibilityViewIsModal)
+    XCTAssertEqual(overlay.keyboardFrame, controller.view.bounds, "an unadjusted keyboard fills its view")
+    let space = try button("spaceKey", in: controller)
+    XCTAssertEqual(space.superview?.alpha, 1, "the keyboard stays drawn under the overlay as the preview")
+    let center = space.convert(CGPoint(x: space.bounds.midX, y: space.bounds.midY), to: controller.view)
+    XCTAssertTrue(controller.view.hitTest(center, with: nil)?.isDescendant(of: overlay) ?? false, "the keys take no touches")
+    for identifier in ["keyboardAdjustTop", "keyboardAdjustBottom", "keyboardAdjustLeft", "keyboardAdjustRight",
+                       "keyboardAdjustReset", "keyboardAdjustMove", "keyboardAdjustConfirm"] {
+      XCTAssertFalse(try view(identifier, in: overlay).isHidden, identifier)
+    }
+    XCTAssertEqual(try view("keyboardAdjustReset", in: overlay).accessibilityLabel, "重置")
+    XCTAssertEqual(try view("keyboardAdjustMove", in: overlay).accessibilityLabel, "移动")
+    XCTAssertEqual(try view("keyboardAdjustConfirm", in: overlay).accessibilityLabel, "确认")
+
+    // 读屏的增大对应 5% 的步长；只预览，不保存。
     let keyBlock = KeyboardViewController.keyBlockHeight(
       keyHeight: KeyboardHeightPercent.portraitKeyHeight(tablet: false), rows: 4, rowSpacing: CGFloat(KeyboardLayoutPreference.rowSpacing))
-    XCTAssertEqual(bar.range.lowerBound, KeyboardViewController.heightPercent(adjustment: -12, keyBlock: keyBlock))
-    XCTAssertEqual(bar.range.upperBound, KeyboardViewController.heightPercent(adjustment: 48, keyBlock: keyBlock))
-
-    // VoiceOver 的增大操作对应调节条的 5% 步长；键盘只预览，不保存。
-    let handle = try XCTUnwrap(descendants(bar).first { $0.accessibilityIdentifier == "inlineHeightHandle" })
-    handle.accessibilityIncrement()
+    let top = try view("keyboardAdjustTop", in: overlay)
+    XCTAssertEqual(top.accessibilityValue, "100%")
+    top.accessibilityIncrement()
     let preview = KeyboardViewController.heightAdjustment(percent: 105, keyBlock: keyBlock)
     XCTAssertEqual(heightConstraint.constant, start + preview, accuracy: 0.5)
-    XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 0, "nothing is saved before 完成")
-    try control("inlineHeightCancel", in: bar).sendActions(for: .primaryActionTriggered)
-    XCTAssertEqual(heightConstraint.constant, start, accuracy: 0.5)
-    XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "inlineHeightBar" })
-    XCTAssertFalse(toolbar.isHidden)
+    XCTAssertEqual(top.accessibilityValue, "105%")
+    XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 0, "nothing is saved before 确认")
 
-    _ = try openMenu(in: controller)
-    try tile("moreCard-键盘高度", in: controller).sendActions(for: .primaryActionTriggered)
-    let again = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "inlineHeightBar" })
-    try XCTUnwrap(descendants(again).first { $0.accessibilityIdentifier == "inlineHeightHandle" }).accessibilityIncrement()
-    try control("inlineHeightDone", in: again).sendActions(for: .primaryActionTriggered)
+    try control("keyboardAdjustConfirm", in: overlay).sendActions(for: .primaryActionTriggered)
+    XCTAssertFalse(descendants(controller.view).contains { $0 is KeyboardAdjustOverlay })
     XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, Double(preview))
+    XCTAssertEqual(MetasequoiaInputSessionBridge.loadSharedPreferences()?["touch_keyboard_height_adjustment"] as? Int, Int(preview),
+                   "the height goes to the shared document the settings app reads")
     XCTAssertEqual(heightConstraint.constant, start + preview, accuracy: 0.5)
   }
 
-  /// 调节条开着时按键照常可用，所以按键打开的面板（这里是底行的符号键）不会结束调整、也不会丢掉预览的高度；与 Android 一样，只有「取消」「完成」或收起键盘才结束，收起键盘按「取消」处理。
-  func testKeyboardHeightPreviewSurvivesKeyPanelsAndIsCancelledWhenTheKeyboardGoesAway() throws {
-    KeyboardLayoutPreference.heightAdjustment = 0
+  /// 下沿柄抬高整块键盘，高度反向变化，所以键盘视图的高度（上沿）不变；抬起来的地方不是键盘。收起键盘按确认保存，抬高只存本机。
+  func testBottomHandleLiftsTheKeyboardWithTheTopEdgeFixedAndSavesWhenTheKeyboardGoesAway() throws {
     let controller = makeController(width: 390)
     let heightConstraint = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" })
     let start = heightConstraint.constant
-    _ = try openMenu(in: controller)
-    try tile("moreCard-键盘高度", in: controller).sendActions(for: .primaryActionTriggered)
-    let bar = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "inlineHeightBar" })
-    try XCTUnwrap(descendants(bar).first { $0.accessibilityIdentifier == "inlineHeightHandle" }).accessibilityIncrement()
-    let previewed = heightConstraint.constant
-    XCTAssertGreaterThan(previewed, start + 0.5)
-
-    let hasBar = { self.descendants(controller.view).contains { $0.accessibilityIdentifier == "inlineHeightBar" } }
-    let hasPicker = { self.descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardSymbolPanel" } }
-    let symbols = try button("symbolPanelKey", in: controller)
-    XCTAssertFalse(symbols.isHidden)
-    symbols.sendActions(for: .primaryActionTriggered)
-    XCTAssertTrue(hasPicker())
-    XCTAssertTrue(hasBar(), "a panel opened from the keys leaves the bar in place")
-    XCTAssertEqual(heightConstraint.constant, previewed, accuracy: 0.5, "and keeps the previewed height")
-    try control("closeSymbolPanel", in: controller.view).sendActions(for: .primaryActionTriggered)
-    XCTAssertFalse(hasPicker())
-    XCTAssertTrue(hasBar())
-    XCTAssertEqual(heightConstraint.constant, previewed, accuracy: 0.5)
-    XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 0, "nothing is saved before 完成")
+    let overlay = try openAdjust(in: controller)
+    let bottom = try view("keyboardAdjustBottom", in: overlay)
+    bottom.accessibilityIncrement()
+    XCTAssertEqual(heightConstraint.constant, start, accuracy: 0.5, "the top edge stays put")
+    try layoutAtRequestedHeight(controller)
+    let height = controller.view.bounds.height
+    XCTAssertEqual(try keyArea(controller).frame.maxY, height - KeyboardFormFactor.phone.padding.bottom - 4, accuracy: 0.5)
+    XCTAssertEqual(overlay.keyboardFrame.maxY, height - 4, accuracy: 0.5, "the brackets follow the lifted keyboard")
+    XCTAssertEqual(bottom.accessibilityValue, "抬高 4 点")
+    XCTAssertEqual(KeyboardLayoutPreference.placement, .standard, "nothing is saved yet")
 
     controller.viewWillDisappear(false)
-    XCTAssertFalse(hasBar())
-    XCTAssertEqual(heightConstraint.constant, start, accuracy: 0.5, "putting the keyboard away cancels the preview")
-    XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 0)
+    XCTAssertFalse(descendants(controller.view).contains { $0 is KeyboardAdjustOverlay })
+    XCTAssertEqual(KeyboardLayoutPreference.placement.bottomLift, 4, "putting the keyboard away saves, as 确认 does")
+    XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, -4)
+    XCTAssertNil(MetasequoiaInputSessionBridge.loadSharedPreferences()?[KeyboardLayoutPreference.bottomLiftKey],
+                 "the lift stays on this device")
+  }
+
+  /// 左右柄收窄整块键盘（工具栏和按键区一起），另一侧的边不动；空出来的地方点下去不落到键上。「重置」回到全宽居中，不保存。
+  func testSideHandlesNarrowTheWholeKeyboardWithTheOtherEdgeFixed() throws {
+    let controller = makeController(width: 390)
+    let overlay = try openAdjust(in: controller)
+    let padding = KeyboardFormFactor.phone.padding
+    try view("keyboardAdjustLeft", in: overlay).accessibilityDecrement()
+    try layoutAtRequestedHeight(controller)
+    let root = try keyArea(controller)
+    XCTAssertEqual(root.frame.maxX, 390 - padding.trailing, accuracy: 0.5, "the right edge stays put")
+    XCTAssertEqual(root.frame.minX, 390 * 0.05 + padding.leading, accuracy: 0.5)
+    XCTAssertEqual(try view("keyboardAdjustLeft", in: overlay).accessibilityValue, "95%")
+    let toolbar = try view("keyboardShortcutBar", in: controller)
+    XCTAssertGreaterThanOrEqual(toolbar.convert(toolbar.bounds, to: controller.view).minX, root.frame.minX - 0.5,
+                                "the toolbar narrows with the keys")
+
+    try view("keyboardAdjustRight", in: overlay).accessibilityDecrement()
+    try layoutAtRequestedHeight(controller)
+    XCTAssertEqual(root.frame.minX, 390 * 0.05 + padding.leading, accuracy: 0.5, "the left edge stays put")
+    XCTAssertEqual(root.frame.maxX, 390 * 0.95 - padding.trailing, accuracy: 0.5)
+    XCTAssertEqual(overlay.keyboardFrame.minX, 390 * 0.05, accuracy: 0.5)
+    XCTAssertEqual(overlay.keyboardFrame.width, 390 * 0.9, accuracy: 0.5)
+
+    try control("keyboardAdjustReset", in: overlay).sendActions(for: .primaryActionTriggered)
+    try layoutAtRequestedHeight(controller)
+    XCTAssertEqual(root.frame.minX, padding.leading, accuracy: 0.5)
+    XCTAssertEqual(root.frame.maxX, 390 - padding.trailing, accuracy: 0.5)
+    XCTAssertEqual(KeyboardLayoutPreference.placement, .standard)
+
+    try view("keyboardAdjustRight", in: overlay).accessibilityDecrement()
+    try view("keyboardAdjustRight", in: overlay).accessibilityDecrement()
+    try control("keyboardAdjustConfirm", in: overlay).sendActions(for: .primaryActionTriggered)
+    try layoutAtRequestedHeight(controller)
+    XCTAssertEqual(KeyboardLayoutPreference.placement, KeyboardPlacement(bottomLift: 0, widthPercent: 90, positionX: 0))
+    XCTAssertEqual(root.frame.maxX, 390 * 0.9 - padding.trailing, accuracy: 0.5)
+    let gutter = CGPoint(x: 390 - 10, y: root.frame.midY)
+    XCTAssertFalse(controller.view.hitTest(gutter, with: nil)?.isDescendant(of: root) ?? false, "the uncovered side is not a key")
+  }
+
+  /// iPhone 横屏不抬高、不收窄：只留上沿柄，没有「移动」；存下的摆放保留，但不画出来。
+  func testPhoneLandscapeOnlyAdjustsTheHeight() throws {
+    KeyboardLayoutPreference.placement = KeyboardPlacement(bottomLift: 40, widthPercent: 80, positionX: 0)
+    let controller = KeyboardViewController()
+    controller.traitOverrides.userInterfaceIdiom = .phone
+    controller.traitOverrides.verticalSizeClass = .compact
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 844, height: KeyboardViewController.keyboardHeight(.phone, landscape: true))
+    controller.view.layoutIfNeeded()
+    let overlay = try openAdjust(in: controller)
+    XCTAssertFalse(try view("keyboardAdjustTop", in: overlay).isHidden)
+    for identifier in ["keyboardAdjustBottom", "keyboardAdjustLeft", "keyboardAdjustRight", "keyboardAdjustMove"] {
+      XCTAssertTrue(try view(identifier, in: overlay).isHidden, identifier)
+    }
+    XCTAssertEqual(overlay.keyboardFrame, controller.view.bounds, "the stored lift and width are not drawn")
+    try control("keyboardAdjustConfirm", in: overlay).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(KeyboardLayoutPreference.placement, KeyboardPlacement(bottomLift: 40, widthPercent: 80, positionX: 0),
+                   "and confirming keeps them for portrait")
+  }
+
+  /// 单手模式时宽度和位置不生效：没有左右柄，「移动」只改抬高。
+  func testOneHandedModeHidesTheSideHandlesAndMoveOnlyLifts() throws {
+    KeyboardLayoutPreference.oneHanded = .right
+    let controller = makeController(width: 390)
+    let overlay = try openAdjust(in: controller)
+    XCTAssertTrue(try view("keyboardAdjustLeft", in: overlay).isHidden)
+    XCTAssertTrue(try view("keyboardAdjustRight", in: overlay).isHidden)
+    XCTAssertFalse(try view("keyboardAdjustBottom", in: overlay).isHidden)
+    let move = try view("keyboardAdjustMove", in: overlay)
+    XCTAssertFalse(move.isHidden)
+    move.accessibilityIncrement()
+    XCTAssertEqual(move.accessibilityValue, "抬高 4 点")
+    try control("keyboardAdjustConfirm", in: overlay).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(KeyboardLayoutPreference.placement, KeyboardPlacement(bottomLift: 4, widthPercent: 100, positionX: 500))
+    XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 0, "moving keeps the size")
+  }
+
+  /// 打开调整后才到的共享偏好重读不覆盖正在预览的高度（键盘出现时发出的重读可能晚到）；确认存的是预览值。
+  func testAReloadedDocumentDoesNotReplaceThePreviewedHeight() throws {
+    let controller = makeController(width: 390)
+    let heightConstraint = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" })
+    let overlay = try openAdjust(in: controller)
+    try view("keyboardAdjustTop", in: overlay).accessibilityIncrement()
+    let previewed = heightConstraint.constant
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences { $0["touch_keyboard_height_adjustment"] = 30 })
+    controller.viewWillAppear(false)
+    let deadline = Date().addingTimeInterval(10)
+    while KeyboardLayoutPreference.heightAdjustment != 30 && Date() < deadline {
+      RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+    }
+    XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 30, "the reload arrived")
+    XCTAssertTrue(descendants(controller.view).contains { $0 is KeyboardAdjustOverlay })
+    XCTAssertEqual(heightConstraint.constant, previewed, accuracy: 0.5, "and left the preview alone")
+    try control("keyboardAdjustConfirm", in: overlay).sendActions(for: .primaryActionTriggered)
+    XCTAssertNotEqual(KeyboardLayoutPreference.heightAdjustment, 30, "确认 saves the previewed height")
   }
 
   func testHeightPercentRoundTripsThroughPoints() {
@@ -476,6 +571,32 @@ final class MorePanelFoldTests: XCTestCase {
     controller.view.frame = CGRect(x: 0, y: 0, width: width, height: KeyboardViewController.defaultKeyboardHeight)
     controller.view.layoutIfNeeded()
     return controller
+  }
+
+  /// 从功能菜单打开「键盘调整」，按键盘请求的高度排好，返回遮罩。打开前把高度和摆放放回缺省。
+  private func openAdjust(in controller: KeyboardViewController) throws -> KeyboardAdjustOverlay {
+    _ = try openMenu(in: controller)
+    try tile("moreCard-键盘调整", in: controller).sendActions(for: .primaryActionTriggered)
+    try layoutAtRequestedHeight(controller)
+    return try XCTUnwrap(descendants(controller.view).first { $0 is KeyboardAdjustOverlay } as? KeyboardAdjustOverlay)
+  }
+
+  /// 测试里的视图没有窗口，按高度约束的常量把它排好，与 `OneHandModeTests` 相同。
+  private func layoutAtRequestedHeight(_ controller: KeyboardViewController) throws {
+    controller.view.frame.size.height = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" }).constant
+    controller.view.layoutIfNeeded()
+  }
+
+  private func keyArea(_ controller: KeyboardViewController) throws -> KeyAreaStackView {
+    try XCTUnwrap(descendants(controller.view).first { $0 is KeyAreaStackView } as? KeyAreaStackView)
+  }
+
+  private func view(_ identifier: String, in root: UIView) throws -> UIView {
+    try XCTUnwrap(descendants(root).first { $0.accessibilityIdentifier == identifier }, "No view with accessibility identifier \(identifier).")
+  }
+
+  private func view(_ identifier: String, in controller: KeyboardViewController) throws -> UIView {
+    try view(identifier, in: controller.view)
   }
 
   private func openMenu(in controller: KeyboardViewController) throws -> KeyboardMorePickerView {
