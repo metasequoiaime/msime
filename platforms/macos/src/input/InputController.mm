@@ -98,6 +98,7 @@
 #import <IOKit/hid/IOHIDKeys.h>
 #import <IOKit/hid/IOHIDManager.h>
 #include <atomic>
+#include <cstring>
 #include <memory>
 #include <optional>
 #include <unordered_map>
@@ -6511,6 +6512,59 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions, NSString 
     return requested;
 }
 
+// 偏好里的方案缺它的资源包时（发布包不带的五笔码表，粤拼、注音、笔画的语言词库），会话回退到默认方案、偏好照旧，用户看到选着五笔却打出全拼。设置应用只在启动时补装一次，失败也没有提示，升级换了词库锁或从菜单栏、工具栏切到这个方案后就一直缺着，所以输入法收到会话报出的 `missing_resource_pack` 时自己在后台下载，通道和镜像与设置应用相同（偏好的 update_channel 和 voice_input.asr_model_mirror）。同一个资源包同时只装一次，失败后十分钟内不再试，免得每次聚焦都重新联网。装好后下一次聚焦时会话找到它，换回用户选的方案。只在主线程调用。
+static void MSIMEEnsureMissingResourcePack(id pack, NSDictionary *preferences, NSString *stateRoot) {
+    if (![pack isKindOfClass:NSString.class] || ![@[ @"wubi", @"language-dictionaries" ] containsObject:pack] ||
+        ![stateRoot isKindOfClass:NSString.class] || !stateRoot.isAbsolutePath)
+        return;
+    static NSMutableSet<NSString *> *installing;
+    static NSMutableDictionary<NSString *, NSDate *> *failedAt;
+    if (!installing) installing = [NSMutableSet set];
+    if (!failedAt) failedAt = [NSMutableDictionary dictionary];
+    if ([installing containsObject:pack]) return;
+    NSDate *failed = failedAt[pack];
+    if (failed && -failed.timeIntervalSinceNow < 600) return;
+    NSMutableDictionary *request = [@{@"state_root" : stateRoot, @"pack" : pack} mutableCopy];
+    id channel = [preferences isKindOfClass:NSDictionary.class] ? preferences[@"update_channel"] : nil;
+    if ([channel isKindOfClass:NSString.class] && [@[ @"stable", @"beta", @"nightly" ] containsObject:channel])
+        request[@"channel"] = channel;
+    id voice = [preferences isKindOfClass:NSDictionary.class] ? preferences[@"voice_input"] : nil;
+    id mirror = [voice isKindOfClass:NSDictionary.class] ? voice[@"asr_model_mirror"] : nil;
+    if ([mirror isKindOfClass:NSString.class] &&
+        [mirror stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet].length)
+        request[@"sources"] = @[ mirror ];
+    NSData *body = [NSJSONSerialization dataWithJSONObject:request options:0 error:nil];
+    if (!body) return;
+    NSString *name = [pack copy];
+    [installing addObject:name];
+    msime_macos_diagnostic_writef("resource_pack_install_start pack=%s reason=scheme_fallback", name.UTF8String);
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        auto raw = msime::host_api::own_string(
+            msime_client_resource_pack_install(static_cast<const uint8_t *>(body.bytes), body.length, nullptr, nullptr));
+        id response = raw ? [NSJSONSerialization JSONObjectWithData:[NSData dataWithBytes:raw.get() length:std::strlen(raw.get())]
+                                                             options:0
+                                                               error:nil]
+                          : nil;
+        const BOOL installed = [response isKindOfClass:NSDictionary.class] && [response[@"ok"] isEqual:@YES];
+        // 只记共享层的错误码（local_model_network 之类），冒号后的细节可能带路径，不写进诊断日志。
+        id error = [response isKindOfClass:NSDictionary.class] ? response[@"error"] : nil;
+        NSString *reason = [error isKindOfClass:NSString.class]
+            ? [[(NSString *)error componentsSeparatedByString:@":"].firstObject copy]
+            : @"no_response";
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [installing removeObject:name];
+            if (installed) {
+                [failedAt removeObjectForKey:name];
+                msime_macos_diagnostic_writef("resource_pack_installed pack=%s", name.UTF8String);
+            } else {
+                failedAt[name] = [NSDate date];
+                msime_macos_diagnostic_writef("resource_pack_install_failed pack=%s error=%s", name.UTF8String,
+                                              reason.UTF8String);
+            }
+        });
+    });
+}
+
 // The current preferences are available before the first HostSession is
 // constructed. Configure the log from them so failures emitted while that
 // constructor loads plugin tables are not lost before the asynchronous
@@ -6793,6 +6847,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         _preferenceLoadState.applied(revision);
         if (inputPreferences) [_appearance applySharedInputPreferences:inputPreferences];
         [self applySharedToolbarPreferences:snapshot[@"preferences"]];
+        // 在上一行配置好诊断日志之后：选着的方案缺资源包、会话回退了，就在后台补装。
+        MSIMEEnsureMissingResourcePack(result[@"missing_resource_pack"], preferences, _preferencesDirectory);
         // After the preferences, which the session's resolved effect refines with the selected pack.
         [self refreshTypingEffectSettings];
         _view = [session viewWithError:nil] ?: result[@"view"];
