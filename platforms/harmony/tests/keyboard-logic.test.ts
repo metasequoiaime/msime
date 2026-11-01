@@ -39,7 +39,6 @@ import {
 import { KeyboardMetrics } from "../entry/src/main/ets/keyboard/KeyboardMetrics";
 import { CandidateScalePolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateScalePolicy";
 import { NativeReplyPolicy } from "../entry/src/main/ets/keyboard/NativeReplyPolicy";
-import { KeyboardLayoutDragPolicy } from "../entry/src/main/ets/keyboard/input/KeyboardLayoutDragPolicy";
 import {
   ClipboardHistoryStore,
   ClipboardHistoryItem,
@@ -2340,22 +2339,6 @@ group("the language key takes the ambiguous touches between it and the return ke
   check(
     KeyboardGeometry.shiftedHitOffsets(Number.NaN, 0, 0)[0].x === 0,
     "a non-finite shift is no shift",
-  );
-});
-
-group("the height bar's drag resizes one vp for one vp", () => {
-  check(
-    KeyboardLayoutDragPolicy.height(0, -12) === 12,
-    "dragging the top edge upward increases keyboard height one-for-one",
-  );
-  check(
-    KeyboardLayoutDragPolicy.height(48, -100) === KeyboardGeometry.MAX_HEIGHT_ADJUSTMENT_VP,
-    "height remains inside the shared preference bounds",
-  );
-  check(
-    KeyboardLayoutDragPolicy.height(10, 0.4) === 10 &&
-      KeyboardLayoutDragPolicy.height(10, -0.6) === 11,
-    "the total travel is rounded once, so slow drags add up rather than rounding away",
   );
 });
 
@@ -11656,7 +11639,7 @@ group("the function panel follows the design's order, then the Harmony extras", 
   const labels: string[] = FunctionPanelPolicy.items().map((item: FunctionPanelItem) => item.label);
   check(
     labels.join(",") ===
-      "全角,中文标点,模糊音,繁体,手写,词库,键盘高度,设置," +
+      "全角,中文标点,模糊音,繁体,手写,词库,键盘调整,设置," +
         "按键音,振动,单手模式,隐私模式,反馈,关于,宣传,候选翻译,符号," +
         "本地输入,语音输入,高情商回复,AI 润色,振动强度,浮动键盘",
     `the tiles in page order: ${labels.join(",")}`,

@@ -144,9 +144,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var morePicker: KeyboardMorePickerView?
   /// 输入方式或功能面板打开时是不是横屏；转屏后行数变了就关掉它（`closePickerBuiltForOtherOrientation`）。
   private var pickerLandscape = false
-  /// 键盘高度：占据工具栏位置的内联调节条（此时按键照常可用），以及按「取消」时要恢复的调整值。
-  private var inlineHeightBar: InlineHeightBar?
-  private var inlineHeightSnapshot: CGFloat = 0
+  /// 键盘调整：盖住整块键盘的遮罩和它的预览，只在打开期间存在。
+  private var adjustOverlay: KeyboardAdjustOverlay?
+  private var adjustSession: KeyboardAdjustSession?
+  /// 整块键盘的底部抬高、宽度和水平位置（`KeyboardPlacement`），本机设置，键盘出现时从 App Group 读；遮罩打开期间是预览值。
+  private var keyboardPlacement = KeyboardLayoutPreference.placement
   /// 隐私模式，在键盘出现时和点它的磁贴时读取，按键时不读 App Group。
   private var incognito = false
   /// 当前输入框下各类记录是否允许（`KeyboardPrivacyGate`）：隐私模式或凭据输入框里统计、剪贴板历史、云剪贴板和诊断日志一律不记。
@@ -755,8 +757,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var inlineReadingCollapse: NSLayoutConstraint?
   /// 读音是否在候选行上面单独一行：14 键和 18 键是，它们的拼音选择条排在读音右边。按方案而不是按中英文状态判断，切到英文时顶栏高度不变，按键不跳。
   private var separateReadingRow: Bool { usesLetterGrid }
-  /// 根视图的内边距（`KeyboardFormFactor.padding`）：上、前、后、下。
+  /// 根视图在键盘外框（`keyboardFrameGuide`）里的内边距（`KeyboardFormFactor.padding`）：上、前、后、下。
   private var keyboardPaddingConstraints: [NSLayoutConstraint] = []
+  /// 键盘外框：整块键盘（工具栏或候选行、按键区和盖在按键上的面板）在键盘视图里占的地方。键盘调整收窄、平移或抬高时它离开视图的边，空出来的地方露出铺满视图的皮肤背景，点在那里不落到任何键上。
+  private let keyboardFrameGuide = UILayoutGuide()
+  /// 外框到视图的上、前、后、下距离，由 `applyKeyboardPlacement` 设置。
+  private var keyboardFrameConstraints: [NSLayoutConstraint] = []
 
   /// 按键音效包（`KeySoundPackPolicy`）：要哪个包、已经加载的样本和音量。偏好在键盘出现和重读之后由 `synchronizeKeySoundPack` 更新，按键时只读这几个缓存。
   private let keySounds = KeyboardSoundPlayer()
@@ -942,6 +948,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // The host going to the background may end the extension without a viewWillDisappear.
     NotificationCenter.default.addObserver(
       self, selector: #selector(flushStatistics), name: .NSExtensionHostWillResignActive, object: nil)
+    // 切到别的应用也是离开键盘调整的一种方式，与收起键盘一样按确认保存。
+    NotificationCenter.default.addObserver(
+      self, selector: #selector(saveKeyboardAdjustOnResign), name: .NSExtensionHostWillResignActive, object: nil)
     DiagnosticLog.shared.write("keyboard_built \(DiagnosticLog.MemorySample.current().fields)")
   }
 
@@ -1011,6 +1020,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if seasonChanged { KeyboardTheme.reload(session.sharedPreferences, dark: drawsDark) }
     incognito = KeyboardPrivacyPreference.incognito
     oneHandedMode = KeyboardLayoutPreference.oneHanded
+    if adjustOverlay == nil {
+      keyboardPlacement = KeyboardLayoutPreference.placement
+      applyKeyboardPlacement()
+      updatePreferredKeyboardHeight()
+    }
     readToolbarPreferences()
     readGesturePreferences()
     applyOneHanded()
@@ -1236,6 +1250,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       asynchronousInputDocument = document
       // 换了输入框就是上一个失焦了：攒着的上屏这时写出，不等键盘收起。
       flushTypingStatistics()
+      // 键盘调整开着时换输入框，同样按确认保存并关掉遮罩。
+      closeKeyboardAdjust()
     }
     synchronizeInputContext()
     // 宿主可能把焦点换到了凭据输入框，诊断日志跟着当前输入框开关；只在闸门的判断变了时重新配置，不必每次按键都去读偏好。
@@ -1282,8 +1298,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     personalDictionaryTimer = nil
     idleMaintenance.cancel()
     closeKeyboardPicker()
-    // 键盘收起时还在调整高度就当作取消：没点「完成」的预览不保存，与 Android onFinishInputView 一致。
-    closeInlineHeight(commit: false)
+    // 键盘收起时还开着键盘调整就按确认保存：调到满意直接收起是最自然的结束方式，与 Android 收起即保存一致。
+    closeKeyboardAdjust()
     endKeyboardCursorSwipe()
     cursorMovement.cancel()
     spaceHoldMovesCursor = false
@@ -1318,12 +1334,21 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     root.translatesAutoresizingMaskIntoConstraints = false
     view.addSubview(root)
 
+    // 键盘外框：键盘调整的宽度、水平位置和底部抬高，由 `applyKeyboardPlacement` 设置；没调过时与视图重合。
+    view.addLayoutGuide(keyboardFrameGuide)
+    keyboardFrameConstraints = [
+      keyboardFrameGuide.topAnchor.constraint(equalTo: view.topAnchor),
+      keyboardFrameGuide.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      keyboardFrameGuide.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      keyboardFrameGuide.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+    ]
+    NSLayoutConstraint.activate(keyboardFrameConstraints)
     // 这些常量是设备形态的内边距，由 `applyKeyboardMetrics` 设置。
     keyboardPaddingConstraints = [
-      root.topAnchor.constraint(equalTo: view.topAnchor),
-      root.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-      root.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-      root.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+      root.topAnchor.constraint(equalTo: keyboardFrameGuide.topAnchor),
+      root.leadingAnchor.constraint(equalTo: keyboardFrameGuide.leadingAnchor),
+      root.trailingAnchor.constraint(equalTo: keyboardFrameGuide.trailingAnchor),
+      root.bottomAnchor.constraint(equalTo: keyboardFrameGuide.bottomAnchor),
     ]
     NSLayoutConstraint.activate(keyboardPaddingConstraints)
 
@@ -1587,7 +1612,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       oneHandedMode = KeyboardLayoutPreference.adoptOneHandedOnDockedTablet()
     }
     let mode = KeyboardOneHandLayout.effective(oneHandedMode, formFactor: formFactor, split: splitKeyboardShown)
-    let available = view.bounds.width - formFactor.padding.leading - formFactor.padding.trailing
+    let available = keyRowWidth
     // 宽度还没定下来（第一次布局之前）时先按手机的比例排，`viewDidLayoutSubviews` 有了宽度再排一次。
     let tablet = formFactor == .tablet && mode != .off && available > 0
     let arrangement = OneHandArrangement(
@@ -2899,8 +2924,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       KeyboardTool(id: "dictionary", title: "词库", face: .icon(.lexicon)) { [weak self] in
         self?.openApp(KeyboardAppLauncher.dictionaryURL)
       },
-      KeyboardTool(id: "keyboardHeight", title: "键盘高度", face: .icon(.keyboardHeight)) { [weak self] in
-        self?.showInlineHeight()
+      KeyboardTool(id: "keyboardAdjust", title: "键盘调整", face: .icon(.keyboardHeight)) { [weak self] in
+        self?.showKeyboardAdjust()
       },
       // 键盘只改这个菜单里有的设置；其余设置都在 app 里，正在打字的人没有别的路可以过去。
       KeyboardTool(id: "settings", title: "设置", face: .icon(.settings)) { [weak self] in
@@ -5591,10 +5616,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     panel.view.translatesAutoresizingMaskIntoConstraints = false
     view.addSubview(panel.view)
     NSLayoutConstraint.activate([
-      panel.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-      panel.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-      panel.view.topAnchor.constraint(equalTo: compositionContainer?.bottomAnchor ?? view.topAnchor),
-      panel.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+      panel.view.leadingAnchor.constraint(equalTo: keyboardFrameGuide.leadingAnchor),
+      panel.view.trailingAnchor.constraint(equalTo: keyboardFrameGuide.trailingAnchor),
+      panel.view.topAnchor.constraint(equalTo: compositionContainer?.bottomAnchor ?? keyboardFrameGuide.topAnchor),
+      panel.view.bottomAnchor.constraint(equalTo: keyboardFrameGuide.bottomAnchor)
     ])
     panel.didMove(toParent: self)
     // 回复面板盖住按键期间隐藏按键行，VoiceOver 和触摸都不会落到面板下面的按键上。
@@ -5675,12 +5700,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         insertOwnText(result, source: .ai)
         return true
       }, close: { [weak self] in self?.closeKeyboardService() }))
-    servicePanel = panel
-    addChild(panel)
-    panel.view.frame = view.bounds
-    panel.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-    view.addSubview(panel.view)
-    panel.didMove(toParent: self)
+    attachServicePanel(panel)
   }
 
   private func showKeyboardVoice() {
@@ -5710,12 +5730,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         KeyboardAppLauncher.open(KeyboardAppLauncher.voiceURL, from: self)
       }))
       panel.overrideUserInterfaceStyle = KeyboardAppearancePreference.style(KeyboardAppearancePreference.voiceKey, in: session.sharedPreferences)
-      servicePanel = panel
-      addChild(panel)
-      panel.view.frame = view.bounds
-      panel.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-      view.addSubview(panel.view)
-      panel.didMove(toParent: self)
+      attachServicePanel(panel)
     } catch { showDiagnostic(error.localizedDescription) }
   }
 
@@ -5849,6 +5864,21 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       showDiagnostic(error.localizedDescription)
     }
     renderCandidateStrip()
+  }
+
+  /// 把 AI 润色、语音结果这类服务面板盖在整块键盘上：钉在键盘外框（`keyboardFrameGuide`）上，键盘调整收窄、平移或抬高之后与工具栏和按键一起收窄，不铺到两侧和底下空出来的地方。
+  private func attachServicePanel(_ panel: UIViewController) {
+    servicePanel = panel
+    addChild(panel)
+    panel.view.translatesAutoresizingMaskIntoConstraints = false
+    view.addSubview(panel.view)
+    NSLayoutConstraint.activate([
+      panel.view.leadingAnchor.constraint(equalTo: keyboardFrameGuide.leadingAnchor),
+      panel.view.trailingAnchor.constraint(equalTo: keyboardFrameGuide.trailingAnchor),
+      panel.view.topAnchor.constraint(equalTo: keyboardFrameGuide.topAnchor),
+      panel.view.bottomAnchor.constraint(equalTo: keyboardFrameGuide.bottomAnchor),
+    ])
+    panel.didMove(toParent: self)
   }
 
   private func closeKeyboardService() {
@@ -5998,7 +6028,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let skinChanged = KeyboardTheme.reload(preferences, dark: drawsDark) != previousTheme
     // 高度也抄进 App Group：原先只抄键距、行距和语音入口，高度只进了这个控制器，于是布局面板打开时显示、提交时写回的都是 App Group 里可能过时的高度。
     KeyboardLayoutPreference.mirrorGeometry(preferences)
-    if let adjustment = KeyboardLayoutPreference.sharedHeightAdjustment(preferences["touch_keyboard_height_adjustment"]) {
+    // 键盘调整开着时保留正在预览的高度：重读多半是键盘出现时发出、晚到的那一次，不是用户要的改动；离开调整时预览会存下，覆盖文档里的值。
+    if adjustOverlay == nil,
+       let adjustment = KeyboardLayoutPreference.sharedHeightAdjustment(preferences["touch_keyboard_height_adjustment"]) {
       sharedKeyboardHeightAdjustment = CGFloat(adjustment)
     }
     KeyboardLayoutPreference.shuangpinKeyHints = KeyboardLayoutPreference.sharedShuangpinKeyHints(in: preferences)
@@ -6501,10 +6533,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func updateLetterRowInsets() {
     guard letterRowViews.count > 1, let row = letterRowViews[1] as? UIStackView else { return }
     // 手机的中间一排两侧各缩进半个键，显示 `;` 键时（微软双拼、粤语双拼的中文模式，见 `showsSemicolonKey`）用它填上这块空位，`;` 藏起来时缩进回来；iPad 的中间一排缩进 2.5% 开始，以回车结尾（`TabletLetterLayout`）。
-    // 这个比例按按键区域本身的宽度计算，单手模式会把它收窄（iPad 单手时收到手机大小的一块里的按键宽度）；键面形态决定是 iPad 的缩进还是手机的半键缩进。
+    // 这个比例按按键区域本身的宽度计算，单手模式会把它收窄（iPad 单手时收到手机大小的一块里的按键宽度），键盘调整收窄整块键盘时也跟着窄；键面形态决定是 iPad 的缩进还是手机的半键缩进。
     let keysWidth = KeyboardOneHandLayout.keysWidth(
-      available: view.bounds.width - formFactor.padding.leading - formFactor.padding.trailing, mode: appliedOneHanded ?? .off,
-      formFactor: formFactor)
+      available: keyRowWidth, mode: appliedOneHanded ?? .off, formFactor: formFactor)
     let margins: UIEdgeInsets
     if keyFaceFormFactor == .tablet {
       margins = UIEdgeInsets(top: 0, left: keysWidth * TabletLetterLayout.middleRowLeadingInset, bottom: 0, right: 0)
@@ -6637,7 +6668,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       formFactor: formFactor, landscape: landscape, enabled: KeyboardLayoutPreference.tabletSplit)
       || KeyboardSplitLayout.phoneIsActive(
         idiom: traitCollection.userInterfaceIdiom, formFactor: formFactor, landscape: landscape,
-        rowWidth: view.bounds.width - formFactor.padding.leading - formFactor.padding.trailing,
+        rowWidth: keyRowWidth,
         keySpacing: CGFloat(KeyboardLayoutPreference.keySpacing), enabled: KeyboardLayoutPreference.phoneLandscapeSplit)
     guard active else { return false }
     return KeyboardSplitLayout.splitsLayout(scheme: inputScheme, chinese: isChineseMode, localMode: isInLocalMode)
@@ -7223,7 +7254,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     toolbarSymbolsEntryShown = shown
     toolbarRowKept = kept
     updateShortcutButtons()
-    shortcutBar.isHidden = stripShowsCandidates || inlineHeightBar != nil || toolbarRowHidden
+    shortcutBar.isHidden = stripShowsCandidates || toolbarRowHidden
   }
 
   /// 底行是否为设计稿的手机底行（123 | ， | space | 。 | 中 | return；手写在 中 与 return 之间多出「重写」和 ⌫，空格让窄）：手机键盘显示字母、大千注音各排或大千 #+= 页的共享符号行时是，任一设备形态上的手写板和全拼 14 键也是，与 Android 的 designEntries 给手写和 14 键共用底行一致（iPad 26 键底行的回车在第二排字母上，14 键没有那个位置）。九键外框和假名键保留自己的底行，123 / #+= 层自带一行（`ActionRowStyle.symbolLayer`），iPad 的字母也有自己的（`usesTabletBottomRow`）。
@@ -8130,10 +8161,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let showsCandidates = isInLocalMode || !visiblePreedit.isEmpty || !visibleCandidates.isEmpty || visibleDiagnostic != nil
     stripShowsCandidates = showsCandidates
     compositionContainer?.backgroundColor = currentStripBackground(KeyboardTheme.current)
-    // 内联高度调节条占据工具栏的位置；下面的按键照常可用，所以打字时候选仍会盖在两者之上显示。
-    shortcutBar.isHidden = showsCandidates || inlineHeightBar != nil || toolbarRowHidden
     // 工具栏内容可以隐藏，但 iOS 键盘扩展不能在组字开始和结束时改变顶栏高度；否则 UIKit 会重排键盘，表现为键盘抖动，严重时还会重新选择输入法。
-    inlineHeightBar?.isHidden = showsCandidates
+    shortcutBar.isHidden = showsCandidates || toolbarRowHidden
     compositionContainer?.canvasVisible = showsCandidates && candidateCanvasActive
     readingRow.isHidden = !showsCandidates
     candidateContent?.isHidden = !showsCandidates
@@ -9189,6 +9218,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func viewDidLayoutSubviews() {
     super.viewDidLayoutSubviews()
+    // 键盘调整的外框按视图宽度算：第一次有了宽度、旋转、浮动与停靠切换，以及单手模式或分离式键盘让收窄失效时，在这里重新放一次（没变时什么也不做）。下面单手和缩进的计算读的是放好之后的宽度。
+    applyKeyboardPlacement()
     let column = candidateColumnWidth()
     if abs(column - appliedCandidateColumnWidth) > 0.5 {
       appliedCandidateColumnWidth = column
@@ -9205,7 +9236,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if actionRow != nil, keyLayoutStyle.numberRow, appliedLayoutInputs?.numberRowFits != numberRowFits {
       updateKeyboardLayoutIfNeeded()
     }
+    // 单手或分离在上面变了，收窄随之生效或失效。
+    applyKeyboardPlacement()
     updatePreferredKeyboardHeight()
+    updateKeyboardAdjustOverlay()
   }
 
   private var showsPhoneLetterRows: Bool {
@@ -9249,9 +9283,39 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       || zhuyinRowViews.first?.isHidden == false
   }
 
+  /// 键盘视图的高度：键盘本身（默认高度加用户的高度调整），再加键盘调整的底部抬高。抬高为 0 时与原来一样。
   private func updatePreferredKeyboardHeight() {
-    let adjustedHeight = preferredKeyboardHeight + sharedKeyboardHeightAdjustment
+    let adjustedHeight = preferredKeyboardHeight + sharedKeyboardHeightAdjustment + keyboardFrame.bottomLift
     if keyboardHeightConstraint?.constant != adjustedHeight { keyboardHeightConstraint?.constant = adjustedHeight }
+  }
+
+  /// 此刻键盘调整的哪些项生效（`KeyboardAdjustCapabilities`）：iPhone 横屏和 iPad 上的手机形态不抬高、不收窄；单手模式和分离式键盘不收窄。
+  private var adjustCapabilities: KeyboardAdjustCapabilities {
+    let formFactor = formFactor
+    return KeyboardAdjustCapabilities.resolve(
+      idiom: traitCollection.userInterfaceIdiom, formFactor: formFactor, landscape: isLandscape,
+      oneHanded: KeyboardOneHandLayout.effective(oneHandedMode, formFactor: formFactor, split: splitKeyboardShown) != .off,
+      split: splitKeyboardShown)
+  }
+
+  /// 键盘外框此刻在视图里的横向位置和底部抬高，按视图宽度和生效的项算出。
+  private var keyboardFrame: KeyboardAdjustFrame {
+    KeyboardAdjustLayout.frame(containerWidth: view.bounds.width, placement: keyboardPlacement, capabilities: adjustCapabilities)
+  }
+
+  /// 按键行可用的宽度：键盘外框减去两侧内边距。单手模式的块宽、中间一排的缩进和 iPhone 横屏能不能分离都按它算，所以键盘调整收窄之后它们跟着整块键盘走，而不是按整个视图宽度。
+  private var keyRowWidth: CGFloat {
+    keyboardFrame.width - formFactor.padding.leading - formFactor.padding.trailing
+  }
+
+  /// 把键盘外框放到 `keyboardFrame` 的位置：左右离视图边各空出多少、底边抬高多少。值没变时不碰约束，所以在 `viewDidLayoutSubviews` 里每次调用也不会引起多余的布局。
+  private func applyKeyboardPlacement() {
+    guard keyboardFrameConstraints.count == 4 else { return }
+    let frame = keyboardFrame
+    let trailing = -max(0, view.bounds.width - frame.leading - frame.width)
+    if keyboardFrameConstraints[1].constant != frame.leading { keyboardFrameConstraints[1].constant = frame.leading }
+    if keyboardFrameConstraints[2].constant != trailing { keyboardFrameConstraints[2].constant = trailing }
+    if keyboardFrameConstraints[3].constant != -frame.bottomLift { keyboardFrameConstraints[3].constant = -frame.bottomLift }
   }
 
   /// 当前设备形态下键盘四周的内边距和顶栏下的间距（dc.html `kbPad`、`kbGap`）。iPad 键盘停靠或浮动时设备形态会变。
@@ -9427,18 +9491,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     KeyboardHeightPercent.keyBlockHeight(keyHeight: keyHeight, rows: rows, rowSpacing: rowSpacing)
   }
 
-  /// 把存储的高度调整值（单位为点）换算成调节条显示的按键区百分比。
+  /// 把存储的高度调整值（单位为点）换算成按键区百分比：键盘调整的上沿柄朗读它，App 的「键盘」页显示同一个数。
   static func heightPercent(adjustment: CGFloat, keyBlock: CGFloat) -> Int {
     KeyboardHeightPercent.percent(adjustment: adjustment, keyBlock: keyBlock)
   }
 
-  /// 把调节条上的百分比换回以整点存储的调整值，限制在共用的 -12…48 范围内。
+  /// 把按键区百分比换回以整点存储的调整值，限制在共用的 -12…48 范围内。
   static func heightAdjustment(percent: Int, keyBlock: CGFloat) -> CGFloat {
     KeyboardHeightPercent.adjustment(percent: percent, keyBlock: keyBlock)
   }
-
-  /// `touch_keyboard_height_adjustment` 校验后的范围，单位为点。
-  static let heightAdjustmentRange: ClosedRange<CGFloat> = KeyboardHeightPercent.adjustmentRange
 
   private var currentKeyBlockHeight: CGFloat {
     Self.keyBlockHeight(
@@ -9447,55 +9508,87 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       rowSpacing: CGFloat(KeyboardLayoutPreference.rowSpacing))
   }
 
-  /// 键盘高度：内联调节条占据工具栏的位置，下面的按键照常可用，改动当场可见。设置仍以点为单位存储；调节条以按键区高度的百分比显示。
-  private func showInlineHeight() {
+  /// 键盘调整：整块键盘上盖一层遮罩（`KeyboardAdjustOverlay`），四个柄分别改高度、底部抬高和左右两边，「移动」整块平移和抬高。打开期间下面的键盘照常按预览画出来，但所有触摸都落在遮罩上。高度仍以点为单位存储，读屏按按键区高度的百分比报。
+  private func showKeyboardAdjust() {
     closeKeyboardService()
     closeKeyboardPicker()
-    // 调节条已经开着时保留它和正在预览的高度，不再叠一条新的，也不覆盖打开时记下的原高度。
-    guard inlineHeightBar == nil, let container = compositionContainer else { return }
-    let keyBlock = currentKeyBlockHeight
-    inlineHeightSnapshot = sharedKeyboardHeightAdjustment
-    let range = Self.heightPercent(adjustment: Self.heightAdjustmentRange.lowerBound, keyBlock: keyBlock)
-      ... Self.heightPercent(adjustment: Self.heightAdjustmentRange.upperBound, keyBlock: keyBlock)
-    let bar = InlineHeightBar(
-      percent: Self.heightPercent(adjustment: sharedKeyboardHeightAdjustment, keyBlock: keyBlock), range: range,
-      onChange: { [weak self] percent in self?.previewKeyboardHeight(Self.heightAdjustment(percent: percent, keyBlock: keyBlock)) },
-      onCancel: { [weak self] in self?.closeInlineHeight(commit: false) },
-      onReset: { [weak self] in self?.previewKeyboardHeight(0) },
-      onDone: { [weak self] in self?.closeInlineHeight(commit: true) })
-    bar.referenceHeight = keyBlock
-    bar.translatesAutoresizingMaskIntoConstraints = false
-    container.addSubview(bar)
+    // 已经开着时保留它和正在预览的值，不再叠一层。
+    guard adjustOverlay == nil else { return }
+    let overlay = KeyboardAdjustOverlay()
+    overlay.translatesAutoresizingMaskIntoConstraints = false
+    view.addSubview(overlay)
     NSLayoutConstraint.activate([
-      bar.leadingAnchor.constraint(equalTo: shortcutBar.leadingAnchor),
-      bar.trailingAnchor.constraint(equalTo: shortcutBar.trailingAnchor),
-      bar.topAnchor.constraint(equalTo: shortcutBar.topAnchor),
-      bar.bottomAnchor.constraint(equalTo: shortcutBar.bottomAnchor),
+      overlay.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      overlay.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      overlay.topAnchor.constraint(equalTo: view.topAnchor),
+      overlay.bottomAnchor.constraint(equalTo: view.bottomAnchor),
     ])
-    inlineHeightBar = bar
-    renderCandidateStrip()
-    UIAccessibility.post(notification: .layoutChanged, argument: bar)
+    overlay.onDrag = { [weak self] part, phase, dx, rise in self?.dragKeyboardAdjust(part, phase: phase, dx: dx, rise: rise) }
+    overlay.onStep = { [weak self] part, increment in self?.changeKeyboardAdjust { $0.step(part, increment: increment) } }
+    overlay.onStepPosition = { [weak self] right in self?.changeKeyboardAdjust { $0.stepPosition(right: right) } }
+    overlay.onReset = { [weak self] in self?.changeKeyboardAdjust { $0.reset() } }
+    overlay.onConfirm = { [weak self] in self?.closeKeyboardAdjust() }
+    adjustOverlay = overlay
+    adjustSession = KeyboardAdjustSession(
+      state: KeyboardAdjustState(heightAdjustment: Int(sharedKeyboardHeightAdjustment.rounded()), placement: keyboardPlacement),
+      capabilities: adjustCapabilities, containerWidth: view.bounds.width, keyBlock: currentKeyBlockHeight)
+    updateKeyboardAdjustOverlay()
+    UIAccessibility.post(notification: .screenChanged, argument: overlay)
   }
 
-  /// 按 `adjustment` 画出键盘，但不保存。
-  private func previewKeyboardHeight(_ adjustment: CGFloat) {
-    sharedKeyboardHeightAdjustment = adjustment
-    updatePreferredKeyboardHeight()
-  }
-
-  /// 「完成」把调节条显示的高度保存到键盘和设置 app 都读取的地方；「取消」或键盘收起时恢复调节条打开时的高度。
-  private func closeInlineHeight(commit: Bool) {
-    guard let bar = inlineHeightBar else { return }
-    if commit {
-      KeyboardLayoutPreference.heightAdjustment = Double(sharedKeyboardHeightAdjustment)
-      commitTouchKeyboardGeometry()
-    } else {
-      previewKeyboardHeight(inlineHeightSnapshot)
+  private func dragKeyboardAdjust(_ part: KeyboardAdjustSession.Part, phase: UIGestureRecognizer.State, dx: CGFloat, rise: CGFloat) {
+    switch phase {
+    case .began: adjustSession?.beginDrag()
+    case .changed: changeKeyboardAdjust { $0.drag(part, dx: dx, rise: rise) }
+    case .ended: changeKeyboardAdjust { $0.drag(part, dx: dx, rise: rise); $0.endDrag() }
+    default: adjustSession?.endDrag()
     }
-    bar.removeFromSuperview()
-    inlineHeightBar = nil
-    renderCandidateStrip()
-    UIAccessibility.post(notification: .layoutChanged, argument: moreShortcut)
+  }
+
+  /// 改预览并当场画出来：高度和摆放交给键盘，外框和高度约束跟着变。只预览，不保存。
+  private func changeKeyboardAdjust(_ change: (inout KeyboardAdjustSession) -> Void) {
+    guard var session = adjustSession else { return }
+    change(&session)
+    adjustSession = session
+    sharedKeyboardHeightAdjustment = CGFloat(session.state.heightAdjustment)
+    keyboardPlacement = session.state.placement
+    applyKeyboardPlacement()
+    updatePreferredKeyboardHeight()
+    updateKeyboardAdjustOverlay()
+  }
+
+  /// 把遮罩对齐此刻的外框、能力和读屏数值。转屏、浮动与停靠切换之后会话里的视图宽度、按键区高度和能力也在这里跟上，不生效的柄随之藏起或回来。
+  private func updateKeyboardAdjustOverlay() {
+    guard let overlay = adjustOverlay, var session = adjustSession else { return }
+    session.capabilities = adjustCapabilities
+    session.containerWidth = view.bounds.width
+    session.keyBlock = currentKeyBlockHeight
+    adjustSession = session
+    overlay.capabilities = session.capabilities
+    overlay.keyboardFrame = keyboardFrameGuide.layoutFrame
+    let state = session.state
+    let lift = "抬高 \(state.placement.bottomLift) 点"
+    overlay.setAccessibilityValues(
+      height: "\(Self.heightPercent(adjustment: CGFloat(state.heightAdjustment), keyBlock: session.keyBlock))%",
+      bottom: lift,
+      width: "\(state.placement.widthPercent)%",
+      move: session.capabilities.width ? "\(lift)，水平位置 \(state.placement.positionX / 10)%" : lift)
+  }
+
+  /// 离开键盘调整：「确认」、收起键盘、换输入框和切到别的应用都走这里，一律把预览的四项存下，没有取消。高度写 App Group 和共享文档（与设置 App 的「键盘高度」同一份），抬高、宽度和水平位置只写本机 App Group。
+  private func closeKeyboardAdjust() {
+    guard let overlay = adjustOverlay else { return }
+    overlay.removeFromSuperview()
+    adjustOverlay = nil
+    adjustSession = nil
+    KeyboardLayoutPreference.placement = keyboardPlacement
+    KeyboardLayoutPreference.heightAdjustment = Double(sharedKeyboardHeightAdjustment)
+    commitTouchKeyboardGeometry()
+    UIAccessibility.post(notification: .screenChanged, argument: moreShortcut)
+  }
+
+  @objc private func saveKeyboardAdjustOnResign() {
+    closeKeyboardAdjust()
   }
 
   private func selectTraditionalOutput(_ traditional: Bool) {
@@ -9612,10 +9705,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     panel.translatesAutoresizingMaskIntoConstraints = false
     view.addSubview(panel)
     NSLayoutConstraint.activate([
-      panel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-      panel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-      panel.topAnchor.constraint(equalTo: view.topAnchor),
-      panel.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+      panel.leadingAnchor.constraint(equalTo: keyboardFrameGuide.leadingAnchor),
+      panel.trailingAnchor.constraint(equalTo: keyboardFrameGuide.trailingAnchor),
+      panel.topAnchor.constraint(equalTo: keyboardFrameGuide.topAnchor),
+      panel.bottomAnchor.constraint(equalTo: keyboardFrameGuide.bottomAnchor),
     ])
     // 把背景交给系统底板的皮肤（原生皮肤、经典兜底）面板是透明的，与主键盘透出同一块系统底板（iOS 26 起是 Liquid Glass），而不是铺一块量出来的不透明色；面板整块盖住键盘，所以下面的工具栏和按键先藏起来，关面板时再放出来。
     if KeyboardTheme.current.drawsNativeBackground { keyboardRoot?.alpha = 0 }
@@ -9786,7 +9879,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     preeditButton.configuration?.baseForegroundColor = candidatePalette?.preeditText ?? candidatePalette?.secondary ?? skin.secondary
     expandCandidatesButton.configuration?.baseForegroundColor = candidatePalette?.text ?? skin.keyForeground
     expandDivider.backgroundColor = skin.hairline
-    inlineHeightBar?.apply(skin: skin)
+    adjustOverlay?.apply(skin: skin)
     oneHandGutter.apply(skin: skin)
     voicePanel?.apply(skin: skin)
     for (_, _, hint, corner) in letterButtons {

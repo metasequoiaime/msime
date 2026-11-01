@@ -101,6 +101,12 @@ ICONS: list[tuple[str, str, float, str, str]] = [
     ("SPELLING_EDIT", STROKE, 1.7, "Lucide-style pencil (读音行的编辑拼写入口)",
      "M4 20l1.2-4.4L16 4.8a2.3 2.3 0 0 1 3.2 3.2L8.4 18.8 4 20zM14 6.8l3.2 3.2"),
     ("SPACE_BAR", STROKE, 1.7, "open box ␣ (数字页空格键)", "M5 10.5v3.5h14v-3.5"),
+    ("ADJUST_RESET", STROKE, 1.7, "Lucide-style rotate-ccw (键盘调整 重置)",
+     "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5"),
+    ("ADJUST_MOVE", STROKE, 1.7, "Lucide-style move (键盘调整 移动)",
+     "M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20"),
+    ("ADJUST_CONFIRM", STROKE, 1.7, "Lucide-style circle-check (键盘调整 确认)",
+     "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM9 12l2 2 4-4"),
 ]
 
 # 仅 iOS 的图标：key -> (样式, 以 viewBox 单位计的描边宽度, 来源, 路径数据)。用 dict 而不是 `ICONS` 那样的行，让解析本脚本中 `ICONS` 行的 Android 冒烟测试永远看不到它们。

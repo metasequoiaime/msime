@@ -45,7 +45,7 @@ public final class FunctionPanelModel {
         toggle(Id.ONE_HAND, "单手模式", "单手模式"),
         toggle(Id.FLOATING, "浮动键盘", "浮动键盘"),
         toggle(Id.PRIVACY, "无痕输入", "无痕输入"),
-        action(Id.KEYBOARD_HEIGHT, "键盘高度"),
+        action(Id.KEYBOARD_HEIGHT, "键盘调整"),
         toggle(Id.KEY_SOUND, "按键音", "按键音"),
         toggle(Id.VIBRATION, "振动", "按键振动"),
         action(Id.VIBRATION_STRENGTH, "振动强度"),
