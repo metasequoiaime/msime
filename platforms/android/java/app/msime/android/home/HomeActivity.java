@@ -355,9 +355,9 @@ public final class HomeActivity extends AppCompatActivity {
     }
 
     /**
-     * 开场：本季底色上光晕浮起，浅色圆盘弹入，那枚标随后旋入并自己写一遍，名字与拉丁名升上来，底部进度条 2.4 秒走满，停满 2.8 秒或被轻点后让开。
+     * 开场：本季底色上光晕浮起，水杉标志（不垫圆盘，标志本身就是外框）随后旋入，折线自己写一遍，名字与拉丁名升上来，底部进度条 2.4 秒走满，停满 2.8 秒或被轻点后让开。
      *
-     * <p>Drawn by the app rather than by the platform's splash screen. Timing follows the design's keyframes: msCircIn for the disc (0.65 s), msLogoIn for the mark (0.6 s from 0.25 s, turning in from -30°), the stroke drawn by the animated vector, msRipple on the ring twice from 1.45 s, the name and the Latin line fading up at 0.9 and 1.1 s, and msBreath on the halo from 1.4 s.
+     * <p>Drawn by the app rather than by the platform's splash screen. Timing follows the design's keyframes: msCircIn for the container the mark sits in, which no longer paints a disc (0.65 s), msLogoIn for the mark (0.6 s from 0.25 s, turning in from -30°), the stroke drawn by the animated vector (the design's msRipple ring is not drawn: nothing goes around the mark), the name and the Latin line fading up at 0.9 and 1.1 s, and msBreath on the halo from 1.4 s.
      */
     private void playIntro(boolean leadsToOnboarding) {
         View intro = findViewById(R.id.home_intro);
@@ -385,7 +385,6 @@ public final class HomeActivity extends AppCompatActivity {
             animatable.stop();
             animatable.start();
         }
-        ripple(findViewById(R.id.home_intro_ring));
         fadeUp(findViewById(R.id.home_intro_name), 900);
         fadeUp(findViewById(R.id.home_intro_latin), 1100);
 
@@ -415,24 +414,6 @@ public final class HomeActivity extends AppCompatActivity {
 
         intro.removeCallbacks(dismissIntro);
         intro.postDelayed(dismissIntro, INTRO_HOLD_MILLIS);
-    }
-
-    /** 设计的 msRipple：圆盘外的圆环从圆盘大小放到 1.2 倍并淡出，1.45 s 起放两次，每次 1.2 s。 */
-    private static void ripple(View ring) {
-        ring.animate().cancel();
-        ring.setAlpha(0f);
-        ring.setScaleX(1f);
-        ring.setScaleY(1f);
-        ring.animate().setStartDelay(1450).setDuration(0).withEndAction(() -> rippleOnce(ring, 2)).start();
-    }
-
-    private static void rippleOnce(View ring, int remaining) {
-        if (remaining <= 0) return;
-        ring.setAlpha(0.5f);
-        ring.setScaleX(1f);
-        ring.setScaleY(1f);
-        ring.animate().alpha(0f).scaleX(1.2f).scaleY(1.2f).setStartDelay(0).setDuration(1200)
-            .setInterpolator(MotionCurves.EASE).withEndAction(() -> rippleOnce(ring, remaining - 1)).start();
     }
 
     private final Runnable dismissIntro = this::dismissIntro;

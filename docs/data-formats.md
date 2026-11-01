@@ -564,5 +564,5 @@ dict-builder 的其他子命令（`places`、`hanja`、`syllable-frequency`）�
 ## 22. 不在本规格内的文件
 
 - 编进引擎二进制的表（`include_str!`，如 `places.tsv`、`hanja.tsv`、`chaizi*.tsv`、`symbol_groups.tsv`、`syllable_frequency.tsv`）不是运行时文件，它们的来源与许可证见 `docs/third-party.md`。
-- 宿主门面（`host::*`）另外读的离线释义包、英文音标库（`pronunciations/en-phonetic.db`，`user_version=1` 加 `meta.kind='en_phonetic'`）和法日西俄德韩的读音库（`target-pronunciations/<语言>-phonetic.db`，表 `<语言>_phonetics(word, phonetic)`，`user_version=1` 加 `meta.kind='<语言>_phonetic'`，键是维基词典的写法，读音是带斜线或方括号的 IPA，日语是赫本式罗马字）属于产品功能，不在引擎库对外承诺的范围内。
+- 宿主门面（`host::*`）另外读的离线释义包、英文音标库（`pronunciations/en-phonetic.db`，`user_version=1` 加 `meta.kind='en_phonetic'`）和法日西俄德韩的读音库（`target-pronunciations/<语言>-phonetic.db`，表 `<语言>_phonetics(word, phonetic)`，`user_version=1` 加 `meta.kind='<语言>_phonetic'`，键是维基词典的写法，读音是带斜线或方括号的 IPA，日语是赫本式罗马字，韩语是文化观光部式罗马字）属于产品功能，不在引擎库对外承诺的范围内。
 - 宿主侧的资源包、皮肤、插件、账号与同步数据由各自的模块规定。

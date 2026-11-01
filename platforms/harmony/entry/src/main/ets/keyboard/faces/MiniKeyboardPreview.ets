@@ -7,7 +7,6 @@ const TOOLBAR_HEIGHT: number = 50;
 const TOOLBAR_GAP: number = 8;
 const TOOLBAR_COLUMNS: number = 7;
 const BRAND_SIDE: number = 26;
-const BRAND_RADIUS: number = 8;
 const ROW_HEIGHT: number = 43;
 const ROW_GAP: number = 11;
 const KEY_GAP: number = 6;
@@ -102,11 +101,11 @@ export struct MiniKeyboardPreview {
         Column({ space: TOOLBAR_GAP * this.unit() }) {
           Row() {
             Stack() {
-              Column()
+              // 品牌位画真正的水杉标志（app_icon 就是它：深色圆角方块、绿边、白折线），与工具栏的品牌键一致，不再是一块强调色方块。
+              Image($r('app.media.app_icon'))
                 .width(BRAND_SIDE * this.unit())
                 .height(BRAND_SIDE * this.unit())
-                .borderRadius(BRAND_RADIUS * this.unit())
-                .backgroundColor(this.accent)
+                .objectFit(ImageFit.Contain)
             }
             .layoutWeight(1)
             .height('100%')
