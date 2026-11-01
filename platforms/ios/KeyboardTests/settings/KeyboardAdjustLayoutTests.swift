@@ -4,8 +4,7 @@ import XCTest
 /// 「键盘调整」的换算与拖动约束（`KeyboardAdjustLayout`、`KeyboardAdjustSession`）、哪些柄显示（`KeyboardAdjustCapabilities`），以及摆放的本机存储（`KeyboardPlacement`）。三端按同一份契约：每个柄只动它那条边，对边不动；到限停住；拖动时宽度不小于 240pt 和 60% 中较宽的那个。
 @MainActor
 final class KeyboardAdjustLayoutTests: XCTestCase {
-  private let placementKeys = [KeyboardLayoutPreference.bottomLiftKey, KeyboardLayoutPreference.widthPercentKey,
-                               KeyboardLayoutPreference.positionXKey]
+  private let placementKeys = KeyboardLayoutPreference.placementKeys
   private var saved: [String: Any] = [:]
 
   override func setUp() {
@@ -34,11 +33,16 @@ final class KeyboardAdjustLayoutTests: XCTestCase {
     XCTAssertEqual(KeyboardLayoutPreference.bottomLiftKey, "keyboard.bottomLift")
     XCTAssertEqual(KeyboardLayoutPreference.widthPercentKey, "keyboard.widthPercent")
     XCTAssertEqual(KeyboardLayoutPreference.positionXKey, "keyboard.positionX")
+    XCTAssertEqual(Set(placementKeys), ["keyboard.bottomLift", "keyboard.widthPercent", "keyboard.positionX"],
+                   "「重置所有设置」清掉的就是 placement 读写的三个键")
     for key in placementKeys { KeyboardLayoutPreference.defaults.removeObject(forKey: key) }
     XCTAssertEqual(KeyboardLayoutPreference.placement, KeyboardPlacement(bottomLift: 0, widthPercent: 100, positionX: 500))
     KeyboardLayoutPreference.placement = KeyboardPlacement(bottomLift: 24, widthPercent: 80, positionX: 250)
     XCTAssertEqual(KeyboardLayoutPreference.defaults.integer(forKey: KeyboardLayoutPreference.bottomLiftKey), 24)
     XCTAssertEqual(KeyboardLayoutPreference.placement, KeyboardPlacement(bottomLift: 24, widthPercent: 80, positionX: 250))
+    for key in placementKeys { KeyboardLayoutPreference.defaults.removeObject(forKey: key) }
+    XCTAssertEqual(KeyboardLayoutPreference.placement, .standard, "removing these keys, as 重置所有设置 does, restores the standard placement")
+    KeyboardLayoutPreference.placement = KeyboardPlacement(bottomLift: 24, widthPercent: 80, positionX: 250)
     // 超出范围的存储值限制到范围内，不是数字的按缺省。
     KeyboardLayoutPreference.defaults.set(500, forKey: KeyboardLayoutPreference.bottomLiftKey)
     KeyboardLayoutPreference.defaults.set(10, forKey: KeyboardLayoutPreference.widthPercentKey)
@@ -234,9 +238,28 @@ final class KeyboardAdjustLayoutTests: XCTestCase {
     session.step(.move, increment: true)
     XCTAssertEqual(session.state, before)
 
+    session.capabilities = .all
     session.reset()
     XCTAssertEqual(session.state, .standard)
     XCTAssertEqual(KeyboardAdjustState.standard, state(height: 0, lift: 0, width: 100, position: 500))
+  }
+
+  /// 「重置」只把生效的项回缺省：不生效的项既不显示也不能调，重置也不该改掉它们存下的值。
+  func testResetLeavesTheItemsThatDoNotApplyAsStored() {
+    let stored = state(height: 20, lift: 40, width: 70, position: 200)
+    var landscape = KeyboardAdjustSession(state: stored, capabilities: KeyboardAdjustCapabilities(placement: false, width: false),
+                                          containerWidth: 844, keyBlock: 160)
+    landscape.reset()
+    XCTAssertEqual(landscape.state, state(height: 0, lift: 40, width: 70, position: 200), "only the height resets in iPhone landscape")
+
+    var oneHanded = KeyboardAdjustSession(state: stored, capabilities: KeyboardAdjustCapabilities(placement: true, width: false),
+                                          containerWidth: 390, keyBlock: 229)
+    oneHanded.reset()
+    XCTAssertEqual(oneHanded.state, state(height: 0, lift: 0, width: 70, position: 200), "the width and position stay while they do not apply")
+
+    var portrait = KeyboardAdjustSession(state: stored, capabilities: .all, containerWidth: 390, keyBlock: 229)
+    portrait.reset()
+    XCTAssertEqual(portrait.state, .standard)
   }
 
   /// 读屏步长：高度 5%、抬高 4 pt、宽度 5%、位置 50‰；「移动」上下调抬高、左右调位置。

@@ -260,9 +260,15 @@ struct KeyboardAdjustSession {
     state = KeyboardAdjustLayout.steppingPosition(state, right: right, capabilities: capabilities)
   }
 
-  /// 「重置」：四项预览回缺省，不保存。
+  /// 「重置」：生效的项预览回缺省，不保存。不生效的项保留打开时的值，与「存下的值不因为此刻不生效而改变」一致：横屏里只为恢复高度点「重置」再确认，竖屏的抬高和宽度还在。
   mutating func reset() {
     dragStart = nil
-    state = .standard
+    let current = state.placement, standard = KeyboardPlacement.standard
+    state = KeyboardAdjustState(
+      heightAdjustment: KeyboardAdjustState.standard.heightAdjustment,
+      placement: KeyboardPlacement(
+        bottomLift: capabilities.placement ? standard.bottomLift : current.bottomLift,
+        widthPercent: capabilities.width ? standard.widthPercent : current.widthPercent,
+        positionX: capabilities.width ? standard.positionX : current.positionX))
   }
 }

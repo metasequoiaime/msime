@@ -516,6 +516,19 @@ final class MorePanelFoldTests: XCTestCase {
     try control("keyboardAdjustConfirm", in: overlay).sendActions(for: .primaryActionTriggered)
     XCTAssertEqual(KeyboardLayoutPreference.placement, KeyboardPlacement(bottomLift: 40, widthPercent: 80, positionX: 0),
                    "and confirming keeps them for portrait")
+
+    // 横屏里为了恢复高度点「重置」再确认（或直接收起键盘），竖屏的抬高、宽度和位置照样保留。
+    let again = try openAdjust(in: controller)
+    try view("keyboardAdjustTop", in: again).accessibilityIncrement()
+    try control("keyboardAdjustReset", in: again).sendActions(for: .primaryActionTriggered)
+    try control("keyboardAdjustConfirm", in: again).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 0, "the height resets")
+    XCTAssertEqual(KeyboardLayoutPreference.placement, KeyboardPlacement(bottomLift: 40, widthPercent: 80, positionX: 0),
+                   "resetting in landscape leaves the portrait placement alone")
+    let dismissed = try openAdjust(in: controller)
+    try control("keyboardAdjustReset", in: dismissed).sendActions(for: .primaryActionTriggered)
+    controller.viewWillDisappear(false)
+    XCTAssertEqual(KeyboardLayoutPreference.placement, KeyboardPlacement(bottomLift: 40, widthPercent: 80, positionX: 0))
   }
 
   /// 单手模式时宽度和位置不生效：没有左右柄，「移动」只改抬高。

@@ -18,7 +18,7 @@ iOS 键盘里调键盘尺寸的唯一入口是功能菜单的「键盘高度」�
   - 下沿：改底部抬高。从按下时的高度 h0、抬高 l0 出发，手指累计往上移 u：u ≥ 0 时抬高跟着手指走，`lift = min(l0 + u, 160)`，高度尽量反向让出同样多但不低于下限，`height = h0 − min(lift − l0, h0 − (−12))`，也就是先拿高度换抬高、上沿不动，高度到下限后整块继续上移，抬高到 160 才停；u < 0 时抬高减、高度加同样多，上沿不动，抬高到 0 或高度到 48 就停住。读屏的「键盘底部高度」增加只要抬高没到上限就有效。
   - 左、右沿：改宽度，同时改水平位置使另一侧边不动。
   - 「移动」：按住拖动整块键盘，同时改底部抬高和水平位置，大小不变。
-- **按钮**：「重置」把四项预览回缺省（高度 0、抬高 0、宽度 100%、居中），不保存；「确认」保存四项并退出。没有「取消」。其他任何离开方式（键盘收起、换输入框、切到别的应用）都按确认保存。
+- **按钮**：「重置」把生效的项预览回缺省（高度 0、抬高 0、宽度 100%、居中），不保存，不生效的项保留存下的值；「确认」保存四项并退出。没有「取消」。其他任何离开方式（键盘收起、换输入框、切到别的应用）都按确认保存。
 - **不生效的项不显示对应的柄**：iPhone 横屏、iPad 浮动键盘和台前调度 / Slide Over 缩成手机尺寸的窗口里，底部抬高、宽度、位置都不生效，只留上沿柄、隐藏「移动」；单手模式或分离式键盘时宽度和位置不生效，隐藏左右柄，「移动」只改抬高。存下的值不因此改变。
 - **读屏**：每个柄是可调节元素，三端朗读同样的文字：上沿柄「键盘高度」、下沿柄「键盘底部高度」、左柄「键盘宽度（左边）」、右柄「键盘宽度（右边）」，三个按钮「重置」「移动」「确认」。步长为高度 5%（按键区百分比，与 App「键盘」页同一换算）、抬高 4 pt、宽度 5%、位置 50‰。「移动」上下方向的增减调抬高（4 pt）；能左右移时左右方向调位置（50‰），iOS 上是「移动」的两个自定义操作「向左移」「向右移」（VoiceOver 的可调节手势只有上下），宽度不生效时不提供这两个操作。
 - **存储一律只存本机、不同步**：
@@ -39,7 +39,8 @@ iOS 键盘里调键盘尺寸的唯一入口是功能菜单的「键盘高度」�
 - **按外框宽度计算**：单手模式的块宽（`applyOneHanded`）、中间一排缩进（`updateLetterRowInsets`）和 iPhone 横屏能否分离（`wantsSplitKeyboard`）原来都用 `view.bounds.width - padding` 硬算，现在统一读 `keyRowWidth`（外框宽减内边距）。单手和分离时收窄不生效、外框就是全宽，所以这两种情况的行为不变；iPhone 横屏同理。
 - **拖动坐标**：遮罩把手指位置换算成「到窗口底边的高度」和「窗口里的横坐标」，从按下时算位移。键盘长高、抬高和收窄都会挪动柄本身，窗口的底边和左右却不动，所以不会追着拖动自己引起的变化跑。旧调节条按 `window.bounds.maxY` 算的前提「键盘底边不动」在有抬高后不再成立，但窗口底边仍是屏幕底边，换算照用。
 - **中间一排按钮**：排在左右两个柄之间。收窄到最窄（iPhone 上约 240 pt）时三个按钮按原尺寸（72 pt 宽、间距 28）排不下，会盖住左右柄的中段，而按钮叠在柄之上，按住把手拖动就成了点「重置」或「确认」；排不下时先把间距收到 4 pt（按钮与柄之间也留 4 pt），再平分剩下的宽度给按钮。
-- **离开即保存**：`closeKeyboardAdjust` 是唯一的退出路径，`viewWillDisappear`、`textDidChange` 里发现换了输入框、`NSExtensionHostWillResignActive` 和「确认」都调它；它写 App Group 的三项摆放和高度，再 `commitTouchKeyboardGeometry()` 把高度写进共享文档。
+- **离开即保存**：`closeKeyboardAdjust` 是唯一的退出路径，`viewWillDisappear`、`textDidChange` 里发现换了输入框、`NSExtensionHostWillResignActive` 和「确认」都调它；它写 App Group 的三项摆放和高度，再 `commitTouchKeyboardGeometry()` 把高度写进共享文档。不生效的项在会话里改不动，「重置」（`KeyboardAdjustSession.reset`）也只把生效的项回缺省，所以写回去的仍是打开时读到的值：iPhone 横屏里为了恢复高度点「重置」再确认或收起，竖屏的抬高、宽度和位置不受影响，与 Android 只写生效且改过的项（`keyboardAdjustEdits`）结果相同。
+- **重置所有设置**：三项摆放只在本机 App Group，Rust 恢复共享文档时碰不到它们；App「开发者 → 重置所有设置」（`DeveloperDiagnostics.resetLocalPreferences`）把 `KeyboardLayoutPreference.placementKeys` 一并清掉，与 Android 的 `AndroidLocalSettings.restoreDefaults` 一样回到全宽、不抬高、居中。键盘里间距面板的「恢复默认」走 `resetToDefaults`，不清摆放。
 - **预览不被同步覆盖**：遮罩开着时 `synchronizeSharedTouchPreferences` 不再用文档里的高度覆盖 `sharedKeyboardHeightAdjustment`（App Group 镜像照常更新）。键盘出现时发出的偏好重读可能在用户打开遮罩之后才到，原来会把正在预览的高度弹回去。没有取消，也就不需要像 Android 的 `adoptSavedHeightAdjustment` 那样另记「原值」。
 
 ## Alternatives considered
@@ -58,8 +59,8 @@ iOS 键盘里调键盘尺寸的唯一入口是功能菜单的「键盘高度」�
 
 ## Verification
 
-- `KeyboardTests/settings/KeyboardAdjustLayoutTests.swift`：存储键名、范围与缺省（超出 `Int` 的存储值也限制到范围内、不崩）；能力判定（iPhone 竖屏、横屏、iPad 浮动、全宽 iPad、单手、分离）；外框换算与 240 pt 下限；上沿限幅；下沿在高度到下限之前「高度加抬高不变」、高度在下限时往上拖抬高继续增加到 160、一次拖动跨过下限再拖回、往下拖的各端点停住；左右沿另一侧边不动；「移动」不改大小、不出视图；会话每帧从按下时重算、不生效的柄不改值、「重置」回缺省；读屏步长（含「移动」上下调抬高、左右调位置）。
-- `KeyboardTests/settings/MorePanelFoldTests.swift`：遮罩铺满视图、按键收不到触摸、七个控件的显示与三端统一的读屏文字、上沿预览不保存、「确认」写 App Group 和共享文档；下沿抬高时视图高度不变、根视图底边上移、收起键盘即保存且抬高不进共享文档；左右沿收窄整块键盘（工具栏一起）、空出的地方点不到键、「重置」不保存；iPhone 横屏只留上沿柄；单手时没有左右柄、「移动」只改抬高；遮罩开着时晚到的偏好重读不覆盖预览；收窄到最窄时中间三个按钮不盖住左右柄，柄的中段点下去落在柄上。
+- `KeyboardTests/settings/KeyboardAdjustLayoutTests.swift`：存储键名、范围与缺省（超出 `Int` 的存储值也限制到范围内、不崩）；能力判定（iPhone 竖屏、横屏、iPad 浮动、全宽 iPad、单手、分离）；外框换算与 240 pt 下限；上沿限幅；下沿在高度到下限之前「高度加抬高不变」、高度在下限时往上拖抬高继续增加到 160、一次拖动跨过下限再拖回、往下拖的各端点停住；左右沿另一侧边不动；「移动」不改大小、不出视图；会话每帧从按下时重算、不生效的柄不改值、「重置」回缺省且不改不生效的项（横屏只重置高度，单手时保留宽度和位置）；`placementKeys` 正是 `placement` 读写的三个键，清掉后回到缺省；读屏步长（含「移动」上下调抬高、左右调位置）。
+- `KeyboardTests/settings/MorePanelFoldTests.swift`：遮罩铺满视图、按键收不到触摸、七个控件的显示与三端统一的读屏文字、上沿预览不保存、「确认」写 App Group 和共享文档；下沿抬高时视图高度不变、根视图底边上移、收起键盘即保存且抬高不进共享文档；左右沿收窄整块键盘（工具栏一起）、空出的地方点不到键、「重置」不保存；iPhone 横屏只留上沿柄，在横屏里「重置」再确认或收起键盘不改竖屏的摆放；单手时没有左右柄、「移动」只改抬高；遮罩开着时晚到的偏好重读不覆盖预览；收窄到最窄时中间三个按钮不盖住左右柄，柄的中段点下去落在柄上。
 - `KeyLayoutStyleTests.testTallReturnFollowsTheKeySpacingTheFailedGeometryCommitFallsBackTo` 改为经「键盘调整」的「确认」触发写文档失败的回退路径。
 - 在 iPhone 17（iOS 27.0）模拟器上用 `-only-testing` 跑 `KeyboardAdjustLayoutTests`、`MorePanelFoldTests`、`OneHandModeTests`、`KeyboardFormFactorTests` 和上面那一条，共 73 个用例全过；下沿柄规则改为越过高度下限后继续抬高之后，`KeyboardAdjustLayoutTests`（13）和 `MorePanelFoldTests`（19）共 32 个用例全过；审查时补上按钮避让左右柄、服务面板钉外框和存储值溢出之后，同样五组（`MorePanelFoldTests` 20、`KeyboardAdjustLayoutTests` 13、`OneHandModeTests` 16、`KeyboardFormFactorTests` 26 和上面那一条）共 76 个用例全过；单手与分离式键盘的既有用例覆盖了宽度改从 `keyRowWidth` 读之后行为不变。
 

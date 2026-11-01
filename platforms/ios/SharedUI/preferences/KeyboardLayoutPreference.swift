@@ -235,6 +235,8 @@ enum KeyboardLayoutPreference {
   static let bottomLiftKey = "keyboard.bottomLift"
   static let widthPercentKey = "keyboard.widthPercent"
   static let positionXKey = "keyboard.positionX"
+  /// `placement` 读写的三个键。App「开发者 → 重置所有设置」由 Rust 整份恢复共享文档，只存本机的这三项要另外清掉（`DeveloperDiagnostics.resetLocalPreferences`），与 Android 的 `AndroidLocalSettings.restoreDefaults` 一样回到全宽、不抬高、居中。
+  static let placementKeys = [bottomLiftKey, widthPercentKey, positionXKey]
   /// 「键盘调整」里的底部抬高、宽度和水平位置（`KeyboardPlacement`）。与单手模式一样只存在本设备的 App Group 里，不进共享文档，也不随设置同步；高度仍是共享的 `touch_keyboard_height_adjustment`（`heightAdjustment`）。存储值不是数字时按缺省，超出范围的限制到范围内。
   static var placement: KeyboardPlacement {
     get {
