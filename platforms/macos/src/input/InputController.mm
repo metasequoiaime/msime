@@ -1970,6 +1970,8 @@ static NSImage *MSIMECandidateLogoImage() {
     // 候选释义的显示开关，来自共享偏好；缺省对齐 Windows v0.11.1 出厂配置（显示词性、显示全部释义）。
     BOOL _glossShowPos;
     BOOL _glossSingleSense;
+    // 共享偏好里「显示读音」的开关（`candidate_pronunciation`），只决定横排为读音预留的行。读音本身仍按 _pronunciationTargets 查和画：那份来自组字时的翻译查询，没在组字时查询为空，每次上屏后都会被清掉，不能拿来定预留，否则每次组字的第一个键都先按矮一行摆窗口。
+    BOOL _glossPronunciation;
     // 候选徽标：AI 来源角标与固定排位角标的完整串（含前导空格），以及算出它们的原始偏好。
     NSString *_aiBadgeString;
     NSString *_fixedBadgeString;
@@ -6979,6 +6981,10 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     if ([singleSense isKindOfClass:NSNumber.class] &&
         CFGetTypeID((__bridge CFTypeRef)singleSense) == CFBooleanGetTypeID())
         _glossSingleSense = [singleSense boolValue];
+    id pronunciation = preferences[@"candidate_pronunciation"];
+    if ([pronunciation isKindOfClass:NSNumber.class] &&
+        CFGetTypeID((__bridge CFTypeRef)pronunciation) == CFBooleanGetTypeID())
+        _glossPronunciation = [pronunciation boolValue];
     // 候选角标同样只改画法：记下原始偏好，变了才重算完整徽标串。缺键时保留出厂默认。
     BOOL badgeChanged = NO;
     id fixedBadge = preferences[@"candidate_fixed_badge"];
@@ -7313,11 +7319,13 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
 }
 
 // 预留的释义行：横排每一行都留，竖排只给视图标了 translation_reserved 的那一行留（候选词翻译范围是「仅当前高亮」时的高亮行），行数相同。
+// 打开释义读音时（共享偏好的 `candidate_pronunciation`，见 _glossPronunciation）每行释义下面还有一行读音（MSIMECandidateGlossDisplay），支持的七种目标语言都有读音，所以每种目标语言留两行。读音是异步查回来的，不留这一行的话，每个键先按矮一行的高度摆窗口，读音到了窗口变高；光标靠近屏幕底边时先摆在光标下方、读音一到放不下又翻到上方，每打一个键候选窗上下跳一次。
 - (CGFloat)glossHeightReservedForFont:(NSFont *)glossFont {
     const NSUInteger readingLines = MSIMEKoreanHanjaListOpen(_view) ? 1 : 0;
     const BOOL translations = (_appearance.candidateTranslations || _appearance.candidateEnglishGloss) &&
         !(_glossEnabled && !_glossEnabled.boolValue && !_appearance.candidateEnglishGloss);
-    const NSUInteger lines = readingLines + (translations ? MIN(MAX(_glossTargetLanguages.count, (NSUInteger)1), (NSUInteger)2) : 0);
+    const NSUInteger glossLines = translations ? MIN(MAX(_glossTargetLanguages.count, (NSUInteger)1), (NSUInteger)2) : 0;
+    const NSUInteger lines = readingLines + glossLines * (_glossPronunciation ? 2 : 1);
     if (lines == 0) return 0;
     NSMutableArray<NSString *> *placeholder = [NSMutableArray arrayWithCapacity:lines];
     for (NSUInteger line = 0; line < lines; ++line) [placeholder addObject:@"X"];
