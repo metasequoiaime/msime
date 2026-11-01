@@ -232,8 +232,10 @@ pub(crate) fn keyboard_reranker(
 #[cfg(feature = "onnx-rerank")]
 pub(crate) const RERANK_MODEL_DIRECTORY: &str = "rerank-model";
 
-/// 一次图运行用几个线程。苹果的 A 系列芯片只有两个大核，四线程在 iPhone XR 和 iPhone 17 上都比两线程慢；Pixel 3 XL 上四线程略快，但两线程已在按键预算之内。
-#[cfg(feature = "onnx-rerank")]
+/// 一次图运行用几个线程。安卓手机多是四个大核加四个小核：Pixel 3 XL 上用 `rerank_latency` 在真实运行时里量，手机模型每键整键 p95 两线程 10.8 ms、三线程 10.0 ms、四线程 9.3 ms，所以安卓用四线程。苹果的 A 系列芯片只有两个大核，四线程在 iPhone XR 和 iPhone 17 上都比两线程慢；桌面两线程已在预算之内，不多占核。
+#[cfg(all(feature = "onnx-rerank", target_os = "android"))]
+const RERANK_MODEL_THREADS: usize = 4;
+#[cfg(all(feature = "onnx-rerank", not(target_os = "android")))]
 const RERANK_MODEL_THREADS: usize = 2;
 
 #[cfg(feature = "onnx-rerank")]
