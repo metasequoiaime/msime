@@ -82,7 +82,7 @@ struct KeyboardKeyLayoutSettingsView: View {
         HStack(spacing: 0) {
           stylePills(kind)
           if let note = kind.note(style) {
-            DesignInfoTip(text: note)
+            DesignInfoTip(text: note, subject: "当前样式")
               .padding(.trailing, 12)
               .accessibilityIdentifier("keyLayoutStyleNote")
           }

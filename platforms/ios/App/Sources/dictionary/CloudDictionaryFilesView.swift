@@ -89,7 +89,7 @@ struct CloudDictionaryFilesView: View {
           }
         }
       } header: {
-        DesignSectionHeader(info: "包含全部四类词库以及删除、调频和固定位置记录。导出不会改变本机词库。") {
+        DesignSectionHeader(subject: "完整云词库备份", info: "包含全部四类词库以及删除、调频和固定位置记录。导出不会改变本机词库。") {
           SettingsGroupHeader(title: "完整云词库备份")
         }
       } footer: {

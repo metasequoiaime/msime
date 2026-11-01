@@ -123,7 +123,7 @@ struct PluginEditorView: View {
         .lineLimit(2...6)
         .accessibilityLabel("介绍")
     } header: {
-      DesignSectionHeader(info: "许可证决定别人能怎样使用这个插件。\(PluginEditorModel.defaultLicense) 表示放弃全部权利，任何人都能随意使用和改编；想让别人注明出自你，可以写 CC-BY-4.0。这里只能写 SPDX 许可证代码。") { Text("基本信息") }
+      DesignSectionHeader(subject: "基本信息", info: "许可证决定别人能怎样使用这个插件。\(PluginEditorModel.defaultLicense) 表示放弃全部权利，任何人都能随意使用和改编；想让别人注明出自你，可以写 CC-BY-4.0。这里只能写 SPDX 许可证代码。") { Text("基本信息") }
     }
     .designRow()
   }
@@ -149,7 +149,7 @@ struct PluginEditorView: View {
       .disabled(rows.count >= PluginEditorModel.maximumPhrases)
       .accessibilityIdentifier("pluginEditorAddPhrase")
     } header: {
-      DesignSectionHeader(info: "编码是 K 之后输入的小写字母，最多 32 个；同一个编码可以对应几段文字。文字最多 \(PluginEditorModel.maximumTextUTF16) 个字符，不能换行。左滑删除一条。") { Text("短语（\(rows.count)）") }
+      DesignSectionHeader(subject: "短语（\(rows.count)）", info: "编码是 K 之后输入的小写字母，最多 32 个；同一个编码可以对应几段文字。文字最多 \(PluginEditorModel.maximumTextUTF16) 个字符，不能换行。左滑删除一条。") { Text("短语（\(rows.count)）") }
     }
     .designRow()
   }
@@ -171,7 +171,7 @@ struct PluginEditorView: View {
       Button("添加一条") { draft?.commands.append(.init()) }
         .disabled(rows.count >= PluginEditorModel.maximumCommands)
     } header: {
-      DesignSectionHeader(info: "指令是 / 之后输入的小写字母。要插入的文字里可以写 {date}（日期）、{time}（时间）和 {weekday}（星期几），例如「{date} 张三」；日期和时间也可以带格式，例如 {date:%m月%d日}。左滑删除一条。") { Text("指令（\(rows.count)）") }
+      DesignSectionHeader(subject: "指令（\(rows.count)）", info: "指令是 / 之后输入的小写字母。要插入的文字里可以写 {date}（日期）、{time}（时间）和 {weekday}（星期几），例如「{date} 张三」；日期和时间也可以带格式，例如 {date:%m月%d日}。左滑删除一条。") { Text("指令（\(rows.count)）") }
     }
     .designRow()
   }
@@ -234,7 +234,7 @@ struct PluginEditorView: View {
       }
       .disabled(rows.count >= PluginEditorModel.maximumWords)
     } header: {
-      DesignSectionHeader(info: "每个单词要有释义，音标可以不填。单词本的名字最多 64 个字，最多 \(PluginEditorModel.maximumWords) 个单词。左滑删除一个。") { Text("单词（\(rows.count)）") }
+      DesignSectionHeader(subject: "单词（\(rows.count)）", info: "每个单词要有释义，音标可以不填。单词本的名字最多 64 个字，最多 \(PluginEditorModel.maximumWords) 个单词。左滑删除一个。") { Text("单词（\(rows.count)）") }
     }
     .designRow()
   }

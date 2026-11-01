@@ -265,7 +265,7 @@ struct LocalSpeechModelsSection: View {
           .accessibilityIdentifier("localModelStatus")
       }
     } header: {
-      DesignSectionHeader(info: "模型在本机运行，录音不会离开设备。下载模型时只连接 GitHub；访问不畅时可以填写镜像地址，它会加在每个下载地址前面。模型较大，建议在 Wi-Fi 下下载。") { Text("本地模型") }
+      DesignSectionHeader(subject: "本地模型", info: "模型在本机运行，录音不会离开设备。下载模型时只连接 GitHub；访问不畅时可以填写镜像地址，它会加在每个下载地址前面。模型较大，建议在 Wi-Fi 下下载。") { Text("本地模型") }
     }
     .disabled(disabled)
     .fileImporter(

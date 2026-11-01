@@ -25,7 +25,7 @@ struct WubiCodeLookupView: View {
           .disabled(lookupState.busy || !WubiCodeLookup.searchable(text))
           .accessibilityIdentifier("wubiCodeLookupButton")
       } header: {
-        DesignSectionHeader(info: WubiCodeLookup.description) { SettingsGroupHeader(title: "查汉字的五笔编码") }
+        DesignSectionHeader(subject: "查汉字的五笔编码", info: WubiCodeLookup.description) { SettingsGroupHeader(title: "查汉字的五笔编码") }
       }
       .designRow()
       if lookupState.failed {

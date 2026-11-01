@@ -36,7 +36,7 @@ struct CloudClipboardSyncModeSection: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 7) {
       // WebDAV 的存储、配额和回收站说明是解释，收进「?」；「现在经哪里同步」是状态，留在卡片下面。
-      DesignSectionHeader(info: configuration?.backend == .webdav ? IOSCloudClipboardRelayPolicy.webdavNote : nil) {
+      DesignSectionHeader(subject: "云剪贴板同步方式", info: configuration?.backend == .webdav ? IOSCloudClipboardRelayPolicy.webdavNote : nil) {
         SettingsGroupHeader(title: "云剪贴板同步方式")
       }
       .padding(.horizontal, 16)
@@ -168,7 +168,7 @@ struct CloudClipboardRelayEditor: View {
             .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
             .accessibilityIdentifier("cloudClipboardRelayURLField")
         } header: {
-          DesignSectionHeader(info: "例如 https://relay.example.com/msime。必须是 HTTPS，证书要由公网信任的机构签发（自签证书和私有 CA 连不上）；HTTP 只用于本机测试（127.0.0.1）。") { SettingsGroupHeader(title: "中继地址") }
+          DesignSectionHeader(subject: "中继地址", info: "例如 https://relay.example.com/msime。必须是 HTTPS，证书要由公网信任的机构签发（自签证书和私有 CA 连不上）；HTTP 只用于本机测试（127.0.0.1）。") { SettingsGroupHeader(title: "中继地址") }
         } footer: {
           CloudClipboardFieldFooter(issue: url.isEmpty ? nil : urlIssue)
         }
@@ -178,7 +178,7 @@ struct CloudClipboardRelayEditor: View {
             .textInputAutocapitalization(.never).autocorrectionDisabled()
             .accessibilityIdentifier("cloudClipboardRelayTokenField")
         } header: {
-          DesignSectionHeader(info: "由中继管理员生成，每个令牌对应中继上一份独立的云剪贴板。令牌只存在本机的设置里，不会随设置文件导出或账号同步。") { SettingsGroupHeader(title: "中继令牌") }
+          DesignSectionHeader(subject: "中继令牌", info: "由中继管理员生成，每个令牌对应中继上一份独立的云剪贴板。令牌只存在本机的设置里，不会随设置文件导出或账号同步。") { SettingsGroupHeader(title: "中继令牌") }
         } footer: {
           CloudClipboardFieldFooter(issue: token.isEmpty ? nil : tokenIssue)
         }
@@ -282,7 +282,7 @@ struct CloudClipboardWebDAVEditor: View {
             .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
             .accessibilityIdentifier("cloudClipboardWebDAVURLField")
         } header: {
-          DesignSectionHeader(info: "坚果云填 https://dav.jianguoyun.com/dav/ 即可，水杉会在里面自动建 msime-clipboard 文件夹，不用自己先建；其他网盘填它给的 WebDAV 地址。必须是 HTTPS，证书要由公网信任的机构签发。") { SettingsGroupHeader(title: "服务器地址") }
+          DesignSectionHeader(subject: "服务器地址", info: "坚果云填 https://dav.jianguoyun.com/dav/ 即可，水杉会在里面自动建 msime-clipboard 文件夹，不用自己先建；其他网盘填它给的 WebDAV 地址。必须是 HTTPS，证书要由公网信任的机构签发。") { SettingsGroupHeader(title: "服务器地址") }
         } footer: {
           CloudClipboardFieldFooter(issue: url.isEmpty ? nil : urlIssue)
         }
@@ -292,7 +292,7 @@ struct CloudClipboardWebDAVEditor: View {
             .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.emailAddress)
             .accessibilityIdentifier("cloudClipboardWebDAVUsernameField")
         } header: {
-          DesignSectionHeader(info: "网盘的登录账号，坚果云是登录邮箱。") { SettingsGroupHeader(title: "账号") }
+          DesignSectionHeader(subject: "账号", info: "网盘的登录账号，坚果云是登录邮箱。") { SettingsGroupHeader(title: "账号") }
         } footer: {
           CloudClipboardFieldFooter(issue: username.isEmpty ? nil : usernameIssue)
         }
@@ -302,7 +302,7 @@ struct CloudClipboardWebDAVEditor: View {
             .textInputAutocapitalization(.never).autocorrectionDisabled()
             .accessibilityIdentifier("cloudClipboardWebDAVPasswordField")
         } header: {
-          DesignSectionHeader(info: "在网盘的安全设置里为第三方应用生成的密码，不是登录密码。只存在本机的设置里，不会随设置文件导出或账号同步。") { SettingsGroupHeader(title: "应用密码") }
+          DesignSectionHeader(subject: "应用密码", info: "在网盘的安全设置里为第三方应用生成的密码，不是登录密码。只存在本机的设置里，不会随设置文件导出或账号同步。") { SettingsGroupHeader(title: "应用密码") }
         } footer: {
           CloudClipboardFieldFooter(issue: password.isEmpty ? nil : passwordIssue)
         }

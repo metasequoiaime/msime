@@ -57,9 +57,10 @@ struct SettingsActionRow: View {
   }
 }
 
-/// 分区标题旁的「?」：解释性说明不常驻页面，点「?」在气泡里显示，点别处收起。规则与 iOS 的 `DesignInfoTip`（`platforms/ios/App/Sources/app/DesignKit.swift`）相同：解释进「?」，状态、校验、错误、当前值和紧贴按钮讲后果的一句话留在脚注。这个目录两端都编，不能引用只有 iOS 才有的 DesignKit，所以单独写一份；读屏把说明当作「?」的名称读出。
+/// 分区标题旁的「?」：解释性说明不常驻页面，点「?」在气泡里显示，点别处收起。规则与 iOS 的 `DesignInfoTip`（`platforms/ios/App/Sources/app/DesignKit.swift`）相同：解释进「?」，状态、校验、错误、当前值和紧贴按钮讲后果的一句话留在脚注。这个目录两端都编，不能引用只有 iOS 才有的 DesignKit，所以单独写一份；读屏名称与 Android `InfoTipView` 同一种写法：「<subject>的说明：<正文>」，没有 `subject` 时是「说明：<正文>」。
 struct SettingsInfoTip: View {
   let text: String
+  var subject: String? = nil
   @State private var presented = false
 
   var body: some View {
@@ -71,7 +72,7 @@ struct SettingsInfoTip: View {
         .contentShape(Rectangle())
     }
     .buttonStyle(.borderless)
-    .accessibilityLabel(text)
+    .accessibilityLabel((subject.map { $0.isEmpty ? "说明：" : $0 + "的说明：" } ?? "说明：") + text)
     .accessibilityIdentifier("designInfoTip")
     .popover(isPresented: $presented) {
       bubble
@@ -95,20 +96,22 @@ struct SettingsInfoTip: View {
   }
 }
 
-/// 分区标题加「?」：标题照旧由调用方画，`info` 为空时只有标题；没有标题的分区只画「?」。
+/// 分区标题加「?」：标题照旧由调用方画，`info` 为空时只有标题；没有标题的分区只画「?」。标题的文字传给 `subject`，读屏才能说出这是哪一组的说明。
 struct SettingsSectionInfoHeader<Title: View>: View {
   let info: String?
+  let subject: String?
   private let title: Title
 
-  init(info: String?, @ViewBuilder title: () -> Title) {
+  init(subject: String? = nil, info: String?, @ViewBuilder title: () -> Title) {
     self.info = info
+    self.subject = subject
     self.title = title()
   }
 
   var body: some View {
     HStack(spacing: 4) {
       title
-      if let info { SettingsInfoTip(text: info).textCase(nil) }
+      if let info { SettingsInfoTip(text: info, subject: subject).textCase(nil) }
     }
   }
 }

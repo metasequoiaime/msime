@@ -325,7 +325,7 @@ struct CommunityReplyTemplatesSection: View {
           Button("好", role: .cancel) {}
         } message: { Text(message ?? "") }
     } header: {
-      DesignSectionHeader(info: "添加后，在键盘的高情商回复里点「模板」即可选用；只有点击生成时才会发送文字。") { Text("社区回复模板") }
+      DesignSectionHeader(subject: "社区回复模板", info: "添加后，在键盘的高情商回复里点「模板」即可选用；只有点击生成时才会发送文字。") { Text("社区回复模板") }
     }
   }
 

@@ -36,7 +36,7 @@ struct SettingsOptionLabel: View {
         } else {
           Text(title)
         }
-        if let info { DesignInfoTip(text: info) }
+        if let info { DesignInfoTip(text: info, subject: title) }
       }
       if let detail {
         Text(detail).font(detailFont).foregroundStyle(.secondary)

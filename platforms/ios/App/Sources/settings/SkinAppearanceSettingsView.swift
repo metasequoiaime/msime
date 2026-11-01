@@ -35,7 +35,7 @@ struct SkinAppearanceSettingsView: View {
         DisclosureGroup("面板明暗") { panelPickers }.accessibilityIdentifier("keyboardPanelThemes")
       }
     } header: {
-      DesignSectionHeader(info: "与电脑版的颜色模式、设置界面、屏幕键盘、手写、表情和语音主题同步。颜色模式是各处选“跟随”时的默认值；设置界面就是这个 App，立即生效。键盘选“跟随系统”时先看颜色模式，再跟随当前 App 的外观；面板选“跟随键盘”时和键盘一致。键盘和面板下次打开水杉键盘时应用。") { SettingsGroupHeader(title: "明暗") }
+      DesignSectionHeader(subject: "明暗", info: "与电脑版的颜色模式、设置界面、屏幕键盘、手写、表情和语音主题同步。颜色模式是各处选“跟随”时的默认值；设置界面就是这个 App，立即生效。键盘选“跟随系统”时先看颜色模式，再跟随当前 App 的外观；面板选“跟随键盘”时和键盘一致。键盘和面板下次打开水杉键盘时应用。") { SettingsGroupHeader(title: "明暗") }
     } footer: {
       if themeSaveFailed { Text(SettingsSaveFailure.message) }
     }

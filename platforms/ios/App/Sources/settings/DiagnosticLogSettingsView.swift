@@ -41,7 +41,7 @@ struct DiagnosticLogSettingsView: View {
             .accessibilityIdentifier("diagnosticLogClear")
         }
       } header: {
-        DesignSectionHeader(info: "反馈键盘问题时，可以把日志分享给我们。") { SettingsGroupHeader(title: "日志") }
+        DesignSectionHeader(subject: "日志", info: "反馈键盘问题时，可以把日志分享给我们。") { SettingsGroupHeader(title: "日志") }
       }
       .designRow()
       if sizeClass == .regular, size > 0 {

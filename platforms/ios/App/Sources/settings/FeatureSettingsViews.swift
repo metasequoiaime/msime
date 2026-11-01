@@ -471,7 +471,7 @@ struct ServiceSettingsView: View {
             } catch { status = error.localizedDescription; refreshVoiceTransfer() }
           }.accessibilityIdentifier("clearVoiceTransfer")
         } header: {
-          DesignSectionHeader(info: "需允许键盘完全访问。仅在本机共享最新一条文字，10 分钟内有效；离开页面仍会保留，点击插入后移除。") { Text("等待键盘插入") }
+          DesignSectionHeader(subject: "等待键盘插入", info: "需允许键盘完全访问。仅在本机共享最新一条文字，10 分钟内有效；离开页面仍会保留，点击插入后移除。") { Text("等待键盘插入") }
         }
         .designRow()
       }
@@ -831,7 +831,7 @@ struct ServiceSettingsView: View {
           } catch { status = error.localizedDescription }
         }
       } header: {
-        DesignSectionHeader(info: "填写完整接口地址。密钥保存在本机钥匙串，按服务地址分别保存。") { Text("连接配置") }
+        DesignSectionHeader(subject: "连接配置", info: "填写完整接口地址。密钥保存在本机钥匙串，按服务地址分别保存。") { Text("连接配置") }
       }
       .disabled(busy || recorder.isRecording)
 

@@ -191,7 +191,7 @@ struct PluginDetailView: View {
       .accessibilityIdentifier("pluginHelpcodeShuangpin")
       NavigationLink("前往辅助码设置") { HelpcodeSettingsView() }
     } header: {
-      DesignSectionHeader(info: "辅助码的开关和显示方式在「输入 → 辅助码」里。") { Text("使用") }
+      DesignSectionHeader(subject: "使用", info: "辅助码的开关和显示方式在「输入 → 辅助码」里。") { Text("使用") }
     } footer: {
       if saveFailed { Text(SettingsSaveFailure.message) }
     }
@@ -212,7 +212,7 @@ struct PluginDetailView: View {
         .disabled(openingWordbook)
         .accessibilityIdentifier("pluginOpenWordbook")
     } header: {
-      DesignSectionHeader(info: "这本书出现在背单词的词书里。卸载插件后复习进度仍会保留，重新安装后可以接着复习。") { Text("使用") }
+      DesignSectionHeader(subject: "使用", info: "这本书出现在背单词的词书里。卸载插件后复习进度仍会保留，重新安装后可以接着复习。") { Text("使用") }
     }
     .designRow()
   }

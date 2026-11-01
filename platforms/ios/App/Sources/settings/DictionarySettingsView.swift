@@ -286,7 +286,7 @@ struct DictionarySettingsView: View {
       .opacity(stepEnabled ? 1 : 0.45)
     DesignDivider(leading: 20)
     Button { confirmsClearLearning = true } label: {
-      DesignNavRowLabel(title: ClearLearningCopy.title, info: ClearLearningCopy.subtitle)
+      DesignNavRowLabel(title: ClearLearningCopy.title, subtitle: ClearLearningCopy.subtitle)
     }
     .buttonStyle(PressFillButtonStyle())
     .disabled(clearingLearning)

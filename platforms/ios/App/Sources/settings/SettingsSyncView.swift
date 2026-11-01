@@ -42,7 +42,7 @@ struct SettingsSyncView: View {
                           symbol: "icloud.and.arrow.down",
                           enabled: cloud != nil && !cloudIsEmpty) { applying = true }
       } header: {
-        DesignSectionHeader(info: "同步输入方案、简繁体、键盘声音与触感、词库学习开关和皮肤。凭据、联网授权及输入内容不会随设置上传。") { SettingsGroupHeader(title: "同步") }
+        DesignSectionHeader(subject: "同步", info: "同步输入方案、简繁体、键盘声音与触感、词库学习开关和皮肤。凭据、联网授权及输入内容不会随设置上传。") { SettingsGroupHeader(title: "同步") }
       }
       .designRow()
     }

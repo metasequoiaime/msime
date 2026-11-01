@@ -64,7 +64,7 @@ struct TranslationProviderSettingsView: View {
           SecureField("SecretKey", text: $tencentKey).credentialField()
           TextField("地域", text: $tencentRegion).credentialField()
         } header: {
-          DesignSectionHeader(info: "地域留空时使用 \(TranslationProviderPreference.defaultTencentRegion)。建议为输入法单独创建只授权机器翻译的子账号密钥。") { SettingsGroupHeader(title: "腾讯云机器翻译") }
+          DesignSectionHeader(subject: "腾讯云机器翻译", info: "地域留空时使用 \(TranslationProviderPreference.defaultTencentRegion)。建议为输入法单独创建只授权机器翻译的子账号密钥。") { SettingsGroupHeader(title: "腾讯云机器翻译") }
         }
         .designRow()
       case .custom:
@@ -73,7 +73,7 @@ struct TranslationProviderSettingsView: View {
             .keyboardType(.URL)
           SecureField("API Key（DeepL 必填）", text: $customKey).credentialField()
         } header: {
-          DesignSectionHeader(info: "兼容 DeepLX 的 POST 接口，或 DeepL 官方 API 地址（https://api-free.deepl.com/v2/translate 或 https://api.deepl.com/v2/translate）配 DeepL 的 Auth Key；使用 DeepL 时候选词会发送到 DeepL，按 DeepL 的数据政策处理。iOS 只允许 HTTPS 地址，HTTP 地址保存后不会被调用。") { SettingsGroupHeader(title: "自定义接口") }
+          DesignSectionHeader(subject: "自定义接口", info: "兼容 DeepLX 的 POST 接口，或 DeepL 官方 API 地址（https://api-free.deepl.com/v2/translate 或 https://api.deepl.com/v2/translate）配 DeepL 的 Auth Key；使用 DeepL 时候选词会发送到 DeepL，按 DeepL 的数据政策处理。iOS 只允许 HTTPS 地址，HTTP 地址保存后不会被调用。") { SettingsGroupHeader(title: "自定义接口") }
         }
         .designRow()
       case .ai:
@@ -81,7 +81,7 @@ struct TranslationProviderSettingsView: View {
           LabeledContent("当前服务商与模型", value: aiSummary.isEmpty ? "未配置" : aiSummary)
             .accessibilityIdentifier("translationAISummary")
         } header: {
-          DesignSectionHeader(info: "复用「AI 润色与回复」页当前服务商的接口地址、Token 与模型，无需在此重复填写；AI 模型逐条生成释义，成本与延迟高于专用翻译服务。不需要打开「候选栏 AI 候选」。") { SettingsGroupHeader(title: "复用 AI 辅助配置") }
+          DesignSectionHeader(subject: "复用 AI 辅助配置", info: "复用「AI 润色与回复」页当前服务商的接口地址、Token 与模型，无需在此重复填写；AI 模型逐条生成释义，成本与延迟高于专用翻译服务。不需要打开「候选栏 AI 候选」。") { SettingsGroupHeader(title: "复用 AI 辅助配置") }
         }
         .designRow()
       }

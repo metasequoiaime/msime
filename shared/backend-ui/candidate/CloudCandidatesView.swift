@@ -54,7 +54,7 @@ struct CloudCandidatesView: View {
           run { try await load(.init(text: text, kind: jianpin && kind == .pinyin ? "jianpin" : kind.rawValue, scheme: scheme, profile: profile, limit: 100)) }
         }
       } header: {
-        SettingsSectionInfoHeader(info: "仅在点击查询时发送这里输入的编码。排序和固定位置由服务器输入引擎计算，修改保存到当前账号；本机键盘尚需完整同步才能采用云端状态。") { Text(kind.title) }
+        SettingsSectionInfoHeader(subject: kind.title, info: "仅在点击查询时发送这里输入的编码。排序和固定位置由服务器输入引擎计算，修改保存到当前账号；本机键盘尚需完整同步才能采用云端状态。") { Text(kind.title) }
       }
       if kind != .quick {
         Section("调频方式") {
@@ -99,7 +99,7 @@ struct CloudCandidatesView: View {
                 }
             }
           } header: {
-            SettingsSectionInfoHeader(info: "左滑取消固定。") { Text("此查询的固定位置") }
+            SettingsSectionInfoHeader(subject: "此查询的固定位置", info: "左滑取消固定。") { Text("此查询的固定位置") }
           }
         }
       }

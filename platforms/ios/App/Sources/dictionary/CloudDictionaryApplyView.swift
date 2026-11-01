@@ -28,7 +28,7 @@ struct CloudDictionaryApplyView: View {
                           symbol: "icloud.and.arrow.down.fill",
                           enabled: !busy && state.localVersion != nil && state.request?.status.active != true) { download() }
       } header: {
-        DesignSectionHeader(info: "请启用水杉键盘的完全访问权限，并在上方打开水杉键盘，让键盘提供当前词库版本。测试区内容不会上传。") { SettingsGroupHeader(title: "准备本地词库") }
+        DesignSectionHeader(subject: "准备本地词库", info: "请启用水杉键盘的完全访问权限，并在上方打开水杉键盘，让键盘提供当前词库版本。测试区内容不会上传。") { SettingsGroupHeader(title: "准备本地词库") }
       }
       .designRow()
       if let preview {
@@ -42,7 +42,7 @@ struct CloudDictionaryApplyView: View {
             self.preview = nil; expectedVersion = nil
           }
         } header: {
-          DesignSectionHeader(info: "下载期间本机状态发生变化时，键盘会拒绝本次应用。") { SettingsGroupHeader(title: "确认应用") }
+          DesignSectionHeader(subject: "确认应用", info: "下载期间本机状态发生变化时，键盘会拒绝本次应用。") { SettingsGroupHeader(title: "确认应用") }
         }
         .designRow()
       }

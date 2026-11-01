@@ -96,10 +96,16 @@ struct DesignInitialTile: View {
 
 /// 设置项旁的「?」：解释性说明不常驻页面，点按「?」在气泡里显示，点别处收起。与 Android、HarmonyOS 手机端同一套规则：解释进「?」，状态、校验、错误反馈、当前值和紧贴按钮讲后果的一句话留在原处（行的 `subtitle`、分组的 `footer`）。
 ///
-/// 读屏把说明当作「?」的名称读出；放进开关、选择行这类合并读出的标签里时，说明跟在标题后面读出，与原来的副标题一样。
+/// 读屏名称与 Android `InfoTipView` 同一种写法：「<subject>的说明：<正文>」，没有 `subject` 时是「说明：<正文>」，先说出这是哪一项的说明，正文照样读出；放进开关、选择行这类合并读出的标签里时，跟在标题后面读出。`subject` 是它解释的那一项的标题，分组、行和分区标题里由容器自动带上。
 struct DesignInfoTip: View {
   let text: String
+  var subject: String? = nil
   @State private var presented = false
+
+  /// 「?」的读屏名称，与 Android `InfoTipView.describe()` 逐字相同。
+  static func accessibilityName(subject: String?, text: String) -> String {
+    (subject.map { $0.isEmpty ? "说明：" : $0 + "的说明：" } ?? "说明：") + text
+  }
 
   var body: some View {
     // 无边框按钮：放在 List 行或整行可点的导航行里时只响应「?」本身，不会让整行一起触发。
@@ -111,7 +117,7 @@ struct DesignInfoTip: View {
         .contentShape(Rectangle())
     }
     .buttonStyle(.borderless)
-    .accessibilityLabel(text)
+    .accessibilityLabel(Self.accessibilityName(subject: subject, text: text))
     .accessibilityIdentifier("designInfoTip")
     .popover(isPresented: $presented) {
       Text(text)
@@ -137,32 +143,34 @@ struct DesignInfoTitle: View {
   var body: some View {
     HStack(spacing: 4) {
       Text(title).font(font).foregroundStyle(.primary)
-      if let info { DesignInfoTip(text: info) }
+      if let info { DesignInfoTip(text: info, subject: title) }
     }
   }
 }
 
-/// List 分区标题：组名和收起分区说明的「?」。组名照旧由调用方画（`Text` 或 `SettingsGroupHeader`），样式不变；没有组名的分区只画「?」，放在组名的位置。`info` 为空时只有组名。
+/// List 分区标题：组名和收起分区说明的「?」。组名照旧由调用方画（`Text` 或 `SettingsGroupHeader`），样式不变；没有组名的分区只画「?」，放在组名的位置。`info` 为空时只有组名。组名由调用方画时把它的文字传给 `subject`，读屏才能说出这是哪一组的说明。
 struct DesignSectionHeader<Title: View>: View {
   let info: String?
+  let subject: String?
   private let title: Title
 
-  init(info: String?, @ViewBuilder title: () -> Title) {
+  init(subject: String? = nil, info: String?, @ViewBuilder title: () -> Title) {
     self.info = info
+    self.subject = subject
     self.title = title()
   }
 
   var body: some View {
     HStack(spacing: 4) {
       title
-      if let info { DesignInfoTip(text: info).textCase(nil) }
+      if let info { DesignInfoTip(text: info, subject: subject).textCase(nil) }
     }
   }
 }
 
 extension DesignSectionHeader where Title == Text? {
   init(title: String? = nil, info: String?) {
-    self.init(info: info) { title.map { Text($0) } }
+    self.init(subject: title, info: info) { title.map { Text($0) } }
   }
 }
 
@@ -222,7 +230,7 @@ struct DesignGroup<Content: View>: View {
             Text(title).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.groupTitle)
               .accessibilityAddTraits(.isHeader)
           }
-          if let info { DesignInfoTip(text: info) }
+          if let info { DesignInfoTip(text: info, subject: title) }
         }
         .padding(.horizontal, 20)
       }
