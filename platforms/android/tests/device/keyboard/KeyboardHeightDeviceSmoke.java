@@ -404,7 +404,9 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
         int tolerance = Math.round(density) + 2;
         // 键宽随键盘宽度伸缩，键距是固定的 dp：贴边那个键的外沿离键盘边只差半份键距，比较外沿时多留 2 dp。
         int edgeTolerance = tolerance + Math.round(2 * density);
-        Rect q = settledKeyBounds(localSettings, new JSONObject().put(BOTTOM_BAR_SETTING, false));
+        // settledKeyBounds 量的是「n」（第三行），这里要的是第一行左边的「q」：上沿不动、左边不动都拿它比。
+        settledKeyBounds(localSettings, new JSONObject().put(BOTTOM_BAR_SETTING, false));
+        Rect q = keyBounds("q");
         Rect space = keyBounds("空格");
         Rect p = keyBounds("p");
 
