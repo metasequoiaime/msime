@@ -289,9 +289,34 @@ msime-dictionary 原样收录了 `stroke.dict.yaml`（`sources/stroke/stroke.dic
 
 同样**放在 resources 的兄弟目录 `pronunciations/`**，理由与 `offline-glosses/` 相同。生成物发布在 [`metasequoiaime/chinese-ime-lm` 的 `pronunciations-ecdict-82c9872`](https://github.com/metasequoiaime/chinese-ime-lm/releases/tag/pronunciations-ecdict-82c9872)，锁的 `built` 记它们的地址、长度和 SHA-256；`scripts/fetch_gloss_tables.py` 下载到 `target/pronunciations`，macOS 与 Windows 的发布工作流在打包前调用它（本节与下面两节的三张表共用这个脚本）。
 
-各平台怎么拿到这两个文件：macOS 与 Windows 随安装包带着；鸿蒙没有资源包下载，`platforms/harmony/stage-resources.sh` 按锁核对长度和 SHA-256 后放进 HAP 的 `resfile/pronunciations/`（约 5.7 MB），键盘把它暂存到引擎资源旁；Linux、Android 与 iOS 不随包，打开「显示英文音标」后在设置那一行点「下载」，才由共享资源包安装器按锁取回，装到状态目录的 `resource-packs/pronunciations/`，宿主把这个目录作为 `supplementary_resources` 交给查询。NOTICE 都和数据库放在一起。
+各平台怎么拿到这两个文件：macOS 与 Windows 随安装包带着；鸿蒙没有资源包下载，`platforms/harmony/stage-resources.sh` 按锁核对长度和 SHA-256 后放进 HAP 的 `resfile/pronunciations/`（约 5.7 MB），键盘把它暂存到引擎资源旁；Linux、Android 与 iOS 不随包，打开「显示读音」后在设置那一行点「下载」，才由共享资源包安装器按锁取回，装到状态目录的 `resource-packs/pronunciations/`，宿主把这个目录作为 `supplementary_resources` 交给查询。NOTICE 都和数据库放在一起。
 
-退出方式：不安装 `pronunciations/` 即可。`msime_client_pronunciation_request` 返回空结果，释义照旧显示、只是没有音标。日语罗马音在 macOS 上由系统的 `CFStringTokenizer` 生成，不需要数据文件。
+退出方式：不安装 `pronunciations/` 即可。`msime_client_pronunciation_request` 返回空结果，释义照旧显示、只是没有音标。日语罗马音在 macOS 上由系统的 `CFStringTokenizer` 生成，在 Windows 上由微软日语输入法的 IFELanguage 生成，不需要数据文件；其他平台的日语罗马音来自下一节的读音表。
+
+## 法日西俄德韩的读音表（`resources/target-pronunciations.lock.json`）
+
+打开「显示读音」后，法、日、西、俄、德、韩语的释义行下面显示读音：日语是赫本式罗马字，其余是维基词典的国际音标。来源与上文「非英语离线释义」相同，都是英文维基词典经 Wiktextract 抽取、由 kaikki.org 发布的数据，同一个许可；离线释义取英语词条的译文表，读音取目标语言词条自己的 `sounds`（日语取 `forms` 里的罗马字），kaikki.org 把它们按语言分开发布。
+
+| 项 | 值 |
+| --- | --- |
+| 来源 | [英文维基词典](https://en.wiktionary.org/)（Wiktionary contributors），经 [Wiktextract](https://github.com/tatuylonen/wiktextract) 提交 `f9fe161b9dd1e898352c51bef7295e774bba2ef1` 抽取（维基词典 2026-10-01 的转储，2026-10-25 抽取），由 [kaikki.org](https://kaikki.org/dictionary/) 发布的 `kaikki.org-dictionary-{French,Japanese,Spanish,Russian,German,Korean}.jsonl.gz` |
+| 许可 | CC BY-SA 4.0（维基词典按 CC BY-SA 4.0 与 GFDL 双许可，这里取前者），与离线释义相同 |
+| 生成器 | `scripts/build_target_pronunciations.py`，只用 Python 标准库；离线测试 `scripts/test-target-pronunciations.py` |
+| 产物 | `target-pronunciations/<lang>-phonetic.db` 六份（`<lang>_phonetics(word, phonetic)`，`meta.kind = <lang>_phonetic`，`user_version = 1`，每种 1.4 万到 2.1 万词，合计约 3.8 MB），外加 `target-pronunciations-NOTICE.txt` |
+| 取词范围 | 只收离线释义（`offline-glosses.lock.json` 的六份 `zh-<lang>.db`）用到的词条及其小写；去掉屈折形式、罗马化页面、字母和词缀；IPA 优先取斜线的音位标音、不带地区标签的或该语言标准音的那一条，古旧、方言、非标准的不用，一格里有两种读法或带注释的整格不用；日语取罗马字，并把汉字词条的假名读法也作为键，片假名释义折成平假名去对 |
+| 锁 | `resources/target-pronunciations.lock.json`：`inputs` 是六个 kaikki dump（地址、ETag、长度、SHA-256），`filtered_input` 是生成时实际读的过滤后 jsonl，`vocabulary` 指向离线释义的锁，`built` 是六个数据库和 NOTICE |
+| 发布位置 | [`metasequoiaime/chinese-ime-lm` 的 `target-pronunciations-2026.10.25`](https://github.com/metasequoiaime/chinese-ime-lm/releases/tag/target-pronunciations-2026.10.25) |
+| 获取 | `scripts/fetch_gloss_tables.py` 按锁下载并校验，写到 `target/target-pronunciations` |
+
+离线释义锁住的 2026-09-02 那一周的 dump 已被 kaikki.org 覆盖，过滤后的输入里也只有英语词条，所以读音用的是 2026-10-25 那一周；读音按目标语言的词查，与释义来自哪一周无关，下次刷新离线释义时两者从同一周的 dump 一起重建。能复现构建的同样是 `filtered_input`：用它加上离线释义锁住的六个数据库运行 `build_target_pronunciations.py build --glosses <目录>`（`--dump-date`、`--source-revision` 取锁里的值），在锁里的 `sqlite_version` 下逐字节相同。原始 dump 合计约 420 MB，在 Mac Studio 上用 `filter` 过滤；`filter` 只看 `lang_code`，将来按语言的 dump 停发时读约 3 GB 的 raw dump 也一样。
+
+**放在 resources 的兄弟目录 `target-pronunciations/`**，理由与 `pronunciations/` 相同；目录名就是资源包 id，不和英文音标表放在一起：资源包按锁里的文件清单严格判定是否已装，两张表合成一个包时，已经下载过英文音标表的用户会全部变成「需更新」。
+
+各平台怎么拿到：macOS 与 Windows 随安装包带着（`platforms/macos/stage-resources.sh`、`package-release.sh`，`platforms/windows/installer/Prepare-PackageFiles.ps1`），不分版本；鸿蒙由 `platforms/harmony/stage-resources.sh` 按锁核对后放进 HAP 的 `resfile/target-pronunciations/`，`MSIME_REQUIRE_PRONUNCIATIONS=1` 时也必须在；Linux、Android 与 iOS 不随包，打开「显示读音」且翻译目标语言是这六种之一时，设置里多一行「离线外语读音词典」，点「下载」才由共享资源包安装器按锁取回，装到状态目录的 `resource-packs/target-pronunciations/`。
+
+**分发义务**：这些文件是维基词典文本的改编作品，NOTICE 必须和数据库一起分发，并保持 CC BY-SA 4.0；与离线释义相同，App Store 这类渠道和 CC BY-SA 4.0 第 2(a)(5) 条之间的关系需要维护者判断。`scripts/test-language-data-notices.py` 检查 NOTICE 在锁里、生成器写的 NOTICE 带着署名、许可证和改动说明，以及三个随包脚本暂存数据库时都带上了它。
+
+退出方式：不安装 `target-pronunciations/` 即可。这些语言的释义照旧显示、只是没有读音；macOS 和 Windows 的日语罗马音不受影响。
 
 ## 单字英文释义（`resources/character-glosses.lock.json`）
 
