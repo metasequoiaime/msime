@@ -225,18 +225,19 @@ export class CandidateManagementAction {
     );
   }
 
+  /** A 2in1 touch long press: the gloss, then the last group. A candidate without a real translation (an English candidate, say) still gets 朗读 alone when there is something to read, so touch reaches it as right click does. */
   static touchActions(
     gloss: string,
     isTranslation: boolean,
     candidate: string = "",
     spoken: string | null = null,
   ): ManagementAction[] {
-    if (!isTranslation) {
-      return [];
-    }
-    const action: ManagementAction | null = CandidateManagementAction.touchGlossAction(gloss);
+    const action: ManagementAction | null = isTranslation
+      ? CandidateManagementAction.touchGlossAction(gloss)
+      : null;
     if (action === null) {
-      return [];
+      const read: ManagementAction | null = CandidateManagementAction.readAloudAction(spoken, candidate);
+      return read === null ? [] : [read];
     }
     return [action].concat(
       CandidateManagementAction.lastGroup(gloss, isTranslation, candidate, spoken),

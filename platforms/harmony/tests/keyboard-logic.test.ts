@@ -6188,6 +6188,12 @@ group("a candidate with a gloss offers the gloss as something to type", () => {
       !englishCandidate.includes("ADD_TO_PERSONAL_WORDBOOK"),
     "an English candidate without a gloss gets 朗读 alone in the last group",
   );
+  // 2in1 的触摸长按也要能读到没有释义的英文候选，和右键一样。
+  check(
+    CandidateManagementAction.touchActions("", false, "hello", "hello")
+      .map((action: ManagementAction) => action.id).join(",") === "READ_ALOUD",
+    "a touch long press on an English candidate without a gloss offers 朗读 alone",
+  );
   check(
     !CandidateManagementAction.managementActions("面接", true, 0, true, true, "面试", null).some(
       (action: ManagementAction) => action.id === "READ_ALOUD",

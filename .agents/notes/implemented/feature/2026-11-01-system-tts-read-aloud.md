@@ -35,7 +35,7 @@ Status: implemented
 
 网页那条路（`apps/desktop/src/core/read-aloud.ts` 的 `speakWithLocalVoice`）只用 `SpeechSynthesisVoice.localService` 为真的声音，优先 `en` 开头的，没有本地英文声音时用系统默认的本地声音，总是显式指定声音，不让浏览器替我们挑；一个本地声音都没有时提示「系统没有可用的朗读语音」。第一次 `getVoices()` 可能还是空的，等一次 `voiceschanged`，最多一秒。
 
-移动三端里，Android 的引擎第一次朗读时才连接（`onInit` 之前点的词连上后再读，只读最后点的那一个），键盘服务和背单词页销毁时断开；iOS 的合成器 `usesApplicationAudioSession` 为假，朗读的音频会话交给系统，不去改键盘按键音用的 `.ambient` 会话，键盘收起和页面消失时停下；鸿蒙每个进程一个引擎，用抢占模式（`queueMode` 1），文字前面加 `[h2]` 让引擎当成单词读，扩展销毁和设置页消失时关掉。鸿蒙和 iOS 的读不出来的提示显示在诊断行，Android 键盘用 `notice`，Android 背单词页用 toast。
+移动三端里，Android 的引擎第一次朗读时才连接（`onInit` 之前点的词连上后再读，只读最后点的那一个），键盘服务和背单词页销毁时断开；iOS 的合成器 `usesApplicationAudioSession` 为假，朗读的音频会话交给系统，不去改键盘按键音用的 `.ambient` 会话，键盘收起和页面消失时停下；鸿蒙每个进程一个引擎，用抢占模式（`queueMode` 1），文字前面加 `[h2]` 让引擎当成单词读，扩展销毁和设置页消失时关掉。鸿蒙和 iOS 的读不出来的提示显示在诊断行，Android 键盘用 `notice`，Android 背单词页用 toast。鸿蒙的合成在 `speak` 返回之后才可能失败，那时没有提示可显示，监听器的 `onError` 把 requestId 和错误码写进 hilog（`MSIME` 标签），真机核对时看得到为什么没出声。两处异步建引擎都防着「关掉之后才建好」：Android 每次连接记一个序号、`shutdown` 也加一，旧引擎迟到的 `onInit` 对不上号就不动现在的状态，构造函数里同步报的绑定失败也不会把一个已经断开的引擎留下；鸿蒙 `shutdown` 时加一代，`createEngine` 回来时代数变了就当场关掉这个引擎。
 
 Windows 的读是同步的：工作线程上初始化 COM、建声音、读完再释放，一个词不到一秒；它和「加入生词本」一样是单槽的 `SingleClickWorker`，正在读时多点的那几下丢掉。macOS 用输入法控制器上一直留着的那个合成器，新的一次先打断上一次。
 
@@ -44,7 +44,7 @@ Windows 的读是同步的：工作线程上初始化 COM、建声音、读完�
 逐个平台按官方文档核对过哪些接口可能联网，能强制本机的就强制：
 
 - Android：系统允许装第三方引擎，引擎可以提供联网的声音。`Voice.isNetworkConnectionRequired()` 说明「这个声音是否需要网络」，`TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED` 说明「这个声音可能要下载额外数据」，而且下载由 `setVoice` 触发。所以只挑语言是英文、不需要网络、也没有 `KEY_FEATURE_NOT_INSTALLED` 的声音，用 `setVoice` 选定它再读；一个都没有时不读，提示「系统没有可离线使用的英文朗读语音」。Android 11 起要在清单的 `<queries>` 里声明 `TextToSpeech.Engine.INTENT_ACTION_TTS_SERVICE` 才看得见引擎。
-- HarmonyOS：`CreateEngineParams.online` 为 1 是离线模式，只用它。文档写明中文的聆小珊（`person` 13）随系统提供，英文的劳拉（`person` 8）和凌飞哲要下载，所以只用 `zh-CN`、13，它支持「中文语境下的英文」；不调 `downloadVoice`，下载弹窗和下载流量都不会出现。
+- HarmonyOS：`CreateEngineParams.online` 为 1 是离线模式，只用它。按 Core Speech Kit 文本转语音的开发指南，中文的聆小珊（`person` 13）随系统提供，英文的劳拉（`person` 8）和凌飞哲要下载，所以只用 `zh-CN`、13，它支持「中文语境下的英文」；代码里不调 `downloadVoice`（`run.sh` 拦着），本项目从不请求下载声音。评审时没能重新打开官方的接口参考核对这两点，缺这个基础声音的设备上 `createEngine` 在离线模式下会不会自己去取模型也没有在真机上看过，所以 PRIVACY.md 只写「本项目从不请求下载」，不写「不会有下载流量」，这一条放进下面的真机核对清单。
 - Windows：SAPI 的声音都是本机安装的。WebView2 去掉了 Edge 里的「Online (Natural)」联网声音（WebView2Feedback #2660 里微软的答复：因为成本在 WebView2 里关掉了这项服务），页面又只用 `localService` 的声音，两道都挡着。
 - macOS、iOS：`AVSpeechSynthesizer` 和 WKWebView 的 `speechSynthesis` 用设备上已安装的声音，不经我们的代码发出任何请求。
 - Linux：`spd-say` 把文字交给 speech-dispatcher，由用户配置的输出模块合成。常见发行版默认的 espeak-ng 等模块在本机合成，但用户可以自己配一个联网的模块，这一点我们管不了，PRIVACY.md 写明。
@@ -53,7 +53,7 @@ Windows 的读是同步的：工作线程上初始化 COM、建声音、读完�
 
 ### 入口
 
-- 候选菜单里的「朗读」，放在已有的「加入生词本」之前、同一组里（最后隔一条线的那组）。有释义能读、或候选本身是英文时出现；只有候选是英文、没有释义时，这一组只有「朗读」。macOS 是标签 31，Windows 是 `CandidateMenuCommand::ReadAloud`，IBus 是 `CandidateReadAloud/<session>/<generation>/<index>`，Fcitx5 是动作 31，Android 是长按菜单的 id 3001（排序 999，「加入生词本」是 1000），iOS 是长按菜单最后那个内联组里的第一项，鸿蒙是 `READ_ALOUD`（打开菜单时记下候选原文，点下去时核对）。它不经过 Engine，不报告指针，不改组字。
+- 候选菜单里的「朗读」，放在已有的「加入生词本」之前、同一组里（最后隔一条线的那组）。有释义能读、或候选本身是英文时出现；只有候选是英文、没有释义时，这一组只有「朗读」。鸿蒙 2in1 的触摸长按原本只出释义、没有释义就不开菜单，现在没有释义而有能读的英文时也打开，只有「朗读」一项，和右键菜单一样能读到。iOS 这一组的顺序由 `ReadAloudText.lastGroup(hasFullAccess:spoken:gloss:)` 决定，键盘控制器只把它的结果画成 `UIAction`。macOS 是标签 31，Windows 是 `CandidateMenuCommand::ReadAloud`，IBus 是 `CandidateReadAloud/<session>/<generation>/<index>`，Fcitx5 是动作 31，Android 是长按菜单的 id 3001（排序 999，「加入生词本」是 1000），iOS 是长按菜单最后那个内联组里的第一项，鸿蒙是 `READ_ALOUD`（打开菜单时记下候选原文，点下去时核对）。它不经过 Engine，不报告指针，不改组字。
 - 背单词卡片上，卡片下面一个带喇叭图标的「朗读」按钮（共享页面是 `VocabularyReviewClient.speak`，iOS 和 Android 是原生页面上同样位置的按钮），点一下读词头，不翻开卡片、不作答；读不出来时页面上显示宿主给的那句话。
 - 不加全局快捷键，也不加组字时的快捷键：快捷键看不见，桌面端组字时 Ctrl 组合键一律交还应用，要接住就得在四个前端各改一遍按键路由，理由和[桌面候选窗的「加入生词本」](2026-11-01-desktop-candidate-personal-wordbook.md)不做快捷键相同。
 
@@ -85,10 +85,10 @@ Windows 的读是同步的：工作线程上初始化 COM、建声音、读完�
 - 移动三端开着英文释义、或者打出英文候选的用户，长按菜单最后一组多一项「朗读」；iOS 要开完全访问，Android 要装着语音引擎。背单词页多一个「朗读」按钮。
 - Android 清单多一条对 `TTS_SERVICE` 的查询。语音引擎是系统里另一个应用，声音需不需要网络、要不要下载是它自己报的，报错了我们只能照着挑；没有满足条件的英文声音时（例如只装了中文引擎的国产 ROM）只提示「系统没有可离线使用的英文朗读语音」。
 - 鸿蒙用中文声音读英文单词，不如英文声音地道。
-- 真机都没有核对：iOS 键盘扩展在开了完全访问时经 `AVSpeechSynthesizer` 能不能出声、iOS 静音开关下读不读、鸿蒙输入法扩展里能不能创建 `textToSpeech` 引擎、国产 Android ROM 有没有装语音引擎。iOS 键盘扩展里出不了声时，菜单项仍然在，点了没有声音；那时要改成不出这一项，只留 App 背单词页的按钮。
+- 真机都没有核对：iOS 键盘扩展在开了完全访问时经 `AVSpeechSynthesizer`（`usesApplicationAudioSession` 为假）能不能出声、静音开关开着和关着时各读不读；鸿蒙输入法扩展里能不能创建 `textToSpeech` 引擎，缺基础中文声音的设备上离线模式会不会自己取模型；国产 Android ROM 有没有装语音引擎。计划里 iOS 这一项是「先核对键盘扩展能不能出声，不能就藏起来」，这次没有做到：判断只依据键盘按键音在完全访问下能播放（`KeyboardSoundPlayer`），合成器用的是系统管理的另一个会话，不完全是同一条路。iOS 键盘扩展里出不了声时，菜单项仍然在，点了没有声音；那时要把键盘的这一项去掉（`ReadAloudText.lastGroup` 不再出 `.readAloud`），只留 App 背单词页的按钮，并改 PRIVACY.md。
 
 ## Verification
 
 共享层：`cargo test -p msime-client-services --lib vocabulary::read_aloud` 5 项、`cargo test -p msime-client-core --lib host_surface` 38 项（新增各平台 `read_aloud` 的取值）、`cargo test -p msime-host-api --lib read_aloud` 1 项（空指针、超长请求、多余字段、缺字段、日文释义、英文候选）通过，三个 crate 的 `cargo clippy --lib --tests -- -D warnings` 无警告。设置应用的 `read_aloud` 命令（`spd-say` 只认绝对目录里可执行的文件、非英文拒读）的单测只在 Unix 上编译，macOS 上设置应用的构建脚本要先暂存词库资源，所以交给 PR 上 Linux 的 msime-desktop 作业（clippy 和全部单测）。React：`apps/desktop/tests/settings/vocabulary-review.test.tsx` 新增 2 项（喇叭只在宿主能读且词头是英文时出现、点了读的是词头且不翻卡；读不出来时显示原因），`apps/desktop/tests/core/read-aloud.test.ts` 4 项（只挑本机声音、优先英文、没有本机声音时拒绝、等 `voiceschanged`、Linux 走 `read_aloud` 命令），桌面与鸿蒙设置页 `tsc --noEmit` 通过。macOS：`shortcut-test` 在编译机上构建、拉回本机跑通，新增的断言覆盖「朗读」的位置、带的文字、日文释义不出、英文候选只出它。Windows：`candidate_menu_layout.cpp` 本机编译运行通过（新增「朗读」排在「加入生词本」前、单独成组、不映射到 Engine 动作），改动的候选窗、Server 和 `SystemSpeech.cpp` 用 MinGW 做了语法检查，完整构建交给 PR 的 CI。Linux：`fcitx5_contract.py` 新增两个前端菜单顺序和出现条件的断言，原生构建交给 PR 的 CI。都没有在真机上听过。
 
-移动三端：`cargo test -p msime-client-core --lib host_surface` 38 项通过（三个移动平台的 `read_aloud` 改为真）。Android：`platforms/android/check-host.sh` 通过，`CandidateManagementSmoke` 新增「朗读」的 id 不与释义、词库操作和「加入生词本」相撞，排在「加入生词本」前、所有词库操作后，只在有能读的英文且装着引擎时出现；新的 `ReadAloudVoicePolicySmoke` 覆盖联网和要下载的声音从不选、美式英语优先、同一档按音质、没有能用的时不读；`scripts/test-android-jni-names.py` 确认新 JNI 方法与 `client_jni.cpp`、`verify-native.sh` 一致，`check-host.sh` 新增清单里 `TTS_SERVICE` 查询的检查。iOS：`VocabularyReviewTests` 新增朗读文字的用例，由 PR 的 iOS CI 运行；键盘菜单里这一组的顺序没有用例钉住，要实例化键盘控制器和整套候选状态。鸿蒙：`platforms/harmony/tests/run.sh` 和全部 `scripts/test-harmony-*.py` 通过，`keyboard-logic.test.ts` 覆盖两种菜单里「朗读」的位置、带的文字和候选、英文候选只出它，新的 `read-aloud-policy.test.ts` 覆盖离线模式和随系统的声音、`[h2]`、共享层应答和设置页请求的解析，`run.sh` 钉住视图、会话和设置桥的接线；本机用 DevEco 命令行工具跑了一次 `hvigorw assembleHap`，`CompileArkTS` 报出的错误都在 `workers/LocalAsrWorker.ets`（本机没有暂存 `sherpa_onnx.har`），改动的文件没有错误。三端都没有在真机或模拟器上听过。
+移动三端：`cargo test -p msime-client-core --lib host_surface` 38 项通过（三个移动平台的 `read_aloud` 改为真）。Android：`platforms/android/check-host.sh` 通过，`CandidateManagementSmoke` 新增「朗读」的 id 不与释义、词库操作和「加入生词本」相撞，排在「加入生词本」前、所有词库操作后，只在有能读的英文且装着引擎时出现；新的 `ReadAloudVoicePolicySmoke` 覆盖联网和要下载的声音从不选、美式英语优先、同一档按音质、没有能用的时不读；`scripts/test-android-jni-names.py` 确认新 JNI 方法与 `client_jni.cpp`、`verify-native.sh` 一致，`check-host.sh` 新增清单里 `TTS_SERVICE` 查询的检查。`check-host.sh` 还钉住长按菜单加上这一项、点下去交给 `s.readAloud`、键盘服务 `onDestroy` 和背单词页离开时都 `shutdown`。iOS：`VocabularyReviewTests` 新增朗读文字的用例和 `ReadAloudText.lastGroup` 的顺序用例（「朗读」在「加入生词本」前，没有完全访问时没有「朗读」、生词本照样列出，没有释义的英文候选只有「朗读」），由 PR 的 iOS CI 运行；`ReadAloud.swift` 本机按 iOS 模拟器 SDK 做了类型检查。鸿蒙：`platforms/harmony/tests/run.sh` 和全部 `scripts/test-harmony-*.py` 通过，`keyboard-logic.test.ts` 覆盖两种菜单里「朗读」的位置、带的文字和候选、英文候选只出它，新的 `read-aloud-policy.test.ts` 覆盖离线模式和随系统的声音、`[h2]`、共享层应答和设置页请求的解析，`run.sh` 钉住视图、会话和设置桥的接线，以及 2in1 触摸长按只有「朗读」时也打开、关掉之后才建好的引擎当场关掉；本机用 DevEco 命令行工具跑了一次 `hvigorw assembleHap`，`CompileArkTS` 报出的错误都在 `workers/LocalAsrWorker.ets`（本机没有暂存 `sherpa_onnx.har`），改动的文件没有错误。三端都没有在真机或模拟器上听过。

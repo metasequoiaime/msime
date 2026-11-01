@@ -1,5 +1,6 @@
 import { textToSpeech } from '@kit.CoreSpeechKit';
 import { ReadAloudPolicy } from './ReadAloudPolicy';
+import { KeyboardLog } from '../keyboard/KeyboardLog';
 
 /**
  * 键盘长按菜单的「朗读」和设置应用背单词卡片的喇叭：用 Core Speech Kit 的 `textToSpeech` 读一个英文单词。
@@ -10,6 +11,8 @@ export class HarmonyReadAloud {
   private static engine: textToSpeech.TextToSpeechEngine | undefined = undefined;
   private static creating: Promise<textToSpeech.TextToSpeechEngine> | undefined = undefined;
   private static sequence: number = 0;
+  // Bumped by every shutdown, so an engine whose createEngine was still pending at shutdown is closed on arrival instead of being kept.
+  private static generation: number = 0;
 
   /** 这台设备有没有文本转语音能力。 */
   static available(): boolean {
@@ -53,6 +56,8 @@ export class HarmonyReadAloud {
   static shutdown(): void {
     const engine: textToSpeech.TextToSpeechEngine | undefined = HarmonyReadAloud.engine;
     HarmonyReadAloud.engine = undefined;
+    HarmonyReadAloud.creating = undefined;
+    HarmonyReadAloud.generation += 1;
     if (engine !== undefined) {
       try {
         engine.shutdown();
@@ -76,13 +81,26 @@ export class HarmonyReadAloud {
       person: ReadAloudPolicy.ENGINE_PERSON,
       online: ReadAloudPolicy.OFFLINE,
     };
+    const generation: number = HarmonyReadAloud.generation;
     const created: Promise<textToSpeech.TextToSpeechEngine> = textToSpeech.createEngine(params)
       .then((engine: textToSpeech.TextToSpeechEngine): textToSpeech.TextToSpeechEngine => {
+        if (generation !== HarmonyReadAloud.generation) {
+          // The keyboard or the settings page went away while the engine was being created: close it rather than keep an engine nobody will shut down.
+          try {
+            engine.shutdown();
+          } catch (error) {
+            // Already gone.
+          }
+          throw new Error('read-aloud engine created after shutdown');
+        }
         const listener: textToSpeech.SpeakListener = {
           onStart: (): void => {},
           onComplete: (): void => {},
           onStop: (): void => {},
-          onError: (): void => {},
+          // Synthesis fails after speak() has already returned, so the user sees no notice for it; the log is what tells a device check why the word was silent.
+          onError: (requestId: string, errorCode: number, errorMessage: string): void => {
+            KeyboardLog.warn(`speech.HarmonyReadAloud ${requestId} failed: code ${errorCode}: ${errorMessage}`);
+          },
         };
         engine.setListener(listener);
         HarmonyReadAloud.engine = engine;
@@ -90,7 +108,9 @@ export class HarmonyReadAloud {
         return engine;
       })
       .catch((error: Object): textToSpeech.TextToSpeechEngine => {
-        HarmonyReadAloud.creating = undefined;
+        if (generation === HarmonyReadAloud.generation) {
+          HarmonyReadAloud.creating = undefined;
+        }
         throw error as Error;
       });
     HarmonyReadAloud.creating = created;

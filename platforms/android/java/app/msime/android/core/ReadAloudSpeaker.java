@@ -26,6 +26,8 @@ public final class ReadAloudSpeaker {
     /** 引擎还在连接时点下的那个词；连上以后读最后点的那一个。 */
     private String pending;
     private Consumer<String> pendingNotice;
+    /** 每连接一次加一，{@link #shutdown()} 也加一：已经断开的引擎迟到的 onInit 对不上号就不动现在的状态。 */
+    private int connection;
 
     public ReadAloudSpeaker(Context context) {
         this.context = context.getApplicationContext() == null ? context : context.getApplicationContext();
@@ -48,7 +50,9 @@ public final class ReadAloudSpeaker {
         pending = text;
         pendingNotice = notice;
         if (engine != null) return;
-        engine = new TextToSpeech(context, status -> {
+        int current = ++connection;
+        TextToSpeech created = new TextToSpeech(context, status -> {
+            if (current != connection) return;
             if (status != TextToSpeech.SUCCESS) {
                 Consumer<String> failed = pendingNotice;
                 shutdown();
@@ -62,6 +66,12 @@ public final class ReadAloudSpeaker {
             pendingNotice = null;
             if (word != null) speakNow(word, answer);
         });
+        // A bind failure answers onInit inside the constructor, and that path has already shut this connection down.
+        if (current == connection) {
+            engine = created;
+        } else {
+            created.shutdown();
+        }
     }
 
     private void speakNow(String text, Consumer<String> notice) {
@@ -92,6 +102,7 @@ public final class ReadAloudSpeaker {
 
     /** 断开引擎，正在读的也停下。键盘服务或背单词页销毁时调用；之后再 {@link #speak} 会重新连接。 */
     public void shutdown() {
+        connection++;
         if (engine != null) {
             engine.stop();
             engine.shutdown();

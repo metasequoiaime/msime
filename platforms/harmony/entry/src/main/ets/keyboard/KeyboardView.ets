@@ -7825,7 +7825,9 @@ struct KeyboardView {
     // A 2in1 touch screen keeps the gloss alone, because its right click already opens management. A phone has no right click, so its long press is the only way to 优先显示, 固定排位 and 删除词条, and opens the whole menu the way Android's does.
     const glossOnly: boolean = KeyboardFormFactor.isDesktop();
     if (glossOnly && CandidateManagementAction.touchActions(
-      candidate.annotation, candidate.annotationIsTranslation).length === 0) {
+      candidate.annotation, candidate.annotationIsTranslation, candidate.text,
+      KeyboardSession.shared.readAloudText(
+        candidate.text, candidate.annotationIsTranslation ? candidate.annotation : '')).length === 0) {
       return;
     }
     this.punctuation = false;

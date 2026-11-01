@@ -2517,15 +2517,6 @@ class SettingsBridge {
   }
 
   /**
-   * 背单词: forward one action to the shared review session.
-   *
-   * The numbered bridge keeps the potentially multi-megabyte import and its file work off the
-   * ArkTS thread. The day is resolved here because this process knows the device's timezone.
-   *
-   * The day is resolved here rather than in the page. This process is the one that knows the
-   * device's timezone, and the shared layer never derives a day from one.
-   */
-  /**
    * 背单词卡片的喇叭：页面交来卡片上的词头，先按共享层的规则（`msime_client_read_aloud_text`）核对它是英文，再用系统语音读出。读出来时 `{ok:true}`，读不出来时 `{ok:false,error:给用户看的那句话}`，页面原样显示。
    */
   private async readAloud(payload: string): Promise<string> {
@@ -2539,6 +2530,15 @@ class SettingsBridge {
     return notice === null ? JSON.stringify({ ok: true, value: null }) : JSON.stringify({ ok: false, error: notice });
   }
 
+  /**
+   * 背单词: forward one action to the shared review session.
+   *
+   * The numbered bridge keeps the potentially multi-megabyte import and its file work off the
+   * ArkTS thread. The day is resolved here because this process knows the device's timezone.
+   *
+   * The day is resolved here rather than in the page. This process is the one that knows the
+   * device's timezone, and the shared layer never derives a day from one.
+   */
   private async vocabularyReview(actionDocument: string): Promise<string> {
     // 原始词表仍限 8 MiB；这里检查的是带 JSON 转义的动作，与原生桥和 C 入口的请求预算一致。
     if (actionDocument.length === 0 || actionDocument.length > 17 * 1024 * 1024) {

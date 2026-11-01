@@ -15,6 +15,22 @@ enum ReadAloudText {
   /// 长按菜单里这一项的标题。
   static let menuTitle = "朗读"
 
+  /// 长按候选菜单最后一组里的一项。
+  enum LastGroupItem: Equatable {
+    /// 「朗读」，带要读的英文。
+    case readAloud(String)
+    /// 「加入生词本」，带显示着的释义。
+    case addToPersonalWordbook(String)
+  }
+
+  /// 长按候选菜单最后一组，按显示顺序：「朗读」在前、「加入生词本」在后，和 Android、鸿蒙、桌面同一个位置。「朗读」要有能读的英文（`spoken`），还要开了完全访问：没有完全访问时 iOS 不让键盘扩展播放自己的声音。「加入生词本」要有释义（`gloss`）；没有完全访问时仍然列出，点下去提示去开完全访问。
+  static func lastGroup(hasFullAccess: Bool, spoken: String?, gloss: String?) -> [LastGroupItem] {
+    var items: [LastGroupItem] = []
+    if hasFullAccess, let spoken, !spoken.isEmpty { items.append(.readAloud(spoken)) }
+    if let gloss { items.append(.addToPersonalWordbook(gloss)) }
+    return items
+  }
+
   /// 要读的英文；没有能读的或请求不合法时为 `nil`，菜单和卡片上就没有这一项。不读写文件，打开菜单时在主线程调用。背单词卡片把词头当作 `candidate`、不给 `gloss`。
   static func text(candidate: String, gloss: String = "") -> String? {
     guard let data = try? JSONSerialization.data(withJSONObject: ["candidate": candidate, "gloss": gloss]),
