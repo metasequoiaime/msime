@@ -251,9 +251,12 @@ def main():
             process.wait(timeout=10)
             assert process.returncode == -signal.SIGSEGV, process.returncode
             [record] = crash_records(scratch)
-            # 测试从外部发 SIGSEGV，不是宿主执行出错：摘要写出发送者，即这个测试进程的名字。
+            # 测试从外部发 SIGSEGV，不是宿主执行出错：固定记录头在前，摘要写出发送者，即这个测试进程的名字。
             sender = Path("/proc/self/comm").read_text().strip()
-            assert record.read_text().startswith(f"SIGSEGV: segmentation fault (sent by {sender})\n"), record.read_text()
+            contents = record.read_text()
+            lines = contents.splitlines()
+            assert lines and lines[0].startswith("MSIME-CRASH/1 "), contents
+            assert len(lines) > 1 and lines[1] == f"SIGSEGV: segmentation fault (sent by {sender})", contents
             assert len(endpoint.connections) == connections, "the crash path used the network"
         finally:
             cleanup()

@@ -3,6 +3,22 @@
 //! Same `mod tests` as before, so `use super::*` still names the parent.
 
 use super::*;
+
+#[test]
+fn telemetry_test_origin_rejects_before_storage_or_network() {
+    use crate::ffi::reporting::*;
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("telemetry");
+    let request = json!({
+        "directory": directory, "platform": "linux", "version": "0.0.1",
+        "enabled": true, "test_origin": "http://127.0.0.1:0"
+    });
+    // 正式构建拒绝未知字段，测试构建拒绝与编译目标不符的握手；两者都不得先建目录。
+    for function in [msime_client_telemetry_begin, msime_client_telemetry_flush] {
+        assert_eq!(reporting_call(function, request.clone())["ok"], false);
+        assert!(!directory.exists());
+    }
+}
 use crate::account::msime_client_account_name;
 use msime_client_core::host_surface::compiled_input_schemes;
 use sha2::{Digest, Sha256};
@@ -19122,6 +19138,436 @@ fn reporting_call(
 }
 
 #[test]
+fn telemetry_unmigrated_mobile_preferences_keep_the_legacy_lifecycle() {
+    use crate::ffi::reporting::*;
+    use msime_client_services::telemetry::CrashContext;
+    for platform in ["android", "harmony"] {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("telemetry");
+        let preferences = root.path().join("preferences");
+        let request = json!({"directory": directory, "platform": platform, "version": "1.2.3", "preferences_directory": preferences});
+        let started = reporting_call(msime_client_telemetry_begin, request);
+        assert_eq!(started["value"]["enabled"], true, "{started}");
+        assert_eq!(
+            CrashContext::from_header(started["value"]["crash_record_header"].as_str().unwrap())
+                .unwrap()
+                .consent_epoch,
+            None
+        );
+        assert_eq!(
+            reporting_call(
+                msime_client_telemetry_clear,
+                json!({"directory": directory})
+            )["value"],
+            true
+        );
+    }
+}
+
+#[test]
+fn telemetry_shared_preferences_and_explicit_epoch_keep_live_sessions_and_current_crashes() {
+    use crate::ffi::reporting::*;
+    use msime_client_services::telemetry::{CrashContext, TelemetryKind, TelemetryStore};
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("telemetry");
+    let preferences = root.path().join("preferences");
+    let request = json!({"directory": directory, "platform": "macos", "version": "1.2.3", "preferences_directory": preferences});
+    let main = reporting_call(msime_client_telemetry_begin, request.clone())["value"].clone();
+    let consent = reporting_call(
+        msime_client_telemetry_consent,
+        json!({"directory": preferences}),
+    );
+    let epoch = consent["value"]["epoch"].as_str().unwrap();
+    let mut helper = request.clone();
+    helper["capture_only"] = json!(true);
+    helper["consent_epoch"] = json!(epoch);
+    reporting_call(msime_client_telemetry_begin, helper.clone());
+    assert_eq!(
+        reporting_call(
+            msime_client_telemetry_end,
+            json!({"directory": directory, "session": main["session_id"]})
+        )["value"],
+        true
+    );
+    let main = reporting_call(msime_client_telemetry_begin, request)["value"].clone();
+    assert_eq!(
+        CrashContext::from_header(main["crash_record_header"].as_str().unwrap())
+            .unwrap()
+            .consent_epoch
+            .unwrap()
+            .to_string(),
+        epoch
+    );
+    std::fs::write(
+        main["crash_record_path"].as_str().unwrap(),
+        format!(
+            "{}Synthetic current main fault\nsynthetic+0x20\n",
+            main["crash_record_header"].as_str().unwrap()
+        ),
+    )
+    .unwrap();
+    reporting_call(msime_client_telemetry_begin, helper);
+    let events = TelemetryStore::new(directory).queued().unwrap();
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.kind == TelemetryKind::Crash)
+            .count(),
+        1
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.kind == TelemetryKind::SessionCrash)
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn telemetry_shared_preferences_reject_withdrawn_helper_records() {
+    use crate::ffi::reporting::*;
+    use msime_client_services::telemetry::{TelemetryKind, TelemetryStore};
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("telemetry");
+    let preferences_directory = root.path().join("preferences");
+    let preferences = PreferencesStore::new(&preferences_directory);
+    let first = preferences.usage_reporting_consent().unwrap().unwrap();
+    let request = json!({"directory": directory, "platform": "linux", "version": "1.2.3", "preferences_directory": preferences_directory});
+    let mut helper = request.clone();
+    helper["capture_only"] = json!(true);
+    helper["consent_epoch"] = json!(first.epoch.to_string());
+    let old = reporting_call(msime_client_telemetry_begin, helper)["value"].clone();
+    for enabled in [false, true] {
+        let current = preferences.load().unwrap();
+        let mut edited = current.preferences;
+        edited.usage_reporting = enabled;
+        preferences.save(current.revision, edited).unwrap();
+    }
+    reporting_call(msime_client_telemetry_begin, request.clone());
+    let path = old["crash_record_path"].as_str().unwrap();
+    std::fs::write(
+        path,
+        format!(
+            "{}Synthetic withdrawn helper fault\nsynthetic+0x30\n",
+            old["crash_record_header"].as_str().unwrap()
+        ),
+    )
+    .unwrap();
+    assert_eq!(
+        reporting_call(msime_client_telemetry_begin, request)["value"]["crashes"],
+        0
+    );
+    assert!(!std::path::Path::new(path).exists());
+    assert!(TelemetryStore::new(directory)
+        .queued()
+        .unwrap()
+        .iter()
+        .all(|event| event.kind != TelemetryKind::Crash));
+}
+
+#[test]
+fn telemetry_consent_before_bootstrap_preserves_edition_defaults() {
+    use crate::ffi::reporting::msime_client_telemetry_consent;
+    let root = tempfile::tempdir().unwrap();
+    for id in ["full", "pinyin", "wubi"] {
+        let directory = root.path().join(id);
+        let result = reporting_call(
+            msime_client_telemetry_consent,
+            json!({"directory":directory,"edition":id}),
+        );
+        assert_eq!(result["value"]["enabled"], true, "{result}");
+        let snapshot = PreferencesStore::new(&directory).load().unwrap();
+        let mut expected =
+            Preferences::for_edition(msime_client_core::edition::Edition::by_id(id).unwrap());
+        expected.usage_reporting_consent = snapshot.preferences.usage_reporting_consent;
+        assert_eq!(snapshot.preferences, expected, "{id}");
+    }
+    let directory = root.path().join("invalid");
+    assert_eq!(
+        reporting_call(
+            msime_client_telemetry_consent,
+            json!({"directory":directory,"edition":"unknown"})
+        )["ok"],
+        false
+    );
+    assert!(!directory.exists());
+}
+
+#[test]
+fn telemetry_epoch_abi_rejects_stale_begin_and_late_native_records() {
+    use crate::ffi::reporting::*;
+    let root = tempfile::tempdir().unwrap();
+    let preferences_directory = root.path().join("preferences");
+    let directory = root.path().join("telemetry");
+    let preferences = PreferencesStore::new(&preferences_directory);
+    let consent = reporting_call(
+        msime_client_telemetry_consent,
+        json!({"directory": preferences_directory}),
+    );
+    assert_eq!(consent["ok"], true, "{consent}");
+    let first_epoch = consent["value"]["epoch"].as_str().unwrap().to_owned();
+    let request = |epoch: &str| json!({"directory": directory, "platform": "ios", "version": "0.1.0", "preferences_directory": preferences_directory, "consent_epoch": epoch});
+    let first = reporting_call(msime_client_telemetry_begin, request(&first_epoch));
+    assert_eq!(first["value"]["enabled"], true, "{first}");
+    let current = preferences.load().unwrap();
+    let mut edited = current.preferences;
+    edited.usage_reporting = false;
+    let off = preferences.save(current.revision, edited).unwrap();
+    assert_eq!(
+        reporting_call(
+            msime_client_telemetry_consent,
+            json!({"directory": preferences_directory})
+        )["value"]["enabled"],
+        false
+    );
+    let mut edited = off.preferences;
+    edited.usage_reporting = true;
+    let on = preferences.save(off.revision, edited).unwrap();
+    let second_epoch = on
+        .preferences
+        .usage_reporting_consent
+        .unwrap()
+        .epoch
+        .to_string();
+    assert_ne!(first_epoch, second_epoch);
+    let second = reporting_call(msime_client_telemetry_begin, request(&second_epoch));
+    assert_eq!(second["value"]["enabled"], true);
+    let store = msime_client_services::telemetry::TelemetryStore::new(&directory);
+    let fresh = store.queued().unwrap();
+    assert_eq!(
+        reporting_call(msime_client_telemetry_begin, request(&first_epoch))["value"]["enabled"],
+        false
+    );
+    assert_eq!(store.queued().unwrap(), fresh);
+    let mut bypass = request(&second_epoch);
+    bypass["enabled"] = true.into();
+    assert_eq!(
+        reporting_call(msime_client_telemetry_begin, bypass)["ok"],
+        false
+    );
+
+    let path = first["value"]["crash_record_path"].as_str().unwrap();
+    std::fs::write(
+        path,
+        format!(
+            "{}Synthetic obsolete native fault\nsynthetic+0x41\n",
+            first["value"]["crash_record_header"].as_str().unwrap()
+        ),
+    )
+    .unwrap();
+    let next = reporting_call(msime_client_telemetry_begin, request(&second_epoch));
+    assert_eq!(next["value"]["crashes"], 0);
+    assert!(!std::path::Path::new(path).exists());
+    assert_eq!(store.queued().unwrap(), fresh);
+}
+
+#[test]
+fn telemetry_epoch_system_diagnostics_require_current_continuous_history() {
+    use crate::ffi::reporting::*;
+    let root = tempfile::tempdir().unwrap();
+    let preferences_directory = root.path().join("preferences");
+    let directory = root.path().join("telemetry");
+    let consent = reporting_call(
+        msime_client_telemetry_consent,
+        json!({"directory": preferences_directory}),
+    );
+    let epoch = consent["value"]["epoch"].as_str().unwrap();
+    let since = consent["value"]["since_unix_ms"].as_u64().unwrap();
+    let capture = reporting_call(
+        msime_client_telemetry_begin,
+        json!({"directory": directory,"platform":"ios","version":"0.1.0","preferences_directory":preferences_directory,"consent_epoch":epoch,"capture_only":true}),
+    );
+    let mut context = msime_client_services::telemetry::CrashContext::from_header(
+        capture["value"]["crash_record_header"].as_str().unwrap(),
+    )
+    .unwrap();
+    context.consent_epoch = None;
+    let request = json!({"directory":directory,"message":"Synthetic system fault","outside_session":true,"crash_record_header":context.record_header(),"diagnostic_id":"synthetic-current-diagnostic","preferences_directory":preferences_directory,"consent_epoch":epoch,"diagnostic_begin_unix_ms":since,"diagnostic_end_unix_ms":since});
+    let mut old = request.clone();
+    old["diagnostic_begin_unix_ms"] = since.saturating_sub(1).into();
+    assert_eq!(
+        reporting_call(msime_client_telemetry_record_crash, old)["value"],
+        false
+    );
+    let mut future = request.clone();
+    future["diagnostic_end_unix_ms"] = (since + 1_000_000).into();
+    assert_eq!(
+        reporting_call(msime_client_telemetry_record_crash, future)["value"],
+        false
+    );
+    let mut missing = request.clone();
+    missing
+        .as_object_mut()
+        .unwrap()
+        .remove("diagnostic_begin_unix_ms");
+    assert_eq!(
+        reporting_call(msime_client_telemetry_record_crash, missing)["ok"],
+        false
+    );
+    assert_eq!(
+        reporting_call(msime_client_telemetry_record_crash, request.clone())["value"],
+        true
+    );
+    assert_eq!(
+        reporting_call(msime_client_telemetry_record_crash, request.clone())["value"],
+        false
+    );
+
+    let preferences = PreferencesStore::new(&preferences_directory);
+    let current = preferences.load().unwrap();
+    let mut disabled = current.preferences;
+    disabled.usage_reporting = false;
+    let off = preferences.save(current.revision, disabled).unwrap();
+    let mut enabled = off.preferences;
+    enabled.usage_reporting = true;
+    preferences.save(off.revision, enabled).unwrap();
+    assert_eq!(
+        reporting_call(msime_client_telemetry_record_crash, request)["value"],
+        false
+    );
+}
+
+#[test]
+fn telemetry_epoch_system_capture_keeps_native_identity_and_session_attribution() {
+    use crate::ffi::reporting::*;
+    let root = tempfile::tempdir().unwrap();
+    let preferences = root.path().join("preferences");
+    let directory = root.path().join("telemetry");
+    let consent = reporting_call(
+        msime_client_telemetry_consent,
+        json!({"directory": preferences}),
+    );
+    let epoch = &consent["value"]["epoch"];
+    let since = &consent["value"]["since_unix_ms"];
+    let begin = json!({"directory": directory, "platform":"android", "version":"0.3.0", "preferences_directory":preferences, "consent_epoch":epoch});
+    let captured = reporting_call(msime_client_telemetry_begin, begin.clone());
+    let id = captured["value"]["session_id"].as_str().unwrap();
+    let request = json!({"directory":directory,"message":"Synthetic Android system fault", "outside_session":true,
+        "diagnostic_capture":id,"crash_record_header":captured["value"]["crash_record_header"],
+        "preferences_directory":preferences,"consent_epoch":epoch,"diagnostic_begin_unix_ms":since,"diagnostic_end_unix_ms":since});
+    let mut unbound = request.clone();
+    unbound.as_object_mut().unwrap().remove("consent_epoch");
+    assert_eq!(
+        reporting_call(msime_client_telemetry_record_crash, unbound)["ok"],
+        false
+    );
+    let mut mixed = request.clone();
+    mixed["diagnostic_id"] = "synthetic-duplicate-identity".into();
+    assert_eq!(
+        reporting_call(msime_client_telemetry_record_crash, mixed)["ok"],
+        false
+    );
+    let native = json!({"directory":directory,"session":id,"message":"Synthetic exact native stack", "stack":"synthetic+0x42", "crash_record_header":captured["value"]["crash_record_header"]});
+    assert_eq!(
+        reporting_call(msime_client_telemetry_record_crash, native)["value"],
+        true
+    );
+    assert_eq!(
+        reporting_call(msime_client_telemetry_record_crash, request.clone())["value"],
+        false
+    );
+    reporting_call(msime_client_telemetry_begin, begin.clone());
+    let store = msime_client_services::telemetry::TelemetryStore::new(&directory);
+    let queued = store.queued().unwrap();
+    assert_eq!(
+        queued
+            .iter()
+            .filter(|event| event.kind == msime_client_services::telemetry::TelemetryKind::Crash)
+            .count(),
+        1
+    );
+    assert!(queued.iter().any(
+        |event| event.message.starts_with("Synthetic exact native stack")
+            && event.stack == "synthetic+0x42"
+    ));
+    assert!(queued
+        .iter()
+        .any(|event| event.id == format!("session-{id}")
+            && event.kind == msime_client_services::telemetry::TelemetryKind::SessionCrash));
+    // 系统再次投递由持久收据拒绝，不依赖队列中仍有同一事件。
+    assert_eq!(
+        reporting_call(msime_client_telemetry_record_crash, request.clone())["value"],
+        false
+    );
+    reporting_call(msime_client_telemetry_begin, begin);
+    let queued = store.queued().unwrap();
+    assert_eq!(
+        queued
+            .iter()
+            .filter(|event| event.kind == msime_client_services::telemetry::TelemetryKind::Crash)
+            .count(),
+        1
+    );
+    assert_eq!(
+        queued
+            .iter()
+            .filter(
+                |event| event.kind == msime_client_services::telemetry::TelemetryKind::SessionCrash
+            )
+            .count(),
+        1
+    );
+    struct Accepted;
+    impl msime_client_services::telemetry::TelemetrySender for Accepted {
+        fn send(&self, _: &[u8]) -> msime_client_services::telemetry::Delivery {
+            msime_client_services::telemetry::Delivery::Accepted
+        }
+    }
+    let bound = store
+        .activate_consent_epoch(epoch.as_str().unwrap().parse().unwrap())
+        .unwrap();
+    bound
+        .flush(&Accepted, std::time::SystemTime::now())
+        .unwrap();
+    assert!(bound.queued().unwrap().is_empty());
+    assert_eq!(
+        reporting_call(msime_client_telemetry_record_crash, request)["value"],
+        false
+    );
+    assert!(bound.queued().unwrap().is_empty());
+}
+
+#[test]
+fn telemetry_conditional_clear_cannot_delete_reenabled_reports() {
+    use crate::ffi::reporting::*;
+    let root = tempfile::tempdir().unwrap();
+    let preferences_directory = root.path().join("preferences");
+    let directory = root.path().join("telemetry");
+    let preferences = PreferencesStore::new(&preferences_directory);
+    let consent = preferences.usage_reporting_consent().unwrap().unwrap();
+    let begin = json!({"directory": directory,"platform":"ios","version":"0.1.0","preferences_directory":preferences_directory,"consent_epoch":consent.epoch});
+    reporting_call(msime_client_telemetry_begin, begin);
+    let store = msime_client_services::telemetry::TelemetryStore::new(&directory);
+    let fresh = store.queued().unwrap();
+    let clear = json!({"directory":directory,"preferences_directory":preferences_directory});
+    assert_eq!(
+        reporting_call(msime_client_telemetry_clear, clear.clone())["value"],
+        false
+    );
+    assert_eq!(store.queued().unwrap(), fresh);
+    let current = preferences.load().unwrap();
+    let mut edited = current.preferences;
+    edited.usage_reporting = false;
+    preferences.save(current.revision, edited).unwrap();
+    assert_eq!(
+        reporting_call(msime_client_telemetry_clear, clear)["value"],
+        true
+    );
+    assert!(store.queued().unwrap().is_empty());
+    let path = preferences_directory.join("preferences.json");
+    std::fs::write(&path, b"{synthetic damaged").unwrap();
+    assert_eq!(
+        reporting_call(
+            msime_client_telemetry_consent,
+            json!({"directory":preferences_directory})
+        )["ok"],
+        false
+    );
+    assert_eq!(std::fs::read(path).unwrap(), b"{synthetic damaged");
+}
+
+#[test]
 fn telemetry_abi_runs_a_session_through_a_crash_and_clears_when_turned_off() {
     use crate::ffi::reporting::*;
     let root = tempfile::tempdir().unwrap();
@@ -19267,7 +19713,7 @@ fn telemetry_abi_reads_consent_from_the_shared_preferences() {
         "version": "0.50.0",
         "preferences_directory": preferences,
     });
-    // No preferences saved yet: the default, which is on.
+    // 尚无偏好文档时仍使用默认开启值，并持久化本轮授权。
     let started = reporting_call(msime_client_telemetry_begin, request.clone());
     assert_eq!(started["value"]["enabled"], true, "{started}");
 
@@ -19276,7 +19722,7 @@ fn telemetry_abi_reads_consent_from_the_shared_preferences() {
         usage_reporting: false,
         ..Preferences::default()
     };
-    store.save(0, off).unwrap();
+    store.save(store.load().unwrap().revision, off).unwrap();
     let stopped = reporting_call(msime_client_telemetry_begin, request);
     assert_eq!(stopped["value"]["enabled"], false);
     assert!(
@@ -19285,6 +19731,69 @@ fn telemetry_abi_reads_consent_from_the_shared_preferences() {
             .unwrap()
             .is_empty()
     );
+}
+
+#[test]
+fn telemetry_abi_independent_capture_preserves_build_without_ending_input_session() {
+    use crate::ffi::reporting::*;
+    use msime_client_services::telemetry::{TelemetryApp, TelemetryKind, TelemetryStore};
+    let root = tempfile::tempdir().unwrap();
+    let request = json!({"directory": root.path(), "platform": "android", "version": "1.2.3", "enabled": true});
+    let input = reporting_call(msime_client_telemetry_begin, request.clone());
+    let mut application = request.clone();
+    application["capture_only"] = json!(true);
+    application["component"] = json!("application");
+    let capture =
+        reporting_call(msime_client_telemetry_begin, application.clone())["value"].clone();
+    assert_eq!(capture["enabled"], true);
+    assert_ne!(capture["session_id"], input["value"]["session_id"]);
+    let crash = json!({"directory": root.path(), "session": capture["session_id"],
+        "message": "Synthetic fatal exception", "stack": "libsynthetic.so+0x123",
+        "crash_record_header": capture["crash_record_header"]});
+    assert_eq!(
+        reporting_call(msime_client_telemetry_record_crash, crash.clone())["value"],
+        true
+    );
+    assert_eq!(
+        reporting_call(msime_client_telemetry_record_crash, crash.clone())["value"],
+        false
+    );
+    let store = TelemetryStore::new(root.path());
+    store
+        .record_active(
+            &TelemetryApp::new("android", "9.0.0").unwrap(),
+            std::time::SystemTime::now(),
+        )
+        .unwrap();
+    let events = store.queued().unwrap();
+    let event = events
+        .iter()
+        .find(|event| event.kind == TelemetryKind::Crash)
+        .unwrap();
+    assert_eq!(event.version, "1.2.3");
+    assert!(event.message.contains("\"component\":\"application\""));
+    assert!(!events
+        .iter()
+        .any(|event| event.kind == TelemetryKind::SessionCrash));
+    assert_eq!(
+        reporting_call(
+            msime_client_telemetry_end,
+            json!({"directory": root.path(), "session": input["value"]["session_id"]})
+        )["value"],
+        true
+    );
+    let mut invalid = crash;
+    invalid["crash_record_header"] = json!("MSIME-CRASH/1 {}\n");
+    assert_eq!(
+        reporting_call(msime_client_telemetry_record_crash, invalid)["ok"],
+        false
+    );
+    application["enabled"] = json!(false);
+    assert_eq!(
+        reporting_call(msime_client_telemetry_begin, application)["value"]["enabled"],
+        false
+    );
+    assert!(store.queued().unwrap().is_empty());
 }
 
 #[test]
@@ -23222,6 +23731,116 @@ fn world_clock_validates_and_forwards_offline_requests() {
         )["ok"],
         false
     );
+}
+
+#[test]
+fn telemetry_authority_abi_shares_one_epoch_across_private_sandboxes() {
+    use crate::ffi::reporting::*;
+    use msime_client_services::telemetry::TelemetryStore;
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("settings-state");
+    let authority = root.path().join("shared-authority");
+    let queue = root.path().join("keyboard-state/telemetry");
+    let publish = |allowed: bool| {
+        reporting_call(
+            msime_client_telemetry_consent,
+            json!({"directory":source,"authority_directory":authority,"publication":{"policy_allowed":allowed,"policy_identity":"synthetic-policy"}}),
+        )
+    };
+    let first = publish(true);
+    assert_eq!(first["ok"], true, "{first}");
+    let request = |epoch: &Value| json!({"directory":queue,"platform":"harmony","version":"0.1.0","consent_epoch":epoch,"authority_directory":authority});
+    let begin = reporting_call(
+        msime_client_telemetry_begin,
+        request(&first["value"]["epoch"]),
+    );
+    assert_eq!(begin["value"]["enabled"], true, "{begin}");
+    assert!(!root.path().join("keyboard-state/preferences.json").exists());
+    // 设置进程经历撤回和重开，键盘只读到最终快照也必须失去旧权限。
+    assert_eq!(publish(false)["value"]["enabled"], false);
+    let second = publish(true);
+    assert_ne!(first["value"]["epoch"], second["value"]["epoch"]);
+    let current = reporting_call(
+        msime_client_telemetry_begin,
+        request(&second["value"]["epoch"]),
+    );
+    assert_eq!(current["value"]["enabled"], true, "{current}");
+    let store = TelemetryStore::new(&queue);
+    let fresh = store.queued().unwrap();
+    assert_eq!(
+        reporting_call(
+            msime_client_telemetry_begin,
+            request(&first["value"]["epoch"])
+        )["value"]["enabled"],
+        false
+    );
+    assert_eq!(
+        reporting_call(
+            msime_client_telemetry_clear,
+            json!({"directory":queue,"authority_directory":authority})
+        )["value"],
+        false
+    );
+    assert_eq!(store.queued().unwrap(), fresh);
+    // 旧现场文件晚到，继续按原代次过滤，不能改写为当前授权。
+    let path = begin["value"]["crash_record_path"].as_str().unwrap();
+    std::fs::write(
+        path,
+        format!(
+            "{}Synthetic old fault\nsynthetic+0x12\n",
+            begin["value"]["crash_record_header"].as_str().unwrap()
+        ),
+    )
+    .unwrap();
+    let collected = reporting_call(
+        msime_client_telemetry_begin,
+        request(&second["value"]["epoch"]),
+    );
+    assert_eq!(collected["value"]["crashes"], 0);
+    assert!(!std::path::Path::new(path).exists());
+    let mut bypass = request(&second["value"]["epoch"]);
+    bypass["enabled"] = true.into();
+    assert_eq!(
+        reporting_call(msime_client_telemetry_begin, bypass)["ok"],
+        false
+    );
+    let mut no_epoch = request(&second["value"]["epoch"]);
+    no_epoch.as_object_mut().unwrap().remove("consent_epoch");
+    assert_eq!(
+        reporting_call(msime_client_telemetry_begin, no_epoch)["ok"],
+        false
+    );
+    let mut mixed = request(&second["value"]["epoch"]);
+    mixed["preferences_directory"] = source.to_string_lossy().as_ref().into();
+    assert_eq!(
+        reporting_call(msime_client_telemetry_begin, mixed)["ok"],
+        false
+    );
+    // 暂时损坏只暂停，不能被当作关闭清队列；恢复仍是同一轮授权。
+    let source_file = source.join("preferences.json");
+    let saved = std::fs::read(&source_file).unwrap();
+    std::fs::write(&source_file, b"broken").unwrap();
+    let paused = publish(true);
+    assert_eq!(paused["value"]["suspended"], true);
+    assert_eq!(
+        reporting_call(
+            msime_client_telemetry_clear,
+            json!({"directory":queue,"authority_directory":authority})
+        )["ok"],
+        false
+    );
+    assert_eq!(store.queued().unwrap(), fresh);
+    std::fs::write(&source_file, saved).unwrap();
+    assert_eq!(publish(true)["value"]["epoch"], second["value"]["epoch"]);
+    publish(false);
+    assert_eq!(
+        reporting_call(
+            msime_client_telemetry_clear,
+            json!({"directory":queue,"authority_directory":authority})
+        )["value"],
+        true
+    );
+    assert!(store.queued().unwrap().is_empty());
 }
 
 #[test]
