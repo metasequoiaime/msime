@@ -2110,7 +2110,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       controller.view.layoutIfNeeded()
       let toolbar = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardShortcutBar" })
       XCTAssertFalse(toolbar.isHidden)
-      // 品牌原生图像覆盖整格按钮，36pt 圆底与 24pt 官方标志在其中居中。
+      // 品牌原生图像覆盖整格按钮，24pt 官方标志在其中居中，不垫圆底。
       let brand = try XCTUnwrap(descendants(toolbar).first { $0.accessibilityIdentifier == "keyboardBrandIcon" })
       let brandSlot = try XCTUnwrap(brand.superview)
       XCTAssertEqual(brand.bounds.width, brandSlot.bounds.width, accuracy: 0.1)

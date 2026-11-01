@@ -1,7 +1,7 @@
 import { GroupList } from "../core/platform-controls";
 import { ActionButton } from "./action-button";
-import { EndpointSettingField } from "./endpoint-setting-field";
-import { SecretSettingField } from "./secret-setting-field";
+import { EndpointSettingRow } from "./endpoint-setting-row";
+import { SecretSettingRow } from "./secret-setting-row";
 import { SegmentedRow } from "./segmented-row";
 import { SettingsGroupNote } from "./settings-group-note";
 import { SettingsManagerActions } from "./settings-manager-actions";
@@ -83,8 +83,8 @@ export function CloudClipboardRelaySection({
       />
       {mode === "relay" && (
         <>
-          <EndpointSettingField
-            label="中继地址"
+          <EndpointSettingRow
+            title="中继地址"
             inputLabel="中继地址"
             description="例如 https://relay.example.com/msime。必须是 HTTPS，证书要由公网信任的机构签发（自签证书和私有 CA 连不上）；HTTP 只用于本机测试（127.0.0.1）。"
             placeholder="https://relay.example.com/msime"
@@ -95,7 +95,8 @@ export function CloudClipboardRelaySection({
           {url !== "" && urlIssue && (
             <SettingsGroupNote role="status">{urlIssue}</SettingsGroupNote>
           )}
-          <SecretSettingField
+          <SecretSettingRow
+            title="中继令牌"
             label="中继令牌"
             description="由中继管理员生成，每个令牌对应中继上一份独立的云剪贴板。令牌只存在本机的设置里，不会随设置文件导出或账号同步。"
             value={token}
@@ -121,8 +122,8 @@ export function CloudClipboardRelaySection({
       )}
       {mode === "webdav" && webdavAvailable && (
         <>
-          <EndpointSettingField
-            label="服务器地址"
+          <EndpointSettingRow
+            title="服务器地址"
             inputLabel="服务器地址"
             description="坚果云填 https://dav.jianguoyun.com/dav/ 即可，水杉会在里面自动建 msime-clipboard 文件夹，不用自己先建；其他网盘填它给的 WebDAV 地址。必须是 HTTPS，证书要由公网信任的机构签发。"
             placeholder="https://dav.jianguoyun.com/dav/"
@@ -133,8 +134,8 @@ export function CloudClipboardRelaySection({
           {webdavUrl !== "" && webdavUrlIssue && (
             <SettingsGroupNote role="status">{webdavUrlIssue}</SettingsGroupNote>
           )}
-          <EndpointSettingField
-            label="账号"
+          <EndpointSettingRow
+            title="账号"
             inputLabel="账号"
             description="网盘的登录账号，坚果云是登录邮箱。"
             value={webdavUsername}
@@ -144,7 +145,8 @@ export function CloudClipboardRelaySection({
           {webdavUsername !== "" && webdavUsernameIssue && (
             <SettingsGroupNote role="status">{webdavUsernameIssue}</SettingsGroupNote>
           )}
-          <SecretSettingField
+          <SecretSettingRow
+            title="应用密码"
             label="应用密码"
             description="在网盘的安全设置里为第三方应用生成的密码，不是登录密码。只存在本机的设置里，不会随设置文件导出或账号同步。"
             value={webdavPassword}

@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// 设计稿里的开屏动画，按应用主题的季节着色：光晕在由主色混出的深色底上弹出并呼吸，浅色圆盘弹入并泛起两圈涟漪，标志旋入并写出白色笔画，名称和拉丁文一行依次升起，底部进度条在 2.4 秒内填满。2.8 秒后或首次点击时流程继续。它在首次启动的引导之前播放，也可以从 我的 → 开屏动画 再次播放；普通启动在静态启动屏之后直接进入应用。
+/// 设计稿里的开屏动画，按应用主题的季节着色：光晕在由主色混出的深色底上弹出并呼吸，水杉标志（固定配色的深色圆角正方形，本身就是外框，不再垫圆盘）弹入、旋入并写出白色笔画，名称和拉丁文一行依次升起，底部进度条在 2.4 秒内填满。2.8 秒后或首次点击时流程继续。它在首次启动的引导之前播放，也可以从 我的 → 开屏动画 再次播放；普通启动在静态启动屏之后直接进入应用。
 ///
 /// 每个元素都是开屏出现以来经过时间的纯函数，由 TimelineView 求值，因此设计稿的 CSS 关键帧（偏移、分段 cubic-bezier 曲线、延迟和迭代次数）被精确复现，而不是用串联的 SwiftUI 动画近似。Android 的 HomeActivity 播放的是同一条时间线。
 struct SplashView: View {
@@ -50,7 +50,7 @@ struct SplashView: View {
         .scaleEffect(frame.glowScale)
         .opacity(frame.glowOpacity)
       VStack(spacing: 18) {
-        disc(frame, palette: palette)
+        mark(frame)
         Text("水杉输入法").font(.system(size: 24, weight: .bold)).tracking(1.44).foregroundStyle(.white)
           .opacity(frame.nameOpacity).offset(y: frame.nameOffset)
         Text("METASEQUOIA IME").font(.system(size: 13)).tracking(2.34).foregroundStyle(.white.opacity(0.62))
@@ -69,30 +69,16 @@ struct SplashView: View {
     .ignoresSafeArea()
   }
 
-  private func disc(_ frame: Frame, palette: Palette) -> some View {
-    let logoSize: CGFloat = 100
-    let logoScale = MSIMELogo.scale(for: CGRect(x: 0, y: 0, width: logoSize, height: logoSize))
-    return ZStack {
-      // 设计稿的 msRipple 让白色 box-shadow 的扩展从 0 长到 36pt，同时淡出；在圆盘后面放一个从 180pt 缩放到 252pt 的白色圆，画出的是同样的圆环。
-      Circle().fill(.white)
-        .scaleEffect(frame.rippleScale)
-        .opacity(frame.rippleOpacity)
-      Circle().fill(palette.disc)
-        .shadow(color: .black.opacity(0.35), radius: 20, y: 12)
-      ZStack {
-        MSIMELogoFrame().fill(palette.logo)
-        MSIMELogoStroke()
-          .trim(from: 0, to: frame.strokeDrawn)
-          .stroke(.white, style: StrokeStyle(lineWidth: MSIMELogo.strokeWidth * logoScale, lineCap: .round, lineJoin: .round))
-      }
-      .frame(width: logoSize, height: logoSize)
+  /// 标志占原来 180pt 圆盘的位置，取其 5/6 即 150pt；圆盘、它的阴影和背后的涟漪都去掉了，标志外面不再套别的形状。
+  private func mark(_ frame: Frame) -> some View {
+    MSIMELogoMark(strokeDrawn: frame.strokeDrawn)
+      .frame(width: 150, height: 150)
       .scaleEffect(frame.logoScale)
       .rotationEffect(.degrees(frame.logoRotation))
       .opacity(frame.logoOpacity)
-    }
-    .frame(width: 180, height: 180)
-    .scaleEffect(frame.discScale)
-    .opacity(frame.discOpacity)
+      .frame(width: 180, height: 180)
+      .scaleEffect(frame.popScale)
+      .opacity(frame.popOpacity)
   }
 
   private func finish() {
@@ -106,16 +92,12 @@ struct SplashView: View {
 private struct Palette {
   let background: Color
   let glow: Color
-  let disc: Color
-  let logo: Color
   let bar: Color
 
   init(accent: UIColor) {
     background = Color(uiColor: AppThemePalette.mix(accent, 20, UIColor(red: 10 / 255, green: 11 / 255, blue: 10 / 255, alpha: 1)))
     // color-mix(accent 34%, transparent) 按预乘 alpha 插值，结果就是 34% 不透明度的主色（Android 的 `withAlpha(accent, 0x57)`）；直接和透明色逐通道混合反而会让它变暗。
     glow = Color(uiColor: accent.withAlphaComponent(CGFloat(0x57) / 255))
-    disc = Color(uiColor: AppThemePalette.mix(accent, 12, .white))
-    logo = Color(uiColor: AppThemePalette.mix(accent, 82, .black))
     bar = Color(uiColor: AppThemePalette.mix(accent, 70, .white))
   }
 }
@@ -124,10 +106,8 @@ private struct Palette {
 private struct Frame {
   var glowScale: CGFloat = 1
   var glowOpacity: Double = 1
-  var discScale: CGFloat = 1
-  var discOpacity: Double = 1
-  var rippleScale: CGFloat = 1
-  var rippleOpacity: Double = 0
+  var popScale: CGFloat = 1
+  var popOpacity: Double = 1
   var logoScale: CGFloat = 1
   var logoRotation: Double = 0
   var logoOpacity: Double = 1
@@ -158,15 +138,9 @@ private struct Frame {
       glowOpacity = 1 - 0.45 * swell
       glowScale = 1 + 0.04 * swell
     }
-    // msCircIn .65s：缩放 .4 → 60% 处 1.06 → 1，不透明度 0 → 60% 处 1。
-    discScale = Self.track(t, begin: 0, duration: 0.65, Self.spring, [(0, 0.4), (0.6, 1.06), (1, 1)])
-    discOpacity = Self.track(t, begin: 0, duration: 0.65, Self.spring, [(0, 0), (0.6, 1), (1, 1)])
-    // msRipple 1.2s ease-out，从 1.45s 开始，播放两次：180pt 圆盘上一圈 36pt 宽的白环（缩放 1 → 1.4），从 35% 白色淡到透明。
-    if t >= 1.45, t < 1.45 + 2 * 1.2 {
-      let run = Self.easeOut.value(at: ((t - 1.45) / 1.2).truncatingRemainder(dividingBy: 1))
-      rippleScale = 1 + 0.4 * run
-      rippleOpacity = 0.35 * (1 - run)
-    }
+    // msCircIn .65s：缩放 .4 → 60% 处 1.06 → 1，不透明度 0 → 60% 处 1；原来作用在圆盘上，现在是标志所在的整块一起弹入。
+    popScale = Self.track(t, begin: 0, duration: 0.65, Self.spring, [(0, 0.4), (0.6, 1.06), (1, 1)])
+    popOpacity = Self.track(t, begin: 0, duration: 0.65, Self.spring, [(0, 0), (0.6, 1), (1, 1)])
     // msLogoIn .6s，从 .25s 开始：缩放 .5 → 1.08 → 1，旋转 -12° → 2° → 0，不透明度 0 → 70% 处 1。
     logoScale = Self.track(t, begin: 0.25, duration: 0.6, Self.spring, [(0, 0.5), (0.7, 1.08), (1, 1)])
     logoRotation = Self.track(t, begin: 0.25, duration: 0.6, Self.spring, [(0, -12), (0.7, 2), (1, 0)])

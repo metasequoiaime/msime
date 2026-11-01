@@ -55,7 +55,7 @@ public final class NativeClient {
     public static String skinResource(String request) { return TextPolicy.utf8(skinResourceRaw(request.getBytes(StandardCharsets.UTF_8))); }
     /** 应用主题目录：`{app_themes:[{id,title,season,seasonal,light,dark}],default}`。纯计算。 */
     public static String appThemeCatalog() { return TextPolicy.utf8(appThemeCatalogRaw()); }
-    /** 应用主题在本地月份与明暗模式下的颜色：`{id,season,accent,accent_soft,on_accent,background,card,hair}`。纯计算，可在主线程调用。 */
+    /** 应用主题在本地月份与明暗模式下的颜色：`{id,season,accent,accent_soft,on_accent,background,card,hair,candidate_accent}`（`candidate_accent` 是触屏候选条首选的字色，浅色加深到 WCAG AA，深色等于 `accent`）。纯计算，可在主线程调用。 */
     public static String resolveAppTheme(String appTheme, int month, boolean dark) {
         validateMonth(month);
         try {
@@ -172,6 +172,27 @@ public final class NativeClient {
             JSONObject value = envelope.optJSONObject("value");
             String notice = value == null ? "" : JsonPolicy.strictStringOrEmpty(value.opt("notice"));
             return notice.isEmpty() ? null : notice;
+        } catch (JSONException error) {
+            return null;
+        }
+    }
+    /**
+     * 长按候选菜单的「朗读」和背单词卡片的喇叭要读的英文（C ABI {@code msime_client_read_aloud_text}）：取每行释义的第一个义项，第一个是英文的就是答案；没有时候选本身是英文就读候选。没有能读的、请求不合法时返回 null，菜单就不出这一项。不读写文件，可以在主线程打开菜单时调用。背单词卡片把词头当作 {@code candidate}、{@code gloss} 给空串。
+     */
+    public static String readAloudText(String candidate, String gloss) {
+        byte[] bytes;
+        try {
+            bytes = new JSONObject().put("candidate", candidate == null ? "" : candidate)
+                .put("gloss", gloss == null ? "" : gloss).toString().getBytes(StandardCharsets.UTF_8);
+        } catch (JSONException error) {
+            return null;
+        }
+        if (!HttpBodyPolicy.isNonEmptyWithinLimit(bytes, PERSONAL_WORDBOOK_REQUEST_LIMIT)) return null;
+        try {
+            JSONObject envelope = new JSONObject(TextPolicy.utf8(readAloudTextRaw(bytes)));
+            if (!JsonPolicy.strictTrue(envelope.opt("ok"))) return null;
+            String text = JsonPolicy.strictStringOrEmpty(envelope.opt("value"));
+            return text.isEmpty() ? null : text;
         } catch (JSONException error) {
             return null;
         }
@@ -1112,6 +1133,7 @@ public final class NativeClient {
     private static native byte[] accountSettingsApplyRaw(byte[] request);
     private static native byte[] vocabularyReviewRaw(byte[] request);
     private static native byte[] personalWordbookAddRaw(byte[] request);
+    private static native byte[] readAloudTextRaw(byte[] request);
     private static native byte[] emojiCatalogRaw(byte[] query, byte[] resources);
     private static native byte[] candidateGlossesRaw(byte[] request, byte[] resources);
     private static native byte[] candidatePronunciationsRaw(byte[] request, byte[] resources);

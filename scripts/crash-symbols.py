@@ -44,6 +44,9 @@ def collect(args):
         for path in sorted(root.rglob("*")):
             if path.is_symlink() or not path.is_file() or "CMakeFiles" in path.parts:
                 continue
+            # cargo 目标目录里 deps/build 等中间目录有最终模块的带哈希副本，同一 build-id 会让 <executable> 等按身份的查找不唯一。
+            if {"deps", "build", "incremental", ".fingerprint"} & set(path.relative_to(root).parts[:-1]):
+                continue
             # 只归档自己的最终模块，不收集目标文件、设备日志、系统库或模型。
             if not re.match(r"^(?:lib)?(?:msime|MSIME|fcitx5-msime)", path.name) or path.suffix in (".o", ".a", ".rlib"):
                 continue

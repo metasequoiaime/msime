@@ -49,19 +49,20 @@ public final class BackupPage extends DetailPage {
         registerForActivityResult(new ActivityResultContracts.OpenDocument(), this::onRestorePicked);
 
     @Override protected void buildContent(LinearLayout column, Bundle args) {
+        // 备份文件没加密是风险提示，留在页首；备份做什么收进「备份」组标题的「?」。
         GroupCard intro = GroupCard.add(sectionColumn(column, "备份"), null);
-        intro.note("把设置、自定义皮肤、常用语、个人词库（自造词和学到的词）和输入记录（候选顺序的学习调整、固定和置顶的候选、选词次数、整句联想学到的上下文、拼写纠错习惯）导出成一个文件，存在你选的位置。换手机、重装或降级以后，从这个文件恢复。全程只在本机，不经过云端，也不需要登录。");
+        String about = "把设置、自定义皮肤、常用语、个人词库（自造词和学到的词）和输入记录（候选顺序的学习调整、固定和置顶的候选、选词次数、整句联想学到的上下文、拼写纠错习惯）导出成一个文件，存在你选的位置。换手机、重装或降级以后，从这个文件恢复。全程只在本机，不经过云端，也不需要登录。";
         intro.note(LocalBackup.PRIVACY_NOTICE);
 
-        GroupCard backup = GroupCard.add(sectionColumn(column, "备份"), "备份");
+        GroupCard backup = GroupCard.add(sectionColumn(column, "备份"), "备份").help(about);
         directoryRow = backup.button("备份保存位置", "未设置时每次导出都选择文件", "选择文件夹", this::pickDirectory);
-        exportRow = backup.button("导出备份", "文件名带应用名和版本号，降级时容易找到对应的那份", "导出",
-            this::startExport);
+        exportRow = backup.button("导出备份", null, "导出",
+            this::startExport).help("文件名带应用名和版本号，降级时容易找到对应的那份");
 
         GroupCard restore = GroupCard.add(sectionColumn(column, "恢复"), "恢复");
         restoreRow = restore.button("从备份恢复", "设置按备份改写；皮肤、常用语、词和输入记录合并进来，本机已有的不会删除",
             "选择文件", this::startRestore);
-        restore.footer("恢复前会先检查文件是否完整，损坏的文件不会改动本机；设置、皮肤或常用语有一部分写不进去时，这次恢复会整个撤销。备份里没有账号、AI 与翻译服务的凭据、剪贴板历史和诊断日志，不带「上传语音以改进识别」的授权和开发者选项，也没有输入统计和命名词库的分组（词库里的词随个人词库一起恢复）；自定义皮肤只有设计参数，不含照片。恢复的词在键盘空闲时陆续写入词库；输入记录也在键盘空闲时合并，本机已经学到的保留本机，各种次数取两边较多的那个。输入记录不随云同步上传。");
+        restore.help("恢复前会先检查文件是否完整，损坏的文件不会改动本机；设置、皮肤或常用语有一部分写不进去时，这次恢复会整个撤销。备份里没有账号、AI 与翻译服务的凭据、剪贴板历史和诊断日志，不带「上传语音以改进识别」的授权和开发者选项，也没有输入统计和命名词库的分组（词库里的词随个人词库一起恢复）；自定义皮肤只有设计参数，不含照片。恢复的词在键盘空闲时陆续写入词库；输入记录也在键盘空闲时合并，本机已经学到的保留本机，各种次数取两边较多的那个。输入记录不随云同步上传。");
         refresh();
         refreshDirectory();
     }

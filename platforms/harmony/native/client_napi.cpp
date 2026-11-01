@@ -282,6 +282,8 @@ TEXT_ENTRY(Dictionary, msime_client_dictionary)
 TEXT_ENTRY(TypingStatistics, msime_client_typing_statistics)
 TEXT_ENTRY(PersonalWordbookMerge, msime_client_personal_wordbook_merge)
 TEXT_ENTRY(PersonalWordbookDrain, msime_client_personal_wordbook_drain)
+// 长按菜单的「朗读」和背单词卡片的喇叭要读的英文：纯函数，不读写文件，打开菜单时在主线程上调用。
+TEXT_ENTRY(ReadAloudText, msime_client_read_aloud_text)
 TEXT_ENTRY(MobileClipboardHistory, msime_client_mobile_clipboard_history)
 TEXT_ENTRY(PersonalDictionarySync, msime_client_personal_dictionary_sync)
 TEXT_ENTRY(PersonalDictionaryRequest, msime_client_personal_dictionary_request)
@@ -1832,6 +1834,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("vocabularyReview", VocabularyReview),
         ENTRY("personalWordbookAdd", PersonalWordbookAdd),
         ENTRY("personalWordbookMerge", PersonalWordbookMerge),
+        ENTRY("readAloudText", ReadAloudText),
         ENTRY("personalWordbookDrain", PersonalWordbookDrain),
         ENTRY("mobileClipboardHistory", MobileClipboardHistory),
         ENTRY("emojiCatalog", EmojiCatalog),

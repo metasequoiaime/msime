@@ -7,6 +7,7 @@ export interface SecretSettingRowProps {
   description?: ReactNode;
   label: string;
   value: string;
+  placeholder?: string;
   disabled?: boolean;
   onChange: (value: string) => void;
 }
@@ -17,12 +18,19 @@ export function SecretSettingRow({
   description,
   label,
   value,
+  placeholder,
   disabled,
   onChange,
 }: SecretSettingRowProps) {
   return (
     <Row title={title} description={description} wideControl>
-      <SecretInput label={label} value={value} disabled={disabled} onChange={onChange} />
+      <SecretInput
+        label={label}
+        value={value}
+        placeholder={placeholder}
+        disabled={disabled}
+        onChange={onChange}
+      />
     </Row>
   );
 }

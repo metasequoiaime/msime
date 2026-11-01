@@ -45,14 +45,14 @@ public final class PhrasesPage extends ReloadingDetailPage {
         if (target == null) return;
         target.removeAllViews();
         GroupCard categories = GroupCard.add(target, "分类（" + current.categories().size() + "/6）");
-        categories.nav("默认展开", "每次打开键盘常用语面板时使用", current.expandedCategory().isEmpty()
-            ? "不展开" : current.categoryName(current.expandedCategory()), this::chooseExpandedCategory);
+        categories.nav("默认展开", null, current.expandedCategory().isEmpty()
+            ? "不展开" : current.categoryName(current.expandedCategory()), this::chooseExpandedCategory).help("每次打开键盘常用语面板时使用");
         for (CommonPhrasesStore.Category category : current.categories()) {
             GroupCard.Row row = categories.nav(category.name(), null, "管理", () -> manageCategory(category));
             row.view().setContentDescription("管理常用语分类 " + category.name());
         }
-        categories.button("添加分类", "最多 6 个分类，名称最多 20 字", "新建", () -> editCategory(null));
-        GroupCard list = GroupCard.add(target, "在键盘「常用语」面板中，点一下即可发送");
+        categories.button("添加分类", null, "新建", () -> editCategory(null)).help("最多 6 个分类，名称最多 20 字");
+        GroupCard list = GroupCard.add(target, "常用语").help("在键盘「常用语」面板中，点一下即可发送。");
         if (current.phrases().isEmpty()) {
             list.note("还没有常用语。添加以后，在键盘的「常用语」面板里点一下就能发送。");
         }
@@ -69,12 +69,12 @@ public final class PhrasesPage extends ReloadingDetailPage {
                 category.view().setContentDescription("设置常用语分类 " + phrase.text());
             }
         }
-        if (!current.phrases().isEmpty()) list.footer("点一条常用语可以修改。");
+        if (!current.phrases().isEmpty()) list.help("点一条常用语可以修改。");
         GroupCard add = GroupCard.add(target, null);
         add.button("添加常用语", null, "添加", this::showAddDialog);
         // 社区短语包装进来就在这一页里；浏览和添加在社区短语的完整列表里，表达页的「发现短语」也通向那里。
-        add.nav("浏览社区短语包", "别人分享的短语包，添加后出现在这里", null,
-            () -> CommunityFragment.browse(requireContext(), CommunityRequest.Kind.PHRASE));
+        add.nav("浏览社区短语包", null, null,
+            () -> CommunityFragment.browse(requireContext(), CommunityRequest.Kind.PHRASE)).help("别人分享的短语包，添加后出现在这里");
     }
 
     private void editCategory(@Nullable CommonPhrasesStore.Category category) {

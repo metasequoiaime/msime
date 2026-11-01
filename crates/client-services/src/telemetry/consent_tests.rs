@@ -69,6 +69,38 @@ fn late_old_native_records_and_legacy_records_are_discarded() {
 }
 
 #[test]
+fn first_consent_binding_migrates_a_legacy_crash_record_once() {
+    let (_root, store, app) = fixture();
+    std::fs::create_dir_all(store.directory().join(CRASH_DIRECTORY)).unwrap();
+    let previous = "6f1c2a7e-0d35-4c0b-9a4e-2f8d1b3c4e5f";
+    std::fs::write(
+        store.directory().join(SESSION_FILE),
+        serde_json::to_vec(&serde_json::json!({
+            "id": previous, "platform": "linux", "version": "0.49.0", "started_at_unix_ms": 1
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        store
+            .directory()
+            .join(CRASH_DIRECTORY)
+            .join(format!("{previous}.{CRASH_EXTENSION}")),
+        b"SIGSEGV\n",
+    )
+    .unwrap();
+
+    let bound = store.activate_consent_epoch(Uuid::new_v4()).unwrap();
+    let start = bound.begin_session(&app, SystemTime::now()).unwrap();
+    assert!(start.previous_session_crashed);
+    assert!(bound
+        .queued()
+        .unwrap()
+        .iter()
+        .any(|event| event.kind == TelemetryKind::SessionCrash));
+}
+
+#[test]
 fn same_epoch_restart_collects_native_fault_without_uploading_epoch() {
     let (_root, store, app) = fixture();
     let epoch = Uuid::new_v4();
