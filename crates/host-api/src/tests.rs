@@ -16708,6 +16708,74 @@ fn voice_number_normalization_follows_the_model_kind() {
 }
 
 #[test]
+fn voice_punctuation_follows_the_mode_and_rejects_malformed_requests() {
+    let call = |text: &str, mode: &str| {
+        let request = json!({ "text": text, "mode": mode }).to_string();
+        read(unsafe { msime_client_voice_punctuation(request.as_ptr(), request.len()) })
+    };
+    for (mode, expected) in [
+        ("auto", "天啊！他是谁？"),
+        ("omit_trailing", "天啊！他是谁"),
+        ("omit_all", "天啊他是谁"),
+        ("space", "天啊 他是谁"),
+        // 不认识的方式不改动识别结果。
+        ("from_a_newer_version", "天啊！他是谁？"),
+    ] {
+        assert_eq!(
+            call("天啊！他是谁？", mode),
+            json!({"ok": true, "value": {"text": expected}}),
+            "{mode}"
+        );
+    }
+    assert_eq!(
+        call("。", "omit_trailing"),
+        json!({"ok": true, "value": {"text": ""}})
+    );
+    let missing_mode = b"{\"text\": \"x\"}";
+    assert_eq!(
+        read(unsafe { msime_client_voice_punctuation(missing_mode.as_ptr(), missing_mode.len()) })
+            ["ok"],
+        false
+    );
+    let too_long = json!({ "text": "好".repeat(10_001), "mode": "omit_all" }).to_string();
+    assert_eq!(
+        read(unsafe { msime_client_voice_punctuation(too_long.as_ptr(), too_long.len()) })["ok"],
+        false
+    );
+    assert_eq!(
+        read(unsafe { msime_client_voice_punctuation(std::ptr::null(), 4) })["ok"],
+        false
+    );
+}
+
+#[test]
+fn mobile_voice_configuration_reports_the_punctuation_mode() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().to_str().unwrap().to_owned();
+    let configuration =
+        || read(unsafe { msime_client_mobile_voice_configuration(path.as_ptr(), path.len()) });
+    assert_eq!(configuration()["value"]["punctuationMode"], "auto");
+
+    let store = PreferencesStore::new(directory.path());
+    for (saved, reported) in [
+        ("omit_trailing", "omit_trailing"),
+        ("space", "space"),
+        // 更新版本写下的新选项在这里按 auto 交给宿主。
+        ("from_a_newer_version", "auto"),
+    ] {
+        let snapshot = store.load().unwrap();
+        let mut preferences = snapshot.preferences;
+        preferences.voice_input.punctuation_mode = saved.into();
+        store.save(snapshot.revision, preferences).unwrap();
+        assert_eq!(
+            configuration()["value"]["punctuationMode"],
+            reported,
+            "{saved}"
+        );
+    }
+}
+
+#[test]
 fn voice_number_normalization_preserves_approximate_percentages() {
     for kind in ["online_transducer", "offline_transducer"] {
         let request = json!({

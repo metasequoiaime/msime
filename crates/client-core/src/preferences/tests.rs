@@ -1994,6 +1994,34 @@ fn voice_pause_settings_default_to_the_old_fixed_values_and_follow_the_android_b
     assert_eq!(loaded.voice_input.stop_sensitivity, 80);
 }
 
+/// 语音标点（#10558）：缺键读成 `auto`，也就是加这个选项之前的行为，默认值不写进文档；选过的值原样读回；不认识的值不让偏好读不了，由消费方按 `auto` 处理。
+#[test]
+fn voice_punctuation_mode_defaults_to_auto_and_tolerates_unknown_values() {
+    assert_eq!(Preferences::default().voice_input.punctuation_mode, "auto");
+    let document = serde_json::to_value(Preferences::default()).unwrap();
+    assert!(document["voice_input"].get("punctuation_mode").is_none());
+
+    let mut legacy = document.clone();
+    legacy["voice_input"]
+        .as_object_mut()
+        .unwrap()
+        .remove("punctuation_mode");
+    let loaded: Preferences = serde_json::from_value(legacy).unwrap();
+    assert_eq!(loaded.voice_input.punctuation_mode, "auto");
+
+    for value in ["omit_trailing", "omit_all", "space", "from_a_newer_version"] {
+        let mut document = document.clone();
+        document["voice_input"]["punctuation_mode"] = value.into();
+        let loaded: Preferences = serde_json::from_value(document).unwrap();
+        assert_eq!(loaded.voice_input.punctuation_mode, value);
+        assert!(loaded.validate().is_ok(), "{value}");
+        assert_eq!(
+            serde_json::to_value(&loaded).unwrap()["voice_input"]["punctuation_mode"],
+            value
+        );
+    }
+}
+
 #[test]
 fn the_shipped_defaults_are_themselves_reachable() {
     let defaults = Preferences::default();

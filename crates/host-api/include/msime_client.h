@@ -371,8 +371,8 @@ char *msime_client_import_settings(const uint8_t *directory, size_t directory_le
                                    uint64_t expected_revision, const uint8_t *document,
                                    size_t document_length);
 /* The transcription provider and optional rewrite this device is configured for, read from an
- * absolute preferences directory. Response value: {provider:{...}|null, polish:{...}|null}; both
- * absent means nothing is configured and the host uses whatever it falls back to. Contains
+ * absolute preferences directory. Response value: {provider:{...}|null, polish:{...}|null, punctuationMode}; both
+ * absent means nothing is configured and the host uses whatever it falls back to. punctuationMode 是 voice_input.punctuation_mode 归一后的取值（auto、omit_trailing、omit_all、space，不认识的值给 auto），宿主把它交给 msime_client_voice_punctuation。 Contains
  * credentials: never log the response; release with msime_client_string_free. provider.requestFormat 是请求格式："multipart"（OpenAI 兼容的 /audio/transcriptions）、"chat_audio"（Chat Completions 带 input_audio，阿里云百炼）、"doubao_websocket" 或 "local"；宿主按它挑请求构造，不按 provider 名字判断。 */
 char *msime_client_mobile_voice_configuration(const uint8_t *directory, size_t length);
 /* 全局主题选择器：{themes:[{id,title,platforms,appearance,preview,candidate,keyboard},...],default:"system"}。只列出本库编译到的平台提供的主题，按选择器顺序：system, native（仅 iOS）, shuishan, light, paper, night, ink, custom。platforms 为提供该主题的宿主（如 ["ios"]），null 表示所有宿主。appearance is "light"|"dark"|null; preview {background,panel,accent,text}, candidate and keyboard are the built-in palettes and are null for system, native and custom. Keys are snake_case. Hosts keep no copy of the ids, titles or colours. */
@@ -695,6 +695,8 @@ char *msime_client_voice_hotwords(const uint8_t *request, size_t length);
 char *msime_client_voice_hotword_correct(const uint8_t *request, size_t length);
 /* voice_normalize_numbers: {text, kind} -> {text}. 本地模型最终文本里汉字写的数字改成数字（二零零二年 → 2002年，百分之五十七 → 57%），一个、十分有趣这类词不动。只改写不自带 ITN 的 kind（online_transducer、offline_transducer），其他 kind 原样返回，宿主对每个本地模型的最终文本都可以调用；只用于最终文本，不用于中间结果。Pure. text 上限 10000 个 Unicode 标量，kind 上限 64 字节，请求 <=1048576 字节。 */
 char *msime_client_voice_normalize_numbers(const uint8_t *request, size_t length);
+/* voice_punctuation: {text, mode} -> {text}. 语音标点：按 mode 处理最终识别结果，auto 原样返回，omit_trailing 去掉句末标点，omit_all 去掉所有标点，space 把每串标点换成一个空格；不认识的 mode 按 auto。只动识别器写出的句读（，。、；：？！…～ 和半角 , . ; : ? !），数字和网址里的点、数字之间的冒号和逗号保留，引号和括号保留。整段只有标点时返回空串。宿主在所有识别服务和润色之后、上屏之前调用，mode 取 msime_client_mobile_voice_configuration 的 punctuationMode。Pure. text 上限 10000 个 Unicode 标量，mode 上限 64 字节，请求 <=1048576 字节。 */
+char *msime_client_voice_punctuation(const uint8_t *request, size_t length);
 char *msime_client_voice_local_models(const uint8_t *request, size_t length);
 char *msime_client_voice_local_model_install(
     const uint8_t *request, size_t length,
