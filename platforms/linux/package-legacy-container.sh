@@ -89,6 +89,10 @@ docker run --rm --init --platform "$platform" \
     # 删除配置缓存防止旧打包参数残留，保留可增量编译的对象文件。
     rm -f /build/cmake/CMakeCache.txt
     rm -rf /build/dist /build/symbols
+    # 与 package-container.sh 相同，符号归档只看本轮的 Rust 最终产物，不扫持久缓存里 deps/ 的旧副本。
+    rm -rf /build/symbol-inputs
+    mkdir -p /build/symbol-inputs
+    ln /build/cargo/release/libmsime_host_api.so /build/cargo/release/msime-mcp /build/symbol-inputs/
     cmake -S platforms/linux -B /build/cmake -G Ninja \
       -DCMAKE_BUILD_TYPE=Release \
       -DMSIME_RELEASE_CRASH_SYMBOLS=ON \
@@ -108,7 +112,7 @@ docker run --rm --init --platform "$platform" \
       "${extra_args[@]}"
     cmake --build /build/cmake
     python3 scripts/crash-symbols.py collect --platform linux --version "$MSIME_VERSION" \
-      --root /build/cmake --root /build/cargo/release \
+      --root /build/cmake --root /build/symbol-inputs \
       --output "/build/symbols/linux-$MSIME_VERSION-legacy-deb-full-$(uname -m)-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}.zip"
     cpack --config /build/cmake/CPackConfig.cmake -G DEB -B /build/dist
     rm -rf /build/dist/_CPack_Packages

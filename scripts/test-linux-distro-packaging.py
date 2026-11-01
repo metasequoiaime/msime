@@ -21,6 +21,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTAINER = ROOT / "platforms/linux/package-container.sh"
+CMAKE_LISTS = ROOT / "platforms/linux/CMakeLists.txt"
 SPEC = ROOT / "platforms/linux/packaging/rpm/msime.spec"
 RULES = ROOT / "platforms/linux/packaging/debian/rules"
 RENDER = ROOT / "platforms/linux/packaging/render-sources.py"
@@ -67,6 +68,19 @@ def main() -> int:
         failures.append("package-container.sh must configure with -DMSIME_BUNDLE_HANDWRITING_MODEL=OFF and neither fetch nor pass the handwriting model")
     if "-DCMAKE_BUILD_TYPE=Release" not in reference or "-DMSIME_RELEASE_CRASH_SYMBOLS=ON" not in reference:
         failures.append("package-container.sh must keep Release optimization and enable crash source lines")
+    # 发行版的源码构建也开 MSIME_ENABLE_PACKAGING 并执行 cmake --install；安装期剥离只能挂在官方容器才传的 MSIME_RELEASE_CRASH_SYMBOLS 下，否则 dh_strip / find-debuginfo 拿到的是已剥离的 Rust 产物，dbgsym / debuginfo 里没有行号。
+    for path in [SPEC, RULES, PKGBUILD] + [path for path, _ in OPTIONS_ONLY]:
+        if "MSIME_RELEASE_CRASH_SYMBOLS" in path.read_text(encoding="utf-8"):
+            failures.append(f"{path.relative_to(ROOT)}: must not set MSIME_RELEASE_CRASH_SYMBOLS, which strips the Rust products at install time before the distribution splits its debug package")
+    conditions = []
+    for number, line in enumerate(CMAKE_LISTS.read_text(encoding="utf-8").splitlines(), 1):
+        statement = line.strip()
+        if statement.startswith("if("):
+            conditions.append(statement)
+        elif statement.startswith("endif("):
+            conditions.pop()
+        if "--strip-unneeded" in statement and not any("MSIME_RELEASE_CRASH_SYMBOLS" in condition for condition in conditions):
+            failures.append(f"platforms/linux/CMakeLists.txt:{number}: --strip-unneeded outside if(MSIME_RELEASE_CRASH_SYMBOLS) would strip distribution builds before their debug packages are split")
     expected_options = (container_options - CONTAINER_ONLY) | DISTRIBUTION_ONLY
     expected_targets = cargo_targets(reference)
     for path in (SPEC, RULES, PKGBUILD):

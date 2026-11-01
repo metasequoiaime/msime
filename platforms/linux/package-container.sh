@@ -164,7 +164,14 @@ docker run --rm --init \
       languages_args+=(-DMSIME_LANGUAGE_DICTIONARIES=/source/target/language-dictionaries)
     fi
     # 每轮清空发行附件，保留对象文件；配置缓存单独重建，旧版本号和可选资源不能进入本次包。
-    rm -rf /build/dist
+    rm -rf /build/dist /build/symbols
+    # 符号归档只看本轮的 Rust 最终产物：/build/cargo/release 是持久缓存，deps/ 里留着旧构建的中间副本，关掉桌面时还可能留着以前的 msime-desktop，直接扫它会把旧模块收进归档，旧的已剥离副本还会让 collect 报错。
+    rm -rf /build/symbol-inputs
+    mkdir -p /build/symbol-inputs
+    ln /build/cargo/release/libmsime_host_api.so /build/cargo/release/msime-mcp /build/symbol-inputs/
+    if [ "$MSIME_PACKAGE_DESKTOP" = 1 ]; then
+      ln /build/cargo/release/msime-desktop /build/symbol-inputs/
+    fi
     IFS=, read -r -a editions <<<"$MSIME_PACKAGE_EDITIONS"
     for edition in "${editions[@]}"; do
       # 每个版本一个构建目录：full 仍是 /build/cmake，装在 /usr；其他版本装在版本表给的前缀下。粤语、注音和笔画词库只有用到它们的版本要（cmake/Edition.cmake 对其他版本忽略），所以「必须带齐」也只对 full 生效。单测只跑 full 的。
@@ -199,7 +206,7 @@ docker run --rm --init \
       fi
       [ "$MSIME_PACKAGE_TESTS_ONLY" = 0 ] || continue
       python3 scripts/crash-symbols.py collect --platform linux --version "$MSIME_VERSION" \
-        --root "$build" --root /build/cargo/release \
+        --root "$build" --root /build/symbol-inputs \
         --output "/build/symbols/linux-$MSIME_VERSION-$MSIME_PACKAGE_FORMAT-$edition-$(uname -m)-${MSIME_BUILD_RUN:-local}-${GITHUB_RUN_ATTEMPT:-1}.zip"
       # Rust 安装副本由 install(CODE) 剥离；原件保留给后续版本归档。
 
