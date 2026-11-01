@@ -63,7 +63,7 @@ public final class ResourcePackService extends Service {
     private static final int RESULT_NOTIFICATION = 0x6d730510;
     private static final List<String> PACKS = List.of(ResourcePacks.JAPANESE, ResourcePacks.LANGUAGE_DICTIONARIES,
         ResourcePacks.OFFLINE_GLOSSES, ResourcePacks.PRONUNCIATIONS, ResourcePacks.VOICE_RUNTIME,
-        ResourcePacks.OCR_MODULE, ResourcePacks.WUBI);
+        ResourcePacks.OCR_MODULE, ResourcePacks.WUBI, ResourcePacks.TARGET_PRONUNCIATIONS);
     private static final String VOICE_MODEL_PREFIX = "voice-model:";
 
     /** 一个资源包正在经历的阶段。下载完成后不再有状态。 */
@@ -273,6 +273,7 @@ public final class ResourcePackService extends Service {
             case ResourcePacks.WUBI -> "五笔码表";
             case ResourcePacks.OFFLINE_GLOSSES -> "离线释义词典";
             case ResourcePacks.PRONUNCIATIONS -> "离线英文音标词典";
+            case ResourcePacks.TARGET_PRONUNCIATIONS -> "离线外语读音词典";
             case ResourcePacks.OCR_MODULE -> "离线拍照识字模块";
             case ResourcePacks.VOICE_RUNTIME -> "本地语音运行库";
             default -> isVoiceModel(pack) ? MODEL_TITLES.getOrDefault(pack, "本地语音模型") : pack;

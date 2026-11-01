@@ -4272,10 +4272,11 @@ struct KeyboardView {
   }
 
   /**
-   * Translations, comments and code hints, selected row included: the palette's `secondary`, which already carries its own transparency, so nothing dims it again. The 2in1 window takes it from the candidate palette and the touch strip from the keyboard's, as the design's `candSelTr` and `kb.sub` do.
+   * 释义、注释和编码提示的颜色：调色板的 `secondary`，它自带透明度，不再减淡。2in1 候选窗取候选区调色板，触屏条取键盘的，对应设计稿的 `candSelTr` 和 `kb.sub`。2in1 的选中行按 `GlobalTheme.candidateDetail` 取选中序号色（和 macOS 的 candSelTr 一样），默认浅色的次要色在选中淡底上只有约 4.0:1，选中序号色到 4.5:1；皮肤包自己给了释义色时照旧用它。
    */
-  private candidateDetailColor(): string {
-    return this.candidateColors().secondary;
+  private candidateDetailColor(highlighted: boolean): string {
+    const colors: CandidateColors = this.candidateColors();
+    return KeyboardFormFactor.isDesktop() ? GlobalTheme.candidateDetail(colors, highlighted) : colors.secondary;
   }
 
   @Builder
@@ -4290,13 +4291,13 @@ struct KeyboardView {
       }
       if (candidate.hint.length > 0) {
         Text(candidate.hint).fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
-          .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor())).padding({ left: 2 })
+          .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor(candidate.highlighted))).padding({ left: 2 })
       }
       // Only where there is no gloss line, the vertical 2in1 list; everywhere else the 훈음 is on the line under the Hanja.
       if (candidate.hunEum.length > 0 && !this.candidateUsesGlossLine()) {
         Text(candidate.hunEum)
           .fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
-          .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor())).padding({ left: 4 })
+          .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor(candidate.highlighted))).padding({ left: 4 })
       }
       // 只为音标预留了一行（`translationRows()` 为 0）时下面没有释义行，译文和竖排一样接在词旁边，和触屏胶囊的 `chipAnnotationBeside` 同一条规则。
       if (candidate.annotation.length > 0
@@ -4304,23 +4305,23 @@ struct KeyboardView {
         if (candidate.annotationIsTranslation) {
           Text(candidate.annotation)
             .fontSize(CandidateTranslationStyle.fontSize(this.settings.candidateFontSize))
-            .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor()))
+            .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor(candidate.highlighted)))
             .padding({ left: CandidateTranslationStyle.gap(this.settings.candidateFontSize) })
         } else {
           Text(candidate.annotation)
             .fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
-            .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor())).padding({ left: 4 })
+            .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor(candidate.highlighted))).padding({ left: 4 })
         }
       } else if (candidate.annotation.length > 0 && !candidate.annotationIsTranslation) {
         Text(candidate.annotation)
           .fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
-          .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor())).padding({ left: 4 })
+          .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor(candidate.highlighted))).padding({ left: 4 })
       }
       // 竖排 2in1 候选窗没有释义行，音标和释义一样接在旁边。
       if (candidate.pronunciation.length > 0 && !this.candidateUsesGlossLine()) {
         Text(candidate.pronunciation)
           .fontSize(CandidateTranslationStyle.fontSize(this.settings.candidateFontSize))
-          .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor()))
+          .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor(candidate.highlighted)))
           .padding({ left: CandidateTranslationStyle.gap(this.settings.candidateFontSize) })
       }
     }
@@ -4359,7 +4360,7 @@ struct KeyboardView {
 
   /** 候选窗与触屏胶囊上候选字的颜色：在线占位行画次要色，首选纠错行画标记色，其余按固定词与高亮的规则。 */
   private candidateWordColor(candidate: CandidateEntry): string {
-    if (CandidatePresentationPolicy.aiPlaceholder(candidate.source)) return this.candidateDetailColor();
+    if (CandidatePresentationPolicy.aiPlaceholder(candidate.source)) return this.candidateDetailColor(candidate.highlighted);
     return CorrectionMarkPolicy.tint(candidate.confidentCorrection, candidate.highlighted,
       CandidateSkinPolicy.rowTextColor(candidate.highlighted, candidate.fixedPosition > 0,
         this.candidateTextColor(), this.candidateSelectedTextColor()),
@@ -4407,7 +4408,7 @@ struct KeyboardView {
           if (KeyboardSession.shared.translationRows() > 0) {
             Text(this.candidateGlossLine(candidate).length > 0 ? this.candidateGlossLine(candidate) : ' ')
               .fontSize(CandidateTranslationStyle.fontSize(this.settings.candidateFontSize))
-              .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor()))
+              .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor(candidate.highlighted)))
               // The line is reserved whether or not this candidate has a gloss, so the row heights stay level.
               .opacity(this.candidateGlossLine(candidate).length > 0 ? 1 : 0)
               .maxLines(1)
@@ -4419,7 +4420,7 @@ struct KeyboardView {
           if (KeyboardSession.shared.pronunciationRows() > 0) {
             Text(candidate.pronunciation.length > 0 ? candidate.pronunciation : ' ')
               .fontSize(CandidateTranslationStyle.fontSize(this.settings.candidateFontSize))
-              .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor()))
+              .fontColor(this.candidateDetailTint(candidate, this.candidateDetailColor(candidate.highlighted)))
               .opacity(candidate.pronunciation.length > 0 ? 1 : 0)
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -7787,6 +7788,20 @@ struct KeyboardView {
     this.pendingRemoval = -1;
     this.managing = -1;
     this.touchCandidateMenu = false;
+    if (action.id === 'READ_ALOUD') {
+      // 和「加入生词本」一样先核对这一格还是打开菜单时的那个候选，再读打开菜单时共享层答的那段英文。
+      if (index < 0 || index >= this.candidates.length || action.spoken === undefined ||
+        this.candidates[index].text !== action.candidate) {
+        return;
+      }
+      KeyboardSession.shared.readAloud(action.spoken).then((notice: string | null): void => {
+        if (notice !== null) {
+          this.diagnostic = notice;
+          this.clearDiagnosticLater();
+        }
+      });
+      return;
+    }
     if (action.id === 'ADD_TO_PERSONAL_WORDBOOK') {
       // 和上屏释义一样先核对这一格还是打开菜单时的那个候选（原文和释义都要相同），再交出它的原文和释义；提示等共享层答了再显示。
       if (index < 0 || index >= this.candidates.length) {
@@ -7861,7 +7876,9 @@ struct KeyboardView {
     // A 2in1 touch screen keeps the gloss alone, because its right click already opens management. A phone has no right click, so its long press is the only way to 优先显示, 固定排位 and 删除词条, and opens the whole menu the way Android's does.
     const glossOnly: boolean = KeyboardFormFactor.isDesktop();
     if (glossOnly && CandidateManagementAction.touchActions(
-      candidate.annotation, candidate.annotationIsTranslation).length === 0) {
+      candidate.annotation, candidate.annotationIsTranslation, candidate.text,
+      KeyboardSession.shared.readAloudText(
+        candidate.text, candidate.annotationIsTranslation ? candidate.annotation : '')).length === 0) {
       return;
     }
     this.punctuation = false;
@@ -9319,9 +9336,12 @@ struct KeyboardView {
     const managed: CandidateEntry | null =
       this.managing >= 0 && this.managing < this.candidates.length
         ? this.candidates[this.managing] : null;
+    // 「朗读」要读的英文：显示着的英文释义（Engine 的注释不算），或候选本身是英文。
+    const spoken: string | null = managed === null ? null : KeyboardSession.shared.readAloudText(
+      managed.text, managed.annotationIsTranslation ? managed.annotation : '');
     if (this.touchCandidateMenu) {
       return managed === null ? [] : CandidateManagementAction.touchActions(
-        managed.annotation, managed.annotationIsTranslation, managed.text);
+        managed.annotation, managed.annotationIsTranslation, managed.text, spoken);
     }
     // The gloss is what the source offers here, and until now this host could show a translation without ever letting anyone type it: macOS has Option and a digit, and a touch keyboard has no modifiers to spare.
     return CandidateManagementAction.managementActions(
@@ -9330,7 +9350,7 @@ struct KeyboardView {
       CandidateManagementAction.candidateActionsAvailable(
         KeyboardScheme.engineSchemeName(this.engineScheme), managed === null ? 0 : managed.source),
       CandidateManagementAction.hasMultipleCodePoints(managed === null ? '' : managed.text),
-      managed === null ? '' : managed.text);
+      managed === null ? '' : managed.text, spoken);
   }
 
   @Builder

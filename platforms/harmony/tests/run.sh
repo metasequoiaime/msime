@@ -627,16 +627,16 @@ expanded_surface_body=$(view_body 'private expandedSurfaceColors(): CorrectionSu
 if [[ $(grep -cF 'confidentCorrection: CorrectionMarkPolicy.confident(candidate.confident_correction)' "$session") -ne 3 ]] \
   || ! grep -qF 'fixedPosition: 0, source: 0, translation: null, confidentCorrection: false' "$session" \
   || [[ $(grep -oF '.fontColor(this.candidateWordColor(candidate))' <<< "$primary_body" | wc -l) -ne 1 ]] \
-  || [[ $(grep -oF '.fontColor(this.candidateDetailTint(candidate,this.candidateDetailColor()))' <<< "$primary_body" | wc -l) -ne 6 ]] \
-  || grep -qF '.fontColor(this.candidateDetailColor())' <<< "$primary_body" \
-  || ! grep -qF '.fontColor(this.candidateDetailTint(candidate,this.candidateDetailColor()))' <<< "$cell_body" \
-  || grep -qF '.fontColor(this.candidateDetailColor())' <<< "$cell_body" \
+  || [[ $(grep -oF '.fontColor(this.candidateDetailTint(candidate,this.candidateDetailColor(candidate.highlighted)))' <<< "$primary_body" | wc -l) -ne 6 ]] \
+  || grep -qF '.fontColor(this.candidateDetailColor(candidate.highlighted))' <<< "$primary_body" \
+  || ! grep -qF '.fontColor(this.candidateDetailTint(candidate,this.candidateDetailColor(candidate.highlighted)))' <<< "$cell_body" \
+  || grep -qF '.fontColor(this.candidateDetailColor(candidate.highlighted))' <<< "$cell_body" \
   || [[ $(grep -oF '.fontColor(this.candidateWordColor(candidate))' <<< "$chip_body" | wc -l) -ne 1 ]] \
   || [[ $(grep -oF '.fontColor(this.candidateDetailTint(candidate,this.skin.secondary))' <<< "$chip_body" | wc -l) -ne 4 ]] \
   || grep -qF '.fontColor(this.skin.secondary)' <<< "$chip_body" \
   || ! grep -qF '.fontColor(CorrectionMarkPolicy.cellTextColor(this.expanded[cell.index].confidentCorrection,this.expandedHighlighted(cell.index),this.expandedSurfaceColors()))' <<< "$grid_body" \
   || ! grep -qF 'text:this.candidateTextColor(),highlightedText:this.candidateSelectedTextColor(),accent:this.candidateAccentColor()' <<< "$surface_body" \
-  || ! grep -qF 'if(CandidatePresentationPolicy.aiPlaceholder(candidate.source))returnthis.candidateDetailColor();returnCorrectionMarkPolicy.tint(candidate.confidentCorrection,candidate.highlighted,CandidateSkinPolicy.rowTextColor(candidate.highlighted,candidate.fixedPosition>0,this.candidateTextColor(),this.candidateSelectedTextColor()),this.candidateSurfaceColors());' <<< "$word_body" \
+  || ! grep -qF 'if(CandidatePresentationPolicy.aiPlaceholder(candidate.source))returnthis.candidateDetailColor(candidate.highlighted);returnCorrectionMarkPolicy.tint(candidate.confidentCorrection,candidate.highlighted,CandidateSkinPolicy.rowTextColor(candidate.highlighted,candidate.fixedPosition>0,this.candidateTextColor(),this.candidateSelectedTextColor()),this.candidateSurfaceColors());' <<< "$word_body" \
   || ! grep -qF 'returnCorrectionMarkPolicy.tint(candidate.confidentCorrection,candidate.highlighted,base,this.candidateSurfaceColors());' <<< "$detail_body" \
   || ! grep -qF 'text:this.skin.keyForeground,highlightedText:this.skin.toggleForeground,accent:this.skin.accent' <<< "$expanded_surface_body" \
   || ! grep -qF 'returnCorrectionMarkPolicy.expandedSurface(this.settings.candidateCanvas!==null,this.candidateSurfaceColors(),keyboard);' <<< "$expanded_surface_body" \
@@ -644,6 +644,13 @@ if [[ $(grep -cF 'confidentCorrection: CorrectionMarkPolicy.confident(candidate.
   || ! grep -qF 'CorrectionMarkPolicy.accessibilitySuffix(candidate.confidentCorrection)' <<< "$label_body" \
   || ! grep -qF 'CorrectionMarkPolicy.accessibilitySuffix(this.expanded[index].confidentCorrection)' <<< "$expanded_label_body"; then
   echo "KeyboardSession must read confident_correction through CorrectionMarkPolicy for the strip and the expanded panel, and KeyboardView must draw those rows' word and every detail text in the mark colour from the right surface tokens in the candidate window, the touch chip and the expanded grid, and append the screen reader suffix to both labels" >&2
+  exit 1
+fi
+# 2in1 默认选中行的释义、注释和读音到 WCAG AA：颜色规则由 keyboard-logic.test.ts 的 `GlobalTheme.candidateDetail` 覆盖，视图是 ArkTS，这里钉住 `candidateDetailColor` 只在 2in1 走这条规则、触屏候选条仍画次要色。函数体改回只返回次要色，或者去掉 `KeyboardFormFactor.isDesktop()` 的判断，浅色 2in1 的选中行释义都会退回约 4.0:1。
+detail_color_body=$(view_body 'private candidateDetailColor(highlighted: boolean): string {')
+if ! grep -qF 'returnKeyboardFormFactor.isDesktop()?GlobalTheme.candidateDetail(colors,highlighted):colors.secondary;' <<< "$detail_color_body" \
+  || ! grep -qF 'constcolors:CandidateColors=this.candidateColors();' <<< "$detail_color_body"; then
+  echo "KeyboardView.candidateDetailColor must take the 2in1 selected row's gloss colour from GlobalTheme.candidateDetail and keep the touch strip on the palette's secondary colour" >&2
   exit 1
 fi
 # 候选英文音标只占了预留的那一行（`translationRows()` 为 0）时下面没有释义行：2in1 横排的 `candidatePrimaryLine` 和触屏胶囊的 `chipAnnotationBeside` 都要把译文画回词旁边，否则打开音标后译文就不见了。规则和高度由 keyboard-logic.test.ts、kb-view.test.ts 覆盖，视图是 ArkTS，这里钉住接线。
@@ -764,6 +771,19 @@ if [[ $(grep -cF 'panel.changeFlag(' "$floating_ability") -ne 1 ]] \
   || ! grep -qF 'return this.touchDesign() && !this.splitDrawn() && !this.floatingDrawn();' \
     "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets"; then
   echo "The floating keyboard must change the panel flag only while the panel is hidden and show it again afterwards, never move a fixed panel, refit the floating panel when the display changes, save the dragged position, suspend one-handed mode while floating or split, and stop drawing the split keyboard while floating" >&2
+  exit 1
+fi
+# 长按菜单的「朗读」：排在哪里、带着什么由 keyboard-logic.test.ts 覆盖，出声的固定取值由 read-aloud-policy.test.ts 覆盖；视图、会话和设置桥是 ArkTS，node 下编不了，这里钉住接线：菜单把会话经共享层答的英文交给两种菜单，2in1 触摸长按在只有「朗读」时也打开，点下去时核对候选再读；关掉以后才建好的引擎当场关掉；引擎只用离线模式，从不下载声音；设置桥的 read_aloud 先经共享层核对词头。
+if ! grep -qF "KeyboardSession.shared.readAloudText(" "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets" \
+  || ! grep -qF "managed.annotation, managed.annotationIsTranslation, managed.text, spoken);" "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets" \
+  || ! grep -qF "managed === null ? '' : managed.text, spoken);" "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets" \
+  || ! grep -qF "KeyboardSession.shared.readAloud(action.spoken)" "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets" \
+  || ! grep -qF "online: ReadAloudPolicy.OFFLINE," "$repo_root/platforms/harmony/entry/src/main/ets/speech/HarmonyReadAloud.ets" \
+  || grep -qF "downloadVoice" "$repo_root/platforms/harmony/entry/src/main/ets/speech/HarmonyReadAloud.ets" \
+  || ! grep -qF "candidate.text, candidate.annotationIsTranslation ? candidate.annotation : '')).length === 0) {" "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets" \
+  || ! grep -qF "if (generation !== HarmonyReadAloud.generation) {" "$repo_root/platforms/harmony/entry/src/main/ets/speech/HarmonyReadAloud.ets" \
+  || ! grep -qF "client.readAloudText(ReadAloudPolicy.textRequest(word, ''))" "$repo_root/platforms/harmony/entry/src/main/ets/pages/Settings.ets"; then
+  echo "Harmony read aloud must pass the shared layer's text to both candidate menus (the 2in1 touch long press opens for 朗读 alone too), check the candidate before speaking, close an engine created after shutdown, stay offline without downloading voices, and validate the settings page's word" >&2
   exit 1
 fi
 "$tsc" --project "$here/tsconfig.json"
