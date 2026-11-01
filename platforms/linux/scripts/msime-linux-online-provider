@@ -27,7 +27,8 @@ from types import SimpleNamespace
 import urllib.parse
 import urllib.request
 
-from msime_provider_runtime import open_server
+from msime_provider_runtime import StoppableUnixStreamServer, open_server
+import msime_crash_capture
 
 
 # provider 用到的 host-api 入口，都是 char *f(const uint8_t *request, size_t length)；少一个就当作没有可用的库。host_library_contract.py 逐个核对它们在 msime_client.h 里的声明。
@@ -338,7 +339,8 @@ def fetch(url, timeout, body=None, token=None, extra_headers=None, connect_timeo
             raise ValueError("HTTP service stopped")
         process = subprocess.Popen(
             [sys.executable, str(Path(__file__).resolve()), "--http-request"],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            env=msime_crash_capture.worker_environment())
         http_processes.add(process)
     try:
         remaining = deadline - time.monotonic()
@@ -1247,7 +1249,7 @@ class Handler(socketserver.StreamRequestHandler):
             pass
 
 
-class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+class Server(StoppableUnixStreamServer):
     daemon_threads = True
     slots = threading.BoundedSemaphore(4)
 
@@ -1375,6 +1377,7 @@ def main():
         args.config_directory = Path(config_root) / "msime-client"
     if args.config_directory and not args.config_directory.is_absolute():
         parser.error("config directory must be absolute")
+    msime_crash_capture.start("online-provider", preferences=args.config_directory)
     if args.ensure_anonymous_account:
         if args.socket is not None:
             parser.error("--ensure-anonymous-account does not take a socket")
@@ -1420,14 +1423,8 @@ def main():
     server.ai_candidate_cache = {}
     server.ai_candidate_cache_lock = threading.Lock()
     identity = args.socket.stat() if service_lock is not None else None
-    # Raising from the handler lost the stop whenever the signal landed in a weakref callback, where Python reports the exception and carries on, and the provider then served on past its terminate. Stop the loop from another thread instead: shutdown() waits for serve_forever, which this thread is running.
-    def stop(signum, frame):
-        threading.Thread(target=server.shutdown, daemon=True).start()
-    signal.signal(signal.SIGTERM, stop)
     try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
+        server.serve_until_stopped()
     finally:
         stop_http_requests()
         server.server_close()
@@ -1444,5 +1441,6 @@ def main():
 
 if __name__ == "__main__":
     if sys.argv[1:] == ["--http-request"]:
+        msime_crash_capture.start_worker("online-http")
         sys.exit(http_request_worker())
     main()
