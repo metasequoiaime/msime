@@ -130,6 +130,9 @@ JNIEXPORT void JNICALL Java_app_msime_android_NativeClient_telemetryCrashInstall
 JNIEXPORT void JNICALL Java_app_msime_android_NativeClient_telemetryCrashDisarm(JNIEnv *, jclass) {
     msime_native_crash_disarm();
 }
+JNIEXPORT void JNICALL Java_app_msime_android_NativeClient_telemetryCrashRefreshModulesRaw(JNIEnv *, jclass) {
+    msime_native_crash_refresh_modules();
+}
 JNIEXPORT void JNICALL Java_app_msime_android_NativeClient_telemetryCrashCaptureRaw(JNIEnv *env, jclass, jbyteArray path, jbyteArray header) {
     msime_native_crash_disarm();
     if (!path || !header) return;

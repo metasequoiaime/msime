@@ -585,6 +585,11 @@ public final class NativeClient {
         localSpeechRuntimeRaw(utf8(sherpaLibrary));
     }
 
+    /** 运行时动态库加载后刷新原生崩溃记录器的模块快照。 */
+    public static void telemetryCrashRefreshModules() {
+        telemetryCrashRefreshModulesRaw();
+    }
+
     /** 资源包安装的进度。在调用 {@link #resourcePackInstall} 的工作线程上调用；phase 是 "download"（从本地文件安装时是 "import"）、"verify" 或 "done"。不要在这里抛异常或做耗时的事。 */
     public interface ResourcePackProgress {
         void onProgress(String phase, long done, long total);
@@ -1214,6 +1219,7 @@ public final class NativeClient {
     private static native byte[] voiceNormalizeNumbersRaw(byte[] request);
     private static native boolean localSpeechAvailableRaw();
     private static native void localSpeechRuntimeRaw(byte[] path);
+    private static native void telemetryCrashRefreshModulesRaw();
     private static native byte[] resourcePacksRaw(byte[] request);
     private static native byte[] resourcePackInstallRaw(byte[] request, ResourcePackProgress listener);
     private static native void resourcePackCancelRaw(byte[] pack);
