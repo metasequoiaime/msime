@@ -1,5 +1,4 @@
 import SwiftUI
-import CoreImage
 import CoreFoundation
 import UIKit
 
@@ -8613,16 +8612,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
-  /// The source logo is white-backed and has no alpha, so use its luminance as a mask before tinting it with the current skin accent. This prevents a white square on dark skins. The expanded candidate panel leads its header with the same template.
-  static func brandTemplate() -> UIImage? {
-    guard let path = Bundle(for: KeyboardViewController.self).path(forResource: "KeyboardBrand", ofType: "png"),
-          let source = UIImage(contentsOfFile: path),
-          let cgImage = source.cgImage else { return nil }
-    let input = CIImage(cgImage: cgImage)
-    guard let inverted = CIFilter(name: "CIColorInvert", parameters: [kCIInputImageKey: input])?.outputImage,
-          let masked = CIFilter(name: "CIMaskToAlpha", parameters: [kCIInputImageKey: inverted])?.outputImage,
-          let output = CIContext().createCGImage(masked, from: masked.extent) else { return nil }
-    return UIImage(cgImage: output).withRenderingMode(.alwaysTemplate)
+  /// 完整的水杉标志（固定配色的深色圆角正方形、绿边和白色折线），按 `side` 点见方渲染成原色图像，不再是按皮肤强调色着色的单色折线；展开的候选面板用它打头。
+  static func brandMark(side: CGFloat) -> UIImage {
+    UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { _ in
+      MSIMELogo.draw(in: CGRect(x: 0, y: 0, width: side, height: side))
+    }.withRenderingMode(.alwaysOriginal)
   }
 
   // A touch keyboard has no number row to answer with, so the ordinal is spoken rather than drawn;

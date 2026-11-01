@@ -264,9 +264,7 @@ export function LinuxSetupPage({
         )}
       </header>
       <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-8 pt-7 pb-6">
-        <div className="grid size-[88px] shrink-0 place-items-center rounded-[22px] border border-[var(--p-hair)] bg-[var(--p-group-bg)]">
-          <img src={logo} alt="" className="size-[60px]" />
-        </div>
+        <img src={logo} alt="" className="size-[88px] shrink-0" />
         <h1 className="mt-5 mb-0 text-[24px] font-[650] tracking-[0.02em]">{names.name}</h1>
         <h2
           className={`mt-3 mb-0 text-[15px] font-semibold ${failed ? "text-danger" : ""}`}

@@ -12,7 +12,7 @@ const column = "mx-auto w-[min(560px,100%)]";
 
 export const page =
   "flex min-h-full w-full flex-col overflow-y-auto bg-chrome px-[max(22px,5vw)] pt-7 pb-[22px] text-body max-tight:pt-[18px]";
-export const header = `${column} flex items-center gap-4 [&>img]:size-[58px] [&>img]:rounded-[18px] [&>img]:bg-raised [&>img]:p-[11px] [&>h1]:m-0 [&>h1]:text-[21px] [&>h1]:font-[650]`;
+export const header = `${column} flex items-center gap-4 [&>img]:size-[58px] [&>h1]:m-0 [&>h1]:text-[21px] [&>h1]:font-[650]`;
 export const skip = "ml-auto border-0 bg-transparent px-0 py-[5px] text-[13px] text-secondary";
 export const progress = "mt-0 mb-[3px] text-xs tabular-nums text-accent";
 
@@ -108,7 +108,7 @@ export const splash =
 export const splashGlow =
   "absolute size-80 rounded-full bg-[radial-gradient(circle,rgba(127,224,142,0.28)_0%,rgba(127,224,142,0)_65%)] animate-splash-glow motion-reduce:animate-none";
 export const splashLogo = "relative size-[124px] animate-splash-pop motion-reduce:animate-none";
-export const splashFrame = "fill-[#252525] stroke-[#A8DF8E] [stroke-width:4]";
+export const splashFrame = "fill-[#252525] stroke-[#A8DF8E] [stroke-width:6]";
 export const splashStroke =
   "fill-none stroke-white [stroke-dasharray:1] [stroke-linecap:round] [stroke-width:9] animate-splash-draw motion-reduce:animate-none";
 export const splashName =
@@ -234,34 +234,23 @@ export const hDeskBack = (dark: boolean) =>
 export const hDeskNext =
   "min-w-18 rounded-[18px] bg-[var(--accent-color)] px-[18px] font-medium text-[var(--p-on-accent)]";
 
-// ---- HarmonyOS 首次启动的开屏（dc.html L2692-2698）：圆盘在启动窗底色上，底部一条进度条逐渐填满。第一帧和系统启动窗一样，见 styles.css 的 `splash-veil` ----
+// ---- HarmonyOS 首次启动的开屏（dc.html L2692-2698）：水杉标志在启动窗底色上，底部一条进度条逐渐填满。第一帧和系统启动窗一样 ----
 
-/** 底色是系统启动窗的颜色（`start_window_background`）：深色是近黑，浅色是 #F1F3F5，跟随文档的深浅色，不随季节变。启动窗只能用一种颜色，开屏接着它往下播；季节色由光晕、圆盘、标志和进度条带出来。 */
+/** 底色是系统启动窗的颜色（`start_window_background`）：深色是近黑，浅色是 #F1F3F5，跟随文档的深浅色，不随季节变。启动窗只能用一种颜色，开屏接着它往下播；季节色由光晕和进度条带出来，标志是固定配色。 */
 export const hSplashShell = "flex min-h-full w-full bg-[#0A0B0A] light-theme:bg-[#F1F3F5]";
 export const hSplash =
   "relative flex min-h-full w-full cursor-pointer flex-col items-center justify-center overflow-hidden border-0 bg-[#0A0B0A] p-0 text-white light-theme:bg-[#F1F3F5] light-theme:text-[#191C1E]";
 export const hSplashGlow =
   "absolute size-80 rounded-full bg-[radial-gradient(circle,color-mix(in_srgb,var(--accent-color)_34%,transparent)_0%,transparent_65%)] animate-splash-glow motion-reduce:animate-none";
-/** 180px 圆盘、它的涟漪圆环和标志共用一个盒子。它绝对定位、不设偏移，所以落在页面正中，与宿主盖在网页上的启动画面重合；文字不参与居中。 */
-export const hSplashDiscBox = "absolute size-[180px]";
-/** 圆盘后的光晕，放大到 1.2 倍并淡出，共两次（dc.html `msRipple`）；动画前后都保持不可见。深色底上是白色，浅色底上白色看不见，换成淡强调色。 */
-export const hSplashRipple =
-  "absolute inset-0 rounded-full bg-white/70 opacity-0 animate-splash-ripple motion-reduce:hidden light-theme:bg-[color-mix(in_srgb,var(--accent-color)_30%,transparent)]";
-export const hSplashDisc =
-  "absolute inset-0 rounded-full bg-[color-mix(in_srgb,var(--accent-color)_12%,#FFFFFF)] shadow-[0_12px_40px_rgba(0,0,0,0.35)] light-theme:shadow-[0_8px_28px_rgba(0,0,0,0.10)]";
-/**
- * 圆盘和标志方块上各盖一层启动窗的颜色（`start_window_icon.png`、`Settings.ets` 的 `launchCoverView`），开屏开始后淡出，露出下面的当季颜色。
- */
-export const hSplashDiscVeil =
-  "absolute inset-0 rounded-full bg-[#EDF0F0] animate-splash-veil motion-reduce:hidden light-theme:bg-[#FFFFFF]";
-export const hSplashLogo = "absolute top-10 left-10 size-[100px]";
-export const hSplashFrame = "fill-[color-mix(in_srgb,var(--accent-color)_82%,#000)]";
-export const hSplashFrameVeil = "fill-[#2E3A40] animate-splash-veil motion-reduce:hidden";
+/** 150px 的水杉标志，外面不套圆盘。它绝对定位、不设偏移，所以落在页面正中，与宿主盖在网页上的启动画面（`Settings.ets` 的 `launchCoverView`）和系统启动窗（`start_window_icon.png`）重合；文字不参与居中。 */
+export const hSplashLogo = "absolute size-[150px]";
+/** 标志与各平台图标同一套固定配色（深色底、绿边），不随季节变，和启动窗的 `launch_logo.svg` 相同，所以从启动窗接过来时标志不变。 */
+export const hSplashFrame = "fill-[#252525] stroke-[#A8DF8E] [stroke-width:6]";
 /** 英文名在深色底上是半透明白，浅色底上换成半透明黑；其余与其他平台的开屏相同。 */
 export const hSplashTagline = `${splashTagline} light-theme:text-black/55`;
-/** 名字和英文名排在圆盘正下方，与圆盘相隔 18px。 */
+/** 名字和英文名排在标志正下方，与标志相隔 18px。 */
 export const hSplashCaption =
-  "absolute inset-x-0 top-[calc(50%+108px)] flex flex-col items-center gap-[18px]";
+  "absolute inset-x-0 top-[calc(50%+93px)] flex flex-col items-center gap-[18px]";
 /** 笔画一开始就画好：系统启动窗和盖板上的标志已经带着它，开屏再从零描一遍就是先擦掉再画。 */
 export const hSplashStroke =
   "fill-none stroke-white [stroke-linecap:round] [stroke-linejoin:round] [stroke-width:9]";

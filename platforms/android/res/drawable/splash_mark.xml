@@ -1,16 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 开屏圆盘里的那枚标：设计稿 Android 开屏的笔画（viewBox 116×132，描边 9、圆头），颜色是本季的 logoBg（?attr/colorTertiary = mix(accent 82%, #000)），画在浅色圆盘上。矢量而不是位图，因为开屏要给笔画做描边动画。 -->
+<!-- 水杉标志，与各平台相同：深色 #252525 圆角正方形带 #A8DF8E 绿边，上面一笔白色折线（packages/ui/src/assets/msime.svg）。它本身就是唯一的外框，用到它的地方都不再垫圆盘。坐标沿用设计稿：折线在 116×132 里，正方形外框围着它居中，所以画布是 132×132、整体右移 8。矢量而不是位图，因为开屏要给折线（mark）做描边动画。 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="100dp"
     android:height="100dp"
-    android:viewportWidth="116"
+    android:viewportWidth="132"
     android:viewportHeight="132">
 
-    <path
-        android:name="mark"
-        android:pathData="M80.394 18.8335L34.3451 36.489L80.394 49.7306L34.3451 71.7999C77.8789 79.1564 118.8 85.1887 31.8431 113.088"
-        android:strokeColor="?attr/colorTertiary"
-        android:strokeWidth="9"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round" />
+    <group android:translateX="8">
+        <path
+            android:name="frame"
+            android:pathData="M24.2431 5.8335L91.4431 5.8335C106.023 5.8335 117.843 17.6532 117.843 32.2335L117.843 99.4335C117.843 114.014 106.023 125.834 91.4431 125.834L24.2431 125.834C9.6628 125.834 -2.1569 114.014 -2.1569 99.4335L-2.1569 32.2335C-2.1569 17.6532 9.6628 5.8335 24.2431 5.8335Z"
+            android:fillColor="#252525"
+            android:strokeColor="#A8DF8E"
+            android:strokeWidth="6" />
+
+        <path
+            android:name="mark"
+            android:pathData="M75.8838 28.2335L39.0447 42.3579L75.8838 52.9512L39.0447 70.6066C73.8717 76.4918 106.609 81.3177 37.0431 103.637"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="9"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+    </group>
 </vector>
