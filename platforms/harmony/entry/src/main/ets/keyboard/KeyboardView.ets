@@ -88,6 +88,7 @@ import { GlideArming, GlideKeyRect, GlidePoint, GlideTypingPolicy } from './inpu
 import { PendingTouches, TouchKey, TouchPoint, TouchPointPolicy } from './input/TouchPointPolicy';
 import { LetterHintTable } from './input/LetterHintTable';
 import { HintKeyRect, LetterHintGesture } from './input/LetterHintGesture';
+import { HelpcodeSwipeGesture } from './input/HelpcodeSwipePolicy';
 import { KeyPreviewFrame, KeyPreviewLayout } from './KeyPreviewLayout';
 import {
   EmojiCatalogModel, EmojiCategory, EmojiItem, EMOJI_PAGE_SIZE, EMOJI_RECENTS_ICON
@@ -852,6 +853,8 @@ struct KeyboardView {
   private keyPreviewFinger: number = -1;
   /** 字母键上可能输入角标提示而不是字母的触摸。 */
   private letterHints: LetterHintGesture = new LetterHintGesture();
+  /** 中文组字中的 26 键竖向滑动辅助码；与角标手势分开跟踪，长按仍保留角标。 */
+  private helpcodeSwipes: HelpcodeSwipeGesture = new HelpcodeSwipeGesture();
   /** 26 键字母键和 `;` 的按下点，等这一键的点击取走（#10018，`TouchPointPolicy`）。 */
   private pendingTouches: PendingTouches = new PendingTouches();
   /** 微软双拼第二行末尾 `;` 键的位置（窗口坐标），同 `glideKeys`；没量到时为 null。 */
@@ -1451,6 +1454,10 @@ struct KeyboardView {
       // The stroke already typed what it meant; see glideSwallowsTap.
       return;
     }
+    if (this.helpcodeSwipes.swallows(letter)) {
+      // 这次触摸已经上滑或下滑输入了辅助码，ArkUI 随后到达的点击不能再输入小写字母。
+      return;
+    }
     if (this.letterHints.swallows(letter)) {
       // 该键上的滑动或长按已在手指抬起时输入了角标提示。
       return;
@@ -1645,6 +1652,8 @@ struct KeyboardView {
         width: Number(event.target.area.width),
         height: Number(event.target.area.height)
       };
+      this.helpcodeSwipes.down(touch.id, letter, touch.windowX, touch.windowY,
+        this.helpcodeSwipeEnabled());
       this.letterHints.down(touch.id, letter, hint, touch.windowY, rect);
       this.armHintHold(touch.id);
       if (this.feedback.keyPopup) {
@@ -1659,6 +1668,15 @@ struct KeyboardView {
         if (this.glideActive) {
           this.abandonLetterHint(touch.id);
           continue;
+        }
+        if (this.helpcodeSwipes.tracking(touch.id)) {
+          const helpcode: string = this.helpcodeSwipes.move(touch.id, touch.windowX, touch.windowY);
+          if (helpcode.length > 0) {
+            this.cancelHintHold(touch.id);
+            this.letterHints.cancel(touch.id);
+            this.relabelKeyPreview(touch.id, helpcode);
+            continue;
+          }
         }
         const fired: string | null = this.letterHints.move(touch.id, touch.windowX, touch.windowY,
           this.feedback.swipeSymbols, this.feedback.swipeSymbolsDirection);
@@ -1679,12 +1697,21 @@ struct KeyboardView {
       }
       this.cancelHintHold(finger);
       this.hideKeyPreview(finger);
+      const touch: TouchObject = event.changedTouches[0];
+      const helpcode: string = this.helpcodeSwipes.up(finger, touch.windowX, touch.windowY);
+      if (helpcode.length > 0) {
+        this.letterHints.cancel(finger);
+        // 抬手事件可能落到手指离开时所在的键；辅助码必须沿用按下时跟踪的原键。
+        this.typeHelpcodeSwipe(helpcode);
+        return;
+      }
       const typed: string | null = this.letterHints.up(finger);
       if (typed !== null) {
         this.typeLetterHint(letter, typed);
       }
     } else if (event.type === TouchType.Cancel) {
       for (const touch of event.changedTouches) {
+        this.helpcodeSwipes.cancel(touch.id);
         this.abandonLetterHint(touch.id);
       }
     }
@@ -1697,6 +1724,20 @@ struct KeyboardView {
     KeyboardSession.shared.insert(hint);
   }
 
+  /** 竖向滑动辅助码沿已有的 Shift+字母路径送入 Engine；引擎从大写字母本身读取辅助码。 */
+  private typeHelpcodeSwipe(letter: string): void {
+    const input: string = ChineseHelpcodePolicy.letterInput(letter, true);
+    if (input.length === 0) {
+      return;
+    }
+    KeyboardSession.shared.softKeyPress(KeyIdPolicy.character(letter));
+    KeyboardSession.shared.press(input.charCodeAt(0), true);
+    if (this.caseMode === LetterCaseMode.SHIFTED && !this.letterCase.isAutomatic()) {
+      this.letterCase.reset();
+      this.caseMode = this.letterCase.mode();
+    }
+  }
+
   private armHintHold(finger: number): void {
     this.cancelHintHold(finger);
     const timer: number = setTimeout((): void => {
@@ -1704,6 +1745,7 @@ struct KeyboardView {
       if (this.glideActive) {
         return;
       }
+      this.helpcodeSwipes.hold(finger);
       const hint: string | null = this.letterHints.hold(finger);
       const rect: HintKeyRect | null = this.letterHints.rect(finger);
       if (hint !== null && rect !== null) {
@@ -1727,6 +1769,13 @@ struct KeyboardView {
     this.cancelHintHold(finger);
     this.hideKeyPreview(finger);
     this.letterHints.cancel(finger);
+    this.helpcodeSwipes.cancel(finger);
+  }
+
+  /** 只在鸿蒙手机 26 键全拼或双拼已有组字时启用；其它键面继续保留角标滑动。 */
+  private helpcodeSwipeEnabled(): boolean {
+    return this.touchDesign() && this.qwertyLettersShowing()
+      && KeyboardSession.shared.entersHelpcode(true);
   }
 
   /** 为这根手指在 `rect`（窗口坐标）上方显示气泡；密码框除外，在那里它会把每个字符展示给任何看着屏幕的人。 */
@@ -1781,6 +1830,7 @@ struct KeyboardView {
     this.hintHoldTimers.forEach((timer: number): void => clearTimeout(timer));
     this.hintHoldTimers.clear();
     this.letterHints.clear();
+    this.helpcodeSwipes.clear();
     this.pendingTouches.clear();
     this.eighteenSwipes.clear();
     this.eighteenSwipeKey = '';

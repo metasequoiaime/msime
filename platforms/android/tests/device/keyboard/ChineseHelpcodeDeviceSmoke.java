@@ -26,8 +26,8 @@ public final class ChineseHelpcodeDeviceSmoke extends DeviceSmoke {
         long time = SystemClock.uptimeMillis();
         KeyEvent letter = new KeyEvent(time, time, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_N,
             0, KeyEvent.META_SHIFT_ON | KeyEvent.META_SHIFT_LEFT_ON);
-        sendKeySync(letter);
-        sendKeySync(KeyEvent.changeAction(letter, KeyEvent.ACTION_UP));
+        injectKeyboardEvent(letter);
+        injectKeyboardEvent(KeyEvent.changeAction(letter, KeyEvent.ACTION_UP));
         // 物理 Shift 把辅助码字母写成大写组字，不提交；中文键面仍按当前方案显示，不以键面大小写判断事件结果。
         await(field("msime-test-plain").and(node -> equalsText("nN", node.getText())));
         await(key("n"));

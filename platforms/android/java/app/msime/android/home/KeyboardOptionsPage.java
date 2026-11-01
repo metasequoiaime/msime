@@ -6,6 +6,7 @@ import app.msime.android.CandidateScalePolicy;
 import app.msime.android.CandidatePreeditStylePolicy;
 
 import app.msime.android.DimensionPolicy;
+import app.msime.android.KeyboardBottomBarPolicy;
 import app.msime.android.KeyboardFormFactorPolicy;
 
 import app.msime.android.ThemeColorPolicy;
@@ -30,6 +31,8 @@ import app.msime.android.DrawablePolicy;
 import app.msime.android.AppEdition;
 import app.msime.android.ClipboardLayoutPolicy;
 import app.msime.android.ClipboardUndoPolicy;
+import app.msime.android.ClipboardAuthenticationActivity;
+import app.msime.android.ClipboardDeleteAuthenticationPolicy;
 import app.msime.android.ColorPolicy;
 import app.msime.android.KeyboardFeedbackPreferences;
 import app.msime.android.KeyboardFeedbackStore;
@@ -55,12 +58,13 @@ import app.msime.android.policy.KeySoundPackPolicy;
 import org.json.JSONObject;
 
 /**
- * 键盘页：布局（中文键盘 26 / 9 键，双拼时是双拼的 26 / 14 / 18 键，五笔时是「五笔键盘」的 26 / 14 键、按键布局子页（三类键面的底行样式、九键与数字键盘的左侧符号和顶部数字行，{@link KeyLayoutStylesPage}）、双拼键位提示、键盘高度、按键间距、行间距、分离式键盘、竖屏也分离、浮动键盘、键盘底栏）、按键反馈（按键音、音效、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、工具栏分页里的键盘工具栏（预览、显示方式、各按钮）与剪贴板（工具栏显示最近复制、排列）和子页「AI 润色与回复」。
+ * 键盘页：布局（中文键盘 26 / 9 键，双拼时是双拼的 26 / 14 / 18 键，五笔时是「五笔键盘」的 26 / 14 键、按键布局子页（三类键面的底行样式、九键与数字键盘的左侧符号和顶部数字行，{@link KeyLayoutStylesPage}）、双拼键位提示、键盘高度、按键间距、行间距、分离式键盘、竖屏也分离、浮动键盘、键盘底栏、键盘底部高度）、按键反馈（按键音、音效、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、工具栏分页里的键盘工具栏（预览、显示方式、各按钮）与剪贴板（工具栏显示最近复制、排列）和子页「AI 润色与回复」。
  *
- * <p>键盘与本页读同一批存储：按键间距、行间距、竖屏分离、双拼键位提示、全拼组字保留 Shift、九键滑动输入数字和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_keyboard_split_portrait`、`touch_shuangpin_key_hints`、`touch_quanpin_shift`、`touch_nine_key_swipe_digits`、`touch_toolbar.*`）；键盘高度、分离式键盘主开关、浮动键盘、物理键盘时候选栏跟随光标、键盘底栏、底部留白、按键弹出预览、按键动画、三个手势、常用语/输入方式/浮动键盘三个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 75–170 % 显示，存的是 dp（{@link KeyboardHeightPolicy#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们；按键音用哪个音效包在共享偏好 `plugins.key_sound.pack` 里（{@link KeySoundPacks}）。
+ * <p>键盘与本页读同一批存储：按键间距、行间距、竖屏分离、双拼键位提示、全拼组字保留 Shift、九键滑动输入数字和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_keyboard_split_portrait`、`touch_shuangpin_key_hints`、`touch_quanpin_shift`、`touch_nine_key_swipe_digits`、`touch_toolbar.*`）；键盘高度、分离式键盘主开关、手机横屏分离式键盘、浮动键盘、物理键盘时候选栏跟随光标、键盘底栏、底部留白、按键弹出预览、按键动画、三个手势、常用语/输入方式/浮动键盘三个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 75–170 % 显示，存的是 dp（{@link KeyboardHeightPolicy#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们；按键音用哪个音效包在共享偏好 `plugins.key_sound.pack` 里（{@link KeySoundPacks}）。
  */
 public class KeyboardOptionsPage extends ReloadingDetailPage {
     private final ClipboardExportActions clipboardExport = new ClipboardExportActions(this, this::reload);
+    private boolean clipboardDeleteAuthenticationPending;
 
     @Override public void onCreate(@Nullable android.os.Bundle saved) {
         super.onCreate(saved);
@@ -73,6 +77,10 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
     }
 
     @Override protected void onContentDestroyed() { clipboardExport.destroyed(); }
+    @Override public void onDestroy() {
+        clipboardDeleteAuthenticationPending = false;
+        super.onDestroy();
+    }
     @Override protected java.util.List<String> sectionTitles() {
         return java.util.List.of("布局", "反馈", "手势", "工具栏");
     }
@@ -203,10 +211,19 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             layout.toggle("大屏单手时侧边显示数字键盘", "单手模式下用九键打字时，空出来的一侧显示数字键盘。只在平板、折叠屏展开和 iPad 全宽键盘上生效，分离式和浮动键盘不变。",
                 sidePad, checked -> savePreference(OneHandSidePadPolicy.PREFERENCE_KEY,
                     (checked ? OneHandSidePadPolicy.Panel.NUMBER_PAD : OneHandSidePadPolicy.Panel.OFF).wire));
+        } else {
+            // #10440：手机用独立的本机开关，不随账号同步，免得继承平板上的分离主开关。
+            layout.toggle("手机横屏分离式键盘", "开启后仅在横屏时生效：26 键和韩文键盘分成左右两半，方便双手握持时用拇指输入；按键盘实际可用宽度判断，分开后按键太窄时（例如分屏）仍用完整键盘",
+                settings.bool(AndroidLocalSettings.SPLIT_KEYBOARD_PHONE_LANDSCAPE),
+                checked -> saveLocalSetting(AndroidLocalSettings.SPLIT_KEYBOARD_PHONE_LANDSCAPE, checked));
         }
+        GroupCard.Row[] bottomHeight = new GroupCard.Row[1];
         layout.toggle("浮动键盘", "键盘缩小成一块面板悬在应用上面，按住顶部横条拖动位置；也可以在功能面板或工具栏按钮里切换",
             settings.bool(AndroidLocalSettings.FLOATING_KEYBOARD),
-            checked -> saveLocalSetting(AndroidLocalSettings.FLOATING_KEYBOARD, checked));
+            checked -> {
+                saveLocalSetting(AndroidLocalSettings.FLOATING_KEYBOARD, checked);
+                if (bottomHeight[0] != null) bottomHeight[0].setEnabled(!checked);
+            });
         if (showLargeScreenOptions) {
             layout.toggle("物理键盘时候选栏跟随光标", "接实体键盘打字时，候选栏显示在输入光标旁，靠近屏幕底部时显示在光标上方；不打字时不显示工具栏。应用不提供光标位置时仍停在屏幕底部",
                 settings.bool(AndroidLocalSettings.HARDWARE_CARET_CANDIDATES),
@@ -215,6 +232,13 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         layout.toggle("键盘底栏", "仅在全面屏手势导航下生效：键盘下方加一条栏，左边切换输入法、右边剪贴板，中间左右滑动移动光标，同时把按键抬离屏幕底边",
             settings.bool(AndroidLocalSettings.BOTTOM_BAR),
             checked -> saveLocalSetting(AndroidLocalSettings.BOTTOM_BAR, checked));
+        // #10447：只有一个「目标总距离」滑块，底栏画着时它的 40 dp 计在里面；沿用 bottom_padding 和 bottom_padding_height 两个旧字段，拖到 0 只关开关、保留原高度。
+        // 浮动键盘时运行时不垫高（extraPaddingDp），滑块置灰；手机横屏和外接键盘收起键区是键盘当时的状态，设置页判断不了，写进说明。
+        bottomHeight[0] = layout.slider("键盘底部高度", "抬高整块键盘，按键大小不变。底栏显示时，40 dp 以内由底栏占用；浮动键盘、手机横屏和接实体键盘收起键区时不生效。",
+            KeyboardBottomBarPolicy.MIN_PADDING_DP, KeyboardBottomBarPolicy.MAX_PADDING_DP, KeyboardBottomBarPolicy.PADDING_STEP_DP,
+            AndroidLocalSettings.bottomHeightDp(settings), value -> value + " dp",
+            value -> saveLocalSettings(AndroidLocalSettings.bottomHeightEdits(value)));
+        bottomHeight[0].setEnabled(!settings.bool(AndroidLocalSettings.FLOATING_KEYBOARD));
 
         GroupCard feedback = GroupCard.add(sectionColumn(target, "反馈"), "按键反馈");
         KeyboardFeedbackStore.Settings local = state.feedback();
@@ -356,12 +380,51 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         int undoSeconds = settings.integer(AndroidLocalSettings.CLIPBOARD_UNDO_SECONDS);
         clipboard.nav("撤销时长", "删除记录后，剪贴板面板右下角的「撤销」按钮保留几秒",
             ClipboardUndoPolicy.settingLabel(undoSeconds), () -> pickClipboardUndoSeconds(undoSeconds));
+        boolean deleteAuthentication = settings.bool(AndroidLocalSettings.CLIPBOARD_DELETE_AUTHENTICATION);
+        GroupCard.Row[] deleteAuthenticationRow = new GroupCard.Row[1];
+        deleteAuthenticationRow[0] = clipboard.toggle("剪贴板删除数据验证",
+            "单条或多选删除前要求指纹、图案或密码等系统认证；访客剪贴板始终要求认证，撤销删除不再认证",
+            deleteAuthentication,
+            checked -> requestClipboardDeleteAuthentication(deleteAuthenticationRow[0], deleteAuthentication, checked));
         clipboard.nav("剪贴板分类", "自定义分类名称，在键盘中手动移动记录", "管理",
             () -> SettingsNavigator.open(requireContext(), PageId.CLIPBOARD_CATEGORIES, null));
         int historyLimit = ClipboardHistoryPolicy.limit(preferences);
         clipboard.nav("历史记录上限", "达到上限后，最旧的未固定记录会被新记录替换",
             historyLimit + " 条", () -> pickClipboardLimit(historyLimit), true);
 
+    }
+
+    /** 切换删除门禁也必须先认证；取消或失败时把开关留在原状态，不写入本地设置。设备没有可用的系统认证（桥返回 2002）时按 {@link ClipboardDeleteAuthenticationPolicy#togglesWithoutAuthenticator} 只放行关闭：打开开关后移除了锁屏凭据的用户否则永远关不掉它。 */
+    private void requestClipboardDeleteAuthentication(GroupCard.Row row, boolean current, boolean next) {
+        row.setChecked(current);
+        if (clipboardDeleteAuthenticationPending) return;
+        clipboardDeleteAuthenticationPending = true;
+        row.setEnabled(false);
+        android.os.ResultReceiver receiver = new android.os.ResultReceiver(
+            new android.os.Handler(android.os.Looper.getMainLooper())) {
+            @Override protected void onReceiveResult(int code, android.os.Bundle ignored) {
+                clipboardDeleteAuthenticationPending = false;
+                if (getView() == null) return;
+                if (code == ClipboardAuthenticationActivity.RESULT_AUTHENTICATED) {
+                    saveLocalSetting(AndroidLocalSettings.CLIPBOARD_DELETE_AUTHENTICATION, next);
+                } else if (code == ClipboardAuthenticationActivity.RESULT_UNAVAILABLE
+                        && ClipboardDeleteAuthenticationPolicy.togglesWithoutAuthenticator(next)) {
+                    saveLocalSetting(AndroidLocalSettings.CLIPBOARD_DELETE_AUTHENTICATION, next);
+                    MsToast.show(requireContext(), "这台设备没有可用的系统认证，已直接关闭剪贴板删除数据验证");
+                } else {
+                    row.setEnabled(true);
+                    if (code == ClipboardAuthenticationActivity.RESULT_UNAVAILABLE)
+                        MsToast.show(requireContext(), "这台设备没有可用的系统认证，请先设置指纹、图案或密码");
+                }
+            }
+        };
+        try {
+            ClipboardAuthenticationActivity.launch(requireContext(), receiver, "修改剪贴板删除验证");
+        } catch (RuntimeException unavailable) {
+            clipboardDeleteAuthenticationPending = false;
+            row.setEnabled(true);
+            MsToast.show(requireContext(), "这台设备没有可用的系统认证，请先设置指纹、图案或密码");
+        }
     }
 
     /** 工具栏按钮独立控制，不改变长按空格语音；两入口可同时使用。 */
