@@ -717,3 +717,40 @@ test("a host without the candidate action does not mention the personal wordbook
   await screen.findByText("今日待复习");
   expect(screen.queryByText(/加入生词本/)).toBeNull();
 });
+
+test("the card offers 朗读 only when the host can speak and the headword is English", async () => {
+  const speak = vi.fn(async () => {});
+  const view = render(<VocabularyReviewPanel client={client({ speak })} />);
+  fireEvent.click(await screen.findByRole("button", { name: "朗读 ubiquitous" }));
+  expect(speak).toHaveBeenCalledWith("ubiquitous");
+  // 朗读不翻开卡片，也不作答。
+  expect(screen.queryByText("adj. 无处不在的")).toBeNull();
+  view.unmount();
+
+  render(
+    <VocabularyReviewPanel
+      client={client({
+        speak,
+        load: vi.fn(async () =>
+          status({ queue: [{ word: "勉強", phonetic: "", meaning: "学习" }] }),
+        ),
+      })}
+    />,
+  );
+  expect(await screen.findByText("勉強")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /^朗读/ })).toBeNull();
+  cleanup();
+
+  render(<VocabularyReviewPanel client={client()} />);
+  expect(await screen.findByText("ubiquitous")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /^朗读/ })).toBeNull();
+});
+
+test("a voice the host cannot find is reported on the page", async () => {
+  const speak = vi.fn(async () => {
+    throw new Error("系统没有可用的朗读语音");
+  });
+  render(<VocabularyReviewPanel client={client({ speak })} />);
+  fireEvent.click(await screen.findByRole("button", { name: "朗读 ubiquitous" }));
+  expect(await screen.findByText("系统没有可用的朗读语音")).toBeTruthy();
+});

@@ -54,6 +54,17 @@ macOS、iOS、Android 和 Linux 另提供「水杉账号」（`translation_accou
 
 macOS 26 及以上在没有选择任何服务时（候选翻译开启，小牛、自定义、腾讯都未启用，也没有选择水杉账号，手动开启候选翻译后就是这个状态），会用 Apple 系统自带的离线翻译模型为随包词典答不上的中文候选补一行释义。翻译在本机完成，候选词不离开这台 Mac；只用你已经在「系统设置 → 通用 → 语言与地区 → 翻译语言」里下载好的语言对，输入法不会触发下载，没下载就不补。代码在 `platforms/macos/src/backend/translation/BackendOnDeviceGloss.swift`，判定在 `InputController.mm` 的 `currentOnDeviceGlossRequest`。
 
+### 朗读（只在点击时，用系统自带的语音）
+
+候选菜单里的「朗读」和背单词卡片上的喇叭，用操作系统自带的语音合成读出一个英文单词：候选旁英文释义的第一个义项、英文候选本身，或卡片上的英文词头（规则在 `crates/client-services/src/vocabulary/read_aloud.rs`）。只在你点了菜单项或喇叭时发生；读的只是那个英文单词，不写日志、不落盘、不进打字统计。本项目不打包任何声音模型，也不经自己的代码发出网络请求。各平台交给谁合成：
+
+- macOS：输入法用 `AVSpeechSynthesizer`，设置应用的背单词卡片用网页的 `speechSynthesis`，都只用这台 Mac 上已安装的声音。
+- Windows：输入法（Server）用 SAPI 5，声音都装在本机。设置应用的背单词卡片用 WebView2 的 `speechSynthesis`，只挑 `localService` 为真的本机声音；WebView2 本身也不提供 Edge 里的「Online (Natural)」联网声音。
+- Linux：只在系统装了 speech-dispatcher 的命令行 `spd-say` 时才有这一项，输入法和设置应用都把单词交给它（`spd-say -l en <单词>`）。合成由你在 speech-dispatcher 里配置的输出模块完成：常见发行版默认的 espeak-ng 等模块在本机合成，但如果你给它配了一个联网的模块，单词会按那个模块的方式发出去，这一点本项目管不了。
+- iOS、Android、HarmonyOS 还没有这项功能。
+
+代码在 `platforms/macos/src/input/InputController.mm`（`MSIMEReadAloudVoice`）、`platforms/windows/src/voice/SystemSpeech.cpp`、`platforms/linux/src/candidates/ReadAloud.h`、`apps/desktop/src-tauri/src/read_aloud.rs` 和 `apps/desktop/src/core/read-aloud.ts`。
+
 ### 语音输入（默认凭据为空）
 
 `voice_input.enabled` 默认 `true`，但这只表示功能可用，录音要你主动触发。默认识别服务是豆包（`wss://openspeech.bytedance.com/...`），**`asr_token` 默认为空字符串**，不填就无法使用。可选的识别服务还有 SiliconFlow、OpenAI、Groq、EveryAPI、Mistral Voxtral、阿里云百炼（`bailian`，默认 `https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions`，模型 `qwen3-asr-flash`，录音以 Base64 放进 Chat Completions 请求），以及两种不出设备的选项：
