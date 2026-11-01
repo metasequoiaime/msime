@@ -1259,7 +1259,7 @@ fn short_touch_words_correct_one_and_two_syllables_without_changing_the_leader()
     }
 }
 
-/// 多个短词纠错候选按罚分后的词频保持顺序，后插入的较低排名行不能越过先插入的较高排名行。
+/// 断言多个短词纠错候选按罚分后的词频排列：这个顺序来自降序排序加逐个按序插入，本用例守住这条不变量。
 #[test]
 fn short_touch_words_keep_multiple_corrections_in_rank_order() {
     let fixture = Fixture::new(
