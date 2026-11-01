@@ -6779,8 +6779,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private Button brandButton(LinearLayout row, Runnable action) {
-        KeyboardBrandButton button = new KeyboardBrandButton(this,
-            () -> Color.parseColor(skin.accent()));
+        KeyboardBrandButton button = new KeyboardBrandButton(this);
         ViewPolicy.setAllCapsFalse(button);
         button.setText("更多");
         imeStyler.styleButton(button, KeyboardKeyRole.GLYPH, skin);

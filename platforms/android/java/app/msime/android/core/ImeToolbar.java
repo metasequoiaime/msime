@@ -529,8 +529,8 @@ final class ImeToolbar {
         if (recentClipCollapseButton instanceof KeyboardShortcutButton collapse)
             collapse.setIconColors(foregroundColor, foregroundColor);
         if (s.moreButton instanceof KeyboardBrandButton brand) {
-            // 品牌键与键盘共用皮肤强调色，圆盘混入键盘底色，换肤时一起更新。
-            brand.setLogoColors(skin.logoDisc(), skin.logoMark());
+            // 品牌键按工具栏设计稿画：固定配色的标志，不垫圆盘；面板底随皮肤更新。
+            brand.useToolbarDesign();
             brand.setPanelOpen(s.anyToolbarPanelOpen(), activeBackgroundColor);
         }
         if (s.expandCandidates instanceof CandidateChevronButton chevron) {
