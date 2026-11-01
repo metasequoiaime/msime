@@ -21,11 +21,10 @@ import type { Preferences } from "../../core/preferences-model";
 /** 共享层除英文外还有读音表的释义语言，和 `msime_engine::host::PHONETIC_LANGUAGES` 一致。 */
 const TARGET_READING_LANGUAGES: ReadonlySet<string> = new Set(["fr", "ja", "es", "ru", "de", "ko"]);
 
-/** 主目标语言或第二目标语言有没有外语读音表要用。 */
+/** 主目标语言有没有外语读音表要用。Linux 宿主只给主目标语言那一行标读音（Fcitx5 的 `pronunciationTargets`、IBus 的 `ClientEngine` 都只传主目标语言），第二目标语言是外语时下载了也用不上。 */
 function targetReadingLanguage(draft: Partial<Preferences>): boolean {
-  return [draft.translation_target_language, draft.translation_secondary_language].some(
-    (language) => typeof language === "string" && TARGET_READING_LANGUAGES.has(language),
-  );
+  const language = draft.translation_target_language;
+  return typeof language === "string" && TARGET_READING_LANGUAGES.has(language);
 }
 
 /**
@@ -78,7 +77,7 @@ export function ExpressionSettingsPage() {
     retrySave,
   } = useSettingsForm();
   const { onPreferencesChange, onVoiceChange } = createSettingsDraftActions({ setDraft });
-  // 只有安装包不带读音表的宿主（Linux）列出「离线英文音标词典」和「离线外语读音词典」；打开「显示读音」时在开关下面给出下载行，不自动下载，外语那一行只在目标语言里有法、日、西、俄、德、韩语时给出。其他平台这两行不会出现，不读资源包列表。
+  // 只有安装包不带读音表的宿主（Linux）列出「离线英文音标词典」和「离线外语读音词典」；打开「显示读音」时在开关下面给出下载行，不自动下载，外语那一行只在主目标语言是法、日、西、俄、德、韩语时给出。其他平台这两行不会出现，不读资源包列表。
   const pronunciationDownloadable = linuxPlatform && Boolean(client.candidatePronunciation);
   const resourcePacks = useResourcePacks(
     pronunciationDownloadable ? client.resourcePacks : undefined,

@@ -730,6 +730,41 @@ test("Linux offers the target-language readings only when a target needs them", 
   );
 });
 
+test("Linux does not offer the target-language readings for a foreign secondary target", async () => {
+  const packs = fakePacks({}, ["pronunciations", "target-pronunciations"]);
+  const snapshot: Snapshot = {
+    ...initial,
+    preferences: {
+      ...initial.preferences,
+      candidate_english_gloss: true,
+      candidate_pronunciation: true,
+      translation_target_language: "en",
+      translation_secondary_language: "fr",
+    },
+  };
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(snapshot),
+        save: vi.fn().mockImplementation(async (_revision, preferences) => ({
+          ...snapshot,
+          revision: snapshot.revision + 1,
+          preferences,
+        })),
+        candidateEnglishGloss: true,
+        candidatePronunciation: true,
+        host: testHost({ platform: "linux" }),
+        resourcePacks: packs.client,
+      }}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: /^(标点与翻译|标点翻译)$/ }));
+  selectSettingsTab("候选释义");
+  // Linux 宿主只给主目标语言那一行标读音，第二目标语言是法语时外语读音表用不上。
+  await screen.findByRole("button", { name: "下载离线英文音标词典" });
+  expect(screen.queryByRole("button", { name: "下载离线外语读音词典" })).toBeNull();
+});
+
 test("an installed Japanese dictionary leaves no row behind", async () => {
   const packs = fakePacks({ japanese: "installed" });
   renderSettings("macos", packs.client);
