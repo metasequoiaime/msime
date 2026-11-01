@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 状态卡左上的水杉标志：52dp 的位置里居中一枚 28dp 的标志（splash_mark），不垫圆盘，标志本身就是外框。 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@drawable/splash_mark" android:gravity="center" android:width="28dp" android:height="28dp" />
+</layer-list>

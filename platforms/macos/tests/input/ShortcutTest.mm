@@ -9284,7 +9284,7 @@ background = "#F4F8FF"
                 assert(skin.tokens.translation && skin.tokens.selectedTranslation &&
                        [button.translationColor isEqual:SkinColor(button.candidateHighlighted ? *skin.tokens.selectedTranslation : *skin.tokens.translation)]);
             else if (!button.candidateFixed)
-                assert(!skin.tokens.translation && [button.translationColor isEqual:SkinColor(button.candidateHighlighted ? skin.tokens.selectedNumber : skin.tokens.number)]);
+                assert(!skin.tokens.translation && [button.translationColor isEqual:SkinColor(button.candidateHighlighted ? msime::mac::SelectedRowGloss(skin.tokens) : skin.tokens.number)]);
         }
         // The background shows through the empty inset under the rows and is clipped off the rounded corner (the bottom one: the left-aligned decoration covers the top left).
         NSBitmapImageRep *bitmap = [chrome bitmapImageRepForCachingDisplayInRect:chrome.bounds];
@@ -14587,8 +14587,12 @@ int main(int argc, char **argv) {
                     assert([selected.fillColor isEqual:SkinColor(tokens.selected)]);
                     assert([selected.titleColor isEqual:SkinColor(tokens.selectedText)]);
                     assert([unselected.titleColor isEqual:SkinColor(tokens.text)]);
-                    // On the selected fill the translation is the design's candSelTr, the selected number's colour.
-                    assert([selected.translationColor isEqual:SkinColor(tokens.selectedNumber)]);
+                    // 选中底色上的释义是设计稿的 candSelTr，即选中序号的颜色；它对选中底色不到 4.5:1 时（跟随系统的浅色和非玻璃深色）换成 `SelectedRowGloss` 加深过的选中文字色。
+                    assert([selected.translationColor isEqual:SkinColor(msime::mac::SelectedRowGloss(tokens))]);
+                    // 跟随系统的选中行，候选文字和释义（读音同色）对选中底色都到 WCAG AA 的 4.5:1。
+                    if ([skinID isEqual:@"system"])
+                        assert(msime::mac::ForegroundContrast(tokens.selectedText, tokens.selected) >= 4.5f &&
+                               msime::mac::ForegroundContrast(msime::mac::SelectedRowGloss(tokens), tokens.selected) >= 4.5f);
                     // A plain row's translation is the theme's secondary colour, which is the number colour (dc.html L2150, L2183): #9FB5A3 under 水杉, the platform's sub grey under 跟随系统.
                     assert([unselected.translationColor isEqual:SkinColor(tokens.number)]);
                     if ([skinID isEqual:@"shuishan"] || [skinID isEqual:@"system"]) {

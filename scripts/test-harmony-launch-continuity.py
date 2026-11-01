@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """The HarmonyOS cold start is one picture, in the system's light or dark appearance, so its layers share their colours.
 
-A cold start shows the system start window (`start_window_background` and the `start_window_icon.png` disc with the logo), then the cover `Settings.ets` lays over the web view (`launchCoverView`) until the page reports that it has painted. On an ordinary start the cover lifts onto the settings page; on the first start it lifts onto the welcome flow's splash (`HarmonySplash`), whose first frame is the same picture before veils of those colours fade away to reveal the season's colours.
+A cold start shows the system start window (`start_window_background` and the `start_window_icon.png` logo, with no disc around it), then the cover `Settings.ets` lays over the web view (`launchCoverView`) until the page reports that it has painted. On an ordinary start the cover lifts onto the settings page; on the first start it lifts onto the welcome flow's splash (`HarmonySplash`), whose first frame is the same picture before veils of those colours fade away to reveal the season's colours.
 
-Each colour exists twice, once per appearance: the start window and the cover take theirs from the `base` (light) and `dark` resource directories, which the system picks between, and the web splash and its system bars pick by the document's theme. When the layers disagreed, the start looked like unrelated screens stitched together: a black start window in light mode that cut to a light settings page, a dark tile icon that read as a missing image. This check keeps each appearance's colours equal across the places that state them, and keeps both start window icons at the size and padding that put them on the splash's disc (measured on the HarmonyOS 6.0 phone emulator, density 3.25: 180vp is 585px, and the web area's centre sits 18px below the screen's, so the icon carries 36px of transparent padding on top).
+Each colour exists twice, once per appearance: the start window and the cover take theirs from the `base` (light) and `dark` resource directories, which the system picks between, and the web splash and its system bars pick by the document's theme. When the layers disagreed, the start looked like unrelated screens stitched together: a black start window in light mode that cut to a light settings page, a dark tile icon that read as a missing image. This check keeps each appearance's colours equal across the places that state them, and keeps both start window icons at the size and padding that put the logo where the splash draws it (measured on the HarmonyOS 6.0 phone emulator, density 3.25: the 585px square is 180vp, the logo is 150vp centred in it, and the web area's centre sits 18px below the screen's, so the icon carries 36px of transparent padding on top).
 """
 
 import json
@@ -49,7 +49,8 @@ def main() -> int:
     bars = BARS.read_text(encoding="utf-8")
     splash_bars = re.search(r'const splashBackground = dark \? "(#[0-9A-Fa-f]{6})" : "(#[0-9A-Fa-f]{6})"', bars)
     logo = LOGO.read_text(encoding="utf-8") if LOGO.is_file() else ""
-    logo_frame = re.search(r'<path d="M5\.84314[^"]*" fill="(#[0-9A-Fa-f]{6})"', logo)
+    # The frame is the one path with a colour fill; the stroke over it is fill="none".
+    logo_frame = re.search(r'<path d="M[^"]*" fill="(#[0-9A-Fa-f]{6})"', logo)
     groups = {
         "light background": {
             "start_window_background (base)": resource_colour("base", "start_window_background"),
@@ -61,17 +62,9 @@ def main() -> int:
             "onboarding-style.ts hSplash": style_colour(style, "hSplash", "bg", False),
             "use-settings-theme.ts dark splash bars": splash_bars.group(1).upper() if splash_bars else None,
         },
-        "light disc": {
-            "launch_disc (base)": resource_colour("base", "launch_disc"),
-            "onboarding-style.ts hSplashDiscVeil light-theme": style_colour(style, "hSplashDiscVeil", "bg", True),
-        },
-        "dark disc": {
-            "launch_disc (dark)": resource_colour("dark", "launch_disc"),
-            "onboarding-style.ts hSplashDiscVeil": style_colour(style, "hSplashDiscVeil", "bg", False),
-        },
         "logo frame": {
             "launch_logo.svg": logo_frame.group(1).upper() if logo_frame else None,
-            "onboarding-style.ts hSplashFrameVeil": style_colour(style, "hSplashFrameVeil", "fill", False),
+            "onboarding-style.ts hSplashFrame": style_colour(style, "hSplashFrame", "fill", False),
         },
     }
     findings = []
@@ -90,7 +83,6 @@ def main() -> int:
             findings.append(f"{icon.relative_to(ROOT)} is {size}, expected {ICON_SIZE}: the start window draws it at its pixel size, centred on the screen")
     for needle, why in (
         ("$r('app.color.start_window_background')", "the cover's background is not the start window's resource colour"),
-        ("$r('app.color.launch_disc')", "the cover's disc is not the launch_disc resource colour"),
         ("$r('app.media.launch_logo')", "the cover does not draw launch_logo.svg"),
         ("'launchPainted'", "Settings.ets does not expose launchPainted, so the cover only lifts on its time limit"),
     ):

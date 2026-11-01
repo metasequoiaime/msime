@@ -442,7 +442,7 @@ struct InputSettingsView: View {
                       subtitle: resourcePacks.available(CandidatePronunciationPreference.packID)
                         && (!targetReadingsNeeded || resourcePacks.available(CandidatePronunciationPreference.targetPackID))
                         ? nil : "需先下载下面的离线读音词典",
-                      info: "在英文候选和释义下面标出读音：英文给音标，日文给罗马音，其他语言给国际音标，不联网",
+                      info: "在英文候选和释义下面标出读音：英文给音标，日文和韩文给罗马音，其他语言给国际音标，不联网",
                       isOn: habit(\.pronunciationEnabled))
         .accessibilityIdentifier("candidatePronunciationToggle")
       if habits.pronunciationEnabled && !resourcePacks.available(CandidatePronunciationPreference.packID) {

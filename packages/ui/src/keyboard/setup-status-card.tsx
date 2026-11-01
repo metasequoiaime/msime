@@ -225,11 +225,8 @@ export function SetupStatusCard({
       aria-label="水杉输入法状态"
     >
       <div className="flex items-center gap-3">
-        <span
-          className="flex size-[52px] shrink-0 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--accent-color)_22%,var(--p-group-bg))] light-theme:bg-[color-mix(in_srgb,var(--accent-color)_14%,var(--p-group-bg))]"
-          aria-hidden="true"
-        >
-          <MsimeMark size={30} />
+        <span className="flex size-[52px] shrink-0 items-center justify-center" aria-hidden="true">
+          <MsimeMark size={44} />
         </span>
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="text-[17px] font-semibold" role="status">

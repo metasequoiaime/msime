@@ -100,7 +100,7 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
                 Predicate<AccessibilityNodeInfo> mode = node -> node.isClickable()
                     && node.getContentDescription() != null
                     && node.getContentDescription().toString().startsWith("切换到");
-                await(key("中").or(key("英")).and(mode));
+                settleLetterFace(key("中").or(key("英")).and(mode));
                 if (hasKey(key("英"))) tap(key("英"));
                 awaitStableBounds(key("中").and(mode));
                 await(letterFace(layout[0]));
@@ -221,7 +221,7 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
                 // 语言键的描述写「这一下切到哪里」：在所选方案里是「切换到英文输入」，在英文里是「切换到所选输入方案」。全局输入模式可能沿用上一套用例的英文。
                 Predicate<AccessibilityNodeInfo> toEnglish = languageTarget("切换到英文输入");
                 Predicate<AccessibilityNodeInfo> toScheme = languageTarget("切换到所选输入方案");
-                await(toEnglish.or(toScheme));
+                settleLetterFace(toEnglish.or(toScheme));
                 if (english ? hasKey(toEnglish) : hasKey(toScheme)) tap(english ? toEnglish : toScheme);
                 await(english ? toScheme : toEnglish);
                 Predicate<AccessibilityNodeInfo> entry = node -> equalsText("app.msime.android", node.getPackageName())
@@ -530,6 +530,26 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
         for (android.view.accessibility.AccessibilityWindowInfo window : automation.getWindows())
             if (find(window.getRoot(), predicate) != null) return true;
         return false;
+    }
+
+    /** 输入法重绑后符号面板可能晚于编辑器出现；轮询时把它关掉，再开始语言键断言。 */
+    private void settleLetterFace(Predicate<AccessibilityNodeInfo> target) throws Exception {
+        long deadline = SystemClock.uptimeMillis() + 15000;
+        do {
+            // API 34+ 的 find 不再逐节点刷新；每拍先清 UiAutomation 缓存，避免读到已拆掉的面板或旧语言键。
+            dropStaleNodes();
+            if (hasKey(target)) return;
+            // 只点本拍查到的关闭键且不阻塞：面板在检查和点击之间自己消失时，下一拍重新查询即可。
+            for (android.view.accessibility.AccessibilityWindowInfo window : automation.getWindows()) {
+                AccessibilityNodeInfo close = find(window.getRoot(), described("关闭符号面板"));
+                if (close != null && close.isClickable()) {
+                    close.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                    break;
+                }
+            }
+            SystemClock.sleep(100);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new AssertionError("等待字母键面超时：" + imeTexts());
     }
 
     private void awaitKeyStatistics(File file, long expectedDigits, long expectedNine,

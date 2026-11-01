@@ -241,6 +241,11 @@ export function canAddNineKeySidebarSymbol(symbols: readonly string[], symbol: s
   return !symbols.includes(symbol) && validNineKeySidebar([...symbols, symbol]);
 }
 
+/** 编辑页「当前顺序」每行符号前的序号：第 `position` 位（从 0 起）写成「1.」「2.」…，与 Android `NineKeySidebarPolicy.ordinal`、iOS `NineKeySidebar.ordinal` 同一写法。 */
+export function nineKeySidebarOrdinal(position: number): string {
+  return `${position + 1}.`;
+}
+
 /** 确认时写进偏好的值：与这张表的出厂表逐项、同顺序相同时写空数组（「恢复默认」也是它），否则写用户的表。 */
 export function nineKeySidebarStoredValue(
   kind: NineKeySidebarKind,

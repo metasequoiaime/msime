@@ -25,17 +25,20 @@ public final class CandidatePronunciationPolicySmoke {
             "带控制字符的释义不请求，免得共享层拒绝整批");
         check("，音标：[ˈkoʂkə]".equals(CandidatePronunciationPolicy.accessibilitySuffix("[ˈkoʂkə]"))
                 && "，读音：neko".equals(CandidatePronunciationPolicy.accessibilitySuffix("neko"))
+                && "，读音：goyang-i".equals(CandidatePronunciationPolicy.accessibilitySuffix("goyang-i"))
                 && CandidatePronunciationPolicy.accessibilitySuffix("").isEmpty(),
             "读屏念音标或读音");
 
-        // 回答的形状按语言收：英文只收 /…/，其他语言也收 […]，日文是罗马字。org.json 在 JVM 冒烟里只有桩，请求和回答的拼装由共享层的测试覆盖。
+        // 回答的形状按语言收：英文只收 /…/，其他语言也收 […]，日文和韩文是罗马字。org.json 在 JVM 冒烟里只有桩，请求和回答的拼装由共享层的测试覆盖。
         check(app.msime.android.CandidatePronunciationModel.wellFormed("en", "/həˈləʊ/")
                 && !app.msime.android.CandidatePronunciationModel.wellFormed("en", "[x]")
                 && app.msime.android.CandidatePronunciationModel.wellFormed("ru", "[ˈkoʂkə]")
                 && app.msime.android.CandidatePronunciationModel.wellFormed("fr", "/ʃa/")
                 && !app.msime.android.CandidatePronunciationModel.wellFormed("fr", "ʃa")
                 && app.msime.android.CandidatePronunciationModel.wellFormed("ja", "neko")
-                && !app.msime.android.CandidatePronunciationModel.wellFormed("ja", " "),
+                && !app.msime.android.CandidatePronunciationModel.wellFormed("ja", " ")
+                && app.msime.android.CandidatePronunciationModel.wellFormed("ko", "goyang-i")
+                && !app.msime.android.CandidatePronunciationModel.wellFormed("ko", " "),
             "按语言校验读音的形状");
         check("注释\n/IPA/".equals(CandidatePronunciationPolicy.withReading("注释", "/IPA/")),
             "音标独占一行");

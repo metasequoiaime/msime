@@ -96,15 +96,16 @@ public final class NineKeyShuangpinPage extends ReloadingDetailPage {
         boolean applied = SchemePreferences.storedScheme(preferences, edition) == KeyboardScheme.NINE_KEY_SHUANGPIN;
         GroupCard choice = GroupCard.add(sectionColumn(target, "方案"), "方案");
         if (!applied && KeyboardScheme.NINE_KEY_SHUANGPIN.offeredBy(edition)) {
-            choice.button("使用九键双拼键盘", "键盘切换到九键双拼，按下面选的表打字", "切换", this::useKeyboard);
+            choice.button("使用九键双拼键盘", null, "切换", this::useKeyboard).help("键盘切换到九键双拼，按下面选的表打字");
         }
         for (String option : NineKeyShuangpinKeypad.BUILTIN_PROFILES) {
             choice.nav(NineKeyShuangpinKeypad.profileTitle(option), null, option.equals(profile) ? "使用中" : null,
                 () -> chooseProfile(option));
         }
-        choice.nav("自定义", savedUsable ? "用下面保存的自定义表" : "先在下面编辑并保存一张自定义表",
+        // 还没有能用的自定义表是这一行点不了的原因，留在副标题；能用时的说明收进「?」。
+        choice.nav("自定义", savedUsable ? null : "先在下面编辑并保存一张自定义表",
             NineKeyShuangpinKeypad.CUSTOM_PROFILE.equals(profile) ? "使用中" : null,
-            savedUsable ? () -> chooseProfile(NineKeyShuangpinKeypad.CUSTOM_PROFILE) : null);
+            savedUsable ? () -> chooseProfile(NineKeyShuangpinKeypad.CUSTOM_PROFILE) : null).help("用下面保存的自定义表");
 
         JSONObject current = layout(profile, savedTable);
         GroupCard keys = GroupCard.add(sectionColumn(target, "键位"), "键位（" + NineKeyShuangpinKeypad.profileTitle(
@@ -115,12 +116,12 @@ public final class NineKeyShuangpinPage extends ReloadingDetailPage {
         }
 
         GroupCard editor = GroupCard.add(sectionColumn(target, "自定义"), "自定义表");
-        editor.note("每个音节两位数字：先按声母所在的键，再按韵母所在的键；零声母音节直接给两位数字。一个编码可以对应好几个音节，数字 0 到 9 都可以用。");
+        editor.help("每个音节两位数字：先按声母所在的键，再按韵母所在的键；零声母音节直接给两位数字。一个编码可以对应好几个音节，数字 0 到 9 都可以用。");
         editor.button("从内置方案开始", "用一张内置的表替换正在编辑的表", "选择", this::startFromBuiltin);
-        editor.button("导入", "从 JSON 文件读入一张表", "导入", () -> openDocument.launch(
-            new String[] {"application/json", "text/plain", "application/octet-stream"}));
-        editor.button("导出", "把正在编辑的表存成 JSON 文件", "导出",
-            () -> createDocument.launch("九键双拼键位.json"));
+        editor.button("导入", null, "导入", () -> openDocument.launch(
+            new String[] {"application/json", "text/plain", "application/octet-stream"})).help("从 JSON 文件读入一张表");
+        editor.button("导出", null, "导出",
+            () -> createDocument.launch("九键双拼键位.json")).help("把正在编辑的表存成 JSON 文件");
         JSONObject draftLayout = layout(NineKeyShuangpinKeypad.CUSTOM_PROFILE, draft);
         JSONObject problem = draftLayout == null ? null : draftLayout.optJSONObject("problem");
         String saveSubtitle = problem != null ? problemText(problem)

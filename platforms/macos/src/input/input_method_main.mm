@@ -59,6 +59,16 @@ static void MSIMEStartDictionarySync(void) {
     if (response) msime_client_string_free(response);
 }
 
+// 当前登录会话的屏幕是否锁着（锁屏或开盖后还没解锁）。读不到会话信息时按没锁处理。
+static BOOL MSIMEScreenIsLocked(void) {
+    CFDictionaryRef session = CGSessionCopyCurrentDictionary();
+    if (!session) return NO;
+    const void *locked = CFDictionaryGetValue(session, CFSTR("CGSSessionScreenIsLocked"));
+    const BOOL result = locked && CFGetTypeID(locked) == CFBooleanGetTypeID() && CFBooleanGetValue((CFBooleanRef)locked);
+    CFRelease(session);
+    return result;
+}
+
 int main(int argc, const char *argv[]) {
     @autoreleasepool {
         if (MSIMEShouldRegisterInputSource(argc, argv)) {
@@ -119,7 +129,12 @@ int main(int argc, const char *argv[]) {
         }
         // 独立设置窗口也要检查模式是否已加入输入法列表，所以在进入该分支前初始化探针。
         MSIMEInputModeEnabledProbe = MSIMEInputSourceIsEnabled;
+        NSDictionary *reportingOptions = MSIMELoadRuntimeOptions();
+        id reportingPreferences = reportingOptions[@"preferences_directory"];
+        NSString *reportingDirectory = [reportingPreferences isKindOfClass:NSString.class] && [reportingPreferences isAbsolutePath]
+            ? reportingPreferences : nil;
         if (MSIMEShouldShowPreferences(argc, argv)) {
+            MSIMESettingsCrashReportingStart(reportingDirectory);
             [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
             id closeObserver = [[NSNotificationCenter defaultCenter]
                 addObserverForName:MSIMEStandalonePreferencesDidCloseNotification
@@ -132,14 +147,13 @@ int main(int argc, const char *argv[]) {
             [[MSIMEPreferencesWindowController sharedController] showAndActivateForStandaloneLaunch];
             [NSApp run];
             [[NSNotificationCenter defaultCenter] removeObserver:closeObserver];
+            MSIMEUsageReportingStop();
             return 0;
         }
         // 脚本插件只在输入法进程里运行，上面的独立设置窗口已经返回。在第一个会话之前打开开关，开发构建和 release 构建一样（msime_client.h）。
         msime_client_scripts_enable(true);
-        // One input method process is one usage session; the standalone preferences window above is not.
-        NSDictionary *reportingOptions = MSIMELoadRuntimeOptions();
-        id reportingPreferences = reportingOptions[@"preferences_directory"];
-        MSIMEUsageReportingStart([reportingPreferences isKindOfClass:NSString.class] && [reportingPreferences isAbsolutePath] ? reportingPreferences : nil);
+        // 一个输入法进程对应一个输入会话；上面的独立设置窗口仅采集自身故障。
+        MSIMEUsageReportingStart(reportingDirectory);
         // 同样只在输入法进程里：独立设置窗口已经在上面返回。
         MSIMEStartDictionarySync();
         // Recover a prior crashed capture before accepting new IMK sessions.
@@ -176,6 +190,34 @@ int main(int argc, const char *argv[]) {
                     // 用户刚离开水杉，这时装后台下好的更新不会打断打字：进程退出，切回来时系统从新 bundle 拉起（UpdateController.mm）。
                     if (MSIMEUpdateHostUsesSparkle(NSBundle.mainBundle)) [[MSIMEUpdateController sharedController] installDownloadedUpdateIfReady];
                 }];
+        // 合盖睡眠、锁屏到解锁之后几秒，系统会自己恢复输入源并报告一个模式，有用户每次开盖方案都被改成注音。这段时间里的报告不当作用户的选择（MSIMESystemInputModeState 的 restoringUntil）。没锁屏的唤醒没有解锁通知，所以唤醒时屏幕没锁就直接进入解锁后的那几秒。
+        NSNotificationCenter *workspaceCenter = NSWorkspace.sharedWorkspace.notificationCenter;
+        NSDistributedNotificationCenter *distributedCenter = NSDistributedNotificationCenter.defaultCenter;
+        __attribute__((objc_precise_lifetime)) NSArray<id> *workspaceObservers = @[
+            [workspaceCenter addObserverForName:NSWorkspaceWillSleepNotification object:nil
+                queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *) {
+                    MSIMEHoldSystemInputModeRestore(MSIMESharedSystemInputModeState());
+                    msime_macos_diagnostic_write("input_mode_restore event=sleep");
+                }],
+            [workspaceCenter addObserverForName:NSWorkspaceDidWakeNotification object:nil
+                queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *) {
+                    if (MSIMEScreenIsLocked()) return;
+                    MSIMEBeginSystemInputModeRestore(MSIMESharedSystemInputModeState(), NSProcessInfo.processInfo.systemUptime);
+                    msime_macos_diagnostic_write("input_mode_restore event=wake");
+                }],
+        ];
+        __attribute__((objc_precise_lifetime)) NSArray<id> *distributedObservers = @[
+            [distributedCenter addObserverForName:@"com.apple.screenIsLocked" object:nil
+                queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *) {
+                    MSIMEHoldSystemInputModeRestore(MSIMESharedSystemInputModeState());
+                    msime_macos_diagnostic_write("input_mode_restore event=lock");
+                }],
+            [distributedCenter addObserverForName:@"com.apple.screenIsUnlocked" object:nil
+                queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *) {
+                    MSIMEBeginSystemInputModeRestore(MSIMESharedSystemInputModeState(), NSProcessInfo.processInfo.systemUptime);
+                    msime_macos_diagnostic_write("input_mode_restore event=unlock");
+                }],
+        ];
         // 带 feed 的发布包在这里启动 Sparkle，它才会按 SUScheduledCheckInterval 在后台检查和下载；没有 feed 的构建不创建更新控制器，「检查更新…」用到时再建。
         // 先在后台队列读出偏好里的更新通道（update_channel），回到主线程再带着它创建控制器：Sparkle 启动后安排的第一次检查就取用户所选通道的 appcast，读偏好文件也不占用处理按键的主线程。偏好读不出来时按稳定版。之后的通道变化由 InputController 读偏好时交给控制器。
         if (MSIMEUpdateHostUsesSparkle(NSBundle.mainBundle)) {
@@ -210,6 +252,8 @@ int main(int argc, const char *argv[]) {
         [NSApp run];
         if ([shared respondsToSelector:@selector(stopClipboardCapture)]) [shared performSelector:@selector(stopClipboardCapture)];
         [sourceMonitor stop];
+        for (id observer in workspaceObservers) [workspaceCenter removeObserver:observer];
+        for (id observer in distributedObservers) [distributedCenter removeObserver:observer];
         // 正在跑的那一次同步最多等两秒，与使用统计收尾的宽限相同；没等完也不要紧，每一步都已写盘。被 SIGTERM 结束时不经过这里，进程直接退出，道理相同。
         (void)msime_client_dictionary_sync_stop(2000);
         MSIMEUsageReportingStop();

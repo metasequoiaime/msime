@@ -139,14 +139,17 @@ final class CandidateGlossModelTests: XCTestCase {
       ["text": "bonjour", "language": "fr", "pronunciation": "/bɔ̃.ʒuʁ/"],
       ["text": "кошка", "language": "ru", "pronunciation": "[ˈkoʂkə]"],
       ["text": "猫", "language": "ja", "pronunciation": "neko"],
+      ["text": "고양이", "language": "ko", "pronunciation": "goyang-i"],
+      ["text": "개", "language": "ko", "pronunciation": " "],
       ["text": "猫", "language": "zh", "pronunciation": "māo"],
       ["text": "", "language": "en", "pronunciation": "/x/"],
     ]])
     XCTAssertEqual(readings, [key("en", "hello"): "/həˈləʊ/", key("fr", "bonjour"): "/bɔ̃.ʒuʁ/",
-                              key("ru", "кошка"): "[ˈkoʂkə]", key("ja", "猫"): "neko"])
+                              key("ru", "кошка"): "[ˈkoʂkə]", key("ja", "猫"): "neko", key("ko", "고양이"): "goyang-i"])
     XCTAssertThrowsError(try CandidatePronunciationModel.decode(["generation": 0]))
     XCTAssertEqual(CandidatePronunciationModel.accessibilityLabel("[ˈkoʂkə]"), "音标 [ˈkoʂkə]")
     XCTAssertEqual(CandidatePronunciationModel.accessibilityLabel("neko"), "读音 neko")
+    XCTAssertEqual(CandidatePronunciationModel.accessibilityLabel("goyang-i"), "读音 goyang-i")
   }
 
   /// 键盘经共享层读下载的资源包：资源目录旁没有表时，从 `<state_root>/resource-packs/pronunciations/` 读到合成的表。
