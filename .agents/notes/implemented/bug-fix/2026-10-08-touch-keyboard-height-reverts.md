@@ -22,6 +22,10 @@ Android 的内联高度条已由 [键盘调整遮罩](../feature/2026-11-01-andr
   - 组字中会话推迟偏好更新，原来的 `updateAndPersist` 在这种情况下连文档也不写；现在 `persistTouchKeyboardGeometry` 总是写文档并返回是否成功，失败时记 `touch_geometry_not_persisted`，并把 App Group 和键盘按文档对齐。
   - `synchronizeSharedTouchPreferences` 原来只把间距和语音入口镜像进 App Group，没有高度，键盘里的调节器打开时用的是 App Group 里的旧值；现在用 `mirrorGeometry` 把高度也镜像过去。
 
+## 后续变化
+
+iOS 键盘里的高度入口后来换成整块键盘的「键盘调整」遮罩，收起键盘、换输入框、切到别的应用也都按确认保存，与这里 Android 的做法一致，见 [iOS 键盘调整遮罩取代内联高度条](../feature/2026-11-01-ios-keyboard-adjust-overlay.md)。
+
 ## Alternatives considered
 
 - **键盘里调的高度只存在键盘本机、不写共享文档，设置页另存一份**：两边各写各的就不会互相覆盖。但设置页显示的就不是键盘实际用的高度了，用户在设置页看到的数和键盘对不上，账号同步也只能同步其中一份。
