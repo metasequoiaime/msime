@@ -197,13 +197,23 @@ group("上沿：往上拖变高，1vp 对 1vp，下沿不动", () => {
   check(P.dragTop(10, Number.NaN) === 10, "位移不是数时不动");
 });
 
-group("下沿：往上拖抬高加、高度减，上沿不动；任一项到限两项一起停", () => {
+group("下沿：先拿高度换抬高、上沿不动，高度到下限后整块继续往上，抬高到 160 停", () => {
   const up = P.dragBottom(0, 0, -10);
-  check(up.lift === 10 && up.height === -10, "往上 10vp：抬高 +10、高度 -10");
-  const shortest = P.dragBottom(0, 0, -30);
-  check(shortest.lift === 12 && shortest.height === -12, "高度到 -12 时停住，抬高也停在 12");
+  check(up.lift === 10 && up.height === -10, "往上 10vp：抬高 +10、高度 -10，上沿不动");
+  const crossing = P.dragBottom(0, 0, -30);
+  check(
+    crossing.lift === 30 && crossing.height === -12,
+    "一次拖动跨过下限：高度停在 -12，抬高照样跟到 30",
+  );
+  const atFloor = P.dragBottom(-12, 40, -25);
+  check(
+    atFloor.lift === 65 && atFloor.height === -12,
+    "高度已在下限时往上拖，抬高继续加，整块上移",
+  );
   const highest = P.dragBottom(48, 150, -50);
-  check(highest.lift === 160 && highest.height === 38, "抬高到 160 时停住");
+  check(highest.lift === 160 && highest.height === 38, "抬高到 160 时停住，高度只让出用掉的那段");
+  const ceiling = P.dragBottom(-12, 160, -40);
+  check(ceiling.lift === 160 && ceiling.height === -12, "两项都到头时不动");
   const down = P.dragBottom(0, 5, 20);
   check(down.lift === 0 && down.height === 5, "往下拖抬高到 0 停住，高度只补回 5");
   const tallest = P.dragBottom(40, 20, 20);
@@ -213,12 +223,28 @@ group("下沿：往上拖抬高加、高度减，上沿不动；任一项到限�
       for (const dy of [-500, -37, -1, 0, 3, 41, 500]) {
         const rise = P.dragBottom(height, lift, dy);
         check(
-          rise.height + rise.lift === height + lift,
-          `高度 ${height}、抬高 ${lift}、位移 ${dy}：高度加抬高不变，上沿不动`,
-        );
-        check(
           rise.height >= -12 && rise.height <= 48 && rise.lift >= 0 && rise.lift <= 160,
           `高度 ${height}、抬高 ${lift}、位移 ${dy}：两项都在范围里`,
+        );
+        if (dy > 0) {
+          check(
+            rise.height + rise.lift === height + lift,
+            `高度 ${height}、抬高 ${lift}、往下 ${dy}：高度加抬高不变，上沿不动`,
+          );
+          continue;
+        }
+        const u = -dy;
+        check(
+          rise.lift === Math.min(lift + u, 160),
+          `高度 ${height}、抬高 ${lift}、往上 ${u}：抬高跟着手指，到 160 停`,
+        );
+        check(
+          rise.height === height - Math.min(rise.lift - lift, height + 12),
+          `高度 ${height}、抬高 ${lift}、往上 ${u}：高度让出同样多，不低于 -12`,
+        );
+        check(
+          rise.height + rise.lift >= height + lift,
+          `高度 ${height}、抬高 ${lift}、往上 ${u}：上沿不会往下掉`,
         );
       }
     }

@@ -344,13 +344,13 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 功能面板的「键盘调整」磁贴（原「键盘高度」，图标和位置不变，id 仍是 `keyboard_height`）打开一层盖在整块键盘上的遮罩，取代原来替换工具栏的高度条 `HeightBar`。Android、iOS 按同一份契约实现，三端界面和行为一致，决定见 `.agents/notes/implemented/feature/2026-11-01-harmony-keyboard-adjust-overlay.md`。
 
 - 样子（`KeyboardView.adjustOverlay`）：键盘外框上盖约 45% 不透明的黑色（`KeyboardAdjustPolicy.MASK_COLOR`），下面的工具栏和按键照常画作实时预览，整层挡住触摸；四角是皮肤强调色（`skin.accent`）的直角括号。上沿、下沿正中各一个三道横线的把手，左右两沿垂直居中各一个两道竖线的把手，中间一排白色的「重置」「移动」「确认」。
-- 每个柄只动自己那条边，对边在屏幕上不动（换算在 `keyboard/KeyboardAdjustPolicy.ts`）：上沿改高度（往上拖变高，1vp 对 1vp）；下沿改底部抬高，同时高度反向变化，上沿不动，任一项到限两项一起停；左右沿改宽度并同时改水平位置，另一侧边不动；「移动」按住拖动整块键盘，同时改底部抬高和水平位置，大小不变。拖动按屏幕坐标（`TouchObject.displayX` / `displayY`）算，柄跟着面板移动也不影响。
+- 每个柄只动自己那条边，对边在屏幕上不动（下沿往上拖过高度下限时例外；换算在 `keyboard/KeyboardAdjustPolicy.ts`）：上沿改高度（往上拖变高，1vp 对 1vp）；下沿改底部抬高：往上拖时抬高跟着手指走、高度反向让出同样多，上沿不动，高度到下限 −12 后整块键盘继续往上，直到抬高到 160；往下拖时抬高减、高度加，上沿不动，抬高到 0 或高度到 48 时停（`dragBottom`）；左右沿改宽度并同时改水平位置，另一侧边不动；「移动」按住拖动整块键盘，同时改底部抬高和水平位置，大小不变。拖动按屏幕坐标（`TouchObject.displayX` / `displayY`）算，柄跟着面板移动也不影响。
 - 四项：高度仍是共享偏好 `touch_keyboard_height_adjustment`（-12..48vp）；底部抬高 `bottomLift`（0–160vp，缺省 0）、宽度 `widthPercent`（屏幕宽的 60–100%，缺省 100，拖动时另有 240vp 下限，取两者中更宽的）、水平位置 `positionX`（两侧剩余空间里左侧所占的千分比，0–1000，缺省 500 居中）存在本机的 `key-feedback.json`（`KeyboardFeedback`），与 `oneHanded`、`floatingX/Y` 同处，不进共享偏好、不同步，设置页和账号同步写这个文件时经 `KeyboardFeedbackBridge.fromShared` 沿用它们。设置页只有「键盘高度」滑块，没有另外三项。
 - 生效条件（`KeyboardAdjustPolicy.availability`）：浮动键盘、手机横屏和 2in1 上底部抬高、宽度、位置都不生效，只画上沿柄、不画「移动」；单手模式或分离式键盘画着时宽度和位置不生效，不画左右柄，「移动」只改抬高。不生效时存着的值不变，条件变了自动回来。
 - 布局：宽度和位置作用于整块键盘，触屏根节点的左右内边距在 4vp 之外多出 `adjustFrame` 的左右两段，底部内边距在 6vp 之外多出抬高；让出的地方只有键盘底色，点了不落到按键。面板仍是整屏宽，高度是 `KeyboardMetrics.totalHeightVp` 加抬高（最后一个参数），冷启动第一帧由扩展能力按 `KeyboardSession.firstTouchLift` 算进去，视图从它出发核对。转屏或开关浮动键盘让抬高生效或不生效时，`syncStripHeight` 改面板高度。
 - 重置把四项预览回默认（高度 0、抬高 0、宽度 100%、居中），不保存；确认保存四项并退出。没有「取消」：其他任何离开方式（收起键盘、换输入框、切应用、切到别的面板）都按确认保存，都经 `KeyboardView.show` 的同一处。调整中途设置页保存引起的偏好重载不会把预览盖回去。
 - 读屏：四个柄的名称是「键盘高度」「键盘底部高度」「键盘宽度（左边）」「键盘宽度（右边）」，当前值和调法在说明里；三个按钮各有说明。HarmonyOS 到 API 24 为止 `AccessibilityAction` 只有点击，自定义组件做不了「增减」，读屏用户调这四项只能靠拖动（屏幕朗读下的拖动手势没有在设备上验证）。
-- 测试：`tests/keyboard-adjust.test.ts` 覆盖范围、生效条件和柄、外框换算、各边拖动约束（对边不动、到限停住）、存放与不进共享结构、面板高度含抬高、磁贴改名；`tests/run.sh` 钉住离开即保存、重载保留预览、根节点内边距、面板高度和冷启动第一帧的接线，以及 `HeightBar` 不再存在。
+- 测试：`tests/keyboard-adjust.test.ts` 覆盖范围、生效条件和柄、外框换算、各边拖动约束（对边不动、下沿过下限后整块上移、到限停住）、存放与不进共享结构、面板高度含抬高、磁贴改名；`tests/run.sh` 钉住离开即保存、重载保留预览、根节点内边距、面板高度和冷启动第一帧的接线，以及 `HeightBar` 不再存在。
 
 ## 全拼九键的三栏展开面板
 

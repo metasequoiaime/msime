@@ -93,7 +93,7 @@ export class KeyboardAdjustPolicy {
   static readonly MOVE_DESCRIPTION: string = "按住拖动，移动整块键盘";
   static readonly CONFIRM_DESCRIPTION: string = "保存键盘调整并退出";
   static readonly TOP_DESCRIPTION: string = "上下拖动上沿，调整键盘高度";
-  static readonly BOTTOM_DESCRIPTION: string = "上下拖动下沿，调整底部抬高，上沿不动";
+  static readonly BOTTOM_DESCRIPTION: string = "上下拖动下沿，调整底部抬高";
   static readonly SIDE_DESCRIPTION: string = "左右拖动，调整键盘宽度";
 
   /** 存着的底部抬高：取整钳到 0–160；不是有限数时取 `fallback`。 */
@@ -211,21 +211,28 @@ export class KeyboardAdjustPolicy {
   }
 
   /**
-   * 拖下沿：往上拖 d，底部抬高加 d、高度减 d，上沿在屏幕上不动。任一项到限就停住，两项一起停，所以上沿始终不动。
+   * 拖下沿，从按下时的高度和抬高出发，手指累计往上移 u：
+   *
+   * - 往上（u ≥ 0）：抬高跟着手指走，到 160 停；高度反向让出同样多但不低于下限 −12。所以先拿高度换抬高、上沿不动；高度到下限后整块键盘继续往上移，直到抬高到顶。鸿蒙的高度下限只有 −12，没有这一段的话下沿柄最多只能把键盘抬起 12 + 当前高度那么多。
+   * - 往下（u < 0）：抬高减、高度加同样多，上沿不动；抬高到 0 或高度到上限 48 时两项一起停。
    */
   static dragBottom(baseHeight: number, baseLift: number, dy: number): AdjustRise {
     const height: number = KeyboardGeometry.heightAdjustment(baseHeight);
     const lift: number = KeyboardAdjustPolicy.lift(baseLift);
+    const up: number = Number.isFinite(dy) ? Math.round(-dy) : 0;
+    if (up >= 0) {
+      const raised: number = Math.min(lift + up, KeyboardAdjustPolicy.MAX_LIFT_VP);
+      const yielded: number = Math.min(
+        raised - lift,
+        height - KeyboardGeometry.MIN_HEIGHT_ADJUSTMENT_VP,
+      );
+      return { height: height - yielded, lift: raised };
+    }
     const lowest: number = Math.max(
       KeyboardAdjustPolicy.MIN_LIFT_VP - lift,
       height - KeyboardGeometry.MAX_HEIGHT_ADJUSTMENT_VP,
     );
-    const highest: number = Math.min(
-      KeyboardAdjustPolicy.MAX_LIFT_VP - lift,
-      height - KeyboardGeometry.MIN_HEIGHT_ADJUSTMENT_VP,
-    );
-    const up: number = Number.isFinite(dy) ? Math.round(-dy) : 0;
-    const rise: number = Math.max(lowest, Math.min(highest, up));
+    const rise: number = Math.max(lowest, up);
     return { height: height - rise, lift: lift + rise };
   }
 
