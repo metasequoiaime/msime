@@ -13494,12 +13494,18 @@ fn a_scheme_this_build_does_not_run_falls_back_and_says_why() {
     let diagnostic = updated["value"]["diagnostic"].as_str().unwrap();
     assert!(diagnostic.contains("Zhuyin"), "{diagnostic}");
     assert!(diagnostic.contains("Wubi"), "{diagnostic}");
+    // 缺的是词库，回复同时报出装上就能跑的资源包，宿主可以自己去下载。
+    assert_eq!(
+        updated["value"]["missing_resource_pack"],
+        "language-dictionaries"
+    );
     SESSIONS.with(|sessions| assert_eq!(sessions.borrow()[&handle].options.scheme, 2));
 
     // A scheme that runs reports nothing.
     let quanpin = chinese_preferences();
     let updated = update(handle, 2, &quanpin);
     assert!(updated["value"].get("diagnostic").is_none());
+    assert!(updated["value"].get("missing_resource_pack").is_none());
     read(msime_client_destroy(handle));
 }
 
@@ -19568,6 +19574,19 @@ fn wubi_reads_the_bundled_table_then_the_downloaded_pack_and_falls_back_without_
     assert!(diagnostic
         .unwrap()
         .contains("its dictionary is not installed"));
+    assert_eq!(
+        super::missing_scheme_pack(InputScheme::Wubi, &all, &missing),
+        Some(ResourcePack::Wubi)
+    );
+    // 本版本不提供五笔时不是缺资源包，装了也跑不了。
+    assert_eq!(
+        super::missing_scheme_pack(InputScheme::Wubi, &[InputScheme::Quanpin], &missing),
+        None
+    );
+    assert_eq!(
+        super::missing_scheme_pack(InputScheme::Quanpin, &all, &missing),
+        None
+    );
     let (effective, diagnostic) = effective_scheme(
         &preferences,
         &all,
@@ -19575,6 +19594,10 @@ fn wubi_reads_the_bundled_table_then_the_downloaded_pack_and_falls_back_without_
         InputScheme::Quanpin,
     );
     assert_eq!((effective, diagnostic), (InputScheme::Wubi, None));
+    assert_eq!(
+        super::missing_scheme_pack(InputScheme::Wubi, &all, &LanguageDictionaries::default()),
+        None
+    );
 
     // 下载的资源包。
     let pack = publish_resource_pack(&state, ResourcePack::Wubi, &["msime-wubi.db"]);
