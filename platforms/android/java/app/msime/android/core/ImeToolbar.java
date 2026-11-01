@@ -195,6 +195,9 @@ final class ImeToolbar {
         appliedOrder = order;
     }
 
+    /** 读音行当前 TouchDelegate 的范围，用来判断重新布局后是否需要换新的。 */
+    private Rect preeditTouchBounds;
+
     /** 读音的可点区域：读音所在那一段的整个宽度，靠行首一侧延到行的边缘（含行的左内边距），上下占满整行（含行底和候选行之间的间距）。坐标是读音行自己的。 */
     private static Rect preeditTouchTarget(View header, View preeditFrame) {
         boolean rtl = header.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL;
@@ -229,8 +232,13 @@ final class ImeToolbar {
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         candidateHeader.addView(preeditFrame, LayoutPolicy.weightedWrapParams(1));
         // 读音本身只有文字那么大，打 wo 这样的短拼音时只有十几 dp 宽，点偏一点就点不中（#10474）。读音所在的那一段（从行首到右边的提示、页码、漢、× 为止）连同行底和候选行之间的间距，子视图都不接的触摸经 TouchDelegate 交给读音；能不能点、能不能长按仍由读音自己的状态决定，不能编辑时照样不接。读音行就是键盘可触摸区域的最上沿，往上没法扩；行高不变。
-        candidateHeader.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) ->
-            candidateHeader.setTouchDelegate(new TouchDelegate(preeditTouchTarget(candidateHeader, preeditFrame), s.preedit)));
+        // 只在范围真的变了时才换一个新的 TouchDelegate：它把“这一次按下是否交给读音”记在实例上，异步候选、云候选或提示通道更新引起的重新布局如果在手指按住时换掉它，新实例收不到后续的移动和抬起，读音就会一直停在按下状态、丢掉这次点按，长按计时也不会取消，手指早已抬起后仍会弹出本地模式菜单。
+        candidateHeader.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            Rect target = preeditTouchTarget(candidateHeader, preeditFrame);
+            if (target.equals(preeditTouchBounds)) return;
+            preeditTouchBounds = target;
+            candidateHeader.setTouchDelegate(new TouchDelegate(target, s.preedit));
+        });
         // 宿主提示通道：正常为空，只有准备中、失败或提示时才有文字。
         s.status = toolbarText(10);
         ViewPolicy.setMaxLinesEllipsized(s.status, 1);

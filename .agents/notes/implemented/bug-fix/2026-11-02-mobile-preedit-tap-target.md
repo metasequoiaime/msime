@@ -14,7 +14,7 @@ HarmonyOS 手机的读音行（`KeyboardView.ets` 的 `candidateBar`）没有 `o
 
 **只改命中，不改布局。** 行高、键盘高度、读音和候选的位置都不变，放大的只是能把触摸交给读音的那块区域。
 
-- **Android**：读音行 `candidateHeader` 挂一个 `TouchDelegate`，目标是读音。区域是读音所在那一段（`preeditFrame`，从行首到右边的提示、页码、漢、× 为止）的整个宽度，靠行首一侧延到行的边缘（含 10 dp 左内边距），上下占满整行（含行底的间距）。每次读音行重新布局时按 `preeditFrame` 的当前位置重算（`addOnLayoutChangeListener`，与 `InfoTipView.extendTouchTarget` 同一个写法）。子视图先分发，只有子视图都不接的触摸才到 `TouchDelegate`，所以提示、页码、漢、× 和 18 键的拼音选择条（插在 `preeditFrame` 后面、各占一半）照旧接自己的触摸。读音能不能点、能不能长按仍由它自己的 `clickable` / `longClickable` 决定（`MSIMEInputService` 组字时按 `caretEditable`、`offersLocalModes` 设置），不能编辑时读音不接，宽区域也不吞触摸。
+- **Android**：读音行 `candidateHeader` 挂一个 `TouchDelegate`，目标是读音。区域是读音所在那一段（`preeditFrame`，从行首到右边的提示、页码、漢、× 为止）的整个宽度，靠行首一侧延到行的边缘（含 10 dp 左内边距），上下占满整行（含行底的间距）。每次读音行重新布局时按 `preeditFrame` 的当前位置重算（`addOnLayoutChangeListener`，与 `InfoTipView.extendTouchTarget` 同一个写法），但只在范围真的变了时才换新的 `TouchDelegate`：它把这一次按下是否交给读音记在实例上，读音行会因为异步候选、云候选、提示通道的更新在手指按住时重新布局，换掉它会让新实例收不到移动和抬起，读音停在按下状态、点按丢失、长按计时不取消，手指抬起后仍弹出本地模式菜单。`InfoTipView` 在静态的设置页里没有这个问题。子视图先分发，只有子视图都不接的触摸才到 `TouchDelegate`，所以提示、页码、漢、× 和 18 键的拼音选择条（插在 `preeditFrame` 后面、各占一半）照旧接自己的触摸。读音能不能点、能不能长按仍由它自己的 `clickable` / `longClickable` 决定（`MSIMEInputService` 组字时按 `caretEditable`、`offersLocalModes` 设置），不能编辑时读音不接，宽区域也不吞触摸。
 - **iOS**：读音按钮换成 `KeyboardViewController.PreeditButton`，重写 `point(inside:with:)`，可点区域是它的父视图 `compositionRow` 的整个范围。读音单独一行时是这一行从行首到行尾、上下占满；拼音选择条显示时叠在读音按钮上面（后加进 `compositionRow`），落在选择条里的触摸先归选择条。读音并入候选行时 `compositionRow` 只有读音那么宽，放大的是上下，占满候选行的高度。读音收起（`isHidden`）时不参与命中。
 
 **往上扩不了。** 读音行就是键盘可触摸区域的最上沿（Android 停靠时 `onComputeInsets` 的可触摸区域只有键盘本身），再往上是应用的窗口。往上点偏落到应用的情况只能缓解，消除不了。
