@@ -592,6 +592,11 @@ public final class NativeClient {
         return TextPolicy.utf8(voiceNormalizeNumbersRaw(utf8(request)));
     }
 
+    /** 语音标点：`{"text","mode"}` in, `{"text"}` out。按 `voice_input.punctuation_mode` 去掉或替换最终文本里的标点，`auto` 和不认识的 mode 原样返回；只用于最终文本。Pure. */
+    public static String voicePunctuation(String request) {
+        return TextPolicy.utf8(voicePunctuationRaw(utf8(request)));
+    }
+
     /** Whether the sherpa-onnx runtime loads: the one packaged in the APK, or the one named by {@link #localSpeechRuntime}. Loads it on the first call, so call on a worker. */
     public static boolean localSpeechAvailable() {
         return localSpeechAvailableRaw();
@@ -1239,6 +1244,7 @@ public final class NativeClient {
     private static native byte[] voiceHotwordsRaw(byte[] request);
     private static native byte[] voiceHotwordCorrectRaw(byte[] request);
     private static native byte[] voiceNormalizeNumbersRaw(byte[] request);
+    private static native byte[] voicePunctuationRaw(byte[] request);
     private static native boolean localSpeechAvailableRaw();
     private static native void localSpeechRuntimeRaw(byte[] path);
     private static native void telemetryCrashRefreshModulesRaw();
