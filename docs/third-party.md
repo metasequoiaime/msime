@@ -295,17 +295,17 @@ msime-dictionary 原样收录了 `stroke.dict.yaml`（`sources/stroke/stroke.dic
 
 ## 法日西俄德韩的读音表（`resources/target-pronunciations.lock.json`）
 
-打开「显示读音」后，法、日、西、俄、德、韩语的释义行下面显示读音：日语是赫本式罗马字，其余是维基词典的国际音标。来源与上文「非英语离线释义」相同，都是英文维基词典经 Wiktextract 抽取、由 kaikki.org 发布的数据，同一个许可；离线释义取英语词条的译文表，读音取目标语言词条自己的 `sounds`（日语取 `forms` 里的罗马字），kaikki.org 把它们按语言分开发布。
+打开「显示读音」后，法、日、西、俄、德、韩语的释义行下面显示读音：日语是赫本式罗马字，韩语是文化观光部式罗马字（Revised Romanization），其余是维基词典的国际音标（德语优先取方括号的语音标音）。来源与上文「非英语离线释义」相同，都是英文维基词典经 Wiktextract 抽取、由 kaikki.org 发布的数据，同一个许可；离线释义取英语词条的译文表，读音取目标语言词条自己的 `sounds`（日语取 `forms` 里的罗马字，韩语取 `sounds[].other` 里维基词典写的发音谚文，由生成器按规范转写成罗马字），kaikki.org 把它们按语言分开发布。
 
 | 项 | 值 |
 | --- | --- |
 | 来源 | [英文维基词典](https://en.wiktionary.org/)（Wiktionary contributors），经 [Wiktextract](https://github.com/tatuylonen/wiktextract) 提交 `f9fe161b9dd1e898352c51bef7295e774bba2ef1` 抽取（维基词典 2026-10-01 的转储，2026-10-25 抽取），由 [kaikki.org](https://kaikki.org/dictionary/) 发布的 `kaikki.org-dictionary-{French,Japanese,Spanish,Russian,German,Korean}.jsonl.gz` |
 | 许可 | CC BY-SA 4.0（维基词典按 CC BY-SA 4.0 与 GFDL 双许可，这里取前者），与离线释义相同 |
 | 生成器 | `scripts/build_target_pronunciations.py`，只用 Python 标准库；离线测试 `scripts/test-target-pronunciations.py` |
-| 产物 | `target-pronunciations/<lang>-phonetic.db` 六份（`<lang>_phonetics(word, phonetic)`，`meta.kind = <lang>_phonetic`，`user_version = 1`，每种 1.4 万到 2.1 万词，合计约 3.7 MB），外加 `target-pronunciations-NOTICE.txt` |
-| 取词范围 | 只收离线释义（`offline-glosses.lock.json` 的六份 `zh-<lang>.db`）用到的词条及其小写；去掉屈折形式、罗马化页面、字母和词缀；IPA 优先取斜线的音位标音、不带地区标签的或该语言标准音的那一条（法语反过来，标 `France`、`Europe` 的标准音排在不带标签的南部变体前面），古旧、方言、非标准的不用，一格里有两种读法或带注释的整格、只在联诵时出现的和只标了一部分的不用；日语取罗马字，同一词性的同形词条先取带假名并标了声调的，并把汉字词条的假名读法也作为键，片假名释义折成平假名去对 |
+| 产物 | `target-pronunciations/<lang>-phonetic.db` 六份（`<lang>_phonetics(word, phonetic)`，`meta.kind = <lang>_phonetic`，`user_version = 1`，每种 1.4 万到 2.1 万词，合计约 3.6 MB），外加 `target-pronunciations-NOTICE.txt` |
+| 取词范围 | 只收离线释义（`offline-glosses.lock.json` 的六份 `zh-<lang>.db`）用到的词条及其小写；去掉屈折形式、罗马化页面、字母和词缀；IPA 优先取不带地区标签的或该语言标准音的那一条，同一档里斜线的音位标音优先（法语反过来，标 `France`、`Europe` 的标准音排在不带标签的南部变体前面；德语是方括号的语音标音优先，没有完整的方括号标音时给斜线，口语缩读不用），古旧、方言、非标准的不用，一格里有两种读法或带注释的整格、只在联诵时出现的和只标了一部分的不用；韩语按《国语的罗马字表记法》（文化观光部告示第 2000-8 号）从拼写和维基词典的发音谚文生成罗马字，词头不是谚文的不收；日语取罗马字，同一词性的同形词条先取带假名并标了声调的，并把汉字词条的假名读法也作为键，片假名释义折成平假名去对 |
 | 锁 | `resources/target-pronunciations.lock.json`：`inputs` 是六个 kaikki dump（地址、ETag、长度、SHA-256），`filtered_input` 是生成时实际读的过滤后 jsonl，`vocabulary` 指向离线释义的锁，`built` 是六个数据库和 NOTICE |
-| 发布位置 | 数据库和 NOTICE 在 [`metasequoiaime/chinese-ime-lm` 的 `target-pronunciations-2026.10.25-r2`](https://github.com/metasequoiaime/chinese-ime-lm/releases/tag/target-pronunciations-2026.10.25-r2)，过滤后的输入在 [`target-pronunciations-2026.10.25`](https://github.com/metasequoiaime/chinese-ime-lm/releases/tag/target-pronunciations-2026.10.25)（那里的第一版数据库已被取代） |
+| 发布位置 | 数据库和 NOTICE 在 [`metasequoiaime/chinese-ime-lm` 的 `target-pronunciations-2026.10.25-r3`](https://github.com/metasequoiaime/chinese-ime-lm/releases/tag/target-pronunciations-2026.10.25-r3)，过滤后的输入在 [`target-pronunciations-2026.10.25`](https://github.com/metasequoiaime/chinese-ime-lm/releases/tag/target-pronunciations-2026.10.25)（那里的第一版数据库和 `-r2` 的第二版已被取代） |
 | 获取 | `scripts/fetch_gloss_tables.py` 按锁下载并校验，写到 `target/target-pronunciations` |
 
 离线释义锁住的 2026-09-02 那一周的 dump 已被 kaikki.org 覆盖，过滤后的输入里也只有英语词条，所以读音用的是 2026-10-25 那一周；读音按目标语言的词查，与释义来自哪一周无关，下次刷新离线释义时两者从同一周的 dump 一起重建。能复现构建的同样是 `filtered_input`：用它加上离线释义锁住的六个数据库运行 `build_target_pronunciations.py build --glosses <目录>`（`--dump-date`、`--source-revision` 取锁里的值），在锁里的 `sqlite_version` 下逐字节相同。原始 dump 合计约 420 MB，在 Mac Studio 上用 `filter` 过滤；`filter` 只看 `lang_code`，将来按语言的 dump 停发时读约 3 GB 的 raw dump 也一样。
