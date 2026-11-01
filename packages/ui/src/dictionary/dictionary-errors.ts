@@ -54,6 +54,8 @@ function invalidDictionaryEntryMessage(kind?: string): string {
       return "快捷短语编码只能包含英文字母，长度 1 到 32。";
     case "english":
       return "英文编码只能包含字母、连字符和撇号。";
+    case "cantonese":
+      return "粤语编码要写成不带声调的粤拼，每个字一个音节、用空格分开，音节数需与字数一致，例如“你好”填 nei hou。";
     default:
       return "词条不符合词库规则，请检查编码与词条后再保存。";
   }
@@ -61,9 +63,11 @@ function invalidDictionaryEntryMessage(kind?: string): string {
 
 export function dictionaryKeyMatches(kind: string, key: string, query: string): boolean {
   if (!query) return true;
+  // 拼音和粤语的编码按音节分开存，搜索时不必打出分隔。
+  const syllabic = kind === "pinyin" || kind === "cantonese";
   const code = (text: string) =>
-    kind === "pinyin" ? asciiLowercase(text).replace(/[' ]/g, "") : asciiLowercase(text);
-  return code(kind === "pinyin" ? key : key.trim()).startsWith(code(query));
+    syllabic ? asciiLowercase(text).replace(/[' ]/g, "") : asciiLowercase(text);
+  return code(syllabic ? key : key.trim()).startsWith(code(query));
 }
 
 /** 兼容旧宿主未筛选的响应；词条查询不再误用编码前缀规则。 */

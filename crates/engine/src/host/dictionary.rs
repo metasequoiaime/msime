@@ -355,6 +355,14 @@ pub fn merge_dictionary_state(
     ))
 }
 
+/// 把用户加的粤语词写进一代的日志，已有同一个词的保留已有的，返回写进去的条数（规则见 `state::add_cantonese_words`）。激活整份快照前把旧的一代里的粤语词带进新的一代用它：快照装不下粤语词。调用方必须持有独占维护权。
+pub fn add_cantonese_words(
+    options: &EngineOptions,
+    words: &[DictionaryStateRecord],
+) -> Result<usize> {
+    released(state::add_cantonese_words(&runtime_paths(options), words))
+}
+
 /// 在一个只读事务里依次读出日志里的六张输入习惯表（整句联想、选词对、拼写纠错、自动纠错抑制、置顶），交给 `emit`；`emit` 返回假时停下并报 `INVALID_DICTIONARY_STATE`。本地备份导出输入习惯用它，规则见 `habits::stream_learning_habits`。
 pub fn stream_learning_habits(
     options: &EngineOptions,

@@ -3453,14 +3453,12 @@ pub(crate) fn invalid_dictionary_entry(reason: &str) -> String {
 pub(crate) const NO_CHINESE_DICTIONARY: &str =
     "this edition of the input method has no Chinese dictionary; only English words can be edited";
 
-/// `kind` 的词能不能在 `options` 的版本里编辑。不含全拼、双拼、五笔的版本（日文、越南文、藏文）随包不带 msime-pinyin.db，拼音、五笔和快捷短语都无处可存，只有英文词能编辑（`SchemeSet::reads_main_dictionary`）。在加锁之前就拒绝，把原因告诉调用方，而不是让 Engine 拒绝后报成笼统的「dictionary edit rejected」。
+/// `kind` 的词能不能在 `options` 的版本里编辑。不含全拼、双拼、五笔的版本（日文、越南文、藏文）随包不带 msime-pinyin.db，拼音、五笔和快捷短语都无处可存，只有英文词和粤语词（粤语词只记在用户日志里）能编辑（`SchemeSet::reads_main_dictionary`）。在加锁之前就拒绝，把原因告诉调用方，而不是让 Engine 拒绝后报成笼统的「dictionary edit rejected」。
 pub(crate) fn require_dictionary_kind(
     options: &EngineOptions,
     kind: msime_engine::host::DictionaryKind,
 ) -> Result<(), String> {
-    if kind == msime_engine::host::DictionaryKind::English
-        || options.enabled_schemes.reads_main_dictionary()
-    {
+    if kind.stored_without_main_dictionary() || options.enabled_schemes.reads_main_dictionary() {
         Ok(())
     } else {
         Err(NO_CHINESE_DICTIONARY.into())

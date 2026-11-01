@@ -46,7 +46,8 @@ pub fn delete_dictionary_candidate(
             kind.wubi_table().map(str::to_owned)
         }
         PersonalDictionaryKind::English => Some("english_words".to_owned()),
-        PersonalDictionaryKind::QuickPhrase => None,
+        // 粤语词没有工作表；候选窗不对粤语行开放删除（`is_editable_source`）。
+        PersonalDictionaryKind::QuickPhrase | PersonalDictionaryKind::Cantonese => None,
     }
     .ok_or_else(|| EngineError::invalid(UNSTORABLE_ENTRY))?;
     let pinyin = kind == PersonalDictionaryKind::Pinyin;

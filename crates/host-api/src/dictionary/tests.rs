@@ -1371,6 +1371,72 @@ fn journal_list_kind_does_not_truncate_after_other_dictionaries() {
     );
 }
 
+/// 个人粤语词按种类经 `list`、`count`、`export` 读出，编码前缀搜索不必打出音节间的空格；`browse` 的 `cantonese` 仍是发布的粤语词库（这里没装，报 `available: false`），不会读到个人词。
+#[test]
+fn cantonese_personal_words_list_count_and_export_while_browse_keeps_the_resource() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    for name in ["user", "resources", "dictionaries", "cache"] {
+        std::fs::create_dir(root.join(name)).unwrap();
+    }
+    let connection = rusqlite::Connection::open(root.join("user/msime_user.db")).unwrap();
+    connection.execute_batch(
+        "CREATE TABLE user_dictionary_operations(dictionary TEXT NOT NULL,key TEXT NOT NULL,value TEXT NOT NULL,operation TEXT NOT NULL,weight INTEGER NOT NULL,user_inserted INTEGER NOT NULL,PRIMARY KEY(dictionary,key,value));
+         INSERT INTO user_dictionary_operations VALUES
+         ('cantonese','nei hou','禮好','upsert',100000,1),
+         ('cantonese','gwong dung waa','廣東話','upsert',5,1),
+         ('pinyin','ni''hao','你好','upsert',3,1);",
+    ).unwrap();
+    drop(connection);
+    let options = json!({
+        "api_version": 1,
+        "resources": root.join("resources"),
+        "user_data": root.join("user"),
+        "cache": root.join("cache"),
+        "dictionaries": root.join("dictionaries"),
+        "preferences": msime_client_core::preferences::Preferences::default(),
+    });
+    let request = |action: serde_json::Value| {
+        dictionary_request_json(
+            &serde_json::to_vec(&json!({ "options": options, "action": action })).unwrap(),
+        )
+        .unwrap()
+    };
+    let nei_hou = json!({"kind": "cantonese", "key": "nei hou", "value": "禮好", "weight": 100000, "source": "user"});
+    assert_eq!(
+        request(
+            json!({"operation": "list", "offset": 0, "limit": 100, "kind": "cantonese", "query": "neih"})
+        ),
+        json!({ "entries": [nei_hou], "has_more": false })
+    );
+    assert_eq!(
+        request(json!({"operation": "list", "offset": 0, "limit": 100, "kind": "cantonese"})),
+        json!({
+            "entries": [
+                {"kind": "cantonese", "key": "gwong dung waa", "value": "廣東話", "weight": 5, "source": "user"},
+                nei_hou,
+            ],
+            "has_more": false,
+        })
+    );
+    assert_eq!(
+        request(json!({"operation": "count", "kind": "cantonese"}))["count"],
+        json!(2)
+    );
+    assert_eq!(
+        request(
+            json!({"operation": "export", "kind": "cantonese", "format": "standard", "offset": 0, "limit": 1000})
+        ),
+        json!({"text": "廣東話\tgwong dung waa\t5\n禮好\tnei hou\t100000\n", "has_more": false})
+    );
+    assert_eq!(
+        request(
+            json!({"operation": "browse", "kind": "cantonese", "query": "", "offset": 0, "limit": 100})
+        ),
+        json!({ "entries": [], "has_more": false, "available": false })
+    );
+}
+
 fn scel_text_reply(request: &[u8]) -> serde_json::Value {
     let pointer = unsafe { msime_client_dictionary_scel_text(request.as_ptr(), request.len()) };
     let value = unsafe { std::ffi::CStr::from_ptr(pointer) }

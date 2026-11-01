@@ -97,6 +97,11 @@ fn replay_with(user_db: &Path, main_db: Option<&Path>, english_db: &Path) -> Rep
                 result.skipped += 1;
                 continue;
             }
+            // 粤语词只记在日志里，粤语方案查词时直接读日志（`cantonese::UserWords`），工作库里没有它的表。计入 skipped：落进下面的未知种类会算失败，整次回放回滚。
+            if operation.kind == b"cantonese" {
+                result.skipped += 1;
+                continue;
+            }
             if operation.kind == b"pinyin"
                 && operation.operation == b"upsert"
                 && operation.weight < 1
