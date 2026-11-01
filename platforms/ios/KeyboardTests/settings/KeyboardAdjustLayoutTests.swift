@@ -206,7 +206,7 @@ final class KeyboardAdjustLayoutTests: XCTestCase {
     XCTAssertEqual(KeyboardAdjustState.standard, state(height: 0, lift: 0, width: 100, position: 500))
   }
 
-  /// 读屏步长：高度 5%、抬高 4 pt、宽度 5%、位置 50‰。
+  /// 读屏步长：高度 5%、抬高 4 pt、宽度 5%、位置 50‰；「移动」上下调抬高、左右调位置。
   func testScreenReaderSteps() {
     var session = KeyboardAdjustSession(state: state(), capabilities: .all, containerWidth: 400, keyBlock: 229)
     session.step(.top, increment: true)
@@ -219,11 +219,15 @@ final class KeyboardAdjustLayoutTests: XCTestCase {
     XCTAssertEqual(session.state.placement.positionX, 1000)
     session.step(.right, increment: false)
     XCTAssertEqual(session.state.placement.widthPercent, 90)
-    session.step(.move, increment: false)
-    XCTAssertEqual(session.state.placement.positionX, 450)
-    session.capabilities = KeyboardAdjustCapabilities(placement: true, width: false)
+    session.stepPosition(right: false)
+    XCTAssertEqual(session.state.placement.positionX, 450, "left and right on 移动 move by 50‰")
     session.step(.move, increment: true)
-    XCTAssertEqual(session.state.placement.bottomLift, 8, "move lifts when the width does not apply")
-    XCTAssertEqual(session.state.placement.positionX, 450)
+    XCTAssertEqual(session.state.placement.bottomLift, 8, "up and down on 移动 lift by 4 pt")
+    XCTAssertEqual(session.state.heightAdjustment, 7, "without changing the size")
+    session.capabilities = KeyboardAdjustCapabilities(placement: true, width: false)
+    session.stepPosition(right: true)
+    XCTAssertEqual(session.state.placement.positionX, 450, "no sideways move while the width does not apply")
+    session.step(.move, increment: true)
+    XCTAssertEqual(session.state.placement.bottomLift, 12)
   }
 }

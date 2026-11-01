@@ -143,18 +143,24 @@ enum KeyboardAdjustLayout {
       heightAdjustment: Int(KeyboardHeightPercent.adjustment(percent: percent, keyBlock: keyBlock)), placement: start.placement)
   }
 
-  /// 读屏的「移动」：宽度生效时水平位置加减 `positionStep`（向右为增），否则抬高加减 `liftStep`。
-  static func steppingMove(_ start: KeyboardAdjustState, increment: Bool,
-                           capabilities: KeyboardAdjustCapabilities) -> KeyboardAdjustState {
+  /// 读屏的「移动」上下方向：抬高加减 `liftStep`，大小不变。
+  static func steppingLift(_ start: KeyboardAdjustState, up: Bool, capabilities: KeyboardAdjustCapabilities) -> KeyboardAdjustState {
     guard capabilities.placement else { return start }
     let placement = start.placement
-    let sign = increment ? 1 : -1
-    let next = capabilities.width
-      ? KeyboardPlacement(bottomLift: placement.bottomLift, widthPercent: placement.widthPercent,
-                          positionX: placement.positionX + sign * positionStep)
-      : KeyboardPlacement(bottomLift: placement.bottomLift + sign * liftStep, widthPercent: placement.widthPercent,
-                          positionX: placement.positionX)
-    return KeyboardAdjustState(heightAdjustment: start.heightAdjustment, placement: next)
+    return KeyboardAdjustState(
+      heightAdjustment: start.heightAdjustment,
+      placement: KeyboardPlacement(bottomLift: placement.bottomLift + (up ? liftStep : -liftStep),
+                                   widthPercent: placement.widthPercent, positionX: placement.positionX))
+  }
+
+  /// 读屏的「移动」左右方向：水平位置加减 `positionStep`（向右为增）；宽度不生效时不能左右移。
+  static func steppingPosition(_ start: KeyboardAdjustState, right: Bool, capabilities: KeyboardAdjustCapabilities) -> KeyboardAdjustState {
+    guard capabilities.width else { return start }
+    let placement = start.placement
+    return KeyboardAdjustState(
+      heightAdjustment: start.heightAdjustment,
+      placement: KeyboardPlacement(bottomLift: placement.bottomLift, widthPercent: placement.widthPercent,
+                                   positionX: placement.positionX + (right ? positionStep : -positionStep)))
   }
 
   /// 拖到 `target` 宽时存的百分比：取整到整数，限制在拖动下限和 100 之间，也不超过不动的那条边留给它的 `room`。
@@ -229,7 +235,7 @@ struct KeyboardAdjustSession {
 
   mutating func endDrag() { dragStart = nil }
 
-  /// 读屏的增减：变高、抬高、变宽，以及向右移（宽度不生效时向上移）为增。
+  /// 读屏的增减：变高、抬高、变宽，以及「移动」向上移为增。
   mutating func step(_ part: Part, increment: Bool) {
     guard allows(part) else { return }
     let sign: CGFloat = increment ? 1 : -1
@@ -239,8 +245,13 @@ struct KeyboardAdjustSession {
     case .bottom: state = KeyboardAdjustLayout.draggingBottom(state, rise: sign * CGFloat(KeyboardAdjustLayout.liftStep))
     case .left: state = KeyboardAdjustLayout.draggingLeft(state, dx: -sign * widthStep, containerWidth: containerWidth)
     case .right: state = KeyboardAdjustLayout.draggingRight(state, dx: sign * widthStep, containerWidth: containerWidth)
-    case .move: state = KeyboardAdjustLayout.steppingMove(state, increment: increment, capabilities: capabilities)
+    case .move: state = KeyboardAdjustLayout.steppingLift(state, up: increment, capabilities: capabilities)
     }
+  }
+
+  /// 读屏让「移动」左右移一步（位置 `positionStep`）；宽度不生效时什么也不做。
+  mutating func stepPosition(right: Bool) {
+    state = KeyboardAdjustLayout.steppingPosition(state, right: right, capabilities: capabilities)
   }
 
   /// 「重置」：四项预览回缺省，不保存。

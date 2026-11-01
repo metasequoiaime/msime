@@ -9512,6 +9512,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     ])
     overlay.onDrag = { [weak self] part, phase, dx, rise in self?.dragKeyboardAdjust(part, phase: phase, dx: dx, rise: rise) }
     overlay.onStep = { [weak self] part, increment in self?.changeKeyboardAdjust { $0.step(part, increment: increment) } }
+    overlay.onStepPosition = { [weak self] right in self?.changeKeyboardAdjust { $0.stepPosition(right: right) } }
     overlay.onReset = { [weak self] in self?.changeKeyboardAdjust { $0.reset() } }
     overlay.onConfirm = { [weak self] in self?.closeKeyboardAdjust() }
     adjustOverlay = overlay
@@ -9558,7 +9559,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       height: "\(Self.heightPercent(adjustment: CGFloat(state.heightAdjustment), keyBlock: session.keyBlock))%",
       bottom: lift,
       width: "\(state.placement.widthPercent)%",
-      move: session.capabilities.width ? "水平位置 \(state.placement.positionX / 10)%，\(lift)" : lift)
+      move: session.capabilities.width ? "\(lift)，水平位置 \(state.placement.positionX / 10)%" : lift)
   }
 
   /// 离开键盘调整：「确认」、收起键盘、换输入框和切到别的应用都走这里，一律把预览的四项存下，没有取消。高度写 App Group 和共享文档（与设置 App 的「键盘高度」同一份），抬高、宽度和水平位置只写本机 App Group。

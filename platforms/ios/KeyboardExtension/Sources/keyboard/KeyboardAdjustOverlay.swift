@@ -31,17 +31,20 @@ final class KeyboardAdjustOverlay: UIView {
 
   /// 拖动 `part`：`dx` 向右为正、`rise` 向上为正，都是从按下到现在、在屏幕上不动的坐标里的位移。
   var onDrag: ((Part, UIGestureRecognizer.State, _ dx: CGFloat, _ rise: CGFloat) -> Void)?
-  /// 读屏对 `part` 的增减。
+  /// 读屏对 `part` 的增减（上下方向）。
   var onStep: ((Part, _ increment: Bool) -> Void)?
+  /// 读屏让「移动」左右移一步。
+  var onStepPosition: ((_ right: Bool) -> Void)?
   var onReset: (() -> Void)?
   var onConfirm: (() -> Void)?
 
   private let dim = UIView()
   private let brackets = CAShapeLayer()
+  // 读屏文字三端相同。
   private let topHandle = Handle(part: .top, label: "键盘高度", hint: "上下拖动调整键盘高度")
-  private let bottomHandle = Handle(part: .bottom, label: "底部高度", hint: "上下拖动抬高或放低键盘，上沿不动")
-  private let leftHandle = Handle(part: .left, label: "键盘宽度，左边", hint: "左右拖动调整宽度，右边不动")
-  private let rightHandle = Handle(part: .right, label: "键盘宽度，右边", hint: "左右拖动调整宽度，左边不动")
+  private let bottomHandle = Handle(part: .bottom, label: "键盘底部高度", hint: "上下拖动抬高或放低键盘，上沿不动")
+  private let leftHandle = Handle(part: .left, label: "键盘宽度（左边）", hint: "左右拖动调整宽度，右边不动")
+  private let rightHandle = Handle(part: .right, label: "键盘宽度（右边）", hint: "左右拖动调整宽度，左边不动")
   private let resetButton = ActionButton(title: "重置", symbol: "arrow.counterclockwise")
   private let moveButton = ActionButton(title: "移动", symbol: "arrow.up.and.down.and.arrow.left.and.right")
   private let confirmButton = ActionButton(title: "确认", symbol: "checkmark.circle")
@@ -78,6 +81,11 @@ final class KeyboardAdjustOverlay: UIView {
     for button in [resetButton, moveButton, confirmButton] { addSubview(button) }
     track(moveButton, part: .move)
     moveButton.onStep = { [weak self] increment in self?.onStep?(.move, increment) }
+    // 上下方向（增减）调抬高；能左右移时另有「向左移」「向右移」两个自定义操作调位置。
+    moveButton.accessibilityCustomActions = [
+      UIAccessibilityCustomAction(name: "向左移") { [weak self] _ in self?.onStepPosition?(false); return true },
+      UIAccessibilityCustomAction(name: "向右移") { [weak self] _ in self?.onStepPosition?(true); return true },
+    ]
     resetButton.addAction(UIAction { [weak self] _ in self?.onReset?() }, for: .primaryActionTriggered)
     confirmButton.addAction(UIAction { [weak self] _ in self?.onConfirm?() }, for: .primaryActionTriggered)
     accessibilityElements = [topHandle, leftHandle, resetButton, moveButton, confirmButton, rightHandle, bottomHandle]
@@ -106,6 +114,7 @@ final class KeyboardAdjustOverlay: UIView {
     leftHandle.isHidden = !capabilities.showsSideHandles
     rightHandle.isHidden = !capabilities.showsSideHandles
     moveButton.isHidden = !capabilities.showsMove
+    moveButton.positionActionsEnabled = capabilities.width
     setNeedsLayout()
   }
 
@@ -232,6 +241,14 @@ final class KeyboardAdjustOverlay: UIView {
   /// 中间一排的按钮：白色 SF Symbol 在上，白色文字在下；按住时变淡。
   private final class ActionButton: UIControl {
     var onStep: ((Bool) -> Void)?
+    /// 宽度不生效时不朗读左右移的自定义操作。
+    var positionActionsEnabled = true
+    private var positionActions: [UIAccessibilityCustomAction]?
+
+    override var accessibilityCustomActions: [UIAccessibilityCustomAction]? {
+      get { positionActionsEnabled ? positionActions : nil }
+      set { positionActions = newValue }
+    }
     private let icon = UIImageView()
     private let label = UILabel()
 

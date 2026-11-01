@@ -408,6 +408,11 @@ final class MorePanelFoldTests: XCTestCase {
                        "keyboardAdjustReset", "keyboardAdjustMove", "keyboardAdjustConfirm"] {
       XCTAssertFalse(try view(identifier, in: overlay).isHidden, identifier)
     }
+    XCTAssertEqual(try view("keyboardAdjustTop", in: overlay).accessibilityLabel, "键盘高度")
+    XCTAssertEqual(try view("keyboardAdjustBottom", in: overlay).accessibilityLabel, "键盘底部高度")
+    XCTAssertEqual(try view("keyboardAdjustLeft", in: overlay).accessibilityLabel, "键盘宽度（左边）")
+    XCTAssertEqual(try view("keyboardAdjustRight", in: overlay).accessibilityLabel, "键盘宽度（右边）")
+    XCTAssertEqual(try view("keyboardAdjustMove", in: overlay).accessibilityCustomActions?.map(\.name), ["向左移", "向右移"])
     XCTAssertEqual(try view("keyboardAdjustReset", in: overlay).accessibilityLabel, "重置")
     XCTAssertEqual(try view("keyboardAdjustMove", in: overlay).accessibilityLabel, "移动")
     XCTAssertEqual(try view("keyboardAdjustConfirm", in: overlay).accessibilityLabel, "确认")
@@ -523,6 +528,7 @@ final class MorePanelFoldTests: XCTestCase {
     XCTAssertFalse(try view("keyboardAdjustBottom", in: overlay).isHidden)
     let move = try view("keyboardAdjustMove", in: overlay)
     XCTAssertFalse(move.isHidden)
+    XCTAssertNil(move.accessibilityCustomActions, "no sideways actions while the width does not apply")
     move.accessibilityIncrement()
     XCTAssertEqual(move.accessibilityValue, "抬高 4 点")
     try control("keyboardAdjustConfirm", in: overlay).sendActions(for: .primaryActionTriggered)
