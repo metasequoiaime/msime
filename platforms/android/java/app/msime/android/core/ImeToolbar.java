@@ -3,9 +3,11 @@ package app.msime.android;
 import app.msime.android.LayoutPolicy;
 
 import android.graphics.Color;
+import android.graphics.Rect;
 import android.os.SystemClock;
 import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
+import android.view.TouchDelegate;
 import android.view.inputmethod.InputConnection;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -193,6 +195,14 @@ final class ImeToolbar {
         appliedOrder = order;
     }
 
+    /** 读音的可点区域：读音所在那一段的整个宽度，靠行首一侧延到行的边缘（含行的左内边距），上下占满整行（含行底和候选行之间的间距）。坐标是读音行自己的。 */
+    private static Rect preeditTouchTarget(View header, View preeditFrame) {
+        boolean rtl = header.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL;
+        int left = rtl ? preeditFrame.getLeft() : 0;
+        int right = rtl ? header.getWidth() : preeditFrame.getRight();
+        return new Rect(left, 0, right, header.getHeight());
+    }
+
     /** 读音行（读音、提示、页码、漢、退出本地模式）与工具栏的滚动容器；读音行只在组词或有提示时显示。 */
     void buildCandidateHeader(LinearLayout candidateRegion) {
         LinearLayout candidateHeader = LayoutPolicy.row(s);
@@ -218,6 +228,9 @@ final class ImeToolbar {
         preeditFrame.addView(s.preedit, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         candidateHeader.addView(preeditFrame, LayoutPolicy.weightedWrapParams(1));
+        // 读音本身只有文字那么大，打 wo 这样的短拼音时只有十几 dp 宽，点偏一点就点不中（#10474）。读音所在的那一段（从行首到右边的提示、页码、漢、× 为止）连同行底和候选行之间的间距，子视图都不接的触摸经 TouchDelegate 交给读音；能不能点、能不能长按仍由读音自己的状态决定，不能编辑时照样不接。读音行就是键盘可触摸区域的最上沿，往上没法扩；行高不变。
+        candidateHeader.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) ->
+            candidateHeader.setTouchDelegate(new TouchDelegate(preeditTouchTarget(candidateHeader, preeditFrame), s.preedit)));
         // 宿主提示通道：正常为空，只有准备中、失败或提示时才有文字。
         s.status = toolbarText(10);
         ViewPolicy.setMaxLinesEllipsized(s.status, 1);

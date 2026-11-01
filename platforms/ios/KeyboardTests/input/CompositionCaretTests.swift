@@ -117,6 +117,13 @@ final class CompositionCaretTests: XCTestCase {
     let home = try XCTUnwrap(menu.children.first as? UIAction)
     home.performWithSender(nil, target: nil)
     XCTAssertEqual(preedit.configuration?.title, "|nihao")
+    // 光标移进拼写后读音画在候选行最左边，读音那一段上下占满的整个高度都点得到读音，不只是标题那么高（#10474）。
+    controller.view.layoutIfNeeded()
+    let row = try XCTUnwrap(preedit.superview)
+    XCTAssertEqual(row.accessibilityIdentifier, "compositionRow")
+    for y in [row.bounds.minY + 0.5, row.bounds.midY, row.bounds.maxY - 0.5] {
+      XCTAssertTrue(row.hitTest(CGPoint(x: row.bounds.midX, y: y), with: nil) === preedit, "y = \(y) in a \(row.bounds.height)pt row")
+    }
     let delete = try XCTUnwrap(preedit.menu?.children.last as? UIAction)
     XCTAssertFalse(delete.attributes.contains(.disabled))
     delete.performWithSender(nil, target: nil)

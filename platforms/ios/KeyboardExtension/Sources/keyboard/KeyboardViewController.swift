@@ -83,7 +83,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let dictionarySync = KeyboardDictionarySync()
   private var lastKeyTouchTime: TimeInterval = -.infinity
   private var synchronizingPersonalDictionary = false
-  private let preeditButton = UIButton()
+  private let preeditButton = PreeditButton()
   private var appliedPreeditMenuKey: String?
   private let exitLocalModeButton = UIButton()
   /// 漢 on the candidate row: the touch counterpart of a Korean keyboard's Hanja key. Shown only while a Korean syllable composes; it lists the syllable's Hanja on the strip and closes the list again.
@@ -2619,6 +2619,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 读音并入候选行时最多占这一行的这一份宽度，更长的读音截掉尾部。
   static let inlineReadingMaximumShare: CGFloat = 0.3
+
+  /// 读音按钮只有拼写那么大，打 wo 这样的短拼写时很难点中（#10474）。它的可点区域放大到整个读音段（`compositionRow`）：读音单独一行时是这一行从行首到行尾、上下占满，拼音选择条显示时叠在它上面，先接住落在选择条里的触摸；读音并入候选行时这一段只有读音那么宽，放大的是上下，占满候选行的高度。只改命中，不改布局，行高、标题位置和候选的位置都不变。
+  private final class PreeditButton: UIButton {
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+      guard let row = superview else { return super.point(inside: point, with: event) }
+      return convert(row.bounds, from: row).contains(point)
+    }
+  }
 
   /// 按当前方案把读音放到单独一行或候选行最左边，顶栏和键盘高度跟着变；顶栏还没建好时（`viewDidLoad` 里先读方案）什么都不做，建顶栏时直接按当前方案装约束。
   private func applyReadingRowPlacement() {
