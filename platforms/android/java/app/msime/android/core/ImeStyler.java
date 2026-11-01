@@ -646,7 +646,7 @@ final class ImeStyler {
         }
     };
 
-    /** 手机的键盘铺满窗口，平板和二合一的键盘表面限宽居中；平板横屏画分离式键盘时铺满，让左右两半贴到两侧；大屏单手模式也铺满，侧栏与键区才能贴到屏幕边（ImeFrame.applyOneHanded）；浮动时是一块缩窄的圆角面板。 */
+    /** 手机的键盘铺满窗口，平板和二合一的键盘表面限宽居中；平板横屏画分离式键盘时铺满，让左右两半贴到两侧；手机横屏的分离式键盘（#10440）本来就铺满，不套大屏的 720 dp 居中外框（{@link KeyboardFormFactorPolicy#surfaceWidthDp} 在分离时和非大屏上都返回 0）；大屏单手模式也铺满，侧栏与键区才能贴到屏幕边（ImeFrame.applyOneHanded）；浮动时是一块缩窄的圆角面板。 */
     void applyKeyboardSurfaceGeometry() {
         if (s.keyboardSurface == null) return;
         Configuration configuration = s.getResources().getConfiguration();
