@@ -74,6 +74,8 @@ const MAX_STATE_FILE_BYTES: u64 = 32 * 1024;
 pub(crate) const MAX_CRASH_RECORD_BYTES: u64 = 64 * 1024;
 /// Crash records turned into events per start; a host that crashes in a loop cannot fill the queue with one start's worth of records.
 const MAX_CRASH_RECORDS_PER_START: usize = 8;
+/// 读不出的崩溃记录保留这么久，覆盖短期降级后再升级的情况，之后删除。
+const STALE_UNREADABLE_CRASH: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 /// 记住的未结束会话上限。超过时淘汰最旧的：被淘汰的会话之后再留下崩溃记录，只报 `crash`，不再报 `session_crash`。
 const MAX_OPEN_SESSIONS: usize = 16;
 /// 记住的、已经补报过 `session_crash` 的进程号上限，用来认出系统事后为同一次崩溃再送来的诊断。
@@ -1090,7 +1092,13 @@ impl TelemetryStore {
                     collected.records.push(path);
                     continue;
                 }
-                Err(CrashRecordSkip::Unavailable) => continue,
+                Err(CrashRecordSkip::Unavailable) => {
+                    // 写入中的记录只在崩溃进程写入期间持锁；空文件、写坏或降级后读不懂的记录过期后删除，避免永久滞留和反复扫描。
+                    if crash_record_is_stale(&path) {
+                        collected.records.push(path);
+                    }
+                    continue;
+                }
             };
             let stem = path
                 .file_stem()
@@ -1179,6 +1187,14 @@ fn crash_record_paths(directory: &Path) -> Result<Vec<PathBuf>, TelemetryError> 
         }
     }
     Ok(records)
+}
+
+fn crash_record_is_stale(path: &Path) -> bool {
+    fs::metadata(path)
+        .and_then(|metadata| metadata.modified())
+        .ok()
+        .and_then(|modified| SystemTime::now().duration_since(modified).ok())
+        .is_some_and(|age| age > STALE_UNREADABLE_CRASH)
 }
 
 enum CrashRecordSkip {

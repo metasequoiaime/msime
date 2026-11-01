@@ -38,6 +38,8 @@ id CallHost(HostCall call, NSDictionary *request)
 }
 
 NSString *gPreferencesDirectory;
+// begin 返回的 session_id。退出时按它结束会话：开启持续授权后，不带会话的 end 会被代次校验拒绝，会话事件就丢了。
+NSString *gSessionId;
 dispatch_queue_t gQueue;
 dispatch_source_t gFlushTimer;
 NSUncaughtExceptionHandler *gPreviousExceptionHandler;
@@ -186,6 +188,7 @@ void MSIMEUsageReportingStart(NSString *preferencesDirectory)
         // host-api telemetry 存储会在接触队列、标记或崩溃文件前创建并校验目录。
         NSDictionary *started = CallHost(msime_client_telemetry_begin, SessionRequest());
         if (![started isKindOfClass:NSDictionary.class] || ![started[@"enabled"] isEqual:@YES]) return;
+        if ([started[@"session_id"] isKindOfClass:NSString.class]) gSessionId = [started[@"session_id"] copy];
         NSString *recordPath = started[@"crash_record_path"];
         if ([recordPath isKindOfClass:NSString.class]) InstallCrashHandlers(recordPath);
         InstallTerminationHandler();
@@ -208,5 +211,6 @@ void MSIMEUsageReportingStart(NSString *preferencesDirectory)
 void MSIMEUsageReportingStop(void)
 {
     if (!gQueue) return;
-    (void)CallHost(msime_client_telemetry_end, @{@"directory": MSIMEUsageReportingDirectory()});
+    if (gSessionId.length == 0) return;
+    (void)CallHost(msime_client_telemetry_end, @{@"directory": MSIMEUsageReportingDirectory(), @"session": gSessionId});
 }

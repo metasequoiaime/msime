@@ -19543,6 +19543,56 @@ fn telemetry_abi_reads_consent_from_the_shared_preferences() {
 }
 
 #[test]
+fn telemetry_desktop_shared_consent_ends_sessions_by_id_only() {
+    use crate::ffi::reporting::*;
+    use msime_client_services::telemetry::{CrashContext, TelemetryKind, TelemetryStore};
+    let root = tempfile::tempdir().unwrap();
+    let preferences = root.path().join("preferences");
+    let directory = root.path().join("telemetry");
+    PreferencesStore::new(&preferences)
+        .save(
+            0,
+            Preferences {
+                usage_reporting: true,
+                ..Preferences::default()
+            },
+        )
+        .unwrap();
+    // macOS 宿主的 begin 只带偏好目录，共享层自动绑定持续授权代次。
+    let started = reporting_call(
+        msime_client_telemetry_begin,
+        json!({"directory": directory, "platform": "macos", "version": "1.2.3", "preferences_directory": preferences}),
+    );
+    assert_eq!(started["value"]["enabled"], true, "{started}");
+    assert!(
+        CrashContext::from_header(started["value"]["crash_record_header"].as_str().unwrap())
+            .unwrap()
+            .consent_epoch
+            .is_some()
+    );
+
+    // 不带会话的旧式 end 不能绕过代次校验，宿主必须按 session_id 结束会话。
+    let unbound = reporting_call(msime_client_telemetry_end, json!({"directory": directory}));
+    assert_eq!(unbound["ok"], false, "{unbound}");
+    assert_eq!(unbound["error"], "telemetry consent changed");
+
+    let ended = reporting_call(
+        msime_client_telemetry_end,
+        json!({"directory": directory, "session": started["value"]["session_id"]}),
+    );
+    assert_eq!(ended["value"], true, "{ended}");
+    let session = format!(
+        "session-{}",
+        started["value"]["session_id"].as_str().unwrap()
+    );
+    assert!(TelemetryStore::new(&directory)
+        .queued()
+        .unwrap()
+        .iter()
+        .any(|event| event.kind == TelemetryKind::Session && event.id == session));
+}
+
+#[test]
 fn telemetry_abi_independent_capture_preserves_build_without_ending_input_session() {
     use crate::ffi::reporting::*;
     use msime_client_services::telemetry::{TelemetryApp, TelemetryKind, TelemetryStore};
