@@ -334,7 +334,9 @@ export struct VoiceListening {
               .opacity(this.mascotLoaded ? 1 : 0)
               .draggable(false)
               .accessibilityLevel('no')
-              .onComplete((): void => {
+              .onComplete((event?): void => {
+                // onComplete fires once when the data is read (loadingStatus 0) and again after decoding (1); only drop the disc once there is something to show.
+                if (event !== undefined && event.loadingStatus !== 1) return;
                 this.mascotLoaded = true;
                 this.paintMascot();
               })

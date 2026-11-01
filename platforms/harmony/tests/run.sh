@@ -599,7 +599,7 @@ if ! grep -qF 'this.voiceHeldByKey = false;' <<< "$lock_branch" \
   echo "A hotkey LOCK must turn the held session into a tap session (clear voiceHeldByKey), and the listening panel must take its button labels from VoiceListeningPolicy" >&2
   exit 1
 fi
-# 聆听面板的水杉娘指示区（#10313）：画不画人物和红线的数值由 voice-listening-policy.test.ts 的 `VoiceListeningPolicy.showsMascot`、`mascotArcs` 覆盖；视图是 ArkTS，这里钉住接线：开始录音在任何提前返回之前就按这次尝试（`fromHotkey`）经策略算出指示区，开不了录音时显示原因的面板也不沿用上一次会话的；LOCK 清掉 `voiceHeldByKey` 之后经 refreshVoiceMascot 重算；面板拿到 mascot、表情包里的图片地址和是否在录音（收尾识别时红线立即收起）；图片解码出来之前画圆盘、画布不画耳部；人物图片和画布不进读屏。
+# 聆听面板的水杉娘指示区（#10313）：画不画人物和红线的数值由 voice-listening-policy.test.ts 的 `VoiceListeningPolicy.showsMascot`、`mascotArcs` 覆盖；视图是 ArkTS，这里钉住接线：开始录音在任何提前返回之前就按这次尝试（`fromHotkey`）经策略算出指示区，开不了录音时显示原因的面板也不沿用上一次会话的；LOCK 清掉 `voiceHeldByKey` 之后经 refreshVoiceMascot 重算；面板拿到 mascot、表情包里的图片地址和是否在录音（收尾识别时红线立即收起）；图片解码出来之前画圆盘、画布不画耳部（`onComplete` 在读到数据时也回调一次，只认解码成功）；人物图片和画布不进读屏。
 voice_face_body=$(sed -n '/^  voiceFace() {$/,/^  }$/p' "$view")
 start_voice_body=$(sed -n '/^  private startVoice(fromHotkey: boolean = false): void {$/,/^  }$/p' "$view")
 voice_listening="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/faces/VoiceListening.ets"
@@ -611,6 +611,7 @@ if ! grep -qF 'this.refreshVoiceMascot();' <<< "$lock_branch" \
   || ! grep -qF "mascotUri: this.voiceMascot ? this.voiceMascotUri() : ''," <<< "$voice_face_body" \
   || ! grep -qF 'if (!this.mascotLoaded) {' "$voice_listening" \
   || ! grep -qF 'if (!this.mascotLoaded) return;' "$voice_listening" \
+  || ! grep -qF 'event.loadingStatus !== 1' "$voice_listening" \
   || ! grep -qF 'recording: this.voiceBusy && !this.voiceFinishing,' <<< "$voice_face_body" \
   || ! grep -qF 'VoiceListeningPolicy.mascotArcs(this.recording ? this.shown : 0)' "$voice_listening" \
   || [[ $(grep -cF ".accessibilityLevel('no')" "$voice_listening") -ne 2 ]]; then

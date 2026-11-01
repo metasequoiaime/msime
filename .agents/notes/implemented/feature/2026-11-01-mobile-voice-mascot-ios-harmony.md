@@ -23,7 +23,7 @@ Status: implemented
 素材是随包表情包里的 `01.webp`（[移动人物贴纸](2026-10-20-mobile-mascot-stickers.md)，Android 用同一张），不新增素材或依赖：
 
 - iOS 按清单找到这张，用 `KeyboardStickerCatalog.thumbnail` 在后台队列按指示区最大时的人物边长（96 × 228 / 250 ≈ 87.6 pt）乘屏幕倍率下采样解码一次，进程内缓存，回主线程交给发起解码的那个按钮（弱引用，面板关掉就丢弃）。
-- HarmonyOS 从 `MascotStickerStore` 取同一张的沙箱 URI，`Image.sourceSize` 固定为同一个最大边长，排布变小时只缩放显示；耳部和红线画在叠在图片上的 `Canvas` 里，显示电平每推进一帧重画一次。`Image` 异步加载，`onComplete` 之前图片透明、画布只清空、下面照旧画圆盘，不会出现只有耳朵没有人物的一帧。
+- HarmonyOS 从 `MascotStickerStore` 取同一张的沙箱 URI，`Image.sourceSize` 固定为同一个最大边长，排布变小时只缩放显示；耳部和红线画在叠在图片上的 `Canvas` 里，显示电平每推进一帧重画一次。`Image` 异步加载，`onComplete` 在读到数据时（`loadingStatus` 为 0）和解码成功后（为 1）各回调一次，只有解码成功才换人物，此前图片透明、画布只清空、下面照旧画圆盘，不会出现只有耳朵没有人物的一帧。
 - 素材还没到时两端都先画圆盘、到了再换人物，与 Android #10366 位图就绪前保留麦克风圆盘一致；清单读不到或图片解码失败时一直画圆盘，识别、结束和取消照常可用。人物图片和画布不进读屏（iOS 的指示按钮本来就不是无障碍元素，HarmonyOS 两处 `accessibilityLevel('no')`）。
 
 ## Existing notes audit
@@ -32,7 +32,7 @@ Status: implemented
 - [移动人物贴纸](2026-10-20-mobile-mascot-stickers.md)：复用同一份素材与打包路径，不改表情面板行为。
 - [外部本地听写](2026-10-23-android-external-offline-dictation.md)：几何的出处，本篇只复制数值，不改 Android 外部入口。
 - [iOS 按住空格说话](2026-10-21-ios-hold-to-talk-voice-session.md)、[移动端语音入口](../bug-fix/2026-10-24-mobile-voice-entry.md)、[HarmonyOS 语音直接上屏](../bug-fix/2026-10-24-harmony-voice-direct-insert.md)：无冲突，入口路由、会话协议和上屏流程不变。
-- Android 一侧的决定写在 PR #10366 自己的笔记里，合入前不在 develop 上，这里不加链接。
+- [Android 工具栏语音水杉娘](2026-10-31-android-toolbar-voice-mascot.md)：部分重叠。同属 #10313，本篇把 Android 工具栏的人物、耳部几何与红线规则搬到 iOS 和 HarmonyOS，三端几何要一起改，双方互链。
 
 ## Alternatives considered
 
