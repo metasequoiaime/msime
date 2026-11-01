@@ -8814,7 +8814,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // A pinned word takes the accent colour, as it does in the Windows candidate window; chips are reused, so every other word is set back.
     let pinned = markers.contains(where: \.pinned)
     // 坐了首选的双拼纠错（`confident_correction`）同样用强调色画字；键盘自己的配色里首选本来就是强调色，所以它的纠错注释（纠错前的拼写）和释义行也改用强调色，不画次要色，和没坐首选的纠错区分开。桌面调色板下首个词块画在选中底色上，调色板给了那里的颜色就照用（字用选中文字色，注释用选中翻译色、其次选中文字色），都没给才用强调色：微信外观的选中底色就是强调色，强调色的字会看不见。展开网格是同一条规则（`KeyboardCandidatePanelView.makeChip`）。
-    let accent = candidatePalette?.accent ?? skin.accent
+    // 首个词块用皮肤的 `candidateAccent`（浅色季节配色加深到 AA），其余位置的固定词仍用强调色。
+    let accent = candidatePalette?.accent ?? (number == 1 ? skin.candidateAccent : skin.accent)
     let onSelectedFill = candidatePalette != nil && number == 1
     let captionColor = confidentCorrection
       ? (onSelectedFill ? candidatePalette?.selectedTranslation ?? candidatePalette?.selectedText : nil) ?? accent : annotationColor
