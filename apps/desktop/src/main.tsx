@@ -1,4 +1,5 @@
 import { createTauriProgressClient } from "./core/tauri-progress-client";
+import { withReadAloud } from "./core/read-aloud";
 import { StrictMode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createMobileSettingsHistoryState } from "../../../packages/ui/src/settings/mobile-history-state";
@@ -760,7 +761,9 @@ function DesktopSettings() {
               ? { openDiagnosticLogDirectory: () => invoke<void>("open_diagnostic_log_directory") }
               : {}),
             // A host that has not wired 背单词 hides the page rather than offering buttons whose every press would fail.
-            ...(host.vocabulary_review ? { vocabularyReview } : {}),
+            ...(host.vocabulary_review
+              ? { vocabularyReview: withReadAloud(vocabularyReview, host) }
+              : {}),
             // This shell registers no download handler, and the macOS WKWebView cancels every download link without one, so the host writes the export into Downloads itself and the page can say where the file went. Linux runs the same shell and takes the same path; Windows' WebView2 and the mobile webviews keep the download link.
             ...(host.platform === "macos" || host.platform === "linux"
               ? {
@@ -1189,6 +1192,24 @@ function DesktopSettings() {
     />
   );
 }
+// 背单词面板：卡片上的喇叭要看宿主能不能读（`HostCapabilities.read_aloud`）。先问到能力再画页面：页面换客户端时会重读一次进度，先画再换就是两次读取。
+function DesktopVocabularySurface() {
+  const [host, setHost] = useState<HostCapabilities | null | undefined>(undefined);
+  useEffect(() => {
+    let active = true;
+    void discoverHostCapabilities()
+      .catch(() => null)
+      .then((value) => {
+        if (active) setHost(value);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+  const client = useMemo(() => withReadAloud(vocabularyReview, host), [host]);
+  if (host === undefined) return <StatusMessage role="status">正在打开背单词…</StatusMessage>;
+  return <VocabularyReviewPanel client={client} />;
+}
 function DesktopCloudDictionarySurface() {
   const [host, setHost] = useState<HostCapabilities | null | undefined>(undefined);
   useEffect(() => {
@@ -1234,7 +1255,7 @@ const content =
       {(theme) => <DesktopEmojiSurface theme={theme} />}
     </DesktopPanelTheme>
   ) : panel === "vocabulary" ? (
-    <VocabularyReviewPanel client={vocabularyReview} />
+    <DesktopVocabularySurface />
   ) : (
     <DesktopSettings />
   );
