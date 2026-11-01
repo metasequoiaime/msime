@@ -23,6 +23,7 @@ public final class SplitKeyboardPolicySmoke {
         deadGap();
         oneHandedExclusion();
         surfaceWidth();
+        phoneLandscape();
         System.out.println("SplitKeyboardPolicySmoke ok");
     }
 
@@ -374,6 +375,46 @@ public final class SplitKeyboardPolicySmoke {
         float total = 0f;
         for (int index = from; index < to; index++) total += weights[index];
         return total;
+    }
+
+    /** #10440：手机横屏分支只看本机开关、横屏、smallestWidth 低于启用宽度和分离后的字母键宽度，宽度取键盘实际可用宽度。 */
+    private static void phoneLandscape() {
+        int standard = KeyboardLayout.STANDARD_TOUCH_LAYOUT;
+        int spacing = KeyboardSpacingPolicy.DEFAULT_KEY_SPACING_TENTHS;
+        int gap = SplitKeyboardPolicy.DEFAULT_GAP_PERCENT;
+        int threshold = SplitKeyboardPolicy.DEFAULT_THRESHOLD_DP;
+        // 第一排字母键 = 可用宽度 × 75% / 10 − 6 dp 键距；默认设置下 560 dp 正好是 36 dp 边界。
+        close(SplitKeyboardPolicy.phoneLetterKeyWidthDp(800, spacing, gap), 54f, "800 dp keyboard gives 54 dp keys");
+        close(SplitKeyboardPolicy.phoneLetterKeyWidthDp(560, spacing, gap), 36f, "560 dp keyboard sits on the 36 dp boundary");
+        check(SplitKeyboardPolicy.phoneLetterKeyWidthDp(0, spacing, gap) == 0f, "an unknown width never splits");
+        // 常见手机横屏：扣掉侧边导航栏后仍有 780 dp 左右，分。
+        check(SplitKeyboardPolicy.phoneActive(true, 411, true, threshold, 780, spacing, gap), "an ordinary phone in landscape splits");
+        check(SplitKeyboardPolicy.phoneActive(true, 411, true, threshold, 560, spacing, gap), "exactly 36 dp keys split");
+        check(!SplitKeyboardPolicy.phoneActive(true, 411, true, threshold, 559, spacing, gap), "keys narrower than 36 dp stay whole");
+        // 屏幕很宽，但键盘可用宽度被分屏或系统留白压窄：按实际宽度判断，不分。
+        check(!SplitKeyboardPolicy.phoneActive(true, 411, true, threshold, 500, spacing, gap), "a narrowed keyboard surface stays whole");
+        // 更窄的键距、更小的空隙会让键变宽，门槛随之放宽。
+        check(SplitKeyboardPolicy.phoneActive(true, 411, true, threshold, 540, KeyboardSpacingPolicy.MIN_KEY_SPACING_TENTHS,
+            SplitKeyboardPolicy.MIN_GAP_PERCENT), "narrow spacing and a small gap widen the keys");
+        close(SplitKeyboardPolicy.phoneLetterKeyWidthDp(780, spacing, SplitKeyboardPolicy.MAX_GAP_PERCENT + 10),
+            SplitKeyboardPolicy.phoneLetterKeyWidthDp(780, spacing, SplitKeyboardPolicy.MAX_GAP_PERCENT),
+            "out-of-range gap clamps like the large-screen branch");
+        // 默认关；竖屏不分；大屏走自己的分支，手机开关不管。
+        check(!SplitKeyboardPolicy.phoneActive(false, 411, true, threshold, 780, spacing, gap), "off by default");
+        check(!SplitKeyboardPolicy.phoneActive(true, 411, false, threshold, 780, spacing, gap), "portrait never splits on a phone");
+        check(!SplitKeyboardPolicy.phoneActive(true, 600, true, threshold, 1200, spacing, gap), "a large screen is not the phone branch");
+        check(SplitKeyboardPolicy.phoneActive(true, 599, true, threshold, 780, spacing, gap), "just below the threshold is a phone");
+        check(SplitKeyboardPolicy.phoneActive(true, 640, true, 700, 900, spacing, gap), "below a raised threshold is still a phone");
+        check(!SplitKeyboardPolicy.active(true, 411, true), "the large-screen switch alone never splits a phone");
+        // 布局：只有 26 键一族和韩文。
+        check(SplitKeyboardPolicy.phoneDrawn(true, 411, true, standard, threshold, 780, spacing, gap), "26 keys drawn split");
+        check(SplitKeyboardPolicy.phoneDrawn(true, 411, true, KeyboardLayout.KOREAN_LAYOUT, threshold, 780, spacing, gap), "Korean drawn split");
+        check(!SplitKeyboardPolicy.phoneDrawn(true, 411, true, KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, threshold, 780, spacing, gap),
+            "nine-key stays whole");
+        // 手机分离铺满窗口，不套大屏的 720 dp 居中外框。
+        check(KeyboardFormFactorPolicy.surfaceWidthDp(411, 891, true) == 0, "a split phone keyboard fills the window");
+        check(KeyboardFormFactorPolicy.surfaceWidthDp(640, 960, true) == 0, "a split keyboard below a raised threshold fills too");
+        check(SplitKeyboardPolicy.effectiveOneHanded("left", true).equals("off"), "one-handed yields to a phone split");
     }
 
     private static void close(float actual, float expected, String message) {

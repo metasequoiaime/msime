@@ -1996,7 +1996,7 @@ if(WIN32)
   target_sources(msime-windows-server PRIVATE src/candidate/FloatingToolbarWindow.cpp src/candidate/InputModeHudWindow.cpp src/candidate/ShuangpinKeymapWindow.cpp src/candidate/TypingEffectOverlay.cpp src/system/ShellLauncher.cpp src/system/DiagnosticLog.cpp src/system/SystemAccent.cpp src/system/UpdateNotifier.cpp src/system/DictionarySyncWorker.cpp
                  src/voice/WaveOverlay.cpp src/voice/WaveOverlayUtils.cpp src/voice/VoiceInputSession.cpp
                  src/voice/DoubaoAsrClient.cpp src/voice/CuePlayer.cpp src/voice/SystemAudioMuter.cpp
-                 src/voice/SystemAsrStream.cpp
+                 src/voice/SystemAsrStream.cpp src/voice/SystemSpeech.cpp
                  src/voice/VoiceHotkey.cpp src/input/MaintenanceHotkey.cpp src/voice/VoiceControlMessage.cpp)
   add_subdirectory(../../shared/voice shared-voice)
   # miniaudio's implementation is third-party code compiled at the toolchain's default warning level, so it sits in its own library outside the -Werror set below; the Server's own sources include only its declarations.

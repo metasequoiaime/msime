@@ -23689,6 +23689,32 @@ fn personal_wordbook_boundary_adds_a_gloss_and_lists_it_for_review() {
 }
 
 #[test]
+fn read_aloud_boundary_answers_the_english_to_read() {
+    let call = |request: Value| {
+        let request = serde_json::to_vec(&request).unwrap();
+        read(unsafe { msime_client_read_aloud_text(request.as_ptr(), request.len()) })
+    };
+    let glossed = call(json!({"candidate": "面试", "gloss": "面接\u{2028}interview; audition"}));
+    assert_eq!(glossed["ok"], true, "{glossed}");
+    assert_eq!(glossed["value"], "interview");
+    assert_eq!(call(json!({"candidate": "hello"}))["value"], "hello");
+    let none = call(json!({"candidate": "面试", "gloss": "面接"}));
+    assert_eq!(none["ok"], true);
+    assert!(none["value"].is_null());
+    assert_eq!(call(json!({"candidate": "面试", "extra": 1}))["ok"], false);
+    assert_eq!(call(json!({"gloss": "interview"}))["ok"], false);
+    assert_eq!(
+        read(unsafe { msime_client_read_aloud_text(std::ptr::null(), 0) })["ok"],
+        false
+    );
+    let oversized = vec![b' '; 64 * 1024 + 1];
+    assert_eq!(
+        read(unsafe { msime_client_read_aloud_text(oversized.as_ptr(), oversized.len()) })["ok"],
+        false
+    );
+}
+
+#[test]
 fn personal_wordbook_merge_boundary_takes_what_the_keyboard_added_since_last_time() {
     let keyboard = tempfile::tempdir().unwrap();
     let settings = tempfile::tempdir().unwrap();
