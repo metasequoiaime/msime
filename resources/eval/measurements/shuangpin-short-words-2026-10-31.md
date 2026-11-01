@@ -4,7 +4,7 @@
 
 ## 固定输入
 
-- 基线 `0e2824c8a2` 与分支基础 `f19522212a56bc020212a3f47acea658d162130e` 的 `crates/` 树相同（`ddce062cc7883be93339a9aee06c8e635fde7996`）。比较的两份可执行文件、五个生产文件均记录 SHA-256；后续改动只涉及测试与本文档。
+- 基线 `0e2824c8a2` 与分支基础 `f19522212a56bc020212a3f47acea658d162130e` 的 `crates/` 树相同（`ddce062cc7883be93339a9aee06c8e635fde7996`）。比较的两份可执行文件、五个生产文件均记录 SHA-256。本文数字是在生产代码 `f803f9bfae` 上量的（`short_words.rs` SHA-256 `f2d25cfe…`），之后还有三个改生产代码的提交：`10ef8a45c0`、`5f19810bba` 改 `personal_rerank.rs`，只在会话有前一个词、个人模型给出非零置信度时生效，词级评测和延迟评测都没有前一个词，不影响这些数字；`87b3249588` 在 `short_words.rs` 加的排名比较永远不成立（纠错行按排名降序逐个插入），已由 `20e633f8fb` 去掉，此后 `short_words.rs` 与测量版本只差一行注释（SHA-256 `57febdb4…`），候选与顺序不变。2026-11-01 在 `20e633f8fb` 上用同一资源目录（stderr 打出 `no settled model at ...`）按[评测说明](../README.md)的词级命令重跑一次并 `--update-baseline`，提交的 `baseline-shuangpin-touch-words.json` 即由本次 current 臂重新生成，报告与本次测量的 `words-current.json` 逐字节相同（SHA-256 `cc4bf4e6…`）。
 - `resources/desktop-dictionary.lock.json` 对应 `dict-v2.0.41`、词库提交 `09a69f20b4726f75d4aa318975e3e891c1135aaf`。资源逐文件大小与 SHA-256 都已核验；有小句子模型，没有桌面 settled 模型。
 - `quanpin-words-v1.tsv` 前 3000 行中至多两个音节的 2772 条，五方案各可编码 2748 条，全部是两音节。单音节行为由合成回归覆盖，不能从本词集推导单字召回。
 - 五方案 `xiaohe,ziranma,shoudao,microsoft,smart_abc`，两份 Android 导出几何；`none,clean,noisy,realistic`，σ 为 `0,0.15,0.25,0.35`，纵向偏置为 `0,0.1`，种子 `20261027`，共 125 组。
