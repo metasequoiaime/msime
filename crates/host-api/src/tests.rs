@@ -830,8 +830,16 @@ fn shuangpin_key_hint_boundary_publishes_the_engine_face() {
     assert_ne!(hints("microsoft")["value"], xiaohe["value"]);
     assert_eq!(hints("microsoft")["value"][";"], "ing");
 
+    // Cantonese shuangpin has no Mandarin profile name; the reserved name gives its face.
+    let cantonese = hints("cantonese");
+    assert_eq!(cantonese["ok"], true);
+    assert_eq!(cantonese["value"]["I"], "gw / i");
+    assert_eq!(cantonese["value"]["P"], "eon un ung ut");
+    assert_eq!(cantonese["value"][";"], "ik ing");
+    assert_eq!(cantonese["value"].as_object().unwrap().len(), 27);
+
     // An unknown name yields nothing instead of mislabelling the keys.
-    for unknown in ["", "quanpin", "xiaohe-v2"] {
+    for unknown in ["", "quanpin", "xiaohe-v2", "cantonese_shuangpin"] {
         assert_eq!(
             hints(unknown)["value"].as_object().unwrap().len(),
             0,

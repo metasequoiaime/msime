@@ -1345,6 +1345,26 @@ fn shuangpin_key_hints_reject_an_unknown_profile() {
     assert!(shuangpin_key_hints("").is_empty());
     assert!(shuangpin_key_hints("xiaohe-v2").is_empty());
     assert!(shuangpin_key_hints("quanpin").is_empty());
+    assert!(shuangpin_key_hints("Cantonese").is_empty());
+    assert!(shuangpin_key_hints("cantonese_shuangpin").is_empty());
+}
+
+/// 粤语双拼没有普通话双拼的方案名，宿主用保留名取它的键面；这个名字不会被当成普通话方案。
+#[test]
+fn shuangpin_key_hints_answer_for_cantonese_shuangpin_by_its_reserved_name() {
+    let hints: std::collections::HashMap<String, String> =
+        shuangpin_key_hints(super::CANTONESE_SHUANGPIN_HINTS)
+            .into_iter()
+            .map(|entry| (entry.key, entry.hint))
+            .collect();
+    assert_eq!(hints.len(), 27);
+    assert_eq!(hints.get("I").map(String::as_str), Some("gw / i"));
+    assert_eq!(hints.get(";").map(String::as_str), Some("ik ing"));
+    assert!(shuangpin_zero_initials(super::CANTONESE_SHUANGPIN_HINTS).is_empty());
+    assert_eq!(
+        shuangpin_uses_semicolon(super::CANTONESE_SHUANGPIN_HINTS),
+        None
+    );
 }
 
 /// 评测工具靠它把全拼用例编成双拼按键：按名字取内置方案，`custom` 和不认识的名字没有表可编。

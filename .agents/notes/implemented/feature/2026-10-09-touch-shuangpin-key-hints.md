@@ -15,6 +15,7 @@ Status: implemented
   - iOS：`KeyboardLayoutPreference` 加 `sharedShuangpinKeyHints(in:)`（缺省为开）、App Group 镜像 `keyboard.shuangpin.keyHints` 和 `saveShuangpinKeyHints`。键盘出现时 `synchronizeSharedTouchPreferences` 把文档的值抄进镜像，变了就调 `updateLetterCaseControls` 重画；`hint == nil` 同时驱动下边距和 `accessibilityValue`。
 - 设置入口：共享设置页「屏幕键盘 › 布局」在移动宿主（`mobilePlatform`）上、且宿主的 `input_schemes` 含双拼时显示「双拼键位提示」开关（五笔、日文、越南文、藏文等不含双拼的版本经 `narrow_to_edition` 收窄后不列出，和原生设置页一致；数字键盘顺序不收窄，因为九键数字层每个版本都有），HarmonyOS 手机上跟在「数字键盘顺序」后面放进已经叫「布局」的尺寸组；Android 键盘页和 iOS 键盘设置页的「布局」组各加一行，本版本没有双拼方案时不显示。
 - 账号同步沿用 `touch_number_keypad_order` 的做法：Android 经 client-core `settings_sync` 用 `platform.android.shuangpin_key_hints`，HarmonyOS 用 `platform.harmony.shuangpin_key_hints`。服务端字段表还没有这两个键，上传时会被按字段表过滤掉，目前只存在本机，等服务端登记后自动开始同步。iOS 的账号同步（`IOSCloudSettings`）本来就不带触屏键盘的几何和数字键盘顺序，这个开关也不进去。
+- 粤语双拼也受这个开关控制，三台手机都画；提示文字由引擎生成（HarmonyOS 照普通话双拼的做法抄一份表并逐键核对），见[粤语双拼键位提示](2026-11-02-cantonese-shuangpin-key-hints.md)。
 - 「恢复默认」不重置这个开关：那一行明确列出它恢复的是高度、间距、顶部语音入口和工具栏按钮，数字键盘顺序同样不在其中。
 
 ## Alternatives considered

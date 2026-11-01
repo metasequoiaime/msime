@@ -6493,7 +6493,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func updateSchemeButton() {
     // The hints come from the engine's own profile for the scheme the session is running, so they
     // are refreshed wherever the scheme is, and cannot drift from what the keys actually produce.
-    shuangpinKeyHints = session.shuangpinKeyHints()
+    // 粤语双拼与普通粤拼是同一个引擎方案，只有键盘知道选的是哪一个；普通粤拼完整拼写，不画提示。
+    shuangpinKeyHints = inputScheme == .cantoneseShuangpin
+      ? session.cantoneseShuangpinKeyHints() : session.shuangpinKeyHints()
     nineKeyShuangpinLayout = inputScheme == .nineKeyShuangpin ? try? .current(in: session.sharedPreferences) : nil
     updateLetterCaseControls()
 

@@ -89,7 +89,7 @@ enum KeyboardLayoutPreference {
     }
   }
 
-  /// 「双拼键位提示」：双拼方案的 26 键在字母键底部画这个键代表的声母和韵母。共享文档里是 `touch_shuangpin_key_hints`，缺省为关；键盘从 App Group 镜像读。
+  /// 「双拼键位提示」：双拼方案和粤语双拼的 26 键在字母键底部画这个键代表的声母和韵母。共享文档里是 `touch_shuangpin_key_hints`，缺省为关；键盘从 App Group 镜像读。
   static let shuangpinKeyHintsDocumentKey = "touch_shuangpin_key_hints"
   static let shuangpinKeyHintsKey = "keyboard.shuangpin.keyHints"
 

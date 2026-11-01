@@ -24,7 +24,7 @@ import { ExpandedCandidateCell, ExpandedCandidateLayout } from './candidate/Expa
 import { CandidateScalePolicy } from './candidate/CandidateScalePolicy';
 import { ExpandedCandidateBatchPolicy } from './candidate/ExpandedCandidateBatchPolicy';
 import { CandidatePanelSelectionPolicy } from './candidate/CandidatePanelSelectionPolicy';
-import { ShuangpinKeyHintPolicy } from './input/ShuangpinKeyHintPolicy';
+import { CANTONESE_PROFILE, ShuangpinKeyHintPolicy } from './input/ShuangpinKeyHintPolicy';
 import { ReturnDispatch, ReturnKeyAction } from './input/ReturnKeyAction';
 import { InputDiagnosticPolicy } from './input/InputDiagnosticPolicy';
 import { LocalInputMode, LocalInputModeDefinition } from './input/LocalInputMode';
@@ -1306,6 +1306,10 @@ struct KeyboardView {
 
   /** 提示跟随当前选中的方案，切换后立即更新，不等下一次按键的引擎回报。 */
   private letterHint(letter: string): string {
+    if (ShuangpinKeyHintPolicy.cantoneseFace(this.scheme.preferenceId, this.engineScheme)) {
+      return ShuangpinKeyHintPolicy.hint(CANTONESE_PROFILE, letter, this.english, 1, this.localMode,
+        this.shuangpinKeyHints);
+    }
     if (this.scheme.engineScheme !== 'shuangpin') {
       return '';
     }

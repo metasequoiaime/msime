@@ -742,15 +742,9 @@ pub unsafe extern "C" fn msime_client_import_settings(
     })
 }
 
-/// Per-key double-pinyin hint text for one profile, read out of the Engine's own
-/// profile tables.
+/// Per-key double-pinyin hint text for one profile, read out of the Engine's own profile tables.
 ///
-/// A touch keyboard labels its letter keys with the units they carry, and a face
-/// that keeps its own copy of that keymap drifts from the scheme the session
-/// actually runs. The hints depend only on the profile, not on session state, so
-/// this takes no handle. An unknown name yields an empty object rather than the
-/// default profile's hints: labelling the keys with a scheme the session is not
-/// running is worse than labelling nothing.
+/// A touch keyboard labels its letter keys with the units they carry, and a face that keeps its own copy of that keymap drifts from the scheme the session actually runs. The hints depend only on the profile, not on session state, so this takes no handle. The reserved name `cantonese` gives the Cantonese shuangpin face, read out of the same table its encoder uses. An unknown name yields an empty object rather than the default profile's hints: labelling the keys with a scheme the session is not running is worse than labelling nothing.
 /// # Safety
 /// `profile` points to `length` readable UTF-8 bytes. Null is rejected.
 /// The returned response must be released with `msime_client_string_free`.

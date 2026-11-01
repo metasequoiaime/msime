@@ -140,7 +140,7 @@ export function TouchKeyboardGeometrySection({
       description={
         phone
           ? undefined
-          : "双拼方案的 26 键键盘在字母键底部显示这个键代表的声母和韵母；关闭后键面只留字母。"
+          : "双拼方案和粤语双拼的 26 键键盘在字母键底部显示这个键代表的声母和韵母；关闭后键面只留字母。"
       }
       checked={shuangpinKeyHints}
       onChange={(enabled) => onShuangpinKeyHintsChange?.(enabled)}

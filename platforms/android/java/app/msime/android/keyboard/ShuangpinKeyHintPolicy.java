@@ -9,10 +9,34 @@ public final class ShuangpinKeyHintPolicy {
     private static final int MAX_HINT_LENGTH = 128;
     private static final String OK_TRUE = "\"ok\"\\s*:\\s*true";
 
-    /** 共享偏好里控制提示的开关，缺省为关；打开后双拼才画提示，其余条件与它无关。 */
+    /** 共享偏好里控制提示的开关，缺省为关；打开后双拼和粤语双拼才画提示，其余条件与它无关。 */
     public static final String PREFERENCE_KEY = "touch_shuangpin_key_hints";
 
+    /** 粤语双拼键面在引擎里的保留名（`host::CANTONESE_SHUANGPIN_HINTS`），经同一个 `NativeClient.shuangpinKeyHints` 取。它不是普通话双拼方案名，会话的 `shuangpin_profile` 里不会出现。 */
+    public static final String CANTONESE_PROFILE = "cantonese";
+
+    /** 粤语双拼的触屏方案 id（`touch_keyboard_schemes.selected`）。普通粤拼与粤语双拼是同一个引擎方案（scheme 5），只有键盘知道选的是哪一个。 */
+    public static final String CANTONESE_SHUANGPIN_SCHEME = "cantonese_shuangpin";
+
     private ShuangpinKeyHintPolicy() { }
+
+    /** 有 view 时按哪个键面画提示，同时是要记下的那一个：双拼会话见 {@link #rememberedProfile(int, String)}；粤拼会话、且选中的触屏方案是粤语双拼时是 {@link #CANTONESE_PROFILE}；普通粤拼完整拼写，不画。会话跑的不是粤拼时（比如缺了 `msime-cantonese.db`，运行时留在上一个中文方案）不给粤语双拼键面，免得把键标成没在跑的方案，和 iOS 的 `cantoneseShuangpinKeyHints` 一样。 */
+    public static String rememberedProfile(int scheme, String profile, String touchScheme) {
+        if (scheme == InputSchemeTraits.CANTONESE)
+            return CANTONESE_SHUANGPIN_SCHEME.equals(touchScheme) ? CANTONESE_PROFILE : "";
+        return rememberedProfile(scheme, profile);
+    }
+
+    /** 没有 view 时按 {@link #profileWithoutView(boolean, String)} 取记下的键面，但粤语双拼的键面只在此刻选中的仍是粤语双拼时用：view 到达前刚换到别的触屏方案时不沿用它。 */
+    public static String profileWithoutView(boolean sessionExpected, String remembered, String touchScheme) {
+        String profile = profileWithoutView(sessionExpected, remembered);
+        return CANTONESE_PROFILE.equals(profile) && !CANTONESE_SHUANGPIN_SCHEME.equals(touchScheme) ? "" : profile;
+    }
+
+    /** 传给 {@link #hint} 的方案号：粤语双拼的键面和双拼一样画，其余照会话的方案。 */
+    public static int hintScheme(int scheme, String profile) {
+        return CANTONESE_PROFILE.equals(profile) ? InputSchemeTraits.SHUANGPIN : scheme;
+    }
 
     /** 有 view 时记下的双拼方案：方案是双拼（scheme 1）时是它的 `shuangpin_profile`，其他方案为空。本地模式和英文只决定此刻画不画，不改记下的方案，免得临时进一次本地模式就把它冲掉。 */
     public static String rememberedProfile(int scheme, String profile) {

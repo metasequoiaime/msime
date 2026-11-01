@@ -2992,6 +2992,10 @@ final class NineKeyKeyboardTests: XCTestCase {
     // A session that is not running double pinyin gets no face rather than the default one's.
     _ = bridge.switch(toShuangpin: false)
     XCTAssertTrue(bridge.shuangpinKeyHints().isEmpty, "Quanpin was labelled with a double-pinyin face")
+    // 粤语双拼的键面只给跑着粤拼的会话（#10438），全拼和普通话双拼会话拿不到。
+    XCTAssertTrue(bridge.cantoneseShuangpinKeyHints().isEmpty, "Quanpin was labelled with the Cantonese shuangpin face")
+    _ = bridge.switch(toShuangpinProfile: "xiaohe")
+    XCTAssertTrue(bridge.cantoneseShuangpinKeyHints().isEmpty, "Xiaohe was labelled with the Cantonese shuangpin face")
     _ = bridge.cancel()
   }
 
