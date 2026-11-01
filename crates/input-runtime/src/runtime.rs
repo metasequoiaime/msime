@@ -4,7 +4,7 @@
 use super::*;
 use msime_engine::ordering::{
     apply_order_with, ensure_engine_order, rerank_needs_model, rerank_pick, rotate_to_front,
-    runner_up_order_with, ParallelOrderRows, StaticEvidence,
+    runner_up_order_with, CandidateScorer, ParallelOrderRows, StaticEvidence,
 };
 use msime_engine::touch::{KeyGeometry, KeyTouch};
 // 排序决策搬进了 `msime_engine::ordering`；`tests.rs` 仍按原来的 crate 内名字引用这几项，这里为它们重新导出。
@@ -170,7 +170,7 @@ pub struct Runtime<E: InputEngine = Session> {
     ///
     /// Absent unless a host calls [`Runtime::set_reranker`], and absent is the only state the
     /// hosts that ship no model ever see.
-    pub(crate) reranker: Option<Reranker>,
+    pub(crate) reranker: Option<Box<dyn CandidateScorer>>,
     /// A second, larger model run once the user stops typing, when one is attached.
     ///
     /// Capacity is the most effective lever the model has — the 24M preset beats the 6.8M one by
@@ -180,7 +180,7 @@ pub struct Runtime<E: InputEngine = Session> {
     /// they are answers to different questions. While the user is typing, the first row has to be
     /// plausible now; when the user stops to read the candidates, it has to be right. The fast
     /// model owns the first job and this one owns the second.
-    pub(crate) settled_reranker: Option<Reranker>,
+    pub(crate) settled_reranker: Option<Box<dyn CandidateScorer>>,
     /// Whether [`Runtime::rerank_settled`] runs the settled model: the product's desktop sentence model switch. On unless a host turns it off, so a caller that attaches a model and says nothing else gets it.
     pub(crate) settled_rerank_enabled: bool,
     // 开关和模型分别拥有不复用的身份，防止在途评分跨配置发布或恢复旧模型。
@@ -318,7 +318,7 @@ pub struct SettledRerankRequest {
     scheme: u8,
     answered_by_pinyin_fallback: bool,
     rows: SettledRerankRows,
-    reranker: Reranker,
+    reranker: Box<dyn CandidateScorer>,
 }
 
 /// [`score_settled_rerank`] 产生的模型和待提升的候选行。
@@ -327,7 +327,7 @@ pub struct SettledRerankScore {
     settings_epoch: Arc<()>,
     model_epoch: Arc<()>,
     promote: Option<usize>,
-    reranker: Reranker,
+    reranker: Box<dyn CandidateScorer>,
 }
 
 /// [`Runtime::apply_settled_rerank`] 对评分的发布结果。
@@ -351,7 +351,7 @@ pub fn score_settled_rerank(mut request: SettledRerankRequest) -> SettledRerankS
         )
         .with_static_evidence(&request.rows.static_evidence);
         rerank_pick(
-            &mut request.reranker,
+            request.reranker.as_mut(),
             &request.context,
             request.scheme,
             request.answered_by_pinyin_fallback,
@@ -1169,7 +1169,12 @@ impl<E: InputEngine> Runtime<E> {
     /// lives is a packaging question that differs per platform and the runtime has no business
     /// guessing at it.
     pub fn set_reranker(&mut self, reranker: Option<Reranker>) {
-        self.reranker = reranker;
+        self.set_candidate_scorer(reranker.map(|r| Box::new(r) as Box<dyn CandidateScorer>));
+    }
+
+    /// 同 [`Runtime::set_reranker`]，挂任意实现了 [`CandidateScorer`] 的逐键打分器，比如需要原生运行库的模型后端。
+    pub fn set_candidate_scorer(&mut self, scorer: Option<Box<dyn CandidateScorer>>) {
+        self.reranker = scorer;
     }
 
     /// Whether a per-keystroke reranker is attached, so a host can attach or drop it when the preference that governs it changes.
@@ -1179,8 +1184,15 @@ impl<E: InputEngine> Runtime<E> {
 
     /// 安装或移除停顿模型；替换后不得恢复在途评分携带的旧模型。
     pub fn set_settled_reranker(&mut self, reranker: Option<Reranker>) {
+        self.set_settled_candidate_scorer(
+            reranker.map(|r| Box::new(r) as Box<dyn CandidateScorer>),
+        );
+    }
+
+    /// 同 [`Runtime::set_settled_reranker`]，挂任意实现了 [`CandidateScorer`] 的停顿打分器。
+    pub fn set_settled_candidate_scorer(&mut self, scorer: Option<Box<dyn CandidateScorer>>) {
         self.settled_model_epoch = Arc::new(());
-        self.settled_reranker = reranker;
+        self.settled_reranker = scorer;
     }
 
     /// 开关改变时作废在途评分，但保留模型，重新开启时不必加载。
@@ -1336,7 +1348,11 @@ impl<E: InputEngine> Runtime<E> {
         self.settled_order_scratch = order;
     }
 
-    fn restore_settled_reranker(&mut self, reranker: Reranker, model_epoch: &Arc<()>) {
+    fn restore_settled_reranker(
+        &mut self,
+        reranker: Box<dyn CandidateScorer>,
+        model_epoch: &Arc<()>,
+    ) {
         if Arc::ptr_eq(model_epoch, &self.settled_model_epoch) && self.settled_reranker.is_none() {
             self.settled_reranker = Some(reranker);
         }
@@ -2832,7 +2848,7 @@ impl<E: InputEngine> Runtime<E> {
                 rows
             };
             rerank_pick(
-                reranker,
+                reranker.as_mut(),
                 &self.ai_context,
                 snapshot.scheme,
                 snapshot.answered_by_pinyin_fallback,

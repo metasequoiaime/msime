@@ -10780,6 +10780,8 @@ mod rerank_declined;
 
 mod model_contests;
 
+mod candidate_scorer;
+
 mod settled_async;
 
 mod online_slot_order_equivalence;
