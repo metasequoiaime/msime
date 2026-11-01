@@ -267,7 +267,7 @@ struct AboutView: View {
 
   private var hero: some View {
     VStack(spacing: 0) {
-      AppMarkDisc(diameter: 116, markSize: 64)
+      AppMark(box: 116)
       Text("水杉输入法").font(.system(size: 22, weight: .bold)).padding(.top, 16)
       Text(version).designSubtext()
         .padding(.top, 6)

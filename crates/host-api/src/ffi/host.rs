@@ -602,7 +602,7 @@ struct ResolveAppThemeRequest {
     dark: bool,
 }
 
-/// 应用主题在宿主当前月份和明暗模式下的颜色：`{id, season, accent, accent_soft, on_accent, background, card, hair}`。纯计算，不读写文件。
+/// 应用主题在宿主当前月份和明暗模式下的颜色：`{id, season, accent, accent_soft, on_accent, background, card, hair, candidate_accent}`。纯计算，不读写文件。
 /// # Safety
 /// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
 /// The returned response must be released with `msime_client_string_free`.

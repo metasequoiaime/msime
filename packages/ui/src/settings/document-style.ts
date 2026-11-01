@@ -32,8 +32,8 @@ export const guideLead = "border-b border-[var(--divider-color)] pb-3.5";
 export const guideTerm = "text-body";
 export const guideText = "m-0! text-secondary";
 
-export const mark =
-  "flex size-[62px] items-center justify-center rounded-2xl bg-raised p-2.5 [&>img]:size-12";
+/** 关于页页首的水杉标志：标志本身就是一块圆角方形，直接占满 62px，外面不再垫底板。 */
+export const mark = "flex size-[62px] items-center justify-center [&>img]:size-[62px]";
 /** A row of a group that opens a page or a link; the group draws the dividers between rows. */
 export const linkRow =
   "flex min-h-[var(--p-row-h)] w-full cursor-pointer items-center justify-between gap-4 rounded-[var(--p-row-r)] border-0 bg-[var(--p-row-bg)] text-left [padding:var(--p-row-pad)] [color:var(--p-sub)] hover:bg-[var(--p-hover)]";
@@ -52,8 +52,8 @@ export const updateWarning = "text-danger!";
 /** 「关于」页首卡片的主体：标志圆、文字列、更新胶囊；在窄屏手机上胶囊换行到文字下方。 */
 export const appHero = "flex flex-wrap items-center gap-4 p-[18px]";
 /** 设计里的 `logoCirc`：强调色混入卡片底色，浅色模式 14%，深色模式 22%。 */
-export const appHeroCircle =
-  "flex size-20 shrink-0 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--accent-color)_22%,var(--p-group-bg))] light-theme:bg-[color-mix(in_srgb,var(--accent-color)_14%,var(--p-group-bg))]";
+/** 页头左侧放水杉标志的 80px 位置；标志本身就是一块圆角方形，外面不再垫圆盘。 */
+export const appHeroMark = "flex size-20 shrink-0 items-center justify-center";
 export const appHeroText = "flex min-w-[160px] flex-1 flex-col gap-[3px]";
 export const appHeroTitle = "text-[18px] font-bold [color:var(--p-text)]";
 export const appHeroVersion = "text-[13px] [color:var(--p-sub)]";

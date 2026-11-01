@@ -11,6 +11,7 @@ rust-version.workspace = true
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [features]
+telemetry-loopback = ["msime-client-services/telemetry-loopback"]
 # 资源目录里有 `rerank-model/`（`lm_step.ort`、`model.json`、`vocab.json`）时，整句联想「增强」的逐键重排改用它，没有或读不了时照旧用随包的句子模型。
 onnx-rerank = ["dep:msime-onnx-rerank"]
 

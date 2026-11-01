@@ -60,8 +60,8 @@ export function HarmonyAboutHero({
 }: HarmonyAboutHeroProps) {
   return (
     <div className={doc.appHero}>
-      <span className={doc.appHeroCircle} aria-hidden="true">
-        <MsimeMark size={46} />
+      <span className={doc.appHeroMark} aria-hidden="true">
+        <MsimeMark size={66} />
       </span>
       <div className={doc.appHeroText}>
         <span className={doc.appHeroTitle}>水杉输入法</span>

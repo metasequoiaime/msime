@@ -233,9 +233,9 @@ pub fn touch_correction_pairs(
     for (position, (code, corrected)) in typed.as_bytes().chunks_exact(2).zip(corrected).enumerate()
     {
         let code = [code[0], code[1]];
-        let literal = decoded_syllable(decoded, code)?;
+        let literal = decoded_syllable(decoded, code);
         let corrected = normalized_syllable(corrected);
-        if corrected == literal {
+        if Some(corrected.as_str()) == literal {
             continue;
         }
         let touched = [touches[2 * position], touches[2 * position + 1]];
@@ -310,12 +310,11 @@ fn priced_code_variants(
     types: u32,
 ) -> Vec<PricedCode> {
     let [first, second] = code;
-    let Some(typed) = decoded_syllable(decoded, code) else {
-        return Vec::new();
-    };
+    let typed = decoded_syllable(decoded, code);
     let mut variants = Vec::new();
     let mut push = |substituted: [u8; 2], penalty: f64| {
-        if let Some(syllable) = decoded_syllable(decoded, substituted).filter(|s| *s != typed) {
+        if let Some(syllable) = decoded_syllable(decoded, substituted).filter(|s| Some(*s) != typed)
+        {
             variants.push(PricedCode {
                 code: substituted,
                 syllable,

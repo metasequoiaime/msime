@@ -9,7 +9,7 @@ public final class FunctionPanelModelSmoke {
     public static void main(String[] args) {
         check(FunctionPanelModel.pageCount() == 3, "three pages");
         check(labels(0).equals(List.of("全角", "中文标点", "模糊音", "繁体", "输入方式", "手写", "本地输入", "AI 辅助",
-            "单手模式", "浮动键盘", "无痕输入", "键盘高度")),
+            "单手模式", "浮动键盘", "无痕输入", "键盘调整")),
             "page one");
         check(labels(1).equals(List.of("按键音", "振动", "振动强度", "语音输入", "插入语音文字", "词库", "文本编辑",
             "编辑工具栏", "设备信息", "表情", "剪贴板历史", "世界时钟")), "page two");

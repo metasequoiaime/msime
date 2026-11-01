@@ -1131,7 +1131,7 @@ motion_period_ms = 2400
     std::filesystem::remove_all(root);
 }
 
-// 读音单独占释义下面的一行。横排时格宽取候选、释义、读音三行里最宽的一行，长音标不再跟在释义后面把这一格撑到下一格的释义边上；同一行的各格一样高，释义都在同一高度；这一页没有读音、或者「显示读音」关着时高度和从前一样。
+// 读音单独占释义下面的一行。横排时格宽取候选、释义、读音三行里最宽的一行，长音标不再跟在释义后面把这一格撑到下一格的释义边上；同一行的各格一样高，释义都在同一高度。「显示读音」开着时横排一直为读音留出这一行：读音还没查回来、这一页没有读音，卡片都和有读音时一样高，读音到达时窗口不长高，光标靠近屏幕底边时也就不会从光标下方翻到上方；关着时高度和从前一样。
 static void TestPronunciationLine(MSIMEInputController *controller, NSWindow *panel, MSIMEAppearancePreferences *appearance)
 {
     appearance.vertical = NO;
@@ -1141,6 +1141,7 @@ static void TestPronunciationLine(MSIMEInputController *controller, NSWindow *pa
                            @"candidates": @[@{@"text": @"动画主体", @"translation": @"Animation protagonist", @"highlighted": @YES},
                                             @{@"text": @"东华主题", @"translation": @"Donghua theme"}]};
     [controller setValue:nil forKey:@"pronunciationTargets"];
+    [controller setValue:@NO forKey:@"glossPronunciation"];
     [controller setValue:[@{MSIMEPronunciationKey(@"en", @"Animation protagonist"): ipa} mutableCopy] forKey:@"sharedPronunciations"];
     [controller setValue:view forKey:@"view"];
     [controller renderCandidates];
@@ -1151,6 +1152,7 @@ static void TestPronunciationLine(MSIMEInputController *controller, NSWindow *pa
     const CGFloat plainCard = NSHeight(panel.frame);
 
     // 打开读音：读音在释义下面单独一行，释义行的位置不变。
+    [controller setValue:@YES forKey:@"glossPronunciation"];
     [controller setValue:@[@"en"] forKey:@"pronunciationTargets"];
     [controller renderCandidates];
     MSIMECandidateButton *read = CandidateButton(panel.contentView, 0);
@@ -1179,15 +1181,31 @@ static void TestPronunciationLine(MSIMEInputController *controller, NSWindow *pa
     NSBitmapImageRep *bitmap = [read bitmapImageRepForCachingDisplayInRect:read.bounds];
     [read cacheDisplayInRect:read.bounds toBitmapImageRep:bitmap];
 
-    // 这一页没有读音时高度不变。
+    const CGFloat readHeight = NSHeight(read.frame);
+    const CGFloat readCard = NSHeight(panel.frame);
+
+    // 读音还没查回来：已经按有读音的高度留好那一行，查回来时卡片不长高。
+    [controller setValue:[NSMutableDictionary dictionary] forKey:@"sharedPronunciations"];
+    [controller renderCandidates];
+    assert(CandidateButton(panel.contentView, 0).pronunciation.length == 0);
+    assert(fabs(NSHeight(CandidateButton(panel.contentView, 0).frame) - readHeight) < 0.5 && fabs(NSHeight(panel.frame) - readCard) < 0.5);
+    // 上屏后的第一个键：没在组字时翻译查询为空，读音目标被清掉，这一键画候选时还没查回来；开关开着就照样留好读音那一行。
+    [controller setValue:nil forKey:@"pronunciationTargets"];
+    [controller renderCandidates];
+    assert(fabs(NSHeight(CandidateButton(panel.contentView, 0).frame) - readHeight) < 0.5 && fabs(NSHeight(panel.frame) - readCard) < 0.5);
+    [controller setValue:@[@"en"] forKey:@"pronunciationTargets"];
+    [controller setValue:[@{MSIMEPronunciationKey(@"en", @"Animation protagonist"): ipa} mutableCopy] forKey:@"sharedPronunciations"];
+
+    // 这一页没有读音时也留着读音那一行，和有读音的页一样高，逐键换页时卡片高度不跳。
     NSMutableDictionary *unread = [view mutableCopy];
     unread[@"candidates"] = @[@{@"text": @"东华主题", @"translation": @"Donghua theme", @"highlighted": @YES}, @{@"text": @"冬化", @"translation": @"winterize"}];
     [controller setValue:[unread copy] forKey:@"view"];
     [controller renderCandidates];
-    assert(fabs(NSHeight(CandidateButton(panel.contentView, 0).frame) - plainHeight) < 0.5);
+    assert(fabs(NSHeight(CandidateButton(panel.contentView, 0).frame) - readHeight) < 0.5 && fabs(NSHeight(panel.frame) - readCard) < 0.5);
     // 「显示读音」关掉：没有第三行，回到原来的高度。
     [controller setValue:view forKey:@"view"];
     [controller setValue:nil forKey:@"pronunciationTargets"];
+    [controller setValue:@NO forKey:@"glossPronunciation"];
     [controller renderCandidates];
     assert(CandidateButton(panel.contentView, 0).pronunciation.length == 0);
     assert(fabs(NSHeight(CandidateButton(panel.contentView, 0).frame) - plainHeight) < 0.5 && fabs(NSHeight(panel.frame) - plainCard) < 0.5);
