@@ -29,7 +29,7 @@ Status: implemented
 
 ## 范围
 
-- `NineKeySidebarSheet` 不动，它的拖动由 #10396 重写。拖动规则（`dragSlot`、`dragTarget`、`edgeScrollStep`、`scrollTowardRoom`、序号和读屏描述）此刻在 `ReorderPolicy` 和 #10396 的 `NineKeySidebarPolicy` 里各有一份，逐条相同；两个 PR 都合进 develop 后，再把两张页的拖动收进同一个控制器、规则只留一份（它的行里还有删除键和符号牌，需要控制器只管拖动、不管行的内容），作为后续 issue 跟进。
+- `NineKeySidebarSheet` 不动，它的拖动由 #10396 重写。拖动规则（`dragSlot`、`dragTarget`、`edgeScrollStep`、`scrollTowardRoom`、序号和读屏描述）此刻在 `ReorderPolicy` 和 #10396 的 `NineKeySidebarPolicy` 里各有一份，逐条相同；两个 PR 都合进 develop 后，再把两张页的拖动收进同一个控制器、规则只留一份（它的行里还有删除键和符号牌，需要控制器只管拖动、不管行的内容），由 #10546 跟进。
 - 工具栏「按钮顺序」（`ToolbarOrderSheet`）也是箭头，不在 #10392 范围内，另开 issue。
 - `SymbolCategoryOrderPolicy.move`（相邻交换）不再被设置页调用，它的语义与 `ReorderPolicy.moved` 在相邻一格时相同，留着由 `SymbolCategoryOrderPolicySmoke` 继续覆盖。
 
