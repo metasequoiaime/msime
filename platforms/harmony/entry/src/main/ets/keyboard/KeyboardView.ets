@@ -3845,7 +3845,7 @@ struct KeyboardView {
   /**
    * 第二行字母是否以 ; 键结尾。
    *
-   * 微软双拼用分号拼 ing，所以这个键要能在字母行里直接按到，而不是藏在符号层后面。触屏上设计稿把这一行画成两端各缩进半个键的九个字母，; 键只在微软双拼正在组合时才出现，与 Android 一致（`MicrosoftShuangpinKeyPolicy`）。两笔式在那里没有字母，越南语和威利转写也不用它，所以韩语、越南语和藏文把这一行画成九个键。
+   * 微软双拼用分号拼 ing，粤语双拼用它拼 ing 和 ik，所以这个键要能在字母行里直接按到，而不是藏在符号层后面。触屏上设计稿把这一行画成两端各缩进半个键的九个字母，; 键只在微软双拼和粤语双拼下出现，与 Android 一致（`MicrosoftShuangpinKeyPolicy`）。两笔式在那里没有字母，越南语和威利转写也不用它，所以韩语、越南语和藏文把这一行画成九个键。
    */
   private secondRowSemicolon(): boolean {
     if (this.symbols || this.koreanFace() || this.vietnameseFace() || this.tibetanFace()) {
@@ -3854,8 +3854,7 @@ struct KeyboardView {
     if (!this.touchDesign()) {
       return true;
     }
-    return !this.english && this.localMode === 'none'
-      && this.scheme.preferenceId === KeyboardScheme.MICROSOFT.preferenceId;
+    return !this.english && this.localMode === 'none' && KeyboardScheme.showsSemicolonFinal(this.scheme);
   }
 
   /** 第二行字母是否两端各缩进半个键：即触屏键盘的九字母行。 */
@@ -3865,6 +3864,12 @@ struct KeyboardView {
 
   /** What a screen reader says for a letter key under the current case. */
   private letterLabel(letter: string): string {
+    // 粤语双拼的 `;` 读出它打的韵母，而不是「字母 ;」。
+    const semicolonFinal: string | null = letter === ';' && this.touchDesign()
+      ? KeyboardScheme.semicolonFinalLabel(this.scheme) : null;
+    if (semicolonFinal !== null) {
+      return semicolonFinal;
+    }
     if (this.koreanFace()) {
       // The jamo itself, which is what a screen reader set to Korean reads.
       return this.letterFace(letter);

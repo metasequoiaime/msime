@@ -34,7 +34,8 @@ public enum TypingSource {
             case WUBI -> WUBI;
             case JAPANESE, JAPANESE_NINE_KEY -> JAPANESE;
             case KOREAN -> KOREAN;
-            case CANTONESE -> CANTONESE;
+            // 粤语双拼与粤拼是同一个 Engine 方案，统计记到粤拼，与 iOS 相同。
+            case CANTONESE, CANTONESE_SHUANGPIN -> CANTONESE;
             case ZHUYIN, ZHUYIN_NINE_KEY -> ZHUYIN;
             case VIETNAMESE -> VIETNAMESE;
             case TIBETAN -> TIBETAN;

@@ -210,6 +210,17 @@ const QUANPIN_EIGHTEEN_KEY: SchemeDefinition = {
   glyph: "拼",
   badge: "18",
 };
+// 粤语双拼（#10523）：与粤拼共用 Engine 方案、26 键布局和词典，只靠 `touch_keyboard_schemes.selected` 让会话从第一键起按两键码解释；L 右边多一个 `;` 键打 ing 和 ik。按 append-only 排在最后，默认不启用。
+const CANTONESE_SHUANGPIN: SchemeDefinition = {
+  id: "CANTONESE_SHUANGPIN",
+  preferenceId: "cantonese_shuangpin",
+  engineScheme: "cantonese",
+  shuangpinProfile: null,
+  touchKeyboardLayout: "twenty_six_key",
+  title: "粤语双拼",
+  glyph: "粤",
+  badge: "双",
+};
 const HANDWRITING: SchemeDefinition = {
   id: "HANDWRITING",
   preferenceId: "handwriting",
@@ -260,6 +271,7 @@ export class KeyboardScheme {
   static readonly STROKE: SchemeDefinition = STROKE;
   static readonly QUANPIN_FOURTEEN_KEY: SchemeDefinition = QUANPIN_FOURTEEN_KEY;
   static readonly QUANPIN_EIGHTEEN_KEY: SchemeDefinition = QUANPIN_EIGHTEEN_KEY;
+  static readonly CANTONESE_SHUANGPIN: SchemeDefinition = CANTONESE_SHUANGPIN;
 
   /** Declaration order is the fixed order the pickers render. */
   static readonly SCHEMES: SchemeDefinition[] = [
@@ -283,7 +295,23 @@ export class KeyboardScheme {
     STROKE,
     QUANPIN_FOURTEEN_KEY,
     QUANPIN_EIGHTEEN_KEY,
+    CANTONESE_SHUANGPIN,
   ];
+
+  /** 第二排 L 右边带 `;` 韵母键的方案：微软双拼（ing）和粤语双拼（ing、ik），与 Android 的 `MicrosoftShuangpinKeyPolicy.showsSemicolonFinal`、iOS 的 `showsSemicolonFinalKey` 一致。 */
+  static showsSemicolonFinal(scheme: SchemeDefinition): boolean {
+    return (
+      scheme.preferenceId === MICROSOFT.preferenceId ||
+      scheme.preferenceId === CANTONESE_SHUANGPIN.preferenceId
+    );
+  }
+
+  /** 粤语双拼 `;` 韵母键的读屏标签，与 iOS 相同；其他方案为 null，`;` 照旧按字母键读。 */
+  static semicolonFinalLabel(scheme: SchemeDefinition): string | null {
+    return scheme.preferenceId === CANTONESE_SHUANGPIN.preferenceId
+      ? "分号，粤语双拼 ing 和 ik"
+      : null;
+  }
 
   /** 26 键符号层按键实际发出的字符：藏文方案下第三排的 `=` 换成威利叠写用的 `+`，让组字中的叠写（如 `pad+ma`）走标点路由交给引擎；符号面板直接写入编辑框，不能用来叠写。其他方案原样发出。 */
   static symbolRowKey(symbol: string, tibetan: boolean): string {
@@ -395,7 +423,8 @@ export class KeyboardScheme {
             candidate !== STROKE &&
             candidate !== QUANPIN_FOURTEEN_KEY &&
             candidate !== QUANPIN_EIGHTEEN_KEY &&
-            candidate !== NINE_KEY_SHUANGPIN)) &&
+            candidate !== NINE_KEY_SHUANGPIN &&
+            candidate !== CANTONESE_SHUANGPIN)) &&
         KeyboardScheme.offeredBy(candidate, edition),
     );
   }

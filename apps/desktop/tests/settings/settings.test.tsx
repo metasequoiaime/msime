@@ -445,10 +445,12 @@ test("touch hosts offering Cantonese, Zhuyin, Vietnamese, Tibetan and Stroke lis
     "全拼 14 键",
     "九键双拼",
     "全拼 18 键",
+    "粤语双拼",
   ]);
-  expect(within(group).getAllByRole("switch")).toHaveLength(20);
+  expect(within(group).getAllByRole("switch")).toHaveLength(21);
   for (const label of [
     "粤拼 26 键",
+    "粤语双拼",
     "大千注音",
     "越南语 26 键",
     "藏文 26 键",
@@ -473,6 +475,8 @@ test("a touch host without the Cantonese dictionary does not list the Cantonese 
   );
   await openInputSettings();
   expect(screen.queryByRole("switch", { name: "显示输入方案 粤拼 26 键" })).toBeNull();
+  // 粤语双拼用同一份粤拼词典，和粤拼一起隐藏。
+  expect(screen.queryByRole("switch", { name: "显示输入方案 粤语双拼" })).toBeNull();
   expect(screen.queryByRole("switch", { name: "显示输入方案 笔画" })).toBeNull();
   expect(screen.getByRole("switch", { name: "显示输入方案 大千注音" })).toBeTruthy();
   // 宿主没有列出藏文时也不显示藏文触屏键盘。
