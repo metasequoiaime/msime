@@ -107,7 +107,7 @@ struct FeedbackView: View {
             .accessibilityLabel("已输入 \(detail.count) 个字，最多 \(Self.maximumDetail) 个")
         }
         actions
-        DesignGroup(info: "提交问题时建议附上：系统版本、输入方案、复现步骤、相关截图，以及诊断日志。") {
+        DesignGroup(footer: "提交问题时建议附上：系统版本、输入方案、复现步骤、相关截图，以及诊断日志。") {
           NavigationLink(destination: DiagnosticLogSettingsView()) {
             DesignNavRowLabel(title: "诊断日志", info: "键盘出现问题时，开启后复现一次再分享")
           }

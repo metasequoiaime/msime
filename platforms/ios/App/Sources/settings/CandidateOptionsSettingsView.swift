@@ -386,8 +386,8 @@ private struct CloudCandidateServiceSettingsView: View {
           Text("自定义 HTTP 接口").tag("custom")
         }
         .accessibilityIdentifier("cloudCandidateSource")
-      } header: {
-        DesignSectionHeader(info: "只发送当前正在组的拼写，不发送已上屏内容、词库或历史。配置和凭据只保存在本机。")
+      } footer: {
+        Text("只发送当前正在组的拼写，不发送已上屏内容、词库或历史。配置和凭据只保存在本机。")
       }
       if source == "custom" {
         Section("HTTP 请求") {
@@ -421,8 +421,8 @@ private struct CloudCandidateServiceSettingsView: View {
         TextField("超时（毫秒）", text: $timeout).keyboardType(.numberPad)
           .accessibilityIdentifier("cloudCandidateTimeout")
         Toggle("缓存云候选", isOn: $cacheEnabled)
-      } header: {
-        DesignSectionHeader(info: "超时范围由共享层校验（100–10000 毫秒）。缓存仅留在本机内存，各来源独立；无结果缓存 60 秒。公网地址使用 HTTPS，本机服务可用 HTTP。")
+      } footer: {
+        Text("超时范围由共享层校验（100–10000 毫秒）。缓存仅留在本机内存，各来源独立；无结果缓存 60 秒。公网地址使用 HTTPS，本机服务可用 HTTP。")
       }
       if saveFailed { Text("保存失败，请检查接口地址、请求头 JSON、请求体模板、响应路径和超时。").foregroundStyle(.red) }
     }

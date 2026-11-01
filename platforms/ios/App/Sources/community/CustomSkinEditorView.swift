@@ -209,7 +209,7 @@ struct CustomSkinEditorView: View {
         }.disabled(!hapticsEnabled)
       }
     } header: {
-      DesignSectionHeader(info: KeyboardFeedbackPreference.hapticsAvailable
+      DesignSectionHeader(subject: "打字反馈", info: KeyboardFeedbackPreference.hapticsAvailable
         ? "音效与振动是所有皮肤共用的键盘设置。按键音受系统静音状态影响，振动需在支持的真机上体验。"
         : "按键音是所有皮肤共用的键盘设置，受系统静音状态影响。") { Text("打字反馈") }
     }

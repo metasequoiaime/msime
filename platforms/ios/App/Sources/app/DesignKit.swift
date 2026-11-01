@@ -148,13 +148,13 @@ struct DesignInfoTitle: View {
   }
 }
 
-/// List 分区标题：组名和收起分区说明的「?」。组名照旧由调用方画（`Text` 或 `SettingsGroupHeader`），样式不变；没有组名的分区只画「?」，放在组名的位置。`info` 为空时只有组名。组名由调用方画时把它的文字传给 `subject`，读屏才能说出这是哪一组的说明。
+/// List 分区标题：组名和收起分区说明的「?」，只给有组名的分区用。组名照旧由调用方画（`Text` 或 `SettingsGroupHeader`），样式不变，它的文字传给 `subject`，读屏才能说出这是哪一组的说明；`info` 为空时只有组名。没有组名的分区不画「?」，说明照旧写在分区的 `footer` 里，和 Android、Windows 的规则一致（见 docs/ARCHITECTURE.md「设置项说明收进「?」」）。
 struct DesignSectionHeader<Title: View>: View {
   let info: String?
-  let subject: String?
+  let subject: String
   private let title: Title
 
-  init(subject: String? = nil, info: String?, @ViewBuilder title: () -> Title) {
+  init(subject: String, info: String?, @ViewBuilder title: () -> Title) {
     self.info = info
     self.subject = subject
     self.title = title()
@@ -168,9 +168,9 @@ struct DesignSectionHeader<Title: View>: View {
   }
 }
 
-extension DesignSectionHeader where Title == Text? {
-  init(title: String? = nil, info: String?) {
-    self.init(subject: title, info: info) { title.map { Text($0) } }
+extension DesignSectionHeader where Title == Text {
+  init(title: String, info: String?) {
+    self.init(subject: title, info: info) { Text(title) }
   }
 }
 
@@ -205,7 +205,7 @@ struct DesignCard<Content: View>: View {
   }
 }
 
-/// 带标题的分组：13pt 的分组标题，其下 7pt 是卡片，另有可选的 13pt 脚注。页面上的分组之间相隔 28pt。`info` 是分组的解释性说明，收进组名旁的「?」（没有组名时「?」单独放在组名的位置）；`footer` 只用于要一眼看到的状态或提示，照旧画在卡片下面。
+/// 带标题的分组：13pt 的分组标题，其下 7pt 是卡片，另有可选的 13pt 脚注。页面上的分组之间相隔 28pt。`info` 是分组的解释性说明：有组名时收进组名旁的「?」；没有组名时不单画「?」，说明照旧作为脚注画在卡片下面，排在 `footer` 前面。`footer` 只用于要一眼看到的状态或提示，照旧画在卡片下面。
 struct DesignGroup<Content: View>: View {
   var title: String?
   var info: String?
@@ -224,23 +224,24 @@ struct DesignGroup<Content: View>: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 7) {
-      if title != nil || info != nil {
+      if let title {
         HStack(spacing: 4) {
-          if let title {
-            Text(title).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.groupTitle)
-              .accessibilityAddTraits(.isHeader)
-          }
+          Text(title).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.groupTitle)
+            .accessibilityAddTraits(.isHeader)
           if let info { DesignInfoTip(text: info, subject: title) }
         }
         .padding(.horizontal, 20)
       }
       DesignCard(radius: radius) { content }
-      if let footer {
-        Text(footer).designSubtext()
-          .fixedSize(horizontal: false, vertical: true)
-          .padding(.horizontal, 20)
-      }
+      if title == nil, let info { footerText(info) }
+      if let footer { footerText(footer) }
     }
+  }
+
+  private func footerText(_ text: String) -> some View {
+    Text(text).designSubtext()
+      .fixedSize(horizontal: false, vertical: true)
+      .padding(.horizontal, 20)
   }
 }
 

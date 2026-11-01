@@ -86,7 +86,8 @@ struct CloudCandidatesView: View {
             }
           }
         } header: {
-          SettingsSectionInfoHeader(info: kind != .quick ? "点一条调频，左滑固定到指定位置或删除。" : nil) {
+          SettingsSectionInfoHeader(subject: "当前查询候选 · 版本 \(page.revision)",
+                                    info: kind != .quick ? "点一条调频，左滑固定到指定位置或删除。" : nil) {
             Text("当前查询候选 · 版本 \(page.revision)")
           }
         }

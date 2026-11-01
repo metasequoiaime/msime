@@ -95,7 +95,9 @@ struct PersonalDictionaryView: View {
         .accessibilityLabel("添加词条").accessibilityIdentifier("addPersonalWord")
         .designRow()
       } header: {
-        DesignSectionHeader(info: "包括手动添加和引擎学习生成的词条，每页最多 100 条。搜索编码时由键盘在整个个人词库里查，搜索汉字只筛当前页；搜索时选拼音、五笔、快捷短语或英文，会连同标着「内置」的词条一起查，内置词条只能调权重或删除。滑动词条可删除。") { if showsSearchResults { Text("编码以「\(state.pageQuery)」开头的词条") } }
+        if showsSearchResults { Text("编码以「\(state.pageQuery)」开头的词条") }
+      } footer: {
+        Text("包括手动添加和引擎学习生成的词条，每页最多 100 条。搜索编码时由键盘在整个个人词库里查，搜索汉字只筛当前页；搜索时选拼音、五笔、快捷短语或英文，会连同标着「内置」的词条一起查，内置词条只能调权重或删除。滑动词条可删除。")
       }
       // 翻页原本是词条组最后一行里三个并排的小按钮,和词条自己的点按、侧滑挤在同一片区域。
       if state.pageOffset > 0 || state.hasMore {
@@ -307,8 +309,8 @@ struct PersonalDictionaryView: View {
         }
         .designRow()
       }
-    } header: {
-      DesignSectionHeader(info: "导入支持 JSON、纯中文词表和词库文件。导出与电脑版的文件相同：每行一条，用 Tab 分隔，词在前或编码在前（Windows）；拼音导出多字词，包括调整过权重的内置词，其他类型只导出你添加的词条。文件只保存在本机，通过分享面板存到你选择的位置。")
+    } footer: {
+      Text("导入支持 JSON、纯中文词表和词库文件。导出与电脑版的文件相同：每行一条，用 Tab 分隔，词在前或编码在前（Windows）；拼音导出多字词，包括调整过权重的内置词，其他类型只导出你添加的词条。文件只保存在本机，通过分享面板存到你选择的位置。")
     }
   }
 
@@ -443,8 +445,8 @@ private struct PersonalWordEditor: View {
         if word.isBundled {
           Section {
             SettingsFactRow(title: word.value, detail: "\(word.kind.title) · \(word.key)", symbol: "lock.fill")
-          } header: {
-            DesignSectionHeader(info: "这是随词库安装的词条，编码和词不能修改。可以调整它的权重，或在列表里滑动删除。")
+          } footer: {
+            Text("这是随词库安装的词条，编码和词不能修改。可以调整它的权重，或在列表里滑动删除。")
           }
         } else {
         Section {
@@ -462,8 +464,8 @@ private struct PersonalWordEditor: View {
             .accessibilityIdentifier("personalWordCode")
             .onChange(of: word.key) { _, key in sanitizeCode(key) }
             .onChange(of: word.kind) { _, _ in sanitizeCode(word.key) }
-        } header: {
-          DesignSectionHeader(info: word.kind == .pinyin ? "每个字填写一个完整拼音音节，用空格或英文单引号分隔；ü 用 v。全拼、双拼和九键共用这个词条。" : "五笔使用 1–4 个字母；快捷短语使用英文字母，在键盘“本地输入 → 快捷短语”输入；英文编码使用字母、连字符或撇号，可以和词条不同，例如用 dont 打出 don't。")
+        } footer: {
+          Text(word.kind == .pinyin ? "每个字填写一个完整拼音音节，用空格或英文单引号分隔；ü 用 v。全拼、双拼和九键共用这个词条。" : "五笔使用 1–4 个字母；快捷短语使用英文字母，在键盘“本地输入 → 快捷短语”输入；英文编码使用字母、连字符或撇号，可以和词条不同，例如用 dont 打出 don't。")
         }
         }
         Section {
@@ -474,9 +476,7 @@ private struct PersonalWordEditor: View {
           DesignSectionHeader(subject: "权重", info: "同一编码下权重越大，候选越靠前。新词默认 \(PersonalWord.defaultWeight)，可填 1–\(PersonalWord.weightRange.upperBound)。") { Text("权重") }
         }
         if let error { Section { Text(error).foregroundStyle(.red) } }
-        Section {} header: {
-          DesignSectionHeader(info: "保存后等待水杉键盘确认同步。这里只保存本机词条，不会发送到 AI 或语音服务。")
-        }
+        Section {} footer: { Text("保存后等待水杉键盘确认同步。这里只保存本机词条，不会发送到 AI 或语音服务。") }
       }
       .designPage()
       .fittedSheet()

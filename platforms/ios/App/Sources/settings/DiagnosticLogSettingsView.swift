@@ -19,10 +19,10 @@ struct DiagnosticLogSettingsView: View {
         Toggle(isOn: logBinding) {
           SettingsOptionLabel(title: "记录键盘诊断日志", info: "键盘出现、收起、设置应用和出错的时间")
         }.accessibilityIdentifier("diagnosticLogEnabled")
-      } header: {
-        DesignSectionHeader(info: "只记录事件名称和键盘占用的内存，不记录按键、输入的文字、候选、账号或服务响应。日志保存在本机，超过 1 MB 时保留一份旧日志。键盘需要开启“完全访问”才能写入；下次弹出键盘时生效。")
       } footer: {
-        if saveFailed { Text(SettingsSaveFailure.message) }
+        Text(saveFailed
+          ? SettingsSaveFailure.message
+          : "只记录事件名称和键盘占用的内存，不记录按键、输入的文字、候选、账号或服务响应。日志保存在本机，超过 1 MB 时保留一份旧日志。键盘需要开启“完全访问”才能写入；下次弹出键盘时生效。")
       }
       .designRow()
       Section {

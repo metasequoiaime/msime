@@ -472,12 +472,13 @@ struct CloudClipboardView: View {
       Form {
         Section {
           TextEditor(text: $text).frame(minHeight: 160).accessibilityIdentifier("cloudClipboardText")
-        } header: {
-          DesignSectionHeader(info: "只上传你在这里明确添加的内容，不自动读取系统剪贴板。内容在本机加密后上传，最多保存 50 条。")
         } footer: {
-          Text("\(text.utf16.count) / 4000")
-            .foregroundStyle(text.utf16.count > 4000 ? MetasequoiaTheme.danger : MetasequoiaTheme.sub)
-            .monospacedDigit()
+          VStack(alignment: .leading, spacing: 4) {
+            Text("\(text.utf16.count) / 4000")
+              .foregroundStyle(text.utf16.count > 4000 ? MetasequoiaTheme.danger : MetasequoiaTheme.sub)
+              .monospacedDigit()
+            Text("只上传你在这里明确添加的内容，不自动读取系统剪贴板。内容在本机加密后上传，最多保存 50 条。")
+          }
         }
         .designRow()
       }

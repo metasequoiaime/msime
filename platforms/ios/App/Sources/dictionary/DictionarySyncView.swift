@@ -629,8 +629,8 @@ struct DictionarySyncWebDAVEditor: View {
               .fixedSize(horizontal: false, vertical: true)
               .accessibilityIdentifier("dictionarySyncProbeStatus")
           }
-        } header: {
-          DesignSectionHeader(info: IOSDictionarySyncPolicy.note)
+        } footer: {
+          Text(IOSDictionarySyncPolicy.note)
         }
         .designRow()
       }

@@ -317,8 +317,8 @@ struct CloudClipboardWebDAVEditor: View {
               .fixedSize(horizontal: false, vertical: true)
               .accessibilityIdentifier("cloudClipboardWebDAVStatus")
           }
-        } header: {
-          DesignSectionHeader(info: IOSCloudClipboardRelayPolicy.webdavNote)
+        } footer: {
+          Text(IOSCloudClipboardRelayPolicy.webdavNote)
         }
         .designRow()
       }

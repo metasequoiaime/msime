@@ -207,8 +207,8 @@ struct PluginEditorView: View {
     Section {
       Button("添加一组") { draft?.groups.append(.init()) }
         .disabled(groups.count >= PluginEditorModel.maximumGroups)
-    } header: {
-      DesignSectionHeader(info: "符号组以插件名为分类排在符号面板的内置符号之后，颜文字组排在颜文字的 All 之后。")
+    } footer: {
+      Text("符号组以插件名为分类排在符号面板的内置符号之后，颜文字组排在颜文字的 All 之后。")
     }
     .designRow()
   }
@@ -259,7 +259,7 @@ struct PluginEditorView: View {
       Button("添加到列表") { addBulk() }
         .disabled(PluginEditorModel.blank(bulk))
     } header: {
-      DesignSectionHeader(info: phrases
+      DesignSectionHeader(subject: "批量添加 · \(phrases ? "每行一条短语" : "每行一个单词")", info: phrases
         ? "编码在前，文字在后，中间用空格隔开，例如 dz 北京市海淀区。"
         : "从表格复制过来即可：单词、释义两列，或单词、音标、释义三列，列之间用 Tab 隔开。") { Text("批量添加 · \(phrases ? "每行一条短语" : "每行一个单词")") }
     }

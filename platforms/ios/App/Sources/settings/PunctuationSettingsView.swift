@@ -32,15 +32,15 @@ struct PunctuationSettingsView: View {
           Text("空心 〖 〗").tag("hollow")
         }
         .accessibilityIdentifier("bracketStyle")
-      } header: {
-        DesignSectionHeader(info: "中文标点下输入 ' 和 \" 时的引号、输入 [ ] 时的括号。直角引号：' 出「」，\" 出『』。")
+      } footer: {
+        Text("中文标点下输入 ' 和 \" 时的引号、输入 [ ] 时的括号。直角引号：' 出「」，\" 出『』。")
       }
       .designRow()
       Section {
         Toggle("智能标点", isOn: stored("smart_punctuation", $smart))
           .accessibilityIdentifier("smartPunctuation")
-      } header: {
-        DesignSectionHeader(info: "中文标点模式下，字母或数字后的 , . : 自动使用英文标点。")
+      } footer: {
+        Text("中文标点模式下，字母或数字后的 , . : 自动使用英文标点。")
       }
       .designRow()
       Section {
@@ -56,8 +56,8 @@ struct PunctuationSettingsView: View {
         Toggle(isOn: stored("smart_punctuation_direct_letter", $directLetter)) {
           SettingsOptionLabel(title: "字母后直出", info: "字母后输入逗号、句点或冒号时保留英文标点")
         }.accessibilityIdentifier("smartPunctuationDirectLetter")
-      } header: {
-        DesignSectionHeader(info: "以上规则在智能标点开启时生效。")
+      } footer: {
+        Text("以上规则在智能标点开启时生效。")
       }
       .disabled(!smart)
       .designRow()
@@ -73,16 +73,16 @@ struct PunctuationSettingsView: View {
                                       $0 ? CharacterWidthPreference.fullwidth : CharacterWidthPreference.halfwidth })) {
           SettingsOptionLabel(title: "全角输入", info: "将英文字符和空格提交为全角形式")
         }.accessibilityIdentifier("characterWidth")
-      } header: {
-        DesignSectionHeader(info: "键盘下次出现时生效；键盘功能菜单里的「全角」开关只临时切换当前键盘。")
+      } footer: {
+        Text("键盘下次出现时生效；键盘功能菜单里的「全角」开关只临时切换当前键盘。")
       }
       .designRow()
       Section {
         Toggle(isOn: stored("chinese_english_spacing", $spacing)) {
           SettingsOptionLabel(title: "中英文之间加空格", info: "一次上屏的文字里，汉字与英文字母、数字相邻处自动加一个空格，如「用Rust写」上屏为「用 Rust 写」")
         }.accessibilityIdentifier("chineseEnglishSpacing")
-      } header: {
-        DesignSectionHeader(info: "两次上屏之间不加；网址、日期等快捷模式和全角输入不受影响，译文和释义上屏、常用语、剪贴板和语音结果也不加。")
+      } footer: {
+        Text("两次上屏之间不加；网址、日期等快捷模式和全角输入不受影响，译文和释义上屏、常用语、剪贴板和语音结果也不加。")
       }
       .designRow()
       Section {
@@ -92,10 +92,8 @@ struct PunctuationSettingsView: View {
           Text("始终使用英文标点").tag("english")
         }
         .accessibilityIdentifier("punctuationLock")
-      } header: {
-        DesignSectionHeader(info: "切换中英文时的标点形态。")
       } footer: {
-        if saveFailed { Text(SettingsSaveFailure.message) }
+        Text(saveFailed ? SettingsSaveFailure.message : "切换中英文时的标点形态。")
       }
       .designRow()
     }

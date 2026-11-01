@@ -157,7 +157,7 @@ class KeyLayoutSettingsContract(unittest.TestCase):
 
     def test_sidebar_editor_saves_one_table_and_draws_no_preview(self):
         editor = SIDEBAR_EDITOR.read_text()
-        self.assertIn("DesignSectionHeader(subject: table.title, info: table.note)", editor)
+        self.assertIn("Text(table.note)", editor)
         self.assertIn(".onDelete { draft.remove(at: $0) }", editor)
         self.assertIn(".onMove { draft.move(from: $0, to: $1) }", editor)
         self.assertIn("ForEach(draft.addable, id: \\.self)", editor)

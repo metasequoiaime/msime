@@ -517,11 +517,11 @@ struct TypingDailyDetailView: View {
       if rows.isEmpty {
         Section { Text("暂无输入记录").foregroundStyle(.secondary) }
       } else if horizontalSizeClass == .regular {
-        Section { table } header: { DesignSectionHeader(info: detailInfo) }
+        Section { table } footer: { footer }
       } else {
         Section {
           ForEach(rows, id: \.day) { compactRow($0) }
-        } header: { DesignSectionHeader(info: detailInfo) }
+        } footer: { footer }
       }
     }
     .navigationTitle("按日明细").navigationBarTitleDisplayMode(.inline)
@@ -536,8 +536,8 @@ struct TypingDailyDetailView: View {
     .onAppear { exportFile = Self.writeExport(statistics) }
   }
 
-  private var detailInfo: String {
-    "最近 \(Self.dayLimit) 个有记录的日子，新的在上。“其他”含其他文字、表情和符号。速度只按汉字与字母计算，和概览里的平均速度同一口径。导出的 CSV 含全部保留的日子。"
+  private var footer: some View {
+    Text("最近 \(Self.dayLimit) 个有记录的日子，新的在上。“其他”含其他文字、表情和符号。速度只按汉字与字母计算，和概览里的平均速度同一口径。导出的 CSV 含全部保留的日子。")
   }
 
   private var table: some View {

@@ -43,7 +43,7 @@ struct CloudDictionaryFilesView: View {
         SettingsActionRow(title: "选择 UTF-8 文本文件", detail: rowFormatHint,
                           symbol: "doc.text.fill") { choosingSnapshot = false; choosing = true }
       } header: {
-        DesignSectionHeader(info: format == .hans
+        DesignSectionHeader(subject: "导入到 \(kind.title)", info: format == .hans
           ? "汉字格式由服务器调用输入引擎注音，请导入后检查多音字读音；默认权重为 100000。每次最多 500 条，包含 JSON 转义后的请求不超过 64 KiB。选择文件只在本机预览；确认上传后才写入云端，重复或无效词条会让整批导入失败，原有云端词条保持不变。"
           : "每次最多 500 条，包含 JSON 转义后的请求不超过 64 KiB。选择文件只在本机预览；确认上传后才写入云端，重复或无效词条会让整批导入失败，原有云端词条保持不变。") { SettingsGroupHeader(title: "导入到 \(kind.title)") }
       }
@@ -66,7 +66,7 @@ struct CloudDictionaryFilesView: View {
                           symbol: "square.and.arrow.up.fill",
                           enabled: format != .hans) { run { id in try await export(id: id) } }
       } header: {
-        DesignSectionHeader(info: format == .windows
+        DesignSectionHeader(subject: "导出云端个人词条", info: format == .windows
           ? "按 Windows 规则导出：拼音仅多字词，其他类型仅用户添加的词条。文件通过系统分享面板保存到你选择的位置。"
           : "导出所选类型的全部云端个人词条，包括搜索结果之外的词条；文件通过系统分享面板保存到你选择的位置。") { SettingsGroupHeader(title: "导出云端个人词条") }
       }

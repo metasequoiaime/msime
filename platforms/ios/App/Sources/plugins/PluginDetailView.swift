@@ -29,8 +29,8 @@ struct PluginDetailView: View {
               .disabled(library.working)
               .accessibilityLabel("编辑\(pack.name)")
               .accessibilityIdentifier("pluginEdit")
-          } header: {
-            DesignSectionHeader(info: "不用写代码，在设置页里修改名字、介绍和内容；保存后替换本机的这一份。")
+          } footer: {
+            Text("不用写代码，在设置页里修改名字、介绍和内容；保存后替换本机的这一份。")
           }
           .designRow()
         }

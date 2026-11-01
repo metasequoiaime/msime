@@ -43,8 +43,8 @@ struct TranslationProviderSettingsView: View {
           guard savedProvider != nil, next != savedProvider else { return }
           autosave.saveNow { try save() }
         }
-      } header: {
-        DesignSectionHeader(info: providerInfo)
+      } footer: {
+        Text(providerInfo)
       }
       .designRow()
       switch provider {

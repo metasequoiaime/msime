@@ -96,13 +96,13 @@ struct SettingsInfoTip: View {
   }
 }
 
-/// 分区标题加「?」：标题照旧由调用方画，`info` 为空时只有标题；没有标题的分区只画「?」。标题的文字传给 `subject`，读屏才能说出这是哪一组的说明。
+/// 分区标题加「?」，只给有标题的分区用：标题照旧由调用方画，`info` 为空时只有标题。标题的文字传给 `subject`，读屏才能说出这是哪一组的说明。没有标题的分区不画「?」，说明照旧写在分区的 `footer` 里。
 struct SettingsSectionInfoHeader<Title: View>: View {
   let info: String?
-  let subject: String?
+  let subject: String
   private let title: Title
 
-  init(subject: String? = nil, info: String?, @ViewBuilder title: () -> Title) {
+  init(subject: String, info: String?, @ViewBuilder title: () -> Title) {
     self.info = info
     self.subject = subject
     self.title = title()
@@ -113,12 +113,6 @@ struct SettingsSectionInfoHeader<Title: View>: View {
       title
       if let info { SettingsInfoTip(text: info, subject: subject).textCase(nil) }
     }
-  }
-}
-
-extension SettingsSectionInfoHeader where Title == EmptyView {
-  init(info: String?) {
-    self.init(info: info) { EmptyView() }
   }
 }
 

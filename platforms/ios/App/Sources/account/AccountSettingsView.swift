@@ -526,10 +526,8 @@ struct AppleAccountSection: View {
           .disabled(busy)
           .accessibilityIdentifier("publishClearExpiredLogin")
       }
-    } header: {
-      DesignSectionHeader(info: "登录后可在皮肤社区发布、下载和评分。日常输入无需登录。")
     } footer: {
-      if let message { Text(message) }
+      Text(message ?? "登录后可在皮肤社区发布、下载和评分。日常输入无需登录。")
     }
   }
 
