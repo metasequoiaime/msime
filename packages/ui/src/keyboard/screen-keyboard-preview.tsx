@@ -11,8 +11,14 @@ import {
   type PreviewKey,
 } from "./keyboard-layouts";
 import { keyboardKeyPath } from "./keyboard-shape";
-import { msimeFramePath, msimeStrokePath } from "../core/brand-logo";
-import { readableKeyboardText } from "./keyboard-colors";
+import {
+  msimeEdgeColor,
+  msimeEdgeWidth,
+  msimeFieldColor,
+  msimeFramePath,
+  msimeStrokePath,
+  msimeViewBox,
+} from "../core/brand-logo";
 
 // Layout source: MSIME-Windows@04a8df56f86312474a069f4335a1b58da7afaa9e,
 // server/src/keyboard-panel/KeyboardPanel.cpp (GPL-3.0). This preview has no input actions.
@@ -84,19 +90,24 @@ const thumbnailToolbarGlyphs = [
   "m6 9 6 6 6-6",
 ];
 
-/** 缩略图的工具栏条：水杉标志用皮肤的强调色，笔画按强调色取黑或白（强调色是白色时标志不至于变成一块白方块），其后的工具栏图标用它的按键文字色，每个占一个等宽列。 */
-function ThumbnailToolbar({ accent, foreground }: { accent: string; foreground: string }) {
+/** 缩略图的工具栏条：水杉标志用与各平台图标相同的固定配色（深色底、绿边、白笔画），其后的工具栏图标用它的按键文字色，每个占一个等宽列。 */
+function ThumbnailToolbar({ foreground }: { foreground: string }) {
   const column = (thumbnailWidth - thumbnailInset * 2) / (thumbnailToolbarGlyphs.length + 1);
   const centre = (index: number) => thumbnailInset + column * (index + 0.5);
   const middle = thumbnailToolbarHeight / 2;
   return (
     <g data-keyboard-toolbar="">
-      <svg x={centre(0) - 13} y={middle - 13} width="26" height="26" viewBox="0 0 116 132">
-        <path d={msimeFramePath} fill={accent} />
+      <svg x={centre(0) - 13} y={middle - 13} width="26" height="26" viewBox={msimeViewBox}>
+        <path
+          d={msimeFramePath}
+          fill={msimeFieldColor}
+          stroke={msimeEdgeColor}
+          strokeWidth={msimeEdgeWidth}
+        />
         <path
           d={msimeStrokePath}
           fill="none"
-          stroke={readableKeyboardText(accent)}
+          stroke="#FFFFFF"
           strokeWidth="9"
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -321,7 +332,7 @@ export function ScreenKeyboardPreview({
         />
       )}
       {phoneLook ? (
-        <ThumbnailToolbar accent={palette.accent} foreground={palette.foreground} />
+        <ThumbnailToolbar foreground={palette.foreground} />
       ) : (
         <text x="10" y="14" dominantBaseline="middle" fontSize="12" fill={palette.accent}>
           {touch ? "水杉 IME" : "Touch keyboard"}

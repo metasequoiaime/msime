@@ -3,6 +3,22 @@ package app.msime.android;
 public final class KeyboardSkinSmoke {
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }
 
+    /** WCAG 2.x 对比度，只看 `#RRGGBB` 的 RGB。 */
+    static double contrast(String first, String second) {
+        double a = luminance(Integer.parseInt(first.substring(1), 16));
+        double b = luminance(Integer.parseInt(second.substring(1), 16));
+        return (Math.max(a, b) + .05) / (Math.min(a, b) + .05);
+    }
+
+    static double luminance(int rgb) {
+        return .2126 * linear(rgb >> 16) + .7152 * linear(rgb >> 8) + .0722 * linear(rgb);
+    }
+
+    static double linear(int value) {
+        double component = (value & 255) / 255.0;
+        return component <= .04045 ? component / 12.92 : Math.pow((component + .055) / 1.055, 2.4);
+    }
+
     public static void main(String[] args) {
         // `system` 是设计 classic 基础键盘色：按 design-tokens §1.4 的公式由 classic 种子推导。
         KeyboardSkin light = KeyboardSkin.system(false);
@@ -17,7 +33,11 @@ public final class KeyboardSkinSmoke {
         check("#2C7A4B".equals(light.accent()) && "#2C7A4B".equals(light.accentText()));
         check("#2C7A4B".equals(light.returnBackground()) && "#FFFFFF".equals(light.returnForeground()));
         check("#222C7A4B".equals(light.accentSoft()) && "#1F000000".equals(light.hairline()));
-        check("#FDFEFC".equals(light.candidateSelectedBackground()) && "#2C7A4B".equals(light.candidateSelectedForeground()));
+        // 首选字色加深到 WCAG AA：#2C7A4B 在键盘底色 #DFECDF 上只有约 4.3:1，#267547 约 4.6:1；回车与开启态仍是 #2C7A4B。
+        check("#FDFEFC".equals(light.candidateSelectedBackground()) && "#267547".equals(light.candidateSelectedForeground()));
+        // 浅色 classic 回退的首选字色要按真实对比度到 WCAG AA：首选画在字母键色的底片上，底片外是键盘底色，两处都要 4.5:1。
+        check(contrast(light.candidateSelectedForeground(), light.candidateSelectedBackground()) >= 4.5);
+        check(contrast(light.candidateSelectedForeground(), light.background()) >= 4.5);
         check(light.cornerRadius() == 8 && light.borderWidth() == 0 && light.shadowOpacity() == 0);
         check(!light.designed() && light.pattern() == 0 && light.photo() == null);
         check("#80FDFEFC".equals(light.sidebarBackground()));
@@ -37,7 +57,10 @@ public final class KeyboardSkinSmoke {
         check("#FDF9F6".equals(autumn.keyBackground()) && "#E6C6B2".equals(autumn.functionBackground()));
         check("#B5562B".equals(autumn.accent()) && "#B5562B".equals(autumn.returnBackground()));
         check("#22B5562B".equals(autumn.accentSoft()) && "#B5562B".equals(autumn.toolbarActiveIcon()));
+        check("#FDF9F6".equals(autumn.candidateSelectedBackground()) && "#9F4214".equals(autumn.candidateSelectedForeground()));
         KeyboardSkin autumnDark = KeyboardSkin.system(true, AppThemePalette.Seed.AUTUMN);
+        check("#4C453E".equals(autumnDark.candidateSelectedBackground()) && "#F0975F".equals(autumnDark.candidateSelectedForeground()));
+        check("#8FD5A6".equals(dark.candidateSelectedForeground()));
         check("#2C241D".equals(autumnDark.background()) && "#4C453E".equals(autumnDark.keyBackground()));
         check("#42382E".equals(autumnDark.functionBackground()) && "#3C2618".equals(autumnDark.returnForeground()));
         check(KeyboardSkin.system(true, null).key().equals(dark.key()));
@@ -52,6 +75,9 @@ public final class KeyboardSkinSmoke {
         check("#1E1F1C".equals(shuishan.background()) && "#2F302C".equals(shuishan.keyBackground()));
         check("#23241F".equals(shuishan.functionBackground()) && "#FFFFFF".equals(shuishan.keyForeground()));
         check("#9FB5A3".equals(shuishan.secondary()) && "#7FE08E".equals(shuishan.accent()));
+        // 具名皮肤的首选仍是它自己的强调色，换应用主题也不变。
+        check("#7FE08E".equals(shuishan.candidateSelectedForeground()));
+        check("#7FE08E".equals(shuishan.withAppTheme(AppThemePalette.Seed.AUTUMN).candidateSelectedForeground()));
         check("#000000".equals(shuishan.onAccent()));
         // 确认 and the switched-on tiles keep the platform accent in every theme, as iOS and Harmony draw them; the theme accent is only the selected strip candidate.
         check("#8FD5A6".equals(shuishan.returnBackground()) && "#003920".equals(shuishan.returnForeground()));

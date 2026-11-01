@@ -1,6 +1,6 @@
 import UIKit
 
-/// 工具栏品牌按钮：36pt 圆底与 24pt 官方水杉标志，使用原生按钮图像保留系统键盘命中。
+/// 工具栏品牌按钮：24pt 官方水杉标志（固定配色的深色圆角正方形、绿边和白色折线，本身就是外框，不垫圆底，也不跟随皮肤），使用原生按钮图像保留系统键盘命中。按钮仍按原来 36pt 圆底的占位随行高缩放。
 final class KeyboardBrandMarkButton: UIButton {
   static let discSide: CGFloat = 36
   static let markSide: CGFloat = 24
@@ -8,7 +8,6 @@ final class KeyboardBrandMarkButton: UIButton {
   private static let disabledAlpha: CGFloat = 0.4
 
   private var renderedSize = CGSize.zero
-  private var skin = KeyboardTheme.current
 
   var isActive = false {
     didSet {
@@ -22,17 +21,14 @@ final class KeyboardBrandMarkButton: UIButton {
     backgroundColor = .clear
     accessibilityLabel = "功能"
     accessibilityTraits = .button
-    registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (button: KeyboardBrandMarkButton, _: UITraitCollection) in
-      button.renderMark(size: button.renderedSize)
-    }
-    apply(skin: skin)
+    apply(skin: KeyboardTheme.current)
     imageView?.accessibilityIdentifier = "keyboardBrandIcon"
   }
 
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-  func apply(skin: KeyboardTheme) {
-    self.skin = skin
+  /// 标志配色固定，不取皮肤的颜色；保留这个入口是为了和工具栏其他按钮一样在换皮肤时重新绘制。
+  func apply(skin _: KeyboardTheme) {
     let size = bounds.width > 0 && bounds.height > 0 ? bounds.size : CGSize(width: Self.discSide, height: Self.discSide)
     renderMark(size: size)
   }
@@ -58,25 +54,15 @@ final class KeyboardBrandMarkButton: UIButton {
     }
   }
 
-  /// 图像覆盖整个按钮，圆底和官方标志在中央绘制，透明部分保留整格点击范围。
+  /// 图像覆盖整个按钮，官方标志在中央绘制，透明部分保留整格点击范围。
   private func renderMark(size: CGSize) {
     func glyph(scale: CGFloat) -> UIImage {
       // 和工具栏其他按钮一样随行高缩小（`KeyboardToolbarButton.contentScale`），「候选栏大小」调小时标志不伸出这一行。
-      let disc = min(Self.discSide * KeyboardToolbarButton.contentScale(rowHeight: size.height), size.width, size.height) * scale
-      let discRect = CGRect(x: (size.width - disc) / 2, y: (size.height - disc) / 2, width: disc, height: disc)
-      let mark = disc * Self.markSide / Self.discSide
+      let slot = min(Self.discSide * KeyboardToolbarButton.contentScale(rowHeight: size.height), size.width, size.height) * scale
+      let mark = slot * Self.markSide / Self.discSide
       let markRect = CGRect(x: (size.width - mark) / 2, y: (size.height - mark) / 2, width: mark, height: mark)
       return UIGraphicsImageRenderer(size: size).image { _ in
-        skin.logoCircle.resolvedColor(with: traitCollection).setFill()
-        UIBezierPath(ovalIn: discRect).fill()
-        skin.logoMark.resolvedColor(with: traitCollection).setFill()
-        UIBezierPath(cgPath: MSIMELogo.framePath(in: markRect)).fill()
-        let stroke = UIBezierPath(cgPath: MSIMELogo.strokePath(in: markRect))
-        stroke.lineWidth = MSIMELogo.strokeWidth * MSIMELogo.scale(for: markRect)
-        stroke.lineCapStyle = .round
-        stroke.lineJoinStyle = .round
-        UIColor.white.setStroke()
-        stroke.stroke()
+        MSIMELogo.draw(in: markRect)
       }.withRenderingMode(.alwaysOriginal)
     }
     renderedSize = size

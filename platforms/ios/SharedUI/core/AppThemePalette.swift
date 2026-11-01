@@ -23,7 +23,7 @@ private func appThemeReply(_ raw: UnsafeMutablePointer<CChar>?) -> Any? {
 ///
 /// 季节、种子色和按月份取季的规则都在 Rust 里（`msime_client_resolve_app_theme`、`msime_client_app_theme_catalog`）；这个类型只保存用户的选择，缓存当月浅色和深色两套解析结果，并移植 Android 的 `color-mix`，让派生色与设计稿逐位一致。选择存在 App Group 里，键盘扩展因此画出同一个季节；iOS 的设置同步目前不携带它（Android 经 client-services 的 `android_local` 同步 `general.app_theme`），换设备要重选。解析失败时所有读取方都退回经典绿色 token，所以库缺失或损坏也不会让任何颜色落空。
 enum AppThemePalette {
-  /// 解析后主题的一种模式：`{id, season, accent, accent_soft, on_accent, background, card, hair}`。
+  /// 解析后主题的一种模式：`{id, season, accent, accent_soft, on_accent, background, card, hair, candidate_accent}`。
   struct Resolved: Equatable {
     var id: String
     /// 实际绘制的季节：`spring`、`summer`、`autumn` 或 `winter`。
@@ -37,6 +37,8 @@ enum AppThemePalette {
     var card: UIColor
     /// Rust 给出的分隔线颜色；深色模式下由 `MetasequoiaTheme.hair` 覆盖。
     var hair: UIColor
+    /// 触屏候选条首选的字色：浅色模式是同一色相加深到 WCAG AA 的强调色，深色模式就是 `accent`。
+    var candidateAccent: UIColor
   }
 
   /// 选择器里的一个主题，按选择器顺序排列。
@@ -200,9 +202,10 @@ enum AppThemePalette {
           let resolvedID = value["id"] as? String, let season = value["season"] as? String else { return nil }
     func color(_ key: String) -> UIColor? { (value[key] as? String).flatMap(hexColor) }
     guard let accent = color("accent"), let accentSoft = color("accent_soft"), let onAccent = color("on_accent"),
-          let background = color("background"), let card = color("card"), let hair = color("hair") else { return nil }
+          let background = color("background"), let card = color("card"), let hair = color("hair"),
+          let candidateAccent = color("candidate_accent") else { return nil }
     return Resolved(id: resolvedID, season: season, accent: accent, accentSoft: accentSoft, onAccent: onAccent,
-                    background: background, card: card, hair: hair)
+                    background: background, card: card, hair: hair, candidateAccent: candidateAccent)
   }
 
   /// 0–255 范围上的 R、G、B、A，各自取整到整数级，与 Android 打包成 int 的颜色一致。

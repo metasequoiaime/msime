@@ -837,7 +837,7 @@ jobs:
   windows-scripts:
     needs: changes
     name: Windows release script tests
-    # The release scripts are PowerShell run on Windows, and the cross-build container above has no pwsh, so their probe tests run on a Windows runner. None of them compiles anything; the state directory step at the end is the one native build here, kept to a single test target.
+    # 发版脚本是在 Windows 上跑的 PowerShell，上面的交叉构建容器里没有 pwsh，所以它们的探测测试放在 Windows runner 上。脚本测试本身不编译；末尾的状态目录和候选取色两步是这里仅有的原生构建，共用一棵 pipe-only 构建树，只编几个只依赖头文件的测试目标。
     runs-on: depot-windows-2025-8
     timeout-minutes: 15
     steps:
@@ -890,6 +890,17 @@ jobs:
             ctest --test-dir $output -C Release -R '^(windows-state-directory|windows-crash-recorder)$' --output-on-failure --no-tests=error
             if ($LASTEXITCODE -ne 0) { throw "State directory tests failed for $($arch.Platform)" }
           }
+      # 候选窗的取色（CandidatePalette.h、CandidateSkin.h：默认选中行的对比度、选中行释义色、皮肤槽位）只用头文件和 nlohmann_json，在 Windows GNU 交叉编译作业里只编译不运行。这里复用上一步 x64 的 pipe-only 构建树，用 MSVC 编译并运行 windows-candidate-palette 和 windows-candidate-skin，不另装依赖。
+      - name: Test the candidate palette and skin colours
+        if: ${{ needs.changes.outputs.windows == 'true' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $output = 'target/windows-state-directory/x64'
+          cmake --build $output --config Release --target windows-candidate-palette windows-candidate-skin --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'Candidate palette build failed' }
+          ctest --test-dir $output -C Release -R '^windows-candidate-(palette|skin)$' --output-on-failure --no-tests=error
+          if ($LASTEXITCODE -ne 0) { throw 'Candidate palette tests failed' }
       - name: Windows platform unchanged
         if: ${{ needs.changes.outputs.windows != 'true' }}
         run: echo 'No Windows or shared-platform changes; platform gate skipped.'

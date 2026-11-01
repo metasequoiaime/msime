@@ -78,6 +78,9 @@ try {
         'target/offline-glosses/offline-glosses-NOTICE.txt',
         'target/pronunciations/en-phonetic.db',
         'target/pronunciations/pronunciations-NOTICE.txt',
+        'target/target-pronunciations/fr-phonetic.db',
+        'target/target-pronunciations/ko-phonetic.db',
+        'target/target-pronunciations/target-pronunciations-NOTICE.txt',
         'target/character-glosses/zh-en.db',
         'target/character-glosses/character-glosses-NOTICE.txt',
         'target/word-glosses/zh-en.db',
@@ -196,6 +199,9 @@ try {
                          'server_exe/offline-glosses/offline-glosses-NOTICE.txt',
                          'server_exe/pronunciations/en-phonetic.db',
                          'server_exe/pronunciations/pronunciations-NOTICE.txt',
+                         'server_exe/target-pronunciations/fr-phonetic.db',
+                         'server_exe/target-pronunciations/ko-phonetic.db',
+                         'server_exe/target-pronunciations/target-pronunciations-NOTICE.txt',
                          'server_exe/character-glosses/zh-en.db',
                          'server_exe/character-glosses/character-glosses-NOTICE.txt',
                          'server_exe/wordbooks/cet4.json',
@@ -538,8 +544,9 @@ try {
     foreach ($absent in @('server_exe/handwriting', 'server_exe/offline-glosses', 'server_exe/language-dictionaries', 'server_exe/character-glosses', 'server_exe/word-glosses')) {
         if (Test-Path (Join-Path $installer $absent)) { throw "Edition without a Chinese scheme packaged $absent" }
     }
-    # 英文读音表不分版本：英文候选和英文释义在每个版本里都可能出现。
+    # 读音表不分版本：英文候选和各种语言的释义在每个版本里都可能出现。
     if (-not (Test-Path (Join-Path $installer 'server_exe/pronunciations/en-phonetic.db'))) { throw 'Edition without a Chinese scheme lost server_exe/pronunciations' }
+    if (-not (Test-Path (Join-Path $installer 'server_exe/target-pronunciations/fr-phonetic.db'))) { throw 'Edition without a Chinese scheme lost server_exe/target-pronunciations' }
     # 背单词的内置词书同样不分版本。
     if (-not (Test-Path (Join-Path $installer 'server_exe/wordbooks/cet4.json'))) { throw 'Edition without a Chinese scheme lost server_exe/wordbooks' }
     # MSIME_REQUIRE_WORDBOOKS=1 时锁文件列出的每一本都要装入：夹具只有 cet4，锁里再列一本 gre 就必须失败，只列 cet4 时照常打包。

@@ -35,6 +35,7 @@ Status: implemented
 - 判定照 Android `NineKeySwipePolicy.gesture`：只看纵向位移，严格大于阈值；沿设定方向是输入数字，反方向且这个键有字母（2–9）是弹出和长按相同的数字与字母。1 键反方向什么也不做，抬手照旧是点按。一次触摸只判一次，判出就锁住；长按弹窗先弹出时不再判定，滑动先成立时取消这次的点按和长按。设置在每次触摸时读当前值，设置页改了下一次触摸就生效，不重建键盘。
 - 输入数字那一刻键面换成这个键的数字、右上角数字角标藏起来，松手还原；上屏走各端「长按菜单里选数字」的同一条路径（组字中先结束组字再字面上屏），按键反馈和统计各一次、统计 id 与点按相同。系统取消时还原键面，什么也不输入。
 - iOS 的判定在按键里（`KeyboardKeyButton` 的 `nineKeySwipe*`，规则在 `LetterHintTable.swift` 的 `NineKeySwipePolicy` / `NineKeySwipeTracker`），控制器的 `activeNineKeySwipeDigits` 在数字层、九键双拼、长按菜单已弹出、横滑移光标接管触摸（`cursorSwipeActive`）、VoiceOver 开着时返回关闭。鸿蒙在 `nineKeyHoldKey` 的 `onTouch` 里交给 `input/NineKeySwipePolicy.ts` 的 `NineKeySwipeGesture`，点击和长按先问它（`swallows` / `hold`），因为 ArkUI 不保证点击与抬手的先后；2in1 不判定。Android 的 `ImeLayoutRows.bindNineKeySwipe` 不变，只是方向改读服务上的 `nineKeySwipeDigits`。
+- 反方向弹出的选项可以接着滑动选择（#10443，目前只有 Android）：报告者用上滑出字母，要先上滑、松手、再点一次，比 26 键「下滑弹出字母、接着滑到某个字母松手」多一步。Android 的 `bindNineKeySwipe` 判出 LETTERS 时以 `showNineKeyHoldOptions(..., trackDrag = true)` 弹出，弹窗登记到 26 键字母选项共用的拖选状态（`trackLetterOptions`，规则见 [字母选项支持滑动选择](../bug-fix/2026-10-21-android-letter-option-gesture-settings.md)），之后的移动交给 `moveLetterOptions`，抬手交给 `finishLetterOptions`，系统取消交给 `cancelLetterOptions`。滑进过某个选项再松手就输入它，滑进过又滑出再松手关闭弹窗，一次也没滑进过就松手则弹窗留着等点选，原来的点选不丢。九键长按弹出的同一组选项也跟着这次按压拖选，与 26 键长按一致；长按后拖选成功时给按钮补一个 CANCEL，收起它的按下态。新按压按下时，若上一次滑出后没选的弹窗还登记在这个键上，先关掉它，不让旧弹窗跟新按压拖选。14 键、18 键和上标弹窗仍不拖选。iOS 和鸿蒙的九键反方向弹窗还是松手再点，补齐留作后续。
 - 26 键「滑动输入符号」的开关、方向和 14 dp/pt/vp 阈值与这一项互不影响；空格移光标、文本触控板都不在九宫格键上，不受影响。
 
 ### 角标
@@ -77,5 +78,7 @@ Status: implemented
 - Android：`platforms/android/tests/device/build-editor.sh` 通过；Mac Studio 上 Gradle `:app:compileFullDebugJavaWithJavac` 通过。改过的两个设备测试（`KeyLayoutBackupDeviceChecks`、`KeyboardFeedbackDeviceChecks`）只编译过。
 - iOS：Mac Studio 上 `MSIMEApp` build 与 `MSIMEClientTests` build-for-testing 通过；`NineKeySwipeDigitsTests` 只编译，没有在模拟器上跑。
 - 鸿蒙：Mac Studio 上 hvigor `assembleHap` 通过（ArkTS 编译通过；原生库借自旧镜像，包本身不可安装）；`apps/desktop` 下 `tsc --noEmit`、改动文件的 `vp fmt --check` 与 `vp lint` 通过。
+
+#10443（2026-11-01，Android 拖选）：Mac Studio 上 `platforms/android/check-host.sh` 通过，含新加的拖选接线检查。没有在真机或模拟器上试过上滑和下滑两种设置下的拖选、松手不选留弹窗、滑出关闭、长按后拖选和系统取消。
 
 没有验证的：三端都没有在真机或模拟器上试过真实滑动、键面换数字和还原、按下态、与长按的先后、iOS 横滑光标接管后的取消；三端设置页都没有在设备上看过；Android 迁移没有在装着旧本机值的真机上升级验证；跨设备同步要等服务端字段表收录 `platform.android.nine_key_swipe` 和 `platform.harmony.nine_key_swipe`。

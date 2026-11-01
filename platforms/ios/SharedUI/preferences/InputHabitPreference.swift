@@ -14,7 +14,7 @@ struct InputHabitSettings: Equatable {
   var secondaryLanguage: Int
   /// 候选词翻译的范围（`candidate_translation_scope`），只在候选词翻译开着时有意义。
   var translationScope: CandidateTranslationScope = .highlighted
-  /// 「显示英文音标」（`candidate_pronunciation`），共享默认关闭。
+  /// 「显示读音」（`candidate_pronunciation`），共享默认关闭。
   var pronunciationEnabled = false
 }
 

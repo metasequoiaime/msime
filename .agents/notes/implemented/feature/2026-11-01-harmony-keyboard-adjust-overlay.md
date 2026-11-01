@@ -1,0 +1,62 @@
+# Agent Note: 鸿蒙键盘调整遮罩
+
+Status: implemented
+
+## Problem
+
+鸿蒙的功能面板只有「键盘高度」：打开后工具栏换成高度条 `HeightBar`（取消 | 拖动手柄 | 重置 | 完成），只能改高度。用户还想把键盘抬离屏幕底边、收窄、挪到一侧，这几项鸿蒙一个入口都没有；高度条以「取消」以外的方式离开（收起键盘、换输入框、切面板）会把预览恢复成已保存的值，和 Android 在 [键盘里调的高度被设置页的值盖回去](../bug-fix/2026-10-08-touch-keyboard-height-reverts.md) 里定下的「收起即保存」相反。
+
+维护者给三端定了同一份契约，Android（#10526）、iOS 和鸿蒙各自实现，界面和行为必须一致。本篇记鸿蒙的实现，契约原样写在 Decision 里。
+
+## Decision
+
+### 三端契约
+
+- 入口：功能面板里原「键盘高度」磁贴改名「键盘调整」，图标不变。
+- 打开后整块键盘（工具栏或候选行加按键区）上盖一层约 45% 不透明的黑色遮罩，下面的键盘照常画作实时预览，但不接受触摸。遮罩四角画皮肤强调色的直角括号，标出键盘外框。
+- 拖动柄：上沿正中、下沿正中各一个横向把手（三道横线），左右两沿垂直居中各一个竖向把手（两道竖线），都在外框以内。每个柄只动它那条边，对边在屏幕上不动（下沿往上拖、高度已到下限时例外，见下）：
+  - 上沿改键盘高度，往上拖变高。
+  - 下沿改底部抬高。从按下时的高度 h0、抬高 l0 出发，手指累计往上移 u：u ≥ 0 时抬高跟着手指走，lift = min(l0 + u, 160)，高度尽量反向让出同样多但不低于下限，height = h0 − min(lift − l0, h0 − (−12))。也就是先拿高度换抬高、上沿不动；高度到下限后整块键盘继续往上移，直到抬高到 160 才停。u < 0 时抬高减、高度加同样多，上沿不动，抬高到 0 或高度到 48 时两项一起停。
+  - 左、右沿改宽度，同时改水平位置使另一侧边不动。
+- 中间一排三个按钮，白色图标加文字：「重置」（逆时针回转箭头）、「移动」（四向箭头，按住拖动整块键盘，同时改底部抬高和水平位置，大小不变）、「确认」（圆圈里的对勾）。
+- 重置把四项预览回默认（高度 0、抬高 0、宽度 100%、居中），不保存。确认保存并退出：高度一直写，抬高、宽度、位置只写此刻生效且和打开时不同的项（`KeyboardAdjustPolicy.saved`），不生效的项保留存着的值，与 Android `AndroidLocalSettings.keyboardAdjustEdits` 相同。最初的实现离开时三项一律写预览值，在手机横屏或浮动键盘里点了重置再确认，看不到的收窄和抬高会被清掉，评审时改掉。没有「取消」，其他任何离开方式（收起键盘、换输入框、切应用、切到别的面板）都按确认保存。
+- 当前不生效的项不显示对应的柄：浮动键盘、手机横屏、2in1 上底部抬高、宽度、位置都不生效，只留上沿柄、隐藏「移动」；单手模式或分离式键盘时宽度和位置不生效，隐藏左右柄，「移动」只改抬高。
+- 读屏：四个柄的名称是「键盘高度」「键盘底部高度」「键盘宽度（左边）」「键盘宽度（右边）」，三个按钮就叫「重置」「移动」「确认」，各有说明。调整期间遮罩下的工具条和按键整块不进读屏（`keyboard()` 的列在 `SURFACE_GEOMETRY` 时设 `accessibilityLevel('no-hide-descendants')`），遮罩只挡触摸挡不住读屏的双击，与 Android 的 `IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS`、iOS 的 `accessibilityViewIsModal` 相同。增减的步长是高度 5%、抬高 4vp、宽度 5%、位置 50‰；「移动」能左右移时左右方向调位置、上下方向调抬高。
+- 存储只在本机、不同步：高度沿用共享偏好 `touch_keyboard_height_adjustment`（−12..48）；底部抬高 `bottomLift`（0–160vp，缺省 0）；宽度 `widthPercent`（60–100，缺省 100，拖动时键盘宽度另有 240vp 下限，取两者中更宽的）；水平位置 `positionX`（剩余空间里的千分比 0–1000，缺省 500 居中）。
+- 收窄后两侧和底部抬起的地方画键盘背景色，点击不落到按键。宽度作用于整块键盘：工具栏或候选行、按键区和面板一起收窄。
+
+### 鸿蒙的落法
+
+- 换算和约束全在 `keyboard/KeyboardAdjustPolicy.ts`（下沿的规则在 `dragBottom`）：取值钳制、生效条件（`availability`）、画哪些柄（`handles`）、外框（`frame`，左右让出多少、底下抬多少）、四种拖动（`dragTop`、`dragBottom`、`dragLeft`、`dragRight`）和「移动」（`movedLift`、`movedPosition`）。拖动从按下那一刻的四项和面板宽度出发，按相对起点的屏幕位移（`TouchObject.displayX` / `displayY`，单位 vp）整段换算，只取整一次。宽度按整数百分比、位置按整数千分比存，对边的取整误差不超过剩余空间的半个千分比（手机上约 0.2vp）。
+- 后三项是 `FeedbackSettings` 的新字段，存在 `key-feedback.json`，与 `oneHanded`、`floatingX/Y` 同处；`KeyboardFeedback.withAdjust` 写，`withFloating` 和 `KeyboardFeedbackBridge.fromShared` 原样沿用，设置页和账号同步拿不到也改不掉它们。会话经 `saveKeyboardAdjust` 存，三项都没变时不写盘。高度只在变了时经 `applyGeometry` 写共享文档。
+- 面板仍是整屏宽的 `FLG_FIXED` 面板，不 resize 宽度：收窄和挪位只是触屏根节点左右内边距在 4vp 之外多出 `adjustFrame` 的两段，按键行、工具条和所有面板跟着变窄，按键预览和双拼触点几何按根节点原点相对化，不受影响。宽度百分比和位置按 `keyboardStack` 量到的面板宽换算（`KeyboardView.adjustPanelWidthVp`，还没量到时退回屏幕宽），不按 `screenWidthVp`：停靠面板的宽度是扩展能力建面板时的屏幕宽（`fitTouchPanel` 每次改高度都按它 resize），平板转屏或折叠屏开合之后与此刻的屏幕宽不同，按屏幕宽换算会让出比面板还宽的两侧，拖左右沿时对边也会动。底部抬高加进根节点底部内边距，也加进 `KeyboardMetrics.totalHeightVp`（新的最后一个参数）：视图 `resizeTouchPanel` 传当前生效的抬高；扩展能力建面板时由 `KeyboardSession.decideFirstTouchPanel` 按存着的抬高、浮动开关和是否手机横屏算出第一帧的抬高（`firstTouchLift`），视图出现时从同一个值出发核对。转屏、开关浮动键盘让抬高生效或不生效时，`syncStripHeight` 发现与上次定高的抬高不同就改面板高度。
+- 遮罩是 `keyboardStack` 最上面一层（`adjustOverlay`），按外框让出两侧和抬高，整层 `HitTestMode.Block`。中间一排按钮每个最宽 72vp；键盘收窄到 240vp 时三个按钮加间距放不进左右柄之间，按 `KeyboardAdjustPolicy.buttonWidthVp` 平分剩下的宽度缩窄，不压到柄上。键盘调整打开时工具条按收起遮罩之后的样子画（`stripShown` 不把它算作面板），工具栏隐藏的用户在预览里同样看不到那一行，高度对得上。
+- 离开只有一个出口：`show()` 从 `SURFACE_GEOMETRY` 切到别的界面时调 `saveAdjust`。「确认」调 `show(SURFACE_NONE)`；会话的 `onPanelHidden`（系统 `keyboardHide`，以及换输入框、切应用时的 `detach`）在键盘调整开着时同样调它。调整中途设置页保存引起的偏好重载（`applySettings`）不读回四项，预览不被盖掉。
+- 旧的 `faces/HeightBar.ets` 和只为它存在的 `input/KeyboardLayoutDragPolicy.ts` 删掉，上沿拖动的 1vp 对 1vp 规则搬进 `KeyboardAdjustPolicy.dragTop`。磁贴 id 仍是 `keyboard_height`，只改显示名。
+
+### 做不到的地方
+
+HarmonyOS 到 API 24 为止 `AccessibilityAction` 只有 `ACCESSIBILITY_CLICK`，`accessibilityActionOptions` 只有滚动步长，自定义组件拿不到「增减」动作，契约里的读屏增减和步长在鸿蒙上没有落点。柄给出三端相同的名称，说明里带当前值和调法；读屏用户调这四项只能靠拖动，屏幕朗读下的拖动手势没有在设备上验证。
+
+## Related notes audit
+
+- [键盘里调的高度被设置页的值盖回去](../bug-fix/2026-10-08-touch-keyboard-height-reverts.md)：部分重叠。那篇定下「收起即保存、只有点取消才丢」，鸿蒙原来仍是离开即恢复；本篇让鸿蒙也离开即保存，并去掉了「取消」。那篇的鸿蒙段已就地补上指向本篇的链接。
+- [候选栏大小](2026-10-29-touch-candidate-bar-size.md)：部分重叠。它写「鸿蒙的 `HeightBar` 在矮行里会被裁掉」，鸿蒙已没有高度条，事实已就地改并链回这里。
+- [Android 恢复单一的「键盘底部高度」滑块](2026-11-01-android-keyboard-bottom-height-slider.md)：部分重叠。Android 的底部抬高范围同样是 0–160，读屏名称「键盘底部高度」与之相同；鸿蒙没有设置页滑块。
+- [鸿蒙浮动键盘](2026-10-30-harmony-floating-keyboard.md)、[iPhone 横屏与鸿蒙大屏的分离式键盘](2026-10-30-split-keyboard-iphone-harmony.md)：无冲突。浮动时抬高、宽度、位置都不生效，分离时宽度、位置不生效，存着的值不变。
+- [鸿蒙与 iOS 全平台设计](2026-10-07-ios-harmony-all-platform-design.md)、[鸿蒙设计皮肤的功能键](../bug-fix/2026-10-08-harmony-design-function-keys.md)：只在验证记录里提到高度条，是当时的事实，不改。
+- 检索 proposed、rejected 没有键盘调整、底部抬高或宽度调节的提案。
+
+## Alternatives considered
+
+- **收窄时把停靠面板本身 resize 窄、居中**：系统会把整屏宽之外的地方交还给应用，看起来更干净。不用它：`FLG_FIXED` 面板不能 `moveTo`，窄了只能贴在系统给的位置，做不出「挪到一侧」；而且应用的避让区会跟着变，宽度每拖一次都要等系统重排一次窗口。面板保持整屏宽、只在里面让出键盘底色，契约里「两侧画键盘背景色、点击不落到按键」也正是这个样子。
+- **四项一起进共享偏好**：设置页可以直接加滑块，账号同步也顺带有了。不用它：契约要求只在本机；宽度和位置按这块屏幕调，带到另一台设备没有意义，与浮动键盘的位置同理。高度本来就在共享偏好里，沿用。
+- **保留离开即恢复，只有「确认」保存**：符合「完成才算数」的严格语义，误拖之后收起键盘就能撤销。不用它：Android 已经因为「怎么调都会变回去」改成收起即保存，三端必须一致；误拖可以点「重置」或再拖回去。
+- **下沿往上拖时两项一起到限就停，上沿始终不动**：第一版就是这样，规则最整齐，「每个柄只动自己那条边」没有例外。维护者改掉了它：鸿蒙的高度下限只有 −12，按这条规则下沿柄最多只能把键盘抬起「当前高度 + 12」vp，默认高度下只有 12vp，柄几乎抬不起键盘，用户还得改用「移动」。现在高度到下限后整块继续上移，三端一起改。
+- **宽度存小数百分比，让对边分毫不动**：拖动的那条边也更跟手。不用它：契约给的是 60–100 和 0–1000 的整数范围，Android、iOS 按整数存；整数取整带来的对边误差不到 1px，被拖的那条边每步 1%（手机上约 4vp）。
+
+## Consequences
+
+- 收益：鸿蒙能把键盘抬高、收窄、挪到一侧，四项在同一个所见即所得的遮罩里调；离开方式不同不再有不同结果，与 Android 一致。
+- 代价：没有「取消」，误拖后离开会保存，只能重置或拖回去。拖动按整数百分比走，宽度变化一步约 4vp（手机）到 10vp（平板）。读屏用户拿不到增减动作（见上）。设置页没有抬高、宽度、位置三项，也不随账号同步。
+- 验证：`platforms/harmony/tests/keyboard-adjust.test.ts` 覆盖范围与缺省、存着的值钳制、生效条件与画哪些柄、宽度下限、外框换算、上沿 1vp 对 1vp、下沿往上先换高度、高度到下限后整块继续上移到抬高 160（含一次跨过下限的拖动和高度已在下限时的拖动），往下时高度加抬高恒定且到限一起停、左右沿在多种屏宽和起点下对边不动且不出屏幕、「移动」、窄外框里按钮缩到两个柄之间、读屏名称、`totalHeightVp` 含抬高、三项的存放和不进共享结构、离开时只存生效且动过的项、磁贴改名；`tests/run.sh` 钉住离开即保存（`show` 里保存、`onPanelHidden` 和「确认」都经 `show` 离开、重置不保存、保存经 `KeyboardAdjustPolicy.saved` 按打开时的原值取舍）、调整期间 `keyboard()` 整块不进读屏、重载保留预览、根节点内边距、外框和左右沿拖动按量到的面板宽换算、按钮宽度跟外框走、面板高度和冷启动第一帧的抬高，以及 `HeightBar` 已删除。`bash platforms/harmony/tests/run.sh` 通过；`stage-settings.sh`、`ohpm install`、`hvigorw assembleHap --no-daemon` 在本机（DevEco 命令行工具 6.1.1，API 24）构建通过，没有暂存原生库和词库，只验证 ArkTS 编译与打包。没有在设备或模拟器上看过遮罩的样子、拖动手感、面板高度变化和读屏。

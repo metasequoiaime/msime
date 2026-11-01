@@ -788,9 +788,8 @@ ResolvedSkin ResolveSkin(std::string_view globalTheme, const CustomTheme &custom
             {
                 tokens.translation = ParseCssColor(secondary);
             }
-            ApplyThemeColor(palette, @"accent", tokens.accent);
-            // The native selection is a solid fill of the accent, so a null `selected` follows whatever accent was drawn (a picked one included) rather than the native green.
-            tokens.selected = tokens.accent;
+            // 原生选中底是实心的强调色，主题或取色器给了强调色时，`selected` 为 null 就跟着它画；强调色也留给平台时保留原生选中底（深色是比强调色更深的 #17783F，见 `NativeCandidateTokens`）。
+            if (ApplyThemeColor(palette, @"accent", tokens.accent)) tokens.selected = tokens.accent;
             ApplyThemeColor(palette, @"selected", tokens.selected);
             const bool selectedText = ApplyThemeColor(palette, @"selected_text", tokens.selectedText);
             const bool selectedNumber = ApplyThemeColor(palette, @"selected_number", tokens.selectedNumber);

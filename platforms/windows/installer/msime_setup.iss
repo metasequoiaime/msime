@@ -44,7 +44,7 @@
 #define MyVersionDirBase "msime_v" + MyAppVersion
 ; 64 位 TIP 的系统目录副本，见 [Files] 的 TSF 一节。
 #define MySystemTipDir "{sys}\IME\" + MyEditionInstallDir
-; [Code] 里要看到真正 System32 的 Exec（查、删 MySystemTipDir，按路径停 64 位进程）。Inno 6 在 64 位安装模式下，[Code] 的文件函数和 Exec 都绕开 WOW64 重定向；Inno 7 的 Setup 默认是 32 位进程，Exec 不再绕开，只有 ExecWithNativeSysDir 绕开，用 Exec 会启动 SysWOW64 里的 32 位 cmd 和 PowerShell。CI 用 6.7.1，本机构建优先用 7（Compile-Installer.ps1）。
+; [Code] 里要看到真正 System32 的 Exec（查、删 MySystemTipDir，按路径停 64 位进程）。Inno 6 在 64 位安装模式下，[Code] 的文件函数和 Exec 都绕开 WOW64 重定向；Inno 7 的 Setup 默认是 32 位进程，Exec 不再绕开，只有 ExecWithNativeSysDir 绕开，用 Exec 会启动 SysWOW64 里的 32 位 cmd 和 PowerShell。CI 的 Win10+ 包用 6.7.1、Win7 包用 6.4.3，本机构建优先用 7（Compile-Installer.ps1）。
 #if Ver >= EncodeVer(7, 0, 0)
 #define ExecNativeSys "ExecWithNativeSysDir"
 #else
@@ -75,8 +75,12 @@ OutputBaseFilename={#MyEditionInstallerBaseName}_v{#MyAppVersion}{#MyOutputSuffi
 SetupIconFile={#MySourceRoot}\MetasequoiaIME.ico
 Compression=lzma2
 SolidCompression=yes
-; 安装和卸载界面自动跟随 Windows 的浅色/深色模式。
+; 安装和卸载界面自动跟随 Windows 的浅色/深色模式。dynamic 是 Inno Setup 6.6 加的；Win7 包用 6.4.3 编译（见 release-windows7.yml），只用 modern。
+#if Ver >= EncodeVer(6, 6, 0)
 WizardStyle=modern dynamic
+#else
+WizardStyle=modern
+#endif
 PrivilegesRequired=admin
 UsedUserAreasWarning=no
 ; TSF 的宿主应用会持有只读词库；发生资源更新时，也要让 Restart Manager 检查这些文件。

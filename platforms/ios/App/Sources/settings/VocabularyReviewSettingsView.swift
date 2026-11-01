@@ -17,6 +17,8 @@ struct VocabularyReviewSettingsView: View {
   @State private var request = ViewRequestGeneration()
 
   private let store = VocabularyReviewStore()
+  /// 卡片下面的「朗读」，页面消失时停下正在读的。
+  @State private var speaker = ReadAloudSpeaker()
 
   /// An iPad shows the card larger; a phone keeps it inside the width it has.
   private var wide: Bool { widthClass == .regular }
@@ -69,6 +71,18 @@ struct VocabularyReviewSettingsView: View {
             .frame(maxWidth: .infinity, alignment: .center)
         } else if let card = status.current {
           cardFace(card)
+          // 词头是英文时卡片下面有「朗读」；它不翻开卡片，也不作答。
+          if let spoken = ReadAloudText.text(candidate: card.word) {
+            Button {
+              if let notice = speaker.speak(spoken) { message = notice }
+            } label: {
+              Label("朗读", systemImage: "speaker.wave.2")
+            }
+            .buttonStyle(.borderless)
+            .frame(maxWidth: .infinity)
+            .accessibilityLabel("朗读 \(card.word)")
+            .accessibilityIdentifier("vocabularyReadAloudButton")
+          }
           HStack(spacing: 12) {
             Button("不认识") { answer(known: false) }
               .buttonStyle(.bordered)
@@ -118,6 +132,7 @@ struct VocabularyReviewSettingsView: View {
     .onDisappear {
       ViewRequestTask.disappear(request: $request, pending: $pending)
       busy = false
+      speaker.stop()
     }
   }
 

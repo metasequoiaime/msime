@@ -107,7 +107,7 @@ nlohmann::json session_request(const Host &host) {
   else if (!host.preferences_directory.empty())
     request["preferences_directory"] = utf8(host.preferences_directory);
   else
-    request["enabled"] = true;
+    request["enabled"] = false;
   return request;
 }
 
@@ -180,8 +180,8 @@ bool refresh_locked() {
       return false;
     }
     epoch = found->get<std::string>();
-  } else if (!current.enabled.value_or(true)) {
-    // 没有偏好目录且未携带开关时沿用旧协议的默认开启；只有显式 false 才停采并清理。
+  } else if (current.enabled != true) {
+    // 没有偏好目录时只有显式 true 才上报：既读不到偏好也没带开关等同读不出偏好，停采但不清理；只有显式 false 才清理。
     forget_capture_locked();
     if (current.enabled == false && !disabled_cleared) {
       const auto cleared = call(msime_client_telemetry_clear,

@@ -182,6 +182,10 @@ public final class EditorSmoke {
         check(!EditorPolicy.uri(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_TEXT_VARIATION_URI));
         check(EditorPolicy.prefersLatin(InputType.TYPE_CLASS_TEXT
             | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS));
+        // #10481：数字密码与文字密码一样进框临时切英文，「返回原键盘」是 26 键而不是上次记住的中文键面；普通数字框和电话框不切。
+        check(EditorPolicy.prefersLatin(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD));
+        check(!EditorPolicy.prefersLatin(InputType.TYPE_CLASS_NUMBER));
+        check(!EditorPolicy.prefersLatin(InputType.TYPE_CLASS_PHONE));
         // #6147：邮箱后缀除了密码框都给，普通文本框、聊天框（不给建议、短消息）、搜索框、网址框和邮箱框都算。
         check(EditorPolicy.offersEmailSuffixes(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS));
         check(EditorPolicy.offersEmailSuffixes(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS));

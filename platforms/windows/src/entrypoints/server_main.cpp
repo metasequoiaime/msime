@@ -59,6 +59,7 @@
 #include "UpdateNotifier.h"
 #include "../../common/UpdateRecordDirectory.h"
 #include "../../../common/VocabularyDueMenu.h"
+#include "../../../common/ReadAloudText.h"
 #include "DictionarySyncSchedule.h"
 #include "DictionarySyncWorker.h"
 #include "../../common/DictionarySyncDirectory.h"
@@ -66,6 +67,7 @@
 #include "VoiceHotkey.h"
 #include "VoiceInputSession.h"
 #include "VoiceSessionPolicy.h"
+#include "SystemSpeech.h"
 #include "WatchdogPolicy.h"
 #include "Telemetry.h"
 #include "TelemetryConsent.h"
@@ -1635,6 +1637,12 @@ int wmain(int argc, wchar_t **argv) {
           const auto notice = add_to_personal_wordbook(directory, request);
           hud_feedback.publish({notice, notice, true});
         });
+    // 候选右键菜单「朗读」：SAPI 读完才返回，所以不在候选窗的 UI 线程上做。一次只读一个，正在读时多点的那几下丢掉；没有可用的声音时提示走同一个 HUD。声明位置与 personal_wordbook 相同的理由。
+    SingleClickWorker<std::string> read_aloud(
+        [&hud_feedback](const std::string &text) {
+          if (const auto problem = msime::windows::speak_english(text))
+            hud_feedback.publish({*problem, *problem, true});
+        });
     startup_stage = "candidate_window";
     DesktopCandidateSettings candidate_settings;
     candidate_settings.fonts = {config.candidate_font, config.candidate_fallback_fonts,
@@ -1649,7 +1657,8 @@ int wmain(int argc, wchar_t **argv) {
         [&](const CandidatePresentation &value) { server.candidate_rendered(value.lease, value.render_serial); },
         [&](const FocusLease &lease, bool open) { server.set_candidate_expansion(lease, open); },
         [&](const FocusLease &lease) { return server.candidate_lease_current(lease); },
-        [&](const CandidateWindow::PersonalWordbookRequest &request) { (void)personal_wordbook.submit(request); }});
+        [&](const CandidateWindow::PersonalWordbookRequest &request) { (void)personal_wordbook.submit(request); },
+        {msime::read_aloud::text_for, [&](const std::string &text) { (void)read_aloud.submit(text); }}});
     // 空格、数字键和点选的渲染屏障要等回执时叫醒候选窗立即绘制，屏障的 30 毫秒只花在真正的绘制上，不花在两级 16 毫秒的轮询上（#9519）。守卫声明在 candidates 之后、先于它析构：撤掉之后 Server 不会再调用这个回调。
     server.set_candidate_render_request([&candidates] { candidates.wake(); });
     struct CandidateRenderRequestGuard {

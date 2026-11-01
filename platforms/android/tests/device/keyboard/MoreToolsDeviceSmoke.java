@@ -41,7 +41,7 @@ public final class MoreToolsDeviceSmoke extends DeviceSmoke {
         showTool("全角");
         // 默认工具栏已有输入方式、表情和剪贴板，菜单不重复它们；#9945 把设置移进固定尾部后，第一页末格由按键音补上。
         String[] firstPage = {"全角", "中文标点", "模糊音", "繁体输出", "手写", "本地输入", "AI 回复与润色", "单手模式",
-            "浮动键盘", "无痕输入", "键盘高度", "按键音"};
+            "浮动键盘", "无痕输入", "键盘调整", "按键音"};
         // 面板打开时磁贴有一段展开动画（同一磁贴先后量到过 73、109 像素宽），等它停下再量。
         awaitStableBounds(tool(firstPage[0]));
         panel = await(toolPanel());

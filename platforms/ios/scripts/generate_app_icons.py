@@ -1,13 +1,7 @@
 #!/usr/bin/env python3
-"""Render every iOS icon from the one brand artwork with librsvg (brew install librsvg).
+"""Render every iOS icon from the brand artwork with librsvg (brew install librsvg).
 
-The artwork lives at `apps/desktop/app-icon.svg` and is the same file the Windows client ships as
-`msime.ico`; it is not duplicated here. The alternate icons differ from the default by exactly one
-value - the colour of the frame - so they are derived rather than drawn, and only the rendered PNGs
-are kept. Changing the logo means replacing that one master.
-
-Two things the master cannot be used for as-is, both consequences of it having been drawn for the
-Windows tray rather than for a home screen; see FRAME_WIDTH and INSET.
+The icons are the standalone mark, `packages/ui/src/assets/msime.svg` - a dark rounded square whose green edge is its border, with the white stroke on it - the same picture Windows, macOS, Linux and HarmonyOS show. The alternate icons differ from the default by exactly one value - the colour of that edge - so they are derived rather than drawn, and only the rendered PNGs are kept. Changing the logo means changing that one file; the keyboard's brand key takes its stroke from the master, `apps/desktop/app-icon.svg`.
 """
 import json
 from pathlib import Path
@@ -18,62 +12,52 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1] / "App/Resources"
 ASSETS = ROOT / "Assets.xcassets"
 MASTER = Path(__file__).resolve().parents[3] / "apps/desktop/app-icon.svg"
+# The standalone mark - a rounded square whose green edge is its border - shared with every other platform.
+TILE = Path(__file__).resolve().parents[3] / "packages/ui/src/assets/msime.svg"
 
 FRAME = "#A8DF8E"
-FIELD = "#252525"
 # One colour each, taken from the theme's own palette and far enough from the default's light
 # green to be told apart at home-screen size.
 VARIANTS = {"Forest": "#287B61", "Sky": "#70DCF0", "Dusk": "#A896EF", "Vermilion": "#B74332"}
 
-# In the tray the icon floats on whatever is behind it, so it carries its own border, and that
-# border is painted as 164 scattered brush stamps along the panel's edge. An app icon is the
-# opposite case on both counts.
-#
-# The platform draws the container and its rounded mask cuts through anything near the edge. The
-# master's frame comes within 0.32 units of the top of the 110-unit canvas, so shipping it at its
-# native extent loses the top and bottom of the border and leaves a broken box. Inset it instead.
-INSET = 0.74  # artwork height as a fraction of the icon; leaves the mask ~13% top and bottom
-# A home-screen icon is 180px, where the frame lands about four pixels wide. The brush's ragged
-# alpha and the dark gaps between stamps have nowhere to go at that width and read as a smeared
-# edge rather than as texture. The stamps are therefore replaced by one stroke on the same path,
-# at the weight the brush band carried (measured at 1024: a ~6.5 unit band over a ~5 unit core).
-FRAME_WIDTH = 5
+# The tile's outer extent in its 110-unit canvas: the rounded square runs from 5 to 105 and its 5-unit edge straddles that path.
+TILE_EXTENT = 105
 # The mark's own extent, measured the same way as BBOX. Only the keyboard's brand key needs it -
 # it shows the stroke without the panel around it.
 MARK_BBOX = (22.0, 9.9786, 85.9571, 99.0)
 
-# The two top-level paths of the master, in order: the dark panel and the white mark. Everything
-# else in the file is the scatter - the 164 `use` elements and the `defs` they point at.
-PANEL = re.compile(r'<path d="(M15 5H95V105H15V5Z)" fill="#252525"/>')
 MARK = re.compile(r'<path d="M74\.[^"]*" stroke="white"[^>]*/>')
+TILE_BODY = re.compile(r"<svg[^>]*>(.*)</svg>", re.S)
 
 
-def parts() -> tuple[str, str]:
-    master = MASTER.read_text()
-    panel, mark = PANEL.search(master), MARK.search(master)
-    if not panel or not mark:
-        raise SystemExit(f"{MASTER} no longer has the panel and mark this script composes")
-    return panel.group(1), mark.group(0)
+def mark() -> str:
+    """The master's white stroke, for the keyboard's brand key."""
+    found = MARK.search(MASTER.read_text())
+    if not found:
+        raise SystemExit(f"{MASTER} no longer has the mark this script composes")
+    return found.group(0)
 
 
-def artwork(frame: str, field: str | None = FIELD) -> str:
-    """The mark in a crisp frame, centred in a square. Without a field it stays transparent."""
-    rect, mark = parts()
-    half = FRAME_WIDTH / 2  # the stroke straddles the path, so it widens the artwork's extent
-    left, top, right, bottom = 15 - half, 5 - half, 95 + half, 105 + half
-    scale = INSET * 110 / (bottom - top)
-    transform = (
-        f"translate({55 - scale * (left + right) / 2:.4f} {55 - scale * (top + bottom) / 2:.4f})"
-        f" scale({scale:.6f})"
-    )
+def tile(edge: str) -> str:
+    """The standalone mark's drawing with its edge in `edge`."""
+    body = TILE_BODY.search(TILE.read_text())
+    if not body or FRAME not in body.group(1):
+        raise SystemExit(f"{TILE} no longer has the {FRAME} edge this script recolours")
+    return body.group(1).replace(FRAME, edge)
+
+
+def artwork(edge: str) -> str:
+    """The home-screen icon: the tile scaled until its edge meets the canvas, on a ground of the edge colour.
+
+    iOS cuts every icon with its own rounded mask, so a transparent tile would sit on black and a tile with margins would show a second square around it. Scaled to the canvas, the mask lands on the green edge and the home screen shows the same rounded square as everywhere else; the ground only shows where the mask's corners are rounder than the tile's.
+    """
+    scale = 110 / TILE_EXTENT
     return (
         '<svg xmlns="http://www.w3.org/2000/svg" width="110" height="110" viewBox="0 0 110 110"'
         ' fill="none">\n'
-        + (f'<rect width="110" height="110" fill="{field}"/>\n' if field else "")
-        + f'<g transform="{transform}">\n'
-        f'<path d="{rect}" fill="{FIELD}"/>\n'
-        f'<path d="{rect}" fill="none" stroke="{frame}" stroke-width="{FRAME_WIDTH}"/>\n'
-        f"{mark}\n</g>\n</svg>\n"
+        f'<rect width="110" height="110" fill="{edge}"/>\n'
+        f'<g transform="translate({55 - 55 * scale:.4f} {55 - 55 * scale:.4f}) scale({scale:.6f})">'
+        f"{tile(edge)}</g>\n</svg>\n"
     )
 
 
@@ -99,17 +83,10 @@ def preview(name: str, source: Path) -> None:
 
 
 def keyboard_brand(staging: Path) -> None:
-    """The mark alone, black on white, for the keyboard's brand key.
+    """The mark's stroke alone, black on white: `SharedResources/KeyboardBrand.png`.
 
-    That key tints one template image with the active skin's accent, so this cannot be the framed
-    artwork - it has to be a single silhouette. It was previously a separate, bolder drawing of the
-    same stroke with every corner rounded, which is what made the keyboard the one place still
-    showing the old mark. Taking the path from the master keeps them one mark.
-
-    `KeyboardViewController.brandTemplate()` inverts this and uses the result as an alpha mask, so
-    it wants no alpha channel of its own: white ground, black stroke.
+    Nothing reads this image any more. The keyboard's brand key and the candidate panel used to tint it with the skin's accent as a single-colour template; both now draw the full-colour mark with `MSIMELogo.draw(in:)`, like every other place. The file is still listed as a resource in platforms/ios/project.yml and the Tauri iOS project (and checked by scripts/test-ios-project-config.py), so it is still rendered here until those references are removed together.
     """
-    _, mark = parts()
     left, top, right, bottom = MARK_BBOX
     scale = 0.9 * 110 / max(right - left, bottom - top)
     transform = (
@@ -120,7 +97,7 @@ def keyboard_brand(staging: Path) -> None:
     source.write_text(
         '<svg xmlns="http://www.w3.org/2000/svg" width="110" height="110" viewBox="0 0 110 110"'
         ' fill="none">\n<rect width="110" height="110" fill="white"/>\n'
-        f'<g transform="{transform}">{mark.replace("white", "black")}</g>\n</svg>\n'
+        f'<g transform="{transform}">{mark().replace("white", "black")}</g>\n</svg>\n'
     )
     render(source, ROOT.parent.parent / "SharedResources/KeyboardBrand.png", 1024)
 
@@ -160,13 +137,9 @@ def main() -> None:
         default.write_text(artwork(FRAME))
         render(default, ASSETS / "AppIcon.appiconset/AppIcon.png", 1024)
         preview("Classic", default)
-        # The launch screen, the welcome page and the about page all show the mark on a light
-        # background, at a size where the frame reads as part of it. Nothing masks it there, so it
-        # keeps the master's transparency rather than sitting on a hard dark square.
-        logo = staging / "Logo.svg"
-        logo.write_text(artwork(FRAME, field=None))
+        # The launch screen shows the mark on its own. Nothing masks it there, so it is the rounded square every other platform shows wherever the mark stands alone, rather than the full-bleed square the home screen masks.
         logo_set = ASSETS / "MSIMELogo.imageset"
-        render(logo, logo_set / "logo.png", 1024)
+        render(TILE, logo_set / "logo.png", 1024)
         # The rendering intent is part of this asset's contract with the artwork, so it is written
         # here rather than left beside it. It used to say `template`, which keeps only the alpha
         # channel and paints the rest in the tint colour - fine for the single-colour mark that was
