@@ -1,5 +1,7 @@
 #pragma once
 #import <Foundation/Foundation.h>
+#include <cmath>
+#include <limits>
 #include "../core/SystemPathAlias.h"
 
 #include "../core/EditionIdentity.h"
@@ -251,11 +253,36 @@ static inline NSString *MSIMESchemeForInputMode(MSIMEInputMode mode) {
 // `current` is the mode last reported by the system or last requested by the controller; a report that repeats it is the system confirming what is already shown, not a user choice, so it does not flip the controller's state. `selecting` is set while the controller is asking the client to switch, so a report delivered synchronously from inside that call is not treated as a new choice either.
 //
 // `switchedIn` 表示切进水杉之后还没见到用户在水杉里做过选择：离开水杉时的清空和进程启动都把它置为真，第一次被采纳的报告或第一次按下的键把它清掉。激活后的校准（MSIMERecordRestoredSystemInputMode）和控制器自己的选择（MSIMESelectSystemInputMode）都不碰它，所以切回时系统落在 中 上的那次报告不论排在校准和随后选回 双 之前还是之后，都仍按切回处理，不当作用户越过 双 选了 中（#10199）。进程启动也算切进：Sparkle 在切走时装更新、进程退出，切回时系统从新 bundle 拉起的正是这种情况；代价是进程刚启动、还没按键时用户在输入菜单里明确选 中，这一次不改方案。它依赖离开时的清空真的发生：离开回调在通知送达时才读当前输入源，用户很快地切走又切回（连按两次 Caps Lock 或 Ctrl+Space）、或者通知送达得晚，读到的已经是水杉，就不会清空，这时切回报告的 中 仍按水杉里的选择处理。
+//
+// `restoringUntil` 是系统自己恢复输入源的那段时间（systemUptime 秒）：开盖时系统会恢复输入源并报告一个模式，这份报告不是用户的选择，有用户每次开盖方案都被改成没碰过的注音。合盖睡眠或锁屏时它是无穷大（锁着屏用户在水杉里什么也选不了），解锁、或者没锁屏的唤醒之后再保留几秒。期间的报告只记下，不改方案也不改中英状态，控制器随后把菜单栏选回自己的模式；解锁之后的第一次报告或用户按下的第一个键结束它。从锁屏切走时清空共享记录也保留它，否则解锁时的报告若先于解锁通知送到就不受保护。代价是解锁后几秒内、还没按键时在输入菜单里明确选别的模式，这一次不生效。
 struct MSIMESystemInputModeState {
     NSString *current = nil;
     bool selecting = false;
     bool switchedIn = true;
+    double restoringUntil = 0;
 };
+
+// 解锁或唤醒之后多久内的报告仍按系统恢复处理。
+static constexpr double MSIMESystemInputModeRestoreSeconds = 10;
+
+// 合盖睡眠或锁屏：直到解锁都按系统恢复处理。
+static inline void MSIMEHoldSystemInputModeRestore(MSIMESystemInputModeState &state) {
+    state.restoringUntil = std::numeric_limits<double>::infinity();
+}
+
+// 解锁，或者没锁屏的唤醒：从 `now`（systemUptime）起再保留几秒。
+static inline void MSIMEBeginSystemInputModeRestore(MSIMESystemInputModeState &state, double now) {
+    state.restoringUntil = now + MSIMESystemInputModeRestoreSeconds;
+}
+
+// 一次报告按系统恢复处理之后：解锁后的窗口到此结束，锁着屏时继续保持。
+static inline void MSIMEFinishSystemInputModeRestore(MSIMESystemInputModeState &state) {
+    if (!std::isinf(state.restoringUntil)) state.restoringUntil = 0;
+}
+
+static inline BOOL MSIMESystemInputModeRestoring(const MSIMESystemInputModeState &state, double now) {
+    return now < state.restoringUntil;
+}
 
 // The system's selected input mode is global to the login session, so every controller instance shares one record of it. Leaving the input method clears it, so the first report after coming back is adopted even if it names the mode shown before leaving.
 inline MSIMESystemInputModeState &MSIMESharedSystemInputModeState() {
@@ -263,7 +290,12 @@ inline MSIMESystemInputModeState &MSIMESharedSystemInputModeState() {
     return state;
 }
 
-static inline void MSIMEResetSystemInputModeState(MSIMESystemInputModeState &state) { state = MSIMESystemInputModeState{}; }
+// 离开水杉时清空记录，系统恢复输入源的那段时间保留：锁屏本身就会切走（见 restoringUntil）。
+static inline void MSIMEResetSystemInputModeState(MSIMESystemInputModeState &state) {
+    const double restoringUntil = state.restoringUntil;
+    state = MSIMESystemInputModeState{};
+    state.restoringUntil = restoringUntil;
+}
 
 // Records a mode the system reported through setValue:forTag:client:. Returns YES when the controller should adopt it: a known mode that differs from the one already shown and that the controller did not just request itself.
 static inline BOOL MSIMEAdoptReportedInputMode(MSIMESystemInputModeState &state, id value) {
