@@ -497,8 +497,17 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
     private void settleLetterFace(Predicate<AccessibilityNodeInfo> target) throws Exception {
         long deadline = SystemClock.uptimeMillis() + 15000;
         do {
+            // API 34+ 的 find 不再逐节点刷新；每拍先清 UiAutomation 缓存，避免读到已拆掉的面板或旧语言键。
+            dropStaleNodes();
             if (hasKey(target)) return;
-            if (hasKey(described("关闭符号面板"))) tap(described("关闭符号面板"));
+            // 只点本拍查到的关闭键且不阻塞：面板在检查和点击之间自己消失时，下一拍重新查询即可。
+            for (android.view.accessibility.AccessibilityWindowInfo window : automation.getWindows()) {
+                AccessibilityNodeInfo close = find(window.getRoot(), described("关闭符号面板"));
+                if (close != null && close.isClickable()) {
+                    close.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                    break;
+                }
+            }
             SystemClock.sleep(100);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new AssertionError("等待字母键面超时：" + imeTexts());
