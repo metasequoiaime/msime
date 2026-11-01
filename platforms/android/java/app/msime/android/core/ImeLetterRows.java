@@ -923,8 +923,8 @@ final class ImeLetterRows {
                 keyButton = hintButton;
                 s.shuangpinKeyButtons.add(hintButton);
                 s.shuangpinKeyInputs.add(input);
-                // 键面随中文标点切换，之后由 render() 里的 updateLetterCornerHints 就地更新。
-                hintButton.setCornerHint(standardLetters
+                // 键面随中文标点切换，之后由 render() 里的 updateLetterCornerHints 就地更新。「显示字母键角标」关掉时不画；手势按 input 查 LetterHintTable，不读键面，长按和滑动不受影响（#10587）。
+                hintButton.setCornerHint(standardLetters && touchPreference(AndroidLocalSettings.LETTER_CORNER_HINTS)
                     ? LetterHintTable.face(input, s.dedicatedEnglish, s.sendsChinesePunctuation(),
                         s.punctuationMarks()) : null);
                 KeyboardTypographyPolicy.setKeyTextSize(hintButton, 22);

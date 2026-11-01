@@ -133,6 +133,37 @@ test("greys out the swipe direction while swiping for symbols is off", () => {
   expect((screen.getByLabelText("滑动方向") as HTMLSelectElement).disabled).toBe(true);
 });
 
+test("draws the letter corner hint switch only when the host gives it, and does not grey it with the swipe", () => {
+  const onLetterCornerHintsChange = vi.fn();
+  const { rerender } = render(
+    <TouchKeyboardGeometrySection
+      {...baseProps}
+      swipeSymbols={false}
+      letterCornerHints={true}
+      onLetterCornerHintsChange={onLetterCornerHintsChange}
+    />,
+  );
+  const row = screen.getByLabelText("显示字母键角标") as HTMLInputElement;
+  expect(row.checked).toBe(true);
+  expect(row.disabled).toBe(false);
+  fireEvent.click(row);
+  expect(onLetterCornerHintsChange).toHaveBeenCalledWith(false);
+
+  rerender(<TouchKeyboardGeometrySection {...baseProps} letterCornerHints={undefined} />);
+  expect(screen.queryByLabelText("显示字母键角标")).toBeNull();
+
+  rerender(
+    <TouchKeyboardGeometrySection
+      {...baseProps}
+      glideTyping={undefined}
+      swipeSymbols={undefined}
+      letterCornerHints={false}
+    />,
+  );
+  expect(screen.getByText("手势")).toBeTruthy();
+  expect((screen.getByLabelText("显示字母键角标") as HTMLInputElement).checked).toBe(false);
+});
+
 test("draws the gestures group for the swipe alone", () => {
   render(<TouchKeyboardGeometrySection {...baseProps} glideTyping={undefined} />);
 

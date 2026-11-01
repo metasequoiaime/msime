@@ -6,7 +6,7 @@ import UIKit
 ///
 /// 按键反馈里的「音效」选按键音包：列表是 `msime_client_plugins` 的 `catalog` 里的按键音包（`KeySoundPackPolicy.packs`），选中时写共享偏好 `plugins.key_sound.pack` 并试听这个包的普通键声音。按键音关着时这一行置灰。
 ///
-/// 设计稿里的按键弹出预览没有做：键盘本身不支持。手势里的滑动输入符号和长按空格语音输入与 Android 一样是本机开关（`KeyboardLayoutPreference.swipeSymbols`、`spaceVoice`），默认开；紧跟 26 键滑动方向的「九键滑动输入数字」写共享偏好 `touch_nine_key_swipe_digits`（`NineKeySwipeDigits`），默认关，三端同一行文字。长按空格语音另在语音输入页有同一个开关；iOS 工具栏不放语音按钮，不读写 `touch_voice_shortcut`。这里每次只保存用户刚动的那一项几何尺寸，见 `save(_:)`。
+/// 设计稿里的按键弹出预览没有做：键盘本身不支持。手势里的滑动输入符号、显示字母键角标和长按空格语音输入与 Android 一样是本机开关（`KeyboardLayoutPreference.swipeSymbols`、`letterCornerHints`、`spaceVoice`），默认开；紧跟 26 键滑动方向的「九键滑动输入数字」写共享偏好 `touch_nine_key_swipe_digits`（`NineKeySwipeDigits`），默认关，三端同一行文字。长按空格语音另在语音输入页有同一个开关；iOS 工具栏不放语音按钮，不读写 `touch_voice_shortcut`。这里每次只保存用户刚动的那一项几何尺寸，见 `save(_:)`。
 struct KeyboardLayoutSettingsView: View {
   @State private var keySpacing = KeyboardLayoutPreference.keySpacing
   @State private var rowSpacing = KeyboardLayoutPreference.rowSpacing
@@ -26,6 +26,7 @@ struct KeyboardLayoutSettingsView: View {
   @State private var cursorSwipe = KeyboardLayoutPreference.cursorSwipe
   @State private var swipeSymbols = KeyboardLayoutPreference.swipeSymbols
   @State private var swipeSymbolsDirection = KeyboardLayoutPreference.swipeSymbolsDirection
+  @State private var letterCornerHints = KeyboardLayoutPreference.letterCornerHints
   /// 「九键滑动输入数字」，共享偏好 `touch_nine_key_swipe_digits`。
   @State private var nineKeySwipeDigits = NineKeySwipeDigits.mirrored
   @State private var spaceVoice = KeyboardLayoutPreference.spaceVoice
@@ -378,6 +379,14 @@ struct KeyboardLayoutSettingsView: View {
                       sheetTitle: "滑动方向", identifier: "appSwipeSymbolsDirection")
         .disabled(!swipeSymbols)
       DesignDivider()
+      // 只管画不画，不跟着「滑动输入符号」置灰：关掉滑动后长按仍输入角标，键面上的角标仍有用（#10587）。
+      DesignToggleRow(title: "显示字母键角标", info: "26 键字母键右上角显示长按或滑动输入的符号；关闭后只是不显示，长按和滑动照样输入",
+                      isOn: Binding(get: { letterCornerHints }, set: { enabled in
+                        letterCornerHints = enabled
+                        KeyboardLayoutPreference.letterCornerHints = enabled
+                      }))
+      .accessibilityIdentifier("appLetterCornerHintsSwitch")
+      DesignDivider()
       // 九键的滑动与 26 键的开关、方向各管各的，不跟着 26 键置灰；没有拼音九键的版本不列这一行。
       if Self.offersNineKeySwipeDigits {
         DesignSelectRow(title: NineKeySwipeDigits.title, info: NineKeySwipeDigits.subtitle,
@@ -660,6 +669,7 @@ struct KeyboardLayoutSettingsView: View {
     cursorSwipe = KeyboardLayoutPreference.cursorSwipe
     swipeSymbols = KeyboardLayoutPreference.swipeSymbols
     swipeSymbolsDirection = KeyboardLayoutPreference.swipeSymbolsDirection
+    letterCornerHints = KeyboardLayoutPreference.letterCornerHints
     spaceVoice = KeyboardLayoutPreference.spaceVoice
     quickSymbols = KeyboardLayoutPreference.quickPunctuationSymbols.joined()
     keySoundPack = KeySoundPackPolicy.selectedPack(in: preferences)

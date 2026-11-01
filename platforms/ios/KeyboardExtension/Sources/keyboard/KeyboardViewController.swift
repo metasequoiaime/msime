@@ -160,6 +160,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 「滑动输入符号」（`KeyboardLayoutPreference.swipeSymbols`）的开关，每次键盘出现时读一次，再交给每个字母键。
   private var swipeSymbolsEnabled = true
   private var swipeSymbolsDirection: KeyboardLayoutPreference.SwipeDirection = .up
+  /// 「显示字母键角标」（`KeyboardLayoutPreference.letterCornerHints`），每次键盘出现时读一次。只管画不画，按键上的 `cornerHint` 照旧赋值，长按和滑动不受它影响。
+  private var letterCornerHintsEnabled = true
   /// 上次配置诊断日志时闸门是否挡着它，`textDidChange` 据此判断要不要重新配置。
   private var diagnosticLogSuppressed = false
   /// 存储的单手模式，在键盘出现时读取，由它的磁贴和侧栏修改。
@@ -1173,6 +1175,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     spaceVoiceEnabled = spaceVoice
     swipeSymbolsEnabled = KeyboardLayoutPreference.swipeSymbols
     swipeSymbolsDirection = KeyboardLayoutPreference.swipeSymbolsDirection
+    let letterCornerHints = KeyboardLayoutPreference.letterCornerHints
+    let letterCornerHintsChanged = letterCornerHints != letterCornerHintsEnabled
+    letterCornerHintsEnabled = letterCornerHints
     cursorSwipeEnabled = KeyboardLayoutPreference.cursorSwipe
     if !cursorSwipeEnabled { endKeyboardCursorSwipe() }
     keyboardCursorPan.isEnabled = cursorSwipeEnabled
@@ -1189,6 +1194,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     // 空格键上的麦克风跟着长按空格语音走：从设置 App 改完切回键盘时立刻换键面（#10143）。键盘还没建好时（`viewDidLoad` 里第一次读）由建完后的那次 `updateSpaceKeyTitle` 画。
     if spaceVoiceChanged && !spaceKeys.isEmpty { updateSpaceKeyTitle() }
+    // 从设置 App 切回键盘时已经画好的字母键当场收起或画回角标；`LetterCaseInputs` 带着这一位，键面会重写。
+    if letterCornerHintsChanged { updateLetterCaseControls() }
   }
 
   /// 空格键的 VoiceOver 提示：语音关闭时，长按空格改为移动光标。
@@ -4958,7 +4965,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       chinese: isChineseMode, scheme: inputScheme, state: letterCaseState,
       localMode: currentLocalMode, entersHelpcode: entersHelpcode,
       casedLetters: typesCasedLetters, korean: typesKorean,
-      swipeSymbols: swipeSymbolsEnabled, shuangpinHints: shuangpinKeyHintsEnabled)
+      swipeSymbols: swipeSymbolsEnabled, shuangpinHints: shuangpinKeyHintsEnabled,
+      cornerHints: letterCornerHintsEnabled)
     guard appliedLetterCaseInputs != inputs else { return }
     appliedLetterCaseInputs = inputs
     // 中文模式的字母键面画大写（与搜狗、微信、百度、豆包的拼音 26 键一致），输入的仍是小写拼写；英文模式画小写，只有下一键真的会输入大写时键面才变大写：英文的 Shift 或大写锁定，组字中的辅助码 Shift（无障碍标签里也会体现，并以大写辅助码交给 Engine），以及越南语和藏文区分大小写的字母（它们按 Shift 画大小写，不跟中文模式画大写）。日语罗马字照日文键盘的惯例画小写；本地输入模式（英文补全、Unicode、快捷短语等）按字面输入，也画小写。
@@ -4971,9 +4979,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let koreanShifted = korean && letterCaseState != .lowercase
     for (button, lowercase, hintLabel, cornerLabel) in letterButtons {
       // 角标符号属于所有模式和方案下的 QWERTY 字母键面，与 Android 的 `standardLetters` 一致；韩文字母键面没有，微软双拼的 `;` 也没有。
+      // 「显示字母键角标」关掉时只藏起这一行，`cornerHint` 照旧交给按键，长按和滑动照样输入它（#10587）。
       let corner = korean ? nil : LetterHintTable.hint(for: lowercase)
       cornerLabel.text = corner
-      cornerLabel.isHidden = corner == nil
+      cornerLabel.isHidden = corner == nil || !letterCornerHintsEnabled
       (button as? KeyboardKeyButton)?.cornerHint = corner
       (button as? KeyboardKeyButton)?.swipesCornerHint = swipeSymbolsEnabled
       (button as? KeyboardKeyButton)?.cornerHintSwipeDirection = swipeSymbolsDirection
@@ -6635,6 +6644,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let korean: Bool
     let swipeSymbols: Bool
     let shuangpinHints: Bool
+    let cornerHints: Bool
   }
 
   private struct SpellingStripInputs: Equatable {

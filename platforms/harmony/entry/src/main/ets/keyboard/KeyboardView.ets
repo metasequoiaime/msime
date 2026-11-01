@@ -195,6 +195,8 @@ interface KeyOptions {
   hint?: string;
   /** 触屏键盘字母键右上角的符号提示（`LetterHintTable`），滑动或长按会输入它；其他键上为空或不设。有提示的键按下时也会显示预览气泡。 */
   cornerHint?: string;
+  /** 画不画 `cornerHint`，缺省画。「显示字母键角标」关掉时为假：键面不画角标、字母回到正中，`cornerHint` 照旧交给触摸，长按和滑动照样输入它（#10587）。 */
+  showCornerHint?: boolean;
   /**
    * 字母键的小写字母。设了它，键面和读屏文字在绘制时按当前大小写现算，`face` 和 `label` 不再用：自动大写在每次文字变化后异步切换大小写，若把大小写放进 `ForEach` 的键标识，每次切换都会重建全部字母键，手指正按着的那个键也被换掉，这次按键就丢了。
    */
@@ -2054,7 +2056,7 @@ struct KeyboardView {
   }
 
   private keyFaceHasCornerHint(options: KeyOptions): boolean {
-    return options.cornerHint !== undefined && options.cornerHint.length > 0;
+    return options.showCornerHint !== false && options.cornerHint !== undefined && options.cornerHint.length > 0;
   }
 
   @Builder
@@ -3731,7 +3733,7 @@ struct KeyboardView {
       + `${this.quanpinShift}:${this.engineScheme}:${this.scheme.preferenceId}:${this.symbols}:${this.moreSymbols}:`
       + `${this.twentySixKeyStyle}:${this.fourteenKeyStyle}:${this.nineKeyStyle}:${this.numberRow}:`
       + `${this.twentySixSymbolFirst}:${this.numberPadSpace}:${this.languageKeyLeft}:`
-      + `${this.standardRowsField}:${this.skin.key()}`;
+      + `${this.feedback.letterCornerHints}:${this.standardRowsField}:${this.skin.key()}`;
   }
 
   /**
@@ -3820,6 +3822,7 @@ struct KeyboardView {
       letter: letter,
       hint: this.letterHint(letter),
       cornerHint: this.letterCornerHint(letter),
+      showCornerHint: this.feedback.letterCornerHints,
       size: this.letterFontSize(),
       emphasized: false,
       width: 0,
@@ -3828,7 +3831,7 @@ struct KeyboardView {
   }
 
   /**
-   * 字母键角上的符号提示，与 Android 的 `ImeLetterRows` 在其标准字母键上的绘制一致：26 键字母行的每个键面都有，韩文字母除外（注音有自己的行）；无论「滑动输入符号」是否开启都绘制，因为长按总会输入它。仅限触屏键盘；2in1 的屏幕键盘保持原样。
+   * 字母键角上的符号提示，与 Android 的 `ImeLetterRows` 在其标准字母键上的绘制一致：26 键字母行的每个键面都有，韩文字母除外（注音有自己的行）；无论「滑动输入符号」是否开启都给出，因为长按总会输入它。画不画另由「显示字母键角标」决定（`KeyOptions.showCornerHint`），这里给出的符号照样交给触摸。仅限触屏键盘；2in1 的屏幕键盘保持原样。
    */
   private letterCornerHint(letter: string): string {
     if (!this.touchDesign() || this.koreanFace()) {
@@ -8129,6 +8132,7 @@ struct KeyboardView {
       keyPopup: current.keyPopup,
       swipeSymbols: current.swipeSymbols,
       swipeSymbolsDirection: current.swipeSymbolsDirection,
+      letterCornerHints: current.letterCornerHints,
       oneHanded: current.oneHanded,
       incognito: current.incognito,
       floating: current.floating,
@@ -8156,6 +8160,7 @@ struct KeyboardView {
       keyPopup: current.keyPopup,
       swipeSymbols: current.swipeSymbols,
       swipeSymbolsDirection: current.swipeSymbolsDirection,
+      letterCornerHints: current.letterCornerHints,
       oneHanded: mode,
       incognito: current.incognito,
       floating: current.floating,

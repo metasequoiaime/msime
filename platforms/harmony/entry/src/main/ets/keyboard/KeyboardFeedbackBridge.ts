@@ -21,10 +21,11 @@ export interface MobileKeyboardFeedback {
   handwritingDelayMs?: number;
   handwritingStrokeColor?: string;
   handwritingStrokeWidth?: number;
-  /** 按键弹出预览、滑动输入符号及其方向（`down` 或 `up`）。可选的原因同上。 */
+  /** 按键弹出预览、滑动输入符号及其方向（`down` 或 `up`）、显示字母键角标。可选的原因同上。 */
   keyPopup?: boolean;
   swipeSymbols?: boolean;
   swipeSymbolsDirection?: string;
+  letterCornerHints?: boolean;
 }
 
 export class KeyboardFeedbackBridge {
@@ -45,6 +46,7 @@ export class KeyboardFeedbackBridge {
       keyPopup: settings.keyPopup,
       swipeSymbols: settings.swipeSymbols,
       swipeSymbolsDirection: settings.swipeSymbolsDirection as string,
+      letterCornerHints: settings.letterCornerHints,
     };
   }
 
@@ -85,6 +87,10 @@ export class KeyboardFeedbackBridge {
         value.swipeSymbolsDirection,
         fallback.swipeSymbolsDirection,
       ),
+      letterCornerHints:
+        typeof value.letterCornerHints === "boolean"
+          ? value.letterCornerHints
+          : fallback.letterCornerHints,
       oneHanded: fallback.oneHanded,
       incognito: fallback.incognito,
       floating: fallback.floating,
