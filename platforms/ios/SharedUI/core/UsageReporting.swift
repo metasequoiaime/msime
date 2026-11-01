@@ -232,8 +232,11 @@ enum UsageReporting {
     private let refreshModules: () -> Void
     private let clear: () -> Void
     private let finish: (Session) -> Void
+    private let interval: DispatchTimeInterval
     private var timer: DispatchSourceTimer?
     private var active = false
+    /// 轮询暂停中：定时器已挂起，身份与快照保留，故障路径仍按原身份记录。
+    private var paused = false
     private var session: Session?
     private var authorization: Authorization?
     private var disabled = false
@@ -242,13 +245,15 @@ enum UsageReporting {
 
     init(load: @escaping () -> CaptureConsent?, prepare: @escaping (Authorization) -> Session?,
          configure: @escaping (Session?) -> Bool, refreshModules: @escaping () -> Void = {},
-         clear: @escaping () -> Void, finish: @escaping (Session) -> Void = { _ in }) {
+         clear: @escaping () -> Void, finish: @escaping (Session) -> Void = { _ in },
+         interval: DispatchTimeInterval = .seconds(3)) {
       self.load = load
       self.prepare = prepare
       self.configure = configure
       self.refreshModules = refreshModules
       self.clear = clear
       self.finish = finish
+      self.interval = interval
     }
 
     /// 故障路径不读盘、不等待生命周期队列；锁忙时放弃这份报告。
@@ -261,7 +266,8 @@ enum UsageReporting {
           self.active = true
           self.update()
           let timer = DispatchSource.makeTimerSource(queue: self.queue)
-          timer.schedule(deadline: .now() + .milliseconds(500), repeating: .milliseconds(500))
+          // 每一拍都要取 App Group 偏好的独占锁并重新解析偏好；本进程的设置改动由 refresh() 立即生效，轮询只为发现另一进程的改动，不必更密。
+          timer.schedule(deadline: .now() + self.interval, repeating: self.interval, leeway: .milliseconds(100))
           timer.setEventHandler { [weak self] in self?.update() }
           self.timer = timer
           timer.resume()
@@ -272,6 +278,27 @@ enum UsageReporting {
     }
 
     func refresh() { queue.async { self.update() } }
+
+    /// 进程即将被挂起时停下轮询，不清身份和快照。`done` 在生命周期队列上执行，排在正在进行的那一拍之后：调用方在它里面结束后台任务，系统挂起进程时就不会有一拍还持着 App Group 偏好锁（否则以 0xdead10cc 被杀）。
+    func pause(_ done: @escaping () -> Void = {}) {
+      queue.async {
+        if self.active, !self.paused {
+          self.paused = true
+          self.timer?.suspend()
+        }
+        done()
+      }
+    }
+
+    /// 回到前台：先补一拍再恢复轮询，暂停期间另一进程的改动立即生效。
+    func resume() {
+      queue.async {
+        guard self.active, self.paused else { return }
+        self.paused = false
+        self.update()
+        self.timer?.resume()
+      }
+    }
 
     func revoke() {
       // 本进程的设置回调无需等待下一次轮询就能停下异常和信号记录。
@@ -293,6 +320,9 @@ enum UsageReporting {
     func stop() {
       queue.async {
         self.active = false
+        // 取消挂起中的定时源会崩溃，先恢复再取消。
+        if self.paused { self.timer?.resume() }
+        self.paused = false
         self.timer?.cancel()
         self.timer = nil
         self.snapshot.withLock { $0.session = nil }
@@ -471,6 +501,23 @@ enum UsageReporting {
     let pid: Int32
     let id: String
     let header: String
+    /// 记下时的 Unix 毫秒；旧版本写的条目没有它，按 0 读。
+    let rememberedAt: Double
+
+    init(pid: Int32, id: String, header: String, rememberedAt: Double) {
+      self.pid = pid
+      self.id = id
+      self.header = header
+      self.rememberedAt = rememberedAt
+    }
+
+    init(from decoder: Decoder) throws {
+      let container = try decoder.container(keyedBy: CodingKeys.self)
+      pid = try container.decode(Int32.self, forKey: .pid)
+      id = try container.decode(String.self, forKey: .id)
+      header = try container.decode(String.self, forKey: .header)
+      rememberedAt = try container.decodeIfPresent(Double.self, forKey: .rememberedAt) ?? 0
+    }
   }
 
   /// 准备捕获与收取诊断可能在不同队列上读改写同一个文件。
@@ -494,21 +541,28 @@ enum UsageReporting {
   }
 
   /// 正常执行路径上记下本进程当前的捕获身份；同一进程重新准备时替换旧的那条。
-  static func rememberApplicationCapture(_ capture: Session, pid: pid_t, in file: URL) {
+  static func rememberApplicationCapture(_ capture: Session, pid: pid_t, at date: Date = Date(), in file: URL) {
     captureIdentitiesLock.withLock {
       var identities = captureIdentities(in: file).filter { $0.pid != pid }
-      identities.append(.init(pid: pid, id: capture.id, header: capture.crashRecordHeader))
+      identities.append(.init(pid: pid, id: capture.id, header: capture.crashRecordHeader,
+                              rememberedAt: date.timeIntervalSince1970 * 1000))
       storeCaptureIdentities(identities, in: file)
     }
   }
 
-  /// 取出并删掉进程 `pid` 记下的捕获身份；没有时返回 nil。
-  static func takeApplicationCapture(_ pid: pid_t, in file: URL) -> Session? {
+  /// 取出并删掉进程 `pid` 记下的捕获身份；没有时返回 nil。App 同时只有一个进程，诊断里崩溃的 App 只可能是时间窗 `begin...end` 开始前最近启动的那一个：身份记在窗口结束之后，或之后另有 App 进程在窗口开始前就已启动时，这个进程号已属于别的进程（比如复用它的键盘扩展），丢掉这条旧身份并返回 nil。
+  static func takeApplicationCapture(_ pid: pid_t, begin: Date, end: Date, in file: URL) -> Session? {
     captureIdentitiesLock.withLock {
       var identities = captureIdentities(in: file)
       guard let index = identities.lastIndex(where: { $0.pid == pid }) else { return nil }
       let identity = identities.remove(at: index)
       storeCaptureIdentities(identities, in: file)
+      let beginMilliseconds = begin.timeIntervalSince1970 * 1000
+      let endMilliseconds = end.timeIntervalSince1970 * 1000
+      if identity.rememberedAt > endMilliseconds { return nil }
+      if identities.contains(where: { $0.rememberedAt > identity.rememberedAt && $0.rememberedAt <= beginMilliseconds }) {
+        return nil
+      }
       return Session(id: identity.id, crashRecordPath: "", crashRecordHeader: identity.header)
     }
   }

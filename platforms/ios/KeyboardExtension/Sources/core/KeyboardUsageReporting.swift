@@ -45,6 +45,12 @@ enum KeyboardUsageReporting {
     }
   }
 
-  /// viewWillDisappear：正常收起，不等待可能阻塞的网络发送。
-  static func dismissed() { UsageReporting.keyboardCapture.stop() }
+  /// viewWillDisappear：正常收起，不等待可能阻塞的网络发送。收起后扩展随时可能被挂起，而最后一拍轮询和会话收尾都会取 App Group 偏好与队列的文件锁，挂起时还持着锁会以 0xdead10cc 被杀：收起总是排入，再在过期活动里等已排入的生命周期操作做完才放手；系统不给时间（`expired`）时不等。块可能被调两次（开始和到期），等待只在没过期的那一次里做。
+  static func dismissed() {
+    UsageReporting.keyboardCapture.stop()
+    ProcessInfo.processInfo.performExpiringActivity(withReason: "app.msime.crash-consent.stop") { expired in
+      guard !expired else { return }
+      UsageReporting.keyboardCapture.waitForPendingOperations()
+    }
+  }
 }

@@ -266,11 +266,11 @@ final class UsageReportingTests: XCTestCase {
     try FileManager.default.createDirectory(at: crashes, withIntermediateDirectories: true)
     try Data(signalRecord.utf8).write(to: URL(fileURLWithPath: capture.crashRecordPath))
 
-    XCTAssertNil(UsageReporting.takeApplicationCapture(7, in: identities))
-    let remembered = try XCTUnwrap(UsageReporting.takeApplicationCapture(4242, in: identities))
+    XCTAssertNil(UsageReporting.takeApplicationCapture(7, begin: date, end: .distantFuture, in: identities))
+    let remembered = try XCTUnwrap(UsageReporting.takeApplicationCapture(4242, begin: date, end: .distantFuture, in: identities))
     XCTAssertEqual(remembered.id, capture.id)
     XCTAssertEqual(remembered.crashRecordHeader, capture.crashRecordHeader)
-    XCTAssertNil(UsageReporting.takeApplicationCapture(4242, in: identities))
+    XCTAssertNil(UsageReporting.takeApplicationCapture(4242, begin: date, end: .distantFuture, in: identities))
     UsageReporting.recordDiagnosedCapture(summary, stack: "0 MSIMEApp + 1", capture: remembered, in: directory,
                                           authorization: authorization, begin: date, end: date)
     XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: crashes.path), [capture.id + ".crash"])
@@ -288,7 +288,7 @@ final class UsageReportingTests: XCTestCase {
 
     // 信号处理函数没写成时，诊断按同一身份补上。
     UsageReporting.rememberApplicationCapture(unwritten, pid: 4343, in: identities)
-    let fallback = try XCTUnwrap(UsageReporting.takeApplicationCapture(4343, in: identities))
+    let fallback = try XCTUnwrap(UsageReporting.takeApplicationCapture(4343, begin: date, end: .distantFuture, in: identities))
     UsageReporting.recordDiagnosedCapture(summary, stack: "0 MSIMEApp + 2", capture: fallback, in: directory,
                                           authorization: authorization, begin: date, end: date)
     XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: crashes.path), [unwritten.id + ".crash"])
@@ -301,8 +301,34 @@ final class UsageReportingTests: XCTestCase {
                                                       crashRecordHeader: capture.crashRecordHeader),
                                                 pid: pid_t(pid), in: identities)
     }
-    XCTAssertNil(UsageReporting.takeApplicationCapture(8, in: identities), "only the latest 32 are kept")
-    XCTAssertNotNil(UsageReporting.takeApplicationCapture(9, in: identities))
+    XCTAssertNil(UsageReporting.takeApplicationCapture(8, begin: date, end: .distantFuture, in: identities), "only the latest 32 are kept")
+    XCTAssertNotNil(UsageReporting.takeApplicationCapture(9, begin: date, end: .distantFuture, in: identities))
+  }
+
+  func testStaleApplicationIdentityIsNotClaimedByReusedProcessID() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let identities = directory.appendingPathComponent("application-captures.json")
+    let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+    let t1 = t0.addingTimeInterval(600)
+    func remember(_ pid: pid_t, at date: Date) {
+      UsageReporting.rememberApplicationCapture(.init(id: "capture-\(pid)", crashRecordPath: "", crashRecordHeader: "header"),
+                                                pid: pid, at: date, in: identities)
+    }
+    // 之后另有 App 进程在诊断窗口开始前就已启动：进程号 7 已被别的进程（比如键盘扩展）复用，不能认领旧身份。
+    remember(7, at: t0)
+    remember(9, at: t1)
+    XCTAssertNil(UsageReporting.takeApplicationCapture(7, begin: t1.addingTimeInterval(60), end: t1.addingTimeInterval(120), in: identities))
+    XCTAssertNil(UsageReporting.takeApplicationCapture(7, begin: t0, end: t1, in: identities), "stale entry is dropped")
+    // 窗口在下一次启动之前开始时，崩溃的仍可能是进程 7。
+    remember(7, at: t0)
+    XCTAssertEqual(UsageReporting.takeApplicationCapture(7, begin: t0.addingTimeInterval(60), end: t1.addingTimeInterval(60), in: identities)?.id, "capture-7")
+    // 身份记在诊断窗口结束之后，属于之后复用进程号的 App 进程。
+    XCTAssertNil(UsageReporting.takeApplicationCapture(9, begin: t0, end: t0.addingTimeInterval(60), in: identities))
+    // 旧版本写下的条目没有时间戳，按最早处理。
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try Data(#"[{"pid":11,"id":"legacy","header":"header"}]"#.utf8).write(to: identities)
+    XCTAssertEqual(UsageReporting.takeApplicationCapture(11, begin: t0, end: t1, in: identities)?.id, "legacy")
   }
 
   func testFailedUncaughtExceptionWriteDoesNotSuppressMetricKit() throws {
@@ -428,7 +454,8 @@ final class UsageReportingTests: XCTestCase {
       },
       refreshModules: { self.state.withLock { $0.moduleRefreshes += 1 } },
       clear: { self.state.withLock { $0.cleared += 1 } },
-      finish: { session in self.state.withLock { $0.ended.append(session) } })
+      finish: { session in self.state.withLock { $0.ended.append(session) } },
+      interval: .milliseconds(100))
 
     func refresh(_ consent: Bool?) {
       state.withLock {
@@ -677,6 +704,31 @@ final class UsageReportingTests: XCTestCase {
     wait(for: [observed], timeout: 4)
     XCTAssertNil(fixture.capture.current)
     XCTAssertNil(fixture.state.withLock { $0.configured })
+  }
+
+  func testPausedCaptureStopsPollingButKeepsIdentity() throws {
+    let fixture = CaptureFixture()
+    defer { fixture.stop() }
+    fixture.capture.start()
+    fixture.refresh(true)
+    let session = try XCTUnwrap(fixture.capture.current)
+    let paused = expectation(description: "pause completes after queued work")
+    fixture.capture.pause { paused.fulfill() }
+    wait(for: [paused], timeout: 2)
+    // 暂停期间不轮询：另一进程关闭了采集也不读、不清，身份保留给故障路径。
+    fixture.state.withLock { $0.consent = .disabled }
+    Thread.sleep(forTimeInterval: 0.5)
+    XCTAssertEqual(fixture.state.withLock { $0.cleared }, 0)
+    XCTAssertEqual(fixture.capture.current, session)
+    // 回到前台立即补一拍。
+    fixture.capture.resume()
+    fixture.capture.waitForPendingOperations()
+    XCTAssertEqual(fixture.state.withLock { $0.cleared }, 1)
+    XCTAssertNil(fixture.capture.current)
+    // 挂起状态下收起不能因取消挂起的定时源而崩溃。
+    fixture.capture.pause()
+    fixture.stop()
+    XCTAssertNil(fixture.capture.current)
   }
 
   func testNoticeMarkdownKeepsSafeLinksAndNeverInterpretsHTML() {

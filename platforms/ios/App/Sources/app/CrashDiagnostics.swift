@@ -1,6 +1,7 @@
 import Foundation
 import MetricKit
 import os
+import UIKit
 
 @_silgen_name("msime_ios_crash_handlers_install")
 private func installCrashSignals()
@@ -31,6 +32,7 @@ final class CrashDiagnostics: NSObject, MXMetricManagerSubscriber {
   func start() {
     installCrashSignals()
     MXMetricManager.shared.add(self)
+    observeBackground()
     // 上报开关在共享偏好里，读它要经 Rust 读盘，不放在启动的主线程上；安装之前极短的窗口里抛出的异常只有 MetricKit 的诊断。
     DispatchQueue.global(qos: .utility).async {
       UsageReporting.applicationCapture.start()
@@ -43,6 +45,18 @@ final class CrashDiagnostics: NSObject, MXMetricManagerSubscriber {
                        previous: NSGetUncaughtExceptionHandler())
       }
       NSSetUncaughtExceptionHandler { CrashDiagnostics.handleUncaughtException($0) }
+    }
+  }
+
+  /// 授权轮询每一拍都持 App Group 偏好的文件锁，App 被挂起时还持着它会以 0xdead10cc 被杀：进后台时停下轮询，后台任务覆盖到已在进行的那一拍结束；回前台再恢复。身份不清，后台里的故障仍按原身份记录。
+  private func observeBackground() {
+    let center = NotificationCenter.default
+    center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: nil) { _ in
+      let end = IOSRustAccount.backgroundActivity("crash-consent-pause")
+      UsageReporting.applicationCapture.pause { end() }
+    }
+    center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: nil) { _ in
+      UsageReporting.applicationCapture.resume()
     }
   }
 
@@ -71,7 +85,7 @@ final class CrashDiagnostics: NSObject, MXMetricManagerSubscriber {
       }
       for crash in payload.crashDiagnostics ?? [] {
         // 取出即删，异常处理器已记下的进程也不留下这条身份。
-        let capture = Self.applicationCapture(of: crash.metaData)
+        let capture = Self.applicationCapture(of: crash.metaData, begin: payload.timeStampBegin, end: payload.timeStampEnd)
         // App 自己的处理器已经带着抛出点的栈记下了这次崩溃。
         if let handledProcesses = Self.handledProcesses,
            UsageReporting.takeHandledProcess(crash.metaData.pid, in: handledProcesses) { continue }
@@ -93,11 +107,11 @@ final class CrashDiagnostics: NSObject, MXMetricManagerSubscriber {
     }
   }
 
-  /// App 进程准备捕获时记下的身份。键盘扩展的诊断也由 App 收到，系统给出包标识时只认 App 自己的，进程号被扩展复用时不会错认。
-  private static func applicationCapture(of metaData: MXMetaData) -> UsageReporting.Session? {
+  /// App 进程准备捕获时记下的身份。键盘扩展的诊断也由 App 收到，系统给出包标识时只认 App 自己的；没有包标识时由 `takeApplicationCapture` 按诊断时间窗只认窗口前最近一次启动的 App 进程，进程号被扩展复用时不会错认旧身份。
+  private static func applicationCapture(of metaData: MXMetaData, begin: Date, end: Date) -> UsageReporting.Session? {
     guard let identities = UsageReporting.applicationCaptureIdentities else { return nil }
     if #available(iOS 26.0, *), !metaData.bundleIdentifier.isEmpty,
        metaData.bundleIdentifier != Bundle.main.bundleIdentifier { return nil }
-    return UsageReporting.takeApplicationCapture(metaData.pid, in: identities)
+    return UsageReporting.takeApplicationCapture(metaData.pid, begin: begin, end: end, in: identities)
   }
 }

@@ -517,7 +517,7 @@ targets:
     sources:
       - path: tests
         excludes:
-          # 这是宿主侧 fork 故障夹具，不是可加载的 iOS XCTest 源码。
+          # 这是宿主侧 fork 故障夹具，不是可加载的 iOS XCTest 源码：由 scripts/test-ios-crash-signal-recorder.py 在 macOS 上编译运行（iOS CI 的 iOS Simulator job 与 run-checks.sh）。
           - CrashSignalRecorderTest.c
           - resource-packs/**
           - local-models/**
