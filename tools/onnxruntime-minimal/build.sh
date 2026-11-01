@@ -43,6 +43,8 @@ if [[ $TARGET == linux-* ]]; then
     apt-get update -qq && apt-get install -y -qq python3-venv > /dev/null
     python3 -m venv /tmp/venv && /tmp/venv/bin/pip install -q flatbuffers cmake==3.31.6
     export PATH=/tmp/venv/bin:\$PATH
+    # 源码检出归宿主上的用户，容器里的 root 跑 git 会报 dubious ownership；build.py 要在检出里跑 git submodule sync，所以把它标成可信。macOS 上的 Docker 会把挂载目录映射成 root 的，看不出这个问题，Linux runner 上才会撞上。
+    git config --global --add safe.directory $SOURCE
     # 一次性容器里本来就是 root；ONNX Runtime 的构建脚本默认拒绝 root。
     python3 tools/ci_build/build.py --build_dir $BUILD ${COMMON[*]} ${EXTRA[*]} --allow_running_as_root
     { echo CREATE $OUT/libonnxruntime.a; find $BUILD/MinSizeRel -name '*.a' | grep -viE 'test|gtest|gmock|benchmark' | sed 's/^/ADDLIB /'; echo SAVE; echo END; } | ar -M"
