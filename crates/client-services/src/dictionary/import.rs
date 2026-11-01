@@ -39,12 +39,14 @@ pub enum ImportKind {
     QuickPhrase,
     English,
     Wubi98,
+    /// 粤语，编码是以空格或 `'` 分隔的粤拼音节，可带声调数字（Rime 的粤拼词库就带），Engine 存之前去掉声调。
+    Cantonese,
 }
 
 impl ImportKind {
     fn key_limit(self) -> usize {
         match self {
-            ImportKind::Pinyin => 256,
+            ImportKind::Pinyin | ImportKind::Cantonese => 256,
             ImportKind::Wubi | ImportKind::Wubi98 => 4,
             ImportKind::QuickPhrase => 32,
             ImportKind::English => 64,
@@ -59,6 +61,7 @@ impl ImportKind {
             ImportKind::Wubi | ImportKind::Wubi98 => super::wubi_code_is_well_formed(key),
             ImportKind::QuickPhrase => super::quick_phrase_code_is_well_formed(key),
             ImportKind::English => super::english_code_is_well_formed(key),
+            ImportKind::Cantonese => super::cantonese_code_is_well_formed(key),
         }
     }
 }
@@ -426,6 +429,41 @@ mod tests {
 
     fn parse_ok(kind: ImportKind, format: &str, text: &str) -> ImportReport {
         parse(kind, format, text, LIMIT).expect("envelope is usable")
+    }
+
+    /// 粤语编码可以带空格、`'` 和声调数字（Rime 的粤拼词库就是这样写的），原样交给 Engine 去收；别的字符整行跳过。按编码搜索时音节间的分隔可打可不打。
+    #[test]
+    fn cantonese_rows_keep_spaced_jyutping_for_the_engine() {
+        let report = parse_ok(
+            ImportKind::Cantonese,
+            "rime",
+            "你好\tnei5 hou2\t3\n廣東話\tGwong'dung'waa\n壞行\tnei-hou\n",
+        );
+        assert_eq!(
+            report
+                .entries
+                .iter()
+                .map(|entry| (entry.key.as_str(), entry.value.as_str(), entry.weight))
+                .collect::<Vec<_>>(),
+            [
+                ("nei5 hou2", "你好", 3),
+                ("gwong'dung'waa", "廣東話", DEFAULT_WEIGHT)
+            ]
+        );
+        assert_eq!(report.failed, 1);
+        assert_eq!(report.first_failures[0].issue, ImportIssue::KeyAlphabet);
+        assert!(dictionary_row_matches(
+            true,
+            ImportKind::Cantonese,
+            "nei hou",
+            "neih"
+        ));
+        assert!(!dictionary_row_matches(
+            true,
+            ImportKind::Cantonese,
+            "nei hou",
+            "neio"
+        ));
     }
 
     #[test]
@@ -1118,7 +1156,8 @@ pub fn dictionary_row_matches(
     if prefix.is_empty() {
         return true;
     }
-    if row_kind == ImportKind::Pinyin {
+    // 粤语的编码同样按音节分开存（`nei hou`），搜索时也不必打出分隔。
+    if matches!(row_kind, ImportKind::Pinyin | ImportKind::Cantonese) {
         let not_separator = |byte: &u8| !matches!(byte, b'\'' | b' ');
         let mut key = key.bytes().filter(not_separator);
         return prefix.bytes().filter(not_separator).all(|wanted| {

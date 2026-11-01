@@ -1388,6 +1388,7 @@ fn import_kind(kind: PersonalWordKind) -> ImportKind {
         PersonalWordKind::Wubi98 => ImportKind::Wubi98,
         PersonalWordKind::QuickPhrase => ImportKind::QuickPhrase,
         PersonalWordKind::English => ImportKind::English,
+        PersonalWordKind::Cantonese => ImportKind::Cantonese,
     }
 }
 
