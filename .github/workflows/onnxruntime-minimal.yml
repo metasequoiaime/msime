@@ -52,13 +52,18 @@ jobs:
           if ($generator.Count -ne 1) { throw "no single CMake generator for Visual Studio $major" }
           $generator = $generator[0]
           Write-Output "CMake generator: $generator"
+          # ONNX Runtime applies its dependency patches with the patch.exe find_package(Patch) picks from PATH. On the runner that is Strawberry Perl's GNU patch 2.5.9, which asserts ("Expression: hunk") on the cpuinfo patch only the arm64 build applies, so name Git for Windows' current GNU patch instead. Only Patch_EXECUTABLE is set: putting Git's usr\bin on PATH would also shadow tools such as link.exe.
+          $patch = (Join-Path $env:ProgramFiles 'Git\usr\bin\patch.exe') -replace '\\', '/'
+          if (-not (Test-Path -LiteralPath $patch -PathType Leaf)) { throw "no GNU patch at $patch" }
           $config = "$env:GITHUB_WORKSPACE\tools\onnxruntime-minimal\required_operators_and_types.config"
           $build = "$env:RUNNER_TEMP\build"
           $arguments = @('tools\ci_build\build.py', '--build_dir', $build, '--config', 'MinSizeRel', '--update', '--build', '--parallel',
             '--minimal_build', '--disable_ml_ops', '--disable_rtti', '--disable_exceptions', '--skip_tests',
             '--include_ops_by_config', $config, '--enable_reduced_operator_type_support',
             '--cmake_generator', $generator,
-            '--cmake_extra_defines', 'CMAKE_POLICY_VERSION_MINIMUM=3.5', 'onnxruntime_BUILD_UNIT_TESTS=OFF')
+            # MSVC 14.5 (Visual Studio 2026) reports size_t-to-int conversions (C4267, C4244) inside ONNX Runtime 1.24.4's own sources, which it builds with /WX. Keep the warnings, drop /WX; the generated code is the same.
+            '--compile_no_warning_as_error',
+            '--cmake_extra_defines', 'CMAKE_POLICY_VERSION_MINIMUM=3.5', 'onnxruntime_BUILD_UNIT_TESTS=OFF', "Patch_EXECUTABLE=$patch")
           if ($env:ARCH_FLAGS) { $arguments += $env:ARCH_FLAGS }
           Push-Location "$env:RUNNER_TEMP\onnxruntime"
           python @arguments
