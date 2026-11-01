@@ -741,6 +741,25 @@ jobs:
           ctest --test-dir target/windows7-compat/x64 -C Release --output-on-failure
           if ($LASTEXITCODE -ne 0) { throw 'Compatibility API tests failed' }
           & ./platforms/windows/tests/tools/windows7_imports.ps1
+      # 独立工程复用生产采集器和 helper，只依赖已有的头文件包，不重新构建完整产品或 Rust。
+      - name: Build and run TSF system WER capture (x64 and x86)
+        if: ${{ needs.changes.outputs.windows == 'true' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $jsonConfig = "$env:GITHUB_WORKSPACE/target/windows-native-deps/win7-settings/x64-windows-static-md/share/nlohmann_json"
+          if (-not (Test-Path -LiteralPath "$jsonConfig/nlohmann_jsonConfig.cmake" -PathType Leaf)) { throw 'nlohmann-json configuration not found' }
+          foreach ($architecture in @(@{ Name = 'x64'; Generator = 'x64' }, @{ Name = 'x86'; Generator = 'Win32' })) {
+            $build = "target/windows-full/$($architecture.Name)/wer-lifecycle"
+            cmake -S platforms/windows/tsf/tests/capture_lifecycle -B $build -A $architecture.Generator "-Dnlohmann_json_DIR=$jsonConfig"
+            if ($LASTEXITCODE -ne 0) { throw "$($architecture.Name) TSF WER configuration failed" }
+            cmake --build $build --config RelWithDebInfo --parallel 2
+            if ($LASTEXITCODE -ne 0) { throw "$($architecture.Name) TSF WER build failed" }
+            ctest --test-dir $build -C RelWithDebInfo --output-on-failure --output-junit wer-tests.xml
+            if ($LASTEXITCODE -ne 0) { throw "$($architecture.Name) TSF WER callback or lifecycle test failed" }
+            & platforms/windows/tsf/tests/Invoke-SystemWer.ps1 -BuildDirectory $build -OutputDirectory "$build/system-wer"
+            if ($LASTEXITCODE -ne 0) { throw "$($architecture.Name) TSF system WER capture failed" }
+          }
       - name: Build and test Windows 7 handwriting host
         if: ${{ needs.changes.outputs.windows == 'true' }}
         shell: pwsh
@@ -796,6 +815,14 @@ jobs:
           name: windows-native-settings-screenshots
           path: target/windows-full/x64/settings-screenshots/
           if-no-files-found: warn
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ always() && needs.changes.outputs.windows == 'true' }}
+        with:
+          name: windows-tsf-system-wer
+          path: |
+            target/windows-full/*/wer-lifecycle/system-wer/
+            target/windows-full/*/wer-lifecycle/wer-tests.xml
+          if-no-files-found: warn
       - name: Windows settings unchanged
         if: ${{ needs.changes.outputs.windows != 'true' }}
         run: echo 'No Windows settings changes; native gate skipped.'
@@ -828,7 +855,7 @@ jobs:
         if: ${{ needs.changes.outputs.windows == 'true' }}
         shell: pwsh
         run: |
-          foreach ($test in 'lifecycle', 'watchdog-task', 'tauri-layout', 'tsf-registration', 'signpath-payload', 'installer_entry') {
+          foreach ($test in 'lifecycle', 'watchdog-task', 'tauri-layout', 'tsf-registration', 'signpath-payload', 'installer_entry', 'package-files') {
             Write-Host "== $test"
             & pwsh -NoProfile -File "platforms/windows/installer/tests/$test.ps1"
             if ($LASTEXITCODE -ne 0) { throw "$test failed with exit code $LASTEXITCODE" }

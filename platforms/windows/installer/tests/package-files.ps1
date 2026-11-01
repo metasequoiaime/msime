@@ -50,8 +50,12 @@ try {
         'server/build-release/bin/Release/RestartAgent.exe',
         'windows/build32-release/Release/MetasequoiaImeTsf.dll',
         'windows/build32-release/Release/MetasequoiaImeTsf.pdb',
+        'windows/build32-release/Release/MetasequoiaImeCrashWer.dll',
+        'windows/build32-release/Release/MetasequoiaImeCrashWer.pdb',
         'windows/build64-release/Release/MetasequoiaImeTsf.dll',
         'windows/build64-release/Release/MetasequoiaImeTsf.pdb',
+        'windows/build64-release/Release/MetasequoiaImeCrashWer.dll',
+        'windows/build64-release/Release/MetasequoiaImeCrashWer.pdb',
         'THIRD_PARTY_NOTICES.txt',
         'LICENSE',
         'target/release/msime-desktop.exe',
@@ -92,6 +96,8 @@ try {
         $suffix = if ($edition -eq 'full') { '' } else { "_$edition" }
         Write-Fixture "target/windows-$edition/arm64/bin/MetasequoiaImeTsf.dll" "synthetic $edition Arm64X TIP"
         Write-Fixture "target/windows-$edition/arm64/bin/MetasequoiaImeTsf.pdb" "synthetic $edition Arm64X TIP symbols"
+        Write-Fixture "target/windows-$edition/arm64/bin/MetasequoiaImeCrashWer.dll" "synthetic $edition Arm64X WER helper"
+        Write-Fixture "target/windows-$edition/arm64/bin/MetasequoiaImeCrashWer.pdb" "synthetic $edition Arm64X WER symbols"
         Write-Fixture "target/windows-$edition/arm64/bin/msime_host_api$($suffix)_arm64.dll" "synthetic $edition ARM64 host"
         Write-Fixture "target/windows-$edition/arm64/bin/msime_host_api.pdb" "synthetic $edition ARM64 host symbols"
     }
@@ -116,9 +122,9 @@ try {
     Write-Fixture 'target/desktop-resources/unlisted-private-file.txt' 'synthetic excluded data'
     Write-Fixture 'server/build-release/bin/Release/resources/stale.txt' 'synthetic stale bundle'
     & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -TargetVersion '2026.9.1'
-    # tsf_dll\arm64 只有 Arm64X TIP、它的 PDB 和 ARM64 宿主 DLL：TIP 的 ARM64EC 那一半用的 x64 宿主由 tsf_dll\64 装进同一个版本目录。
+    # tsf_dll\arm64 包含 Arm64X TIP、它的 PDB、WER helper 和 ARM64 宿主 DLL：TIP 的 ARM64EC 那一半用的 x64 宿主由 tsf_dll\64 装进同一个版本目录。
     $arm64Staged = @(Get-ChildItem -LiteralPath (Join-Path $installer 'tsf_dll/arm64') -File | ForEach-Object Name | Sort-Object)
-    if (($arm64Staged -join ',') -ne 'MetasequoiaImeTsf.dll,MetasequoiaImeTsf.pdb,msime_host_api_arm64.dll' -or
+    if (($arm64Staged -join ',') -ne 'MetasequoiaImeCrashWer.dll,MetasequoiaImeTsf.dll,MetasequoiaImeTsf.pdb,msime_host_api_arm64.dll' -or
         [IO.File]::ReadAllText((Join-Path $installer 'tsf_dll/arm64/MetasequoiaImeTsf.dll')) -ne 'synthetic full Arm64X TIP' -or
         [IO.File]::ReadAllText((Join-Path $installer 'tsf_dll/arm64/msime_host_api_arm64.dll')) -ne 'synthetic full ARM64 host') {
         throw "tsf_dll/arm64 is not the Arm64X TIP and its ARM64 host: $($arm64Staged -join ', ')"
@@ -129,6 +135,28 @@ try {
     try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture } catch { $rejected = $_.Exception.Message -match 'Arm64X TSF' }
     if (-not $rejected) { throw 'Package without the Arm64X TIP was accepted' }
     Move-Item -LiteralPath "$arm64Tip.moved" -Destination $arm64Tip
+    # 每个架构的 helper 缺失时，预检必须拒绝且完整保留上一次暂存内容。
+    function Get-StagingSnapshot([string]$Root) {
+        return (@(Get-ChildItem -LiteralPath $Root -Recurse -File | Sort-Object FullName | ForEach-Object {
+            "$($_.FullName.Substring($Root.Length + 1))=$((Get-FileHash -LiteralPath $_.FullName).Hash)"
+        }) -join "`n")
+    }
+    foreach ($helper in @('windows/build32-release/Release/MetasequoiaImeCrashWer.dll',
+                         'windows/build64-release/Release/MetasequoiaImeCrashWer.dll',
+                         'target/windows-full/arm64/bin/MetasequoiaImeCrashWer.dll')) {
+        $path = Join-Path $fixture $helper
+        $before = Get-StagingSnapshot $installer
+        Move-Item -LiteralPath $path -Destination "$path.moved"
+        try {
+            $rejected = $false
+            try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture }
+            catch { $rejected = $_.Exception.Message -like '*WER helper*' }
+            if (-not $rejected) { throw "Missing WER helper was accepted: $helper" }
+            if ((Get-StagingSnapshot $installer) -cne $before) { throw "WER helper preflight damaged staging: $helper" }
+        } finally {
+            Move-Item -LiteralPath "$path.moved" -Destination $path
+        }
+    }
     foreach ($artifact in $artifacts) {
         $path = Join-Path $installer "server_exe/resources/$($artifact.name)"
         if ((Get-FileHash $path).Hash -ne $artifact.sha256) { throw 'Packaged resource hash mismatch' }
@@ -153,6 +181,8 @@ try {
     [IO.File]::WriteAllText($pinned, $originalPinned)
     foreach ($file in @('tsf_dll/32/MetasequoiaImeTsf.dll', 'tsf_dll/32/MetasequoiaImeTsf.pdb',
                          'tsf_dll/64/MetasequoiaImeTsf.dll', 'tsf_dll/64/MetasequoiaImeTsf.pdb',
+                         'tsf_dll/32/MetasequoiaImeCrashWer.dll', 'tsf_dll/64/MetasequoiaImeCrashWer.dll',
+                         'tsf_dll/arm64/MetasequoiaImeCrashWer.dll',
                          'server_exe/MetasequoiaImeServer.pdb',
                          'server_exe/MetasequoiaImeWatchdog.exe',
                          'server_exe/MetasequoiaImeWatchdog.pdb',
@@ -222,7 +252,7 @@ try {
     [IO.File]::WriteAllText($serverPdbFixture, 'fixture')
     # 发布时 Server 输出目录同时作为 x64 TIP 目录传入，所以自包含的 Windows App SDK 和语音运行时就在 64 位 TIP 旁边。tsf_dll\64 只取 TIP、它的宿主 DLL 和 32 位 TIP 也有的那些依赖；Server 暂存目录去掉 TIP 以及 msime_setup.iss 从 tsf_dll\64 装进 Server 目录的那些文件。
     $sharedOutput = 'server/build-release/bin/Release'
-    $sharedTipFiles = @('MetasequoiaImeTsf.dll', 'MetasequoiaImeTsf.pdb', 'msime_host_api.dll', 'synthetic-runtime.dll')
+    $sharedTipFiles = @('MetasequoiaImeTsf.dll', 'MetasequoiaImeTsf.pdb', 'MetasequoiaImeCrashWer.dll', 'msime_host_api.dll', 'synthetic-runtime.dll')
     foreach ($name in $sharedTipFiles) {
         Copy-Item (Join-Path $fixture "windows/build64-release/Release/$name") (Join-Path $fixture $sharedOutput)
     }
@@ -230,6 +260,7 @@ try {
     foreach ($name in $serverOnlyFiles) { Write-Fixture "$sharedOutput/$name" "server-only $name" }
     # Build-Client.ps1 把宿主 DLL 的 PDB 留在这个目录里供发布的符号包使用；它从不暂存。
     Write-Fixture "$sharedOutput/msime_host_api.pdb" 'synthetic x64 host symbols'
+    Write-Fixture "$sharedOutput/MetasequoiaImeCrashWer.pdb" 'synthetic x64 WER symbols'
     $rootNotices = Join-Path $fixture 'THIRD_PARTY_NOTICES.txt'
     [IO.File]::WriteAllText($rootNotices, 'fixture sherpa-onnx ONNX Runtime')
     & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Tsf64ReleaseDirectory $sharedOutput
@@ -246,6 +277,7 @@ try {
         if (Test-Path (Join-Path $installer "server_exe/$name")) { throw "server_exe duplicates tsf_dll/64: $name" }
     }
     if (Test-Path (Join-Path $installer 'server_exe/msime_host_api.pdb')) { throw 'server_exe stages the host DLL PDB' }
+    if (Test-Path (Join-Path $installer 'server_exe/MetasequoiaImeCrashWer.pdb')) { throw 'server_exe stages the WER helper PDB' }
     foreach ($name in $serverOnlyFiles) {
         if (-not (Test-Path (Join-Path $installer "server_exe/$name"))) { throw "server_exe lost a Server file: $name" }
     }
@@ -255,7 +287,7 @@ try {
     try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture } catch { $rejected = $_.Exception.Message -match 'synthetic-runtime\.dll' }
     if (-not $rejected) { throw 'Conflicting Server and TSF copies of a shared DLL were accepted' }
     if (-not (Test-Path (Join-Path $installer 'server_exe/Microsoft.UI.Xaml.dll'))) { throw 'Shared DLL conflict damaged previous staging' }
-    foreach ($name in $sharedTipFiles + $serverOnlyFiles + @('msime_host_api.pdb')) { Remove-Item -LiteralPath (Join-Path $fixture "$sharedOutput/$name") }
+    foreach ($name in $sharedTipFiles + $serverOnlyFiles + @('msime_host_api.pdb', 'MetasequoiaImeCrashWer.pdb')) { Remove-Item -LiteralPath (Join-Path $fixture "$sharedOutput/$name") }
     [IO.File]::WriteAllText($rootNotices, 'fixture')
     # 32 位 TIP 旁边的每个 DLL 都必须在 64 位 TIP 旁边有对应的 x64 版本。
     $x64Dependency = Join-Path $fixture 'windows/build64-release/Release/synthetic-runtime.dll'
@@ -366,7 +398,7 @@ try {
     foreach ($mapping in @(@('32', 'x86'), @('64', 'x64'))) {
         $native = Join-Path $fixture "target/windows-full/$($mapping[1])/bin"
         New-Item -ItemType Directory -Force $native | Out-Null
-        foreach ($name in @('MetasequoiaImeTsf.dll', 'MetasequoiaImeTsf.pdb')) {
+        foreach ($name in @('MetasequoiaImeTsf.dll', 'MetasequoiaImeTsf.pdb', 'MetasequoiaImeCrashWer.dll', 'MetasequoiaImeCrashWer.pdb')) {
             Copy-Item (Join-Path $fixture "windows/build$($mapping[0])-release/Release/$name") $native
         }
         [IO.File]::WriteAllText((Join-Path $native 'msime_host_api.dll'), "native $($mapping[1]) host")
@@ -544,6 +576,7 @@ try {
         $runtime = "target/windows7-full/$arch/runtime"
         foreach ($name in @('MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe', 'msime-client-prepare.exe',
                 'msime-mcp.exe', 'msime-client-settings-win7.exe', 'msime-client-panels-win7.exe', 'MetasequoiaImeTsf.dll',
+                'MetasequoiaImeCrashWer.dll',
                 'msime_host_api.dll', 'synthetic-runtime.dll', 'sherpa-onnx-c-api.dll', 'onnxruntime.dll', 'onnxruntime_providers_shared.dll',
                 'windows7-product.json', 'windows7-imports.txt', 'windows7-runtime-closure.json', 'files.txt', 'windows7-websocket-runtime.exe')) {
             Write-Fixture "$runtime/$name" "synthetic $arch $name"
@@ -552,11 +585,11 @@ try {
     # 闭包工具已有独立 PE 与实机装载测试；这里用窄夹具核对打包器传参和产物归属。
     Write-Fixture 'Copy-Windows7RuntimeClosure.ps1' @'
 param($ProgramDirectory,$EntryPoints,$DependencyDirectories,$Destination,$Architecture)
-if ($EntryPoints.Count -ne 1 -or $EntryPoints[0] -cne 'MetasequoiaImeTsf.dll' -or
+if ($EntryPoints.Count -ne 2 -or $EntryPoints[0] -cne 'MetasequoiaImeTsf.dll' -or $EntryPoints[1] -cne 'MetasequoiaImeCrashWer.dll' -or
     $DependencyDirectories.Count -ne 1 -or $DependencyDirectories[0] -cne $ProgramDirectory -or
     -not $ProgramDirectory.EndsWith("$Architecture\runtime")) { throw 'Wrong Win7 TIP closure arguments' }
 New-Item -ItemType Directory -Path $Destination -Force | Out-Null
-foreach($name in @('MetasequoiaImeTsf.dll','msime_host_api.dll','synthetic-runtime.dll')) {
+foreach($name in @('MetasequoiaImeTsf.dll','MetasequoiaImeCrashWer.dll','msime_host_api.dll','synthetic-runtime.dll')) {
     Copy-Item -LiteralPath (Join-Path $ProgramDirectory $name) -Destination $Destination
 }
 '@
@@ -573,12 +606,23 @@ foreach($name in @('MetasequoiaImeTsf.dll','msime_host_api.dll','synthetic-runti
         foreach ($name in @('msime-client-settings-win7.exe','msime-client-panels-win7.exe','msime_host_api.dll')) {
             if ([IO.File]::ReadAllText((Join-Path $package "server_exe/$name")) -cne "synthetic $arch $name") { throw "Win7 wrong architecture or entry: $arch $name" }
         }
-        foreach ($name in @('msime-client-settings.exe','MSIME.exe','MetasequoiaImeTsf.dll','windows7-websocket-runtime.exe','files.txt','windows7-imports.txt','windows7-runtime-closure.json')) {
+        foreach ($name in @('msime-client-settings.exe','MSIME.exe','MetasequoiaImeTsf.dll','MetasequoiaImeCrashWer.dll','windows7-websocket-runtime.exe','files.txt','windows7-imports.txt','windows7-runtime-closure.json')) {
             if (Test-Path (Join-Path $package "server_exe/$name")) { throw "Win7 packaged extraneous file: $name" }
         }
         foreach ($tip in @('32') + @($(if ($arch -eq 'x64') { '64' }))) {
             $files = @(Get-ChildItem (Join-Path $package "tsf_dll/$tip") -File | ForEach-Object Name | Sort-Object)
-            if (($files -join ',') -cne 'MetasequoiaImeTsf.dll,msime_host_api.dll,synthetic-runtime.dll') { throw "Win7 TIP includes unrelated dependencies: $tip" }
+            if (($files -join ',') -cne 'MetasequoiaImeCrashWer.dll,MetasequoiaImeTsf.dll,msime_host_api.dll,synthetic-runtime.dll') { throw "Win7 TIP includes unrelated dependencies: $tip" }
+            $helperArch = if ($tip -eq '32') { 'x86' } else { 'x64' }
+            $helper = Join-Path $fixture "target/windows7-full/$helperArch/runtime/MetasequoiaImeCrashWer.dll"
+            $before = Get-StagingSnapshot $package
+            Move-Item -LiteralPath $helper -Destination "$helper.moved"
+            try {
+                $rejected = $false
+                try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Windows7Architecture $arch }
+                catch { $rejected = $_.Exception.Message -like '*WER helper*' }
+                if (-not $rejected) { throw "Win7 accepted missing $helperArch WER helper" }
+                if ((Get-StagingSnapshot $package) -cne $before) { throw 'Win7 helper preflight damaged staging' }
+            } finally { Move-Item -LiteralPath "$helper.moved" -Destination $helper }
         }
         if ((Test-Path (Join-Path $package 'tsf_dll/arm64')) -or ($arch -eq 'x86' -and (Test-Path (Join-Path $package 'tsf_dll/64')))) { throw 'Win7 includes unsupported TIP architecture' }
         if ([Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $installer 'server_exe/msime-client-settings.exe'))) -cne [Convert]::ToBase64String($modernServer)) { throw 'Win7 staging overwrote modern product' }
