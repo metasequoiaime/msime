@@ -111,7 +111,8 @@ public final class GroupCard {
         LinearLayout row = LayoutPolicy.row(context);
         ViewPolicy.setCenteredVertically(row);
         row.addView(heading, LayoutPolicy.wrapParams());
-        row.addView(new View(context), LayoutPolicy.weightedWrapParams(1));
+        // 空白只负责把操作推到右侧；高度必须是 0，裸 View 按 WRAP_CONTENT 量会占满父容器给的整段高度，把标题行撑成整页高。
+        row.addView(new View(context), LayoutPolicy.weightedHeightPxParams(0, 1));
         LinearLayout.LayoutParams params = LayoutPolicy.matchWidthWrapParams();
         params.bottomMargin = original.bottomMargin;
         group.addView(row, 0, params);
