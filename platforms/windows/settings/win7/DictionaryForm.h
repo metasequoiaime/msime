@@ -77,7 +77,8 @@ public:
   }
   void enable(bool enabled) { enabled_ = enabled; update(); }
   Json list_request() const {
-    Json request{{"operation", resource() || !user_only() ? "browse" : "list"}, {"kind", kind()},
+    // 个人粤语词库没有内置词条，`browse` 的 `cantonese` 又是资源词库，所以它总是发 `list`。
+    Json request{{"operation", resource() || (!user_only() && kind() != "cantonese") ? "browse" : "list"}, {"kind", kind()},
         {"query", control_text::read(get(dictionary_query), 1024).value_or("")}, {"offset", offset_}, {"limit", page_size}};
     if (user_only()) request["user_only"] = true;
     return request;
@@ -186,7 +187,11 @@ private:
     const auto index = SendMessageW(get(dictionary_kind), CB_GETCURSEL, 0, 0);
     return index >= 0 && static_cast<size_t>(index) < kinds_.size() ? control_text::utf8(kinds_[static_cast<size_t>(index)]).value_or("") : "pinyin";
   }
-  bool resource() const { return dictionary_data::model::find_resource_kind(control_text::wide(kind())) != nullptr; }
+  // 按所选的那一项判断：本机词库排在前面，粤语两边都有，不能只看 id。
+  bool resource() const {
+    const auto index = SendMessageW(get(dictionary_kind), CB_GETCURSEL, 0, 0);
+    return index >= static_cast<LRESULT>(dictionary_data::model::local_kinds.size()) && static_cast<size_t>(index) < kinds_.size();
+  }
   bool user_only() const { return !resource() && SendMessageW(get(dictionary_user_only), BM_GETCHECK, 0, 0) == BST_CHECKED; }
   std::string format() const {
     const auto index = SendMessageW(get(dictionary_format), CB_GETCURSEL, 0, 0);

@@ -104,12 +104,19 @@ int main() {
         "truncated and swapped");
 
   // 词库种类：本机词库的下拉名字照 macOS 改成「中文 · 拼音」，提示里仍说「拼音」；资源词库只读，日语和韩语的第一列是读音。
-  check(local_kinds.size() == 5 && local_kinds[0].title == L"中文 · 拼音" &&
+  check(local_kinds.size() == 6 && local_kinds[0].title == L"中文 · 拼音" &&
             local_kinds[1].title == L"中文 · 86 五笔" && local_kinds[2].title == L"中文 · 98 五笔" &&
-            local_kinds[3].id == L"english" && local_kinds[4].id == L"quick_phrase",
+            local_kinds[3].id == L"english" && local_kinds[4].id == L"quick_phrase" &&
+            local_kinds[5].id == L"cantonese" && local_kinds[5].title == L"中文 · 粤语",
         "local kinds in the shared order and words");
   check(kind_label(L"pinyin") == L"拼音" && kind_label(L"wubi98") == L"98 五笔", "message labels");
-  check(kind_label(L"cantonese") == L"中文 · 粤语", "resource kinds are named by their title");
+  check(kind_label(L"zhuyin") == L"中文 · 注音", "resource kinds are named by their title");
+  // 粤语两边都有：提示里说个人词库的「粤语」，资源词库没装时说它自己的名字；下拉框里资源那一项带前缀。
+  check(kind_label(L"cantonese") == L"粤语", "the personal Cantonese dictionary");
+  check(resource_unavailable(L"cantonese") == L"中文 · 粤语（基础词库）词库尚未安装。", "the Cantonese resource");
+  check(resource_option(L"cantonese") == L"resource:cantonese" &&
+            resource_from_option(L"resource:cantonese") == L"cantonese" && resource_from_option(L"cantonese").empty(),
+        "resource options do not collide with personal kinds");
   check(kind_label(L"unknown") == L"词库", "an unknown kind");
   check(resource_kinds.size() == 5 && resource_kinds[0].id == L"japanese" &&
             resource_kinds[1].id == L"korean_hanja" && resource_kinds[4].id == L"stroke",
@@ -117,7 +124,7 @@ int main() {
   check(find_resource_kind(L"japanese")->reading && find_resource_kind(L"korean_hanja")->reading &&
             !find_resource_kind(L"zhuyin")->reading,
         "reading column");
-  check(!find_resource_kind(L"pinyin") && !find_local_kind(L"stroke"), "the two sets do not overlap");
+  check(!find_resource_kind(L"pinyin") && !find_local_kind(L"stroke"), "only Cantonese is in both sets");
   check(find_resource_kind(L"japanese")->note == L"基础词库只读，显示假名读音与词条。", "japanese note");
   check(find_resource_kind(L"stroke")->placeholder == L"输入汉字或笔画编码，例如：一 或 h", "stroke placeholder");
   check(resource_unavailable(L"japanese") == L"日语词库尚未安装。", "resource not installed");

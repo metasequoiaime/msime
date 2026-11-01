@@ -382,6 +382,8 @@ std::wstring lexicon_key_hint(std::wstring_view kind) {
     return L"1–64 个字母";
   if (kind == L"pinyin")
     return L"完整音节，用 ' 分隔，如 ni'hao";
+  if (kind == L"cantonese")
+    return L"粤拼，每字一个音节，用空格分隔，如 nei hou";
   return {};
 }
 
@@ -420,6 +422,8 @@ std::wstring dictionary_error_text(std::wstring const &code, std::wstring_view k
       return L"快捷短语编码只能包含英文字母，长度 1 到 32。";
     if (kind == L"english")
       return L"英文编码只能包含字母、连字符和撇号。";
+    if (kind == L"cantonese")
+      return L"粤语编码要写成不带声调的粤拼，每个字一个音节、用空格分开，音节数需与字数一致，例如“你好”填 nei hou。";
     return L"词条不符合词库规则，请检查编码与词条后再保存。";
   }
   return fallback;
@@ -15691,6 +15695,11 @@ private:
   }
 
   // 「查找词库」现在查的词库：选了资源词库时是它，否则是本机词库。
+  // 「查找词库」所选的资源词库；选的是个人词库时为空。不能按 id 查：粤语两边都有。
+  li::ResourceKind const *lexicon_lookup_resource() const {
+    return lexicon_resource_kind_.empty() ? nullptr : li::find_resource_kind(lexicon_resource_kind_);
+  }
+
   std::wstring lexicon_lookup_kind() const {
     return lexicon_resource_kind_.empty() ? lexicon_kind_ : lexicon_resource_kind_;
   }
@@ -15726,10 +15735,10 @@ private:
     lexicon_search_timer_.Start();
   }
 
-  // 查找词库：所选词库按搜索框筛选后的第 `offset` 页。本机词库和资源词库都发 browse（与共享页相同），空查询也列出内置词条；资源词库没装时回答 `available` 为假。只有最后发出的那次查询的回答算数，较早的回来时直接丢掉；结果就地换进结果块（refresh_lexicon_results）。
+  // 查找词库：所选词库按搜索框筛选后的第 `offset` 页。本机词库和资源词库都发 browse（与共享页相同），空查询也列出内置词条；资源词库没装时回答 `available` 为假。个人粤语词库没有内置词条，`browse` 的 `cantonese` 又是资源词库，所以它发 `list`，只列自己加的粤语词。只有最后发出的那次查询的回答算数，较早的回来时直接丢掉；结果就地换进结果块（refresh_lexicon_results）。
   void lexicon_list(uint32_t offset) {
     const auto kind = lexicon_lookup_kind();
-    const bool resource = li::find_resource_kind(kind) != nullptr;
+    const bool resource = lexicon_lookup_resource() != nullptr;
     const auto generation = ++lexicon_list_generation_;
     std::wstring query = lexicon_query_;
     query.erase(0, query.find_first_not_of(L" \t"));
@@ -15746,7 +15755,8 @@ private:
       return;
     }
     JsonObject action;
-    action.SetNamedValue(L"operation", JsonValue::CreateStringValue(L"browse"));
+    action.SetNamedValue(L"operation",
+                         JsonValue::CreateStringValue(!resource && kind == L"cantonese" ? L"list" : L"browse"));
     action.SetNamedValue(L"kind", JsonValue::CreateStringValue(kind));
     action.SetNamedValue(L"query", JsonValue::CreateStringValue(query));
     action.SetNamedValue(L"offset", JsonValue::CreateNumberValue(offset));
@@ -15824,7 +15834,8 @@ private:
     weight.Minimum(1);
     weight.Maximum(100000000);
     weight.SpinButtonPlacementMode(NumberBoxSpinButtonPlacementMode::Compact);
-    weight.Value(previous ? static_cast<double>(previous->weight) : 10.0);
+    // 新粤语词默认 100000：粤语词库的权重按语料词频算，多字词大多在几万以下，手动加的词默认排在同一编码的多数发布词前面（共享页的 CANTONESE_NEW_WORD_WEIGHT）。
+    weight.Value(previous ? static_cast<double>(previous->weight) : kind == L"cantonese" ? 100000.0 : 10.0);
     form.Children().Append(key);
     form.Children().Append(value);
     form.Children().Append(weight);
@@ -16684,26 +16695,31 @@ private:
       lexicon_feedback_bar_.IsOpen(false);
   }
 
-  // 「查找词库」：共享页的「本地词库管理」组。进页面就列出所选词库的全部词条，搜索框输入后 280 ms 实时筛选（schedule_lexicon_search），词条和编码都能搜；词库下拉框在五个本机词库之后还有五个只读的资源词库。换词库时清空搜索框并从第一页重新列出。结果块（make_lexicon_results）装在 lexicon_results_host_ 里，查询回来时就地替换。
+  // 「查找词库」：共享页的「本地词库管理」组。进页面就列出所选词库的全部词条，搜索框输入后 280 ms 实时筛选（schedule_lexicon_search），词条和编码都能搜；词库下拉框在六个本机词库之后还有五个只读的资源词库。换词库时清空搜索框并从第一页重新列出。结果块（make_lexicon_results）装在 lexicon_results_host_ 里，查询回来时就地替换。
   void build_lexicon_lookup(StackPanel const &page) {
     auto manage = add_group(page, L"本地词库管理");
     explain_group(manage, L"默认显示所选词库的全部词条，输入文字或编码后实时筛选。个人词条可以编辑，基础词库只读。");
+    // 资源词库那几项的值带 `resource:` 前缀，与同名的个人粤语词库分开。
     std::vector<Option> kinds;
     for (auto const &kind : li::local_kinds)
       kinds.push_back({std::wstring(kind.id), std::wstring(kind.title)});
     for (auto const &kind : li::resource_kinds)
-      kinds.push_back({std::wstring(kind.id), std::wstring(kind.title)});
+      kinds.push_back({li::resource_option(kind.id), std::wstring(kind.title)});
+    const auto selected =
+        lexicon_resource_kind_.empty() ? lexicon_kind_ : li::resource_option(lexicon_resource_kind_);
     auto kind_select = select_control(
-        L"本地词库类型", std::move(kinds), lexicon_lookup_kind(),
-        [this](std::wstring const &kind) {
-          if (kind == lexicon_lookup_kind())
+        L"本地词库类型", std::move(kinds), selected,
+        [this, selected](std::wstring const &option) {
+          if (option == selected)
             return;
           clear_lexicon_feedback_for_query();
           lexicon_query_.clear();
           lexicon_entries_.clear();
           lexicon_has_more_ = false;
           lexicon_offset_ = 0;
-          if (li::find_resource_kind(kind)) {
+          const auto resource = li::resource_from_option(option);
+          const std::wstring kind = resource.empty() ? option : std::wstring(resource);
+          if (!resource.empty()) {
             lexicon_resource_kind_ = kind;
           } else {
             lexicon_resource_kind_.clear();
@@ -16718,7 +16734,7 @@ private:
     kind_select.Width(176);
     add_row(manage, 0xE82D, L"词库", L"", kind_select);
 
-    const auto *resource = li::find_resource_kind(lexicon_lookup_kind());
+    const auto *resource = lexicon_lookup_resource();
     TextBox query;
     query.Width(220);
     query.PlaceholderText(hstring(resource ? resource->placeholder : li::personal_placeholder));
@@ -16749,7 +16765,7 @@ private:
   // 「查找词库」的结果块（共享页的 DictionaryEntries、ResourceDictionaryLookup 和 settings-style.ts 的 phrase*）：资源词库先是一句只读说明，读失败时一行危险色的原因；没有词条时是一句状态，有词条时是带边框的表格（make_lexicon_table）。底栏顶上一条分隔线，左边「新增词条」（资源词库没有），右边是上一页、状态、下一页。
   FrameworkElement make_lexicon_results() {
     const auto kind = lexicon_lookup_kind();
-    const auto *resource = li::find_resource_kind(kind);
+    const auto *resource = lexicon_lookup_resource();
     StackPanel block;
     block.Spacing(12);
     if (resource)
