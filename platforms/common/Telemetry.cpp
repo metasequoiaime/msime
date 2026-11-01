@@ -180,8 +180,8 @@ bool refresh_locked() {
       return false;
     }
     epoch = found->get<std::string>();
-  } else if (!current.enabled.value_or(false)) {
-    // 仅保留显式布尔调用方的兼容协议；产品宿主必须提供实际偏好目录。
+  } else if (!current.enabled.value_or(true)) {
+    // 没有偏好目录且未携带开关时沿用旧协议的默认开启；只有显式 false 才停采并清理。
     forget_capture_locked();
     if (current.enabled == false && !disabled_cleared) {
       const auto cleared = call(msime_client_telemetry_clear,
