@@ -833,7 +833,7 @@ char *msime_client_candidate_gloss_request(const uint8_t *request, size_t reques
 /* 不持有会话地查询候选释义行的读音，可在宿主工作线程调用。
  * JSON 请求：{generation,items:[{text,language}],supplementary_resources?}；language 为 "en"、"fr"、"ja"、"es"、"ru"、"de"、"ko" 之一，是这一行释义的目标语言，其他值整批拒绝。
  * en：text 为英文候选或一行英文释义；只读首个词组，忽略开头的 to/a/an/the，任一词未知则不返回该组；读音为 "/…/" IPA。读 pronunciations/en-phonetic.db。
- * 其余语言：text 为这种语言的一行释义；只读第一个分隔符（; ； , ， 、 / ? ？）前的词条，去掉括号里的注释，整条查表（先原样、再小写），查不到不返回。读音是维基词典写的 IPA，带着它的 "/…/" 或 "[…]"；日文是赫本式罗马字（neko、chūgoku），不带括号。读 target-pronunciations/<language>-phonetic.db。
+ * 其余语言：text 为这种语言的一行释义；只读第一个分隔符（; ； , ， 、 / ? ？）前的词条，去掉括号里的注释，整条查表（先原样、再小写），查不到不返回。法、西、俄、德语的读音是维基词典写的 IPA，带着它的 "/…/" 或 "[…]"；日文是赫本式罗马字（neko、chūgoku），韩文是文化观光部式罗马字（goyang-i、hakgyo），都不带斜线或括号，宿主按形状校验时只能要求它们非空。读 target-pronunciations/<language>-phonetic.db。
  * 响应为 {generation,pronunciations:[{text,language,pronunciation}]}，按请求顺序，没有读音的项省略；宿主按 (language,text) 对应回去。
  * 每种语言优先读 resources 旁的表；缺失时可从 supplementary_resources 下读取同名相对路径（资源包 pronunciations 与 target-pronunciations 的根）。
  * 补充目录为可选的绝对路径，最多 4096 字节；缺省保持旧行为。某种语言两处均未安装时它的项没有读音，不报错。 */

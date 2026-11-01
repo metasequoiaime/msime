@@ -73,9 +73,9 @@ public final class CandidatePronunciationModel {
         return Map.copyOf(readings);
     }
 
-    /** 一条读音的形状对不对：英文是 `/…/`，日文是罗马字，其余是 `/…/` 或 `[…]`。 */
+    /** 一条读音的形状对不对：英文是 `/…/`，日文和韩文是罗马字，其余是 `/…/` 或 `[…]`。 */
     public static boolean wellFormed(String language, String reading) {
-        if ("ja".equals(language)) return !reading.trim().isEmpty();
+        if ("ja".equals(language) || "ko".equals(language)) return !reading.trim().isEmpty();
         if (reading.length() < 3) return false;
         if (reading.startsWith("/") && reading.endsWith("/")) return true;
         return !"en".equals(language) && reading.startsWith("[") && reading.endsWith("]");

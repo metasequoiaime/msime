@@ -3,15 +3,14 @@
 
 #import <AppKit/AppKit.h>
 
-#include "msime_client.h"
-#include "../../../common/HostApiString.h"
+#include "../../../common/Telemetry.h"
+#include "../../../common/CrashRecorder.h"
 
-#include <execinfo.h>
-#include <fcntl.h>
-#include <limits.h>
 #include <signal.h>
-#include <string.h>
 #include <unistd.h>
+#include <atomic>
+#include <memory>
+#include <mutex>
 
 #if !__has_feature(objc_arc)
 #error "UsageReporting.mm must be compiled with -fobjc-arc"
@@ -19,127 +18,35 @@
 
 namespace
 {
-using HostCall = char *(*)(const uint8_t *, size_t);
-
-// The value of the {ok,value} envelope, or nil on any failure. Usage reporting never affects typing, so a failure is only logged.
-id CallHost(HostCall call, NSDictionary *request)
-{
-    NSData *body = [NSJSONSerialization dataWithJSONObject:request options:0 error:nil];
-    if (!body) return nil;
-    auto raw = msime::host_api::own_string(
-        call(static_cast<const uint8_t *>(body.bytes), body.length));
-    if (!raw) return nil;
-    NSData *data = [NSData dataWithBytes:raw.get() length:strlen(raw.get())];
-    NSDictionary *envelope = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-    if (![envelope isKindOfClass:NSDictionary.class]) return nil;
-    if ([envelope[@"ok"] isEqual:@YES]) return envelope[@"value"];
-    NSLog(@"MSIME usage reporting: %@", envelope[@"error"]);
-    return nil;
-}
-
-NSString *gPreferencesDirectory;
-// begin 返回的 session_id。退出时按它结束会话：开启持续授权后，不带会话的 end 会被代次校验拒绝，会话事件就丢了。
-NSString *gSessionId;
 dispatch_queue_t gQueue;
 dispatch_source_t gFlushTimer;
 NSUncaughtExceptionHandler *gPreviousExceptionHandler;
-
-// Written once by start, read by the signal handler, which may only use async-signal-safe calls.
-char gCrashRecordPath[PATH_MAX];
-const int kCrashSignals[] = {SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT, SIGTRAP};
-struct sigaction gPreviousActions[NSIG];
-// Room to report a stack overflow on the main thread.
-char gAlternateStack[64 * 1024];
+std::atomic<bool> gStopped{false};
+std::mutex gCaptureLifecycle;
+std::unique_ptr<msime::telemetry::ConsentObserver> gConsentObserver;
 
 // 输入法进程几乎从不走 `NSApplicationWillTerminateNotification`：设置应用装好或更新输入法时用 `pkill` 结束旧进程（`macos_input_source.rs` 的 `stop_running_copies`），系统注销、关机时结束它也可能是 SIGTERM；默认处置下进程当场死掉，会话标记留在磁盘上，下次启动按「只有标记」处理，什么事件都不产生。所以把 SIGTERM 接到这个调度源上：先排进 `session`，再按 SIGTERM 原样退出。
 dispatch_source_t gTerminationSource;
 // 结束会话最多等这么久。到点无论如何按 SIGTERM 退出，`pkill`、注销和关机照样能结束一个卡住的进程。
 constexpr int64_t kTerminationGraceNanoseconds = 2 * NSEC_PER_SEC;
 
-NSDictionary *SessionRequest(void)
-{
-    NSMutableDictionary *request = [@{
-        @"directory": MSIMEUsageReportingDirectory(),
-        @"platform": @"macos",
-        @"version": [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"unknown",
-    } mutableCopy];
-    // The shared settings page writes usage_reporting there; before the host is configured the default (on) applies.
-    if (gPreferencesDirectory.length > 0) request[@"preferences_directory"] = gPreferencesDirectory;
-    else request[@"enabled"] = @YES;
-    return request;
-}
-
-void Flush(void)
-{
-    dispatch_async(gQueue, ^{
-        (void)CallHost(msime_client_telemetry_flush, SessionRequest());
-    });
-}
-
-const char *SignalName(int signal)
-{
-    switch (signal) {
-    case SIGSEGV: return "SIGSEGV";
-    case SIGBUS: return "SIGBUS";
-    case SIGILL: return "SIGILL";
-    case SIGFPE: return "SIGFPE";
-    case SIGABRT: return "SIGABRT";
-    case SIGTRAP: return "SIGTRAP";
-    default: return "signal";
-    }
-}
-
-// Only async-signal-safe work: open the record begin returned, write the summary line and the frames (backtrace_symbols_fd writes "index module address symbol + offset" without allocating, and names a module by its file name only), then hand the signal to whoever had it before.
-void CrashSignalHandler(int signal, siginfo_t *, void *)
-{
-    if (gCrashRecordPath[0] != '\0') {
-        int fd = open(gCrashRecordPath, O_WRONLY | O_CREAT | O_EXCL, 0600);
-        if (fd >= 0) {
-            const char *prefix = "Fatal signal ";
-            const char *name = SignalName(signal);
-            (void)!write(fd, prefix, strlen(prefix));
-            (void)!write(fd, name, strlen(name));
-            (void)!write(fd, "\n", 1);
-            void *frames[64];
-            int count = backtrace(frames, 64);
-            backtrace_symbols_fd(frames, count, fd);
-            close(fd);
-        }
-    }
-    sigaction(signal, &gPreviousActions[signal], nullptr);
-    raise(signal);
-}
-
 void UncaughtException(NSException *exception)
 {
-    NSString *summary = [NSString stringWithFormat:@"Uncaught %@: %@", exception.name, exception.reason ?: @""];
-    NSString *stack = [exception.callStackSymbols componentsJoinedByString:@"\n"] ?: @"";
-    (void)CallHost(msime_client_telemetry_record_crash,
-                   @{@"directory": MSIMEUsageReportingDirectory(), @"message": summary, @"stack": stack});
+    // 异常原因可能引用输入内容，只保存异常类型与抛出点的栈；身份和授权来自共用采集快照。
+    if (msime::crash::is_armed()) {
+        NSString *summary = [NSString stringWithFormat:@"Uncaught %@", exception.name];
+        NSString *stack = [exception.callStackSymbols componentsJoinedByString:@"\n"] ?: @"";
+        msime::telemetry::record_exception(summary.UTF8String ?: "", stack.UTF8String ?: "");
+    }
     if (gPreviousExceptionHandler) gPreviousExceptionHandler(exception);
 }
 
-void InstallCrashHandlers(NSString *recordPath)
+void FlushNow(void)
 {
-    if (![recordPath getFileSystemRepresentation:gCrashRecordPath maxLength:sizeof(gCrashRecordPath)]) {
-        gCrashRecordPath[0] = '\0';
-        return;
-    }
-    // The first backtrace() loads the unwinder, which allocates; do it here rather than inside a signal handler.
-    void *warm[1];
-    (void)backtrace(warm, 1);
-    stack_t alternate = {};
-    alternate.ss_sp = gAlternateStack;
-    alternate.ss_size = sizeof(gAlternateStack);
-    sigaltstack(&alternate, nullptr);
-    struct sigaction action = {};
-    action.sa_sigaction = CrashSignalHandler;
-    action.sa_flags = SA_SIGINFO | SA_ONSTACK;
-    sigemptyset(&action.sa_mask);
-    for (int signal : kCrashSignals) sigaction(signal, &action, &gPreviousActions[signal]);
-    gPreviousExceptionHandler = NSGetUncaughtExceptionHandler();
-    NSSetUncaughtExceptionHandler(UncaughtException);
+    if (!gStopped.load()) msime::telemetry::flush();
 }
+
+void Flush(void) { dispatch_async(gQueue, ^{ FlushNow(); }); }
 
 // 恢复默认处置后把 SIGTERM 发给整个进程，结束方式和退出状态与没有接管时一样，launchd 看到的仍是被 SIGTERM 结束。用 kill 而不是 raise：调度队列的工作线程可能屏蔽了 SIGTERM，发给进程才能落到没有屏蔽它的主线程上。
 void ExitBySigterm(void)
@@ -171,7 +78,7 @@ void InstallTerminationHandler(void)
 NSString *MSIMEUsageReportingDirectory(void)
 {
 #if defined(MSIME_USAGE_REPORTING_TEST_SUPPORT)
-    NSURL *support = [NSURL fileURLWithPath:@MSIME_USAGE_REPORTING_TEST_SUPPORT isDirectory:YES];
+    NSURL *support = [NSURL fileURLWithPath:[NSString stringWithUTF8String:MSIME_USAGE_REPORTING_TEST_SUPPORT] isDirectory:YES];
 #else
     NSURL *support = [[NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask] firstObject];
 #endif
@@ -179,38 +86,68 @@ NSString *MSIMEUsageReportingDirectory(void)
     return [[base URLByAppendingPathComponent:MSIMEUsageReportingDirectoryName() isDirectory:YES] path];
 }
 
-void MSIMEUsageReportingStart(NSString *preferencesDirectory)
+static void StartReporting(NSString *preferencesDirectory, bool captureOnly)
 {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        gPreferencesDirectory = [preferencesDirectory copy];
         gQueue = dispatch_queue_create("app.msime.usage-reporting", DISPATCH_QUEUE_SERIAL);
-        // host-api telemetry 存储会在接触队列、标记或崩溃文件前创建并校验目录。
-        NSDictionary *started = CallHost(msime_client_telemetry_begin, SessionRequest());
-        if (![started isKindOfClass:NSDictionary.class] || ![started[@"enabled"] isEqual:@YES]) return;
-        if ([started[@"session_id"] isKindOfClass:NSString.class]) gSessionId = [started[@"session_id"] copy];
-        NSString *recordPath = started[@"crash_record_path"];
-        if ([recordPath isKindOfClass:NSString.class]) InstallCrashHandlers(recordPath);
+        msime::telemetry::install_crash_handlers();
+        if (NSGetUncaughtExceptionHandler() != UncaughtException) {
+            gPreviousExceptionHandler = NSGetUncaughtExceptionHandler();
+            NSSetUncaughtExceptionHandler(UncaughtException);
+        }
+        // 不能确定实际偏好目录时停采，不将缺失配置当作另一份默认授权：共用核心把「无偏好目录且未显式给出 enabled」当作旧协议的默认开启，所以这里根本不开始会话，不武装记录器、不观察授权、不发送队列。
+        const std::filesystem::path preferences = [preferencesDirectory isAbsolutePath]
+            ? std::filesystem::path(preferencesDirectory.UTF8String) : std::filesystem::path();
+        if (preferences.empty()) {
+            InstallTerminationHandler();
+            return;
+        }
+        const auto directory = MSIMEUsageReportingDirectory();
+        NSString *version = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"unknown";
+        {
+            std::lock_guard<std::mutex> guard(gCaptureLifecycle);
+            if (gStopped.load()) return;
+            msime::telemetry::begin({"macos", version.UTF8String, std::filesystem::path(directory.UTF8String),
+                                    std::nullopt, preferences, captureOnly ? "settings-native" : "input", captureOnly});
+            gConsentObserver = std::make_unique<msime::telemetry::ConsentObserver>();
+        }
         InstallTerminationHandler();
         [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationWillTerminateNotification
                                                         object:nil
                                                          queue:nil
                                                     usingBlock:^(NSNotification *) { MSIMEUsageReportingStop(); }];
         Flush();
-        // The input method runs for days: flush every few hours so a new UTC day's active and anything a failed send left behind go out. With nothing queued and today's active already sent, a flush does no network I/O.
+        // 发送保留三小时间隔；持续授权由独立观察线程刷新，不等待网络。
+        std::lock_guard<std::mutex> guard(gCaptureLifecycle);
+        if (gStopped.load()) return;
         gFlushTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, gQueue);
         const uint64_t interval = 3ull * 60 * 60 * NSEC_PER_SEC;
         dispatch_source_set_timer(gFlushTimer, dispatch_time(DISPATCH_TIME_NOW, (int64_t)interval), interval, 10ull * 60 * NSEC_PER_SEC);
         dispatch_source_set_event_handler(gFlushTimer, ^{
-            (void)CallHost(msime_client_telemetry_flush, SessionRequest());
+            FlushNow();
         });
         dispatch_resume(gFlushTimer);
     });
 }
 
+void MSIMEUsageReportingStart(NSString *preferencesDirectory)
+{
+    StartReporting(preferencesDirectory, false);
+}
+
+void MSIMESettingsCrashReportingStart(NSString *preferencesDirectory)
+{
+    StartReporting(preferencesDirectory, true);
+}
+
 void MSIMEUsageReportingStop(void)
 {
     if (!gQueue) return;
-    if (gSessionId.length == 0) return;
-    (void)CallHost(msime_client_telemetry_end, @{@"directory": MSIMEUsageReportingDirectory(), @"session": gSessionId});
+    std::lock_guard<std::mutex> guard(gCaptureLifecycle);
+    gStopped.store(true);
+    if (gFlushTimer) dispatch_source_cancel(gFlushTimer);
+    // 观察器停止并等待自己的线程，随后结束当前授权下的会话；不等待发送队列。
+    gConsentObserver.reset();
+    msime::telemetry::end();
 }

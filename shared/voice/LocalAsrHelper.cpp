@@ -7,6 +7,9 @@
 #include "LocalAsr.h"
 #include "LocalAsrCommandQueue.h"
 #include "VoiceProviders.h"
+#ifdef MSIME_VOICE_CRASH_CAPTURE
+#include "HelperCrashCapture.h"
+#endif
 
 #include <nlohmann/json.hpp>
 
@@ -567,6 +570,9 @@ int main(int argc, char **argv) {
       return 2;
     }
   }
+#ifdef MSIME_VOICE_CRASH_CAPTURE
+  msime::voice::HelperCrashCapture crash_capture;
+#endif
   if (!wav.empty()) {
     try {
       LocalAsrOptions options;
