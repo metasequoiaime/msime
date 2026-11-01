@@ -43,6 +43,12 @@ export interface AdjustHandles {
   readonly move: boolean;
 }
 
+/** 遮罩中间一排按钮的宽和按钮之间的间距（vp）。 */
+export interface AdjustButtonRow {
+  readonly width: number;
+  readonly gap: number;
+}
+
 /** 拖左右沿或「移动」之后的宽度和位置。 */
 export interface AdjustSpan {
   readonly widthPercent: number;
@@ -79,6 +85,18 @@ export class KeyboardAdjustPolicy {
   static readonly MASK_COLOR: string = "#73000000";
   /** 柄、按钮图标和文字的颜色。 */
   static readonly INK_COLOR: string = "#FFFFFF";
+
+  /** 柄的触摸区短边（vp）：上下沿柄的高、左右沿柄的宽。 */
+  static readonly HANDLE_SHORT_VP: number = 32;
+  /** 柄里每道线的粗细和线间距（vp）。 */
+  static readonly GRIP_THICKNESS_VP: number = 2;
+  static readonly GRIP_GAP_VP: number = 3;
+  /** 上沿柄的三道横线贴着外框上沿画，只空出这么多（vp）：线落在工具栏图标上方那一条空白里，不压到图标上（停靠时上面是 8vp 顶部内边距，图标在 50vp 的工具条里居中）。 */
+  static readonly TOP_GRIP_INSET_VP: number = 2;
+  /** 中间一排按钮的宽、间距和收窄时的最小间距（vp），与 iOS 相同。 */
+  static readonly BUTTON_WIDTH_VP: number = 72;
+  static readonly BUTTON_SPACING_VP: number = 28;
+  static readonly MIN_BUTTON_SPACING_VP: number = 4;
 
   /** 四个柄的读屏名称，三端相同。当前值放在说明里（`heightValue` 等）。 */
   static readonly TOP_LABEL: string = "键盘高度";
@@ -350,20 +368,34 @@ export class KeyboardAdjustPolicy {
   }
 
   /**
-   * 遮罩中间一排每个按钮的宽（vp）：`frameWidthVp` 宽的外框里，左右各让出一个 `handleVp` 宽的柄（不画柄时也占着同样宽的位置），按钮之间隔 `gapVp`，剩下的平分给 `buttons` 个按钮，最宽 `widestVp`。键盘收窄到 240vp 时三个 72vp 的按钮加间距要 248vp，柄之间只剩 176vp，不缩就压到左右柄上。
+   * 遮罩中间一排按钮的宽和间距（vp），与 iOS `KeyboardAdjustOverlay.buttonRow` 同一条规则：外框够宽时按钮 72vp、间距 28vp；排不下时先把间距收到 4vp，还不够再把剩下的宽度平分给按钮。画左右柄时两侧各让出一个柄宽再留 4vp，按钮不贴着、更不压到柄上；不画左右柄时整个外框宽都可用。`frameWidthVp` 还没量到时按原尺寸。
    */
-  static buttonWidthVp(
-    frameWidthVp: number,
-    buttons: number,
-    handleVp: number,
-    gapVp: number,
-    widestVp: number,
-  ): number {
+  static buttonRow(frameWidthVp: number, buttons: number, sideHandles: boolean): AdjustButtonRow {
+    const widest: number = KeyboardAdjustPolicy.BUTTON_WIDTH_VP;
     if (!Number.isFinite(frameWidthVp) || frameWidthVp <= 0 || buttons <= 0) {
-      return widestVp;
+      return { width: widest, gap: KeyboardAdjustPolicy.BUTTON_SPACING_VP };
     }
-    const room: number = frameWidthVp - 2 * handleVp - (buttons - 1) * gapVp;
-    return Math.max(0, Math.min(widestVp, room / buttons));
+    const sides: number = sideHandles
+      ? 2 * (KeyboardAdjustPolicy.HANDLE_SHORT_VP + KeyboardAdjustPolicy.MIN_BUTTON_SPACING_VP)
+      : 0;
+    const available: number = frameWidthVp - sides;
+    if (buttons === 1) {
+      return { width: Math.min(widest, Math.max(0, available)), gap: 0 };
+    }
+    const gaps: number = buttons - 1;
+    const gap: number = Math.min(
+      KeyboardAdjustPolicy.BUTTON_SPACING_VP,
+      Math.max(KeyboardAdjustPolicy.MIN_BUTTON_SPACING_VP, (available - buttons * widest) / gaps),
+    );
+    return { width: Math.min(widest, Math.max(0, (available - gaps * gap) / buttons)), gap: gap };
+  }
+
+  /** 横向把手 `lines` 道横线（或竖向把手的竖线）连同线间距一共多厚（vp）。 */
+  static gripSpanVp(lines: number): number {
+    return (
+      lines * KeyboardAdjustPolicy.GRIP_THICKNESS_VP +
+      Math.max(0, lines - 1) * KeyboardAdjustPolicy.GRIP_GAP_VP
+    );
   }
 
   /** 上沿柄读屏说明里的当前值：键盘高度的百分比（`KeyboardGeometry.heightPercent`）。 */
