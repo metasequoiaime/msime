@@ -226,6 +226,20 @@ assert (
     < menu_actions.index("candidate_clear_fix_label")
     < menu_actions.index("candidate_remove_label")
 )
+# 「朗读」「加入生词本」在词库操作之后，「朗读」在前，只在本机装着 spd-say、共享层答得出要读的英文时出现；IBus 的「候选操作」子菜单同样排在最后一组。
+assert (
+    menu_actions.index("candidate_remove_label")
+    < menu_actions.index("msime::read_aloud::kMenuLabel")
+    < menu_actions.index("candidate_personal_wordbook_label")
+)
+assert "read_aloud_available() &&\n      msime::read_aloud::text_for(item.text(), item.display().translation)" in menu_actions
+ibus_actions = body(ibus_source, "IBusProperty *candidate_actions(IBusEngine *engine) {")
+assert (
+    ibus_actions.index("candidate_remove_label")
+    < ibus_actions.index('"CandidateReadAloud"')
+    < ibus_actions.index('"CandidatePersonalWordbook"')
+)
+assert "msime::linux_host::read_aloud_available() &&" in ibus_actions
 # 关掉页码时主题不生成 ‹ ›：两节只在 page_arrows 为真时写出。
 assert "if (style.page_arrows)" in candidate_theme
 framework_actions = body(source, "candidateActions(const fcitx::CandidateWord &candidate) const override")

@@ -3065,7 +3065,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    /** 日语九键侧列的 ☺：顶部工具栏有表情按钮时两处入口重复，不放；工具栏关掉表情或整条隐藏时才放回来。 */
+    /** 日语九键左列的 符 长按是否打开表情浏览：顶部工具栏有表情按钮时两处入口重复，不接长按；工具栏关掉表情或整条隐藏时才接上，读屏描述跟着改（{@code ImeLayoutRows.japaneseSymbolPanelKey}）。 */
     boolean japaneseSideEmojiKey() {
         return !toolbarEmoji || toolbarHidden;
     }
@@ -11908,14 +11908,16 @@ public final class MSIMEInputService extends InputMethodService {
             && handwritingCandidateToken != null;
         boolean hasEmailSuffixes = imeEmailSuffixes.active();
         boolean hasNineKeyPunctuation = imeNineKeyQuickPunctuation.active();
-        boolean idle = view == null || (InputViewValuePolicy.editingText(view).isEmpty()
+        // 候选栏是否没有东西可显示：英文直输的当前词只在读音行给「清除」，候选行没有内容，此时照常换回工具栏（#10479）。
+        boolean candidateIdle = view == null || (InputViewValuePolicy.editingText(view).isEmpty()
             && "none".equals(InputViewValuePolicy.textOr(view, "local_mode", "none"))
             && (visibleCandidates == null || visibleCandidates.length() == 0)
             && !hasEnglishSuggestions
-            && !hasEnglishWord
             && !hasEmailSuffixes
             && !hasNineKeyPunctuation
             && !hasHandwritingResults);
+        // 整行空闲：另要求没有可清除的英文当前词，读音行和读音标题按它决定，「清除」留在工具栏上方的读音行里。
+        boolean idle = candidateIdle && !hasEnglishWord;
         if (preedit != null) {
             // 读音的字号由 ImeStyler.applySkin 在 render 末尾统一设置，这里不再另设一份。
             String editingText = view == null ? "" : InputViewValuePolicy.editingText(view);
@@ -12025,12 +12027,12 @@ public final class MSIMEInputService extends InputMethodService {
         }
         boolean keysCollapsed = hardwareKeysCollapsed();
         imeFrame.setKeysCollapsed(keysCollapsed);
-        applyCaretCandidates(!idle || hasDiagnostic);
+        applyCaretCandidates(!candidateIdle || hasDiagnostic);
         // 候选条模式里空闲时工具栏总要显示：展开键在上面，「显示方式：隐藏」时整副键盘会只剩导航栏那一截。
         // 隐藏工具栏时，底行仍能打开表情面板；面板的返回键在工具栏上，打开期间必须临时显示（toolbarExitNeeded）。工具按钮全关时同样不显示这一行（toolbarRowHidden）。
-        boolean toolbarRow = !heightMode && idle && !hasDiagnostic
+        boolean toolbarRow = !heightMode && candidateIdle && !hasDiagnostic
             && (!toolbarRowHidden() || keysCollapsed || toolbarExitNeeded());
-        // 开始打字就收起「最近复制」：用户已经在输入别的内容了。
+        // 开始打字就收起「最近复制」：用户已经在输入别的内容了。这里看 idle 而不是 candidateIdle：无建议框、网址、邮箱或关掉英文建议时打英文没有候选，只有当前词能说明用户开始打字了。
         if (!idle) recentClip.dismiss();
         long nowMs = System.currentTimeMillis();
         // 候选条模式里不换上「最近复制」：它会盖住工具栏上展开软键盘的那个键。
@@ -12050,11 +12052,11 @@ public final class MSIMEInputService extends InputMethodService {
         if (shortcutToolbar != null)
             ViewPolicy.setVisible(shortcutToolbar, toolbarRow && !recentShown && !autofillShown);
         if (candidateLine != null)
-            ViewPolicy.setVisible(candidateLine, !heightMode && !idle && !hasDiagnostic);
+            ViewPolicy.setVisible(candidateLine, !heightMode && !candidateIdle && !hasDiagnostic);
         if (!ViewPolicy.isVisible(replyKeyboard))
             imeBottomRow.updateActionRow();
         if (candidateViewport != null)
-            ViewPolicy.setVisible(candidateViewport, !idle && !hasDiagnostic);
+            ViewPolicy.setVisible(candidateViewport, !candidateIdle && !hasDiagnostic);
         updateCandidateViewportHeight();
         if (scriptShortcutButton != null) {
             ViewPolicy.hide(scriptShortcutButton);

@@ -203,7 +203,7 @@ final class LocalSpeechModelManager: ObservableObject {
     operationTasks["remove:\(id)"] = task
   }
 
-  /// `voice_input.asr_model_mirror`: empty for the catalog's own URLs, otherwise an https prefix put before each download URL. Saved once typing pauses; an address that is not a valid one yet is shown as such and left unsaved.
+  /// `voice_input.asr_model_mirror`: an optional https prefix put before each download URL and tried first; empty or not, downloads then try the project mirror `https://dl.msime.app/gh/` and finally the catalog's own URLs. Saved once typing pauses; an address that is not a valid one yet is shown as such and left unsaved.
   func mirrorChanged() {
     let value = mirror.trimmingCharacters(in: .whitespacesAndNewlines)
     guard value != savedMirror || mirrorAutosave.hasPending else { return }

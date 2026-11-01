@@ -393,6 +393,8 @@ pub struct HostCapabilities {
     pub vocabulary_review: bool,
     /// 背单词书目里列出单词本插件（`pack-<插件 id>` 词书）：宿主把插件目录交给背单词的入口。
     pub wordbook_packs: bool,
+    /// 宿主能用系统自带的语音合成在背单词卡片上读出英文词头，卡片上才画喇叭。macOS、Windows 的设置应用用网页的 `speechSynthesis`（只用本机声音），Linux 的设置应用起 speech-dispatcher 的 `spd-say`，所以 Linux 只在 `PATH` 上有它时为真（`fill_linux_environment` 填）。移动端在接上的那次改动里打开。候选菜单里的「朗读」不读这一位，各宿主按自己的引擎在不在决定。见 `.agents/notes/implemented/feature/2026-11-01-system-tts-read-aloud.md`。
+    pub read_aloud: bool,
     /// 宿主的符号面板显示已安装的符号集插件。没打开时插件详情说明本机的符号面板不显示插件符号集。
     pub symbol_set_packs: bool,
     /// 设置页的「脚本插件（实验）」分组：列出已安装的脚本插件、授权、调整执行顺序。三个桌面平台的 release 构建都运行脚本：macOS（输入法进程）、Linux（IBus 引擎、Fcitx5 addon）和 Windows（Server）。Windows 的设置是原生应用（platforms/windows/settings），它照这个分组画出自己的授权页；这里为真也让 Windows 上的共享设置页和它一致。
@@ -857,6 +859,8 @@ impl HostCapabilities {
             vocabulary_review: true,
             // 桌面宿主的背单词由 Tauri 层传入插件目录；HarmonyOS 在自己的设置投影里按形态打开；Android 和 iOS 不传插件目录。
             wordbook_packs: platform.is_desktop(),
+            // Linux 的取值由设置应用按 `spd-say` 在不在填，这里先当作没有。
+            read_aloud: matches!(platform, HostPlatform::Macos | HostPlatform::Windows),
             // Windows 和 Linux 桌面的符号面板是 Tauri 层的表情面板（`load_emoji_catalog`），Linux 的 Fcitx5 菜单和 macOS 的原生表情与符号面板另外读同一批插件组。HarmonyOS 在自己的设置投影里按形态打开；Android 和 iOS 没有接入。
             symbol_set_packs: platform.is_desktop(),
             // 三个桌面平台的输入法进程在启动时打开脚本插件（`msime_client_scripts_enable`），授权由设置应用经 client-services 的 `script_grants` 写入，授权页写明同一用户下的其他程序能伪造授权。Windows 的授权页在原生设置应用里（经 host-api 的 `msime_client_plugins`），共享设置页在 Windows 上也照样显示这一组。移动端没有脚本插件。各宿主接入生命周期核心（`msime_client_set_lifecycle`）之前，会话不满足运行条件，授权写下了也不会运行。

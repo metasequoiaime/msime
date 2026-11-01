@@ -24813,7 +24813,7 @@ private:
         local_more_open_ || focus_row_ == L"模型下载镜像" || focus_row_ == L"本地模型目录",
         [this](bool expanded) { local_more_open_ = expanded; });
     voice_text_row(rows, 0xE896, L"模型下载镜像",
-                   L"可选。以 https:// 开头的加速前缀，下载地址为“镜像/原始地址”；留空直接从 GitHub 下载",
+                   L"可选。以 https:// 开头的加速前缀，下载地址为“镜像/原始地址”；留空时先走本项目镜像 dl.msime.app，再直连 GitHub",
                    L"模型下载镜像", L"voice_input.asr_model_mirror", false,
                    L"https://mirror.example.com", 2048, [](std::wstring const &value) {
                      return voice_model_setting_accepted(L"asr_model_mirror", value);
