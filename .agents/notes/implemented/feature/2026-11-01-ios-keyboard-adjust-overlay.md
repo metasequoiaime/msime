@@ -60,7 +60,7 @@ iOS 键盘里调键盘尺寸的唯一入口是功能菜单的「键盘高度」�
 - `KeyboardTests/settings/KeyboardAdjustLayoutTests.swift`：存储键名、范围与缺省；能力判定（iPhone 竖屏、横屏、iPad 浮动、全宽 iPad、单手、分离）；外框换算与 240 pt 下限；上沿限幅；下沿在高度到下限之前「高度加抬高不变」、高度在下限时往上拖抬高继续增加到 160、一次拖动跨过下限再拖回、往下拖的各端点停住；左右沿另一侧边不动；「移动」不改大小、不出视图；会话每帧从按下时重算、不生效的柄不改值、「重置」回缺省；读屏步长（含「移动」上下调抬高、左右调位置）。
 - `KeyboardTests/settings/MorePanelFoldTests.swift`：遮罩铺满视图、按键收不到触摸、七个控件的显示与三端统一的读屏文字、上沿预览不保存、「确认」写 App Group 和共享文档；下沿抬高时视图高度不变、根视图底边上移、收起键盘即保存且抬高不进共享文档；左右沿收窄整块键盘（工具栏一起）、空出的地方点不到键、「重置」不保存；iPhone 横屏只留上沿柄；单手时没有左右柄、「移动」只改抬高；遮罩开着时晚到的偏好重读不覆盖预览。
 - `KeyLayoutStyleTests.testTallReturnFollowsTheKeySpacingTheFailedGeometryCommitFallsBackTo` 改为经「键盘调整」的「确认」触发写文档失败的回退路径。
-- 在 iPhone 17（iOS 27.0）模拟器上用 `-only-testing` 跑 `KeyboardAdjustLayoutTests`、`MorePanelFoldTests`、`OneHandModeTests`、`KeyboardFormFactorTests` 和上面那一条，共 73 个用例全过；单手与分离式键盘的既有用例覆盖了宽度改从 `keyRowWidth` 读之后行为不变。
+- 在 iPhone 17（iOS 27.0）模拟器上用 `-only-testing` 跑 `KeyboardAdjustLayoutTests`、`MorePanelFoldTests`、`OneHandModeTests`、`KeyboardFormFactorTests` 和上面那一条，共 73 个用例全过；下沿柄规则改为越过高度下限后继续抬高之后，`KeyboardAdjustLayoutTests`（13）和 `MorePanelFoldTests`（19）共 32 个用例全过；单手与分离式键盘的既有用例覆盖了宽度改从 `keyRowWidth` 读之后行为不变。
 
 ## 相关笔记
 
