@@ -41,6 +41,7 @@ public final class AndroidLocalSettingsSmoke {
         unreadableFilesReadAsDefaults();
         atomicWrite();
         splitKeyboardRoundTrip();
+        bottomHeightSlider();
         capitalizationSetting();
         diagnosticDirectorySetting();
         syncedKeysMatchClientCore();
@@ -353,6 +354,41 @@ public final class AndroidLocalSettingsSmoke {
             check(!cleared.bool(AndroidLocalSettings.SPLIT_KEYBOARD) && !cleared.has(AndroidLocalSettings.SPLIT_KEYBOARD), "a stored non-boolean reads as off");
         } finally {
             deleteTree(directory);
+        }
+    }
+
+    /** 设置页「键盘底部高度」滑块与两个旧字段之间的读写映射（#10447）。 */
+    private static void bottomHeightSlider() {
+        check(AndroidLocalSettings.bottomHeightDp(AndroidLocalSettings.defaults()) == 0,
+            "a new user sees 0 dp, the same layout as before");
+        AndroidLocalSettings.Snapshot legacy = new AndroidLocalSettings.Snapshot(AndroidLocalSettings.accepted(Map.of(
+            AndroidLocalSettings.BOTTOM_PADDING, true, AndroidLocalSettings.BOTTOM_PADDING_HEIGHT, 96)));
+        check(AndroidLocalSettings.bottomHeightDp(legacy) == 96, "an old user who turned bottom padding on sees the stored height");
+        AndroidLocalSettings.Snapshot off = new AndroidLocalSettings.Snapshot(AndroidLocalSettings.accepted(Map.of(
+            AndroidLocalSettings.BOTTOM_PADDING, false, AndroidLocalSettings.BOTTOM_PADDING_HEIGHT, 96)));
+        check(AndroidLocalSettings.bottomHeightDp(off) == 0, "a stored height with the switch off shows 0");
+
+        Map<String, Object> raise = AndroidLocalSettings.bottomHeightEdits(64);
+        check(raise.size() == 2 && Boolean.TRUE.equals(raise.get(AndroidLocalSettings.BOTTOM_PADDING))
+            && Integer.valueOf(64).equals(raise.get(AndroidLocalSettings.BOTTOM_PADDING_HEIGHT)),
+            "a positive value turns the switch on and stores the height");
+        Map<String, Object> zero = AndroidLocalSettings.bottomHeightEdits(0);
+        check(zero.size() == 1 && Boolean.FALSE.equals(zero.get(AndroidLocalSettings.BOTTOM_PADDING))
+            && !zero.containsKey(AndroidLocalSettings.BOTTOM_PADDING_HEIGHT),
+            "zero turns the switch off and keeps the stored height");
+        for (Map.Entry<String, Object> edit : raise.entrySet()) {
+            check(AndroidLocalSettings.spec(edit.getKey()).accept(edit.getValue()) != null, "slider edits pass validation: " + edit.getKey());
+            check(!AndroidLocalSettings.spec(edit.getKey()).synced, "the bottom height stays on this device: " + edit.getKey());
+        }
+        for (int value = KeyboardBottomBarPolicy.MIN_PADDING_DP; value <= KeyboardBottomBarPolicy.MAX_PADDING_DP;
+                value += KeyboardBottomBarPolicy.PADDING_STEP_DP) {
+            Map<String, Object> edits = AndroidLocalSettings.bottomHeightEdits(value);
+            Map<String, Object> merged = new LinkedHashMap<>();
+            merged.put(AndroidLocalSettings.BOTTOM_PADDING_HEIGHT, 96);
+            merged.putAll(edits);
+            AndroidLocalSettings.Snapshot saved = new AndroidLocalSettings.Snapshot(AndroidLocalSettings.accepted(merged));
+            check(AndroidLocalSettings.bottomHeightDp(saved) == value, "slider round trip at " + value + " dp");
+            if (value == 0) check(saved.integer(AndroidLocalSettings.BOTTOM_PADDING_HEIGHT) == 96, "zero keeps the previous height");
         }
     }
 

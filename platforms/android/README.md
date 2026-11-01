@@ -95,7 +95,7 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 - 浮动键盘、外接键盘的候选条模式（键区收起时）和手机横屏不画。
 - 底栏叠在键盘外框底部（`ImeBottomBar`），键盘列的底部内边距 = 底栏下面让出的距离 + 40 dp。让出的距离是导航栏落在窗口里的那截，加上系统手势区高出导航栏的部分，中间的横向拖动因此不会从系统手势区里起手。覆盖面板按这段内边距让出底边，剪贴板、表情等面板开着时底栏仍可点。
 
-底栏不画的设备（系统自己画输入法按钮的、Android 11 及以前、三键导航）可以在同一处打开「底部留白」（本地设置 `platform.android.bottom_padding`，布尔，默认关，只在本机，#6392）：键盘列的底部内边距再加一段 40 dp 的空白，把底行键抬离屏幕底边。底栏画着时不叠加；浮动键盘、外接键盘收起键区和手机横屏时不垫（`KeyboardBottomBarPolicy.paddingShown`）。
+同一处「键盘底栏」下面是「键盘底部高度」滑块（#10447，0–160 dp，每格 4 dp）：数值是键区底边到系统导航区的目标总距离，按键大小不变。它沿用两个本地设置 `platform.android.bottom_padding`（布尔，默认关）和 `platform.android.bottom_padding_height`（dp），都只在本机（#6392）：滑块显示「开着时的高度，关着时 0」，拖到正值打开并记下高度，拖到 0 只关开关、保留原高度（`AndroidLocalSettings.bottomHeightDp` / `bottomHeightEdits`）。底栏画着时它的 40 dp 计在里面，只垫高出的部分；浮动键盘、外接键盘收起键区和手机横屏时不垫（`KeyboardBottomBarPolicy.extraPaddingDp`）。底栏不画的设备（系统自己画输入法按钮的、Android 11 及以前、三键导航）只能靠它抬高底行。
 
 `check-host.sh` 在装有固定 NDK 28.2.13676358 的机器上额外用 `aarch64-linux-android28-clang++` 以 `-Wall -Werror` 对 `native/client_jni.cpp` 和 `native/JniCallbacks.cpp` 做目标平台编译：Java 里声明 `native` 的方法在没有 C++ 实现时照样能编过，而这是 Java 声明与共享 FFI 签名唯一必须一致的地方；完整原生构建需要 vcpkg、Rust Android 目标和固定的语音运行时，这一步都不需要。没有固定 NDK 的机器会跳过并明确说明。`verify-native.sh` 的导出清单同时覆盖 online query、云 URL、AI 请求描述符和两个在线候选写回入口。
 

@@ -397,6 +397,23 @@ public final class AndroidLocalSettings {
 
     public static Snapshot defaults() { return DEFAULTS; }
 
+    /**
+     * 设置页「键盘底部高度」滑块显示的值（#10447）：{@link #BOTTOM_PADDING} 开着时是 {@link #BOTTOM_PADDING_HEIGHT}，关着时是 0。
+     *
+     * <p>这个数是键区底边到系统导航区的目标总距离，键盘底栏画着时它的 40 dp 计在里面（{@link KeyboardBottomBarPolicy#extraPaddingDp}）。没动过的用户显示 0；以前打开过「底部留白」的老用户直接显示原来的高度，不用迁移。
+     */
+    public static int bottomHeightDp(Snapshot settings) {
+        return settings.bool(BOTTOM_PADDING) ? settings.integer(BOTTOM_PADDING_HEIGHT) : 0;
+    }
+
+    /** 滑块提交 `valueDp` 时要写的项：大于 0 时打开 {@link #BOTTOM_PADDING} 并记下高度；拖到 0 只关开关，原来的高度留着不清。 */
+    public static Map<String, Object> bottomHeightEdits(int valueDp) {
+        Map<String, Object> edits = new LinkedHashMap<>(2);
+        edits.put(BOTTOM_PADDING, valueDp > 0);
+        if (valueDp > 0) edits.put(BOTTOM_PADDING_HEIGHT, valueDp);
+        return edits;
+    }
+
     public static Path file(Context context) {
         return context.getFilesDir().toPath().resolve("bootstrap").resolve("state").resolve(FILE_NAME);
     }

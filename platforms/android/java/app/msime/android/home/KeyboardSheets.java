@@ -124,6 +124,31 @@ final class KeyboardSheets {
         return true;
     }
 
+    /** 一次写几项 Android 本地设置（同一次原子写），成功或失败后都回调。 */
+    static void saveLocal(Fragment fragment, java.util.Map<String, Object> edits, Runnable done) {
+        HostTask.run(fragment, context -> writeLocal(context, edits) ? Boolean.TRUE : null, result -> {
+            if (result == null) MsToast.show(fragment.requireContext(), "保存失败，请重试");
+            done.run();
+        });
+    }
+
+    /** 同 {@link #writeLocal(Context, String, Object)}，几项在同一次原子写里落盘。要在工作线程上调用；写不进时为 false。 */
+    static boolean writeLocal(Context context, java.util.Map<String, Object> edits) {
+        try {
+            AndroidLocalSettings.update(context, edits);
+        } catch (java.io.IOException | IllegalArgumentException error) {
+            android.util.Log.w("MSIMESettings", "Android local settings were not saved", error);
+            return false;
+        }
+        for (String key : edits.keySet()) {
+            if (AndroidLocalSettings.spec(key).synced) {
+                SyncSignals.markDirty(context, SyncSwitch.SETTINGS);
+                break;
+            }
+        }
+        return true;
+    }
+
     /** 选中自定义设计后，按 P23 写它带的按键反馈里不在共享偏好的部分：按键音包拨本地按键音开关，按键动画写本地设置。要在工作线程上调用。 */
     static void applyLocalFeedback(Context context, JSONObject design) {
         CustomKeyboardSkin skin = CustomKeyboardSkin.from(design);
