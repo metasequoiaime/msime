@@ -4,7 +4,7 @@
 //!
 //! 方案输入不带声调的粤拼，所以每个读音都去掉声调数字，条目的键是去声调的音节以一个空格连接（`nei hou`）。只差声调的读音合成一个条目，取最大的权重。词的权重是它的 essay 分数。essay 以书面语为主，词表里约五分之二的词它没有收，最常用的口语词也在其中（我哋、佢哋、嗰啲、食咗）。这类词若语料有计数，权重是语料次数乘以 `corpus_scale`，即两者都收的词上 essay 分数与语料次数之比的中位数，把语料次数换算到 essay 的尺度（我哋在语料里出现 446 次，落在點解附近）。语料次数不到 `CORPUS_MIN_COUNT` 的词压到同键 essay 所列最轻的词之下一位，免得只出现过一次的异写或切分偶然（物証之于物證）排到 essay 收录的词前面。其余没收的词按 `unlisted_word_weight` 加权：1 加上它最罕用的字的 essay 分数以 2 为底的对数，这样同音词按用字的常见程度排序，又远低于 essay 给收录词的分数（大多至少 100）。字的权重是它的 essay 分数，行里给了比例时按比例折算，最低为 1。
 //!
-//! 字表、词表和 essay 用 OpenCC 标准字形（爲、衆），HKCanCor 用香港实际书写的字形（為、眾）。构建时把 OpenCC 字形换成香港字形，换哪些字由数据决定：异体对取自 OpenCC 的 `TWVariants.txt`（msime-dictionary 的 `sources/opencc/` 原样收录），一对里只有 HKCanCor 词频表用另一形、完全不用 OpenCC 形时才换（`hong_kong_forms`）；两形语料都没有的对、两形都用的对（着/著）、香港仍用 OpenCC 形的对（裏/裡）都不动。词频表不收单字词，判定只看两个及以上汉字的词：语料里单独成词的字不算，固定提交的 HKCanCor 里「羣」单独出现过 1 次，按词频表仍换成「群」。这张表不收 說/説、溫/温、戶/户、衛/衞 这类《常用字字形表》的异体，它们本来就不在考虑之内。替换只改写入的字面：字的权重仍按原字面查 essay，词、essay 补词和人工词表按替换后的字面查 essay 与语料（`essay_by_hong_kong_form` 把各写法的 essay 分数合到香港字形上，HKCanCor 本来就是香港字形），合并后的两行由 `Dictionary::insert` 取较大权重，所以「為」继承「爲」的 184291，「因爲」写成「因為」。
+//! 字表、词表和 essay 用 OpenCC 标准字形（爲、衆），HKCanCor 用香港实际书写的字形（為、眾）。构建时把 OpenCC 字形换成香港字形，换哪些字由数据决定：异体对取自 OpenCC 的 `TWVariants.txt`（msime-dictionary 的 `sources/opencc/` 原样收录），一对里只有 HKCanCor 词频表用另一形、完全不用 OpenCC 形时才换（`hong_kong_forms`）；两形语料都没有的对、两形都用的对（着/著）、香港仍用 OpenCC 形的对（裏/裡）都不动。词频表不收单字词，判定只看两个及以上汉字的词：语料里单独成词的字不算，固定提交的 HKCanCor 里「羣」单独出现过 1 次，按词频表仍换成「群」。这张表不收 說/説、溫/温、戶/户、衛/衞 这类《常用字字形表》的异体，它们本来就不在考虑之内。替换只改写入的字面：字的权重仍按原字面查 essay，词、essay 补词和人工词表按替换后的字面查 essay 与语料（`essay_by_hong_kong_form` 把各写法的 essay 分数合到香港字形上，HKCanCor 本来就是香港字形），合并后的两行由 `Dictionary::insert` 取较大权重，所以「為」继承「爲」的 184291，「因爲」写成「因為」。单字另外保留 OpenCC 字形：「峯」「羣」这类字本身也常用（人名里尤其多），粤语方案又没有学习数据，换掉就打不出来，所以 OpenCC 字形的单字行照样写入，权重取它自己的分数与香港字形权重减一中较小的那个（至少为 1），「爲」得 184290，紧排在「為」下面；词只写香港字形。
 //!
 //! The words file lacks some of the commonest words because Rime composes them from characters at typing time (你好 is one), and the engine does not compose sentences. So an essay word the words file does not list becomes an entry too when the essay counts it at least `ESSAY_WORD_MIN_COUNT` times and each of its characters has exactly one toneless reading in the characters file, which makes its key certain.
 //!
@@ -469,6 +469,8 @@ pub fn build(
     };
     // Each character's toneless keys, to give an essay word a key when each of its characters has only one.
     let readings = character_readings(characters);
+    // 换了字形的单字行：OpenCC 字形本身也是一个字（人名里的「峯」「羣」），仍要打得出，等香港字形的权重定下来后排在它下面一位。
+    let mut kept_opencc = Vec::new();
     for row in characters {
         // 字的分数按原字面查：essay 里「參」的分数涵盖它的所有读音，不能拿来给「蔘」那一行。
         let count = essay.get(row.text).copied().unwrap_or(0);
@@ -476,11 +478,17 @@ pub fn build(
             .percent
             .map_or(count, |percent| count.saturating_mul(percent) / 100)
             .max(1);
-        dictionary.insert(
-            row.syllables.join(" "),
-            &hong_kong_text(row.text, forms),
-            weight,
-        );
+        let key = row.syllables.join(" ");
+        let text = hong_kong_text(row.text, forms);
+        if text != row.text {
+            kept_opencc.push((key.clone(), row.text, text.to_string(), weight));
+        }
+        dictionary.insert(key, &text, weight);
+    }
+    // 不取下限 1：「爲」按 1 分会落在 wai 的第二百多位，超出引擎的 SPAN_LIMIT，又看不到了（#10420）。
+    for (key, opencc, hong_kong, weight) in kept_opencc {
+        let below = dictionary.entries[&(key.clone(), hong_kong)] - 1;
+        dictionary.insert(key, opencc, weight.min(below).max(1));
     }
     dictionary.characters = dictionary.entries.len();
 
@@ -744,8 +752,9 @@ mod tests {
                 ("nei hou", "你好", 21493),
                 // 80% of 900, the larger share of waa2 and waa6.
                 ("waa", "話", 720),
-                // 為自己的 5% 份额没有 essay 分数，合并后取爲的 184291，爲不再单列。
+                // 為自己的 5% 份额没有 essay 分数，合并后取爲的 184291；爲仍单列，排在為下面一位。
                 ("wai", "為", 184291),
+                ("wai", "爲", 184290),
             ]
         );
         // 好呢 is frequent but 呢 reads ne or nei, so its key is uncertain and it stays out.
@@ -756,7 +765,7 @@ mod tests {
                 dictionary.words,
                 dictionary.essay_words
             ),
-            (11, 4, 1)
+            (12, 4, 1)
         );
     }
 
@@ -1123,9 +1132,9 @@ mod tests {
                 .get(&(key.to_owned(), text.to_owned()))
                 .copied()
         };
-        // 「為」继承「爲」的 essay 分数，「爲」那一行不再单列。
+        // 「為」继承「爲」的 essay 分数；单字「爲」仍保留，紧排在「為」下面一位，不掉到下限 1。
         assert_eq!(weight("wai", "為"), Some(184291));
-        assert_eq!(weight("wai", "爲"), None);
+        assert_eq!(weight("wai", "爲"), Some(184290));
         assert_eq!(weight("jan wai", "因為"), Some(713185));
         assert_eq!(weight("jan wai", "因爲"), None);
         // essay 里两种写法合成一个词，取较大的分数。
@@ -1141,7 +1150,7 @@ mod tests {
         assert!(weight("ngai zou", "僞造").is_some());
         // 语料的「因為」对上 essay 的「因爲」，是唯一共有的词：713185 / 300。
         assert_eq!(dictionary.corpus_scale, 2377);
-        assert_eq!(dictionary.characters, 9);
+        assert_eq!(dictionary.characters, 10);
     }
 
     #[test]
@@ -1175,6 +1184,11 @@ mod tests {
         assert_eq!(
             dictionary.entries[&("fung".to_owned(), "峰".to_owned())],
             7741
+        );
+        // 单字「峯」本来就比「峰」轻，保留自己的分数。
+        assert_eq!(
+            dictionary.entries[&("fung".to_owned(), "峯".to_owned())],
+            4372
         );
     }
 
@@ -1327,14 +1341,14 @@ mod tests {
         let (_dir, path) = written(&sample());
         let floors = Floors {
             syllables: 13,
-            characters: 11,
+            characters: 12,
             words: 5,
         };
         assert_eq!(
             verify(&path, floors).unwrap(),
             Counts {
                 syllables: 13,
-                characters: 11,
+                characters: 12,
                 words: 5
             }
         );
@@ -1348,10 +1362,10 @@ mod tests {
             ),
             (
                 Floors {
-                    characters: 12,
+                    characters: 13,
                     ..floors
                 },
-                "11 character entries, below the floor of 12",
+                "12 character entries, below the floor of 13",
             ),
             (
                 Floors { words: 6, ..floors },
