@@ -222,13 +222,9 @@ impl CantoneseScheme {
         text
     }
 
-    /// 粤语双拼组字展开成粤拼的显示文字（`ngo daa nei`），只给宿主画在屏幕上，编辑和回车提交仍按原始按键。`leading` 是首选候选的词库键和它覆盖的输入字节数：被它覆盖的完整码按它用的读音写，其余的码取库存里解出的第一个读音；末尾单独的声母键、以及分隔符照原样保留，与 `editing_text` 的写法对应。不在双拼解释下时返回 `None`。
+    /// 粤语双拼组字展开成粤拼的显示文字（`ngo daa nei`），只给宿主画在屏幕上，编辑和回车提交仍按原始按键。`leading` 是首选候选的词库键和它覆盖的输入字节数：被它覆盖的完整码按它用的读音写，其余的码取库存里解出的第一个读音；末尾单独的声母键、以及分隔符照原样保留，与 `editing_text` 的写法对应。候选不按双拼码查时返回 `None`，包括不在双拼解释下、以及 `shuangpin_expansions` 解不出（自动识别入口里奇数长度的输入如 `gwo`、`gwai`，或有码解不出音节）而改按普通粤拼查的情形：那时按两键一码展开会和候选对不上，由宿主退回原来的预编辑。
     pub fn jyutping_display(&self, leading: Option<(&str, usize)>) -> Option<String> {
-        if !self.shuangpin {
-            return None;
-        }
-        // 自动识别入口里奇数长度的输入按普通粤拼查，候选的键与两键一码对不上，这时不借用首选的读音。
-        let leading = leading.filter(|_| self.shuangpin_expansions().is_some());
+        self.shuangpin_expansions()?;
         let mut leading_syllables = leading
             .map(|(key, end)| (key.split(' '), end))
             .into_iter()
@@ -1551,6 +1547,15 @@ mod tests {
         // 不在双拼解释下没有展开文字。
         let plain = typed("neihou");
         assert_eq!(plain.jyutping_display(None), None);
+        // 自动识别入口进了双拼后，偶数长度仍按双拼展开；奇数长度改按普通粤拼查候选，不再按两键一码展开，宿主退回原来的预编辑。
+        let auto = shuangpin_typed("vodanz", false);
+        assert!(auto.is_shuangpin());
+        assert_eq!(auto.jyutping_display(None).as_deref(), Some("ngo daa nei"));
+        let auto = shuangpin_typed("vod", false);
+        assert!(auto.is_shuangpin());
+        assert_eq!(auto.shuangpin_expansions(), None);
+        assert_eq!(auto.jyutping_display(Some(("ngo", 2))), None);
+        assert_eq!(auto.jyutping_display(None), None);
     }
 
     #[test]

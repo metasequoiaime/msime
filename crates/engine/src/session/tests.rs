@@ -10818,6 +10818,19 @@ fn cantonese_shuangpin_sentence_commits_whole_and_preedit_follows_the_raw_key_pr
         assert_eq!(result.commit.as_deref(), Some("我你好"));
         assert!(session.snapshot().preedit.is_empty());
     }
+    // 「粤语」入口自动识别进了双拼后，偶数长度照样展开；奇数长度改按普通粤拼查候选，宿主退回原来的预编辑，不按两键一码展开成和候选对不上的粤拼。
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Cantonese;
+        options.cantonese_dictionary = cantonese.clone();
+        options.shuangpin_preedit_uses_raw = false;
+    });
+    type_text(&mut session, "vonzhb");
+    assert_eq!(session.display_snapshot().preedit, "ngo nei hou");
+    type_text(&mut session, "n");
+    assert_eq!(
+        session.display_snapshot().preedit,
+        session.snapshot().preedit
+    );
 }
 
 #[test]
