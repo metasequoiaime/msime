@@ -1343,6 +1343,28 @@ public final class MSIMEInputService extends InputMethodService {
                 selectionEcho.invalidate();
                 return target.setSelection(start, end);
             }
+            public void positionCommitCursor(String text, String suffix) {
+                if (target != connection || suffix.isEmpty() || !text.endsWith(suffix)) return;
+                android.view.inputmethod.ExtractedTextRequest request = new android.view.inputmethod.ExtractedTextRequest();
+                request.hintMaxChars = text.length();
+                android.view.inputmethod.ExtractedText actual = target.getExtractedText(request, 0);
+                if (actual == null || actual.text == null || actual.startOffset < 0 || actual.partialStartOffset != -1
+                        || actual.selectionStart != actual.selectionEnd
+                        || actual.selectionStart < text.length()
+                        || actual.selectionStart > actual.text.length()) return;
+                int end = actual.selectionStart;
+                if (!text.contentEquals(actual.text.subSequence(end - text.length(), end))) return;
+                int cursor = Math.addExact(actual.startOffset, end);
+                int destination = cursor - suffix.length();
+                // 读回与选区使用 UTF-16；不按方向键次数猜 emoji、组合字符或双向文本的位置。
+                editorReads.invalidate();
+                selectionEcho.positionAfterCommit(cursor);
+                selectionEcho.expect();
+                if (InputConnectionGuard.setSelection(target, destination, destination)) {
+                    selectionEcho.positionAfterCommit(destination);
+                    selectionEcho.expect();
+                }
+            }
             public void end() {
                 target.endBatchEdit();
                 // 编辑器在批量编辑结束后才回报一次选区，所以整批写完再记预期。
@@ -4002,15 +4024,17 @@ public final class MSIMEInputService extends InputMethodService {
             || !InputViewValuePolicy.punctuationMarks(view).equals(
                 InputViewValuePolicy.punctuationMarks(next));
         String commit = result.isNull("commit") ? null : result.getString("commit");
+        String cursorSuffix = result.opt("commit_cursor_suffix") instanceof String
+            ? result.getString("commit_cursor_suffix") : null;
         if (commit != null) {
-            // The runtime widened this already - it holds the character width now, and applies it
-            // to everything it finishes. Widening again here would be the second pass over text
-            // that is already fullwidth, and would put this host's own rule ahead of the shared one.
-            commit = chineseOutput(commit, result.optJSONObject("commit_context"));
+            // 宽度已由共享层处理；正文和后缀只做同一份宿主简繁转换，转换后失配时不定位。
+            JSONObject context = result.optJSONObject("commit_context");
+            commit = chineseOutput(commit, context);
+            if (cursorSuffix != null) cursorSuffix = chineseOutput(cursorSuffix, context);
         }
         String composing = composingText(next, next.getString("editing_text"), true);
         if (connection != null
-                && !bridge.apply(sink(typingSource()), commit, composing)) {
+                && !bridge.apply(sink(typingSource()), commit, composing, cursorSuffix)) {
             throw new InputFailurePolicy.Failure(InputFailurePolicy.Reason.EDITOR_REJECTED);
         }
         view = next;
@@ -5327,7 +5351,7 @@ public final class MSIMEInputService extends InputMethodService {
             String response = reopenPairedQuote(
                 NativeClient.punctuationWithContext(session, ascii, preceding), ascii);
             boolean handled = apply(response);
-            PairedPunctuationPolicy.Completion completion = pairedCompletion(response);
+            PairedPunctuationPolicy.Completion completion = pairedCompletion(response, ascii);
             if (completion != null && commitClosingMark(completion.closing(), typingSource())) {
                 // 补的是书名号时告诉 Engine 这一层已经闭合，否则下一次 < 会被当成嵌套的〈。
                 if (completion.opening() == '<') balanceBookTitleAfterAutoClose();
@@ -5368,24 +5392,31 @@ public final class MSIMEInputService extends InputMethodService {
         return true;
     }
 
-    /** 打开成对补全时，把 Engine 这次上屏末尾的后引号改回前引号，见 {@link PairedPunctuationPolicy#reopenQuote}。 */
+    /** 打开成对补全时，把 Engine 这次上屏末尾的后引号改回前引号；光标短语模板原样落地，见 {@link PairedPunctuationPolicy#punctuationCommit}。 */
     private String reopenPairedQuote(String response, int ascii) throws JSONException {
         if (!pairedPunctuation || (ascii != '"' && ascii != '\'')) return response;
         JSONObject envelope = new JSONObject(response);
         JSONObject result = envelope.optJSONObject("value");
         if (result == null || result.isNull("commit")) return response;
         String commit = result.optString("commit", "");
-        String reopened = PairedPunctuationPolicy.reopenQuote(commit, ascii, true);
+        String reopened = PairedPunctuationPolicy.punctuationCommit(commit, cursorSuffix(result), ascii, true).commit();
         if (reopened.equals(commit)) return response;
         result.put("commit", reopened);
         return envelope.toString();
     }
 
-    private PairedPunctuationPolicy.Completion pairedCompletion(String response) throws JSONException {
+    /** 这次上屏后要补的后半个；光标短语模板不补，因为 apply() 已经把光标移到模板指定的位置，这时补的后半个会写进短语中间。见 {@link PairedPunctuationPolicy#punctuationCommit}。 */
+    private PairedPunctuationPolicy.Completion pairedCompletion(String response, int ascii) throws JSONException {
         if (!pairedPunctuation || connection == null) return null;
         JSONObject result = value(response);
-        return result.isNull("commit") ? null
-            : PairedPunctuationPolicy.completion(result.optString("commit", ""), true);
+        return result.isNull("commit") ? null : PairedPunctuationPolicy.punctuationCommit(
+            result.optString("commit", ""), cursorSuffix(result), ascii, true).completion();
+    }
+
+    /** 回复里的 `commit_cursor_suffix`，不是字符串时为 null。读的是交给 apply() 之前的原始回复，那里上屏文字和后缀还没被转换。 */
+    private static String cursorSuffix(JSONObject result) {
+        Object suffix = result.opt("commit_cursor_suffix");
+        return suffix instanceof String ? (String) suffix : null;
     }
 
     private void balanceBookTitleAfterAutoClose() {
