@@ -2,7 +2,7 @@
 //!
 //! 英文：`scripts/build_pronunciations.py` 从 ECDICT 构建 `pronunciations/en-phonetic.db`。释义只读首个词组，去掉不定式 `to` 和冠词；任一词未知时整组不显示音标，避免把不完整的读音当作完整读音。
 //!
-//! 法、日、西、俄、德、韩：`scripts/build_target_pronunciations.py` 从维基词典（与离线释义同一来源）构建 `target-pronunciations/<语言>-phonetic.db`。释义行只读第一个词条，整条查表，查不到就不显示：这几种语言逐词拼读会出错（法语的联诵、俄语的重音随词形变化），所以不像英文那样逐词拼起来。日文给赫本式罗马字，其余给维基词典写的 IPA，连同它的斜线或方括号。
+//! 法、日、西、俄、德、韩：`scripts/build_target_pronunciations.py` 从维基词典（与离线释义同一来源）构建 `target-pronunciations/<语言>-phonetic.db`。释义行只读第一个词条，整条查表，查不到就不显示：这几种语言逐词拼读会出错（法语的联诵、俄语的重音随词形变化），所以不像英文那样逐词拼起来。日文给赫本式罗马字，韩文给文化观光部式罗马字（Revised Romanization，生成器按规范从谚文生成），其余给维基词典写的 IPA，连同它的斜线或方括号（德语优先取方括号的语音标音）。
 //!
 //! 两种表都优先读取资源目录旁的，缺失时使用宿主显式传入的补充目录（资源包的根）。
 

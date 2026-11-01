@@ -18607,6 +18607,8 @@ fn pronunciation_request_reads_each_target_language_from_its_own_table() {
         {"text": "pomme de terre", "language": "fr"},
         {"text": "parterre de fleurs", "language": "fr"},
         {"text": "кошка, кот", "language": "ru"},
+        {"text": "haben; besitzen", "language": "de"},
+        {"text": "고양이, 괭이", "language": "ko"},
         {"text": "gato", "language": "es"}
     ]});
     // 什么都没装：没有读音，不是错误。
@@ -18626,7 +18628,13 @@ fn pronunciation_request_reads_each_target_language_from_its_own_table() {
     install_target_phonetics(
         &supplementary.join("target-pronunciations"),
         "de",
-        &[("Katze", "/ˈkatsə/")],
+        &[("Katze", "/ˈkatsə/"), ("haben", "[ˈhaː.bən]")],
+    );
+    // 韩语表给的是罗马字，和日语一样原样回答。
+    install_target_phonetics(
+        &supplementary.join("target-pronunciations"),
+        "ko",
+        &[("고양이", "goyang-i")],
     );
     install_target_phonetics(
         &supplementary.join("target-pronunciations"),
@@ -18657,7 +18665,9 @@ fn pronunciation_request_reads_each_target_language_from_its_own_table() {
             {"text": "リンゴ", "language": "ja", "pronunciation": "ringo"},
             {"text": "Chine; chinois", "language": "fr", "pronunciation": "/ʃin/"},
             {"text": "pomme de terre", "language": "fr", "pronunciation": "/pɔm də tɛʁ/"},
-            {"text": "кошка, кот", "language": "ru", "pronunciation": "[ˈkoʂkə]"}
+            {"text": "кошка, кот", "language": "ru", "pronunciation": "[ˈkoʂkə]"},
+            {"text": "haben; besitzen", "language": "de", "pronunciation": "[ˈhaː.bən]"},
+            {"text": "고양이, 괭이", "language": "ko", "pronunciation": "goyang-i"}
         ]})
     );
     // 句首大写的行按小写找到；法文行不会去问英文表。
@@ -18698,7 +18708,7 @@ fn pronunciation_request_keeps_other_languages_when_one_table_is_unreadable() {
         .unwrap()
         .execute_batch("PRAGMA user_version = 2;")
         .unwrap();
-    install_target_phonetics(&target, "ko", &[("고양이", "[ko̞ja̠ŋi]")]);
+    install_target_phonetics(&target, "ko", &[("고양이", "goyang-i")]);
     rusqlite::Connection::open(target.join("ko-phonetic.db"))
         .unwrap()
         .execute_batch("UPDATE meta SET value = 'ja_phonetic' WHERE key = 'kind';")
