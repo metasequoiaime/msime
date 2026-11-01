@@ -178,7 +178,8 @@ final class ImeBottomBar {
             DimensionPolicy.fromPixels(s, navigationBottom));
     }
 
-    private boolean phoneLandscape() {
+    /** 手机（`smallestScreenWidthDp` < 600）横屏：底栏、底部抬高和「键盘调整」的宽度与位置都不生效。 */
+    boolean phoneLandscape() {
         Configuration configuration = s.getResources().getConfiguration();
         return configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
             && !KeyboardFormFactorPolicy.expanded(configuration.smallestScreenWidthDp);
@@ -221,13 +222,15 @@ final class ImeBottomBar {
             }
             bottom = margin + s.pixels(KeyboardBottomBarPolicy.BAR_HEIGHT_DP);
         }
-        // 底栏计入目标高度，额外空白只抬高键区，覆盖面板同样让出这段内边距。
-        bottom += s.pixels(KeyboardBottomBarPolicy.extraPaddingDp(
-            s.localSettings.bool(AndroidLocalSettings.BOTTOM_PADDING),
-            s.localSettings.integer(AndroidLocalSettings.BOTTOM_PADDING_HEIGHT), shown,
-            s.floatingDrawn(), s.hardwareKeysCollapsed(), phoneLandscape()));
+        // 底栏计入目标高度，额外空白只抬高键区，覆盖面板同样让出这段内边距；「键盘调整」期间按预览的抬高。
+        bottom += s.pixels(s.keyboardLiftDp(shown));
         if (bar != null) ViewPolicy.setVisibleIfChanged(bar, shown);
         ViewPolicy.setPaddingIfChanged(keyboard, insets.left, insets.top, insets.right, bottom);
+    }
+
+    /** 「键盘调整」打开期间底栏和键区一样只是预览，读屏不进去；关上后交还。 */
+    void setImportantForAccessibility(int mode) {
+        if (bar != null && bar.getImportantForAccessibility() != mode) bar.setImportantForAccessibility(mode);
     }
 
     /** 每次 render 末尾按皮肤给两个按钮上色；剪贴板面板开着时剪贴板按钮画成选中。 */

@@ -93,8 +93,8 @@ public final class MSIMEInputService extends InputMethodService {
     static final int HANDWRITING_LAYOUT = 3;
     static final int FOURTEEN_KEY_LAYOUT = KeyboardLayout.FOURTEEN_KEY_LAYOUT;
     private static final long HANDWRITING_DEBOUNCE_MILLIS = 550;
-    /** 会让内联高度条记下的键区屏幕上沿作废的配置变化：方向、屏幕尺寸（含分屏）和密度（显示大小）。 */
-    private static final int INLINE_HEIGHT_SCREEN_CHANGES = android.content.pm.ActivityInfo.CONFIG_ORIENTATION
+    /** 会让「键盘调整」记下的键盘屏幕上沿作废的配置变化：方向、屏幕尺寸（含分屏）和密度（显示大小）。 */
+    private static final int KEYBOARD_ADJUST_SCREEN_CHANGES = android.content.pm.ActivityInfo.CONFIG_ORIENTATION
         | android.content.pm.ActivityInfo.CONFIG_SCREEN_SIZE
         | android.content.pm.ActivityInfo.CONFIG_SMALLEST_SCREEN_SIZE
         | android.content.pm.ActivityInfo.CONFIG_DENSITY;
@@ -399,14 +399,23 @@ public final class MSIMEInputService extends InputMethodService {
     /** 顶部一行里组词时的读音行与候选行。 */
     LinearLayout candidateHeader;
     LinearLayout candidateLine;
-    /** 内联键盘高度条；进入时记下原值，取消时恢复。 */
-    InlineHeightBar inlineHeightBar;
-    boolean inlineHeightActive;
-    private int inlineHeightOriginal;
-    /** 内联高度条打开时键区在屏幕上的上沿：拖动期间输入法窗口铺满，应用的避让边界固定在这里（#10025）。转屏后作废，等键区下一次布局重新记下。 */
-    private int inlineHeightKeyboardTop = KeyboardHeightPolicy.UNRECORDED_KEYBOARD_TOP;
+    /** 「键盘调整」遮罩（功能面板「键盘调整」）：盖在整块键盘上，拖四条边和「移动」实时预览高度、底部抬高、宽度和水平位置，确认或任何离开方式都保存。 */
+    KeyboardAdjustOverlay keyboardAdjustOverlay;
+    boolean keyboardAdjustActive;
+    /** 调整中预览的底部抬高（dp，键区下沿到底栏或导航区的额外距离）与宽度、水平位置；高度预览直接写在 {@link #touchKeyboardHeightAdjustment}。 */
+    private int keyboardAdjustLiftDp;
+    private KeyboardAdjustPolicy.Horizontal keyboardAdjustHorizontal = KeyboardAdjustPolicy.Horizontal.DEFAULT;
+    /** 打开时的抬高与宽度、位置：保存时只写变了的项。 */
+    private int keyboardAdjustOriginalLiftDp;
+    private KeyboardAdjustPolicy.Horizontal keyboardAdjustOriginalHorizontal = KeyboardAdjustPolicy.Horizontal.DEFAULT;
+    /** 一次拖动按下时的三组值：拖动中的每一步都从它们重新算，手指来回拖不会累积误差。 */
+    private int keyboardAdjustDragHeight;
+    private int keyboardAdjustDragLiftDp;
+    private KeyboardAdjustPolicy.Horizontal keyboardAdjustDragHorizontal = KeyboardAdjustPolicy.Horizontal.DEFAULT;
+    /** 「键盘调整」打开时键盘外框在屏幕上的上沿：调整期间输入法窗口铺满，应用的避让边界固定在这里（#10025）。转屏后作废，等外框下一次布局重新记下。 */
+    private int keyboardAdjustKeyboardTop = KeyboardHeightPolicy.UNRECORDED_KEYBOARD_TOP;
     /** 记下上沿时的配置：调整期间只有屏幕尺寸、方向或密度变了，记下的屏幕坐标才作废；深浅模式、字号这类变化不动避让边界。 */
-    private Configuration inlineHeightConfiguration;
+    private Configuration keyboardAdjustConfiguration;
     /** 功能面板（新设计的菜单）与它的「AI 回复与润色」分段页。 */
     FunctionPanelView functionPanel;
     /** 隐私会话重启时保留已打开的功能菜单。 */
@@ -2225,8 +2234,8 @@ public final class MSIMEInputService extends InputMethodService {
         imePanels.dismissClipboardPreview();
         flushKeyPresses();
         cancelInputViewRefresh();
-        // 键盘收起时还在调整高度就照「完成」保存：用户拖到满意的高度后直接收起键盘或切到别的应用，是把这个高度留下来的意思，原来当作取消，下次弹出就回到设置页里的旧值。只有明确点「取消」才放弃预览。
-        finishInlineHeight(true);
+        // 键盘收起时还在「键盘调整」就照「确认」保存：用户拖到满意后直接收起键盘或切到别的应用，是把这些值留下来的意思。调整界面没有取消，任何离开方式都保存（见 2026-10-08-touch-keyboard-height-reverts）。
+        finishKeyboardAdjust();
         // 跟随光标的候选栏空闲时自己收起的窗口不是用户收起键盘：空闲、键区收起时本来没有要关的面板，而收起请求落地前用户可能已经又开始组字，照常收尾（finishInputViewPresentation 和系统默认实现里的 finishComposingText）会把这段组字上屏、引擎里的组字也随之丢掉。所以两样都不做，落地后再按此刻的状态决定要不要叫回窗口。
         boolean ownHide = !finishingInput && CaretCandidatePolicy.ownHide(caretHidePending, caretWindowHiddenAt,
             android.os.SystemClock.uptimeMillis());
@@ -2325,12 +2334,12 @@ public final class MSIMEInputService extends InputMethodService {
         // nine-key popup is anchored to the old tree, so it must not outlive the reflow.
         imeLayoutRows.dismissNineKeyHoldOptions();
         imeLayoutRows.hideJapaneseFlickPreview();
-        // 调整高度时转屏、改分屏尺寸或显示大小：旧屏幕坐标下的键区上沿已经不对，等键区在新窗口里布局后重新记下。深浅模式、字号等其他变化不清，否则下一次布局会记下拖动后的上沿，应用在调整中途跳一次。
-        if (inlineHeightActive) {
-            if (inlineHeightConfiguration == null
-                    || (inlineHeightConfiguration.diff(configuration) & INLINE_HEIGHT_SCREEN_CHANGES) != 0)
-                inlineHeightKeyboardTop = KeyboardHeightPolicy.UNRECORDED_KEYBOARD_TOP;
-            inlineHeightConfiguration = new Configuration(configuration);
+        // 「键盘调整」中转屏、改分屏尺寸或显示大小：旧屏幕坐标下的键盘上沿已经不对，等外框在新窗口里布局后重新记下。深浅模式、字号等其他变化不清，否则下一次布局会记下拖动后的上沿，应用在调整中途跳一次。
+        if (keyboardAdjustActive) {
+            if (keyboardAdjustConfiguration == null
+                    || (keyboardAdjustConfiguration.diff(configuration) & KEYBOARD_ADJUST_SCREEN_CHANGES) != 0)
+                keyboardAdjustKeyboardTop = KeyboardHeightPolicy.UNRECORDED_KEYBOARD_TOP;
+            keyboardAdjustConfiguration = new Configuration(configuration);
         }
         if (keyboardRoot == null) return;
         imeStyler.applyKeyboardSurfaceGeometry();
@@ -2502,7 +2511,7 @@ public final class MSIMEInputService extends InputMethodService {
     /** 键区此刻是否收起成候选条：候选条模式开着，且没有要占用键区高度的面板。 */
     boolean hardwareKeysCollapsed() {
         return HardwareKeyboardModePolicy.keysCollapsed(hardwareKeyboardMode,
-            anyToolbarPanelOpen() || candidatePanelOpen || inlineHeightActive || handwritingActive());
+            anyToolbarPanelOpen() || candidatePanelOpen || keyboardAdjustActive || handwritingActive());
     }
 
     /** 候选条上的展开键：退出候选条模式，回到完整的软键盘；下一次实体键盘打字时再收起。 */
@@ -2992,10 +3001,9 @@ public final class MSIMEInputService extends InputMethodService {
             && preferences.optBoolean(SplitKeyboardPolicy.PORTRAIT_PREFERENCE, false);
     }
 
-    /** 用上保存的键高。键盘里正在拖动高度时（应用 `restartInput` 同一个输入框时会走到这里，不经过 onFinishInputView）不动预览，只改「取消」要回到的值，与 applyPreferencesSnapshot 一致；否则预览跳回保存值，按「完成」什么也存不下。 */
+    /** 用上保存的键高。键盘里正在「键盘调整」时（应用 `restartInput` 同一个输入框时会走到这里，不经过 onFinishInputView）不动预览，与 applyPreferencesSnapshot 一致；否则预览跳回保存值，确认时什么也存不下。 */
     private void adoptSavedHeightAdjustment(int saved) {
-        if (inlineHeightActive) inlineHeightOriginal = saved;
-        else touchKeyboardHeightAdjustment = saved;
+        if (!keyboardAdjustActive) touchKeyboardHeightAdjustment = saved;
     }
 
     /** 没有偏好或旧文档里没有这个键时按关，与 client-core 的默认值一致。 */
@@ -3651,7 +3659,7 @@ public final class MSIMEInputService extends InputMethodService {
         Object library = preferencesDirectory.isEmpty() ? null
             : CandidateSkinStamp.file(java.nio.file.Paths.get(preferencesDirectory, "CustomSkins", "library.json"));
         return java.util.Arrays.asList(session, preferencesDirectory, AndroidLocalSettings.load(this),
-            java.time.LocalDate.now().getMonthValue(), systemDark(), learningSuppressed(), inlineHeightActive,
+            java.time.LocalDate.now().getMonthValue(), systemDark(), learningSuppressed(), keyboardAdjustActive,
             clipboardMode, clipboardHistory, candidateSkinResolver.state(), library);
     }
 
@@ -3698,8 +3706,8 @@ public final class MSIMEInputService extends InputMethodService {
         int nextRowSpacing = KeyboardSpacingPolicy.rowSpacing(
             NumberPolicy.strictInt(preferences, "touch_row_spacing_tenths", -1));
         int savedHeightAdjustment = heightAdjustmentFrom(preferences);
-        // 键盘里正在调高度时，同步或设置页写来的新快照不能把预览覆盖回去（那样点「完成」时高度已经和保存值相同，什么也不会存下）；新的保存值记为「取消」时要回到的高度。
-        int nextHeightAdjustment = inlineHeightActive ? touchKeyboardHeightAdjustment : savedHeightAdjustment;
+        // 键盘里正在「键盘调整」时，同步或设置页写来的新快照不能把预览覆盖回去（那样确认时高度已经和保存值相同，什么也不会存下）。
+        int nextHeightAdjustment = keyboardAdjustActive ? touchKeyboardHeightAdjustment : savedHeightAdjustment;
         boolean nextVoiceShortcut = preferences.optBoolean("touch_voice_shortcut", false);
         boolean nextShuangpinKeyHints = shuangpinKeyHintsFrom(preferences);
         boolean nextQuanpinShift = quanpinShiftFrom(preferences);
@@ -3797,7 +3805,6 @@ public final class MSIMEInputService extends InputMethodService {
         touchRowSpacingTenths = nextRowSpacing;
         touchKeyboardHeightAdjustment = nextHeightAdjustment;
         splitKeyboardPortrait = nextSplitPortrait;
-        if (inlineHeightActive) inlineHeightOriginal = savedHeightAdjustment;
         touchVoiceShortcutEnabled = nextVoiceShortcut;
         // 键面提示在 render() 的 updateShuangpinKeyHints 里按它重画；它进了 touchGeometryKey，变了就会触发 render()。
         shuangpinKeyHintsEnabled = nextShuangpinKeyHints;
@@ -8311,6 +8318,13 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void saveTouchGeometry(boolean reset) {
+        saveTouchGeometry(reset, java.util.Map.of());
+    }
+
+    /**
+     * 保存键盘几何：高度和 {@code localEdits}（「键盘调整」确认时的底部抬高、宽度和位置）在同一次原子写里进本地设置，间距和语音入口进共享文档。
+     */
+    private void saveTouchGeometry(boolean reset, java.util.Map<String, Object> localEdits) {
         if (touchGeometrySaving || traditionalOutputSaving
                 || session == 0 || preferencesSnapshot == null
                 || preferencesDirectory.isEmpty()) return;
@@ -8325,7 +8339,7 @@ public final class MSIMEInputService extends InputMethodService {
                 != touchVoiceShortcutEnabled;
         boolean heightChanged = reset || acceptedPreferences == null
             || heightAdjustmentFrom(acceptedPreferences) != touchKeyboardHeightAdjustment;
-        if (!sharedChanged && !heightChanged) return;
+        if (!sharedChanged && !heightChanged && localEdits.isEmpty()) return;
         final long targetSession = session;
         final String targetDirectory = preferencesDirectory;
         JSONObject pending = null;
@@ -8364,9 +8378,10 @@ public final class MSIMEInputService extends InputMethodService {
         final java.nio.file.Path localSettingsFile = AndroidLocalSettings.file(this);
         final JSONObject sharedDocument = pending;
         final long sharedRevision = expectedRevision;
-        KeyboardHeightSave.HeightWriter writeHeight = heightChanged ? () -> {
-            java.util.Map<String, Object> edits = new java.util.HashMap<>(1);
-            edits.put(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT, height);
+        final java.util.Map<String, Object> layoutEdits = new java.util.HashMap<>(localEdits);
+        KeyboardHeightSave.HeightWriter writeHeight = heightChanged || !layoutEdits.isEmpty() ? () -> {
+            java.util.Map<String, Object> edits = new java.util.HashMap<>(layoutEdits);
+            if (heightChanged) edits.put(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT, height);
             AndroidLocalSettings.update(localSettingsFile, edits);
         } : null;
         java.util.function.Supplier<String> writeShared = sharedDocument == null ? null : () -> {
@@ -10568,6 +10583,12 @@ public final class MSIMEInputService extends InputMethodService {
         }
 
         @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+            // 「键盘调整」收窄的宽度和水平位置落成外框的左右内边距：工具栏或候选行、按键区、面板和底栏一起收窄，两侧空出来的是外框自己的皮肤底，不透出应用，点上去也落不到按键。大屏上外框本身是 720 dp 的居中块，在它里面再收窄。
+            if (getContext() instanceof MSIMEInputService service) {
+                int[] insets = service.keyboardHorizontalInsets(MeasureSpec.getSize(widthMeasureSpec));
+                if (getPaddingLeft() != insets[0] || getPaddingRight() != insets[1])
+                    setPadding(insets[0], getPaddingTop(), insets[1], getPaddingBottom());
+            }
             View base = getChildCount() == 0 ? null : getChildAt(0);
             if (base == null || base.getVisibility() == GONE) {
                 super.onMeasure(widthMeasureSpec, heightMeasureSpec);
@@ -10583,6 +10604,20 @@ public final class MSIMEInputService extends InputMethodService {
                 params.bottomMargin = inset;
             }
             super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY));
+        }
+
+        /** 「键盘调整」打开时遮罩以下（底栏、底部抬高、导航栏那一截）同样不接受触摸：遮罩只盖键盘外框，底栏的按钮仍在下面。 */
+        @Override public boolean onInterceptTouchEvent(android.view.MotionEvent event) {
+            if (getContext() instanceof MSIMEInputService service && service.keyboardAdjustActive
+                    && service.keyboardAdjustOverlay != null && event.getY() >= service.keyboardAdjustOverlay.getBottom())
+                return true;
+            return super.onInterceptTouchEvent(event);
+        }
+
+        @android.annotation.SuppressLint("ClickableViewAccessibility")
+        @Override public boolean onTouchEvent(android.view.MotionEvent event) {
+            if (getContext() instanceof MSIMEInputService service && service.keyboardAdjustActive) return true;
+            return super.onTouchEvent(event);
         }
     }
 
@@ -10613,17 +10648,15 @@ public final class MSIMEInputService extends InputMethodService {
         PanelSurface surface = new PanelSurface(this);
         keyboardSurface = surface;
         keyboardRoot.addView(keyboardSurface);
-        // 内联高度条在百分比后面显示键盘实际画出来的高度：外框每次重新布局都把高度交给它，拖动预览、旋转和窗口高度封顶都会反映在这里。
         keyboardSurface.addOnLayoutChangeListener((changed, left, top, right, bottom,
                 oldLeft, oldTop, oldRight, oldBottom) -> {
-            if (inlineHeightBar != null) inlineHeightBar.setHeightPixels(bottom - top);
-            if (inlineHeightActive && !overlayDrawn()
-                    && inlineHeightKeyboardTop == KeyboardHeightPolicy.UNRECORDED_KEYBOARD_TOP) {
+            if (keyboardAdjustActive && !overlayDrawn()
+                    && keyboardAdjustKeyboardTop == KeyboardHeightPolicy.UNRECORDED_KEYBOARD_TOP) {
                 keyboardSurface.getLocationOnScreen(floatingLocation);
-                inlineHeightKeyboardTop = floatingLocation[1];
+                keyboardAdjustKeyboardTop = floatingLocation[1];
             }
             // 停靠背景只画键区所在的底部横带，键区伸缩后按新的上沿重画。
-            if (stableDockedWindow() || inlineHeightActive) keyboardRoot.invalidate();
+            if (stableDockedWindow() || keyboardAdjustActive) keyboardRoot.invalidate();
             // 面板变高变窄（换布局、调高度、旋转）后按存着的千分比重新摆，保证仍在窗口里；跟随光标的候选栏换了内容、变了高度后同样按光标重新摆。
             if (overlayDrawn()) positionKeyboardSurface();
         });
@@ -10655,6 +10688,11 @@ public final class MSIMEInputService extends InputMethodService {
         imeLetterRows.keyPreviewLayer = new FrameLayout(this);
         surface.fullBleed.add(imeLetterRows.keyPreviewLayer);
         keyboardSurface.addView(imeLetterRows.keyPreviewLayer, LayoutPolicy.frameMatchParentParams());
+        // 「键盘调整」遮罩：不是 fullBleed，外框把它的底边距设成键盘列的底部内边距，它就正好盖住工具栏或候选行加按键区，不盖底栏、底部抬高和导航栏那一截。
+        keyboardAdjustOverlay = new KeyboardAdjustOverlay(this);
+        keyboardAdjustOverlay.setListener(keyboardAdjustListener);
+        ViewPolicy.hide(keyboardAdjustOverlay);
+        keyboardSurface.addView(keyboardAdjustOverlay, LayoutPolicy.frameMatchParentParams());
         candidateCanvasRegion = new CandidateCanvasColumn(this);
         LinearLayout candidateRegion = candidateCanvasRegion;
         candidateHeightSpacer = new View(this);
@@ -10692,18 +10730,6 @@ public final class MSIMEInputService extends InputMethodService {
         ViewPolicy.hide(candidateViewport);
         imeToolbar.addCandidateLine(candidateRegion, candidateViewport,
             pixels(ImeToolbar.CANDIDATE_LINE_DP));
-        imeToolbar.addInlineHeightBar(candidateRegion);
-        inlineHeightBar.setListener(new InlineHeightBar.Listener() {
-            @Override public void onPercentChanged(int percent, boolean fromUser) {
-                previewInlineHeight(percent);
-            }
-
-            @Override public void onCancel() { finishInlineHeight(false); }
-
-            @Override public void onReset() { previewInlineHeight(KeyboardHeightPolicy.DEFAULT_HEIGHT_PERCENT); }
-
-            @Override public void onDone() { finishInlineHeight(true); }
-        });
         floatingBar = new FloatingKeyboardBar(this);
         floatingBar.setListener(new FloatingKeyboardBar.Listener() {
             @Override public void dragStarted() { startFloatingDrag(); }
@@ -11137,56 +11163,221 @@ public final class MSIMEInputService extends InputMethodService {
         if (phraseScroll != null) ViewPolicy.hide(phraseScroll);
     }
 
-    /** 功能面板「键盘高度」：顶部一行换成内联高度条，拖动时实时预览，完成才保存，取消恢复原值。 */
-    void showInlineHeight() {
+    /** 功能面板「键盘调整」：整块键盘盖上遮罩，拖四条边和「移动」实时预览高度、底部抬高、宽度和水平位置；确认或任何离开方式（收起键盘、返回键、切应用、换输入框）都保存，没有取消。 */
+    void showKeyboardAdjust() {
         if (touchGeometrySaving || traditionalOutputSaving || session == 0
                 || preferencesSnapshot == null || preferencesDirectory.isEmpty()
-                || inlineHeightBar == null) {
+                || keyboardAdjustOverlay == null) {
             notice("键盘设置尚未就绪");
             return;
         }
         closeToolbarPanels();
         closeCandidatePanel();
-        inlineHeightOriginal = touchKeyboardHeightAdjustment;
-        // 拖动期间不再让输入法窗口跟着键区变高（#10025）：每次改窗口高度，应用都要按新 insets 重排，新尺寸的窗口在键区画好前先露出白底，拖动时整块闪白、应用上下跳。进入时铺满成透明全高窗口，应用的避让边界固定在键区此刻的上沿，拖动只在窗口里伸缩键区；完成或取消时才恢复停靠窗口，只改一次高度。
-        // 功能面板盖在键区上、与键区同高，此刻的上沿就是应用正在避让的边界；面板收起后的布局还没发生，所以在这里记。浮动键盘不让应用避让，它的屏幕上沿不是边界，不记；调整中途停靠后由键区布局重新记下。
+        // 拖动期间不让输入法窗口跟着键盘变高（#10025）：每次改窗口高度，应用都要按新 insets 重排，新尺寸的窗口在键区画好前先露出白底，拖动时整块闪白、应用上下跳。进入时铺满成透明全高窗口，应用的避让边界固定在键盘此刻的上沿，拖动只在窗口里伸缩、移动键盘；结束时才恢复停靠窗口，只改一次高度。
+        // 功能面板盖在键区上、与键区同高，此刻的上沿就是应用正在避让的边界；面板收起后的布局还没发生，所以在这里记。浮动键盘不让应用避让，它的屏幕上沿不是边界，不记；调整中途停靠后由外框布局重新记下。
         if (overlayDrawn()) {
-            inlineHeightKeyboardTop = KeyboardHeightPolicy.UNRECORDED_KEYBOARD_TOP;
+            keyboardAdjustKeyboardTop = KeyboardHeightPolicy.UNRECORDED_KEYBOARD_TOP;
         } else {
             keyboardSurface.getLocationOnScreen(floatingLocation);
-            inlineHeightKeyboardTop = floatingLocation[1];
+            keyboardAdjustKeyboardTop = floatingLocation[1];
         }
-        inlineHeightConfiguration = new Configuration(getResources().getConfiguration());
-        inlineHeightActive = true;
-        inlineHeightBar.setPercent(
-            KeyboardHeightPolicy.heightAdjustmentToPercent(touchKeyboardHeightAdjustment));
+        keyboardAdjustConfiguration = new Configuration(getResources().getConfiguration());
+        keyboardAdjustLiftDp = KeyboardAdjustPolicy.liftDp(localSettings.bool(AndroidLocalSettings.BOTTOM_PADDING),
+            localSettings.integer(AndroidLocalSettings.BOTTOM_PADDING_HEIGHT), imeBottomBar.shown());
+        keyboardAdjustOriginalLiftDp = keyboardAdjustLiftDp;
+        keyboardAdjustHorizontal = savedKeyboardHorizontal();
+        keyboardAdjustOriginalHorizontal = keyboardAdjustHorizontal;
+        keyboardAdjustActive = true;
+        // 之后才建出来的面板会排在遮罩上面，打开时把遮罩挪到最上层。
+        keyboardAdjustOverlay.bringToFront();
         render();
         imeStyler.applySkin();
-        inlineHeightBar.requestFocus();
+        View top = keyboardAdjustOverlay.part(KeyboardAdjustPolicy.Part.TOP);
+        if (top != null) top.requestFocus();
     }
 
-    private void previewInlineHeight(int percent) {
-        if (!inlineHeightActive || touchGeometrySaving || traditionalOutputSaving) return;
-        touchKeyboardHeightAdjustment = KeyboardHeightPolicy.designHeightAdjustment(
-            KeyboardHeightPolicy.heightPercentToAdjustment(percent));
-        imeStyler.applyKeyboardGeometry();
+    /** 遮罩打开时读屏只走遮罩：键盘列和底栏下面的按键只是预览，按不到，也不该被读屏选中。关上后交还。 */
+    private void applyKeyboardAdjustAccessibility() {
+        int mode = keyboardAdjustActive ? View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            : View.IMPORTANT_FOR_ACCESSIBILITY_AUTO;
+        if (imeFrame.keyboard != null && imeFrame.keyboard.getImportantForAccessibility() != mode)
+            imeFrame.keyboard.setImportantForAccessibility(mode);
+        imeBottomBar.setImportantForAccessibility(mode);
     }
 
-    private void finishInlineHeight(boolean commit) {
-        if (!inlineHeightActive) return;
-        inlineHeightActive = false;
-        inlineHeightKeyboardTop = KeyboardHeightPolicy.UNRECORDED_KEYBOARD_TOP;
-        inlineHeightConfiguration = null;
-        if (commit) {
-            saveTouchGeometry();
-        } else {
-            touchKeyboardHeightAdjustment = inlineHeightOriginal;
+    /** 本地设置里存着的停靠键盘宽度与水平位置。 */
+    private KeyboardAdjustPolicy.Horizontal savedKeyboardHorizontal() {
+        return new KeyboardAdjustPolicy.Horizontal(localSettings.integer(AndroidLocalSettings.KEYBOARD_WIDTH_PERCENT),
+            localSettings.integer(AndroidLocalSettings.KEYBOARD_POSITION_X));
+    }
+
+    /** 此刻哪几项生效（{@link KeyboardAdjustPolicy.Availability}）：调整期间实体键盘的候选条模式会临时展开键区，所以按候选条模式本身判断「收起键区」，与关上遮罩后的状态一致。 */
+    private KeyboardAdjustPolicy.Availability keyboardAdjustAvailability() {
+        return KeyboardAdjustPolicy.Availability.of(overlayDrawn(), hardwareKeyboardMode,
+            imeBottomBar.phoneLandscape(), ImeFrame.oneHanded(ImeFrame.effectiveOneHanded(this)), splitKeyboardDrawn());
+    }
+
+    /** 宽度与水平位置此刻是否作用在停靠键盘上：条件同底部抬高（{@link KeyboardBottomBarPolicy#extraPaddingDp}），另外单手模式和分离式键盘时不生效。 */
+    private boolean keyboardWidthApplies() {
+        return !overlayDrawn() && !hardwareKeysCollapsed() && !imeBottomBar.phoneLandscape()
+            && !ImeFrame.oneHanded(ImeFrame.effectiveOneHanded(this)) && !splitKeyboardDrawn();
+    }
+
+    /** 键盘外框在可用宽度 {@code availablePx} 里两侧各空出多少像素：调整期间按预览，否则按本地设置；宽度不生效时两侧都是 0。由外框测量时调用。 */
+    int[] keyboardHorizontalInsets(int availablePx) {
+        if (availablePx <= 0 || !keyboardWidthApplies()) return new int[] {0, 0};
+        return KeyboardAdjustPolicy.insetsPx(keyboardAdjustActive ? keyboardAdjustHorizontal : savedKeyboardHorizontal(),
+            availablePx, pixels(KeyboardAdjustPolicy.MIN_WIDTH_DP));
+    }
+
+    /** 键区下面此刻额外抬起多少 dp（{@link KeyboardBottomBarPolicy#extraPaddingDp}）：调整期间按预览的抬高，否则按本地设置的「键盘底部高度」。 */
+    int keyboardLiftDp(boolean barShown) {
+        boolean enabled = keyboardAdjustActive ? keyboardAdjustLiftDp > 0
+            : localSettings.bool(AndroidLocalSettings.BOTTOM_PADDING);
+        int height = keyboardAdjustActive ? KeyboardAdjustPolicy.storedBottomHeightDp(keyboardAdjustLiftDp, barShown)
+            : localSettings.integer(AndroidLocalSettings.BOTTOM_PADDING_HEIGHT);
+        return KeyboardBottomBarPolicy.extraPaddingDp(enabled, height, barShown, floatingDrawn(), hardwareKeysCollapsed(),
+            imeBottomBar.phoneLandscape());
+    }
+
+    /** 套用一组预览值：变了的那几项各自重排，高度改行高，抬高改键盘列的底部内边距，宽度和位置改外框的左右内边距。 */
+    private void previewKeyboardAdjust(int heightAdjustment, int liftDp, KeyboardAdjustPolicy.Horizontal horizontal) {
+        if (!keyboardAdjustActive || touchGeometrySaving || traditionalOutputSaving) return;
+        if (heightAdjustment != touchKeyboardHeightAdjustment) {
+            touchKeyboardHeightAdjustment = KeyboardHeightPolicy.designHeightAdjustment(heightAdjustment);
             imeStyler.applyKeyboardGeometry();
         }
-        // render 里的 applyFloatingLayout 按最终键区高度恢复停靠窗口，整个调整只在这里改一次窗口高度；根视图同时换回整块底色。
+        if (liftDp != keyboardAdjustLiftDp) {
+            keyboardAdjustLiftDp = liftDp;
+            imeBottomBar.apply(imeFrame.keyboard);
+        }
+        if (!horizontal.equals(keyboardAdjustHorizontal)) {
+            keyboardAdjustHorizontal = horizontal;
+            keyboardSurface.requestLayout();
+        }
+    }
+
+    /** 关上「键盘调整」并保存：高度经键盘的几何保存写本地设置，抬高、宽度和位置只写生效且变了的项，先套进内存里的本地设置，键盘不必等后台写完才按新值画。 */
+    private void finishKeyboardAdjust() {
+        if (!keyboardAdjustActive) return;
+        java.util.Map<String, Object> edits = AndroidLocalSettings.keyboardAdjustEdits(keyboardAdjustAvailability(),
+            imeBottomBar.shown(), keyboardAdjustOriginalLiftDp, keyboardAdjustLiftDp,
+            keyboardAdjustOriginalHorizontal, keyboardAdjustHorizontal);
+        keyboardAdjustActive = false;
+        keyboardAdjustKeyboardTop = KeyboardHeightPolicy.UNRECORDED_KEYBOARD_TOP;
+        keyboardAdjustConfiguration = null;
+        if (!edits.isEmpty()) localSettings = localSettings.withEdits(edits);
+        saveTouchGeometry(false, edits);
+        // render 里的 applyFloatingLayout 按最终键盘高度恢复停靠窗口，整个调整只在这里改一次窗口高度；根视图同时换回整块底色。
         render();
         imeStyler.applySkin();
+        if (keyboardSurface != null) keyboardSurface.requestLayout();
     }
+
+    /** 遮罩的拖动和读屏都换算成预览值；数值规则全在 {@link KeyboardAdjustPolicy}。 */
+    private final KeyboardAdjustOverlay.Listener keyboardAdjustListener = new KeyboardAdjustOverlay.Listener() {
+        @Override public void dragStarted(KeyboardAdjustPolicy.Part part) {
+            keyboardAdjustDragHeight = touchKeyboardHeightAdjustment;
+            keyboardAdjustDragLiftDp = keyboardAdjustLiftDp;
+            keyboardAdjustDragHorizontal = keyboardAdjustHorizontal;
+        }
+
+        @Override public void dragged(KeyboardAdjustPolicy.Part part, float dxPx, float dyPx) {
+            if (keyboardSurface == null) return;
+            KeyboardAdjustPolicy.Availability availability = keyboardAdjustAvailability();
+            int dyDp = Math.round(DimensionPolicy.fromPixels(MSIMEInputService.this, dyPx));
+            int dx = Math.round(dxPx);
+            int window = getResources().getConfiguration().screenHeightDp;
+            boolean bar = imeBottomBar.shown();
+            int available = keyboardSurface.getWidth();
+            int minimum = pixels(KeyboardAdjustPolicy.MIN_WIDTH_DP);
+            switch (part) {
+                case TOP -> previewKeyboardAdjust(KeyboardAdjustPolicy.dragTop(keyboardAdjustDragHeight, dyDp, window),
+                    keyboardAdjustLiftDp, keyboardAdjustHorizontal);
+                case BOTTOM -> {
+                    if (!availability.lift()) return;
+                    KeyboardAdjustPolicy.Vertical vertical = KeyboardAdjustPolicy.dragBottom(keyboardAdjustDragHeight,
+                        keyboardAdjustDragLiftDp, dyDp, window, bar);
+                    previewKeyboardAdjust(vertical.heightAdjustment(), vertical.liftDp(), keyboardAdjustHorizontal);
+                }
+                case LEFT, RIGHT -> {
+                    if (!availability.width()) return;
+                    previewKeyboardAdjust(touchKeyboardHeightAdjustment, keyboardAdjustLiftDp, part == KeyboardAdjustPolicy.Part.LEFT
+                        ? KeyboardAdjustPolicy.dragLeft(keyboardAdjustDragHorizontal, dx, available, minimum)
+                        : KeyboardAdjustPolicy.dragRight(keyboardAdjustDragHorizontal, dx, available, minimum));
+                }
+                case MOVE -> {
+                    if (!availability.lift()) return;
+                    previewKeyboardAdjust(touchKeyboardHeightAdjustment,
+                        KeyboardAdjustPolicy.dragLift(keyboardAdjustDragLiftDp, dyDp, bar),
+                        availability.width() ? KeyboardAdjustPolicy.dragPosition(keyboardAdjustDragHorizontal, dx,
+                            available, minimum) : keyboardAdjustHorizontal);
+                }
+            }
+        }
+
+        @Override public void dragEnded(KeyboardAdjustPolicy.Part part) { }
+
+        @Override public void step(KeyboardAdjustPolicy.Part part, int direction, boolean vertical) {
+            if (keyboardSurface == null) return;
+            KeyboardAdjustPolicy.Availability availability = keyboardAdjustAvailability();
+            int window = getResources().getConfiguration().screenHeightDp;
+            boolean bar = imeBottomBar.shown();
+            int available = keyboardSurface.getWidth();
+            int minimum = pixels(KeyboardAdjustPolicy.MIN_WIDTH_DP);
+            switch (part) {
+                case TOP -> previewKeyboardAdjust(KeyboardAdjustPolicy.stepHeight(touchKeyboardHeightAdjustment,
+                    direction, window), keyboardAdjustLiftDp, keyboardAdjustHorizontal);
+                case BOTTOM -> {
+                    if (!availability.lift()) return;
+                    KeyboardAdjustPolicy.Vertical next = KeyboardAdjustPolicy.stepBottom(touchKeyboardHeightAdjustment,
+                        keyboardAdjustLiftDp, direction, window, bar);
+                    previewKeyboardAdjust(next.heightAdjustment(), next.liftDp(), keyboardAdjustHorizontal);
+                }
+                case LEFT, RIGHT -> {
+                    if (!availability.width()) return;
+                    previewKeyboardAdjust(touchKeyboardHeightAdjustment, keyboardAdjustLiftDp,
+                        KeyboardAdjustPolicy.stepWidth(keyboardAdjustHorizontal, part, direction, available, minimum));
+                }
+                case MOVE -> {
+                    if (!availability.lift()) return;
+                    if (availability.movesHorizontally() && !vertical) {
+                        previewKeyboardAdjust(touchKeyboardHeightAdjustment, keyboardAdjustLiftDp,
+                            KeyboardAdjustPolicy.stepPosition(keyboardAdjustHorizontal, direction));
+                    } else {
+                        previewKeyboardAdjust(touchKeyboardHeightAdjustment, KeyboardAdjustPolicy.dragLift(
+                            keyboardAdjustLiftDp, -Integer.signum(direction) * KeyboardAdjustPolicy.LIFT_STEP_DP, bar),
+                            keyboardAdjustHorizontal);
+                    }
+                }
+            }
+        }
+
+        @Override public KeyboardAdjustPolicy.Range range(KeyboardAdjustPolicy.Part part, boolean vertical) {
+            int window = getResources().getConfiguration().screenHeightDp;
+            boolean bar = imeBottomBar.shown();
+            int available = keyboardSurface == null ? 0 : keyboardSurface.getWidth();
+            int minimum = pixels(KeyboardAdjustPolicy.MIN_WIDTH_DP);
+            return switch (part) {
+                case TOP -> KeyboardAdjustPolicy.heightRange(touchKeyboardHeightAdjustment, window);
+                case BOTTOM -> KeyboardAdjustPolicy.bottomRange(touchKeyboardHeightAdjustment, keyboardAdjustLiftDp,
+                    window, bar);
+                case LEFT, RIGHT -> KeyboardAdjustPolicy.widthRange(keyboardAdjustHorizontal, available, minimum);
+                case MOVE -> keyboardAdjustAvailability().movesHorizontally() && !vertical
+                    ? KeyboardAdjustPolicy.positionRange(keyboardAdjustHorizontal, available, minimum)
+                    : KeyboardAdjustPolicy.liftRange(keyboardAdjustLiftDp, bar);
+            };
+        }
+
+        @Override public void reset() {
+            previewKeyboardAdjust(KeyboardHeightPolicy.DEFAULT_HEIGHT_ADJUSTMENT_DP, 0,
+                KeyboardAdjustPolicy.Horizontal.DEFAULT);
+        }
+
+        @Override public void confirm() {
+            finishKeyboardAdjust();
+        }
+    };
 
     /** 触控板模式保存后接回统一快照；密码等直通编辑器没有 Engine 会话，也能保存面板选择。 */
     void acceptTextTrackpadPreferences(JSONObject snapshot) {
@@ -11377,19 +11568,19 @@ public final class MSIMEInputService extends InputMethodService {
 
     /**
      * 把浮动 / 停靠套到输入法窗口上。浮动（以及候选栏跟随光标）时窗口、系统的 inputArea 与键盘根视图都铺满屏幕（根视图透明，见 ImeStyler.applySkin），键盘外框缩窄成一块面板，{@link #onComputeInsets} 只把面板算作可触摸区域、内容区不占高度，所以应用既不被顶起也不被压缩，面板外的触摸落到应用上。停靠时把窗口和 inputArea 恢复成第一次浮动前的高度。
-     * 剪贴板全文预览同样使用透明全高窗口，但停靠键区保留原高，应用仍只为键区让出空间。内联高度条打开期间也铺满，键区包裹内容贴底，拖动时只在窗口里伸缩，不改窗口高度。API 28 从首次显示起固定全高，避免扩窗先使用旧 insets 使编辑器丢焦点。
+     * 剪贴板全文预览同样使用透明全高窗口，但停靠键区保留原高，应用仍只为键区让出空间。「键盘调整」打开期间也铺满，键盘外框包裹内容贴底，拖动时只在窗口里伸缩、移动，不改窗口高度。API 28 从首次显示起固定全高，避免扩窗先使用旧 insets 使编辑器丢焦点。
      *
      * @param force 系统重建了窗口里的布局（{@link #setInputView}、{@link #updateFullscreenMode}）时为真，状态没变也重新套一遍
      */
     private void applyFloatingLayout(boolean force) {
         boolean caret = caretCandidatesDrawn();
         boolean floating = caret || floatingDrawn();
-        boolean fullWindow = stableDockedWindow() || floating || editorPreviewExpanded() || inlineHeightActive;
+        boolean fullWindow = stableDockedWindow() || floating || editorPreviewExpanded() || keyboardAdjustActive;
         if (!force && fullWindow == fullWindowLayoutApplied
                 && floating == overlayLayoutApplied && caret == caretLayoutApplied) return;
-        // 调整高度期间在浮动与停靠之间切换（浮动条上的停靠键、接上或拔下实体键盘）：记下的键区上沿属于另一种布局，作废后等键区在新位置布局时重新记下，否则应用会停在浮动面板的上沿被截掉一截。
-        if (inlineHeightActive && floating != overlayLayoutApplied)
-            inlineHeightKeyboardTop = KeyboardHeightPolicy.UNRECORDED_KEYBOARD_TOP;
+        // 「键盘调整」期间在浮动与停靠之间切换（接上或拔下实体键盘）：记下的上沿属于另一种布局，作废后等外框在新位置布局时重新记下，否则应用会停在浮动面板的上沿被截掉一截。
+        if (keyboardAdjustActive && floating != overlayLayoutApplied)
+            keyboardAdjustKeyboardTop = KeyboardHeightPolicy.UNRECORDED_KEYBOARD_TOP;
         fullWindowLayoutApplied = fullWindow;
         overlayLayoutApplied = floating;
         caretLayoutApplied = caret;
@@ -11444,14 +11635,14 @@ public final class MSIMEInputService extends InputMethodService {
 
     /**
      * 浮动时：内容区与可见区都从窗口底边算起（应用不让出高度），只有面板接收触摸。停靠时用系统默认的计算。跟随光标的候选栏同样如此；它空闲时不显示，可触摸区域为空，所有触摸都落到应用上。
-     * 全文预览、内联高度条及 API 28 的透明全高窗口只将键区划为根窗口触摸范围；停靠键区的上沿仍是应用让出空间的边界，全文预览和内联高度条期间固定为打开时记下的上沿。
+     * 全文预览、「键盘调整」及 API 28 的透明全高窗口只将键盘外框划为根窗口触摸范围；停靠键区的上沿仍是应用让出空间的边界，全文预览和「键盘调整」期间固定为打开时记下的上沿。
      */
     @Override public void onComputeInsets(InputMethodService.Insets outInsets) {
         super.onComputeInsets(outInsets);
         // 浮动时 inputArea 铺满窗口，系统默认的算法会把整个窗口算成键盘、把应用压没，所以这里总要覆盖；面板还没布局时可触摸区域为空。
         // 候选栏、剪贴板预览和文本编辑放大条共用同一块输入区；停靠键盘只在稳定布局后参与 inset 计算。
         if ((!overlayDrawn() && !clipboardPreviewExpanded && !editorPreviewExpanded()
-                && !stableDockedWindow() && !inlineHeightActive) || keyboardSurface == null) return;
+                && !stableDockedWindow() && !keyboardAdjustActive) || keyboardSurface == null) return;
         android.app.Dialog dialog = getWindow();
         android.view.Window window = dialog == null ? null : dialog.getWindow();
         if (window == null) return;
@@ -11466,12 +11657,12 @@ public final class MSIMEInputService extends InputMethodService {
             int keyboardTop = Math.max(0, clipboardPreviewKeyboardTop - windowOrigin[1]);
             outInsets.contentTopInsets = keyboardTop;
             outInsets.visibleTopInsets = keyboardTop;
-        } else if (inlineHeightActive && !overlayDrawn()) {
-            // 拖动高度条时应用的边界固定在进入时的键区上沿，键区变高就盖住应用的底部，变矮就露出下面的应用窗口，应用本身不重排。
+        } else if (keyboardAdjustActive && !overlayDrawn()) {
+            // 「键盘调整」时应用的边界固定在进入时的键盘上沿，键盘变高、抬高就盖住应用的底部，变矮就露出下面的应用窗口，应用本身不重排。
             int[] windowOrigin = new int[2];
             window.getDecorView().getLocationOnScreen(windowOrigin);
             int keyboardTop = KeyboardHeightPolicy.adjustingInsetTop(
-                inlineHeightKeyboardTop, windowOrigin[1], floatingLocation[1]);
+                keyboardAdjustKeyboardTop, windowOrigin[1], floatingLocation[1]);
             outInsets.contentTopInsets = keyboardTop;
             outInsets.visibleTopInsets = keyboardTop;
         } else if (!overlayDrawn()) {
@@ -12046,13 +12237,16 @@ public final class MSIMEInputService extends InputMethodService {
         }
         boolean hasDiagnostic = InputDiagnosticPolicy.visible(diagnosticMessage);
         imeDebugOverlay.updateDiagnosticView(hasDiagnostic);
-        boolean heightMode = inlineHeightActive;
-        if (inlineHeightBar != null)
-            ViewPolicy.setVisible(inlineHeightBar, heightMode);
+        // 「键盘调整」的遮罩盖在照常画出的键盘上：工具栏、候选行和按键区都不为它让位，下面画的就是调整后的样子。
+        if (keyboardAdjustOverlay != null) {
+            ViewPolicy.setVisible(keyboardAdjustOverlay, keyboardAdjustActive);
+            if (keyboardAdjustActive) keyboardAdjustOverlay.setAvailability(keyboardAdjustAvailability());
+            applyKeyboardAdjustAccessibility();
+        }
         if (candidateHeader != null) {
             // 空闲时这一行只给常驻的模式标签（直接输入、准备中）：简繁切换、设置保存、同步重试、Shift 这类一闪而过的提示若也占这一行，每次出现和消失都把整副键盘顶上去又落回来。临时提示只在失败时以 Toast 说出来。
             boolean modeLabel = !message.isEmpty();
-            ViewPolicy.setVisible(candidateHeader, !heightMode && !hasDiagnostic && (!idle || modeLabel));
+            ViewPolicy.setVisible(candidateHeader, !hasDiagnostic && (!idle || modeLabel));
             if (idle && !modeLabel) announceIdleNotice(preferencesNotice);
         }
         boolean keysCollapsed = hardwareKeysCollapsed();
@@ -12060,7 +12254,7 @@ public final class MSIMEInputService extends InputMethodService {
         applyCaretCandidates(!candidateIdle || hasDiagnostic);
         // 候选条模式里空闲时工具栏总要显示：展开键在上面，「显示方式：隐藏」时整副键盘会只剩导航栏那一截。
         // 隐藏工具栏时，底行仍能打开表情面板；面板的返回键在工具栏上，打开期间必须临时显示（toolbarExitNeeded）。工具按钮全关时同样不显示这一行（toolbarRowHidden）。
-        boolean toolbarRow = !heightMode && candidateIdle && !hasDiagnostic
+        boolean toolbarRow = candidateIdle && !hasDiagnostic
             && (!toolbarRowHidden() || keysCollapsed || toolbarExitNeeded());
         // 开始打字就收起「最近复制」：用户已经在输入别的内容了。这里看 idle 而不是 candidateIdle：无建议框、网址、邮箱或关掉英文建议时打英文没有候选，只有当前词能说明用户开始打字了。
         if (!idle) recentClip.dismiss();
@@ -12069,7 +12263,7 @@ public final class MSIMEInputService extends InputMethodService {
         // 文本编辑面板保留顶部的复制预览，点「复制」后不必先返回键盘（#8104）。
         boolean recentPanelAllowed = ViewPolicy.isVisible(textEditPanel) || !anyToolbarPanelOpen();
         boolean autofillShown = inlineAutofill != null && inlineAutofill.update(
-            !heightMode && idle && !hasDiagnostic && !keysCollapsed && !anyToolbarPanelOpen() && connection != null);
+            idle && !hasDiagnostic && !keysCollapsed && !anyToolbarPanelOpen() && connection != null);
         boolean recentAllowed = !autofillShown && toolbarRow && !keysCollapsed && recentPanelAllowed && recentClipEnabled()
             && connection != null && imePrivacyGate.allows(ImePrivacyGate.Record.CLIPBOARD_HISTORY);
         String recent = recentAllowed ? recentClip.text(nowMs) : null;
@@ -12082,7 +12276,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (shortcutToolbar != null)
             ViewPolicy.setVisible(shortcutToolbar, toolbarRow && !recentShown && !autofillShown);
         if (candidateLine != null)
-            ViewPolicy.setVisible(candidateLine, !heightMode && !candidateIdle && !hasDiagnostic);
+            ViewPolicy.setVisible(candidateLine, !candidateIdle && !hasDiagnostic);
         if (!ViewPolicy.isVisible(replyKeyboard))
             imeBottomRow.updateActionRow();
         if (candidateViewport != null)
