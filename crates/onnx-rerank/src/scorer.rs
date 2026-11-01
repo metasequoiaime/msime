@@ -22,16 +22,20 @@ pub enum LoadError {
 }
 
 /// 进程里只建一个 ONNX Runtime 环境，所有会话共用。
+///
+/// 建环境放在 `get_or_init` 里：先查后建的写法会让同时加载模型的两个线程各建一个环境，Linux x86_64 上并行跑测试时模型因此加载失败过。建失败也记下来，不反复重试。
 fn environment() -> Result<&'static ort::environment::Environment, ort::Error> {
-    static ENVIRONMENT: OnceLock<ort::environment::Environment> = OnceLock::new();
-    if let Some(environment) = ENVIRONMENT.get() {
-        return Ok(environment);
-    }
-    let built = ort::init()
-        .with_name("msime-rerank")
-        .with_telemetry(false)
-        .build()?;
-    Ok(ENVIRONMENT.get_or_init(|| built))
+    static ENVIRONMENT: OnceLock<Result<ort::environment::Environment, String>> = OnceLock::new();
+    ENVIRONMENT
+        .get_or_init(|| {
+            ort::init()
+                .with_name("msime-rerank")
+                .with_telemetry(false)
+                .build()
+                .map_err(|error| error.to_string())
+        })
+        .as_ref()
+        .map_err(|message| ort::Error::new(message.clone()))
 }
 
 /// 模型缓存：每个节点各层的键和值、最后一层的隐状态和对数归一化常数。

@@ -39,9 +39,12 @@ archives() {
 if [[ $TARGET == linux-* ]]; then
   PLATFORM=linux/amd64; [[ $TARGET == linux-aarch64 ]] && PLATFORM=linux/arm64
   docker run --rm --platform $PLATFORM -v $SOURCE:$SOURCE -v $WORK:$WORK -v $HERE:$HERE -w $SOURCE $LINUX_IMAGE bash -euo pipefail -c "
+    # 镜像里的 Python 不带 venv 模块，建出的虚拟环境没有 pip；装上它，再在虚拟环境里装 ONNX Runtime 1.24 要的 CMake（不低于 3.28，bookworm 自带的是 3.25）。
+    apt-get update -qq && apt-get install -y -qq python3-venv > /dev/null
     python3 -m venv /tmp/venv && /tmp/venv/bin/pip install -q flatbuffers cmake==3.31.6
     export PATH=/tmp/venv/bin:\$PATH
-    python3 tools/ci_build/build.py --build_dir $BUILD ${COMMON[*]} ${EXTRA[*]}
+    # 一次性容器里本来就是 root；ONNX Runtime 的构建脚本默认拒绝 root。
+    python3 tools/ci_build/build.py --build_dir $BUILD ${COMMON[*]} ${EXTRA[*]} --allow_running_as_root
     { echo CREATE $OUT/libonnxruntime.a; find $BUILD/MinSizeRel -name '*.a' | grep -viE 'test|gtest|gmock|benchmark' | sed 's/^/ADDLIB /'; echo SAVE; echo END; } | ar -M"
 else
   # 构建脚本要 flatbuffers 来读算子清单；放进这次构建自己的虚拟环境，不碰系统的 Python。
