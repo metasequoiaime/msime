@@ -387,6 +387,7 @@ test("Android touch schemes follow Apple order and stay absent on hosts without 
   expect(
     within(group)
       .getAllByRole("button")
+      .filter((button) => !button.hasAttribute("data-info-tip"))
       .map((button) => button.textContent?.replace("✓", "")),
   ).toEqual([...touchSchemeLabels, "全拼 14 键", "九键双拼", "全拼 18 键"]);
   // 高情商回复是键盘工具栏上的工具，不是输入方案。
@@ -431,6 +432,7 @@ test("touch hosts offering Cantonese, Zhuyin, Vietnamese, Tibetan and Stroke lis
   expect(
     within(group)
       .getAllByRole("button")
+      .filter((button) => !button.hasAttribute("data-info-tip"))
       .map((button) => button.textContent?.replace("✓", "")),
   ).toEqual([
     ...touchSchemeLabels,
@@ -2741,7 +2743,8 @@ test("Linux developer page moves the data root and says the fixed configuration 
   );
   fireEvent.click(screen.getByRole("button", { name: /^(维护与诊断|维护诊断)$/ }));
   expect(await screen.findByText("/synthetic/home/.config/msime-client")).toBeDefined();
-  expect(screen.getByRole("group", { name: "数据目录" }).textContent).toContain(
+  // 说明收进了组名旁的「?」，按整组（含气泡里的说明文字）读。
+  expect(screen.getByRole("group", { name: "数据目录" }).closest("section")?.textContent).toContain(
     "凭据固定保存在 ~/.config/msime-client",
   );
   fireEvent.click(screen.getByRole("button", { name: "选择位置…" }));

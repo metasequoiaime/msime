@@ -170,8 +170,10 @@ test("a Linux host takes typed program names, never offers the picker and says w
   await settingsFormReady();
   selectSettingsTab("中英文");
   const table = await screen.findByRole("group", { name: "应用例外" });
-  expect(table.textContent).toContain("Fcitx5");
-  expect(table.textContent).toContain("GNOME Wayland");
+  // 框架说明收进了组名旁的「?」，按整组（含气泡里的说明文字）读。
+  const group = table.closest("section")!;
+  expect(group.textContent).toContain("Fcitx5");
+  expect(group.textContent).toContain("GNOME Wayland");
   expect(screen.queryByRole("button", { name: "添加应用…" })).toBeNull();
   const input = screen.getByLabelText("程序名");
   expect((input as HTMLInputElement).placeholder).toBe("例如 firefox");

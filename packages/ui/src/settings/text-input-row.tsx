@@ -9,6 +9,8 @@ export interface TextInputRowProps extends Omit<
 > {
   title: ReactNode;
   description?: ReactNode;
+  /** 状态、当前值或校验提示，常驻标题下方；解释性说明用 `description`，收进「?」。 */
+  detail?: ReactNode;
   hidden?: boolean;
   label: string;
   value: string;
@@ -20,6 +22,7 @@ export interface TextInputRowProps extends Omit<
 export function TextInputRow({
   title,
   description,
+  detail,
   hidden,
   label,
   value,
@@ -29,7 +32,7 @@ export function TextInputRow({
   ...inputProps
 }: TextInputRowProps) {
   return (
-    <Row title={title} description={description} hidden={hidden} wideControl>
+    <Row title={title} description={description} detail={detail} hidden={hidden} wideControl>
       <ControlledInput
         {...inputProps}
         className={className}

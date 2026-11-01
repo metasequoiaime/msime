@@ -306,6 +306,9 @@ set(MSIME_HOST_LIBRARY "" CACHE FILEPATH "Cargo-built host library or import lib
 include("${CMAKE_CURRENT_SOURCE_DIR}/RequireHostLibrary.cmake")
 enable_language(RC)
 
+include("${CMAKE_CURRENT_SOURCE_DIR}/TelemetryWer.cmake")
+add_subdirectory(tests/capture_lifecycle)
+
 add_library(msime-tsf SHARED
   Candidate/EnumTfCandidates.cpp Candidate/SearchCandidateProvider.cpp
   Candidate/TipCandidateList.cpp Candidate/TipCandidateString.cpp
@@ -333,9 +336,11 @@ add_library(msime-tsf SHARED
   HostOptionsPaths.cpp
   HostConfiguration.cpp HostConfiguration.h AsyncSnapshotCache.h
   HostOptionsPaths.h PreparedHostOptions.cpp
+  TsfCrashCapture.h TsfCrashCapture.cpp
   IME/MetasequoiaIME.rc
   IME/MetasequoiaIME.def
 )
+add_dependencies(msime-tsf msime-tsf-crash-wer)
 add_dependencies(msime-tsf-class-factory-test msime-tsf)
 
 find_package(fmt CONFIG REQUIRED)
@@ -364,6 +369,11 @@ install(TARGETS msime-tsf
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib
 )
+install(TARGETS msime-tsf-crash-wer
+  RUNTIME DESTINATION bin
+  LIBRARY DESTINATION lib
+  ARCHIVE DESTINATION lib
+)
 if(MSVC)
   target_compile_options(msime-tsf PRIVATE /W4 /Zc:__cplusplus /Zc:threadSafeInit-)
   set_property(TARGET msime-tsf PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
@@ -377,6 +387,7 @@ if(MSIME_TSF_ARM64X)
     message(FATAL_ERROR "MSIME_TSF_ARM64X needs MSVC and an absolute MSIME_TSF_ARM64X_RESPONSE")
   endif()
   if(MSIME_TSF_ARM64X STREQUAL "ARM64")
+    target_compile_definitions(msime-tsf PRIVATE MSIME_TSF_NATIVE_ARM64_HOST=1)
     get_filename_component(msime_arm64x_response_dir "${MSIME_TSF_ARM64X_RESPONSE}" DIRECTORY)
     file(MAKE_DIRECTORY "${msime_arm64x_response_dir}")
     target_link_options(msime-tsf PRIVATE "/LINKREPROFULLPATHRSP:${MSIME_TSF_ARM64X_RESPONSE}")

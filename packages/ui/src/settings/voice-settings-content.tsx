@@ -48,6 +48,7 @@ import type { ProviderPresetControlFactory } from "./provider-preset-control";
 import type { useProviderCredentials, VoiceCredentialBindings } from "./use-provider-credentials";
 import { GroupList, LinkRow, MoreOptions } from "../core/platform-controls";
 import * as platform from "../core/platform-controls-style";
+import { SettingsGroupNote } from "./settings-group-note";
 import { SettingsPageFieldset } from "./settings-page-fieldset";
 
 const voiceTabs = [
@@ -509,7 +510,7 @@ export function VoiceSettingsContent({
           />
           <SwitchRow
             title="自动添加标点"
-            description={
+            detail={
               punctuationSupported ? undefined : "当前识别服务不支持，仅豆包语音识别可以自动加标点"
             }
             disabled={!punctuationSupported}
@@ -548,14 +549,14 @@ export function VoiceSettingsContent({
             {serviceStatus && (
               <LinkRow title="服务配置" value={serviceStatus} onClick={openPhoneService} />
             )}
+            <SettingsGroupNote>
+              {harmonyPhoneVoiceFooter({
+                localVoice,
+                localVoiceModelsAvailable: Boolean(client.localVoiceModels),
+                systemVoice,
+              })}
+            </SettingsGroupNote>
           </GroupList>
-          <p className={platform.groupFooter}>
-            {harmonyPhoneVoiceFooter({
-              localVoice,
-              localVoiceModelsAvailable: Boolean(client.localVoiceModels),
-              systemVoice,
-            })}
-          </p>
         </div>
         <GroupList title="录音">
           <SwitchRow

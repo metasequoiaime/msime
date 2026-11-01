@@ -1,3 +1,4 @@
+#include "../core/AuxiliaryCrashCapture.h"
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
 #include <X11/extensions/Xfixes.h>
@@ -98,6 +99,7 @@ bool read_clipboard(Display *display) {
 int main(int argc, char **argv) {
   const bool read = argc == 2 && std::strcmp(argv[1], "--read") == 0;
   if (argc != 1 && !read) return 2;
+  msime::linux_host::AuxiliaryCrashCapture crash_capture("clipboard-watch-x11");
   Display *display = XOpenDisplay(nullptr);
   if (!display) return 1;
   if (read) {

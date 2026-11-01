@@ -140,7 +140,7 @@ export function AiSettingsPageSection({
         />
         <TextInputRow
           title="接口地址"
-          description={endpoint ? endpointHint || undefined : "请填写服务提供商给出的完整接口地址"}
+          detail={endpoint ? endpointHint || undefined : "请填写服务提供商给出的完整接口地址"}
           label="AI 接口地址"
           type="url"
           placeholder="https://example.com/v1/chat/completions"

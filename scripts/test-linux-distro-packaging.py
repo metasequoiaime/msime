@@ -4,7 +4,7 @@
 发布页的 .deb/.rpm 由 platforms/linux/package-container.sh 构建；这些定义照搬它的步骤，但不会跟着它自动变。这里比对三处：
 
 - 传给 CMake 的 -DMSIME_* 选项集合相同（五份定义都比）。package-container.sh 新增一个选项（例如再随包带一类数据）而某个定义没跟上时，它会悄悄打出缺东西的包。
-  有意的差别有两处。一是手写模型：发布页的包以 -DMSIME_BUNDLE_HANDWRITING_MODEL=OFF 不带模型（设置应用按需下载），发行版仓库的包照旧以 -DMSIME_HANDWRITING_MODEL_DIR 随包，并取默认的 ON，这一对差别单独核对。二是官方插件包：发布页的包以 -DMSIME_PLUGIN_PACKS 装上 scripts/build-official-plugins.sh 构建的 uuid 和 latex-symbols，发行版的源码构建不跑 wasm 构建，不带它们（platforms/linux/README.md 写明）。
+  有意的差别有三处。一是手写模型：发布页的包以 -DMSIME_BUNDLE_HANDWRITING_MODEL=OFF 不带模型（设置应用按需下载），发行版仓库的包照旧以 -DMSIME_HANDWRITING_MODEL_DIR 随包，并取默认的 ON，这一对差别单独核对。二是官方插件包：发布页的包以 -DMSIME_PLUGIN_PACKS 装上 scripts/build-official-plugins.sh 构建的 uuid 和 latex-symbols，发行版的源码构建不跑 wasm 构建，不带它们（platforms/linux/README.md 写明）。三是符号归档：官方容器额外传入 -DMSIME_RELEASE_CRASH_SYMBOLS=ON 保留调试行；发行版仍由自己的打包工具配置调试分包。
 - 用 cargo build 构建的包与目标（-p 与 --bin）相同（RPM 规格、debian/rules 与 PKGBUILD；ebuild 经 cargo.eclass 的 cargo_src_compile 构建，不在此列）。
 - render-sources.py 渲染出的版本、发布号和更新日志能被正确改写。
 - 替换另一个包的定义在替换之后恢复用户单元和输入法列表：RPM 与 Debian 的 msime 替换发布页的 msime-linux、AUR 的 msime 与 msime-bin 互换时，被替换的包按卸载处理，它的卸载脚本停用每个用户的单元并运行 msime-linux-setup --unregister，新包必须再替每个用户运行 msime-linux-setup --register。
@@ -21,6 +21,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTAINER = ROOT / "platforms/linux/package-container.sh"
+CMAKE_LISTS = ROOT / "platforms/linux/CMakeLists.txt"
 SPEC = ROOT / "platforms/linux/packaging/rpm/msime.spec"
 RULES = ROOT / "platforms/linux/packaging/debian/rules"
 RENDER = ROOT / "platforms/linux/packaging/render-sources.py"
@@ -38,8 +39,8 @@ OPTIONS_ONLY = [
 ]
 
 
-# 发布页的包不带手写模型，发行版的包随包：前者只传 MSIME_BUNDLE_HANDWRITING_MODEL=OFF，后者只传 MSIME_HANDWRITING_MODEL_DIR（MSIME_BUNDLE_HANDWRITING_MODEL 取默认的 ON）。官方插件包只有发布页的包带：发行版的源码构建没有 wasm 目标，不传 MSIME_PLUGIN_PACKS。
-CONTAINER_ONLY = {"MSIME_BUNDLE_HANDWRITING_MODEL", "MSIME_PLUGIN_PACKS"}
+# 发布页的包不带手写模型，发行版的包随包；官方插件由容器构建 wasm，额外调试行也仅由官方容器用于自己的符号归档，发行版保留各自调试分包配置。
+CONTAINER_ONLY = {"MSIME_BUNDLE_HANDWRITING_MODEL", "MSIME_PLUGIN_PACKS", "MSIME_RELEASE_CRASH_SYMBOLS"}
 DISTRIBUTION_ONLY = {"MSIME_HANDWRITING_MODEL_DIR"}
 
 
@@ -65,6 +66,21 @@ def main() -> int:
     container_options = cmake_options(reference)
     if "-DMSIME_BUNDLE_HANDWRITING_MODEL=OFF" not in reference or "MSIME_HANDWRITING_MODEL_DIR" in reference or "fetch_handwriting_model.py" in reference:
         failures.append("package-container.sh must configure with -DMSIME_BUNDLE_HANDWRITING_MODEL=OFF and neither fetch nor pass the handwriting model")
+    if "-DCMAKE_BUILD_TYPE=Release" not in reference or "-DMSIME_RELEASE_CRASH_SYMBOLS=ON" not in reference:
+        failures.append("package-container.sh must keep Release optimization and enable crash source lines")
+    # 发行版的源码构建也开 MSIME_ENABLE_PACKAGING 并执行 cmake --install；安装期剥离只能挂在官方容器才传的 MSIME_RELEASE_CRASH_SYMBOLS 下，否则 dh_strip / find-debuginfo 拿到的是已剥离的 Rust 产物，dbgsym / debuginfo 里没有行号。
+    for path in [SPEC, RULES, PKGBUILD] + [path for path, _ in OPTIONS_ONLY]:
+        if "MSIME_RELEASE_CRASH_SYMBOLS" in path.read_text(encoding="utf-8"):
+            failures.append(f"{path.relative_to(ROOT)}: must not set MSIME_RELEASE_CRASH_SYMBOLS, which strips the Rust products at install time before the distribution splits its debug package")
+    conditions = []
+    for number, line in enumerate(CMAKE_LISTS.read_text(encoding="utf-8").splitlines(), 1):
+        statement = line.strip()
+        if statement.startswith("if("):
+            conditions.append(statement)
+        elif statement.startswith("endif("):
+            conditions.pop()
+        if "--strip-unneeded" in statement and not any("MSIME_RELEASE_CRASH_SYMBOLS" in condition for condition in conditions):
+            failures.append(f"platforms/linux/CMakeLists.txt:{number}: --strip-unneeded outside if(MSIME_RELEASE_CRASH_SYMBOLS) would strip distribution builds before their debug packages are split")
     expected_options = (container_options - CONTAINER_ONLY) | DISTRIBUTION_ONLY
     expected_targets = cargo_targets(reference)
     for path in (SPEC, RULES, PKGBUILD):

@@ -19,7 +19,7 @@ export function PrivacyConsentRow({ consent }: { consent: PrivacyConsentClient |
   return (
     <Row
       title="隐私政策授权"
-      description={
+      detail={
         granted
           ? "已同意，联网功能已开启。"
           : "未同意：登录、云同步、社区、检查更新等联网功能已关闭，本机打字不受影响。"

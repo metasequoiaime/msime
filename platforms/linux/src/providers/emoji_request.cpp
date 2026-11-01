@@ -1,3 +1,4 @@
+#include "../core/AuxiliaryCrashCapture.h"
 #include "msime_client.h"
 #include "../../../common/HostApiString.h"
 #include "../core/BoundedCliInput.h"
@@ -26,6 +27,7 @@ int main(int argc, char **argv) {
     std::cout << "Usage: msime-linux-emoji [provider-socket] | --local [resources]\n";
     return 0;
   }
+  msime::linux_host::AuxiliaryCrashCapture crash_capture("emoji");
   bool local = false;
   const auto target = local_resources(argc, argv, &local);
   if (target.empty() || target[0] != '/')
