@@ -20158,6 +20158,146 @@ fn packaged_language_dictionaries_need_all_three_in_the_recorded_directory() {
     assert!(super::packaged_language_dictionaries(&document));
 }
 
+/// 词库更新的语言代次绑在下载它时的词库锁上，升级换锁后会话不再选用它（`LanguageDictionaries::resolve` 也不把它当随包目录），所以文档还记着它时不算随包带齐，设置应用要照常提供语言词库资源包。
+#[test]
+fn packaged_language_dictionaries_ignore_dictionary_update_generations() {
+    let root = tempfile::tempdir().unwrap();
+    let state = root.path().join("state");
+    let generation = state
+        .join("dictionary-updates/generations")
+        .join("b".repeat(64));
+    std::fs::create_dir_all(&generation).unwrap();
+    for name in ["msime-cantonese.db", "msime-zhuyin.db", "msime-stroke.db"] {
+        std::fs::write(generation.join(name), b"downloaded").unwrap();
+    }
+    let document = json!({
+        "language_dictionaries": generation,
+        "preferences_directory": state,
+    });
+    assert!(!super::packaged_language_dictionaries(&document));
+    // 没有状态目录时分不出它是不是下载的代次，照旧按目录里的文件判断。
+    assert!(super::packaged_language_dictionaries(
+        &json!({ "language_dictionaries": generation })
+    ));
+    // 更新记录里的原安装包旁边带齐了三份词库（Linux 带齐的安装包装过在线更新）：随包带齐，不提供资源包。
+    let resources = root.path().join("bundle/resources");
+    let beside = root.path().join("bundle/language-dictionaries");
+    std::fs::create_dir_all(&resources).unwrap();
+    std::fs::create_dir_all(&beside).unwrap();
+    record_dictionary_update(&state, Edition::full(), &resources);
+    for name in ["msime-cantonese.db", "msime-zhuyin.db"] {
+        std::fs::write(beside.join(name), b"bundled").unwrap();
+    }
+    assert!(!super::packaged_language_dictionaries(&document));
+    std::fs::write(beside.join("msime-stroke.db"), b"bundled").unwrap();
+    assert!(super::packaged_language_dictionaries(&document));
+    // 换锁后更新记录不再有效，找不到安装包目录，照旧按没带齐处理。
+    let installed = state.join("dictionary-updates/installed.json");
+    let mut stale: Value = serde_json::from_slice(&std::fs::read(&installed).unwrap()).unwrap();
+    stale["active"]["baseline_generation"] = json!("0".repeat(64));
+    std::fs::write(&installed, serde_json::to_vec(&stale).unwrap()).unwrap();
+    assert!(!super::packaged_language_dictionaries(&document));
+}
+
+/// 在 `state` 下记一份 `edition` 当前词库锁的已选中词库更新，原安装包资源目录是 `bundled_resources`。只写更新记录，不建代次目录。
+fn record_dictionary_update(state: &Path, edition: &Edition, bundled_resources: &Path) {
+    const DOWNLOAD: &str = "https://github.com/metasequoiaime/msime-dictionary/releases/download/";
+    let baseline = edition.resource_set().unwrap();
+    let version = msime_client_providers::dictionary_updates::baseline_version(&baseline);
+    let mut desktop = baseline.clone();
+    for file in &mut desktop.artifacts {
+        if file.url.starts_with(DOWNLOAD) {
+            file.url = format!("{DOWNLOAD}{version}/{}", file.name);
+        }
+    }
+    let selection = msime_client_providers::dictionary_updates::Selection {
+        baseline_generation: baseline.generation().unwrap(),
+        version,
+        desktop,
+        languages: None,
+        bundled_resources: bundled_resources.to_path_buf(),
+    };
+    std::fs::create_dir_all(state.join("dictionary-updates")).unwrap();
+    std::fs::write(
+        state.join("dictionary-updates/installed.json"),
+        serde_json::to_vec(&json!({"active": selection, "previous": null})).unwrap(),
+    )
+    .unwrap();
+}
+
+/// 水杉五笔的发布包总带着码表。装过在线更新后资源目录是更新代次，这时看更新记录里的原安装包目录，发布包带着码表就算随包，设置应用不提供也不补下 `wubi` 资源包；发布包不带（全功能版）、或换锁后更新记录不再有效时才提供。
+#[test]
+fn packaged_wubi_dictionary_follows_the_recorded_bundle_behind_an_update_generation() {
+    let root = tempfile::tempdir().unwrap();
+    let state = root.path().join("state");
+    let bundle = root.path().join("bundle/resources");
+    std::fs::create_dir_all(&bundle).unwrap();
+    let generation = state
+        .join("dictionary-updates/generations")
+        .join("c".repeat(64));
+    std::fs::create_dir_all(&generation).unwrap();
+    std::fs::write(generation.join("msime-wubi.db"), b"downloaded").unwrap();
+    let wubi = Edition::by_id("wubi").unwrap();
+    record_dictionary_update(&state, wubi, &bundle);
+    let document = json!({
+        "resources": generation,
+        "preferences_directory": state,
+        "edition": wubi.id,
+    });
+    // 全功能版的发布包不带码表。
+    assert!(!super::packaged_wubi_dictionary(&document));
+    // 水杉五笔的发布包带着它。
+    std::fs::write(bundle.join("msime-wubi.db"), b"bundled").unwrap();
+    assert!(super::packaged_wubi_dictionary(&document));
+    // 换锁后更新记录不再有效：会话回到发布包，代次里的码表不算数，安装包目录也无从得知。
+    let installed = state.join("dictionary-updates/installed.json");
+    let mut stale: Value = serde_json::from_slice(&std::fs::read(&installed).unwrap()).unwrap();
+    stale["active"]["baseline_generation"] = json!("0".repeat(64));
+    std::fs::write(&installed, serde_json::to_vec(&stale).unwrap()).unwrap();
+    assert!(!super::packaged_wubi_dictionary(&document));
+}
+
+/// 设置应用据此决定 macOS 上要不要提供并补下 `wubi` 资源包：只有资源目录本身带着码表才算随包。升级前的词库更新代次里也有码表，但它绑在旧的词库锁上，换锁后会话改用不带码表的发布包，不能因为它在就不下载资源包。
+#[test]
+fn packaged_wubi_dictionary_ignores_dictionary_update_generations() {
+    let root = tempfile::tempdir().unwrap();
+    let state = root.path().join("state");
+    let bundle = root.path().join("EngineResources");
+    std::fs::create_dir_all(&bundle).unwrap();
+    let document = |resources: &std::path::Path| json!({ "resources": resources, "preferences_directory": state });
+    assert!(!super::packaged_wubi_dictionary(&json!({})));
+    assert!(!super::packaged_wubi_dictionary(&document(&bundle)));
+    std::fs::write(bundle.join("msime-wubi.db"), b"bundled").unwrap();
+    assert!(super::packaged_wubi_dictionary(&document(&bundle)));
+    assert!(super::packaged_wubi_dictionary(
+        &json!({ "resources": bundle })
+    ));
+    let generation = state
+        .join("dictionary-updates/generations")
+        .join("a".repeat(64));
+    std::fs::create_dir_all(&generation).unwrap();
+    std::fs::write(generation.join("msime-wubi.db"), b"downloaded").unwrap();
+    assert!(!super::packaged_wubi_dictionary(&document(&generation)));
+    // 相对路径不是任何宿主会用的资源目录。
+    assert!(!super::packaged_wubi_dictionary(
+        &json!({ "resources": "EngineResources" })
+    ));
+}
+
+#[cfg(unix)]
+#[test]
+fn packaged_wubi_dictionary_refuses_a_symlinked_table() {
+    let root = tempfile::tempdir().unwrap();
+    let bundle = root.path().join("EngineResources");
+    std::fs::create_dir_all(&bundle).unwrap();
+    let elsewhere = root.path().join("msime-wubi.db");
+    std::fs::write(&elsewhere, b"elsewhere").unwrap();
+    std::os::unix::fs::symlink(&elsewhere, bundle.join("msime-wubi.db")).unwrap();
+    assert!(!super::packaged_wubi_dictionary(
+        &json!({ "resources": bundle })
+    ));
+}
+
 #[test]
 fn downloaded_language_dictionaries_win_over_the_recorded_directory() {
     let root = tempfile::tempdir().unwrap();
