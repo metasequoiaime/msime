@@ -27502,9 +27502,10 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR command, int) {
   const auto telemetryDirectory = length && length < local.size()
       ? std::filesystem::path(std::wstring(local.data(), length)) / MSIME_EDITION_USER_DATA_DIRECTORY
       : std::filesystem::path();
-  // 原生设置只产生独立崩溃，不建立输入会话；启动补报沿用一次后台发送。
-  msime::telemetry::begin({"windows", MSIME_WINDOWS_VERSION, telemetryDirectory,
-                          std::nullopt, state_directory(), "settings", true});
+  // 原生设置只产生独立崩溃，不建立输入会话；启动补报沿用一次后台发送。没有绝对偏好目录就读不到持续授权，此时不启动采集，免得落入旧协议的默认开启；带上包内版本，首次读取授权时不会把非 full 版本的偏好按 full 初始化。
+  if (const auto preferences = state_directory(); preferences.is_absolute())
+    msime::telemetry::begin({"windows", MSIME_WINDOWS_VERSION, telemetryDirectory,
+                            std::nullopt, preferences, "settings", true, MSIME_EDITION_ID});
   msime::telemetry::ConsentObserver reporting;
   std::thread([] { msime::telemetry::flush(); }).detach();
   std::set_terminate([] { msime_native_crash_record("std::terminate in settings"); std::abort(); });

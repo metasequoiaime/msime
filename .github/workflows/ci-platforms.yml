@@ -867,8 +867,8 @@ jobs:
             & pwsh -NoProfile -File "platforms/windows/installer/tests/$test.ps1"
             if ($LASTEXITCODE -ne 0) { throw "$test failed with exit code $LASTEXITCODE" }
           }
-      # 状态根和安装登记的注册表读取（common/StateDirectory.h、common/RegistryString.h）只能在真的 Windows 上跑：Windows GNU 交叉编译作业编这个测试但不运行，windows-settings 的 ctest 用的是 Win7 设置、面板和兼容 API 各自的构建树，所以这里单独编 windows-state-directory，x64 和 Win32 各跑一次。Win32 进程在这台 x64 runner 上走 WOW64，覆盖 32 位进程用 KEY_WOW64_64KEY 读 64 位视图，以及多余终止符、缺值、缺键和非字符串值。Win7 上 RRF_SUBKEY_WOW6464KEY 读不到、显式打开视图读得到的差别在现代 Windows 上不出现，这里测不出，只能在 Win7 x64 实机上验收。pipe-only 配置不链接 Rust 库，但根 CMakeLists 无条件找 nlohmann_json，所以只从 runner 自带的 vcpkg 装这一个头文件库，不按清单装 curl 等全部依赖。
-      - name: Test the state directory and registry view as x64 and x86
+      # 状态根和安装登记的注册表读取（common/StateDirectory.h、common/RegistryString.h）只能在真的 Windows 上跑：Windows GNU 交叉编译作业编这个测试但不运行，windows-settings 的 ctest 用的是 Win7 设置、面板和兼容 API 各自的构建树，所以这里单独编 windows-state-directory，x64 和 Win32 各跑一次。Win32 进程在这台 x64 runner 上走 WOW64，覆盖 32 位进程用 KEY_WOW64_64KEY 读 64 位视图，以及多余终止符、缺值、缺键和非字符串值。Win7 上 RRF_SUBKEY_WOW6464KEY 读不到、显式打开视图读得到的差别在现代 Windows 上不出现，这里测不出，只能在 Win7 x64 实机上验收。Server、watchdog 和准备程序共用的崩溃记录器（common/CrashRecorder.cpp）同样只依赖 Windows SDK，windows-crash-recorder 在同一构建树里以 MSVC /W4 /WX 编译，x64 和 Win32 各让子进程真实崩溃一次，核对落盘记录、解除武装后不写和 terminate 摘要优先。pipe-only 配置不链接 Rust 库，但根 CMakeLists 无条件找 nlohmann_json，所以只从 runner 自带的 vcpkg 装这一个头文件库，不按清单装 curl 等全部依赖。
+      - name: Test the state directory, registry view and crash recorder as x64 and x86
         if: ${{ needs.changes.outputs.windows == 'true' }}
         shell: pwsh
         run: |
@@ -885,9 +885,9 @@ jobs:
             $output = "target/windows-state-directory/$($arch.Platform)"
             cmake -S platforms/windows -B $output -A $arch.Platform -DMSIME_WINDOWS_PIPE_ONLY=ON "-DCMAKE_TOOLCHAIN_FILE=$toolchain" -DVCPKG_MANIFEST_MODE=OFF "-DVCPKG_INSTALLED_DIR=$installed" "-DVCPKG_TARGET_TRIPLET=$($arch.Triplet)"
             if ($LASTEXITCODE -ne 0) { throw "State directory configuration failed for $($arch.Platform)" }
-            cmake --build $output --config Release --target windows-state-directory --parallel 2
+            cmake --build $output --config Release --target windows-state-directory windows-crash-recorder --parallel 2
             if ($LASTEXITCODE -ne 0) { throw "State directory build failed for $($arch.Platform)" }
-            ctest --test-dir $output -C Release -R '^windows-state-directory$' --output-on-failure --no-tests=error
+            ctest --test-dir $output -C Release -R '^(windows-state-directory|windows-crash-recorder)$' --output-on-failure --no-tests=error
             if ($LASTEXITCODE -ne 0) { throw "State directory tests failed for $($arch.Platform)" }
           }
       - name: Windows platform unchanged

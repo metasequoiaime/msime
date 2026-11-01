@@ -8,13 +8,13 @@ Windows TSF 的进程外 WER 采集覆盖了输入法 DLL，但 Server、watchdo
 
 ## Decision
 
-Windows 辅助进程统一通过 `AuxiliaryCrashCapture.h` 根据版本遥测目录和 `runtime-options.json` 解析实际偏好目录，再绑定持续授权代次。Server 继续负责常驻刷新；watchdog、prepare-host、WinUI 设置、Win7 设置和面板在各自入口安装 native handlers，并在 terminate 路径写入最小现场。prepare-host 只在准备好独占状态目录并完成版本初始化后创建捕获器，避免在失败前写入错误默认授权。
+Windows 辅助进程统一通过 `AuxiliaryCrashCapture.h` 根据版本遥测目录和 `runtime-options.json` 解析实际偏好目录，再绑定持续授权代次。Server 继续负责常驻刷新；watchdog、prepare-host、WinUI 设置、Win7 设置和面板在各自入口安装 native handlers，并在 terminate 路径写入最小现场。设置和面板只在偏好目录是绝对路径时才调用 `telemetry::begin`，并传入包内 edition：空目录会落入共享核心为旧协议保留的默认开启分支，没有 edition 时首次读取授权会把非 full 版本的偏好按 full 初始化并写盘，而准备程序随后会保留这份文件。prepare-host 只在准备好独占状态目录并完成版本初始化后创建捕获器，避免在失败前写入错误默认授权。
 
-CMake 将共享 `Telemetry.cpp`/`CrashRecorder.cpp` 链接到这些辅助目标，原生设置工程显式接收 nlohmann-json include 路径；Windows 原生门禁新增 prepare-host、watchdog、Win7 设置/面板和 crash recorder 的构建入口。TSF WER 的 helper 与发布文件由独立 Windows TSF 切片提供，本切片只消费它们，不重复修改 TSF 代码。
+CMake 将共享 `Telemetry.cpp`/`CrashRecorder.cpp` 链接到这些辅助目标，原生设置工程显式接收 nlohmann-json include 路径。`windows-crash-recorder` 放进 pipe-only 构建树，PR CI 的 Windows release script tests 作业在真 Windows 上以 MSVC /W4 /WX 编译它，x64 和 Win32 各跑一次。Server、watchdog 和 prepare-host 的 MSVC 构建只在 release-windows.yml 里进行，PR CI 只有 Windows GNU 交叉编译覆盖这些目标的编译，不运行它们。TSF WER 的 helper 与发布文件由独立 Windows TSF 切片提供，本切片只消费它们，不重复修改 TSF 代码。
 
 ## Verification
 
-本地完成 CMake/PowerShell 变更的差异检查和笔记门禁。x64、x86、Windows7 构建、installer 测试、辅助进程合成崩溃夹具和真实 Windows 安装验收在 PR CI/维护者 Windows 环境运行；本机没有 Windows 工具链，不启动交叉完整构建。
+本地完成 CMake/PowerShell 变更的差异检查和笔记门禁；本机没有 Windows 工具链，不启动交叉完整构建。PR CI 在真 Windows 上运行的是 `windows-crash-recorder`（x64、Win32）和 Win7 设置/面板 ctest；Windows GNU 交叉编译作业编译主 Windows 构建树但不跑测试。Server、watchdog、prepare-host 的 MSVC 构建只在 release-windows.yml 中验证，真实 Windows 安装、watchdog 重启和编辑器输入由维护者在 Windows 实机验收。
 
 ## Alternatives considered
 

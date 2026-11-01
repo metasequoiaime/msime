@@ -22,8 +22,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
   auto reporting_directory = msime::telemetry::default_directory();
   if (!reporting_directory.empty()) reporting_directory = reporting_directory.parent_path() / MSIME_EDITION_USER_DATA_DIRECTORY;
   msime::telemetry::install_crash_handlers();
-  msime::telemetry::begin({"windows", MSIME_WINDOWS_VERSION, reporting_directory, std::nullopt,
-      msime::windows::win7::panel_context().directory, "panels-win7", true});
+  // 没有绝对偏好目录就读不到持续授权，此时不启动采集，免得落入旧协议的默认开启；带上包内版本，首次读取授权时不会把非 full 版本的偏好按 full 初始化。
+  if (auto preferences = msime::windows::win7::panel_context().directory; preferences.is_absolute())
+    msime::telemetry::begin({"windows", MSIME_WINDOWS_VERSION, reporting_directory, std::nullopt,
+        std::move(preferences), "panels-win7", true, MSIME_EDITION_ID});
   msime::telemetry::ConsentObserver reporting_observer;
   std::set_terminate([] { msime::telemetry::record_terminate(); std::abort(); });
   msime::telemetry::start_flushing();
