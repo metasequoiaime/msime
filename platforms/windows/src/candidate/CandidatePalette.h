@@ -166,12 +166,52 @@ inline CandidateColor candidate_row_number_color(const CandidatePalette &palette
              ? palette.selected_number
              : palette.number;
 }
+// WCAG 2 contrast ratio of `foreground`, blended by its own alpha over `fill`, against `fill`. The fill is taken as opaque: callers only ask about a selection fill at or above the 0.85 alpha that counts as solid.
+inline float candidate_contrast_on(CandidateColor foreground, CandidateColor fill) {
+  auto luminance = [](float r, float g, float b) {
+    auto linear = [](float value) {
+      return value <= 0.04045f ? value / 12.92f
+                               : std::pow((value + 0.055f) / 1.055f, 2.4f);
+    };
+    return .2126f * linear(r) + .7152f * linear(g) + .0722f * linear(b);
+  };
+  const float a = foreground.a;
+  const float drawn = luminance(a * foreground.r + (1.0f - a) * fill.r,
+                                a * foreground.g + (1.0f - a) * fill.g,
+                                a * foreground.b + (1.0f - a) * fill.b);
+  const float behind = luminance(fill.r, fill.g, fill.b);
+  return ((std::max)(drawn, behind) + .05f) / ((std::min)(drawn, behind) + .05f);
+}
+// 选中行的释义和读音要达到的对比度：WCAG AA 正文的 4.5:1。
+inline constexpr float candidate_selected_gloss_min_contrast = 4.5f;
+// 不透明选中底色上推导出的释义色（读音同色），对应 macOS 的 SkinTokens::selectedTranslation（DeriveSelectedForegrounds）：取选中行候选文字的颜色 `text`，不透明度先取和选中序号一样的 0.82；对底色还不到 4.5:1 时（默认浅色的 #2C7A4B 上白色 0.82 只有约 4.1:1）往上加，直到够 4.5:1 或者到不透明为止。跟着选中文字走，同一行只有一种前景色，释义不会比候选文字更显眼；选中文字本身对底色就不够时（默认深色 #5FBF84 上的白色最多约 2.3:1），释义也只到不透明的选中文字为止，选中底色和选中文字的配色是产品决定，这里不改。
+inline CandidateColor candidate_selected_gloss_color(CandidateColor text, CandidateColor fill) {
+  CandidateColor gloss = text;
+  for (int step = 82; step <= 100; ++step) {
+    gloss.a = static_cast<float>(step) / 100.0f;
+    if (candidate_contrast_on(gloss, fill) >= candidate_selected_gloss_min_contrast)
+      break;
+  }
+  return gloss;
+}
 // Resolve the translation line. The theme's `secondary` follows `number` unless a package sets its own translation colour, which is then drawn on every row; otherwise the translation draws like the numbers. 没有皮肤释义色时，未高亮的固定排位候选的释义是它正文色的 0.62 倍透明度，和 macOS 一样（释义是候选文字的一部分，跟着它的固定排位色）。
+// 选中行：皮肤写了 `selected_translation` 就照它画。没写时，选中底色不透明（alpha ≥ 0.85）的话，皮肤包自己的释义色是给卡片底色配的，和 macOS 一样换成从选中文字推导的颜色（candidate_selected_gloss_color），否则蓝底配蓝色释义这类皮肤的选中行读不出来；没有皮肤释义色时仍画选中序号色，只有它在底色上不到 4.5:1 时才换成推导的颜色（默认浅色、深色都是这种情况）。半透明的选中底色下面透出的是卡片底色，照旧画包的释义色或选中序号色。读音和释义同色（CandidateWindow 在不透明选中底色上不再减淡读音）。
 inline CandidateColor candidate_row_translation_color(const CandidatePalette &palette,
                                                       bool highlighted,
                                                       bool fixed_position = false) {
   if (highlighted && palette.selected_translation)
     return *palette.selected_translation;
+  if (highlighted && palette.selected.a >= 0.85f) {
+    if (!palette.translation) {
+      const auto number = candidate_row_number_color(palette, true);
+      if (candidate_contrast_on(number, palette.selected) >=
+          candidate_selected_gloss_min_contrast)
+        return number;
+    }
+    return candidate_selected_gloss_color(
+        candidate_row_text_color(palette, palette.candidate_text.value_or(palette.text), true, false),
+        palette.selected);
+  }
   if (palette.translation)
     return *palette.translation;
   if (fixed_position && !highlighted)
