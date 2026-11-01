@@ -26,6 +26,8 @@ enum class CandidateMenuCommand {
   ClearFixedPosition,
   // 把候选旁显示的释义收进背单词的生词本。不经过 Engine，由候选窗交给 Server 的生词本工作线程。
   AddToPersonalWordbook,
+  // 用系统语音读出候选旁的英文释义（或英文候选本身）。和「加入生词本」一样不经过 Engine，交给 Server 的朗读工作线程。
+  ReadAloud,
 };
 struct CandidateMenuItem {
   CandidateMenuCommand command;
@@ -50,23 +52,26 @@ struct CandidateMenuItem {
 //
 // `slot` 是这个候选在本页的位置（从 0 数）。前 8 个候选的「删除」行带上 Ctrl+Shift+Alt+1..8 的提示：这组维护快捷键（MaintenanceHotkeys.h）直接删掉本页第 N 个候选，和 macOS 菜单里「删除」的 ⌃⌥⇧N 对应。
 //
-// `personal_wordbook` 为真（候选旁显示着释义）时，最后隔一条线加「加入生词本」，和 macOS、Linux 的候选菜单放在同一个位置。它不是词库操作，云候选、AI 候选这些 `actionable` 为假的行也能用。
+// `personal_wordbook` 为真（候选旁显示着释义）时，最后隔一条线加「加入生词本」，和 macOS、Linux 的候选菜单放在同一个位置。它不是词库操作，云候选、AI 候选这些 `actionable` 为假的行也能用。`read_aloud` 为真（有能读的英文，见 msime_client_read_aloud_text）时同一组里先是「朗读」；只有它时这一组只有「朗读」。
 inline std::vector<CandidateMenuItem>
 candidate_menu_items(size_t code_points, bool actionable = true,
                      std::optional<size_t> slot = std::nullopt,
-                     bool personal_wordbook = false) {
+                     bool personal_wordbook = false, bool read_aloud = false) {
   std::vector<CandidateMenuItem> items;
-  items.reserve(5);
+  items.reserve(6);
   items.push_back({CandidateMenuCommand::PinToTop, "置顶", false, false, actionable});
   items.push_back({CandidateMenuCommand::FixPosition, "固定排位", true, false, actionable});
   if (code_points != 1)
     items.push_back({CandidateMenuCommand::Remove, "删除", false, false, actionable, 0,
                      slot && *slot < 8 ? "Ctrl+Shift+Alt+" + std::to_string(*slot + 1)
                                        : std::string{}});
-  if (personal_wordbook) {
-    items.push_back({CandidateMenuCommand::AddToPersonalWordbook, "", false, true});
+  if (read_aloud || personal_wordbook)
+    items.push_back({read_aloud ? CandidateMenuCommand::ReadAloud : CandidateMenuCommand::AddToPersonalWordbook,
+                     "", false, true});
+  if (read_aloud)
+    items.push_back({CandidateMenuCommand::ReadAloud, "朗读"});
+  if (personal_wordbook)
     items.push_back({CandidateMenuCommand::AddToPersonalWordbook, "加入生词本"});
-  }
   return items;
 }
 
@@ -107,6 +112,7 @@ candidate_menu_action(CandidateMenuCommand command, unsigned position) {
     return CandidateMenuAction{CandidateAction::ClearPosition, 0};
   case CandidateMenuCommand::FixPosition:
   case CandidateMenuCommand::AddToPersonalWordbook:
+  case CandidateMenuCommand::ReadAloud:
     break;
   }
   return std::nullopt;
