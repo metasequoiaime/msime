@@ -1365,25 +1365,45 @@ final class ImeLetterRows {
         return key;
     }
 
-    /** 九键主键面与 123 / #+= 层的叹号：上滑输入 0，长按选择上标或下标 0；轻点仍输入叹号。 */
+    /** 123 / #+= 层的叹号：上滑 14 dp 输入 0，长按选择上标或下标 0；轻点仍输入叹号。 */
     void bindSuperscriptShortcut(Button key, String text) {
+        bindSuperscriptShortcut(key, text, false);
+    }
+
+    /** 拼音九键字母层的叹号（右列的 ！，右侧大回车时是接到符号栏末尾的 ！）：同上，但滑出 0 的方向和距离跟「九键滑动输入数字」走（{@link SuperscriptShortcutPolicy#zeroDirection}、{@link SuperscriptShortcutPolicy#zeroThresholdDp}，#10441），每次按下时读当前值，设置页改了下一次触摸就生效，与 1–9 键的 {@code ImeLayoutRows.bindNineKeySwipe} 相同。 */
+    void bindNineKeySuperscriptShortcut(Button key, String text) {
+        bindSuperscriptShortcut(key, text, true);
+    }
+
+    private void bindSuperscriptShortcut(Button key, String text, boolean nineKey) {
         if (!SuperscriptShortcutPolicy.applies(text)) return;
-        key.setContentDescription(text + "；上滑输入 0；长按选择上标 ⁰ 或下标 ₀");
+        final String[] direction = {nineKey ? nineKeyZeroDirection() : SwipeHintPolicy.UP};
+        key.setContentDescription(SuperscriptShortcutPolicy.description(text, direction[0]));
         key.setOnLongClickListener(ignored -> {
             s.imeLayoutRows.showSuperscriptOptions(key);
             return true;
         });
         final float[] downY = new float[1];
+        final float[] threshold = {SwipeHintPolicy.THRESHOLD_DP};
         final boolean[] swiped = new boolean[1];
         key.setOnTouchListener((view, event) -> {
             switch (event.getActionMasked()) {
                 case android.view.MotionEvent.ACTION_DOWN -> {
                     downY[0] = DimensionPolicy.fromPixels(s, event.getY());
                     swiped[0] = false;
+                    if (nineKey) {
+                        String next = nineKeyZeroDirection();
+                        threshold[0] = SuperscriptShortcutPolicy.zeroThresholdDp(s.nineKeySwipeDigits,
+                            s.localSettings.integer(AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE));
+                        if (!next.equals(direction[0])) {
+                            direction[0] = next;
+                            key.setContentDescription(SuperscriptShortcutPolicy.description(text, next));
+                        }
+                    }
                     return false;
                 }
                 case android.view.MotionEvent.ACTION_MOVE -> {
-                    if (!swiped[0] && SuperscriptShortcutPolicy.swipedUp(downY[0],
+                    if (!swiped[0] && SuperscriptShortcutPolicy.swiped(direction[0], threshold[0], downY[0],
                             DimensionPolicy.fromPixels(s, event.getY()))) {
                         swiped[0] = true;
                         key.cancelLongPress();
@@ -1411,5 +1431,9 @@ final class ImeLetterRows {
                 default -> { return swiped[0]; }
             }
         });
+    }
+
+    private String nineKeyZeroDirection() {
+        return SuperscriptShortcutPolicy.zeroDirection(s.nineKeySwipeDigits);
     }
 }
