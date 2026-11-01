@@ -42,6 +42,7 @@ export function VoicePauseRows({
         description={voicePauseText.pauseDescription}
         wide
         displayValue={`${pauseValue} 毫秒`}
+        widestValue={`${pause.max} 毫秒`}
         valueText={`${pauseValue} 毫秒`}
         min={pause.min}
         max={pause.max}
@@ -54,6 +55,7 @@ export function VoicePauseRows({
         description={voicePauseText.sensitivityDescription}
         wide
         displayValue={`${sensitivityValue}%`}
+        widestValue={`${sensitivity.max}%`}
         valueText={`${sensitivityValue}%`}
         min={sensitivity.min}
         max={sensitivity.max}
