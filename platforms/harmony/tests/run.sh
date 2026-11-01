@@ -57,6 +57,19 @@ if ! grep -qF 'const input: string = ChineseHelpcodePolicy.letterInput(letter, s
   echo "KeyboardView.tapLetter must send a shifted letter as a capital: the Engine reads helpcode from the case, not from the shift flag" >&2
   exit 1
 fi
+# 26 键组字时的上滑、下滑辅助码（鸿蒙手机）：规则由 helpcode-swipe.test.ts 覆盖，这里钉住接线。只在 qwerty 26 键且已有全拼或双拼组字时跟踪，触发后沿 press(..., true) 的辅助码路径送大写，并吞掉 ArkUI 之后到达的点击；长按仍交给角标提示。
+keyboard_view="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets"
+helpcode_swipe="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/input/HelpcodeSwipePolicy.ts"
+if ! grep -qF 'private helpcodeSwipes: HelpcodeSwipeGesture' "$keyboard_view" 2>/dev/null \
+  || ! grep -qF 'this.helpcodeSwipes.down(' "$keyboard_view" \
+  || ! grep -qF 'this.helpcodeSwipeEnabled()' "$keyboard_view" \
+  || ! grep -qF 'this.typeHelpcodeSwipe(helpcode);' "$keyboard_view" \
+  || ! grep -qF 'KeyboardSession.shared.press(input.charCodeAt(0), true);' "$keyboard_view" \
+  || ! grep -qF 'KeyboardSession.shared.entersHelpcode(true)' "$keyboard_view" \
+  || ! grep -qF 'static swiped(' "$helpcode_swipe"; then
+  echo "Harmony 26-key helpcode swipes must be wired through HelpcodeSwipeGesture and the existing uppercase Engine path" >&2
+  exit 1
+fi
 # 123 层和数字九宫格上的辅助码触发键先问 Engine，收下就不按原样上屏。
 for body in tapLayerCharacter typeNumberPadText; do
   view_body=$(sed -n "/^  private $body(text: string): void {\$/,/^  }\$/p" \
