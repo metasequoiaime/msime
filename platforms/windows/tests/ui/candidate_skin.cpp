@@ -298,6 +298,10 @@ int main() {
   require(selected_picked.selected_text == resolved.selected_text &&
           selected_picked.selected_number == resolved.selected_number &&
           !selected_picked.selected_translation && selected_picked.selected_bar);
+  // Without the package's selected_translation the selected row's gloss is derived from the opaque fill and reads at WCAG AA; the other rows are unchanged.
+  require(candidate_contrast_on(candidate_row_translation_color(selected_picked, true),
+                                selected_picked.selected) >= 4.5f);
+  require(candidate_row_translation_color(selected_picked, false) == selected_picked.number);
   // The light mode takes only its own values; null and absent slots stay unset.
   const auto light_extra = apply_candidate_skin_extra_slots(
       candidate_native_palette(false), slots, no_pickers, false);

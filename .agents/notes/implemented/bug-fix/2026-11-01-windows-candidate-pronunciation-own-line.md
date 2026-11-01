@@ -31,7 +31,7 @@ Windows 宿主打开「显示读音」后，`CandidateGlossReadings.h` 的 `cand
 
 - **收益**：横排有读音的格子宽度从「释义 + 读音」降到两者里较宽的一行，读音不再贴着相邻格的释义，挤窄时也不会在一条读音中间折开；和 macOS 的版式一致。预选释义列的下划线在有读音时仍然画在第二种目标语言那一行上。
 - **代价**：横排有读音的页多一行释义高，同一行没有读音的格子也留着这一行；读音是异步到达的，到达时这一页会长高一行（和 macOS 一样不预留，理由见 macOS 那篇）。竖排在默认字号下行高不变，释义的第一行不再和候选文字居中对齐（和 macOS 一样）；小字号时有读音的行略高一点。竖排里「一行释义加读音」留在右边，而两种目标语言的两行释义在下面，同一个宿主里两种两行的排法不同，靠 `reading_lines` 区分。
-- **没有改的**：`CandidatePalette.h` 的 `candidate_row_translation_color` 在选中行仍画皮肤包的释义色，皮肤的选中底色和释义色同一色系时选中行的释义和读音对比度低，macOS 那篇用 `selectedTranslation` 修了，Windows 还没有。
+- 选中行的释义色后来补上了，见 [Windows 选中行释义按选中底色换色并保证 4.5:1](2026-11-01-windows-selected-gloss-contrast.md)：`candidate_row_translation_color` 在不透明选中底色上不再画皮肤包的释义色。
 
 ## Verification
 
