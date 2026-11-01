@@ -1063,9 +1063,11 @@ int wmain(int argc, wchar_t **argv) {
     apply_diagnostic_log(diagnostic_log, prepared.at("value").at("preferences"));
     // Usage reporting, on unless the user turned usage_reporting off: one session per Server process, kept in this Windows user's %LOCALAPPDATA%\MSIME. begin closes the previous session (session_crash only when it left a crash record) and queues today's active; it is file I/O only. Delivery runs on a thread that is never joined, so an unreachable endpoint cannot delay the Server and exiting mid-request only leaves the events queued for the next start.
     startup_stage = "telemetry";
-    const bool usage_reporting = msime::windows::usage_reporting_enabled(prepared.at("value").at("preferences"));
+    std::optional<msime::telemetry::ConsentObserver> reporting_observer;
     if (const auto telemetry_directory = edition_telemetry_directory(); !telemetry_directory.empty()) {
-      msime::telemetry::begin({"windows", MSIME_WINDOWS_VERSION, telemetry_directory, usage_reporting, {}});
+      // 持久偏好与队列绑定同一授权代次；观察不等待网络，迟到的发布回调不覆盖当前授权。
+      msime::telemetry::begin({"windows", MSIME_WINDOWS_VERSION, telemetry_directory, std::nullopt, config.state_root});
+      reporting_observer.emplace();
       msime::telemetry::start_flushing();
     }
     // The user's anonymous MSIME account is registered on the first run after install, as on every other platform; once anonymous-session.json exists this is a file read. It runs off the main thread for the same reason as the telemetry event, and a failure (offline, rate limited) is simply retried on the next start.

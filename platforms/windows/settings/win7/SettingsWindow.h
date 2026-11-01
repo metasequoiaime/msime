@@ -10,6 +10,8 @@
 #include <string_view>
 
 namespace msime::settings::win7 {
+// 正常入口读取同一份重定向偏好，独立采集不建立输入会话。
+void start_usage_reporting();
 
 // 控件标识也用于原生验收，操作实际 HWND 和工作线程，不绕过窗口事件。
 enum ControlId {
