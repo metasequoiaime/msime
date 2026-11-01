@@ -63,8 +63,8 @@ STANDARD_REGIONS = {
 LOCAL_QUALIFIERS = {"Northern", "Southern", "Eastern", "Western"}
 # 这些语言里标了标准音地区的斜线标音排在不带地区标签的前面：法语 dump 把标准的法国读音标成 `France` 或 `Europe`，南部和其他变体反而不带标签（`sept` 是 `/sɛt/` 标 `Europe`、`/sɛtə/` 不带标签，`France` 是 `/fʁɑ̃s/` 标 `France`、`/fʁãⁿsə/` 不带标签）；而它标 `France` 的方括号标音多是窄式记音（`bonjour` 的 `[bõ.ʒuə̯ʁ]`），所以法语先比斜线还是方括号、再比地区。其余语言不带标签的就是标准音（德语 `Chile` 不带标签的 `/ˈt͡ʃiːlə/` 才是通行读法，标 `Germany` 的 `/ˈçiːlə/` 是变体），先比地区：不带标签的、标准音地区的、其他地区的，同一档里斜线优先。
 TAGGED_STANDARD_FIRST = {"fr"}
-# 这些语言在同一档地区里方括号的语音标音排在斜线的音位标音前面，值是在这些语言里另外丢掉的标签。德语的斜线是维基词典的音位层（`/ˈhaːbən/`），方括号才是学习者在词典里看到的实际读音（`[ˈhaː.bən]`、`er` 的 `[ʔeːɐ̯]`）；没有完整方括号标音的词（`Katze`、`Hund`）仍给斜线。方括号优先以后，标 `colloquial` 的口语缩读（`er` 的 `/ɐ/`、`mal` 的 `/ma/`）不能再排在标准读音前面，所以丢掉。只写在 `sounds[].other` 里的方括号（`Wasser` 的 `[ˈva.sɐ]`）不取：那个字段在德语里多半是用法说明里的片段（`der` 的 `[ˈɪnɐ]` 是 `in der` 的读法），和词条本身的读音分不开。
-BRACKETS_FIRST = {"de": {"colloquial"}}
+# 这些语言在同一档地区里方括号的语音标音排在斜线的音位标音前面，值是在这些语言里另外丢掉的标签。德语的斜线是维基词典的音位层（`/ˈhaːbən/`），方括号才是学习者在词典里看到的实际读音（`[ˈhaː.bən]`、`er` 的 `[ʔeːɐ̯]`）；没有完整方括号标音的词（`Katze`、`Hund`）仍给斜线。方括号优先以后，标 `colloquial` 的口语缩读（`er` 的 `/ɐ/`、`mal` 的 `/ma/`）不能再排在标准读音前面，所以丢掉；同样丢掉的还有标 `plural` 的复数读音（`Knie` 的 `[ˈkniːə]`，单数是 `/kniː/`）和标 `especially` 的地区偏好读法（`Bon` 的 `[bɔŋ]`，后面还有不带标签的 `[bɔ̃ː]`），它们是方括号时会排到不带标签的斜线前面。只写在 `sounds[].other` 里的方括号（`Wasser` 的 `[ˈva.sɐ]`）不取：那个字段在德语里多半是用法说明里的片段（`der` 的 `[ˈɪnɐ]` 是 `in der` 的读法），和词条本身的读音分不开。
+BRACKETS_FIRST = {"de": {"colloquial", "plural", "especially"}}
 REGIONAL_TAG = re.compile(r"^[A-Z]")
 # 读音里除字母外还能出现的字符（任何文字的字母都行；IPA 用拉丁、希腊、IPA 扩展字母和修饰字母）。其他字符（数字、汉字、注释、残留的模板）一律拒掉这条读音，而不是把它显示出来。
 READING_MARKS = set(" .ˈˌːˑ‿-‐()[]/|‖ʼ'ʔ̃͜͡")
@@ -270,10 +270,10 @@ def spelled_pronunciation(word: list[list[str]]) -> list[list[str]]:
             elif initial == "ㄴ":
                 current[2] = rest or "ㄴ"
             final, initial = current[2], following[0]
-        # ㄱ、ㄷ、ㅂ、ㅈ 与后面的 ㅎ 合成送气音（第 12 条附注 1）。
+        # ㄱ、ㄷ、ㅂ、ㅈ 与后面的 ㅎ 合成送气音（第 12 条附注 1）。收音 ㅅ、ㅊ、ㅌ 先读代表音 ㄷ 再送气成 ㅌ（附注 2，`꽃향기` 是 `[꼬턍기]`），只有 ㅈ 和 ㄵ 的后一半 ㅈ 送气成 ㅊ（`맞히다`、`앉히다`）。
         if initial == "ㅎ" and final:
             kept, moved = SPLIT_FINALS.get(final, ("", final))
-            base = "ㅈ" if moved in ("ㅈ", "ㅊ") else NEUTRAL_FINALS[moved]
+            base = "ㅈ" if moved == "ㅈ" else NEUTRAL_FINALS[moved]
             if base in ASPIRATED:
                 current[2] = kept
                 following[0] = ASPIRATED[base]

@@ -84,6 +84,9 @@ DUMP = [
     entry("de", "haben", pos="verb", sounds=[{"ipa": "/ˈhaːbən/"}, {"ipa": "[ˈhaː.bən]"}, {"ipa": "[-bn̩]"}, {"ipa": "/ham/"}, {"ipa": "[ham]"}]),
     entry("de", "er", pos="pron", sounds=[{"ipa": "/eːr/", "tags": ["standard"]}, {"ipa": "[ʔeːɐ̯]", "tags": ["standard"]}, {"ipa": "/ɐ/", "tags": ["colloquial"]}]),
     entry("de", "mal", pos="adv", sounds=[{"ipa": "/ma/", "tags": ["colloquial"]}, {"ipa": "/maːl/", "tags": ["standard"]}]),
+    # 复数读音和标 `especially` 的地区偏好读法也不用，哪怕它们是方括号。
+    entry("de", "Knie", sounds=[{"ipa": "/kniː/", "tags": ["singular"]}, {"ipa": "[ˈkniːə]", "tags": ["alternative", "dated", "dative", "singular"]}, {"ipa": "[ˈkniːə]", "tags": ["plural"]}, {"ipa": "[kniː]", "tags": ["plural"]}]),
+    entry("de", "Bon", sounds=[{"ipa": "/bɔ̃/"}, {"ipa": "[bɔŋ]", "tags": ["especially"]}, {"ipa": "[bɔ̃ː]"}, {"ipa": "[boːn]", "tags": ["especially"]}]),
     # 地区先比：只有标了其他地区的方括号时给不带标签的斜线；只写在 `other` 里的方括号不取。
     entry("de", "Samstag", sounds=[{"ipa": "/ˈzamstaːk/", "tags": ["standard"]}, {"ipa": "/ˈzamstax/"}, {"ipa": "[sɑmsd̥ɑɡ̥]", "tags": ["Austria", "Bavaria", "Southern-Germany"]}]),
     entry("de", "Wasser", sounds=[{"ipa": "/ˈvasər/"}, {"other": "[ˈva.sɐ]"}, {"other": "[ˈva.səʁ]"}]),
@@ -106,7 +109,7 @@ GLOSSES = {
     "fr": ["chat, chatte; félin", "pomme de terre", "est; orient", "Chat", "sept", "France", "tous", "cet", "bonjour", "jaune", "ce"],
     "es": ["gato, gata", "cielo; día"],
     "ru": ["кошка, кот"],
-    "de": ["Katze, Kater", "Arzneimittel", "Chile", "haben", "er", "mal", "Samstag", "Wasser"],
+    "de": ["Katze, Kater", "Arzneimittel", "Chile", "haben", "er", "mal", "Knie", "Bon", "Samstag", "Wasser"],
     "ko": ["고양이", "학교", "읽다", "좋다", "묵호", "희망", "전화", "없이", "카페", "개", "누워서 떡 먹기", "學校"],
     "ja": ["林檎, リンゴ", "家猫, 猫", "空, 大空", "日"],
 }
@@ -138,6 +141,8 @@ RULE_EXAMPLES = {
 }
 # 例词里的谓词：送气照写，不按体词的例外。
 RULE_EXAMPLE_PREDICATES = {"굳히다", "좋고", "놓다", "잡혀", "낳지"}
+# 不在规范例词里、但标准发音法有明文的送气：收音 ㅊ 先读代表音 ㄷ 再送气成 ㅌ（第 12 条附注 2），收音 ㅈ 和 ㄵ 的后一半送气成 ㅊ。
+SPELLED_EXTRAS = {"꽃향기": ("noun", "kkotyanggi"), "맞히다": ("verb", "machida"), "앉히다": ("verb", "anchida")}
 # 规范只用发音谚文能写对的例词（ㄴ 添加推不出来），给它们维基词典写的发音。
 PRONOUNCED_EXAMPLES = {"학여울": ("[항녀울]", "Hangnyeoul"), "알약": ("[알략]", "allyak")}
 
@@ -145,6 +150,9 @@ PRONOUNCED_EXAMPLES = {"학여울": ("[항녀울]", "Hangnyeoul"), "알약": ("[
 def check_revised_romanization() -> None:
     for word, expected in RULE_EXAMPLES.items():
         pos = "name" if expected[:1].isupper() else "verb" if word in RULE_EXAMPLE_PREDICATES else "noun"
+        reading = generator.revised_romanization(word, {"pos": pos, "sounds": []})
+        check(reading == expected, f"{word} romanizes from its spelling as {expected!r}, not {reading!r}")
+    for word, (pos, expected) in SPELLED_EXTRAS.items():
         reading = generator.revised_romanization(word, {"pos": pos, "sounds": []})
         check(reading == expected, f"{word} romanizes from its spelling as {expected!r}, not {reading!r}")
     for word, (pronunciation, expected) in PRONOUNCED_EXAMPLES.items():
@@ -217,8 +225,8 @@ def main() -> int:
         german = table(out / "de-phonetic.db", "de")
         check(german == {
             "Katze": "/ˈkatsə/", "Arzneimittel": "[aʁt͡sˈnaɪ̯ˌmɪtl̩]", "Chile": "/ˈt͡ʃiːlə/", "haben": "[ˈhaː.bən]", "er": "[ʔeːɐ̯]",
-            "mal": "/maːl/", "Samstag": "/ˈzamstaːk/", "Wasser": "/ˈvasər/",
-        }, f"German keeps the capital, drops noted, partial and colloquial cells, and prefers the untagged reading, then the bracketed one: {german}")
+            "mal": "/maːl/", "Knie": "/kniː/", "Bon": "[bɔ̃ː]", "Samstag": "/ˈzamstaːk/", "Wasser": "/ˈvasər/",
+        }, f"German keeps the capital, drops noted, partial, colloquial, plural and especially-tagged cells, and prefers the untagged reading, then the bracketed one: {german}")
         japanese = table(out / "ja-phonetic.db", "ja")
         check(japanese == {"林檎": "ringo", "猫": "neko", "リンゴ": "ringo", "日": "hi"}, f"Japanese reads in Hepburn, katakana through the kanji entry's kana, and prefers the accented common reading: {japanese}")
         with sqlite3.connect(out / "ja-phonetic.db") as database:
