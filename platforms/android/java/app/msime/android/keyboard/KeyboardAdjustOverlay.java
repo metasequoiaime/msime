@@ -56,9 +56,9 @@ public final class KeyboardAdjustOverlay extends FrameLayout {
     private static final float BRACKET_STROKE_DP = 3f;
     /** 横向把手（上下沿）与竖向把手（左右沿）的触摸区。 */
     private static final float GRIP_LONG_DP = 96f;
-    private static final float GRIP_SHORT_DP = 28f;
+    static final float GRIP_SHORT_DP = 28f;
     /** 中间三个按钮各自的宽高：三个加左右两个竖向把手不超过最窄的键盘（{@link KeyboardAdjustPolicy#MIN_WIDTH_DP}）。 */
-    private static final float ACTION_WIDTH_DP = 60f;
+    static final float ACTION_WIDTH_DP = 60f;
     private static final float ACTION_HEIGHT_DP = 60f;
     private static final int FOREGROUND = Color.WHITE;
 

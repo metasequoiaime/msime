@@ -133,6 +133,9 @@ public final class KeyboardAdjustPolicySmoke {
     }
 
     private static void widthGeometry() {
+        // 最窄的键盘里，中间三个按钮加左右两个竖向把手必须并排放得下，按钮不压到柄上（三个按钮之间没有间距）。60% 只会比 240 dp 更宽，浮动键盘最窄也是 240 dp 且不显示左右柄。
+        check(3 * KeyboardAdjustOverlay.ACTION_WIDTH_DP + 2 * KeyboardAdjustOverlay.GRIP_SHORT_DP
+            <= KeyboardAdjustPolicy.MIN_WIDTH_DP, "the three buttons and both side grips fit the narrowest keyboard");
         check(KeyboardAdjustPolicy.minWidthPx(PHONE_PX, PHONE_MIN_PX) == 660, "240 dp beats 60% on a phone");
         check(KeyboardAdjustPolicy.minWidthPx(2000, 660) == 1200, "60% beats 240 dp on a wide surface");
         check(KeyboardAdjustPolicy.minWidthPx(500, 660) == 500, "never wider than the space");
