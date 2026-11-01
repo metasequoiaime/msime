@@ -10,7 +10,7 @@ Status: implemented
 
 **数据来源与离线释义相同**：英文维基词典，经 Wiktextract 抽取、由 kaikki.org 发布，CC BY-SA 4.0，`docs/third-party.md` 已登记。离线释义取的是英语词条里的译文表，译文行不带读音；读音取的是同一版维基词典里目标语言词条自己的 `sounds`，kaikki.org 按语言单独发布（`kaikki.org-dictionary-French.jsonl.gz` 等六个，格式与离线释义读的英语 dump 相同）。离线释义锁住的 2026-09-02 那一周的 dump 已被 kaikki.org 覆盖、取不回来，过滤后的输入也只留了英语词条的译文行，所以读音用 2026-10-25 那一周的六个 dump（Wiktextract `f9fe161`，维基词典 2026-10-01 的转储），在 Mac Studio 上下载和过滤，过滤后的 13 MB 输入发布在 `metasequoiaime/chinese-ime-lm` 的 `target-pronunciations-2026.10.25`，按下面规则重建的数据库在同一仓库的 `target-pronunciations-2026.10.25-r2`（第一版数据库的法语和日语取错了读音，见下文），由新的 `resources/target-pronunciations.lock.json` 固定（六个原始 dump 的地址、ETag、长度和 SHA-256，过滤后的输入，产物）。读音按目标语言的词查，与离线释义从哪一周来无关；下次刷新离线释义时两者从同一周的 dump 一起重建。
 
-**每种语言读什么**（`scripts/build_target_pronunciations.py`）：
+**每种语言读什么**（`scripts/build_target_pronunciations.py`）：德语和韩语的写法后来由[德语取方括号、韩语改罗马字](2026-11-01-target-readings-german-phonetic-korean-romanization.md)取代，下面关于德语只取斜线、韩语给 IPA 的两处记的是这一版的决定和理由，其余语言照旧。
 
 - 法、西、俄、德、韩用 `sounds[].ipa`，原样保留维基词典写的斜线或方括号。斜线的音位标音优先于方括号的语音标音（西语两种都有，俄语和韩语只有方括号），不带地区标签的优先，其次是各语言的标准音（西班牙、德国、首尔），古旧、方言、非标准的丢掉；一格里写了两种读法或带注释的整格不用，以联诵符开头或结尾的（`tous` 的 `/tuz‿/`、`cet` 的 `/sɛ.t‿/`）和只标了一部分的（`[aːt͡s-]`）也不用。同一个词有几个词条时取最常见词性（名词、动词、形容词……）的第一个。屈折形式（俄语 `кошки`、法语 `chattes`）有自己的 IPA，但释义写的是原形，丢掉。
 - 法语反过来：标了 `France` 或 `Europe`（而且没同时标 `Southern`、`Northern` 这类方位词）的斜线标音排在不带标签的前面。kaikki 的法语 dump 把巴黎标准音标成这两个地区，南部变体反而不带标签；第一版按「不带标签优先」取，`France` 读成 `/fʁãⁿsə/`、`sept` 读成 `/sɛtə/`、`cinq` 读成 `/sɛ̃ᵑk/`，一批常用词取的是南部读法。`Paris` 不算标准音：dump 用它标巴黎口音的特点（`ce` 的 `/sø/`、`tarin` 的 `/täʁæ̃/`）。标 `France` 的方括号多是窄式记音（`bonjour` 的 `[bõ.ʒuə̯ʁ]`），所以法语仍是斜线先于方括号，再比地区。重建后法语有 24 个词换了读音、`cet` 不再有读音；西、俄、德、韩四张表逐字节不变。
@@ -57,6 +57,6 @@ Status: implemented
 - **代价**：macOS、Windows 安装包和鸿蒙 HAP 各多约 3.7 MB；Linux、Android、iOS 想看外语读音要再下载一次约 3.7 MB。
 - 读音和离线释义来自不同的两周 dump（2026-10-25 与 2026-09-02）。读音按目标语言的词查，不受影响；离线释义刷新时一起重建，`--glosses` 指向新的 `zh-<lang>.db`。
 - 新的网络行为只有资源包下载，与其他资源包同一条路：用户镜像、`https://dl.msime.app/gh/`、GitHub 原地址，PRIVACY.md 已写明；查表不联网。
-- 产物在 `metasequoiaime/chinese-ime-lm` 的 `target-pronunciations-2026.10.25-r2`（过滤后的输入仍在 `target-pronunciations-2026.10.25`）；构建可复现：用锁里的过滤后输入和离线释义的六个数据库运行 `build_target_pronunciations.py build`（`--dump-date`、`--source-revision` 取锁里的值），同一个 SQLite 版本下逐字节相同。
+- 产物在 `metasequoiaime/chinese-ime-lm` 的 `target-pronunciations-2026.10.25-r3`（[德语取方括号、韩语改罗马字](2026-11-01-target-readings-german-phonetic-korean-romanization.md)之后的重建，法、日、西、俄与 `-r2` 逐字节相同；过滤后的输入仍在 `target-pronunciations-2026.10.25`）；构建可复现：用锁里的过滤后输入和离线释义的六个数据库运行 `build_target_pronunciations.py build`（`--dump-date`、`--source-revision` 取锁里的值），同一个 SQLite 版本下逐字节相同。
 - 测试：`scripts/test-target-pronunciations.py`（取读音的规则、过滤、确定性），`scripts/test-language-data-notices.py`（NOTICE 在锁里、在每个随包渠道里），共享层 `phonetics` 与 `msime_client_pronunciation_request` 的单测，各宿主的读音规则单测。
 - 需要真机核对：六个平台在法语、日语、俄语目标下的读音位置和读屏；Linux、Android、iOS 的下载行。
