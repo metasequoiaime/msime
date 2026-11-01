@@ -9,6 +9,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import * as style from "./platform-controls-style";
+import { textOf } from "./text-of";
 
 /** 气泡与「?」之间、与窗口边缘之间留出的距离（px）。 */
 const GAP = 6;
@@ -23,15 +24,15 @@ const EDGE = 8;
  */
 export function InfoTip({
   id,
-  label = "说明",
+  subject,
   passive = false,
   className,
   children,
 }: {
   /** 视觉隐藏的说明文字的 id，供外层控件的 `aria-describedby` 引用。 */
   id?: string;
-  /** 「?」按钮的名称。缺省「说明」：不以设置标题开头，免得和按标题找控件的查询、读屏的按首字跳转混在一起；说明内容由 `aria-describedby` 读出。 */
-  label?: string;
+  /** 这条说明讲的是哪一项（行标题、组名）。「?」的读屏名称是「<标题>的说明：<正文>」，没有标题时是「说明：<正文>」，与 Windows、iOS、Android 的「?」一致。 */
+  subject?: ReactNode;
   passive?: boolean;
   className?: string;
   children: ReactNode;
@@ -115,8 +116,7 @@ export function InfoTip({
           // 设置搜索定位到一行时跳过它，聚焦行里真正的控件。
           data-info-tip=""
           className={style.infoTipButton}
-          aria-label={label}
-          aria-describedby={textId}
+          aria-label={`${subject === undefined ? "" : `${textOf(subject)}的`}说明：${textOf(children)}`}
           aria-expanded={pinned}
           {...hover}
           onFocus={(event) => setFocused(event.currentTarget.matches(":focus-visible"))}

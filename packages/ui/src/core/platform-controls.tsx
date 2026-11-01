@@ -5,7 +5,6 @@
  */
 import {
   createContext,
-  isValidElement,
   useContext,
   useEffect,
   useId,
@@ -22,6 +21,7 @@ import { ActionSheet, type SheetOption } from "./action-sheet";
 import { ChevronGlyph } from "./chevron-glyph";
 import { FluentIcon } from "./fluent-icons";
 import { InfoTip } from "./info-tip";
+import { textOf } from "./text-of";
 import { clamp } from "./number";
 import * as style from "./platform-controls-style";
 import { useMacOSSystemControls } from "./use-macos-liquid-glass";
@@ -81,7 +81,7 @@ export function GroupList({ title, children }: { title?: ReactNode; children: Re
             {title}
           </h3>
           {notes.length > 0 && (
-            <InfoTip>
+            <InfoTip subject={title}>
               {notes.map((note, index) => (
                 <span key={note.id} className={index === 0 ? "block" : "mt-1.5 block"}>
                   {note.node}
@@ -147,7 +147,11 @@ export function Row({
           <span id={labelId} className={style.rowTitle} data-row-title="">
             {title}
           </span>
-          {description && <InfoTip id={descriptionId}>{description}</InfoTip>}
+          {description && (
+            <InfoTip id={descriptionId} subject={title}>
+              {description}
+            </InfoTip>
+          )}
         </span>
         {detail && (
           <span id={detailId} className={style.rowDescription}>
@@ -464,7 +468,7 @@ export function Checks<T extends string>({
       <legend className={style.checksLegend} data-row-title="">
         {legend}
         {description && (
-          <InfoTip id={descriptionId} className="ms-1">
+          <InfoTip id={descriptionId} subject={legend} className="ms-1">
             {description}
           </InfoTip>
         )}
@@ -673,12 +677,4 @@ export function PickerRow({
   );
 }
 
-/** 节点会显示的文本，用于由行的标记构建面板标题或选项标签。 */
-export function textOf(node: ReactNode): string {
-  if (node === null || node === undefined || typeof node === "boolean") return "";
-  if (typeof node === "string" || typeof node === "number" || typeof node === "bigint")
-    return String(node);
-  if (Array.isArray(node)) return node.map(textOf).join("");
-  if (isValidElement<{ children?: ReactNode }>(node)) return textOf(node.props.children);
-  return "";
-}
+export { textOf };
