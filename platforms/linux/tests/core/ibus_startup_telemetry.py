@@ -116,7 +116,6 @@ def run_host(host, registration_bus, scratch, recovered):
         # 没有偏好目录或偏好文件的旧协议现在按未授权处理。
         (preferences / "preferences.json").write_text(json.dumps({
             "format_version": 1,
-            "revision": 0,
             "preferences": {"usage_reporting": True},
         }))
         options.write_text(json.dumps({
