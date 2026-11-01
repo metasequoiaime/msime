@@ -1675,8 +1675,8 @@ struct KeyboardView {
             this.cancelHintHold(touch.id);
             this.letterHints.cancel(touch.id);
             this.relabelKeyPreview(touch.id, helpcode);
+            continue;
           }
-          continue;
         }
         const fired: string | null = this.letterHints.move(touch.id, touch.windowX, touch.windowY,
           this.feedback.swipeSymbols, this.feedback.swipeSymbolsDirection);
@@ -1697,7 +1697,8 @@ struct KeyboardView {
       }
       this.cancelHintHold(finger);
       this.hideKeyPreview(finger);
-      const helpcode: string = this.helpcodeSwipes.up(finger);
+      const touch: TouchObject = event.changedTouches[0];
+      const helpcode: string = this.helpcodeSwipes.up(finger, touch.windowX, touch.windowY);
       if (helpcode.length > 0) {
         this.letterHints.cancel(finger);
         this.typeHelpcodeSwipe(letter);

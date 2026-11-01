@@ -50,6 +50,8 @@ group("一次触摸触发一次大写，点击先到也会被吞掉", () => {
   check(gesture.up(1) === "", "同一次触摸不重复送出");
   gesture.down(1, "b", DOWN_X, DOWN_Y, true);
   check(gesture.move(1, DOWN_X, DOWN_Y + 20) === "B", "下滑送 B");
+  gesture.down(2, "f", DOWN_X, DOWN_Y, true);
+  check(gesture.up(2, DOWN_X, DOWN_Y - 20) === "F", "没有移动事件时抬手位置仍能触发");
 });
 
 group("未触发时照常点按，关闭或非字母不接管", () => {

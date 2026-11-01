@@ -83,8 +83,17 @@ export class HelpcodeSwipeGesture {
     }
   }
 
-  up(finger: number): string {
+  up(finger: number, x?: number, y?: number): string {
     const touch: HelpcodeTouch | undefined = this.touches.get(finger);
+    if (
+      touch !== undefined &&
+      !touch.triggered &&
+      !touch.held &&
+      x !== undefined &&
+      y !== undefined
+    ) {
+      this.move(finger, x, y);
+    }
     this.touches.delete(finger);
     return touch !== undefined && touch.triggered ? HelpcodeSwipePolicy.letter(touch.letter) : "";
   }
