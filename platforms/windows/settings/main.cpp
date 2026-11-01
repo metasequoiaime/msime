@@ -15684,6 +15684,12 @@ private:
     weight.Value(previous ? static_cast<double>(previous->weight) : 10.0);
     form.Children().Append(key);
     form.Children().Append(value);
+    // 与共享页 dictionary-entries.tsx 一样，在短语框下说明光标标记的写法。
+    if (kind == L"quick_phrase" && !bundled) {
+      auto note = make_text(pg::quick_phrase_cursor_note, 12, palette_.sub);
+      note.MaxWidth(360);
+      form.Children().Append(note);
+    }
     form.Children().Append(weight);
     ContentDialog dialog;
     dialog.Title(box_value(hstring(previous ? (bundled ? L"调权重" : L"编辑词条") : L"新增词条")));

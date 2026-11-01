@@ -153,7 +153,7 @@ struct PluginEditorView: View {
     } header: {
       Text("短语（\(rows.count)）")
     } footer: {
-      Text("编码是 K 之后输入的小写字母，最多 32 个；同一个编码可以对应几段文字。文字最多 \(PluginEditorModel.maximumTextUTF16) 个字符，不能换行。左滑删除一条。\n在文字中用 ${cursor} 指定上屏后的光标位置，例如 title:\"${cursor}\" 会输入 title:\"\"，光标停在引号内。只定位第一个标记；要输入标记本身，请写 $${cursor}。")
+      Text("编码是 K 之后输入的小写字母，最多 32 个；同一个编码可以对应几段文字。文字最多 \(PluginEditorModel.maximumTextUTF16) 个字符，不能换行。左滑删除一条。\n在文字中用 ${cursor} 指定上屏后的光标位置，例如 title:\"${cursor}\" 会输入 title:\"\"，光标停在引号内。只定位第一个标记；要输入标记本身，请写 $${cursor}。编辑器不支持定位时光标留在末尾。")
     }
     .designRow()
   }
