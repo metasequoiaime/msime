@@ -4721,14 +4721,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
 
     let preceding = KeyboardPunctuationContext.precedingScalar(documentContextBeforeComposition)
-    var snapshot = session.handlePunctuationWithContext(punctuation, preceding: preceding)
+    let snapshot = session.handlePunctuationWithContext(punctuation, preceding: preceding)
     if snapshot.isHandled {
-      let reopened = PairedPunctuationPolicy.reopenQuote(snapshot.commitText, ascii: punctuation, enabled: paired)
-      if reopened != snapshot.commitText { snapshot = snapshot.replacingCommit(reopened) }
-      render(snapshot)
-      let completion = PairedPunctuationPolicy.completion(snapshot.commitText, enabled: paired)
+      let (landed, completion) = PairedPunctuationPolicy.punctuationCommit(snapshot, ascii: punctuation, enabled: paired)
+      render(landed)
       if let completion { closePair(completion, editor: editor) }
-      armSmartPunctuation(punctuation, commit: snapshot.commitText, editor: editor, autoClosedPair: completion != nil)
+      armSmartPunctuation(punctuation, commit: landed.commitText, editor: editor, autoClosedPair: completion != nil)
       return
     }
 
@@ -7757,12 +7755,23 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return TypingSource(rawValue: inputScheme.rawValue) ?? .unknown
   }
 
-  /// 运行时上屏替换行内预编辑；其他直接插入先撤下组字，下一次渲染再标记剩余内容。
-  private func insertOwnText(_ text: String, source: TypingSource? = nil, replacingComposition: Bool = false) {
-    if replacingComposition && !inlineMarkedText.isEmpty {
-      // 直接提交替换标记区；先重标记再 unmark 的跨进程调用会让随后的剩余组字覆盖已选汉字。
+  /// 运行时提交替换行内预编辑；显式定位在同一次临时标记里指定选区，再取消标记提交完整正文。
+  private func insertOwnText(_ text: String, source: TypingSource? = nil, replacingComposition: Bool = false,
+                             cursorSuffix: String? = nil) {
+    let cursor = cursorSuffix.flatMap { suffix -> Int? in
+      guard !suffix.isEmpty, text.utf16.suffix(suffix.utf16.count).elementsEqual(suffix.utf16) else { return nil }
+      return text.utf16.count - suffix.utf16.count
+    }
+    if replacingComposition && (!inlineMarkedText.isEmpty || cursor != nil) {
+      // 正文与 UTF-16 选区一起交给 UIKit，避免方向移动在 emoji、组合字符或双向文本里猜错单位。
       inlineMarkedText = ""
-      textDocumentProxy.insertText(text)
+      if let cursor {
+        pairedPunctuation.clear()
+        textDocumentProxy.setMarkedText(text, selectedRange: NSRange(location: cursor, length: 0))
+        textDocumentProxy.unmarkText()
+      } else {
+        textDocumentProxy.insertText(text)
+      }
       noteOwnEdit()
     } else {
       showInlineComposition("")
@@ -7981,9 +7990,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateLetterCaseControls()
     if snapshot.commitText != nil || appendingLiteral != nil {
       let commit = snapshot.commitText.map { source == .japanese || !snapshot.scriptConversion ? $0 : chineseOutput($0) } ?? ""
+      let suffix = snapshot.commitCursorSuffix.map {
+        (source == .japanese || !snapshot.scriptConversion ? $0 : chineseOutput($0)) + (appendingLiteral ?? "")
+      }
       // 原组字和数字作为同一次文档替换提交；先撤标记再插数字会读到尚未更新的选区，数字可能跑到拼音前面。
       insertOwnText(commit + (appendingLiteral ?? ""), source: source,
-                    replacingComposition: snapshot.commitText != nil)
+                    replacingComposition: snapshot.commitText != nil, cursorSuffix: suffix)
     }
     let wasComposing = renderedComposition
     let wasKoreanHanjaListOpen = koreanHanjaListOpen

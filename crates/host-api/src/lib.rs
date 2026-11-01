@@ -1163,11 +1163,24 @@ impl HostSession {
             .commit_context
             .as_ref()
             .is_some_and(|context| context.plugin_row);
+        // 位置以原上屏的真实后缀为准；失配时不猜测编辑器里的光标偏移。
+        if result.commit_cursor_suffix.as_ref().is_some_and(|suffix| {
+            !result
+                .commit
+                .as_ref()
+                .is_some_and(|commit| commit.ends_with(suffix))
+        }) {
+            result.commit_cursor_suffix = None;
+        }
         if result.view.character_width == CharacterWidth::Fullwidth
             && !half_width_text
             && !plugin_commit
         {
-            if let Some(c) = result.commit.as_mut() {
+            for c in result
+                .commit
+                .iter_mut()
+                .chain(result.commit_cursor_suffix.iter_mut())
+            {
                 *c = c
                     .chars()
                     .map(|x| {
@@ -1185,14 +1198,27 @@ impl HostSession {
             }
         }
         // 中英文之间加空格排在全角转换之后：先加的半角空格会被转成 U+3000；全角下字母已是全角，本来就不会触发。宿主的简繁转换在拿到上屏文本之后才做，OpenCC 只换汉字、不动空格。之后的 `before_commit` 看到的是加过空格的文本。
-        if let Some(commit) = result.commit.as_mut() {
-            if self.chinese_english_spacing()
-                && chinese_english_spacing::applies(result.commit_context.as_ref())
+        if self.chinese_english_spacing()
+            && chinese_english_spacing::applies(result.commit_context.as_ref())
+        {
+            // 分别转换正文与后缀。边界新增的空格留在光标前，光标仍紧邻原后缀的首字符。
+            for commit in result
+                .commit
+                .iter_mut()
+                .chain(result.commit_cursor_suffix.iter_mut())
             {
                 if let Some(spaced) = chinese_english_spacing::space(commit) {
                     *commit = spaced;
                 }
             }
+        }
+        if result.commit_cursor_suffix.as_ref().is_some_and(|suffix| {
+            !result
+                .commit
+                .as_ref()
+                .is_some_and(|commit| commit.ends_with(suffix))
+        }) {
+            result.commit_cursor_suffix = None;
         }
         // Dispatch already built the view for this transition. Rebuild it only
         // when applying a deferred page-size or preference change advanced the
@@ -3714,11 +3740,20 @@ fn dispatch_value(
         }
         let facts = session.runtime.facts();
         // 固定标点表返回全角人民币；半角只改本次 `$` 产生的尾巴，候选和短语里的符号保持原文。
-        if currency_punctuation && result.view.character_width == CharacterWidth::Halfwidth {
-            if let Some(commit) = result.commit.as_mut() {
-                if facts.tail_chars == 1 && commit.ends_with('￥') {
-                    commit.truncate(commit.len() - '￥'.len_utf8());
-                    commit.push('¥');
+        if currency_punctuation
+            && result.view.character_width == CharacterWidth::Halfwidth
+            && facts.tail_chars == 1
+            && result.commit.as_deref().is_some_and(|c| c.ends_with('￥'))
+        {
+            // 光标后缀带着同一个单字尾巴，正文以 `￥` 结尾时它也以 `￥` 结尾；两者一起改写，`complete_transition` 核对时后缀仍是正文的真后缀。
+            for text in result
+                .commit
+                .iter_mut()
+                .chain(result.commit_cursor_suffix.iter_mut())
+            {
+                if text.ends_with('￥') {
+                    text.truncate(text.len() - '￥'.len_utf8());
+                    text.push('¥');
                 }
             }
         }

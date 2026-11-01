@@ -400,6 +400,8 @@ struct MetasequoiaCandidateIdentity: Equatable, Sendable {
 struct MetasequoiaInputSnapshot: Equatable, Sendable {
   let isHandled: Bool
   let commitText: String?
+  /// 上屏后光标右边的正文；nil 表示没有定位请求，空串表示正文末尾。
+  let commitCursorSuffix: String?
   /// Runtime 已经按候选来源分段转换时为 false，宿主不能再次把整行转成繁体。
   let scriptConversion: Bool
   let preedit: String
@@ -459,7 +461,8 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
     return editingText[..<caret] + "|" + editingText[caret...]
   }
 
-  init(isHandled: Bool = false, commitText: String? = nil, scriptConversion: Bool = true, preedit: String = "", reading: String = "",
+  init(isHandled: Bool = false, commitText: String? = nil, commitCursorSuffix: String? = nil,
+       scriptConversion: Bool = true, preedit: String = "", reading: String = "",
        phrasePrefix: String = "",
        candidates: [String] = [], candidateCodes: [String] = [],
        candidateIdentities: [MetasequoiaCandidateIdentity?] = [], generation: UInt64? = nil,
@@ -474,6 +477,7 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
        enumerationCommaBackslash: Bool = true, enumerationCommaSlash: Bool = false) {
     self.isHandled = isHandled
     self.commitText = commitText
+    self.commitCursorSuffix = commitCursorSuffix
     self.scriptConversion = scriptConversion
     self.preedit = preedit
     self.reading = reading
@@ -2309,7 +2313,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     let commitContext = value["commit_context"] as? [String: Any]
     let scriptConversion = try strictBool(commitContext?["script_conversion"], fallback: true)
     return MetasequoiaInputSnapshot(isHandled: try strictBool(value["handled"], fallback: false),
-      commitText: value["commit"] as? String, scriptConversion: scriptConversion,
+      commitText: value["commit"] as? String, commitCursorSuffix: value["commit_cursor_suffix"] as? String,
+      scriptConversion: scriptConversion,
       preedit: view["preedit"] as? String ?? "",
       reading: view["reading"] as? String ?? "",
       phrasePrefix: view["phrase_prefix"] as? String ?? "",

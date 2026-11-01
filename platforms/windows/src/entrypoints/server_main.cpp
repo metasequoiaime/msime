@@ -1241,7 +1241,7 @@ int wmain(int argc, wchar_t **argv) {
                       FanyImeProtocol::OrderedPreferences |
                       FanyImeProtocol::GameHostCandidate |
                       FanyImeProtocol::FieldTraits |
-                      FanyImeProtocol::JapaneseToggleShortcut)
+                      FanyImeProtocol::QuickPhraseCursor | FanyImeProtocol::JapaneseToggleShortcut)
                    : (FanyImeProtocol::RequiredCapabilities |
                       FanyImeProtocol::CandidateContinuation |
                       FanyImeProtocol::UiLessCandidates |
@@ -1249,7 +1249,7 @@ int wmain(int argc, wchar_t **argv) {
                       FanyImeProtocol::GroupedPanelKeys |
                       FanyImeProtocol::OrderedPreferences |
                       FanyImeProtocol::GameHostCandidate |
-                      FanyImeProtocol::FieldTraits);
+                      FanyImeProtocol::FieldTraits | FanyImeProtocol::QuickPhraseCursor);
     // 管道对端身份对不上时记下 pid 和错误码，用来区分「DLL 加载了但 Server 拒了连接」和「DLL 根本没加载」，比如反作弊剥掉了 Server 打开游戏进程所需的权限。
     // 在握手线程上运行，而 notice 会写盘：反作弊持续拒绝时 TSF 每次重连都会走到这里，所以同一个 pid 一分钟只记一条，免得拖慢排队中的握手。
     auto identity_rejected_logged =
