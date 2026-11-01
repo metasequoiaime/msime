@@ -1753,7 +1753,10 @@ async fn repair_macos_oobe_resources(
         Ok(())
     })
     .await
-    .map_err(|_| CommandError { code: "storage" })?
+    .map_err(|_| CommandError { code: "storage" })??;
+    // 资源目录可能刚从升级前的旧代次换成不带五笔码表的发布包：按新的资源目录再补一次已保存偏好需要的资源包，不必等设置应用下次启动。
+    desktop_resource_packs::ensure_saved_packs(app);
+    Ok(())
 }
 
 async fn save_preferences_impl(

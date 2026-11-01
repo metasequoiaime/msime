@@ -225,7 +225,7 @@ private enum DeveloperDiagnostics {
                                            KeyboardLayoutPreference.oneHandedKey,
                                            KeyboardLayoutPreference.spaceVoiceKey, KeyboardLayoutPreference.swipeSymbolsKey,
                                            KeyboardLayoutPreference.swipeSymbolsDirectionKey,
-                                           NineKeySwipeDigits.mirrorKey]),
+                                           NineKeySwipeDigits.mirrorKey] + KeyboardLayoutPreference.placementKeys),
       (KeyboardFeedbackPreference.defaults, [KeyboardFeedbackPreference.soundKey, KeyboardFeedbackPreference.hapticsKey,
                                              KeyboardFeedbackPreference.strengthKey]),
       (KeyboardPrivacyPreference.defaults, [KeyboardPrivacyPreference.incognitoKey]),

@@ -1445,7 +1445,7 @@ final class KeyLayoutStyleTests: XCTestCase {
     let standardLayer = try XCTUnwrap(standard["layoutToggleButton"])
     XCTAssertGreaterThan(abs(layer.bounds.width - standardLayer), 1, "at 6pt 123 is not as wide as at 3pt")
 
-    // 文档里的键距改成 3pt，App Group 和键盘仍是 6pt；偏好文件设成不可改写，「完成」写文档失败，键盘按文档对齐成 3pt。
+    // 文档里的键距改成 3pt，App Group 和键盘仍是 6pt；偏好文件设成不可改写，键盘调整的「确认」写文档失败，键盘按文档对齐成 3pt。
     XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences { $0["touch_key_spacing_tenths"] = 30 })
     XCTAssertEqual(KeyboardLayoutPreference.keySpacing, 6)
     let document = URL(fileURLWithPath: MetasequoiaInputSessionBridge.sharedStateDirectory)
@@ -1454,10 +1454,10 @@ final class KeyLayoutStyleTests: XCTestCase {
     defer { chflags(document, 0) }
     try button("moreShortcut", in: controller).sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
-    try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "moreCard-键盘高度" } as? UIControl)
+    try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "moreCard-键盘调整" } as? UIControl)
       .sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
-    try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "inlineHeightDone" } as? UIControl)
+    try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardAdjustConfirm" } as? UIControl)
       .sendActions(for: .primaryActionTriggered)
     XCTAssertEqual(KeyboardLayoutPreference.keySpacing, 3, "the failed commit falls back to the document's key spacing")
     try layoutAtRequestedHeight(controller)

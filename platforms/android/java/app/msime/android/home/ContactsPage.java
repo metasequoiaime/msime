@@ -61,7 +61,7 @@ public final class ContactsPage extends ReloadingDetailPage {
         GroupCard card = GroupCard.add(sectionColumn(target, "联系人"), null).withDividers(16);
         card.note(entries == null ? "联系人名单读取失败，请稍后重试。"
             : "已保存 " + entries.size() + " 个联系人。名单供输入法本地匹配，数据只保存在本机。");
-        card.button("导入联系人", "首次点击时才申请读取联系人权限", "导入", this::requestImport);
+        card.button("导入联系人", null, "导入", this::requestImport).help("首次点击时才申请读取联系人权限");
         card.button("刷新联系人", "重新读取电话本并替换本机名单", "刷新", this::requestImport);
         card.button("清空联系人", "删除已导入的联系人，不影响系统电话本", "清空", this::clearContacts);
     }

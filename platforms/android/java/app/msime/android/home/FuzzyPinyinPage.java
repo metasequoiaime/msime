@@ -33,9 +33,9 @@ public final class FuzzyPinyinPage extends ReloadingDetailPage {
         Set<String> selected = selectedRules(fuzzy);
 
         GroupCard mode = GroupCard.add(target, "模糊音");
-        mode.toggle("启用模糊音", "只按勾选的规则匹配；关闭后保留勾选", enabled,
-            checked -> savePreferences(values -> KeyboardSheets.child(values, "fuzzy_pinyin").put("enabled", checked)));
-        mode.note("首次开启会勾选全部规则；也可以先在下面只勾选需要的规则，再开启模糊音。");
+        mode.toggle("启用模糊音", null, enabled,
+            checked -> savePreferences(values -> KeyboardSheets.child(values, "fuzzy_pinyin").put("enabled", checked))).help("只按勾选的规则匹配；关闭后保留勾选");
+        mode.help("首次开启会勾选全部规则；也可以先在下面只勾选需要的规则，再开启模糊音。");
 
         for (String[][] entries : GROUPS) {
             GroupCard group = GroupCard.add(target, entries[0][0]);

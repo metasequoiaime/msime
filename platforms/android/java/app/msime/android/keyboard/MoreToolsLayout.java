@@ -77,7 +77,7 @@ public final class MoreToolsLayout {
             case "手写" -> "✎";
             case "拍照识字" -> "照";
             case "词库" -> "▦";
-            case "键盘高度" -> "⇕";
+            case "键盘调整" -> "⇕";
             case "按键音" -> "♪";
             case "按键振动", "振动" -> "◌";
             case "振动强度" -> "↕";

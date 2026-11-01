@@ -70,8 +70,13 @@ final class UsageReportingTests: XCTestCase {
     UsageReporting.recordDiagnosedCrash(crash, stack: "0 MSIMEKeyboardExtension + 1", pid: getpid(), in: directory)
     let record = crashes.appendingPathComponent(session.id + ".crash")
     XCTAssertEqual(URL(fileURLWithPath: session.crashRecordPath).standardizedFileURL, record.standardizedFileURL)
-    XCTAssertEqual(try String(contentsOf: record, encoding: .utf8),
-                   "Crash exception 10 code 0 signal 6\n0 MSIMEKeyboardExtension + 1")
+    let contents = try String(contentsOf: record, encoding: .utf8)
+    let lines = contents.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+    XCTAssertTrue(lines.first?.hasPrefix("MSIME-CRASH/1 ") == true, contents)
+    XCTAssertEqual(Array(lines.dropFirst()), [
+      "Crash exception 10 code 0 signal 6",
+      "0 MSIMEKeyboardExtension + 1",
+    ])
     // MetricKit 再送一次，或键盘自己的信号处理函数已经写过：保留第一份。
     UsageReporting.recordDiagnosedCrash(crash, stack: "0 other + 2", pid: getpid(), in: directory)
     XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: crashes.path), [session.id + ".crash"])

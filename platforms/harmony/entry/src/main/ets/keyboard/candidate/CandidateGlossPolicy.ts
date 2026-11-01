@@ -154,7 +154,7 @@ interface PronunciationReply {
 }
 
 /**
- * 候选读音的取词与校验，规则与 Android 的 `CandidatePronunciationPolicy`、`CandidatePronunciationModel` 相同：英文候选读它本身（英文），中文候选读释义的第一行，按释义的目标语言读；首个词组和去冠词交给共享层。英文给 `/…/` 音标，法、西、俄、德、韩给维基词典的 IPA（`/…/` 或 `[…]`），日文给罗马字。
+ * 候选读音的取词与校验，规则与 Android 的 `CandidatePronunciationPolicy`、`CandidatePronunciationModel` 相同：英文候选读它本身（英文），中文候选读释义的第一行，按释义的目标语言读；首个词组和去冠词交给共享层。英文给 `/…/` 音标，法、西、俄、德给维基词典的 IPA（`/…/` 或 `[…]`），日文给赫本式罗马字，韩文给文化观光部式罗马字。
  *
  * 读音只取决于查的那段文字、它的语言和随包的表，与候选代次无关，所以宿主按「语言 + 换行 + 文字」这个键缓存回答，不必按代次丢弃：同样的字母在别的语言里是另一个词（法文的 chat）。
  */
@@ -218,9 +218,9 @@ export class CandidatePronunciationPolicy {
     return JSON.stringify(request);
   }
 
-  /** 一条读音的形状对不对：英文是 `/…/`，日文是罗马字，其余是 `/…/` 或 `[…]`。 */
+  /** 一条读音的形状对不对：英文是 `/…/`，日文和韩文是罗马字，其余是 `/…/` 或 `[…]`。 */
   private static wellFormed(language: string, reading: string): boolean {
-    if (language === "ja") return reading.trim().length > 0;
+    if (language === "ja" || language === "ko") return reading.trim().length > 0;
     if (reading.length < 3) return false;
     if (reading.startsWith("/") && reading.endsWith("/")) return true;
     return language !== "en" && reading.startsWith("[") && reading.endsWith("]");
@@ -260,7 +260,7 @@ export class CandidatePronunciationPolicy {
     return readings;
   }
 
-  /** 读屏在释义之后念的读音：IPA 叫音标，日文的罗马字叫读音。 */
+  /** 读屏在释义之后念的读音：IPA 叫音标，日文和韩文的罗马字叫读音。 */
   static accessibilitySuffix(reading: string): string {
     if (reading.length === 0) return "";
     return (reading.startsWith("/") || reading.startsWith("[") ? "，音标：" : "，读音：") + reading;

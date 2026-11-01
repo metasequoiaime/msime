@@ -527,7 +527,7 @@ test("candidate pronunciation is host-enabled, defaults off, persists and needs 
   selectSettingsTab("候选释义");
   const toggle = screen.getByRole("switch", { name: "显示读音" }) as HTMLInputElement;
   expect(toggle.checked).toBe(false);
-  expect(screen.getByText(/英文释义给音标，日文释义给罗马音/)).toBeDefined();
+  expect(screen.getByText(/英文释义给音标，日文和韩文释义给罗马音/)).toBeDefined();
   fireEvent.click(toggle);
   saveSettingsNow();
   await screen.findByText("已保存");
@@ -595,7 +595,7 @@ test("Windows describes candidate pronunciation for English and Japanese glosses
   fireEvent.click(await screen.findByRole("button", { name: /^(标点与翻译|标点翻译)$/ }));
   selectSettingsTab("候选释义");
   expect(screen.getByRole("switch", { name: "显示读音" })).toBeDefined();
-  expect(screen.getByText(/英文释义给音标，日文释义给罗马音/)).toBeDefined();
+  expect(screen.getByText(/英文释义给音标，日文和韩文释义给罗马音/)).toBeDefined();
 });
 
 test("HarmonyOS phones offer English pronunciations under the gloss switch, without romaji", async () => {

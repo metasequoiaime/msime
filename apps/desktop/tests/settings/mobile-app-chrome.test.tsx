@@ -611,6 +611,7 @@ const autumnLight: ResolvedAppTheme = {
   background: "#F6E9DC",
   card: "#FFFBF6",
   hair: "#B5562B33",
+  candidate_accent: "#9F4214",
 };
 const autumnDark: ResolvedAppTheme = {
   ...autumnLight,
@@ -620,6 +621,7 @@ const autumnDark: ResolvedAppTheme = {
   background: "#21150F",
   card: "#2E1E15",
   hair: "#FFFFFF1A",
+  candidate_accent: "#F0975F",
 };
 
 /** 宿主的应用主题，季节可以在页面显示期间改变，就像月份更替或在 我的 里做出选择时那样。 */

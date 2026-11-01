@@ -140,6 +140,10 @@
     <color name="attention">@color/ms_warn</color>
     <color name="splash_field">@color/ms_splash_bg</color>
     <color name="splash_glow">@color/ms_splash_glow</color>
-    <!-- 图标那块深色场，自适应图标的背景层取它，于是遮罩切出来的永远是这块底而不是灰板。它属于 App 图标，不是设计令牌，深浅相同。 -->
-    <color name="app_icon_field">#252525</color>
+    <!-- 自适应图标的背景层：各套图标的底色（scripts/generate_app_icons.py 的 field() 算出并打印），启动器用什么形状的遮罩，图标就是什么形状的这块底，上面只有白色折线，不再画任何边框。经典是标志本身的深色，其余是主题色压暗。它们属于 App 图标，不是设计令牌，深浅相同。 -->
+    <color name="app_icon_field_classic">#252525</color>
+    <color name="app_icon_field_forest">#20463A</color>
+    <color name="app_icon_field_sky">#41717A</color>
+    <color name="app_icon_field_dusk">#5A527A</color>
+    <color name="app_icon_field_vermilion">#612C25</color>
 </resources>

@@ -62,7 +62,7 @@ enum CandidateGlossModel {
 
 }
 
-/// 候选读音的取词、请求与回答校验，规则与 Android 的 `CandidatePronunciationPolicy`、`CandidatePronunciationModel` 相同：英文候选读它本身（英文），中文候选读画出来的释义的第一行，按释义的语言读；首个词组和去冠词交给共享层。英文给 `/…/` 音标，法、西、俄、德、韩给维基词典的 IPA（`/…/` 或 `[…]`），日文给罗马字。
+/// 候选读音的取词、请求与回答校验，规则与 Android 的 `CandidatePronunciationPolicy`、`CandidatePronunciationModel` 相同：英文候选读它本身（英文），中文候选读画出来的释义的第一行，按释义的语言读；首个词组和去冠词交给共享层。英文给 `/…/` 音标，法、西、俄、德给维基词典的 IPA（`/…/` 或 `[…]`），日文给赫本式罗马字，韩文给文化观光部式罗马字。
 ///
 /// 读音只取决于查的那段文字、它的语言和本机的表，与候选代次无关，所以键盘按「语言 + 换行 + 文字」这个键（`key`）缓存回答，请求的代次固定为 0：同样的字母在别的语言里是另一个词（法文的 chat）。
 enum CandidatePronunciationModel {
@@ -125,15 +125,15 @@ enum CandidatePronunciationModel {
     return readings
   }
 
-  /// 一条读音的形状对不对：英文是 `/…/`，日文是罗马字，其余是 `/…/` 或 `[…]`。
+  /// 一条读音的形状对不对：英文是 `/…/`，日文和韩文是罗马字，其余是 `/…/` 或 `[…]`。
   static func wellFormed(language: String, reading: String) -> Bool {
-    if language == "ja" { return !reading.trimmingCharacters(in: .whitespaces).isEmpty }
+    if language == "ja" || language == "ko" { return !reading.trimmingCharacters(in: .whitespaces).isEmpty }
     guard reading.count >= 3 else { return false }
     if reading.hasPrefix("/"), reading.hasSuffix("/") { return true }
     return language != "en" && reading.hasPrefix("[") && reading.hasSuffix("]")
   }
 
-  /// 读屏念的读音名称：IPA 叫音标，日文的罗马字叫读音。
+  /// 读屏念的读音名称：IPA 叫音标，日文和韩文的罗马字叫读音。
   static func accessibilityLabel(_ reading: String) -> String {
     reading.hasPrefix("/") || reading.hasPrefix("[") ? "音标 \(reading)" : "读音 \(reading)"
   }

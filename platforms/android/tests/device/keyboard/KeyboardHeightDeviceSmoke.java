@@ -10,7 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import org.json.JSONObject;
 
-/** 键盘高度调整与持久化（与 Apple 一致）、键区下的底部留白，以及底行与字母键同高的设备验收。 */
+/** 「键盘调整」遮罩（高度、底部抬高、宽度、位置的预览与保存）、键区下的底部留白，以及底行与字母键同高的设备验收。 */
 public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
     /** {@code AndroidLocalSettings.FILE_NAME} 与 {@code KEYBOARD_HEIGHT_ADJUSTMENT}；设备套件不编译宿主的设置类，这里写同样的字面值。 */
     private static final String LOCAL_SETTINGS_FILE = "android-settings.json";
@@ -19,6 +19,16 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
     private static final String BOTTOM_BAR_SETTING = "platform.android.bottom_bar";
     private static final String BOTTOM_PADDING_SETTING = "platform.android.bottom_padding";
     private static final String BOTTOM_PADDING_HEIGHT_SETTING = "platform.android.bottom_padding_height";
+    /** {@code AndroidLocalSettings.KEYBOARD_WIDTH_PERCENT} 与 {@code KEYBOARD_POSITION_X}。 */
+    private static final String WIDTH_SETTING = "platform.android.keyboard_width_percent";
+    private static final String POSITION_SETTING = "platform.android.keyboard_position_x";
+    /** 遮罩各部件的读屏描述（{@code KeyboardAdjustOverlay}）：整块、上下左右四个柄、三个按钮。 */
+    private static final String ADJUST_OVERLAY = "键盘调整";
+    private static final String TOP_HANDLE = "键盘高度";
+    private static final String BOTTOM_HANDLE = "键盘底部高度";
+    private static final String LEFT_HANDLE = "键盘宽度（左边）";
+    private static final String RIGHT_HANDLE = "键盘宽度（右边）";
+    private static final String MOVE_BUTTON = "移动";
 
     /** 功能面板和输入方式面板逐档检查的键盘高度（%），覆盖用户报告的 90% 和它两边各档。 */
     private static final int[] PANEL_FIT_PERCENTS = {75, 80, 85, 90, 95, 100, 110};
@@ -39,7 +49,7 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
     @Override protected String successDescription() {
         if (portraitOnly) return "portrait split live setting, native control and narrow cover window fallback";
         if (panelFitOnly) return "function panel and input-scheme picker fit without vertical scrolling at every keyboard height";
-        return "keyboard height live preview, composition preservation, persistence, restart, bottom padding, panels that fit every height and a bottom row as tall as the letter rows";
+        return "keyboard adjust overlay: height, bottom lift, width, position, reset, confirm and save on hide; editor frame fixed while adjusting; persistence, restart, bottom padding, panels that fit every height and a bottom row as tall as the letter rows";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -76,12 +86,12 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
             checkPanelsFit(localSettings);
             if (panelFitOnly) return;
 
-            // 键盘高度 is a function-panel tile; it turns the toolbar row into the inline height bar, which previews while it is walked and saves only on 完成. The panel is reachable only from an idle keyboard, so each visit starts from the brand key.
-            stage = "open inline height";
+            // 键盘调整 is a function-panel tile; it lays the adjust overlay over the whole keyboard, which previews while the handles are walked and saves on 确认 or any other way out. The panel is reachable only from an idle keyboard, so each visit starts from the brand key.
+            stage = "open keyboard adjust";
             openHeightBar();
             stage = "increase keyboard height";
             setHeight(130);
-            tap(key("完成"));
+            confirm();
             awaitHeightSetting(localSettings, 55);
             int tall = keyHeight("n");
             int minimumDelta = Math.round(8 * getTargetContext()
@@ -90,37 +100,33 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
                 throw new AssertionError("Taller keyboard did not enlarge key faces: "
                     + standard + " -> " + tall + ", expected delta " + minimumDelta);
 
-            stage = "increase keyboard height to the new maximum";
+            // 上沿柄只在窗口封顶以内可调：模拟器窗口够高时到 170%（129 dp），矮窗口停在封顶处，总比 130% 高。
+            stage = "increase keyboard height to the window's maximum";
             openHeightBar();
-            setHeight(170);
-            tap(key("完成"));
-            awaitHeightSetting(localSettings, 129);
+            int top = Math.round(await(heightSlider()).getRangeInfo().getMax());
+            setHeight(top);
+            confirm();
+            if (top >= 170) awaitHeightSetting(localSettings, 129);
+            else awaitLocalSetting(localSettings, HEIGHT_SETTING, value -> value > 55, "a height above 130%");
             int maximum = keyHeight("n");
-            if (maximum <= tall)
-                throw new AssertionError("170% did not enlarge key faces beyond 130%: "
-                    + tall + " -> " + maximum);
+            if (top > 130 && maximum <= tall)
+                throw new AssertionError(top + "% did not enlarge key faces beyond 130%: " + tall + " -> " + maximum);
 
             stage = "decrease keyboard height";
             openHeightBar();
             setHeight(75);
-            tap(key("完成"));
+            confirm();
             awaitHeightSetting(localSettings, -46);
             int shortHeight = keyHeight("n");
             if (shortHeight >= standard)
                 throw new AssertionError("Shorter keyboard did not shrink key faces: "
                     + standard + " -> " + shortHeight);
 
-            stage = "cancel keeps the saved height";
-            openHeightBar();
-            setHeight(120);
-            tap(key("取消"));
-            await(key("n").and(AccessibilityNodeInfo::isClickable));
-            if (Math.abs(keyHeight("n") - shortHeight) > 2)
-                throw new AssertionError("Cancelled preview was not reverted");
-
-            // 不点「完成」就收起键盘：收起照「完成」保存，只有「取消」才放弃预览。110% 是 18 dp（KeyboardHeightPolicy.heightPercentToAdjustment）。
+            // 没有「取消」：不点「确认」就按返回键收起键盘，照「确认」保存。110% 是 18 dp（KeyboardHeightPolicy.heightPercentToAdjustment）。
             stage = "hiding mid-adjustment keeps the height";
             openHeightBar();
+            if (findInIme(described("取消")) != null)
+                throw new AssertionError("The keyboard adjust overlay must not offer a cancel button");
             setHeight(110);
             shellDiscard("input keyevent KEYCODE_BACK");
             awaitHeightSetting(localSettings, 18);
@@ -132,16 +138,17 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
 
             stage = "reset to 100 percent";
             openHeightBar();
-            tap(key("重置"));
+            tap(described("重置").and(AccessibilityNodeInfo::isClickable));
             if (Math.round(await(heightSlider()).getRangeInfo().getCurrent()) != 100)
-                throw new AssertionError("重置 did not return the bar to 100%");
-            tap(key("完成"));
+                throw new AssertionError("重置 did not return the height to 100%");
+            confirm();
             awaitHeightSetting(localSettings, 0);
             int resetHeight = keyHeight("n");
             if (Math.abs(resetHeight - standard) > 2)
                 throw new AssertionError("Reset keyboard height did not return to default: "
                     + standard + " -> " + resetHeight);
 
+            checkLiftWidthAndMove(localSettings);
             checkDragKeepsEditorFrame(localSettings, resetHeight);
 
             stage = "height survives input method restart";
@@ -316,7 +323,7 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
     }
 
     /**
-     * 拖动高度条时输入法窗口不跟着改高（#10025）：每改一次窗口高度应用都按新 insets 重排，新尺寸的窗口在键区画好前先露出白底，录屏里拖动时整块闪白、应用上下跳。这里经合成编辑器的探针读应用窗口的可见区下沿：调整期间键区变高、变矮都不能动它，编辑器也不能丢焦点；点「完成」后才按新高度让出空间，点「取消」后回到原来的边界。结束时高度回到 100%。
+     * 「键盘调整」期间输入法窗口不跟着改高（#10025）：每改一次窗口高度应用都按新 insets 重排，新尺寸的窗口在键区画好前先露出白底，录屏里拖动时整块闪白、应用上下跳。这里经合成编辑器的探针读应用窗口的可见区下沿：调整期间键盘变高、变矮、抬高、收窄都不能动它，编辑器也不能丢焦点；点「确认」后才按新高度让出空间。下沿柄把高度挪给抬高、上沿不动，所以确认后让出的空间只由上沿柄定。结束时四项回到默认。
      */
     private void checkDragKeepsEditorFrame(File localSettings, int standardKey) throws Exception {
         stage = "drag keeps the editor frame: open probed editor";
@@ -324,13 +331,14 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
             + " --ez msime_test_editor_probe true");
         tap(field("msime-test-plain"));
         await(key("n"));
-        // 打开高度条那一刻应用也不能跳：铺满窗口后固定的边界必须就是停靠键盘原来让出的那条线。
+        // 打开遮罩那一刻应用也不能跳：铺满窗口后固定的边界必须就是停靠键盘原来让出的那条线。
         int docked = awaitSettledVisibleBottom();
-        stage = "drag keeps the editor frame: open inline height";
+        stage = "drag keeps the editor frame: open keyboard adjust";
         openHeightBar();
         int frame = awaitSettledVisibleBottom();
         if (frame != docked)
-            throw new AssertionError("Opening the height bar moved the editor frame: " + docked + " -> " + frame);
+            throw new AssertionError("Opening keyboard adjust moved the editor frame: " + docked + " -> " + frame);
+        int openedHeight = overlayBounds().height();
         for (int target : new int[] {130, 80, 120}) {
             stage = "drag keeps the editor frame: preview " + target + "%";
             setHeight(target);
@@ -339,39 +347,148 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
             if (during != frame)
                 throw new AssertionError("Previewing " + target + "% moved the editor frame: " + frame + " -> " + during);
         }
-        stage = "drag keeps the editor frame: preview resized the keys";
-        int previewKey = keyHeight("n");
-        if (previewKey <= standardKey + 2)
-            throw new AssertionError("120% preview did not enlarge key faces inside the fixed frame: "
-                + standardKey + " -> " + previewKey);
-        stage = "drag keeps the editor frame: 完成 yields to the new height";
-        tap(key("完成"));
-        awaitHeightSetting(localSettings, app.msime.android.KeyboardHeightPolicy.heightPercentToAdjustment(120));
+        stage = "drag keeps the editor frame: preview resized the keyboard";
+        Rect tallPreview = overlayBounds();
+        if (tallPreview.height() <= openedHeight + 2)
+            throw new AssertionError("120% preview did not enlarge the keyboard inside the fixed frame: "
+                + openedHeight + " -> " + tallPreview.height());
+        stage = "drag keeps the editor frame: lifting keeps the top edge";
+        stepHandle(BOTTOM_HANDLE, AccessibilityNodeInfo.ACTION_SCROLL_FORWARD, 2);
+        automation.waitForIdle(200, 3000);
+        Rect lifted = overlayBounds();
+        if (Math.abs(lifted.top - tallPreview.top) > 2)
+            throw new AssertionError("The bottom handle moved the keyboard's top edge: " + tallPreview + " -> " + lifted);
+        if (lifted.bottom >= tallPreview.bottom)
+            throw new AssertionError("The bottom handle did not lift the keyboard: " + tallPreview + " -> " + lifted);
+        if (awaitFocusedVisibleBottom() != frame)
+            throw new AssertionError("Lifting the keyboard moved the editor frame");
+        stage = "drag keeps the editor frame: narrowing keeps the frame";
+        stepHandle(RIGHT_HANDLE, AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD, 2);
+        automation.waitForIdle(200, 3000);
+        if (awaitFocusedVisibleBottom() != frame)
+            throw new AssertionError("Narrowing the keyboard moved the editor frame");
+
+        stage = "drag keeps the editor frame: 确认 yields to the new height";
+        confirm();
+        // 120% 是 37 dp，下沿柄两步把 8 dp 挪给了抬高。
+        awaitHeightSetting(localSettings, app.msime.android.KeyboardHeightPolicy.heightPercentToAdjustment(120) - 8);
         int done = awaitVisibleBottomChange(frame);
         if (done >= frame)
-            throw new AssertionError("Taller keyboard did not push the editor frame up after 完成: " + frame + " -> " + done);
+            throw new AssertionError("Taller keyboard did not push the editor frame up after 确认: " + frame + " -> " + done);
+        // 遮罩下面的按键在调整期间不进读屏，关上后才量得到。
+        if (keyHeight("n") <= standardKey + 2)
+            throw new AssertionError("The adjusted keyboard did not keep taller key faces after 确认");
 
-        stage = "drag keeps the editor frame: 取消 restores the frame";
+        stage = "drag keeps the editor frame: 重置 and 确认 restore the frame";
         openHeightBar();
         int adjusting = awaitSettledVisibleBottom();
-        setHeight(90);
+        if (Math.abs(adjusting - done) > 2)
+            throw new AssertionError("Reopening keyboard adjust moved the editor frame: " + done + " -> " + adjusting);
+        tap(described("重置").and(AccessibilityNodeInfo::isClickable));
         automation.waitForIdle(200, 3000);
         if (awaitFocusedVisibleBottom() != adjusting)
-            throw new AssertionError("Previewing 90% moved the editor frame");
-        tap(key("取消"));
-        await(key("n").and(AccessibilityNodeInfo::isClickable));
-        int cancelled = awaitSettledVisibleBottom();
-        if (Math.abs(cancelled - done) > 2)
-            throw new AssertionError("取消 did not restore the editor frame: " + done + " -> " + cancelled);
-
-        stage = "drag keeps the editor frame: back to 100%";
-        openHeightBar();
-        tap(key("重置"));
-        tap(key("完成"));
+            throw new AssertionError("Previewing the reset moved the editor frame");
+        confirm();
         awaitHeightSetting(localSettings, 0);
+        awaitLocalSetting(localSettings, WIDTH_SETTING, value -> value == 100, "the default width");
         int restored = awaitVisibleBottomChange(done);
         if (Math.abs(restored - frame) > 2)
             throw new AssertionError("Default height did not return the editor frame: " + frame + " -> " + restored);
+    }
+
+    /**
+     * 下沿柄、左右柄和「移动」在真机上的效果与落盘：抬高只抬键区、上沿不动并按目标总距离存进「键盘底部高度」的两项；右边收窄时左边不动、左边收窄时右边不动；「移动」左右移位置；收起键盘照「确认」保存；「重置」加「确认」四项都回默认。关掉键盘底栏，排除手势导航 AVD 上底栏的 40 dp。
+     */
+    private void checkLiftWidthAndMove(File localSettings) throws Exception {
+        float density = getTargetContext().getResources().getDisplayMetrics().density;
+        int tolerance = Math.round(density) + 2;
+        // 键宽随键盘宽度伸缩，键距是固定的 dp：贴边那个键的外沿离键盘边只差半份键距，比较外沿时多留 2 dp。
+        int edgeTolerance = tolerance + Math.round(2 * density);
+        // settledKeyBounds 量的是「n」（第三行），这里要的是第一行左边的「q」：上沿不动、左边不动都拿它比。
+        settledKeyBounds(localSettings, new JSONObject().put(BOTTOM_BAR_SETTING, false));
+        Rect q = keyBounds("q");
+        Rect space = keyBounds("空格");
+        Rect p = keyBounds("p");
+
+        stage = "bottom handle lifts the keys and keeps the top edge";
+        openHeightBar();
+        stepHandle(BOTTOM_HANDLE, AccessibilityNodeInfo.ACTION_SCROLL_FORWARD, 6);
+        AccessibilityNodeInfo bottom = await(handle(BOTTOM_HANDLE));
+        bottom.refresh();
+        if (Math.round(bottom.getRangeInfo().getCurrent()) != 24)
+            throw new AssertionError("Six lift steps did not reach 24 dp: " + bottom.getRangeInfo().getCurrent());
+        confirm();
+        awaitLocalSetting(localSettings, BOTTOM_PADDING_HEIGHT_SETTING, value -> value == 24, "a 24 dp bottom height");
+        awaitLocalBoolean(localSettings, BOTTOM_PADDING_SETTING, true);
+        // 下沿柄每抬 4 dp 就从高度里拿走 4 dp。
+        awaitHeightSetting(localSettings, -24);
+        Rect liftedSpace = awaitMovedKey("空格", space);
+        Rect liftedQ = keyBounds("q");
+        int expectedLift = Math.round(24 * density);
+        if (Math.abs(liftedQ.top - q.top) > tolerance)
+            throw new AssertionError("Lifting moved the top key row: " + q + " -> " + liftedQ);
+        if (Math.abs(space.bottom - liftedSpace.bottom - expectedLift) > tolerance)
+            throw new AssertionError("Lifting raised the bottom row by " + (space.bottom - liftedSpace.bottom)
+                + " px, expected " + expectedLift);
+
+        stage = "right handle narrows from the right";
+        openHeightBar();
+        stepHandle(RIGHT_HANDLE, AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD, 4);
+        confirm();
+        awaitLocalSetting(localSettings, WIDTH_SETTING, value -> value == 80, "an 80% keyboard");
+        awaitLocalSetting(localSettings, POSITION_SETTING, value -> value == 0, "the keyboard against the left");
+        Rect narrowP = awaitMovedKey("p", p);
+        Rect narrowQ = keyBounds("q");
+        if (narrowP.right >= p.right - edgeTolerance)
+            throw new AssertionError("Narrowing from the right did not move the right edge: " + p + " -> " + narrowP);
+        if (Math.abs(narrowQ.left - q.left) > edgeTolerance)
+            throw new AssertionError("Narrowing from the right moved the left edge: " + q + " -> " + narrowQ);
+
+        stage = "move slides the keyboard to the right";
+        openHeightBar();
+        stepHandle(MOVE_BUTTON, AccessibilityNodeInfo.ACTION_SCROLL_FORWARD, 20);
+        confirm();
+        awaitLocalSetting(localSettings, POSITION_SETTING, value -> value == 1000, "the keyboard against the right");
+        Rect movedP = awaitMovedKey("p", narrowP);
+        if (Math.abs(movedP.right - p.right) > edgeTolerance)
+            throw new AssertionError("Moving to the right did not bring the right edge back: " + p + " -> " + movedP);
+
+        stage = "left handle keeps the right edge, saved on hide";
+        Rect movedQ = keyBounds("q");
+        openHeightBar();
+        stepHandle(LEFT_HANDLE, AccessibilityNodeInfo.ACTION_SCROLL_FORWARD, 1);
+        shellDiscard("input keyevent KEYCODE_BACK");
+        awaitLocalSetting(localSettings, WIDTH_SETTING, value -> value == 85, "an 85% keyboard");
+        awaitLocalSetting(localSettings, POSITION_SETTING, value -> value == 1000, "the right edge kept");
+        openEditor();
+        Rect widerQ = awaitMovedKey("q", movedQ);
+        Rect widerP = keyBounds("p");
+        if (Math.abs(widerP.right - movedP.right) > edgeTolerance)
+            throw new AssertionError("Widening from the left moved the right edge: " + movedP + " -> " + widerP);
+
+        stage = "reset returns all four values to their defaults";
+        openHeightBar();
+        tap(described("重置").and(AccessibilityNodeInfo::isClickable));
+        confirm();
+        awaitLocalSetting(localSettings, WIDTH_SETTING, value -> value == 100, "the full width");
+        awaitLocalSetting(localSettings, POSITION_SETTING, value -> value == 500, "the centred position");
+        awaitLocalBoolean(localSettings, BOTTOM_PADDING_SETTING, false);
+        awaitHeightSetting(localSettings, 0);
+        Rect resetQ = awaitMovedKey("q", widerQ);
+        if (Math.abs(resetQ.left - q.left) > edgeTolerance || Math.abs(keyBounds("空格").bottom - space.bottom) > tolerance)
+            throw new AssertionError("Reset did not return the keyboard to its default place: " + q + " -> " + resetQ);
+    }
+
+    /** 等某个键离开 {@code before} 的位置并停稳：确认后外框重新布局、窗口恢复停靠，有一两帧的过渡。 */
+    private Rect awaitMovedKey(String label, Rect before) {
+        long deadline = SystemClock.uptimeMillis() + 15000;
+        while (SystemClock.uptimeMillis() < deadline) {
+            Rect bounds = new Rect();
+            awaitSettledKeyboardKey(key(label)).getBoundsInScreen(bounds);
+            if (!bounds.equals(before)) return bounds;
+            SystemClock.sleep(100);
+        }
+        throw new AssertionError("Key " + label + " stayed at " + before);
     }
 
     private android.os.Bundle editorProbe() {
@@ -485,16 +602,65 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
         return bounds.height();
     }
 
-    /** 内联高度条的无障碍描述为「键盘布局调整」，范围是 75–170%，每次滚动调整 5%。 */
+    /** 「键盘调整」的上沿柄：读屏描述「键盘高度」，范围是 75% 到窗口封顶处，每次滚动调整 5%。 */
     private java.util.function.Predicate<AccessibilityNodeInfo> heightSlider() {
-        return description("键盘布局调整").and(node -> node.getRangeInfo() != null);
+        return handle(TOP_HANDLE);
+    }
+
+    /** 遮罩上的一个柄或「移动」：按读屏描述找，带 RangeInfo 的才是。 */
+    private java.util.function.Predicate<AccessibilityNodeInfo> handle(String value) {
+        return description(value).and(node -> node.getRangeInfo() != null);
     }
 
     private void openHeightBar() throws Exception {
         tap(key("更多").and(AccessibilityNodeInfo::isEnabled));
         await(toolPanel());
-        tap(tool("键盘高度").and(AccessibilityNodeInfo::isEnabled));
+        tap(tool("键盘调整").and(AccessibilityNodeInfo::isEnabled));
         await(heightSlider());
+    }
+
+    /** 点「确认」，等遮罩收起、键盘回到可按的状态。 */
+    private void confirm() throws Exception {
+        tap(described("确认").and(AccessibilityNodeInfo::isClickable));
+        await(key("n").and(AccessibilityNodeInfo::isClickable));
+    }
+
+    /** 遮罩（键盘外框）此刻在屏幕上的位置。 */
+    private Rect overlayBounds() {
+        AccessibilityNodeInfo overlay = await(description(ADJUST_OVERLAY));
+        overlay.refresh();
+        Rect bounds = new Rect();
+        overlay.getBoundsInScreen(bounds);
+        return bounds;
+    }
+
+    /** 对一个柄连做 {@code times} 次读屏增减动作，每次都确认 RangeInfo 跟着动了。 */
+    private void stepHandle(String value, int action, int times) {
+        for (int step = 0; step < times; step++) {
+            AccessibilityNodeInfo node = await(handle(value));
+            node.refresh();
+            float before = node.getRangeInfo().getCurrent();
+            if (!node.performAction(action))
+                throw new AssertionError(value + " accessibility action failed at " + before);
+            long deadline = SystemClock.uptimeMillis() + 5000;
+            while (true) {
+                node.refresh();
+                if (node.getRangeInfo() != null && node.getRangeInfo().getCurrent() != before) break;
+                if (SystemClock.uptimeMillis() > deadline)
+                    throw new AssertionError(value + " stayed at " + before + " after an accessibility step");
+                SystemClock.sleep(50);
+            }
+        }
+    }
+
+    /** 输入法窗口里此刻有没有这样的节点；不等待。 */
+    private AccessibilityNodeInfo findInIme(java.util.function.Predicate<AccessibilityNodeInfo> match) {
+        for (AccessibilityWindowInfo window : automation.getWindows()) {
+            if (window.getType() != AccessibilityWindowInfo.TYPE_INPUT_METHOD) continue;
+            AccessibilityNodeInfo found = find(window.getRoot(), match);
+            if (found != null) return found;
+        }
+        return null;
     }
 
     private java.util.function.Predicate<AccessibilityNodeInfo> description(String value) {
@@ -524,18 +690,41 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
     }
 
     private void awaitHeightSetting(File file, int expected) throws Exception {
+        awaitLocalSetting(file, HEIGHT_SETTING, value -> value == expected, expected + " dp");
+    }
+
+    /** 等本地设置里这个整数项满足条件；没写过的项不算。 */
+    private void awaitLocalSetting(File file, String key, java.util.function.IntPredicate expected, String what)
+            throws Exception {
         long deadline = SystemClock.uptimeMillis() + 15000;
+        int last = Integer.MIN_VALUE;
         do {
             try {
                 byte[] bytes = Files.readAllBytes(file.toPath());
                 JSONObject current = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
-                if (current.getJSONObject("settings").optInt(HEIGHT_SETTING, Integer.MIN_VALUE) == expected) return;
+                last = current.getJSONObject("settings").optInt(key, Integer.MIN_VALUE);
+                if (last != Integer.MIN_VALUE && expected.test(last)) return;
             } catch (java.io.IOException | RuntimeException | org.json.JSONException ignored) {
                 // Atomic replacement can briefly expose no complete file to this polling read.
             }
             SystemClock.sleep(100);
         } while (SystemClock.uptimeMillis() < deadline);
-        throw new AssertionError("Height setting was not saved");
+        throw new AssertionError(key + " was not saved as " + what + "; last read " + last);
+    }
+
+    private void awaitLocalBoolean(File file, String key, boolean expected) throws Exception {
+        long deadline = SystemClock.uptimeMillis() + 15000;
+        do {
+            try {
+                JSONObject current = new JSONObject(new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8));
+                JSONObject settings = current.getJSONObject("settings");
+                if (settings.has(key) && settings.getBoolean(key) == expected) return;
+            } catch (java.io.IOException | RuntimeException | org.json.JSONException ignored) {
+                // Atomic replacement can briefly expose no complete file to this polling read.
+            }
+            SystemClock.sleep(100);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new AssertionError(key + " was not saved as " + expected);
     }
 
 

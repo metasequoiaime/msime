@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 开屏的描边：笔画从无到有写一遍（splash_mark_draw）。 -->
+<!-- 开屏的标志：外框先在，折线从无到有写一遍（splash_mark_draw）。 -->
 <animated-vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:drawable="@drawable/splash_mark">
     <target android:name="mark" android:animation="@animator/splash_mark_draw" />
