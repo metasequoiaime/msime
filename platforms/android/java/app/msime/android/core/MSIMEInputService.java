@@ -11188,8 +11188,6 @@ public final class MSIMEInputService extends InputMethodService {
         keyboardAdjustHorizontal = savedKeyboardHorizontal();
         keyboardAdjustOriginalHorizontal = keyboardAdjustHorizontal;
         keyboardAdjustActive = true;
-        // 之后才建出来的面板会排在遮罩上面，打开时把遮罩挪到最上层。
-        keyboardAdjustOverlay.bringToFront();
         render();
         imeStyler.applySkin();
         View top = keyboardAdjustOverlay.part(KeyboardAdjustPolicy.Part.TOP);
@@ -12240,7 +12238,12 @@ public final class MSIMEInputService extends InputMethodService {
         // 「键盘调整」的遮罩盖在照常画出的键盘上：工具栏、候选行和按键区都不为它让位，下面画的就是调整后的样子。
         if (keyboardAdjustOverlay != null) {
             ViewPolicy.setVisible(keyboardAdjustOverlay, keyboardAdjustActive);
-            if (keyboardAdjustActive) keyboardAdjustOverlay.setAvailability(keyboardAdjustAvailability());
+            if (keyboardAdjustActive) {
+                keyboardAdjustOverlay.setAvailability(keyboardAdjustAvailability());
+                // 外框里排在遮罩后面加进来的面板（建视图时的各个面板、第一次打开才建的表情和符号面板）会盖在它上面，打开期间让它保持在最上层。
+                if (keyboardSurface.getChildAt(keyboardSurface.getChildCount() - 1) != keyboardAdjustOverlay)
+                    keyboardAdjustOverlay.bringToFront();
+            }
             applyKeyboardAdjustAccessibility();
         }
         if (candidateHeader != null) {
