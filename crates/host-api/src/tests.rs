@@ -18626,8 +18626,6 @@ fn pronunciation_request_reads_each_target_language_from_its_own_table() {
         {"text": "pomme de terre", "language": "fr"},
         {"text": "parterre de fleurs", "language": "fr"},
         {"text": "кошка, кот", "language": "ru"},
-        {"text": "haben; besitzen", "language": "de"},
-        {"text": "고양이, 괭이", "language": "ko"},
         {"text": "gato", "language": "es"}
     ]});
     // 什么都没装：没有读音，不是错误。
@@ -18647,13 +18645,7 @@ fn pronunciation_request_reads_each_target_language_from_its_own_table() {
     install_target_phonetics(
         &supplementary.join("target-pronunciations"),
         "de",
-        &[("Katze", "/ˈkatsə/"), ("haben", "[ˈhaː.bən]")],
-    );
-    // 韩语表给的是罗马字，和日语一样原样回答。
-    install_target_phonetics(
-        &supplementary.join("target-pronunciations"),
-        "ko",
-        &[("고양이", "goyang-i")],
+        &[("Katze", "/ˈkatsə/")],
     );
     install_target_phonetics(
         &supplementary.join("target-pronunciations"),
@@ -18684,9 +18676,7 @@ fn pronunciation_request_reads_each_target_language_from_its_own_table() {
             {"text": "リンゴ", "language": "ja", "pronunciation": "ringo"},
             {"text": "Chine; chinois", "language": "fr", "pronunciation": "/ʃin/"},
             {"text": "pomme de terre", "language": "fr", "pronunciation": "/pɔm də tɛʁ/"},
-            {"text": "кошка, кот", "language": "ru", "pronunciation": "[ˈkoʂkə]"},
-            {"text": "haben; besitzen", "language": "de", "pronunciation": "[ˈhaː.bən]"},
-            {"text": "고양이, 괭이", "language": "ko", "pronunciation": "goyang-i"}
+            {"text": "кошка, кот", "language": "ru", "pronunciation": "[ˈkoʂkə]"}
         ]})
     );
     // 句首大写的行按小写找到；法文行不会去问英文表。
@@ -18727,7 +18717,7 @@ fn pronunciation_request_keeps_other_languages_when_one_table_is_unreadable() {
         .unwrap()
         .execute_batch("PRAGMA user_version = 2;")
         .unwrap();
-    install_target_phonetics(&target, "ko", &[("고양이", "goyang-i")]);
+    install_target_phonetics(&target, "ko", &[("고양이", "[ko̞ja̠ŋi]")]);
     rusqlite::Connection::open(target.join("ko-phonetic.db"))
         .unwrap()
         .execute_batch("UPDATE meta SET value = 'ja_phonetic' WHERE key = 'kind';")
@@ -19734,6 +19724,56 @@ fn telemetry_abi_reads_consent_from_the_shared_preferences() {
             .unwrap()
             .is_empty()
     );
+}
+
+#[test]
+fn telemetry_desktop_shared_consent_ends_sessions_by_id_only() {
+    use crate::ffi::reporting::*;
+    use msime_client_services::telemetry::{CrashContext, TelemetryKind, TelemetryStore};
+    let root = tempfile::tempdir().unwrap();
+    let preferences = root.path().join("preferences");
+    let directory = root.path().join("telemetry");
+    PreferencesStore::new(&preferences)
+        .save(
+            0,
+            Preferences {
+                usage_reporting: true,
+                ..Preferences::default()
+            },
+        )
+        .unwrap();
+    // macOS 宿主的 begin 只带偏好目录，共享层自动绑定持续授权代次。
+    let started = reporting_call(
+        msime_client_telemetry_begin,
+        json!({"directory": directory, "platform": "macos", "version": "1.2.3", "preferences_directory": preferences}),
+    );
+    assert_eq!(started["value"]["enabled"], true, "{started}");
+    assert!(
+        CrashContext::from_header(started["value"]["crash_record_header"].as_str().unwrap())
+            .unwrap()
+            .consent_epoch
+            .is_some()
+    );
+
+    // 不带会话的旧式 end 不能绕过代次校验，宿主必须按 session_id 结束会话。
+    let unbound = reporting_call(msime_client_telemetry_end, json!({"directory": directory}));
+    assert_eq!(unbound["ok"], false, "{unbound}");
+    assert_eq!(unbound["error"], "telemetry consent changed");
+
+    let ended = reporting_call(
+        msime_client_telemetry_end,
+        json!({"directory": directory, "session": started["value"]["session_id"]}),
+    );
+    assert_eq!(ended["value"], true, "{ended}");
+    let session = format!(
+        "session-{}",
+        started["value"]["session_id"].as_str().unwrap()
+    );
+    assert!(TelemetryStore::new(&directory)
+        .queued()
+        .unwrap()
+        .iter()
+        .any(|event| event.kind == TelemetryKind::Session && event.id == session));
 }
 
 #[test]

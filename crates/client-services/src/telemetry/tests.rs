@@ -65,6 +65,23 @@ fn an_empty_native_record_is_not_promoted_to_an_unknown_crash() {
     assert_eq!(store.begin_session(&app(), noon()).unwrap().crashes, 1);
 }
 
+#[test]
+fn a_stale_unreadable_native_record_is_removed_without_a_crash_event() {
+    let (_directory, store) = store();
+    let capture = store.prepare_crash_capture(&app(), noon()).unwrap();
+    let file = File::create(&capture.crash_record_path).unwrap();
+    file.set_modified(SystemTime::now() - Duration::from_secs(8 * 24 * 60 * 60))
+        .unwrap();
+    drop(file);
+    store.record_active(&app(), noon()).unwrap();
+    assert!(!capture.crash_record_path.exists());
+    assert!(!store
+        .read_queue()
+        .unwrap()
+        .iter()
+        .any(|event| event.kind == TelemetryKind::Crash));
+}
+
 /// Answers each send with the next scripted delivery and records the bodies.
 struct ScriptedSender {
     answers: RefCell<VecDeque<Delivery>>,

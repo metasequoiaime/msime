@@ -5535,6 +5535,14 @@ pub struct LoadedPreferences {
     pub snapshot: PreferencesSnapshot,
 }
 
+/// [`PreferencesStore::usage_reporting_consent_reusing`] 读到的持续同意，以及读出它的文档原始字节和代理设置。只有文档里的授权已经确定（关闭，或开启且已有代次）时才带字节，下次字节相同就直接沿用。
+#[derive(Debug, Clone)]
+pub struct LoadedUsageReportingConsent {
+    bytes: Option<Vec<u8>>,
+    network: crate::network::NetworkPreferences,
+    pub consent: Option<UsageReportingConsent>,
+}
+
 pub struct PreferencesStore {
     directory: PathBuf,
     /// 构造时指定的版本；`None` 时以状态目录里的版本记录为准（[`crate::edition::Edition::recorded_in`]），没有记录就是 full。只影响没有偏好文件时读到的默认值和修复时垫底的默认值。
@@ -5721,18 +5729,50 @@ impl PreferencesStore {
     pub fn usage_reporting_consent(
         &self,
     ) -> Result<Option<UsageReportingConsent>, PreferencesError> {
+        self.usage_reporting_consent_reusing(None)
+            .map(|loaded| loaded.consent)
+    }
+
+    /// 同 [`Self::usage_reporting_consent`]，但偏好文件与 `previous` 读到的逐字节相同时沿用它的结果，不再解析和校验，供每隔几百毫秒轮询授权的观察线程使用。仍在偏好锁内逐字节核对，撤回照样在下一次读取时生效。需要初始化授权历史（开启但还没有代次）或文件不存在时照常走完整路径，结果不带字节，下一次重新解析。交回的结果供下一次传入。
+    pub fn usage_reporting_consent_reusing(
+        &self,
+        previous: Option<LoadedUsageReportingConsent>,
+    ) -> Result<LoadedUsageReportingConsent, PreferencesError> {
         let _lock = self.lock()?;
-        let (current, unknown) = self.read_locked_keeping_unknown()?;
+        let bytes = self.read_document_bytes()?;
+        if let Some(previous) =
+            previous.filter(|previous| bytes.is_some() && previous.bytes == bytes)
+        {
+            crate::network::install(&previous.network);
+            return Ok(previous);
+        }
+        let (current, unknown) = self.decode_document(bytes.as_deref())?;
+        let network = current.preferences.network.clone();
         if !current.preferences.usage_reporting {
-            return Ok(None);
+            return Ok(LoadedUsageReportingConsent {
+                bytes,
+                network,
+                consent: None,
+            });
         }
         if let Some(consent) = current.preferences.usage_reporting_consent {
-            return Ok(Some(consent));
+            return Ok(LoadedUsageReportingConsent {
+                bytes,
+                network,
+                consent: Some(consent),
+            });
         }
         let revision = current.revision;
         let preferences = current.preferences.clone();
-        self.save_locked(current, &unknown, revision, preferences, true)
-            .map(|snapshot| snapshot.preferences.usage_reporting_consent)
+        let consent = self
+            .save_locked(current, &unknown, revision, preferences, true)?
+            .preferences
+            .usage_reporting_consent;
+        Ok(LoadedUsageReportingConsent {
+            bytes: None,
+            network,
+            consent,
+        })
     }
 
     /// 在同一偏好锁内核对持续同意并执行本地操作；不初始化历史，也不把读失败当关闭。
