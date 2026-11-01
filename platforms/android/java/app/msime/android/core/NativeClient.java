@@ -31,6 +31,8 @@ public final class NativeClient {
     private static final int KEY_GEOMETRY_LIMIT = 16_384;
     /** 与 JNI 和 C 入口一致，为 8 MiB 原始词表的 JSON 转义及元数据留出空间。 */
     private static final int VOCABULARY_REQUEST_LIMIT = 17 * 1024 * 1024;
+    /** 与 C 入口 {@code msime_client_personal_wordbook_add} 的 64 KiB 上限一致。 */
+    private static final int PERSONAL_WORDBOOK_REQUEST_LIMIT = 65536;
     static { System.loadLibrary("msime_android"); }
     private NativeClient() {}
     public static String create(String options) { return TextPolicy.utf8(createRaw(options.getBytes(StandardCharsets.UTF_8))); }
@@ -150,6 +152,29 @@ public final class NativeClient {
             return "{\"ok\":false,\"error\":\"invalid vocabulary review request\"}";
         }
         return TextPolicy.utf8(vocabularyReviewRaw(bytes));
+    }
+    /**
+     * 长按候选菜单的「加入生词本」：把候选原文、显示着的释义和读音交给共享层（C ABI {@code msime_client_personal_wordbook_add}），返回它答的那句给用户看的提示；请求不合法或存储出错时返回 null。取词书目录的文件锁、读写生词本，在工作线程调用。
+     */
+    public static String personalWordbookAdd(String directory, String candidate, String gloss, String pronunciation) {
+        byte[] bytes;
+        try {
+            bytes = new JSONObject().put("directory", directory).put("candidate", candidate)
+                .put("gloss", gloss).put("pronunciation", pronunciation)
+                .toString().getBytes(StandardCharsets.UTF_8);
+        } catch (JSONException error) {
+            return null;
+        }
+        if (!HttpBodyPolicy.isNonEmptyWithinLimit(bytes, PERSONAL_WORDBOOK_REQUEST_LIMIT)) return null;
+        try {
+            JSONObject envelope = new JSONObject(TextPolicy.utf8(personalWordbookAddRaw(bytes)));
+            if (!JsonPolicy.strictTrue(envelope.opt("ok"))) return null;
+            JSONObject value = envelope.optJSONObject("value");
+            String notice = value == null ? "" : JsonPolicy.strictStringOrEmpty(value.opt("notice"));
+            return notice.isEmpty() ? null : notice;
+        } catch (JSONException error) {
+            return null;
+        }
     }
     /** Reads one bounded page from the verified packaged emoji catalog. Call on a worker. */
     public static String emojiCatalog(String query, String resources) {
@@ -1097,6 +1122,7 @@ public final class NativeClient {
     private static native byte[] accountSettingsExportRaw(byte[] request);
     private static native byte[] accountSettingsApplyRaw(byte[] request);
     private static native byte[] vocabularyReviewRaw(byte[] request);
+    private static native byte[] personalWordbookAddRaw(byte[] request);
     private static native byte[] emojiCatalogRaw(byte[] query, byte[] resources);
     private static native byte[] candidateGlossesRaw(byte[] request, byte[] resources);
     private static native byte[] candidatePronunciationsRaw(byte[] request, byte[] resources);
