@@ -19,6 +19,7 @@ final class KeyboardAdjustOverlay: UIView {
   private static let handleTouchSize = CGSize(width: 96, height: 32)
   private static let buttonSize = CGSize(width: 72, height: 58)
   private static let buttonSpacing: CGFloat = 28
+  private static let minimumButtonSpacing: CGFloat = 4
 
   /// 键盘外框在这个视图里的位置，由键盘在每次布局之后设置。
   var keyboardFrame: CGRect = .zero {
@@ -133,13 +134,25 @@ final class KeyboardAdjustOverlay: UIView {
     rightHandle.frame = CGRect(x: box.maxX - vertical.width, y: box.midY - vertical.height / 2,
                                width: vertical.width, height: vertical.height)
     let buttons = [resetButton, moveButton, confirmButton].filter { !$0.isHidden }
-    let size = Self.buttonSize
-    let rowWidth = CGFloat(buttons.count) * size.width + CGFloat(max(buttons.count - 1, 0)) * Self.buttonSpacing
+    // 按钮排在左右两个柄之间：收窄到 240 pt 左右时三个按钮按原尺寸排不下，会盖住左右柄的中段（按钮在柄之上），按住柄的把手拖动就成了点「重置」或「确认」。排不下时先收间距、再收按钮宽度。
+    let sides = capabilities.showsSideHandles ? 2 * vertical.width : 0
+    let (width, spacing) = Self.buttonRow(count: buttons.count, available: box.width - sides)
+    let height = Self.buttonSize.height
+    let rowWidth = CGFloat(buttons.count) * width + CGFloat(max(buttons.count - 1, 0)) * spacing
     var x = box.midX - rowWidth / 2
     for button in buttons {
-      button.frame = CGRect(x: x, y: box.midY - size.height / 2, width: size.width, height: size.height)
-      x += size.width + Self.buttonSpacing
+      button.frame = CGRect(x: x, y: box.midY - height / 2, width: width, height: height)
+      x += width + spacing
     }
+  }
+
+  /// 中间一排 `count` 个按钮在 `available` 宽里的按钮宽和间距：排得下按原尺寸；排不下先把间距收到 `minimumButtonSpacing`，还不够再把剩下的宽度平分给按钮。
+  private static func buttonRow(count: Int, available: CGFloat) -> (width: CGFloat, spacing: CGFloat) {
+    guard count > 1 else { return (min(buttonSize.width, max(0, available)), 0) }
+    let gaps = CGFloat(count - 1)
+    let spacing = min(buttonSpacing, max(minimumButtonSpacing, (available - CGFloat(count) * buttonSize.width) / gaps))
+    let width = min(buttonSize.width, max(0, (available - gaps * spacing) / CGFloat(count)))
+    return (width, spacing)
   }
 
   override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {

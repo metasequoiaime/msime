@@ -556,6 +556,28 @@ final class MorePanelFoldTests: XCTestCase {
     XCTAssertNotEqual(KeyboardLayoutPreference.heightAdjustment, 30, "确认 saves the previewed height")
   }
 
+  /// 收窄到最窄（390 pt 宽时 62%，约 242 pt）时中间三个按钮仍排在左右柄之间：按钮在柄之上，盖住柄的中段时按住把手拖动会变成点「重置」或「确认」。
+  func testTheNarrowestKeyboardKeepsTheButtonsClearOfTheSideHandles() throws {
+    let controller = makeController(width: 390)
+    let overlay = try openAdjust(in: controller)
+    let left = try view("keyboardAdjustLeft", in: overlay)
+    let right = try view("keyboardAdjustRight", in: overlay)
+    for _ in 0..<10 { right.accessibilityDecrement() }
+    try layoutAtRequestedHeight(controller)
+    overlay.layoutIfNeeded()
+    XCTAssertEqual(right.accessibilityValue, "\(KeyboardAdjustLayout.minimumWidthPercent(containerWidth: 390))%")
+    XCTAssertLessThan(overlay.keyboardFrame.width, 250)
+    for identifier in ["keyboardAdjustReset", "keyboardAdjustMove", "keyboardAdjustConfirm"] {
+      let button = try view(identifier, in: overlay)
+      XCTAssertFalse(button.isHidden, identifier)
+      XCTAssertFalse(button.frame.intersects(left.frame), identifier)
+      XCTAssertFalse(button.frame.intersects(right.frame), identifier)
+      XCTAssertGreaterThanOrEqual(button.frame.width, 44, "\(identifier) stays a comfortable target")
+    }
+    XCTAssertTrue(overlay.hitTest(CGPoint(x: left.frame.midX, y: left.frame.midY), with: nil) === left, "the left grip drags")
+    XCTAssertTrue(overlay.hitTest(CGPoint(x: right.frame.midX, y: right.frame.midY), with: nil) === right, "and so does the right")
+  }
+
   func testHeightPercentRoundTripsThroughPoints() {
     let keyBlock = KeyboardViewController.keyBlockHeight(keyHeight: 52, rows: 4, rowSpacing: 7)
     XCTAssertEqual(keyBlock, 229, "四排 52pt 手机按键与三个 7pt 行间距")
