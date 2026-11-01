@@ -18,6 +18,8 @@ export interface AppThemeSeed {
   readonly background: string;
   /** 行和卡片背景（应用季节后设计稿中鸿蒙的 `groupBg`）。 */
   readonly card: string;
+  /** 触屏候选条首选的字色：浅色是同一色相加深到 WCAG AA 的强调色，深色就是 `accent`。回车键、开启态等其余地方仍用 `accent`。 */
+  readonly candidate_accent: string;
 }
 
 interface Envelope {
@@ -144,7 +146,7 @@ export class AppThemePalette {
   }
 
   /**
-   * 读取 `msime_client_resolve_app_theme` 的响应（`{ok, value: {id, season, accent, accent_soft, on_accent, background, card, hair}}`）。被拒绝，或任一颜色缺失、无法读取时返回 `null`，键盘保持基础 token。响应是共享层自己产出的 JSON，所以与 GlobalTheme.parseResolved 一样，这里不对解析本身做防护。
+   * 读取 `msime_client_resolve_app_theme` 的响应（`{ok, value: {id, season, accent, accent_soft, on_accent, background, card, hair, candidate_accent}}`）。被拒绝，或任一颜色缺失、无法读取时返回 `null`，键盘保持基础 token。响应是共享层自己产出的 JSON，所以与 GlobalTheme.parseResolved 一样，这里不对解析本身做防护。
    */
   static parseResolved(response: string): AppThemeSeed | null {
     const envelope: Envelope = JSON.parse(response) as Envelope;
@@ -163,12 +165,14 @@ export class AppThemePalette {
     const onAccent: string | null = colour(value, "on_accent");
     const background: string | null = colour(value, "background");
     const card: string | null = colour(value, "card");
+    const candidateAccent: string | null = colour(value, "candidate_accent");
     if (
       accent === null ||
       accentSoft === null ||
       onAccent === null ||
       background === null ||
-      card === null
+      card === null ||
+      candidateAccent === null
     ) {
       return null;
     }
@@ -178,6 +182,7 @@ export class AppThemePalette {
       on_accent: onAccent,
       background: background,
       card: card,
+      candidate_accent: candidateAccent,
     };
   }
 }

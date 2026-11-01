@@ -43,6 +43,9 @@ public final class LocalBackupPolicySmoke {
 
         check(LocalBackupPolicy.backsUpLocalSetting("platform.android.keyboard_height_adjustment"),
             "device-local layout settings travel with the backup");
+        check(LocalBackupPolicy.backsUpLocalSetting("platform.android.keyboard_width_percent")
+            && LocalBackupPolicy.backsUpLocalSetting("platform.android.keyboard_position_x"),
+            "the keyboard width and position travel with the backup like the floating position");
         check(LocalBackupPolicy.backsUpLocalSetting("platform.android.incognito"), "privacy mode travels with the backup");
         check(!LocalBackupPolicy.backsUpLocalSetting("platform.android.voice_contribute_audio"),
             "voice upload consent is given on each device, never restored");

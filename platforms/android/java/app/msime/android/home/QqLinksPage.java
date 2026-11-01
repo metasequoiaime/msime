@@ -53,9 +53,10 @@ public final class QqLinksPage extends ReloadingDetailPage {
     }
 
     private void render(LinearLayout column, @Nullable List<?> links, @Nullable String failure) {
+        // 这一组没有组标题，怎样拿到绑定码的说明挂在「绑定码」这一行的「?」上。
         GroupCard intro = GroupCard.add(column, null);
-        intro.note("在水杉输入法的 QQ 群里 @机器人 发 /bind，把收到的 8 位绑定码填在这里。绑定后发 /stats 能看到你的打字数据（先在「统计」页打开「上传到云端」）；机器人在群里的回复所有人都看得到。");
-        intro.button("绑定码", "10 分钟内有效，只能用一次", "输入", this::askCode);
+        intro.button("绑定码", null, "输入", this::askCode)
+            .help("在水杉输入法的 QQ 群里 @机器人 发 /bind，把收到的 8 位绑定码填在这里。绑定后发 /stats 能看到你的打字数据（先在「统计」页打开「上传到云端」）；机器人在群里的回复所有人都看得到。\n\n绑定码 10 分钟内有效，只能用一次。");
         if (failure != null) {
             GroupCard.add(column, null).note(failure);
             return;

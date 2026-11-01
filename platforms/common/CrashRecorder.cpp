@@ -104,7 +104,8 @@ struct Module {
 std::vector<Module> modules;
 
 #if defined(__linux__)
-int snapshot_module(dl_phdr_info *info, size_t, void *) {
+int snapshot_module(dl_phdr_info *info, size_t, void *data) {
+  auto &snapshot = *static_cast<std::vector<Module> *>(data);
   Module module;
   module.base = static_cast<uintptr_t>(info->dlpi_addr);
   const char *name = info->dlpi_name;
@@ -152,13 +153,13 @@ int snapshot_module(dl_phdr_info *info, size_t, void *) {
   }
   if (module.begin < module.end) {
     // 不能让分配异常穿过动态加载器的 C 回调；枚举不完整时让 arm 保持停用。
-    try { modules.push_back(module); } catch (...) { return 1; }
+    try { snapshot.push_back(module); } catch (...) { return 1; }
   }
   return 0;
 }
 
 #else
-void snapshot_mach_modules() {
+void snapshot_mach_modules(std::vector<Module> &snapshot) {
   for (uint32_t index = 0; index < _dyld_image_count(); ++index) {
     const auto *image = _dyld_get_image_header(index);
     if (!image || image->magic != MH_MAGIC_64) continue;
@@ -193,10 +194,21 @@ void snapshot_mach_modules() {
       cursor += load->cmdsize;
       remaining -= load->cmdsize;
     }
-    if (module.begin < module.end) modules.push_back(module);
+    if (module.begin < module.end) snapshot.push_back(module);
   }
 }
 #endif
+
+// 只在持配置锁的正常路径调用；信号处理器拿不到配置锁时不读快照。
+bool snapshot_modules(std::vector<Module> &snapshot) {
+  snapshot.clear();
+#if defined(__linux__)
+  return dl_iterate_phdr(snapshot_module, &snapshot) == 0;
+#else
+  snapshot_mach_modules(snapshot);
+  return true;
+#endif
+}
 
 void posix_frame(Buffer &out, uintptr_t address) {
   for (const auto &module : modules) {
@@ -655,12 +667,8 @@ void arm(const std::string &path, const std::string &header) {
     return;
   std::memcpy(record_header, header.data(), header.size());
   record_header_size = header.size();
-#if defined(__linux__)
-  modules.clear();
-  if (dl_iterate_phdr(snapshot_module, nullptr) != 0) return;
-#elif defined(__APPLE__)
-  modules.clear();
-  snapshot_mach_modules();
+#if defined(__linux__) || defined(__APPLE__)
+  if (!snapshot_modules(modules)) return;
 #endif
 #ifdef _WIN32
   const int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path.data(), static_cast<int>(path.size()), record_path,
@@ -681,6 +689,18 @@ void arm(const std::string &path, const std::string &header) {
 }
 
 bool is_armed() { return armed.load(std::memory_order_acquire); }
+
+void refresh_modules() {
+#if defined(__linux__) || defined(__APPLE__)
+  ConfigurationGuard configuration;
+  if (!configuration.owns)
+    return;
+  // 先在旁边建好新快照再交换；枚举失败时保留旧快照，不因此停采。
+  std::vector<Module> next;
+  if (snapshot_modules(next))
+    modules.swap(next);
+#endif
+}
 
 void record(const char *summary) {
   if (!summary || !is_armed())
@@ -753,6 +773,9 @@ extern "C" void msime_native_crash_arm(const char *path, const char *header) {
 }
 extern "C" void msime_native_crash_disarm(void) { msime::crash::disarm(); }
 extern "C" void msime_native_crash_install(void) { msime::crash::install_crash_handlers(); }
+extern "C" void msime_native_crash_refresh_modules(void) {
+  try { msime::crash::refresh_modules(); } catch (...) {}
+}
 extern "C" void msime_native_crash_record(const char *summary) {
   try { msime::crash::record(summary); } catch (...) {}
 }

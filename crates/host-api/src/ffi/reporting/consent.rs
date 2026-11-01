@@ -2,9 +2,11 @@
 
 use super::*;
 use msime_client_core::preferences::{
-    ReportingAuthority, ReportingAuthorization, UsageReportingConsent,
+    LoadedUsageReportingConsent, ReportingAuthority, ReportingAuthorization, UsageReportingConsent,
 };
 use msime_client_services::telemetry::{Delivery, TelemetrySender};
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -94,14 +96,36 @@ pub unsafe extern "C" fn msime_client_telemetry_consent(
             return Err("publication requires authority_directory".into());
         }
         let store = preferences_store(request.directory.as_deref(), request.edition.as_deref())?;
-        match store
-            .usage_reporting_consent()
-            .map_err(|error| error.to_string())?
-        {
+        match polled_consent(&store, request.edition)? {
             Some(consent) => Ok(authority_value(ReportingAuthorization::Enabled(consent))),
             None => Ok(authority_value(ReportingAuthorization::Disabled)),
         }
     })
+}
+
+type ConsentCache = HashMap<(PathBuf, Option<String>), LoadedUsageReportingConsent>;
+
+/// 观察线程每隔几百毫秒轮询一次授权；按 `(directory, edition)` 在进程内记住上一次读到的文档字节，文件没变时不再解析偏好。核对仍在偏好锁内逐字节进行，撤回不会被缓存挡住。
+fn polled_consent(
+    store: &PreferencesStore,
+    edition: Option<String>,
+) -> Result<Option<UsageReportingConsent>, String> {
+    static CACHE: OnceLock<Mutex<ConsentCache>> = OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    let key = (store.directory().to_path_buf(), edition);
+    let previous = cache
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .remove(&key);
+    let loaded = store
+        .usage_reporting_consent_reusing(previous)
+        .map_err(|error| error.to_string())?;
+    let consent = loaded.consent;
+    cache
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(key, loaded);
+    Ok(consent)
 }
 
 pub(super) enum ConsentSource {

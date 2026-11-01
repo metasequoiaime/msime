@@ -216,8 +216,9 @@ ability="$repo_root/platforms/harmony/entry/src/main/ets/inputmethodextability/K
 decide_line=$(grep -nF 'KeyboardSession.shared.decideFirstTouchPanel(' "$ability" | head -n 1 | cut -d: -f1)
 mount_line=$(grep -nF "await panel.setUiContent('keyboard/KeyboardView');" "$ability" | head -n 1 | cut -d: -f1)
 if [[ -z "$decide_line" || -z "$mount_line" ]] || (( decide_line >= mount_line )) \
-  || ! grep -qF 'settings.candidatePreeditFontSize, false, opened.strip, opened.extraRows, settings.candidateScalePercent);' "$ability"; then
-  echo "KeyboardExtensionAbility must decide the first touch panel shape before mounting KeyboardView and size the panel from it" >&2
+  || ! grep -qF 'settings.candidatePreeditFontSize, false, opened.strip, opened.extraRows, settings.candidateScalePercent,' "$ability" \
+  || ! grep -qF 'KeyboardSession.shared.firstTouchLift());' "$ability"; then
+  echo "KeyboardExtensionAbility must decide the first touch panel shape (and the bottom lift it counts) before mounting KeyboardView and size the panel from it" >&2
   exit 1
 fi
 appear_body=$(sed -n '/^  aboutToAppear(): void {$/,/^  }$/p' \
@@ -612,6 +613,25 @@ if ! grep -qF 'this.voiceHeldByKey = false;' <<< "$lock_branch" \
   echo "A hotkey LOCK must turn the held session into a tap session (clear voiceHeldByKey), and the listening panel must take its button labels from VoiceListeningPolicy" >&2
   exit 1
 fi
+# 聆听面板的水杉娘指示区（#10313）：画不画人物和红线的数值由 voice-listening-policy.test.ts 的 `VoiceListeningPolicy.showsMascot`、`mascotArcs` 覆盖；视图是 ArkTS，这里钉住接线：开始录音在任何提前返回之前就按这次尝试（`fromHotkey`）经策略算出指示区，开不了录音时显示原因的面板也不沿用上一次会话的；LOCK 清掉 `voiceHeldByKey` 之后经 refreshVoiceMascot 重算；面板拿到 mascot、表情包里的图片地址和是否在录音（收尾识别时红线立即收起）；图片解码出来之前画圆盘、画布不画耳部（`onComplete` 在读到数据时也回调一次，只认解码成功）；人物图片和画布不进读屏。
+voice_face_body=$(sed -n '/^  voiceFace() {$/,/^  }$/p' "$view")
+start_voice_body=$(sed -n '/^  private startVoice(fromHotkey: boolean = false): void {$/,/^  }$/p' "$view")
+voice_listening="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/faces/VoiceListening.ets"
+start_voice_head=$(sed -n '1,/voiceInputEnabled()/p' <<< "$start_voice_body")
+if ! grep -qF 'this.refreshVoiceMascot();' <<< "$lock_branch" \
+  || ! grep -qF 'this.voiceMascot = VoiceListeningPolicy.showsMascot(this.spaceVoiceHeld, fromHotkey);' <<< "$start_voice_head" \
+  || ! grep -qF 'this.voiceMascot = VoiceListeningPolicy.showsMascot(this.spaceVoiceHeld, this.voiceHeldByKey);' "$view" \
+  || ! grep -qF 'mascot: this.voiceMascot,' <<< "$voice_face_body" \
+  || ! grep -qF "mascotUri: this.voiceMascot ? this.voiceMascotUri() : ''," <<< "$voice_face_body" \
+  || ! grep -qF 'if (!this.mascotLoaded) {' "$voice_listening" \
+  || ! grep -qF 'if (!this.mascotLoaded) return;' "$voice_listening" \
+  || ! grep -qF 'event.loadingStatus !== 1' "$voice_listening" \
+  || ! grep -qF 'recording: this.voiceBusy && !this.voiceFinishing,' <<< "$voice_face_body" \
+  || ! grep -qF 'VoiceListeningPolicy.mascotArcs(this.recording ? this.shown : 0)' "$voice_listening" \
+  || [[ $(grep -cF ".accessibilityLevel('no')" "$voice_listening") -ne 2 ]]; then
+  echo "The listening panel must pick the mascot from VoiceListeningPolicy.showsMascot before startVoice can return early and again after LOCK, pass the sticker URI and whether it is recording so the arcs drop at once when recognition starts, keep the disc until the image has loaded, and keep the mascot out of the screen reader" >&2
+  exit 1
+fi
 # 双拼纠错坐上首选的显式标记（#10018）：引擎只在那一行带 `confident_correction: true`。读法、读屏后缀、标记色以及展开面板选哪套令牌由 keyboard-logic.test.ts 的 `CorrectionMarkPolicy` 覆盖；会话和视图是 ArkTS，这里钉住接线和每处传进去的令牌：会话把引擎行变成候选栏、展开面板的三处都经 `CorrectionMarkPolicy.confident` 读这个键，翻译页的行一律不标；视图在候选窗、触屏胶囊上的候选字经 `candidateWordColor`、注释释义经 `candidateDetailTint` 换成标记色（两处里不再有没经过它的次要色），展开面板格子经 `CorrectionMarkPolicy.cellTextColor` 用 `expandedSurfaceColors`；两套令牌逐项钉住，交换高亮字色与强调色、换掉画布判断都会失败；两处读屏朗读都接上「已纠正」后缀。去掉空白和换行后比较整段调用，参数换行不影响。
 view_body() { sed -n "/^  $1\$/,/^  }\$/p" "$view" | tr -d ' \n'; }
 label_body=$(sed -n '/^  private candidateLabel(candidate: CandidateEntry, index: number): string {$/,/^  }$/p' "$view")
@@ -771,6 +791,51 @@ if [[ $(grep -cF 'panel.changeFlag(' "$floating_ability") -ne 1 ]] \
   || ! grep -qF 'return this.touchDesign() && !this.splitDrawn() && !this.floatingDrawn();' \
     "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets"; then
   echo "The floating keyboard must change the panel flag only while the panel is hidden and show it again afterwards, never move a fixed panel, refit the floating panel when the display changes, save the dragged position, suspend one-handed mode while floating or split, and stop drawing the split keyboard while floating" >&2
+  exit 1
+fi
+# 键盘调整遮罩（取代高度条）：四项的范围、生效条件、外框换算、各边拖动约束、存放和面板高度含抬高由 keyboard-adjust.test.ts 覆盖。视图、会话和扩展能力是 ArkTS，这里钉住接线：离开键盘调整的唯一出口 `show` 在离开时保存（没有恢复快照的「取消」路径），收起键盘、换输入框、切应用（`onPanelHidden`）都经它离开；「确认」也走它；设置页中途重载不盖掉预览；根节点按 `adjustFrame` 让出两侧和底部，面板高度和冷启动第一帧都算进抬高；外框和左右沿拖动按量到的面板宽换算（停靠面板是建面板时的屏幕宽，转屏、折叠屏开合后与此刻的屏幕宽不同），中间一排按钮按外框宽缩放；离开时抬高、宽度、位置只存生效且动过的项（`KeyboardAdjustPolicy.saved`，与 Android `keyboardAdjustEdits` 相同），打开时记下原值；调整期间工具条和按键整块不进读屏，读屏只走遮罩上的柄和按钮；旧的高度条不再存在。
+adjust_view="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets"
+adjust_show=$(sed -n '/^  private show(surface: string): void {$/,/^  }$/p' "$adjust_view")
+adjust_hidden=$(sed -n '/^    KeyboardSession.shared.onPanelHidden = (): void => {$/,/^    };$/p' "$adjust_view")
+adjust_click=$(sed -n '/^  private adjustButtonClick(kind: string): void {$/,/^  }$/p' "$adjust_view")
+adjust_settings=$(sed -n '/^  private applySettings(): void {$/,/^  }$/p' "$adjust_view")
+adjust_resize=$(sed -n '/^  private resizeTouchPanel(): void {$/,/^  }$/p' "$adjust_view")
+adjust_sync=$(sed -n '/^  private syncStripHeight(): void {$/,/^  }$/p' "$adjust_view")
+adjust_root=$(sed -n '/^  keyboard() {$/,/^  }$/p' "$adjust_view")
+adjust_frame=$(sed -n '/^  private adjustFrame(): AdjustFrame {$/,/^  }$/p' "$adjust_view")
+adjust_touch=$(sed -n '/^  private adjustTouch(handle: string, event: TouchEvent): void {$/,/^  }$/p' "$adjust_view")
+adjust_button=$(sed -n '/^  adjustButton(kind: string) {$/,/^  }$/p' "$adjust_view")
+adjust_save=$(sed -n '/^  private saveAdjust(): void {$/,/^  }$/p' "$adjust_view")
+adjust_open=$(sed -n '/^  private openAdjustMode(): void {$/,/^  }$/p' "$adjust_view")
+if [[ -z "$adjust_show" ]] \
+  || ! grep -qF 'if (this.surface === SURFACE_GEOMETRY && surface !== SURFACE_GEOMETRY) {' <<< "$adjust_show" \
+  || ! grep -qF 'this.saveAdjust();' <<< "$adjust_show" \
+  || ! grep -qF 'if (this.surface === SURFACE_GEOMETRY) {' <<< "$adjust_hidden" \
+  || ! grep -qF 'this.show(SURFACE_NONE);' <<< "$adjust_hidden" \
+  || ! grep -qF 'this.previewAdjust(KeyboardAdjustPolicy.DEFAULTS);' <<< "$adjust_click" \
+  || ! grep -qF 'this.show(SURFACE_NONE);' <<< "$adjust_click" \
+  || grep -qF 'saveAdjust' <<< "$adjust_click" \
+  || ! grep -qF 'if (this.surface !== SURFACE_GEOMETRY) {' <<< "$adjust_settings" \
+  || ! grep -qF 'this.readAdjustValues();' <<< "$adjust_settings" \
+  || grep -qF 'this.geometryHeight = this.settings.heightAdjustment;' <<< "$adjust_settings" \
+  || ! grep -qF 'this.extraRowsWere, this.settings.candidateScalePercent, this.liftWas));' <<< "$adjust_resize" \
+  || ! grep -qF 'this.bottomLiftVp() !== this.liftWas' <<< "$adjust_sync" \
+  || ! grep -qF 'bottom: KeyboardMetrics.TOUCH_ROOT_BOTTOM_PADDING_VP + this.adjustFrame().lift' <<< "$adjust_root" \
+  || ! grep -qF 'left: KeyboardMetrics.TOUCH_ROOT_HORIZONTAL_PADDING_VP + this.adjustFrame().left,' <<< "$adjust_root" \
+  || ! grep -qF 'this.liftWas = KeyboardSession.shared.firstTouchLift();' "$adjust_view" \
+  || ! grep -qF 'this.adjustAvailability(), this.adjustPanelWidthVp());' <<< "$adjust_frame" \
+  || grep -qF 'screenWidthVp' <<< "$adjust_frame" \
+  || ! grep -qF 'this.adjustDragWidthVp = this.adjustPanelWidthVp();' <<< "$adjust_touch" \
+  || ! grep -qF 'return this.rootWidth > 0 ? this.rootWidth : this.screenWidthVp;' "$adjust_view" \
+  || ! grep -qF '@State rootWidth: number = 0;' "$adjust_view" \
+  || ! grep -qF '.width(this.adjustButtonWidth())' <<< "$adjust_button" \
+  || ! grep -qF 'KeyboardAdjustPolicy.saved(stored, this.adjustOriginal, this.adjustValues(),' <<< "$adjust_save" \
+  || ! grep -qF 'saveKeyboardAdjust(saved.lift, saved.widthPercent, saved.positionX)' <<< "$adjust_save" \
+  || ! grep -qF 'this.adjustOriginal = this.adjustValues();' <<< "$adjust_open" \
+  || ! grep -qF ".accessibilityLevel(this.surface === SURFACE_GEOMETRY ? 'no-hide-descendants' : 'auto')" <<< "$adjust_root" \
+  || grep -qF 'HeightBar' "$adjust_view" \
+  || [[ -e "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/faces/HeightBar.ets" ]]; then
+  echo "The keyboard adjust overlay must save whenever it is left (confirm, another panel, hiding the keyboard, a new field, another app) with no restoring cancel path, keep its preview across a settings reload, inset the root by the adjust frame measured against the panel's real width (not the screen's), shrink the middle buttons to fit a narrow frame, save only the lift, width and position that are effective and changed (as Android does), hide the toolbar and keys from the screen reader while adjusting, count the bottom lift in every panel height, and replace HeightBar entirely" >&2
   exit 1
 fi
 # 长按菜单的「朗读」：排在哪里、带着什么由 keyboard-logic.test.ts 覆盖，出声的固定取值由 read-aloud-policy.test.ts 覆盖；视图、会话和设置桥是 ArkTS，node 下编不了，这里钉住接线：菜单把会话经共享层答的英文交给两种菜单，2in1 触摸长按在只有「朗读」时也打开，点下去时核对候选再读；关掉以后才建好的引擎当场关掉；引擎只用离线模式，从不下载声音；设置桥的 read_aloud 先经共享层核对词头。
