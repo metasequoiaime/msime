@@ -63,7 +63,7 @@ helpcode_swipe="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/input/H
 if ! grep -qF 'private helpcodeSwipes: HelpcodeSwipeGesture' "$keyboard_view" 2>/dev/null \
   || ! grep -qF 'this.helpcodeSwipes.down(' "$keyboard_view" \
   || ! grep -qF 'this.helpcodeSwipeEnabled()' "$keyboard_view" \
-  || ! grep -qF 'this.typeHelpcodeSwipe(letter);' "$keyboard_view" \
+  || ! grep -qF 'this.typeHelpcodeSwipe(helpcode);' "$keyboard_view" \
   || ! grep -qF 'KeyboardSession.shared.press(input.charCodeAt(0), true);' "$keyboard_view" \
   || ! grep -qF 'KeyboardSession.shared.entersHelpcode(true)' "$keyboard_view" \
   || ! grep -qF 'static swiped(' "$helpcode_swipe"; then

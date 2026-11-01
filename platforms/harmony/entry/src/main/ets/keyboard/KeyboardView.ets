@@ -1701,7 +1701,8 @@ struct KeyboardView {
       const helpcode: string = this.helpcodeSwipes.up(finger, touch.windowX, touch.windowY);
       if (helpcode.length > 0) {
         this.letterHints.cancel(finger);
-        this.typeHelpcodeSwipe(letter);
+        // 抬手事件可能落到手指离开时所在的键；辅助码必须沿用按下时跟踪的原键。
+        this.typeHelpcodeSwipe(helpcode);
         return;
       }
       const typed: string | null = this.letterHints.up(finger);
