@@ -126,7 +126,7 @@ export class CandidateGlossPolicy {
   }
 }
 
-/** 交给 `msime_client_pronunciation_request` 的一段文字；共享表只给英文标音。 */
+/** 交给 `msime_client_pronunciation_request` 的一段文字和它的语言：英文候选和英文释义按英文读，其他释义按它的目标语言读。 */
 export interface PronunciationItem {
   text: string;
   language: string;
@@ -154,55 +154,79 @@ interface PronunciationReply {
 }
 
 /**
- * 候选英文音标的取词与校验，规则与 Android 的 `CandidatePronunciationPolicy`、`CandidatePronunciationModel` 相同：英文候选读它本身，中文候选读英语释义的第一行，首个词组和去冠词交给共享层。
+ * 候选读音的取词与校验，规则与 Android 的 `CandidatePronunciationPolicy`、`CandidatePronunciationModel` 相同：英文候选读它本身（英文），中文候选读释义的第一行，按释义的目标语言读；首个词组和去冠词交给共享层。英文给 `/…/` 音标，法、西、俄、德给维基词典的 IPA（`/…/` 或 `[…]`），日文给赫本式罗马字，韩文给文化观光部式罗马字。
  *
- * 音标只取决于查的那段文字和随包的表，与候选代次无关，所以宿主按文字缓存回答，不必按代次丢弃。
+ * 读音只取决于查的那段文字、它的语言和随包的表，与候选代次无关，所以宿主按「语言 + 换行 + 文字」这个键缓存回答，不必按代次丢弃：同样的字母在别的语言里是另一个词（法文的 chat）。
  */
 export class CandidatePronunciationPolicy {
   /** 一次查询和缓存的上限；缓存满了整份清空，下一次按键重新查当前这一页。 */
   static readonly MAX_ITEMS: number = 256;
+  /** 共享层有读音表的语言，和 `msime_client_pronunciation_request` 认的一样。 */
+  static readonly LANGUAGES: string[] = ["en", "fr", "ja", "es", "ru", "de", "ko"];
 
   static visible(enabled: boolean, available: boolean): boolean {
     return enabled && available;
   }
 
-  /** 交给共享表的文字，没有可读的英文时为 ""。`englishTarget` 是释义的目标语言是否为英语，只有那时释义行才是英文。 */
-  static lookupText(candidate: string, translation: string | null, englishTarget: boolean): string {
+  /** 一段文字和它的语言合成的缓存键；释义只取第一行，文字里不会有换行。 */
+  static key(language: string, text: string): string {
+    return `${language}\n${text}`;
+  }
+
+  /** 交给共享表的那一段的键（`key`），没有可读的文字时为 ""。`target` 是释义的目标语言，释义行按它读；共享层没有这种语言的表时不查。 */
+  static lookupText(candidate: string, translation: string | null, target: string): string {
     if (CandidatePronunciationPolicy.plainEnglish(candidate)) {
-      return utf8Length(candidate) <= MAX_ENTRY_BYTES ? candidate : "";
+      return utf8Length(candidate) <= MAX_ENTRY_BYTES
+        ? CandidatePronunciationPolicy.key("en", candidate)
+        : "";
     }
-    if (!englishTarget || translation === null || translation.length === 0) {
+    if (
+      !CandidatePronunciationPolicy.LANGUAGES.includes(target) ||
+      translation === null ||
+      translation.length === 0
+    ) {
       return "";
     }
     const first: string = translation.split(/\r\n|\r|\n/)[0].trim();
     return first.length > 0 &&
       utf8Length(first) <= MAX_ENTRY_BYTES &&
       !CandidatePronunciationPolicy.hasControl(first)
-      ? first
+      ? CandidatePronunciationPolicy.key(target, first)
       : "";
   }
 
-  /** 去重后的有界请求文档；同一段文字只查一次。 */
-  static request(texts: string[]): string {
+  /** 去重后的有界请求文档；同一个键只查一次。`keys` 是 `lookupText` 给的键。 */
+  static request(keys: string[]): string {
     const unique: string[] = [];
-    for (const text of texts) {
+    const items: PronunciationItem[] = [];
+    for (const key of keys) {
+      const cut: number = key.indexOf("\n");
+      if (cut <= 0 || unique.includes(key)) continue;
+      const language: string = key.substring(0, cut);
+      const text: string = key.substring(cut + 1);
       if (
         text.length === 0 ||
-        CandidatePronunciationPolicy.hasControl(text) ||
-        unique.includes(text)
+        !CandidatePronunciationPolicy.LANGUAGES.includes(language) ||
+        CandidatePronunciationPolicy.hasControl(text)
       )
         continue;
-      unique.push(text);
-      if (unique.length >= CandidatePronunciationPolicy.MAX_ITEMS) break;
+      unique.push(key);
+      items.push({ text: text, language: language });
+      if (items.length >= CandidatePronunciationPolicy.MAX_ITEMS) break;
     }
-    const request: PronunciationRequest = {
-      generation: 0,
-      items: unique.map((text: string): PronunciationItem => ({ text: text, language: "en" })),
-    };
+    const request: PronunciationRequest = { generation: 0, items: items };
     return JSON.stringify(request);
   }
 
-  /** 文字到 `/…/` 音标；失败的回答返回 null，宿主不缓存。没有音标的文字不在回答里。 */
+  /** 一条读音的形状对不对：英文是 `/…/`，日文和韩文是罗马字，其余是 `/…/` 或 `[…]`。 */
+  private static wellFormed(language: string, reading: string): boolean {
+    if (language === "ja" || language === "ko") return reading.trim().length > 0;
+    if (reading.length < 3) return false;
+    if (reading.startsWith("/") && reading.endsWith("/")) return true;
+    return language !== "en" && reading.startsWith("[") && reading.endsWith("]");
+  }
+
+  /** 键到读音；失败的回答返回 null，宿主不缓存。没有读音的文字不在回答里。 */
   static decode(response: string): Map<string, string> | null {
     let reply: PronunciationReply;
     try {
@@ -216,28 +240,30 @@ export class CandidatePronunciationPolicy {
     const entries: PronunciationEntry[] = value.pronunciations as PronunciationEntry[];
     const readings: Map<string, string> = new Map<string, string>();
     for (const entry of entries) {
-      if (entry === null || typeof entry !== "object" || entry.language !== "en") continue;
+      if (entry === null || typeof entry !== "object") continue;
+      const language: unknown = entry.language;
       const text: unknown = entry.text;
       const reading: unknown = entry.pronunciation;
       if (
+        typeof language !== "string" ||
+        !CandidatePronunciationPolicy.LANGUAGES.includes(language) ||
         typeof text !== "string" ||
         typeof reading !== "string" ||
         text.length === 0 ||
         utf8Length(text) > MAX_ENTRY_BYTES ||
-        reading.length < 3 ||
         utf8Length(reading) > MAX_ENTRY_BYTES ||
-        !reading.startsWith("/") ||
-        !reading.endsWith("/")
+        !CandidatePronunciationPolicy.wellFormed(language, reading)
       )
         continue;
-      readings.set(text, reading);
+      readings.set(CandidatePronunciationPolicy.key(language, text), reading);
     }
     return readings;
   }
 
-  /** 读屏在释义之后念的音标。 */
+  /** 读屏在释义之后念的读音：IPA 叫音标，日文和韩文的罗马字叫读音。 */
   static accessibilitySuffix(reading: string): string {
-    return reading.length === 0 ? "" : "，音标：" + reading;
+    if (reading.length === 0) return "";
+    return (reading.startsWith("/") || reading.startsWith("[") ? "，音标：" : "，读音：") + reading;
   }
 
   /** 共享层的请求只要有一段带控制字符（Rust 的 `char::is_control`，即 Cc 类）就整批拒绝，这样的文字（比如在线或 AI 译文里的制表符）不查，免得一条释义让整页都没有音标。 */

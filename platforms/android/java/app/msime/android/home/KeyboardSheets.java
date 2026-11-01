@@ -124,6 +124,36 @@ final class KeyboardSheets {
         return true;
     }
 
+    /** 一次写几项 Android 本地设置（同一次原子写），成功时跑 `saved`（可为 null），失败时提示并跑 `failed`。 */
+    static void saveLocal(Fragment fragment, java.util.Map<String, Object> edits, @Nullable Runnable saved,
+            Runnable failed) {
+        HostTask.run(fragment, context -> writeLocal(context, edits) ? Boolean.TRUE : null, result -> {
+            if (result == null) {
+                MsToast.show(fragment.requireContext(), "保存失败，请重试");
+                failed.run();
+            } else if (saved != null) {
+                saved.run();
+            }
+        });
+    }
+
+    /** 同 {@link #writeLocal(Context, String, Object)}，几项在同一次原子写里落盘。要在工作线程上调用；写不进时为 false。 */
+    static boolean writeLocal(Context context, java.util.Map<String, Object> edits) {
+        try {
+            AndroidLocalSettings.update(context, edits);
+        } catch (java.io.IOException | IllegalArgumentException error) {
+            android.util.Log.w("MSIMESettings", "Android local settings were not saved", error);
+            return false;
+        }
+        for (String key : edits.keySet()) {
+            if (AndroidLocalSettings.spec(key).synced) {
+                SyncSignals.markDirty(context, SyncSwitch.SETTINGS);
+                break;
+            }
+        }
+        return true;
+    }
+
     /** 选中自定义设计后，按 P23 写它带的按键反馈里不在共享偏好的部分：按键音包拨本地按键音开关，按键动画写本地设置。要在工作线程上调用。 */
     static void applyLocalFeedback(Context context, JSONObject design) {
         CustomKeyboardSkin skin = CustomKeyboardSkin.from(design);
@@ -310,6 +340,22 @@ final class KeyboardSheets {
     }
 
 
+    /** {@link #iconNavRow} 里标题那一行的标记，{@link #help} 靠它找到放「?」的位置。 */
+    private static final String TITLE_LINE = "msime-row-title-line";
+
+    /** 在 {@link #iconNavRow} 的标题旁放「?」，解释性说明收进去，点按在气泡里显示；与 {@link GroupCard.Row#help} 同一种做法。副标题只留给状态。 */
+    static LinearLayout help(LinearLayout row, CharSequence subject, @Nullable CharSequence text) {
+        if (text == null || text.length() == 0) return row;
+        View line = row.findViewWithTag(TITLE_LINE);
+        if (!(line instanceof LinearLayout)) return row;
+        InfoTipView tip = new InfoTipView(row.getContext());
+        tip.setSubject(subject);
+        tip.setHelp(text);
+        ((LinearLayout) line).addView(tip, InfoTipView.params(row.getContext()));
+        tip.extendTouchTarget(row);
+        return row;
+    }
+
     /** 「我的」页面共用的图标导航行，支持副标题、尾部值和可选点击行为。 */
     static LinearLayout iconNavRow(Context context, @DrawableRes int icon, CharSequence title,
             @Nullable CharSequence subtitle, @Nullable CharSequence value, @Nullable Runnable action) {
@@ -340,7 +386,12 @@ final class KeyboardSheets {
 
         LinearLayout texts = LayoutPolicy.column(context);
         TextView heading = ViewPolicy.styledLabel(context, title, Ui.TEXT_ROW_TITLE, 400, ThemeColorPolicy.text(context));
-        texts.addView(heading);
+        // 标题和可选的「?」排一行，见 {@link #help}。
+        LinearLayout titleLine = LayoutPolicy.row(context);
+        ViewPolicy.setCenteredVertically(titleLine);
+        titleLine.setTag(TITLE_LINE);
+        titleLine.addView(heading, LayoutPolicy.weightedWrapParams(1f));
+        texts.addView(titleLine, LayoutPolicy.wrapParams());
         if (subtitle != null) {
             TextView detail = ViewPolicy.styledLabel(context, subtitle, 12, 400, ThemeColorPolicy.subText(context));
             texts.addView(detail);

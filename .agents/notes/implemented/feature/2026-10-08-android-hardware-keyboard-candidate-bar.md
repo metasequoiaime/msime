@@ -14,7 +14,7 @@ Status: implemented
 - 进入：`onKeyDown` 收到一次来自实体键盘的按下（有设备、`InputDevice.isVirtual()` 为假、键盘类型是字母型）。另外，系统因实体键盘而不显示窗口（`super.onEvaluateInputViewShown()` 为假且配置报告接着键盘）时，走引擎的输入框仍允许显示窗口，并直接进入这个模式。
 - 退出：候选条上的展开键（工具栏最右的收起键，这时 chevron 朝上，描述「显示软键盘」），或配置报告键盘从有到无（`afterConfiguration`）。
 - 展开键的选择要粘住：系统每次 `showSoftInput`（点已聚焦的输入框挪光标、换输入框）都会重新调 `onEvaluateInputViewShown`，系统开关关着时上一条「直接进入」规则会立刻把刚展开的键盘收回去。所以点展开键同时记下 `hardwareKeyboardUserExpanded`，`afterSystemDecision` 见到它就不再替用户收起；它只在同一次接着期间有效，配置报告键盘从有到无或从无到有时清掉（`userExpandedAfterConfiguration`）。实体键盘再打字照常重新收起。
-- 模式开着且没有要占键区高度的面板（工具栏面板、展开候选、内联高度条、手写）时，`ImeFrame.setKeysCollapsed` 收起键行、功能行和单手侧栏所在的整行，只留顶部一行；空闲时工具栏总显示，即使用户设了「显示方式：隐藏」。面板打开时临时展开，关上后回到候选条。
+- 模式开着且没有要占键区高度的面板（工具栏面板、展开候选、「键盘调整」、手写）时，`ImeFrame.setKeysCollapsed` 收起键行、功能行和单手侧栏所在的整行，只留顶部一行；空闲时工具栏总显示，即使用户设了「显示方式：隐藏」。面板打开时临时展开，关上后回到候选条。
 - 候选前面标「N 」（N 为 1–9）：模式开着、`number_row_selection` 开着、不是英文直输时。序号用候选样式已有的序号色（`candidateAppearance.number()`）。`candidateLabel` 带序号而没有释义时不再追加空的第二行。
 - 窗口被系统收着时，实体键盘打出组词后 `requestShowSelf(0)` 把候选条叫出来；这是显式请求，系统的默认 `onShowInputRequested` 会放行。
 

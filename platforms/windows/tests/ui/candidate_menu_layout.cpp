@@ -326,7 +326,28 @@ void personal_wordbook_row_follows_the_dictionary_rows() {
   assert(!candidate_menu_action(CandidateMenuCommand::AddToPersonalWordbook, 0));
 }
 
+// 有能读的英文时，同一组里「朗读」排在「加入生词本」之前；只有它时这一组只有「朗读」。选中它同样不映射到 Engine 动作。
+void read_aloud_row_leads_the_last_group() {
+  const CandidateMenuMetrics metrics;
+  for (bool actionable : {true, false}) {
+    const auto items = candidate_menu_items(2, actionable, 0, true, true);
+    assert(items.size() == 6);
+    assert(items[3].separator);
+    assert(items[4].command == CandidateMenuCommand::ReadAloud && items[4].label == "朗读" &&
+           items[4].available && !items[4].submenu);
+    assert(items[5].command == CandidateMenuCommand::AddToPersonalWordbook);
+    const auto row = candidate_menu_row(4, items, metrics);
+    assert(candidate_menu_hit(4.0, row.top + 1.0, items, metrics) == std::optional<size_t>(4));
+  }
+  const auto alone = candidate_menu_items(5, true, std::nullopt, false, true);
+  assert(alone.size() == 5);
+  assert(alone[3].separator && alone[4].command == CandidateMenuCommand::ReadAloud);
+  assert(candidate_menu_items(2, true, 0, true, false).size() == 5);
+  assert(!candidate_menu_action(CandidateMenuCommand::ReadAloud, 0));
+}
+
 int main() {
+  read_aloud_row_leads_the_last_group();
   personal_wordbook_row_follows_the_dictionary_rows();
   chosen_rows_map_to_engine_actions();
   delete_row_shows_its_shortcut();

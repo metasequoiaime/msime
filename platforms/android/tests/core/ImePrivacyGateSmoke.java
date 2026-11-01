@@ -92,7 +92,23 @@ public final class ImePrivacyGateSmoke {
             "engine_session_create", "engine_session_ready",
             "ime_service_create", "input_view_create", "keyboard_first_draw",
             "engine_startup_preferences", "engine_startup_dictionary_sync",
-            "engine_session_main", "engine_session_destroy"};
+            "engine_session_main", "engine_session_destroy",
+            "engine_session_live_preferences", "engine_session_factory_preferences", "engine_session_hinted_preferences",
+            "touch_layout_first_drawn_twenty_six_key", "touch_layout_first_drawn_nine_key",
+            "touch_layout_first_drawn_japanese_nine_key", "touch_layout_first_drawn_handwriting",
+            "touch_layout_first_drawn_korean", "touch_layout_first_drawn_zhuyin",
+            "touch_layout_first_drawn_stroke", "touch_layout_first_drawn_zhuyin_nine_key",
+            "touch_layout_first_drawn_fourteen_key", "touch_layout_first_drawn_eighteen_key",
+            "touch_layout_created_twenty_six_key", "touch_layout_created_nine_key",
+            "touch_layout_created_japanese_nine_key", "touch_layout_created_handwriting",
+            "touch_layout_created_korean", "touch_layout_created_zhuyin",
+            "touch_layout_created_stroke", "touch_layout_created_zhuyin_nine_key",
+            "touch_layout_created_fourteen_key", "touch_layout_created_eighteen_key",
+            "touch_layout_live_twenty_six_key", "touch_layout_live_nine_key",
+            "touch_layout_live_japanese_nine_key", "touch_layout_live_handwriting",
+            "touch_layout_live_korean", "touch_layout_live_zhuyin",
+            "touch_layout_live_stroke", "touch_layout_live_zhuyin_nine_key",
+            "touch_layout_live_fourteen_key", "touch_layout_live_eighteen_key"};
         check(DiagnosticEventKind.values().length == kinds.length, "fixed local diagnostic event kinds");
         for (int index = 0; index < kinds.length; index++) {
             check(DiagnosticEventKind.values()[index].wire().equals(kinds[index]), "event kind " + kinds[index]);

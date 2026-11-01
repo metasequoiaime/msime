@@ -183,6 +183,7 @@ const autumnDark: ResolvedAppTheme = {
   background: "#21150F",
   card: "#2E1E15",
   hair: "#2A2F2A",
+  candidate_accent: "#F0975F",
 };
 
 const autumnLight: ResolvedAppTheme = {
@@ -194,6 +195,7 @@ const autumnLight: ResolvedAppTheme = {
   background: "#F6E9DC",
   card: "#FFFBF6",
   hair: "#B5562B33",
+  candidate_accent: "#9F4214",
 };
 
 test("an app theme recolours the HarmonyOS phone's accent, page, cards and light hairlines", () => {

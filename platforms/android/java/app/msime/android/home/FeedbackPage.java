@@ -108,8 +108,8 @@ public final class FeedbackPage extends DetailPage {
         GroupCard kind = GroupCard.add(sectionColumn(column, "反馈"), "类型");
         GroupCard.Row[] typeRow = new GroupCard.Row[1];
         typeRow[0] = kind.nav("反馈类型", null, form.type.title(), () -> chooseType(typeRow[0]));
-        kind.toggle("附带诊断信息", "包含机型、系统版本、当前方案与键盘设置，不含输入内容", form.diagnostics,
-            checked -> form.diagnostics = checked);
+        kind.toggle("附带诊断信息", null, form.diagnostics,
+            checked -> form.diagnostics = checked).help("包含机型、系统版本、当前方案与键盘设置，不含输入内容");
 
         GroupCard description = GroupCard.add(sectionColumn(column, "反馈"), "描述");
         LinearLayout card = description.card();
@@ -178,12 +178,12 @@ public final class FeedbackPage extends DetailPage {
         GroupCard channels = GroupCard.add(sectionColumn(column, "其他渠道"), "其他渠道").withDividers(Ui.ROW_PADDING_H);
         channels.button("QQ 群", QQ_GROUP, "复制群号", () -> copy("QQ 群号", QQ_GROUP, "已复制群号"));
         channels.button("Telegram 群组", "t.me/msimegroup", "打开", this::openTelegram);
-        channels.button("GitHub Issues", "公开的问题单，适合附上复现步骤", "打开",
-            () -> AboutPage.openLink(context, ISSUES));
-        channels.button("插入设备信息", "把品牌、型号、系统与应用版本、存储空间等插入描述", "插入",
+        channels.button("GitHub Issues", null, "打开",
+            () -> AboutPage.openLink(context, ISSUES)).help("公开的问题单，适合附上复现步骤");
+        channels.button("插入设备信息", null, "插入",
             () -> {
                 if (detail != null) DeviceInfo.insert(this, detail);
-            });
+            }).help("把品牌、型号、系统与应用版本、存储空间等插入描述");
 
         renderThumbnails();
         refresh();

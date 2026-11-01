@@ -20,6 +20,7 @@ pub mod import;
 pub mod library;
 pub mod personal;
 pub mod progress;
+pub mod read_aloud;
 pub mod schedule;
 pub mod session;
 pub mod wordbook;

@@ -31,7 +31,7 @@ pub const MAX_CRASH_STACK_BYTES: usize = 16 * 1024;
 const MAX_LINE_BYTES: usize = 32 * 1024;
 
 /// 诊断包固定事件种类；输入失败类别仅供本地导出，云端上传器另按服务契约过滤。
-pub const EVENT_KINDS: [&str; 56] = [
+pub const EVENT_KINDS: [&str; 89] = [
     "key_down",
     "key_up",
     "candidate_shown",
@@ -88,6 +88,40 @@ pub const EVENT_KINDS: [&str; 56] = [
     "engine_startup_dictionary_sync",
     "engine_session_main",
     "engine_session_destroy",
+    // Android 首帧布局诊断（#10389）：建会话用的偏好来源，以及会话到达前、会话建好时、实时偏好应用后各画的触屏布局，布局编进种类名里。
+    "engine_session_live_preferences",
+    "engine_session_factory_preferences",
+    "engine_session_hinted_preferences",
+    "touch_layout_first_drawn_twenty_six_key",
+    "touch_layout_first_drawn_nine_key",
+    "touch_layout_first_drawn_japanese_nine_key",
+    "touch_layout_first_drawn_handwriting",
+    "touch_layout_first_drawn_korean",
+    "touch_layout_first_drawn_zhuyin",
+    "touch_layout_first_drawn_stroke",
+    "touch_layout_first_drawn_zhuyin_nine_key",
+    "touch_layout_first_drawn_fourteen_key",
+    "touch_layout_first_drawn_eighteen_key",
+    "touch_layout_created_twenty_six_key",
+    "touch_layout_created_nine_key",
+    "touch_layout_created_japanese_nine_key",
+    "touch_layout_created_handwriting",
+    "touch_layout_created_korean",
+    "touch_layout_created_zhuyin",
+    "touch_layout_created_stroke",
+    "touch_layout_created_zhuyin_nine_key",
+    "touch_layout_created_fourteen_key",
+    "touch_layout_created_eighteen_key",
+    "touch_layout_live_twenty_six_key",
+    "touch_layout_live_nine_key",
+    "touch_layout_live_japanese_nine_key",
+    "touch_layout_live_handwriting",
+    "touch_layout_live_korean",
+    "touch_layout_live_zhuyin",
+    "touch_layout_live_stroke",
+    "touch_layout_live_zhuyin_nine_key",
+    "touch_layout_live_fourteen_key",
+    "touch_layout_live_eighteen_key",
 ];
 
 /// 要包含哪几类内容。缺省全部不包含。
@@ -567,6 +601,17 @@ pub fn crash_record(line: &[u8]) -> Option<Value> {
 
 /// 崩溃记录清洗后的样子：`message` 只留异常类型，`stack` 里栈帧原样保留、说明行只留异常类型，路径都只留文件名。
 fn sanitized_crash(at: &str, message: &str, stack: &str) -> Option<Value> {
+    let (message, stack) = if message.starts_with("MSIME-CRASH/") {
+        // 原生头只用于本机归属，不能当作摘要或把持续授权身份带进诊断包。
+        crate::telemetry::CrashContext::from_header(message)?;
+        let (summary, frames) = stack.split_once('\n').unwrap_or((stack, ""));
+        if summary.trim().is_empty() {
+            return None;
+        }
+        (summary, frames)
+    } else {
+        (message, stack)
+    };
     let message = crate::telemetry::clean_message(exception_type(message.lines().next()?));
     let stack: Vec<String> = stack
         .lines()

@@ -1,6 +1,7 @@
 import app.msime.android.CandidateChevronButton;
 import app.msime.android.FunctionPanelView;
-import app.msime.android.InlineHeightBar;
+import app.msime.android.KeyboardAdjustOverlay;
+import app.msime.android.KeyboardAdjustPolicy;
 import app.msime.android.KeyPressAnimator;
 import app.msime.android.KeyboardIconKey;
 import app.msime.android.KeyboardIconPaths;
@@ -112,21 +113,19 @@ public final class ms_w2_kb_ViewLogicSmoke {
         check(FunctionPanelView.stateText(FunctionPanelView.State.NONE) == null, "plain entries have no state");
         check(FunctionPanelView.ITEM_HEIGHT_DP == 52f, "panel tiles are 52dp");
 
-        // 内联高度条：75–170，拖动换算与文案。
-        check("键盘布局调整".equals(InlineHeightBar.DESCRIPTION), "layout bar description");
-        check(InlineHeightBar.clamp(60) == 75 && InlineHeightBar.clamp(180) == 170 && InlineHeightBar.clamp(150) == 150, "clamp to 75-170");
-        check(InlineHeightBar.MIN_PERCENT == 75 && InlineHeightBar.MAX_PERCENT == 170, "bar range matches the settings slider");
-        check(InlineHeightBar.percentForDrag(100, -50f, 500f) == 110, "dragging up by 10% of the base grows 10%");
-        check(InlineHeightBar.percentForDrag(100, 100f, 500f) == 80, "dragging down shrinks");
-        check(InlineHeightBar.percentForDrag(100, -1000f, 500f) == 170, "drag clamps at the top");
-        check(InlineHeightBar.percentForDrag(120, 30f, 0f) == 120, "unmeasured base keeps the start");
-        check("上下拖动调整 · 105%".equals(InlineHeightBar.label(105)), "drag handle label");
-        // #5564：百分比旁边显示键盘实际高度；还没量到时只显示百分比。
-        check("上下拖动调整 · 150% · 1062 px".equals(InlineHeightBar.label(150, 1062)), "label with measured height");
-        check("上下拖动调整 · 100%".equals(InlineHeightBar.label(100, 0)), "unmeasured height falls back to the percent");
-        check(InlineHeightBar.fitScale(100f, 200f) == 1f && InlineHeightBar.fitScale(200f, 100f) == .5f
-            && InlineHeightBar.fitScale(200f, 0f) == 1f && InlineHeightBar.fitScale(Float.NaN, 100f) == 1f,
-            "caption shrinks to fit rather than clipping");
+        // 「键盘调整」遮罩：约 45% 不透明的黑色，三个按钮和每个柄都有读屏说明；拖动换算在 KeyboardAdjustPolicySmoke。
+        check("键盘调整".equals(KeyboardAdjustOverlay.DESCRIPTION), "adjust overlay description");
+        check((KeyboardAdjustOverlay.DIM_COLOR >>> 24) == 115
+            && (KeyboardAdjustOverlay.DIM_COLOR & 0xFFFFFF) == 0, "overlay is black at about 45%");
+        check("重置".equals(KeyboardAdjustOverlay.RESET_LABEL) && "移动".equals(KeyboardAdjustOverlay.MOVE_LABEL)
+            && "确认".equals(KeyboardAdjustOverlay.CONFIRM_LABEL), "the three buttons read 重置 / 移动 / 确认");
+        java.util.Set<String> handleDescriptions = new java.util.HashSet<>();
+        for (KeyboardAdjustPolicy.Part part : KeyboardAdjustPolicy.Part.values())
+            handleDescriptions.add(KeyboardAdjustOverlay.description(part));
+        check(handleDescriptions.size() == KeyboardAdjustPolicy.Part.values().length,
+            "every handle has its own accessibility description");
+        check("移动".equals(KeyboardAdjustOverlay.description(KeyboardAdjustPolicy.Part.MOVE)),
+            "the move button is described by its label");
 
         // 按压动画：偏好值往返，未知值回落 none。
         for (KeyPressAnimator.Style style : KeyPressAnimator.Style.values()) {

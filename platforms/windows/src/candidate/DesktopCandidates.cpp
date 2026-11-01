@@ -145,6 +145,7 @@ struct DesktopCandidates::State {
         }
         candidates.set_expansion_handler(owner.callbacks.expansion);
         candidates.set_personal_wordbook_handler(owner.callbacks.personal_wordbook);
+        candidates.set_read_aloud_handler(owner.callbacks.read_aloud);
         candidates.set_lease_check([this](const FocusLease &lease) { return lease_current(lease); });
         if (overlay)
           candidates.set_typing_effect_presenter([&](const TypingEffectPresentation &value) {

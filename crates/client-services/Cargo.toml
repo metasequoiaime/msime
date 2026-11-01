@@ -10,6 +10,8 @@ rust-version.workspace = true
 [features]
 # 让依赖本 crate 的测试把账号客户端连到本机回环上的假服务端（`BackendAccountClient::loopback_with_agent`），只在它们的 dev-dependencies 里打开，正常产品构建不启用。
 test-support = []
+# 设备闭环验收专用；只允许编译时指定的本机回环，缺配置时拒绝发送，绝不回退生产源站。
+telemetry-loopback = []
 
 [dependencies]
 msime-client-base = { path = "../client-base" }

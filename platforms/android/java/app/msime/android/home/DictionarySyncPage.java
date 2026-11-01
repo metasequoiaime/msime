@@ -203,15 +203,16 @@ public final class DictionarySyncPage extends ReloadingDetailPage {
             return;
         }
         if (!current.configured()) {
-            card.nav("设置 WebDAV 网盘", "坚果云、Nextcloud 等都可以，不需要水杉账号", null, () -> editWebDav(current));
-            card.footer(DESCRIPTION + "\n" + NOTE);
+            card.nav("设置 WebDAV 网盘", null, null, () -> editWebDav(current)).help("坚果云、Nextcloud 等都可以，不需要水杉账号");
+            card.help(DESCRIPTION + "\n" + NOTE);
             return;
         }
         card.nav("服务器地址", null, shorten(current.url()), () -> editWebDav(current));
         card.nav("账号", null, shorten(current.username()), () -> editWebDav(current));
         card.nav("应用密码", null, current.passwordSaved() ? "已填写" : "未填写", () -> editWebDav(current));
         card.button("停止词库同步", "清除本机保存的网盘设置", "停止", this::confirmStop);
-        card.footer("「我的词条」现在经 WebDAV 网盘 " + current.url() + " 同步。换了地址或账号后，本机要重新登记，并在其他设备上重新允许；换应用密码不用。\n" + NOTE);
+        card.footer("「我的词条」现在经 WebDAV 网盘 " + current.url() + " 同步。换了地址或账号后，本机要重新登记，并在其他设备上重新允许；换应用密码不用。");
+        card.help(NOTE);
     }
 
     /** 「状态」：上次同步、共享词库的词数、待同步的改动、自动同步在等额度时什么时候继续、时钟提示、被挡下的删除和「立即同步」。 */
@@ -227,8 +228,8 @@ public final class DictionarySyncPage extends ReloadingDetailPage {
                 ZoneId.systemDefault());
             if (wait != null) card.note(wait);
         }
-        card.button("立即同步", "不等自动同步的间隔", "同步", () -> act(
-            sync -> sync.run(DictionarySyncPolicy.TRIGGER_MANUAL, false, false), "已同步"));
+        card.button("立即同步", null, "同步", () -> act(
+            sync -> sync.run(DictionarySyncPolicy.TRIGGER_MANUAL, false, false), "已同步")).help("不等自动同步的间隔");
         String error = state.error() != null ? state.error() : status == null ? null : status.lastError();
         if (DictionarySyncPolicy.CODE_ROLLBACK.equals(error)) {
             card.button("重新信任网盘现状", "仅在确认网盘被你清理后恢复同步", "恢复", this::confirmTrustRemote);
@@ -304,7 +305,7 @@ public final class DictionarySyncPage extends ReloadingDetailPage {
         code.addView(codeLabel(context, devices.code(), 22), digitsParams);
         card.addView(code);
         card.button("重置密钥", "手边没有别的设备时用", "重置", this::confirmReset);
-        card.footer("允许之后，这台设备的词和网盘上的词会合在一起，不会删掉任何一边的词。");
+        card.help("允许之后，这台设备的词和网盘上的词会合在一起，不会删掉任何一边的词。");
     }
 
     /** 等本机允许的其他设备：每台一行，名称、申请时间、核对码，行尾「拒绝」「允许」。 */

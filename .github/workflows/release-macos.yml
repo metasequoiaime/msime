@@ -181,7 +181,7 @@ jobs:
       # stage-resources.sh stages target/offline-glosses when it is there and package-release.sh embeds it.
       - name: Fetch the locked offline candidate glosses
         run: python3 scripts/fetch_offline_glosses.py
-      # The same goes for target/character-glosses, target/word-glosses and target/pronunciations: without them single characters and long-tail words have no English gloss, English glosses no IPA, and sentence candidates no word-by-word breakdown.
+      # target/character-glosses、target/word-glosses、target/pronunciations 和 target/target-pronunciations 也一样：没有它们时单字和长尾词没有英文释义，英文释义没有音标，法西俄德韩释义没有读音，整句候选没有逐词拆解。
       - name: Fetch the locked English gloss tables
         run: python3 scripts/fetch_gloss_tables.py
       # 背单词的内置词书：从锁定的 ECDICT 提交生成到 target/wordbooks，stage-resources.sh 暂存、package-release.sh 放进设置应用；MSIME_REQUIRE_WORDBOOKS=1 让缺了它们的包打不出来。

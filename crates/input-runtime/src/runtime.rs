@@ -3845,7 +3845,8 @@ impl<E: InputEngine> Runtime<E> {
             .as_deref()
             .and_then(|reading| reading.strip_suffix(self.cached.editing_text.as_str()))
             .unwrap_or("");
-        let picked = selected_by_digit || selection_action || grid_limit_pick;
+        // 五笔顶字不是造词中途的选词：第五码只是开始下一组编码，顶下来的首选已经是用户定下的字，与 14 键顶字（`GridKey` 不算选择动作）一样立即上屏，不进暂存词段。暂存会让它挡住之后每一次顶字和四码唯一自动上屏（两者都要求没有暂存词段），续打的字母被引擎截在四码外丢掉，Esc 还会连已顶的字一起丢。
+        let picked = (selected_by_digit || selection_action || grid_limit_pick) && !wubi_top_commit;
         // Esc 默认丢弃整段组字和已选词，与参考实现的 _HandleCancel 一致。
         // 开启保留已选词时，第一次只丢掉未选拼写，词段留下。
         let discarded = matches!(action, Action::Command(Command::Cancel)) && !escape_keeps_word;

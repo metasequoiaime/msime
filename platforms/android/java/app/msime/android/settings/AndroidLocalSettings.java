@@ -27,7 +27,7 @@ import org.json.JSONObject;
  *
  * <p>设置应用和 :ime 进程是同一个 UID，读写同一个文件。写入在同目录的锁文件上加进程间文件锁，读出、修改、写到临时文件再原子改名；读取按文件的 inode、修改时间和大小缓存，文件被另一进程换掉后下一次 {@link #load} 就读到新值。文件缺失、过大、损坏或某一项取值不合规时，那一项（或整份）回到默认值；读取从不改写文件。
  *
- * <p>键名与账号设置文档的同步键相同（`general.app_theme`、`platform.android.*`）。{@link Spec#synced} 为真的十八项随云同步交给 client-services 的 `android_local`（crates/client-services/src/account/settings_sync.rs 的 `ANDROID_LOCAL_SETTINGS`，两边的键与取值范围由 AndroidLocalSettingsSmoke 锁住）；隐私模式、防止截屏、语音数据贡献、开发者选项、键盘高度、浮动键盘的开关与位置、物理键盘时候选栏跟随光标、工具栏尺寸及工具栏上的浮动键盘和文本编辑按钮、键盘底栏和底部留白只留在本机。
+ * <p>键名与账号设置文档的同步键相同（`general.app_theme`、`platform.android.*`）。{@link Spec#synced} 为真的十八项随云同步交给 client-services 的 `android_local`（crates/client-services/src/account/settings_sync.rs 的 `ANDROID_LOCAL_SETTINGS`，两边的键与取值范围由 AndroidLocalSettingsSmoke 锁住）；隐私模式、防止截屏、语音数据贡献、开发者选项、键盘高度、浮动键盘的开关与位置、物理键盘时候选栏跟随光标、手机横屏分离式键盘、工具栏尺寸及工具栏上的浮动键盘和文本编辑按钮、键盘底栏和底部留白、键盘宽度与水平位置只留在本机。
  */
 public final class AndroidLocalSettings {
     public static final String FILE_NAME = "android-settings.json";
@@ -43,6 +43,8 @@ public final class AndroidLocalSettings {
     public static final String SPLIT_KEYBOARD_THRESHOLD = "platform.android.split_keyboard_threshold";
     /** 分离式键盘左右两半之间的空隙比例（百分比），默认 25。 */
     public static final String SPLIT_KEYBOARD_GAP = "platform.android.split_keyboard_gap";
+    /** 普通手机横屏时也把 26 键一族和韩文键盘分成左右两半（{@link SplitKeyboardPolicy#phoneActive}，#10440），默认关。只留在本机、不随账号同步：与平板共用 {@link #SPLIT_KEYBOARD} 的话，手机会继承平板上的开启状态。 */
+    public static final String SPLIT_KEYBOARD_PHONE_LANDSCAPE = "platform.android.split_keyboard_phone_landscape";
     public static final String KEY_POPUP = "platform.android.key_popup";
     public static final String SWIPE_DOWN_SYMBOLS = "platform.android.swipe_down_symbols";
     /** 「滑动输入符号」的方向，取值见 {@link SwipeHintPolicy}。开关仍是 {@link #SWIPE_DOWN_SYMBOLS}，键名保留旧名以免已同步的值失效。 */
@@ -89,6 +91,8 @@ public final class AndroidLocalSettings {
     public static final String CLIPBOARD_SUGGESTION = "platform.android.clipboard_suggestion";
     /** 剪贴板删除记录（单条或多选）后可撤销的秒数（{@link ClipboardUndoPolicy}，#10073、#10080），5 到 9 秒，默认 5 秒。同步字段表里没有这个键，只在本机。 */
     public static final String CLIPBOARD_UNDO_SECONDS = "platform.android.clipboard_undo_seconds";
+    /** 单条或多选删除剪贴板记录前是否要求系统认证（#10408）；访客模式下始终要求认证。只在本机，默认关。 */
+    public static final String CLIPBOARD_DELETE_AUTHENTICATION = "platform.android.clipboard_delete_authentication";
     /** 「复制后自动显示快捷键」（#10079）：最近复制那一行在预览右边多一个分词或分类快捷键，默认开，好让用户知道有这个功能；最近复制不显示时它也不显示。只在本机。 */
     public static final String CLIPBOARD_SUGGESTION_ACTION = "platform.android.clipboard_suggestion_action";
     /** 复制后快捷键的功能（{@link RecentClipboardSuggestion#quickAction}）：`segment` 分词、`category` 移动分类，默认分类。只在本机。 */
@@ -132,6 +136,10 @@ public final class AndroidLocalSettings {
     public static final String BOTTOM_PADDING = "platform.android.bottom_padding";
     /** 底部留白目标高度（dp），独立于按键高度，只在本机保存。 */
     public static final String BOTTOM_PADDING_HEIGHT = "platform.android.bottom_padding_height";
+    /** 停靠键盘的宽度，可用宽度的百分比（{@link KeyboardAdjustPolicy#MIN_WIDTH_PERCENT}..{@link KeyboardAdjustPolicy#MAX_WIDTH_PERCENT}，缺省 100），在键盘里的「键盘调整」拖左右沿改。和浮动键盘位置一样与屏幕尺寸相关，只在本机、不随账号同步。 */
+    public static final String KEYBOARD_WIDTH_PERCENT = "platform.android.keyboard_width_percent";
+    /** 收窄后停靠键盘的水平位置：剩余空间（可用宽度减键盘宽度）里的千分比，0 贴左、1000 贴右，缺省 500 居中。只在本机。 */
+    public static final String KEYBOARD_POSITION_X = "platform.android.keyboard_position_x";
     public static final String DEVELOPER_DEBUG_OVERLAY = "platform.android.developer.debug_overlay";
     /** 调试日志总开关；关闭后不显示调试信息，也不记录输入日志。 */
     public static final String DEVELOPER_LOGGING_ENABLED = "platform.android.developer.logging_enabled";
@@ -216,6 +224,7 @@ public final class AndroidLocalSettings {
             SplitKeyboardPolicy.MIN_THRESHOLD_DP, SplitKeyboardPolicy.MAX_THRESHOLD_DP, SplitKeyboardPolicy.THRESHOLD_STEP_DP);
         integer(SPLIT_KEYBOARD_GAP, SplitKeyboardPolicy.DEFAULT_GAP_PERCENT, false,
             SplitKeyboardPolicy.MIN_GAP_PERCENT, SplitKeyboardPolicy.MAX_GAP_PERCENT, SplitKeyboardPolicy.GAP_PERCENT_STEP);
+        bool(SPLIT_KEYBOARD_PHONE_LANDSCAPE, false, false);
         bool(KEY_POPUP, true, true);
         bool(SWIPE_DOWN_SYMBOLS, true, true);
         choice(SWIPE_SYMBOLS_DIRECTION, SwipeHintPolicy.UP, true, SwipeHintPolicy.DOWN, SwipeHintPolicy.UP);
@@ -249,6 +258,7 @@ public final class AndroidLocalSettings {
         bool(CLIPBOARD_SUGGESTION, true, false);
         integer(CLIPBOARD_UNDO_SECONDS, ClipboardUndoPolicy.DEFAULT_SECONDS, false,
             ClipboardUndoPolicy.MIN_SECONDS, ClipboardUndoPolicy.MAX_SECONDS, 1);
+        bool(CLIPBOARD_DELETE_AUTHENTICATION, false, false);
         bool(CLIPBOARD_SUGGESTION_ACTION, true, false);
         choice(CLIPBOARD_SUGGESTION_ACTION_KIND, RecentClipboardSuggestion.ACTION_CATEGORY, false,
             RecentClipboardSuggestion.ACTION_SEGMENT, RecentClipboardSuggestion.ACTION_CATEGORY);
@@ -282,6 +292,9 @@ public final class AndroidLocalSettings {
         bool(BOTTOM_PADDING, false, false);
         integer(BOTTOM_PADDING_HEIGHT, KeyboardBottomBarPolicy.DEFAULT_PADDING_DP, false,
             KeyboardBottomBarPolicy.MIN_PADDING_DP, KeyboardBottomBarPolicy.MAX_PADDING_DP, 1);
+        integer(KEYBOARD_WIDTH_PERCENT, KeyboardAdjustPolicy.DEFAULT_WIDTH_PERCENT, false,
+            KeyboardAdjustPolicy.MIN_WIDTH_PERCENT, KeyboardAdjustPolicy.MAX_WIDTH_PERCENT, 1);
+        integer(KEYBOARD_POSITION_X, KeyboardAdjustPolicy.DEFAULT_POSITION, false, 0, KeyboardAdjustPolicy.MAX_POSITION, 1);
         bool(DEVELOPER_DEBUG_OVERLAY, false, false);
         bool(DEVELOPER_LOGGING_ENABLED, true, false);
         choice(DEVELOPER_LOG_LEVEL, "debug", false, "error", "warn", "info", "debug");
@@ -364,6 +377,16 @@ public final class AndroidLocalSettings {
         /** 显式写过的值，键名排序。 */
         public Map<String, Object> explicit() { return values; }
 
+        /** 套用 {@code edits} 之后的设置，只在内存里、不写文件；取值规则与 {@link AndroidLocalSettings#update(Path, Map)} 相同，值为 null 表示回到默认值，不合规时抛 IllegalArgumentException。用于保存还在后台进行时，让键盘先按刚确认的值画。 */
+        public Snapshot withEdits(Map<String, Object> edits) {
+            Map<String, Object> next = new TreeMap<>(values);
+            for (Map.Entry<String, Object> edit : validatedEdits(edits).entrySet()) {
+                if (edit.getValue() == null) next.remove(edit.getKey());
+                else next.put(edit.getKey(), edit.getValue());
+            }
+            return new Snapshot(next);
+        }
+
         /** 参与同步的全部键及其当前值（未写过的取默认值），交给 `msime_client_account_settings_export` 的 `android_local`。 */
         public Map<String, Object> synced() {
             Map<String, Object> synced = new TreeMap<>();
@@ -393,6 +416,60 @@ public final class AndroidLocalSettings {
     private AndroidLocalSettings() {}
 
     public static Snapshot defaults() { return DEFAULTS; }
+
+    /**
+     * 设置页「键盘底部高度」滑块显示的值（#10447）：{@link #BOTTOM_PADDING} 开着时是 {@link #BOTTOM_PADDING_HEIGHT}，关着时是 0。
+     *
+     * <p>这个数是键区底边到系统导航区的目标总距离，键盘底栏画着时它的 40 dp 计在里面（{@link KeyboardBottomBarPolicy#extraPaddingDp}）。没动过的用户显示 0；以前打开过「底部留白」的老用户直接显示原来的高度，不用迁移。
+     */
+    public static int bottomHeightDp(Snapshot settings) {
+        return settings.bool(BOTTOM_PADDING) ? settings.integer(BOTTOM_PADDING_HEIGHT) : 0;
+    }
+
+    /** 滑块提交 `valueDp` 时要写的项：大于 0 时打开 {@link #BOTTOM_PADDING} 并记下高度；拖到 0 只关开关，原来的高度留着不清。 */
+    public static Map<String, Object> bottomHeightEdits(int valueDp) {
+        Map<String, Object> edits = new LinkedHashMap<>(2);
+        edits.put(BOTTOM_PADDING, valueDp > 0);
+        if (valueDp > 0) edits.put(BOTTOM_PADDING_HEIGHT, valueDp);
+        return edits;
+    }
+
+    /** 校验并规范化一组修改：键不认识或取值不合规时抛 IllegalArgumentException；值为 null 表示删掉这一项。 */
+    private static Map<String, Object> validatedEdits(Map<String, Object> edits) {
+        Map<String, Object> accepted = new LinkedHashMap<>(edits.size());
+        for (Map.Entry<String, Object> edit : edits.entrySet()) {
+            Spec spec = spec(edit.getKey());
+            if (edit.getValue() == null) {
+                accepted.put(spec.key, null);
+                continue;
+            }
+            Object value = spec.accept(edit.getValue());
+            if (value == null) {
+                throw new IllegalArgumentException("invalid value for " + spec.key + ": " + edit.getValue());
+            }
+            accepted.put(spec.key, value);
+        }
+        return accepted;
+    }
+
+    /**
+     * 键盘里「键盘调整」确认（或收起键盘等任何离开方式）时要写的本地设置，键盘高度另由键盘的几何保存写。只写此刻生效（{@code availability}）、并且和打开时不同的项：没动过的项不写，免得把底栏画着时存的 30 dp 这类「抬起 0」的旧值改成关。
+     *
+     * <p>抬高沿用设置页「键盘底部高度」的存法（{@link #bottomHeightEdits}）：底栏画着时存抬高加 40 dp，抬高为 0 时只关开关、原来的高度保留。宽度和位置直接存百分比和千分比。
+     */
+    public static Map<String, Object> keyboardAdjustEdits(KeyboardAdjustPolicy.Availability availability,
+            boolean barShown, int originalLiftDp, int liftDp, KeyboardAdjustPolicy.Horizontal original,
+            KeyboardAdjustPolicy.Horizontal current) {
+        Map<String, Object> edits = new LinkedHashMap<>(4);
+        if (availability.lift() && liftDp != originalLiftDp)
+            edits.putAll(bottomHeightEdits(KeyboardAdjustPolicy.storedBottomHeightDp(liftDp, barShown)));
+        if (availability.width()) {
+            if (current.widthPercent() != original.widthPercent())
+                edits.put(KEYBOARD_WIDTH_PERCENT, current.widthPercent());
+            if (current.position() != original.position()) edits.put(KEYBOARD_POSITION_X, current.position());
+        }
+        return edits;
+    }
 
     public static Path file(Context context) {
         return context.getFilesDir().toPath().resolve("bootstrap").resolve("state").resolve(FILE_NAME);
@@ -430,19 +507,7 @@ public final class AndroidLocalSettings {
      */
     public static Snapshot update(Path file, Map<String, Object> edits) throws IOException {
         if (file == null) throw new IllegalArgumentException("settings file");
-        Map<String, Object> accepted = new LinkedHashMap<>(edits.size());
-        for (Map.Entry<String, Object> edit : edits.entrySet()) {
-            Spec spec = spec(edit.getKey());
-            if (edit.getValue() == null) {
-                accepted.put(spec.key, null);
-                continue;
-            }
-            Object value = spec.accept(edit.getValue());
-            if (value == null) {
-                throw new IllegalArgumentException("invalid value for " + spec.key + ": " + edit.getValue());
-            }
-            accepted.put(spec.key, value);
-        }
+        Map<String, Object> accepted = validatedEdits(edits);
         // 文件锁属于整个 JVM 而不是线程：同一进程里另一个线程已经持有时，channel.lock() 不会等待，而是抛 OverlappingFileLockException。所以先在这里把本进程的写入排成一队，文件锁只负责协调主进程与 :ime。CACHE_LOCK 只在这把锁里面取，load() 从不取这把锁，加锁顺序不会颠倒。
         synchronized (UPDATE_LOCK) {
             Path parent = file.getParent();

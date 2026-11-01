@@ -67,6 +67,9 @@ public final class KeyboardBottomBarPolicySmoke {
         check(!KeyboardBottomBarPolicy.paddingShown(true, false, false, true, false),
             "not while a hardware keyboard collapses the keys");
         check(!KeyboardBottomBarPolicy.paddingShown(true, false, false, false, true), "not on a phone in landscape");
+        // 设置页滑块的步进要整除取值范围，两端都能选到（#10447）。
+        check((KeyboardBottomBarPolicy.MAX_PADDING_DP - KeyboardBottomBarPolicy.MIN_PADDING_DP)
+            % KeyboardBottomBarPolicy.PADDING_STEP_DP == 0, "slider step divides the padding range");
         for (int height : new int[] {0, 40, 80, 160}) {
             check(KeyboardBottomBarPolicy.extraPaddingDp(true, height, false, false, false, false) == height,
                 "independent target without bottom bar");

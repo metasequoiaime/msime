@@ -25,10 +25,10 @@ public final class CandidateCorrectionMarkPolicySmoke {
         check(("候选 1：我国飞行，提示：mwgfxi" + CandidateCorrectionMarkPolicy.accessibilitySuffix(true))
                 .equals("候选 1：我国飞行，提示：mwgfxi，已纠正"), "the mark follows the corrected_from hint");
 
-        // 标记色：未用候选包时选中与否都是皮肤强调色。首选 chip 的字本来就是强调色，所以 candidateLabel 在候选字上另加同色下划线（check-host.sh 钉住），注释从调淡的强调色变成实色。
+        // 标记色：未用候选包时，选中的 chip 上是首选的字色（chipText，跟随系统皮肤浅色是加深到 WCAG AA 的 #267547），不在选中位置时是皮肤强调色。首选 chip 的字本来就是这个颜色，所以 candidateLabel 在候选字上另加同色下划线（check-host.sh 钉住），注释从调淡的强调色变成实色。
         CandidateAppearance.Palette system = CandidateAppearance.fromSkin(KeyboardSkin.system(false));
-        check(system.correctionFor(true) == 0xff2c7a4b && system.correctionFor(false) == 0xff2c7a4b,
-            "built-in skins mark with the accent");
+        check(system.correctionFor(true) == 0xff267547 && system.correctionFor(false) == 0xff2c7a4b,
+            "built-in skins mark the chip with its text colour and other rows with the accent");
         CandidateAppearance.Palette dark = CandidateAppearance.fromSkin(KeyboardSkin.system(true));
         check(dark.correctionFor(true) == dark.accent() && dark.correctionFor(false) == dark.accent(),
             "the dark skin marks with its own accent");

@@ -15,7 +15,7 @@
 #   --editions 是版本表 shared/contracts/editions.json 里的版本 id，缺省只打 full，产物与引入版本之前相同。几个版本共用一次编译：输入法、msime-mcp 和设置应用的可执行文件都只编一遍，每个版本只重新暂存自己的资源、用 platforms/macos/scripts/edition_bundle.py 把输入法 bundle 改成该版本的身份、按该版本的 identifier 和 productName 打一个设置应用，再各出一个 DMG。多个版本可以同时安装，彼此完全隔离。
 #   VERSION defaults to platforms/macos/version.txt, the version release-macos.yml tags as macos-vVERSION. It becomes the version the settings app reports, so the in-app update check compares like with like, and it must equal the input method's CFBundleShortVersionString (platforms/macos/Info.plist.in).
 #   OUT_DIR 缺省是 target/macos-package/dist，每个版本在里面得到一个 <dmg_prefix>-VERSION-universal.dmg（full 是 msime-macos-VERSION-universal.dmg），另有只列这些 DMG 的 SHA256SUMS：版本发布页上只放它们。
-#   发布的可执行文件在剥离符号之前先生成 dSYM，放在 target/macos-package/dsym，每次运行开头清空；全部版本打完后再打成 OUT_DIR 里的 msime-macos-VERSION-dsym.zip，release-macos.yml 把它传到滚动的 macos-symbols release，不放进版本发布页。各版本带的是同样的四个可执行文件，一份覆盖全部版本。
+#   四个自有可执行文件及 Swift 后端的 dSYM 在剥离前收进 target/macos-package/dsym，并核对每个架构的 UUID 和源码行表；每次运行开头清空。全部版本打完后打成 OUT_DIR 里的 msime-macos-VERSION-dsym.zip，release-macos.yml 传到滚动的 macos-symbols release，不放进版本发布页。
 #
 # Environment:
 #   MSIME_SPARKLE_ROOT            required; directory containing the pinned Sparkle.framework (see README.md)
@@ -111,7 +111,7 @@ trap cleanup EXIT
 
 # 用法：cargo_universal 输出目录 产物名... -- cargo build 参数...。按 rust_targets 各编一次（`--` 之后的参数原样传给 cargo build），再把每个 target 的各个同名产物用 lipo 合并到输出目录。一次调用编几个包时，它们共用的依赖按同一组 feature 只编一遍。
 cargo_universal() {
-  local output_dir="$1" target name names=() slices
+  local output_dir="$1" target name names=() slices symbols
   shift
   while [ "$1" != -- ]; do
     names+=("$1")
@@ -119,7 +119,8 @@ cargo_universal() {
   done
   shift
   for target in "${rust_targets[@]}"; do
-    cargo build --release --locked --target "$target" "$@"
+    CARGO_PROFILE_RELEASE_DEBUG=1 CARGO_PROFILE_RELEASE_STRIP=none CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed \
+      cargo build --release --locked --target "$target" "$@"
   done
   mkdir -p "$output_dir"
   for name in "${names[@]}"; do
@@ -128,6 +129,14 @@ cargo_universal() {
       slices+=("$CARGO_TARGET_DIR/$target/release/$name")
     done
     lipo -create "${slices[@]}" -output "$output_dir/$name"
+    if [[ "$name" != *.a ]]; then
+      symbols=()
+      for target in "${rust_targets[@]}"; do
+        symbols+=("$CARGO_TARGET_DIR/$target/release/$name.dSYM")
+      done
+      # Rust 编译器已经收走临时对象；归并原始 dSYM，不能对合并后的程序重跑 dsymutil。
+      python3 platforms/macos/scripts/crash_symbols.py merge "$output_dir/$name" "$output_dir/$name.dSYM" "${symbols[@]}"
+    fi
   done
 }
 universal_dir="$CARGO_TARGET_DIR/universal/release"
@@ -208,13 +217,15 @@ sign() {
   fi
 }
 
-# 发布的 Mach-O 在签名之前剥掉局部符号：几个 universal 可执行文件在磁盘上合计少约 45 MB，每个 DMG 也小几 MB。`strip -x` 保留全局符号，所以 dylib 的导出（MSIMEBackend 的 `_MSIME*` 入口、sherpa-onnx 的 C API）和 dyld 要绑定的导入都还在。可执行文件先写出 dSYM，崩溃报告仍能符号化；dylib 和以前一样不生成 dSYM。
+# 发布的 Mach-O 在签名之前剥掉局部符号；先验证并归档自有程序的 dSYM。`strip -x` 保留 dylib 导出和 dyld 要绑定的导入。第三方运行库的符号由其上游负责。
 dsym_dir="$repo_root/target/macos-package/dsym"
 rm -rf "$dsym_dir"
 mkdir -p "$dsym_dir"
 strip_executable() {
-  dsymutil "$1" -o "$dsym_dir/$(basename "$1").dSYM"
-  strip -x "$1"
+  local binary="$1"
+  shift
+  python3 platforms/macos/scripts/crash_symbols.py collect "$binary" "$dsym_dir" --version "$version" "$@"
+  strip -x "$binary"
 }
 
 # The first element of a glob, failing when there is none or more than one. The bundle names are Chinese or contain spaces, and a literal path to a Chinese name can miss on APFS because of NFC/NFD normalisation; matching with a glob sidesteps both.
@@ -284,6 +295,7 @@ MSIME_VERSION="$version" CFLAGS="-mmacosx-version-min=13.0" CXXFLAGS="-mmacosx-v
   cargo_universal "$universal_dir" libmsime_host_api.a msime-mcp -- -p msime-host-api -p msime-mcp-server
 # MSIME_HOST_LIBRARY is explicit: the CMake default is target/debug, which would link the debug Rust library into a Release bundle.
 cmake -S platforms/macos -B "$build_dir" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix)" \
+  -DMSIME_RELEASE_CRASH_SYMBOLS=ON \
   -DCMAKE_OSX_ARCHITECTURES="$(IFS=';'; echo "${architectures[*]}")" \
   -DMSIME_SPARKLE_ROOT="$MSIME_SPARKLE_ROOT" -DMSIME_HOST_LIBRARY="$universal_dir/libmsime_host_api.a" \
   -DMSIME_BUILD_NUMBER="${MSIME_BUILD_NUMBER:-}" -DMSIME_INPUT_SOURCE_REVISION="$(git rev-parse HEAD)" \
@@ -315,15 +327,15 @@ ditto "$built_bundle" "$work/input-method/$(basename "$built_bundle")"
 built_bundle="$(only "$work/input-method"/*.app)"
 strip_executable "$built_bundle/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$built_bundle/Contents/Info.plist")"
 strip_executable "$built_bundle/Contents/MacOS/msime-voice-local"
-# dylib 只用 `-x`：完全剥离会删掉使用方要绑定的导出符号。Release 构建已经剥离过 MSIMEBackend.dylib，除非构建目录配置成了别的配置，这一步对它不起作用。下载的语音运行库在重签之前已经同样剥离过（scripts/sign-voice-runtime.sh）。
-strip -x "$built_bundle/Contents/Frameworks/MSIMEBackend.dylib"
+# Swift 单步编译链接产生的原始 dSYM 已由后端脚本保留；不能从剥离过的 dylib 重新生成。
+strip_executable "$built_bundle/Contents/Frameworks/MSIMEBackend.dylib" --dsym "$build_dir/MSIMEBackend.dylib.dSYM"
 if [ "$omit_voice_runtime" != 1 ]; then
   strip -x "$built_bundle/Contents/Frameworks/libsherpa-onnx-c-api.dylib"
 fi
 
 # ---- MCP server ----
 # 已随 host 库编好（见上面的 cargo_universal）。
-strip_executable "$universal_dir/msime-mcp"
+strip_executable "$universal_dir/msime-mcp" --dsym "$universal_dir/msime-mcp.dSYM"
 
 # 背单词的内置词书：要求带上时在编译之前就查，缺了不白编一遍。stage-resources.sh 把它们暂存到 target/macos/wordbooks，下面拷进设置应用的 Contents/Resources/wordbooks，即 EngineResources 的同级，设置应用按 resource_dir 读这里。
 wordbook_ids="$(python3 -c 'import json, sys; print(" ".join(book["id"] for book in json.load(open(sys.argv[1], encoding="utf-8"))["books"]))' resources/wordbook.lock.json)"
@@ -352,7 +364,7 @@ pnpm --filter @msime/desktop build
     CFLAGS="-mmacosx-version-min=13.0" CXXFLAGS="-mmacosx-version-min=13.0" CMAKE_OSX_DEPLOYMENT_TARGET=13.0 CMAKE_PREFIX_PATH="$(brew --prefix)" \
     cargo_universal "$CARGO_TARGET_DIR/release" msime-desktop -- -p msime-desktop --bin msime-desktop --features tauri/custom-protocol
 )
-strip_executable "$CARGO_TARGET_DIR/release/msime-desktop"
+strip_executable "$CARGO_TARGET_DIR/release/msime-desktop" --dsym "$CARGO_TARGET_DIR/release/msime-desktop.dSYM"
 tauri_bundle_dir="$CARGO_TARGET_DIR/release/bundle/macos"
 # Non-English candidate glosses (scripts/fetch_offline_glosses.py), copied here rather than listed in tauri.macos.conf.json because Tauri fails on a resource path that does not exist and the package must still build without them. The input method reads them beside EngineResources.
 glosses="$repo_root/target/macos/offline-glosses"
@@ -420,7 +432,7 @@ staged_bundle="$(only target/macos/*.app)"
 python3 "$edition_tool" apply --edition "$edition" "$staged_bundle"
 # 英文释义和音标表也随独立的 InputMethodKit bundle 安装。旧配置可能仍使用较早的 EngineResources，
 # InputController 会把这个 bundle 的 Resources 作为补充词库只读回退。
-for table in character-glosses word-glosses pronunciations; do
+for table in character-glosses word-glosses pronunciations target-pronunciations; do
   source="$repo_root/target/macos/$table"
   if [ -d "$source" ]; then
     ditto "$source" "$staged_bundle/Contents/Resources/$table"
@@ -492,6 +504,11 @@ fi
 pronunciations="$repo_root/target/macos/pronunciations"
 if [ -d "$pronunciations" ]; then
   ditto "$pronunciations" "$app/Contents/Resources/pronunciations"
+fi
+# 其他释义语言的读音表（scripts/build_target_pronunciations.py），可选，同样在 EngineResources 旁边读，总是连同它们的 CC BY-SA 声明一起带上。
+target_pronunciations="$repo_root/target/macos/target-pronunciations"
+if [ -d "$target_pronunciations" ]; then
+  ditto "$target_pronunciations" "$app/Contents/Resources/target-pronunciations"
 fi
 # Single-character English glosses (scripts/build_character_glosses.py), optional and read beside EngineResources.
 characters="$repo_root/target/macos/character-glosses"
@@ -585,6 +602,9 @@ check_app() {
   if [ -d "$pronunciations" ]; then
     test -f "$resources_dir/pronunciations/pronunciations-NOTICE.txt"
   fi
+  if [ -d "$target_pronunciations" ]; then
+    test -f "$resources_dir/target-pronunciations/target-pronunciations-NOTICE.txt"
+  fi
   if [ -d "$characters" ]; then
     test -f "$resources_dir/character-glosses/character-glosses-NOTICE.txt"
   fi
@@ -602,6 +622,10 @@ check_app() {
   if [ -d "$pronunciations" ]; then
     test -f "$nested/Contents/Resources/pronunciations/en-phonetic.db"
     test -f "$nested/Contents/Resources/pronunciations/pronunciations-NOTICE.txt"
+  fi
+  if [ -d "$target_pronunciations" ]; then
+    test -f "$nested/Contents/Resources/target-pronunciations/fr-phonetic.db"
+    test -f "$nested/Contents/Resources/target-pronunciations/target-pronunciations-NOTICE.txt"
   fi
   if [ -d "$characters" ]; then
     test -f "$nested/Contents/Resources/character-glosses/character-glosses-NOTICE.txt"
@@ -798,8 +822,7 @@ done
 
 # 所有版本的 DMG 都打完之后才把 dSYM 打成一个 zip：各版本带的是同一组可执行文件，只编一次、只剥离一次，所以一份 dSYM 覆盖全部版本。zip 长期留在 macos-symbols release 上，用来符号化这个版本的崩溃报告；它不进 SHA256SUMS，上传时以 GitHub 记录的摘要核对。
 dsym_zip="$out_dir/msime-macos-$version-dsym.zip"
-rm -f "$dsym_zip"
-ditto -c -k --keepParent "$dsym_dir" "$dsym_zip"
+python3 platforms/macos/scripts/crash_symbols.py pack "$dsym_dir" "$dsym_zip"
 
 (cd "$out_dir" && shasum -a 256 -- "${dmgs[@]##*/}" > SHA256SUMS && shasum -a 256 -c SHA256SUMS)
 if [ ${#update_zips[@]} -gt 0 ]; then

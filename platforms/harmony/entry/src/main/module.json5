@@ -72,7 +72,7 @@
         // What the launcher draws. Without it the entry falls back to the application icon, which is
         // the same artwork today and so hid the omission; an ability that appears on the home screen
         // states its own.
-        // 分层图标：桌面按自己的遮罩裁圆角，背景层 #252525 与 Android 经典图标的 app_icon_field 同色；单张透明底的 app_icon 在桌面上会透出壁纸。
+        // 分层图标：桌面按自己的遮罩裁圆角，背景层是标志的绿边色 #A8DF8E，前景层是撑满画布的标志；单张透明底的 app_icon 在桌面上会透出壁纸。
         "icon": "$media:app_icon_layered",
         // 启动屏图标是网页开屏的第一帧：浅色圆盘上一个还没描笔画的标志方块（start_window_icon.png，585×621，顶上留 36px 透明），启动窗、原生盖板和开屏因此是同一个画面，见 .agents/notes/implemented/feature/2026-10-11-harmony-launch-one-picture.md 和 scripts/test-harmony-launch-continuity.py。
         "startWindowIcon": "$media:start_window_icon",
