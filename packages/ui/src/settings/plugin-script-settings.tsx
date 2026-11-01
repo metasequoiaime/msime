@@ -160,7 +160,9 @@ export function ScriptSettingsForm({
       })}
       <SettingsManagerBlock>
         {failure && failure.key === null && (
-          <SettingsGroupNote className="text-danger">{failure.message}</SettingsGroupNote>
+          <SettingsGroupNote inline className="text-danger">
+            {failure.message}
+          </SettingsGroupNote>
         )}
         {saved && !dirty && <SettingsGroupNote role="status">已保存。</SettingsGroupNote>}
         <SettingsManagerActions>

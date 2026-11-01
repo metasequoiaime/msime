@@ -305,6 +305,9 @@ struct TelemetryState {
     /// 已接入持久授权的目录在撤回后仍拒绝未绑定的正常入口。
     #[serde(default)]
     consent_required: bool,
+    /// 第一次接入持续授权时的代次。只有这一代还收没有授权代次的旧格式崩溃文件（一次性迁移）；换代后旧格式文件无法证明属于当前同意，一律丢弃。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    legacy_records_epoch: Option<Uuid>,
     #[serde(default)]
     install_id: String,
     /// `yyyymmdd` (UTC) of the last queued `active`.
@@ -414,6 +417,7 @@ impl TelemetryStore {
                 // 第一次接入持续授权时，旧版本没有代次，留下的会话和原生崩溃文件
                 // 仍可归属于旧会话；清掉旧队列，保留它们做一次性迁移补报。
                 unbound.clear_unbound_queue_locked(&mut state)?;
+                state.legacy_records_epoch = Some(epoch);
             } else {
                 unbound.clear_locked()?;
                 state = unbound.read_state();
@@ -923,6 +927,7 @@ impl TelemetryStore {
             || !state.crashed_processes.is_empty()
             || !state.received_crashes.is_empty()
             || state.consent_epoch.is_some()
+            || state.legacy_records_epoch.is_some()
         {
             state.active_day.clear();
             state.retry_after_unix_ms = 0;
@@ -930,6 +935,7 @@ impl TelemetryStore {
             state.crashed_processes.clear();
             state.received_crashes.clear();
             state.consent_epoch = None;
+            state.legacy_records_epoch = None;
             if !state.install_id.is_empty() || state.consent_required {
                 self.write_state(&state)?;
             } else {
@@ -1092,6 +1098,8 @@ impl TelemetryStore {
         let mut records = crash_record_paths(directory)?;
         records.sort();
         let mut collected = CollectedCrashes::default();
+        let accepts_legacy =
+            self.consent_epoch.is_none() || state.legacy_records_epoch == self.consent_epoch;
         for path in records {
             if collected.crashes >= MAX_CRASH_RECORDS_PER_START {
                 break;
@@ -1102,6 +1110,7 @@ impl TelemetryStore {
                 &state.open_sessions,
                 install_id,
                 self.consent_epoch,
+                accepts_legacy,
             ) {
                 Ok(event) => event,
                 Err(CrashRecordSkip::Revoked) => {
@@ -1224,6 +1233,7 @@ fn crash_event(
     sessions: &[SessionMarker],
     install_id: &str,
     consent_epoch: Option<Uuid>,
+    accepts_legacy: bool,
 ) -> Result<TelemetryEvent, CrashRecordSkip> {
     // 只读额度内的前段，过长的栈仍保留有用的顶部。
     let bytes = read_crash_file(path).ok_or(CrashRecordSkip::Unavailable)?;
@@ -1253,13 +1263,14 @@ fn crash_event(
             .find(|marker| marker.id == stem)
             .and_then(|marker| marker.context.clone())
     });
-    // 旧版本的会话标记和崩溃文件没有授权代次；用户仍然同意上报时，
-    // 这些记录应按旧会话继续补报。新格式带上下文时才校验它是否属于当前代次。
+    // 旧版本的会话标记和崩溃文件没有授权代次：第一次接入持续授权的那一代里按旧会话继续补报，换代之后无法证明它属于当前同意，按撤回丢弃。新格式带上下文时校验它是否属于当前代次。
     if let Some(current_epoch) = consent_epoch {
-        if let Some(context) = context.as_ref() {
-            if context.consent_epoch != Some(current_epoch) {
+        match context.as_ref() {
+            Some(context) if context.consent_epoch != Some(current_epoch) => {
                 return Err(CrashRecordSkip::Revoked);
             }
+            None if !accepts_legacy => return Err(CrashRecordSkip::Revoked),
+            _ => {}
         }
     }
     let (platform, version) = match context.as_ref() {

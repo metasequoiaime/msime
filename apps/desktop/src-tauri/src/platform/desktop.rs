@@ -7,6 +7,8 @@ pub(crate) mod desktop_data_directory;
 pub(crate) mod desktop_account;
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 pub(crate) mod desktop_candidate_skin_community;
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+pub(crate) mod desktop_crash_reporting;
 // Windows、Linux 和没有原生会话的 macOS 设置进程复用账号会话服务云词库。
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos", test))]
 #[cfg_attr(

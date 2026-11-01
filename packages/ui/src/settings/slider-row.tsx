@@ -5,6 +5,8 @@ import * as settings from "./settings-style";
 export interface SliderRowProps {
   title: ReactNode;
   description?: ReactNode;
+  /** 状态、当前值或校验提示，常驻标题下方；解释性说明用 `description`，收进「?」。 */
+  detail?: ReactNode;
   hidden?: boolean;
   value: number;
   min?: number;
@@ -27,6 +29,7 @@ export interface SliderRowProps {
 export function SliderRow({
   title,
   description,
+  detail,
   hidden,
   value,
   min,
@@ -55,7 +58,7 @@ export function SliderRow({
     />
   );
   return (
-    <Row title={title} description={description} hidden={hidden} wideControl={wide}>
+    <Row title={title} description={description} detail={detail} hidden={hidden} wideControl={wide}>
       {displayValue === undefined ? (
         <span className={control}>{slider}</span>
       ) : (

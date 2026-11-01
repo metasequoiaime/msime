@@ -2,6 +2,19 @@
 
 感谢参与水杉输入法共享客户端。提交改动前，请先阅读 [ARCHITECTURE.md](../docs/ARCHITECTURE.md) 了解分层方式、不能打破的四条边界、验证流程和各平台的验证覆盖面，[变更记录](../docs/CHANGELOG.md)里是历次改动。使用编码代理的话，[AGENTS.md](../AGENTS.md) 里是给它们的操作约定。
 
+## 5 分钟快速开始
+
+第一次贡献，只需要做下面四步。架构、许可证和完整验证流程放在后面的章节，需要时再读。
+
+1. **找一个任务**：在 issue 列表里筛选 [`good first issue`](https://github.com/metasequoiaime/msime/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) 标签，选一个你感兴趣的。不确定的可以先在 issue 里留言问维护者。
+2. **开分支**：`git checkout -b fix/<简短描述> origin/develop`。不要直接在 `develop` 上改。
+3. **做小改动**：只改和 issue 直接相关的文件。改动越小，审阅越快。
+4. **提交前检查**：运行 `bash scripts/verify-local.sh --quick`，确认通过后用 Conventional Commits 格式提交，例如 `fix(data): 修正粤语双拼「為/爲」词条`。
+
+提交 PR 时，在描述里写清楚：改了什么、为什么改、在哪个平台上验证过什么。
+
+> 没有 Rust 或 Node 环境也能参与：词库数据、文档、issue 整理和复现报告同样重要。
+
 ## 开发流程
 
 1. 从远端实际默认分支（当前为 `origin/develop`）创建独立分支或 worktree，放在仓库外的 `~/worktrees/<feature>/` 下；不要在共享主工作区切换分支。

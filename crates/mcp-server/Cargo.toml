@@ -11,6 +11,9 @@ rust-version.workspace = true
 name = "msime-mcp"
 path = "src/main.rs"
 
+[build-dependencies]
+cc = "1"
+
 [dependencies]
 msime-client-core = { path = "../client-core" }
 msime-client-services = { path = "../client-services" }
@@ -25,6 +28,9 @@ tempfile.workspace = true
 # The local time the diagnostic log's timestamps are in, so an agent can turn "a few minutes ago" into a time to read from.
 time = { workspace = true, features = ["local-offset"] }
 tokio = { workspace = true, features = ["rt", "macros", "io-std"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+msime-host-macos = { path = "../host-macos" }
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true

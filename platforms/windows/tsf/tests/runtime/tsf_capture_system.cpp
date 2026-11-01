@@ -55,8 +55,12 @@ void run(const std::string &mode, const std::filesystem::path &root) {
   SetErrorMode(inherited_error_mode & ~SEM_NOGPFAULTERRORBOX);
   require((GetErrorMode() & SEM_NOGPFAULTERRORBOX) == 0, "synthetic process still suppresses WER");
   // 关闭弹窗用 WER 自己的标志，不能用 SEM_NOGPFAULTERRORBOX 把整个系统投递路径也关掉。
-  require(SUCCEEDED(WerSetFlags(WER_FAULT_REPORTING_FLAG_QUEUE | WER_FAULT_REPORTING_FLAG_NOHEAP |
-                              WER_FAULT_REPORTING_NO_UI)), "WER flags failed");
+  // 负向样本不需要排队关键报告；x86 WER 在不归属本 helper 的异常上排队时可能把
+  // 合成进程挂在 LPC 回复上，导致测试把系统的异步处置误判成 helper 失败。
+  const auto wer_flags = (mode == "external" || mode == "withdrawn" || mode == "released" || mode == "caught")
+      ? WER_FAULT_REPORTING_FLAG_NOHEAP | WER_FAULT_REPORTING_NO_UI
+      : WER_FAULT_REPORTING_FLAG_QUEUE | WER_FAULT_REPORTING_FLAG_NOHEAP | WER_FAULT_REPORTING_NO_UI;
+  require(SUCCEEDED(WerSetFlags(wer_flags)), "WER flags failed");
   wchar_t buffer[32768]{};
   const auto length = GetModuleFileNameW(nullptr, buffer, 32768);
   require(length && length < 32768, "test executable path unavailable");

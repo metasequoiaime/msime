@@ -5,6 +5,8 @@ import { ActionButton } from "./action-button";
 export interface ActionRowProps {
   title: ReactNode;
   description?: ReactNode;
+  /** 状态、当前值或校验提示，常驻标题下方；解释性说明用 `description`，收进「?」。 */
+  detail?: ReactNode;
   action?: () => void | Promise<void>;
   label: ReactNode;
   className?: string;
@@ -17,6 +19,7 @@ export interface ActionRowProps {
 export function ActionRow({
   title,
   description,
+  detail,
   action,
   label,
   className = "secondary",
@@ -25,7 +28,7 @@ export function ActionRow({
   ariaBusy,
 }: ActionRowProps) {
   return (
-    <Row title={title} description={description}>
+    <Row title={title} description={description} detail={detail}>
       <ActionButton
         action={action}
         label={label}

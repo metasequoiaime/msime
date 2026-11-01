@@ -492,9 +492,9 @@ test("the phone handwriting page offers the pad's delay, ink colour and width", 
   expect([width.min, width.max, width.step, width.value]).toEqual(["1", "8", "1", "3"]);
   expect(within(page).getByText("3px")).toBeTruthy();
   expect(shownValue("笔迹颜色").textContent).toContain("跟随皮肤");
-  // 隐私说明是「笔迹」的页脚，在该组的行之外。
+  // 隐私说明是「笔迹」组的解释，收进组名旁的「?」，不常驻在行之外。
   const privacy = within(page).getByText(/手写使用系统的文字识别能力/);
-  expect(privacy.closest("section")).toBeNull();
+  expect(privacy.closest("[data-group-header]")).not.toBeNull();
   // 与 Android 的手写页一样不附启用说明和系统设置按钮，那是首页状态卡片的事。
   expect(within(page).queryByText(/方案选择器/)).toBeNull();
   expect(within(page).queryByRole("button", { name: "打开系统输入法设置" })).toBeNull();

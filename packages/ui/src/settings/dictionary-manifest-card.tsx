@@ -31,7 +31,9 @@ export function DictionaryManifestCard({ read }: DictionaryManifestCardProps) {
   if (failed) {
     return (
       <GroupList title="词库信息">
-        <SettingsGroupNote>无法读取随应用安装的词库清单，请重新安装后再试。</SettingsGroupNote>
+        <SettingsGroupNote inline>
+          无法读取随应用安装的词库清单，请重新安装后再试。
+        </SettingsGroupNote>
       </GroupList>
     );
   }

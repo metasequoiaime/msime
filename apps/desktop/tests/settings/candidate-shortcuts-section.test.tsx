@@ -62,8 +62,9 @@ const allPaging = {
 };
 
 // 行尾控件放在 Row 的最后一格；说明放在标题下方，和标题同在一列文字里。
+// 行的文字列：标题外面是标题与「?」那一行，再外面才是放标题和常驻说明的文字列。
 const pagingRow = () =>
-  screen.getByText("向前 / 向后翻页").closest("[data-row-title]")!.parentElement!;
+  screen.getByText("向前 / 向后翻页").closest("[data-row-title]")!.parentElement!.parentElement!;
 
 test("several paging key groups sit on their own line below the title", () => {
   render(

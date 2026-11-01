@@ -53,6 +53,24 @@ Tauri 在 macOS、Linux 和现代 Windows 上还承载共享面板：表情与�
 
 **macOS 的 AppKit 设置窗口冻结为回退。** `platforms/macos/src/settings/` 的原生设置窗口，以及 `AISettingsWindow.mm`、`TranslationSettingsWindow.mm`、`VoiceProviderSettings.mm` 等独立窗口，只在设置应用找不到、启动失败或 options 路径不是绝对路径时由 `DesktopSettingsLauncher.h` 的回退分支打开，另有以 `--preferences` 启动输入法 bundle 的独立设置窗口。它们只保留为设置应用无法启动时的最小回退，不加新功能；macOS 上的新设置只进共享 React 设置页。
 
+### 设置项说明收进「?」
+
+这是全平台的设计语言，六个平台的设置界面（共享 React 设置页、Windows、iOS、Android 原生设置）一律遵守：设置页不常驻解释性说明。每个设置项的解释放在标题旁一个「?」里，桌面（macOS、Linux、Windows）悬停或键盘聚焦时弹出气泡、点一下固定，手机（iOS、Android、HarmonyOS）点「?」弹出、点别处收起；一组设置共用的解释段落放在组标题旁的「?」里。页面上能看到的只有标题、控件和下面这些必须一眼看到的内容。决定的理由和放弃的方案见[决策笔记](../.agents/notes/implemented/feature/2026-11-01-settings-descriptions-behind-info-tip.md)。
+
+始终留在原处（标题下方或组内）、不收进「?」的：
+
+- 状态和当前值：「已安装」「12pt」「跟随皮肤」、当前数据目录、「已同意，联网功能已开启」。
+- 校验、错误和进度：表单问题、连接或下载失败、下载百分比、「已达 N 个上限」。
+- 列表条目的元信息：版本、作者、条数、登记时间、核对码、程序 id、排位「第 N 位」。
+- 前置条件：「登录后可用」。
+- 宿主限制：当前平台或桌面下这一组设置不起作用的说明，它就是这一组的内容。
+- 空列表和截断提示：「还没有应用例外」「只显示前 20 条」。
+- 紧贴按钮、讲这个按钮后果的一句话（「改回水杉账号会清除…」「卸载后默认保留词库」）和风险警告。
+
+说明文字对读屏仍然可读：它以视觉隐藏的形式留在原处，控件通过 `aria-describedby`（或各平台的等价属性）读到它。「?」自己的读屏名称四端一致：有标题时是「<标题>的说明：<正文>」，没有标题时是「说明：<正文>」。
+
+落地到代码：共享设置页的 `Row` 及其包装组件（`SwitchRow`、`SelectRow`、`SliderRow` 等）把 `description` 画成标题旁的 `InfoTip`（`packages/ui/src/core/info-tip.tsx`），上面列的常驻内容走 `detail`；`SettingsGroupNote` 在有组名的 `GroupList` 里自动收进组名旁的「?」，是内容而不是解释的段落标 `inline`，`role="status"` 的反馈和 `SettingsManagerBlock` 里紧贴按钮的说明留在原处。Windows、iOS、Android 的原生设置界面各有一个对应的可复用「?」组件，新设置项都用它，不在页面上另写常驻说明段落。写说明之前先想这句话能不能不要；要的话写进 `description`，不要写成标题下面的一段灰字。
+
 ## 四条不能打破的边界
 
 **输入算法归 Rust 引擎 crate `crates/engine`。** 组词状态机、候选排序、学习回放都在 engine 里。`input-runtime` 仍然不复制组词逻辑：它只维护宿主编排和展示状态——它知道当前是第几页、焦点在不在、这次选择属于哪一代快照，但它不知道「ni hao」应该出什么词。在 `input-runtime` 或宿主里再写一份组词规则，就等于让两份实现开始漂移。

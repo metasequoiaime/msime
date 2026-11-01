@@ -107,11 +107,8 @@ function WubiCandidateSelectionSection({
           <ActionRow
             title="自定义选词键"
             label="保存选词键"
-            description={
-              valid
-                ? "使用两个不同的英文标点；请选择未用于翻页或以词定字的键。"
-                : "请输入两个不同的单个英文标点。"
-            }
+            description="使用两个不同的英文标点；请选择未用于翻页或以词定字的键。"
+            detail={valid ? undefined : "请输入两个不同的单个英文标点。"}
             disabled={!valid || (second === settings.second_key && third === settings.third_key)}
             action={() => onChange({ ...settings, second_key: second, third_key: third })}
           />

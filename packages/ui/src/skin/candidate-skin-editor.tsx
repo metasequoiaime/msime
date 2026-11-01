@@ -87,9 +87,9 @@ function ImageRow({
   return (
     <Row
       title={title}
-      description={
+      description={description}
+      detail={
         <>
-          {description}
           {image && (
             <span className={`block ${settings.skinEditorImageName}`}>
               {image.fileName} · {image.width}×{image.height} · {Math.ceil(image.byteLength / 1024)}{" "}
@@ -513,7 +513,8 @@ export function CandidateSkinEditor({
       <GroupList title="基本信息">
         <TextInputRow
           title="名称"
-          description={problemFor("name") ?? "显示在本地皮肤的卡片上。"}
+          description="显示在本地皮肤的卡片上。"
+          detail={problemFor("name")}
           label="皮肤名称"
           placeholder="例如：秋日暖阳"
           value={draft.name}
@@ -532,11 +533,12 @@ export function CandidateSkinEditor({
         <TextInputRow
           title="皮肤 ID"
           description={
-            idCheck.kind === "ok" || (!draft.id && !showProblems)
-              ? draft.idEdited
-                ? "皮肤文件夹的名字，只能用小写英文字母、数字和 . _ -。"
-                : "按名称自动生成；也可以自己改。"
-              : idCheck.message
+            draft.idEdited
+              ? "皮肤文件夹的名字，只能用小写英文字母、数字和 . _ -。"
+              : "按名称自动生成；也可以自己改。"
+          }
+          detail={
+            idCheck.kind === "ok" || (!draft.id && !showProblems) ? undefined : idCheck.message
           }
           label="皮肤 ID"
           aria-invalid={idCheck.kind === "error" && (draft.id !== "" || showProblems)}
@@ -583,7 +585,7 @@ export function CandidateSkinEditor({
             ))}
           </optgroup>
         </SelectRow>
-        <Row title="候选排列" description={problemFor("layouts") ?? "皮肤用在哪些候选排列下。"}>
+        <Row title="候选排列" description="皮肤用在哪些候选排列下。" detail={problemFor("layouts")}>
           <span className={settings.skinEditorActions}>
             {(
               [
@@ -612,11 +614,11 @@ export function CandidateSkinEditor({
         <Row
           title="明暗模式"
           description={
-            problemFor("modes") ??
-            (fixed
+            fixed
               ? `底色「${candidateSkinBaseTitle(draft.base)}」是${fixed === "dark" ? "深色" : "浅色"}主题，皮肤只用在${fixed === "dark" ? "深色" : "浅色"}模式。`
-              : "皮肤用在哪些明暗模式下，每种都有自己的配色。")
+              : "皮肤用在哪些明暗模式下，每种都有自己的配色。"
           }
+          detail={problemFor("modes")}
         >
           <span className={settings.skinEditorActions}>
             {(

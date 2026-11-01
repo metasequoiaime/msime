@@ -1069,11 +1069,10 @@ mod tests {
         let files = get("sunset").unwrap();
         assert_eq!(files.manifest, manifest("sunset", "Sunset"));
         assert!(!files.synced);
-        let preview = state.path().join("skins/sunset/preview.png");
-        assert_eq!(
-            files.directory,
-            state.path().join("skins/sunset").display().to_string()
-        );
+        // 逐段拼接：Windows 上读回的路径用反斜杠分隔。
+        let directory = state.path().join("skins").join("sunset");
+        let preview = directory.join("preview.png");
+        assert_eq!(files.directory, directory.display().to_string());
         assert_eq!(
             files.images,
             [SkinFileView {
