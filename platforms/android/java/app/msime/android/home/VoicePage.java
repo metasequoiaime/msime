@@ -217,7 +217,7 @@ public final class VoicePage extends ReloadingDetailPage {
             TRIGGER_LABELS[trigger],
             () -> pickTrigger(trigger, triggerRow[0]));
 
-        recognition.slider("本地停顿时间", "本地识别出字后等待的停顿；按住空格时由松手结束，锁定录音时由发送或取消结束",
+        recognition.slider("本地停顿时间", "本地识别出字后停顿这么久就结束录音；按住说话时由松手结束，锁定录音时由发送或取消结束",
             AndroidLocalSettings.VOICE_PAUSE_MIN_MILLIS, AndroidLocalSettings.VOICE_PAUSE_MAX_MILLIS, 100,
             local.integer(AndroidLocalSettings.VOICE_PAUSE_MILLIS), value -> value + " 毫秒",
             value -> KeyboardSheets.saveLocal(this, AndroidLocalSettings.VOICE_PAUSE_MILLIS,

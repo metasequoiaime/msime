@@ -2,7 +2,7 @@ import SwiftUI
 
 /// 「语音输入」：设计稿里的精简页面（对应 Android `VoicePage`）。「识别」分组放识别语言、自动添加标点和长按空格说话的开关；「服务」分组通往完整的服务页（保留服务商配置、密钥、润色和 App 内录音）以及本地模型。
 ///
-/// 「识别」分组末尾是点按开始的本地识别的停顿时间和判停灵敏度（#10310），与 Android `VoicePage`、鸿蒙语音页放在同一位置，分组说明讲它们的适用范围；存在共享文档的 `voice_input.pause_millis`、`stop_sensitivity` 里，只留在本机（`VoicePauseSettings`）；两行的标题和说明与鸿蒙语音页逐字相同。
+/// 「识别」分组末尾是点按开始的本地识别的停顿时间和判停灵敏度（#10310），与 Android `VoicePage`、鸿蒙语音页放在同一位置，分组说明讲它们的适用范围；存在共享文档的 `voice_input.pause_millis`、`stop_sensitivity` 里，只留在本机（`VoicePauseSettings`）；两行的标题和说明与鸿蒙语音页逐字相同；Android 的停顿时间说明多一句「锁定录音时由发送或取消结束」，因为只有 Android 能上滑锁定录音，其余与这里相同。
 ///
 /// 识别语言存在共享文档的 `voice_input.language` 里，经 `VoicePolishSettings` 写入，`voice_input` 的其他字段保持不变。自动添加标点是服务页已经存在本 App defaults 里的豆包请求开关；只有豆包支持，其他识别服务下开关置灰。iOS 的语音入口是长按空格（`KeyboardLayoutPreference.spaceVoice`，本机 App Group）和「更多工具」里的「语音输入」磁贴，工具栏不放语音按钮，所以没有 Android「启动方式」那样的三选一；共享文档里的 `touch_voice_shortcut` 是 Android 的设置，这一页不读也不写，免得同步过去盖掉它。
 struct VoiceSettingsView: View {
