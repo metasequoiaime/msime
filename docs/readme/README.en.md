@@ -4,6 +4,30 @@
 
 > This is a translation of the [Simplified Chinese README](../../README.md), which is authoritative. Linked documents are mostly in Chinese.
 
+### Type Chinese, and the English is right beside the candidate.
+
+Turn on "Show English glosses" (显示英文释义) and every candidate the offline dictionary has an entry for is marked with its English. On a computer, also turn on "Candidate translation" (候选词翻译) and Ctrl+Enter commits the highlighted candidate's English instead of the Chinese: a single sense goes straight in, several are listed first for you to pick from.
+
+```text
+You type     Candidate window       Ctrl+Enter commits
+yusuan   →  预算   budget       →  budget
+zhoumo   →  周末   weekend      →  weekend
+```
+
+**[Download Metasequoia IME](https://msime.app/download/)** · Windows · macOS · Linux · Android · iOS · HarmonyOS · Free and open source (GPL-3.0-only)
+
+- **How to turn it on**: everything here is off by default. In settings, turn on "Show English glosses" (显示英文释义; on Android and iOS it is "Offline English glosses", 离线英文释义), and for pronunciations also "Show pronunciation" (显示读音): English glosses get phonetic transcriptions, Japanese glosses Hepburn romaji, Korean glosses Revised Romanization, and French, Spanish, Russian and German glosses IPA (for German the phonetic transcription where Wiktionary gives one). Glosses and pronunciations come from dictionaries on the device and are shown without going online (on Android, iOS and Linux the English phonetics dictionary and the dictionary for the other six languages are each downloaded once in settings); "Candidate translation" also only reads the on-device dictionaries unless you choose an online translation service.
+- **What else**: the target language of "Candidate translation" can also be French, Japanese, Spanish, Russian, German or Korean (HarmonyOS phones do not offer Russian); "Vocabulary" (背单词) ships eight word lists from the zhongkao to the GRE and schedules reviews by spaced repetition.
+- **Platform differences**: pronunciations currently show on macOS, Linux, Android, iOS, HarmonyOS and the new Windows preview. The stable Windows release is published by [msime-windows](https://github.com/metasequoiaime/msime-windows); it has no separate "Show English glosses" switch: turning on "Candidate translation" (候选词翻译) shows the offline English glosses and enables Ctrl+Enter, but there are no phonetic transcriptions yet and no spaced-repetition "Vocabulary" word lists. The mobile apps are still in beta.
+
+**An input method sees everything you type, so this question deserves an answer you can check item by item: [what data leaves the device](../../PRIVACY.md).** The short version: with the default configuration of a fresh install, no feature sends what you type off the device; cloud suggestions (sending the pinyin being composed to Google Input Tools) have to be turned on by you, at the first prompt or in settings, and every other networked feature only works after you enter your own credentials or choose a service. Separately, there is a first-party anonymous usage statistic that carries no input content: all six platforms send daily-active, session and crash (error summary and call stack with directories stripped) records to `api.msime.app`. It is on by default and can be turned off under "Anonymous usage statistics" in settings — the fields, per-platform differences and on-disk locations are listed item by item in [PRIVACY.md](../../PRIVACY.md#使用统计与崩溃上报默认开启可关闭). The repository does not integrate any third-party analytics or crash-reporting SDK.
+
+Metasequoia IME (MSIME) is a multi-platform Chinese input method for Android, iOS, macOS, Linux, Windows and HarmonyOS. Each of the six platforms has its own native input method host, and all of them connect to the same shared input runtime. The settings UI is owned per platform: macOS, Linux and HarmonyOS use the same shared React settings pages, while Windows, iOS and Android use their own native settings UI, and the settings business rules should live in the shared Rust layer, with each platform's UI doing only the UI (some rules are still written in the native UIs today); on macOS and Linux the React settings pages call ordinary Rust business libraries through Tauri, while on HarmonyOS they do not go through Tauri: ArkWeb loads them and they reach Rust through the ArkTS native bridge and NAPI; the input algorithms are provided by msime-engine.
+
+Project home: [msime.app](https://msime.app/) · [GitHub repository](https://github.com/metasequoiaime/msime) · [Contributors](https://github.com/metasequoiaime/msime/graphs/contributors) · [Issues](https://github.com/metasequoiaime/msime/issues) · [Code signing policy](https://github.com/metasequoiaime/msime-windows/blob/develop/docs/code-signing-policy.md)
+
+> **About the name**: MSIME is short for Metasequoia IME (水杉输入法). It is unrelated to Microsoft IME and has no affiliation with Microsoft whatsoever. Every occurrence of `msime` in code, package names and repository names has this meaning. `shuangpin_profile: microsoft` in the settings is the "Microsoft Shuangpin" scheme, one of four key layouts alongside Xiaohe, Ziranma and Shoudao, offered for users accustomed to that layout; it likewise implies no affiliation.
+
 [![Core CI](https://img.shields.io/github/actions/workflow/status/metasequoiaime/msime/ci.yml?branch=develop&label=Core%20CI&logo=githubactions&logoColor=white)](https://github.com/metasequoiaime/msime/actions/workflows/ci.yml?query=branch%3Adevelop)
 [![Native Platform CI](https://img.shields.io/github/actions/workflow/status/metasequoiaime/msime/ci-platforms.yml?branch=develop&label=Platform%20CI&logo=githubactions&logoColor=white)](https://github.com/metasequoiaime/msime/actions/workflows/ci-platforms.yml?query=branch%3Adevelop)
 [![CodeQL](https://img.shields.io/github/actions/workflow/status/metasequoiaime/msime/codeql.yml?branch=develop&event=schedule&label=CodeQL&logo=github)](https://github.com/metasequoiaime/msime/actions/workflows/codeql.yml)
@@ -26,17 +50,9 @@
 [![Last commit](https://img.shields.io/github/last-commit/metasequoiaime/msime/develop)](https://github.com/metasequoiaime/msime/commits/develop)
 <a href="https://depot.dev/?utm_source=metasequoiaime"><img src="https://depot.dev/badges/built-with-depot.svg" alt="Built with Depot" height="20"></a>
 
-Metasequoia IME (MSIME) is a multi-platform Chinese input method for Android, iOS, macOS, Linux, Windows and HarmonyOS. Each of the six platforms has its own native input method host, and all of them connect to the same shared input runtime. The settings UI is owned per platform: macOS, Linux and HarmonyOS use the same shared React settings pages, while Windows, iOS and Android use their own native settings UI, and the settings business rules should live in the shared Rust layer, with each platform's UI doing only the UI (some rules are still written in the native UIs today); on macOS and Linux the React settings pages call ordinary Rust business libraries through Tauri, while on HarmonyOS they do not go through Tauri: ArkWeb loads them and they reach Rust through the ArkTS native bridge and NAPI; the input algorithms are provided by msime-engine.
-
-Project home: [msime.app](https://msime.app/) · [GitHub repository](https://github.com/metasequoiaime/msime) · [Contributors](https://github.com/metasequoiaime/msime/graphs/contributors) · [Issues](https://github.com/metasequoiaime/msime/issues) · [Code signing policy](https://github.com/metasequoiaime/msime-windows/blob/develop/docs/code-signing-policy.md)
-
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=metasequoiaime/msime&type=Date)](https://star-history.com/#metasequoiaime/msime&Date)
-
-> **About the name**: MSIME is short for Metasequoia IME (水杉输入法). It is unrelated to Microsoft IME and has no affiliation with Microsoft whatsoever. Every occurrence of `msime` in code, package names and repository names has this meaning. `shuangpin_profile: microsoft` in the settings is the "Microsoft Shuangpin" scheme, one of four key layouts alongside Xiaohe, Ziranma and Shoudao, offered for users accustomed to that layout; it likewise implies no affiliation.
-
-**An input method sees everything you type, so this question deserves an answer you can check item by item: [what data leaves the device](../../PRIVACY.md).** The short version: with the default configuration of a fresh install, no feature sends what you type off the device; cloud suggestions (sending the pinyin being composed to Google Input Tools) have to be turned on by you, at the first prompt or in settings, and every other networked feature only works after you enter your own credentials or choose a service. Separately, there is a first-party anonymous usage statistic that carries no input content: all six platforms send daily-active, session and crash (error summary and call stack with directories stripped) records to `api.msime.app`. It is on by default and can be turned off under "Anonymous usage statistics" in settings — the fields, per-platform differences and on-disk locations are listed item by item in [PRIVACY.md](../../PRIVACY.md#使用统计与崩溃上报默认开启可关闭). The repository does not integrate any third-party analytics or crash-reporting SDK.
 
 ## Module boundaries
 

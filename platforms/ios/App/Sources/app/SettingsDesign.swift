@@ -230,7 +230,7 @@ struct KeyboardStatusCard: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
       HStack(spacing: 12) {
-        AppMarkDisc(diameter: 52, markSize: 30)
+        AppMark(box: 52)
         // 宿主 app 判断不了键盘是否已启用（见上），首行不写「已启用」这类状态，只写当前方案，与共享设置组件没有设置客户端时的卡片一样。
         Text(scheme.shortLabel).font(.system(size: 17, weight: .semibold))
           .accessibilityIdentifier("keyboardStatusScheme")

@@ -4,6 +4,30 @@
 
 > これは[簡体字中国語版 README](../../README.md) の翻訳です。内容は簡体字中国語版が正です。リンク先の文書は主に中国語です。
 
+### 中国語を打つと、候補のすぐ横に英語。
+
+「英語の語釈を表示」（显示英文释义）をオンにすると、オフライン辞書に語釈がある候補の横に英語が表示されます。パソコンではさらに「候補の翻訳」（候选词翻译）をオンにすると、Ctrl+Enter でハイライト中の候補の英語を確定できます。語釈が 1 つならそのまま確定し、複数あるときは一覧から選べます。
+
+```text
+入力         候補ウィンドウ         Ctrl+Enter で確定
+yusuan   →  预算   budget       →  budget
+zhoumo   →  周末   weekend      →  weekend
+```
+
+**[水杉 IME をダウンロード](https://msime.app/download/)** · Windows · macOS · Linux · Android · iOS · HarmonyOS · 無料・オープンソース（GPL-3.0-only）
+
+- **オンにする方法**：既定ではすべてオフです。設定で「英語の語釈を表示」（显示英文释义。Android と iOS では「オフライン英語語釈」离线英文释义）をオンにし、読みも見たい場合は「読みを表示」（显示读音）もオンにします。英語の語釈には発音記号、日本語の語釈にはヘボン式ローマ字、韓国語の語釈には文化観光部式ローマ字、フランス語・スペイン語・ロシア語・ドイツ語の語釈には IPA（ドイツ語は実際の発音を表す精密表記）が付きます。語釈と読みは端末内の辞書から引くため、表示にネットワークは使いません（Android、iOS、Linux では英語の発音記号辞書と、ほかの 6 言語の読み辞書を設定でそれぞれ一度ダウンロードします）。「候補の翻訳」も、オンラインの翻訳サービスを選ばない限り端末内の辞書だけを引きます。
+- **ほかにも**：「候補の翻訳」の翻訳先はフランス語、日本語、スペイン語、ロシア語、ドイツ語、韓国語にも切り替えられます（HarmonyOS のスマートフォンにはロシア語がありません）。「単語学習」（背单词）には中考から GRE までの単語帳 8 冊が内蔵され、間隔反復で復習を組みます。
+- **プラットフォームによる違い**：読みは現在 macOS、Linux、Android、iOS、HarmonyOS、Windows 新版プレビューで表示されます。Windows の正式版は [msime-windows](https://github.com/metasequoiaime/msime-windows) が配布しており、「英語の語釈を表示」という独立したスイッチはなく、「候補の翻訳」（候选词翻译）をオンにするとオフラインの英語語釈が表示され、Ctrl+Enter も使えます。ただし発音記号と間隔反復の「単語学習」単語帳はまだありません。モバイル版はまだベータ版です。
+
+**入力メソッドはあなたが入力するものをすべて見ることができます。だからこの問いには、一つずつ照合できる答えがあるべきです：[どのデータがデバイスの外に出るのか](../../PRIVACY.md)。**要点だけ言うと、新規インストール時の既定設定では、入力した内容をデバイスの外に送信する機能はありません。クラウド予測（入力中のピンインを Google 入力ツールに送信する機能）は、初回の確認時か設定でユーザーが有効にする必要があり、その他のネットワーク機能は、ユーザー自身が認証情報を入力するかサービスを選択しない限り動作しません。これとは別に、入力内容を含まない独自の匿名利用統計があります。6 つのプラットフォームすべてが `api.msime.app` に日次アクティブ、セッション、クラッシュ（エラーの概要と、ディレクトリを除去したコールスタック）の記録を送信します。これは既定で有効で、設定の「匿名利用統計」でオフにできます。フィールド、プラットフォームごとの違い、ディスク上の保存場所は [PRIVACY.md](../../PRIVACY.md#使用统计与崩溃上报默认开启可关闭) に一つずつ記載しています。リポジトリにはサードパーティの統計 SDK やクラッシュレポート SDK を一切組み込んでいません。
+
+水杉 IME（MSIME）は、Android、iOS、macOS、Linux、Windows、HarmonyOS 向けのマルチプラットフォーム中国語入力メソッドです。6 つのプラットフォームはそれぞれ独自のネイティブ入力メソッドホストを持ち、いずれも同じ共有入力ランタイムに接続しています。設定画面はプラットフォームごとに担当が分かれており、macOS、Linux、HarmonyOS は同じ共有 React 設定ページを使い、Windows、iOS、Android はそれぞれのネイティブ設定画面を使います。設定の業務ルールは共有の Rust 層に置き、各プラットフォームの画面は画面だけを担うべきものとしています（現時点では一部のルールがまだネイティブ画面側に書かれています）。React 設定ページは macOS と Linux では Tauri を介して通常の Rust 業務ライブラリを呼び出し、HarmonyOS では Tauri を経由せず、ArkWeb が読み込んで ArkTS のネイティブブリッジと NAPI を通じて Rust を呼び出します。入力アルゴリズムは msime-engine が提供します。
+
+プロジェクトのリンク：[msime.app](https://msime.app/) · [GitHub リポジトリ](https://github.com/metasequoiaime/msime) · [コントリビューター](https://github.com/metasequoiaime/msime/graphs/contributors) · [問題の報告](https://github.com/metasequoiaime/msime/issues) · [コード署名ポリシー / Code signing policy](https://github.com/metasequoiaime/msime-windows/blob/develop/docs/code-signing-policy.md)
+
+> **名称について**：MSIME は Metasequoia IME（水杉 IME）の略称です。Microsoft IME（日本では Windows 標準の日本語入力としておなじみの IME）とは別のソフトウェアであり、Microsoft 社とも一切関係ありません。コード、パッケージ名、リポジトリ名に含まれる `msime` はすべてこの意味です。設定にある `shuangpin_profile: microsoft` は「微軟双拼（Microsoft 双拼）」方式を指し、小鶴、自然碼、首道と並ぶ 4 つのキー配列方式の一つです。このキー配列に慣れたユーザーが選べるように用意しているもので、これも何らかの関係を示すものではありません。
+
 [![Core CI](https://img.shields.io/github/actions/workflow/status/metasequoiaime/msime/ci.yml?branch=develop&label=Core%20CI&logo=githubactions&logoColor=white)](https://github.com/metasequoiaime/msime/actions/workflows/ci.yml?query=branch%3Adevelop)
 [![Native Platform CI](https://img.shields.io/github/actions/workflow/status/metasequoiaime/msime/ci-platforms.yml?branch=develop&label=Platform%20CI&logo=githubactions&logoColor=white)](https://github.com/metasequoiaime/msime/actions/workflows/ci-platforms.yml?query=branch%3Adevelop)
 [![CodeQL](https://img.shields.io/github/actions/workflow/status/metasequoiaime/msime/codeql.yml?branch=develop&event=schedule&label=CodeQL&logo=github)](https://github.com/metasequoiaime/msime/actions/workflows/codeql.yml)
@@ -26,17 +50,9 @@
 [![Last commit](https://img.shields.io/github/last-commit/metasequoiaime/msime/develop)](https://github.com/metasequoiaime/msime/commits/develop)
 <a href="https://depot.dev/?utm_source=metasequoiaime"><img src="https://depot.dev/badges/built-with-depot.svg" alt="Built with Depot" height="20"></a>
 
-水杉 IME（MSIME）は、Android、iOS、macOS、Linux、Windows、HarmonyOS 向けのマルチプラットフォーム中国語入力メソッドです。6 つのプラットフォームはそれぞれ独自のネイティブ入力メソッドホストを持ち、いずれも同じ共有入力ランタイムに接続しています。設定画面はプラットフォームごとに担当が分かれており、macOS、Linux、HarmonyOS は同じ共有 React 設定ページを使い、Windows、iOS、Android はそれぞれのネイティブ設定画面を使います。設定の業務ルールは共有の Rust 層に置き、各プラットフォームの画面は画面だけを担うべきものとしています（現時点では一部のルールがまだネイティブ画面側に書かれています）。React 設定ページは macOS と Linux では Tauri を介して通常の Rust 業務ライブラリを呼び出し、HarmonyOS では Tauri を経由せず、ArkWeb が読み込んで ArkTS のネイティブブリッジと NAPI を通じて Rust を呼び出します。入力アルゴリズムは msime-engine が提供します。
-
-プロジェクトのリンク：[msime.app](https://msime.app/) · [GitHub リポジトリ](https://github.com/metasequoiaime/msime) · [コントリビューター](https://github.com/metasequoiaime/msime/graphs/contributors) · [問題の報告](https://github.com/metasequoiaime/msime/issues) · [コード署名ポリシー / Code signing policy](https://github.com/metasequoiaime/msime-windows/blob/develop/docs/code-signing-policy.md)
-
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=metasequoiaime/msime&type=Date)](https://star-history.com/#metasequoiaime/msime&Date)
-
-> **名称について**：MSIME は Metasequoia IME（水杉 IME）の略称です。Microsoft IME（日本では Windows 標準の日本語入力としておなじみの IME）とは別のソフトウェアであり、Microsoft 社とも一切関係ありません。コード、パッケージ名、リポジトリ名に含まれる `msime` はすべてこの意味です。設定にある `shuangpin_profile: microsoft` は「微軟双拼（Microsoft 双拼）」方式を指し、小鶴、自然碼、首道と並ぶ 4 つのキー配列方式の一つです。このキー配列に慣れたユーザーが選べるように用意しているもので、これも何らかの関係を示すものではありません。
-
-**入力メソッドはあなたが入力するものをすべて見ることができます。だからこの問いには、一つずつ照合できる答えがあるべきです：[どのデータがデバイスの外に出るのか](../../PRIVACY.md)。**要点だけ言うと、新規インストール時の既定設定では、入力した内容をデバイスの外に送信する機能はありません。クラウド予測（入力中のピンインを Google 入力ツールに送信する機能）は、初回の確認時か設定でユーザーが有効にする必要があり、その他のネットワーク機能は、ユーザー自身が認証情報を入力するかサービスを選択しない限り動作しません。これとは別に、入力内容を含まない独自の匿名利用統計があります。6 つのプラットフォームすべてが `api.msime.app` に日次アクティブ、セッション、クラッシュ（エラーの概要と、ディレクトリを除去したコールスタック）の記録を送信します。これは既定で有効で、設定の「匿名利用統計」でオフにできます。フィールド、プラットフォームごとの違い、ディスク上の保存場所は [PRIVACY.md](../../PRIVACY.md#使用统计与崩溃上报默认开启可关闭) に一つずつ記載しています。リポジトリにはサードパーティの統計 SDK やクラッシュレポート SDK を一切組み込んでいません。
 
 ## モジュール境界
 

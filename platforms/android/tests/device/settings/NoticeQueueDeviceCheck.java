@@ -7,6 +7,7 @@ import android.app.Instrumentation;
 import android.content.Intent;
 import android.os.SystemClock;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.accessibility.AccessibilityWindowInfo;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
@@ -118,6 +119,8 @@ final class NoticeQueueDeviceCheck {
 
         test.stage = operation + ": background and resume retain actual settings content";
         test.shellDiscard("input keyevent 3");
+        // `input keyevent 3` 注入后就返回，桌面由系统稍后拉起；先等设置窗口真正离开屏幕，否则 `am start` 会先落到仍在前台的任务上，迟到的 Home 再把它连同重建出的 Activity 一起推到后台。
+        awaitBackground();
         test.shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
         test.await(text("识别语言"));
 
@@ -138,6 +141,25 @@ final class NoticeQueueDeviceCheck {
 
     private static Predicate<AccessibilityNodeInfo> id(String value) {
         return node -> host(node) && ("app.msime.android:id/" + value).equals(node.getViewIdResourceName());
+    }
+
+    private void awaitBackground() {
+        long deadline = SystemClock.uptimeMillis() + 15000;
+        do {
+            test.dropStaleNodes();
+            if (!hostApplicationShown()) return;
+            SystemClock.sleep(100);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new AssertionError("Home key did not move native settings to the background");
+    }
+
+    private boolean hostApplicationShown() {
+        for (AccessibilityWindowInfo window : test.automation.getWindows()) {
+            if (window.getType() != AccessibilityWindowInfo.TYPE_APPLICATION) continue;
+            AccessibilityNodeInfo root = window.getRoot();
+            if (root != null && host(root)) return true;
+        }
+        return false;
     }
 
     private void homeTop() {

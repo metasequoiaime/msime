@@ -14,6 +14,8 @@ struct InputHabitSettings: Equatable {
   var secondaryLanguage: Int
   /// 候选词翻译的范围（`candidate_translation_scope`），只在候选词翻译开着时有意义。
   var translationScope: CandidateTranslationScope = .highlighted
+  /// 「显示读音」（`candidate_pronunciation`），共享默认关闭。
+  var pronunciationEnabled = false
 }
 
 /// The shared preference document is the source of truth for these settings: the keyboard copies the document into the App Group every time it reloads, so a value written only to the App Group is overwritten on the next keyboard appearance. The App therefore writes the document and then mirrors the result into the App Group, which the keyboard's fallback paths read until that reload.
@@ -36,7 +38,8 @@ enum InputHabitPreference {
                        onlineTranslations: CandidateTranslationPreference.onlineEnabled,
                        primaryLanguage: CandidateTranslationPreference.primaryIndex,
                        secondaryLanguage: CandidateTranslationPreference.secondaryIndex,
-                       translationScope: CandidateTranslationPreference.translationScope)
+                       translationScope: CandidateTranslationPreference.translationScope,
+                       pronunciationEnabled: CandidatePronunciationPreference.enabled)
   }
 
   /// Read the settings the same way the keyboard mirrors them: a field that is missing or out of range keeps the fallback's value.
@@ -53,6 +56,9 @@ enum InputHabitPreference {
     }
     if let gloss = document[glossKey] as? Bool { settings.glossEnabled = gloss }
     if let online = document[translationsKey] as? Bool { settings.onlineTranslations = online }
+    if let pronunciation = document[CandidatePronunciationPreference.sharedKey] as? Bool {
+      settings.pronunciationEnabled = pronunciation
+    }
     if let primary = (document[primaryLanguageKey] as? String).flatMap(languageIndex) {
       settings.primaryLanguage = primary
     }
@@ -77,6 +83,7 @@ enum InputHabitPreference {
     document[frequencyKey] = frequency
     document[glossKey] = settings.glossEnabled
     document[translationsKey] = settings.onlineTranslations
+    document[CandidatePronunciationPreference.sharedKey] = settings.pronunciationEnabled
     document[translationScopeKey] = settings.translationScope.rawValue
     // The document spells languages in lower case, the same as the Windows settings page.
     document[primaryLanguageKey] = CandidateTranslationPreference.language(at: settings.primaryLanguage).code.lowercased()
@@ -99,6 +106,7 @@ enum InputHabitPreference {
     CandidateTranslationPreference.primaryIndex = settings.primaryLanguage
     CandidateTranslationPreference.secondaryIndex = settings.secondaryLanguage
     CandidateTranslationPreference.translationScope = settings.translationScope
+    CandidatePronunciationPreference.enabled = settings.pronunciationEnabled
   }
 
   /// 一次实时重载是否改变了候选词翻译要请求的内容：开关、语言，或者范围（要请求哪些候选）。

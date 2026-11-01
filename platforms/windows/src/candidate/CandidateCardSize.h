@@ -17,11 +17,17 @@ namespace msime::windows {
 // Measured single-line widths of one candidate's three runs, each at its own font size: the text (with its badge) and the annotation at the candidate size, the translation at CandidateCardMetrics::translation_font. All three zero hides the row.
 struct CandidateItemWidths {
   double text = 0.0, annotation = 0.0, translation = 0.0;
-  // Lines the translation run holds before any wrapping, `translation` being the widest of them. More than one (a Korean Hanja's 훈음 with its translation under it) always puts the run under the text, at the height of all its lines.
+  // 释义那一段折行之前有几行，`translation` 是其中最宽一行的宽度。两行以上（韩文汉字的 훈음 在上、译文在下，每种目标语言一行，插件注释一行）时总放在候选文字下面，高度按全部行量；唯一的例外是竖排里只有一行释义加它的读音（reading_lines），见 candidate_translation_beside。
   size_t translation_lines = 1;
   // view 候选的 translation_reserved：候选词翻译范围是「仅当前高亮」时高亮的那一行。竖排给这一行一直留出 CandidateCardInput::reserved_secondary_lines 行释义高（candidate_reserved_row_height），回答还没到也留，译文总画在候选文字下面，填进留出来的高度，所以移动高亮、译文到达时卡片都不变高。横排每行本来就统一预留，不看它；一行也不留（reserved_secondary_lines 为 0）时同样不起作用，见 candidate_row_holds_translation。
   bool translation_reserved = false;
+  // translation_lines 里读音占的行数：「显示读音」打开时每条读音在它那一行释义下面单独一行（candidate_gloss_display）。只用来认出竖排里「一行释义加它的读音」这种两行，见 candidate_translation_beside。
+  size_t reading_lines = 0;
 };
+// 竖排时释义那一段能不能留在候选文字右边（放得下的话）：只有一行，或者只有一行释义加它下面的读音。后者和 macOS 竖排一样，读音在释义下面、两行一起在候选右侧，候选字号下两行释义通常就在一行候选的高度里，行不变高；如果按 Windows 两行以上一律放到候选下面的规则，竖排每个有读音的候选都要多出两行释义高，一页英文释义的候选高出一倍多，而竖排本来就没有横排挤到相邻格的问题。韩文 훈음 加译文、两种目标语言、插件注释这些两行仍放在候选文字下面。
+inline bool candidate_translation_beside(const CandidateItemWidths &item) {
+  return item.translation_lines <= 1 || (item.translation_lines == 2 && item.reading_lines == 1);
+}
 enum class CandidateRun { text, annotation, translation };
 // Height of candidate `index`'s run once wrapped to `width` DIPs. The text run is the candidate text with its badge, at the candidate size. The window answers with DirectWrite; without one the layout estimates from the single-line width.
 using CandidateWrapMeasure =
@@ -535,18 +541,25 @@ candidate_item_layout(const CandidateItemWidths &item, double content_width,
   if (item.translation > 0.0) {
     const double width = (std::min)(item.translation, content_width);
     if (!horizontal && !item.translation_reserved && !layout.annotation.below &&
-        item.translation_lines <= 1 &&
-        line_end + metrics.translation_gap + width <= content_width + fits)
-      layout.translation = {line_end + metrics.translation_gap, 0.0, width,
-                            metrics.candidate_row, false};
-    else
+        candidate_translation_beside(item) &&
+        line_end + metrics.translation_gap + width <= content_width + fits) {
+      // 一行释义加读音的两行在右边按量出的高度画，竖直居中；比一行候选高时这一行跟着长高。
+      const double height =
+          item.translation_lines > 1
+              ? (std::max)(layout.height,
+                           run_height(CandidateRun::translation, item.translation, width,
+                                      metrics.translation_line, item.translation_lines))
+              : metrics.candidate_row;
+      layout.translation = {line_end + metrics.translation_gap, 0.0, width, height, false};
+      layout.height = (std::max)(layout.height, height);
+    } else
       layout.translation = below(CandidateRun::translation, item.translation,
                                  width, metrics.translation_line,
                                  item.translation_lines);
   }
   return layout;
 }
-// Width a candidate's row asks for with nothing wrapped: its selection number and bar plus the content. A vertical row keeps a one-line translation on the text's line; a horizontal one, and a translation of several lines, stack it under the text, so the wider of the two lines decides. Zero for a hidden candidate, whose three runs all measured zero.
+// 一行候选什么都不折行时要的宽度：序号和竖条加上内容。竖排把一行释义（或一行释义加它的读音，见 candidate_translation_beside）留在候选文字同一行；横排，以及其他两行以上的释义，放在候选文字下面，宽度取两者里较宽的一个。隐藏的候选三段都量出 0，宽度为 0。
 // 竖排里留着释义行的那一行（translation_reserved，调用方已按 candidate_row_holds_translation 判过）同样把译文放在下面。
 inline double candidate_item_natural_width(const CandidateItemWidths &item,
                                            const CandidateCardMetrics &metrics,
@@ -557,7 +570,7 @@ inline double candidate_item_natural_width(const CandidateItemWidths &item,
       item.text +
       (item.annotation > 0.0 ? metrics.annotation_gap + item.annotation : 0.0);
   const double content =
-      horizontal || item.translation_lines > 1 || item.translation_reserved
+      horizontal || !candidate_translation_beside(item) || item.translation_reserved
           ? (std::max)(line, item.translation)
           : line + (item.translation > 0.0
                         ? metrics.translation_gap + item.translation

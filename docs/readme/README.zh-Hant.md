@@ -4,6 +4,30 @@
 
 > 本文是[簡體中文 README](../../README.md) 的翻譯，內容以簡體中文版為準。連結的文件多為簡體中文。
 
+### 打中文，候選旁就是英文。
+
+開啟「顯示英文釋義」後，查得到釋義的候選旁會標出英文。在電腦上再開啟「候選詞翻譯」，按 Ctrl+Enter 上屏的就是高亮候選的英文：只有一條釋義時直接上屏，有幾條時先列出來讓你選。
+
+```text
+你打的       候選窗裡            按 Ctrl+Enter 上屏
+yusuan   →  预算   budget    →  budget
+zhoumo   →  周末   weekend   →  weekend
+```
+
+**[下載水杉輸入法](https://msime.app/download/)** · Windows · macOS · Linux · Android · iOS · HarmonyOS · 免費開源（GPL-3.0-only）
+
+- **怎麼開啟**：預設都是關的。在設定裡開啟「顯示英文釋義」（Android 和 iOS 上叫「離線英文釋義」），想看音標再開「顯示讀音」（Android 上叫「顯示英文音標」）。釋義和讀音查本機詞庫，顯示時不連網（Android 的英文音標詞典要在第一次開啟時下載一次）；「候選詞翻譯」不選線上翻譯服務時也只查本機詞庫。
+- **還有什麼**：「候選詞翻譯」的目標語言還可以換成法、日、西、俄、德、韓（鴻蒙手機上沒有俄語）；「背單詞」內建中考到 GRE 八本詞書，按間隔重複排複習。
+- **平台差異**：音標目前在 macOS、Android 和 Windows 新版預覽上顯示；Windows 正式版由 [msime-windows](https://github.com/metasequoiaime/msime-windows) 發布，沒有單獨的「顯示英文釋義」開關，開啟「候選詞翻譯」就會顯示離線英文釋義，也能用 Ctrl+Enter，暫時沒有音標，也沒有按間隔重複排複習的「背單詞」詞書；手機版仍是測試版。
+
+**輸入法能看到你輸入的一切，所以這個問題應該有一個能逐條核對的答案：[哪些資料會離開裝置](../../PRIVACY.md)。**簡短版本：新安裝的預設設定下沒有功能會把你輸入的內容傳出裝置；雲端聯想（把正在組的拼音傳給 Google 輸入工具）要你在首次詢問或設定裡開啟，其餘連網功能都要你自己填寫憑證或選擇服務才會運作。另有一條不攜帶輸入內容的自有匿名使用統計：六個平台都會向 `api.msime.app` 傳送每日活躍、工作階段和當機（錯誤摘要與去掉目錄的呼叫堆疊）紀錄，預設開啟，可以在設定的「匿名使用統計」裡關閉——欄位、逐平台差異和寫入磁碟的位置逐條列在 [PRIVACY.md](../../PRIVACY.md#使用统计与崩溃上报默认开启可关闭)。儲存庫不接入任何第三方統計或當機回報 SDK。
+
+水杉輸入法（MSIME）是面向 Android、iOS、macOS、Linux、Windows 與 HarmonyOS 的多平台中文輸入法。六個平台各有自己的原生輸入法宿主，都接入同一套共用輸入執行環境；設定介面按平台歸屬：macOS、Linux 與 HarmonyOS 用同一份共用 React 設定頁，Windows、iOS 與 Android 用各自的原生設定介面，設定的業務規則應當放在共用的 Rust 層、各平台介面只做介面（目前還有部分規則寫在原生介面裡）；React 設定頁在 macOS 與 Linux 上透過 Tauri 呼叫一般的 Rust 業務函式庫，在 HarmonyOS 上不經過 Tauri，由 ArkWeb 載入、經 ArkTS 原生橋與 NAPI 呼叫 Rust；輸入演算法由 msime-engine 提供。
+
+專案首頁：[msime.app](https://msime.app/) · [GitHub 儲存庫](https://github.com/metasequoiaime/msime) · [貢獻者](https://github.com/metasequoiaime/msime/graphs/contributors) · [問題回報](https://github.com/metasequoiaime/msime/issues) · [程式碼簽章政策 / Code signing policy](https://github.com/metasequoiaime/msime-windows/blob/develop/docs/code-signing-policy.md)
+
+> **關於名稱**：MSIME 是 Metasequoia IME（水杉輸入法）的縮寫，與 Microsoft IME 無關，也與微軟沒有任何關聯。程式碼、套件名稱和儲存庫名稱中的 `msime` 一律是這個含義。設定中的 `shuangpin_profile: microsoft` 是「微軟雙拼」方案，與小鶴、自然碼、首道並列的四個鍵位方案之一，供習慣該鍵位的使用者選擇，同樣不代表任何關聯。
+
 [![Core CI](https://img.shields.io/github/actions/workflow/status/metasequoiaime/msime/ci.yml?branch=develop&label=Core%20CI&logo=githubactions&logoColor=white)](https://github.com/metasequoiaime/msime/actions/workflows/ci.yml?query=branch%3Adevelop)
 [![Native Platform CI](https://img.shields.io/github/actions/workflow/status/metasequoiaime/msime/ci-platforms.yml?branch=develop&label=Platform%20CI&logo=githubactions&logoColor=white)](https://github.com/metasequoiaime/msime/actions/workflows/ci-platforms.yml?query=branch%3Adevelop)
 [![CodeQL](https://img.shields.io/github/actions/workflow/status/metasequoiaime/msime/codeql.yml?branch=develop&event=schedule&label=CodeQL&logo=github)](https://github.com/metasequoiaime/msime/actions/workflows/codeql.yml)
@@ -26,17 +50,9 @@
 [![Last commit](https://img.shields.io/github/last-commit/metasequoiaime/msime/develop)](https://github.com/metasequoiaime/msime/commits/develop)
 <a href="https://depot.dev/?utm_source=metasequoiaime"><img src="https://depot.dev/badges/built-with-depot.svg" alt="Built with Depot" height="20"></a>
 
-水杉輸入法（MSIME）是面向 Android、iOS、macOS、Linux、Windows 與 HarmonyOS 的多平台中文輸入法。六個平台各有自己的原生輸入法宿主，都接入同一套共用輸入執行環境；設定介面按平台歸屬：macOS、Linux 與 HarmonyOS 用同一份共用 React 設定頁，Windows、iOS 與 Android 用各自的原生設定介面，設定的業務規則應當放在共用的 Rust 層、各平台介面只做介面（目前還有部分規則寫在原生介面裡）；React 設定頁在 macOS 與 Linux 上透過 Tauri 呼叫一般的 Rust 業務函式庫，在 HarmonyOS 上不經過 Tauri，由 ArkWeb 載入、經 ArkTS 原生橋與 NAPI 呼叫 Rust；輸入演算法由 msime-engine 提供。
-
-專案首頁：[msime.app](https://msime.app/) · [GitHub 儲存庫](https://github.com/metasequoiaime/msime) · [貢獻者](https://github.com/metasequoiaime/msime/graphs/contributors) · [問題回報](https://github.com/metasequoiaime/msime/issues) · [程式碼簽章政策 / Code signing policy](https://github.com/metasequoiaime/msime-windows/blob/develop/docs/code-signing-policy.md)
-
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=metasequoiaime/msime&type=Date)](https://star-history.com/#metasequoiaime/msime&Date)
-
-> **關於名稱**：MSIME 是 Metasequoia IME（水杉輸入法）的縮寫，與 Microsoft IME 無關，也與微軟沒有任何關聯。程式碼、套件名稱和儲存庫名稱中的 `msime` 一律是這個含義。設定中的 `shuangpin_profile: microsoft` 是「微軟雙拼」方案，與小鶴、自然碼、首道並列的四個鍵位方案之一，供習慣該鍵位的使用者選擇，同樣不代表任何關聯。
-
-**輸入法能看到你輸入的一切，所以這個問題應該有一個能逐條核對的答案：[哪些資料會離開裝置](../../PRIVACY.md)。**簡短版本：新安裝的預設設定下沒有功能會把你輸入的內容傳出裝置；雲端聯想（把正在組的拼音傳給 Google 輸入工具）要你在首次詢問或設定裡開啟，其餘連網功能都要你自己填寫憑證或選擇服務才會運作。另有一條不攜帶輸入內容的自有匿名使用統計：六個平台都會向 `api.msime.app` 傳送每日活躍、工作階段和當機（錯誤摘要與去掉目錄的呼叫堆疊）紀錄，預設開啟，可以在設定的「匿名使用統計」裡關閉——欄位、逐平台差異和寫入磁碟的位置逐條列在 [PRIVACY.md](../../PRIVACY.md#使用统计与崩溃上报默认开启可关闭)。儲存庫不接入任何第三方統計或當機回報 SDK。
 
 ## 模組邊界
 

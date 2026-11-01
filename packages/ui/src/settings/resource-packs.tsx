@@ -28,7 +28,9 @@ export type ResourcePackId =
   | "grammar-model-baguwen-compact"
   | "grammar-model-baishuang"
   | "wubi"
-  | "voice-runtime-macos";
+  | "voice-runtime-macos"
+  | "pronunciations"
+  | "target-pronunciations";
 
 /** 宿主报告的资源包状态，即 `msime_client_providers::resource_packs::ResourcePackStatus`。`outdated` 表示已下载的文件字节（名字、SHA-256、长度）与当前锁文件不一致：输入法不再使用这份旧文件，要重新下载。只换了下载地址、字节没变的资源包仍是 `installed`。 */
 export type ResourcePackStatus = {
@@ -71,6 +73,8 @@ export const resourcePackTitles: Record<ResourcePackId, string> = {
   "grammar-model-baishuang": "语法模型·白霜（实验）",
   wubi: "五笔码表",
   "voice-runtime-macos": "本地语音识别运行库",
+  pronunciations: "离线英文音标词典",
+  "target-pronunciations": "离线外语读音词典",
 };
 
 /** 资源包和本地语音模型共用的下载镜像（`voice_input.asr_model_mirror`）在设置页里的草稿值和修改入口；下载失败时资源包行就地提供它。 */

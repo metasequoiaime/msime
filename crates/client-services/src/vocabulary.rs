@@ -1,11 +1,6 @@
 //! 背单词模式：词书、复习排程与复习进度。
 //!
-//! The review session is something the user opens, not something that happens while they type.
-//! Nothing here reaches the Engine or the composition state machine — a host shows a card,
-//! reports what the user answered, and reads back a count for its progress row. That is the whole
-//! surface, and it is deliberately the whole surface: candidate ordering and learning belong to
-//! the C++ Engine, and a second scheduler living in Rust and quietly disagreeing with it is the
-//! failure this boundary exists to prevent.
+//! 复习是用户自己打开的，不在打字时发生。宿主可以在候选窗以外被动地显示今日待复习的张数（菜单栏、托盘菜单这类用户自己点开才看得到的地方，经 [`session::due_count`]），但组字期间从不显示，也不在候选窗里出现。这里的东西都碰不到 Engine 和组字状态机：宿主显示卡片、报告用户怎么答、读回进度行和这个计数要的数字，就是全部接口，而且有意只到这里为止：候选排序和学习归 C++ Engine，Rust 里再长出一个和它悄悄意见不合的排程器，正是这条边界要防的。决定和理由见 `.agents/notes/implemented/feature/2026-11-01-vocabulary-due-count.md`。
 //!
 //! The split follows where the data comes from and how it fails, the same rule
 //! [`crate::dictionary`] follows:
@@ -23,7 +18,9 @@
 pub mod builtin;
 pub mod import;
 pub mod library;
+pub mod personal;
 pub mod progress;
+pub mod read_aloud;
 pub mod schedule;
 pub mod session;
 pub mod wordbook;

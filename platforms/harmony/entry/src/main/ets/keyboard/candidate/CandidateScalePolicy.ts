@@ -21,4 +21,28 @@ export class CandidateScalePolicy {
   static scaled(value: number, percent: number): number {
     return Math.max(1, Math.round((value * CandidateScalePolicy.percent(percent)) / 100));
   }
+
+  /** client-core 的默认候选字号（`default_candidate_font_size`）。展开面板按候选栏实际字号相对这个值的比例缩放设计尺寸，因此默认字号 100% 时精确保持设计尺寸。 */
+  static readonly DEFAULT_CANDIDATE_FONT_SIZE: number = 18;
+
+  /** 按设计尺寸 `designSize` 和候选栏实际字号计算展开面板“更多候选”文字大小；实际字号已包含候选栏大小，规则与 Android 的 `CandidateScalePolicy.expandedTextSize` 相同（#10400）。 */
+  static expandedFontSize(designSize: number, candidateFontSize: number): number {
+    return CandidateScalePolicy.fontRatio(designSize, candidateFontSize);
+  }
+
+  /** 按设计高度 `designVp` 计算展开面板单元格高度：像候选栏一样随候选栏大小增长，并按文字比例增长，最低保持 `designVp`；面板占据键区位置，小候选栏或小字号仍须保留触摸目标，规则与 Android 的 `CandidateScalePolicy.expandedCellHeight` 相同（#10400）。 */
+  static expandedCellHeight(designVp: number, candidateFontSize: number, percent: number): number {
+    return Math.max(
+      designVp,
+      CandidateScalePolicy.scaled(designVp, percent),
+      CandidateScalePolicy.fontRatio(designVp, candidateFontSize),
+    );
+  }
+
+  private static fontRatio(value: number, candidateFontSize: number): number {
+    return Math.max(
+      1,
+      Math.round((value * candidateFontSize) / CandidateScalePolicy.DEFAULT_CANDIDATE_FONT_SIZE),
+    );
+  }
 }

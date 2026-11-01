@@ -82,6 +82,10 @@ public final class VoiceRecognitionLifecycleDeviceSmoke extends Instrumentation 
             offline.run();
             return;
         }
+        if (scenario.equals("voice-mascot")) {
+            VoiceMascotDeviceChecks.run(this);
+            return;
+        }
         Bundle result = new Bundle();
         boolean passed = false;
         BroadcastReceiver receiver = new BroadcastReceiver() {

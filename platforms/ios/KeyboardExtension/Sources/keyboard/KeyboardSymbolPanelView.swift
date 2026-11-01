@@ -52,26 +52,38 @@ final class KeyboardSymbolPanelView: UIView {
     return output
   }
 
+  // 每行五格（`columns`），成对的括号和引号两两占左边四格、右边一格放单个符号，前后两半不会分在两行；「常用」前面接的点过的符号顺序不定，由 `rows(_:)` 在排版时处理。
   static let categories: [Category] = [
     Category(title: "常用", symbols: [
-      "，", "。", "？", "！", "、", "；", "：", "…", "—", "·",
-      "“", "”", "‘", "’", "（", "）", "《", "》", "【", "】",
-      "～", "￥", "＆", "＃", "＠", "％", "＋", "－", "＝", "／",
+      "，", "。", "？", "！", "、",
+      "；", "：", "…", "—", "·",
+      "“", "”", "‘", "’", "～",
+      "（", "）", "《", "》", "￥",
+      "【", "】", "＆", "＃", "＠",
+      "％", "＋", "－", "＝", "／",
     ]),
     // 中文标点和全角符号排在最前，与 Android、鸿蒙的「中文」同一份同一顺序：「常用」先放点过的符号，这些标点在「中文」里总能找到。
     Category(title: "中文", symbols: [
-      "，", "。", "？", "！", "、", "；", "：", "…", "—", "·",
-      "“", "”", "‘", "’", "（", "）", "《", "》", "【", "】",
-      "～", "＆", "＃", "＠", "％", "＋", "－", "＝", "／",
-      "〈", "〉", "「", "」", "『", "』", "〔", "〕", "〖", "〗",
-      "＜", "＞", "｛", "｝", "［", "］", "︵", "︶", "﹁", "﹂",
-      "￥", "〇", "※", "°", "℃", "±", "×", "÷", "≈", "≠",
-      "≤", "≥", "√", "∞", "∵", "∴", "→", "←", "↑", "↓",
-      "★", "☆", "●", "○", "■", "□", "◆", "◇", "▲", "△",
+      "，", "。", "？", "！", "、",
+      "；", "：", "…", "—", "·",
+      "“", "”", "‘", "’", "～",
+      "（", "）", "《", "》", "＆",
+      "【", "】", "＃", "＠", "％",
+      "＋", "－", "＝", "／", "￥",
+      "〈", "〉", "「", "」", "〇",
+      "『", "』", "〔", "〕", "※",
+      "〖", "〗", "＜", "＞", "°",
+      "｛", "｝", "［", "］", "℃",
+      "︵", "︶", "﹁", "﹂", "±",
+      "×", "÷", "≈", "≠", "≤",
+      "≥", "√", "∞", "∵", "∴",
+      "→", "←", "↑", "↓", "★",
+      "☆", "●", "○", "■", "□",
+      "◆", "◇", "▲", "△",
     ]),
     Category(title: "英文", symbols: [
       ",", ".", "?", "!", ";", ":", "'", "\"", "(", ")",
-      "[", "]", "{", "}", "<", ">", "/", "\\", "|", "-",
+      "[", "]", "{", "}", "/", "<", ">", "\\", "|", "-",
       "_", "+", "=", "*", "&", "^", "%", "$", "#", "@",
       "~", "`", "·", "…", "–", "—", "§", "¶", "†", "‡",
     ]),
@@ -293,17 +305,37 @@ final class KeyboardSymbolPanelView: UIView {
       row.removeFromSuperview()
     }
     scroll.setContentOffset(.zero, animated: false)
-    for start in stride(from: 0, to: symbols.count, by: Self.columns) {
+    for symbolsInRow in Self.rows(symbols) {
       let row = UIStackView()
       row.axis = .horizontal
       row.distribution = .fillEqually
       row.spacing = 1
-      let end = min(start + Self.columns, symbols.count)
-      for symbol in symbols[start..<end] { row.addArrangedSubview(key(symbol)) }
-      for _ in (end - start)..<Self.columns { row.addArrangedSubview(UIView()) }
+      for symbol in symbolsInRow { row.addArrangedSubview(key(symbol)) }
+      for _ in symbolsInRow.count..<Self.columns { row.addArrangedSubview(UIView()) }
       row.heightAnchor.constraint(equalToConstant: Self.rowHeight).isActive = true
       grid.addArrangedSubview(row)
     }
+  }
+
+  /// 把符号按每行 `columns` 个分行。成对符号的前半个落在行尾、后半个紧跟在后时，这一行提前结束，两半一起排到下一行，（ 和 ） 不分在两行，与 Android `SymbolPanelModel.breaksBeforePair` 相同；成对与否按 `NineKeySidebar.pairedSymbols`，与 Android `PairedPunctuationPolicy.SYMBOL_PAIRS` 是同一张表。
+  static func rows(_ symbols: [String]) -> [[String]] {
+    var rows: [[String]] = []
+    var row: [String] = []
+    for (index, symbol) in symbols.enumerated() {
+      if row.count == columns - 1, index + 1 < symbols.count,
+        let closing = NineKeySidebar.pairedSymbols[symbol], closing == symbols[index + 1]
+      {
+        rows.append(row)
+        row = []
+      }
+      row.append(symbol)
+      if row.count == columns {
+        rows.append(row)
+        row = []
+      }
+    }
+    if !row.isEmpty { rows.append(row) }
+    return rows
   }
 
   /// Open the search with an empty query: the category column gives way to the letter pad.

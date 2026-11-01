@@ -26,6 +26,8 @@ public final class ResourcePacks {
     public static final String WUBI = "wubi";
     public static final String OFFLINE_GLOSSES = "offline-glosses";
     public static final String PRONUNCIATIONS = "pronunciations";
+    /** 法、日、西、俄、德、韩释义行的读音表 `<语言>-phonetic.db`（维基词典，CC BY-SA 4.0），和英文音标表分开下载。 */
+    public static final String TARGET_PRONUNCIATIONS = "target-pronunciations";
     public static final String OCR_MODULE = "ocr-module-android";
     public static final String VOICE_RUNTIME = "voice-runtime";
 
@@ -186,6 +188,26 @@ public final class ResourcePacks {
     /** 停下正在安装的 {@code id}；任何线程，立即返回。 */
     public static void cancel(String id) {
         if (id != null) NativeClient.resourcePackCancel(id);
+    }
+
+    /** 主进程工作线程卸载已发布的资源包，安装中拒绝；不删除用户原来下载的文件。
+     *
+     * <p>返回值区分“确实删除了已发布目录”和“目录本来就不存在”，避免调用方把幂等的空操作误报为成功。
+     */
+    public static boolean remove(Context context, String id) throws Failure {
+        requireInstallerThread(context);
+        try {
+            JSONObject request = new JSONObject()
+                .put("state_root", stateRoot(context.getFilesDir()).getAbsolutePath())
+                .put("pack", id);
+            JSONObject envelope = value(NativeClient.resourcePackRemove(request.toString()));
+            JSONObject result = envelope.optJSONObject("value");
+            Boolean removed = result == null ? null : JsonPolicy.strictBoolean(result.opt("removed"));
+            if (removed == null) throw new Failure("invalid resource pack response");
+            return removed;
+        } catch (JSONException error) {
+            throw new Failure("invalid resource pack response");
+        }
     }
 
     /**

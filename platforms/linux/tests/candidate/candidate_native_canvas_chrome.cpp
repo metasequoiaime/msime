@@ -145,6 +145,15 @@ void rows_and_glosses() {
   assert(gloss.text == "reading\nhello\nnote" && gloss.translation_start == 8 && gloss.script_start == 14);
   const auto stacked = host::measure_native_canvas(cr, *assets, content, 1600);
   assert(stacked.rows[0].translation.below && stacked.items[0].height > plain.items[0].height + 30);
+  // 读音在它那一行释义下面单独一行，排在插件注释之前，位置记下来减淡画；释义行的格子跟着多一行高。
+  content.items[0].pronunciation = "/h\xC9\x99\xCB\x88l\xC9\x99\xCA\x8A/";
+  const auto spoken = host::native_canvas_gloss(content.items[0]);
+  assert(spoken.text == "reading\nhello\n" + content.items[0].pronunciation + "\nnote" && spoken.translation_start == 8);
+  assert(spoken.translation.readings.size() == 1 &&
+         spoken.text.substr(spoken.translation_start + spoken.translation.readings[0].first,
+                            spoken.translation.readings[0].second) == content.items[0].pronunciation);
+  assert(host::measure_native_canvas(cr, *assets, content, 1600).items[0].height > stacked.items[0].height + 8);
+  content.items[0].pronunciation.clear();
   host::paint_native_canvas(cr, *assets, content, stacked, kPalette);
   // 序号和释义（没有皮肤色时用序号色，灰）只画在各自的行框里；首行的「1 / 3」也是这个颜色，不在这里数。
   for (int y = static_cast<int>(stacked.rows_area.y); y < stacked.height; ++y) for (int x = 0; x < stacked.width; ++x) {
@@ -407,7 +416,7 @@ void shadow() {
 // 主题调色板：system 主题没有候选配色，铺 Adwaita；主题给了的槽位盖过它，半透明的保留 alpha。
 void palette() {
   const auto light = host::native_canvas_theme_palette(Json::object(), false);
-  assert(light.at("selected") == "#3584E4" && light.at("selected_text") == "#FFFFFF" && light.at("hover") == "#0000000F");
+  assert(light.at("selected") == "#1A5FB4" && light.at("selected_text") == "#FFFFFF" && light.at("hover") == "#0000000F");
   assert(host::native_canvas_theme_palette(Json::object(), true).at("surface") == "#303030");
   const auto themed = host::native_canvas_theme_palette({{"candidate", {{"selected", "#11223380"}, {"text", nullptr}}},
       {"candidate_details", {{"preedit_text", "#445566"}, {"show_selected_bar", true}}}}, false);

@@ -24,6 +24,7 @@
 #include "DictionaryQuiesceLease.h"
 #include "InputModeIndicator.h"
 #include "MenuLabels.h"
+#include "VocabularyDue.h"
 #include "ViewComposition.h"
 #include "ReplacedProgram.h"
 #include "SmartPunctuationSpace.h"
@@ -56,10 +57,13 @@
 #include "../candidates/CandidateFontPolicy.h"
 #include "../candidates/PanelRestoreRecord.h"
 #include "../candidates/CandidateActionPolicy.h"
+#include "../candidates/PersonalWordbook.h"
+#include "../candidates/ReadAloud.h"
 #include "../candidates/CandidateLocalModeLabels.h"
 #include "../candidates/CandidatePanelStatus.h"
 #include "../candidates/CandidateScriptAnnotation.h"
 #include "../candidates/CandidateRowText.h"
+#include "../candidates/CandidatePronunciation.h"
 #include "../candidates/CandidateTranslationPolicy.h"
 #include "../candidates/CandidateTranslationScope.h"
 #include "../candidates/PairedPunctuation.h"
@@ -385,6 +389,10 @@ struct State {
   msime::linux_host::ClientInputModeMemory app_input_modes;
   bool chinese_punctuation = true;
   bool properties_registered = false;
+  // 获得焦点时读到的「背单词（今日待复习 N）…」文字，没有待复习时为空。
+  std::optional<std::string> vocabulary_due;
+  // 「背单词」一行最近一次发布时是否可见：render 据此只在开始或结束组字的那一下更新它（sync_vocabulary_row）。
+  bool vocabulary_row_shown = false;
   std::optional<bool> english_override;
   std::optional<bool> dedicated_english_override;
   std::optional<bool> cloud_candidates_override;
@@ -704,6 +712,10 @@ struct State {
   bool cloud_candidates = true;
   bool candidate_translations = true;
   bool candidate_english_gloss = false;
+  // 「显示读音」（偏好 candidate_pronunciation，默认关闭）：释义后面标英文音标（CandidatePronunciation.h）。
+  bool candidate_pronunciation = false;
+  // 翻译工作线程查到的读音，按发给读音表的文本存；换焦点、换偏好时随 invalidate_providers 一起清掉。
+  msime::linux_host::CandidatePronunciations pronunciations;
   // 候选词翻译开着且范围是「仅当前高亮」（CandidateTranslationScope.h）。
   bool translation_scope_highlighted = true;
   // 「仅当前高亮」时主查询的回答：高亮移开再移回来时直接交给 Rust，不再问 provider。
@@ -741,6 +753,7 @@ struct State {
     sentence_translation_generation = 0;
     translation_dispatched_query.clear();
     translation_answers.clear();
+    pronunciations.clear();
     for (auto &query : online_dispatched_query) query.clear();
   }
   std::string surrounding_text;
@@ -958,6 +971,7 @@ struct State {
     candidate_translations = candidate_translations_override.value_or(
         preferences.value("candidate_translations", true));
     candidate_english_gloss = preferences.value("candidate_english_gloss", false);
+    candidate_pronunciation = preferences.value("candidate_pronunciation", false);
     translation_target_language = translation_target_language_override.value_or(
         preferences.value("translation_target_language", "en"));
     if (english_override || emoji_override || kaomoji_override || symbol_override) {
@@ -1157,6 +1171,7 @@ struct State {
     }
     candidate_translations = next_candidate_translations;
     candidate_english_gloss = next_candidate_english_gloss;
+    candidate_pronunciation = preferences.value("candidate_pronunciation", false);
     translation_scope_highlighted = next_translation_scope_highlighted;
     const auto next_translation_target_language = translation_target_language_override.value_or(
         preferences.value("translation_target_language", "en"));
@@ -1435,6 +1450,8 @@ bool clipboard_delete(const std::string &path, const std::optional<std::string> 
   return removed;
 }
 State &state(IBusEngine *engine);
+// 辅助区域的短暂提示，约 1.5 秒后恢复页码；`message` 为空时是右键候选时那句「请在「候选操作」菜单中…」。
+void show_candidate_menu_hint(IBusEngine *engine, uint64_t generation, const std::string &message = {});
 // Shared by every engine in this process: the statistics store is one per preferences directory, not one per input context.
 msime::linux_host::TypingStatisticsSwitch typing_statistics_switch{msime_client_typing_statistics_enabled};
 struct TypingStatisticsTask {
@@ -1712,6 +1729,32 @@ IBusProperty *desktop_panel_property(IBusEngine *engine, const DesktopPanelActio
       TRUE, PROP_STATE_UNCHECKED, nullptr);
 }
 
+// 「背单词（今日待复习 N）…」，在「桌面工具」子菜单里（GNOME Shell 的精简菜单里在顶层）。不放属性菜单顶层：kimpanel 的 IBus 后端把顶层属性画成面板上一直在的按钮，那就成了常驻的角标，而这一行只该在用户点开菜单时看得到。张数在获得焦点时读一次（focus_in 写进 State::vocabulary_due），这里只按记下的文字和当前状态决定显示与否，不读盘：publish_mode 在模式和开关变化时都会走到这里，不能每次都去读进度文档。属性总是注册，没有待复习、正在组字、失焦或被挡时设成不可见，属性树的形状因此不随计数变化。组字的开始和结束由 render 经 sync_vocabulary_row 跟上。点下去打开共享应用的背单词面板。
+bool vocabulary_row_wanted(const State &s) {
+  // 还没有会话时 view 是 null，不能对它取值。
+  const bool composing = s.view.is_object() &&
+                         msime::linux_host::view_has_composition(
+                             s.view.value("editing_text", std::string{}),
+                             !s.view.value("candidates", Json::array()).empty(),
+                             s.view.value("phrase_prefix", std::string{}));
+  return s.vocabulary_due && !composing && s.focused && !s.blocked;
+}
+IBusProperty *vocabulary_due_property(IBusEngine *engine) {
+  auto &s = state(engine);
+  const bool shown = vocabulary_row_wanted(s);
+  s.vocabulary_row_shown = shown;
+  return ibus_property_new(
+      "DesktopTools/Vocabulary", PROP_TYPE_NORMAL,
+      ibus_text_new_from_string(shown ? s.vocabulary_due->c_str() : "背单词…"), "",
+      ibus_text_new_from_static_string("打开背单词面板"), shown, shown, PROP_STATE_UNCHECKED, nullptr);
+}
+// 每次绘制都会走到这里，但只在可见与否真的变了（开始或结束组字）时才发一次属性更新：属性菜单正开着时组字，这一行随即收起。
+void sync_vocabulary_row(IBusEngine *engine) {
+  const auto &s = state(engine);
+  if (!s.properties_registered || vocabulary_row_wanted(s) == s.vocabulary_row_shown) return;
+  ibus_engine_update_property(engine, vocabulary_due_property(engine));
+}
+
 IBusProperty *desktop_tools_property(IBusEngine *engine) {
   const auto &s = state(engine);
   auto items = ibus_prop_list_new();
@@ -1725,6 +1768,7 @@ IBusProperty *desktop_tools_property(IBusEngine *engine) {
       ibus_text_new_from_static_string("重新读取最新设置并重试上次菜单修改"),
       can_retry && !menu_save_pending && s.focused && !s.blocked,
       menu_save_pending || can_retry, PROP_STATE_UNCHECKED, nullptr));
+  ibus_prop_list_append(items, vocabulary_due_property(engine));
   for (const auto &action : desktop_panel_actions)
     if (action.slot == DesktopPanelSlot::Tools && desktop_panel_offered(action))
       ibus_prop_list_append(items, desktop_panel_property(engine, action));
@@ -2198,6 +2242,11 @@ struct TranslationTask {
   std::string answer_key = {};
   // gloss_query 查完之后接着发的主查询。
   std::shared_ptr<TranslationTask> then = {};
+  // 打开「显示读音」时，工作线程为这一份的回答查读音（CandidatePronunciation.h）：目标语言、补充目录（偏好目录下的 resource-packs），查到的 {文本: 读音} 写进 pronunciations，translation_complete 在主线程收下。
+  bool pronounce = false;
+  std::string target_language = {};
+  std::string pronunciation_root = {};
+  Json pronunciations = Json::object();
 };
 // prefer_online_glosses over the JSON translation lists the host API exchanges.
 Json prefer_online_translations(const Json &glosses, const Json &online) {
@@ -2299,6 +2348,24 @@ void start_translation_task(IBusEngine *engine, TranslationTask request) {
         }
       } catch (...) {}
     }
+    // 读音表也是本机文件，同样在这个线程上读；只问这一段的回答，前一段的已经问过了。
+    if (request.pronounce && raw) {
+      try {
+        const auto document = Json::parse(raw);
+        if (document.value("ok", false) && document.at("value").is_object()) {
+          const auto generation = Json::parse(request.query).at("generation").get<uint64_t>();
+          request.pronunciations = msime::linux_host::lookup_translation_pronunciations(
+              document.at("value").value("translations", Json::array()), {request.target_language}, generation,
+              request.pronunciation_root, [&](const std::string &lookup) {
+                try {
+                  return response(msime_client_pronunciation_request(
+                      reinterpret_cast<const uint8_t *>(lookup.data()), lookup.size(),
+                      reinterpret_cast<const uint8_t *>(request.resources.data()), request.resources.size()));
+                } catch (...) { return Json(); }
+              });
+        }
+      } catch (...) {}
+    }
     g_task_return_pointer(task, raw, [](gpointer value) { msime::host_api::discard_string(static_cast<char *>(value)); });
   });
   g_object_unref(task);
@@ -2327,6 +2394,10 @@ std::optional<TranslationTask> translation_task(IBusEngine *engine, Json query, 
                        configured.value("resources", std::string{}), lookup.dump(), offline_gloss,
                        Json::array(), dictionary};
   task.gloss = gloss;
+  task.pronounce = s.candidate_pronunciation;
+  task.target_language = target;
+  task.pronunciation_root = msime::linux_host::pronunciation_supplementary_root(
+      configured.value("preferences_directory", std::string{}));
   if (!gloss) task.answer_key = msime::linux_host::translation_answer_key(std::move(query));
   return task;
 }
@@ -2722,6 +2793,7 @@ void translation_complete(GObject *source, GAsyncResult *result, gpointer) {
         s.translation_dispatched_query == request->query)
       s.translation_dispatched_query.clear();
     const auto generation = query.at("generation").get<uint64_t>();
+    if (s.candidate_pronunciation) s.pronunciations.store(request->pronunciations);
     if (!translations.empty()) {
       // gloss_query 的回答是整页的离线释义，标上 "gloss": true，「仅当前高亮」时 Rust 照旧画在每一行。
       const auto encoded =
@@ -2888,6 +2960,18 @@ void clipboard_complete(GObject *source, GAsyncResult *result, gpointer) {
   delete items;
   publish_mode(IBUS_ENGINE(source));
 }
+// 这一行候选此刻在面板上显示的释义，条件和 render 里画释义的那段相同；不显示时为空。「加入生词本」只收用户看得见的释义。
+std::string displayed_candidate_gloss(const State &s, const Json &candidate) {
+  const bool shown = s.candidate_translations ||
+                     (s.candidate_english_gloss && s.translation_target_language == "en") ||
+                     candidate.value("id", Json::object()).value("generation", uint64_t{0}) ==
+                         s.sentence_translation_generation;
+  if (!shown || s.translation_reset_pending || !candidate.contains("translation") ||
+      !candidate.at("translation").is_string())
+    return {};
+  auto translation = candidate.at("translation").get<std::string>();
+  return translation.size() <= 4096 ? translation : std::string{};
+}
 std::string candidate_action_name(const char *action, const Json &id) {
   return std::string(action) + "/" + std::to_string(id.at("session").get<uint64_t>()) +
          "/" + std::to_string(id.at("generation").get<uint64_t>()) +
@@ -3012,6 +3096,32 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
           ibus_text_new_from_static_string("操作当前页候选"), actions_available, TRUE,
           PROP_STATE_UNCHECKED, nullptr));
     }
+    // 和 macOS、Windows 的候选菜单一样，「朗读」「加入生词本」在最后一组：「加入生词本」只在这一行显示着释义时出现，「朗读」在有能读的英文、本机又装着 spd-say 时排在它前面。
+    const auto gloss = displayed_candidate_gloss(s, candidate);
+    const bool read_aloud = msime::linux_host::read_aloud_available() &&
+                            msime::read_aloud::text_for(candidate_text, gloss).has_value();
+    if (read_aloud || !gloss.empty()) {
+      const auto separator_name = candidate_action_name("CandidateSeparator", candidate.at("id"));
+      ibus_prop_list_append(actions, ibus_property_new(
+          separator_name.c_str(), PROP_TYPE_SEPARATOR, nullptr, "", nullptr, TRUE, TRUE,
+          PROP_STATE_UNCHECKED, nullptr));
+    }
+    if (read_aloud) {
+      const auto read_name = candidate_action_name("CandidateReadAloud", candidate.at("id"));
+      ibus_prop_list_append(actions, ibus_property_new(
+          read_name.c_str(), PROP_TYPE_NORMAL,
+          ibus_text_new_from_static_string(msime::read_aloud::kMenuLabel), "",
+          ibus_text_new_from_static_string("用系统语音读出这个英文单词"),
+          actions_available, TRUE, PROP_STATE_UNCHECKED, nullptr));
+    }
+    if (!gloss.empty()) {
+      const auto personal_name = candidate_action_name("CandidatePersonalWordbook", candidate.at("id"));
+      ibus_prop_list_append(actions, ibus_property_new(
+          personal_name.c_str(), PROP_TYPE_NORMAL,
+          ibus_text_new_from_static_string(msime::linux_host::candidate_personal_wordbook_label), "",
+          ibus_text_new_from_static_string("把候选旁显示的释义收进背单词的生词本"),
+          actions_available, TRUE, PROP_STATE_UNCHECKED, nullptr));
+    }
   }
   const auto page = s.rendered_view.is_object()
                         ? s.rendered_view.value("page", size_t{0})
@@ -3129,10 +3239,12 @@ void publish_mode(IBusEngine *engine, bool registration) {
       auto *properties = ibus_prop_list_new();
       ibus_prop_list_append(properties, mode);
       ibus_prop_list_append(properties, settings);
+      ibus_prop_list_append(properties, vocabulary_due_property(engine));
       ibus_engine_register_properties(engine, properties);
     } else {
       ibus_engine_update_property(engine, mode);
       ibus_engine_update_property(engine, settings);
+      ibus_engine_update_property(engine, vocabulary_due_property(engine));
     }
     return;
   }
@@ -3842,6 +3954,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
       for (auto *action : *list) ibus_engine_update_property(engine, action);
     ibus_engine_update_property(engine, voice);
     ibus_engine_update_property(engine, voice_cancel_property);
+    ibus_engine_update_property(engine, vocabulary_due_property(engine));
     ibus_engine_update_property(engine, candidate_actions(engine));
     ibus_engine_update_property(engine, nine_key_spellings_property);
     ibus_engine_update_property(engine, clipboard);
@@ -4159,6 +4272,7 @@ void hide_wave_overlay(IBusEngine *engine) {
 }
 void render(IBusEngine *engine, const Json &view) {
   sync_shuangpin_keymap(engine, view);
+  sync_vocabulary_row(engine);
   const bool hide_pending = state(engine).candidate_hide_source != 0;
   cancel_candidate_hide(engine);
   // Engine caret offsets refer to ASCII editing_text, never the display
@@ -4318,9 +4432,15 @@ void render(IBusEngine *engine, const Json &view) {
         candidate.contains("translation") && !candidate.at("translation").is_null()) {
       auto translation = candidate.at("translation").get<std::string>();
       // IBus lookup rows are plain text; preserve the candidate and expose the optional gloss without allowing an oversized provider result to destabilize the panel.
+      // 打开「显示读音」时，音标接在它那一行释义后面（IBus 的候选行没有第二行，CandidatePronunciation.h）。
+      const auto pronunciation = engine_state.pronunciations.candidate(
+          candidate.at("text").get<std::string>(), translation,
+          engine_state.candidate_pronunciation
+              ? std::vector<std::string>{engine_state.translation_target_language}
+              : std::vector<std::string>{});
       if (!translation.empty() && translation.size() <= 4096 &&
           value.size() <= 4096)
-        gloss += " · " + translation;
+        gloss += " · " + msime::linux_host::candidate_gloss_inline_readings(translation, pronunciation);
     }
     std::string tail;
     // Engine 候选来源 12 是 AI 占位行，来源 15 是云候选占位行，下面都画成次要色。
@@ -5222,6 +5342,10 @@ void focus_in(IBusEngine *engine) {
     const bool mode_changed = s.input_enabled != mode_before_restore;
     if (s.session && (!already_focused || s.session != previous_session || mode_changed))
       apply(engine, s.focus_session(s.input_enabled));
+    // 今日待复习只在获得焦点时读一次，之后的属性更新都用这一份（vocabulary_due_property）。
+    if (!already_focused)
+      s.vocabulary_due = s.blocked ? std::nullopt
+                                   : msime::linux_host::vocabulary_due_label(configured, false);
     if (!s.properties_registered &&
         g_getenv("MSIME_DISABLE_IBUS_PROPERTIES") == nullptr) {
       register_properties(engine);
@@ -5327,6 +5451,60 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     page(engine, candidate_name == "CandidatePreviousPage"
                    ? MSIME_PREVIOUS_PAGE
                    : MSIME_NEXT_PAGE);
+    return;
+  }
+  if (candidate_name.rfind("CandidateReadAloud", 0) == 0) {
+    if (value != PROP_STATE_UNCHECKED && value != PROP_STATE_CHECKED)
+      return;
+    guarded(engine, "candidate_read_aloud", [&] {
+      auto &s = state(engine);
+      if (!s.session || !s.focused || s.blocked || !s.input_enabled)
+        return;
+      if (s.rendered_session != s.session || !s.rendered_candidates.is_array() ||
+          !s.rendered_view.is_object() ||
+          s.rendered_view.value("generation", uint64_t{0}) !=
+              s.view.value("generation", uint64_t{0}))
+        return;
+      for (const auto &candidate : s.rendered_candidates) {
+        if (candidate_name != candidate_action_name("CandidateReadAloud", candidate.at("id")))
+          continue;
+        // 不经过 Engine，组字不变；起不来 spd-say 时用辅助区域那句提示告诉用户。
+        const auto text = msime::read_aloud::text_for(candidate.value("text", std::string{}),
+                                                      displayed_candidate_gloss(s, candidate));
+        if (text && !msime::linux_host::read_aloud(*text))
+          show_candidate_menu_hint(engine, s.rendered_view.value("generation", uint64_t{0}),
+                                   msime::linux_host::read_aloud_failure_notice);
+        return;
+      }
+    });
+    return;
+  }
+  if (candidate_name.rfind("CandidatePersonalWordbook", 0) == 0) {
+    if (value != PROP_STATE_UNCHECKED && value != PROP_STATE_CHECKED)
+      return;
+    guarded(engine, "candidate_personal_wordbook", [&] {
+      auto &s = state(engine);
+      if (!s.session || !s.focused || s.blocked || !s.input_enabled)
+        return;
+      if (s.rendered_session != s.session || !s.rendered_candidates.is_array() ||
+          !s.rendered_view.is_object() ||
+          s.rendered_view.value("generation", uint64_t{0}) !=
+              s.view.value("generation", uint64_t{0}))
+        return;
+      for (const auto &candidate : s.rendered_candidates) {
+        if (candidate_name != candidate_action_name("CandidatePersonalWordbook", candidate.at("id")))
+          continue;
+        const auto gloss = displayed_candidate_gloss(s, candidate);
+        if (gloss.empty())
+          return;
+        // 不经过 Engine，组字不变；结果用辅助区域那句提示告诉用户。
+        const auto notice = msime::linux_host::add_to_personal_wordbook(
+            configured.value("preferences_directory", std::string{}),
+            candidate.value("text", std::string{}), gloss);
+        show_candidate_menu_hint(engine, s.rendered_view.value("generation", uint64_t{0}), notice);
+        return;
+      }
+    });
     return;
   }
   if (candidate_name.rfind("CandidatePin", 0) == 0 ||
@@ -5444,6 +5622,11 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     if (property_name == "DesktopTools/ToolbarEnabled") {
       if (value == PROP_STATE_CHECKED || value == PROP_STATE_UNCHECKED)
         save_menu_preference(engine, MenuPreference::Toolbar, value == PROP_STATE_CHECKED);
+      return;
+    }
+    if (property_name == "DesktopTools/Vocabulary") {
+      if (!launch_desktop_panel(msime::vocabulary_due::kPanelRoute))
+        g_warning("Cannot start MSIME desktop panel launcher");
       return;
     }
     for (const auto &action : desktop_panel_actions) {
@@ -8360,13 +8543,16 @@ struct CandidateMenuHintNotice {
 // 右键候选：Windows 弹出候选右键菜单（固定、固定排位、删除），选定之前不改动词典。IBus 没有逐个候选的右键菜单接口，「候选操作」属性菜单就是这里的对应物，所以右键只在辅助区域提示去那里操作，约 1.5 秒后恢复页码。
 //
 // 恢复前确认辅助区域仍属于这条提示：期间任何重绘都已换上新的页码，只有同一会话、同一代次仍在显示时才重绘一次。这个回调同样没有 `guarded()` 兜底，读 `s.view` 之前先确认它是对象，理由同输入模式提示（#6675）。
-void show_candidate_menu_hint(IBusEngine *engine, uint64_t generation) {
+void show_candidate_menu_hint(IBusEngine *engine, uint64_t generation, const std::string &message) {
   auto &s = state(engine);
   ++s.candidate_menu_hint_id;
   if (s.candidate_menu_hint_id == 0)
     ++s.candidate_menu_hint_id;
   ibus_engine_update_auxiliary_text(
-      engine, ibus_text_new_from_static_string("请在「候选操作」菜单中固定、调整排位或删除候选"),
+      engine,
+      message.empty()
+          ? ibus_text_new_from_static_string("请在「候选操作」菜单中固定、调整排位或删除候选")
+          : ibus_text_new_from_string(message.c_str()),
       TRUE);
   auto *notice = new CandidateMenuHintNotice{engine, s.alive, s.candidate_menu_hint_id,
                                              s.session, generation};

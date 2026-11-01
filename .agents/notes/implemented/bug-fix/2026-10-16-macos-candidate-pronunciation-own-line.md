@@ -35,8 +35,9 @@ Status: implemented
 ## Consequences
 
 - **收益**：横排有读音的格子宽度从「释义 + 读音」降到两者中较宽的一行（复现页从 843pt 收到 794pt，其中第 2 格从 318pt 收到 187pt），读音不再贴着相邻格的释义，挤窄时也不会在一条读音中间折到释义那一行；原地重画不再留下旧读音；释义色和选中底色同色系的皮肤，选中行的释义和读音按底色换成白或近黑。
+- 「横排不为读音预留」这一条后来翻转了，见 [macOS 横排候选窗为读音预留一行](2026-11-01-macos-reserve-pronunciation-line.md)：读音到达时长高的那一行会让贴近屏幕底边的候选窗在光标上下来回翻。
 - **代价**：有读音的横排页多一行高（12pt 的释义行加行距，约 15pt）；同一页里没有读音的格子也留着这一行。竖排有读音的行在 18pt 候选字号下正好放得下两行，释义的第一行不再和候选文字居中对齐。选中行的读音在不透明底色上和释义同色，只靠位置区分。
-- Windows 宿主（`platforms/windows/src/candidate/CandidateGlossReadings.h` 的 `candidate_gloss_display`）仍把读音接在行尾，`CandidatePalette.h` 的 `candidate_row_translation_color` 在选中行也画包的释义色，两处都有同样的问题，留作后续；[Windows 候选窗对齐 macOS](../feature/2026-10-10-windows-candidate-window-mac-parity.md) 里「显示为『释义  /读音/』」描述的是 Windows 现在的样子。[候选窗不再画整句候选的逐词拆解](../simplification/2026-10-16-drop-candidate-gloss-breakdown-line.md) 之后释义区只剩释义和读音，这次是在那之上把读音挪到下一行。
+- Windows 宿主的读音已经同样改成单独一行，见 [Windows 候选读音单独一行](2026-11-01-windows-candidate-pronunciation-own-line.md)（竖排和这里一样，释义加读音两行留在候选右侧）；选中行的释义色见 [Windows 选中行释义跟随选中文字换色](2026-11-01-windows-selected-gloss-contrast.md)：从选中文字推导，皮肤没写选中文字时和这里得到同一个颜色，另外在选中文字够的底色上把不透明度往上加到对底色 4.5:1，默认皮肤也按这条调不透明度，这几点和 macOS 不同。[候选窗不再画整句候选的逐词拆解](../simplification/2026-10-16-drop-candidate-gloss-breakdown-line.md) 之后释义区只剩释义和读音，这次是在那之上把读音挪到下一行。
 
 ## Verification
 

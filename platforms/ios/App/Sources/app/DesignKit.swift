@@ -26,42 +26,17 @@ extension View {
   }
 }
 
-// MARK: - 标志圆盘
+// MARK: - 页头标志
 
-/// 统一绘制圆盘、标志框和白色描边；调用方决定圆盘的配色与尺寸。
-struct LogoDisc: View {
-  let diameter: CGFloat
-  let markSize: CGFloat
-  let discFill: Color
-  let frameFill: Color
+/// 页头的应用标志（「设置」「关于」和首次引导）：固定配色的水杉标志（`MSIMELogoMark`）本身就是外框，不再垫圆盘。`box` 是它在版面里占的方块，标志取其 5/6 居中，与原来圆盘的占位相同。
+struct AppMark: View {
+  var box: CGFloat = 52
 
   var body: some View {
-    let scale = MSIMELogo.scale(for: CGRect(x: 0, y: 0, width: markSize, height: markSize))
-    ZStack {
-      Circle().fill(discFill)
-      ZStack {
-        MSIMELogoFrame().fill(frameFill)
-        MSIMELogoStroke().stroke(.white, style: StrokeStyle(lineWidth: MSIMELogo.strokeWidth * scale, lineCap: .round, lineJoin: .round))
-      }
-      .frame(width: markSize, height: markSize)
-    }
-    .frame(width: diameter, height: diameter)
-  }
-}
-
-/// 着色圆盘上的应用标志（「设置」「关于」和首次引导的页头）：圆盘用 `aM(14)` / `aM(22)`，边框用 `mix(accent 82%, #000)`，白色描边叠在最上面。
-struct AppMarkDisc: View {
-  var diameter: CGFloat = 52
-  var markSize: CGFloat = 30
-
-  private static let frameFill = Color(uiColor: UIColor { traits in
-    AppThemePalette.mix(MetasequoiaTheme.accentUIColor.resolvedColor(with: traits), 82, .black)
-  })
-
-  var body: some View {
-    LogoDisc(diameter: diameter, markSize: markSize,
-             discFill: MetasequoiaTheme.accentMix(14, 22), frameFill: Self.frameFill)
-    .accessibilityHidden(true)
+    MSIMELogoMark()
+      .frame(width: box * 5 / 6, height: box * 5 / 6)
+      .frame(width: box, height: box)
+      .accessibilityHidden(true)
   }
 }
 

@@ -27,7 +27,7 @@ import org.json.JSONObject;
  *
  * <p>设置应用和 :ime 进程是同一个 UID，读写同一个文件。写入在同目录的锁文件上加进程间文件锁，读出、修改、写到临时文件再原子改名；读取按文件的 inode、修改时间和大小缓存，文件被另一进程换掉后下一次 {@link #load} 就读到新值。文件缺失、过大、损坏或某一项取值不合规时，那一项（或整份）回到默认值；读取从不改写文件。
  *
- * <p>键名与账号设置文档的同步键相同（`general.app_theme`、`platform.android.*`）。{@link Spec#synced} 为真的十八项随云同步交给 client-services 的 `android_local`（crates/client-services/src/account/settings_sync.rs 的 `ANDROID_LOCAL_SETTINGS`，两边的键与取值范围由 AndroidLocalSettingsSmoke 锁住）；隐私模式、防止截屏、语音数据贡献、开发者选项、键盘高度、浮动键盘的开关与位置、物理键盘时候选栏跟随光标、工具栏尺寸及工具栏上的浮动键盘和文本编辑按钮、键盘底栏和底部留白只留在本机。
+ * <p>键名与账号设置文档的同步键相同（`general.app_theme`、`platform.android.*`）。{@link Spec#synced} 为真的十八项随云同步交给 client-services 的 `android_local`（crates/client-services/src/account/settings_sync.rs 的 `ANDROID_LOCAL_SETTINGS`，两边的键与取值范围由 AndroidLocalSettingsSmoke 锁住）；隐私模式、防止截屏、语音数据贡献、开发者选项、键盘高度、浮动键盘的开关与位置、物理键盘时候选栏跟随光标、手机横屏分离式键盘、工具栏尺寸及工具栏上的浮动键盘和文本编辑按钮、键盘底栏和底部留白只留在本机。
  */
 public final class AndroidLocalSettings {
     public static final String FILE_NAME = "android-settings.json";
@@ -43,6 +43,8 @@ public final class AndroidLocalSettings {
     public static final String SPLIT_KEYBOARD_THRESHOLD = "platform.android.split_keyboard_threshold";
     /** 分离式键盘左右两半之间的空隙比例（百分比），默认 25。 */
     public static final String SPLIT_KEYBOARD_GAP = "platform.android.split_keyboard_gap";
+    /** 普通手机横屏时也把 26 键一族和韩文键盘分成左右两半（{@link SplitKeyboardPolicy#phoneActive}，#10440），默认关。只留在本机、不随账号同步：与平板共用 {@link #SPLIT_KEYBOARD} 的话，手机会继承平板上的开启状态。 */
+    public static final String SPLIT_KEYBOARD_PHONE_LANDSCAPE = "platform.android.split_keyboard_phone_landscape";
     public static final String KEY_POPUP = "platform.android.key_popup";
     public static final String SWIPE_DOWN_SYMBOLS = "platform.android.swipe_down_symbols";
     /** 「滑动输入符号」的方向，取值见 {@link SwipeHintPolicy}。开关仍是 {@link #SWIPE_DOWN_SYMBOLS}，键名保留旧名以免已同步的值失效。 */
@@ -65,6 +67,12 @@ public final class AndroidLocalSettings {
     // ---- 只在本机的键 ----
     public static final String INCOGNITO = "platform.android.incognito";
     public static final String VOICE_CONTRIBUTE_AUDIO = "platform.android.voice_contribute_audio";
+    /** 本地键盘语音的停顿计时与 VAD 灵敏度，只留在本机，默认保持原行为。 */
+    public static final String VOICE_PAUSE_MILLIS = "platform.android.voice_pause_millis";
+    public static final String VOICE_VAD_SENSITIVITY = "platform.android.voice_vad_sensitivity";
+    public static final int VOICE_PAUSE_DEFAULT_MILLIS = 1500;
+    public static final int VOICE_PAUSE_MIN_MILLIS = 500;
+    public static final int VOICE_PAUSE_MAX_MILLIS = 5000;
     /** 「防止截屏」（#10098，{@link ScreenCaptureProtection}），默认关。只在本机、不进备份：换一台设备或从备份恢复都不能替用户打开或关掉它，切换规则见 {@link ScreenCaptureProtectionPolicy}。 */
     public static final String SCREEN_CAPTURE_PROTECTION = "platform.android.screen_capture_protection";
     /** 「防止截屏」是否打开过：第一次打开时写入，之后关闭也不清除，此后再开或再关都要系统认证。清除应用数据（或经过认证的「重置所有设置」）才回到未打开过。 */
@@ -83,6 +91,8 @@ public final class AndroidLocalSettings {
     public static final String CLIPBOARD_SUGGESTION = "platform.android.clipboard_suggestion";
     /** 剪贴板删除记录（单条或多选）后可撤销的秒数（{@link ClipboardUndoPolicy}，#10073、#10080），5 到 9 秒，默认 5 秒。同步字段表里没有这个键，只在本机。 */
     public static final String CLIPBOARD_UNDO_SECONDS = "platform.android.clipboard_undo_seconds";
+    /** 单条或多选删除剪贴板记录前是否要求系统认证（#10408）；访客模式下始终要求认证。只在本机，默认关。 */
+    public static final String CLIPBOARD_DELETE_AUTHENTICATION = "platform.android.clipboard_delete_authentication";
     /** 「复制后自动显示快捷键」（#10079）：最近复制那一行在预览右边多一个分词或分类快捷键，默认开，好让用户知道有这个功能；最近复制不显示时它也不显示。只在本机。 */
     public static final String CLIPBOARD_SUGGESTION_ACTION = "platform.android.clipboard_suggestion_action";
     /** 复制后快捷键的功能（{@link RecentClipboardSuggestion#quickAction}）：`segment` 分词、`category` 移动分类，默认分类。只在本机。 */
@@ -116,6 +126,8 @@ public final class AndroidLocalSettings {
     public static final String TOOLBAR_SIZE_PERCENT = "platform.android.toolbar_size_percent";
     /** 符号面板分类的稳定 ID 排列，只在本机保存。 */
     public static final String SYMBOL_CATEGORY_ORDER = "platform.android.symbol_category_order";
+    /** 中文工具栏上的「随」入口，默认不显示；这里只保存入口可见性，运行时随机开关不持久化。 */
+    public static final String TOOLBAR_RANDOM_DIGITS = "platform.android.toolbar_random_digits";
     /** 工具栏上的「文本编辑」按钮（#6351），点按开关文本编辑面板，默认不显示；同步字段表里没有这个键，先只在本机。 */
     public static final String TOOLBAR_TEXT_EDIT = "platform.android.toolbar_text_edit";
     /** 手势导航下垫在键区下面的底栏（{@link KeyboardBottomBarPolicy}），默认开。是否出现还取决于导航栏的高度，换一台设备时意义不同，同步字段表里也没有这个键，只在本机。 */
@@ -208,6 +220,7 @@ public final class AndroidLocalSettings {
             SplitKeyboardPolicy.MIN_THRESHOLD_DP, SplitKeyboardPolicy.MAX_THRESHOLD_DP, SplitKeyboardPolicy.THRESHOLD_STEP_DP);
         integer(SPLIT_KEYBOARD_GAP, SplitKeyboardPolicy.DEFAULT_GAP_PERCENT, false,
             SplitKeyboardPolicy.MIN_GAP_PERCENT, SplitKeyboardPolicy.MAX_GAP_PERCENT, SplitKeyboardPolicy.GAP_PERCENT_STEP);
+        bool(SPLIT_KEYBOARD_PHONE_LANDSCAPE, false, false);
         bool(KEY_POPUP, true, true);
         bool(SWIPE_DOWN_SYMBOLS, true, true);
         choice(SWIPE_SYMBOLS_DIRECTION, SwipeHintPolicy.UP, true, SwipeHintPolicy.DOWN, SwipeHintPolicy.UP);
@@ -227,6 +240,9 @@ public final class AndroidLocalSettings {
 
         bool(INCOGNITO, false, false);
         bool(VOICE_CONTRIBUTE_AUDIO, false, false);
+        integer(VOICE_PAUSE_MILLIS, VOICE_PAUSE_DEFAULT_MILLIS, false,
+            VOICE_PAUSE_MIN_MILLIS, VOICE_PAUSE_MAX_MILLIS, 100);
+        integer(VOICE_VAD_SENSITIVITY, 50, false, 10, 90, 1);
         bool(SCREEN_CAPTURE_PROTECTION, false, false);
         bool(SCREEN_CAPTURE_PROTECTION_ENABLED_BEFORE, false, false);
         bool(GLIDE_TYPING, false, false);
@@ -238,6 +254,7 @@ public final class AndroidLocalSettings {
         bool(CLIPBOARD_SUGGESTION, true, false);
         integer(CLIPBOARD_UNDO_SECONDS, ClipboardUndoPolicy.DEFAULT_SECONDS, false,
             ClipboardUndoPolicy.MIN_SECONDS, ClipboardUndoPolicy.MAX_SECONDS, 1);
+        bool(CLIPBOARD_DELETE_AUTHENTICATION, false, false);
         bool(CLIPBOARD_SUGGESTION_ACTION, true, false);
         choice(CLIPBOARD_SUGGESTION_ACTION_KIND, RecentClipboardSuggestion.ACTION_CATEGORY, false,
             RecentClipboardSuggestion.ACTION_SEGMENT, RecentClipboardSuggestion.ACTION_CATEGORY);
@@ -260,6 +277,7 @@ public final class AndroidLocalSettings {
         bool(HARDWARE_CARET_CANDIDATES, false, false);
         bool(TOOLBAR_FLOATING, false, false);
         bool(TOOLBAR_TEXT_EDIT, false, false);
+        bool(TOOLBAR_RANDOM_DIGITS, false, false);
         text(TOOLBAR_ORDER, ToolbarOrderPolicy.format(ToolbarOrderPolicy.DEFAULT_ORDER), false,
             ToolbarOrderPolicy::normalize);
         integer(TOOLBAR_SIZE_PERCENT, ToolbarSizePolicy.DEFAULT_PERCENT, false,
@@ -381,6 +399,23 @@ public final class AndroidLocalSettings {
     private AndroidLocalSettings() {}
 
     public static Snapshot defaults() { return DEFAULTS; }
+
+    /**
+     * 设置页「键盘底部高度」滑块显示的值（#10447）：{@link #BOTTOM_PADDING} 开着时是 {@link #BOTTOM_PADDING_HEIGHT}，关着时是 0。
+     *
+     * <p>这个数是键区底边到系统导航区的目标总距离，键盘底栏画着时它的 40 dp 计在里面（{@link KeyboardBottomBarPolicy#extraPaddingDp}）。没动过的用户显示 0；以前打开过「底部留白」的老用户直接显示原来的高度，不用迁移。
+     */
+    public static int bottomHeightDp(Snapshot settings) {
+        return settings.bool(BOTTOM_PADDING) ? settings.integer(BOTTOM_PADDING_HEIGHT) : 0;
+    }
+
+    /** 滑块提交 `valueDp` 时要写的项：大于 0 时打开 {@link #BOTTOM_PADDING} 并记下高度；拖到 0 只关开关，原来的高度留着不清。 */
+    public static Map<String, Object> bottomHeightEdits(int valueDp) {
+        Map<String, Object> edits = new LinkedHashMap<>(2);
+        edits.put(BOTTOM_PADDING, valueDp > 0);
+        if (valueDp > 0) edits.put(BOTTOM_PADDING_HEIGHT, valueDp);
+        return edits;
+    }
 
     public static Path file(Context context) {
         return context.getFilesDir().toPath().resolve("bootstrap").resolve("state").resolve(FILE_NAME);

@@ -29,7 +29,7 @@ macOS 的同类文档是 [macos-parity.md](macos-parity.md)，方法一致：先
 | 界面测试 | 来源 38 / 目标 39 | 逐个用例对照 | 组织方式不同：来源按屏拆四个文件，目标合在 `platforms/ios/UITests/` 的流程用例里，覆盖面相当 |
 | iOS 偏好同步字段 | 8 | 字段逐个对照 | 全部对上，目标为超集（多出三个调频字段） |
 
-上表是迁移时的基线。之后目标按全平台设计稿改版，加了来源没有的功能，不在上表的比对范围内：App 跟随四季的应用主题（Rust `msime_client_resolve_app_theme`，选择存在 App Group 的 `general.app_theme`，暂不随设置同步（Android 会同步），键盘「跟随系统」皮肤与品牌标也跟着季节换色），以及键盘的功能菜单——品牌键打开的分页网格，取代来源的分组「更多」面板。
+上表是迁移时的基线。之后目标按全平台设计稿改版，加了来源没有的功能，不在上表的比对范围内：App 跟随四季的应用主题（Rust `msime_client_resolve_app_theme`，选择存在 App Group 的 `general.app_theme`，暂不随设置同步（Android 会同步），只有键盘「跟随系统」皮肤跟着季节换色，品牌标取当前键盘皮肤的配色），以及键盘的功能菜单——品牌键打开的分页网格，取代来源的分组「更多」面板。
 
 > 2026-10-15 补注：上表把三处未命中记为「由 Tauri 页覆盖」。按 2026-10-15 定下的设置界面归属（见[设置界面按平台归属](ARCHITECTURE.md#设置界面按平台归属)），发布的 iOS App 是原生 SwiftUI，App、`SharedUI` 和键盘扩展里都没有 WebView，不含 Tauri 页，这三处覆盖在产品里都不成立。「可达控件标识」一轴的自定义皮肤重置，原生对应物是 `platforms/ios/App/Sources/community/CustomSkinEditorView.swift` 的「重置我的皮肤」按钮；「设置面控件文案」一轴的 `从相册选一张`，原生对应物是同一文件的「选择照片」按钮，照片经 `SkinPhotoPicker` 读入，不是 webview 的 file input；「中文文案」一轴归为「Tauri 页以不同表述覆盖」的未命中，是比对时按共享页面归的类，这些文案各自有没有原生实现，没有逐条回验。
 

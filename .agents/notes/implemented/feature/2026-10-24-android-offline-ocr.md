@@ -8,6 +8,8 @@ Status: implemented
 
 ## Decision
 
+设置页提供「卸载配套模块」，确认后经共享的资源包删除接口只移除已发布的 OCR 包，下载的原始文件及其他输入法数据保留。导入／卸载中禁用冲突操作，失败可重试；卸载成功清掉之前的导入失败提示。JNI 只传有界请求，不另写目录删除。旧版模块也可卸载；用户再次导入同一固定模块后仍能识别。输入法下一次打开 OCR 时重新验证安装状态，即使类加载器有缓存也不能使用已经卸载的包（#10235）。
+
 拍照识字设置页提供「下载地址」（#10242）：从共享资源包的 `importFiles` 读取当前宿主锁定的模块地址，以系统 `ACTION_VIEW` 选择器交给浏览器或第三方下载工具。下载完成后用户仍经原有文件选择器导入，模块身份与完整摘要校验由共享层持有。Google Play 渠道、模块目录不可用或没有下载地址时禁用按钮；设备没有可处理地址的应用时提示重试：系统选择器在没有匹配应用时只显示系统自己的空列表、不会抛异常，所以先用 `queryIntentActivities` 判断，清单 `<queries>` 为此声明了 https 的 `VIEW`，否则 Android 11 起该查询恒为空。地址不在 Java 里另存一份，避免宿主升级模块锁后还引导下载旧模块。
 
 下载入口的验证：Mac Studio 上 `bash scripts/verify-local.sh --quick` 通过，设置 `ANDROID_HOME` 后 Gradle `:app:compileFullDebugJavaWithJavac` 成功；本机 `pnpm run verify-notes` 通过。GitHub 发布附件的文件名、大小和地址与模块锁一致。没有在设备上点选第三方下载工具，具体工具对该 HTTPS 附件地址的接管仍需设备复验。
@@ -136,7 +138,21 @@ ML Kit 的遥测证据：识别时 logcat 记下多条 `Storing event ... name=F
 
 恢复设置失败的日志没有区分启动、打开选项或读取选项，本次细分这些固定阶段，并在失败时补收同一合成设备截图。设置页面跳转完成后先等待无障碍空闲、重新取得行节点，避免点击仍在转场的旧行；[后续产品 `b78178a731` 的 API 28/35 设备运行](https://github.com/metasequoiaime/msime/actions/runs/40121220880)已全部结束：两版共享设备套件、模型准备、选择器完整导入／取消／坏替换拒绝、相机识别／上屏／恢复／撤权、主进程手写推理，以及同一个真实离线 `:ime` 的前后识别、手动与硬件上屏、撤销、符号层和画布恢复均通过，原书写模式恢复也通过。验证提交 `4c9dd8837e` 与产品完整树仅专用 workflow 不同；六张前后／相机结果合成截图已逐张核对。两版结果都是 `core=0 baseline=1 coexistence=0 picker=0 ime_handwriting=0`，唯一失败仍是前述十八键三排 `69/66/69px` 宽度断言，整轮设备门禁仍未通过。这次运行消除了已观察到的恢复失败，不据单次通过声称已经证明唯一根因。恢复失败仍让专项失败，原模式回读和真实推理断言均保留。
 
+## 卸载验证（#10235）
+
+同步 `ccc237197b` 前的原生瘦包已构建，quick 与 JNI／宿主导出、arm64 ELF 依赖和 16KB 对齐检查通过。API 28、35 的专用 arm64 AVD 均从系统文件选择器导入正式锁固定的 81,146,926 字节模块：取消卸载仍可识别；损坏替换失败后确认卸载，状态回到未导入且按钮禁用；旧类加载器缓存无法重新打开；再次通过系统选择器导入后合成中英文图识别成功。两版卸载后页面截图均已目测。
+
+两版 `build-core-test.sh arm64-v8a` 均通过：client-base 40 项、client-core 710 项、client-providers 285 项、client-services 主套件 1404 项，保留原有忽略与 runner 的硬链接排除；引擎维护租约 11 项通过。首次 quick 发现确认框未接统一截屏保护入口，以及纯 Java 资源包测试被前台服务依赖阻断，均已修正：确认框经 `ScreenCaptureProtection.show`，Java 安装队列的忙状态在 Activity 操作线程检查，共享资源包门面继续独立于 Service。
+
+标准原生 APK 的 API 28 `smoke.sh --core` 通过；API 35 两轮完整 `smoke.sh` 均退出 1。首轮失败涉及触控板放大镜／实体候选共存、英文纠错模式、十四键五笔键面和五笔查码列表；第二轮失败涉及触控板 WebView 光标、模糊拼音和英文纠错模式。定向通过不代替整套通过，也没有用后续独立成功断言上述失败的原因已经解决。
+
+同步 `ccc237197b` 时保留下载地址、系统选择器无匹配应用的提示与独立拍照窗口；卸载确认、互斥与成功后清理失败状态的行为不变。同源原生瘦包、arm64 ELF 依赖及 16 KB 对齐检查通过；宿主检查通过 316 项 JVM 冒烟与 258 份设备源码。API 28／35 再次通过系统文件选择器导入、取消卸载、损坏替换后卸载、缓存拒绝重开和重新导入识别，两版卸载后页面截图均已核对。模块仍是生产锁固定的公开发布文件，没有改锁或重建模型。临时验收脚本首次在 API 28 因 macOS Bash 3 的空数组配合 `set -u` 退出，修正临时参数展开后重跑通过，首次退出不计为通过。本次合并的完整 quick 通过：Rust workspace、Android／WASM、Linux 设置壳及原生 112 项测试、macOS、共享 Apple bridge 与 x86_64／i686 pipe 配置均通过。Windows 原生交叉构建因另一个验证持有共享依赖锁而按脚本跳过，HarmonyOS HAP 缺暂存原生库／资源而跳过，均不计为构建通过；没有重新运行上述 API 35 整套。未操作日用设备或触发发布。
+
 ## Related notes audit
+
+卸载入口随后补上了结果语义：共享层返回 `removed: false` 时表示目标目录本来不存在，Android 设置页必须显示失败而不能清理“已完成”状态或提示卸载成功；Java 门面现在保留并返回这个布尔值。
+
+卸载与安装的互斥随后收进进程级和共享层两处。原先只在设置页的线程上先读一次 `ResourcePackService.status(...).running()` 再删，检查与删除之间不是原子的；设置页没有声明 `configChanges`，卸载中旋转屏幕会重建出 `removing` 为假的新页面，导入按钮重新可点，与仍在进行的删除并行，旧页面 `onDestroy` 的 `shutdownNow` 还可能丢掉排队未执行的卸载。现在 `msime_client_resource_pack_remove` 与安装、校验、收编共用同一张登记表，同一进程里同一资源包忙时双方都返回 `resource_pack_busy`；Android 的卸载交给 `ResourcePackService.remove`，在主线程与 `claim` 一起判断并记入进程级的卸载集合，在不随页面结束的命名线程上执行，结束时经监听器通知并用提示报告结果，下载、导入请求在卸载期间被拒绝，卸载开始后才到达的请求记为失败原因「正在卸载」。备选是给 `Status` 加一个卸载阶段，但 `runningPacks()` 会把它算作下载中，牵动前台服务的停止条件和进度通知，所以用独立的集合。共享层登记表只在一个进程内有效，`:ime` 进程打开拍照识字前的校验不与主进程的卸载互斥，那一路仍依靠加载前重新校验安装状态。
 
 [手写会话清理](../../implemented/bug-fix/2026-10-17-android-handwriting-session-reset.md)部分相关，继续持有手写生命周期；OCR 不得重置它的单例或复用它的请求代次。[按需语音运行库](../../implemented/feature/2026-10-20-macos-on-demand-voice-runtime-and-wubi.md)部分相关，说明可选原生资源分发，不提供 OCR 推理接口；Android 的 sherpa-onnx 语音运行库也带一份 ONNX Runtime，与 OCR 模块那份在同一进程里共存的验证见下文。[Google Play 分发](../../implemented/process/2026-10-23-android-google-play-distribution.md)部分相关：Play 渠道不提供外部可执行模块，OCR 入口在该渠道拒绝。现有活跃笔记没有相机 OCR 的决定。
 

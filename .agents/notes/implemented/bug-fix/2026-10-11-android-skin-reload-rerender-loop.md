@@ -17,7 +17,7 @@ Android 键盘开着季节应用主题、键盘皮肤是「跟随系统」时，
 
 ## Decision
 
-- `KeyboardSkin.displayKey(seed)` 给出一张皮肤在某个应用主题种子下实际画出来的样子的键。跟随系统皮肤（`followsAppTheme()`：不是用户设计且 id 为 `system`）只取 `id:dark`，因为它的颜色只由明暗和种子决定；其他皮肤取 `key()`。种子的 `id:season` 对所有皮肤都拼进去：工具栏品牌键的 logo 色不论哪张皮肤都取应用主题的季节色（`ImeToolbar.styleTopRow`），换应用主题或换季时命名皮肤也要重画一次。
+- `KeyboardSkin.displayKey(seed)` 给出一张皮肤在某个应用主题种子下实际画出来的样子的键。跟随系统皮肤（`followsAppTheme()`：不是用户设计且 id 为 `system`）只取 `id:dark`，因为它的颜色只由明暗和种子决定；其他皮肤取 `key()`。种子的 `id:season` 对所有皮肤都拼进去：命名皮肤的回车键和开启态底色取应用主题的季节色（`KeyboardSkin.withAppTheme`），换应用主题或换季时命名皮肤也要重画一次。工具栏品牌键原本也是拼种子的理由之一（logo 色不论哪张皮肤都取季节色），2026-10-31 起它改取当前皮肤自己的配色（`KeyboardSkin.logoDisc` / `logoMark`），见 [手机键盘品牌键跟随当前皮肤](2026-10-31-mobile-logo-follows-keyboard-skin.md)。
 - `ImeStyler.themed` 改用同一个 `followsAppTheme()` 判断该不该着色，判定只有一处。
 - `reloadPreferences` 前后都比 `skin.displayKey(imeStyler.appThemeSeed())`，不再比 `skin.key()`。比较的是输入（明暗、种子、非跟随皮肤的配色），不是着色后的派生值，也就不依赖 `skin` 字段此刻有没有被着色过。
 - `applyPreferencesSnapshot` 在 `refreshLocalSettings()` 之后立刻 `imeStyler.refreshAppTheme(true)`：应用主题存在本地设置里，季节随月份变，每次重读都按刚读到的本地设置重新解析种子，候选条外观（`candidateAppearanceFor` 也经 `themed` 着色）和皮肤比较用的就是同一个当前种子。渲染时的 `refreshSeasonIfNeeded` 一分钟才查一次，只靠它的话设置页换了应用主题，键盘最多要等一分钟。
@@ -31,7 +31,7 @@ Android 键盘开着季节应用主题、键盘皮肤是「跟随系统」时，
 ## Alternatives considered
 
 - **让 `skin` 字段始终保存着色后的皮肤**（在 `applyPreferencesSnapshot` 里 `skin = imeStyler.themed(nextSkin)`）：比较两边自然一致，`key()` 也不必改。但 `skin` 有五六个赋值点（`onCreate` 的皮肤片段、无会话外观、键盘里换皮肤、隐私模式重建会话……），`ImeStyler.themed` 的注释明确说「不必改 SVC 的每个赋值点」，就是为了不让每个赋值点都记得着色；只改这一处，其他赋值点照旧是 classic 色，换一条路径进来就又是两种值。
-- **在 `reloadPreferences` 两边都比 `imeStyler.themed(skin).key()`**：语义最直接，就是「画出来的颜色」。但季节变化时 `themed` 对命名皮肤原样返回，捕捉不到品牌键 logo 色的变化，还得另比种子；而且每秒都要在种子变化后新建一张推导出的皮肤。比输入（明暗加种子）更便宜，也能在不依赖 Android 运行时的 JVM 冒烟里直接测。
+- **在 `reloadPreferences` 两边都比 `imeStyler.themed(skin).key()`**：语义最直接，就是「画出来的颜色」。但季节变化时 `themed` 对命名皮肤原样返回，捕捉不到品牌键 logo 色的变化，还得另比种子（品牌键这一条自 2026-10-31 起不再成立，见 [手机键盘品牌键跟随当前皮肤](2026-10-31-mobile-logo-follows-keyboard-skin.md)；回车键和开启态底色仍随种子变）；而且每秒都要在种子变化后新建一张推导出的皮肤。比输入（明暗加种子）更便宜，也能在不依赖 Android 运行时的 JVM 冒烟里直接测。
 - **只用 `refreshAppTheme(false)`，沿用一分钟的节流**：少一次每秒的本地设置读取和日期计算。但这两样本来就在每次重读里做（`refreshLocalSettings` 每秒都调），强制解析的增量只是一次字符串比较和一次 `LocalDate.now`，换来的是设置页换应用主题后键盘下一秒就跟上。
 
 ## Consequences

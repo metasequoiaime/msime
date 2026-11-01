@@ -262,6 +262,7 @@ import {
 } from "../entry/src/main/ets/keyboard/input/VoiceCaptureDevicePolicy";
 import {
   CandidateGlossPolicy,
+  CandidatePronunciationPolicy,
   GlossToken,
 } from "../entry/src/main/ets/keyboard/candidate/CandidateGlossPolicy";
 import {
@@ -1639,6 +1640,24 @@ group("SymbolPanelPolicy", () => {
   check(
     !SymbolPanelPolicy.select(true).returnToKeyboard && SymbolPanelPolicy.select(true).locked,
     "a locked symbol panel stays open for continuous input",
+  );
+  check(
+    symbolCategories.every(
+      (category) => !SymbolPanelPolicy.cells(category.symbols, 5).includes(""),
+    ),
+    "every fixed symbol category keeps its pairs on one row without gaps",
+  );
+  check(
+    SymbolPanelPolicy.cells(["，", "。", "？", "！", "（", "）", "《"], 5).join("|") ===
+      "，|。|？|！||（|）|《",
+    "an opening half at the end of a row moves to the next row with its closing half",
+  );
+  check(
+    SymbolPanelPolicy.cells(["，", "。", "？", "（", "）"], 5).join("|") === "，|。|？|（|）" &&
+      SymbolPanelPolicy.cells(["，", "。", "？", "！", "（", "。"], 5).join("|") ===
+        "，|。|？|！|（|。" &&
+      SymbolPanelPolicy.cells(["，", "。", "？", "！", "（"], 5).join("|") === "，|。|？|！|（",
+    "a pair that fits, or an opening half without its closing half, stays in place",
   );
 });
 
@@ -6049,8 +6068,15 @@ group("a candidate with a gloss offers the gloss as something to type", () => {
   );
 
   const touch = CandidateManagementAction.touchActions("hello", true);
-  check(touch.length === 1, "a touch long press offers one action, not desktop management");
+  check(
+    touch.length === 2,
+    "a touch long press offers the gloss and 加入生词本, not desktop management",
+  );
   check(touch[0].title === "hello", "the touch action is the bare gloss, as the source draws it");
+  check(
+    touch[1].id === "ADD_TO_PERSONAL_WORDBOOK" && touch[1].title === "加入生词本",
+    "加入生词本 comes last, where the other hosts put it",
+  );
   check(
     CandidateManagementAction.touchActions("hello", false).length === 0,
     "an Engine annotation is not offered as translated text",
@@ -6067,8 +6093,9 @@ group("a candidate with a gloss offers the gloss as something to type", () => {
     full
       .slice(1)
       .map((action: ManagementAction) => action.id)
-      .join(",") === "PROMOTE,FIX_1,FIX_2,FIX_3,FIX_4,FIX_5,CLEAR_POSITION,REMOVE",
-    "then 优先显示, the five slots, 取消固定 and 删除词条, in the source's order",
+      .join(",") ===
+      "PROMOTE,FIX_1,FIX_2,FIX_3,FIX_4,FIX_5,CLEAR_POSITION,REMOVE,ADD_TO_PERSONAL_WORDBOOK",
+    "then 优先显示, the five slots, 取消固定 and 删除词条, in the source's order, and 加入生词本 last",
   );
   check(
     full.find((action: ManagementAction) => action.id === "FIX_2")?.checked === true,
@@ -6076,6 +6103,128 @@ group("a candidate with a gloss offers the gloss as something to type", () => {
   );
   const noGloss = CandidateManagementAction.managementActions("", false, 0, true, false);
   check(noGloss[0].id === "PROMOTE", "a candidate without a translation still gets management");
+  check(
+    !noGloss.some((action: ManagementAction) => action.id === "ADD_TO_PERSONAL_WORDBOOK") &&
+      !CandidateManagementAction.managementActions("wbcd", false, 0, true, true).some(
+        (action: ManagementAction) => action.id === "ADD_TO_PERSONAL_WORDBOOK",
+      ),
+    "without a translation there is nothing to put in the personal wordbook",
+  );
+  // 菜单开着时候选栏可能重建：点下去时那一格的候选原文和释义都要还是打开菜单时的那一个。
+  const opened = CandidateManagementAction.touchActions(" hello ", true, "你好")[1];
+  check(
+    opened.candidate === "你好" && opened.gloss === "hello",
+    "加入生词本 remembers the candidate and the trimmed gloss it was opened for",
+  );
+  check(
+    CandidateManagementAction.samePersonalWordbookSubject(
+      opened,
+      CandidateManagementAction.personalWordbookAction("hello", true, "你好"),
+    ),
+    "the same candidate is still there",
+  );
+  check(
+    !CandidateManagementAction.samePersonalWordbookSubject(
+      opened,
+      CandidateManagementAction.personalWordbookAction("hello", true, "哈喽"),
+    ) &&
+      !CandidateManagementAction.samePersonalWordbookSubject(
+        opened,
+        CandidateManagementAction.personalWordbookAction("hi", true, "你好"),
+      ) &&
+      !CandidateManagementAction.samePersonalWordbookSubject(
+        opened,
+        CandidateManagementAction.personalWordbookAction("hello", false, "你好"),
+      ),
+    "a rebuilt strip with another candidate or gloss in that cell is not added",
+  );
+  check(
+    CandidateManagementAction.managementActions("hello", true, 0, true, true, "你好").slice(-1)[0]
+      .candidate === "你好",
+    "the full menu carries the candidate too",
+  );
+  // 「朗读」排在「加入生词本」前面、和它同一组；共享层答不出能读的英文（或设备不能朗读）时没有这一项。
+  const spokenMenu = CandidateManagementAction.managementActions(
+    "interview",
+    true,
+    0,
+    true,
+    true,
+    "面试",
+    "interview",
+  ).map((action: ManagementAction) => action.id);
+  check(
+    spokenMenu.slice(-2).join(",") === "READ_ALOUD,ADD_TO_PERSONAL_WORDBOOK",
+    "朗读 comes right before 加入生词本 at the end of the full menu",
+  );
+  const spokenTouch = CandidateManagementAction.touchActions(
+    "interview",
+    true,
+    "面试",
+    "interview",
+  );
+  check(
+    spokenTouch.map((action: ManagementAction) => action.id).join(",") ===
+      "INSERT_GLOSS,READ_ALOUD,ADD_TO_PERSONAL_WORDBOOK",
+    "the touch long press puts 朗读 in the same place",
+  );
+  check(
+    spokenTouch[1].title === "朗读" &&
+      spokenTouch[1].spoken === "interview" &&
+      spokenTouch[1].candidate === "面试",
+    "朗读 remembers what to read and the candidate it was opened for",
+  );
+  const englishCandidate = CandidateManagementAction.managementActions(
+    "",
+    false,
+    0,
+    true,
+    true,
+    "hello",
+    "hello",
+  ).map((action: ManagementAction) => action.id);
+  check(
+    englishCandidate.slice(-1)[0] === "READ_ALOUD" &&
+      !englishCandidate.includes("ADD_TO_PERSONAL_WORDBOOK"),
+    "an English candidate without a gloss gets 朗读 alone in the last group",
+  );
+  // 2in1 的触摸长按也要能读到没有释义的英文候选，和右键一样。
+  check(
+    CandidateManagementAction.touchActions("", false, "hello", "hello")
+      .map((action: ManagementAction) => action.id)
+      .join(",") === "READ_ALOUD",
+    "a touch long press on an English candidate without a gloss offers 朗读 alone",
+  );
+  check(
+    !CandidateManagementAction.managementActions("面接", true, 0, true, true, "面试", null).some(
+      (action: ManagementAction) => action.id === "READ_ALOUD",
+    ) && CandidateManagementAction.readAloudAction("", "面试") === null,
+    "nothing to read means no 朗读",
+  );
+  const readAloud = CandidateManagementAction.readAloudAction("interview", "面试");
+  check(
+    readAloud !== null &&
+      !CandidateManagementAction.actionsForFixedPosition(0).some(
+        (action: ManagementAction) => action.menuItemId === readAloud.menuItemId,
+      ) &&
+      readAloud.menuItemId !==
+        CandidateManagementAction.personalWordbookAction("x", true)?.menuItemId &&
+      readAloud.menuItemId !== CandidateManagementAction.glossAction("x")?.menuItemId,
+    "朗读 has a menu id of its own",
+  );
+  const fullMenuIds: number[] = CandidateManagementAction.managementActions(
+    "interview",
+    true,
+    0,
+    true,
+    true,
+    "面试",
+    "interview",
+  ).map((action: ManagementAction) => action.menuItemId);
+  check(
+    fullMenuIds.length > 0 && new Set(fullMenuIds).size === fullMenuIds.length,
+    "every item in the full candidate menu has a distinct menu id",
+  );
   check(
     !noGloss.some((action: ManagementAction) => action.id === "REMOVE"),
     "a single character cannot be deleted",
@@ -10994,6 +11143,57 @@ group("the platform accent", () => {
   );
 });
 
+group("2in1 默认选中行的字和释义对选中淡底到 WCAG AA", () => {
+  // ArkUI 的颜色是 `#RRGGBB` 或 `#AARRGGBB`；半透明的颜色按 alpha 合成到下面的底色上再算对比度。
+  const channels = (color: string): number[] => {
+    const hex = color.slice(1);
+    const rgb = hex.length === 8 ? hex.slice(2) : hex;
+    return [0, 2, 4].map((at) => parseInt(rgb.slice(at, at + 2), 16) / 255);
+  };
+  const alpha = (color: string): number =>
+    color.length === 9 ? parseInt(color.slice(1, 3), 16) / 255 : 1;
+  const over = (top: string, under: number[]): number[] =>
+    channels(top).map((value, index) => value * alpha(top) + under[index] * (1 - alpha(top)));
+  const luminance = (rgb: number[]): number =>
+    rgb.reduce((sum, value, index) => {
+      const linear = value <= 0.04045 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
+      return sum + [0.2126, 0.7152, 0.0722][index] * linear;
+    }, 0);
+  const contrast = (a: number[], b: number[]): number => {
+    const [x, y] = [luminance(a), luminance(b)];
+    return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+  };
+  for (const dark of [false, true]) {
+    const colors = GlobalTheme.candidateColors(null, dark);
+    const fill = over(colors.selected, channels(colors.surface));
+    const mode = dark ? "dark" : "light";
+    check(contrast(over(colors.selectedText, fill), fill) >= 4.5, `${mode}: the selected word`);
+    const detail = GlobalTheme.candidateDetail(colors, true);
+    check(
+      detail === colors.selectedNumber,
+      `${mode}: the selected row's gloss is the selected number colour`,
+    );
+    check(contrast(over(detail, fill), fill) >= 4.5, `${mode}: the selected gloss and reading`);
+    check(
+      contrast(over(colors.accent, fill), fill) < 4.5,
+      `${mode}: the accent itself does not reach AA on its wash`,
+    );
+    check(
+      GlobalTheme.candidateDetail(colors, false) === colors.secondary,
+      `${mode}: plain rows keep the secondary colour`,
+    );
+  }
+  // 皮肤包给了自己的释义色（次要色和序号色不同）时，选中行照旧用它。
+  const packaged = GlobalTheme.candidateColors(
+    { ...GlobalTheme.candidatePalette({ number: "#808080", secondary: "#3060A0" })! },
+    false,
+  );
+  check(
+    GlobalTheme.candidateDetail(packaged, true) === "#3060A0",
+    "a package's own gloss colour is kept on the selected row",
+  );
+});
+
 group("unset candidate slots fall back to the native tokens", () => {
   const native = GlobalTheme.candidateColors(null, false);
   check(native.surface === "#FFFFFF" && native.selected === "#222C7A4B", "the native 2in1 card");
@@ -11780,7 +11980,7 @@ group("the icon paths are arc-free absolute commands inside their view box", () 
           value <=
             Math.max(KeyboardIconPaths.BRAND_VIEW_WIDTH, KeyboardIconPaths.BRAND_VIEW_HEIGHT),
       ),
-      "inside the 116 x 132 box",
+      "inside the 132 x 132 box",
     );
   }
   check(
@@ -12161,6 +12361,50 @@ group("候选栏大小 scales the touch strip together with the toolbar sharing 
     "the 2in1 frame ignores it",
   );
 });
+
+group(
+  "the expanded candidate panel follows the candidate font size and 候选栏大小 like Android (#10400)",
+  () => {
+    const font = (percent: number): number =>
+      CandidateScalePolicy.scaled(CandidateScalePolicy.DEFAULT_CANDIDATE_FONT_SIZE, percent);
+    check(
+      CandidateScalePolicy.expandedFontSize(17, font(100)) === 17 &&
+        CandidateScalePolicy.expandedCellHeight(44, font(100), 100) === 44,
+      "the default font at 100% keeps the 17fp text and 44vp cells",
+    );
+    check(
+      CandidateScalePolicy.expandedFontSize(17, font(200)) === 34 &&
+        CandidateScalePolicy.expandedCellHeight(44, font(200), 200) === 88,
+      "a larger candidate bar scales the text and the cell together",
+    );
+    check(
+      CandidateScalePolicy.expandedFontSize(17, font(50)) === 9 &&
+        CandidateScalePolicy.expandedCellHeight(44, font(50), 50) === 44,
+      "a smaller candidate bar shrinks the text but keeps the 44vp touch target",
+    );
+    check(
+      CandidateScalePolicy.expandedFontSize(17, 24) === 23 &&
+        CandidateScalePolicy.expandedCellHeight(44, 24, 100) === 59,
+      "a larger font preference alone raises the cell by the text's ratio",
+    );
+    check(
+      CandidateScalePolicy.expandedFontSize(17, 12) === 11 &&
+        CandidateScalePolicy.expandedCellHeight(44, 12, 100) === 44,
+      "a smaller font preference keeps the design cell height",
+    );
+    check(
+      CandidateScalePolicy.expandedCellHeight(44, CandidateScalePolicy.scaled(12, 200), 200) === 88,
+      "the candidate bar still raises the cell when the font preference is small",
+    );
+    const largest: number = CandidateScalePolicy.scaled(32, CandidateScalePolicy.MAX_PERCENT);
+    check(
+      CandidateScalePolicy.expandedFontSize(17, largest) === 60 &&
+        CandidateScalePolicy.expandedCellHeight(44, largest, CandidateScalePolicy.MAX_PERCENT) ===
+          156,
+      "both settings at their maximum give the same sizes as Android",
+    );
+  },
+);
 
 group("the panel is as tall as what the view stacks inside it", () => {
   // 设计稿的 Harmony 框架：顶部 8，50vp 的条带，10vp 间距，四行 44vp 及其间三个行间距，底部 6。
@@ -19078,5 +19322,165 @@ group(
     reboot.granted();
     now -= 60 * 1000;
     check(!reboot.active(), "时钟回到记录之前（重启设备）要重新认证");
+  },
+);
+
+// 候选读音：取词规则与 Android 的 CandidatePronunciationPolicy 相同，回答按「语言 + 文字」缓存；英文只收 `/…/`，其他语言收维基词典的 IPA，日文收罗马字。
+group(
+  "candidate pronunciations read English candidates and each gloss in its target language",
+  () => {
+    const key = CandidatePronunciationPolicy.key;
+    check(CandidatePronunciationPolicy.visible(true, true), "开关打开且表在时显示");
+    check(!CandidatePronunciationPolicy.visible(true, false), "缺表时不显示，也不预留那一行");
+    check(!CandidatePronunciationPolicy.visible(false, true), "开关关着时不显示");
+    check(
+      CandidatePronunciationPolicy.lookupText("hello", null, "fr") === key("en", "hello"),
+      "英文候选读它本身，不看释义目标语言",
+    );
+    check(
+      CandidatePronunciationPolicy.lookupText("well-known", null, "en") === key("en", "well-known"),
+      "连字符和撇号仍算英文",
+    );
+    check(
+      CandidatePronunciationPolicy.lookupText("你好", "hello; hi\nsecond", "en") ===
+        key("en", "hello; hi"),
+      "中文候选读英语释义的第一行，首个词组交给共享层",
+    );
+    check(
+      CandidatePronunciationPolicy.lookupText("你好", "bonjour, salut", "fr") ===
+        key("fr", "bonjour, salut"),
+      "法语释义按法语读，不当英文读",
+    );
+    check(
+      CandidatePronunciationPolicy.lookupText("猫", "猫", "ja") === key("ja", "猫"),
+      "日语释义交给共享层读罗马字",
+    );
+    check(
+      CandidatePronunciationPolicy.lookupText("你好", "bonjour", "zh") === "",
+      "没有读音表的语言不查",
+    );
+    check(CandidatePronunciationPolicy.lookupText("你好", null, "en") === "", "没有释义时不查");
+    check(
+      CandidatePronunciationPolicy.lookupText("AI助手", null, "en") === "",
+      "混着汉字的候选不当英文读",
+    );
+    const request = JSON.parse(
+      CandidatePronunciationPolicy.request([
+        key("en", "hello"),
+        "",
+        key("en", "hello"),
+        key("en", "world"),
+        key("fr", "chat"),
+        key("zh", "猫"),
+      ]),
+    );
+    check(request.generation === 0, "音标与代次无关，请求固定写 0");
+    check(
+      JSON.stringify(request.items) ===
+        JSON.stringify([
+          { text: "hello", language: "en" },
+          { text: "world", language: "en" },
+          { text: "chat", language: "fr" },
+        ]),
+      "同一个键只查一次，空的和没有读音表的语言不查",
+    );
+    const many = Array.from({ length: 400 }, (_value: unknown, index: number): string =>
+      key("en", `word${index}`),
+    );
+    check(
+      JSON.parse(CandidatePronunciationPolicy.request(many)).items.length ===
+        CandidatePronunciationPolicy.MAX_ITEMS,
+      "一次最多查 MAX_ITEMS 段",
+    );
+    const readings = CandidatePronunciationPolicy.decode(
+      JSON.stringify({
+        ok: true,
+        value: {
+          generation: 0,
+          pronunciations: [
+            { text: "hello", language: "en", pronunciation: "/həˈləʊ/" },
+            { text: "bad", language: "en", pronunciation: "həˈləʊ" },
+            { text: "bracketed", language: "en", pronunciation: "[x]" },
+            { text: "bonjour", language: "fr", pronunciation: "/bɔ̃.ʒuʁ/" },
+            { text: "кошка", language: "ru", pronunciation: "[ˈkoʂkə]" },
+            { text: "猫", language: "ja", pronunciation: "neko" },
+            { text: "고양이", language: "ko", pronunciation: "goyang-i" },
+            { text: "개", language: "ko", pronunciation: " " },
+            { text: "猫", language: "zh", pronunciation: "māo" },
+            { text: "chat", language: "fr", pronunciation: "ʃa" },
+            { text: "", language: "en", pronunciation: "/x/" },
+          ],
+        },
+      }),
+    );
+    check(readings !== null && readings.get(key("en", "hello")) === "/həˈləʊ/", "合法的音标收下");
+    check(
+      readings !== null &&
+        readings.get(key("fr", "bonjour")) === "/bɔ̃.ʒuʁ/" &&
+        readings.get(key("ru", "кошка")) === "[ˈkoʂkə]" &&
+        readings.get(key("ja", "猫")) === "neko" &&
+        readings.get(key("ko", "고양이")) === "goyang-i",
+      "其他语言的 IPA 和日文、韩文罗马字按语言收下",
+    );
+    check(
+      readings !== null && readings.size === 5,
+      "形状不对的、没有读音表的语言和空文字的回答丢掉",
+    );
+    check(
+      CandidatePronunciationPolicy.decode(JSON.stringify({ ok: false, error: "x" })) === null,
+      "失败的回答不缓存",
+    );
+    check(CandidatePronunciationPolicy.decode("not json") === null, "坏回答不缓存");
+    check(
+      CandidatePronunciationPolicy.accessibilitySuffix("/həˈləʊ/") === "，音标：/həˈləʊ/" &&
+        CandidatePronunciationPolicy.accessibilitySuffix("[ˈkoʂkə]") === "，音标：[ˈkoʂkə]" &&
+        CandidatePronunciationPolicy.accessibilitySuffix("neko") === "，读音：neko" &&
+        CandidatePronunciationPolicy.accessibilitySuffix("goyang-i") === "，读音：goyang-i" &&
+        CandidatePronunciationPolicy.accessibilitySuffix("") === "",
+      "读屏在释义之后念读音，没有读音时不念",
+    );
+    const word = { text: "hi", badge: "", hint: "", annotation: "" };
+    check(
+      CandidateWidthPolicy.chipContentVp({ ...word, pronunciation: "/ˌɪntəˈnæʃənəl/" }, 0, 18, 0) >
+        CandidateWidthPolicy.chipContentVp(word, 0, 18, 0),
+      "2in1 格子放得下比词宽的音标",
+    );
+    // 竖排把音标接在词和释义后面，窗口宽度要加上它，不是和释义取较宽的那个。
+    const glossed = {
+      text: "国际",
+      badge: "",
+      hint: "",
+      annotation: "an international organization of nations",
+    };
+    const longReading = "/ˌɪntəˈnæʃənəlˌɪntəˈnæʃənəl/";
+    check(
+      CandidateWidthPolicy.widthVp([{ ...glossed, pronunciation: longReading }], "guoji", 18, 15) >
+        CandidateWidthPolicy.widthVp([glossed], "guoji", 18, 15),
+      "竖排窗口按音标加宽",
+    );
+    check(
+      CandidateWidthPolicy.widthVp([{ ...glossed, pronunciation: "/x/" }], "guoji", 18, 15) >
+        CandidateWidthPolicy.widthVp([glossed], "guoji", 18, 15),
+      "比释义短的音标也加上去，因为竖排接在释义后面",
+    );
+    check(
+      CandidateWidthPolicy.widthVp([{ ...glossed, pronunciation: "" }], "guoji", 18, 15) ===
+        CandidateWidthPolicy.widthVp([glossed], "guoji", 18, 15),
+      "没有音标时宽度不变",
+    );
+    // 一段带控制字符的文字会让共享层整批拒绝，所以这样的释义不查，也不进请求。
+    check(
+      CandidatePronunciationPolicy.lookupText("爱", "to love\taffection", "en") === "" &&
+        CandidatePronunciationPolicy.lookupText("爱", "love\u0085", "en") === "",
+      "带控制字符的释义不查",
+    );
+    check(
+      JSON.stringify(
+        JSON.parse(
+          CandidatePronunciationPolicy.request([key("en", "love\taffection"), key("en", "hello")]),
+        ).items,
+      ) === JSON.stringify([{ text: "hello", language: "en" }]),
+      "带控制字符的文字不进请求，同一页的其他文字照常查",
+    );
   },
 );

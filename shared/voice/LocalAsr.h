@@ -34,6 +34,8 @@ bool is_local_model_dir(std::string_view path);
 bool local_model_uses_pinyin_hotwords(std::string_view path);
 // 规范宿主传入的线程数：零和负数使用基于硬件的小默认值，显式值也限制上限以免拖慢设备。
 int local_asr_thread_count(int requested);
+// 灵敏度越高，语音活动阈值越低；未设置或越界时保留原来的 0.5。
+float local_asr_vad_threshold(int sensitivity_percent);
 
 struct LocalAsrOptions {
   std::string model_dir;
@@ -43,6 +45,8 @@ struct LocalAsrOptions {
   std::vector<std::string> hotwords;
   // 0 picks from the hardware.
   int threads = 0;
+  // 仅经过 Silero VAD 的整段模型使用，10–90；0 沿用默认灵敏度。
+  int vad_sensitivity_percent = 0;
 };
 
 // One dictation. Samples are 16 kHz mono floats in [-1, 1]. Streaming models decode as audio arrives; whole-utterance models are fed through Silero VAD and decode each finished speech segment, so both report partial text before finish(). Not thread-safe: one thread feeds and finishes a session. Throws VoiceError on a missing runtime, an unusable model directory or a cancelled request.

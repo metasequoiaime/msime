@@ -19,6 +19,8 @@ Status: implemented
 - 设置界面不变：保留现有的「字号 / 预编辑字号」两个 12–32 下拉框，不改成小、中、大三档。
 - 读音的颜色、背景和内边距仍是 `ImeStyler.applySkin` 先设、`styleTopRow` 再改（颜色改成皮肤的 `hint`，背景和内边距清空），这次只理清字号。`ImeStyler` 里 `brandPillVisible` 那一支在当前代码里永远不成立（`render()` 只把它赋成 `false`），没有动它。
 
+后续的「编辑拼写」图标接入让 `applySkin()` 也可能在 `styleTopRow()` 之外由绘制前兜底监听单独调用；因此 `brandPillVisible` 为假时必须在同一调用中清掉旧药丸的背景、内边距和文字色，不能依赖下一次完整 render。
+
 ## Alternatives considered
 
 - **把「清除」按钮缩成 12sp** — 改动最少，也接近默认读音高度。不采用：用户调小读音、系统放大字体或换字体时仍可能放不下，而且缩小了独立按钮的可读性。行高直接按实际控件需要的空间计算。

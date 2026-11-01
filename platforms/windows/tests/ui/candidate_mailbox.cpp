@@ -386,7 +386,7 @@ void candidate_mailbox_tests() {
     const auto after = mailbox.snapshot(gate);
     require(after && after->render_serial > before->render_serial);
     require(after->candidates[0].pronunciation == "/həˈləʊ/" &&
-            candidate_secondary_text(after->candidates[0]) == "hello  /həˈləʊ/");
+            candidate_secondary_text(after->candidates[0]) == "hello\n/həˈləʊ/");
     // 释义变了的候选不挂旧读音。
     readings["你好"].translation = "hi";
     mailbox.readings(relaunched, readings);

@@ -653,3 +653,104 @@ test("answers with the book from the displayed queue snapshot after changing boo
   fireEvent.click(screen.getByRole("button", { name: "认识" }));
   expect(api.answer).toHaveBeenCalledWith("user-list", "ubiquitous", true);
 });
+
+function personalStatus(overrides: Partial<VocabularyReviewStatus> = {}): VocabularyReviewStatus {
+  return status({
+    wordbooks: [
+      { id: "personal", name: "生词本", total: 2, builtin: false, personal: true },
+      { id: "cet-4", name: "CET-4", total: 4500, builtin: true },
+    ],
+    settings: { wordbook: "personal", newPerDay: 20, sessionLimit: 200 },
+    queue: [{ word: "interview", phonetic: "", meaning: "面试" }],
+    ...overrides,
+  });
+}
+
+test("a personal card can be taken out of the personal wordbook", async () => {
+  const removed = personalStatus({ queue: [] });
+  const review = client({
+    load: vi.fn(async () => personalStatus()),
+    removePersonalWord: vi.fn(async () => removed),
+  });
+  render(<VocabularyReviewPage client={review} surface="panel" />);
+
+  fireEvent.click(await screen.findByRole("button", { name: "把 interview 移出生词本" }));
+  await waitFor(() => expect(review.removePersonalWord).toHaveBeenCalledWith("interview"));
+  expect(await screen.findByText("今天的复习已经完成。")).toBeTruthy();
+});
+
+test("a card from another book offers no personal wordbook action", async () => {
+  render(
+    <VocabularyReviewPage
+      client={client({ removePersonalWord: vi.fn(async () => status()) })}
+      surface="panel"
+    />,
+  );
+  await screen.findByText("ubiquitous");
+  expect(screen.queryByRole("button", { name: /移出生词本/ })).toBeNull();
+});
+
+test("the settings page explains, exports and clears the personal wordbook", async () => {
+  const saveExport = vi.fn(async () => "/synthetic/Downloads/生词本.csv");
+  const review = client({
+    load: vi.fn(async () => personalStatus()),
+    removePersonalWord: vi.fn(async () => personalStatus()),
+    exportPersonalWordbook: vi.fn(async () => "interview,,面试\n"),
+    removeWordbook: vi.fn(async () => status()),
+  });
+  render(
+    <VocabularyReviewPage client={review} openPanel={async () => {}} saveExport={saveExport} />,
+  );
+
+  expect(await screen.findByText(/生词本里有 2 个词。/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "导出生词本" }));
+  await waitFor(() => expect(saveExport).toHaveBeenCalledWith("生词本.csv", "interview,,面试\n"));
+  expect(await screen.findByText("已导出到 /synthetic/Downloads/生词本.csv")).toBeTruthy();
+
+  fireEvent.click(screen.getByRole("button", { name: "清空生词本" }));
+  await answerConfirm("confirm");
+  await waitFor(() => expect(review.removeWordbook).toHaveBeenCalledWith("personal"));
+});
+
+test("a host without the candidate action does not mention the personal wordbook", async () => {
+  render(<VocabularyReviewPage client={client()} openPanel={async () => {}} />);
+  await screen.findByText("今日待复习");
+  expect(screen.queryByText(/加入生词本/)).toBeNull();
+});
+
+test("the card offers 朗读 only when the host can speak and the headword is English", async () => {
+  const speak = vi.fn(async () => {});
+  const view = render(<VocabularyReviewPanel client={client({ speak })} />);
+  fireEvent.click(await screen.findByRole("button", { name: "朗读 ubiquitous" }));
+  expect(speak).toHaveBeenCalledWith("ubiquitous");
+  // 朗读不翻开卡片，也不作答。
+  expect(screen.queryByText("adj. 无处不在的")).toBeNull();
+  view.unmount();
+
+  render(
+    <VocabularyReviewPanel
+      client={client({
+        speak,
+        load: vi.fn(async () =>
+          status({ queue: [{ word: "勉強", phonetic: "", meaning: "学习" }] }),
+        ),
+      })}
+    />,
+  );
+  expect(await screen.findByText("勉強")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /^朗读/ })).toBeNull();
+  cleanup();
+
+  render(<VocabularyReviewPanel client={client()} />);
+  expect(await screen.findByText("ubiquitous")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /^朗读/ })).toBeNull();
+});
+
+test("a voice the host cannot find is reported on the page", async () => {
+  const speak = vi.fn(async () => {
+    throw new Error("系统没有可用的朗读语音");
+  });
+  render(<VocabularyReviewPanel client={client({ speak })} />);
+  fireEvent.click(await screen.findByRole("button", { name: "朗读 ubiquitous" }));
+  expect(await screen.findByText("系统没有可用的朗读语音")).toBeTruthy();
+});

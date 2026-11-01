@@ -419,6 +419,13 @@ public final class KeyboardSkin {
     public String secondary() { return secondary; }
     /** The selected strip candidate's text and the theme's own accent (drawn with no fill). */
     public String accent() { return accent; }
+    /** 工具栏品牌键 logo 标志的填充色（设计稿的 `logoBg`）：这张皮肤自己的强调色占 82%，其余混入黑色，与鸿蒙 `AppThemePalette.logoBackground`、iOS `KeyboardTheme.logoMark` 同一公式；不取应用主题的季节色。 */
+    public int logoMark() { return AppThemePalette.mix(ColorPolicy.parseHex(accent, 0xFF000000), 82, 0xFF000000); }
+    /** 品牌键 logo 背后的圆盘（设计稿的 `logoCirc`）：这张皮肤自己的强调色按 14%（浅色）或 22%（深色）混入键盘底色，与鸿蒙 `AppThemePalette.logoDisc`、iOS `KeyboardTheme.logoCircle` 同一公式。 */
+    public int logoDisc() {
+        return AppThemePalette.mix(ColorPolicy.parseHex(accent, 0xFF000000), dark ? 22 : 14,
+            ColorPolicy.parseHex(background, 0xFFFFFFFF));
+    }
     /** Text on anything filled with {@link #accent()}. */
     public String onAccent() { return onAccent; }
     /**

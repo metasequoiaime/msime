@@ -218,8 +218,18 @@ group("portrait handwriting is one key row taller, landscape keeps the old heigh
 group("the strip keeps one height whatever the candidate fonts and glosses", () => {
   const base: number = KeyboardMetrics.totalHeightVp(70, 0, 0, 18, 15, false);
   check(
-    KeyboardMetrics.totalHeightVp(70, 0, 2, 18, 15, false) === base,
-    "gloss rows live inside the 50vp candidate bar",
+    KeyboardMetrics.totalHeightVp(70, 0, 1, 18, 15, false) === base,
+    "one gloss row lives inside the 50vp candidate bar",
+  );
+  // 释义和英文音标都打开时胶囊里多一行注释（11.5vp），条带跟着高出这一行，四舍五入到整 vp。
+  check(
+    KeyboardMetrics.totalHeightVp(70, 0, 2, 18, 15, false) === base + 12,
+    "a second detail line, the pronunciation under the gloss, makes the bar one line taller",
+  );
+  check(
+    KeyboardMetrics.touchStripHeightVp(100, 1) === KeyboardMetrics.stripHeightVp(100) &&
+      KeyboardMetrics.touchStripHeightVp(100, 2) === 62,
+    "the strip the view draws grows by the same line",
   );
   check(
     KeyboardMetrics.totalHeightVp(70, 0, 0, 32, 24, false) === base,
@@ -336,7 +346,7 @@ group("a voice result goes straight in only where listening began", () => {
     !VoiceRecognitionPolicy.insertsDirectly(null, { editor: 4, context: 9 }, false),
     "no editor was attached when listening began",
   );
-  check(VOICE_DONE_NOTICE_MS === 1200 && VOICE_SILENCE_STOP_MS === 1500, "Android's timings");
+  check(VOICE_DONE_NOTICE_MS === 1200 && VOICE_SILENCE_STOP_MS === 1500, "Android's notice time and default pause");
 });
 
 group("系统语音使用规范语言标签，不改写保存的语言选择", () => {

@@ -217,6 +217,17 @@ public final class VoicePage extends ReloadingDetailPage {
             TRIGGER_LABELS[trigger],
             () -> pickTrigger(trigger, triggerRow[0]));
 
+        recognition.slider("本地停顿时间", "本地识别出字后等待的停顿；按住空格时由松手结束，锁定录音时由发送或取消结束",
+            AndroidLocalSettings.VOICE_PAUSE_MIN_MILLIS, AndroidLocalSettings.VOICE_PAUSE_MAX_MILLIS, 100,
+            local.integer(AndroidLocalSettings.VOICE_PAUSE_MILLIS), value -> value + " 毫秒",
+            value -> KeyboardSheets.saveLocal(this, AndroidLocalSettings.VOICE_PAUSE_MILLIS,
+                value, this::reload, this::reload));
+        recognition.slider("本地识别灵敏度", "数值越高越容易识别低声说话，也更容易把噪声当作语音",
+            10, 90, 1, local.integer(AndroidLocalSettings.VOICE_VAD_SENSITIVITY), value -> value + "%",
+            value -> KeyboardSheets.saveLocal(this, AndroidLocalSettings.VOICE_VAD_SENSITIVITY,
+                value, this::reload, this::reload));
+        recognition.footer("停顿时间仅用于键盘内的本地识别；灵敏度仅用于带语音活动检测的本地整段模型。系统识别自行判停，云服务仍由「说完了」或松开空格结束。这两项只保存在本机，下次本地识别生效。");
+
         polishGroup(target, voice, state);
 
         GroupCard privacy = GroupCard.add(sectionColumn(target, "隐私"), "隐私");

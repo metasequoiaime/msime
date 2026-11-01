@@ -26,6 +26,8 @@ Android 长按入口的无按钮排布、距离取消与上屏后停留由[长�
 
 按住说话与点按开始的区别、上滑取消的判定、各端文案都不变。HarmonyOS 按住空格期间仍不弹面板，只在空格上显示「松开结束」「松开取消」；松手后面板出现时这次会话仍在识别，同样不显示按钮，空闲（提示、出错、识别完成）时照旧显示「返回键盘」。鸿蒙的语音快捷键按住时会直接弹面板，同样没有按钮，结束和取消走快捷键本身；快捷键「锁定录音」（松开按键不再结束）之后会话改按点按开始对待：面板恢复「说完了」「取消」和按钮行排布，提示换成点按说明，流式识别停顿后自动结束；实现上是 LOCK 分支清掉 `voiceHeldByKey`，快捷键的 STOP、CANCEL 不读这个标志，照常生效。
 
+Android 工具栏入口的指示图按 [人物聆听界面](2026-10-31-android-toolbar-voice-mascot.md) 使用水杉娘与耳边红线；本篇的布局、文字、音量平滑、结束与取消规则继续适用，长按空格仍使用麦克风光圈。
+
 ## HarmonyOS 编译 SDK 边界
 
 宿主锁定的编译 SDK 是 6.0.1 / API 21。系统「减弱动画」查询 `accessibility.isAnimationReduceEnabledSync` 从 [API 23](https://github.com/openharmony/docs/blob/master/zh-cn/application-dev/reference/apis-accessibility-kit/js-apis-accessibility.md#accessibilityisanimationreduceenabledsync23) 才公开；运行时判断版本不能让 API 21 的 ArkTS 编译器接受这个尚未声明的属性。聆听面板不引用该接口，保留 API 21 原本的音量反馈与追上即停止的排程。当前鸿蒙构建不承诺跟随系统减弱动画开关，待编译 SDK 升级后再接入；iOS 和 Android 的对应行为保留。

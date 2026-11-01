@@ -26,6 +26,7 @@ public final class SymbolPanelModelSmoke {
         catalogCategories(empty);
         networkSuffixes(empty.get(5));
         glyphCentering();
+        pairsStayOnOneRow(empty);
 
         check(SymbolPanelModel.initialCategory(List.of()) == 0, "没有记录时仍打开常用");
         check(SymbolPanelModel.initialCategory(List.of("＞")) == 0, "history opens on 常用");
@@ -61,6 +62,29 @@ public final class SymbolPanelModelSmoke {
         }
 
         System.out.println("SymbolPanelModelSmoke: PASS");
+    }
+
+    /** 成对符号的两半不分在两行：写死的分类本身排好了不留空格，「常用」这类顺序不定的列表在排版时把前半个挪到下一行。 */
+    private static void pairsStayOnOneRow(List<SymbolPanelModel.Category> categories) {
+        for (SymbolPanelModel.Category category : categories) {
+            if (category.fromCatalog() || category.symbols().isEmpty()) continue;
+            check(SymbolPanelModel.pairGaps(category.symbols(), category.columns()) == 0,
+                category.title() + " keeps every pair on one row without gaps");
+        }
+        check(categories.get(1).symbols().size() == 79, "中文 keeps all 79 symbols: " + categories.get(1).symbols().size());
+        List<String> recents = List.of("，", "。", "？", "！", "（", "）", "《");
+        check(SymbolPanelModel.breaksBeforePair(recents, 4, 4, 5), "（ at the end of a row moves down with ）");
+        check(SymbolPanelModel.pairGaps(recents, 5) == 1, "常用 leaves one gap before a split pair");
+        check(!SymbolPanelModel.breaksBeforePair(recents, 4, 3, 5), "（ before the last column stays");
+        check(!SymbolPanelModel.breaksBeforePair(List.of("，", "。", "？", "！", "（", "。"), 4, 4, 5),
+            "（ not followed by ） stays at the end of the row");
+        check(!SymbolPanelModel.breaksBeforePair(List.of("，", "。", "？", "！", "（"), 4, 4, 5),
+            "a trailing （ has nothing to keep it with");
+        check(!SymbolPanelModel.breaksBeforePair(List.of("，", "。", "？", "！", "）", "（"), 4, 4, 5),
+            "a closing half is never the start of a pair");
+        check(SymbolPanelModel.pairGaps(List.of("“", "”", "‘", "’", "（", "）"), 5) == 1
+            && SymbolPanelModel.pairGaps(List.of("a", "“", "”", "‘", "’", "（", "）"), 5) == 0,
+            "only a pair starting in the last column is moved");
     }
 
     /** 只有全角/CJK 标点按墨迹居中；靠高低表达含义的字形全部按字体基线排。 */

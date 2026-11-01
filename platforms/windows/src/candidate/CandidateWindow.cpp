@@ -1240,11 +1240,12 @@ CandidateWindow::measure_items(const CandidatePresentation &value) {
       return measured_width(device_, wide(text), font_family_,
                             static_cast<float>(size), font_fallback_.Get());
     };
+    const auto secondary = candidate_secondary_run(candidate);
     items.push_back({width(candidate_primary_text(candidate), font_size_),
                      width(candidate_annotation_run(candidate), font_size_),
-                     width(candidate_secondary_text(candidate),
-                           metrics.translation_font),
-                     candidate_secondary_lines(candidate), candidate.translation_reserved});
+                     width(secondary.text, metrics.translation_font),
+                     candidate_secondary_lines(candidate), candidate.translation_reserved,
+                     secondary.readings.size()});
   }
   return items;
 }
@@ -2072,7 +2073,7 @@ void CandidateWindow::paint() {
       compat::DrawTextWithWindows7Emoji(device_.GetDWriteFactory(), target,
           text.c_str(), static_cast<UINT32>(text.size()), text_format, text_rect,
           brush(row_text_color), D2D1_DRAW_TEXT_OPTIONS_CLIP);
-    // The annotation takes the candidate text's colour, as macOS draws it with titleAttributes: the fixed-position colour on an unselected fixed row, the selected text colour on the selected row. The translation is the theme's secondary colour: a package's translation colour, or else the number colour (selected_number on the selected row); 未高亮的固定排位候选没有皮肤释义色时用它正文色的 0.62 倍透明度。
+    // The annotation takes the candidate text's colour, as macOS draws it with titleAttributes: the fixed-position colour on an unselected fixed row, the selected text colour on the selected row. The translation is the theme's secondary colour: a package's translation colour, or else the number colour (selected_number on the selected row); on an opaque selection fill a package's translation colour is replaced by one derived from the selected text colour, and selected_number is kept only when it reads at 4.5:1 (candidate_row_translation_color); 未高亮的固定排位候选没有皮肤释义色时用它正文色的 0.62 倍透明度。
     const auto annotation_color =
         candidate_row_text_color(palette_, text_color, selected,
                                  value->candidates[i].fixed_position != 0);
@@ -2627,6 +2628,16 @@ void CandidateWindow::show_context_menu(const CandidateClick &click,
   if (!flyout_)
     flyout_ = std::make_unique<CandidateFlyoutWindow>(
         [this](const CandidateMenuChoice &choice) {
+          if (choice.command == CandidateMenuCommand::AddToPersonalWordbook) {
+            if (personal_wordbook_ && menu_personal_)
+              personal_wordbook_(*std::exchange(menu_personal_, std::nullopt));
+            return;
+          }
+          if (choice.command == CandidateMenuCommand::ReadAloud) {
+            if (read_aloud_.speak && menu_read_aloud_)
+              read_aloud_.speak(*std::exchange(menu_read_aloud_, std::nullopt));
+            return;
+          }
           if (!click_)
             return;
           if (const auto action =
@@ -2635,6 +2646,14 @@ void CandidateWindow::show_context_menu(const CandidateClick &click,
         });
   // Every opening acts on its own candidate and wears the current theme: the flyout is reused, so neither may be fixed at the first right click. The reference rebuilds its menu on every open for the same effect (candidate_presenter.cpp:560-563).
   menu_target_.open(click);
+  // 占位行（AI 等回答时的「…」「—」）没有释义可收。
+  menu_personal_.reset();
+  if (personal_wordbook_ && !candidate->pending && !candidate->translation.empty())
+    menu_personal_ = PersonalWordbookRequest{candidate->text, candidate->translation,
+                                             candidate->pronunciation};
+  menu_read_aloud_.reset();
+  if (read_aloud_.text && read_aloud_.speak && !candidate->pending)
+    menu_read_aloud_ = read_aloud_.text(candidate->text, candidate->translation);
   flyout_->set_palette(palette_);
   POINT screen = client_point;
   if (!ClientToScreen(window_, &screen))
@@ -2642,7 +2661,8 @@ void CandidateWindow::show_context_menu(const CandidateClick &click,
   // 本页第几个候选：「删除」行据此提示 Ctrl+Shift+Alt+N。
   const auto slot = static_cast<size_t>(candidate - painted_->candidates.begin());
   flyout_->open(screen.x, screen.y, code_points, candidate->actions_available,
-                candidate->fixed_position, slot);
+                candidate->fixed_position, slot, menu_personal_.has_value(),
+                menu_read_aloud_.has_value());
 }
 LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
                                             WPARAM wparam,

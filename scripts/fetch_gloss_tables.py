@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Fetch the English gloss tables the host reads beside its resource directory: character-glosses (Unihan, ``scripts/build_character_glosses.py``), word-glosses (CC-CEDICT, ``scripts/build_word_glosses.py``) and pronunciations (ECDICT, ``scripts/build_pronunciations.py``).
+"""Fetch the gloss tables the host reads beside its resource directory: character-glosses (Unihan, ``scripts/build_character_glosses.py``), word-glosses (CC-CEDICT, ``scripts/build_word_glosses.py``), pronunciations (ECDICT, ``scripts/build_pronunciations.py``) and target-pronunciations (the readings of the French, Japanese, Spanish, Russian, German and Korean gloss lines, from Wiktionary, ``scripts/build_target_pronunciations.py``).
 
-Each table's lock in ``resources/`` lists under ``built`` the database and NOTICE that were built from its pinned source and published on metasequoiaime/chinese-ime-lm, and they land in ``target/<table>``, where the macOS staging script and the Windows installer pick them up. Without them single characters and long-tail words have no English gloss, English glosses carry no IPA and sentence candidates get no word-by-word breakdown.
+Each table's lock in ``resources/`` lists under ``built`` the database and NOTICE that were built from its pinned source and published on metasequoiaime/chinese-ime-lm, and they land in ``target/<table>``, where the macOS staging script and the Windows installer pick them up. Without them single characters and long-tail words have no English gloss, English glosses carry no IPA, the other gloss lines carry no reading and sentence candidates get no word-by-word breakdown.
 
 Downloads go through ``fetch_offline_glosses.fetch``: sizes are enforced while streaming, and a file that does not match its lock is discarded rather than installed. Idempotent: a file already present and matching is left alone, so packaging can call this unconditionally.
 
@@ -15,7 +15,7 @@ from pathlib import Path
 from fetch_offline_glosses import digest, fetch
 
 ROOT = Path(__file__).resolve().parents[1]
-TABLES = ("character-glosses", "word-glosses", "pronunciations")
+TABLES = ("character-glosses", "word-glosses", "pronunciations", "target-pronunciations")
 DEFAULT_OUT = ROOT / "target"
 
 

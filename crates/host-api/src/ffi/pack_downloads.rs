@@ -17,7 +17,7 @@ const MAX_IMPORT_FILES: usize = 16;
 
 type ResourcePackTasks = Mutex<HashMap<String, Arc<AtomicBool>>>;
 
-/// 本进程里正在安装或收编的资源包和它们的取消标记。同一个资源包同时只允许一个：两次安装会互相清掉对方的暂存目录。
+/// 本进程里正在安装、校验、收编或卸载的资源包和它们的取消标记。同一个资源包同时只允许一个：两次安装会互相清掉对方的暂存目录，卸载与安装并行则会删掉刚发布的目录。
 #[cfg(not(test))]
 fn resource_pack_tasks() -> &'static ResourcePackTasks {
     static TASKS: OnceLock<ResourcePackTasks> = OnceLock::new();
@@ -170,7 +170,7 @@ pub unsafe extern "C" fn msime_client_resource_pack_check_grammar_updates(
 /// "download"、"import"、"verify"、"done"，阶段字符串只在回调期间有效。
 /// 首次进度在任务登记后、任何文件或网络 I/O 前发送，字节数为 0，总量为资源包大小；
 /// 回调可重入 `msime_client_resource_pack_cancel`，取消后返回 "local_model_cancelled"。
-/// 每个资源包同时只允许一个安装或收编，否则返回 "resource_pack_busy"。
+/// 每个资源包同时只允许一个安装、校验、收编或卸载，否则返回 "resource_pack_busy"。
 /// 其他错误为 "resource_pack_unknown"、"invalid resource pack request"、"invalid state root"
 /// 或 "local_model_*"（network、http_status、size_mismatch、checksum_mismatch、format_mismatch、unsafe_archive、
 /// missing_file、io、invalid_mirror、invalid_root）。
@@ -296,12 +296,9 @@ pub unsafe extern "C" fn msime_client_resource_pack_cancel(pack: *const u8, leng
 
 /// 卸载一个已发布的资源包。阻塞只做一次目录删除。
 ///
-/// Request `{"state_root": "<absolute dir>", "pack": "<id>"}`；response value
-/// `{"removed": <bool>}`，`false` 表示这个 state_root 下本来就没装。删除之前
-/// 释放资源包钉住文件在引擎侧的共享内存映射（目前只有 `.gram` 语法模型
-/// 会被 `GramDb::shared` 缓存；其他包的文件按路径查缓存是空跳），否则
-/// `.gram` 被 mmap 占着时目录删除在 Windows 上会失败。未发布目录、暂存目录
-/// 和符号链接都按「没装」处理，不会动。
+/// Request `{"state_root": "<absolute dir>", "pack": "<id>"}`；response value `{"removed": <bool>}`，`false` 表示这个 state_root 下本来就没装。删除之前释放资源包钉住文件在引擎侧的共享内存映射（目前只有 `.gram` 语法模型会被 `GramDb::shared` 缓存；其他包的文件按路径查缓存是空跳），否则 `.gram` 被 mmap 占着时目录删除在 Windows 上会失败。未发布目录、暂存目录和符号链接都按「没装」处理，不会动。
+///
+/// 卸载与安装、校验、收编共用同一张登记表：本进程里同一个资源包正在安装、校验、收编或卸载时返回 "resource_pack_busy"，什么也不删；卸载进行中发起的安装同样返回 "resource_pack_busy"。
 ///
 /// # Safety
 /// `request` must point to `length` readable bytes. Null is rejected.
@@ -319,6 +316,7 @@ pub unsafe extern "C" fn msime_client_resource_pack_remove(
         let request: RemoveRequest = resource_pack_request(request, length)?;
         let state_root = absolute_directory(&request.state_root, "invalid state root")?;
         let pack = known_resource_pack(&request.pack)?;
+        let _task = Task::register(pack)?;
         for artifact in &pack.set().artifacts {
             crate::evict_grammar_model(
                 &resource_packs::root(state_root)
@@ -437,6 +435,7 @@ mod tests {
             "grammar-model-baguwen-compact",
             "offline-glosses",
             "pronunciations",
+            "target-pronunciations",
             "voice-runtime",
             "wubi",
         ];
@@ -582,6 +581,36 @@ mod tests {
             .lock()
             .unwrap()
             .contains_key("voice-runtime"));
+    }
+
+    /// 卸载与安装互斥：安装进行中卸载返回忙且不动已发布目录，卸载占住登记时安装同样返回忙。
+    #[test]
+    fn remove_and_install_exclude_each_other() {
+        let state = tempfile::tempdir().unwrap();
+        let published = resource_packs::root(state.path()).join(ResourcePack::Handwriting.id());
+        std::fs::create_dir_all(&published).unwrap();
+        let request = json!({ "state_root": state.path(), "pack": "handwriting" });
+
+        let installing = Task::register(ResourcePack::Handwriting).unwrap();
+        let busy = call(msime_client_resource_pack_remove, &request);
+        assert_eq!(busy["error"], "resource_pack_busy");
+        assert!(published.is_dir());
+        drop(installing);
+
+        let removing = Task::register(ResourcePack::Handwriting).unwrap();
+        let install_busy = install(&request);
+        assert_eq!(install_busy["error"], "resource_pack_busy");
+        drop(removing);
+
+        let other = call(
+            msime_client_resource_pack_remove,
+            &json!({ "state_root": state.path(), "pack": "voice-runtime" }),
+        );
+        assert_eq!(other["value"]["removed"], false);
+        assert!(!resource_pack_tasks()
+            .lock()
+            .unwrap()
+            .contains_key("handwriting"));
     }
 
     #[test]

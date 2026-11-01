@@ -31,6 +31,10 @@ struct DesktopCandidateCallbacks {
   CandidateWindow::Rendered rendered;
   CandidateWindow::Expansion expansion;
   CandidateWindow::LeaseCheck lease_current;
+  // 右键菜单「加入生词本」；为空时菜单没有这一项。
+  CandidateWindow::PersonalWordbook personal_wordbook = {};
+  // 右键菜单「朗读」；为空时菜单没有这一项。
+  CandidateWindow::ReadAloud read_aloud = {};
 };
 // 单个 Server 的候选 UI 路由器；协调线程不建窗，各桌面线程先绑定桌面再创建任何 UI。
 // stop() 必须先于 Server 与点击工作线程的停止；析构也执行相同收尾。

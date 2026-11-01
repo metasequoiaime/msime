@@ -1,5 +1,4 @@
 import SwiftUI
-import CoreImage
 import CoreFoundation
 import UIKit
 
@@ -104,6 +103,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let hintSpoken: String?
     let reading: String?
     let glosses: [String]
+    let pronunciation: String?
     let markers: [CandidateMarker]
     let number: Int
     let converting: Bool
@@ -591,6 +591,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// Offline glosses in the non-English target languages, by language code and then candidate text. Replaced per language by each answer; an entry left over from an earlier composition is still that word's gloss.
   private var candidateTargetGlosses: [String: [String: String]] = [:]
   private var offlineGlossInstalled: (resources: String, languages: Set<String>)?
+  /// 「显示读音」：查询的键（`CandidatePronunciationModel.key`，语言加文字）到读音的缓存，查不到的记作 ""。读音只取决于文字、语言和本机的表，与候选代次无关，开关或表变了才整份丢掉（`candidatePronunciationEpoch`）。
+  private var candidatePronunciations: [String: String] = [:]
+  private var candidatePronunciationsPending = Set<String>()
+  private var candidatePronunciationEpoch: UInt64 = 0
+  /// 音标表装好没有，在应用候选栏布局时重查（`applyCandidateGlossLayout`）；顶栏是否多留一行按它和开关定，打字过程中不变。
+  private var candidatePronunciationTableInstalled = false
   private var visibleCandidateAnnotations: [String] = []
   private var visibleCandidateSources: [Int] = []
   private var visibleCandidateFixedPositions: [Int] = []
@@ -754,6 +760,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 按键音效包（`KeySoundPackPolicy`）：要哪个包、已经加载的样本和音量。偏好在键盘出现和重读之后由 `synchronizeKeySoundPack` 更新，按键时只读这几个缓存。
   private let keySounds = KeyboardSoundPlayer()
+  /// 长按候选菜单的「朗读」；键盘收起时停下正在读的。
+  private let readAloudSpeaker = ReadAloudSpeaker()
   private var wantedKeySoundPack: String?
   private var keySoundGain = KeySoundPackPolicy.gain(volume: KeySoundPackPolicy.defaultVolume)
   /// 按键振动的开关和档位都从这一个 App Group 实例读。`KeyboardFeedbackPreference.hapticsEnabled` 这类属性每读一次都新建一个 `UserDefaults`，原来开着振动时按下、松开一次键要建五六个，都压在触摸处理的主线程上。不把值缓存起来：App 的设置页里也有输入框，键盘开着时在那里改振动，下一下按键就要按新的来。
@@ -894,6 +902,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     configureDiagnosticLog()
     DiagnosticLog.shared.write("keyboard_loaded full_access=\(hasFullAccess ? 1 : 0) idiom=\(UIDevice.current.userInterfaceIdiom == .pad ? "pad" : "phone") base=\(DiagnosticLog.MemorySample.mebibytes(launchMemory.footprint)) session=\(DiagnosticLog.MemorySample.mebibytes(sessionMemory.footprint)) \(loadedMemory.fields)")
     if session.initializationFailed { DiagnosticLog.shared.write("runtime_initialization_failed") }
+    // 音标表在不在决定顶栏多不多留一行，第一帧之前就要知道。
+    refreshPronunciationTable()
     glossLineCount = currentGlossLines()
     // 简繁与方案同理以共享文档为准：先把会话创建时读到的文档里记的字形抄进镜像，否则在后台重载回来之前（文档没有更新时它根本不会抄），键盘按镜像里的旧字形转换上屏文字。
     ChineseOutputPreference.mirror(session.sharedPreferences)
@@ -1245,6 +1255,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
+    readAloudSpeaker.stop()
     candidateCanvasActive = false
     compositionContainer?.canvasVisible = false
     candidatePanel?.canvasVisible = false
@@ -5286,6 +5297,81 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func currentGlossLines() -> Int {
     Self.stripGlossLines(scheme: inputScheme, fullAccess: hasFullAccess, onlineRoute: translationRoute != .none,
                          offline: offlineGlossLanguages)
+      + (pronunciationLineShown ? 1 : 0)
+  }
+
+  /// 候选下面要不要为读音单独留一行：开关打开、英文表或主目标语言的读音表在，而且是走释义的方案（`glossesCandidates`）。按设置而不是按读音到没到来留，顶栏高度在打字时不变。
+  private var pronunciationLineShown: Bool {
+    CandidatePronunciationPreference.enabled && candidatePronunciationTableInstalled && glossesCandidates
+  }
+
+  private func refreshPronunciationTable() {
+    let installed = CandidatePronunciationPreference.enabled && CandidatePronunciationPreference.tableInstalled(
+      resources: session.candidateGlossResources(), stateRoot: MetasequoiaInputSessionBridge.sharedStateDirectory,
+      language: CandidateTranslationPreference.primary.code.lowercased())
+    guard installed != candidatePronunciationTableInstalled else { return }
+    candidatePronunciationTableInstalled = installed
+    invalidateCandidatePronunciations()
+  }
+
+  private func invalidateCandidatePronunciations() {
+    candidatePronunciationEpoch &+= 1
+    candidatePronunciations = [:]
+    candidatePronunciationsPending = []
+  }
+
+  /// 一个候选查读音用的键：英文候选是它本身，中文候选是画出来的释义，按它的语言读。
+  private func pronunciationLookupText(word: String, readingGloss: (language: String, gloss: String?)?) -> String? {
+    CandidatePronunciationModel.lookupText(candidate: word, gloss: readingGloss?.gloss,
+                                           language: readingGloss?.language ?? "en")
+  }
+
+  /// 读音跟着的那一行释义和它的语言（小写代码）：主目标语言那一行；释义关着时为 nil。触屏键盘只画主目标语言一行释义（`CandidateTranslationPreference.secondary` 恒为 nil），`refreshPronunciationTable` 和设置页的「离线外语读音词典」也按主目标语言判断，三处必须是同一种语言。
+  private func readingGloss(word: String, offline: String, source: Int, translated: Bool) -> (language: String, gloss: String?)? {
+    guard CandidateGlossPreference.enabled, !CandidateTranslationStore.sourceGetsNoGloss(source) else { return nil }
+    let language = CandidateTranslationPreference.primary
+    return (language.code.lowercased(), gloss(word: word, language: language, offline: offline, translated: translated))
+  }
+
+  /// 已缓存的音标；还没查过的文字记进 `missing`，由调用方一并交给 `requestCandidatePronunciations`。
+  private func cachedPronunciation(_ text: String?, missing: inout [String]) -> String {
+    guard let text else { return "" }
+    if let reading = candidatePronunciations[text] { return reading }
+    if !candidatePronunciationsPending.contains(text) { missing.append(text) }
+    return ""
+  }
+
+  /// 在释义工作队列上查还没缓存的音标，回答回到主线程后重画候选条和展开网格。表在本机，查询不联网；失败只是不画音标，不影响输入，也不记录查询的文字。
+  private func requestCandidatePronunciations(_ texts: [String]) {
+    guard pronunciationLineShown, let resources = session.candidateGlossResources(), !resources.isEmpty else { return }
+    var batch: [String] = []
+    for text in texts where candidatePronunciations[text] == nil && !candidatePronunciationsPending.contains(text)
+      && !batch.contains(text) {
+      batch.append(text)
+      if batch.count >= CandidatePronunciationModel.maxItems { break }
+    }
+    guard !batch.isEmpty, let request = try? CandidatePronunciationModel.request(
+      keys: batch, supplementaryResources: CandidatePronunciationPreference.supplementaryResources(
+        stateRoot: MetasequoiaInputSessionBridge.sharedStateDirectory)) else { return }
+    candidatePronunciationsPending.formUnion(batch)
+    let epoch = candidatePronunciationEpoch
+    candidateGlossQueue.async { [weak self] in
+      let readings = (try? MetasequoiaInputSessionBridge.candidatePronunciations(request: request, resources: resources))
+        .flatMap { try? CandidatePronunciationModel.decode($0) }
+      DispatchQueue.main.async { [weak self] in
+        guard let self, self.candidatePronunciationEpoch == epoch else { return }
+        self.candidatePronunciationsPending.subtract(batch)
+        // 整份失败时不缓存，下一次重画再查；成功时查不到的文字记作 ""，不再重复查。
+        guard let readings else { return }
+        if self.candidatePronunciations.count + batch.count > CandidatePronunciationModel.maxItems * 8 {
+          self.candidatePronunciations = [:]
+        }
+        for text in batch { self.candidatePronunciations[text] = readings[text] ?? "" }
+        guard batch.contains(where: { !(readings[$0] ?? "").isEmpty }) else { return }
+        self.renderCandidateStrip()
+        if self.candidatePanel != nil { self.refreshCandidatePanelAnnotations() }
+      }
+    }
   }
 
   /// Whether the shared gloss path serves this scheme's candidates: Chinese ones, and the Hanja rows of the Korean scheme. Japanese is left out, as the Engine's translation query leaves it out.
@@ -5317,6 +5403,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 释义行数、候选和编码字号以及「候选栏大小」都决定顶栏有多高，所以在这里一起应用。
   private func applyCandidateGlossLayout() {
+    refreshPronunciationTable()
     let lines = currentGlossLines()
     let tablet = formFactor == .tablet
     // 「候选栏大小」连同字号一起缩放候选栏（#10137），字号倍数在这里乘上它，下游画字的地方不用再管。
@@ -5868,6 +5955,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if let translationsEnabled = preferences["candidate_translations"] as? Bool {
       CandidateTranslationPreference.onlineEnabled = translationsEnabled
     }
+    // 缺键按关闭，与共享默认相同；变了的话候选栏布局（`applyCandidateGlossLayout`）重查音标表、重算顶栏高度。
+    let pronunciationEnabled = preferences[CandidatePronunciationPreference.sharedKey] as? Bool ?? false
+    if pronunciationEnabled != CandidatePronunciationPreference.enabled {
+      CandidatePronunciationPreference.enabled = pronunciationEnabled
+      invalidateCandidatePronunciations()
+    }
     // 缺键按「仅当前高亮」，与会话读到的范围一致（`InputHabitPreference.settings`）。
     CandidateTranslationPreference.translationScope = CandidateTranslationScope(
       sharedValue: preferences[InputHabitPreference.translationScopeKey])
@@ -6115,9 +6208,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func candidatePanelAnnotations(_ snapshot: CandidatePanelSnapshot) -> [KeyboardCandidateAnnotation] {
-    snapshot.entries.map {
+    var missing: [String] = []
+    defer { if !missing.isEmpty { requestCandidatePronunciations(missing) } }
+    return snapshot.entries.map {
       candidatePanelAnnotation(code: $0.code, gloss: $0.translation, word: $0.text, engine: $0.annotation,
-                               source: $0.source, highlighted: $0.highlighted, typed: snapshot.preedit)
+                               source: $0.source, highlighted: $0.highlighted, typed: snapshot.preedit,
+                               missingPronunciations: &missing)
     }
   }
 
@@ -8051,6 +8147,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       candidateButtonInputs.append(nil)
     }
     while candidateButtonInputs.count < candidateStack.arrangedSubviews.count { candidateButtonInputs.append(nil) }
+    var missingPronunciations: [String] = []
+    defer { if !missingPronunciations.isEmpty { requestCandidatePronunciations(missingPronunciations) } }
     for (offset, view) in candidateStack.arrangedSubviews.enumerated() {
       guard let chip = view as? KeyboardKeyButton else { continue }
       chip.isHidden = offset >= page.count
@@ -8061,7 +8159,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       if !visibleEmailSuffixes.isEmpty {
         // 样式与英文建议的词块相同，只是读作邮箱后缀。
         let inputs = CandidateButtonInputs(
-          candidate: page[offset], hint: "", hintSpoken: nil, reading: nil, glosses: [], markers: [],
+          candidate: page[offset], hint: "", hintSpoken: nil, reading: nil, glosses: [], pronunciation: nil, markers: [],
           number: offset + 1, converting: false, aiPlaceholder: false, source: -1, confidentCorrection: false,
           styleRevision: candidateButtonStyleRevision)
         if candidateButtonInputs[offset] != inputs {
@@ -8077,6 +8175,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       let hintSpoken = readsChaizi ? annotation.accessibilityDescription : nil
       let reading = typesKorean ? annotation.text : nil
       let glosses = candidateGlosses(at: offset)
+      let pronunciation = candidatePronunciationLine(at: offset, missing: &missingPronunciations)
       let markers = candidateMarkers(at: offset)
       let aiPlaceholder = visibleCandidateSources.indices.contains(offset)
         && (visibleCandidateSources[offset] == CandidateMarker.aiPendingSource
@@ -8086,13 +8185,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         && visibleCandidateConfidentCorrections[offset]
       let inputs = CandidateButtonInputs(
         candidate: page[offset], hint: hint, hintSpoken: hintSpoken, reading: reading, glosses: glosses,
+        pronunciation: pronunciation,
         markers: markers, number: offset + 1, converting: japaneseConversionIndex == offset,
         aiPlaceholder: aiPlaceholder, source: candidateSource, confidentCorrection: confidentCorrection,
         styleRevision: candidateButtonStyleRevision)
       guard candidateButtonInputs[offset] != inputs else { continue }
       updateCandidateButton(
         chip, candidate: page[offset], hint: hint, hintSpoken: hintSpoken, reading: reading,
-        glosses: glosses, markers: markers, number: offset + 1, converting: japaneseConversionIndex == offset,
+        glosses: glosses, pronunciation: pronunciation, markers: markers, number: offset + 1,
+        converting: japaneseConversionIndex == offset,
         aiPlaceholder: aiPlaceholder, source: candidateSource, confidentCorrection: confidentCorrection)
       candidateButtonInputs[offset] = inputs
     }
@@ -8159,6 +8260,21 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let bare = engine.hasPrefix("(") && engine.hasSuffix(")") && engine.count > 2
       ? String(engine.dropFirst().dropLast()) : engine
     return (bare, "编码提示 \(bare)")
+  }
+
+  /// 候选条第 `index` 个候选下面的音标行：不显示音标时为 nil；显示时音标还没到或这个词查不到就是空串，那一行照样留着，词块高度不变。
+  private func candidatePronunciationLine(at index: Int, missing: inout [String]) -> String? {
+    guard pronunciationLineShown else { return nil }
+    guard visibleCandidates.indices.contains(index) else { return "" }
+    let word = visibleCandidates[index]
+    // 英文建议这类不是会话视图的候选没有来源，也没有释义，只按词本身查。
+    let hasSource = visibleCandidateSources.indices.contains(index)
+    let source = hasSource ? visibleCandidateSources[index] : -1
+    guard !CandidateTranslationStore.sourceGetsNoGloss(source) else { return "" }
+    let reading = hasSource ? readingGloss(
+      word: word, offline: visibleCandidateGlosses.indices.contains(index) ? visibleCandidateGlosses[index] : "",
+      source: source, translated: drawsCandidateTranslation(at: index)) : nil
+    return cachedPronunciation(pronunciationLookupText(word: word, readingGloss: reading), missing: &missing)
   }
 
   /// The gloss and translation lines under a strip candidate. A Korean Hanja's 훈음 is not one of them: it is drawn above them by the strip and never offered for insertion.
@@ -8229,12 +8345,22 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func candidatePanelAnnotation(code: String, gloss: String, word: String, engine: String,
-                                        source: Int, highlighted: Bool, typed: String) -> KeyboardCandidateAnnotation {
+                                        source: Int, highlighted: Bool, typed: String,
+                                        missingPronunciations: inout [String]) -> KeyboardCandidateAnnotation {
     let (hint, hintDescription) = codeHint(code: code, engine: engine, typed: typed)
     let lines = glosses(word: word, offline: gloss, source: source, highlighted: highlighted)
-    let text = ([hint] + lines).filter { !$0.isEmpty }.joined(separator: "\n")
+    // 展开网格的格子按内容定高，音标到了才多一行，不预留。
+    var pronunciation = ""
+    if pronunciationLineShown, !CandidateTranslationStore.sourceGetsNoGloss(source) {
+      let translated = !CandidateTranslationPreference.scopedToHighlight || highlighted
+      let reading = readingGloss(word: word, offline: gloss, source: source, translated: translated)
+      pronunciation = cachedPronunciation(pronunciationLookupText(word: word, readingGloss: reading),
+                                          missing: &missingPronunciations)
+    }
+    let text = ([hint] + lines + [pronunciation]).filter { !$0.isEmpty }.joined(separator: "\n")
     guard !text.isEmpty else { return .none }
-    let description = ([hintDescription, lines.isEmpty ? "" : "英文释义：\(lines.joined(separator: "，"))"])
+    let description = ([hintDescription, lines.isEmpty ? "" : "英文释义：\(lines.joined(separator: "，"))",
+                        pronunciation.isEmpty ? "" : CandidatePronunciationModel.accessibilityLabel(pronunciation)])
       .filter { !$0.isEmpty }.joined(separator: "，")
     return KeyboardCandidateAnnotation(text: text, accessibilityDescription: description)
   }
@@ -8486,16 +8612,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
-  /// The source logo is white-backed and has no alpha, so use its luminance as a mask before tinting it with the current skin accent. This prevents a white square on dark skins. The expanded candidate panel leads its header with the same template.
-  static func brandTemplate() -> UIImage? {
-    guard let path = Bundle(for: KeyboardViewController.self).path(forResource: "KeyboardBrand", ofType: "png"),
-          let source = UIImage(contentsOfFile: path),
-          let cgImage = source.cgImage else { return nil }
-    let input = CIImage(cgImage: cgImage)
-    guard let inverted = CIFilter(name: "CIColorInvert", parameters: [kCIInputImageKey: input])?.outputImage,
-          let masked = CIFilter(name: "CIMaskToAlpha", parameters: [kCIInputImageKey: inverted])?.outputImage,
-          let output = CIContext().createCGImage(masked, from: masked.extent) else { return nil }
-    return UIImage(cgImage: output).withRenderingMode(.alwaysTemplate)
+  /// 完整的水杉标志（固定配色的深色圆角正方形、绿边和白色折线），按 `side` 点见方渲染成原色图像，不再是按皮肤强调色着色的单色折线；展开的候选面板用它打头。
+  static func brandMark(side: CGFloat) -> UIImage {
+    UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { _ in
+      MSIMELogo.draw(in: CGRect(x: 0, y: 0, width: side, height: side))
+    }.withRenderingMode(.alwaysOriginal)
   }
 
   // A touch keyboard has no number row to answer with, so the ordinal is spoken rather than drawn;
@@ -8623,6 +8744,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func updateCandidateButton(
     _ button: KeyboardKeyButton, candidate: String, hint: String, hintSpoken: String? = nil, reading: String? = nil, glosses: [String],
+    pronunciation: String? = nil,
     markers: [CandidateMarker] = [], number: Int, converting: Bool, aiPlaceholder: Bool = false, source: Int = -1,
     confidentCorrection: Bool = false
   ) {
@@ -8654,7 +8776,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     let annotation = hint
     // A Korean Hanja's 훈음 leads the lines under it, ahead of any gloss; one with none keeps the line so the glosses stay aligned across chips.
+    // 英文音标在释义下面单独一行（与 macOS、Android 相同）；还没到或查不到时留一个占位，行数不变。
     let lines = (reading.map { [$0.isEmpty ? Self.pendingGlossPlaceholder : $0] } ?? []) + glosses
+      + (pronunciation.map { [$0.isEmpty ? Self.pendingGlossPlaceholder : $0] } ?? [])
     // On the keyboard's own colours the first candidate, the one space commits, is the selected one: the accent at weight 600 while the rest stay in the key text colour at 400 (dc.html `mobCands`). The desktop palette marks it with its fill instead.
     let selected = candidatePalette == nil && number == 1
     let weight: UIFont.Weight = selected ? .semibold : .regular
@@ -8734,6 +8858,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if !spoken.isEmpty {
       button.accessibilityLabel? += "，释义 " + spoken.joined(separator: "，")
     }
+    if let pronunciation, !pronunciation.isEmpty { button.accessibilityLabel? += "，\(CandidatePronunciationModel.accessibilityLabel(pronunciation))" }
     if confidentCorrection { button.accessibilityLabel? += KeyboardCandidateAnnotation.confidentCorrectionSpoken }
     // A Hanja's long press offers nothing (candidateMenuElements(at:)), so its glosses are read but not offered for insertion.
     button.accessibilityHint = spoken.isEmpty || reading != nil ? nil : "轻点输入，长按可输入释义"
@@ -8823,7 +8948,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
       return session.selectCandidateEdge(at: UInt(visibleCandidateEngineIndices[index]), last: last)
     }
-    return edges + glosses + management
+    return edges + glosses + management + personalWordbookElements(candidate: candidate, glosses: candidateGlosses(at: index))
   }
 
   /// The same menu for a candidate identified the way the expanded panel holds it. Panel positions
@@ -8853,7 +8978,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
       return true
     }
-    guard session.isOnCurrentPage(generation: generation, globalIndex: globalIndex) else { return glosses }
+    let personal = personalWordbookElements(
+      candidate: candidate,
+      glosses: self.glosses(word: candidate, offline: offlineGloss, source: source, highlighted: highlighted))
+    guard session.isOnCurrentPage(generation: generation, globalIndex: globalIndex) else { return glosses + personal }
     let management = candidateMenuElements(candidate: candidate, fixedPosition: fixedPosition) { [weak self] operation in
       self?.session.editCandidate(generation: generation, globalIndex: globalIndex, action: operation)
     }
@@ -8862,7 +8990,43 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       closeKeyboardPicker()
       return session.selectCandidateEdge(generation: generation, globalIndex: globalIndex, last: last)
     }
-    return edges + glosses + management
+    return edges + glosses + management + personal
+  }
+
+  /// 长按菜单最后一组：「朗读」和「加入生词本」，和 Android、鸿蒙的长按菜单、桌面的候选右键菜单同一个位置。「朗读」在有能读的英文（显示着的英文释义，或候选本身是英文）、又开了完全访问时排在前面：没有完全访问时 iOS 不让键盘扩展播放自己的声音，这一项也就不出。「加入生词本」把候选和它显示着的释义（几种语言各一行）收进背单词的生词本，没有释义时没有这一项。两项都不经过 Engine，组字不变。
+  private func personalWordbookElements(candidate: String, glosses: [String]) -> [UIMenuElement] {
+    let gloss = PersonalWordbookStore.menuGloss(glosses)
+    let spoken = hasFullAccess ? ReadAloudText.text(candidate: candidate, gloss: gloss ?? "") : nil
+    let children: [UIMenuElement] = ReadAloudText.lastGroup(hasFullAccess: hasFullAccess, spoken: spoken, gloss: gloss).map { item -> UIMenuElement in
+      switch item {
+      case .readAloud(let spoken):
+        return UIAction(title: ReadAloudText.menuTitle, image: UIImage(systemName: "speaker.wave.2")) { [weak self] _ in
+          guard let self else { return }
+          if let notice = readAloudSpeaker.speak(spoken) { showPersonalWordbookNotice(notice) }
+        }
+      case .addToPersonalWordbook(let gloss):
+        return UIAction(title: PersonalWordbookStore.menuTitle, image: UIImage(systemName: "text.book.closed")) { [weak self] _ in
+          guard let self else { return }
+          playInputClick()
+          // 没有完全访问时键盘写不进 App Group，背单词也就读不到。
+          guard hasFullAccess else {
+            showPersonalWordbookNotice("开启「允许完全访问」后才能加入生词本")
+            return
+          }
+          DispatchQueue.global(qos: .userInitiated).async {
+            let notice = PersonalWordbookStore.add(candidate: candidate, gloss: gloss)
+            DispatchQueue.main.async { [weak self] in self?.showPersonalWordbookNotice(notice) }
+          }
+        }
+      }
+    }
+    return children.isEmpty ? [] : [UIMenu(title: "", options: .displayInline, children: children)]
+  }
+
+  private func showPersonalWordbookNotice(_ notice: String) {
+    showDiagnostic(notice)
+    renderCandidateStrip()
+    UIAccessibility.post(notification: .announcement, argument: notice)
   }
 
   /// 以词定字: commit just the first or the last Han character of a longer candidate. Desktop hosts bind it to [ ] or - =; a keyboard extension receives no hardware keys, even on an iPad with one attached, so here it lives in the candidate's long-press menu and follows only the on/off half of the shared `word_character` preference.

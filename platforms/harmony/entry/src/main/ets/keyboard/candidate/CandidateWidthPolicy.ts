@@ -1,3 +1,5 @@
+import { CandidateTranslationStyle } from "./CandidateTranslationStyle";
+
 /**
  * Estimates the width a desktop candidate panel needs before ArkUI has laid out its Text nodes.
  *
@@ -13,6 +15,8 @@ export interface CandidateWidthEntry {
   readonly annotation: string;
   /** A Korean Hanja row's 훈음, which the vertical list draws beside the word; see CandidateGlossPolicy.hunEum. */
   readonly hunEum?: string;
+  /** 「显示读音」打开时的读音（英文 `/…/` 音标，日文和韩文罗马字，法、西、俄、德语的 IPA），横排画在释义下面、竖排接在旁边；格子至少要放得下它。 */
+  readonly pronunciation?: string;
 }
 
 export class CandidateWidthPolicy {
@@ -62,9 +66,18 @@ export class CandidateWidthPolicy {
     let contentWidth: number = CandidateWidthPolicy.textWidthVp(editing, preeditFontSize);
     for (const entry of entries) {
       const suffix = entry.badge + entry.hint + (entry.hunEum ?? "") + entry.annotation;
+      const pronunciation: string = entry.pronunciation ?? "";
+      // 竖排把音标接在词和释义后面，所以加上它的宽度，而不是和释义取较宽的那个。
       const candidateWidth =
         CandidateWidthPolicy.textWidthVp(entry.text, candidateFontSize) +
-        CandidateWidthPolicy.textWidthVp(suffix, Math.max(12, candidateFontSize - 8));
+        CandidateWidthPolicy.textWidthVp(suffix, Math.max(12, candidateFontSize - 8)) +
+        (pronunciation.length > 0
+          ? CandidateTranslationStyle.gap(candidateFontSize) +
+            CandidateWidthPolicy.textWidthVp(
+              pronunciation,
+              CandidateTranslationStyle.fontSize(candidateFontSize),
+            )
+          : 0);
       contentWidth = Math.max(contentWidth, candidateWidth);
     }
     return CandidateWidthPolicy.clampWidth(contentWidth, minWidthVp, maxWidthVp);
@@ -122,13 +135,16 @@ export class CandidateWidthPolicy {
         ? CandidateWidthPolicy.textWidthVp(`${index + 1}`, ordinalFontSize) +
           CandidateWidthPolicy.ORDINAL_GAP_VP
         : 0;
+    const detailFont: number = Math.max(12, candidateFontSize - 8);
+    const pronunciation: string = entry.pronunciation ?? "";
     return (
       CandidateWidthPolicy.SELECTION_BAR_VP +
       ordinal +
       CandidateWidthPolicy.textWidthVp(entry.text, candidateFontSize) +
-      (suffix.length > 0
-        ? CandidateWidthPolicy.textWidthVp(suffix, Math.max(12, candidateFontSize - 8))
-        : 0)
+      Math.max(
+        suffix.length > 0 ? CandidateWidthPolicy.textWidthVp(suffix, detailFont) : 0,
+        pronunciation.length > 0 ? CandidateWidthPolicy.textWidthVp(pronunciation, detailFont) : 0,
+      )
     );
   }
 

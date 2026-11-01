@@ -253,6 +253,28 @@ final class KeyboardEmojiCatalogTests: XCTestCase {
     XCTAssertEqual(fresh.shownSymbols, KeyboardSymbolPanelView.categories[0].symbols, "没用过符号时「常用」是默认的一整页")
   }
 
+  /// 成对符号的两半不分在两行：写死的分类本身排好了不留空行位，「常用」前面接的点过的符号把（ 挤到行尾时，（ 和 ） 一起换到下一行。
+  func testSymbolPanelKeepsPairedSymbolsOnOneRow() {
+    for category in KeyboardSymbolPanelView.categories {
+      let rows = KeyboardSymbolPanelView.rows(category.symbols)
+      XCTAssertEqual(rows.dropLast().filter { $0.count != 5 }, [], "\(category.title) fills every row but the last")
+    }
+    XCTAssertEqual(KeyboardSymbolPanelView.categories[1].symbols.count, 79, "中文 keeps all its symbols")
+    XCTAssertEqual(KeyboardSymbolPanelView.rows(["，", "。", "？", "！", "（", "）", "《"]),
+                   [["，", "。", "？", "！"], ["（", "）", "《"]])
+    XCTAssertEqual(KeyboardSymbolPanelView.rows(["，", "。", "？", "（", "）", "《"]),
+                   [["，", "。", "？", "（", "）"], ["《"]], "a pair that fits stays where it is")
+    XCTAssertEqual(KeyboardSymbolPanelView.rows(["，", "。", "？", "！", "（", "。"]),
+                   [["，", "。", "？", "！", "（"], ["。"]], "（ without its ） stays at the end of the row")
+    XCTAssertEqual(KeyboardSymbolPanelView.rows(["，", "。", "？", "！", "（"]), [["，", "。", "？", "！", "（"]])
+    let common = KeyboardSymbolPanelView.rows(KeyboardSymbolPanelView.commonSymbols(recents: ["→", "㎡", "℃", "※"]))
+    for row in common {
+      if let last = row.last, NineKeySidebar.pairedSymbols[last] != nil {
+        XCTFail("「常用」 row ends with the opening half \(last): \(row)")
+      }
+    }
+  }
+
   func testSymbolPanelAppendsCatalogCategoriesAndLoadsThemOffTheMainThread() async throws {
     let panel = KeyboardSymbolPanelView(
       catalog: .init(parents: { ["Math", "Unlisted"] }, symbols: { parent in

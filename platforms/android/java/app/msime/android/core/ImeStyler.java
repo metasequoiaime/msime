@@ -598,15 +598,22 @@ final class ImeStyler {
         s.imeLayoutRows.applySidebarRail();
         s.imeNineKeyPanel.applySkin();
         if (s.preedit != null) {
-            // Idle, this is the brand badge the shared design draws as an outlined pill; composing, it is the reading itself, set in the strip's typeface and its secondary colour above the candidates.
-            ViewPolicy.setTextColor(s.preedit, s.brandPillVisible
-                ? color(s.skin.accent()) : s.candidateAppearance.number());
+            // 空闲时这里是共享设计里的品牌描边药丸；组字时这里是候选栏上方的读音。
             ViewPolicy.setTypeface(s.preedit, candidateTypeface());
             KeyboardTypographyPolicy.setKeyTextSize(s.preedit, s.brandPillVisible ? 12 : ReadingRowPolicy.textSizeSp(s.candidatePreeditFontSize));
-            ViewPolicy.setBackground(s.preedit, s.brandPillVisible ? brandPillDrawable() : null);
-            ViewPolicy.setPadding(s.preedit, s.pixels(s.brandPillVisible ? 12 : 2),
-                s.pixels(s.brandPillVisible ? 4 : 0), s.pixels(s.brandPillVisible ? 12 : 2),
-                s.pixels(s.brandPillVisible ? 4 : 0));
+            // 读音本身的颜色、底和内边距归 ImeToolbar.styleTopRow，render 末尾总会跑它；这里只画品牌药丸。applySkin 也会被单独调用（绘制前补换肤的 restyleShown 在每次按键气泡出现时就跑一次），这里若写另一套值（2dp 内边距、number 色），那一帧读音就带着它画出来：打字时「编辑拼写」每按一键左右上下跳一下，还被截成「编辑拼…」。
+            if (s.brandPillVisible) {
+                ViewPolicy.setTextColor(s.preedit, color(s.skin.accent()));
+                ViewPolicy.setBackground(s.preedit, brandPillDrawable());
+                ViewPolicy.setPadding(s.preedit, s.pixels(12), s.pixels(4), s.pixels(12), s.pixels(4));
+            } else {
+                // applySkin() 可能由绘制前的兜底监听单独调用，不能等下一次 styleTopRow() 才清掉上一帧药丸的几何和颜色。
+                ViewPolicy.setTextColor(s.preedit, s.candidateAppearance.externalSkin()
+                    && ViewPolicy.isVisible(s.candidateViewport)
+                    ? s.candidateAppearance.preeditText() : color(s.skin.hint()));
+                ViewPolicy.clearBackground(s.preedit);
+                ViewPolicy.clearPadding(s.preedit);
+            }
             // 组字光标竖条（#6110）跟着皮肤的强调色走。
             CompositionCaretSpan.recolor(s.preedit, caretColor());
         }
@@ -639,7 +646,7 @@ final class ImeStyler {
         }
     };
 
-    /** 手机的键盘铺满窗口，平板和二合一的键盘表面限宽居中；平板横屏画分离式键盘时铺满，让左右两半贴到两侧；大屏单手模式也铺满，侧栏与键区才能贴到屏幕边（ImeFrame.applyOneHanded）；浮动时是一块缩窄的圆角面板。 */
+    /** 手机的键盘铺满窗口，平板和二合一的键盘表面限宽居中；平板横屏画分离式键盘时铺满，让左右两半贴到两侧；手机横屏的分离式键盘（#10440）本来就铺满，不套大屏的 720 dp 居中外框（{@link KeyboardFormFactorPolicy#surfaceWidthDp} 在分离时和非大屏上都返回 0）；大屏单手模式也铺满，侧栏与键区才能贴到屏幕边（ImeFrame.applyOneHanded）；浮动时是一块缩窄的圆角面板。 */
     void applyKeyboardSurfaceGeometry() {
         if (s.keyboardSurface == null) return;
         Configuration configuration = s.getResources().getConfiguration();

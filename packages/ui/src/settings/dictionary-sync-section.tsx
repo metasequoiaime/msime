@@ -4,8 +4,8 @@ import { ErrorAlert } from "../core/error-alert";
 import { formatDateTime } from "../core/format-date";
 import type { CloudClipboardDeviceShape } from "../keyboard/cloud-response";
 import { ActionButton } from "./action-button";
-import { EndpointSettingField } from "./endpoint-setting-field";
-import { SecretSettingField } from "./secret-setting-field";
+import { EndpointSettingRow } from "./endpoint-setting-row";
+import { SecretSettingRow } from "./secret-setting-row";
 import { SettingsGroupNote } from "./settings-group-note";
 import { SettingsManagerActions } from "./settings-manager-actions";
 import { SettingsManagerBlock } from "./settings-manager-block";
@@ -77,8 +77,8 @@ function DictionarySyncSettings({
   return (
     <GroupList title="词库同步">
       <SettingsGroupNote>{DICTIONARY_SYNC_NOTE}</SettingsGroupNote>
-      <EndpointSettingField
-        label="服务器地址"
+      <EndpointSettingRow
+        title="服务器地址"
         inputLabel="词库同步服务器地址"
         description="坚果云填 https://dav.jianguoyun.com/dav/ 即可，水杉会在里面自动建 msime-dictionary 文件夹；其他网盘填它给的 WebDAV 地址。必须是 HTTPS，证书要由公网信任的机构签发。可以与云剪贴板用同一个网盘。"
         placeholder="https://dav.jianguoyun.com/dav/"
@@ -89,8 +89,8 @@ function DictionarySyncSettings({
       {form.url !== "" && form.urlIssue && (
         <SettingsGroupNote role="status">{form.urlIssue}</SettingsGroupNote>
       )}
-      <EndpointSettingField
-        label="账号"
+      <EndpointSettingRow
+        title="账号"
         inputLabel="词库同步账号"
         description="网盘的登录账号，坚果云是登录邮箱。"
         value={form.username}
@@ -100,9 +100,9 @@ function DictionarySyncSettings({
       {form.username !== "" && form.usernameIssue && (
         <SettingsGroupNote role="status">{form.usernameIssue}</SettingsGroupNote>
       )}
-      <SecretSettingField
-        label="应用密码"
-        inputLabel="词库同步应用密码"
+      <SecretSettingRow
+        title="应用密码"
+        label="词库同步应用密码"
         description="在网盘的安全设置里为第三方应用生成的密码，不是登录密码。只存在本机的设置里，不会随设置文件导出或账号同步。"
         value={form.password}
         placeholder={form.hasSavedPassword ? "留空以保留已保存的应用密码" : undefined}

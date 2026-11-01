@@ -112,9 +112,13 @@ jobs:
       - name: Build the bundled wordbooks
         if: ${{ !inputs.source_release && !inputs.test_package_id }}
         run: python3 scripts/fetch_wordbooks.py
+      # 候选读音表：英文音标表（ECDICT，MIT）和法日西俄德韩的读音表（维基词典，CC BY-SA 4.0）。鸿蒙没有资源包下载，随 HAP 带；脚本取锁定的产物到 target/pronunciations 和 target/target-pronunciations（同时取另外两张释义表，鸿蒙不用），stage-resources.sh 放进 resfile/pronunciations 和 resfile/target-pronunciations，MSIME_REQUIRE_PRONUNCIATIONS=1 让缺了它们的 HAP 打不出来。
+      - name: Fetch the locked English pronunciation table
+        if: ${{ !inputs.source_release && !inputs.test_package_id }}
+        run: python3 scripts/fetch_gloss_tables.py
       - name: Stage the HarmonyOS engine resources
         if: ${{ !inputs.source_release && !inputs.test_package_id }}
-        env: {MSIME_REQUIRE_LANGUAGE_DICTIONARIES: "1", MSIME_REQUIRE_WORDBOOKS: "1"}
+        env: {MSIME_REQUIRE_LANGUAGE_DICTIONARIES: "1", MSIME_REQUIRE_WORDBOOKS: "1", MSIME_REQUIRE_PRONUNCIATIONS: "1"}
         run: |
           set -euo pipefail
           mkdir -p target/resources

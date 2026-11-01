@@ -59,9 +59,11 @@ platforms/android/tests/device/keyboard/FourteenKeyShuangpinDeviceChecks.java
 platforms/android/tests/device/keyboard/FourteenKeyWubiDeviceChecks.java
 platforms/android/tests/device/keyboard/EighteenKeyGeometryDeviceChecks.java
 platforms/android/tests/device/keyboard/NumberPadDeviceSmoke.java
+platforms/android/tests/device/keyboard/RandomDigitsDeviceChecks.java
 platforms/android/tests/device/keyboard/NineKeyShuangpinDeviceSmoke.java
 platforms/android/tests/device/keyboard/ShuangpinKeyFaceChecks.java
 platforms/android/tests/device/settings/SettingsDeviceSmoke.java
+platforms/android/tests/device/settings/LocalVoicePauseDeviceChecks.java
 platforms/android/tests/device/settings/CommonPhraseNotesDeviceCheck.java
 platforms/android/tests/device/settings/CommonPhraseCategoriesDeviceCheck.java
 platforms/android/tests/device/settings/NoticeQueueDeviceCheck.java
@@ -141,6 +143,7 @@ platforms/android/java/app/msime/android/keyboard/KeyboardKeyRole.java
 platforms/android/java/app/msime/android/keyboard/KeyboardLayout.java
 platforms/android/java/app/msime/android/keyboard/SuperscriptShortcutPolicy.java
 platforms/android/java/app/msime/android/keyboard/SwipeHintPolicy.java
+platforms/android/java/app/msime/android/keyboard/NineKeySwipePolicy.java
 platforms/android/java/app/msime/android/keyboard/LetterHintTable.java
 platforms/android/java/app/msime/android/keyboard/KeyboardPressButton.java
 platforms/android/java/app/msime/android/keyboard/KeyboardPressFeedback.java
@@ -270,5 +273,7 @@ platforms/android/gradle-app/ocr-fixture/app/msime/ocr/fixture/SyntheticOcrFixtu
 platforms/android/tests/device/keyboard/TextEditLineDeviceChecks.java
 platforms/android/tests/device/settings/OnboardingDeviceSmoke.java
 platforms/android/tests/device/keyboard/AboutEasterEggDeviceSmoke.java
+
+platforms/android/tests/device/voice/VoiceMascotDeviceChecks.java
 platforms/android/tests/device/voice/VoiceHoldDeviceChecks.java
 platforms/android/tests/device/settings/BootstrapPackagedDeviceSmoke.java

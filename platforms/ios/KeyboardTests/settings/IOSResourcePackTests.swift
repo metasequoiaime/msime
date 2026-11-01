@@ -5,7 +5,8 @@ final class IOSResourcePackTests: XCTestCase {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
     let packs = try IOSResourcePacks.list(stateRoot: root)
-    for id in ["japanese", "language-dictionaries"] {
+    // 英文音标表和两种词库一样只经资源包下载，大小同样来自锁文件。
+    for id in ["japanese", "language-dictionaries", CandidatePronunciationPreference.packID] {
       let pack = try XCTUnwrap(packs.first { $0.id == id })
       XCTAssertFalse(pack.installed)
       XCTAssertGreaterThan(pack.size, 0)
@@ -56,5 +57,7 @@ final class IOSResourcePackTests: XCTestCase {
     XCTAssertEqual(IOSResourcePacks.requiredPack(for: .stroke), "language-dictionaries")
     XCTAssertNil(IOSResourcePacks.requiredPack(for: .korean))
     XCTAssertNil(IOSResourcePacks.requiredPack(for: .quanpin))
+    // 音标表不随 App 分发：不能因为带着语言词库就当成已安装。
+    XCTAssertFalse(IOSResourcePacks.bundled(CandidatePronunciationPreference.packID))
   }
 }

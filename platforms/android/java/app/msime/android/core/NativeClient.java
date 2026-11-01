@@ -31,6 +31,8 @@ public final class NativeClient {
     private static final int KEY_GEOMETRY_LIMIT = 16_384;
     /** 与 JNI 和 C 入口一致，为 8 MiB 原始词表的 JSON 转义及元数据留出空间。 */
     private static final int VOCABULARY_REQUEST_LIMIT = 17 * 1024 * 1024;
+    /** 与 C 入口 {@code msime_client_personal_wordbook_add} 的 64 KiB 上限一致。 */
+    private static final int PERSONAL_WORDBOOK_REQUEST_LIMIT = 65536;
     static { System.loadLibrary("msime_android"); }
     private NativeClient() {}
     public static String create(String options) { return TextPolicy.utf8(createRaw(options.getBytes(StandardCharsets.UTF_8))); }
@@ -150,6 +152,50 @@ public final class NativeClient {
             return "{\"ok\":false,\"error\":\"invalid vocabulary review request\"}";
         }
         return TextPolicy.utf8(vocabularyReviewRaw(bytes));
+    }
+    /**
+     * 长按候选菜单的「加入生词本」：把候选原文、显示着的释义和读音交给共享层（C ABI {@code msime_client_personal_wordbook_add}），返回它答的那句给用户看的提示；请求不合法或存储出错时返回 null。取词书目录的文件锁、读写生词本，在工作线程调用。
+     */
+    public static String personalWordbookAdd(String directory, String candidate, String gloss, String pronunciation) {
+        byte[] bytes;
+        try {
+            bytes = new JSONObject().put("directory", directory).put("candidate", candidate)
+                .put("gloss", gloss).put("pronunciation", pronunciation)
+                .toString().getBytes(StandardCharsets.UTF_8);
+        } catch (JSONException error) {
+            return null;
+        }
+        if (!HttpBodyPolicy.isNonEmptyWithinLimit(bytes, PERSONAL_WORDBOOK_REQUEST_LIMIT)) return null;
+        try {
+            JSONObject envelope = new JSONObject(TextPolicy.utf8(personalWordbookAddRaw(bytes)));
+            if (!JsonPolicy.strictTrue(envelope.opt("ok"))) return null;
+            JSONObject value = envelope.optJSONObject("value");
+            String notice = value == null ? "" : JsonPolicy.strictStringOrEmpty(value.opt("notice"));
+            return notice.isEmpty() ? null : notice;
+        } catch (JSONException error) {
+            return null;
+        }
+    }
+    /**
+     * 长按候选菜单的「朗读」和背单词卡片的喇叭要读的英文（C ABI {@code msime_client_read_aloud_text}）：取每行释义的第一个义项，第一个是英文的就是答案；没有时候选本身是英文就读候选。没有能读的、请求不合法时返回 null，菜单就不出这一项。不读写文件，可以在主线程打开菜单时调用。背单词卡片把词头当作 {@code candidate}、{@code gloss} 给空串。
+     */
+    public static String readAloudText(String candidate, String gloss) {
+        byte[] bytes;
+        try {
+            bytes = new JSONObject().put("candidate", candidate == null ? "" : candidate)
+                .put("gloss", gloss == null ? "" : gloss).toString().getBytes(StandardCharsets.UTF_8);
+        } catch (JSONException error) {
+            return null;
+        }
+        if (!HttpBodyPolicy.isNonEmptyWithinLimit(bytes, PERSONAL_WORDBOOK_REQUEST_LIMIT)) return null;
+        try {
+            JSONObject envelope = new JSONObject(TextPolicy.utf8(readAloudTextRaw(bytes)));
+            if (!JsonPolicy.strictTrue(envelope.opt("ok"))) return null;
+            String text = JsonPolicy.strictStringOrEmpty(envelope.opt("value"));
+            return text.isEmpty() ? null : text;
+        } catch (JSONException error) {
+            return null;
+        }
     }
     /** Reads one bounded page from the verified packaged emoji catalog. Call on a worker. */
     public static String emojiCatalog(String query, String resources) {
@@ -576,6 +622,11 @@ public final class NativeClient {
         resourcePackCancelRaw(pack == null ? null : pack.getBytes(StandardCharsets.UTF_8));
     }
 
+    /** 卸载已发布的资源包：请求 {@code {"state_root","pack"}}，返回 {@code {ok,value:{removed}}}。工作线程调用。 */
+    public static String resourcePackRemove(String requestJson) {
+        return TextPolicy.utf8(resourcePackRemoveRaw(utf8(requestJson)));
+    }
+
     /**
      * 注入给 Rust 的会话存储（{@code msime_client_session_store}）的 Java 一侧：只提供字节，编解码、布局、校验和刷新都在 Rust。只在主进程里注册一次，同一份存储注册两次会各自缓存会话、拿同一个会轮换的刷新令牌各刷新一次。
      *
@@ -766,13 +817,19 @@ public final class NativeClient {
     }
 
     /**
-     * Load the model and open the session. Blocks while a model loads, so call on the worker that feeds the session. Returns null on success, else the recognizer's reason.
+     * 加载模型并开始会话，在提供音频的工作线程调用；成功返回空，失败返回原因。
      */
     public static String localSpeechStart(long handle, String modelDirectory, String language,
                                           String hotwords, int threads) {
+        return localSpeechStart(handle, modelDirectory, language, hotwords, threads, 0);
+    }
+
+    /** 本地整段模型可以指定 VAD 灵敏度，0 保留原阈值；流式模型不使用此参数。 */
+    public static String localSpeechStart(long handle, String modelDirectory, String language,
+                                          String hotwords, int threads, int vadSensitivity) {
         NativeHandlePolicy.requirePositive(handle);
         byte[] error = localSpeechStartRaw(handle, utf8(modelDirectory), utf8(language),
-            utf8(hotwords), threads);
+            utf8(hotwords), threads, vadSensitivity);
         return error == null ? null : TextPolicy.utf8(error);
     }
 
@@ -1075,6 +1132,8 @@ public final class NativeClient {
     private static native byte[] accountSettingsExportRaw(byte[] request);
     private static native byte[] accountSettingsApplyRaw(byte[] request);
     private static native byte[] vocabularyReviewRaw(byte[] request);
+    private static native byte[] personalWordbookAddRaw(byte[] request);
+    private static native byte[] readAloudTextRaw(byte[] request);
     private static native byte[] emojiCatalogRaw(byte[] query, byte[] resources);
     private static native byte[] candidateGlossesRaw(byte[] request, byte[] resources);
     private static native byte[] candidatePronunciationsRaw(byte[] request, byte[] resources);
@@ -1169,6 +1228,7 @@ public final class NativeClient {
     private static native byte[] resourcePacksRaw(byte[] request);
     private static native byte[] resourcePackInstallRaw(byte[] request, ResourcePackProgress listener);
     private static native void resourcePackCancelRaw(byte[] pack);
+    private static native byte[] resourcePackRemoveRaw(byte[] request);
     private static native byte[] resourcePackVerifyRaw(byte[] request);
     private static native byte[] resourcePackAdoptRaw(byte[] request);
     private static native byte[] testVoiceCredentialRaw(byte[] request);
@@ -1189,7 +1249,7 @@ public final class NativeClient {
     private static native byte[] voiceLocalModelRemoveRaw(byte[] request);
     private static native long localSpeechCreateRaw();
     private static native byte[] localSpeechStartRaw(long handle, byte[] model, byte[] language,
-                                                     byte[] hotwords, int threads);
+                                                     byte[] hotwords, int threads, int vadSensitivity);
     private static native byte[] localSpeechAcceptRaw(long handle, short[] pcm, int count);
     private static native boolean localSpeechSpeakingRaw(long handle);
     private static native byte[] localSpeechFinishRaw(long handle);

@@ -146,7 +146,7 @@ final class ImeCandidates {
     private final java.util.Set<Button> expandedCells =
         java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
 
-    /** 展开网格的单元：44 dp 高、圆角 8，底色和选中色都取候选栏配色。 */
+    /** 展开网格单元格：圆角 8，底色和选中色取候选栏配色；高度和文字大小跟随候选字号与候选栏大小，见 {@link CandidateScalePolicy#expandedCellHeight}。 */
     private void styleExpandedCell(Button button) {
         if (!keepsChipFace(button)) {
             android.graphics.drawable.StateListDrawable states = DrawablePolicy.stateList(
@@ -198,8 +198,27 @@ final class ImeCandidates {
                 popup.getMenu().add(Menu.NONE, action.menuItemId(), action.ordinal(), action.title());
             }
         }
+        // 「加入生词本」排在最后，和 iOS、鸿蒙的长按菜单、桌面的候选右键菜单同一个位置；只在这一行显示着可上屏的释义时出现。
+        boolean personalWordbook = CandidateManagementAction.offersPersonalWordbook(glosses);
+        // 「朗读」紧挨在它前面：有能读的英文（显示着的英文释义，或候选本身是英文）、本机又装着语音引擎时出现。
+        String readAloud = s.readAloudText(text, translation);
+        if (readAloud != null)
+            popup.getMenu().add(Menu.NONE, CandidateManagementAction.READ_ALOUD_MENU_ITEM,
+                CandidateManagementAction.READ_ALOUD_ORDER, CandidateManagementAction.READ_ALOUD_TITLE);
+        if (personalWordbook)
+            popup.getMenu().add(Menu.NONE, CandidateManagementAction.PERSONAL_WORDBOOK_MENU_ITEM,
+                CandidateManagementAction.PERSONAL_WORDBOOK_ORDER, CandidateManagementAction.PERSONAL_WORDBOOK_TITLE);
         popup.setOnMenuItemClickListener(item -> {
             s.imeKeyFeedback.playFeedback(button);
+            if (readAloud != null && item.getItemId() == CandidateManagementAction.READ_ALOUD_MENU_ITEM) {
+                s.readAloud(readAloud);
+                return true;
+            }
+            if (personalWordbook && item.getItemId() == CandidateManagementAction.PERSONAL_WORDBOOK_MENU_ITEM) {
+                s.addCandidateToPersonalWordbook(text, translation,
+                    candidate == null ? "" : s.candidateDisplayedReading(candidate));
+                return true;
+            }
             int glossIndex = item.getItemId() - 2000;
             if (glossIndex >= 0 && glossIndex < glosses.size()) {
                 if (stripSnapshot != null)
@@ -284,7 +303,7 @@ final class ImeCandidates {
         s.configureCandidateTextLayout(button, labelLines);
         if (s.candidatePronunciationVisible())
             button.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        KeyboardTypographyPolicy.setKeyTextSize(button, 17);
+        KeyboardTypographyPolicy.setKeyTextSize(button, CandidateScalePolicy.expandedTextSize(s.candidateFontSize));
         ViewPolicy.setSelected(button, highlighted);
         // AI 占位行画淡，云占位行由 ImeCandidateGrid 直接隐藏，免得内部标记进入手机候选面板（#6888）。
         boolean placeholder = AiPendingCandidatePolicy.isPlaceholder(source)
@@ -293,7 +312,8 @@ final class ImeCandidates {
         expandedCells.add(button);
         // 格子宽度由网格的列决定（CandidateGridPolicy），这里只量自然宽度。Button 默认样式自带 88 dp 的 minWidth，View 级的 setMinimumWidth 盖不掉它：每格至少 88 dp，手机上一行只放得下三格，右边空出一截。
         ViewPolicy.clearMinimumWidth(button);
-        ViewPolicy.setMinimumHeight(button, s.pixels(44));
+        ViewPolicy.setMinimumHeight(button, s.pixels(CandidateScalePolicy.expandedCellHeight(
+            CandidateScalePolicy.EXPANDED_CELL_HEIGHT_DP, s.candidateFontSize, s.candidateScalePercent)));
         LayoutPolicy.setHorizontalPaddingDp(button, s, 10);
         // The completed keyboard tree is styled once by MSIMEInputService.render().
         // Styling here would be repeated immediately after this button is attached.

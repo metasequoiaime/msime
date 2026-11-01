@@ -68,15 +68,16 @@ inline void move_korean_hanja_gloss(PresentationCandidate &candidate) {
   candidate.gloss = std::move(candidate.annotation);
   candidate.annotation.clear();
 }
-// 释义部分画出来的样子：每种目标语言一行，行后跟读音（candidate_gloss_display）。with_readings 为 false 时只有释义各行，不带读音。reading_ranges 不为空时记下读音的位置。
+// 释义部分画出来的样子：每种目标语言一行，有读音的行下面单独一行是它的读音（candidate_gloss_display）。with_readings 为 false 时只有释义各行，不带读音。reading_ranges 不为空时记下读音的位置，line_starts 不为空时记下每行释义的起点。
 inline std::string candidate_translation_display(const PresentationCandidate &candidate,
                                                  bool with_readings = true,
-                                                 std::vector<std::pair<size_t, size_t>> *reading_ranges = nullptr) {
+                                                 std::vector<std::pair<size_t, size_t>> *reading_ranges = nullptr,
+                                                 std::vector<size_t> *line_starts = nullptr) {
   std::vector<std::string> lines;
   if (!candidate.translation.empty())
     lines = translation_lines(candidate.translation);
   if (!with_readings)
-    return candidate_gloss_display(lines, {});
+    return candidate_gloss_display(lines, {}, nullptr, line_starts);
   std::vector<std::string> readings;
   for (size_t start = 0; !candidate.pronunciation.empty();) {
     const auto cut = candidate.pronunciation.find('\n', start);
@@ -85,7 +86,7 @@ inline std::string candidate_translation_display(const PresentationCandidate &ca
       break;
     start = cut + 1;
   }
-  return candidate_gloss_display(lines, readings, reading_ranges);
+  return candidate_gloss_display(lines, readings, reading_ranges, line_starts);
 }
 // 去掉首尾空白，和 macOS 的 whitespaceAndNewlineCharacterSet 一样：ASCII 空白、U+0085，以及 Unicode 的空格分隔符（U+00A0、U+1680、U+2000–U+200A、U+2028、U+2029、U+202F、U+205F、U+3000）。
 inline std::string_view candidate_trim_unicode_spaces(std::string_view trimmed) {
@@ -161,11 +162,13 @@ inline std::string candidate_script_annotation_line(const std::string &value) {
   }
   return std::string(candidate_trim_unicode_spaces(line));
 }
-// 一行候选下面那段较小的次要文字，连同要换样式画的几段：只有 훈음、只有释义，或 훈음 在上、释义在下一行；脚本插件的注释单独占最后一行，排在输入法自己的读音、译文之后，不挪动它们的位置，和 macOS 的 MSIMECandidateGlossWithScriptAnnotation 一样。释义部分是 candidate_translation_display：每种目标语言一行并跟着读音。候选窗只画不超过 4096 字节的文字（CandidateWindow 的 wide()），读音加上去超过时就不带读音，插件注释再加上去超过时就不带插件注释，免得一条很长的释义让整个候选窗画不出来。
+// 一行候选下面那段较小的次要文字，连同要换样式画的几段：只有 훈음、只有释义，或 훈음 在上、释义在下一行；脚本插件的注释单独占最后一行，排在输入法自己的读音、译文之后，不挪动它们的位置，和 macOS 的 MSIMECandidateGlossWithScriptAnnotation 一样。释义部分是 candidate_translation_display：每种目标语言一行，读音在它那一行下面单独一行。候选窗只画不超过 4096 字节的文字（CandidateWindow 的 wide()），读音加上去超过时就不带读音，插件注释再加上去超过时就不带插件注释，免得一条很长的释义让整个候选窗画不出来。
 struct CandidateSecondaryRun {
   std::string text;
   // 读音在 text 里的位置（UTF-8 字节的起点和长度），候选窗按释义色的 0.72 倍透明度画。
   std::vector<std::pair<size_t, size_t>> readings;
+  // 每行释义（每种目标语言一行，空行也算）在 text 里的起点（UTF-8 字节）；读音占了自己的行，第 N 行释义不一定是 text 的第 N 行，预选释义列的下划线按它找位置。没有释义时为空。
+  std::vector<size_t> translation_line_starts;
   // 插件注释那一行在 text 里的起点（UTF-8 字节），到 text 末尾为止，候选窗画成斜体；没有时为 npos。
   size_t script_start = std::string::npos;
 };
@@ -173,7 +176,9 @@ inline CandidateSecondaryRun candidate_secondary_run(const PresentationCandidate
   const auto compose = [&](bool with_readings) {
     CandidateSecondaryRun run;
     std::vector<std::pair<size_t, size_t>> readings;
-    const auto translation = candidate_translation_display(candidate, with_readings, &readings);
+    std::vector<size_t> line_starts;
+    const auto translation =
+        candidate_translation_display(candidate, with_readings, &readings, &line_starts);
     size_t offset = 0;
     if (candidate.gloss.empty()) {
       run.text = translation;
@@ -185,6 +190,8 @@ inline CandidateSecondaryRun candidate_secondary_run(const PresentationCandidate
     }
     for (const auto &[start, length] : readings)
       run.readings.emplace_back(offset + start, length);
+    for (const auto start : line_starts)
+      run.translation_line_starts.push_back(offset + start);
     return run;
   };
   auto run = compose(true);
@@ -247,7 +254,7 @@ inline std::string candidate_tooltip_text(const PresentationCandidate &candidate
     text += "\n" + secondary;
   return text;
 }
-// candidate_secondary_text 在折行之前有几行：훈음 和每种目标语言一行。Engine 不收含控制字符的释义，훈음 表里也没有，所以每个换行都是 candidate_secondary_text 自己放进去的。
+// candidate_secondary_text 在折行之前有几行：훈음、每种目标语言一行、每条读音一行，以及插件注释那一行。Engine 不收含控制字符的释义，훈음 表里也没有，所以每个换行都是 candidate_secondary_text 自己放进去的。候选窗按它排多行释义（CandidateItemWidths::translation_lines）：横排同一行的格子取最高一格的高度，所以一页里只要有一个候选有读音，每格都多出一行；竖排只有一行释义加它的读音时和 macOS 一样两行都留在候选右边（CandidateItemWidths::reading_lines，candidate_translation_beside），其他多行释义放在候选文字下面。
 inline size_t candidate_secondary_lines(const PresentationCandidate &candidate) {
   const auto text = candidate_secondary_text(candidate);
   return 1 + static_cast<size_t>(std::count(text.begin(), text.end(), '\n'));
@@ -352,15 +359,13 @@ candidate_gloss_column_range(const PresentationCandidate &candidate, int column)
   const auto gloss = gloss_column_text(candidate.translation, column);
   if (gloss.empty())
     return std::nullopt;
-  const auto text = candidate_secondary_text(candidate);
-  size_t start = 0;
-  for (int line = 1; line < column; ++line) {
-    const auto cut = text.find('\n', start);
-    if (cut == std::string::npos)
-      return std::nullopt;
-    start = cut + 1;
-  }
-  if (text.compare(start, gloss.size(), gloss) != 0)
+  // 第 column 行释义的起点按 candidate_secondary_run 报的位置取，不数换行：前一行释义有读音时，读音单独占了一行。
+  const auto run = candidate_secondary_run(candidate);
+  const auto line = static_cast<size_t>(column - 1);
+  if (line >= run.translation_line_starts.size())
+    return std::nullopt;
+  const size_t start = run.translation_line_starts[line];
+  if (run.text.compare(start, gloss.size(), gloss) != 0)
     return std::nullopt;
   return std::make_pair(start, gloss.size());
 }

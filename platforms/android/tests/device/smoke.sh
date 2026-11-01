@@ -338,6 +338,8 @@ verdict "Clipboard segment drag acceptance failed" MSIME_DEVICE_SMOKE_PASSED "$r
 
 # 数字默认九宫格涉及常规键面和字面提交，API 28 的核心验收同样覆盖。
 check "Number pad acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.NumberPadDeviceSmoke
+# 随机数字专项复用数字页入口，覆盖真实原生开关和逐次重排，两版设备都执行。
+check "Random digit pad acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.NumberPadDeviceSmoke -e random-digits true
 check "Password number pad acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.NumberPadDeviceSmoke -e password-number-pad true
 # 导航必须在原生宿主中验收：设置列表有「皮肤」一行，底部第二格是没有返回按钮、顶部为「皮肤 / 词库」分类的社区根页，AI 对话从设置压入二级页。
 check "Native chat navigation acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.ChatNavigationDeviceSmoke
@@ -358,6 +360,7 @@ check "Shared voice settings JNI acceptance failed" MSIME_DEVICE_SMOKE_PASSED ru
 # 语音接口提示与运行时共用校验；只传合成地址，不保存或联网。
 check "组合语音入口设置验收失败" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e voice-triggers true
 check "Shared voice endpoint JNI acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.VoiceEndpointSettingsDeviceSmoke
+check "Local voice pause settings acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e local-voice-pause true
 # 账号与云端的 JNI 入口和注入的会话存储（#8201）经真实 JNI 与 Rust 核对；只用合成会话、不联网，最低 API 的核心验收也执行。
 # 其中旧快照队列那一项（迁移计划 P13）要在主进程里真的激活一份整份快照，激活要独占词库维护权；输入法还绑着时 `:ime` 的会话占着词库，Rust 答 snapshot_unavailable。产品里激活只在键盘会话结束以后的 `:ime` 空闲时做，所以这里先停用本输入法让系统解绑它，跑完再启用、选回来，后面的套件照旧用它。
 "$adb" -s "$serial" shell ime disable "$ime_id" >/dev/null || stop "disabling $ime_id before the session store check failed"

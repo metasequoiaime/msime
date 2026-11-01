@@ -123,6 +123,24 @@ public final class KeyboardSkinSmoke {
         check("#151022".equals(custom.background()) && "#30224A".equals(custom.gradientEnd()));
         check(custom.gradientHorizontal() && custom.patternOpacity() == .2);
         check("pebble".equals(custom.keyShape()) && "glass".equals(custom.keyMaterial()));
+
+        // 工具栏品牌键取当前皮肤的强调色与键盘底色（标志 = 强调色 82% 混黑，圆盘 = 强调色 14% / 22% 混底色），与鸿蒙 keyboard-logic.test.ts、iOS KeyboardSkinTests 的期望一致；换应用主题不改命名皮肤和自定义设计的品牌键。
+        check(autumn.logoMark() == 0xFF944723 && autumn.logoDisc() == 0xFFE6C5B1);
+        check(autumnDark.logoMark() == 0xFFC57C4E && autumnDark.logoDisc() == 0xFF573D2C);
+        check(light.logoMark() == 0xFF24643D && light.logoDisc() == 0xFFC6DCCA);
+        AppThemePalette.Seed winter = new AppThemePalette.Seed("dongxue", "winter",
+            new AppThemePalette.Mode(0xFF3E6A8A, 0xFFEEF3F7, 0xFFFFFFFF, 0x333E6A8A, 0xFFFFFFFF),
+            new AppThemePalette.Mode(0xFF9CC3E0, 0xFF10161B, 0xFF1A2229, AppThemePalette.HAIR_DARK, 0xFF0F2A3D));
+        KeyboardSkin teal = KeyboardSkin.palette("night", "夜青", false, "#0F1B22", "#1D3340",
+            "#15252E", "#E6F1F4", "#86A6B0", "#4FD1C5", "#000000");
+        KeyboardSkin nightAutumn = teal.withAppTheme(AppThemePalette.Seed.AUTUMN);
+        KeyboardSkin nightWinter = teal.withAppTheme(winter);
+        check(nightAutumn.logoMark() == 0xFF41ABA2 && nightAutumn.logoDisc() == 0xFF183439);
+        check(nightAutumn.logoMark() == nightWinter.logoMark() && nightAutumn.logoDisc() == nightWinter.logoDisc());
+        check(!nightAutumn.returnBackground().equals(nightWinter.returnBackground()));
+        check(custom.withAppTheme(AppThemePalette.Seed.AUTUMN).logoDisc() == custom.withAppTheme(winter).logoDisc());
+        check(custom.logoMark() == AppThemePalette.mix(0xFFD4BBFF, 82, 0xFF000000)
+            && custom.logoDisc() == AppThemePalette.mix(0xFFD4BBFF, 14, 0xFF151022));
         check(custom.keyOpacity() == .45 && custom.cornerRadius() == 17);
         check("#A987E8".equals(custom.borderColor()) && "#000000".equals(custom.actionForeground()));
         check("#D4BBFF".equals(custom.accent()) && "#000000".equals(custom.onAccent()));

@@ -1,5 +1,6 @@
 #include "../src/core/ClientEngine.h"
 #include "../../../common/HostApiString.h"
+#include "../../../common/VocabularyDueMenu.h"
 #include "msime_client.h"
 #include "system/CapsLockRelease.h"
 #include <algorithm>
@@ -73,6 +74,11 @@ struct Observation {
   bool desktop_help = false;
   bool desktop_feedback = false;
   bool desktop_dictionary = false;
+  // 「背单词（今日待复习 N）…」最近一次注册或更新时可不可见、写的是什么。
+  bool vocabulary_visible = false;
+  std::string vocabulary_label;
+  // 是否在某次注册里见过它（任何一层）。
+  bool vocabulary_registered = false;
   // Keys of the last RegisterProperties, top level only, in menu order.
   std::vector<std::string> registered_keys;
   // The 输入方案 menu's entries as it was last sent, each with whether it is checked. An update sends the entries before the menu, so the list is whole once the menu itself arrives.
@@ -229,6 +235,11 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
       seen.global_theme = key.substr(std::string("GlobalTheme/").size());
     if (key == "TraditionalOutput")
       seen.traditional_output = ibus_property_get_state(property) == PROP_STATE_CHECKED;
+    if (key == "DesktopTools/Vocabulary") {
+      if (std::string(name) == "RegisterProperties") seen.vocabulary_registered = true;
+      seen.vocabulary_visible = ibus_property_get_visible(property);
+      seen.vocabulary_label = ibus_text_get_text(ibus_property_get_label(property));
+    }
     if (key == "CharacterMode")
       seen.character_width = ibus_property_get_state(property) == PROP_STATE_CHECKED;
     if (key == "Punctuation")
@@ -2622,7 +2633,7 @@ int main(int argc, char **argv) {
     seen = Observation{};
     invoke("FocusIn");
     {
-      // 顶层按 macOS 输入法菜单的顺序：中文输入、英文候选模式；繁体、全角、标点、译文；输入方案、主题；显示工具栏与工具栏子菜单、表情面板、云剪贴板、云词库、屏幕键盘、手写、语音；设置、关于；之后才是 Linux 独有的词库…。
+      // 顶层按 macOS 输入法菜单的顺序：中文输入、英文候选模式；繁体、全角、标点、译文；输入方案、主题；显示工具栏与工具栏子菜单、表情面板、云剪贴板、云词库、屏幕键盘、手写、语音；设置、关于；之后才是 Linux 独有的词库…。背单词不在顶层（kimpanel 会把顶层属性画成常驻按钮），在「桌面工具」子菜单里，没有待复习时注册成不可见。
       const std::vector<std::string> design{
           "InputMode", "EnglishMode", "Separator/Mode", "TraditionalOutput", "CharacterMode", "Punctuation",
           "CandidateTranslations", "Separator/Switches", "Scheme", "GlobalTheme", "Separator/Scheme",
@@ -2633,6 +2644,12 @@ int main(int argc, char **argv) {
       require(seen.registered_keys.size() > design.size() &&
                   std::equal(design.begin(), design.end(), seen.registered_keys.begin()),
               "IBus properties were not registered in the macOS menu order");
+      require(std::find(seen.registered_keys.begin(), seen.registered_keys.end(), "DesktopTools/Vocabulary") ==
+                      seen.registered_keys.end() &&
+                  seen.vocabulary_registered,
+              "The vocabulary row was not registered inside 桌面工具");
+      require(!seen.vocabulary_visible,
+              "The vocabulary row was shown for a profile that never opened 背单词");
     }
     {
       const auto panel_marker = root / "panel-launches.log";
@@ -2712,6 +2729,45 @@ int main(int argc, char **argv) {
         require(wait_panel([&] { return panel_routes().size() == launches + 1; }) &&
                     panel_routes().back() == "keyboard",
                 "Ctrl+Shift+Super+K did not launch the screen keyboard");
+      }
+      // 背单词：经与设置应用相同的 C ABI 导入两个合成词，再次获得焦点时「背单词（今日待复习 2）…」可见，点它按 vocabulary 路由打开面板；删掉这本书后又不可见，后面的检查不受影响。
+      {
+        const auto directory = options.at("preferences_directory").get<std::string>();
+        const auto review = [&](const nlohmann::json &action) {
+          const auto request = nlohmann::json{
+              {"directory", directory}, {"resources", directory},
+              {"day", msime::vocabulary_due::local_day(std::time(nullptr))},
+              {"action", action}}.dump();
+          auto raw = msime::host_api::own_string(msime_client_vocabulary_review(
+              reinterpret_cast<const uint8_t *>(request.data()), request.size()));
+          const auto response = nlohmann::json::parse(raw ? raw.get() : "{}", nullptr, false);
+          require(!response.is_discarded() && response.value("ok", false),
+                  "The synthetic vocabulary request failed");
+          return response.at("value");
+        };
+        const auto book = review({{"operation", "import"}, {"name", "合成词表"},
+                                  {"text", "alpha,adj. 甲\nbeta,adj. 乙\n"}})
+                              .at("settings").at("wordbook").get<std::string>();
+        invoke("FocusOut");
+        invoke("FocusIn");
+        require(seen.vocabulary_visible && seen.vocabulary_label == "背单词（今日待复习 2）…",
+                "The vocabulary row did not show today's due count after focus");
+        // 组字一开始这一行就收起，取消组字后又回来，不等下一次获得焦点。
+        require(key('n') && wait_until([&] { return !seen.vocabulary_visible; }),
+                "The vocabulary row stayed visible while composing");
+        require(key(IBUS_Escape) && wait_until([&] { return seen.vocabulary_visible; }) &&
+                    seen.vocabulary_label == "背单词（今日待复习 2）…",
+                "The vocabulary row did not come back after the composition ended");
+        const auto launches = panel_routes().size();
+        invoke("PropertyActivate",
+               g_variant_new("(su)", "DesktopTools/Vocabulary", PROP_STATE_UNCHECKED));
+        require(wait_panel([&] { return panel_routes().size() == launches + 1; }) &&
+                    panel_routes().back() == "vocabulary",
+                "The vocabulary row did not open the vocabulary panel");
+        review({{"operation", "remove"}, {"wordbook", book}});
+        invoke("FocusOut");
+        invoke("FocusIn");
+        require(!seen.vocabulary_visible, "The vocabulary row stayed after the book was removed");
       }
       g_unsetenv("MSIME_CLIENT_SETTINGS_COMMAND");
     }

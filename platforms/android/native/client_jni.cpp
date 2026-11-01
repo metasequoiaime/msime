@@ -58,6 +58,8 @@ constexpr jsize kCloudClipboardRelayRequestLimit = 131072;
 constexpr jsize kDictionarySyncRequestLimit = 2 * 1024 * 1024;
 // 与 C 入口一致：为 8 MiB 原始词表的 JSON 转义和元数据留出空间。
 constexpr jsize kVocabularyReviewRequestLimit = 17 * 1024 * 1024;
+// 「加入生词本」：候选原文、释义和读音，与 C 入口的 64 KiB 上限一致。
+constexpr jsize kPersonalWordbookRequestLimit = 65536;
 constexpr jsize kPrepareHostRequestLimit = 16384;
 constexpr jsize kSavePreferencesDirectoryLimit = 16384;
 constexpr jsize kSavePreferencesSnapshotLimit = 1 * 1024 * 1024;
@@ -214,6 +216,15 @@ JNIEXPORT jint JNICALL Java_app_msime_android_NativeClient_typingStatisticsEnabl
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_vocabularyReviewRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kVocabularyReviewRequestLimit,
         msime_client_vocabulary_review);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_personalWordbookAddRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kPersonalWordbookRequestLimit,
+        msime_client_personal_wordbook_add);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_readAloudTextRaw(JNIEnv *env, jclass, jbyteArray request) {
+    // 与「加入生词本」同一个上限：候选和释义都是一行显示文字。
+    return bounded_request(env, request, kPersonalWordbookRequestLimit,
+        msime_client_read_aloud_text);
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_emojiCatalogRaw(JNIEnv *env, jclass, jbyteArray query, jbyteArray resources) {
     if (!query || !resources) {
@@ -1351,6 +1362,9 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_resourcePackVer
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_resourcePackAdoptRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kResourcePackRequestLimit, msime_client_resource_pack_adopt);
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_resourcePackRemoveRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kResourcePackRequestLimit, msime_client_resource_pack_remove);
+}
 // listener 可以为 null；不为 null 时在本线程上收到 onProgress(phase, done, total)。listener 抛出的异常在安装结束后原样抛给调用方，此时不返回结果。
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_resourcePackInstallRaw(JNIEnv *env, jclass, jbyteArray request, jobject listener) {
     ResourcePackProgress progress{env, listener, nullptr};
@@ -1453,8 +1467,8 @@ JNIEXPORT jlong JNICALL Java_app_msime_android_NativeClient_localSpeechCreateRaw
         return 0;
     }
 }
-// Loads the model (seconds on a phone the first time; cached afterwards) and opens the session. Hotwords arrive newline-separated. Returns null on success, else a message for logs.
-JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_localSpeechStartRaw(JNIEnv *env, jclass, jlong handle, jbyteArray model, jbyteArray language, jbyteArray hotwords, jint threads) {
+// 加载模型并开始会话。热词用换行分隔；成功返回空，失败返回原因。
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_localSpeechStartRaw(JNIEnv *env, jclass, jlong handle, jbyteArray model, jbyteArray language, jbyteArray hotwords, jint threads, jint vad_sensitivity) {
     auto state = speech(handle);
     if (!state || state->session) return bytes_of(env, "invalid local speech session");
     std::string model_text;
@@ -1469,6 +1483,7 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_localSpeechStar
     options.model_dir = model_text;
     options.language = language_text;
     options.threads = threads < 0 ? 0 : threads;
+    options.vad_sensitivity_percent = vad_sensitivity;
     const std::string &words = hotwords_text;
     for (size_t start = 0; start < words.size();) {
         size_t end = words.find('\n', start);

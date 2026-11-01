@@ -28,7 +28,7 @@ final class VoiceAutoInsertDeviceCases {
 
     static void run(Instrumentation instrumentation) throws Exception {
         Throwable[] failure = new Throwable[1];
-        Object[] owned = new Object[2];
+        Object[] owned = new Object[1];
         Path[] directory = new Path[1];
         java.util.concurrent.CountDownLatch inserted = new java.util.concurrent.CountDownLatch(1);
         Runnable[] verify = new Runnable[1];
@@ -42,22 +42,10 @@ final class VoiceAutoInsertDeviceCases {
                     Class<?> snapshotType = loader.loadClass("app.msime.android.EditorContextSnapshot");
                     Object service = serviceType.getConstructor().newInstance();
                     owned[0] = service;
-                    Class<?> gateType = loader.loadClass("app.msime.android.ImePrivacyGate");
-                    var gateConstructor = gateType.getDeclaredConstructor(serviceType);
-                    gateConstructor.setAccessible(true);
-                    field(serviceType, "imePrivacyGate").set(service, gateConstructor.newInstance(service));
-                    // 无统计目录，避免异步任务写入测试包以外的语音或打字记录。
-                    Context isolated = new ContextWrapper(context) {
-                        @Override public java.io.File getFilesDir() { return null; }
-                    };
-                    method(ContextWrapper.class, "attachBaseContext", Context.class).invoke(service, isolated);
-                    // 聆听面板按产品路径解析皮肤，合成服务也必须装配真实样式组件。
-                    Class<?> stylerType = loader.loadClass("app.msime.android.ImeStyler");
-                    var stylerConstructor = stylerType.getDeclaredConstructor(serviceType);
-                    stylerConstructor.setAccessible(true);
-                    field(serviceType, "imeStyler").set(service, stylerConstructor.newInstance(service));
                     directory[0] = Files.createTempDirectory(context.getCacheDir().toPath(), "voice-insertion-");
-                    Object store = storeType.getConstructor(Path.class).newInstance(directory[0]);
+                    Context isolated = isolatedContext(context, directory[0], null);
+                    attachAndCreate(service, isolated);
+                    Object store = storeType.getConstructor(Path.class).newInstance(Files.createDirectories(directory[0].resolve("results")));
                     field(serviceType, "voiceResultStore").set(service, store);
                     field(serviceType, "session").setLong(service, 1);
                     field(serviceType, "view").set(service, new JSONObject());
@@ -68,10 +56,7 @@ final class VoiceAutoInsertDeviceCases {
                     field(serviceType, "connection").set(service, connection);
                     method(serviceType, "captureVoiceTarget").invoke(service);
                     Class<?> entryType = loader.loadClass("app.msime.android.ImeVoiceEntry");
-                    var constructor = entryType.getDeclaredConstructor(serviceType);
-                    constructor.setAccessible(true);
-                    Object entry = constructor.newInstance(service);
-                    owned[1] = entry;
+                    Object entry = field(serviceType, "imeVoiceEntry").get(service);
                     checkUploadControls(entry, context, loader);
                     field(entryType, "generation").setLong(entry, 7);
                     // 签名与 ImeVoiceEntry.delivered 一致：session、text、failure、notice、pcm、elapsedMillis、language、provider。反射查找不经编译检查，产品改了参数这里要同步改。
@@ -136,20 +121,13 @@ final class VoiceAutoInsertDeviceCases {
             if (verify[0] != null && failure[0] == null) instrumentation.runOnMainSync(verify[0]);
             if (failure[0] != null) throw described(failure[0]);
         } finally {
-            for (Object owner : owned) {
-                if (owner == null) continue;
-                for (Field member : owner.getClass().getDeclaredFields()) {
-                    if (!ExecutorService.class.isAssignableFrom(member.getType())) continue;
-                    member.setAccessible(true);
-                    ((ExecutorService) member.get(owner)).shutdownNow();
-                }
-            }
-            if (directory[0] != null) {
-                try (var files = Files.list(directory[0])) {
-                    for (Path path : (Iterable<Path>) files::iterator) Files.deleteIfExists(path);
-                }
-                Files.deleteIfExists(directory[0]);
-            }
+            instrumentation.runOnMainSync(() -> {
+                try { destroyService(owned[0]); }
+                catch (Exception error) { if (failure[0] == null) failure[0] = error; }
+            });
+            shutdownWorkers(owned[0]);
+            deleteDirectory(directory[0]);
+            if (failure[0] != null) throw described(failure[0]);
         }
     }
 
@@ -213,25 +191,17 @@ final class VoiceAutoInsertDeviceCases {
         instrumentation.runOnMainSync(() -> {
             Object service = null;
             Object entry = null;
+            Path directory = null;
             android.content.Intent[] launched = new android.content.Intent[1];
             try {
                 Context context = instrumentation.getTargetContext();
                 ClassLoader loader = context.getClassLoader();
                 Class<?> serviceType = loader.loadClass("app.msime.android.MSIMEInputService");
                 service = serviceType.getConstructor().newInstance();
-                Context isolated = new ContextWrapper(context) {
-                    @Override public java.io.File getFilesDir() { return null; }
-                    @Override public void startActivity(android.content.Intent intent) { launched[0] = intent; }
-                };
-                method(ContextWrapper.class, "attachBaseContext", Context.class).invoke(service, isolated);
-                Class<?> overlayType = loader.loadClass("app.msime.android.ImeDebugOverlay");
-                var overlay = overlayType.getDeclaredConstructor(serviceType);
-                overlay.setAccessible(true);
-                field(serviceType, "imeDebugOverlay").set(service, overlay.newInstance(service));
+                directory = Files.createTempDirectory(context.getCacheDir().toPath(), "voice-fallback-");
+                attachAndCreate(service, isolatedContext(context, directory, launched));
                 Class<?> entryType = loader.loadClass("app.msime.android.ImeVoiceEntry");
-                var constructor = entryType.getDeclaredConstructor(serviceType);
-                constructor.setAccessible(true);
-                entry = constructor.newInstance(service);
+                entry = field(serviceType, "imeVoiceEntry").get(service);
                 field(entryType, "generation").setLong(entry, 9L);
                 method(entryType, "uploadPermissionFailed", long.class).invoke(entry, 9L);
                 check(launched[0] != null && launched[0].getComponent().getClassName()
@@ -248,12 +218,10 @@ final class VoiceAutoInsertDeviceCases {
             } catch (Throwable error) { failure[0] = error; }
             finally {
                 try {
-                    if (entry != null) method(entry.getClass(), "shutdown").invoke(entry);
-                    if (service != null) {
-                        Object ownEntry = field(service.getClass(), "imeVoiceEntry").get(service);
-                        if (ownEntry != null) method(ownEntry.getClass(), "shutdown").invoke(ownEntry);
-                    }
-                } catch (Exception error) { failure[0] = error; }
+                    destroyService(service);
+                    shutdownWorkers(service);
+                    deleteDirectory(directory);
+                } catch (Exception error) { if (failure[0] == null) failure[0] = error; }
             }
         });
         if (failure[0] != null) {
@@ -261,6 +229,67 @@ final class VoiceAutoInsertDeviceCases {
             while (cause.getCause() != null) cause = cause.getCause();
             throw new AssertionError("HTTP 前台回退回归失败：" + cause.getClass().getSimpleName()
                 + " at " + cause.getStackTrace()[0], failure[0]);
+        }
+    }
+
+    /** attachBaseContext 会注册窗口配置回调，服务必须走完整创建与销毁，不能只关闭线程池。 */
+    private static void attachAndCreate(Object service, Context context) throws Exception {
+        method(ContextWrapper.class, "attachBaseContext", Context.class).invoke(service, context);
+        service.getClass().getMethod("onCreate").invoke(service);
+        // 在安装假 session 之前重放配置回调，旧的半初始化服务会在这里确定性失败。
+        service.getClass().getMethod("onConfigurationChanged", android.content.res.Configuration.class)
+            .invoke(service, new android.content.res.Configuration(context.getResources().getConfiguration()));
+    }
+
+    private static Context isolatedContext(Context context, Path root,
+                                            android.content.Intent[] launched) throws Exception {
+        Path files = Files.createDirectories(root.resolve("files"));
+        Path cache = Files.createDirectories(root.resolve("cache"));
+        Path state = Files.createDirectories(files.resolve("bootstrap/state"));
+        Class<?> nativeType = context.getClassLoader().loadClass("app.msime.android.NativeClient");
+        JSONObject defaults = new JSONObject((String) nativeType.getMethod("defaultPreferences").invoke(null));
+        check(defaults.getBoolean("ok"), "合成偏好必须可用");
+        JSONObject preferences = defaults.getJSONObject("value").put("usage_reporting", false);
+        Files.write(state.resolve("preferences.json"), new JSONObject().put("format_version", 1)
+            .put("revision", 0).put("preferences", preferences).toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        Files.write(files.resolve("runtime-options.json"), new JSONObject()
+            .put("preferences_directory", state.toString()).toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        return new ContextWrapper(context) {
+            @Override public java.io.File getFilesDir() { return files.toFile(); }
+            @Override public java.io.File getCacheDir() { return cache.toFile(); }
+            @Override public Context getApplicationContext() { return this; }
+            @Override public void startActivity(android.content.Intent intent) {
+                if (launched == null) throw new AssertionError("自动插入用例不能启动外部窗口");
+                launched[0] = intent;
+            }
+        };
+    }
+
+    private static void destroyService(Object service) throws Exception {
+        if (service == null) return;
+        // 1 只是自动插入的合成身份，不能交给 NativeClient.destroy 当成真实句柄释放。
+        field(service.getClass(), "session").setLong(service, 0);
+        field(service.getClass(), "connection").set(service, null);
+        service.getClass().getMethod("onDestroy").invoke(service);
+    }
+
+    private static void shutdownWorkers(Object service) throws Exception {
+        if (service == null) return;
+        for (Field member : service.getClass().getDeclaredFields()) {
+            if (!ExecutorService.class.isAssignableFrom(member.getType())) continue;
+            member.setAccessible(true);
+            ExecutorService worker = (ExecutorService) member.get(service);
+            if (worker == null) continue;
+            worker.shutdownNow();
+            check(worker.awaitTermination(3, java.util.concurrent.TimeUnit.SECONDS), "合成服务工作线程必须退出");
+        }
+    }
+
+    private static void deleteDirectory(Path directory) throws Exception {
+        if (directory == null) return;
+        try (var paths = Files.walk(directory)) {
+            for (Path path : paths.sorted(java.util.Comparator.reverseOrder()).toArray(Path[]::new))
+                Files.deleteIfExists(path);
         }
     }
 

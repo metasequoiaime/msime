@@ -4,6 +4,30 @@
 
 > 이 문서는 [간체 중국어 README](../../README.md)의 번역본이며, 간체 중국어판이 기준입니다. 링크된 문서는 대부분 중국어입니다.
 
+### 중국어를 치면, 후보 바로 옆에 영어가.
+
+「영어 뜻 표시」(显示英文释义)를 켜면 오프라인 사전에 뜻이 있는 후보 옆에 영어가 표시됩니다. 컴퓨터에서는 「후보 번역」(候选词翻译)까지 켜면 Ctrl+Enter로 강조된 후보의 영어를 입력합니다. 뜻이 하나면 바로 입력되고, 여러 개면 먼저 목록을 보여 주고 고르게 합니다.
+
+```text
+입력         후보 창                Ctrl+Enter로 입력
+yusuan   →  预算   budget       →  budget
+zhoumo   →  周末   weekend      →  weekend
+```
+
+**[메타세쿼이아 IME 다운로드](https://msime.app/download/)** · Windows · macOS · Linux · Android · iOS · HarmonyOS · 무료 오픈 소스(GPL-3.0-only)
+
+- **켜는 방법**: 기본으로 모두 꺼져 있습니다. 설정에서 「영어 뜻 표시」(显示英文释义, Android와 iOS에서는 「오프라인 영어 뜻」离线英文释义)를 켜고, 읽는 법도 보려면 「읽는 법 표시」(显示读音)도 켭니다. 영어 뜻에는 발음 기호, 일본어 뜻에는 헵번식 로마자, 한국어 뜻에는 국어의 로마자 표기법(개정 로마자 표기법)에 따른 로마자, 프랑스어·스페인어·러시아어·독일어 뜻에는 IPA(독일어는 실제 발음을 적은 정밀 표기)가 붙습니다. 뜻과 읽는 법은 기기 안의 사전에서 찾으므로 표시할 때 네트워크를 쓰지 않습니다(Android, iOS, Linux에서는 영어 발음 기호 사전과 나머지 여섯 언어의 읽는 법 사전을 설정에서 각각 한 번 내려받습니다). 「후보 번역」도 온라인 번역 서비스를 고르지 않으면 기기 안의 사전만 찾습니다.
+- **그 밖에**: 「후보 번역」의 대상 언어는 프랑스어, 일본어, 스페인어, 러시아어, 독일어, 한국어로도 바꿀 수 있습니다(HarmonyOS 휴대폰에는 러시아어가 없습니다). 「단어 외우기」(背单词)에는 중고 입시(中考)부터 GRE까지 단어장 여덟 권이 들어 있고, 간격 반복으로 복습 일정을 잡습니다.
+- **플랫폼별 차이**: 읽는 법은 현재 macOS, Linux, Android, iOS, HarmonyOS, Windows 새 버전 미리 보기에서 표시됩니다. Windows 정식판은 [msime-windows](https://github.com/metasequoiaime/msime-windows)가 배포하며 「영어 뜻 표시」라는 별도 스위치가 없고 「후보 번역」(候选词翻译)을 켜면 오프라인 영어 뜻이 표시되며 Ctrl+Enter도 쓸 수 있지만, 발음 기호와 간격 반복 「단어 외우기」 단어장은 아직 없습니다. 모바일 앱은 아직 베타입니다.
+
+**입력기는 여러분이 입력하는 모든 것을 볼 수 있으므로, 이 질문에는 항목별로 확인할 수 있는 답이 있어야 합니다: [어떤 데이터가 기기를 떠나는가](../../PRIVACY.md).** 짧게 말하면, 새로 설치한 기본 설정에서는 입력한 내용을 기기 밖으로 보내는 기능이 없습니다. 클라우드 연상(조합 중인 병음을 Google 입력 도구로 보내는 기능)은 처음 물어볼 때나 설정에서 직접 켜야 하며, 나머지 네트워크 기능은 모두 직접 자격 증명을 입력하거나 서비스를 선택해야만 동작합니다. 이와 별도로 입력 내용을 담지 않는 자체 익명 사용 통계가 하나 있습니다. 여섯 플랫폼 모두 `api.msime.app`에 일일 활성, 세션, 크래시(오류 요약과 디렉터리를 제거한 호출 스택) 기록을 보내며, 기본으로 켜져 있고 설정의 「익명 사용 통계」에서 끌 수 있습니다. 필드, 플랫폼별 차이, 디스크 저장 위치는 [PRIVACY.md](../../PRIVACY.md#使用统计与崩溃上报默认开启可关闭)에 항목별로 나와 있습니다. 저장소는 어떠한 서드파티 통계나 크래시 보고 SDK도 사용하지 않습니다.
+
+메타세쿼이아 IME(MSIME)는 Android, iOS, macOS, Linux, Windows, HarmonyOS를 위한 멀티플랫폼 중국어 입력기입니다. 여섯 플랫폼은 각자 고유한 네이티브 입력기 호스트를 가지며, 모두 동일한 공유 입력 런타임에 연결됩니다. 설정 화면은 플랫폼별로 담당이 나뉘어 macOS, Linux, HarmonyOS는 동일한 공유 React 설정 페이지를, Windows, iOS, Android는 각자의 네이티브 설정 화면을 쓰며, 설정의 비즈니스 규칙은 공유 Rust 계층에 두고 각 플랫폼 화면은 화면만 맡아야 합니다(현재는 일부 규칙이 아직 네이티브 화면 쪽에 적혀 있습니다). React 설정 페이지는 macOS와 Linux에서는 Tauri를 통해 일반 Rust 비즈니스 라이브러리를 호출하고, HarmonyOS에서는 Tauri를 거치지 않고 ArkWeb이 로드하여 ArkTS 네이티브 브리지와 NAPI를 통해 Rust를 호출하며, 입력 알고리즘은 msime-engine이 제공합니다.
+
+프로젝트 홈페이지: [msime.app](https://msime.app/) · [GitHub 저장소](https://github.com/metasequoiaime/msime) · [기여자](https://github.com/metasequoiaime/msime/graphs/contributors) · [문제 보고](https://github.com/metasequoiaime/msime/issues) · [코드 서명 정책 / Code signing policy](https://github.com/metasequoiaime/msime-windows/blob/develop/docs/code-signing-policy.md)
+
+> **이름에 관하여**: MSIME는 Metasequoia IME(水杉输入法)의 약칭이며, Microsoft IME와 무관하고 Microsoft와도 아무런 관계가 없습니다. 코드, 패키지 이름, 저장소 이름에 쓰인 `msime`는 모두 이 의미입니다. 설정의 `shuangpin_profile: microsoft`는 「마이크로소프트 쌍병(微软双拼)」 방식으로, Xiaohe(小鹤), Ziranma(自然码), Shoudao(首道)와 나란히 있는 네 가지 키 배치 방식 중 하나이며, 이 키 배치에 익숙한 사용자가 선택할 수 있도록 제공하는 것일 뿐 역시 어떠한 관계도 의미하지 않습니다.
+
 [![Core CI](https://img.shields.io/github/actions/workflow/status/metasequoiaime/msime/ci.yml?branch=develop&label=Core%20CI&logo=githubactions&logoColor=white)](https://github.com/metasequoiaime/msime/actions/workflows/ci.yml?query=branch%3Adevelop)
 [![Native Platform CI](https://img.shields.io/github/actions/workflow/status/metasequoiaime/msime/ci-platforms.yml?branch=develop&label=Platform%20CI&logo=githubactions&logoColor=white)](https://github.com/metasequoiaime/msime/actions/workflows/ci-platforms.yml?query=branch%3Adevelop)
 [![CodeQL](https://img.shields.io/github/actions/workflow/status/metasequoiaime/msime/codeql.yml?branch=develop&event=schedule&label=CodeQL&logo=github)](https://github.com/metasequoiaime/msime/actions/workflows/codeql.yml)
@@ -26,17 +50,9 @@
 [![Last commit](https://img.shields.io/github/last-commit/metasequoiaime/msime/develop)](https://github.com/metasequoiaime/msime/commits/develop)
 <a href="https://depot.dev/?utm_source=metasequoiaime"><img src="https://depot.dev/badges/built-with-depot.svg" alt="Built with Depot" height="20"></a>
 
-메타세쿼이아 IME(MSIME)는 Android, iOS, macOS, Linux, Windows, HarmonyOS를 위한 멀티플랫폼 중국어 입력기입니다. 여섯 플랫폼은 각자 고유한 네이티브 입력기 호스트를 가지며, 모두 동일한 공유 입력 런타임에 연결됩니다. 설정 화면은 플랫폼별로 담당이 나뉘어 macOS, Linux, HarmonyOS는 동일한 공유 React 설정 페이지를, Windows, iOS, Android는 각자의 네이티브 설정 화면을 쓰며, 설정의 비즈니스 규칙은 공유 Rust 계층에 두고 각 플랫폼 화면은 화면만 맡아야 합니다(현재는 일부 규칙이 아직 네이티브 화면 쪽에 적혀 있습니다). React 설정 페이지는 macOS와 Linux에서는 Tauri를 통해 일반 Rust 비즈니스 라이브러리를 호출하고, HarmonyOS에서는 Tauri를 거치지 않고 ArkWeb이 로드하여 ArkTS 네이티브 브리지와 NAPI를 통해 Rust를 호출하며, 입력 알고리즘은 msime-engine이 제공합니다.
-
-프로젝트 홈페이지: [msime.app](https://msime.app/) · [GitHub 저장소](https://github.com/metasequoiaime/msime) · [기여자](https://github.com/metasequoiaime/msime/graphs/contributors) · [문제 보고](https://github.com/metasequoiaime/msime/issues) · [코드 서명 정책 / Code signing policy](https://github.com/metasequoiaime/msime-windows/blob/develop/docs/code-signing-policy.md)
-
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=metasequoiaime/msime&type=Date)](https://star-history.com/#metasequoiaime/msime&Date)
-
-> **이름에 관하여**: MSIME는 Metasequoia IME(水杉输入法)의 약칭이며, Microsoft IME와 무관하고 Microsoft와도 아무런 관계가 없습니다. 코드, 패키지 이름, 저장소 이름에 쓰인 `msime`는 모두 이 의미입니다. 설정의 `shuangpin_profile: microsoft`는 「마이크로소프트 쌍병(微软双拼)」 방식으로, Xiaohe(小鹤), Ziranma(自然码), Shoudao(首道)와 나란히 있는 네 가지 키 배치 방식 중 하나이며, 이 키 배치에 익숙한 사용자가 선택할 수 있도록 제공하는 것일 뿐 역시 어떠한 관계도 의미하지 않습니다.
-
-**입력기는 여러분이 입력하는 모든 것을 볼 수 있으므로, 이 질문에는 항목별로 확인할 수 있는 답이 있어야 합니다: [어떤 데이터가 기기를 떠나는가](../../PRIVACY.md).** 짧게 말하면, 새로 설치한 기본 설정에서는 입력한 내용을 기기 밖으로 보내는 기능이 없습니다. 클라우드 연상(조합 중인 병음을 Google 입력 도구로 보내는 기능)은 처음 물어볼 때나 설정에서 직접 켜야 하며, 나머지 네트워크 기능은 모두 직접 자격 증명을 입력하거나 서비스를 선택해야만 동작합니다. 이와 별도로 입력 내용을 담지 않는 자체 익명 사용 통계가 하나 있습니다. 여섯 플랫폼 모두 `api.msime.app`에 일일 활성, 세션, 크래시(오류 요약과 디렉터리를 제거한 호출 스택) 기록을 보내며, 기본으로 켜져 있고 설정의 「익명 사용 통계」에서 끌 수 있습니다. 필드, 플랫폼별 차이, 디스크 저장 위치는 [PRIVACY.md](../../PRIVACY.md#使用统计与崩溃上报默认开启可关闭)에 항목별로 나와 있습니다. 저장소는 어떠한 서드파티 통계나 크래시 보고 SDK도 사용하지 않습니다.
 
 ## 모듈 경계
 

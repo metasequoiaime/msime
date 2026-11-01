@@ -125,11 +125,15 @@ char *msime_client_user_words_mirror(const uint8_t *request, size_t length);
  * record_crash {directory, message, stack, outside_session: true}：系统事后报告的强制结束（SIGKILL：看门狗、内存上限、挂起时持有文件锁），不算会话崩溃，总是写成单独的记录，只报 crash。带 pid 或 outside_session 的两种会加锁，不能在崩溃处理程序里调用；session、pid、outside_session 三者互斥。
  * flush (same request as begin): queues today's active and sends the queue oldest first; 400 drops an event, 429/5xx/network keep it (Retry-After honoured across processes). Value {enabled, sent, dropped, remaining, deferred}. Blocks on the network: background thread only.
  * clear {directory}: usage reporting was just turned off. */
+/* begin 的可选 capture_only:true 为设置或辅助进程准备独立崩溃记录，不触碰输入会话；component 是只含字母数字、点、下划线和连字符的组件名（默认 input）。成功时另外返回 crash_record_header：新宿主在信号路径中把它原样写在摘要之前，或把它与 session 一起传给 record_crash。系统事后诊断也可以传原构建的记录头；不带 session 的普通写入拒绝记录头，避免静默忽略归属。事后诊断可另带长度不超过 256 字节的 diagnostic_id，重复送达沿用同一个事件 id；不得传入原始描述、路径或输入内容。 */
 char *msime_client_telemetry_begin(const uint8_t *request, size_t length);
 char *msime_client_telemetry_end(const uint8_t *request, size_t length);
 char *msime_client_telemetry_record_crash(const uint8_t *request, size_t length);
 char *msime_client_telemetry_flush(const uint8_t *request, size_t length);
 char *msime_client_telemetry_clear(const uint8_t *request, size_t length);
+/* 持续上报同意：{directory:偏好目录绝对路径,edition?:包内产品版本}，返回 {enabled:false} 或 {enabled:true,epoch,since_unix_ms}。首次使用原子保存本机代次，edition 仅在首次宿主准备前保持本版本的偏好默认值；读写失败保持错误，不清已有报告。begin/flush 可带 consent_epoch 与 preferences_directory，不能同时给 enabled；旧代次返回 enabled:false，不清新代次队列。系统 record_crash 同样可带这两项及 diagnostic_begin_unix_ms、diagnostic_end_unix_ms，仅接收完全位于该次持续同意中的诊断批次，并要求原构建记录头。知道原捕获 UUID 的系统补录可带 diagnostic_capture 和 outside_session:true，与现场记录共用原身份；它不与 pid 或 diagnostic_id 混用，原输入会话仍按 UUID 归属。clear 可带 preferences_directory，仅在开关当前仍关闭时清理，防旧回调删除重开后的新报告。故障处理器不调用 consent，也不读偏好，只写预备的记录头。 */
+/* 只读授权来源：consent {authority_directory} 不建目录或锁；权威设置进程发布时另带 directory 与 publication:{policy_allowed,policy_identity}。暂停返回 {enabled:false,suspended:true}，不能当作撤回清队列。begin/flush/系统 record_crash/条件 clear 可用 authority_directory 代替 preferences_directory，两者互斥；前三者仍必须带 consent_epoch，每条发送前短暂核对共享授权，网络期间不持读锁。 */
+char *msime_client_telemetry_consent(const uint8_t *request, size_t length);
 /* Notices from GET https://api.msime.app/v1/notices (no credentials). request {directory, platform, channel?} (channel app by default); directory is an absolute directory for notices.json. Value {items:[{id,title,body,html,targets,channels,published_at}]}, newest first, without the ones dismissed; html is body rendered as by msime_client_markdown_to_html. The feed is fetched at most once a minute (the cached copy otherwise, and when the request fails). Blocks on the network: call off the input thread when the settings window or app home opens, never on a timer in the input method. */
 char *msime_client_notices(const uint8_t *request, size_t length);
 /* request {directory, id}: remember that the user dismissed notice id. */
@@ -447,6 +451,7 @@ int32_t msime_client_typing_statistics_enabled(const uint8_t *directory, size_t 
  * {directory,resources,day,action:{operation:"import",name,text}}
  *   text is a CSV/TXT word list; the library mints the id and selects the book.
  * {directory,resources,day,action:{operation:"remove",wordbook}}
+ * {directory,resources,day,action:{operation:"remove_personal_word",word}} 把一个词移出生词本（id 为 personal、带 personal:true 的那本书），复习进度保留；移走最后一个词时生词本随之删除。
  * {directory,resources,day,action:{operation:"reset"}} clears progress, keeps the books.
  * 可选的 plugins 是插件目录的绝对路径：其中的单词本插件按 pack-<插件 id> 列在内置书之后、导入的书之前，带 pack:true；对它们的 remove 失败（在插件页卸载），卸载后复习进度保留。不传 plugins 的宿主只有内置和导入的书。
  * `day` is the caller's local day and is required by every action: the counts and
@@ -454,6 +459,18 @@ int32_t msime_client_typing_statistics_enabled(const uint8_t *directory, size_t 
  * 请求最多 17 MiB，为原始 8 MiB 词表的常规 JSON 转义和目录等元数据留出空间；解码后的
  * 词表仍受共享解析器的 8 MiB 上限约束。会取文件锁并读取词书，只能在工作线程调用。 */
 char *msime_client_vocabulary_review(const uint8_t *request, size_t length);
+/* 候选窗的「加入生词本」：{directory,candidate,gloss,pronunciation?}，directory 是与背单词相同的绝对应用数据目录，candidate 是候选原文，gloss 是候选旁显示的释义（几种语言时用换行或 U+2028 分行，义项用 ; 或 ；分隔），pronunciation 是随释义显示的读音（几行时只用第一行，可省略）。词头取第一行的第一个义项，释义是候选原文；同一个词已在生词本里时合并释义。
+ * 成功时 value 是 {outcome,notice}：outcome 为 added、merged、already_present、full（生词本已满）或 invalid（释义做不成卡片），notice 是给用户看的一句提示，宿主原样显示。只有请求或存储本身出错时 ok 为 false。
+ * 会取词书目录的文件锁并读写生词本：宿主在用户点了菜单之后调用一次，不在每次按键时调用。请求最多 64 KiB。 */
+char *msime_client_personal_wordbook_add(const uint8_t *request, size_t length);
+/* 候选菜单的「朗读」和背单词卡片的喇叭要读的英文：{candidate,gloss?}，gloss 是候选旁显示的释义（分行与义项分隔同 msime_client_personal_wordbook_add），背单词卡片把词头当作 candidate、不给 gloss。成功时 value 是要读的文字（只含 ASCII 字母、空格、-、'、.，以字母开头，最多 64 个字符），没有能读的时是 null，宿主据此不出「朗读」。取每行释义的第一个义项，第一个是英文的就是答案；没有英文释义时候选本身是英文就读候选。不读写文件，可以在打开菜单时调用。请求最多 64 KiB。 */
+char *msime_client_read_aloud_text(const uint8_t *request, size_t length);
+/* 今日待复习的张数，给菜单栏、托盘菜单这类用户自己点开才看得到的地方用；组字期间不显示，也不进候选窗。请求是 {directory,resources,day:"YYYY-MM-DD",plugins?}，含义与 msime_client_vocabulary_review 相同；手里只有 HostOptions 文档的宿主（Linux）可以不给 resources，改给 host_options:<整份 HostOptions>，内置词书的资源根按设置应用同样的规则（随包资源目录，词库在线更新后是原安装包目录）求出，两者恰好给一个。请求最多 1 MiB。返回值与 msime_client_vocabulary_review 应答里的 due 是同一个数（包括今天要出的新卡），但只读进度文档和选中的那一本书，不读书目、不组装队列。从没开过背单词、没选书或选中的书已不在时返回 0，且不创建任何文件或目录；请求不合法、进度文档损坏或选中的书读不出来时返回 -1，宿主应隐藏这一项。会取进度文件锁并读一本书（内置书最大约 1 MB）：在打开菜单时或工作线程上调用，不要每个按键都调。 */
+int32_t msime_client_vocabulary_due_count(const uint8_t *request, size_t length);
+/* 鸿蒙设置应用导入键盘发布的生词本：{directory,published,previous?}，三个都是绝对路径。API 12 起输入法扩展用独立沙箱，键盘把「加入生词本」写进自己沙箱里的一本（以键盘的某个目录为 directory 调 msime_client_personal_wordbook_add），经共享沙箱镜像发布；published 是这次发布的那本生词本文件（vocabulary-wordbooks/personal.json 的副本），previous 是设置应用存下的、上次已经并过的那一版（没有时省略，文件不在或读不懂时当作没有）。只并进上次以后新出现或改过的词条，键盘还没清走交过的词时，设置这边移出的词不会因为键盘那本里还留着而回来；键盘清走交过的词以后（msime_client_personal_wordbook_drain）宿主不再传 previous。两份文件都按单本书的上限（8 MiB）读，不跟随符号链接。成功时 value 是 {added,merged,unchanged,overLimit,failed,firstFailures,truncated}，overLimit 大于 0 表示设置应用那本已满、有词没并进来，宿主应当下次再试而不是记成已并过。published 不是有效的生词本文件时 ok 为 false。会取词书目录的文件锁：同步调用会等工作线程上正在写词书的请求做完。请求最多 64 KiB。 */
+char *msime_client_personal_wordbook_merge(const uint8_t *request, size_t length);
+/* 鸿蒙键盘一侧：{directory,published}，都是绝对路径。设置应用确认已经并过键盘发布的 published 那一版以后，把那一版里的词条从 directory 下键盘自己的生词本里清走：只清与之完全相同的词条，之后又改过释义的和新加的留着；一个不剩时生词本文件随之删除。成功时 value 是 {removed}。published 不是有效的生词本文件时 ok 为 false。会取词书目录的文件锁。请求最多 64 KiB。 */
+char *msime_client_personal_wordbook_drain(const uint8_t *request, size_t length);
 /* Scan an absolute UTF-8 skin root and return the catalog the settings page sees: {packages:[...],issues:[...]}. Reads the directory: use a worker. An unreadable root is an empty catalog; an invalid package becomes an issue and is never returned as renderable. Presenters must still check that a package supports the layout and theme before adopting its colors. Keys are camelCase, the same document the settings page consumes. Besides the colours (drawn through msime_client_resolve_theme, where a palette's translation becomes secondary) a package carries what a presenter draws itself: minWidthDip; cornerRadiusDip (0-32, null keeps the host radius); decorationTopDip, decorationWidthDip and decorationImage (package-relative, null unless decorated) placed by decorationAlign ("left"|"center"|"right"), with decorationMotion ("none"|"float"|"sway"|"breathe"|"bounce", an idle motion of the whole image while the window is on screen), decorationMotionPeriodMs (1200-8000) and decorationFrames (0 without a decoration image, 1 for a still image, the animation frame count of an APNG, GIF or WebP otherwise; a host that cannot play frames draws the first); background null or {image,fit:"cover"|"contain"|"stretch",opacity:0-1}, drawn over the surface and under the candidates, clipped to the card outline; toolbar {cornerRadiusDip|null, light, dark} where each mode is {background,border,handle,divider,icon,hover}, each #RRGGBB, #RRGGBBAA or null for the host's own. A package may also carry notices, non-fatal strings about manifest keys it parsed but does not apply here (canvas-only keys on a non-canvas base, or a canvas package's nine-slice panel and widgets, which no msime host draws); the key is absent when there are none and the package stays usable. Image paths are already confined to the package and are images; read them with msime_client_skin_resource. */
 char *msime_client_skin_catalog(const uint8_t *directory, size_t length);
 /* Scan an absolute Engine resource directory for optional custom helper-code tables. The
@@ -587,7 +604,7 @@ char *msime_client_repair_preferences(const uint8_t *directory, size_t length);
 char *msime_client_save_preferences(const uint8_t *directory, size_t directory_length,
                                     uint64_t expected_revision,
                                     const uint8_t *snapshot, size_t snapshot_length);
-/* 在会话线程传入 PreferencesSnapshot JSON（最多 1048576 字节）：{format_version:1, revision, preferences:{...}}。修订号按会话递增；相同快照可重试，旧版或冲突快照会被拒绝。返回 {revision, deferred, view, diagnostic?}；仅首选方案无法运行并回退时带 diagnostic。组字期间的 Engine 偏好应用延后到派发或焦点调用使会话空闲，但关闭云候选会立即清除现有云行和旧查询，AI 配置或令牌变化也会立即清除旧 AI 行和查询；释义开关、目标语言或翻译服务变化会清掉旧释义并推进候选代次，旧释义回包将被拒绝。宿主应使用返回的新 view。较新快照替换待应用快照。构建失败时保留旧会话和待应用快照供重试，派发通过 diagnostic 报告重试错误，不丢失已完成输入。本接口不读写偏好文件，宿主提供已加载的快照。 */
+/* 在会话线程传入 PreferencesSnapshot JSON（最多 1048576 字节）：{format_version:1, revision, preferences:{...}}。修订号按会话递增；相同快照可重试，旧版或冲突快照会被拒绝。返回 {revision, deferred, view, diagnostic?, missing_resource_pack?}；仅首选方案无法运行并回退时带 diagnostic。首选方案因本机缺它的词库而回退时另带 missing_resource_pack（"wubi" 或 "language-dictionaries"），宿主可经 msime_client_resource_pack_install 下载，装好后下一次焦点刷新即换回首选方案。组字期间的 Engine 偏好应用延后到派发或焦点调用使会话空闲，但关闭云候选会立即清除现有云行和旧查询，AI 配置或令牌变化也会立即清除旧 AI 行和查询；释义开关、目标语言或翻译服务变化会清掉旧释义并推进候选代次，旧释义回包将被拒绝。宿主应使用返回的新 view。较新快照替换待应用快照。构建失败时保留旧会话和待应用快照供重试，派发通过 diagnostic 报告重试错误，不丢失已完成输入。本接口不读写偏好文件，宿主提供已加载的快照。 */
 char *msime_client_update_preferences(uint64_t session, const uint8_t *snapshot, size_t length);
 /* 获得焦点（true）只重置旧组字，包括 phrase_preedit 暂存的词段，不返回旧组字的提交；失焦（false）按当前方案结束组字，并返回应送出的提交，包括已经选好的暂存词段。 */
 char *msime_client_focus(uint64_t session, bool focused);
@@ -687,7 +704,7 @@ char *msime_client_voice_local_model_remove(const uint8_t *request, size_t lengt
 char *msime_client_voice_model_setting_check(const uint8_t *request, size_t length);
 /* 按需资源包存放在 <state_root>/resource-packs/<id>/；state_root 是 HostOptions 的 preferences_directory（Android: files/bootstrap/state），会话下次取得焦点时读取新发布的包。
  * 包 ID：`japanese`、`language-dictionaries`、`handwriting`、`settled-model`、`grammar-model-wanxiang`、`grammar-model-baguwen`、`grammar-model-baguwen-compact`、`offline-glosses`、`voice-runtime`、`wubi`、`voice-runtime-macos`（锁文件固定了重签的 macOS 运行库之后才有）。请求为 `length` 字节的 JSON（<=16384），响应使用标准封装。`install` 和 `adopt` 是阻塞调用，只能放在工作线程。
- * 错误为 "invalid resource pack request"、"invalid state root"、"invalid source"、"resource_pack_unknown"、"resource_pack_busy"（本进程正在安装或收编该包）或 "local_model_*"。
+ * 错误为 "invalid resource pack request"、"invalid state root"、"invalid source"、"resource_pack_unknown"、"resource_pack_busy"（本进程正在安装、校验、收编或卸载该包）或 "local_model_*"。
  * resource_packs: {state_root} -> [{id, state:"missing"|"installed"|"outdated", size, schemes:[...], import_files:[{name,url,size}]}]，每包一项；size 为下载字节数，import_files 为离线安装所需文件（voice-runtime 使用归档），url 为上游下载地址。
  * resource_pack_install: {state_root, pack, sources?:["https://mirror/", ...], files?:[absolute path]} -> {path}。
  * sources 是依次尝试的镜像前缀（最多 8 个，跳过空项），之后尝试项目镜像和来源 URL；固定资源按锁中的大小和 SHA-256 校验，语法模型按官方在线目录的大小和 SHA-256 校验。固定资源未完成文件在下次调用时用 HTTP Range 续传。channel 可选 stable、beta、nightly，语法模型优先选同通道条目，缺失时回退。
@@ -695,7 +712,7 @@ char *msime_client_voice_model_setting_check(const uint8_t *request, size_t leng
  * progress 可为空，在调用线程收到 (context, phase "download"|"import"|"verify"|"done", done, total)，阶段字符串仅在回调期间有效。
  * 首次进度在任务登记后、任何文件或网络 I/O 前发送（done=0，total=资源包大小），回调可重入 resource_pack_cancel；取消后返回 "local_model_cancelled"。
  * resource_pack_cancel: pack 是原始 UTF-8 id（不是 JSON）；NULL/0 取消本进程全部资源包安装。可在任何线程调用，立即返回，不触发进度回调。
- * resource_pack_remove: {state_root, pack} -> {removed: bool}。阻塞卸载已发布的资源包，先摘除引擎侧共享映射缓存；未安装、未发布目录和符号链接返回 false，活跃会话仍持有映射导致的删除失败如实返回错误。只能放在工作线程。
+ * resource_pack_remove: {state_root, pack} -> {removed: bool}。阻塞卸载已发布的资源包，先摘除引擎侧共享映射缓存；未安装、未发布目录和符号链接返回 false，活跃会话仍持有映射导致的删除失败如实返回错误；本进程正在安装、校验、收编或卸载同一个包时返回 "resource_pack_busy" 且不删除，卸载期间的安装同样返回 "resource_pack_busy"。只能放在工作线程。
  * resource_pack_adopt: {state_root, pack, source: absolute dir} -> {path}。在同一文件系统内把包文件从 source 重命名移入（不复制），按编译锁校验后发布；失败则全部移回，不发布任何内容。已有相同字节的安装时直接返回，不改动 source。 */
 typedef void (*msime_client_resource_pack_progress_callback)(void *context, const char *phase,
                                                              uint64_t done, uint64_t total);
@@ -813,12 +830,13 @@ char *msime_client_apply_translations(uint64_t session, uint64_t generation,
  * target_language absent or "en" reads msime-english.db and the user's glosses. fr/ja/es/ru/de/ko read only offline-glosses/zh-<lang>.db beside resources, or, when that is absent and state_root (absolute; pass the translation query's state_root) is given, the same file in the downloaded <state_root>/resource-packs/offline-glosses pack; they ignore user_data. When neither is installed the result is {generation,translations:[]}, not an error. Any other value is an invalid request. Only Chinese candidates get a non-English gloss. */
 char *msime_client_candidate_gloss_request(const uint8_t *request, size_t request_length,
                                            const uint8_t *resources, size_t resources_length);
-/* 不持有会话地查询英文候选或英文释义的读音，可在宿主工作线程调用。
- * JSON 请求：{generation,items:[{text,language}],supplementary_resources?}；language 必须为 "en"。
- * text 为英文候选或一行英文释义；只读首个词组，忽略开头的 to/a/an/the，任一词未知则不返回该组。
- * 响应为 {generation,pronunciations:[{text,language,pronunciation}]}，读音为 "/…/" IPA，没有音标的项省略。
- * 优先读 resources 旁的 pronunciations/en-phonetic.db；缺失时可从 supplementary_resources 下读取同名相对路径。
- * 补充目录为可选的绝对路径，最多 4096 字节；缺省保持旧行为。两处均未安装时返回空 pronunciations，不报错。 */
+/* 不持有会话地查询候选释义行的读音，可在宿主工作线程调用。
+ * JSON 请求：{generation,items:[{text,language}],supplementary_resources?}；language 为 "en"、"fr"、"ja"、"es"、"ru"、"de"、"ko" 之一，是这一行释义的目标语言，其他值整批拒绝。
+ * en：text 为英文候选或一行英文释义；只读首个词组，忽略开头的 to/a/an/the，任一词未知则不返回该组；读音为 "/…/" IPA。读 pronunciations/en-phonetic.db。
+ * 其余语言：text 为这种语言的一行释义；只读第一个分隔符（; ； , ， 、 / ? ？）前的词条，去掉括号里的注释，整条查表（先原样、再小写），查不到不返回。法、西、俄、德语的读音是维基词典写的 IPA，带着它的 "/…/" 或 "[…]"；日文是赫本式罗马字（neko、chūgoku），韩文是文化观光部式罗马字（goyang-i、hakgyo），都不带斜线或括号，宿主按形状校验时只能要求它们非空。读 target-pronunciations/<language>-phonetic.db。
+ * 响应为 {generation,pronunciations:[{text,language,pronunciation}]}，按请求顺序，没有读音的项省略；宿主按 (language,text) 对应回去。
+ * 每种语言优先读 resources 旁的表；缺失时可从 supplementary_resources 下读取同名相对路径（资源包 pronunciations 与 target-pronunciations 的根）。
+ * 补充目录为可选的绝对路径，最多 4096 字节；缺省保持旧行为。某种语言两处均未安装时它的项没有读音，不报错。 */
 char *msime_client_pronunciation_request(const uint8_t *request, size_t request_length,
                                          const uint8_t *resources, size_t resources_length);
 /* Break copied Chinese candidates into words with their English, without a session, for a line a host draws under the gloss lines (never a committable gloss column).
@@ -1010,7 +1028,7 @@ char *msime_client_ai_request_for_query(uint64_t session,
 char *msime_client_set_ai_credential(uint64_t session, const uint8_t *token,
                                      size_t token_length);
 /* Return null or {generation,target_language,candidates:[{text}], provider:"none"|"account"|"tencent"|"niutrans"|"custom", translation_account:bool, custom_translation:{enabled,endpoint,api_key}|null, tencent_tmt:{enabled,secret_id,secret_key,region}|null, niutrans:{enabled,app_id,apikey}|null} for visible candidates.
- * provider names the service selected in preferences even when its configuration is incomplete; a transport must ask that service or none, never fall back to another. Credentials are returned only for the selected usable provider. These fields are for host-owned transport; never log the query. The existing target_language applies to both providers. translation_account is true only when the user explicitly chose the MSIME account, candidate_translations is on and no service of the user's own applies; it is the whole decision for a host's account gloss path, which must send nothing when it is false. offline_gloss_languages is present only when non-empty: the non-English target languages, in preference order, whose offline dictionary is installed beside resources or in the downloaded offline-glosses resource pack; ask msime_client_candidate_gloss_request with that target_language for each. state_root is present only when one of them comes from the pack; pass it on in that request. candidate_pronunciation is present (true) only when the user turned pronunciation on: the host then pronounces the English and Japanese gloss lines it draws, English through msime_client_pronunciation_request, as display text that is never committed. gloss_breakdown is present (true) only when candidate translation or the offline English gloss is on and English is a target language, as macOS requests breakdowns: the host then asks msime_client_gloss_breakdown_request about the sentence candidates, with resources, which the query carries whenever gloss_breakdown is present.
+ * provider 是偏好里选中的服务，即使它的配置还不完整；传输层只能问这个服务或者谁都不问，不能退回到别的服务。凭据只为选中且可用的服务返回。这些字段供宿主自己的传输层使用；不要记录查询内容。已有的 target_language 对两种服务都适用。translation_account 只在用户明确选了水杉账号、candidate_translations 打开、而且没有用户自己的服务适用时为 true；宿主的账号释义路径完全由它决定，为 false 时什么也不能发。offline_gloss_languages 只在非空时出现：按偏好顺序列出离线词典已装在资源旁或已下载到 offline-glosses 资源包里的非英文目标语言；对每一种都用那个 target_language 调 msime_client_candidate_gloss_request。state_root 只在其中某种来自资源包时出现；在那个请求里原样传下去。candidate_pronunciation 只在用户打开读音时出现（为 true）：这时宿主把它画出的释义行连同各自的目标语言交给 msime_client_pronunciation_request 去读（有系统日文分词器的宿主可以自己把日文行转成罗马字），读音只作显示，从不上屏。gloss_breakdown 只在候选词翻译或离线英文释义打开、而且英语是目标语言之一时出现（为 true），与 macOS 请求逐词拆解的条件相同：这时宿主带着 resources 为整句候选调 msime_client_gloss_breakdown_request，只要 gloss_breakdown 出现，查询里就一定带着 resources。
  * While the composition is a /fy request (command mode) the query is that request alone, whatever the gloss switches say: sentence:true, target_language "zh", one candidate {text, online_gloss:false} holding the English typed after the command, no resources, user_data or offline_gloss_languages, and null when no service of the user's own (tencent, niutrans or custom) is selected. Ask only that service, without the offline dictionary or the gloss cache, and hand the answer back through msime_client_apply_translations, which shows it as the first row and commits the translation.
  * 候选词翻译范围（candidate_translation_scope）是 "highlighted" 且候选词翻译开着时，candidates 只有当前高亮的那一个候选（高亮不在这一页时没有这一份），翻译服务和只为候选词翻译查的离线词典都只为它工作。离线释义开关（candidate_english_gloss）要查释义时，查询另带 gloss_query：一份完整的查询文档，覆盖这一页全部候选，provider 为 "none"、translation_account 为 false、各服务配置为 null，宿主用处理普通查询的同一条路径算它（不会联网），把它的每条回答标上 "gloss":true 交给 msime_client_apply_translations（同一代次，可以和主查询的回答拼成一个数组；分开交时不要交空数组）。高亮不在这一页、只剩离线释义要查时，返回的就是那份不带服务的文档本身。范围是 "all" 时没有 gloss_query，查询与以前相同。
  */

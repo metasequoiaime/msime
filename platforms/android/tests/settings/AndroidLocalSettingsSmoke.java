@@ -41,6 +41,7 @@ public final class AndroidLocalSettingsSmoke {
         unreadableFilesReadAsDefaults();
         atomicWrite();
         splitKeyboardRoundTrip();
+        bottomHeightSlider();
         capitalizationSetting();
         diagnosticDirectorySetting();
         syncedKeysMatchClientCore();
@@ -53,6 +54,7 @@ public final class AndroidLocalSettingsSmoke {
         check("siji".equals(settings.choice(AndroidLocalSettings.APP_THEME)), "app theme default");
         check("off".equals(settings.choice(AndroidLocalSettings.ONE_HANDED)), "one-handed default");
         check(!settings.bool(AndroidLocalSettings.SPLIT_KEYBOARD), "split keyboard is off by default");
+        check(!settings.bool(AndroidLocalSettings.SPLIT_KEYBOARD_PHONE_LANDSCAPE), "phone landscape split is off by default");
         check(settings.bool(AndroidLocalSettings.KEY_POPUP), "key popup default");
         check(settings.bool(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS), "swipe default");
         check("up".equals(settings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION)), "swipe direction default");
@@ -84,6 +86,22 @@ public final class AndroidLocalSettingsSmoke {
         check("follow_skin".equals(settings.choice(AndroidLocalSettings.HANDWRITING_STROKE_COLOR)), "stroke colour default");
         check(settings.integer(AndroidLocalSettings.HANDWRITING_STROKE_WIDTH) == 3, "stroke width default");
         check(settings.bool(AndroidLocalSettings.VOICE_OFFLINE_FALLBACK), "offline fallback default");
+        check(settings.integer(AndroidLocalSettings.VOICE_PAUSE_MILLIS) == 1500, "voice pause retains its default");
+        check(settings.integer(AndroidLocalSettings.VOICE_VAD_SENSITIVITY) == 50, "voice sensitivity retains its default");
+        AndroidLocalSettings.Spec pause = AndroidLocalSettings.spec(AndroidLocalSettings.VOICE_PAUSE_MILLIS);
+        AndroidLocalSettings.Spec sensitivity = AndroidLocalSettings.spec(AndroidLocalSettings.VOICE_VAD_SENSITIVITY);
+        check(pause.accept(500).equals(500) && pause.accept(5000).equals(5000), "voice pause limits accepted");
+        check(pause.accept(499) == null && pause.accept(5001) == null && pause.accept(1550) == null,
+            "voice pause rejects invalid duration and step");
+        check(sensitivity.accept(10).equals(10) && sensitivity.accept(90).equals(90), "voice sensitivity limits accepted");
+        check(sensitivity.accept(9) == null && sensitivity.accept(91) == null, "voice sensitivity rejects invalid limits");
+        AndroidLocalSettings.Snapshot voice = new AndroidLocalSettings.Snapshot(AndroidLocalSettings.accepted(Map.of(
+            AndroidLocalSettings.VOICE_PAUSE_MILLIS, 2500, AndroidLocalSettings.VOICE_VAD_SENSITIVITY, 70)));
+        check(voice.integer(AndroidLocalSettings.VOICE_PAUSE_MILLIS) == 2500
+            && voice.integer(AndroidLocalSettings.VOICE_VAD_SENSITIVITY) == 70, "voice controls survive snapshot validation");
+        check(!pause.synced && !sensitivity.synced
+            && !voice.synced().containsKey(AndroidLocalSettings.VOICE_PAUSE_MILLIS)
+            && !voice.synced().containsKey(AndroidLocalSettings.VOICE_VAD_SENSITIVITY), "microphone timing and sensitivity stay local");
         check(!settings.bool(AndroidLocalSettings.INCOGNITO), "incognito default");
         check("before".equals(settings.choice(AndroidLocalSettings.QUICK_DELETE_SCOPE)), "quick delete keeps the cursor-before default");
         check(!settings.bool(AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO), "contribute audio default");
@@ -96,6 +114,10 @@ public final class AndroidLocalSettingsSmoke {
         check(!AndroidLocalSettings.spec(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS).synced, "key swap stays local");
         check(!settings.bool(AndroidLocalSettings.NUMBER_ROW), "number row is off by default");
         check(!AndroidLocalSettings.spec(AndroidLocalSettings.NUMBER_ROW).synced, "number row stays on this device");
+        check(!settings.bool(AndroidLocalSettings.CLIPBOARD_DELETE_AUTHENTICATION),
+            "clipboard delete authentication is opt-in");
+        check(!AndroidLocalSettings.spec(AndroidLocalSettings.CLIPBOARD_DELETE_AUTHENTICATION).synced,
+            "clipboard delete authentication stays on this device");
         check(!settings.bool(AndroidLocalSettings.DEVELOPER_INPUT_LOG), "input log default");
         check("one_day".equals(settings.choice(AndroidLocalSettings.MCP_RETENTION)), "retention default");
         check(settings.bool(AndroidLocalSettings.MCP_CRASH_LOGS), "crash logs default");
@@ -221,7 +243,7 @@ public final class AndroidLocalSettingsSmoke {
         for (String local : new String[] {AndroidLocalSettings.INCOGNITO, AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO,
                 AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT, AndroidLocalSettings.FLOATING_KEYBOARD,
                 AndroidLocalSettings.FLOATING_KEYBOARD_X, AndroidLocalSettings.FLOATING_KEYBOARD_Y,
-                AndroidLocalSettings.HARDWARE_CARET_CANDIDATES,
+                AndroidLocalSettings.HARDWARE_CARET_CANDIDATES, AndroidLocalSettings.SPLIT_KEYBOARD_PHONE_LANDSCAPE,
                 AndroidLocalSettings.TOOLBAR_FLOATING, AndroidLocalSettings.TOOLBAR_TEXT_EDIT, AndroidLocalSettings.BOTTOM_BAR, AndroidLocalSettings.BOTTOM_PADDING,
                 AndroidLocalSettings.BOTTOM_PADDING_HEIGHT, AndroidLocalSettings.DEVELOPER_DEBUG_OVERLAY,
                 AndroidLocalSettings.DEVELOPER_LOGGING_ENABLED,
@@ -333,6 +355,41 @@ public final class AndroidLocalSettingsSmoke {
             check(!cleared.bool(AndroidLocalSettings.SPLIT_KEYBOARD) && !cleared.has(AndroidLocalSettings.SPLIT_KEYBOARD), "a stored non-boolean reads as off");
         } finally {
             deleteTree(directory);
+        }
+    }
+
+    /** 设置页「键盘底部高度」滑块与两个旧字段之间的读写映射（#10447）。 */
+    private static void bottomHeightSlider() {
+        check(AndroidLocalSettings.bottomHeightDp(AndroidLocalSettings.defaults()) == 0,
+            "a new user sees 0 dp, the same layout as before");
+        AndroidLocalSettings.Snapshot legacy = new AndroidLocalSettings.Snapshot(AndroidLocalSettings.accepted(Map.of(
+            AndroidLocalSettings.BOTTOM_PADDING, true, AndroidLocalSettings.BOTTOM_PADDING_HEIGHT, 96)));
+        check(AndroidLocalSettings.bottomHeightDp(legacy) == 96, "an old user who turned bottom padding on sees the stored height");
+        AndroidLocalSettings.Snapshot off = new AndroidLocalSettings.Snapshot(AndroidLocalSettings.accepted(Map.of(
+            AndroidLocalSettings.BOTTOM_PADDING, false, AndroidLocalSettings.BOTTOM_PADDING_HEIGHT, 96)));
+        check(AndroidLocalSettings.bottomHeightDp(off) == 0, "a stored height with the switch off shows 0");
+
+        Map<String, Object> raise = AndroidLocalSettings.bottomHeightEdits(64);
+        check(raise.size() == 2 && Boolean.TRUE.equals(raise.get(AndroidLocalSettings.BOTTOM_PADDING))
+            && Integer.valueOf(64).equals(raise.get(AndroidLocalSettings.BOTTOM_PADDING_HEIGHT)),
+            "a positive value turns the switch on and stores the height");
+        Map<String, Object> zero = AndroidLocalSettings.bottomHeightEdits(0);
+        check(zero.size() == 1 && Boolean.FALSE.equals(zero.get(AndroidLocalSettings.BOTTOM_PADDING))
+            && !zero.containsKey(AndroidLocalSettings.BOTTOM_PADDING_HEIGHT),
+            "zero turns the switch off and keeps the stored height");
+        for (Map.Entry<String, Object> edit : raise.entrySet()) {
+            check(AndroidLocalSettings.spec(edit.getKey()).accept(edit.getValue()) != null, "slider edits pass validation: " + edit.getKey());
+            check(!AndroidLocalSettings.spec(edit.getKey()).synced, "the bottom height stays on this device: " + edit.getKey());
+        }
+        for (int value = KeyboardBottomBarPolicy.MIN_PADDING_DP; value <= KeyboardBottomBarPolicy.MAX_PADDING_DP;
+                value += KeyboardBottomBarPolicy.PADDING_STEP_DP) {
+            Map<String, Object> edits = AndroidLocalSettings.bottomHeightEdits(value);
+            Map<String, Object> merged = new LinkedHashMap<>();
+            merged.put(AndroidLocalSettings.BOTTOM_PADDING_HEIGHT, 96);
+            merged.putAll(edits);
+            AndroidLocalSettings.Snapshot saved = new AndroidLocalSettings.Snapshot(AndroidLocalSettings.accepted(merged));
+            check(AndroidLocalSettings.bottomHeightDp(saved) == value, "slider round trip at " + value + " dp");
+            if (value == 0) check(saved.integer(AndroidLocalSettings.BOTTOM_PADDING_HEIGHT) == 96, "zero keeps the previous height");
         }
     }
 

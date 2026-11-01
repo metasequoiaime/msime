@@ -5,7 +5,6 @@ import app.msime.android.LayoutPolicy;
 import app.msime.android.DimensionPolicy;
 
 import app.msime.android.ImageViewPolicy;
-import app.msime.android.DrawablePolicy;
 import app.msime.android.ThemeColorPolicy;
 import android.Manifest;
 import android.content.Context;
@@ -16,10 +15,8 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -187,13 +184,9 @@ public final class AboutPage extends DetailPage {
         ViewPolicy.setCenteredHorizontally(header);
         ViewPolicy.setPaddingDp(context, header, 0, 8, 0, 20);
 
-        FrameLayout disc = new FrameLayout(context);
-        ViewPolicy.setBackground(disc, DrawablePolicy.pill(ThemeColorPolicy.color(context, com.google.android.material.R.attr.colorTertiaryContainer)));
+        // 水杉标志本身就是外框，不垫圆盘；占以前 116dp 圆盘的 5/6。
         ImageView mark = ImageViewPolicy.decorative(context, R.drawable.splash_mark);
-        int markSize = DimensionPolicy.pixels(context, 60);
-        disc.addView(mark, LayoutPolicy.squareFrameParamsPx(markSize, Gravity.CENTER));
-        int discSize = DimensionPolicy.pixels(context, 116);
-        header.addView(disc, ViewPolicy.newSquareParamsPx(discSize));
+        header.addView(mark, ViewPolicy.newSquareParamsPx(DimensionPolicy.pixels(context, 96)));
 
         TextView name = ViewPolicy.styledLabel(context, getString(R.string.app_name), 22, 700, ThemeColorPolicy.text(context));
         ViewPolicy.setCentered(name);

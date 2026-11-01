@@ -13,6 +13,7 @@ mod notices;
 mod panel_input;
 mod panel_window;
 mod platform;
+mod read_aloud;
 mod shared;
 mod update_check;
 mod vocabulary;
@@ -395,7 +396,7 @@ fn linux_candidate_panel_status_document() -> Option<String> {
     read_candidate_panel_status(&file)
 }
 
-/// 「关于」页系统信息里 Linux 才有的几项：发行版、内核、桌面会话、输入法框架和设备型号。都是几个小文件和环境变量，不起进程；读不到的项留空，页面就不列它。解析与清洗在 `host_surface::environment`。
+/// 「关于」页系统信息里 Linux 才有的几项：发行版、内核、桌面会话、输入法框架和设备型号，以及背单词卡片的喇叭要的 `spd-say` 在不在（`read_aloud`）。都是几个小文件和环境变量，不起进程；读不到的项留空，页面就不列它。解析与清洗在 `host_surface::environment`。
 #[cfg(target_os = "linux")]
 fn fill_linux_environment(capabilities: &mut HostCapabilities) {
     use msime_client_core::host_surface::environment;
@@ -418,6 +419,8 @@ fn fill_linux_environment(capabilities: &mut HostCapabilities) {
         read("/sys/class/dmi/id/sys_vendor").as_deref(),
         read("/sys/class/dmi/id/product_name").as_deref(),
     );
+    // 背单词卡片的喇叭起 spd-say，没装 speech-dispatcher 时不画。
+    capabilities.read_aloud = read_aloud::available();
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -6059,7 +6062,10 @@ pub fn run() {
             vocabulary::set_vocabulary_settings,
             vocabulary::import_vocabulary_wordbook,
             vocabulary::remove_vocabulary_wordbook,
+            vocabulary::remove_personal_vocabulary_word,
+            vocabulary::export_personal_vocabulary,
             vocabulary::reset_vocabulary_review,
+            read_aloud::read_aloud,
             save_export,
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
             mcp_server_status,

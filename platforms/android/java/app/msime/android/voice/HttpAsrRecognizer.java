@@ -29,8 +29,8 @@ import org.json.JSONObject;
 public final class HttpAsrRecognizer {
     /** 整句上传单次录音的上限：够说一段话，又不让忘了关的录音占满内存。整段音频一次上传，还受服务端请求体大小和读超时限制，所以不像豆包流式那样放宽；到点时提示用户（#9886）。 */
     public static final int MAX_MILLIS = 60_000;
+    /** 建立连接的时限与录音长短无关；读超时按请求体大小由 {@link HttpAsrPolicy#readTimeoutMillis} 算。 */
     private static final int CONNECT_TIMEOUT_MILLIS = 15_000;
-    private static final int READ_TIMEOUT_MILLIS = 60_000;
     private static final int MAX_RESPONSE_BYTES = 1024 * 1024;
 
     /**
@@ -168,7 +168,8 @@ public final class HttpAsrRecognizer {
             // The bearer token belongs to this configured origin. Never let HttpURLConnection
             // replay it after a redirect to another host or protocol.
             HttpConnectionPolicy.rejectRedirects(opened);
-            HttpConnectionPolicy.setTimeouts(opened, CONNECT_TIMEOUT_MILLIS, READ_TIMEOUT_MILLIS);
+            HttpConnectionPolicy.setTimeouts(opened, CONNECT_TIMEOUT_MILLIS,
+                HttpAsrPolicy.readTimeoutMillis(body.length));
             opened.setRequestMethod("POST");
             opened.setDoOutput(true);
             opened.setFixedLengthStreamingMode(body.length);

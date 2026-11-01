@@ -3203,5 +3203,248 @@ pub unsafe extern "C" fn msime_client_vocabulary_review(
     })
 }
 
+/// 候选窗的「加入生词本」：把一个候选的释义加进本机生词本。
+///
+/// 只做转接：释义怎么变成卡片、怎么合并、给用户看哪句提示都在 `msime_client_services::vocabulary::personal`。
+/// # Safety
+/// `request` points to `length` readable JSON bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_personal_wordbook_add(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    use msime_client_services::vocabulary::personal;
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Request {
+        directory: String,
+        candidate: String,
+        gloss: String,
+        #[serde(default)]
+        pronunciation: String,
+    }
+
+    response(|| {
+        // 候选和释义都是一行显示文字，宿主自己也把它们限制在几 KiB 内。
+        const MAX_REQUEST_BYTES: usize = 64 * 1024;
+        if request.is_null() || length > MAX_REQUEST_BYTES {
+            return Err("invalid personal wordbook buffer".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: Request =
+            serde_json::from_slice(bytes).map_err(|_| "invalid personal wordbook request")?;
+        if request.directory.len() > 16_384
+            || !std::path::Path::new(&request.directory).is_absolute()
+        {
+            return Err("invalid personal wordbook directory".into());
+        }
+        let reply = personal::add_gloss(
+            std::path::Path::new(&request.directory),
+            &request.candidate,
+            &request.gloss,
+            &request.pronunciation,
+        )
+        .map_err(|error| error.to_string())?;
+        serde_json::to_value(reply).map_err(|_| "personal wordbook response failed".to_owned())
+    })
+}
+
+/// 候选菜单的「朗读」和背单词卡片的喇叭要读的英文：`{candidate, gloss}`，成功时 `value` 是要读的文字，没有能读的时是 `null`。
+///
+/// 只做转接，规则在 `msime_client_services::vocabulary::read_aloud`。不读写任何文件，宿主在打开菜单时调用。
+/// # Safety
+/// `request` points to `length` readable JSON bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_read_aloud_text(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    use msime_client_services::vocabulary::read_aloud;
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Request {
+        candidate: String,
+        #[serde(default)]
+        gloss: String,
+    }
+
+    response(|| {
+        // 和「加入生词本」一样，候选和释义都是一行显示文字。
+        const MAX_REQUEST_BYTES: usize = 64 * 1024;
+        if request.is_null() || length > MAX_REQUEST_BYTES {
+            return Err("invalid read aloud buffer".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: Request =
+            serde_json::from_slice(bytes).map_err(|_| "invalid read aloud request")?;
+        Ok(serde_json::Value::from(read_aloud::read_aloud_text(
+            &request.candidate,
+            &request.gloss,
+        )))
+    })
+}
+
+/// 今日待复习的张数，给菜单栏、托盘菜单这类被动显示的地方用。
+///
+/// 和 `msime_client_vocabulary_review` 应答里的 `due` 是同一个数，但只读进度文档和选中的那一本书（见 `msime_client_services::vocabulary::session::due_count`）。返回张数（不小于 0）；请求不合法、进度文档损坏或选中的书读不出来时返回 -1，宿主据此隐藏这一项。
+///
+/// 内置词书的资源根可以直接给 `resources`，也可以给整份 HostOptions 文档 `host_options`，由这里按 [`crate::bundled_resource_root`] 求出：Linux 的输入法宿主手里只有 HostOptions，词库在线更新后 `resources` 指向状态目录里的下载代次，那里没有词书，自己再写一遍这条规则就会和设置应用找错地方。两者恰好给一个。
+/// # Safety
+/// `request` points to `length` readable JSON bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_vocabulary_due_count(
+    request: *const u8,
+    length: usize,
+) -> i32 {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Request {
+        directory: String,
+        #[serde(default)]
+        resources: Option<String>,
+        #[serde(default)]
+        host_options: Option<Value>,
+        day: String,
+        #[serde(default)]
+        plugins: Option<String>,
+    }
+
+    // 路径各不超过 16 KiB；HostOptions 文档带着偏好，留到 1 MiB。
+    const MAX_REQUEST_BYTES: usize = 1024 * 1024;
+    if request.is_null() || length > MAX_REQUEST_BYTES {
+        return -1;
+    }
+    // SAFETY: guaranteed by the documented caller contract.
+    let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+    let Ok(request) = serde_json::from_slice::<Request>(bytes) else {
+        return -1;
+    };
+    let valid_path = |path: &str| path.len() <= 16_384 && std::path::Path::new(path).is_absolute();
+    let resources = match (&request.resources, &request.host_options) {
+        (Some(resources), None) => std::path::PathBuf::from(resources),
+        (None, Some(document)) => match crate::bundled_resource_root(document) {
+            Some(root) => root,
+            None => return -1,
+        },
+        _ => return -1,
+    };
+    if !valid_path(&request.directory)
+        || !resources.to_str().is_some_and(valid_path)
+        || request
+            .plugins
+            .as_deref()
+            .is_some_and(|plugins| !valid_path(plugins))
+    {
+        return -1;
+    }
+    match msime_client_services::vocabulary::session::due_count(
+        std::path::Path::new(&request.directory),
+        &resources,
+        request.plugins.as_deref().map(std::path::Path::new),
+        &request.day,
+    ) {
+        Ok(count) => i32::try_from(count).unwrap_or(i32::MAX),
+        Err(_) => -1,
+    }
+}
+
+/// 鸿蒙设置应用导入键盘发布的生词本：把键盘沙箱里那本并进这个目录的生词本。
+///
+/// 只做转接，规则在 `msime_client_services::vocabulary::personal::merge_published`。请求里只带文件路径，生词本文档由共享层按单本书的大小上限去读。
+/// # Safety
+/// `request` 指向 `length` 个可读的 JSON 字节，空指针会被拒绝。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_personal_wordbook_merge(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    use msime_client_services::vocabulary::personal;
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Request {
+        directory: String,
+        published: String,
+        #[serde(default)]
+        previous: Option<String>,
+    }
+
+    response(|| {
+        // SAFETY: 由上面写明的调用方约定保证。
+        let request: Request = unsafe { personal_wordbook_request(request, length) }?;
+        let previous = match request.previous.as_deref() {
+            Some(path) => Some(personal_wordbook_path(path)?),
+            None => None,
+        };
+        let report = personal::merge_published(
+            personal_wordbook_path(&request.directory)?,
+            personal_wordbook_path(&request.published)?,
+            previous,
+        )
+        .map_err(|error| error.to_string())?;
+        serde_json::to_value(report).map_err(|_| "personal wordbook response failed".to_owned())
+    })
+}
+
+/// 鸿蒙键盘在设置应用确认并过某一版以后，把那一版里的词从键盘自己的生词本里清走。
+///
+/// 只做转接，规则在 `msime_client_services::vocabulary::personal::drain_published`。
+/// # Safety
+/// `request` 指向 `length` 个可读的 JSON 字节，空指针会被拒绝。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_personal_wordbook_drain(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    use msime_client_services::vocabulary::personal;
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Request {
+        directory: String,
+        published: String,
+    }
+
+    response(|| {
+        // SAFETY: 由上面写明的调用方约定保证。
+        let request: Request = unsafe { personal_wordbook_request(request, length) }?;
+        let removed = personal::drain_published(
+            personal_wordbook_path(&request.directory)?,
+            personal_wordbook_path(&request.published)?,
+        )
+        .map_err(|error| error.to_string())?;
+        Ok(serde_json::json!({ "removed": removed }))
+    })
+}
+
+/// 读生词本合并、清走两个入口的请求。请求里只有几条路径，64 KiB 足够。
+///
+/// # Safety
+/// `request` 指向 `length` 个可读的字节，空指针会被拒绝。
+unsafe fn personal_wordbook_request<T: serde::de::DeserializeOwned>(
+    request: *const u8,
+    length: usize,
+) -> Result<T, String> {
+    const MAX_REQUEST_BYTES: usize = 64 * 1024;
+    if request.is_null() || length > MAX_REQUEST_BYTES {
+        return Err("invalid personal wordbook buffer".into());
+    }
+    // SAFETY: 由调用方保证 `request` 指向 `length` 个可读的字节。
+    let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+    serde_json::from_slice(bytes).map_err(|_| "invalid personal wordbook request".into())
+}
+
+/// 请求里的路径必须是绝对路径。
+fn personal_wordbook_path(path: &str) -> Result<&std::path::Path, String> {
+    if path.len() > 16_384 || !std::path::Path::new(path).is_absolute() {
+        return Err("invalid personal wordbook path".into());
+    }
+    Ok(std::path::Path::new(path))
+}
+
 #[cfg(test)]
 mod cloud_clipboard_tests;

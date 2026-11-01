@@ -31,6 +31,53 @@ final class VocabularyReviewTests: XCTestCase {
 
   private let list = "alpha,/a/,adj. 甲\nbeta,adj. 乙\ngamma,adj. 丙\n"
 
+  /// 键盘长按菜单的「加入生词本」写进背单词同一个目录：书目里出现「生词本」，提示由共享层给出，同一个词再加一次只说已经在了。
+  func testPersonalWordbookAddsAGlossTheReviewPageLists() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    XCTAssertEqual(PersonalWordbookStore.add(candidate: "面试", gloss: "interview; audition\nmensetsu", directory: directory), "已加入生词本")
+    XCTAssertEqual(PersonalWordbookStore.add(candidate: "面试", gloss: "interview", directory: directory), "已在生词本里")
+    XCTAssertEqual(PersonalWordbookStore.add(candidate: "面试", gloss: " ", directory: directory), "这条释义不能加入生词本")
+    let status = try VocabularyReviewStore(directory: directory, resources: nil).load()
+    let book = try XCTUnwrap(status.wordbooks.first { $0.id == "personal" }, "\(status.wordbooks)")
+    XCTAssertEqual(book.name, "生词本")
+    XCTAssertEqual(book.total, 1)
+    XCTAssertFalse(book.builtin)
+  }
+
+  /// 长按菜单只在有可用的释义时才列「加入生词本」，交给共享层的是显示着的几行释义、去掉空行。
+  func testPersonalWordbookMenuNeedsAGloss() {
+    XCTAssertEqual(PersonalWordbookStore.menuTitle, "加入生词本")
+    XCTAssertEqual(PersonalWordbookStore.menuGloss([" interview ", "", "mensetsu\n"]), "interview\nmensetsu")
+    XCTAssertNil(PersonalWordbookStore.menuGloss([]))
+    XCTAssertNil(PersonalWordbookStore.menuGloss([" ", "\n"]))
+  }
+
+  /// 长按菜单的「朗读」和背单词卡片的喇叭读的是共享层答的那段英文：英文释义的第一个义项、几种语言时第一个英文行，没有英文释义时英文候选本身；别的语言不读。
+  func testReadAloudReadsOnlyTheEnglishTheSharedLayerChooses() {
+    XCTAssertEqual(ReadAloudText.menuTitle, "朗读")
+    XCTAssertEqual(ReadAloudText.text(candidate: "面试", gloss: "interview; audition\nmensetsu"), "interview")
+    XCTAssertEqual(ReadAloudText.text(candidate: "面试", gloss: "面接\ninterview"), "interview")
+    XCTAssertEqual(ReadAloudText.text(candidate: "hello"), "hello")
+    XCTAssertEqual(ReadAloudText.text(candidate: "ubiquitous"), "ubiquitous")
+    XCTAssertNil(ReadAloudText.text(candidate: "面试", gloss: "面接"))
+    XCTAssertNil(ReadAloudText.text(candidate: "勉強"))
+  }
+
+  /// 长按菜单最后一组：「朗读」排在「加入生词本」前面；没有完全访问时没有「朗读」，「加入生词本」照样列出；没有释义的英文候选只有「朗读」。
+  func testCandidateMenuLastGroupPutsReadAloudBeforeThePersonalWordbook() {
+    XCTAssertEqual(
+      ReadAloudText.lastGroup(hasFullAccess: true, spoken: "interview", gloss: "interview"),
+      [.readAloud("interview"), .addToPersonalWordbook("interview")])
+    XCTAssertEqual(
+      ReadAloudText.lastGroup(hasFullAccess: false, spoken: "interview", gloss: "interview"),
+      [.addToPersonalWordbook("interview")])
+    XCTAssertEqual(ReadAloudText.lastGroup(hasFullAccess: true, spoken: "hello", gloss: nil), [.readAloud("hello")])
+    XCTAssertEqual(ReadAloudText.lastGroup(hasFullAccess: true, spoken: nil, gloss: "面接"), [.addToPersonalWordbook("面接")])
+    XCTAssertEqual(ReadAloudText.lastGroup(hasFullAccess: false, spoken: "hello", gloss: nil), [])
+  }
+
   /// 单词本插件装在共享状态目录的 `plugins/` 里（插件页和键盘读的是同一份），背单词把它列在导入的词表之前、标成插件；选它就能复习，在背单词里删不掉。
   func testWordbookPluginsAreListedFromTheSharedPluginsFolder() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

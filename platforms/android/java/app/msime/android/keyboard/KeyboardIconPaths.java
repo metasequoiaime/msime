@@ -93,6 +93,8 @@ public final class KeyboardIconPaths {
         TRASH(true, 1.7f),
         /** Lucide-style x (关闭上屏后联想) */
         CLOSE(true, 1.8f),
+        /** Lucide-style pencil (读音行的编辑拼写入口) */
+        SPELLING_EDIT(true, 1.7f),
         /** open box ␣ (数字页空格键) */
         SPACE_BAR(true, 1.7f);
 
@@ -193,6 +195,7 @@ public final class KeyboardIconPaths {
             case TEXT_EDIT -> appendTextEdit(p);
             case TRASH -> appendTrash(p);
             case CLOSE -> appendClose(p);
+            case SPELLING_EDIT -> appendSpellingEdit(p);
             case SPACE_BAR -> appendSpaceBar(p);
         }
     }
@@ -969,6 +972,19 @@ public final class KeyboardIconPaths {
         p.lineTo(6f, 18f);
         p.moveTo(6f, 6f);
         p.lineTo(18f, 18f);
+    }
+
+    private static void appendSpellingEdit(Path p) {
+        p.moveTo(4f, 20f);
+        p.lineTo(5.2f, 15.6f);
+        p.lineTo(16f, 4.8f);
+        p.cubicTo(16.9139f, 4.1678f, 18.149f, 4.2794f, 18.9348f, 5.0652f);
+        p.cubicTo(19.7206f, 5.851f, 19.8322f, 7.0861f, 19.2f, 8f);
+        p.lineTo(8.4f, 18.8f);
+        p.lineTo(4f, 20f);
+        p.close();
+        p.moveTo(14f, 6.8f);
+        p.lineTo(17.2f, 10f);
     }
 
     private static void appendSpaceBar(Path p) {

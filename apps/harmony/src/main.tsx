@@ -1565,6 +1565,15 @@ function makeClient(
           JSON.stringify({ operation: "remove", wordbook }),
         ),
       ),
+    // 键盘长按菜单的「加入生词本」经共享沙箱并进这里的生词本，页面因此提生词本、能把一个词移出去。
+    removePersonalWord: async (word: string) =>
+      unwrap<VocabularyReviewStatus>(
+        await bridgeRequest(
+          native,
+          "vocabulary_review",
+          JSON.stringify({ operation: "remove_personal_word", word }),
+        ),
+      ),
     reset: async () =>
       unwrap<VocabularyReviewStatus>(
         await bridgeRequest(native, "vocabulary_review", JSON.stringify({ operation: "reset" })),
@@ -1780,7 +1789,18 @@ function makeClient(
         : undefined,
     dictionaryCollections,
     typingStatistics,
-    vocabularyReview,
+    // 背单词卡片的喇叭：设置桥先按共享层的规则核对词头，再用 Core Speech Kit 的离线声音读出；读不出来时把那句话原样交回页面。
+    vocabularyReview: host.read_aloud
+      ? {
+          ...vocabularyReview,
+          speak: async (word: string) => {
+            const reply = JSON.parse(
+              await bridgeRequest(native, "read_aloud", JSON.stringify({ text: word })),
+            ) as Reply<null>;
+            if (!reply.ok) throw new Error(reply.error);
+          },
+        }
+      : vocabularyReview,
     // 拉模型列表、测试 AI 和凭据都要连用户配置的服务，没有授权时不给，配置本身照常可填。AI 测试另受 AI 生成门控（`aiGeneration`），两道门都开才给。
     aiAssistant: networkAllowed && aiGeneration ? aiAssistant : undefined,
     testApiCredential: networkAllowed ? testApiCredential : undefined,
@@ -1804,6 +1824,8 @@ function makeClient(
         ),
     },
     candidateEnglishGloss: true,
+    // 键盘把随 HAP 暂存的 ECDICT 音标表画在释义下面（KeyboardSession.resolvePronunciations），开关在这里才有宿主读。
+    candidatePronunciation: true,
     // 账号和对话都要联网，没有隐私政策的授权时不给，「我的」页不画登录入口；对话另受 AI 生成门控，两道门都开才给。
     account: networkAllowed ? accountClient(native) : undefined,
     chat: networkAllowed && aiGeneration ? chatClient(native) : undefined,

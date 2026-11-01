@@ -110,6 +110,12 @@ public final class LocalAsrRecognizer {
     private final Object captureStartLock = new Object();
     private final Object handleLock = new Object();
     private long handle;
+    private int vadSensitivity;
+
+    /** 本次本地整段识别的 VAD 灵敏度；调用方在开始识别之前设置，0 沿用默认值。 */
+    public void vadSensitivity(int value) {
+        vadSensitivity = value;
+    }
 
     /** 只在用户打开「上传语音以改进识别」且隐私判断允许时由键盘打开：把录到的 PCM 也留一份在内存里（录音本身最多 60 秒），识别结束后经 {@link #retainedAudio()} 取走。 */
     private volatile java.io.ByteArrayOutputStream retained;
@@ -222,7 +228,7 @@ public final class LocalAsrRecognizer {
             capture.start();
             captureStarted = true;
             String error = NativeClient.localSpeechStart(created, modelDirectory, language,
-                LocalAsrPolicy.hotwordLines(texts(hotwords)), 0);
+                LocalAsrPolicy.hotwordLines(texts(hotwords)), 0, vadSensitivity);
             if (cancelled.get()) throw new Refused(Failure.CANCELLED);
             if (error != null) throw new Refused(Failure.MODEL);
             String text = decode(created, capture, audio, listener);

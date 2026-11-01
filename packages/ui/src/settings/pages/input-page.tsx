@@ -32,6 +32,7 @@ import {
   candidateTranslationScope,
 } from "../candidate-translation-options-section";
 import { CandidateEnglishGlossSection } from "../candidate-english-gloss-section";
+import { CandidatePronunciationSection } from "../candidate-pronunciation-section";
 import { ShuangpinCustomEditor, NineKeyShuangpinEditor } from "../shuangpin-custom-editor";
 import type { ShuangpinCustomProfileClient } from "../shuangpin-custom-profile";
 import { ActionButton } from "../action-button";
@@ -359,14 +360,27 @@ export function InputSettingsPage() {
               }
               onAccountTranslationChange={() => {}}
               beforeMore={
-                client.candidateEnglishGloss && (
-                  <CandidateEnglishGlossSection
-                    value={candidateEnglishGloss}
-                    onChange={(candidate_english_gloss) =>
-                      onPreferencesChange({ candidate_english_gloss })
-                    }
-                  />
-                )
+                <>
+                  {client.candidateEnglishGloss && (
+                    <CandidateEnglishGlossSection
+                      value={candidateEnglishGloss}
+                      onChange={(candidate_english_gloss) =>
+                        onPreferencesChange({ candidate_english_gloss })
+                      }
+                    />
+                  )}
+                  {/* 鸿蒙键盘给英文候选标音标不看释义开关，所以这一行一直在，关掉释义后仍能关掉音标，和 iOS 相同。 */}
+                  {client.candidatePronunciation && (
+                    <CandidatePronunciationSection
+                      value={draft.candidate_pronunciation ?? false}
+                      japaneseRomaji={false}
+                      englishCandidates
+                      onChange={(candidate_pronunciation) =>
+                        onPreferencesChange({ candidate_pronunciation })
+                      }
+                    />
+                  )}
+                </>
               }
             />
           </GroupList>

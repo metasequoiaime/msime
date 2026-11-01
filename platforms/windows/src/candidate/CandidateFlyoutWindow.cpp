@@ -119,7 +119,8 @@ void CandidateFlyoutWindow::close_submenu() noexcept {
 bool CandidateFlyoutWindow::open(int pointer_x, int pointer_y,
                                  size_t code_points, bool actions_available,
                                  int fixed_position,
-                                 std::optional<size_t> slot) noexcept {
+                                 std::optional<size_t> slot,
+                                 bool personal_wordbook, bool read_aloud) noexcept {
   try {
     if (failed_)
       return false;
@@ -133,7 +134,8 @@ bool CandidateFlyoutWindow::open(int pointer_x, int pointer_y,
       throw std::runtime_error("Candidate menu monitor unavailable");
     actions_available_ = actions_available;
     fixed_position_ = fixed_position;
-    auto items = candidate_menu_items(code_points, actions_available_, slot);
+    auto items = candidate_menu_items(code_points, actions_available_, slot, personal_wordbook,
+                                      read_aloud);
     menu_.dpi = msime::windows::compat::window_dpi(menu_.window);
     const auto &work = monitor.rcWork;
     const auto bounds = candidate_menu_bounds(

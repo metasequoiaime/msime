@@ -70,31 +70,53 @@ pub fn load(resources: &Path) -> Result<Vec<Wordbook>, BuiltinWordbookError> {
     }
     let mut books = Vec::with_capacity(ORDER.len());
     for id in ORDER {
-        let path = root.join(format!("{id}.json"));
-        match std::fs::symlink_metadata(&path) {
-            Ok(metadata) if !metadata.file_type().is_file() => {
-                return Err(BuiltinWordbookError::InvalidWordbook);
-            }
-            Ok(metadata) if metadata.len() > MAX_BOOK_BYTES => {
-                return Err(BuiltinWordbookError::InvalidWordbook);
-            }
-            Ok(_) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(error.into()),
+        if let Some(book) = read_staged(&root, id)? {
+            books.push(book);
         }
-        let file = crate::storage::open_private_file_in(&path)?;
-        let bytes = crate::bounded_io::read_bounded_file(file, MAX_BOOK_BYTES, || {
-            BuiltinWordbookError::InvalidWordbook
-        })?;
-        let book: Wordbook = serde_json::from_slice(&bytes)?;
-        // The id is the store key for this book's review progress. A document whose stored id
-        // disagrees with its filename would record answers under a book nothing can open again.
-        if book.id != id || !book.is_valid() {
-            return Err(BuiltinWordbookError::InvalidWordbook);
-        }
-        books.push(book);
     }
     Ok(books)
+}
+
+/// 只读一本内置书：`id` 不是内置书、宿主没有暂存它时为 `Ok(None)`。读到的书和 [`load`] 列出的那本完全相同，只是不去打开另外七本，给只要一本书的地方（作答、待复习计数）用。
+pub fn load_one(resources: &Path, id: &str) -> Result<Option<Wordbook>, BuiltinWordbookError> {
+    if !is_builtin(id) {
+        return Ok(None);
+    }
+    let root = directory(resources);
+    if !std::fs::symlink_metadata(&root)
+        .map(|metadata| metadata.file_type().is_dir())
+        .unwrap_or(false)
+    {
+        return Ok(None);
+    }
+    read_staged(&root, id)
+}
+
+/// `root` 下名为 `id` 的那本书；文件不存在时为 `Ok(None)`。
+fn read_staged(root: &Path, id: &str) -> Result<Option<Wordbook>, BuiltinWordbookError> {
+    let path = root.join(format!("{id}.json"));
+    match std::fs::symlink_metadata(&path) {
+        Ok(metadata) if !metadata.file_type().is_file() => {
+            return Err(BuiltinWordbookError::InvalidWordbook);
+        }
+        Ok(metadata) if metadata.len() > MAX_BOOK_BYTES => {
+            return Err(BuiltinWordbookError::InvalidWordbook);
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    }
+    let file = crate::storage::open_private_file_in(&path)?;
+    let bytes = crate::bounded_io::read_bounded_file(file, MAX_BOOK_BYTES, || {
+        BuiltinWordbookError::InvalidWordbook
+    })?;
+    let book: Wordbook = serde_json::from_slice(&bytes)?;
+    // The id is the store key for this book's review progress. A document whose stored id
+    // disagrees with its filename would record answers under a book nothing can open again.
+    if book.id != id || !book.is_valid() {
+        return Err(BuiltinWordbookError::InvalidWordbook);
+    }
+    Ok(Some(book))
 }
 
 /// Whether `id` names a bundled book, whether or not this host staged it.

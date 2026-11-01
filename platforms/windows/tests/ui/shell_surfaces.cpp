@@ -79,6 +79,11 @@ int main() {
     require(shell_executable_names(*cloud_dictionary) == std::vector<std::wstring>{panels_file});
     require(entries(shell_environment_block(L"\0", *cloud_dictionary))[0] ==
             L"MSIME_CLIENT_ROUTE=cloud-dictionary");
+    // 「背单词（今日待复习 N）…」按 vocabulary 路由打开共享应用的背单词面板，与 macOS 输入菜单的同一行相同。
+    const auto vocabulary = shell_surface_request(TrayMenuCommand::OpenVocabulary);
+    require(vocabulary && vocabulary->panel == "vocabulary" && vocabulary->page.empty());
+    require(shell_route_argument(*vocabulary) == L"vocabulary");
+    require(shell_executable_names(*vocabulary) == std::vector<std::wstring>{panels_file});
     // 卡片自己的翻页、主题行、繁体输出和英文候选模式都不经过外壳。
     for (auto command :
          {TrayMenuCommand::ShowSchemes, TrayMenuCommand::ShowThemes,

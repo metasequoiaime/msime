@@ -12,7 +12,7 @@ Status: implemented
 
 ## Historical audit
 
-[邮箱后缀](../feature/2026-10-09-android-email-suffixes.md)部分重叠：复用后缀表、字号与上屏规则，替代固定单格省略的宽度策略。符号目录分页的缓存与分代规则不变，只改变目录网格中每项的列跨度。[常用符号记录](../feature/2026-10-08-android-symbol-panel-recents.md)部分重叠：保留存储与打开分类规则，只修复首次测量，不通过清除记录或重复打开面板绕过空白。
+[邮箱后缀](../feature/2026-10-09-android-email-suffixes.md)部分重叠：复用后缀表、字号与上屏规则，替代固定单格省略的宽度策略。符号目录分页的缓存与分代规则不变，只改变目录网格中每项的列跨度。[常用符号记录](../feature/2026-10-08-android-symbol-panel-recents.md)部分重叠：保留存储与打开分类规则，只修复首次测量，不通过清除记录或重复打开面板绕过空白。[成对符号不分在两行](2026-10-31-symbol-panel-pairs-on-one-row.md)部分重叠：跨列规则不变，目录分页续排的起点改由 `appendRows` 记下的实际行起点给出。
 
 ## Alternatives considered
 

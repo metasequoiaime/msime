@@ -16,7 +16,7 @@ import android.text.TextUtils;
 import android.widget.TextView;
 
 /**
- * 键盘内的语音聆听面板：点按入口用圆盘、麦克风和光圈，长按入口用角色缩略图和红色音量短线，下面是标题和如何结束录音的提示。排布、平滑和文字裁剪在 {@link VoiceListeningPolicy}，iOS 与 HarmonyOS 用同一组数值。
+ * 键盘内的语音聆听面板：工具栏入口用水杉娘与耳部音量信号，长按入口用角色缩略图和红色音量短线，下面是标题和如何结束录音的提示。排布、平滑和文字裁剪在 {@link VoiceListeningPolicy}，iOS 与 HarmonyOS 用同一组数值。
  *
  * <p>节点 text 是标题（「正在聆听…」「正在识别…」「识别完成」），提示由调用方更新；结束采集与取消由面板下方的显式按钮处理。颜色由调用方从皮肤传入。
  *
@@ -34,6 +34,9 @@ public final class VoiceListeningView extends TextView {
     /** 识别中没有中间文字时提示行的文案，与 iOS 一致。 */
     static final String RECOGNIZING_HINT = "识别完成后自动上屏";
 
+    private final VoiceMascotDrawing mascotDrawing = new VoiceMascotDrawing();
+    private Bitmap toolbarMascot;
+    private boolean mascotEnabled;
     private final Paint bitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     private final RectF mascotBounds = new RectF();
     private final Paint orb = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -78,6 +81,17 @@ public final class VoiceListeningView extends TextView {
         ViewPolicy.clearBackground(this);
         title.setTextAlign(Paint.Align.CENTER);
         hint.setTextAlign(Paint.Align.CENTER);
+    }
+
+    /** 工具栏会话可显示人物；迟到素材只更新工具栏绘制，不覆盖长按面板的角色。 */
+    public void setMascotEnabled(boolean value) {
+        mascotEnabled = value;
+        invalidate();
+    }
+
+    public void setMascot(Bitmap value) {
+        toolbarMascot = value;
+        invalidate();
     }
 
     /** accent 圆盘、圆盘上的麦克风色、标题色（kbFg）、提示色（kbSub）。 */
@@ -244,6 +258,17 @@ public final class VoiceListeningView extends TextView {
     }
 
     private void drawIndicator(Canvas canvas, float cx, float cy, float diameter, float haloWidth, float scale) {
+        // 素材还没解码出来（或解码失败）时先画原来的麦克风圆盘，素材到达后 setMascot 重绘成人物。
+        if (!holdMode && mascotEnabled && toolbarMascot != null && !toolbarMascot.isRecycled()) {
+            float box = diameter + 2f * haloWidth;
+            float width = Math.min(getWidth(), box * 320f / 250f);
+            int saved = canvas.save();
+            canvas.translate(cx - width / 2f, cy - box / 2f);
+            // 识别阶段立即收起红线；工具栏绘制不参与长按角色与操作区。
+            mascotDrawing.draw(canvas, toolbarMascot, width, box, recognizing ? 0f : levelShown);
+            canvas.restoreToCount(saved);
+            return;
+        }
         float radius = diameter / 2f;
         int orbColor = releaseToCancel ? secondary : accent;
         float spread = VoiceListeningPolicy.spread(levelShown, haloWidth);

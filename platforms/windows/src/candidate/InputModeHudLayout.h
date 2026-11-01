@@ -9,6 +9,8 @@ namespace msime::windows {
 struct InputStateHudText {
   std::wstring text;
   std::wstring announcement;
+  // 回应用户刚点的菜单项（例如「加入生词本」）的提示：不受「切换提示」开关约束，那个开关只管输入状态切换。
+  bool answers_action = false;
 };
 inline InputStateHudText character_set_hud(bool traditional) {
   return {traditional ? L"繁" : L"简", traditional ? L"繁体输出" : L"简体输出"};

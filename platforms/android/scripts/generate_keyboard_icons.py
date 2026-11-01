@@ -98,6 +98,8 @@ ICONS: list[tuple[str, str, float, str, str]] = [
     ("TRASH", STROKE, 1.7, "Lucide-style trash-2 (剪贴板左滑删除)",
      "M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"),
     ("CLOSE", STROKE, 1.8, "Lucide-style x (关闭上屏后联想)", "M18 6 6 18M6 6l12 12"),
+    ("SPELLING_EDIT", STROKE, 1.7, "Lucide-style pencil (读音行的编辑拼写入口)",
+     "M4 20l1.2-4.4L16 4.8a2.3 2.3 0 0 1 3.2 3.2L8.4 18.8 4 20zM14 6.8l3.2 3.2"),
     ("SPACE_BAR", STROKE, 1.7, "open box ␣ (数字页空格键)", "M5 10.5v3.5h14v-3.5"),
 ]
 

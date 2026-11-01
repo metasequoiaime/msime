@@ -3146,6 +3146,43 @@ static void TestOptInSchemeModes() {
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
+// 输入菜单里的「背单词（今日待复习 N）…」：没开过背单词时没有这一行；导入一本词书后按今天待复习的张数列出，点它打开背单词面板；组字时不列出。
+static void TestVocabularyDueMenuRow(MSIMEAppearancePreferences *appearance) {
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    assert([NSFileManager.defaultManager createDirectoryAtPath:root withIntermediateDirectories:YES attributes:nil error:nil]);
+    ModeController *controller = [ModeController alloc];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:root forKey:@"preferencesDirectory"];
+    NSDictionary *idle = @{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] };
+    [controller setValue:idle forKey:@"view"];
+    NSMenuItem *(^vocabularyRow)(void) = ^NSMenuItem * {
+        for (NSMenuItem *candidate in [controller menu].itemArray)
+            if (candidate.action == @selector(showVocabulary:)) return candidate;
+        return nil;
+    };
+    assert(!vocabularyRow());
+    assert(![NSFileManager.defaultManager fileExistsAtPath:[root stringByAppendingPathComponent:@"vocabulary-progress.json"]]);
+
+    // 经与设置应用相同的 C ABI 导入两个合成词，导入时选中这本书。
+    const std::string day = msime::vocabulary_due::local_day(time(nullptr));
+    NSData *body = [NSJSONSerialization dataWithJSONObject:@{
+        @"directory": root, @"resources": root, @"day": @(day.c_str()),
+        @"action": @{ @"operation": @"import", @"name": @"合成词表", @"text": @"alpha,adj. 甲\nbeta,adj. 乙\n" },
+    } options:0 error:nil];
+    char *raw = msime_client_vocabulary_review(static_cast<const uint8_t *>(body.bytes), body.length);
+    assert(raw && strstr(raw, "\"ok\":true"));
+    msime_client_string_free(raw);
+
+    NSMenuItem *row = vocabularyRow();
+    assert(row && [row.title isEqual:@"背单词（今日待复习 2）…"] && row.target == controller);
+
+    [controller setValue:@{ @"focused": @YES, @"editing_text": @"n", @"candidates": @[] } forKey:@"view"];
+    assert(!vocabularyRow());
+    [controller setValue:idle forKey:@"view"];
+    assert(vocabularyRow());
+    [NSFileManager.defaultManager removeItemAtPath:root error:nil];
+}
+
 static void TestFloatingToolbarMenuToggle(MSIMEAppearancePreferences *appearance) {
     ModeController *controller = [ModeController alloc];
     [controller setValue:appearance forKey:@"appearance"];
@@ -9247,7 +9284,7 @@ background = "#F4F8FF"
                 assert(skin.tokens.translation && skin.tokens.selectedTranslation &&
                        [button.translationColor isEqual:SkinColor(button.candidateHighlighted ? *skin.tokens.selectedTranslation : *skin.tokens.translation)]);
             else if (!button.candidateFixed)
-                assert(!skin.tokens.translation && [button.translationColor isEqual:SkinColor(button.candidateHighlighted ? skin.tokens.selectedNumber : skin.tokens.number)]);
+                assert(!skin.tokens.translation && [button.translationColor isEqual:SkinColor(button.candidateHighlighted ? msime::mac::SelectedRowGloss(skin.tokens) : skin.tokens.number)]);
         }
         // The background shows through the empty inset under the rows and is clipped off the rounded corner (the bottom one: the left-aligned decoration covers the top left).
         NSBitmapImageRep *bitmap = [chrome bitmapImageRepForCachingDisplayInRect:chrome.bounds];
@@ -14326,6 +14363,26 @@ int main(int argc, char **argv) {
             NSMenu *menu = [controller menuForCandidate:@{@"id":clickCandidate.candidateID, @"text":text}];
             assert(menu.numberOfItems == ([text isEqual:@"测试"] ? 3 : 2));
         }
+        // 有释义的候选在菜单最后多一组「朗读」「加入生词本」，带上这一帧的释义和要读的英文；它们不经过 Engine，不派发也不报告指针。
+        NSMenu *glossMenu = [controller menuForCandidate:@{@"id":clickCandidate.candidateID, @"text":@"测试", @"translation":@"test\u2028テスト"}];
+        assert(glossMenu.numberOfItems == 6 && [glossMenu itemAtIndex:3].separatorItem);
+        NSMenuItem *readAloudItem = [glossMenu itemAtIndex:4];
+        assert([readAloudItem.title isEqual:@"朗读"] && readAloudItem.tag == 31);
+        assert([readAloudItem.representedObject[@"read_aloud"] isEqual:@"test"]);
+        NSMenuItem *personalItem = [glossMenu itemAtIndex:5];
+        assert([personalItem.title isEqual:@"加入生词本"] && personalItem.tag == 30);
+        assert([personalItem.representedObject[@"gloss"] isEqual:@"test\nテスト"]);
+        // 释义不是英文时只有「加入生词本」；英文候选没有释义时这一组只有「朗读」，读候选本身。
+        NSMenu *japaneseGloss = [controller menuForCandidate:@{@"id":clickCandidate.candidateID, @"text":@"测试", @"translation":@"テスト"}];
+        assert(japaneseGloss.numberOfItems == 5 && [japaneseGloss itemAtIndex:4].tag == 30);
+        NSMenu *englishCandidate = [controller menuForCandidate:@{@"id":clickCandidate.candidateID, @"text":@"hello"}];
+        assert(englishCandidate.numberOfItems == 5 && [englishCandidate itemAtIndex:3].separatorItem);
+        assert([englishCandidate itemAtIndex:4].tag == 31 &&
+               [[englishCandidate itemAtIndex:4].representedObject[@"read_aloud"] isEqual:@"hello"]);
+        const NSUInteger personalKeys = session.keys.count;
+        const NSUInteger personalCalls = session.maintenanceCalls;
+        [controller candidateMenuAction:personalItem];
+        assert(session.maintenanceCalls == personalCalls && session.keys.count == personalKeys);
         NSDictionary *validClickID = clickCandidate.candidateID;
         NSUInteger selectedCalls = session.selectCalls;
         // 让上次报告的字段属性作废：指针点选和按键一样，先比较属性、变了先报告。
@@ -14530,8 +14587,12 @@ int main(int argc, char **argv) {
                     assert([selected.fillColor isEqual:SkinColor(tokens.selected)]);
                     assert([selected.titleColor isEqual:SkinColor(tokens.selectedText)]);
                     assert([unselected.titleColor isEqual:SkinColor(tokens.text)]);
-                    // On the selected fill the translation is the design's candSelTr, the selected number's colour.
-                    assert([selected.translationColor isEqual:SkinColor(tokens.selectedNumber)]);
+                    // 选中底色上的释义是设计稿的 candSelTr，即选中序号的颜色；它对选中底色不到 4.5:1 时（跟随系统的浅色和非玻璃深色）换成 `SelectedRowGloss` 加深过的选中文字色。
+                    assert([selected.translationColor isEqual:SkinColor(msime::mac::SelectedRowGloss(tokens))]);
+                    // 跟随系统的选中行，候选文字和释义（读音同色）对选中底色都到 WCAG AA 的 4.5:1。
+                    if ([skinID isEqual:@"system"])
+                        assert(msime::mac::ForegroundContrast(tokens.selectedText, tokens.selected) >= 4.5f &&
+                               msime::mac::ForegroundContrast(msime::mac::SelectedRowGloss(tokens), tokens.selected) >= 4.5f);
                     // A plain row's translation is the theme's secondary colour, which is the number colour (dc.html L2150, L2183): #9FB5A3 under 水杉, the platform's sub grey under 跟随系统.
                     assert([unselected.translationColor isEqual:SkinColor(tokens.number)]);
                     if ([skinID isEqual:@"shuishan"] || [skinID isEqual:@"system"]) {
@@ -15328,6 +15389,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestDiagnosticLogConfiguredBeforeSession(); }
         @autoreleasepool { TestKeypadDecimal(appearance); }
         @autoreleasepool { TestFloatingToolbarMenuToggle(appearance); }
+        @autoreleasepool { TestVocabularyDueMenuRow(appearance); }
         @autoreleasepool { TestCandidatePanelSingleOwner(); }
         @autoreleasepool { TestGlossArrivalRedrawsOnlyTheCard(appearance); }
         @autoreleasepool { TestNestedApplyKeepsTheNewerView(appearance); }

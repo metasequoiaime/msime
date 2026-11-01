@@ -50,6 +50,16 @@ class CandidateWindow final {
 public:
   using Reader = std::function<std::optional<CandidatePresentation>()>;
   using Click = std::function<void(const CandidateClick &)>;
+  // 右键菜单「加入生词本」交出去的东西：候选原文、这一帧显示着的释义（各语言行用 U+2028 分隔，见 translation_lines）和读音（按 "\n" 分行）。只在 UI 线程上调用，交给 Server 的工作线程去写生词本。
+  struct PersonalWordbookRequest {
+    std::string candidate, gloss, pronunciation;
+  };
+  using PersonalWordbook = std::function<void(const PersonalWordbookRequest &)>;
+  // 右键菜单「朗读」：`text` 在 UI 线程上打开菜单时按候选原文和显示着的释义答要读的英文（没有时不出这一项），`speak` 把它交给 Server 的朗读工作线程。两个都设了才有这一项。
+  struct ReadAloud {
+    std::function<std::optional<std::string>(const std::string &candidate, const std::string &gloss)> text;
+    std::function<void(const std::string &)> speak;
+  };
   using Page = std::function<void(const CandidatePage &)>;
   using Rendered = std::function<void(const CandidatePresentation &)>;
   explicit CandidateWindow(Reader reader, Click click = {}, unsigned font_size = 16,
@@ -118,6 +128,10 @@ public:
   void set_expansion_handler(Expansion handler) { expansion_ = std::move(handler); }
   // 不阻塞地确认焦点租约（SessionController::candidate_lease_current）。读快照争用时，仅保留已确认租约的可见帧或正常退场；焦点已换走或未设置检查时立即收起。
   using LeaseCheck = std::function<bool(const FocusLease &)>;
+  // 不设时右键菜单没有「加入生词本」。
+  void set_personal_wordbook_handler(PersonalWordbook handler) { personal_wordbook_ = std::move(handler); }
+  // 不设时右键菜单没有「朗读」。
+  void set_read_aloud_handler(ReadAloud handler) { read_aloud_ = std::move(handler); }
   void set_lease_check(LeaseCheck check) { lease_current_ = std::move(check); }
   // 和点「∨」一样打开卷轴展开，展开通知照常发出；这一帧没有画出按钮或已经展开时什么也不做。返回此刻是否展开着。Server 不调它，候选皮肤截图工具（tests/tools/candidate_skin_gallery）用它画展开状态。
   bool open_expansion();
@@ -229,6 +243,12 @@ private:
   std::pair<double, double> card_point(int x, int y) const;
   Reader reader_;
   Click click_;
+  PersonalWordbook personal_wordbook_;
+  // 打开着的右键菜单的「加入生词本」要交的内容，和 menu_target_ 一样每次打开重记。
+  std::optional<PersonalWordbookRequest> menu_personal_;
+  ReadAloud read_aloud_;
+  // 打开着的右键菜单的「朗读」要读的英文，同样每次打开重记。
+  std::optional<std::string> menu_read_aloud_;
   Page page_;
   Rendered rendered_;
   Expansion expansion_;

@@ -989,6 +989,17 @@ else()
 endif()
 add_test(NAME windows-candidate-palette COMMAND windows-candidate-palette)
 set_tests_properties(windows-candidate-palette PROPERTIES TIMEOUT 10)
+# 候选皮肤的取色只用头文件和 nlohmann_json（上面已经无条件找过），放在 pipe-only 的 return 之前，CI 的 windows-scripts 作业才能在真的 Windows 上用 MSVC 编译运行它和 windows-candidate-palette；交叉构建作业只编译不运行。
+add_executable(windows-candidate-skin tests/ui/candidate_skin.cpp)
+target_include_directories(windows-candidate-skin PRIVATE src)
+target_link_libraries(windows-candidate-skin PRIVATE nlohmann_json::nlohmann_json)
+if(MSVC)
+  target_compile_options(windows-candidate-skin PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(windows-candidate-skin PRIVATE -Wall -Wextra -Werror)
+endif()
+add_test(NAME windows-candidate-skin COMMAND windows-candidate-skin)
+set_tests_properties(windows-candidate-skin PROPERTIES TIMEOUT 10)
 add_library(msime-windows-replies STATIC src/ipc/ReplyCodec.cpp)
 target_include_directories(msime-windows-replies PUBLIC src ../../shared/contracts)
 if(MSVC)
@@ -1430,7 +1441,7 @@ add_test(NAME windows-dedicated-english-controller COMMAND windows-dedicated-eng
 set_tests_properties(windows-dedicated-english-controller PROPERTIES TIMEOUT 30)
 # The cloud worker's queueing: it coalesces submissions inside its debounce and
 # keeps only the newest, so the test spends real time waiting past that window.
-# 候选释义后面的读音和整句逐词拆解怎么拼进释义行，和 macOS 的 CandidatePronunciation.h 规则一致。
+# 候选释义的读音怎么算、怎么排进释义那一段（每条读音在它那一行释义下面单独一行），和 macOS 的 CandidatePronunciation.h 规则一致。
 add_executable(windows-candidate-gloss-readings tests/candidate/candidate_gloss_readings.cpp)
 target_include_directories(windows-candidate-gloss-readings PRIVATE src/candidate)
 if(MSVC)
@@ -1713,16 +1724,6 @@ else()
 endif()
 add_test(NAME windows-candidate-pointer-input COMMAND windows-candidate-pointer-input)
 set_tests_properties(windows-candidate-pointer-input PROPERTIES TIMEOUT 10)
-add_executable(windows-candidate-skin tests/ui/candidate_skin.cpp)
-target_include_directories(windows-candidate-skin PRIVATE src)
-target_link_libraries(windows-candidate-skin PRIVATE nlohmann_json::nlohmann_json)
-if(MSVC)
-  target_compile_options(windows-candidate-skin PRIVATE /W4 /WX /utf-8)
-else()
-  target_compile_options(windows-candidate-skin PRIVATE -Wall -Wextra -Werror)
-endif()
-add_test(NAME windows-candidate-skin COMMAND windows-candidate-skin)
-set_tests_properties(windows-candidate-skin PROPERTIES TIMEOUT 10)
 add_executable(windows-candidate-skin-layout tests/ui/candidate_skin_layout.cpp)
 target_include_directories(windows-candidate-skin-layout PRIVATE src)
 target_link_libraries(windows-candidate-skin-layout PRIVATE nlohmann_json::nlohmann_json)
@@ -1970,7 +1971,7 @@ if(WIN32)
   add_test(NAME windows-toolbar-image COMMAND windows-toolbar-image)
   set_tests_properties(windows-toolbar-image PROPERTIES TIMEOUT 30)
   add_subdirectory(tsf)
-  add_library(msime-windows-server STATIC src/system/WindowsServer.cpp src/candidate/CandidateWindow.cpp src/candidate/CandidateFlyoutWindow.cpp src/candidate/TrayMenuWindow.cpp ../../platforms/common/Telemetry.cpp)
+  add_library(msime-windows-server STATIC src/system/WindowsServer.cpp src/candidate/CandidateWindow.cpp src/candidate/CandidateFlyoutWindow.cpp src/candidate/TrayMenuWindow.cpp ../../platforms/common/Telemetry.cpp ../../platforms/common/CrashRecorder.cpp)
   target_sources(msime-windows-server PRIVATE src/candidate/DesktopCandidates.cpp)
   add_executable(windows-desktop-candidates tests/ui/desktop_candidates.cpp)
   target_link_libraries(windows-desktop-candidates PRIVATE msime-windows-server)
@@ -1996,7 +1997,7 @@ if(WIN32)
   target_sources(msime-windows-server PRIVATE src/candidate/FloatingToolbarWindow.cpp src/candidate/InputModeHudWindow.cpp src/candidate/ShuangpinKeymapWindow.cpp src/candidate/TypingEffectOverlay.cpp src/system/ShellLauncher.cpp src/system/DiagnosticLog.cpp src/system/SystemAccent.cpp src/system/UpdateNotifier.cpp src/system/DictionarySyncWorker.cpp
                  src/voice/WaveOverlay.cpp src/voice/WaveOverlayUtils.cpp src/voice/VoiceInputSession.cpp
                  src/voice/DoubaoAsrClient.cpp src/voice/CuePlayer.cpp src/voice/SystemAudioMuter.cpp
-                 src/voice/SystemAsrStream.cpp
+                 src/voice/SystemAsrStream.cpp src/voice/SystemSpeech.cpp
                  src/voice/VoiceHotkey.cpp src/input/MaintenanceHotkey.cpp src/voice/VoiceControlMessage.cpp)
   add_subdirectory(../../shared/voice shared-voice)
   # miniaudio's implementation is third-party code compiled at the toolchain's default warning level, so it sits in its own library outside the -Werror set below; the Server's own sources include only its declarations.

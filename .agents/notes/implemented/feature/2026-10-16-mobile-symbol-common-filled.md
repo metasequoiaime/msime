@@ -10,9 +10,9 @@ Android 的补满规则由 [Android 常用符号只显示实际使用记录](202
 
 ## Decision
 
-iOS 与 Android 的第一页都是「常用」：最近点过的符号在前，后面用默认的 30 个常用标点补到 30 个（六行），去掉重复。默认内容与鸿蒙「常用」同一份、同一顺序：
+iOS 与 Android 的第一页都是「常用」：最近点过的符号在前，后面用默认的 30 个常用标点补到 30 个（六行），去掉重复。默认内容与鸿蒙「常用」同一份、同一顺序（成对符号不跨行，见[符号面板的成对符号不分在两行](../bug-fix/2026-10-31-symbol-panel-pairs-on-one-row.md)）：
 
-，。？！、；：…—·“”‘’（）《》【】～￥＆＃＠％＋－＝／
+，。？！、；：…—·“”‘’～（）《》￥【】＆＃＠％＋－＝／
 
 - iOS：不再单独列「最近」，`KeyboardSymbolPanelView.commonSymbols(recents:)` 把 `KeyboardSymbolRecents` 与 `categories[0]` 合并成第一页「常用」。
 - Android：`SymbolPanelModel.commonSymbols` 合并 `RECENTS_LIMIT` 内的记录与 `DEFAULT_COMMON`；`initialCategory` 总是返回「常用」。「中文」最前面的中文标点保留。

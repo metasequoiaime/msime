@@ -1,4 +1,5 @@
 import { createTauriProgressClient } from "./core/tauri-progress-client";
+import { withReadAloud } from "./core/read-aloud";
 import { StrictMode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createMobileSettingsHistoryState } from "../../../packages/ui/src/settings/mobile-history-state";
@@ -268,6 +269,8 @@ const vocabularyReview: VocabularyReviewClient = {
     }),
   importWordbook: (name, text) => invoke("import_vocabulary_wordbook", { name, text }),
   removeWordbook: (wordbook) => invoke("remove_vocabulary_wordbook", { wordbook }),
+  removePersonalWord: (word) => invoke("remove_personal_vocabulary_word", { word }),
+  exportPersonalWordbook: () => invoke<string | null>("export_personal_vocabulary"),
   reset: () => invoke("reset_vocabulary_review"),
 };
 const inputSourceStartup: NonNullable<SettingsClient["inputSourceStartup"]> = {
@@ -722,8 +725,9 @@ function DesktopSettings() {
                   },
                 }
               : {}),
-            // Windows 和 macOS 在各自的原生候选控制器里查离线释义，所以释义设置在两边都生效。读音也是这两个宿主画在释义后面（日文罗马音在 macOS 来自系统分词器，在 Windows 来自系统的微软日语输入法）；其他宿主不动这个值。
-            candidatePronunciation: host.platform === "macos" || host.platform === "windows",
+            // Windows 和 macOS 在各自的原生候选控制器里查离线释义，所以释义设置在两边都生效。读音也是这两个宿主画在释义后面（日文罗马音在 macOS 来自系统分词器，在 Windows 来自系统的微软日语输入法）；Linux 的 IBus 和 Fcitx5 宿主只标英文音标，音标表要在设置页下载一次。其他宿主不动这个值。
+            candidatePronunciation:
+              host.platform === "macos" || host.platform === "windows" || host.platform === "linux",
             candidateEnglishGloss:
               host.platform === "linux" ||
               host.platform === "android" ||
@@ -757,7 +761,9 @@ function DesktopSettings() {
               ? { openDiagnosticLogDirectory: () => invoke<void>("open_diagnostic_log_directory") }
               : {}),
             // A host that has not wired 背单词 hides the page rather than offering buttons whose every press would fail.
-            ...(host.vocabulary_review ? { vocabularyReview } : {}),
+            ...(host.vocabulary_review
+              ? { vocabularyReview: withReadAloud(vocabularyReview, host) }
+              : {}),
             // This shell registers no download handler, and the macOS WKWebView cancels every download link without one, so the host writes the export into Downloads itself and the page can say where the file went. Linux runs the same shell and takes the same path; Windows' WebView2 and the mobile webviews keep the download link.
             ...(host.platform === "macos" || host.platform === "linux"
               ? {
@@ -1186,6 +1192,24 @@ function DesktopSettings() {
     />
   );
 }
+// 背单词面板：卡片上的喇叭要看宿主能不能读（`HostCapabilities.read_aloud`）。先问到能力再画页面：页面换客户端时会重读一次进度，先画再换就是两次读取。
+function DesktopVocabularySurface() {
+  const [host, setHost] = useState<HostCapabilities | null | undefined>(undefined);
+  useEffect(() => {
+    let active = true;
+    void discoverHostCapabilities()
+      .catch(() => null)
+      .then((value) => {
+        if (active) setHost(value);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+  const client = useMemo(() => withReadAloud(vocabularyReview, host), [host]);
+  if (host === undefined) return <StatusMessage role="status">正在打开背单词…</StatusMessage>;
+  return <VocabularyReviewPanel client={client} />;
+}
 function DesktopCloudDictionarySurface() {
   const [host, setHost] = useState<HostCapabilities | null | undefined>(undefined);
   useEffect(() => {
@@ -1231,7 +1255,7 @@ const content =
       {(theme) => <DesktopEmojiSurface theme={theme} />}
     </DesktopPanelTheme>
   ) : panel === "vocabulary" ? (
-    <VocabularyReviewPanel client={vocabularyReview} />
+    <DesktopVocabularySurface />
   ) : (
     <DesktopSettings />
   );

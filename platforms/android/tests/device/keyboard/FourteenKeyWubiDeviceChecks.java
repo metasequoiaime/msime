@@ -50,9 +50,12 @@ final class FourteenKeyWubiDeviceChecks {
             t.stage = "26-key wubi fifth-code top commit with mixed pinyin";
             t.shellDiscard("input text wqiy");
             t.await(candidate("你"));
+            // 顶字立即上屏「你」，即使安卓开着 `phrase_preedit` 也不进暂存词段；`a` 开始下一组编码，按安卓默认写进输入框组字区，所以输入框是「你a」。读音行不再画暂存的「你」。
             t.shellDiscard("input text a");
-            t.await(t.field("msime-test-plain").and(node -> DeviceSmoke.equalsText("你", node.getText())));
-            t.await(t.described("编辑拼写").and(node -> DeviceSmoke.equalsText("a", node.getText())));
+            t.await(t.field("msime-test-plain").and(node -> DeviceSmoke.equalsText("你a", node.getText())));
+            absent(t.described("编辑拼写").and(node -> DeviceSmoke.equalsText("你", node.getText())));
+            t.tap(candidate("工"));
+            t.await(t.field("msime-test-plain").and(node -> DeviceSmoke.equalsText("你工", node.getText())));
             layoutSetting("26 键", "14 键");
             assertStored("wubi86", "fourteen_key");
             editor(false);

@@ -96,6 +96,7 @@ tray_menu_mode_command(TrayMenuCommand command, std::optional<bool> chinese,
   case TrayMenuCommand::ToggleTraditionalOutput:
   case TrayMenuCommand::OpenCloudClipboard:
   case TrayMenuCommand::OpenCloudDictionary:
+  case TrayMenuCommand::OpenVocabulary:
   case TrayMenuCommand::SelectTheme:
   case TrayMenuCommand::ShowSchemes:
   case TrayMenuCommand::ShowThemes:

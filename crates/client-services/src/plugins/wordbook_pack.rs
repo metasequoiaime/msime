@@ -196,6 +196,7 @@ pub fn summaries(root: &Path) -> Vec<crate::vocabulary::library::WordbookSummary
                 total: pack.word_count,
                 builtin: false,
                 pack: true,
+                personal: false,
             }),
             _ => None,
         })

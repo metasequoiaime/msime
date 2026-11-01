@@ -7,6 +7,9 @@ import { ActionButton } from "./action-button";
 import { SettingsEmptyMessage } from "./settings-empty-message";
 import { compactPage } from "../core/page-style";
 import { compactMutedNote } from "../core/text-style";
+import { downloadBlob } from "../core/download-blob";
+import { FluentIcon } from "../core/fluent-icons";
+import { readAloudText } from "./read-aloud";
 
 // The largest word list the page reads. The shared layer takes at most 8 MiB of decoded text (`vocabulary::session::MAX_IMPORT_BYTES`), well under the dictionary import's bound, so this keeps the 1 MiB the page has always read rather than following that one.
 const WORDBOOK_FILE_BYTES = 1_048_576;
@@ -36,6 +39,8 @@ const answerButton =
 const answerKnown =
   "min-h-[44px] rounded-[10px] border-0 bg-accent text-[15px] font-medium text-white not-disabled:hover:opacity-90";
 const field = "flex items-center justify-between gap-3 py-1.5";
+const cardAside = "mt-2.5 flex justify-center";
+const speakLabel = "inline-flex items-center gap-1.5";
 
 /** A word list the host can draw a session from. */
 export type VocabularyWordbook = {
@@ -47,6 +52,8 @@ export type VocabularyWordbook = {
   builtin: boolean;
   /** 来自单词本插件：在插件页卸载，这里不能删除。不是插件词书时不发这个字段。 */
   pack?: boolean;
+  /** 生词本：打字时从候选释义加进来的词。删除它就是清空生词本。不是生词本时不发这个字段。 */
+  personal?: boolean;
 };
 
 /** One card, already resolved from the wordbook by the host. */
@@ -94,6 +101,12 @@ export interface VocabularyReviewClient {
   importWordbook?(name: string, text: string): Promise<VocabularyReviewStatus>;
   /** Absent on hosts that ship only bundled books. */
   removeWordbook?(id: string): Promise<VocabularyReviewStatus>;
+  /** 把一个词移出生词本。宿主的候选窗没有「加入生词本」时不提供，页面也就不提生词本。 */
+  removePersonalWord?(word: string): Promise<VocabularyReviewStatus>;
+  /** 生词本导出成的 CSV 文本，还没有生词本时是 null。 */
+  exportPersonalWordbook?(): Promise<string | null>;
+  /** 用系统自带的语音合成读出卡片上的英文词头（`HostCapabilities.read_aloud`）。宿主读不了时不提供，卡片上就没有喇叭。读不出来时拒绝，带一句给用户看的话。 */
+  speak?(word: string): Promise<void>;
   reset(): Promise<VocabularyReviewStatus>;
 }
 
@@ -110,12 +123,15 @@ export function VocabularyReviewPage({
   mobile = false,
   surface = "settings",
   openPanel,
+  saveExport,
 }: {
   client: VocabularyReviewClient;
   mobile?: boolean;
   surface?: "settings" | "panel";
   /** Absent where the host cannot open panels; the page then keeps the review inline. */
   openPanel?: () => Promise<void>;
+  /** 宿主把导出文件写进「下载」并回答写到了哪里（`SettingsClient.saveExport`）；没有时退回下载链接。 */
+  saveExport?: (name: string, contents: string) => Promise<string | null>;
 }) {
   const { confirm, confirmation } = useConfirm();
   const [status, setStatus] = useState<VocabularyReviewStatus>();
@@ -181,6 +197,7 @@ export function VocabularyReviewPage({
   const books = status?.wordbooks ?? [];
   const selected = status?.settings.wordbook ?? "";
   const selectedBook = books.find((book) => book.id === selected);
+  const personalBook = books.find((book) => book.personal);
 
   async function answer(known: boolean) {
     if (!card) return;
@@ -220,6 +237,33 @@ export function VocabularyReviewPage({
       if (isCurrent()) setImportNote(`已导入「${name}」。`);
       return next;
     }, current);
+  }
+
+  async function exportPersonal() {
+    if (!client.exportPersonalWordbook || requestRef.current) return;
+    const current = generation.current;
+    setImportNote("");
+    setError("");
+    try {
+      const text = await client.exportPersonalWordbook();
+      if (!mounted.current || generation.current !== current) return;
+      if (text === null) {
+        setImportNote("生词本还是空的。");
+        return;
+      }
+      const name = "生词本.csv";
+      if (saveExport) {
+        const path = await saveExport(name, text);
+        if (path !== null && mounted.current && generation.current === current)
+          setImportNote(`已导出到 ${path}`);
+        return;
+      }
+      downloadBlob(new Blob([text], { type: "text/csv;charset=utf-8" }), name);
+      setImportNote(`已导出「${name}」。`);
+    } catch {
+      if (mounted.current && generation.current === current)
+        setImportNote("生词本导出失败，请稍后重试。");
+    }
   }
 
   if (!status && busy) {
@@ -348,17 +392,41 @@ export function VocabularyReviewPage({
           {selectedBook?.pack && (
             <p className={note}>这本书来自插件，在「插件」页卸载；卸载后复习进度仍会保留。</p>
           )}
+          {client.removePersonalWord && (
+            <p className={note}>
+              {personalBook ? `生词本里有 ${personalBook.total} 个词。` : "生词本还是空的。"}
+              打字时在候选的操作菜单里选「加入生词本」，候选旁显示的释义就会收进生词本；它只存在这台设备上。
+            </p>
+          )}
+          {client.exportPersonalWordbook && personalBook && (
+            <ActionButton
+              action={() => void exportPersonal()}
+              ariaBusy={busy}
+              className="secondary"
+              disabled={busy}
+              label="导出生词本"
+            />
+          )}
           {client.removeWordbook && selectedBook && !selectedBook.builtin && !selectedBook.pack && (
             <ActionButton
               action={async () => {
                 const current = generation.current;
                 if (
-                  !(await confirm({
-                    title: "删除词表",
-                    message: `删除「${selectedBook.name}」及其复习进度？此操作无法撤销。`,
-                    confirmLabel: "删除",
-                    danger: true,
-                  }))
+                  !(await confirm(
+                    selectedBook.personal
+                      ? {
+                          title: "清空生词本",
+                          message: `清空生词本里的 ${selectedBook.total} 个词及其复习进度？此操作无法撤销。`,
+                          confirmLabel: "清空",
+                          danger: true,
+                        }
+                      : {
+                          title: "删除词表",
+                          message: `删除「${selectedBook.name}」及其复习进度？此操作无法撤销。`,
+                          confirmLabel: "删除",
+                          danger: true,
+                        },
+                  ))
                 )
                   return;
                 await update(() => client.removeWordbook!(selectedBook.id), current);
@@ -366,7 +434,7 @@ export function VocabularyReviewPage({
               ariaBusy={busy}
               className="secondary"
               disabled={busy}
-              label="删除这个词表"
+              label={selectedBook.personal ? "清空生词本" : "删除这个词表"}
             />
           )}
         </div>
@@ -397,6 +465,28 @@ export function VocabularyReviewPage({
                   </>
                 }
               />
+              {client.speak && readAloudText(card.word) && (
+                <div className={cardAside}>
+                  <ActionButton
+                    action={async () => {
+                      setError("");
+                      try {
+                        await client.speak!(readAloudText(card.word)!);
+                      } catch (reason) {
+                        setError(reason instanceof Error ? reason.message : String(reason));
+                      }
+                    }}
+                    ariaLabel={`朗读 ${card.word}`}
+                    className="secondary"
+                    label={
+                      <span className={speakLabel}>
+                        <FluentIcon name="speaker_2" size={16} />
+                        朗读
+                      </span>
+                    }
+                  />
+                </div>
+              )}
               <div className={answerRow}>
                 <ActionButton
                   action={() => void answer(false)}
@@ -413,6 +503,18 @@ export function VocabularyReviewPage({
                   label="认识"
                 />
               </div>
+              {client.removePersonalWord && selectedBook?.personal && (
+                <div className={cardAside}>
+                  <ActionButton
+                    action={() => void update(() => client.removePersonalWord!(card.word))}
+                    ariaBusy={busy}
+                    ariaLabel={`把 ${card.word} 移出生词本`}
+                    className="secondary"
+                    disabled={busy}
+                    label="移出生词本"
+                  />
+                </div>
+              )}
               <p className={note}>
                 答「不认识」的词会在本次复习里再次出现；答「认识」的词按间隔安排到以后的某一天。
               </p>

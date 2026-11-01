@@ -6,6 +6,7 @@ import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.ImageDecoder;
 import android.graphics.Paint;
@@ -50,6 +51,8 @@ final class ImeStickers {
     private StickerPackModel.Pack pack;
     private boolean loadStarted;
     private Bitmap tabIcon;
+    private Bitmap symbolReturnLeft;
+    private Bitmap symbolReturnRight;
     private List<StickerButton> cells = List.of();
     private int rowHeight;
     private int columns = StickerPackModel.MIN_COLUMNS;
@@ -84,19 +87,38 @@ final class ImeStickers {
                     // 解码器在系统边界上抛的异常：分类签照样出现，只是没有图。
                 }
             }
+            Bitmap returnLeft = decodeHeader("left");
+            Bitmap returnRight = decodeHeader("right");
             StickerPackModel.Pack result = loaded;
             Bitmap resultIcon = icon;
             s.main.post(() -> {
-                if (worker.isShutdown() || result == null) return;
+                if (worker.isShutdown()) return;
+                symbolReturnLeft = returnLeft;
+                symbolReturnRight = returnRight;
+                if (s.symbolPanel != null) bindSymbolHeader(s.symbolPanel);
+                if (result == null) return;
                 pack = result;
                 tabIcon = resultIcon;
-                if (s.symbolPanel != null) s.symbolPanel.setHeaderMascot(resultIcon);
                 if (s.emojiPickerVisible()) {
                     s.imePanels.renderEmojiTabs();
                     s.imeStyler.applySkin();
                 }
             });
         });
+    }
+
+    /** 随包插图在已有工作线程读取，不依赖表情包清单是否可用。 */
+    private Bitmap decodeHeader(String side) {
+        try (InputStream input = s.getAssets().open("symbol-return/" + side + ".webp")) {
+            return BitmapFactory.decodeStream(input);
+        } catch (IOException | RuntimeException error) {
+            // 资源损坏时保留完整文字按钮，不记录图像或用户内容。
+            return null;
+        }
+    }
+
+    void bindSymbolHeader(SymbolPanelView panel) {
+        panel.setHeaderMascots(symbolReturnLeft, symbolReturnRight);
     }
 
     boolean available() { return pack != null; }
@@ -183,7 +205,7 @@ final class ImeStickers {
         });
     }
 
-    /** 离开这个分类或收起面板：放掉格子和缩略图，内存里只留分类签那一张。 */
+    /** 离开这个分类或收起面板：放掉格子和缩略图，保留分类签与返回栏的三张固定小图。 */
     void release() {
         cells = List.of();
         discardThumbnails();

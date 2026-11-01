@@ -3,6 +3,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <map>
+#include <string>
+#include <utility>
+#include <vector>
 
 using namespace msime::windows;
 
@@ -31,22 +34,28 @@ int main() {
   // 有假名就是日文；拉丁字母只在英文目标那一行是英文；只有汉字的行只在日文目标那一行是日文。
   const std::vector<std::string> targets{"en", "ja"};
   require(gloss_line_language("hello; hi", 0, targets) == "en", "english line");
-  require(gloss_line_language("chat", 0, {"fr"}).empty(), "french is not english");
+  require(gloss_line_language("chat", 0, {"fr"}) == "fr", "french is read as french, not english");
+  require(gloss_line_language("chat", 0, {"fr", "en"}) == "fr", "only the english target's line is english");
+  require(gloss_line_language("кошка", 1, {"en", "ru"}) == "ru", "a line follows its own target");
+  require(gloss_line_language("chat", 0, {"zh"}).empty(), "a target without a table is not read");
   require(gloss_line_language("こんにちは", 0, {"en"}) == "ja", "kana anywhere");
   require(gloss_line_language("今日", 1, targets) == "ja", "kanji on the japanese target");
   require(gloss_line_language("今日", 0, targets).empty(), "kanji on the english target");
 
   // 英文候选读它自己；中文候选读它的英文释义行；没有释义时什么都不问。
-  require(gloss_english_texts("hello", {"你好"}, {"en"}) == std::vector<std::string>{"hello"},
-          "english candidate");
-  require(gloss_english_texts("你好", {"hello; hi", "こんにちは"}, targets) ==
-              std::vector<std::string>{"hello; hi"},
+  using Items = std::vector<std::pair<std::string, std::string>>;
+  require(gloss_shared_items("hello", {"你好"}, {"en"}) == Items{{"en", "hello"}}, "english candidate");
+  require(gloss_shared_items("你好", {"hello; hi", "こんにちは"}, targets) == Items{{"en", "hello; hi"}},
           "english gloss line");
-  require(gloss_english_texts("hello", {""}, {"en"}).empty(), "no gloss");
+  require(gloss_shared_items("猫", {"chat", "猫", "Katze"}, {"fr", "ja", "de"}) ==
+              Items{{"fr", "chat"}, {"de", "Katze"}},
+          "other target lines go in their language; japanese is read locally");
+  require(gloss_shared_items("hello", {""}, {"en"}).empty(), "no gloss");
 
-  const std::map<std::string, std::string> table{{"hello; hi", "/həˈləʊ/"}, {"hello", "/həˈləʊ/"}};
-  const auto english = [&](const std::string &text) {
-    const auto found = table.find(text);
+  const std::map<std::pair<std::string, std::string>, std::string> table{
+      {{"en", "hello; hi"}, "/həˈləʊ/"}, {{"en", "hello"}, "/həˈləʊ/"}, {{"fr", "chat"}, "/ʃa/"}};
+  const auto english = [&](const std::string &language, const std::string &text) {
+    const auto found = table.find({language, text});
     return found == table.end() ? std::string{} : found->second;
   };
   const auto readings =
@@ -64,13 +73,37 @@ int main() {
   require(gloss_pronunciation_lines("猫", {"猫"}, {"ja"}, english, japanese).empty(),
           "unreadable japanese line");
   require(gloss_pronunciation_lines("你好", {"bonjour"}, {"fr"}, english).empty(), "no reading");
+  require(gloss_pronunciation_lines("猫", {"chat"}, {"fr"}, english) == std::vector<std::string>{"/ʃa/"},
+          "french line reading");
+  require(gloss_pronunciation_lines("猫", {"chat"}, {"en"}, english).empty(), "a french answer is not english");
   require(gloss_pronunciation_lines("hello", {"你好"}, {"en"}, english) ==
               std::vector<std::string>{"/həˈləʊ/"},
           "english candidate reading");
 
-  // 画出来的释义：每行后面空两格跟读音。
-  require(candidate_gloss_display({"hello; hi", "こんにちは"}, readings) ==
-              "hello; hi  /həˈləʊ/\nこんにちは",
-          "display with readings");
-  require(candidate_gloss_display({"", "aimer"}, {}) == "\naimer", "empty first line kept");
+  // 画出来的释义：读音在它那一行释义下面单独一行，和 macOS 的 MSIMECandidateGlossDisplay 一样；读音的位置和每行释义的起点都报出来。
+  std::vector<std::pair<size_t, size_t>> ranges;
+  std::vector<size_t> starts;
+  require(candidate_gloss_display({"hello; hi", "こんにちは"}, readings, &ranges, &starts) ==
+              "hello; hi\n/həˈləʊ/\nこんにちは",
+          "reading on its own line");
+  require(ranges.size() == 1 && ranges[0].first == std::string("hello; hi\n").size() &&
+              ranges[0].second == std::string("/həˈləʊ/").size(),
+          "reading range");
+  require(starts == std::vector<size_t>{0, std::string("hello; hi\n/həˈləʊ/\n").size()},
+          "second gloss line starts after the reading");
+  // 两行都有读音：每条读音跟在自己那一行下面。
+  ranges.clear();
+  starts.clear();
+  require(candidate_gloss_display({"hello", "こんにちは"}, {"/həˈləʊ/", "konnichiwa"}, &ranges, &starts) ==
+              "hello\n/həˈləʊ/\nこんにちは\nkonnichiwa",
+          "both readings");
+  require(ranges.size() == 2 && ranges[1].first == std::string("hello\n/həˈləʊ/\nこんにちは\n").size(),
+          "second reading range");
+  require(starts.size() == 2 && starts[1] == std::string("hello\n/həˈləʊ/\n").size(), "both line starts");
+  // 空的释义行不生读音行，第二种目标语言照样排在第二行；没有读音时就是释义各行。
+  starts.clear();
+  require(candidate_gloss_display({"", "aimer"}, {"/x/", ""}, nullptr, &starts) == "\naimer",
+          "empty first line kept without a reading line");
+  require(starts == std::vector<size_t>{0, 1}, "empty line start");
+  require(candidate_gloss_display({"hello", "bonjour"}, {}) == "hello\nbonjour", "no readings");
 }

@@ -490,6 +490,12 @@ int local_asr_thread_count(int requested) {
   return static_cast<int>(std::clamp(hardware / 2u, 1u, 4u));
 }
 
+float local_asr_vad_threshold(int sensitivity_percent) {
+  if (sensitivity_percent < 10 || sensitivity_percent > 90)
+    return 0.5f;
+  return static_cast<float>(100 - sensitivity_percent) / 100.0f;
+}
+
 namespace {
 
 int thread_count(int requested) { return local_asr_thread_count(requested); }
@@ -1037,7 +1043,7 @@ LocalAsrSession::LocalAsrSession(const LocalAsrOptions &options, PartialCallback
     impl_->segment_hotwords = transducer_hotwords(options.hotwords, recognizer.tokens, recognizer.spaced_cjk);
   SherpaOnnxVadModelConfig vad{};
   vad.silero_vad.model = recognizer.vad_model.c_str();
-  vad.silero_vad.threshold = 0.5f;
+  vad.silero_vad.threshold = local_asr_vad_threshold(options.vad_sensitivity_percent);
   vad.silero_vad.min_silence_duration = 0.5f;
   vad.silero_vad.min_speech_duration = 0.25f;
   vad.silero_vad.window_size = kVadWindow;

@@ -40,6 +40,7 @@ Status: implemented
 - **关掉只在混输开启时生效**：`(top_commit_enabled || !mixed_pinyin)`。混输关掉时引擎把码裁回四位，字母无处容纳；宿主已经按下的键不能丢，所以仍按顶字上屏。这正是来源 `ShouldCommitCompleteWubiCodeOnNextKey` 的兜底分支。
 - 为了让 runtime 知道混输状态，`InputEngine` 加 `wubi_mixed_pinyin()`（默认 `false`），`Session` 从 `WubiInputOptions::mixed_pinyin` 转发。runtime 不复制引擎的读音规则。
 - 宿主状态而不是 Engine 状态：改偏好不必等 Engine 空闲重建，下一键生效，与 `wubi_auto_commit_unique` 同一条规矩。
+- 顶下来的首选立即上屏，开着 `phrase_preedit` 的宿主（六个宿主都开）也不进暂存词段，与 14 键顶字一致。此前这里记的是「和组字中途的选词一样暂存、下一段选词时一起上屏」，那样会挡住之后每次顶字与四码唯一自动上屏，续打的码被截在四码外丢掉，Esc 还连已顶的字一起丢；改动与理由见[五笔顶字立即上屏，不进暂存词段](../bug-fix/2026-11-01-wubi-top-commit-skips-phrase-hold.md)。安卓设备验收「26 键五笔第五码顶字」与运行时回归 `a_fifth_letter_after_wqiy_commits_the_topped_word_even_with_phrase_preedit` 钉住这条。
 
 ### 四码唯一自动上屏
 
