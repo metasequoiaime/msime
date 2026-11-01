@@ -76,9 +76,7 @@ struct BackendCommunityResourcesView: View {
           }
         }
       } header: {
-        Text(scopeTitle)
-      } footer: {
-        Text("点一份作品查看详情，可以导入到自己的云端词库，或收藏起来以后再用。")
+        SettingsSectionInfoHeader(subject: scopeTitle, info: "点一份作品查看详情，可以导入到自己的云端词库，或收藏起来以后再用。") { Text(scopeTitle) }
       }
     }
     .searchable(text: $search, prompt: "搜索名称")
