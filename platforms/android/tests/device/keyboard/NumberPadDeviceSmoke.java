@@ -328,7 +328,44 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
     }
 
     private void verifyPasswordNumberPad() throws Exception {
-        restartIme();
+        File root = getTargetContext().getFilesDir().getCanonicalFile();
+        JSONObject options = new JSONObject(read(new File(root, "runtime-options.json")));
+        File directory = new File(options.getString("preferences_directory")).getCanonicalFile();
+        if (!directory.toPath().startsWith(root.toPath()))
+            throw new AssertionError("Preferences escaped test sandbox");
+        File preferences = new File(directory, "preferences.json");
+        byte[] originalPreferences = snapshot(preferences);
+        long revision = originalPreferences == null ? 0
+            : new JSONObject(new String(originalPreferences, StandardCharsets.UTF_8)).getLong("revision");
+        try {
+            // 以九键用户进密码框（#10481）：没有引擎会话的数字密码框按记住的中文键面画字母层，先在中文框里显示一次九键，让这份记忆确定是九键，而不是取决于前一个套件停在哪种键面。
+            stage = "password nine-key user prepare";
+            JSONObject values = new JSONObject(options.getJSONObject("preferences").toString())
+                .put("scheme", "quanpin").put("last_chinese_scheme", "quanpin")
+                .put("touch_keyboard_layout", "nine_key").put("ime_mode_scope", "global")
+                .put("default_ime_mode", "chinese")
+                .put("touch_keyboard_schemes", new JSONObject().put("enabled", new JSONArray().put("nine_key"))
+                    .put("selected", "nine_key"));
+            publish(preferences, new JSONObject().put("format_version", 1).put("revision", ++revision)
+                .put("preferences", values).toString().getBytes(StandardCharsets.UTF_8));
+            restartIme();
+            openEditor();
+            Predicate<AccessibilityNodeInfo> mode = node -> node.isClickable()
+                && node.getContentDescription() != null
+                && node.getContentDescription().toString().startsWith("切换到");
+            await(key("中").or(key("英")).and(mode));
+            if (hasKey(key("英"))) tap(key("英"));
+            await(letterFace("nine_key"));
+            verifyPasswordTypes();
+        } finally {
+            shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
+            restartIme();
+            restore(preferences, originalPreferences);
+            restartIme();
+        }
+    }
+
+    private void verifyPasswordTypes() throws Exception {
         for (int type : new int[] {
                 android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD,
                 android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD,
@@ -351,6 +388,8 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
             awaitPasswordLength(4);
             tap(key("⌫"));
             awaitPasswordLength(3);
+            // 数字密码也是英文字母层（#10481）：上一套件留下的九键、注音键面记忆不能画进密码框。
+            stage = "password letters type " + type;
             tap(described("返回原键盘"));
             await(key("q"));
             // 文字密码仍能输入字母；数字密码的编辑器会过滤字母，因此只检查往返键面。
