@@ -231,10 +231,10 @@ struct KeyboardLayoutSettingsView: View {
         .accessibilityIdentifier("keyLayoutSettingsLink")
       }
       DesignDivider()
-      // 只有双拼方案的 26 键画键位提示；本版本没有双拼时不列这一行。
-      if ChineseInputScheme.shuangpin.isOfferedByEdition {
+      // 只有双拼方案和粤语双拼的 26 键画键位提示；本版本两者都没有时不列这一行。
+      if ChineseInputScheme.shuangpin.isOfferedByEdition || ChineseInputScheme.cantoneseShuangpin.isOfferedByEdition {
         DesignToggleRow(
-          title: "双拼键位提示", info: "双拼方案的 26 键键盘在字母键底部显示这个键代表的声母和韵母；关闭后键面只留字母",
+          title: "双拼键位提示", info: "双拼方案和粤语双拼的 26 键键盘在字母键底部显示这个键代表的声母和韵母；关闭后键面只留字母",
           isOn: Binding(get: { shuangpinKeyHints }, set: { saveShuangpinKeyHints($0) }))
         .accessibilityIdentifier("appShuangpinKeyHintsToggle")
         DesignDivider()

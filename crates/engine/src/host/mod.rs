@@ -57,5 +57,5 @@ pub use text::{
     emoji_catalog_filtered_page, emoji_catalog_groups, emoji_catalog_slice, emoji_symbol_groups,
     encode_shuangpin, hanzi_to_pinyin, hanzi_to_pinyin_batch, is_shuangpin_syllable,
     main_dictionary_path, normalize_full_pinyin, shuangpin_key_hints, shuangpin_uses_semicolon,
-    shuangpin_zero_initials, wubi_code_lookup,
+    shuangpin_zero_initials, wubi_code_lookup, CANTONESE_SHUANGPIN_HINTS,
 };

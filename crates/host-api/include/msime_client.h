@@ -383,11 +383,7 @@ char *msime_client_resolve_theme(const uint8_t *request, size_t length);
 char *msime_client_app_theme_catalog(void);
 /* 应用主题在宿主当前月份与明暗模式下的颜色。JSON 请求（<=4096 字节，拒绝未知键）{app_theme:"siji"|"chunya"|"xiayin"|"qiushan"|"dongxue", month?:1-12, dark:bool}；month 是宿主本地日历的月份，只影响 siji，省略时用 UTC 月份，超出 1-12 时请求失败。返回 {id, season, accent, accent_soft, on_accent, background, card, hair, candidate_accent}，season 是实际画的那一季。纯计算，可在主线程调用。 */
 char *msime_client_resolve_app_theme(const uint8_t *request, size_t length);
-/* Per-key double-pinyin hint text for one profile name, as a JSON object mapping
- * an uppercase key to "initials / finals" - or to whichever side that key carries.
- * Read out of the Engine's own profile tables so a keyboard face never carries a
- * second copy of the keymap. An unknown profile name yields an empty object
- * rather than the default profile's hints. */
+/* Per-key double-pinyin hint text for one profile name, as a JSON object mapping an uppercase key (or ";") to "initials / finals" - or to whichever side that key carries. Read out of the Engine's own profile tables so a keyboard face never carries a second copy of the keymap. The reserved name "cantonese" gives the Cantonese shuangpin face. An unknown profile name yields an empty object rather than the default profile's hints. */
 char *msime_client_shuangpin_key_hints(const uint8_t *profile, size_t length);
 /* The double-pinyin codes of the whole zero-initial syllables for one profile name, as a JSON object mapping each syllable to its two-key code, e.g. {"a":"aa","ang":"ah",...}. Read out of the Engine's own profile tables. An unknown profile name yields an empty object. */
 char *msime_client_shuangpin_zero_initials(const uint8_t *profile, size_t length);
