@@ -69,6 +69,7 @@ jobs:
             emulator platform-tools 'system-images;android-${{ matrix.api }};default;x86_64' >/dev/null
           grep -q '28.2.13676358' "$ANDROID_SDK_ROOT/ndk/28.2.13676358/source.properties"
           test -f "$ANDROID_SDK_ROOT/system-images/android-${{ matrix.api }}/default/x86_64/package.xml"
+          "$ANDROID_SDK_ROOT/emulator/emulator" -accel-check
       - name: Boot the dedicated AVD
         run: |
           set -euo pipefail
@@ -99,6 +100,14 @@ jobs:
           mkdir -p target/resources
           resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources --locked -- target/resources)"
           bash platforms/android/build-apk.sh "$resource_dir"
+      # 崩溃链路独立于完整输入冒烟；普通 UI 套件失败或耗时过长时也必须留下真实故障门禁结果。此前运行在 4 分钟内完成；10 分钟上限加上约 17 分钟的构建和下一步的 90 分钟，仍在 job 的 120 分钟以内。
+      - name: Verify crash reporting before the full input smoke
+        if: ${{ matrix.api == 35 }}
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          mkdir -p target/android
+          bash platforms/android/tests/device/smoke.sh "$SERIAL" --crash-only 2>&1 | tee target/android/device-crash-smoke.log
       - name: Install, prepare resources and accept input on the AVD
         timeout-minutes: 90
         run: |
@@ -120,6 +129,7 @@ jobs:
             target/android/emulator.log
             target/android/logcat.txt
             target/android/crash.txt
+            target/android/device-crash-smoke.log
             target/android/device-smoke.log
           if-no-files-found: ignore
       - name: Stop the AVD

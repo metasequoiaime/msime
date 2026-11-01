@@ -13,6 +13,9 @@ feedback=false
 diagnostics=false
 text_edit_layout=false
 oobe=false
+crash_only=false
+instrumentation_timeout_seconds=${MSIME_DEVICE_INSTRUMENTATION_TIMEOUT_SECONDS:-300}
+[[ "$instrumentation_timeout_seconds" =~ ^[1-9][0-9]*$ ]] || { echo "MSIME_DEVICE_INSTRUMENTATION_TIMEOUT_SECONDS must be a positive integer" >&2; exit 1; }
 for option in "${@:2}"; do
   case "$option" in
     # --core 跑安装、词库准备、打字主路径及剪贴板保存生命周期；其余键盘套件在 API 28 上仍不支持。
@@ -178,7 +181,9 @@ check_script() {
 }
 # ---- 前置条件：这里失败，后面的检查都跑不起来 ----
 device_alive || stop "Test AVD has not booted"
-if [[ "$oobe" == true ]]; then
+if [[ "$crash_only" == true ]]; then
+  MSIME_ANDROID_CRASH_REPORTING=1 bash platforms/android/tests/device/build-editor.sh || stop "building the crash reporting test APK failed"
+elif [[ "$oobe" == true ]]; then
   MSIME_ANDROID_OOBE_SMOKE=1 bash platforms/android/tests/device/build-editor.sh || stop "building the device test APKs failed"
 else
   bash platforms/android/tests/device/build-editor.sh || stop "building the device test APKs failed"
@@ -246,9 +251,11 @@ run_instrumentation() {
     || { echo "Unknown instrumentation target: $component" >&2; return 1; }
   if (( sdk >= 31 )) && [[ "$target" == app.msime.android ]]; then
     "$adb" -s "$serial" shell am start -W -n app.msime.android/app.msime.android.home.HomeActivity >/dev/null
-    "$adb" -s "$serial" shell am instrument --no-restart "${@:2}" -w "$component"
+    timeout --foreground "${instrumentation_timeout_seconds}s" \
+      "$adb" -s "$serial" shell am instrument --no-restart "${@:2}" -w "$component"
   else
-    "$adb" -s "$serial" shell am instrument "${@:2}" -w "$component"
+    timeout --foreground "${instrumentation_timeout_seconds}s" \
+      "$adb" -s "$serial" shell am instrument "${@:2}" -w "$component"
   fi
 }
 "$adb" -s "$serial" shell ime enable "$ime_id" || stop "enabling $ime_id failed"

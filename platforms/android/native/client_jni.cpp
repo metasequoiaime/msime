@@ -1,6 +1,7 @@
 #include <jni.h>
 #include "msime_client.h"
 #include "../../common/HostApiString.h"
+#include "../../common/CrashRecorder.h"
 // 会话存储和 listener 回调进 Java 的那一半（JNI_OnLoad 记下的 JavaVM、attach 与 detach、异常清理）。
 #include "JniCallbacks.h"
 // The polish presets carry their own prompt-injection wording, and there are already four copies
@@ -112,11 +113,38 @@ static jbyteArray json_call(JNIEnv *env, jbyteArray request, char *(*call)(const
     env->ReleaseByteArrayElements(request, bytes, JNI_ABORT);
     return response(env, result);
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_telemetryConsentRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return json_call(env, request, msime_client_telemetry_consent);
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_migrateKeyLayoutRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, 65536, msime_client_migrate_android_key_layout);
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_telemetryBeginRaw(JNIEnv *env, jclass, jbyteArray request) {
     return json_call(env, request, msime_client_telemetry_begin);
+}
+JNIEXPORT void JNICALL Java_app_msime_android_NativeClient_telemetryCrashInstall(JNIEnv *, jclass) {
+    msime_native_crash_install();
+}
+JNIEXPORT void JNICALL Java_app_msime_android_NativeClient_telemetryCrashDisarm(JNIEnv *, jclass) {
+    msime_native_crash_disarm();
+}
+JNIEXPORT void JNICALL Java_app_msime_android_NativeClient_telemetryCrashCaptureRaw(JNIEnv *env, jclass, jbyteArray path, jbyteArray header) {
+    msime_native_crash_disarm();
+    if (!path || !header) return;
+    const auto path_size = env->GetArrayLength(path);
+    const auto header_size = env->GetArrayLength(header);
+    if (path_size <= 0 || path_size >= 4096 || header_size <= 0 || header_size >= 1024) return;
+    char path_text[4096]{};
+    char header_text[1024]{};
+    env->GetByteArrayRegion(path, 0, path_size, reinterpret_cast<jbyte *>(path_text));
+    if (env->ExceptionCheck()) return;
+    env->GetByteArrayRegion(header, 0, header_size, reinterpret_cast<jbyte *>(header_text));
+    if (env->ExceptionCheck()) return;
+    if (std::memchr(path_text, '\0', path_size) || std::memchr(header_text, '\0', header_size)) return;
+    msime_native_crash_arm(path_text, header_text);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_telemetryRecordCrashRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, 256 * 1024, msime_client_telemetry_record_crash);
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_telemetryEndRaw(JNIEnv *env, jclass, jbyteArray request) {
     return json_call(env, request, msime_client_telemetry_end);

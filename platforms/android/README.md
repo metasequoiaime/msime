@@ -442,6 +442,14 @@ APK 包结构、双 ABI、启动 Activity、IME 声明、签名与对齐均由�
 
 ## 专用模拟器验收
 
+崩溃同意边界专项：先在专用 AVD 安装并准备同源的原生产品 APK，再用 `MSIME_ANDROID_DIAGNOSTIC_CONSENT=1 bash platforms/android/tests/device/build-editor.sh` 构建并安装 `target/android/editor-test.apk`。API 28、35 均运行 `adb -s <serial> shell am instrument -w app.msime.android.test/app.msime.android.test.DiagnosticConsentDeviceSmoke`，验证应用 UID 下的同意文件、撤回重开、时钟回拨、损坏记录和链接拒绝。API 35 另运行 `ANDROID_SDK_ROOT=<SDK> python3 platforms/android/tests/device/telemetry-consent.py emulator-5580`：只接受本仓专用 AVD，按产品 UID 阻断外网，由测试夹具在产品进程仅解除现场采集、保留系统摘要，再实际触发 Java 崩溃并核对系统历史退出补录，再经产品 `setEnabled(false)` 回调撤回，重新开启并连续重启两次确认旧报告不返回，新故障仍可补录。结束恢复偏好、移除合成队列和网络规则；此专项不验证真实 ANR、后台收件或正式包体积。测试包与产品包必须使用同一证书，开发证书包不能覆盖发布证书包。
+
+活跃进程同意专项：安装并准备原生产品 APK，用 `MSIME_ANDROID_TELEMETRY_WATCH=1 bash platforms/android/tests/device/build-editor.sh` 构建并安装同证书的测试包，再运行 `ANDROID_SDK_ROOT=<SDK> python3 platforms/android/tests/device/telemetry-watch.py emulator-5580`（API 28 为 `emulator-5566`）。只接受这两台专用 AVD：真实 `:ime` 不重启时从外部修改实际嵌套偏好，验证关闭后 Java/原生故障不记录、重开与持久 epoch 轮换采用新身份、坏 options/偏好停采后恢复原会话、稳定同意不重复 begin、正常结束不再武装，以及重启入队；另检查实际 HomeActivity 进程的动态同意和独立崩溃不产生输入会话。测试全程阻断产品 UID 外网并在结束恢复配置和系统设置、清理合成队列和网络规则。此模式与系统退出专项会替换同一个 instrumentation 入口，切换专项前需重新构建/安装测试包。
+
+真实 ANR 专项：在已准备好原生产品 APK 的专用 API 35 AVD 运行 `ANDROID_SDK_ROOT=<SDK> python3 platforms/android/tests/device/telemetry-anr.py emulator-5580`，不需要 instrumentation。它暂停实际前台 HomeActivity 进程并发送触摸，等系统按输入超时判定并结束 ANR，再用产品正常启动路径验证 `Hang Android ANR` 入队、重启去重、活跃进程撤回后不采集及重开不追认旧记录；不读取 ANR trace。测试同样阻断产品 UID 外网并清理合成状态，失败时恢复仍暂停的原 PID。这里只覆盖 App 的真实系统 ANR，不能代替 IME 卡死、后台收件或完整正式包验收。
+
+
+
 剪贴板手动分类专项：安装当前分支的全功能原生 APK 并准备词库后，运行 `ANDROID_SDK_ROOT=<SDK> bash platforms/android/tests/device/clipboard-categories.sh <serial>`。API 28、35 都要执行；专项复用一个测试清单入口，不改变产品清单。用例备份并恢复私有合成状态，实际创建分类、移动记录、筛选、改名、重绑输入法后重读、删除分类保留正文，以及滚动后的固定顶栏和返回顶部。`ToolbarEdgesDeviceSmoke` 另检查 320/600dp 下的固定布局和返回顶部显隐。分类最多五个，名称最多十二个 Unicode 字素；分类与剪贴板正文一样只保存在本机，不进入现有备份或云同步。
 
 系统自动填充专项：构建当前原生宿主 APK 后运行 `ANDROID_SDK_ROOT=<SDK> bash platforms/android/tests/device/inline-autofill.sh emulator-5580`，API 28 用 `emulator-5566`。测试包的合成服务只提供固定虚构账号，API 35 验证真实内联请求、系统远程视图、隐藏／再显示、切框、空响应和系统多字段填充；API 28 验证旧菜单填充。退出时恢复原填充服务。专项替换默认设备套件的一个 instrumentation 入口，不增加系统限定的 100 项数量；下次运行普通 `build-editor.sh` 会恢复默认入口。内联功能需要 Android 11 以上、支持它的填充服务及提供填充信息的应用；不支持时由系统显示原有菜单。

@@ -1517,7 +1517,8 @@ if [[ -n "$host_tag" && -x "$jni_compiler" ]]; then
   "$jni_compiler" -std=c++20 -fsyntax-only -Wall -Werror \
     -I"$repo_root/crates/host-api/include" -I"$repo_root/shared" \
     "$repo_root/platforms/android/native/client_jni.cpp" \
-    "$repo_root/platforms/android/native/JniCallbacks.cpp"
+    "$repo_root/platforms/android/native/JniCallbacks.cpp" \
+    "$repo_root/platforms/common/CrashRecorder.cpp"
   echo "client_jni.cpp, JniCallbacks.cpp: aarch64-linux-android compile against the shared header passed"
 else
   echo "client_jni.cpp: skipped (pinned NDK 28.2.13676358 not installed)"
