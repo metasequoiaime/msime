@@ -1,0 +1,23 @@
+[package]
+name = "msime-onnx-rerank"
+description = "ONNX Runtime backend for the candidate reranker: the single-graph keystroke model with a cross-keystroke prefix cache."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[features]
+# 链接 ONNX Runtime 的模型后端。默认关闭：ort 要在构建时找到按模型算子清单精简构建的 ONNX Runtime 静态库（`ORT_LIB_LOCATION`），没有它时这个 crate 只编译不依赖原生库的前缀簿记。
+runtime = ["dep:ort"]
+
+[dependencies]
+msime-engine = { path = "../engine" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+# ONNX Runtime 的 Rust 绑定（MIT OR Apache-2.0）。只用 CPU、只读 ORT 格式模型，所以关掉默认特性（下载预编译库、ndarray、tracing），API 级别对齐精简构建所用的 ONNX Runtime 1.24。
+ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "api-24"], optional = true }
+
+[lints]
+workspace = true
