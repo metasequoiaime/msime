@@ -81,6 +81,13 @@ function profile(initials: string[], finals: string[]): Map<string, string> {
   return hints;
 }
 
+/** 粤语双拼键面的名字，与引擎的保留名相同；它不是普通话双拼方案名，会话的 `shuangpinProfile` 里不会出现。 */
+export const CANTONESE_PROFILE: string = "cantonese";
+/** 粤语双拼的触屏方案 id（`KeyboardScheme.CANTONESE_SHUANGPIN.preferenceId`）。 */
+const CANTONESE_SHUANGPIN_SCHEME: string = "cantonese_shuangpin";
+/** 会话 `scheme` 里粤拼的编号，普通粤拼和粤语双拼都跑在它上面。 */
+const CANTONESE_ENGINE_SCHEME: number = 5;
+
 const PROFILES: Map<string, Map<string, string>> = new Map<string, Map<string, string>>([
   [
     "xiaohe",
@@ -246,10 +253,78 @@ const PROFILES: Map<string, Map<string, string>> = new Map<string, Map<string, s
       ],
     ),
   ],
+  // 粤语双拼（#10438）：引擎把它的键面放在保留名 `cantonese` 下（`host::CANTONESE_SHUANGPIN_HINTS`），表抄自 `cantonese::shuangpin` 的 `MOVED_INITIALS` 和 `FINALS`。声母只列不在自己字母键上的 gw、kw、ng、j；零声母键 o 和鼻音音节 m、ng 的码不写。
+  [
+    CANTONESE_PROFILE,
+    profile(
+      ["gw=i", "kw=u", "ng=v", "j=y"],
+      [
+        "a=a",
+        "aa=a",
+        "ou=b",
+        "aam=c",
+        "aap=c",
+        "am=d",
+        "ap=d",
+        "e=e",
+        "an=f",
+        "at=f",
+        "ang=g",
+        "ak=g",
+        "eng=g",
+        "aang=h",
+        "aak=h",
+        "i=i",
+        "aan=j",
+        "aat=j",
+        "aau=k",
+        "au=k",
+        "aai=l",
+        "ai=l",
+        "im=m",
+        "ip=m",
+        "in=n",
+        "o=o",
+        "oi=o",
+        "un=p",
+        "ut=p",
+        "ung=p",
+        "eon=p",
+        "iu=q",
+        "yun=r",
+        "yut=r",
+        "uk=r",
+        "on=s",
+        "ong=s",
+        "ok=s",
+        "ot=s",
+        "it=t",
+        "ek=t",
+        "u=u",
+        "yu=v",
+        "ui=v",
+        "oe=w",
+        "oeng=x",
+        "oek=x",
+        "eoi=y",
+        "eot=y",
+        "ei=z",
+        "ing=;",
+        "ik=;",
+      ],
+    ),
+  ],
 ]);
 
 export class ShuangpinKeyHintPolicy {
-  /** `enabled` 是共享偏好 `touch_shuangpin_key_hints`：用户关掉后双拼也不画提示，其余条件与它无关。 */
+  /**
+   * 是否画粤语双拼的键面：选中的触屏方案是粤语双拼、会话也确实跑着粤拼。普通粤拼与粤语双拼是同一个引擎方案，只有键盘知道选的是哪一个，普通粤拼完整拼写，不画；会话跑的不是粤拼时（缺了 `msime-cantonese.db`，运行时留在上一个中文方案）不画，免得把键标成没在跑的方案。与 Android 的 `ShuangpinKeyHintPolicy.rememberedProfile`、iOS 的 `cantoneseShuangpinKeyHints` 一致。
+   */
+  static cantoneseFace(touchScheme: string, engineScheme: number): boolean {
+    return touchScheme === CANTONESE_SHUANGPIN_SCHEME && engineScheme === CANTONESE_ENGINE_SCHEME;
+  }
+
+  /** `enabled` 是共享偏好 `touch_shuangpin_key_hints`：用户关掉后双拼和粤语双拼也不画提示，其余条件与它无关。 */
   static visible(
     dedicatedEnglish: boolean,
     scheme: number,

@@ -13,7 +13,7 @@ Status: implemented
 - 对外复用已有的 C ABI `msime_client_shuangpin_key_hints`，加一个保留名 `cantonese`（`host::CANTONESE_SHUANGPIN_HINTS`）：`host::shuangpin_key_hints("cantonese")` 返回粤语双拼的键面，其余名字照旧。头文件、JNI 和 ArkTS 绑定都不用改。`cantonese` 不是 `ShuangpinProfileKind` 的名字，所以 `shuangpin_zero_initials`、`encode_shuangpin`、`shuangpin_uses_semicolon` 和桌面的双拼键位面板都不认它，不会撞名。
 - iOS：桥接层加 `cantoneseShuangpinKeyHints()`，只在会话方案是粤拼（`scheme == 5`）时用 `cantonese` 去取，否则给空表，和 `shuangpinKeyHints()` 只给跑着双拼的会话一样，免得缺了 `msime-cantonese.db`、运行时留在上一个中文方案时把键标错。`updateSchemeButton` 在 `inputScheme == .cantoneseShuangpin` 时取这张表，否则照旧。普通粤拼和粤语双拼是同一个引擎方案，只有键盘知道选的是哪一个；普通粤拼完整拼写，不画提示。
 - 仍由「双拼键位提示」（`touch_shuangpin_key_hints`，缺省关）这一个开关控制，不新增开关，默认值不变。iOS 设置页这一行在本版本有双拼或粤语双拼时列出，说明里加上粤语双拼。
-- Android 和 HarmonyOS 这次不动：两端还没有粤语双拼方案（#10523 正在移植）。它们接入时把 `cantonese` 传给已有的 `NativeClient.shuangpinKeyHints` 或 HarmonyOS 的同一入口即可，提示文字已经在引擎里。
+- Android 和 HarmonyOS 同时接上，免得三台手机只有 iOS 有提示。两端的粤语双拼方案在 #10523（#10593）里加入，这里只按触屏方案 id `cantonese_shuangpin` 判断，不引用那边的枚举，两个 PR 谁先合都能编译，都合入后自动生效。Android：`ShuangpinKeyHintPolicy.rememberedProfile(scheme, profile, touchScheme)` 在会话是粤拼（scheme 5）且选中 `cantonese_shuangpin` 时给出保留名 `cantonese`，经已有的 `NativeClient.shuangpinKeyHints` 取键面，`hintScheme` 让它按双拼的可见条件画；没有 view 时记下的 `cantonese` 只在仍选着粤语双拼时沿用。HarmonyOS 没有接 `msime_client_shuangpin_key_hints`，普通话双拼的提示本来就是抄自引擎的表，粤语双拼照此在 `ShuangpinKeyHintPolicy.ts` 加一张 `cantonese` 表，`cantoneseFace(touchScheme, engineScheme)` 判断何时画，`keyboard-logic.test.ts` 按引擎测试的 27 个键逐个核对。Android 键盘页和共享设置页的「双拼键位提示」改为本版本有双拼或粤拼时列出（粤语双拼与粤拼共用方案和词典，有粤拼就有粤语双拼），说明加上粤语双拼。
 
 ## Alternatives considered
 
@@ -24,8 +24,8 @@ Status: implemented
 
 ## Consequences
 
-- **收益**：粤语双拼初学者打开「双拼键位提示」就能看到每个键的韵母和挪了位置的声母；键位改动只改一张表，提示和编码一起变。Android、HarmonyOS 接入粤语双拼时不用再做提示。
-- **代价**：`encode` 从 `match` 变成线性查表，`decode`、`initial_prefixes` 和 `key_spans` 每次扫库存时多一点比较，量级是库存音节数乘以五十多个韵母，仍在微秒级；`msime_client_shuangpin_key_hints` 的方案名空间多了一个保留名，以后新增普通话方案不能叫 `cantonese`。
+- **收益**：粤语双拼初学者打开「双拼键位提示」就能看到每个键的韵母和挪了位置的声母；键位改动只改一张表，提示和编码一起变。三台手机的提示文字一致。
+- **代价**：HarmonyOS 多了一份抄来的粤语双拼表，键位改动时要同步改它，`keyboard-logic.test.ts` 会在两边不一致时失败；`encode` 从 `match` 变成线性查表，`decode`、`initial_prefixes` 和 `key_spans` 每次扫库存时多一点比较，量级是库存音节数乘以五十多个韵母，仍在微秒级；`msime_client_shuangpin_key_hints` 的方案名空间多了一个保留名，以后新增普通话方案不能叫 `cantonese`。
 - **待确认**：iPhone 窄键宽下 P、S、R、G 这几个较长的提示缩小后是否还看得清，没有在模拟器或真机上截过图。
 
 ## Verification
@@ -35,3 +35,6 @@ Status: implemented
 - `rbuild cargo test -p msime-host-api --lib -- shuangpin_key_hint`：FFI 传 `cantonese` 返回 27 个键，`cantonese_shuangpin` 等名字仍为空。
 - `rbuild cargo clippy -p msime-engine -p msime-host-api --all-targets -- -D warnings`、`rbuild cargo fmt --all -- --check`：通过。
 - iOS：在编译机上暂存了锁定的 `msime-cantonese.db`，iOS 27.0 模拟器跑 `xcodebuild -scheme MSIMEClientTests -only-testing:MSIMEKeyboardTests/LanguageSchemesTests` 加两条 `NineKeyKeyboardTests`，35 项通过、没有跳过。其中 `LanguageSchemesTests.testCantoneseShuangpinLabelsItsKeysWhenTheHintSwitchIsOn` 核对粤语双拼开关打开时 I、V、P 的提示和读屏，开关关闭和普通粤拼都不画（测试宿主没有暂存词库时跳过）；`NineKeyKeyboardTests.testShuangpinKeyHintsComeFromTheProfileTheSessionRuns` 核对全拼和小鹤会话拿不到粤语双拼键面。
+- Android：`ANDROID_SDK_ROOT=~/Library/Android/sdk bash platforms/android/check-host.sh` 通过，326 个 JVM 冒烟，`ShuangpinKeyHintPolicySmoke` 新增粤语双拼取保留名、普通粤拼和非粤拼会话不画、没有 view 时只在仍选着粤语双拼时沿用。
+- HarmonyOS：`bash platforms/harmony/tests/run.sh` 通过，新增的 `Cantonese shuangpin labels its keys with the engine's face` 逐键核对 27 个键与引擎测试一致。
+- 共享设置页：`pnpm exec vitest run tests/settings/settings.test.tsx tests/settings/touch-keyboard-geometry-section.test.tsx -t "shuangpin key hint"` 5 项通过，含只有粤拼的版本也列出这一行。

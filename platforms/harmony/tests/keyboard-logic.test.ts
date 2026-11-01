@@ -268,7 +268,10 @@ import {
   CorrectionMarkPolicy,
   CorrectionSurfaceColors,
 } from "../entry/src/main/ets/keyboard/candidate/CorrectionMarkPolicy";
-import { ShuangpinKeyHintPolicy } from "../entry/src/main/ets/keyboard/input/ShuangpinKeyHintPolicy";
+import {
+  CANTONESE_PROFILE,
+  ShuangpinKeyHintPolicy,
+} from "../entry/src/main/ets/keyboard/input/ShuangpinKeyHintPolicy";
 import { EditorPolicy, EditorTraits } from "../entry/src/main/ets/keyboard/input/EditorPolicy";
 import { EditEchoLedger } from "../entry/src/main/ets/keyboard/input/EditEchoLedger";
 import { CaretContextEcho } from "../entry/src/main/ets/keyboard/input/CaretContextEcho";
@@ -10700,6 +10703,59 @@ group("each profile has its own table", () => {
   check(
     ShuangpinKeyHintPolicy.hint("shoudao", "E", false, 1, "none", true) === "sh / e",
     "shoudao puts sh on e rather than on u",
+  );
+});
+
+group("Cantonese shuangpin labels its keys with the engine's face (#10438)", () => {
+  // 与 crates/engine/src/cantonese/shuangpin.rs 的 `key_hints_label_every_key_with_what_it_types` 逐键相同：鸿蒙没有接 `msime_client_shuangpin_key_hints`，表是抄过来的，这里钉住不漂移。
+  const expected: [string, string][] = [
+    ["Q", "iu"],
+    ["W", "oe"],
+    ["E", "e"],
+    ["R", "uk yun yut"],
+    ["T", "ek it"],
+    ["Y", "j / eoi eot"],
+    ["U", "kw / u"],
+    ["I", "gw / i"],
+    ["O", "o oi"],
+    ["P", "eon un ung ut"],
+    ["A", "a aa"],
+    ["S", "ok on ong ot"],
+    ["D", "am ap"],
+    ["F", "an at"],
+    ["G", "ak ang eng"],
+    ["H", "aak aang"],
+    ["J", "aan aat"],
+    ["K", "aau au"],
+    ["L", "aai ai"],
+    ["Z", "ei"],
+    ["X", "oek oeng"],
+    ["C", "aam aap"],
+    ["V", "ng / ui yu"],
+    ["B", "ou"],
+    ["N", "in"],
+    ["M", "im ip"],
+    [";", "ik ing"],
+  ];
+  for (const [key, hint] of expected) {
+    const actual = ShuangpinKeyHintPolicy.hint(CANTONESE_PROFILE, key, false, 1, "none", true);
+    check(actual === hint, `cantonese ${key} should read "${hint}", got "${actual}"`);
+  }
+  check(
+    ShuangpinKeyHintPolicy.hint(CANTONESE_PROFILE, "q", false, 1, "none", false) === "",
+    "the same switch turns Cantonese shuangpin hints off",
+  );
+  check(
+    ShuangpinKeyHintPolicy.cantoneseFace("cantonese_shuangpin", 5),
+    "Cantonese shuangpin on a Cantonese session draws its face",
+  );
+  check(
+    !ShuangpinKeyHintPolicy.cantoneseFace("cantonese", 5),
+    "plain Jyutping is spelled out in full and draws none",
+  );
+  check(
+    !ShuangpinKeyHintPolicy.cantoneseFace("cantonese_shuangpin", 0),
+    "a session left on another scheme (no Cantonese dictionary) draws none",
   );
 });
 

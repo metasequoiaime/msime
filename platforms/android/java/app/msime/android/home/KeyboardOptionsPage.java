@@ -162,11 +162,11 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             null, () -> new TextEditOrderSheet(this, preferences, this::reload).show()).help("调整文本编辑面板两侧的七个功能键，方向键与换行位置固定");
         layout.nav("符号分类顺序", null,
             null, () -> new SymbolCategoryOrderSheet(this, settings, this::reload).show()).help("调整符号面板底部分类的排列顺序");
-        // 只有双拼方案的 26 键画键位提示；本版本没有双拼时不列这一行。缺省为关，与键盘和 client-core 一致。
-        if (KeyboardScheme.XIAOHE.offeredBy(edition)) {
+        // 只有双拼方案和粤语双拼的 26 键画键位提示；本版本两者都没有时不列这一行。粤语双拼与粤拼共用引擎方案和词典，有粤拼就有粤语双拼。缺省为关，与键盘和 client-core 一致。
+        if (KeyboardScheme.XIAOHE.offeredBy(edition) || KeyboardScheme.CANTONESE.offeredBy(edition)) {
             layout.toggle("双拼键位提示", null,
                 preferences.optBoolean(ShuangpinKeyHintPolicy.PREFERENCE_KEY, false),
-                checked -> savePreference(ShuangpinKeyHintPolicy.PREFERENCE_KEY, checked)).help("双拼方案的 26 键键盘在字母键底部显示这个键代表的声母和韵母；关闭后键面只留字母");
+                checked -> savePreference(ShuangpinKeyHintPolicy.PREFERENCE_KEY, checked)).help("双拼方案和粤语双拼的 26 键键盘在字母键底部显示这个键代表的声母和韵母；关闭后键面只留字母");
         }
         layout.toggle("组字时保留 Shift", null,
             preferences.optBoolean(QuanpinSeparatorPolicy.PREFERENCE_KEY, true),
