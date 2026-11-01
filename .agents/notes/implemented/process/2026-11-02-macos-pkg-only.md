@@ -60,10 +60,10 @@ DMG 不是当年比较过 pkg 之后选的。仓库最开始（MSIME-Apple 时�
   - 留在 `~/Applications` 等别处的旧设置应用不会被替换，LaunchServices 可能挑中它，设置页和已装输入法的版本对不上（输入法本身不会被降级）。
   - 装比已装版本旧的 pkg 时 Installer 显示成功、实际跳过应用（`BundleIsVersionChecked`）。
   - 日文、越南文、藏文版的安装器文案只有中英文两份。
-  - pkg 的体积和公证耗时相对 DMG（0.56.0 的 full 142 MB、五笔 166 MB）没有实测，第一次 nightly 的摘要里会有。
+  - 未签名的 pkg 比 DMG 小（见下面的验证），公证耗时没有实测，第一次 nightly 的摘要里会有。
 
 ## Verification
 
 - 契约测试：`scripts/test-macos-package-resources.py` 核对安装包文件名（官网约定的形状）、`pkgbuild` 参数、`pkgbuild` 在 chmod 和 `check_app` 之后、缺 Installer 身份时在编译前失败、`productbuild` 的时间戳重试，并对 6 个版本渲染分发文件、postinstall 和欢迎/结束页，拼出与 `pkgutil --expand-full` 相同布局的合成安装包跑 `installer_package.py check`，再逐项改坏（可重定位、安装位置、identifier、缺 postinstall、Bom 越界或不归 root、开了 currentUserHome、customize、RequireLogout、must-close 写错或写在顶层、多一个脚本）确认都被拦下；postinstall 在命令行安装、没有参数、没有应用、应用是符号链接时都以 0 退出且不打开任何东西。`test-macos-editions.py` 对每个版本断言 cask 的 pkg 文件名、pkgutil 回执、`/Applications` 下本版本的应用，且不残留 full 的名字。`test-nightly-partial-publishing.py` 覆盖 pkg 的 nightly 文件名和退役 DMG 的清理。
-- 在 Mac Studio 上用无签名路径真打了 full 和 wubi 两个版本的 universal pkg，`finish_edition` 的展开检查通过，见 PR 正文。
+- 在 Mac Studio 上用无签名路径真打了 0.56.1 的 full 和 wubi 两个 universal pkg，`finish_edition` 的展开检查和载荷上的 `check_app` 都通过。`PackageInfo` 是 `install-location="/Applications"`、`relocatable="false"`、`<relocate/>` 为空，列出设置应用、内嵌输入法、Sparkle.framework、Updater.app 和两个 XPC 共 6 个 bundle；Bom 的 655 项除 `.`（40775）外都在 `./MSIME.app` 下、归 uid 0，其中约一半是构建机给文件加的 `com.apple.provenance` 对应的 AppleDouble 项。体积：full 121,685,972 字节、五笔 144,792,438 字节，比 0.56.0 的 DMG（142 MB、166 MB）小，签名和公证之后会略大一点。
 - 真机安装（需要管理员密码和图形会话）由维护者按 PR 正文的清单在 macOS 13、15、26、27（含一台 Intel）上做，合并前完成。
