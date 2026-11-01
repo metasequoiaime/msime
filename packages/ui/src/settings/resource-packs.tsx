@@ -338,7 +338,7 @@ export function ResourcePackRow({
     return (
       <ActionRow
         title={title}
-        description={
+        detail={
           <span className="inline-flex items-center gap-2">
             <MascotIllustration scene="downloading" size={32} />
             {`${localModelStageLabel(progress.stage)} ${localModelProgressPercent(progress)}%`}
@@ -357,7 +357,7 @@ export function ResourcePackRow({
       <>
         <ActionRow
           title={title}
-          description={error}
+          detail={error}
           action={async () => {
             // 宿主按已保存的偏好取镜像：刚在下面填的镜像可能还在自动保存的倒计时里，先写进去再下载。
             await packs.mirror?.flush?.();
@@ -373,7 +373,8 @@ export function ResourcePackRow({
   return (
     <ActionRow
       title={title}
-      description={`约 ${formatModelBytes(status.size)}，下载后切换一次输入框即可使用${note ? `。${note}` : ""}`}
+      description={`下载后切换一次输入框即可使用${note ? `。${note}` : ""}`}
+      detail={`约 ${formatModelBytes(status.size)}`}
       action={() => packs.install(id)}
       label="下载"
       ariaLabel={`下载${title}`}

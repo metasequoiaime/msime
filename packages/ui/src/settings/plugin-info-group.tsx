@@ -29,7 +29,7 @@ export function PluginInfoGroup({ pack, kindLabel, children }: PluginInfoGroupPr
         {pack.license}
       </SummaryRow>
       {children}
-      {pack.description && <SettingsGroupNote>{pack.description}</SettingsGroupNote>}
+      {pack.description && <SettingsGroupNote inline>{pack.description}</SettingsGroupNote>}
     </GroupList>
   );
 }

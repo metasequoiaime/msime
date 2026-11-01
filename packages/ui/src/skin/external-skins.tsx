@@ -625,10 +625,12 @@ export function ExternalSkinDirectoryRow({
       <Row
         title="外部皮肤"
         description={
+          importsSkin
+            ? "点“导入皮肤”，选中包含 skin.toml 的皮肤文件夹。文件夹名只能用小写字母、数字和 . _ -，同名皮肤会被替换。"
+            : "把包含 skin.toml 的皮肤文件夹复制到下面的目录，回到这个窗口时会自动列出。"
+        }
+        detail={
           <>
-            {importsSkin
-              ? "点“导入皮肤”，选中包含 skin.toml 的皮肤文件夹。文件夹名只能用小写字母、数字和 . _ -，同名皮肤会被替换。"
-              : "把包含 skin.toml 的皮肤文件夹复制到下面的目录，回到这个窗口时会自动列出。"}
             <span role="status" className="block">
               {!scannable
                 ? "当前宿主不支持扫描外部皮肤。"

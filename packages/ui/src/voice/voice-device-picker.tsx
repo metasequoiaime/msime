@@ -40,13 +40,11 @@ export function VoiceMicrophonePicker({
     <SelectRow
       title="麦克风"
       description={
-        <span role="status">
-          {error ||
-            (fallsBackToDefault
-              ? "从下一次录音生效。选中的麦克风拔掉后改用系统默认设备；系统语音识别由服务自行取音，不受此项影响。"
-              : "从下一次录音生效。选中的麦克风拔掉后无法录音，改回系统默认设备即可。")}
-        </span>
+        fallsBackToDefault
+          ? "从下一次录音生效。选中的麦克风拔掉后改用系统默认设备；系统语音识别由服务自行取音，不受此项影响。"
+          : "从下一次录音生效。选中的麦克风拔掉后无法录音，改回系统默认设备即可。"
       }
+      detail={<span role="status">{error}</span>}
       aria-label="麦克风"
       aria-busy={busy}
       value={value}
@@ -85,7 +83,7 @@ export function VoiceDevicePicker({ read, backend, device, choose }: VoiceDevice
     <>
       <ActionRow
         title="读取录音设备"
-        description={<span role="status">{notice}</span>}
+        detail={<span role="status">{notice}</span>}
         action={() => void refresh()}
         ariaBusy={busy}
         className="secondary m-0"

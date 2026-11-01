@@ -464,18 +464,26 @@ def check_setup(harness: Harness) -> None:
 
 
 def check_prepare(prepare: Path, harness: Harness) -> None:
-    """The built msime-linux-prepare against the lock it was compiled with: the fixture dictionaries match none of it."""
-    result = subprocess.run([str(prepare), "--refresh", "runtime-options.json"], capture_output=True, text=True, timeout=30)
+    """真实准备程序使用编译时词库锁；合成词库不匹配，刷新不得发布新代次。"""
+    # 辅助进程也会准备遥测目录，真实 ABI 子进程必须复用合成 HOME，不能触碰测试者的数据。
+    result = subprocess.run([str(prepare), "--refresh", "runtime-options.json"],
+                            capture_output=True, text=True, timeout=30, env=harness.environment)
     assert result.returncode == 2, result
     state = harness.installed("state-real")
     before = (state / "runtime-options.json").read_bytes()
     result = subprocess.run(
-        [str(prepare), "--refresh", str(state / "runtime-options.json")], capture_output=True, text=True, timeout=60
+        [str(prepare), "--refresh", str(state / "runtime-options.json")],
+        capture_output=True, text=True, timeout=60, env=harness.environment
     )
     assert result.returncode == 3, result
     assert "do not match this version" in result.stderr, result.stderr
     assert (state / "runtime-options.json").read_bytes() == before
-    assert sorted(path.name for path in state.iterdir()) == ["runtime-options.json", "user"]
+    # 采集器在既有目录持久化默认开启的持续授权，但不得改变旧运行时配置或词库代次。
+    assert sorted(path.name for path in state.iterdir()) == ["preferences.json", "preferences.lock", "runtime-options.json", "user"]
+    preferences = json.loads((state / "preferences.json").read_text())["preferences"]
+    assert preferences["usage_reporting"] is True
+    consent = preferences["usage_reporting_consent"]
+    assert consent["since_unix_ms"] > 0 and len(consent["epoch"]) == 36
 
 
 def main() -> int:
