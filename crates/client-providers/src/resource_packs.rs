@@ -257,6 +257,8 @@ fn dynamic_grammar_manifest(pack: ResourcePack, artifact: &crate::resources::Art
 }
 const OFFLINE_GLOSSES_LOCK: &str = include_str!("../../../resources/offline-glosses.lock.json");
 const PRONUNCIATIONS_LOCK: &str = include_str!("../../../resources/pronunciations.lock.json");
+const TARGET_PRONUNCIATIONS_LOCK: &str =
+    include_str!("../../../resources/target-pronunciations.lock.json");
 /// 各平台的 sherpa-onnx 运行库归档，`fetch_voice_runtime.py` 和打包脚本用的同一份锁。
 const VOICE_RUNTIME_LOCK: &str = include_str!("../../../resources/voice-runtime.lock.json");
 /// 从 Android 归档里取出的两个库各自的长度和 SHA-256。
@@ -298,6 +300,8 @@ pub enum ResourcePack {
     OfflineGlosses,
     /// Android 候选用的 ECDICT 英文音标表及 MIT 许可声明；桌面包仍可随包携带同一份表。
     Pronunciations,
+    /// 法、日、西、俄、德、韩释义行的读音：`<语言>-phonetic.db` 六份加上随它们一起分发的 `target-pronunciations-NOTICE.txt`（改编自 CC BY-SA 4.0 的维基词典）。macOS、Windows 与鸿蒙随包带着，Linux、Android 与 iOS 在设置里下载。
+    TargetPronunciations,
     /// Android arm64 上本地语音识别加载的 `libonnxruntime.so` 和 `libsherpa-onnx-c-api.so`，取自 `resources/voice-runtime.lock.json` 固定的 sherpa-onnx `.aar`。
     VoiceRuntime,
     /// macOS 发布包和 Android 的 full、拼音版瘦包不再内置的五笔码表 `msime-wubi.db`，即 `desktop-dictionary.lock.json` 里的那一项。
@@ -436,6 +440,13 @@ struct PronunciationsLock {
     built: Vec<crate::resources::Artifact>,
 }
 
+/// `target-pronunciations.lock.json`；只取下载需要的两项，输入与过滤后的 dump 只给构建复现用。
+#[derive(Deserialize)]
+struct TargetPronunciationsLock {
+    source_revision: String,
+    built: Vec<crate::resources::Artifact>,
+}
+
 #[derive(Deserialize)]
 struct VoiceRuntimeLock {
     source_commit: String,
@@ -495,7 +506,7 @@ pub struct PackArchive {
 
 impl ResourcePack {
     /// 每一种资源包，包括锁文件还没固定内容的；只要存在的那些用 [`ResourcePack::available`]。
-    pub const ALL: [ResourcePack; 14] = [
+    pub const ALL: [ResourcePack; 15] = [
         ResourcePack::Japanese,
         ResourcePack::LanguageDictionaries,
         ResourcePack::Handwriting,
@@ -506,6 +517,7 @@ impl ResourcePack {
         ResourcePack::GrammarBaishuang,
         ResourcePack::OfflineGlosses,
         ResourcePack::Pronunciations,
+        ResourcePack::TargetPronunciations,
         ResourcePack::VoiceRuntime,
         ResourcePack::Wubi,
         ResourcePack::MacosVoiceRuntime,
@@ -539,6 +551,7 @@ impl ResourcePack {
             ResourcePack::GrammarBaishuang => "grammar-model-baishuang",
             ResourcePack::OfflineGlosses => "offline-glosses",
             ResourcePack::Pronunciations => "pronunciations",
+            ResourcePack::TargetPronunciations => "target-pronunciations",
             ResourcePack::VoiceRuntime => "voice-runtime",
             ResourcePack::Wubi => "wubi",
             ResourcePack::MacosVoiceRuntime => "voice-runtime-macos",
@@ -576,6 +589,7 @@ impl ResourcePack {
             | ResourcePack::GrammarBaishuang
             | ResourcePack::OfflineGlosses
             | ResourcePack::Pronunciations
+            | ResourcePack::TargetPronunciations
             | ResourcePack::VoiceRuntime
             | ResourcePack::MacosVoiceRuntime
             | ResourcePack::AndroidOcrModule => &[],
@@ -620,7 +634,7 @@ impl ResourcePack {
         if self == ResourcePack::AndroidOcrModule {
             return android_ocr_module_set();
         }
-        static SETS: OnceLock<[ResourceSet; 12]> = OnceLock::new();
+        static SETS: OnceLock<[ResourceSet; 13]> = OnceLock::new();
         static UNPINNED: OnceLock<ResourceSet> = OnceLock::new();
         if self == ResourcePack::MacosVoiceRuntime {
             // 还没固定时是没有文件的空清单，它不能通过 `ResourceSet::validate`，也不会被列出或安装。
@@ -647,6 +661,9 @@ impl ResourcePack {
                 serde_json::from_str(OFFLINE_GLOSSES_LOCK).expect("offline glosses lock is valid");
             let pronunciations: PronunciationsLock =
                 serde_json::from_str(PRONUNCIATIONS_LOCK).expect("pronunciations lock is valid");
+            let target_pronunciations: TargetPronunciationsLock =
+                serde_json::from_str(TARGET_PRONUNCIATIONS_LOCK)
+                    .expect("target pronunciations lock is valid");
             let (runtime_commit, archive, members) = voice_runtime_locks();
             [
                 desktop.only(&ON_DEMAND_JAPANESE_ARTIFACTS),
@@ -681,6 +698,10 @@ impl ResourcePack {
                     source_commit: pronunciations.source_commit,
                     artifacts: pronunciations.built,
                 },
+                ResourceSet {
+                    source_commit: target_pronunciations.source_revision,
+                    artifacts: target_pronunciations.built,
+                },
             ]
         });
         match self {
@@ -694,6 +715,7 @@ impl ResourcePack {
             ResourcePack::GrammarBaishuang => &sets[7],
             ResourcePack::OfflineGlosses => &sets[8],
             ResourcePack::Pronunciations => &sets[11],
+            ResourcePack::TargetPronunciations => &sets[12],
             ResourcePack::VoiceRuntime => &sets[9],
             ResourcePack::Wubi => &sets[10],
             ResourcePack::MacosVoiceRuntime | ResourcePack::AndroidOcrModule => {
@@ -1940,6 +1962,49 @@ mod tests {
             .map(|artifact| artifact.name.as_str())
             .collect();
         assert_eq!(names, ["en-phonetic.db", "pronunciations-NOTICE.txt"]);
+        for (artifact, locked) in pack
+            .set()
+            .artifacts
+            .iter()
+            .zip(lock["built"].as_array().unwrap())
+        {
+            assert_eq!(artifact.url, locked["url"].as_str().unwrap());
+            assert_eq!(artifact.sha256, locked["sha256"].as_str().unwrap());
+            assert_eq!(artifact.size, locked["size"].as_u64().unwrap());
+        }
+        assert!(pack.archive().is_none());
+        assert!(pack.schemes().is_empty());
+    }
+
+    /// 外语读音包就是 `target-pronunciations.lock.json` 的 `built`：六种语言的读音表加上必须随它们分发的 NOTICE；过滤后的 dump 只给构建复现，不下载。
+    #[test]
+    fn the_target_pronunciations_pack_is_the_pinned_lock() {
+        let lock: Value = serde_json::from_str(TARGET_PRONUNCIATIONS_LOCK).unwrap();
+        let pack = ResourcePack::TargetPronunciations;
+        assert_eq!(pack.id(), "target-pronunciations");
+        assert_eq!(ResourcePack::from_id(pack.id()), Some(pack));
+        assert_eq!(
+            pack.set().source_commit,
+            lock["source_revision"].as_str().unwrap()
+        );
+        let names: Vec<&str> = pack
+            .set()
+            .artifacts
+            .iter()
+            .map(|artifact| artifact.name.as_str())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "fr-phonetic.db",
+                "ja-phonetic.db",
+                "es-phonetic.db",
+                "ru-phonetic.db",
+                "de-phonetic.db",
+                "ko-phonetic.db",
+                "target-pronunciations-NOTICE.txt"
+            ]
+        );
         for (artifact, locked) in pack
             .set()
             .artifacts

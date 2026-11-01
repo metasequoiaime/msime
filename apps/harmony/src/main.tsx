@@ -1789,7 +1789,18 @@ function makeClient(
         : undefined,
     dictionaryCollections,
     typingStatistics,
-    vocabularyReview,
+    // 背单词卡片的喇叭：设置桥先按共享层的规则核对词头，再用 Core Speech Kit 的离线声音读出；读不出来时把那句话原样交回页面。
+    vocabularyReview: host.read_aloud
+      ? {
+          ...vocabularyReview,
+          speak: async (word: string) => {
+            const reply = JSON.parse(
+              await bridgeRequest(native, "read_aloud", JSON.stringify({ text: word })),
+            ) as Reply<null>;
+            if (!reply.ok) throw new Error(reply.error);
+          },
+        }
+      : vocabularyReview,
     // 拉模型列表、测试 AI 和凭据都要连用户配置的服务，没有授权时不给，配置本身照常可填。AI 测试另受 AI 生成门控（`aiGeneration`），两道门都开才给。
     aiAssistant: networkAllowed && aiGeneration ? aiAssistant : undefined,
     testApiCredential: networkAllowed ? testApiCredential : undefined,

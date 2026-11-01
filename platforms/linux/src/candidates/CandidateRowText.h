@@ -31,7 +31,7 @@ inline std::string_view candidate_source_badge(std::uint64_t source) {
   return {};
 }
 
-// 固定了排位的候选行的文字颜色，macOS 与 Windows 都画 #379AD3（不随主题变）。Linux 只在未选中的行上画它：Adwaita 的选中底色是 #3584E4，同色系的字压在上面读不出来，选中行照旧用选中文字色。
+// 固定了排位的候选行的文字颜色，macOS 与 Windows 都画 #379AD3（不随主题变）。Linux 只在未选中的行上画它：默认的选中底色是 Adwaita 蓝 #1A5FB4，同色系的字压在上面读不出来，选中行照旧用选中文字色。
 inline constexpr std::uint32_t kCandidateFixedPositionColor = 0x379AD3u;
 
 // 固定排位的文字标记「  固定N」（N 为 1–5，其他值不画）。macOS 只靠 #379AD3 的字色标出固定行；画不出单行颜色的面板（Fcitx5 classicui 的候选文字没有颜色属性，GNOME Shell 不认 IBus 的颜色属性）用这段文字代替，能画颜色的原生画布不加它。

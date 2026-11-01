@@ -416,7 +416,7 @@ void shadow() {
 // 主题调色板：system 主题没有候选配色，铺 Adwaita；主题给了的槽位盖过它，半透明的保留 alpha。
 void palette() {
   const auto light = host::native_canvas_theme_palette(Json::object(), false);
-  assert(light.at("selected") == "#3584E4" && light.at("selected_text") == "#FFFFFF" && light.at("hover") == "#0000000F");
+  assert(light.at("selected") == "#1A5FB4" && light.at("selected_text") == "#FFFFFF" && light.at("hover") == "#0000000F");
   assert(host::native_canvas_theme_palette(Json::object(), true).at("surface") == "#303030");
   const auto themed = host::native_canvas_theme_palette({{"candidate", {{"selected", "#11223380"}, {"text", nullptr}}},
       {"candidate_details", {{"preedit_text", "#445566"}, {"show_selected_bar", true}}}}, false);

@@ -18,7 +18,7 @@ inline std::uint32_t composite_color(std::uint32_t color, std::uint8_t alpha, st
   return result;
 }
 
-// The Linux platform tokens, drawn wherever the resolved global theme leaves a slot null: the whole palette for the `system` theme, and the unset slots of a custom theme over `system`. They are the design's Adwaita tokens (tok('linux') in the design canvas): a white or #303030 card, text at 82% and secondary text at 55% of black or white, the GNOME accent #3584E4 as a solid selection with white text and numbers at 85%, and a hairline at 10% black or 8% white. Neither IBus text attributes nor the Fcitx5 classic UI theme carry alpha on these slots, so each translucent token is composited here over the surface it is drawn on.
+// Linux 的平台 token，解析出的全局主题留空的槽位都画它：`system` 主题的整套调色板，以及基于 `system` 的自定义主题没设的槽位。取自设计稿的 Adwaita token（设计画布里的 tok('linux')）：白色或 #303030 的卡片，正文和次要文字是黑或白的 82% 和 55%，选中行是实心的蓝底配白字、序号 85% 白，细线是 10% 黑或 8% 白。选中底不用 GNOME 强调色 #3584E4，它上面的白字只有约 3.8:1、85% 的序号和释义约 3.2:1，到不了 WCAG AA；换成同一色系更深的 Adwaita Blue 5 #1A5FB4（`kLinuxSelection`），白字约 6.3:1、序号和释义约 5.0:1。IBus 的文字属性和 Fcitx5 classic UI 主题在这些槽位上都不带 alpha，所以半透明的 token 在这里先合成到它所画的底色上。
 struct CandidateNativePalette {
   std::uint32_t surface;
   std::uint32_t text;
@@ -32,6 +32,8 @@ struct CandidateNativePalette {
 };
 
 inline constexpr std::uint32_t kLinuxAccent = 0x3584E4u;
+// 默认的选中行底色：Adwaita 调色板的 Blue 5，比强调色深，白字和 85% 白的序号、释义都到 4.5:1。强调色仍是 `kLinuxAccent`，选中竖条、预编辑光标、键位图高亮这些不承载正文的地方照旧用它。
+inline constexpr std::uint32_t kLinuxSelection = 0x1A5FB4u;
 
 inline CandidateNativePalette candidate_native_palette(bool dark) {
   const std::uint32_t surface = dark ? 0x303030u : 0xFFFFFFu;
@@ -41,9 +43,9 @@ inline CandidateNativePalette candidate_native_palette(bool dark) {
       dark ? 0xFFFFFFu : composite_color(ink, 0xD1, surface),
       composite_color(ink, 0x8C, surface),
       dark ? 0x78AEEDu : 0x1C71D8u,
-      kLinuxAccent,
+      kLinuxSelection,
       0xFFFFFFu,
-      composite_color(0xFFFFFFu, 0xD9, kLinuxAccent),
+      composite_color(0xFFFFFFu, 0xD9, kLinuxSelection),
       composite_color(ink, dark ? 0x14 : 0x1A, surface),
   };
 }

@@ -89,6 +89,10 @@ final class KeyboardFeedbackDeviceChecks {
                 touch(abc, MotionEvent.ACTION_CANCEL, -100);
                 expectPreview("2", false);
                 if (!"ABC".contentEquals(abc.getText())) throw new AssertionError("Cancelled swipe left numeric face");
+            });
+            checkDragSelect();
+            onMain(() -> {
+                Button abc = find((ViewGroup) field(type, "keyRows").get(service), "ABC");
                 test.stage = "long press closes preview before showing choices";
                 touch(abc, MotionEvent.ACTION_DOWN, 0);
                 abc.performLongClick();
@@ -132,6 +136,108 @@ final class KeyboardFeedbackDeviceChecks {
     /**
      * 关掉系统触摸提示音并卸载系统音效（系统设置页关掉开关时就是这样做的），这时系统按键音一声不响；默认的「清脆键盘」包要由本进程自己的 SoundPool 播出来。直接观察 Android 音频服务的播放记录，不依靠听模拟器声音。新版系统只在播放器状态变化时记一笔，同一个 SoundPool 第二次播放不再留下记录，所以这里只断言第一次。
      */
+    /**
+     * 九键反方向滑出、长按弹出的数字与字母选项跟着同一次按压拖选（#10443）：滑进选项松手选中一次；没滑进过就松手，弹窗留着等点选，下一次按下这个键时关掉；滑进又滑出再松手关闭且不输入；长按后拖选松手选中，并由补发的 CANCEL 收起按键的按下态；系统 CANCEL 关闭弹窗且不输入。选项的点击换成计数，不依赖输入连接；计数之后照原样关闭弹窗。
+     */
+    private void checkDragSelect() throws Exception {
+        int[] picked = {0};
+        Object[] rows = new Object[1];
+        Button[] abc = new Button[1];
+        onMain(() -> {
+            rows[0] = field(type, "imeLayoutRows").get(service);
+            abc[0] = find((ViewGroup) field(type, "keyRows").get(service), "ABC");
+            test.stage = "nine-key letter swipe opens drag-tracked options";
+            swipeLetters(abc[0], rows[0]);
+        });
+        test.waitForIdleSync();
+        onMain(() -> {
+            test.stage = "nine-key swipe dragged into an option commits it on release";
+            float[] at = pickable(rows[0], picked);
+            touchRaw(abc[0], MotionEvent.ACTION_MOVE, at[0], at[1]);
+            touchRaw(abc[0], MotionEvent.ACTION_UP, at[0], at[1]);
+            if (picked[0] != 1) throw new AssertionError("Dragged nine-key option was not committed once");
+            if (field(type, "nineKeyHoldPopup").get(service) != null) throw new AssertionError("Committed option left popup open");
+            if (abc[0].isPressed()) throw new AssertionError("Nine-key swipe left the key pressed");
+            if (!"ABC".contentEquals(abc[0].getText())) throw new AssertionError("Letter swipe changed the key face");
+            test.stage = "nine-key swipe released without entering an option keeps the popup for tapping";
+            swipeLetters(abc[0], rows[0]);
+            touch(abc[0], MotionEvent.ACTION_UP, 100);
+            if (field(type, "nineKeyHoldPopup").get(service) == null) throw new AssertionError("Released swipe closed the options");
+            if (field(rows[0].getClass(), "letterOptionsEntered").getBoolean(rows[0]))
+                throw new AssertionError("Released swipe counted as entering an option");
+            touch(abc[0], MotionEvent.ACTION_DOWN, 0);
+            if (tracks(rows[0], abc[0]) || field(type, "nineKeyHoldPopup").get(service) != null)
+                throw new AssertionError("New press on the key kept the stale options");
+            touch(abc[0], MotionEvent.ACTION_CANCEL, 0);
+            test.stage = "nine-key swipe entering then leaving the options closes them without input";
+            swipeLetters(abc[0], rows[0]);
+        });
+        test.waitForIdleSync();
+        onMain(() -> {
+            float[] at = pickable(rows[0], picked);
+            touchRaw(abc[0], MotionEvent.ACTION_MOVE, at[0], at[1]);
+            touchRaw(abc[0], MotionEvent.ACTION_MOVE, at[0], at[1] - 500);
+            touchRaw(abc[0], MotionEvent.ACTION_UP, at[0], at[1] - 500);
+            if (field(type, "nineKeyHoldPopup").get(service) != null) throw new AssertionError("Left options stayed open");
+            if (picked[0] != 1) throw new AssertionError("Leaving the options still committed one");
+            test.stage = "nine-key long press options follow the same press";
+            touch(abc[0], MotionEvent.ACTION_DOWN, 0);
+        });
+        // 走框架真实的长按计时，让按钮自己记下「已长按」和按下态，补发的 CANCEL 才有东西可收。
+        long until = SystemClock.uptimeMillis() + android.view.ViewConfiguration.getLongPressTimeout() + 5000;
+        boolean[] opened = {false};
+        while (!opened[0] && SystemClock.uptimeMillis() < until) {
+            SystemClock.sleep(100);
+            onMain(() -> opened[0] = tracks(rows[0], abc[0]));
+        }
+        if (!opened[0]) throw new AssertionError("Nine-key long press did not open drag-tracked options");
+        test.waitForIdleSync();
+        onMain(() -> {
+            test.stage = "nine-key long press dragged into an option commits it and releases the key";
+            float[] at = pickable(rows[0], picked);
+            touchRaw(abc[0], MotionEvent.ACTION_MOVE, at[0], at[1]);
+            touchRaw(abc[0], MotionEvent.ACTION_UP, at[0], at[1]);
+            if (picked[0] != 2) throw new AssertionError("Long-press drag did not commit the option once");
+            if (abc[0].isPressed()) throw new AssertionError("Synthesized CANCEL did not release the long-pressed key");
+            test.stage = "system cancel closes swipe options without input";
+            swipeLetters(abc[0], rows[0]);
+            touch(abc[0], MotionEvent.ACTION_CANCEL, 100);
+            if (field(type, "nineKeyHoldPopup").get(service) != null) throw new AssertionError("Cancelled swipe left options open");
+            if (picked[0] != 2) throw new AssertionError("Cancelled swipe committed an option");
+            if (!"ABC".contentEquals(abc[0].getText())) throw new AssertionError("Cancelled letter swipe changed the key face");
+        });
+    }
+
+    /** setLocal 把数字设在上滑，下滑越过阈值就弹出字母选项，并且这个弹窗跟着这次按压拖选。 */
+    private void swipeLetters(Button key, Object rows) throws Exception {
+        touch(key, MotionEvent.ACTION_DOWN, 0);
+        touch(key, MotionEvent.ACTION_MOVE, 100);
+        if (field(type, "nineKeyHoldPopup").get(service) == null || !tracks(rows, key))
+            throw new AssertionError("Nine-key letter swipe did not open drag-tracked options");
+    }
+
+    private static boolean tracks(Object rows, Button key) throws Exception {
+        return (boolean) method(rows.getClass(), "tracksLetterOptions", Button.class).invoke(rows, key);
+    }
+
+    /** 取字母 a 那个选项（第 0 个是数字 2），点击换成计数后照原样关闭弹窗；返回它在屏幕上的中心点。 */
+    private float[] pickable(Object rows, int[] picked) throws Exception {
+        @SuppressWarnings("unchecked")
+        java.util.List<Button> options = (java.util.List<Button>) field(rows.getClass(), "letterOptionButtons").get(rows);
+        if (options.size() < 2 || !"a".contentEquals(options.get(1).getText()))
+            throw new AssertionError("Nine-key options are not 2 followed by letters");
+        Button option = options.get(1);
+        if (!option.isShown() || option.getWidth() == 0) throw new AssertionError("Nine-key options were not laid out");
+        Method dismiss = method(rows.getClass(), "dismissNineKeyHoldOptions");
+        option.setOnClickListener(ignored -> {
+            picked[0]++;
+            try { dismiss.invoke(rows); } catch (ReflectiveOperationException error) { throw new IllegalStateException(error); }
+        });
+        int[] location = new int[2];
+        option.getLocationOnScreen(location);
+        return new float[] {location[0] + option.getWidth() / 2f, location[1] + option.getHeight() / 2f};
+    }
+
     private void checkSound() throws Exception {
         String beforeSetting = shell("settings get system sound_effects_enabled").trim();
         android.media.AudioManager audio = (android.media.AudioManager)
@@ -279,6 +385,12 @@ final class KeyboardFeedbackDeviceChecks {
         float delta = deltaDp * test.getTargetContext().getResources().getDisplayMetrics().density;
         MotionEvent event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action,
             key.getWidth() / 2f, key.getHeight() / 2f + delta, 0);
+        try { key.dispatchTouchEvent(event); } finally { event.recycle(); }
+    }
+
+    /** 直接派发给按钮的事件没有窗口偏移，getRawX/getRawY 就是这里给的屏幕坐标，与 moveLetterOptions 用 getLocationOnScreen 做的命中判断同一坐标系。 */
+    private void touchRaw(Button key, int action, float rawX, float rawY) {
+        MotionEvent event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action, rawX, rawY, 0);
         try { key.dispatchTouchEvent(event); } finally { event.recycle(); }
     }
 
