@@ -331,7 +331,7 @@ final class ImeLayoutRows {
     }
 
     /**
-     * 同上；{@code tallReturn} 为真时按右侧大回车外框取符号（{@link #sidebarSymbols(boolean, boolean)}）。{@code zeroShortcut} 为真时，接到默认字母表末尾的 ！（{@link NineKeySidebarPolicy#appendedExclamationIndex}）带上拼音九键右列 ！ 原来的手势：右上角印 0，上滑输入 0，长按选上标 ⁰ 或下标 ₀，否则大回车外框的字母层就没有直接输入 0 的地方了。笔画右列的 ！ 本来没有这个手势（笔画网格里有 0 键），笔画不带。
+     * 同上；{@code tallReturn} 为真时按右侧大回车外框取符号（{@link #sidebarSymbols(boolean, boolean)}）。{@code zeroShortcut} 为真时，接到默认字母表末尾的 ！（{@link NineKeySidebarPolicy#appendedExclamationIndex}）带上拼音九键右列 ！ 原来的手势：右上角印 0，沿「九键滑动输入数字」的方向滑出 0（关闭或上滑时上滑，下滑时下滑，#10441），长按选上标 ⁰ 或下标 ₀，否则大回车外框的字母层就没有直接输入 0 的地方了。笔画右列的 ！ 本来没有这个手势（笔画网格里有 0 键），笔画不带。
      */
     private FrameLayout symbolSidebar(boolean digits, boolean capped, boolean tallReturn, boolean zeroShortcut) {
         return symbolSidebar(digits, capped,
@@ -360,7 +360,7 @@ final class ImeLayoutRows {
                 NineKeyDigitButton exclamation = s.keyId(s.nineKeyGridKey(symbol, "符号 " + symbol,
                     () -> commitNineKeyLiteral(symbol)), "SoftPunctuation");
                 exclamation.setDigitText(SuperscriptShortcutPolicy.ZERO);
-                s.imeLetterRows.bindSuperscriptShortcut(exclamation, symbol);
+                s.imeLetterRows.bindNineKeySuperscriptShortcut(exclamation, symbol);
                 key = exclamation;
             } else {
                 // 长按提示接在 keyboardKey 的描述后面，保留所有键共用的「按键 」前缀：读屏靠它念出这是一个键，设备验收也按它找键。
@@ -739,9 +739,9 @@ final class ImeLayoutRows {
         String last = punctuation.get(punctuation.size() - 1);
         NineKeyDigitButton exclamation = s.keyId(s.nineKeyGridKey(last, "符号 " + last,
             () -> commitNineKeyLiteral(last)), "SoftPunctuation");
-        // 上滑可输入 0，在右上角沿用九键数字提示，点按和长按行为不变。
+        // 沿「九键滑动输入数字」的方向滑出 0（关闭或上滑时上滑，下滑时下滑，#10441），在右上角沿用九键数字提示，点按和长按行为不变。
         exclamation.setDigitText("0");
-        s.imeLetterRows.bindSuperscriptShortcut(exclamation, last);
+        s.imeLetterRows.bindNineKeySuperscriptShortcut(exclamation, last);
         KeyboardTypographyPolicy.setKeyTextSize(exclamation, KeyboardTypographyPolicy.NINE_KEY_LABEL_TEXT_SP);
         exclamation.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, exclamation);
