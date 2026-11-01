@@ -9,8 +9,8 @@ use crate::error::Result;
 use crate::language_dictionary::{LanguageDictionary, LanguageEntry};
 use crate::types::{QueryRequest, SchemeKey, SchemeType};
 
-/// Entries read for one span of complete syllables.
-pub const SPAN_LIMIT: usize = 200;
+/// Entries read for one span of complete syllables. It covers every row of the heaviest key in `msime-cantonese.db` (`zi` has 386 in dict-v2.0.48), so a character at the end of a key can still be paged to; at 200 the 839 rows past it on ten keys were never offered (#10448). `msime-dict-build languages` fails a build in which some key has more rows than this.
+pub const SPAN_LIMIT: usize = 512;
 /// Entries read for a reading whose last syllable is still a prefix.
 pub const COMPLETION_LIMIT: usize = 50;
 const SMALL_CANDIDATE_DEDUP: usize = 64;
@@ -1228,6 +1228,34 @@ mod tests {
                 .any(|row| row.starts_with('我') || row.starts_with('媽')),
             "{rows:?}"
         );
+    }
+
+    #[test]
+    fn every_row_of_a_key_up_to_the_span_limit_is_offered() {
+        // 发布库里条目最多的键（zi、ji、jyu）都在上限以内，构建器的 verify 保证这一点；上限内排在最后的一行也要能翻到（#10448 的「逾」曾排在 jyu 的第 201 位而打不出）。
+        let rows: Vec<(&str, String, i64)> = (0..=SPAN_LIMIT)
+            .map(|index| {
+                let weight = 100_000 - i64::try_from(index).unwrap();
+                ("jyu", format!("字{index}"), weight)
+            })
+            .collect();
+        let entries: Vec<(&str, &str, i64)> = rows
+            .iter()
+            .map(|(key, text, weight)| (*key, text.as_str(), *weight))
+            .collect();
+        let fixture = fixture_from(&["jyu"], &entries);
+        let code = shuangpin::encode("jyu").unwrap();
+        let code = std::str::from_utf8(&code).unwrap();
+        for (keys, force) in [("jyu", false), (code, true)] {
+            let texts: Vec<String> = shuangpin_typed_with(&["jyu"], keys, force)
+                .candidates(&fixture.dictionary)
+                .unwrap()
+                .into_iter()
+                .map(|candidate| candidate.text)
+                .collect();
+            assert_eq!(texts.len(), SPAN_LIMIT, "{keys}");
+            assert_eq!(texts.last().unwrap(), &format!("字{}", SPAN_LIMIT - 1));
+        }
     }
 
     #[test]

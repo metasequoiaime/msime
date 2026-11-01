@@ -70,7 +70,7 @@ pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<Strin
         .collect::<Vec<_>>()
         .join(", ");
     summaries.push(format!(
-        "{}: {} syllables, {} character and {} word entries ({} of them from the essay; {} words weighed by the HKCanCor counts at {} each, {} of them held below an essay word of their key; {custom_summary}; {} OpenCC forms spelled the Hong Kong way, with their HKCanCor counts: {forms_summary})",
+        "{}: {} syllables, {} character and {} word entries ({} of them from the essay; {} words weighed by the HKCanCor counts at {} each, {} of them held below an essay word of their key; {custom_summary}; {} character entries raised toward {} by the words they are written in; {} OpenCC forms spelled the Hong Kong way, with their HKCanCor counts: {forms_summary})",
         cantonese::DATABASE,
         counts.syllables,
         counts.characters,
@@ -79,6 +79,8 @@ pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<Strin
         dictionary.corpus_words,
         dictionary.corpus_scale,
         dictionary.corpus_capped,
+        dictionary.characters_raised,
+        cantonese::WORD_FLOOR_CEILING,
         forms.len()
     ));
 
