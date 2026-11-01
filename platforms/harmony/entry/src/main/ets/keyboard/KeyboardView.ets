@@ -846,6 +846,8 @@ struct KeyboardView {
   private adjustDragOrigin: [number, number] = [0, 0];
   /** 按下那一刻的四项和面板宽度（vp），整个拖动都从这里换算，慢速拖动不会被逐次取整抹掉。 */
   private adjustDragBase: AdjustValues = KeyboardAdjustPolicy.DEFAULTS;
+  /** 打开键盘调整时的四项，离开时按它判断哪几项动过（`KeyboardAdjustPolicy.saved`）。 */
+  private adjustOriginal: AdjustValues = KeyboardAdjustPolicy.DEFAULTS;
   private adjustDragWidthVp: number = 0;
   /** 「手写」磁贴切换前的方案，再次点按回到它；键盘不是由该磁贴切换过来时为 null。 */
   private schemeBeforeHandwriting: SchemeDefinition | null = null;
@@ -3163,6 +3165,7 @@ struct KeyboardView {
   /** 功能面板的「键盘调整」：整块键盘上盖一层遮罩（`adjustOverlay`），下面照常画作实时预览，从已保存的四项开始。 */
   private openAdjustMode(): void {
     this.adjustDragHandle = '';
+    this.adjustOriginal = this.adjustValues();
     this.show(SURFACE_GEOMETRY);
   }
 
@@ -3223,16 +3226,27 @@ struct KeyboardView {
     }
   }
 
-  /** 保存预览的四项：高度变了才写共享偏好（`applyGeometry`），其余三项写本机的按键反馈文件（`KeyboardSession.saveKeyboardAdjust`，没变时不写）。 */
+  /**
+   * 保存预览的四项：高度变了才写共享偏好（`applyGeometry`）；其余三项只取此刻生效且动过的（`KeyboardAdjustPolicy.saved`），写本机的按键反馈文件（`KeyboardSession.saveKeyboardAdjust`，没变时不写），不生效的项保留已存的值，与 Android 相同。之后把视图里的三项换成存下的值，回到它们生效的模式时按存下的画。
+   */
   private saveAdjust(): void {
     this.adjustDragHandle = '';
     if (this.geometryHeight !== this.settings.heightAdjustment) {
       this.applyGeometry(this.geometryKeySpacing, this.geometryRowSpacing, this.geometryHeight);
     }
-    if (KeyboardSession.shared.saveKeyboardAdjust(this.geometryLift, this.geometryWidthPercent,
-      this.geometryPositionX)) {
+    const feedback: FeedbackSettings = KeyboardSession.shared.feedbackSettings();
+    const stored: AdjustValues = {
+      height: this.geometryHeight,
+      lift: feedback.bottomLift,
+      widthPercent: feedback.widthPercent,
+      positionX: feedback.positionX
+    };
+    const saved: AdjustValues = KeyboardAdjustPolicy.saved(stored, this.adjustOriginal, this.adjustValues(),
+      this.adjustAvailability());
+    if (KeyboardSession.shared.saveKeyboardAdjust(saved.lift, saved.widthPercent, saved.positionX)) {
       this.feedback = KeyboardSession.shared.feedbackSettings();
     }
+    this.previewAdjust(saved);
   }
 
   /** 从会话读回已保存的四项：高度来自共享偏好，其余三项来自会话持有的按键反馈副本。 */
@@ -11767,6 +11781,8 @@ struct KeyboardView {
         .margin({ top: this.stripShown() ? KeyboardMetrics.STRIP_GAP_VP : 0 })
       }
       .width('100%')
+      // 键盘调整时遮罩下的工具条和按键只是预览：读屏整块跳过，免得双击落到遮罩下的「表情」或按键上，读屏只走遮罩上的柄和按钮（`adjustOverlay`），与 Android 的 IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS、iOS 的 accessibilityViewIsModal 相同。
+      .accessibilityLevel(this.surface === SURFACE_GEOMETRY ? 'no-hide-descendants' : 'auto')
       // 键盘调整收窄或挪开时两侧多让出 `adjustFrame` 的左右，底部抬高时下面多让出抬高的那一段：让出的地方只有键盘底色，点了不落到按键上。
       .padding({
         left: KeyboardMetrics.TOUCH_ROOT_HORIZONTAL_PADDING_VP + this.adjustFrame().left,

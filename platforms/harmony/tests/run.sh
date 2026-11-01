@@ -774,7 +774,7 @@ if [[ $(grep -cF 'panel.changeFlag(' "$floating_ability") -ne 1 ]] \
   echo "The floating keyboard must change the panel flag only while the panel is hidden and show it again afterwards, never move a fixed panel, refit the floating panel when the display changes, save the dragged position, suspend one-handed mode while floating or split, and stop drawing the split keyboard while floating" >&2
   exit 1
 fi
-# 键盘调整遮罩（取代高度条）：四项的范围、生效条件、外框换算、各边拖动约束、存放和面板高度含抬高由 keyboard-adjust.test.ts 覆盖。视图、会话和扩展能力是 ArkTS，这里钉住接线：离开键盘调整的唯一出口 `show` 在离开时保存（没有恢复快照的「取消」路径），收起键盘、换输入框、切应用（`onPanelHidden`）都经它离开；「确认」也走它；设置页中途重载不盖掉预览；根节点按 `adjustFrame` 让出两侧和底部，面板高度和冷启动第一帧都算进抬高；外框和左右沿拖动按量到的面板宽换算（停靠面板是建面板时的屏幕宽，转屏、折叠屏开合后与此刻的屏幕宽不同），中间一排按钮按外框宽缩放；旧的高度条不再存在。
+# 键盘调整遮罩（取代高度条）：四项的范围、生效条件、外框换算、各边拖动约束、存放和面板高度含抬高由 keyboard-adjust.test.ts 覆盖。视图、会话和扩展能力是 ArkTS，这里钉住接线：离开键盘调整的唯一出口 `show` 在离开时保存（没有恢复快照的「取消」路径），收起键盘、换输入框、切应用（`onPanelHidden`）都经它离开；「确认」也走它；设置页中途重载不盖掉预览；根节点按 `adjustFrame` 让出两侧和底部，面板高度和冷启动第一帧都算进抬高；外框和左右沿拖动按量到的面板宽换算（停靠面板是建面板时的屏幕宽，转屏、折叠屏开合后与此刻的屏幕宽不同），中间一排按钮按外框宽缩放；离开时抬高、宽度、位置只存生效且动过的项（`KeyboardAdjustPolicy.saved`，与 Android `keyboardAdjustEdits` 相同），打开时记下原值；调整期间工具条和按键整块不进读屏，读屏只走遮罩上的柄和按钮；旧的高度条不再存在。
 adjust_view="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets"
 adjust_show=$(sed -n '/^  private show(surface: string): void {$/,/^  }$/p' "$adjust_view")
 adjust_hidden=$(sed -n '/^    KeyboardSession.shared.onPanelHidden = (): void => {$/,/^    };$/p' "$adjust_view")
@@ -786,6 +786,8 @@ adjust_root=$(sed -n '/^  keyboard() {$/,/^  }$/p' "$adjust_view")
 adjust_frame=$(sed -n '/^  private adjustFrame(): AdjustFrame {$/,/^  }$/p' "$adjust_view")
 adjust_touch=$(sed -n '/^  private adjustTouch(handle: string, event: TouchEvent): void {$/,/^  }$/p' "$adjust_view")
 adjust_button=$(sed -n '/^  adjustButton(kind: string) {$/,/^  }$/p' "$adjust_view")
+adjust_save=$(sed -n '/^  private saveAdjust(): void {$/,/^  }$/p' "$adjust_view")
+adjust_open=$(sed -n '/^  private openAdjustMode(): void {$/,/^  }$/p' "$adjust_view")
 if [[ -z "$adjust_show" ]] \
   || ! grep -qF 'if (this.surface === SURFACE_GEOMETRY && surface !== SURFACE_GEOMETRY) {' <<< "$adjust_show" \
   || ! grep -qF 'this.saveAdjust();' <<< "$adjust_show" \
@@ -808,9 +810,13 @@ if [[ -z "$adjust_show" ]] \
   || ! grep -qF 'return this.rootWidth > 0 ? this.rootWidth : this.screenWidthVp;' "$adjust_view" \
   || ! grep -qF '@State rootWidth: number = 0;' "$adjust_view" \
   || ! grep -qF '.width(this.adjustButtonWidth())' <<< "$adjust_button" \
+  || ! grep -qF 'KeyboardAdjustPolicy.saved(stored, this.adjustOriginal, this.adjustValues(),' <<< "$adjust_save" \
+  || ! grep -qF 'saveKeyboardAdjust(saved.lift, saved.widthPercent, saved.positionX)' <<< "$adjust_save" \
+  || ! grep -qF 'this.adjustOriginal = this.adjustValues();' <<< "$adjust_open" \
+  || ! grep -qF ".accessibilityLevel(this.surface === SURFACE_GEOMETRY ? 'no-hide-descendants' : 'auto')" <<< "$adjust_root" \
   || grep -qF 'HeightBar' "$adjust_view" \
   || [[ -e "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/faces/HeightBar.ets" ]]; then
-  echo "The keyboard adjust overlay must save whenever it is left (confirm, another panel, hiding the keyboard, a new field, another app) with no restoring cancel path, keep its preview across a settings reload, inset the root by the adjust frame measured against the panel's real width (not the screen's), shrink the middle buttons to fit a narrow frame, count the bottom lift in every panel height, and replace HeightBar entirely" >&2
+  echo "The keyboard adjust overlay must save whenever it is left (confirm, another panel, hiding the keyboard, a new field, another app) with no restoring cancel path, keep its preview across a settings reload, inset the root by the adjust frame measured against the panel's real width (not the screen's), shrink the middle buttons to fit a narrow frame, save only the lift, width and position that are effective and changed (as Android does), hide the toolbar and keys from the screen reader while adjusting, count the bottom lift in every panel height, and replace HeightBar entirely" >&2
   exit 1
 fi
 # 长按菜单的「朗读」：排在哪里、带着什么由 keyboard-logic.test.ts 覆盖，出声的固定取值由 read-aloud-policy.test.ts 覆盖；视图、会话和设置桥是 ArkTS，node 下编不了，这里钉住接线：菜单把会话经共享层答的英文交给两种菜单，2in1 触摸长按在只有「朗读」时也打开，点下去时核对候选再读；关掉以后才建好的引擎当场关掉；引擎只用离线模式，从不下载声音；设置桥的 read_aloud 先经共享层核对词头。

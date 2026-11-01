@@ -350,9 +350,9 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 - 四项：高度仍是共享偏好 `touch_keyboard_height_adjustment`（-12..48vp）；底部抬高 `bottomLift`（0–160vp，缺省 0）、宽度 `widthPercent`（面板宽的 60–100%，缺省 100，拖动时另有 240vp 下限，取两者中更宽的）、水平位置 `positionX`（两侧剩余空间里左侧所占的千分比，0–1000，缺省 500 居中）存在本机的 `key-feedback.json`（`KeyboardFeedback`），与 `oneHanded`、`floatingX/Y` 同处，不进共享偏好、不同步，设置页和账号同步写这个文件时经 `KeyboardFeedbackBridge.fromShared` 沿用它们。设置页只有「键盘高度」滑块，没有另外三项。
 - 生效条件（`KeyboardAdjustPolicy.availability`）：浮动键盘、手机横屏和 2in1 上底部抬高、宽度、位置都不生效，只画上沿柄、不画「移动」；单手模式或分离式键盘画着时宽度和位置不生效，不画左右柄，「移动」只改抬高。不生效时存着的值不变，条件变了自动回来。
 - 布局：宽度和位置作用于整块键盘，触屏根节点的左右内边距在 4vp 之外多出 `adjustFrame` 的左右两段，底部内边距在 6vp 之外多出抬高；让出的地方只有键盘底色，点了不落到按键。宽度和位置按 `keyboardStack` 量到的面板宽换算（`KeyboardView.adjustPanelWidthVp`），不按屏幕宽：停靠面板的宽度是扩展能力建面板时的屏幕宽，平板转屏、折叠屏开合之后与此刻的屏幕宽不同。中间一排按钮在窄外框里按 `KeyboardAdjustPolicy.buttonWidthVp` 缩，不压到左右柄。面板仍是建面板时的整屏宽，高度是 `KeyboardMetrics.totalHeightVp` 加抬高（最后一个参数），冷启动第一帧由扩展能力按 `KeyboardSession.firstTouchLift` 算进去，视图从它出发核对。转屏或开关浮动键盘让抬高生效或不生效时，`syncStripHeight` 改面板高度。
-- 重置把四项预览回默认（高度 0、抬高 0、宽度 100%、居中），不保存；确认保存四项并退出。没有「取消」：其他任何离开方式（收起键盘、换输入框、切应用、切到别的面板）都按确认保存，都经 `KeyboardView.show` 的同一处。调整中途设置页保存引起的偏好重载不会把预览盖回去。
-- 读屏：四个柄的名称是「键盘高度」「键盘底部高度」「键盘宽度（左边）」「键盘宽度（右边）」，当前值和调法在说明里；三个按钮各有说明。HarmonyOS 到 API 24 为止 `AccessibilityAction` 只有点击，自定义组件做不了「增减」，读屏用户调这四项只能靠拖动（屏幕朗读下的拖动手势没有在设备上验证）。
-- 测试：`tests/keyboard-adjust.test.ts` 覆盖范围、生效条件和柄、外框换算、各边拖动约束（对边不动、下沿过下限后整块上移、到限停住）、存放与不进共享结构、面板高度含抬高、磁贴改名；`tests/run.sh` 钉住离开即保存、重载保留预览、根节点内边距、面板高度和冷启动第一帧的接线，以及 `HeightBar` 不再存在。
+- 重置把四项预览回默认（高度 0、抬高 0、宽度 100%、居中），不保存；确认保存并退出。保存时高度一直写，抬高、宽度、位置只写此刻生效且和打开时不同的项（`KeyboardAdjustPolicy.saved`，与 Android `AndroidLocalSettings.keyboardAdjustEdits` 同一条规则）：在手机横屏或浮动键盘里点了重置，存着的抬高、宽度、位置不变。没有「取消」：其他任何离开方式（收起键盘、换输入框、切应用、切到别的面板）都按确认保存，都经 `KeyboardView.show` 的同一处。调整中途设置页保存引起的偏好重载不会把预览盖回去。
+- 读屏：四个柄的名称是「键盘高度」「键盘底部高度」「键盘宽度（左边）」「键盘宽度（右边）」，当前值和调法在说明里；三个按钮各有说明。调整期间遮罩下的工具条和按键整块不进读屏（`keyboard()` 的列设 `accessibilityLevel('no-hide-descendants')`），读屏只走遮罩上的柄和按钮，与 Android 的 `IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS`、iOS 的 `accessibilityViewIsModal` 相同。HarmonyOS 到 API 24 为止 `AccessibilityAction` 只有点击，自定义组件做不了「增减」，读屏用户调这四项只能靠拖动（屏幕朗读下的拖动手势没有在设备上验证）。
+- 测试：`tests/keyboard-adjust.test.ts` 覆盖范围、生效条件和柄、外框换算、各边拖动约束（对边不动、下沿过下限后整块上移、到限停住）、存放与不进共享结构、面板高度含抬高、磁贴改名；`tests/run.sh` 钉住离开即保存、只存生效且动过的项、调整期间键区不进读屏、重载保留预览、根节点内边距、面板高度和冷启动第一帧的接线，以及 `HeightBar` 不再存在。
 
 ## 全拼九键的三栏展开面板
 

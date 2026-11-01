@@ -483,6 +483,38 @@ group("不进共享结构：设置页和账号同步保存时沿用存着的值"
 
 console.log("功能面板");
 
+group("离开时只存生效且动过的项，与 Android keyboardAdjustEdits 相同", () => {
+  const stored = { height: 0, lift: 40, widthPercent: 70, positionX: 200 };
+  const reset = P.DEFAULTS;
+  const landscape = P.saved(stored, stored, { ...reset, height: 12 }, P.availability(false, true, false, false, false));
+  check(landscape.height === 12, "高度一直生效，取预览值");
+  check(
+    landscape.lift === 40 && landscape.widthPercent === 70 && landscape.positionX === 200,
+    "手机横屏里点「重置」再确认：看不到的抬高、宽度、位置保留已存的值",
+  );
+  const floating = P.saved(stored, stored, reset, P.availability(true, false, false, false, false));
+  check(
+    floating.lift === 40 && floating.widthPercent === 70 && floating.positionX === 200,
+    "浮动键盘同样不改这三项",
+  );
+  const oneHanded = P.saved(stored, stored, reset, P.availability(false, false, false, true, false));
+  check(oneHanded.lift === 0, "单手模式时抬高生效，重置后存 0");
+  check(oneHanded.widthPercent === 70 && oneHanded.positionX === 200, "单手模式时宽度和位置不生效，保留");
+  const docked = P.saved(stored, stored, reset, ALL);
+  check(
+    docked.lift === 0 && docked.widthPercent === 100 && docked.positionX === 500,
+    "停靠竖屏四项都生效，重置后存默认",
+  );
+  const changedElsewhere = { height: 0, lift: 80, widthPercent: 90, positionX: 600 };
+  const untouched = P.saved(changedElsewhere, stored, stored, ALL);
+  check(
+    untouched.lift === 80 && untouched.widthPercent === 90 && untouched.positionX === 600,
+    "没动过的项不写：设置页中途存下的值不被打开时的旧值盖掉",
+  );
+  const moved = P.saved(stored, stored, { ...stored, lift: 64 }, ALL);
+  check(moved.lift === 64 && moved.widthPercent === 70 && moved.positionX === 200, "只取动过的那一项");
+});
+
 group("原来的「键盘高度」磁贴改名「键盘调整」，图标和位置不变", () => {
   const items: FunctionPanelItem[] = FunctionPanelPolicy.items();
   const tile: FunctionPanelItem | undefined = items.find(

@@ -156,6 +156,29 @@ export class KeyboardAdjustPolicy {
     };
   }
 
+  /**
+   * 离开键盘调整时存下的四项：高度一直生效，取预览值；抬高、宽度、位置只有此刻生效、并且和打开时（`original`）不同才取预览值，否则保留已存的值（`stored`）。不生效的项看不到柄，「重置」把它们预览回默认也不该改掉它们；没动过的项不写，设置页中途存下的值不被打开时的旧值盖掉。与 Android `AndroidLocalSettings.keyboardAdjustEdits` 同一条规则。
+   */
+  static saved(
+    stored: AdjustValues,
+    original: AdjustValues,
+    preview: AdjustValues,
+    availability: AdjustAvailability,
+  ): AdjustValues {
+    return {
+      height: preview.height,
+      lift: availability.lift && preview.lift !== original.lift ? preview.lift : stored.lift,
+      widthPercent:
+        availability.width && preview.widthPercent !== original.widthPercent
+          ? preview.widthPercent
+          : stored.widthPercent,
+      positionX:
+        availability.position && preview.positionX !== original.positionX
+          ? preview.positionX
+          : stored.positionX,
+    };
+  }
+
   /** 生效时的底部抬高（vp），不生效时为 0。面板高度（`KeyboardMetrics.totalHeightVp`）和根节点底部内边距都加上它。 */
   static liftVp(storedLift: number, availability: AdjustAvailability): number {
     return availability.lift ? KeyboardAdjustPolicy.lift(storedLift) : 0;
