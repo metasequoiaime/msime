@@ -155,7 +155,7 @@ constexpr std::array<CandidateCheck, 12> candidate_checks{{
     {mixed_kaomoji, "mixed_input", "kaomoji", L"颜文字混输", L"在对应中文词后补充匹配的颜文字，排在同一个词的 emoji 之后。", false},
     {mixed_japanese, "mixed_input", "japanese", L"日文混输（实验）", L"全拼、双拼里完整输入日文罗马字时补充日文候选；词典不在时不生效。", false},
     {learn_candidates, "", "learning", L"学习选词习惯", L"根据选词调整候选顺序。", true},
-    {next_word_prediction, "", "next_word_prediction", L"上屏后联想", L"选词上屏后推荐后续文字，像普通候选一样点选、按数字键或空格上屏，继续输入其他内容时消失；使用现有词库，开启学习时也参考个人词序，隐私输入不显示。", false},
+    {next_word_prediction, "", "next_word_prediction", L"上屏后联想", L"选词上屏后推荐后续文字，点选、按数字键或空格上屏，继续输入其他内容时消失；使用现有词库，开启学习时也参考个人词序，隐私输入不显示。", false},
     {single_character_only, "", "single_character_only", L"只出单字", L"候选只列单个汉字，不出词组和整句；选一个字后接着拼下一个字。", false},
     {caret_edit_suffix, "", "caret_edit_suffix", L"移动光标后编辑光标后的部分", L"组字光标移到拼音中间时，光标前的部分固定为当前转换，候选改为编辑光标后的部分；首选是整句。", false},
     {word_lattice, "sentence_association", "word_lattice", L"本地整句联想", L"把词库组合出的整句加入候选；关闭后仍保留单词候选。", true},
