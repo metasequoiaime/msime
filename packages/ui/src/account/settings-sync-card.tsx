@@ -1,4 +1,5 @@
 import { ActionButton } from "../core/action-button";
+import { InfoTip } from "../core/info-tip";
 import { StatusMessage } from "../core/status-message";
 import type { SettingsSyncClient } from "./account-model";
 import * as account from "./account-style";
@@ -26,11 +27,14 @@ export function SettingsSyncCard({
 
   return (
     <section className={`${account.section} ${account.stack}`}>
-      <h2 className={account.heading}>设置同步</h2>
-      <p className={account.note}>
-        {client.description ??
-          "同步输入方案、繁体输出、键盘声音与触感、词库学习开关和皮肤。凭据、联网授权及输入内容不会随设置上传。"}
-      </p>
+      {/* 同步哪些设置：收进标题旁的「?」，不常驻卡片。 */}
+      <div className="flex items-center gap-1.5">
+        <h2 className={account.heading}>设置同步</h2>
+        <InfoTip subject="设置同步">
+          {client.description ??
+            "同步输入方案、繁体输出、键盘声音与触感、词库学习开关和皮肤。凭据、联网授权及输入内容不会随设置上传。"}
+        </InfoTip>
+      </div>
       {cloud && <p className={account.muted}>云端版本：{cloud.revision}</p>}
       <div className={account.actionRow}>
         <ActionButton

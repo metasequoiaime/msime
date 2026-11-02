@@ -3,7 +3,6 @@ import { SwitchRow } from "./switch-row";
 import { SettingCheck } from "./setting-check";
 import { SettingSectionTitle } from "./setting-section-title";
 import { ActionButton } from "../core/action-button";
-import { SettingsInputDescription } from "./settings-input-description";
 import { SettingsGroupBlock } from "./settings-group-block";
 import { SettingsRowStack } from "./settings-row-stack";
 import { Checks, MoreOptions, Row } from "../core/platform-controls";
@@ -91,15 +90,12 @@ export function FuzzyPinyinSection({
     <SettingsRowStack role="group" aria-label="模糊音">
       <SwitchRow
         title="启用模糊音"
-        description="全拼、九键与双拼均支持；更改会在当前输入结束后生效"
+        description="全拼、九键与双拼均支持；更改会在当前输入结束后生效。勾选容易混淆的读音后，会补充对应候选。关闭总开关会保留已选规则。"
         aria-label="启用模糊音"
         checked={preferences.enabled}
         onChange={setEnabled}
       />
       <SettingsGroupBlock hidden={!preferences.enabled}>
-        <SettingsInputDescription>
-          勾选容易混淆的读音后，会补充对应候选。关闭总开关会保留已选规则。
-        </SettingsInputDescription>
         {fuzzyPinyinGroups.map(([title, rules]) => (
           <div key={title} className="fuzzy-pinyin-group">
             <SettingSectionTitle as="div" title={title} />

@@ -5,7 +5,6 @@ import { palette, type Slice } from "./statistics-distribution-model";
 import { SettingsEmptyMessage } from "./settings-empty-message";
 import { StatisticsSection } from "./statistics-section";
 
-const footerNote = "mt-3.5 mb-0 text-xs leading-relaxed [color:var(--p-sub)]";
 const rankChart = "mt-4 mb-[18px] flex flex-col gap-[11px]";
 // 名称列容纳最长标签；计数和占比固定列宽，避免各行按内容计算而错位。
 const rankRow =
@@ -108,7 +107,12 @@ export function Distribution({
   const total = slices.reduce((value, slice) => value + slice.count, 0);
   const visible = slices.filter((slice) => slice.count > 0 || slice.id !== "unknown");
   return (
-    <StatisticsSection id={`statistics-${title}`} title={title} className="section m-0 @container">
+    <StatisticsSection
+      id={`statistics-${title}`}
+      title={title}
+      help={footer}
+      className="section m-0 @container"
+    >
       {total === 0 ? (
         <SettingsEmptyMessage centered className="mt-3.5">
           暂无输入记录
@@ -150,7 +154,6 @@ export function Distribution({
           )}
         </div>
       )}
-      {footer && <p className={footerNote}>{footer}</p>}
     </StatisticsSection>
   );
 }
@@ -176,7 +179,11 @@ export function CandidateRanks({ selections }: { selections: SelectionCounts | u
     { id: "beyond", label: "第 10 条以后", count: beyond },
   ];
   return (
-    <StatisticsSection id="statistics-candidate-ranks" title="候选命中位置">
+    <StatisticsSection
+      id="statistics-candidate-ranks"
+      title="候选命中位置"
+      help="每次上屏记录选中的是第几条候选，只记位置，不记任何文字。首选命中率越高，说明排序越贴合你的输入。"
+    >
       <p className="mt-3.5 mb-1 flex items-baseline gap-2">
         <strong className="text-[30px] leading-[1.1] tabular-nums" aria-label="首选命中率">
           {formatZhPercent(ranks[0], total)}
@@ -213,9 +220,6 @@ export function CandidateRanks({ selections }: { selections: SelectionCounts | u
           ))}
         </div>
       )}
-      <p className={footerNote}>
-        每次上屏记录选中的是第几条候选，只记位置，不记任何文字。首选命中率越高，说明排序越贴合你的输入。
-      </p>
     </StatisticsSection>
   );
 }
