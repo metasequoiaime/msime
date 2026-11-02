@@ -1,6 +1,6 @@
 // @msime/web-engine 的类型。帧的字段与 crates/engine-wasm/src/bindings.rs 的 frame_to_js 一一对应。
 
-/** xiaohe、ziranma、shoudao、microsoft 是小鹤、自然码、手到和微软双拼，和全拼共用拼音库；微软双拼的 `;` 是韵母 ing。japanese 是日语罗马字：下载 wasm 和日语模型（约 5 MB），组字区显示假名，候选是整句转换、词和平假名、片假名，`-` 是长音 ー，标点是 、。「」。korean 是韩文两套式（두벌식）：只下载 wasm，音节在组字区拼好后自动上屏，没有候选。 */
+/** xiaohe、ziranma、shoudao、microsoft 是小鹤、自然码、手到和微软双拼，和全拼共用拼音库；微软双拼的 `;` 是韵母 ing。japanese 是日语罗马字：下载 wasm 和日语模型（约 5 MB），组字区显示假名，候选是整句转换、词和平假名、片假名，`-` 是长音 ー，标点是 、。「」。korean 是韩文两套式（두벌식）：只下载 wasm，音节在组字区拼好后自动上屏，没有候选。jyutping 是粤拼（不打声调），cantonese_shuangpin 是粤语双拼（每个字两键，`;` 是韵母 ing/ik）：两者下载 wasm 和粤语词库（约 3.5 MB），候选是繁体，选中只覆盖前几个音节的候选时其余接着组字；粤拼的前两键不是完整音节、又能读成粤语双拼时自动按双拼读。 */
 export type MsimeScheme =
   | "quanpin"
   | "xiaohe"
@@ -9,7 +9,9 @@ export type MsimeScheme =
   | "microsoft"
   | "wubi86"
   | "japanese"
-  | "korean";
+  | "korean"
+  | "jyutping"
+  | "cantonese_shuangpin";
 
 export declare const SCHEMES: readonly MsimeScheme[];
 
@@ -90,12 +92,14 @@ export interface MsimeAssetRef {
 
 export interface MsimeAssets {
   wasm: MsimeAssetRef;
-  /** 拼音方案用拼音库，五笔用五笔 86 库；日语和韩文不用词库，为 null。 */
+  /** 拼音方案用拼音库，五笔用五笔 86 库；日语、韩文和粤语方案不用它，为 null。 */
   db: MsimeAssetRef | null;
-  /** 整句模型；五笔、日语、韩文或不需要时为 null。 */
+  /** 整句模型；五笔、日语、韩文、粤语或不需要时为 null。 */
   model: MsimeAssetRef | null;
   /** 日语模型 msime-japanese.dat，只有日语用；其他方案省略或为 null。 */
   japanese?: MsimeAssetRef | null;
+  /** 粤语词库 msime-cantonese.db（gzip），粤拼和粤语双拼用；其他方案省略或为 null。 */
+  cantonese?: MsimeAssetRef | null;
   /** 各辅助码方案的表（`helpcode-<方案>.txt.gz`），只在打开辅助码时下载其中一张；缺了某个方案时，打开它会以 unsupported 失败。 */
   helpcodes?: Partial<Record<MsimeHelpcode, MsimeAssetRef>>;
 }
@@ -154,9 +158,9 @@ export interface MsimeEngine {
   setCandidateExpansion(open: boolean, revision: string): Promise<MsimeFrame>;
   /** 取消组字、清空上下文。 */
   reset(): Promise<MsimeFrame>;
-  /** 在 quanpin 和四种双拼之间切换，辅助码设置保留；和 wubi86、japanese、korean 互换需要新建引擎。 */
+  /** 在 quanpin 和四种双拼之间切换（辅助码设置保留），或在 jyutping 和 cantonese_shuangpin 之间切换，都不用重新下载；换到别的一组（拼音、粤语、wubi86、japanese、korean）需要新建引擎，否则以 unsupported 失败。 */
   setScheme(scheme: MsimeScheme): Promise<void>;
-  /** 打开（传方案名）或关闭（null）辅助码，不用重建引擎；第一次用到的表这时下载。正在组的字按新设置重新查询，下一帧可见。五笔、日语和韩文引擎上什么也不做。下载失败时 reject（code 为 network），引擎照常可用、设置不变。 */
+  /** 打开（传方案名）或关闭（null）辅助码，不用重建引擎；第一次用到的表这时下载。正在组的字按新设置重新查询，下一帧可见。五笔、日语、韩文和粤语引擎上什么也不做。下载失败时 reject（code 为 network），引擎照常可用、设置不变。 */
   setHelpcode(helpcode: MsimeHelpcode | null): Promise<void>;
   setModelEnabled(enabled: boolean): void;
   /** 页面空闲时的退格是否真的删字；页面拒绝删除时传 false，引擎的上下文就不会跟着弹出。 */

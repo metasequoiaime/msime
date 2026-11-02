@@ -1,7 +1,7 @@
 // 主线程入口：起一个模块 Worker 运行引擎（worker.js），把按键、点选、重置变成返回 Promise 的方法。类型见 index.d.ts，用法见 README.md。
 //
-// assets.js 由 scripts/build-web-engine.sh 在打包时生成，记着同一次构建产出的每个资源文件（含辅助码表）的名字和大小，所以 SDK、wasm 和词库的版本永远一致。
-import { files, helpcodes, version } from "./assets.js";
+// assets.js 由 scripts/build-web-engine.sh 在打包时生成，记着同一次构建产出的每个资源文件（含辅助码表和粤语词库）的名字和大小，所以 SDK、wasm 和词库的版本永远一致。
+import { cantonese, files, helpcodes, version } from "./assets.js";
 
 export { KeyKind, packKey, keyFromEvent, osImeIntercepting, createShiftTap } from "./keys.js";
 export { attachInput } from "./input.js";
@@ -9,9 +9,13 @@ export { DEFAULT_SKIN, SKINS, resolveSkin } from "./skin.js";
 export { CANDIDATE_BAR_TAG, PARTS, createCandidateBar } from "./candidates.js";
 export { version };
 
-export const SCHEMES = Object.freeze(["quanpin", "xiaohe", "ziranma", "shoudao", "microsoft", "wubi86", "japanese", "korean"]);
+export const SCHEMES = Object.freeze(["quanpin", "xiaohe", "ziranma", "shoudao", "microsoft", "wubi86", "japanese", "korean", "jyutping", "cantonese_shuangpin"]);
 // 全拼和四种双拼共用拼音库，可以就地切换，也只有它们用辅助码。
 const PINYIN = new Set(["quanpin", "xiaohe", "ziranma", "shoudao", "microsoft"]);
+// 粤拼和粤语双拼共用粤语词库，彼此也可以就地切换。
+const CANTONESE = new Set(["jyutping", "cantonese_shuangpin"]);
+// 能就地切换的方案归在同一组（同一份词库），其余方案各自一组。
+const family = (scheme) => (PINYIN.has(scheme) ? "pinyin" : CANTONESE.has(scheme) ? "cantonese" : scheme);
 // 辅助码方案，顺序和名字同引擎的 assets::HELPCODES（crates/engine-wasm/tests/helpcodes.rs 核对）。
 export const HELPCODES = Object.freeze(["lantian", "ziranma", "shouyou2_0", "shouyouplus", "xiaohe", "jiajia", "wubi86"]);
 
@@ -45,6 +49,11 @@ function resolveAssets(scheme, options) {
   if (scheme === "japanese") {
     if (!files.japanese) throw new MsimeError("unsupported", "this build of @msime/web-engine ships no japanese model; pass options.assets", "fetch");
     return { wasm: ref(files.wasm), db: null, model: null, japanese: ref(files.japanese) };
+  }
+  // 粤拼和粤语双拼用 wasm 和粤语词库（只在 npm 包里，不在 release 清单里），不用拼音库和整句模型。
+  if (CANTONESE.has(scheme)) {
+    if (!cantonese) throw new MsimeError("unsupported", "this build of @msime/web-engine ships no cantonese dictionary; pass options.assets", "fetch");
+    return { wasm: ref(files.wasm), db: null, model: null, japanese: null, cantonese: ref(cantonese) };
   }
   const db = scheme === "wubi86" ? files.wubi86 : files.pinyin;
   if (!db) {
@@ -211,8 +220,8 @@ export function createMsimeEngine(options = {}) {
       if (!SCHEMES.includes(next)) throw new MsimeError("engine", `unknown scheme: ${next}`);
       if (next === scheme && pendingSchemes === 0) return;
       // 五笔和拼音用不同的词库，换词库要重新下载，建一个新引擎更简单也更省内存（wasm 内存不会缩小）。
-      // 只有全拼和两种双拼共用一个词库；五笔、日语和韩文各要自己的资源，换过去得新建引擎。
-      if (!PINYIN.has(next) || !PINYIN.has(scheme)) {
+      // 只有全拼和四种双拼共用拼音库、粤拼和粤语双拼共用粤语词库；五笔、日语和韩文各要自己的资源，换到别的一组得新建引擎。
+      if (family(next) !== family(scheme)) {
         throw new MsimeError("unsupported", `switching between ${scheme} and ${next} needs a new engine: dispose() this one and call createMsimeEngine({ scheme: "${next}" })`);
       }
       pendingSchemes += 1;
@@ -227,7 +236,7 @@ export function createMsimeEngine(options = {}) {
       if (failure) throw failure;
       const name = next ?? null;
       if (name !== null && !HELPCODES.includes(name)) throw new MsimeError("engine", `unknown helpcode: ${name}`);
-      // 五笔、日语和韩文没有辅助码，记不记都一样，什么也不做。
+      // 五笔、日语、韩文和粤语没有辅助码，记不记都一样，什么也不做。
       if (!PINYIN.has(scheme) || name === helpcode) return;
       const asset = name === null ? null : helpcodeAsset(assets, name, "runtime");
       await request({ type: "helpcode", schema: name, asset });

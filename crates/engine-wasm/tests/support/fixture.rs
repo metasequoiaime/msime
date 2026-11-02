@@ -1,4 +1,9 @@
-//! 最小的 msime.db：表结构和发布的主库一致（`tbl_<长度>_<首字母>` 加 `idx_key_*`/`idx_jp_*` 索引，`wubi86`/`wubi98`/`quick_parases` 加各自的索引），行只有路由测试用到的那些。`make_fixture` 示例和 `tests/routing.rs` 共用这一份。
+//! 最小的 msime.db：表结构和发布的主库一致（`tbl_<长度>_<首字母>` 加 `idx_key_*`/`idx_jp_*` 索引，`wubi86`/`wubi98`/`quick_parases` 加各自的索引），行只有路由测试用到的那些；以及最小的 `msime-cantonese.db`（`write_cantonese`）。`make_fixture` 示例、`tests/routing.rs` 和 `tests/cantonese.rs` 共用这一份。
+
+#![allow(
+    dead_code,
+    reason = "routing.rs、cantonese.rs 和 make_fixture 各用其中一部分"
+)]
 
 use std::path::Path;
 
@@ -88,6 +93,58 @@ pub fn write(path: &Path, only_wubi86: bool) -> rusqlite::Result<()> {
         transaction.execute(
             "INSERT INTO wubi86 (key, value, weight) VALUES (?1, ?2, ?3)",
             (key, value, weight),
+        )?;
+    }
+    transaction.commit()
+}
+
+/// 粤语夹具的音节库存。
+const CANTONESE_SYLLABLES: [&str; 15] = [
+    "nei", "hou", "soeng", "soek", "cyun", "cyut", "cuk", "bing", "m", "goi", "hoeng", "gong",
+    "gwong", "dung", "waa",
+];
+
+/// 粤语词条：粤拼（音节以空格分开）、繁体字、权重。`soeng cyun` 一组和 input-runtime 的 #10085 用例相同：粤语双拼 `sxcr` 先给「相傳」，选「上」后剩下的 `cr` 给「傳」「速」。`bing` 的韵母 ing 在粤语双拼里是 `;`。
+const CANTONESE_ROWS: [(&str, &str, i64); 19] = [
+    ("nei hou", "你好", 9_500),
+    ("nei hou", "妳好", 900),
+    ("nei", "你", 9_000),
+    ("nei", "妳", 3_000),
+    ("hou", "好", 9_000),
+    ("hou", "號", 4_000),
+    ("soeng cyun", "相傳", 978),
+    ("soeng", "上", 9_000),
+    ("soeng", "相", 5_000),
+    ("soek", "削", 200),
+    ("cyun", "傳", 3_000),
+    ("cuk", "速", 2_000),
+    ("bing", "兵", 5_000),
+    ("bing", "冰", 4_000),
+    ("m goi", "唔該", 8_000),
+    ("m", "唔", 9_000),
+    ("goi", "該", 5_000),
+    ("hoeng gong", "香港", 7_000),
+    ("gwong dung waa", "廣東話", 6_000),
+];
+
+/// 在 `path` 写出最小的 `msime-cantonese.db`：结构和版本号来自引擎的 `language_dictionary`，与 msime-dict-build 写出的发布库同一份契约。
+pub fn write_cantonese(path: &Path) -> rusqlite::Result<()> {
+    use msime_engine::language_dictionary::{FORMAT_VERSION, METADATA_FORMAT_VERSION, SCHEMA};
+
+    let mut connection = Connection::open(path)?;
+    let transaction = connection.transaction()?;
+    transaction.execute_batch(SCHEMA)?;
+    transaction.execute(
+        "INSERT INTO metadata VALUES (?1, ?2)",
+        (METADATA_FORMAT_VERSION, FORMAT_VERSION.to_string()),
+    )?;
+    for syllable in CANTONESE_SYLLABLES {
+        transaction.execute("INSERT INTO syllables VALUES (?1)", [syllable])?;
+    }
+    for (key, text, weight) in CANTONESE_ROWS {
+        transaction.execute(
+            "INSERT INTO entries VALUES (?1, ?2, ?3)",
+            (key, text, weight),
         )?;
     }
     transaction.commit()
