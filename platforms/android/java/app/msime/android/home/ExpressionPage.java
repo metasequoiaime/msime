@@ -23,7 +23,7 @@ import org.json.JSONObject;
 /**
  * 表达页：标点（使用英文标点、引号样式、方头括号样式、自动补全成对标点、智能标点）、智能（整句候选三档、上屏后联想及联想时候选栏右端的按键样式、英文联想、中英混输、触发字母数、候选带符号、候选带 emoji、候选带颜文字）和发现短语（社区里的前几个短语包，末尾「浏览更多短语」进社区短语的完整列表）。
  *
- * <p>「使用英文标点」是 `chinese_punctuation` 取反显示、写入时取反；整句候选三档写 `sentence_association`：关闭是 `word_lattice=false`，标准是 `word_lattice`，增强是 `word_lattice` 加 `neural_keyboard`。增强的逐键重排模型是资源包 {@link ResourcePacks#RERANK_MODEL}（发布包放不下）：选成增强时开始下载，增强开着而模型没装好时整句候选下面多一行下载状态；装好之前输入法用随包的句子模型，装好后下一次进入输入框换上。发现短语列社区里 `phrase` 类的资源，「添加」经 {@link CommonPhrasesStore#installPack} 装进本机无编码常用语（它会标记云同步的「常用语」），已经装过的包显示「已添加」。
+ * <p>「使用英文标点」是 `chinese_punctuation` 取反显示、写入时取反；整句候选三档写 `sentence_association`：关闭是 `word_lattice=false`，标准是 `word_lattice`，增强是 `word_lattice` 加 `neural_keyboard`。增强的逐键重排模型是资源包 {@link ResourcePacks#RERANK_MODEL}（发布包放不下）：选成增强时开始下载（另有 {@link app.msime.android.RerankModelDownload} 在 Wi-Fi 上替没选过的人下），增强开着而模型没装好时整句候选下面多一行下载状态；装好之前输入法用应用自带的模型，装好后下一次进入输入框换上。切回标准或关闭时卸掉它。发现短语列社区里 `phrase` 类的资源，「添加」经 {@link CommonPhrasesStore#installPack} 装进本机无编码常用语（它会标记云同步的「常用语」），已经装过的包显示「已添加」。
  */
 public final class ExpressionPage extends ReloadingDetailPage {
     @Override protected java.util.List<String> sectionTitles() {
@@ -288,9 +288,16 @@ public final class ExpressionPage extends ReloadingDetailPage {
                 association.put("word_lattice", level > 0);
                 association.put("neural_keyboard", level > 1);
             }, () -> {
-                // 选成增强时模型还没装就下载；按流量计费的网络先确认。下载失败或取消时增强照样开着，用随包的句子模型。
-                if (level > 1 && isAdded() && rerankModelWanted() && ResourcePackService.status(ResourcePacks.RERANK_MODEL) == null)
-                    ResourcePackService.request(requireContext(), ResourcePacks.RERANK_MODEL, rerankModel.size());
+                if (!isAdded()) return;
+                if (level > 1) {
+                    // 选成增强时模型还没装就下载，按流量计费的网络先确认；用户在确认框里取消时，后台任务在连上 Wi-Fi 后再下。下载失败或取消时增强照样开着，用应用自带的模型。
+                    if (!rerankModelWanted()) return;
+                    if (ResourcePackService.status(ResourcePacks.RERANK_MODEL) == null)
+                        ResourcePackService.request(requireContext(), ResourcePacks.RERANK_MODEL, rerankModel.size());
+                    app.msime.android.RerankModelDownload.schedule(requireContext());
+                } else {
+                    releaseRerankModel();
+                }
             }));
         }
         sheet.show();
@@ -303,6 +310,15 @@ public final class ExpressionPage extends ReloadingDetailPage {
         return rerankModel != null && !rerankModel.installed() && AppEdition.current().offers("quanpin");
     }
 
+    /** 切到标准或关闭：撤掉还没跑的后台下载、停下正在进行的下载，已经装好的模型卸掉（8.3 MB），再选增强时重新下载。卸载结果由 {@link ResourcePackService#remove} 提示。 */
+    private void releaseRerankModel() {
+        String pack = ResourcePacks.RERANK_MODEL;
+        app.msime.android.RerankModelDownload.cancelScheduled(requireContext());
+        ResourcePackService.Status status = ResourcePackService.status(pack);
+        if (status != null && status.running()) ResourcePackService.cancel(pack);
+        else if (rerankModel != null && !"missing".equals(rerankModel.state())) ResourcePackService.remove(requireContext(), pack);
+    }
+
     /** 增强开着、模型没装好时的一行：需下载多大、下载中 x%、校验中或失败原因；按钮下载、取消或重试。 */
     private void rerankModelRow(GroupCard group) {
         String pack = ResourcePacks.RERANK_MODEL;
@@ -310,7 +326,7 @@ public final class ExpressionPage extends ReloadingDetailPage {
         String running = ResourcePackService.describe(status);
         String verb = "outdated".equals(rerankModel.state()) ? "需更新 " : "需下载 ";
         String subtitle = running != null ? running : verb + ResourcePackService.size(rerankModel.size());
-        String description = "增强用它逐键重排整句候选，只保存在本机；下载完成前用随应用自带的小模型";
+        String description = "增强用它逐键重排整句候选，只保存在本机；下载完成前用应用自带的模型。连上 Wi-Fi 时会自动下载，切回标准时卸掉";
         if (status != null && status.phase() == ResourcePackService.Phase.VERIFYING) {
             group.button(ResourcePackService.title(pack), subtitle, "校验中", () -> {}).help(description).setEnabled(false);
             return;
