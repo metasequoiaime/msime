@@ -107,6 +107,13 @@ public:
       vietnamese_tone_ = choice(scheme_vietnamese_tone, L"声调位置", {{"modern", L"新式 hoà"}, {"classic", L"旧式 hòa"}});
       heights_[static_cast<size_t>(section)] = top - start;
     }
+    // 粤语双拼与粤拼共用同一个方案和词典，作为粤拼下的选项；缺省（文档里没有 cantonese）为粤拼。
+    if (offers("cantonese")) {
+      section = Section::cantonese;
+      const int start = top;
+      cantonese_method_ = choice(scheme_cantonese_method, L"粤拼方案", {{"jyutping", L"粤拼"}, {"shuangpin", L"粤语双拼"}});
+      heights_[static_cast<size_t>(section)] = top - start;
+    }
     height_ = top;
     return top;
   }
@@ -146,6 +153,10 @@ public:
     if (!preferences.contains("vietnamese") || !preferences.at("vietnamese").is_object()) return false;
     for (const auto* key : {"input_method", "tone_style"})
       if (!preferences.at("vietnamese").contains(key) || !preferences.at("vietnamese").at(key).is_string()) return false;
+    if (preferences.contains("cantonese")) {
+      const auto& cantonese = preferences.at("cantonese");
+      if (!cantonese.is_object() || (cantonese.contains("input_method") && !cantonese.at("input_method").is_string())) return false;
+    }
     return true;
   }
 
@@ -155,7 +166,9 @@ public:
     select(language_, languages_, chinese(scheme) ? "chinese" : scheme);
     select(chinese_control_, chinese_, chinese(scheme) ? scheme : std::string{});
     if (chinese_notice_) SetWindowTextW(chinese_notice_, chinese(scheme) ? L"" : L"当前输入语言不是中文，中文方案仅在选择中文时可用。");
-    SetWindowTextW(description_, note(scheme));
+    SetWindowTextW(description_, scheme == "cantonese" && cantonese_shuangpin(preferences)
+        ? L"粤语双拼：两键一个音节，第一键是声母、第二键是韵母，ing 和 ik 在 ; 键上；从第一键起按双拼解释，与粤拼同形的码（如 oi）也按双拼。数字键选词，候选为繁体字词。"
+        : note(scheme));
     if (profile_) {
       auto options = profiles();
       if (preferences.at("shuangpin_profile") == "custom") options.push_back({"custom", L"自定义双拼（当前值）"});
@@ -182,6 +195,7 @@ public:
       SendMessageW(vietnamese_method_, CB_SETCURSEL, preferences.at("vietnamese").at("input_method") == "vni" ? 1 : 0, 0);
       SendMessageW(vietnamese_tone_, CB_SETCURSEL, preferences.at("vietnamese").at("tone_style") == "classic" ? 1 : 0, 0);
     }
+    if (cantonese_method_) SendMessageW(cantonese_method_, CB_SETCURSEL, cantonese_shuangpin(preferences) ? 1 : 0, 0);
   }
 
   void enable(bool enabled) {
@@ -195,12 +209,13 @@ public:
     const bool keys = enabled && scheme == "wubi" && preferences_.value("wubi_candidate_selection", default_keys()).at("enabled").get<bool>();
     for (const auto control : {second_, third_}) if (control) EnableWindow(control, keys);
     for (const auto control : {vietnamese_method_, vietnamese_tone_}) if (control) EnableWindow(control, enabled && scheme == "vietnamese");
+    if (cantonese_method_) EnableWindow(cantonese_method_, enabled && scheme == "cantonese");
     update_keys();
   }
 
   Command command(WPARAM event) {
     const int id = LOWORD(event), notification = HIWORD(event);
-    if (id < scheme_language || id > scheme_wubi_result) return {};
+    if (id < scheme_language || id > scheme_cantonese_method) return {};
     Command result{true, {}, {}, std::nullopt};
     if (!enabled_) return result;
     if ((id == scheme_wubi_second || id == scheme_wubi_third) && notification == EN_CHANGE) { update_keys(); return result; }
@@ -242,6 +257,14 @@ public:
         const auto selected = SendMessageW(id == scheme_vietnamese_method ? vietnamese_method_ : vietnamese_tone_, CB_GETCURSEL, 0, 0);
         if (selected == 0 || selected == 1) result.changes.push_back({{"vietnamese", id == scheme_vietnamese_method ? "input_method" : "tone_style"},
             id == scheme_vietnamese_method ? (selected == 0 ? "telex" : "vni") : (selected == 0 ? "modern" : "classic")});
+      } else if (id == scheme_cantonese_method && IsWindowEnabled(cantonese_method_)) {
+        const auto selected = SendMessageW(cantonese_method_, CB_GETCURSEL, 0, 0);
+        // 文档在默认值时没有 cantonese 这一组，整组写入，保留其中别的成员。
+        if (selected == 0 || selected == 1) {
+          auto cantonese = preferences_.value("cantonese", Json::object());
+          cantonese["input_method"] = selected == 0 ? "jyutping" : "shuangpin";
+          result.changes.push_back({{"cantonese"}, std::move(cantonese)});
+        }
       }
     } else if (notification == BN_CLICKED) {
       for (const auto& field : std::vector<std::tuple<int, HWND, const char*>>{
@@ -293,19 +316,24 @@ public:
   }
 
 private:
-  enum class Section { common, shuangpin, wubi, vietnamese };
+  enum class Section { common, shuangpin, wubi, vietnamese, cantonese };
   struct RowPosition { HWND control; int top; Section section; };
   bool visible(Section section) const {
     const auto scheme = preferences_.value("scheme", std::string{});
     return section == Section::common || (section == Section::shuangpin && scheme == "shuangpin") ||
-        (section == Section::wubi && scheme == "wubi") || (section == Section::vietnamese && scheme == "vietnamese");
+        (section == Section::wubi && scheme == "wubi") || (section == Section::vietnamese && scheme == "vietnamese") ||
+        (section == Section::cantonese && scheme == "cantonese");
   }
   std::vector<RowPosition> rows_;
-  std::array<int, 4> heights_{};
+  std::array<int, 5> heights_{};
   int height_ = 0;
   struct Option { std::string value; const wchar_t* label; };
   static bool chinese(const std::string& scheme) {
     return scheme != "japanese" && scheme != "korean" && scheme != "vietnamese" && scheme != "tibetan";
+  }
+  static bool cantonese_shuangpin(const Json& preferences) {
+    if (!preferences.contains("cantonese") || !preferences.at("cantonese").is_object()) return false;
+    return preferences.at("cantonese").value("input_method", std::string{}) == "shuangpin";
   }
   static Json default_keys() { return {{"enabled", false}, {"second_key", ";"}, {"third_key", "'"}}; }
   static std::vector<Option> profiles() { return {{"xiaohe", L"小鹤双拼"}, {"ziranma", L"自然码双拼"},
@@ -345,6 +373,7 @@ private:
   HWND selection_ = nullptr, second_ = nullptr, third_ = nullptr, keys_save_ = nullptr, keys_description_ = nullptr;
   HWND lookup_ = nullptr, lookup_button_ = nullptr, lookup_result_ = nullptr;
   HWND vietnamese_method_ = nullptr, vietnamese_tone_ = nullptr;
+  HWND cantonese_method_ = nullptr;
   std::vector<Option> languages_, chinese_;
   Json preferences_ = Json::object();
   std::optional<Json> saved_keys_;

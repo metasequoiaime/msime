@@ -25,6 +25,8 @@ MARKER = "<!-- msime-nightly-state\n"
 SHA = re.compile(r"[0-9a-f]{40}")
 DIGEST = re.compile(r"sha256:([0-9a-f]{64})")
 ASSET_NAME = re.compile(r"[A-Za-z0-9_.-]+")
+# 不再发布、但 nightly 上可能还挂着的安装包后缀：macOS 从 DMG 改成 pkg 之后，旧 DMG 不在 PLATFORM_SUFFIXES 里，清理时不算进去就永远删不掉。仍被某个平台的状态引用时照样保留（keep），只删没人指向的。
+RETIRED_SUFFIXES = (".dmg",)
 # 各平台包内的版本号只有 X.Y.Z；复用的 release-*.yml 把它写在 artifact 名的末尾（msime-windows-full-0.3.1、msime-linux-deb-x86_64-0.11.0、msime-macos-0.52.0）。
 VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
 ARTIFACT_VERSION = re.compile(r"-([0-9]+\.[0-9]+\.[0-9]+)$")
@@ -189,7 +191,7 @@ def render(state, results, updated, repository, source_sha, run_url, ios_group):
         lines += [f"[SHA-256 校验清单](https://github.com/{repository}/releases/download/nightly/{name})；"
                   f"下载后运行 `sha256sum --ignore-missing -c {name}`。", ""]
     lines += ["Android 安装 APK 后在系统设置中启用输入法；Windows 运行 Setup EXE。",
-              "macOS 按 DMG 内的说明安装；Linux 按发行版与架构选择 DEB、RPM 或 Arch 的 .pkg.tar.zst。",
+              "macOS 双击 pkg 安装包按提示安装（需要管理员密码）；Linux 按发行版与架构选择 DEB、RPM 或 Arch 的 .pkg.tar.zst。",
               "iOS 通过现有外部 TestFlight 组安装，须等 Apple 审核；模拟器包只在 Actions 中保留。",
               "HarmonyOS 的 unsigned HAP 供模拟器或开发签名使用，不能直接安装到零售设备。"]
     return "\n".join(lines) + "\n\n" + MARKER + json.dumps(state, ensure_ascii=False) + "\n-->\n"
@@ -268,7 +270,7 @@ def publish(client, source, output, results, downloads, source_sha, build_id, ru
     client.commit(release, body, source_sha)
     # 正文已指向完整的新文件集合，才清理不再被任何平台引用的旧附件。
     keep = {file["name"] for file in all_files} | {state.get("checksum")}
-    suffixes = tuple(suffix for values in PACKAGING.PLATFORM_SUFFIXES.values() for suffix in values)
+    suffixes = tuple(suffix for values in PACKAGING.PLATFORM_SUFFIXES.values() for suffix in values) + RETIRED_SUFFIXES
     try:
         cleanup_assets = client.assets(release)
     except RuntimeError:

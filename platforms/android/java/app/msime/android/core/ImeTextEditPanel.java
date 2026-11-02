@@ -162,7 +162,7 @@ final class ImeTextEditPanel {
             s.imeStyler.styleButton(button, false);
             s.bindCountedAction(button, run);
             button.setOnLongClickListener(ignored -> {
-                if (s.connection == null || s.session == 0 || s.symbolPanel == null
+                if (!SymbolPanelEntryPolicy.opens(s.connection != null, s.symbolPanel != null)
                         || s.textEditPanel == null || !s.textEditPanel.isShown()) return true;
                 close();
                 s.imePanels.showSymbolPanel();
@@ -287,11 +287,14 @@ final class ImeTextEditPanel {
         select.setContentDescription(selecting ? "取消选择" : "选择模式");
         ViewPolicy.setSelected(select, selecting);
         select.setActivated(selecting);
+        // 键帽不是 state-list：styleButton 按调用那一刻的 isSelected() 装一块实心背景，开着时是皮肤强调色。面板开着时不经过引擎 render，也不会整树换肤，只改 selected 标志键面不会变色（#10454），所以这里立即重新上色。角色传 ACCENT，和整树换肤按无障碍描述（没有「按键 」前缀）推出来的一致，不让键帽缓存来回失效。
+        s.imeStyler.styleButton(select, true);
         if (trackpadSelect != null) {
             trackpadSelect.setText(selecting ? "取消选择" : "选择");
             trackpadSelect.setContentDescription(selecting ? "取消选择" : "选择模式");
             ViewPolicy.setSelected(trackpadSelect, selecting);
             trackpadSelect.setActivated(selecting);
+            s.imeStyler.styleButton(trackpadSelect, true);
         }
         if (android.os.Build.VERSION.SDK_INT >= 30)
             select.setStateDescription(selecting ? "已开启，方向键延伸选区" : "已关闭");

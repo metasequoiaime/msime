@@ -23,10 +23,11 @@ pub mod mcp_clients;
 pub mod settings_dictionary;
 pub mod system_fonts;
 use msime_client_core::preferences::{
-    InputScheme, KoreanLayout, KoreanPreferences, MultilingualLanguage, NineKeyShuangpinProfile,
-    Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinCustomProfile, ShuangpinProfile,
-    TouchKeyboardLayout, TouchKeyboardScheme, TouchShuangpinLayout, TouchWubiLayout,
-    VietnameseInputMethod, VietnamesePreferences, VietnameseToneStyle, WubiProfile,
+    CantoneseInputMethod, InputScheme, KoreanLayout, KoreanPreferences, MultilingualLanguage,
+    NineKeyShuangpinProfile, Preferences, PreferencesSnapshot, PreferencesStore,
+    ShuangpinCustomProfile, ShuangpinProfile, TouchKeyboardLayout, TouchKeyboardScheme,
+    TouchShuangpinLayout, TouchWubiLayout, VietnameseInputMethod, VietnamesePreferences,
+    VietnameseToneStyle, WubiProfile,
 };
 use msime_client_core::punctuation::{
     route as punctuation_route, PunctuationContext, PunctuationRoute,
@@ -144,6 +145,25 @@ fn english_minimum_prefix_for(
     } else {
         msime_client_core::preferences::DEFAULT_MIXED_INPUT_MINIMUM_PREFIX
     }
+}
+
+/// 粤拼会话是否从第一键起按粤语双拼解释。桌面宿主（macOS、Windows、Linux）只读自己的 `cantonese.input_method`，触屏宿主只读当前触屏方案是不是 `cantonese_shuangpin`：从 iOS 同步过来的触屏方案不会把桌面的粤拼改成双拼，桌面的选择也不改触屏键盘。
+fn force_cantonese_shuangpin(scheme: InputScheme, preferences: &Preferences) -> bool {
+    force_cantonese_shuangpin_for(ffi::host::compiled_platform(), scheme, preferences)
+}
+
+fn force_cantonese_shuangpin_for(
+    platform: msime_client_core::host_surface::HostPlatform,
+    scheme: InputScheme,
+    preferences: &Preferences,
+) -> bool {
+    scheme == InputScheme::Cantonese
+        && if platform.is_desktop() {
+            preferences.cantonese.input_method == CantoneseInputMethod::Shuangpin
+        } else {
+            preferences.touch_keyboard_schemes.selected
+                == Some(TouchKeyboardScheme::CantoneseShuangpin)
+        }
 }
 
 /// 会话实际用的 AI 联想候选数量：本库编译到的平台固定了这个数（`HostPlatform::fixed_ai_candidate_limit`，macOS、Windows、Linux、鸿蒙）时用固定值，不读偏好里存的值；否则用偏好。座位配置、在线查询和请求描述都从这里取，`chat_completion_http_request` 要求请求和配置里的数量一致。
@@ -829,9 +849,7 @@ impl HostSession {
         let fallback =
             scheme_fallback.or(profile_fallback.filter(|_| scheme == InputScheme::Shuangpin));
         options.shuangpin_preedit_uses_raw = preferences.shuangpin_preedit_uses_raw;
-        options.force_cantonese_shuangpin = scheme == InputScheme::Cantonese
-            && preferences.touch_keyboard_schemes.selected
-                == Some(TouchKeyboardScheme::CantoneseShuangpin);
+        options.force_cantonese_shuangpin = force_cantonese_shuangpin(scheme, &preferences);
         options.single_character_only = preferences.single_character_only;
         options.caret_edit_suffix = caret_edit_suffix_applies(&preferences);
         options.learning = preferences.learning;
@@ -1163,11 +1181,24 @@ impl HostSession {
             .commit_context
             .as_ref()
             .is_some_and(|context| context.plugin_row);
+        // 位置以原上屏的真实后缀为准；失配时不猜测编辑器里的光标偏移。
+        if result.commit_cursor_suffix.as_ref().is_some_and(|suffix| {
+            !result
+                .commit
+                .as_ref()
+                .is_some_and(|commit| commit.ends_with(suffix))
+        }) {
+            result.commit_cursor_suffix = None;
+        }
         if result.view.character_width == CharacterWidth::Fullwidth
             && !half_width_text
             && !plugin_commit
         {
-            if let Some(c) = result.commit.as_mut() {
+            for c in result
+                .commit
+                .iter_mut()
+                .chain(result.commit_cursor_suffix.iter_mut())
+            {
                 *c = c
                     .chars()
                     .map(|x| {
@@ -1185,14 +1216,27 @@ impl HostSession {
             }
         }
         // 中英文之间加空格排在全角转换之后：先加的半角空格会被转成 U+3000；全角下字母已是全角，本来就不会触发。宿主的简繁转换在拿到上屏文本之后才做，OpenCC 只换汉字、不动空格。之后的 `before_commit` 看到的是加过空格的文本。
-        if let Some(commit) = result.commit.as_mut() {
-            if self.chinese_english_spacing()
-                && chinese_english_spacing::applies(result.commit_context.as_ref())
+        if self.chinese_english_spacing()
+            && chinese_english_spacing::applies(result.commit_context.as_ref())
+        {
+            // 分别转换正文与后缀。边界新增的空格留在光标前，光标仍紧邻原后缀的首字符。
+            for commit in result
+                .commit
+                .iter_mut()
+                .chain(result.commit_cursor_suffix.iter_mut())
             {
                 if let Some(spaced) = chinese_english_spacing::space(commit) {
                     *commit = spaced;
                 }
             }
+        }
+        if result.commit_cursor_suffix.as_ref().is_some_and(|suffix| {
+            !result
+                .commit
+                .as_ref()
+                .is_some_and(|commit| commit.ends_with(suffix))
+        }) {
+            result.commit_cursor_suffix = None;
         }
         // Dispatch already built the view for this transition. Rebuild it only
         // when applying a deferred page-size or preference change advanced the
@@ -2334,9 +2378,7 @@ impl HostOptions {
             shuangpin_profile: profile_code(self.preferences.shuangpin_profile),
             shuangpin_custom_profile: None,
             shuangpin_preedit_uses_raw: self.preferences.shuangpin_preedit_uses_raw,
-            force_cantonese_shuangpin: scheme == InputScheme::Cantonese
-                && self.preferences.touch_keyboard_schemes.selected
-                    == Some(TouchKeyboardScheme::CantoneseShuangpin),
+            force_cantonese_shuangpin: force_cantonese_shuangpin(scheme, &self.preferences),
             single_character_only: self.preferences.single_character_only,
             caret_edit_suffix: caret_edit_suffix_applies(&self.preferences),
             learning: self.preferences.learning,
@@ -3714,11 +3756,20 @@ fn dispatch_value(
         }
         let facts = session.runtime.facts();
         // 固定标点表返回全角人民币；半角只改本次 `$` 产生的尾巴，候选和短语里的符号保持原文。
-        if currency_punctuation && result.view.character_width == CharacterWidth::Halfwidth {
-            if let Some(commit) = result.commit.as_mut() {
-                if facts.tail_chars == 1 && commit.ends_with('￥') {
-                    commit.truncate(commit.len() - '￥'.len_utf8());
-                    commit.push('¥');
+        if currency_punctuation
+            && result.view.character_width == CharacterWidth::Halfwidth
+            && facts.tail_chars == 1
+            && result.commit.as_deref().is_some_and(|c| c.ends_with('￥'))
+        {
+            // 光标后缀带着同一个单字尾巴，正文以 `￥` 结尾时它也以 `￥` 结尾；两者一起改写，`complete_transition` 核对时后缀仍是正文的真后缀。
+            for text in result
+                .commit
+                .iter_mut()
+                .chain(result.commit_cursor_suffix.iter_mut())
+            {
+                if text.ends_with('￥') {
+                    text.truncate(text.len() - '￥'.len_utf8());
+                    text.push('¥');
                 }
             }
         }

@@ -12,6 +12,7 @@
 #include <fmt/xchar.h>
 #include "FanyUtils.h"
 #include "Ipc.h"
+#include "quick_phrase_cursor_pipe.h"
 #include "CommitCandidateAndContinuePayload.h"
 #include "FanyDefines.h"
 #include "../Utils/PerfTimer.h"
@@ -24,6 +25,7 @@
 #pragma pop_macro("min")
 #pragma pop_macro("max")
 #include "../HostCharacterResult.h"
+#include "../QuickPhraseCursorEdit.h"
 #include "../HostComposition.h"
 #include "../HostKoreanKey.h"
 #include "../KeyboardCancellation.h"
@@ -311,6 +313,8 @@ HRESULT CMetasequoiaIME::_HandleConversionKey(TfEditCookie ec, _In_ ITfContext *
     if (!host->command(MSIME_COMMIT_CANDIDATE, &raw, &error) ||
         !msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error))
         return E_FAIL;
+    if (result.has_commit && result.commit_cursor_suffix)
+        return _ApplyHostCompositionResult(ec, pContext, result);
     if (result.has_commit && !result.commit.empty())
     {
         if (result.commit.size() > static_cast<size_t>((std::numeric_limits<int>::max)())) return E_FAIL;
@@ -913,7 +917,7 @@ HRESULT CMetasequoiaIME::_HandleInsertText(TfEditCookie ec, _In_ ITfContext *pCo
 }
 
 HRESULT CMetasequoiaIME::_HandleCommitCandidateAndContinue(TfEditCookie ec, _In_ ITfContext *pContext,
-                                                           const std::wstring &payload)
+                                                           const std::wstring &payload, std::optional<std::size_t> cursorSuffix)
 {
     std::size_t consumed = 0;
     std::wstring commitText;
@@ -922,6 +926,7 @@ HRESULT CMetasequoiaIME::_HandleCommitCandidateAndContinue(TfEditCookie ec, _In_
         return E_INVALIDARG;
     }
 
+    if (cursorSuffix && !msime::tsf::ValidCursorCommit(std::wstring_view(commitText), *cursorSuffix)) return E_INVALIDARG;
     CCompositionProcessorEngine *engine = _pCompositionProcessorEngine;
     if (auto *host = engine ? engine->GetHostEngineAdapter() : nullptr; host && host->valid())
     {
@@ -929,10 +934,32 @@ HRESULT CMetasequoiaIME::_HandleCommitCandidateAndContinue(TfEditCookie ec, _In_
         msime::tsf::EngineResult live;
         if (!host->view(&raw, &error) || !msime::tsf::EngineSessionAdapter::parse_result(raw, &live, &error))
             return E_FAIL;
-        return _ApplyHostCompositionResult(ec, pContext,
-            msime::tsf::ServerWubiCommit(std::move(live), FanyUtils::wstring_to_string(commitText)), true);
+        auto result = msime::tsf::ServerWubiCommit(std::move(live), FanyUtils::wstring_to_string(commitText));
+        result.commit_cursor_suffix = cursorSuffix
+            ? std::optional<std::string>(FanyUtils::wstring_to_string(commitText.substr(commitText.size() - *cursorSuffix)))
+            : std::nullopt;
+        return _ApplyHostCompositionResult(ec, pContext, result, true);
     }
     const std::wstring buffer = engine ? engine->GetKeystrokeBuffer().ToWString() : std::wstring{};
+    if (cursorSuffix) {
+        bool refresh = false;
+        const HRESULT written = _CommitTextWithCursor(ec, pContext, commitText, *cursorSuffix, &refresh);
+        if (written != S_OK || !refresh || !engine) return written;
+        const auto consume = (std::min)(consumed, buffer.size());
+        const auto remainder = buffer.substr(consume);
+        if (remainder.empty()) return S_OK;
+        const auto serial = _editorOperationSerial;
+        const auto focusGeneration = _deferredKeyFocusGeneration;
+        uint64_t epoch = _CaptureCompositionEpoch() + 1;
+        if (epoch == 0) ++epoch;
+        _StartComposition(pContext);
+        if (_editorOperationSerial != serial || _deferredKeyFocusGeneration != focusGeneration ||
+            !_IsCompositionEpochCurrent(epoch) || !_IsComposing()) return S_OK;
+        engine->PurgeVirtualKey();
+        for (const auto value : remainder) engine->AddVirtualKey(value);
+        (void)_HandleCompositionInputWorker(engine, ec, pContext, FANY_IME_NO_REQUEST_ID);
+        return S_OK;
+    }
     if (_pComposition == nullptr)
     {
         if (commitText.empty())
@@ -1219,6 +1246,7 @@ HRESULT CMetasequoiaIME::_ApplyHostCompositionResult(TfEditCookie ec, ITfContext
                                                        const msime::tsf::EngineResult &hostResult, bool serverCommit,
                                                        char typedKey)
 {
+    ++_editorOperationSerial;
     // 在线五笔先推进会话，文档等待同一回放 token 的 Server 最终文本。
     if (!serverCommit && _wubiCommitOwner.observe(hostResult)) return S_OK;
     // 没有组字时宿主会话不收的字符已经被 TIP 吃下：按上屏这个字符处理。答「未处理」会让编辑会话返回 S_FALSE，回放队列把同一个键重放 8 次（Engine 每次都答同样的 handled=false），然后丢掉这个键、清空队列并重连。
@@ -1226,6 +1254,40 @@ HRESULT CMetasequoiaIME::_ApplyHostCompositionResult(TfEditCookie ec, ITfContext
     const auto &result = typedKey != '\0' && msime::tsf::DeclinedIdleCharacterCommit(hostResult, typedKey, &declinedCommit)
                              ? declinedCommit
                              : hostResult;
+    if (result.has_commit && result.commit_cursor_suffix) {
+        const auto decode = [](const std::string &value, std::wstring &wide) {
+            if (value.empty()) { wide.clear(); return true; }
+            if (value.size() > static_cast<std::size_t>((std::numeric_limits<int>::max)())) return false;
+            const int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+                                                  static_cast<int>(value.size()), nullptr, 0);
+            if (count <= 0) return false;
+            wide.resize(static_cast<std::size_t>(count));
+            return MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+                                        static_cast<int>(value.size()), wide.data(), count) == count;
+        };
+        std::wstring text, suffix;
+        if (!decode(result.commit, text) || !decode(*result.commit_cursor_suffix, suffix)) return E_INVALIDARG;
+        if (suffix.size() > text.size() || text.compare(text.size() - suffix.size(), suffix.size(), suffix) != 0)
+            return E_INVALIDARG;
+        bool refresh = false;
+        const HRESULT written = _CommitTextWithCursor(ec, pContext, text, suffix.size(), &refresh);
+        if (written != S_OK) return written;
+        const bool composing = !result.view.phrase_prefix.empty() || !result.view.preedit.empty() ||
+                               !result.view.editing_text.empty() || !result.view.candidates.empty();
+        if (refresh && composing && !_IsComposing()) {
+            const uint64_t serial = _editorOperationSerial;
+            const uint64_t focusGeneration = _deferredKeyFocusGeneration;
+            uint64_t nextEpoch = _CaptureCompositionEpoch() + 1;
+            if (nextEpoch == 0) ++nextEpoch;
+            _StartComposition(pContext);
+            if (_editorOperationSerial == serial && _deferredKeyFocusGeneration == focusGeneration &&
+                _IsCompositionEpochCurrent(nextEpoch) && _IsComposing())
+                (void)_HandleCompositionInputWorker(_pCompositionProcessorEngine, ec, pContext,
+                                                     FANY_IME_NO_REQUEST_ID);
+        }
+        // 正文已经上屏，新预编辑失败也不能重放这次提交。
+        return S_OK;
+    }
     HRESULT outcome = S_OK;
     const auto status = msime::tsf::ApplyHostCharacterResult(result, [&](const std::string &text) {
         if (text.size() > static_cast<size_t>((std::numeric_limits<int>::max)())) return false;
@@ -1270,6 +1332,7 @@ HRESULT CMetasequoiaIME::_ApplyHostCompositionResult(TfEditCookie ec, ITfContext
 HRESULT CMetasequoiaIME::_HandleCompositionInputWorker(_In_ CCompositionProcessorEngine *pCompositionProcessorEngine,
                                                        TfEditCookie ec, _In_ ITfContext *pContext, uint64_t requestId)
 {
+    ++_editorOperationSerial;
     HRESULT hr = S_OK;
     PerfTimer timer;
     CMetasequoiaImeArray<CStringRange> readingStrings;
@@ -2238,8 +2301,9 @@ HRESULT CMetasequoiaIME::_HandleCompositionPunctuation(TfEditCookie ec, _In_ ITf
             msime::tsf::EngineResult result;
             if (host->punctuation(static_cast<uint8_t>(wch & 0xff), &raw, &error) &&
                 msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error) && result.handled &&
-                result.has_commit && !result.commit.empty())
+                result.has_commit && (!result.commit.empty() || result.commit_cursor_suffix))
             {
+                if (result.commit_cursor_suffix) return _ApplyHostCompositionResult(ec, pContext, result);
                 const int n = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, result.commit.data(),
                                                   static_cast<int>(result.commit.size()), nullptr, 0);
                 std::wstring commit(static_cast<size_t>(n > 0 ? n : 0), L'\0');
@@ -2286,6 +2350,8 @@ HRESULT CMetasequoiaIME::_HandleCompositionPunctuation(TfEditCookie ec, _In_ ITf
             // client connects or a setting changes, so a comma/period may have
             // entered this punctuation path while the Server already treated it
             // as navigation. Never turn such a response into committed text.
+            if (const auto suffix = FanyImeQuickPhraseCursorPipe::SuffixUnits(receivedData->msg_type, false))
+                return _CommitServerExactText(ec, pContext, receivedData->candidate_string, suffix);
             if (receivedData->msg_type == Global::DataFromServerMsgType::CommitExactText)
             {
                 punctuationStr.assign(receivedData->candidate_string);
@@ -2467,7 +2533,8 @@ HRESULT CMetasequoiaIME::_HandleCompositionDoubleSingleByte(TfEditCookie ec, _In
 HRESULT CMetasequoiaIME::_InvokeKeyHandler(_In_ ITfContext *pContext, UINT code, WCHAR wch, DWORD flags,
                                            _KEYSTROKE_STATE keyState, uint64_t requestId, std::wstring prefetchedText,
                                            UINT localResetToken, uint64_t expectedCompositionEpoch,
-                                           uint64_t expectedFocusToken, uint64_t deferredReplayToken)
+                                           uint64_t expectedFocusToken, uint64_t deferredReplayToken,
+                                           std::optional<std::size_t> cursorSuffix)
 {
     flags;
 
@@ -2482,7 +2549,7 @@ HRESULT CMetasequoiaIME::_InvokeKeyHandler(_In_ ITfContext *pContext, UINT code,
     pEditSession = new (std::nothrow) CKeyHandlerEditSession(
         this, pContext, code, wch, keyState, requestId, requestStartQpc, std::move(prefetchedText),
         localResetToken == 0 ? (expectedFocusToken != 0 ? expectedFocusToken : _CaptureFocusSessionToken()) : 0,
-        localResetToken, expectedCompositionEpoch, deferredReplayToken);
+        localResetToken, expectedCompositionEpoch, deferredReplayToken, cursorSuffix);
     if (pEditSession == nullptr)
     {
         if (deferredReplayToken != 0)

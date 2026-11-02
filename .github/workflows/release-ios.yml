@@ -55,7 +55,7 @@ jobs:
         run: |
           set -euo pipefail
           brew install xcodegen
-          rustup target add aarch64-apple-ios-sim
+          bash scripts/rustup-install.sh aarch64-apple-ios-sim
       # 发布只带核心词库，日语及粤拼、注音、笔画由 App Group 资源包按需下载。
       - name: Build native iOS host
         env: {MSIME_IOS_OMIT_ON_DEMAND: "1", MSIME_REQUIRE_WORDBOOKS: "1"}
@@ -140,7 +140,7 @@ jobs:
           MSIME_IOS_BUILD_NUMBER: ${{ steps.build-number.outputs.value }}
         run: |
           set -euo pipefail
-          rustup target add aarch64-apple-ios
+          bash scripts/rustup-install.sh aarch64-apple-ios
           command -v pod >/dev/null || brew install cocoapods
           export MSIME_IOS_AUTH_KEY_PATH="$SIGNING_DIR/AuthKey_${MSIME_IOS_AUTH_KEY_ID}.p8"
           export MSIME_IOS_APP_PROFILE_PATH="$SIGNING_DIR/app.mobileprovision"

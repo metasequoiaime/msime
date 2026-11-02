@@ -38,7 +38,7 @@ const notes: Readonly<Record<NineKeySidebarKind, string>> = {
   digit: numberPadSidebarNote,
 };
 
-/** 把 `from` 那一项挪到 `to`，其余次序不变（挪动，不是交换），与 Android `NineKeySidebarPolicy.moved` 相同。 */
+/** 把 `from` 那一项挪到 `to`，其余次序不变（挪动，不是交换），与 Android `ReorderPolicy.moved` 相同。 */
 function moved(symbols: readonly string[], from: number, to: number): string[] {
   const next = [...symbols];
   const [symbol] = next.splice(from, 1);
@@ -46,7 +46,7 @@ function moved(symbols: readonly string[], from: number, to: number): string[] {
   return next;
 }
 
-/** 拖动途中第 `index` 行此刻显示在第几位：被拖的那一行在 `to`，夹在两端之间的行朝 `from` 那一侧让一格，其余不动，与 Android `NineKeySidebarPolicy.dragSlot` 相同。 */
+/** 拖动途中第 `index` 行此刻显示在第几位：被拖的那一行在 `to`，夹在两端之间的行朝 `from` 那一侧让一格，其余不动，与 Android `ReorderPolicy.dragSlot` 相同。 */
 function dragSlot(index: number, from: number, to: number): number {
   if (index === from) return to;
   if (from < index && index <= to) return index - 1;
@@ -58,7 +58,7 @@ function dragSlot(index: number, from: number, to: number): number {
 const edgeBand = 56;
 const edgeStep = 12;
 
-/** 手指在滚动区上下边缘带里时每帧滚多少（负数朝上），进入越深越快，与 Android `NineKeySidebarPolicy.edgeScrollStep` 相同；滚不动的方向是 0。 */
+/** 手指在滚动区上下边缘带里时每帧滚多少（负数朝上），进入越深越快，与 Android `ReorderPolicy.edgeScrollStep` 相同；滚不动的方向是 0。 */
 function edgeScrollStep(clientY: number, scroller: HTMLElement): number {
   const box = scroller.getBoundingClientRect();
   if (box.bottom - box.top <= 2 * edgeBand) return 0;
@@ -98,7 +98,7 @@ type Settle = { symbol: string; offset: number; running: boolean };
 /** 挪一格后要把焦点放回哪一行的哪个控件：表重排时 React 可能把那一行的节点摘下再插回，浏览器会把焦点丢回页面。 */
 type Refocus = { symbol: string; control: "handle" | "up" | "down" };
 
-/** 被拖行还能朝 `step` 的方向挪才自动滚动：它已经夹在列表上沿或下沿时再滚，列表带着它滚走，行就离开手指了；与 Android `NineKeySidebarPolicy.scrollTowardRoom` 相同。 */
+/** 被拖行还能朝 `step` 的方向挪才自动滚动：它已经夹在列表上沿或下沿时再滚，列表带着它滚走，行就离开手指了；与 Android `ReorderPolicy.scrollTowardRoom` 相同。 */
 function scrollTowardRoom(step: number, gesture: Gesture): number {
   if (
     step > 0 &&
@@ -153,7 +153,7 @@ export function NineKeySidebarSettings({
     [...(list.current?.children ?? [])].filter(
       (node): node is HTMLElement => node instanceof HTMLElement,
     );
-  // 跟着手指走：位移是手指移动的距离加上拖动中滚动区滚过的距离（列表上沿在屏幕上挪了多少），夹在列表上下沿之间；落点只比拿起时量好的各行中线，不量此刻带着位移的行（照 Android `NineKeySidebarPolicy.dragTarget`）。
+  // 跟着手指走：位移是手指移动的距离加上拖动中滚动区滚过的距离（列表上沿在屏幕上挪了多少），夹在列表上下沿之间；落点只比拿起时量好的各行中线，不量此刻带着位移的行（照 Android `ReorderPolicy.dragTarget`）。
   const follow = () => {
     const gesture = gestureRef.current;
     if (!gesture || !list.current) return;

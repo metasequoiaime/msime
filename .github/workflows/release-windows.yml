@@ -128,8 +128,14 @@ jobs:
           $ErrorActionPreference = 'Stop'
           # rust-toolchain.toml pins the compiler; adding the target from the repository root installs that toolchain first.
           $triple = switch ($env:ARCH) { 'x64' { 'x86_64-pc-windows-msvc' } 'x86' { 'i686-pc-windows-msvc' } 'arm64' { 'aarch64-pc-windows-msvc' } }
-          rustup target add $triple
-          if ($LASTEXITCODE -ne 0) { throw 'rustup target add failed' }
+          # rustup 取 channel 清单失败时不会自己重试；和 scripts/rustup-install.sh 一样等 5、15、45 秒，共四次。
+          foreach ($delay in @(5, 15, 45, $null)) {
+            rustup target add $triple
+            if ($LASTEXITCODE -eq 0) { break }
+            if ($null -eq $delay) { throw 'rustup target add failed after 4 attempts' }
+            Write-Warning "rustup target add failed; retrying in ${delay}s"
+            Start-Sleep -Seconds $delay
+          }
           if ($env:ARCH -eq 'arm64' -and -not (Get-Command clang -ErrorAction SilentlyContinue)) {
             # ring, in the ARM64 host, compiles its ARM64 assembly with clang only.
             $clang = @(& "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -find 'VC\Tools\Llvm\x64\bin\clang.exe')
@@ -155,9 +161,8 @@ jobs:
       - name: Build the official plugin packs
         run: |
           set -euo pipefail
-          # 安装 rust-toolchain.toml 钉住的工具链，再给它加上 wasm 目标。
-          rustup toolchain install
-          rustup target add wasm32-unknown-unknown
+          # 安装 rust-toolchain.toml 钉住的工具链，再给它加上 wasm 目标；联网失败时重试，见脚本开头。
+          bash scripts/rustup-install.sh wasm32-unknown-unknown
           bash scripts/build-official-plugins.sh
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

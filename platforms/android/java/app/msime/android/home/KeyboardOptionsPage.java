@@ -273,6 +273,9 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         directionRow[0] = gestures.nav("滑动方向", null,
             swipeDirectionLabel(swipeDirection), () -> pickSwipeDirection(swipeDirection, directionRow[0])).help("该方向直接输入角标，中文时反方向打开选项；关闭滑动输入符号后两种滑动都不生效");
         directionRow[0].setEnabled(swipeSymbols);
+        // 只管画不画，不跟着「滑动输入符号」置灰：关掉滑动后长按仍输入角标，键面上的角标仍有用（#10587）。
+        gestures.toggle("显示字母键角标", null, settings.bool(AndroidLocalSettings.LETTER_CORNER_HINTS),
+            checked -> saveLocalSetting(AndroidLocalSettings.LETTER_CORNER_HINTS, checked)).help("26 键字母键右上角显示长按或滑动输入的符号；关闭后只是不显示，长按和滑动照样输入");
         // 九键的滑动单独一项、默认关闭（#5580）：九键原来没有滑动，和 26 键共用上面那个默认开着的开关会改变老用户的点按。它在共享偏好 `touch_nine_key_swipe_digits` 里、随账号同步，三端同一行、同一套文字（#10229）；本机旧值在 reload 里先迁过来。本版本没有拼音九键时不列。
         boolean quanpinNineKey = KeyboardScheme.QUANPIN_NINE_KEY.offeredBy(edition);
         if (quanpinNineKey) {

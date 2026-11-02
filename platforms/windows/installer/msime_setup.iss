@@ -44,7 +44,7 @@
 #define MyVersionDirBase "msime_v" + MyAppVersion
 ; 64 位 TIP 的系统目录副本，见 [Files] 的 TSF 一节。
 #define MySystemTipDir "{sys}\IME\" + MyEditionInstallDir
-; [Code] 里要看到真正 System32 的 Exec（查、删 MySystemTipDir，按路径停 64 位进程）。Inno 6 在 64 位安装模式下，[Code] 的文件函数和 Exec 都绕开 WOW64 重定向；Inno 7 的 Setup 默认是 32 位进程，Exec 不再绕开，只有 ExecWithNativeSysDir 绕开，用 Exec 会启动 SysWOW64 里的 32 位 cmd 和 PowerShell。CI 的 Win10+ 包用 6.7.1、Win7 包用 6.4.3，本机构建优先用 7（Compile-Installer.ps1）。
+; [Code] 里要看到真正 System32 的 Exec（查、删 MySystemTipDir，按路径停 64 位进程）。Inno 6 在 64 位安装模式下，[Code] 的文件函数和 Exec 都绕开 WOW64 重定向；Inno 7 的 Setup 默认是 32 位进程，Exec 不再绕开，只有 ExecWithNativeSysDir 绕开，用 Exec 会启动 SysWOW64 里的 32 位 cmd 和 PowerShell。CI 的 Win10+ 包用 6.7.1、Win7 包用 6.2.2，本机构建优先用 7（Compile-Installer.ps1）。
 #if Ver >= EncodeVer(7, 0, 0)
 #define ExecNativeSys "ExecWithNativeSysDir"
 #else
@@ -75,7 +75,7 @@ OutputBaseFilename={#MyEditionInstallerBaseName}_v{#MyAppVersion}{#MyOutputSuffi
 SetupIconFile={#MySourceRoot}\MetasequoiaIME.ico
 Compression=lzma2
 SolidCompression=yes
-; 安装和卸载界面自动跟随 Windows 的浅色/深色模式。dynamic 是 Inno Setup 6.6 加的；Win7 包用 6.4.3 编译（见 release-windows7.yml），只用 modern。
+; 安装和卸载界面自动跟随 Windows 的浅色/深色模式。dynamic 是 Inno Setup 6.6 加的；Win7 包用 6.2.2 编译（见 release-windows7.yml），只用 modern。
 #if Ver >= EncodeVer(6, 6, 0)
 WizardStyle=modern dynamic
 #else
@@ -87,11 +87,19 @@ UsedUserAreasWarning=no
 CloseApplicationsFilter=*.exe,*.dll,*.chm,*.db,*.bin,*.dat
 #ifdef Windows7Architecture
 MinVersion=6.1sp1
-#ifdef Windows7X86
-ArchitecturesAllowed=x86os
+; x86os、x64os 是 Inno 6.3 起的写法，Win7 包用的 6.2.2 只认含义相同的 x86、x64。
+#if Ver >= EncodeVer(6, 3, 0)
+#define Win7ArchX86 "x86os"
+#define Win7ArchX64 "x64os"
 #else
-ArchitecturesAllowed=x64os
-ArchitecturesInstallIn64BitMode=x64os
+#define Win7ArchX86 "x86"
+#define Win7ArchX64 "x64"
+#endif
+#ifdef Windows7X86
+ArchitecturesAllowed={#Win7ArchX86}
+#else
+ArchitecturesAllowed={#Win7ArchX64}
+ArchitecturesInstallIn64BitMode={#Win7ArchX64}
 #endif
 #else
 ArchitecturesAllowed=x64compatible
@@ -187,13 +195,17 @@ Source: "{#MySourceRoot}\server_exe\*"; \
     Flags: ignoreversion recursesubdirs createallsubdirs
 
 
-; 资源锁只允许平面目录中的已校验文件。逐项写入编译时摘要，不按时间戳猜测内容相同。
+; 资源锁只允许平面目录中的已校验文件。逐项写入编译时摘要，不按时间戳猜测内容相同。Win7 包用的 Inno 6.2.2 的预处理器没有 GetSHA256OfFile，改用 SHA-1，ResourceNeedsReplacement 按同一个版本条件选对应的运行时函数；这里只判断内容是否相同，不作安全校验。
 #define ResourceFindHandle
 #define ResourceFindResult
 #sub InstallResource
   #define ResourceName FindGetFileName(ResourceFindHandle)
   #define ResourceSource MySourceRoot + "\server_exe\resources\" + ResourceName
+#if Ver >= EncodeVer(6, 3, 0)
 Source: "{#ResourceSource}"; DestDir: "{autopf}\{#MyEditionInstallDir}\server\resources"; Flags: ignoreversion; Check: ResourceNeedsReplacement('{#GetSHA256OfFile(ResourceSource)}')
+#else
+Source: "{#ResourceSource}"; DestDir: "{autopf}\{#MyEditionInstallDir}\server\resources"; Flags: ignoreversion; Check: ResourceNeedsReplacement('{#GetSHA1OfFile(ResourceSource)}')
+#endif
 #endsub
 #for {ResourceFindHandle = ResourceFindResult = FindFirst(MySourceRoot + "\server_exe\resources\*", faReadOnly | faHidden | faSysFile | faArchive); ResourceFindResult; ResourceFindResult = FindNext(ResourceFindHandle)} InstallResource
 #if ResourceFindHandle
@@ -1016,7 +1028,11 @@ begin
   if not FileExists(Destination) then
     exit;
   try
+#if Ver >= EncodeVer(6, 3, 0)
     Result := CompareText(GetSHA256OfFile(Destination), ExpectedHash) <> 0;
+#else
+    Result := CompareText(GetSHA1OfFile(Destination), ExpectedHash) <> 0;
+#endif
   except
     Log('Unable to verify existing resource; normal replacement is required.');
   end;
@@ -1143,9 +1159,15 @@ begin
     )) or
     (ResultCode <> 0)
   then
-    RaiseException(
-      '无法创建输入法登录启动任务（退出码：' +
-      IntToStr(ResultCode) + '）。');
+  begin
+    { 看门狗只是让 Server 在登录时就启动；没有这个任务，TSF 在第一次用到输入法时拉起 Server，Server 再带起看门狗。所以建不成任务不该让安装半途中止：后面的数据目录授权和迁移收尾必须照常执行。360、火绒这类安全软件拦截创建计划任务时，Exec 拿到的是“拒绝访问”（5）。 }
+    Log('Creating the watchdog logon task failed: ' + IntToStr(ResultCode) + ' ' + SysErrorMessage(ResultCode));
+    SuppressibleMsgBox(
+      '没能创建开机自动启动任务（错误代码：' + IntToStr(ResultCode) + '）。' + #13#10#13#10 +
+      '输入法已经装好，不影响使用：开机后第一次切换到 {#MyAppName} 时会自动启动。' + #13#10 +
+      '如果装有安全软件，可能是它拦截了创建计划任务，放行后重新运行安装程序即可恢复开机启动。',
+      mbInformation, MB_OK, IDOK);
+  end;
 end;
 
 procedure TryDeleteTree(const Path: String);
@@ -1309,7 +1331,7 @@ begin
   ) and (ResultCode >= 0) and (ResultCode < 8);
 end;
 
-{ 与来源安装包一样是"移动"数据目录：旧目录里的全部用户状态搬到新目录，安装成功后旧目录被删除。但分两步做：这里只复制，原目录保持不动；删除推迟到 ssPostInstall 的最后（FinishDataDirMove），登录任务失败会在那之前中止，旧数据因此在任何半途失败后都还在。来源安装包直接使用破坏性的移动参数，主库可能先被移走而 WAL 或配置失败，两边都不剩完整状态。}
+{ 与来源安装包一样是"移动"数据目录：旧目录里的全部用户状态搬到新目录，安装成功后旧目录被删除。但分两步做：这里只复制，原目录保持不动；删除推迟到 ssPostInstall 的最后（FinishDataDirMove），前面任何一步抛错都会在那之前中止，旧数据因此在任何半途失败后都还在。来源安装包直接使用破坏性的移动参数，主库可能先被移走而 WAL 或配置失败，两边都不剩完整状态。}
 function MigrateUserDataDir(const OldDir, NewDir: String): String;
 var
   FindRec: TFindRec;

@@ -1343,6 +1343,28 @@ public final class MSIMEInputService extends InputMethodService {
                 selectionEcho.invalidate();
                 return target.setSelection(start, end);
             }
+            public void positionCommitCursor(String text, String suffix) {
+                if (target != connection || suffix.isEmpty() || !text.endsWith(suffix)) return;
+                android.view.inputmethod.ExtractedTextRequest request = new android.view.inputmethod.ExtractedTextRequest();
+                request.hintMaxChars = text.length();
+                android.view.inputmethod.ExtractedText actual = target.getExtractedText(request, 0);
+                if (actual == null || actual.text == null || actual.startOffset < 0 || actual.partialStartOffset != -1
+                        || actual.selectionStart != actual.selectionEnd
+                        || actual.selectionStart < text.length()
+                        || actual.selectionStart > actual.text.length()) return;
+                int end = actual.selectionStart;
+                if (!text.contentEquals(actual.text.subSequence(end - text.length(), end))) return;
+                int cursor = Math.addExact(actual.startOffset, end);
+                int destination = cursor - suffix.length();
+                // 读回与选区使用 UTF-16；不按方向键次数猜 emoji、组合字符或双向文本的位置。
+                editorReads.invalidate();
+                selectionEcho.positionAfterCommit(cursor);
+                selectionEcho.expect();
+                if (InputConnectionGuard.setSelection(target, destination, destination)) {
+                    selectionEcho.positionAfterCommit(destination);
+                    selectionEcho.expect();
+                }
+            }
             public void end() {
                 target.endBatchEdit();
                 // 编辑器在批量编辑结束后才回报一次选区，所以整批写完再记预期。
@@ -2040,6 +2062,9 @@ public final class MSIMEInputService extends InputMethodService {
                 // 框走不到那条路，只能自己读一次，否则键盘就一直是默认皮肤和默认方案。
                 if (!engineWanted) {
                     loadAppearanceWithoutSession(InputViewValuePolicy.textOr(options, "preferences_directory", ""));
+                    // 符号面板在不建会话的输入框里也能打开（#10517），颜文字和各符号分类读的是资源目录里的随包目录；插件符号集读的偏好目录由上面读外观时填上。表情面板仍按 ToolbarReadinessPolicy 在没有会话时不可用，填上资源目录不会让它变得可点。
+                    String resources = options.optString("resources", "");
+                    if (new File(resources).isAbsolute()) emojiResources = resources;
                 }
                 runtimeOptionsBase = "";
                 if (engineWanted) {
@@ -4002,15 +4027,17 @@ public final class MSIMEInputService extends InputMethodService {
             || !InputViewValuePolicy.punctuationMarks(view).equals(
                 InputViewValuePolicy.punctuationMarks(next));
         String commit = result.isNull("commit") ? null : result.getString("commit");
+        String cursorSuffix = result.opt("commit_cursor_suffix") instanceof String
+            ? result.getString("commit_cursor_suffix") : null;
         if (commit != null) {
-            // The runtime widened this already - it holds the character width now, and applies it
-            // to everything it finishes. Widening again here would be the second pass over text
-            // that is already fullwidth, and would put this host's own rule ahead of the shared one.
-            commit = chineseOutput(commit, result.optJSONObject("commit_context"));
+            // 宽度已由共享层处理；正文和后缀只做同一份宿主简繁转换，转换后失配时不定位。
+            JSONObject context = result.optJSONObject("commit_context");
+            commit = chineseOutput(commit, context);
+            if (cursorSuffix != null) cursorSuffix = chineseOutput(cursorSuffix, context);
         }
         String composing = composingText(next, next.getString("editing_text"), true);
         if (connection != null
-                && !bridge.apply(sink(typingSource()), commit, composing)) {
+                && !bridge.apply(sink(typingSource()), commit, composing, cursorSuffix)) {
             throw new InputFailurePolicy.Failure(InputFailurePolicy.Reason.EDITOR_REJECTED);
         }
         view = next;
@@ -5339,7 +5366,7 @@ public final class MSIMEInputService extends InputMethodService {
             String response = reopenPairedQuote(
                 timedEngineCall(() -> NativeClient.punctuationWithContext(session, ascii, preceding)), ascii);
             boolean handled = apply(response);
-            PairedPunctuationPolicy.Completion completion = pairedCompletion(response);
+            PairedPunctuationPolicy.Completion completion = pairedCompletion(response, ascii);
             if (completion != null && commitClosingMark(completion.closing(), typingSource())) {
                 // 补的是书名号时告诉 Engine 这一层已经闭合，否则下一次 < 会被当成嵌套的〈。
                 if (completion.opening() == '<') balanceBookTitleAfterAutoClose();
@@ -5380,24 +5407,31 @@ public final class MSIMEInputService extends InputMethodService {
         return true;
     }
 
-    /** 打开成对补全时，把 Engine 这次上屏末尾的后引号改回前引号，见 {@link PairedPunctuationPolicy#reopenQuote}。 */
+    /** 打开成对补全时，把 Engine 这次上屏末尾的后引号改回前引号；光标短语模板原样落地，见 {@link PairedPunctuationPolicy#punctuationCommit}。 */
     private String reopenPairedQuote(String response, int ascii) throws JSONException {
         if (!pairedPunctuation || (ascii != '"' && ascii != '\'')) return response;
         JSONObject envelope = new JSONObject(response);
         JSONObject result = envelope.optJSONObject("value");
         if (result == null || result.isNull("commit")) return response;
         String commit = result.optString("commit", "");
-        String reopened = PairedPunctuationPolicy.reopenQuote(commit, ascii, true);
+        String reopened = PairedPunctuationPolicy.punctuationCommit(commit, cursorSuffix(result), ascii, true).commit();
         if (reopened.equals(commit)) return response;
         result.put("commit", reopened);
         return envelope.toString();
     }
 
-    private PairedPunctuationPolicy.Completion pairedCompletion(String response) throws JSONException {
+    /** 这次上屏后要补的后半个；光标短语模板不补，因为 apply() 已经把光标移到模板指定的位置，这时补的后半个会写进短语中间。见 {@link PairedPunctuationPolicy#punctuationCommit}。 */
+    private PairedPunctuationPolicy.Completion pairedCompletion(String response, int ascii) throws JSONException {
         if (!pairedPunctuation || connection == null) return null;
         JSONObject result = value(response);
-        return result.isNull("commit") ? null
-            : PairedPunctuationPolicy.completion(result.optString("commit", ""), true);
+        return result.isNull("commit") ? null : PairedPunctuationPolicy.punctuationCommit(
+            result.optString("commit", ""), cursorSuffix(result), ascii, true).completion();
+    }
+
+    /** 回复里的 `commit_cursor_suffix`，不是字符串时为 null。读的是交给 apply() 之前的原始回复，那里上屏文字和后缀还没被转换。 */
+    private static String cursorSuffix(JSONObject result) {
+        Object suffix = result.opt("commit_cursor_suffix");
+        return suffix instanceof String ? (String) suffix : null;
     }
 
     private void balanceBookTitleAfterAutoClose() {
@@ -6069,14 +6103,15 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    /** 26 键字母右上角的提示键面跟中文标点走（#7069）：设置页改「中文标点」、切换中英文、会话起来后 view 到达，这几种情形都不重建字母层，j k l v b 的键面在这里就地换成中文或 ASCII。工具面板和 Ctrl + . 走 toggleChinesePunctuation()，那里本来就重建键行，建键时已按当时状态取键面。键面相同时 setCornerHint 直接返回。 */
+    /** 26 键字母右上角的提示键面跟中文标点走（#7069）：设置页改「中文标点」、切换中英文、会话起来后 view 到达，这几种情形都不重建字母层，j k l v b 的键面在这里就地换成中文或 ASCII。工具面板和 Ctrl + . 走 toggleChinesePunctuation()，那里本来就重建键行，建键时已按当时状态取键面。键面相同时 setCornerHint 直接返回。「显示字母键角标」（本地设置变了就 render()，走到这里）关掉时清空键面，开回来时画回（#10587）。 */
     private void updateLetterCornerHints() {
         boolean chinese = sendsChinesePunctuation();
+        boolean shown = localSettings.bool(AndroidLocalSettings.LETTER_CORNER_HINTS);
         for (int index = 0; index < shuangpinKeyButtons.size(); index++) {
             String input = shuangpinKeyInputs.get(index);
             if (";".equals(input)) continue;
-            shuangpinKeyButtons.get(index).setCornerHint(LetterHintTable.face(input, dedicatedEnglish, chinese,
-                punctuationMarks()));
+            shuangpinKeyButtons.get(index).setCornerHint(shown
+                ? LetterHintTable.face(input, dedicatedEnglish, chinese, punctuationMarks()) : null);
         }
     }
 
@@ -7831,7 +7866,8 @@ public final class MSIMEInputService extends InputMethodService {
      */
     void bindSymbolPanelHold(Button button) {
         button.setOnLongClickListener(ignored -> {
-            if (session == 0 || keyboardLayer != KeyboardLayout.Layer.LETTERS) return false;
+            if (keyboardLayer != KeyboardLayout.Layer.LETTERS
+                    || !SymbolPanelEntryPolicy.opens(connection != null, symbolPanel != null)) return false;
             imeKeyFeedback.playFeedback(button);
             countKey("SoftSymbol");
             imePanels.showSymbolPanel();
@@ -8656,6 +8692,22 @@ public final class MSIMEInputService extends InputMethodService {
         command(2);
         commitText(text);
         // 用户已经从剪贴板插入过了（面板里的历史、分词或工具栏上的「最近复制」），工具栏不再提供刚复制的那一条：否则关上面板后工具栏又换成刚插入的文字，剪贴板和表情按钮也跟着被替换掉。
+        recentClip.dismiss();
+        closeClipboardHistory();
+        render();
+    }
+
+    /**
+     * 多选面板按序号插入几条记录（#10411）：和单条插入走同一条路径，只是先按选中顺序首尾相接、中间不加分隔符，再一次 `commitText`。
+     *
+     * <p>不分条延迟提交：一次提交在编辑器里是一个撤销步，也不会插到一半键盘收起或换了输入框、只进去一部分。和单条插入一样不经系统认证。
+     */
+    void insertClipboardTexts(java.util.List<String> texts) {
+        if (connection == null || !app.msime.android.ClipboardSelectionPolicy.canInsert(texts.size())) return;
+        String joined = app.msime.android.ClipboardSelectionPolicy.insertionText(texts);
+        if (!ClipboardHistoryPolicy.hasText(joined)) return;
+        command(2);
+        commitText(joined);
         recentClip.dismiss();
         closeClipboardHistory();
         render();
@@ -12479,12 +12531,12 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (symbolPanelButton != null) {
             // 这个键出现在 26 键一族、拼音九键和笔画键盘的底行；拼音九键的数字键面也画这一行，在那里同样能打开面板。
-            ViewPolicy.setEnabled(symbolPanelButton, session != 0 && connection != null);
+            ViewPolicy.setEnabled(symbolPanelButton, SymbolPanelEntryPolicy.opens(connection != null, symbolPanel != null));
             symbolPanelButton.setContentDescription("打开符号面板");
         }
         if (symbolShortcutButton != null) {
             ViewPolicy.setVisible(symbolShortcutButton, longSpaceLayoutActive());
-            ViewPolicy.setEnabled(symbolShortcutButton, session != 0 && connection != null);
+            ViewPolicy.setEnabled(symbolShortcutButton, SymbolPanelEntryPolicy.opens(connection != null, symbolPanel != null));
             ViewPolicy.setSelected(symbolShortcutButton, ViewPolicy.isVisible(symbolPanel));
         }
         updateReturnKey();

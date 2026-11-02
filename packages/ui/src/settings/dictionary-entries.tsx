@@ -14,6 +14,7 @@ import {
 import * as settings from "./settings-style";
 import { SettingsPhraseForm } from "./settings-phrase-form";
 import { ActionButton } from "./action-button";
+import { QUICK_PHRASE_DICTIONARY_CURSOR_NOTE } from "./plugin-editor-model";
 import { SettingsEmptyMessage } from "./settings-empty-message";
 
 export interface DictionaryPhraseForm {
@@ -71,6 +72,9 @@ export function DictionaryEntries({
               readOnly={form.previous?.source === "bundled"}
               onChange={(event) => onFormChange({ ...form, value: event.target.value })}
             />
+            {kind === "quick_phrase" && (
+              <small className={settings.keyHint}>{QUICK_PHRASE_DICTIONARY_CURSOR_NOTE}</small>
+            )}
           </label>
           <label>
             权重{" "}

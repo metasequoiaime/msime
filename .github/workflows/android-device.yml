@@ -67,8 +67,7 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install --yes libxml2-utils
-          rustup toolchain install
-          rustup target add x86_64-linux-android
+          bash scripts/rustup-install.sh x86_64-linux-android
           # NDK 用发版和 OCR 模块构建共用的 install-ndk.sh：下载偶发损坏时清掉 sdkmanager 的半截下载和没装完的目录再重装，最多三次，以固定版本和编译器都已落盘为准。2026-10-27 夜间 API 28 就是在这里报「Error on ZipFile unknown archive」后整个 job 失败的。
           bash platforms/android/install-ndk.sh
           # sdkmanager 退出后 yes 再写会收到 SIGPIPE（退出码 141），在 pipefail 下让整步失败；它的退出码不算数，装没装上由后面的核对判断。
