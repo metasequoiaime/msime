@@ -94,7 +94,10 @@ public enum DiagnosticEventKind {
     TOUCH_LAYOUT_LIVE_STROKE("touch_layout_live_stroke", false),
     TOUCH_LAYOUT_LIVE_ZHUYIN_NINE_KEY("touch_layout_live_zhuyin_nine_key", false),
     TOUCH_LAYOUT_LIVE_FOURTEEN_KEY("touch_layout_live_fourteen_key", false),
-    TOUCH_LAYOUT_LIVE_EIGHTEEN_KEY("touch_layout_live_eighteen_key", false);
+    TOUCH_LAYOUT_LIVE_EIGHTEEN_KEY("touch_layout_live_eighteen_key", false),
+    // 按键路径拆段计时（#10457），只进本机导出的诊断包的性能记录：engine_call 是一次按键在主线程上同步调引擎（JNI 进出）的耗时，candidate_rendered 是从按键到 render() 把候选和键盘视图改完的耗时（不含之后这一帧的测量、布局和绘制）。candidate_shown 照旧是按键到引擎结果写进输入框、还没开始 render 的那一刻。追加在末尾，不改已有种类的序号。
+    ENGINE_CALL("engine_call", false),
+    CANDIDATE_RENDERED("candidate_rendered", false);
 
     private final String wire;
 

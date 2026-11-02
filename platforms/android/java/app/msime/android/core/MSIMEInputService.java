@@ -5116,6 +5116,14 @@ public final class MSIMEInputService extends InputMethodService {
         render();
     }
 
+    /** 按键路径上同步调一次引擎：正在量一次按键时把这次调用的耗时记成 engine_call（{@link ImeDebugOverlay#onEngineCall}）。触摸键盘上会走到 apply 的按键入口都经过这里，engine_call 才和 candidate_shown 一一对应。 */
+    String timedEngineCall(java.util.function.Supplier<String> call) {
+        long startedAt = imeDebugOverlay.engineCallStart();
+        String response = call.get();
+        imeDebugOverlay.onEngineCall(startedAt);
+        return response;
+    }
+
     boolean character(int ascii) {
         return character(ascii, letterCase.usesUppercase());
     }
@@ -5124,8 +5132,9 @@ public final class MSIMEInputService extends InputMethodService {
         finishPendingCompositionMarkerLoss();
         clearQuickDeleteUndo();
         if (session == 0) return false;
-        try { return apply(NativeClient.character(session, ascii, shifted)); }
-        catch (JSONException | LinkageError error) { fail(error); return true; }
+        try {
+            return apply(timedEngineCall(() -> NativeClient.character(session, ascii, shifted)));
+        } catch (JSONException | LinkageError error) { fail(error); return true; }
     }
 
     /** 带按下点的一键（`msime_client_touch_character`）：只由 {@link #type(char, View)} 在 {@link ImeTouchPoints#geometryFor} 给出几何代次时调用，其余与 {@link #character(int, boolean)} 相同；这时没有 Shift。 */
@@ -5133,8 +5142,9 @@ public final class MSIMEInputService extends InputMethodService {
         finishPendingCompositionMarkerLoss();
         clearQuickDeleteUndo();
         if (session == 0) return false;
-        try { return apply(NativeClient.touchCharacter(session, ascii, false, geometryId, x, y)); }
-        catch (JSONException | LinkageError error) { fail(error); return true; }
+        try {
+            return apply(timedEngineCall(() -> NativeClient.touchCharacter(session, ascii, false, geometryId, x, y)));
+        } catch (JSONException | LinkageError error) { fail(error); return true; }
     }
 
     /** 把 26 键双拼的键位几何注册给当前会话（{@link ImeTouchPoints#register}），返回引擎是否收下。没收下时这个代次不用，按键照常不带按下点。 */
@@ -5152,8 +5162,9 @@ public final class MSIMEInputService extends InputMethodService {
     boolean gridKey(char letter) {
         clearQuickDeleteUndo();
         if (session == 0) return false;
-        try { return apply(NativeClient.gridKey(session, letter)); }
-        catch (JSONException | LinkageError error) { fail(error); return true; }
+        try {
+            return apply(timedEngineCall(() -> NativeClient.gridKey(session, letter)));
+        } catch (JSONException | LinkageError error) { fail(error); return true; }
     }
 
     private boolean helpcodeCompositionEligible() {
@@ -5173,7 +5184,7 @@ public final class MSIMEInputService extends InputMethodService {
     /** 一笔滑行抬手（{@link ImeGlideTyping}）：请求见 {@link GlideTypingPolicy#request}。引擎不收（handled=false）时什么也不输入。 */
     void glide(String request) {
         if (session == 0) return;
-        try { apply(NativeClient.glide(session, request)); }
+        try { apply(timedEngineCall(() -> NativeClient.glide(session, request))); }
         catch (JSONException | LinkageError error) { fail(error); }
     }
 
@@ -5181,14 +5192,15 @@ public final class MSIMEInputService extends InputMethodService {
         finishPendingCompositionMarkerLoss();
         if (code == 0) clearQuickDeleteUndo();
         if (session == 0) return false;
-        try { return apply(NativeClient.command(session, code)); }
-        catch (JSONException | LinkageError error) { fail(error); return true; }
+        try {
+            return apply(timedEngineCall(() -> NativeClient.command(session, code)));
+        } catch (JSONException | LinkageError error) { fail(error); return true; }
     }
 
     /** 全拼九键组字时的候选筛选（只留单字、首字笔顺前缀），响应照常经 apply 重画。 */
     void setNineKeyFilter(boolean singleCharacter, String strokes) {
         if (session == 0) return;
-        try { apply(NativeClient.setNineKeyFilter(session, singleCharacter, strokes)); }
+        try { apply(timedEngineCall(() -> NativeClient.setNineKeyFilter(session, singleCharacter, strokes))); }
         catch (JSONException | LinkageError error) { fail(error); }
     }
 
@@ -5329,7 +5341,7 @@ public final class MSIMEInputService extends InputMethodService {
             // Zhuyin's marks are bopomofo keys or its Shift overlay, which the Engine writes in any state, so smart punctuation neither replaces them nor arms on what they commit (as on macOS).
             if (zhuyinSchemeActive()) {
                 clearSmartPunctuationSnapshots();
-                return apply(NativeClient.punctuationWithContext(session, ascii, preceding));
+                return apply(timedEngineCall(() -> NativeClient.punctuationWithContext(session, ascii, preceding)));
             }
             JSONObject decision = smartPunctuationDecision((char) ascii, before);
             // `isNull` first: org.json's optString hands back the four-letter string "null" for a
@@ -5352,7 +5364,7 @@ public final class MSIMEInputService extends InputMethodService {
                 }
             }
             String response = reopenPairedQuote(
-                NativeClient.punctuationWithContext(session, ascii, preceding), ascii);
+                timedEngineCall(() -> NativeClient.punctuationWithContext(session, ascii, preceding)), ascii);
             boolean handled = apply(response);
             PairedPunctuationPolicy.Completion completion = pairedCompletion(response, ascii);
             if (completion != null && commitClosingMark(completion.closing(), typingSource())) {
@@ -12154,6 +12166,12 @@ public final class MSIMEInputService extends InputMethodService {
             renderBatchPending = true;
             return;
         }
+        renderViews();
+        // 手指按着候选时候选条推迟重画（candidateRenderDeferred），这次不算画完，等松手后补的那次 render 再记。
+        if (!candidateRenderDeferred) imeDebugOverlay.onRendered();
+    }
+
+    private void renderViews() {
         renderedEchoExpectations = selectionEcho.expectations();
         // 完整列表展开可能换代，先同步再绘制，避免候选文字与选词身份来自两代。
         if (candidatePanelOpen && imeNineKeyPanel.eligible()) imeNineKeyPanel.refreshSnapshot();
