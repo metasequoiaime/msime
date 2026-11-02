@@ -1028,6 +1028,18 @@ int main() {
     assert(!IsWindowEnabled(GetDlgItem(body, scheme_wubi_second)));
     assert(store.load().snapshot->preferences().at("wubi_candidate_selection").at("second_key") == "'");
   }
+  // 粤语双拼是粤拼方案下的选项：只在粤拼下可选，选回粤拼后文档按默认值处理。
+  if (offered("cantonese")) {
+    if (IsWindowEnabled(GetDlgItem(body, scheme_language))) select_value(scheme_language, find_combo(scheme_language, L"中文"));
+    if (IsWindowEnabled(GetDlgItem(body, scheme_chinese))) select_value(scheme_chinese, find_combo(scheme_chinese, L"粤拼"));
+    assert(store.load().snapshot->preferences().at("scheme") == "cantonese");
+    assert((GetWindowLongPtrW(GetDlgItem(body, scheme_cantonese_method), GWL_STYLE) & WS_VISIBLE) != 0);
+    assert(SendMessageW(GetDlgItem(body, scheme_cantonese_method), CB_GETCURSEL, 0, 0) == 0);
+    select_value(scheme_cantonese_method, 1);
+    assert(store.load().snapshot->preferences().at("cantonese").at("input_method") == "shuangpin");
+    select_value(scheme_cantonese_method, 0);
+    assert(store.load().snapshot->preferences().value("cantonese", Json::object()).value("input_method", std::string{"jyutping"}) == "jyutping");
+  }
   if (offered("vietnamese")) {
     if (IsWindowEnabled(GetDlgItem(body, scheme_language))) select_value(scheme_language, find_combo(scheme_language, L"越南文"));
     select_value(scheme_vietnamese_method, 1);
