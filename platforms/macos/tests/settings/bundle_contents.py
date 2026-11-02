@@ -201,6 +201,9 @@ def main() -> int:
     for notice in ("pinyin-data-MIT.txt", "ECDICT-MIT.txt", "rime_kaomoji_dict-MIT.txt", "python-pinyin-MIT.txt", "rime-wubi86-jidian-Apache-2.0.txt", "rime-wanxiang-CC-BY-4.0.txt"):
         if not (contents / "Resources" / "Licenses" / notice).is_file():
             failures.append(f"Contents/Resources/Licenses/{notice} is missing; the bundled dictionary data it covers ships without its licence")
+    # EngineResources 里的整句重排模型（chinese-ime-lm 的 model-v1）是 Apache-2.0，第 4(a)、4(d) 条要求随副本附上许可证全文和上游 NOTICE，训练语料要求署名随权重传播；这份文件三样都有。
+    if not (contents / "Resources" / "Licenses" / "sentence-model-Apache-2.0.txt").is_file():
+        failures.append("Contents/Resources/Licenses/sentence-model-Apache-2.0.txt is missing; the sentence rerank model ships without its licence, upstream NOTICE and corpus attribution")
     # The engine embeds the place names `@` mode offers from modood/Administrative-divisions-of-China.
     if not (contents / "Resources" / "Licenses" / "Administrative-divisions-of-China-WTFPL.txt").is_file():
         failures.append("Contents/Resources/Licenses/Administrative-divisions-of-China-WTFPL.txt is missing; the built-in place names ship without their licence")
