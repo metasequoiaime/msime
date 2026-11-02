@@ -2847,9 +2847,12 @@ BOOL MSIMEInputControllerHasUnfinishedInput(void) {
     const uint64_t sequence = _applySequence;
     [self apply:selected];
     NSDictionary *nextView = selected[@"view"];
+    // 没有上屏时会话回的 `commit` 是 JSON null（NSNull），不能直接取 length：异常会让 IMK 把这次空格当作没处理交给应用，文档里多出一个空格，网格也不再打开（#10583）。
+    id commit = selected[@"commit"];
+    const BOOL committed = [commit isKindOfClass:NSString.class] && [(NSString *)commit length];
     // 上屏回调可能重入输入或切换客户端，旧选择不能重新打开已经结束的网格。
     if (_applySequence == sequence + 1 && _activeClient == client && _session == session &&
-        MSIMEStrictBoolean(selected[@"handled"]) && ![selected[@"commit"] length] &&
+        MSIMEStrictBoolean(selected[@"handled"]) && !committed &&
         [nextView[@"session"] isEqual:sessionID] && [_view[@"session"] isEqual:sessionID] &&
         [nextView[@"editing_text"] length] &&
         [MSIMEExpandedComposition(_view) isEqual:MSIMEExpandedComposition(nextView)])
