@@ -1021,7 +1021,7 @@ impl HostSession {
         // The keyboard model follows its switch the same way, but is dropped rather than idled while off: it is the one that runs inside every keystroke.
         let keyboard = keyboard_reranker_enabled(&preferences.sentence_association, self.edition);
         if keyboard != self.runtime.has_reranker() {
-            self.runtime.set_reranker(ffi::keyboard_reranker(
+            self.runtime.set_candidate_scorer(ffi::keyboard_reranker(
                 keyboard,
                 &options.resources,
                 self.recorded_sentence_model.as_deref(),

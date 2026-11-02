@@ -282,6 +282,29 @@ fn encode_cases(
     Ok(typed)
 }
 
+#[cfg(feature = "onnx-rerank")]
+fn onnx_scorer(
+    directory: &Path,
+    threads: usize,
+) -> Result<Box<dyn msime_input_runtime::CandidateScorer>, Box<dyn std::error::Error>> {
+    let read = |name: &str| std::fs::read_to_string(directory.join(name));
+    let model = std::fs::read(directory.join("lm_step.ort"))?;
+    Ok(Box::new(msime_onnx_rerank::OnnxScorer::load(
+        &model,
+        &read("model.json")?,
+        &read("vocab.json")?,
+        threads,
+    )?))
+}
+
+#[cfg(not(feature = "onnx-rerank"))]
+fn onnx_scorer(
+    _: &Path,
+    _: usize,
+) -> Result<Box<dyn msime_input_runtime::CandidateScorer>, Box<dyn std::error::Error>> {
+    Err("--onnx-model needs the onnx-rerank feature (and ORT_LIB_LOCATION pointing at a minimal ONNX Runtime build)".into())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut resources: Option<PathBuf> = None;
@@ -298,6 +321,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut touch_mode: Option<TouchMode> = None;
     let mut sigma: Option<f64> = None;
     let mut bias = 0.0;
+    // `--onnx-model <目录>`：模型臂挂 ONNX Runtime 后端（`export_step.py` 导出的 `lm_step.ort`、`model.json`、`vocab.json`），不挂随包的句子模型；`--onnx-threads` 是它一次图运行用几个线程。
+    let mut onnx_model: Option<PathBuf> = None;
+    let mut onnx_threads = 2usize;
     let mut seed = 20261027;
     let mut touch_points = true;
     let mut touch_arms = false;
@@ -337,12 +363,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--seed" => seed = take(&mut index)?.parse()?,
             "--no-touch-points" => touch_points = false,
             "--touch-arms" => touch_arms = true,
+            "--onnx-model" => onnx_model = Some(PathBuf::from(take(&mut index)?)),
+            "--onnx-threads" => onnx_threads = take(&mut index)?.parse()?,
             other => return Err(format!("unknown argument: {other}").into()),
         }
         index += 1;
     }
     let resources = resources.ok_or(
-        "usage: rerank_latency --resources <verified-dir> --set <file.tsv> [--resource-lock <file.json>] [--budget-ms 16] [--warmup 5] [--limit N] [--grid nine|fourteen|shuangpin-<profile>] [--scheme shuangpin --shuangpin-profile <profile> [--autocorrect] [--key-geometry <file.json>... --touch-sigma <σ> [--touch-bias-y <b>] [--touch-mode realistic] [--seed N] [--no-touch-points] [--touch-arms]]]",
+        "usage: rerank_latency --resources <verified-dir> --set <file.tsv> [--resource-lock <file.json>] [--budget-ms 16] [--warmup 5] [--limit N] [--grid nine|fourteen|shuangpin-<profile>] [--scheme shuangpin --shuangpin-profile <profile> [--autocorrect] [--key-geometry <file.json>... --touch-sigma <σ> [--touch-bias-y <b>] [--touch-mode realistic] [--seed N] [--no-touch-points] [--touch-arms]]] [--onnx-model <dir> [--onnx-threads 2]]",
     )?;
     if sets.is_empty() {
         return Err("at least one --set is required".into());
@@ -454,23 +482,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     options.autocorrect_transposition = autocorrect;
     options.autocorrect_neighbor = autocorrect;
 
-    let model_path = resources.join("sentence-model.safetensors");
-    let bytes = std::fs::read(&model_path).map_err(|error| {
-        format!(
-            "{}: {error}. This measures what the reranker costs, so it needs one to measure.",
-            model_path.display()
-        )
-    })?;
-    let model = std::sync::Arc::new(SentenceModel::load(&bytes)?);
+    // 两臂挂的是同一个模型：`--onnx-model` 时是 ONNX Runtime 后端，否则是随包的句子模型。`--touch-arms` 时两臂各挂一个，只差送不送落点；两臂混用两种模型，量出的差就不是落点的效果，而是两个模型的差。用 ONNX 模型时不读句子模型。
+    let sentence_model = match &onnx_model {
+        Some(_) => None,
+        None => {
+            let model_path = resources.join("sentence-model.safetensors");
+            let bytes = std::fs::read(&model_path).map_err(|error| {
+                format!(
+                    "{}: {error}. This measures what the reranker costs, so it needs one to measure.",
+                    model_path.display()
+                )
+            })?;
+            Some(std::sync::Arc::new(SentenceModel::load(&bytes)?))
+        }
+    };
+    let scorer =
+        || -> Result<Box<dyn msime_input_runtime::CandidateScorer>, Box<dyn std::error::Error>> {
+            match (&onnx_model, &sentence_model) {
+                (Some(directory), _) => onnx_scorer(directory, onnx_threads),
+                (None, Some(model)) => Ok(Box::new(Reranker::new(model.clone()))),
+                (None, None) => {
+                    unreachable!("the sentence model is loaded whenever --onnx-model is absent")
+                }
+            }
+        };
 
     let mut plain = Runtime::new(Session::new(&options)?, 9)?;
     plain.focus(true)?;
     let mut ranked = Runtime::new(Session::new(&options)?, 9)?;
     ranked.focus(true)?;
-    ranked.set_reranker(Some(Reranker::new(model.clone())));
+    ranked.set_candidate_scorer(Some(scorer()?));
     // `--touch-arms`：两臂都挂模型，只差送不送落点。
     if touch_arms {
-        plain.set_reranker(Some(Reranker::new(model)));
+        plain.set_candidate_scorer(Some(scorer()?));
     }
     // 送落点时两臂都注册同一份几何；不送落点的那一臂注册了也用不上。
     let geometry_id = match &touch {

@@ -157,7 +157,7 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
         applied.traditional_chinese_output,
         applied.traditional_chinese_variant,
     );
-    runtime.set_reranker(keyboard_reranker(
+    runtime.set_candidate_scorer(keyboard_reranker(
         keyboard_reranker_enabled(&applied.sentence_association, edition),
         &options.resources,
         sentence_model_path.as_deref(),

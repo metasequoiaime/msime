@@ -44,6 +44,7 @@ use msime_engine::host::{
     local_mode_counts_as_typing, Command, EngineResult, EngineSnapshot, OnlineQuerySnapshot,
     Session,
 };
+pub use msime_engine::ordering::CandidateScorer;
 use msime_engine::{
     CandidateEdge, CommandTableEntry, CommandTranslationQuery, MentionEntry, QuickPhraseEntry,
     SharedKeymap,

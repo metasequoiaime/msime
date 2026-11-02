@@ -8,6 +8,78 @@ use crate::SchemeType;
 
 pub use chinese_ime_lm::{CandidateFacts, Reranker, SentenceModel, DICTIONARY_SOURCES};
 
+/// 排序决策要的模型能力：按上文给候选打逐字平均自然对数概率，以及模型一次能读多少字。
+///
+/// `rerank_pick` 只经这个接口用模型，所以随包的纯 Rust 句子模型（[`Reranker`]）和需要原生运行库的模型后端走同一套规则：裁决点、词网格分混合、词典首选的豁免都在这里，后端只管算分。引擎本身仍是纯 Rust，原生后端放在引擎之外的 crate 里实现这个接口。
+pub trait CandidateScorer: Send {
+    /// 模型一次能读的字数，上文和候选合计；[`rerank_context`] 按它截上文。
+    fn context_length(&self) -> usize;
+
+    /// 每个候选在 `context` 之后的逐字平均自然对数概率，顺序同 `candidates`。
+    fn log_probabilities(&mut self, context: &str, candidates: &[&str]) -> Vec<f32>;
+
+    /// 模型认为应当提到首位的候选下标，`None` 为不动；规则同 [`Reranker::best_where`]：首行是可信的词典命中或首行不回答按键时不比较，只比较前 [`COMPARED_LIMIT`] 条回答按键的候选，少于两条不比较。
+    fn best_where(
+        &mut self,
+        context: &str,
+        texts: &[&str],
+        facts: &dyn Fn(usize) -> CandidateFacts,
+    ) -> Option<usize> {
+        let leader = facts(0);
+        if texts.is_empty() || leader.trusted_dictionary_hit || !leader.answers_key {
+            return None;
+        }
+        let mut considered = [0; COMPARED_LIMIT];
+        let mut subset = [""; COMPARED_LIMIT];
+        let mut count = 0;
+        for index in (0..texts.len()).filter(|&index| facts(index).answers_key) {
+            if count == COMPARED_LIMIT {
+                break;
+            }
+            considered[count] = index;
+            subset[count] = texts[index];
+            count += 1;
+        }
+        if count < 2 {
+            return None;
+        }
+        let scores = self.log_probabilities(context, &subset[..count]);
+        if scores.len() != count {
+            return None;
+        }
+        let mut best = 0;
+        for slot in 1..count {
+            if scores[slot] > scores[best] {
+                best = slot;
+            }
+        }
+        (best != 0).then(|| considered[best])
+    }
+}
+
+/// [`CandidateScorer::best_where`] 最多比较几条回答按键的候选，与 [`Reranker::best_where`] 相同。
+pub const COMPARED_LIMIT: usize = 9;
+
+impl CandidateScorer for Reranker {
+    fn context_length(&self) -> usize {
+        self.model().context_length()
+    }
+
+    fn log_probabilities(&mut self, context: &str, candidates: &[&str]) -> Vec<f32> {
+        Reranker::log_probabilities(self, context, candidates)
+    }
+
+    // 随包模型沿用它自己的实现，行为与引入这个接口之前逐字相同。
+    fn best_where(
+        &mut self,
+        context: &str,
+        texts: &[&str],
+        facts: &dyn Fn(usize) -> CandidateFacts,
+    ) -> Option<usize> {
+        Reranker::best_where(self, context, texts, facts)
+    }
+}
+
 /// `CandidateSource::Generated`: a whole-sentence path the word lattice assembled. The one source
 /// whose members really are alternative readings of the same key.
 pub const LATTICE_SOURCE: u8 = 8;
@@ -380,9 +452,9 @@ pub fn rerank_needs_model<'a, R: OrderRowSource<'a> + ?Sized>(
 
 /// rerank() 的决策部分：返回应当移到首位的行下标；None 表示不动。
 ///
-/// `scheme` 是 `SchemeType` 序号；不允许重排的方案（韩文汉字表）返回 None，五笔且 `!answered_by_pinyin_fallback` 时返回 None，行数 < 2 时返回 None，首行是英文时返回 None。`Reranker::best_where` 是 `&mut self`，因此这里取 `&mut`。
+/// `scheme` 是 `SchemeType` 序号；不允许重排的方案（韩文汉字表）返回 None，五笔且 `!answered_by_pinyin_fallback` 时返回 None，行数 < 2 时返回 None，首行是英文时返回 None。打分器要续用跨按键的缓存，因此取 `&mut`。
 pub fn rerank_pick<'a, R: OrderRowSource<'a> + ?Sized>(
-    reranker: &mut Reranker,
+    reranker: &mut dyn CandidateScorer,
     context: &str,
     scheme: u8,
     answered_by_pinyin_fallback: bool,
@@ -399,7 +471,7 @@ pub fn rerank_pick<'a, R: OrderRowSource<'a> + ?Sized>(
     let corrected_key = any_corrected_key(scheme, rows);
     // 只有参与比较的候选需要占用模型上下文窗口。
     let longest = longest_rerank_candidate(rows, &answers_key);
-    let context = rerank_context(context, reranker.model().context_length(), longest);
+    let context = rerank_context(context, reranker.context_length(), longest);
     if rows.static_evidence(0).is_some() {
         let mut considered = [0; STATIC_RERANK_LIMIT];
         let mut statik = [0.0; STATIC_RERANK_LIMIT];
@@ -422,7 +494,7 @@ pub fn rerank_pick<'a, R: OrderRowSource<'a> + ?Sized>(
         }
     }
     with_row_texts(rows, |texts| {
-        reranker.best_where(context, texts, |index| CandidateFacts {
+        reranker.best_where(context, texts, &|index| CandidateFacts {
             answers_key: answers_key(rows.get(index)),
             trusted_dictionary_hit: DICTIONARY_SOURCES.contains(&rows.get(index).source)
                 && !corrected_key,
@@ -459,7 +531,7 @@ fn contest_rows<'a, R: OrderRowSource<'a> + ?Sized>(
 
 /// 只在被标记的几行之间让模型挑：挑战者的逐字平均对数概率比首行高出 `margin` 才提到首位。
 fn pick_contest<'a, R: OrderRowSource<'a> + ?Sized>(
-    reranker: &mut Reranker,
+    reranker: &mut dyn CandidateScorer,
     context: &str,
     rows: &'a R,
     contested: &[usize],
@@ -472,7 +544,7 @@ fn pick_contest<'a, R: OrderRowSource<'a> + ?Sized>(
         longest = longest.max(texts[slot].chars().count());
     }
     let texts = &texts[..contested.len()];
-    let context = rerank_context(context, reranker.model().context_length(), longest);
+    let context = rerank_context(context, reranker.context_length(), longest);
     let scores = reranker.log_probabilities(context, texts);
     if scores.len() != texts.len() {
         return None;

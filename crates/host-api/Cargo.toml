@@ -12,6 +12,8 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 
 [features]
 telemetry-loopback = ["msime-client-services/telemetry-loopback"]
+# 资源目录里有 `rerank-model/`（`lm_step.ort`、`model.json`、`vocab.json`）时，整句联想「增强」的逐键重排改用它，没有或读不了时照旧用随包的句子模型。
+onnx-rerank = ["dep:msime-onnx-rerank"]
 
 [dependencies]
 msime-client-core = { path = "../client-core" }
@@ -29,6 +31,8 @@ tempfile.workspace = true
 sha2.workspace = true
 time = { workspace = true, features = ["local-offset"] }
 libc.workspace = true
+# 按键重排的 ONNX Runtime 模型后端，`onnx-rerank` 特性打开时才编：要链接按模型算子清单精简构建的 ONNX Runtime（`ORT_LIB_LOCATION`），见 `crates/onnx-rerank`。
+msime-onnx-rerank = { path = "../onnx-rerank", features = ["runtime"], optional = true }
 
 # Desktop hosts only; the mobile hosts do this natively. OpenHarmony reports target_os = "linux" and has no ALSA to link.
 #
