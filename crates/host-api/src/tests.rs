@@ -8963,13 +8963,13 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
     assert!(enough.detail.contains("calibrated"), "{}", enough.detail);
 
     // 宿主用的预算是 10 毫秒，这个两层、32 维的小模型打一页远在其内，所以也排上屏后联想。小模型装上后重新定档位，不沿用只装了大的时加载、没自测的那一份。
-    let hosted = ffi::keyboard_reranker(true, root, None, None).unwrap();
+    let hosted = ffi::keyboard_reranker(true, root, None, None, None).unwrap();
     assert_eq!(hosted.context_length(), LARGE);
     assert!(hosted.scores_prediction_pool_within_keystroke_budget());
 
     // 大的坏了就用小的，不管预算；小的没自测过，不排上屏后联想。
     std::fs::write(directory.join("lm_step.ort"), b"not a model").unwrap();
-    let fallback_small = ffi::keyboard_reranker(true, root, None, None).unwrap();
+    let fallback_small = ffi::keyboard_reranker(true, root, None, None, None).unwrap();
     assert_eq!(fallback_small.context_length(), SMALL);
     assert!(!fallback_small.scores_prediction_pool_within_keystroke_budget());
 
