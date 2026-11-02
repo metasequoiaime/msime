@@ -51,7 +51,7 @@ impl HostPlatform {
         }
     }
 
-    /// 这个宿主是否显示上屏后联想（偏好 `next_word_prediction`），见 `HostCapabilities::next_word_prediction`。联想没有组字，宿主要能在没有预编辑时显示候选，并且像普通候选一样能点选、按数字键或空格选中联想，回车和标点照常输入，Esc 关闭联想。每个宿主在接好这些的那次改动里加上自己；host-api 只在这里为真的宿主上把偏好交给 Engine。
+    /// 这个宿主是否显示上屏后联想（偏好 `next_word_prediction`），见 `HostCapabilities::next_word_prediction`。联想没有组字，宿主要能在没有预编辑时显示候选，能点选联想；电脑上空格和数字键也像普通候选一样选中联想，手机上它们照常输入；回车和标点照常输入，Esc 或关闭键关闭联想。每个宿主在接好这些的那次改动里加上自己；host-api 只在这里为真的宿主上把偏好交给 Engine。
     pub fn shows_next_word_prediction(self) -> bool {
         matches!(self, HostPlatform::Android)
     }

@@ -9,7 +9,7 @@ public final class PredictionButtonsPolicy {
     public static final String PREFERENCE_KEY = "next_word_prediction_buttons";
 
     public enum Style {
-        /** 现有样式：只有展开键，关闭联想靠继续输入。 */
+        /** 现有样式：只有展开键，关闭联想靠空格或继续输入。 */
         EXPAND_ONLY("expand_only"),
         /** 关闭键 × 加展开键；展开面板打开时 × 仍在 ∧ 左边。 */
         CLOSE_AND_EXPAND("close_and_expand"),
