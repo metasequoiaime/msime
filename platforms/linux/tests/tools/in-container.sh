@@ -10,10 +10,15 @@ cargo build -p msime-host-api --locked
 python3 - <<'PY'
 import ctypes
 import re
+import sys
 from pathlib import Path
 
 header = Path("crates/host-api/include/msime_client.h").read_text()
 library = ctypes.CDLL("/build/cargo/debug/libmsime_host_api.so")
+# 头文件同时声明 Windows 与 Unix 的入口；Linux 动态库不会导出受
+# `_WIN32` 条件保护的 Windows 专用函数，先按当前容器的平台裁掉这些声明。
+if sys.platform != "win32":
+    header = re.sub(r"#if(?:def)?\s+(?:defined\(_WIN32\)|_WIN32).*?#endif", "", header, flags=re.S)
 symbols = set(re.findall(r"\b(msime_client_\w+)\s*\(", header))
 inline_symbols = set(re.findall(
     r"\bstatic\s+inline\b[^{;]*\b(msime_client_\w+)\s*\(", header
