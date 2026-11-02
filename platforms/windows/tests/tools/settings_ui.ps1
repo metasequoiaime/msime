@@ -1262,6 +1262,46 @@ function Assert-DictionarySyncSettings {
     if (Find-ById $window 'dictionary-sync-saved') { throw 'Removed dictionary sync drive still shows as saved' }
     Write-Host 'Dictionary sync masking, draft, failing probe blocking save, reload and saved status passed'
 }
+# 「五笔方案」下拉框：combo 没有自动化 ID，按读屏名和控件类型找。
+function Find-WubiProfileCombo($window) {
+    $nameCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, '五笔方案')
+    $typeCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::ComboBox)
+    $condition = New-Object System.Windows.Automation.AndCondition($nameCondition, $typeCondition)
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        $content = Find-ById $window 'settings-content'
+        $combo = if ($content) { $content.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition) } else { $null }
+        if ($combo -and $combo.Current.IsEnabled) { return $combo }
+        Start-Sleep -Milliseconds 200
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw 'Missing enabled Wubi profile selector'
+}
+# 五笔查码：在输入框里填字、按「查码」，等结果表的表头出现（`$header` 是当前码表那一列，带「（当前）」），滚到页底让表在截图里。
+function Invoke-WubiLookup($window, [string]$text, [string]$header) {
+    $content = Find-ById $window 'settings-content'
+    $field = Find-ByName $content '要查五笔编码的文字'
+    if (-not $field) { throw 'Wubi lookup input is missing' }
+    $field.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue($text)
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        Start-Sleep -Milliseconds 200
+        $button = Find-ByName (Find-ById $window 'settings-content') '查码'
+    } while ((-not $button -or -not $button.Current.IsEnabled) -and [DateTime]::UtcNow -lt $deadline)
+    if (-not $button -or -not $button.Current.IsEnabled) { throw 'Wubi lookup button did not enable' }
+    $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    $deadline = [DateTime]::UtcNow.AddSeconds(15)
+    do {
+        Start-Sleep -Milliseconds 200
+        $content = Find-ById $window 'settings-content'
+        $shown = if ($content) { Find-ByName $content $header } else { $null }
+        $failed = if ($content) { Find-ByName $content '查码失败，请稍后重试。' } else { $null }
+    } while (-not $shown -and -not $failed -and [DateTime]::UtcNow -lt $deadline)
+    if ($failed) { throw 'Wubi lookup failed against the synthetic table' }
+    if (-not $shown) { throw "Wubi lookup table did not show $header" }
+    $content.GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern).SetScrollPercent(-1, 100)
+    Start-Sleep -Milliseconds 400
+    return $content
+}
 function Save-Window($element, [string]$file) {
     $bounds = $element.Current.BoundingRectangle
     if ($bounds.Width -lt 600 -or $bounds.Height -lt 400) { throw 'Settings window bounds are invalid' }
@@ -2000,6 +2040,60 @@ try {
     Select-PageTab $window 'mcp-tab-json' 'MCP 配置'
     Start-Sleep -Milliseconds 350
     Save-Window $window 'ai-connection-json.png'
+    $process.CloseMainWindow() | Out-Null
+    if (-not $process.WaitForExit(10000)) { throw 'Settings window failed to close' }
+    if ($process.ExitCode -ne 0) { throw "Settings exited with $($process.ExitCode)" }
+    $process = $null
+    # 五笔方案与五笔查码要能查码的运行时选项。另开一次窗口，经 MSIME_CLIENT_HOST_OPTIONS 交给它一份：资源目录里的 msime-wubi.db 是 tests/input/fixtures/msime-wubi-commit.db 这份合成五笔表，文件不叫 runtime-options.json。在「输入」页选五笔，截下展开的「五笔方案」下拉框，再查「力男为上」，截下结果表。
+    $wubiRoot = Join-Path $state 'wubi-lookup'
+    $wubiOptions = [ordered]@{api_version = 1; preferences = @{}}
+    foreach ($name in @('resources', 'dictionaries', 'user_data', 'cache')) {
+        $directory = Join-Path $wubiRoot $name
+        New-Item -ItemType Directory -Force $directory | Out-Null
+        $wubiOptions[$name] = $directory
+    }
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../input/fixtures/msime-wubi-commit.db') -Destination (Join-Path $wubiRoot 'resources/msime-wubi.db')
+    $hostOptions = Join-Path $state 'wubi-host-options.json'
+    [IO.File]::WriteAllText($hostOptions, ($wubiOptions | ConvertTo-Json), (New-Object Text.UTF8Encoding($false)))
+    $env:MSIME_CLIENT_HOST_OPTIONS = $hostOptions
+    try { $window = Start-SettingsWindow 'settings:typing' } finally { $env:MSIME_CLIENT_HOST_OPTIONS = $oldHostOptions }
+    if (-not [SettingsWindowProbe]::SetWindowPos($process.MainWindowHandle, [IntPtr]::Zero, 0, 0, 1000, 780, 0x0040)) { throw 'Window resize failed' }
+    Wait-PageIntroName $window 'typing' | Out-Null
+    Select-PageTab $window 'input-tab-scheme' '中文方案'
+    $radio = Find-ById $window 'scheme-wubi'
+    if (-not $radio -or -not $radio.Current.IsEnabled) { throw 'Scheme option is unavailable: wubi' }
+    $radio.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        Start-Sleep -Milliseconds 200
+        $saved = (Read-SettingsSnapshotText (Join-Path $state 'preferences.json')) | ConvertFrom-Json
+    } while ($saved.preferences.scheme -ne 'wubi' -and [DateTime]::UtcNow -lt $deadline)
+    if ($saved.preferences.scheme -ne 'wubi') { throw 'Scheme was not saved: wubi' }
+    # 下拉框在方案组里，页面从顶上往下滚到它露出来为止，展开的列表才在截图里。
+    $content = Find-ById $window 'settings-content'
+    $scroll = $content.GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern)
+    foreach ($percent in @(0, 20, 40, 60, 80, 100)) {
+        if ($scroll.Current.VerticallyScrollable) { $scroll.SetScrollPercent(-1, $percent) }
+        Start-Sleep -Milliseconds 300
+        $combo = Find-WubiProfileCombo $window
+        if (-not $combo.Current.IsOffscreen) { break }
+    }
+    if ($combo.Current.IsOffscreen) { throw 'Wubi profile selector is outside the window' }
+    $combo.SetFocus()
+    $combo.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Expand()
+    $itemCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::ListItem)
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        Start-Sleep -Milliseconds 200
+        $profiles = @($combo.FindAll([System.Windows.Automation.TreeScope]::Descendants, $itemCondition) | ForEach-Object { $_.Current.Name })
+    } while ($profiles.Count -lt 2 -and [DateTime]::UtcNow -lt $deadline)
+    Start-Sleep -Milliseconds 300
+    Save-Window $window 'wubi-profile-options.png'
+    $combo.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Collapse()
+    Write-Host "Wubi profile options: $($profiles -join ', ')"
+    if ($profiles[0] -ne '86 五笔' -or $profiles[1] -ne '98 五笔') { throw "Wubi profile options are wrong: $($profiles -join ', ')" }
+    Invoke-WubiLookup $window '力男为上' '86 五笔（当前）' | Out-Null
+    Save-Window $window 'wubi-lookup-wubi86.png'
     $process.CloseMainWindow() | Out-Null
     if (-not $process.WaitForExit(10000)) { throw 'Settings window failed to close' }
     if ($process.ExitCode -ne 0) { throw "Settings exited with $($process.ExitCode)" }

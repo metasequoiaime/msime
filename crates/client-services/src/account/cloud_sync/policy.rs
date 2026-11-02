@@ -560,6 +560,8 @@ pub struct Word {
 }
 
 /// 快照里的词库种类换成个人词库导入文件的写法；不认识的种类为 `None`，调用方跳过这个词。云端快照和本机导出写的都是 `quick`。
+///
+/// 新世纪五笔（`wubixsj`）暂不经云词库同步，也是 `None`：服务端还不收这个种类，已经发布的客户端读到它会拒绝整份快照。等宽松读取的版本覆盖了足够多的用户、服务端放开约束后再打开。
 pub fn personal_kind(snapshot_kind: &str) -> Option<&'static str> {
     match snapshot_kind {
         "pinyin" => Some("pinyin"),
@@ -567,6 +569,7 @@ pub fn personal_kind(snapshot_kind: &str) -> Option<&'static str> {
         "wubi98" => Some("wubi98"),
         "english" => Some("english"),
         "quick" | "quick_phrase" | "quickPhrase" => Some("quickPhrase"),
+        "wubixsj" => None,
         _ => None,
     }
 }

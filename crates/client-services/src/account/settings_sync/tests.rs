@@ -603,7 +603,7 @@ fn settings_sync_unknown_enum_values_skip_only_their_key() {
     let unknown_values = [
         ("input.character_set", "cyrillic"),
         ("input.shuangpin_schema", "sogou"),
-        ("input.wubi_schema", "wubixsj"),
+        ("input.wubi_schema", "wubi2030"),
         ("input.frequency_mode", "random"),
         ("input.quote_style", "semantic"),
         ("input.traditional_variant", "s2hk"),
@@ -757,7 +757,7 @@ fn settings_sync_wubi_profile_round_trips_through_the_account_wubi_schema() {
     for profile in [WubiProfile::Wubi86, WubiProfile::Wubi98] {
         let values = BTreeMap::from([(
             "input.wubi_schema".to_owned(),
-            AccountPreferenceValue::String(account_wubi_schema(profile).into()),
+            AccountPreferenceValue::String(account_wubi_schema(profile).unwrap().into()),
         )]);
         let local = Preferences {
             wubi_profile: if profile == WubiProfile::Wubi86 {

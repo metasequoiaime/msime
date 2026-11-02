@@ -32,7 +32,8 @@ fn yes() -> bool {
 }
 
 /// 这一版认得、能交给 Engine 的词库种类。
-pub(super) const KNOWN_KINDS: [&str; 5] = ["pinyin", "wubi", "wubi98", "quick", "english"];
+pub(super) const KNOWN_KINDS: [&str; 6] =
+    ["pinyin", "wubi", "wubi98", "wubixsj", "quick", "english"];
 
 /// 更新的版本加的、这一版不认识的词库种类：1 到 32 个小写字母、数字或下划线，且不在 [`KNOWN_KINDS`] 里。这种记录整条跳过，不让整份快照读不了；不是这个形状的种类仍让快照不合规。
 pub(super) fn is_foreign_kind(kind: &str) -> bool {
@@ -66,6 +67,7 @@ pub(super) fn decode(bytes: &[u8]) -> Result<Option<DictionaryStateRecord>, Snap
                 "pinyin" => DictionaryKind::Pinyin,
                 "wubi" => DictionaryKind::Wubi,
                 "wubi98" => DictionaryKind::Wubi98,
+                "wubixsj" => DictionaryKind::WubiXsj,
                 "quick" => DictionaryKind::QuickPhrase,
                 "english" => DictionaryKind::English,
                 kind if is_foreign_kind(kind) => return Ok(None),

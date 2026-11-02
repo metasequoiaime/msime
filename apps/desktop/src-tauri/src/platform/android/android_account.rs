@@ -296,7 +296,10 @@ fn inspect_snapshot_record(
                 .get("kind")
                 .and_then(Value::as_str)
                 .filter(|value| {
-                    matches!(*value, "pinyin" | "wubi" | "wubi98" | "english" | "quick")
+                    matches!(
+                        *value,
+                        "pinyin" | "wubi" | "wubi98" | "wubixsj" | "english" | "quick"
+                    )
                 })
                 .ok_or(AccountError::Invalid)?
                 .to_owned();

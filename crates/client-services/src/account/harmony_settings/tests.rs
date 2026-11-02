@@ -625,7 +625,7 @@ fn a_value_this_host_has_no_meaning_for_skips_only_its_key() {
         ),
         ("input.character_set", string("esperanto")),
         ("input.wubi_schema", string("wubi06")),
-        ("input.wubi_schema", string("wubixsj")),
+        ("input.wubi_schema", string("wubi2030")),
         ("input.quote_style", string("semantic")),
     ] {
         let applied = apply(
@@ -841,6 +841,36 @@ fn the_korean_scheme_travels() {
         &full_schema(),
     );
     assert_eq!(applied.preferences.scheme, InputScheme::Korean);
+}
+
+/// 新世纪五笔暂不跨设备同步：选着它时不上传版本，账号里留着的旧版本也不盖掉本机的选择；其余的键照常。别的设备（以后的版本）写来的 `wubixsj` 照常读。
+#[test]
+fn the_new_century_wubi_profile_stays_on_the_device() {
+    let schema = wubi_schema();
+    let local = Preferences {
+        scheme: InputScheme::Wubi,
+        wubi_profile: WubiProfile::WubiXsj,
+        ..Preferences::default()
+    };
+    let settings = exported(&local);
+    assert_eq!(settings["input.schema"], string("wubi"));
+    assert!(!settings.contains_key("input.wubi_schema"));
+    let applied = apply(
+        &local,
+        &[
+            ("input.wubi_schema", string("wubi98")),
+            ("input.learning", AccountPreferenceValue::Boolean(false)),
+        ],
+        &schema,
+    );
+    assert_eq!(applied.preferences.wubi_profile, WubiProfile::WubiXsj);
+    assert!(!applied.preferences.learning);
+    let applied = apply(
+        &Preferences::default(),
+        &[("input.wubi_schema", string("wubixsj"))],
+        &schema,
+    );
+    assert_eq!(applied.preferences.wubi_profile, WubiProfile::WubiXsj);
 }
 
 #[test]

@@ -116,7 +116,7 @@ fn parse_op(value: &Value) -> Option<Op> {
     };
     Some(Op {
         key: WordKey::canonical(
-            WordKind::from_name(kind.as_str()?)?,
+            WordKind::from_synced_name(kind.as_str()?)?,
             code.as_str()?,
             word.as_str()?,
         )?,
@@ -296,7 +296,7 @@ impl ReplicaFile {
             if record_seq > seq {
                 return None;
             }
-            let Some(kind) = WordKind::from_name(&kind) else {
+            let Some(kind) = WordKind::from_synced_name(&kind) else {
                 continue;
             };
             let key = WordKey::canonical(kind, &code, &word)?;

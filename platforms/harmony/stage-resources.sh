@@ -64,7 +64,7 @@ cp resources/licenses/pinyin-data-MIT.txt resources/licenses/ECDICT-MIT.txt reso
 cp resources/licenses/rime-wanxiang-CC-BY-4.0.txt "$licenses_staged/"
 # resfile/engine 带着完整的桌面词库（msime-pinyin.db、msime-wubi.db、msime-english.db、msime-others.db、msime-bigram.bin、msime-trigram.bin、日文词典），它们逐个来源的上游、提交与条款写在 msime-dictionary 的 NOTICE.md 里，这是它的副本，另有 msime 一侧加进同一批词库的来源：其中有 msime-bigram.bin 与 msime-trigram.bin 要求的中文维基百科（CC BY-SA 4.0）署名，以及 msime-wubi.db 各份码表的出处。
 cp resources/licenses/msime-engine-dictionary-NOTICE.md "$licenses_staged/"
-# 水杉输入法本身以 GPL-3.0-only 发布，resfile/engine 里的 msime-pinyin.db 含 rime-ice 的 GPL-3.0 数据；GPL-3.0 第 4、6 条要求随目标代码附上许可证全文，所以仓库根目录的 LICENSE 以 GPL-3.0.txt 随 HAP 分发，与 macOS 包和引擎 C 库数据包里的名字相同。
+# 水杉输入法本身以 GPL-3.0-only 发布，resfile/engine 里的 msime-pinyin.db 含 rime-ice 的 GPL-3.0 数据，msime-wubi.db 的新世纪五笔单字码取自 byujiang/wubi06_rime（GPL-3.0，来源与许可的情况写在上面那份 NOTICE 里）；GPL-3.0 第 4、6 条要求随目标代码附上许可证全文，所以仓库根目录的 LICENSE 以 GPL-3.0.txt 随 HAP 分发，与 macOS 包和引擎 C 库数据包里的名字相同。
 cp LICENSE "$licenses_staged/GPL-3.0.txt"
 echo "Licences staged for the HAP: $licenses_staged"
 

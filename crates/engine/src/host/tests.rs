@@ -1097,7 +1097,7 @@ fn invalid_options_return_errors_instead_of_unwinding_into_rust() {
     value.shuangpin_profile = 255;
     assert_eq!(message(&value), "Unsupported shuangpin profile");
     value.shuangpin_profile = 0;
-    value.wubi_profile = 2;
+    value.wubi_profile = 3;
     assert_eq!(message(&value), "Unsupported wubi profile");
     value.wubi_profile = 1;
     value.frequency_mode = "sometimes".into();

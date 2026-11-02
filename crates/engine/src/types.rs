@@ -741,13 +741,19 @@ pub enum WubiProfileKind {
     #[default]
     Wubi86 = 0,
     Wubi98 = 1,
+    /// 新世纪五笔，码表 `wubixsj`。序号追加在末尾，已有的值不变。
+    WubiXsj = 2,
 }
 
 impl WubiProfileKind {
+    /// 全部版本，按序号排列。
+    pub const ALL: [Self; 3] = [Self::Wubi86, Self::Wubi98, Self::WubiXsj];
+
     pub fn from_u8(value: u8) -> Option<Self> {
         Some(match value {
             0 => Self::Wubi86,
             1 => Self::Wubi98,
+            2 => Self::WubiXsj,
             _ => return None,
         })
     }
@@ -756,6 +762,7 @@ impl WubiProfileKind {
         Some(match name {
             "wubi86" => Self::Wubi86,
             "wubi98" => Self::Wubi98,
+            "wubixsj" => Self::WubiXsj,
             _ => return None,
         })
     }
@@ -764,6 +771,7 @@ impl WubiProfileKind {
         match self {
             Self::Wubi86 => "wubi86",
             Self::Wubi98 => "wubi98",
+            Self::WubiXsj => "wubixsj",
         }
     }
 
@@ -777,6 +785,7 @@ impl WubiProfileKind {
         match self {
             Self::Wubi86 => PersonalDictionaryKind::Wubi,
             Self::Wubi98 => PersonalDictionaryKind::Wubi98,
+            Self::WubiXsj => PersonalDictionaryKind::WubiXsj,
         }
     }
 }
@@ -1579,6 +1588,8 @@ pub enum PersonalDictionaryKind {
     English = 3,
     /// 98 五笔，写入 `wubi98` 表。序号追加在末尾，已有的值不变。
     Wubi98 = 4,
+    /// 新世纪五笔，写入 `wubixsj` 表，日志里的 `dictionary` 也是 `wubixsj`。序号追加在末尾，已有的值不变。
+    WubiXsj = 5,
 }
 
 impl PersonalDictionaryKind {
@@ -1589,13 +1600,14 @@ impl PersonalDictionaryKind {
             2 => Self::QuickPhrase,
             3 => Self::English,
             4 => Self::Wubi98,
+            5 => Self::WubiXsj,
             _ => return None,
         })
     }
 
-    /// 两版五笔共用编码规则（1..=4 个 a..=y 字母）与按码排序的写法，只是表不同。
+    /// 各版五笔共用编码规则（1..=4 个 a..=y 字母）与按码排序的写法，只是表不同。
     pub fn is_wubi(self) -> bool {
-        matches!(self, Self::Wubi | Self::Wubi98)
+        matches!(self, Self::Wubi | Self::Wubi98 | Self::WubiXsj)
     }
 
     /// 五笔种类对应的 `msime-pinyin.db` 码表。
@@ -1603,6 +1615,7 @@ impl PersonalDictionaryKind {
         match self {
             Self::Wubi => Some(WubiProfileKind::Wubi86.table()),
             Self::Wubi98 => Some(WubiProfileKind::Wubi98.table()),
+            Self::WubiXsj => Some(WubiProfileKind::WubiXsj.table()),
             Self::Pinyin | Self::QuickPhrase | Self::English => None,
         }
     }
@@ -1615,6 +1628,7 @@ impl PersonalDictionaryKind {
             Self::QuickPhrase => "quick",
             Self::English => "english",
             Self::Wubi98 => "wubi98",
+            Self::WubiXsj => "wubixsj",
         }
     }
 
@@ -1625,6 +1639,7 @@ impl PersonalDictionaryKind {
             "quick" => Self::QuickPhrase,
             "english" => Self::English,
             "wubi98" => Self::Wubi98,
+            "wubixsj" => Self::WubiXsj,
             _ => return None,
         })
     }

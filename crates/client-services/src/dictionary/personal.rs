@@ -36,6 +36,9 @@ pub enum PersonalWordKind {
     English,
     #[serde(rename = "wubi98")]
     Wubi98,
+    /// 新世纪五笔。追加在末尾：隐式序号会进 outbox 的请求号。
+    #[serde(rename = "wubixsj")]
+    WubiXsj,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -56,6 +59,7 @@ impl PersonalWord {
                 PersonalWordKind::Pinyin => "pinyin",
                 PersonalWordKind::Wubi => "wubi",
                 PersonalWordKind::Wubi98 => "wubi98",
+                PersonalWordKind::WubiXsj => "wubixsj",
                 PersonalWordKind::QuickPhrase => "quickPhrase",
                 PersonalWordKind::English => "english",
             },
@@ -70,13 +74,13 @@ impl PersonalWord {
     pub fn validate(&self) -> Result<(), &'static str> {
         let key_limit = match self.kind {
             PersonalWordKind::Pinyin => 512,
-            PersonalWordKind::Wubi | PersonalWordKind::Wubi98 => 4,
+            PersonalWordKind::Wubi | PersonalWordKind::Wubi98 | PersonalWordKind::WubiXsj => 4,
             PersonalWordKind::QuickPhrase => 32,
             PersonalWordKind::English => 64,
         };
         let key_valid = match self.kind {
             PersonalWordKind::Pinyin => super::pinyin_code_is_well_formed(&self.key, true),
-            PersonalWordKind::Wubi | PersonalWordKind::Wubi98 => {
+            PersonalWordKind::Wubi | PersonalWordKind::Wubi98 | PersonalWordKind::WubiXsj => {
                 super::wubi_code_is_well_formed(&self.key)
             }
             PersonalWordKind::QuickPhrase => {

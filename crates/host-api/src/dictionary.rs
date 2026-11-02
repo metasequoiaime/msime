@@ -24,6 +24,8 @@ enum Kind {
     QuickPhrase,
     English,
     Wubi98,
+    /// 新世纪五笔，JSON 里是 `wubixsj`。追加在末尾。
+    Wubixsj,
 }
 
 /// 浏览类型独立于个人词库类型，资源词条不能流入编辑、导入或云同步协议。
@@ -139,6 +141,7 @@ impl From<Entry> for DictionaryEntry {
                 Kind::QuickPhrase => DictionaryKind::QuickPhrase,
                 Kind::English => DictionaryKind::English,
                 Kind::Wubi98 => DictionaryKind::Wubi98,
+                Kind::Wubixsj => DictionaryKind::WubiXsj,
             },
             key: entry.key,
             value: entry.value,
@@ -155,6 +158,7 @@ impl From<Kind> for msime_engine::host::DictionaryKind {
             Kind::QuickPhrase => Self::QuickPhrase,
             Kind::English => Self::English,
             Kind::Wubi98 => Self::Wubi98,
+            Kind::Wubixsj => Self::WubiXsj,
         }
     }
 }
@@ -169,6 +173,7 @@ impl TryFrom<DictionaryEntry> for Entry {
             DictionaryKind::QuickPhrase => Kind::QuickPhrase,
             DictionaryKind::English => Kind::English,
             DictionaryKind::Wubi98 => Kind::Wubi98,
+            DictionaryKind::WubiXsj => Kind::Wubixsj,
             _ => return Err("unsupported dictionary kind"),
         };
         Ok(Self {
@@ -290,7 +295,7 @@ enum Operation {
 /// 五笔查码一次接受的文字上限（字节）。查码只列出前 `MAX_WUBI_LOOKUP_CHARACTERS` 个不同汉字，更长的粘贴没有意义。
 const MAX_WUBI_LOOKUP_TEXT: usize = 4096;
 
-/// `wubi_codes` 的回答：`{phrase, characters, truncated}`，`phrase` 和每个字都是 `{text, wubi86, wubi98}`，编码短码在前。
+/// `wubi_codes` 的回答：`{phrase, characters, truncated}`，`phrase` 和每个字都是 `{text, wubi86, wubi98, wubixsj}`，编码短码在前。词库里没有新世纪表时 `wubixsj` 是空数组。
 ///
 /// 只读五笔码表（会话用的同一份），不拿词库的维护租约：码表由 SQLite 只读打开，维护进行时读到的是替换前或替换后的完整文件，而一次查码不该让维护等它，也不该在 Android 设置进程里因为键盘进程持有维护而失败。移动端的个人词库队列也直接回答它，因为它不改任何东西。
 fn wubi_codes_json(
@@ -301,7 +306,14 @@ fn wubi_codes_json(
         return Err("invalid wubi lookup".into());
     }
     let lookup = msime_engine::host::wubi_code_lookup(options, text);
-    let item = |codes: &msime_engine::host::WubiTextCodes| json!({ "text": codes.text, "wubi86": codes.wubi86, "wubi98": codes.wubi98 });
+    let item = |codes: &msime_engine::host::WubiTextCodes| {
+        json!({
+            "text": codes.text,
+            "wubi86": codes.wubi86,
+            "wubi98": codes.wubi98,
+            "wubixsj": codes.wubixsj,
+        })
+    };
     Ok(json!({
         "phrase": lookup.phrase.as_ref().map(item),
         "characters": lookup.characters.iter().map(item).collect::<Vec<_>>(),
@@ -1239,6 +1251,7 @@ fn kind_name(kind: Kind) -> &'static str {
         Kind::QuickPhrase => "quick_phrase",
         Kind::English => "english",
         Kind::Wubi98 => "wubi98",
+        Kind::Wubixsj => "wubixsj",
     }
 }
 
@@ -1928,6 +1941,7 @@ fn personal_engine_entry(word: &PersonalWord) -> msime_engine::host::DictionaryE
             PersonalWordKind::QuickPhrase => DictionaryKind::QuickPhrase,
             PersonalWordKind::English => DictionaryKind::English,
             PersonalWordKind::Wubi98 => DictionaryKind::Wubi98,
+            PersonalWordKind::WubiXsj => DictionaryKind::WubiXsj,
         },
         key: word.key.clone(),
         value: word.value.clone(),
@@ -1998,6 +2012,8 @@ fn personal_kind(kind: DictionaryKind) -> PersonalWordKind {
         DictionaryKind::QuickPhrase => PersonalWordKind::QuickPhrase,
         DictionaryKind::English => PersonalWordKind::English,
         DictionaryKind::Wubi98 => PersonalWordKind::Wubi98,
+        DictionaryKind::WubiXsj => PersonalWordKind::WubiXsj,
+        // `DictionaryKind` 是 Engine 的 `non_exhaustive` 枚举，以后加的种类在这里补上；在那之前按 86 五笔不对，所以仍然拦下。
         _ => unreachable!("unsupported personal dictionary kind"),
     }
 }
@@ -2007,6 +2023,7 @@ fn personal_to_kind(kind: PersonalWordKind) -> Kind {
         PersonalWordKind::Pinyin => Kind::Pinyin,
         PersonalWordKind::Wubi => Kind::Wubi,
         PersonalWordKind::Wubi98 => Kind::Wubi98,
+        PersonalWordKind::WubiXsj => Kind::Wubixsj,
         PersonalWordKind::QuickPhrase => Kind::QuickPhrase,
         PersonalWordKind::English => Kind::English,
     }
@@ -2043,7 +2060,7 @@ fn validate_entry_within(
 ) -> Result<(), String> {
     let key_limit = match entry.kind {
         Kind::Pinyin => 512,
-        Kind::Wubi | Kind::Wubi98 => 4,
+        Kind::Wubi | Kind::Wubi98 | Kind::Wubixsj => 4,
         Kind::QuickPhrase => 32,
         Kind::English => 64,
     };
@@ -2051,7 +2068,7 @@ fn validate_entry_within(
         Kind::Pinyin => {
             msime_client_services::dictionary::pinyin_code_is_well_formed(&entry.key, true)
         }
-        Kind::Wubi | Kind::Wubi98 => {
+        Kind::Wubi | Kind::Wubi98 | Kind::Wubixsj => {
             msime_client_services::dictionary::wubi_code_is_well_formed(&entry.key)
         }
         Kind::QuickPhrase => {
@@ -2109,6 +2126,7 @@ impl From<&Kind> for msime_client_services::dictionary::import::ImportKind {
             Kind::QuickPhrase => ImportKind::QuickPhrase,
             Kind::English => ImportKind::English,
             Kind::Wubi98 => ImportKind::Wubi98,
+            Kind::Wubixsj => ImportKind::Wubixsj,
         }
     }
 }
@@ -2407,6 +2425,19 @@ pub enum WordKind {
     English,
     /// 98 五笔码表。
     Wubi98,
+    /// 新世纪五笔码表。
+    WubiXsj,
+}
+
+impl WordKind {
+    /// 五笔方案下，会话所用码表版本（`EngineOptions::wubi_profile`，0 是 86、1 是 98、2 是新世纪）的词归入的种类；不认识的编码为 `None`。
+    fn of_wubi_profile(profile: u8) -> Option<Self> {
+        match msime_engine::WubiProfileKind::from_u8(profile)? {
+            msime_engine::WubiProfileKind::Wubi86 => Some(Self::Wubi),
+            msime_engine::WubiProfileKind::Wubi98 => Some(Self::Wubi98),
+            msime_engine::WubiProfileKind::WubiXsj => Some(Self::WubiXsj),
+        }
+    }
 }
 
 impl From<WordKind> for Kind {
@@ -2416,6 +2447,7 @@ impl From<WordKind> for Kind {
             WordKind::Wubi => Kind::Wubi,
             WordKind::English => Kind::English,
             WordKind::Wubi98 => Kind::Wubi98,
+            WordKind::WubiXsj => Kind::Wubixsj,
         }
     }
 }
@@ -2526,7 +2558,7 @@ fn comparable_code(kind: WordKind, code: &str) -> String {
     let code = code.trim().to_ascii_lowercase();
     match kind {
         WordKind::Pinyin => code.chars().filter(|c| !matches!(c, '\'' | ' ')).collect(),
-        WordKind::Wubi | WordKind::Wubi98 | WordKind::English => code,
+        WordKind::Wubi | WordKind::Wubi98 | WordKind::WubiXsj | WordKind::English => code,
     }
 }
 
@@ -2835,10 +2867,8 @@ pub fn lookup_candidates(
         }
     }
     // The Engine reports a user's word as a dictionary one, so each is looked up as the row it came from.
-    let word_kind = if options.scheme == 2 && options.wubi_profile == 1 {
-        WordKind::Wubi98
-    } else if options.scheme == 2 {
-        WordKind::Wubi
+    let word_kind = if options.scheme == 2 {
+        WordKind::of_wubi_profile(options.wubi_profile).ok_or("unsupported wubi profile")?
     } else {
         WordKind::Pinyin
     };

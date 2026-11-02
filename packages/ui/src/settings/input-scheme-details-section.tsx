@@ -1,4 +1,4 @@
-import type { WubiProfile } from "./wubi-preferences";
+import { knownWubiProfile, type WubiProfile } from "./wubi-preferences";
 import type { InputScheme } from "../core/input-scheme";
 import { LinkRow, Row } from "../core/platform-controls";
 
@@ -66,6 +66,7 @@ function wubiProfileOptions() {
     <>
       <option value="wubi86">86 五笔</option>
       <option value="wubi98">98 五笔</option>
+      <option value="wubixsj">新世纪五笔</option>
     </>
   );
 }
@@ -210,11 +211,11 @@ export function InputSchemeDetailsSection({
           onChange={(value) => onShuangpinPreeditChange?.(value === "raw")}
         />
       )}
-      {/* 五笔方案在 86 与 98 码表之间切换，个人词条和学习记录按版本分开存；触屏宿主没有方案选择器，启用了五笔键盘时也在这里选。 */}
+      {/* 五笔方案在 86、98 和新世纪码表之间切换，个人词条和学习记录按版本分开存；触屏宿主没有方案选择器，启用了五笔键盘时也在这里选。偏好里不认识的值按 86 显示。 */}
       <SelectRow
         title="五笔方案"
         hidden={hasTouchKeyboardSchemes ? !touchKeyboardHasWubi : scheme !== "wubi"}
-        value={wubiProfile}
+        value={knownWubiProfile(wubiProfile)}
         onChange={(event) => onWubiProfileChange?.(event.target.value as WubiProfile)}
       >
         {wubiProfileOptions()}

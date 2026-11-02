@@ -548,7 +548,7 @@ struct KeyboardView {
   @State shuangpinProfile: string = 'xiaohe';
   /** 双拼触屏字母组码布局；26/14/18 键独立于当前双拼方案保存。 */
   @State shuangpinLayout: string = 'twenty_six_key';
-  /** 五笔触屏字母键布局；26/14 键独立于 86 / 98 版保存。 */
+  /** 五笔触屏字母键布局；26/14 键独立于五笔版本保存。 */
   @State wubiLayout: string = 'twenty_six_key';
   // 方案、中英文、123 层、本地模式和横竖屏决定手写区要不要多一行（`handwritingExtraRows`），变了就重定面板高度，见 `syncStripHeight`。
   @State @Watch('syncStripHeight') localMode: string = 'none';
@@ -704,7 +704,7 @@ struct KeyboardView {
   @State caseMode: LetterCaseMode = LetterCaseMode.LOWERCASE;
   @State skin: KeyboardSkin = KeyboardSkin.fromTheme('system', 'system', null, false);
   @State @Watch('syncStripHeight') scheme: SchemeDefinition = KeyboardScheme.fallback();
-  /** 五笔版本：方案仍是同一个五笔，只换卡片和工具栏上的「86」「98」字样；单独设成状态，只改版本时也会重绘。 */
+  /** 五笔版本：方案仍是同一个五笔，只换卡片、工具栏和空格键上的「86」「98」「新世纪」字样；单独设成状态，只改版本时也会重绘。 */
   @State wubiProfile: string = KeyboardScheme.WUBI_86;
   @State handwritingStrokes: HandwritingStroke[] = [];
   @State handwritingRedo: HandwritingStroke[] = [];
@@ -3707,8 +3707,7 @@ struct KeyboardView {
       case 'shoudao':
         return '双拼 · 首道';
       case 'wubi':
-        return KeyboardScheme.normalizedWubiProfile(this.wubiProfile) === KeyboardScheme.WUBI_98
-          ? '五笔 98' : '五笔 86';
+        return KeyboardScheme.wubiSpaceLabel(this.wubiProfile);
       case 'japanese':
       case 'japanese_nine_key':
         return '日语';

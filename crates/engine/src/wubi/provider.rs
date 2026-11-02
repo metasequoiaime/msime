@@ -1,4 +1,4 @@
-//! 五笔码表的 provider（`R/providers/wubi_candidate_provider.cpp`，含 wubi_prefix_learning overlay）：按 `WubiProfileKind` 读 `wubi86` 或 `wubi98`。Exact code first, then weight, no value dedup, at most 50 rows. The provider only reads: learning and removal of a wubi row go through `session`, which journals them with the wubi kind and then resets this cache.
+//! 五笔码表的 provider（`R/providers/wubi_candidate_provider.cpp`，含 wubi_prefix_learning overlay）：按 `WubiProfileKind` 读 `wubi86`、`wubi98` 或 `wubixsj`。Exact code first, then weight, no value dedup, at most 50 rows. The provider only reads: learning and removal of a wubi row go through `session`, which journals them with the wubi kind and then resets this cache.
 
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
@@ -15,11 +15,14 @@ const QUERY_LIMIT: i64 = 50;
 const REVERSE_CACHE_CAPACITY: usize = 1024;
 const REVERSE_QUERY_SQL_86: &str = "SELECT \"key\" FROM wubi86 WHERE \"value\" = ?1 ORDER BY length(\"key\") DESC, \"weight\" DESC, \"key\" ASC, rowid ASC LIMIT 1";
 const REVERSE_QUERY_SQL_98: &str = "SELECT \"key\" FROM wubi98 WHERE \"value\" = ?1 ORDER BY length(\"key\") DESC, \"weight\" DESC, \"key\" ASC, rowid ASC LIMIT 1";
+const REVERSE_QUERY_SQL_XSJ: &str = "SELECT \"key\" FROM wubixsj WHERE \"value\" = ?1 ORDER BY length(\"key\") DESC, \"weight\" DESC, \"key\" ASC, rowid ASC LIMIT 1";
 
 /// A prefix query: the typed code's own rows lead, then every longer code it prefixes by weight. The same word reached through several codes (工 at a, aaa and aaaa) is kept once per code, because ranking and removal act on the code the row arrived with.
 const QUERY_SQL_86: &str = "SELECT \"key\", \"value\", \"weight\" FROM wubi86 WHERE \"key\" >= ?1 AND \"key\" < ?2 ORDER BY (\"key\" = ?1) DESC, \"weight\" DESC, \"key\" ASC, rowid ASC LIMIT ?3";
 /// 与 `QUERY_SQL_86` 相同，只是读 `wubi98`。
 const QUERY_SQL_98: &str = "SELECT \"key\", \"value\", \"weight\" FROM wubi98 WHERE \"key\" >= ?1 AND \"key\" < ?2 ORDER BY (\"key\" = ?1) DESC, \"weight\" DESC, \"key\" ASC, rowid ASC LIMIT ?3";
+/// 与 `QUERY_SQL_86` 相同，只是读 `wubixsj`。
+const QUERY_SQL_XSJ: &str = "SELECT \"key\", \"value\", \"weight\" FROM wubixsj WHERE \"key\" >= ?1 AND \"key\" < ?2 ORDER BY (\"key\" = ?1) DESC, \"weight\" DESC, \"key\" ASC, rowid ASC LIMIT ?3";
 
 /// 通配查询：码里的 `z` 换成 GLOB 的单字符 `?`，其余部分按字面匹配，末尾接 `*` 收下所有更长编码的前缀行。
 ///
@@ -29,18 +32,24 @@ const QUERY_SQL_98: &str = "SELECT \"key\", \"value\", \"weight\" FROM wubi98 WH
 const WILDCARD_SQL_86: &str = "SELECT \"key\", \"value\", \"weight\" FROM wubi86 WHERE \"key\" GLOB ?1 ORDER BY \"weight\" DESC, \"key\" ASC, rowid ASC LIMIT ?2";
 /// 与 `WILDCARD_SQL_86` 相同，只是读 `wubi98`。
 const WILDCARD_SQL_98: &str = "SELECT \"key\", \"value\", \"weight\" FROM wubi98 WHERE \"key\" GLOB ?1 ORDER BY \"weight\" DESC, \"key\" ASC, rowid ASC LIMIT ?2";
+/// 与 `WILDCARD_SQL_86` 相同，只是读 `wubixsj`。
+const WILDCARD_SQL_XSJ: &str = "SELECT \"key\", \"value\", \"weight\" FROM wubixsj WHERE \"key\" GLOB ?1 ORDER BY \"weight\" DESC, \"key\" ASC, rowid ASC LIMIT ?2";
 
 /// 14 键查询的完整编码行：组码展开后的每个编码各查一次，同一编码里按码表权重排。
 const GRID_EXACT_SQL_86: &str = "SELECT \"key\", \"value\", \"weight\" FROM wubi86 WHERE \"key\" = ?1 ORDER BY \"weight\" DESC, rowid ASC LIMIT ?2";
 /// 与 `GRID_EXACT_SQL_86` 相同，只是读 `wubi98`。
 const GRID_EXACT_SQL_98: &str = "SELECT \"key\", \"value\", \"weight\" FROM wubi98 WHERE \"key\" = ?1 ORDER BY \"weight\" DESC, rowid ASC LIMIT ?2";
+/// 与 `GRID_EXACT_SQL_86` 相同，只是读 `wubixsj`。
+const GRID_EXACT_SQL_XSJ: &str = "SELECT \"key\", \"value\", \"weight\" FROM wubixsj WHERE \"key\" = ?1 ORDER BY \"weight\" DESC, rowid ASC LIMIT ?2";
 /// 14 键查询的补全行：比这个编码更长、以它开头的编码，按权重取前若干行。
 const GRID_LONGER_SQL_86: &str = "SELECT \"key\", \"value\", \"weight\" FROM wubi86 WHERE \"key\" > ?1 AND \"key\" < ?2 ORDER BY \"weight\" DESC, \"key\" ASC, rowid ASC LIMIT ?3";
 /// 与 `GRID_LONGER_SQL_86` 相同，只是读 `wubi98`。
 const GRID_LONGER_SQL_98: &str = "SELECT \"key\", \"value\", \"weight\" FROM wubi98 WHERE \"key\" > ?1 AND \"key\" < ?2 ORDER BY \"weight\" DESC, \"key\" ASC, rowid ASC LIMIT ?3";
+/// 与 `GRID_LONGER_SQL_86` 相同，只是读 `wubixsj`。
+const GRID_LONGER_SQL_XSJ: &str = "SELECT \"key\", \"value\", \"weight\" FROM wubixsj WHERE \"key\" > ?1 AND \"key\" < ?2 ORDER BY \"weight\" DESC, \"key\" ASC, rowid ASC LIMIT ?3";
 
 /// 反查按 `"value"` 找行，而发布词库只有 `("key","value")` 的唯一约束和 `("key","weight")` 索引，没有索引时每次反查都要扫整张表。每张五笔表配一个只按词条建的索引，由 [`ensure_reverse_indexes`] 在可写的代次副本里补上。
-const REVERSE_INDEXES: [(&str, &str, &str); 2] = [
+const REVERSE_INDEXES: [(&str, &str, &str); 3] = [
     (
         "wubi86",
         "idx_wubi86_value",
@@ -50,6 +59,11 @@ const REVERSE_INDEXES: [(&str, &str, &str); 2] = [
         "wubi98",
         "idx_wubi98_value",
         "CREATE INDEX IF NOT EXISTS idx_wubi98_value ON wubi98(\"value\")",
+    ),
+    (
+        "wubixsj",
+        "idx_wubixsj_value",
+        "CREATE INDEX IF NOT EXISTS idx_wubixsj_value ON wubixsj(\"value\")",
     ),
 ];
 
@@ -72,6 +86,7 @@ fn query_sql(profile: WubiProfileKind) -> &'static str {
     match profile {
         WubiProfileKind::Wubi86 => QUERY_SQL_86,
         WubiProfileKind::Wubi98 => QUERY_SQL_98,
+        WubiProfileKind::WubiXsj => QUERY_SQL_XSJ,
     }
 }
 
@@ -79,6 +94,7 @@ fn grid_sql(profile: WubiProfileKind) -> (&'static str, &'static str) {
     match profile {
         WubiProfileKind::Wubi86 => (GRID_EXACT_SQL_86, GRID_LONGER_SQL_86),
         WubiProfileKind::Wubi98 => (GRID_EXACT_SQL_98, GRID_LONGER_SQL_98),
+        WubiProfileKind::WubiXsj => (GRID_EXACT_SQL_XSJ, GRID_LONGER_SQL_XSJ),
     }
 }
 
@@ -86,6 +102,7 @@ fn wildcard_sql(profile: WubiProfileKind) -> &'static str {
     match profile {
         WubiProfileKind::Wubi86 => WILDCARD_SQL_86,
         WubiProfileKind::Wubi98 => WILDCARD_SQL_98,
+        WubiProfileKind::WubiXsj => WILDCARD_SQL_XSJ,
     }
 }
 
@@ -387,6 +404,7 @@ fn reverse_code(
         .prepare_cached(match profile {
             WubiProfileKind::Wubi86 => REVERSE_QUERY_SQL_86,
             WubiProfileKind::Wubi98 => REVERSE_QUERY_SQL_98,
+            WubiProfileKind::WubiXsj => REVERSE_QUERY_SQL_XSJ,
         })?
         .query_row([word], |row| row.get(0))
         .optional()
@@ -691,13 +709,19 @@ mod tests {
             "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);\
              INSERT INTO wubi86 VALUES('kl','号',10);\
              CREATE TABLE wubi98(key TEXT,value TEXT,weight INTEGER);\
-             INSERT INTO wubi98 VALUES('kg','号',10);",
+             INSERT INTO wubi98 VALUES('kg','号',10);\
+             CREATE TABLE wubixsj(key TEXT,value TEXT,weight INTEGER);\
+             INSERT INTO wubixsj VALUES('ent','力',10),('kgb','号',10);",
         );
         let provider = &mut fixture.provider;
         assert_eq!(rows(provider, "kl"), vec![row("kl", "号", 10)]);
         assert!(rows(provider, "kg").is_empty());
         provider.set_profile(WubiProfileKind::Wubi98);
         assert_eq!(rows(provider, "kg"), vec![row("kg", "号", 10)]);
+        assert!(rows(provider, "kl").is_empty());
+        provider.set_profile(WubiProfileKind::WubiXsj);
+        assert_eq!(rows(provider, "ent"), vec![row("ent", "力", 10)]);
+        assert_eq!(rows(provider, "kgb"), vec![row("kgb", "号", 10)]);
         assert!(rows(provider, "kl").is_empty());
     }
 
@@ -914,6 +938,7 @@ mod tests {
         let sql = match profile {
             WubiProfileKind::Wubi86 => REVERSE_QUERY_SQL_86,
             WubiProfileKind::Wubi98 => REVERSE_QUERY_SQL_98,
+            WubiProfileKind::WubiXsj => REVERSE_QUERY_SQL_XSJ,
         };
         let mut statement = connection
             .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
@@ -930,7 +955,8 @@ mod tests {
     fn reverse_indexes_are_created_once_for_the_tables_present() {
         let both = fixture(
             "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER,UNIQUE(key,value));\
-             CREATE TABLE wubi98(key TEXT,value TEXT,weight INTEGER,UNIQUE(key,value));",
+             CREATE TABLE wubi98(key TEXT,value TEXT,weight INTEGER,UNIQUE(key,value));\
+             CREATE TABLE wubixsj(key TEXT,value TEXT,weight INTEGER,UNIQUE(key,value));",
         );
         let connection = Connection::open(&both.provider.main_db).unwrap();
         assert!(reverse_plan(&connection, WubiProfileKind::Wubi86).contains("SCAN wubi86"));
@@ -938,16 +964,18 @@ mod tests {
         ensure_reverse_indexes(&connection).unwrap();
         let indexes: i64 = connection
             .query_row(
-                "SELECT count(*) FROM sqlite_master WHERE type='index' AND name IN ('idx_wubi86_value','idx_wubi98_value')",
+                "SELECT count(*) FROM sqlite_master WHERE type='index' AND name IN ('idx_wubi86_value','idx_wubi98_value','idx_wubixsj_value')",
                 [],
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(indexes, 2);
+        assert_eq!(indexes, 3);
         assert!(reverse_plan(&connection, WubiProfileKind::Wubi86)
             .contains("USING INDEX idx_wubi86_value"));
         assert!(reverse_plan(&connection, WubiProfileKind::Wubi98)
             .contains("USING INDEX idx_wubi98_value"));
+        assert!(reverse_plan(&connection, WubiProfileKind::WubiXsj)
+            .contains("USING INDEX idx_wubixsj_value"));
 
         // 没有五笔表的库（例如 english.db）原样不动。
         let other = fixture("CREATE TABLE english_words(word TEXT);");

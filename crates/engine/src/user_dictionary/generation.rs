@@ -32,8 +32,11 @@ const CLAIMED_STAGE_SUFFIX: &str = ".removing";
 /// 暂存目录多久没有任何写入才算被丢下。真在准备的进程一直在写：复制约 200 MB 的词库、回放日志、建索引，最慢的设备上两次写入之间也只隔几十秒，一次完整准备在几分钟以内；一小时留出几十倍余量。代价是被杀留下的半截目录要等下一次在一小时后的准备才被删，期间只占空间，不再挡住准备。
 const ABANDONED_STAGE_AGE: Duration = Duration::from_secs(60 * 60);
 
-/// `msime-wubi.db` 里单独发布、准备代次时并回工作主词库的五笔码表。
-const SPLIT_WUBI_TABLES: [&str; 2] = ["wubi86", "wubi98"];
+/// `msime-wubi.db` 里单独发布、准备代次时并回工作主词库的五笔码表。逐表并入：旧的发布没有 `wubixsj`，之后下载的码表带着它时只补这一张。
+const SPLIT_WUBI_TABLES: [&str; 3] = ["wubi86", "wubi98", "wubixsj"];
+
+/// 建会话时把下载的码表并进代次（[`merge_downloaded_wubi`]）后、回放日志完成前，工作主词库里留着的标记表。与并进来的表在同一个事务里建，回放成功后删掉：回放失败（例如另一个进程占着写锁）时表已经在了，下一次建会话看到它就再回放一遍，不会因为表都在了就再也不回放。
+const WUBI_REPLAY_PENDING: &str = "msime_wubi_replay_pending";
 
 /// 校验代次 id（1 到 128 个 `[0-9A-Za-z_-]`）和三个互不重叠的绝对路径根，建好 `user_data` 和 `cache`，清掉被丢下的暂存目录，然后要么对已就绪的代次重新回放日志（补上它缺的 n-gram 表），要么在这次尝试独有的 `<id>.<随机串>.incoming` 里暂存、回放、写 `.ready` 再改名就位。暂存失败只删自己的目录；同一个代次被别的进程抢先发布时用那一份。
 pub fn prepare_runtime_paths(
@@ -435,7 +438,9 @@ fn write_private_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
 
 /// 资源目录不带 `msime-wubi.db`、五笔码表来自宿主另行下载的那份 `wubi`（`EngineOptions::wubi_dictionary`，macOS 的 `wubi` 资源包）时，把它并进代次的工作主词库，再回放一遍日志：准备代次时码表还不在，日志里的五笔行被跳过（`replay`），并进来之后才有地方写。返回是否并入了码表。
 ///
-/// 工作主词库已有五笔表、代次就是资源目录（只读布局）、没有工作主词库（不读拼音库的版本），或者 `wubi` 不是普通文件 `msime-wubi.db` 时什么也不做。已有五笔表时只读一次 schema，所以每次建会话都调用也不贵。
+/// `wubi` 里的五笔表工作主词库都已经有了、代次就是资源目录（只读布局）、没有工作主词库（不读拼音库的版本），或者 `wubi` 不是普通文件 `msime-wubi.db` 时什么也不做。逐表判断：代次是用旧的码表准备的（有 `wubi86`/`wubi98`、没有 `wubixsj`），之后下载的码表带着新世纪表时只并入这一张，已有的表和学到的权重不动。表都在时只读两个文件的 schema，所以每次建会话都调用也不贵。
+///
+/// 并表和回放不在同一个事务里：并进来的表先提交，回放另开连接。所以并表时在同一个事务里留下 [`WUBI_REPLAY_PENDING`]，回放成功后才删掉；回放失败（另一个进程占着写锁超时等）时下一次建会话看到它，表都在了也再回放一遍，日志里这几张表的学习和个人词不会一直写不进去。
 pub(crate) fn merge_downloaded_wubi(paths: &RuntimePaths, wubi: &Path) -> Result<bool> {
     let main_db = paths.dictionary(assets::MAIN_DICTIONARY);
     if paths.dictionaries == paths.resources
@@ -445,47 +450,103 @@ pub(crate) fn merge_downloaded_wubi(paths: &RuntimePaths, wubi: &Path) -> Result
     {
         return Ok(false);
     }
-    if has_split_wubi_tables(&main_db)? {
+    let mut present = tables_present(
+        &main_db,
+        &[
+            SPLIT_WUBI_TABLES[0],
+            SPLIT_WUBI_TABLES[1],
+            SPLIT_WUBI_TABLES[2],
+            WUBI_REPLAY_PENDING,
+        ],
+    )
+    .map_err(|error| {
+        EngineError::failed(format!("cannot read {}: {error}", assets::MAIN_DICTIONARY))
+    })?;
+    let pending = present.contains(&WUBI_REPLAY_PENDING);
+    present.retain(|table| *table != WUBI_REPLAY_PENDING);
+    let lacking = lacks_offered_tables(&present, wubi);
+    if !pending && !lacking {
         return Ok(false);
     }
     let Some(directory) = wubi.parent() else {
         return Ok(false);
     };
-    merge_split_wubi(directory, &main_db)?;
+    if lacking {
+        merge_split_wubi_marked(directory, &main_db, true)?;
+    }
     // 有工作主词库的代次一定也有英文库（读主库的集合要求它）。
     let dictionaries = GenerationDictionaries {
         main: true,
         english: true,
     };
     replay_into(paths, &paths.dictionaries, dictionaries)?;
+    // 删不掉标记只是下一次建会话再回放一遍：回放按日志重写，结果相同。
+    open_database(&main_db, OpenFlags::SQLITE_OPEN_READ_WRITE).and_then(|connection| {
+        connection
+            .execute_batch(&format!("DROP TABLE IF EXISTS \"{WUBI_REPLAY_PENDING}\""))
+            .map_err(Into::into)
+    })?;
     index_reverse_lookup(&paths.dictionaries, dictionaries);
     Ok(true)
 }
 
-/// 工作主词库里是否已有 `wubi86` 或 `wubi98`。
-pub(crate) fn has_split_wubi_tables(main_db: &Path) -> Result<bool> {
-    let present = (|| -> rusqlite::Result<bool> {
-        let path = crate::paths::sqlite_read_only_path_no_follow(main_db)
-            .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
-        let connection = Connection::open_with_flags(
-            &path,
-            OpenFlags::SQLITE_OPEN_READ_ONLY
-                | OpenFlags::SQLITE_OPEN_NOFOLLOW
-                | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )?;
-        connection.query_row(
-            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name IN ('wubi86','wubi98'))",
-            [],
-            |row| row.get(0),
-        )
-    })();
-    present.map_err(|error| {
-        EngineError::failed(format!("cannot read {}: {error}", assets::MAIN_DICTIONARY))
-    })
+/// `database` 里有 [`SPLIT_WUBI_TABLES`] 中的哪几张表。
+fn split_wubi_tables(database: &Path) -> rusqlite::Result<Vec<&'static str>> {
+    tables_present(database, &SPLIT_WUBI_TABLES)
 }
 
-/// 词库发布把五笔码表单独放在只读的 `msime-wubi.db` 里，`msime-pinyin.db` 不再含 `wubi86`/`wubi98`。五笔的学习调序、删词、个人词典编辑与日志回放都写代次里的工作主词库，五笔 provider 也从它读，所以准备代次（以及重置学习数据）时把这两张表连同索引并回工作副本：读写落在同一个文件上，学到的权重立即可见。资源目录没有 `msime-wubi.db`（旧的合并发布）或工作副本里已有同名表时不动。
+/// `database` 里有 `tables` 中的哪几张表，只读打开。
+fn tables_present(database: &Path, tables: &[&'static str]) -> rusqlite::Result<Vec<&'static str>> {
+    let path = crate::paths::sqlite_read_only_path_no_follow(database)
+        .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
+    let connection = Connection::open_with_flags(
+        &path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY
+            | OpenFlags::SQLITE_OPEN_NOFOLLOW
+            | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    let mut present = Vec::new();
+    for table in tables {
+        let exists: bool = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
+            [table],
+            |row| row.get(0),
+        )?;
+        if exists {
+            present.push(*table);
+        }
+    }
+    Ok(present)
+}
+
+/// 工作主词库 `main_db` 是否还缺下载的码表 `wubi` 里有的五笔表。一张五笔表都没有时为真，不看 `wubi`（与并入时一样，读不了它由并入去报告）；三张都在时为假；只有一部分时看 `wubi` 里有没有它缺的那几张，`wubi` 读不了按不缺算。主词库读不了是错误。
+pub(crate) fn lacks_split_wubi_tables(main_db: &Path, wubi: &Path) -> Result<bool> {
+    let present = split_wubi_tables(main_db).map_err(|error| {
+        EngineError::failed(format!("cannot read {}: {error}", assets::MAIN_DICTIONARY))
+    })?;
+    Ok(lacks_offered_tables(&present, wubi))
+}
+
+/// [`lacks_split_wubi_tables`] 的判断，`present` 是工作主词库里已有的五笔表。
+fn lacks_offered_tables(present: &[&str], wubi: &Path) -> bool {
+    if present.is_empty() {
+        return true;
+    }
+    if present.len() == SPLIT_WUBI_TABLES.len() {
+        return false;
+    }
+    split_wubi_tables(wubi)
+        .map(|offered| offered.iter().any(|table| !present.contains(table)))
+        .unwrap_or(false)
+}
+
+/// 词库发布把五笔码表单独放在只读的 `msime-wubi.db` 里，`msime-pinyin.db` 不再含 `wubi86`/`wubi98`/`wubixsj`。五笔的学习调序、删词、个人词典编辑与日志回放都写代次里的工作主词库，五笔 provider 也从它读，所以准备代次（以及重置学习数据）时把这些表连同索引并回工作副本：读写落在同一个文件上，学到的权重立即可见。逐表处理：资源目录没有 `msime-wubi.db`（旧的合并发布）时不动；`msime-wubi.db` 里没有的表（旧的发布没有 `wubixsj`）跳过；工作副本里已有的同名表不动，只补缺的那几张。
 pub(crate) fn merge_split_wubi(resources: &Path, main_db: &Path) -> Result<()> {
+    merge_split_wubi_marked(resources, main_db, false)
+}
+
+/// [`merge_split_wubi`]；`mark_replay` 为真且确实并进了表时，在同一个事务里建 [`WUBI_REPLAY_PENDING`]，由调用方回放成功后删掉。
+fn merge_split_wubi_marked(resources: &Path, main_db: &Path, mark_replay: bool) -> Result<()> {
     let source = resources.join(assets::WUBI_DICTIONARY);
     if !is_real_file(&source) {
         return Ok(());
@@ -511,6 +572,7 @@ pub(crate) fn merge_split_wubi(resources: &Path, main_db: &Path) -> Result<()> {
         input.busy_timeout(std::time::Duration::ZERO)?;
         output.busy_timeout(std::time::Duration::ZERO)?;
         let transaction = output.transaction()?;
+        let mut added = false;
         for table in SPLIT_WUBI_TABLES {
             let present: bool = transaction.query_row(
                 "SELECT EXISTS(SELECT 1 FROM main.sqlite_master WHERE type='table' AND name=?1)",
@@ -552,6 +614,12 @@ pub(crate) fn merge_split_wubi(resources: &Path, main_db: &Path) -> Result<()> {
                 transaction.execute_batch(index)?;
             }
             transaction.execute_batch(&format!("ANALYZE \"{table}\""))?;
+            added = true;
+        }
+        if mark_replay && added {
+            transaction.execute_batch(&format!(
+                "CREATE TABLE IF NOT EXISTS \"{WUBI_REPLAY_PENDING}\"(pending INTEGER)"
+            ))?;
         }
         transaction.commit()
     })();
@@ -1710,11 +1778,20 @@ mod tests {
             &journal,
             "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,user_inserted,updated_at) VALUES
                ('wubi','wqvb','合成五笔','upsert',9,1,1),
-               ('wubi98','wqvb','你好','upsert',99,1,2)",
+               ('wubi98','wqvb','你好','upsert',99,1,2),
+               ('wubixsj','ent','力','upsert',77,1,3)",
         );
         let cache = root.path().join("cache");
+        // 码表是还没有新世纪表的旧发布：日志里的 `wubixsj` 行跳过，代次照常就绪。
         let paths = prepare_runtime_paths(&resources, &user, &cache, "v1").unwrap();
         let main = paths.dictionary(assets::MAIN_DICTIONARY);
+        assert_eq!(
+            weight(
+                &main,
+                "SELECT count(*) FROM sqlite_master WHERE name='wubixsj'"
+            ),
+            Some(0)
+        );
         assert_eq!(
             weight(&main, "SELECT weight FROM wubi86 WHERE value='合成五笔'"),
             Some(9)
@@ -1768,7 +1845,8 @@ mod tests {
             &journal,
             "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,user_inserted,updated_at) VALUES
                ('wubi','wqvb','合成五笔','upsert',9,1,1),
-               ('wubi98','wqvb','你好','upsert',99,1,2)",
+               ('wubi98','wqvb','你好','upsert',99,1,2),
+               ('wubixsj','ent','力','upsert',77,1,3)",
         );
         let cache = root.path().join("cache");
         let paths = prepare_runtime_paths(&resources, &user, &cache, "v1").unwrap();
@@ -1818,12 +1896,123 @@ mod tests {
         assert_eq!(weight(&downloaded, "SELECT count(*) FROM wubi86"), Some(1));
         assert!(!merge_downloaded_wubi(&paths, &downloaded).unwrap());
         assert_eq!(weight(&main, "SELECT count(*) FROM wubi86"), Some(2));
+
+        // 代次里的 86/98 来自没有新世纪表的旧码表；之后下载的码表带着 `wubixsj`：只补这一张（连同索引），已有的表和学到的权重不动，日志里的新世纪行这时才写进去。
+        assert_eq!(
+            weight(
+                &main,
+                "SELECT count(*) FROM sqlite_master WHERE name='wubixsj'"
+            ),
+            Some(0)
+        );
+        let newer_pack = root.path().join("resource-packs").join("wubi-newer");
+        fs::create_dir_all(&newer_pack).unwrap();
+        let newer = newer_pack.join(assets::WUBI_DICTIONARY);
+        sql(
+            &newer,
+            "CREATE TABLE wubi86(\"key\" TEXT NOT NULL,\"value\" TEXT NOT NULL,\"weight\" INTEGER NOT NULL DEFAULT 0,UNIQUE(\"key\",\"value\"));
+             CREATE TABLE wubi98(\"key\" TEXT NOT NULL,\"value\" TEXT NOT NULL,\"weight\" INTEGER NOT NULL DEFAULT 0,UNIQUE(\"key\",\"value\"));
+             CREATE TABLE wubixsj(\"key\" TEXT NOT NULL,\"value\" TEXT NOT NULL,\"weight\" INTEGER NOT NULL DEFAULT 0,UNIQUE(\"key\",\"value\"));
+             CREATE INDEX idx_wubixsj_key_weight ON wubixsj(\"key\",\"weight\");
+             INSERT INTO wubi86 VALUES('aaaa','式',1);
+             INSERT INTO wubixsj VALUES('ent','力',50),('lll','男',40);",
+        );
+        assert!(lacks_split_wubi_tables(&main, &newer).unwrap());
+        assert!(!lacks_split_wubi_tables(&main, &downloaded).unwrap());
+        assert!(merge_downloaded_wubi(&paths, &newer).unwrap());
+        assert_eq!(
+            weight(&main, "SELECT weight FROM wubixsj WHERE value='力'"),
+            Some(77)
+        );
+        assert_eq!(
+            weight(&main, "SELECT weight FROM wubixsj WHERE value='男'"),
+            Some(40)
+        );
+        assert_eq!(
+            weight(
+                &main,
+                "SELECT count(*) FROM sqlite_master WHERE type='index' AND name='idx_wubixsj_key_weight'"
+            ),
+            Some(1)
+        );
+        assert_eq!(weight(&main, "SELECT count(*) FROM wubi86"), Some(2));
+        assert_eq!(
+            weight(&main, "SELECT weight FROM wubi86 WHERE value='合成五笔'"),
+            Some(9)
+        );
+        assert!(!lacks_split_wubi_tables(&main, &newer).unwrap());
+        assert!(!merge_downloaded_wubi(&paths, &newer).unwrap());
         // 代次就是资源目录（只读布局）时不写。
         let read_only = RuntimePaths {
             dictionaries: paths.resources.clone(),
             ..paths.clone()
         };
         assert!(!merge_downloaded_wubi(&read_only, &downloaded).unwrap());
+    }
+
+    /// 已有 86/98 的代次补进新世纪表之后回放失败（这里用一行存不进去的拼音键代替被锁住、超时这类失败）：表已经提交了，下一次建会话仍要再回放，日志里的新世纪个人词才写得进去；回放成功后不再重复。
+    #[test]
+    fn a_failed_replay_after_merging_a_table_is_retried_on_the_next_session() {
+        let root = tempfile::tempdir().unwrap();
+        let resources = resources(root.path());
+        let user = root.path().join("user");
+        fs::create_dir_all(&user).unwrap();
+        let journal = user.join(assets::USER_JOURNAL);
+        sql(&journal, OPERATIONS_DDL);
+        sql(
+            &journal,
+            "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,user_inserted,updated_at) VALUES('wubixsj','ent','力','upsert',77,1,1)",
+        );
+        let paths =
+            prepare_runtime_paths(&resources, &user, &root.path().join("cache"), "v1").unwrap();
+        let main = paths.dictionary(assets::MAIN_DICTIONARY);
+        let table = "(\"key\" TEXT NOT NULL,\"value\" TEXT NOT NULL,\"weight\" INTEGER NOT NULL DEFAULT 0,UNIQUE(\"key\",\"value\"))";
+        let older = root.path().join("older");
+        fs::create_dir_all(&older).unwrap();
+        sql(
+            &older.join(assets::WUBI_DICTIONARY),
+            &format!("CREATE TABLE wubi86{table}; CREATE TABLE wubi98{table};"),
+        );
+        assert!(merge_downloaded_wubi(&paths, &older.join(assets::WUBI_DICTIONARY)).unwrap());
+
+        let newer = root.path().join("newer");
+        fs::create_dir_all(&newer).unwrap();
+        let newer = newer.join(assets::WUBI_DICTIONARY);
+        sql(
+            &newer,
+            &format!(
+                "CREATE TABLE wubi86{table}; CREATE TABLE wubi98{table}; CREATE TABLE wubixsj{table};
+                 INSERT INTO wubixsj VALUES('ent','力',50);"
+            ),
+        );
+        sql(
+            &journal,
+            "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,user_inserted,updated_at) VALUES('pinyin','''ni','坏','upsert',5,0,2)",
+        );
+        assert!(merge_downloaded_wubi(&paths, &newer).is_err());
+        assert!(!lacks_split_wubi_tables(&main, &newer).unwrap());
+        assert_eq!(
+            weight(&main, "SELECT weight FROM wubixsj WHERE value='力'"),
+            Some(50)
+        );
+
+        sql(
+            &journal,
+            "DELETE FROM user_dictionary_operations WHERE dictionary='pinyin'",
+        );
+        assert!(merge_downloaded_wubi(&paths, &newer).unwrap());
+        assert_eq!(
+            weight(&main, "SELECT weight FROM wubixsj WHERE value='力'"),
+            Some(77)
+        );
+        assert_eq!(
+            weight(
+                &main,
+                &format!("SELECT count(*) FROM sqlite_master WHERE name='{WUBI_REPLAY_PENDING}'")
+            ),
+            Some(0)
+        );
+        assert!(!merge_downloaded_wubi(&paths, &newer).unwrap());
     }
 
     #[test]

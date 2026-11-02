@@ -1,6 +1,7 @@
 import type { InputScheme } from "../core/input-scheme";
 import type { Preferences } from "../core/preferences-model";
 import { isChineseScheme } from "./input-scheme-options";
+import { knownWubiProfile, type WubiProfile } from "./wubi-preferences";
 
 export type TouchKeyboardScheme =
   | "quanpin"
@@ -60,9 +61,15 @@ export function touchKeyboardSchemeInputScheme(scheme: TouchKeyboardScheme): Inp
   }
 }
 
-/** 五笔触屏方案的标题：只有一个五笔键盘，标题跟随 `wubi_profile`。 */
+const wubiProfileTitles: Record<WubiProfile, string> = {
+  wubi86: "86 五笔",
+  wubi98: "98 五笔",
+  wubixsj: "新世纪五笔",
+};
+
+/** 五笔触屏方案的标题：只有一个五笔键盘，标题跟随 `wubi_profile`；不认识的值按 86。 */
 export function wubiProfileTitle(profile: Preferences["wubi_profile"]): string {
-  return profile === "wubi98" ? "98 五笔" : "86 五笔";
+  return wubiProfileTitles[knownWubiProfile(profile)];
 }
 
 function touchKeyboardSchemeOptionTitle(scheme: TouchKeyboardScheme): string {

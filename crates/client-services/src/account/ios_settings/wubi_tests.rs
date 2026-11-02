@@ -103,12 +103,12 @@ fn a_document_without_the_wubi_profile_keeps_the_local_one() {
 
 #[test]
 fn an_unknown_wubi_profile_keeps_the_local_one_and_the_rest_still_applies() {
-    // 更新的版本加的码表版本（如新世纪）这一版不认识：只跳过这个键，保留本机的五笔版本，文档其余的键照常应用。拒绝整份文档会让这台设备从此收不到任何设置。
+    // 更新的版本加的码表版本（用不存在的 `wubi2030` 代表）这一版不认识：只跳过这个键，保留本机的五笔版本，文档其余的键照常应用。拒绝整份文档会让这台设备从此收不到任何设置。
     let wubi98 = Preferences {
         wubi_profile: WubiProfile::Wubi98,
         ..Preferences::default()
     };
-    for unknown in ["wubixsj", "wubi06"] {
+    for unknown in ["wubi2030", "wubi06"] {
         for schema in [Some("wubi"), Some("quanpin"), None] {
             let plan = IosPreferencePlan::from_cloud(&document(schema, Some(unknown)))
                 .unwrap_or_else(|error| panic!("{schema:?} {unknown}: {error:?}"));
@@ -121,4 +121,29 @@ fn an_unknown_wubi_profile_keeps_the_local_one_and_the_rest_still_applies() {
             );
         }
     }
+}
+
+/// 新世纪五笔暂不跨设备同步：选着它时 iOS 不上传版本，账号里留着的旧版本也不盖掉本机的选择。别的设备写来的 `wubixsj` 照常读。
+#[test]
+fn the_new_century_wubi_profile_stays_on_the_device() {
+    let xsj = Preferences {
+        wubi_profile: WubiProfile::WubiXsj,
+        ..Preferences::default()
+    };
+    let settings = super::local_account_preferences(&native("wubi"), &xsj, None).unwrap();
+    assert_eq!(
+        settings["input.schema"],
+        AccountPreferenceValue::String("wubi".into())
+    );
+    assert!(!settings.contains_key("input.wubi_schema"));
+    for schema in [Some("wubi"), Some("quanpin"), None] {
+        let applied = apply(&document(schema, Some("wubi98")), "quanpin", &xsj);
+        assert_eq!(applied.wubi_profile, WubiProfile::WubiXsj, "{schema:?}");
+    }
+    let applied = apply(
+        &document(Some("quanpin"), Some("wubixsj")),
+        "quanpin",
+        &Preferences::default(),
+    );
+    assert_eq!(applied.wubi_profile, WubiProfile::WubiXsj);
 }

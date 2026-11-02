@@ -409,11 +409,12 @@ pub fn account_input_schema(scheme: InputScheme) -> Option<&'static str> {
     }
 }
 
-/// 五笔版本在账号里的取值，即 `input.wubi_schema`。
-pub fn account_wubi_schema(profile: WubiProfile) -> &'static str {
+/// 五笔版本在账号里的取值，即 `input.wubi_schema`。新世纪五笔暂不跨设备同步，为 `None`：已经发布的 iOS 读到不认识的版本会拒绝整份账号设置，所以不写这个值，账号保留上次记录的版本，与 [`shuangpin_schema`] 对待账号未收录的方案相同。
+pub fn account_wubi_schema(profile: WubiProfile) -> Option<&'static str> {
     match profile {
-        WubiProfile::Wubi86 => "wubi86",
-        WubiProfile::Wubi98 => "wubi98",
+        WubiProfile::Wubi86 => Some("wubi86"),
+        WubiProfile::Wubi98 => Some("wubi98"),
+        WubiProfile::WubiXsj => None,
     }
 }
 
@@ -666,11 +667,9 @@ pub(super) fn insert_input_settings(
     }
     // 五笔版本只随五笔方案上传（与 iOS、鸿蒙一致）：上传是合并进账号文档的，不在五笔上时本机的缺省 86 不该盖掉账号里别的设备选的 98。
     if preferences.scheme == InputScheme::Wubi {
-        insert_string(
-            settings,
-            "input.wubi_schema",
-            account_wubi_schema(preferences.wubi_profile),
-        );
+        if let Some(schema) = account_wubi_schema(preferences.wubi_profile) {
+            insert_string(settings, "input.wubi_schema", schema);
+        }
     }
     insert_bool(settings, "input.learning", preferences.learning);
     insert_string(
@@ -1131,8 +1130,11 @@ fn apply_input_settings(applier: &mut Applier<'_>) -> Result<(), AccountError> {
         };
         Some(())
     })?;
-    // 不认识的版本（更新的版本加的码表版本）只跳过这个键，保留本机的五笔版本，文档里其余的键照常应用。
+    // 不认识的版本（更新的版本加的码表版本）只跳过这个键，保留本机的五笔版本，文档里其余的键照常应用。本机选着新世纪时不导出这个键（`account_wubi_schema`），合并回写时也不能拿账号里留着的旧版本盖掉本机的选择。
     applier.set_string("input.wubi_schema", |preferences, value| {
+        if account_wubi_schema(preferences.wubi_profile).is_none() {
+            return Some(());
+        }
         preferences.wubi_profile = WubiProfile::parse(value)?;
         Some(())
     })?;
