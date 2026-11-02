@@ -437,9 +437,9 @@ pub(crate) enum OnnxAttach {
     Unavailable,
 }
 
-#[cfg(feature = "onnx-rerank")]
+#[cfg(all(test, feature = "onnx-rerank"))]
 impl OnnxAttach {
-    /// 挂上的那一个；超过上限或读不了时是 `None`。
+    /// 挂上的那一个；超过上限或读不了时是 `None`。只给测试用，宿主按三种情形分别处理（[`keyboard_reranker`]）。
     pub(crate) fn attached(self) -> Option<AttachedOnnxReranker> {
         match self {
             Self::Attached(attached) => Some(attached),
