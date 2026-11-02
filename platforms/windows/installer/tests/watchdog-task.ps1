@@ -6,15 +6,37 @@ $script = $script -replace '\\\r?\n\s*', ' '
 
 $create = [regex]::Match(
     $script,
-    "(?s)procedure CreateWatchdogLogonTask;.*?end;\r?\n\r?\nprocedure TryDeleteTree"
+    "(?s)function CreateWatchdogLogonTask: Boolean;.*?end;\r?\n\r?\n\{"
 ).Value
-if (-not $create) { throw 'Watchdog task creation procedure is missing' }
+if (-not $create) { throw 'Watchdog task creation function is missing' }
 if ($create -notmatch "/SC ONLOGON") { throw 'Watchdog task is not a logon task' }
 if ($create -notmatch "/RL LIMITED") { throw 'Watchdog task must use a non-elevated run level' }
 if ($create -notmatch "/IT") { throw 'Watchdog task must run only in an interactive session' }
 # schtasks splits an unquoted /TR value at its first space, so the Program Files path has to carry its own quotes inside the /TR argument.
 if (-not $create.Contains('/TR "\"'' + WatchdogPath + ''\""')) {
     throw 'Watchdog task action does not quote the executable path inside /TR'
+}
+
+# 登录任务默认 Priority 7、电池上不启动/切换即停止、72 小时后强制结束，创建后必须补上。
+$configure = [regex]::Match(
+    $script,
+    "(?s)procedure ConfigureWatchdogLogonTask;.*?end;\r?\n\r?\nprocedure TryDeleteTree"
+).Value
+if (-not $configure) { throw 'Watchdog task priority configuration is missing' }
+foreach ($setting in @('Priority', 'DisallowStartIfOnBatteries', 'StopIfGoingOnBatteries', 'ExecutionTimeLimit')) {
+    if (-not $configure.Contains("Set-Setting `$s ''$setting''")) {
+        throw "Watchdog task priority configuration never sets $setting"
+    }
+}
+if ($configure -notmatch 'schtasks\.exe /Create /F /TN') {
+    throw 'Watchdog task priority configuration does not re-register the task from its XML'
+}
+if ($configure -notmatch 'exit 1') {
+    throw 'Watchdog task priority configuration does not fail when the settings do not stick'
+}
+# 只在创建成功之后配置；创建失败时任务不存在，配置只会再报一次错。
+if ($script -notmatch '(?s)if CreateWatchdogLogonTask then\r?\n\s*ConfigureWatchdogLogonTask;') {
+    throw 'Watchdog task priority configuration is not conditional on creating the task'
 }
 
 $delete = [regex]::Match(
@@ -76,6 +98,33 @@ try {
     Write-Output "installer form stored Command=[$($action.Command)] Arguments=[$($action.Arguments)]"
     if ($action.Command.Trim('"') -ne $watchdogPath -or $action.Arguments -ne '') {
         throw 'Task Scheduler did not store the Watchdog path as one program without arguments'
+    }
+
+    # 把安装器配置优先级的 PowerShell 原样取出来跑一遍，读回任务自己存下的设置：脚本
+    # 里写对了字段名不等于 Task Scheduler 收下了它们。
+    $scriptExpression = [regex]::Match($configure, "(?s)Script :=(.*?);\s*\r?\n\s*Params :=").Groups[1].Value
+    if (-not $scriptExpression) { throw 'Cannot find the priority configuration script expression' }
+    if (($scriptExpression -replace "'(?:[^']|'')*'|\+|\s", '') -ne '') {
+        throw 'The priority configuration script uses something this probe cannot evaluate'
+    }
+    $configureScript = -join @([regex]::Matches($scriptExpression, "'(?:[^']|'')*'") | ForEach-Object {
+        $_.Value.Substring(1, $_.Value.Length - 2).Replace("''", "'")
+    })
+    $configureScript = $configureScript.Replace('{#MyWatchdogTaskName}', $taskName)
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($configureScript))
+    $shell = (Get-Process -Id $PID).Path
+    $configured = Start-Process -FilePath $shell -ArgumentList @(
+        '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $encoded) -Wait -PassThru
+    if ($configured.ExitCode -ne 0) {
+        throw "Priority configuration failed with exit code $($configured.ExitCode)"
+    }
+    $stored = (Get-ScheduledTask -TaskName $taskName).Settings
+    Write-Output ("stored priority=$($stored.Priority) limit=$($stored.ExecutionTimeLimit) " +
+                  "startOnBatteries=$(-not $stored.DisallowStartIfOnBatteries) " +
+                  "keepOnBatteries=$(-not $stored.StopIfGoingOnBatteries)")
+    if ($stored.Priority -ne 4 -or $stored.ExecutionTimeLimit -ne 'PT0S' -or
+        $stored.DisallowStartIfOnBatteries -or $stored.StopIfGoingOnBatteries) {
+        throw 'Priority configuration did not survive round-tripping through the task XML'
     }
 
     # For the record only: the unquoted form this replaced.

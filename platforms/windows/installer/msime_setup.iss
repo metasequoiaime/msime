@@ -1147,12 +1147,13 @@ begin
   );
 end;
 
-procedure CreateWatchdogLogonTask;
+function CreateWatchdogLogonTask: Boolean;
 var
   WatchdogPath: String;
   Params: String;
   ResultCode: Integer;
 begin
+  Result := False;
   ResultCode := -1;
   WatchdogPath := ExpandConstant(
     '{autopf}\{#MyEditionInstallDir}\server\{#MyWatchdogName}');
@@ -1180,6 +1181,82 @@ begin
       '没能创建开机自动启动任务（错误代码：' + IntToStr(ResultCode) + '）。' + #13#10#13#10 +
       '输入法已经装好，不影响使用：开机后第一次切换到 {#MyAppName} 时会自动启动。' + #13#10 +
       '如果装有安全软件，可能是它拦截了创建计划任务，放行后重新运行安装程序即可恢复开机启动。',
+      mbInformation, MB_OK, IDOK);
+    exit;
+  end;
+  Result := True;
+end;
+
+{ 登录任务的 Priority 默认是 7（Below normal），看门狗和它拉起的 Server 会一起被降级：CPU
+  调度类降到 Below normal、内存优先级降到 Low，任务还会默认在电池上不启动、切换电池即停止，
+  并在 72 小时后强制结束。schtasks /Create 没有这些参数，这里导出任务 XML、补上设置再按同一
+  份 XML 重建，并读回校验。用 XML 而不是 Get-ScheduledTask/Set-ScheduledTask：Windows 7 的
+  PowerShell 2.0 没有 ScheduledTasks 模块。任务名和临时路径经 cmd 转发，任务名里的空格和括号
+  不会被拆成多个参数。 }
+procedure ConfigureWatchdogLogonTask;
+var
+  Script: String;
+  Params: String;
+  ResultCode: Integer;
+begin
+  ResultCode := -1;
+  Script :=
+    '$ErrorActionPreference=''Stop''; ' +
+    '$n=''{#MyWatchdogTaskName}''; ' +
+    '$q=[char]34; ' +
+    '$f=[IO.Path]::Combine([IO.Path]::GetTempPath(),[Guid]::NewGuid().ToString(''N'')+''.xml''); ' +
+    'function Get-TaskXml($name,$file) { ' +
+    '  & cmd.exe /c (''schtasks.exe /Query /TN ''+$q+$name+$q+'' /XML > ''+$q+$file+$q) | Out-Null; ' +
+    '  if ($LASTEXITCODE -ne 0) { exit 1 }; ' +
+    '  return [xml][IO.File]::ReadAllText($file) }; ' +
+    'function Set-Setting($settings,$key,$value) { ' +
+    '  $element=$settings.SelectSingleNode(''t:''+$key,$ns); ' +
+    '  if ($null -eq $element) { ' +
+    '    $element=$settings.OwnerDocument.CreateElement($key,$u); ' +
+    '    $settings.AppendChild($element) | Out-Null }; ' +
+    '  $element.InnerText=$value }; ' +
+    'try { ' +
+    '  $x=Get-TaskXml $n $f; ' +
+    '  $u=$x.DocumentElement.NamespaceURI; ' +
+    '  $ns=New-Object System.Xml.XmlNamespaceManager -ArgumentList $x.NameTable; ' +
+    '  $ns.AddNamespace(''t'',$u); ' +
+    '  $s=$x.SelectSingleNode(''//t:Settings'',$ns); ' +
+    '  if ($null -eq $s) { exit 1 }; ' +
+    '  Set-Setting $s ''Priority'' ''4''; ' +
+    '  Set-Setting $s ''DisallowStartIfOnBatteries'' ''false''; ' +
+    '  Set-Setting $s ''StopIfGoingOnBatteries'' ''false''; ' +
+    '  Set-Setting $s ''ExecutionTimeLimit'' ''PT0S''; ' +
+    '  $x.Save($f); ' +
+    '  & schtasks.exe /Create /F /TN $n /XML $f | Out-Null; ' +
+    '  if ($LASTEXITCODE -ne 0) { exit 1 }; ' +
+    '  $c=Get-TaskXml $n $f; ' +
+    '  $cs=$c.SelectSingleNode(''//t:Settings'',$ns); ' +
+    '  if (($null -eq $cs) -or ([int]$cs.Priority -ne 4) -or ' +
+    '      ($cs.DisallowStartIfOnBatteries -ne ''false'') -or ' +
+    '      ($cs.StopIfGoingOnBatteries -ne ''false'') -or ' +
+    '      ($cs.ExecutionTimeLimit -ne ''PT0S'')) { exit 1 } ' +
+    '} finally { ' +
+    '  Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue }';
+  Params :=
+    '-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "' + Script + '"';
+  if
+    (not {#ExecNativeSys}(
+      ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+      Params,
+      '',
+      SW_HIDE,
+      ewWaitUntilTerminated,
+      ResultCode
+    )) or
+    (ResultCode <> 0)
+  then
+  begin
+    { 任务已经建好、开机自启照常，只是还带着默认的降级设置；这不是装不装得上的问题，
+      不能像创建失败那样打断安装。 }
+    Log('Configuring the watchdog logon task failed: ' + IntToStr(ResultCode) + ' ' + SysErrorMessage(ResultCode));
+    SuppressibleMsgBox(
+      '开机自动启动任务已创建，但没能调到正常优先级（错误代码：' + IntToStr(ResultCode) + '）。' + #13#10#13#10 +
+      '输入法照常可用；电脑繁忙时，开机后第一次输入可能比平时慢。',
       mbInformation, MB_OK, IDOK);
   end;
 end;
@@ -1530,7 +1607,8 @@ begin
 #ifndef LightPackage
     ApplyNetworkChoiceToUserConfig;
 #endif
-    CreateWatchdogLogonTask;
+    if CreateWatchdogLogonTask then
+      ConfigureWatchdogLogonTask;
     EnsureImeUserDataDir;
     { Last: every step above that can fail raises before this, so a failed install keeps the previous data directory. }
     FinishDataDirMove;
