@@ -4399,6 +4399,63 @@ int main(int argc, char **argv) {
     state->voice_ralt_held_ = false;
     state->voice_space_consumed_ = false;
     state->voice_space_locked_ = false;
+    // 按住右 Alt 时按了组合键（#10580，对齐 Windows #10581）：按键带着 Alt 交给应用，这次按住开始的录音取消、不上屏；右 Alt 的重复和松开吞掉，不重新开始按住，也不结束录音。
+    {
+      const auto committedBeforeChord = ic.committed;
+      const auto alt = fcitx::KeyStates(fcitx::KeyState::Alt);
+      state->voice_job_ = detachedJob([] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        return Json{{"text", "组合键语音"}};
+      });
+      state->voice_loading_ = true;
+      state->voice_socket_.clear();
+      state->voice_generation_ = 0;
+      state->voice_ralt_held_ = true;
+      state->voice_hold_started_ = true;
+      fcitx::KeyEvent chord(&ic, fcitx::Key(FcitxKey_F10, alt));
+      engine.keyEvent(entry, chord);
+      require(!chord.accepted(), "a key pressed during a right-Alt hold reaches the application");
+      require(!state->voice_loading_ && !state->voice_ralt_held_ && state->voice_ralt_chord_until_up_,
+              "a chord during a right-Alt hold cancels the recording the hold started");
+      fcitx::KeyEvent repeat(&ic, fcitx::Key(FcitxKey_Alt_R, alt));
+      engine.keyEvent(entry, repeat);
+      require(repeat.accepted() && !state->voice_ralt_held_ && !state->voice_loading_,
+              "right-Alt auto-repeat after a chord is swallowed without starting another hold");
+      fcitx::KeyEvent release(&ic, fcitx::Key(FcitxKey_Alt_R, alt), true);
+      engine.keyEvent(entry, release);
+      require(release.accepted() && !state->voice_ralt_chord_until_up_,
+              "right-Alt release after a chord is swallowed");
+      const auto chordDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+      while (state->voice_job_.valid() && std::chrono::steady_clock::now() < chordDeadline) {
+        state->refreshVoice();
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      }
+      require(ic.committed == committedBeforeChord, "a recording cancelled by a chord is not committed");
+      // 按住只是接管了已有的听写（Ctrl+F9 开的），组合键不取消它；按住照样结束。
+      state->voice_loading_ = true;
+      state->voice_ralt_held_ = true;
+      state->voice_hold_started_ = false;
+      fcitx::KeyEvent kept(&ic, fcitx::Key(FcitxKey_F10, alt));
+      engine.keyEvent(entry, kept);
+      require(!kept.accepted() && state->voice_loading_ && !state->voice_ralt_held_,
+              "a chord does not cancel a dictation the hold did not start");
+      fcitx::KeyEvent keptRelease(&ic, fcitx::Key(FcitxKey_Alt_R, alt), true);
+      engine.keyEvent(entry, keptRelease);
+      require(keptRelease.accepted() && state->voice_loading_,
+              "right-Alt release after a chord does not stop a dictation the hold did not start");
+      // 空格锁定之后是用户要留下的听写，组合键不算，按住也不结束。
+      state->voice_ralt_held_ = true;
+      state->voice_hold_started_ = true;
+      state->voice_space_locked_ = true;
+      fcitx::KeyEvent locked(&ic, fcitx::Key(FcitxKey_F10, alt));
+      engine.keyEvent(entry, locked);
+      require(state->voice_loading_ && state->voice_ralt_held_,
+              "a chord does not cancel a recording locked with Space");
+      state->voice_ralt_held_ = false;
+      state->voice_hold_started_ = false;
+      state->voice_space_locked_ = false;
+      state->voice_loading_ = false;
+    }
     const auto committedBeforeCancel = ic.committed;
     // 使用产品相同的后台任务；std::async 的最后一份 future 析构会等待，无法验证非阻塞取消。
     state->voice_job_ = detachedJob([] {

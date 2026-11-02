@@ -3435,6 +3435,65 @@ int main(int argc, char **argv) {
               "Locked recording sent duplicate stop requests");
       seen.committed.clear();
     }
+    // 按住右 Alt 时再按别的键是组合键（#10580，对齐 Windows #10581）：按键带着 Alt 交给应用，这次按住开始的录音取消、不上屏，右 Alt 的重复和松开仍被吞掉、不再结束录音。右 Ctrl+右 Alt 同样适用。
+    for (guint held_control : {guint(0), guint(IBUS_CONTROL_MASK)}) {
+      const auto starts = voice_provider.started.load();
+      const auto stops = voice_provider.stop_requests.load();
+      const auto cancels = voice_provider.cancelled.load();
+      const auto finals = voice_provider.finished.load();
+      if (held_control) require(!key(IBUS_Control_R, IBUS_CONTROL_MASK), "Chord Ctrl press was intercepted");
+      require(key(IBUS_Alt_R, IBUS_MOD1_MASK | held_control), "Chord fixture hold did not start");
+      require(wait_voice([&] { return voice_provider.started.load() == starts + 1; }),
+              "Chord fixture hold did not reach the provider");
+      require(!key(IBUS_F10, IBUS_MOD1_MASK | held_control),
+              "A key pressed during a right-Alt hold was not handed to the application");
+      require(wait_voice([&] { return voice_provider.cancelled.load() == cancels + 1; }),
+              "A chord during a right-Alt hold did not cancel the recording the hold started");
+      key(IBUS_F10, IBUS_MOD1_MASK | held_control | IBUS_RELEASE_MASK);
+      require(key(IBUS_Alt_R, IBUS_MOD1_MASK | held_control),
+              "Right Alt auto-repeat after a chord was not consumed");
+      require(voice_provider.started.load() == starts + 1,
+              "Right Alt auto-repeat after a chord started another recording");
+      require(key(IBUS_Alt_R, IBUS_MOD1_MASK | held_control | IBUS_RELEASE_MASK),
+              "Right Alt release after a chord was not consumed");
+      if (held_control) require(!key(IBUS_Control_R, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK), "Chord Ctrl release was intercepted");
+      voice_provider.release_final = true;
+      require(wait_voice([&] { return voice_provider.finished.load() == finals + 1; }),
+              "Cancelled chord recording did not finish at the provider");
+      const auto chord_settle = g_get_monotonic_time() + 100000;
+      while (g_get_monotonic_time() < chord_settle) {
+        while (g_main_context_iteration(nullptr, FALSE)) {}
+        g_usleep(1000);
+      }
+      require(seen.committed.empty() && voice_provider.stop_requests.load() == stops,
+              "A chord during a right-Alt hold still stopped or committed the recording");
+    }
+    {
+      // 按住之前就在录的听写（Ctrl+F9）不是这次按住开始的，组合键不取消它；右 Alt 松开也不再结束它，听写照常继续。
+      const auto starts = voice_provider.started.load();
+      const auto stops = voice_provider.stop_requests.load();
+      const auto cancels = voice_provider.cancelled.load();
+      require(key(IBUS_F9, IBUS_CONTROL_MASK), "Ctrl+F9 did not start the chord dictation fixture");
+      key(IBUS_F9, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK);
+      require(wait_voice([&] { return voice_provider.started.load() == starts + 1; }),
+              "Chord dictation fixture did not reach the provider");
+      require(key(IBUS_Alt_R, IBUS_MOD1_MASK), "Right Alt during dictation was not consumed");
+      require(!key(IBUS_F10, IBUS_MOD1_MASK), "A chord during dictation was not handed to the application");
+      key(IBUS_F10, IBUS_MOD1_MASK | IBUS_RELEASE_MASK);
+      require(key(IBUS_Alt_R, IBUS_MOD1_MASK | IBUS_RELEASE_MASK), "Right Alt release during dictation was not consumed");
+      g_usleep(50000);
+      while (g_main_context_iteration(nullptr, FALSE)) {}
+      require(voice_provider.cancelled.load() == cancels && voice_provider.stop_requests.load() == stops,
+              "A chord cancelled or stopped a dictation the hold did not start");
+      require(key(IBUS_F9, IBUS_CONTROL_MASK), "Ctrl+F9 did not stop the chord dictation fixture");
+      key(IBUS_F9, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK);
+      require(wait_voice([&] { return voice_provider.stop_requests.load() == stops + 1; }),
+              "Ctrl+F9 did not stop the dictation after a chord");
+      voice_provider.release_final = true;
+      require(wait_voice([&] { return seen.committed == "synthetic voice"; }),
+              "Dictation kept through a chord lost its final recognition");
+      seen.committed.clear();
+    }
     // Real IBus clients (X11, GDK, mutter) report the modifier state from before the key, so a hold key's own bit is missing on its press, and GTK3 adds the virtual SUPER bit next to MOD4. The shortcuts follow the physical key, as on Windows.
     auto physical_hold = [&](guint control, guint hold, guint state, const char *what) {
       const auto starts = voice_provider.started.load();
