@@ -211,6 +211,13 @@ export class HarmonyLocalAsrRecognizer {
     // Id 0 is a failure the worker could not attribute to a request; it belongs to whatever is running.
     const id: number = reply.id === 0 ? this.sessionId : reply.id;
     if (id !== this.sessionId || !this.active) return;
+    if (reply.type === 'started') {
+      // sherpa-onnx 在工作线程首次建模时加载原生库，此时刷新崩溃记录器的模块快照。
+      try { client.telemetryNativeRefreshModules(); } catch (error) {
+        KeyboardLog.warn(`崩溃模块快照刷新失败：${describeError(error)}`);
+      }
+      return;
+    }
     if (reply.type === 'partial') {
       const handler: LocalAsrResultHandler | undefined = this.resultHandler;
       if (handler !== undefined && !this.finishing) handler(reply.text, false);

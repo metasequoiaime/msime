@@ -77,7 +77,7 @@ jobs:
         run: |
           set -euo pipefail
           bash platforms/windows/bootstrap-vcpkg.sh
-          rustup target add aarch64-linux-android
+          bash scripts/rustup-install.sh aarch64-linux-android
       - name: Build native Android host
         # 发布包必须用仓库 secrets 里的发布密钥签名：此前用的是 runner 上临时生成的开发密钥，每次发版签名都不同，用户无法覆盖升级。缺少 secrets 时直接失败，不退回开发密钥。
         env:

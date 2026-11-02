@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head><meta charset="utf-8"><style>body { font: -apple-system-body; font-family: -apple-system, sans-serif; }</style></head>
+<body>
+<p>「@NAME@」已安装到「应用程序」。还差几步：</p>
+<ol>
+<li>在自动打开的「@NAME@」安装窗口里点「立即安装」。没有自动打开时，到「应用程序」里打开「@NAME@」。</li>
+<li><strong>第一次在这台 Mac 上安装时，请在苹果菜单中选「退出登录」，重新登录后</strong>再到「系统设置」→「键盘」→「文字输入」→「输入法」中添加「@NAME@」。macOS 要到下次登录才会列出新装的输入法；以后更新不需要再重新登录。</li>
+<li>添加后在菜单栏的输入法菜单中选「@NAME@」，或按 Control+空格 切换。</li>
+</ol>
+<p>这台 Mac 上的其他用户各自打开一次「@NAME@」，点「立即安装」即可。</p>
+</body>
+</html>

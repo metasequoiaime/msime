@@ -2,7 +2,7 @@
 //!
 //! 读取的上游文件：`jyut6ping3.chars.dict.yaml`（每行一个字、它的带声调读音，以及可选的 `N%`，即这个读音占该字用量的比例）、`jyut6ping3.words.dict.yaml`（每行一个词和它的带声调读音）、`essay-cantonese.txt`（Rime 的词频表，每行 `text<TAB>count`）、`hkcancor-word-counts.txt`（香港粤语语料库 HKCanCor 的词频，CC BY 4.0，由 `hkcancor.rs` 生成到 msime-dictionary，只列两个及以上汉字的词），以及 OpenCC 的 `TWVariants.txt`（`VARIANTS`，只用来列出候选的异体对，见下文）；另外读本项目自己的 `custom/cantonese.txt`（`CUSTOM`，见下文）。`jyut6ping3.maps.dict.yaml` 是 ODbL，`jyut6ping3.phrase.dict.yaml` 没有读音、来源也不清楚，两者都不固定、不读取；`jyut6ping3.lettered.dict.yaml` 也不读。
 //!
-//! 方案输入不带声调的粤拼，所以每个读音都去掉声调数字，条目的键是去声调的音节以一个空格连接（`nei hou`）。只差声调的读音合成一个条目，取最大的权重。词的权重是它的 essay 分数。essay 以书面语为主，词表里约五分之二的词它没有收，最常用的口语词也在其中（我哋、佢哋、嗰啲、食咗）。这类词若语料有计数，权重是语料次数乘以 `corpus_scale`，即两者都收的词上 essay 分数与语料次数之比的中位数，把语料次数换算到 essay 的尺度（我哋在语料里出现 446 次，落在點解附近）。语料次数不到 `CORPUS_MIN_COUNT` 的词压到同键 essay 所列最轻的词之下一位，免得只出现过一次的异写或切分偶然（物証之于物證）排到 essay 收录的词前面。其余没收的词按 `unlisted_word_weight` 加权：1 加上它最罕用的字的 essay 分数以 2 为底的对数，这样同音词按用字的常见程度排序，又远低于 essay 给收录词的分数（大多至少 100）。字的权重是它的 essay 分数，行里给了比例时按比例折算，最低为 1。
+//! 方案输入不带声调的粤拼，所以每个读音都去掉声调数字，条目的键是去声调的音节以一个空格连接（`nei hou`）。只差声调的读音合成一个条目，取最大的权重。词的权重是它的 essay 分数。essay 以书面语为主，词表里约五分之二的词它没有收，最常用的口语词也在其中（我哋、佢哋、嗰啲、食咗）。这类词若语料有计数，权重是语料次数乘以 `corpus_scale`，即两者都收的词上 essay 分数与语料次数之比的中位数，把语料次数换算到 essay 的尺度（我哋在语料里出现 446 次，落在點解附近）。语料次数不到 `CORPUS_MIN_COUNT` 的词压到同键 essay 所列最轻的词之下一位，免得只出现过一次的异写或切分偶然（物証之于物證）排到 essay 收录的词前面。其余没收的词按 `unlisted_word_weight` 加权：1 加上它最罕用的字的 essay 分数以 2 为底的对数，这样同音词按用字的常见程度排序，又远低于 essay 给收录词的分数（大多至少 100）。字的权重是它的 essay 分数，行里给了比例时按比例折算，最低为 1；主要出现在词里的字再按 `WORD_FLOOR_CEILING` 由所在的词带出一个下限（「词带字」）。
 //!
 //! 字表、词表和 essay 用 OpenCC 标准字形（爲、衆），HKCanCor 用香港实际书写的字形（為、眾）。构建时把 OpenCC 字形换成香港字形，换哪些字由数据决定：异体对取自 OpenCC 的 `TWVariants.txt`（msime-dictionary 的 `sources/opencc/` 原样收录），一对里只有 HKCanCor 词频表用另一形、完全不用 OpenCC 形时才换（`hong_kong_forms`）；两形语料都没有的对、两形都用的对（着/著）、香港仍用 OpenCC 形的对（裏/裡）都不动。词频表不收单字词，判定只看两个及以上汉字的词：语料里单独成词的字不算，固定提交的 HKCanCor 里「羣」单独出现过 1 次，按词频表仍换成「群」。这张表不收 說/説、溫/温、戶/户、衛/衞 这类《常用字字形表》的异体，它们本来就不在考虑之内。替换只改写入的字面：字的权重仍按原字面查 essay，词、essay 补词和人工词表按替换后的字面查 essay 与语料（`essay_by_hong_kong_form` 把各写法的 essay 分数合到香港字形上，HKCanCor 本来就是香港字形），合并后的两行由 `Dictionary::insert` 取较大权重，所以「為」继承「爲」的 184291，「因爲」写成「因為」。单字另外保留 OpenCC 字形：「峯」「羣」这类字本身也常用（人名里尤其多），粤语方案又没有学习数据，换掉就打不出来，所以 OpenCC 字形的单字行照样写入，权重取它自己的分数与香港字形权重减一中较小的那个（至少为 1），「爲」得 184290，紧排在「為」下面；词只写香港字形。
 //!
@@ -17,6 +17,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
+use msime_engine::cantonese::scheme::SPAN_LIMIT;
+use rusqlite::OptionalExtension;
 
 pub const CHARACTERS: &str = "sources/cantonese/jyut6ping3.chars.dict.yaml";
 pub const WORDS: &str = "sources/cantonese/jyut6ping3.words.dict.yaml";
@@ -41,6 +43,9 @@ pub const ESSAY_WORD_MIN_COUNT: i64 = 1000;
 /// The corpus count from which a word may rank ahead of a word the essay lists on the same key. The corpus has about 160 thousand tokens, so a word seen once or twice there is as likely a variant spelling (物証, 遊盪) or a segmentation accident (唔知 is split while 唔止 is kept whole) as a common word; below this count its corpus weight is held one below the lightest essay-listed word of its key.
 pub const CORPUS_MIN_COUNT: i64 = 3;
 
+/// 单字「词带字」下限趋近而达不到的值。essay 对多数字只数它单独出现的次数，主要出现在词里的字因此分数很低（「逾」177、「慈」177、「漁」88），在同音字里排到第两百名开外。构建给每个单音节字加一个下限：词库里含这个字、且这个位置读这个音节的词，其 essay 分数之和 `s`，换算成 `s × C / (s + C)`（`C` 即本常量），字的权重取它与原权重中较大的那个。换算随 `s` 单调增大、永远小于 `C`，所以词频再高也排不过 essay 单独计到 `C` 分及以上的字，各键的常用字顺序不动，只按词频重排低分的长尾。essay 所列的 20,549 个单字里约 1,850 个在 2000 分以上。
+pub const WORD_FLOOR_CEILING: i64 = 2000;
+
 /// The floors `verify` enforces on a release build.
 pub const FLOORS: Floors = Floors {
     syllables: 600,
@@ -48,12 +53,14 @@ pub const FLOORS: Floors = Floors {
     words: 90_000,
 };
 
-/// Keys whose top three entries must include the text, as a check against gross ranking errors.
-pub const EXPECTED: [(&str, &str); 4] = [
-    ("nei hou", "你好"),
-    ("gwong dung waa", "廣東話"),
-    ("wai", "為"),
-    ("jan wai", "因為"),
+/// Keys whose first entries, as many as the third field, must include the text, as a check against gross ranking errors. 「逾」「慈」主要出现在词里，essay 单字分数只有 177，靠 `WORD_FLOOR_CEILING` 的词带字下限才排进前列，没有下限时分别落在 jyu 的第 204 位、ci 的第 171 位（#10448）。
+pub const EXPECTED: [(&str, &str, usize); 6] = [
+    ("nei hou", "你好", 3),
+    ("gwong dung waa", "廣東話", 3),
+    ("wai", "為", 3),
+    ("jan wai", "因為", 3),
+    ("jyu", "逾", 50),
+    ("ci", "慈", 30),
 ];
 
 #[derive(Debug, Clone, Copy)]
@@ -89,6 +96,8 @@ pub struct Dictionary {
     pub corpus_capped: usize,
     /// `custom/cantonese.txt` 里新增了条目或抬高了已有条目权重的行数。
     pub custom_words: usize,
+    /// 按 `WORD_FLOOR_CEILING` 的「词带字」下限抬高了权重的单字条目数。
+    pub characters_raised: usize,
 }
 
 /// `custom/cantonese.txt` 的一行。
@@ -485,7 +494,7 @@ pub fn build(
         }
         dictionary.insert(key, &text, weight);
     }
-    // 不取下限 1：「爲」按 1 分会落在 wai 的第二百多位，超出引擎的 SPAN_LIMIT，又看不到了（#10420）。
+    // 不取下限 1：「爲」按 1 分会落在 wai 的第二百多位，几乎翻不到（#10420；当时还超出引擎的 SPAN_LIMIT，完全看不到）。
     for (key, opencc, hong_kong, weight) in kept_opencc {
         let below = dictionary.entries[&(key.clone(), hong_kong)] - 1;
         dictionary.insert(key, opencc, weight.min(below).max(1));
@@ -596,6 +605,41 @@ pub fn build(
         }
     }
 
+    // 词带字：所有来源的词都已写入，按位置把每个词的 essay 分数记到「这个音节上的这个字」。字数与音节数不同的词（含「兡」这类两音节字）对不上位置，不计；essay 没列的词不计，语料与回退权重不带字。
+    let mut in_words: HashMap<(String, char), i64> = HashMap::new();
+    for (key, text) in dictionary.entries.keys() {
+        if text.chars().nth(1).is_none() || text.chars().count() != key.split(' ').count() {
+            continue;
+        }
+        let Some(count) = essay_count(text) else {
+            continue;
+        };
+        for (syllable, character) in key.split(' ').zip(text.chars()) {
+            let sum = in_words
+                .entry((syllable.to_owned(), character))
+                .or_insert(0);
+            *sum = sum.saturating_add(count);
+        }
+    }
+    for ((key, text), weight) in &mut dictionary.entries {
+        let mut characters = text.chars();
+        let (Some(character), None) = (characters.next(), characters.next()) else {
+            continue;
+        };
+        let Some(&sum) = in_words.get(&(key.clone(), character)) else {
+            continue;
+        };
+        let floor = i64::try_from(
+            i128::from(sum) * i128::from(WORD_FLOOR_CEILING)
+                / (i128::from(sum) + i128::from(WORD_FLOOR_CEILING)),
+        )
+        .expect("the floor is below WORD_FLOOR_CEILING");
+        if floor > *weight {
+            *weight = floor;
+            dictionary.characters_raised += 1;
+        }
+    }
+
     dictionary.syllables = dictionary
         .entries
         .keys()
@@ -624,7 +668,7 @@ pub struct Counts {
     pub words: usize,
 }
 
-/// Opens a written database the way the engine does and fails when it is below `floors` or a key of `EXPECTED` lacks its text in the top three.
+/// Opens a written database the way the engine does and fails when it is below `floors`, when a key holds more entries than the engine reads for it (`SPAN_LIMIT`), or when a key of `EXPECTED` lacks its text among its first entries.
 pub fn verify(path: &Path, floors: Floors) -> Result<Counts> {
     let (dictionary, connection) = crate::language_verify::open(path)?;
     let count = |sql| crate::language_verify::count(&connection, sql);
@@ -641,14 +685,34 @@ pub fn verify(path: &Path, floors: Floors) -> Result<Counts> {
             ("word entries", counts.words, floors.words),
         ],
     )?;
-    for (key, text) in EXPECTED {
+    // 引擎每个完整音节段只读 `SPAN_LIMIT` 行，超出的行永远翻不到（#10448）；与其悄悄截掉，不如让构建失败，再决定提高上限还是删减条目。
+    let largest: Option<(String, i64)> = connection
+        .query_row(
+            "SELECT key, count(*) AS rows FROM entries GROUP BY key ORDER BY rows DESC, key LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    if let Some((key, rows)) = largest {
+        if usize::try_from(rows)? > SPAN_LIMIT {
+            bail!(
+                "{}: {key:?} has {rows} entries, more than the {SPAN_LIMIT} the engine reads for a key",
+                path.display()
+            );
+        }
+    }
+    for (key, text, first) in EXPECTED {
         let top = dictionary
-            .lookup(key, 3)
+            .lookup(key, first)
             .map_err(|error| anyhow::anyhow!("{}: {error}", path.display()))?;
         if !top.iter().any(|entry| entry.text == text) {
-            let found: Vec<&str> = top.iter().map(|entry| entry.text.as_str()).collect();
+            let found: Vec<&str> = top
+                .iter()
+                .take(3)
+                .map(|entry| entry.text.as_str())
+                .collect();
             bail!(
-                "{}: {key:?} offers {found:?} first, without {text}",
+                "{}: {key:?} offers {found:?} first, without {text} in its first {first}",
                 path.display()
             );
         }
@@ -664,7 +728,7 @@ mod tests {
     const HEADER: &str = "# Rime dictionary\n# encoding: utf-8\n\n---\nname: jyut6ping3.chars\nversion: \"2026.08.10\"\nsort: by_weight\n...\n\n";
 
     fn characters_source() -> String {
-        format!("{HEADER}你\tnei5\n妳\tnei5\n好\thou2\n好\thou3\t40%\n號\thou6\t0%\n廣\tgwong2\n東\tdung1\n話\twaa6\t80%\n話\twaa2\t20%\n呢\tne1\n呢\tnei4\t5%\n爲\twai4\n為\twai4\t5%\n因\tjan1\n")
+        format!("{HEADER}你\tnei5\n妳\tnei5\n好\thou2\n好\thou3\t40%\n號\thou6\t0%\n廣\tgwong2\n東\tdung1\n話\twaa6\t80%\n話\twaa2\t20%\n呢\tne1\n呢\tnei4\t5%\n爲\twai4\n為\twai4\t5%\n因\tjan1\n逾\tjyu4\n慈\tci4\n")
     }
 
     fn words_source() -> String {
@@ -695,7 +759,7 @@ mod tests {
         )
     }
 
-    /// 只把「爲」换成「為」，让样例库满足 `EXPECTED` 里的 ("wai", "為") 与 ("jan wai", "因為")。
+    /// 只把「爲」换成「為」，让样例库满足 `EXPECTED` 里的 ("wai", "為") 与 ("jan wai", "因為")；字表里的「逾」「慈」满足 jyu 与 ci 两项。
     fn sample_forms() -> HongKongForms {
         HongKongForms::from([(
             '爲',
@@ -710,7 +774,7 @@ mod tests {
     fn rows_after_the_header_lose_their_tones() {
         let characters = characters_source();
         let rows = parse_characters(&characters).unwrap();
-        assert_eq!(rows.len(), 14);
+        assert_eq!(rows.len(), 16);
         assert_eq!(
             rows[3],
             Row {
@@ -731,17 +795,21 @@ mod tests {
         assert_eq!(
             entries(&dictionary),
             [
-                ("dung", "東", 1),
+                ("ci", "慈", 1),
+                // 東、廣、話的 essay 单字分数低于廣東話带来的下限 6851 × 2000 / (6851 + 2000)。
+                ("dung", "東", 1548),
                 ("fi li fe le", "fi li fe le", 1),
-                ("gwong", "廣", 1),
+                ("gwong", "廣", 1548),
                 ("gwong dung waa", "廣東話", 6851),
                 // 好 is hou2 (5000) and hou3 at 40% (2000); the tones collapse into the larger weight.
                 ("hou", "好", 5000),
                 // 0% of 10 floors at 1.
                 ("hou", "號", 1),
-                ("jan", "因", 1),
+                // 因為的 713185 分换算成下限，逼近而达不到 WORD_FLOOR_CEILING。
+                ("jan", "因", 1994),
                 // 因爲写成因為，沿用它的 essay 分数。
                 ("jan wai", "因為", 713185),
+                ("jyu", "逾", 1),
                 ("ne", "呢", 2000),
                 ("nei", "你", 7000),
                 // 5% of 2000.
@@ -750,8 +818,8 @@ mod tests {
                 ("nei dei", "你哋", 40),
                 // Every character of 你好 has one toneless reading and the essay counts it often enough; the larger of its two counts wins.
                 ("nei hou", "你好", 21493),
-                // 80% of 900, the larger share of waa2 and waa6.
-                ("waa", "話", 720),
+                // 80% of 900 is 720, below the 1548 廣東話 brings.
+                ("waa", "話", 1548),
                 // 為自己的 5% 份额没有 essay 分数，合并后取爲的 184291；爲仍单列，排在為下面一位。
                 ("wai", "為", 184291),
                 ("wai", "爲", 184290),
@@ -765,8 +833,9 @@ mod tests {
                 dictionary.words,
                 dictionary.essay_words
             ),
-            (12, 4, 1)
+            (14, 4, 1)
         );
+        assert_eq!(dictionary.characters_raised, 4);
     }
 
     #[test]
@@ -1200,8 +1269,8 @@ mod tests {
         assert_eq!(
             syllables,
             [
-                "dei", "dung", "fe", "fi", "gwong", "hou", "jan", "le", "li", "ne", "nei", "waa",
-                "wai"
+                "ci", "dei", "dung", "fe", "fi", "gwong", "hou", "jan", "jyu", "le", "li", "ne",
+                "nei", "waa", "wai"
             ]
         );
     }
@@ -1340,32 +1409,32 @@ mod tests {
     fn verify_enforces_the_floors_and_the_expected_entries() {
         let (_dir, path) = written(&sample());
         let floors = Floors {
-            syllables: 13,
-            characters: 12,
+            syllables: 15,
+            characters: 14,
             words: 5,
         };
         assert_eq!(
             verify(&path, floors).unwrap(),
             Counts {
-                syllables: 13,
-                characters: 12,
+                syllables: 15,
+                characters: 14,
                 words: 5
             }
         );
         for (below, what) in [
             (
                 Floors {
-                    syllables: 14,
+                    syllables: 16,
                     ..floors
                 },
-                "13 syllables, below the floor of 14",
+                "15 syllables, below the floor of 16",
             ),
             (
                 Floors {
-                    characters: 13,
+                    characters: 15,
                     ..floors
                 },
-                "12 character entries, below the floor of 13",
+                "14 character entries, below the floor of 15",
             ),
             (
                 Floors { words: 6, ..floors },
@@ -1400,5 +1469,71 @@ mod tests {
         .unwrap_err()
         .to_string();
         assert!(error.contains("without 你好"), "{error}");
+    }
+
+    #[test]
+    fn characters_written_inside_words_rise_toward_the_ceiling() {
+        let characters = format!(
+            "{HEADER}逾\tjyu4\n於\tjyu1\n期\tkei4\n越\tjyut6\n行\thaang4\n行\thong4\t5%\n銀\tngan4\n慈\tci4\n善\tsin6\n次\tci3\n"
+        );
+        let words = format!(
+            "{HEADER}逾期\tjyu4 kei4\n逾越\tjyu4 jyut6\n銀行\tngan4 hong4\n慈善\tci4 sin6\n"
+        );
+        let essay = parse_essay(
+            "逾\t177\n於\t92012\n期\t50000\n越\t30000\n行\t11408\n銀\t9000\n慈\t177\n善\t40000\n次\t2000\n逾期\t1196\n逾越\t833\n銀行\t30000\n慈善\t10000000\n",
+        )
+        .unwrap();
+        let dictionary = build(
+            &parse_characters(&characters).unwrap(),
+            &parse_words(&words).unwrap(),
+            &essay,
+            &HashMap::new(),
+            &[],
+            &HongKongForms::new(),
+        );
+        let weight = |key: &str, text: &str| dictionary.entries[&(key.to_owned(), text.to_owned())];
+        // 逾期与逾越合计 2029 分：2029 × 2000 / 4029 = 1007，「逾」从 177 升到 1007，仍在单独常用的「於」之下。
+        assert_eq!(weight("jyu", "逾"), 1007);
+        assert_eq!(weight("jyu", "於"), 92012);
+        // 只按词里这个位置的读音计：銀行把 hong 的「行」从 5% 的 570 抬到 1875，haang 的「行」不受影响。
+        assert_eq!(weight("hong", "行"), 1875);
+        assert_eq!(weight("haang", "行"), 11408);
+        // 词频再高也到不了上限：慈善的一千万分只让「慈」到 1999，排不过 essay 单独计到 2000 分的「次」。
+        assert_eq!(weight("ci", "慈"), 1999);
+        assert_eq!(weight("ci", "次"), 2000);
+        // 期、越、銀、善的单字分数已高于各自的下限，不变。
+        assert_eq!(weight("kei", "期"), 50000);
+        assert_eq!(weight("ngan", "銀"), 9000);
+        assert_eq!(dictionary.characters_raised, 3);
+    }
+
+    #[test]
+    fn verify_fails_a_key_with_more_entries_than_the_engine_reads() {
+        let floors = Floors {
+            syllables: 0,
+            characters: 0,
+            words: 0,
+        };
+        for (rows, over) in [(SPAN_LIMIT, false), (SPAN_LIMIT + 1, true)] {
+            let dictionary = Dictionary {
+                syllables: BTreeSet::from(["jyu".to_owned()]),
+                entries: (0..rows)
+                    .map(|index| {
+                        let weight = i64::try_from(index).unwrap() + 1;
+                        (("jyu".to_owned(), format!("字{index}")), weight)
+                    })
+                    .collect(),
+                ..Dictionary::default()
+            };
+            let (_dir, path) = written(&dictionary);
+            let error = verify(&path, floors).unwrap_err().to_string();
+            assert_eq!(
+                error.contains(&format!(
+                    "\"jyu\" has {rows} entries, more than the {SPAN_LIMIT}"
+                )),
+                over,
+                "{error}"
+            );
+        }
     }
 }

@@ -21,6 +21,8 @@ public final class DictionaryCollectionsStore {
     public static final String BUILTIN_PREFIX = "builtin:";
     /** 内置拼音词库的 id。 */
     public static final String BUILTIN_PINYIN = BUILTIN_PREFIX + "pinyin";
+    /** 粤语词库的 id：只有用户自己加的粤语词，和拼音词库一样常开，不是命名词库。 */
+    public static final String BUILTIN_CANTONESE = BUILTIN_PREFIX + "cantonese";
     /** 集合名最多的字数，与 client-services 一致。 */
     public static final int MAX_NAME_CHARS = 32;
     /** 导入文件读进内存的上限，与 client-services 的导入文本上限一致。 */
@@ -31,6 +33,8 @@ public final class DictionaryCollectionsStore {
     public static final int MAX_EXPORT_BYTES = 8 * 1024 * 1024;
     /** 新词的默认权重，与导入时省略权重的默认值一致。 */
     public static final long DEFAULT_WEIGHT = 10000;
+    /** 新粤语词的默认权重。粤语词库的权重按语料词频算，多字词大多在几万以下：手动加的词默认排在同一编码的多数发布词前面，单字的高频读音仍在它前面。与共享设置页的 `CANTONESE_NEW_WORD_WEIGHT`、iOS 的默认权重相同。 */
+    public static final long CANTONESE_DEFAULT_WEIGHT = 100_000;
     private static final int EXPORT_PAGE = 1000;
 
     /** 待写入个人词库的条数；键盘会话结束后才会应用，零条时不显示。 */
@@ -428,6 +432,19 @@ public final class DictionaryCollectionsStore {
             previousApostrophe = apostrophe;
         }
         return true;
+    }
+
+    /** 粤语编码能否作为新词的编码：每个音节是小写字母，末尾可以带声调数字 1–6，音节之间一个空格。Engine 存之前去掉声调。 */
+    public static boolean validCantonese(String code) {
+        return code != null && !code.isEmpty() && code.length() <= 512
+            && code.matches("[a-z]+[1-6]?( [a-z]+[1-6]?)*");
+    }
+
+    /** 把用户输入的粤拼收成编码：去掉首尾空白、转小写，空白和撇号（含中文撇号）都当作一个音节分隔。 */
+    public static String normalizeCantonese(String input) {
+        if (input == null) return "";
+        return TextPolicy.stripped(TextPolicy.lowercase(TextPolicy.stripped(input))
+            .replaceAll("[\\s'‘’]+", " "));
     }
 
     /** 把用户输入的拼音收成编码：去掉空白、转小写，空格和中文撇号都当作音节分隔。 */
