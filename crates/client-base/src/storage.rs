@@ -198,6 +198,18 @@ pub fn open_private_directory(parent: &Path) -> io::Result<File> {
             }
             std::path::Component::Normal(name) => {
                 logical.push(name);
+                let kind = rustix::fs::FileType::from_raw_mode(
+                    rustix::fs::statat(&directory, name, rustix::fs::AtFlags::SYMLINK_NOFOLLOW)?
+                        .st_mode,
+                );
+                if kind != rustix::fs::FileType::Directory
+                    && !msime_path_trust::is_trusted_system_alias(&logical)
+                {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "private directory path contains a non-directory",
+                    ));
+                }
                 directory =
                     match rustix::fs::openat(&directory, name, search, rustix::fs::Mode::empty()) {
                         Ok(directory) => directory,
