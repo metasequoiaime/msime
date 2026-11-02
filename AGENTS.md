@@ -24,6 +24,7 @@ develop 的保护规则允许管理员绕过必过检查，自动合并流程又
 - **PR 正文自己写下的合并条件有约束力。** 正文写了「保持 draft 直到报告者确认」这类条件，或验证段列着「未完成」「未运行」的本地门禁，在条件兑现、或正文改写说明为什么不再需要之前不合并；不要把 draft 转成 ready 后立刻合。只是推测、没有复现的根因不进 develop。#10521 正文写着根因只是猜测、「keep as draft until the reporter confirms」，被转成 ready 17 秒后合并，猜的根因是错的，#10548 在虚拟机里复现后重修；#10417 验证段写着「剩余仓库检查……未完成」「未能运行 Vitest」就合了，隐藏设置组时把一个缺字段读作开启的开关一起藏了起来，鸿蒙手机上用户再也关不掉（#10427）。
 - **不要为了让新改动通过去改已有回归测试的前置条件。** 关开关、换默认值、换输入去绕开一条变红的旧回归测试，就是把它守着的那个 bug 放回来。确实要改，在正文单独说明旧前置条件为什么不再成立，并保留一条按出厂默认设置跑的用例。#10419 为了让 #8619 的回归测试通过，在测试里关掉了顶字，默认设置下 `guiyi`、`xiang` 又打不出来了，靠 #10425 修回。
 - **准备合并或开了 auto-merge 之后不再往分支上推；合并前核对 `gh pr view <n> --json headRefOid` 就是本地 `git rev-parse HEAD`。** 合并之后才推上去的提交不会进 develop，也不会有任何报错。#10206 合并后推上去的 `3ce6a537b7`、#9106 合并后推上去的两个 iOS 提交都这样静默丢了，几周后才由 #10320、#10322 找回。
+- **验证段写「交给 CI」之前，先确认 CI 真的执行那条测试。** `scripts/run-checks.sh` 的 `special_checks` 里由 `scripts/verify-local.sh` 负责的检查（`windows-native-run`、`windows-32bit-compile`、`harmony-settings-bundle`）只在本地门禁里跑，CI 不跑；Windows GNU 交叉编译作业只编译 `platforms/windows/tests/` 不运行。改了这些测试覆盖的行为，就在本机跑 `python3 scripts/test-windows-native-run.py` 这类入口，跑不了就写明「未验证」，不要写「交给 CI」。#10480 把五笔顶字改成立即上屏，改了 `wubi_commit_owner.cpp`，漏了断言同一件事的 `wubi_auto_commit.cpp`，验证段写「Windows 双会话测试……交给 CI」；CI 全绿合并，此后 develop 上每个人的本地门禁都红在这一条，直到 11-02 审计才被修掉。
 
 ## 代码健康
 
