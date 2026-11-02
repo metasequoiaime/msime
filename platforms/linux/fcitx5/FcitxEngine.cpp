@@ -83,6 +83,7 @@
 #include "../src/overlay/ShuangpinKeymapX11Surface.h"
 #endif
 #include "../src/core/BackspaceHoldPolicy.h"
+#include "../src/core/NextWordPrediction.h"
 #include "../src/core/SmartPunctuationSpace.h"
 #include "../src/core/SmartPunctuationChoice.h"
 #include "../src/core/SpellingSymbols.h"
@@ -3560,6 +3561,8 @@ public:
       }
     }
     view_ = result.contains("view") ? result.at("view") : result;
+    if (result.contains("commit") && result["commit"].is_string())
+      prediction_echo_.committed(msime::linux_host::view_is_prediction(view_), monotonicMs());
     render();
     return result.value("handled", false);
   }
@@ -4268,6 +4271,12 @@ public:
   // Japanese converts with Space and commits with Enter; see ../src/core/JapaneseConversion.h.
   msime::linux_host::JapaneseConversion japanese_conversion_;
   msime::linux_host::BackspaceHoldPolicy backspace_hold_;
+  // 自己上屏、出了上屏后联想之后紧跟着的 reset 不收起联想（NextWordPrediction.h）。
+  msime::linux_host::PredictionResetEcho prediction_echo_;
+  static int64_t monotonicMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now().time_since_epoch()).count();
+  }
   bool smart_punctuation_ = true;
   bool smart_punctuation_repeat_ = true;
   bool smart_punctuation_space_convert_ = false;
@@ -7813,6 +7822,11 @@ public:
     state->toggle_chord_held_ = FcitxKey_None;
     state->pending_caret_.clear();
     state->caret_forward_event_.reset();
+    // 自己上屏之后客户端回头送来的 reset 是上屏的回声，不是光标移动，联想留着（NextWordPrediction.h）。
+    if (state->prediction_echo_.keeps(msime::linux_host::view_is_prediction(state->view_),
+                                      FcitxState::monotonicMs()))
+      return;
+    state->prediction_echo_.forget();
     // 为不支持预编辑的客户端画在面板里的韩文音节、注音转换、越南文单词或藏文音节串只存在于这里，所以重置时把它写出去，而不是丢掉用户已经打的字（失焦时的同一规则见 focus_watch_）。
     const bool koreanPanelSyllable =
         state->session_ && state->commitsOnBlur() && !state->view_.value("editing_text", std::string{}).empty() &&
@@ -8377,7 +8391,9 @@ FcitxState::ExpandStyle FcitxState::expandStyle() const {
 
 // 这时候还能不能展开着：有展开样式、横排、有焦点、不是受限输入，没有打开候选列表（韩文汉字、注音）或释义页。
 bool FcitxState::expandAllowed() const {
+  // 上屏后联想最多八条，只能点选（NextWordPrediction.h）；展开的网格和卷轴有自己的键盘选择，不给它。
   return session_ && expandStyle() != ExpandStyle::none && !restricted() &&
+      !msime::linux_host::view_is_prediction(view_) &&
       preferences_.value("candidate_layout", std::string("vertical")) == "horizontal" &&
       !translationCandidatesActive() && !msime::linux_host::opened_candidate_list(view_) &&
       !msime::linux_host::korean_hanja_list_open(view_) && !view_.value("candidates", Json::array()).empty();
@@ -9146,6 +9162,48 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     }
   }
   if (event.isRelease()) return false;
+  // 上屏后联想（NextWordPrediction.h）：下面选词的空格和数字只在组字时生效（composing 不含联想），所以联想时在这里按 id 选：空格选高亮行，数字选当前页上对应的行，点选走 FcitxCandidate::select。别的键先收起建议，再按没有候选的状态走：按住退格、展开候选、小键盘符号和翻页键都不会把建议当成组字，逗号句号照常出中文标点，回车照常换行。Esc 收起后不再交给应用。裸修饰键不算：它们在下面原样交给应用，按下 Alt 或 Super 不该收起建议。
+  if (!key.isModifier()) {
+    prediction_echo_.forget();
+    const bool prediction = msime::linux_host::view_is_prediction(view_);
+    const bool bare = !event.rawKey().states().testAny(fcitx::KeyStates{
+        fcitx::KeyState::Ctrl, fcitx::KeyState::Alt, fcitx::KeyState::Shift, fcitx::KeyState::Super,
+        fcitx::KeyState::Hyper, fcitx::KeyState::Meta, fcitx::KeyState::Mod5});
+    std::optional<size_t> pick;
+    if (prediction && bare) {
+      const auto &candidates = view_.at("candidates");
+      if (sym == FcitxKey_space) {
+        for (size_t index = 0; index < candidates.size(); ++index)
+          if (candidates.at(index).value("highlighted", false)) pick = index;
+        if (!pick && !candidates.empty()) pick = 0;
+      } else if (preferences_.value("number_row_selection", true)) {
+        // 与组字时的数字选词同一套键：数字行按物理键位（XKB 键码 10..19），其余按数字符号和小键盘。
+        const auto code = event.rawKey().code();
+        std::optional<size_t> slot;
+        if (code >= 10 && code <= 19) slot = code == 19 ? size_t{9} : static_cast<size_t>(code - 10);
+        else if (sym >= FcitxKey_1 && sym <= FcitxKey_9) slot = static_cast<size_t>(sym - FcitxKey_1);
+        else if (sym == FcitxKey_0 || sym == FcitxKey_KP_0) slot = size_t{9};
+        else if (sym >= FcitxKey_KP_1 && sym <= FcitxKey_KP_9) slot = static_cast<size_t>(sym - FcitxKey_KP_1);
+        if (slot && *slot < candidates.size()) pick = slot;
+      }
+    }
+    switch (msime::linux_host::prediction_key(prediction, bare && sym == FcitxKey_Escape, pick.has_value())) {
+    case msime::linux_host::PredictionKey::Route:
+      break;
+    case msime::linux_host::PredictionKey::Pick: {
+      const auto &id = view_.at("candidates").at(*pick).at("id");
+      return apply(msime_client_select(
+          session_, msime::linux_host::strict_json_required_integer<uint64_t>(id.at("generation")),
+          msime::linux_host::strict_json_required_integer<size_t>(id.at("index"))));
+    }
+    case msime::linux_host::PredictionKey::DismissThenRoute:
+      command(MSIME_CANCEL);
+      break;
+    case msime::linux_host::PredictionKey::Close:
+      command(MSIME_CANCEL);
+      return true;
+    }
+  }
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
   // 网格开着时先由它处理；横排候选窗的 ↓ 和 Tab 在「展开候选」打开、不止一页时展开网格（只有一页、竖排、候选列表开着时 openExpanded 返回 false，键照下面的规则走）。canvas 包的卷轴不接管键盘，也不由键盘打开。
   if (!expanded_.empty() && expanded_style_ == ExpandStyle::grid && expandedKey(event)) return true;

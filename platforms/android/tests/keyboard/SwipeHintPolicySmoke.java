@@ -35,6 +35,12 @@ public final class SwipeHintPolicySmoke {
             "idle state keeps 26-key symbol swipes enabled");
         check(!SwipeHintPolicy.enabled(false, false),
             "the setting still disables 26-key symbol swipes");
+        check(SwipeHintPolicy.tapsOnly(true, false),
+            "composing candidates turn long-press and swipes into taps");
+        check(!SwipeHintPolicy.tapsOnly(true, true),
+            "post-commit prediction keeps long-press and swipes as when idle");
+        check(!SwipeHintPolicy.tapsOnly(false, false), "idle keyboard keeps long-press and swipes");
+        check(!SwipeHintPolicy.tapsOnly(false, true), "a hidden prediction bar keeps long-press and swipes");
         System.out.println("Android swipe hint: >14 dp threshold in either direction and hint output passed");
     }
 
