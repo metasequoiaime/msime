@@ -110,6 +110,7 @@
 #include "../src/voice/VoiceAction.h"
 #include "../src/voice/VoiceHotwords.h"
 #include "../src/voice/VoiceProviderOptions.h"
+#include "../src/voice/VoicePunctuation.h"
 #include "../src/overlay/WaveOverlayFeedback.h"
 #include "../src/overlay/WaveOverlayModel.h"
 #include "../src/overlay/WaveOverlaySurface.h"
@@ -3342,6 +3343,9 @@ public:
         }
         text = msime_voice_result_or_transcript(
             std::move(text), voice_transcript_, voice_preedit_);
+        // 语音标点在退回中间转写之后处理，只剩标点、处理后为空时提示没有识别到文字，而不是把带标点的中间转写上屏。
+        const bool recognisedBeforePunctuation = !text.empty();
+        text = msime::linux_host::voice_punctuated(std::move(text), voice_punctuation_mode_);
         voice_preedit_.clear();
         voice_transcript_.clear();
         hideVoiceOverlay();
@@ -3351,7 +3355,7 @@ public:
         voice_mailbox_.reset();
         if (!text.empty()) { commitText(text, msime::linux_host::TypingSource::Voice); return true; }
         const auto providerError = result.find("provider_error");
-        showVoiceFailure(providerError != result.end() && providerError->is_string()
+        showVoiceFailure(!recognisedBeforePunctuation && providerError != result.end() && providerError->is_string()
                              ? msime_voice_provider_failure_notice(providerError->get<std::string>())
                              : "未识别到文字，请重新录音");
         return false;
@@ -3408,6 +3412,8 @@ public:
     const auto generation = msime::linux_host::strict_json_value(view_, "generation", uint64_t{});
     const auto language = voice_language_;
     const auto options = voice_options_;
+    // 与语音服务选项同时取下，录音中途改设置从下一次识别起作用。
+    voice_punctuation_mode_ = msime::linux_host::voice_punctuation_mode(preferences_);
     const auto host_options = msime::linux_host::voice_wants_hotwords(options) ? voice_host_options_ : Json();
     voice_generation_ = generation;
     voice_mailbox_ = std::make_shared<FcitxVoiceMailbox>();
@@ -4425,6 +4431,8 @@ public:
   std::shared_ptr<FcitxVoiceMailbox> voice_mailbox_;
   std::string voice_preedit_;
   std::string voice_transcript_;
+  // 本次录音开始时的语音标点方式（VoicePunctuation.h）。
+  std::string voice_punctuation_mode_ = "auto";
   uint64_t voice_generation_ = 0;
   bool voice_partial_seen_ = false;
   bool voice_phase_seen_ = false;

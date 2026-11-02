@@ -38,6 +38,7 @@
 #include "../voice/VoiceAction.h"
 #include "../voice/VoiceHotwords.h"
 #include "../voice/VoiceProviderOptions.h"
+#include "../voice/VoicePunctuation.h"
 #include "../voice/VoiceWorker.h"
 #include "../overlay/WaveOverlayModel.h"
 #include "../overlay/WaveOverlayIbusSurface.h"
@@ -4701,6 +4702,8 @@ struct VoiceResult {
   bool provider_failed = false;
   bool inline_preedit = false;
   std::string provider_error{};
+  // 开始录音时的语音标点方式，最终结果上屏前按它处理（VoicePunctuation.h）。
+  std::string punctuation_mode{"auto"};
 };
 struct VoiceFailureNotice {
   IBusEngine *engine;
@@ -4874,6 +4877,9 @@ void voice_start_impl(IBusEngine *engine) {
     return;
   const auto provider_options = msime::linux_host::voice_provider_options(
       configured.value("preferences", Json::object()));
+  // 与语音服务选项同时取下，录音中途改设置从下一次识别起作用。
+  const auto punctuation_mode = msime::linux_host::voice_punctuation_mode(
+      configured.value("preferences", Json::object()));
   // On-device recognition takes the user's dictionary words as hotwords; the worker reads them with the options sessions are opened with, which carry the dictionary paths.
   Json hotword_options;
   if (msime::linux_host::voice_wants_hotwords(provider_options) && configured.is_object()) {
@@ -5027,10 +5033,12 @@ void voice_start_impl(IBusEngine *engine) {
             },
             result, nullptr);
       },
-      [engine, alive, generation, session_id, focus_epoch, provider_succeeded, provider_error](std::string text) {
+      [engine, alive, generation, session_id, focus_epoch, provider_succeeded, provider_error,
+       punctuation_mode](std::string text) {
         auto *result = new VoiceResult{engine, alive, generation, focus_epoch, session_id, std::move(text),
                                        true, 0, !provider_succeeded->load()};
         result->provider_error = *provider_error;
+        result->punctuation_mode = punctuation_mode;
         g_idle_add_full(
             G_PRIORITY_DEFAULT,
             +[](gpointer data) -> gboolean {
@@ -5041,8 +5049,12 @@ void voice_start_impl(IBusEngine *engine) {
               if (!voice_result_current(s, result->generation, result->session,
                                         result->focus_epoch))
                 return G_SOURCE_REMOVE;
-              auto text = msime_voice_result_or_transcript(
+              auto recognised_text = msime_voice_result_or_transcript(
                   std::move(result->text), s.voice_transcript, s.voice_preedit);
+              // 语音标点在退回中间转写之后处理，只剩标点、处理后为空时同样提示没有识别到文字，而不是把带标点的中间转写上屏。
+              const bool recognised_before_punctuation = !recognised_text.empty();
+              auto text = msime::linux_host::voice_punctuated(std::move(recognised_text),
+                                                              result->punctuation_mode);
               try {
                 if (text.empty()) {
                   msime::host_api::discard_string(msime_client_voice_cancel(s.session));
@@ -5055,7 +5067,7 @@ void voice_start_impl(IBusEngine *engine) {
                   render_after_voice(result->engine);
                   publish_mode(result->engine);
                   show_voice_failure(result->engine,
-                                     result->provider_failed
+                                     result->provider_failed && !recognised_before_punctuation
                                          ? msime_voice_provider_failure_notice(result->provider_error)
                                          : "未识别到文字，请重新录音");
                   return G_SOURCE_REMOVE;
