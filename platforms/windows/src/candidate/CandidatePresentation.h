@@ -306,7 +306,7 @@ struct CandidatePresentation {
   bool caret_edit_suffix = false;
   // 光标后编辑里首选（index 为 0 的那一行）开头固定的那段文字（view 的 caret_edit_prefix），已按输出模式换成和候选文字一样的写法。候选窗把首选开头的这几个字画淡，见 candidate_caret_edit_dim。没有生效时为空。
   std::string caret_edit_prefix{};
-  // 上屏后联想（view 的 prediction，idle_prediction_view）：没有拼音，候选是建议的后续文字。只有点选才上屏，数字不选它，所以候选窗不画序号；CandidateMailbox 等 TIP 在光标处发 Show 之后才让它露出来。
+  // 上屏后联想（view 的 prediction，idle_prediction_view）：没有拼音，候选是建议的后续文字，数字键、空格和点选都选它。CandidateMailbox 等 TIP 在光标处发 Show 之后才让它露出来。
   bool prediction = false;
 };
 // 光标后编辑生效时首行右侧的提示：只是一行字，不能点。

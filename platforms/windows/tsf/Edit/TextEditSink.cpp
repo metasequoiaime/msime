@@ -301,6 +301,7 @@ bool PredictionCaretPoint(TfEditCookie ec, _In_ ITfContext *context, _In_ ITfRan
 void CMetasequoiaIME::_ForgetPrediction()
 {
     _predictionGeneration = 0;
+    _predictionRows = 0;
     if (_pPredictionAnchor)
     {
         _pPredictionAnchor->Release();
@@ -403,6 +404,7 @@ void CMetasequoiaIME::_RefreshPrediction(TfEditCookie ec, _In_ ITfContext *pCont
     _pPredictionContext = pContext;
     _pPredictionContext->AddRef();
     _predictionGeneration = current.view.generation != 0 ? current.view.generation : 1;
+    _predictionRows = current.view.candidates.size();
     Global::Point[0] = point.x;
     Global::Point[1] = point.y;
     WriteDataToNamedPipe(0, L'\0', 0, Global::Point, 0, L"", 0b001000);
@@ -491,4 +493,28 @@ HRESULT CMetasequoiaIME::_CommitPredictionCandidate(TfEditCookie ec, _In_ ITfCon
         _smartPunctuationShadowValid = true;
     }
     return hr;
+}
+
+HRESULT CMetasequoiaIME::_HandlePredictionSelectKey(TfEditCookie ec, _In_ ITfContext *pContext, uint64_t requestId)
+{
+    if (requestId == FANY_IME_NO_REQUEST_ID || requestId == 0)
+    {
+        return S_OK;
+    }
+    FanyImeNamedpipeDataToTsf *reply = TryReadDataFromServerPipeWithTimeout(requestId);
+    if (reply->msg_type == Global::DataFromServerMsgType::TransportUnavailable)
+    {
+        // 读不到回复不是文字：按键留着，换上新的连接后重放。
+        return HRESULT_FROM_WIN32(ERROR_BROKEN_PIPE);
+    }
+    if (reply->msg_type == Global::DataFromServerMsgType::Normal)
+    {
+        const std::wstring text = reply->candidate_string;
+        if (!text.empty())
+        {
+            return _CommitPredictionCandidate(ec, pContext, text);
+        }
+    }
+    // 什么都没选中（Server 那边的联想已经没了、数字超出了它那一页）：不上屏。宿主会话的联想照旧，编辑会话结束时由 _RefreshPrediction 决定留着还是关掉。
+    return S_OK;
 }

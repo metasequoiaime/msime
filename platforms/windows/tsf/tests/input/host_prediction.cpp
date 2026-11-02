@@ -1,4 +1,4 @@
-// 上屏后联想在 TIP 这一侧的规则（HostPrediction.h）：联想不算组字；按键时 Esc 只关联想、其他键先关联想再照常处理、单按修饰键不动；编辑会话结束时按宿主会话的代次决定显示、保留或关掉。
+// 上屏后联想在 TIP 这一侧的规则（HostPrediction.h）：联想不算组字；按键时数字和空格选词、Esc 只关联想、其他键先关联想再照常处理、单按修饰键不动；编辑会话结束时按宿主会话的代次决定显示、保留或关掉。
 #include "../../HostCharacterResult.h"
 #include "../../HostPrediction.h"
 #include <cstdlib>
@@ -63,18 +63,36 @@ int main() {
     REQUIRE(!DeclinedIdleCharacterCommit(declined, 'A', &out));
 
     // 按键：联想没显示时一律照常。
-    REQUIRE(PredictionKey(false, 0x1B, 0) == PredictionKeyAction::None);
-    REQUIRE(PredictionKey(false, '1', 0) == PredictionKeyAction::None);
+    REQUIRE(PredictionKey(false, 0x1B, 0, 2) == PredictionKeyAction::None);
+    REQUIRE(PredictionKey(false, '1', 0, 2) == PredictionKeyAction::None);
+    REQUIRE(PredictionKey(false, 0x20, 0, 2) == PredictionKeyAction::None);
+    // 空格选高亮的那一行；数字（主键盘和小键盘）选这一页对应的行。
+    REQUIRE(PredictionKey(true, 0x20, 0, 2) == PredictionKeyAction::Select);
+    REQUIRE(PredictionKey(true, '1', 0, 2) == PredictionKeyAction::Select);
+    REQUIRE(PredictionKey(true, '2', 0, 2) == PredictionKeyAction::Select);
+    REQUIRE(PredictionKey(true, 0x61, 0, 2) == PredictionKeyAction::Select);
+    REQUIRE(PredictionKey(true, 0x62, 0, 2) == PredictionKeyAction::Select);
+    // 超出这一页行数的数字、0 没有可选的行：关掉联想，照常输入。
+    REQUIRE(PredictionKey(true, '3', 0, 2) == PredictionKeyAction::Dismiss);
+    REQUIRE(PredictionKey(true, 0x63, 0, 2) == PredictionKeyAction::Dismiss);
+    REQUIRE(PredictionKey(true, '0', 0, 2) == PredictionKeyAction::Dismiss);
+    REQUIRE(PredictionKey(true, 0x60, 0, 2) == PredictionKeyAction::Dismiss);
+    // 带修饰键的数字和空格属于应用（Shift+1 是「!」）。
+    REQUIRE(PredictionKey(true, '1', 0b001, 2) == PredictionKeyAction::Dismiss);
+    REQUIRE(PredictionKey(true, '1', 0b010, 2) == PredictionKeyAction::Dismiss);
+    REQUIRE(PredictionKey(true, 0x20, 0b001, 2) == PredictionKeyAction::Dismiss);
+    // 没有行时空格也不选。
+    REQUIRE(PredictionKey(true, 0x20, 0, 0) == PredictionKeyAction::Dismiss);
     // Esc 关掉联想并吃掉；带修饰键的 Esc 属于应用，联想照样关掉。
-    REQUIRE(PredictionKey(true, 0x1B, 0) == PredictionKeyAction::Close);
-    REQUIRE(PredictionKey(true, 0x1B, 0b010) == PredictionKeyAction::Dismiss);
-    REQUIRE(PredictionKey(true, 0x1B, 0b001) == PredictionKeyAction::Dismiss);
-    // 空格、回车、数字、标点、字母、方向键：先关掉联想，键照常处理（交给应用或开始组字）。
-    for (unsigned key : {0x20u, 0x0Du, unsigned('1'), unsigned('9'), 0x60u, 0xBCu, 0xBEu, unsigned('A'), 0x25u, 0x08u, 0x14u})
-        REQUIRE(PredictionKey(true, key, 0) == PredictionKeyAction::Dismiss);
+    REQUIRE(PredictionKey(true, 0x1B, 0, 2) == PredictionKeyAction::Close);
+    REQUIRE(PredictionKey(true, 0x1B, 0b010, 2) == PredictionKeyAction::Dismiss);
+    REQUIRE(PredictionKey(true, 0x1B, 0b001, 2) == PredictionKeyAction::Dismiss);
+    // 回车、标点、字母、方向键、退格、Caps Lock：先关掉联想，键照常处理（交给应用或开始组字）。
+    for (unsigned key : {0x0Du, 0xBCu, 0xBEu, 0xBAu, unsigned('A'), 0x25u, 0x08u, 0x14u, 0x2Eu})
+        REQUIRE(PredictionKey(true, key, 0, 2) == PredictionKeyAction::Dismiss);
     // 单按修饰键不动联想：Shift+字母的大写字母、Ctrl 组合键等那个键按下时再算。
     for (unsigned key : {0x10u, 0x11u, 0x12u, 0x5Bu, 0x5Cu, 0xA0u, 0xA1u, 0xA2u, 0xA3u, 0xA4u, 0xA5u})
-        REQUIRE(PredictionKey(true, key, 0b001) == PredictionKeyAction::None);
+        REQUIRE(PredictionKey(true, key, 0b001, 2) == PredictionKeyAction::None);
 
     // 编辑会话结束：宿主会话出了联想就显示。
     REQUIRE(DecidePredictionRefresh(0, false, true, prediction()) == PredictionRefresh::Show);

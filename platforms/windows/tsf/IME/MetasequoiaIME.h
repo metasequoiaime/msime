@@ -252,7 +252,7 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     HRESULT _HandleEscape(TfEditCookie ec, _In_ ITfContext *pContext);
     HRESULT _HandleToogleIMEMode(TfEditCookie ec, _In_ ITfContext *pContext);
     HRESULT _HandleInsertText(TfEditCookie ec, _In_ ITfContext *pContext, const std::wstring &text);
-    // 上屏后联想（msime_client.h 的 View.prediction）。联想由 TIP 自己的宿主会话判断有没有：每次编辑会话结束时 _RefreshPrediction 读宿主会话，有新的一代就在光标处给 Server 发 ShowCandidateWnd，候选窗画的是 Server 会话自己的那一份联想；点选由 Server 选中后经 CommitCurCandidate 送回来，_CommitPredictionCandidate 把它插在光标处。联想没有 TSF 组字，也不建候选 UI 元素，所以 _candidateMode 一直是 CANDIDATE_NONE，数字、空格和回车照常交给应用。
+    // 上屏后联想（msime_client.h 的 View.prediction）。联想由 TIP 自己的宿主会话判断有没有：每次编辑会话结束时 _RefreshPrediction 读宿主会话，有新的一代就在光标处给 Server 发 ShowCandidateWnd，候选窗画的是 Server 会话自己的那一份联想；点选、数字键和空格都由 Server 在它的会话里选中，文字送回来后 _CommitPredictionCandidate 把它插在光标处。联想没有 TSF 组字，也不建候选 UI 元素，所以 _candidateMode 一直是 CANDIDATE_NONE；数字和空格由 PredictionKey 单独认领，回车、标点照常交给应用。
     void _RefreshPrediction(TfEditCookie ec, _In_ ITfContext *pContext);
     // 关掉联想：给 Server 发 HideCandidateWnd（Server 据此清掉它会话里的联想），宿主会话里的联想也清掉。没有显示联想时什么也不做。
     void _DismissPrediction();
@@ -264,6 +264,13 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     void _CheckPredictionCaret(TfEditCookie ecReadOnly, _In_ ITfContext *pContext);
     // 点选联想：Server 已经在自己的会话里选中，text 是要插在光标处的文字。宿主会话按文字跟着选同一个词，联想才能接着往下出；对不上就清掉宿主会话的联想。
     HRESULT _CommitPredictionCandidate(TfEditCookie ec, _In_ ITfContext *pContext, const std::wstring &text);
+    // 联想显示着时按下的数字键或空格（FUNCTION_PREDICTION_SELECT）：键已经送给 Server，它在自己的会话里选中那一行；这里读回复，选中了就和点选一样插在光标处，没选中什么也不做。
+    HRESULT _HandlePredictionSelectKey(TfEditCookie ec, _In_ ITfContext *pContext, uint64_t requestId);
+    // 正显示的联想这一页的行数，数字键超出它就照常输入（PredictionKey）。
+    std::size_t _PredictionRows() const
+    {
+        return _IsPredictionVisible() ? _predictionRows : 0;
+    }
     // 候选窗里点选的候选（Server 的会话已经选中、text 是整次上屏的文字）在宿主会话里按文字跟着选上，两边一起前进，宿主会话才会接着出上屏后联想。选中、上屏的文字一致、宿主会话也不再组字时返回 true；否则宿主会话可能已经前进了一部分，调用方要丢掉它的组字。
     bool _FollowServerClickInHost(const std::wstring &text);
     HRESULT _HandleCommitCandidateAndContinue(TfEditCookie ec, _In_ ITfContext *pContext,
@@ -736,6 +743,7 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     BOOL _isCandidateWithWildcard : 1;
     // 正显示的上屏后联想：宿主会话的代次（0 表示没有显示）、它所在的上下文和显示时光标所在的空区间。区间两端都向后吸附，光标处再插入文字时区间留在原地，光标就和它对不上了。
     uint64_t _predictionGeneration = 0;
+    std::size_t _predictionRows = 0;
     ITfContext *_pPredictionContext = nullptr;
     ITfRange *_pPredictionAnchor = nullptr;
     void _ForgetPrediction();

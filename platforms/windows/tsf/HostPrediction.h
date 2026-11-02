@@ -1,5 +1,6 @@
 #pragma once
 #include "EngineSessionAdapter.h"
+#include <cstddef>
 #include <cstdint>
 
 namespace msime::tsf {
@@ -15,18 +16,20 @@ inline bool HostShowsPrediction(const EngineView &view) {
            !view.candidates.empty();
 }
 
-// 联想显示着时按下一个键要怎么办。六个平台同一条规则：联想只是建议，只有点选候选才上屏；Esc 关掉联想，键本身吃掉；空格、回车、数字、标点和其他键先关掉联想，再照常处理（交给应用或开始组字）；单按的修饰键什么都不动。
+// 联想显示着时按下一个键要怎么办。六个平台同一条规则：数字键选这一页上对应的那一行，空格选高亮的那一行（首行），点击选点中的那一行；回车和标点先关掉联想再照常处理；Esc 关掉联想，键本身吃掉；单按的修饰键什么都不动。
 enum class PredictionKeyAction {
     // 联想没显示，或者是单按的修饰键：照常处理。
     None,
+    // 数字或空格：吃下，交给 Server 在它的会话里选中那一行，TIP 把选中的文字插在光标处（_HandlePredictionSelectKey）。
+    Select,
     // Esc：关掉联想，键吃掉，应用收不到。
     Close,
-    // 其他键：关掉联想，键照常处理。
+    // 其他键：关掉联想，键照常处理（交给应用或开始组字）。
     Dismiss,
 };
 
-// virtualKey 是 TSF 交来的虚拟键码，modifiers 是线上的修饰键位（Shift=1、Control=2、Alt=4）。带修饰键的 Esc 属于应用（比如 Ctrl+Esc 打开开始菜单），不当作关闭联想，但联想照样关掉。
-inline PredictionKeyAction PredictionKey(bool visible, unsigned virtualKey, unsigned modifiers) {
+// virtualKey 是 TSF 交来的虚拟键码，modifiers 是线上的修饰键位（Shift=1、Control=2、Alt=4），rows 是这一页联想的行数。带修饰键的数字、空格和 Esc 属于应用（Shift+数字是符号，Ctrl+Esc 打开开始菜单），联想照样关掉。超出这一页行数的数字没有可选的行，照常输入。
+inline PredictionKeyAction PredictionKey(bool visible, unsigned virtualKey, unsigned modifiers, std::size_t rows) {
     if (!visible) return PredictionKeyAction::None;
     switch (virtualKey) {
     case 0x10: // VK_SHIFT
@@ -44,7 +47,14 @@ inline PredictionKeyAction PredictionKey(bool visible, unsigned virtualKey, unsi
     default:
         break;
     }
-    if (virtualKey == 0x1B && (modifiers & 0b111u) == 0) return PredictionKeyAction::Close;
+    const bool bare = (modifiers & 0b111u) == 0;
+    if (virtualKey == 0x1B && bare) return PredictionKeyAction::Close;
+    if (virtualKey == 0x20 && bare && rows > 0) return PredictionKeyAction::Select;
+    // 主键盘的 1–9（'1'..'9'）和小键盘的 1–9（VK_NUMPAD1..VK_NUMPAD9）。
+    const unsigned digit = virtualKey >= '1' && virtualKey <= '9'   ? virtualKey - '0'
+                           : virtualKey >= 0x61 && virtualKey <= 0x69 ? virtualKey - 0x60
+                                                                      : 0;
+    if (digit != 0 && bare && digit <= rows) return PredictionKeyAction::Select;
     return PredictionKeyAction::Dismiss;
 }
 

@@ -1,4 +1,4 @@
-// 上屏后联想（view 的 prediction）进候选窗的投影：没有拼音也画，序号由候选窗按 prediction 不画；没有 prediction 标记的空组字照旧不画，UI-less 宿主、失焦时也不画。送达的按键和异步刷新两条投影规则相同。数字键在联想上不选词（idle_prediction_view）。
+// 上屏后联想（view 的 prediction）进候选窗的投影：没有拼音也画；没有 prediction 标记的空组字照旧不画，UI-less 宿主、失焦时也不画。送达的按键和异步刷新两条投影规则相同。
 #include "CandidatePresentation.h"
 #include "PredictionPolicy.h"
 #include <iostream>

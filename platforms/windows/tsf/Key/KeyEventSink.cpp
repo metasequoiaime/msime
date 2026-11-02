@@ -1134,6 +1134,18 @@ BOOL CMetasequoiaIME::_IsKeyEaten(         //
 
     if (isOpen) // Chinese mode
     {
+        // 上屏后联想显示着时的数字键和空格是选词：送给 Server 在它的会话里选中那一行，TIP 读回复插在光标处（FUNCTION_PREDICTION_SELECT）。联想没有组字，下面的组字分类不会认领它们。
+        if (!freshCompositionState && !_IsComposing() &&
+            msime::tsf::PredictionKey(_IsPredictionVisible(), codeIn, CaptureIpcModifiers(), _PredictionRows()) ==
+                msime::tsf::PredictionKeyAction::Select)
+        {
+            if (pKeyState)
+            {
+                pKeyState->Category = CATEGORY_CANDIDATE;
+                pKeyState->Function = FUNCTION_PREDICTION_SELECT;
+            }
+            return TRUE;
+        }
         // AltGr reads as Ctrl+Alt; a character it types is input, not a shortcut (AltGr+0 is '@' on AZERTY).
         const UINT shortcutModifiers = Global::CharacterModifiers(CaptureIpcModifiers(), wch, *pCodeOut);
         if (!_serverUnavailableFallbackActive && IsCharacterSetInputModeToggle(*pCodeOut, shortcutModifiers))
@@ -2431,14 +2443,19 @@ STDAPI CMetasequoiaIME::OnTestKeyDown(ITfContext *pContext, WPARAM wParam, LPARA
     PerfTimer onTestKeyDownTimer;
     Global::UpdateModifiers(wParam, lParam);
     _TrackModifierHotkeyArming(wParam, lParam, false);
-    // 上屏后联想显示着：Esc 只关掉它（真正关在 OnKeyDown），别的键先关掉它再照常处理。交给应用的键不一定还会到 OnKeyDown，所以在这里关。
-    switch (msime::tsf::PredictionKey(_IsPredictionVisible(), LOWORD(wParam), CaptureIpcModifiers()))
+    // 上屏后联想显示着：Esc 只关掉它（真正关在 OnKeyDown）；数字和空格留着它，由 _IsKeyEaten 认领成选词；其他键先关掉它再照常处理。交给应用的键不一定还会到 OnKeyDown，所以在这里关。
+    switch (msime::tsf::PredictionKey(_IsPredictionVisible(), LOWORD(wParam), CaptureIpcModifiers(), _PredictionRows()))
     {
     case msime::tsf::PredictionKeyAction::Close:
         *pIsEaten = TRUE;
         return S_OK;
     case msime::tsf::PredictionKeyAction::Dismiss:
         _DismissPrediction();
+        break;
+    case msime::tsf::PredictionKeyAction::Select:
+        // 排队等前面的键时分类按将来的组字状态算，认不出联想选词；这种情况下关掉联想，数字和空格照常交给应用。
+        if (_HasDeferredKeyBarrier())
+            _DismissPrediction();
         break;
     case msime::tsf::PredictionKeyAction::None:
         break;
@@ -3202,7 +3219,7 @@ STDAPI CMetasequoiaIME::OnKeyDown(ITfContext *pContext, WPARAM wParam, LPARAM lP
     _NoteKeyPressStatistics(wParam, lParam);
     PerfTimer onKeyDownTimer;
     // 和 OnTestKeyDown 同一条规则；有的宿主不先测试就直接交来按键。
-    switch (msime::tsf::PredictionKey(_IsPredictionVisible(), LOWORD(wParam), CaptureIpcModifiers()))
+    switch (msime::tsf::PredictionKey(_IsPredictionVisible(), LOWORD(wParam), CaptureIpcModifiers(), _PredictionRows()))
     {
     case msime::tsf::PredictionKeyAction::Close:
         _DismissPrediction();
@@ -3210,6 +3227,10 @@ STDAPI CMetasequoiaIME::OnKeyDown(ITfContext *pContext, WPARAM wParam, LPARAM lP
         return S_OK;
     case msime::tsf::PredictionKeyAction::Dismiss:
         _DismissPrediction();
+        break;
+    case msime::tsf::PredictionKeyAction::Select:
+        if (_HasDeferredKeyBarrier())
+            _DismissPrediction();
         break;
     case msime::tsf::PredictionKeyAction::None:
         break;
