@@ -2118,6 +2118,64 @@ fn wubi_auto_commit_unique_reaches_the_runtime_without_waiting_for_the_engine() 
     read(msime_client_destroy(handle));
 }
 
+/// #10696：完整四码之后再敲第五个字母，经真实 Engine 与 runtime 走一遍。混输关闭时第五个字母无处容纳（引擎把五笔码截在四位），不论「第五码将首选上屏」开着还是关着，都把首选顶上屏、字母留作下一组开头；混输开着、顶字开着、这个字母续不上任何拼音读音时同样顶字。报告人以为是「四码唯一自动上屏」关不掉，看到的其实是这条。
+#[test]
+fn a_fifth_wubi_letter_tops_the_first_candidate_whenever_mixed_input_is_off() {
+    for (mixed_pinyin, top_commit) in [(false, true), (false, false), (true, true)] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = |name| {
+            let path = dir.path().join(name);
+            std::fs::create_dir_all(&path).unwrap();
+            path
+        };
+        let resources = path("resources");
+        let dictionaries = path("dictionaries");
+        // 合成码表：四码 `supe` 有两个五笔词，所以四码不唯一，第四键不会自动上屏；`su` 是一个拼音音节，`super` 续不上它。
+        let fixture = "CREATE TABLE tbl_1_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                       INSERT INTO tbl_1_s VALUES('su','s','苏',100);
+                       CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
+                       INSERT INTO wubi86 VALUES('supe','格斗家',100),('supe','格斗',50);
+                       CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);";
+        for directory in [&resources, &dictionaries] {
+            rusqlite::Connection::open(directory.join("msime-pinyin.db"))
+                .unwrap()
+                .execute_batch(fixture)
+                .unwrap();
+        }
+        bundle_wubi_table(&resources);
+        let preferences = Preferences {
+            scheme: InputScheme::Wubi,
+            wubi_mixed_pinyin: mixed_pinyin,
+            wubi_fifth_code_top_commit: top_commit,
+            // 报告人关掉了四码唯一自动上屏；这里照样关掉，看到的上屏只能来自第五码。
+            wubi_auto_commit_unique: false,
+            ..chinese_preferences()
+        };
+        let options = json!({ "api_version": 1, "resources": resources, "user_data": path("user"), "cache": path("cache"), "dictionaries": dictionaries, "preferences": preferences }).to_string();
+        let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+        assert_eq!(created["ok"], true, "{created}");
+        let handle = created["value"]["session"].as_u64().unwrap();
+        read(msime_client_focus(handle, true));
+        let combination = format!("mixed_pinyin={mixed_pinyin} top_commit={top_commit}");
+
+        let four = type_letters(handle, b"supe");
+        assert_eq!(four["editing_text"], "supe", "{combination}: {four}");
+        assert_eq!(
+            four["candidates"][0]["text"], "格斗家",
+            "{combination}: {four}"
+        );
+
+        let fifth = read(msime_client_character(handle, b'r', false));
+        assert_eq!(fifth["value"]["handled"], true, "{combination}: {fifth}");
+        assert_eq!(fifth["value"]["commit"], "格斗家", "{combination}: {fifth}");
+        assert_eq!(
+            fifth["value"]["view"]["editing_text"], "r",
+            "{combination}: {fifth}"
+        );
+        read(msime_client_destroy(handle));
+    }
+}
+
 #[test]
 fn backspace_selection_preference_reaches_real_sessions_and_live_updates() {
     for initial in [false, true] {
