@@ -1,5 +1,5 @@
 name: Relocate macOS release extras
-# 把一个已发布的 macOS 版本里用户用不到的资产搬离 macos-vVERSION：Sparkle 更新包搬到 macos-appcast（appcast 改指向那里并重新签名），dSYM 搬到 macos-symbols，SHA256SUMS 改成只列 DMG。之后版本发布页与 release-macos.yml 现在发布的一样，只有 DMG 和 SHA256SUMS。步骤和顺序见 platforms/macos/scripts/relocate-release-extras.sh：所有核对都通过之后才删除版本发布页上的资产，可以重跑。
+# 把一个已发布的 macOS 版本里用户用不到的资产搬离 macos-vVERSION：Sparkle 更新包搬到 macos-appcast（appcast 改指向那里并重新签名），dSYM 搬到 macos-symbols，SHA256SUMS 改成只列 DMG。之后版本发布页与 release-macos.yml 当时发布的一样，只有 DMG 和 SHA256SUMS。只适用于 0.54.0 前后发 DMG 的旧版本；现在的版本发 pkg，发布页本来就只有安装包和 SHA256SUMS。步骤和顺序见 platforms/macos/scripts/relocate-release-extras.sh：所有核对都通过之后才删除版本发布页上的资产，可以重跑。
 # 这会改变所有 macOS 用户正在用的更新通道，先用 dry_run 跑一次，看过日志再正式运行。
 on:
   workflow_dispatch:

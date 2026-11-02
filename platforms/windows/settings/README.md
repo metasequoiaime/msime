@@ -110,10 +110,13 @@ Windows 的表情、手写、屏幕键盘、语音输入和背单词面板以及
 
 ```powershell
 msbuild MSIME.Settings.vcxproj /p:Configuration=RelWithDebInfo /p:Platform=x64 `
-  /p:HostApiLibrary=C:\path\to\msime_host_api.dll.lib
+  /p:HostApiLibrary=C:\path\to\msime_host_api.dll.lib `
+  /p:NativeDependenciesInclude=C:\path\to\native-deps\include
 ```
 
 Windows App SDK 版本由 `WindowsAppSDKVersion` 属性控制，默认值与项目文件固定，发布构建使用 self-contained unpackaged 模式。项目没有 XAML 编译器：应用自己实现 `IXamlMetadataProvider` 并转交给 WinUI 控件库的元数据提供者，界面全部在 `main.cpp` 中用代码构建。
+
+`NativeDependenciesInclude` 指向发布构建既有的 x64 依赖前缀下的 `include`，其中必须有 `nlohmann/json.hpp`。设置进程复用共用遥测生命周期和持久授权观察器，关闭窗口时结束观察，不创建输入会话；保存设置立即刷新，其他进程的关闭或关闭重开也由独立观察线程识别，启动补报不阻塞观察。
 
 
 ## 界面验收

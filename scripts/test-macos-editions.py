@@ -172,8 +172,19 @@ def check_edition(errors: list[str], generator, table: dict, entry: dict, others
         if config != {"version": "1.2.3", "identifier": macos["settings_bundle_id"], "productName": entry["display_name"]["en"]}:
             errors.append(f"{where}: unexpected Tauri bundle configuration {config}")
         cask = generator.cask(CASK.read_text(encoding="utf-8"), edition_id, "1.2.3", "0" * 64)
-        if f'cask "{macos["cask"]}"' not in cask or f"/{macos['dmg_prefix']}-#{{version}}-universal.dmg" not in cask:
-            errors.append(f"{where}: the cask does not name {macos['cask']} and {macos['dmg_prefix']}")
+        if f'cask "{macos["cask"]}"' not in cask or f"/{macos['dmg_prefix']}-#{{version}}-universal.pkg\"" not in cask:
+            errors.append(f"{where}: the cask does not name {macos['cask']} and download {macos['dmg_prefix']}-VERSION-universal.pkg")
+        # pkg 段装的是这个版本自己的安装包；pkg 不认 --appdir，卸载按 <settings_bundle_id>.pkg 回执，再兜底删掉 /Applications 里本版本的应用。
+        app = f"/Applications/{entry['display_name']['en']}.app"
+        for expected in (f'pkg "{macos["dmg_prefix"]}-#{{version}}-universal.pkg"', f'pkgutil: "{macos["settings_bundle_id"]}.pkg"', f'"{app}"', "auto_updates true"):
+            if expected not in cask:
+                errors.append(f"{where}: the cask lacks {expected}")
+        if 'app "' in cask or "#{appdir}" in cask:
+            errors.append(f"{where}: the cask still installs with an app stanza or --appdir")
+        full_macos = generator.full_entry(table)["platforms"]["macos"]
+        for leftover in ("MSIME.app", f'"{full_macos["settings_bundle_id"]}.pkg"', f"/{full_macos['dmg_prefix']}-#{{version}}", f'"{full_macos["dmg_prefix"]}-#{{version}}'):
+            if leftover in cask:
+                errors.append(f"{where}: the cask still mentions the full edition's {leftover}")
         if "msime-mcp" in cask:
             errors.append(f"{where}: only the full cask puts msime-mcp on PATH")
         for other in others:

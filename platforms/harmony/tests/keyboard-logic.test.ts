@@ -350,11 +350,7 @@ import {
   VoiceInputConfigurationPolicy,
   DoubaoCredentialPolicy,
 } from "../entry/src/main/ets/keyboard/input/VoiceInputConfiguration";
-import {
-  CrashDestination,
-  CrashReport,
-  TelemetryPolicy,
-} from "../entry/src/main/ets/telemetry/TelemetryPolicy";
+import { CrashReport, TelemetryPolicy } from "../entry/src/main/ets/telemetry/TelemetryPolicy";
 import { NoticePolicy } from "../entry/src/main/ets/notices/NoticePolicy";
 import {
   HttpRequestLike,
@@ -19221,10 +19217,7 @@ group("usage reporting reads HiAppEvent crash reports without leaking directorie
       },
     }),
   );
-  check(
-    javascript?.message === "TypeError: Cannot read property 'x' of undefined",
-    "a JavaScript crash keeps the error name and the first line of its message",
-  );
+  check(javascript?.message === "TypeError", "JavaScript 崩溃只保留类型，不上传异常消息");
   check(javascript?.stack.startsWith("at view") === true, "and its stack, trimmed");
 
   check(TelemetryPolicy.crashReport("not json") === null, "an unreadable report is ignored");
@@ -19242,69 +19235,80 @@ group("usage reporting reads HiAppEvent crash reports without leaking directorie
   );
 });
 
-group(
-  "a crash belongs to the unfinished keyboard session only before this keyboard begins its own",
-  () => {
-    const report: CrashReport = { pid: 99, time: 1, message: "SIGABRT", stack: "" };
-    check(
-      TelemetryPolicy.destination(report, 99, false) === CrashDestination.Session,
-      "the previous keyboard process's crash, before begin, is that session's crash",
-    );
-    check(
-      TelemetryPolicy.destination(report, 99, true) === CrashDestination.Standalone,
-      "after begin the marker is this run's, so the crash stands alone",
-    );
-    check(
-      TelemetryPolicy.destination(report, 12, false) === CrashDestination.Standalone,
-      "another process's crash (the settings application) never closes the keyboard session",
-    );
-    check(
-      TelemetryPolicy.destination(report, null, false) === CrashDestination.Standalone,
-      "with no remembered keyboard process nothing is attributed",
-    );
-    check(
-      TelemetryPolicy.standaloneRecordName(report) === "harmony-99-1.crash",
-      "a standalone record is named by process and time, so a report delivered twice is written once",
-    );
-    check(
-      TelemetryPolicy.recordText(report) === "SIGABRT\n",
-      "a record is the summary line, then the frames",
-    );
-    check(
-      TelemetryPolicy.rememberedPid('{"pid":4321}') === 4321,
-      "the remembered process id is read",
-    );
-    check(TelemetryPolicy.rememberedPid("{}") === null, "and a file without one is no process");
-  },
-);
+group("鸿蒙共享授权响应不能由错误或布尔缓存绕过", () => {
+  const epoch = "12345678-1234-4234-8234-123456789abc";
+  const response = (enabled: unknown, identity: unknown = epoch, since: unknown = 1000): string =>
+    JSON.stringify({ ok: true, value: { enabled, epoch: identity, since_unix_ms: since } });
+  const current = TelemetryPolicy.sharedConsentReply(response(true));
+  check(current?.epoch === epoch && current.since === 1000, "共享 UUID 与起点原样保留");
+  for (const invalid of [
+    response(false),
+    response("true"),
+    response(true, "1-1-1-1-1"),
+    response(true, "00000000-0000-0000-0000-000000000000"),
+    response(true, epoch, "1000"),
+    response(true, epoch, 0),
+    response(true, epoch, 1.5),
+    "{}",
+    "invalid",
+    JSON.stringify({ ok: false, value: { enabled: true, epoch, since_unix_ms: 1000 } }),
+  ]) {
+    check(TelemetryPolicy.sharedConsentReply(invalid) === null, "错误授权响应保持拒绝");
+  }
+});
 
-group("usage reporting is cleared only by a saved document that turns it off", () => {
-  const saved = '{"ok":true,"value":{"revision":3}}';
-  check(
-    TelemetryPolicy.reportingTurnedOff(
-      '{"format_version":1,"preferences":{"usage_reporting":false}}',
-      saved,
-    ),
-    "an explicit false that was saved turns reporting off",
+group("鸿蒙系统诊断必须处于持续同意的时间范围内", () => {
+  const report: CrashReport = { pid: 42, time: 2000, message: "SIGABRT", stack: "" };
+  check(TelemetryPolicy.diagnosticAllowed(report, 1000, 3000), "同意后发生的诊断允许补报");
+  check(!TelemetryPolicy.diagnosticAllowed(report, 2500, 3000), "重新开启统计不追认关闭期间的故障");
+  check(!TelemetryPolicy.diagnosticAllowed(report, null, 3000), "没有持久同意标记时不追认历史诊断");
+  check(!TelemetryPolicy.diagnosticAllowed(report, 1000, 1500), "未来诊断不能提前认领");
+});
+
+group("鸿蒙卡死独立归属且不携带系统原文", () => {
+  const report = TelemetryPolicy.freezeReport(
+    JSON.stringify({
+      pid: 42,
+      time: 100,
+      bundle_version: "0.1.0",
+      exception: { name: "THREAD_BLOCK_6S", message: "synthetic private content" },
+      hilog: ["synthetic private log"],
+      external_log: ["/private/synthetic.log"],
+    }),
   );
   check(
-    !TelemetryPolicy.reportingTurnedOff('{"format_version":1,"preferences":{}}', saved),
-    "an absent key is the default, which is on",
+    report?.message === "Hang THREAD_BLOCK_6S" && report.outsideSession === true,
+    "卡死不改变输入会话崩溃计数",
   );
   check(
-    !TelemetryPolicy.reportingTurnedOff(
-      '{"format_version":1,"preferences":{"usage_reporting":false}}',
-      '{"ok":false,"error":"conflict"}',
-    ),
-    "a save the store refused changed nothing",
+    report?.stack === "" && !JSON.stringify(report).includes("private"),
+    "系统日志和异常原文不进入记录",
   );
-  check(TelemetryPolicy.flushDue(0, 1000), "a keyboard that has not sent yet sends");
-  check(!TelemetryPolicy.flushDue(1000, 1000 + 60 * 60 * 1000), "an hour later it waits");
   check(
-    TelemetryPolicy.flushDue(1000, 1000 + 6 * 60 * 60 * 1000),
-    "six hours later it sends again",
+    report !== null &&
+      TelemetryPolicy.standaloneRecordName(report) === "harmony-freeze-42-100.crash",
+    "卡死身份稳定且与同刻崩溃区分",
   );
-  check(TelemetryPolicy.flushDue(5000, 1000), "a clock that went back does not stop it for good");
+  const unknown = TelemetryPolicy.freezeReport(
+    JSON.stringify({ pid: 42, time: 101, exception: { name: "synthetic private name" } }),
+  );
+  check(unknown?.message === "Hang unknown", "未知原因不泄露任意字符串");
+  check(TelemetryPolicy.freezeReport("invalid") === null, "拒绝损坏的卡死报告");
+});
+
+group("系统诊断文件名和原始版本在重复投递时保持稳定", () => {
+  const report: CrashReport = { pid: 99, time: 1, message: "SIGABRT", stack: "" };
+  check(
+    TelemetryPolicy.standaloneRecordName(report) === "harmony-99-1.crash",
+    "a standalone record is named by process and time, so a report delivered twice is written once",
+  );
+});
+
+group("遥测补发保持六小时间隔并处理时钟回拨", () => {
+  check(TelemetryPolicy.flushDue(0, 1000), "尚未发送的键盘允许补发");
+  check(!TelemetryPolicy.flushDue(1000, 1000 + 60 * 60 * 1000), "一小时后仍等待");
+  check(TelemetryPolicy.flushDue(1000, 1000 + 6 * 60 * 60 * 1000), "六小时后重新补发");
+  check(TelemetryPolicy.flushDue(5000, 1000), "时钟回拨不能永久阻止补发");
 });
 
 group("notices are shown from client-core's answer and their links leave the application", () => {

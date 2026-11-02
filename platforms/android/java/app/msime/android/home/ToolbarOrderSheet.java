@@ -1,25 +1,16 @@
 package app.msime.android.home;
 
 import android.content.Context;
-import android.view.View;
-import android.widget.LinearLayout;
-import android.widget.TextView;
 import androidx.fragment.app.Fragment;
 import app.msime.android.AndroidLocalSettings;
-import app.msime.android.DimensionPolicy;
-import app.msime.android.LayoutPolicy;
-import app.msime.android.ThemeColorPolicy;
 import app.msime.android.ToolbarOrderPolicy;
-import app.msime.android.ViewPolicy;
-import java.util.List;
 
-/** 排序先改面板草稿；保存成功才关闭，取消或滑下关闭不写设置。 */
+/** 排序先改面板草稿；保存成功才关闭，取消或滑下关闭不写设置。拖动和读屏「上移」「下移」由 {@link ReorderList} 管，与其余排序面板相同（#10546）。 */
 final class ToolbarOrderSheet {
     private final Fragment owner;
     private final SettingsSheet sheet;
-    private final LinearLayout rows;
+    private final ReorderList<ToolbarOrderPolicy.Item> rows;
     private final Runnable saved;
-    private List<ToolbarOrderPolicy.Item> order;
     private boolean saving;
     private final GroupCard.Row saveRow;
     private final GroupCard.Row resetRow;
@@ -27,76 +18,35 @@ final class ToolbarOrderSheet {
     ToolbarOrderSheet(Fragment owner, AndroidLocalSettings.Snapshot settings, Runnable saved) {
         this.owner = owner;
         this.saved = saved;
-        this.order = ToolbarOrderPolicy.ordered(settings.text(AndroidLocalSettings.TOOLBAR_ORDER));
         Context context = owner.requireContext();
-        sheet = new SettingsSheet(context, "按钮顺序", "用上下箭头调整顺序，已隐藏的按钮会保留位置。点击保存后生效。");
-        rows = LayoutPolicy.column(context);
-        sheet.add(rows);
+        sheet = new SettingsSheet(context, "按钮顺序", "按住右侧把手拖动调整顺序，已隐藏的按钮会保留位置。点击保存后生效。");
+        rows = new ReorderList<>(context, ToolbarOrderPolicy.ordered(
+            settings.text(AndroidLocalSettings.TOOLBAR_ORDER)), item -> item.label);
+        sheet.add(rows.view());
         GroupCard actions = GroupCard.add(sheet.content(), null);
         resetRow = actions.button("恢复默认顺序", null, "重置", () -> {
-            order = ToolbarOrderPolicy.DEFAULT_ORDER;
-            render();
+            if (saving) return;
+            rows.setItems(ToolbarOrderPolicy.DEFAULT_ORDER);
         });
         saveRow = actions.button("保存按钮顺序", null, "保存", this::save);
         actions.button("放弃本次调整", null, "取消", sheet::dismiss);
-        render();
     }
 
     void show() { sheet.show(); }
-
-    private void render() {
-        rows.removeAllViews();
-        Context context = owner.requireContext();
-        for (int index = 0; index < order.size(); index++) {
-            ToolbarOrderPolicy.Item item = order.get(index);
-            LinearLayout row = LayoutPolicy.row(context);
-            ViewPolicy.setCenteredVertically(row);
-            TextView title = ViewPolicy.styledLabel(context, (index + 1) + ". " + item.label,
-                Ui.TEXT_ROW_TITLE, 400, ThemeColorPolicy.text(context));
-            row.addView(title, LayoutPolicy.weightedWrapParams(1));
-            addArrow(row, item, -1, index > 0);
-            addArrow(row, item, 1, index + 1 < order.size());
-            rows.addView(row, LayoutPolicy.matchWidthHeightDp(context, 48));
-        }
-    }
-
-    private void addArrow(LinearLayout row, ToolbarOrderPolicy.Item item, int delta, boolean enabled) {
-        Context context = owner.requireContext();
-        TextView button = ViewPolicy.styledLabel(context, delta < 0 ? "↑" : "↓", 22, 500,
-            ThemeColorPolicy.accent(context));
-        ViewPolicy.setCentered(button);
-        button.setContentDescription((delta < 0 ? "上移 " : "下移 ") + item.label);
-        button.setAccessibilityDelegate(new View.AccessibilityDelegate() {
-            @Override public void onInitializeAccessibilityNodeInfo(View view,
-                    android.view.accessibility.AccessibilityNodeInfo info) {
-                super.onInitializeAccessibilityNodeInfo(view, info);
-                info.setClassName(android.widget.Button.class.getName());
-            }
-        });
-        ViewPolicy.setBackground(button, ViewPolicy.ripple(context));
-        ViewPolicy.setEnabledWithAlpha(button, enabled && !saving, 0.38f);
-        ViewPolicy.bindClick(button, () -> {
-            if (saving) return;
-            order = ToolbarOrderPolicy.move(order, item, delta);
-            render();
-        });
-        row.addView(button, new LinearLayout.LayoutParams(DimensionPolicy.pixels(context, 48),
-            LinearLayout.LayoutParams.MATCH_PARENT));
-    }
 
     private void save() {
         if (saving) return;
         saving = true;
         saveRow.setEnabled(false);
         resetRow.setEnabled(false);
-        render();
-        KeyboardSheets.saveLocal(owner, AndroidLocalSettings.TOOLBAR_ORDER, ToolbarOrderPolicy.format(order),
+        rows.setLocked(true);
+        KeyboardSheets.saveLocal(owner, AndroidLocalSettings.TOOLBAR_ORDER, ToolbarOrderPolicy.format(rows.items()),
             () -> { sheet.dismiss(); saved.run(); },
             () -> {
                 saving = false;
                 saveRow.setEnabled(true);
                 resetRow.setEnabled(true);
-                render();
+                rows.setLocked(false);
             });
     }
 }
