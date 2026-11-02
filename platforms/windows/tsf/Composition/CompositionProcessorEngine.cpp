@@ -1293,10 +1293,12 @@ void CCompositionProcessorEngine::ReleaseConfiguredImeModeDefense()
     _defendConfiguredImeMode = FALSE;
 }
 
+// 激活和切换中英文时标点回到这个模式的起始状态：跟随时中文模式用已存的 `chinese_punctuation`，英文模式用英文标点；锁定时取锁定值（PunctuationModePolicy.h）。
 void CCompositionProcessorEngine::SyncPunctuationWithImeMode(_In_ ITfThreadMgr *pThreadMgr, TfClientId tfClientId,
                                                              BOOL isOpen)
 {
-    SetPunctuationMode(pThreadMgr, tfClientId, isOpen);
+    FanyUtils::RefreshPunctuationLockFromConfig();
+    SetPunctuationMode(pThreadMgr, tfClientId, Global::ResolveImeModePunctuationOpen(isOpen));
 }
 
 void CCompositionProcessorEngine::ApplyPendingImeModeAfterCompositionCommit(_In_ ITfThreadMgr *pThreadMgr,
@@ -1569,7 +1571,7 @@ void CCompositionProcessorEngine::InitializeMetasequoiaIMECompartment(_In_ ITfTh
                                              Global::MetasequoiaIMEGuidCompartmentDoubleSingleByte);
     CompartmentDoubleSingleByte._SetCompartmentBOOL(FALSE);
 
-    SetPunctuationMode(pThreadMgr, tfClientId, openChinese);
+    SyncPunctuationWithImeMode(pThreadMgr, tfClientId, openChinese);
 
     PrivateCompartmentsUpdated(pThreadMgr);
 }
@@ -1657,7 +1659,7 @@ HRESULT CCompositionProcessorEngine::CompartmentCallback(_In_ void *pv, REFGUID 
         CCompartment CompartmentPunctuation(pThreadMgr, fakeThis->_tfClientId,
                                             Global::MetasequoiaIMEGuidCompartmentPunctuation);
         CompartmentPunctuation._GetCompartmentBOOL(isPunctuation);
-        const BOOL desiredPunctuation = Global::ResolvePunctuationOpen(isOpen);
+        const BOOL desiredPunctuation = Global::ResolveImeModePunctuationOpen(isOpen);
         if (desiredPunctuation != isPunctuation)
         {
             CompartmentPunctuation._SetCompartmentBOOL(desiredPunctuation);

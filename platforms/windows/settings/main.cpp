@@ -13402,7 +13402,7 @@ private:
       Canvas::SetLeft(cell, rect.left * scale);
       Canvas::SetTop(cell, rect.top * scale);
       const bool chinese_mode = document_.String(L"default_ime_mode", L"chinese") != L"english";
-      // 标点按钮照 TIP 的 ResolvePunctuationOpen 画：锁定时取锁定值，跟随时随中英文模式（PunctuationSettings.h 的 toolbar_chinese_punctuation）。
+      // 标点按钮照 TIP 激活时定下的标点画：锁定时取锁定值，跟随时英文模式是英文标点、中文模式是已存的起始标点（PunctuationSettings.h 的 toolbar_chinese_punctuation）。
       const bool state =
           component.button == msime::windows::kToolbarLanguage
               ? chinese_mode
@@ -13411,7 +13411,8 @@ private:
                     L"fullwidth"
           : component.button == msime::windows::kToolbarPunctuation
               ? ps::toolbar_chinese_punctuation(
-                    chinese_mode, document_.String(L"punctuation_lock", L"follow"))
+                    chinese_mode, document_.Boolean(L"chinese_punctuation", true),
+                    document_.String(L"punctuation_lock", L"follow"))
           : component.button == msime::windows::kToolbarCharacterSet
               ? document_.Boolean(L"traditional_chinese_output", false)
               : true;
