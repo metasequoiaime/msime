@@ -13,6 +13,46 @@ enum ClipboardCapturePrompt {
   }
 }
 
+/// 本机历史多选的规则，与 Android 的 `ClipboardSelectionPolicy` 逐条相同（#10411）：最多选 20 项，选中 1 到 4 项时可以按 ①②③④ 的顺序一次插入。iOS 的多选目前只有插入，上限仍按 20 项，以后补删除时不用再改规则。
+enum ClipboardSelectionPolicy {
+  static let maxSelections = 20
+  static let maxInsertions = 4
+  /// 选中项超过插入上限、「插入」置灰时给的提示。
+  static let insertionLimitHint = "一次最多插入 \(maxInsertions) 项"
+
+  static func canSelect(_ selectedCount: Int) -> Bool { selectedCount >= 0 && selectedCount < maxSelections }
+
+  static func canInsert(_ selectedCount: Int) -> Bool { selectedCount >= 1 && selectedCount <= maxInsertions }
+
+  /// 第 `index` 个选中项（从 0 起）的角标：①、②……⑳；超出范围时为 nil。
+  static func ordinalLabel(_ index: Int) -> String? {
+    guard index >= 0, index < maxSelections, let scalar = Unicode.Scalar(0x2460 + index) else { return nil }
+    return String(Character(scalar))
+  }
+
+  /// `text` 在按点选先后排列的选中项里的序号（从 0 起），没选中时为 nil。取消一项后，排在它后面的各项序号自然依次前移。
+  static func ordinal(of text: String, in selected: [String]) -> Int? { selected.firstIndex(of: text) }
+
+  /// 点按一条后的选中项：已选中的取消，未选中且没到上限的追加到末尾，到了上限的不变。
+  static func toggled(_ text: String, in selected: [String]) -> [String] {
+    if let index = selected.firstIndex(of: text) {
+      var next = selected
+      next.remove(at: index)
+      return next
+    }
+    return canSelect(selected.count) ? selected + [text] : selected
+  }
+
+  /// 按选中顺序把各条首尾相接成一次插入的文字，中间不加分隔符。
+  static func insertionText(_ texts: [String]) -> String { texts.joined() }
+
+  /// 选中卡片的读屏前缀；没选中时为空。
+  static func selectedDescription(_ index: Int?) -> String {
+    guard let index else { return "" }
+    return "已选择第 \(index + 1) 项；"
+  }
+}
+
 /// 剪贴板面板：本机历史，登录账号后还有「云端」列表，按设计稿画成跟随主题的卡片。
 ///
 /// 带标题栏时（默认）面板独自盖住键盘：卡片上方依次是一行 44pt 的控件（含「返回」）、保存按钮和状态行。不带标题栏时（`showsHeader: false`）面板放在工具栏下方的按键区里，背景透明、透出键盘的背景：一行紧凑的 32pt 控件放「本机」/「云端」分段、保存、搜索、刷新和清空，下面只有一行状态。这时搜索由它自己的按钮开关，因为工具栏会关闭面板。
@@ -30,6 +70,13 @@ final class KeyboardClipboardView: UIView, UITableViewDataSource, UITableViewDel
   private let searchButton = UIButton(type: .system)
   private let clearButton = UIButton(type: .system)
   private let refresh = UIButton(type: .system)
+  /// 多选（#10411）：点「多选」进入，点卡片按先后选中并在右上角标出 ①②③④，「插入」把选中的几条按序号一次插入，「取消」退出。只作用于本机历史，与 Android 的多选入口一致。
+  private let selectButton = UIButton(type: .system)
+  private let insertSelectedButton = UIButton(type: .system)
+  private let cancelSelectionButton = UIButton(type: .system)
+  private(set) var selecting = false
+  /// 按点选先后排列的选中文字（本机历史按文字去重，文字就是条目的标识）。
+  private(set) var selectedTexts: [String] = []
   private let hasFullAccess: Bool
   /// 当前能不能把剪贴板存进历史（`KeyboardPrivacyGate` 的 `clipboardHistory`）：隐私模式和凭据输入框里不能，点保存时只说明原因，与 Android 的 `captureClipboard` 一致。每次点按时现问，面板开着时输入框也可能换掉。
   private let capturesHistory: () -> Bool
@@ -135,6 +182,22 @@ final class KeyboardClipboardView: UIView, UITableViewDataSource, UITableViewDel
     refresh.accessibilityIdentifier = "refreshCloudClipboard"
     refresh.isHidden = true
     refresh.addAction(UIAction { [weak self] _ in self?.cloud?.refresh() }, for: .primaryActionTriggered)
+    let selectionControls = [
+      (selectButton, "多选", "clipboardSelect"), (insertSelectedButton, "插入", "clipboardInsertSelected"),
+      (cancelSelectionButton, "取消", "clipboardCancelSelection"),
+    ]
+    for (button, label, identifier) in selectionControls {
+      button.setTitle(label, for: .normal)
+      if !showsHeader { button.titleLabel?.font = .systemFont(ofSize: 14, weight: .medium) }
+      button.accessibilityIdentifier = identifier
+    }
+    selectButton.accessibilityLabel = "多选剪贴板记录"
+    selectButton.isEnabled = false
+    selectButton.addAction(UIAction { [weak self] _ in self?.beginSelection() }, for: .primaryActionTriggered)
+    insertSelectedButton.addAction(UIAction { [weak self] _ in self?.insertSelection() }, for: .primaryActionTriggered)
+    cancelSelectionButton.addAction(UIAction { [weak self] _ in self?.endSelection() }, for: .primaryActionTriggered)
+    insertSelectedButton.isHidden = true
+    cancelSelectionButton.isHidden = true
     title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     let pasteboard = UIPasteboard.general
     let newCopy = hasFullAccess && capturesHistory() && ClipboardCapturePrompt.hasNewCopy(
@@ -186,11 +249,14 @@ final class KeyboardClipboardView: UIView, UITableViewDataSource, UITableViewDel
     if showsHeader {
       let close = UIButton(type: .system)
       close.setTitle("返回", for: .normal)
-      // 返回先退出搜索，再退出面板，与符号面板一致。
+      // 返回先退出多选或搜索，再退出面板，与符号面板一致。
       close.addAction(UIAction { [weak self] _ in
-        if self?.searchQuery != nil { self?.endSearch() } else { onClose() }
+        guard let self else { return }
+        if selecting { endSelection() } else if searchQuery != nil { endSearch() } else { onClose() }
       }, for: .primaryActionTriggered)
-      header = UIStackView(arrangedSubviews: [source, title, search, refresh, clear, close])
+      header = UIStackView(arrangedSubviews: [
+        source, title, search, refresh, selectButton, cancelSelectionButton, insertSelectedButton, clear, close,
+      ])
       header.spacing = 8
       NSLayoutConstraint.activate([
         close.widthAnchor.constraint(equalToConstant: 44), clear.widthAnchor.constraint(equalToConstant: 76),
@@ -202,7 +268,9 @@ final class KeyboardClipboardView: UIView, UITableViewDataSource, UITableViewDel
       let symbol = UIImage.SymbolConfiguration(pointSize: 15, weight: .medium)
       search.setPreferredSymbolConfiguration(symbol, forImageIn: .normal)
       refresh.setPreferredSymbolConfiguration(symbol, forImageIn: .normal)
-      header = UIStackView(arrangedSubviews: [source, title, spacer, capture, search, refresh, clear])
+      header = UIStackView(arrangedSubviews: [
+        source, title, spacer, capture, search, refresh, selectButton, cancelSelectionButton, insertSelectedButton, clear,
+      ])
       header.spacing = 4
       header.alignment = .center
       source.setContentHuggingPriority(.defaultHigh, for: .horizontal)
@@ -213,6 +281,11 @@ final class KeyboardClipboardView: UIView, UITableViewDataSource, UITableViewDel
         refresh.widthAnchor.constraint(equalToConstant: 32), refresh.heightAnchor.constraint(equalToConstant: 32),
         clear.widthAnchor.constraint(greaterThanOrEqualToConstant: 44), clear.heightAnchor.constraint(equalToConstant: 32),
       ])
+      for button in [selectButton, insertSelectedButton, cancelSelectionButton] {
+        NSLayoutConstraint.activate([
+          button.widthAnchor.constraint(greaterThanOrEqualToConstant: 44), button.heightAnchor.constraint(equalToConstant: 32),
+        ])
+      }
     }
     header.tintColor = skin.accent
     let children: [UIView] = showsHeader ? [header, capture, status, table, letterPad] : [header, status, table, letterPad]
@@ -301,12 +374,24 @@ final class KeyboardClipboardView: UIView, UITableViewDataSource, UITableViewDel
       let stored = preferences?["clipboard_history_limit"] as? Int ?? 50
       historyLimit = [50, 100, 200, 500, 1000].contains(stored) ? stored : 50
       items = try store.load()
+      selectButton.isEnabled = hasFullAccess && !items.isEmpty
+      if selecting {
+        // 选中的记录在别处被删掉时不再记着它；一条都不剩就退出多选。
+        let present = Set(items.map(\.text))
+        selectedTexts = selectedTexts.filter { present.contains($0) }
+        if items.isEmpty { endSelection() } else { updateSelectionChrome() }
+      }
       localStatus()
       if searchQuery != nil { showSearch() } else if !showsCloud { table.reloadData() }
     } catch { status.text = error.localizedDescription }
   }
   private func localStatus() {
     guard !showsCloud else { return }
+    if selecting {
+      status.text = selectedTexts.count > ClipboardSelectionPolicy.maxInsertions
+        ? "\(ClipboardSelectionPolicy.insertionLimitHint)，取消几项后再插入" : "点按选择，按 ①②③④ 的顺序插入"
+      return
+    }
     if let notice = cloud?.notice { status.text = notice; return }
     status.text = items.isEmpty ? "暂无历史。保存后点按插入；记录仅保存在本机。" : "\(items.count)/\(historyLimit) 条 · 点按插入 · 右侧菜单可固定或删除"
   }
@@ -319,6 +404,7 @@ final class KeyboardClipboardView: UIView, UITableViewDataSource, UITableViewDel
     setCaptureShown(!cloudSide)
     searchButton.isHidden = cloudSide
     clearButton.isHidden = cloudSide
+    selectButton.isHidden = cloudSide
     refresh.isHidden = !cloudSide
     setNeedsLayout()
     if cloudSide { cloudChanged() }
@@ -346,12 +432,13 @@ final class KeyboardClipboardView: UIView, UITableViewDataSource, UITableViewDel
   }
   /// Open the search with an empty query. The capture button and the status line fold away, since a phone-height panel with a pad under it has room for the rows and little else, and the title carries the query.
   func beginSearch() {
-    guard searchQuery == nil else { return }
+    guard searchQuery == nil, !selecting else { return }
     confirmingClear = false
     clearButton.setTitle("清空", for: .normal)
     searchQuery = ""
     source.isHidden = true
     title.isHidden = false
+    selectButton.isHidden = true
     setCaptureShown(false)
     setStatusShown(false)
     letterPad.isHidden = false
@@ -375,9 +462,67 @@ final class KeyboardClipboardView: UIView, UITableViewDataSource, UITableViewDel
     title.text = "剪贴板历史"
     source.isHidden = cloud == nil
     title.isHidden = cloud != nil
+    selectButton.isHidden = showsCloud
     table.backgroundView = nil
     localStatus()
     table.reloadData()
+  }
+
+  /// 进入多选：清空的确认先收起，顶行只留计数、「取消」和「插入」（和 Android 多选顶行的先后一致），保存按钮和行菜单让开。只在本机历史、不在搜索中、且有记录时可进。
+  func beginSelection() {
+    guard hasFullAccess, !selecting, !showsCloud, searchQuery == nil, !items.isEmpty else { return }
+    confirmingClear = false
+    clearButton.setTitle("清空", for: .normal)
+    selecting = true
+    selectedTexts = []
+    updateSelectionChrome()
+    localStatus()
+    table.reloadData()
+  }
+
+  func endSelection() {
+    guard selecting else { return }
+    selecting = false
+    selectedTexts = []
+    updateSelectionChrome()
+    localStatus()
+    table.reloadData()
+  }
+
+  /// 按序号把选中的几条首尾相接，经和单条插入同一个 `onInsert` 一次插入，面板随之关闭。
+  private func insertSelection() {
+    guard selecting, ClipboardSelectionPolicy.canInsert(selectedTexts.count) else { return }
+    let text = ClipboardSelectionPolicy.insertionText(selectedTexts)
+    endSelection()
+    onInsert(text)
+  }
+
+  private func toggleSelection(_ text: String) {
+    let next = ClipboardSelectionPolicy.toggled(text, in: selectedTexts)
+    let capped = next == selectedTexts
+    selectedTexts = next
+    updateSelectionChrome()
+    localStatus()
+    if capped { status.text = "最多只能选择 \(ClipboardSelectionPolicy.maxSelections) 项" }
+    table.reloadData()
+  }
+
+  /// 多选进出时顶行换一套控件；计数写在标题里，「插入」只在选中 1 到 4 项时可点。
+  private func updateSelectionChrome() {
+    let count = selectedTexts.count
+    source.isHidden = selecting || cloud == nil
+    title.isHidden = !selecting && cloud != nil
+    title.text = selecting ? "\(count) 项已选择" : "剪贴板历史"
+    setCaptureShown(!selecting)
+    searchButton.isHidden = selecting
+    clearButton.isHidden = selecting
+    selectButton.isHidden = selecting
+    insertSelectedButton.isHidden = !selecting
+    cancelSelectionButton.isHidden = !selecting
+    insertSelectedButton.isEnabled = ClipboardSelectionPolicy.canInsert(count)
+    insertSelectedButton.accessibilityLabel = count > ClipboardSelectionPolicy.maxInsertions
+      ? "插入不可用，\(ClipboardSelectionPolicy.insertionLimitHint)" : "按序号插入选中的剪贴板记录"
+    setNeedsLayout()
   }
 
   func typeSearch(_ character: String) {
@@ -458,11 +603,26 @@ final class KeyboardClipboardView: UIView, UITableViewDataSource, UITableViewDel
       cell.show(text: item.text, meta: Self.cloudMeta(item), skin: skin, inset: cardInset, singleLine: singleLine)
       cell.accessoryView = nil
       cell.accessibilityIdentifier = "cloudClipboardItem"
+      cell.accessibilityLabel = nil
+      cell.accessibilityHint = nil
       return cell
     }
     let item = shown[indexPath.row]
+    if selecting {
+      // 多选时不放行菜单，右上角留给序号角标；序号按点选先后算，取消一项后后面的各项在这次重画时自然前移。
+      let ordinal = ClipboardSelectionPolicy.ordinal(of: item.text, in: selectedTexts)
+      cell.accessoryView = nil
+      cell.show(text: item.text, meta: Self.localMeta(item), skin: skin, inset: cardInset, singleLine: singleLine,
+                ordinal: ordinal.flatMap(ClipboardSelectionPolicy.ordinalLabel))
+      cell.accessibilityIdentifier = "clipboardSelectableItem"
+      cell.accessibilityLabel = ClipboardSelectionPolicy.selectedDescription(ordinal) + item.text
+      cell.accessibilityHint = "点按选择剪贴板记录"
+      return cell
+    }
     cell.show(text: item.text, meta: Self.localMeta(item), skin: skin, inset: cardInset, singleLine: singleLine)
     cell.accessibilityIdentifier = nil
+    cell.accessibilityLabel = nil
+    cell.accessibilityHint = nil
     let menu = UIButton(type: .system)
     menu.frame = CGRect(x: 0, y: 0, width: 44, height: 44)
     menu.setImage(UIImage(systemName: item.pinned ? "pin.fill" : "ellipsis"), for: .normal)
@@ -531,6 +691,11 @@ final class KeyboardClipboardView: UIView, UITableViewDataSource, UITableViewDel
       cloud?.insert(items[indexPath.row], onInsert: onInsert)
       return
     }
+    guard indexPath.row < shown.count else { return }
+    if selecting {
+      toggleSelection(shown[indexPath.row].text)
+      return
+    }
     onInsert(shown[indexPath.row].text)
   }
 }
@@ -542,6 +707,8 @@ private final class ClipboardCardCell: UITableViewCell {
   private let card = UIView()
   private let body = UILabel()
   private let meta = UILabel()
+  /// 多选时选中项右上角的序号 ①②③④（#10411）；没选中或不在多选时隐藏。
+  private let badge = UILabel()
   private var fill: UIColor = .clear
   private var cardLeading: NSLayoutConstraint!
   private var cardTrailing: NSLayoutConstraint!
@@ -574,6 +741,12 @@ private final class ClipboardCardCell: UITableViewCell {
     contentView.addSubview(column)
     textLeading = column.leadingAnchor.constraint(equalTo: contentView.leadingAnchor)
     textTrailing = column.trailingAnchor.constraint(equalTo: contentView.trailingAnchor)
+    badge.font = .systemFont(ofSize: 18, weight: .semibold)
+    badge.textAlignment = .center
+    badge.isAccessibilityElement = false
+    badge.isHidden = true
+    badge.translatesAutoresizingMaskIntoConstraints = false
+    background.addSubview(badge)
     NSLayoutConstraint.activate([
       card.topAnchor.constraint(equalTo: background.topAnchor),
       card.bottomAnchor.constraint(equalTo: background.bottomAnchor, constant: -Self.gap),
@@ -581,34 +754,49 @@ private final class ClipboardCardCell: UITableViewCell {
       column.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 9),
       column.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -(9 + Self.gap)),
       textLeading, textTrailing,
+      badge.topAnchor.constraint(equalTo: card.topAnchor, constant: 4),
+      badge.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -6),
+      badge.widthAnchor.constraint(equalToConstant: 22), badge.heightAnchor.constraint(equalToConstant: 22),
     ])
   }
 
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-  func show(text: String, meta metaText: String, skin: KeyboardTheme, inset: CGFloat, singleLine: Bool) {
-    fill = skin.keyBackground
+  /// `ordinal` 不为 nil 时是多选中选中的一条：卡片铺强调色，右上角画序号，正文给角标让出位置。
+  func show(text: String, meta metaText: String, skin: KeyboardTheme, inset: CGFloat, singleLine: Bool,
+            ordinal: String? = nil) {
+    let selected = ordinal != nil
+    fill = selected ? skin.accent : skin.keyBackground
     card.backgroundColor = isHighlighted ? fill.keyboardPressedBrightness(0.9) : fill
     cardLeading.constant = inset
     cardTrailing.constant = -inset
     textLeading.constant = inset + 12
+    badge.text = ordinal
+    badge.textColor = skin.onAccent
+    badge.isHidden = !selected
     // 行菜单放在附件位里，附件位本身已经和卡片边缘留有距离。
-    textTrailing.constant = accessoryView == nil ? -(inset + 12) : -4
+    textTrailing.constant = textTrailingConstant
     let font = body.font ?? .systemFont(ofSize: 14.5)
     let paragraph = NSMutableParagraphStyle()
     paragraph.lineSpacing = max(0, 14.5 * 1.45 - font.lineHeight)
     body.attributedText = NSAttributedString(string: text, attributes: [
-      .font: font, .foregroundColor: skin.keyForeground, .paragraphStyle: paragraph,
+      .font: font, .foregroundColor: selected ? skin.onAccent : skin.keyForeground, .paragraphStyle: paragraph,
     ])
     body.numberOfLines = singleLine ? 1 : 2
     body.lineBreakMode = .byTruncatingTail
     meta.text = metaText
-    meta.textColor = skin.secondary
+    meta.textColor = selected ? skin.onAccent.withAlphaComponent(0.8) : skin.secondary
     meta.isHidden = singleLine
   }
 
+  /// 正文右边距：有行菜单时贴着附件位，有序号角标时让出角标的宽度，否则与左边对称。
+  private var textTrailingConstant: CGFloat {
+    guard accessoryView == nil else { return -4 }
+    return -(cardLeading.constant + (badge.isHidden ? 12 : 32))
+  }
+
   override var accessoryView: UIView? {
-    didSet { textTrailing?.constant = accessoryView == nil ? -(cardLeading.constant + 12) : -4 }
+    didSet { if textTrailing != nil { textTrailing.constant = textTrailingConstant } }
   }
 
   override func setHighlighted(_ highlighted: Bool, animated: Bool) {

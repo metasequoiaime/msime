@@ -37,17 +37,17 @@ final class LocalVoicePauseDeviceChecks {
             test.stage = "local voice default sliders";
             launch();
             expectSlider("本地停顿时间", 1500);
-            expectSlider("本地识别灵敏度", 50);
+            expectSlider("判停灵敏度", 50);
             test.stage = "local voice accessibility commits";
             adjust("本地停顿时间", 20);
             awaitValue(PAUSE, 2500);
-            adjust("本地识别灵敏度", 60);
+            adjust("判停灵敏度", 60);
             awaitValue(SENSITIVITY, 70);
             test.stage = "local voice settings after page recreation";
             finish();
             launch();
             expectSlider("本地停顿时间", 2500);
-            expectSlider("本地识别灵敏度", 70);
+            expectSlider("判停灵敏度", 70);
         } finally {
             try { finish(); } finally { update(restore); }
         }

@@ -222,12 +222,12 @@ public final class VoicePage extends ReloadingDetailPage {
             AndroidLocalSettings.VOICE_PAUSE_MIN_MILLIS, AndroidLocalSettings.VOICE_PAUSE_MAX_MILLIS, 100,
             local.integer(AndroidLocalSettings.VOICE_PAUSE_MILLIS), value -> value + " 毫秒",
             value -> KeyboardSheets.saveLocal(this, AndroidLocalSettings.VOICE_PAUSE_MILLIS,
-                value, this::reload, this::reload)).help("本地识别出字后等待的停顿；按住空格时由松手结束，锁定录音时由发送或取消结束");
-        recognition.slider("本地识别灵敏度", null,
+                value, this::reload, this::reload)).help("本地识别出字后停顿这么久就结束录音；按住说话时由松手结束，锁定录音时由发送或取消结束");
+        recognition.slider("判停灵敏度", null,
             10, 90, 1, local.integer(AndroidLocalSettings.VOICE_VAD_SENSITIVITY), value -> value + "%",
             value -> KeyboardSheets.saveLocal(this, AndroidLocalSettings.VOICE_VAD_SENSITIVITY,
-                value, this::reload, this::reload)).help("数值越高越容易识别低声说话，也更容易把噪声当作语音");
-        recognition.help("停顿时间仅用于键盘内的本地识别；灵敏度仅用于带语音活动检测的本地整段模型。系统识别自行判停，云服务仍由「说完了」或松开空格结束。这两项只保存在本机，下次本地识别生效。");
+                value, this::reload, this::reload)).help("数值越高越容易判定说完、结束录音；调得太高，轻声说的字可能被当成停顿");
+        recognition.help("停顿时间仅用于键盘内的本地识别；灵敏度仅用于点按开始、带语音活动检测的本地整段模型，按住空格时不变。系统识别自行判停，云服务仍由「说完了」或松开空格结束。这两项只保存在本机，下次本地识别生效。");
 
         polishGroup(target, voice, state);
 

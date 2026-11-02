@@ -525,4 +525,48 @@ group("local fingerprints are not cached without a nanosecond mtime or when unre
 });
 
 console.log(`${checks - failures} checks passed; ${failures} failed`);
+group("遥测授权属于设置应用，键盘旧镜像不能恢复统计", () => {
+  const local = JSON.stringify({
+    revision: 9,
+    preferences: {
+      usage_reporting: false,
+      usage_reporting_consent: { epoch: "local" },
+      keyboard_height: 40,
+    },
+  });
+  const incoming = JSON.stringify({
+    revision: 3,
+    preferences: {
+      usage_reporting: true,
+      usage_reporting_consent: { epoch: "remote" },
+      keyboard_height: 50,
+    },
+  });
+  const text = SharedStateMirrorPolicy.preferencesImport(incoming, local, true);
+  check(text !== null, "有效偏好可以导入");
+  const merged = JSON.parse(text ?? "{}");
+  check(
+    merged.revision === 9 && merged.preferences.keyboard_height === 50,
+    "继续采用键盘改动与本地修订号",
+  );
+  check(merged.preferences.usage_reporting === false, "键盘旧开关不能重新授权");
+  check(merged.preferences.usage_reporting_consent === undefined, "不复制另一沙箱的代次");
+  const keyboard = JSON.parse(
+    SharedStateMirrorPolicy.preferencesImport(local, incoming, false) ?? "{}",
+  );
+  check(keyboard.preferences.usage_reporting === false, "设置应用的开关仍然导入键盘");
+  const same = JSON.stringify({
+    preferences: {
+      usage_reporting: false,
+      usage_reporting_consent: { epoch: "other" },
+      keyboard_height: 40,
+    },
+  });
+  check(
+    SharedStateMirrorPolicy.preferencesFingerprint(local) ===
+      SharedStateMirrorPolicy.preferencesFingerprint(same),
+    "独立代次不触发镜像往返",
+  );
+});
+
 if (failures !== 0) throw new Error(`${failures} shared state mirror policy checks failed`);

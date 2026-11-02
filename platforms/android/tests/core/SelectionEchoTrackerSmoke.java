@@ -4,6 +4,33 @@ public final class SelectionEchoTrackerSmoke {
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }
 
     public static void main(String[] args) {
+        // 同步核对的绝对位置不丢掉提交回声；两条迟到回声都不能取消新的组字。
+        SelectionEchoTracker cursor = new SelectionEchoTracker();
+        cursor.reset(4, 4);
+        cursor.commit(7);
+        cursor.expect();
+        cursor.positionAfterCommit(11);
+        cursor.expect();
+        cursor.positionAfterCommit(10);
+        cursor.expect();
+        cursor.compose(2);
+        cursor.expect();
+        check(cursor.acknowledge(11, 11, -1, -1));
+        check(cursor.acknowledge(10, 10, -1, -1));
+        check(cursor.matchesRestartComposition(12, 12, 2));
+        check(cursor.acknowledge(12, 12, 10, 12));
+        check(!cursor.acknowledge(9, 9, -1, -1));
+        cursor.reset(-1, -1);
+        cursor.positionAfterCommit(6);
+        cursor.expect();
+        cursor.compose(1);
+        cursor.expect();
+        check(cursor.acknowledge(6, 6, -1, -1));
+        check(cursor.acknowledge(7, 7, 6, 7));
+        cursor.positionAfterCommit(-1);
+        cursor.expect();
+        check(!cursor.acknowledge(7, 7, 6, 7));
+
         SelectionEchoTracker restarted = new SelectionEchoTracker();
         restarted.reset(4, 4);
         check(!restarted.matchesRestartComposition(4, 4, 1));
