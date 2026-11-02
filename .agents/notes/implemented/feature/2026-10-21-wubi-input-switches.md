@@ -72,6 +72,7 @@ Status: implemented
 
 - 已经习惯「组字开头 `z` 必开反查」的五笔用户在打开通配后会失去反查；两个功能抢同一个键，这是来源的既定取舍，界面说明里写清了通配含首位。
 - 顶字关掉只在混输开启时能观察到差别。混输关掉的用户打开这个开关看不到任何变化，说明文字必须解释这一点，否则会被当成无效开关。
+- 混输开着、顶字关掉时，「这个字母并进混输串」只在引擎还能延长码长时成立。引擎只在四码没被五笔码表答出、或上一键已有可续写的拼音候选时放开四位上限（`ime/mod.rs` 的 `refresh_candidates`），否则第五个字母被拒收，runtime 不顶字，整键以 `handled=false` 交回宿主，组字仍是四码。#10696 排查时用合成码表复现过：`supe` 有五笔词、拼音表只有 `su`（再加 `su'pei` 也一样）时，敲 `r` 得到 `handled=false`。这一条没有修，需要另定：要么让引擎在混输开着时总是收下第五个字母，要么让 runtime 在引擎收不下时照样顶字。
 - 通配查询在首位是 `z` 时整表扫描。来源同样如此（`?bc*` 无法用索引），代价是首码不确定时一次全表 GLOB + 权重排序。
 
 ## Testing
@@ -94,7 +95,7 @@ Status: implemented
 
 原有命令与结果见本次提交（`cargo test -p msime-engine`、`cargo fmt --all --check`、`cargo clippy -p msime-engine --all-targets --locked -- -D warnings`、`cargo check -p msime-host-api -p msime-input-runtime --all-targets`、`pnpm --filter @msime/desktop test`、`pnpm format:check`、`pnpm run verify-notes`）。
 
-设置界面范围：共享 React 页由 macOS、Linux 与 HarmonyOS 承载；Windows、Android、iOS 的产品设置各自原生绘制，本 PR 没有给它们增加这两个开关。Windows 原生设置和 macOS 原生外观面板不会因共享页改动自动出现新控件。真机设置窗口未验收。
+设置界面范围：共享 React 页由 macOS、Linux 与 HarmonyOS 承载；Windows、Android、iOS 的产品设置各自原生绘制，本 PR 没有给它们增加这两个开关。Windows 原生设置和 macOS 原生外观面板不会因共享页改动自动出现新控件；macOS 原生面板与 Windows 两个原生窗口后来各自补上，见[两套原生设置页补齐共享偏好新增开关](2026-10-21-native-settings-missing-switches.md)。真机设置窗口未验收。
 
 ## Related notes
 
