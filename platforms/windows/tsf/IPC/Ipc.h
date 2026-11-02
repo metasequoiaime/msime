@@ -59,6 +59,10 @@ uint64_t GetNamedpipeClientId();
 
 KeyEventSendResult SendKeyEventToUIProcess(_Out_opt_ uint64_t *requestId = nullptr);
 void DebugTsfKeyLatency(_In_z_ const wchar_t *stage, uint64_t requestId, double elapsedMs, HRESULT result);
+// 智能标点每次决议只记类别：前文是数字、字母还是别的（读不到记 none），本进程的前文影子
+// 当时是否有效，以及出的是 ASCII 还是中文标点。不记字符、不记按的是哪个键，与 macOS 的
+// `[smart-punctuation]` 同一条约定。QQ 这类读不回前文的宿主里，「时好时坏」只能靠它看出来。
+void DebugTsfSmartPunctuation(WCHAR preceding, bool shadowValid, bool asciiResult);
 void DebugTsfIssue47(_In_z_ const wchar_t *stage, uint64_t requestId, UINT code, WCHAR wch, UINT category,
                      UINT function, int eaten, BOOL composing, size_t virtualKeyLength, HRESULT result,
                      uint64_t correlationToken = 0);

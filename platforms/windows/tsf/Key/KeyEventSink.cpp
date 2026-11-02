@@ -21,6 +21,7 @@
 #include "AltGrKeyPolicy.h"
 #include "FullwidthChordPolicy.h"
 #include "CandidateActiveKeyPolicy.h"
+#include "SmartPunctuationDeferralPolicy.h"
 #include "FanyUtils.h"
 #include "FanyLog.h"
 #include "../Utils/PerfTimer.h"
@@ -1615,6 +1616,12 @@ void CMetasequoiaIME::_EnsureDeferredKeyProjection()
         _IsKoreanHanjaListOpen();
 }
 
+bool CMetasequoiaIME::_DeferredProjectionHasComposition() const
+{
+    return _deferredKeyProjectionValid && (_deferredProjectedInputLength > 0 || _deferredProjectedCandidateActive ||
+                                           _deferredProjectedPhraseActive);
+}
+
 void CMetasequoiaIME::_ApplyDeferredKeyProjection(const _KEYSTROKE_STATE &keyState, WCHAR wch, UINT code)
 {
     // 选择可能只补全网址或钉住一段；结果出来前不能固定后续键的归属。
@@ -1864,6 +1871,23 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
          _preferenceNotificationPending.load(std::memory_order_acquire)) && (capturedModifiers & 0b110u) == 0 &&
         !windowsKeyDown && !IsBareModifierKey(*classifiedCode) && !_IsKeyboardDisabled())
     {
+        // 空格转换和重复标点转中文只看本进程记住的上一次上屏和当前焦点，不需要 Server 的
+        // 分类结果，所以必须排在下面那条「可打印键排队」之前认领：否则屏障窗口里的空格会
+        // 被当成普通空格插进文档，刚打出的中文标点再也换不回 ASCII（QQ 这类慢宿主里间歇发生）。
+        if (!_DeferredProjectionHasComposition() && !_IsComposing() && _candidateMode == CANDIDATE_NONE)
+        {
+            const auto claim = Global::DeferredSmartPunctuationClaimFor(*classifiedCode == VK_SPACE,
+                                                                       _CanConvertSmartPunctuationSpace(),
+                                                                       _CanRevertSmartPunctuation(*classifiedWch));
+            if (claim != Global::DeferredSmartPunctuationClaim::None)
+            {
+                keyState->Category = CATEGORY_COMPOSING;
+                keyState->Function = claim == Global::DeferredSmartPunctuationClaim::SpaceConvert
+                                         ? FUNCTION_SMART_PUNCTUATION_CONVERT
+                                         : FUNCTION_SMART_PUNCTUATION_REVERT;
+                return true;
+            }
+        }
         const bool printable = *classifiedWch != L'\0' && std::iswprint(static_cast<wint_t>(*classifiedWch)) != 0;
         const bool plainEditingKey = (capturedModifiers & 1u) == 0 &&
             (msime::tsf::is_korean_caret_or_edit_key(*classifiedCode) ||
@@ -1920,11 +1944,10 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
     }
 
     // 只有段落编辑快捷键依赖组字状态，其余修饰键组合交给应用。
-    const bool projectedCompositionActive = useProjection
-                                                ? (_deferredProjectedInputLength > 0 ||
-                                                   _deferredProjectedCandidateActive || _deferredProjectedPhraseActive)
-                                                : (_IsComposing() || !_pCompositionProcessorEngine->GetKeyCompositionState().rawInput.empty() ||
-                                                   _candidateMode != CANDIDATE_NONE);
+    const bool projectedCompositionActive =
+        useProjection ? _DeferredProjectionHasComposition()
+                      : (_IsComposing() || !_pCompositionProcessorEngine->GetKeyCompositionState().rawInput.empty() ||
+                         _candidateMode != CANDIDATE_NONE);
     const KEYSTROKE_FUNCTION segmentEdit = SegmentEditFunction(*classifiedCode, capturedModifiers, scheme);
     if (segmentEdit != FUNCTION_NONE && !_IsKeyboardDisabled() && projectedCompositionActive)
     {
@@ -2532,9 +2555,15 @@ STDAPI CMetasequoiaIME::OnTestKeyDown(ITfContext *pContext, WPARAM wParam, LPARA
             _ClassifyDeferredKeyDown(pContext, wParam, lParam, nullptr, nullptr, &deferredWch, &deferredCode, &deferredState)
                 ? TRUE
                 : FALSE;
+        // 排队等回放的应用文本由 TIP 自己按顺序插进文档，和直通键一样是用户刚打的字；
+        // 只有真正被吃进组字或命令的键才让前文影子失效。否则数字后直出在屏障窗口里失去
+        // 依据，只能去问读不回前文的宿主文本存储。
+        const bool deferredAsText =
+            *pIsEaten != FALSE && Global::DeferredKeyIsApplicationText(deferredState.Category != CATEGORY_NONE,
+                                                                      deferredState.Function != FUNCTION_NONE);
         // Classify always fills code/wch before failing. Track rejection even
         // when the key is handed back to the app (typical for VK_BACK).
-        _NoteKeyForSmartPunctuation(deferredCode, deferredWch, *pIsEaten ? true : false);
+        _NoteKeyForSmartPunctuation(deferredCode, deferredWch, *pIsEaten && !deferredAsText);
         if (!*pIsEaten)
         {
             // The deferred classifier fills its out-char before its own keyboard-disabled check, and not every exit runs that check, so the char proves nothing about the keyboard state.
@@ -2602,9 +2631,10 @@ bool CMetasequoiaIME::_QueueDeferredKeyDown(_In_ ITfContext *pContext, WPARAM wP
     pContext->AddRef();
     DeferredKeyDown key;
     if (groupedOwner) key.groupedOwner = *groupedOwner;
-    key.kind = keyState.Category == CATEGORY_NONE && keyState.Function == FUNCTION_NONE
-                   ? DeferredKeyDown::Kind::ApplicationText
-                   : DeferredKeyDown::Kind::KeyDown;
+    // 没有功能的按键只是要打的字，队列按它分应用文本（见 Global::DeferredKeyIsApplicationText）。
+    const bool applicationText =
+        Global::DeferredKeyIsApplicationText(keyState.Category != CATEGORY_NONE, keyState.Function != FUNCTION_NONE);
+    key.kind = applicationText ? DeferredKeyDown::Kind::ApplicationText : DeferredKeyDown::Kind::KeyDown;
     key.context = pContext;
     key.wParam = wParam;
     key.lParam = lParam;
@@ -2615,7 +2645,7 @@ bool CMetasequoiaIME::_QueueDeferredKeyDown(_In_ ITfContext *pContext, WPARAM wP
     key.queuedAtMs = GetTickCount64();
     key.needsClassification = (_deferredKeyClassificationPending || _HasPendingApplicationKeyReplay() || _preferenceBarrier.active() ||
          _preferenceNotificationPending.load(std::memory_order_acquire)) &&
-        keyState.Category == CATEGORY_NONE && keyState.Function == FUNCTION_NONE;
+        applicationText;
     key.capsLockOn = (GetKeyState(VK_CAPITAL) & 1) != 0;
     key.windowsKeyDown = (GetAsyncKeyState(VK_LWIN) & 0x8000) != 0 || (GetAsyncKeyState(VK_RWIN) & 0x8000) != 0;
     key.foregroundWindow = GetForegroundWindow();

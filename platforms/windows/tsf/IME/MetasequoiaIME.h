@@ -84,6 +84,11 @@ constexpr bool IsSelfGeneratedSendInputExtraInfo(ULONG_PTR extraInfo)
            IsApplicationKeyReplayExtraInfo(extraInfo) || extraInfo == CAPS_LOCK_SENDINPUT_EXTRA_INFO;
 }
 constexpr ULONGLONG SMART_PUNCTUATION_REPEAT_INTERVAL_MS = 2000;
+// 中文标点后按空格转换的有效期。和上面同长，理由不同：这里防的是「已经过期的手势被
+// 一个迟到的空格兑现」。焦点会话协商期间 `_CanConvertSmartPunctuationSpace()` 会短暂
+// 为假，武装不能因此丢掉（见 Global::SmartPunctuationArmStillBelongsToDocument），
+// 但也不能无限期活着——读不回前文的宿主（QQ、终端）没有指纹可以反悔。
+constexpr ULONGLONG SMART_PUNCTUATION_SPACE_WINDOW_MS = 2000;
 // How long a queued rewrite stays valid. Unlike the interval above this is not
 // a window the user types in: the message is posted from inside the edit
 // session and handled on the next turn of the same message loop, so anything
@@ -553,6 +558,8 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     bool _HasDeferredKeyBarrier() const;
     bool _DeferredKeyQueueHasCapacity() const;
     void _EnsureDeferredKeyProjection();
+    // 队列投影里还有组字（含候选、词段）时，后面的键要按「组字中」归类。
+    bool _DeferredProjectionHasComposition() const;
     void _ApplyDeferredKeyProjection(const _KEYSTROKE_STATE &keyState, WCHAR wch, UINT code);
     void _ApplyDeferredPreservedKeyProjection(REFGUID preservedKey);
     bool _RefreshDeferredRecoveryPrefix(_In_ ITfContext *pContext);
@@ -781,6 +788,10 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     WCHAR _smartPunctuationSpaceBeforeChar = 0;
     uint64_t _smartPunctuationSpaceFocusToken = 0;
     HWND _smartPunctuationSpaceForegroundWindow = nullptr;
+    // 武装时刻，用于 SMART_PUNCTUATION_SPACE_WINDOW_MS 的过期判断。
+    ULONGLONG _smartPunctuationSpaceArmedTick = 0;
+    // 标点之后又按过别的键。读不回文档时兑现要靠 SendInput 盲删一个字符，那时它必须为假。
+    bool _smartPunctuationSpaceInterrupted = false;
     bool _smartPunctuationRevertArmed = false;
     WCHAR _smartPunctuationRevertAscii = 0;
     WCHAR _smartPunctuationRevertChinese = 0;

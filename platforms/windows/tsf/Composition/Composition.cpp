@@ -12,6 +12,7 @@
 #include "FanyDefines.h"
 #include "Ipc.h"
 #include "SmartPunctuationFingerprint.h"
+#include "SmartPunctuationDeferralPolicy.h"
 #include "../Utils/PerfTimer.h"
 
 namespace
@@ -337,6 +338,8 @@ void CMetasequoiaIME::_ClearSmartPunctuationSpace()
     _smartPunctuationSpaceBeforeChar = 0;
     _smartPunctuationSpaceFocusToken = 0;
     _smartPunctuationSpaceForegroundWindow = nullptr;
+    _smartPunctuationSpaceArmedTick = 0;
+    _smartPunctuationSpaceInterrupted = false;
 }
 
 void CMetasequoiaIME::_ClearSmartPunctuationRevert()
@@ -383,12 +386,14 @@ void CMetasequoiaIME::_ArmSmartPunctuationSpace(WCHAR chinese, bool autoClosedPa
     _smartPunctuationSpaceBeforeChar = beforeChar;
     _smartPunctuationSpaceFocusToken = _CaptureFocusSessionToken();
     _smartPunctuationSpaceForegroundWindow = GetForegroundWindow();
+    _smartPunctuationSpaceArmedTick = GetTickCount64();
 }
 
 HRESULT CMetasequoiaIME::_HandleSmartPunctuationConvert(TfEditCookie ec, _In_ ITfContext *pContext)
 {
     const WCHAR chinese = _smartPunctuationSpaceChinese;
     const WCHAR beforeChar = _smartPunctuationSpaceBeforeChar;
+    const bool interrupted = _smartPunctuationSpaceInterrupted;
     const WCHAR ascii = SmartPunctuationAsciiFor(chinese);
     _ClearSmartPunctuationSpace();
     if (ascii == 0)
@@ -413,7 +418,9 @@ HRESULT CMetasequoiaIME::_HandleSmartPunctuationConvert(TfEditCookie ec, _In_ IT
     // accepts ShiftStart and SetText and reports success while changing
     // nothing on screen. Rewriting in place there silently does nothing. Go
     // through the input queue instead, which is what the host cannot fake.
-    if (preceding == 0 && _QueueSmartPunctuationRewrite(ascii))
+    // 只有「标点之后没再按过别的键」才能这么兑现：这条路径是盲删一个字符，读不回文档时
+    // 没有指纹可以反悔，迟到的空格会删掉用户后来打的字。
+    if (preceding == 0 && !interrupted && _QueueSmartPunctuationRewrite(ascii))
     {
         _smartPunctuationShadowChar = ascii;
         _smartPunctuationShadowValid = true;
@@ -945,9 +952,21 @@ void CMetasequoiaIME::_NoteKeyForSmartPunctuation(UINT code, WCHAR wch, bool isE
         _pendingSmartPunctuationDeadline = 0;
     }
 
-    if (_smartPunctuationSpaceArmed && !_CanConvertSmartPunctuationSpace())
+    if (_smartPunctuationSpaceArmed &&
+        !Global::SmartPunctuationArmStillBelongsToDocument(
+            _smartPunctuationSpaceFocusToken, _CaptureFocusSessionToken(),
+            GetForegroundWindow() == _smartPunctuationSpaceForegroundWindow,
+            GetTickCount64() <= _smartPunctuationSpaceArmedTick + SMART_PUNCTUATION_SPACE_WINDOW_MS))
     {
         _ClearSmartPunctuationSpace();
+    }
+    // 标点之后又按了别的键：读不回文档时兑现要靠盲删一个字符（见
+    // _HandleSmartPunctuationConvert），那时这条手势不能再兑现；空格键本身除外，它就是兑现。
+    const bool armedSpace = _smartPunctuationSpaceArmed;
+    const bool convertingSpace = armedSpace && code == VK_SPACE && _CanConvertSmartPunctuationSpace();
+    if (armedSpace && !convertingSpace)
+    {
+        _smartPunctuationSpaceInterrupted = true;
     }
     if (_smartPunctuationRevertArmed && !_CanRevertSmartPunctuation(wch))
     {
@@ -956,7 +975,7 @@ void CMetasequoiaIME::_NoteKeyForSmartPunctuation(UINT code, WCHAR wch, bool isE
 
     // Preserve the local conversion arm through OnTestKeyDown and OnKeyDown;
     // the edit session consumes it after both key-sink passes complete.
-    if (code == VK_SPACE && _CanConvertSmartPunctuationSpace())
+    if (convertingSpace)
     {
         return;
     }
@@ -1053,6 +1072,12 @@ std::wstring CMetasequoiaIME::_ResolveSmartPunctuation(WCHAR wch, WCHAR precedin
             committedAscii = false;
         }
     }
+
+    // 决议用的是什么前文：影子还在就用影子，否则只能问文档。QQ 这类读不回前文的宿主里，
+    // 「时好时坏」就是这两者的差别，所以连类别一起记下来（不记字符）。
+    DebugTsfSmartPunctuation(precedingChar,
+                             _smartPunctuationShadowValid && precedingChar == _smartPunctuationShadowChar,
+                             committedAscii);
 
     _smartPunctuationKey = wch;
     _smartPunctuationPrecedingChar = precedingChar;
