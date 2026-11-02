@@ -89,6 +89,14 @@ class ServiceSettingsDeliverTests(unittest.TestCase):
         self.assertNotIn("output =", failure, "a failed polish keeps the processed transcript already in output")
         self.assertIn('Button("改用识别原文") { output = transcript; status = "已改用识别原文" }', SERVICE)
 
+    def test_failed_polish_of_a_punctuation_only_result_says_nothing_was_recognized(self):
+        # 识别结果只剩标点时 transcript 是空的，润色再失败也没有原文可保留，状态不能说「已保留识别原文」，与不润色的路径一样提示没有识别到文字。
+        failure = self.polish_branch[self.polish_branch.index("} catch {"):]
+        self.assertRegex(failure, re.compile(
+            r"guard request\.isCurrent\(id\), !Task\.isCancelled else \{ return \}\n"
+            r"(?: *//[^\n]*\n)? *if transcript\.isEmpty \{\s*status = \"没有识别到文字\"\s*\} else \{\s*"
+            r"status = \"润色失败，已保留识别原文：\\\(error\.localizedDescription\)\"\s*\}"))
+
     def test_unpolished_result_is_processed_once(self):
         self.assertRegex(self.plain_branch, re.compile(
             r"guard let text = VoicePunctuation\.finalText\(result, mode: punctuation\) else \{\s*"
