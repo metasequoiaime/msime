@@ -2507,7 +2507,8 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
         return NO;
     NSString *reading = [_view[@"editing_text"] isKindOfClass:NSString.class] ? _view[@"editing_text"] : @"";
     if (!reading.length) return NO;
-    NSArray *candidates = [_view[@"candidates"] isKindOfClass:NSArray.class] ? _view[@"candidates"] : @[];
+    // 只数看得见的行：运行时的「下一个」越过云占位行（#10665），按原始行数数，第 N 次空格停的位置和回车选的那一行就差一格。
+    NSArray *candidates = MSIMEVisibleCandidates(_view[@"candidates"]);
     // Editing the reading abandons the conversion that was running on the old one.
     if (![reading isEqualToString:_japaneseConversionReading ?: @""]) {
         _japaneseConversionIndex = nil;
@@ -2762,7 +2763,9 @@ BOOL MSIMEInputControllerHasUnfinishedInput(void) {
     [self discardExpandedCandidates];
     const NSUInteger columns = MAX((NSUInteger)1, (NSUInteger)_appearance.pageSize);
     NSDictionary *transition = nil;
-    while (valid && current != NSNotFound && current != target) {
+    // 运行时移动高亮会越过云占位行（#10665），一步可能不止一格：每一步都从回复的视图读回真实高亮，不按命令推算。每一步至少向目标靠近一格，步数以身份距离为上限；读回的高亮没动时停下。
+    const NSUInteger distance = current == NSNotFound ? 0 : (current > target ? current - target : target - current);
+    for (NSUInteger attempts = 0; valid && current != NSNotFound && current != target && attempts < distance; ++attempts) {
         const uint32_t command = current / columns < target / columns ? MSIME_NEXT_PAGE
                                : current / columns > target / columns ? MSIME_PREVIOUS_PAGE
                                : current < target ? MSIME_NEXT_CANDIDATE : MSIME_PREVIOUS_CANDIDATE;
@@ -2772,10 +2775,15 @@ BOOL MSIMEInputControllerHasUnfinishedInput(void) {
             break;
         }
         transition = next;
-        if (command == MSIME_NEXT_PAGE) current = (current / columns + 1) * columns;
-        else if (command == MSIME_PREVIOUS_PAGE) current = (current / columns - 1) * columns;
-        else if (command == MSIME_NEXT_CANDIDATE) ++current;
-        else --current;
+        NSUInteger moved = NSNotFound;
+        NSDictionary *nextView = [next[@"view"] isKindOfClass:NSDictionary.class] ? next[@"view"] : nil;
+        for (NSDictionary *candidate in nextView[@"candidates"])
+            if (MSIMEStrictBoolean(candidate[@"highlighted"])) {
+                MSIMEStrictUnsignedIntegerValue(candidate[@"id"][@"index"], &moved);
+                break;
+            }
+        if (moved == current) break;
+        current = moved;
     }
     if (transition) [self apply:transition];
     else [self renderCandidates];
