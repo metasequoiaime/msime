@@ -52,9 +52,9 @@ jobs:
               # 打包输入：打包脚本、安装包的模板和渲染脚本、Tauri 的 macOS 资源声明、核心词库和三个资源包的锁、决定暂存与下载的 client-core、client-providers 代码和示例、发布工作流和这个文件。scripts/test-macos-package-resources.py 核对这份清单覆盖了每个打包输入。
               platforms/macos/package-release.sh|platforms/macos/scripts/settings_updater.py|platforms/macos/stage-resources.sh|apps/desktop/src-tauri/tauri.macos.conf.json)
                 echo "package=true" >> "$GITHUB_OUTPUT"; echo "打包脚本改动: $path"; exit 0 ;;
-              platforms/macos/scripts/installer_package.py|platforms/macos/scripts/edition_bundle.py|platforms/macos/resources/installer/*)
+              platforms/macos/scripts/installer_package.py|platforms/macos/scripts/edition_bundle.py|platforms/macos/scripts/engine_resources_budget.py|platforms/macos/resources/installer/*)
                 echo "package=true" >> "$GITHUB_OUTPUT"; echo "打包脚本改动: $path"; exit 0 ;;
-              resources/desktop-dictionary.lock.json|resources/language-dictionaries.lock.json|resources/handwriting-model.lock.json|resources/offline-glosses.lock.json|resources/voice-runtime-macos.lock.json|resources/wordbook.lock.json|scripts/fetch_wordbooks.py|resources/rerank-model.lock.json|scripts/fetch_rerank_model.py|resources/onnxruntime-minimal.lock.json|scripts/fetch_onnxruntime.py)
+              resources/desktop-dictionary.lock.json|resources/editions/*|resources/helpcodes/*|resources/language-dictionaries.lock.json|resources/handwriting-model.lock.json|resources/offline-glosses.lock.json|resources/voice-runtime-macos.lock.json|resources/wordbook.lock.json|scripts/fetch_wordbooks.py|resources/rerank-model.lock.json|scripts/fetch_rerank_model.py|resources/onnxruntime-minimal.lock.json|scripts/fetch_onnxruntime.py)
                 echo "package=true" >> "$GITHUB_OUTPUT"; echo "资源锁改动: $path"; exit 0 ;;
               crates/client-core/src/resources.rs|crates/client-providers/src/resource_packs.rs|crates/client-providers/src/voice/local_models.rs)
                 echo "package=true" >> "$GITHUB_OUTPUT"; echo "资源代码改动: $path"; exit 0 ;;
@@ -107,6 +107,15 @@ jobs:
           test -f "$staged/helpcodes/helpcode.txt"
           cargo run --quiet --locked -p msime-client-core --example verify_resources -- --omit-on-demand --platform macos "$staged"
           du -sk "$staged"
+      # 下面的 package job 只打 full；发布时按顺序打全部版本，前一个版本失败后面的就根本没被查过。这里按发布的规则把每个版本的 EngineResources 各暂存一次，用 check_app 同一个脚本核对锁定的核心词库预算，版本锁或暂存规则让哪个版本超限，在 develop 上就报出来。
+      - name: Check every edition against its core-dictionary budget
+        run: |
+          set -euo pipefail
+          for edition in $(python3 -I -c 'import json; print(" ".join(edition["id"] for edition in json.load(open("shared/contracts/editions.json"))["editions"]))'); do
+            MSIME_EDITION="$edition" MSIME_MACOS_OMIT_ON_DEMAND=1 bash platforms/macos/stage-resources.sh "$MSIME_DESKTOP_RESOURCES" >/dev/null
+            cargo run --quiet --locked -p msime-client-core --example verify_resources -- --omit-on-demand --platform macos --edition "$edition" target/macos/EngineResources >/dev/null
+            python3 -I platforms/macos/scripts/engine_resources_budget.py --edition "$edition" target/macos/EngineResources
+          done
       - name: Check the packaging contract
         run: python3 scripts/test-macos-package-resources.py
       # 与 App 运行时同一个安装器、同一组 URL 和 SHA-256：macOS 会下载的资源包都要能装上，发布出去的 App 才能补齐它们。重签的语音运行库在 resources/voice-runtime-macos.lock.json 固定之后才有，也一起装。离线释义和 Android 的语音运行库只给 Android 按需下载，不在这里装。这里的未签名包照旧内置运行库（package-release.sh 只在签名的 Team ID 与锁文件相同时省略），所以下载的那份只能在这里查。
