@@ -32,14 +32,17 @@ INSERT INTO tbl_2_w VALUES('wo''men','wm','我们',100);",
 
 const BY_WEIGHT: [&str; 8] = ["饭", "好", "喝", "药", "苦", "亏", "惊", "力"];
 
+/// 每次打分读到的上文和候选。
+type Calls = Arc<Mutex<Vec<(String, Vec<String>)>>>;
+
 /// 按表给逐字平均分，表里没有的候选 -5；记下每次打分的上文和候选。
 struct Stub {
     means: Vec<(&'static str, f32)>,
-    calls: Arc<Mutex<Vec<(String, Vec<String>)>>>,
+    calls: Calls,
 }
 
 impl Stub {
-    fn new(means: &[(&'static str, f32)]) -> (Self, Arc<Mutex<Vec<(String, Vec<String>)>>>) {
+    fn new(means: &[(&'static str, f32)]) -> (Self, Calls) {
         let calls = Arc::new(Mutex::new(Vec::new()));
         (
             Self {
