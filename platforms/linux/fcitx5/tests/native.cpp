@@ -4410,6 +4410,9 @@ int main(int argc, char **argv) {
       state->voice_loading_ = true;
       state->voice_socket_.clear();
       state->voice_generation_ = 0;
+      // 和 requestVoice 一样从「正在录音」开始：前面的语音用例可能把浮层留在识别中，那时录音已经停了，组合键不该再取消。
+      state->wave_overlay_.reset();
+      state->wave_overlay_.listening = true;
       state->voice_ralt_held_ = true;
       state->voice_hold_started_ = true;
       fcitx::KeyEvent chord(&ic, fcitx::Key(FcitxKey_F10, alt));
