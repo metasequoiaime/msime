@@ -281,7 +281,7 @@ pub struct HostCapabilities {
     /// single commit path does not offer it: a control with one outcome reads
     /// as a setting that is being ignored.
     pub voice_commit_mode: bool,
-    /// The host renders the Engine's composition text itself, so the choice between the raw shuangpin keys and the expanded reading (pinyin for shuangpin, Jyutping for 粤语双拼) is visible there. Every host's Engine honours the preference; this says which of them draw the result where a user would see the difference. A host that hands the snapshot's `preedit` to a desktop panel still decides which string goes there, so the difference is its to show.
+    /// 宿主自己画 Engine 的组字文字，所以「原始双拼按键」和「展开后的读音」（双拼是拼音，粤语双拼是粤拼）的差别在那里看得见，设置页因此给出「双拼预编辑」。每个宿主的 Engine 都遵守共享偏好 `shuangpin_preedit_uses_raw`，这一项说的是哪些宿主把结果画在用户看得到的地方；把快照的 `preedit` 交给桌面面板的宿主仍由自己决定放哪段文字，差别也由它来显示。
     pub shuangpin_preedit: bool,
     /// 宿主在双拼组字时按共享偏好 `shuangpin_keymap_hint` 在候选窗旁画当前方案的键位图，所以设置页给出「输入时显示双拼键位提示」。
     pub shuangpin_keymap_hint: bool,

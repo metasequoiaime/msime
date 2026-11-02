@@ -22,7 +22,7 @@ Status: implemented
 
 ## 设置入口
 
-偏好只有一个，出厂值不变，但每个平台都要在用粤语双拼时找得到它。原先只有 iOS 做到了：桌面共享设置页和 Windows 原生设置只在普通话双拼方案下画这一行，Android 的宿主能力 `shuangpin_preedit` 不含 Android、原生设置页也没有这一项。现在的入口：
+偏好只有一个，出厂值不变，但每个平台都要在用粤语双拼时找得到它。本篇之前，iOS 候选栏页和鸿蒙的触屏设置（手机和二合一走共享页 `PreeditSettingsSection`，这一行不按方案隐藏）已经能改到它，只是鸿蒙的说明只提到双拼；桌面共享设置页和 Windows 原生设置只在普通话双拼方案下画这一行，Android 的宿主能力 `shuangpin_preedit` 不含 Android、原生设置页也没有这一项，这三处在粤语双拼下找不到。现在的入口：
 
 - 桌面共享设置页（没有触屏方案的宿主，如 macOS 和 Linux）：`InputSchemeDetailsSection` 在 `scheme === "cantonese"` 且 `resolveCantoneseInputMethod` 为 `shuangpin` 时，在「粤拼方案」之后给出「双拼预编辑」，选项用 `cantonese_shuangpin` 模式，写成「原始按键 / 粤拼分词」，说明写明与普通话双拼共用。普通粤拼不画：它打的就是粤拼，没有按键要展开。双拼方案下的那一行不变，两行不会同时出现。
 - Windows 原生设置：WinUI 设置（`main.cpp` 的 `build_scheme_group`）和 Windows 7 设置（`SchemeForm` 的 `Section::cantonese_shuangpin`，控件 `scheme_cantonese_preedit`）都在选了粤语双拼时给出同一行。
