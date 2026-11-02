@@ -2238,6 +2238,66 @@ fn an_activation_without_keep_local_learning_replaces_the_learning() {
     assert_eq!(lost_learning(&device).len(), 7);
 }
 
+/// 新世纪五笔的词还不进云同步，云端快照里一条也没有：云同步「下载」整份换上云端快照以后，本机的新世纪个人词和删除记录照样在日志里，新的一代的工作词库也按它们改过。
+#[test]
+fn a_cloud_download_activation_keeps_the_local_new_century_words() {
+    let device = downloading_device();
+    for name in ["resources", "dictionaries"] {
+        rusqlite::Connection::open(device.root.path().join(name).join("msime-pinyin.db"))
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE wubixsj(key TEXT,value TEXT,weight INTEGER);
+                 INSERT INTO wubixsj VALUES('lll','男',40);",
+            )
+            .unwrap();
+    }
+    msime_engine::host::dictionary_edit(
+        &device.options,
+        None,
+        Some(&msime_engine::host::DictionaryEntry {
+            kind: msime_engine::host::DictionaryKind::WubiXsj,
+            key: "ent".into(),
+            value: "力".into(),
+            weight: 100,
+        }),
+        "seed-new-century-word",
+    )
+    .unwrap();
+    device.sql(
+        "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,display,user_inserted) VALUES('wubixsj','lll','男','delete',0,'',0);",
+    );
+    download_into(&device, true);
+    assert_eq!(
+        device.number("SELECT count(*) FROM user_dictionary_operations WHERE dictionary='wubixsj' AND key='ent' AND value='力' AND operation='upsert' AND user_inserted=1 AND weight=100"),
+        Some(1)
+    );
+    assert_eq!(
+        device.number("SELECT count(*) FROM user_dictionary_operations WHERE dictionary='wubixsj' AND value='男' AND operation='delete'"),
+        Some(1)
+    );
+    let lost = lost_learning(&device);
+    assert!(lost.is_empty(), "整份激活丢掉了本机学到的：{lost:?}");
+    let dictionary = rusqlite::Connection::open(
+        device
+            .root
+            .path()
+            .join("dictionaries")
+            .join("msime-pinyin.db"),
+    )
+    .unwrap();
+    let count = |word: &str| -> i64 {
+        dictionary
+            .query_row(
+                "SELECT count(*) FROM wubixsj WHERE value=?1",
+                [word],
+                |row| row.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!(count("力"), 1);
+    assert_eq!(count("男"), 0);
+}
+
 /// 两份各自合法的状态合并后超限时，不能换入一代连版本都读不出的日志。
 #[test]
 fn a_cloud_download_over_the_combined_record_limit_keeps_the_active_generation() {

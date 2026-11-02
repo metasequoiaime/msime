@@ -355,6 +355,20 @@ pub fn merge_dictionary_state(
     ))
 }
 
+/// 整份换上云端快照前，把 `active` 那一代日志里 `kinds` 这几种词库（云同步还不收的）的行并进 `staged` 那一代，规则见 `state::carry_dictionary_rows`。调用方必须持有独占维护权。
+pub fn carry_dictionary_rows(
+    active: &EngineOptions,
+    staged: &EngineOptions,
+    kinds: &[DictionaryKind],
+) -> Result<usize> {
+    released(state::carry_dictionary_rows(
+        &runtime_paths(active),
+        &runtime_paths(staged),
+        main_dictionary(staged),
+        kinds,
+    ))
+}
+
 /// 在一个只读事务里依次读出日志里的六张输入习惯表（整句联想、选词对、拼写纠错、自动纠错抑制、置顶），交给 `emit`；`emit` 返回假时停下并报 `INVALID_DICTIONARY_STATE`。本地备份导出输入习惯用它，规则见 `habits::stream_learning_habits`。
 pub fn stream_learning_habits(
     options: &EngineOptions,
