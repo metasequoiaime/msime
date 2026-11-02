@@ -673,6 +673,9 @@ pub(crate) fn check_root(root: &Path) -> Result<(), LocalModelError> {
     Ok(())
 }
 
+/// 等模型根目录的锁时多久看一次取消。取消后最多再等这么久才返回，相对一次安装的耗时可以忽略。
+const MODEL_LOCK_POLL: Duration = Duration::from_millis(50);
+
 struct ModelLock {
     _file: File,
     #[cfg(unix)]
@@ -694,9 +697,10 @@ impl Drop for ModelLock {
     }
 }
 
-/// 串行化模型根目录的所有写操作，包括其他宿主进程的操作。锁文件始终保留，
-/// 避免前一操作仍持锁时，后续操作创建不同 inode 而绕过互斥。
-fn acquire_model_lock(root: &Path) -> Result<ModelLock, LocalModelError> {
+/// 串行化模型根目录的所有写操作，包括其他宿主进程的操作。锁文件始终保留，避免前一操作仍持锁时，后续操作创建不同 inode 而绕过互斥。
+///
+/// 锁被别的操作占着时一直等到它放开，等待期间每隔 [`MODEL_LOCK_POLL`] 看一次 `cancel`，取消后报 [`LocalModelError::Cancelled`]。原来用阻塞的 `exclusive`：另一个进程或同一进程里另一个模型的下载占着锁时，导入停在「导入中 0%」，「取消导入」和关窗都叫不停它（#10633）。
+fn acquire_model_lock(root: &Path, cancel: &AtomicBool) -> Result<ModelLock, LocalModelError> {
     // `create_dir_all` 会跟随缺失路径成分中的既有符号链接；先检查最近的已存在祖先。
     crate::storage::create_directory_and_check(root)?;
     check_root(root)?;
@@ -709,7 +713,13 @@ fn acquire_model_lock(root: &Path) -> Result<ModelLock, LocalModelError> {
     )?;
     #[cfg(not(unix))]
     let lock = crate::file_lock::open_private_lock_file(root.join(MODEL_LOCK_FILE))?;
-    crate::file_lock::exclusive(&lock)?;
+    loop {
+        check_cancel(cancel)?;
+        if crate::file_lock::try_exclusive(&lock)? {
+            break;
+        }
+        std::thread::sleep(MODEL_LOCK_POLL);
+    }
     Ok(ModelLock {
         _file: lock,
         #[cfg(unix)]
@@ -1236,7 +1246,7 @@ pub(crate) fn install_model(
     {
         return Err(LocalModelError::InvalidMirror);
     }
-    let _lock = acquire_model_lock(root)?;
+    let _lock = acquire_model_lock(root, cancel)?;
     #[cfg(unix)]
     remove_leftovers_at(_lock.root(), &model.id);
     #[cfg(not(unix))]
@@ -1654,7 +1664,7 @@ pub(crate) fn install_files_with(
     cancel: &AtomicBool,
 ) -> Result<PathBuf, LocalModelError> {
     check_install(root, id, mirrors)?;
-    let _lock = acquire_model_lock(root)?;
+    let _lock = acquire_model_lock(root, cancel)?;
     #[cfg(unix)]
     remove_leftovers_at(_lock.root(), id);
     #[cfg(not(unix))]
@@ -1899,7 +1909,7 @@ pub(crate) fn install_archive_members_with(
     cancel: &AtomicBool,
 ) -> Result<PathBuf, LocalModelError> {
     check_install(root, id, mirrors)?;
-    let _lock = acquire_model_lock(root)?;
+    let _lock = acquire_model_lock(root, cancel)?;
     #[cfg(unix)]
     remove_leftovers_at(_lock.root(), id);
     #[cfg(not(unix))]
@@ -2084,7 +2094,8 @@ pub(crate) fn adopt_files(
     }
     check_root(source)?;
     let record = source.to_str().ok_or(LocalModelError::InvalidRoot)?;
-    let _lock = acquire_model_lock(root)?;
+    // 收编只移动本机已有的文件，调用方没有取消入口，照旧等到锁放开。
+    let _lock = acquire_model_lock(root, &AtomicBool::new(false))?;
     // 先放回上一次被打断的收编移走的文件，再检查来源里有没有这组文件。
     #[cfg(unix)]
     remove_leftovers_at(_lock.root(), id);
