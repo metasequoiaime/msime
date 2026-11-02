@@ -146,8 +146,6 @@ pub struct Runtime<E: InputEngine = Session> {
     pub(crate) left_right_navigation: bool,
     /// 候选窗是竖排：左右键与候选的排列方向垂直，只编辑输入串，`left_right_navigation` 不接管。由 host-api 按偏好 `candidate_layout` 设，只有桌面宿主会是竖排，触屏的候选栏总是横排。
     pub(crate) vertical_candidates: bool,
-    /// 联想时空格和数字键能不能选中联想，见 [`Runtime::set_prediction_key_picks`]。
-    prediction_key_picks: bool,
     /// 中文状态下首页最多展示几个英文候选（`mixed_input.first_page_count`，1–3）：在线座位整理时英文组在头段的留位数，第一行总能留位。
     pub(crate) english_first_page_count: usize,
     /// The piece already chosen for the phrase being composed, held back from the document.
@@ -819,11 +817,6 @@ impl<E: InputEngine> Runtime<E> {
         self.vertical_candidates = vertical;
     }
 
-    /// 上屏后联想时空格和数字键能不能选中联想。电脑上为真：实体键盘习惯用空格和数字选词，联想和普通候选一样选。手机上为假（缺省）：触屏的空格和数字是输入，联想只能点选，空格插入空格、数字照常输入。宿主状态，下一个按键就生效。
-    pub fn set_prediction_key_picks(&mut self, picks: bool) {
-        self.prediction_key_picks = picks;
-    }
-
     /// 选词字符是宿主编排状态，切换配置无需等待 Engine 重建。
     pub fn set_wubi_candidate_selection(
         &mut self,
@@ -1137,7 +1130,6 @@ impl<E: InputEngine> Runtime<E> {
             left_right_navigation: false,
             english_first_page_count: 1,
             vertical_candidates: false,
-            prediction_key_picks: false,
             phrase_prefix: String::new(),
             phrase_selections: Vec::new(),
             facts: DispatchFacts::default(),
@@ -3656,16 +3648,13 @@ impl<E: InputEngine> Runtime<E> {
             {
                 self.punctuation(value)
             }
-            // 电脑上（`prediction_key_picks`）联想和普通候选一样选：空格选高亮的一条，数字键选当前页对应的一条。要在交给引擎之前接管，引擎收到任何按键都会先清掉联想。九键、字母网格和拿数字拼写的方案里数字是输入，越过本页的数字照常输入，都交给引擎。
-            Action::Character { value: b' ', .. }
-                if self.cached.prediction && self.prediction_key_picks && len > 0 =>
-            {
+            // 上屏后联想和普通候选一样选：空格选高亮的一条，数字键选当前页对应的一条。要在交给引擎之前接管，引擎收到任何按键都会先清掉联想。九键、字母网格和拿数字拼写的方案里数字是输入，越过本页的数字照常输入，都交给引擎。
+            Action::Character { value: b' ', .. } if self.cached.prediction && len > 0 => {
                 pick = Some((SelectionHow::Highlighted, self.highlighted));
                 self.select_seat(self.highlighted)
             }
             Action::Character { value, .. }
                 if self.cached.prediction
-                    && self.prediction_key_picks
                     && !self.cached.nine_key
                     && !self.cached.key_grid.is_some_and(KeyGrid::uses_digits)
                     && !self.cached.spelling_symbols.as_bytes().contains(&value)
@@ -3814,9 +3803,7 @@ impl<E: InputEngine> Runtime<E> {
             {
                 self.engine.character(b' ', false)
             }
-            Action::SelectHighlighted
-                if len > 0 && (!self.cached.prediction || self.prediction_key_picks) =>
-            {
+            Action::SelectHighlighted if len > 0 => {
                 pick = Some((SelectionHow::Highlighted, self.highlighted));
                 self.select_seat(self.highlighted)
             }

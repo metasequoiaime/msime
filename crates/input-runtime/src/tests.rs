@@ -5612,21 +5612,19 @@ fn next_word_prediction_is_idle_and_only_explicit_selection_commits_it() {
     );
 }
 
-/// 电脑上（`set_prediction_key_picks(true)`）联想和普通候选一样，空格选首条、数字选本页对应的一条。
 #[test]
-fn next_word_prediction_on_a_computer_space_and_digits_pick_like_ordinary_candidates() {
-    let key = |value| Action::Character {
+fn next_word_prediction_space_and_digits_pick_like_ordinary_candidates() {
+    let space = |value| Action::Character {
         value,
         shift: false,
     };
     for (action, expected) in [
         (Action::SelectHighlighted, "饭"),
-        (key(b' '), "饭"),
-        (key(b'1'), "饭"),
-        (key(b'2'), "好"),
+        (space(b' '), "饭"),
+        (space(b'1'), "饭"),
+        (space(b'2'), "好"),
     ] {
         let (_directory, mut runtime) = prediction_runtime();
-        runtime.set_prediction_key_picks(true);
         assert_eq!(runtime.view().candidates[0].text, "饭");
         let transition = runtime.dispatch(action).unwrap();
         assert!(transition.handled);
@@ -5634,19 +5632,16 @@ fn next_word_prediction_on_a_computer_space_and_digits_pick_like_ordinary_candid
     }
 }
 
-/// 手机上（缺省）联想只能点选：空格和数字交给编辑器，联想清掉。
 #[test]
-fn next_word_prediction_on_a_phone_passes_space_and_digits_to_the_editor() {
+fn next_word_prediction_passes_return_and_digits_past_the_page_to_the_editor() {
     for action in [
-        Action::SelectHighlighted,
+        Action::Command(Command::CommitRaw),
         Action::Character {
-            value: b' ',
+            value: b'5',
             shift: false,
         },
-        Action::Character {
-            value: b'1',
-            shift: false,
-        },
+        Action::Command(Command::Backspace),
+        Action::Finish,
     ] {
         let (_directory, mut runtime) = prediction_runtime();
         let transition = runtime.dispatch(action).unwrap();
@@ -5655,28 +5650,7 @@ fn next_word_prediction_on_a_phone_passes_space_and_digits_to_the_editor() {
     }
 }
 
-#[test]
-fn next_word_prediction_passes_return_and_digits_past_the_page_to_the_editor() {
-    for picks in [false, true] {
-        for action in [
-            Action::Command(Command::CommitRaw),
-            Action::Character {
-                value: b'5',
-                shift: false,
-            },
-            Action::Command(Command::Backspace),
-            Action::Finish,
-        ] {
-            let (_directory, mut runtime) = prediction_runtime();
-            runtime.set_prediction_key_picks(picks);
-            let transition = runtime.dispatch(action).unwrap();
-            assert!(!transition.handled && transition.commit.is_none());
-            assert!(transition.view.candidates.is_empty());
-        }
-    }
-}
-
-/// 联想候选栏上的关闭键（#10078）送 Cancel：建议清空、报已处理，宿主因此不往编辑器补任何字符，这和手机上会多插一个空格的空格键不同。
+/// 联想候选栏上的关闭键（#10078）送 Cancel：建议清空、报已处理，宿主因此不往编辑器补任何字符。
 #[test]
 fn next_word_prediction_cancel_clears_suggestions_without_reaching_the_editor() {
     let (_directory, mut runtime) = prediction_runtime();

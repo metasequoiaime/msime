@@ -13,12 +13,6 @@ export interface NextWordPredictionSectionProps {
   }) => void;
 }
 
-// 手机上联想只能点选，空格和数字照常输入；电脑上和普通候选一样，空格和数字键也能选。
-const PHONE_DESCRIPTION =
-  "选词上屏后推荐后续文字，点选才上屏；使用现有词库，开启学习时也参考个人词序，隐私输入不显示";
-const COMPUTER_DESCRIPTION =
-  "选词上屏后推荐后续文字，像普通候选一样点选、按数字键或空格上屏，继续输入其他内容时消失；使用现有词库，开启学习时也参考个人词序，隐私输入不显示";
-
 const BUTTONS_DESCRIPTION =
   "联想出现时候选栏右端的按键：× 关闭联想，不输入任何字符；∨ 展开更多联想。只有关闭时左右滑动候选栏选词";
 
@@ -34,7 +28,7 @@ export function NextWordPredictionSection({
     <>
       <SwitchRow
         title="上屏后联想"
-        description={showButtons ? PHONE_DESCRIPTION : COMPUTER_DESCRIPTION}
+        description="选词上屏后推荐后续文字，点选、按数字键或空格上屏，继续输入其他内容时消失；使用现有词库，开启学习时也参考个人词序，隐私输入不显示"
         checked={enabled}
         onChange={(next_word_prediction) => onChange({ next_word_prediction })}
       />

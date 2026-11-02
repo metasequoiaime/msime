@@ -148,8 +148,6 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
     runtime.set_escape_keeps_selected_word(applied.escape_keeps_selected_word);
     runtime.set_left_right_navigation(applied.navigation.left_right);
     runtime.set_vertical_candidates(crate::host_vertical_candidates(applied.candidate_layout));
-    // 电脑上空格和数字键能选中联想，手机上它们是输入，联想只能点选。
-    runtime.set_prediction_key_picks(crate::ffi::host::compiled_platform().is_desktop());
     runtime.set_wubi_auto_commit_unique(applied.wubi_auto_commit_unique);
     runtime.set_wubi_fifth_code_top_commit(applied.wubi_fifth_code_top_commit);
     runtime.set_wubi_candidate_selection(applied.wubi_candidate_selection.clone());
