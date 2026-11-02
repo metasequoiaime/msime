@@ -1,4 +1,4 @@
-ONNX Runtime 1.28.2 third-party notices, from https://github.com/microsoft/onnxruntime/blob/v1.28.2/ThirdPartyNotices.txt, for libonnxruntime.so installed beside msime-voice-local.
+ONNX Runtime 1.28.2 third-party notices, from https://github.com/microsoft/onnxruntime/blob/v1.28.2/ThirdPartyNotices.txt, for libonnxruntime.so installed beside msime-voice-local. They include every notice of ONNX Runtime 1.24.4, whose minimal build is statically linked into libmsime_host_api.so for keystroke reranking.
 
 THIRD PARTY SOFTWARE NOTICES AND INFORMATION
 

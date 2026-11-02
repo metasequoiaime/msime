@@ -10782,6 +10782,8 @@ mod model_contests;
 
 mod candidate_scorer;
 
+mod prediction_rerank;
+
 mod settled_async;
 
 mod online_slot_order_equivalence;

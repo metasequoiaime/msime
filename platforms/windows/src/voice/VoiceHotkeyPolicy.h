@@ -26,6 +26,15 @@ inline constexpr unsigned voice_key_ralt = 0xA5;
 inline constexpr unsigned voice_key_f9 = 0x78;
 inline constexpr unsigned voice_key_space = 0x20;
 inline constexpr unsigned voice_key_escape = 0x1B;
+inline constexpr unsigned voice_key_shift = 0x10;
+inline constexpr unsigned voice_key_control = 0x11;
+inline constexpr unsigned voice_key_menu = 0x12;
+inline constexpr unsigned voice_key_lshift = 0xA0;
+inline constexpr unsigned voice_key_rshift = 0xA1;
+inline constexpr unsigned voice_key_lalt = 0xA4;
+
+// dwExtraInfo on the right Alt and the key the voice hook replays when a hold turns into a chord (#10518), so that hook lets its own replay through instead of reading it as a new press. It is deliberately not one of the tip's self-generated markers (IsSelfGeneratedSendInputExtraInfo in tsf/IME/MetasequoiaIME.h): the replayed key stands in for the physical press the hook swallowed and must be classified like one, by the tip and by the Server's maintenance shortcuts (maintenance_stroke_may_trigger).
+inline constexpr std::uintptr_t voice_chord_replay_extra_info = 0x4D535641u;
 
 // 一个物理按键直到松开才结束；改绑、禁用、失焦与修饰键变化都不释放已消费的按键。
 class VoiceToggleStrokes {
@@ -185,5 +194,44 @@ constexpr bool voice_space_locks_hold(unsigned key, VoiceHoldShortcut active,
 // stopped dictation must not also close the dialog behind it.
 constexpr bool voice_escape_cancels(unsigned key, bool recording) {
   return key == voice_key_escape && recording;
+}
+
+// A modifier pressed during a hold is not the key that makes it a chord: the user is still building the combination, and the modifier reaches the application as it always has.
+constexpr bool voice_key_is_modifier(unsigned key) {
+  return key == voice_key_shift || key == voice_key_control ||
+         key == voice_key_menu || key == voice_key_lshift ||
+         key == voice_key_rshift || key == voice_key_lcontrol ||
+         key == voice_key_rcontrol || key == voice_key_lalt ||
+         key == voice_key_ralt || key == voice_key_lwin ||
+         key == voice_key_rwin;
+}
+
+// A right-Alt hold that meets another key was a shortcut, not dictation (#10518): right Alt+F10 in PowerPoint reached the application as a bare F10 because the hold had swallowed the Alt. Such a key ends the hold, the recording that hold started is dropped (see voice_chord_cancels_recording), and the hook hands the application right Alt and then this key, in that order.
+//
+// Only a fresh physical press of a non-modifier key does it. A key-up, an auto-repeat of a key already down before the hold began, and input another program injected do not. Space while space-lock is on and Escape keep their own meanings, and a hold the user has locked with space is dictation they asked to keep. Ctrl+Win is not included: it swallows Win, not Alt, and is left as it is.
+constexpr bool voice_hold_becomes_chord(unsigned key, bool down, bool repeat,
+                                        bool injected, VoiceHoldShortcut active,
+                                        const VoiceHotkeyBindings &bindings,
+                                        bool locked) {
+  if (!down || repeat || injected || locked)
+    return false;
+  if (!voice_hold_suppresses_ralt(active))
+    return false;
+  if (voice_key_is_modifier(key) || key == voice_key_escape)
+    return false;
+  return !voice_space_locks_hold(key, active, bindings);
+}
+
+// A chord drops only the recording its own hold started. `hold_session` is the session epoch that hold's start produced, 0 when it started nothing: a dictation was already running (Ctrl+F9, a custom toggle hotkey, the toolbar microphone, a settings review capture), the hold stopped a locked dictation, or the start failed. Any other recording keeps running, because the user pressed a shortcut and did not ask to end that dictation; before #10518 its right Alt release would have stopped and submitted it, and cancelling it instead would throw the audio away. A changed epoch means the hold's recording already ended and something else started a new one, and a locked recording is one the user asked to keep.
+constexpr bool voice_chord_cancels_recording(std::uint64_t hold_session,
+                                             std::uint64_t current_session,
+                                             bool recording, bool locked) {
+  return hold_session != 0 && hold_session == current_session && recording &&
+         !locked;
+}
+
+// After a chord the user is still holding right Alt, and its auto-repeat keeps arriving as fresh key-downs. Those must not start a new hold, or the second repeat would begin recording and swallow the Alt the application now holds. The latch ends with right Alt's release.
+constexpr bool voice_hold_may_activate(unsigned key, bool ralt_chord_latched) {
+  return !(key == voice_key_ralt && ralt_chord_latched);
 }
 } // namespace msime::windows

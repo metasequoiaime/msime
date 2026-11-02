@@ -48,8 +48,7 @@ LRESULT CALLBACK MaintenanceHotkeyController::keyboard_proc(int code,
   const auto *event = reinterpret_cast<const KBDLLHOOKSTRUCT *>(lparam);
   if (!event)
     return CallNextHookEx(nullptr, code, wparam, lparam);
-  // Do not act on strokes this process injected, or a handler that types
-  // something could drive itself.
+  // Do not act on strokes this process injected, or a handler that types something could drive itself. The shortcut check below makes one exception, the voice hook's chord replay; see maintenance_stroke_may_trigger. The key sink here does not: the physical press it replays was already reported when it passed through this hook.
   const bool injected = (event->flags & LLKHF_INJECTED) != 0;
   if (!injected && self->key_sink_) {
     try {
@@ -69,7 +68,7 @@ LRESULT CALLBACK MaintenanceHotkeyController::keyboard_proc(int code,
     } catch (...) {
     }
   }
-  if (injected)
+  if (!maintenance_stroke_may_trigger(injected, event->dwExtraInfo))
     return CallNextHookEx(nullptr, code, wparam, lparam);
   const bool ctrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
   const bool shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;

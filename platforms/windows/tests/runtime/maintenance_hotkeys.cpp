@@ -17,6 +17,13 @@ namespace {
 } // namespace
 int main() {
   try {
+    // Physical strokes may trigger a shortcut and injected ones may not, except the voice hook's chord replay: with right Alt held for voice, the physical R of Ctrl+Shift+right Alt+R arrives without Alt and only the replay carries it.
+    require(maintenance_stroke_may_trigger(false, 0));
+    require(maintenance_stroke_may_trigger(false, voice_chord_replay_extra_info));
+    require(!maintenance_stroke_may_trigger(true, 0));
+    require(!maintenance_stroke_may_trigger(true, 0x4D534D45u));
+    require(maintenance_stroke_may_trigger(true, voice_chord_replay_extra_info));
+
     // The three letter shortcuts.
     const auto clear = maintenance_hotkey('C', true, true, true);
     require(clear && clear->action == MaintenanceAction::ClearCache);

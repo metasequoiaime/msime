@@ -310,7 +310,8 @@ pub(crate) fn onnx_reranker_within(root: &Path, budget_ms: f64) -> Option<Attach
     };
     match load_onnx_reranker(&large_directory) {
         Some(mut large) if small_directory.is_dir() => {
-            let measured = large.calibrate();
+            // 过了预算的大模型同时也排上屏后联想；退到小模型的机器不排，见 `OnnxScorer::fits_keystroke_budget`。
+            let measured = large.calibrate_for_keystroke_budget(budget_ms);
             let note = format!(" (calibrated {measured:.1} ms, budget {budget_ms:.1} ms)");
             if measured <= budget_ms {
                 Some(attach(large, LARGE, &large_directory, note))

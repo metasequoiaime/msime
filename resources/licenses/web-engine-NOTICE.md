@@ -2489,7 +2489,7 @@ Public Domain Dataです。使用・変更・配布に関しては一切の制�
 | `bitflags` | 2.13.1 | MIT OR Apache-2.0 | L04、L05 |
 | `block-buffer` | 0.12.1 | MIT OR Apache-2.0 | L06、L07 |
 | `cfg-if` | 1.0.4 | MIT OR Apache-2.0 | L04、L08 |
-| `chinese-ime-lm` | 0.2.0 | Apache-2.0 | L09 |
+| `chinese-ime-lm` | 0.2.1 | Apache-2.0 | L09 |
 | `chinese-number` | 0.8.2 | MIT | L10 |
 | `chinese-variant` | 1.1.6 | MIT | L10 |
 | `const-oid` | 0.10.2 | Apache-2.0 OR MIT | L06、L11 |
@@ -3154,7 +3154,7 @@ DEALINGS IN THE SOFTWARE.
 
 ### L09（LICENSE）
 
-用于：`chinese-ime-lm` 0.2.0
+用于：`chinese-ime-lm` 0.2.1
 
 ````text
 

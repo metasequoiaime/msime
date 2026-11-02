@@ -95,6 +95,23 @@ export function normalizePinyinCode(input: string): string {
     .replace(/\s+/g, "'");
 }
 
+/** 新加的粤语词的权重。粤语词库的权重按语料词频算，多字词大多在几万以下：手动加的词默认排在同一编码的多数发布词前面，单字的高频读音仍在它前面。 */
+export const CANTONESE_NEW_WORD_WEIGHT = 100_000;
+
+/** 粤语编码能否作为新词的编码：每个音节是小写字母，末尾可以带声调数字 1–6，音节之间一个空格。Engine 存之前去掉声调。 */
+export function validCantoneseCode(code: string): boolean {
+  return code.length > 0 && code.length <= 512 && /^[a-z]+[1-6]?(?: [a-z]+[1-6]?)*$/.test(code);
+}
+
+/** 把用户输入的粤拼收成编码：去掉首尾空白、转小写，空白和撇号（含中文撇号）都当作一个音节分隔。 */
+export function normalizeCantoneseCode(input: string): string {
+  return input
+    .trim()
+    .toLowerCase()
+    .replace(/[‘’'\s]+/g, " ")
+    .trim();
+}
+
 /** 编码的展示写法：音节之间用排版撇号（`pin’yin`）。 */
 export function displayPinyinCode(code: string): string {
   return code.replace(/'/g, "’");

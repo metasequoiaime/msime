@@ -1,0 +1,8 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head><meta charset="utf-8"><style>body { font: -apple-system-body; font-family: -apple-system, sans-serif; }</style></head>
+<body>
+<p>这个安装包会把「@NAME@」安装到「应用程序」文件夹，安装时需要输入管理员密码。</p>
+<p>安装完成后「@NAME@」会自动打开。在它的安装窗口里点「立即安装」，输入法就装好了。</p>
+</body>
+</html>

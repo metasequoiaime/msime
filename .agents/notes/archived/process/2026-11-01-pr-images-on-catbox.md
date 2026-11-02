@@ -1,6 +1,7 @@
 # Agent Note: PR 的截图上传到 catbox 并嵌进正文
 
 Status: implemented
+Archived: 2026-11-02
 
 ## Problem
 
