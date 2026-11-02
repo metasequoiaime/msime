@@ -1173,8 +1173,11 @@ impl<E: InputEngine> Runtime<E> {
     }
 
     /// 同 [`Runtime::set_reranker`]，挂任意实现了 [`CandidateScorer`] 的逐键打分器，比如需要原生运行库的模型后端。
+    ///
+    /// 挂上的打分器报 [`CandidateScorer::scores_prediction_pool_within_keystroke_budget`] 时，上屏后联想的词库续写也交给它排序（见 [`Self::order_prediction`]），引擎为此多取一池续写；拿掉打分器或它不报时，引擎只取 8 条，联想与没挂打分器时逐行相同。
     pub fn set_candidate_scorer(&mut self, scorer: Option<Box<dyn CandidateScorer>>) {
         self.reranker = scorer;
+        self.engine.set_prediction_pool(self.orders_prediction());
     }
 
     /// Whether a per-keystroke reranker is attached, so a host can attach or drop it when the preference that governs it changes.
@@ -2096,6 +2099,8 @@ impl<E: InputEngine> Runtime<E> {
         self.engine.set_rescoring_context(&self.ai_context);
         // 键位几何同样属于宿主：布局没变，宿主不会重发。
         self.engine.set_key_geometry(self.key_geometry.clone());
+        // 打分器挂在 runtime 上，新引擎同样要按它的速度决定多不多取联想的候选池。
+        self.engine.set_prediction_pool(self.orders_prediction());
         self.load_snapshot(cached);
         self.snapshot_valid = true;
         self.page_size = page_size.into();
@@ -3024,6 +3029,31 @@ impl<E: InputEngine> Runtime<E> {
         self.highlighted = found.unwrap_or(page_start).min(visible - 1);
     }
 
+    /// 挂着的逐键打分器在上屏时同步排一池联想仍在逐键预算之内（[`CandidateScorer::scores_prediction_pool_within_keystroke_budget`]）。引擎的联想候选池按它开关。
+    fn orders_prediction(&self) -> bool {
+        self.reranker
+            .as_deref()
+            .is_some_and(CandidateScorer::scores_prediction_pool_within_keystroke_budget)
+    }
+
+    /// 上屏后联想的词库续写交给逐键打分器排序，排序规则和「每次上屏只排一次」都在引擎里（`Session::order_prediction`）；没挂打分器、或打分器不在预算之内（[`Self::orders_prediction`]）时什么都不做。
+    ///
+    /// 在取快照之前做，引擎的行已经是最终顺序：座位就是引擎下标，选词照常按代次核对，插件的变换看到的也是排好的行。这次上屏的文字要等 [`Self::transition`] 才进 `ai_context`，所以上文只到这次上屏之前，引擎自己接上刚上屏的词；暂存的词段（`phrase_prefix`）会和这次的词一起上屏，接在上文末尾。
+    fn order_prediction(&mut self) {
+        if !self.orders_prediction() {
+            return;
+        }
+        let Some(scorer) = self.reranker.as_mut() else {
+            return;
+        };
+        let before = if self.phrase_prefix.is_empty() {
+            std::borrow::Cow::Borrowed(self.ai_context.as_str())
+        } else {
+            std::borrow::Cow::Owned(format!("{}{}", self.ai_context, self.phrase_prefix))
+        };
+        self.engine.order_prediction(scorer.as_mut(), &before);
+    }
+
     pub(crate) fn refresh(&mut self) -> Result<(), RuntimeError> {
         // 派发类调用里先问插件指令，行在取快照之前写进引擎：同一次派发，代次不变。
         self.run_command_provider();
@@ -3035,6 +3065,7 @@ impl<E: InputEngine> Runtime<E> {
         self.engine_order.clear();
         let previous_highlight = self.highlighted;
         self.highlighted = 0;
+        self.order_prediction();
         // Drop cached candidate identities even if fetching the replacement fails.
         let snapshot = match self.engine.snapshot() {
             Ok(snapshot) => snapshot,

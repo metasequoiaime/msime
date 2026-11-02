@@ -3,7 +3,7 @@ cask "msime" do
   version "@VERSION@"
   sha256 "@SHA256@"
 
-  url "https://github.com/metasequoiaime/msime/releases/download/macos-v#{version}/msime-macos-#{version}-universal.dmg"
+  url "https://github.com/metasequoiaime/msime/releases/download/macos-v#{version}/msime-macos-#{version}-universal.pkg"
   name "MSIME"
   name "水杉输入法"
   desc "Chinese input method for pinyin, shuangpin and wubi"
@@ -15,17 +15,24 @@ cask "msime" do
     strategy :github_releases
   end
 
+  # 设置应用由 Sparkle 就地更新，brew 不必每个版本都重装它（重装时 uninstall 会先删掉输入法）。
+  auto_updates true
   depends_on macos: :ventura
 
-  app "MSIME.app"
-  # The MCP server AI assistants run, on PATH for those configured from a terminal.
-  binary "#{appdir}/MSIME.app/Contents/MacOS/msime-mcp"
+  # 安装包把 MSIME.app 装进 /Applications，要管理员密码：brew 以 sudo 运行 installer。
+  pkg "msime-macos-#{version}-universal.pkg"
+  # AI 助手运行的 MCP 服务器，放上 PATH 供在终端里配置的助手使用。pkg 不认 --appdir，所以路径写死。
+  binary "/Applications/MSIME.app/Contents/MacOS/msime-mcp"
   # 同一个程序再以 msime 的名字放上 PATH，方便在终端里手动敲 msime expand、msime config。
-  binary "#{appdir}/MSIME.app/Contents/MacOS/msime-mcp", target: "msime"
+  binary "/Applications/MSIME.app/Contents/MacOS/msime-mcp", target: "msime"
 
-  # The settings app copies the input method here on its first launch.
-  uninstall quit:   ["app.msime.macos", "app.msime.inputmethod.MetasequoiaIME"],
-            delete: "~/Library/Input Methods/水杉输入法.app"
+  # 设置应用第一次启动时把输入法装进 ~/Library/Input Methods。应用除了按回执卸载还要显式删除：Sparkle 更新过之后，磁盘上的 bundle 和回执对不上。
+  uninstall quit:    ["app.msime.macos", "app.msime.inputmethod.MetasequoiaIME"],
+            pkgutil: "app.msime.macos.pkg",
+            delete:  [
+              "/Applications/MSIME.app",
+              "~/Library/Input Methods/水杉输入法.app",
+            ]
 
   zap trash: [
     "~/Library/Application Support/app.msime.macos",
@@ -37,6 +44,7 @@ cask "msime" do
   ]
 
   caveats <<~EOS
+    Installing and upgrading need an administrator password.
     Open MSIME once to finish installing: it adds 水杉输入法 to your input sources.
     On a Mac where it was never installed, log out and back in after that before it appears.
   EOS

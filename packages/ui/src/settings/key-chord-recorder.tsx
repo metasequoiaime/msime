@@ -47,7 +47,11 @@ export function KeyChordRecorder({ value, onCommit, disabled, error }: KeyChordR
         disabled={disabled}
         aria-label={recording ? "正在录制快捷键" : "录制快捷键"}
         aria-pressed={recording}
-        onClick={() => setRecording(true)}
+        onClick={(event) => {
+          // macOS WebKit 点按按钮不会自动聚焦，录键前显式接管键盘事件。
+          event.currentTarget.focus();
+          setRecording(true);
+        }}
         // 失焦取消录制：录制中点到别处等同于放弃这次录入。
         onBlur={() => recording && stop()}
         onKeyDown={onKeyDown}

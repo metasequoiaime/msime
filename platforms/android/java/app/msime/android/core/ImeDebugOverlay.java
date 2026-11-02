@@ -175,6 +175,8 @@ final class ImeDebugOverlay {
     private boolean mobileLogEnabled;
     /** 最近一次按键的时刻（uptime 毫秒），下一次引擎结果到达时据此算按键到候选更新的耗时；没有待测的按键时为 -1。 */
     private long pendingKeyAt = -1;
+    /** 引擎结果到达后、render() 还没改完视图时，那次按键的时刻（uptime 毫秒）；{@link #onRendered} 据此记 candidate_rendered。没有待记的按键时为 -1。 */
+    private long renderPendingAt = -1;
     private long lastEngineMillis = -1;
     /** `onCreate` 量到的服务创建耗时（毫秒），还没写进日志时为 -1。那时还没有输入框，`allowLearning` 是默认的 false，隐私判断按「不做个性化学习的输入框」挡掉一切记录，只能等进了允许记录的输入框再补写（#9916）。 */
     private long pendingServiceCreateMillis = -1;
@@ -251,12 +253,33 @@ final class ImeDebugOverlay {
     /** 一次按键按下：开始计时，并记 key_down（删除键记 backspace）。 */
     void onKeyPressed(boolean backspace) {
         pendingKeyAt = SystemClock.uptimeMillis();
+        renderPendingAt = -1;
         recordEvent(backspace ? DiagnosticEventKind.BACKSPACE : DiagnosticEventKind.KEY_DOWN);
+    }
+
+    /** 同步调引擎之前取的时刻；不在量一次按键时为 -1，{@link #onEngineCall} 见到 -1 什么也不记。 */
+    long engineCallStart() {
+        return pendingKeyAt >= 0 ? SystemClock.uptimeMillis() : -1;
+    }
+
+    /** 一次按键的引擎调用返回了：记 engine_call。只记引擎结果到达（{@link #showDiagnostic}）之前的那一次调用，所以和 candidate_shown 一一对应。 */
+    void onEngineCall(long startedAt) {
+        if (startedAt < 0 || pendingKeyAt < 0) return;
+        recordPerf(DiagnosticEventKind.ENGINE_CALL, SystemClock.uptimeMillis() - startedAt);
+    }
+
+    /** render() 改完了视图：有待记的按键时记 candidate_rendered，即按键到这一刻的耗时。之后这一帧的测量、布局和绘制不在里面。 */
+    void onRendered() {
+        if (renderPendingAt < 0) return;
+        long startedAt = renderPendingAt;
+        renderPendingAt = -1;
+        recordPerf(DiagnosticEventKind.CANDIDATE_RENDERED, SystemClock.uptimeMillis() - startedAt);
     }
 
     void showDiagnostic(String value) {
         if (pendingKeyAt >= 0) {
             lastEngineMillis = SystemClock.uptimeMillis() - pendingKeyAt;
+            renderPendingAt = pendingKeyAt;
             pendingKeyAt = -1;
             recordPerf(DiagnosticEventKind.CANDIDATE_SHOWN, lastEngineMillis);
         }
@@ -290,6 +313,7 @@ final class ImeDebugOverlay {
         }
         s.diagnosticMessage = "";
         pendingKeyAt = -1;
+        renderPendingAt = -1;
     }
 
     /** 调试行的文字：引擎耗时与候选数；首选候选带权重或来源字段时一并显示。 */

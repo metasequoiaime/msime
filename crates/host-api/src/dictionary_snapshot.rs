@@ -1397,12 +1397,17 @@ where
     // The same step `reset_learned_data` takes before it replaces files in place: write the queued personal context into the journal that is about to become the backup, then close every cached journal, personal-context and local-mode connection, so nothing in this process keeps reading or writing the files being moved out (Windows would also refuse to move them).
     msime_engine::close_cached_databases();
     // 排着的整句联想此刻已经写进旧日志，在同一把锁里把旧的一代学到的东西并进新的一代，再换入：入队到激活之间学到的也带得过去，合并失败时旧的一代原样留着。
-    if prepared.keep_local_learning {
-        let carried = carry_local_learning(active, staged, prepared.directory.path());
-        // 合并在新的一代上开过连接，不论成败都先全部关掉：成功时 Windows 不让移动打开着的 SQLite 文件；失败时调用方要删掉暂存的新一代，同样删不掉打开着的文件。
-        msime_engine::close_cached_databases();
-        carried?;
-    }
+    // 用户加的粤语词不论哪种激活都要带过去（云端「应用到本机」、本地备份恢复都一样）：快照装不下它们，新的一代里本来就没有。
+    let carried = carry_cantonese_words(active, staged).and_then(|()| {
+        if prepared.keep_local_learning {
+            carry_local_learning(active, staged, prepared.directory.path())
+        } else {
+            Ok(())
+        }
+    });
+    // 合并在新的一代上开过连接，不论成败都先全部关掉：成功时 Windows 不让移动打开着的 SQLite 文件；失败时调用方要删掉暂存的新一代，同样删不掉打开着的文件。
+    msime_engine::close_cached_databases();
+    carried?;
     let suffix = format!(".msime-snapshot-old-{handle}");
     let pairs = [
         (&active.user_data, &staged.user_data),
@@ -1675,6 +1680,38 @@ fn carry_local_learning(
     }
     // 两份各自合法的记录合并后仍可能超过总量上限；换入前按后续版本读取的同一条路径验证整代，失败时保留旧代。
     dictionary_state_revision(staged).map_err(|_| FAILED)?;
+    Ok(())
+}
+
+/// 整份换上快照时把即将换下来的这一代里用户加的粤语词抄进新的一代（#10544）。粤语词只记在日志里，快照格式不收它们：云同步从不上传，本地备份也不带，新的一代里本来就没有，不抄过去就会随旧的一代一起被删掉，而且哪里都取不回来。与 [`carry_local_learning`] 不同，这一步不看 `keep_local_learning`，本地备份恢复同样要做。
+///
+/// 调用方的前提与 [`carry_local_learning`] 相同。旧的一代的日志读不出来时不抄，与那里对读不出来的那一类的处理相同；往新的一代里写失败时报错，激活不做，旧的一代原样留着。
+fn carry_cantonese_words(
+    active: &EngineOptions,
+    staged: &EngineOptions,
+) -> Result<(), &'static str> {
+    use msime_engine::host::DictionaryKind;
+    use msime_engine::DictionaryStateRecord;
+    let mut words = Vec::new();
+    let read = msime_engine::host::stream_dictionary_state(active, &mut |record| {
+        if matches!(
+            record,
+            DictionaryStateRecord::Entry {
+                kind: DictionaryKind::Cantonese,
+                user_inserted: true,
+                deleted: false,
+                ..
+            }
+        ) {
+            words.push(record.clone());
+        }
+        true
+    });
+    if read.is_err() || words.is_empty() {
+        return Ok(());
+    }
+    msime_engine::host::add_cantonese_words(staged, &words)
+        .map_err(|_| "snapshot cantonese carry failed")?;
     Ok(())
 }
 

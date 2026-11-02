@@ -143,13 +143,14 @@ jobs:
           echo "$root/bin" >> "$GITHUB_PATH"
           echo "DEVECO_SDK_HOME=$root/sdk" >> "$GITHUB_ENV"
           echo "MSIME_OHOS_NDK=$root/sdk/default/openharmony/native" >> "$GITHUB_ENV"
-          rustup target add aarch64-unknown-linux-ohos
+          bash scripts/rustup-install.sh aarch64-unknown-linux-ohos
           df -h "$RUNNER_TEMP" | tail -1
       - name: Verify HarmonyOS signing tools with synthetic credentials
         if: ${{ (inputs.publish || inputs.sign || inputs.appgallery != 'none') && !inputs.test_package_id }}
         run: python3 scripts/test-harmony-release-signing.py
       - name: Build HarmonyOS native host
         if: ${{ !inputs.source_release && !inputs.test_package_id }}
+        env: {MSIME_HARMONY_VERSION: "${{ steps.version.outputs.value }}"}
         run: bash platforms/harmony/build-native.sh arm64-v8a
       - name: Stage the sherpa-onnx HAR
         if: ${{ !inputs.source_release && !inputs.test_package_id }}
@@ -219,6 +220,12 @@ jobs:
             ${{ steps.signing.outputs.hap || steps.hap.outputs.path }}
             ${{ steps.signing.outputs.sums }}
           if-no-files-found: error
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !inputs.source_release && !inputs.test_package_id }}
+        with:
+          name: msime-harmony-symbols-${{ steps.version.outputs.value }}
+          path: target/harmony-symbols/*.zip
+          if-no-files-found: error
       # APP 是应用市场上传材料，放 workflow artifact，不混在用户下载的 HAP 附件里。
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ (inputs.publish || inputs.sign || inputs.appgallery != 'none') && !inputs.test_package_id }}
@@ -258,3 +265,7 @@ jobs:
           python3 scripts/generate-release-notes.py --platform harmony --version "$RELEASE" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output release-notes.md
           test -s "$HAP" && test -s "$SUMS"
           bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "HarmonyOS ${RELEASE}" release-notes.md "$HAP" "$SUMS"
+          for archive in target/harmony-symbols/*.zip; do
+            test -f "$archive"
+          done
+          bash scripts/publish-crash-symbols.sh harmony target/harmony-symbols/*.zip

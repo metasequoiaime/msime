@@ -183,15 +183,16 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
     setPhrasePage((current) => ({ ...current, status: "查询中…" }));
     try {
       const query = phraseSearch.trim();
-      // 新宿主的浏览入口允许空查询列出内置词条；旧宿主继续使用个人词库接口。
-      const page = client.dictionary.browse
-        ? {
-            ...(await client.dictionary.browse(offset, DICTIONARY_PAGE_SIZE, kind, query)),
-            pending_count: 0,
-            failed_requests: [],
-            snapshot_error: null,
-          }
-        : await client.dictionary.list(offset, DICTIONARY_PAGE_SIZE, kind, query);
+      // 新宿主的浏览入口允许空查询列出内置词条；旧宿主继续使用个人词库接口。个人粤语词库没有内置词条，浏览入口的 `cantonese` 又是发布的粤语词库，所以它总是走个人词库接口。
+      const page =
+        client.dictionary.browse && kind !== "cantonese"
+          ? {
+              ...(await client.dictionary.browse(offset, DICTIONARY_PAGE_SIZE, kind, query)),
+              pending_count: 0,
+              failed_requests: [],
+              snapshot_error: null,
+            }
+          : await client.dictionary.list(offset, DICTIONARY_PAGE_SIZE, kind, query);
       if (!mounted.current || generation !== phraseRequestGeneration.current) return;
       const listed: DictionaryLookupEntry[] = page.entries;
       const entries = listed.filter(
