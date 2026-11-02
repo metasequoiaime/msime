@@ -68,10 +68,14 @@ final class FourteenKeyWubiDeviceChecks {
             absent(t.key("q"));
 
             // QW QW 的组码是 qq，可能的五笔码是 qq、qw、wq、ww；读音行显示首选的编码，不显示内部组码，也不写进输入框。
+            // 五笔 14 键网格组字不能编辑拼写（#10591，与 iOS 一致）：读音不可点，读屏念的是编码本身，不是「编辑拼写」。
             t.stage = "fourteen wubi code";
             groups("Q W", "Q W");
-            t.await(t.described("编辑拼写").and(node -> node.getText() != null
-                && java.util.List.of("qq", "qw", "wq", "ww").contains(node.getText().toString())));
+            t.await(node -> DeviceSmoke.equalsText("app.msime.android", node.getPackageName())
+                && node.getText() != null && !node.isClickable()
+                && java.util.List.of("qq", "qw", "wq", "ww").contains(node.getText().toString())
+                && DeviceSmoke.equalsText(node.getText().toString(), node.getContentDescription()));
+            absent(t.described("编辑拼写"));
             t.await(t.field("msime-test-plain").and(FourteenKeyWubiDeviceChecks::emptyField));
             t.stage = "fourteen wubi left key stays symbols while composing";
             t.await(t.described("按键 符号"));
@@ -93,7 +97,9 @@ final class FourteenKeyWubiDeviceChecks {
             // 组字中点左端的「符」：按高亮行结束组字并打开符号面板，不把 `'` 交给五笔。
             t.stage = "fourteen wubi symbol key while composing";
             groups("Q W", "Q W");
-            t.await(t.described("编辑拼写"));
+            t.await(node -> DeviceSmoke.equalsText("app.msime.android", node.getPackageName())
+                && node.getText() != null
+                && java.util.List.of("qq", "qw", "wq", "ww").contains(node.getText().toString()));
             t.tap(t.described("按键 符号"));
             t.await(t.described("符号面板"));
             t.await(t.field("msime-test-plain").and(node -> node.getText() != null
