@@ -43,6 +43,8 @@ cmake -S platforms/linux -B /build/ibus -G Ninja \
 cmake --build /build/ibus
 if [[ ${MSIME_RESOURCE_SMOKE_ONLY:-0} == 1 ]]; then
   ctest --test-dir /build/ibus -R '^ibus-custom-voice-hotkey$' --output-on-failure --no-tests=error
+  echo "IBus voice smoke acceptance passed"
+  exit 0
 else
   ctest --test-dir /build/ibus --output-on-failure --no-tests=error
 fi
