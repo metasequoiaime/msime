@@ -201,6 +201,9 @@ def main() -> int:
     for notice in ("pinyin-data-MIT.txt", "ECDICT-MIT.txt", "rime_kaomoji_dict-MIT.txt", "python-pinyin-MIT.txt", "rime-wubi86-jidian-Apache-2.0.txt", "rime-wanxiang-CC-BY-4.0.txt"):
         if not (contents / "Resources" / "Licenses" / notice).is_file():
             failures.append(f"Contents/Resources/Licenses/{notice} is missing; the bundled dictionary data it covers ships without its licence")
+    # msime-wubi.db 里新世纪五笔（wubixsj）的单字码取自 GPL-3.0 的 byujiang/wubi06_rime，与输入法本身同一许可，不另带许可证文件，靠的就是这份全文。
+    if not (contents / "Resources" / "Licenses" / "GPL-3.0.txt").is_file():
+        failures.append("Contents/Resources/Licenses/GPL-3.0.txt is missing; the input method and the GPL-3.0 新世纪五笔 codes in msime-wubi.db ship without their licence")
     # The engine embeds the place names `@` mode offers from modood/Administrative-divisions-of-China.
     if not (contents / "Resources" / "Licenses" / "Administrative-divisions-of-China-WTFPL.txt").is_file():
         failures.append("Contents/Resources/Licenses/Administrative-divisions-of-China-WTFPL.txt is missing; the built-in place names ship without their licence")
