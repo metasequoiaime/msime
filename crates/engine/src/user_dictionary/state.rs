@@ -761,11 +761,11 @@ pub fn merge_dictionary_state(
     Ok(merge)
 }
 
-/// 把用户加的粤语词写进 `paths` 的日志，日志里已有同一个词（同一 `dictionary,key,value`）的保留已有的那一行，返回写进去的条数。
+/// 把粤语行（用户加的和打字造的词，以及调频学到的权重）写进 `paths` 的日志，日志里已有同一个词（同一 `dictionary,key,value`）的保留已有的那一行，返回写进去的条数。`user_inserted` 照原样写：学到的权重仍不进「我的词条」。
 ///
-/// 粤语词没有工作表，日志就是它们存放的地方，而词库快照（云同步和本地备份共用的格式）装不下它们，所以 [`stage_dictionary_state`] 整份建出来的新一代里没有它们。宿主激活新一代前用 [`stream_dictionary_state`] 从旧的一代读出来，经这里写进新的一代；不这样做，用户加的粤语词就随旧的一代一起被换掉，云端和备份里都没有，再也取不回来（#10544）。
+/// 粤语词没有工作表，日志就是它们存放的地方，而词库快照（云同步和本地备份共用的格式）装不下它们，所以 [`stage_dictionary_state`] 整份建出来的新一代里没有它们。宿主激活新一代前用 [`stream_dictionary_state`] 从旧的一代读出来，经这里写进新的一代；不这样做，用户加的粤语词和粤语学到的东西就随旧的一代一起被换掉，云端和备份里都没有，再也取不回来（#10544）。
 ///
-/// `words` 里只能是粤语的、用户加的、没删的词条，别的记录报 `INVALID_DICTIONARY_STATE`；编码、词或权重超出日志上限的词条跳过不写，不让一条坏行挡住整次激活。全部在一个 IMMEDIATE 事务里，写库失败整体回滚。调用方必须持有独占维护权。
+/// `words` 里只能是粤语的、没删的词条，别的记录报 `INVALID_DICTIONARY_STATE`；编码、词或权重超出日志上限的词条跳过不写，不让一条坏行挡住整次激活。全部在一个 IMMEDIATE 事务里，写库失败整体回滚。调用方必须持有独占维护权。
 pub fn add_cantonese_words(paths: &RuntimePaths, words: &[DictionaryStateRecord]) -> Result<usize> {
     paths.validate()?;
     if words.is_empty() {
@@ -781,7 +781,7 @@ pub fn add_cantonese_words(paths: &RuntimePaths, words: &[DictionaryStateRecord]
     let mut added = 0usize;
     {
         let mut insert = transaction.prepare(
-            "INSERT OR IGNORE INTO user_dictionary_operations(dictionary,key,value,operation,weight,display,user_inserted) VALUES(?1,?2,?3,'upsert',?4,?5,1)",
+            "INSERT OR IGNORE INTO user_dictionary_operations(dictionary,key,value,operation,weight,display,user_inserted) VALUES(?1,?2,?3,'upsert',?4,?5,?6)",
         )?;
         for word in words {
             let DictionaryStateRecord::Entry {
@@ -791,7 +791,7 @@ pub fn add_cantonese_words(paths: &RuntimePaths, words: &[DictionaryStateRecord]
                 weight,
                 display,
                 deleted: false,
-                user_inserted: true,
+                user_inserted,
             } = word
             else {
                 return Err(invalid_state());
@@ -809,6 +809,7 @@ pub fn add_cantonese_words(paths: &RuntimePaths, words: &[DictionaryStateRecord]
                 value,
                 weight,
                 display,
+                i64::from(*user_inserted),
             ])?;
         }
     }
@@ -1891,12 +1892,21 @@ mod tests {
                 &[
                     entry(Cantonese, "nei hou", "你好", 7, "", false, true),
                     entry(Cantonese, "m goi", "唔該", 9, "", false, true),
+                    entry(Cantonese, "nei hou", "妳好", 901, "", false, false),
                 ],
             )
             .unwrap(),
-            1
+            2
         );
         assert_eq!(count(), Some(2));
+        // 学到的权重照样带过去，仍不算用户的词。
+        assert_eq!(
+            weight(
+                &journal,
+                "SELECT weight FROM user_dictionary_operations WHERE dictionary='cantonese' AND value='妳好' AND user_inserted=0"
+            ),
+            Some(901)
+        );
         assert_eq!(
             weight(
                 &journal,
@@ -1906,7 +1916,6 @@ mod tests {
         );
         for rejected in [
             entry(Pinyin, "ni'hao", "你好", 1, "", false, true),
-            entry(Cantonese, "sik faan", "食飯", 1, "", false, false),
             entry(Cantonese, "sik faan", "食飯", 0, "", true, true),
         ] {
             assert!(add_cantonese_words(
