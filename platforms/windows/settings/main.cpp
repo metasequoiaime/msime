@@ -24174,16 +24174,23 @@ private:
               system_voice ? L"选择明确的语言代码，例如 zh-CN、en-US；可用语言由系统决定" : L"",
               language_input(document_.String(L"voice_input.language", L""), system_voice));
     if (doubao || indexing_)
-      bool_row(recognition, 0xE8D2, L"自动添加标点", L"", L"voice_input.doubao_enable_punc", true);
+      bool_row(recognition, 0xE8D2, L"自动添加标点", L"只对豆包生效；其他识别服务的标点用「语音标点」处理",
+               L"voice_input.doubao_enable_punc", true);
     bool_row(recognition, 0xE8D2, L"边说边显示", L"识别服务支持时显示实时识别片段",
              L"voice_input.stream_inline_preedit", true);
 
-    // 「识别结果」（VoiceRecognitionResultSection）：边说边显示已经移到「识别」组，这里只剩结果提交策略。
+    // 「识别结果」（VoiceRecognitionResultSection）：边说边显示已经移到「识别」组，这里是结果提交策略和语音标点。
     auto result = add_group(page, L"识别结果");
     select_row(result, 0xE8C8, L"结果提交策略", L"由当前桌面宿主决定如何把识别结果交给前台窗口",
                L"voice_input.commit_mode",
                {{L"tsf", L"输入法会话"}, {L"sendinput", L"系统按键"}, {L"ctrl_v", L"剪贴板粘贴"}},
                L"tsf");
+    // 文案与共享设置页的 voice-punctuation-section.tsx 相同；Server 在最终结果上屏前按它处理（VoicePunctuation.h）。
+    select_row(result, 0xE8D2, L"语音标点", L"对所有识别服务和 AI 润色后的结果生效，下一次识别起作用",
+               L"voice_input.punctuation_mode",
+               {{L"auto", L"智能添加"}, {L"omit_trailing", L"省略句末标点"},
+                {L"omit_all", L"省略所有标点"}, {L"space", L"空格代替标点"}},
+               L"auto");
 
 
     build_voice_hotkey_group(page);
