@@ -55,7 +55,7 @@ macOS 之后，Windows、Linux、HarmonyOS 逐项按同一个标准跟进：控�
 原生 WinUI 设置页（`platforms/windows/settings/main.cpp` 的 `build_expression_page`）照共享页改，规则放在不依赖 WinRT 的头文件里单独测试：
 
 - 「中文标点」开关和「固定标点」合成四项的「标点」选择（`PunctuationSettings.h`，推导和补丁与 `punctuation-preferences.ts` 相同，`windows-punctuation-settings` 测试）。理由在 Windows 同样成立：TIP 的 `ResolvePunctuationOpen` 让锁定压过 Ctrl+. 和工具栏，托盘在锁定时禁用「中文标点」。
-- 「标点」的说明与共享页不同。TIP 每次激活和每次切换中英文时都按模式重定标点（`CompositionProcessorEngine.cpp` 的 `SetPunctuationMode`，以及开关中英文时的 `CompartmentCallback`），从不读已存的 `chinese_punctuation`，Server 端会话的起始值随后就被 TIP 的每会话覆盖取代。所以不锁定时，「中文标点」「英文标点」在这台电脑上没有持久作用，只决定同一账号其他设备上的起始标点，说明照实写出这一点。TIP 没有改成从已存值起步，理由见「Alternatives considered」。
+- 「标点」的说明与共享页不同。TIP 每次激活和每次切换中英文时都按模式重定标点（`CompositionProcessorEngine.cpp` 的 `SetPunctuationMode`，以及开关中英文时的 `CompartmentCallback`），从不读已存的 `chinese_punctuation`，Server 端会话的起始值随后就被 TIP 的每会话覆盖取代。所以不锁定时，「中文标点」「英文标点」在这台电脑上没有持久作用，只决定同一账号其他设备上的起始标点，说明照实写出这一点。TIP 没有改成从已存值起步，理由见「Alternatives considered」。这一条已被[Windows TIP 以已存的起始标点开始中文模式](../../implemented/bug-fix/2026-11-02-windows-saved-start-punctuation.md)取代：TIP 现在以已存的 `chinese_punctuation` 开始中文模式，说明改回与共享页相同。
 - 智能标点总开关连同两半写。这个陷阱在 Windows 上最常见：三个键默认都是关（[智能标点默认开启](../../implemented/feature/2026-10-16-smart-punctuation-default-on.md)之后改为默认开，总开关也挪进下面的「更多选项」），TIP 的 `ResolvePunctuation` 要所在一侧的直出也开着才出 ASCII，原来的页面只写总开关，新装后打开智能标点什么都不发生。「总开关开、两半都关」时说明多一句提示，两半的开关切换后重画页面，提示跟着变。
 - 方头括号样式和四个细分开关收进「更多选项」，控件用页面里语音页、AI 页已有的 `Expander`，细分开关在总开关关着时变灰（原来就有）。Windows 没有「大写锁定时使用英文标点」一行（`caps_lock_punctuation` 只在 macOS 为真）。
 - WinUI 页面没有标签，「多语言与释义」和「候选词翻译」两组本来就挨着，所以没有合并标签这一步，`SettingsNavigation.h` 的页数不变。
@@ -64,7 +64,7 @@ macOS 之后，Windows、Linux、HarmonyOS 逐项按同一个标准跟进：控�
 - 第二种语言（会上云，只折叠）和腾讯云地域收进「更多选项」。地域的折叠与共享页 `MoreOptions` 的 `defaultOpen` 相同，第一次画出时已存的地域不合规就展开。
 - 翻译服务的 `none` 叫「不使用在线服务」，不照搬 macOS 的「离线翻译」：Windows 没有系统翻译，可它也不是「关闭」，host-api 仍把装好的离线词库语言放进查询，`TranslationWorker` 照样填出释义。没有可用密钥的默认腾讯云同样显示成 `none`（Server 从 `msime_client_translation_query` 取查询，host-api 只在两个密钥都可用时放进腾讯云），用户在本窗口选了腾讯云才显示腾讯云和凭据框（`TranslationServiceSettings.h` 的 `tencent_chosen`）。缺凭据的警告改说「填好之前不会请求在线翻译」。
 - 共享 React 页在 Windows 平台上也走同样的叫法和显示（`offlineFallback: "dictionary"`，`useTranslationSettings` 的 `tencentChosen` 扩到 Windows），两套界面不分叉。
-- 设置窗口里工具栏预览的标点按钮原来只看 `chinese_punctuation`，锁定时画错，而 TIP 从不读这个键。现在照 TIP 的 `ResolvePunctuationOpen` 画：锁定时取锁定值，跟随时随预览里语言按钮的中英文模式（`PunctuationSettings.h` 的 `toolbar_chinese_punctuation`）。悬浮工具栏那一片没有碰这个按钮，所以在这里一并改。
+- 设置窗口里工具栏预览的标点按钮原来只看 `chinese_punctuation`，锁定时画错，而 TIP 从不读这个键。现在照 TIP 的 `ResolvePunctuationOpen` 画：锁定时取锁定值，跟随时随预览里语言按钮的中英文模式（`PunctuationSettings.h` 的 `toolbar_chinese_punctuation`）。悬浮工具栏那一片没有碰这个按钮，所以在这里一并改。跟随时中文模式改按已存的起始标点画，见[Windows TIP 以已存的起始标点开始中文模式](../../implemented/bug-fix/2026-11-02-windows-saved-start-punctuation.md)。
 
 ### Linux
 
@@ -101,7 +101,7 @@ Linux 画的是共享 React 页，标点合并、细分开关折叠和变灰、�
 - **把细分开关只在智能标点打开时显示，不收进「更多选项」。** 最强的理由是关着时页面更短。没有采用：打开总开关时一下冒出四行，主流程又变长了；而手机布局已经把它们收在「更多选项」里，桌面照做，两边一致。
 - **改 `route()`，让「总开关开、两半从未设过」也算开。** 最强的理由是不需要写两半，旧配置也会自动生效。没有采用：Rust 无法区分「从未设过」和「用户关掉」，这两个键始终会序列化进文档。而且这会改变所有宿主读同一份文档的含义，正是 `smart_punctuation_default` 那段注释反对的「已存值被重新解释」。
 - **把 `TencentTmtPreferences::default` 改成 `enabled: false`。** 最强的理由是显示自然就对了，不需要窗口内状态。没有采用：Linux 的密钥在文件里，靠默认的 `enabled` 生效，改默认值会让 Linux 悄悄停掉在线翻译；Windows 和 HarmonyOS 跟进时也只改显示，同样不动默认值。
-- **让 Windows TIP 从已存的 `chinese_punctuation` 起步，而不是只改说明。** 最强的理由是「标点」选择的前两项在 Windows 上就会和其他平台一样生效。没有采用：`docs/windows-parity.md` 记着 Windows 有意保留来源「标点总从中英文模式出发」的行为，只有 macOS 改成从保存值起步；改 TIP 要动激活、中英文切换和每会话覆盖三处，必须真机验证，不该夹在设置页精简里。说明照实写出之后，用户至少知道这两项在这台电脑上管的是什么。
+- **让 Windows TIP 从已存的 `chinese_punctuation` 起步，而不是只改说明。** 最强的理由是「标点」选择的前两项在 Windows 上就会和其他平台一样生效。没有采用：`docs/windows-parity.md` 记着 Windows 有意保留来源「标点总从中英文模式出发」的行为，只有 macOS 改成从保存值起步；改 TIP 要动激活、中英文切换和每会话覆盖三处，必须真机验证，不该夹在设置页精简里。说明照实写出之后，用户至少知道这两项在这台电脑上管的是什么。#10646 之后这项改为采用，见[Windows TIP 以已存的起始标点开始中文模式](../../implemented/bug-fix/2026-11-02-windows-saved-start-punctuation.md)。
 - **Windows、Linux 的 `none` 也叫「离线翻译」。** 最强的理由是各平台叫法一致。没有采用：那两个平台没有系统翻译，英文离线释义还要另开「显示英文释义」，叫「离线翻译」会让人以为不开在线服务也有完整翻译；叫「关闭」又不对，离线词库照样出释义。
 - **候选释义改成「一个释义开关 + 来源选择」（离线词库 / 在线服务）。** 最强的理由是更少的行。没有采用：`candidate_english_gloss` 也出现在首次运行引导和多个宿主里，改成来源选择要动偏好语义；合并标签已经让两个开关在同一屏。
 - **腾讯云地域直接砍掉，固定 `ap-guangzhou`。** 最强的理由是请求地址写死，地域几乎不影响结果，还可能因为填错而让翻译失败。没有采用：需要境外数据驻留（ap-hongkong、ap-singapore）的用户会失去唯一的入口，按负责人的决定收进「更多选项」。

@@ -476,7 +476,7 @@ fn push_glob_literal(glob: &mut String, text: &str) {
 }
 
 /// `key` 的每个音节是否都是对应位置允许的读音，且音节数与位置数相同。
-fn key_matches(key: &str, positions: &[&[String]]) -> bool {
+pub(crate) fn key_matches(key: &str, positions: &[&[String]]) -> bool {
     let mut syllables = key.split(' ');
     positions.iter().all(|readings| {
         syllables

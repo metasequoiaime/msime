@@ -289,11 +289,15 @@ impl CandidateScorer for OnnxScorer {
         self.within_keystroke_budget
     }
 
-    /// 没改过时是 [`msime_engine::ordering::SENTENCE_POOL`]（9，填满一次比较）：多出的三条在 Pixel 3 XL（6x256，4 线程）上让整键 p95 从 9.0 ms 到 9.8 ms，仍在 10 ms 的逐键预算之内。见 `.agents/notes/implemented/feature/2026-11-02-sentence-pool-for-reranker.md`。
+    /// 没改过时是 [`msime_engine::ordering::SENTENCE_POOL`]（9，填满一次比较）：多出的三条在 Pixel 3 XL（6x256，4 线程）上让整键 p95 从 9.0 ms 到 9.8 ms，仍在 10 ms 的逐键预算之内。宿主按这台机器的速度改它（host-api 的 `sentence_pool_for`）。见 `.agents/notes/implemented/feature/2026-11-02-sentence-pool-for-reranker.md` 和 `.agents/notes/implemented/feature/2026-11-02-sentence-pool-by-device-speed.md`。
     fn sentence_pool(&self) -> usize {
         self.sentence_pool
     }
 
+    /// 8x448 和 6x256 比随包模型准得多，混合里词网格分只占三成。2026-11-02 在 dev（ctx-v1 分句与选词、typing-chat-v1）上从 0.2 扫到 0.5 定的，见 `.agents/notes/implemented/feature/2026-11-02-onnx-static-evidence-weight.md`。
+    fn static_evidence_weight(&self) -> f64 {
+        0.3
+    }
     /// 打不了分（候选为空、太长，或图运行失败）时返回空表，`rerank_pick` 见长度不符就不动候选；失败后缓存作废，下一次按键从上文重来。
     fn log_probabilities(&mut self, context: &str, candidates: &[&str]) -> Vec<f32> {
         if candidates.is_empty() || candidates.iter().any(|c| c.is_empty()) {

@@ -53,6 +53,9 @@ Windows 上有一类游戏以 `TF_TMF_UIELEMENTENABLEDONLY`（UILess）激活 TS
 - `CandidatePresentation::game_host` 由包上的 `GameHost` 位设置。`CandidateMailbox` 在同一租约（epoch、token、ticket 都相同）里只置位不清除：后续某个包漏了这一位、`refresh_view` 按 Engine 视图重建快照、或带位的 Show/Move 晚于不带位的按键到达，都不会把已认出的游戏会话打回普通宿主；换了租约不沿用。鼠标点选合成的按键包同样带上这一位（`SessionController.cpp`）。
 - 兜底锚点 `game_candidate_anchor`（`platforms/windows/src/candidate/GameCandidateAnchor.h`）只对游戏会话生效，并且前台窗口必须属于这个客户端进程（`client_pid` 即 `client_id >> 32`，握手时已校验）、客户区不为空。锚点是 `INVALID_Y`，或者落在客户区外、或者离客户区顶边不到 2 像素（锚点是文本 extent 的 `{left, bottom}`，真实文本行不会贴着顶边）时，返回客户区左下部 `{left + max(round(24 × DPI 缩放), width/20), bottom - height/5}`，DPI 缩放取游戏所在显示器的有效 DPI（`monitor_effective_dpi`），因为客户区是每显示器感知下的物理像素，而 DPI 不感知的游戏 `GetDpiForWindow` 固定是 96，之后照常交给 `candidate_card_placement`。替换发生在跟随光标的锁定和快照身份比较之前，同一个兜底点不会反复触发重绘。非游戏会话遇到 `INVALID_Y` 仍然隐藏。
 
+- 兜底点默认在客户区下部，因为多数游戏的聊天输入框在左下角；`game_compatibility.overlay_anchor_top` 打开时改取 `{top + height/5}`，和下部的 `bottom - height/5` 对称，供聊天行在画面上沿的游戏（DNF）使用。这个开关只挪兜底点，不改「锚点可不可信」的判定，可信的锚点照样原样使用。
+- 游戏会话的候选窗按客户区钳制：`value->game_host` 且前台属于这个客户端时，`reposition()` 把工作区与 `GetClientRect` 的交集作为 `card_bounds` 的工作区。兜底锚点只保证**锚点**落在客户区内，没算卡片自己的高度——DNF 实测客户区 `367,205 1280x960`、锚点 `431,973`，242 高的卡片落在 956、底边 1198，越过客户区底边 1165，正好盖住底部技能栏。收窄之后 `candidate_card_placement` 放不下就往锚点上方翻，卡片始终完整留在游戏画面里。全屏游戏的客户区本就是整块显示器，这一步对它们没有影响；钳制的是卡片矩形，窗口四周的透明阴影边距（`CandidateShadowInsets` 32/20/32/40 DIP）照旧可以落在外面。
+
 ### Server：前台呈现方式、抑制与置顶
 
 - 主循环每轮先算一次前台和 `foreground_presentation()`（`platforms/windows/src/system/FullscreenForeground.h`），交给 `CandidateWindow::set_foreground`，工具栏的全屏判断也用这一份。分类是 `Windowed`、`Fullscreen`（几何铺满）、`ExclusiveFullscreen`（几何铺满且 `SHQueryUserNotificationState == QUNS_RUNNING_D3D_FULL_SCREEN`）。QUNS 只在几何铺满时调用，`QUNS_BUSY` 不作判据，同一前台 HWND 的结果缓存 300ms。
@@ -70,6 +73,7 @@ Windows 上有一类游戏以 `TF_TMF_UIELEMENTENABLEDONLY`（UILess）激活 TS
 ### 偏好与设置入口
 
 - `Preferences::game_compatibility`（`GameCompatibilityPreferences`，`crates/client-core/src/preferences.rs`）：`candidate_overlay` 默认 true，`overlay_processes` 与 `excluded_processes` 默认空，等于默认值时不写进文档。条目必须是不超过 64 个字符、以 `.exe` 结尾（ASCII 不分大小写）、不含 `\ / : * ? " < > |` 和控制字符的基名；两张表合计不超过 32 条，合在一起按 `to_ascii_lowercase()` 不重复，和 WinUI 设置页 `GameProcessList.h` 的折叠规则一致。违规时 `validate()` 返回 `InvalidGameCompatibility`，Tauri 映射为 `game_compatibility_invalid`。
+- `overlay_anchor_top` 默认 false，等于默认值时同样不写进文档。它没有设置界面入口（WinUI 的「游戏」组和 React 设置页都没有控件，MCP 白名单也不含它），只能手改 `preferences.json`：开着它的游戏是少数，而 `GameCandidateAnchor.h` 的落点本来就是按「聊天框在左下角」定的，先用一个偏好把例外收住，等实机确认哪些游戏需要它再决定要不要做界面。
 - WinUI 设置「候选窗口」页的「游戏」组：总开关加「总是显示候选窗口的程序」「从不显示候选窗口的程序」两张列表。写入前按 `platforms/windows/settings/GameProcessList.h` 规范化（去首尾空白、ASCII 小写）并校验，不合法时就地说明原因、不写入文档，因为 `Save` 失败只会显示一句笼统的提示。
 - MCP 的偏好白名单有一个布尔 `game_candidate_overlay`，只读写总开关，不碰两张表。React 设置页只加了类型，没有控件。
 
@@ -100,13 +104,15 @@ Windows 上有一类游戏以 `TF_TMF_UIELEMENTENABLEDONLY`（UILess）激活 TS
 - **收益**：
   - SDL2 游戏、Dota 2，以及用户自己加进「总是显示」的游戏里能看到候选；锚点不可用时候选落在游戏客户区左下部，而不是消失或停在屏幕左上角。
   - 几何全屏下候选窗按整块显示器钳制，并在游戏自己置顶后重申置顶；独占全屏的游戏会话里候选窗不弹出，不会把游戏挤出全屏。
+  - 窗口化游戏里候选卡片不越出游戏客户区，不再压住底部的技能栏或状态栏；聊天行在画面上沿的游戏可以用 `overlay_anchor_top` 把兜底点挪到上部。
   - 策略隐藏照样发渲染回执，包括非游戏宿主在 `INVALID_Y` 期间的隐藏，选词键不再白等 30ms。
   - 游戏进程里新增的调用只有 `GetModuleHandleW`、`GetModuleFileNameW`、本线程的 `EnumThreadWindows`/`GetClassNameW`、每次激活一次偏好读取、`BeginUIElement` 里一次 `GetActiveFlags`；进程名的来源换掉后，游戏进程里不再对自身开带 `PROCESS_VM_READ` 的句柄。
 - **代价与已知上限**：
   - 违反 TSF 契约：宿主以 `UIELEMENTENABLEDONLY` 激活时，TIP 不调 `BeginUIElement` 就自己显示 UI。只对命中策略的进程这样做，用户可以把它放进「从不显示」或关掉总开关。
   - 误判自绘游戏：只用 SDL2 读手柄、候选由自己的 UI 层画的游戏可能被 SDL2 规则命中，自己的候选被替换。`SDL_app` 类名条件、内置排除表、「从不显示」列表和 `[game]` 日志是对策。自动规则在实机验证之前就已启用，这是有意的取舍：没有它，SDL2 这一最大的长尾类别要靠用户自己配。
   - 首键跳动：游戏其实能给出有效 extent 时，第一次按键先出现在兜底点，Show 到达后再跳到真实位置。窗口化的非 UILess 游戏锚点是垃圾值时不会自动兜底，用户要把它加进「总是显示」，它才算游戏会话。
-  - 兜底点可能盖住 MOBA 的小地图；位置固定，不能拖动，也不按进程记住偏移。
+  - 兜底点可能盖住 MOBA 的小地图；位置固定，不能拖动，也不按进程记住偏移。`overlay_anchor_top` 是全局开关，不按进程记，同时玩上沿输入和左下角输入的两个游戏只能二选一。
+  - 客户区很矮的窗口化游戏（客户区高度不足卡片高度加行高）里，收窄后的工作区放不下整张卡片，`card_bounds` 会把它按工作区裁窄；这种窗口本来也没有既不挡输入行、又不出客户区的位置。
   - 独占检测有盲区：QUNS 对 FSO、Vulkan、OpenGL 的报告都没核实过。锁存兜底的代价是第一次弹出时已经造成了一次破坏；用户在 2 秒窗口里自己 Alt-Tab 也会触发锁存，改成窗口化或重连即可解除。
   - 版本混跑：新 TIP 配旧 Server 时协商不到 `GameHostCandidate`，坐标照样注入，游戏能给出有效 extent 时照样显示；`GetTextExt` 失败时旧 Server 照旧隐藏，并且每个选词键白等最多 30ms。旧 TIP 配新 Server 不受影响。
   - `ActivateEx` 里多一次同步读偏好文件，是游戏线程上的磁盘 I/O；读失败时这次激活不强制。
@@ -123,7 +129,9 @@ Windows 上有一类游戏以 `TF_TMF_UIELEMENTENABLEDONLY`（UILess）激活 TS
   - 契约：`shared/contracts/tests/windows_ipc_contract.cpp` 断言 `GameHostCandidate` 不在两套必选能力里、不和已有位重叠，并覆盖新旧 TIP 与 Server 的三种协商组合；`platforms/windows/tests/core/main_frame.cpp` 断言 `GameHost` 被 `key_modifiers` 掩掉、不和内部标志重叠，Key/Show/Move/Hide 带它仍是合法帧，StatusSnapshot/FocusRestored 带它被判为非法帧。
   - TIP：`msime-tsf-candidate-overlay-policy`（`platforms/windows/tsf/tests/input/candidate_overlay_policy.cpp`）覆盖基名提取、大小写、完整的优先级顺序、SDL2 三个条件缺一不可、开关关闭和空进程名。
   - Server：`windows-game-candidate-anchor` 覆盖 `INVALID_Y`、左上角垃圾值、贴顶边、客户区外、有效锚点与边界锚点、非游戏会话、前台不属于客户端、空客户区、负坐标副屏、DPI 1.5 和拿不到 DPI；`windows-fullscreen-foreground` 覆盖 `classify_foreground` 的四种组合、300ms 缓存和 QUNS 耗时出参；`windows-candidate-initialization` 覆盖 `GameHost` 位与 UiLess 的组合；`windows-server`（`tests/runtime/server_smoke.cpp`）覆盖 `INVALID_Y` 策略隐藏只发一次回执、游戏会话靠兜底锚点显示、独占全屏时隐藏并发回执、前台不属于客户端时既不抑制也不兜底。
+  - `windows-game-candidate-anchor` 另有 `overlay_anchor_top` 的用例：全屏客户区、窗口化客户区、负坐标副屏的上部落点，以及开着它时可信锚点仍然原样返回。客户区钳制本身没有单测——它在 `CandidateWindow::reposition()` 里，需要真实窗口和显示器，归到下面的实机核对。
   - `tests/ui/candidate_mailbox.cpp` 的 `game_host` 粘滞用例属于 `windows-session-smoke`，它在 Wine 下是已知失败（`scripts/known-failures.txt`），结果只能在原生 Windows 上看。`GameProcessList.h` 没有接入测试目标。
+- 客户区钳制在本机已验（2026-11-02，签名的 x64 安装版 0.3.0）：把测试进程加进 `overlay_processes` 当成游戏会话，一个客户区 `208,131 .. 1092,512` 的窗口里把光标停在 `275,484`（离客户区底边 28 像素）组字，卡片落在 `247,305 .. 978,487`，整张留在客户区内并翻到光标上方；同样的几何不钳制时会按光标下方摆放，底边到 `y≈686`，出客户区 174 像素。DNF 本身要真人打字（模拟输入进不到它的输入状态），仍待确认。
 - 只有实机能回答、尚未确认的事项（签名的 x64 安装版）：
   - SDL2 游戏：诊断日志里出现 `sdl2=1 sdl_window=1 forced=1`，候选可见、位置合理；同时看有没有 `pbShow=0 sdl2=1 forced=0`，那表示 CUAS 先激活、复判也没接住。`SDL_app` 类名凭对 SDL 源码的记忆写成，以日志为准；TSF 在宿主后来以 UILess 再激活时会不会重调 `ActivateEx`、`GetActiveFlags` 会不会变，同样没验证。
   - Dota 2：无边框下候选可见；日志里 `source2=1`，以确认 `engine2.dll`、`imemanager.dll` 这两个模块名；用 PresentMon 记录候选窗出现和消失时 PresentMode 在 Independent Flip 与 Composed 之间的切换次数，据此决定要不要做闪烁缓解；Vulkan 独占（如果有这个选项）下锁存只触发一次就生效；记录聊天框的实际位置，评估兜底点会不会盖住小地图。

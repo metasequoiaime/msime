@@ -52,7 +52,7 @@ impl Lock {
 /// 构建器读取的 msime-dictionary 顶层目录；其下的路径只从 `--dictionary` checkout 读取，锁文件不固定其中任何文件。
 const DICTIONARY_DIRECTORIES: [&str; 2] = ["sources/", "custom/"];
 /// msime 认定为上游数据的 msime-dictionary 文件：原样复制自某个上游、或由 msime 的生成器从某个上游生成（`hkcancor-counts` 来自 HKCanCor，`english-supplement` 来自 SCOWL），写成精确路径或目录前缀，并配上上游名。manifest 的 references 和 `mozc_revision`、语言词库的 `source_commit` 以及随包许可证都写着这些上游的提交，所以 checkout 的 `upstream.lock.json` 必须用同一个上游名列出这些路径，并固定它们的大小和 SHA-256；记录里每个上游的提交必须等于锁文件的同名 reference（`mozc` 对应 `lock.mozc`）。要换成新版上游，先在 msime 改 reference 和 `resources/licenses`，再改 `upstream.lock.json`。
-const UPSTREAM_FILES: [(&str, &str); 16] = [
+const UPSTREAM_FILES: [(&str, &str); 17] = [
     ("sources/pinyin/rime-ice.txt", "rime-ice"),
     (
         "sources/pinyin/rime-ice-supplement.txt",
@@ -78,6 +78,8 @@ const UPSTREAM_FILES: [(&str, &str); 16] = [
     ("sources/opencc/", "OpenCC"),
     ("sources/wubi/wubi98.txt", "98wubi-tables"),
     ("sources/wubi/wubi98-fcitx.txt", "fcitx5-table-extra"),
+    // 新世纪五笔单字表：上游 `dicts/wubi06.dict.yaml` 的原样副本，许可与来源存疑之处见 msime-engine-dictionary-NOTICE.md。
+    ("sources/wubi/wubixsj-byujiang.txt", "wubi06-rime"),
 ];
 
 /// The upstream reference `path` is a copy of or is generated from at a recorded commit, if any. The first matching entry of `UPSTREAM_FILES` wins, so an exact path listed before its directory's prefix (HKCanCor's counts beside rime-cantonese's files) names its own upstream.
@@ -742,6 +744,85 @@ mod tests {
             upstream_reference("sources/english/scowl-words.txt"),
             Some("SCOWL")
         );
+    }
+
+    /// 新世纪五笔单字表是 `wubi06-rime` 的原样副本：记录里在这个上游名下、字节一致时可读；记成别的上游、字节不符都报错；还没收这个文件的 checkout（它的 `upstream.lock.json` 既没有这个上游也没有这个文件）照常能打开，只有读这张表时才报错，所以 msime 先登记来源不会让现有的 msime-dictionary 构建失败。
+    #[test]
+    fn the_wubixsj_table_is_wubi06_rime_data_at_the_pinned_commit() {
+        const PATH: &str = "sources/wubi/wubixsj-byujiang.txt";
+        const REPOSITORY: &str = "https://github.com/byujiang/wubi06_rime.git";
+        assert_eq!(upstream_reference(PATH), Some("wubi06-rime"));
+        let repository = repository_lock();
+        let pinned = &repository.references["wubi06-rime"];
+        assert_eq!(pinned.repository, REPOSITORY);
+        assert_eq!(pinned.commit, "fc1cedbb21cde3ca160ce291888fa70697720ab3");
+
+        let cache = tempfile::tempdir().unwrap();
+        let content: &[u8] = b"\xe5\x8a\x9b\tent\t1\n";
+        let record = |upstream: &str, sha256: String| {
+            json!({
+                "version": 1,
+                "upstreams": {upstream: {"repository": REPOSITORY, "commit": pinned.commit}},
+                "files": [{"path": PATH, "upstream": upstream, "size": content.len(), "sha256": sha256}],
+            })
+        };
+        let sources_at = |directory: &tempfile::TempDir, lock: Lock| Sources {
+            dictionary: Some(dictionary_at(directory, &lock)),
+            lock,
+            repository_inputs: cache.path().into(),
+            cache: cache.path().into(),
+            offline: true,
+        };
+        let digest = hex::encode(Sha256::digest(content));
+        let lock_copy = || {
+            lock_with_references(
+                &[("wubi06-rime", REPOSITORY, pinned.commit.clone())],
+                (MOZC_REPOSITORY, "b".repeat(40)),
+            )
+        };
+
+        let good = checkout(&[(PATH, content)], record("wubi06-rime", digest.clone()));
+        assert_eq!(
+            sources_at(&good, lock_copy()).pinned(PATH).unwrap(),
+            good.path().join(PATH)
+        );
+
+        let stale = checkout(&[(PATH, content)], record("wubi06-rime", "0".repeat(64)));
+        let error = sources_at(&stale, lock_copy())
+            .pinned(PATH)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("wubi06-rime"), "{error}");
+
+        // 记录里另有 `98wubi-tables` 这个上游，报错才落在文件的上游名上，而不是未知的上游。
+        let both = lock_with_references(
+            &[
+                ("wubi06-rime", REPOSITORY, pinned.commit.clone()),
+                ("98wubi-tables", REPOSITORY, pinned.commit.clone()),
+            ],
+            (MOZC_REPOSITORY, "b".repeat(40)),
+        );
+        let mislabelled = checkout(&[(PATH, content)], record("98wubi-tables", digest));
+        let error = format!(
+            "{:#}",
+            Dictionary::open(mislabelled.path().into(), &both)
+                .err()
+                .unwrap()
+        );
+        assert!(
+            error.contains("listed under 98wubi-tables") && error.contains("wubi06-rime"),
+            "{error}"
+        );
+
+        let before = checkout(
+            &[(PATH, content)],
+            json!({"version": 1, "upstreams": {}, "files": []}),
+        );
+        let error = format!(
+            "{:#}",
+            sources_at(&before, lock_copy()).pinned(PATH).unwrap_err()
+        );
+        assert!(error.contains("does not list it"), "{error}");
     }
 
     /// 没有 `--dictionary` 时，`sources/` 和 `custom/` 下的路径一律报错并提示传 `--dictionary`，即使锁文件固定了它、缓存里也有这个文件。

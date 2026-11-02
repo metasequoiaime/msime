@@ -6522,7 +6522,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func updateSchemeButton() {
     // The hints come from the engine's own profile for the scheme the session is running, so they
     // are refreshed wherever the scheme is, and cannot drift from what the keys actually produce.
-    shuangpinKeyHints = session.shuangpinKeyHints()
+    // 粤语双拼与普通粤拼是同一个引擎方案，只有键盘知道选的是哪一个；普通粤拼完整拼写，不画提示。
+    shuangpinKeyHints = inputScheme == .cantoneseShuangpin
+      ? session.cantoneseShuangpinKeyHints() : session.shuangpinKeyHints()
     nineKeyShuangpinLayout = inputScheme == .nineKeyShuangpin ? try? .current(in: session.sharedPreferences) : nil
     updateLetterCaseControls()
 
@@ -8918,9 +8920,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       configuration.attributedTitle = title
     }
     configuration.contentInsets = candidatePalette?.layout?.chipInsets(fontSize: candidateFont.pointSize, fallback: Self.candidateChipInsets) ?? Self.candidateChipInsets
-    button.configuration = configuration
-    button.titleLineCount = 1 + lines.count
-    pinCandidateWidth(of: button, contentWidth: contentWidth)
+    // 被手指按过的词块，UIKit 之后再套用 configuration 会给标题挂 0.25s 的淡入淡出（`CATransition` fade），同一个位置上新旧两个词叠着渐变。候选按 #10330 立即呈现，换字和随之的布局放在不带动画的块里做完。
+    UIView.performWithoutAnimation {
+      button.configuration = configuration
+      button.titleLineCount = 1 + lines.count
+      pinCandidateWidth(of: button, contentWidth: contentWidth)
+      button.layoutIfNeeded()
+    }
     // `hintSpoken` 是注释另有读法时的朗读文字，比如拆字的读音不是还要输入的键。
     button.accessibilityLabel = annotation.isEmpty
       ? "候选词 \(number)：\(display)"

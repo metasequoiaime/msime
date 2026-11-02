@@ -44,9 +44,10 @@ bash platforms/ios/build-native.sh simulator && xcodebuild ... test
 产出 `水杉输入法.app`（IMK 输入法 bundle）。
 
 ```sh
+ORT_LIB_LOCATION="$(python3 scripts/fetch_onnxruntime.py --target "$(uname -m | sed 's/^arm64$/aarch64/')-apple-darwin")" \
 CFLAGS="-mmacosx-version-min=13.0" CXXFLAGS="-mmacosx-version-min=13.0" \
 CMAKE_OSX_DEPLOYMENT_TARGET=13.0 CMAKE_PREFIX_PATH="$(brew --prefix)" \
-CARGO_TARGET_DIR=target/macos-cargo cargo build -p msime-host-api --locked \
+CARGO_TARGET_DIR=target/macos-cargo cargo build -p msime-host-api --features onnx-rerank --locked \
 && cmake -S platforms/macos -B target/macos-isolated \
      -DMSIME_HOST_LIBRARY="$PWD/target/macos-cargo/debug/libmsime_host_api.a" \
      -DMSIME_SPARKLE_ROOT="<Sparkle-2.9.6 所在目录>" \
@@ -57,6 +58,7 @@ CARGO_TARGET_DIR=target/macos-cargo cargo build -p msime-host-api --locked \
 - bundle 名字是中文。`cp -R target/macos-isolated/水杉输入法.app …` 会因 APFS 的 NFC/NFD 归一化报 `No such file or directory`——用 `find target/macos-isolated -maxdepth 1 -name "*.app" -exec cp -R {} <目标> \;`。
 - 安装与输入源注册走 `platforms/macos/scripts/install.sh`。注册后有分钟级不稳定窗口：`check_input_source.swift` 要隔几秒多查几次再下结论，只查一次两个方向都可能误判。
 - **装完还打不出中文是正常的：`install.sh` 不准备词库。** 输入会话要 `~/Library/Application Support/app.msime.macos/runtime-options.json`，开发构建里没有（发布包由设置应用首次启动时写）。没有会话的控制器把按键原样交给应用，看起来就是「选了中文却打出英文」。补齐的三条命令在 `platforms/macos/README.md` 的《安装与输入源注册》开头；资源别留在 `target/resources`，那里会被清掉。查现象用 `log show --predicate 'process == "水杉输入法"'` 找 `MSIME has no input session`。
+- `onnx-rerank` 让整句联想「增强」跑 ONNX Runtime 的逐键重排，与发布包一致；CMake 把两档模型放进 bundle 的 `Contents/rerank-model{,-small}`（host-api 在输入法交给它的 `Contents/Resources` 的上一级找）。host 库没开特性时「增强」挂随包模型，诊断日志的 `host_api: keyboard reranker …` 一行说明挂的是哪个。
 - 产品是 `src/input/InputController.mm` 和 `src/core/ClientDictionaryRuntime.mm`，改动要落在这两处；`scripts/test-macos-orphan-sources.py` 守着不让不参与构建的源文件留在树里。
 - 换新 bundle identifier 需要重新登录一次，这是 macOS 本身的限制，与签名和 plist 无关。
 - `check_input_source.swift` 报某个模式 `disabled`（典型是英文模式 `.Roman`）而中文模式 enabled 时，安装是成功的，别去重新登录或反复重装：macOS 27 上进程启用不了键盘输入模式，`TISEnableInputSource` 返回 noErr 而状态不变，苹果自己的模式一样如此。该脚本为此退 2（可用但有源未启用），退 1 才是不可用。测量见 `docs/macos-parity.md`。

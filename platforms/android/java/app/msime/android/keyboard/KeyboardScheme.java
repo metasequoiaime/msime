@@ -32,7 +32,9 @@ public enum KeyboardScheme {
     // 九键双拼（#6572）：九宫格上每个音节两位数字，声母一位、韵母一位，用哪张表由偏好 `nine_key_shuangpin_profile` 选；引擎方案是全拼，解码复用九宫格。追加在末尾，与共享 `TouchKeyboardScheme::ALL` 的顺序一致；默认不启用（{@link #optIn}）。
     NINE_KEY_SHUANGPIN("nine_key_shuangpin", "quanpin", null, "nine_key_shuangpin", "九键双拼", "双", "9"),
     // 全拼十八键使用共享引擎的多义组码；追加入口，保留已有方案顺序和默认启用列表。
-    QUANPIN_EIGHTEEN_KEY("eighteen_key", "quanpin", null, "eighteen_key", "全拼 18 键", "拼", "18");
+    QUANPIN_EIGHTEEN_KEY("eighteen_key", "quanpin", null, "eighteen_key", "全拼 18 键", "拼", "18"),
+    // 粤语双拼（#10523）：与粤拼共用 Engine 方案和词典，只靠 `touch_keyboard_schemes.selected` 让会话从第一键起按两键码解释。追加在末尾，与共享 `TouchKeyboardScheme::ALL` 的顺序一致；默认不启用（{@link #optIn}）。
+    CANTONESE_SHUANGPIN("cantonese_shuangpin", "cantonese", null, "twenty_six_key", "粤语双拼", "粤", "双");
 
     /** Complete preference values needed for one compare-and-swap update. */
     public record PreferenceMapping(
@@ -132,14 +134,14 @@ public enum KeyboardScheme {
     }
 
     /**
-     * 偏好里没有 `touch_keyboard_schemes.enabled` 时不启用的方案：粤拼、注音（大千和 9 键）、越南语、藏文、笔画、全拼 14 键和九键双拼。与共享的 `TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED` 有意保持一致，14 键也不在新装的默认列表 `DEFAULT_ENABLED` 里。
+     * 偏好里没有 `touch_keyboard_schemes.enabled` 时不启用的方案：粤拼（含粤语双拼）、注音（大千和 9 键）、越南语、藏文、笔画、全拼 14 键和九键双拼。与共享的 `TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED` 有意保持一致，14 键也不在新装的默认列表 `DEFAULT_ENABLED` 里。
      *
      * <p>没有列表的文档只可能出自默认值改成只有中文之前的版本，那时日语和韩语默认启用，所以这里不含它们，升级的用户键盘不变。新装的默认值（只有中文方案，日语、韩语由用户在「添加语言」里打开）由 client-core 决定并显式写进文档（`TouchKeyboardScheme::DEFAULT_ENABLED`），这里读到的总是那份列表。
      */
     public boolean optIn() {
         return this == CANTONESE || this == ZHUYIN || this == ZHUYIN_NINE_KEY || this == VIETNAMESE
             || this == TIBETAN || this == STROKE || this == QUANPIN_FOURTEEN_KEY
-            || this == NINE_KEY_SHUANGPIN || this == QUANPIN_EIGHTEEN_KEY;
+            || this == NINE_KEY_SHUANGPIN || this == QUANPIN_EIGHTEEN_KEY || this == CANTONESE_SHUANGPIN;
     }
 
     /** 日文词典资源包的 id，与 client-providers `ResourcePack::Japanese` 一致。 */
@@ -194,7 +196,7 @@ public enum KeyboardScheme {
 
     /** The file this scheme reads from the HostOptions `language_dictionaries` directory, or null for a scheme that needs only the shared resources. */
     public String languageDictionary() {
-        if (this == CANTONESE) return "msime-cantonese.db";
+        if (this == CANTONESE || this == CANTONESE_SHUANGPIN) return "msime-cantonese.db";
         if (this == ZHUYIN || this == ZHUYIN_NINE_KEY) return "msime-zhuyin.db";
         if (this == STROKE) return "msime-stroke.db";
         return null;
@@ -343,7 +345,7 @@ public enum KeyboardScheme {
             }
             return XIAOHE;
         }
-        // 九键、14 键和九键双拼只由上面的显式分支按存下的布局给出；通用循环按方案找入口，不能落到它们身上。
+        // 九键、14 键和九键双拼只由上面的显式分支按存下的布局给出；通用循环按方案找入口，不能落到它们身上。粤语双拼与粤拼的方案和布局相同，只能由 `touch_keyboard_schemes.selected` 选出，这里按声明顺序先落到粤拼。
         for (KeyboardScheme candidate : values()) {
             if (candidate.shuangpinProfile == null && candidate.engineScheme.equals(scheme)
                     && !"nine_key".equals(candidate.touchKeyboardLayout)

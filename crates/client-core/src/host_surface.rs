@@ -815,8 +815,11 @@ impl HostCapabilities {
             ),
             english_suggestions: matches!(platform, HostPlatform::Android | HostPlatform::Harmony),
             english_online_candidates: platform == HostPlatform::Macos,
-            // HarmonyOS 的符号面板和外接键盘都按引擎发布的拼写符号把前导键当字符送进来（`HardwareKeyRouter.touchSpells`）。
-            helpcode_trigger_key: matches!(platform, HostPlatform::Linux | HostPlatform::Harmony),
+            // HarmonyOS 的符号面板和外接键盘都按引擎发布的拼写符号把前导键当字符送进来（`HardwareKeyRouter.touchSpells`）。macOS 的 `InputController` 在候选翻页、以词定字、智能标点和配对标点之前先查 `spelling_symbols`，列着的键走 `msime_client_character` 交给 Engine。
+            helpcode_trigger_key: matches!(
+                platform,
+                HostPlatform::Linux | HostPlatform::Harmony | HostPlatform::Macos
+            ),
             // Android、HarmonyOS 和 iOS 键盘在组字时用 Shift 标记辅助码；桌面默认直接追加编码。
             helpcode_shift_entry: matches!(
                 platform,

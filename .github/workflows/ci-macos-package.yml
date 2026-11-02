@@ -54,7 +54,7 @@ jobs:
                 echo "package=true" >> "$GITHUB_OUTPUT"; echo "打包脚本改动: $path"; exit 0 ;;
               platforms/macos/scripts/installer_package.py|platforms/macos/scripts/edition_bundle.py|platforms/macos/resources/installer/*)
                 echo "package=true" >> "$GITHUB_OUTPUT"; echo "打包脚本改动: $path"; exit 0 ;;
-              resources/desktop-dictionary.lock.json|resources/language-dictionaries.lock.json|resources/handwriting-model.lock.json|resources/offline-glosses.lock.json|resources/voice-runtime-macos.lock.json|resources/wordbook.lock.json|scripts/fetch_wordbooks.py)
+              resources/desktop-dictionary.lock.json|resources/language-dictionaries.lock.json|resources/handwriting-model.lock.json|resources/offline-glosses.lock.json|resources/voice-runtime-macos.lock.json|resources/wordbook.lock.json|scripts/fetch_wordbooks.py|resources/rerank-model.lock.json|scripts/fetch_rerank_model.py|resources/onnxruntime-minimal.lock.json|scripts/fetch_onnxruntime.py)
                 echo "package=true" >> "$GITHUB_OUTPUT"; echo "资源锁改动: $path"; exit 0 ;;
               crates/client-core/src/resources.rs|crates/client-providers/src/resource_packs.rs|crates/client-providers/src/voice/local_models.rs)
                 echo "package=true" >> "$GITHUB_OUTPUT"; echo "资源代码改动: $path"; exit 0 ;;

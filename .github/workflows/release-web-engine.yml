@@ -1,10 +1,10 @@
 name: Release Web Engine
 
-# 构建网页内置输入法用的引擎包（msime-engine-wasm 的 wasm、加载代码、裁剪后的拼音库和五笔 86 库、整句模型、NOTICE、清单和校验和）以及 npm 包 @msime/web-engine，只有 publish 为 true 时才发布为 web-engine-vX.Y.Z release 并发布到 npm。
+# 构建网页内置输入法用的引擎包（msime-engine-wasm 的 wasm、加载代码、裁剪后的拼音库和五笔 86 库、整句模型、NOTICE、清单和校验和）以及 npm 包 @msime/web-engine（另带辅助码表和粤语词库），只有 publish 为 true 时才发布为 web-engine-vX.Y.Z release 并发布到 npm。
 #
 # TapTapGo 在 data/msime/web-engine.lock.json 里按 sha256 和大小钉住这个 release 的每个文件，构建时下载并逐个校验。因此发布出去的 release 不能删除，附件也不能替换：哪怕只是重新上传同名文件，已经钉住它的每个构建都会校验失败。要修正就发一个新版本号。
 #
-# 词库和模型按 resources/desktop-dictionary.lock.json 下载并校验。web_article_eval（文章跟打的首选命中率）的输入不在本仓库，这里不跑；发布人在本地运行后把结果那一行补进 release notes。
+# 词库和模型按 resources/desktop-dictionary.lock.json 下载并校验，粤语词库和它的许可证按 resources/language-dictionaries.lock.json。web_article_eval（文章跟打的首选命中率）的输入不在本仓库，这里不跑；发布人在本地运行后把结果那一行补进 release notes。
 on:
   workflow_dispatch:
     inputs:
@@ -78,14 +78,16 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
-      # 1. 输入：词库 release 里的 msime-pinyin.db、msime-wubi.db、msime-japanese.dat 和 chinese-ime-lm 的整句模型，按锁文件的 URL 下载，长度和 SHA-256 都对上才用。
+      # 1. 输入：词库 release 里的 msime-pinyin.db、msime-wubi.db、msime-japanese.dat 和 chinese-ime-lm 的整句模型，以及语言词库 release 里的 msime-cantonese.db 和它的许可证，按各自锁文件的 URL 下载，长度和 SHA-256 都对上才用。
       - name: Download the pinned dictionary and model
         run: |
           set -euo pipefail
-          lock=resources/desktop-dictionary.lock.json
           inputs=target/web-engine/inputs
           mkdir -p "$inputs"
-          for name in msime-pinyin.db msime-wubi.db msime-japanese.dat sentence-model.safetensors; do
+          for entry in desktop-dictionary:msime-pinyin.db desktop-dictionary:msime-wubi.db desktop-dictionary:msime-japanese.dat desktop-dictionary:sentence-model.safetensors \
+            language-dictionaries:msime-cantonese.db language-dictionaries:msime-rime_cantonese_LICENSE.txt; do
+            lock="resources/${entry%%:*}.lock.json"
+            name="${entry#*:}"
             url="$(jq -er --arg n "$name" '.artifacts[] | select(.name == $n) | .url' "$lock")"
             sha="$(jq -er --arg n "$name" '.artifacts[] | select(.name == $n) | .sha256' "$lock")"
             size="$(jq -er --arg n "$name" '.artifacts[] | select(.name == $n) | .size' "$lock")"
@@ -101,16 +103,18 @@ jobs:
           scripts/build-web-engine.sh --version "$VERSION" \
             --pinyin target/web-engine/inputs/msime-pinyin.db --wubi target/web-engine/inputs/msime-wubi.db \
             --japanese target/web-engine/inputs/msime-japanese.dat \
-            --model target/web-engine/inputs/sentence-model.safetensors
+            --model target/web-engine/inputs/sentence-model.safetensors \
+            --cantonese target/web-engine/inputs/msime-cantonese.db --cantonese-license target/web-engine/inputs/msime-rime_cantonese_LICENSE.txt
       # 3. 冒烟测试、按键延迟门槛和校验和。
       - name: Smoke test the built glue and wasm in Node
         run: |
           cargo run --locked -p msime-engine-wasm --example make_fixture -- target/web-engine/fixture/msime.db
+          cargo run --locked -p msime-engine-wasm --example make_fixture -- target/web-engine/fixture/msime-cantonese.db --cantonese
           node crates/engine-wasm/tests/smoke.mjs target/web-engine/fixture/msime.db
       - name: Test the web engine SDK
         run: |
           node --test 'packages/web-engine/test/*.test.mjs'
-          node packages/web-engine/test/smoke.mjs target/web-engine/fixture/msime.db
+          node packages/web-engine/test/smoke.mjs target/web-engine/fixture/msime.db --cantonese target/web-engine/fixture/msime-cantonese.db
           node packages/web-engine/test/candidates.browser.mjs
       - name: Keystroke latency
         env: {MAX_P95: "${{ inputs.max_p95_ms }}"}

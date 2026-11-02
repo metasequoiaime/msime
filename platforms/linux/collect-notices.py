@@ -39,8 +39,9 @@ def write_notices(output: Path, title: str, entries: list[tuple[str, str, str, l
 
 
 def collect_cargo(output: Path, roots: list[str]) -> None:
+    # --all-features: the package table must also hold the optional crates a root's features turn on (msime-host-api:onnx-rerank brings in ort and ort-sys); without it `cargo metadata` resolves default features only and those crates, though `cargo tree` reaches them, were silently left out. Which crates are collected is still decided per root by `cargo tree` below.
     metadata = json.loads(subprocess.run(
-        ["cargo", "metadata", "--locked", "--format-version", "1"],
+        ["cargo", "metadata", "--locked", "--all-features", "--format-version", "1"],
         check=True, capture_output=True, text=True).stdout)
     members = set(metadata["workspace_members"])
     packages = {(p["name"], p["version"]): p for p in metadata["packages"]
