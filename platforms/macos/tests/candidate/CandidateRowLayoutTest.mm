@@ -414,6 +414,25 @@ static void TestAdaptiveReviewFixes(RowLayoutClient *client) {
     assert(cleared && [cleared[@"view"][@"candidates"] count] == 0);
     session.texts = texts;
 
+    // 联想和普通候选一样选（#9433）：数字键按候选窗上这一行的身份上屏，不落进引擎，也不先取消联想。
+    session.prediction = YES;
+    session.cursor = 0;
+    [controller setValue:[session viewWithError:nil] forKey:@"view"];
+    [controller renderCandidates];
+    assert(panel.isVisible);
+    [session.commands removeAllObjects];
+    [session.typed setString:@""];
+    session.selected = NSNotFound;
+    NSEvent *two = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0
+        windowNumber:0 context:nil characters:@"2" charactersIgnoringModifiers:@"2" isARepeat:NO keyCode:19];
+    assert([controller handleEvent:two client:client]);
+    assert(session.selected == 1 && session.typed.length == 0 && ![session.commands containsObject:@(MSIME_CANCEL)]);
+    // 鼠标点联想的一行同样按这一行的身份上屏。
+    session.selected = NSNotFound;
+    [controller selectCandidate:CandidateButton(panel.contentView, 2)];
+    assert(session.selected == 2 && ![session.commands containsObject:@(MSIME_CANCEL)]);
+    session.prediction = NO;
+
     // 最大宽度 160pt、缩放 200%，首行同时有翻页、展开和 logo：控件都留在卡片里，互不重叠。
     [appearance applySharedCandidatePreferences:@{@"candidate_layout":@"horizontal", @"candidate_count_mode":@"adaptive",
         @"candidate_max_width":@160}];
