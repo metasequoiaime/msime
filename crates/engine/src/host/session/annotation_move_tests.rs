@@ -23,6 +23,13 @@ fn frozen_snapshot(session: &Session) -> Result<EngineSnapshot> {
     } else {
         value.normalized_segmentation.clone()
     };
+    let segment_raw_boundaries = session.inner.segment_raw_boundaries();
+    let preedit_caret = super::preedit_caret::preedit_caret(
+        &value.editing_text,
+        &value.preedit,
+        value.caret_position,
+        &segment_raw_boundaries,
+    );
     let mut output = EngineSnapshot {
         prediction: false,
         local_mode: value.local_mode.name().to_owned(),
@@ -46,9 +53,8 @@ fn frozen_snapshot(session: &Session) -> Result<EngineSnapshot> {
         },
         editing_text: value.editing_text,
         caret_position: value.caret_position,
-        segment_raw_boundaries: session
-            .inner
-            .segment_raw_boundaries()
+        preedit_caret,
+        segment_raw_boundaries: segment_raw_boundaries
             .into_iter()
             .map(|boundary| boundary as u64)
             .collect(),
