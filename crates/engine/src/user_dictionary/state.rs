@@ -120,6 +120,7 @@ fn read_state(file: &Path, emit: &mut dyn FnMut(&DictionaryStateRecord) -> bool)
                         .get::<_, Option<i64>>(11)?
                         .is_some_and(|length| (0..=16).contains(&length)),
             )?;
+            // 这一版不认识的种类（更新的版本写下的，降级后读到）仍让整份状态失败，不像回放那样跳过：云同步上传是整份替换云端快照，悄悄少掉这些行的快照传上去，会把别的设备的这些词从云端删掉。代价是降级的设备上依赖整份状态的功能（快照准备和激活、WebDAV 读本机词库）停到升级回去为止。
             let kind = PersonalDictionaryKind::from_journal_name(&row.get::<_, String>(0)?)
                 .ok_or_else(invalid_state)?;
             // `sqlite3_column_int64` reads NULL as 0; legacy journals built without NOT NULL can hold one.
