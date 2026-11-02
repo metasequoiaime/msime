@@ -79,6 +79,30 @@ int main()
         assert(several.space("nihon", 2, kCandidateSourceFallback) == Action::Start);
     }
 
+    // 开着云候选时第二格是云占位行「☁」。运行时的「下一个」越过它（#10665），所以空格数的、回车按 index() 选的都是去掉它之后的行：第二次空格停在「本」上，回车选的也是它。
+    {
+        using msime::linux_host::japanese_conversion_rows;
+        using msime::linux_host::kCandidateSourceCloudPending;
+        const nlohmann::json page = nlohmann::json::array({
+            {{"text", "日"}, {"source", 0}},
+            {{"text", "☁"}, {"source", kCandidateSourceCloudPending}},
+            {{"text", "本"}, {"source", 0}},
+            {{"text", "二本"}},
+        });
+        const auto rows = japanese_conversion_rows(page);
+        assert(rows.size() == 3);
+        assert(rows[0]["text"] == "日" && rows[1]["text"] == "本" && rows[2]["text"] == "二本");
+        JapaneseConversion conversion;
+        assert(conversion.space("nihon", rows.size(), 0) == Action::Start);
+        assert(conversion.space("nihon", rows.size(), 0) == Action::StepNext);
+        assert(conversion.enter("nihon") == Action::CommitCandidate);
+        assert(rows[conversion.index()]["text"] == "本");
+        // 只剩占位行时没有可转换的行，空格照旧。
+        const auto pending = japanese_conversion_rows(nlohmann::json::array({{{"text", "☁"}, {"source", kCandidateSourceCloudPending}}}));
+        assert(pending.empty());
+        assert(japanese_conversion_rows(nlohmann::json::object()).empty());
+    }
+
     // A reset puts it back to the state a fresh composition starts in.
     {
         JapaneseConversion conversion;

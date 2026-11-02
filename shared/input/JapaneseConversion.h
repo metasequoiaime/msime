@@ -10,6 +10,9 @@ namespace msime::input {
 // The Engine's `CandidateSource::Fallback`, as it appears in a view candidate's `source`.
 inline constexpr int kCandidateSourceFallback = 9;
 
+// 引擎的 `CandidateSource::CloudPending`：开着云候选时日文转换也会在第二格放这一行「☁」。运行时的「下一个」越过它（#10665），所以 `space` 数的、`index()` 指的都是去掉它之后的行；按原始行数数，第 N 次空格停的位置和回车选的那一行就差一格。
+inline constexpr int kCandidateSourceCloudPending = 15;
+
 // Space converts and Enter takes what is on screen - the way every Japanese input method works.
 //
 // Romaji is not what the user typed; かな is. The Engine keeps both (`editing_text` is the romaji,
@@ -48,7 +51,7 @@ class JapaneseConversion
         CommitReading,
     };
 
-    /// `first_source` is the `source` of the first candidate, or -1 when there is none.
+    /// `candidates` counts the rows the highlight can stop on - the page without the cloud placeholder (`kCandidateSourceCloudPending`) - and `first_source` is the `source` of the first of them, or -1 when there is none.
     Action space(std::string_view reading, std::size_t candidates, int first_source)
     {
         forget_if_reading_changed(reading);

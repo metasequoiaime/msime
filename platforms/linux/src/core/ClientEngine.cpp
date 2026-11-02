@@ -8436,9 +8436,10 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         if (action == Action::CommitCandidate) {
           // Select by the identity of the candidate that is on screen, the same fence Space uses
           // below: the live view may already be a generation ahead of what the user is looking at.
-          const auto &candidates = s.view.at("candidates");
+          // 与空格同一份行：去掉云占位行之后的第 index 行。
+          const auto candidates = msime::linux_host::japanese_conversion_rows(s.view.at("candidates"));
           const auto index = s.japanese_conversion.index();
-          if (candidates.is_array() && index < candidates.size()) {
+          if (index < candidates.size()) {
             const auto &id = candidates[index].value("id", Json::object());
             if (id.is_object() && id.value("session", uint64_t{0}) == s.session) {
               handled = apply(engine, msime_client_select(
@@ -8477,7 +8478,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       // later ones step through it, which is the only way to reach the second candidate.
       if (japanese_composition && has_composition) {
         using Action = msime::linux_host::JapaneseConversion::Action;
-        const auto &candidates = s.view.at("candidates");
+        // 只数高亮能停的行：运行时的「下一个」越过云占位行（#10665）。
+        const auto candidates = msime::linux_host::japanese_conversion_rows(s.view.at("candidates"));
         const int first_source = candidates.empty() ? -1 : candidates[0].value("source", -1);
         const auto action =
             s.japanese_conversion.space(japanese_reading, candidates.size(), first_source);

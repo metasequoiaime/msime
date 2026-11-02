@@ -9682,7 +9682,8 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
         (sym == FcitxKey_Return || sym == FcitxKey_KP_Enter || sym == FcitxKey_space)) {
       using Action = msime::linux_host::JapaneseConversion::Action;
       const auto reading = view_.value("editing_text", std::string{});
-      const auto &candidates = view_.at("candidates");
+      // 空格数的、回车选的都是去掉云占位行之后的行：运行时的「下一个」越过它（#10665）。
+      const auto candidates = msime::linux_host::japanese_conversion_rows(view_.at("candidates"));
       if (sym == FcitxKey_space) {
         const int first_source = candidates.empty() ? -1 : msime::linux_host::strict_json_value(candidates[0], "source", -1);
         const auto action = japanese_conversion_.space(reading, candidates.size(), first_source);
@@ -9694,8 +9695,7 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
         const auto action = japanese_conversion_.enter(reading);
         const auto index = japanese_conversion_.index();
         japanese_conversion_.reset();
-        if (action == Action::CommitCandidate && candidates.is_array() &&
-            index < candidates.size()) {
+        if (action == Action::CommitCandidate && index < candidates.size()) {
           const auto &id = candidates[index].value("id", Json::object());
           if (id.is_object())
             return apply(msime_client_select(

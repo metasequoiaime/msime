@@ -625,6 +625,7 @@ if(BUILD_TESTING)
   add_executable(linux-japanese-conversion-test tests/core/japanese_conversion.cpp)
   target_compile_options(linux-japanese-conversion-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
   target_include_directories(linux-japanese-conversion-test PRIVATE src)
+  target_link_libraries(linux-japanese-conversion-test PRIVATE nlohmann_json::nlohmann_json)
   add_test(NAME linux-japanese-conversion COMMAND linux-japanese-conversion-test)
   # 两个菜单对同一设置共用名称表，避免把首右误写成另一家输入法的名字搜狗。
   add_executable(linux-helpcode-schema-names-test tests/core/helpcode_schema_names.cpp)
