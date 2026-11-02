@@ -971,6 +971,20 @@ fn cloud_clipboard_e2e_boundary_starts_with_a_key_request() {
         read(unsafe { msime_client_cloud_clipboard_e2e(std::ptr::null(), 0) })["ok"],
         false
     );
+
+    // 同一个入口按 domain 分派到输入习惯同步的驱动。
+    let learning = call(
+        br#"{"domain":"learning","start":{"op":"status"},"keystore":null,"device_name":"Test"}"#,
+    );
+    assert_eq!(learning["ok"], true);
+    assert!(learning["value"]["request"]["path"]
+        .as_str()
+        .unwrap()
+        .starts_with("/v1/users/me/learning?device_id="));
+    assert_eq!(
+        call(br#"{"domain":"dictionary","start":{"op":"status"}}"#)["ok"],
+        false
+    );
 }
 
 #[test]
