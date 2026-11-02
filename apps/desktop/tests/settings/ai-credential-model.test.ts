@@ -38,6 +38,8 @@ const stored = { endpoint: base.endpoint, model: base.model };
 test("未保存时说明配置目录归属，输入可编辑且清除不展示", () => {
   expect(typeof aiCredentialEditorModel).toBe("function");
   const model = aiCredentialEditorModel(base);
+  // 状态常驻，凭据写在哪里是解释，进「?」。
+  expect(model.status).toBe("尚未保存");
   expect(model.description).toContain("用户配置目录");
   expect(model.matchesStored).toBe(false);
   expect(model.hasStoredCredential).toBe(false);
@@ -50,12 +52,12 @@ test("已存绑定按原始接口和模型精确匹配，不自动裁剪", () =>
   expect(typeof aiCredentialEditorModel).toBe("function");
   const model = aiCredentialEditorModel({ ...base, stored });
   expect(model.matchesStored).toBe(true);
-  expect(model.description).toContain("留空则保留原凭据");
+  expect(model.status).toContain("留空则保留原凭据");
   for (const patch of [{ endpoint: base.endpoint + "/" }, { model: ` ${base.model} ` }]) {
     const mismatch = aiCredentialEditorModel({ ...base, stored, ...patch });
     expect(mismatch.matchesStored).toBe(false);
-    expect(mismatch.description).toContain(`${stored.endpoint}（${stored.model}）`);
-    expect(mismatch.description).toContain("不一致");
+    expect(mismatch.status).toContain(`${stored.endpoint}（${stored.model}）`);
+    expect(mismatch.status).toContain("不一致");
   }
 });
 
@@ -63,7 +65,7 @@ test("损坏状态说明优先于已存绑定匹配或未保存状态", () => {
   expect(typeof aiCredentialEditorModel).toBe("function");
   for (const credential of [undefined, stored, { ...stored, model: "previous-model" }]) {
     expect(
-      aiCredentialEditorModel({ ...base, stored: credential, invalid: true }).description,
+      aiCredentialEditorModel({ ...base, stored: credential, invalid: true }).status,
     ).toContain("ai-provider.json 无效");
   }
 });

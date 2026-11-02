@@ -15,6 +15,8 @@ rustix = { workspace = true, features = ["process"] }
 # The model and its reference implementation live upstream, where other input methods
 # can use them too. Pinned by commit: this is a build input, not a moving target.
 chinese-ime-lm = "0.2"
+# 只给 `rerank_latency` 的 `--onnx-model` 用：量 ONNX Runtime 模型后端在真实运行时里每次按键的代价。要链接精简构建的 ONNX Runtime（见 `msime-onnx-rerank` 的 `runtime` 特性），默认不编。
+msime-onnx-rerank = { path = "../onnx-rerank", features = ["runtime"], optional = true }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -27,6 +29,9 @@ tempfile.workspace = true
 # 只给 `convert_eval` 和 `rerank_latency` 合成触屏误触：固定种子的 PCG 流加均匀采样，跨平台、跨版本按同一种子出同样的键。两者已在 Cargo.lock 里，不带默认特性，不拉系统随机源。
 rand = { version = "0.10.2", default-features = false }
 rand_pcg = "0.10.2"
+
+[features]
+onnx-rerank = ["dep:msime-onnx-rerank"]
 
 [lints]
 workspace = true

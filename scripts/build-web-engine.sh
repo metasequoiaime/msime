@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# 构建网页内置输入法用的引擎包：msime-engine-wasm 编译成 wasm，经 wasm-bindgen 和 wasm-opt 处理，再加上裁剪后的词库、整句模型、NOTICE、清单和校验和，全部写到 target/web-engine/dist/；再把 packages/web-engine 的 SDK、这些文件和 gzip 过的辅助码表组装成 npm 包 target/web-engine/npm/msime-web-engine-<版本>.tgz。
+# 构建网页内置输入法用的引擎包：msime-engine-wasm 编译成 wasm，经 wasm-bindgen 和 wasm-opt 处理，再加上裁剪后的词库、整句模型、NOTICE、清单和校验和，全部写到 target/web-engine/dist/；再把 packages/web-engine 的 SDK、这些文件、gzip 过的辅助码表和粤语词库（连同它的许可证）组装成 npm 包 target/web-engine/npm/msime-web-engine-<版本>.tgz。
 #
 # TapTapGo 按 web-engine-manifest.json 里每个文件的 sha256 和大小钉住 release（data/msime/web-engine.lock.json），所以同一提交、同一输入构建出来的文件必须逐字节相同：gzip 用 -n 去掉文件名和时间戳，词库由 `msime-dict-build web` 确定性地生成。
 #
 # 用法：
-#   scripts/build-web-engine.sh --pinyin <msime-pinyin.db> --wubi <msime-wubi.db> --japanese <msime-japanese.dat> --model <sentence-model.safetensors> [--keep-multi N] [--keep-japanese N] [--version X.Y.Z]
+#   scripts/build-web-engine.sh --pinyin <msime-pinyin.db> --wubi <msime-wubi.db> --japanese <msime-japanese.dat> --model <sentence-model.safetensors> --cantonese <msime-cantonese.db> --cantonese-license <msime-rime_cantonese_LICENSE.txt> [--keep-multi N] [--keep-japanese N] [--version X.Y.Z]
 #   scripts/build-web-engine.sh --no-data [--version X.Y.Z]     只构建 wasm、加载代码和 NOTICE（CI 用）
 #
-# --pinyin、--wubi 和 --japanese 是词库 release 的 msime-pinyin.db、msime-wubi.db 和 msime-japanese.dat，与 --keep-multi、--keep-japanese 一起透传给 `msime-dict-build web`；--keep-multi 是拼音库保留的多字词条数，默认 200000，--keep-japanese 是日语模型保留的词条数，默认 250000。--version 写进清单，默认取 msime-engine-wasm 的 crate 版本；release-web-engine.yml 传入要发布的版本号。
+# --pinyin、--wubi 和 --japanese 是词库 release 的 msime-pinyin.db、msime-wubi.db 和 msime-japanese.dat，与 --keep-multi、--keep-japanese 一起透传给 `msime-dict-build web`；--keep-multi 是拼音库保留的多字词条数，默认 200000，--keep-japanese 是日语模型保留的词条数，默认 250000。--cantonese 和 --cantonese-license 是 resources/language-dictionaries.lock.json 钉住的 msime-cantonese.db 和随它发布的许可证，原样（只 gzip）进 npm 包。--version 写进清单，默认取 msime-engine-wasm 的 crate 版本；release-web-engine.yml 传入要发布的版本号。
 #
 # 需要：Rust 的 wasm32-unknown-unknown 目标、能编译 wasm 的 LLVM clang 和 llvm-ar（Apple 的 ar 会产出空的 libwsqlite3.a）、wasm-bindgen 0.2.128（必须与 crates/engine-wasm 钉住的 wasm-bindgen crate 同版本）、binaryen 133 的 wasm-opt、jq、gzip，以及打 npm 包用的 Node.js 和 npm（生成内置皮肤表也用 Node.js）。并行度由 cargo 自己的 CARGO_BUILD_JOBS 控制。
 set -euo pipefail
@@ -22,6 +22,8 @@ MAX_WASM_BYTES=5500000
 MAX_PINYIN_GZ_BYTES=9000000
 # 日语模型 gzip 后的大小：默认保留 250000 条时约 5.3 MB。
 MAX_JAPANESE_GZ_BYTES=8000000
+# 粤语词库 gzip 后的大小：dict-v2.0.48 的 msime-cantonese.db（7,237,632 B）约 3.5 MB。
+MAX_CANTONESE_GZ_BYTES=5000000
 
 usage() {
   sed -n '6,8p' "$0" | sed 's/^# \{0,1\}//' >&2
@@ -33,6 +35,8 @@ pinyin=""
 wubi=""
 japanese=""
 model=""
+cantonese=""
+cantonese_license=""
 keep_multi=200000
 keep_japanese=250000
 version=""
@@ -43,6 +47,8 @@ while [ "$#" -gt 0 ]; do
     --wubi) [ "$#" -ge 2 ] || usage; wubi="$2"; shift 2 ;;
     --japanese) [ "$#" -ge 2 ] || usage; japanese="$2"; shift 2 ;;
     --model) [ "$#" -ge 2 ] || usage; model="$2"; shift 2 ;;
+    --cantonese) [ "$#" -ge 2 ] || usage; cantonese="$2"; shift 2 ;;
+    --cantonese-license) [ "$#" -ge 2 ] || usage; cantonese_license="$2"; shift 2 ;;
     --keep-multi) [ "$#" -ge 2 ] || usage; keep_multi="$2"; shift 2 ;;
     --keep-japanese) [ "$#" -ge 2 ] || usage; keep_japanese="$2"; shift 2 ;;
     --version) [ "$#" -ge 2 ] || usage; version="$2"; shift 2 ;;
@@ -55,13 +61,15 @@ die() { echo "build-web-engine: $*" >&2; exit 1; }
 step() { printf '\n=== %s ===\n' "$1"; }
 
 if [ "$no_data" -eq 1 ]; then
-  [ -z "$pinyin" ] && [ -z "$wubi" ] && [ -z "$japanese" ] && [ -z "$model" ] || die "--no-data cannot be combined with --pinyin, --wubi, --japanese or --model"
+  [ -z "$pinyin" ] && [ -z "$wubi" ] && [ -z "$japanese" ] && [ -z "$model" ] && [ -z "$cantonese" ] && [ -z "$cantonese_license" ] || die "--no-data cannot be combined with --pinyin, --wubi, --japanese, --model, --cantonese or --cantonese-license"
 else
-  [ -n "$pinyin" ] && [ -n "$wubi" ] && [ -n "$japanese" ] && [ -n "$model" ] || die "--pinyin, --wubi, --japanese and --model are required unless --no-data is given"
+  [ -n "$pinyin" ] && [ -n "$wubi" ] && [ -n "$japanese" ] && [ -n "$model" ] && [ -n "$cantonese" ] && [ -n "$cantonese_license" ] || die "--pinyin, --wubi, --japanese, --model, --cantonese and --cantonese-license are required unless --no-data is given"
   [ -f "$pinyin" ] || die "pinyin dictionary not found: $pinyin"
   [ -f "$wubi" ] || die "wubi dictionary not found: $wubi"
   [ -f "$japanese" ] || die "japanese model not found: $japanese"
   [ -f "$model" ] || die "model not found: $model"
+  [ -f "$cantonese" ] || die "cantonese dictionary not found: $cantonese"
+  [ -f "$cantonese_license" ] || die "cantonese dictionary licence not found: $cantonese_license"
   [[ "$keep_multi" =~ ^[0-9]+$ ]] || die "--keep-multi must be a number, got '$keep_multi'"
   [[ "$keep_japanese" =~ ^[0-9]+$ ]] || die "--keep-japanese must be a number, got '$keep_japanese'"
 fi
@@ -256,13 +264,26 @@ for entry in lantian:helpcodes/helpcode.txt ziranma:helpcodes/zrm_helpcode_big_u
   jq -cn --arg schema "$schema" --arg name "$name" --argjson size "$(size_of "$npm_pkg/assets/$name")" --argjson raw "$(size_of "$table")" \
     '{key: $schema, value: {name: $name, size: $size, rawSize: $raw}}' >> "$helpcodes_jsonl"
 done
+# 粤语词库（粤拼和粤语双拼用，SDK 只在选了粤语方案时下载）和辅助码表一样只进 npm 包、不进 dist：TapTapGo 钉住的清单和 release 的文件都不变。词库是词库 release 原样的 msime-cantonese.db，只 gzip -9n；它的 CC BY 4.0 署名与改动说明是随词库发布的 msime-rime_cantonese_LICENSE.txt，必须跟着数据走，原名放在旁边。
+if [ "$no_data" -eq 0 ]; then
+  gzip -9n -c "$cantonese" > "$npm_pkg/assets/msime-cantonese.db.gz"
+  cp "$cantonese_license" "$npm_pkg/assets/msime-rime_cantonese_LICENSE.txt"
+  cantonese_bytes="$(size_of "$npm_pkg/assets/msime-cantonese.db.gz")"
+  [ "$cantonese_bytes" -le "$MAX_CANTONESE_GZ_BYTES" ] || die "msime-cantonese.db.gz is $cantonese_bytes bytes, over the $MAX_CANTONESE_GZ_BYTES byte gate"
+  echo "msime-cantonese.db.gz: $cantonese_bytes bytes (gate $MAX_CANTONESE_GZ_BYTES)"
+  cantonese_json="$(jq -cn --argjson size "$cantonese_bytes" --argjson raw "$(size_of "$cantonese")" \
+    '{name: "msime-cantonese.db.gz", size: $size, rawSize: $raw, license: "msime-rime_cantonese_LICENSE.txt"}')"
+else
+  cantonese_json=null
+fi
 {
-  echo "// 由 scripts/build-web-engine.sh 从 web-engine-manifest.json 和辅助码表生成，不要手改。"
+  echo "// 由 scripts/build-web-engine.sh 从 web-engine-manifest.json、辅助码表和粤语词库生成，不要手改。"
   jq -r '"export const version = \(.version | tojson);",
     "export const sourceCommit = \(.source_commit | tojson);",
     "export const files = \([.artifacts[] | select(.role != "glue" and .role != "notice") | {key: .role, value: {name, size, rawSize: .raw_size}}] | from_entries | tojson);"' \
     "$dist/web-engine-manifest.json"
   jq -rs '"export const helpcodes = \(from_entries | tojson);"' "$helpcodes_jsonl"
+  echo "export const cantonese = $cantonese_json;"
 } > "$npm_pkg/assets.js"
 rm -f "$helpcodes_jsonl"
 npm pack --silent --pack-destination "$npm_dir" "$npm_pkg" > /dev/null
@@ -273,7 +294,8 @@ echo "$npm_tgz: $(size_of "$npm_tgz") bytes"
 step "done"
 jq -r '.artifacts[] | "\(.name)\t\(.size)\t\(.raw_size)\t\(.sha256)"' "$dist/web-engine-manifest.json" |
   awk -F '\t' '{ printf "  %-32s %10d B  (raw %10d B)  %s\n", $1, $2, $3, $4 }'
-for file in "$npm_pkg"/assets/helpcode-*.txt.gz; do
+for file in "$npm_pkg"/assets/helpcode-*.txt.gz "$npm_pkg"/assets/msime-cantonese.db.gz "$npm_pkg"/assets/msime-rime_cantonese_LICENSE.txt; do
+  [ -f "$file" ] || continue
   printf '  %-32s %10d B  (npm package only)\n' "$(basename "$file")" "$(size_of "$file")"
 done
 echo "web engine $version ($short_commit) written to $dist"

@@ -136,6 +136,7 @@ SWIFT_CASES: list[tuple[str, str]] = [
     ("toolbarScheme", "IOS_TOOLBAR_SCHEME"),
     ("collapse", "TOOLBAR_DISMISS"),
     ("candidateExpand", "CHEVRON"),
+    ("candidateClose", "CLOSE"),
     ("shift", "SHIFT"),
     ("capsLock", "CAPS_LOCK"),
     ("backspace", "BACKSPACE"),

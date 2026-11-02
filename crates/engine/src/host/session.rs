@@ -86,6 +86,8 @@ pub struct EngineSnapshot {
     pub display_reading: String,
     pub editing_text: String,
     pub caret_position: usize,
+    /// 组字光标在 `preedit` 里的位置，按 Unicode 标量计：`caret_position` 是 `editing_text` 里的偏移，而 `preedit` 可能是分词或展开过的拼写（全拼 `ni'hao`、双拼「拼音分词」的 `shi'shi`），宿主画 `preedit` 时用这一项放光标，不要拿 `caret_position` 去数 `preedit` 的字母。两者没有可靠对应时在 `preedit` 末尾（见 `preedit_caret.rs`）。
+    pub preedit_caret: usize,
     pub segment_raw_boundaries: Vec<u64>,
     pub candidates: Vec<String>,
     pub candidate_codes: Vec<String>,
@@ -180,6 +182,25 @@ impl Session {
         self.inner.set_prediction_allowed(allowed);
     }
 
+    /// 联想的词库续写多取一池留给模型排序，同 [`crate::Session::set_prediction_pool`]。
+    pub fn set_prediction_pool(&mut self, enabled: bool) {
+        self.inner.set_prediction_pool(enabled);
+    }
+
+    /// 整句读法条数下限，同 [`crate::Session::set_sentence_pool`]。
+    pub fn set_sentence_pool(&mut self, paths: usize) {
+        self.inner.set_sentence_pool(paths);
+    }
+
+    /// 按模型给刚上屏之后的联想排序，同 [`crate::Session::order_prediction`]。
+    pub fn order_prediction(
+        &mut self,
+        scorer: &mut dyn crate::ordering::CandidateScorer,
+        before: &str,
+    ) -> bool {
+        self.inner.order_prediction(scorer, before)
+    }
+
     /// 换掉会话读的单调时钟和本地墙钟，同 [`crate::Session::set_clock`]。只给评测和测试用，宿主不调：`typing_sim` 按模拟的打字节奏推进时钟，个人学习的 3 s / 8 s / 10 s 窗口和行内日期时间行才不随机器快慢、负载高低和运行的日子变化。
     pub fn set_clock(&mut self, clock: crate::Clock) {
         self.inner.set_clock(clock);
@@ -239,6 +260,13 @@ impl Session {
                     conversion,
                 })
         });
+        let segment_raw_boundaries = self.inner.segment_raw_boundaries();
+        let preedit_caret = preedit_caret::preedit_caret(
+            &value.editing_text,
+            &value.preedit,
+            value.caret_position,
+            &segment_raw_boundaries,
+        );
         let mut output = EngineSnapshot {
             prediction: value.prediction,
             local_mode: value.local_mode.name().to_owned(),
@@ -262,9 +290,8 @@ impl Session {
             },
             editing_text: value.editing_text,
             caret_position: value.caret_position,
-            segment_raw_boundaries: self
-                .inner
-                .segment_raw_boundaries()
+            preedit_caret,
+            segment_raw_boundaries: segment_raw_boundaries
                 .into_iter()
                 .map(|boundary| boundary as u64)
                 .collect(),
@@ -812,6 +839,9 @@ fn online_request(
     };
     Some((request, source))
 }
+
+#[path = "session/preedit_caret.rs"]
+mod preedit_caret;
 
 #[cfg(test)]
 #[path = "session/annotation_move_tests.rs"]

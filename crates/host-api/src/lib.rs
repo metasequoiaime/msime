@@ -350,6 +350,12 @@ struct HostSession {
     resources_pending: bool,
     /// HostOptions 记录的键盘模型路径（`sentence_model`），为 `None` 时用资源目录里的那份；`neural_keyboard` 在会话中途打开时按它加载逐键重排，见 [`ffi::keyboard_reranker`]。
     recorded_sentence_model: Option<String>,
+    /// 上一次挂逐键重排时 ONNX 模型的来源目录（[`ffi::onnx_rerank_source`]），没有 ONNX 模型或没开特性时为 `None`。聚焦时与此刻的来源比较：设置应用刚装好（或移除了）`rerank-model-small` 资源包时重新挂。
+    keyboard_reranker_source: Option<PathBuf>,
+    /// 宿主在会话选项里写了 `keyboard_reranker: false`（镜像会话）时为 `false`：「增强」打开也不挂逐键重排。
+    keyboard_reranker_allowed: bool,
+    /// HostOptions 记录的 ONNX 重排模型目录（`rerank_models`），为 `None` 时在随包资源目录旁边找，见 [`ffi::keyboard_reranker`]。
+    recorded_rerank_models: Option<String>,
     /// HostOptions 记录的落定重排模型路径（`settled_model`）：随包的模型优先于下载的资源包，见 [`settled_model_file`]。
     recorded_settled_model: Option<String>,
     /// 当前挂在 runtime 上的落定重排模型文件，没有模型时为 `None`。
@@ -395,6 +401,21 @@ const CARET_EDIT_SUFFIX_HOST: bool = cfg!(any(
 
 fn caret_edit_suffix_applies(preferences: &Preferences) -> bool {
     CARET_EDIT_SUFFIX_HOST && preferences.caret_edit_suffix
+}
+
+/// 请求的偏好与会话已应用的是否不同到需要重建 Engine。持续上报授权的历史（`usage_reporting_consent`）不算：它只属于本机，由上报观察线程自己从偏好文件读（`ffi/reporting.rs`），Engine 和会话都不用；宿主交来的选项文档多半不带它，算进去会让每个新会话第一次读偏好时白白排上一次重建，这次重建落在第一次上屏之后，把刚出来的上屏后联想清掉（Linux IBus 上实测）。
+fn session_preferences_differ(requested: &Preferences, applied: &Preferences) -> bool {
+    if requested.usage_reporting_consent == applied.usage_reporting_consent {
+        return requested != applied;
+    }
+    let mut requested = requested.clone();
+    requested.usage_reporting_consent = applied.usage_reporting_consent;
+    requested != *applied
+}
+
+/// 上屏后联想只在接好了显示和按键的宿主上交给 Engine（`HostPlatform::shows_next_word_prediction`）：别的宿主收到联想会把它当成组字，数字、空格或回车可能把用户没选的词上屏。偏好随同步到达这些宿主时一律按关。
+fn next_word_prediction_applies(preferences: &Preferences) -> bool {
+    ffi::host::compiled_platform().shows_next_word_prediction() && preferences.next_word_prediction
 }
 
 fn multilingual_languages_for(
@@ -822,7 +843,11 @@ impl HostSession {
                 self.report_settled_model();
             }
         }
-        if !(self.preferences_pending || self.resources_pending) || !self.runtime.is_idle() {
+        // 上屏后联想也算空闲，但重建 Engine 会清掉它：等联想结束（下一个按键或选中之外的任何操作）再重建。
+        if !(self.preferences_pending || self.resources_pending)
+            || !self.runtime.is_idle()
+            || self.runtime.shows_prediction()
+        {
             return Ok(None);
         }
         // 只因资源包变化而重建时，没有新请求的偏好，按已应用的那份重建。
@@ -853,8 +878,7 @@ impl HostSession {
         options.single_character_only = preferences.single_character_only;
         options.caret_edit_suffix = caret_edit_suffix_applies(&preferences);
         options.learning = preferences.learning;
-        options.next_word_prediction =
-            preferences.next_word_prediction && cfg!(target_os = "android");
+        options.next_word_prediction = next_word_prediction_applies(&preferences);
         options.learn_english_on_enter = preferences.enter_learns_english_word;
         options.autocorrect_transposition = preferences.quanpin.autocorrect_transposition;
         options.autocorrect_neighbor = preferences.quanpin.autocorrect_neighbor;
@@ -1019,13 +1043,25 @@ impl HostSession {
                 &preferences,
             ));
         // The keyboard model follows its switch the same way, but is dropped rather than idled while off: it is the one that runs inside every keystroke.
-        let keyboard = keyboard_reranker_enabled(&preferences.sentence_association, self.edition);
+        let keyboard = self.keyboard_reranker_allowed
+            && keyboard_reranker_enabled(&preferences.sentence_association, self.edition);
         if keyboard != self.runtime.has_reranker() {
-            self.runtime.set_reranker(ffi::keyboard_reranker(
+            self.runtime.set_candidate_scorer(ffi::keyboard_reranker(
                 keyboard,
                 &options.resources,
+                options.helpcode_fallback_resources.as_deref(),
+                self.recorded_rerank_models.as_deref(),
+                self.plugin_roots.builtin_sounds.as_deref(),
+                self.state_root.as_deref(),
                 self.recorded_sentence_model.as_deref(),
             ));
+            self.keyboard_reranker_source = ffi::onnx_rerank_source(
+                &options.resources,
+                options.helpcode_fallback_resources.as_deref(),
+                self.recorded_rerank_models.as_deref(),
+                self.plugin_roots.builtin_sounds.as_deref(),
+                self.state_root.as_deref(),
+            );
         }
         self.options = options;
         self.plugin_tables = plugin_tables;
@@ -1115,6 +1151,30 @@ impl HostSession {
                 &self.options.resources,
                 self.settled_model.clone(),
             ));
+        }
+        // 「增强」开着时，设置应用可能刚装好（或移除了）逐键重排模型的资源包（Android 的 `rerank-model-small`）：来源变了就重新挂，随包的句子模型换成 ONNX 模型，或反过来。
+        if self.keyboard_reranker_allowed
+            && keyboard_reranker_enabled(&self.applied.sentence_association, self.edition)
+        {
+            let source = ffi::onnx_rerank_source(
+                &self.options.resources,
+                self.options.helpcode_fallback_resources.as_deref(),
+                self.recorded_rerank_models.as_deref(),
+                self.plugin_roots.builtin_sounds.as_deref(),
+                state_root,
+            );
+            if source != self.keyboard_reranker_source {
+                self.runtime.set_candidate_scorer(ffi::keyboard_reranker(
+                    true,
+                    &self.options.resources,
+                    self.options.helpcode_fallback_resources.as_deref(),
+                    self.recorded_rerank_models.as_deref(),
+                    self.plugin_roots.builtin_sounds.as_deref(),
+                    state_root,
+                    self.recorded_sentence_model.as_deref(),
+                ));
+                self.keyboard_reranker_source = source;
+            }
         }
         let downloaded = state_root.map(DownloadedDictionaries::new);
         let dictionaries = LanguageDictionaries::resolve(
@@ -1312,7 +1372,7 @@ impl HostSession {
                 .clear_online_candidates(1)
                 .map_err(|e| e.to_string())?;
         }
-        self.preferences_pending = snapshot.preferences != self.applied;
+        self.preferences_pending = session_preferences_differ(&snapshot.preferences, &self.applied);
         self.requested = Some(snapshot);
         self.requested_settled = false;
         let requested_preferences = self
@@ -1392,7 +1452,7 @@ impl HostSession {
     /// `update` 的回复：宿主都会读其中的 `view`。
     fn preferences_response(&self, fallback: Option<String>) -> Value {
         let snapshot = self.requested.as_ref().expect("requested snapshot exists");
-        let mut response = json!({ "revision": snapshot.revision, "deferred": snapshot.preferences != self.applied, "view": self.runtime.view(), "floating_toolbar": { "enabled": snapshot.preferences.floating_toolbar.enabled, "english_mode": snapshot.preferences.floating_toolbar.english_mode, "scale_percent": snapshot.preferences.floating_toolbar.scale_percent, "font_size": snapshot.preferences.floating_toolbar.font_size, "fullwidth": snapshot.preferences.floating_toolbar.fullwidth, "punctuation": snapshot.preferences.floating_toolbar.punctuation, "character_set": snapshot.preferences.floating_toolbar.character_set, "emoji": snapshot.preferences.floating_toolbar.emoji, "screen_keyboard": snapshot.preferences.floating_toolbar.screen_keyboard, "settings": snapshot.preferences.floating_toolbar.settings } });
+        let mut response = json!({ "revision": snapshot.revision, "deferred": session_preferences_differ(&snapshot.preferences, &self.applied), "view": self.runtime.view(), "floating_toolbar": { "enabled": snapshot.preferences.floating_toolbar.enabled, "english_mode": snapshot.preferences.floating_toolbar.english_mode, "scale_percent": snapshot.preferences.floating_toolbar.scale_percent, "font_size": snapshot.preferences.floating_toolbar.font_size, "fullwidth": snapshot.preferences.floating_toolbar.fullwidth, "punctuation": snapshot.preferences.floating_toolbar.punctuation, "character_set": snapshot.preferences.floating_toolbar.character_set, "emoji": snapshot.preferences.floating_toolbar.emoji, "screen_keyboard": snapshot.preferences.floating_toolbar.screen_keyboard, "settings": snapshot.preferences.floating_toolbar.settings } });
         // Applied at once, so no transition will carry the reason the preferred scheme was replaced; a deferred change reports it from `complete_transition` instead.
         if let Some(fallback) = fallback {
             response["diagnostic"] = fallback.into();
@@ -2171,6 +2231,12 @@ struct HostOptions {
     /// `false`：这个会话不记选词位置和上屏效率。给与另一个会话处理同一次选词的镜像会话用：Windows TIP 在应用进程里的宿主会话跟着 Server 选同一个词，两边都记就会算两遍，由 Server 的会话记。缺省照常记。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     selection_statistics: Option<bool>,
+    /// `false`：这个会话不挂逐键重排（整句联想「增强」的模型），开关打开也不挂。给只跟着另一个会话选词的镜像会话用：Windows TIP 在每个打字的应用进程里各有一个宿主会话，候选窗是 Server 画的、顺序是 Server 的会话排的，TIP 按文字选中同一个词（`tsf/HostServerSelection.h`），自己再排一遍用不上，却要在每个进程里各加载一份模型（ONNX 大模型 31 MB）。缺省照常挂。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    keyboard_reranker: Option<bool>,
+    /// 放两档 ONNX 逐键重排模型（`rerank-model/`、`rerank-model-small/`）的目录。缺省时在随包资源目录旁边找（[`ffi::rerank_models_root`]）。Windows 的 Server 在内存里写它：它的随包资源目录在 Program Files 的 `server\resources`，模型装在旁边，但 `helpcode_fallback_resources` 是 DataDir（辅助码表在那里），装了在线词库更新后 `resources` 又换成 DataDir 下的代次，两条都找不到安装包里的模型。不写进准备好的 runtime-options.json。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    rerank_models: Option<String>,
     /// macOS 和 Linux 的两个宿主把普通组字里的快捷短语也作为候选显示；缺省关闭以保持其他宿主和旧文档的入口契约。建会话时写进 `EngineOptions`，偏好变更重建 Engine 时沿用同一份选项。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     quick_phrase_candidates: Option<bool>,
@@ -2383,8 +2449,7 @@ impl HostOptions {
             caret_edit_suffix: caret_edit_suffix_applies(&self.preferences),
             learning: self.preferences.learning,
             learn_english_on_enter: self.preferences.enter_learns_english_word,
-            next_word_prediction: self.preferences.next_word_prediction
-                && cfg!(target_os = "android"),
+            next_word_prediction: next_word_prediction_applies(&self.preferences),
             autocorrect_transposition: self.preferences.quanpin.autocorrect_transposition,
             autocorrect_neighbor: self.preferences.quanpin.autocorrect_neighbor,
             fuzzy_pinyin_rules: self.preferences.fuzzy_pinyin.active_rules(),
@@ -3039,6 +3104,8 @@ fn prepare_shipped_host_configuration(
         ),
         phrase_preedit: None,
         selection_statistics: None,
+        keyboard_reranker: None,
+        rerank_models: None,
         quick_phrase_candidates: None,
         korean_romaja: None,
         clipboard_history_path: None,

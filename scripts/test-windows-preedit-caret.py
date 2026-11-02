@@ -133,6 +133,10 @@ struct CCompositionProcessorEngine {
     std::size_t GetRenderedCaretPosition(const std::wstring &text, std::size_t position) const {
         return msime::tsf::MapPreeditCaret(text, position, rendered, renderedPrefix);
     }
+    std::size_t GetRenderedCaretPosition(const msime::tsf::KeyCompositionState &state) const {
+        return msime::tsf::MapPreeditCaret(state.rawInput, state.caret, rendered, renderedPrefix, state.preedit,
+                                           state.preeditCaret);
+    }
     void GetCandidateList(CMetasequoiaImeArray<CCandidateListItem> *, BOOL, BOOL) {}
 };
 
@@ -268,6 +272,33 @@ int main() {
         GlobalSettings::style = GlobalSettings::TsfPreeditStyle::Pinyin;
         check(f.render(1) == S_OK && f.context.document == L"4Mmo'xing" && f.context.selection == 6,
               "formatted preedit maps the host caret through separators");
+    }
+    // #10632：双拼「拼音分词」的 preedit 是展开的全拼，光标按引擎给的 preedit_caret 放，不按原文的字母数去数 preedit。
+    for (const auto &style : {GlobalSettings::TsfPreeditStyle::Raw, GlobalSettings::TsfPreeditStyle::Pinyin}) {
+        Fixture f; f.hostText("uiui", 4);
+        Global::InputModeScheme = msime::windows::scheme::Shuangpin;
+        currentResult.view.scheme = msime::windows::scheme::Shuangpin;
+        currentResult.view.preedit = "shi'shi";
+        currentResult.view.preedit_caret = 7;
+        GlobalSettings::style = style;
+        pipeReply.candidate_string = L"shi'shi";
+        check(f.render(1) == S_OK && f.context.document == L"4Mshi'shi" && f.context.selection == 9,
+              "expanded shuangpin keeps the caret at the end of the displayed pinyin");
+        for (const auto &[raw, display] : {std::pair<std::size_t, std::size_t>{3, 3}, {2, 3}, {0, 0}}) {
+            currentResult.view.caret = raw;
+            currentResult.view.preedit_caret = display;
+            check(f.ime._MoveCompositionCaretToHost(1, &f.context, currentResult) == S_OK &&
+                      f.context.selection == static_cast<LONG>(2 + display),
+                  "moving inside expanded shuangpin follows the engine's display caret");
+        }
+        // 已选词段在前时，引擎的位置再往后移词段的长度。
+        currentResult.view.caret = 4;
+        currentResult.view.preedit_caret = 7;
+        currentResult.view.phrase_prefix = "你";
+        pipeReply.candidate_string = L"你shi'shi";
+        check(f.render(1) == S_OK && f.context.document == L"4M你shi'shi" && f.context.selection == 10,
+              "the phrase prefix shifts the engine's display caret");
+        pipeReply.candidate_string = L"mo'xing";
     }
     for (const auto &prefix : {std::string("你"), std::string("\xF0\xA0\xAE\xB7")}) {
         Fixture f; f.hostText("hao", 1);

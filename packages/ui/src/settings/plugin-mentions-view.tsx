@@ -8,6 +8,7 @@ import type { MentionEntry, PluginSettingsPage } from "./plugin-types";
 import { ActionButton } from "./action-button";
 import { SettingsInputField } from "./settings-input-field";
 import { SettingsManagerNote } from "./settings-manager-note";
+import { SettingsGroupNote } from "./settings-group-note";
 import { SettingsManagerActions } from "./settings-manager-actions";
 import { SettingsPhraseForm } from "./settings-phrase-form";
 import { SettingsManagerBlock } from "./settings-manager-block";
@@ -111,12 +112,13 @@ export function PluginMentionsView({
           )}
         </GroupList>
       )}
-      <GroupList>
+      <GroupList title="名单">
+        {/* 名单怎么用、存在哪里：收进组名旁的「?」，不常驻在名单上方。 */}
+        <SettingsGroupNote>
+          在「输入 → 快捷模式」打开 @ 名字与地点后，按 @
+          再输入拼音或首字母，就会从这份名单里出候选。名单只保存在本机，不随账号同步，也不会读取通讯录或位置。拼音可以留空，中文名字会自动取读音。
+        </SettingsGroupNote>
         <SettingsManagerBlock>
-          <SettingsManagerNote>
-            在「输入 → 快捷模式」打开 @ 名字与地点后，按 @
-            再输入拼音或首字母，就会从这份名单里出候选。名单只保存在本机，不随账号同步，也不会读取通讯录或位置。拼音可以留空，中文名字会自动取读音。
-          </SettingsManagerNote>
           {mentions.map((entry, index) => (
             <SettingsPhraseForm key={index}>
               <SettingsInputField
