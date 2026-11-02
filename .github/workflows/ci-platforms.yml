@@ -86,7 +86,8 @@ jobs:
             esac
             case "$path" in
               platforms/android/*) android=true ;;
-              platforms/linux/*) linux=true ;;
+              # package-container.sh 按这两份锁取精简 ONNX Runtime 链进宿主库、取两档逐键重排模型，下面的 Fedora 作业就跑它。
+              platforms/linux/*|resources/onnxruntime-minimal.lock.json|resources/rerank-model.lock.json) linux=true ;;
               platforms/harmony/*) harmonyos=true ;;
               platforms/windows/*) windows=true ;;
               # Telemetry is compiled by the Linux and Windows hosts and DictionaryQuiesceLease.h by Linux and macOS; Android and HarmonyOS build neither, so this is not a shared path. ci-macos.yml covers the macOS side.
