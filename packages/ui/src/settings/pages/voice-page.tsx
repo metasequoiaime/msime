@@ -15,6 +15,7 @@ export function VoiceSettingsPage() {
     macosPlatform,
     nativeVoicePlatform,
     showVoiceCommitMode,
+    showVoicePunctuation,
     showVoiceProviderSettings,
     showVoiceStreamPreedit,
     showVoiceCaptureDevices,
@@ -94,6 +95,7 @@ export function VoiceSettingsPage() {
       showVoiceProviderSettings={showVoiceProviderSettings}
       showVoiceStreamPreedit={showVoiceStreamPreedit}
       showVoiceCommitMode={showVoiceCommitMode}
+      showVoicePunctuation={showVoicePunctuation}
       showVoiceCaptureDevices={showVoiceCaptureDevices}
       showVoiceSpaceLockSwitch={showVoiceSpaceLockSwitch}
       showVoiceCueSwitches={showVoiceCueSwitches}
