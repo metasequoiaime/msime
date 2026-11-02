@@ -1809,6 +1809,8 @@ static NSImage *MSIMECandidateLogoImage() {
     NSString *_preferencesDirectory;
     NSTimer *_preferencesTimer;
     MSIMEPreferenceLoadState _preferenceLoadState;
+    // 首次同步读取的宿主设置，等工具栏创建或按键接管焦点后再应用。
+    NSDictionary *_initialHostPreferences;
     MSIMEAppearancePreferences *_appearance;
     BOOL _wubiCodeHintEnabled;
     msime::input::EnglishPunctuationState _englishPunctuation;
@@ -5357,10 +5359,17 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:directory error:nil];
     NSDictionary *preferences = [snapshot isKindOfClass:NSDictionary.class] ? snapshot[@"preferences"] : nil;
     if ([preferences isKindOfClass:NSDictionary.class]) {
+        _initialHostPreferences = [preferences copy];
         _englishOnlineCandidatesEnabled = MSIMEStrictBoolean(preferences[@"english_online_candidates"]);
         _englishOnlinePreferenceLoaded = YES;
         if (!_appearance.sharedInputPreferencesApplied) [_appearance applySharedInputPreferences:preferences];
     }
+}
+// 共享文档已同步读过，不能让工具栏和语音总开关再等一次可因失焦作废的后台读取。
+- (void)applyInitialHostPreferences {
+    NSDictionary *preferences = _initialHostPreferences;
+    _initialHostPreferences = nil;
+    if (preferences) [self applySharedToolbarPreferences:preferences];
 }
 // 在系统输入菜单里打开一个按需模式。只有 Engine 会话会碰到 TIS；测试的替身会话只走测试设的 enabler，没有就什么也不做，所以测试不会改开发者的输入菜单。返回 NO 表示模式没有打开——没有发出请求，或者系统拒绝了——这次切换不记为已同步，下一次同步再试；以前不论 TIS 返回什么都算成功，启用失败一次，这个模式就再也不会被打开。
 - (BOOL)enableOptInInputMode:(NSString *)identifier {
@@ -6315,6 +6324,7 @@ static constexpr NSUInteger MSIMEIdleDictionarySessionLimit = 4;
     _capsLock = ([NSEvent modifierFlags] & NSEventModifierFlagCapsLock) != 0;
     [self syncCapsLock];
     _toolbar = [MSIMEFloatingToolbarPanel sharedPanel];
+    [self applyInitialHostPreferences];
     [_toolbar applyLightSkin:[_appearance resolvedSkinForDark:NO].tokens darkSkin:[_appearance resolvedSkinForDark:YES].tokens];
     [_toolbar applyLightToolbarSkin:[_appearance toolbarSkinForDark:NO]
                             darkSkin:[_appearance toolbarSkinForDark:YES]];
@@ -6927,6 +6937,9 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
 }
 
 - (void)applySharedToolbarPreferences:(NSDictionary *)preferences {
+    // 更晚的重载替换启动快照；工具栏尚未创建时保留它，创建后再应用尺寸与组件。
+    if ([preferences isKindOfClass:NSDictionary.class])
+        _initialHostPreferences = _toolbar ? nil : [preferences copy];
     if (MSIMEConfigureDiagnosticLog(_preferencesDirectory, preferences))
         msime_macos_diagnostic_write("preferences_applied");
     if ([preferences isKindOfClass:NSDictionary.class]) {
@@ -7732,6 +7745,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         // Whatever the previous client was last given says nothing about this one.
         [self invalidateSmartPunctuationShadow];
         [self applySharedInputPreferencesBeforeFirstUse];
+        [self applyInitialHostPreferences];
         [_appearance activateInputModeForApplication:[sender respondsToSelector:@selector(bundleIdentifier)] ? [sender bundleIdentifier] : nil];
         [self syncSystemInputModeForClient:sender];
         // Punctuation and width are per app, so the new client's values reach the Engine before it types.
