@@ -6091,14 +6091,15 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    /** 26 键字母右上角的提示键面跟中文标点走（#7069）：设置页改「中文标点」、切换中英文、会话起来后 view 到达，这几种情形都不重建字母层，j k l v b 的键面在这里就地换成中文或 ASCII。工具面板和 Ctrl + . 走 toggleChinesePunctuation()，那里本来就重建键行，建键时已按当时状态取键面。键面相同时 setCornerHint 直接返回。 */
+    /** 26 键字母右上角的提示键面跟中文标点走（#7069）：设置页改「中文标点」、切换中英文、会话起来后 view 到达，这几种情形都不重建字母层，j k l v b 的键面在这里就地换成中文或 ASCII。工具面板和 Ctrl + . 走 toggleChinesePunctuation()，那里本来就重建键行，建键时已按当时状态取键面。键面相同时 setCornerHint 直接返回。「显示字母键角标」（本地设置变了就 render()，走到这里）关掉时清空键面，开回来时画回（#10587）。 */
     private void updateLetterCornerHints() {
         boolean chinese = sendsChinesePunctuation();
+        boolean shown = localSettings.bool(AndroidLocalSettings.LETTER_CORNER_HINTS);
         for (int index = 0; index < shuangpinKeyButtons.size(); index++) {
             String input = shuangpinKeyInputs.get(index);
             if (";".equals(input)) continue;
-            shuangpinKeyButtons.get(index).setCornerHint(LetterHintTable.face(input, dedicatedEnglish, chinese,
-                punctuationMarks()));
+            shuangpinKeyButtons.get(index).setCornerHint(shown
+                ? LetterHintTable.face(input, dedicatedEnglish, chinese, punctuationMarks()) : null);
         }
     }
 

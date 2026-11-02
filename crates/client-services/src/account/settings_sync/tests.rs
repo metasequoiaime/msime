@@ -935,6 +935,10 @@ fn local_values() -> BTreeMap<String, AccountPreferenceValue> {
             "platform.android.swipe_symbols_direction".to_owned(),
             String("up".into()),
         ),
+        (
+            "platform.android.letter_corner_hints".to_owned(),
+            Boolean(false),
+        ),
         ("platform.android.space_cursor".to_owned(), Boolean(false)),
         ("platform.android.space_voice".to_owned(), Boolean(false)),
         (
