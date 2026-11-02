@@ -59,9 +59,9 @@ import app.msime.android.policy.KeySoundPackPolicy;
 import org.json.JSONObject;
 
 /**
- * 键盘页：布局（中文键盘 26 / 9 键，双拼时是双拼的 26 / 14 / 18 键，五笔时是「五笔键盘」的 26 / 14 键、按键布局子页（三类键面的底行样式、九键与数字键盘的左侧符号和顶部数字行，{@link KeyLayoutStylesPage}）、双拼键位提示、键盘高度、按键间距、行间距、分离式键盘、竖屏也分离、浮动键盘、键盘底栏、键盘底部高度）、按键反馈（按键音、音效、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、工具栏分页里的键盘工具栏（预览、显示方式、各按钮）与剪贴板（工具栏显示最近复制、排列）和子页「AI 润色与回复」。
+ * 键盘页：布局（中文键盘 26 / 9 键，双拼时是双拼的 26 / 14 / 18 键，五笔时是「五笔键盘」的 26 / 14 键、按键布局子页（三类键面的底行样式、九键与数字键盘的左侧符号和顶部数字行，{@link KeyLayoutStylesPage}）、拼音显示位置、双拼显示原始按键、双拼键位提示、键盘高度、按键间距、行间距、分离式键盘、竖屏也分离、浮动键盘、键盘底栏、键盘底部高度）、按键反馈（按键音、音效、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、工具栏分页里的键盘工具栏（预览、显示方式、各按钮）与剪贴板（工具栏显示最近复制、排列）和子页「AI 润色与回复」。
  *
- * <p>键盘与本页读同一批存储：按键间距、行间距、竖屏分离、双拼键位提示、全拼组字保留 Shift、九键滑动输入数字和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_keyboard_split_portrait`、`touch_shuangpin_key_hints`、`touch_quanpin_shift`、`touch_nine_key_swipe_digits`、`touch_toolbar.*`）；键盘高度、分离式键盘主开关、手机横屏分离式键盘、浮动键盘、物理键盘时候选栏跟随光标、键盘底栏、底部留白、按键弹出预览、按键动画、三个手势、常用语/输入方式/浮动键盘三个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 75–170 % 显示，存的是 dp（{@link KeyboardHeightPolicy#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们；按键音用哪个音效包在共享偏好 `plugins.key_sound.pack` 里（{@link KeySoundPacks}）。
+ * <p>键盘与本页读同一批存储：按键间距、行间距、竖屏分离、双拼显示原始按键、双拼键位提示、全拼组字保留 Shift、九键滑动输入数字和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_keyboard_split_portrait`、`shuangpin_preedit_uses_raw`、`touch_shuangpin_key_hints`、`touch_quanpin_shift`、`touch_nine_key_swipe_digits`、`touch_toolbar.*`）；键盘高度、分离式键盘主开关、手机横屏分离式键盘、浮动键盘、物理键盘时候选栏跟随光标、键盘底栏、底部留白、按键弹出预览、按键动画、三个手势、常用语/输入方式/浮动键盘三个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 75–170 % 显示，存的是 dp（{@link KeyboardHeightPolicy#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们；按键音用哪个音效包在共享偏好 `plugins.key_sound.pack` 里（{@link KeySoundPacks}）。
  */
 public class KeyboardOptionsPage extends ReloadingDetailPage {
     private final ClipboardExportActions clipboardExport = new ClipboardExportActions(this, this::reload);
@@ -153,6 +153,12 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         layout.nav("拼音显示位置", null,
             spellingPositionLabel(spellingPosition),
             () -> pickSpellingPosition(spellingPosition)).help("全拼、双拼、五笔和粤拼可以把正在输入的拼音放在输入框或候选栏");
+        // 写进输入框的拼写是 Engine 的 `preedit`（CandidatePreeditStylePolicy.inlineSpelling）：关掉这一项后，双拼写展开的拼音，粤语双拼写展开的粤拼（#10557）。共享偏好 `shuangpin_preedit_uses_raw`，缺省为开，与 client-core 一致；标题与 iOS 候选栏页相同。候选栏画的是读音，不受这一项影响，所以说明只讲输入框。本版本两种双拼都没有时不列。
+        if (KeyboardScheme.XIAOHE.offeredBy(edition) || KeyboardScheme.CANTONESE.offeredBy(edition)) {
+            layout.toggle("双拼显示原始按键", null,
+                preferences.optBoolean("shuangpin_preedit_uses_raw", true),
+                checked -> savePreference("shuangpin_preedit_uses_raw", checked)).help("关闭后输入框里显示按键对应的完整拼音或粤拼");
+        }
         // 本版本没有任何其他语言键盘（五笔版、拼音版）时不列这一项。
         if (offersOtherLanguage(edition)) {
             layout.toggle("中英键轮换其他语言", null,

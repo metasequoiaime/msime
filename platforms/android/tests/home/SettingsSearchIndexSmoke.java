@@ -58,6 +58,9 @@ public final class SettingsSearchIndexSmoke {
         }
         // #6132：搜「浮动」要找到键盘页。
         check(pages.get("KEYBOARD_OPTIONS").matches("浮动"), "searching 浮动 finds the keyboard page");
+        // #10557：粤语双拼的展开显示跟随「双拼显示原始按键」，搜开关名、搜「粤拼」都要落到键盘页。
+        check(pages.get("KEYBOARD_OPTIONS").matches("双拼显示原始按键") && pages.get("KEYBOARD_OPTIONS").matches("粤拼"),
+            "searching 双拼显示原始按键 or 粤拼 finds the keyboard page");
         // 功能面板的「键盘调整」在设置里没有同名的行，搜它要落到放着键盘高度和底部高度的键盘页。
         check(pages.get("KEYBOARD_OPTIONS").matches("键盘调整"), "searching 键盘调整 finds the keyboard page");
         check(pages.containsKey("FUZZY_PINYIN") && pages.get("FUZZY_PINYIN").matches("前后鼻音"),
