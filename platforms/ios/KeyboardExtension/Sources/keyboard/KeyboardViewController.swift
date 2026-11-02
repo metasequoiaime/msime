@@ -85,6 +85,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var lastKeyTouchTime: TimeInterval = -.infinity
   private var synchronizingPersonalDictionary = false
   private let preeditButton = PreeditButton()
+  /// 读音位置画笔时按钮至少这么宽，与 Android 读音的 `minWidth` 40dp 相同，笔不至于只有图标那么窄。
+  private lazy var preeditPenMinimumWidth = preeditButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 40)
   private var appliedPreeditMenuKey: String?
   private let exitLocalModeButton = UIButton()
   /// 漢 on the candidate row: the touch counterpart of a Korean keyboard's Hanja key. Shown only while a Korean syllable composes; it lists the syllable's Hanja on the strip and closes the list again.
@@ -573,6 +575,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var visibleCaretSpelling: String?
   /// The spelling the caret can be moved through and where the caret sits in it, while one is being composed; nil for a Japanese reading, whose conversion owns the caret keys.
   private var editableSpelling: (text: String, caret: Int)?
+  /// 放大拼写编辑条要画的读音（不含已选的那段词）和这次组字是否在组码网格里打的（`grid_composing`），每次渲染时记下，换算光标位置用。
+  private var editorSpelling: (display: String, keyGrid: Bool) = ("", false)
+  /// 放大拼写编辑条（#10591）：点读音或读音位置的笔打开，「完成」、组字结束或不再可编辑时关上；再点入口保持打开。
+  private var spellingEditorOpen = false
+  private var spellingEditorBar: CompositionEditorBar?
   /// 五笔 14 键正在组字时引擎的组码（`editing_text`，每一位是一键的代表字母）；其他情况为空。
   private var visibleWubiGridKeys = ""
   /// Whether the current space-bar drag moves the caret inside the composition rather than in the document.
@@ -763,7 +770,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var topRowHeightConstraint: NSLayoutConstraint?
   private var readingRowHeightConstraint: NSLayoutConstraint?
   /// 顶栏的读音；只在候选行显示时才显示。默认是候选行最左边的一段，全拼 14 键是候选行上面单独的一行（`separateReadingRow`）。
-  private let readingRow = UIView()
+  private let readingRow = ReadingRowView()
   /// 读音单独一行时才生效的约束，和读音并入候选行时的约束，由 `applyReadingRowPlacement` 二选一。
   private var separateReadingConstraints: [NSLayoutConstraint] = []
   private var inlineReadingConstraints: [NSLayoutConstraint] = []
@@ -1429,8 +1436,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
     let candidateStrip = makeCandidateStrip()
     root.addArrangedSubview(candidateStrip)
-    // 候选栏和手写区不是键：落在它们里面的触摸照旧，它们的按钮也不来接键距里的触摸。
-    root.gapRoutingExclusions = [candidateStrip, handwriting]
+    // 放大拼写编辑条排在候选栏下面、按键上面，打开时键盘高出这一行，候选照旧可点（与 Android 相同）。
+    let spellingEditor = CompositionEditorBar(
+      onMove: { [weak self] target in self?.moveSpellingEditorCaret(to: target) },
+      onDone: { [weak self] in self?.finishSpellingEditing() })
+    spellingEditor.isHidden = true
+    spellingEditorBar = spellingEditor
+    root.addArrangedSubview(spellingEditor)
+    // 候选栏、编辑条和手写区不是键：落在它们里面的触摸照旧，它们的按钮也不来接键距里的触摸。
+    root.gapRoutingExclusions = [candidateStrip, spellingEditor, handwriting]
     installOneHandRow(in: root)
     let numberRow = makeNumberRow()
     numberRowView = numberRow
@@ -2571,8 +2585,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     preeditButton.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
     // 读音并入候选行时它和候选滚动区排在同一行，只占读音自己的宽度，余下的都给候选。
     preeditButton.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-    preeditButton.showsMenuAsPrimaryAction = true
     preeditButton.accessibilityIdentifier = "preeditButton"
+    // 有菜单（空闲时的本地输入）时轻点弹菜单，没有菜单时轻点就是这个动作：可编辑时打开放大拼写编辑条。
+    preeditButton.addAction(UIAction { [weak self] _ in self?.openSpellingEditor() }, for: .primaryActionTriggered)
 
     updateLanguageModeButton()
 
@@ -2704,12 +2719,30 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 读音并入候选行时最多占这一行的这一份宽度，更长的读音截掉尾部。
   static let inlineReadingMaximumShare: CGFloat = 0.3
 
-  /// 读音按钮只有拼写那么大，打 wo 这样的短拼写时很难点中（#10474）。它的可点区域放大到整个读音段（`compositionRow`）：读音单独一行时是这一行从行首到行尾、上下占满，拼音选择条显示时叠在它上面，先接住落在选择条里的触摸；读音并入候选行时这一段只有读音那么宽，放大的是上下，占满候选行的高度。只改命中，不改布局，行高、标题位置和候选的位置都不变。
+  /// 读音按钮只有拼写那么大，打 wo 这样的短拼写时很难点中（#10474）。它的可点区域放大到整个读音段（`compositionRow`）：读音单独一行时是这一行从行首到行尾、上下占满，再加上它和候选行之间的皮肤行距（`ReadingRowView.hitBottomExtension`），拼音选择条显示时叠在它上面，先接住落在选择条里的触摸；读音并入候选行时这一段只有读音那么宽，放大的是上下，占满候选行的高度。只改命中，不改布局，行高、标题位置和候选的位置都不变。
   private final class PreeditButton: UIButton {
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
       guard let row = superview else { return super.point(inside: point, with: event) }
+      if let reading = row as? ReadingRowView { return reading.hits(convert(point, to: reading)) }
       return convert(row.bounds, from: row).contains(point)
     }
+  }
+
+  /// 读音段。读音单独一行时，它和候选行之间的皮肤行距（`lineGap`，`updateCandidateCanvasMetrics` 设进 `hitBottomExtension`）也归读音（#10591）：与 Android 读音行的下内边距一样，点在读音和候选之间的缝里也打开编辑。拼音选择条下面那一段缝不归读音，与 Android 只扩到读音那一段为止相同。
+  final class ReadingRowView: UIView {
+    var hitBottomExtension: CGFloat = 0
+    /// 只在行距那一段里限制横向范围的视图（14 键的拼音选择条）；它显示时，缝里只有它左边那部分归读音。
+    weak var bandLimit: UIView?
+
+    func hits(_ point: CGPoint) -> Bool {
+      if bounds.contains(point) { return true }
+      guard hitBottomExtension > 0, point.x >= bounds.minX, point.x < bounds.maxX,
+            point.y >= bounds.maxY, point.y < bounds.maxY + hitBottomExtension else { return false }
+      guard let limit = bandLimit, !limit.isHidden else { return true }
+      return point.x < limit.frame.minX
+    }
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool { hits(point) }
   }
 
   /// 按当前方案把读音放到单独一行或候选行最左边，顶栏和键盘高度跟着变；顶栏还没建好时（`viewDidLoad` 里先读方案）什么都不做，建顶栏时直接按当前方案装约束。
@@ -2739,6 +2772,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     readingSpellingStack.translatesAutoresizingMaskIntoConstraints = false
     readingSpellingScrollView.addSubview(readingSpellingStack)
     row.addSubview(readingSpellingScrollView)
+    readingRow.bandLimit = readingSpellingScrollView
     readingSpellingMinimumWidth = readingSpellingScrollView.widthAnchor.constraint(
       greaterThanOrEqualTo: row.widthAnchor, multiplier: Self.readingSpellingMinimumShare)
     NSLayoutConstraint.activate([
@@ -6530,7 +6564,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let title = isInLocalMode && visiblePreedit == localModeTrigger
       ? (modeName ?? visiblePreedit)
       : (idle ? (isChineseMode ? "水杉输入法" : "英文输入") : visiblePreedit)
-    // 拼写写进输入框（`showInlineComposition`），候选栏不再重复画它，读音那一段收成零宽，候选从行首开始，不会随拼写变长被推着走。只改画出来的标题：`visiblePreedit` 仍表示正在组字，拼写还没有候选时候选栏照样显示，VoiceOver 仍读出完整标题。日语读音和就地组字的方案不是拼写，照常画。全拼 14 键不写输入框，读音仍单独一行画在候选上面。
+    // 拼写写进输入框（`showInlineComposition`），候选栏不再重复画它：读音那一段只剩编辑拼写的笔（不能编辑时收成零宽），候选不会随拼写变长被推着走。只改画出来的标题：`visiblePreedit` 仍表示正在组字，拼写还没有候选时候选栏照样显示，VoiceOver 仍读出完整标题。日语读音和就地组字的方案不是拼写，照常画。全拼 14 键不写输入框，读音仍单独一行画在候选上面。
     let style: CandidatePreeditStyle = separateReadingRow ? .pinyin : .empty
     // A caret moved into the spelling is drawn even under 「不显示」: the next key acts at that caret, and a hidden one leaves no way to tell where.
     let drawnTitle = idle || title != visiblePreedit || !inputScheme.hasSpellingCaret
@@ -6538,27 +6572,28 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       : visibleCaretSpelling.map { visiblePhrasePrefix + $0 } ?? style.title(
         composition: visiblePreedit, phrasePrefix: visiblePhrasePrefix,
         localModeName: isInLocalMode ? modeName : nil)
+    // 可编辑的拼写写进了输入框、候选栏不再画它时，读音那一段画一支笔做入口（#10591），不再收成零宽：刚打完字就看得到、点得到，与 Android 的 `SpellingEditIcon` 相同。
+    let spellingEditable = !idle && editableSpelling != nil
+    let showsPen = spellingEditable && drawnTitle.isEmpty
     if var configuration = preeditButton.configuration {
       configuration.title = drawnTitle
+      configuration.image = showsPen ? UIImage(systemName: "pencil") : nil
+      configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
+        pointSize: (Self.preeditFontSize * preeditFontScale * 1.15).rounded(), weight: .regular)
       preeditButton.configuration = configuration
     }
-    // 读音并入候选行时，没有在组的内容、或「候选栏预编辑」选了不显示而标题为空时，这一段不占位置：单独一行时那里显示的「水杉输入法」和它的本地输入菜单，在候选行里只会挤掉联想候选，本地输入仍可从「更多」里打开。
-    let collapsed = (idle || drawnTitle.isEmpty) && !separateReadingRow
+    preeditPenMinimumWidth.isActive = showsPen
+    // 读音并入候选行时，没有在组的内容、或「候选栏预编辑」选了不显示而标题为空、又没有笔可画时，这一段不占位置：单独一行时那里显示的「水杉输入法」和它的本地输入菜单，在候选行里只会挤掉联想候选，本地输入仍可从「更多」里打开。
+    let collapsed = (idle || drawnTitle.isEmpty) && !separateReadingRow && !showsPen
     inlineReadingCollapse?.isActive = collapsed
     if preeditButton.isHidden != collapsed { preeditButton.isHidden = collapsed }
 
     let modes = idle && supportsLocalTools ? enabledLocalInputModes : []
     let offersModes = idle && supportsLocalTools && !modes.isEmpty
-    let spellingMenu = idle ? nil : editableSpelling.map(Self.spellingEditMenu)
-    let menuKey = offersModes
-      ? "local|" + modes.map { "\($0.trigger):\($0.key)" }.joined(separator: ",")
-      : spellingMenu.map { items in
-        "spelling|" + items.map { "\($0.title):\($0.enabled ? 1 : 0)" }.joined(separator: ",")
-      } ?? "none"
+    let menuKey = offersModes ? "local|" + modes.map { "\($0.trigger):\($0.key)" }.joined(separator: ",") : "none"
     if appliedPreeditMenuKey != menuKey {
       appliedPreeditMenuKey = menuKey
-      preeditButton.menu =
-        offersModes
+      preeditButton.menu = offersModes
         ? UIMenu(
           title: "本地输入",
           children: modes.map { mode in
@@ -6566,42 +6601,64 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
               self?.openLocalInputMode(mode.trigger)
             }
           })
-        : spellingMenu.map { items in
-          UIMenu(title: "编辑拼写", children: items.map { item in
-            UIAction(title: item.title, attributes: item.enabled ? [] : .disabled) { [weak self] _ in
-              self?.editSpelling(item.edit)
-            }
-          })
-        }
+        : nil
+      // 只有本地输入菜单在时轻点弹菜单；其余时候轻点走 primary action（`openSpellingEditor`），不能编辑时它什么都不做。
+      preeditButton.showsMenuAsPrimaryAction = offersModes
     }
-    // Withdrawing the menu is what makes the button inert; disabling it would dim the title, and
-    // this is the preedit, which has to keep reading as the text the user is composing.
-    preeditButton.accessibilityLabel = offersModes ? "本地输入模式" : title
+    // 不能编辑时读音不接点按也不变暗：它是正在组的文字，要一直读得清楚。
+    preeditButton.accessibilityLabel = offersModes ? "本地输入模式" : spellingEditable ? "编辑拼写" : title
     preeditButton.accessibilityValue = offersModes ? nil : title
-    preeditButton.accessibilityHint = spellingMenu == nil ? nil : "轻点编辑拼写"
-    preeditButton.accessibilityTraits = offersModes || spellingMenu != nil ? .button : .staticText
+    preeditButton.accessibilityHint = nil
+    preeditButton.accessibilityTraits = offersModes || spellingEditable ? .button : .staticText
+    updateSpellingEditor()
   }
 
-  enum SpellingEdit: Equatable, Sendable { case start, end, deleteForward }
-
-  /// Tapping the spelling offers the Home, End and Delete keys of the Windows composition, which a touch keyboard has no keys for: the space-bar drag walks the caret a letter or a syllable at a time, and these finish the job in one step. An entry that would do nothing where the caret is stays in the menu, dimmed, so the menu keeps its shape.
-  nonisolated static func spellingEditMenu(_ spelling: (text: String, caret: Int)) -> [(title: String, edit: SpellingEdit, enabled: Bool)] {
-    let atEnd = spelling.caret >= spelling.text.count
-    return [
-      ("光标移到开头", .start, spelling.caret > 0),
-      ("光标移到末尾", .end, !atEnd),
-      ("删除光标后的字母", .deleteForward, !atEnd),
-    ]
-  }
-
-  private func editSpelling(_ edit: SpellingEdit) {
-    guard hasComposition else { return }
+  /// 轻点读音或读音位置的笔：可编辑时打开放大拼写编辑条，已经开着时保持打开。与 Android 一样播按键反馈。
+  private func openSpellingEditor() {
+    guard hasComposition, !visiblePreedit.isEmpty, editableSpelling != nil else { return }
     playInputClick()
-    switch edit {
-    case .start: render(session.moveCaretToStart())
-    case .end: render(session.moveCaretToEnd())
-    case .deleteForward: render(session.deleteForward())
+    spellingEditorOpen = true
+    updateSpellingEditor()
+  }
+
+  /// 「完成」：关上编辑条，并把引擎光标移回末尾（MOVE_END），组字留着。
+  private func finishSpellingEditing() {
+    playInputClick()
+    spellingEditorOpen = false
+    if hasComposition { render(session.moveCaretToEnd()) }
+    updateSpellingEditor()
+  }
+
+  /// 按引擎这一刻的组字刷新编辑条；组字结束或不再可编辑时关上它。显示与否变了，键盘高度跟着变一行。
+  private func updateSpellingEditor() {
+    guard let bar = spellingEditorBar else { return }
+    if !hasComposition || visiblePreedit.isEmpty || editableSpelling == nil { spellingEditorOpen = false }
+    if spellingEditorOpen, let spelling = editableSpelling {
+      let skin = KeyboardTheme.current
+      bar.update(display: editorSpelling.display, editing: spelling.text, caret: spelling.caret,
+                 keyGrid: editorSpelling.keyGrid,
+                 foreground: candidatePalette?.text ?? skin.keyForeground,
+                 accent: candidatePalette?.accent ?? skin.accent)
     }
+    guard bar.isHidden == spellingEditorOpen else { return }
+    bar.isHidden = !spellingEditorOpen
+    applyKeyboardMetrics()
+    updatePreferredKeyboardHeight()
+  }
+
+  /// 编辑条上点出或拖出的新光标位置：按 `CompositionCaretPolicy.moves` 连发引擎的移光标命令，拼写本身不在这里改。
+  private func moveSpellingEditorCaret(to target: Int) {
+    guard spellingEditorOpen, hasComposition, let spelling = editableSpelling,
+          let move = CompositionCaretPolicy.moves(current: spelling.caret, target: target, length: spelling.text.count)
+    else { return }
+    var snapshot: MetasequoiaInputSnapshot?
+    switch move {
+    case .home: snapshot = session.moveCaretToStart()
+    case .end: snapshot = session.moveCaretToEnd()
+    case .left(let count): for _ in 0..<count { snapshot = session.moveCaretLeft() }
+    case .right(let count): for _ in 0..<count { snapshot = session.moveCaretRight() }
+    }
+    if let snapshot { render(snapshot) }
   }
 
   func openLocalInputMode(_ trigger: String) {
@@ -8176,6 +8233,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     editableSpelling = hasComposition && spellingCaret && !snapshot.isInLocalMode
       && !snapshot.editingText.isEmpty && snapshot.editingText.allSatisfy(\.isASCII)
       ? (snapshot.editingText, snapshot.caretPosition) : nil
+    // 编辑条画读音本身（九键是 `nine_key_reading` 的拼音），不含已选的那段词；对不上按键时编辑条退回画原始按键。
+    editorSpelling = (shownPreedit, snapshot.gridComposing)
     let japaneseReading = inputScheme.isJapanese && !snapshot.reading.isEmpty ? snapshot.reading : nil
     // 全拼 14 键的组字是组码字母（`buguo`），写进输入框对用户没有意义，与 Android 一样不在输入框里标记，只显示在读音行上。英文模式和本地输入模式画 26 键，组字照常标记。九键的 `preedit` 是数字串（`64426`），写进输入框的是和读音行同一个 `shownPreedit`，即 Engine 给的拼音读音（`ni'hao`）。
     showInlineComposition(hasComposition && !typesLetterGrid
@@ -9464,7 +9523,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       topRow: shownTopRowHeight, rowSpacing: keyRowSpacing,
       landscape: isLandscape, handwriting: !handwriting.isHidden, numberRow: showsKeyboardNumberRow,
       letterKeys: showsPhoneLetterRows, phoneNumberRow: showsPhoneNumberRow)
+      + (spellingEditorShown ? CompositionEditorBar.height : 0)
   }
+
+  /// 放大拼写编辑条开着：键盘为它高一行（与 Android 相同），按键和候选栏的高度都不变。
+  private var spellingEditorShown: Bool { spellingEditorBar?.isHidden == false }
 
   /// 手机上画着「按键布局」的顶部数字行，或者数字和符号页上替它占位的补充行：键盘多一排高。
   private var showsPhoneNumberRow: Bool {
@@ -9520,7 +9583,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     keyboardPaddingConstraints[1].constant = padding.leading
     keyboardPaddingConstraints[2].constant = -padding.trailing
     keyboardPaddingConstraints[3].constant = -padding.bottom
-    root.setCustomSpacing(formFactor.topRowGap, after: topRow)
+    // 编辑条开着时紧贴在候选栏下面，顶栏下的间距移到编辑条和按键之间，按键的位置不变。
+    root.setCustomSpacing(spellingEditorShown ? 0 : formFactor.topRowGap, after: topRow)
+    if let editor = spellingEditorBar { root.setCustomSpacing(formFactor.topRowGap, after: editor) }
   }
 
   /// 假名面板的四排：按存储行距排列的手机竖屏按键区高度，所以竖屏时假名键盘与字母键盘一样高。面板自己决定按键尺寸，在所有设备形态上都保持这个高度。
@@ -10227,6 +10292,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let gap = separateReadingRow ? min(candidateCanvasSkin?.lineGap ?? 0, max(0, shownTopRowHeight - readingHeight - textHeight)) : 0
     compositionContainer?.minimumContentHeight = textHeight + (separateReadingRow ? readingHeight + gap : 0)
     candidatePreeditGapConstraint?.constant = gap
+    readingRow.hitBottomExtension = gap
     compositionContainer?.setNeedsLayout()
   }
 
