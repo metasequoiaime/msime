@@ -12,6 +12,7 @@ CMake 在提供已校验资源目录时注册 `ibus-native-context`，并保留 
 
 资源夹具关闭逐键神经重排，只验收宿主行为，避免模型耗时把候选时序断言变成 runner 性能门禁。
 资源容器复用 Core CI 的 Rust 单测结果，资源宿主 job 只编译 Host API 并运行容器与原生宿主验收，避免重复单测中的独立时序失败阻塞宿主门禁。
+资源宿主 job 以 smoke-only 模式运行默认 IBus/Fcitx5 上下文和语音入口；翻译范围、拆字等非语音专用用例仍由完整资源 CTest 配置保留，但不再让语音门禁被它们的独立时序波动挡住。
 
 ## Alternatives considered
 
