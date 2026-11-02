@@ -1,0 +1,99 @@
+{
+  "onnxruntime_version": "1.24.4",
+  "source_commit": "2d924974ef147392ced8409d36bd6d2e7fcc8a74",
+  "release_tag": "onnxruntime-minimal-1.24.4-r1",
+  "license": "MIT",
+  "operators_config_sha256": "3128acd44e9d2990d8ad18d8eb83b2c3017efa9d157f3d571a70271573487723",
+  "targets": {
+    "aarch64-apple-darwin": {
+      "build": "macos-arm64",
+      "name": "libonnxruntime-aarch64-apple-darwin.a.gz",
+      "url": "https://github.com/metasequoiaime/msime/releases/download/onnxruntime-minimal-1.24.4-r1/libonnxruntime-aarch64-apple-darwin.a.gz",
+      "sha256": "d87fde98f4e042102c8ec006afaa207673861e5fce31f012d9c1d6b7eeed15f6",
+      "size": 7101917,
+      "library": "libonnxruntime.a",
+      "library_sha256": "9100bb6f0961924b10a8a50bb29a1ad7894dd7222dccea553cae5dd10b0eb615",
+      "library_size": 30961536
+    },
+    "x86_64-apple-darwin": {
+      "build": "macos-x86_64",
+      "name": "libonnxruntime-x86_64-apple-darwin.a.gz",
+      "url": "https://github.com/metasequoiaime/msime/releases/download/onnxruntime-minimal-1.24.4-r1/libonnxruntime-x86_64-apple-darwin.a.gz",
+      "sha256": "d0d82b242f2c9d84a9e4279dd274d4aabc37d2a7cadb3eaced0cd591c7da15c7",
+      "size": 6406003,
+      "library": "libonnxruntime.a",
+      "library_sha256": "a39e81e409230c48453097f017ca340ce92dbcca88706dff89135ce3ddb2dadb",
+      "library_size": 29308104
+    },
+    "aarch64-apple-ios": {
+      "build": "ios-arm64",
+      "name": "libonnxruntime-aarch64-apple-ios.a.gz",
+      "url": "https://github.com/metasequoiaime/msime/releases/download/onnxruntime-minimal-1.24.4-r1/libonnxruntime-aarch64-apple-ios.a.gz",
+      "sha256": "6947a2160da784e32e993db8ced0cac8306d5072fbebe4f397822186e040014c",
+      "size": 7794745,
+      "library": "libonnxruntime.a",
+      "library_sha256": "81d489d02b000d9a1433588b2d41f2a58f6a694df12f9c0e133dcde8b0142b0c",
+      "library_size": 33465696
+    },
+    "aarch64-apple-ios-sim": {
+      "build": "ios-sim-arm64",
+      "name": "libonnxruntime-aarch64-apple-ios-sim.a.gz",
+      "url": "https://github.com/metasequoiaime/msime/releases/download/onnxruntime-minimal-1.24.4-r1/libonnxruntime-aarch64-apple-ios-sim.a.gz",
+      "sha256": "ca6e79f6dfe8813682a93468246acfe10f51651a64bd67fffc7896ecb9aecb4a",
+      "size": 7789983,
+      "library": "libonnxruntime.a",
+      "library_sha256": "a452d6ee0b663b4122cf14e4db159ec5109048eb07f9e36ee48fc3c075e9fd24",
+      "library_size": 33362384
+    },
+    "aarch64-linux-android": {
+      "build": "android-arm64",
+      "name": "libonnxruntime-aarch64-linux-android.a.gz",
+      "url": "https://github.com/metasequoiaime/msime/releases/download/onnxruntime-minimal-1.24.4-r1/libonnxruntime-aarch64-linux-android.a.gz",
+      "sha256": "c28fe8920c8bf87348f18dcfa4806889beaf1e3fd23d04171eb9c7a59d1f3a0a",
+      "size": 8982352,
+      "library": "libonnxruntime.a",
+      "library_sha256": "b06ba4d7560d1c2da3c09085ca8bd6a990bc2fb075b1a11612ad7163abeb9d67",
+      "library_size": 48213230
+    },
+    "x86_64-linux-android": {
+      "build": "android-x86_64",
+      "name": "libonnxruntime-x86_64-linux-android.a.gz",
+      "url": "https://github.com/metasequoiaime/msime/releases/download/onnxruntime-minimal-1.24.4-r1/libonnxruntime-x86_64-linux-android.a.gz",
+      "sha256": "515e66e80e88151b1db917f5919e13ad6a3f2cca246052aad5f86bd13c211416",
+      "size": 8212152,
+      "library": "libonnxruntime.a",
+      "library_sha256": "4501d03ea05bf75564e3ea56e6178a7f33000065c83aea0108fadbcff8de22f6",
+      "library_size": 45255040
+    },
+    "aarch64-unknown-linux-gnu": {
+      "build": "linux-aarch64",
+      "name": "libonnxruntime-aarch64-unknown-linux-gnu.a.gz",
+      "url": "https://github.com/metasequoiaime/msime/releases/download/onnxruntime-minimal-1.24.4-r1/libonnxruntime-aarch64-unknown-linux-gnu.a.gz",
+      "sha256": "4ffea37912c97cd44aaf9cceb46122dafdb6099928358187d4e19c50d27257eb",
+      "size": 9826540,
+      "library": "libonnxruntime.a",
+      "library_sha256": "8a2eec9c5309de6ee8a8518bbf31fe67e0ff8ca8ea6d71595ef8164d0b3966e0",
+      "library_size": 56730254
+    },
+    "x86_64-pc-windows-msvc": {
+      "build": "windows-x64",
+      "name": "onnxruntime-x86_64-pc-windows-msvc.lib.gz",
+      "url": "https://github.com/metasequoiaime/msime/releases/download/onnxruntime-minimal-1.24.4-r1/onnxruntime-x86_64-pc-windows-msvc.lib.gz",
+      "sha256": "4578ee76b00cd05701ed1fcf794c7a3292909fa3ae6ff4ef88f73d04a8a2251a",
+      "size": 21133977,
+      "library": "onnxruntime.lib",
+      "library_sha256": "6b3d26df9a5549505430befca4aa851b858a431ff5dd9f1f7c9df65deeca1ebb",
+      "library_size": 111423780
+    },
+    "aarch64-pc-windows-msvc": {
+      "build": "windows-arm64-crt-static",
+      "name": "onnxruntime-aarch64-pc-windows-msvc.lib.gz",
+      "url": "https://github.com/metasequoiaime/msime/releases/download/onnxruntime-minimal-1.24.4-r1/onnxruntime-aarch64-pc-windows-msvc.lib.gz",
+      "sha256": "f0d1912e0c985d9f4ae5173abb6517fb05badd72732bedb0aed243dcb81f346f",
+      "size": 20448947,
+      "library": "onnxruntime.lib",
+      "library_sha256": "b5440ba2d785312a3133d9def6fb397f1dc283e19618296d3e3c900c6fbc9c46",
+      "library_size": 97046856
+    }
+  }
+}

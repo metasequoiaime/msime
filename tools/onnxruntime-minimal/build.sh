@@ -26,8 +26,9 @@ case $TARGET in
   android-x86_64) EXTRA=(--android --android_abi x86_64 --android_api 28 --android_sdk_path $SDK --android_ndk_path $NDK);;
   ios-arm64) EXTRA=(--ios --apple_sysroot iphoneos --osx_arch arm64 --apple_deploy_target 15.0 --cmake_generator Xcode);;
   ios-sim-arm64) EXTRA=(--ios --apple_sysroot iphonesimulator --osx_arch arm64 --apple_deploy_target 15.0 --cmake_generator Xcode);;
-  macos-arm64) EXTRA=(--osx_arch arm64 --apple_deploy_target 12.0);;
-  macos-x86_64) EXTRA=(--osx_arch x86_64 --apple_deploy_target 12.0);;
+  # build.py 只在 --ios 或 --build_apple_framework 时把 --apple_deploy_target 交给 CMake，普通的 macOS 构建会忽略它，编出的目标文件按编译机的系统版本标最低版本（在 macOS 27 上编就是 27.0）。所以直接给 CMake 最低版本，与 msime macOS 版的最低版本（tauri.macos.conf.json 的 13.0）一致。
+  macos-arm64) EXTRA=(--osx_arch arm64 --cmake_extra_defines CMAKE_OSX_DEPLOYMENT_TARGET=13.0);;
+  macos-x86_64) EXTRA=(--osx_arch x86_64 --cmake_extra_defines CMAKE_OSX_DEPLOYMENT_TARGET=13.0);;
   linux-aarch64|linux-x86_64) EXTRA=();;
   *) echo "未知平台 $TARGET" >&2; exit 2;;
 esac
