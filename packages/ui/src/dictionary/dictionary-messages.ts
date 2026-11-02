@@ -1,4 +1,5 @@
 import type { DictionaryImportResult } from "./dictionary-contracts";
+import type { PersonalDictionaryImportEntry } from "./dictionary-file";
 
 export type ImportSummary = Omit<DictionaryImportResult, "failed"> & {
   failed?: DictionaryImportResult["failed"];
@@ -37,6 +38,7 @@ export function dictionaryKindKeyHint(kind: string): string {
   switch (kind) {
     case "wubi":
     case "wubi98":
+    case "wubixsj":
       return "1–4 个字母";
     case "quick_phrase":
       return "1–32 个字母";
@@ -49,16 +51,15 @@ export function dictionaryKindKeyHint(kind: string): string {
   }
 }
 
-export function personalDictionaryKindTitle(
-  kind: "pinyin" | "wubi" | "wubi98" | "quickPhrase" | "english",
-): string {
-  return kind === "pinyin"
-    ? "拼音"
-    : kind === "wubi"
-      ? "86 五笔"
-      : kind === "wubi98"
-        ? "98 五笔"
-        : kind === "quickPhrase"
-          ? "快捷短语"
-          : "英文";
+const personalDictionaryKindTitles: Record<PersonalDictionaryImportEntry["kind"], string> = {
+  pinyin: "拼音",
+  wubi: "86 五笔",
+  wubi98: "98 五笔",
+  wubixsj: "新世纪五笔",
+  quickPhrase: "快捷短语",
+  english: "英文",
+};
+
+export function personalDictionaryKindTitle(kind: PersonalDictionaryImportEntry["kind"]): string {
+  return personalDictionaryKindTitles[kind];
 }
