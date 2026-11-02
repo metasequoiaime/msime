@@ -64,8 +64,8 @@ if(msime_edition_component_count GREATER 0)
     endif()
   endforeach()
 endif()
-# 本版本是否提供手写、是否带非英文离线释义（版本表 features.handwriting、features.offline_glosses）。手写模型只认汉字，离线释义按中文候选查，两者都只给提供中文方案的版本；日文、越南文和藏文版不装手写模型和离线释义数据库。
-foreach(msime_edition_feature handwriting offline_glosses)
+# 本版本是否提供手写、是否带非英文离线释义、是否带键盘模型（版本表 features.handwriting、features.offline_glosses、features.neural_keyboard）。手写模型只认汉字，离线释义按中文候选查，两者都只给提供中文方案的版本；日文、越南文和藏文版不装手写模型和离线释义数据库。键盘模型（整句联想「增强」的逐键重排）只给拼音为主的版本，host-api 在别的版本上不挂它，所以五笔、日文、越南文和藏文版不装逐键重排模型。
+foreach(msime_edition_feature handwriting offline_glosses neural_keyboard)
   string(TOUPPER "${msime_edition_feature}" msime_edition_feature_variable)
   string(JSON msime_edition_feature_value GET "${msime_editions_json}"
          editions ${msime_edition_index_found} features ${msime_edition_feature})
