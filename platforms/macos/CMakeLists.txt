@@ -1069,6 +1069,7 @@ add_test(NAME shortcut-nested-commit COMMAND shortcut-test --nested-commit)
 add_test(NAME shortcut-english-punctuation COMMAND shortcut-test --english-punctuation)
 add_test(NAME shortcut-cross-commit-spacing COMMAND shortcut-test --cross-commit-spacing)
 add_test(NAME shortcut-quick-phrase-cursor COMMAND shortcut-test --quick-phrase-cursor)
+add_test(NAME shortcut-helpcode-trigger COMMAND shortcut-test --helpcode-trigger)
 # Around 25 s locally: several cases wait on real input-source and run-loop round trips, which is past the 20 s CI default.
 # The controllers under test read runtime-options.json from Application Support, so each run gets an empty home of its own: an installed or demo profile on the developer's Mac must not reach into these cases.
 set(MSIME_SHORTCUT_TEST_HOME "${CMAKE_CURRENT_BINARY_DIR}/shortcut-test-home")
@@ -1077,6 +1078,7 @@ set(MSIME_CAPS_LOCK_TEST_HOME "${CMAKE_CURRENT_BINARY_DIR}/caps-lock-test-home")
 file(MAKE_DIRECTORY "${MSIME_CAPS_LOCK_TEST_HOME}")
 set_tests_properties(caps-lock PROPERTIES TIMEOUT 30 ENVIRONMENT "CFFIXED_USER_HOME=${MSIME_CAPS_LOCK_TEST_HOME}")
 set_tests_properties(shortcut-nested-commit PROPERTIES ENVIRONMENT "CFFIXED_USER_HOME=${MSIME_SHORTCUT_TEST_HOME}")
+set_tests_properties(shortcut-helpcode-trigger PROPERTIES ENVIRONMENT "CFFIXED_USER_HOME=${MSIME_SHORTCUT_TEST_HOME}")
 # The ceiling is for the sanitizer leg, where the same binary takes several times as long: measured
 # at about 16 s unsanitized and about 120 s under AddressSanitizer on one machine. A ceiling that
 # only fits the unsanitized run turns the slow leg into a timeout that says nothing about the code,
