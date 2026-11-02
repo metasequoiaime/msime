@@ -1,13 +1,13 @@
-//! `wubixsj-supplement`：生成 msime-dictionary 的 `sources/wubi/wubixsj-supplement.txt`，即新世纪五笔表的全部词组。上游码表 `sources/wubi/wubixsj-byujiang.txt` 只取单字（来源存疑，许可链只保留单字码这一环，见 `msime-engine-dictionary-NOTICE.md`），词组全部由本文件按新世纪单字全码重新编码。
+//! `wubixsj-supplement`：生成 msime-dictionary 的 `sources/wubi/wubixsj-supplement.txt`，即新世纪五笔表的全部词组。上游码表 `sources/wubi/wubixsj-byujiang.txt` 只取单字（来源存疑，见 `msime-engine-dictionary-NOTICE.md`）：从这张表拿的是单字全码，以及由上游权重推出的同码单字先后（见 `msime::wubixsj_rows`）；上游的词组不用，词组全部由本文件按新世纪单字全码重新编码。
 //!
 //! 候选词来自 86 极点码表与两张 98 表里的多字词、权重不低于 `wubi86_supplement::MIN_PINYIN_WEIGHT` 的 rime-ice 主表和补充表词，以及人工维护的 custom/words.txt 和区划补充表，限两个及以上基本区汉字。编码按与 86、98 相同的词组规则，取每个字在新世纪单字表里单独出现时最长的编码：二字词各取前两码；三字词取前两字的首码和第三字的前两码；更长的词取第一、二、三字和末字的首码。表里没有单独编码的字，或几个全码在所需码位上不一致的字，含它的词不收。
 //!
 //! 权重分两层，因为新世纪表本身没有词组：如果所有词组都压在 `SUPPLEMENT_CEILING` 以下，常用词会全部排在同码的生僻单字之后。
 //!
 //! - 第一层是 86 极点码表里有的词：按新世纪码重新编码，权重沿用它在极点表里的权重（同一个词在极点表里有几行时取最大的），所以和 86 一样，常用词组可以排在同码的生僻单字之前。单字的权重按编码内名次给 10 的倍数（`msime::wubixsj_rows`），与极点表单字和词组的 10、20、30 这一档相当。
-//! - 第二层是其余候选词：与 86、98 补充表的规则相同，权重低于该编码下单字和第一层的最低权重，并且不高于 `SUPPLEMENT_CEILING`，也就低于所有单字（最低是 10）；同一编码下按 rime-ice 权重从高到低、再按词排序，从上限起依次减 1，最低为 0。
+//! - 第二层是其余候选词：与 86、98 补充表的规则相同，上限取 `SUPPLEMENT_CEILING` 与该编码下单字和第一层最低权重减 1 中较小者，同一编码下按 rime-ice 权重从高到低、再按词排序，从上限起依次减 1，最低为 0。所以第二层低于所有单字（最低是 10）；对第一层，只要该编码第一层的最低权重大于 0，第二层就严格更低，等于 0 时（极点表里权重为 0 的词）第二层与它同为 0，靠下面的行序排在它后面。
 //!
-//! 构建把本文件并在单字之后，同权重时单字在前，同一编码内保持本文件的顺序（第一层在前）。原本四码只有一个单字、输入法会自动上屏的编码，一旦有词组共用就不再自动上屏；报告会统计这类编码。
+//! 构建把本文件并在单字之后，同一编码内保持本文件的顺序（第一层在前）；引擎在同一编码下按权重从高到低、同权重按 rowid 排，所以同权重时单字在前、第一层在第二层前。第二层在候选里永远不会排到同码任何单字或第一层词之前，但「权重严格更低」只对单字成立。原本四码只有一个单字、输入法会自动上屏的编码，一旦有词组共用就不再自动上屏；报告会统计这类编码。
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::Write as _;
@@ -377,8 +377,36 @@ mod tests {
         assert_eq!(supplement.unique_codes_shared, 1);
     }
 
+    /// 渲染本表、与单字表一起建出 `wubixsj`，再按引擎的排序（权重从高到低，同权重按 rowid）列出一个编码的候选。
+    fn merged(supplement: &Supplement, code: &str) -> Vec<(String, i64)> {
+        let rendered = render(
+            supplement,
+            &Provenance {
+                inputs: &[(WUBIXSJ, "0")],
+                generator_commit: "0123456789abcdef0123456789abcdef01234567",
+                upstreams: "fixture",
+            },
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("wubixsj-byujiang.txt");
+        std::fs::write(&source, WUBIXSJ_FIXTURE).unwrap();
+        let generated = dir.path().join("wubixsj-supplement.txt");
+        std::fs::write(&generated, rendered).unwrap();
+        let mut connection = rusqlite::Connection::open_in_memory().unwrap();
+        msime::build_wubixsj(&mut connection, &source, &[&generated]).unwrap();
+        let rows = connection
+            .prepare("SELECT value, weight FROM wubixsj WHERE key = ?1 ORDER BY weight DESC, rowid")
+            .unwrap()
+            .query_map([code], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        rows
+    }
+
+    /// 第二层的上限是同码最低权重减 1、最低为 0：极点表里权重为 0 的第一层词没有更低的权重可给，第二层与它同为 0。这时排序靠行序，第一层仍在第二层前面。
     #[test]
-    fn the_second_tier_stays_below_the_lowest_first_tier_word_of_its_code() {
+    fn a_first_tier_word_at_weight_zero_ties_the_second_tier_and_still_comes_first() {
         let supplement = build_with(
             "部门\tukuy\t0\r\n",
             "冲冻\tchong'dong\t100\n冲凉\tchong'liang\t9190\n",
@@ -394,6 +422,35 @@ mod tests {
                 ("冲凉", "ukuy", 0),
                 ("冲冻", "ukuy", 0)
             ]
+        );
+        assert_eq!(
+            merged(&supplement, "ukuy"),
+            [
+                ("冰".to_owned(), 10),
+                ("部门".to_owned(), 0),
+                ("冲凉".to_owned(), 0),
+                ("冲冻".to_owned(), 0)
+            ]
+        );
+    }
+
+    /// 第一层最低权重大于 0 时，第二层严格低于它，即使第二层的词多到要压到 0。
+    #[test]
+    fn the_second_tier_is_strictly_below_a_first_tier_word_above_zero() {
+        let supplement = build_with(
+            "部门\tukuy\t2\r\n",
+            "冲冻\tchong'dong\t100\n冲凉\tchong'liang\t9190\n冰冻\tbing'dong\t50\n",
+            "",
+        );
+        let ukuy: Vec<_> = rows(&supplement)
+            .into_iter()
+            .filter(|(_, code, _)| *code == "ukuy")
+            .collect();
+        assert_eq!(ukuy[0], ("部门", "ukuy", 2));
+        assert!(ukuy.len() >= 3, "{ukuy:?}");
+        assert!(
+            ukuy[1..].iter().all(|(_, _, weight)| *weight < 2),
+            "{ukuy:?}"
         );
     }
 
@@ -453,24 +510,8 @@ mod tests {
             .next()
             .unwrap()
             .contains("msime 仓库提交 0123456789abcdef0123456789abcdef01234567"));
-        let dir = tempfile::tempdir().unwrap();
-        let source = dir.path().join("wubixsj-byujiang.txt");
-        std::fs::write(&source, WUBIXSJ_FIXTURE).unwrap();
-        let generated = dir.path().join("wubixsj-supplement.txt");
-        std::fs::write(&generated, rendered).unwrap();
-        let mut connection = rusqlite::Connection::open_in_memory().unwrap();
-        msime::build_wubixsj(&mut connection, &source, &[&generated]).unwrap();
-        let ukuy: Vec<(String, i64)> = connection
-            .prepare(
-                "SELECT value, weight FROM wubixsj WHERE key = 'ukuy' ORDER BY weight DESC, rowid",
-            )
-            .unwrap()
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
-            .unwrap()
-            .map(Result::unwrap)
-            .collect();
         assert_eq!(
-            ukuy,
+            merged(&supplement, "ukuy"),
             [
                 ("冰".to_owned(), 10),
                 ("部门".to_owned(), 10),

@@ -63,7 +63,9 @@ The same divisions also feed the pinyin dictionary. `msime-dict-build places-sup
 
 `WubiXsj` 阶段（`--only wubixsj`）构建 `msime-wubi.db` 的第三张表 `wubixsj`，结构和索引与 `wubi86`、`wubi98` 相同。上游码表 `sources/wubi/wubixsj-byujiang.txt`（byujiang/wubi06_rime 的 `dicts/wubi06.dict.yaml` 原样副本，来源存疑，见 `resources/licenses/msime-engine-dictionary-NOTICE.md`）只取单字：CJK 统一汉字基本区（U+4E00–U+9FFF）以外的字、部首、私用区字符、标点和编码不是 1 到 4 个 a–y 字母的行都不收，上游的 61702 个词组也不收。上游权重是个人手调的数值，不进表；文件里同一编码下几个单字的先后没有意义（`g` 下「王」在「一」之前），所以只用上游权重定同码单字的名次，再按名次给 10 的倍数，和 98 表的做法一样。
 
-新世纪表的词组全部由 `wubixsj-supplement` 生成（`src/wubixsj_supplement.rs`），候选与 86、98 补全相同（86 极点表和两张 98 表里的多字词、rime-ice 权重不低于 100 的多字词、人工词条与区划词），编码按同一套词组规则由新世纪单字全码推出；这套规则在上游自己的 61702 个四码词组上全部还原。权重分两层：极点表里有的词沿用它在极点表里的权重，所以常用词组可以像在 86 里那样排在同码生僻单字之前；其余的词与 86、98 补充表一样至多为 9，并低于同码的单字和第一层，也就低于所有单字。构建把生成表并在单字之后，同权重时单字在前。
+这个阶段只在 `--dictionary` 收了新世纪词组快照 `sources/wubi/wubixsj-supplement.txt` 时运行。构建器不读这份快照的内容（词组每次重新派生，见下一段），只拿它在不在当发布开关：没有它时阶段跳过，`msime-wubi.db` 里没有 `wubixsj`，产品检查也要求这张表不在；有它时产品检查要求这张表至少 50000 行。所以第一个带 `wubixsj` 的 `dict-v` 由收快照的那个 msime-dictionary PR 发出，它同时补上 NOTICE 和发布说明，专利和商标要在合入它之前查完；只收了上游码表、还没收快照的 msime-dictionary 提交照常发布，`msime-wubi.db` 不变。在那之前的提交，包括 `upstream.lock.json` 还没记录 `sources/wubi/wubixsj-byujiang.txt` 的旧提交（例如 `dict-v2.0.41`），用这个构建器也能照常重建。
+
+新世纪表的词组全部由 `wubixsj-supplement` 生成（`src/wubixsj_supplement.rs`），候选与 86、98 补全相同（86 极点表和两张 98 表里的多字词、rime-ice 权重不低于 100 的多字词、人工词条与区划词），编码按同一套词组规则由新世纪单字全码推出；这套规则在上游自己的 61702 个四码词组上全部还原。权重分两层：极点表里有的词沿用它在极点表里的权重，所以常用词组可以像在 86 里那样排在同码生僻单字之前；其余的词与 86、98 补充表一样至多为 9，所以低于所有单字（最低是 10）；对同码的第一层，它们至多是第一层最低权重减 1、最低为 0，第一层最低权重为 0 时两者同为 0。构建把生成表并在单字之后，同一编码内第一层在第二层前面，引擎同权重按 rowid 排，所以第二层在候选里永远排在同码单字和第一层之后。
 
 `wubi86-supplement`、`wubi98-supplement`、`wubixsj-supplement` 子命令仍可单独重建快照。编码规则共用引擎的 `wubi_phrase_code`；个人确认组词也使用该规则，写入本地回放日志以保留到词库升级后，受原有学习开关与反查限制，不上传公共词库。
 

@@ -76,7 +76,7 @@ enum Stage {
     Wubi,
     /// 98 五笔表：读取两张固定原表，再从本次 --dictionary 的拼音、人工词条与 86 原表派生补充数据。
     Wubi98,
-    /// 新世纪五笔表：只取固定原表的基本区单字，词组全部从本次 --dictionary 的 86、98 原表、拼音与人工词条按新世纪单字全码派生。
+    /// 新世纪五笔表：只取固定原表的基本区单字，词组全部从本次 --dictionary 的 86、98 原表、拼音与人工词条按新世纪单字全码派生；--dictionary 还没收 sources/wubi/wubixsj-supplement.txt 时跳过，不建这张表。
     #[value(name = "wubixsj")]
     WubiXsj,
     /// Quick phrase table in msime-pinyin.db, then msime-pinyin.db's planner statistics
@@ -1122,6 +1122,11 @@ struct Build {
     complete: bool,
 }
 
+/// msime-dictionary checkout 是否发布新世纪五笔表：只看它有没有收新世纪的词组快照 `sources/wubi/wubixsj-supplement.txt`。构建器不读这份快照的内容（词组每次从 checkout 重新派生，见 [`Build::fresh_wubi_supplement`]），只拿它在不在当开关。这样第一个带 `wubixsj` 的 `dict-v` 由收快照的那个 msime-dictionary PR 发出，它同时补上 NOTICE 与发布说明，维护者在合入它之前查专利和商标；在那之前的 checkout，包括还没收上游码表、`upstream.lock.json` 也没有记录它的旧提交（例如 `dict-v2.0.41`），照常构建，只是没有这张表。快照由 msime-dictionary 的 `check_upstream.py` 列为必须存在的生成表，删掉它要连那份清单一起改。
+fn wubixsj_published(dictionary: &Path) -> bool {
+    dictionary.join(wubixsj_supplement::OUTPUT).is_file()
+}
+
 /// 构建时重新派生词组的五笔表。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WubiTable {
@@ -1307,6 +1312,18 @@ impl Build {
                 Ok(format!("{imported} rows imported, {skipped} skipped"))
             }
             Stage::WubiXsj => {
+                let dictionary = &self
+                    .sources
+                    .dictionary
+                    .as_ref()
+                    .context("missing dictionary checkout")?
+                    .root;
+                if !wubixsj_published(dictionary) {
+                    return Ok(format!(
+                        "left out: the msime-dictionary checkout has no {}, so it does not publish the wubixsj table yet",
+                        wubixsj_supplement::OUTPUT
+                    ));
+                }
                 let generated = self.fresh_wubi_supplement(WubiTable::WubiXsj)?;
                 let counts = msime::build_wubixsj(
                     &mut self.database("msime-pinyin.db")?,
@@ -1696,7 +1713,7 @@ fn main() -> Result<()> {
         );
         return Ok(());
     };
-    product::verify(&build.out, complete)?;
+    product::verify(&build.out, complete, wubixsj_published(&dictionary.root))?;
     product::write_manifest(
         &build.out,
         root,
@@ -1725,8 +1742,19 @@ fn removed_note(removed: &[&str]) -> String {
 mod tests {
     use super::*;
 
-    #[test]
-    fn wubi_stages_derive_current_custom_words_without_snapshot_files() {
+    /// The msime-dictionary checkout a wubi stage test builds from, at one of the three points of the 新世纪 rollout.
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum XsjCheckout {
+        /// Before it took the upstream table: `upstream.lock.json` does not list it (dict-v2.0.41 and older).
+        WithoutSource,
+        /// It has the upstream table but not the phrase snapshot yet.
+        SourceOnly,
+        /// It has both, so it publishes the table.
+        Published,
+    }
+
+    /// Builds a checkout and a builder repository in a temporary directory; returns them with the `Build` reading them.
+    fn wubi_fixture(checkout: XsjCheckout) -> (tempfile::TempDir, PathBuf, PathBuf, Build) {
         let temporary = tempfile::tempdir().unwrap();
         let root = temporary.path().join("builder");
         let dictionary = temporary.path().join("dictionary");
@@ -1754,16 +1782,52 @@ mod tests {
         write(wubi86_supplement::PINYIN_SUPPLEMENT, b"# empty\n");
         write(wubi86_supplement::PLACES, b"# empty\n");
         write(wubi86_supplement::CUSTOM, "甲乙\tjia'yi\t1\n".as_bytes());
-        write(
-            wubixsj_supplement::WUBIXSJ,
-            "---\nname: wubi06\n...\n甲\tqrst\t10\n乙\tuvwx\t10\n乙乙\tuvwu\t500\n".as_bytes(),
-        );
-        let references: serde_json::Map<String, serde_json::Value> = ["rime-ice", "rime-ice-supplement", "98wubi-tables", "fcitx5-table-extra", "wubi06-rime"].into_iter().map(|name| (name.to_owned(), serde_json::json!({"repository": format!("https://example.invalid/{name}"), "commit":"a".repeat(40)}))).collect();
-        let files: Vec<_> = [wubi86_supplement::WUBI98, wubi86_supplement::WUBI98_FCITX, wubi86_supplement::BASE, wubi86_supplement::PINYIN_SUPPLEMENT, wubixsj_supplement::WUBIXSJ].into_iter().map(|path| serde_json::json!({"path":path, "upstream":sources::upstream_reference(path).unwrap(), "size":std::fs::metadata(dictionary.join(path)).unwrap().len(), "sha256":sources::sha256_file(&dictionary.join(path)).unwrap()})).collect();
+        let mut upstream_files = vec![
+            wubi86_supplement::WUBI98,
+            wubi86_supplement::WUBI98_FCITX,
+            wubi86_supplement::BASE,
+            wubi86_supplement::PINYIN_SUPPLEMENT,
+        ];
+        if checkout != XsjCheckout::WithoutSource {
+            write(
+                wubixsj_supplement::WUBIXSJ,
+                "---\nname: wubi06\n...\n甲\tqrst\t10\n乙\tuvwx\t10\n乙乙\tuvwu\t500\n".as_bytes(),
+            );
+            upstream_files.push(wubixsj_supplement::WUBIXSJ);
+        }
+        if checkout == XsjCheckout::Published {
+            // 快照只当开关，内容不读：这一行要是被读进去，下面的断言会看到「丙丙」。
+            write(
+                wubixsj_supplement::OUTPUT,
+                "# stale snapshot\n丙丙\tzzzz\t99\n".as_bytes(),
+            );
+        }
+        // msime 的锁总是登记 wubi06-rime；旧 checkout 的 upstream.lock.json 没有这一项。
+        let reference = |name: &str| {
+            (
+                name.to_owned(),
+                serde_json::json!({"repository": format!("https://example.invalid/{name}"), "commit":"a".repeat(40)}),
+            )
+        };
+        let names = [
+            "rime-ice",
+            "rime-ice-supplement",
+            "98wubi-tables",
+            "fcitx5-table-extra",
+            "wubi06-rime",
+        ];
+        let references: serde_json::Map<String, serde_json::Value> =
+            names.into_iter().map(reference).collect();
+        let upstreams: serde_json::Map<String, serde_json::Value> = names
+            .into_iter()
+            .filter(|name| checkout != XsjCheckout::WithoutSource || *name != "wubi06-rime")
+            .map(reference)
+            .collect();
+        let files: Vec<_> = upstream_files.into_iter().map(|path| serde_json::json!({"path":path, "upstream":sources::upstream_reference(path).unwrap(), "size":std::fs::metadata(dictionary.join(path)).unwrap().len(), "sha256":sources::sha256_file(&dictionary.join(path)).unwrap()})).collect();
         write(
             sources::UPSTREAM_LOCK,
             &serde_json::to_vec(
-                &serde_json::json!({"version":1,"upstreams":references,"files":files}),
+                &serde_json::json!({"version":1,"upstreams":upstreams,"files":files}),
             )
             .unwrap(),
         );
@@ -1806,13 +1870,37 @@ mod tests {
             out: out.clone(),
             complete: false,
         };
+        (temporary, dictionary, out, build)
+    }
+
+    fn has_table(db: &rusqlite::Connection, table: &str) -> bool {
+        db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1)",
+            [table],
+            |row| row.get(0),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn wubi_stages_derive_current_custom_words_instead_of_reading_snapshot_files() {
+        let (_temporary, dictionary, out, build) = wubi_fixture(XsjCheckout::Published);
+        assert!(wubixsj_published(&dictionary));
         for stage in [Stage::Wubi, Stage::Wubi98, Stage::WubiXsj] {
             build.run(stage).unwrap();
         }
         assert!(!dictionary.join(wubi86_supplement::OUTPUT).exists());
         assert!(!dictionary.join(wubi98_supplement::OUTPUT).exists());
-        assert!(!dictionary.join(wubixsj_supplement::OUTPUT).exists());
         let db = rusqlite::Connection::open(out.join("msime-pinyin.db")).unwrap();
+        assert_eq!(
+            db.query_row(
+                "SELECT count(*) FROM wubixsj WHERE value='丙丙' OR key='zzzz'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            0
+        );
         // 新世纪表不收上游的词组行「乙乙 uvwu」，而是把极点表里的「乙乙」按新世纪单字码重新编码，沿用极点表的权重。
         assert_eq!(
             db.query_row(
@@ -1835,6 +1923,26 @@ mod tests {
                 expected
             );
         }
+    }
+
+    /// 收快照之前的 checkout 都不发布新世纪表：只收了上游码表的（PR 合入顺序的中间状态，这时合入的日常词条也会触发发布），和连上游码表都没有、按旧 `upstream.lock.json` 打开的（重建 `dict-v2.0.41` 这类旧提交）。两者的 86、98 照常构建，新世纪阶段跳过而不是失败。
+    #[test]
+    fn a_checkout_without_the_wubixsj_snapshot_builds_without_the_table() {
+        for checkout in [XsjCheckout::SourceOnly, XsjCheckout::WithoutSource] {
+            let (_temporary, dictionary, out, build) = wubi_fixture(checkout);
+            assert!(!wubixsj_published(&dictionary));
+            for stage in [Stage::Wubi, Stage::Wubi98] {
+                build.run(stage).unwrap();
+            }
+            let summary = build.run(Stage::WubiXsj).unwrap();
+            assert!(summary.starts_with("left out"), "{summary}");
+            let db = rusqlite::Connection::open(out.join("msime-pinyin.db")).unwrap();
+            assert!(has_table(&db, "wubi86") && has_table(&db, "wubi98"));
+            assert!(!has_table(&db, "wubixsj"));
+        }
+        // 没收上游码表的 checkout 一旦被要求读它（例如 wubixsj-supplement 子命令）仍然报错，开关不会把缺文件掩盖掉。
+        let (_temporary, _, _, build) = wubi_fixture(XsjCheckout::WithoutSource);
+        assert!(build.sources.pinned(wubixsj_supplement::WUBIXSJ).is_err());
     }
 
     /// 七个生成器和 `languages` 必须传 `--dictionary`，不能退回到静默跳过笔画词库之类的路径；`hkcancor-counts` 不读 msime-dictionary，不需要它。

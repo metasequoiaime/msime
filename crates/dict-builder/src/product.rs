@@ -174,6 +174,19 @@ fn row_count(connection: &Connection, table: &str) -> Result<i64> {
     )
 }
 
+/// A checkout that does not publish the 新世纪 table must not get one; the floors above check the other direction.
+fn verify_wubixsj_absent(wubi: &Connection, wubixsj: bool) -> Result<()> {
+    let present: bool = wubi.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'wubixsj')",
+        [],
+        |row| row.get(0),
+    )?;
+    if present && !wubixsj {
+        bail!("msime-wubi.db has a wubixsj table, but the msime-dictionary checkout has no {}, so it does not publish one; build into an empty --out", crate::wubixsj_supplement::OUTPUT);
+    }
+    Ok(())
+}
+
 /// 把五笔码表从拼音工作库拆进单独发布的 `msime-wubi.db`。各阶段共用 `msime-pinyin.db` 一个连接，自定义词检查与 n-gram 权重看到的是完整来源，产品检查与清单之前再拆出只读的五笔资源。只搬这次构建在拼音库里留下的表：`--only`/`--skip` 只跑部分阶段、或拼音库已经拆过时，拼音库里没有五笔表，`msime-wubi.db` 里已有的表原样保留；拼音库不存在时什么也不做。
 pub fn split_wubi_database(out: &Path) -> Result<()> {
     let pinyin_path = out.join("msime-pinyin.db");
@@ -280,12 +293,16 @@ fn verify_format_versions(out: &Path) -> Result<()> {
 }
 
 /// Every shipping table exists with at least a floor number of rows, far below today's counts: these catch a table that came out empty because an input silently changed shape, not ordinary dictionary edits. A licensed build legitimately has fewer rows.
-pub fn verify(out: &Path, complete: bool) -> Result<()> {
+///
+/// `wubixsj` says whether the msime-dictionary checkout publishes the 新世纪 table (see `wubixsj_published` in `main.rs`): when it does the table must be there like the other two, and when it does not the table must be absent, so a table left over in a reused `--out` cannot slip into a release ahead of the checkout that opts in.
+pub fn verify(out: &Path, complete: bool, wubixsj: bool) -> Result<()> {
+    let wubi_floors: &[(&str, i64)] = if wubixsj {
+        &[("wubi86", 50_000), ("wubi98", 50_000), ("wubixsj", 50_000)]
+    } else {
+        &[("wubi86", 50_000), ("wubi98", 50_000)]
+    };
     let floors: [(&str, &[(&str, i64)]); 4] = [
-        (
-            "msime-wubi.db",
-            &[("wubi86", 50_000), ("wubi98", 50_000), ("wubixsj", 50_000)],
-        ),
+        ("msime-wubi.db", wubi_floors),
         ("msime-pinyin.db", &[("quick_parases", 1)]),
         (
             "msime-english.db",
@@ -318,6 +335,10 @@ pub fn verify(out: &Path, complete: bool) -> Result<()> {
         }
     }
 
+    verify_wubixsj_absent(
+        &crate::sqlite::open_read_only(&out.join("msime-wubi.db"))?,
+        wubixsj,
+    )?;
     verify_format_versions(out)?;
 
     let msime = crate::sqlite::open_read_only(&out.join("msime-pinyin.db"))?;
@@ -604,6 +625,20 @@ mod tests {
         write(japanese::LICENSE_NAME, "Copyright 2010-2018, Google Inc.\n");
         let error = verify_notices(out).unwrap_err().to_string();
         assert!(error.contains("redistribution"), "{error}");
+    }
+
+    #[test]
+    fn a_wubixsj_table_is_rejected_unless_the_checkout_publishes_it() {
+        let wubi = Connection::open_in_memory().unwrap();
+        wubi.execute_batch("CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);")
+            .unwrap();
+        verify_wubixsj_absent(&wubi, false).unwrap();
+        verify_wubixsj_absent(&wubi, true).unwrap();
+        wubi.execute_batch("CREATE TABLE wubixsj(key TEXT,value TEXT,weight INTEGER);")
+            .unwrap();
+        verify_wubixsj_absent(&wubi, true).unwrap();
+        let error = verify_wubixsj_absent(&wubi, false).unwrap_err().to_string();
+        assert!(error.contains(crate::wubixsj_supplement::OUTPUT), "{error}");
     }
 
     #[test]

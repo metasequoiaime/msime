@@ -17,7 +17,7 @@ Status: implemented
 
 ## 跨仓顺序
 
-`Dictionary::open` 遇到 `upstream.lock.json` 里有 msime 锁文件没有的上游名会失败，所以 msime 这次登记必须先合，msime-dictionary 收文件的 PR 后合。反方向是安全的：没收这个文件的 checkout 照常能打开，只有读这张表时才报错，而读它的构建阶段在后续 PR 里才加。`the_wubixsj_table_is_wubi06_rime_data_at_the_pinned_commit` 固定这两点。
+`Dictionary::open` 遇到 `upstream.lock.json` 里有 msime 锁文件没有的上游名会失败，所以 msime 这次登记必须先合，msime-dictionary 收文件的 PR 后合。反方向是安全的：没收这个文件的 checkout 照常能打开，只有读这张表时才报错。读它的构建阶段是后来加的，它只在 checkout 收了新世纪词组快照 `sources/wubi/wubixsj-supplement.txt` 时运行（见[构建那一篇](2026-11-02-wubixsj-table-build.md)），所以加了它之后反方向依然安全。`the_wubixsj_table_is_wubi06_rime_data_at_the_pinned_commit` 固定这两点。
 
 ## Alternatives considered
 
