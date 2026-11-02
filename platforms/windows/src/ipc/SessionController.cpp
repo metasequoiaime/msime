@@ -401,6 +401,8 @@ CandidateActionRequestResult SessionController::request_candidate_action(
                                      index))
       return CandidateActionRequestResult::Rejected;
     std::optional<nlohmann::json> transition;
+    // 上游 #1328 把置顶、删除、固定、清除归在 Foreground（event_listener_task_class.cpp），
+    // 它们频率低，但都是点完就在等结果的动作，这里照同一份分级。
     auto prepared = input_.submit([&](InputState &state) {
       if (!stopping_ && transport_.current(lease.transport))
         transition = state.candidate_action(lease, session, generation, index,
@@ -773,9 +775,11 @@ bool SessionController::deactivate_terminal(uint64_t client, uint64_t token) {
   if (!client || !token || stopping_.load())
     return false;
   auto result = std::make_shared<std::atomic<bool>>(false);
+  // DLL 只等 150 ms；上游把 ClientDeactivated 归在 Foreground（event_listener_task_class.cpp），
+  // 这条兜底同样属于用户正在等的焦点切换。
   auto submitted = input_.submit([client, token, result](InputState &state) {
     result->store(state.deactivate_terminal(client, token));
-  });
+  }, InputTaskPriority::Foreground);
   // A full or stopped queue is not a deactivation. Answering anyway would tell
   // the DLL a teardown happened when the request never even ran.
   if (!submitted)

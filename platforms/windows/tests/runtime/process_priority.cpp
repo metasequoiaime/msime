@@ -52,7 +52,20 @@ int main() {
     return skip_exit_code;
   }
   DWORD original_memory = 0;
-  const bool memory_supported = read_memory_priority(original_memory);
+  // 内存优先级只有 Windows 8 起才有。Wine 之类只实现一半 API 的环境（读得到、
+  // 写 LOW 成功、写 NORMAL 失败）按不支持处理：先证明两种值都写得进去，否则不
+  // 做这一半的断言，免得把宿主缺失判成恢复逻辑的错。
+  bool memory_supported = read_memory_priority(original_memory);
+  DWORD probe = 0;
+  if (memory_supported) {
+    memory_supported =
+        write_memory_priority(MEMORY_PRIORITY_LOW) &&
+        read_memory_priority(probe) && probe == MEMORY_PRIORITY_LOW &&
+        write_memory_priority(MEMORY_PRIORITY_NORMAL) &&
+        read_memory_priority(probe) && probe == MEMORY_PRIORITY_NORMAL;
+    if (!memory_supported)
+      (void)write_memory_priority(original_memory);
+  }
 
   if (!SetPriorityClass(GetCurrentProcess(), BELOW_NORMAL_PRIORITY_CLASS) ||
       GetPriorityClass(GetCurrentProcess()) != BELOW_NORMAL_PRIORITY_CLASS) {
@@ -61,11 +74,9 @@ int main() {
     (void)SetPriorityClass(GetCurrentProcess(), original_class);
     return skip_exit_code;
   }
-  // 内存优先级只有 Windows 8 起才有；这项 API 不在时只验 CPU 调度类。
-  DWORD lowered = 0;
   const bool lowered_memory =
       memory_supported && write_memory_priority(MEMORY_PRIORITY_LOW) &&
-      read_memory_priority(lowered) && lowered == MEMORY_PRIORITY_LOW;
+      read_memory_priority(probe) && probe == MEMORY_PRIORITY_LOW;
   if (memory_supported && !lowered_memory) {
     std::printf("skip: cannot lower memory priority (err=%lu)\n",
                 GetLastError());
@@ -77,17 +88,17 @@ int main() {
   const auto result = msime::windows::restore_interactive_process_priority();
   DWORD restored_memory = 0;
   const bool restored_memory_read = read_memory_priority(restored_memory);
-  const bool ok = result.cpu_ok && result.memory_ok &&
+  const bool ok = result.cpu_ok &&
                   GetPriorityClass(GetCurrentProcess()) == NORMAL_PRIORITY_CLASS &&
                   (!lowered_memory ||
-                   (restored_memory_read &&
+                   (result.memory_ok && restored_memory_read &&
                     restored_memory == MEMORY_PRIORITY_NORMAL));
 
   std::printf("restore cpu_ok=%d cpu_error=%lu memory_ok=%d memory_error=%lu "
-              "class=0x%lx memory=%lu\n",
+              "class=0x%lx memory=%lu lowered_memory=%d\n",
               result.cpu_ok ? 1 : 0, result.cpu_error, result.memory_ok ? 1 : 0,
               result.memory_error, GetPriorityClass(GetCurrentProcess()),
-              restored_memory);
+              restored_memory, lowered_memory ? 1 : 0);
 
   (void)SetPriorityClass(GetCurrentProcess(), original_class);
   (void)write_memory_priority(original_memory);
