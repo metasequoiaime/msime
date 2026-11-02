@@ -10,6 +10,7 @@
 //! msime-dict-build english-supplement --dictionary <msime-dictionary checkout> --cache <dir> --out <scowl-words.txt> [--offline]
 //! msime-dict-build wubi86-supplement --dictionary <msime-dictionary checkout> --cache <dir> --out <wubi86-supplement.txt> [--offline]
 //! msime-dict-build wubi98-supplement --dictionary <msime-dictionary checkout> --cache <dir> --out <wubi98-supplement.txt> [--offline]
+//! msime-dict-build wubixsj-supplement --dictionary <msime-dictionary checkout> --cache <dir> --out <wubixsj-supplement.txt> [--offline]
 //! msime-dict-build wubi86-helpcode --dictionary <msime-dictionary checkout> --out <wubi86_helpcode.txt>
 //! msime-dict-build hanja --dictionary <msime-dictionary checkout> --cache <dir> [--out <hanja.tsv>] [--offline]
 //! msime-dict-build hkcancor-counts --cache <dir> --out <hkcancor-word-counts.txt> [--offline]
@@ -49,6 +50,7 @@ mod wubi86_helpcode;
 mod wubi86_supplement;
 mod wubi98_supplement;
 mod wubi_supplement;
+mod wubixsj_supplement;
 mod zhuyin;
 
 use std::collections::HashSet;
@@ -74,6 +76,9 @@ enum Stage {
     Wubi,
     /// 98 五笔表：读取两张固定原表，再从本次 --dictionary 的拼音、人工词条与 86 原表派生补充数据。
     Wubi98,
+    /// 新世纪五笔表：只取固定原表的基本区单字，词组全部从本次 --dictionary 的 86、98 原表、拼音与人工词条按新世纪单字全码派生。
+    #[value(name = "wubixsj")]
+    WubiXsj,
     /// Quick phrase table in msime-pinyin.db, then msime-pinyin.db's planner statistics
     QuickPhrases,
     /// msime-english.db 的 english_words 表，来自 rime-ice 英文词表和 sources/english/scowl-words.txt，再加 custom/english.txt（都从 --dictionary checkout 读取）
@@ -95,13 +100,14 @@ enum Stage {
 }
 
 /// Build order: later stages read what earlier ones wrote (glosses are weighted by the quanpin tables, the n-gram vocabulary is the finished quanpin tables).
-const STAGES: [Stage; 15] = [
+const STAGES: [Stage; 16] = [
     Stage::Quanpin,
     Stage::PlacesSupplement,
     Stage::CustomWords,
     Stage::ReadingCorrections,
     Stage::Wubi,
     Stage::Wubi98,
+    Stage::WubiXsj,
     Stage::QuickPhrases,
     Stage::English,
     Stage::EnglishGlosses,
@@ -171,6 +177,9 @@ enum Command {
     Wubi86Supplement(Wubi86Supplement),
     /// 写出 msime-dictionary 的 sources/wubi/wubi98-supplement.txt：两张 98 码表（sources/wubi/wubi98.txt、sources/wubi/wubi98-fcitx.txt）缺少、而 86 码表列有或 rime-ice 主表及补充表里权重不低于 100 的多字词，或 custom/words.txt、places.txt 的词语，限两个及以上基本区汉字；编码按词组规则由 98 码表的单字编码推出，权重低于 98 码表同一编码下的行（见 wubi98_supplement.rs）。
     Wubi98Supplement(Wubi98Supplement),
+    /// 写出 msime-dictionary 的 sources/wubi/wubixsj-supplement.txt：新世纪五笔的全部词组。候选是 86、98 码表里的多字词、rime-ice 主表及补充表里权重不低于 100 的多字词，以及 custom/words.txt、places.txt 的词语，限两个及以上基本区汉字；编码按词组规则由新世纪码表（sources/wubi/wubixsj-byujiang.txt）的单字编码推出；86 码表里有的词沿用它在那里的权重，其余的权重低于同一编码下的单字（见 wubixsj_supplement.rs）。
+    #[command(name = "wubixsj-supplement")]
+    WubiXsjSupplement(WubiXsjSupplement),
     /// 写出 msime 的 resources/helpcodes/wubi86_helpcode.txt：辅助码方案 wubi86 的码表，每个基本区汉字取它在 msime-dictionary 的 86 码表（sources/wubi/wubi86-jidian.txt）里全码的前两码（见 wubi86_helpcode.rs）。
     Wubi86Helpcode(Wubi86Helpcode),
     /// 从 --dictionary checkout 的 libhangul `sources/korean/hanja.txt` 生成韩文 Hanja 表（crates/engine/src/korean/hanja.tsv）。
@@ -224,7 +233,7 @@ struct WebArgs {
     /// 词库 release 的 msime-pinyin.db（全拼表与快捷短语），只读打开。
     #[arg(long)]
     pinyin: PathBuf,
-    /// 词库 release 的 msime-wubi.db（wubi86 与 wubi98），只读打开。
+    /// 词库 release 的 msime-wubi.db（wubi86、wubi98，以及较新发布里的 wubixsj），只读打开。
     #[arg(long)]
     wubi: PathBuf,
     /// 写出 msime-pinyin.db 和 msime-wubi86.db 的目录，不存在时创建；同名文件会被覆盖。
@@ -588,7 +597,7 @@ fn build_wubi86_supplement(arguments: &Wubi86Supplement) -> Result<()> {
         &wubi86_supplement::Provenance {
             inputs: &inputs,
             generator_commit: &generator_commit,
-            upstreams: &wubi_supplement::upstreams(&sources.lock),
+            upstreams: &wubi_supplement::upstreams(&sources.lock, &wubi_supplement::UPSTREAMS),
         },
     );
     std::fs::write(&arguments.out, rendered)
@@ -717,12 +726,102 @@ fn build_wubi98_supplement(arguments: &Wubi98Supplement) -> Result<()> {
         &wubi98_supplement::Provenance {
             inputs: &inputs,
             generator_commit: &generator_commit,
-            upstreams: &wubi_supplement::upstreams(&sources.lock),
+            upstreams: &wubi_supplement::upstreams(&sources.lock, &wubi_supplement::UPSTREAMS),
         },
     );
     std::fs::write(&arguments.out, rendered)
         .with_context(|| format!("writing {}", arguments.out.display()))?;
     for line in wubi98_supplement::report(&supplement) {
+        eprintln!("[report] {line}");
+    }
+    eprintln!(
+        "[done] {} words -> {}",
+        supplement.entries.len(),
+        arguments.out.display()
+    );
+    Ok(())
+}
+
+#[derive(Args)]
+struct WubiXsjSupplement {
+    /// Where pinned sources are downloaded and reused from.
+    #[arg(long)]
+    cache: PathBuf,
+    /// The table to write (msime-dictionary's sources/wubi/wubixsj-supplement.txt).
+    #[arg(long)]
+    out: PathBuf,
+    /// Fail instead of downloading a source that is not cached.
+    #[arg(long)]
+    offline: bool,
+    /// The msime checkout the sources lock is read from.
+    #[arg(long, default_value_os_t = repository_root())]
+    repository: PathBuf,
+    /// 读取 `sources/` 和 `custom/` 文件的 msime-dictionary checkout（按其 `upstream.lock.json` 校验）。
+    #[arg(long, value_name = "PATH")]
+    dictionary: PathBuf,
+}
+
+fn build_wubixsj_supplement(arguments: &WubiXsjSupplement) -> Result<()> {
+    let root = &arguments.repository;
+    let lock = Lock::load(&root.join("resources/dictionary-sources.lock.json"))?;
+    let dictionary = Dictionary::open(arguments.dictionary.clone(), &lock)?;
+    let sources = Sources {
+        lock,
+        repository_inputs: root.join("resources/dictionary-sources"),
+        cache: arguments.cache.clone(),
+        offline: arguments.offline,
+        dictionary: Some(dictionary),
+    };
+    let read = |path: &str| -> Result<String> { text::read(&sources.pinned(path)?) };
+    let wubi98_path = sources.pinned(wubixsj_supplement::WUBI98)?;
+    let wubi98 = msime::decode_utf16le(&crate::sources::read_private(&wubi98_path)?)
+        .with_context(|| format!("decoding {}", wubi98_path.display()))?;
+    let (wubixsj, jidian, wubi98_fcitx, base) = (
+        read(wubixsj_supplement::WUBIXSJ)?,
+        read(wubixsj_supplement::JIDIAN)?,
+        read(wubixsj_supplement::WUBI98_FCITX)?,
+        read(wubixsj_supplement::BASE)?,
+    );
+    let supplement = wubixsj_supplement::build(&wubixsj_supplement::Inputs {
+        wubixsj: &wubixsj,
+        jidian: &jidian,
+        wubi98: &wubi98,
+        wubi98_fcitx: &wubi98_fcitx,
+        base: &base,
+        pinyin_supplement: &read(wubixsj_supplement::PINYIN_SUPPLEMENT)?,
+        places: &read(wubixsj_supplement::PLACES)?,
+        custom: &read(wubixsj_supplement::CUSTOM)?,
+    })?;
+    // 表头里的 SHA-256 按实际读到的字节计算。
+    let digests = [
+        wubixsj_supplement::WUBIXSJ,
+        wubixsj_supplement::JIDIAN,
+        wubixsj_supplement::WUBI98,
+        wubixsj_supplement::WUBI98_FCITX,
+        wubixsj_supplement::BASE,
+        wubixsj_supplement::PINYIN_SUPPLEMENT,
+        wubixsj_supplement::PLACES,
+        wubixsj_supplement::CUSTOM,
+    ]
+    .into_iter()
+    .map(|path| Ok((path, sha256_file(&sources.pinned(path)?)?)))
+    .collect::<Result<Vec<_>>>()?;
+    let inputs: Vec<(&str, &str)> = digests
+        .iter()
+        .map(|(path, sha256)| (*path, sha256.as_str()))
+        .collect();
+    let generator_commit = product::builder_commit(root)?;
+    let rendered = wubixsj_supplement::render(
+        &supplement,
+        &wubixsj_supplement::Provenance {
+            inputs: &inputs,
+            generator_commit: &generator_commit,
+            upstreams: &wubi_supplement::upstreams(&sources.lock, &wubixsj_supplement::UPSTREAMS),
+        },
+    );
+    std::fs::write(&arguments.out, rendered)
+        .with_context(|| format!("writing {}", arguments.out.display()))?;
+    for line in wubixsj_supplement::report(&supplement) {
         eprintln!("[report] {line}");
     }
     eprintln!(
@@ -1023,9 +1122,17 @@ struct Build {
     complete: bool,
 }
 
+/// 构建时重新派生词组的五笔表。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WubiTable {
+    Wubi86,
+    Wubi98,
+    WubiXsj,
+}
+
 impl Build {
     /// 每次从本次构建的固定输入派生，不依赖词库仓上一次生成的快照。
-    fn fresh_wubi_supplement(&self, profile98: bool) -> Result<PathBuf> {
+    fn fresh_wubi_supplement(&self, table: WubiTable) -> Result<PathBuf> {
         let repository = self
             .sources
             .repository_inputs
@@ -1040,32 +1147,39 @@ impl Build {
             .context("missing dictionary checkout")?
             .root
             .clone();
-        let output = if profile98 {
-            wubi98_supplement::OUTPUT
-        } else {
-            wubi86_supplement::OUTPUT
+        let output = match table {
+            WubiTable::Wubi86 => wubi86_supplement::OUTPUT,
+            WubiTable::Wubi98 => wubi98_supplement::OUTPUT,
+            WubiTable::WubiXsj => wubixsj_supplement::OUTPUT,
         };
         let out = self.out.join(
             Path::new(output)
                 .file_name()
                 .context("missing supplement file name")?,
         );
-        if profile98 {
-            build_wubi98_supplement(&Wubi98Supplement {
+        let (cache, offline) = (self.sources.cache.clone(), self.sources.offline);
+        match table {
+            WubiTable::Wubi86 => build_wubi86_supplement(&Wubi86Supplement {
                 out: out.clone(),
                 repository,
                 dictionary,
-                cache: self.sources.cache.clone(),
-                offline: self.sources.offline,
-            })?;
-        } else {
-            build_wubi86_supplement(&Wubi86Supplement {
+                cache,
+                offline,
+            })?,
+            WubiTable::Wubi98 => build_wubi98_supplement(&Wubi98Supplement {
                 out: out.clone(),
                 repository,
                 dictionary,
-                cache: self.sources.cache.clone(),
-                offline: self.sources.offline,
-            })?;
+                cache,
+                offline,
+            })?,
+            WubiTable::WubiXsj => build_wubixsj_supplement(&WubiXsjSupplement {
+                out: out.clone(),
+                repository,
+                dictionary,
+                cache,
+                offline,
+            })?,
         }
         Ok(out)
     }
@@ -1172,7 +1286,7 @@ impl Build {
             }
             Stage::Wubi => {
                 let jidian = self.sources.pinned(wubi86_supplement::JIDIAN)?;
-                let supplement = self.fresh_wubi_supplement(false)?;
+                let supplement = self.fresh_wubi_supplement(WubiTable::Wubi86)?;
                 let (imported, skipped, filtered) = msime::build_wubi(
                     &mut self.database("msime-pinyin.db")?,
                     &[jidian.as_path(), supplement.as_path()],
@@ -1183,7 +1297,7 @@ impl Build {
             }
             Stage::Wubi98 => {
                 let supplement = self.sources.pinned(wubi98_supplement::WUBI98_FCITX)?;
-                let generated = self.fresh_wubi_supplement(true)?;
+                let generated = self.fresh_wubi_supplement(WubiTable::Wubi98)?;
                 let (imported, skipped) = msime::build_wubi98_sources(
                     &mut self.database("msime-pinyin.db")?,
                     &self.sources.pinned(wubi98_supplement::WUBI98)?,
@@ -1191,6 +1305,18 @@ impl Build {
                     &[generated.as_path()],
                 )?;
                 Ok(format!("{imported} rows imported, {skipped} skipped"))
+            }
+            Stage::WubiXsj => {
+                let generated = self.fresh_wubi_supplement(WubiTable::WubiXsj)?;
+                let counts = msime::build_wubixsj(
+                    &mut self.database("msime-pinyin.db")?,
+                    &self.sources.pinned(wubixsj_supplement::WUBIXSJ)?,
+                    &[generated.as_path()],
+                )?;
+                Ok(format!(
+                    "{} rows imported, {} skipped, {} single-character rows outside the basic CJK block or with an invalid code left out, {} upstream words left out",
+                    counts.imported, counts.skipped, counts.filtered, counts.phrases
+                ))
             }
             Stage::QuickPhrases => {
                 let path = self.sources.repository("mix/quick_phrases.txt")?;
@@ -1434,6 +1560,9 @@ fn main() -> Result<()> {
     if let Some(Command::Wubi98Supplement(supplement)) = &arguments.command {
         return build_wubi98_supplement(supplement);
     }
+    if let Some(Command::WubiXsjSupplement(supplement)) = &arguments.command {
+        return build_wubixsj_supplement(supplement);
+    }
     if let Some(Command::Wubi86Supplement(supplement)) = &arguments.command {
         return build_wubi86_supplement(supplement);
     }
@@ -1625,8 +1754,12 @@ mod tests {
         write(wubi86_supplement::PINYIN_SUPPLEMENT, b"# empty\n");
         write(wubi86_supplement::PLACES, b"# empty\n");
         write(wubi86_supplement::CUSTOM, "甲乙\tjia'yi\t1\n".as_bytes());
-        let references: serde_json::Map<String, serde_json::Value> = ["rime-ice", "rime-ice-supplement", "98wubi-tables", "fcitx5-table-extra"].into_iter().map(|name| (name.to_owned(), serde_json::json!({"repository": format!("https://example.invalid/{name}"), "commit":"a".repeat(40)}))).collect();
-        let files: Vec<_> = [wubi86_supplement::WUBI98, wubi86_supplement::WUBI98_FCITX, wubi86_supplement::BASE, wubi86_supplement::PINYIN_SUPPLEMENT].into_iter().map(|path| serde_json::json!({"path":path, "upstream":sources::upstream_reference(path).unwrap(), "size":std::fs::metadata(dictionary.join(path)).unwrap().len(), "sha256":sources::sha256_file(&dictionary.join(path)).unwrap()})).collect();
+        write(
+            wubixsj_supplement::WUBIXSJ,
+            "---\nname: wubi06\n...\n甲\tqrst\t10\n乙\tuvwx\t10\n乙乙\tuvwu\t500\n".as_bytes(),
+        );
+        let references: serde_json::Map<String, serde_json::Value> = ["rime-ice", "rime-ice-supplement", "98wubi-tables", "fcitx5-table-extra", "wubi06-rime"].into_iter().map(|name| (name.to_owned(), serde_json::json!({"repository": format!("https://example.invalid/{name}"), "commit":"a".repeat(40)}))).collect();
+        let files: Vec<_> = [wubi86_supplement::WUBI98, wubi86_supplement::WUBI98_FCITX, wubi86_supplement::BASE, wubi86_supplement::PINYIN_SUPPLEMENT, wubixsj_supplement::WUBIXSJ].into_iter().map(|path| serde_json::json!({"path":path, "upstream":sources::upstream_reference(path).unwrap(), "size":std::fs::metadata(dictionary.join(path)).unwrap().len(), "sha256":sources::sha256_file(&dictionary.join(path)).unwrap()})).collect();
         write(
             sources::UPSTREAM_LOCK,
             &serde_json::to_vec(
@@ -1673,13 +1806,25 @@ mod tests {
             out: out.clone(),
             complete: false,
         };
-        for stage in [Stage::Wubi, Stage::Wubi98] {
+        for stage in [Stage::Wubi, Stage::Wubi98, Stage::WubiXsj] {
             build.run(stage).unwrap();
         }
         assert!(!dictionary.join(wubi86_supplement::OUTPUT).exists());
         assert!(!dictionary.join(wubi98_supplement::OUTPUT).exists());
+        assert!(!dictionary.join(wubixsj_supplement::OUTPUT).exists());
         let db = rusqlite::Connection::open(out.join("msime-pinyin.db")).unwrap();
-        for (table, expected) in [("wubi86", "abef"), ("wubi98", "ijmn")] {
+        // 新世纪表不收上游的词组行「乙乙 uvwu」，而是把极点表里的「乙乙」按新世纪单字码重新编码，沿用极点表的权重。
+        assert_eq!(
+            db.query_row(
+                "SELECT group_concat(key), max(weight) FROM wubixsj WHERE value='乙乙'",
+                [],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            )
+            .unwrap(),
+            ("uvuv".to_owned(), 10)
+        );
+        assert_eq!(stage_name(Stage::WubiXsj), "wubixsj");
+        for (table, expected) in [("wubi86", "abef"), ("wubi98", "ijmn"), ("wubixsj", "qruv")] {
             assert_eq!(
                 db.query_row(
                     &format!("SELECT key FROM {table} WHERE value='甲乙'"),
@@ -1692,7 +1837,7 @@ mod tests {
         }
     }
 
-    /// 六个生成器和 `languages` 必须传 `--dictionary`，不能退回到静默跳过笔画词库之类的路径；`hkcancor-counts` 不读 msime-dictionary，不需要它。
+    /// 七个生成器和 `languages` 必须传 `--dictionary`，不能退回到静默跳过笔画词库之类的路径；`hkcancor-counts` 不读 msime-dictionary，不需要它。
     #[test]
     fn generators_and_languages_require_a_dictionary_checkout() {
         let parses = |arguments: &[&str]| {
@@ -1708,6 +1853,7 @@ mod tests {
             &["english-supplement", "--cache", "c", "--out", "o"],
             &["wubi86-supplement", "--cache", "c", "--out", "o"],
             &["wubi98-supplement", "--cache", "c", "--out", "o"],
+            &["wubixsj-supplement", "--cache", "c", "--out", "o"],
             &["wubi86-helpcode", "--out", "o"],
         ] {
             assert!(!parses(command), "{command:?} parsed without --dictionary");
