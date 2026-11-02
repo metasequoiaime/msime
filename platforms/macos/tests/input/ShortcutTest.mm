@@ -3785,7 +3785,8 @@ static void TestGlossSenseTraditionalOutput(MSIMEAppearancePreferences *appearan
     self.editing = [self.editing substringFromIndex:1];
     self.highlighted = 0;
     ++self.generation;
-    return @{@"handled": @YES, @"view": [self gridView]};
+    // 真实会话没有上屏时 `commit` 是 JSON null，桥接后是 NSNull，不是缺字段（#10583）。
+    return @{@"handled": @YES, @"commit": NSNull.null, @"view": [self gridView]};
 }
 @end
 
