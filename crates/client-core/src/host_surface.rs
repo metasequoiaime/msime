@@ -55,7 +55,10 @@ impl HostPlatform {
     ///
     /// Windows 没有预编辑时由 TIP 在光标处给 Server 发 Show，候选窗画 Server 会话自己的联想；点选、数字键和空格都由 Server 在它的会话里选中，TIP 把文字插在光标处；回车、标点照常交给应用，Esc 由 TIP 吃下并关掉联想。
     pub fn shows_next_word_prediction(self) -> bool {
-        matches!(self, HostPlatform::Android | HostPlatform::Windows)
+        matches!(
+            self,
+            HostPlatform::Android | HostPlatform::Linux | HostPlatform::Windows
+        )
     }
 
     /// 这个宿主是否读偏好里的中英混输触发字符数，见 `HostCapabilities::mixed_input_minimum_prefix`。只有触屏宿主（Android、iOS、HarmonyOS）读：九键、十四键上触发字符数是按键次数，在玻璃上多打几个字母的代价更大，Android 也是应用户要求才加的这一项。三个桌面宿主（macOS、Windows、Linux）不读，固定用 [`crate::preferences::DEFAULT_MIXED_INPUT_MINIMUM_PREFIX`]。
