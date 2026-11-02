@@ -14295,10 +14295,11 @@ private:
                          std::wstring const &title) {
     const auto status = sentence_pack_status(pack);
     const bool installing = sentence_pack_installing_.count(pack) > 0;
+    const bool importing = sentence_pack_importing_.count(pack) > 0;
     const bool removing = sentence_pack_removing_.count(pack) > 0;
     std::wstring subtitle;
     if (installing)
-      subtitle = L"正在下载和校验模型…";
+      subtitle = importing ? L"正在导入和校验模型…" : L"正在下载和校验模型…";
     else if (removing)
       subtitle = L"正在删除模型…";
     else if (status == L"installed")
@@ -14310,22 +14311,43 @@ private:
     StackPanel actions;
     actions.Orientation(Orientation::Horizontal);
     actions.Spacing(8);
+    // 没装或要更新时，除了联网下载，也可以先用浏览器下载列出的文件再「从文件导入」（与语音模型卡片的「不联网安装」相同）；导入走资源包安装的 `files`，按内容认文件，不联网。
+    FrameworkElement offline_files{nullptr};
     if (status != L"installed" && !installing && !removing) {
       auto download = button_control(status == L"outdated" ? L"更新" : L"下载",
-                                     [this, pack] { install_sentence_pack(pack); }, loaded_);
+                                     [this, pack] { install_sentence_pack(pack, false); }, loaded_);
       A11y::SetAutomationId(download, L"sentence-model-download-" + pack);
       actions.Children().Append(download);
+      auto import_button = button_control(L"从文件导入",
+                                          [this, pack] { install_sentence_pack(pack, true); }, loaded_);
+      A11y::SetAutomationId(import_button, L"sentence-model-import-" + pack);
+      actions.Children().Append(import_button);
+      for (auto const &entry : sentence_pack_statuses_) {
+        if (entry.id != pack || entry.import_files.empty())
+          continue;
+        auto offline = make_text(L"", 12, palette_.sub);
+        offline.Margin(Thickness{0, 6, 0, 0});
+        append_run(offline, L"不联网安装：先用浏览器下载 ");
+        for (size_t index = 0; index < entry.import_files.size(); ++index) {
+          auto const &file = entry.import_files[index];
+          if (index > 0)
+            append_run(offline, L"、");
+          append_link(offline, file.name + L"（" + vs::format_model_bytes(file.size) + L"）", file.url);
+        }
+        append_run(offline, L"，再点“从文件导入”一起选中。文件改过名也能认出。");
+        offline_files = offline;
+      }
     }
     if (status == L"installed" && grammar_updates_available_.count(pack) > 0 &&
         !installing && !removing)
       actions.Children().Append(
-          button_control(L"下载更新", [this, pack] { install_sentence_pack(pack); }, loaded_));
+          button_control(L"下载更新", [this, pack] { install_sentence_pack(pack, false); }, loaded_));
     if (status == L"installed" && !installing && !removing)
       actions.Children().Append(button_control(L"删除", [this, pack] { remove_sentence_pack(pack); },
                                                 loaded_));
     if (installing)
       actions.Children().Append(button_control(L"取消", [this, pack] { cancel_sentence_pack(pack); }, true));
-    inline_subtitle(add_row(group, 0xE8C1, title, subtitle, actions));
+    inline_subtitle(add_row(group, 0xE8C1, title, subtitle, actions, offline_files));
   }
 
   static std::wstring grammar_pack_for_model(std::wstring const &model) {
@@ -14337,8 +14359,8 @@ private:
 
   std::wstring sentence_pack_status(std::wstring const &id) const {
     for (auto const &status : sentence_pack_statuses_)
-      if (status.first == id)
-        return status.second;
+      if (status.id == id)
+        return status.state;
     return L"missing";
   }
 
@@ -14365,8 +14387,13 @@ private:
               const auto object = item.GetObject();
               const auto id = named_string(object, L"id");
               if (id == L"settled-model" || id == L"grammar-model-wanxiang" ||
-                  id == L"grammar-model-baguwen" || id == L"grammar-model-baguwen-compact")
-                sentence_pack_statuses_.push_back({id, named_string(object, L"state")});
+                  id == L"grammar-model-baguwen" || id == L"grammar-model-baguwen-compact") {
+                SentencePackStatus status{id, named_string(object, L"state"), {}};
+                for (auto const &file : named_objects(object, L"import_files"))
+                  status.import_files.push_back({named_string(file, L"name"), named_string(file, L"url"),
+                                                 named_number(file, L"size").value_or(0)});
+                sentence_pack_statuses_.push_back(std::move(status));
+              }
             }
             redraw_input();
           } catch (...) {
@@ -14429,10 +14456,26 @@ private:
   static void sentence_pack_progress(void *, const char *, uint64_t, uint64_t) noexcept {
   }
 
-  void install_sentence_pack(std::wstring const &id) {
+  // 「下载」「更新」「下载更新」联网安装，用已保存的下载镜像；「从文件导入」（`import`）先让用户在与语音模型相同的打开对话框里多选下载好的文件，关掉对话框不算失败，对话框打不开或给不出本机路径时说明原因，选中的路径以 `files` 交给资源包安装，不联网。两种都能用「取消」停下。`id` 按值传：打开对话框期间页面可能重画，按钮和它持有的 id 随之换掉。
+  void install_sentence_pack(std::wstring id, bool import) {
+    std::vector<std::wstring> files;
+    if (import) {
+      HRESULT failure = S_OK;
+      auto picked = pick_model_files(failure);
+      if (const auto message = vs::local_model_picker_error_message(
+              failure, picked.has_value() && picked->empty())) {
+        show_notice(*message, InfoBarSeverity::Error);
+        return;
+      }
+      if (!picked)
+        return;
+      files = std::move(*picked);
+    }
     const auto root = state_directory();
     if (root.empty() || !root.is_absolute()) return;
     sentence_pack_installing_.insert(id);
+    if (import)
+      sentence_pack_importing_.insert(id);
     redraw_input();
     JsonObject request;
     request.SetNamedValue(L"state_root", JsonValue::CreateStringValue(hstring(root.wstring())));
@@ -14441,8 +14484,13 @@ private:
         L"channel",
         JsonValue::CreateStringValue(
             hstring(current_update_channel())));
-    const auto mirror = document_.String(L"voice_input.asr_model_mirror", L"");
-    if (!mirror.empty()) {
+    if (import) {
+      JsonArray paths;
+      for (auto const &file : files)
+        paths.Append(JsonValue::CreateStringValue(hstring(file)));
+      request.SetNamedValue(L"files", paths);
+    } else if (const auto mirror = document_.String(L"voice_input.asr_model_mirror", L"");
+               !mirror.empty()) {
       JsonArray sources;
       sources.Append(JsonValue::CreateStringValue(hstring(mirror)));
       request.SetNamedValue(L"sources", sources);
@@ -14453,11 +14501,13 @@ private:
               reinterpret_cast<const uint8_t *>(body.data()), body.size(),
               &MainWindow::sentence_pack_progress, nullptr));
         },
-        [this, id](Response const &response) {
+        [this, id, import](Response const &response) {
           sentence_pack_installing_.erase(id);
+          sentence_pack_importing_.erase(id);
           if (!response.ok) {
-            if (const auto message = model_errors::error_message(
-                    model_errors::error_code(response_error(response))))
+            const auto code = model_errors::error_code(response_error(response));
+            if (const auto message = import ? vs::local_model_import_error_message(code)
+                                            : model_errors::error_message(code))
               show_notice(*message, InfoBarSeverity::Error);
           } else {
             grammar_updates_available_.erase(id);
@@ -27368,8 +27418,15 @@ private:
   bool helpcode_more_open_ = false;
   // Windows 原生设置页的神经联想与 octagram 语法模型资源包状态。
   bool sentence_packs_requested_ = false;
-  std::vector<std::pair<std::wstring, std::wstring>> sentence_pack_statuses_;
+  // msime_client_resource_packs 的一项：安装状态，和不联网安装时要用浏览器下载、再从文件导入的文件。
+  struct SentencePackStatus {
+    std::wstring id, state;
+    std::vector<LocalModelFile> import_files;
+  };
+  std::vector<SentencePackStatus> sentence_pack_statuses_;
   std::set<std::wstring> sentence_pack_installing_;
+  // 正在安装的资源包里，从文件导入（而不是联网下载）的那些；副标题据此说「导入」。
+  std::set<std::wstring> sentence_pack_importing_;
   std::set<std::wstring> sentence_pack_removing_;
   std::set<std::wstring> grammar_updates_available_;
   bool grammar_updates_checking_ = false;

@@ -46,5 +46,18 @@ for key in (
 ):
     assert key in model, f"Windows 整句模型设置缺少 {key}"
 assert "grammar-model-baishuang" not in model
+# 神经联想模型和语法模型也能不联网安装（#10622）：列出要用浏览器下载的文件链接，「从文件导入」走和语音模型同一个打开对话框，选中的文件以 `files` 交给资源包安装，失败按导入的说法提示。
+packs = source[source.index("  void sentence_pack_row("):source.index("  void cancel_sentence_pack(")]
+for key in (
+    'L"import_files"',
+    "append_link(offline,",
+    'L"sentence-model-import-" + pack',
+    "pick_model_files(failure)",
+    "vs::local_model_picker_error_message(",
+    'request.SetNamedValue(L"files", paths)',
+    "vs::local_model_import_error_message(code)",
+    "正在导入和校验模型…",
+):
+    assert key in packs, f"Windows 整句模型缺少从文件导入的 {key}"
 
-print("windows input habits: sentence association switches, the 标准/增强 level, settled model download and locked grammar model management are present")
+print("windows input habits: sentence association switches, the 标准/增强 level, settled model download, offline import and locked grammar model management are present")
