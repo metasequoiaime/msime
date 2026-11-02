@@ -165,7 +165,7 @@ public final class StaleCandidateDeviceSmoke extends Instrumentation {
             }
         });
         result.putString("stream", failure[0] == null
-            ? nextWord ? "MSIME_DEVICE_SMOKE_PASSED: post-commit prediction selection, editor echo, external cursor and privacy\n"
+            ? nextWord ? "MSIME_DEVICE_SMOKE_PASSED: post-commit prediction tap, space and digit selection, editor echo, external cursor and privacy\n"
                 : "MSIME_DEVICE_SMOKE_PASSED: stale menu, expanded button and spelling preserve session without editor writes; fresh candidate commits\n"
             : "MSIME_DEVICE_SMOKE_FAILED: " + stage + " (" + failure[0].getClass().getSimpleName() + ")\n");
         finish(failure[0] == null ? Activity.RESULT_OK : Activity.RESULT_CANCELED, result);
@@ -252,6 +252,7 @@ public final class StaleCandidateDeviceSmoke extends Instrumentation {
         ((Button) button.invoke(candidates, suggestions.getJSONArray("candidates").getJSONObject(0))).performClick();
         stage = "explicit next word calls editor once";
         check(writes[0] == 1, "点选联想没有上屏");
+        checkKeyPicks(type, nativeType, service, session);
         stage = "private mode clears native and Java prediction";
         field(type, "view").set(service, prediction(nativeType, session));
         field(type, "incognitoEnabled").setBoolean(service, true);
@@ -259,6 +260,48 @@ public final class StaleCandidateDeviceSmoke extends Instrumentation {
         check(!((JSONObject) field(type, "view").get(service)).optBoolean("prediction", false), "隐私模式留下旧 Java 候选");
         JSONObject current = value(nativeType.getMethod("view", long.class).invoke(null, session));
         check(!current.optBoolean("prediction", false), "隐私模式留下原生候选");
+    }
+
+    /** 联想显示时，触屏空格键走产品的 space()，选首条且不再插入空格；数字键走 type()，选本页对应的一条，越过本页的数字照常输入并清掉联想。 */
+    private void checkKeyPicks(Class<?> type, Class<?> nativeType, Object service, long session) throws Exception {
+        java.util.List<String> commits = new java.util.ArrayList<>();
+        InputConnection connection = (InputConnection) Proxy.newProxyInstance(
+            InputConnection.class.getClassLoader(), new Class<?>[] {InputConnection.class},
+            (proxy, call, arguments) -> {
+                if (call.getName().equals("commitText")) commits.add(String.valueOf(arguments[0]));
+                if (call.getReturnType() == boolean.class) return true;
+                if (call.getReturnType() == int.class) return 0;
+                return null;
+            });
+        field(type, "connection").set(service, connection);
+        Method space = type.getDeclaredMethod("space"); space.setAccessible(true);
+        Method typeKey = type.getDeclaredMethod("type", char.class); typeKey.setAccessible(true);
+
+        stage = "space picks the first next word";
+        JSONObject suggestions = prediction(nativeType, session);
+        field(type, "view").set(service, suggestions);
+        String first = suggestions.getJSONArray("candidates").getJSONObject(0).getString("text");
+        commits.clear();
+        space.invoke(service);
+        check(commits.size() == 1 && first.equals(commits.get(0)), "空格没有只上屏首条联想：" + commits);
+
+        stage = "digit picks the matching next word";
+        suggestions = prediction(nativeType, session);
+        field(type, "view").set(service, suggestions);
+        check(suggestions.getJSONArray("candidates").length() >= 2, "联想少于两条");
+        String second = suggestions.getJSONArray("candidates").getJSONObject(1).getString("text");
+        commits.clear();
+        typeKey.invoke(service, '2');
+        check(commits.size() == 1 && second.equals(commits.get(0)), "数字 2 没有只上屏第二条联想：" + commits);
+
+        stage = "digit past the page types the digit";
+        suggestions = prediction(nativeType, session);
+        field(type, "view").set(service, suggestions);
+        check(suggestions.getJSONArray("candidates").length() < 9, "联想多于八条，9 落在本页内");
+        commits.clear();
+        typeKey.invoke(service, '9');
+        check(commits.size() == 1 && commits.get(0).matches("[9９]"), "越过本页的数字没有照常输入：" + commits);
+        check(!((JSONObject) field(type, "view").get(service)).optBoolean("prediction", false), "照常输入的数字留下联想");
     }
 
     private static Field field(Class<?> type, String name) throws Exception {

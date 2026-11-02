@@ -320,7 +320,7 @@ check "Input failure category acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_i
 check "Composition batch acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.CompositionBatchDeviceSmoke
 # 旧菜单、展开按钮和拼写回调只检查身份，不写编辑器、不停止当前会话。
 check "Stale candidate callback acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.StaleCandidateDeviceSmoke
-# 空闲联想只在点选时上屏，自己的选区回声保留候选，外部移动和隐私模式清除候选。
+# 空闲联想由点选、空格（首条，不另插空格）和本页数字键上屏，越过本页的数字照常输入；自己的选区回声保留候选，外部移动和隐私模式清除候选。
 check "Next word prediction acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.StaleCandidateDeviceSmoke -e next-word true
 # 横向候选条不展开也能越过分页和分批边界，左右返回后按全局身份选词。
 check "Continuous candidate strip acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.CandidatePanelDeviceSmoke -e continuous-strip true
