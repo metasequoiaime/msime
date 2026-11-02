@@ -199,7 +199,11 @@ mod tests {
         exported.usage_reporting = false;
         exported.clipboard_history = false;
         exported.voice_input.asr_model_path = "/elsewhere/model".into();
+        // 本地识别的停顿时间和判停灵敏度（#10310）按本机的麦克风和环境调，也不随文件走。
+        exported.voice_input.pause_millis = 800;
+        exported.voice_input.stop_sensitivity = 90;
         let text = export_document(&exported).unwrap();
+        assert!(!text.contains("pause_millis") && !text.contains("stop_sensitivity"));
 
         let mut current = Preferences::default();
         current.voice_input.asr_token = "synthetic-local-token".into();
@@ -207,6 +211,8 @@ mod tests {
         current.usage_reporting = true;
         current.clipboard_history = true;
         current.voice_input.asr_model_path = "/here/model".into();
+        current.voice_input.pause_millis = 4000;
+        current.voice_input.stop_sensitivity = 20;
         current.fuzzy_pinyin.seeded = true;
         let imported = import_document(text.as_bytes(), &current, Edition::full()).unwrap();
 

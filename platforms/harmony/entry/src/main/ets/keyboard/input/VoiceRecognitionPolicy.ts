@@ -5,8 +5,11 @@ export const VOICE_MAX_TEXT: number = 4096;
 export const VOICE_MAX_LANGUAGE: number = 32;
 /** 结果直接进入编辑器后，聆听界面显示「已识别：…」的时长，即 Android 的 `ImeVoiceEntry.DONE_NOTICE_MILLIS`。 */
 export const VOICE_DONE_NOTICE_MS: number = 1200;
-/** 最后一次听到话语后多久触屏录音自行结束，取 Android 默认停顿 `AndroidLocalSettings.VOICE_PAUSE_DEFAULT_MILLIS`（Android 上用户可在本地语音设置里调整，鸿蒙固定）。 */
-export const VOICE_SILENCE_STOP_MS: number = 1500;
+/** 点按开始的本地识别出字后停顿多久结束录音（`voice_input.pause_millis`）的范围、步进和缺省值，与 client-core 的 `VOICE_PAUSE_MILLIS_*` 和 Android 本机设置 `AndroidLocalSettings.VOICE_PAUSE_*` 相同；缺省值就是改成可调之前写死的 1500。 */
+export const VOICE_PAUSE_DEFAULT_MS: number = 1500;
+export const VOICE_PAUSE_MIN_MS: number = 500;
+export const VOICE_PAUSE_MAX_MS: number = 5000;
+export const VOICE_PAUSE_STEP_MS: number = 100;
 
 /**
  * 开始聆听时编辑器所处的状态，只以代次保存，不持有任何编辑器文本：键盘挂到另一个输入框或重启时 `editor` 变化，编辑器报告文本或选区变化时 `context` 变化。
@@ -85,7 +88,18 @@ export class VoiceRecognitionPolicy {
   }
 
   /**
-   * 静音计时到点时能否结束录音。经过 VAD 的整段本地模型只在一段说完后才出文字，用户连续说上超过 `VOICE_SILENCE_STOP_MS` 的一段时没有新文字，只看文字会在说话中途截断录音；VAD 此刻还听到说话就顺延，等说完再从头计时。没有 VAD 的识别器从不报说话，行为不变。
+   * 本次聆听的停顿时间：存下的 `voice_input.pause_millis` 在范围内、落在步进上时用它，缺键或不合规时用缺省的 1500 毫秒。client-core 保存时已经校验过，这里只防旧文档和手改的文件。
+   */
+  static pauseMillis(value: unknown): number {
+    if (typeof value !== "number" || !Number.isInteger(value)) return VOICE_PAUSE_DEFAULT_MS;
+    if (value < VOICE_PAUSE_MIN_MS || value > VOICE_PAUSE_MAX_MS) return VOICE_PAUSE_DEFAULT_MS;
+    return (value - VOICE_PAUSE_MIN_MS) % VOICE_PAUSE_STEP_MS === 0
+      ? value
+      : VOICE_PAUSE_DEFAULT_MS;
+  }
+
+  /**
+   * 静音计时到点时能否结束录音。经过 VAD 的整段本地模型只在一段说完后才出文字，用户连续说上超过停顿时间的一段时没有新文字，只看文字会在说话中途截断录音；VAD 此刻还听到说话就顺延，等说完再从头计时。没有 VAD 的识别器从不报说话，行为不变。
    */
   static silenceStops(speaking: boolean): boolean {
     return !speaking;

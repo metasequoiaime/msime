@@ -21,12 +21,16 @@ if [[ ! -x "$compiler" ]]; then
   echo "Missing $compiler; this NDK does not provide a wrapper for $rust_target" >&2
   exit 1
 fi
+# 发布与原生构建复用此入口；已选 ABI 的符号回归缺工具时直接失败。
+MSIME_OHOS_NDK="$ndk" python3 scripts/test-harmony-crash-symbols.py --require-tools --target "$rust_target"
 cargo_linker="CARGO_TARGET_$(printf '%s' "$rust_target" | tr '[:lower:]-' '[:upper:]_')_LINKER"
 underscored=${rust_target//-/_}
 env "CC_${underscored}=$compiler" "CXX_${underscored}=${compiler}++" \
   "AR_${underscored}=$ndk/llvm/bin/llvm-ar" "$cargo_linker=$compiler" \
   CARGO_TARGET_DIR="$repo_root/target/ohos-cargo" \
-  cargo build -p msime-host-api --target "$rust_target" --release --locked
+  CARGO_PROFILE_RELEASE_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_STRIP=none \
+  cargo rustc -p msime-host-api --target "$rust_target" --release --locked -- \
+    -C link-arg=-Wl,--build-id=sha1
 output="$repo_root/target/ohos/libs/$abi"
 mkdir -p "$output"
 cp "$repo_root/target/ohos-cargo/$rust_target/release/libmsime_host_api.so" "$output/"
@@ -37,9 +41,10 @@ miniaudio="platforms/windows/third_party/miniaudio"
 "${compiler}++" -std=c++17 -fPIC -O2 -c platforms/harmony/native/miniaudio.cpp -I"$miniaudio" \
   -o "$output/miniaudio.o"
 # The ArkTS side reaches the C ABI through this module. --no-undefined keeps a missing binding a link error here rather than a failed import on the device.
-"${compiler}++" -std=c++17 -shared -fPIC -Wall -Wextra -Werror \
+"${compiler}++" -std=c++17 -g -Wl,--build-id=sha1 -shared -fPIC -Wall -Wextra -Werror \
   -Wl,--no-undefined -Wl,-soname,libmsimeclient.so \
   platforms/harmony/native/client_napi.cpp platforms/harmony/native/key_sound_render.cpp \
+  platforms/common/CrashRecorder.cpp \
   "$output/miniaudio.o" -Icrates/host-api/include -I"$miniaudio" \
   -L"$output" -lmsime_host_api -lace_napi.z -lz -lm -o "$output/libmsimeclient.so"
 "$ndk/llvm/bin/llvm-nm" -D --defined-only "$output/libmsimeclient.so" | grep RegisterClientModule >/dev/null
@@ -54,3 +59,7 @@ cp "$output/libmsime_host_api.so" "$output/libmsimeclient.so" "$output/libc++_sh
 echo "OpenHarmony native libraries built: $output"
 echo "Staged for the HAP: $staged"
 echo "Next: platforms/harmony && hvigorw assembleHap (not yet device-verified)"
+
+python3 scripts/crash-symbols.py collect --platform harmony --version "${MSIME_HARMONY_VERSION:-$(cat platforms/harmony/version.txt)}" \
+  --root "$output" --tool-prefix "$ndk/llvm/bin/llvm-" \
+  --output "target/harmony-symbols/harmony-${MSIME_HARMONY_VERSION:-$(cat platforms/harmony/version.txt)}-$abi-${MSIME_BUILD_RUN:-${GITHUB_RUN_ID:-local}}-${GITHUB_RUN_ATTEMPT:-1}.zip"

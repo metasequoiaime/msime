@@ -24,14 +24,14 @@ def method(source: str, signature: str, label: str) -> str:
     return source[start:end]
 
 
-def sensitivity_before_recognize(body: str, receiver: str, label: str) -> None:
-    call = f"{receiver}.vadSensitivity("
+def default_threshold_before_recognize(body: str, receiver: str, label: str) -> None:
+    # The recognition windows end on 「完成」, not on a pause, so the stop sensitivity buys nothing there and only drops quiet speech when raised.
+    call = f"{receiver}.vadSensitivity(0);"
     index = body.find(call)
     if index < 0:
-        raise SystemExit(f"{label} must pass the saved VAD sensitivity to its local recognizer")
-    line = body[index : body.find("\n", index)]
-    if SENSITIVITY not in line:
-        raise SystemExit(f"{label} must read {SENSITIVITY} for {call}")
+        raise SystemExit(f"{label} ends on 「完成」 and must keep the default VAD threshold with {call}")
+    if SENSITIVITY in body:
+        raise SystemExit(f"{label} must not read {SENSITIVITY}: the stop sensitivity is only for tap-started keyboard sessions")
     recognize = body.find(f"{receiver}.recognize(")
     if recognize < 0 or recognize < index:
         raise SystemExit(f"{label} must set the VAD sensitivity before {receiver}.recognize(")
@@ -46,18 +46,31 @@ def main() -> None:
     local = entry[start:end]
     if "silenceStopMillis = localPreferences.integer(AndroidLocalSettings.VOICE_PAUSE_MILLIS);" not in local:
         raise SystemExit("keyboard local voice must take its auto-stop pause from VOICE_PAUSE_MILLIS")
-    if f"local.vadSensitivity(localPreferences.integer({SENSITIVITY}));" not in local:
-        raise SystemExit("keyboard local voice must pass the saved VAD sensitivity to LocalAsrRecognizer")
+    if f"local.vadSensitivity(startingHeld ? 0 : localPreferences.integer({SENSITIVITY}));" not in local:
+        raise SystemExit("keyboard local voice must pass the saved VAD sensitivity only to tap-started sessions and 0 to hold-to-talk")
     arm = method(entry, "private void armSilenceStop(", "ImeVoiceEntry")
     if arm.count("postDelayed(") < 2 or arm.count("silenceStopMillis") < 2:
         raise SystemExit("armSilenceStop must schedule and postpone with silenceStopMillis")
 
-    sensitivity_before_recognize(
+    # Hold-to-talk is decided when the session is created: the worker reads vadSensitivity at localSpeechStart, so setting it later from hold() would race.
+    held = method(entry, "void startHeld(Runnable start) {", "ImeVoiceEntry")
+    flag, run, clear = held.find("startingHeld = true;"), held.find("start.run();"), held.find("finally")
+    if not (0 <= flag < run < clear) or "startingHeld = false;" not in held[clear:]:
+        raise SystemExit("ImeVoiceEntry.startHeld must set startingHeld around start.run() and clear it in finally")
+    row = read(ANDROID / "java/app/msime/android/core/ImeBottomRow.java")
+    hold_voice = row.find("final Runnable holdVoice = () -> {")
+    if hold_voice < 0:
+        raise SystemExit("ImeBottomRow holdVoice is missing")
+    hold_body = row[hold_voice : row.find("};", hold_voice)]
+    if "s.imeVoiceEntry.startHeld(startVoice);" not in hold_body or "startVoice.run();" in hold_body:
+        raise SystemExit("ImeBottomRow holdVoice must start through imeVoiceEntry.startHeld so hold-to-talk keeps the 0.5 VAD threshold")
+
+    default_threshold_before_recognize(
         method(read(VOICE / "VoiceRecognitionActivity.java"), "private void startLocalRecognition(", "VoiceRecognitionActivity"),
         "running",
         "VoiceRecognitionActivity",
     )
-    sensitivity_before_recognize(
+    default_threshold_before_recognize(
         method(read(VOICE / "OfflineVoiceRecognitionActivity.java"), "private void startWhenVisible(", "OfflineVoiceRecognitionActivity"),
         "recognizer",
         "OfflineVoiceRecognitionActivity",

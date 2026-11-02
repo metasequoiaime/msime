@@ -16,6 +16,8 @@ export interface SliderRowProps {
   valueText?: string;
   /** Optional value rendered after the track, while the slider remains the accessible control. */
   displayValue?: ReactNode;
+  /** 读数最宽时的样子（通常是最大值），只用来预留数值列的宽度：拖动时轨道不会因为位数变化而移动。 */
+  widestValue?: ReactNode;
   ticks?: boolean;
   /** 轨道铺满整行：HarmonyOS 手机上放到标题下方，数值在轨道右侧；其余平台与默认相同。 */
   wide?: boolean;
@@ -38,6 +40,7 @@ export function SliderRow({
   disabled,
   valueText,
   displayValue,
+  widestValue,
   ticks,
   wide,
   onChange,
@@ -65,7 +68,14 @@ export function SliderRow({
         <span className={wide ? settings.sliderWithValueWide : settings.sliderWithValue}>
           <span className={control}>{slider}</span>
           <span className={settings.sliderValue} aria-hidden="true">
-            {displayValue}
+            {widestValue === undefined ? (
+              displayValue
+            ) : (
+              <span className={settings.sliderValueStack}>
+                <span className="invisible">{widestValue}</span>
+                <span>{displayValue}</span>
+              </span>
+            )}
           </span>
         </span>
       )}

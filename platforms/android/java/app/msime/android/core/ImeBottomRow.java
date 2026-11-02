@@ -313,7 +313,7 @@ final class ImeBottomRow {
         // 手指还按着时开始的语音改成按住说话；松手那一刻才补判出的长按仍按点按开始，否则刚开始就被这次松手结束。
         final Runnable holdVoice = () -> {
             if (voiced[0]) return;
-            startVoice.run();
+            s.imeVoiceEntry.startHeld(startVoice);
             holding[0] = s.imeVoiceEntry.hold(voiceBefore[0]);
         };
         button.setOnTouchListener((ignored, event) -> {

@@ -465,7 +465,7 @@ private struct PersonalWordEditor: View {
             .onChange(of: word.key) { _, key in sanitizeCode(key) }
             .onChange(of: word.kind) { _, _ in sanitizeCode(word.key) }
         } footer: {
-          Text(word.kind == .pinyin ? "每个字填写一个完整拼音音节，用空格或英文单引号分隔；ü 用 v。全拼、双拼和九键共用这个词条。" : "五笔使用 1–4 个字母；快捷短语使用英文字母，在键盘“本地输入 → 快捷短语”输入；英文编码使用字母、连字符或撇号，可以和词条不同，例如用 dont 打出 don't。")
+          Text(word.kind == .pinyin ? "每个字填写一个完整拼音音节，用空格或英文单引号分隔；ü 用 v。全拼、双拼和九键共用这个词条。" : "五笔使用 1–4 个字母；快捷短语使用英文字母，在键盘“本地输入 → 快捷短语”输入；英文编码使用字母、连字符或撇号，可以和词条不同，例如用 dont 打出 don't。" + (word.kind == .quickPhrase ? "\n在文字中用 ${cursor} 指定上屏后的光标位置，例如 title:\"${cursor}\" 会输入 title:\"\"，光标停在引号内。只定位第一个标记；要输入标记本身，请写 $${cursor}。编辑器不支持定位时光标留在末尾。以前存过、要照原样输入 ${cursor} 的短语，请改写成 $${cursor}。" : ""))
         }
         }
         Section {

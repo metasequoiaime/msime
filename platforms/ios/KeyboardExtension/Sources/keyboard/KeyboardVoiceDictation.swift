@@ -8,6 +8,8 @@ final class KeyboardVoiceDictation {
     case listening(String)
     /// 正在听时 App 报来的麦克风电平（0…1）。App 只在电平有变化时报，状态里没有电平时不发这个事件。
     case level(Float)
+    /// App 说这次听写会在停顿后自己结束（点按开始、用本地模型识别，#10310），每次听写最多报一次。
+    case endsOnPause
     /// 松开以后在识别或润色；`message` 为空时就是在识别。
     case recognizing(text: String, message: String)
     case finished(String)
@@ -26,6 +28,7 @@ final class KeyboardVoiceDictation {
   private(set) var request: UUID?
   private var acknowledged = false
   private var stopRequested = false
+  private var endsOnPauseReported = false
   var onEvent: ((Event) -> Void)?
 
   init(channel: VoiceSessionChannel = VoiceSessionChannel()) {
@@ -35,13 +38,15 @@ final class KeyboardVoiceDictation {
   /// App 的语音会话此刻能不能接听写；不能时要先打开 App。
   var sessionAvailable: Bool { channel.readState()?.isAvailable() == true }
 
-  func start() {
+  /// `held` 为假时是点按开始的听写，App 用本地识别时会在停顿后自己结束录音：先报 `endsOnPause`，结束时键盘照常收到 `recognizing` 和 `finished`，与到时长上限时一样。
+  func start(held: Bool = true) {
     let id = UUID()
     request = id
     acknowledged = false
     stopRequested = false
+    endsOnPauseReported = false
     observer = DarwinNotificationObserver(VoiceSessionChannel.stateNotification) { [weak self] in self?.stateChanged() }
-    channel.send(VoiceSessionCommand(action: .start, request: id, sentAt: Date()))
+    channel.send(VoiceSessionCommand(action: .start, request: id, sentAt: Date(), tapStarted: !held))
     watch(Self.startTimeout, .failed("水杉没有回应，正在重新开启语音…", reopensSession: true))
   }
 
@@ -76,6 +81,10 @@ final class KeyboardVoiceDictation {
       }
       onEvent?(stopRequested ? .recognizing(text: state.text, message: "") : .listening(state.text))
       if !stopRequested, let level = state.level { onEvent?(.level(level)) }
+      if !stopRequested, !endsOnPauseReported, state.endsOnPause == true {
+        endsOnPauseReported = true
+        onEvent?(.endsOnPause)
+      }
     case .recognizing:
       acknowledged = true
       onEvent?(.recognizing(text: state.text, message: state.message))

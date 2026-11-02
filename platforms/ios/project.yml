@@ -479,6 +479,8 @@ targets:
       - path: App/Services/DoubaoWebSocketTransport.swift
       - path: App/Services/WAVPCMExtractor.swift
       - path: App/Services/VoiceLevel.swift
+      # 点按开始的本地识别的停顿设置和计时（#10310），VoicePauseTests 直接测它。
+      - path: App/Services/VoicePause.swift
       - path: App/Services/BoundedFileReader.swift
       - path: SharedUI/core/AIEndpointPolicy.swift
       - path: SharedUI/core/AppServicesBridge.swift

@@ -183,7 +183,8 @@ public final class OfflineVoiceRecognitionActivity extends Activity {
                     status.setText("正在本机聆听，说完后点「完成」。");
                 });
                 if (session.finished()) return;
-                recognizer.vadSensitivity(AndroidLocalSettings.load(this).integer(AndroidLocalSettings.VOICE_VAD_SENSITIVITY));
+                // 离线识别窗口由「完成」结束、不按停顿判停，判停灵敏度在这里换不来好处，传 0 让阈值保持 0.5。
+                recognizer.vadSensitivity(0);
                 String text = recognizer.recognize(configuration.localModel(), files.toPath(), language,
                     HostOptionsPolicy.readRuntimeOptions(files), null, null, new LocalAsrRecognizer.Listener() {
                         @Override public void onPartial(String text) {
@@ -197,8 +198,10 @@ public final class OfflineVoiceRecognitionActivity extends Activity {
                             });
                         }
                     });
+                // 语音标点与键盘里同一个偏好；只剩标点时 returnResult 按没有结果回给调用方。
+                String result = VoicePunctuation.apply(text, configuration.punctuationMode());
                 runOnUiThread(() -> {
-                    if (!failed) returnResult(text);
+                    if (!failed) returnResult(result);
                 });
             } catch (LocalAsrRecognizer.Refused error) {
                 runOnUiThread(() -> showFailure(LocalAsrPolicy.failureMessage(error.failure(), error.runtimeMissing())));

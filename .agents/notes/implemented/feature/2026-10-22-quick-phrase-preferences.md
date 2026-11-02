@@ -51,3 +51,5 @@ Windows 有两个快捷短语偏好，新架构没有对应物：
 - 「快捷短语混输」从宿主能力变成用户开关：macOS、Linux 上用户可以在设置里关掉它，新装默认关。
 - 「快捷短语参与调频」默认开；它和调频开关共用 `frequency.mode != Disabled` 的门禁，关掉调频时槽位记录保留但不读。
 - `quick_phrase_slots` 表进 journal，换词库时随日志重放。
+
+快捷短语的 `${cursor}` 展开与上屏后缀契约见[光标定位笔记](../../implemented/feature/2026-10-31-quick-phrase-cursor.md)；不改变本文原有决定。

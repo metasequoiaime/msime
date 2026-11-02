@@ -17,7 +17,7 @@ import { CandidateWidthPolicy } from "../entry/src/main/ets/keyboard/candidate/C
 import {
   VoiceRecognitionPolicy,
   VOICE_DONE_NOTICE_MS,
-  VOICE_SILENCE_STOP_MS,
+  VOICE_PAUSE_DEFAULT_MS,
 } from "../entry/src/main/ets/keyboard/input/VoiceRecognitionPolicy";
 
 let failures = 0;
@@ -346,7 +346,11 @@ group("a voice result goes straight in only where listening began", () => {
     !VoiceRecognitionPolicy.insertsDirectly(null, { editor: 4, context: 9 }, false),
     "no editor was attached when listening began",
   );
-  check(VOICE_DONE_NOTICE_MS === 1200 && VOICE_SILENCE_STOP_MS === 1500, "Android's notice time and default pause");
+  check(
+    VOICE_DONE_NOTICE_MS === 1200 &&
+      VOICE_PAUSE_DEFAULT_MS === 1500,
+    "Android's notice time and default pause",
+  );
 });
 
 group("系统语音使用规范语言标签，不改写保存的语言选择", () => {

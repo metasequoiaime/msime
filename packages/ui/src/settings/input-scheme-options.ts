@@ -1,6 +1,7 @@
 import type { EditionInfo, HostCapabilities } from "../core/host-capabilities";
 import type { ChineseScheme, InputScheme } from "../core/input-scheme";
 
+import type { CantonesePreferences } from "./cantonese-preferences";
 import type { VietnamesePreferences } from "./vietnamese-preferences";
 
 export type ChineseInputScheme = ChineseScheme;
@@ -21,7 +22,13 @@ export const koreanInputSchemeOptions = [
   { value: "romaja", label: "罗马字" },
 ] as const;
 
-export const cantoneseInputSchemeOptions = [{ value: "jyutping", label: "粤拼" }] as const;
+export const cantoneseInputSchemeOptions = [
+  { value: "jyutping", label: "粤拼" },
+  { value: "shuangpin", label: "粤语双拼" },
+] as const satisfies readonly {
+  value: NonNullable<CantonesePreferences["input_method"]>;
+  label: string;
+}[];
 
 export const zhuyinLayoutOptions = [{ value: "dachen", label: "大千" }] as const;
 

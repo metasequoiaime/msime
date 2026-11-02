@@ -148,7 +148,7 @@ enum KeyboardVoicePanelPolicy {
   }
 }
 
-/// 手机键盘的聆听面板：结束采集后直接上屏，取消只丢弃本次听写。按住空格时由松手结束、上滑取消，面板上没有按钮；点按开始时有「说完了」和「取消」。
+/// 手机键盘的聆听面板：结束采集后直接上屏，取消只丢弃本次听写。按住空格时由松手结束、上滑取消，面板上没有按钮；点按开始时有「说完了」和「取消」；App 用本地模型识别时点按开始的听写在停顿后也会自己结束，面板收到 `showEndsOnPause` 后提示换成「停顿后自动上屏」（#10310）。
 ///
 /// 点按开始时动作行贴着面板底边（留 `actionsBottomMargin`），它以上的区域按 `KeyboardVoicePanelPolicy.plan` 排指示区、标题和提示；按住说话时没有动作行，整个面板都给这三样。光晕的外扩算进指示区，不会画出面板。
 final class KeyboardVoicePanelView: UIView {
@@ -169,6 +169,8 @@ final class KeyboardVoicePanelView: UIView {
   static let cancellingTitle = "松开取消"
   static let heldCaption = "松开结束，上滑取消"
   static let tappedCaption = "说完后点「说完了」，识别后自动上屏"
+  /// 与 Android、鸿蒙聆听面板在本地识别时的提示相同。
+  static let pauseCaption = "停顿后自动上屏，也可点「说完了」"
   static let recognizingCaption = "识别完成后自动上屏"
 
   let orb: KeyboardVoiceOrbButton
@@ -179,7 +181,8 @@ final class KeyboardVoicePanelView: UIView {
   var onFinish: (() -> Void)?
   var onCancel: (() -> Void)?
   private let actions: UIStackView
-  private let idleCaption: String
+  private let held: Bool
+  private var idleCaption: String
   private(set) var isCancelling = false
   private(set) var isRecognizing = false
   /// 最近一次的实时文字，按当前宽度截取后才显示。
@@ -190,6 +193,7 @@ final class KeyboardVoicePanelView: UIView {
 
   init(dictationHeld held: Bool, skin: KeyboardTheme) {
     orb = KeyboardVoiceOrbButton(skin: skin, mascot: KeyboardVoicePanelPolicy.showsMascot(held: held))
+    self.held = held
     idleCaption = held ? Self.heldCaption : Self.tappedCaption
     actions = UIStackView(arrangedSubviews: [finishButton, cancelButton])
     super.init(frame: .zero)
@@ -234,6 +238,14 @@ final class KeyboardVoicePanelView: UIView {
 
   func showListening(_ text: String) {
     partial = text
+    refreshText()
+    setNeedsLayout()
+  }
+
+  /// App 说这次点按开始的听写会在停顿后自己结束；按住说话由松手结束，提示不变。
+  func showEndsOnPause() {
+    guard !held else { return }
+    idleCaption = Self.pauseCaption
     refreshText()
     setNeedsLayout()
   }

@@ -14,6 +14,11 @@ export const LOCAL_MODEL_MANIFEST: string = "msime-model.json";
 export const CORE_SPEECH_CHUNK_BYTES: number = 1280;
 /** One Silero VAD window at 16 kHz. */
 export const LOCAL_VAD_WINDOW: number = 512;
+/** Silero VAD 的判定阈值缺省值，与 `LocalAsr.cpp` 相同。 */
+export const LOCAL_VAD_THRESHOLD: number = 0.5;
+/** 判停灵敏度（`voice_input.stop_sensitivity`）的范围，与 client-core 的 `VOICE_STOP_SENSITIVITY_RANGE` 相同。 */
+export const LOCAL_STOP_SENSITIVITY_MIN: number = 10;
+export const LOCAL_STOP_SENSITIVITY_MAX: number = 90;
 /** 段首往前补（`LocalAsrPolicy.vadSegmentStart`）的参数，与 `LocalAsr.cpp` 一致：10 ms 一帧，最多往前 3 秒，低能量间隙不超过 0.25 秒，找到的起音前再留 0.3 秒；帧能量高出噪声底 4 倍（12 dB）算作语音，噪声底不低于 -100 dBFS。 */
 const ONSET_FRAME: number = LOCAL_ASR_SAMPLE_RATE / 100;
 const ONSET_LOOKBACK: number = LOCAL_ASR_SAMPLE_RATE * 3;
@@ -83,6 +88,8 @@ export interface LocalAsrRequest {
   pcm: ArrayBuffer | null;
   /** 宿主的临时目录，离线 transducer 的热词文件写在这里；空串表示没有，此时不带热词加载。 */
   scratch: string;
+  /** 本次会话的判停灵敏度，只有 `start` 用；0 表示沿用缺省的 VAD 阈值，见 `LocalAsrPolicy.vadThreshold`。 */
+  stopSensitivity: number;
 }
 
 /** One user dictionary word returned by `msime_client_voice_hotwords`. */
@@ -115,6 +122,20 @@ interface ManifestDocument {
 const HALF_TO_FULL_WIDTH: Record<string, string> = { ".": "。", "?": "？", "!": "！", ",": "，" };
 
 export class LocalAsrPolicy {
+  /**
+   * 判停灵敏度换成 Silero VAD 的判定阈值（#10310）：灵敏度越高，阈值越高，越不容易把声音当作还在说话，停顿计时也就越早结束录音。10–90 的整数按 ÷100 换算，默认 50 正是原来写死的 0.5；0（不按停顿结束的会话）、越界或非整数都用缺省阈值。iOS 的 `VoicePauseSettings.vadThreshold` 用同一个换算。
+   */
+  static vadThreshold(stopSensitivity: number): number {
+    if (
+      !Number.isInteger(stopSensitivity) ||
+      stopSensitivity < LOCAL_STOP_SENSITIVITY_MIN ||
+      stopSensitivity > LOCAL_STOP_SENSITIVITY_MAX
+    ) {
+      return LOCAL_VAD_THRESHOLD;
+    }
+    return stopSensitivity / 100;
+  }
+
   /** 纠错响应必须携带字符串，否则保留识别器原文。 */
   static correctedText(value: unknown, fallback: string): string {
     if (value === null || typeof value !== "object" || Array.isArray(value)) return fallback;

@@ -73,6 +73,17 @@ add_test(NAME msime-tsf-host-library-config COMMAND "${CMAKE_COMMAND}"
   "-DSOURCE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}"
   "-DTEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/host-library-config-test"
   -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/host_library_config.cmake")
+add_executable(msime-tsf-quick-phrase-cursor-edit-test tests/input/quick_phrase_cursor_edit.cpp)
+add_executable(msime-tsf-quick-phrase-cursor-reply-test tests/input/quick_phrase_cursor_reply.cpp)
+foreach(cursor_test IN ITEMS edit reply)
+  target_compile_features(msime-tsf-quick-phrase-cursor-${cursor_test}-test PRIVATE cxx_std_17)
+  if(MSVC)
+    target_compile_options(msime-tsf-quick-phrase-cursor-${cursor_test}-test PRIVATE /W4 /WX /utf-8)
+  else()
+    target_compile_options(msime-tsf-quick-phrase-cursor-${cursor_test}-test PRIVATE -Wall -Wextra -Werror)
+  endif()
+  add_test(NAME msime-tsf-quick-phrase-cursor-${cursor_test} COMMAND msime-tsf-quick-phrase-cursor-${cursor_test}-test)
+endforeach()
 add_executable(msime-tsf-character-result-test tests/input/character_result.cpp)
 target_compile_features(msime-tsf-character-result-test PRIVATE cxx_std_17)
 target_include_directories(msime-tsf-character-result-test PRIVATE ../../../crates/host-api/include)

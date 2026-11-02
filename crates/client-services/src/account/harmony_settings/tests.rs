@@ -1280,3 +1280,20 @@ fn only_the_shared_settings_this_host_can_change_sync() {
     );
     assert_eq!(applied.preferences.translation_ai, local.translation_ai);
 }
+
+/// 本地识别的停顿时间和判停灵敏度（#10310）只留在本机：改了它们，鸿蒙导出的账号键值一个也不变，应用云端设置时也保留本机的值。
+#[test]
+fn voice_pause_settings_never_reach_the_account() {
+    let mut local = Preferences::default();
+    local.voice_input.pause_millis = 4000;
+    local.voice_input.stop_sensitivity = 20;
+    assert_eq!(exported(&local), exported(&Preferences::default()));
+
+    let applied = apply(
+        &local,
+        &[("input.schema", string("shuangpin"))],
+        &full_schema(),
+    );
+    assert_eq!(applied.preferences.voice_input.pause_millis, 4000);
+    assert_eq!(applied.preferences.voice_input.stop_sensitivity, 20);
+}

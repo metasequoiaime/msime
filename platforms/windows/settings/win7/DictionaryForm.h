@@ -5,6 +5,7 @@
 #include "SettingsWindow.h"
 #include "ThemeData.h"
 #include "DictionaryData.h"
+#include "../PluginEditorModel.h"
 #include <commctrl.h>
 #include <charconv>
 #include <functional>
@@ -58,6 +59,8 @@ public:
     add(dictionary_key, L"EDIT", L"", WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL);
     add(-1, L"STATIC", L"词条 / 快捷短语", SS_LEFT);
     add(dictionary_value, L"EDIT", L"", WS_TABSTOP | WS_BORDER | WS_VSCROLL | ES_MULTILINE, 84);
+    // 与共享页 dictionary-entries.tsx 的快捷短语说明同一句；Win7 的编辑框各类型共用，所以写明只对快捷短语生效。
+    add(-1, L"STATIC", (L"快捷短语：" + std::wstring(msime::settings::plugins::quick_phrase_cursor_note)).c_str(), SS_LEFT, 84);
     add(-1, L"STATIC", L"权重（1–100000000）", SS_LEFT);
     add(dictionary_weight, L"EDIT", L"10000", WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL | ES_NUMBER);
     add(dictionary_new, L"BUTTON", L"填写新词条", WS_TABSTOP | BS_PUSHBUTTON, 32);

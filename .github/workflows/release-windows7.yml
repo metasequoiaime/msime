@@ -287,21 +287,20 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $version = (Get-Content platforms/windows/version-win7.txt -TotalCount 1).Trim()
           if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Win7 version-win7.txt 不是有效的语义版本' }
-          # Win7 包固定用 Inno Setup 6.4.3：6.7.1 打出的安装包在兆芯 CPU 的 Win7 x64 上一双击就报 Runtime error 255，崩在 Setup 的 32 位启动程序里，还没解压任何内容；怀疑与 6.5 起 Inno 改用 Delphi 12.3 编译有关，6.4.3 是最后一个 Delphi 12.1 版本。Chocolatey 没有 6.4.3，从官方 GitHub Release 下载并校验摘要，装进独立目录，不碰镜像预装的版本，并显式传 -IsccPath。
-          $innoSetup = Join-Path $env:RUNNER_TEMP 'innosetup-6.4.3.exe'
-          Invoke-WebRequest -Uri 'https://github.com/jrsoftware/issrc/releases/download/is-6_4_3/innosetup-6.4.3.exe' -OutFile $innoSetup
-          if ((Get-FileHash -LiteralPath $innoSetup -Algorithm SHA256).Hash -ne 'F3C42116542C4CC57263C5BA6C4FEABFC49FE771F2F98A79D2F7628B8762723B') { throw 'Inno Setup 6.4.3 安装程序摘要不匹配' }
-          $inno = Join-Path $env:RUNNER_TEMP 'InnoSetup-6.4.3'
+          # Win7 包固定用 Inno Setup 6.2.2：Inno 6.3.0 起（改用 Delphi 11.3 编译）打出的安装包，在 CPUID 厂商为 CentaurHauls 的兆芯 CPU 上一启动就报 Runtime error 255，崩在 Setup 的 32 位启动程序里。2026-11-01 在 pve9 的 Win7 x64 虚拟机上用 -cpu host,vendor=CentaurHauls 对照过官方安装程序：6.2.2 正常进入向导，6.3.3、6.4.3、6.7.1 都立即以 255 退出；只换成兆芯 YongFeng 的指令集、厂商仍为 GenuineIntel 时正常。Chocolatey 没有旧版本，从官方 GitHub Release 下载并校验摘要，装进独立目录，不碰镜像预装的版本，并显式传 -IsccPath。
+          $innoSetup = Join-Path $env:RUNNER_TEMP 'innosetup-6.2.2.exe'
+          Invoke-WebRequest -Uri 'https://github.com/jrsoftware/issrc/releases/download/is-6_2_2/innosetup-6.2.2.exe' -OutFile $innoSetup
+          if ((Get-FileHash -LiteralPath $innoSetup -Algorithm SHA256).Hash -ne '8117D10D00A2AD33A1390978EA3872861C330E087914410A6377B22C4C5B8563') { throw 'Inno Setup 6.2.2 安装程序摘要不匹配' }
+          $inno = Join-Path $env:RUNNER_TEMP 'InnoSetup-6.2.2'
           $innoInstall = Start-Process -FilePath $innoSetup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/ALLUSERS', "/DIR=`"$inno`"") -Wait -PassThru
           if ($innoInstall.ExitCode -ne 0) { throw "Inno Setup 安装失败，退出码：$($innoInstall.ExitCode)" }
           $iscc = Join-Path $inno 'ISCC.exe'
-          # ISCC.exe 的版本资源是 0.0.0.0，读不出版本；安装程序摘要已经锁定 6.4.3，编译日志的 Compiler engine version 也会打出来。
+          # ISCC.exe 的版本资源读不出版本；安装程序摘要已经锁定 6.2.2，编译日志的 Compiler engine version 也会打出来。
           if (-not (Test-Path -LiteralPath $iscc -PathType Leaf)) { throw "找不到 ISCC.exe：$iscc" }
+          # 中文消息文件取 6.2.2 标签里的那一份，与编译器的消息条目一致。
           $isl = "$inno\Languages\ChineseSimplified.isl"
-          if (-not (Test-Path -LiteralPath $isl)) {
-            Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/jrsoftware/issrc/cfdf48923178df4b4f040e038b423aa555a61ffc/Files/Languages/Unofficial/ChineseSimplified.isl' -OutFile $isl
-            if ((Get-FileHash -LiteralPath $isl -Algorithm SHA256).Hash -ne '7D544B9BB1D142CFA11F2E5D3CC8ABE2E55F8E066C5124E3772675AA236E1278') { throw 'ChineseSimplified.isl 摘要不匹配' }
-          }
+          Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/jrsoftware/issrc/is-6_2_2/Files/Languages/Unofficial/ChineseSimplified.isl' -OutFile $isl
+          if ((Get-FileHash -LiteralPath $isl -Algorithm SHA256).Hash -ne '8897D1DC319935D359FC52A27CD18BC7FF4C7B7660C58CB23B3893EB99C9DB23') { throw 'ChineseSimplified.isl 摘要不匹配' }
           foreach ($arch in @('x64', 'x86')) {
             $env:MSIME_REQUIRE_OFFICIAL_PLUGINS = '1'
             $env:MSIME_REQUIRE_WORDBOOKS = '1'
