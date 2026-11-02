@@ -2172,7 +2172,10 @@ impl<E: InputEngine> Runtime<E> {
         }
         let page = self.highlighted / self.page_size;
         let last_page = (len - 1) / self.page_size;
-        let at_last_candidate = self.highlighted + 1 == len;
+        // 后面只剩云占位行时也算到了末尾：↓ 越过占位行，没有可停的座位就该先展开。
+        let at_last_candidate = self
+            .highlightable_seat(self.highlighted + 1, true, len)
+            .is_none();
         let at_page_end = (self.highlighted + 1).is_multiple_of(self.page_size);
         let next_is_partial_last = page + 1 == last_page && !len.is_multiple_of(self.page_size);
         if !at_last_candidate && !(at_page_end && next_is_partial_last) {
@@ -3041,7 +3044,31 @@ impl<E: InputEngine> Runtime<E> {
             })
             .min_by_key(|(index, _)| index.abs_diff(previous_highlight))
             .map(|(index, _)| index);
-        self.highlighted = found.unwrap_or(page_start).min(visible - 1);
+        let seat = found.unwrap_or(page_start).min(visible - 1);
+        // 退到的那一页开头可能正好是云占位行（每页一个、列表变短时）：先在后面找，留在这一页附近。
+        self.highlighted = self
+            .highlightable_seat(seat, true, visible)
+            .or_else(|| self.highlightable_seat(seat, false, visible))
+            .unwrap_or(seat);
+    }
+
+    /// 高亮能不能停在这个座位上。云占位行（`CandidateSource::CloudPending`，文字「☁」）不是候选：引擎在第二格先占住云候选的位置，选它「什么都不做但算处理过」，Windows（#9273）、macOS（#9951）和移动三端都不画它。高亮落在上面，用户看到的是高亮消失；Windows 候选窗还会因为可见行里没有高亮而抛出，整个 Server 停掉（#10665）。
+    ///
+    /// 规则与 Windows `candidate_source_is_visible` 同义，只排除云占位行；已退役的 AI 占位行（12）Windows 照旧画出来，高亮照旧能停。
+    fn seat_takes_highlight(&self, seat: usize) -> bool {
+        const CLOUD_PENDING: u8 = msime_engine::CandidateSource::CloudPending as u8;
+        self.cached.candidate_sources.get(seat) != Some(&CLOUD_PENDING)
+    }
+
+    /// 从 `seat`（含它本身）起朝 `forward` 的方向找第一个能停高亮的座位，只在 `..end` 里找；找不到是 `None`。
+    fn highlightable_seat(&self, seat: usize, forward: bool, end: usize) -> Option<usize> {
+        if forward {
+            (seat..end).find(|&index| self.seat_takes_highlight(index))
+        } else {
+            (0..=seat.min(end.checked_sub(1)?))
+                .rev()
+                .find(|&index| self.seat_takes_highlight(index))
+        }
     }
 
     /// 挂着的逐键打分器在上屏时同步排一池联想仍在逐键预算之内（[`CandidateScorer::scores_prediction_pool_within_keystroke_budget`]）。引擎的联想候选池按它开关。
@@ -3525,27 +3552,49 @@ impl<E: InputEngine> Runtime<E> {
         }
         // 高亮、数字、空格和点选都只落在可见前缀里，被隐藏的行选不到。
         let len = self.visible_len();
+        // 每个目标都越过云占位行（`seat_takes_highlight`）；朝移动方向找不到可停的座位时高亮留在原地。
+        let stay = self.highlighted.min(len.saturating_sub(1));
         let next_highlight = match &action {
             // Staying keeps the highlight exactly where it was: the page did not change, it only
             // stopped being short.
             Action::NextPage if filled_current_page => Some(self.highlighted),
-            Action::NextPage if len > 0 => Some(
-                (self.highlighted / self.page_size + 1).min((len - 1) / self.page_size)
-                    * self.page_size,
-            ),
-            Action::PreviousPage if len > 0 => {
-                Some((self.highlighted / self.page_size).saturating_sub(1) * self.page_size)
+            Action::NextPage if len > 0 => {
+                let start = (self.highlighted / self.page_size + 1).min((len - 1) / self.page_size)
+                    * self.page_size;
+                Some(self.highlightable_seat(start, true, len).unwrap_or(stay))
             }
-            Action::NextCandidate if len > 0 => Some((self.highlighted + 1).min(len - 1)),
-            Action::PreviousCandidate if len > 0 => Some(self.highlighted.saturating_sub(1)),
+            // 先在目标页里往后找，整页都是占位行（每页一个时）才继续往前翻。
+            Action::PreviousPage if len > 0 => {
+                let start = (self.highlighted / self.page_size).saturating_sub(1) * self.page_size;
+                Some(
+                    self.highlightable_seat(start, true, (start + self.page_size).min(len))
+                        .or_else(|| self.highlightable_seat(start, false, len))
+                        .unwrap_or(stay),
+                )
+            }
+            Action::NextCandidate if len > 0 => Some(
+                self.highlightable_seat(self.highlighted + 1, true, len)
+                    .unwrap_or(stay),
+            ),
+            Action::PreviousCandidate if len > 0 => Some(
+                self.highlighted
+                    .checked_sub(1)
+                    .and_then(|seat| self.highlightable_seat(seat, false, len))
+                    .unwrap_or(stay),
+            ),
             // The ends of the list, not the ends of the page. The reference's Home and End are
             // FUNCTION_MOVE_PAGE_TOP and FUNCTION_MOVE_PAGE_BOTTOM, and its presenter answers both
             // with SetSelection - index 0, or -1 read as Count() - 1 - which then pulls the page
             // along to wherever that candidate sits. Every host here routes its own Home and End to
             // this action, so all four used to stop at the edges of the page the user was already
             // looking at, which is a keystroke that does almost nothing.
-            Action::FirstCandidate if len > 0 => Some(0),
-            Action::LastCandidate if len > 0 => Some(len - 1),
+            Action::FirstCandidate if len > 0 => {
+                Some(self.highlightable_seat(0, true, len).unwrap_or(0))
+            }
+            Action::LastCandidate if len > 0 => Some(
+                self.highlightable_seat(len - 1, false, len)
+                    .unwrap_or(len - 1),
+            ),
             _ => None,
         };
         if let Some(index) = next_highlight {

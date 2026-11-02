@@ -7998,6 +7998,108 @@ fn push_cloud_candidate(runtime: &mut Runtime<Fixture>) {
     runtime.engine.sources.push(2);
 }
 
+/// 云占位行（`CandidateSource::CloudPending`）的来源值。
+const CLOUD_PENDING: u8 = msime_engine::CandidateSource::CloudPending as u8;
+
+/// 引擎的候选里带一个云占位行：文字「☁」，来源 15，和引擎在第二格放的那一行一样。
+fn cloud_pending_runtime(words: &[&str], sources: &[u8], page_size: u8) -> Runtime<Fixture> {
+    let mut runtime = Runtime::new(
+        Fixture {
+            local_mode: "none".into(),
+            words: words.iter().map(|word| (*word).to_owned()).collect(),
+            codes: (0..words.len()).map(|n| format!("c{n}")).collect(),
+            sources: sources.to_vec(),
+            ..Fixture::default()
+        },
+        page_size,
+    )
+    .unwrap();
+    runtime.focus(true).unwrap();
+    type_key(&mut runtime);
+    runtime
+}
+
+fn highlighted_text(view: &View) -> Option<String> {
+    view.candidates
+        .iter()
+        .find(|candidate| candidate.highlighted)
+        .map(|candidate| candidate.text.clone())
+}
+
+/// 云占位行选不中，桌面和移动宿主都不画它。↑/↓ 落在它上面时，Windows 的候选窗里一个高亮都没有，候选窗的检查抛出、Server 整个停掉（#10665）；macOS 的高亮也随之消失。高亮移动必须越过这一行。
+#[test]
+fn arrow_keys_skip_the_cloud_placeholder() {
+    let mut runtime = cloud_pending_runtime(&["甲", "☁", "乙", "丙"], &[0, CLOUD_PENDING, 0, 0], 5);
+    let down = runtime.dispatch(Action::NextCandidate).unwrap().view;
+    assert_eq!(highlighted_text(&down).as_deref(), Some("乙"));
+    let up = runtime.dispatch(Action::PreviousCandidate).unwrap().view;
+    assert_eq!(highlighted_text(&up).as_deref(), Some("甲"));
+    let end = runtime.dispatch(Action::LastCandidate).unwrap().view;
+    assert_eq!(highlighted_text(&end).as_deref(), Some("丙"));
+
+    // 首选后面只剩占位行时，↓ 和 End 都留在首选，不落到占位行上。
+    let mut alone = cloud_pending_runtime(&["甲", "☁"], &[0, CLOUD_PENDING], 5);
+    let down = alone.dispatch(Action::NextCandidate).unwrap().view;
+    assert_eq!(highlighted_text(&down).as_deref(), Some("甲"));
+    let end = alone.dispatch(Action::LastCandidate).unwrap().view;
+    assert_eq!(highlighted_text(&end).as_deref(), Some("甲"));
+}
+
+/// 横排时左右键移高亮走的是同一个 `NextCandidate` / `PreviousCandidate`，报告里 → 同样让候选窗消失。
+#[test]
+fn horizontal_left_right_skips_the_cloud_placeholder() {
+    let mut runtime = cloud_pending_runtime(&["甲", "☁", "乙", "丙"], &[0, CLOUD_PENDING, 0, 0], 5);
+    runtime.set_left_right_navigation(true);
+    let right = runtime
+        .dispatch(Action::Command(Command::MoveRight))
+        .unwrap()
+        .view;
+    assert_eq!(highlighted_text(&right).as_deref(), Some("乙"));
+    let left = runtime
+        .dispatch(Action::Command(Command::MoveLeft))
+        .unwrap()
+        .view;
+    assert_eq!(highlighted_text(&left).as_deref(), Some("甲"));
+}
+
+/// 每页一个候选时，占位行自己就是一页，翻页同样要越过它。
+#[test]
+fn paging_one_by_one_skips_the_cloud_placeholder() {
+    let mut runtime = cloud_pending_runtime(&["甲", "☁", "乙", "丙"], &[0, CLOUD_PENDING, 0, 0], 1);
+    let next = runtime.dispatch(Action::NextPage).unwrap().view;
+    assert_eq!(highlighted_text(&next).as_deref(), Some("乙"));
+    let previous = runtime.dispatch(Action::PreviousPage).unwrap().view;
+    assert_eq!(highlighted_text(&previous).as_deref(), Some("甲"));
+
+    // 后面只剩占位行这一页：翻页留在原地。
+    let mut alone = cloud_pending_runtime(&["甲", "☁"], &[0, CLOUD_PENDING], 1);
+    let next = alone.dispatch(Action::NextPage).unwrap().view;
+    assert_eq!(highlighted_text(&next).as_deref(), Some("甲"));
+}
+
+/// 组字没变时异步改写候选，找不回原来那一条就退到原来那一页的开头；每页一个、列表变短时，那个位置可能正好是占位行。
+#[test]
+fn a_late_refresh_does_not_leave_the_highlight_on_the_cloud_placeholder() {
+    let mut runtime = cloud_pending_runtime(&["甲", "☁", "乙"], &[0, CLOUD_PENDING, 0], 1);
+    let moved = runtime.dispatch(Action::NextCandidate).unwrap().view;
+    assert_eq!(highlighted_text(&moved).as_deref(), Some("乙"));
+    runtime.engine.words = vec!["丁".into(), "☁".into()];
+    runtime.engine.codes = vec!["c0".into(), "c1".into()];
+    runtime.engine.sources = vec![0, CLOUD_PENDING];
+    runtime.refresh().unwrap();
+    assert_eq!(highlighted_text(&runtime.view()).as_deref(), Some("丁"));
+}
+
+/// 只有云占位行越过去：已退役的 AI 占位行（12）引擎不再产出，Windows 照旧把它画成次要色，高亮照旧能停在上面，规则与 Windows `candidate_source_is_visible` 一致。
+#[test]
+fn only_the_cloud_placeholder_is_skipped() {
+    const AI_PENDING: u8 = msime_engine::CandidateSource::AiPending as u8;
+    // AI 行坐第一页最后一格，每页两个时就是第二格，和云占位行同一个位置。
+    let mut runtime = cloud_pending_runtime(&["甲", "…", "乙"], &[0, AI_PENDING, 0], 2);
+    let down = runtime.dispatch(Action::NextCandidate).unwrap().view;
+    assert_eq!(highlighted_text(&down).as_deref(), Some("…"));
+}
+
 #[test]
 fn candidate_page_len_matches_the_published_page_without_building_rows() {
     let mut short = withholding_runtime(3, 4, 5);
