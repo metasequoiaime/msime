@@ -11,6 +11,7 @@ import type { PunctuationPreferences } from "../settings/punctuation-preferences
 import type { KeybindingPreferences } from "../settings/keybinding-preferences";
 import type { WubiPreferences } from "../settings/wubi-preferences";
 import type { VietnamesePreferences } from "../settings/vietnamese-preferences";
+import type { CantonesePreferences } from "../settings/cantonese-preferences";
 import type { KoreanPreferences } from "../settings/korean-preferences";
 import type { FloatingToolbarPreferences } from "../settings/floating-toolbar-preferences";
 import type { TraditionalChineseVariant } from "../settings/chinese-output-preferences";
@@ -208,6 +209,8 @@ export type Preferences = PunctuationPreferences &
     shuangpin_keymap_hint?: boolean;
     vietnamese?: VietnamesePreferences;
     korean?: KoreanPreferences;
+    /** 桌面宿主的粤拼解释方式；等于默认值（普通粤拼）时文档里没有这一项。 */
+    cantonese?: CantonesePreferences;
     /** 只出单字：全拼、双拼、五笔和粤拼的候选只留单个汉字；缺省为关。 */
     single_character_only?: boolean;
     /** 移动光标后编辑光标后的部分（桌面宿主）：缺省为关，关着时 Rust 端不写这个键。 */

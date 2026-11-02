@@ -325,6 +325,27 @@ public class DeviceSmoke extends Instrumentation {
             && equalsText(description, node.getContentDescription());
     }
 
+    /** 排序面板（`ReorderList`）一行的拖动把手：读屏描述是「拖动调整 名称 的顺序」，操作菜单里带「下移」。排序面板没有箭头（#10392、#10546），读屏用户靠把手上的这个操作排序，套件照读屏的路径走。 */
+    protected Predicate<AccessibilityNodeInfo> orderHandle(String label) {
+        return node -> equalsText("拖动调整 " + label + " 的顺序", node.getContentDescription())
+            && accessibilityAction(node, "下移") != null;
+    }
+
+    /** 在排序面板里执行 `label` 那一行把手上的「下移」，与 TalkBack 用户的操作相同。 */
+    protected void moveOrderRowDown(String label) throws Exception {
+        dropStaleNodes();
+        AccessibilityNodeInfo handle = await(orderHandle(label));
+        if (!handle.performAction(accessibilityAction(handle, "下移").getId()))
+            throw new AssertionError("Order handle refused 下移 for " + label);
+    }
+
+    /** 节点操作菜单里名为 `label` 的自定义操作，没有时为 null。 */
+    protected static AccessibilityNodeInfo.AccessibilityAction accessibilityAction(AccessibilityNodeInfo node, String label) {
+        for (AccessibilityNodeInfo.AccessibilityAction action : node.getActionList())
+            if (equalsText(label, action.getLabel())) return action;
+        return null;
+    }
+
     /** 键盘工具栏的「剪贴板」按钮，只认可用的。输入法进程刚起来时偏好在后台线程读，读到「剪贴板历史」开着之前按钮是灰的，点了没有反应，后面等面板的步骤会等满超时（CI 的 API 35 上「clipboard phrase notice」的 launch 和剪贴板导出的键盘导出都在输入法冷启动后停在过这一步）。 */
     protected Predicate<AccessibilityNodeInfo> clipboardEntry() {
         return described("剪贴板").and(AccessibilityNodeInfo::isEnabled);

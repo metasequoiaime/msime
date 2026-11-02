@@ -47,6 +47,7 @@ export default class EntryAbility extends UIAbility {
     return SettingsPageLink.fromParameters(parameters['page'], parameters['target']);
   }
 
+  private telemetryGeneration: number = 0;
   private microphoneRequested: boolean = false;
   private microphoneRequestPending: boolean = false;
 
@@ -69,11 +70,16 @@ export default class EntryAbility extends UIAbility {
     EntryAbility.pendingPage = EntryAbility.linkedPage(want);
     // 先读隐私政策的授权：下面的使用统计发送和匿名账号注册都要联网，没同意之前它们各自等着，同意弹窗由设置页面在显示时打开。
     HarmonyPrivacyConsent.load(`${this.context.filesDir}/state`);
-    // Sends what usage reporting has queued (and today's active) when the switch is on; the keyboard owns the sessions.
-    HarmonyTelemetry.applicationStarted(`${this.context.filesDir}/state`);
     // 键盘经共享沙箱发布的会话要在本进程第一个认证请求之前采用过来（迁移差异 M2），所以进程一创建就占住会话镜像的队列；设置页、反馈、匿名注册的请求都排在它后面。
     const files: string = this.context.filesDir;
-    const mirror: Promise<SharedStateMirror | null> = SharedStateMirror.resolve(this.context)
+    const generation: number = ++this.telemetryGeneration;
+    const group: Promise<string | null> = SharedStateMirror.resolve(this.context);
+    void group.then((groupDir: string | null): void => {
+      if (generation !== this.telemetryGeneration) return;
+      HarmonyTelemetry.configureAuthority(groupDir, true);
+      HarmonyTelemetry.applicationStarted(`${files}/state`);
+    });
+    const mirror: Promise<SharedStateMirror | null> = group
       .then((groupDir: string | null): SharedStateMirror | null => {
         const status = HarmonySharedSandboxPolicy.status(groupDir);
         return status.available ? new SharedStateMirror(status.directory, files) : null;
@@ -81,6 +87,11 @@ export default class EntryAbility extends UIAbility {
     AccountSessionAdoption.adoptOnStart(mirror, `${files}/state`, 'keyboard', (): boolean => true);
     // 本机匿名账号在同意隐私政策之后马上注册（首次启动时同意就是首次启动），而不是等到第一个要用它的功能；会话存下以后这里只读一次文件。没同意就不注册；失败时下一次启动或键盘启动再试。
     HarmonyAccountIdentity.ensureAnonymous(`${files}/state`);
+  }
+
+  onDestroy(): void {
+    this.telemetryGeneration++;
+    HarmonyTelemetry.applicationStopped();
   }
 
   /**

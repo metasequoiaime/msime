@@ -2062,6 +2062,9 @@ public final class MSIMEInputService extends InputMethodService {
                 // 框走不到那条路，只能自己读一次，否则键盘就一直是默认皮肤和默认方案。
                 if (!engineWanted) {
                     loadAppearanceWithoutSession(InputViewValuePolicy.textOr(options, "preferences_directory", ""));
+                    // 符号面板在不建会话的输入框里也能打开（#10517），颜文字和各符号分类读的是资源目录里的随包目录；插件符号集读的偏好目录由上面读外观时填上。表情面板仍按 ToolbarReadinessPolicy 在没有会话时不可用，填上资源目录不会让它变得可点。
+                    String resources = options.optString("resources", "");
+                    if (new File(resources).isAbsolute()) emojiResources = resources;
                 }
                 runtimeOptionsBase = "";
                 if (engineWanted) {
@@ -7850,7 +7853,8 @@ public final class MSIMEInputService extends InputMethodService {
      */
     void bindSymbolPanelHold(Button button) {
         button.setOnLongClickListener(ignored -> {
-            if (session == 0 || keyboardLayer != KeyboardLayout.Layer.LETTERS) return false;
+            if (keyboardLayer != KeyboardLayout.Layer.LETTERS
+                    || !SymbolPanelEntryPolicy.opens(connection != null, symbolPanel != null)) return false;
             imeKeyFeedback.playFeedback(button);
             countKey("SoftSymbol");
             imePanels.showSymbolPanel();
@@ -8675,6 +8679,22 @@ public final class MSIMEInputService extends InputMethodService {
         command(2);
         commitText(text);
         // 用户已经从剪贴板插入过了（面板里的历史、分词或工具栏上的「最近复制」），工具栏不再提供刚复制的那一条：否则关上面板后工具栏又换成刚插入的文字，剪贴板和表情按钮也跟着被替换掉。
+        recentClip.dismiss();
+        closeClipboardHistory();
+        render();
+    }
+
+    /**
+     * 多选面板按序号插入几条记录（#10411）：和单条插入走同一条路径，只是先按选中顺序首尾相接、中间不加分隔符，再一次 `commitText`。
+     *
+     * <p>不分条延迟提交：一次提交在编辑器里是一个撤销步，也不会插到一半键盘收起或换了输入框、只进去一部分。和单条插入一样不经系统认证。
+     */
+    void insertClipboardTexts(java.util.List<String> texts) {
+        if (connection == null || !app.msime.android.ClipboardSelectionPolicy.canInsert(texts.size())) return;
+        String joined = app.msime.android.ClipboardSelectionPolicy.insertionText(texts);
+        if (!ClipboardHistoryPolicy.hasText(joined)) return;
+        command(2);
+        commitText(joined);
         recentClip.dismiss();
         closeClipboardHistory();
         render();
@@ -12492,12 +12512,12 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (symbolPanelButton != null) {
             // 这个键出现在 26 键一族、拼音九键和笔画键盘的底行；拼音九键的数字键面也画这一行，在那里同样能打开面板。
-            ViewPolicy.setEnabled(symbolPanelButton, session != 0 && connection != null);
+            ViewPolicy.setEnabled(symbolPanelButton, SymbolPanelEntryPolicy.opens(connection != null, symbolPanel != null));
             symbolPanelButton.setContentDescription("打开符号面板");
         }
         if (symbolShortcutButton != null) {
             ViewPolicy.setVisible(symbolShortcutButton, longSpaceLayoutActive());
-            ViewPolicy.setEnabled(symbolShortcutButton, session != 0 && connection != null);
+            ViewPolicy.setEnabled(symbolShortcutButton, SymbolPanelEntryPolicy.opens(connection != null, symbolPanel != null));
             ViewPolicy.setSelected(symbolShortcutButton, ViewPolicy.isVisible(symbolPanel));
         }
         updateReturnKey();

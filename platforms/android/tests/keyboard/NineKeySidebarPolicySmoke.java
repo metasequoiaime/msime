@@ -15,9 +15,9 @@ public final class NineKeySidebarPolicySmoke {
         sharedPreference();
         editor();
         choices();
-        reorder();
+        ordinals();
         localSetting();
-        System.out.println("Android nine-key sidebar: defaults, layer row heights, shared tables, editor validation, symbol choices, drag reorder and ordinals, custom symbol parsing and the legacy local key passed");
+        System.out.println("Android nine-key sidebar: defaults, layer row heights, shared tables, editor validation, symbol choices, ordinals, custom symbol parsing and the legacy local key passed");
     }
 
     /** 哪个键面用哪张表：数字键面换成算式符号那张，字母键面不变；空表回到各自的出厂表。 */
@@ -183,67 +183,10 @@ public final class NineKeySidebarPolicySmoke {
             "every fixed choice is a valid single symbol");
     }
 
-    /** #10396：拖动排序是挪动不是交换，拖动途中每一行的位次（序号）实时跟着变，落点按其余各行的布局中线算、不看被拖行自己。 */
-    private static void reorder() {
-        List<String> abcd = List.of("a", "b", "c", "d");
-        // 原来的 Collections.swap 一次越过两行时把 [a,b,c,d] 变成 [c,b,a,d]，画面却是 [b,c,a,d]。
-        check(NineKeySidebarPolicy.moved(abcd, 0, 2).equals(List.of("b", "c", "a", "d")), "dragging a down two rows moves it");
-        check(NineKeySidebarPolicy.moved(abcd, 3, 0).equals(List.of("d", "a", "b", "c")), "dragging d to the top moves it");
-        check(NineKeySidebarPolicy.moved(abcd, 1, 2).equals(List.of("a", "c", "b", "d")), "a one-row move swaps neighbours");
-        check(NineKeySidebarPolicy.moved(abcd, 2, 2).equals(abcd), "dropping in place changes nothing");
-        check(NineKeySidebarPolicy.moved(abcd, 0, 4).equals(abcd) && NineKeySidebarPolicy.moved(abcd, -1, 0).equals(abcd),
-            "out-of-range indexes leave the table alone");
-        // 拖动途中每一行的位次：被拖行在 to，中间的行让一格，按位次画出的就是挪完的表。
-        for (int from = 0; from < abcd.size(); from++) {
-            for (int to = 0; to < abcd.size(); to++) {
-                String[] shown = new String[abcd.size()];
-                for (int index = 0; index < abcd.size(); index++) {
-                    shown[NineKeySidebarPolicy.dragSlot(index, from, to)] = abcd.get(index);
-                }
-                check(List.of(shown).equals(NineKeySidebarPolicy.moved(abcd, from, to)),
-                    "slots during a drag from " + from + " to " + to + " match the dropped order");
-            }
-        }
-        check(NineKeySidebarPolicy.dragSlot(0, 0, 2) == 2 && NineKeySidebarPolicy.dragSlot(1, 0, 2) == 0
-            && NineKeySidebarPolicy.dragSlot(2, 0, 2) == 1 && NineKeySidebarPolicy.dragSlot(3, 0, 2) == 3,
-            "rows between the two ends make way by one");
-        // 每行 40 高：中线 20、60、100、140。
-        float[] centers = {20, 60, 100, 140};
-        check(NineKeySidebarPolicy.dragTarget(20, 0, centers) == 0, "a row that has not moved stays put");
-        check(NineKeySidebarPolicy.dragTarget(59, 0, centers) == 0, "short of the next row's midline it stays");
-        check(NineKeySidebarPolicy.dragTarget(61, 0, centers) == 1, "past the next row's midline it takes that place");
-        check(NineKeySidebarPolicy.dragTarget(101, 0, centers) == 2, "past two midlines it moves two places");
-        check(NineKeySidebarPolicy.dragTarget(500, 0, centers) == 3, "far below the list it goes last");
-        check(NineKeySidebarPolicy.dragTarget(-50, 3, centers) == 0, "far above the list it goes first");
-        check(NineKeySidebarPolicy.dragTarget(99, 3, centers) == 2, "dragging up past one midline");
-        check(NineKeySidebarPolicy.dragTarget(141, 1, centers) == 3, "the dragged row's own midline is never counted");
-        // 被拖行夹在列表里，拖到底或顶时中线正好压在首末行的中线上，也要算到那一格。
-        check(NineKeySidebarPolicy.dragTarget(140, 0, centers) == 3, "pinned at the bottom it reaches the last place");
-        check(NineKeySidebarPolicy.dragTarget(20, 3, centers) == 0, "pinned at the top it reaches the first place");
-        check(NineKeySidebarPolicy.dragTarget(60, 0, centers) == 1 && NineKeySidebarPolicy.dragTarget(60, 3, centers) == 1,
-            "touching a midline counts from either side");
-        // 序号与读屏描述：1..N，第 30 项也是「30.」。
+    /** 编辑页每行的序号：1..N，第 30 项也是「30.」，三端同一写法。读屏描述、挪动和拖动的规则在 `home/ReorderPolicy`，由 ReorderPolicySmoke 覆盖（#10546）。 */
+    private static void ordinals() {
         check(NineKeySidebarPolicy.ordinal(0).equals("1.") && NineKeySidebarPolicy.ordinal(29).equals("30."),
             "ordinals count from one");
-        check(NineKeySidebarPolicy.ordinalDescription(2, "？").equals("第 3 项，符号：？"), "TalkBack reads the position once");
-        check(NineKeySidebarPolicy.positionDescription(0).equals("第 1 项"), "the handle's state names its position");
-        // 滚动区 100..700，边缘带 50，每帧最多 20。
-        check(NineKeySidebarPolicy.edgeScrollStep(400, 100, 700, 50, 20) == 0, "the middle does not scroll");
-        check(NineKeySidebarPolicy.edgeScrollStep(150, 100, 700, 50, 20) == 0
-            && NineKeySidebarPolicy.edgeScrollStep(650, 100, 700, 50, 20) == 0, "the band starts inside the edge");
-        check(NineKeySidebarPolicy.edgeScrollStep(125, 100, 700, 50, 20) == -10, "half into the top band scrolls up at half speed");
-        check(NineKeySidebarPolicy.edgeScrollStep(690, 100, 700, 50, 20) == 16, "deep in the bottom band scrolls down faster");
-        check(NineKeySidebarPolicy.edgeScrollStep(40, 100, 700, 50, 20) == -20
-            && NineKeySidebarPolicy.edgeScrollStep(900, 100, 700, 50, 20) == 20, "past the edge is the top speed");
-        check(NineKeySidebarPolicy.edgeScrollStep(149.9f, 100, 700, 50, 20) == -1, "just inside the band still moves");
-        check(NineKeySidebarPolicy.edgeScrollStep(120, 100, 180, 50, 20) == 0, "a viewport too short for two bands never auto-scrolls");
-        // 被拖行夹在列表首尾后不再朝那一头滚，另一头照滚；还没到头时照常滚。
-        check(NineKeySidebarPolicy.scrollTowardRoom(16, 120, -40, 120) == 0, "pinned at the bottom of the list it stops scrolling down");
-        check(NineKeySidebarPolicy.scrollTowardRoom(-16, -40, -40, 120) == 0, "pinned at the top of the list it stops scrolling up");
-        check(NineKeySidebarPolicy.scrollTowardRoom(-16, 120, -40, 120) == -16
-            && NineKeySidebarPolicy.scrollTowardRoom(16, -40, -40, 120) == 16, "the other direction still scrolls");
-        check(NineKeySidebarPolicy.scrollTowardRoom(16, 80, -40, 120) == 16, "with room left it keeps scrolling");
-        check(NineKeySidebarPolicy.scrollTowardRoom(0, 120, -40, 120) == 0, "no step stays no step");
     }
 
     /** 本机旧键只留给迁移读：声明和规范化不变，读出来的值经 parse 交给迁移。 */
