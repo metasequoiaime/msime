@@ -1242,6 +1242,63 @@ fn legacy_snapshot(rows: &[(&str, &str, &str, i64)], updated_at: &str) -> Vec<u8
     body
 }
 
+/// 更新的版本加的词库种类（如新世纪五笔 `wubixsj`）这一版不认识：快照照常通过校验，那几条记录在读成 Engine 记录时跳过，但仍计入 `engine_records`，与 iOS 按行数核对的条数一致。种类不是名字的形状时整份仍不合规。
+#[test]
+fn snapshot_records_of_an_unknown_kind_are_skipped_not_rejected() {
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("snapshot.ndjson");
+    let updated_at = "2026-09-01T00:00:00Z";
+    let rows = [
+        ("wubixsj", "ent", "力", 10),
+        ("pinyin", "ni'hao", "你好", 100),
+    ];
+    std::fs::write(&file, legacy_snapshot(&rows, updated_at)).unwrap();
+    let metadata = super::inspect_snapshot(&file).unwrap();
+    assert_eq!(metadata.entries, 2);
+    assert_eq!(metadata.overlays, 2);
+    assert_eq!(metadata.engine_records, 2);
+    let lines = super::SnapshotFileRecords::open(&file)
+        .unwrap()
+        .into_lines()
+        .collect::<Vec<_>>();
+    assert_eq!(lines.len(), 2);
+    assert!(matches!(lines[0], Ok(None)));
+    assert!(matches!(
+        &lines[1],
+        Ok(Some(msime_engine::DictionaryStateRecord::Entry { kind: msime_engine::host::DictionaryKind::Pinyin, key, .. })) if key == "ni'hao"
+    ));
+    let records = super::SnapshotFileRecords::open(&file)
+        .unwrap()
+        .collect::<Vec<_>>();
+    assert_eq!(records.len(), 1);
+    assert!(records[0].is_ok());
+    // 宿主逐行交来的同一行也读成「跳过」。
+    let text = std::fs::read_to_string(&file).unwrap();
+    let foreign = text
+        .lines()
+        .find(|line| line.contains(r#""type":"overlay""#) && line.contains("wubixsj"))
+        .unwrap();
+    assert!(matches!(
+        super::record::decode(foreign.as_bytes()),
+        Ok(None)
+    ));
+
+    for malformed in ["Wubi-XSJ", "", &"x".repeat(33)] {
+        let rows = [(malformed, "ent", "力", 10)];
+        std::fs::write(&file, legacy_snapshot(&rows, updated_at)).unwrap();
+        assert!(super::inspect_snapshot(&file).is_err(), "{malformed:?}");
+        let text = std::fs::read_to_string(&file).unwrap();
+        let overlay = text
+            .lines()
+            .find(|line| line.contains(r#""type":"overlay""#))
+            .unwrap();
+        assert!(
+            super::record::decode(overlay.as_bytes()).is_err(),
+            "{malformed:?}"
+        );
+    }
+}
+
 #[test]
 fn an_export_without_learning_is_byte_for_byte_the_cloud_snapshot() {
     let device = LearningDevice::with_learning();

@@ -201,11 +201,12 @@ fn inspect_snapshot_record(
             {
                 return Err("invalid snapshot document");
             }
+            // 更新的版本加的词库种类（[`record::is_foreign_kind`]）照常核对格式和配对，计入 `engine_records`，读成 Engine 记录时跳过（[`SnapshotLine`]）。
             let dictionary_kind = data
                 .get("kind")
                 .and_then(Value::as_str)
                 .filter(|value| {
-                    matches!(*value, "pinyin" | "wubi" | "wubi98" | "english" | "quick")
+                    record::KNOWN_KINDS.contains(value) || record::is_foreign_kind(value)
                 })
                 .ok_or("invalid snapshot document")?
                 .to_owned();
@@ -1184,8 +1185,7 @@ fn prepare(
     request: PrepareRequest,
     specification: &ResourceSet,
     on_demand: &[&[&str]],
-    stream: impl Iterator<Item = Result<msime_engine::DictionaryStateRecord, SnapshotReadError>>
-        + 'static,
+    stream: impl Iterator<Item = SnapshotLine> + 'static,
 ) -> Result<Prepared, &'static str> {
     if request.records > 500_000 || request.expected_version.len() != 64 {
         return Err("invalid snapshot bounds");
@@ -1239,14 +1239,19 @@ fn prepare(
     let mut count = 0;
     let expected = request.records;
     let mut source = stream;
-    let checked = std::iter::from_fn(move || match source.next() {
-        Some(Ok(record)) if count < expected => {
-            count += 1;
-            Some(Ok(record))
+    // 条数按快照里的输入记录行数核对，不认识的词库种类的那行也算一条，只是不交给 Engine。
+    let checked = std::iter::from_fn(move || loop {
+        match source.next() {
+            Some(Ok(record)) if count < expected => {
+                count += 1;
+                if let Some(record) = record {
+                    return Some(Ok(record));
+                }
+            }
+            Some(_) => return Some(Err(SnapshotReadError)),
+            None if count == expected => return None,
+            None => return Some(Err(SnapshotReadError)),
         }
-        Some(_) => Some(Err(SnapshotReadError)),
-        None if count == expected => None,
-        None => Some(Err(SnapshotReadError)),
     });
     let staged = stage_dictionary_state(
         &options,
@@ -1804,10 +1809,16 @@ impl SnapshotFileRecords {
     }
 }
 
-impl Iterator for SnapshotFileRecords {
-    type Item = Result<msime_engine::DictionaryStateRecord, SnapshotReadError>;
+/// 快照里的一条输入记录（overlay、position 或 selection 行）读成的结果：`Ok(None)` 是词库种类这一版不认识的 overlay（[`record::is_foreign_kind`]），它照样占 `engine_records` 里的一个名额，只是没有对应的 Engine 记录。
+type SnapshotLine = Result<Option<msime_engine::DictionaryStateRecord>, SnapshotReadError>;
 
-    fn next(&mut self) -> Option<Self::Item> {
+impl SnapshotFileRecords {
+    /// 逐行读，每条输入记录一项，不认识的词库种类的那行也算一项（`Ok(None)`）。[`prepare`] 用它核对条数与 `engine_records` 相同。
+    fn into_lines(mut self) -> impl Iterator<Item = SnapshotLine> {
+        std::iter::from_fn(move || self.next_line())
+    }
+
+    fn next_line(&mut self) -> Option<SnapshotLine> {
         if self.failed {
             return None;
         }
@@ -1831,14 +1842,25 @@ impl Iterator for SnapshotFileRecords {
                 }
             };
             match kind.as_str() {
-                "overlay" | "position" | "selection" => {
-                    return Some(record::decode(&self.line));
-                }
+                "overlay" | "position" | "selection" => return Some(record::decode(&self.line)),
                 "header" | "entry" | "footer" => continue,
                 _ => {
                     self.failed = true;
                     return Some(Err(SnapshotReadError));
                 }
+            }
+        }
+    }
+}
+
+/// 只出能交给 Engine 的记录：不认识的词库种类的那行跳过。合并输入记录（`merge_dictionary_state`）只给条数上限，用它。
+impl Iterator for SnapshotFileRecords {
+    type Item = Result<msime_engine::DictionaryStateRecord, SnapshotReadError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some(record) = self.next_line()?.transpose() {
+                return Some(record);
             }
         }
     }
@@ -1959,7 +1981,9 @@ fn snapshot_queue_process_with(
     let raw_expected = local_version_digest(&request.expected_local_version)
         .map_err(snapshot_queue_error)?
         .to_owned();
-    let stream = SnapshotFileRecords::open(&path).map_err(str::to_owned)?;
+    let stream = SnapshotFileRecords::open(&path)
+        .map_err(str::to_owned)?
+        .into_lines();
     let specification = specification(&options)?;
     let prepared = prepare(
         PrepareRequest {
@@ -2214,6 +2238,7 @@ pub unsafe extern "C" fn msime_client_snapshot_prepare(
         let specification = crate::dictionary_updates::specification_for_options(&request.options)
             .map_err(|_| "snapshot resources rejected")?;
         let mut buffer = vec![0; BUFFER_LIMIT];
+        // 宿主逐行交来记录；这一版不认识的词库种类的那行读成 `Ok(None)`，照样计入 `records`，与 `SnapshotFileRecords::into_lines` 相同。
         let stream = std::iter::from_fn(move || {
             let length = unsafe { next(context, buffer.as_mut_ptr(), buffer.len()) };
             if length == 0 {
