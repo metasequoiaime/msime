@@ -6331,6 +6331,7 @@ static void TestFreshProcessActsOnTheSharedSchemeNotTheStaleLocalOne() {
 @property(nonatomic, copy) NSDictionary *options;
 @property(nonatomic) NSUInteger voiceFailures;
 @property(nonatomic) NSUInteger preferenceCompletions;
+@property(nonatomic) NSUInteger toolbarVoiceRequests;
 @end
 @implementation StartupVoiceController
 // alloc 夹具没有 IMK 基类的服务连接；模式报告先于激活时还没有客户端。
@@ -6341,6 +6342,8 @@ static void TestFreshProcessActsOnTheSharedSchemeNotTheStaleLocalOne() {
 - (void)scheduleSystemInputModeSyncForClient:(id)client { (void)client; }
 - (void)syncSystemInputModeForClient:(id)client { (void)client; }
 - (void)requestCloudCandidatesConsentIfNeeded {}
+// 工具栏路由只记录接收者，不打开面板或采集音频。
+- (void)showVoicePanel { ++self.toolbarVoiceRequests; }
 - (void)claimBackgroundMusic {}
 - (void)completePreferenceLoad:(NSDictionary *)snapshot error:(NSError *)error generation:(uint64_t)generation
                        session:(MSIMEClientSession *)session client:(id)client {
@@ -6360,7 +6363,9 @@ static void TestStartupVoicePreferences() {
     NSDictionary *previousDefaults = standard.dictionaryRepresentation;
     Method base = class_getInstanceMethod(IMKInputController.class, @selector(activateServer:));
     IMP original = method_setImplementation(base, (IMP)IgnoreBaseActivation);
-    for (NSNumber *enabled in @[@YES, @NO]) for (NSUInteger entry = 0; entry < 10; ++entry) {
+    Method baseDeactivation = class_getInstanceMethod(IMKInputController.class, @selector(deactivateServer:));
+    IMP originalDeactivation = method_setImplementation(baseDeactivation, (IMP)IgnoreBaseActivation);
+    for (NSNumber *enabled in @[@YES, @NO]) for (NSUInteger entry = 0; entry < 12; ++entry) {
         const char *selectedEntry = std::getenv("MSIME_STARTUP_VOICE_CASE");
         if (selectedEntry && entry != std::strtoul(selectedEntry, nullptr, 10)) continue;
         NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
@@ -6369,7 +6374,7 @@ static void TestStartupVoicePreferences() {
         assert(snapshot && !error);
         NSMutableDictionary *document = [snapshot[@"preferences"] mutableCopy];
         NSMutableDictionary *toolbar = [document[@"floating_toolbar"] mutableCopy];
-        toolbar[@"voice"] = enabled; toolbar[@"enabled"] = @(entry != 8); toolbar[@"auto_hide"] = @NO;
+        toolbar[@"voice"] = enabled; toolbar[@"enabled"] = @(entry != 8 && entry != 10); toolbar[@"auto_hide"] = @NO;
         document[@"floating_toolbar"] = toolbar;
         NSMutableDictionary *voice = [document[@"voice_input"] mutableCopy];
         voice[@"enabled"] = enabled; voice[@"asr_provider"] = @"local";
@@ -6406,6 +6411,32 @@ static void TestStartupVoicePreferences() {
         [panel applySizingPreferences:@{}];
         ShortcutClient *client = [ShortcutClient new];
         BOOL expected = enabled.boolValue;
+        StartupVoiceController *previousOwner = nil;
+        if (entry == 10 || entry == 11) {
+            // 两个控制器共用外观对象；旧控制器正常失焦后，常驻工具栏仍归它所有。
+            NSMutableDictionary *oldDocument = [document mutableCopy];
+            NSMutableDictionary *oldToolbar = [toolbar mutableCopy];
+            oldToolbar[@"enabled"] = @YES;
+            oldDocument[@"floating_toolbar"] = oldToolbar;
+            saved = [MSIMEClientSession savePreferencesInDirectory:root
+                expectedRevision:[saved[@"revision"] unsignedLongLongValue]
+                snapshot:@{@"format_version":@1, @"revision":saved[@"revision"], @"preferences":oldDocument} error:&error];
+            assert(saved && !error);
+            previousOwner = [StartupVoiceController alloc];
+            previousOwner.options = controller.options;
+            [previousOwner setValue:prefs forKey:@"appearance"];
+            [previousOwner setValue:root forKey:@"preferencesDirectory"];
+            ShortcutClient *previousClient = [ShortcutClient new];
+            [previousOwner activateServer:previousClient];
+            assert(panel.toolbarDelegate == previousOwner && panel.isVisible);
+            [previousOwner deactivateServer:previousClient];
+            assert(![previousOwner valueForKey:@"activeClient"]);
+            assert(panel.toolbarDelegate == previousOwner && panel.isVisible);
+            saved = [MSIMEClientSession savePreferencesInDirectory:root
+                expectedRevision:[saved[@"revision"] unsignedLongLongValue]
+                snapshot:@{@"format_version":@1, @"revision":saved[@"revision"], @"preferences":document} error:&error];
+            assert(saved && !error);
+        }
         if (entry == 1 || entry == 5) {
             MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
             [controller systemDidReportInputMode:MSIMEKoreanInputModeID client:client];
@@ -6466,6 +6497,25 @@ static void TestStartupVoicePreferences() {
             std::fprintf(stdout, "startup keydown wake_requests=%lu\n", (unsigned long)wakeRequests);
             std::fflush(stdout);
             assert(wakeRequests == 0 && !prefs.floatingToolbarEnabled);
+        } else if (entry == 10 || entry == 11) {
+            assert(![controller valueForKey:@"toolbar"]);
+            AsyncPreferenceSession *handoffSession = [AsyncPreferenceSession new];
+            [controller setValue:handoffSession forKey:@"session"];
+            [controller handleEvent:ModeKey(0, 0, NO) client:client];
+            std::fprintf(stdout, "startup handoff entry=%lu new_owner=%d visible=%d expected_visible=%d\n",
+                (unsigned long)entry, panel.toolbarDelegate == controller, panel.isVisible, entry == 11);
+            std::fflush(stdout);
+            assert(panel.toolbarDelegate == controller && panel.isVisible == (entry == 11));
+            [controller reloadPreferences];
+            NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2];
+            while (!controller.preferenceCompletions && deadline.timeIntervalSinceNow > 0)
+                [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
+            assert(controller.preferenceCompletions == 1 && handoffSession.updates == 1);
+            assert(panel.toolbarDelegate == controller && panel.isVisible == (entry == 11));
+            if (entry == 11 && enabled.boolValue) {
+                [panel performSelector:@selector(toggleVoice:) withObject:nil];
+                assert(controller.toolbarVoiceRequests == 1 && previousOwner.toolbarVoiceRequests == 0);
+            }
         } else [controller activateServer:client];
         if (entry == 9) {
             std::fprintf(stdout, "startup diagnostics=%d\n", msime_macos_diagnostic_enabled());
@@ -6518,6 +6568,7 @@ static void TestStartupVoicePreferences() {
         MSIMERemoveTestPreferenceSuite(defaults, suite);
         [NSFileManager.defaultManager removeItemAtPath:root error:nil];
     }
+    method_setImplementation(baseDeactivation, originalDeactivation);
     method_setImplementation(base, original);
     for (NSString *key in standard.dictionaryRepresentation) if ([key hasPrefix:@"MSIMEClientVoice"]) {
         if (previousDefaults[key]) [standard setObject:previousDefaults[key] forKey:key];

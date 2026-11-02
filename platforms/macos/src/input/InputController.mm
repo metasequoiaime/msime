@@ -7789,6 +7789,9 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         NSDictionary *initialHostSnapshot = [self applySharedInputPreferencesBeforeFirstUse];
         [self applyInitialHostPreferencesFromSnapshot:initialHostSnapshot];
         [_appearance activateInputModeForApplication:[sender respondsToSelector:@selector(bundleIdentifier)] ? [sender bundleIdentifier] : nil];
+        // 所有权交接不依赖显示开关：关闭时也接管并隐藏旧控制器的常驻工具栏。
+        _toolbar = [MSIMEFloatingToolbarPanel sharedPanel];
+        [_toolbar activateForDelegate:self visible:_appearance.floatingToolbarEnabled];
         [self syncSystemInputModeForClient:sender];
         // Punctuation and width are per app, so the new client's values reach the Engine before it types.
         [self syncPunctuation];
