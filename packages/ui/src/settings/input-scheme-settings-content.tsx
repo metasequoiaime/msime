@@ -251,6 +251,8 @@ export function InputSchemeSettingsContent({
           koreanRomaja={koreanRomaja}
           korean={preferences.korean}
           onKoreanChange={(korean) => onPreferencesChange({ korean })}
+          cantonese={preferences.cantonese}
+          onCantoneseChange={(cantonese) => onPreferencesChange({ cantonese })}
           onVietnameseChange={(vietnamese) => onPreferencesChange({ vietnamese })}
         />
         {schemePackRow}

@@ -43,6 +43,9 @@
 #include "../../../shared/contracts/windows_ipc.h"
 #include "../tsf/IPC/AuxNamedpipeSender.h"
 #include "../../common/HostApiString.h"
+#include "../../common/CrashRecorder.h"
+#include "../../common/Telemetry.h"
+#include <thread>
 #include "../common/GameCompatProfile.h"
 #include "AboutPageModel.h"
 #include "AccountPageModel.h"
@@ -382,6 +385,8 @@ std::wstring lexicon_key_hint(std::wstring_view kind) {
     return L"1–64 个字母";
   if (kind == L"pinyin")
     return L"完整音节，用 ' 分隔，如 ni'hao";
+  if (kind == L"cantonese")
+    return L"粤拼，每字一个音节，用空格分隔，如 nei hou";
   return {};
 }
 
@@ -420,6 +425,8 @@ std::wstring dictionary_error_text(std::wstring const &code, std::wstring_view k
       return L"快捷短语编码只能包含英文字母，长度 1 到 32。";
     if (kind == L"english")
       return L"英文编码只能包含字母、连字符和撇号。";
+    if (kind == L"cantonese")
+      return L"粤语编码要写成不带声调的粤拼，每个字一个音节、用空格分开，音节数需与字数一致，例如“你好”填 nei hou。";
     return L"词条不符合词库规则，请检查编码与词条后再保存。";
   }
   return fallback;
@@ -714,6 +721,9 @@ uint64_t strict_revision(JsonObject const &object, std::wstring_view key,
   return static_cast<uint64_t>(raw);
 }
 
+// 保存后立即刷新持久授权；窗口存活期间另有独立观察器跟随其他进程的修改。
+void RefreshCrashCapture() { msime::telemetry::refresh(); }
+
 class PreferencesDocument {
 public:
   PreferencesDocument() { reset_defaults(); }
@@ -766,6 +776,7 @@ public:
           JsonObject::Parse(text(response.text)).GetNamedObject(L"value");
       preferences_ = document_.GetNamedObject(L"preferences");
       revision_ = strict_revision(document_, L"revision", revision_);
+      RefreshCrashCapture();
       return std::nullopt;
     } catch (...) {
       // 设置已写入，但返回内容读不了：调用方重读已存的设置。
@@ -4644,6 +4655,7 @@ private:
     font_catalog_button_ = nullptr;
     font_menu_updaters_.clear();
     focus_target_ = nullptr;
+    community_preview_views_.clear();
 
     StackPanel page;
     page.Padding(content_padding(scroll_.ActualWidth()));
@@ -10290,7 +10302,7 @@ private:
 
   // 社区皮肤的预览图：每款读一次，卡片和详情共用（共享页的 loadPreview）；最多留 16 张，再加上当前列表里的那些，免得列表一重画就把刚读到的又读一遍。读到后就地换上正在显示它的卡片，不重画整页。
   void show_community_preview(Border const &host, std::wstring const &id, std::wstring const &name) {
-    community_preview_views_.emplace(id, make_weak(host));
+    community_preview_views_.emplace(id, host);
     auto found = community_previews_.find(id);
     if (found == community_previews_.end()) {
       community_previews_.emplace(id, CommunityPreview{});
@@ -10378,8 +10390,7 @@ private:
       name = skin_gallery_.selected->name;
     const auto [first, last] = community_preview_views_.equal_range(id);
     for (auto it = first; it != last; ++it)
-      if (auto host = it->second.get())
-        fill_community_preview(host, found->second, name);
+      fill_community_preview(it->second, found->second, name);
   }
 
   // ---- 图库的界面 ----
@@ -10837,7 +10848,6 @@ private:
       build_skin_community_detail(page);
       return;
     }
-    community_preview_views_.clear();
     community_search<CommunitySkinItem>(page, L"搜索候选窗口皮肤");
     community_heading<CommunitySkinItem>(
         page, L"社区皮肤", L"为输入候选窗口换一身新装，安装后在「本地皮肤」中启用",
@@ -10885,7 +10895,6 @@ private:
   }
 
   void build_skin_community_detail(StackPanel const &page) {
-    community_preview_views_.clear();
     auto &gallery = skin_gallery_;
     auto const selected = *gallery.selected;
     auto body = community_detail_frame<CommunitySkinItem>(page);
@@ -13821,9 +13830,14 @@ private:
       segment_row(group, 0xE8AB, L"韩语布局",
                   L"默认两套式，可切换为罗马字。罗马字用 x 输入声母 ㅇ（xa → 아，hangug → 한국），Shift+G/D/B/J/S 输入紧音；退格删除当前拼写的最后一个拉丁字母，标点为半角",
                   L"korean.layout", {{L"dubeolsik", L"两套式"}, {L"romaja", L"罗马字"}}, L"dubeolsik");
+    // 粤语双拼与粤拼共用同一个方案和词典，做成粤拼方案下的选项，说明与共享页的「粤拼方案」相同。
     if (scheme == L"cantonese")
-      add_row(group, 0xE8AB, L"粤拼方案",
-              L"粤拼：按不带声调的粤拼输入，用 ' 分隔音节，数字键选词，候选为繁体字词", nullptr);
+      segment_row(group, 0xE8AB, L"粤拼方案",
+                  document_.String(L"cantonese.input_method", L"jyutping") == L"shuangpin"
+                      ? L"两键一个音节，第一键是声母、第二键是韵母，ing 和 ik 在 ; 键上；从第一键起按双拼解释，与粤拼同形的码（如 oi）也按双拼。数字键选词，候选为繁体字词"
+                      : L"按不带声调的粤拼输入，用 ' 分隔音节，数字键选词，候选为繁体字词",
+                  L"cantonese.input_method", {{L"jyutping", L"粤拼"}, {L"shuangpin", L"粤语双拼"}},
+                  L"jyutping");
     if (scheme == L"zhuyin")
       add_row(group, 0xE8AB, L"注音键盘",
               L"大千：按大千键位输入注音符号，空格为一声，6 3 4 7 为二、三、四声和轻声，候选为繁体字词",
@@ -15691,6 +15705,11 @@ private:
   }
 
   // 「查找词库」现在查的词库：选了资源词库时是它，否则是本机词库。
+  // 「查找词库」所选的资源词库；选的是个人词库时为空。不能按 id 查：粤语两边都有。
+  li::ResourceKind const *lexicon_lookup_resource() const {
+    return lexicon_resource_kind_.empty() ? nullptr : li::find_resource_kind(lexicon_resource_kind_);
+  }
+
   std::wstring lexicon_lookup_kind() const {
     return lexicon_resource_kind_.empty() ? lexicon_kind_ : lexicon_resource_kind_;
   }
@@ -15726,10 +15745,10 @@ private:
     lexicon_search_timer_.Start();
   }
 
-  // 查找词库：所选词库按搜索框筛选后的第 `offset` 页。本机词库和资源词库都发 browse（与共享页相同），空查询也列出内置词条；资源词库没装时回答 `available` 为假。只有最后发出的那次查询的回答算数，较早的回来时直接丢掉；结果就地换进结果块（refresh_lexicon_results）。
+  // 查找词库：所选词库按搜索框筛选后的第 `offset` 页。本机词库和资源词库都发 browse（与共享页相同），空查询也列出内置词条；资源词库没装时回答 `available` 为假。个人粤语词库没有内置词条，`browse` 的 `cantonese` 又是资源词库，所以它发 `list`，只列自己加的粤语词。只有最后发出的那次查询的回答算数，较早的回来时直接丢掉；结果就地换进结果块（refresh_lexicon_results）。
   void lexicon_list(uint32_t offset) {
     const auto kind = lexicon_lookup_kind();
-    const bool resource = li::find_resource_kind(kind) != nullptr;
+    const bool resource = lexicon_lookup_resource() != nullptr;
     const auto generation = ++lexicon_list_generation_;
     std::wstring query = lexicon_query_;
     query.erase(0, query.find_first_not_of(L" \t"));
@@ -15746,7 +15765,8 @@ private:
       return;
     }
     JsonObject action;
-    action.SetNamedValue(L"operation", JsonValue::CreateStringValue(L"browse"));
+    action.SetNamedValue(L"operation",
+                         JsonValue::CreateStringValue(!resource && kind == L"cantonese" ? L"list" : L"browse"));
     action.SetNamedValue(L"kind", JsonValue::CreateStringValue(kind));
     action.SetNamedValue(L"query", JsonValue::CreateStringValue(query));
     action.SetNamedValue(L"offset", JsonValue::CreateNumberValue(offset));
@@ -15824,7 +15844,8 @@ private:
     weight.Minimum(1);
     weight.Maximum(100000000);
     weight.SpinButtonPlacementMode(NumberBoxSpinButtonPlacementMode::Compact);
-    weight.Value(previous ? static_cast<double>(previous->weight) : 10.0);
+    // 新粤语词默认 100000：粤语词库的权重按语料词频算，多字词大多在几万以下，手动加的词默认排在同一编码的多数发布词前面（共享页的 CANTONESE_NEW_WORD_WEIGHT）。
+    weight.Value(previous ? static_cast<double>(previous->weight) : kind == L"cantonese" ? 100000.0 : 10.0);
     form.Children().Append(key);
     form.Children().Append(value);
     // 与共享页 dictionary-entries.tsx 一样，在短语框下说明光标标记的写法。
@@ -16690,26 +16711,31 @@ private:
       lexicon_feedback_bar_.IsOpen(false);
   }
 
-  // 「查找词库」：共享页的「本地词库管理」组。进页面就列出所选词库的全部词条，搜索框输入后 280 ms 实时筛选（schedule_lexicon_search），词条和编码都能搜；词库下拉框在五个本机词库之后还有五个只读的资源词库。换词库时清空搜索框并从第一页重新列出。结果块（make_lexicon_results）装在 lexicon_results_host_ 里，查询回来时就地替换。
+  // 「查找词库」：共享页的「本地词库管理」组。进页面就列出所选词库的全部词条，搜索框输入后 280 ms 实时筛选（schedule_lexicon_search），词条和编码都能搜；词库下拉框在六个本机词库之后还有五个只读的资源词库。换词库时清空搜索框并从第一页重新列出。结果块（make_lexicon_results）装在 lexicon_results_host_ 里，查询回来时就地替换。
   void build_lexicon_lookup(StackPanel const &page) {
     auto manage = add_group(page, L"本地词库管理");
     explain_group(manage, L"默认显示所选词库的全部词条，输入文字或编码后实时筛选。个人词条可以编辑，基础词库只读。");
+    // 资源词库那几项的值带 `resource:` 前缀，与同名的个人粤语词库分开。
     std::vector<Option> kinds;
     for (auto const &kind : li::local_kinds)
       kinds.push_back({std::wstring(kind.id), std::wstring(kind.title)});
     for (auto const &kind : li::resource_kinds)
-      kinds.push_back({std::wstring(kind.id), std::wstring(kind.title)});
+      kinds.push_back({li::resource_option(kind.id), std::wstring(kind.title)});
+    const auto selected =
+        lexicon_resource_kind_.empty() ? lexicon_kind_ : li::resource_option(lexicon_resource_kind_);
     auto kind_select = select_control(
-        L"本地词库类型", std::move(kinds), lexicon_lookup_kind(),
-        [this](std::wstring const &kind) {
-          if (kind == lexicon_lookup_kind())
+        L"本地词库类型", std::move(kinds), selected,
+        [this, selected](std::wstring const &option) {
+          if (option == selected)
             return;
           clear_lexicon_feedback_for_query();
           lexicon_query_.clear();
           lexicon_entries_.clear();
           lexicon_has_more_ = false;
           lexicon_offset_ = 0;
-          if (li::find_resource_kind(kind)) {
+          const auto resource = li::resource_from_option(option);
+          const std::wstring kind = resource.empty() ? option : std::wstring(resource);
+          if (!resource.empty()) {
             lexicon_resource_kind_ = kind;
           } else {
             lexicon_resource_kind_.clear();
@@ -16724,7 +16750,7 @@ private:
     kind_select.Width(176);
     add_row(manage, 0xE82D, L"词库", L"", kind_select);
 
-    const auto *resource = li::find_resource_kind(lexicon_lookup_kind());
+    const auto *resource = lexicon_lookup_resource();
     TextBox query;
     query.Width(220);
     query.PlaceholderText(hstring(resource ? resource->placeholder : li::personal_placeholder));
@@ -16755,7 +16781,7 @@ private:
   // 「查找词库」的结果块（共享页的 DictionaryEntries、ResourceDictionaryLookup 和 settings-style.ts 的 phrase*）：资源词库先是一句只读说明，读失败时一行危险色的原因；没有词条时是一句状态，有词条时是带边框的表格（make_lexicon_table）。底栏顶上一条分隔线，左边「新增词条」（资源词库没有），右边是上一页、状态、下一页。
   FrameworkElement make_lexicon_results() {
     const auto kind = lexicon_lookup_kind();
-    const auto *resource = li::find_resource_kind(kind);
+    const auto *resource = lexicon_lookup_resource();
     StackPanel block;
     block.Spacing(12);
     if (resource)
@@ -27563,7 +27589,8 @@ private:
   std::optional<std::wstring> plugin_kind_shown_;
   std::map<std::wstring, CommunityPreview> community_previews_;
   std::vector<std::wstring> community_preview_order_;
-  std::multimap<std::wstring, weak_ref<Border>> community_preview_views_;
+  // 正在显示预览图的卡片位置，每次画页面时清空，所以只留当前页面的。这里必须是强引用：只由可视树持有的 Border，它的 weak_ref 在创建时还能解析，随后就解析不出来了，卡片却还在页面上（#10005 在 Windows 11 实机上记录到，读到的预览图因此一直填不进卡片）。
+  std::multimap<std::wstring, Border> community_preview_views_;
   bool skin_sync_running_ = false;
   bool skin_sync_queued_ = false;
   SkinPublish skin_publish_;
@@ -27660,6 +27687,19 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR command, int) {
   if (activation != msime::settings::SettingsInstance::Start::primary)
     return activation == msime::settings::SettingsInstance::Start::forwarded ? 0 : 1;
   init_apartment(apartment_type::single_threaded);
+  msime::crash::install_crash_handlers();
+  std::vector<wchar_t> local(32768);
+  const DWORD length = GetEnvironmentVariableW(L"LOCALAPPDATA", local.data(), static_cast<DWORD>(local.size()));
+  const auto telemetryDirectory = length && length < local.size()
+      ? std::filesystem::path(std::wstring(local.data(), length)) / MSIME_EDITION_USER_DATA_DIRECTORY
+      : std::filesystem::path();
+  // 原生设置只产生独立崩溃，不建立输入会话；启动补报沿用一次后台发送。没有绝对偏好目录就读不到持续授权，此时不启动采集，免得落入旧协议的默认开启；带上包内版本，首次读取授权时不会把非 full 版本的偏好按 full 初始化。
+  if (const auto preferences = state_directory(); preferences.is_absolute())
+    msime::telemetry::begin({"windows", MSIME_WINDOWS_VERSION, telemetryDirectory,
+                            std::nullopt, preferences, "settings", true, MSIME_EDITION_ID});
+  msime::telemetry::ConsentObserver reporting;
+  std::thread([] { msime::telemetry::flush(); }).detach();
+  std::set_terminate([] { msime_native_crash_record("std::terminate in settings"); std::abort(); });
   Application::Start([&instance](auto &&) { make<App>(instance); });
   return 0;
 }

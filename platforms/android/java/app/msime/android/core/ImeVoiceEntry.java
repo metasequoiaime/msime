@@ -78,6 +78,8 @@ final class ImeVoiceEntry {
     /** 用户已经按语音键结束了这次系统识别：之后报的错（例如还没开始聆听就被叫停时的 ERROR_CLIENT）不再转交识别窗口，否则按两下语音键会弹出一个识别窗口重新录音。 */
     private boolean platformStopped;
     private long generation;
+    /** 这次聆听开始时读到的语音标点方式（{@link VoicePunctuation}），结果上屏前按它处理；与 {@link #generation} 同时更新。 */
+    private String punctuationMode = VoicePunctuation.AUTO;
     private boolean recognizing;
     private boolean diagnosticAllowed;
     /** 这次聆听由长按空格开始、空格还按着：松手才结束，停顿不自动结束。 */
@@ -180,6 +182,7 @@ final class ImeVoiceEntry {
         show(keyArea);
         uploadStopped = false;
         long session = ++generation;
+        punctuationMode = configured.punctuationMode();
         long startedAt = SystemClock.uptimeMillis();
         recognizing = true;
         held = false;
@@ -756,10 +759,14 @@ final class ImeVoiceEntry {
         if (recognizer != null) recognizer.destroy();
     }
 
-    /** 识别结束：有文字就上屏，没有就提示 {@code failure}；{@code notice} 是文字上屏之后另外要说的一句（录音到了上限、识别途中断开）。 */
-    private void delivered(long session, String text, String failure, String notice, byte[] pcm,
+    /** 识别结束：有文字就上屏，没有就提示 {@code failure}；{@code notice} 是文字上屏之后另外要说的一句（录音到了上限、识别途中断开）。四种识别服务和润色的结果都经过这里，语音标点在这里处理一次，锁定等待发送时显示的、存进语音结果的也是处理后的文字；只剩标点时按没有识别到文字处理。 */
+    private void delivered(long session, String recognized, String reportedFailure, String notice, byte[] pcm,
                            long elapsedMillis, String language, String provider) {
         if (session != generation) return;
+        String text = VoicePunctuation.apply(recognized, punctuationMode);
+        // 识别出了内容、去掉标点后什么都不剩：与识别窗口一样提示没有识别到文字，不能无声收起。
+        String failure = reportedFailure == null && text != null && text.isEmpty()
+            && recognized != null && !recognized.isEmpty() ? "没有识别到文字" : reportedFailure;
         if (text != null && !text.isEmpty()) recordDiagnostic(DiagnosticEventKind.VOICE_SUCCESS);
         else if (failure == null) recordDiagnostic(DiagnosticEventKind.VOICE_EMPTY);
         recognizing = false;

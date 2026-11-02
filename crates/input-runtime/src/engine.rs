@@ -25,6 +25,12 @@ pub enum RuntimeError {
 pub trait InputEngine {
     /// 隐私输入禁止上屏后联想；不提供该能力的引擎没有状态可清。
     fn set_prediction_allowed(&mut self, _allowed: bool) {}
+    /// 上屏后联想的词库续写多取一池留给模型排序，runtime 挂上或拿掉逐键打分器、换引擎时下发；没有联想的引擎忽略它。
+    fn set_prediction_pool(&mut self, _enabled: bool) {}
+    /// 按模型给刚上屏之后的联想排序，`before` 是这次上屏之前的文字；每次上屏只排一次。返回显示的行变了没有，没有联想的引擎什么都不做。
+    fn order_prediction(&mut self, _scorer: &mut dyn CandidateScorer, _before: &str) -> bool {
+        false
+    }
     /// Ends the committed-word context the Engine learns and ranks against. Engines without one ignore it.
     fn reset_context(&mut self) {}
     /// The committed text the Engine's neural sentence models condition on, pushed by the runtime whenever the text it keeps changes. Engines without such models ignore it.
@@ -284,6 +290,12 @@ pub enum SegmentCommand {
 impl InputEngine for Session {
     fn set_prediction_allowed(&mut self, allowed: bool) {
         Session::set_prediction_allowed(self, allowed);
+    }
+    fn set_prediction_pool(&mut self, enabled: bool) {
+        Session::set_prediction_pool(self, enabled);
+    }
+    fn order_prediction(&mut self, scorer: &mut dyn CandidateScorer, before: &str) -> bool {
+        Session::order_prediction(self, scorer, before)
     }
     fn reset_context(&mut self) {
         Session::reset_context(self);
