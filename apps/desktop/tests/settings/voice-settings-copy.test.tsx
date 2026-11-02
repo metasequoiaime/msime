@@ -506,3 +506,38 @@ test("the desktop service status says what the recorder will find", () => {
   expect(status({ asr_provider: "system" }, { serviceVoice: false })).toBeUndefined();
   expect(status({ asr_provider: "doubao" }, { linux: true })).toBeUndefined();
 });
+
+// 桌面三端在最终结果上屏前处理语音标点（#10597）：「识别结果」组给出四选一，选中的值写进 `voice_input.punctuation_mode`。
+test.each(["windows", "macos", "linux"] as const)(
+  "%s offers voice punctuation in the recognition result group",
+  async (platform) => {
+    const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+      ...snapshot,
+      revision: 3,
+      preferences,
+    }));
+    render(<SettingsPage client={{ load: async () => snapshot, save, host: host(platform) }} />);
+    await settingsFormReady();
+    fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
+    await screen.findByRole("combobox", { name: "识别服务" });
+    const result = screen.getByRole("region", { name: "识别结果" });
+    const select = within(result).getByRole("combobox", { name: "语音标点" }) as HTMLSelectElement;
+    // 缺键按出厂默认 auto 显示。
+    expect(select.value).toBe("auto");
+    expect([...select.options].map((option) => option.textContent)).toEqual([
+      "智能添加",
+      "省略句末标点",
+      "省略所有标点",
+      "空格代替标点",
+    ]);
+    fireEvent.change(select, { target: { value: "omit_trailing" } });
+    saveSettingsNow();
+    await screen.findByText("已保存");
+    expect(save.mock.calls[0][1].voice_input.punctuation_mode).toBe("omit_trailing");
+  },
+);
+
+test("hosts that do not process voice punctuation do not offer it", async () => {
+  await openVoice("android");
+  expect(screen.queryByRole("combobox", { name: "语音标点" })).toBeNull();
+});

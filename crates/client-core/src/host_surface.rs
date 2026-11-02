@@ -319,6 +319,8 @@ pub struct HostCapabilities {
     #[serde(default)]
     pub toggle_hotkey_chords: bool,
     pub voice_provider_settings: bool,
+    /// 宿主在最终语音结果上屏前按 `voice_input.punctuation_mode` 处理标点；原生移动设置页自行提供这一项。
+    pub voice_punctuation: bool,
     /// The host draws the recogniser's interim text while the user is still speaking.
     ///
     /// Every host can ask a streaming provider for partial results; this says which of them has
@@ -822,6 +824,11 @@ impl HostCapabilities {
             // macOS 宿主在 `applySharedInputPreferences` 时解码三个 chord 并按 `MSIMEToggleChordMatches` 认键；其余宿主仍写死。
             toggle_hotkey_chords: platform == HostPlatform::Macos,
             voice_provider_settings: true,
+            // 鸿蒙和桌面三端在最终结果上屏前调 `msime_client_voice_punctuation`；Android 的设置页是原生的，iOS 见 #10595。
+            voice_punctuation: matches!(
+                platform,
+                HostPlatform::Windows | HostPlatform::Macos | HostPlatform::Linux
+            ),
             voice_stream_preedit: !matches!(platform, HostPlatform::Android | HostPlatform::Ios),
             // 空格锁定和提示音细分只有 Android、iOS 还读存下的值；录音后端只有 Linux 真有得选（见各字段说明）。
             voice_space_lock_switch: matches!(platform, HostPlatform::Android | HostPlatform::Ios),
