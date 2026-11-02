@@ -107,6 +107,11 @@ export class KeyAccessibilityPolicy {
     return open ? "收起候选" : "展开候选";
   }
 
+  /** 上屏后联想时候选栏上的关闭键 ×。 */
+  static closePrediction(): string {
+    return "关闭联想";
+  }
+
   /** 底行的句号键。 */
   static period(): string {
     return "句号";

@@ -1,5 +1,6 @@
 import { CandidateLayoutPolicy } from '../keyboard/candidate/CandidateSkinPolicy';
 import { CandidateCanvasPolicy } from '../keyboard/candidate/CandidateCanvasPolicy';
+import { NextWordPredictionPolicy } from '../keyboard/candidate/NextWordPredictionPolicy';
 import { CandidateCanvasDecoder } from '../keyboard/candidate/CandidateCanvasFrame';
 import InputMethodExtensionAbility from '@ohos.InputMethodExtensionAbility';
 import inputMethodEngine from '@ohos.inputMethodEngine';
@@ -143,7 +144,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       // When follow-cursor is disabled, the first composition position is the anchor for the
       // whole candidate window lifetime. Keep recording the latest caret while idle so the next
       // composition still starts beside the newly focused text.
-      if (KeyboardSession.shared.composing()
+      if (KeyboardSession.shared.candidateWindowWanted()
         && KeyboardSession.shared.preferences().candidateFollowCursor) {
         this.placeCandidateWindow();
       }
@@ -529,7 +530,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     }
     if (surface === DesktopSurface.NONE) {
       this.resizeCandidateWindow(surface).then((): void => {
-        if (!KeyboardSession.shared.composing()) {
+        if (!KeyboardSession.shared.candidateWindowWanted()) {
           panel.hide();
         }
       }).catch((error: Object): void => {
@@ -806,6 +807,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
   private readonly releasedKeys: Set<number> = new Set<number>();
   /** Key codes whose key-down the emoji panel took, so their key-up is taken too. */
   private readonly panelKeys: Set<number> = new Set<number>();
+  /** 按下时关闭了上屏后联想的键（Esc），抬起一并收下。 */
+  private readonly predictionKeys: Set<number> = new Set<number>();
 
   private readonly typed: (event: InputKeyEvent) => boolean = (event: InputKeyEvent): boolean => {
     const session: KeyboardSession = KeyboardSession.shared;
@@ -906,6 +909,15 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       altKey: event.altKey, logoKey: event.logoKey
     })) {
       this.panelKeys.add(event.key.code);
+      return true;
+    }
+    // 上屏后联想时 Esc 关闭联想（送 Cancel），与候选栏的关闭键 × 相同，不交给应用。其余键照常走下去：空格、回车、数字和退格没有组字可管，交给应用输入，编辑器的改动回报随后清掉联想（`KeyboardSession.editorTextChanged`）；字母开始新的组字，标点由引擎清掉联想后输入。
+    if (event.action !== KeyAction.DOWN && this.predictionKeys.delete(event.key.code)) {
+      return true;
+    }
+    if (event.action === KeyAction.DOWN && NextWordPredictionPolicy.dismissesOnKey(event.key.code,
+      event.ctrlKey, event.altKey, event.logoKey, event.shiftKey) && session.dismissPrediction()) {
+      this.predictionKeys.add(event.key.code);
       return true;
     }
     // A space with nothing being composed is the editor's, with one exception: it is also the key
@@ -1247,7 +1259,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
           };
           KeyboardSession.shared.onCandidateCount = (count: number): void => {
             this.candidateCount = count;
-            if (KeyboardSession.shared.composing()
+            if (KeyboardSession.shared.candidateWindowWanted()
               && KeyboardSession.shared.openSurface() === DesktopSurface.NONE) {
               this.resizeCandidateWindow(DesktopSurface.NONE).then((): void => {
                 this.placeCandidateWindow();

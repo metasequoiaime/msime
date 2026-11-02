@@ -408,6 +408,18 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 短语里已经选定的那一段和正在运行的本地模式的名字仍留在候选栏上。韩语音节、注音转换、越南语单词这类本身就是文字的组字保持原样：写进输入框，候选栏也照旧画。逻辑测试在 `tests/keyboard-logic.test.ts` 的「a phone always writes the composition into the field」和「nine-key writes its pinyin reading into the field」两组。
 
+## 上屏后联想（#9433）
+
+设置页「表达 › 智能」（手机）或「输入 › 候选与联想」（2in1）打开「上屏后联想」后，选词上屏，候选栏换成接着可能要打的词，View 里 `prediction` 为真、没有组字。规则与其他平台相同：联想只是建议，只有点选候选才上屏；空格、回车、数字和标点照常输入，关闭键 × 和实体键盘的 Esc 关闭联想（送 Cancel，不往输入框写字）。规则集中在 `keyboard/candidate/NextWordPredictionPolicy.ts`（`tests/next-word-prediction.test.ts`），视图、会话和扩展能力的接线由 `tests/run.sh` 钉住。
+
+- 回车：`ReturnKeyAction.dispatch` 在联想时给 `FINISH_THEN_EDITOR`，先让引擎清掉联想，再照常换行或执行编辑器动作。以前按候选数走「上屏高亮」，引擎清掉联想却报未处理，这一下回车就被吞了。回车键面、空格的读屏名称在联想时也按空闲画，不显示「确认」「选定」。
+- 候选栏按键：读共享偏好 `next_word_prediction_buttons`，与 Android 一样三种样式，× 在展开键左边；「只有关闭」不放展开键。展开面板开着时 × 先收起面板。
+- 长按联想的候选什么也不做：它们不属于正在组的字，不能固定、调序或删除。
+- 外部改动：编辑器回报的文字或选区变化不是键盘自己写入的回声（`EditEchoLedger`）时重新聚焦会话，清掉旧联想并切断词序上下文。实体键盘交给应用的空格、回车、数字和退格也靠这一条清掉联想；123 层、表情、剪贴板这类直接写进编辑器的文字在写之前先清掉联想。
+- 2in1：手机和 2in1 是同一个原生库，偏好打开时两边都有联想。2in1 的候选窗原来只跟着组字出现，现在联想时也出现（`KeyboardSession.candidateWindowWanted`），用鼠标点选、Esc 关闭；候选窗不画 × 和展开键，与桌面宿主一样。
+
+自己的上屏回声能不能被正确认作回声、联想不被立刻清掉，只能在设备上确认，见决策笔记的验证一节。
+
 ## 键盘里调的高度被设置页的值盖回去
 
 `changePreferences` 存好文档、记下版本号，却不更新缓存的偏好，`preferences()` 一直返回准备会话时的那份。视图存完立刻读回旧高度：拖动弹回原位，± 不累加，拖间距时把旧高度一起写回，面板尺寸也按旧值算；下次聚焦时版本号已经一致，不会重建，旧值就留到进程重启。现在存完按存下的整份文档重算外观（`refreshPreparedPreferences`），`selectGlobalTheme` 原来自己补的那一步也并进去了。设置页的改动仍按版本号在下次聚焦时重建会话。

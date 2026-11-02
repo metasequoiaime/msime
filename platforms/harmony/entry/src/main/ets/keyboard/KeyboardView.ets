@@ -43,6 +43,7 @@ import { SchemeTraits } from './SchemeTraits';
 import { HardwareKeyRouter } from './HardwareKeyRouter';
 import { KoreanCompositionPolicy } from './input/KoreanCompositionPolicy';
 import { CandidateManagementAction, ManagementAction } from './candidate/CandidateManagementAction';
+import { NextWordPredictionPolicy } from './candidate/NextWordPredictionPolicy';
 import { CandidateFontFamilyPolicy } from './candidate/CandidateFontFamilyPolicy';
 import { CandidateChipWidth } from './candidate/CandidateChipWidth';
 import { CandidateContextMenuPolicy, PointerAction, PointerButton }
@@ -539,6 +540,8 @@ struct KeyboardView {
   @State engineScheme: number = 0;
   /** Whether the scheme's openable candidate list (the Korean Hanja list, the Zhuyin list) is on the strip, as the Engine last reported it. */
   @State candidateListOpen: boolean = false;
+  /** 候选栏上是上屏后联想（#9433）而不是组字的候选：回车、空格按空闲处理，长按不管理，候选栏按偏好放关闭键。 */
+  @State prediction: boolean = false;
   /** Read-only English completions for the word being typed; empty whenever one is not. */
   @State @Watch('syncStripHeight') englishSuggestions: string[] = [];
   /** 光标前打到 `xxx@` 时给出的邮箱后缀，先于英文补全显示；没有时为空。 */
@@ -1104,6 +1107,7 @@ struct KeyboardView {
       this.enumerationCommaSlash = state.enumerationCommaSlash;
       this.engineScheme = state.scheme;
       this.candidateListOpen = state.candidateListOpen;
+      this.prediction = state.prediction;
       this.japanese = state.scheme === JAPANESE_SCHEME && !state.english
         && KeyboardScheme.isNineKeyLayout(this.scheme.touchKeyboardLayout);
       this.shuangpinProfile = state.shuangpinProfile;
@@ -3416,7 +3420,7 @@ struct KeyboardView {
     const dispatch: ReturnDispatch = ReturnKeyAction.dispatch(
       this.japanese, this.editing.length > 0, this.candidates.length,
       KeyboardSession.shared.japaneseConversionActive(), this.koreanFace(), this.vietnameseFace(),
-      this.strokeFace());
+      this.strokeFace(), this.prediction);
     if (dispatch === ReturnDispatch.COMMIT_RAW) {
       KeyboardSession.shared.commitRaw();
     } else if (dispatch === ReturnDispatch.FINISH_THEN_EDITOR) {
@@ -4681,6 +4685,9 @@ struct KeyboardView {
           event.action as number as PointerAction)) {
           return;
         }
+        if (!KeyboardSession.shared.candidateManagementAllowed()) {
+          return;
+        }
         event.stopPropagation();
         this.punctuation = false;
         this.touchCandidateMenu = false;
@@ -5011,12 +5018,25 @@ struct KeyboardView {
         this.hanjaButton()
       }
       if (this.candidates.length > 0 && !this.showsHandwritingCandidates()) {
-        Divider()
-          .vertical(true)
-          .strokeWidth(1)
-          .height(this.stripSized(BAR_DIVIDER_HEIGHT_VP))
-          .color(this.skin.hair)
-        this.expandChevron()
+        // 上屏后联想按用户选的样式在展开键左边放关闭键（`next_word_prediction_buttons`）；两个键并排时分隔线只画在 × 左边，与 Android 相同。
+        if (this.predictionCloseShown()) {
+          Divider()
+            .vertical(true)
+            .strokeWidth(1)
+            .height(this.stripSized(BAR_DIVIDER_HEIGHT_VP))
+            .color(this.skin.hair)
+          this.closePredictionButton()
+        }
+        if (this.expandChevronAllowed()) {
+          if (!this.predictionCloseShown()) {
+            Divider()
+              .vertical(true)
+              .strokeWidth(1)
+              .height(this.stripSized(BAR_DIVIDER_HEIGHT_VP))
+              .color(this.skin.hair)
+          }
+          this.expandChevron()
+        }
       }
     }
     .width('100%')
@@ -5030,9 +5050,28 @@ struct KeyboardView {
       KeyboardSession.shared.glossesExpected() ? this.stripSized(CHIP_WORD_MAX_WITH_GLOSS) : this.stripSized(CHIP_WORD_MAX_ALONE));
   }
 
-  /** 通道的可见宽度：工具条宽度减去细线和展开箭头。 */
+  /** 通道的可见宽度：工具条宽度减去细线和展开箭头（联想时还有关闭键）。 */
   private chipLaneWidth(): number {
-    return Math.max(0, this.availableWidth - 1 - BAR_BUTTON_VP);
+    const buttons: number = (this.expandChevronAllowed() ? 1 : 0) + (this.predictionCloseShown() ? 1 : 0);
+    return Math.max(0, this.availableWidth - buttons * (1 + BAR_BUTTON_VP));
+  }
+
+  /** 候选栏右端放不放关闭键：只在上屏后联想时，并且样式带 ×。 */
+  private predictionCloseShown(): boolean {
+    return NextWordPredictionPolicy.showsClose(KeyboardSession.shared.predictionButtons(), this.prediction);
+  }
+
+  /** 候选栏右端放不放展开键：联想时「只有关闭」不放，其余照旧。 */
+  private expandChevronAllowed(): boolean {
+    return NextWordPredictionPolicy.allowsExpand(KeyboardSession.shared.predictionButtons(), this.prediction);
+  }
+
+  /** 关闭上屏后联想：展开面板开着时先收起，再送 Cancel；引擎清掉建议、不往输入框写字，候选清空后工具条换回工具栏。 */
+  private closePrediction(): void {
+    if (this.surface === SURFACE_EXPANDED) {
+      this.show(SURFACE_NONE);
+    }
+    KeyboardSession.shared.dismissPrediction();
   }
 
   /** 一个注释列的文字宽度（`CandidateChipWidth`：可见通道放三列），不预期出现注释时为 0。 */
@@ -5194,6 +5233,34 @@ struct KeyboardView {
     .width('100%')
     .height(this.stripSized(CHIP_HEIGHT_VP))
     .align(Alignment.Start)
+  }
+
+  /** 上屏后联想的关闭键 ×，与展开键同宽同高。 */
+  @Builder
+  closePredictionButton() {
+    Column() {
+      KeyboardLineIcon({
+        d: KeyboardIconPaths.CLOSE,
+        iconSize: this.toolbarSized(KeyboardIconPaths.CLOSE_SIZE_VP),
+        stroke: KeyboardIconPaths.CHEVRON_STROKE,
+        color: this.skin.keyForeground
+      })
+    }
+    .width(BAR_BUTTON_VP)
+    .height(this.toolbarSized(BAR_BUTTON_VP))
+    .justifyContent(FlexAlign.Center)
+    .alignItems(HorizontalAlign.Center)
+    .flexShrink(0)
+    .stateStyles({
+      normal: {
+        .opacity(1)
+      },
+      pressed: {
+        .opacity(BAR_BUTTON_PRESSED_OPACITY)
+      }
+    })
+    .accessibilityText(KeyAccessibilityPolicy.closePrediction())
+    .onClick(() => this.closePrediction())
   }
 
   /** 候选栏的展开箭头，网格打开期间翻转显示。 */
@@ -7223,14 +7290,19 @@ struct KeyboardView {
 
   /** Whether Return currently confirms a composition rather than acting on the field. */
   private returnComposing(): boolean {
-    return this.japanese ? this.editing.length > 0 : this.candidates.length > 0;
+    return this.japanese ? this.editing.length > 0 : this.composingCandidates() > 0;
+  }
+
+  /** 属于组字的候选数：上屏后联想的候选不算，回车照常换行、空格照常是空格。 */
+  private composingCandidates(): number {
+    return NextWordPredictionPolicy.composingCandidates(this.candidates.length, this.prediction);
   }
 
   private returnFace(): string {
     if (this.japanese) {
       return JapaneseNineKeyActions.returnTitle(this.editing.length > 0);
     }
-    return this.candidates.length > 0
+    return this.composingCandidates() > 0
       ? '确认' : ReturnKeyAction.title(KeyboardSession.shared.returnAction(), false);
   }
 
@@ -7339,7 +7411,7 @@ struct KeyboardView {
     .alignItems(HorizontalAlign.Center)
     // What it will do, not what it is: mid-composition this key selects the highlighted candidate,
     // and a user who cannot see the candidate row has no other way to know it changed meaning.
-    .accessibilityText(KeyAccessibilityPolicy.space(this.candidates.length > 0))
+    .accessibilityText(KeyAccessibilityPolicy.space(this.composingCandidates() > 0))
     .backgroundColor(this.skin.keySurfaceBackground(false))
     .linearGradient({ angle: 180,
       colors: [[this.skin.materialTop(), 0], [this.skin.materialBottom(), 1]] })
@@ -8124,7 +8196,8 @@ struct KeyboardView {
   }
 
   private openTouchCandidateMenu(index: number): void {
-    if (index < 0 || index >= this.candidates.length) {
+    // 上屏后联想的候选只是建议，不能固定、调序或删除，长按什么也不做，与 Android 相同。
+    if (index < 0 || index >= this.candidates.length || !KeyboardSession.shared.candidateManagementAllowed()) {
       return;
     }
     this.touchCandidateMenu = false;

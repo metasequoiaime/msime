@@ -108,6 +108,9 @@ export class KeyboardIconPaths {
   /** 候选栏的展开箭头，按 `EXPAND_SIZE_VP` 绘制，候选网格展开时旋转 180°。 */
   static readonly EXPAND: string = "M6 9.5L12 15.5L18 9.5";
   static readonly EXPAND_SIZE_VP: number = 20;
+  /** 上屏后联想的关闭键 ×（Android `ICONS` 的 `CLOSE`），按 `CLOSE_SIZE_VP` 绘制，与展开箭头同一描边。 */
+  static readonly CLOSE: string = "M18 6L6 18M6 6L18 18";
+  static readonly CLOSE_SIZE_VP: number = 18;
 
   // ---- 工具栏（设计稿的 Harmony `tbIcons`），描边 `TOOLBAR_STROKE`，尺寸 `TOOLBAR_SIZE_VP` ----
 

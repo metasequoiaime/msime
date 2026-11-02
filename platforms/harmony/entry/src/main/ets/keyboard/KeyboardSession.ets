@@ -98,6 +98,7 @@ import { ToolbarImagePolicy, ToolbarImageResources, ToolbarImageScene, ToolbarIm
 import { DesktopSurface } from './DesktopSurface';
 import { CandidateAnnotationPreferencePolicy } from './candidate/CandidateAnnotationPreferencePolicy';
 import { CandidateManagementAction } from './candidate/CandidateManagementAction';
+import { NextWordPredictionPolicy, PredictionButtons } from './candidate/NextWordPredictionPolicy';
 import { CandidateGlossPolicy, CandidatePronunciationPolicy } from './candidate/CandidateGlossPolicy';
 import { CorrectionMarkPolicy } from './candidate/CorrectionMarkPolicy';
 import {
@@ -280,6 +281,8 @@ interface EngineView extends EngineViewNumericFields {
   candidate_list_open: boolean;
   /** 引号与方头括号样式（`quote_style`、`bracket_style`），host-api 已按繁体输出开关解析好。 */
   punctuation_marks?: PunctuationMarksView;
+  /** 上屏后联想（`next_word_prediction`）：候选是选词上屏后的建议，`editing_text`、`preedit` 为空，只有点选才上屏。普通状态 JSON 里没有这个键。 */
+  prediction?: boolean;
 }
 
 // The stored preferences, read and written whole. Only the fields the keyboard changes are named;
@@ -683,6 +686,8 @@ export interface KeyboardState {
   /** View 报告的顿号键开关：顿号键面随它画。 */
   readonly enumerationCommaBackslash: boolean;
   readonly enumerationCommaSlash: boolean;
+  /** 候选是上屏后联想而不是组字的候选，见 `NextWordPredictionPolicy`：回车、空格按空闲处理，长按不管理候选，候选栏按偏好放关闭键。 */
+  readonly prediction: boolean;
 }
 
 interface EngineValue {
@@ -938,6 +943,8 @@ interface PreparedPreferences {
   candidate_selected_bar: boolean | null;
   candidate_follow_cursor: boolean;
   number_row_selection: boolean;
+  /** 上屏后联想时候选栏右端的按键样式（`expand_only`、`close_and_expand`、`close_only`）；缺省（不写进文档）是只有展开键。 */
+  next_word_prediction_buttons?: string;
   navigation: PreparedNavigationPreferences;
   candidate_layout: string;
   candidate_preedit_style: string;
@@ -2142,6 +2149,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.fuzzyPinyin = preferences.fuzzy_pinyin !== undefined && preferences.fuzzy_pinyin.enabled;
       this.modeBadge = InputModeHudPolicy.enabled(preferences.input_mode_hud);
       this.englishSuggestionsEnabled = preferences.english_suggestions !== false;
+      this.predictionButtonStyle = NextWordPredictionPolicy.buttons(preferences.next_word_prediction_buttons);
       if (ClipboardHistoryPreferencePolicy.shouldClearHistory(this.clipboardHistoryEnabled)) {
         this.clearClipboardHistoryFile();
       }
@@ -3578,6 +3586,36 @@ export class KeyboardSession implements HardwareKeyTarget {
     return HardwareKeyRouter.composing(this.editing, this.phrasePrefix);
   }
 
+  /** 候选栏上此刻是不是上屏后联想（#9433）：没有组字，候选只是建议，见 `NextWordPredictionPolicy`。 */
+  predicting(): boolean {
+    return NextWordPredictionPolicy.showing(this.lastView?.prediction, this.currentCandidates.length);
+  }
+
+  /** 2in1 候选窗该不该在屏幕上：有组字，或者在显示联想。 */
+  candidateWindowWanted(): boolean {
+    return NextWordPredictionPolicy.candidateWindowWanted(this.composing(), this.predicting());
+  }
+
+  /** 联想栏按键的样式（共享偏好 `next_word_prediction_buttons`）。 */
+  predictionButtons(): PredictionButtons {
+    return this.predictionButtonStyle;
+  }
+
+  /**
+   * 关闭上屏后联想：候选栏的关闭键 × 和实体键盘的 Esc。送 Cancel，引擎清掉建议并报已处理，不上屏、不往编辑器写字，已上屏的词序照旧保留；按空格关闭会多一个空格。不在显示联想时什么也不做，返回假。
+   */
+  dismissPrediction(): boolean {
+    if (this.handle === 0 || !this.predicting()) return false;
+    this.command(InputCommand.CANCEL);
+    return true;
+  }
+
+  /** 编辑器的改动不是键盘自己写入的回声而且正显示联想：重新聚焦同一会话，清掉旧建议并切断词序上下文，免得随后点选的词被记成旧位置的后续词（Android `onUpdateSelection` 同样处理）。 */
+  private refocusAfterExternalEdit(ownEcho: boolean): void {
+    if (this.handle === 0 || !NextWordPredictionPolicy.refocusesOnEditorChange(ownEcho, this.predicting())) return;
+    this.apply(client.focus(this.handle, true));
+  }
+
   /** Tells the Engine which grid the user is typing on, so a 2 means ABC rather than a digit. */
   /** The scheme now in force, which decides whether the nine-key flag means anything. */
   useScheme(name: string, profileName: string | null = null): void {
@@ -4162,6 +4200,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.caretContextEcho.textChanged(false, false, textLength);
     // A host edit may clear the field, replace the document or move text around the active composition. Commit what the user typed before the Engine's state can drift from the editor.
     this.finishCompositionBoundary(CompositionBoundary.DEACTIVATE);
+    // 实体键盘交给应用的空格、回车、数字和退格也走到这里：联想照常让它们输入，随后在这里清掉。
+    this.refocusAfterExternalEdit(false);
     this.clearEnglishSuggestions();
     this.refreshEmailSuffixes();
     this.clearSmartPunctuationRepeat();
@@ -4173,6 +4213,8 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** A selection move changes contextual UI but does not itself discard an active composition. */
   editorSelectionChanged(collapsed: boolean = true): void {
+    // 编辑器先回报 `textChange` 再回报 `selectionChange`（见 `EditEchoLedger`），这里读到的就是紧挨着的那次 `textChange` 是不是键盘自己的回声；下面会把它清掉。
+    const ownEcho: boolean = this.phraseCursorOwnEcho;
     if (this.phraseCursor !== null) {
       if (collapsed && this.phraseCursorOwnEcho) {
         this.resumePhraseCursor();
@@ -4183,6 +4225,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     this.phraseCursorOwnEcho = false;
     this.invalidateReplyContext();
+    // 用户点到别处、拖了选区，或应用自己移了光标：旧位置的联想不再适用。
+    this.refocusAfterExternalEdit(ownEcho);
     // 编辑器在每次 insertTextSync 之后也回报一次选区变化，这里只按光标前的当前词重新核对：词没变就保留建议，光标移开或词变了才重新查询或收起。直接清空会让手机纠错模式下每一键刚出的建议马上消失，用户看不到候选，也无法点原文拒绝纠错。选中了一段文字时没有可替换的当前词，照旧收起。
     if (collapsed) {
       this.refreshEnglishSuggestions();
@@ -5319,6 +5363,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   private translationPage: string[] | null = null;
   private translationHighlight: number = 0;
   private lastView: EngineView | undefined = undefined;
+  /** 联想栏按键的样式，见 `predictionButtons`。 */
+  private predictionButtonStyle: PredictionButtons = PredictionButtons.EXPAND_ONLY;
   private scheme: number = 0;
   private localMode: string = 'none';
   /** Revision of the preference document the session was last built from; -1 before the first. */
@@ -5354,7 +5400,10 @@ export class KeyboardSession implements HardwareKeyTarget {
     // this behind, so the toolbar's 半 never became 全 and the next tap asked for the same thing
     // again.
     this.fullWidth = view.character_width === 'Fullwidth';
-    const active: boolean = HardwareKeyRouter.composing(view.editing_text, view.phrase_prefix ?? '');
+    // 2in1 候选窗跟着它出现和收起：联想没有组字，也要有候选窗，否则建议看不见（`NextWordPredictionPolicy.candidateWindowWanted`）。
+    const active: boolean = NextWordPredictionPolicy.candidateWindowWanted(
+      HardwareKeyRouter.composing(view.editing_text, view.phrase_prefix ?? ''),
+      NextWordPredictionPolicy.showing(view.prediction, view.candidates.length));
     if (active !== this.composedLast) {
       this.composedLast = active;
       if (this.onComposition !== undefined) {
@@ -5421,7 +5470,8 @@ export class KeyboardSession implements HardwareKeyTarget {
         hollowBrackets: ChineseSymbolFaces.hollowBrackets(view.punctuation_marks),
         enumerationCommaBackslash:
           ChineseSymbolFaces.enumerationCommaBackslash(view.punctuation_marks),
-        enumerationCommaSlash: ChineseSymbolFaces.enumerationCommaSlash(view.punctuation_marks)
+        enumerationCommaSlash: ChineseSymbolFaces.enumerationCommaSlash(view.punctuation_marks),
+        prediction: NextWordPredictionPolicy.showing(view.prediction, entries.length)
       });
     }
     if (this.onCandidateWidth !== undefined) {
@@ -5492,7 +5542,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       hollowBrackets: ChineseSymbolFaces.hollowBrackets(view.punctuation_marks),
       enumerationCommaBackslash:
         ChineseSymbolFaces.enumerationCommaBackslash(view.punctuation_marks),
-      enumerationCommaSlash: ChineseSymbolFaces.enumerationCommaSlash(view.punctuation_marks)
+      enumerationCommaSlash: ChineseSymbolFaces.enumerationCommaSlash(view.punctuation_marks),
+      prediction: NextWordPredictionPolicy.showing(view.prediction, entries.length)
     });
     if (this.onCandidateWidth !== undefined) {
       this.onCandidateWidth(this.candidateWidthVp(entries, reading, view.page, view.page_count,
@@ -5593,7 +5644,9 @@ export class KeyboardSession implements HardwareKeyTarget {
       hollowBrackets: ChineseSymbolFaces.hollowBrackets(view?.punctuation_marks),
       enumerationCommaBackslash:
         ChineseSymbolFaces.enumerationCommaBackslash(view?.punctuation_marks),
-      enumerationCommaSlash: ChineseSymbolFaces.enumerationCommaSlash(view?.punctuation_marks)
+      enumerationCommaSlash: ChineseSymbolFaces.enumerationCommaSlash(view?.punctuation_marks),
+      // 译文页是某个组字候选的几种译法，不是上屏后联想。
+      prediction: false
     });
     if (this.onCandidateWidth !== undefined) {
       this.onCandidateWidth(this.candidateWidthVp(entries, view?.editing_text ?? this.editing, 0, 1, false));
@@ -7219,6 +7272,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.composing()) {
       this.commitRaw();
     }
+    this.dismissPrediction();
     if (this.inputClient === undefined) {
       return;
     }
@@ -7546,6 +7600,8 @@ export class KeyboardSession implements HardwareKeyTarget {
    * and not the rest.
    */
   insert(text: string): void {
+    // 直接写进编辑器的文字（123 层的数字、表情、剪贴板）照常输入，旧位置的联想随之作废；它们不经过引擎，引擎自己清不掉。
+    this.dismissPrediction();
     if (this.commitEnglishBoundary(text)) return;
     if (this.inputClient !== undefined) {
       const widened: string | null = FullWidthInputPolicy.output(text, this.fullWidth);
@@ -8034,6 +8090,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** Insert a platform-produced result and attribute it to its actual source. */
   insertWithSource(text: string, source: string): void {
     if (this.inputClient === undefined || text.length === 0) return;
+    this.dismissPrediction();
     const output: string = this.asTraditional(text);
     this.insertEditorText(output);
     this.recordTypingStatistics(output, source);
@@ -8286,8 +8343,13 @@ export class KeyboardSession implements HardwareKeyTarget {
       ? this.visibleCandidateIndices[index] : -1;
   }
 
+  /** 候选能不能固定、调序或删除：上屏后联想的候选不属于正在组的字，和 Android 的 `candidateManagementEnabled` 一样不给管理。 */
+  candidateManagementAllowed(): boolean {
+    return !this.predicting();
+  }
+
   promoteCandidate(index: number): void {
-    if (this.handle === 0) {
+    if (this.handle === 0 || !this.candidateManagementAllowed()) {
       return;
     }
     const actualIndex: number = this.engineCandidateIndex(index);
@@ -8301,7 +8363,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   fixCandidatePosition(index: number, position: number): void {
-    if (this.handle === 0) {
+    if (this.handle === 0 || !this.candidateManagementAllowed()) {
       return;
     }
     // Checked here rather than trusted from the menu. Today the menu is the only caller and it only
@@ -8315,7 +8377,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   clearCandidatePosition(index: number): void {
-    if (this.handle === 0) {
+    if (this.handle === 0 || !this.candidateManagementAllowed()) {
       return;
     }
     const actualIndex: number = this.engineCandidateIndex(index);
@@ -8324,7 +8386,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   removeCandidate(index: number): void {
-    if (this.handle === 0) {
+    if (this.handle === 0 || !this.candidateManagementAllowed()) {
       return;
     }
     const actualIndex: number = this.engineCandidateIndex(index);
@@ -8358,7 +8420,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     const view: EngineView | undefined = this.lastView;
     const actualIndex: number = this.engineCandidateIndex(index);
     if (this.handle === 0 || view === undefined || actualIndex < 0
-        || actualIndex >= view.candidates.length) {
+        || actualIndex >= view.candidates.length || !this.candidateManagementAllowed()) {
       return false;
     }
     const candidate: Candidate = view.candidates[actualIndex];
