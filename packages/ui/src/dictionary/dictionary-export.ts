@@ -42,6 +42,7 @@ const personalDictionaryExportKinds: readonly [LocalDictionaryKind, string][] = 
   ["wubi98", "98 五笔"],
   ["quick_phrase", "快捷短语"],
   ["english", "英文"],
+  ["cantonese", "粤语"],
 ];
 
 export function personalDictionaryExportName(): string {
@@ -110,6 +111,7 @@ export function dictionaryExportName(kind: LocalDictionaryKind): string {
     wubi98: "水杉IME-98五笔用户词库.txt",
     english: "水杉IME-英文用户词库.txt",
     quick_phrase: "水杉IME-快捷短语用户词库.txt",
+    cantonese: "水杉IME-粤语用户词库.txt",
   };
   return names[kind];
 }
@@ -122,6 +124,7 @@ export function dictionaryKindLabel(kind: string): string {
       wubi98: "98 五笔",
       english: "英文",
       quick_phrase: "快捷短语",
+      cantonese: "粤语",
     }[kind] ?? "词库"
   );
 }
