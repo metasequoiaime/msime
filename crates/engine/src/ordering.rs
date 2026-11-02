@@ -124,7 +124,7 @@ const STATIC_RERANK_LIMIT: usize = 9;
 /// 报这个数的逐键打分器（[`CandidateScorer::sentence_pool`]）挂着时，26 键全拼每条切分解出的整句读法条数（`Session::set_sentence_pool`），正好填满模型一次比较的条数。不挂时引擎只解 6 条，长句的比较位常有三条空着，而对的那句往往就排在第 7 到第 9 条：ctx-v1 的 dev 分句上，金标准出现在候选里的比例从 72.1% 到 75.6%，6x256 的首选从 65.7% 到 67.9%。更多的读法还会更准（解 32 条、比较 32 条是 72.3%），但模型的耗时随比较的条数增长，Pixel 3 XL 上 6x256 已经用到逐键预算的九成，所以只填满现有的比较位。见 `.agents/notes/implemented/feature/2026-11-02-sentence-pool-for-reranker.md`。
 pub const SENTENCE_POOL: usize = STATIC_RERANK_LIMIT;
 
-/// 打分器报的整句池最多这么大：静态证据分支一次比较的条数取 [`STATIC_RERANK_LIMIT`] 与池中较大的那个，放在栈上的数组按它开。
+/// 打分器报的整句池最多这么大：静态证据分支一次比较的条数取 [`SENTENCE_POOL`]（九条）与池中较大的那个，放在栈上的数组按它开。
 pub const MAX_SENTENCE_POOL: usize = 32;
 
 /// 候选行不在任何窄裁决点上。
