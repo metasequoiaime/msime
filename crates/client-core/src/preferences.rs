@@ -551,13 +551,13 @@ impl<'de> Deserialize<'de> for TouchNineKeySwipeDigits {
     }
 }
 
-/// 上屏后联想显示时候选栏右端放哪些按键（#10078）。只在 `next_word_prediction` 开着时有意义；普通组字的候选栏不受它影响。目前只有 Android 原生键盘读它，其他宿主原样保留。
+/// 上屏后联想显示时候选栏右端放哪些按键（#10078）。只在 `next_word_prediction` 开着时有意义；普通组字的候选栏不受它影响。只有触屏宿主读它（候选栏右端有按键可放），桌面宿主的候选窗没有这两个键，原样保留。
 ///
 /// 读文档时不认识的值按默认读，不是字符串照样报错，与 [`TouchTwentySixKeyStyle`] 一致。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum NextWordPredictionButtons {
-    /// 现有样式：只有展开键（联想多于一页时才出现），关闭联想靠空格或继续输入。
+    /// 现有样式：只有展开键（联想多于一页时才出现），关闭联想靠继续输入。
     #[default]
     ExpandOnly,
     /// 关闭键 × 加展开键；展开面板打开时 × 仍在 ∧ 左边。

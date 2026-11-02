@@ -1826,6 +1826,11 @@ impl<E: InputEngine> Runtime<E> {
             && (self.cached.prediction || self.cached.candidates.is_empty())
     }
 
+    /// 是否正显示上屏后联想。联想没有组字，[`Self::is_idle`] 照样为真；要等联想结束再做的事（例如重建 Engine）看这一项。
+    pub fn shows_prediction(&self) -> bool {
+        self.cached.prediction
+    }
+
     /// 是否有组字：暂存词段、预编辑、读音或候选任一非空。
     ///
     /// 与 [`Self::is_idle`] 的区别是不看 `snapshot_valid`：一次失败的 refresh 让快照失效，但用户眼里并没有多出一段组字，生命周期核心据此判断组字开始和结束时不能把它算进去。
@@ -3648,6 +3653,27 @@ impl<E: InputEngine> Runtime<E> {
             {
                 self.punctuation(value)
             }
+            // 上屏后联想和普通候选一样选：空格选高亮的一条，数字键选当前页对应的一条。要在交给引擎之前接管，引擎收到任何按键都会先清掉联想。九键、字母网格和拿数字拼写的方案里数字是输入，越过本页的数字照常输入，都交给引擎。
+            Action::Character { value: b' ', .. } if self.cached.prediction && len > 0 => {
+                pick = Some((SelectionHow::Highlighted, self.highlighted));
+                self.select_seat(self.highlighted)
+            }
+            Action::Character { value, .. }
+                if self.cached.prediction
+                    && !self.cached.nine_key
+                    && !self.cached.key_grid.is_some_and(KeyGrid::uses_digits)
+                    && !self.cached.spelling_symbols.as_bytes().contains(&value)
+                    && candidate_digit_slot(value, self.page_size).is_some_and(|slot| {
+                        let page_start = (self.highlighted / self.page_size) * self.page_size;
+                        slot < self.page_size && page_start + slot < len
+                    }) =>
+            {
+                let page_start = (self.highlighted / self.page_size) * self.page_size;
+                let seat = page_start + candidate_digit_slot(value, self.page_size).unwrap_or(0);
+                selected_by_digit = true;
+                pick = Some((SelectionHow::Digit, seat));
+                self.select_seat(seat)
+            }
             Action::Character { value, shift } => {
                 self.engine.character(value, shift).and_then(|result| {
                     // 九键和 14 键的分词键 `'` 是键面上的切分动作，不是中文引号标点。
@@ -3782,7 +3808,7 @@ impl<E: InputEngine> Runtime<E> {
             {
                 self.engine.character(b' ', false)
             }
-            Action::SelectHighlighted if len > 0 && !self.cached.prediction => {
+            Action::SelectHighlighted if len > 0 => {
                 pick = Some((SelectionHow::Highlighted, self.highlighted));
                 self.select_seat(self.highlighted)
             }

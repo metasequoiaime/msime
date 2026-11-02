@@ -49,7 +49,7 @@ fn product_mobile(options: &mut EngineOptions) {
     let preferences = Preferences::default();
     let edition = Edition::full();
     options.learning = preferences.learning;
-    // 上屏后联想只在 Android 上、而且要用户自己打开（默认关）。
+    // 上屏后联想只在声明能显示它的宿主上、而且要用户自己打开（默认关）。
     options.next_word_prediction = false;
     options.learn_english_on_enter = preferences.enter_learns_english_word;
     options.autocorrect_transposition = preferences.quanpin.autocorrect_transposition;

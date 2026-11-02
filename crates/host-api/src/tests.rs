@@ -24238,3 +24238,21 @@ fn personal_wordbook_merge_boundary_takes_what_the_keyboard_added_since_last_tim
         assert_eq!(read(unsafe { function(std::ptr::null(), 0) })["ok"], false);
     }
 }
+
+/// 宿主交来的选项文档多半不带本机的持续上报授权，偏好文件里却有：两份偏好只差这一项时不排重建，否则新会话第一次上屏后的重建会清掉上屏后联想。
+#[test]
+fn local_reporting_consent_alone_does_not_schedule_an_engine_rebuild() {
+    let root = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(root.path());
+    let consent = store.usage_reporting_consent().unwrap().unwrap();
+    let applied = store.load().unwrap().preferences;
+    let mut requested = applied.clone();
+    requested.usage_reporting_consent = Some(consent);
+    let mut without = applied.clone();
+    without.usage_reporting_consent = None;
+    assert!(!session_preferences_differ(&requested, &without));
+    assert!(!session_preferences_differ(&without, &requested));
+    // 别的项不同照样要重建。
+    requested.learning = !requested.learning;
+    assert!(session_preferences_differ(&requested, &without));
+}

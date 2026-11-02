@@ -14,6 +14,7 @@ import { MixedInputMoreRows, MixedInputSection } from "./mixed-input-section";
 import type { MixedInputPreferences } from "./mixed-input-preferences";
 import { SingleCharacterOnlySection } from "./single-character-only-section";
 import { CaretEditSuffixSection } from "./caret-edit-suffix-section";
+import { NextWordPredictionSection } from "./next-word-prediction-section";
 import { SwitchRow } from "./switch-row";
 import { TraditionalChineseOutputSection } from "./traditional-chinese-output-section";
 import { WordCharacterSection } from "./word-character-section";
@@ -52,6 +53,8 @@ export interface InputSharedSettingsSectionProps {
   quickPhraseCandidates?: boolean;
   /** 宿主提供「移动光标后编辑光标后的部分」（`HostCapabilities.caret_edit_suffix`，桌面宿主），决定是否在「更多选项」开头、快捷短语混输之前列出它。缺省为 false。 */
   caretEditSuffix?: boolean;
+  /** 宿主显示上屏后联想（`HostCapabilities.next_word_prediction`），决定是否在学习开关之后列出「上屏后联想」。桌面宿主没有联想栏按键，只列开关。缺省为 false。 */
+  nextWordPrediction?: boolean;
   /** 放在「候选与联想」组的「学习选词习惯」之前。 */
   beforeLearning?: ReactNode;
   /** 「候选与联想」组里学习开关之后的行。 */
@@ -97,6 +100,7 @@ export function InputSharedSettingsSection({
   showMultilingualInput = false,
   quickPhraseCandidates = false,
   caretEditSuffix = false,
+  nextWordPrediction = false,
   beforeLearning,
   afterLearning,
   candidatesMore,
@@ -289,6 +293,14 @@ export function InputSharedSettingsSection({
               onPreferencesChange({ enter_learns_english_word })
             }
           />
+          {nextWordPrediction && (
+            <NextWordPredictionSection
+              value={preferences.next_word_prediction}
+              buttons={preferences.next_word_prediction_buttons}
+              showButtons={false}
+              onChange={onPreferencesChange}
+            />
+          )}
           {afterLearning}
           {!foldIntoMore && <MoreOptions>{candidatesMoreRows}</MoreOptions>}
         </GroupList>,

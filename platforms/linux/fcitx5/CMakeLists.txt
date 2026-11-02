@@ -301,6 +301,8 @@ if(BUILD_TESTING)
       COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}" --smart-abc)
     add_test(NAME fcitx5-punctuation-context
       COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}" --punctuation-context)
+    add_test(NAME fcitx5-next-word-prediction
+      COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}" --prediction)
     add_test(NAME fcitx5-native-ai
       COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}" --ai)
     add_test(NAME fcitx5-local-mode-shortcuts
