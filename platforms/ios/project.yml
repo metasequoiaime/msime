@@ -110,6 +110,9 @@ targets:
         buildPhase: resources
       - path: ../linux/data/licenses/onnxruntime-ThirdPartyNotices.txt
         buildPhase: resources
+      # 键盘扩展随包带着整句联想「增强」逐键重排的两档模型（chinese-ime-lm 的 rerank-v1，Apache-2.0）：Apache-2.0 第 4(a)、4(d) 条要求随副本附上许可证全文和上游 NOTICE，训练语料（C4 与 FineWeb-2 中文部分为 ODC-BY，LCCC 为 MIT）要求署名随权重传播。这份文件三样都有，各平台共用；键盘扩展只随 App 一起安装，所以和其他许可一样作为 App 的资源分发，关于页列出。
+      - path: ../../resources/licenses/rerank-model-Apache-2.0.txt
+        buildPhase: resources
       # The input engine in libmsime_host_api, linked into this app and into the keyboard extension it embeds, carries the Korean Hanja table from libhangul's data/hanja/hanja.txt, whose BSD-3-Clause licence requires the notice in binary distributions.
       - path: ../../resources/licenses/libhangul-hanja-BSD-3-Clause.txt
         buildPhase: resources

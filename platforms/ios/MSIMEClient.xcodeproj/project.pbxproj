@@ -606,6 +606,7 @@
 		86FB68B9AD771D313C216BD7 /* KeyboardServiceFallback.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7513F9E654F6379AEB99C79 /* KeyboardServiceFallback.swift */; };
 		876C639845BB8DCFDE9FA43C /* IOSResourcePackDownload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22D630ABE061BC4F6C621106 /* IOSResourcePackDownload.swift */; };
 		877126391F00F1D41C4D2372 /* BackendChatClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4382C16C3E9BCE74058CA5F8 /* BackendChatClient.swift */; };
+		877882E7D9DED9D2B6DBEAE3 /* rerank-model-Apache-2.0.txt in Resources */ = {isa = PBXBuildFile; fileRef = 8533E1086A730724620640B3 /* rerank-model-Apache-2.0.txt */; };
 		879694CEE726D8D6507DF076 /* DoubaoHostFrameCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = B958F722D77F264EB1AF5490 /* DoubaoHostFrameCodec.swift */; };
 		879CA0BC141BFF0A1B5A59B9 /* EighteenKeyLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = D80EF68361517CA226C19DC8 /* EighteenKeyLayout.swift */; };
 		87A2E7E56167E588E57E0A26 /* SkinKeySurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1253B506002669ABD2E8323B /* SkinKeySurfaceView.swift */; };
@@ -1475,6 +1476,7 @@
 		83C5BB90CF0932462B49BF08 /* LocalSpeechModelStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalSpeechModelStore.swift; sourceTree = "<group>"; };
 		84C84616F00768E7DA4291F4 /* KeyboardChatHistoryPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardChatHistoryPolicy.swift; sourceTree = "<group>"; };
 		84E0EA58776B85E03854D05F /* OnboardingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingUITests.swift; sourceTree = "<group>"; };
+		8533E1086A730724620640B3 /* rerank-model-Apache-2.0.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "rerank-model-Apache-2.0.txt"; sourceTree = "<group>"; };
 		85767C9258553C6420A8C955 /* VerificationCodePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerificationCodePolicy.swift; sourceTree = "<group>"; };
 		860C897871B78BDA37D8F6CF /* MSIMESharedTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = MSIMESharedTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		8676538B161A4A29B7E0B73D /* OnboardingChoicesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingChoicesTests.swift; sourceTree = "<group>"; };
@@ -2141,6 +2143,7 @@
 				DAC83802853B57ACCD2EE104 /* OpenCC-Apache-2.0.txt */,
 				C2B3C113E4F9178CDCF5B797 /* pinyin-data-MIT.txt */,
 				1F20B02F929E235778145090 /* python-pinyin-MIT.txt */,
+				8533E1086A730724620640B3 /* rerank-model-Apache-2.0.txt */,
 				263FB72AD59C5C0D3FA6F94C /* rime_kaomoji_dict-MIT.txt */,
 				389CD65F926C70D6B3121DC9 /* rime-cantonese-CC-BY-4.0.txt */,
 				CC9DA57D2C03A9393C8D3153 /* rime-stroke-LGPL-3.0.txt */,
@@ -3210,6 +3213,7 @@
 				DA879DA72CB6C59566EACBB0 /* onnxruntime-ThirdPartyNotices.txt in Resources */,
 				D0159A5BC412DB529DDDC934 /* pinyin-data-MIT.txt in Resources */,
 				36B00ED2F3F238D7E5A96F9B /* python-pinyin-MIT.txt in Resources */,
+				877882E7D9DED9D2B6DBEAE3 /* rerank-model-Apache-2.0.txt in Resources */,
 				C4BF79380C22B73D93D47FB7 /* rime-cantonese-CC-BY-4.0.txt in Resources */,
 				6E25600C23681CEA72A9E093 /* rime-stroke-LGPL-3.0.txt in Resources */,
 				51742FCD17AE5FCD99E076A3 /* rime-wanxiang-CC-BY-4.0.txt in Resources */,
