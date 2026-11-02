@@ -1,6 +1,6 @@
 # @msime/web-engine
 
-水杉输入法的网页引擎。全拼、小鹤双拼、自然码双拼、手到双拼、微软双拼、五笔 86、日语罗马字和韩文两套式都运行在浏览器的 Web Worker 里，全拼和双拼还可以打开辅助码（Rust 编译成 WebAssembly），不需要服务器，可以部署到 GitHub Pages、Vercel、Cloudflare Pages / Workers 这类任意静态托管上。
+水杉输入法的网页引擎。全拼、小鹤双拼、自然码双拼、手到双拼、微软双拼、五笔 86、粤拼、粤语双拼、日语罗马字和韩文两套式都运行在浏览器的 Web Worker 里，全拼和双拼还可以打开辅助码（Rust 编译成 WebAssembly），不需要服务器，可以部署到 GitHub Pages、Vercel、Cloudflare Pages / Workers 这类任意静态托管上。
 
 ```js
 import { createMsimeEngine, attachInput } from "@msime/web-engine";
@@ -18,10 +18,12 @@ attachInput(document.querySelector("textarea"), engine);
 | `assets/msime-wubi86.db.gz` | 约 3.6 MB | 五笔 86 词库 |
 | `assets/msime-japanese.dat.gz` | 约 5.3 MB | 日语模型（Mozc 词典裁剪版），只用于日语 |
 | `assets/sentence-model.safetensors.gz` | 约 4 MB | 整句模型，只用于拼音，可以不下载 |
+| `assets/msime-cantonese.db.gz` | 约 3.5 MB | 粤语词库，粤拼和粤语双拼共用 |
+| `assets/msime-rime_cantonese_LICENSE.txt` | 约 22 KB | 粤语词库的署名与许可证（CC BY 4.0），随词库一起发布，页面不下载它 |
 | `assets/helpcode-<方案>.txt.gz` | 每张 26–82 KB，七张共约 350 KB | 辅助码表，只在全拼或双拼打开辅助码时下载用到的那一张（见下文「辅助码」） |
 | `assets/NOTICE.md` | | 第三方许可声明，部署时请一并发布 |
 
-每个页面只下载用到的方案：全拼约 16 MB，不要整句模型约 12 MB，五笔约 8 MB，日语约 9 MB，韩文只要引擎约 4 MB；打开辅助码再多几十 KB。浏览器会按 HTTP 缓存规则缓存这些文件。
+每个页面只下载用到的方案：全拼约 16 MB，不要整句模型约 12 MB，五笔约 8 MB，粤拼和粤语双拼约 7.5 MB，日语约 9 MB，韩文只要引擎约 4 MB；打开辅助码再多几十 KB。浏览器会按 HTTP 缓存规则缓存这些文件。
 
 ## 接入方式
 
@@ -32,6 +34,7 @@ attachInput(document.querySelector("textarea"), engine);
 ```sh
 npx @msime/web-engine copy public/msime          # 或 site/msime、dist/msime，看你的发布目录
 npx @msime/web-engine copy public/msime --no-wubi --no-model   # 只要全拼和双拼，且不要整句模型
+npx @msime/web-engine copy public/msime --no-cantonese         # 不要粤拼和粤语双拼（粤语词库和它的许可证）
 npx @msime/web-engine copy public/msime --no-helpcode          # 不带辅助码表
 ```
 
@@ -101,7 +104,7 @@ const engine = await createMsimeEngine({ scheme: "quanpin", assetBase: "/msime/a
 
 下载并初始化引擎，完成后返回 `MsimeEngine`。选项：
 
-- `scheme`：`"quanpin"`（默认）、`"xiaohe"`、`"ziranma"`、`"shoudao"`、`"microsoft"`、`"wubi86"`、`"japanese"`、`"korean"`。`xiaohe`、`ziranma`、`shoudao`、`microsoft` 是小鹤、自然码、手到和微软双拼，每个字两键，和全拼共用拼音库；微软双拼的 `;` 是韵母 ing（`b;` 是 bing），只能作音节的第二键，别处仍是分号。`japanese` 是日语罗马字：组字区显示假名，候选是整句转换、词和平假名、片假名；空格选高亮的候选，回车上屏假名，`-` 是长音 ー，`,` `.` `[` `]` 打出 、。「」。`korean` 是韩文两套式（두벌식）：Shift 打双辅音和 ㅒ ㅖ，音节在组字区拼好、下一个键开始新音节时自动上屏；空格、数字和半角标点先上屏音节再打出自己；没有候选，也不下载词库和模型。
+- `scheme`：`"quanpin"`（默认）、`"xiaohe"`、`"ziranma"`、`"shoudao"`、`"microsoft"`、`"wubi86"`、`"japanese"`、`"korean"`。`xiaohe`、`ziranma`、`shoudao`、`microsoft` 是小鹤、自然码、手到和微软双拼，每个字两键，和全拼共用拼音库；微软双拼的 `;` 是韵母 ing（`b;` 是 bing），只能作音节的第二键，别处仍是分号。`japanese` 是日语罗马字：组字区显示假名，候选是整句转换、词和平假名、片假名；空格选高亮的候选，回车上屏假名，`-` 是长音 ー，`,` `.` `[` `]` 打出 、。「」。`korean` 是韩文两套式（두벌식）：Shift 打双辅音和 ㅒ ㅖ，音节在组字区拼好、下一个键开始新音节时自动上屏；空格、数字和半角标点先上屏音节再打出自己；没有候选，也不下载词库和模型。`jyutping` 是粤拼（香港语言学学会粤语拼音，不打声调，如 `neihou` 是 你好），`'` 分开音节，前两键不是完整音节、又能读成粤语双拼时自动按双拼读；`cantonese_shuangpin` 是粤语双拼，每个字两键，先声母后韵母（gw、kw、ng、j 打 i、u、v、y，零声母打 o，`;` 是韵母 ing/ik，如 `nzhb` 是 你好），键位与桌面版和触屏版的粤语双拼相同。两者只下载引擎和粤语词库，候选是繁体、按词库的顺序，不用整句模型和辅助码；选中只覆盖前几个音节的候选时上屏它，剩下的接着组字。
 - `assetBase`：资源目录的 URL，相对地址按页面解析。
 - `model`：拼音方案是否下载整句模型，默认 `true`。
 - `helpcode`：辅助码方案（`HELPCODES` 里的一个名字），默认 `null`，即关闭。只对全拼和双拼起作用，其他方案忽略它、也不下载表。
@@ -119,8 +122,8 @@ const engine = await createMsimeEngine({ scheme: "quanpin", assetBase: "/msime/a
 - `setCandidateExpansion(open, revision)`：按画面里的列表身份展开或收起；展开帧的 `allCandidates` 是完整排序列表，收起后为 `null`。
 - `pickAny(index, revision, text)`：按完整列表的全局座位点选，同时核对身份和文字；面板收起后拒绝旧网格点击。
 - `reset()`：取消组字、清空上下文。
-- `setScheme(scheme)`：在全拼和四种双拼之间切换，不重新下载，辅助码设置保留。和五笔、日语、韩文互换需要 `dispose()` 后新建一个引擎。
-- `setHelpcode(helpcode)`：打开（传方案名）或关闭（传 `null`）辅助码，不用重建引擎；第一次用到的表这时下载。下载失败时 reject（`code: "network"`），引擎照常可用、设置不变；五笔、日语、韩文引擎上什么也不做。`helpcode` 属性是当前的方案，关闭时为 `null`。
+- `setScheme(scheme)`：在全拼和四种双拼之间切换（辅助码设置保留），或在粤拼和粤语双拼之间切换，都不重新下载。换到别的一组（拼音、粤语、五笔、日语、韩文）需要 `dispose()` 后新建一个引擎，否则以 `unsupported` 失败。
+- `setHelpcode(helpcode)`：打开（传方案名）或关闭（传 `null`）辅助码，不用重建引擎；第一次用到的表这时下载。下载失败时 reject（`code: "network"`），引擎照常可用、设置不变；五笔、日语、韩文和粤语引擎上什么也不做。`helpcode` 属性是当前的方案，关闭时为 `null`。
 - `setModelEnabled(enabled)`、`setBackspaceDeletes(deletes)`。
 - `onError(fn)`：运行期错误（引擎 panic）。之后所有请求都会 reject，需要新建引擎。
 - `dispose()`：结束 Worker，释放内存。wasm 内存不会自动缩小，不用的时候请调用它。

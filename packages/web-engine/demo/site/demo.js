@@ -1,8 +1,58 @@
 // 演示页。输入区的文字、光标和行内拼音都由这里自己画；按键由一个看不见的密码框接收：浏览器在密码框里强制停用系统输入法（macOS 进入安全输入，Windows 解除输入法关联），按键原样到达页面，交给水杉的引擎处理。普通的可编辑或可聚焦元素都挡不住系统输入法。右侧的选项改动立刻作用到引擎，下方的接入代码按同样的选项生成。
-import { KeyKind, SKINS, createCandidateBar, createMsimeEngine, createShiftTap, keyFromEvent, osImeIntercepting, packKey, resolveSkin, version } from "./msime/index.js";
+import { KeyKind, SCHEMES, SKINS, createCandidateBar, createMsimeEngine, createShiftTap, keyFromEvent, osImeIntercepting, packKey, resolveSkin, version } from "./msime/index.js";
 
 const PINYIN = new Set(["quanpin", "xiaohe", "ziranma", "shoudao", "microsoft"]);
-const NAMES = { quanpin: "全拼", xiaohe: "小鹤双拼", ziranma: "自然码双拼", shoudao: "手到双拼", microsoft: "微软双拼", wubi86: "五笔 86" };
+// 粤拼和粤语双拼共用粤语词库，彼此就地切换；和拼音、五笔之间换词库要重建引擎。
+const CANTONESE = new Set(["jyutping", "cantonese_shuangpin"]);
+const family = (scheme) => (PINYIN.has(scheme) ? "pinyin" : CANTONESE.has(scheme) ? "cantonese" : scheme);
+const NAMES = { quanpin: "全拼", xiaohe: "小鹤双拼", ziranma: "自然码双拼", shoudao: "手到双拼", microsoft: "微软双拼", wubi86: "五笔 86", jyutping: "粤拼", cantonese_shuangpin: "粤语双拼" };
+
+// 粤语双拼的键位，与引擎 crates/engine/src/cantonese/shuangpin.rs 的 encode 一致，crates/engine-wasm/tests/cantonese.rs 逐项核对；改键位时两边一起改。韵母：第二键和它代表的粤拼韵母。
+const CANTONESE_SHUANGPIN_FINALS = [
+  ["a", "a aa"],
+  ["b", "ou"],
+  ["c", "aam aap"],
+  ["d", "am ap"],
+  ["e", "e"],
+  ["f", "an at"],
+  ["g", "ang ak eng"],
+  ["h", "aang aak"],
+  ["i", "i"],
+  ["j", "aan aat"],
+  ["k", "aau au"],
+  ["l", "aai ai"],
+  ["m", "im ip"],
+  ["n", "in"],
+  ["o", "o oi"],
+  ["p", "un ut ung eon"],
+  ["q", "iu"],
+  ["r", "yun yut uk"],
+  ["s", "on ong ok ot"],
+  ["t", "it ek"],
+  ["u", "u"],
+  ["v", "yu ui"],
+  ["w", "oe"],
+  ["x", "oeng oek"],
+  ["y", "eoi eot"],
+  ["z", "ei"],
+  [";", "ing ik"],
+];
+// 声母：和粤拼字母不同的几个，空串是零声母；其余声母照粤拼字母打。
+const CANTONESE_SHUANGPIN_INITIALS = [
+  ["gw", "i"],
+  ["kw", "u"],
+  ["ng", "v"],
+  ["j", "y"],
+  ["", "o"],
+];
+// 独立成音节的鼻音。
+const CANTONESE_SHUANGPIN_SYLLABIC = [
+  ["m", "om"],
+  ["ng", "ov"],
+];
+const cantoneseShuangpinNote = () =>
+  `粤语双拼：每个字两键，先声母后韵母，不打声调，候选是繁体，例如 你好 = nz hb。声母照粤拼打，只有 ${CANTONESE_SHUANGPIN_INITIALS.map(([initial, key]) => `${initial || "零声母"}→${key}`).join(" ")}；鼻音 ${CANTONESE_SHUANGPIN_SYLLABIC.map(([syllable, code]) => `${syllable}→${code}`).join(" ")}。韵母键：${CANTONESE_SHUANGPIN_FINALS.map(([key, finals]) => `${key}=${finals.replaceAll(" ", "/")}`).join(" ")}。粤语词库与拼音不同，从拼音切换时会单独下载（约 3.5 MB）。`;
+
 const SCHEME_NOTES = {
   quanpin: "完整拼音，例如 woshizhongguoren。",
   xiaohe: "小鹤双拼：每个字两键，例如 你好 = ni hc。",
@@ -10,6 +60,8 @@ const SCHEME_NOTES = {
   shoudao: "手到双拼：每个字两键，例如 你好 = ni hd。",
   microsoft: "微软双拼：每个字两键，; 是韵母 ing，例如 你好 = ni hk，北京 = bz j;。",
   wubi86: "五笔 86：形码，候选旁显示剩余编码，例如 你好 = wq vb。词库与拼音不同，切换时会单独下载（约 3.6 MB）。",
+  jyutping: "粤拼：香港语言学学会的粤语拼音，不打声调，候选是繁体，例如 你好 = neihou，音节之间可以加 ' 分隔。前两键不是完整音节、又能读成粤语双拼时自动按双拼读。粤语词库与拼音不同，切换时会单独下载（约 3.5 MB）。",
+  cantonese_shuangpin: cantoneseShuangpinNote(),
 };
 // 「看它打字」的样例，每一条都在浏览器里实测过结果，且与每页候选数无关。键序列里 " " 是空格，"^" 是单按 Shift（切换中英文），"=" 和 "-" 是下一页和上一页，数字选当前页的候选，大写字母按住 Shift 打出。
 const EXAMPLES = {
@@ -44,6 +96,18 @@ const EXAMPLES = {
     { label: "你好", keys: "wqvb " },
     { label: "中国", keys: "khlg " },
     { label: "工作", keys: "aawt " },
+  ],
+  jyutping: [
+    { label: "你好", keys: "neihou " },
+    { label: "香港", keys: "hoenggong " },
+    { label: "唔該", keys: "mgoi " },
+    { label: "廣東話", keys: "gwongdungwaa " },
+  ],
+  cantonese_shuangpin: [
+    { label: "你好", keys: "nzhb " },
+    { label: "香港", keys: "hxgs " },
+    { label: "唔該", keys: "omgo " },
+    { label: "廣東話", keys: "isdpwa " },
   ],
 };
 
@@ -122,7 +186,7 @@ function ensureBar() {
 }
 
 let engine = null;
-// 当前引擎是按哪些创建参数建的；只有 scheme 在拼音之间变化和 modelEnabled 变化时不用重建。
+// 当前引擎是按哪些创建参数建的；只有 scheme 在同一组词库之内变化（拼音之间、两种粤语之间）和 modelEnabled 变化时不用重建。
 let built = null;
 let text = "";
 let caret = 0;
@@ -383,9 +447,10 @@ function modelLine() {
 
 function copyFlags() {
   const flags = [];
-  if (options.scheme === "wubi86") flags.push("--no-pinyin");
+  if (options.scheme === "wubi86") flags.push("--no-pinyin", "--no-cantonese");
+  else if (CANTONESE.has(options.scheme)) flags.push("--no-pinyin", "--no-wubi", "--no-japanese");
   else {
-    flags.push("--no-wubi");
+    flags.push("--no-wubi", "--no-cantonese");
     if (!options.model) flags.push("--no-model");
     if (!options.helpcode) flags.push("--no-helpcode");
   }
@@ -759,7 +824,7 @@ function syncControls() {
 
 // 按当前选项准备好引擎：能就地切换的就地切换，否则重建。
 async function applyOptions() {
-  const rebuild = !engine || !built || built.pageSize !== options.pageSize || built.model !== options.model || PINYIN.has(built.scheme) !== PINYIN.has(options.scheme);
+  const rebuild = !engine || !built || built.pageSize !== options.pageSize || built.model !== options.model || family(built.scheme) !== family(options.scheme);
   busyLoading = true;
   abandon();
   syncControls();
@@ -790,7 +855,7 @@ async function applyOptions() {
       showFacts(engine.timings, engine.memoryBytes);
     } else {
       if (built.scheme !== options.scheme) {
-        // 拼音方案之间共用词库，只重建会话，不重新下载。
+        // 拼音方案之间、两种粤语方案之间共用词库，只重建会话，不重新下载。
         await engine.setScheme(options.scheme);
         built.scheme = options.scheme;
       }
@@ -840,6 +905,9 @@ $("helpcode").addEventListener("change", (e) => {
   options.helpcode = e.currentTarget.value || null;
   applyOptions().then(() => focusEditor());
 });
+
+// 页面跟着 develop 部署，用的却是 demo/package.json 钉住的那版 SDK：那版还没有的方案不显示，升级 SDK 后自动出现。
+for (const button of document.querySelectorAll('[data-option="scheme"] button')) button.hidden = !SCHEMES.includes(button.dataset.value);
 
 if (matchMedia("(pointer: coarse)").matches && !matchMedia("(any-pointer: fine)").matches) {
   $("touch-notice").hidden = false;

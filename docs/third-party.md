@@ -263,6 +263,8 @@ kaikki 每周覆盖同一个 URL，所以能复现构建的是 `filtered_input`�
 
 这些文件由 [msime-dictionary](https://github.com/metasequoiaime/msime-dictionary) 原样收在 `sources/cantonese/`、`sources/zhuyin/` 下（与上游固定提交逐字节一致）。`resources/dictionary-sources.lock.json` 用 `rime-cantonese`、`libchewing-data` 引用记下上游提交；文件字节由 msime-dictionary 的 `upstream.lock.json` 固定，构建器读取 checkout 时逐个校验，并要求记录的提交等于这两个引用。源文件只保存在仓库 Git 中，不再发布 `sources-v*` Release；构建后的数据库和许可证文件统一随 `dict-v*` Release 发布。许可证文本经各平台的通知渠道分发，与下一节的 libhangul 汉字表相同：Windows 的 `Collect-Notices.ps1`，macOS 输入法包的 `Resources/Licenses`（`CMakeLists.txt` 与 `THIRD_PARTY_NOTICES.txt`），Linux 安装的声明（`CMakeLists.txt` 与 `data/THIRD_PARTY_NOTICES.txt`），Android 的 `assets/native-notices`（`build-native.sh`），iOS App 的资源（`project.yml`），HarmonyOS 的 `resfile/licenses`（`stage-resources.sh`）。除 macOS 外的平台目前不提供这两个方案，也不带数据库，但这些方案的代码随每一份引擎分发，统一一份渠道清单检查起来最简单。`scripts/test-language-data-notices.py` 检查许可证文本和这几处渠道都还在。
 
+网页引擎的 npm 包 `@msime/web-engine` 也带 `msime-cantonese.db`（粤拼和粤语双拼用）：`scripts/build-web-engine.sh` 把 `resources/language-dictionaries.lock.json` 钉住的那份原样 gzip 成 `assets/msime-cantonese.db.gz`，随词库发布的 `msime-rime_cantonese_LICENSE.txt` 原名放在旁边，`npx @msime/web-engine copy` 把两者一起复制；`web-engine-NOTICE.md` 的「粤语词库」一节写明来源，仓库许可证全文一节收 `rime-cantonese-CC-BY-4.0.txt`（`scripts/web-engine-notice.sh`）。它和辅助码表一样只在 npm 包里，不进 `web-engine-vX.Y.Z` release 的文件和清单。
+
 ## 笔画的数据（rime-stroke）
 
 笔画方案（h 横、s 竖、p 撇、n 点、z 折）的笔顺码来自一份固定提交的上游数据，由 `msime-dict-build languages` 转换成 `msime-stroke.db`，与 `msime-cantonese.db`、`msime-zhuyin.db` 放在同一个 `language-dictionaries/` 目录、同一个语言词库资源包里。数据库不在时，笔画方案显示为不可用。

@@ -102,7 +102,7 @@ impl WebEngine {
 
 #[wasm_bindgen]
 impl WebEngine {
-    /// `scheme` 是 `quanpin`、`xiaohe`、`ziranma`、`shoudao`、`microsoft`、`wubi86`、`japanese` 或 `korean`。拼音方案和五笔的主库须已导入 `/res/msime-pinyin.db`（拼音方案导入网页包的 `msime-pinyin.db`，五笔导入 `msime-wubi86.db`，路径相同）；日语的模型须已经 `import_japanese_dictionary` 交给引擎；韩文不读词库。`model` 是解压后的 `sentence-model.safetensors`，只有拼音方案用它。
+    /// `scheme` 是 `quanpin`、`xiaohe`、`ziranma`、`shoudao`、`microsoft`、`wubi86`、`japanese`、`korean`、`jyutping` 或 `cantonese_shuangpin`。拼音方案和五笔的主库须已导入 `/res/msime-pinyin.db`（拼音方案导入网页包的 `msime-pinyin.db`，五笔导入 `msime-wubi86.db`，路径相同）；日语的模型须已经 `import_japanese_dictionary` 交给引擎；韩文不读词库；粤拼和粤语双拼读 `/res/msime-cantonese.db`（`host::CANTONESE_DICTIONARY_PATH`，网页包的 `msime-cantonese.db`），没有导入时报错。`model` 是解压后的 `sentence-model.safetensors`，只有拼音方案用它。
     #[wasm_bindgen(constructor)]
     pub fn new(
         scheme: &str,

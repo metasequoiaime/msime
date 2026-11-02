@@ -11,7 +11,7 @@ const fixture = mkdtempSync(join(tmpdir(), "msime-sdk-schemes-"));
 after(() => rmSync(fixture, { recursive: true, force: true }));
 cpSync(new URL("../src/", import.meta.url), fixture, { recursive: true });
 writeFileSync(join(fixture, "package.json"), '{"type":"module"}');
-writeFileSync(join(fixture, "assets.js"), 'export const files = {}, helpcodes = {}, version = "synthetic";');
+writeFileSync(join(fixture, "assets.js"), 'export const files = {}, helpcodes = {}, cantonese = null, version = "synthetic";');
 writeThemeCatalog(join(fixture, "theme-catalog.js"));
 const { createMsimeEngine } = await import(pathToFileURL(join(fixture, "index.js")).href);
 // 此用例只核对真实 Worker 的消息编号；引擎替身不执行词库、排序或按键算法。

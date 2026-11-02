@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // 把 SDK 的运行时和资源复制到静态站点目录（GitHub Pages、Vercel、Cloudflare Pages / Workers 的 public 或输出目录）。复制出来的目录自成一体：页面直接 import 其中的 index.js，资源就在它旁边的 assets/，Worker 与页面同源。
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -12,11 +12,12 @@ function usage(code) {
   const text = `msime-web-engine ${pkg.version}
 
 usage:
-  msime-web-engine copy <dir> [--no-wubi] [--no-pinyin] [--no-japanese] [--no-model] [--no-helpcode] [--clean]
+  msime-web-engine copy <dir> [--no-wubi] [--no-pinyin] [--no-japanese] [--no-cantonese] [--no-model] [--no-helpcode] [--clean]
   msime-web-engine info
 
 copy   复制运行时和资源到 <dir>。页面里 import "<dir 对应的 URL>/index.js" 即可，无需设置 assetBase。
-       --no-wubi / --no-pinyin / --no-japanese 不复制对应词库或日语模型，--no-model 不复制整句模型（约 4 MB），
+       --no-wubi / --no-pinyin / --no-japanese 不复制对应词库或日语模型，--no-cantonese 不复制粤语词库
+       （粤拼和粤语双拼用，约 3.5 MB，连同它的许可证），--no-model 不复制整句模型（约 4 MB），
        --no-helpcode 不复制辅助码表（共约 290 KB，--no-pinyin 时也不复制），--clean 先清空 <dir>。
 info   列出这个版本包含的文件和大小。`;
   (code === 0 ? console.log : console.error)(text);
@@ -28,12 +29,19 @@ async function info() {
   console.log(`@msime/web-engine ${pkg.version}`);
   for (const a of files) console.log(`  assets/${a.name.padEnd(32)} ${String(a.size).padStart(10)} B  (raw ${a.raw_size} B)`);
   for (const a of await helpcodeFiles()) console.log(`  assets/${a.name.padEnd(32)} ${String(a.size).padStart(10)} B  (raw ${a.rawSize} B)`);
+  for (const name of await cantoneseFiles()) console.log(`  assets/${name.padEnd(32)} ${String(statSync(join(root, "assets", name)).size).padStart(10)} B`);
 }
 
 // 辅助码表不在 web-engine-manifest.json 里（那份清单只列 release 的文件），名字和大小记在构建时生成的 assets.js。
 async function helpcodeFiles() {
   const { helpcodes = {} } = await import(pathToFileURL(join(root, "assets.js")).href);
   return Object.values(helpcodes);
+}
+
+// 粤语词库和它的许可证也只在 npm 包里，记在 assets.js 的 cantonese；不带数据的构建没有它们。
+async function cantoneseFiles() {
+  const { cantonese = null } = await import(pathToFileURL(join(root, "assets.js")).href);
+  return cantonese ? [cantonese.name, cantonese.license] : [];
 }
 
 function readManifest() {
@@ -47,6 +55,8 @@ async function copy(dest, flags) {
   const { files } = readManifest();
   // 辅助码只给全拼和双拼用，不要拼音时也就不要它们。
   const tables = flags.has("--no-helpcode") || flags.has("--no-pinyin") ? [] : await helpcodeFiles();
+  // 粤语词库连同许可证一起复制，许可证要跟着数据走。
+  const cantonese = flags.has("--no-cantonese") ? [] : await cantoneseFiles();
   const skip = new Set();
   if (flags.has("--no-wubi")) skip.add("wubi86");
   if (flags.has("--no-pinyin")) skip.add("pinyin");
@@ -64,6 +74,10 @@ async function copy(dest, flags) {
   for (const a of tables) {
     copyFileSync(join(root, "assets", a.name), join(dest, "assets", a.name));
     bytes += a.size;
+  }
+  for (const name of cantonese) {
+    copyFileSync(join(root, "assets", name), join(dest, "assets", name));
+    bytes += statSync(join(root, "assets", name)).size;
   }
   copyFileSync(join(root, "assets", "web-engine-manifest.json"), join(dest, "assets", "web-engine-manifest.json"));
   const shown = relative(process.cwd(), dest) || ".";
@@ -85,7 +99,7 @@ try {
   else if (command === "copy") {
     const positional = rest.filter((a) => !a.startsWith("--"));
     const flags = new Set(rest.filter((a) => a.startsWith("--")));
-    const known = new Set(["--no-wubi", "--no-pinyin", "--no-japanese", "--no-model", "--no-helpcode", "--clean"]);
+    const known = new Set(["--no-wubi", "--no-pinyin", "--no-japanese", "--no-cantonese", "--no-model", "--no-helpcode", "--clean"]);
     for (const f of flags) if (!known.has(f)) usage(2);
     if (positional.length !== 1) usage(2);
     await copy(resolve(positional[0]), flags);

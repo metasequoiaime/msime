@@ -5,6 +5,8 @@ import init, { WebEngine, build_info, import_database, import_japanese_dictionar
 
 // 引擎读主词库的位置。wasm32 上读不到文件元数据，引擎不会退回旧名 msime.db，所以必须是这个名字；拼音方案和五笔都放这里，见 crates/engine-wasm/src/host.rs 的 WebHost::new。
 const DB_PATH = "/res/msime-pinyin.db";
+// 粤拼和粤语双拼读的粤语词库，同 crates/engine-wasm/src/host.rs 的 CANTONESE_DICTIONARY_PATH。
+const CANTONESE_PATH = "/res/msime-cantonese.db";
 // 下载期间最多每隔这么久报一次进度。
 const PROGRESS_MS = 100;
 
@@ -152,7 +154,7 @@ export function createWorkerHandler(post, close) {
     }
     const timings = { fetch: 0, compile: 0, import: 0, session: 0 };
     const helpcodeAsset = msg.helpcode?.asset ?? null;
-    const total = assets.wasm.size + (assets.db?.size ?? 0) + (assets.model?.size ?? 0) + (assets.japanese?.size ?? 0) + (helpcodeAsset?.size ?? 0);
+    const total = assets.wasm.size + (assets.db?.size ?? 0) + (assets.model?.size ?? 0) + (assets.japanese?.size ?? 0) + (assets.cantonese?.size ?? 0) + (helpcodeAsset?.size ?? 0);
     let loaded = 0;
     let lastPost = 0;
     const count = (n) => {
@@ -178,14 +180,15 @@ export function createWorkerHandler(post, close) {
     const data = inPhase(
       "fetch",
       (async () => {
-        const [db, m, japanese, table] = await Promise.all([
+        const [db, m, japanese, cantonese, table] = await Promise.all([
           assets.db ? gunzip(assets.db, abort.signal, count) : Promise.resolve(null),
           assets.model ? gunzip(assets.model, abort.signal, count) : Promise.resolve(null),
           assets.japanese ? gunzip(assets.japanese, abort.signal, count) : Promise.resolve(null),
+          assets.cantonese ? gunzip(assets.cantonese, abort.signal, count) : Promise.resolve(null),
           helpcodeAsset ? gunzip(helpcodeAsset, abort.signal, count) : Promise.resolve(null),
         ]);
         timings.fetch = performance.now() - t0;
-        return { db, model: m, japanese, helpcode: table };
+        return { db, model: m, japanese, cantonese, helpcode: table };
       })(),
     );
     let files;
@@ -200,9 +203,10 @@ export function createWorkerHandler(post, close) {
     let phase = "import";
     try {
       const t1 = performance.now();
-      // 日语和韩文没有 SQLite 词库要导入；日语模型直接交给引擎，要在创建日语引擎之前。
+      // 日语和韩文没有 SQLite 词库要导入；日语模型直接交给引擎，要在创建日语引擎之前。粤语词库是另一个 SQLite 库，放在它自己的路径。
       if (files.db) import_database(DB_PATH, files.db);
       if (files.japanese) import_japanese_dictionary(files.japanese);
+      if (files.cantonese) import_database(CANTONESE_PATH, files.cantonese);
       timings.import = performance.now() - t1;
       phase = "session";
       const t2 = performance.now();
@@ -227,7 +231,7 @@ export function createWorkerHandler(post, close) {
         await load(msg);
         return;
       case "scheme": {
-        // 全拼和两种双拼读同一个词库，词库留在内存里，只重建引擎。
+        // 全拼和四种双拼读同一个拼音库，粤拼和粤语双拼读同一个粤语词库：词库留在内存里，只重建引擎。
         const t0 = performance.now();
         try {
           engine?.free();
