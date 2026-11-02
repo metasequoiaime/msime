@@ -114,7 +114,7 @@ void MSIMEApplyTransitionWithWriteGuard(NSDictionary *transition, id<MSIMETextCl
                                        MSIMEInlinePreeditStyle style, NSString *closing,
                                        BOOL *clientHasMarkedText, BOOL (^isCurrent)(void)) {
     MSIMEApplyTransitionWithCommitObserver(transition, client, style, closing,
-                                           clientHasMarkedText, isCurrent, nil);
+                                           clientHasMarkedText, isCurrent, nil, nil);
 }
 
 void MSIMEApplyTransitionWithPreeditStyle(NSDictionary *transition, id<MSIMETextClient> client,
@@ -130,13 +130,33 @@ void MSIMEApplyTransitionWithPendingClosing(NSDictionary *transition, id<MSIMETe
 void MSIMEApplyTransitionTrackingMarkedText(NSDictionary *transition, id<MSIMETextClient> client,
                                             MSIMEInlinePreeditStyle style, NSString *closing,
                                             BOOL *clientHasMarkedText) {
-    MSIMEApplyTransitionWithCommitObserver(transition, client, style, closing, clientHasMarkedText, nil, nil);
+    MSIMEApplyTransitionWithCommitObserver(transition, client, style, closing, clientHasMarkedText, nil, nil, nil);
 }
+
+#if TARGET_OS_OSX
+// 先提交全文再核对落点，只用空标记移动插入点，不持有任意短语尾段。
+static void MSIMEPositionCommittedCursor(id<MSIMETextClient> client, NSString *commit, id suffix,
+                                         BOOL (^isCurrent)(void)) {
+    if (![suffix isKindOfClass:NSString.class] || ![suffix length] ||
+        ![commit hasSuffix:suffix]) return;
+    @try {
+        const NSRange landed = MSIMETextClientCommittedRange(client, commit, NULL, isCurrent);
+        if (landed.location == NSNotFound || (isCurrent && !isCurrent())) return;
+        const NSUInteger target = NSMaxRange(landed) - [suffix length];
+        [client setMarkedText:@"" selectionRange:NSMakeRange(0, 0) replacementRange:NSMakeRange(target, 0)];
+        if (isCurrent && !isCurrent()) return;
+        [client insertText:@"" replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+    } @catch (NSException *exception) {
+        // 客户端拒绝范围时保留已上屏文字，不重试提交。
+        (void)exception;
+    }
+}
+#endif
 
 void MSIMEApplyTransitionWithCommitObserver(NSDictionary *transition, id<MSIMETextClient> client,
                                             MSIMEInlinePreeditStyle style, NSString *closing,
                                             BOOL *clientHasMarkedText, BOOL (^isCurrent)(void),
-                                            void (^didCommit)(NSString *text)) {
+                                            void (^didCommit)(NSString *text), BOOL (^canPosition)(void)) {
     if (![transition isKindOfClass:NSDictionary.class] || (isCurrent && !isCurrent())) return;
 
     if (!closing.length) closing = nil;
@@ -152,6 +172,16 @@ void MSIMEApplyTransitionWithCommitObserver(NSDictionary *transition, id<MSIMETe
         if (isCurrent && !isCurrent()) return;
         if (didCommit) didCommit(commit);
         if (isCurrent && !isCurrent()) return;
+#if TARGET_OS_OSX
+        id suffix = transition[@"commit_cursor_suffix"];
+        if ([suffix isKindOfClass:NSString.class] && closing) suffix = [suffix stringByAppendingString:closing];
+        MSIMEPositionCommittedCursor(client, commit, suffix, ^BOOL {
+            return (!isCurrent || isCurrent()) && (!canPosition || canPosition());
+        });
+        if (isCurrent && !isCurrent()) return;
+#else
+        (void)canPosition;
+#endif
 
     }
     NSDictionary *view = transition[@"view"];

@@ -12,6 +12,8 @@ Status: implemented
 
 模糊前缀的无消费者读法由[延迟拥有](2026-10-14-quanpin-fuzzy-typed-prefix-borrow.md)处理，本篇保留现有行索引、容量与投影边界。
 
+行缓存命中时连模糊路径也不再展开、按记下的路径条数扣预算，见[模糊行缓存命中不再展开路径](2026-11-02-fuzzy-row-cache-path-count.md)；本篇的哈希索引和完整键核对不变。
+
 ## Alternatives considered
 
 - **继续拼接 `String` 键**：实现简单，但每次跨查询的行缓存命中都会申请临时字符串。

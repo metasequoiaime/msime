@@ -1,6 +1,9 @@
 //! Per-digit nine-key latency on the pinned dictionary.
 //!
 //! Each digit is timed through `character` plus `snapshot`, the pair every host runs per key. The words are the ones typed on the iPhone XR trace that showed 15-72 ms per digit, each committed with Space so the next word starts from an empty composition, plus one long sentence typed without committing, because the cost of a digit grows with the length already composed. The report groups digits by their position in the composition and prints the distribution, not a mean: a person feels the slow tail.
+//!
+//! `NINEKEY_FUZZY=1` turns on all eleven fuzzy pinyin rules (`fuzzy_rule::ALL`, the configuration in #10457) and `NINEKEY_WORD_LATTICE=0` turns the whole-sentence lattice off (整句候选「关闭」); both default to the product defaults, fuzzy off and the lattice on.
+use msime_engine::fuzzy_rule;
 use msime_engine::host::{prepare_options, Session};
 use std::time::Instant;
 
@@ -32,18 +35,32 @@ fn report(label: &str, mut samples: Vec<f64>) {
     );
 }
 
+/// An environment switch: `1` is on, `0` is off, unset keeps `default`.
+fn switch(name: &str, default: bool) -> bool {
+    match std::env::var(name).as_deref() {
+        Ok("1") => true,
+        Ok("0") => false,
+        _ => default,
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let resources = std::env::args_os()
         .nth(1)
         .ok_or("usage: ninekey_latency <verified-dictionary-directory>")?;
     let resources = std::fs::canonicalize(resources)?;
     let state = tempfile::tempdir()?;
-    let options = prepare_options(
+    let mut options = prepare_options(
         resources.to_str().ok_or("non-UTF-8 resource path")?,
         state.path().join("user").to_str().unwrap(),
         state.path().join("cache").to_str().unwrap(),
         "nine-key-latency",
     )?;
+    let fuzzy = switch("NINEKEY_FUZZY", false);
+    let lattice = switch("NINEKEY_WORD_LATTICE", true);
+    options.fuzzy_pinyin_rules = if fuzzy { fuzzy_rule::ALL } else { 0 };
+    options.sentence_association.word_lattice = lattice;
+    println!("fuzzy={fuzzy} word_lattice={lattice}");
     let mut session = Session::new(&options)?;
     session.set_nine_key_enabled(true)?;
 

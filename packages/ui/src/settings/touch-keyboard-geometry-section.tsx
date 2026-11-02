@@ -44,6 +44,8 @@ export interface TouchKeyboardGeometrySectionProps extends TouchKeyboardToolbarS
   /** 「滑动输入符号」开关及其方向，在宿主键盘实现了它们时传入；不传则两行都不绘制。 */
   swipeSymbols?: boolean;
   swipeSymbolsDirection?: SwipeSymbolsDirection;
+  /** 「显示字母键角标」开关，在宿主键盘实现了它时传入；不传则不画这一行。 */
+  letterCornerHints?: boolean;
   /** 「九键滑动输入数字」（共享偏好 `touch_nine_key_swipe_digits`），宿主的触屏键盘提供拼音九键时给出当前值（缺键和不认识的值由调用方读成 `off`）；不传则不画这一行。 */
   nineKeySwipeDigits?: NineKeySwipeDigits;
   /** 宿主的触屏 26 键双拼会在字母键底部画键位提示时给出这个开关；没有时不画这一行。 */
@@ -62,6 +64,7 @@ export interface TouchKeyboardGeometrySectionProps extends TouchKeyboardToolbarS
   onGlideTypingChange: (enabled: boolean) => void;
   onSwipeSymbolsChange?: (enabled: boolean) => void;
   onSwipeSymbolsDirectionChange?: (direction: SwipeSymbolsDirection) => void;
+  onLetterCornerHintsChange?: (enabled: boolean) => void;
   onNineKeySwipeDigitsChange?: (value: NineKeySwipeDigits) => void;
   onShuangpinKeyHintsChange?: (enabled: boolean) => void;
   onQuanpinShiftChange?: (enabled: boolean) => void;
@@ -105,6 +108,7 @@ export function TouchKeyboardGeometrySection({
   glideTyping,
   swipeSymbols,
   swipeSymbolsDirection = "up",
+  letterCornerHints,
   nineKeySwipeDigits,
   shuangpinKeyHints,
   quanpinShift,
@@ -122,6 +126,7 @@ export function TouchKeyboardGeometrySection({
   onGlideTypingChange,
   onSwipeSymbolsChange,
   onSwipeSymbolsDirectionChange,
+  onLetterCornerHintsChange,
   onNineKeySwipeDigitsChange,
   onShuangpinKeyHintsChange,
   onQuanpinShiftChange,
@@ -331,6 +336,7 @@ export function TouchKeyboardGeometrySection({
       )}
       {(glideTyping !== undefined ||
         swipeSymbols !== undefined ||
+        letterCornerHints !== undefined ||
         nineKeySwipeDigits !== undefined) && (
         <GroupList title="手势">
           {swipeSymbols !== undefined && (
@@ -359,7 +365,17 @@ export function TouchKeyboardGeometrySection({
               </SelectRow>
             </>
           )}
-          {/* 紧跟 26 键的「滑动方向」，与 Android、iOS 的「手势」组同一位置；它只写共享偏好，和 26 键开关、本机设置的保存都无关，不跟着置灰。 */}
+          {/* 只管画不画，不跟着「滑动输入符号」置灰：关掉滑动后长按仍输入角标，键面上的角标仍有用（#10587）。与 Android、iOS 的「手势」组同一位置。 */}
+          {letterCornerHints !== undefined && (
+            <SwitchRow
+              title="显示字母键角标"
+              description="26 键字母键右上角显示长按或滑动输入的符号；关闭后只是不显示，长按和滑动照样输入"
+              disabled={tabletFullKeysBusy}
+              checked={letterCornerHints}
+              onChange={(enabled) => onLetterCornerHintsChange?.(enabled)}
+            />
+          )}
+          {/* 在 26 键「滑动方向」和「显示字母键角标」之后，与 Android、iOS 的「手势」组同一位置；它只写共享偏好，和 26 键开关、本机设置的保存都无关，不跟着置灰。 */}
           {nineKeySwipeDigits !== undefined && (
             <SelectRow
               title="九键滑动输入数字"

@@ -25,7 +25,9 @@ public final class DiagnosticsBundleDeviceSmoke extends Instrumentation {
             Path crash = root.resolve("crash.jsonl");
             write(input, "{\"t_ms\":10,\"kind\":\"key_down\"}\n"
                 + "{\"t_ms\":11,\"kind\":\"key_down\",\"text\":\"synthetic-private-marker\"}\n");
-            write(perf, "{\"t_ms\":20,\"kind\":\"candidate_shown\",\"duration_ms\":9}\n");
+            write(perf, "{\"t_ms\":20,\"kind\":\"candidate_shown\",\"duration_ms\":9}\n"
+                + "{\"t_ms\":21,\"kind\":\"engine_call\",\"duration_ms\":6}\n"
+                + "{\"t_ms\":22,\"kind\":\"candidate_rendered\",\"duration_ms\":14}\n");
             write(crash, "{\"at\":\"2026-10-14T00:00:00Z\",\"message\":\"java.lang.IllegalStateException\","
                 + "\"stack\":\"at synthetic.Example.run(Example.java:7)\"}\n");
             Path archive = root.resolve("native.zip");
@@ -107,6 +109,8 @@ public final class DiagnosticsBundleDeviceSmoke extends Instrumentation {
             JSONObject counts = envelope.getJSONObject("value").getJSONObject("counts");
             check(counts.getJSONObject("input_events").getInt("kept") == localKinds.length + 1
                 && counts.getJSONObject("input_events").getInt("dropped") == 1, "native privacy filter");
+            check(counts.getJSONObject("performance_logs").getInt("kept") == 3
+                && counts.getJSONObject("performance_logs").getInt("dropped") == 0, "keystroke split timings are kept");
             stage = "local failure ZIP retention";
             try (var zip = new java.util.zip.ZipFile(archive.toFile())) {
                 String rows;

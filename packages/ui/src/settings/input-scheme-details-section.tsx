@@ -4,6 +4,12 @@ import { LinkRow, Row } from "../core/platform-controls";
 
 import { resolveVietnamesePreferences, type VietnamesePreferences } from "./vietnamese-preferences";
 import {
+  cantoneseJyutpingDescription,
+  cantoneseShuangpinDescription,
+  resolveCantoneseInputMethod,
+  type CantonesePreferences,
+} from "./cantonese-preferences";
+import {
   koreanLayoutDescription,
   resolveKoreanLayout,
   type KoreanPreferences,
@@ -91,9 +97,11 @@ export interface InputSchemeDetailsSectionProps {
   korean?: KoreanPreferences;
   koreanRomaja?: boolean;
   onKoreanChange?: (korean: KoreanPreferences) => void;
+  /** 文档里的粤拼解释方式；缺省为普通粤拼。触屏宿主不显示这一行，粤语双拼在那里是独立的触屏方案。 */
+  cantonese?: CantonesePreferences;
+  onCantoneseChange?: (cantonese: CantonesePreferences) => void;
 }
 
-const cantoneseDescription = "按不带声调的粤拼输入，用 ' 分隔音节，数字键选词，候选为繁体字词";
 const zhuyinDescription =
   "按大千键位输入注音符号，空格为一声，6 3 4 7 为二、三、四声和轻声，候选为繁体字词";
 const strokeDescription =
@@ -126,6 +134,8 @@ export function InputSchemeDetailsSection({
   korean,
   koreanRomaja = false,
   onKoreanChange,
+  cantonese,
+  onCantoneseChange,
 }: InputSchemeDetailsSectionProps) {
   // 双拼方案和五笔方案只涉及拼音和五笔；粤拼、注音、越南文、藏文和笔画各有自己的行。
   const hideChineseSchemeOptions =
@@ -141,6 +151,7 @@ export function InputSchemeDetailsSection({
     resolveVietnamesePreferences(vietnamese);
   const changeVietnamese = (patch: VietnamesePreferences) =>
     onVietnameseChange?.({ input_method: inputMethod, tone_style: toneStyle, ...patch });
+  const cantoneseInputMethod = resolveCantoneseInputMethod(cantonese);
   // 双拼的各行只在双拼方案下出现：其他方案下它们改不了正在用的方案，原先灰着显示的双拼方案也只是多出来的一行。
   const hideShuangpinRows = hideChineseSchemeOptions || scheme !== "shuangpin";
   // 单一布局只展示输入说明；韩语在声明能力的桌面宿主上另给布局选择。
@@ -231,7 +242,19 @@ export function InputSchemeDetailsSection({
           "按两套式（두벌식）键位输入韩文字母，自动拼成音节，标点为半角",
         )
       )}
-      {schemeNote("cantonese", "粤拼方案", cantoneseInputSchemeOptions, cantoneseDescription)}
+      {/* 粤拼与粤语双拼共用同一个粤拼方案和词典，只是按键的解释不同，所以做成方案下的选项，不另加输入源。 */}
+      <SegmentedRow
+        title="粤拼方案"
+        description={
+          cantoneseInputMethod === "shuangpin"
+            ? cantoneseShuangpinDescription
+            : cantoneseJyutpingDescription
+        }
+        hidden={hasTouchKeyboardSchemes || scheme !== "cantonese"}
+        options={cantoneseInputSchemeOptions}
+        value={cantoneseInputMethod}
+        onChange={(input_method) => onCantoneseChange?.({ ...cantonese, input_method })}
+      />
       {schemeNote("zhuyin", "注音键盘", zhuyinLayoutOptions, zhuyinDescription)}
       {schemeNote("stroke", "笔画方案", strokeLayoutOptions, strokeDescription)}
       <SegmentedRow

@@ -17,6 +17,7 @@
 #include <minwindef.h>
 #include <winuser.h>
 #include "Ipc.h"
+#include "quick_phrase_cursor_pipe.h"
 #include "fmt/xchar.h"
 #include "../Utils/PerfTimer.h"
 
@@ -127,6 +128,8 @@ HRESULT CMetasequoiaIME::_HandleCandidateFinalize(TfEditCookie ec, _In_ ITfConte
             serverCandidateString = receivedData->candidate_string;
         }
 
+        if (const auto suffix = FanyImeQuickPhraseCursorPipe::SuffixUnits(serverMsgType, false))
+            return _CommitServerExactText(ec, pContext, serverCandidateString, suffix);
         if (serverMsgType == Global::DataFromServerMsgType::TransportUnavailable)
         {
             // Transport state is never candidate text.  Propagate failure so
@@ -286,13 +289,15 @@ NoPresenter:
 //
 //----------------------------------------------------------------------------
 
-HRESULT CMetasequoiaIME::_CommitServerExactText(TfEditCookie ec, _In_ ITfContext *pContext, const std::wstring &text)
+HRESULT CMetasequoiaIME::_CommitServerExactText(TfEditCookie ec, _In_ ITfContext *pContext, const std::wstring &text,
+                                                     std::optional<std::size_t> cursorSuffix)
 {
     GlobalIme::word_for_creating_word = L"";
     _creatingWordRestoreHistory.clear();
     GlobalIme::pending_create_word_preedit.clear();
     // Server 取消了它的组字；TIP 的宿主会话还留着同一段拼音和候选，不丢掉的话下一个字母会接着它组字。
     (void)_CancelHostComposition();
+    if (cursorSuffix) return _CommitTextWithCursor(ec, pContext, text, *cursorSuffix);
     if (!text.empty())
     {
         CStringRange exactText;
@@ -403,14 +408,14 @@ HRESULT CMetasequoiaIME::_HandleCandidateWorker(TfEditCookie ec, _In_ ITfContext
     const WCHAR *pCandidateString = nullptr;
     CStringRange candidateString;
 
-    if (nullptr == _pCandidateListUIPresenter)
+    if (nullptr == _pCandidateListUIPresenter && !SupportsQuickPhraseCursor())
     {
         hrReturn = S_OK;
         goto Exit;
     }
 
-    candidateLen = _pCandidateListUIPresenter->_GetSelectedCandidateString(&pCandidateString);
-    if (0 == candidateLen)
+    candidateLen = _pCandidateListUIPresenter ? _pCandidateListUIPresenter->_GetSelectedCandidateString(&pCandidateString) : 0;
+    if (0 == candidateLen && !SupportsQuickPhraseCursor())
     {
         hrReturn = S_FALSE;
         goto Exit;
@@ -425,6 +430,8 @@ HRESULT CMetasequoiaIME::_HandleCandidateWorker(TfEditCookie ec, _In_ ITfContext
         {
             const FanyImeNamedpipeDataToTsf *reply =
                 TryReadDataFromServerPipeWithTimeout(requestId, /*abortTransportOnTimeout=*/false);
+            if (const auto suffix = FanyImeQuickPhraseCursorPipe::SuffixUnits(reply->msg_type, false))
+                return _CommitServerExactText(ec, pContext, reply->candidate_string, suffix);
             if (reply->msg_type == Global::DataFromServerMsgType::CommitExactText)
             {
                 const std::wstring exactText(reply->candidate_string);
@@ -502,6 +509,8 @@ HRESULT CMetasequoiaIME::_SelectHighlightedHostCandidate(TfEditCookie ec, _In_ I
     msime::tsf::EngineResult selected;
     if (!msime::tsf::EngineSessionAdapter::parse_result(raw, &selected, &error))
         return S_FALSE;
+    if (selected.has_commit && selected.commit_cursor_suffix)
+        return _ApplyHostCompositionResult(ec, pContext, selected);
     if (selected.has_commit && !selected.commit.empty())
     {
         const int n = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, selected.commit.data(),

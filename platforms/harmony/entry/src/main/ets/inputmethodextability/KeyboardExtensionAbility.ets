@@ -1082,11 +1082,13 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       const resolving: Promise<SharedStateMirror | null> = SharedStateMirror.resolve(this.context)
         .then((groupDir: string | null): SharedStateMirror | null => {
           const status = HarmonySharedSandboxPolicy.status(groupDir);
+          HarmonyTelemetry.configureAuthority(status.available ? status.directory : null, false);
           return status.available ? new SharedStateMirror(status.directory, files) : null;
         });
       // 在拿到共享目录之前就占住会话镜像的队列：设置应用发布的会话要先采用过来，本进程的认证请求（匿名注册、云剪贴板）都排在它后面（迁移差异 M2）。
       AccountSessionAdoption.adoptOnStart(resolving, state, 'settings', fullMode);
       const mirror: SharedStateMirror | null = await resolving;
+      if (this.tornDown) return;
       if (mirror !== null) {
         KeyboardSession.shared.useSharedSandbox(mirror, fullMode);
         SharedStateSync.keyboardSync(mirror, state, fullMode());

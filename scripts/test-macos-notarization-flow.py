@@ -88,10 +88,10 @@ def main() -> int:
     # 不再逐个 --wait：提交之后接着打下一个版本。
     live = [line for line in source.splitlines() if not line.lstrip().startswith("#")]
     check(not any("notarytool submit" in line and "--wait" in line for line in live), "package-release.sh still waits on each notarization submission")
-    check(any('notary_submit "$dmg"' in line for line in live), "package_edition does not submit its DMG with notary_submit")
+    check(any('notary_submit "$pkg"' in line for line in live), "package_edition does not submit its installer package with notary_submit")
     check(sum("staple-ticket.sh" in line for line in live) >= 1, "package-release.sh does not staple through staple-ticket.sh")
 
-    result, calls = run(bash, helpers, 'notary_submit "/合成 目录/msime.dmg"\necho "ids=${notary_ids[*]}"\n')
+    result, calls = run(bash, helpers, 'notary_submit "/合成 目录/msime.pkg"\necho "ids=${notary_ids[*]}"\n')
     check(result.returncode == 0 and "ids=00000000-synthetic" in result.stdout, f"submit: {result.returncode} {result.stdout!r} {result.stderr!r}")
     check(calls == ["notarytool submit /合成"], f"submit calls: {calls}")
 

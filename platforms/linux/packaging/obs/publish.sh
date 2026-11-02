@@ -10,7 +10,7 @@
 #   OBS_PROJECT  默认 home:<osc 配置里的用户名>
 #   OBS_PACKAGE  默认 msime
 #
-# 每次运行都会：按 repositories.txt 和 OBS 的发行版列表重写项目配置（仓库、架构），写入 prjconf，确保包存在，再把包里的文件整体换成这次发布的（RPM 用 spec、rpmlintrc 与两个 tarball；Debian/Ubuntu 用 .dsc、.debian.tar.xz 与按 .dsc 要求改名的两个 orig tarball；Arch 用 msime-bin 的 PKGBUILD、msime.install 与它重新打包的发布的 .rpm（PKGBUILD 列出的每个架构一个）；加上 _constraints），提交后 OBS 按仓库类型各取所需的构建文件，自动开始构建。重复运行同一版本不会产生新的构建。
+# 每次运行都会：按 repositories.txt 和 OBS 的发行版列表重写项目配置（仓库、架构，以及 repositories.txt 给个别仓库指定的 rebuild 模式），写入 prjconf，确保包存在，再把包里的文件整体换成这次发布的（RPM 用 spec、rpmlintrc 与两个 tarball；Debian/Ubuntu 用 .dsc、.debian.tar.xz 与按 .dsc 要求改名的两个 orig tarball；Arch 用 msime-bin 的 PKGBUILD、msime.install 与它重新打包的发布的 .rpm（PKGBUILD 列出的每个架构一个）；加上 _constraints），提交后 OBS 按仓库类型各取所需的构建文件，自动开始构建。重复运行同一版本不会产生新的构建。
 set -euo pipefail
 
 if [ $# -ne 3 ]; then
@@ -71,7 +71,21 @@ lines = [
     "  <build><enable/></build>",
     "  <publish><enable/></publish>",
 ]
-for name, *override in wanted:
+rebuild_modes = ("transitive", "direct", "local")
+for name, *columns in wanted:
+    # Columns after the name: KEY=VALUE becomes a <repository> attribute (only rebuild is allowed), the one without "=" is the path override.
+    attrs = {}
+    override = []
+    for col in columns:
+        if "=" in col:
+            key, value = col.split("=", 1)
+            if key != "rebuild" or value not in rebuild_modes:
+                sys.exit(f"{wanted_path}: {name}: unsupported column {col!r} (only rebuild={'|'.join(rebuild_modes)})")
+            attrs[key] = value
+        elif override:
+            sys.exit(f"{wanted_path}: {name}: more than one path override column")
+        else:
+            override = [col]
     d = by_name.get(name)
     if d is None:
         print(f"skip {name}: not in the OBS distribution list", file=sys.stderr)
@@ -80,7 +94,7 @@ for name, *override in wanted:
     if not archs:
         print(f"skip {name}: no x86_64 or aarch64", file=sys.stderr)
         continue
-    lines.append(f"  <repository name={quoteattr(name)}>")
+    lines.append(f"  <repository name={quoteattr(name)}" + "".join(f" {k}={quoteattr(v)}" for k, v in attrs.items()) + ">")
     paths = [p.split("/", 1) for p in override[0].split(",")] if override else [(d.findtext("project"), d.findtext("repository"))]
     lines += [f"    <path project={quoteattr(p)} repository={quoteattr(r)}/>" for p, r in paths]
     lines += [f"    <arch>{a}</arch>" for a in archs]

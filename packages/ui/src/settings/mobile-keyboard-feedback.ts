@@ -29,6 +29,8 @@ export type MobileKeyboardFeedback = {
   swipeSymbols?: boolean;
   /** 该滑动的方向，默认向上。 */
   swipeSymbolsDirection?: SwipeSymbolsDirection;
+  /** 显示字母键角标：26 键字母键右上角画不画角标符号，默认开启；关掉只是不画，长按和滑动照样输入（#10587）。只有键盘实现了它的宿主才发送此字段；鸿蒙存放在键盘自己的 `key-feedback.json` 里。 */
+  letterCornerHints?: boolean;
 };
 
 export type SwipeSymbolsDirection = "down" | "up";
