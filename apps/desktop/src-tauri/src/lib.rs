@@ -1154,9 +1154,7 @@ async fn candidate_skin_create(
     .map_err(|_| CandidateSkinFailure::code("storage"))?
 }
 
-/// Discover the helper-code tables shipped beside the Engine's verified resources. The WebView
-/// receives metadata only; the resource path stays in the host options state and never comes from
-/// page input.
+/// 列出自定义辅助码表：宿主选项里状态根（`preferences_directory`）和资源目录下的 `helpcodes/custom`，同一主干取状态根那份。页面只拿到元数据，两个路径都留在宿主选项里，不来自页面输入。
 fn list_helpcode_schemas_at(
     options: &DictionaryHostOptions,
 ) -> Result<Vec<msime_client_core::helpcode::CustomHelpcodeSchema>, CommandError> {
@@ -1166,7 +1164,11 @@ fn list_helpcode_schemas_at(
         .and_then(Value::as_str)
         .filter(|value| std::path::Path::new(value).is_absolute())
         .ok_or(CommandError { code: "storage" })?;
-    msime_host_api::list_custom_helpcode_schemas(resources)
+    let state_root = document
+        .get("preferences_directory")
+        .and_then(Value::as_str)
+        .filter(|value| std::path::Path::new(value).is_absolute());
+    msime_host_api::list_custom_helpcode_schemas(resources, state_root)
         .map_err(|_| CommandError { code: "storage" })
 }
 

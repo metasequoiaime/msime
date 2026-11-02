@@ -744,6 +744,8 @@ TSF 在收到 Server 回复之前就要决定一个键是组合输入还是选�
 
 内置辅助码表同样不在资源目录里：安装器把它们放在 DataDir 的 `helpcodes`，Server 的 `server\resources` 没有 `helpcodes\`，而共享库只从资源目录的 `helpcodes\` 读内置码表，缺表时才读 `helpcode_fallback_resources`。Server 和 TIP 都通过 `src/system/HelpcodeRoot.h` 在内存里的会话选项中把 DataDir 写成 `helpcode_fallback_resources`（TIP 在 `tsf/HostConfiguration.cpp` 读 `runtime-options.json` 时写），不写回文件；DataDir 下没有 `helpcodes` 目录（开发运行）或选项里已有这个键时不写。
 
+用户自己的辅助码表（`custom/<文件名>`）放在 DataDir 的 `helpcodes\custom`：Engine、设置窗口和 Win7 设置都先读状态根下的这一份，再读 `server\resources\helpcodes\custom`（以前的位置，`server` 目录每次安装都整个删掉）。安装器清理 DataDir 的安装包条目时留下 `helpcodes\custom`，删 `server` 目录之前把那里的 `*.txt` 搬进 DataDir（同名不覆盖，`AdoptCustomHelpcodes`），Server 每次准备宿主时 host-api 也会把资源目录里剩下的表搬过来（#10707）。
+
 ### 打字特效
 
 `msime_client_typing_effect` 的答案由输入线程经 `TypingEffectSignal` 交给界面线程，特效包的颜色和每键火花数随它一起发布（`TypingEffectPalette`）。候选窗取到之后自己画卡片闪光（闪光和 Power Mode）和 Power Mode 的横向抖动，其余交给 `src/candidate/TypingEffectOverlay.cpp`：一个 `WS_EX_LAYERED | WS_EX_TRANSPARENT`、不激活的置顶分层窗口，排在候选窗下面，用 `UpdateLayeredWindow` 贴出光标处的火花、候选窗不在时（上屏之后、交给应用的键）光标所在行的闪光，以及「连击 ×N」徽标（有卡片时在卡片右上角上方，没有时在光标右上方），升档和 Power Mode 时徽标弹一下。数值照搬 macOS 的 `TypingEffectPanel.mm`，都在 `TypingEffectOverlayPolicy.h` 里。特效包没给颜色时，火花、闪光和连击徽标用系统强调色（`src/system/SystemAccent.h` 经 `UISettings.GetColorValue(Accent)` 取，与 macOS 的 `controlAccentColor` 对应），取不到时退回主题的强调色。光标位置先取前台线程的系统光标，没有时用最近一次组字的锚点往上估一行。「显示动画」关掉时不闪、不动，只留徽标；节电模式下火花和 Power Mode 退回闪光；全屏应用在前台时浮层什么都不画。浮层每帧只用一把自己的画刷，播完就停计时器、收起窗口；建不出来时候选卡片照旧自己画闪光和连击数。

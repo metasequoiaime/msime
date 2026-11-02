@@ -500,6 +500,7 @@ impl Session {
                         .helpcode_fallback_resources
                         .as_deref()
                         .map(Path::new),
+                    self.options.custom_helpcode_root.as_deref().map(Path::new),
                 )
                 .unwrap_or_else(|error| {
                     crate::logging::warn(format_args!(
