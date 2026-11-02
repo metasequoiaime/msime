@@ -6191,6 +6191,130 @@ static void TestFreshProcessActsOnTheSharedSchemeNotTheStaleLocalOne() {
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
+@interface StartupVoiceController : ModeController
+@property(nonatomic, copy) NSDictionary *options;
+@property(nonatomic) NSUInteger voiceFailures;
+@end
+@implementation StartupVoiceController
+// alloc 夹具没有 IMK 基类的服务连接；模式报告先于激活时还没有客户端。
+- (id)client { return [self valueForKey:@"activeClient"]; }
+- (NSDictionary *)runtimeOptions { return self.options; }
+// 首帧断言故意不放行后台读取，也不启动系统输入源切换或联网授权。
+- (void)startPreferencesMonitoring {}
+- (void)scheduleSystemInputModeSyncForClient:(id)client { (void)client; }
+- (void)syncSystemInputModeForClient:(id)client { (void)client; }
+- (void)requestCloudCandidatesConsentIfNeeded {}
+- (void)claimBackgroundMusic {}
+- (void)reportVoiceFailure:(MSIMEVoiceFailure)failure {
+    assert(failure == MSIMEVoiceFailureMissingLocalModel);
+    ++self.voiceFailures;
+}
+@end
+
+static void IgnoreBaseActivation(id object, SEL selector, id sender) { (void)object; (void)selector; (void)sender; }
+
+static void TestStartupVoicePreferences() {
+    NSUserDefaults *standard = NSUserDefaults.standardUserDefaults;
+    NSDictionary *previousDefaults = standard.dictionaryRepresentation;
+    Method base = class_getInstanceMethod(IMKInputController.class, @selector(activateServer:));
+    IMP original = method_setImplementation(base, (IMP)IgnoreBaseActivation);
+    for (NSNumber *enabled in @[@YES, @NO]) for (NSUInteger entry = 0; entry < 5; ++entry) {
+        NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+        NSError *error = nil;
+        NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
+        assert(snapshot && !error);
+        NSMutableDictionary *document = [snapshot[@"preferences"] mutableCopy];
+        NSMutableDictionary *toolbar = [document[@"floating_toolbar"] mutableCopy];
+        toolbar[@"voice"] = enabled; toolbar[@"enabled"] = @YES; toolbar[@"auto_hide"] = @NO;
+        document[@"floating_toolbar"] = toolbar;
+        NSMutableDictionary *voice = [document[@"voice_input"] mutableCopy];
+        voice[@"enabled"] = enabled; voice[@"asr_provider"] = @"local";
+        voice[@"asr_model_path"] = [root stringByAppendingPathComponent:@"missing-synthetic-model"];
+        document[@"voice_input"] = voice;
+        NSMutableDictionary *keys = [document[@"keybindings"] mutableCopy];
+        keys[@"toggle_voice_input"] = @"Ctrl+Meta+KeyZ";
+        document[@"keybindings"] = keys;
+        NSDictionary *saved = [MSIMEClientSession savePreferencesInDirectory:root
+            expectedRevision:[snapshot[@"revision"] unsignedLongLongValue]
+            snapshot:@{@"format_version":@1, @"revision":snapshot[@"revision"], @"preferences":document} error:&error];
+        assert(saved && !error);
+        NSString *suite = [@"msime.startup-voice." stringByAppendingString:NSUUID.UUID.UUIDString];
+        NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+        MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+        prefs.englishMode = YES;
+        StartupVoiceController *controller = [StartupVoiceController alloc];
+        controller.options = @{@"preferences_directory":root};
+        [controller setValue:prefs forKey:@"appearance"];
+        [controller setValue:root forKey:@"preferencesDirectory"];
+        // 原生缓存故意与共享文档相反，模拟进程退出期间设置应用改过总开关。
+        [NSUserDefaults.standardUserDefaults setBool:!enabled.boolValue forKey:@"MSIMEClientVoiceEnabled"];
+        MSIMEFloatingToolbarPanel *panel = MSIMEFloatingToolbarPanel.sharedPanel;
+        [panel applySizingPreferences:@{}];
+        ShortcutClient *client = [ShortcutClient new];
+        BOOL expected = enabled.boolValue;
+        if (entry == 1) {
+            MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+            [controller systemDidReportInputMode:MSIMEKoreanInputModeID client:client];
+            assert([prefs.inputScheme isEqual:@"korean"]);
+        }
+        if (entry == 4) [controller applySharedInputPreferencesBeforeFirstUse];
+        if (entry == 3) {
+            NSString *invalid = [root stringByAppendingPathComponent:@"not-a-directory"];
+            assert([@"synthetic" writeToFile:invalid atomically:YES encoding:NSUTF8StringEncoding error:nil]);
+            [controller setValue:invalid forKey:@"preferencesDirectory"];
+            [controller applySharedInputPreferencesBeforeFirstUse];
+            [controller setValue:root forKey:@"preferencesDirectory"];
+        }
+        if (entry == 4) {
+            // 比启动快照更新的重载已经生效，首次呈现不能再用旧值覆盖。
+            NSMutableDictionary *newer = [document mutableCopy];
+            NSMutableDictionary *newToolbar = [toolbar mutableCopy], *newVoice = [voice mutableCopy];
+            expected = !expected;
+            newToolbar[@"voice"] = @(expected); newVoice[@"enabled"] = @(expected);
+            newer[@"floating_toolbar"] = newToolbar; newer[@"voice_input"] = newVoice;
+            [controller applySharedToolbarPreferences:newer];
+        }
+        if (entry == 2) {
+            // IMK 也可以只送按键，让既有的按键入口恢复焦点。
+            [controller setValue:panel forKey:@"toolbar"];
+            [controller setValue:[ShortcutSession new] forKey:@"session"];
+            [controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 56, 0, 1) client:client];
+        } else [controller activateServer:client];
+        if (entry == 1) assert([prefs.inputScheme isEqual:@"korean"]);
+        NSButton *microphone = [panel valueForKey:@"voiceButton"];
+        if (enabled.boolValue && entry == 0) {
+            if (const char *capture = std::getenv("MSIME_STARTUP_VOICE_CAPTURE")) {
+                [panel.contentView layoutSubtreeIfNeeded];
+                NSBitmapImageRep *bitmap = [panel.contentView bitmapImageRepForCachingDisplayInRect:panel.contentView.bounds];
+                [panel.contentView cacheDisplayInRect:panel.contentView.bounds toBitmapImageRep:bitmap];
+                [[bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:@(capture) atomically:YES];
+            }
+        }
+        std::fprintf(stdout, "startup entry=%lu expected=%d microphone=%d runtime_enabled=%d\n",
+            (unsigned long)entry, expected, !microphone.hidden, MSIMEVoiceInputEnabled(NSUserDefaults.standardUserDefaults));
+        std::fflush(stdout);
+        assert(microphone.hidden == !expected);
+        assert(MSIMEVoiceInputEnabled(NSUserDefaults.standardUserDefaults) == expected);
+        assert([[NSUserDefaults.standardUserDefaults stringForKey:@"MSIMEClientVoiceASRModelPath"] isEqual:voice[@"asr_model_path"]]);
+        assert([controller matchesVoiceToggleHotkey:ModeKey(6, NSEventModifierFlagControl | NSEventModifierFlagCommand, NO)]);
+        if (expected) {
+            [controller setValue:[ShortcutSession new] forKey:@"session"];
+            // 缺的是合成模型，实际语音入口应先报告错误；永远到不了权限申请或音频采集。
+            [controller toggleVoiceInput:nil];
+            assert(controller.voiceFailures == 1);
+        }
+        [panel deactivateForDelegate:controller];
+        MSIMEFocusedController = nil;
+        MSIMERemoveTestPreferenceSuite(defaults, suite);
+        [NSFileManager.defaultManager removeItemAtPath:root error:nil];
+    }
+    method_setImplementation(base, original);
+    for (NSString *key in standard.dictionaryRepresentation) if ([key hasPrefix:@"MSIMEClientVoice"]) {
+        if (previousDefaults[key]) [standard setObject:previousDefaults[key] forKey:key];
+        else [standard removeObjectForKey:key];
+    }
+}
+
 // The poll reads the preferences document once a second, and most of those reads find exactly what
 // was applied a second ago. Applying it again walks every preference, goes back into the Engine and
 // writes a diagnostic line - once a second, for nothing. It also buried the diagnostic log under
@@ -13640,6 +13764,10 @@ int main(int argc, char **argv) {
             TestGlassInputModeHUD(YES);
             return 0;
         }
+        if (argc == 2 && std::string(argv[1]) == "--startup-voice") {
+            TestStartupVoicePreferences();
+            return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--key-focus-preferences") {
             TestKeyFocusRestoresPreferenceMonitoring();
             return 0;
@@ -15632,6 +15760,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestSavedPreferencesReachTheFocusedController(); }
         @autoreleasepool { TestModeSwitchReachesTheSessionBeforeTheNextKey(); }
         @autoreleasepool { TestFreshProcessActsOnTheSharedSchemeNotTheStaleLocalOne(); }
+        @autoreleasepool { TestStartupVoicePreferences(); }
         @autoreleasepool { TestPreferenceRevisionSkipsUnchangedDocuments(); }
         @autoreleasepool { TestPreferenceRevisionRetriesFailedUpdate(); }
         @autoreleasepool { TestKeyFocusRestoresPreferenceMonitoring(); }

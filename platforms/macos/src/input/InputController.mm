@@ -1809,6 +1809,8 @@ static NSImage *MSIMECandidateLogoImage() {
     NSString *_preferencesDirectory;
     NSTimer *_preferencesTimer;
     MSIMEPreferenceLoadState _preferenceLoadState;
+    // 首次同步读取的宿主设置，等工具栏创建或按键接管焦点后再应用。
+    NSDictionary *_initialHostPreferences;
     MSIMEAppearancePreferences *_appearance;
     BOOL _wubiCodeHintEnabled;
     msime::input::EnglishPunctuationState _englishPunctuation;
@@ -5357,10 +5359,18 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:directory error:nil];
     NSDictionary *preferences = [snapshot isKindOfClass:NSDictionary.class] ? snapshot[@"preferences"] : nil;
     if ([preferences isKindOfClass:NSDictionary.class]) {
+        _initialHostPreferences = [preferences copy];
         _englishOnlineCandidatesEnabled = MSIMEStrictBoolean(preferences[@"english_online_candidates"]);
         _englishOnlinePreferenceLoaded = YES;
         if (!_appearance.sharedInputPreferencesApplied) [_appearance applySharedInputPreferences:preferences];
     }
+}
+// 共享文档已同步读过，不能让工具栏和语音总开关再等一次可因失焦作废的后台读取。
+- (void)applyInitialHostPreferences {
+    NSDictionary *preferences = _initialHostPreferences;
+    _initialHostPreferences = nil;
+    // 输入设置已先应用，系统模式报告可能随后改过方案，不能在这里重放旧输入状态。
+    if (preferences) [self applySharedToolbarPreferences:preferences applyInputPreferences:NO];
 }
 // 在系统输入菜单里打开一个按需模式。只有 Engine 会话会碰到 TIS；测试的替身会话只走测试设的 enabler，没有就什么也不做，所以测试不会改开发者的输入菜单。返回 NO 表示模式没有打开——没有发出请求，或者系统拒绝了——这次切换不记为已同步，下一次同步再试；以前不论 TIS 返回什么都算成功，启用失败一次，这个模式就再也不会被打开。
 - (BOOL)enableOptInInputMode:(NSString *)identifier {
@@ -6315,6 +6325,7 @@ static constexpr NSUInteger MSIMEIdleDictionarySessionLimit = 4;
     _capsLock = ([NSEvent modifierFlags] & NSEventModifierFlagCapsLock) != 0;
     [self syncCapsLock];
     _toolbar = [MSIMEFloatingToolbarPanel sharedPanel];
+    [self applyInitialHostPreferences];
     [_toolbar applyLightSkin:[_appearance resolvedSkinForDark:NO].tokens darkSkin:[_appearance resolvedSkinForDark:YES].tokens];
     [_toolbar applyLightToolbarSkin:[_appearance toolbarSkinForDark:NO]
                             darkSkin:[_appearance toolbarSkinForDark:YES]];
@@ -6927,6 +6938,12 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
 }
 
 - (void)applySharedToolbarPreferences:(NSDictionary *)preferences {
+    [self applySharedToolbarPreferences:preferences applyInputPreferences:YES];
+}
+- (void)applySharedToolbarPreferences:(NSDictionary *)preferences applyInputPreferences:(BOOL)applyInputPreferences {
+    // 更晚的重载替换启动快照；工具栏尚未创建时保留它，创建后再应用尺寸与组件。
+    if ([preferences isKindOfClass:NSDictionary.class])
+        _initialHostPreferences = _toolbar ? nil : [preferences copy];
     if (MSIMEConfigureDiagnosticLog(_preferencesDirectory, preferences))
         msime_macos_diagnostic_write("preferences_applied");
     if ([preferences isKindOfClass:NSDictionary.class]) {
@@ -7051,7 +7068,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     id pageSize = preferences[@"candidate_page_size"];
     NSUInteger strictPageSize = 0;
     if (MSIMEStrictUnsignedIntegerValue(pageSize, &strictPageSize) && strictPageSize >= msime::mac::kMinimumCandidatePageSize && strictPageSize <= msime::mac::kMaximumCandidatePageSize && strictPageSize != _requestedPageSize) _requestedPageSize = 0;
-    [_appearance applySharedInputPreferences:preferences];
+    if (applyInputPreferences) [_appearance applySharedInputPreferences:preferences];
     [_appearance applySharedCandidatePreferences:preferences];
     if (!_appearance.inputModeHUD) [[MSIMEInputModeHUDPanel sharedPanel] orderOut:nil];
     // 共享文档里的开关在载入它的这一刻生效，不等下一次切换中英文：组字中推迟应用文档的分支只走到这里，不会调 sync。关上时总是隐藏；打开时只有持有客户端的控制器按当前模式显示，输入法不在前台时收到的通知不把它放回菜单栏。文档只在有控制器持有客户端时才被载入（每秒一次的轮询和保存后的重新载入都要求 _activeClient），所以在设置应用里拨开关时要等回到输入框、输入法重新获得焦点才生效。
@@ -7732,6 +7749,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         // Whatever the previous client was last given says nothing about this one.
         [self invalidateSmartPunctuationShadow];
         [self applySharedInputPreferencesBeforeFirstUse];
+        [self applyInitialHostPreferences];
         [_appearance activateInputModeForApplication:[sender respondsToSelector:@selector(bundleIdentifier)] ? [sender bundleIdentifier] : nil];
         [self syncSystemInputModeForClient:sender];
         // Punctuation and width are per app, so the new client's values reach the Engine before it types.
