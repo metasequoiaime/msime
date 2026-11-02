@@ -109,6 +109,7 @@ import { DesktopSurface } from './DesktopSurface';
 import { SurfaceRoutingPolicy } from './SurfaceRoutingPolicy';
 import { ClipboardHistoryItem, ClipboardFailure } from './clipboard/ClipboardHistoryStore';
 import { ClipboardHistoryPolicy } from './clipboard/ClipboardHistoryPolicy';
+import { ClipboardSelectionPolicy } from './clipboard/ClipboardSelectionPolicy';
 import {
   CLOUD_CLIPBOARD_SEND, CLOUD_CLIPBOARD_TAB, CloudClipboardItem, CloudClipboardPolicy,
   CloudClipboardSendOutcome, CloudClipboardState
@@ -482,6 +483,9 @@ const CLIP_CARD_FONT_SIZE: number = 14.5;
 const CLIP_CARD_LINE_HEIGHT_VP: number = 21;
 const CLIP_CARD_LINE_GAP_VP: number = 2;
 const CLIP_META_FONT_SIZE: number = 11.5;
+// 多选时选中卡片右上角的序号 ①②③④（#10411），正文右边让出这么宽，长文字不压在角标底下。
+const CLIP_BADGE_FONT_SIZE: number = 18;
+const CLIP_BADGE_SPACE_VP: number = 20;
 const CLIPBOARD_TAB_CLOUD: string = 'cloud';
 // Enough results to scroll through; a one-letter search would otherwise lay out the whole catalog.
 const EMOJI_SEARCH_LIMIT: number = 512;
@@ -667,6 +671,10 @@ struct KeyboardView {
   @State cloudSending: boolean = false;
   /** The local history entry a long press offered to send to the cloud clipboard, or empty. */
   @State clipSendTarget: string = '';
+  /** 触屏剪贴板的多选（#10411）：点「多选」进入，点卡片按先后选中并在右上角标出 ①②③④，「插入」把选中的几条按序号一次插入，「取消」退出。只作用于本机历史，与 Android 的多选入口一致。 */
+  @State clipSelecting: boolean = false;
+  /** 按点选先后排列的选中文字（本机历史按文字去重，文字就是条目的标识）。 */
+  @State clipSelection: string[] = [];
   @State expanded: ExpandedCandidate[] = [];
   /** 展开网格已经建了 `expanded` 开头的多少格，规则在 `ExpandedCandidateBatchPolicy`。 */
   @State expandedBuilt: number = 0;
@@ -928,6 +936,7 @@ struct KeyboardView {
       if (!enabled) {
         this.clips = [];
         this.confirmingClear = false;
+        this.endClipSelection();
         this.clipboardNotice = '剪贴板历史已关闭，历史记录已清空';
         if (this.surface === SURFACE_CLIPBOARD) {
           this.show(SURFACE_NONE);
@@ -7484,7 +7493,52 @@ struct KeyboardView {
     this.clips = this.clipboardEnabled ? KeyboardSession.shared.clipboardHistory() : [];
     this.clipboardNotice = this.clipboardEnabled ? '' : CLIPBOARD_HISTORY_OFF;
     this.confirmingClear = false;
+    this.endClipSelection();
     this.openCloudClipboard();
+  }
+
+  /** 进入多选：长按管理行和清空的确认先收起。只在本机历史开着、有记录时可进，与 Android 的「多选」入口一致。 */
+  private beginClipSelection(): void {
+    if (!this.clipboardEnabled || this.clips.length === 0 || this.cloudTabActive()) {
+      return;
+    }
+    this.clipSendTarget = '';
+    this.confirmingClear = false;
+    this.clipSelection = [];
+    this.clipSelecting = true;
+    this.clipboardNotice = ClipboardSelectionPolicy.notice(0);
+  }
+
+  private endClipSelection(): void {
+    if (!this.clipSelecting) {
+      return;
+    }
+    this.clipSelecting = false;
+    this.clipSelection = [];
+    this.clipboardNotice = '';
+  }
+
+  /** 本机记录在多选里的序号（从 0 起），没选中时为 -1。 */
+  private clipOrdinal(text: string): number {
+    return ClipboardSelectionPolicy.ordinal(this.clipSelection, text);
+  }
+
+  /** 多选时点一张卡片：按先后选中或取消；到了 20 项上限时说明原因。 */
+  private toggleClipSelection(text: string): void {
+    const next: string[] = ClipboardSelectionPolicy.toggled(this.clipSelection, text);
+    this.clipboardNotice = next === this.clipSelection
+      ? `最多只能选择 ${ClipboardSelectionPolicy.MAX_SELECTIONS} 项` : ClipboardSelectionPolicy.notice(next.length);
+    this.clipSelection = next;
+  }
+
+  /** 「插入」：按序号把选中的几条首尾相接，经和单条插入同一个 `KeyboardSession.insert` 一次上屏，然后退出多选。 */
+  private insertClipSelection(): void {
+    if (!this.clipSelecting || !ClipboardSelectionPolicy.canInsert(this.clipSelection.length)) {
+      return;
+    }
+    const text: string = ClipboardSelectionPolicy.insertionText(this.clipSelection);
+    this.endClipSelection();
+    KeyboardSession.shared.insert(text);
   }
 
   /** Whether the clipboard surface is on screen, as the phone's own face or as the 2in1 emoji surface's clipboard tab. */
@@ -10287,45 +10341,73 @@ struct KeyboardView {
   clipboardFace() {
     Column({ space: CLIP_CARD_GAP_VP }) {
       Row({ space: CLIP_HEADER_ACTION_GAP_VP }) {
-        // 密码框完全不显示标签：云端分区是唯一的另一个分区，而它在那里从不提供。
-        if (this.cloudVisible) {
-          Text('本机')
+        if (this.clipSelecting) {
+          // 多选时这一行换成计数、「取消」和「插入」，先后和 Android 多选顶行一致；「插入」只在选中 1 到 4 项时可点，不可点时标成禁用，读屏读得出它点不了。导出和删除是 Android 独有的，这里不提供。
+          Text(`${this.clipSelection.length} 项已选择`)
             .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-            .fontColor(this.cloudTabActive() ? this.skin.keyForeground : this.skin.accent)
-            .opacity(this.cloudTabActive() ? CLIP_IDLE_TAB_OPACITY : 1)
-            .accessibilityText(this.cloudTabActive() ? '剪贴板分类 本机' : '剪贴板分类 本机，已选中')
-            .onClick(() => this.selectClipboardTab(CLIPBOARD_TAB_LOCAL))
-          Text(CLOUD_CLIPBOARD_TAB)
-            .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-            .fontColor(this.cloudTabActive() ? this.skin.accent : this.skin.keyForeground)
-            .opacity(this.cloudTabActive() ? 1 : CLIP_IDLE_TAB_OPACITY)
-            .accessibilityText(this.cloudTabActive() ? `剪贴板分类 ${CLOUD_CLIPBOARD_TAB}，已选中`
-              : `剪贴板分类 ${CLOUD_CLIPBOARD_TAB}`)
-            .onClick(() => this.selectClipboardTab(CLIPBOARD_TAB_CLOUD))
-        }
-        Blank()
-        if (this.cloudTabActive()) {
-          Text('刷新')
+            .fontColor(this.skin.keyForeground)
+          Blank()
+          Text('取消')
             .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
             .fontColor(this.skin.accent)
-            .opacity(this.cloudLoading ? 0.4 : 1)
-            .accessibilityText('刷新云剪贴板')
-            .onClick(() => {
-              if (!this.cloudLoading) {
-                this.refreshCloudClipboard();
-              }
-            })
+            .accessibilityText('退出多选')
+            .onClick(() => this.endClipSelection())
+          Text('插入')
+            .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+            .fontColor(this.skin.accent)
+            .enabled(ClipboardSelectionPolicy.canInsert(this.clipSelection.length))
+            .opacity(ClipboardSelectionPolicy.canInsert(this.clipSelection.length) ? 1 : 0.4)
+            .accessibilityText(this.clipSelection.length > ClipboardSelectionPolicy.MAX_INSERTIONS
+              ? `插入不可用，${ClipboardSelectionPolicy.INSERTION_LIMIT_HINT}` : '按序号插入选中的剪贴板记录')
+            .onClick(() => this.insertClipSelection())
         } else {
-          // 保存和清空作用于本机历史，所以云端分区不提供它们。
-          Text('保存当前')
-            .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-            .fontColor(this.skin.accent)
-            .accessibilityText('保存剪贴板当前内容')
-            .onClick(() => this.captureClipboard())
-          Text(this.confirmingClear ? '确认清空' : '清空')
-            .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-            .fontColor(this.skin.accent)
-            .onClick(() => this.clearClipboard())
+          // 密码框完全不显示标签：云端分区是唯一的另一个分区，而它在那里从不提供。
+          if (this.cloudVisible) {
+            Text('本机')
+              .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+              .fontColor(this.cloudTabActive() ? this.skin.keyForeground : this.skin.accent)
+              .opacity(this.cloudTabActive() ? CLIP_IDLE_TAB_OPACITY : 1)
+              .accessibilityText(this.cloudTabActive() ? '剪贴板分类 本机' : '剪贴板分类 本机，已选中')
+              .onClick(() => this.selectClipboardTab(CLIPBOARD_TAB_LOCAL))
+            Text(CLOUD_CLIPBOARD_TAB)
+              .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+              .fontColor(this.cloudTabActive() ? this.skin.accent : this.skin.keyForeground)
+              .opacity(this.cloudTabActive() ? 1 : CLIP_IDLE_TAB_OPACITY)
+              .accessibilityText(this.cloudTabActive() ? `剪贴板分类 ${CLOUD_CLIPBOARD_TAB}，已选中`
+                : `剪贴板分类 ${CLOUD_CLIPBOARD_TAB}`)
+              .onClick(() => this.selectClipboardTab(CLIPBOARD_TAB_CLOUD))
+          }
+          Blank()
+          if (this.cloudTabActive()) {
+            Text('刷新')
+              .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+              .fontColor(this.skin.accent)
+              .opacity(this.cloudLoading ? 0.4 : 1)
+              .accessibilityText('刷新云剪贴板')
+              .onClick(() => {
+                if (!this.cloudLoading) {
+                  this.refreshCloudClipboard();
+                }
+              })
+          } else {
+            // 保存、多选和清空作用于本机历史，所以云端分区不提供它们。
+            Text('保存当前')
+              .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+              .fontColor(this.skin.accent)
+              .accessibilityText('保存剪贴板当前内容')
+              .onClick(() => this.captureClipboard())
+            if (this.clipboardEnabled && this.clips.length > 0) {
+              Text('多选')
+                .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+                .fontColor(this.skin.accent)
+                .accessibilityText('多选剪贴板记录')
+                .onClick(() => this.beginClipSelection())
+            }
+            Text(this.confirmingClear ? '确认清空' : '清空')
+              .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+              .fontColor(this.skin.accent)
+              .onClick(() => this.clearClipboard())
+          }
         }
       }
       .width('100%')
@@ -10385,21 +10467,22 @@ struct KeyboardView {
     }
   }
 
-  /** 触屏剪贴板卡片：正文最多两行，下方一小行说明是否已固定、来源和时间。 */
+  /** 触屏剪贴板卡片：正文最多两行，下方一小行说明是否已固定、来源和时间。`selected` 是多选中选中的那几张，卡片铺强调色，文字换成强调色上的文字色。 */
   @Builder
-  clipCardBody(text: string, meta: string) {
+  clipCardBody(text: string, meta: string, selected: boolean) {
     Column({ space: CLIP_CARD_LINE_GAP_VP }) {
       Text(text)
         .fontSize(CLIP_CARD_FONT_SIZE)
         .lineHeight(CLIP_CARD_LINE_HEIGHT_VP)
-        .fontColor(this.clipboardSkin().keyForeground)
+        .fontColor(selected ? this.clipboardSkin().onAccent : this.clipboardSkin().keyForeground)
         .maxLines(2)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
         .width('100%')
       if (meta.length > 0) {
         Text(meta)
           .fontSize(CLIP_META_FONT_SIZE)
-          .fontColor(this.clipboardSkin().secondary)
+          .fontColor(selected ? this.clipboardSkin().onAccent : this.clipboardSkin().secondary)
+          .opacity(selected ? 0.8 : 1)
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .width('100%')
@@ -10468,7 +10551,7 @@ struct KeyboardView {
             ListItem() {
               if (this.touchDesign()) {
                 Column() {
-                  this.clipCardBody(entry.text, this.cloudClipMeta(entry))
+                  this.clipCardBody(entry.text, this.cloudClipMeta(entry), false)
                 }
                 .width('100%')
                 .padding({ left: CLIP_CARD_PADDING_H_VP, right: CLIP_CARD_PADDING_H_VP,
@@ -10604,9 +10687,34 @@ struct KeyboardView {
           scroller: this.clipListScroller }) {
             ForEach(this.visibleClips(), (entry: ClipboardHistoryItem, index: number) => {
               ListItem() {
-              if (this.touchDesign()) {
+              if (this.touchDesign() && this.clipSelecting) {
+                // 多选：选中的卡片铺强调色，右上角是点选先后的序号；取消一项后，后面各项的序号随这次重画依次前移（#10411）。长按不再打开管理行。
+                Stack({ alignContent: Alignment.TopEnd }) {
+                  Column() {
+                    this.clipCardBody(entry.text, this.clipMeta(entry), this.clipOrdinal(entry.text) >= 0)
+                  }
+                  .width('100%')
+                  .padding({ left: CLIP_CARD_PADDING_H_VP, right: CLIP_CARD_PADDING_H_VP + CLIP_BADGE_SPACE_VP,
+                    top: CLIP_CARD_PADDING_V_VP, bottom: CLIP_CARD_PADDING_V_VP })
+                  if (this.clipOrdinal(entry.text) >= 0) {
+                    Text(ClipboardSelectionPolicy.ordinalLabel(this.clipOrdinal(entry.text)))
+                      .fontSize(CLIP_BADGE_FONT_SIZE)
+                      .fontColor(this.clipboardSkin().onAccent)
+                      .margin({ top: 4, right: 6 })
+                      .accessibilityLevel('no')
+                  }
+                }
+                .width('100%')
+                .backgroundColor(this.clipOrdinal(entry.text) >= 0
+                  ? this.clipboardSkin().accent : this.clipboardSkin().keyBackground)
+                .borderRadius(CLIP_CARD_RADIUS_VP)
+                .accessibilityText(`${ClipboardSelectionPolicy.selectedDescription(this.clipOrdinal(entry.text))}点按选择剪贴板记录：${entry.text}`)
+                .stateStyles({ normal: this.keyIdleStyle, pressed: this.keyPressedStyle })
+                .animation({ duration: KEY_PRESS_MS })
+                .onClick(() => this.toggleClipSelection(entry.text))
+              } else if (this.touchDesign()) {
                 Column() {
-                  this.clipCardBody(entry.text, this.clipMeta(entry))
+                  this.clipCardBody(entry.text, this.clipMeta(entry), false)
                 }
                 .width('100%')
                 .padding({ left: CLIP_CARD_PADDING_H_VP, right: CLIP_CARD_PADDING_H_VP,
@@ -10654,7 +10762,9 @@ struct KeyboardView {
                 radius: KeyboardMetrics.KEY_CORNER_VP })
               }
               }
-            }, (entry: ClipboardHistoryItem): string => `${entry.text}:${entry.pinned}:${entry.at}`)
+            // 键里带上多选状态和序号：`clipCardBody` 的参数按值传入，不随状态刷新，序号或选中状态变了要让这一项整个重建。
+            }, (entry: ClipboardHistoryItem): string =>
+              `${entry.text}:${entry.pinned}:${entry.at}:${this.clipSelecting ? this.clipOrdinal(entry.text) : ''}`)
         }
         .scrollBar(BarState.Off)
         .width('100%')

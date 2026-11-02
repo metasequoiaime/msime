@@ -117,6 +117,7 @@ pub use wubi::code::phrase_code as wubi_phrase_code;
 
 pub use local::command::{valid_plugin_argument, EXTENDED_ARGUMENT_SYMBOLS};
 pub use local::date_time::LocalDateTime;
+pub use local::quick_phrase::{expand_quick_phrase, QuickPhraseExpansion};
 pub use local::url;
 
 /// Create or migrate an `msime-english.db` to the schema the engine reads. Fixtures without one need it; `prepare_runtime_paths` copies both dictionaries.

@@ -1771,7 +1771,7 @@ final class ImeLayoutRows {
             s.imeLetterRows.rebuildKeyRows();
             s.render();
         }), "SoftLayer");
-        // 左列：◀ 光标左移、→ 结束连点切换（或光标右移），再是 123、符、切换，各占一格，最多五格，与日语 26 键一样有符号面板的入口（#10439）。
+        // 左列：◀ 光标左移、→ 结束连点切换（或光标右移），再是 123、符、切换，各占一格，最多五格，与日语 26 键一样有符号面板的入口（#10439）。打开「交换语言键与数字键」时 123 换到右列，语言键放在左列最下一格（符、切换各上移一格），和其他键盘交换后一样落在键盘左下角（#10437）。
         addJapaneseSideKey(modeColumn, s.iconKey(KeyboardIconKey.Kind.CURSOR_LEFT, "◀",
             "光标左移", this::moveJapaneseCaretLeft), 1);
         addJapaneseSideKey(modeColumn, s.iconKey(KeyboardIconKey.Kind.TOGGLE_NEXT, "→",
@@ -1782,7 +1782,7 @@ final class ImeLayoutRows {
             s::languageKeyTapped), "SoftLanguage");
         s.bindInputMethodPicker(language);
         s.japaneseLanguageKey = language;
-        addJapaneseSideKey(modeColumn, swapLanguageNumber ? language : s.japaneseSymbolsKey, 1);
+        if (!swapLanguageNumber) addJapaneseSideKey(modeColumn, s.japaneseSymbolsKey, 1);
         addJapaneseSideKey(modeColumn, japaneseSymbolPanelKey(s.japaneseSideEmojiKey()), 1);
         if (s.offersGlobeKey()) {
             Button globe = s.keyId(s.keyboardKey("切换", "切换到下一个输入法",
@@ -1790,6 +1790,7 @@ final class ImeLayoutRows {
             s.bindInputMethodPicker(globe);
             addJapaneseSideKey(modeColumn, globe, 1);
         }
+        if (swapLanguageNumber) addJapaneseSideKey(modeColumn, language, 1);
         container.addView(modeColumn, LayoutPolicy.weightedMatchParentParams(0.17f));
 
         LinearLayout grid = LayoutPolicy.column(s);

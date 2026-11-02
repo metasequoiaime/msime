@@ -105,7 +105,7 @@ test("a Cantonese document on a host without Cantonese names the fallback", asyn
     last_chinese_scheme: "cantonese",
   });
 
-  // The selector's 粤拼, not the read-only 粤拼方案 row below it.
+  // The selector's 粤拼, not the 粤拼 option of the 粤拼方案 row below it.
   const selector = radio("全拼").closest('[role="radiogroup"]') as HTMLElement;
   const cantonese = within(selector).getByRole("radio", { name: "粤拼" }) as HTMLInputElement;
   expect(cantonese.checked).toBe(true);

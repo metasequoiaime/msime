@@ -2,6 +2,8 @@
 #include <cstdint>
 #include <optional>
 
+#include "../voice/VoiceHotkeyPolicy.h"
+
 namespace msime::windows {
 // The global maintenance shortcuts the shared settings page documents.
 //
@@ -51,6 +53,12 @@ maintenance_hotkey(uint32_t vk, bool ctrl, bool shift, bool alt,
   if (vk == 'T')
     return MaintenanceHotkey{MaintenanceAction::Stop, 0};
   return std::nullopt;
+}
+
+// Whether a key-down may trigger a maintenance shortcut. Strokes this process injected are skipped, or a handler that types something could drive itself. The voice hook's chord replay is the exception: with right Alt held for voice the hook swallows the physical right Alt, so the physical key of Ctrl+Shift+right Alt+R reaches this hook without Alt, and the replay that carries the Alt and the key is the user's own press standing in for it (voice_chord_replay_extra_info).
+constexpr bool maintenance_stroke_may_trigger(bool injected,
+                                              std::uintptr_t extra_info) {
+  return !injected || extra_info == voice_chord_replay_extra_info;
 }
 
 // Server 记着的大写锁定状态，语言栏和悬浮工具栏的大写指示以它为准。低级钩子在按键生效之前被调用，读不到这一下之后的锁定状态，只能每按下一次 Caps Lock 翻转一次，所以每一次会改锁定的按下都要计入，注入的也算：TIP 轻点 Caps Lock 切换中英文后用 SendInput 再按一次撤回大写锁定，漏掉那一下，这里就和实际状态一直反着，直到 Server 重启。
