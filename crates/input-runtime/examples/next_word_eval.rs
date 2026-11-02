@@ -2,11 +2,11 @@
 //!
 //! 用例来自 Tatoeba 的中文句子（`cmn_sentences_detailed.tsv`，CC-BY 2.0 FR，不在 chinese-ime-lm 的训练语料里；语料不进仓库，用 `--corpus` 给路径）。每句取开头连续的汉字，按词库做正向最长匹配切词，随机挑一个不在句末的词：它前面的文字是上文，它本身是这次上屏的词，它后面的文字是答案。联想的一行是答案的前缀就算命中。
 //!
-//! 每条用例在每一臂里都走真实的运行时和引擎：清掉上文再放进这条的上文（`seed_context`），打这个词的拼音，选中文字等于它的那一行上屏，读上屏后显示的联想行。「今天」一臂不挂打分器，就是不排序的联想；其余各臂挂一个打分器（随包的 `model-v1`，以及每个 `--onnx-model`），引擎因此多取 32 条词库续写、排序后显示 8 条。产品里只有报 `scores_prediction_pool_within_a_frame` 的打分器（ONNX 后端）才排联想，随包模型不排；这里给每一臂都套上 [`Pooled`]，量的是排了会怎样，随包模型那一臂的延迟就是它在产品里不排的理由。排序规则（总对数概率、32 条候选池、个人习惯行在前）在看评测数字之前就定了，这里不调任何参数。
+//! 每条用例在每一臂里都走真实的运行时和引擎：清掉上文再放进这条的上文（`seed_context`），打这个词的拼音，选中文字等于它的那一行上屏，读上屏后显示的联想行。「今天」一臂不挂打分器，就是不排序的联想；其余各臂挂一个打分器（随包的 `model-v1`，以及每个 `--onnx-model`），引擎因此多取 32 条词库续写、排序后显示 8 条。产品里只有报 `scores_prediction_pool_within_a_frame` 的打分器（ONNX 后端）才排联想，随包模型不排；这里给每一臂都套上 [`Pooled`]，量的是排了会怎样，随包模型那一臂的延迟就是它在产品里不排的理由。`--unranked` 再给每个打分器加一臂「挂着但不排联想」，就是产品里随包模型的样子。排序规则（总对数概率、32 条候选池、个人习惯行在前）在看评测数字之前就定了，这里不调任何参数。
 //!
-//! 计时的是上屏那一次 `dispatch`（引擎选词、查续写、打分、取快照），各臂轮流先跑，配对的差就是打分器在上屏时多花的时间。上屏时模型要为新的上文重新编码前缀，这一份下一次按键原本也要付，所以这个差是上屏时的代价，不全是新增的代价。不学习（`learning = false`），所以没有个人习惯行，量的只是词库续写的排序。
+//! 计时的是上屏那一次 `dispatch`（引擎选词、查续写、打分、取快照），以及紧接着按下的一个键（`d`，逐键重排读的是同一段新上文），各臂轮流先跑，配对的差就是打分器多花的时间。上屏时排联想要为新的上文重新编码前缀，这一份不排时下一次按键也要付，所以上屏的差是上屏那一帧的代价；「上屏加下一键」与 `--unranked` 那一臂的差才是排联想真正新增的代价。不学习（`learning = false`），所以没有个人习惯行，量的只是词库续写的排序。
 //!
-//! 用法：`next_word_eval --resources <verified-dir> --corpus cmn_sentences_detailed.tsv [--cases 3000] [--longest 2] [--seed 7] [--warmup 20] [--no-bundled] [--onnx-model <dir>]... [--onnx-threads 2] [--dump cases.jsonl]`
+//! 用法：`next_word_eval --resources <verified-dir> --corpus cmn_sentences_detailed.tsv [--cases 3000] [--longest 2] [--seed 7] [--warmup 20] [--no-bundled] [--onnx-model <dir>]... [--onnx-threads 2] [--unranked] [--dump cases.jsonl]`
 mod eval_resources;
 
 use msime_engine::host::{Command, Session};
@@ -171,8 +171,8 @@ fn onnx_scorer(_: &Path, _: usize) -> Result<Box<dyn CandidateScorer>, Box<dyn s
     Err("--onnx-model needs the onnx-rerank feature (and ORT_LIB_LOCATION pointing at a minimal ONNX Runtime build)".into())
 }
 
-/// 不论打分器自己报不报 `scores_prediction_pool_within_a_frame`，都让 runtime 用它排联想；其余全部照转，逐键重排与不套时相同。
-struct Pooled(Box<dyn CandidateScorer>);
+/// 不论打分器自己报不报 `scores_prediction_pool_within_a_frame`，都按第二个字段决定 runtime 排不排联想；其余全部照转，逐键重排与不套时相同。
+struct Pooled(Box<dyn CandidateScorer>, bool);
 
 impl CandidateScorer for Pooled {
     fn context_length(&self) -> usize {
@@ -184,7 +184,7 @@ impl CandidateScorer for Pooled {
     }
 
     fn scores_prediction_pool_within_a_frame(&self) -> bool {
-        true
+        self.1
     }
 
     fn best_where(
@@ -197,20 +197,23 @@ impl CandidateScorer for Pooled {
     }
 }
 
+/// 一臂的名字、打分器（「今天」那一臂没有）、排不排联想。
+type PlannedArm = (String, Option<Box<dyn CandidateScorer>>, bool);
+
 struct Arm {
     label: String,
     runtime: Runtime<Session>,
     _state: tempfile::TempDir,
     /// 每条用例上屏后显示的联想行；没走到上屏的用例为 `None`。
     rows: Vec<Option<Vec<String>>>,
-    /// 上屏那一次 `dispatch` 的耗时，按用例下标，预热的用例不计。
-    timings: Vec<Option<Duration>>,
+    /// 上屏那一次 `dispatch` 和紧接着的下一键的耗时，按用例下标，预热的用例不计。
+    timings: Vec<Option<(Duration, Duration)>>,
 }
 
-/// 上屏后显示的联想行，和上屏那一次 `dispatch` 的耗时。
-type Committed = (Vec<String>, Duration);
+/// 上屏后显示的联想行，上屏那一次 `dispatch` 和紧接着的下一键的耗时。
+type Committed = (Vec<String>, Duration, Duration);
 
-/// 打这条用例的拼音，选中文字等于这个词的那一行上屏；返回上屏后的联想行和上屏那一次的耗时。找不到这一行或上屏的不是这个词时为 `None`。
+/// 打这条用例的拼音，选中文字等于这个词的那一行上屏，再按一个 `d`；返回上屏后的联想行和两次的耗时。找不到这一行或上屏的不是这个词时为 `None`。
 fn run_case(
     runtime: &mut Runtime<Session>,
     case: &Case,
@@ -249,7 +252,13 @@ fn run_case(
     } else {
         Vec::new()
     };
-    Ok(Some((rows, elapsed)))
+    let started = Instant::now();
+    runtime.dispatch(Action::Character {
+        value: b'd',
+        shift: false,
+    })?;
+    let next = started.elapsed();
+    Ok(Some((rows, elapsed, next)))
 }
 
 fn percentile(sorted: &[f64], p: f64) -> f64 {
@@ -318,6 +327,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut bundled = true;
     let mut onnx_models: Vec<PathBuf> = Vec::new();
     let mut onnx_threads = 2usize;
+    let mut unranked = false;
     let mut dump: Option<PathBuf> = None;
     let mut index = 0;
     let take = |index: &mut usize| -> Result<String, Box<dyn std::error::Error>> {
@@ -338,12 +348,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--no-bundled" => bundled = false,
             "--onnx-model" => onnx_models.push(PathBuf::from(take(&mut index)?)),
             "--onnx-threads" => onnx_threads = take(&mut index)?.parse()?,
+            "--unranked" => unranked = true,
             "--dump" => dump = Some(PathBuf::from(take(&mut index)?)),
             other => return Err(format!("unknown argument {other}").into()),
         }
         index += 1;
     }
-    let usage = "usage: next_word_eval --resources <verified-dir> --corpus cmn_sentences_detailed.tsv [--resource-lock <file.json>] [--cases 3000] [--longest 2] [--seed 7] [--warmup 20] [--no-bundled] [--onnx-model <dir>]... [--onnx-threads 2] [--dump cases.jsonl]";
+    let usage = "usage: next_word_eval --resources <verified-dir> --corpus cmn_sentences_detailed.tsv [--resource-lock <file.json>] [--cases 3000] [--longest 2] [--seed 7] [--warmup 20] [--no-bundled] [--onnx-model <dir>]... [--onnx-threads 2] [--unranked] [--dump cases.jsonl]";
     let (Some(resources), Some(corpus)) = (resources, corpus) else {
         return Err(usage.into());
     };
@@ -358,21 +369,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         cases.len()
     );
 
-    let mut scorers: Vec<(String, Option<Box<dyn CandidateScorer>>)> = vec![("today".into(), None)];
+    // 每一臂有自己的运行时，打分器的前缀缓存不共用，所以不排的那一臂另加载一份模型。
+    let mut scorers: Vec<PlannedArm> = vec![("today".into(), None, false)];
+    let rankings: &[bool] = if unranked { &[true, false] } else { &[true] };
+    let named = |label: &str, ranks: bool| {
+        if ranks {
+            label.to_owned()
+        } else {
+            format!("{label} unranked")
+        }
+    };
     if bundled {
         let bytes = std::fs::read(resources.join("sentence-model.safetensors"))?;
         let model = std::sync::Arc::new(SentenceModel::load(&bytes)?);
-        scorers.push(("model-v1".into(), Some(Box::new(Reranker::new(model)))));
+        for &ranks in rankings {
+            let scorer: Box<dyn CandidateScorer> = Box::new(Reranker::new(model.clone()));
+            scorers.push((named("model-v1", ranks), Some(scorer), ranks));
+        }
     }
     for directory in &onnx_models {
         let label = directory.file_name().map_or_else(
             || directory.display().to_string(),
             |name| name.to_string_lossy().into_owned(),
         );
-        scorers.push((label, Some(onnx_scorer(directory, onnx_threads)?)));
+        for &ranks in rankings {
+            let scorer = onnx_scorer(directory, onnx_threads)?;
+            scorers.push((named(&label, ranks), Some(scorer), ranks));
+        }
     }
     let mut arms = Vec::new();
-    for (label, scorer) in scorers {
+    for (label, scorer, ranks) in scorers {
         let state = tempfile::tempdir()?;
         let path = |name: &str| -> Result<String, Box<dyn std::error::Error>> {
             Ok(state
@@ -395,7 +421,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut runtime = Runtime::new(Session::new(&options)?, 9)?;
         runtime.focus(true)?;
         runtime.set_candidate_scorer(
-            scorer.map(|scorer| Box::new(Pooled(scorer)) as Box<dyn CandidateScorer>),
+            scorer.map(|scorer| Box::new(Pooled(scorer, ranks)) as Box<dyn CandidateScorer>),
         );
         arms.push(Arm {
             label,
@@ -414,9 +440,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let outcome = run_case(&mut arms[arm].runtime, case)?;
             let arm = &mut arms[arm];
             match outcome {
-                Some((rows, elapsed)) => {
+                Some((rows, elapsed, next)) => {
                     arm.rows.push(Some(rows));
-                    arm.timings.push((number >= warmup).then_some(elapsed));
+                    arm.timings
+                        .push((number >= warmup).then_some((elapsed, next)));
                 }
                 None => {
                     arm.rows.push(None);
@@ -495,45 +522,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    println!("\ncommit dispatch, ms (cases after the first {warmup}; paired delta = arm minus today on the same case)");
-    let today_ms: Vec<Option<f64>> = today
-        .timings
-        .iter()
-        .map(|timing| timing.map(|d| d.as_secs_f64() * 1000.0))
-        .collect();
-    for arm in &arms {
-        let mut own = Vec::new();
-        let mut delta = Vec::new();
-        for &case in &counted {
-            let (Some(mine), Some(base)) = (arm.timings[case], today_ms[case]) else {
-                continue;
-            };
-            let mine = mine.as_secs_f64() * 1000.0;
-            own.push(mine);
-            delta.push(mine - base);
-        }
-        own.sort_by(f64::total_cmp);
-        delta.sort_by(f64::total_cmp);
-        if std::ptr::eq(arm, today) {
-            println!(
-                "  {:<16} p50 {:>7.2}  p95 {:>7.2}  max {:>7.2}",
+    let report = |title: &str, measure: &dyn Fn((Duration, Duration)) -> Duration| {
+        println!("\n{title}, ms (cases after the first {warmup}; paired delta = arm minus today on the same case)");
+        let millis = |arm: &Arm, case: usize| {
+            arm.timings[case].map(|timing| measure(timing).as_secs_f64() * 1000.0)
+        };
+        for arm in &arms {
+            let mut own = Vec::new();
+            let mut delta = Vec::new();
+            for &case in &counted {
+                let (Some(mine), Some(base)) = (millis(arm, case), millis(today, case)) else {
+                    continue;
+                };
+                own.push(mine);
+                delta.push(mine - base);
+            }
+            own.sort_by(f64::total_cmp);
+            delta.sort_by(f64::total_cmp);
+            let own = format!(
+                "  {:<20} p50 {:>7.2}  p95 {:>7.2}  max {:>7.2}",
                 arm.label,
                 percentile(&own, 50.0),
                 percentile(&own, 95.0),
                 percentile(&own, 100.0)
             );
-        } else {
-            println!(
-                "  {:<16} p50 {:>7.2}  p95 {:>7.2}  max {:>7.2}   delta p50 {:>7.2}  p95 {:>7.2}",
-                arm.label,
-                percentile(&own, 50.0),
-                percentile(&own, 95.0),
-                percentile(&own, 100.0),
-                percentile(&delta, 50.0),
-                percentile(&delta, 95.0)
-            );
+            if std::ptr::eq(arm, today) {
+                println!("{own}");
+            } else {
+                println!(
+                    "{own}   delta p50 {:>7.2}  p95 {:>7.2}",
+                    percentile(&delta, 50.0),
+                    percentile(&delta, 95.0)
+                );
+            }
         }
-    }
+    };
+    report("commit dispatch", &|(commit, _)| commit);
+    report("next key after the commit", &|(_, next)| next);
+    report("commit plus next key", &|(commit, next)| commit + next);
 
     if let Some(path) = dump {
         let mut file = std::io::BufWriter::new(std::fs::File::create(path)?);
