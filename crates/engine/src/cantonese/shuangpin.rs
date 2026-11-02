@@ -4,11 +4,76 @@
 //! 已加载的 `msime-cantonese.db` 音节库存，因此键位规则与数据许可彼此独立。
 
 use super::syllable::Inventory;
+use crate::shuangpin::hints::ShuangpinKeyHint;
+
+/// 不在自己字母键上的声母和各自的键，按最长匹配排列：`gw`、`kw`、`ng` 要排在同首字母的 `g`、`k`、`n` 之前被认出来。
+const MOVED_INITIALS: &[(&str, u8)] = &[("gw", b'i'), ("kw", b'u'), ("ng", b'v'), ("j", b'y')];
+
+/// 就在自己字母键上的单字母声母。
+const PLAIN_INITIALS: &[u8] = b"bpmfdtnlgkhzcsw";
+
+/// 零声母音节的首键。
+const ZERO_INITIAL_KEY: u8 = b'o';
+
+/// 每个韵母和它的键。一键可以放多个韵母，入声韵（`-p`、`-t`、`-k`）和同元音的鼻音韵通常同键。
+const FINALS: &[(&str, u8)] = &[
+    ("a", b'a'),
+    ("aa", b'a'),
+    ("ou", b'b'),
+    ("aam", b'c'),
+    ("aap", b'c'),
+    ("am", b'd'),
+    ("ap", b'd'),
+    ("e", b'e'),
+    ("an", b'f'),
+    ("at", b'f'),
+    ("ang", b'g'),
+    ("ak", b'g'),
+    ("eng", b'g'),
+    ("aang", b'h'),
+    ("aak", b'h'),
+    ("i", b'i'),
+    ("aan", b'j'),
+    ("aat", b'j'),
+    ("aau", b'k'),
+    ("au", b'k'),
+    ("aai", b'l'),
+    ("ai", b'l'),
+    ("im", b'm'),
+    ("ip", b'm'),
+    ("in", b'n'),
+    ("o", b'o'),
+    ("oi", b'o'),
+    ("un", b'p'),
+    ("ut", b'p'),
+    ("ung", b'p'),
+    ("eon", b'p'),
+    ("iu", b'q'),
+    ("yun", b'r'),
+    ("yut", b'r'),
+    ("uk", b'r'),
+    ("on", b's'),
+    ("ong", b's'),
+    ("ok", b's'),
+    ("ot", b's'),
+    ("it", b't'),
+    ("ek", b't'),
+    ("u", b'u'),
+    ("yu", b'v'),
+    ("ui", b'v'),
+    ("oe", b'w'),
+    ("oeng", b'x'),
+    ("oek", b'x'),
+    ("eoi", b'y'),
+    ("eot", b'y'),
+    ("ei", b'z'),
+    ("ing", b';'),
+    ("ik", b';'),
+];
 
 /// 把一个无声调粤拼音节编码成两键粤语双拼。
 ///
-/// 声母优先取最长匹配；零声母使用 `o`。`m`、`ng` 两个独立鼻音按方案约定编码为
-/// `om`、`ov`。未知声母或韵母返回 `None`。
+/// 声母优先取最长匹配；零声母使用 `o`。`m`、`ng` 两个独立鼻音按方案约定编码为 `om`、`ov`。未知声母或韵母返回 `None`。
 pub fn encode(syllable: &str) -> Option<[u8; 2]> {
     let syllable = syllable.as_bytes();
     if syllable.is_empty() || syllable.iter().any(|byte| !byte.is_ascii_lowercase()) {
@@ -20,50 +85,53 @@ pub fn encode(syllable: &str) -> Option<[u8; 2]> {
     if syllable == b"ng" {
         return Some(*b"ov");
     }
-    let (initial, rest) = if syllable.starts_with(b"gw") {
-        (b'i', &syllable[2..])
-    } else if syllable.starts_with(b"kw") {
-        (b'u', &syllable[2..])
-    } else if syllable.starts_with(b"ng") {
-        (b'v', &syllable[2..])
-    } else if syllable.starts_with(b"j") {
-        (b'y', &syllable[1..])
-    } else if b"bpmfdtnlgkhzcsw".contains(&syllable[0]) {
+    let (initial, rest) = if let Some(&(spelling, key)) = MOVED_INITIALS
+        .iter()
+        .find(|(spelling, _)| syllable.starts_with(spelling.as_bytes()))
+    {
+        (key, &syllable[spelling.len()..])
+    } else if PLAIN_INITIALS.contains(&syllable[0]) {
         (syllable[0], &syllable[1..])
     } else {
-        (b'o', syllable)
+        (ZERO_INITIAL_KEY, syllable)
     };
-    let final_key = match rest {
-        b"a" | b"aa" => b'a',
-        b"ou" => b'b',
-        b"aam" | b"aap" => b'c',
-        b"am" | b"ap" => b'd',
-        b"e" => b'e',
-        b"an" | b"at" => b'f',
-        b"ang" | b"ak" | b"eng" => b'g',
-        b"aang" | b"aak" => b'h',
-        b"i" => b'i',
-        b"aan" | b"aat" => b'j',
-        b"aau" | b"au" => b'k',
-        b"aai" | b"ai" => b'l',
-        b"im" | b"ip" => b'm',
-        b"in" => b'n',
-        b"o" | b"oi" => b'o',
-        b"un" | b"ut" | b"ung" | b"eon" => b'p',
-        b"iu" => b'q',
-        b"yun" | b"yut" | b"uk" => b'r',
-        b"on" | b"ong" | b"ok" | b"ot" => b's',
-        b"it" | b"ek" => b't',
-        b"u" => b'u',
-        b"yu" | b"ui" => b'v',
-        b"oe" => b'w',
-        b"oeng" | b"oek" => b'x',
-        b"eoi" | b"eot" => b'y',
-        b"ei" => b'z',
-        b"ing" | b"ik" => b';',
-        _ => return None,
-    };
+    let &(_, final_key) = FINALS
+        .iter()
+        .find(|(spelling, _)| spelling.as_bytes() == rest)?;
     Some([initial, final_key])
+}
+
+/// 触屏键盘的「双拼键位提示」：按 `QWERTYUIOPASDFGHJKLZXCVBNM;` 的顺序列出每个键，写法与普通话双拼的提示相同，`"声母 / 韵母"`，只有一边时只写那一边，同一边的几个单位按字节序用空格连接。
+///
+/// 和 `encode` 读同一张表，提示不会和实际打出来的音节对不上。声母只写不在自己字母键上的 `gw`、`kw`、`ng`、`j`，和键名相同的 `b`、`p`、`m` 等不写，与普通话提示只写 `zh`、`ch`、`sh` 一致；零声母键 `o` 和 `m`、`ng` 两个鼻音音节的码 `om`、`ov` 也不写，`o` 键上只有它作韵母键时的 `o`、`oi`。
+pub fn key_hints() -> Vec<ShuangpinKeyHint> {
+    const KEY_ORDER: &[u8; 27] = b"qwertyuiopasdfghjklzxcvbnm;";
+    let units = |table: &[(&str, u8)], key: u8| {
+        let mut units = table
+            .iter()
+            .filter(|(_, mapped)| *mapped == key)
+            .map(|(unit, _)| *unit)
+            .collect::<Vec<_>>();
+        units.sort_unstable();
+        units.join(" ")
+    };
+    KEY_ORDER
+        .iter()
+        .filter_map(|&key| {
+            let initials = units(MOVED_INITIALS, key);
+            let finals = units(FINALS, key);
+            let hint = match (initials.is_empty(), finals.is_empty()) {
+                (true, true) => return None,
+                (true, false) => finals,
+                (false, true) => initials,
+                (false, false) => format!("{initials} / {finals}"),
+            };
+            Some(ShuangpinKeyHint {
+                key: char::from(key).to_ascii_uppercase().to_string(),
+                hint,
+            })
+        })
+        .collect()
 }
 
 /// 从现有音节库存中找出与双拼码相符的粤拼音节。
@@ -150,8 +218,178 @@ pub fn key_spans(inventory: &Inventory, prefix: &str, key: u8) -> Vec<(String, b
 
 #[cfg(test)]
 mod tests {
-    use super::{decode, encode, initial_prefixes, key_spans};
+    use super::{decode, encode, initial_prefixes, key_hints, key_spans, FINALS, MOVED_INITIALS};
     use crate::cantonese::Inventory;
+
+    /// 抽表之前 `encode` 的写法，原样留作对照：抽表只换了写法，任何音节的编码都不能变。
+    fn encode_before_tables(syllable: &str) -> Option<[u8; 2]> {
+        let syllable = syllable.as_bytes();
+        if syllable.is_empty() || syllable.iter().any(|byte| !byte.is_ascii_lowercase()) {
+            return None;
+        }
+        if syllable == b"m" {
+            return Some(*b"om");
+        }
+        if syllable == b"ng" {
+            return Some(*b"ov");
+        }
+        let (initial, rest) = if syllable.starts_with(b"gw") {
+            (b'i', &syllable[2..])
+        } else if syllable.starts_with(b"kw") {
+            (b'u', &syllable[2..])
+        } else if syllable.starts_with(b"ng") {
+            (b'v', &syllable[2..])
+        } else if syllable.starts_with(b"j") {
+            (b'y', &syllable[1..])
+        } else if b"bpmfdtnlgkhzcsw".contains(&syllable[0]) {
+            (syllable[0], &syllable[1..])
+        } else {
+            (b'o', syllable)
+        };
+        let final_key = match rest {
+            b"a" | b"aa" => b'a',
+            b"ou" => b'b',
+            b"aam" | b"aap" => b'c',
+            b"am" | b"ap" => b'd',
+            b"e" => b'e',
+            b"an" | b"at" => b'f',
+            b"ang" | b"ak" | b"eng" => b'g',
+            b"aang" | b"aak" => b'h',
+            b"i" => b'i',
+            b"aan" | b"aat" => b'j',
+            b"aau" | b"au" => b'k',
+            b"aai" | b"ai" => b'l',
+            b"im" | b"ip" => b'm',
+            b"in" => b'n',
+            b"o" | b"oi" => b'o',
+            b"un" | b"ut" | b"ung" | b"eon" => b'p',
+            b"iu" => b'q',
+            b"yun" | b"yut" | b"uk" => b'r',
+            b"on" | b"ong" | b"ok" | b"ot" => b's',
+            b"it" | b"ek" => b't',
+            b"u" => b'u',
+            b"yu" | b"ui" => b'v',
+            b"oe" => b'w',
+            b"oeng" | b"oek" => b'x',
+            b"eoi" | b"eot" => b'y',
+            b"ei" => b'z',
+            b"ing" | b"ik" => b';',
+            _ => return None,
+        };
+        Some([initial, final_key])
+    }
+
+    #[test]
+    fn encode_reads_the_tables_exactly_as_the_match_did() {
+        // 每个声母（含零声母）拼上每个韵母和若干不是韵母的尾巴，覆盖库存里出现和不出现的组合。
+        let mut initials = vec![""];
+        initials.extend(MOVED_INITIALS.iter().map(|(spelling, _)| *spelling));
+        let plain = "bpmfdtnlgkhzcsw";
+        initials.extend((0..plain.len()).map(|index| &plain[index..=index]));
+        initials.extend(["y", "r", "x", "q", "v", "o", "a"]);
+        let mut rests = FINALS
+            .iter()
+            .map(|(spelling, _)| *spelling)
+            .collect::<Vec<_>>();
+        rests.extend(["", "m", "ng", "w", "eu", "ep", "oen", "yung", "aaa", ";"]);
+        let mut checked = 0;
+        for initial in &initials {
+            for rest in &rests {
+                let syllable = format!("{initial}{rest}");
+                assert_eq!(
+                    encode(&syllable),
+                    encode_before_tables(&syllable),
+                    "{syllable:?}"
+                );
+                checked += 1;
+            }
+        }
+        assert!(checked > 1500, "only {checked} spellings compared");
+    }
+
+    #[test]
+    fn finals_table_lists_each_final_once() {
+        let mut spellings = FINALS
+            .iter()
+            .map(|(spelling, _)| *spelling)
+            .collect::<Vec<_>>();
+        spellings.sort_unstable();
+        let total = spellings.len();
+        spellings.dedup();
+        assert_eq!(spellings.len(), total, "a final is listed twice");
+    }
+
+    #[test]
+    fn key_hints_label_every_key_with_what_it_types() {
+        let hints = key_hints()
+            .into_iter()
+            .map(|hint| (hint.key, hint.hint))
+            .collect::<Vec<_>>();
+        let expected = [
+            ("Q", "iu"),
+            ("W", "oe"),
+            ("E", "e"),
+            ("R", "uk yun yut"),
+            ("T", "ek it"),
+            ("Y", "j / eoi eot"),
+            ("U", "kw / u"),
+            ("I", "gw / i"),
+            ("O", "o oi"),
+            ("P", "eon un ung ut"),
+            ("A", "a aa"),
+            ("S", "ok on ong ot"),
+            ("D", "am ap"),
+            ("F", "an at"),
+            ("G", "ak ang eng"),
+            ("H", "aak aang"),
+            ("J", "aan aat"),
+            ("K", "aau au"),
+            ("L", "aai ai"),
+            ("Z", "ei"),
+            ("X", "oek oeng"),
+            ("C", "aam aap"),
+            ("V", "ng / ui yu"),
+            ("B", "ou"),
+            ("N", "in"),
+            ("M", "im ip"),
+            (";", "ik ing"),
+        ];
+        assert_eq!(
+            hints,
+            expected
+                .iter()
+                .map(|(key, hint)| (key.to_string(), hint.to_string()))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn key_hints_agree_with_encode() {
+        // 提示里写在某键上的每个韵母，拼在声母 `s` 后面都由这个键作第二键；写出的每个声母拼上 `aa`（或在 `ng` 后拼 `aa`）都由这个键作第一键。
+        for hint in key_hints() {
+            let key = hint.key.to_ascii_lowercase().as_bytes()[0];
+            let (initials, finals) = match hint.hint.split_once(" / ") {
+                Some((initials, finals)) => (initials, finals),
+                None => ("", hint.hint.as_str()),
+            };
+            for final_spelling in finals.split(' ') {
+                assert_eq!(
+                    encode(&format!("s{final_spelling}")).map(|code| code[1]),
+                    Some(key),
+                    "{} {final_spelling}",
+                    hint.key
+                );
+            }
+            for initial in initials.split(' ').filter(|unit| !unit.is_empty()) {
+                assert_eq!(
+                    encode(&format!("{initial}aa")).map(|code| code[0]),
+                    Some(key),
+                    "{} {initial}",
+                    hint.key
+                );
+            }
+        }
+    }
 
     #[test]
     fn encodes_examples_without_copying_a_dictionary() {

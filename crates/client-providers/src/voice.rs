@@ -3,7 +3,7 @@
 //! [`controller`] drives one recognition session over an injected transport;
 //! [`doubao_frame`] is the bounded decoder for one provider's wire format.
 //! [`local_models`] installs the on-device models the `local` provider runs, and [`hotwords`] turns the user dictionary into their hotword list.
-//! [`numbers`] 把不自带 ITN 的模型写出的汉字数字改成数字。
+//! [`numbers`] 把不自带 ITN 的模型写出的汉字数字改成数字；[`punctuation`] 按用户选的语音标点方式处理最终文本。
 
 pub mod controller;
 pub mod doubao_frame;
@@ -16,6 +16,7 @@ pub mod polish_catalog;
 pub mod provider;
 pub mod provider_catalog;
 pub mod provider_settings;
+pub mod punctuation;
 
 /// Whether a host supplied voice operation identifier fits the shared wire contract.
 pub fn is_valid_request_id(value: &str) -> bool {

@@ -1,4 +1,5 @@
 #include "ReplyCodec.h"
+#include "quick_phrase_cursor_pipe.h"
 #include "preference_transition.h"
 #include <cstring>
 #include "candidate_continuation_pipe.h"
@@ -73,11 +74,26 @@ bool contains_delimiter(std::string_view text) {
   return text.find('\t') != std::string_view::npos;
 }
 } // namespace
-EncodedReply candidate_commit(uint64_t request, std::string_view text) {
-  return text_reply(request, FanyImeReplyType::Normal, text);
+namespace {
+EncodedReply cursor_reply(EncodedReply reply, std::optional<std::string_view> suffix) {
+  if (!reply || !suffix) return reply;
+  const auto encoded = text_reply(1, FanyImeReplyType::Normal, *suffix);
+  if (!encoded) return reply;
+  std::size_t units = 0, length = 0;
+  while (encoded.packet.candidate_string[units] != 0) ++units;
+  while (reply.packet.candidate_string[length] != 0) ++length;
+  if (units > length || !std::equal(encoded.packet.candidate_string,
+      encoded.packet.candidate_string + units, reply.packet.candidate_string + length - units)) return reply;
+  const auto type = FanyImeQuickPhraseCursorPipe::Encode(reply.packet.msg_type, units, false);
+  if (type) reply.packet.msg_type = *type;
+  return reply;
 }
-EncodedReply exact_commit(uint64_t request, std::string_view text) {
-  return text_reply(request, FanyImeReplyType::CommitExactText, text);
+} // namespace
+EncodedReply candidate_commit(uint64_t request, std::string_view text, std::optional<std::string_view> cursor_suffix) {
+  return cursor_reply(text_reply(request, FanyImeReplyType::Normal, text), cursor_suffix);
+}
+EncodedReply exact_commit(uint64_t request, std::string_view text, std::optional<std::string_view> cursor_suffix) {
+  return cursor_reply(text_reply(request, FanyImeReplyType::CommitExactText, text), cursor_suffix);
 }
 EncodedReply preedit_reply(uint64_t request, std::string_view text) {
   return text_reply(request, FanyImeReplyType::Preedit, text);
@@ -362,6 +378,10 @@ EncodedReply partial_selection(uint64_t request, std::string_view raw,
 }
 namespace {
 std::vector<uint8_t> worker_from_text(uint32_t type, const EncodedReply &text) {
+  if (const auto units = FanyImeQuickPhraseCursorPipe::SuffixUnits(text.packet.msg_type, false)) {
+    const auto wrapped = FanyImeQuickPhraseCursorPipe::Encode(type, *units, true);
+    if (wrapped) type = *wrapped;
+  }
   std::vector<uint8_t> bytes(sizeof(FanyImeNamedpipeDataToTsfWorkerThread), 0);
   for (size_t i = 0; i < 4; ++i)
     bytes[i] = static_cast<uint8_t>(type >> (8 * i));
@@ -382,7 +402,7 @@ UiSelectionFrames triggered_selection(EncodedReply reply) {
 }
 } // namespace
 std::optional<std::vector<uint8_t>>
-commit_candidate_and_continue_bytes(size_t consumed, std::string_view text) {
+commit_candidate_and_continue_bytes(size_t consumed, std::string_view text, std::optional<std::string_view> cursor_suffix) {
   constexpr size_t maximum_consumed = 1u << 20;
   if (consumed > maximum_consumed)
     return std::nullopt;
@@ -394,18 +414,20 @@ commit_candidate_and_continue_bytes(size_t consumed, std::string_view text) {
   std::string payload(decimal.data(), converted.ptr);
   payload.push_back('\t');
   payload.append(text);
-  const auto encoded = candidate_commit(1, payload);
+  // 计数前缀不是正文；即使定位尾段恰好匹配前缀，也不能据此编码定位。
+  if (cursor_suffix && (cursor_suffix->size() > text.size() ||
+      text.compare(text.size() - cursor_suffix->size(), cursor_suffix->size(), *cursor_suffix) != 0))
+    cursor_suffix.reset();
+  const auto encoded = candidate_commit(1, payload, cursor_suffix);
   if (!encoded)
     return std::nullopt;
   return worker_from_text(FanyImeWorkerReplyType::CommitCandidateAndContinue,
                           encoded);
 }
-std::optional<UiSelectionFrames> ui_complete_selection(std::string_view text) {
-  // Empty worker text is a trigger to consume id 0, not an empty commit.
-  if (text.empty())
-    return std::nullopt;
-  const auto encoded = candidate_commit(1, text);
-  if (!encoded)
+std::optional<UiSelectionFrames> ui_complete_selection(std::string_view text, std::optional<std::string_view> cursor_suffix) {
+  // 空 worker 正文原本表示消费 id 0；只有有效的显式定位帧才能表示空提交。
+  const auto encoded = candidate_commit(1, text, cursor_suffix);
+  if (!encoded || (text.empty() && !FanyImeQuickPhraseCursorPipe::HasCursor(encoded.packet.msg_type)))
     return std::nullopt;
   return UiSelectionFrames{std::nullopt, candidate_worker(encoded)};
 }

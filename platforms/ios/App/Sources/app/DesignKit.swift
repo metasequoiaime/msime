@@ -500,15 +500,15 @@ struct DesignSliderRow: View {
           .frame(width: widthClass == .regular ? 160 : 110)
           .accessibilityValue(format(value))
           .designIdentifier(identifier)
-        // 数值列按最大值的读数撑开、至少 46pt：拖动时轨道不会移动，「1500 毫秒」这类长读数也不会截成「1500…」。
+        // 数值列按最大值的读数撑开、至少 46pt：拖动时轨道不会移动，「1500 毫秒」这类长读数也不会截成「1500…」。fixedSize 必须在 frame 之后：放在前面时外层的 minWidth 框没有上限、可以被行压窄到 46pt，里面固定宽度的读数就从框的左边溢出，盖到滑条上（iPhone XR 上「1500 毫秒」压住了轨道末端）。
         ZStack(alignment: .trailing) {
           Text(format(range.upperBound)).hidden()
           Text(format(value))
         }
         .designSubtext()
         .monospacedDigit().lineLimit(1)
-        .fixedSize()
         .frame(minWidth: 46, alignment: .trailing)
+        .fixedSize()
         .accessibilityHidden(true)
       }
     }

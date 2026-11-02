@@ -168,7 +168,13 @@ int main(int argc, char** argv) {
   assert(SendMessageW(GetDlgItem(body, dictionary_entries), LB_GETCOUNT, 0, 0) == 50 && IsWindowEnabled(GetDlgItem(body, dictionary_next)));
   click(dictionary_next); assert(SendMessageW(GetDlgItem(body, dictionary_entries), LB_GETCOUNT, 0, 0) == 8);
   click(dictionary_previous); assert(SendMessageW(GetDlgItem(body, dictionary_entries), LB_GETCOUNT, 0, 0) == 50);
+  // 个人粤语词库排在本机词库最后：可编辑，按 list 读个人词条，新词默认权重 100000。
   choose(dictionary_kind, 5);
+  assert(calls.back().at("operation") == "list" && calls.back().at("kind") == "cantonese");
+  assert(IsWindowEnabled(GetDlgItem(body, dictionary_save)) && IsWindowEnabled(GetDlgItem(body, dictionary_import)));
+  assert(text(dictionary_weight) == "100000");
+  // 资源词库排在本机词库之后，第一项日语在测试环境里没有安装。
+  choose(dictionary_kind, static_cast<int>(dictionary_data::model::local_kinds.size()));
   assert(!IsWindowEnabled(GetDlgItem(body, dictionary_save)) && !IsWindowEnabled(GetDlgItem(body, dictionary_import)));
   assert(text(dictionary_page).find("尚未安装") != std::string::npos);
   choose(dictionary_kind, 4); set(dictionary_query, L""); click(dictionary_search);

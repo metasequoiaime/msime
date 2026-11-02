@@ -32,6 +32,8 @@ constexpr std::uint32_t HostOnlineCandidates = 1u << 10;
 constexpr std::uint32_t GroupedPanelKeys = 1u << 11;
 // 可选：方案通知携带存储修订，日语切换在双方应用后才放行后续键。
 constexpr std::uint32_t OrderedPreferences = 1u << 12;
+// 可选：提交帧携带模板尾段长度，固定包长与正文容量保持，见 quick_phrase_cursor_pipe.h。
+constexpr std::uint32_t QuickPhraseCursor = 1u << 13;
 constexpr std::uint32_t Capabilities = RequestIds | FocusEpochs | FramedVoice;
 constexpr std::uint32_t RequiredCapabilities = RequestIds | FocusEpochs;
 

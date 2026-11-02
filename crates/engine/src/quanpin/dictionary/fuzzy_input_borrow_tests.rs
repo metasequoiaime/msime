@@ -43,15 +43,25 @@ impl QuanpinDictionary {
                 continue;
             }
             budget -= paths.len();
-            append_cached_fuzzy_rows(
-                &self.database,
+            if append_cached_fuzzy_rows(
                 &mut self.fuzzy_row_cache,
-                &paths,
                 options.rules,
                 limit,
                 typed,
                 &mut result,
-            );
+            )
+            .is_err()
+            {
+                append_queried_fuzzy_rows(
+                    &self.database,
+                    &mut self.fuzzy_row_cache,
+                    &paths,
+                    options.rules,
+                    limit,
+                    typed,
+                    &mut result,
+                );
+            }
         }
         self.fuzzy_cache.insert(
             hash,
@@ -252,6 +262,9 @@ fn full_fuzzy_queries_borrow_each_nonempty_input_segment() {
                             after.fuzzy_cache.clear();
                         }
                     }
+                    let skipped = super::fuzzy_row_projection_tests::skipped_path_allocations(
+                        &after, typed, options,
+                    );
                     let (expected, old_count) =
                         count(|| before.legacy_input_fuzzy_candidates(typed, options));
                     let (mut actual, new_count) = count(|| after.fuzzy_candidates(typed, options));
@@ -262,6 +275,7 @@ fn full_fuzzy_queries_borrow_each_nonempty_input_segment() {
                     } else {
                         typed.split('\'').filter(|part| !part.is_empty()).count()
                             + query_variant_savings(typed, options)
+                            + skipped
                     };
                     assert_eq!(
                         new_count + saved,

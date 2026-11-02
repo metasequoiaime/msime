@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 把一个版本的 dSYM zip 传到滚动的 macos-symbols release（预发布、不设为 latest），供符号化崩溃报告。版本发布页只放给用户下载的 DMG，dSYM 不进去；workflow artifact 90 天后过期，所以每个版本的 dSYM 都长期留在 macos-symbols 上，文件名带版本号，互不覆盖。
+# 把一个版本的 dSYM zip 传到滚动的 macos-symbols release（预发布、不设为 latest），供符号化崩溃报告。版本发布页只放给用户下载的安装包，dSYM 不进去；workflow artifact 90 天后过期，所以每个版本的 dSYM 都长期留在 macos-symbols 上，文件名带版本号，互不覆盖。
 #
 # 上传后用 GitHub 为资产记录的 SHA-256（`digest`）与本地文件比对，对不上就失败。
 #

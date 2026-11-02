@@ -5,6 +5,7 @@
 #include "SettingsWindow.h"
 #include "ThemeData.h"
 #include "DictionaryData.h"
+#include "../PluginEditorModel.h"
 #include <commctrl.h>
 #include <charconv>
 #include <functional>
@@ -58,6 +59,8 @@ public:
     add(dictionary_key, L"EDIT", L"", WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL);
     add(-1, L"STATIC", L"词条 / 快捷短语", SS_LEFT);
     add(dictionary_value, L"EDIT", L"", WS_TABSTOP | WS_BORDER | WS_VSCROLL | ES_MULTILINE, 84);
+    // 与共享页 dictionary-entries.tsx 的快捷短语说明同一句；Win7 的编辑框各类型共用，所以写明只对快捷短语生效。
+    add(-1, L"STATIC", (L"快捷短语：" + std::wstring(msime::settings::plugins::quick_phrase_cursor_note)).c_str(), SS_LEFT, 84);
     add(-1, L"STATIC", L"权重（1–100000000）", SS_LEFT);
     add(dictionary_weight, L"EDIT", L"10000", WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL | ES_NUMBER);
     add(dictionary_new, L"BUTTON", L"填写新词条", WS_TABSTOP | BS_PUSHBUTTON, 32);
@@ -77,7 +80,8 @@ public:
   }
   void enable(bool enabled) { enabled_ = enabled; update(); }
   Json list_request() const {
-    Json request{{"operation", resource() || !user_only() ? "browse" : "list"}, {"kind", kind()},
+    // 个人粤语词库没有内置词条，`browse` 的 `cantonese` 又是资源词库，所以它总是发 `list`。
+    Json request{{"operation", resource() || (!user_only() && kind() != "cantonese") ? "browse" : "list"}, {"kind", kind()},
         {"query", control_text::read(get(dictionary_query), 1024).value_or("")}, {"offset", offset_}, {"limit", page_size}};
     if (user_only()) request["user_only"] = true;
     return request;
@@ -186,7 +190,11 @@ private:
     const auto index = SendMessageW(get(dictionary_kind), CB_GETCURSEL, 0, 0);
     return index >= 0 && static_cast<size_t>(index) < kinds_.size() ? control_text::utf8(kinds_[static_cast<size_t>(index)]).value_or("") : "pinyin";
   }
-  bool resource() const { return dictionary_data::model::find_resource_kind(control_text::wide(kind())) != nullptr; }
+  // 按所选的那一项判断：本机词库排在前面，粤语两边都有，不能只看 id。
+  bool resource() const {
+    const auto index = SendMessageW(get(dictionary_kind), CB_GETCURSEL, 0, 0);
+    return index >= static_cast<LRESULT>(dictionary_data::model::local_kinds.size()) && static_cast<size_t>(index) < kinds_.size();
+  }
   bool user_only() const { return !resource() && SendMessageW(get(dictionary_user_only), BM_GETCHECK, 0, 0) == BST_CHECKED; }
   std::string format() const {
     const auto index = SendMessageW(get(dictionary_format), CB_GETCURSEL, 0, 0);
@@ -201,7 +209,8 @@ private:
   void clear_editor() {
     previous_.reset();
     SendMessageW(get(dictionary_entries), LB_SETCURSEL, static_cast<WPARAM>(-1), 0);
-    SetWindowTextW(get(dictionary_key), L""); SetWindowTextW(get(dictionary_value), L""); SetWindowTextW(get(dictionary_weight), L"10000");
+    SetWindowTextW(get(dictionary_key), L""); SetWindowTextW(get(dictionary_value), L""); // 新粤语词默认 100000，与 WinUI 词库对话框和共享页的 CANTONESE_NEW_WORD_WEIGHT 一致：粤语词库按语料词频定权重，手动加的词默认排在同一编码的多数发布词前面。
+    SetWindowTextW(get(dictionary_weight), kind() == "cantonese" && !resource() ? L"100000" : L"10000");
     SetWindowTextW(get(dictionary_entry_source), L"填写新词条，保存时由共享引擎校验编码。");
   }
   void selected_entry() {

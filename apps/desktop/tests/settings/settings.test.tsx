@@ -3336,7 +3336,7 @@ test("dictionary manager queries, edits and removes Engine entries", async () =>
   // filtering a page it had already fetched.
   expect(list).toHaveBeenCalledWith(0, 100, "quick_phrase", "");
   fireEvent.click(screen.getByRole("button", { name: "编辑" }));
-  fireEvent.change(screen.getByLabelText("短语"), { target: { value: "updated" } });
+  fireEvent.change(screen.getByLabelText(/^短语 /), { target: { value: "updated" } });
   // The entry editor has its own 保存; 保存设置 in the footer writes the preferences document and
   // never touches the dictionary. A rename of the footer button swept this one up with it.
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
@@ -3482,7 +3482,7 @@ test("dictionary manager creates entries with the Windows settings default weigh
   fireEvent.change(screen.getByRole("textbox", { name: /^编码 / }), {
     target: { value: "fixture-code" },
   });
-  fireEvent.change(screen.getByRole("textbox", { name: "短语" }), {
+  fireEvent.change(screen.getByRole("textbox", { name: /^短语 / }), {
     target: { value: "synthetic phrase" },
   });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
@@ -4602,6 +4602,23 @@ test("the shuangpin key hint switch is not listed on an edition without double p
   );
   await screen.findByLabelText("键盘高度", undefined, { timeout: 3000 });
   expect(screen.queryByRole("switch", { name: "双拼键位提示" })).toBeNull();
+});
+
+test("the shuangpin key hint switch is listed on an edition whose only double pinyin is Cantonese", async () => {
+  render(
+    <SettingsPage
+      initialPage="screen-keyboard"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        // 有粤拼就有粤语双拼（#10438），它的 26 键也画键位提示。
+        host: testHost({ platform: "android", input_schemes: ["cantonese"] }),
+      }}
+    />,
+  );
+  expect(
+    await screen.findByRole("switch", { name: "双拼键位提示" }, { timeout: 3000 }),
+  ).toBeTruthy();
 });
 
 test("the theme page runs from the colour mode to the custom colours", async () => {
