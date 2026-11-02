@@ -14326,15 +14326,8 @@ private:
       for (auto const &entry : sentence_pack_statuses_) {
         if (entry.id != pack || entry.import_files.empty())
           continue;
-        auto offline = make_text(L"", 12, palette_.sub);
-        append_run(offline, L"不联网安装：先用浏览器下载 ");
-        for (size_t index = 0; index < entry.import_files.size(); ++index) {
-          auto const &file = entry.import_files[index];
-          if (index > 0)
-            append_run(offline, L"、");
-          append_link(offline, file.name + L"（" + vs::format_model_bytes(file.size) + L"）", file.url);
-        }
-        append_run(offline, L"，再点“从文件导入”一起选中。文件改过名也能认出。");
+        auto offline = offline_install_text(entry.import_files);
+        A11y::SetAutomationId(offline, L"sentence-model-offline-" + pack);
         below.Children().Append(offline);
       }
     }
@@ -14549,6 +14542,8 @@ private:
       co_return;
     const auto root = state_directory();
     if (root.empty() || !root.is_absolute()) co_return;
+    // 上次下载或导入（多半是「下载更新」）的失败说明属于删除前的状态，删除后行回到「下载」「从文件导入」，不能再挂着它。
+    sentence_pack_errors_.erase(id);
     sentence_pack_removing_.insert(id);
     redraw_input();
     JsonObject request;
@@ -24069,11 +24064,7 @@ private:
   // ---- 语音输入 ----
 
   // 本地识别模型目录里的一个模型（msime_client_voice_local_models 的一项）和「不联网安装」要的一个文件。
-  struct LocalModelFile {
-    std::wstring name;
-    std::wstring url;
-    double size = 0;
-  };
+  using LocalModelFile = vs::LocalModelFile;
   struct LocalModel {
     std::wstring id, title, description;
     std::vector<std::wstring> languages;
@@ -25155,6 +25146,18 @@ private:
     block.Inlines().Append(run);
   }
 
+  // 「不联网安装」一句，语音模型卡片和整句模型行共用；文字见 `vs::offline_install_spans`。
+  TextBlock offline_install_text(std::vector<LocalModelFile> const &files) {
+    auto offline = make_text(L"", 12, palette_.sub);
+    for (auto const &span : vs::offline_install_spans(files)) {
+      if (span.url.empty())
+        append_run(offline, span.text);
+      else
+        append_link(offline, span.text, span.url);
+    }
+    return offline;
+  }
+
   FrameworkElement local_model_card(LocalModel const &model, std::wstring const &model_path) {
     const bool in_use = vs::local_model_in_use(model.path, model_path);
     const bool running = local_model_installing_.count(model.id) > 0;
@@ -25198,18 +25201,8 @@ private:
     if (!model.license_terms.empty())
       append_run(license, L"（条款：" + model.license_terms + L"）");
     lines.Children().Append(license);
-    if (!model.installed && !model.import_files.empty()) {
-      auto offline = make_text(L"", 12, palette_.sub);
-      append_run(offline, L"不联网安装：先下载 ");
-      for (size_t index = 0; index < model.import_files.size(); ++index) {
-        auto const &file = model.import_files[index];
-        if (index > 0)
-          append_run(offline, L"、");
-        append_link(offline, file.name + L"（" + vs::format_model_bytes(file.size) + L"）", file.url);
-      }
-      append_run(offline, L"，再点“从文件导入”一起选中。文件改过名也能认出。");
-      lines.Children().Append(offline);
-    }
+    if (!model.installed && !model.import_files.empty())
+      lines.Children().Append(offline_install_text(model.import_files));
     if (running || (importing && progress != local_model_progress_.end())) {
       Grid row;
       row.ColumnSpacing(8);
