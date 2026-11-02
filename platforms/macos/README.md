@@ -84,7 +84,7 @@ DMG 里是设置应用（`MSIME.app`）、指向 `/Applications` 的链接和一
 
 ### 核心词库与按需下载的资源包
 
-发布包只带装好就能打中文的核心词库：`EngineResources` 里的 `msime-pinyin.db`、`msime-bigram.bin`、`msime-trigram.bin`、`msime-english.db` 与 SCOWL 的许可声明 `msime-scowl_Copyright.txt`、`msime-others.db`、`sentence-model.safetensors`、`msime-dictionary-manifest.json` 和 `helpcodes/`（缺了辅助码表会话建不起来），另有离线释义、许可证、`msime-mcp` 和内嵌的输入法。五笔码表 `msime-wubi.db` 只随五笔是默认方案的版本（水杉五笔）发布，其余版本按需下载。`stage-resources.sh` 在 `MSIME_MACOS_OMIT_ON_DEMAND=1` 下按这条规则暂存（`verify_resources --omit-on-demand --platform macos`），`check_app` 断言日文词典、五笔码表（五笔版除外）、粤拼、注音与笔画词库、手写模型都不在包里，并给 `EngineResources` 定了体积预算：不带五笔码表的版本 126000 KiB，带着它的五笔版 205000 KiB（推算见 `check_app` 里的注释）；打包结束时打印 DMG 和 `Contents/Resources` 的体积，在 GitHub Actions 里同时写进步骤摘要。
+发布包只带装好就能打中文的核心词库：`EngineResources` 里的 `msime-pinyin.db`、`msime-bigram.bin`、`msime-trigram.bin`、`msime-english.db` 与 SCOWL 的许可声明 `msime-scowl_Copyright.txt`、`msime-others.db`、`sentence-model.safetensors`、`msime-dictionary-manifest.json` 和 `helpcodes/`（缺了辅助码表会话建不起来），另有离线释义、许可证、`msime-mcp` 和内嵌的输入法。提供整句联想「增强」的版本（full 与拼音版，版本表 `features.neural_keyboard`）的输入法 bundle 还带着逐键重排的两档 ONNX 模型 `Contents/rerank-model/`（8x448，约 31 MB）和 `Contents/rerank-model-small/`（6x256，约 8 MB），各是 `lm_step.ort`、`model.json`、`vocab.json` 三个文件，由 CMake 按 `resources/rerank-model.lock.json` 下载核对后放进去（`MSIME_BUNDLE_RERANK_MODELS`，默认开）。位置是 host-api 定的：它在随包资源目录的上一级找这两个目录，而输入法把自己的 `Contents/Resources` 作为随包资源目录交给会话（`helpcode_fallback_resources`）。模型跟着输入法而不是设置应用走，Sparkle 单独更新输入法时模型与链进去的 ONNX Runtime 仍是同一次构建的。「增强」打开时先加载大的、自测一页重负载超过 10 ms 换小的，两个都没有时退回 `sentence-model.safetensors`；挂上的是哪一档写进诊断日志（`host_api: keyboard reranker onnx large` / `onnx small` / `bundled model` / `missing`）。其余版本打包时去掉这两个目录，`check_app` 按版本核对在或不在，`bundle-contents` 核对构建出的 bundle 里有它们。五笔码表 `msime-wubi.db` 只随五笔是默认方案的版本（水杉五笔）发布，其余版本按需下载。`stage-resources.sh` 在 `MSIME_MACOS_OMIT_ON_DEMAND=1` 下按这条规则暂存（`verify_resources --omit-on-demand --platform macos`），`check_app` 断言日文词典、五笔码表（五笔版除外）、粤拼、注音与笔画词库、手写模型都不在包里，并给 `EngineResources` 定了体积预算：不带五笔码表的版本 126000 KiB，带着它的五笔版 205000 KiB（推算见 `check_app` 里的注释）；打包结束时打印 DMG 和 `Contents/Resources` 的体积，在 GitHub Actions 里同时写进步骤摘要。
 
 其余资源包由设置应用下载到 `<state_root>/resource-packs/<id>/`（`state_root` 是 HostOptions 的 `preferences_directory`，默认 `~/Library/Application Support/app.msime.macos`），文件平铺、许可证放在数据旁边，最后写入的 `msime-model.json` 标记安装完整。地址、长度和 SHA-256 来自仓库里的锁文件，镜像沿用 `voice_input.asr_model_mirror`：
 
@@ -325,8 +325,11 @@ AI 候选与候选释义相互独立：与来源的 `ai_eligible` / `UpdateAiInp
 
 原生更新控制器依赖固定的 [Sparkle 2.9.6](https://github.com/sparkle-project/Sparkle/releases/tag/2.9.6)，不可省略。下载该发布的 `Sparkle-2.9.6.tar.xz`，用 `shasum -a 256` 校验为 `52bf9e88cdd972fc0c81501377a880e90d47031bd8ca5462488f843e2609e192` 后解压到独立依赖目录。下列 `MSIME_SPARKLE_ROOT` 必须指向包含 `Sparkle.framework` 的目录，不是框架内部；请替换示例绝对路径。CMake 校验框架版本，并将其复制到应用的 `Contents/Frameworks`。构建不会自动下载框架，也不应从其他已安装应用复制依赖。
 
+整句联想「增强」的逐键重排跑在 ONNX Runtime 上（host-api 的 `onnx-rerank` 特性，见 `.agents/notes/implemented/architecture/2026-11-01-onnx-rerank-backend.md`）。发布包和 CI 都开着它，开发构建也照样开：`scripts/fetch_onnxruntime.py` 按 `resources/onnxruntime-minimal.lock.json` 下载核对本机架构的精简静态库，打印 `ORT_LIB_LOCATION` 要指的目录。不开特性也能编，那样「增强」挂的是随包的 `sentence-model.safetensors`。换了库之后要 `cargo clean -p ort-sys`，它不会自己重新复制。
+
 ```sh
-CFLAGS="-mmacosx-version-min=13.0" CXXFLAGS="-mmacosx-version-min=13.0" CMAKE_OSX_DEPLOYMENT_TARGET=13.0 CMAKE_PREFIX_PATH="$(brew --prefix)" CARGO_TARGET_DIR=target/macos-cargo cargo build -p msime-host-api --locked
+export ORT_LIB_LOCATION="$(python3 scripts/fetch_onnxruntime.py --target "$(uname -m | sed 's/^arm64$/aarch64/')-apple-darwin")"
+CFLAGS="-mmacosx-version-min=13.0" CXXFLAGS="-mmacosx-version-min=13.0" CMAKE_OSX_DEPLOYMENT_TARGET=13.0 CMAKE_PREFIX_PATH="$(brew --prefix)" CARGO_TARGET_DIR=target/macos-cargo cargo build -p msime-host-api --features onnx-rerank --locked
 cmake -S platforms/macos -B target/macos-isolated -DMSIME_HOST_LIBRARY="$PWD/target/macos-cargo/debug/libmsime_host_api.a" -DMSIME_SPARKLE_ROOT="/absolute/path/to/Sparkle-2.9.6"
 cmake --build target/macos-isolated --parallel
 ctest --test-dir target/macos-isolated --output-on-failure
