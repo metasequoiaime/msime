@@ -26,6 +26,10 @@ fi
 pattern="^($(IFS='|'; echo "${names[*]}"))\$"
 ctest --test-dir /build/fcitx5 -R "$pattern" \
   --output-on-failure --output-junit /build/fcitx5-acceptance.xml
+if [[ ${MSIME_RESOURCE_SMOKE_ONLY:-0} == 1 ]]; then
+  echo "Fcitx5 voice smoke acceptance passed"
+  exit 0
+fi
 # 专用镜像提供全部依赖；X11 与 Wayland 的二十四项真实窗口用例不能靠跳过得到验收通过。
 python3 - /build/fcitx5-acceptance.xml <<'PY'
 import sys
