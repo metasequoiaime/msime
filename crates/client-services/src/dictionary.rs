@@ -51,6 +51,14 @@ pub fn wubi_code_is_well_formed(code: &str) -> bool {
     crate::is_ascii_lowercase(code)
 }
 
+/// 粤语编码的传输写法：小写字母组成的粤拼音节，音节之间用空格或 `'` 分隔，音节末尾可以带声调数字 1–6，至少有一个字母。音节对不对、个数和字数是否相等由 Engine 判断（`validate_personal_dictionary_entry` 去掉声调、收成单个空格分隔），这里只挡写法。
+pub fn cantonese_code_is_well_formed(code: &str) -> bool {
+    code.bytes().any(|byte| byte.is_ascii_lowercase())
+        && code
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || matches!(byte, b' ' | b'\'' | b'1'..=b'6'))
+}
+
 /// Whether `code` contains the lowercase letters and apostrophes accepted by pinyin input.
 /// Rime's word-first import format also permits spaces between syllables.
 pub fn pinyin_code_is_well_formed(code: &str, allow_spaces: bool) -> bool {

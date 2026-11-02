@@ -11,9 +11,27 @@ public final class EditorBridge {
         void end();
         /** 批量编辑结束后才能读回实际文字；验证或回退拒写时向调用方报告失败。 */
         default boolean verify() { return true; }
+        /** 已提交且结束批次后，宿主核对真实文本并尽力定位；不支持时保留文字和默认位置。 */
+        default void positionCommitCursor(String text, String suffix) {}
     }
     private boolean composing;
     public boolean apply(Sink sink, String commit, String editing) {
+        return apply(sink, commit, editing, null);
+    }
+
+    /** 显式光标先于下一段组字生效，读回和定位不发生在尚未应用的批次里。 */
+    public boolean apply(Sink sink, String commit, String editing, String cursorSuffix) {
+        if (commit == null || cursorSuffix == null || cursorSuffix.isEmpty() || !commit.endsWith(cursorSuffix))
+            return applyBatch(sink, commit, editing);
+        if (!applyBatch(sink, commit, "")) return false;
+        try { sink.positionCommitCursor(commit, cursorSuffix); }
+        catch (RuntimeException disconnected) {
+            // 文字已经提交，定位失败不能让调用方重试并重复上屏。
+        }
+        return editing.isEmpty() || applyBatch(sink, null, editing);
+    }
+
+    private boolean applyBatch(Sink sink, String commit, String editing) {
         if (!begin(sink)) return false;
         boolean written;
         boolean ended;

@@ -203,7 +203,7 @@ static NSDictionary *MSIMEQuiescedDictionaryRequest(NSDictionary *request, NSErr
         @[[NSTextField labelWithString:@"编码"], key], @[[NSTextField labelWithString:@"词条"], value], @[[NSTextField labelWithString:@"权重"], weight]
     ]];
     grid.rowSpacing = 8.0; grid.columnSpacing = 10.0; [grid layoutSubtreeIfNeeded]; grid.frame = NSMakeRect(0, 0, grid.fittingSize.width, grid.fittingSize.height);
-    NSAlert *alert = [NSAlert new]; alert.messageText = existing ? @"编辑词条" : @"新增词条"; alert.informativeText = @"编码和词条格式由输入法引擎校验。"; alert.accessoryView = grid;
+    NSAlert *alert = [NSAlert new]; alert.messageText = existing ? @"编辑词条" : @"新增词条"; alert.informativeText = [[self selectedKind] isEqualToString:@"quick_phrase"] ? @"编码和词条格式由输入法引擎校验。\n在文字中用 ${cursor} 指定上屏后的光标位置，例如 title:\"${cursor}\" 会输入 title:\"\"，光标停在引号内。只定位第一个标记；要输入标记本身，请写 $${cursor}。编辑器不支持定位时光标留在末尾。以前存过、要照原样输入 ${cursor} 的短语，请改写成 $${cursor}。" : @"编码和词条格式由输入法引擎校验。"; alert.accessoryView = grid;
     [alert addButtonWithTitle:existing ? @"保存" : @"添加"]; [alert addButtonWithTitle:@"取消"];
     __weak MSIMEDictionaryWindowController *weakSelf = self;
     [alert beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse response) {

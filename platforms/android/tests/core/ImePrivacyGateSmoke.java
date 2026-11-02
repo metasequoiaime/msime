@@ -108,8 +108,14 @@ public final class ImePrivacyGateSmoke {
             "touch_layout_live_japanese_nine_key", "touch_layout_live_handwriting",
             "touch_layout_live_korean", "touch_layout_live_zhuyin",
             "touch_layout_live_stroke", "touch_layout_live_zhuyin_nine_key",
-            "touch_layout_live_fourteen_key", "touch_layout_live_eighteen_key"};
+            "touch_layout_live_fourteen_key", "touch_layout_live_eighteen_key",
+            "engine_call", "candidate_rendered"};
         check(DiagnosticEventKind.values().length == kinds.length, "fixed local diagnostic event kinds");
+        // 按键路径拆段计时（#10457）只在本机导出，服务端不认这两个种类。
+        check(!DiagnosticEventKind.ENGINE_CALL.uploadable() && !DiagnosticEventKind.CANDIDATE_RENDERED.uploadable(),
+            "keystroke split timings stay local");
+        check(ImeDebugOverlay.EventLog.line(DiagnosticEventKind.ENGINE_CALL, 5, 3)
+            .equals("{\"t_ms\":5,\"kind\":\"engine_call\",\"duration_ms\":3}\n"), "engine call row carries only time, kind and duration");
         for (int index = 0; index < kinds.length; index++) {
             check(DiagnosticEventKind.values()[index].wire().equals(kinds[index]), "event kind " + kinds[index]);
             check(DiagnosticEventKind.fromWire(kinds[index]) == DiagnosticEventKind.values()[index],

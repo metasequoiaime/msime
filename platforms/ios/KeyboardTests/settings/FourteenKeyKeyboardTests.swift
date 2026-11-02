@@ -311,6 +311,11 @@ final class FourteenKeyKeyboardTests: XCTestCase {
     XCTAssertNil(descendants(controller.view).first { ($0.accessibilityIdentifier ?? "").hasPrefix("readingSpelling_") && shown($0) })
     let strip = try view("readingSpellingStrip", in: controller)
     XCTAssertFalse(shown(strip), "no pinyin strip for wubi")
+    // 没有拼音选择条时读音行右边整段空着，点在那里也是点读音（#10474）。
+    let preeditButton = try button("preeditButton", in: controller)
+    let readingRow = try view("compositionRow", in: controller)
+    XCTAssertTrue(readingRow.hitTest(CGPoint(x: readingRow.bounds.maxX - 1, y: readingRow.bounds.midY), with: nil) === preeditButton,
+                  "the empty end of the reading row is the reading's to tap")
     let hinted = descendants(controller.view).compactMap { $0 as? UIButton }
       .filter { ($0.accessibilityIdentifier ?? "").hasPrefix("candidate-") && !$0.isHidden
         && ($0.accessibilityLabel ?? "").contains("还需输入") }
@@ -592,6 +597,10 @@ final class FourteenKeyKeyboardTests: XCTestCase {
     XCTAssertLessThanOrEqual(stripFrame.maxY, reading.maxY + 0.5)
     XCTAssertLessThanOrEqual(stripFrame.maxY, candidate.minY + 0.5, "the strip does not cover the candidates")
     XCTAssertGreaterThanOrEqual(stripFrame.minX, preeditFrame.maxX - 0.5, "the strip sits to the right of the reading")
+    // 读音的可点区域放大到整行（#10474），但选择条叠在上面，落在选择条里的触摸仍归选择条。
+    let row = try view("compositionRow", in: controller)
+    let shiCenter = shi.convert(CGPoint(x: shi.bounds.midX, y: shi.bounds.midY), to: row)
+    XCTAssertTrue(try XCTUnwrap(row.hitTest(shiCenter, with: nil)).isDescendant(of: strip), "the strip keeps its own touches")
     // 九键侧栏里的拼音条没有内容：14 键的拼音条只在读音行。
     XCTAssertNil(descendants(controller.view).first { ($0.accessibilityIdentifier ?? "").hasPrefix("nineKeySpelling_") && shown($0) })
     XCTAssertEqual(shi.accessibilityLabel, KeyboardNineKeyPanelColumns.spellingAccessibilityLabel("shi"))

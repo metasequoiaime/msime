@@ -4,15 +4,16 @@ import * as settings from "../settings-style";
 import { SettingsManagerBlock } from "../settings-manager-block";
 import type { LocalDictionaryKind, DictionaryPageFormat } from "../../index";
 import {
-  isResourceDictionaryKind,
   localDictionaryKinds,
+  resourceDictionaryFromOption,
   resourceDictionaryKinds,
+  resourceDictionaryOption,
 } from "../../dictionary/dictionary-kinds";
 import {
   DICTIONARY_PAGE_SIZE,
-  type DictionaryLookupKind,
   type ResourceDictionaryKind,
 } from "../../dictionary/dictionary-file";
+import { CANTONESE_NEW_WORD_WEIGHT } from "../../dictionary/dictionary-collections";
 import { useSettingsForm } from "../settings-form-context";
 import { SubPageEntries } from "./sub-page-entries";
 import { GroupList } from "../../core/platform-controls";
@@ -206,16 +207,17 @@ export function DictionarySettingsPage() {
               title="词库"
               aria-label="本地词库类型"
               className={settings.dictionaryKindSelect}
-              value={resourceKind ?? dictionaryKind}
+              value={resourceKind ? resourceDictionaryOption(resourceKind) : dictionaryKind}
               onChange={(event) => {
-                const kind = event.target.value as DictionaryLookupKind;
+                const resource = resourceDictionaryFromOption(event.target.value);
                 setPhraseForm(null);
                 setPhraseSearch("");
                 setPhrases([]);
-                if (isResourceDictionaryKind(kind)) {
-                  setResourceKind(kind);
+                if (resource) {
+                  setResourceKind(resource);
                   return;
                 }
+                const kind = event.target.value as LocalDictionaryKind;
                 setResourceKind(null);
                 if (kind === dictionaryKind && !phraseSearch) void loadPhrases(kind, 0);
                 setDictionaryKind(kind);
@@ -227,14 +229,17 @@ export function DictionarySettingsPage() {
                 setPhrases([]);
               }}
             >
-              {[
-                ...localDictionaryKinds,
-                ...(client.dictionary.browse ? resourceDictionaryKinds : []),
-              ].map(([kind, label]) => (
+              {localDictionaryKinds.map(([kind, label]) => (
                 <option key={kind} value={kind}>
                   {label}
                 </option>
               ))}
+              {client.dictionary.browse &&
+                resourceDictionaryKinds.map(([kind, label]) => (
+                  <option key={`resource:${kind}`} value={resourceDictionaryOption(kind)}>
+                    {label}
+                  </option>
+                ))}
             </SelectRow>
             {resourceKind ? (
               <ResourceDictionaryLookup
@@ -281,7 +286,7 @@ export function DictionarySettingsPage() {
                         setPhraseForm({
                           key: "",
                           value: "",
-                          weight: 10,
+                          weight: dictionaryKind === "cantonese" ? CANTONESE_NEW_WORD_WEIGHT : 10,
                           previous: null,
                         })
                       }
