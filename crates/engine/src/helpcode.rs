@@ -152,7 +152,7 @@ pub fn load_helpcode_keymap(resources: &Path, schema: &str) -> Result<HelpcodeKe
     Ok(HelpcodeKeymap::from_codes(parse_helpcode_table(&bytes)))
 }
 
-/// 按 `schema` 读表，`custom/<stem>` 先在用户目录 `user_root` 下找：`user_root/helpcodes/custom` 里有这张表（扩展名大小写规则同 [`helpcode_path`]）就读它，没有时再读资源目录里的那份。宿主把状态根交给 `user_root`：资源目录是安装包或词库代次，升级和在线词库更新都会换掉它，用户自己放的表只有在状态根下才跟得过去。内置方案只读 `resources`，`user_root` 不是绝对路径时当作没有。
+/// 按 `schema` 读表，`custom/<stem>` 先在用户目录 `user_root` 下找：`user_root/helpcodes/custom` 里有这张表（扩展名大小写规则同 `helpcode_path`）就读它，没有时再读资源目录里的那份。宿主把状态根交给 `user_root`：资源目录是安装包或词库代次，升级和在线词库更新都会换掉它，用户自己放的表只有在状态根下才跟得过去。内置方案只读 `resources`，`user_root` 不是绝对路径时当作没有。
 pub fn load_helpcode_keymap_in(
     resources: &Path,
     schema: &str,
