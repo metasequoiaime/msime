@@ -241,12 +241,10 @@ fn fuzzy_row_cache_hit_checks_the_full_key_without_allocating() {
             rules: fuzzy_rule::Z_ZH,
             limit: 32,
             typed: typed.to_owned(),
+            path_count: 3,
             rows: Vec::new(),
         },
     );
-    let fixture = Fixture::new();
-    let database = PinyinDatabase::open(&fixture.database());
-    let paths = vec![vec!["zhan".to_owned(), "hao".to_owned()]];
 
     assert!(fuzzy_row_cache_key_matches(
         cache
@@ -265,21 +263,18 @@ fn fuzzy_row_cache_hit_checks_the_full_key_without_allocating() {
         typed,
     ));
 
-    let typed = typed.to_owned();
     let mut rows = Vec::new();
-    let (_, allocations) = crate::ime::personal_rerank::allocations::count(|| {
-        append_cached_fuzzy_rows(
-            &database,
-            &mut cache,
-            &paths,
-            fuzzy_rule::Z_ZH,
-            32,
-            typed,
-            &mut rows,
-        );
+    let (path_count, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+        append_cached_fuzzy_rows(&mut cache, fuzzy_rule::Z_ZH, 32, typed, &mut rows).ok()
     });
     assert!(rows.is_empty());
     assert_eq!(allocations, 0, "模糊行缓存热命中仍重建了查询键");
+    // 命中时按记下的路径条数扣预算，不再展开路径（#10457）。
+    assert_eq!(path_count, Some(3));
+    assert_eq!(
+        append_cached_fuzzy_rows(&mut cache, fuzzy_rule::Z_ZH, 64, typed, &mut rows).ok(),
+        None
+    );
 }
 
 #[test]
@@ -296,6 +291,7 @@ fn fuzzy_row_cache_hash_collision_requeries_instead_of_returning_wrong_rows() {
             rules: fuzzy_rule::Z_ZH,
             limit: 32,
             typed: "zan'he".to_owned(),
+            path_count: 1,
             rows: vec![DictRow {
                 key: "wrong".to_owned(),
                 value: "错误哨兵".to_owned(),
@@ -305,13 +301,17 @@ fn fuzzy_row_cache_hash_collision_requeries_instead_of_returning_wrong_rows() {
     );
 
     let mut rows = Vec::new();
-    append_cached_fuzzy_rows(
+    assert!(
+        append_cached_fuzzy_rows(&mut cache, fuzzy_rule::Z_ZH, 32, typed, &mut rows).is_err(),
+        "哈希相同、读音不同的项不算命中"
+    );
+    append_queried_fuzzy_rows(
         &database,
         &mut cache,
         &paths,
         fuzzy_rule::Z_ZH,
         32,
-        typed.to_owned(),
+        typed,
         &mut rows,
     );
     assert_eq!(
@@ -1683,11 +1683,18 @@ fn fuzzy_candidate_rows_reuse_the_first_typed_reading_string() {
     };
     let _ = dictionary.fuzzy_candidates("zong'guo", options);
     dictionary.fuzzy_cache.clear();
+    // 两个前缀页都在行缓存里，命中时不再展开路径（#10457），剩下的申请只有结果和首个读音。
+    let skipped = super::fuzzy_row_projection_tests::skipped_path_allocations(
+        &dictionary,
+        "zong'guo",
+        options,
+    );
     let (_, allocations) = crate::ime::personal_rerank::allocations::count(|| {
         let _ = dictionary.fuzzy_candidates("zong'guo", options);
     });
+    assert_eq!(skipped, 12, "两个前缀展开路径要申请的次数");
     assert_eq!(
-        allocations, 25,
+        allocations, 13,
         "模糊候选重复复制了首个读音或查询键: {allocations}"
     );
 }
