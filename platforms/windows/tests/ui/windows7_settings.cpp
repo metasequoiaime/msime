@@ -664,6 +664,32 @@ int main() {
   click(caret_edit_suffix);
   assert(!store.load().snapshot->preferences().contains("caret_edit_suffix"));
   assert(SendMessageW(GetDlgItem(body, caret_edit_suffix), BM_GETCHECK, 0, 0) == BST_UNCHECKED);
+#if MSIME_EDITION_NEURAL_KEYBOARD
+  // 「整句联想」两档写共享的 `neural_keyboard`：选「标准」写 false、选「增强」写 true，下拉框跟着文档走；「本地整句联想」关着时照样可选（逐键重排不看词网格），开关它不改存着的档位。
+  {
+    const HWND level = GetDlgItem(body, sentence_association_level);
+    assert(level);
+    const auto association = [&] { return store.load().snapshot->preferences().at("sentence_association"); };
+    assert(association().value("word_lattice", true));
+    assert(SendMessageW(level, CB_GETCURSEL, 0, 0) == (association().value("neural_keyboard", true) ? 1 : 0));
+    select_value(sentence_association_level, 0);
+    assert(association().at("neural_keyboard") == false);
+    assert(SendMessageW(level, CB_GETCURSEL, 0, 0) == 0);
+    select_value(sentence_association_level, 1);
+    assert(association().at("neural_keyboard") == true);
+    assert(SendMessageW(level, CB_GETCURSEL, 0, 0) == 1);
+    click(word_lattice);
+    assert(association().at("word_lattice") == false);
+    assert(IsWindowEnabled(level));
+    assert(association().at("neural_keyboard") == true);
+    click(word_lattice);
+    assert(association().at("word_lattice") == true);
+    assert(IsWindowEnabled(level));
+    assert(association().at("neural_keyboard") == true);
+  }
+#else
+  assert(!GetDlgItem(body, sentence_association_level));
+#endif
   // 选择来源和编辑文本只改草稿；失败后无关偏好保存也不能把草稿抹掉。
   saved = store.load();
   const auto before_draft = saved.snapshot->revision();

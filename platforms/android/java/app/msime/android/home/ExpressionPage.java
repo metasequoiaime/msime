@@ -350,10 +350,10 @@ public final class ExpressionPage extends ReloadingDetailPage {
         return mixed;
     }
 
-    /** 0 关闭、1 标准、2 增强；缺省（`word_lattice` 默认开、`neural_keyboard` 默认关）是标准。 */
+    /** 0 关闭、1 标准、2 增强；缺省（`word_lattice`、`neural_keyboard` 都默认开）是增强。这台手机跑不进逐键预算时 host-api 不挂模型，增强与标准相同。 */
     private static int sentenceLevel(@Nullable JSONObject association) {
         boolean lattice = association == null || association.optBoolean("word_lattice", true);
-        boolean neural = association != null && association.optBoolean("neural_keyboard", false);
+        boolean neural = association == null || association.optBoolean("neural_keyboard", true);
         if (!lattice) return 0;
         return neural ? 2 : 1;
     }
