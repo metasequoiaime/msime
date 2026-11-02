@@ -218,6 +218,23 @@ if ! rg -q 'setEnabled\(emojiShortcutButton, ToolbarReadinessPolicy\.emojiEnable
   echo "Toolbar emoji, phrases, skin, scheme and the language key must stay usable while the engine session starts" >&2
   exit 1
 fi
+# 符号面板不需要引擎会话（#10517，.agents/notes/implemented/bug-fix/2026-11-02-android-symbol-panel-sessionless-editors.md）。终端类应用把输入框声明成可见密码，这类输入框不建会话，原先点「符」只提示「尚未就绪」、长按 123 没反应。能不能打开、补不补后半个、记不记常用由 SymbolPanelEntryPolicySmoke 覆盖；接线在 InputMethodService 和面板里，JVM 冒烟碰不到，这里钉住：showSymbolPanel、长按 123、文本编辑面板长按回车和两个「符」按钮的可用性都经 SymbolPanelEntryPolicy.opens，showSymbolPanel 只在有会话时才 command(2)；点按的后半个经 pairsClosingMark、常用经 recordsRecent 按输入框类型判断；不建会话的输入框读外观时也填上资源目录，颜文字和各符号分类才读得到。
+symbol_show_body=$(sed -n '/^    void showSymbolPanel() {$/,/^    }$/p' "$panels_java")
+symbol_hold_body=$(sed -n '/^    void bindSymbolPanelHold(Button button) {$/,/^    }$/p' "$service_java")
+if ! rg -q 'SymbolPanelEntryPolicy\.opens\(s\.connection != null, s\.symbolPanel != null\)' <<< "$symbol_show_body" \
+  || rg -q 's\.session == 0 \|\| s\.connection == null \|\| s\.symbolPanel == null' <<< "$symbol_show_body" \
+  || ! rg -U -q 'if \(s\.session != 0\) \{\n(\s*//[^\n]*\n)?\s*s\.command\(2\);' <<< "$symbol_show_body" \
+  || ! rg -q 'SymbolPanelEntryPolicy\.opens\(connection != null, symbolPanel != null\)' <<< "$symbol_hold_body" \
+  || rg -q 'session == 0' <<< "$symbol_hold_body" \
+  || ! rg -q 'setEnabled\(symbolPanelButton, SymbolPanelEntryPolicy\.opens\(' "$service_java" \
+  || ! rg -q 'setEnabled\(symbolShortcutButton, SymbolPanelEntryPolicy\.opens\(' "$service_java" \
+  || ! rg -q 'SymbolPanelEntryPolicy\.opens\(s\.connection != null, s\.symbolPanel != null\)' "$android_java/core/ImeTextEditPanel.java" \
+  || ! rg -q 'SymbolPanelEntryPolicy\.pairsClosingMark\(s\.editorInputType, s\.pairedPunctuation\)' "$panels_java" \
+  || ! sed -n '/^    private void recordSymbolRecent(String symbol) {$/,/^    }$/p' "$panels_java" | rg_q_stdin 'SymbolPanelEntryPolicy\.recordsRecent\(s\.editorInputType, s\.learningSuppressed\(\)\)' \
+  || ! sed -n '/^                if (!engineWanted) {$/,/^                }$/p' "$service_java" | rg_q_stdin 'emojiResources = resources;'; then
+  echo "The Android symbol panel must open without an engine session, and password fields must not pair or remember symbols" >&2
+  exit 1
+fi
 # 没读到实时偏好时按记住的全拼九键建会话（#10389，.agents/notes/implemented/bug-fix/2026-10-31-android-nine-key-first-frame.md）。改哪种组合由 TouchLayoutHintPolicySmoke 覆盖；接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：只在 livePreferences 为 null 时取选项里的偏好副本，用 touchLayoutHint() 经 TouchLayoutHintPolicy.startupTouchKeyboardLayout 算布局，写回副本的 touch_keyboard_layout 在 NativeClient.create 之前；displayedTouchLayout 只在没有视图时用记住的布局，有视图时按视图画，不再经 TouchLayoutHintPolicy 让提示压过视图。
 startup_seed_match=$(rg -n -m 1 'startupPreferences\.put\("touch_keyboard_layout", startupLayout\)' <<< "$start_session_body" || true)
 startup_create_match=$(rg -n -m 1 'String created = NativeClient\.create\(options\.toString\(\)\);' <<< "$start_session_body" || true)

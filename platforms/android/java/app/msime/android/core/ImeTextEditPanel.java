@@ -162,7 +162,7 @@ final class ImeTextEditPanel {
             s.imeStyler.styleButton(button, false);
             s.bindCountedAction(button, run);
             button.setOnLongClickListener(ignored -> {
-                if (s.connection == null || s.session == 0 || s.symbolPanel == null
+                if (!SymbolPanelEntryPolicy.opens(s.connection != null, s.symbolPanel != null)
                         || s.textEditPanel == null || !s.textEditPanel.isShown()) return true;
                 close();
                 s.imePanels.showSymbolPanel();
