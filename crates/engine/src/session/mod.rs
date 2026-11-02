@@ -606,6 +606,13 @@ impl Session {
             && self.input.engine.wubi_pinyin_continues(value)
     }
 
+    /// 第五码顶字关掉时，让完整四码后的下一个字母并进混输串；见 [`crate::ime::ImeSession::allow_wubi_mixed_extension`]。本地模式和专用英文里的字母不是五笔码，不放开。
+    pub fn allow_wubi_mixed_extension(&mut self) -> bool {
+        !self.input.dedicated_english
+            && self.input.local_mode == LocalInputMode::None
+            && self.input.engine.allow_wubi_mixed_extension()
+    }
+
     pub fn set_wubi_mixed_pinyin(&mut self, enabled: bool) {
         self.candidates_may_change();
         self.input.set_wubi_mixed_pinyin(enabled);

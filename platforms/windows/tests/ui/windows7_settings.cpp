@@ -1025,6 +1025,13 @@ int main() {
     const bool hint_before = store.load().snapshot->preferences().at("wubi_code_hint").get<bool>();
     click(scheme_wubi_hint);
     assert(store.load().snapshot->preferences().at("wubi_code_hint").get<bool>() != hint_before);
+    // #10696：顶字和 z 通配以前只在共享设置页里有开关，Windows 7 设置也要能改。
+    const bool wildcard_before = store.load().snapshot->preferences().value("wubi_z_wildcard", false);
+    click(scheme_wubi_wildcard);
+    assert(store.load().snapshot->preferences().at("wubi_z_wildcard").get<bool>() != wildcard_before);
+    const bool top_before = store.load().snapshot->preferences().value("wubi_fifth_code_top_commit", true);
+    click(scheme_wubi_top);
+    assert(store.load().snapshot->preferences().at("wubi_fifth_code_top_commit").get<bool>() != top_before);
     const bool unique_before = store.load().snapshot->preferences().at("wubi_auto_commit_unique").get<bool>();
     click(scheme_wubi_unique);
     assert(store.load().snapshot->preferences().at("wubi_auto_commit_unique").get<bool>() != unique_before);

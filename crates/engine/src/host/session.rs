@@ -621,6 +621,11 @@ impl Session {
         self.inner.wubi_pinyin_continues(value, shift)
     }
 
+    /// 第五码顶字关掉、混输开着时，让下一个字母并进混输串；见 `Session::allow_wubi_mixed_extension`。
+    pub fn allow_wubi_mixed_extension(&mut self) -> bool {
+        self.inner.allow_wubi_mixed_extension()
+    }
+
     /// 五笔拼音混输开着时，顶字关掉才有地方容纳第五个字母。
     pub fn wubi_mixed_pinyin(&self) -> bool {
         self.inner.wubi_mixed_pinyin()
