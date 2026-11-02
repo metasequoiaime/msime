@@ -307,11 +307,55 @@ enum TouchWubiLayoutPreference {
   }
 }
 
-/// 五笔用 86 还是 98 码表。方案仍只有一个 `wubi`，版本是共享偏好文档里与它并列的 `wubi_profile`，就像双拼方案旁边的 `shuangpin_profile`；Engine 按它读写 `wubi86` 或 `wubi98` 词库。
+/// 五笔用哪一版码表：86、98 或新世纪（`wubixsj`）。方案仍只有一个 `wubi`，版本是共享偏好文档里与它并列的 `wubi_profile`，就像双拼方案旁边的 `shuangpin_profile`；Engine 按它读写 `wubi86`、`wubi98` 或 `wubixsj` 词库。
 ///
 /// 文档是唯一的权威来源。App Group 里的这份只是镜像，给方案名、键盘方案卡片这类不读文档的同步取值用，由读到文档的一方（设置页、键盘重载文档时）写入。
 enum WubiProfilePreference {
-  static let profiles = ["wubi86", "wubi98"]
+  /// 码表版本，按 Engine 的编码顺序（0 是 86，1 是 98，2 是新世纪）。界面上的名字都从这里的 `switch` 取：再加一个版本时漏写的地方编译不过，而不是悄悄显示成 86。
+  enum Version: String, CaseIterable {
+    case wubi86, wubi98, wubixsj
+
+    /// 文档或镜像里的值；没有记过或不认识时按 86，与 client-core 的宽松读取一致。
+    init(known value: String?) { self = value.flatMap(Self.init(rawValue:)) ?? .wubi86 }
+
+    /// 方案名，也是查码页的列名：86 五笔、98 五笔、新世纪五笔。
+    var title: String {
+      switch self {
+      case .wubi86: "86 五笔"
+      case .wubi98: "98 五笔"
+      case .wubixsj: "新世纪五笔"
+      }
+    }
+
+    /// 版本写在后面的简称，用在空格键、输入页的方案行和语言面板的选项上：五笔 86、五笔 98、五笔 新世纪。
+    var shortTitle: String {
+      switch self {
+      case .wubi86: "五笔 86"
+      case .wubi98: "五笔 98"
+      case .wubixsj: "五笔 新世纪"
+      }
+    }
+
+    /// 键盘方案卡片的角标：86、98 或「新」。
+    var badge: String {
+      switch self {
+      case .wubi86: "86"
+      case .wubi98: "98"
+      case .wubixsj: "新"
+      }
+    }
+
+    /// 引导页五笔卡片的副标题，写明正在用哪一版码表，与共享引导页和 Android 相同。
+    var onboardingDetail: String {
+      switch self {
+      case .wubi86: "形码 · 默认 86 版"
+      case .wubi98: "形码 · 当前 98 版"
+      case .wubixsj: "形码 · 当前新世纪版"
+      }
+    }
+  }
+
+  static let profiles = Version.allCases.map(\.rawValue)
   static let documentKey = "wubi_profile"
   static let profileKey = "wubi.profile"
   private static var defaults: UserDefaults { InputSchemePreference.appGroupDefaults }
@@ -326,15 +370,16 @@ enum WubiProfilePreference {
     known(document?[documentKey] as? String)
   }
 
-  private static func known(_ value: String?) -> String {
-    value.flatMap { profiles.contains($0) ? $0 : nil } ?? "wubi86"
-  }
+  private static func known(_ value: String?) -> String { Version(known: value).rawValue }
 
-  /// 方案名：86 五笔或 98 五笔。
-  static func title(_ profile: String) -> String { profile == "wubi98" ? "98 五笔" : "86 五笔" }
+  /// 方案名：86 五笔、98 五笔或新世纪五笔；不认识的值按 86。
+  static func title(_ profile: String) -> String { Version(known: profile).title }
 
-  /// 键盘方案卡片的角标：86 或 98。
-  static func badge(_ profile: String) -> String { profile == "wubi98" ? "98" : "86" }
+  /// 版本在后的简称：五笔 86、五笔 98 或五笔 新世纪；不认识的值按 86。
+  static func shortTitle(_ profile: String) -> String { Version(known: profile).shortTitle }
+
+  /// 键盘方案卡片的角标：86、98 或「新」；不认识的值按 86。
+  static func badge(_ profile: String) -> String { Version(known: profile).badge }
 
   /// 把文档里的版本抄进 App Group 镜像。
   static func mirror(_ document: [String: Any]) {
