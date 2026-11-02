@@ -4,6 +4,8 @@
 `CandidateActionAvailability.h` decides whether the candidate right-click actions - 置顶, 固定排位, 取消固定, 删除 - are offered, and it decides on the engine's `CandidateSource` value. That value arrives as a number: the Windows Server talks to the engine through the shared host API, and the enum is Rust (`crates/engine/src/types.rs`), so C++ cannot name it.
 
 Renumbering a source in that enum moves the number on the wire. Nothing would fail to compile, and 删除 would quietly start being offered for cloud suggestions - an action the engine then refuses, leaving a menu item that does nothing. That is the failure this holds each name to its value against.
+
+`shared/input/JapaneseConversion.h` keeps its own copies for the Linux and Windows Japanese Space rule: Space counts only the rows the runtime's highlight can stop on, which leaves out `CloudPending`, and keeps its commit meaning on a lone `Fallback` row. A renumbered source there puts Space one row off from the highlight Enter commits, so those copies are held to the enum too.
 """
 
 from __future__ import annotations
@@ -26,6 +28,13 @@ NAMES = {
     "candidate_source_english_dictionary": "EnglishDictionary",
     "candidate_source_ai_pending": "AiPending",
     "candidate_source_cloud_pending": "CloudPending",
+}
+
+# 日文空格规则在 Linux 与 Windows 共用的头文件里另抄了两个来源取值，同样钉在枚举上。
+JAPANESE = ROOT / "shared/input/JapaneseConversion.h"
+JAPANESE_NAMES = {
+    "kCandidateSourceFallback": "Fallback",
+    "kCandidateSourceCloudPending": "CloudPending",
 }
 
 
@@ -51,11 +60,14 @@ def main() -> int:
         )
         return 1
     policy = POLICY.read_text(encoding="utf-8")
+    japanese = JAPANESE.read_text(encoding="utf-8")
+    copies = [(rf"constexpr unsigned {constant} = (\d+);", policy, constant, enumerator) for constant, enumerator in NAMES.items()]
+    copies += [(rf"inline constexpr int {constant} = (\d+);", japanese, constant, enumerator) for constant, enumerator in JAPANESE_NAMES.items()]
 
     findings = []
     checked = []
-    for constant, enumerator in NAMES.items():
-        match = re.search(rf"constexpr unsigned {constant} = (\d+);", policy)
+    for pattern, text, constant, enumerator in copies:
+        match = re.search(pattern, text)
         if not match:
             findings.append(f"{constant} is no longer a plain constant")
             continue
@@ -69,7 +81,7 @@ def main() -> int:
                 f"{constant} is {declared}, but CandidateSource::{enumerator} is {expected}"
             )
             continue
-        checked.append(f"{enumerator}={expected}")
+        checked.append(f"{constant}={expected}")
 
     for finding in findings:
         print(f"FAIL {finding}", file=sys.stderr)

@@ -10,7 +10,7 @@ namespace msime::input {
 // The Engine's `CandidateSource::Fallback`, as it appears in a view candidate's `source`.
 inline constexpr int kCandidateSourceFallback = 9;
 
-// 引擎的 `CandidateSource::CloudPending`：开着云候选时日文转换也会在第二格放这一行「☁」。运行时的「下一个」越过它（#10665），所以 `space` 数的、`index()` 指的都是去掉它之后的行；按原始行数数，第 N 次空格停的位置和回车选的那一行就差一格。
+// 引擎的 `CandidateSource::CloudPending`：开着云候选时日文转换也会在第二格放这一行「☁」。运行时的「下一个」越过它（#10665），所以 `space` 数的、`index()` 指的都是去掉它之后的行；按原始行数数，第 N 次空格停的位置和回车选的那一行就差一格。这两个取值都是照引擎枚举抄的，`scripts/test-candidate-sources.py` 把它们钉在枚举上。
 inline constexpr int kCandidateSourceCloudPending = 15;
 
 // Space converts and Enter takes what is on screen - the way every Japanese input method works.

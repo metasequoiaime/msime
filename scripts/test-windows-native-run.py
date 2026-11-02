@@ -111,6 +111,7 @@ COMPANIONS: dict[str, tuple[list[str], bool]] = {
     # 候选投影、五笔提示与编辑光标经过繁简转换，需要同一实现及其宿主库依赖。
     "candidate/caret_edit_presentation.cpp": (["src/input/ChineseTextConversion.cpp"], True),
     "candidate/candidate_pointer_input.cpp": (["src/input/ChineseTextConversion.cpp"], True),
+    "candidate/cloud_pending_presentation.cpp": (["src/input/ChineseTextConversion.cpp"], True),
     "candidate/korean_hanja_presentation.cpp": (["src/input/ChineseTextConversion.cpp"], True),
     "candidate/script_annotation_presentation.cpp": (["src/input/ChineseTextConversion.cpp"], True),
     "candidate/translation_reserved_presentation.cpp": (["src/input/ChineseTextConversion.cpp"], True),
