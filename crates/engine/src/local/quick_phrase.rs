@@ -9,6 +9,9 @@ use super::LocalQueryResult;
 use crate::diagnostics;
 use crate::types::{CandidateSource, QuickPhraseEntry, WordItem};
 
+mod expansion;
+pub use expansion::{expand_quick_phrase, QuickPhraseExpansion};
+
 pub const RESULT_LIMIT: usize = 100;
 /// 宿主短语表最多保留的行数，多出的按启用顺序丢弃。
 pub const TABLE_LIMIT: usize = 8192;

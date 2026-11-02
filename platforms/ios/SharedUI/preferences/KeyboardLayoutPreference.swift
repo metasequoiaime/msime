@@ -17,6 +17,7 @@ enum KeyboardLayoutPreference {
   static let spaceVoiceKey = "keyboard.gesture.spaceVoice"
   static let swipeSymbolsKey = "keyboard.gesture.swipeSymbols"
   static let swipeSymbolsDirectionKey = "keyboard.gesture.swipeSymbolsDirection"
+  static let letterCornerHintsKey = "keyboard.gesture.letterCornerHints"
   enum SwipeDirection: String { case up, down }
   static let quickPunctuationSymbolsKey = "keyboard.quickPunctuationSymbols"
   static var defaultQuickPunctuationSymbols: [String] { normalizeQuickPunctuationSymbols([]) }
@@ -189,6 +190,11 @@ enum KeyboardLayoutPreference {
   static var swipeSymbols: Bool {
     get { defaults.object(forKey: swipeSymbolsKey) as? Bool ?? true }
     set { defaults.set(newValue, forKey: swipeSymbolsKey) }
+  }
+  /// 「显示字母键角标」：26 键字母键右上角画角标符号。默认开，与 Android 的 `platform.android.letter_corner_hints`、HarmonyOS 的 `letterCornerHints` 相同；关掉只是不画，长按和「滑动输入符号」照样输入角标（#10587）。只存在本机 App Group，不随设置同步，与「滑动输入符号」一样。
+  static var letterCornerHints: Bool {
+    get { defaults.object(forKey: letterCornerHintsKey) as? Bool ?? true }
+    set { defaults.set(newValue, forKey: letterCornerHintsKey) }
   }
   /// 三端 26 键默认上滑输入角标，保留用户明确选择的下滑方向；只保存在本机 App Group。
   static var swipeSymbolsDirection: SwipeDirection {

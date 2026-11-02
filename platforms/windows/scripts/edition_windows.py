@@ -260,13 +260,18 @@ def generated_files(table: dict) -> dict[pathlib.Path, str]:
     return {HEADER: header_text(table), INNO: inno_text(table)}
 
 
+def encoded(path: pathlib.Path, text: str) -> bytes:
+    # editions.iss carries a UTF-8 BOM: Inno Setup before 6.3 reads a script without one in the system ANSI code page, which turned the Chinese display names into mojibake in the Windows 7 installer built with Inno Setup 6.2.2.
+    return text.encode("utf-8-sig" if path == INNO else "utf-8")
+
+
 def drift(files: dict[pathlib.Path, str]) -> list[str]:
     problems = []
     for path, text in files.items():
         relative = path.relative_to(ROOT)
         if not path.is_file():
             problems.append(f"{relative} is missing")
-        elif path.read_text(encoding="utf-8") != text:
+        elif path.read_bytes() != encoded(path, text):
             problems.append(f"{relative} differs from the generated content")
     return problems
 
@@ -279,8 +284,8 @@ def gen(check: bool) -> int:
             print(f"FAIL: {problem}; run python3 platforms/windows/scripts/edition_windows.py gen")
         return 1 if problems else 0
     for path, text in files.items():
-        if not path.is_file() or path.read_text(encoding="utf-8") != text:
-            path.write_text(text, encoding="utf-8", newline="\n")
+        if not path.is_file() or path.read_bytes() != encoded(path, text):
+            path.write_bytes(encoded(path, text))
             print(f"wrote {path.relative_to(ROOT)}")
     return 0
 

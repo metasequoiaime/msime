@@ -12,6 +12,7 @@ HARNESS = r'''
 #include <cstdint>
 #include <cstdio>
 #include <string>
+#include <optional>
 using WCHAR = wchar_t;
 using BOOL = bool;
 using UINT = unsigned;
@@ -25,8 +26,9 @@ std::atomic<bool> SmartPunctuationDirectLetterEnabled{true};
 }
 struct Host {
     int calls = 0;
+    bool returnsResult = false;
     bool valid() const { return true; }
-    bool punctuation(uint8_t, std::string *, std::string *) { ++calls; return false; }
+    bool punctuation(uint8_t, std::string *, std::string *) { ++calls; return returnsResult; }
 };
 class CCompositionProcessorEngine {
 public:
@@ -45,15 +47,26 @@ public:
 };
 // 生产决策
 namespace msime::tsf {
-struct EngineResult { bool handled = false, has_commit = false; std::string commit; };
+struct EngineResult {
+    bool handled = false, has_commit = false;
+    std::string commit;
+    std::optional<std::string> commit_cursor_suffix;
+};
+EngineResult probeResult;
 struct EngineSessionAdapter {
-    static bool parse_result(const std::string &, EngineResult *, std::string *) { return false; }
+    static bool parse_result(const std::string &, EngineResult *out, std::string *) { *out = probeResult; return true; }
 };
 }
 int MultiByteToWideChar(int, int, const char *, int, WCHAR *, int) { return 0; }
 struct CStringRange { void Set(const WCHAR *, std::size_t) {} };
 bool _QueueRepeatedSmartPunctuationReplacement(WCHAR) { return false; }
 int _AddCharAndFinalize(TfEditCookie, ITfContext *, CStringRange *) { return S_OK; }
+int cursorCommits = 0;
+int _ApplyHostCompositionResult(TfEditCookie, ITfContext *, const msime::tsf::EngineResult &result) {
+    assert(result.has_commit && result.commit_cursor_suffix);
+    ++cursorCommits;
+    return S_OK;
+}
 bool composing = false;
 bool _IsComposing() { return composing; }
 constexpr int CANDIDATE_NONE = 0;
@@ -99,6 +112,14 @@ int main() {
     _candidateMode = 1;
     entry(&engine, L',');
     assert(engine.host.calls == 3 && "candidate punctuation keeps its existing route");
+    engine.host.returnsResult = true;
+    for (const auto &text : {std::string{}, std::string{"synthetic"}}) {
+        msime::tsf::probeResult.handled = msime::tsf::probeResult.has_commit = true;
+        msime::tsf::probeResult.commit = text;
+        msime::tsf::probeResult.commit_cursor_suffix = "";
+        entry(&engine, L'?');
+    }
+    assert(cursorCommits == 2 && "explicit cursor commits, including empty text, use the exact editor route");
     std::puts("Windows TSF 标点入口：数字、字母、中文前文和三个开关的回归通过");
 }
 '''

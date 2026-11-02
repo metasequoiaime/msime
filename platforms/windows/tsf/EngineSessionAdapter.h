@@ -1,6 +1,7 @@
 #pragma once
 #include "msime_client.h"
 #include <memory>
+#include <optional>
 namespace msime::windows { class HostOnlineCandidateSync; }
 #include <cstddef>
 #include <cstdint>
@@ -44,6 +45,8 @@ struct EngineResult {
   bool handled = false;
   bool has_commit = false;
   std::string commit;
+  // 只属于本次提交；空字符串表示显式位于正文末尾。
+  std::optional<std::string> commit_cursor_suffix;
   std::string diagnostic;
   EngineView view;
 };

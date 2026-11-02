@@ -26,7 +26,8 @@ void BindNamedpipeFocusState(
     _In_opt_ std::atomic<uint64_t> *expectedWorkerFocusToken, _In_opt_ std::atomic<bool> *localSessionResetPending,
     _In_opt_ std::atomic<UINT> *localSessionResetToken, _In_opt_ std::atomic<bool> *workerCommitReady,
     _In_opt_ std::atomic<uint64_t> *acknowledgedWorkerFocusToken, _In_opt_ std::atomic<HANDLE> *workerPipeHandle,
-    _In_opt_ std::atomic<UINT> *workerPipeGeneration);
+    _In_opt_ std::atomic<UINT> *workerPipeGeneration,
+    _In_opt_ std::atomic<uint32_t> *workerServerCapabilities = nullptr);
 void UnbindNamedpipeFocusState(_In_ const void *owner);
 bool IsNamedpipeFocusStateOwner(_In_ const void *owner);
 UINT BeginNamedpipeLocalSessionReset();
@@ -36,6 +37,7 @@ void RequireNamedpipeFocusActivation();
 void MarkNamedpipeSessionDirty();
 bool MarkNamedpipeSessionDirtyForOwner(_In_ const void *owner);
 bool EnsureNamedpipeFocusSessionActivated();
+bool SupportsQuickPhraseCursor();
 bool SupportsCharacterSetShortcut();
 // Server 处理 Ctrl+Shift+J 中日切换（协商到 FanyImeProtocol::JapaneseToggleShortcut）。
 bool SupportsJapaneseToggleShortcut();

@@ -44,6 +44,9 @@ public final class TelemetryWatchDeviceSmoke extends Instrumentation {
     /** 夹具代表正在显示的键盘：产品只在键盘显示期间轮询授权，开始会话后按 onStartInputView 的顺序恢复观察。 */
     private void showKeyboard(Class<?> telemetry) throws Exception {
         telemetry.getMethod("resumeConsentWatch", android.content.Context.class).invoke(null, getTargetContext());
+        // resumeConsentWatch 只把恢复排进串行的观察线程；首轮准备在 WORKER 上武装捕获，两者争同一把 Telemetry 锁。不等恢复执行完就写状态，可能写出「已武装、却还没在观察」的中间态，外部测试会把它当成首个就绪状态而判失败。等观察线程上一个排在恢复之后的空任务，报告的就是键盘已显示后的状态。
+        ((java.util.concurrent.ExecutorService) field(telemetry, "OBSERVER", null)).submit(() -> { })
+            .get(30, java.util.concurrent.TimeUnit.SECONDS);
     }
 
     @Override public void onStart() {

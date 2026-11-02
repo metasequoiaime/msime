@@ -50,7 +50,7 @@ export class SharedStateSync {
     const switchFingerprint: string = switchText === null ? '' : SharedStateMirrorPolicy.fingerprintText(switchText);
     const keyboard: MirrorManifest | null = mirror.manifest('keyboard');
     const handlers: MirrorImportHandlers = {
-      preferences: (text: string): boolean => SharedStateSync.importPreferences(stateDirectory, text),
+      preferences: (text: string): boolean => SharedStateSync.importPreferences(stateDirectory, text, true),
       beforeFile: (name: string, text: string | null): ImportDecision => {
         // 键盘的统计文件带着它当时用的开关和保留期，只有它已经照设置应用当前的开关记录时才能采用；采用时与设置应用自己记的皮肤和徽章合并，不整体覆盖。
         if (name === 'typing-statistics') {
@@ -173,7 +173,7 @@ export class SharedStateSync {
   }
 
   /** 用对方发布的偏好替换这一侧的偏好：经 `savePreferences`，带上本地的修订号，不直接覆盖文件。内容已经相同时不写。 */
-  static importPreferences(stateDirectory: string, documentText: string): boolean {
+  static importPreferences(stateDirectory: string, documentText: string, preserveReporting: boolean = false): boolean {
     try {
       const incoming: Record<string, Object> = JSON.parse(documentText) as Record<string, Object>;
       const preferences: Object | undefined = incoming['preferences'];
@@ -184,15 +184,12 @@ export class SharedStateSync {
         JSON.parse(client.loadPreferences(stateDirectory)) as Record<string, Object>;
       if (reply['ok'] !== true) return false;
       const local: Record<string, Object> = reply['value'] as Record<string, Object>;
+      const snapshot: string | null = SharedStateMirrorPolicy.preferencesImport(documentText, JSON.stringify(local), preserveReporting);
+      if (snapshot === null) return false;
       if (SharedStateMirrorPolicy.preferencesFingerprint(JSON.stringify(local))
-        === SharedStateMirrorPolicy.preferencesFingerprint(documentText)) {
-        return true;
-      }
-      const snapshot: Record<string, Object> = {};
-      for (const key of Object.keys(local)) snapshot[key] = local[key];
-      snapshot['preferences'] = preferences;
+        === SharedStateMirrorPolicy.preferencesFingerprint(snapshot)) return true;
       const saved: Record<string, Object> = JSON.parse(client.savePreferences(stateDirectory,
-        local['revision'] as number, JSON.stringify(snapshot))) as Record<string, Object>;
+        local['revision'] as number, snapshot)) as Record<string, Object>;
       if (saved['ok'] !== true) {
         KeyboardLog.error(`shared preferences not saved: ${String(saved['error'])}`);
         return false;

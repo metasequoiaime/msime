@@ -198,8 +198,10 @@ public final class OfflineVoiceRecognitionActivity extends Activity {
                             });
                         }
                     });
+                // 语音标点与键盘里同一个偏好；只剩标点时 returnResult 按没有结果回给调用方。
+                String result = VoicePunctuation.apply(text, configuration.punctuationMode());
                 runOnUiThread(() -> {
-                    if (!failed) returnResult(text);
+                    if (!failed) returnResult(result);
                 });
             } catch (LocalAsrRecognizer.Refused error) {
                 runOnUiThread(() -> showFailure(LocalAsrPolicy.failureMessage(error.failure(), error.runtimeMissing())));
