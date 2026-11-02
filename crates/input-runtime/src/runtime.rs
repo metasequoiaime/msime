@@ -1174,7 +1174,7 @@ impl<E: InputEngine> Runtime<E> {
 
     /// 同 [`Runtime::set_reranker`]，挂任意实现了 [`CandidateScorer`] 的逐键打分器，比如需要原生运行库的模型后端。
     ///
-    /// 挂上的打分器报 [`CandidateScorer::scores_prediction_pool_within_a_frame`] 时，上屏后联想的词库续写也交给它排序（见 [`Self::order_prediction`]），引擎为此多取一池续写；拿掉打分器或它不报时，引擎只取 8 条，联想与没挂打分器时逐行相同。
+    /// 挂上的打分器报 [`CandidateScorer::scores_prediction_pool_within_keystroke_budget`] 时，上屏后联想的词库续写也交给它排序（见 [`Self::order_prediction`]），引擎为此多取一池续写；拿掉打分器或它不报时，引擎只取 8 条，联想与没挂打分器时逐行相同。
     pub fn set_candidate_scorer(&mut self, scorer: Option<Box<dyn CandidateScorer>>) {
         self.reranker = scorer;
         self.engine.set_prediction_pool(self.orders_prediction());
@@ -3029,14 +3029,14 @@ impl<E: InputEngine> Runtime<E> {
         self.highlighted = found.unwrap_or(page_start).min(visible - 1);
     }
 
-    /// 挂着的逐键打分器快到能在上屏时同步排联想（[`CandidateScorer::scores_prediction_pool_within_a_frame`]）。引擎的联想候选池按它开关。
+    /// 挂着的逐键打分器在上屏时同步排一池联想仍在逐键预算之内（[`CandidateScorer::scores_prediction_pool_within_keystroke_budget`]）。引擎的联想候选池按它开关。
     fn orders_prediction(&self) -> bool {
         self.reranker
             .as_deref()
-            .is_some_and(CandidateScorer::scores_prediction_pool_within_a_frame)
+            .is_some_and(CandidateScorer::scores_prediction_pool_within_keystroke_budget)
     }
 
-    /// 上屏后联想的词库续写交给逐键打分器排序，排序规则和「每次上屏只排一次」都在引擎里（`Session::order_prediction`）；没挂打分器、或打分器不够快（[`Self::orders_prediction`]）时什么都不做。
+    /// 上屏后联想的词库续写交给逐键打分器排序，排序规则和「每次上屏只排一次」都在引擎里（`Session::order_prediction`）；没挂打分器、或打分器不在预算之内（[`Self::orders_prediction`]）时什么都不做。
     ///
     /// 在取快照之前做，引擎的行已经是最终顺序：座位就是引擎下标，选词照常按代次核对，插件的变换看到的也是排好的行。这次上屏的文字要等 [`Self::transition`] 才进 `ai_context`，所以上文只到这次上屏之前，引擎自己接上刚上屏的词；暂存的词段（`phrase_prefix`）会和这次的词一起上屏，接在上文末尾。
     fn order_prediction(&mut self) {

@@ -18,10 +18,10 @@ pub trait CandidateScorer: Send {
     /// 每个候选在 `context` 之后的逐字平均自然对数概率，顺序同 `candidates`。
     fn log_probabilities(&mut self, context: &str, candidates: &[&str]) -> Vec<f32>;
 
-    /// 在上屏的那一次派发里同步给一整池联想续写（[`prediction_order`]，最多 32 条）打分，是否仍在一帧之内。是的话 runtime 才打开引擎的联想候选池、让它排上屏后联想；不是的话联想与没挂打分器时逐行相同。
+    /// 在上屏的那一次派发里同步给一整池联想续写（[`prediction_order`]，最多 32 条）打分，是否仍在逐键 p95 ≤ 10 ms 的预算之内。上屏也是一次按键，守同一条线。是的话 runtime 才打开引擎的联想候选池、让它排上屏后联想；不是的话联想与没挂打分器时逐行相同。
     ///
-    /// 默认 `false`，后端要量过才报 `true`。在 Pixel 3 XL 上量（`next_word_eval`）：随包的 [`Reranker`]（`model-v1`，纯 Rust 参考实现）让每次上屏多花 p50 约 50 ms、p95 约 100–120 ms（装好的 APK 里连着打字时 p50 约 130 ms），所以不报；ONNX Runtime 后端的 6x256 多花 p50 约 8–9 ms、p95 约 13–14 ms，报。见 `.agents/notes/implemented/feature/2026-11-02-next-word-prediction-rerank.md`。
-    fn scores_prediction_pool_within_a_frame(&self) -> bool {
+    /// 默认 `false`，后端要在这台机器上量过才报 `true`。随包的 [`Reranker`]（`model-v1`，纯 Rust 参考实现）不报：Pixel 3 XL 上它让每次上屏多花 p50 约 50 ms、p95 约 100–120 ms。ONNX Runtime 后端只在大模型过了宿主的自测预算时报（见 `OnnxScorer::fits_keystroke_budget`）：Mac 上 8x448 多花 p95 约 5 ms；退到 6x256 的老手机不报，Pixel 3 XL 上 6x256 多花 p95 13–14 ms。见 `.agents/notes/implemented/feature/2026-11-02-next-word-prediction-rerank.md`。
+    fn scores_prediction_pool_within_keystroke_budget(&self) -> bool {
         false
     }
 

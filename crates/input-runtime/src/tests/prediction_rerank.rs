@@ -1,4 +1,4 @@
-//! 上屏后联想经逐键打分器排序：只在挂了够快的打分器（`scores_prediction_pool_within_a_frame`）时多取候选池、排过之后仍是 8 行，座位就是引擎的下标，选中哪一行上屏的就是哪一行；不够快的打分器（随包模型）挂着时联想与没挂时逐行相同。
+//! 上屏后联想经逐键打分器排序：只在挂了排一池仍在逐键预算之内的打分器（`scores_prediction_pool_within_keystroke_budget`）时多取候选池、排过之后仍是 8 行，座位就是引擎的下标，选中哪一行上屏的就是哪一行；不报这一条的打分器（随包模型、退到 6x256 的 ONNX 后端）挂着时联想与没挂时逐行相同。
 
 use super::*;
 use std::sync::Mutex;
@@ -26,7 +26,7 @@ const BY_WEIGHT: [&str; 8] = ["饭", "好", "喝", "药", "苦", "亏", "惊", "
 
 type Calls = Arc<Mutex<Vec<(String, Vec<String>)>>>;
 
-/// 逐字平均分照表给，表外 -5。按键重排也会调它，所以记下每一次的上文和候选，测试按候选认出联想的那一次。`fast` 是它报的 `scores_prediction_pool_within_a_frame`。
+/// 逐字平均分照表给，表外 -5。按键重排也会调它，所以记下每一次的上文和候选，测试按候选认出联想的那一次。`fast` 是它报的 `scores_prediction_pool_within_keystroke_budget`。
 struct Stub {
     means: Vec<(&'static str, f32)>,
     calls: Calls,
@@ -38,7 +38,7 @@ impl CandidateScorer for Stub {
         64
     }
 
-    fn scores_prediction_pool_within_a_frame(&self) -> bool {
+    fn scores_prediction_pool_within_keystroke_budget(&self) -> bool {
         self.fast
     }
 
@@ -59,12 +59,12 @@ impl CandidateScorer for Stub {
     }
 }
 
-/// 够快、会排联想的打分器，像 ONNX 后端。
+/// 在逐键预算之内、会排联想的打分器，像过了自测预算的 ONNX 大模型。
 fn stub(means: &[(&'static str, f32)]) -> (Box<dyn CandidateScorer>, Calls) {
     stub_with_speed(means, true)
 }
 
-/// 不够快、只做逐键重排的打分器，像随包模型。
+/// 不在预算之内、只做逐键重排的打分器，像随包模型或退到 6x256 的 ONNX 后端。
 fn slow_stub(means: &[(&'static str, f32)]) -> (Box<dyn CandidateScorer>, Calls) {
     stub_with_speed(means, false)
 }
@@ -306,7 +306,7 @@ impl CandidateScorer for FastBundled {
         self.0.log_probabilities(context, candidates)
     }
 
-    fn scores_prediction_pool_within_a_frame(&self) -> bool {
+    fn scores_prediction_pool_within_keystroke_budget(&self) -> bool {
         true
     }
 }

@@ -2,7 +2,7 @@
 //!
 //! 用例来自 Tatoeba 的中文句子（`cmn_sentences_detailed.tsv`，CC-BY 2.0 FR，不在 chinese-ime-lm 的训练语料里；语料不进仓库，用 `--corpus` 给路径）。每句取开头连续的汉字，按词库做正向最长匹配切词，随机挑一个不在句末的词：它前面的文字是上文，它本身是这次上屏的词，它后面的文字是答案。联想的一行是答案的前缀就算命中。
 //!
-//! 每条用例在每一臂里都走真实的运行时和引擎：清掉上文再放进这条的上文（`seed_context`），打这个词的拼音，选中文字等于它的那一行上屏，读上屏后显示的联想行。「今天」一臂不挂打分器，就是不排序的联想；其余各臂挂一个打分器（随包的 `model-v1`，以及每个 `--onnx-model`），引擎因此多取 32 条词库续写、排序后显示 8 条。产品里只有报 `scores_prediction_pool_within_a_frame` 的打分器（ONNX 后端）才排联想，随包模型不排；这里给每一臂都套上 [`Pooled`]，量的是排了会怎样，随包模型那一臂的延迟就是它在产品里不排的理由。`--unranked` 再给每个打分器加一臂「挂着但不排联想」，就是产品里随包模型的样子。排序规则（总对数概率、32 条候选池、个人习惯行在前）在看评测数字之前就定了，这里不调任何参数。
+//! 每条用例在每一臂里都走真实的运行时和引擎：清掉上文再放进这条的上文（`seed_context`），打这个词的拼音，选中文字等于它的那一行上屏，读上屏后显示的联想行。「今天」一臂不挂打分器，就是不排序的联想；其余各臂挂一个打分器（随包的 `model-v1`，以及每个 `--onnx-model`），引擎因此多取 32 条词库续写、排序后显示 8 条。产品里只有报 `scores_prediction_pool_within_keystroke_budget` 的打分器（过了宿主自测预算的 ONNX 大模型）才排联想，随包模型和退到 6x256 的老手机不排；这里给每一臂都套上 [`Pooled`]，量的是排了会怎样，随包模型那一臂的延迟就是它在产品里不排的理由。`--unranked` 再给每个打分器加一臂「挂着但不排联想」，就是产品里随包模型的样子。排序规则（总对数概率、32 条候选池、个人习惯行在前）在看评测数字之前就定了，这里不调任何参数。
 //!
 //! 计时的是上屏那一次 `dispatch`（引擎选词、查续写、打分、取快照），以及上屏之后接着打答案里第一个词的读音（逐键重排读的是同一段新上文），各臂轮流先跑，配对的差就是打分器多花的时间。上屏时排联想要为新的上文编码前缀，不排时这一份落在之后第一次真正调到模型的按键上（首行是可信的词典命中时按键不调模型），所以上屏的差是上屏那一帧的代价；「上屏加下一个词」与 `--unranked` 那一臂的差才是排联想真正新增的代价。不学习（`learning = false`），所以没有个人习惯行，量的只是词库续写的排序。
 //!
@@ -181,7 +181,7 @@ fn onnx_scorer(_: &Path, _: usize) -> Result<Box<dyn CandidateScorer>, Box<dyn s
     Err("--onnx-model needs the onnx-rerank feature (and ORT_LIB_LOCATION pointing at a minimal ONNX Runtime build)".into())
 }
 
-/// 不论打分器自己报不报 `scores_prediction_pool_within_a_frame`，都按第二个字段决定 runtime 排不排联想；其余全部照转，逐键重排与不套时相同。
+/// 不论打分器自己报不报 `scores_prediction_pool_within_keystroke_budget`，都按第二个字段决定 runtime 排不排联想；其余全部照转，逐键重排与不套时相同。
 struct Pooled(Box<dyn CandidateScorer>, bool);
 
 impl CandidateScorer for Pooled {
@@ -193,7 +193,7 @@ impl CandidateScorer for Pooled {
         self.0.log_probabilities(context, candidates)
     }
 
-    fn scores_prediction_pool_within_a_frame(&self) -> bool {
+    fn scores_prediction_pool_within_keystroke_budget(&self) -> bool {
         self.1
     }
 
