@@ -28,7 +28,7 @@ export function NextWordPredictionSection({
     <>
       <SwitchRow
         title="上屏后联想"
-        description="选词上屏后推荐后续文字，点选才上屏；使用现有词库，开启学习时也参考个人词序，隐私输入不显示"
+        description="选词上屏后推荐后续文字，点选、按数字键或空格上屏，继续输入其他内容时消失；使用现有词库，开启学习时也参考个人词序，隐私输入不显示"
         checked={enabled}
         onChange={(next_word_prediction) => onChange({ next_word_prediction })}
       />
