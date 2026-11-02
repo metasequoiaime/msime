@@ -55,6 +55,8 @@ pub struct OnnxScorer {
     cache: Option<Cache>,
     /// 缓存是为哪段上文编码的。
     context: Option<String>,
+    /// [`Self::fits_keystroke_budget`] 量过、且在预算之内；[`CandidateScorer::scores_prediction_pool_within_keystroke_budget`] 报的就是它。
+    within_keystroke_budget: bool,
 }
 
 impl OnnxScorer {
@@ -82,6 +84,7 @@ impl OnnxScorer {
             prefixes: PrefixCache::default(),
             cache: None,
             context: None,
+            within_keystroke_budget: false,
         })
     }
 
@@ -172,6 +175,18 @@ impl OnnxScorer {
     ///
     /// 宿主拿它在大小两个模型之间选：桌面和新手机上大模型这一页只要几毫秒，老手机上要二三十毫秒，按键预算挡不住。
     pub fn calibrate(&mut self) -> f64 {
+        self.calibrated()
+    }
+
+    /// 用 [`Self::calibrate`] 量这台机器上打一页重负载要多久，不超过 `budget_ms` 时返回 `true`，并记下结论：之后 [`CandidateScorer::scores_prediction_pool_within_keystroke_budget`] 报的就是它，上屏后联想因此只交给过了预算的模型排。没量过（只装了一个模型、宿主没自测）或量了超预算的模型都不排。
+    ///
+    /// 宿主在大小两档之间选时调它（host-api 的 `onnx_reranker_within`）：过了预算的大模型（Mac、iPhone 17 上的 8x448）同时也排联想，Mac 上一次上屏多花 p95 约 5 ms；没过的机器退到 6x256，不排，Pixel 3 XL 上 6x256 排一池要多花 p95 13–14 ms，超过逐键预算。
+    pub fn fits_keystroke_budget(&mut self, budget_ms: f64) -> bool {
+        self.within_keystroke_budget = self.calibrated() <= budget_ms;
+        self.within_keystroke_budget
+    }
+
+    fn calibrated(&mut self) -> f64 {
         let ids: Vec<char> = self.vocabulary.characters().take(64).collect();
         if ids.len() < 64 {
             return f64::INFINITY;
@@ -210,6 +225,11 @@ impl OnnxScorer {
 impl CandidateScorer for OnnxScorer {
     fn context_length(&self) -> usize {
         self.info.context_chars + CANDIDATE_ROOM
+    }
+
+    /// 只有 [`OnnxScorer::fits_keystroke_budget`] 量过且在预算之内时报 `true`。
+    fn scores_prediction_pool_within_keystroke_budget(&self) -> bool {
+        self.within_keystroke_budget
     }
 
     /// 打不了分（候选为空、太长，或图运行失败）时返回空表，`rerank_pick` 见长度不符就不动候选；失败后缓存作废，下一次按键从上文重来。

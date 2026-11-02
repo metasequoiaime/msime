@@ -8745,30 +8745,29 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
     // 只装了大的时不自测，预算再小也用它。
     let large_only = ffi::onnx_reranker_within(resources.path(), 0.0).unwrap();
     assert_eq!(large_only.context_length(), LARGE);
+    // 没自测过，不知道它在这台机器上多快，所以不排上屏后联想。
+    assert!(!large_only.scores_prediction_pool_within_keystroke_budget());
 
     // 再装一个小模型，两条路都走一遍：自测值在预算之内留用大的，超过预算换小的。`f64::MAX` 的预算只在自测真的量出了一个有限的时间时才留用大的（自测失败返回无穷大）；0 毫秒的预算任何一次真实的图运行都超过。
     let small = resources.path().join(ffi::SMALL_RERANK_MODEL_DIRECTORY);
     install(&small, 48);
     let fast = ffi::onnx_reranker_within(resources.path(), f64::MAX).unwrap();
     assert_eq!(fast.context_length(), LARGE);
+    // 过了预算的大模型同时也排上屏后联想；退到小模型的机器不排。
+    assert!(fast.scores_prediction_pool_within_keystroke_budget());
     let slow = ffi::onnx_reranker_within(resources.path(), 0.0).unwrap();
     assert_eq!(slow.context_length(), SMALL);
-    // 宿主用的预算是 10 毫秒，这个两层、32 维的小模型打一页远在其内。
-    assert_eq!(
-        ffi::keyboard_reranker(true, root, None)
-            .unwrap()
-            .context_length(),
-        LARGE
-    );
+    assert!(!slow.scores_prediction_pool_within_keystroke_budget());
+    // 宿主用的预算是 10 毫秒，这个两层、32 维的小模型打一页远在其内，所以也排上屏后联想。
+    let hosted = ffi::keyboard_reranker(true, root, None).unwrap();
+    assert_eq!(hosted.context_length(), LARGE);
+    assert!(hosted.scores_prediction_pool_within_keystroke_budget());
 
-    // 大的坏了就用小的，不管预算。
+    // 大的坏了就用小的，不管预算；小的没自测过，不排上屏后联想。
     std::fs::write(directory.join("lm_step.ort"), b"not a model").unwrap();
-    assert_eq!(
-        ffi::keyboard_reranker(true, root, None)
-            .unwrap()
-            .context_length(),
-        SMALL
-    );
+    let fallback_small = ffi::keyboard_reranker(true, root, None).unwrap();
+    assert_eq!(fallback_small.context_length(), SMALL);
+    assert!(!fallback_small.scores_prediction_pool_within_keystroke_budget());
 
     // 两个都坏，资源目录里也没有随包的句子模型，于是什么都不挂。
     std::fs::write(small.join("lm_step.ort"), b"not a model").unwrap();
