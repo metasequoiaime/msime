@@ -824,7 +824,7 @@ impl HostCapabilities {
             // macOS 宿主在 `applySharedInputPreferences` 时解码三个 chord 并按 `MSIMEToggleChordMatches` 认键；其余宿主仍写死。
             toggle_hotkey_chords: platform == HostPlatform::Macos,
             voice_provider_settings: true,
-            // 鸿蒙和桌面三端在最终结果上屏前调 `msime_client_voice_punctuation`；Android 的设置页是原生的，iOS 见 #10595。
+            // 桌面三端在最终结果上屏前调 `msime_client_voice_punctuation`；Android、鸿蒙和 iOS 的设置页与接线各自维护。
             voice_punctuation: matches!(
                 platform,
                 HostPlatform::Windows | HostPlatform::Macos | HostPlatform::Linux
