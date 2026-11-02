@@ -1272,8 +1272,7 @@ HRESULT CMetasequoiaIME::_ApplyHostCompositionResult(TfEditCookie ec, ITfContext
         bool refresh = false;
         const HRESULT written = _CommitTextWithCursor(ec, pContext, text, suffix.size(), &refresh);
         if (written != S_OK) return written;
-        const bool composing = !result.view.phrase_prefix.empty() || !result.view.preedit.empty() ||
-                               !result.view.editing_text.empty() || !result.view.candidates.empty();
+        const bool composing = msime::tsf::HostViewComposes(result.view);
         if (refresh && composing && !_IsComposing()) {
             const uint64_t serial = _editorOperationSerial;
             const uint64_t focusGeneration = _deferredKeyFocusGeneration;

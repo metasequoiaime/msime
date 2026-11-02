@@ -40,6 +40,8 @@ struct EngineView {
   std::string conversion;
   std::size_t conversion_focus_start = 0;
   std::size_t conversion_focus_end = 0;
+  // 上屏后联想（msime_client.h 的 View.prediction）：没有组字，候选是建议的后续文字，只有点选才上屏。普通状态的 view 不带这个字段，按 false 读。
+  bool prediction = false;
 };
 struct EngineResult {
   bool handled = false;
