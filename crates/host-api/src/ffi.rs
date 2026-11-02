@@ -389,6 +389,13 @@ impl msime_input_runtime::CandidateScorer for SharedOnnxScorer {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .log_probabilities(context, candidates)
     }
+
+    fn static_evidence_weight(&self) -> f64 {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .static_evidence_weight()
+    }
 }
 
 #[cfg(feature = "onnx-rerank")]

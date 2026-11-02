@@ -339,3 +339,37 @@ fn large_static_rerank_lists_preserve_fallback_and_key_rules() {
         }
     }
 }
+
+/// 只给分、混合权重由测试指定的打分器：「乙」模型分高 1、词网格逐字分低 1。
+struct Weighted {
+    weight: f64,
+}
+
+impl CandidateScorer for Weighted {
+    fn context_length(&self) -> usize {
+        64
+    }
+
+    fn log_probabilities(&mut self, _context: &str, candidates: &[&str]) -> Vec<f32> {
+        candidates
+            .iter()
+            .map(|text| if *text == "乙" { -1.0 } else { -2.0 })
+            .collect()
+    }
+
+    fn static_evidence_weight(&self) -> f64 {
+        self.weight
+    }
+}
+
+/// 混合权重由打分器决定：词网格分占一半以上时首行留住，占三成时模型挑的「乙」上来；默认（不覆盖）是等权，等分时保持原序。
+#[test]
+fn the_scorer_sets_how_much_the_lattice_score_weighs() {
+    let rows = [row("甲"), row("乙")];
+    let scores = [evidence(-1000, 1), evidence(-2000, 1)];
+    let scored = ScoredOrderRows::new(&rows, &scores);
+    let pick = |weight: f64| rerank_pick(&mut Weighted { weight }, "", 0, false, &scored);
+    assert_eq!(pick(0.7), None);
+    assert_eq!(pick(0.5), None);
+    assert_eq!(pick(0.3), Some(1));
+}
