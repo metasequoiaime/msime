@@ -382,6 +382,16 @@ MDBG 每天用新导出覆盖同一个地址（`https://www.mdbg.net/chinese/exp
 | --- | --- | --- |
 | LaTeX 命令名到 Unicode 码位的对照（369 条） | MIT（本项目） | `plugins/phrase_table/latex-symbols/symbols.tsv` 由本项目编写，命令名取自 LaTeX 内核、amssymb、amsmath、latexsym、stmaryrd、mathtools、gensymb 和 textcomp 的公开文档，名字与码位的对应是事实，不照录任何受版权保护的表：不用 unicode-math 的 `unicode-math-table.tex`（LPPL）、fcitx5 的 `latex.mb`（LGPL）或 Julia 的 `latex_symbols.jl`（许可未核实）。`plugins/phrase_table/tools/gen_latex_symbols.py` 生成包里的 `plugin.toml` |
 
+## 按键重排的 ONNX 后端（`crates/onnx-rerank`）
+
+宿主打开 `onnx-rerank` 特性时才编进来，默认构建不带；目前没有哪个平台的发布打开它（见 `.agents/notes/implemented/architecture/2026-11-01-onnx-rerank-backend.md`）。
+
+| 组件 | 许可证 | 说明 |
+| --- | --- | --- |
+| [microsoft/onnxruntime](https://github.com/microsoft/onnxruntime) 1.24.4（提交 `2d924974ef147392ced8409d36bd6d2e7fcc8a74`） | MIT | 按 `tools/onnxruntime-minimal/required_operators_and_types.config` 精简构建的静态库，链进宿主。本仓库自己编、作为 Release `onnxruntime-minimal-1.24.4-r1` 的附件发布，`resources/onnxruntime-minimal.lock.json` 按目标三元组固定，`scripts/fetch_onnxruntime.py` 下载核对。分发时要带它的许可证与第三方通知：`resources/licenses/onnxruntime-MIT.txt` 与 1.24.4 的相同；`resources/licenses/onnxruntime-ThirdPartyNotices.txt` 是 1.31.0 的，包含 1.24.4 那份的全部内容（另多 Mbed TLS 与 cpp_client_telemetry 两节） |
+| `ort` / `ort-sys` 2.0.0-rc.15 | MIT OR Apache-2.0 | ONNX Runtime 的 Rust 绑定，关掉默认特性、`api-24` |
+| 按键重排模型 `rerank-v1`（8x448 与 6x256，ORT 格式） | Apache-2.0 | 来源：GitHub Release [`metasequoiaime/chinese-ime-lm` 的 `rerank-v1`](https://github.com/metasequoiaime/chinese-ime-lm/releases/tag/rerank-v1)（文件名带尺寸前缀，如 `rerank-8x448.ort`），同一批文件也在 Hugging Face：[`msime/pinyin-ime-keystroke-reranker-25M`](https://huggingface.co/msime/pinyin-ime-keystroke-reranker-25M)（8x448）和 [`msime/pinyin-ime-keystroke-reranker-8M`](https://huggingface.co/msime/pinyin-ime-keystroke-reranker-8M)（6x256），那里是原名（`lm_step.ort`、`model.json`、`vocab.json`）并附 `LICENSE` 与 `NOTICE`。两处的 `.ort` 逐位相同（8x448 SHA-256 `ad729f94…a4a93`，6x256 `ceeb3a8d…8bad4`）。训练语料为中文 C4（ODC-BY）、FineWeb-2 中文部分（ODC-BY）和 LCCC（MIT），语料要求的署名写在图的元数据 `attribution` 和 `model.json` 里，**再分发时要保留**，与上面整句重排模型的要求相同。宿主从资源里的 `rerank-model/`、`rerank-model-small/` 读它们，还没有随任何安装包分发 |
+
 ## 本地语音识别
 
 语音服务选 `local` 且 `asr_model_path` 指向已安装的模型目录时，识别在设备上完成。这条路径分两部分：一份随包分发的推理运行时，和由用户在设置页按需下载的模型。**模型不随包分发**，仓库只携带下载地址、长度和 SHA-256。
