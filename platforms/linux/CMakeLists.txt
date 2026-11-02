@@ -378,6 +378,9 @@ if(BUILD_TESTING)
     add_test(NAME ibus-stale-candidate-click
       COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --stale-candidate-click)
     set_tests_properties(ibus-stale-candidate-click PROPERTIES TIMEOUT 60)
+    add_test(NAME ibus-next-word-prediction
+      COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --prediction)
+    set_tests_properties(ibus-next-word-prediction PROPERTIES TIMEOUT 60)
   endif()
   add_executable(linux-navigation-bindings-test tests/input/navigation_bindings.cpp)
   target_compile_options(linux-navigation-bindings-test PRIVATE -Wall -Wextra -Werror)
@@ -577,6 +580,11 @@ if(BUILD_TESTING)
   target_include_directories(linux-view-composition-test PRIVATE src)
   target_link_libraries(linux-view-composition-test PRIVATE nlohmann_json::nlohmann_json)
   add_test(NAME linux-view-composition COMMAND linux-view-composition-test)
+  add_executable(linux-next-word-prediction-test tests/core/next_word_prediction.cpp)
+  target_compile_options(linux-next-word-prediction-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+  target_include_directories(linux-next-word-prediction-test PRIVATE src)
+  target_link_libraries(linux-next-word-prediction-test PRIVATE nlohmann_json::nlohmann_json)
+  add_test(NAME linux-next-word-prediction COMMAND linux-next-word-prediction-test)
   add_executable(linux-voice-provider-options-test tests/voice/voice_provider_options.cpp)
   target_compile_options(linux-voice-provider-options-test PRIVATE -Wall -Wextra -Werror)
   target_include_directories(linux-voice-provider-options-test PRIVATE src)
@@ -1002,6 +1010,44 @@ if(MSIME_SETTLED_MODEL)
   install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/neural-model.lock.json"
           DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}")
 endif()
+# 整句联想「增强」逐键重排的两档 ONNX 模型（chinese-ime-lm 的 rerank-v1：8x448 在 rerank-model/，6x256 在 rerank-model-small/，各是 lm_step.ort、model.json、vocab.json），由 `scripts/fetch_rerank_model.py` 按 resources/rerank-model.lock.json 下载核对、改回原名，这里再按同一份锁逐个核对。装在资源目录旁边而不是里面，理由与上面的落定重排模型相同：资源目录要与词库锁逐项相符。host-api 要打开 `onnx-rerank` 编译才读它们（package-container.sh 这样编），两份都在时先自测大的、一页超过 10 ms 换小的，都没有时退回资源目录里随包的 sentence-model.safetensors。可选：发行版仓库的源码构建链接不了预编译的 ONNX Runtime，不传它，照旧用随包模型。只有带键盘模型的版本（版本表 features.neural_keyboard）装。
+set(MSIME_RERANK_MODELS "" CACHE PATH "Directory holding rerank-model/ and rerank-model-small/ from scripts/fetch_rerank_model.py, e.g. target/rerank-model")
+if(MSIME_RERANK_MODELS AND NOT MSIME_EDITION_NEURAL_KEYBOARD)
+  message(STATUS "Edition ${MSIME_EDITION} has no keyboard model; not installing the keystroke rerank models in ${MSIME_RERANK_MODELS}")
+  set(MSIME_INSTALL_RERANK_MODELS OFF)
+elseif(MSIME_RERANK_MODELS)
+  set(MSIME_INSTALL_RERANK_MODELS ON)
+else()
+  set(MSIME_INSTALL_RERANK_MODELS OFF)
+endif()
+if(MSIME_INSTALL_RERANK_MODELS)
+  file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/rerank-model.lock.json" MSIME_RERANK_LOCK)
+  string(JSON MSIME_RERANK_MODEL_COUNT LENGTH "${MSIME_RERANK_LOCK}" models)
+  math(EXPR MSIME_RERANK_MODEL_LAST "${MSIME_RERANK_MODEL_COUNT} - 1")
+  foreach(MSIME_RERANK_MODEL_INDEX RANGE 0 ${MSIME_RERANK_MODEL_LAST})
+    string(JSON MSIME_RERANK_DIRECTORY GET "${MSIME_RERANK_LOCK}" models ${MSIME_RERANK_MODEL_INDEX} directory)
+    string(JSON MSIME_RERANK_ARTIFACT_COUNT LENGTH "${MSIME_RERANK_LOCK}" models ${MSIME_RERANK_MODEL_INDEX} artifacts)
+    math(EXPR MSIME_RERANK_ARTIFACT_LAST "${MSIME_RERANK_ARTIFACT_COUNT} - 1")
+    foreach(MSIME_RERANK_ARTIFACT_INDEX RANGE 0 ${MSIME_RERANK_ARTIFACT_LAST})
+      string(JSON MSIME_RERANK_NAME GET "${MSIME_RERANK_LOCK}" models ${MSIME_RERANK_MODEL_INDEX} artifacts ${MSIME_RERANK_ARTIFACT_INDEX} file)
+      string(JSON MSIME_RERANK_SIZE GET "${MSIME_RERANK_LOCK}" models ${MSIME_RERANK_MODEL_INDEX} artifacts ${MSIME_RERANK_ARTIFACT_INDEX} size)
+      string(JSON MSIME_RERANK_SHA256 GET "${MSIME_RERANK_LOCK}" models ${MSIME_RERANK_MODEL_INDEX} artifacts ${MSIME_RERANK_ARTIFACT_INDEX} sha256)
+      set(MSIME_RERANK_FILE "${MSIME_RERANK_MODELS}/${MSIME_RERANK_DIRECTORY}/${MSIME_RERANK_NAME}")
+      if(NOT EXISTS "${MSIME_RERANK_FILE}" OR IS_DIRECTORY "${MSIME_RERANK_FILE}" OR IS_SYMLINK "${MSIME_RERANK_FILE}")
+        message(FATAL_ERROR "Missing keystroke rerank model file ${MSIME_RERANK_DIRECTORY}/${MSIME_RERANK_NAME} in ${MSIME_RERANK_MODELS}")
+      endif()
+      file(SIZE "${MSIME_RERANK_FILE}" MSIME_RERANK_ACTUAL_SIZE)
+      file(SHA256 "${MSIME_RERANK_FILE}" MSIME_RERANK_ACTUAL_SHA256)
+      if(NOT MSIME_RERANK_ACTUAL_SIZE STREQUAL MSIME_RERANK_SIZE OR NOT MSIME_RERANK_ACTUAL_SHA256 STREQUAL MSIME_RERANK_SHA256)
+        message(FATAL_ERROR "Keystroke rerank model file ${MSIME_RERANK_DIRECTORY}/${MSIME_RERANK_NAME} does not match resources/rerank-model.lock.json")
+      endif()
+      install(FILES "${MSIME_RERANK_FILE}"
+              DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/${MSIME_RERANK_DIRECTORY}")
+    endforeach()
+  endforeach()
+  install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/rerank-model.lock.json"
+          DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}")
+endif()
 # Offline glosses for non-English translation targets, one zh-<lang>.db per language built by `scripts/build_offline_glosses.py`, installed as a sibling of the resource bundle for the same reason as the settled model; the Engine looks for them there. Optional: without them the candidate glosses stay English only. Their notice is required with them, since the databases are CC BY-SA and must travel with their attribution.
 set(MSIME_OFFLINE_GLOSSES "" CACHE PATH "Offline gloss databases with their notice, e.g. target/offline-glosses")
 # 离线释义按中文候选查：不提供中文方案的版本（版本表 `features.offline_glosses` 为 false 的日文、越南文和藏文版）即使指定了 `MSIME_OFFLINE_GLOSSES` 也不装。
@@ -1377,6 +1423,8 @@ set(MSIME_NOTICE_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/ewts-MIT.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-stroke-LGPL-3.0.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/OpenCC-Apache-2.0.txt"
+  # 资源目录里的整句重排模型 sentence-model.safetensors 与随包时 settled-model/ 里的 sentence-model-desktop.safetensors 是 chinese-ime-lm 的 model-v1（Apache-2.0）：许可证全文、上游 NOTICE 与训练语料要求的署名都在这份各平台共用的文件里。
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/sentence-model-Apache-2.0.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/pinyin-data-MIT.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/ECDICT-MIT.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime_kaomoji_dict-MIT.txt"
@@ -1404,6 +1452,7 @@ set(MSIME_NOTICE_NAMES
   ewts-MIT.txt
   rime-stroke-LGPL-3.0.txt
   OpenCC-Apache-2.0.txt
+  sentence-model-Apache-2.0.txt
   pinyin-data-MIT.txt
   ECDICT-MIT.txt
   rime_kaomoji_dict-MIT.txt
@@ -1421,7 +1470,12 @@ list(APPEND MSIME_NOTICE_NAMES nlohmann_json-MIT.txt)
 # msime-voice-local compiles the sherpa-onnx C API header in; the runtime libraries, when installed, add ONNX Runtime and the notices of what it bundles.
 list(APPEND MSIME_NOTICE_SOURCES "${MSIME_SHARED_VOICE_DIR}/third_party/sherpa-onnx/LICENSE")
 list(APPEND MSIME_NOTICE_NAMES sherpa-onnx-Apache-2.0.txt)
-if(MSIME_VOICE_RUNTIME_DIR)
+# 装了逐键重排模型的包，宿主库也静态链接了精简构建的 ONNX Runtime 1.24.4（package-container.sh 两件一起做），同一份许可证与第三方通知也覆盖它；模型本身是 Apache-2.0，带上游的 NOTICE 和许可证全文。
+if(MSIME_INSTALL_RERANK_MODELS)
+  list(APPEND MSIME_NOTICE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/data/licenses/rerank-model-Apache-2.0.txt")
+  list(APPEND MSIME_NOTICE_NAMES rerank-model-Apache-2.0.txt)
+endif()
+if(MSIME_VOICE_RUNTIME_DIR OR MSIME_INSTALL_RERANK_MODELS)
   list(APPEND MSIME_NOTICE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/data/licenses/onnxruntime-MIT.txt"
        "${CMAKE_CURRENT_SOURCE_DIR}/data/licenses/onnxruntime-ThirdPartyNotices.txt")
   list(APPEND MSIME_NOTICE_NAMES onnxruntime-MIT.txt onnxruntime-ThirdPartyNotices.txt)

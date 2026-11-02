@@ -1359,27 +1359,32 @@ pub unsafe extern "C" fn msime_client_skin_catalog(
     })
 }
 
-/// Scan the Engine resource directory for optional custom helper-code tables. Native settings
-/// presenters use the same metadata as the shared settings page; the Engine remains responsible
-/// for parsing and applying the table itself. An absent `helpcodes/custom` directory is an empty
-/// catalog rather than an error.
+/// 列出自定义辅助码表：状态根和资源目录两处的 `helpcodes/custom`，规则见 [`crate::list_custom_helpcode_schemas`]。原生设置界面和共享设置页用同一份元数据，码表本身仍由 Engine 解析。目录不在时是空列表，不算错。
 /// # Safety
-/// `resources` points to `length` readable UTF-8 bytes naming an absolute resource directory.
-/// Null is rejected. The returned JSON must be released with `msime_client_string_free`.
+/// `resources` points to `length` readable UTF-8 bytes naming an absolute resource directory; null is rejected. `state_root` is null (with `state_root_length` 0) or points to `state_root_length` readable UTF-8 bytes naming the absolute state root (HostOptions `preferences_directory`). The returned JSON must be released with `msime_client_string_free`.
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_helpcode_schemas(
     resources: *const u8,
     length: usize,
+    state_root: *const u8,
+    state_root_length: usize,
 ) -> *mut c_char {
     response(|| {
-        if resources.is_null() || length > 16_384 {
+        if resources.is_null() || length > 16_384 || state_root_length > 16_384 {
             return Err("invalid helpcode resource buffer".into());
         }
         // SAFETY: guaranteed by the documented caller contract; size checked above.
         let bytes = unsafe { std::slice::from_raw_parts(resources, length) };
         let resources =
             std::str::from_utf8(bytes).map_err(|_| "invalid helpcode resource encoding")?;
-        let schemas = crate::list_custom_helpcode_schemas(resources)?;
+        let state_root = if state_root.is_null() {
+            None
+        } else {
+            // SAFETY: guaranteed by the documented caller contract; size checked above.
+            let bytes = unsafe { std::slice::from_raw_parts(state_root, state_root_length) };
+            Some(std::str::from_utf8(bytes).map_err(|_| "invalid helpcode state root encoding")?)
+        };
+        let schemas = crate::list_custom_helpcode_schemas(resources, state_root)?;
         serde_json::to_value(schemas).map_err(|error| error.to_string())
     })
 }

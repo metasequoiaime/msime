@@ -509,6 +509,9 @@ h1 {
   cursor: pointer;
 }
 
+/* 输入方案有八个，一行放不下时换行。 */
+.segmented[data-option="scheme"] { flex-wrap: wrap; }
+
 .segmented button:hover { color: var(--ink); }
 
 .segmented button[aria-checked="true"] {

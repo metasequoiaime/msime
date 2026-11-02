@@ -61,6 +61,14 @@ for pair in msime-cantonese.db:msime-rime_cantonese_LICENSE.txt msime-zhuyin.db:
   fi
 done
 
+# 两档逐键重排模型要和打开了 onnx-rerank 的 host 库一起进键盘扩展；project.yml 把它们标成 optional，缺了 xcodegen 不报错，这里补上这道检查。
+keyboard_bundle="$repo_root/target/ios/derived-$variant/Build/Products/Release-$sdk/MSIMEApp.app/PlugIns/MSIMEKeyboardExtension.appex"
+for directory in rerank-model rerank-model-small; do
+  for name in lm_step.ort model.json vocab.json; do
+    [ -s "$keyboard_bundle/$directory/$name" ] || { echo "$keyboard_bundle lacks $directory/$name" >&2; exit 1; }
+  done
+done
+
 # 验收最终内嵌扩展，防止旧构建资源残留让瘦包继续带附加词库。
 if [ "${MSIME_IOS_OMIT_ON_DEMAND:-0}" = 1 ]; then
   keyboard_resources="${keyboard_languages%/language-dictionaries}/EngineResources"

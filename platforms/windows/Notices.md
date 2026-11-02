@@ -11,7 +11,7 @@ Win7 安装包另在 `server/fonts/` 随字体分发 Google Noto Emoji 的完整
 The Rust crates statically linked into the host DLL (the input engine `msime-engine` with its dependencies, and the microphone and resampling crates `cpal` and `rubato` among the others), the MCP server and the settings binary, and the npm packages bundled into the settings frontend, are not in any dependency prefix. `platforms/linux/collect-notices.py` collects them from the resolved graphs; run it on Windows so Cargo resolves the Windows graph, after `Build-Client.ps1` has installed `node_modules`, and pass both outputs as supplemental notices. The input engine `msime-engine` and `msime-path-trust` are this project's own crates under MPL-2.0 rather than GPL-3.0-only, so the collector lists them like third-party crates and their `LICENSE` (the MPL-2.0 text with the Exhibit A notice) travels in `rust-crates-NOTICES.txt`; the other workspace members are the project's GPL-3.0 code under the installer's `LICENSE.txt`. `.github/workflows/release-windows.yml` does exactly this:
 
 ```powershell
-python -X utf8 platforms\linux\collect-notices.py cargo C:\release\rust-crates-NOTICES.txt msime-host-api msime-engine msime-mcp-server msime-desktop:tauri/custom-protocol
+python -X utf8 platforms\linux\collect-notices.py cargo C:\release\rust-crates-NOTICES.txt msime-host-api:onnx-rerank msime-engine msime-mcp-server msime-desktop:tauri/custom-protocol
 python -X utf8 platforms\linux\collect-notices.py npm C:\release\frontend-npm-NOTICES.txt apps\desktop
 ```
 

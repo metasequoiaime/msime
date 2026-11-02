@@ -453,6 +453,8 @@ export function InputSettingsPage() {
         showMultilingualInput={host?.edition?.input_schemes.includes("quanpin") ?? true}
         quickPhraseCandidates={host?.quick_phrase_candidates ?? false}
         caretEditSuffix={host?.caret_edit_suffix ?? false}
+        // 触屏宿主的开关在「表达」页的「智能」组，和联想栏按键放在一起。
+        nextWordPrediction={!mobilePlatform && (host?.next_word_prediction ?? false)}
         paging={
           !harmonyPhone && (
             <NavigationSection

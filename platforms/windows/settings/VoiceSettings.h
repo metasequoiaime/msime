@@ -10,6 +10,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cwchar>
+#include <iterator>
 #include <map>
 #include <optional>
 #include <string>
@@ -306,6 +308,20 @@ inline std::wstring_view local_model_stage_label(std::wstring_view stage) {
   if (stage == L"done")
     return L"完成";
   return L"准备中";
+}
+
+// 「从文件导入」的打开对话框没给出可用的文件时的说明（共享页没有这一步，Tauri 的对话框在宿主里）。`failure` 是对话框的 HRESULT，用户关掉对话框时调用方传 0，不算失败；`no_paths` 是选了文件却一个本机路径也读不到。都没有时返回空。错误码按十六进制写出，便于对照报告。
+inline std::optional<std::wstring> local_model_picker_error_message(std::int32_t failure,
+                                                                    bool no_paths) {
+  if (failure < 0) {
+    wchar_t code[16];
+    std::swprintf(code, std::size(code), L"0x%08lX",
+                  static_cast<unsigned long>(static_cast<std::uint32_t>(failure)));
+    return L"无法打开或读取文件选择对话框（错误 " + std::wstring(code) + L"），请重试。";
+  }
+  if (no_paths)
+    return L"读不到所选文件在本机上的路径，请先把模型文件保存到本机磁盘上的文件夹，再重新选择。";
+  return std::nullopt;
 }
 
 // localModelImportErrorMessage：文件对不上的几种换成针对导入的说法，其余和下载相同。

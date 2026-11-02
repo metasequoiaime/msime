@@ -8,6 +8,97 @@ use crate::SchemeType;
 
 pub use chinese_ime_lm::{CandidateFacts, Reranker, SentenceModel, DICTIONARY_SOURCES};
 
+/// 排序决策要的模型能力：按上文给候选打逐字平均自然对数概率，以及模型一次能读多少字。
+///
+/// `rerank_pick` 只经这个接口用模型，所以随包的纯 Rust 句子模型（[`Reranker`]）和需要原生运行库的模型后端走同一套规则：裁决点、词网格分混合、词典首选的豁免都在这里，后端只管算分。引擎本身仍是纯 Rust，原生后端放在引擎之外的 crate 里实现这个接口。
+pub trait CandidateScorer: Send {
+    /// 模型一次能读的字数，上文和候选合计；[`rerank_context`] 按它截上文。
+    fn context_length(&self) -> usize;
+
+    /// 每个候选在 `context` 之后的逐字平均自然对数概率，顺序同 `candidates`。
+    fn log_probabilities(&mut self, context: &str, candidates: &[&str]) -> Vec<f32>;
+
+    /// 在上屏的那一次派发里同步给一整池联想续写（[`prediction_order`]，最多 32 条）打分，是否仍在逐键 p95 ≤ 10 ms 的预算之内。上屏也是一次按键，守同一条线。是的话 runtime 才打开引擎的联想候选池、让它排上屏后联想；不是的话联想与没挂打分器时逐行相同。
+    ///
+    /// 默认 `false`，后端要在这台机器上量过才报 `true`。随包的 [`Reranker`]（`model-v1`，纯 Rust 参考实现）不报：Pixel 3 XL 上它让每次上屏多花 p50 约 50 ms、p95 约 100–120 ms。ONNX Runtime 后端只在大模型过了宿主的自测预算时报（见 `OnnxScorer::fits_keystroke_budget`）：Mac 上 8x448 多花 p95 约 5 ms；退到 6x256 的老手机不报，Pixel 3 XL 上 6x256 多花 p95 13–14 ms。见 `.agents/notes/implemented/feature/2026-11-02-next-word-prediction-rerank.md`。
+    fn scores_prediction_pool_within_keystroke_budget(&self) -> bool {
+        false
+    }
+
+    /// 挂着这个打分器时，引擎每条切分至少解出几条整句读法给它比较（`Session::set_sentence_pool`）；0 是引擎的默认条数（6）。
+    ///
+    /// 默认 0：多比较几条要多花模型的时间，后端要在真实运行时里量过才报。随包的 [`Reranker`]（`model-v1`）不报，它在 Pixel 3 XL 上本来就超出逐键预算。ONNX Runtime 后端报宿主按这台机器的速度定下的池（`OnnxScorer::set_sentence_pool`，默认 [`SENTENCE_POOL`]）。
+    fn sentence_pool(&self) -> usize {
+        0
+    }
+
+    /// 词网格整句之间比较时（[`rerank_pick`] 的静态证据分支），词网格逐字分在混合里的权重，模型逐字分占其余。默认 0.5，等权，是在随包 `model-v1` 上定的（`.agents/notes/implemented/bug-fix/2026-10-14-rerank-static-evidence.md`）。更准的模型可以让它少一些：ONNX Runtime 后端报 0.3，见 `.agents/notes/implemented/feature/2026-11-02-onnx-static-evidence-weight.md`。
+    fn static_evidence_weight(&self) -> f64 {
+        0.5
+    }
+
+    /// 模型认为应当提到首位的候选下标，`None` 为不动；规则同 [`Reranker::best_where`]：首行是可信的词典命中或首行不回答按键时不比较，只比较前 [`COMPARED_LIMIT`] 条回答按键的候选，少于两条不比较。
+    fn best_where(
+        &mut self,
+        context: &str,
+        texts: &[&str],
+        facts: &dyn Fn(usize) -> CandidateFacts,
+    ) -> Option<usize> {
+        let leader = facts(0);
+        if texts.is_empty() || leader.trusted_dictionary_hit || !leader.answers_key {
+            return None;
+        }
+        let mut considered = [0; COMPARED_LIMIT];
+        let mut subset = [""; COMPARED_LIMIT];
+        let mut count = 0;
+        for index in (0..texts.len()).filter(|&index| facts(index).answers_key) {
+            if count == COMPARED_LIMIT {
+                break;
+            }
+            considered[count] = index;
+            subset[count] = texts[index];
+            count += 1;
+        }
+        if count < 2 {
+            return None;
+        }
+        let scores = self.log_probabilities(context, &subset[..count]);
+        if scores.len() != count {
+            return None;
+        }
+        let mut best = 0;
+        for slot in 1..count {
+            if scores[slot] > scores[best] {
+                best = slot;
+            }
+        }
+        (best != 0).then(|| considered[best])
+    }
+}
+
+/// [`CandidateScorer::best_where`] 最多比较几条回答按键的候选，与 [`Reranker::best_where`] 相同。
+pub const COMPARED_LIMIT: usize = 9;
+
+impl CandidateScorer for Reranker {
+    fn context_length(&self) -> usize {
+        self.model().context_length()
+    }
+
+    fn log_probabilities(&mut self, context: &str, candidates: &[&str]) -> Vec<f32> {
+        Reranker::log_probabilities(self, context, candidates)
+    }
+
+    // 随包模型沿用它自己的实现，行为与引入这个接口之前逐字相同。
+    fn best_where(
+        &mut self,
+        context: &str,
+        texts: &[&str],
+        facts: &dyn Fn(usize) -> CandidateFacts,
+    ) -> Option<usize> {
+        Reranker::best_where(self, context, texts, facts)
+    }
+}
+
 /// `CandidateSource::Generated`: a whole-sentence path the word lattice assembled. The one source
 /// whose members really are alternative readings of the same key.
 pub const LATTICE_SOURCE: u8 = 8;
@@ -29,6 +120,12 @@ const SMALL_RERANK_TEXTS: usize = 128;
 
 /// 静态证据分支只比较前九条真正回答按键的候选。
 const STATIC_RERANK_LIMIT: usize = 9;
+
+/// 报这个数的逐键打分器（[`CandidateScorer::sentence_pool`]）挂着时，26 键全拼每条切分解出的整句读法条数（`Session::set_sentence_pool`），正好填满模型一次比较的条数。不挂时引擎只解 6 条，长句的比较位常有三条空着，而对的那句往往就排在第 7 到第 9 条：ctx-v1 的 dev 分句上，金标准出现在候选里的比例从 72.1% 到 75.6%，6x256 的首选从 65.7% 到 67.9%。更多的读法还会更准（解 32 条、比较 32 条是 72.3%），但模型的耗时随比较的条数增长，Pixel 3 XL 上 6x256 已经用到逐键预算的九成，所以只填满现有的比较位。见 `.agents/notes/implemented/feature/2026-11-02-sentence-pool-for-reranker.md`。
+pub const SENTENCE_POOL: usize = STATIC_RERANK_LIMIT;
+
+/// 打分器报的整句池最多这么大：静态证据分支一次比较的条数取 [`SENTENCE_POOL`]（九条）与池中较大的那个，放在栈上的数组按它开。
+pub const MAX_SENTENCE_POOL: usize = 32;
 
 /// 候选行不在任何窄裁决点上。
 pub const CONTEST_NONE: u8 = 0;
@@ -62,7 +159,7 @@ pub fn reorders_candidates(scheme: u8) -> bool {
     scheme_type(scheme).is_none_or(SchemeType::holds_phrase_progress)
 }
 
-/// 方案的纠错行能不能被重排器提到首位。双拼的纠错整句按产品取舍一律不抢首选（#6034，引擎把它排在整句块之后），所以重排时它既不参与比较，也不让整张表失去词典命中的豁免；全拼的纠错行本来就允许领先（`typo_lead_margin`），照旧。
+/// 方案的纠错行能不能被重排器提到首位。双拼的纠错整句不由重排器提到首位（#6034，引擎把它排在整句块之后），所以重排时它既不参与比较，也不让整张表失去词典命中的豁免；双拼触点纠错能不能坐首选只由引擎按 `TouchTuning::lead_margin` 决定（#10185，默认无穷大，即不坐）。全拼的纠错行重排器照旧允许领先，引擎侧另由 `typo_lead_margin` 约束（默认同样是无穷大）。
 fn corrections_may_lead(scheme: u8) -> bool {
     scheme_type(scheme) != Some(SchemeType::Shuangpin)
 }
@@ -142,6 +239,44 @@ pub fn rerank_context(context: &str, window: usize, longest: usize) -> &str {
         .char_indices()
         .nth(skip)
         .map_or("", |(start, _)| &context[start..])
+}
+
+/// 上屏后联想里词库续写的顺序：按模型给的「这一行接在上文后面」的总对数概率从高到低，返回排列（新座位 -> 旧座位），同分保持原来的词频顺序；少于两行或打不了分时为 `None`。
+///
+/// `context` 是上屏之前的文字连同刚上屏的词，按 [`rerank_context`] 截到模型读得下。用总分（逐字平均 × 字数）而不是逐字平均：联想要猜的是用户接下来真会打的那一段，总分让更长的续写为多出的每个字付出概率，不会因为每个字都顺就排到前面。离线可行性评测里同样从 32 条里挑，总分比平均分的首位命中高（单字上屏 16.7% 对 18.8%，两字以内 8.6% 对 9.3%），见 `.agents/notes/implemented/feature/2026-11-02-next-word-prediction-rerank.md`。
+pub fn prediction_order(
+    scorer: &mut dyn CandidateScorer,
+    context: &str,
+    rows: &[&str],
+) -> Option<Vec<usize>> {
+    if rows.len() < 2 {
+        return None;
+    }
+    let longest = rows
+        .iter()
+        .map(|row| row.chars().count())
+        .max()
+        .unwrap_or(0);
+    let context = rerank_context(context, scorer.context_length(), longest);
+    let scores = scorer.log_probabilities(context, rows);
+    if scores.len() != rows.len() {
+        return None;
+    }
+    let totals: Vec<f32> = scores
+        .iter()
+        .zip(rows)
+        .map(|(mean, row)| {
+            let total = mean * row.chars().count() as f32;
+            if total.is_nan() {
+                f32::NEG_INFINITY
+            } else {
+                total
+            }
+        })
+        .collect();
+    let mut order: Vec<usize> = (0..rows.len()).collect();
+    order.sort_by(|&left, &right| totals[right].total_cmp(&totals[left]));
+    Some(order)
 }
 
 /// 排序决策读取的一行候选：文字、来源序号（`CandidateSource`），是否回答整个按键串，是否是纠错后的读法。
@@ -260,7 +395,7 @@ pub struct ParallelOrderRows<'a> {
 /// 找出实际交给模型比较的候选中最长的一行。
 ///
 /// `Reranker::best_where` 只比较前九条回答当前按键的候选；比较集合之后的长候选不能影响上下文窗口，否则会让模型每次无关的长行出现时重建前缀。
-fn longest_rerank_candidate<'a, R, F>(rows: &R, answers_key: &F) -> usize
+fn longest_rerank_candidate<'a, R, F>(rows: &R, answers_key: &F, limit: usize) -> usize
 where
     R: OrderRowSource<'a> + ?Sized,
     F: Fn(OrderRow<'a>) -> bool,
@@ -268,7 +403,7 @@ where
     (0..rows.len())
         .map(|index| rows.get(index))
         .filter(|row| answers_key(*row))
-        .take(STATIC_RERANK_LIMIT)
+        .take(limit)
         .map(|row| row.text.chars().count())
         .max()
         .unwrap_or(0)
@@ -380,13 +515,33 @@ pub fn rerank_needs_model<'a, R: OrderRowSource<'a> + ?Sized>(
 
 /// rerank() 的决策部分：返回应当移到首位的行下标；None 表示不动。
 ///
-/// `scheme` 是 `SchemeType` 序号；不允许重排的方案（韩文汉字表）返回 None，五笔且 `!answered_by_pinyin_fallback` 时返回 None，行数 < 2 时返回 None，首行是英文时返回 None。`Reranker::best_where` 是 `&mut self`，因此这里取 `&mut`。
+/// `scheme` 是 `SchemeType` 序号；不允许重排的方案（韩文汉字表）返回 None，五笔且 `!answered_by_pinyin_fallback` 时返回 None，行数 < 2 时返回 None，首行是英文时返回 None。打分器要续用跨按键的缓存，因此取 `&mut`。
 pub fn rerank_pick<'a, R: OrderRowSource<'a> + ?Sized>(
-    reranker: &mut Reranker,
+    reranker: &mut dyn CandidateScorer,
     context: &str,
     scheme: u8,
     answered_by_pinyin_fallback: bool,
     rows: &'a R,
+) -> Option<usize> {
+    let pool = reranker.sentence_pool();
+    rerank_pick_within(
+        reranker,
+        context,
+        scheme,
+        answered_by_pinyin_fallback,
+        rows,
+        pool,
+    )
+}
+
+/// 同 [`rerank_pick`]，但静态证据分支比较几条由调用方给（`pool`，取它与九条中较大的那个，最多 [`MAX_SENTENCE_POOL`]），而不是打分器报的整句池。引擎只在 26 键全拼上多解读法（`Session::set_sentence_pool`）；九宫格和 14 键的列表来自几十条切分，比较整池只会多花时间、不在逐键耗时的估计里，runtime 在键位网格上传 0。
+pub fn rerank_pick_within<'a, R: OrderRowSource<'a> + ?Sized>(
+    reranker: &mut dyn CandidateScorer,
+    context: &str,
+    scheme: u8,
+    answered_by_pinyin_fallback: bool,
+    rows: &'a R,
+    pool: usize,
 ) -> Option<usize> {
     if !rerank_needs_model(scheme, answered_by_pinyin_fallback, rows) {
         return None;
@@ -397,20 +552,28 @@ pub fn rerank_pick<'a, R: OrderRowSource<'a> + ?Sized>(
     }
     let answers_key = |row: OrderRow<'a>| row_answers_key(scheme, row);
     let corrected_key = any_corrected_key(scheme, rows);
+    let limit = pool.clamp(STATIC_RERANK_LIMIT, MAX_SENTENCE_POOL);
     // 只有参与比较的候选需要占用模型上下文窗口。
-    let longest = longest_rerank_candidate(rows, &answers_key);
-    let context = rerank_context(context, reranker.model().context_length(), longest);
+    let longest = longest_rerank_candidate(rows, &answers_key, limit);
+    let context = rerank_context(context, reranker.context_length(), longest);
     if rows.static_evidence(0).is_some() {
-        let mut considered = [0; STATIC_RERANK_LIMIT];
-        let mut statik = [0.0; STATIC_RERANK_LIMIT];
-        let mut subset = [""; STATIC_RERANK_LIMIT];
-        if let Some(count) =
-            fill_static_rerank_inputs(rows, answers_key, &mut considered, &mut statik, &mut subset)
-        {
+        let mut considered = [0; MAX_SENTENCE_POOL];
+        let mut statik = [0.0; MAX_SENTENCE_POOL];
+        let mut subset = [""; MAX_SENTENCE_POOL];
+        if let Some(count) = fill_static_rerank_inputs(
+            rows,
+            answers_key,
+            &mut considered[..limit],
+            &mut statik[..limit],
+            &mut subset[..limit],
+        ) {
+            let weight = reranker.static_evidence_weight();
             let neural = reranker.log_probabilities(context, &subset[..count]);
             if neural.len() == count {
-                // 模型逐字分与词网格逐字分等权混合，两侧均为自然对数。
-                let combined = |index: usize| (statik[index] + f64::from(neural[index])) * 0.5;
+                // 词网格逐字分与模型逐字分按打分器给的权重混合，两侧均为自然对数。
+                let combined = |index: usize| {
+                    statik[index] * weight + f64::from(neural[index]) * (1.0 - weight)
+                };
                 let mut best = 0;
                 for index in 1..count {
                     if combined(index) > combined(best) {
@@ -422,7 +585,7 @@ pub fn rerank_pick<'a, R: OrderRowSource<'a> + ?Sized>(
         }
     }
     with_row_texts(rows, |texts| {
-        reranker.best_where(context, texts, |index| CandidateFacts {
+        reranker.best_where(context, texts, &|index| CandidateFacts {
             answers_key: answers_key(rows.get(index)),
             trusted_dictionary_hit: DICTIONARY_SOURCES.contains(&rows.get(index).source)
                 && !corrected_key,
@@ -459,7 +622,7 @@ fn contest_rows<'a, R: OrderRowSource<'a> + ?Sized>(
 
 /// 只在被标记的几行之间让模型挑：挑战者的逐字平均对数概率比首行高出 `margin` 才提到首位。
 fn pick_contest<'a, R: OrderRowSource<'a> + ?Sized>(
-    reranker: &mut Reranker,
+    reranker: &mut dyn CandidateScorer,
     context: &str,
     rows: &'a R,
     contested: &[usize],
@@ -472,7 +635,7 @@ fn pick_contest<'a, R: OrderRowSource<'a> + ?Sized>(
         longest = longest.max(texts[slot].chars().count());
     }
     let texts = &texts[..contested.len()];
-    let context = rerank_context(context, reranker.model().context_length(), longest);
+    let context = rerank_context(context, reranker.context_length(), longest);
     let scores = reranker.log_probabilities(context, texts);
     if scores.len() != texts.len() {
         return None;
@@ -489,9 +652,9 @@ fn pick_contest<'a, R: OrderRowSource<'a> + ?Sized>(
 fn fill_static_rerank_inputs<'a, R, F>(
     rows: &'a R,
     answers_key: F,
-    considered: &mut [usize; STATIC_RERANK_LIMIT],
-    statik: &mut [f64; STATIC_RERANK_LIMIT],
-    subset: &mut [&'a str; STATIC_RERANK_LIMIT],
+    considered: &mut [usize],
+    statik: &mut [f64],
+    subset: &mut [&'a str],
 ) -> Option<usize>
 where
     R: OrderRowSource<'a> + ?Sized,
@@ -503,7 +666,7 @@ where
         if !answers_key(row) {
             continue;
         }
-        if count == STATIC_RERANK_LIMIT {
+        if count == considered.len() {
             break;
         }
         considered[count] = index;
@@ -690,6 +853,66 @@ mod tests {
         }
     }
 
+    /// 只给「目标」高分的打分器，报 `pool` 作整句池。
+    struct Favouring {
+        target: &'static str,
+        pool: usize,
+    }
+
+    impl CandidateScorer for Favouring {
+        fn context_length(&self) -> usize {
+            64
+        }
+
+        fn log_probabilities(&mut self, _context: &str, candidates: &[&str]) -> Vec<f32> {
+            candidates
+                .iter()
+                .map(|text| if *text == self.target { 0.0 } else { -9.0 })
+                .collect()
+        }
+
+        fn sentence_pool(&self) -> usize {
+            self.pool
+        }
+    }
+
+    /// 静态证据分支比较几条跟着整句池走：池 0 或 9 只比较前九条，排在第 12 条的读法挑不上；池 12 时挑得上。`rerank_pick` 用打分器报的池，`rerank_pick_within` 用调用方给的（键位网格上传 0）。
+    #[test]
+    fn the_static_comparison_covers_the_sentence_pool() {
+        const TEXTS: [&str; 12] = [
+            "甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸", "子", "丑",
+        ];
+        let rows: Vec<OrderRow<'_>> = TEXTS.iter().map(|text| row(text, LATTICE_SOURCE)).collect();
+        let evidence: Vec<Option<StaticEvidence>> = (0..TEXTS.len())
+            .map(|index| {
+                Some(StaticEvidence {
+                    log_prob_milli_nats: -1000 - 100 * index as i64,
+                    characters: 1,
+                })
+            })
+            .collect();
+        let scored = ScoredOrderRows::new(rows.as_slice(), &evidence);
+        let scorer = |pool| Favouring {
+            target: "丑", pool
+        };
+        assert_eq!(rerank_pick(&mut scorer(0), "", 0, false, &scored), None);
+        assert_eq!(rerank_pick(&mut scorer(9), "", 0, false, &scored), None);
+        assert_eq!(
+            rerank_pick(&mut scorer(12), "", 0, false, &scored),
+            Some(11)
+        );
+        assert_eq!(
+            rerank_pick_within(&mut scorer(12), "", 0, false, &scored, 0),
+            None
+        );
+        // 第九条以内的读法不论池多大都在比较里。
+        let mut early = Favouring {
+            target: "壬",
+            pool: 0,
+        };
+        assert_eq!(rerank_pick(&mut early, "", 0, false, &scored), Some(8));
+    }
+
     #[test]
     fn rerank_context_that_fits_is_handed_over_whole() {
         // Short contexts are what the sentence eval measured, so they must reach the model untouched.
@@ -744,7 +967,10 @@ mod tests {
             row("壬", LATTICE_SOURCE),
             row("这是没有进入模型比较集合的长候选", LATTICE_SOURCE),
         ];
-        assert_eq!(longest_rerank_candidate(&rows, &|row| row.answers_key), 1);
+        assert_eq!(
+            longest_rerank_candidate(&rows, &|row| row.answers_key, STATIC_RERANK_LIMIT),
+            1
+        );
     }
 
     #[test]
@@ -1102,5 +1328,73 @@ mod tests {
             runner_up_order(0, &[row("你好", LATTICE_SOURCE), row("你", 0)]),
             None
         );
+    }
+
+    /// 逐字平均分照表给，表外 -5；记下读到的上文。
+    struct Means {
+        means: Vec<(&'static str, f32)>,
+        window: usize,
+        context: String,
+    }
+
+    impl CandidateScorer for Means {
+        fn context_length(&self) -> usize {
+            self.window
+        }
+
+        fn log_probabilities(&mut self, context: &str, candidates: &[&str]) -> Vec<f32> {
+            self.context = context.to_owned();
+            candidates
+                .iter()
+                .map(|text| {
+                    self.means
+                        .iter()
+                        .find(|(row, _)| row == text)
+                        .map_or(-5.0, |(_, mean)| *mean)
+                })
+                .collect()
+        }
+    }
+
+    fn means(means: &[(&'static str, f32)], window: usize) -> Means {
+        Means {
+            means: means.to_vec(),
+            window,
+            context: String::new(),
+        }
+    }
+
+    #[test]
+    fn prediction_order_ranks_by_total_and_keeps_weight_order_on_ties() {
+        // 们都 平均 -1 总分 -2，们 平均 -1.5 总分 -1.5；乙 丙 同分，保持原来的先后。NaN 排到最后。
+        let mut scorer = means(&[("们都", -1.0), ("们", -1.5), ("怪", f32::NAN)], 64);
+        let order = prediction_order(&mut scorer, "我", &["怪", "乙", "们都", "丙", "们"]).unwrap();
+        assert_eq!(order, [4, 2, 1, 3, 0]);
+        assert_eq!(scorer.context, "我");
+    }
+
+    #[test]
+    fn prediction_order_declines_one_row_and_a_wrong_length() {
+        let mut scorer = means(&[], 64);
+        assert_eq!(prediction_order(&mut scorer, "", &["们"]), None);
+        struct Short;
+        impl CandidateScorer for Short {
+            fn context_length(&self) -> usize {
+                64
+            }
+            fn log_probabilities(&mut self, _: &str, _: &[&str]) -> Vec<f32> {
+                Vec::new()
+            }
+        }
+        assert_eq!(prediction_order(&mut Short, "", &["们", "的"]), None);
+    }
+
+    #[test]
+    fn prediction_order_trims_the_context_like_the_keystroke_rerank() {
+        let context = "今天天气很好我们一起去公园散步".repeat(8);
+        let mut scorer = means(&[], 64);
+        prediction_order(&mut scorer, &context, &["们", "一起"]).unwrap();
+        assert_eq!(scorer.context, rerank_context(&context, 64, 2));
+        assert!(scorer.context.chars().count() < context.chars().count());
     }
 }

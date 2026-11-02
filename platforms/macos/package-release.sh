@@ -110,17 +110,19 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# 用法：cargo_universal 输出目录 产物名... -- cargo build 参数...。按 rust_targets 各编一次（`--` 之后的参数原样传给 cargo build），再把每个 target 的各个同名产物用 lipo 合并到输出目录。一次调用编几个包时，它们共用的依赖按同一组 feature 只编一遍。
+# 用法：cargo_universal 输出目录 产物名... -- cargo build 参数...。按 rust_targets 各编一次（`--` 之后的参数原样传给 cargo build），再把每个 target 的各个同名产物用 lipo 合并到输出目录。一次调用编几个包时，它们共用的依赖按同一组 feature 只编一遍。每次编译把 ORT_LIB_LOCATION 指向这个 target 的精简 ONNX Runtime（ort_locations，与 rust_targets 一一对应，在编 host 库之前填好）；没有用到 ort-sys 的包不读它。
 cargo_universal() {
-  local output_dir="$1" target name names=() slices symbols
+  local output_dir="$1" target index name names=() slices symbols
   shift
   while [ "$1" != -- ]; do
     names+=("$1")
     shift
   done
   shift
-  for target in "${rust_targets[@]}"; do
-    CARGO_PROFILE_RELEASE_DEBUG=1 CARGO_PROFILE_RELEASE_STRIP=none CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed \
+  for index in "${!rust_targets[@]}"; do
+    target="${rust_targets[$index]}"
+    ORT_LIB_LOCATION="${ort_locations[$index]}" \
+      CARGO_PROFILE_RELEASE_DEBUG=1 CARGO_PROFILE_RELEASE_STRIP=none CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed \
       cargo build --release --locked --target "$target" "$@"
   done
   mkdir -p "$output_dir"
@@ -318,8 +320,21 @@ fi
 # The minimum system version goes to the C/C++ compilers and to CMake separately, never as MACOSX_DEPLOYMENT_TARGET: rustc applies that to host proc-macro dylibs too, which then fail to load (README.md, 构建与本地测试).
 # host 库和 msime-mcp 在同一次 cargo 调用里编：分开编时两次的 feature 集合不同（msime-mcp 多开了 tokio 的 io-std 和 macros、futures-util 的 async-await 和 channel、tracing 的 attributes 等），engine、client-core、host-api 和半数第三方依赖每个 target 要编两遍。合在一起后 msime-mcp 的 feature 集合与单独编时完全相同，host 库只多出这几项纯增量的 API，行为不变。设置应用（msime-desktop）不并进来：它会给 objc2 打开 exception、给 serde_json 打开 unbounded_depth，这些会改变 host 库和 msime-mcp 的行为。
 # The same compiler flags for both: msime-mcp links the Engine through msime-host-api. Nothing in the app starts msime-mcp; an agent's MCP configuration runs Contents/MacOS/msime-mcp over stdio. MSIME_VERSION 是 msime-mcp --version 和 MCP 握手报告的版本（crates/mcp-server/build.rs），与这个包的版本相同；host-api 不读它。
+# 整句联想「增强」的逐键重排跑在 ONNX Runtime 上（host-api 的 `onnx-rerank` 特性，见 .agents/notes/implemented/architecture/2026-11-01-onnx-rerank-backend.md）：两种架构的精简静态库按 resources/onnxruntime-minimal.lock.json 下载核对，链进 libmsime_host_api.a。特性写成 msime-host-api/onnx-rerank：msime-mcp 依赖 host-api，经 feature 合并也链进 ONNX Runtime，换来的是两者仍只编一遍（理由见上面第一段）。模型不在这里，由 CMake 放进输入法 bundle（CMakeLists.txt 的 MSIME_BUNDLE_RERANK_MODELS）。
+ort_locations=()
+for target in "${rust_targets[@]}"; do
+  ort_locations+=("$(python3 scripts/fetch_onnxruntime.py --target "$target")")
+  # ort-sys 把静态库复制进自己的输出目录，库换了也不会重新复制；按锁里库的 SHA-256 记一个戳，变了就让它重新复制（同 platforms/ios/build-native.sh）。
+  ort_stamp="$CARGO_TARGET_DIR/$target/onnxruntime-library.sha256"
+  ort_library_sha="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["targets"][sys.argv[2]]["library_sha256"])' resources/onnxruntime-minimal.lock.json "$target")"
+  if [ -d "$CARGO_TARGET_DIR/$target" ] && [ "$(cat "$ort_stamp" 2>/dev/null)" != "$ort_library_sha" ]; then
+    cargo clean -p ort-sys --target "$target" --release
+  fi
+  mkdir -p "$CARGO_TARGET_DIR/$target"
+  printf '%s\n' "$ort_library_sha" > "$ort_stamp"
+done
 MSIME_VERSION="$version" CFLAGS="-mmacosx-version-min=13.0" CXXFLAGS="-mmacosx-version-min=13.0" CMAKE_OSX_DEPLOYMENT_TARGET=13.0 CMAKE_PREFIX_PATH="$(brew --prefix)" \
-  cargo_universal "$universal_dir" libmsime_host_api.a msime-mcp -- -p msime-host-api -p msime-mcp-server
+  cargo_universal "$universal_dir" libmsime_host_api.a msime-mcp -- -p msime-host-api -p msime-mcp-server --features msime-host-api/onnx-rerank
 # MSIME_HOST_LIBRARY is explicit: the CMake default is target/debug, which would link the debug Rust library into a Release bundle.
 cmake -S platforms/macos -B "$build_dir" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix)" \
   -DMSIME_RELEASE_CRASH_SYMBOLS=ON \
@@ -432,6 +447,8 @@ load_edition() {
   dmg_prefix="$(python3 "$edition_tool" field --edition "$edition" dmg_prefix)"
   # 非英文离线释义按中文候选查，不提供中文方案的版本（日文、越南文和藏文版）不带：stage-resources.sh 不暂存，check_app 再确认包里没有。
   offline_glosses="$(python3 "$edition_tool" field --edition "$edition" features.offline_glosses)"
+  # 整句联想「增强」只在 full 与拼音版提供，逐键重排的两档模型也只随它们发布（package_edition 按这个开关去留）。
+  neural_keyboard="$(python3 "$edition_tool" field --edition "$edition" features.neural_keyboard)"
   wubi_bundled="$(python3 -I -c 'import json, sys; print(int(next(edition["default_scheme"] for edition in json.load(open(sys.argv[1]))["editions"] if edition["id"] == sys.argv[2]) == "wubi"))' "$repo_root/shared/contracts/editions.json" "$edition")"
   # 这个版本在 update_channel 上的 appcast 和更新包文件名。
   local names
@@ -456,6 +473,10 @@ ditto "$built_bundle" "target/macos/$bundle_name"
 staged_bundle="$(only target/macos/*.app)"
 # 编出来的是 full 的 bundle；不是 full 的版本换上该版本的 Info.plist、InfoPlist.strings 和可执行文件名，签名在这之后。full 什么也不改。
 python3 "$edition_tool" apply --edition "$edition" "$staged_bundle"
+# CMake 把逐键重排的两档 ONNX 模型放在 Contents/rerank-model 与 Contents/rerank-model-small（理由见 CMakeLists.txt）。整句联想「增强」只在提供它的版本里有（版本表 features.neural_keyboard，host-api 在别的版本里不挂逐键重排），其余版本签名前去掉这 39 MB。
+if [ "$neural_keyboard" != true ]; then
+  rm -rf "$staged_bundle/Contents/rerank-model" "$staged_bundle/Contents/rerank-model-small"
+fi
 # 英文释义和音标表也随独立的 InputMethodKit bundle 安装。旧配置可能仍使用较早的 EngineResources，
 # InputController 会把这个 bundle 的 Resources 作为补充词库只读回退。
 for table in character-glosses word-glosses pronunciations target-pronunciations; do
@@ -557,27 +578,6 @@ chmod -R u+rwX,go+rX,go-w "$app"
 sign "$app"
 codesign --verify --deep --strict "$app"
 
-# 资源完整性由 verify_resources 逐项校验；预算跟随本版本实际随包的锁定资源，再为目录、辅助码和其他小文件留固定 4 MiB 余量。
-core_dictionary_budget_kib() {
-  python3 - "$repo_root" "$edition" "$1" <<'PYBUDGET'
-import json
-import sys
-from pathlib import Path
-
-root, edition, staged = Path(sys.argv[1]), sys.argv[2], Path(sys.argv[3])
-lock = root / ("resources/desktop-dictionary.lock.json" if edition == "full" else f"resources/editions/{edition}.lock.json")
-artifacts = json.loads(lock.read_text())["artifacts"]
-# 按 4 KiB 文件分配粒度向上取整；按需省略的锁条目不占本版本预算。
-locked_kib = sum((artifact["size"] + 4095) // 4096 * 4
-                 for artifact in artifacts if (staged / artifact["name"]).is_file())
-helpcodes = root / "resources/helpcodes"
-names = ("helpcode.txt", "zrm_helpcode_big_unique.txt", "shouyou2_0_helpcode.txt", "shouyouplus_helpcode.txt", "xiaohe_helpcode.txt", "jiajia_helpcode.txt", "wubi86_helpcode.txt", "ENGINE-NOTICE.md", "NOTICE.md", "NOTICE-wubi86.md")
-helpcodes_kib = sum((path.stat().st_size + 4095) // 4096 * 4
-                    for name in names if (path := helpcodes / name).is_file())
-print(locked_kib + helpcodes_kib + 4096)
-PYBUDGET
-}
-
 # 包里必须有安装按钮和第一次启动要读的东西才值得发：对打好的应用查一遍，展开安装包后对载荷里的那份再查一遍。
 check_app() {
   local root="$1"
@@ -609,14 +609,8 @@ check_app() {
   test ! -e "$resources_dir/language-dictionaries"
   test ! -e "$resources_dir/handwriting/handwriting-zh_CN.model"
   test -f "$resources_dir/handwriting/Zinnia-LICENSE.txt"
-  # 词库升级的体积由版本锁评审；预算只为本版本随包的文件加固定余量，额外资源仍会超限。
-  local engine_kib engine_budget_kib
-  engine_kib="$(du -sk "$resources_dir/EngineResources" | cut -f1)"
-  engine_budget_kib="$(core_dictionary_budget_kib "$resources_dir/EngineResources")"
-  test "$engine_kib" -le "$engine_budget_kib" || {
-    echo "EngineResources is ${engine_kib} KiB, over the ${engine_budget_kib} KiB locked core-dictionary budget: $resources_dir/EngineResources" >&2
-    exit 1
-  }
+  # 词库升级的体积由版本锁评审；预算只为本版本随包的文件加固定余量，额外资源仍会超限。两边都按文件长度取整到 4 KiB 计，不用 du 的已分配块数：同一份内容展开安装包后 du 曾多量出 18 MiB，让 0.57.0 正式版的五笔包被误拒（见 engine_resources_budget.py）。
+  python3 -I "$repo_root/platforms/macos/scripts/engine_resources_budget.py" --edition "$edition" "$resources_dir/EngineResources" || exit 1
   test -f "$resources_dir/Licenses/THIRD_PARTY_NOTICES.txt"
   test -x "$root/Contents/MacOS/msime-mcp"
   codesign --verify --strict "$root/Contents/MacOS/msime-mcp"
@@ -660,6 +654,20 @@ check_app() {
     test -f "$nested/Contents/Resources/word-glosses/word-glosses-NOTICE.txt"
   fi
   test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$nested/Contents/Info.plist")" = "$bundle_id"
+  # 逐键重排的两档模型：提供「增强」的版本在输入法 bundle 的 Contents 下带着每档三个文件，其余版本一个都不带。
+  local rerank_directory rerank_file
+  for rerank_directory in rerank-model rerank-model-small; do
+    if [ "$neural_keyboard" = true ]; then
+      for rerank_file in lm_step.ort model.json vocab.json; do
+        test -s "$nested/Contents/$rerank_directory/$rerank_file" || {
+          echo "the input method lacks Contents/$rerank_directory/$rerank_file: $nested" >&2
+          exit 1
+        }
+      done
+    else
+      test ! -e "$nested/Contents/$rerank_directory"
+    fi
+  done
   # 版本声明：full 的包不带，其他版本的声明必须是本版本。
   if [ "$edition" = full ]; then
     test ! -e "$resources_dir/edition.json"

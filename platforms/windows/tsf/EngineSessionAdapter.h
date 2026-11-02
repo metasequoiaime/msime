@@ -28,6 +28,8 @@ struct EngineView {
   std::vector<EngineCandidate> candidates;
   uint64_t generation = 0;
   std::size_t caret = 0;
+  // 组字光标在 preedit 里的位置，按 Unicode 标量计（View.preedit_caret）。preedit 是分词或展开过的拼写时，光标要用它放，不能拿 caret 去数 preedit 的字母：双拼「拼音分词」的 preedit 是展开的全拼（uiui 是 shi'shi），字母数和按键对不上（#10632）。视图里没有这一项时为空。
+  std::optional<std::size_t> preedit_caret;
   // The Engine's SchemeType ordinal; the numbers are named in common/InputSchemeTraits.h.
   uint32_t scheme = 0;
   std::string key_grid = "none";
@@ -40,6 +42,8 @@ struct EngineView {
   std::string conversion;
   std::size_t conversion_focus_start = 0;
   std::size_t conversion_focus_end = 0;
+  // 上屏后联想（msime_client.h 的 View.prediction）：没有组字，候选是建议的后续文字，点选、数字键或空格才上屏。普通状态的 view 不带这个字段，按 false 读。
+  bool prediction = false;
 };
 struct EngineResult {
   bool handled = false;

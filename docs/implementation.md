@@ -64,7 +64,7 @@
 
 `ResourceStore` 读取受信任的产品锁，通过宿主注入的传输流安装平面文件集合，严格校验长度与摘要，用独立文件锁和临时目录发布防止半安装，不覆盖旧资源代次。词库升级按代次进行：宿主建会话前比对编译进库的词库锁代次，原子替换运行配置里的 `resources`/`dictionaries` 两项。
 
-`client-core::helpcode` 负责读取资源目录里的用户辅助码元数据。`helpcodes/custom/*.txt` 的文件名形成 `custom/<stem>` 标识，扫描结果按 stem 排序；可选的 `# name:`、`# name_en:` 头部只用于设置界面显示，路径校验拒绝目录穿越和平台文件名分隔符。实际码表解析与候选筛选仍由 Engine 负责，Rust 不复制输入算法。
+`client-core::helpcode` 负责读取用户辅助码元数据：状态根和资源目录两处的 `helpcodes/custom/*.txt`，同一主干取状态根那份（`list_custom_helpcode_schemas_in`），资源目录里以前放的表由 `adopt_custom_helpcodes` 复制到状态根下。文件名形成 `custom/<stem>` 标识，扫描结果按 stem 排序；可选的 `# name:`、`# name_en:` 头部只用于设置界面显示，路径校验拒绝目录穿越和平台文件名分隔符。实际码表解析与候选筛选仍由 Engine 负责，Rust 不复制输入算法。
 
 ### 账号、云与社区
 

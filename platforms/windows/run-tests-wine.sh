@@ -262,12 +262,14 @@ for exe in /bin-win/windows-*.exe /bin-win/tsf/msime-tsf-*.exe /bin-win/msimeui-
   [ "$name" = windows-stroke-keys ] && argument="$MSIME_STROKE_FIXTURE"
   [ "$name" = windows-zhuyin-keys ] && argument="$MSIME_ZHUYIN_FIXTURE"
   [ "$name" = windows-host-online-candidates ] && argument="Z:\\fixtures\\msime-pinyin-online.db"
+  [ "$name" = windows-cloud-seat-navigation ] && argument="Z:\\fixtures\\msime-pinyin-online.db"
   [ "$name" = windows-eighteen-key ] && argument="Z:\\fixtures\\msime-eighteen-key.db"
   [ "$name" = windows-shuangpin-paged-selection ] && argument="Z:\\fixtures\\msime-shuangpin-paging.db"
   [ "$name" = msime-tsf-paired-punctuation-wiring-test ] && argument="$MSIME_TSF_SOURCE"
   [ "$name" = msime-tsf-smart-punctuation-focus-wiring-test ] && argument="$MSIME_TSF_SOURCE"
   [ "$name" = msime-tsf-japanese-conversion-wiring-test ] && argument="$MSIME_TSF_SOURCE"
   [ "$name" = msime-tsf-gloss-column-wiring-test ] && argument="$MSIME_TSF_SOURCE"
+  [ "$name" = msime-tsf-punctuation-mode-policy-test ] && argument="$MSIME_TSF_SOURCE"
   if timeout 120 xvfb-run -a wine "/run/t/$name.exe" $argument >/dev/null 2>&1; then
     echo "PASS $name"
   else

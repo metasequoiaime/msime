@@ -9,6 +9,7 @@
 #include "input/CandidateTextPolicy.h"
 #include "KeyEvent.h"
 #include "LifecyclePolicy.h"
+#include "PredictionPolicy.h"
 #include "PunctuationPolicy.h"
 #include <algorithm>
 #include <optional>
@@ -39,6 +40,15 @@ bool translation_preferences_changed(const nlohmann::json &before,
       return true;
   }
   return false;
+}
+
+// 视图里高亮的那一行；没有候选时为空。
+std::optional<HighlightedSeat> highlighted_seat(const nlohmann::json &view) {
+  for (const auto &candidate : view.at("candidates"))
+    if (candidate.at("highlighted").get<bool>())
+      return HighlightedSeat{candidate.at("id").at("index").get<size_t>(),
+                             candidate_source_is_visible(candidate.value("source", 0u))};
+  return std::nullopt;
 }
 
 // 一次选词期间去掉 HOST_HOLDS_PIECES、保留 COMMIT_OBSERVE_ONLY 的当前状态，离开作用域时恢复成平时的位。
@@ -126,6 +136,20 @@ nlohmann::json ServerSession::cancel_again(nlohmann::json result,
   if (result.at("commit").is_null() &&
       !result.at("view").at("editing_text").get<std::string>().empty())
     return response(msime_client_command(session_, command));
+  return result;
+}
+nlohmann::json ServerSession::leave_hidden_seat(nlohmann::json result,
+                                               const nlohmann::json &before) {
+  const auto previous = highlighted_seat(before);
+  (void)msime::windows::leave_hidden_seat(
+      previous ? std::optional<size_t>(previous->index) : std::nullopt,
+      result.at("view").at("candidates").size(),
+      [&] { return highlighted_seat(result.at("view")); },
+      [&](bool forward) {
+        result["view"] = response(msime_client_command(
+            session_, forward ? MSIME_NEXT_CANDIDATE : MSIME_PREVIOUS_CANDIDATE)).at("view");
+        return true;
+      });
   return result;
 }
 void ServerSession::discard_composition(uint64_t epoch, uint32_t command) {
@@ -274,7 +298,9 @@ KeyResult ServerSession::key(const FanyImeNamedpipeData &packet,
     const bool edits_sentence =
         scheme::EditsSentence(static_cast<int>(current.value("scheme", 0u))) &&
         current.value("local_mode", std::string{}) == "none" && !current.value("dedicated_english", false);
-    result = response(msime_client_command(session_, sentence_edit_command(action.value, edits_sentence)));
+    // 横排候选的左右键和 End 在引擎里也会移动高亮（runtime 的 caret_edge_candidate_shortcut），和 navigate 一样不能停在隐藏的占位席位上。
+    result = leave_hidden_seat(
+        response(msime_client_command(session_, sentence_edit_command(action.value, edits_sentence))), current);
     // A reset discards the composition, as the TIP discards it from its own host session. Escape on a word whose first cancel only shows its raw keys again stops there, as the TIP does (scheme::CancelRestoresRaw); Escape in 整句改字 only leaves it and keeps the pinyin composing, as the TIP does too.
     if (action.kind == KeyKind::LocalReset &&
         !(packet.keycode == kVirtualKeyEscape &&
@@ -328,8 +354,9 @@ ServerSession::navigate(const FanyImeNamedpipeData &packet, uint64_t epoch,
                              scheme == scheme::Japanese || scheme::AlwaysInlinePreedit(scheme));
   if (!action)
     return std::nullopt;
+  // 云的占位席位候选窗不画，高亮不能停在它上面（leave_hidden_seat）。
   auto result = action->command
-                    ? response(msime_client_command(session_, *action->command))
+                    ? leave_hidden_seat(response(msime_client_command(session_, *action->command)), current)
                     : nlohmann::json{{"handled", true},
                                      {"commit", nullptr},
                                      {"diagnostic", nullptr},
@@ -374,6 +401,9 @@ nlohmann::json ServerSession::all_candidates(uint64_t epoch) {
 }
 nlohmann::json ServerSession::select_with(uint64_t generation, size_t index,
                                           bool completes_composition, bool any) {
+  // 上屏后联想的行来源是 Generated（8），按来源会被当成「整段上屏、随后丢掉剩下的读音」；可联想没有读音，选中之后引擎已经接着出了下一代联想，再发 MSIME_CANCEL 会把它清掉，TIP 那边的宿主会话却还留着同一代，两边就对不上了。
+  if (completes_composition && idle_prediction_view(view()))
+    completes_composition = false;
   nlohmann::json result;
   {
     // 这几类候选整段送进文档，剩下的读音随后由下面的 MSIME_CANCEL 丢掉，选中的这一段不进 Server 的前缀。核心却只看到「上屏了、读音还剩」，按 HOST_HOLDS_PIECES 当作暂存的一段：不出上屏音，回复的 feedback 为 0，之后的 MSIME_CANCEL 又没有上屏，整段上屏就既不响也不画，还会用 0 把连击徽标清零。所以这次选词不带这一位，离开作用域时恢复，选词抛出也一样。

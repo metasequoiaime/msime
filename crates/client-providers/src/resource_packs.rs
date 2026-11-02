@@ -1,4 +1,4 @@
-//! 按需下载的资源包：macOS 和 Android 发布包不再内置的日文词典、粤拼/注音/笔画词库，桌面发布包不再内置的手写模型和桌面落定重排模型，Android 发布包不再内置的离线释义词典、英文音标表和本地语音运行库，以及 macOS 发布包不再内置的五笔码表和本地语音运行库。
+//! 按需下载的资源包：macOS 和 Android 发布包不再内置的日文词典、粤拼/注音/笔画词库，桌面发布包不再内置的手写模型和桌面落定重排模型，Android 发布包不再内置的离线释义词典、英文音标表、本地语音运行库和「增强」逐键重排的 ONNX 模型，以及 macOS 发布包不再内置的五笔码表和本地语音运行库。
 //!
 //! 每个资源包安装在 `<state_root>/resource-packs/<id>/`，文件平铺，最后写入的 `msime-model.json` 标记安装完整。固定资源的文件名、URL、长度和 SHA-256 来自仓库内审过的锁文件，下载、校验、暂存和整体发布复用 [`crate::voice::local_models::install_files`]；会原地替换的万象 LTS 使用响应长度和 `.gram` 格式校验，语音运行库从固定的归档里取出文件，见 [`ResourcePack::archive`]。
 //!
@@ -61,6 +61,37 @@ pub struct GrammarModelUpdate {
     pub size: u64,
 }
 
+/// 每个语法模型只接受来自编译期固定的上游 Release 的下载地址。在线目录取自 `develop` 分支，摘要和地址出自同一份文件，所以目录本身证明不了来源；这里把来源钉死在上游仓库，目录被改坏时最多只能指向同一仓库的另一个 Release 附件，不能指向任意主机。
+fn grammar_release_prefix(id: &str) -> Option<&'static str> {
+    match id {
+        "wanxiang" => Some("https://github.com/amzxyz/rime-wanxiang-data/releases/download/"),
+        "baguwen" | "baguwen-compact" => {
+            Some("https://github.com/lotem/rime-octagram-data/releases/download/")
+        }
+        _ => None,
+    }
+}
+
+/// 地址必须正好是 `<前缀><tag>/<文件名>`。`tag` 只允许普通字符，排除 `..`、查询串和片段，因为 URL 解析会把 `..` 段折叠掉，单靠前缀匹配挡不住跳出仓库路径。
+fn grammar_url_from_upstream(model: &GrammarCatalogModel) -> bool {
+    let Some(prefix) = grammar_release_prefix(&model.id) else {
+        return false;
+    };
+    let Some(rest) = model.artifact.url.strip_prefix(prefix) else {
+        return false;
+    };
+    let Some((tag, name)) = rest.split_once('/') else {
+        return false;
+    };
+    !tag.is_empty()
+        && tag != "."
+        && tag != ".."
+        && tag
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+        && name == model.artifact.name
+}
+
 fn validate_grammar_catalog(catalog: &GrammarCatalog) -> Result<(), LocalModelError> {
     if catalog.version != 1 || catalog.models.is_empty() || catalog.models.len() > 9 {
         return Err(LocalModelError::Network("invalid grammar catalog".into()));
@@ -82,7 +113,7 @@ fn validate_grammar_catalog(catalog: &GrammarCatalog) -> Result<(), LocalModelEr
             || !matches!(model.channel.as_str(), "stable" | "beta" | "nightly")
             || model.format != "gram-v1"
             || !crate::is_lower_hex(&model.source_commit, 40)
-            || !model.artifact.url.starts_with("https://")
+            || !grammar_url_from_upstream(model)
             || !crate::is_lower_hex(&model.artifact.sha256, 64)
             || model.artifact.size < GRAMMAR_HEADER_BYTES as u64
             || model.artifact.size > 2 * 1024 * 1024 * 1024
@@ -261,6 +292,7 @@ const TARGET_PRONUNCIATIONS_LOCK: &str =
     include_str!("../../../resources/target-pronunciations.lock.json");
 /// 各平台的 sherpa-onnx 运行库归档，`fetch_voice_runtime.py` 和打包脚本用的同一份锁。
 const VOICE_RUNTIME_LOCK: &str = include_str!("../../../resources/voice-runtime.lock.json");
+const RERANK_MODEL_LOCK: &str = include_str!("../../../resources/rerank-model.lock.json");
 /// 从 Android 归档里取出的两个库各自的长度和 SHA-256。
 const VOICE_RUNTIME_ANDROID_LOCK: &str =
     include_str!("../../../resources/voice-runtime-android.lock.json");
@@ -311,6 +343,8 @@ pub enum ResourcePack {
     /// 用户手动导入的 Android 离线 OCR 模块；尚未固定正式产物时不可用。
     #[serde(rename = "ocr-module-android")]
     AndroidOcrModule,
+    /// 整句联想「增强」逐键重排的手机档 ONNX 模型（chinese-ime-lm `rerank-v1` 的 6x256）：`lm_step.ort`、`model.json`、`vocab.json`，即 `resources/rerank-model.lock.json` 里 `rerank-model-small` 那一项。Android 发布包不带它，用户选「增强」时下载；id 与 host-api 找的目录名相同，装好后会话在 `resource-packs/` 下找到它，没装时退回随包的句子模型。
+    RerankModelSmall,
 }
 
 /// 模块清单和接口版本都编译进宿主，文件选择器不能提供自己的信任清单。
@@ -447,6 +481,52 @@ struct TargetPronunciationsLock {
     built: Vec<crate::resources::Artifact>,
 }
 
+/// `rerank-model.lock.json`：chinese-ime-lm `rerank-v1` 的两档逐键重排模型，每档一个目录、三个文件。`name` 是 Release 附件名，`file` 是装好后的文件名（host-api 读 `lm_step.ort`、`model.json`、`vocab.json`）；资源包按 `file` 平铺，附件名只在 URL 里。
+#[derive(Deserialize)]
+struct RerankModelLock {
+    /// 导出这批模型的 chinese-ime-lm 提交，即 `rerank-v1` 标签指向的那一个。
+    source_commit: String,
+    models: Vec<RerankModelEntry>,
+}
+
+#[derive(Deserialize)]
+struct RerankModelEntry {
+    directory: String,
+    artifacts: Vec<RerankModelArtifact>,
+}
+
+#[derive(Deserialize)]
+struct RerankModelArtifact {
+    file: String,
+    url: String,
+    sha256: String,
+    size: u64,
+}
+
+impl RerankModelLock {
+    /// 锁里目录名为 `directory` 的那一档，变成资源包的文件清单。锁里没有它是编码错误，`every_pack_set_validates` 会在测试里先撞上。
+    fn model(&self, directory: &str) -> ResourceSet {
+        let model = self
+            .models
+            .iter()
+            .find(|model| model.directory == directory)
+            .unwrap_or_else(|| panic!("rerank model lock has no {directory}"));
+        ResourceSet {
+            source_commit: self.source_commit.clone(),
+            artifacts: model
+                .artifacts
+                .iter()
+                .map(|artifact| crate::resources::Artifact {
+                    name: artifact.file.clone(),
+                    url: artifact.url.clone(),
+                    sha256: artifact.sha256.clone(),
+                    size: artifact.size,
+                })
+                .collect(),
+        }
+    }
+}
+
 #[derive(Deserialize)]
 struct VoiceRuntimeLock {
     source_commit: String,
@@ -506,7 +586,7 @@ pub struct PackArchive {
 
 impl ResourcePack {
     /// 每一种资源包，包括锁文件还没固定内容的；只要存在的那些用 [`ResourcePack::available`]。
-    pub const ALL: [ResourcePack; 15] = [
+    pub const ALL: [ResourcePack; 16] = [
         ResourcePack::Japanese,
         ResourcePack::LanguageDictionaries,
         ResourcePack::Handwriting,
@@ -522,6 +602,7 @@ impl ResourcePack {
         ResourcePack::Wubi,
         ResourcePack::MacosVoiceRuntime,
         ResourcePack::AndroidOcrModule,
+        ResourcePack::RerankModelSmall,
     ];
 
     /// 锁文件固定了内容、可以下载的资源包，顺序同 [`ResourcePack::ALL`]。
@@ -556,6 +637,7 @@ impl ResourcePack {
             ResourcePack::Wubi => "wubi",
             ResourcePack::MacosVoiceRuntime => "voice-runtime-macos",
             ResourcePack::AndroidOcrModule => "ocr-module-android",
+            ResourcePack::RerankModelSmall => "rerank-model-small",
         }
     }
 
@@ -592,7 +674,8 @@ impl ResourcePack {
             | ResourcePack::TargetPronunciations
             | ResourcePack::VoiceRuntime
             | ResourcePack::MacosVoiceRuntime
-            | ResourcePack::AndroidOcrModule => &[],
+            | ResourcePack::AndroidOcrModule
+            | ResourcePack::RerankModelSmall => &[],
         }
     }
 
@@ -634,7 +717,7 @@ impl ResourcePack {
         if self == ResourcePack::AndroidOcrModule {
             return android_ocr_module_set();
         }
-        static SETS: OnceLock<[ResourceSet; 13]> = OnceLock::new();
+        static SETS: OnceLock<[ResourceSet; 14]> = OnceLock::new();
         static UNPINNED: OnceLock<ResourceSet> = OnceLock::new();
         if self == ResourcePack::MacosVoiceRuntime {
             // 还没固定时是没有文件的空清单，它不能通过 `ResourceSet::validate`，也不会被列出或安装。
@@ -664,6 +747,8 @@ impl ResourcePack {
             let target_pronunciations: TargetPronunciationsLock =
                 serde_json::from_str(TARGET_PRONUNCIATIONS_LOCK)
                     .expect("target pronunciations lock is valid");
+            let rerank: RerankModelLock =
+                serde_json::from_str(RERANK_MODEL_LOCK).expect("rerank model lock is valid");
             let (runtime_commit, archive, members) = voice_runtime_locks();
             [
                 desktop.only(&ON_DEMAND_JAPANESE_ARTIFACTS),
@@ -702,6 +787,7 @@ impl ResourcePack {
                     source_commit: target_pronunciations.source_revision,
                     artifacts: target_pronunciations.built,
                 },
+                rerank.model(ResourcePack::RerankModelSmall.id()),
             ]
         });
         match self {
@@ -718,6 +804,7 @@ impl ResourcePack {
             ResourcePack::TargetPronunciations => &sets[12],
             ResourcePack::VoiceRuntime => &sets[9],
             ResourcePack::Wubi => &sets[10],
+            ResourcePack::RerankModelSmall => &sets[13],
             ResourcePack::MacosVoiceRuntime | ResourcePack::AndroidOcrModule => {
                 unreachable!("handled above")
             }
@@ -1539,6 +1626,26 @@ mod tests {
         let mut invalid = channels.clone();
         invalid.models[0].artifact.url = "http://example.invalid/model.gram".into();
         assert!(validate_grammar_catalog(&invalid).is_err());
+        // 目录被改坏时不能把下载指向上游 Release 以外的地方，包括别的主机、同主机的别的仓库、借 `..` 折叠跳出路径和换掉文件名。
+        let wanxiang = channels.models[0].artifact.url.clone();
+        let name = channels.models[0].artifact.name.clone();
+        for url in [
+            format!("https://example.invalid/LTS/{name}"),
+            format!("https://github.com/someone/rime-wanxiang-data/releases/download/LTS/{name}"),
+            format!("https://github.com/lotem/rime-octagram-data/releases/download/20260712/{name}"),
+            format!("https://github.com/amzxyz/rime-wanxiang-data/releases/download/../../../../evil/x/releases/download/LTS/{name}"),
+            format!("https://github.com/amzxyz/rime-wanxiang-data/releases/download/../{name}"),
+            format!("https://github.com/amzxyz/rime-wanxiang-data/releases/download/LTS/{name}?x=1"),
+            format!("https://github.com/amzxyz/rime-wanxiang-data/releases/download/LTS/x/{name}"),
+            "https://github.com/amzxyz/rime-wanxiang-data/releases/download/LTS/other.gram".into(),
+        ] {
+            let mut invalid = channels.clone();
+            invalid.models[0].artifact.url = url.clone();
+            assert!(validate_grammar_catalog(&invalid).is_err(), "{url}");
+        }
+        let mut retagged = channels.clone();
+        retagged.models[0].artifact.url = wanxiang.replace("/LTS/", "/v2026.11.01/");
+        validate_grammar_catalog(&retagged).unwrap();
         let mut invalid = channels;
         invalid.models.push(invalid.models[0].clone());
         assert!(validate_grammar_catalog(&invalid).is_err());
@@ -1855,6 +1962,47 @@ mod tests {
             .collect();
         assert_eq!(ResourcePack::LanguageDictionaries.schemes(), pinned);
         assert!(pinned.contains(&"cantonese") && pinned.contains(&"zhuyin"));
+    }
+
+    #[test]
+    fn the_rerank_model_pack_is_the_small_model_of_the_rerank_lock() {
+        let lock: Value = serde_json::from_str(RERANK_MODEL_LOCK).unwrap();
+        let small = lock["models"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|model| model["directory"] == "rerank-model-small")
+            .unwrap();
+        let pack = ResourcePack::RerankModelSmall;
+        assert_eq!(pack.id(), "rerank-model-small");
+        assert_eq!(ResourcePack::from_id("rerank-model-small"), Some(pack));
+        assert!(pack.schemes().is_empty());
+        let set = pack.set();
+        assert_eq!(set.source_commit, lock["source_commit"].as_str().unwrap());
+        // 装好后的文件名是 host-api 读的三个原名，下载地址、摘要和长度逐项取自锁。
+        let names: Vec<&str> = set
+            .artifacts
+            .iter()
+            .map(|artifact| artifact.name.as_str())
+            .collect();
+        assert_eq!(names, ["lm_step.ort", "model.json", "vocab.json"]);
+        for (artifact, locked) in set
+            .artifacts
+            .iter()
+            .zip(small["artifacts"].as_array().unwrap())
+        {
+            assert_eq!(artifact.name, locked["file"].as_str().unwrap());
+            assert_eq!(artifact.url, locked["url"].as_str().unwrap());
+            assert_eq!(artifact.sha256, locked["sha256"].as_str().unwrap());
+            assert_eq!(artifact.size, locked["size"].as_u64().unwrap());
+        }
+        assert_eq!(
+            pack.size(),
+            set.artifacts
+                .iter()
+                .map(|artifact| artifact.size)
+                .sum::<u64>()
+        );
     }
 
     #[test]

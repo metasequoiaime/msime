@@ -1176,6 +1176,35 @@ begin
   DelTree(Path, True, True, True);
 end;
 
+{ DataDir\helpcodes 里除 custom 子目录以外的条目：内置辅助码表是安装包的，每次完整安装重写；custom 放用户自己的辅助码表（Engine 和设置窗口先读状态根下的 helpcodes\custom，见 #10707），升级不得清掉。}
+procedure CleanPackageHelpcodes(const HelpcodesPath: String);
+var
+  FindRec: TFindRec;
+  ItemPath: String;
+begin
+  if FindFirst(AddBackslash(HelpcodesPath) + '*', FindRec) then
+  begin
+    try
+      repeat
+        if
+          (FindRec.Name <> '.') and
+          (FindRec.Name <> '..') and
+          (CompareText(FindRec.Name, 'custom') <> 0)
+        then
+        begin
+          ItemPath := AddBackslash(HelpcodesPath) + FindRec.Name;
+          if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
+            TryDeleteTree(ItemPath)
+          else
+            DeleteFile(ItemPath);
+        end;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+end;
+
 procedure CleanAppDataExceptUserFiles;
 var
   AppDataPath: String;
@@ -1199,7 +1228,10 @@ begin
         then
         begin
           ItemPath := AddBackslash(AppDataPath) + FindRec.Name;
-          if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
+          if ((FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0) and
+            (CompareText(FindRec.Name, 'helpcodes') = 0) then
+            CleanPackageHelpcodes(ItemPath)
+          else if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
             TryDeleteTree(ItemPath)
           else
             DeleteFile(ItemPath);
@@ -1331,6 +1363,19 @@ begin
   ) and (ResultCode >= 0) and (ResultCode < 8);
 end;
 
+{ 把 SourceDir 里的 *.txt 复制进 DataDir\helpcodes\custom，同名文件已在时不覆盖（/XC /XN /XO）。以前的版本只从资源目录 server\resources\helpcodes\custom 读自定义辅助码表，而 server 目录每次安装都整个删掉；数据目录换了位置时，旧 DataDir 的 helpcodes 是安装包条目、不随迁移带走。在删它们之前调用，搬不过来只记日志，不挡安装。}
+procedure AdoptCustomHelpcodes(const SourceDir: String);
+var
+  TargetDir: String;
+begin
+  TargetDir := AddBackslash(GetDataDir('')) + 'helpcodes\custom';
+  if (SourceDir = '') or (not DirExists(SourceDir)) or
+    (CompareText(RemoveBackslashUnlessRoot(SourceDir), TargetDir) = 0) then
+    exit;
+  if not RobocopySucceeded('"' + RemoveBackslashUnlessRoot(SourceDir) + '" "' + TargetDir + '" *.txt /XC /XN /XO') then
+    Log('Could not keep the custom helpcode tables in ' + SourceDir + '.');
+end;
+
 { 与来源安装包一样是"移动"数据目录：旧目录里的全部用户状态搬到新目录，安装成功后旧目录被删除。但分两步做：这里只复制，原目录保持不动；删除推迟到 ssPostInstall 的最后（FinishDataDirMove），前面任何一步抛错都会在那之前中止，旧数据因此在任何半途失败后都还在。来源安装包直接使用破坏性的移动参数，主库可能先被移走而 WAL 或配置失败，两边都不剩完整状态。}
 function MigrateUserDataDir(const OldDir, NewDir: String): String;
 var
@@ -1444,8 +1489,12 @@ begin
     Result := MigrationError;
     exit;
   end;
+  { 用户自己的辅助码表在删 server 目录、清安装包条目之前搬进 DataDir\helpcodes\custom，轻量包也一样。}
+  AdoptCustomHelpcodes(ExpandConstant('{autopf}\{#MyEditionInstallDir}\server\resources\helpcodes\custom'));
+  if (ResolvePreviousDataDir <> '') and (CompareText(ResolvePreviousDataDir, RemoveBackslashUnlessRoot(GetDataDir(''))) <> 0) then
+    AdoptCustomHelpcodes(AddBackslash(ResolvePreviousDataDir) + 'helpcodes\custom');
 #ifndef LightPackage
-  { 轻量包不带 app_data，只替换 Server/TSF。完整包先清掉安装包自己的条目，用户配置、皮肤和 Server 状态保留。}
+  { 轻量包不带 app_data，只替换 Server/TSF。完整包先清掉安装包自己的条目，用户配置、皮肤、Server 状态和 helpcodes\custom 里用户自己的辅助码表保留。}
   CleanAppDataExceptUserFiles;
 #endif
   TryDeleteTree(ExpandConstant(

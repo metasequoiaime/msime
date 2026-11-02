@@ -37,7 +37,7 @@
 | `sentence-model.safetensors` | `resources` | safetensors | 由 `chinese-ime-lm` 校验几何，64 MiB 上限 | 神经重排，默认关 | [§15](#15-sentence-modelsafetensors) |
 | octagram `.gram` | `SentenceAssociationOptions::collocation_model` 给出的路径 | Rime `Rime::Grammar/` 头加 Darts 双数组 | 只看格式前缀和数组边界，不验校验和 | 搭配打分，可缺 | [§16](#16-octagram-gram-语法模型) |
 | `handwriting-zh_CN.model` | 宿主传给 `handwriting_recognize` 的路径 | Zinnia 二进制 SVM | 魔数异或文件大小、版本、无尾随字节 | 手写 | [§14](#14-zinnia-手写模型) |
-| `helpcodes/*.txt`、`helpcodes/custom/*.txt` | `resources` | 文本 `字=码` | 无 | 辅助码 | [§17](#17-辅助码表) |
+| `helpcodes/*.txt`、`helpcodes/custom/*.txt` | `resources`；自定义表先读状态根 | 文本 `字=码` | 无 | 辅助码 | [§17](#17-辅助码表) |
 | `custom_translations.txt` | `user_data` 优先，否则 `resources`；宿主复制一份到代次 | 文本 `原文<TAB>释义` | 无 | 释义 | [§10](#10-custom_translationstxt) |
 | `translation-glosses.db` | `user_data` | SQLite | 无 | 学到的释义 | [§11](#11-translation-glossesdb) |
 | `msime_user.db` | `user_data` | SQLite（iOS 以外为 WAL） | `CREATE IF NOT EXISTS`，`user_version=4` 只写不查 | 学习、个人词典、个人 n-gram | [§6](#6-msime_userdb) |
@@ -381,6 +381,7 @@ CREATE TABLE IF NOT EXISTS metadata(name TEXT PRIMARY KEY, value TEXT NOT NULL) 
 - 行的 rowid 顺序有意义：同码同权重的候选按 rowid 排，反查编码也以 rowid 作最后的排序键，所以拆分和合并都按 rowid 复制。
 - 只收基本区汉字，CJK 扩展区和私用区字符不进表。
 - `metadata` 见 [§4.3](#43-文件内版本)；合并进主库时只搬 `wubi86`、`wubi98`，不搬 `metadata`。
+- msime-dictionary 收了新世纪词组快照 `sources/wubi/wubixsj-supplement.txt` 之后的发布里还有第三张表 `wubixsj`（构建器只拿这份快照在不在当开关，见 `crates/dict-builder/README.md`「新世纪五笔」），结构与上面两张相同（`UNIQUE("key", "value")`、`idx_wubixsj_key_weight`）。单字取自上游码表的基本区单字，权重是同码名次乘 10；词组全部由构建器按新世纪单字全码生成（`crates/dict-builder/README.md`「新世纪五笔」）。这是只加表的改动，`format_version` 不变：现有引擎准备代次时只搬 `wubi86`、`wubi98`，不认识的 `wubixsj` 留在 `msime-wubi.db` 里不用；引擎支持新世纪方案时再把它并进工作主库。
 
 准备代次时这两张表并进工作主库，五笔查询、学习和个人词典都在工作主库上进行。旧的合并发布（五笔表还在 `msime-pinyin.db` 里）照常可用。
 
@@ -500,7 +501,7 @@ Rime 上游的 octagram 语法模型格式（[lotem/librime-octagram](https://gi
 
 ## 17. 辅助码表
 
-内置方案和文件（`assets::HELPCODES`，相对 `resources`）：`lantian` → `helpcodes/helpcode.txt`，`ziranma` → `helpcodes/zrm_helpcode_big_unique.txt`，`shouyou2_0` → `helpcodes/shouyou2_0_helpcode.txt`，`shouyouplus` → `helpcodes/shouyouplus_helpcode.txt`，`xiaohe` → `helpcodes/xiaohe_helpcode.txt`，`jiajia` → `helpcodes/jiajia_helpcode.txt`，`wubi86` → `helpcodes/wubi86_helpcode.txt`。自定义方案 `custom/<名字>` 读 `helpcodes/custom/<名字>.txt`（扩展名大小写不限，名字不能含路径分隔符、不能以 `.` 开头）。
+内置方案和文件（`assets::HELPCODES`，相对 `resources`）：`lantian` → `helpcodes/helpcode.txt`，`ziranma` → `helpcodes/zrm_helpcode_big_unique.txt`，`shouyou2_0` → `helpcodes/shouyou2_0_helpcode.txt`，`shouyouplus` → `helpcodes/shouyouplus_helpcode.txt`，`xiaohe` → `helpcodes/xiaohe_helpcode.txt`，`jiajia` → `helpcodes/jiajia_helpcode.txt`，`wubi86` → `helpcodes/wubi86_helpcode.txt`。自定义方案 `custom/<名字>` 读 `helpcodes/custom/<名字>.txt`（扩展名大小写不限，名字不能含路径分隔符、不能以 `.` 开头），先在宿主给的用户目录（`EngineOptions::custom_helpcode_root`，host-api 填状态根 `preferences_directory`）下找，没有时再找 `resources` 下的。`resources` 是安装包或词库代次，升级和在线词库更新会换掉它，所以用户的表放在状态根下；host-api 准备和刷新运行时配置时把还留在资源目录里的表复制过去（不覆盖、不删源文件），Windows 安装器在删 `server` 目录之前也搬一次（#10707）。
 
 格式：UTF-8，首行可带 BOM，按 `\n` 分行并去掉行尾 `\r`；`#` 开头的行跳过；每行在第一个 `=` 处分成 `字=码`，`字` 不能为空，码取 `=` 后的头一到两个字节且必须都是 `a`-`z`，否则跳过这行；同一个字后面的行覆盖前面的。文件上限 1 MiB。内置表缺失或读不了时是空表（会话照常建立），自定义表缺失报 `Unknown helpcode schema`。
 
@@ -516,6 +517,7 @@ Rime 上游的 octagram 语法模型格式（[lotem/librime-octagram](https://gi
 | `msime-cantonese.db`、`msime-zhuyin.db`、`msime-stroke.db` 及其许可证文本、`msime-language-dictionaries-SHA256SUMS` | `msime-dict-build languages`，同一个 `dict-v*` 发布，经 `resources/language-dictionaries.lock.json` 固定 |
 | 网页引擎的 `msime-pinyin.db`、`msime-wubi86.db`、小号 `msime-japanese.dat` | `msime-dict-build web`，从 `dict-v*` 发布的文件裁出；保留拼音库的 `metadata`，`msime-wubi.db` 的 `metadata` 不复制 |
 | `sentence-model.safetensors` | [metasequoiaime/chinese-ime-lm](https://github.com/metasequoiaime/chinese-ime-lm) 的 `model-v1` 发布，经 `desktop-dictionary.lock.json` 与 `resources/neural-model.lock.json` 固定 |
+| `rerank-model/`、`rerank-model-small/`（`lm_step.ort`、`model.json`、`vocab.json`，只在宿主打开 `onnx-rerank` 时读） | GitHub Release [`metasequoiaime/chinese-ime-lm` 的 `rerank-v1`](https://github.com/metasequoiaime/chinese-ime-lm/releases/tag/rerank-v1)（文件名带尺寸前缀，如 `rerank-8x448.ort`），同一批文件也在 Hugging Face：[`msime/pinyin-ime-keystroke-reranker-25M`](https://huggingface.co/msime/pinyin-ime-keystroke-reranker-25M)（8x448）和 [`msime/pinyin-ime-keystroke-reranker-8M`](https://huggingface.co/msime/pinyin-ime-keystroke-reranker-8M)（6x256），那里是原名（`lm_step.ort`、`model.json`、`vocab.json`）并附 `LICENSE` 与 `NOTICE`。锁文件是 `resources/rerank-model.lock.json`。iOS 键盘扩展随包带两档；Android 发布包不带，6x256 作为资源包 `rerank-model-small` 下载到 `resource-packs/rerank-model-small/`（目录名与这里相同，host-api 在随包资源目录旁边找不到时找它） |
 | octagram `.gram` | 上游发布：amzxyz/rime-wanxiang-data、lotem/rime-octagram-data、gaboolic/rime-frost，经 `resources/grammar-models.lock.json` 固定 |
 | `handwriting-zh_CN.model` | metasequoiaime/msime-engine `a9b9f09`，经 `resources/handwriting-model.lock.json` 固定 |
 | `helpcodes/*.txt` | 提交在本仓库 `resources/helpcodes/`；`wubi86_helpcode.txt` 由 `msime-dict-build wubi86-helpcode` 生成 |
@@ -546,7 +548,7 @@ dict-builder 的其他子命令（`places`、`hanja`、`syllable-frequency`）�
 | 文件 | 数据许可证 |
 | --- | --- |
 | `msime-pinyin.db` | GPL-3.0（rime-ice 及其补充）；与万象共有词条的权重和字频为 CC-BY-4.0（rime-wanxiang）；单字读音按 MIT 的 pinyin-data 校正；行政区划地名为 WTFPL |
-| `msime-wubi.db` | Apache-2.0（极点 86）、LGPL-3.0（rime-wubi 补入的词条）、GPL-3.0-or-later（fcitx 98）、Unlicense（98 五笔小组）；本项目生成的 86、98 补充表为 GPL-3.0，词条依据 GPL-3.0 的 rime-ice、人工词条与 WTFPL 的区划名称 |
+| `msime-wubi.db` | Apache-2.0（极点 86）、LGPL-3.0（rime-wubi 补入的词条）、GPL-3.0-or-later（fcitx 98）、Unlicense（98 五笔小组）；本项目生成的 86、98 补充表为 GPL-3.0，词条依据 GPL-3.0 的 rime-ice、人工词条与 WTFPL 的区划名称。带 `wubixsj` 的发布另有：新世纪单字码为 GPL-3.0（byujiang/wubi06_rime，许可由转载者给出，来源没有记录、很可能派生自商业码表，见 `resources/licenses/msime-engine-dictionary-NOTICE.md`）；新世纪词组为本项目生成，GPL-3.0，词条来源同上，极点表里有的词沿用极点表（Apache-2.0）的权重 |
 | `msime-english.db` | GPL-3.0（rime-ice-en 及补充）；含 SCOWL 的词，分发时必须附 `msime-scowl_Copyright.txt`；Google 词频以来源页面说明为准 |
 | `msime-bigram.bin`、`msime-trigram.bin` | 计数来自中文维基百科（CC-BY-SA-4.0），词表是 GPL-3.0 的 `msime-pinyin.db` |
 | `msime-others.db` | emoji 数据与颜文字（`resources/dictionary-sources/kaomoji/kaomoji.txt`）的来源都未记录，PiliApp 符号未声明许可，再分发前需另行确认 |

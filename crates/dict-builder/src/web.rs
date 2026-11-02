@@ -1,7 +1,7 @@
-//! `web` 子命令：从词库 release 的 `msime-pinyin.db`（全拼表与 `quick_parases`）和 `msime-wubi.db`（`wubi86`、`wubi98`）裁出网页内置输入法用的两个词库。两个输入先在临时副本里合成拆分前那种单个主库的布局，再按下面的规则裁剪，所以输出的表结构和拆分前一样。
+//! `web` 子命令：从词库 release 的 `msime-pinyin.db`（全拼表与 `quick_parases`）和 `msime-wubi.db`（`wubi86`、`wubi98`，较新的发布还有 `wubixsj`）裁出网页内置输入法用的两个词库。两个输入先在临时副本里合成拆分前那种单个主库的布局，再按下面的规则裁剪，所以输出的表结构和拆分前一样。
 //!
-//! - `msime-pinyin.db`：全拼与双拼共用。保留全部单字表 `tbl_1_*`，多字表 `tbl_{2..7,others}_*` 只保留全局按权重排名前 N 行，清空 `wubi86`、`wubi98` 和 `quick_parases`。
-//! - `msime-wubi86.db`：只保留 `wubi86`，清空全部全拼表、`wubi98` 和 `quick_parases`。
+//! - `msime-pinyin.db`：全拼与双拼共用。保留全部单字表 `tbl_1_*`，多字表 `tbl_{2..7,others}_*` 只保留全局按权重排名前 N 行，清空 `wubi86`、`wubi98`、`wubixsj` 和 `quick_parases`。
+//! - `msime-wubi86.db`：只保留 `wubi86`，清空全部全拼表、`wubi98`、`wubixsj` 和 `quick_parases`。网页只有 86 五笔。
 //!
 //! 两个库都保留全部表结构和索引，被清空的表查询时返回空结果而不是报错。输出逐字节可复现：同一个输入跑两次得到相同的 sha256。
 //!
@@ -33,7 +33,9 @@ pub const DEFAULT_KEEP_MULTI: usize = 200_000;
 /// 除全拼表以外，裁剪时认识的表；遇到其它表直接失败，免得把不认识的数据原样带进网页词库。
 const WUBI86_TABLE: &str = "wubi86";
 const WUBI98_TABLE: &str = "wubi98";
-const EMPTIED_TABLES: [&str; 2] = [WUBI98_TABLE, "quick_parases"];
+const WUBIXSJ_TABLE: &str = "wubixsj";
+/// 两个输出都清空的表。`wubixsj` 只在较新的 `msime-wubi.db` 里有，没有时不出现在输出里。
+const EMPTIED_TABLES: [&str; 3] = [WUBI98_TABLE, WUBIXSJ_TABLE, "quick_parases"];
 /// 文件内版本表（`msime_engine::format::METADATA_SCHEMA`）。两个输出库原样保留拼音库的这张表，`msime-wubi.db` 的同名表不再复制：裁出的库与拼音库同一个格式版本。
 const METADATA_TABLE: &str = "metadata";
 
@@ -70,6 +72,8 @@ impl std::fmt::Display for Summary {
 struct Tables {
     single: Vec<String>,
     multi: Vec<String>,
+    /// 输入里有的 `EMPTIED_TABLES`：`wubixsj` 可以没有，其余必须有，缺了在清空时报错。
+    emptied: Vec<&'static str>,
 }
 
 /// 两个输入库，都只读打开。
@@ -162,7 +166,9 @@ fn write(inputs: Inputs<'_>, out: &Path, flavour: Flavour, keep_multi: usize) ->
             keep_top_multi(&transaction, &tables.multi, keep_multi)?;
             empty(
                 &transaction,
-                [WUBI86_TABLE].into_iter().chain(EMPTIED_TABLES),
+                [WUBI86_TABLE]
+                    .into_iter()
+                    .chain(tables.emptied.iter().copied()),
             )?;
         }
         Flavour::Wubi86 => {
@@ -173,7 +179,7 @@ fn write(inputs: Inputs<'_>, out: &Path, flavour: Flavour, keep_multi: usize) ->
                     .iter()
                     .chain(&tables.multi)
                     .map(String::as_str)
-                    .chain(EMPTIED_TABLES),
+                    .chain(tables.emptied.iter().copied()),
             )?;
         }
     }
@@ -214,7 +220,7 @@ fn open_read_only(path: &Path) -> Result<Connection> {
     sqlite::open_read_only(path).with_context(|| format!("opening {}", path.display()))
 }
 
-/// 把 `msime-wubi.db` 的表和索引原样复制进 `msime-pinyin.db` 的临时副本，得到拆分前单个主库的布局。行按 rowid 顺序复制：运行时反查五笔编码以 rowid 作最后的排序键。`msime-wubi.db` 里只能有 `wubi86`、`wubi98`（和 SQLite 自己的统计表，以及跳过不复制的 `metadata`），拼音库里也不能已有同名表，否则说明两个输入给反了或不是拆分后的 release。
+/// 把 `msime-wubi.db` 的表和索引原样复制进 `msime-pinyin.db` 的临时副本，得到拆分前单个主库的布局。行按 rowid 顺序复制：运行时反查五笔编码以 rowid 作最后的排序键。`msime-wubi.db` 里只能有 `wubi86`、`wubi98`、`wubixsj`（和 SQLite 自己的统计表，以及跳过不复制的 `metadata`），拼音库里也不能已有同名表，否则说明两个输入给反了或不是拆分后的 release。
 fn merge_wubi(connection: &mut Connection, wubi: &Path) -> Result<()> {
     let source = open_read_only(wubi)?;
     let mut statement = source.prepare(
@@ -242,7 +248,7 @@ fn merge_wubi(connection: &mut Connection, wubi: &Path) -> Result<()> {
             continue;
         }
         if kind == "table" {
-            if name != WUBI86_TABLE && name != WUBI98_TABLE {
+            if ![WUBI86_TABLE, WUBI98_TABLE, WUBIXSJ_TABLE].contains(&name.as_str()) {
                 bail!("{}: unexpected table {name}", wubi.display());
             }
             let present: bool = transaction.query_row(
@@ -288,7 +294,7 @@ fn vacuum_into(connection: &Connection, path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// 按名字把表分成单字表和多字表；`wubi86`、`wubi98`、`quick_parases`、`metadata` 和 SQLite 自己的统计表之外，出现任何不认识的表都报错。
+/// 按名字把表分成单字表和多字表；`wubi86`、`wubi98`、`wubixsj`、`quick_parases`、`metadata` 和 SQLite 自己的统计表之外，出现任何不认识的表都报错。
 fn classify(connection: &Connection) -> Result<Tables> {
     let single_names: HashSet<String> = SHIPPED_INITIALS
         .bytes()
@@ -303,8 +309,10 @@ fn classify(connection: &Connection) -> Result<Tables> {
     let mut tables = Tables {
         single: Vec::new(),
         multi: Vec::new(),
+        emptied: Vec::new(),
     };
     let mut wubi86 = false;
+    let mut wubixsj = false;
     for name in names {
         if single_names.contains(&name) {
             tables.single.push(name);
@@ -312,6 +320,8 @@ fn classify(connection: &Connection) -> Result<Tables> {
             tables.multi.push(name);
         } else if name == WUBI86_TABLE {
             wubi86 = true;
+        } else if name == WUBIXSJ_TABLE {
+            wubixsj = true;
         } else if !EMPTIED_TABLES.contains(&name.as_str())
             && name != METADATA_TABLE
             && !name.starts_with("sqlite_")
@@ -322,6 +332,10 @@ fn classify(connection: &Connection) -> Result<Tables> {
     if tables.single.is_empty() || !wubi86 {
         bail!("no single-character quanpin tables in the pinyin dictionary or no wubi86 table in the wubi dictionary");
     }
+    tables.emptied = EMPTIED_TABLES
+        .into_iter()
+        .filter(|name| *name != WUBIXSJ_TABLE || wubixsj)
+        .collect();
     Ok(tables)
 }
 

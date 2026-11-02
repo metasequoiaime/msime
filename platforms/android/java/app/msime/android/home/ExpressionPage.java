@@ -10,6 +10,8 @@ import app.msime.android.CommunityRequest;
 import app.msime.android.InputFeatureToggle;
 import app.msime.android.NumberPolicy;
 import app.msime.android.PredictionButtonsPolicy;
+import app.msime.android.ResourcePackService;
+import app.msime.android.ResourcePacks;
 import app.msime.android.TextPolicy;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -21,7 +23,7 @@ import org.json.JSONObject;
 /**
  * 表达页：标点（使用英文标点、引号样式、方头括号样式、自动补全成对标点、智能标点）、智能（整句候选三档、上屏后联想及联想时候选栏右端的按键样式、英文联想、中英混输、触发字母数、候选带符号、候选带 emoji、候选带颜文字）和发现短语（社区里的前几个短语包，末尾「浏览更多短语」进社区短语的完整列表）。
  *
- * <p>「使用英文标点」是 `chinese_punctuation` 取反显示、写入时取反；整句候选三档写 `sentence_association`：关闭是 `word_lattice=false`，标准是 `word_lattice`，增强是 `word_lattice` 加 `neural_keyboard`。发现短语列社区里 `phrase` 类的资源，「添加」经 {@link CommonPhrasesStore#installPack} 装进本机无编码常用语（它会标记云同步的「常用语」），已经装过的包显示「已添加」。
+ * <p>「使用英文标点」是 `chinese_punctuation` 取反显示、写入时取反；整句候选三档写 `sentence_association`：关闭是 `word_lattice=false`，标准是 `word_lattice`，增强是 `word_lattice` 加 `neural_keyboard`。增强的逐键重排模型是资源包 {@link ResourcePacks#RERANK_MODEL}（发布包放不下）：选成增强时开始下载（另有 {@link app.msime.android.RerankModelDownload} 在 Wi-Fi 上替没选过的人下），增强开着而模型没装好时整句候选下面多一行下载状态；装好之前输入法用应用自带的模型，装好后下一次进入输入框换上。切回标准或关闭时卸掉它。发现短语列社区里 `phrase` 类的资源，「添加」经 {@link CommonPhrasesStore#installPack} 装进本机无编码常用语（它会标记云同步的「常用语」），已经装过的包显示「已添加」。
  */
 public final class ExpressionPage extends ReloadingDetailPage {
     @Override protected java.util.List<String> sectionTitles() {
@@ -31,7 +33,7 @@ public final class ExpressionPage extends ReloadingDetailPage {
     private static final int DISCOVER_LIMIT = 8;
     private static final String[] SENTENCE_LABELS = {"关闭", "标准", "增强"};
     private static final String SENTENCE_DESCRIPTION =
-        "输入多音节拼音时组合整句候选；标准使用词库，增强增加神经模型重排。下一词推荐由「上屏后联想」单独控制";
+        "输入多音节拼音时组合整句候选；标准使用词库，增强增加神经模型重排，更准的模型要另外下载。下一词推荐由「上屏后联想」单独控制";
     /** 共享偏好 `next_word_prediction_buttons` 的显示文字，顺序与 {@link PredictionButtonsPolicy.Style} 相同，缺省是只有展开键（#10078）。 */
     private static final String[] PREDICTION_BUTTON_LABELS = {"只有展开 ∨", "关闭 × 和展开 ∨", "只有关闭 ×"};
     private static final String PREDICTION_BUTTONS_DESCRIPTION =
@@ -49,8 +51,8 @@ public final class ExpressionPage extends ReloadingDetailPage {
     private static final int MIXED_PREFIX_MAX = 8;
     private static final int MIXED_PREFIX_DEFAULT = 5;
 
-    /** 偏好与已经装过的短语包 id（就是社区资源的 id）。 */
-    private record Loaded(@Nullable JSONObject preferences, Set<String> packs) {}
+    /** 偏好、已经装过的短语包 id（就是社区资源的 id），和「增强」重排模型资源包的状态（共享层没列出它时为 null）。 */
+    private record Loaded(@Nullable JSONObject preferences, Set<String> packs, @Nullable ResourcePacks.Pack rerankModel) {}
 
     @Nullable private JSONObject preferences;
     private boolean loaded;
@@ -58,8 +60,16 @@ public final class ExpressionPage extends ReloadingDetailPage {
     @Nullable private String discoverFailure;
     private HashSet<String> installed = new HashSet<>();
     private final Set<String> installing = new HashSet<>();
+    @Nullable private ResourcePacks.Pack rerankModel;
+    /** 重排模型的下载进度变了就重画；下载结束时重读安装状态。 */
+    private final ResourcePackService.Listener packListener = (pack, finished) -> {
+        if (!ResourcePacks.RERANK_MODEL.equals(pack) || contentColumn() == null) return;
+        if (finished) reload();
+        else if (loaded) render();
+    };
 
     @Override protected void onContentReady() {
+        ResourcePackService.addListener(packListener);
         if (loaded) render();
     }
 
@@ -69,6 +79,7 @@ public final class ExpressionPage extends ReloadingDetailPage {
     }
 
     @Override protected void onContentDestroyed() {
+        ResourcePackService.removeListener(packListener);
         installing.clear();
     }
 
@@ -78,10 +89,11 @@ public final class ExpressionPage extends ReloadingDetailPage {
             CommonPhrasesStore.Result phrases = CommonPhrasesStore.load(context);
             Set<String> packs = new HashSet<>(phrases.ok() ? phrases.document().packs().size() : 0);
             if (phrases.ok()) for (CommonPhrasesStore.Pack pack : phrases.document().packs()) packs.add(pack.id());
-            return new Loaded(values, packs);
+            return new Loaded(values, packs, ResourcePacks.pack(context.getFilesDir(), ResourcePacks.RERANK_MODEL));
         }, result -> {
             loaded = true;
             preferences = result == null ? null : result.preferences();
+            rerankModel = result == null ? null : result.rerankModel();
             installed = new HashSet<>(result == null ? 0 : result.packs().size());
             if (result != null) installed.addAll(result.packs());
             render();
@@ -134,9 +146,10 @@ public final class ExpressionPage extends ReloadingDetailPage {
         GroupCard intelligence = GroupCard.add(sectionColumn(target, "智能"), "智能");
         int sentence = sentenceLevel(values.optJSONObject("sentence_association"));
         intelligence.nav("整句候选", null, SENTENCE_LABELS[sentence], () -> pickSentence(sentence)).help(SENTENCE_DESCRIPTION);
+        if (sentence == 2 && rerankModelWanted()) rerankModelRow(intelligence);
         intelligence.toggle("上屏后联想", null,
             values.optBoolean("next_word_prediction", false),
-            checked -> savePreferences(edit -> edit.put("next_word_prediction", checked))).help("选词上屏后推荐后续文字，点选才上屏；使用现有词库，开启学习时也参考个人词序，隐私输入不显示");
+            checked -> savePreferences(edit -> edit.put("next_word_prediction", checked))).help("选词上屏后推荐后续文字，点选、按数字键或空格上屏，继续输入其他内容时消失；使用现有词库，开启学习时也参考个人词序，隐私输入不显示");
         // 联想按键的样式只在开启上屏后联想后可选，关着时整行变灰。
         PredictionButtonsPolicy.Style buttons = PredictionButtonsPolicy.Style.parse(
             values.optString(PredictionButtonsPolicy.PREFERENCE_KEY, ""));
@@ -274,9 +287,55 @@ public final class ExpressionPage extends ReloadingDetailPage {
                 JSONObject association = KeyboardSheets.child(edit, "sentence_association");
                 association.put("word_lattice", level > 0);
                 association.put("neural_keyboard", level > 1);
+            }, () -> {
+                if (!isAdded()) return;
+                if (level > 1) {
+                    // 选成增强时模型还没装就下载，按流量计费的网络先确认；用户在确认框里取消时，后台任务在连上 Wi-Fi 后再下。下载失败或取消时增强照样开着，用应用自带的模型。
+                    if (!rerankModelWanted()) return;
+                    if (ResourcePackService.status(ResourcePacks.RERANK_MODEL) == null)
+                        ResourcePackService.request(requireContext(), ResourcePacks.RERANK_MODEL, rerankModel.size());
+                    app.msime.android.RerankModelDownload.schedule(requireContext());
+                } else {
+                    releaseRerankModel();
+                }
             }));
         }
         sheet.show();
+    }
+
+    /**
+     * 「增强」要不要下载重排模型：共享层列出了这个资源包、还没装好（缺或过期），而且本版本有拼音方案。只有带拼音的版本（full、拼音版）打开 `neural_keyboard` 才挂逐键重排，五笔、日文、越南文、藏文版选了增强也用不上模型，不下载。
+     */
+    private boolean rerankModelWanted() {
+        return rerankModel != null && !rerankModel.installed() && AppEdition.current().offers("quanpin");
+    }
+
+    /** 切到标准或关闭：撤掉还没跑的后台下载、停下正在进行的下载，已经装好的模型卸掉（8.3 MB），再选增强时重新下载。卸载结果由 {@link ResourcePackService#remove} 提示。 */
+    private void releaseRerankModel() {
+        String pack = ResourcePacks.RERANK_MODEL;
+        app.msime.android.RerankModelDownload.cancelScheduled(requireContext());
+        ResourcePackService.Status status = ResourcePackService.status(pack);
+        if (status != null && status.running()) ResourcePackService.cancel(pack);
+        else if (rerankModel != null && !"missing".equals(rerankModel.state())) ResourcePackService.remove(requireContext(), pack);
+    }
+
+    /** 增强开着、模型没装好时的一行：需下载多大、下载中 x%、校验中或失败原因；按钮下载、取消或重试。 */
+    private void rerankModelRow(GroupCard group) {
+        String pack = ResourcePacks.RERANK_MODEL;
+        ResourcePackService.Status status = ResourcePackService.status(pack);
+        String running = ResourcePackService.describe(status);
+        String verb = "outdated".equals(rerankModel.state()) ? "需更新 " : "需下载 ";
+        String subtitle = running != null ? running : verb + ResourcePackService.size(rerankModel.size());
+        String description = "增强用它逐键重排整句候选，只保存在本机；下载完成前用应用自带的模型。连上 Wi-Fi 时会自动下载，切回标准时卸掉";
+        if (status != null && status.phase() == ResourcePackService.Phase.VERIFYING) {
+            group.button(ResourcePackService.title(pack), subtitle, "校验中", () -> {}).help(description).setEnabled(false);
+            return;
+        }
+        boolean active = status != null && status.running();
+        group.button(ResourcePackService.title(pack), subtitle, active ? "取消" : status == null ? "下载" : "重试", () -> {
+            if (active) ResourcePackService.cancel(pack);
+            else ResourcePackService.request(requireContext(), pack, rerankModel.size());
+        }).help(description);
     }
 
     /**
@@ -291,10 +350,10 @@ public final class ExpressionPage extends ReloadingDetailPage {
         return mixed;
     }
 
-    /** 0 关闭、1 标准、2 增强；缺省（`word_lattice` 默认开、`neural_keyboard` 默认关）是标准。 */
+    /** 0 关闭、1 标准、2 增强；缺省（`word_lattice`、`neural_keyboard` 都默认开）是增强。这台手机跑不进逐键预算时 host-api 不挂模型，增强与标准相同。 */
     private static int sentenceLevel(@Nullable JSONObject association) {
         boolean lattice = association == null || association.optBoolean("word_lattice", true);
-        boolean neural = association != null && association.optBoolean("neural_keyboard", false);
+        boolean neural = association == null || association.optBoolean("neural_keyboard", true);
         if (!lattice) return 0;
         return neural ? 2 : 1;
     }
