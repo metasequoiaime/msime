@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { preeditControlState } from "@msime/ui";
+import { preeditControlState, shuangpinPreeditPatch } from "@msime/ui";
 
 test("missing preedit preferences show pinyin candidates and raw inline/shuangpin keys", () => {
   expect(preeditControlState({})).toEqual({
@@ -41,5 +41,32 @@ test("visible candidates and pinyin inline keys preserve explicit styles", () =>
     candidateVisible: true,
     shuangpinStyle: "raw",
     inlineStyle: "pinyin",
+  });
+});
+
+// #10717：「双拼分隔」是原始按键上的一个附加键；拼音分词时不读它。
+test("shuangpin preedit reads the separated keys only on top of raw keys", () => {
+  expect(
+    preeditControlState({ shuangpin_preedit_uses_raw: true, shuangpin_preedit_separated: true })
+      .shuangpinStyle,
+  ).toBe("separated");
+  expect(preeditControlState({ shuangpin_preedit_separated: true }).shuangpinStyle).toBe(
+    "separated",
+  );
+  expect(
+    preeditControlState({ shuangpin_preedit_uses_raw: false, shuangpin_preedit_separated: true })
+      .shuangpinStyle,
+  ).toBe("pinyin");
+  expect(shuangpinPreeditPatch("raw")).toEqual({
+    shuangpin_preedit_uses_raw: true,
+    shuangpin_preedit_separated: false,
+  });
+  expect(shuangpinPreeditPatch("separated")).toEqual({
+    shuangpin_preedit_uses_raw: true,
+    shuangpin_preedit_separated: true,
+  });
+  expect(shuangpinPreeditPatch("pinyin")).toEqual({
+    shuangpin_preedit_uses_raw: false,
+    shuangpin_preedit_separated: false,
   });
 });

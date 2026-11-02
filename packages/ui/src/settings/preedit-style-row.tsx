@@ -1,14 +1,17 @@
-import type { PreeditStyle } from "./preedit-preferences";
 import type { ReactNode } from "react";
 import { Row } from "../core/platform-controls";
-import { PreeditStyleSelect, type PreeditStyleSelectMode } from "./preedit-style-select";
+import {
+  PreeditStyleSelect,
+  type PreeditStyleOption,
+  type PreeditStyleSelectMode,
+} from "./preedit-style-select";
 
 export interface PreeditStyleRowProps {
   title: ReactNode;
   description?: ReactNode;
   mode: PreeditStyleSelectMode;
-  value: PreeditStyle;
-  onChange: (value: PreeditStyle) => void;
+  value: PreeditStyleOption;
+  onChange: (value: PreeditStyleOption) => void;
 }
 
 /** A settings row for one of the preedit presentation selectors. */

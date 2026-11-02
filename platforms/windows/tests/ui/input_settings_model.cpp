@@ -123,8 +123,31 @@ int main() {
   check(!paging_keys_on(paging_keys[2], false) && paging_keys_on(paging_keys[2], true),
         "brackets follow the preference");
 
+  // 「双拼预编辑」三档：顺序和文字与共享页相同，两个布尔的换算与 preedit-preferences.ts 相同（#10717）。
+  check(shuangpin_preedit_options[0].value == L"raw" && shuangpin_preedit_options[0].label == L"原始按键" &&
+            shuangpin_preedit_options[1].value == L"separated" &&
+            shuangpin_preedit_options[1].label == L"双拼分隔" &&
+            shuangpin_preedit_options[2].value == L"pinyin" &&
+            shuangpin_preedit_options[2].label == L"拼音分词",
+        "shuangpin preedit options");
+  for (size_t index = 0; index < shuangpin_preedit_options.size(); ++index)
+    check(static_cast<size_t>(shuangpin_preedit_options[index].style) == index,
+          "shuangpin preedit option index is its style");
+  check(shuangpin_preedit(true, false) == ShuangpinPreedit::raw &&
+            shuangpin_preedit(true, true) == ShuangpinPreedit::separated &&
+            shuangpin_preedit(false, true) == ShuangpinPreedit::pinyin &&
+            shuangpin_preedit(false, false) == ShuangpinPreedit::pinyin,
+        "shuangpin preedit reads separated only on raw keys");
+  check(shuangpin_preedit_uses_raw(ShuangpinPreedit::separated) &&
+            shuangpin_preedit_separated(ShuangpinPreedit::separated) &&
+            shuangpin_preedit_uses_raw(ShuangpinPreedit::raw) &&
+            !shuangpin_preedit_separated(ShuangpinPreedit::raw) &&
+            !shuangpin_preedit_uses_raw(ShuangpinPreedit::pinyin) &&
+            !shuangpin_preedit_separated(ShuangpinPreedit::pinyin),
+        "shuangpin preedit writes both keys");
+
   if (failures)
     return 1;
-  std::puts("input settings model: tabs, Wubi keys, Chinese output, local modes, fuzzy groups and paging keys");
+  std::puts("input settings model: tabs, Wubi keys, Chinese output, local modes, fuzzy groups, paging keys and shuangpin preedit");
   return 0;
 }

@@ -996,8 +996,13 @@ int main() {
     assert(store.load().snapshot->preferences().at("shuangpin_profile") == "ziranma");
     click(scheme_shuangpin_hint);
     assert(store.load().snapshot->preferences().at("shuangpin_keymap_hint") == true);
+    // #10717：第二档「双拼分隔」写两个键，第三档「拼音分词」时清掉分隔。
     select_value(scheme_shuangpin_preedit, 1);
+    assert(store.load().snapshot->preferences().at("shuangpin_preedit_uses_raw") == true);
+    assert(store.load().snapshot->preferences().at("shuangpin_preedit_separated") == true);
+    select_value(scheme_shuangpin_preedit, 2);
     assert(store.load().snapshot->preferences().at("shuangpin_preedit_uses_raw") == false);
+    assert(store.load().snapshot->preferences().value("shuangpin_preedit_separated", false) == false);
     // 已有自定义表只读展示；选择内置方案保留自定义表本身。
     saved = store.load();
     auto custom_profile = store.save(*saved.snapshot, {{{"shuangpin_profile"}, "custom"}});
