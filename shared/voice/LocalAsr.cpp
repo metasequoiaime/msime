@@ -452,6 +452,28 @@ struct ModelDescription {
   std::string optional_file(const std::string &key) const {
     return files.count(key) ? file(key) : std::string();
   }
+  // Fun-ASR-Nano 的分词器是目录；目录及运行库会读取的三个文件分别验证类型与边界。
+  std::string tokenizer_directory() const {
+    const auto found = files.find("tokenizer");
+    if (found == files.end())
+      throw VoiceError("Local model manifest names no tokenizer directory");
+    const auto path = directory / fs::u8path(found->second);
+    if (!model_directory_has_real_ancestors(path) || !model_path_inside(directory, path))
+      throw VoiceError("Local model is missing " + found->second);
+    for (const auto *name : {"vocab.json", "merges.txt", "tokenizer.json"}) {
+      const auto child = path / name;
+      std::error_code error;
+      const auto status = fs::symlink_status(child, error);
+      if (error || !fs::is_regular_file(status) ||
+          fs::hard_link_count(child, error) != 1 || error)
+        throw VoiceError("Local model is missing " + found->second + "/" + name);
+    }
+    std::error_code error;
+    const auto resolved = fs::canonical(path, error);
+    if (error)
+      throw VoiceError("Local model is missing " + found->second);
+    return resolved.u8string();
+  }
 };
 
 ModelDescription read_model(const std::string &directory) {
@@ -796,7 +818,7 @@ std::shared_ptr<LoadedRecognizer> create_recognizer(const SherpaApi &api, const 
     adaptor = model.file("encoder_adaptor");
     llm = model.file("llm");
     embedding = model.file("embedding");
-    tokenizer = model.file("tokenizer");
+    tokenizer = model.tokenizer_directory();
     config.model_config.funasr_nano.encoder_adaptor = adaptor.c_str();
     config.model_config.funasr_nano.llm = llm.c_str();
     config.model_config.funasr_nano.embedding = embedding.c_str();
