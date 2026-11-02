@@ -476,16 +476,20 @@ std::optional<PendingReply>
 ReplyComposer::japanese_space(ServerSession &session,
                               const FanyImeNamedpipeData &packet, uint64_t epoch,
                               const nlohmann::json &view) {
-  const auto &candidates = view.at("candidates");
+  // 只数候选窗画出来、高亮能停的行：云占位行不画，运行时的「下一个」也越过它（#10665）。按原始行数数，走到本页末尾时会多走一步才回到首条。
   // 唯一的候选是 Fallback（source 9）时状态机不接管，空格照常上屏原文。
+  std::size_t count = 0;
   int first_source = -1;
-  if (!candidates.empty()) {
-    const auto source = candidates.front().find("source");
-    if (source != candidates.front().end() && source->is_number_integer())
-      first_source = source->get<int>();
+  for (const auto &candidate : view.at("candidates")) {
+    const auto found = candidate.find("source");
+    const int source = found != candidate.end() && found->is_number_integer() ? found->get<int>() : -1;
+    if (source >= 0 && !candidate_source_is_visible(static_cast<unsigned>(source)))
+      continue;
+    if (count++ == 0)
+      first_source = source;
   }
   const auto step = japanese_space_step(japanese_conversion_.space(
-      view.at("editing_text").get<std::string>(), candidates.size(), first_source));
+      view.at("editing_text").get<std::string>(), count, first_source));
   if (!step)
     return std::nullopt;
   // 开始转换不动会话，回执里带的就是当前的 view；步进在会话里执行命令，送达的 view 让候选窗移动高亮。两者都不上屏，TIP 读到导航回执后保留组字。
