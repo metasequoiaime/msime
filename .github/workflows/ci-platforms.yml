@@ -872,11 +872,12 @@ jobs:
         shell: pwsh
         run: ./platforms/windows/tests/server-manifest/verify.ps1
       # The installer script itself cannot be compiled here, so these read msime_setup.iss for its lifecycle contracts. watchdog-task also registers the logon task's exact /TR text with Task Scheduler under a throwaway name and reads back what schtasks stored; the hosted runner is elevated, which that round trip needs.
+      # repo-root 之前不在这张单子上，也不在别的流水线里，所以它从来没跑过：它只解析 Prepare-PackageFiles.ps1 的参数声明，不碰磁盘，和同列的其他几个一样不需要装过的包，漏掉是疏忽而不是前置条件不足。
       - name: Run installer script tests
         if: ${{ needs.changes.outputs.windows == 'true' }}
         shell: pwsh
         run: |
-          foreach ($test in 'lifecycle', 'watchdog-task', 'tauri-layout', 'tsf-registration', 'signpath-payload', 'installer_entry', 'package-files') {
+          foreach ($test in 'lifecycle', 'watchdog-task', 'tauri-layout', 'tsf-registration', 'signpath-payload', 'installer_entry', 'package-files', 'repo-root') {
             Write-Host "== $test"
             & pwsh -NoProfile -File "platforms/windows/installer/tests/$test.ps1"
             if ($LASTEXITCODE -ne 0) { throw "$test failed with exit code $LASTEXITCODE" }
@@ -982,13 +983,14 @@ jobs:
         if: ${{ needs.changes.outputs.web == 'true' }}
         run: |
           cargo run --locked -p msime-engine-wasm --example make_fixture -- target/web-engine/fixture/msime.db
+          cargo run --locked -p msime-engine-wasm --example make_fixture -- target/web-engine/fixture/msime-cantonese.db --cantonese
           node crates/engine-wasm/tests/smoke.mjs target/web-engine/fixture/msime.db
       # SDK（@msime/web-engine）：test/ 下全部 *.test.mjs 单元测试（按键映射、皮肤解析等，glob 由 Node 自己展开），对构建脚本组装出的 npm 包做的端到端冒烟，以及在 runner 自带的 google-chrome 里跑的候选栏和 attachInput 接线检查（candidates.browser.mjs）。
       - name: Test the web engine SDK
         if: ${{ needs.changes.outputs.web == 'true' }}
         run: |
           node --test 'packages/web-engine/test/*.test.mjs'
-          node packages/web-engine/test/smoke.mjs target/web-engine/fixture/msime.db
+          node packages/web-engine/test/smoke.mjs target/web-engine/fixture/msime.db --cantonese target/web-engine/fixture/msime-cantonese.db
           node packages/web-engine/test/candidates.browser.mjs
       # 包括 routing.rs 和 notice.rs；parity.rs 与 rerank_routing.rs 需要真实词库，没有 MSIME_EVAL_RESOURCES 时跳过。
       - name: Test msime-engine-wasm
