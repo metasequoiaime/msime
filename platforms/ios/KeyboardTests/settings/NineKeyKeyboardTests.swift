@@ -2859,6 +2859,107 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(snapshot.candidates.contains("你好"), "the rebuilt session lost its dictionaries")
   }
 
+  /// #10634：键盘扩展的控制器创建时就建会话，键盘还没出现（或者永远不出现）就持着 App Group 里的词库租约，进程被挂起时 iOS 以 0xdead10cc 结束扩展。只准备、不建会话的桥在 `resume` 之前不持锁；挂起期间设下的方案、网格和全角都记在桥上，建出来的会话带着它们。
+  func testABridgeThatStartsSuspendedHoldsNoLockUntilResumed() throws {
+    let state = FileManager.default.temporaryDirectory
+      .appendingPathComponent("msime-starts-suspended-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: state) }
+    let locks = try dictionaryLockFiles(stateRoot: state)
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state, startsSuspended: true)
+    XCTAssertFalse(bridge.initializationFailed)
+    XCTAssertTrue(bridge.dictionarySessionSuspended)
+    XCTAssertTrue(locks.allSatisfy(exclusiveLockAvailable), "a bridge that has not resumed holds the dictionary lease")
+    // 键盘出现之前 `viewDidLoad` 就按文档设一遍这些状态：不能报「尚未准备完成」，也不能丢。
+    XCTAssertNil(bridge.switch(toShuangpinProfile: "xiaohe").diagnosticText)
+    XCTAssertNil(bridge.setCharacterWidth(fullwidth: false).diagnosticText)
+    XCTAssertNil(bridge.setChinesePunctuation(true).diagnosticText)
+    XCTAssertTrue(bridge.setLearningEnabled(true))
+    XCTAssertTrue(locks.allSatisfy(exclusiveLockAvailable), "recording state must not create the session")
+
+    try bridge.resumeDictionarySession()
+    XCTAssertFalse(locks.allSatisfy(exclusiveLockAvailable), "a resumed session holds its dictionary lease")
+    var snapshot = bridge.cancel()
+    for letter in "nihk" { snapshot = bridge.handleCharacter(String(letter)) }
+    XCTAssertNil(snapshot.diagnosticText)
+    XCTAssertTrue(snapshot.candidates.contains("你好"), "the scheme chosen while suspended did not reach the session")
+    _ = bridge.cancel()
+    XCTAssertTrue(bridge.suspendDictionarySession())
+    XCTAssertTrue(locks.allSatisfy(exclusiveLockAvailable), "suspending did not hand the lease back")
+
+    // 网格同理：挂起时切到九键，重建的会话按九键接数字。
+    XCTAssertNil(bridge.switchToNineKey().diagnosticText)
+    XCTAssertTrue(locks.allSatisfy(exclusiveLockAvailable))
+    try bridge.resumeDictionarySession()
+    snapshot = bridge.cancel()
+    for digit in "64426" { snapshot = bridge.handleCharacter(String(digit)) }
+    XCTAssertTrue(snapshot.candidates.contains("你好"), "nine-key chosen while suspended did not reach the session")
+    _ = bridge.cancel()
+    XCTAssertTrue(bridge.suspendDictionarySession())
+  }
+
+  /// 键盘控制器在出现之前不持锁、收起之后不再持锁，中间正常打字；收起之后才到的 `viewDidAppear` 不把会话建回来。
+  func testKeyboardHoldsTheDictionaryLeaseOnlyWhileItIsShown() throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    InputSchemePreference.scheme = .quanpin
+    let locks = try dictionaryLockFiles(stateRoot: nil)
+    // 前面用例里的会话可能还在主队列上等着随它们的桥释放，先让它们走完。
+    let deadline = Date().addingTimeInterval(15)
+    while !locks.allSatisfy(exclusiveLockAvailable) && Date() < deadline {
+      RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+    }
+    XCTAssertTrue(locks.allSatisfy(exclusiveLockAvailable), "precondition: another session still holds the shared lease")
+
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.applyInputContext(keyboardType: .default, documentIdentifier: UUID())
+    controller.view.layoutIfNeeded()
+    XCTAssertTrue(locks.allSatisfy(exclusiveLockAvailable), "the keyboard took the dictionary lease before it appeared")
+    let diagnostic = try XCTUnwrap(
+      descendants(controller.view).first { $0.accessibilityIdentifier == "diagnosticLabel" } as? UILabel)
+    XCTAssertTrue(diagnostic.isHidden, "a keyboard not yet shown reported: \(diagnostic.text ?? "")")
+
+    controller.viewWillAppear(false)
+    XCTAssertFalse(locks.allSatisfy(exclusiveLockAvailable), "a shown keyboard has a session")
+    controller.view.layoutIfNeeded()
+    for letter in "nihao" {
+      let key = try XCTUnwrap(descendants(controller.view).first {
+        $0.accessibilityLabel == "字母 \(String(letter).uppercased())"
+      } as? UIButton)
+      key.sendActions(for: .primaryActionTriggered)
+    }
+    controller.view.layoutIfNeeded()
+    XCTAssertTrue(try XCTUnwrap(button("candidate-1", in: controller).configuration?.title).contains("你好"))
+
+    controller.viewWillDisappear(false)
+    XCTAssertTrue(locks.allSatisfy(exclusiveLockAvailable), "the keyboard kept the lease after it was put away")
+    controller.viewDidAppear(false)
+    controller.viewDidDisappear(false)
+    RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+    XCTAssertTrue(locks.allSatisfy(exclusiveLockAvailable), "a late viewDidAppear took the lease back")
+  }
+
+  /// 引擎词库访问租约的两个锁文件（`user_data` 和 `dictionaries` 下的 `.msime-dictionary-access.lock`），按键盘准备选项时的路径。
+  private func dictionaryLockFiles(stateRoot: URL?) throws -> [String] {
+    let resources = try XCTUnwrap(Bundle.main.resourceURL?.appendingPathComponent("EngineResources", isDirectory: true))
+    let options = try XCTUnwrap(JSONSerialization.jsonObject(
+      with: MetasequoiaInputSessionBridge.preparedHostOptions(resources: resources, stateRoot: stateRoot)) as? [String: Any])
+    return try ["user_data", "dictionaries"].map {
+      (try XCTUnwrap(options[$0] as? String, $0) as NSString).appendingPathComponent(".msime-dictionary-access.lock")
+    }
+  }
+
+  /// 能否立刻取得这个锁文件的独占 flock。引擎的词库租约就是 flock（Darwin 上标准库的文件锁），本进程里别的描述符持着共享锁时同样取不到。文件还不存在说明没有谁取过它。
+  private func exclusiveLockAvailable(_ path: String) -> Bool {
+    let descriptor = open(path, O_RDONLY | O_CLOEXEC)
+    guard descriptor >= 0 else { return errno == ENOENT }
+    defer { close(descriptor) }
+    guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { return false }
+    flock(descriptor, LOCK_UN)
+    return true
+  }
+
   // Nine-key is engine-session state, not one of the preferences the prepared options carry, so a
   // session rebuilt after a dismissal starts back on the 26-key layout. The keyboard keeps sending
   // the digits its layout produces and the engine, expecting letters, answers with nothing at all:
