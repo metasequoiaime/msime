@@ -396,6 +396,18 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
             if ((type & android.text.InputType.TYPE_MASK_CLASS) == android.text.InputType.TYPE_CLASS_TEXT) {
                 tap(key("q"));
                 awaitPasswordLength(4);
+                // 密码框不建引擎会话，长按 123 照样打开符号面板（#10517）；点「（」只上屏这半个，不补「）」。
+                stage = "password symbol panel type " + type;
+                AccessibilityNodeInfo layer = await(described("切换到数字和符号"));
+                if (!layer.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK))
+                    throw new AssertionError("Symbol panel hold failed in password type " + type);
+                await(described("符号面板"));
+                tap(describedPrefix("符号分类 中文"));
+                await(described("符号分类 中文，已选中"));
+                tap(described("按键 符号 （，长按只输入这半个"));
+                awaitPasswordLength(5);
+                tap(described("关闭符号面板"));
+                await(key("q"));
             }
             tap(described("切换到数字和符号"));
             await(key("#+="));

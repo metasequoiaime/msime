@@ -3085,7 +3085,7 @@ fn restart_input_method_blocking() -> Result<(), HostActionError> {
     }
 }
 
-/// 设置页「修复输入源」的第一步：和启动检查一样按版本决定，没装时安装、随附的更新时替换，从不降级；与启动检查不同的是版本相同也重装一遍，因为版本号读得出来不代表 bundle 完好。已装的可能比设置应用随附的新（Sparkle 更新了输入法、`scripts/install.sh` 装了更新的构建、新版之后又打开了旧 DMG 里的应用），强制重装会把用户悄悄退回旧版本。
+/// 设置页「修复输入源」的第一步：和启动检查一样按版本决定，没装时安装、随附的更新时替换，从不降级；与启动检查不同的是版本相同也重装一遍，因为版本号读得出来不代表 bundle 完好。已装的可能比设置应用随附的新（Sparkle 更新了输入法、`scripts/install.sh` 装了更新的构建、新版之后又打开了留在别处的旧版设置应用），强制重装会把用户悄悄退回旧版本。
 #[cfg(target_os = "macos")]
 #[tauri::command]
 async fn install_input_source(

@@ -1,4 +1,7 @@
 #include "SettingsWindow.h"
+#include "../../../common/Telemetry.h"
+#include <exception>
+#include <cstdlib>
 #include "../InputMethodSetup.h"
 #include "SettingsChrome.h"
 #include "KeyboardSkinPage.h"
@@ -828,6 +831,7 @@ private:
       }
     }
     snapshot_ = result.snapshot;
+    if (snapshot_) msime::telemetry::set_enabled(snapshot_->preferences().value("usage_reporting", true));
     return result;
   }
 
@@ -946,6 +950,17 @@ private:
 };
 
 } // namespace
+
+void start_usage_reporting() {
+  auto directory = msime::telemetry::default_directory();
+  if (!directory.empty()) directory = directory.parent_path() / MSIME_EDITION_USER_DATA_DIRECTORY;
+  msime::telemetry::install_crash_handlers();
+  // 没有绝对偏好目录就读不到持续授权，此时不启动采集，免得落入旧协议的默认开启；带上包内版本，首次读取授权时不会把非 full 版本的偏好按 full 初始化。
+  if (const auto preferences = preferences_directory(); preferences.is_absolute())
+    msime::telemetry::begin({"windows", MSIME_WINDOWS_VERSION, directory, std::nullopt, preferences, "settings-win7", true, MSIME_EDITION_ID});
+  std::set_terminate([] { msime::telemetry::record_terminate(); std::abort(); });
+  msime::telemetry::start_flushing();
+}
 
 struct SettingsWindow::State {
   struct Item {

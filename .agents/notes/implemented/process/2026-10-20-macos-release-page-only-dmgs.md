@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-版本发布页 `macos-vX.Y.Z` 只放每个版本一个的 DMG 和只列这些 DMG 的 `SHA256SUMS`，发布说明开头是一段生成的下载指引。用户用不到的东西各有自己的滚动预发布（都不设为 latest，不进应用内更新检查，也不进官网的版本挑选：两者都只认 `<平台>-v<版本>` 的 tag）。
+版本发布页 `macos-vX.Y.Z` 只放每个版本一个的 DMG 和只列这些 DMG 的 `SHA256SUMS`，发布说明开头是一段生成的下载指引。安装包格式从 0.57.0 起由 DMG 换成 pkg，见[macOS 只发 pkg 安装包](2026-11-02-macos-pkg-only.md)；发布页的这条标准不变。用户用不到的东西各有自己的滚动预发布（都不设为 latest，不进应用内更新检查，也不进官网的版本挑选：两者都只认 `<平台>-v<版本>` 的 tag）。
 
 ### Sparkle 更新包在 macos-appcast
 

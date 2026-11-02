@@ -123,7 +123,7 @@
           "required": ["macos", "windows", "linux", "android", "ios", "harmony"],
           "properties": {
             "macos": {
-              "description": "macOS 的身份标识。所有版本的每个字段两两不同（不区分大小写），由 scripts/test-editions.py 检查；full 的值等于现有的 Info.plist.in、tauri.macos.conf.json、Homebrew cask 和 DMG 名。输入模式标识符是 `<input_method_bundle_id>.<后缀>`，不单独写在这里：模式集合由 input_schemes 决定，见 platforms/macos/scripts/edition_bundle.py。",
+              "description": "macOS 的身份标识。所有版本的每个字段两两不同（不区分大小写），由 scripts/test-editions.py 检查；full 的值等于现有的 Info.plist.in、tauri.macos.conf.json、Homebrew cask 和安装包名。输入模式标识符是 `<input_method_bundle_id>.<后缀>`，不单独写在这里：模式集合由 input_schemes 决定，见 platforms/macos/scripts/edition_bundle.py。",
               "type": ["object", "null"],
               "additionalProperties": false,
               "required": ["input_method_bundle_id", "input_method_name", "settings_bundle_id", "keychain_service", "cask", "dmg_prefix"],
@@ -154,7 +154,7 @@
                   "pattern": "^[a-z][a-z0-9-]*$"
                 },
                 "dmg_prefix": {
-                  "description": "发布 DMG 的文件名前缀，完整文件名是 `<dmg_prefix>-<版本>-universal.dmg`。",
+                  "description": "发布安装包的文件名前缀，完整文件名是 `<dmg_prefix>-<版本>-universal.pkg`，Sparkle 更新包也用它命名。字段名是 DMG 时代留下的，冻结不改。",
                   "type": "string",
                   "pattern": "^[a-z][a-z0-9-]*$"
                 }
