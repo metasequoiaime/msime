@@ -1,4 +1,5 @@
 #include "../src/core/ClientEngine.h"
+#include "../src/core/NextWordPrediction.h"
 #include "../../../common/HostApiString.h"
 #include "../../../common/VocabularyDueMenu.h"
 #include "msime_client.h"
@@ -379,7 +380,8 @@ int main(int argc, char **argv) {
                                   std::string(argv[2]) == "--japanese-toggle" ||
                                   std::string(argv[2]) == "--chaizi" ||
                                   std::string(argv[2]) == "--online-socket-switch" ||
-                                  std::string(argv[2]) == "--stale-candidate-click")))
+                                  std::string(argv[2]) == "--stale-candidate-click" ||
+                                  std::string(argv[2]) == "--prediction")))
     return 2;
   try {
     // This fixture asserts RegisterProperties and must exercise the real menu path.
@@ -777,6 +779,96 @@ int main(int argc, char **argv) {
       return 0;
     }
     // 多义译文临时页上的点选。IBus 的点击只带槽位号，宿主要按面板上实际显示的那一页去解释它。默认模式的流程停在更前面一处与此无关的失败上，到不了这里，所以单独成一个模式。
+    // 上屏后联想（#9433）：和普通候选一样，点选、数字键选本页对应的一行、空格选高亮的首行；越过本页的数字、回车和标点照常输入，标点仍是中文标点，逗号句号不翻页；Esc 收起；上屏之后紧跟着的 Reset 回声不收起，之后的 Reset 收起。
+    if (argc == 3 && std::string(argv[2]) == "--prediction") {
+      auto predicting = options;
+      predicting.erase("preferences_directory");
+      predicting["preferences"]["next_word_prediction"] = true;
+      predicting["preferences"]["candidate_page_size"] = 5;
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+      msime_ibus_configure(predicting.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      // 打 zhong，点选「中」，等联想出来。返回面板上的这一页联想。
+      const auto suggest = [&] {
+        for (char c : std::string("zhong"))
+          require(key(c), "拼音按键没有被处理");
+        const int slot = page_to("中");
+        require(slot >= 0, "候选里没有「中」");
+        const auto before = seen.committed;
+        invoke("CandidateClicked", g_variant_new("(uuu)", static_cast<guint>(slot), 1, 0));
+        require(seen.committed == before + "中", ("点选没有上屏「中」：committed=[" + seen.committed + "]").c_str());
+        require(wait_until([&] { return seen.lookup_visible && seen.candidates.size() >= 2; }),
+                "上屏「中」之后没有显示至少两行联想");
+        require(seen.preedit.empty(), "联想不应有预编辑");
+        return seen.candidates;
+      };
+      const auto dismissed = [&](const char *what) {
+        settle_lookup();
+        require(!seen.lookup_visible, (std::string(what) + "之后联想还在").c_str());
+      };
+      // 上屏之后紧跟着的 Reset 是客户端对这次上屏的回声，联想留着；窗口过了之后的 Reset 是光标移动，收起。
+      suggest();
+      invoke("Reset");
+      require(seen.lookup_visible, "上屏之后紧跟着的 Reset 收起了联想");
+      g_usleep((msime::linux_host::PredictionResetEcho::kWindowMs + 100) * 1000);
+      invoke("Reset");
+      dismissed("光标移动的 Reset");
+      // 数字键选本页对应的一行（数字行和小键盘一样），空格选高亮的首行；上屏的是这一行，接着给出下一组联想。
+      for (const auto &[pick, row] : {std::pair<guint, size_t>{'1', 0}, std::pair<guint, size_t>{IBUS_KP_2, 1},
+                                      std::pair<guint, size_t>{IBUS_space, 0}}) {
+        const auto page = suggest();
+        const auto before = seen.committed;
+        require(key(pick), "联想时选词键没有被处理");
+        require(seen.committed == before + page.at(row),
+                ("联想时选词键没有上屏对应的一行：row=[" + page.at(row) + "] committed=[" + seen.committed + "]").c_str());
+      }
+      // 越过本页行数的数字不选词：收起联想，交给应用照常输入。
+      {
+        const auto page = suggest();
+        require(page.size() < 9, "联想一页不该有九行");
+        const auto before = seen.committed;
+        require(!key('9'), "越过本页的数字应交给应用");
+        require(seen.committed == before, ("越过本页的数字选了联想：committed=[" + seen.committed + "]").c_str());
+        dismissed("越过本页的数字");
+      }
+      suggest();
+      auto before = seen.committed;
+      require(!key(IBUS_Return), "联想时回车应交给应用");
+      require(seen.committed == before, "联想时回车上屏了联想");
+      dismissed("回车");
+      // 逗号和句号原本是翻页键（comma_period 默认开）：联想时它们照常走中文标点，不能变成半角符号交给应用，也不能翻页。
+      for (const auto &[mark, chinese] : {std::pair<guint, std::string>{IBUS_comma, "，"},
+                                          std::pair<guint, std::string>{IBUS_period, "。"}}) {
+        suggest();
+        before = seen.committed;
+        require(key(mark), "联想时标点没有走中文标点");
+        require(seen.committed == before + chinese,
+                ("联想时标点没有上屏中文标点：committed=[" + seen.committed + "]").c_str());
+        dismissed("标点");
+      }
+      suggest();
+      before = seen.committed;
+      require(key(IBUS_Escape), "联想时 Esc 应被输入法吃掉");
+      require(seen.committed == before, "Esc 上屏了联想");
+      dismissed("Esc");
+      // 按住退格：联想不算组字，每一次重复都交给应用删字，不会在第一下之后被吞掉。
+      suggest();
+      require(!key(IBUS_BackSpace) && !key(IBUS_BackSpace), "联想时按住退格被输入法吞掉了");
+      dismissed("退格");
+      // 点选联想上屏它，接着给出下一组联想。
+      const auto page = suggest();
+      before = seen.committed;
+      invoke("CandidateClicked", g_variant_new("(uuu)", 1, 1, 0));
+      require(seen.committed == before + page.at(1),
+              ("点选联想没有上屏被点的那一行：row=[" + page.at(1) + "] committed=[" + seen.committed + "]").c_str());
+      require(seen.preedit.empty(), "点选联想之后不应有预编辑");
+      std::cout << "IBus 上屏后联想按键与点选回归通过\n";
+      finish();
+      return 0;
+    }
     if (argc == 3 && std::string(argv[2]) == "--stale-candidate-click") {
       const auto socket = (root / "stale-candidate-click.sock").string();
       TranslationProviderFixture provider(socket);
