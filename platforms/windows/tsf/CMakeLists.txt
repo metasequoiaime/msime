@@ -167,6 +167,10 @@ add_test(NAME msime-tsf-candidate-selection-slot COMMAND msime-tsf-candidate-sel
 add_executable(msime-tsf-reply-wait-policy-test tests/input/reply_wait_policy.cpp)
 target_compile_features(msime-tsf-reply-wait-policy-test PRIVATE cxx_std_17)
 add_test(NAME msime-tsf-reply-wait-policy COMMAND msime-tsf-reply-wait-policy-test)
+# 反向端点重连要连带重开 Main，焦点回执等不到就是传输失败：这两条决定了重连循环会不会停。
+add_executable(msime-tsf-pipe-recovery-policy-test tests/input/pipe_recovery_policy.cpp)
+target_compile_features(msime-tsf-pipe-recovery-policy-test PRIVATE cxx_std_17)
+add_test(NAME msime-tsf-pipe-recovery-policy COMMAND msime-tsf-pipe-recovery-policy-test)
 add_executable(msime-tsf-korean-key-test tests/input/korean_key.cpp)
 target_compile_features(msime-tsf-korean-key-test PRIVATE cxx_std_17)
 target_include_directories(msime-tsf-korean-key-test PRIVATE ../../../crates/host-api/include)
