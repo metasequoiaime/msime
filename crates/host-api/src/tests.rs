@@ -8801,6 +8801,11 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
     );
     let mut scorer = ffi::keyboard_reranker(true, root, None, None).expect("the ONNX model loads");
     assert_eq!(scorer.context_length(), LARGE);
+    // 共用的那一份要把整句池也报出来，runtime 才会让引擎多解读法。
+    assert_eq!(
+        scorer.sentence_pool(),
+        msime_engine::ordering::SENTENCE_POOL
+    );
     assert_eq!(
         scorer
             .log_probabilities("我们今天", &["去北京", "去背景"])
