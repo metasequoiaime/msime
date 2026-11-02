@@ -12819,7 +12819,7 @@ private:
 
   // ---- 候选窗口 ----
 
-  // 共享设置「候选窗口」页的桌面版（appearance-page.tsx）：页首引导下面是四个页内标签（`candidateTabs`：布局、字体与大小、窗口样式、预编辑，page_tab_bar），标签条与标签内容之间是一张无标题卡片里的预览，每个标签里只有一组，组名与标签同名。展开候选、页码和内边距在 Windows 上没有（能力位为假），不画。「游戏」组管游戏里候选窗能不能出现，是 Windows 独有的功能开关而不是外观，不属于哪个标签，画在标签内容下面、一直显示。
+  // 共享设置「候选窗口」页的桌面版（appearance-page.tsx）：页首引导下面是四个页内标签（`candidateTabs`：布局、字体与大小、窗口样式、预编辑，page_tab_bar），标签条与标签内容之间是一张无标题卡片里的预览，每个标签里只有一组，组名与标签同名。展开候选和内边距在 Windows 上没有（能力位为假），不画；页码开关在「布局」里，排在每页候选数之后，与共享页相同。「游戏」组管游戏里候选窗能不能出现，是 Windows 独有的功能开关而不是外观，不属于哪个标签，画在标签内容下面、一直显示。
   void build_candidate_page(StackPanel const &page) {
     const auto tab = page_tab_bar(page, L"候选窗口设置",
                                   {{L"layout", L"布局"},
@@ -12844,6 +12844,10 @@ private:
                   {{L"horizontal", L"横向"}, {L"vertical", L"纵向"}},
                   L"vertical");
       candidate_page_size_row(layout);
+      // 与共享设置「候选窗口」页的同名开关相同（`HostCapabilities::candidate_page_number`，`candidate-page-number-section.tsx`）：候选窗首行的「1 / 3」和 ‹ › 一起隐藏（`CandidateLayoutSettings.h`），缺值读成开（#10709）。预览只画一页样例，没有页码，不用重画。
+      bool_row(layout, 0xE8A9, L"显示页码和翻页按钮",
+               L"关闭后候选窗不再显示「1 / 3」和 ‹ ›，仍可用键盘翻页；鼠标滚轮翻页默认关闭，需要时在「输入 › 选词与翻页」里打开。",
+               L"show_candidate_page_number", true);
       // 与共享设置「候选窗口」页的同名开关相同（`HostCapabilities::app_logo`）：新装默认关，缺值读成关。
       bool_row(layout, 0xE790, L"显示水杉 logo",
                L"在候选窗和悬浮工具栏左端显示水杉图标。", L"show_app_logo",

@@ -1300,6 +1300,12 @@ int main() {
   const bool previous_logo = store.load().snapshot->preferences().at("show_app_logo").get<bool>();
   click(appearance_logo);
   assert(store.load().snapshot->preferences().at("show_app_logo").get<bool>() != previous_logo);
+  // 页码开关缺值按开显示为勾选，点掉写 false、再点写回 true（#10709）。
+  assert(SendMessageW(GetDlgItem(body, appearance_page_number), BM_GETCHECK, 0, 0) == BST_CHECKED);
+  click(appearance_page_number);
+  assert(store.load().snapshot->preferences().at("show_candidate_page_number") == false);
+  click(appearance_page_number);
+  assert(store.load().snapshot->preferences().at("show_candidate_page_number") == true);
   const auto before_fonts = store.load().snapshot->revision();
   select_value(appearance_font_preset, 1);
   saved = store.load();
