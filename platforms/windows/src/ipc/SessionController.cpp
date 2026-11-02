@@ -267,7 +267,7 @@ SessionController::request_selection(const FocusLease &lease, uint64_t session,
       if (!stopping_ && transport_.current(lease.transport))
         pending = state.select_candidate(lease, session, generation, index,
                                          translation_page, expanded_text);
-    });
+    }, InputTaskPriority::Foreground);
     if (!prepared || prepared->get() != InputTaskStatus::Completed)
       return fail();
     if (!pending)
@@ -306,7 +306,7 @@ SessionController::request_selection(const FocusLease &lease, uint64_t session,
         if (delivered)
           refresh_expansion(lease);
       }
-    });
+    }, InputTaskPriority::Foreground);
     if (!confirmed || confirmed->get() != InputTaskStatus::Completed ||
         !delivered)
       return fail();
@@ -414,7 +414,7 @@ CandidateActionRequestResult SessionController::request_candidate_action(
           (void)translations_.submit(lease, std::move(*query));
         refresh_expansion(lease);
       }
-    });
+    }, InputTaskPriority::Foreground);
     if (!prepared || prepared->get() != InputTaskStatus::Completed)
       return fail();
     return transition ? CandidateActionRequestResult::Sent
@@ -481,7 +481,7 @@ SessionController::request_page(const CandidatePage &page) {
           (void)translations_.submit(page.lease, std::move(*query));
         refresh_expansion(page.lease);
       }
-    });
+    }, InputTaskPriority::Foreground);
     if (!prepared || prepared->get() != InputTaskStatus::Completed)
       return fail();
     return transition ? CandidatePageRequestResult::Sent
