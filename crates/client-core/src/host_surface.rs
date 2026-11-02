@@ -52,12 +52,15 @@ impl HostPlatform {
     }
 
     /// 这个宿主是否显示上屏后联想（偏好 `next_word_prediction`），见 `HostCapabilities::next_word_prediction`。联想没有组字，宿主要能在没有预编辑时显示候选，并且像普通候选一样能点选、按数字键或空格选中联想，回车和标点照常输入，Esc 关闭联想。每个宿主在接好这些的那次改动里加上自己；host-api 只在这里为真的宿主上把偏好交给 Engine。
+    ///
+    /// Windows 没有预编辑时由 TIP 在光标处给 Server 发 Show，候选窗画 Server 会话自己的联想；点选、数字键和空格都由 Server 在它的会话里选中，TIP 把文字插在光标处；回车、标点照常交给应用，Esc 由 TIP 吃下并关掉联想。
     pub fn shows_next_word_prediction(self) -> bool {
         matches!(
             self,
             HostPlatform::Android
                 | HostPlatform::Linux
                 | HostPlatform::Macos
+                | HostPlatform::Windows
                 | HostPlatform::Ios
                 | HostPlatform::Harmony
         )

@@ -140,6 +140,9 @@ int main() {
   // 共享序列化省略的 `caret_edit_suffix` 只能补布尔值。
   assert(!restored.snapshot->preferences().contains("caret_edit_suffix"));
   assert(store.save(*restored.snapshot, {{{"caret_edit_suffix"}, "invalid"}}).outcome == Outcome::invalid_change);
+  // `next_word_prediction` 同样关着时不写，也只能补布尔值。
+  assert(!restored.snapshot->preferences().contains("next_word_prediction"));
+  assert(store.save(*restored.snapshot, {{{"next_word_prediction"}, "invalid"}}).outcome == Outcome::invalid_change);
   auto rejected = store.save(*restored.snapshot, {{{"keybindings", "switch_language_caps_lock"}, "invalid"}});
   assert(rejected.outcome == Outcome::storage);
   assert(store.load().snapshot->revision() == restored.snapshot->revision());
@@ -664,6 +667,18 @@ int main() {
   click(caret_edit_suffix);
   assert(!store.load().snapshot->preferences().contains("caret_edit_suffix"));
   assert(SendMessageW(GetDlgItem(body, caret_edit_suffix), BM_GETCHECK, 0, 0) == BST_UNCHECKED);
+  // 「上屏后联想」与 Android、共享页同一个标题，缺省为关、关着时不写键；打开写 true，再关掉键又消失。
+  assert(GetDlgItem(body, next_word_prediction));
+  assert(caption(GetDlgItem(body, next_word_prediction)) == L"上屏后联想");
+  assert(!store.load().snapshot->preferences().contains("next_word_prediction"));
+  assert(SendMessageW(GetDlgItem(body, next_word_prediction), BM_GETCHECK, 0, 0) == BST_UNCHECKED);
+  assert(IsWindowEnabled(GetDlgItem(body, next_word_prediction)));
+  click(next_word_prediction);
+  assert(store.load().snapshot->preferences().at("next_word_prediction") == true);
+  assert(SendMessageW(GetDlgItem(body, next_word_prediction), BM_GETCHECK, 0, 0) == BST_CHECKED);
+  click(next_word_prediction);
+  assert(!store.load().snapshot->preferences().contains("next_word_prediction"));
+  assert(SendMessageW(GetDlgItem(body, next_word_prediction), BM_GETCHECK, 0, 0) == BST_UNCHECKED);
   // 选择来源和编辑文本只改草稿；失败后无关偏好保存也不能把草稿抹掉。
   saved = store.load();
   const auto before_draft = saved.snapshot->revision();

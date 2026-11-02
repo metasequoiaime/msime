@@ -9,6 +9,7 @@
 #include "input/CandidateTextPolicy.h"
 #include "KeyEvent.h"
 #include "LifecyclePolicy.h"
+#include "PredictionPolicy.h"
 #include "PunctuationPolicy.h"
 #include <algorithm>
 #include <optional>
@@ -374,6 +375,9 @@ nlohmann::json ServerSession::all_candidates(uint64_t epoch) {
 }
 nlohmann::json ServerSession::select_with(uint64_t generation, size_t index,
                                           bool completes_composition, bool any) {
+  // 上屏后联想的行来源是 Generated（8），按来源会被当成「整段上屏、随后丢掉剩下的读音」；可联想没有读音，选中之后引擎已经接着出了下一代联想，再发 MSIME_CANCEL 会把它清掉，TIP 那边的宿主会话却还留着同一代，两边就对不上了。
+  if (completes_composition && idle_prediction_view(view()))
+    completes_composition = false;
   nlohmann::json result;
   {
     // 这几类候选整段送进文档，剩下的读音随后由下面的 MSIME_CANCEL 丢掉，选中的这一段不进 Server 的前缀。核心却只看到「上屏了、读音还剩」，按 HOST_HOLDS_PIECES 当作暂存的一段：不出上屏音，回复的 feedback 为 0，之后的 MSIME_CANCEL 又没有上屏，整段上屏就既不响也不画，还会用 0 把连击徽标清零。所以这次选词不带这一位，离开作用域时恢复，选词抛出也一样。

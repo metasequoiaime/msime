@@ -334,18 +334,16 @@ fn capabilities_describe_each_host() {
     ] {
         assert!(!HostCapabilities::for_platform(platform).caret_edit_suffix);
     }
-    // 上屏后联想只在宿主接好显示和按键之后才提供，目前是 Android、Linux（IBus 与 Fcitx5）、macOS、iOS 和 HarmonyOS（手机和 2in1 是同一个宿主）。
+    // 上屏后联想只在宿主接好显示和按键之后才提供，现在六个宿主都已接好：Android、Linux（IBus 与 Fcitx5）、macOS、Windows、iOS 和 HarmonyOS（手机和 2in1 是同一个宿主）。
     for platform in [
         HostPlatform::Android,
         HostPlatform::Linux,
         HostPlatform::Macos,
+        HostPlatform::Windows,
         HostPlatform::Ios,
         HostPlatform::Harmony,
     ] {
         assert!(HostCapabilities::for_platform(platform).next_word_prediction);
-    }
-    for platform in [HostPlatform::Windows] {
-        assert!(!HostCapabilities::for_platform(platform).next_word_prediction);
     }
     // 「单按 Caps Lock 切换中英文」和「Shift+字母进入快捷模式」总开关只在三个桌面宿主上提供。
     for platform in [
