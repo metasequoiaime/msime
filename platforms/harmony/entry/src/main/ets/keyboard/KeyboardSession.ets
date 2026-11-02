@@ -4731,7 +4731,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     // be replaced on the next press.
     if ((committed === null || committed === undefined || committed.length === 0)
         && this.inputClient !== undefined && !this.composing()
-        && this.currentCandidates.length === 0) {
+        && NextWordPredictionPolicy.composingCandidates(this.currentCandidates.length, this.predicting()) === 0) {
+      // 上屏后联想的候选不是组字：引擎没收下这个符号时照样由键盘写进去，旧联想先关掉。
+      this.dismissPrediction();
       try {
         // Korean and Vietnamese punctuation is half-width ASCII in either character width (`widens_full_width`).
         const literal: string = FullWidthInputPolicy.output(String.fromCharCode(ascii),

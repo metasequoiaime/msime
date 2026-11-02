@@ -3799,8 +3799,10 @@ struct KeyboardView {
 
   /** 画出来的组字，见 CandidatePreeditStylePolicy：2in1 的候选窗口照「候选窗口预编辑」；手机没有这个设置，拼写写在输入框里时候选栏不画读音，写不进去（14/18 键、日语、不接受预上屏文字的编辑框）时照旧画。 */
   private visibleComposition(): VisibleComposition {
+    // 上屏后联想没有拼写：触屏的读音行不画空串和光标（设备上见过一根孤零零的光标竖在联想上方）。
     return CandidatePreeditStylePolicy.visible(KeyboardFormFactor.isDesktop()
-      ? this.settings.candidateShowPreedit : !this.compositionInField, this.phrasePrefix, this.editing, this.localMode);
+      ? this.settings.candidateShowPreedit : !this.compositionInField && !this.prediction,
+      this.phrasePrefix, this.editing, this.localMode);
   }
 
   /** One candidate row without the reserved gloss line; see KeyboardMetrics.candidateRowHeightVp. */
@@ -6868,7 +6870,8 @@ struct KeyboardView {
    * 数字行的数字，与 Android 数字行相同：没有组字时和 123 层的数字一样输入；组字中先交给引擎，当前页有对应候选的 1–9 由引擎选词，引擎不收（0，或没有对应候选，或韩语、越南语等引擎自己先上屏了组字）时先结束还在的组合再上屏这个数字（`KeyboardSession.pressElseCommitThenType`）。按下记 `Digit0`–`Digit9`。
    */
   private typeNumberRowDigit(digit: string): void {
-    if (!KeyboardSession.shared.composing()) {
+    // 上屏后联想时数字行的数字和组字时一样先交给运行时：本页有对应的一条就选中它，越过本页的照常输入。走符号键那条路的话，标点入口拒收数字，联想的候选又让它以为还在组字、不补写这个数字，按下去什么也没有。
+    if (!KeyboardSession.shared.composing() && !KeyboardSession.shared.predicting()) {
       this.tapSymbol(digit);
       return;
     }
