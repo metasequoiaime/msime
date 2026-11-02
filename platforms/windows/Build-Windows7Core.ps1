@@ -61,7 +61,7 @@ try {
         '-C', 'link-arg=/DELAYLOAD:combase.dll',
         '-C', 'link-arg=/DELAYLOAD:api-ms-win-core-winrt-error-l1-1-0.dll',
         '-C', 'link-arg=/DELAYLOAD:mmdevapi.dll', '-C', 'link-arg=/DELAY:NOBIND')
-    # 不开 onnx-rerank，整句联想「增强」照旧用 resources 里随包的句子模型：ONNX Runtime 从 1.15 起只支持 Windows 10 及以上，精简构建的静态库也没有 Win7 目标（静态 CRT 的 x64 与 x86 都没有发布，锁里只有 x86_64-pc-windows-msvc 的 /MD 和 aarch64 的 /MT），见 .agents/notes/implemented/architecture/2026-11-01-onnx-rerank-backend.md。
+    # 不开 onnx-rerank，整句联想「增强」照旧用 resources 里随包的句子模型：精简构建的 ONNX Runtime 用到 Windows 7 没有的接口（2026-11-02 核对开着特性的 x64 宿主 DLL，比不开时多导入 kernel32 的 CreateFile2、api-ms-win-core-path-l1-1-0 的 PathCchRemoveBackslash 与 PathCchRemoveFileSpec、advapi32 的 EventSetInformation，都是 Windows 8 起才有），锁里也没有静态 CRT 的 x64 与 x86 库。见 .agents/notes/implemented/architecture/2026-11-01-onnx-rerank-backend.md。
     $cargo = @('-Z', 'build-std=std,panic_unwind', 'rustc', '--locked', '--release', '--target', $triple)
     Invoke-CoreCommand cargo ($cargo + @('-p', 'msime-host-api', '--lib') + $link)
     & (Join-Path $PSScriptRoot 'Test-PortableExecutable.ps1') -LiteralPath (Join-Path $release 'msime_host_api.dll') -Architecture $Architecture -Kind dll
