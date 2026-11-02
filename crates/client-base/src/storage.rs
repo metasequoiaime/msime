@@ -215,6 +215,14 @@ pub fn open_private_directory(parent: &Path) -> io::Result<File> {
                         }
                         Err(error) => return Err(error.into()),
                     };
+                if rustix::fs::FileType::from_raw_mode(rustix::fs::fstat(&directory)?.st_mode)
+                    != rustix::fs::FileType::Directory
+                {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "private directory path contains a non-directory",
+                    ));
+                }
             }
         }
     }

@@ -8,7 +8,7 @@ IBus 的 `ibus-engine-smoke` 默认入口没有注册为资源测试，Fcitx5 �
 
 ## Decision
 
-CMake 在提供已校验资源目录时注册 `ibus-native-context`，并保留 Fcitx5 的 `fcitx5-native-context` 资源测试。资源验收在独立的 Linux CI job 中按 `resources/desktop-dictionary.lock.json` 下载词库，再分别调用现有 IBus 与 Fcitx5 容器脚本；编译门禁继续保持无资源的快速路径。IBus 合并断言改为要求离线命中与远端释义同时存在，不依赖候选排序；Fcitx5 标点样式断言等待完整的引号与括号视图，而不是只等待引号字段。Host API 导出检查按容器平台去掉 Windows 条件块后再逐个核对动态库符号。
+CMake 在提供已校验资源目录时注册 `ibus-native-context`，并保留 Fcitx5 的 `fcitx5-native-context` 资源测试。资源验收在独立的 Linux CI job 中按 `resources/desktop-dictionary.lock.json` 下载词库，再分别调用现有 IBus 与 Fcitx5 容器脚本；编译门禁继续保持无资源的快速路径。IBus 合并断言改为要求离线命中与远端释义同时存在，不依赖候选排序；Fcitx5 标点样式断言等待完整的引号与括号视图，而不是只等待引号字段。Host API 导出检查按容器平台去掉 Windows 条件块后再逐个核对动态库符号；共享私有目录打开器在每个 Linux 路径分量上核对 `fstat` 类型，拒绝 `O_PATH` 打开的非目录分量。
 
 ## Alternatives considered
 
@@ -16,6 +16,7 @@ CMake 在提供已校验资源目录时注册 `ibus-native-context`，并保留 
 - 把资源下载塞进现有 `build-container.sh`：会让编译门禁依赖网络和完整词库，增加冷构建时间并改变原有门禁边界，因此改用独立 job。
 - 将前置断言改成日志而不是失败：会让语音覆盖在前置回归时假绿，保留断言并修正其异步与排序假设。
 - 让 Linux 动态库导出 Windows 专用函数：会扩大非 Windows ABI，且与 Rust 的 `cfg(windows)` 不一致，因此修正检查器对条件声明的解析。
+- 只在最终目录打开时检查类型：`O_PATH` 允许中间分量暂时打开为文件，错误会延迟到不可预测的后续调用，因此逐级检查并立即返回明确错误。
 
 ## Consequences
 
