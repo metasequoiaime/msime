@@ -22,7 +22,7 @@ Status: implemented
 
 ## 平台范围
 
-只改 Android。上屏后联想目前只有 Android 启用（host-api 以 `cfg!(target_os = "android")` 门住引擎选项），iOS 与鸿蒙没有联想状态，也就没有这一行候选可放按键。三端键盘 UI 一致的约定在这里的落法是：哪一端启用上屏后联想，就同时读 `next_word_prediction_buttons`，按同样三种样式画关闭键与展开键，关闭键同样送 Cancel。React 设置页和 Windows 没有联想入口，字段在偏好一致性脚本的 `RUST_ONLY` 里登记原因。macOS 宿主同样没有联想状态，共享偏好在 macOS 无人读取，所以 `platforms/macos/tests/settings/preference_coverage.py` 的 `NOT_APPLICABLE` 也登记了这一项和原因；macOS 以后启用联想时要接入它并删掉这条豁免，门禁会把过期的豁免报出来。
+只改 Android。上屏后联想目前只有 Android 启用（host-api 以 `cfg!(target_os = "android")` 门住引擎选项），iOS 与鸿蒙没有联想状态，也就没有这一行候选可放按键。三端键盘 UI 一致的约定在这里的落法是：哪一端启用上屏后联想，就同时读 `next_word_prediction_buttons`，按同样三种样式画关闭键与展开键，关闭键同样送 Cancel。鸿蒙手机启用联想时照此接入（`keyboard/candidate/NextWordPredictionPolicy.ts`），2in1 候选窗没有展开键，不放这两个键。React 设置页和 Windows 没有联想入口，字段在偏好一致性脚本的 `RUST_ONLY` 里登记原因。macOS 宿主同样没有联想状态，共享偏好在 macOS 无人读取，所以 `platforms/macos/tests/settings/preference_coverage.py` 的 `NOT_APPLICABLE` 也登记了这一项和原因；macOS 以后启用联想时要接入它并删掉这条豁免，门禁会把过期的豁免报出来。
 
 iOS 启用上屏后联想时按上面的约定接入：`NextWordPredictionButtons`（SharedUI）读同一个字段、同样三种写法和同样的宽松读法，候选行在 1×22 细线和 40pt 展开箭头之间加 40pt 的 ×（`closePrediction`），两键并排时细线只在 × 左边；× 送取消，候选网格开着时先收起。设置入口在 App「表达 → 智能」的「上屏后联想」下面，开关关着时整行禁用。
 
