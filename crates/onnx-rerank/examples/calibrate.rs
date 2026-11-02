@@ -16,6 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &read("model.json")?,
         &read("vocab.json")?,
         threads,
+        true,
     )?;
     for round in 1..=rounds {
         println!("round {round}: {:.2} ms", scorer.calibrate());

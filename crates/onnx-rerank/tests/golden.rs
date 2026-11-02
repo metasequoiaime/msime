@@ -24,7 +24,14 @@ fn scorer() -> OnnxScorer {
     let model =
         std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/lm_step.ort"))
             .unwrap();
-    OnnxScorer::load(&model, &fixture("model.json"), &fixture("vocab.json"), 1).unwrap()
+    OnnxScorer::load(
+        &model,
+        &fixture("model.json"),
+        &fixture("vocab.json"),
+        1,
+        true,
+    )
+    .unwrap()
 }
 
 struct Keystroke {
@@ -82,6 +89,30 @@ fn typing_matches_the_reference_runtime() {
             let texts: Vec<&str> = k.candidates.iter().map(String::as_str).collect();
             assert_within(
                 &scorer.log_probabilities(context, &texts),
+                &k.scores,
+                TOLERANCE,
+                &format!("{context:?} keystroke {i}"),
+            );
+        }
+    }
+}
+
+/// iOS 宿主的设置：ONNX Runtime 自己读模型文件、不用 CPU 内存池。只换了内存从哪里来，分数与参考运行时一致。
+#[test]
+fn reading_the_file_without_a_memory_arena_scores_the_same() {
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let mut scorer = OnnxScorer::load_file(
+        &fixtures.join("lm_step.ort"),
+        &fixture("model.json"),
+        &fixture("vocab.json"),
+        1,
+        false,
+    )
+    .unwrap();
+    for (context, keystrokes) in &cases() {
+        for (i, k) in keystrokes.iter().enumerate() {
+            assert_within(
+                &scorer.log_probabilities(context, &texts(k)),
                 &k.scores,
                 TOLERANCE,
                 &format!("{context:?} keystroke {i}"),
