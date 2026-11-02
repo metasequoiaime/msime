@@ -1458,6 +1458,8 @@ mod tests {
         assert_eq!(Scheme::parse("japanese"), Some(Scheme::Japanese));
         assert_eq!(Scheme::parse("korean"), Some(Scheme::Korean));
         assert_eq!(Scheme::parse("wubi98"), None);
+        // 网页只有 86 五笔，新世纪不开放。
+        assert_eq!(Scheme::parse("wubixsj"), None);
         assert_eq!(Scheme::parse("shuangpin"), None);
         assert_eq!(Scheme::parse(""), None);
     }

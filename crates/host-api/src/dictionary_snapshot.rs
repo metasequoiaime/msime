@@ -490,6 +490,8 @@ fn inspect_snapshot_reader(reader: impl io::Read) -> Result<SnapshotMetadata, &'
 ///
 /// 这是离线导出：不需要登录，修订号固定为 1。调用方已经持有词库的会话访问权。
 ///
+/// 新世纪五笔（`wubixsj`）的词只在 `include_learning` 为真（本地备份）时写进去：云同步上传用的是为假的那份，服务端还不收这个种类。
+///
 /// `include_learning` 为真时（本地备份用，云同步不用）在用户的词之后再写输入记录：Engine 日志里的学习调权和删除记录写成 `overlay`（学习调权 `user_inserted:false`，删除记录 `deleted:true`），固定位置写成 `position`，选词计数写成 `selection`，都是这个格式第 1 版本来就有的记录，旧版本恢复时照样认得。快照格式装不下的行（编码或词含换行、制表符，位置不在 1 到 5，总记录数超出上限）跳过并计入 `learning_skipped`，选词计数截到 0 到 10。返回值多出 `learning`（写进去的输入记录条数）和 `learning_skipped`。日志整体读不出来时只导出词，`learning` 为 0，原因在 `learning_error`。为假时输出与加这个参数之前逐字节相同。
 pub(crate) fn export_local_snapshot(
     options: &EngineOptions,
@@ -521,8 +523,12 @@ pub(crate) fn export_local_snapshot(
                 DictionaryKind::Pinyin => "pinyin",
                 DictionaryKind::Wubi => "wubi",
                 DictionaryKind::Wubi98 => "wubi98",
+                // 新世纪五笔的词只进本地备份（`include_learning`），不进云同步上传的快照：服务端还不收这个种类，已经发布的客户端读到它会拒绝整份快照。
+                DictionaryKind::WubiXsj if include_learning => "wubixsj",
+                DictionaryKind::WubiXsj => continue,
                 DictionaryKind::QuickPhrase => "quick",
                 DictionaryKind::English => "english",
+                // `DictionaryKind` 是 Engine 的 `non_exhaustive` 枚举：以后加的种类在这里补上之前，快照格式没有它的名字。
                 _ => continue,
             };
             if !snapshot_safe(&entry.key) || !snapshot_safe(&entry.value) {
@@ -738,6 +744,7 @@ fn learning_records(
                     DictionaryKind::Pinyin => "pinyin",
                     DictionaryKind::Wubi => "wubi",
                     DictionaryKind::Wubi98 => "wubi98",
+                    DictionaryKind::WubiXsj => "wubixsj",
                     DictionaryKind::QuickPhrase => "quick",
                     DictionaryKind::English => "english",
                     // 快照格式只认上面这几种，Engine 以后加的种类装不下。

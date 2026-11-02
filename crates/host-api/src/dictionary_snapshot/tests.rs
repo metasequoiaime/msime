@@ -1242,14 +1242,14 @@ fn legacy_snapshot(rows: &[(&str, &str, &str, i64)], updated_at: &str) -> Vec<u8
     body
 }
 
-/// 更新的版本加的词库种类（如新世纪五笔 `wubixsj`）这一版不认识：快照照常通过校验，那几条记录在读成 Engine 记录时跳过，但仍计入 `engine_records`，与 iOS 按行数核对的条数一致。种类不是名字的形状时整份仍不合规。
+/// 更新的版本加的词库种类（用不存在的 `wubi2030` 代表）这一版不认识：快照照常通过校验，那几条记录在读成 Engine 记录时跳过，但仍计入 `engine_records`，与 iOS 按行数核对的条数一致。种类不是名字的形状时整份仍不合规。
 #[test]
 fn snapshot_records_of_an_unknown_kind_are_skipped_not_rejected() {
     let directory = tempfile::tempdir().unwrap();
     let file = directory.path().join("snapshot.ndjson");
     let updated_at = "2026-09-01T00:00:00Z";
     let rows = [
-        ("wubixsj", "ent", "力", 10),
+        ("wubi2030", "ent", "力", 10),
         ("pinyin", "ni'hao", "你好", 100),
     ];
     std::fs::write(&file, legacy_snapshot(&rows, updated_at)).unwrap();
@@ -1276,7 +1276,7 @@ fn snapshot_records_of_an_unknown_kind_are_skipped_not_rejected() {
     let text = std::fs::read_to_string(&file).unwrap();
     let foreign = text
         .lines()
-        .find(|line| line.contains(r#""type":"overlay""#) && line.contains("wubixsj"))
+        .find(|line| line.contains(r#""type":"overlay""#) && line.contains("wubi2030"))
         .unwrap();
     assert!(matches!(
         super::record::decode(foreign.as_bytes()),
@@ -1297,6 +1297,56 @@ fn snapshot_records_of_an_unknown_kind_are_skipped_not_rejected() {
             "{malformed:?}"
         );
     }
+}
+
+/// 新世纪五笔的词只进本地备份（`include_learning`），不进云同步上传的那份快照：服务端还不收这个种类。备份读回来时照常是新世纪的词。
+#[test]
+fn new_century_words_go_into_local_backups_but_not_the_cloud_snapshot() {
+    let device = LearningDevice::new();
+    rusqlite::Connection::open(device.root.path().join("dictionaries/msime-pinyin.db"))
+        .unwrap()
+        .execute_batch("CREATE TABLE wubixsj(key TEXT,value TEXT,weight INTEGER);")
+        .unwrap();
+    for (kind, key, value) in [
+        (msime_engine::host::DictionaryKind::WubiXsj, "ent", "力"),
+        (msime_engine::host::DictionaryKind::Wubi, "lt", "力"),
+    ] {
+        msime_engine::host::dictionary_edit(
+            &device.options,
+            None,
+            Some(&msime_engine::host::DictionaryEntry {
+                kind,
+                key: key.into(),
+                value: value.into(),
+                weight: 100,
+            }),
+            &format!("seed-{key}"),
+        )
+        .unwrap();
+    }
+    let cloud = device.export("cloud.ndjson", serde_json::json!({}));
+    let text = std::fs::read_to_string(&cloud).unwrap();
+    assert!(!text.contains("wubixsj"), "{text}");
+    assert!(text.contains(r#""kind":"wubi""#), "{text}");
+
+    let backup = device.export(
+        "backup.ndjson",
+        serde_json::json!({"include_learning": true}),
+    );
+    let metadata = super::inspect_snapshot(&backup).unwrap();
+    assert_eq!(metadata.entries, 2);
+    let records = super::SnapshotFileRecords::open(&backup)
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert!(records.iter().any(|record| matches!(
+        record,
+        msime_engine::DictionaryStateRecord::Entry {
+            kind: msime_engine::host::DictionaryKind::WubiXsj,
+            key,
+            ..
+        } if key == "ent"
+    )));
 }
 
 #[test]
