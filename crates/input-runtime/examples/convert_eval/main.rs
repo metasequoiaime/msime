@@ -111,6 +111,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut assert_first_seat_gate = false;
     let mut jobs = 1usize;
     let mut learn_replay: Option<i64> = None;
+    let mut fuzzy_all = false;
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut index = 0;
@@ -165,6 +166,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             // 打开「拼音纠错」的邻键和对调两项，双拼的纠错整句（平面表）只在它们开着时出现。
             "--autocorrect" => autocorrect = true,
+            // 打开全部 11 条模糊音规则（#10457 报告者的设置），给模糊音路径的改动比对候选用；默认关，与产品出厂一致。只支持全拼。
+            "--fuzzy-all" => fuzzy_all = true,
             "--max-syllables" => max_syllables = Some(take(&mut index)?.parse()?),
             "--shuangpin-profile" => {
                 for name in take(&mut index)?.split(',') {
@@ -201,6 +204,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let shuangpin = if scheme == SchemeType::Shuangpin {
+        if fuzzy_all {
+            return Err("--fuzzy-all is only supported for --scheme quanpin".into());
+        }
         if cut.is_some() {
             return Err("--cut-last-syllable is only supported for --scheme quanpin".into());
         }
@@ -340,6 +346,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 grid,
                 keyboard_neural,
                 autocorrect,
+                fuzzy_all,
                 first_page_rows,
                 &verified.source_commit,
             )?;
@@ -690,6 +697,7 @@ fn run(
     grid: Option<KeyGrid>,
     keyboard_neural: bool,
     autocorrect: bool,
+    fuzzy_all: bool,
     first_page_rows: Option<usize>,
     source_commit: &str,
 ) -> Result<Report, Box<dyn std::error::Error>> {
@@ -705,7 +713,11 @@ fn run(
         first_page_rows,
         source_commit,
         None,
-        |_| {},
+        |options| {
+            if fuzzy_all {
+                options.fuzzy_pinyin_rules = msime_engine::fuzzy_rule::ALL;
+            }
+        },
     )?;
     // `--grid` 在触屏网格上打每条用例：字母换成它所在键的组码（九键是旁边印的数字，14 键是这一组的首字母），同一个金标准要从组码串里打出来，而 西安 和 一按 在九键上是同一串输入。
     if grid.is_some() {
