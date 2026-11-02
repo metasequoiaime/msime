@@ -190,7 +190,7 @@ class KeyLayoutSettingsContract(unittest.TestCase):
 
 
 class NineKeySwipeDigitsSettingsContract(unittest.TestCase):
-    """#10229「九键滑动输入数字」：放在键盘页「手势」组里紧跟 26 键「滑动方向」那一行之后，不进「按键布局」子页；三端同一行文字，写共享偏好 `touch_nine_key_swipe_digits`。"""
+    """#10229「九键滑动输入数字」：放在键盘页「手势」组里 26 键「滑动方向」之后，两者之间只隔着「显示字母键角标」（#10587），不进「按键布局」子页；三端同一行文字、同一位置，写共享偏好 `touch_nine_key_swipe_digits`。"""
 
     def setUp(self):
         self.source = LAYOUT_PAGE.read_text()
@@ -204,7 +204,13 @@ class NineKeySwipeDigitsSettingsContract(unittest.TestCase):
         self.assertLess(gate, glide)
         between = self.group[direction:gate]
         self.assertIn(".disabled(!swipeSymbols)", between)
-        self.assertEqual(between.count("DesignDivider()"), 1, "the row comes right after the direction row and its divider")
+        # 方向行之后只有「显示字母键角标」一行（#10587），然后才是九键这一行；每行后面各一条分隔线。
+        corner = between.index('DesignToggleRow(title: "显示字母键角标"')
+        self.assertEqual(between.count("DesignToggleRow("), 1, "only the corner-hint row sits between the direction row and this row")
+        self.assertNotIn("DesignSelectRow(", between[corner:])
+        self.assertEqual(between.count("DesignDivider()"), 2, "the direction row and the corner-hint row are each followed by one divider")
+        # 角标开关只管画不画，不跟着「滑动输入符号」置灰。
+        self.assertNotIn(".disabled(", between[corner:])
         row = self.group[gate:glide]
         self.assertIn("DesignSelectRow(title: NineKeySwipeDigits.title, info: NineKeySwipeDigits.subtitle,", row)
         self.assertIn("options: NineKeySwipeDigits.allCases.map {", row)

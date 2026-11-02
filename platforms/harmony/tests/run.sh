@@ -51,6 +51,15 @@ for field in this.twentySixKeyStyle this.fourteenKeyStyle this.nineKeyStyle this
     exit 1
   fi
 done
+# 「显示字母键角标」（#10587）同理要在 faceKey() 里，键盘开着切换时已画好的字母键才会收起或画回角标；字母键只把它交给键面的 showCornerHint，cornerHint 照旧给出，长按和滑动照样输入角标。
+if ! grep -qF 'this.feedback.letterCornerHints' <<< "$face_key_body" \
+  || ! grep -qF 'showCornerHint: this.feedback.letterCornerHints,' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets" \
+  || ! grep -qF 'return options.showCornerHint !== false && options.cornerHint !== undefined' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets"; then
+  echo "The letter corner hint switch must reach faceKey() and only hide the drawn hint, keeping cornerHint for the gestures" >&2
+  exit 1
+fi
 # 组字中 Shift 加字母是辅助码：引擎只认大写字母，不看 Shift 标志，所以字母键要按 Shift 发大写字母，规则由 keyboard-logic.test.ts 覆盖，这里钉住视图的接线。
 if ! grep -qF 'const input: string = ChineseHelpcodePolicy.letterInput(letter, shifted);' \
   "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets"; then
@@ -910,11 +919,24 @@ if ! grep -qF "KeyboardSession.shared.readAloudText(" "$repo_root/platforms/harm
   exit 1
 fi
 "$tsc" --project "$here/tsconfig.json"
+# Telemetry.ets 是 .ets，不在上面的 tsconfig 里，telemetry-adapter.test.cjs 又用 --noCheck 发射，删掉 TelemetryPolicy 成员后 HAP 编译失败而这里仍然全绿。把它复制成 .ts，连同真实的 TelemetryPolicy.ts、系统模块的 any 声明和同级模块的 any 存根做一次严格类型检查。
+telemetry_check="$repo_root/target/harmony-tests/telemetry-typecheck"
+rm -rf "$telemetry_check"
+mkdir -p "$telemetry_check/telemetry" "$telemetry_check/keyboard" "$telemetry_check/privacy"
+cp "$repo_root/platforms/harmony/entry/src/main/ets/telemetry/Telemetry.ets" "$telemetry_check/telemetry/Telemetry.ts"
+cp "$repo_root/platforms/harmony/entry/src/main/ets/telemetry/TelemetryPolicy.ts" "$telemetry_check/telemetry/TelemetryPolicy.ts"
+printf 'export declare const KeyboardLog: any;\nexport declare function describeError(error: unknown): string;\n' > "$telemetry_check/keyboard/KeyboardLog.d.ts"
+printf 'export declare const HarmonyPrivacyConsent: any;\n' > "$telemetry_check/privacy/HarmonyPrivacyConsent.d.ts"
+"$tsc" --ignoreConfig --noEmit --strict --target es2021 --module commonjs --skipLibCheck \
+  "$here/telemetry-typecheck.d.ts" "$telemetry_check/telemetry/Telemetry.ts" "$telemetry_check/telemetry/TelemetryPolicy.ts"
 node "$here/idle-dictionary-lifecycle.test.cjs"
 # 上面已编译所有 tests/*.test.ts；逐个运行它们的输出。遍历源文件而不是输出目录，可以避免已删除测试遗留的旧 .js 被运行。
 for source in "$here"/*.test.ts; do
   node "$repo_root/target/harmony-tests/tests/$(basename "${source%.ts}").js"
 done
+# 实际 ArkTS 生命周期适配器在替代系统 API 后执行，补上纯策略测试碰不到的请求接线。
+node "$here/telemetry-adapter.test.cjs"
+bash "$here/check-native-capture.sh"
 # The key-sound renderer is plain C++ over miniaudio with no NAPI in it, so the build machine's compiler checks what it writes and what it refuses.
 out="$repo_root/target/harmony-tests"
 miniaudio="$repo_root/platforms/windows/third_party/miniaudio"
