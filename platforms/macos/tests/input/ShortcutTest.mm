@@ -5940,14 +5940,21 @@ static void TestMusicIsClaimedOnceTheSessionOpens() {
 @property(nonatomic) NSUInteger updates;
 @property(nonatomic) NSUInteger failedUpdatesRemaining;
 @property(nonatomic, copy) NSDictionary *lastPreferences;
+@property(nonatomic, copy) NSDictionary *startupHostOptions;
 @end
 @implementation AsyncPreferenceSession
+- (NSDictionary *)hostOptions { return self.startupHostOptions ?: @{}; }
 - (NSDictionary *)updatePreferencesSnapshot:(NSDictionary *)snapshot error:(NSError **)error {
     self.lastPreferences = snapshot; ++self.updates;
     if (self.failedUpdatesRemaining) {
         --self.failedUpdatesRemaining;
         if (error) *error = [NSError errorWithDomain:@"synthetic-preferences" code:1 userInfo:nil];
         return nil;
+    }
+    if (self.startupHostOptions) {
+        NSMutableDictionary *options = [self.startupHostOptions mutableCopy];
+        options[@"preferences"] = snapshot[@"preferences"];
+        self.startupHostOptions = options;
     }
     return @{@"view":@{@"focused":@YES, @"editing_text":@"", @"candidates":@[]}};
 }
@@ -6323,6 +6330,7 @@ static void TestFreshProcessActsOnTheSharedSchemeNotTheStaleLocalOne() {
 @interface StartupVoiceController : ModeController
 @property(nonatomic, copy) NSDictionary *options;
 @property(nonatomic) NSUInteger voiceFailures;
+@property(nonatomic) NSUInteger preferenceCompletions;
 @end
 @implementation StartupVoiceController
 // alloc 夹具没有 IMK 基类的服务连接；模式报告先于激活时还没有客户端。
@@ -6334,6 +6342,11 @@ static void TestFreshProcessActsOnTheSharedSchemeNotTheStaleLocalOne() {
 - (void)syncSystemInputModeForClient:(id)client { (void)client; }
 - (void)requestCloudCandidatesConsentIfNeeded {}
 - (void)claimBackgroundMusic {}
+- (void)completePreferenceLoad:(NSDictionary *)snapshot error:(NSError *)error generation:(uint64_t)generation
+                       session:(MSIMEClientSession *)session client:(id)client {
+    [super completePreferenceLoad:snapshot error:error generation:generation session:session client:client];
+    ++self.preferenceCompletions;
+}
 - (void)reportVoiceFailure:(MSIMEVoiceFailure)failure {
     assert(failure == MSIMEVoiceFailureMissingLocalModel);
     ++self.voiceFailures;
@@ -6347,19 +6360,23 @@ static void TestStartupVoicePreferences() {
     NSDictionary *previousDefaults = standard.dictionaryRepresentation;
     Method base = class_getInstanceMethod(IMKInputController.class, @selector(activateServer:));
     IMP original = method_setImplementation(base, (IMP)IgnoreBaseActivation);
-    for (NSNumber *enabled in @[@YES, @NO]) for (NSUInteger entry = 0; entry < 5; ++entry) {
+    for (NSNumber *enabled in @[@YES, @NO]) for (NSUInteger entry = 0; entry < 10; ++entry) {
+        const char *selectedEntry = std::getenv("MSIME_STARTUP_VOICE_CASE");
+        if (selectedEntry && entry != std::strtoul(selectedEntry, nullptr, 10)) continue;
         NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
         NSError *error = nil;
         NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
         assert(snapshot && !error);
         NSMutableDictionary *document = [snapshot[@"preferences"] mutableCopy];
         NSMutableDictionary *toolbar = [document[@"floating_toolbar"] mutableCopy];
-        toolbar[@"voice"] = enabled; toolbar[@"enabled"] = @YES; toolbar[@"auto_hide"] = @NO;
+        toolbar[@"voice"] = enabled; toolbar[@"enabled"] = @(entry != 8); toolbar[@"auto_hide"] = @NO;
         document[@"floating_toolbar"] = toolbar;
         NSMutableDictionary *voice = [document[@"voice_input"] mutableCopy];
         voice[@"enabled"] = enabled; voice[@"asr_provider"] = @"local";
         voice[@"asr_model_path"] = [root stringByAppendingPathComponent:@"missing-synthetic-model"];
         document[@"voice_input"] = voice;
+        if (entry == 7) document[@"english_online_candidates"] = enabled;
+        if (entry == 9) document[@"diagnostic_log"] = @{@"server":@YES};
         NSMutableDictionary *keys = [document[@"keybindings"] mutableCopy];
         keys[@"toggle_voice_input"] = @"Ctrl+Meta+KeyZ";
         document[@"keybindings"] = keys;
@@ -6374,19 +6391,27 @@ static void TestStartupVoicePreferences() {
         StartupVoiceController *controller = [StartupVoiceController alloc];
         controller.options = @{@"preferences_directory":root};
         [controller setValue:prefs forKey:@"appearance"];
-        [controller setValue:root forKey:@"preferencesDirectory"];
+        if (entry != 9) [controller setValue:root forKey:@"preferencesDirectory"];
+        if (entry == 8) prefs.floatingToolbarEnabled = YES;
+        AsyncPreferenceSession *startupSession = nil;
+        if (entry == 7) {
+            startupSession = [AsyncPreferenceSession new];
+            startupSession.startupHostOptions = @{@"preferences_directory":root,
+                @"preferences":@{@"english_online_candidates":@(!enabled.boolValue)}};
+            [controller setValue:startupSession forKey:@"session"];
+        }
         // 原生缓存故意与共享文档相反，模拟进程退出期间设置应用改过总开关。
         [NSUserDefaults.standardUserDefaults setBool:!enabled.boolValue forKey:@"MSIMEClientVoiceEnabled"];
         MSIMEFloatingToolbarPanel *panel = MSIMEFloatingToolbarPanel.sharedPanel;
         [panel applySizingPreferences:@{}];
         ShortcutClient *client = [ShortcutClient new];
         BOOL expected = enabled.boolValue;
-        if (entry == 1) {
+        if (entry == 1 || entry == 5) {
             MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
             [controller systemDidReportInputMode:MSIMEKoreanInputModeID client:client];
             assert([prefs.inputScheme isEqual:@"korean"]);
         }
-        if (entry == 4) [controller applySharedInputPreferencesBeforeFirstUse];
+        if (entry == 4 || entry == 6) [controller applySharedInputPreferencesBeforeFirstUse];
         if (entry == 3) {
             NSString *invalid = [root stringByAppendingPathComponent:@"not-a-directory"];
             assert([@"synthetic" writeToFile:invalid atomically:YES encoding:NSUTF8StringEncoding error:nil]);
@@ -6394,24 +6419,79 @@ static void TestStartupVoicePreferences() {
             [controller applySharedInputPreferencesBeforeFirstUse];
             [controller setValue:root forKey:@"preferencesDirectory"];
         }
-        if (entry == 4) {
-            // 比启动快照更新的重载已经生效，首次呈现不能再用旧值覆盖。
+        if (entry == 4 || entry == 5 || entry == 6) {
+            // 文档已更新；同一控制器的重载或另一控制器的激活已经把全局缓存推进到新值。
             NSMutableDictionary *newer = [document mutableCopy];
             NSMutableDictionary *newToolbar = [toolbar mutableCopy], *newVoice = [voice mutableCopy];
             expected = !expected;
             newToolbar[@"voice"] = @(expected); newVoice[@"enabled"] = @(expected);
             newer[@"floating_toolbar"] = newToolbar; newer[@"voice_input"] = newVoice;
-            [controller applySharedToolbarPreferences:newer];
+            saved = [MSIMEClientSession savePreferencesInDirectory:root
+                expectedRevision:[saved[@"revision"] unsignedLongLongValue]
+                snapshot:@{@"format_version":@1, @"revision":saved[@"revision"], @"preferences":newer} error:&error];
+            assert(saved && !error);
+            if (entry == 4) [controller applySharedToolbarPreferences:newer];
+            else {
+                NSString *peerSuite = [suite stringByAppendingString:@".peer"];
+                NSUserDefaults *peerDefaults = [[NSUserDefaults alloc] initWithSuiteName:peerSuite];
+                StartupVoiceController *peer = [StartupVoiceController alloc];
+                peer.options = controller.options;
+                MSIMEAppearancePreferences *peerPreferences = [[MSIMEAppearancePreferences alloc] initWithDefaults:peerDefaults];
+                peerPreferences.englishMode = YES;
+                [peer setValue:peerPreferences forKey:@"appearance"];
+                [peer setValue:root forKey:@"preferencesDirectory"];
+                [peer activateServer:[ShortcutClient new]];
+                assert(MSIMEVoiceInputEnabled(NSUserDefaults.standardUserDefaults) == expected);
+                assert(((NSButton *)[panel valueForKey:@"voiceButton"]).hidden == !expected);
+                [panel deactivateForDelegate:peer];
+                MSIMEFocusedController = nil;
+                MSIMERemoveTestPreferenceSuite(peerDefaults, peerSuite);
+            }
         }
-        if (entry == 2) {
-            // IMK 也可以只送按键，让既有的按键入口恢复焦点。
-            [controller setValue:panel forKey:@"toolbar"];
+        if (entry == 2 || entry == 6) {
+            // 首个修饰键也能接管焦点，夹具不能预先给控制器放入工具栏。
+            assert(![controller valueForKey:@"toolbar"]);
             [controller setValue:[ShortcutSession new] forKey:@"session"];
             [controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 56, 0, 1) client:client];
+        } else if (entry == 8) {
+            // 工具栏被共享文档关闭时，首个 KeyDown 连一次显示请求也不能发出。
+            __block NSUInteger wakeRequests = 0;
+            Method wake = class_getInstanceMethod(MSIMEFloatingToolbarPanel.class, @selector(wakeForInputDelegate:));
+            IMP recorder = imp_implementationWithBlock(^(id panel, id owner) { (void)panel; (void)owner; ++wakeRequests; });
+            IMP originalWake = method_setImplementation(wake, recorder);
+            [controller setValue:[ShortcutSession new] forKey:@"session"];
+            [controller handleEvent:ModeKey(0, 0, NO) client:client];
+            method_setImplementation(wake, originalWake);
+            imp_removeBlock(recorder);
+            std::fprintf(stdout, "startup keydown wake_requests=%lu\n", (unsigned long)wakeRequests);
+            std::fflush(stdout);
+            assert(wakeRequests == 0 && !prefs.floatingToolbarEnabled);
         } else [controller activateServer:client];
-        if (entry == 1) assert([prefs.inputScheme isEqual:@"korean"]);
+        if (entry == 9) {
+            std::fprintf(stdout, "startup diagnostics=%d\n", msime_macos_diagnostic_enabled());
+            std::fflush(stdout);
+            assert(msime_macos_diagnostic_enabled());
+        }
+        if (entry == 1 || entry == 5) assert([prefs.inputScheme isEqual:@"korean"]);
+        if (entry == 7) {
+            // 走真实 prepareSession 的运行态恢复分支；会话里仍是旧 runtime options。
+            [controller prepareSession];
+            assert([[controller valueForKey:@"englishOnlineCandidatesEnabled"] boolValue] == !enabled.boolValue);
+            [controller reloadPreferences];
+            SettleWindowLayout();
+            NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2];
+            while (!controller.preferenceCompletions && deadline.timeIntervalSinceNow > 0)
+                [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
+            assert(controller.preferenceCompletions == 1 && startupSession.updates == 1);
+            std::fprintf(stdout, "startup english_online=%d expected=%d\n",
+                [[controller valueForKey:@"englishOnlineCandidatesEnabled"] boolValue], enabled.boolValue);
+            std::fflush(stdout);
+            assert([[controller valueForKey:@"englishOnlineCandidatesEnabled"] boolValue] == enabled.boolValue);
+            assert([startupSession.hostOptions[@"preferences"][@"english_online_candidates"] isEqual:enabled]);
+        }
         NSButton *microphone = [panel valueForKey:@"voiceButton"];
-        if (enabled.boolValue && entry == 0) {
+        const char *captureEntry = std::getenv("MSIME_STARTUP_VOICE_CAPTURE_ENTRY");
+        if (enabled.boolValue && entry == (captureEntry ? std::strtoul(captureEntry, nullptr, 10) : 0)) {
             if (const char *capture = std::getenv("MSIME_STARTUP_VOICE_CAPTURE")) {
                 [panel.contentView layoutSubtreeIfNeeded];
                 NSBitmapImageRep *bitmap = [panel.contentView bitmapImageRepForCachingDisplayInRect:panel.contentView.bounds];
@@ -6433,6 +6513,7 @@ static void TestStartupVoicePreferences() {
             assert(controller.voiceFailures == 1);
         }
         [panel deactivateForDelegate:controller];
+        if (entry == 9) msime_macos_diagnostic_configure("", false);
         MSIMEFocusedController = nil;
         MSIMERemoveTestPreferenceSuite(defaults, suite);
         [NSFileManager.defaultManager removeItemAtPath:root error:nil];

@@ -1826,8 +1826,8 @@ static NSImage *MSIMECandidateLogoImage() {
     NSString *_preferencesDirectory;
     NSTimer *_preferencesTimer;
     MSIMEPreferenceLoadState _preferenceLoadState;
-    // 首次同步读取的宿主设置，等工具栏创建或按键接管焦点后再应用。
-    NSDictionary *_initialHostPreferences;
+    // 只记宿主设置是否已应用，不保留跨激活回放的文档。
+    BOOL _hostPreferencesApplied;
     MSIMEAppearancePreferences *_appearance;
     BOOL _wubiCodeHintEnabled;
     msime::input::EnglishPunctuationState _englishPunctuation;
@@ -5368,34 +5368,42 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     return [_session respondsToSelector:@selector(hostOptions)] ? _session.hostOptions : MSIMELoadRuntimeOptions();
 }
 // 共享偏好文档是方案的权威来源：设置页、`msime config set`、云端同步和本输入法自己都写它，NSUserDefaults 里的 `MSIMEClientInputScheme` 只有本输入法自己写。外观设置在载入文档之前退回那份本地值，而文档平时在激活之后才于后台载入，所以输入法进程重新启动后（重新登录、重启、更新），控制器会先按本输入法上次写下的旧方案把菜单栏选到它的模式、把它记为已同步，期间的任何一次保存还会把它写回文档。用户在设置页选了全拼，下次再用又回到双拼，就是这样来的（#4288）。因此在本进程第一次按外观设置行事之前——客户端获得焦点、或者系统先报告了模式——同步载入一次文档；之后的改动照旧由每秒一次的轮询带来。读不到文档时什么也不做，交给那次后台载入。
-- (void)applySharedInputPreferencesBeforeFirstUse {
-    if (!_appearance || (_appearance.sharedInputPreferencesApplied && _englishOnlinePreferenceLoaded)) return;
+- (NSString *)initialPreferencesDirectory {
     NSString *directory = _preferencesDirectory;
     if (!directory) {
         id configured = [self runtimeOptions][@"preferences_directory"];
         if ([configured isKindOfClass:NSString.class] && [configured isAbsolutePath]) directory = configured;
     }
+    return directory;
+}
+- (NSDictionary *)applySharedInputPreferencesBeforeFirstUse {
+    if (!_appearance || (_appearance.sharedInputPreferencesApplied && _englishOnlinePreferenceLoaded)) return nil;
+    NSString *directory = [self initialPreferencesDirectory];
     if (!directory) {
         _englishOnlineCandidatesEnabled = MSIMEStrictBoolean([self runtimeOptions][@"preferences"][@"english_online_candidates"]);
         _englishOnlinePreferenceLoaded = YES;
-        return;
+        return nil;
     }
-    // 与 applyPreferencesToSessionNow 一样在主线程直接读：只在本进程第一次用到时读这一次，不经过后台轮询的读取入口。
+    // 同步读取只把文档交给当前调用栈；模式报告提前读过的值不能留到下一次激活再回放。
     NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:directory error:nil];
     NSDictionary *preferences = [snapshot isKindOfClass:NSDictionary.class] ? snapshot[@"preferences"] : nil;
-    if ([preferences isKindOfClass:NSDictionary.class]) {
-        _initialHostPreferences = [preferences copy];
-        _englishOnlineCandidatesEnabled = MSIMEStrictBoolean(preferences[@"english_online_candidates"]);
-        _englishOnlinePreferenceLoaded = YES;
-        if (!_appearance.sharedInputPreferencesApplied) [_appearance applySharedInputPreferences:preferences];
-    }
+    if (![preferences isKindOfClass:NSDictionary.class]) return nil;
+    _englishOnlineCandidatesEnabled = MSIMEStrictBoolean(preferences[@"english_online_candidates"]);
+    _englishOnlinePreferenceLoaded = YES;
+    if (!_appearance.sharedInputPreferencesApplied) [_appearance applySharedInputPreferences:preferences];
+    return snapshot;
 }
-// 共享文档已同步读过，不能让工具栏和语音总开关再等一次可因失焦作废的后台读取。
-- (void)applyInitialHostPreferences {
-    NSDictionary *preferences = _initialHostPreferences;
-    _initialHostPreferences = nil;
-    // 输入设置已先应用，系统模式报告可能随后改过方案，不能在这里重放旧输入状态。
-    if (preferences) [self applySharedToolbarPreferences:preferences applyInputPreferences:NO];
+- (void)applyInitialHostPreferencesFromSnapshot:(NSDictionary *)snapshot {
+    if (_hostPreferencesApplied) return;
+    // 输入设置若已由更早的模式报告读取，首次取得客户端时另读当前文档，不保存旧快照。
+    if (!snapshot && _appearance.sharedInputPreferencesApplied && _englishOnlinePreferenceLoaded) {
+        NSString *directory = [self initialPreferencesDirectory];
+        if (directory) snapshot = [MSIMEClientSession loadPreferencesInDirectory:directory error:nil];
+    }
+    // 系统模式报告可能已选了别的方案，此处只补宿主设置，不重放输入设置。
+    NSDictionary *preferences = [snapshot isKindOfClass:NSDictionary.class] ? snapshot[@"preferences"] : nil;
+    if ([preferences isKindOfClass:NSDictionary.class])
+        [self applySharedToolbarPreferences:preferences applyInputPreferences:NO];
 }
 // 在系统输入菜单里打开一个按需模式。只有 Engine 会话会碰到 TIS；测试的替身会话只走测试设的 enabler，没有就什么也不做，所以测试不会改开发者的输入菜单。返回 NO 表示模式没有打开——没有发出请求，或者系统拒绝了——这次切换不记为已同步，下一次同步再试；以前不论 TIS 返回什么都算成功，启用失败一次，这个模式就再也不会被打开。
 - (BOOL)enableOptInInputMode:(NSString *)identifier {
@@ -6344,14 +6352,14 @@ static constexpr NSUInteger MSIMEIdleDictionarySessionLimit = 4;
     [self ensureAppearance];
     msime_macos_diagnostic_write("focus_in");
     if (_activeClient && _activeClient != sender) [self apply:[_session setFocused:NO error:nil]];
-    [self applySharedInputPreferencesBeforeFirstUse];
+    NSDictionary *initialHostSnapshot = [self applySharedInputPreferencesBeforeFirstUse];
     [_appearance activateInputModeForApplication:[sender respondsToSelector:@selector(bundleIdentifier)] ? [sender bundleIdentifier] : nil];
     // 系统可能仍在从强制 ASCII 的应用恢复输入源；离开激活调用栈后再核对实际模式，避免重复选择把它退回 U.S.（#8993）。
     [self scheduleSystemInputModeSyncForClient:sender];
     _capsLock = ([NSEvent modifierFlags] & NSEventModifierFlagCapsLock) != 0;
     [self syncCapsLock];
     _toolbar = [MSIMEFloatingToolbarPanel sharedPanel];
-    [self applyInitialHostPreferences];
+    [self applyInitialHostPreferencesFromSnapshot:initialHostSnapshot];
     [_toolbar applyLightSkin:[_appearance resolvedSkinForDark:NO].tokens darkSkin:[_appearance resolvedSkinForDark:YES].tokens];
     [_toolbar applyLightToolbarSkin:[_appearance toolbarSkinForDark:NO]
                             darkSkin:[_appearance toolbarSkinForDark:YES]];
@@ -6880,7 +6888,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         inputPreferences[@"tsf_preedit_style"] = @"raw";
     if (!session) {
         if (inputPreferences) [_appearance applySharedInputPreferences:inputPreferences];
-        [self applySharedToolbarPreferences:snapshot[@"preferences"]];
+        [self applySharedToolbarPreferences:preferences];
         return;
     }
     NSError *updateError = nil;
@@ -6889,7 +6897,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     if (result && !updateError) {
         _preferenceLoadState.applied(revision);
         if (inputPreferences) [_appearance applySharedInputPreferences:inputPreferences];
-        [self applySharedToolbarPreferences:snapshot[@"preferences"]];
+        [self applySharedToolbarPreferences:preferences];
         // 在上一行配置好诊断日志之后：选着的方案缺资源包、会话回退了，就在后台补装。
         MSIMEEnsureMissingResourcePack(result[@"missing_resource_pack"], preferences, _preferencesDirectory);
         // After the preferences, which the session's resolved effect refines with the selected pack.
@@ -6967,10 +6975,12 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     [self applySharedToolbarPreferences:preferences applyInputPreferences:YES];
 }
 - (void)applySharedToolbarPreferences:(NSDictionary *)preferences applyInputPreferences:(BOOL)applyInputPreferences {
-    // 更晚的重载替换启动快照；工具栏尚未创建时保留它，创建后再应用尺寸与组件。
-    if ([preferences isKindOfClass:NSDictionary.class])
-        _initialHostPreferences = _toolbar ? nil : [preferences copy];
-    if (MSIMEConfigureDiagnosticLog(_preferencesDirectory, preferences))
+    if ([preferences isKindOfClass:NSDictionary.class]) {
+        // 首个按键可能先于 activateServer:；组件和尺寸不能发给尚未创建的工具栏。
+        if (!_toolbar) _toolbar = [MSIMEFloatingToolbarPanel sharedPanel];
+        _hostPreferencesApplied = YES;
+    }
+    if (MSIMEConfigureDiagnosticLog([self initialPreferencesDirectory], preferences))
         msime_macos_diagnostic_write("preferences_applied");
     if ([preferences isKindOfClass:NSDictionary.class]) {
         _englishOnlinePreferenceLoaded = YES;
@@ -7572,7 +7582,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         MSIMESharedSystemInputModeState().switchedIn = false;
         MSIMESharedSystemInputModeState().restoringUntil = 0;
     }
-    if (event.type == NSEventTypeKeyDown && sender) {
+    // 新客户端先走焦点接管并恢复共享设置，再由下面的按键唤醒工具栏。
+    if (event.type == NSEventTypeKeyDown && sender && sender == _activeClient) {
         [self ensureAppearance];
         if (_appearance.floatingToolbarEnabled)
             [[MSIMEFloatingToolbarPanel sharedPanel] wakeForInputDelegate:self];
@@ -7775,8 +7786,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         MSIMEFocusedController = self;
         // Whatever the previous client was last given says nothing about this one.
         [self invalidateSmartPunctuationShadow];
-        [self applySharedInputPreferencesBeforeFirstUse];
-        [self applyInitialHostPreferences];
+        NSDictionary *initialHostSnapshot = [self applySharedInputPreferencesBeforeFirstUse];
+        [self applyInitialHostPreferencesFromSnapshot:initialHostSnapshot];
         [_appearance activateInputModeForApplication:[sender respondsToSelector:@selector(bundleIdentifier)] ? [sender bundleIdentifier] : nil];
         [self syncSystemInputModeForClient:sender];
         // Punctuation and width are per app, so the new client's values reach the Engine before it types.
