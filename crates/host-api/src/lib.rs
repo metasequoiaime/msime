@@ -1006,6 +1006,7 @@ impl HostSession {
             self.runtime.set_candidate_scorer(ffi::keyboard_reranker(
                 keyboard,
                 &options.resources,
+                options.helpcode_fallback_resources.as_deref(),
                 self.recorded_sentence_model.as_deref(),
             ));
         }

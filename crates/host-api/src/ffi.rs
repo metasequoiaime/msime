@@ -210,25 +210,54 @@ pub(crate) fn sentence_model_path(resources: &str, configured: Option<&str>) -> 
 ///
 /// The switch is opt-in because this model runs inside every `character` call, on the thread the host types on: one decision costs a few milliseconds, and the first one after a commit, which has to read the new context from scratch, about 20 ms on a desktop CPU and five to ten times that on a phone. Attaching it whenever the file was present ran it for every touch user on 标准 and 关闭 too, which is what made fast typing on Android fall behind and drop keys. The model is not loaded at all while the switch is off.
 ///
-/// 编译时打开了 `onnx-rerank`、资源目录里又有 [`RERANK_MODEL_DIRECTORY`] 时用那个模型（ONNX Runtime 后端），读不了就退回随包的句子模型。
+/// 编译时打开了 `onnx-rerank`、随包资源目录旁边又有 [`RERANK_MODEL_DIRECTORY`] 时用那个模型（ONNX Runtime 后端），读不了就退回随包的句子模型。`bundle` 是随包资源目录（`EngineOptions::helpcode_fallback_resources`）：`resources` 换成下载的词库代次时，ONNX 模型仍在安装包里，按它去找；为 `None` 时 `resources` 本身就是随包的那个。
+///
+/// 开关打开时写一行诊断，说挂上的是哪一个（见 [`report_keyboard_reranker`]）。
 pub(crate) fn keyboard_reranker(
     enabled: bool,
     resources: &str,
+    bundle: Option<&str>,
     configured: Option<&str>,
 ) -> Option<Box<dyn msime_input_runtime::CandidateScorer>> {
     if !enabled {
         return None;
     }
     #[cfg(feature = "onnx-rerank")]
-    if let Some(scorer) = onnx_reranker(Path::new(resources)) {
-        return Some(scorer);
+    let root = rerank_models_root(resources, bundle);
+    #[cfg(feature = "onnx-rerank")]
+    if let Some(attached) = root.as_deref().and_then(onnx_reranker) {
+        report_keyboard_reranker(attached.category, &attached.detail);
+        return Some(attached.scorer);
     }
-    sentence_model(resources, configured).map(|model| {
+    #[cfg(not(feature = "onnx-rerank"))]
+    let _ = bundle;
+    let scorer = sentence_model(resources, configured).map(|model| {
         Box::new(Reranker::new(model)) as Box<dyn msime_input_runtime::CandidateScorer>
-    })
+    });
+    let path = sentence_model_path(resources, configured);
+    match &scorer {
+        Some(_) => report_keyboard_reranker(
+            "keyboard reranker bundled model",
+            &path.display().to_string(),
+        ),
+        None => report_keyboard_reranker("keyboard reranker missing", &path.display().to_string()),
+    }
+    scorer
 }
 
-/// 资源目录里放 ONNX Runtime 重排模型的子目录：chinese-ime-lm 的 `neural/choice/export_step.py` 导出的 `lm_step.ort`、`model.json` 和 `vocab.json`。这是大的那个（8x448，ctx-v1 有上下文 91.9%、无上下文 82.7%）。
+/// 「增强」开着时逐键重排挂的是哪一个，写一行诊断。类别本身就说明了档位（`keyboard reranker onnx large`、`keyboard reranker onnx small`、`keyboard reranker bundled model`、`keyboard reranker missing`），只留类别的宿主（macOS、iOS）也看得出来；细节是模型目录和大模型的自测毫秒数。只在会话建立和开关打开时写，不在按键路径上写。
+fn report_keyboard_reranker(category: &'static str, detail: &str) {
+    crate::diagnostics::report(category, detail);
+}
+
+/// 放 ONNX 重排模型的目录：随包资源目录的上一级，与 `settled-model/`、`language-dictionaries/` 一样是资源目录的兄弟。不放进资源目录本身，因为那里必须与词库锁逐项相符（`ResourceStore::verify` 只放过 `helpcodes/`），多一个目录整套资源就校验失败。
+#[cfg(feature = "onnx-rerank")]
+pub(crate) fn rerank_models_root(resources: &str, bundle: Option<&str>) -> Option<PathBuf> {
+    let bundled = bundle.filter(|path| !path.is_empty()).unwrap_or(resources);
+    Path::new(bundled).parent().map(Path::to_path_buf)
+}
+
+/// 资源目录旁边放 ONNX Runtime 重排模型的子目录：chinese-ime-lm 的 `neural/choice/export_step.py` 导出的 `lm_step.ort`、`model.json` 和 `vocab.json`。这是大的那个（8x448，ctx-v1 有上下文 91.9%、无上下文 82.7%）。
 #[cfg(feature = "onnx-rerank")]
 pub(crate) const RERANK_MODEL_DIRECTORY: &str = "rerank-model";
 
@@ -246,31 +275,52 @@ const RERANK_MODEL_THREADS: usize = 4;
 #[cfg(all(feature = "onnx-rerank", not(target_os = "android")))]
 const RERANK_MODEL_THREADS: usize = 2;
 
-/// 装了两个 ONNX 模型时先加载大的、量它在这台机器上打一页重负载要多久，超过 [`LARGE_RERANK_MODEL_BUDGET_MS`] 就换小的；只装了一个就用那一个。按量出来的速度选，不按机型名单选。
+/// 挂上的 ONNX 重排模型，连同诊断行的类别与细节。
 #[cfg(feature = "onnx-rerank")]
-fn onnx_reranker(resources: &Path) -> Option<Box<dyn msime_input_runtime::CandidateScorer>> {
-    onnx_reranker_within(resources, LARGE_RERANK_MODEL_BUDGET_MS)
+pub(crate) struct AttachedOnnxReranker {
+    pub(crate) scorer: Box<dyn msime_input_runtime::CandidateScorer>,
+    pub(crate) category: &'static str,
+    pub(crate) detail: String,
+}
+
+/// 装了两个 ONNX 模型时先加载大的、量它在这台机器上打一页重负载要多久，超过 [`LARGE_RERANK_MODEL_BUDGET_MS`] 就换小的；只装了一个就用那一个。按量出来的速度选，不按机型名单选。`root` 是放两个模型目录的地方（[`rerank_models_root`]）。
+#[cfg(feature = "onnx-rerank")]
+fn onnx_reranker(root: &Path) -> Option<AttachedOnnxReranker> {
+    onnx_reranker_within(root, LARGE_RERANK_MODEL_BUDGET_MS)
 }
 
 /// [`onnx_reranker`] 的实现，自测预算由调用方给：测试用它在同一台机器上分别走「大的够快」和「大的太慢」两条路。
 #[cfg(feature = "onnx-rerank")]
-pub(crate) fn onnx_reranker_within(
-    resources: &Path,
-    budget_ms: f64,
-) -> Option<Box<dyn msime_input_runtime::CandidateScorer>> {
-    let small = || load_onnx_reranker(&resources.join(SMALL_RERANK_MODEL_DIRECTORY));
-    let chosen = match load_onnx_reranker(&resources.join(RERANK_MODEL_DIRECTORY)) {
-        Some(mut large) if resources.join(SMALL_RERANK_MODEL_DIRECTORY).is_dir() => {
-            if large.calibrate() <= budget_ms {
-                Some(large)
+pub(crate) fn onnx_reranker_within(root: &Path, budget_ms: f64) -> Option<AttachedOnnxReranker> {
+    const LARGE: &str = "keyboard reranker onnx large";
+    const SMALL: &str = "keyboard reranker onnx small";
+    let large_directory = root.join(RERANK_MODEL_DIRECTORY);
+    let small_directory = root.join(SMALL_RERANK_MODEL_DIRECTORY);
+    let attach =
+        |scorer: msime_onnx_rerank::OnnxScorer, category, directory: &Path, note: String| {
+            AttachedOnnxReranker {
+                scorer: Box::new(scorer),
+                category,
+                detail: format!("{}{note}", directory.display()),
+            }
+        };
+    let small = |note: String| {
+        load_onnx_reranker(&small_directory)
+            .map(|scorer| attach(scorer, SMALL, &small_directory, note))
+    };
+    match load_onnx_reranker(&large_directory) {
+        Some(mut large) if small_directory.is_dir() => {
+            let measured = large.calibrate();
+            let note = format!(" (calibrated {measured:.1} ms, budget {budget_ms:.1} ms)");
+            if measured <= budget_ms {
+                Some(attach(large, LARGE, &large_directory, note))
             } else {
-                small().or(Some(large))
+                small(note.clone()).or_else(|| Some(attach(large, LARGE, &large_directory, note)))
             }
         }
-        Some(large) => Some(large),
-        None => small(),
-    };
-    chosen.map(|scorer| Box::new(scorer) as Box<dyn msime_input_runtime::CandidateScorer>)
+        Some(large) => Some(attach(large, LARGE, &large_directory, String::new())),
+        None => small(String::new()),
+    }
 }
 
 #[cfg(feature = "onnx-rerank")]

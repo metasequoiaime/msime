@@ -440,6 +440,26 @@ class ProjectConfigurationTests(unittest.TestCase):
         self.assertIn("path = HelpAndFeedbackViews.swift", project)
         self.assertEqual(project.count("HelpAndFeedbackViews.swift in Sources"), 2)
 
+    def test_keyboard_ships_the_onnx_rerank_backend_and_both_models(self):
+        # 整句联想「增强」的逐键重排：host 库打开 onnx-rerank、链接按锁下载的精简 ONNX Runtime，两档模型暂存在 EngineResources 旁边（资源目录本身要与词库锁逐项相符），键盘扩展把它们作为文件夹打包，build-app.sh 核对它们真的进了扩展。
+        native = (IOS_ROOT / "build-native.sh").read_text()
+        self.assertIn('scripts/fetch_onnxruntime.py" --target "$rust_target"', native)
+        self.assertIn('ORT_LIB_LOCATION="$ort_location"', native)
+        self.assertIn("cargo build -p msime-host-api --features onnx-rerank", native)
+        staging = (IOS_ROOT / "stage-resources.sh").read_text()
+        self.assertIn('scripts/fetch_rerank_model.py', staging)
+        project = (IOS_ROOT / "project.yml").read_text()
+        keyboard = dict(target_blocks(project))["MSIMEKeyboardExtension"]
+        app = (IOS_ROOT / "build-app.sh").read_text()
+        for directory in ("rerank-model", "rerank-model-small"):
+            blocks = source_path_blocks(keyboard, f"../../target/ios/{directory}")
+            self.assertEqual(len(blocks), 1, directory)
+            self.assertIn("buildPhase: resources", blocks[0])
+            self.assertIn("type: folder", blocks[0])
+            self.assertIn(f'"$repo_root/target/ios/{directory}"', staging.replace("$directory", directory))
+        self.assertIn("for directory in rerank-model rerank-model-small; do", app)
+        self.assertIn('[ -s "$keyboard_bundle/$directory/$name" ]', app)
+
     def test_host_library_links_before_the_system_sqlite(self):
         # The host library carries rusqlite's bundled SQLite. Linked after $(inherited) (MLKit's -l"sqlite3") or -lsqlite3, the Xcode 27 SDK binds every sqlite3_* to /usr/lib/libsqlite3.dylib, and sqlite3_set_errmsg does not exist there before iOS 27.
         project = (IOS_ROOT / "project.yml").read_text()

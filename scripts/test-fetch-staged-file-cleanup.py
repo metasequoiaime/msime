@@ -16,6 +16,7 @@ import fetch_handwriting_model  # noqa: E402
 import fetch_language_dictionaries  # noqa: E402
 import fetch_offline_glosses  # noqa: E402
 import fetch_onnxruntime  # noqa: E402
+import fetch_rerank_model  # noqa: E402
 import fetch_settled_model  # noqa: E402
 import fetch_voice_runtime  # noqa: E402
 
@@ -24,6 +25,7 @@ MODULES = (
     fetch_language_dictionaries,
     fetch_offline_glosses,
     fetch_onnxruntime,
+    fetch_rerank_model,
     fetch_settled_model,
     fetch_voice_runtime,
 )

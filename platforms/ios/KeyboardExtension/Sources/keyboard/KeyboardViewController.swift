@@ -906,6 +906,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     incognito = KeyboardPrivacyPreference.incognito
     readGesturePreferences()
     configureDiagnosticLog()
+    DiagnosticLog.forwardHostLines()
     DiagnosticLog.shared.write("keyboard_loaded full_access=\(hasFullAccess ? 1 : 0) idiom=\(UIDevice.current.userInterfaceIdiom == .pad ? "pad" : "phone") base=\(DiagnosticLog.MemorySample.mebibytes(launchMemory.footprint)) session=\(DiagnosticLog.MemorySample.mebibytes(sessionMemory.footprint)) \(loadedMemory.fields)")
     if session.initializationFailed { DiagnosticLog.shared.write("runtime_initialization_failed") }
     // 音标表在不在决定顶栏多不多留一行，第一帧之前就要知道。
