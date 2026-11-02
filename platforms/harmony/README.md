@@ -132,7 +132,9 @@ Apple 的首页（`KeyboardHomeView`）也由 Harmony 承载，但是按本平�
 
 已知的回退：已有的账号操作断网时从「网络连接失败」变成「暂不可用」（Rust 对已有操作仍报 `account_unavailable`）；云词库面板参数不合法时的码从 `account_invalid` 变成 `invalid_cloud_dictionary`，面板对每个动作有自己的失败句子，不按码写文案，所以措辞不变。
 
-使用情况上报、公告与社区审核走 client-services 的共享实现，本宿主只决定何时调用。上报开关是共享偏好 `usage_reporting`（默认开启，设置页关闭后立即清空本地队列）；队列、随机安装 id、每日一次的 `active` 和会话记录都在 `files/state/telemetry`，设置应用和键盘扩展两个进程共用、由 client-services 加锁（API 12 起两个进程的 `files/state` 不是同一个目录，见上文「输入法扩展的独立沙箱」）。一次会话就是一个键盘进程：`KeyboardExtensionAbility` 创建时开始、被正常销毁时结束；设置应用只发送已排队的事件，不再在每次启动时发 `download`。崩溃不装自己的处理器，而是用 HiAppEvent 在下次启动时收系统上报的 `APP_CRASH`（JavaScript 与原生都有），所以崩溃仍按原来的方式结束进程。键盘在开始新会话前等两秒：这期间收到的、属于上一个键盘进程的崩溃写成那次会话的崩溃记录，于是计为 `session_crash`；其余崩溃（设置应用的、或来得太晚的）写成独立记录，只计为 `crash`。原生帧只留文件名加 pc 和符号，信号只留名称和 code，不带地址；`TelemetryPolicy.ts` 里的这些决定由 `tests/run.sh` 覆盖，HiAppEvent 的实际投递时机只能在设备上确认。
+使用情况上报、公告与社区审核走 client-services 的共享实现，本宿主只决定何时调用。上报开关是共享偏好 `usage_reporting`（默认开启），队列、随机安装 id、每日一次的 `active` 和会话记录位于**各进程私有**的 `files/state/telemetry`；API 12 起 App 与键盘的 `files/state` 不同，不能把两份队列视为共用，见上文「输入法扩展的独立沙箱」。一次会话就是一个键盘进程，正常销毁时仅结束本进程实际开始的会话；设置应用只准备独立捕获并发送，不增加输入会话。API 21 起，NAPI 接入共用 POSIX 原生记录器，主线程的 ArkTS 致命异常经 `setDefaultErrorHandler` 同步落盘后交回原处理器，无前任时同步退出；不读取异常消息、不在故障回调联网。两类入口在暂停、关闭和停止时同步停写，链式处理器在进程内只安装一次，避免覆盖后来安装的处理器。HiAppEvent 另监听 `APP_CRASH`（JavaScript 与原生）及 `APP_FREEZE`。正常路径用 `setEventParam` 保存 Rust 预备的 UUID、原构建头、PID 与准备时刻，系统补报只有原身份与当前授权匹配时才入队，旧无身份报告不追认。崩溃按原 UUID 归属会话，卡死独立；原生帧保留合法 ELF build-id。延迟报告带系统原版本与发生时间，经 Rust 共享权威授权代次核对后入队，读取授权失败保持拒绝，不回退为独立文件。统计关闭与隐私政策撤回共同使权威授权失效，通知只触发重读和条件清理。原生帧只留文件名、pc 和符号；信号只留名称与 code。
+
+App 在共享目录 `msime/reporting-authority` 发布合并统计开关与隐私政策的持续授权；键盘只读既有锁文件和记录，不创建文件。两个活跃进程每秒独立核对，网络请求不阻塞撤回；源或政策关闭重开换代，临时源读取错误暂停且不清队列。App 无共享目录时使用私有授权，键盘保持拒绝。App 导入键盘偏好保留自己的统计开关，避免陈旧镜像重新开启。系统原身份传递的真实投递与精确构建收件仍待设备验收；官方 HiAppEvent 规格从 API 22 支持输入法应用，当前最低 API 21 使用上述本进程兼容入口，其真实故障与原处理器链仍待设备验收；协议与设备缺口见[崩溃补报笔记](../../.agents/notes/implemented/feature/2026-11-01-harmony-crash-reporting.md)。`tests/run.sh` 覆盖策略和替代系统 API 后的实际适配器回归，有 NDK 时还由 `tests/check-native-capture.sh` 严格编译三架构记录器与 NAPI；HAP 编译不代表设备上新增 NAPI 及系统回调已验收。
 
 公告在设置窗口打开或回到前台时取（client-services 一分钟内直接用缓存），显示为设置页上方一张可关闭的卡片，关闭按公告 id 记在本地。正文是 client-services 用 pulldown-cmark 渲染、原始 HTML 已转义的 HTML，放进一个禁用脚本、CSP 为 `default-src 'none'` 的小 Web 组件里；点链接一律交给系统浏览器或邮件应用。这里没有用 RichText：它没有拦截链接点击的入口，链接会在卡片里打开，而 Web 组件的 `onLoadIntercept` 可以把它拦下来交出去。
 
@@ -318,7 +320,7 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 拼音网格左上角的 @#（1 键）不打开符号面板：短按把当前模式的常用标点放进候选条，就是逗号长按的那一组（`QuickPunctuationPolicy.entries`，中文模式是 `， 。 ？ ！ 、 ； ：`），组字中也一样。点选一个与侧栏标点一样交给 Engine 的标点处理（组字中先上屏首选），候选条随即清空；Engine 下一次回报候选（`onChanged`）或打开别的界面时换回 Engine 的候选。长按仍输入 1。
 
-「九键滑动输入数字」（#10229，共享偏好 `touch_nine_key_swipe_digits`，`off` / `up` / `down`，默认 `off`，同步键 `platform.harmony.nine_key_swipe`）在设置页「屏幕键盘 › 手势」里、紧跟 26 键的「滑动方向」，只在触屏宿主且版本提供全拼九键时列出。选了方向后，拼音九键字母层 1–9 键（`nineKeyHoldKey`，两处网格都经它）沿这个方向滑过 24 vp 的那一刻键面换成这个键的数字、角标藏起来，松手按长按选数字的同一条路径上屏（先结束组字再字面上屏），按键音、振动和键位统计与点按这一格相同；反方向滑过 24 vp 弹出和长按相同的数字和字母（1 键没有字母，反方向什么也不做）。判定在 `input/NineKeySwipePolicy.ts`，与 Android `NineKeySwipePolicy.gesture` 逐条相同：只看纵向位移、严格大于阈值、一次触摸只判定一次，滑出去之后点击和长按都不再做事，长按先弹出时不再判定，系统取消时什么也不输入。阈值固定 24 vp；Android 的阈值是本机「九键滑动距离」（14–48 dp，默认 24），鸿蒙和 iOS 没有这个滑块，这是三端唯一的差异。数字层、九键双拼、笔画和借来的数字九宫格不受影响；2in1 没有这项设置，同步过来的值也不在 2in1 上判定。
+「九键滑动输入数字」（#10229，共享偏好 `touch_nine_key_swipe_digits`，`off` / `up` / `down`，默认 `off`，同步键 `platform.harmony.nine_key_swipe`）在设置页「屏幕键盘 › 手势」里、26 键「滑动方向」和「显示字母键角标」之后，只在触屏宿主且版本提供全拼九键时列出。选了方向后，拼音九键字母层 1–9 键（`nineKeyHoldKey`，两处网格都经它）沿这个方向滑过 24 vp 的那一刻键面换成这个键的数字、角标藏起来，松手按长按选数字的同一条路径上屏（先结束组字再字面上屏），按键音、振动和键位统计与点按这一格相同；反方向滑过 24 vp 弹出和长按相同的数字和字母（1 键没有字母，反方向什么也不做）。判定在 `input/NineKeySwipePolicy.ts`，与 Android `NineKeySwipePolicy.gesture` 逐条相同：只看纵向位移、严格大于阈值、一次触摸只判定一次，滑出去之后点击和长按都不再做事，长按先弹出时不再判定，系统取消时什么也不输入。阈值固定 24 vp；Android 的阈值是本机「九键滑动距离」（14–48 dp，默认 24），鸿蒙和 iOS 没有这个滑块，这是三端唯一的差异。数字层、九键双拼、笔画和借来的数字九宫格不受影响；2in1 没有这项设置，同步过来的值也不在 2in1 上判定。
 
 ## 大屏单手侧边数字键盘
 

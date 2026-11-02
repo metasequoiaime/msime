@@ -19,6 +19,6 @@
     "bundle-board": "node .agents/skills/write-notes-like-deepseek/scripts/build-board.ts --bundle .agents/notes demo.html \"工程决策看板\""
   },
   "devDependencies": {
-    "vite-plus": "1.3.0"
+    "vite-plus": "1.4.0"
   }
 }

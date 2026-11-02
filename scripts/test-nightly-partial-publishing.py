@@ -240,6 +240,34 @@ class PartialPublishingTests(unittest.TestCase):
         self.assertNotIn("new-linux-nightly.10.1.deb", self.client.files)
         self.assert_manifest_matches()
 
+    def test_macos_pkg_name_and_retired_dmg_cleanup(self):
+        # macOS 从 DMG 改成 pkg：新包按官网认的名字发（…-universal-nightly.<运行>.<尝试>.pkg），nightly 上没人再指向的旧 DMG 被清掉。
+        artifact = self.source / "macos" / "msime-macos-1.2.3"
+        for path in artifact.iterdir():
+            path.unlink()
+        (artifact / "msime-macos-1.2.3-universal.pkg").write_bytes(b"new macos pkg")
+        (artifact / "msime-macos-wubi-1.2.3-universal.pkg").write_bytes(b"new macos wubi pkg")
+        (artifact / "msime-macos-1.2.3-input-method.zip").write_bytes(b"sparkle archive, not an installer")
+        self.client.files["msime-macos-1.2.2-universal-nightly.9.1.dmg"] = b"old macos dmg"
+        state = self.publish(set(PUBLISHING.PLATFORMS))
+        self.assertEqual([file["name"] for file in state["platforms"]["macos"]["files"]],
+                         ["msime-macos-1.2.3-universal-nightly.10.1.pkg", "msime-macos-wubi-1.2.3-universal-nightly.10.1.pkg"])
+        self.assertNotIn("msime-macos-1.2.2-universal-nightly.9.1.dmg", self.client.files)
+        self.assert_manifest_matches()
+
+    def test_dmg_still_referenced_by_macos_state_is_kept(self):
+        # 上一轮发的还是 DMG、这一轮 macOS 失败时，状态仍指向那个 DMG，它不能被当成退役的后缀删掉。
+        artifact = self.source / "macos" / "msime-macos-1.2.3"
+        (artifact / "msime-macos-1.2.3-universal.dmg").write_bytes(b"previous macos dmg")
+        with patch.dict(PUBLISHING.PACKAGING.PLATFORM_SUFFIXES, {"macos": (".dmg",)}):
+            first = self.publish({"macos"})
+        dmg = first["platforms"]["macos"]["files"][0]["name"]
+        self.assertTrue(dmg.endswith(".dmg"))
+        state = self.publish({"windows"}, build_id="11.1", sha="c" * 40)
+        self.assertEqual(state["platforms"]["macos"]["files"][0]["name"], dmg)
+        self.assertIn(dmg, self.client.files)
+        self.assert_manifest_matches()
+
     def test_digest_mismatch_keeps_old_platform(self):
         self.client.corrupt_platform = "android"
         with self.assertRaisesRegex(RuntimeError, "android"):

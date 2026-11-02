@@ -8,7 +8,7 @@ Issue #10439 报告的缺陷：安卓日语九键没有符号面板入口。左�
 
 ## Decision
 
-`ImeLayoutRows.rebuildJapaneseNineKeyRows` 在原来 ☺ 的位置常驻一个 符（`japaneseSymbolPanelKey`）：点按打开符号面板，记作 `SoftSymbol`，与 26 键底行的 符 同一个键位 id。左列因此固定是 ◀、→、123（中英键与数字键对调时是语言键）、符、切换，最多五格，与原来工具栏关掉表情时的格数相同。
+`ImeLayoutRows.rebuildJapaneseNineKeyRows` 在原来 ☺ 的位置常驻一个 符（`japaneseSymbolPanelKey`）：点按打开符号面板，记作 `SoftSymbol`，与 26 键底行的 符 同一个键位 id。左列因此固定是 ◀、→、123、符、切换（中英键与数字键对调时是 ◀、→、符、切换、语言键，见[日语九键交换后语言键在左下角](../feature/2026-11-02-android-japanese-nine-key-swapped-language-key-bottom-left.md)），最多五格，与原来工具栏关掉表情时的格数相同。
 
 `japaneseSideEmojiKey()` 为真（工具栏关掉表情或整条隐藏）时，符 接上长按打开表情浏览，读屏描述写成「打开符号面板；长按打开表情浏览」；为假时不接长按，描述只写符号面板，避免和工具栏的表情按钮两处重复。这个开关一变照旧重建键行（`japaneseEmojiKeyChanged`），长按和描述跟着更新。
 

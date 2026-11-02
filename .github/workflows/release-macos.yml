@@ -30,9 +30,8 @@ jobs:
       - name: Build the official plugin packs
         run: |
           set -euo pipefail
-          # 安装 rust-toolchain.toml 钉住的工具链，再给它加上 wasm 目标。
-          rustup toolchain install
-          rustup target add wasm32-unknown-unknown
+          # 安装 rust-toolchain.toml 钉住的工具链，再给它加上 wasm 目标；联网失败时重试，见脚本开头。
+          bash scripts/rustup-install.sh wasm32-unknown-unknown
           bash scripts/build-official-plugins.sh
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -46,21 +45,23 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 120
     # Mapped here because secrets.* cannot appear in a step's if:. All are optional; see the signing comment below and platforms/macos/README.md (发布包). The names are the ones the repository's Developer ID secrets were stored under; reading any other name gives an empty string, which silently turns every release into an ad-hoc, un-notarized package.
-    #   MACOS_DEVELOPER_ID_CERTIFICATE_BASE64    base64 of the Developer ID Application certificate and key, exported as .p12
+    #   MACOS_DEVELOPER_ID_CERTIFICATE_BASE64    导出的 .p12 的 base64，里面有两个身份：Developer ID Application（给应用签名）和 Developer ID Installer（给安装包签名），导入时日志写 2 identities imported
     #   MACOS_DEVELOPER_ID_CERTIFICATE_PASSWORD  the .p12 export password
     #   MACOS_DEVELOPER_ID_APPLICATION           the identity name, e.g. "Developer ID Application: Name (TEAMID)"
+    #   MACOS_DEVELOPER_ID_INSTALLER             安装包签名身份的名字，例如 "Developer ID Installer: Name (TEAMID)"；有应用身份和公证凭据却没有它时 package-release.sh 拒绝打包
     #   MACOS_NOTARY_APPLE_ID, MACOS_NOTARY_TEAM_ID, MACOS_NOTARY_APP_SPECIFIC_PASSWORD  notarization credentials for xcrun notarytool
     #   HOMEBREW_TAP_TOKEN                       a token that can push to metasequoiaime/homebrew-tap, for the cask update after a release
     #   SPARKLE_ED_PRIVATE_KEY                   对应 platforms/macos/sparkle-public-key.txt 的 Sparkle EdDSA 私钥（2026-10-15 轮换，维护者保留备份；更换它会使所有已安装副本无法更新）；输入法和完整设置应用分别读取 macos-appcast 发布中的独立 appcast，每个更新通道（正式版、测试版、每日构建）各有一组
     env:
       # 钉死 Xcode 26.3（macOS 26 SDK），与 ci-macos.yml、ci-macos-package.yml 和 iOS 的 CI、发布同一个版本；不钉就是镜像默认的 Xcode 16.4，CI 测的就不是发出去的构建。
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
-      # 一次发布打出的版本（shared/contracts/editions.json 的 id）：每个版本一个 DMG、一个 cask，可以同时安装。full 的 DMG 名、cask 和 bundle id 与引入版本之前相同。
+      # 一次发布打出的版本（shared/contracts/editions.json 的 id）：每个版本一个 pkg 安装包、一个 cask，可以同时安装。full 的安装包名前缀、cask 和 bundle id 与引入版本之前相同。
       MACOS_EDITIONS: full,wubi,pinyin,japanese,vietnamese,tibetan
-      # Signing and notarization follow the secrets, not the publish input: the nightly calls this workflow with publish off, and an ad-hoc DMG is not just quarantined but never registers its input method, so the nightly macOS download was unusable. Publishing the release and pushing the Homebrew casks keep their own publish gates below.
+      # 签名和公证跟着 secrets 走，不看 publish：nightly 以 publish 关闭调用这个工作流，而 ad-hoc 签名的包不但被隔离，输入法也永远注册不了，nightly 的 macOS 下载就没法用。发布 release 和推 Homebrew cask 在下面各有自己的 publish 闸门。
       MACOS_CERTIFICATE_P12_BASE64: "${{ secrets.MACOS_DEVELOPER_ID_CERTIFICATE_BASE64 }}"
       MACOS_CERTIFICATE_PASSWORD: "${{ secrets.MACOS_DEVELOPER_ID_CERTIFICATE_PASSWORD }}"
       MACOS_SIGNING_IDENTITY: "${{ secrets.MACOS_DEVELOPER_ID_APPLICATION }}"
+      MACOS_INSTALLER_IDENTITY: "${{ secrets.MACOS_DEVELOPER_ID_INSTALLER }}"
       # Rust 编译缓存（sccache）存进 GitHub Actions 缓存：托管 runner 没有 Depot Cache。RUSTC_WRAPPER 不在这里设，由下面的「Enable sccache」在 sccache 确实起来之后才写进 GITHUB_ENV。CARGO_INCREMENTAL=0 是因为 sccache 不缓存增量编译；SCCACHE_IGNORE_SERVER_IO_ERROR=1 让构建途中 sccache 服务出错时 rustc 退回本机直接编，不让缓存故障弄坏发版。
       SCCACHE_GHA_ENABLED: 'true'
       SCCACHE_IGNORE_SERVER_IO_ERROR: '1'
@@ -158,7 +159,7 @@ jobs:
       - name: Enable pnpm
         # Reads the pnpm version from packageManager in package.json.
         run: corepack enable
-      # Signing is optional so that the workflow still produces a package on a fork or before the certificate exists. Without these secrets every signature is ad-hoc and nothing is notarized: Gatekeeper quarantines the downloaded app, which then has to be opened once with right-click Open, and macOS will not register the embedded input method as an input source, so the package only installs for a developer who re-signs it with their own Developer ID through platforms/macos/scripts/install.sh. With them the package gives the Windows-equivalent download, install and type flow.
+      # 签名是可选的，fork 上或证书还没配好时工作流照样能出包。没有这些 secrets 时应用是 ad-hoc 签名、安装包不签名也不公证：下载下来的安装包 Gatekeeper 不让打开，macOS 也不会把内嵌的输入法注册成输入源，只有用自己的 Developer ID 经 platforms/macos/scripts/install.sh 重签的开发者装得上。有了它们，安装包给出与 Windows 对应的「下载、双击、能打字」流程。
       - name: Import Developer ID certificate
         if: ${{ env.MACOS_CERTIFICATE_P12_BASE64 != '' }}
         run: |
@@ -171,12 +172,24 @@ jobs:
           security create-keychain -p "$password" "$keychain"
           security set-keychain-settings -lut 21600 "$keychain"
           security unlock-keychain -p "$password" "$keychain"
-          security import "$certificate" -k "$keychain" -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          # productbuild 和 productsign 用 Installer 身份签安装包，和 codesign 一样要能不弹窗地取私钥。
+          security import "$certificate" -k "$keychain" -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productbuild -T /usr/bin/productsign
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" >/dev/null
           # shellcheck disable=SC2046
           security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
           rm -f "$certificate"
           security find-identity -v -p codesigning "$keychain" | grep -F "$MACOS_SIGNING_IDENTITY"
+          # Installer 证书不在 codesigning 策略下，按 -p codesigning 查不到它，所以不带策略再查一次。没配这个 secret 时由 package-release.sh 决定拒绝打包还是出未签名的安装包。
+          if [[ -n "$MACOS_INSTALLER_IDENTITY" ]]; then
+            security find-identity -v "$keychain" | grep -F "$MACOS_INSTALLER_IDENTITY"
+          else
+            echo "::warning::MACOS_DEVELOPER_ID_INSTALLER is not set; the installer packages cannot be signed"
+          fi
+          # 两张证书的签发中间证书（issuer 的 OU：G2 或旧的那张，旧中间证书最晚 2027-02-01 到期）和到期日，Apple 不会提前提醒。
+          for name in "$MACOS_SIGNING_IDENTITY" ${MACOS_INSTALLER_IDENTITY:+"$MACOS_INSTALLER_IDENTITY"}; do
+            echo "certificate: $name"
+            security find-certificate -c "$name" -p "$keychain" | openssl x509 -noout -issuer -enddate
+          done
           echo "MSIME_SIGNING_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
       # stage-resources.sh stages target/offline-glosses when it is there and package-release.sh embeds it.
       - name: Fetch the locked offline candidate glosses
@@ -187,7 +200,7 @@ jobs:
       # 背单词的内置词书：从锁定的 ECDICT 提交生成到 target/wordbooks，stage-resources.sh 暂存、package-release.sh 放进设置应用；MSIME_REQUIRE_WORDBOOKS=1 让缺了它们的包打不出来。
       - name: Build the bundled wordbooks
         run: python3 scripts/fetch_wordbooks.py
-      # Fetches the pinned dictionaries, builds the Release host library, the input method bundle and the Tauri settings app that embeds both, signs them (Developer ID when the secrets are present, ad-hoc otherwise), checks the embedded resources and signatures inside the mounted DMG, notarizes when the Apple ID secrets are present, and writes SHA256SUMS.
+      # 取固定版本的词库，编 Release 的 host 库、输入法 bundle 和内嵌两者的 Tauri 设置应用并签名（有 secrets 时用 Developer ID，否则 ad-hoc），每个版本打一个 pkg（有 Installer 身份时签名），展开安装包核对结构、内嵌资源和签名，有 Apple ID secrets 时公证并装订，最后写 SHA256SUMS。
       # 包里只带核心词库；日文词典、粤拼/注音词库和手写模型由 App 首次用到时下载。package-release.sh 在编译之前先用 App 的同一个安装器把三个资源包装一遍，地址失效或哈希不符就在这里失败，不会发出一个补不齐数据的包。
       # package-release.sh 按这两个 target 各编一次 Rust 产物再合并；rust-toolchain.toml 只固定编译器版本，不带这两个标准库。
       # 官方插件包（official-plugins 作业构建、核对过哈希的那一份）放到打包脚本找它的位置；MSIME_REQUIRE_OFFICIAL_PLUGINS=1 让缺了它的安装包打不出来。
@@ -196,7 +209,7 @@ jobs:
           name: official-plugin-packs-macos
           path: target/plugin-packs
       - name: Add the Rust targets for the universal package
-        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+        run: bash scripts/rustup-install.sh aarch64-apple-darwin x86_64-apple-darwin
       - name: Build macOS package
         env:
           VERSION: "${{ steps.version.outputs.value }}"
@@ -224,16 +237,16 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          dmgs=(dist/*.dmg)
+          pkgs=(dist/*.pkg)
           IFS=, read -r -a editions <<< "$MACOS_EDITIONS"
-          # 每个版本恰好一个 DMG，名字是该版本的 dmg_prefix 加版本号；full 仍是 msime-macos-VERSION-universal.dmg。版本发布页上只放这些 DMG 和只列它们的 SHA256SUMS。
-          [[ ${#dmgs[@]} -eq ${#editions[@]} ]]
+          # 每个版本恰好一个 pkg，名字是该版本的 dmg_prefix 加版本号（字段名是 DMG 时代留下的，冻结不改）；full 是 msime-macos-VERSION-universal.pkg。版本发布页上只放这些安装包和只列它们的 SHA256SUMS。
+          [[ ${#pkgs[@]} -eq ${#editions[@]} ]]
           [[ -f dist/SHA256SUMS ]]
           [[ "$(wc -l < dist/SHA256SUMS | tr -d ' ')" -eq ${#editions[@]} ]]
           for edition in "${editions[@]}"; do
             prefix="$(python3 platforms/macos/scripts/edition_bundle.py field --edition "$edition" dmg_prefix)"
-            [[ -f "dist/${prefix}-${VERSION}-universal.dmg" ]]
-            grep -q " ${prefix}-${VERSION}-universal.dmg\$" dist/SHA256SUMS
+            [[ -f "dist/${prefix}-${VERSION}-universal.pkg" ]]
+            grep -q " ${prefix}-${VERSION}-universal.pkg\$" dist/SHA256SUMS
           done
           # package-release.sh 剥离发布的可执行文件（输入法、它的 msime-voice-local 辅助程序、设置应用、msime-mcp）之前先写出 dSYM，再打成一个 zip；各版本共用同一组可执行文件，一份覆盖全部版本。它长期保留在 macos-symbols release 上，用来符号化这个版本的崩溃报告，不像 workflow artifact 那样 90 天后过期。
           [[ -f "dist/msime-macos-${VERSION}-dsym.zip" ]]
@@ -258,8 +271,8 @@ jobs:
           fi
           (cd dist && shasum -a 256 -c SHA256SUMS)
           ls -l dist
-          for dmg in "${dmgs[@]}"; do
-            echo "- $(basename "$dmg"): $(stat -f %z "$dmg") bytes" >> "$GITHUB_STEP_SUMMARY"
+          for pkg in "${pkgs[@]}"; do
+            echo "- $(basename "$pkg"): $(stat -f %z "$pkg") bytes" >> "$GITHUB_STEP_SUMMARY"
           done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -278,15 +291,15 @@ jobs:
           stable='^macos-v[0-9]+\.[0-9]+\.[0-9]+$'; [[ "$RELEASE" == "$VERSION" ]] || stable=.
           start=$(git tag --list 'macos-v*' --sort=-v:refname | grep -vxF "$tag" | grep -E "$stable" | head -1 || true)
           python3 scripts/generate-release-notes.py --platform macos --version "$RELEASE" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output changes.md
-          # 发布说明开头是从版本表生成的下载指引：六个 DMG 各是什么、大多数人该下哪个。Homebrew 只在 main 的正式版之后更新，其他发布不列 brew 命令。
+          # 发布说明开头是从版本表生成的下载指引：六个安装包各是什么、大多数人该下哪个。Homebrew 只在 main 的正式版之后更新，其他发布不列 brew 命令。
           homebrew=(); [[ "$PRERELEASE" != true && "$GITHUB_REF_NAME" == main ]] && homebrew=(--homebrew)
           python3 platforms/macos/scripts/edition_bundle.py download-guide --editions "$MACOS_EDITIONS" --version "$VERSION" \
             --download-base "https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/" ${homebrew[@]+"${homebrew[@]}"} > release-notes.md
           { echo; cat changes.md; } >> release-notes.md
           # 发布正文末尾的隐藏构建标记（scripts/release-build-marker.py）：应用内检查更新按它的运行 ID 比较同一版本号的构建，测试版通道也靠它分辨 beta 之后发的正式版。
           python3 scripts/release-build-marker.py "$RELEASE" "$(git rev-parse HEAD)" "$GITHUB_RUN_ID" >> release-notes.md
-          # 版本发布页只放给用户下载的 DMG 和 SHA256SUMS。Sparkle 更新包随 appcast 放在 macos-appcast（下面的「Update the Sparkle appcasts」），dSYM 放在 macos-symbols（下一步）；重跑旧版本时 publish-release.sh 会删掉发布页上不在这份清单里的资产。
-          bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "macOS ${RELEASE}" release-notes.md dist/*.dmg dist/SHA256SUMS
+          # 版本发布页只放给用户下载的 pkg 和 SHA256SUMS。Sparkle 更新包随 appcast 放在 macos-appcast（下面的「Update the Sparkle appcasts」），dSYM 放在 macos-symbols（下一步）。重跑旧版本时 publish-release.sh 会删掉发布页上不在这份清单里的资产：不要用这个工作流重跑 0.56.x 及以前发 DMG 的版本，那会删掉它们的 DMG，外链全部 404。
+          bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "macOS ${RELEASE}" release-notes.md dist/*.pkg dist/SHA256SUMS
       # 每个发布版本的 dSYM 都长期留在滚动的 macos-symbols release 上，文件名带发布名（预发布带 -beta / -alpha 后缀，免得覆盖同一版本号的正式版）。
       - name: Upload the dSYM to macos-symbols
         if: ${{ inputs.publish }}
@@ -307,7 +320,7 @@ jobs:
             exit 0
           fi
           bash platforms/macos/scripts/publish-sparkle-feed.sh dist "$VERSION" "$CHANNEL"
-      # brew install --cask metasequoiaime/tap/msime（五笔版 msime-wubi，拼音版 msime-pinyin，日文版 msime-japanese，越南文版 msime-vietnamese，藏文版 msime-tibetan）. Only a notarized final release goes to the tap: an ad-hoc package installs but macOS will not register its input method, and a prerelease (which every release dispatched from a branch other than main is) is not what someone installing from Homebrew asked for. stapler validate checks the ticket in the DMG itself rather than trusting which secrets were set. 每个版本一个 cask，由 platforms/macos/scripts/edition_bundle.py 从同一个模板渲染；full 的渲染结果与原来的 sed 替换相同，只有 full 把 msime-mcp 放上 PATH。
+      # brew install --cask metasequoiaime/tap/msime（五笔版 msime-wubi，拼音版 msime-pinyin，日文版 msime-japanese，越南文版 msime-vietnamese，藏文版 msime-tibetan）. Only a notarized final release goes to the tap: an ad-hoc package installs but macOS will not register its input method, and a prerelease (which every release dispatched from a branch other than main is) is not what someone installing from Homebrew asked for. stapler validate checks the ticket in the package itself rather than trusting which secrets were set. 每个版本一个 cask，由 platforms/macos/scripts/edition_bundle.py 从同一个模板渲染；full 的渲染结果与原来的 sed 替换相同，只有 full 把 msime-mcp 放上 PATH。cask 用 pkg 段安装，brew 以 sudo 跑 installer，所以安装和升级要管理员密码。
       - name: Update the Homebrew casks
         if: ${{ inputs.publish && !inputs.prerelease && github.ref_name == 'main' }}
         env: {GH_TOKEN: "${{ secrets.HOMEBREW_TAP_TOKEN }}", VERSION: "${{ steps.version.outputs.value }}"}
@@ -325,18 +338,18 @@ jobs:
           for edition in "${editions[@]}"; do
             prefix="$(python3 platforms/macos/scripts/edition_bundle.py field --edition "$edition" dmg_prefix)"
             cask="$(python3 platforms/macos/scripts/edition_bundle.py field --edition "$edition" cask)"
-            dmg="dist/${prefix}-${VERSION}-universal.dmg"
-            # staple-ticket.sh --validate 核对 DMG 里装订的票据，与装订用同一个断线重试窗口：0.54.0（run 39267138324）这里直接调 stapler validate，碰上 CloudKit 断线（Error 68）就把 full 版当成未公证，msime cask 停在上一版而 job 照样成功。重试用完返回 75，与真正没有公证分开提示。
+            pkg="dist/${prefix}-${VERSION}-universal.pkg"
+            # staple-ticket.sh --validate 核对安装包里装订的票据，与装订用同一个断线重试窗口：0.54.0（run 39267138324）这里直接调 stapler validate，碰上 CloudKit 断线（Error 68）就把 full 版当成未公证，msime cask 停在上一版而 job 照样成功。重试用完返回 75，与真正没有公证分开提示。
             validate_status=0
-            bash platforms/macos/scripts/staple-ticket.sh --validate "$dmg" || validate_status=$?
+            bash platforms/macos/scripts/staple-ticket.sh --validate "$pkg" || validate_status=$?
             if [[ "$validate_status" -eq 75 ]]; then
-              echo "::warning::Apple's ticket service kept dropping the connection while validating $dmg; the $cask cask was left at its previous version and has to be updated by hand"
+              echo "::warning::Apple's ticket service kept dropping the connection while validating $pkg; the $cask cask was left at its previous version and has to be updated by hand"
               continue
             elif [[ "$validate_status" -ne 0 ]]; then
-              echo "::warning::$dmg is not notarized; the $cask cask was left at its previous version"
+              echo "::warning::$pkg is not notarized; the $cask cask was left at its previous version"
               continue
             fi
-            sha256="$(shasum -a 256 "$dmg" | cut -d' ' -f1)"
+            sha256="$(shasum -a 256 "$pkg" | cut -d' ' -f1)"
             python3 platforms/macos/scripts/edition_bundle.py cask --edition "$edition" --version "$VERSION" --sha256 "$sha256" \
               --template platforms/macos/homebrew/msime.rb.in > "$RUNNER_TEMP/tap/Casks/${cask}.rb"
             git -C "$RUNNER_TEMP/tap" add "Casks/${cask}.rb"

@@ -125,7 +125,7 @@ gh run watch <id> --exit-status --interval 30        # Android 六个版本并�
 
 ## 5. 核对发布
 
-**发布页的标准，所有平台一样：** 版本发布页上只放用户该下载的安装包（DMG、APK、deb/rpm、安装程序等）和一份只列这些安装包的 `SHA256SUMS`，发布说明开头是从 `shared/contracts/editions.json` 生成的「下载哪个」指引。应用内更新包、调试符号、给发行版打包用的源码包这类用户不会手动下载的文件，放到各自的滚动 release（例如 macOS 的 `macos-appcast`、`macos-symbols`），不挂在版本发布页上，免得用户看着一长串附件不知道选哪个。macOS 从 0.54.1 起按这个标准发，维护者确认过这就是以后的样子；其他平台的发布页还没跟上的，核对时把多出来的附件当作要修的问题报告出来。
+**发布页的标准，所有平台一样：** 版本发布页上只放用户该下载的安装包（macOS 的 pkg、APK、deb/rpm、安装程序等）和一份只列这些安装包的 `SHA256SUMS`，发布说明开头是从 `shared/contracts/editions.json` 生成的「下载哪个」指引。应用内更新包、调试符号、给发行版打包用的源码包这类用户不会手动下载的文件，放到各自的滚动 release（例如 macOS 的 `macos-appcast`、`macos-symbols`），不挂在版本发布页上，免得用户看着一长串附件不知道选哪个。macOS 从 0.54.1 起按这个标准发，维护者确认过这就是以后的样子；其他平台的发布页还没跟上的，核对时把多出来的附件当作要修的问题报告出来。
 
 ```sh
 gh release view <os>-vX.Y.Z --json tagName,isPrerelease,targetCommitish,assets --jq '.tagName, .isPrerelease, .targetCommitish, (.assets[]|"\(.name) \(.size)")'
@@ -133,10 +133,10 @@ gh release view <os>-vX.Y.Z --json tagName,isPrerelease,targetCommitish,assets -
 
 - 正式版 `isPrerelease` 必须是 false，否则应用内更新拿不到。
 - 附件齐全：Android 是六个 APK（`msime-android.apk`、`msime-android-<edition>.apk`）、一份只列这六个 APK 的 `SHA256SUMS`，以及每个 APK 各一个 `.sha256`，发布说明开头是从版本表生成的下载指引。`.sha256` 是标准之外暂时保留的：0.2.0 到 0.4.2 的应用内更新只认 `<新版本的 tag>/<apk>.sha256`，挪到别的 release 就等于删掉，什么时候撤由维护者看读 `SHA256SUMS` 的安装够多了再定，核对时不要把它们当作多出来的附件报告（见 `.agents/notes/implemented/process/2026-10-20-android-release-page-sha256sums.md`）。有两两大小完全相同的 APK（full 与 pinyin、tibetan 与 vietnamese）是正常的，0.2.2 起就这样，哈希不同就行。
-- macOS：`macos-vX.Y.Z` 上只有六个 DMG 和只列它们的 `SHA256SUMS`，发布说明开头是从版本表生成的下载指引。dSYM 在滚动的 `macos-symbols` release 上（`msime-macos-<发布名>-dsym.zip`）。
+- macOS：`macos-vX.Y.Z` 上只有六个 pkg（`<dmg_prefix>-X.Y.Z-universal.pkg`，文件名不带 -beta 之类的后缀）和只列它们的 `SHA256SUMS`，发布说明开头是从版本表生成的下载指引（保留 `<!-- msime-download-guide -->` 标记，官网靠它跳过这一段）。0.56.x 及以前是 DMG，那些版本不重跑、不补 pkg。第一个 pkg 版本 0.57.0 必须发成正式版（从 main 发、不勾 prerelease）：官网要看到第一个非预发布的 pkg 才切换安装说明。dSYM 在滚动的 `macos-symbols` release 上（`msime-macos-<发布名>-dsym.zip`）。
 - Linux：`linux-vX.Y.Z` 上只有每个版本两个架构的 `.deb`、`.rpm` 与 `.tar.gz`，勾选了 `legacy` 时再加两个 `msime-linux-legacy_X.Y.Z_<架构>.deb`，以及只列这些安装包的 `SHA256SUMS`；发布说明开头是从版本表生成的下载指引。main 上的发布另把三个源码包和 `msime-X.Y.Z-SHA256SUMS` 传到滚动的 `linux-sources` release，COPR、OBS、PPA 与 Gentoo 从那里取；beta 和 alpha 的源码包只在 workflow artifact 里。
 - Windows：`windows-vX.Y.Z` 上只有六个安装程序（`<installer_base_name>_vX.Y.Z.exe`）、只列它们的 `SHA256SUMS`，以及每个安装程序各一个 `.exe.sha256`，发布说明开头是从版本表生成的下载指引。`.sha256` 是标准之外保留的：`render.py` 生成包管理器清单时拿它和 GitHub 摘要互相核对，设置页拿不到摘要时也让用户去下载它，核对时不要把它们当作多出来的附件报告。符号包在滚动的 `windows-symbols` release 上（`msime-windows-<版本 id>-<发布名>-symbols.zip`，每次六个），不在版本发布页上。维护者用 SimplySign 签名后替换安装程序时，`SHA256SUMS` 里那一行要一起换（`platforms/windows/packaging/README.md`「发布步骤」）。
-- macOS 正式版：`macos-appcast` release 上的 `appcast-<版本 id>.xml` 应当被这次发布更新，`<sparkle:version>` 是这次的构建号、`url` 指向同在 `macos-appcast` 上的 `*-input-method.zip`（设置应用的 appcast 指向 `*-settings.zip`），旧版本的更新包已被删掉。工作流日志里出现 `SPARKLE_ED_PRIVATE_KEY is not set` 说明这次没有 Sparkle 更新，已装的用户只能手动下载 DMG。
+- macOS 正式版：`macos-appcast` release 上的 `appcast-<版本 id>.xml` 应当被这次发布更新，`<sparkle:version>` 是这次的构建号、`url` 指向同在 `macos-appcast` 上的 `*-input-method.zip`（设置应用的 appcast 指向 `*-settings.zip`），旧版本的更新包已被删掉。工作流日志里出现 `SPARKLE_ED_PRIVATE_KEY is not set` 说明这次没有 Sparkle 更新，已装的用户只能手动下载安装包。
 - Android 下载 full 包核对包名、版本和签名证书。证书不是 `3a889e43…8e4132`（msime-release）的话，老用户没法覆盖升级，必须撤下：
 
   ```sh
