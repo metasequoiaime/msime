@@ -42,5 +42,5 @@ Status: implemented
 
 - 收益：每个键的每个条目都能翻到；主要出现在词里的字排进前几页（逾 39、慈 22、議 26）；以后条目数超限会在构建时失败。
 - 代价：整份粤语单字的长尾顺序变了，属于默认排序的变化；部分 2000 分以下的首选会换（37 个键，见上）。zi、ji、jyu 这类键每次按键多读一百多行，桌面实测约多 0.4 ms，手机上没有量。
-- 这个改动只在下一次 `dict-v*` 发布（用合入后的 develop 构建器）之后进入词库，应用自带的库还要等 `resources/language-dictionaries.lock.json` 换到那次发布；引擎的上限随下一个客户端版本生效。`tools/cantonese-evaluation/report.json` 的基线是锁文件固定的已发布库，不受构建器改动影响，换锁时再重新评估。
+- 这个改动只在下一次 `dict-v*` 发布（用合入后的 develop 构建器）之后进入词库，应用自带的库还要等 `resources/language-dictionaries.lock.json` 换到那次发布；引擎的上限随下一个客户端版本生效。`tools/cantonese-evaluation/report.json` 的基线是锁文件固定的已发布库，不受构建器改动影响，换锁时再重新评估。`dict-v2.0.50` 已包含 `逾` 的排序修复以及「雙拼」「貢嘎」「貢嘎山」审校词，本仓锁现已固定该发布，客户端随下一次构建获取这些词库内容。
 - 验证：`cargo test -p msime-dict-builder`（下限的取值、按位置计、饱和不超过上限、verify 的条目数检查）；`cargo test -p msime-engine --lib cantonese` 的 `every_row_of_a_key_up_to_the_span_limit_is_offered`（粤拼与双拼入口都能翻到上限内的最后一行）；用真实 msime-dictionary checkout 跑 `msime-dict-build languages` 并对比名次与首选变化；上面的延迟测量。没有在模拟器或真机上验收。
