@@ -1,9 +1,9 @@
-// 对组装好的 npm 包（scripts/build-web-engine.sh 写出的 target/web-engine/npm/package）做端到端冒烟：用 Node 的 HTTP 服务器提供 wasm 和 gzip 过的词库，经 createMsimeEngine、worker.js 的消息处理、加载代码和 wasm 打 nihao + 空格，断言上屏；再验证手到和微软双拼、用包里真实辅助码表的辅助码开关、不带词库的韩文、带最小日语模型的日语、CLI 的 copy、方案切换、点选、404 和缺词库时的错误。
+// 对组装好的 npm 包（scripts/build-web-engine.sh 写出的 target/web-engine/npm/package）做端到端冒烟：用 Node 的 HTTP 服务器提供 wasm 和 gzip 过的词库，经 createMsimeEngine、worker.js 的消息处理、加载代码和 wasm 打 nihao + 空格，断言上屏；再验证手到和微软双拼、用包里真实辅助码表的辅助码开关、不带词库的韩文、带最小日语模型的日语、带最小粤语词库的粤拼和粤语双拼、CLI 的 copy、方案切换、点选、404 和缺词库时的错误。
 //
 // Node 没有浏览器的 Worker，这里用一个同进程的替身：把消息结构化克隆后交给 worker.js 导出的 createWorkerHandler，回复同样克隆后作为 message 事件派发。真正的 Worker 加载路径由浏览器测试覆盖。
 //
-// 用法：node packages/web-engine/test/smoke.mjs <msime.db> [--package <dir>]
-// 词库通常是 `cargo run -p msime-engine-wasm --example make_fixture -- target/web-engine/fixture/msime.db` 写出的最小夹具。
+// 用法：node packages/web-engine/test/smoke.mjs <msime.db> --cantonese <msime-cantonese.db> [--package <dir>]
+// 词库通常是 `cargo run -p msime-engine-wasm --example make_fixture -- target/web-engine/fixture/msime.db` 写出的最小夹具，粤语词库是同一个示例加 `--cantonese` 写出的 target/web-engine/fixture/msime-cantonese.db。
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
@@ -16,13 +16,15 @@ import { gunzipSync, gzipSync } from "node:zlib";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const args = process.argv.slice(2);
 let db = null;
+let cantoneseDb = null;
 let pkgDir = resolve(repoRoot, "target/web-engine/npm/package");
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--package") pkgDir = resolve(args[++i] ?? "");
+  else if (args[i] === "--cantonese") cantoneseDb = resolve(args[++i] ?? "");
   else if (db === null && !args[i].startsWith("--")) db = resolve(args[i]);
   else throw new Error(`unknown argument: ${args[i]}`);
 }
-if (db === null) throw new Error("usage: node packages/web-engine/test/smoke.mjs <msime.db> [--package <dir>]");
+if (db === null || cantoneseDb === null) throw new Error("usage: node packages/web-engine/test/smoke.mjs <msime.db> --cantonese <msime-cantonese.db> [--package <dir>]");
 
 const sdk = await import(pathToFileURL(join(pkgDir, "index.js")).href);
 const { createWorkerHandler } = await import(pathToFileURL(join(pkgDir, "worker.js")).href);
@@ -65,6 +67,8 @@ const rawJapanese = japaneseModel([
   ["にほんご", "日本語", 500],
 ]);
 const gzJapanese = gzipSync(rawJapanese);
+const rawCantonese = readFileSync(cantoneseDb);
+const gzCantonese = gzipSync(rawCantonese);
 
 // 包里的辅助码表（assets.js 的 helpcodes 记着名字和大小），经 /pkg/<文件名> 原样提供。
 const { helpcodes: helpcodeFiles } = await import(pathToFileURL(join(pkgDir, "assets.js")).href);
@@ -74,6 +78,9 @@ const server = createServer((req, res) => {
   if (packaged && existsSync(packaged)) {
     res.writeHead(200, { "Content-Type": "application/gzip" });
     res.end(readFileSync(packaged));
+  } else if (req.url === "/msime-cantonese.db.gz") {
+    res.writeHead(200, { "Content-Type": "application/gzip" });
+    res.end(gzCantonese);
   } else if (req.url === "/msime-japanese.dat.gz") {
     res.writeHead(200, { "Content-Type": "application/gzip" });
     res.end(gzJapanese);
@@ -311,6 +318,42 @@ try {
   japanese.dispose();
   console.log("smoke: japanese nihongo + Space -> 日本語");
 
+  // 3d. 粤拼和粤语双拼只下载 wasm 和粤语词库：候选是繁体，两种粤语方案之间就地切换；选中只覆盖前一个音节的候选时上屏它，剩下的接着组字。
+  // 没有粤语词库时建不起粤语引擎。要在下面导入词库之前：替身 Worker 同进程共用一个 wasm 实例，导入过的词库会留在内存 VFS 里，真实浏览器里每个 Worker 才是干净的。
+  await assert.rejects(sdk.createMsimeEngine({ worker: () => new InProcessWorker(), scheme: "jyutping", assets: { wasm: assets().wasm, db: null, model: null } }), (e) => e.code === "engine");
+  const cantonese = await sdk.createMsimeEngine({
+    worker: () => new InProcessWorker(),
+    scheme: "jyutping",
+    assets: {
+      wasm: assets().wasm,
+      db: null,
+      model: null,
+      cantonese: { url: `${origin}/msime-cantonese.db.gz`, size: gzCantonese.length, rawSize: rawCantonese.length },
+    },
+  });
+  assert.equal(cantonese.scheme, "jyutping");
+  assert.equal((await cantonese.keys(letters("neihou"))).page[0]?.text, "你好");
+  assert.deepEqual((await cantonese.keys(packKey(KeyKind.Space))).out, [{ t: "commit", text: "你好", seat: 0 }]);
+  await cantonese.setScheme("cantonese_shuangpin");
+  assert.equal(cantonese.scheme, "cantonese_shuangpin");
+  const twoKeys = await cantonese.keys(letters("sxcr"));
+  assert.deepEqual(twoKeys.page.map((row) => row.text), ["相傳", "上", "相", "削"]);
+  const partialPick = await cantonese.pick(1, twoKeys.candidateRevision, "上", twoKeys.pageStart);
+  assert.deepEqual(partialPick.out, [{ t: "commit", text: "上", seat: 1 }]);
+  assert.equal(partialPick.composing, true);
+  assert.equal(partialPick.page[0]?.text, "傳");
+  await cantonese.keys(packKey(KeyKind.Escape));
+  // 粤语双拼的 `;` 是韵母 ing：b; 是 bing。
+  assert.equal((await cantonese.keys([...letters("b"), packKey(KeyKind.Punct, ";".charCodeAt(0))])).page[0]?.text, "兵");
+  await cantonese.keys(packKey(KeyKind.Escape));
+  await cantonese.setScheme("jyutping");
+  await assert.rejects(cantonese.setScheme("quanpin"), (e) => e.code === "unsupported");
+  // 粤语方案不用辅助码：设了也什么都不做。
+  await cantonese.setHelpcode("xiaohe");
+  assert.equal(cantonese.helpcode, null);
+  cantonese.dispose();
+  console.log("smoke: jyutping neihou + Space -> 你好, cantonese_shuangpin sxcr -> 上 + 傳, b; -> 兵");
+
   // 4. 词库 404：network，消息里提示部署位置。
   await assert.rejects(
     sdk.createMsimeEngine({ worker: () => new InProcessWorker(), assets: assets("/missing.db.gz") }),
@@ -320,6 +363,9 @@ try {
   // 5. 不传 assets 时按包里的 assets.js 找词库；--no-data 构建没有词库，应当明确报 unsupported，而有词库的构建应当解析出 assetBase 下的地址。
   if (sdk.version && !existsSync(join(pkgDir, "assets/msime-pinyin.db.gz"))) {
     await assert.rejects(sdk.createMsimeEngine({ worker: () => new InProcessWorker() }), (e) => e.code === "unsupported");
+  }
+  if (sdk.version && !existsSync(join(pkgDir, "assets/msime-cantonese.db.gz"))) {
+    await assert.rejects(sdk.createMsimeEngine({ worker: () => new InProcessWorker(), scheme: "cantonese_shuangpin" }), (e) => e.code === "unsupported");
   }
   await assert.rejects(sdk.createMsimeEngine({ scheme: "shuangpin", worker: () => new InProcessWorker() }), /unknown scheme/);
 
@@ -336,6 +382,15 @@ try {
   execFileSync(process.execPath, [join(pkgDir, "bin/msime-web-engine.mjs"), "copy", bare, "--no-helpcode"], { stdio: "pipe" });
   assert.deepEqual(readdirSync(join(bare, "assets")).filter((name) => name.startsWith("helpcode-")), [], "--no-helpcode still copied helpcode tables");
   assert.match(execFileSync(process.execPath, [join(pkgDir, "bin/msime-web-engine.mjs"), "info"], { encoding: "utf8" }), /helpcode-jiajia\.txt\.gz/);
+  // 带数据的包里粤语词库和许可证一起复制，--no-cantonese 时都不复制；不带数据的包两种都没有。
+  const { cantonese: cantoneseFile } = await import(pathToFileURL(join(pkgDir, "assets.js")).href);
+  assert.equal(cantoneseFile !== null, existsSync(join(pkgDir, "assets/msime-cantonese.db.gz")));
+  for (const name of ["msime-cantonese.db.gz", "msime-rime_cantonese_LICENSE.txt"]) {
+    assert.equal(existsSync(join(out, "assets", name)), cantoneseFile !== null, `copy and ${name}`);
+  }
+  const noCantonese = join(tmp, "site/no-cantonese");
+  execFileSync(process.execPath, [join(pkgDir, "bin/msime-web-engine.mjs"), "copy", noCantonese, "--no-cantonese"], { stdio: "pipe" });
+  assert.deepEqual(readdirSync(join(noCantonese, "assets")).filter((name) => /cantonese/.test(name)), [], "--no-cantonese still copied the Cantonese dictionary");
   const copied = await import(pathToFileURL(join(out, "index.js")).href);
   assert.equal(copied.version, sdk.version);
   // 皮肤表是构建时生成进包里的：复制出的目录也能解析每个内置皮肤。
