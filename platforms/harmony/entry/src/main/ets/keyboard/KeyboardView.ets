@@ -540,7 +540,7 @@ struct KeyboardView {
   @State engineScheme: number = 0;
   /** Whether the scheme's openable candidate list (the Korean Hanja list, the Zhuyin list) is on the strip, as the Engine last reported it. */
   @State candidateListOpen: boolean = false;
-  /** 候选栏上是上屏后联想（#9433）而不是组字的候选：回车、空格按空闲处理，长按不管理，候选栏按偏好放关闭键。 */
+  /** 候选栏上是上屏后联想（#9433）而不是组字的候选：回车按空闲处理，长按不管理，候选栏按偏好放关闭键。 */
   @State prediction: boolean = false;
   /** Read-only English completions for the word being typed; empty whenever one is not. */
   @State @Watch('syncStripHeight') englishSuggestions: string[] = [];
@@ -7293,7 +7293,7 @@ struct KeyboardView {
     return this.japanese ? this.editing.length > 0 : this.composingCandidates() > 0;
   }
 
-  /** 属于组字的候选数：上屏后联想的候选不算，回车照常换行、空格照常是空格。 */
+  /** 回车要确认的候选数：上屏后联想的候选不算，联想时回车照常换行或执行编辑器动作。空格不同，联想时照样选高亮的一条（运行时接管），读屏名称仍是「选定」。 */
   private composingCandidates(): number {
     return NextWordPredictionPolicy.composingCandidates(this.candidates.length, this.prediction);
   }
@@ -7411,7 +7411,7 @@ struct KeyboardView {
     .alignItems(HorizontalAlign.Center)
     // What it will do, not what it is: mid-composition this key selects the highlighted candidate,
     // and a user who cannot see the candidate row has no other way to know it changed meaning.
-    .accessibilityText(KeyAccessibilityPolicy.space(this.composingCandidates() > 0))
+    .accessibilityText(KeyAccessibilityPolicy.space(this.candidates.length > 0))
     .backgroundColor(this.skin.keySurfaceBackground(false))
     .linearGradient({ angle: 180,
       colors: [[this.skin.materialTop(), 0], [this.skin.materialBottom(), 1]] })

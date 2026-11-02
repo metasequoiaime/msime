@@ -909,14 +909,14 @@ if ! grep -qF "KeyboardSession.shared.readAloudText(" "$repo_root/platforms/harm
   echo "Harmony read aloud must pass the shared layer's text to both candidate menus (the 2in1 touch long press opens for 朗读 alone too), check the candidate before speaking, close an engine created after shutdown, stay offline without downloading voices, and validate the settings page's word" >&2
   exit 1
 fi
-# 上屏后联想（#9433）：规则由 next-word-prediction.test.ts 覆盖，视图、会话和扩展能力是 ArkTS，这里钉住接线。回车把联想交给 ReturnKeyAction（FINISH_THEN_EDITOR，照常换行或发送）；外部改动和选区移动重新聚焦清掉旧联想，键盘自己的回声不算；联想的候选不给长按管理；关闭键 × 和实体 Esc 送 Cancel；2in1 候选窗在联想时也出现；直接写进编辑器的文字先清掉联想。
+# 上屏后联想（#9433）：规则由 next-word-prediction.test.ts 覆盖，视图、会话和扩展能力是 ArkTS，这里钉住接线。回车把联想交给 ReturnKeyAction（FINISH_THEN_EDITOR，照常换行或发送），空格键读屏仍按候选读「选定」；实体空格和数字在联想时交给运行时去选；外部改动和选区移动重新聚焦清掉旧联想，键盘自己的回声不算；联想的候选不给长按管理；关闭键 × 和实体 Esc 送 Cancel；2in1 候选窗在联想时也出现；直接写进编辑器的文字先清掉联想。
 nwp_view="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets"
 nwp_session="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets"
 nwp_ability="$repo_root/platforms/harmony/entry/src/main/ets/inputmethodextability/KeyboardExtensionAbility.ets"
 nwp_insert=$(sed -n '/^  insert(text: string): void {$/,/^  }$/p' "$nwp_session")
 if ! grep -qF 'this.strokeFace(), this.prediction);' "$nwp_view" \
   || ! grep -qF 'NextWordPredictionPolicy.composingCandidates(this.candidates.length, this.prediction)' "$nwp_view" \
-  || ! grep -qF 'KeyAccessibilityPolicy.space(this.composingCandidates() > 0)' "$nwp_view" \
+  || ! grep -qF 'KeyAccessibilityPolicy.space(this.candidates.length > 0)' "$nwp_view" \
   || ! grep -qF '|| !KeyboardSession.shared.candidateManagementAllowed()) {' "$nwp_view" \
   || ! grep -qF '.onClick(() => this.closePrediction())' "$nwp_view" \
   || ! grep -qF 'KeyboardSession.shared.dismissPrediction();' "$nwp_view" \
@@ -926,8 +926,11 @@ if ! grep -qF 'this.strokeFace(), this.prediction);' "$nwp_view" \
   || ! grep -qF 'this.predictionButtonStyle = NextWordPredictionPolicy.buttons(preferences.next_word_prediction_buttons);' "$nwp_session" \
   || ! grep -qF 'this.dismissPrediction();' <<< "$nwp_insert" \
   || ! grep -qF 'NextWordPredictionPolicy.dismissesOnKey(event.key.code,' "$nwp_ability" \
+  || ! grep -qF 'NextWordPredictionPolicy.selectionKey(numpad.keyCode, numpad.unicodeChar,' "$nwp_ability" \
+  || ! grep -qF 'if (session.pressPredictionKey(predictionKey)) {' "$nwp_ability" \
+  || ! grep -qF 'return this.apply(client.character(this.handle, ascii, false));' "$nwp_session" \
   || [[ $(grep -cF 'KeyboardSession.shared.candidateWindowWanted()' "$nwp_ability") -ne 3 ]]; then
-  echo "Harmony post-commit prediction must hand Return to the editor, refocus on external edits only, skip candidate management, close on × and Esc, keep the 2in1 candidate window up and clear before direct inserts" >&2
+  echo "Harmony post-commit prediction must hand Return to the editor, send physical Space and digits to the runtime, refocus on external edits only, skip candidate management, close on × and Esc, keep the 2in1 candidate window up and clear before direct inserts" >&2
   exit 1
 fi
 "$tsc" --project "$here/tsconfig.json"

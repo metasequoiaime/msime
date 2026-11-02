@@ -330,6 +330,8 @@ describe("the HarmonyOS phone 表达 page", () => {
     const smart = group("智能");
     const toggle = within(smart).getByRole("switch", { name: /^上屏后联想/ }) as HTMLInputElement;
     expect(toggle.checked).toBe(false);
+    // 说明来自共享组件，手机和电脑同一句：联想能点选、按数字键或空格上屏。
+    expect(within(smart).getByText(/点选、按数字键或空格上屏/)).toBeTruthy();
     const buttons = () => within(smart).getByRole("button", { name: /^联想栏按键/ });
     expect(buttons().textContent).toContain("只有展开 ∨");
     fireEvent.click(toggle);

@@ -281,7 +281,7 @@ interface EngineView extends EngineViewNumericFields {
   candidate_list_open: boolean;
   /** 引号与方头括号样式（`quote_style`、`bracket_style`），host-api 已按繁体输出开关解析好。 */
   punctuation_marks?: PunctuationMarksView;
-  /** 上屏后联想（`next_word_prediction`）：候选是选词上屏后的建议，`editing_text`、`preedit` 为空，只有点选才上屏。普通状态 JSON 里没有这个键。 */
+  /** 上屏后联想（`next_word_prediction`）：候选是选词上屏后的建议，`editing_text`、`preedit` 为空；点选、数字键和空格选中，由运行时接管。普通状态 JSON 里没有这个键。 */
   prediction?: boolean;
 }
 
@@ -686,7 +686,7 @@ export interface KeyboardState {
   /** View 报告的顿号键开关：顿号键面随它画。 */
   readonly enumerationCommaBackslash: boolean;
   readonly enumerationCommaSlash: boolean;
-  /** 候选是上屏后联想而不是组字的候选，见 `NextWordPredictionPolicy`：回车、空格按空闲处理，长按不管理候选，候选栏按偏好放关闭键。 */
+  /** 候选是上屏后联想而不是组字的候选，见 `NextWordPredictionPolicy`：回车按空闲处理（照常换行或执行编辑器动作），长按不管理候选，候选栏按偏好放关闭键。 */
   readonly prediction: boolean;
 }
 
@@ -3610,6 +3610,15 @@ export class KeyboardSession implements HardwareKeyTarget {
     return true;
   }
 
+  /**
+   * 实体键盘在联想时按下的空格或数字（`NextWordPredictionPolicy.selectionKey`）交给运行时：空格选高亮的一条，数字选本页对应的一条。返回运行时是否收下；没收下（越过本页的数字）时引擎已经清掉联想，调用方把这个键照常交给应用。
+   */
+  pressPredictionKey(ascii: number): boolean {
+    if (this.handle === 0 || !this.predicting()) return false;
+    this.clearSmartPunctuationRepeat();
+    return this.apply(client.character(this.handle, ascii, false));
+  }
+
   /** 编辑器的改动不是键盘自己写入的回声而且正显示联想：重新聚焦同一会话，清掉旧建议并切断词序上下文，免得随后点选的词被记成旧位置的后续词（Android `onUpdateSelection` 同样处理）。 */
   private refocusAfterExternalEdit(ownEcho: boolean): void {
     if (this.handle === 0 || !NextWordPredictionPolicy.refocusesOnEditorChange(ownEcho, this.predicting())) return;
@@ -4200,7 +4209,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.caretContextEcho.textChanged(false, false, textLength);
     // A host edit may clear the field, replace the document or move text around the active composition. Commit what the user typed before the Engine's state can drift from the editor.
     this.finishCompositionBoundary(CompositionBoundary.DEACTIVATE);
-    // 实体键盘交给应用的空格、回车、数字和退格也走到这里：联想照常让它们输入，随后在这里清掉。
+    // 实体键盘交给应用的回车和退格也走到这里：联想照常让它们输入，随后在这里清掉。
     this.refocusAfterExternalEdit(false);
     this.clearEnglishSuggestions();
     this.refreshEmailSuffixes();
