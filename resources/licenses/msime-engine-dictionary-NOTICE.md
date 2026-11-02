@@ -1,4 +1,4 @@
-> 本文件是 msime 随词库分发的来源与授权说明。从下一行「来源与授权说明」起到「msime 构建时另加的输入」之前，逐字取自 [metasequoiaime/msime-dictionary](https://github.com/metasequoiaime/msime-dictionary) 提交 `8e8b7817c91600913625edb7995a7397fbb6899a` 的 `NOTICE.md`，这个提交是 `resources/desktop-dictionary.lock.json` 与 `resources/language-dictionaries.lock.json` 所固定的 `dict-v2.0.41` 发布的源数据提交（发布说明与 `msime-dictionary-manifest.json` 都记着它）；其中的相对路径指那个仓库。「msime 构建时另加的输入」一节不在那份文件里，记的是由 msime 仓库一侧进入同一批词库的来源。词库锁换到新的 `dict-v*` 时，按那次发布的源数据提交重新同步本文件。
+> 本文件是 msime 随词库分发的来源与授权说明。从下一行「来源与授权说明」起到「msime 构建时另加的输入」之前，逐字取自 [metasequoiaime/msime-dictionary](https://github.com/metasequoiaime/msime-dictionary) 提交 `8e8b7817c91600913625edb7995a7397fbb6899a` 的 `NOTICE.md`，这个提交是 `resources/desktop-dictionary.lock.json` 与 `resources/language-dictionaries.lock.json` 所固定的 `dict-v2.0.41` 发布的源数据提交（发布说明与 `msime-dictionary-manifest.json` 都记着它）；其中的相对路径指那个仓库。「msime 构建时另加的输入」一节不在那份文件里，记的是由 msime 仓库一侧进入同一批词库的来源；最后的「已登记、尚未随当前词库发布的来源」一节也不在那份文件里，记的是构建器已经登记、那个发布还没有收录的来源。词库锁换到新的 `dict-v*` 时，按那次发布的源数据提交重新同步本文件。
 
 # 来源与授权说明
 
@@ -236,3 +236,19 @@ Aspell 词典包里的 `Copyright` 文件另含 Benjamin Titze 的澳大利亚�
 产物是词序列的统计量（相邻词对/词三元组的对数增量），不含语料原文。**再分发这两个文件时必须保留对中文维基百科的署名，并按 CC-BY-SA 4.0 提供该文件本身**；BY-SA 4.0 单向兼容 GPL-3.0，与前端现有的 GPL-3.0 分发方式相容。
 
 选 zhwiki 而不是 C4 中文部分的理由不是授权而是测量：评测收割集 `sentences-v2.tsv`（客户端）本身就是从 C4 收割的，拿 C4 统计上下文等于让解码器把唯一的硬基准当训练集看。
+
+## 已登记、尚未随当前词库发布的来源
+
+下面的来源已经登记进 msime 的构建器（`resources/dictionary-sources.lock.json` 的 references 与 `crates/dict-builder/src/sources.rs` 的 `UPSTREAM_FILES`），但开头那份 `dict-v*` 的副本里还没有。词库锁换到收录它的 `dict-v*` 后，上面的副本会带上 msime-dictionary `NOTICE.md` 的对应条目，到那时删掉本节里的同一项。
+
+### 新世纪五笔单字码表
+
+| 文件 | 上游 | 上游许可 |
+| --- | --- | --- |
+| `sources/wubi/wubixsj-byujiang.txt`（msime-dictionary） | [byujiang/wubi06_rime](https://github.com/byujiang/wubi06_rime)，提交 `fc1cedbb21cde3ca160ce291888fa70697720ab3` 的 `dicts/wubi06.dict.yaml` | GPL-3.0（仓库级，由转载者给出，见下） |
+
+这份文件与上游逐字节一致（1421790 字节，SHA-256 `0c668f59b13b6f201d479678883925957989156b69eeaec163870ace2b011875`，UTF-8、LF、无 BOM），由 msime-dictionary 的 `upstream.lock.json` 按大小和摘要固定，构建器把它记为 `wubi06-rime` 的数据。构建只取其中的单字行：只收基本区汉字，编码必须是 1 到 4 个 a–y 字母；上游的词组和权重都不用。新世纪五笔的词组由本项目按这张表的单字全码和词组规则，从本项目已有的词表生成。
+
+许可与来源如实记在这里。GPL-3.0 是仓库维护者 byujiang 在仓库层面给出的，不是码表编制者本人的权利声明。上游没有记录码表从哪里来：文件头的「Original table author: Wozy」与 [rime/rime-wubi](https://github.com/rime/rime-wubi) 的 `wubi86.dict.yaml` 文件头相同，是沿用 86 极点码表的署名，不是这张表的出处；首次数据提交收了 27533 个字，与王码新世纪版公布的收字数相同，所以这张表很可能派生自那张商业码表。我们找到的其他公开新世纪码表也都能追溯到同一来源，许可同样只来自转载者，没有一份达到上面 98 五笔表那样「权利声明来自数据作者本人」的标准。维护者知道这些情况后决定接受这个风险，标准与上面同样由转载者给出许可的 jidian 86 表相同，并向仍在逐条校正新世纪码表的作者 CNMan 请求明确许可，拿到之后换源或互相校对。新世纪编码方案的专利和“新世纪”商标的状况还没有核实，带这张表的词库发布之前由维护者查询。界面上称“新世纪五笔”“五笔 新世纪”，不使用“王码”“五笔字型”等商标。
+
+GPL-3.0 全文就是本项目根目录的 `LICENSE`，已随每个平台分发。
