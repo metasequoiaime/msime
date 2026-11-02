@@ -181,6 +181,21 @@ fn mobile_session_hotwords(
         .collect()
 }
 
+/// 语音面板在 Linux 和 macOS 上直接从语音服务拿最终文本，再经 `send_voice_text` 投给编辑器，不经过 IBus、Fcitx5 和 IMK 自己的语音路线，所以「语音标点」在这里按本次录音开始时读到的偏好处理一次。Windows 的面板走 Server 的审阅录音，在 VoiceInputSession 里已经处理过。auto（缺省）不调用共享层，原样返回。
+#[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
+pub(crate) fn panel_voice_punctuated(document: &Value, text: String) -> String {
+    use msime_client_providers::voice::punctuation::{apply, PunctuationMode};
+    let mode = PunctuationMode::parse(
+        document["preferences"]["voice_input"]["punctuation_mode"]
+            .as_str()
+            .unwrap_or_default(),
+    );
+    match mode {
+        PunctuationMode::Auto => text,
+        mode => apply(&text, mode),
+    }
+}
+
 #[cfg(any(target_os = "linux", target_os = "macos", test))]
 pub(crate) fn refresh_voice_preferences(
     mut document: Value,
@@ -402,7 +417,9 @@ pub(crate) async fn recognize_voice(
             .ok_or(HostActionError {
                 code: "unavailable",
             })?;
-        Ok(VoiceRecognitionResult { text })
+        Ok(VoiceRecognitionResult {
+            text: panel_voice_punctuated(&document, text),
+        })
     }
     #[cfg(target_os = "ios")]
     {

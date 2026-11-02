@@ -862,7 +862,7 @@ Doubao 的 `asr` 配置包含 `provider:"doubao"`、`endpoint`（WSS，如 Windo
 
 用户词库中的词作为热词：IBus 与 Fcitx5 宿主在语音工作线程上调用 `msime_client_voice_hotwords`（语音 provider 拿不到词库路径和偏好，无法自己构造 HostOptions），把结果按每行 `词\t拼音` 放进 `voice_hotwords` 选项并限制整条查询不超过 15872 字节；设置页（Tauri 面板）发起的本地录音用同一个选项，读取设置页编辑的词库，选项总长不超过 15872 字节，`asr_model_path` 不像其他名称类选项那样截断到 512 字节。服务把词交给 helper；模型清单声明 `"hotwords":"pinyin"`（模型不支持热词偏置）时，改为在最终转写上通过已安装的 `libmsime_host_api.so` 调用 `msime_client_voice_hotword_correct` 做拼音纠正，中间转写不纠正。本地识别仍可按 `polish` 配置润色。
 
-语音标点：IBus 与 Fcitx5 宿主在开始录音时取下 `voice_input.punctuation_mode`，拿到最终文本（`msime_voice_result_or_transcript` 退回中间转写之后）、交给会话上屏之前经 `msime_client_voice_punctuation` 处理一次（`src/voice/VoicePunctuation.h`，由 `linux-voice-punctuation` 覆盖），中间转写不处理；缺键或 `auto` 不调用共享层，调用失败时保留原文，处理后为空（整段只有标点）时提示「未识别到文字，请重新录音」。规则放在宿主而不是语音服务：服务交回空结果时宿主会退回中间转写，只在服务里处理的话只剩标点的结果会以带标点的中间转写上屏。
+语音标点：IBus 与 Fcitx5 宿主在开始录音时取下 `voice_input.punctuation_mode`，拿到最终文本（`msime_voice_result_or_transcript` 退回中间转写之后）、交给会话上屏之前经 `msime_client_voice_punctuation` 处理一次（`src/voice/VoicePunctuation.h`，由 `linux-voice-punctuation` 覆盖），中间转写不处理；缺键或 `auto` 不调用共享层，调用失败时保留原文，处理后为空（整段只有标点）时提示「未识别到文字，请重新录音」。规则放在宿主而不是语音服务：服务交回空结果时宿主会退回中间转写，只在服务里处理的话只剩标点的结果会以带标点的中间转写上屏。菜单「语音面板…」打开的 Tauri 语音面板直接从语音服务拿最终文本、经 `send_voice_text` 提交，不经过上面两个宿主，所以由 `recognize_voice` 在交回最终文本前按同一偏好处理（`panel_voice_punctuated`）。
 
 打包时 `package-container.sh` 用 `scripts/fetch_voice_runtime.py` 下载并校验对应架构的 sherpa-onnx 与 ONNX Runtime 共享库，以 `-DMSIME_VOICE_RUNTIME_DIR` 传给 CMake；生成安装包而不提供该目录时配置失败。
 
