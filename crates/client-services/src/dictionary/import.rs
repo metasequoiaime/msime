@@ -39,13 +39,15 @@ pub enum ImportKind {
     QuickPhrase,
     English,
     Wubi98,
+    /// 新世纪五笔。追加在末尾，已有的序号不变。
+    Wubixsj,
 }
 
 impl ImportKind {
     fn key_limit(self) -> usize {
         match self {
             ImportKind::Pinyin => 256,
-            ImportKind::Wubi | ImportKind::Wubi98 => 4,
+            ImportKind::Wubi | ImportKind::Wubi98 | ImportKind::Wubixsj => 4,
             ImportKind::QuickPhrase => 32,
             ImportKind::English => 64,
         }
@@ -56,7 +58,9 @@ impl ImportKind {
             ImportKind::Pinyin => {
                 super::pinyin_code_is_well_formed(key, format == ImportFormat::Rime)
             }
-            ImportKind::Wubi | ImportKind::Wubi98 => super::wubi_code_is_well_formed(key),
+            ImportKind::Wubi | ImportKind::Wubi98 | ImportKind::Wubixsj => {
+                super::wubi_code_is_well_formed(key)
+            }
             ImportKind::QuickPhrase => super::quick_phrase_code_is_well_formed(key),
             ImportKind::English => super::english_code_is_well_formed(key),
         }

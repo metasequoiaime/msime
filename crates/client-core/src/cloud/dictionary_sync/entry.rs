@@ -17,6 +17,9 @@ pub enum WordKind {
     Quick,
     Wubi,
     Wubi98,
+    /// 新世纪五笔。按字节比 `wubi98` < `wubixsj`，追加在末尾仍是字母顺序。WebDAV 同步暂不收它（host-api `dictionary_webdav::word_kind`）。
+    #[serde(rename = "wubixsj")]
+    WubiXsj,
 }
 
 impl WordKind {
@@ -27,6 +30,7 @@ impl WordKind {
             Self::Quick => "quick",
             Self::Wubi => "wubi",
             Self::Wubi98 => "wubi98",
+            Self::WubiXsj => "wubixsj",
         }
     }
 
@@ -37,6 +41,7 @@ impl WordKind {
             "quick" => Self::Quick,
             "wubi" => Self::Wubi,
             "wubi98" => Self::Wubi98,
+            "wubixsj" => Self::WubiXsj,
             _ => return None,
         })
     }
@@ -76,7 +81,9 @@ impl WordKey {
                 WordKind::Pinyin => code
                     .split('\'')
                     .all(|syllable| !syllable.is_empty() && syllable.bytes().all(letter)),
-                WordKind::Wubi | WordKind::Wubi98 => code.len() <= 4 && code.bytes().all(letter),
+                WordKind::Wubi | WordKind::Wubi98 | WordKind::WubiXsj => {
+                    code.len() <= 4 && code.bytes().all(letter)
+                }
                 WordKind::Quick => {
                     code.len() <= 32
                         && code
@@ -173,6 +180,7 @@ mod tests {
             (WordKind::Pinyin, "shui1", "水"),
             (WordKind::Wubi, "abcde", "词"),
             (WordKind::Wubi98, "a1", "词"),
+            (WordKind::WubiXsj, "abcde", "词"),
             (WordKind::Quick, &"a".repeat(33), "词"),
             (WordKind::Quick, "a_b", "词"),
             (WordKind::English, &"a".repeat(65), "word"),
@@ -204,6 +212,7 @@ mod tests {
     #[test]
     fn kinds_round_trip_through_their_names_and_sort_by_name() {
         let mut kinds = [
+            WordKind::WubiXsj,
             WordKind::Wubi98,
             WordKind::Pinyin,
             WordKind::English,
@@ -217,6 +226,7 @@ mod tests {
         assert_eq!(names, sorted);
         for kind in kinds {
             assert_eq!(WordKind::from_name(kind.name()), Some(kind));
+            assert_eq!(serde_json::to_value(kind).unwrap(), kind.name());
         }
         assert_eq!(WordKind::from_name("bundled"), None);
     }

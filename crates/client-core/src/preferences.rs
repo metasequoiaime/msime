@@ -1878,7 +1878,7 @@ pub struct Preferences {
     /// 五笔拼音混输：五笔候选之后接着列出同一串字母的全拼候选，五笔编码打不出时直接出拼音候选。
     #[serde(default)]
     pub wubi_mixed_pinyin: bool,
-    /// 五笔用 86 还是 98 码表；个人词条和学习记录也按它分开存。
+    /// 五笔用 86、98 还是新世纪码表；个人词条和学习记录也按它分开存。
     #[serde(default)]
     pub wubi_profile: WubiProfile,
     #[serde(default)]
@@ -4620,14 +4620,18 @@ pub enum WubiProfile {
     Wubi86,
     #[serde(rename = "wubi98")]
     Wubi98,
+    /// 新世纪五笔，码表 `wubixsj`。追加在末尾：序号就是 Engine 的编码 2。
+    #[serde(rename = "wubixsj")]
+    WubiXsj,
 }
 
 impl WubiProfile {
-    /// 文档和账号设置里的写法（`wubi86`、`wubi98`）读成版本，不认识的值为 `None`。
+    /// 文档和账号设置里的写法（`wubi86`、`wubi98`、`wubixsj`）读成版本，不认识的值为 `None`。
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "wubi86" => Some(Self::Wubi86),
             "wubi98" => Some(Self::Wubi98),
+            "wubixsj" => Some(Self::WubiXsj),
             _ => None,
         }
     }

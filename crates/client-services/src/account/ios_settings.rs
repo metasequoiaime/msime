@@ -3,7 +3,8 @@
 //! 写回分两步：宿主先按 [`IosPreferencePlan::requested_native`] 写 App Group，再拿实际保存下来的值调 [`IosPreferencePlan::apply_shared`] 写共享偏好，后一步失败时宿主把 App Group 恢复成旧值。
 
 use super::settings_sync::{
-    frequency_account_preferences, insert_bool, insert_string, valid_haptic_strength,
+    account_wubi_schema, frequency_account_preferences, insert_bool, insert_string,
+    valid_haptic_strength,
 };
 use crate::account::{
     validate_account_preferences, AccountError, AccountPreferenceValue, AccountPreferences,
@@ -61,16 +62,11 @@ pub fn local_account_preferences(
         if let Some(profile) = profile {
             insert_string(&mut settings, "input.shuangpin_schema", profile);
         }
-        // 键盘偏好只记五笔这个方案，86 还是 98 记在共享偏好里。
+        // 键盘偏好只记五笔这个方案，86、98 还是新世纪记在共享偏好里。新世纪暂不同步，不写这个键（`settings_sync::account_wubi_schema`）。
         if schema == "wubi" {
-            insert_string(
-                &mut settings,
-                "input.wubi_schema",
-                match shared.wubi_profile {
-                    WubiProfile::Wubi86 => "wubi86",
-                    WubiProfile::Wubi98 => "wubi98",
-                },
-            );
+            if let Some(wubi) = account_wubi_schema(shared.wubi_profile) {
+                insert_string(&mut settings, "input.wubi_schema", wubi);
+            }
         }
     }
     insert_string(
@@ -395,8 +391,11 @@ impl IosPreferencePlan {
         if self.input_scheme.is_some() {
             select_touch_scheme(preferences, touch_scheme(&native.input_scheme)?);
         }
+        // 本机选着新世纪时账号里没有它（不导出），账号里留着的旧版本不能盖掉本机的选择。
         if let Some(value) = self.wubi_profile {
-            preferences.wubi_profile = value;
+            if account_wubi_schema(preferences.wubi_profile).is_some() {
+                preferences.wubi_profile = value;
+            }
         }
         if self.traditional_chinese_output.is_some() {
             preferences.traditional_chinese_output = native.traditional_chinese_output;

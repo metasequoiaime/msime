@@ -1765,7 +1765,7 @@ fn account_dictionary_transport_maps_flattened_responses() {
     assert_eq!(changes.next, 44);
     assert!(!changes.has_more);
 
-    // 更新的版本加的词库种类（新世纪五笔 `wubixsj`）这一版不认识：那一侧读成没有，改动和修订号照常保留，认识的那一侧照常读出。
+    // 更新的版本加的词库种类（用不存在的 `wubi2030` 代表）这一版不认识：那一侧读成没有，改动和修订号照常保留，认识的那一侧照常读出。
     let entry = |kind: &str, revision: i64| {
         serde_json::json!({
             "id": "a".repeat(64),
@@ -1778,8 +1778,8 @@ fn account_dictionary_transport_maps_flattened_responses() {
     };
     let changes_body = serde_json::json!({
         "changes": [
-            {"revision": 44, "previous": null, "replacement": entry("wubixsj", 44)},
-            {"revision": 45, "previous": entry("wubixsj", 44), "replacement": entry("wubi", 45)},
+            {"revision": 44, "previous": null, "replacement": entry("wubi2030", 44)},
+            {"revision": 45, "previous": entry("wubi2030", 44), "replacement": entry("wubi", 45)},
         ],
         "next": 45,
         "has_more": false

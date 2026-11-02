@@ -12,6 +12,8 @@ pub enum DictionaryKind {
     English,
     /// 98 五笔，云端路径 `wubi98`。
     Wubi98,
+    /// 新世纪五笔，云端路径 `wubixsj`。服务端还不收这个种类，云词库暂不同步它（`account::cloud_sync::policy::personal_kind`）。
+    Wubixsj,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -44,6 +46,7 @@ pub fn kind_path(kind: DictionaryKind) -> &'static str {
         DictionaryKind::Pinyin => "pinyin",
         DictionaryKind::Wubi => "wubi",
         DictionaryKind::Wubi98 => "wubi98",
+        DictionaryKind::Wubixsj => "wubixsj",
         DictionaryKind::Quick => "quick",
         DictionaryKind::English => "english",
     }
@@ -55,6 +58,7 @@ pub fn kind_from_path(path: &str) -> Option<DictionaryKind> {
         "pinyin" => DictionaryKind::Pinyin,
         "wubi" => DictionaryKind::Wubi,
         "wubi98" => DictionaryKind::Wubi98,
+        "wubixsj" => DictionaryKind::Wubixsj,
         "quick" => DictionaryKind::Quick,
         "english" => DictionaryKind::English,
         _ => return None,
@@ -161,6 +165,7 @@ mod tests {
             DictionaryKind::Quick,
             DictionaryKind::English,
             DictionaryKind::Wubi98,
+            DictionaryKind::Wubixsj,
         ] {
             assert_eq!(kind_from_path(kind_path(kind)), Some(kind));
             assert_eq!(
@@ -168,7 +173,7 @@ mod tests {
                 serde_json::json!(kind_path(kind))
             );
         }
-        assert_eq!(kind_from_path("wubixsj"), None);
+        assert_eq!(kind_from_path("wubi2030"), None);
         assert_eq!(kind_from_path(""), None);
     }
 

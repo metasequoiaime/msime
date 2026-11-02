@@ -404,7 +404,7 @@ fn checkpoints_with_inconsistent_contents_are_refused() {
     assert_eq!(ReplicaFile::from_replica(&replica), good);
 }
 
-/// 更新的版本加的词库类别（例如新世纪五笔 `wubixsj`）这一版不认识：只跳过那几条，检查点照常读出其余的词条；那几条的其余字段仍要合规。
+/// 更新的版本加的词库类别（用不存在的 `wubi2030` 代表）这一版不认识：只跳过那几条，检查点照常读出其余的词条；那几条的其余字段仍要合规。
 #[test]
 fn checkpoint_entries_of_an_unknown_kind_are_skipped() {
     let known = (
@@ -417,7 +417,7 @@ fn checkpoint_entries_of_an_unknown_kind_are_skipped() {
         true,
     );
     let foreign = (
-        "wubixsj".to_owned(),
+        "wubi2030".to_owned(),
         "ent".to_owned(),
         "力".to_owned(),
         11u64 << 10,

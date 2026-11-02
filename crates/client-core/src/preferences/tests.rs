@@ -6335,8 +6335,32 @@ fn wubi_profile_defaults_to_86_and_reads_unknown_values_as_86() {
     let text = fs::read_to_string(store.path()).unwrap();
     assert!(text.contains(r#""wubi_profile": "wubi98""#), "{text}");
     assert_eq!(store.load().unwrap(), saved);
+    // 新世纪五笔照常存取。
+    let xsj = store
+        .save(
+            saved.revision,
+            Preferences {
+                wubi_profile: WubiProfile::WubiXsj,
+                ..saved.preferences.clone()
+            },
+        )
+        .unwrap();
+    let xsj_text = fs::read_to_string(store.path()).unwrap();
+    assert!(
+        xsj_text.contains(r#""wubi_profile": "wubixsj""#),
+        "{xsj_text}"
+    );
+    assert_eq!(store.load().unwrap(), xsj);
+    let mut submitted = serde_json::to_value(&xsj.preferences).unwrap();
+    assert_eq!(
+        Preferences::from_submission(submitted.take())
+            .unwrap()
+            .wubi_profile,
+        WubiProfile::WubiXsj
+    );
+    fs::write(store.path(), &text).unwrap();
     // 更新的版本写下的码表版本这一版不认识：按 86 读，整份文档照常可读，其余字段不受影响；保存时写回 86。
-    for unknown in ["wubixsj", "wubi06"] {
+    for unknown in ["wubi2030", "wubi06"] {
         fs::write(store.path(), text.replace("wubi98", unknown)).unwrap();
         let loaded = store.load().unwrap();
         assert_eq!(
@@ -6360,10 +6384,11 @@ fn wubi_profile_defaults_to_86_and_reads_unknown_values_as_86() {
     .unwrap();
     assert!(store.load().is_err());
     assert_eq!(WubiProfile::parse("wubi98"), Some(WubiProfile::Wubi98));
-    assert_eq!(WubiProfile::parse("wubixsj"), None);
+    assert_eq!(WubiProfile::parse("wubixsj"), Some(WubiProfile::WubiXsj));
+    assert_eq!(WubiProfile::parse("wubi2030"), None);
     // 只放宽读盘：提交的设置仍严格校验。
     let mut submitted = serde_json::to_value(Preferences::default()).unwrap();
-    submitted["wubi_profile"] = "wubixsj".into();
+    submitted["wubi_profile"] = "wubi2030".into();
     assert!(serde_json::from_value::<Preferences>(submitted.clone()).is_err());
     assert!(Preferences::from_submission(submitted).is_err());
 }
@@ -10132,7 +10157,7 @@ fn documents_written_by_released_versions_load_and_save() {
     }
 }
 
-/// 已发布版本写下的文档里，五笔版本换成这一版不认识的值（更新的版本加的码表）：整份照常读出，五笔版本按 86，其余字段与原文档读出的相同。
+/// 已发布版本写下的文档里，五笔版本换成这一版不认识的值（更新的版本加的码表，用不存在的 `wubi2030` 代表）：整份照常读出，五笔版本按 86，其余字段与原文档读出的相同。
 #[test]
 fn released_documents_with_an_unknown_wubi_profile_still_load() {
     for (release, document) in RELEASED_DOCUMENTS {
@@ -10143,7 +10168,7 @@ fn released_documents_with_an_unknown_wubi_profile_still_load() {
             .load()
             .unwrap_or_else(|error| panic!("{release}: {error}"));
         let mut value: serde_json::Value = serde_json::from_str(document).unwrap();
-        value["preferences"]["wubi_profile"] = "wubixsj".into();
+        value["preferences"]["wubi_profile"] = "wubi2030".into();
         value["preferences"]["scheme"] = "wubi".into();
         fs::write(store.path(), serde_json::to_vec(&value).unwrap()).unwrap();
         let loaded = store
