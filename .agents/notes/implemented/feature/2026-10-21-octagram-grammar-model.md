@@ -68,7 +68,7 @@ SHA-256 一致。许可声明在 `resources/licenses/rime-baguwen-LGPL-3.0.txt` 
 
 Windows 原生设置页现在与共享设置页提供同一组能力：桌面神经联想、去重后补充次选、语法模型选择，以及万象 LTS、八股文词级和八股文紧凑模型的按需下载、校验、取消和删除。页面只把 `state_directory()` 作为 `state_root` 交给 `msime_client_resource_packs*`，不复制锁文件、SHA-256 或模型路径规则；下载使用已保存的资源镜像前缀，删除前由 host-api 释放共享映射。白霜仍因许可未确认不列出，默认值不变。
 
-这次没有把旧版任意 `.gram` 文件导入做成入口：共享层只接受锁定资源包，任意导入会绕过许可和内容校验。按资源锁认文件的「从文件导入」后来由下文 2026-11-02 补充接上。模型选择只写 `sentence_association.grammar_model`，安装完成后由现有会话在下次聚焦时重新读取，避免设置窗口直接触碰输入线程。
+这次没有把旧版任意 `.gram` 文件导入做成入口：共享层只接受锁定资源包，任意导入会绕过许可和内容校验。「从文件导入」后来由下文 2026-11-02 补充接上（固定摘要的包按锁文件认，万象 LTS 按 `.gram` 格式认）。模型选择只写 `sentence_association.grammar_model`，安装完成后由现有会话在下次聚焦时重新读取，避免设置窗口直接触碰输入线程。
 
 选择模型后沿既有 `change(..., true)` 延迟刷新页面，让当前模型对应的下载或删除入口立即出现；切回「不使用」时移除模型文件行。只保存值而不刷新能保留下拉框实例，但模型文件行由建页时的模型选择决定，会把首次选择模型后的下载入口留空，或者继续显示旧模型的操作，因此不采用。
 
@@ -88,7 +88,7 @@ Windows 0.3.0（2026-10-23 发布）早于本节和上一节，更新说明列�
 
 万象 LTS 约 380 MB、八股文词级约 197 MB，都放在 GitHub Release 上，国内网络常常下不完；旧版 Windows 正式版的设置页可以用浏览器下载再导入（`scripts/release-notes-example.md` 记的 #838）。共享层早已有资源包的不联网安装：`resource_packs::import` 和 `msime_client_resource_pack_install` 的可选 `files`，列表里每个包带 `import_files`（见 [Android 不联网安装](2026-10-12-android-offline-voice-import.md)）。Windows 原生页一直没有接上：`refresh_sentence_packs` 只留下 `state`，`install_sentence_pack` 从不带 `files`。
 
-`sentence_pack_row` 在包没装或需要更新、且不在安装或删除时，在「下载」旁边加「从文件导入」（automation id `sentence-model-import-<pack>`），行下照语音模型卡片列出「不联网安装：先用浏览器下载 <文件名（大小）>……」，每个文件名链到 `import_files` 的上游地址，由默认浏览器打开（`append_link` 只开 `https://`）。神经联想模型和三种语法模型共用这一行，所以两处一起有。`install_sentence_pack(id, import)` 的导入分支与语音模型的 `install_local_model` 相同：先 `pick_model_files(failure)` 多选、不按扩展名过滤，对话框打不开或给不出本机路径时用 `vs::local_model_picker_error_message` 说明，关掉对话框什么也不做；选中的路径作为 `files` 交给资源包安装，不带 `sources`；失败用 `vs::local_model_import_error_message`，所以缺文件、读不出、校验不符都按导入的说法提示。下载和导入的失败说明、对话框的说明都存进 `sentence_pack_errors_`，画在这一行的按钮下面，重新开始安装时清掉，取消不留说明：模型行在「候选与联想」页底部，原来用的页首提示条滚在窗口外，失败后按钮变回原样，看上去像什么都没发生，与语音模型卡片在 #10633 的处理相同。删除失败仍用页首提示条，不在这次范围内。导入中的副标题是「正在导入和校验模型…」，「取消」仍走 `msime_client_resource_pack_cancel`。`id` 按值传，打开对话框期间页面可能重画、按钮和它持有的 id 随之换掉。
+`sentence_pack_row` 在包没装或需要更新、且不在安装或删除时，在「下载」旁边加「从文件导入」（automation id `sentence-model-import-<pack>`），行下列出与语音模型卡片同一句「不联网安装：先下载 <文件名（大小）>……」（automation id `sentence-model-offline-<pack>`），每个文件名链到 `import_files` 的上游地址，由默认浏览器打开（`append_link` 只开 `https://`）。这一句的文字由 `VoiceSettings.h` 的 `vs::offline_install_spans` 拼出，`LocalModelFile` 也挪进那里，`main.cpp` 只留把文字段画成 `TextBlock` 的 `offline_install_text`，两处调用，不再各写一份。神经联想模型和三种语法模型共用这一行，所以两处一起有。`install_sentence_pack(id, import)` 的导入分支与语音模型的 `install_local_model` 相同：先 `pick_model_files(failure)` 多选、不按扩展名过滤，对话框打不开或给不出本机路径时用 `vs::local_model_picker_error_message` 说明，关掉对话框什么也不做；选中的路径作为 `files` 交给资源包安装，不带 `sources`；失败用 `vs::local_model_import_error_message`，所以缺文件、读不出、校验不符都按导入的说法提示。下载和导入的失败说明、对话框的说明都存进 `sentence_pack_errors_`，画在这一行的按钮下面，重新开始安装或开始删除时清掉，取消不留说明（不清删除，已安装包「下载更新」失败的说明在删除后会挂在回到「下载」的行上，直到会话结束）：模型行在「候选与联想」页底部，原来用的页首提示条滚在窗口外，失败后按钮变回原样，看上去像什么都没发生，与语音模型卡片在 #10633 的处理相同。删除失败仍用页首提示条，不在这次范围内。导入中的副标题是「正在导入和校验模型…」，「取消」仍走 `msime_client_resource_pack_cancel`。`id` 按值传，打开对话框期间页面可能重画、按钮和它持有的 id 随之换掉。
 
 页面不判断什么文件能装，认文件全在共享层：神经联想模型和八股文模型按锁定的长度和 SHA-256 匹配；万象 LTS 会原地替换，下载身份本来就不钉摘要（[万象 LTS 原地替换](../bug-fix/2026-10-26-wanxiang-auto-update.md)），导入时按 `.gram` 格式匹配并记录实际摘要，所以任何格式有效的 `.gram` 都会被当作万象 LTS 装上。上面「不做任意 `.gram` 导入」的理由对固定摘要的包仍成立，对万象是共享层既有的放宽，文档不把它写成「按锁文件校验」。
 
@@ -101,7 +101,7 @@ Windows 0.3.0（2026-10-23 发布）早于本节和上一节，更新说明列�
 - **失败照旧用页首提示条 `show_notice`** — 一行不改，下载失败一直就是这样提示的。但导入比下载更容易失败（选错、漏选文件），提示看不见时用户只看到按钮变回「从文件导入」；语音模型卡片已经为同一个现象把说明挪进卡片，这里照做。
 - **链接给 `dl.msime.app` 镜像而不是上游地址** — 国内浏览器下载更快。但 `import_files` 只给上游地址，再拼镜像要在宿主里复制下载源规则；与语音模型页一致只给上游地址，导入时照样按内容认文件。
 
-验证：`scripts/test-windows-input-habits-settings.py` 钉住 `import_files` 解析、链接、导入按钮、`pick_model_files(failure)`、两个错误说明、`files` 请求和失败说明写进行里（安装函数里不再有 `show_notice`），改之前失败。`platforms/windows/tests/tools/settings_ui.ps1` 的四种模型切换同时要求选中模型的「从文件导入」按钮出现、其他模型的不出现。本机不能编译 WinUI 设置程序，编译和 UI 专项靠 Windows CI；真机上用浏览器下载、多选导入、选错文件的提示和导入中取消都还没有验收。
+验证：「不联网安装」一句由 `tests/ui/voice_settings.cpp` 按行为测（无文件不画、多个文件用顿号隔开、每个文件名带大小并链到它的地址），这个测试程序不依赖 WinRT，在 macOS 上也能编译运行。`scripts/test-windows-input-habits-settings.py` 只钉住导入按钮的 automation id 和请求里的 `files`，不再逐字钉实现细节（`AGENTS.md`「代码健康」）。`platforms/windows/tests/tools/settings_ui.ps1` 的四种模型切换同时要求选中模型的「从文件导入」按钮和「不联网安装」一句出现、其他模型的都不出现。本机不能编译 WinUI 设置程序，编译和 UI 专项靠 Windows CI；真机上用浏览器下载、多选导入、选错文件的提示和导入中取消都还没有验收。
 
 ## 2026-10-22 补充：octagram 调参系数进偏好（对应 Windows `sentence_collocation_*`）
 
