@@ -3,6 +3,7 @@
 //! The setters the product only sets at construction (`switch_scheme`, `set_helpcode_schema`, `set_helpcode_enabled`, `set_wubi_mixed_pinyin`, `set_personal_context_enabled`) and `candidate_key` stay public because the golden scenarios drive them. Learning undo (`set_learning_undo_enabled`, `forget_recent_commits`) is dropped.
 
 mod candidates;
+mod cantonese_learning;
 mod caret_edit;
 mod chain;
 mod clock;
