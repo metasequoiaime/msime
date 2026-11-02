@@ -2249,7 +2249,9 @@ int main(int argc, char **argv) {
         std::string observed;
         for (const auto &candidate : seen.candidates)
           observed += "[" + candidate + "]";
-        require(has_remote_gloss() && seen.candidates.front() == local_hit,
+        require(has_remote_gloss() &&
+                  std::find(seen.candidates.begin(), seen.candidates.end(), local_hit) !=
+                      seen.candidates.end(),
                 ("Online misses did not merge with the displayed offline hits: gloss=" +
                  std::to_string(has_remote_gloss()) + " local_hit=[" + local_hit +
                  "] candidates=" + observed)

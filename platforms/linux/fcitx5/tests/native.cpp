@@ -4281,12 +4281,13 @@ int main(int argc, char **argv) {
         require(saved.value("revision", uint64_t{}) > revision, "punctuation styles saved");
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
         const auto marks = [&] { return state->view_.value("punctuation_marks", Json::object()); };
-        while (marks().value("quotes", std::string()) != quote.get<std::string>() &&
+        const auto expected = Json{{"quotes", quote}, {"brackets", bracket}};
+        while (marks() != expected &&
                std::chrono::steady_clock::now() < deadline) {
           state->refreshPreferences();
           std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
-        return marks() == Json{{"quotes", quote}, {"brackets", bracket}};
+        return marks() == expected;
       };
       require(saveStyles("corner", "hollow"), "the view reports corner quotes and hollow brackets");
       const auto beforeCorner = ic.committed;

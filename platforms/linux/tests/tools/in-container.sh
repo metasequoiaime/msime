@@ -29,7 +29,9 @@ if [[ ${MSIME_TEST_FCITX5:-0} == 1 ]]; then
   bash platforms/linux/tests/tools/fcitx5-container.sh
   exit 0
 fi
-cmake -S platforms/linux -B /build/ibus -G Ninja -DMSIME_HOST_LIBRARY=/build/cargo/debug/libmsime_host_api.so -DMSIME_LINUX_VOICE=ON
+cmake -S platforms/linux -B /build/ibus -G Ninja \
+  -DMSIME_HOST_LIBRARY=/build/cargo/debug/libmsime_host_api.so \
+  -DMSIME_LINUX_VOICE=ON -DMSIME_ENGINE_RESOURCES=/resources
 cmake --build /build/ibus
 ctest --test-dir /build/ibus --output-on-failure --no-tests=error
 rm -rf /build/stage
