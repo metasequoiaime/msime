@@ -42,6 +42,15 @@ bool translation_preferences_changed(const nlohmann::json &before,
   return false;
 }
 
+// 视图里高亮的那一行；没有候选时为空。
+std::optional<HighlightedSeat> highlighted_seat(const nlohmann::json &view) {
+  for (const auto &candidate : view.at("candidates"))
+    if (candidate.at("highlighted").get<bool>())
+      return HighlightedSeat{candidate.at("id").at("index").get<size_t>(),
+                             candidate_source_is_visible(candidate.value("source", 0u))};
+  return std::nullopt;
+}
+
 // 一次选词期间去掉 HOST_HOLDS_PIECES、保留 COMMIT_OBSERVE_ONLY 的当前状态，离开作用域时恢复成平时的位。
 class PiecesReachDocument final {
 public:
@@ -127,6 +136,20 @@ nlohmann::json ServerSession::cancel_again(nlohmann::json result,
   if (result.at("commit").is_null() &&
       !result.at("view").at("editing_text").get<std::string>().empty())
     return response(msime_client_command(session_, command));
+  return result;
+}
+nlohmann::json ServerSession::leave_hidden_seat(nlohmann::json result,
+                                               const nlohmann::json &before) {
+  const auto previous = highlighted_seat(before);
+  (void)msime::windows::leave_hidden_seat(
+      previous ? std::optional<size_t>(previous->index) : std::nullopt,
+      result.at("view").at("candidates").size(),
+      [&] { return highlighted_seat(result.at("view")); },
+      [&](bool forward) {
+        result["view"] = response(msime_client_command(
+            session_, forward ? MSIME_NEXT_CANDIDATE : MSIME_PREVIOUS_CANDIDATE)).at("view");
+        return true;
+      });
   return result;
 }
 void ServerSession::discard_composition(uint64_t epoch, uint32_t command) {
@@ -275,7 +298,9 @@ KeyResult ServerSession::key(const FanyImeNamedpipeData &packet,
     const bool edits_sentence =
         scheme::EditsSentence(static_cast<int>(current.value("scheme", 0u))) &&
         current.value("local_mode", std::string{}) == "none" && !current.value("dedicated_english", false);
-    result = response(msime_client_command(session_, sentence_edit_command(action.value, edits_sentence)));
+    // 横排候选的左右键和 End 在引擎里也会移动高亮（runtime 的 caret_edge_candidate_shortcut），和 navigate 一样不能停在隐藏的占位席位上。
+    result = leave_hidden_seat(
+        response(msime_client_command(session_, sentence_edit_command(action.value, edits_sentence))), current);
     // A reset discards the composition, as the TIP discards it from its own host session. Escape on a word whose first cancel only shows its raw keys again stops there, as the TIP does (scheme::CancelRestoresRaw); Escape in 整句改字 only leaves it and keeps the pinyin composing, as the TIP does too.
     if (action.kind == KeyKind::LocalReset &&
         !(packet.keycode == kVirtualKeyEscape &&
@@ -329,8 +354,9 @@ ServerSession::navigate(const FanyImeNamedpipeData &packet, uint64_t epoch,
                              scheme == scheme::Japanese || scheme::AlwaysInlinePreedit(scheme));
   if (!action)
     return std::nullopt;
+  // 云的占位席位候选窗不画，高亮不能停在它上面（leave_hidden_seat）。
   auto result = action->command
-                    ? response(msime_client_command(session_, *action->command))
+                    ? leave_hidden_seat(response(msime_client_command(session_, *action->command)), current)
                     : nlohmann::json{{"handled", true},
                                      {"commit", nullptr},
                                      {"diagnostic", nullptr},
