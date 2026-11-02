@@ -1006,20 +1006,19 @@ struct ServiceSettingsView: View {
   @MainActor private func deliver(_ result: String, polish: VoicePolishSettings?, id: UUID) async throws {
     let punctuation = kind == .voice
       ? VoicePunctuation.mode(MetasequoiaInputSessionBridge.loadSharedPreferences()) : VoicePunctuation.auto
-    guard let text = VoicePunctuation.finalText(result, mode: punctuation) else {
-      output = ""
-      status = "没有识别到文字"
-      return
-    }
-    if let polish, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-      transcript = text
-      output = text
+    if let polish, !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      transcript = VoicePunctuation.finalText(result, mode: punctuation) ?? ""
+      output = transcript
       status = "识别完成，正在润色…"
       do {
         let polished = try await VoicePolishService.polish(result, settings: polish)
         try request.checkCurrent(id)
-        // 润色结果只剩标点时保留处理后的识别原文，不交出一段空白。
-        output = VoicePunctuation.finalText(polished, mode: punctuation) ?? text
+        guard let text = VoicePunctuation.finalText(polished, mode: punctuation) else {
+          output = ""
+          status = "没有识别到文字"
+          return
+        }
+        output = text
         status = "已完成"
       } catch is CancellationError {
         throw CancellationError()
@@ -1028,6 +1027,11 @@ struct ServiceSettingsView: View {
         status = "润色失败，已保留识别原文：\(error.localizedDescription)"
       }
     } else {
+      guard let text = VoicePunctuation.finalText(result, mode: punctuation) else {
+        output = ""
+        status = "没有识别到文字"
+        return
+      }
       output = text
       status = "已完成"
     }
