@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <optional>
 
 // 引擎 `CandidateSource` 枚举（`crates/engine/src/types.rs`）的取值。它是 Rust 的枚举，经共享 Host API 以数字到达这一侧，C++ 没法直接引用，所以这里按位置抄一份；`scripts/test-candidate-sources.py` 把下面每个名字钉在枚举里的位置上——在枚举中间插入一个来源会让它之后的全部位移，没有这道门禁就会悄悄把「删除」递给云候选。
 //
@@ -41,6 +42,38 @@ auto visible_page_candidate(const Page &page, std::size_t slot) -> const typenam
     ++seen;
   }
   return nullptr;
+}
+
+
+// 高亮所在的那一行：引擎下标（整个列表里的，不是页内的）和它在候选窗上看不看得见。
+struct HighlightedSeat {
+  std::size_t index = 0;
+  bool visible = true;
+};
+
+// 方向键、横排的左右键和 End 在引擎里按原始下标移动高亮，隐藏的云占位席位也算一格（它在第二格，按一次下就落上去）。候选窗不画它，高亮停在那里时候选窗上一个高亮行也没有：Server 的 `candidate_presentation` 拒绝这种视图，而它在输入队列上抛出会让整个 Server 停下，表现是候选框消失、之后再也打不出中文（#10665）。所以高亮落到隐藏行上时，朝刚才移动的方向再走一步把它让过去；走到列表末尾走不动（席位是最后一行）时掉头走回来。`before` 是移动前高亮行的引擎下标，比它小说明是在往回走；`bound` 限定最多走几步，传这一页的行数即可。`highlighted()` 读会话眼下的高亮行，没有候选时为空；`step(forward)` 在会话里发一条 MSIME_NEXT_CANDIDATE（forward 为 true）或 MSIME_PREVIOUS_CANDIDATE，失败返回 false，这时本函数也返回 false。
+// Server 和 TIP 的宿主会话各有一份引擎会话，两边都要按这同一条规则走，放在这里共用。模板化同样是为了不把 nlohmann 带进这个头（见下面 visible_page_candidate 的说明）。
+template <typename Highlighted, typename Step>
+bool leave_hidden_seat(std::optional<std::size_t> before, std::size_t bound, Highlighted highlighted, Step step) {
+  std::optional<HighlightedSeat> seat = highlighted();
+  if (!seat || seat->visible)
+    return true;
+  bool forward = !(before && seat->index < *before);
+  bool turned = false;
+  for (std::size_t attempts = bound + 1; attempts && seat && !seat->visible; --attempts) {
+    const auto at = seat->index;
+    if (!step(forward))
+      return false;
+    seat = highlighted();
+    if (seat && !seat->visible && seat->index == at) {
+      // 只有隐藏行可停（整页只剩占位）时两头都走不动，不再来回试。
+      if (turned)
+        break;
+      turned = true;
+      forward = !forward;
+    }
+  }
+  return true;
 }
 
 } // namespace msime::windows
