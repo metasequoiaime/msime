@@ -4,7 +4,7 @@
 发布页的 .deb/.rpm 由 platforms/linux/package-container.sh 构建；这些定义照搬它的步骤，但不会跟着它自动变。这里比对三处：
 
 - 传给 CMake 的 -DMSIME_* 选项集合相同（五份定义都比）。package-container.sh 新增一个选项（例如再随包带一类数据）而某个定义没跟上时，它会悄悄打出缺东西的包。
-  有意的差别有三处。一是手写模型：发布页的包以 -DMSIME_BUNDLE_HANDWRITING_MODEL=OFF 不带模型（设置应用按需下载），发行版仓库的包照旧以 -DMSIME_HANDWRITING_MODEL_DIR 随包，并取默认的 ON，这一对差别单独核对。二是官方插件包：发布页的包以 -DMSIME_PLUGIN_PACKS 装上 scripts/build-official-plugins.sh 构建的 uuid 和 latex-symbols，发行版的源码构建不跑 wasm 构建，不带它们（platforms/linux/README.md 写明）。三是符号归档：官方容器额外传入 -DMSIME_RELEASE_CRASH_SYMBOLS=ON 保留调试行；发行版仍由自己的打包工具配置调试分包。
+  有意的差别有四处。一是手写模型：发布页的包以 -DMSIME_BUNDLE_HANDWRITING_MODEL=OFF 不带模型（设置应用按需下载），发行版仓库的包照旧以 -DMSIME_HANDWRITING_MODEL_DIR 随包，并取默认的 ON，这一对差别单独核对。二是官方插件包：发布页的包以 -DMSIME_PLUGIN_PACKS 装上 scripts/build-official-plugins.sh 构建的 uuid 和 latex-symbols，发行版的源码构建不跑 wasm 构建，不带它们（platforms/linux/README.md 写明）。三是符号归档：官方容器额外传入 -DMSIME_RELEASE_CRASH_SYMBOLS=ON 保留调试行；发行版仍由自己的打包工具配置调试分包。四是逐键重排模型：发布页的包开着 onnx-rerank 编宿主库、链接按锁下载的预编译精简 ONNX Runtime，并以 -DMSIME_RERANK_MODELS 装上两档模型；发行版的源码构建在没有网络的构建农场里，也不该链接仓库外编出的静态库，不开这个特性，照旧用随包的句子模型，所以也不装模型。
 - 用 cargo build 构建的包与目标（-p 与 --bin）相同（RPM 规格、debian/rules 与 PKGBUILD；ebuild 经 cargo.eclass 的 cargo_src_compile 构建，不在此列）。
 - render-sources.py 渲染出的版本、发布号和更新日志能被正确改写。
 - 替换另一个包的定义在替换之后恢复用户单元和输入法列表：RPM 与 Debian 的 msime 替换发布页的 msime-linux、AUR 的 msime 与 msime-bin 互换时，被替换的包按卸载处理，它的卸载脚本停用每个用户的单元并运行 msime-linux-setup --unregister，新包必须再替每个用户运行 msime-linux-setup --register。
@@ -39,8 +39,8 @@ OPTIONS_ONLY = [
 ]
 
 
-# 发布页的包不带手写模型，发行版的包随包；官方插件由容器构建 wasm，额外调试行也仅由官方容器用于自己的符号归档，发行版保留各自调试分包配置。
-CONTAINER_ONLY = {"MSIME_BUNDLE_HANDWRITING_MODEL", "MSIME_PLUGIN_PACKS", "MSIME_RELEASE_CRASH_SYMBOLS"}
+# 发布页的包不带手写模型，发行版的包随包；官方插件由容器构建 wasm，额外调试行也仅由官方容器用于自己的符号归档，发行版保留各自调试分包配置；逐键重排模型只给链接了预编译 ONNX Runtime 的发布页宿主库。
+CONTAINER_ONLY = {"MSIME_BUNDLE_HANDWRITING_MODEL", "MSIME_PLUGIN_PACKS", "MSIME_RELEASE_CRASH_SYMBOLS", "MSIME_RERANK_MODELS"}
 DISTRIBUTION_ONLY = {"MSIME_HANDWRITING_MODEL_DIR"}
 
 

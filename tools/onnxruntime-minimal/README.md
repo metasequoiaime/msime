@@ -8,7 +8,7 @@
 
 ## 发布了哪些
 
-`onnxruntime-minimal-1.24.4-r1`：
+`onnxruntime-minimal-1.24.4-r2`（r1 的全部附件原样带过来，只多了 Linux x86_64；r1 仍在，指向它的旧锁照样能下载）：
 
 | 目标三元组 | 附件 | `build.sh` 平台 / 构建方式 |
 | --- | --- | --- |
@@ -19,16 +19,18 @@
 | `aarch64-linux-android` | `libonnxruntime-aarch64-linux-android.a.gz` | `android-arm64`，API 28 |
 | `x86_64-linux-android` | `libonnxruntime-x86_64-linux-android.a.gz` | `android-x86_64`，API 28 |
 | `aarch64-unknown-linux-gnu` | `libonnxruntime-aarch64-unknown-linux-gnu.a.gz` | `linux-aarch64`，glibc 2.36 |
+| `x86_64-unknown-linux-gnu` | `libonnxruntime-x86_64-unknown-linux-gnu.a.gz` | `linux-x86_64`，glibc 2.36，`onnx-rerank.yml` 在 CI 里编出并上传（r2 新增） |
 | `x86_64-pc-windows-msvc` | `onnxruntime-x86_64-pc-windows-msvc.lib.gz` | `onnxruntime-minimal.yml` 的 x64，动态 CRT（/MD） |
 | `aarch64-pc-windows-msvc` | `onnxruntime-aarch64-pc-windows-msvc.lib.gz` | `onnxruntime-minimal.yml` 的 arm64-crt-static，静态 CRT（/MT） |
 
 没有发布的：
 
-- `x86_64-unknown-linux-gnu`：r1 没有带。CI 的 `onnx-rerank.yml` 照旧在 runner 上用 `build.sh` 现编并缓存；要发布时在 x86_64 的 Linux 上（或 Docker 的 `linux/amd64`）编出来，发一个新的 `-r<序号>` 并更新锁。
 - 32 位（`armv7-linux-androideabi` 等）：32 位设备不跑 ONNX 重排，照旧用随包模型。`build.sh` 留着 `android-armv7`，但不发布。
 - `x86_64-apple-ios`（Intel Mac 上的模拟器）和鸿蒙：没有产物。鸿蒙不在 ONNX Runtime 官方支持的平台里。
 
-换算子清单、换 ONNX Runtime 版本或改构建方式时，重编全部平台，发一个新的 `-r<序号>`（不覆盖旧的附件，旧的锁仍能下载），再更新锁里的 `release_tag` 和每个目标的条目。发布用 `gh release create <标签> --latest=false`，不让它顶掉 msime 的正式版本成为 Latest。
+换算子清单、换 ONNX Runtime 版本或改构建方式时，重编全部平台，发一个新的 `-r<序号>`（不覆盖旧的附件，旧的锁仍能下载），再更新锁里的 `release_tag` 和每个目标的条目。只补一个目标时（r2 补 Linux x86_64），新的 `-r<序号>` 带上前一个的全部附件，原样不动，再加新的那个、重新生成 `SHA256SUMS`。发布用 `gh release create <标签> --latest=false`，不让它顶掉 msime 的正式版本成为 Latest。
+
+Linux x86_64 的库从 CI 取，不在 Mac 上编：Apple Silicon 上 Docker 的 `linux/amd64` 是模拟的，在 Mac Studio 上这样编过一次，没有编成；x86_64 的 runner 上是原生构建。`onnx-rerank.yml` 在 x86_64 的 runner 上、用同一个 bookworm 镜像跑 `build.sh linux-x86_64`，把 `libonnxruntime.a.gz` 作为附件 `libonnxruntime-x86_64-unknown-linux-gnu` 上传（留 14 天），同一次运行里还拿它跑 golden 测试和 host-api 的挂载测试；发布时用 `gh run download <运行> -n libonnxruntime-x86_64-unknown-linux-gnu` 取下来，改名为 `libonnxruntime-x86_64-unknown-linux-gnu.a.gz`。r2 的那一份来自运行 41406232655。
 
 ## 构建
 
@@ -57,6 +59,6 @@ cargo build -p msime-host-api --features onnx-rerank
 
 `--list` 列出锁里的目标。锁里没有的目标，指向上面 `build.sh` 输出的那个平台的目录（`<工作目录>/out/<平台>`）。
 
-CI 的 `.github/workflows/onnx-rerank.yml` 在 Linux x86_64 上用 `build.sh` 编出库（锁里还没有这个目标），跑 `msime-onnx-rerank` 的 golden 测试和 host-api 的挂载测试。没有库时 `cargo clippy` / `cargo check` 也能开着这些特性做类型检查，`ort-sys` 把找不到库的报错推迟到链接。
+CI 的 `.github/workflows/onnx-rerank.yml` 在 Linux x86_64 上用 `build.sh` 编出库（按算子清单和构建脚本缓存，并作为附件上传，见上），跑 `msime-onnx-rerank` 的 golden 测试和 host-api 的挂载测试。Linux 的发布包不用它，由 `platforms/linux/package-container.sh` 按锁下载。没有库时 `cargo clippy` / `cargo check` 也能开着这些特性做类型检查，`ort-sys` 把找不到库的报错推迟到链接。
 
 `ort-sys` 的构建脚本会把这个库复制进自己的输出目录，之后换了库文件也不会重新复制；换库之后先 `cargo clean -p ort-sys`。
