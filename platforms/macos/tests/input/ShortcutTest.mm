@@ -13465,6 +13465,80 @@ static void TestQuickPhraseCursorThroughRealSession() {
     assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
 }
 
+// 辅助码触发键（#10625）走真实会话：偏好里的 `trigger_key` 经 host-api 交给 Engine，macOS 按键路由把 Engine 发布的触发键当字符送进去。拼音后按触发键不上屏、不结束组字，接着打的码与 Shift 加大写字母得到同一个组字；没设触发键时同一个键照旧结束组字。
+static void TestHelpcodeTriggerThroughRealSession() {
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    NSString *suite = [@"msime.helpcode-trigger." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    NSDictionary *defaultPreferences = [MSIMEClientSession loadPreferencesInDirectory:
+        [root stringByAppendingPathComponent:@"preferences_directory"] error:nil][@"preferences"];
+    assert(defaultPreferences);
+    for (NSString *scheme in @[@"quanpin", @"shuangpin"]) {
+        NSString *family = [scheme stringByAppendingString:@"_helpcode"];
+        for (NSArray *trigger in @[@[@";", @41], @[@"/", @44], @[@"\\", @42], @[@"`", @50], @[@"=", @24], @[@"", @44]]) {
+            NSString *key = trigger[0];
+            NSMutableDictionary *preferences = [defaultPreferences mutableCopy];
+            [preferences addEntriesFromDictionary:@{@"scheme": scheme, @"default_ime_mode": @"chinese", @"learning": @NO, @"cloud_candidates": @NO,
+                @"shuangpin_profile": @"xiaohe"}];
+            NSMutableDictionary *helpcode = [preferences[family] mutableCopy];
+            helpcode[@"enabled"] = @YES;
+            helpcode[@"trigger_key"] = key;
+            preferences[family] = helpcode;
+            NSMutableDictionary *options = [@{@"api_version": @1, @"preferences": preferences} mutableCopy];
+            for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries", @"preferences_directory"]) {
+                NSString *path = [root stringByAppendingPathComponent:name];
+                assert([NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
+                options[name] = path;
+            }
+            // 同一组按键分别在触发键路线和 Shift 路线上各跑一个会话，比较两边的组字。
+            NSString *(^run)(NSArray<NSEvent *> *, BOOL *, NSString **) = ^NSString *(NSArray<NSEvent *> *events, BOOL *committed, NSString **afterTrigger) {
+                NSError *error = nil;
+                MSIMEClientSession *session = [[MSIMEClientSession alloc] initWithOptions:options error:&error];
+                assert(session && !error);
+                NSDictionary *focused = [session setFocused:YES error:&error];
+                MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+                [prefs applySharedInputPreferences:preferences];
+                prefs.smartPunctuation = YES;
+                ShortcutClient *client = [ShortcutClient new];
+                client.document = @"";
+                client.selection = NSMakeRange(0, 0);
+                ModeController *controller = [ModeController alloc];
+                [controller setValue:prefs forKey:@"appearance"];
+                [controller setValue:session forKey:@"session"];
+                [controller setValue:client forKey:@"activeClient"];
+                [controller setValue:[[HiddenCandidatePanel alloc] init] forKey:@"panel"];
+                [controller setValue:focused[@"view"] forKey:@"view"];
+                for (NSUInteger index = 0; index < events.count; ++index) {
+                    NSEvent *event = events[index];
+                    if (![controller handleEvent:event client:client]) [client insertText:event.characters replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+                    if (index == 2 && afterTrigger) *afterTrigger = [controller valueForKey:@"view"][@"editing_text"];
+                }
+                *committed = client.insertions.count > 0;
+                NSString *editing = [session viewWithError:&error][@"editing_text"];
+                assert(!error && [session closeWithError:&error] && !error);
+                return editing;
+            };
+            NSEvent *n = LayoutKey(45, @"n", 0), *i = LayoutKey(34, @"i", 0);
+            NSEvent *f = LayoutKey(3, @"f", 0), *upperF = LayoutKey(3, @"F", NSEventModifierFlagShift);
+            BOOL committed = NO;
+            NSString *afterTrigger = nil;
+            NSString *triggered = run(@[n, i, LayoutKey([trigger[1] unsignedShortValue], key.length ? key : @"/", 0), f], &committed, &afterTrigger);
+            if (!key.length) {
+                // 没设触发键：`/` 在拼音后照旧结束组字，后面的 `f` 开始新的组字。
+                assert(committed && [triggered isEqual:@"f"]);
+                continue;
+            }
+            assert(!committed && [afterTrigger isEqual:@"ni"]);
+            BOOL shiftedCommitted = NO;
+            NSString *shifted = run(@[n, i, upperF], &shiftedCommitted, nil);
+            assert(!shiftedCommitted && shifted.length > 2);
+            assert([triggered isEqual:shifted]);
+        }
+    }
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+    assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
+}
+
 static void TestCrossCommitSpacingInTextView() {
     NSString *suite = [@"msime.cross-commit-spacing-appkit." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
@@ -13572,6 +13646,10 @@ int main(int argc, char **argv) {
         if (argc == 2 && std::string(argv[1]) == "--quick-phrase-cursor") {
             TestQuickPhraseCursorInEditors();
             TestQuickPhraseCursorThroughRealSession();
+            return 0;
+        }
+        if (argc == 2 && std::string(argv[1]) == "--helpcode-trigger") {
+            TestHelpcodeTriggerThroughRealSession();
             return 0;
         }
         if (argc == 2 && std::string(argv[1]) == "--cross-commit-spacing") {
@@ -15323,6 +15401,49 @@ int main(int argc, char **argv) {
         assert([controller handleEvent:reverseTab client:client] && session.lastCommand == MSIME_PREVIOUS_PAGE);
         session.nextTransition = nil;
         [controller setValue:pageView forKey:@"view"];
+        // 全拼、双拼的辅助码触发键（#10625）：Engine 把此刻会开辅助码段的 `;` `/` `\` 反引号 `=` 列进 spelling_symbols，候选窗开着时这一键也要作为字符送进 Engine，不能被 `=` 翻页、智能标点或标点上屏抢走；没列出时 `=` 照旧翻页。
+        {
+            const BOOL savedSmart = appearance.smartPunctuation;
+            const BOOL minusEqualPaging = [appearance navigationEnabled:@"minus_equal"];
+            appearance.smartPunctuation = YES;
+            [appearance setNavigation:@"minus_equal" enabled:YES];
+            for (NSArray *entry in @[@[@";", @41], @[@"/", @44], @[@"\\", @42], @[@"`", @50], @[@"=", @24]]) {
+                NSString *glyph = entry[0];
+                NSMutableDictionary *triggerView = [pageView mutableCopy];
+                triggerView[@"scheme"] = @0;
+                triggerView[@"local_mode"] = @"none";
+                triggerView[@"editing_text"] = @"ni";
+                triggerView[@"caret_position"] = @2;
+                triggerView[@"spelling_symbols"] = glyph;
+                [controller setValue:triggerView forKey:@"view"];
+                layoutPanel.requestedVisible = YES;
+                session.nextTransition = @{@"handled": @YES, @"view": triggerView};
+                session.lastCommand = UINT32_MAX;
+                session.asciiCalls = 0;
+                session.punctuationASCIICalls = 0;
+                session.contextualPunctuationCalls = 0;
+                session.enginePunctuationCalls = 0;
+                client.committed = nil;
+                assert([controller handleEvent:LayoutKey([entry[1] unsignedShortValue], glyph, 0) client:client]);
+                assert(session.asciiCalls == 1 && session.lastASCII == [glyph characterAtIndex:0] && !session.lastShift);
+                assert(session.lastCommand == UINT32_MAX);
+                assert(session.punctuationASCIICalls == 0 && session.contextualPunctuationCalls == 0 && session.enginePunctuationCalls == 0);
+                assert(client.committed == nil);
+            }
+            // 对照：Engine 没有发布 `=`（没设触发键，或此刻不能开辅助码段）时，`=` 仍是下一页。
+            NSMutableDictionary *plainView = [pageView mutableCopy];
+            plainView[@"spelling_symbols"] = @"";
+            [controller setValue:plainView forKey:@"view"];
+            layoutPanel.requestedVisible = YES;
+            session.lastCommand = UINT32_MAX;
+            session.asciiCalls = 0;
+            assert([controller handleEvent:LayoutKey(24, @"=", 0) client:client]);
+            assert(session.lastCommand == MSIME_NEXT_PAGE && session.asciiCalls == 0);
+            [appearance setNavigation:@"minus_equal" enabled:minusEqualPaging];
+            appearance.smartPunctuation = savedSmart;
+            session.nextTransition = nil;
+            [controller setValue:pageView forKey:@"view"];
+        }
         // 文档里存着 Tab 和 Page Up / Page Down 翻页为关时，它们照样翻页：macOS 固定开启这两组键。
         [appearance applySharedCandidatePreferences:@{@"navigation": @{@"tab": @NO, @"page_up_down": @NO}}];
         for (NSArray *entry in @[@[@"\t", @48, @0, @(MSIME_NEXT_PAGE)],
