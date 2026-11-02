@@ -537,6 +537,8 @@ struct KeyboardView {
   @State phrasePrefix: string = '';
   /** 手机上拼写正写在输入框里，候选栏不画读音；见 `KeyboardSession.compositionInField`。 */
   @State compositionInField: boolean = false;
+  /** 点手机读音行后，把正写在输入框里的拼写也展开到候选栏，方便继续修改。 */
+  @State compositionEditing: boolean = false;
   @State spellings: string[] = [];
   @State engineScheme: number = 0;
   /** Whether the scheme's openable candidate list (the Korean Hanja list, the Zhuyin list) is on the strip, as the Engine last reported it. */
@@ -1093,10 +1095,16 @@ struct KeyboardView {
       this.candidates = state.candidates;
       this.editing = state.editing;
       this.editingCaret = state.editingCaret;
+      if (state.editing.length === 0) {
+        this.compositionEditing = false;
+      }
       this.candidatePage = state.page;
       this.candidatePageCount = state.pageCount;
       this.phrasePrefix = state.phrasePrefix;
       this.compositionInField = state.compositionInField;
+      if (!state.compositionInField) {
+        this.compositionEditing = false;
+      }
       this.spellings = state.spellings;
       this.nineKeySingleCharacter = state.nineKeySingleCharacter;
       this.nineKeyStrokes = state.nineKeyStrokes;
@@ -3805,6 +3813,19 @@ struct KeyboardView {
       ? this.settings.candidateShowPreedit : !this.compositionInField, this.phrasePrefix, this.editing, this.localMode);
   }
 
+  /** 手机读音行点开后的组字显示；锁定光标的方案没有可编辑的拼写。 */
+  private touchVisibleComposition(): VisibleComposition {
+    return CandidatePreeditStylePolicy.visible(KeyboardFormFactor.isDesktop()
+      ? true : this.compositionEditing || !this.compositionInField,
+      this.phrasePrefix, this.editing, this.localMode);
+  }
+
+  /** 只有仍在组字、拼写确实写入输入框且方案允许移动光标时才接收读音行触摸。 */
+  private touchReadingRowEditable(): boolean {
+    return !KeyboardFormFactor.isDesktop() && this.compositionInField && this.editing.length > 0
+      && !SchemeTraits.locksCaret(this.engineScheme);
+  }
+
   /** One candidate row without the reserved gloss line; see KeyboardMetrics.candidateRowHeightVp. */
   private candidateLineHeight(): number {
     return KeyboardMetrics.candidateRowHeightVp(this.settings.candidateFontSize, KeyboardFormFactor.isDesktop());
@@ -4093,8 +4114,9 @@ struct KeyboardView {
 
   /** 候选条的读音行要不要占位。没有 canvas 时一直占位，候选不会因为它出现、消失而上下移动；有 canvas 时只在有东西显示时占位，见 `stripCanvasContentHeight`。 */
   private readingRowShown(): boolean {
-    return this.settings.candidateCanvas === null || this.diagnostic.length > 0 || this.visibleComposition().caret
-      || this.visibleComposition().text.length > 0 || this.readingRowSpellings();
+    const composition: VisibleComposition = this.touchVisibleComposition();
+    return this.settings.candidateCanvas === null || this.diagnostic.length > 0 || composition.caret
+      || composition.text.length > 0 || this.touchReadingRowEditable() || this.readingRowSpellings();
   }
 
   /** canvas 在候选条里至少要让出的内容高度：34vp 的候选通道，读音行占位时再加它和间距，都按「候选栏大小」缩放。皮肤的留白按它缩放，高亮因此不会画到面板外面。 */
@@ -4919,7 +4941,7 @@ struct KeyboardView {
               .fontFamily(this.candidateFontFamily())
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
-          } else if (this.visibleComposition().caret) {
+          } else if (this.touchVisibleComposition().caret) {
             // 分段键移动的光标，与 2in1 组合行上的一样。
             Text(PreeditCaretPolicy.split(this.editing, this.editingCaret).before)
               .fontSize(this.stripSized(PREEDIT_FONT_SIZE))
@@ -4940,7 +4962,7 @@ struct KeyboardView {
               .maxLines(1)
           } else {
             // 拼写写在输入框里：这一行保留位置但不画拼写，候选不会因此上下移动；短语中已选定的部分和本地模式的触发符仍会显示。
-            Text(this.visibleComposition().text)
+            Text(this.touchVisibleComposition().text)
               .fontSize(this.stripSized(PREEDIT_FONT_SIZE))
               .letterSpacing(PREEDIT_LETTER_SPACING)
               .fontColor(this.skin.secondary)
@@ -4979,6 +5001,11 @@ struct KeyboardView {
         .height(this.stripSized(PREEDIT_LINE_VP))
         .padding({ left: PREEDIT_INDENT_VP })
         .clip(true)
+        .onClick((): void => {
+          if (this.touchReadingRowEditable()) {
+            this.compositionEditing = true;
+          }
+        })
         // canvas 在 50vp 的条里只留得出候选通道那么高，空着的读音行这时不占位（`None` 不参与布局）；有东西显示时照常占位，边框跟着再缩一些，见 `stripCanvasContentHeight`。
         .visibility(this.readingRowShown() ? Visibility.Visible : Visibility.None)
 
