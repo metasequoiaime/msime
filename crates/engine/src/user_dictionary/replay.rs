@@ -97,6 +97,11 @@ fn replay_with(user_db: &Path, main_db: Option<&Path>, english_db: &Path) -> Rep
                 result.skipped += 1;
                 continue;
             }
+            // 这一版不认识的词库种类（更新的版本加的，例如降级前写下的新五笔版本）计入 `skipped`：行留在日志里不动，回到认识它的版本时照常回放。算作失败会让整次回放回滚、这个代次被拒，降级后输入法就用不了。
+            if !JournalRow::KNOWN_KINDS.contains(&operation.kind.as_slice()) {
+                result.skipped += 1;
+                continue;
+            }
             if operation.kind == b"pinyin"
                 && operation.operation == b"upsert"
                 && operation.weight < 1
@@ -160,6 +165,9 @@ const MAX_REPLAY_OPERATION_BYTES: usize = 16;
 const MAX_REPLAY_DISPLAY_BYTES: usize = 4 * 1024;
 
 impl JournalRow {
+    /// [`JournalRow::apply`] 能写的词库种类，即日志 `dictionary` 列的全部已知取值（data-formats.md §6.2）。
+    const KNOWN_KINDS: [&'static [u8]; 5] = [b"pinyin", b"wubi", b"wubi98", b"quick", b"english"];
+
     fn read(row: &Row<'_>) -> rusqlite::Result<Self> {
         let text = |index: usize, maximum: usize| -> rusqlite::Result<Vec<u8>> {
             let bytes = row.get_ref(index)?.as_bytes()?;
@@ -178,7 +186,7 @@ impl JournalRow {
         })
     }
 
-    /// `Ok(false)` for a row that cannot be stored: an unknown dictionary or a malformed pinyin key.
+    /// 写不进去的行返回 `Ok(false)`：拼音键不合规，或者词库种类不在 [`JournalRow::KNOWN_KINDS`] 里（回放在调用之前已经跳过了这种行）。
     fn apply(&self, main: &Connection) -> rusqlite::Result<bool> {
         let delete = self.operation == b"delete";
         match self.kind.as_slice() {
@@ -450,6 +458,40 @@ pub(super) mod tests {
         );
     }
 
+    /// 更新的版本写下、这一版不认识的词库种类（例如以后加的五笔版本）计入 `skipped`，其余的行照常提交，行本身留在日志里。
+    #[test]
+    fn rows_of_an_unknown_dictionary_kind_are_skipped_not_failed() {
+        let fixture = fixture();
+        journal_row(&fixture, "('wubixsj','ent','力','upsert',11,'',1)");
+        journal_row(&fixture, "('japanese','ni','无效词','upsert',10,'',2)");
+        journal_row(&fixture, "('wubixsj','enb','办','delete',0,'',3)");
+        journal_row(&fixture, "('wubi','lt','力','upsert',12,'',4)");
+        let result = replay(&fixture.journal, &fixture.main, &fixture.english);
+        assert_eq!(
+            (
+                result.applied,
+                result.skipped,
+                result.failed,
+                result.error.as_str()
+            ),
+            (1, 3, 0, "")
+        );
+        assert_eq!(
+            weight(&fixture.main, "SELECT weight FROM wubi86 WHERE key='lt'"),
+            Some(12)
+        );
+        assert_eq!(
+            weight(
+                &fixture.journal,
+                "SELECT count(*) FROM user_dictionary_operations WHERE dictionary='wubixsj'"
+            ),
+            Some(2)
+        );
+        // 没有拼音库的代次同样跳过它们。
+        let english = replay_english(&fixture.journal, &fixture.english);
+        assert_eq!((english.failed, english.error.as_str()), (0, ""));
+    }
+
     #[test]
     fn a_missing_journal_is_an_empty_success_and_is_not_created() {
         let fixture = fixture();
@@ -574,13 +616,12 @@ pub(super) mod tests {
     fn a_failed_row_rolls_the_whole_replay_back() {
         let fixture = fixture();
         journal_row(&fixture, "('pinyin','ni''hao','您好','upsert',500,'',1)");
-        // `@` has no table, an empty segment cannot be stored, and an unknown dictionary is not applied (runtime_isolation `@` fixture).
+        // `@` 没有对应的表，空音节存不进去（runtime_isolation 的 `@` 用例）。不认识的词库种类不算失败，见下一个用例。
         journal_row(&fixture, "('pinyin','@','无效词','upsert',10,'',2)");
         journal_row(&fixture, "('pinyin','ni''''hao','无效词','upsert',10,'',3)");
-        journal_row(&fixture, "('japanese','ni','无效词','upsert',10,'',4)");
         let result = replay(&fixture.journal, &fixture.main, &fixture.english);
         assert_eq!(result.applied, 1);
-        assert_eq!(result.failed, 3);
+        assert_eq!(result.failed, 2);
         assert_eq!(
             result.error,
             "one or more operations failed; changes were rolled back"
