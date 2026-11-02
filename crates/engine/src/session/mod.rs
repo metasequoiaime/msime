@@ -30,6 +30,7 @@ use crate::diagnostics;
 use crate::error::{EngineError, Result};
 use crate::local::database::LocalDatabaseLease;
 use crate::nine_key::{KeyGrid, NineKeySession};
+use crate::ordering::CandidateScorer;
 use crate::pinyin::glide::{GlideKeyboard, GlidePoint};
 use crate::touch::{KeyGeometry, KeyTouch, TouchTuning};
 use crate::types::{
@@ -452,7 +453,7 @@ impl Session {
                 return KeyResult::unhandled();
             };
             let diagnostic = self.input.record_personal_context(Some(&row), false, false);
-            self.show_prediction(&word, &pinyin, &row.word);
+            self.show_prediction(&word, &pinyin, &row.word, &row.word);
             return KeyResult::committed(row.word.to_string()).with_diagnostic(diagnostic);
         }
         let selected = self
@@ -671,6 +672,20 @@ impl Session {
     pub fn set_prediction_allowed(&mut self, allowed: bool) {
         self.candidates_may_change();
         self.prediction.set_allowed(allowed);
+    }
+
+    /// 宿主挂了候选打分器时打开：上屏后联想的词库续写多取到 32 条，由 [`Self::order_prediction`] 按模型排过之后仍只给 8 条。关着（默认）时联想与不打分的宿主逐行相同。只影响之后的联想，不改正在显示的行。
+    pub fn set_prediction_pool(&mut self, enabled: bool) {
+        self.prediction.set_pool(enabled);
+    }
+
+    /// 按模型给刚上屏之后的联想排序：词库续写按「接在上文后面」的总对数概率重排（[`crate::ordering::prediction_order`]），个人习惯行原样留在前面，最后仍只给 8 条。`before` 是这次上屏之前的文字，刚上屏的那一段由会话自己接上。每次上屏只排一次，之后的调用、没有打开候选池（[`Self::set_prediction_pool`]）或没有联想时什么都不做。返回显示的行变了没有。
+    pub fn order_prediction(&mut self, scorer: &mut dyn CandidateScorer, before: &str) -> bool {
+        let changed = self.prediction.order(scorer, before);
+        if changed {
+            self.candidates_may_change();
+        }
+        changed
     }
 
     /// Disabling also ends the current context.
@@ -1064,15 +1079,21 @@ impl Session {
             .sentence_words
             .last()
             .map_or(selected.word.as_str(), String::as_str);
-        self.show_prediction(&selected.word, &selected.canonical_pinyin, previous);
+        self.show_prediction(
+            &selected.word,
+            &selected.canonical_pinyin,
+            &selected.word,
+            previous,
+        );
     }
 
-    fn show_prediction(&mut self, word: &str, pinyin: &str, previous: &str) {
+    fn show_prediction(&mut self, word: &str, pinyin: &str, committed: &str, previous: &str) {
         let personal = self
             .input
             .personal_context_applies()
             .then_some(self.input.personal_context.as_ref());
-        self.prediction.show(word, pinyin, previous, personal);
+        self.prediction
+            .show(word, pinyin, committed, previous, personal);
     }
 }
 

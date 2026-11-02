@@ -18,6 +18,13 @@ pub trait CandidateScorer: Send {
     /// 每个候选在 `context` 之后的逐字平均自然对数概率，顺序同 `candidates`。
     fn log_probabilities(&mut self, context: &str, candidates: &[&str]) -> Vec<f32>;
 
+    /// 在上屏的那一次派发里同步给一整池联想续写（[`prediction_order`]，最多 32 条）打分，是否仍在逐键 p95 ≤ 10 ms 的预算之内。上屏也是一次按键，守同一条线。是的话 runtime 才打开引擎的联想候选池、让它排上屏后联想；不是的话联想与没挂打分器时逐行相同。
+    ///
+    /// 默认 `false`，后端要在这台机器上量过才报 `true`。随包的 [`Reranker`]（`model-v1`，纯 Rust 参考实现）不报：Pixel 3 XL 上它让每次上屏多花 p50 约 50 ms、p95 约 100–120 ms。ONNX Runtime 后端只在大模型过了宿主的自测预算时报（见 `OnnxScorer::fits_keystroke_budget`）：Mac 上 8x448 多花 p95 约 5 ms；退到 6x256 的老手机不报，Pixel 3 XL 上 6x256 多花 p95 13–14 ms。见 `.agents/notes/implemented/feature/2026-11-02-next-word-prediction-rerank.md`。
+    fn scores_prediction_pool_within_keystroke_budget(&self) -> bool {
+        false
+    }
+
     /// 模型认为应当提到首位的候选下标，`None` 为不动；规则同 [`Reranker::best_where`]：首行是可信的词典命中或首行不回答按键时不比较，只比较前 [`COMPARED_LIMIT`] 条回答按键的候选，少于两条不比较。
     fn best_where(
         &mut self,
@@ -214,6 +221,44 @@ pub fn rerank_context(context: &str, window: usize, longest: usize) -> &str {
         .char_indices()
         .nth(skip)
         .map_or("", |(start, _)| &context[start..])
+}
+
+/// 上屏后联想里词库续写的顺序：按模型给的「这一行接在上文后面」的总对数概率从高到低，返回排列（新座位 -> 旧座位），同分保持原来的词频顺序；少于两行或打不了分时为 `None`。
+///
+/// `context` 是上屏之前的文字连同刚上屏的词，按 [`rerank_context`] 截到模型读得下。用总分（逐字平均 × 字数）而不是逐字平均：联想要猜的是用户接下来真会打的那一段，总分让更长的续写为多出的每个字付出概率，不会因为每个字都顺就排到前面。离线可行性评测里同样从 32 条里挑，总分比平均分的首位命中高（单字上屏 16.7% 对 18.8%，两字以内 8.6% 对 9.3%），见 `.agents/notes/implemented/feature/2026-11-02-next-word-prediction-rerank.md`。
+pub fn prediction_order(
+    scorer: &mut dyn CandidateScorer,
+    context: &str,
+    rows: &[&str],
+) -> Option<Vec<usize>> {
+    if rows.len() < 2 {
+        return None;
+    }
+    let longest = rows
+        .iter()
+        .map(|row| row.chars().count())
+        .max()
+        .unwrap_or(0);
+    let context = rerank_context(context, scorer.context_length(), longest);
+    let scores = scorer.log_probabilities(context, rows);
+    if scores.len() != rows.len() {
+        return None;
+    }
+    let totals: Vec<f32> = scores
+        .iter()
+        .zip(rows)
+        .map(|(mean, row)| {
+            let total = mean * row.chars().count() as f32;
+            if total.is_nan() {
+                f32::NEG_INFINITY
+            } else {
+                total
+            }
+        })
+        .collect();
+    let mut order: Vec<usize> = (0..rows.len()).collect();
+    order.sort_by(|&left, &right| totals[right].total_cmp(&totals[left]));
+    Some(order)
 }
 
 /// 排序决策读取的一行候选：文字、来源序号（`CandidateSource`），是否回答整个按键串，是否是纠错后的读法。
@@ -1174,5 +1219,73 @@ mod tests {
             runner_up_order(0, &[row("你好", LATTICE_SOURCE), row("你", 0)]),
             None
         );
+    }
+
+    /// 逐字平均分照表给，表外 -5；记下读到的上文。
+    struct Means {
+        means: Vec<(&'static str, f32)>,
+        window: usize,
+        context: String,
+    }
+
+    impl CandidateScorer for Means {
+        fn context_length(&self) -> usize {
+            self.window
+        }
+
+        fn log_probabilities(&mut self, context: &str, candidates: &[&str]) -> Vec<f32> {
+            self.context = context.to_owned();
+            candidates
+                .iter()
+                .map(|text| {
+                    self.means
+                        .iter()
+                        .find(|(row, _)| row == text)
+                        .map_or(-5.0, |(_, mean)| *mean)
+                })
+                .collect()
+        }
+    }
+
+    fn means(means: &[(&'static str, f32)], window: usize) -> Means {
+        Means {
+            means: means.to_vec(),
+            window,
+            context: String::new(),
+        }
+    }
+
+    #[test]
+    fn prediction_order_ranks_by_total_and_keeps_weight_order_on_ties() {
+        // 们都 平均 -1 总分 -2，们 平均 -1.5 总分 -1.5；乙 丙 同分，保持原来的先后。NaN 排到最后。
+        let mut scorer = means(&[("们都", -1.0), ("们", -1.5), ("怪", f32::NAN)], 64);
+        let order = prediction_order(&mut scorer, "我", &["怪", "乙", "们都", "丙", "们"]).unwrap();
+        assert_eq!(order, [4, 2, 1, 3, 0]);
+        assert_eq!(scorer.context, "我");
+    }
+
+    #[test]
+    fn prediction_order_declines_one_row_and_a_wrong_length() {
+        let mut scorer = means(&[], 64);
+        assert_eq!(prediction_order(&mut scorer, "", &["们"]), None);
+        struct Short;
+        impl CandidateScorer for Short {
+            fn context_length(&self) -> usize {
+                64
+            }
+            fn log_probabilities(&mut self, _: &str, _: &[&str]) -> Vec<f32> {
+                Vec::new()
+            }
+        }
+        assert_eq!(prediction_order(&mut Short, "", &["们", "的"]), None);
+    }
+
+    #[test]
+    fn prediction_order_trims_the_context_like_the_keystroke_rerank() {
+        let context = "今天天气很好我们一起去公园散步".repeat(8);
+        let mut scorer = means(&[], 64);
+        prediction_order(&mut scorer, &context, &["们", "一起"]).unwrap();
+        assert_eq!(scorer.context, rerank_context(&context, 64, 2));
+        assert!(scorer.context.chars().count() < context.chars().count());
     }
 }

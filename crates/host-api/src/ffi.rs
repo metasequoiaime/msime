@@ -261,7 +261,8 @@ pub(crate) fn onnx_reranker_within(
     let small = || load_onnx_reranker(&resources.join(SMALL_RERANK_MODEL_DIRECTORY));
     let chosen = match load_onnx_reranker(&resources.join(RERANK_MODEL_DIRECTORY)) {
         Some(mut large) if resources.join(SMALL_RERANK_MODEL_DIRECTORY).is_dir() => {
-            if large.calibrate() <= budget_ms {
+            // 过了预算的大模型同时也排上屏后联想；退到小模型的机器不排，见 `OnnxScorer::fits_keystroke_budget`。
+            if large.fits_keystroke_budget(budget_ms) {
                 Some(large)
             } else {
                 small().or(Some(large))

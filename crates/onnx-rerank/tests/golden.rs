@@ -144,6 +144,17 @@ fn calibration_measures_a_heavy_page_and_leaves_no_cache() {
     );
 }
 
+/// 只有自测过了预算的模型排上屏后联想：刚加载、没量过的不排，量了超预算的也不排。0 毫秒的预算任何一次真实的图运行都超过；`f64::MAX` 只在自测真的量出了一个有限的时间时才算过。
+#[test]
+fn only_a_model_within_the_keystroke_budget_orders_prediction() {
+    let mut scorer = scorer();
+    assert!(!scorer.scores_prediction_pool_within_keystroke_budget());
+    assert!(scorer.fits_keystroke_budget(f64::MAX));
+    assert!(scorer.scores_prediction_pool_within_keystroke_budget());
+    assert!(!scorer.fits_keystroke_budget(0.0));
+    assert!(!scorer.scores_prediction_pool_within_keystroke_budget());
+}
+
 fn crate_fresh_scores(context: &str, keystroke: &Keystroke) -> Vec<f32> {
     scorer().log_probabilities(context, &texts(keystroke))
 }

@@ -180,6 +180,20 @@ impl Session {
         self.inner.set_prediction_allowed(allowed);
     }
 
+    /// 联想的词库续写多取一池留给模型排序，同 [`crate::Session::set_prediction_pool`]。
+    pub fn set_prediction_pool(&mut self, enabled: bool) {
+        self.inner.set_prediction_pool(enabled);
+    }
+
+    /// 按模型给刚上屏之后的联想排序，同 [`crate::Session::order_prediction`]。
+    pub fn order_prediction(
+        &mut self,
+        scorer: &mut dyn crate::ordering::CandidateScorer,
+        before: &str,
+    ) -> bool {
+        self.inner.order_prediction(scorer, before)
+    }
+
     /// 换掉会话读的单调时钟和本地墙钟，同 [`crate::Session::set_clock`]。只给评测和测试用，宿主不调：`typing_sim` 按模拟的打字节奏推进时钟，个人学习的 3 s / 8 s / 10 s 窗口和行内日期时间行才不随机器快慢、负载高低和运行的日子变化。
     pub fn set_clock(&mut self, clock: crate::Clock) {
         self.inner.set_clock(clock);
