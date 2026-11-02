@@ -707,6 +707,134 @@ static NSEvent *LayoutRepeatKey(unsigned short code, NSString *characters, NSEve
     return WithLayoutCharacters([NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:0 context:nil characters:characters charactersIgnoringModifiers:characters isARepeat:YES keyCode:code], characters);
 }
 
+// 上屏后联想（#9433）和普通候选一样选：空格选高亮的一行，数字键选候选窗上这一页的那一行（选词路径见 CandidateRowLayoutTest）。候选窗上没有那一行的数字、回车和标点照常输入，标点不翻页；Esc 只关闭联想（Vim 名单里的应用照常收到 Esc）；方向键或光标被挪走时重新聚焦，切断旧的词序上下文，其余键只送 Cancel。
+static void TestNextWordPredictionKeysTypeNormally(void) {
+    NSString *suite = [@"msime.next-word-prediction." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    [appearance applySharedInputPreferences:@{@"vim_mode_apps": @[@"org.example.Editor"]}];
+    appearance.englishMode = NO;
+    appearance.fullWidthInput = NO;
+    NSDictionary *idle = @{@"focused": @YES, @"editing_text": @"", @"candidates": @[], @"scheme": @0};
+    NSDictionary *prediction = @{@"focused": @YES, @"editing_text": @"", @"preedit": @"", @"scheme": @0, @"prediction": @YES,
+        @"session": @1, @"generation": @9, @"candidates": @[
+            @{@"text": @"饭", @"highlighted": @YES, @"id": @{@"session": @1, @"generation": @9, @"index": @0}},
+            @{@"text": @"东西", @"highlighted": @NO, @"id": @{@"session": @1, @"generation": @9, @"index": @1}}]};
+    NSString *cancel = [NSString stringWithFormat:@"command:%u", MSIME_CANCEL];
+    struct Case { unsigned short code; NSString *characters; NSEventModifierFlags flags; BOOL moveCaret; BOOL vim; };
+    // 每一种按键都在一个新的联想上按：先经 apply: 进入联想（像真实的上屏回复一样），再按键。
+    auto run = [&](Case key, BOOL (^check)(ShortcutSession *, ShortcutClient *, ModeController *, BOOL handled)) {
+        ModeController *controller = [ModeController alloc];
+        ShortcutSession *session = [ShortcutSession new];
+        VimModeClient *client = [VimModeClient new];
+        client.bundleIdentifier = key.vim ? @"org.example.Editor" : @"org.example.Other";
+        client.document = @"我想";
+        client.selection = NSMakeRange(2, 0);
+        TestCandidatePanel *panel = [TestCandidatePanel new];
+        [controller setValue:appearance forKey:@"appearance"];
+        [controller setValue:session forKey:@"session"];
+        [controller setValue:client forKey:@"activeClient"];
+        [controller setValue:panel forKey:@"panel"];
+        [controller setValue:idle forKey:@"view"];
+        [controller apply:@{@"handled": @YES, @"commit": @"吃", @"view": prediction}];
+        assert([client.document isEqual:@"我想吃"] && MSIMEViewPrediction([controller valueForKey:@"view"]));
+        // 测试客户端不报告光标矩形，候选窗不会真的画出来；按显示着处理，选词路径才有机会误拦。
+        panel.visible = YES;
+        if (key.moveCaret) client.selection = NSMakeRange(0, 0);
+        session.calls = [NSMutableArray array];
+        // 取消联想报已处理；Vim 用例里空闲的那次 Esc 也送 Cancel，runtime 对它报未处理，所以那里让 Cancel 落到 nextTransition。
+        session.cancelTransition = key.vim ? nil : @{@"handled": @YES, @"commit": NSNull.null, @"view": idle};
+        session.nextTransition = @{@"handled": @NO, @"commit": NSNull.null, @"view": idle};
+        const BOOL handled = [controller handleEvent:LayoutKey(key.code, key.characters, key.flags) client:client];
+        assert(![client.document hasPrefix:@"我想吃饭"]);
+        assert(!MSIMEViewPrediction([controller valueForKey:@"view"]) && !panel.visible);
+        assert(check(session, client, controller, handled));
+        // 控制器没有经 IMK 初始化，不能走 deactivateServer:；只把全局鼠标监视器摘掉。
+        [controller stopPredictionMouseMonitoring];
+    };
+    // 测试候选窗没有画出行：数字越过了这一页，照常交给引擎和应用，不选第一个联想。
+    run({18, @"1", 0, NO, NO}, ^BOOL(ShortcutSession *session, ShortcutClient *, ModeController *, BOOL handled) {
+        return !handled && [session.calls containsObject:cancel] && session.lastASCII == '1' &&
+            [session.calls indexOfObject:cancel] < [session.calls indexOfObject:@"ascii"];
+    });
+    // 空格选高亮的联想：不先取消，测试候选窗没有画出高亮行时交给会话的 MSIME_COMMIT_CANDIDATE（runtime 在联想时选高亮的一行）。
+    run({49, @" ", 0, NO, NO}, ^BOOL(ShortcutSession *session, ShortcutClient *, ModeController *, BOOL) {
+        return ![session.calls containsObject:cancel] && session.lastCommand == MSIME_COMMIT_CANDIDATE;
+    });
+    // 光标已经被挪走：空格不把旧位置的联想选进新位置，重新聚焦后照常输入。
+    run({49, @" ", 0, YES, NO}, ^BOOL(ShortcutSession *session, ShortcutClient *, ModeController *, BOOL) {
+        NSString *commit = [NSString stringWithFormat:@"command:%u", MSIME_COMMIT_CANDIDATE];
+        // 重新聚焦先清掉联想，之后的空格落在空闲会话上，runtime 对它报未处理，应用照常插入空格。
+        return [session.calls containsObject:@"focus:1"] &&
+            [session.calls indexOfObject:@"focus:1"] < [session.calls indexOfObject:commit];
+    });
+    // 逗号、句号是标点，不是联想的翻页键。
+    for (NSArray *mark in @[@[@43, @","], @[@47, @"."], @[@27, @"-"], @[@24, @"="]]) {
+        run({(unsigned short)[mark[0] intValue], mark[1], 0, NO, NO}, ^BOOL(ShortcutSession *session, ShortcutClient *, ModeController *, BOOL) {
+            NSString *previous = [NSString stringWithFormat:@"command:%u", MSIME_PREVIOUS_PAGE];
+            NSString *next = [NSString stringWithFormat:@"command:%u", MSIME_NEXT_PAGE];
+            return [session.calls containsObject:cancel] && ![session.calls containsObject:previous] && ![session.calls containsObject:next] &&
+                session.asciiCalls + session.contextualPunctuationCalls + session.enginePunctuationCalls + session.punctuationASCIICalls > 0;
+        });
+    }
+    // 回车照常交给应用换行。
+    run({36, @"\r", 0, NO, NO}, ^BOOL(ShortcutSession *session, ShortcutClient *, ModeController *, BOOL handled) {
+        return !handled && [session.calls containsObject:cancel];
+    });
+    // Esc 只关闭联想，这一键不交给应用，也不切英文。
+    run({53, @"\x1b", 0, NO, NO}, ^BOOL(ShortcutSession *session, ShortcutClient *, ModeController *controller, BOOL handled) {
+        MSIMEAppearancePreferences *prefs = [controller valueForKey:@"appearance"];
+        NSPredicate *dispatch = [NSPredicate predicateWithFormat:@"SELF BEGINSWITH 'command:' OR SELF BEGINSWITH 'focus:' OR SELF == 'ascii' OR SELF == 'select'"];
+        return handled && [[session.calls filteredArrayUsingPredicate:dispatch] isEqual:@[cancel]] && !prefs.englishMode;
+    });
+    // Vim 名单里的应用：联想关掉，Esc 照常到应用并切到英文。
+    run({53, @"\x1b", 0, NO, YES}, ^BOOL(ShortcutSession *session, ShortcutClient *, ModeController *controller, BOOL handled) {
+        MSIMEAppearancePreferences *prefs = [controller valueForKey:@"appearance"];
+        const BOOL english = prefs.englishMode;
+        prefs.englishMode = NO;
+        return !handled && [session.calls containsObject:cancel] && english;
+    });
+    // 方向键和 Command 组合键会挪动光标或改动文档：重新聚焦，不送 Cancel。
+    for (NSArray *chord in @[@[@123, @0], @[@126, @0], @[@9, @(NSEventModifierFlagCommand)], @[@14, @(NSEventModifierFlagControl)]]) {
+        run({(unsigned short)[chord[0] intValue], @"v", (NSEventModifierFlags)[chord[1] unsignedLongValue], NO, NO},
+            ^BOOL(ShortcutSession *session, ShortcutClient *, ModeController *, BOOL) {
+            return [session.calls containsObject:@"focus:1"] && ![session.calls containsObject:cancel];
+        });
+    }
+    // 联想出现之后光标被挪走（点到了别处）：下一个键重新聚焦，字母照常开始组字。
+    run({0, @"a", 0, YES, NO}, ^BOOL(ShortcutSession *session, ShortcutClient *, ModeController *, BOOL) {
+        return [session.calls containsObject:@"focus:1"] && ![session.calls containsObject:cancel] && session.lastASCII == 'a';
+    });
+
+    // 点击别处：选区没变时留着联想，变了才重新聚焦；应用不报告选区时无从比较，按挪走了处理。
+    for (NSValue *after in @[[NSValue valueWithRange:NSMakeRange(3, 0)], [NSValue valueWithRange:NSMakeRange(1, 0)]]) {
+        ModeController *controller = [ModeController alloc];
+        ShortcutSession *session = [ShortcutSession new];
+        ShortcutClient *client = [ShortcutClient new];
+        client.document = @"我想";
+        client.selection = NSMakeRange(2, 0);
+        [controller setValue:appearance forKey:@"appearance"];
+        [controller setValue:session forKey:@"session"];
+        [controller setValue:client forKey:@"activeClient"];
+        [controller setValue:[TestCandidatePanel new] forKey:@"panel"];
+        [controller setValue:idle forKey:@"view"];
+        [controller apply:@{@"handled": @YES, @"commit": @"吃", @"view": prediction}];
+        client.selection = after.rangeValue;
+        session.calls = [NSMutableArray array];
+        [controller predictionClientWasClicked];
+        const BOOL moved = after.rangeValue.location != 3;
+        assert([session.calls containsObject:@"focus:1"] == moved);
+        assert(MSIMEViewPrediction([controller valueForKey:@"view"]) == !moved);
+        // 控制器没有经 IMK 初始化，不能走 deactivateServer:；只把全局鼠标监视器摘掉。
+        [controller stopPredictionMouseMonitoring];
+    }
+
+    // 联想不是组字：中日英循环不把它当成要先上屏的组字。
+    assert(!MSIMEViewHasCompositionCandidates(prediction));
+    assert(MSIMEViewHasCompositionCandidates(@{@"candidates": prediction[@"candidates"]}));
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 // 字母快捷键按当前键盘布局在这个键上打出的字母认键（#5552）。
 static void TestShortcutLetterFollowsKeyboardLayout(void) {
     for (unsigned short code = 0; code < 128; ++code) {
@@ -15676,6 +15804,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestInputStateHUDs(); }
         @autoreleasepool { TestToggleHotkeyRebinding(); }
         @autoreleasepool { TestVimModeEscapeRouting(); }
+        @autoreleasepool { TestNextWordPredictionKeysTypeNormally(); }
         @autoreleasepool { TestDedicatedEnglish(appearance); }
         @autoreleasepool { TestConsecutiveUppercaseGoesToTheClient(appearance); }
         @autoreleasepool { TestSystemInputModeReport(appearance); }
