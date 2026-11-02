@@ -1,4 +1,4 @@
-//! 上屏后联想经逐键打分器排序：只在挂了打分器时多取候选池、排过之后仍是 8 行，座位就是引擎的下标，选中哪一行上屏的就是哪一行。
+//! 上屏后联想经逐键打分器排序：只在挂了够快的打分器（`scores_prediction_pool_within_a_frame`）时多取候选池、排过之后仍是 8 行，座位就是引擎的下标，选中哪一行上屏的就是哪一行；不够快的打分器（随包模型）挂着时联想与没挂时逐行相同。
 
 use super::*;
 use std::sync::Mutex;
@@ -26,15 +26,20 @@ const BY_WEIGHT: [&str; 8] = ["饭", "好", "喝", "药", "苦", "亏", "惊", "
 
 type Calls = Arc<Mutex<Vec<(String, Vec<String>)>>>;
 
-/// 逐字平均分照表给，表外 -5。按键重排也会调它，所以记下每一次的上文和候选，测试按候选认出联想的那一次。
+/// 逐字平均分照表给，表外 -5。按键重排也会调它，所以记下每一次的上文和候选，测试按候选认出联想的那一次。`fast` 是它报的 `scores_prediction_pool_within_a_frame`。
 struct Stub {
     means: Vec<(&'static str, f32)>,
     calls: Calls,
+    fast: bool,
 }
 
 impl CandidateScorer for Stub {
     fn context_length(&self) -> usize {
         64
+    }
+
+    fn scores_prediction_pool_within_a_frame(&self) -> bool {
+        self.fast
     }
 
     fn log_probabilities(&mut self, context: &str, candidates: &[&str]) -> Vec<f32> {
@@ -54,12 +59,23 @@ impl CandidateScorer for Stub {
     }
 }
 
+/// 够快、会排联想的打分器，像 ONNX 后端。
 fn stub(means: &[(&'static str, f32)]) -> (Box<dyn CandidateScorer>, Calls) {
+    stub_with_speed(means, true)
+}
+
+/// 不够快、只做逐键重排的打分器，像随包模型。
+fn slow_stub(means: &[(&'static str, f32)]) -> (Box<dyn CandidateScorer>, Calls) {
+    stub_with_speed(means, false)
+}
+
+fn stub_with_speed(means: &[(&'static str, f32)], fast: bool) -> (Box<dyn CandidateScorer>, Calls) {
     let calls = Calls::default();
     (
         Box::new(Stub {
             means: means.to_vec(),
             calls: calls.clone(),
+            fast,
         }),
         calls,
     )
@@ -241,4 +257,94 @@ fn a_held_phrase_piece_is_part_of_the_context() {
     );
     assert_eq!(texts(&runtime)[0], "东西");
     assert_eq!(prediction_contexts(&calls), ["今天我吃"]);
+}
+
+/// 联想的每一行连同编码、附注和来源，供逐行比较。
+fn rows(runtime: &Runtime) -> Vec<(String, String, String, u8)> {
+    runtime
+        .view()
+        .candidates
+        .iter()
+        .map(|row| {
+            (
+                row.text.clone(),
+                row.code.clone(),
+                row.annotation.clone(),
+                row.source,
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn a_scorer_too_slow_for_a_commit_leaves_prediction_as_without_one() {
+    let (_directory, mut plain) = runtime(None);
+    commit_chi(&mut plain);
+    let (scorer, calls) = slow_stub(&[("东西", -1.0), ("醋", -1.5)]);
+    let (_directory, mut slow) = runtime(Some(scorer));
+    commit_chi(&mut slow);
+    assert_eq!(texts(&slow), BY_WEIGHT);
+    assert_eq!(rows(&slow), rows(&plain));
+    // 词库没多取，也没给联想打分。
+    assert!(prediction_contexts(&calls).is_empty());
+    assert!(calls
+        .lock()
+        .unwrap()
+        .iter()
+        .all(|(_, candidates)| !candidates.iter().any(|text| text == "饭")));
+}
+
+/// 同一个随包模型，只是报自己够快：对照用，说明下面那一条不排是速度的门禁，不是模型给不出顺序。
+struct FastBundled(Reranker);
+
+impl CandidateScorer for FastBundled {
+    fn context_length(&self) -> usize {
+        CandidateScorer::context_length(&self.0)
+    }
+
+    fn log_probabilities(&mut self, context: &str, candidates: &[&str]) -> Vec<f32> {
+        self.0.log_probabilities(context, candidates)
+    }
+
+    fn scores_prediction_pool_within_a_frame(&self) -> bool {
+        true
+    }
+}
+
+#[test]
+fn the_bundled_model_does_not_order_prediction() {
+    let model = std::sync::Arc::new(favouring_model(&['吃', '东', '西', '醋'], &['醋']));
+    let (_directory, mut bundled) = runtime(None);
+    bundled.set_reranker(Some(Reranker::new(model.clone())));
+    commit_chi(&mut bundled);
+    assert_eq!(texts(&bundled), BY_WEIGHT);
+    let (_directory, mut fast) = runtime(Some(Box::new(FastBundled(Reranker::new(model)))));
+    commit_chi(&mut fast);
+    assert_eq!(texts(&fast)[0], "醋");
+}
+
+#[test]
+fn swapping_in_a_slow_scorer_closes_the_pool() {
+    let (fast, _) = stub(&[("东西", 0.0)]);
+    let (_directory, mut runtime) = runtime(Some(fast));
+    let (slow, calls) = slow_stub(&[("东西", 0.0)]);
+    runtime.set_candidate_scorer(Some(slow));
+    commit_chi(&mut runtime);
+    assert_eq!(texts(&runtime), BY_WEIGHT);
+    assert!(prediction_contexts(&calls).is_empty());
+    let (fast, calls) = stub(&[("东西", 0.0)]);
+    runtime.set_candidate_scorer(Some(fast));
+    commit_chi(&mut runtime);
+    assert_eq!(texts(&runtime)[0], "东西");
+    assert_eq!(prediction_contexts(&calls).len(), 1);
+}
+
+#[test]
+fn a_replaced_engine_keeps_the_pool_closed_for_a_slow_scorer() {
+    let (scorer, calls) = slow_stub(&[("东西", 0.0)]);
+    let (directory, mut runtime) = runtime(Some(scorer));
+    runtime.replace_engine(engine(directory.path()), 9).unwrap();
+    commit_chi(&mut runtime);
+    assert_eq!(texts(&runtime), BY_WEIGHT);
+    assert!(prediction_contexts(&calls).is_empty());
 }

@@ -144,6 +144,12 @@ fn calibration_measures_a_heavy_page_and_leaves_no_cache() {
     );
 }
 
+/// 宿主挂的 ONNX 模型是按按键预算挑的，上屏后联想交给它排；随包模型不报这一条。
+#[test]
+fn the_onnx_backend_orders_prediction() {
+    assert!(scorer().scores_prediction_pool_within_a_frame());
+}
+
 fn crate_fresh_scores(context: &str, keystroke: &Keystroke) -> Vec<f32> {
     scorer().log_probabilities(context, &texts(keystroke))
 }

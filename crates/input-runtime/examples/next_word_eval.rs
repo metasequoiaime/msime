@@ -2,7 +2,7 @@
 //!
 //! 用例来自 Tatoeba 的中文句子（`cmn_sentences_detailed.tsv`，CC-BY 2.0 FR，不在 chinese-ime-lm 的训练语料里；语料不进仓库，用 `--corpus` 给路径）。每句取开头连续的汉字，按词库做正向最长匹配切词，随机挑一个不在句末的词：它前面的文字是上文，它本身是这次上屏的词，它后面的文字是答案。联想的一行是答案的前缀就算命中。
 //!
-//! 每条用例在每一臂里都走真实的运行时和引擎：清掉上文再放进这条的上文（`seed_context`），打这个词的拼音，选中文字等于它的那一行上屏，读上屏后显示的联想行。「今天」一臂不挂打分器，就是现在的产品；其余各臂挂一个打分器（随包的 `model-v1`，以及每个 `--onnx-model`），引擎因此多取 32 条词库续写、排序后显示 8 条。排序规则（总对数概率、32 条候选池、个人习惯行在前）在看评测数字之前就定了，这里不调任何参数。
+//! 每条用例在每一臂里都走真实的运行时和引擎：清掉上文再放进这条的上文（`seed_context`），打这个词的拼音，选中文字等于它的那一行上屏，读上屏后显示的联想行。「今天」一臂不挂打分器，就是不排序的联想；其余各臂挂一个打分器（随包的 `model-v1`，以及每个 `--onnx-model`），引擎因此多取 32 条词库续写、排序后显示 8 条。产品里只有报 `scores_prediction_pool_within_a_frame` 的打分器（ONNX 后端）才排联想，随包模型不排；这里给每一臂都套上 [`Pooled`]，量的是排了会怎样，随包模型那一臂的延迟就是它在产品里不排的理由。排序规则（总对数概率、32 条候选池、个人习惯行在前）在看评测数字之前就定了，这里不调任何参数。
 //!
 //! 计时的是上屏那一次 `dispatch`（引擎选词、查续写、打分、取快照），各臂轮流先跑，配对的差就是打分器在上屏时多花的时间。上屏时模型要为新的上文重新编码前缀，这一份下一次按键原本也要付，所以这个差是上屏时的代价，不全是新增的代价。不学习（`learning = false`），所以没有个人习惯行，量的只是词库续写的排序。
 //!
@@ -10,7 +10,9 @@
 mod eval_resources;
 
 use msime_engine::host::{Command, Session};
-use msime_input_runtime::{Action, CandidateScorer, Reranker, Runtime, SentenceModel};
+use msime_input_runtime::{
+    Action, CandidateFacts, CandidateScorer, Reranker, Runtime, SentenceModel,
+};
 use rand::seq::SliceRandom;
 use rand::{RngExt, SeedableRng};
 use std::collections::HashMap;
@@ -167,6 +169,32 @@ fn onnx_scorer(
 #[cfg(not(feature = "onnx-rerank"))]
 fn onnx_scorer(_: &Path, _: usize) -> Result<Box<dyn CandidateScorer>, Box<dyn std::error::Error>> {
     Err("--onnx-model needs the onnx-rerank feature (and ORT_LIB_LOCATION pointing at a minimal ONNX Runtime build)".into())
+}
+
+/// 不论打分器自己报不报 `scores_prediction_pool_within_a_frame`，都让 runtime 用它排联想；其余全部照转，逐键重排与不套时相同。
+struct Pooled(Box<dyn CandidateScorer>);
+
+impl CandidateScorer for Pooled {
+    fn context_length(&self) -> usize {
+        self.0.context_length()
+    }
+
+    fn log_probabilities(&mut self, context: &str, candidates: &[&str]) -> Vec<f32> {
+        self.0.log_probabilities(context, candidates)
+    }
+
+    fn scores_prediction_pool_within_a_frame(&self) -> bool {
+        true
+    }
+
+    fn best_where(
+        &mut self,
+        context: &str,
+        texts: &[&str],
+        facts: &dyn Fn(usize) -> CandidateFacts,
+    ) -> Option<usize> {
+        self.0.best_where(context, texts, facts)
+    }
 }
 
 struct Arm {
@@ -366,7 +394,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         options.next_word_prediction = true;
         let mut runtime = Runtime::new(Session::new(&options)?, 9)?;
         runtime.focus(true)?;
-        runtime.set_candidate_scorer(scorer);
+        runtime.set_candidate_scorer(
+            scorer.map(|scorer| Box::new(Pooled(scorer)) as Box<dyn CandidateScorer>),
+        );
         arms.push(Arm {
             label,
             runtime,

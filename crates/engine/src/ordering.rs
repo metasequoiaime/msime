@@ -18,6 +18,13 @@ pub trait CandidateScorer: Send {
     /// 每个候选在 `context` 之后的逐字平均自然对数概率，顺序同 `candidates`。
     fn log_probabilities(&mut self, context: &str, candidates: &[&str]) -> Vec<f32>;
 
+    /// 在上屏的那一次派发里同步给一整池联想续写（[`prediction_order`]，最多 32 条）打分，是否仍在一帧之内。是的话 runtime 才打开引擎的联想候选池、让它排上屏后联想；不是的话联想与没挂打分器时逐行相同。
+    ///
+    /// 默认 `false`，后端要量过才报 `true`。随包的 [`Reranker`]（`model-v1`，纯 Rust 参考实现）在 Pixel 3 XL 上让每次上屏多花 p50 约 130 ms，所以不报；ONNX Runtime 后端的两档模型都是按按键预算挑出来的，一次上屏的整池在 Mac 上多花 p95 不到 6 ms。见 `.agents/notes/implemented/feature/2026-11-02-next-word-prediction-rerank.md`。
+    fn scores_prediction_pool_within_a_frame(&self) -> bool {
+        false
+    }
+
     /// 模型认为应当提到首位的候选下标，`None` 为不动；规则同 [`Reranker::best_where`]：首行是可信的词典命中或首行不回答按键时不比较，只比较前 [`COMPARED_LIMIT`] 条回答按键的候选，少于两条不比较。
     fn best_where(
         &mut self,

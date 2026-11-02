@@ -212,6 +212,11 @@ impl CandidateScorer for OnnxScorer {
         self.info.context_chars + CANDIDATE_ROOM
     }
 
+    /// 宿主按 [`OnnxScorer::calibrate`] 挑的是在按键预算里跑得动的那一档，一次上屏的整池与几次按键相当：6x256 在 Pixel 3 XL 上量过，见 `.agents/notes/implemented/feature/2026-11-02-next-word-prediction-rerank.md`。
+    fn scores_prediction_pool_within_a_frame(&self) -> bool {
+        true
+    }
+
     /// 打不了分（候选为空、太长，或图运行失败）时返回空表，`rerank_pick` 见长度不符就不动候选；失败后缓存作废，下一次按键从上文重来。
     fn log_probabilities(&mut self, context: &str, candidates: &[&str]) -> Vec<f32> {
         if candidates.is_empty() || candidates.iter().any(|c| c.is_empty()) {
