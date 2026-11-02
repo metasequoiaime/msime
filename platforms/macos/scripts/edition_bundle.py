@@ -341,7 +341,7 @@ def tauri_config(edition_id: str, version: str) -> dict:
 
 
 def cask(template: str, edition_id: str, version: str, sha256: str) -> str:
-    """Homebrew cask。full 等于原来的 `sed` 替换结果；其他版本换掉名字、标识和路径，并且不把 msime-mcp 放上 PATH：同名的命令只能有一个，留给 full。"""
+    """Homebrew cask。full 等于原来的 `sed` 替换结果；其他版本换掉名字、标识和路径（下载地址、pkg 文件名、/Applications 下的应用、pkgutil 回执 id），并且不把 msime-mcp 放上 PATH：同名的命令只能有一个，留给 full。"""
     text = template.replace("@VERSION@", version).replace("@SHA256@", sha256)
     if edition_id == FULL:
         return text
@@ -374,9 +374,12 @@ def cask(template: str, edition_id: str, version: str, sha256: str) -> str:
         (f'cask "{full_macos["cask"]}"', f'cask "{macos["cask"]}"'),
         ('desc "Chinese input method for pinyin, shuangpin and wubi"', f'desc "{described}"'),
         (f"/{full_macos['dmg_prefix']}-#{{version}}", f"/{macos['dmg_prefix']}-#{{version}}"),
+        (f'pkg "{full_macos["dmg_prefix"]}-#{{version}}', f'pkg "{macos["dmg_prefix"]}-#{{version}}'),
         (f'name "{full["display_name"]["en"]}"', f'name "{entry["display_name"]["en"]}"'),
         (f'name "{full["display_name"]["zh-Hans"]}"', f'name "{entry["display_name"]["zh-Hans"]}"'),
-        (f'app "{full["display_name"]["en"]}.app"', f'app "{entry["display_name"]["en"]}.app"'),
+        # 设置应用的文件名（Tauri 的 productName）：pkg 装到 /Applications/<它>，uninstall 的 delete 按它兜底删除。
+        (f'"/Applications/{full["display_name"]["en"]}.app"', f'"/Applications/{entry["display_name"]["en"]}.app"'),
+        (f"{full['display_name']['en']}.app", f"{entry['display_name']['en']}.app"),
         (full_macos["input_method_bundle_id"], macos["input_method_bundle_id"]),
         (f"{full_macos['input_method_name']}.app", f"{macos['input_method_name']}.app"),
         (f"Open {full['display_name']['en']} once", f"Open {entry['display_name']['en']} once"),
@@ -386,28 +389,37 @@ def cask(template: str, edition_id: str, version: str, sha256: str) -> str:
         if old not in text:
             raise SystemExit(f"the cask template no longer contains {old!r}")
         text = text.replace(old, new)
-    # 设置应用的标识出现在 quit 和 zap 的路径里，带引号或后跟 . / 时才是它，免得改到别的版本的标识。
+    # 设置应用的标识出现在 quit、pkgutil 回执 id（<settings_bundle_id>.pkg）和 zap 的路径里，带引号或后跟 . / 时才是它，免得改到别的版本的标识。
     text = re.sub(rf'(?<=["/]){re.escape(full_macos["settings_bundle_id"])}(?=["./])', macos["settings_bundle_id"], text)
-    for identifier in (full_macos["input_method_bundle_id"], f"{full_macos['input_method_name']}.app"):
+    leftovers = (
+        full_macos["input_method_bundle_id"],
+        f"{full_macos['input_method_name']}.app",
+        f"{full['display_name']['en']}.app",
+        f"/{full_macos['dmg_prefix']}-#{{version}}",
+        f'"{full_macos["dmg_prefix"]}-#{{version}}',
+        f'"{full_macos["settings_bundle_id"]}"',
+        f'"{full_macos["settings_bundle_id"]}.pkg"',
+    )
+    for identifier in leftovers:
         if identifier in text:
             raise SystemExit(f"the {edition_id} cask still mentions {identifier}")
     return text
 
 
 def download_guide(edition_ids: list[str], version: str, download_base: str, homebrew: bool) -> str:
-    """macOS 发布说明开头的下载指引：每个版本一行，写明安装包和 Homebrew 命令，完整版排第一、标为推荐。版本发布页上有六个 DMG，不说明的话来下载的人不知道该选哪个。名字、DMG 前缀和 cask 都取自版本表，不手写。"""
+    """macOS 发布说明开头的下载指引：每个版本一行，写明安装包和 Homebrew 命令，完整版排第一、标为推荐。版本发布页上有六个 pkg 安装包，不说明的话来下载的人不知道该选哪个。名字、安装包名前缀（dmg_prefix）和 cask 都取自版本表，不手写。"""
     table = load_table()
     if FULL not in edition_ids:
         raise SystemExit("the download guide recommends the full edition, which is not in --editions")
     ordered = [FULL] + [edition for edition in edition_ids if edition != FULL]
     full_macos = full_entry(table)["platforms"]["macos"]
-    full_dmg = f"{full_macos['dmg_prefix']}-{version}-universal.dmg"
+    full_pkg = f"{full_macos['dmg_prefix']}-{version}-universal.pkg"
     # 首尾的注释在 GitHub 上不显示，标出这一段是生成的下载指引，读发布说明做更新日志的地方（官网下载页的更新记录）可以按它跳过。
     lines = [
         "<!-- msime-download-guide -->",
         "## 下载",
         "",
-        f"大多数人下载第一行的**{full_entry(table)['display_name']['zh-Hans']}**（`{full_dmg}`）就行：它是完整版，包含全部输入方案。"
+        f"大多数人下载第一行的**{full_entry(table)['display_name']['zh-Hans']}**（`{full_pkg}`）就行：它是完整版，包含全部输入方案。"
         "其他版本只带其中一部分方案，可以和完整版同时安装。每个安装包都同时支持 Apple 芯片和 Intel 芯片的 Mac。",
         "",
         "| 版本 | 安装包 | Homebrew |" if homebrew else "| 版本 | 安装包 |",
@@ -416,14 +428,18 @@ def download_guide(edition_ids: list[str], version: str, download_base: str, hom
     for edition_id in ordered:
         entry = edition_entry(edition_id, table)
         macos = entry["platforms"]["macos"]
-        dmg = f"{macos['dmg_prefix']}-{version}-universal.dmg"
+        package = f"{macos['dmg_prefix']}-{version}-universal.pkg"
         name = entry["display_name"]["zh-Hans"]
         label = f"**{name}**（完整版，推荐）" if edition_id == FULL else name
-        row = f"| {label} | [{dmg}]({download_base}{dmg}) |"
+        row = f"| {label} | [{package}]({download_base}{package}) |"
         if homebrew:
             row += f" `brew install --cask metasequoiaime/tap/{macos['cask']}` |"
         lines.append(row)
-    lines += ["", "打开 DMG，把应用拖进「应用程序」，再打开它一次完成安装。`SHA256SUMS` 是这些安装包的 SHA-256 校验值。"]
+    lines += [
+        "",
+        "双击下载的安装包，按提示安装（需要管理员密码）。装好后应用会自动打开，点「立即安装」；第一次在这台 Mac 上安装时，请退出登录再重新登录，"
+        "然后到「系统设置」→「键盘」→「文字输入」→「输入法」中添加。`SHA256SUMS` 是这些安装包的 SHA-256 校验值。",
+    ]
     if not homebrew:
         lines += ["", "这是预览版，Homebrew 只提供正式版。"]
     lines.append("<!-- /msime-download-guide -->")

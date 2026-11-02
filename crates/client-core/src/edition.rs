@@ -157,7 +157,7 @@ pub struct MacosIdentity {
     pub keychain_service: String,
     /// Homebrew cask 名。
     pub cask: String,
-    /// 发布 DMG 的文件名前缀。
+    /// 发布安装包（`<dmg_prefix>-<版本>-universal.pkg`）和 Sparkle 更新包的文件名前缀。字段名是 DMG 时代留下的，冻结不改。
     pub dmg_prefix: String,
 }
 

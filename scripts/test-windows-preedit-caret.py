@@ -194,6 +194,7 @@ struct CMetasequoiaIME {
     Presenter *_pCandidateListUIPresenter = nullptr;
     CCompositionProcessorEngine *_pCompositionProcessorEngine = nullptr;
     unsigned writes = 0;
+    uint64_t _editorOperationSerial = 0;
     bool writeOK = true;
     HRESULT _AddComposingAndChar(TfEditCookie, ITfContext *context, CStringRange *text) {
         if (!writeOK) return E_FAIL;

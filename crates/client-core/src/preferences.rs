@@ -1425,6 +1425,27 @@ pub struct KoreanPreferences {
     pub layout: KoreanLayout,
 }
 
+/// 桌面宿主的粤拼按什么解释：`Jyutping` 是普通粤拼，前两键不是完整音节、又能解成双拼码时自动按粤语双拼读；`Shuangpin` 从第一键起按粤语双拼两键一音节读，与粤拼同形的码（如 `oi`）也按双拼。触屏宿主不读这一项，粤语双拼在那里是独立的触屏方案（`TouchKeyboardScheme::CantoneseShuangpin`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CantoneseInputMethod {
+    #[default]
+    Jyutping,
+    Shuangpin,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct CantonesePreferences {
+    pub input_method: CantoneseInputMethod,
+}
+
+impl CantonesePreferences {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 /// How Vietnamese letters and tones are typed. The Engine code is the declaration order (`vietnamese_input_method`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -2007,6 +2028,9 @@ pub struct Preferences {
     /// 可选韩语布局；宿主未声明能力时仍运行两套式。
     #[serde(default)]
     pub korean: KoreanPreferences,
+    /// 桌面宿主的粤拼解释方式（普通粤拼或粤语双拼）。等于默认值时不写进文档，没动过这一项的文档与以前的版本相同。
+    #[serde(default, skip_serializing_if = "CantonesePreferences::is_default")]
+    pub cantonese: CantonesePreferences,
     /// 只出单字：全拼、双拼、五笔和粤拼的候选只留单个汉字，选一个字后剩下的拼写接着组字。默认关闭。
     #[serde(default)]
     pub single_character_only: bool,
@@ -4324,6 +4348,7 @@ impl Default for Preferences {
             shuangpin_keymap_hint: None,
             vietnamese: VietnamesePreferences::default(),
             korean: KoreanPreferences::default(),
+            cantonese: CantonesePreferences::default(),
             single_character_only: false,
             caret_edit_suffix: false,
             candidate_page_size: 6,
@@ -6511,7 +6536,7 @@ fn acceptable_preferences(candidate: &serde_json::Map<String, serde_json::Value>
         .is_ok_and(|preferences| preferences.validate().is_ok())
 }
 
-/// 读盘时把更新的版本才有的标量取值换成本版本的取值，免得一个键让整份文档读不了；只用于读磁盘，设置提交仍由枚举反序列化严格校验。目前只有韩文布局：更新的版本的未知布局回退到两套式。
+/// 读盘时把更新的版本才有的标量取值换成本版本的取值，免得一个键让整份文档读不了；只用于读磁盘，设置提交仍由枚举反序列化严格校验。目前有韩文布局和粤拼解释方式：更新的版本的未知取值分别回退到两套式和普通粤拼。
 fn settle_newer_values_on_read(document: &mut serde_json::Value) {
     if let Some(layout) = document.pointer_mut("/preferences/korean/layout") {
         if layout
@@ -6519,6 +6544,14 @@ fn settle_newer_values_on_read(document: &mut serde_json::Value) {
             .is_some_and(|value| !matches!(value, "dubeolsik" | "romaja"))
         {
             *layout = "dubeolsik".into();
+        }
+    }
+    if let Some(method) = document.pointer_mut("/preferences/cantonese/input_method") {
+        if method
+            .as_str()
+            .is_some_and(|value| !matches!(value, "jyutping" | "shuangpin"))
+        {
+            *method = "jyutping".into();
         }
     }
 }

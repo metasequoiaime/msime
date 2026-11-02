@@ -50,7 +50,8 @@ final class ToolbarHistoryDeviceChecks {
             // 排序也通过产品页面保存；新按钮位于最前面，便于窄屏实际操作。
             openSettings();
             t.tap(node -> DeviceSmoke.equalsText("按钮顺序", node.getText()));
-            t.tap(t.described("下移 撤销"));
+            // 「按钮顺序」没有箭头（#10546），照读屏的路径执行「撤销」那一行把手上的「下移」。
+            t.moveOrderRowDown("撤销");
             t.tap(t.described("保存，保存按钮顺序"));
             t.await(node -> DeviceSmoke.equalsText("编辑工具栏", node.getText()));
             if (!read(local).getJSONObject("settings").getString("platform.android.toolbar_order").startsWith("redo,undo,"))
