@@ -265,6 +265,13 @@ impl ImeSession {
             .is_some_and(crate::cantonese::CantoneseScheme::is_shuangpin)
     }
 
+    /// 粤语双拼组字展开成粤拼的显示文字，见 `CantoneseScheme::jyutping_display`；不在粤语双拼时为 `None`。
+    pub fn cantonese_jyutping_display(&self, leading: Option<(&str, usize)>) -> Option<String> {
+        self.scheme
+            .as_cantonese()
+            .and_then(|scheme| scheme.jyutping_display(leading))
+    }
+
     /// 当前粤拼组字是否接受 `;` 作为双拼韵母键。
     pub fn cantonese_shuangpin_accepts_semicolon(&self) -> bool {
         self.scheme

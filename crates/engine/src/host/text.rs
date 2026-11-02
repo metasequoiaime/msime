@@ -46,7 +46,14 @@ pub fn normalize_full_pinyin(input: &str, expected_syllables: usize) -> String {
     crate::pinyin::normalize::normalize_full_pinyin(input, expected_syllables)
 }
 
+/// 触屏键盘画「双拼键位提示」用的名字：粤语双拼不是普通话双拼方案，没有 `ShuangpinProfileKind`，宿主传这个名字给 [`shuangpin_key_hints`] 取它的键面。
+pub const CANTONESE_SHUANGPIN_HINTS: &str = "cantonese";
+
+/// 普通话双拼方案名（`xiaohe`、`microsoft` 等）给那个方案的键面；[`CANTONESE_SHUANGPIN_HINTS`] 给粤语双拼的键面。其他名字（包括 `custom`）什么也不给。`cantonese` 不是 `ShuangpinProfileKind` 的名字，[`shuangpin_zero_initials`]、[`encode_shuangpin`]、[`shuangpin_uses_semicolon`] 都不认它。
 pub fn shuangpin_key_hints(profile: &str) -> Vec<ShuangpinKeyHint> {
+    if profile == CANTONESE_SHUANGPIN_HINTS {
+        return crate::cantonese::shuangpin::key_hints();
+    }
     crate::shuangpin::hints::shuangpin_key_hints(profile)
 }
 
