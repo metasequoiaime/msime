@@ -14731,4 +14731,5 @@ INSERT INTO quick_parases VALUES('qq','腾讯',20);"
 
 mod caret_suffix;
 mod lifecycle;
+mod prediction_pool;
 mod raw_commit;
