@@ -551,12 +551,16 @@ struct Models {
 
 /// `--onnx-threads`（一次图运行的线程数）和 `--sentence-pool`（打分器报的整句池，不给时用后端的默认值），像宿主按自测速度定下的那样。
 #[derive(Clone, Copy)]
+// 不开 `onnx-rerank` 特性时只有报错的那个 `onnx_scorer`，字段没人读。
+#[cfg_attr(not(feature = "onnx-rerank"), allow(dead_code))]
 struct OnnxSettings {
     threads: usize,
     sentence_pool: Option<usize>,
 }
 
 /// 一个 ONNX 重排模型目录里的三个文件，读一次，各 Runtime 用它各建自己的打分器。
+// 不开 `onnx-rerank` 特性时只有报错的那个 `onnx_scorer`，字段没人读。
+#[cfg_attr(not(feature = "onnx-rerank"), allow(dead_code))]
 struct OnnxModelFiles {
     model: Vec<u8>,
     info: String,
