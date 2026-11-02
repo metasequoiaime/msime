@@ -17,22 +17,31 @@ if (-not $create.Contains('/TR "\"'' + WatchdogPath + ''\""')) {
     throw 'Watchdog task action does not quote the executable path inside /TR'
 }
 
-# 登录任务默认 Priority 7、电池上不启动/切换即停止、72 小时后强制结束，创建后必须补上。
+# 登录任务默认 Priority 7、72 小时后强制结束，创建后必须补上；电池策略是单独的产品
+# 决定，这次不动，脚本里也就不该出现那两个设置。
 $configure = [regex]::Match(
     $script,
     "(?s)procedure ConfigureWatchdogLogonTask;.*?end;\r?\n\r?\nprocedure TryDeleteTree"
 ).Value
 if (-not $configure) { throw 'Watchdog task priority configuration is missing' }
-foreach ($setting in @('Priority', 'DisallowStartIfOnBatteries', 'StopIfGoingOnBatteries', 'ExecutionTimeLimit')) {
-    if (-not $configure.Contains("Set-Setting `$s ''$setting''")) {
-        throw "Watchdog task priority configuration never sets $setting"
-    }
+if ($configure -notmatch 'Settings\.Priority=4') {
+    throw 'Watchdog task priority configuration never raises Priority to 4'
 }
-if ($configure -notmatch 'schtasks\.exe /Create /F /TN') {
-    throw 'Watchdog task priority configuration does not re-register the task from its XML'
+if ($configure -notmatch "Settings\.ExecutionTimeLimit=''PT0S''") {
+    throw 'Watchdog task priority configuration never removes the execution time limit'
+}
+if ($configure -match 'Batteries') {
+    throw 'Battery policy is a product decision and must not ride along with the priority fix'
+}
+if ($configure -notmatch 'RegisterTaskDefinition') {
+    throw 'Watchdog task priority configuration does not re-register the task through its COM definition'
 }
 if ($configure -notmatch 'exit 1') {
     throw 'Watchdog task priority configuration does not fail when the settings do not stick'
+}
+# 注册失败后先看任务还在不在，只有真的没了才重建，避免安全软件把自启任务带走。
+if ($configure -notmatch '\$null -eq \(Get-Definition \$n\)') {
+    throw 'Watchdog task priority configuration does not check that the task survived a failed update'
 }
 # 只在创建成功之后配置；创建失败时任务不存在，配置只会再报一次错。
 if ($script -notmatch '(?s)if CreateWatchdogLogonTask then\r?\n\s*ConfigureWatchdogLogonTask;') {
@@ -118,13 +127,34 @@ try {
     if ($configured.ExitCode -ne 0) {
         throw "Priority configuration failed with exit code $($configured.ExitCode)"
     }
-    $stored = (Get-ScheduledTask -TaskName $taskName).Settings
+    $configuredTask = Get-ScheduledTask -TaskName $taskName
+    $stored = $configuredTask.Settings
     Write-Output ("stored priority=$($stored.Priority) limit=$($stored.ExecutionTimeLimit) " +
-                  "startOnBatteries=$(-not $stored.DisallowStartIfOnBatteries) " +
-                  "keepOnBatteries=$(-not $stored.StopIfGoingOnBatteries)")
-    if ($stored.Priority -ne 4 -or $stored.ExecutionTimeLimit -ne 'PT0S' -or
-        $stored.DisallowStartIfOnBatteries -or $stored.StopIfGoingOnBatteries) {
-        throw 'Priority configuration did not survive round-tripping through the task XML'
+                  "runLevel=$($configuredTask.Principal.RunLevel) logon=$($configuredTask.Principal.LogonType)")
+    if ($stored.Priority -ne 4 -or $stored.ExecutionTimeLimit -ne 'PT0S') {
+        throw 'Priority configuration did not survive the COM update'
+    }
+    # COM 更新改的是同一条任务定义，触发器和主体必须原样保留。
+    if ($configuredTask.Principal.LogonType -ne 'Interactive' -or
+        $configuredTask.Principal.RunLevel -ne 'Limited' -or
+        @($configuredTask.Triggers).Count -ne 1 -or
+        @($configuredTask.Triggers)[0].CimClass.CimClassName -ne 'MSFT_TaskLogonTrigger') {
+        throw 'Priority configuration did not preserve the logon trigger or the interactive principal'
+    }
+
+    # 注册失败时任务必须还在：安装器的兜底只在它真的消失时才重建。这里用一个坏的
+    # UserId 让第二次注册失败，确认失败不会带走任务或已生效的设置。
+    $scheduler = New-Object -ComObject Schedule.Service
+    $scheduler.Connect()
+    $folder = $scheduler.GetFolder('\')
+    $broken = $folder.GetTask($taskName).Definition
+    $broken.Principal.UserId = 'S-1-5-21-0-0-0-9999'
+    $rejected = $false
+    try { $null = $folder.RegisterTaskDefinition($taskName, $broken, 6, $null, $null, 3) } catch { $rejected = $true }
+    if (-not $rejected) { throw 'A broken principal was accepted; the failure path cannot be exercised' }
+    $afterFailure = Get-ScheduledTask -TaskName $taskName
+    if ($null -eq $afterFailure -or $afterFailure.Settings.Priority -ne 4) {
+        throw 'A rejected registration lost the task or its settings'
     }
 
     # For the record only: the unquoted form this replaced.

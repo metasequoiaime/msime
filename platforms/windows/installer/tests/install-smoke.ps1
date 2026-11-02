@@ -129,10 +129,10 @@ Check ($app.DataDir -eq $dataDir) "DataDir recorded as the /DATADIR choice ($($a
 $action = if (TaskExists) { @((Get-ScheduledTask -TaskName $taskName).Actions)[0] } else { $null }
 $watchdog = Join-Path $pf64 'server\MetasequoiaImeWatchdog.exe'
 Check ($null -ne $action -and $action.Execute.Trim('"') -eq $watchdog -and [string]::IsNullOrEmpty($action.Arguments)) "watchdog task runs the full Watchdog path ($(if ($action) { "$($action.Execute) | $($action.Arguments)" }))"
-# 登录任务默认 Priority 7 会把看门狗和它拉起的 Server 一起降级，还会在电池上不启动、72 小时后强制结束。
+# 登录任务默认 Priority 7，会把看门狗和它拉起的 Server 一起降级；默认还有 72 小时执行时限。
+# 电池策略是单独的产品决定，这里不检查。
 $taskSettings = if (TaskExists) { (Get-ScheduledTask -TaskName $taskName).Settings } else { $null }
 Check ($null -ne $taskSettings -and $taskSettings.Priority -eq 4) "watchdog task keeps the normal priority ($(if ($taskSettings) { $taskSettings.Priority }))"
-Check ($null -ne $taskSettings -and -not $taskSettings.DisallowStartIfOnBatteries -and -not $taskSettings.StopIfGoingOnBatteries) 'watchdog task starts and keeps running on battery'
 Check ($null -ne $taskSettings -and $taskSettings.ExecutionTimeLimit -eq 'PT0S') "watchdog task has no execution time limit ($(if ($taskSettings) { $taskSettings.ExecutionTimeLimit }))"
 # The Server and settings window run at medium integrity and must be able to write what the elevated installer created.
 $rules = (Get-Acl -LiteralPath $app.DataDir).GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])

@@ -1187,12 +1187,10 @@ begin
   Result := True;
 end;
 
-{ 登录任务的 Priority 默认是 7（Below normal），看门狗和它拉起的 Server 会一起被降级：CPU
-  调度类降到 Below normal、内存优先级降到 Low，任务还会默认在电池上不启动、切换电池即停止，
-  并在 72 小时后强制结束。schtasks /Create 没有这些参数，这里导出任务 XML、补上设置再按同一
-  份 XML 重建，并读回校验。用 XML 而不是 Get-ScheduledTask/Set-ScheduledTask：Windows 7 的
-  PowerShell 2.0 没有 ScheduledTasks 模块。任务名和临时路径经 cmd 转发，任务名里的空格和括号
-  不会被拆成多个参数。 }
+{ 登录任务的 Priority 默认是 7（Below normal），看门狗和它拉起的 Server 会一起被降级，任务默认
+  还在 72 小时后强制结束。schtasks /Create 没有这两个参数，用 Task Scheduler 的 COM 接口从现有
+  任务读出定义、改设置、再注册一次；COM 在 Win7 的 PowerShell 2.0 上就有，不经过任何文本编码。
+  电池上是否启动是笔记本上的出厂行为，属于单独的产品决定，这里不动。 }
 procedure ConfigureWatchdogLogonTask;
 var
   Script: String;
@@ -1203,40 +1201,24 @@ begin
   Script :=
     '$ErrorActionPreference=''Stop''; ' +
     '$n=''{#MyWatchdogTaskName}''; ' +
-    '$f=[IO.Path]::Combine([IO.Path]::GetTempPath(),[Guid]::NewGuid().ToString(''N'')+''.xml''); ' +
-    'function Get-TaskXml($name,$file) { ' +
-    '  $q=[char]34; ' +
-    '  & cmd.exe /c (''schtasks.exe /Query /TN ''+$q+$name+$q+'' /XML > ''+$q+$file+$q); ' +
-    '  if ($LASTEXITCODE -ne 0) { exit 1 }; ' +
-    '  return [xml][IO.File]::ReadAllText($file) }; ' +
-    'function Set-Setting($settings,$key,$value) { ' +
-    '  $element=$settings.SelectSingleNode(''t:''+$key,$ns); ' +
-    '  if ($null -eq $element) { ' +
-    '    $element=$settings.OwnerDocument.CreateElement($key,$u); ' +
-    '    $settings.AppendChild($element) | Out-Null }; ' +
-    '  $element.InnerText=$value }; ' +
-    'try { ' +
-    '  $x=Get-TaskXml $n $f; ' +
-    '  $u=$x.DocumentElement.NamespaceURI; ' +
-    '  $ns=New-Object System.Xml.XmlNamespaceManager -ArgumentList $x.NameTable; ' +
-    '  $ns.AddNamespace(''t'',$u); ' +
-    '  $s=$x.SelectSingleNode(''//t:Settings'',$ns); ' +
-    '  if ($null -eq $s) { exit 1 }; ' +
-    '  Set-Setting $s ''Priority'' ''4''; ' +
-    '  Set-Setting $s ''DisallowStartIfOnBatteries'' ''false''; ' +
-    '  Set-Setting $s ''StopIfGoingOnBatteries'' ''false''; ' +
-    '  Set-Setting $s ''ExecutionTimeLimit'' ''PT0S''; ' +
-    '  $x.Save($f); ' +
-    '  & schtasks.exe /Create /F /TN $n /XML $f | Out-Null; ' +
-    '  if ($LASTEXITCODE -ne 0) { exit 1 }; ' +
-    '  $c=Get-TaskXml $n $f; ' +
-    '  $cs=$c.SelectSingleNode(''//t:Settings'',$ns); ' +
-    '  if (($null -eq $cs) -or ([int]$cs.Priority -ne 4) -or ' +
-    '      ($cs.DisallowStartIfOnBatteries -ne ''false'') -or ' +
-    '      ($cs.StopIfGoingOnBatteries -ne ''false'') -or ' +
-    '      ($cs.ExecutionTimeLimit -ne ''PT0S'')) { exit 1 } ' +
-    '} finally { ' +
-    '  Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue }';
+    '$s=New-Object -ComObject Schedule.Service; ' +
+    '$s.Connect(); ' +
+    '$f=$s.GetFolder(''\''); ' +
+    'function Get-Definition($name) { ' +
+    '  try { return $f.GetTask($name).Definition } catch { return $null } }; ' +
+    '$d=Get-Definition $n; ' +
+    'if ($null -eq $d) { exit 1 }; ' +
+    '$d.Settings.Priority=4; ' +
+    '$d.Settings.ExecutionTimeLimit=''PT0S''; ' +
+    '$registered=$false; ' +
+    'try { $f.RegisterTaskDefinition($n,$d,6,$null,$null,3); $registered=$true } catch { }; ' +
+    'if (-not $registered) { ' +
+    '  if ($null -eq (Get-Definition $n)) { ' +
+    '    try { $f.RegisterTaskDefinition($n,$d,6,$null,$null,3); $registered=$true } catch { } } }; ' +
+    'if (-not $registered) { exit 1 }; ' +
+    '$c=Get-Definition $n; ' +
+    'if ($null -eq $c) { exit 1 }; ' +
+    'if (($c.Settings.Priority -ne 4) -or ($c.Settings.ExecutionTimeLimit -ne ''PT0S'')) { exit 1 }';
   Params :=
     '-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "' + Script + '"';
   if
@@ -1252,12 +1234,8 @@ begin
   then
   begin
     { 任务已经建好、开机自启照常，只是还带着默认的降级设置；这不是装不装得上的问题，
-      不能像创建失败那样打断安装。 }
+      不能像创建失败那样打断安装，也不值得让用户做一个他做不了的动作，只记日志。 }
     Log('Configuring the watchdog logon task failed: ' + IntToStr(ResultCode) + ' ' + SysErrorMessage(ResultCode));
-    SuppressibleMsgBox(
-      '开机自动启动任务已创建，但没能调到正常优先级（错误代码：' + IntToStr(ResultCode) + '）。' + #13#10#13#10 +
-      '输入法照常可用；电脑繁忙时，开机后第一次输入可能比平时慢。',
-      mbInformation, MB_OK, IDOK);
   end;
 end;
 
