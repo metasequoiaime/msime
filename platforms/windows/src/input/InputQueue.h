@@ -216,7 +216,7 @@ public:
   // Nonblocking admission. Full/stopped/empty task returns null. Every accepted
   // task settles its future, including cancellation. No silent input dropping:
   // caller must invalidate affected transport/focus on failed admission.
-  // 默认是后台任务；用户在等结果的那几类显式传 Foreground。
+  // submit 只记录任务分级；优先级在 run() 里按它决定。
   std::optional<std::future<InputTaskStatus>>
   submit(Task task, InputTaskPriority priority = InputTaskPriority::Background);
   void request_stop(); // May be called from a task; does not join.
@@ -230,7 +230,7 @@ public:
 private:
   struct Job {
     Task task;
-    InputTaskPriority priority = InputTaskPriority::Background;
+    InputTaskPriority priority;
     std::promise<InputTaskStatus> completion;
     std::chrono::steady_clock::time_point enqueued_at;
   };

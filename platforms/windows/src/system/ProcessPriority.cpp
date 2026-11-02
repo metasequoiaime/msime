@@ -6,18 +6,6 @@ namespace {
 using SetProcessInformationFunction = BOOL(WINAPI *)(HANDLE,
                                                      PROCESS_INFORMATION_CLASS,
                                                      LPVOID, DWORD);
-
-// 静态导入会在 Windows 7 上直接让程序起不来：那套系统没有这个导出。
-SetProcessInformationFunction set_process_information() {
-  static const SetProcessInformationFunction function = [] {
-    const HMODULE module = GetModuleHandleW(L"kernel32.dll");
-    return module ? reinterpret_cast<SetProcessInformationFunction>(
-                        reinterpret_cast<void *>(
-                            GetProcAddress(module, "SetProcessInformation")))
-                  : nullptr;
-  }();
-  return function;
-}
 } // namespace
 
 ProcessPriorityResult restore_interactive_process_priority() {
@@ -30,7 +18,14 @@ ProcessPriorityResult restore_interactive_process_priority() {
   else
     result.cpu_error = GetLastError();
 
-  const auto set_information = set_process_information();
+  // 静态导入会在 Windows 7 上直接让程序起不来：那套系统没有这个导出。
+  static const auto set_information = [] {
+    const HMODULE module = GetModuleHandleW(L"kernel32.dll");
+    return module ? reinterpret_cast<SetProcessInformationFunction>(
+                        reinterpret_cast<void *>(
+                            GetProcAddress(module, "SetProcessInformation")))
+                  : nullptr;
+  }();
   if (!set_information) {
     result.memory_ok = true;
     return result;

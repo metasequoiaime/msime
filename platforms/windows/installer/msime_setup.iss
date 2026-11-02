@@ -1203,10 +1203,10 @@ begin
   Script :=
     '$ErrorActionPreference=''Stop''; ' +
     '$n=''{#MyWatchdogTaskName}''; ' +
-    '$q=[char]34; ' +
     '$f=[IO.Path]::Combine([IO.Path]::GetTempPath(),[Guid]::NewGuid().ToString(''N'')+''.xml''); ' +
     'function Get-TaskXml($name,$file) { ' +
-    '  & cmd.exe /c (''schtasks.exe /Query /TN ''+$q+$name+$q+'' /XML > ''+$q+$file+$q) | Out-Null; ' +
+    '  $q=[char]34; ' +
+    '  & cmd.exe /c (''schtasks.exe /Query /TN ''+$q+$name+$q+'' /XML > ''+$q+$file+$q); ' +
     '  if ($LASTEXITCODE -ne 0) { exit 1 }; ' +
     '  return [xml][IO.File]::ReadAllText($file) }; ' +
     'function Set-Setting($settings,$key,$value) { ' +

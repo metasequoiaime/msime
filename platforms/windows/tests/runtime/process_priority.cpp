@@ -7,27 +7,21 @@
 namespace {
 constexpr int skip_exit_code = 77;
 
-using GetProcessInformationFunction = BOOL(WINAPI *)(HANDLE,
-                                                     PROCESS_INFORMATION_CLASS,
-                                                     LPVOID, DWORD);
-using SetProcessInformationFunction = BOOL(WINAPI *)(HANDLE,
-                                                     PROCESS_INFORMATION_CLASS,
-                                                     LPVOID, DWORD);
+using ProcessInformationFunction = BOOL(WINAPI *)(HANDLE,
+                                                 PROCESS_INFORMATION_CLASS,
+                                                 LPVOID, DWORD);
 
-GetProcessInformationFunction get_process_information() {
-  static const GetProcessInformationFunction function = [] {
-    const HMODULE module = GetModuleHandleW(L"kernel32.dll");
-    return module ? reinterpret_cast<GetProcessInformationFunction>(
-                        reinterpret_cast<void *>(
-                            GetProcAddress(module, "GetProcessInformation")))
-                  : nullptr;
-  }();
-  return function;
+template <typename Function> Function load_kernel32(const char *name) {
+  const HMODULE module = GetModuleHandleW(L"kernel32.dll");
+  return module ? reinterpret_cast<Function>(
+                      reinterpret_cast<void *>(GetProcAddress(module, name)))
+                : nullptr;
 }
 
 // MEMORY_PRIORITY_LOWEST 是合法的 0，不能用 0 当失败标志。
 bool read_memory_priority(DWORD &priority) {
-  const auto get_information = get_process_information();
+  static const auto get_information =
+      load_kernel32<ProcessInformationFunction>("GetProcessInformation");
   if (!get_information)
     return false;
   MEMORY_PRIORITY_INFORMATION info{};
@@ -39,11 +33,8 @@ bool read_memory_priority(DWORD &priority) {
 }
 
 bool write_memory_priority(DWORD priority) {
-  const HMODULE module = GetModuleHandleW(L"kernel32.dll");
-  if (!module)
-    return false;
-  const auto set_information = reinterpret_cast<SetProcessInformationFunction>(
-      reinterpret_cast<void *>(GetProcAddress(module, "SetProcessInformation")));
+  const auto set_information =
+      load_kernel32<ProcessInformationFunction>("SetProcessInformation");
   if (!set_information)
     return false;
   MEMORY_PRIORITY_INFORMATION info{};
@@ -71,14 +62,10 @@ int main() {
     return skip_exit_code;
   }
   // 内存优先级只有 Windows 8 起才有；这项 API 不在时只验 CPU 调度类。
+  DWORD lowered = 0;
   const bool lowered_memory =
-      memory_supported &&
-      write_memory_priority(MEMORY_PRIORITY_LOW) &&
-      [&] {
-        DWORD lowered = 0;
-        return read_memory_priority(lowered) &&
-               lowered == MEMORY_PRIORITY_LOW;
-      }();
+      memory_supported && write_memory_priority(MEMORY_PRIORITY_LOW) &&
+      read_memory_priority(lowered) && lowered == MEMORY_PRIORITY_LOW;
   if (memory_supported && !lowered_memory) {
     std::printf("skip: cannot lower memory priority (err=%lu)\n",
                 GetLastError());
