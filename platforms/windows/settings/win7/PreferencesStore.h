@@ -82,6 +82,7 @@ public:
           change.path == std::vector<std::string>{"translation_secondary_language"};
       const bool optional_object = change.value.is_object() &&
           (change.path == std::vector<std::string>{"app_input_mode_rules"} ||
+           change.path == std::vector<std::string>{"cantonese"} ||
            change.path == std::vector<std::string>{"plugins"} ||
            change.path == std::vector<std::string>{"cloud_clipboard_relay"} ||
            change.path == std::vector<std::string>{"cloud_clipboard_webdav"} ||

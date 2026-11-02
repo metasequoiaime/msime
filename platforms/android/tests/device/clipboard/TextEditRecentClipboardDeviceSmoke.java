@@ -105,12 +105,19 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
             }
             Rect before = bounds(awaitStableBounds(described("文本编辑面板")));
             stage = "selection label follows selection mode";
+            int idleFace = settledKeyFace("选择模式", face -> true);
             click("选择模式");
             await(described("取消选择").and(node -> equalsText("取消选择", node.getText()) && node.isSelected()));
+            stage = "selection key face fills with accent";
+            settledKeyFace("取消选择", face -> face != idleFace);
             click("光标左移");
             await(field("msime-test-plain").and(node -> node.getTextSelectionStart() != node.getTextSelectionEnd()));
+            stage = "selection key face stays filled while extending";
+            settledKeyFace("取消选择", face -> face != idleFace);
             click("取消选择");
             await(described("选择模式").and(node -> equalsText("选择", node.getText()) && !node.isSelected()));
+            stage = "selection key face restores";
+            settledKeyFace("选择模式", face -> face == idleFace);
             click("光标右移");
             await(field("msime-test-plain").and(node -> node.getTextSelectionStart() == node.getTextSelectionEnd()));
             stage = "select all using panel";
@@ -385,6 +392,30 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
     @Override protected AccessibilityNodeInfo findAny(AccessibilityNodeInfo node, Predicate<AccessibilityNodeInfo> match) {
         if (node != null && Build.VERSION.SDK_INT < 34 && !node.refresh()) return null;
         return super.findAny(node, match);
+    }
+
+    /**
+     * #10454：选择键开着时键面要整块换成皮肤强调色。只看无障碍节点的 selected 标志查不出来，那个 bug 里标志变了、键面却一直没重画，所以这里直接取屏幕像素。
+     *
+     * <p>取键帽水平居中、上沿往下四分之一高度的一点，避开中间的字，也在按下缩放时仍落在键帽里。按下动画还没走完时颜色会变，所以要隔 200 毫秒连续两次读到同一个颜色、且满足 `expected` 才算稳定。
+     */
+    private int settledKeyFace(String description, java.util.function.IntPredicate expected) throws Exception {
+        long until = SystemClock.uptimeMillis() + 5000;
+        Integer previous = null;
+        int face = 0;
+        while (true) {
+            dropStaleNodes();
+            Rect key = bounds(awaitStableBounds(described(description)));
+            android.graphics.Bitmap image = automation.takeScreenshot();
+            if (image == null) throw new AssertionError("Synthetic editor screenshot unavailable");
+            try { face = image.getPixel(key.centerX(), key.top + key.height() / 4); }
+            finally { image.recycle(); }
+            if (previous != null && previous == face && expected.test(face)) return face;
+            if (SystemClock.uptimeMillis() >= until)
+                throw new AssertionError("Selection key face did not settle as expected: #" + Integer.toHexString(face));
+            previous = face;
+            SystemClock.sleep(200);
+        }
     }
 
     private static Rect bounds(AccessibilityNodeInfo node) {

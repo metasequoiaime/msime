@@ -1943,6 +1943,57 @@ fn local_model_mirror_is_empty_or_an_https_prefix() {
     assert!(loaded.voice_input.asr_model_mirror.is_empty());
 }
 
+/// 本地识别的停顿时间和判停灵敏度（#10310）：缺键按改成可调之前写死的 1500 毫秒和 0.5 阈值对应的 50 读，默认值不写进文档；范围、步进与 Android 本机设置相同，范围外和不在步进上的值整份拒绝。
+#[test]
+fn voice_pause_settings_default_to_the_old_fixed_values_and_follow_the_android_bounds() {
+    let defaults = Preferences::default().voice_input;
+    assert_eq!(defaults.pause_millis, 1500);
+    assert_eq!(defaults.stop_sensitivity, 50);
+    let document = serde_json::to_value(Preferences::default()).unwrap();
+    assert!(document["voice_input"].get("pause_millis").is_none());
+    assert!(document["voice_input"].get("stop_sensitivity").is_none());
+
+    let with = |pause_millis: u16, stop_sensitivity: u8| Preferences {
+        voice_input: VoiceInputPreferences {
+            pause_millis,
+            stop_sensitivity,
+            ..Preferences::default().voice_input
+        },
+        ..Preferences::default()
+    };
+    for (pause, sensitivity) in [(500, 10), (2500, 70), (5000, 90), (1500, 50)] {
+        assert!(
+            with(pause, sensitivity).validate().is_ok(),
+            "{pause} / {sensitivity}"
+        );
+    }
+    for (pause, sensitivity) in [
+        (0, 50),
+        (400, 50),
+        (550, 50),
+        (5100, 50),
+        (1500, 0),
+        (1500, 9),
+        (1500, 91),
+    ] {
+        assert!(
+            matches!(
+                with(pause, sensitivity).validate(),
+                Err(PreferencesError::InvalidVoicePause)
+            ),
+            "{pause} / {sensitivity}"
+        );
+    }
+
+    // 改过的值写进文档并原样读回。
+    let document = serde_json::to_value(with(3000, 80)).unwrap();
+    assert_eq!(document["voice_input"]["pause_millis"], 3000);
+    assert_eq!(document["voice_input"]["stop_sensitivity"], 80);
+    let loaded: Preferences = serde_json::from_value(document).unwrap();
+    assert_eq!(loaded.voice_input.pause_millis, 3000);
+    assert_eq!(loaded.voice_input.stop_sensitivity, 80);
+}
+
 #[test]
 fn the_shipped_defaults_are_themselves_reachable() {
     let defaults = Preferences::default();
@@ -5081,6 +5132,56 @@ fn korean_unknown_disk_layout_falls_back_without_resetting_other_preferences() {
     let saved: serde_json::Value =
         serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
     assert_eq!(saved["preferences"]["korean"]["future_option"], true);
+    assert!(serde_json::from_value::<Preferences>(document["preferences"].clone()).is_err());
+}
+
+#[test]
+fn cantonese_input_method_is_omitted_at_default_and_roundtrips_shuangpin() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let document = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    // 没选过的文档里没有这一项，旧版本读到的文档与以前相同。
+    assert!(document["preferences"].get("cantonese").is_none());
+    let bytes = serde_json::to_vec(&document).unwrap();
+    fs::write(store.path(), &bytes).unwrap();
+    let loaded = store.load().unwrap();
+    assert_eq!(
+        loaded.preferences.cantonese.input_method,
+        CantoneseInputMethod::Jyutping
+    );
+    assert_eq!(fs::read(store.path()).unwrap(), bytes);
+    let mut preferences = loaded.preferences;
+    preferences.cantonese.input_method = CantoneseInputMethod::Shuangpin;
+    let saved = store.save(loaded.revision, preferences).unwrap();
+    assert_eq!(store.load().unwrap(), saved);
+    assert_eq!(
+        serde_json::to_value(&saved.preferences).unwrap()["cantonese"]["input_method"],
+        "shuangpin"
+    );
+    let mut preferences = saved.preferences.clone();
+    preferences.cantonese.input_method = CantoneseInputMethod::Jyutping;
+    let reverted = store.save(saved.revision, preferences).unwrap();
+    assert!(serde_json::to_value(&reverted.preferences)
+        .unwrap()
+        .get("cantonese")
+        .is_none());
+}
+
+#[test]
+fn cantonese_unknown_disk_input_method_falls_back_without_resetting_other_preferences() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut document = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    document["preferences"]["cantonese"] = serde_json::json!({ "input_method": "future" });
+    document["preferences"]["candidate_page_size"] = 4.into();
+    let bytes = serde_json::to_vec(&document).unwrap();
+    fs::write(store.path(), &bytes).unwrap();
+    let loaded = store.load().unwrap();
+    assert_eq!(
+        loaded.preferences.cantonese.input_method,
+        CantoneseInputMethod::Jyutping
+    );
+    assert_eq!(loaded.preferences.candidate_page_size, 4);
     assert!(serde_json::from_value::<Preferences>(document["preferences"].clone()).is_err());
 }
 

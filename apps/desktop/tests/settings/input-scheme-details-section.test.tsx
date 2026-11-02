@@ -177,8 +177,36 @@ test("shows only the Korean scheme details in Korean mode", () => {
   expect(screen.queryByRole("combobox", { name: "五笔方案" })).toBeNull();
 });
 
+test("粤拼方案在桌面宿主可切换为粤语双拼，触屏宿主不显示", () => {
+  const onCantoneseChange = vi.fn();
+  const props = {
+    scheme: "cantonese" as const,
+    shuangpinProfile: "xiaohe" as const,
+    hasTouchKeyboardSchemes: false,
+    onShuangpinProfileChange: vi.fn(),
+    onCantoneseChange,
+  };
+  const { rerender } = render(<InputSchemeDetailsSection {...props} />);
+  expect(shown("粤拼方案")).toBe(true);
+  expect((screen.getByRole("radio", { name: "粤拼" }) as HTMLInputElement).checked).toBe(true);
+  expect(screen.queryByText(/用 ' 分隔音节/)).not.toBeNull();
+  expect(screen.queryByRole("combobox", { name: "双拼方案" })).toBeNull();
+  fireEvent.click(screen.getByRole("radio", { name: "粤语双拼" }));
+  expect(onCantoneseChange).toHaveBeenLastCalledWith({ input_method: "shuangpin" });
+
+  rerender(<InputSchemeDetailsSection {...props} cantonese={{ input_method: "shuangpin" }} />);
+  expect((screen.getByRole("radio", { name: "粤语双拼" }) as HTMLInputElement).checked).toBe(true);
+  expect(screen.queryByText(/ing 和 ik 在 ; 键上/)).not.toBeNull();
+  fireEvent.click(screen.getByRole("radio", { name: "粤拼" }));
+  expect(onCantoneseChange).toHaveBeenLastCalledWith({ input_method: "jyutping" });
+
+  rerender(<InputSchemeDetailsSection {...props} scheme="quanpin" />);
+  expect(shown("粤拼方案")).toBe(false);
+  rerender(<InputSchemeDetailsSection {...props} hasTouchKeyboardSchemes />);
+  expect(shown("粤拼方案")).toBe(false);
+});
+
 test.each([
-  ["cantonese", "粤拼方案", "粤拼"],
   ["zhuyin", "注音键盘", "大千"],
   ["stroke", "笔画方案", "横竖撇点折"],
   ["tibetan", "藏文方案", "威利转写"],

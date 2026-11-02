@@ -105,6 +105,7 @@
 		15C43E9BC5E5F91133A70F2D /* KeyboardPhrasesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F062B819666D4A4D9287AD8D /* KeyboardPhrasesView.swift */; };
 		15D44FBE14031F4502B8E302 /* ExternalCandidateSkin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EDF7AF8FF5043DBBD330758 /* ExternalCandidateSkin.swift */; };
 		15DABF44851A70C26489D833 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 8EB6D10E4CB15433D5C28E93 /* PrivacyInfo.xcprivacy */; };
+		15F3E7145C2FF33E9CE0FF65 /* QuickPhraseCursorKeyboardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB4F837E06F04517EF053E1E /* QuickPhraseCursorKeyboardTests.swift */; };
 		16242F93F076FF8C283C6899 /* CandidateGlossPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EEF14442D510EC1782EB7C3 /* CandidateGlossPreference.swift */; };
 		16DE983343D3162F3ADA9130 /* AIEndpointPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF5B764174FACAA7A76B146B /* AIEndpointPolicyTests.swift */; };
 		1715F83209DFA32EEB02A591 /* ClipboardHistorySettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 033DAEFB7D7248DC329FC47C /* ClipboardHistorySettingsView.swift */; };
@@ -1706,6 +1707,7 @@
 		E9D8B85A610A0F839A008BCA /* IOSCloudDictionary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSCloudDictionary.swift; sourceTree = "<group>"; };
 		EABB18AC690CFF2CE8BDB5C9 /* PunctuationSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PunctuationSettingsView.swift; sourceTree = "<group>"; };
 		EB2FB215B2D5062E9E93D429 /* OnlineCandidateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnlineCandidateTests.swift; sourceTree = "<group>"; };
+		EB4F837E06F04517EF053E1E /* QuickPhraseCursorKeyboardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickPhraseCursorKeyboardTests.swift; sourceTree = "<group>"; };
 		EB77A60E8E3F4DB399AD5E20 /* ViewRequestGeneration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewRequestGeneration.swift; sourceTree = "<group>"; };
 		EBEB652D060E71402D04AE7E /* SkinGenerationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkinGenerationView.swift; sourceTree = "<group>"; };
 		EC16F48D69EAE6A22D3599EC /* KeyboardVoiceDictation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardVoiceDictation.swift; sourceTree = "<group>"; };
@@ -2288,6 +2290,7 @@
 				EB2FB215B2D5062E9E93D429 /* OnlineCandidateTests.swift */,
 				CD2C7C5382BE9875C3EFAD96 /* OwnEditEchoWindowTests.swift */,
 				417D0528353898EEB4BE5B3C /* PairedPunctuationTests.swift */,
+				EB4F837E06F04517EF053E1E /* QuickPhraseCursorKeyboardTests.swift */,
 				D0FCC7F936DFBCF82D4BACF5 /* SmartPunctuationGestureTests.swift */,
 				69A52EDC8F4EF6FDE6B6C79B /* SymbolCandidateChipTests.swift */,
 				175E188ABD5A2A7946B49B67 /* TouchPointTests.swift */,
@@ -3549,6 +3552,7 @@
 				0401F417F0E941107235635F /* PromotionText.swift in Sources */,
 				806236E18B072DD8CBEECF38 /* PunctuationSettingsTests.swift in Sources */,
 				66B5F304B9395C6645EFD1C5 /* QQLinksService.swift in Sources */,
+				15F3E7145C2FF33E9CE0FF65 /* QuickPhraseCursorKeyboardTests.swift in Sources */,
 				E665E4E5F71AFB3CDD1427B7 /* QuickPunctuationSettingsTests.swift in Sources */,
 				66B9A29BDCE2CE866AE53C6F /* ReplyKeyboardView.swift in Sources */,
 				B51C592B266068B1F1F54ACF /* RustCloudPagesTests.swift in Sources */,

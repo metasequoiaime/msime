@@ -77,6 +77,17 @@ if ! rg_q_stdin -F 'addJapaneseSideKey(modeColumn, japaneseSymbolPanelKey(s.japa
   echo "The Japanese nine-key left column must always carry the 符 symbol-panel key, with emoji on its long press when the toolbar has no emoji button" >&2
   exit 1
 fi
+# 打开「交换语言键与数字键」时日语九键的语言键在左列最下一格（#10437）：符 和 切换 在它上面，123 换到右列原语言键的位置；不交换时左列仍是 123、符、切换，右列是语言键。
+if ! awk '
+  /if \(!swapLanguageNumber\) addJapaneseSideKey\(modeColumn, s\.japaneseSymbolsKey, 1\);/ { layer = NR }
+  /addJapaneseSideKey\(modeColumn, japaneseSymbolPanelKey\(s\.japaneseSideEmojiKey\(\)\), 1\);/ { symbol = NR }
+  /addJapaneseSideKey\(modeColumn, globe, 1\);/ { globe = NR }
+  /if \(swapLanguageNumber\) addJapaneseSideKey\(modeColumn, language, 1\);/ { language = NR }
+  /addJapaneseSideKey\(side, swapLanguageNumber \? s\.japaneseSymbolsKey : language, 1\);/ { right = 1 }
+  END { exit !(layer && symbol && globe && language && right && layer < symbol && symbol < globe && globe < language) }' <<< "$japanese_nine_key_rows"; then
+  echo "With the language/number swap on, the Japanese nine-key language key must sit in the bottom cell of the left column, below 符 and the globe key" >&2
+  exit 1
+fi
 # 只改大小写时不重建键行（#6997）：重建出的新键在下一次布局前宽高为 0，Shift 之后立刻按下的字母找不到键而被丢掉。Shift、一次性大写用掉和自动大写都经 refreshLetterCase 就地改键面；字母键的气泡读按下时的键面，不能用建键时记下的那个。触发和重建之间允许夹着 `//` 注释行（Shift 处理里就有一行），不然改回 rebuildKeyRows 时这道检查认不出来。
 if rg -U -n '(consumeLetter\(\)\)\s*\{?|letterCase\.toggle\(SystemClock\.uptimeMillis\(\)\);|applyAutomatic\(next\)\))(\s*//[^\n]*)*\s*imeLetterRows\.rebuildKeyRows\(\)' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
@@ -205,6 +216,23 @@ if ! rg -q 'setEnabled\(emojiShortcutButton, ToolbarReadinessPolicy\.emojiEnable
   || ! sed -n '/^    void showFeedbackMenu() {$/,/^    }$/p' "$panels_java" | rg_q_stdin 's\.dropDeferredToolbarPanel\(\);' \
   || ! sed -n '/languageButton\.setOnClickListener/,/});/p' "$service_java" | rg -A2 'case ENGINE' | rg_q_stdin 'pendingLanguageTap = false;'; then
   echo "Toolbar emoji, phrases, skin, scheme and the language key must stay usable while the engine session starts" >&2
+  exit 1
+fi
+# 符号面板不需要引擎会话（#10517，.agents/notes/implemented/bug-fix/2026-11-02-android-symbol-panel-sessionless-editors.md）。终端类应用把输入框声明成可见密码，这类输入框不建会话，原先点「符」只提示「尚未就绪」、长按 123 没反应。能不能打开、补不补后半个、记不记常用由 SymbolPanelEntryPolicySmoke 覆盖；接线在 InputMethodService 和面板里，JVM 冒烟碰不到，这里钉住：showSymbolPanel、长按 123、文本编辑面板长按回车和两个「符」按钮的可用性都经 SymbolPanelEntryPolicy.opens，showSymbolPanel 只在有会话时才 command(2)；点按的后半个经 pairsClosingMark、常用经 recordsRecent 按输入框类型判断；不建会话的输入框读外观时也填上资源目录，颜文字和各符号分类才读得到。
+symbol_show_body=$(sed -n '/^    void showSymbolPanel() {$/,/^    }$/p' "$panels_java")
+symbol_hold_body=$(sed -n '/^    void bindSymbolPanelHold(Button button) {$/,/^    }$/p' "$service_java")
+if ! rg -q 'SymbolPanelEntryPolicy\.opens\(s\.connection != null, s\.symbolPanel != null\)' <<< "$symbol_show_body" \
+  || rg -q 's\.session == 0 \|\| s\.connection == null \|\| s\.symbolPanel == null' <<< "$symbol_show_body" \
+  || ! rg -U -q 'if \(s\.session != 0\) \{\n(\s*//[^\n]*\n)?\s*s\.command\(2\);' <<< "$symbol_show_body" \
+  || ! rg -q 'SymbolPanelEntryPolicy\.opens\(connection != null, symbolPanel != null\)' <<< "$symbol_hold_body" \
+  || rg -q 'session == 0' <<< "$symbol_hold_body" \
+  || ! rg -q 'setEnabled\(symbolPanelButton, SymbolPanelEntryPolicy\.opens\(' "$service_java" \
+  || ! rg -q 'setEnabled\(symbolShortcutButton, SymbolPanelEntryPolicy\.opens\(' "$service_java" \
+  || ! rg -q 'SymbolPanelEntryPolicy\.opens\(s\.connection != null, s\.symbolPanel != null\)' "$android_java/core/ImeTextEditPanel.java" \
+  || ! rg -q 'SymbolPanelEntryPolicy\.pairsClosingMark\(s\.editorInputType, s\.pairedPunctuation\)' "$panels_java" \
+  || ! sed -n '/^    private void recordSymbolRecent(String symbol) {$/,/^    }$/p' "$panels_java" | rg_q_stdin 'SymbolPanelEntryPolicy\.recordsRecent\(s\.editorInputType, s\.learningSuppressed\(\)\)' \
+  || ! sed -n '/^                if (!engineWanted) {$/,/^                }$/p' "$service_java" | rg_q_stdin 'emojiResources = resources;'; then
+  echo "The Android symbol panel must open without an engine session, and password fields must not pair or remember symbols" >&2
   exit 1
 fi
 # 没读到实时偏好时按记住的全拼九键建会话（#10389，.agents/notes/implemented/bug-fix/2026-10-31-android-nine-key-first-frame.md）。改哪种组合由 TouchLayoutHintPolicySmoke 覆盖；接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：只在 livePreferences 为 null 时取选项里的偏好副本，用 touchLayoutHint() 经 TouchLayoutHintPolicy.startupTouchKeyboardLayout 算布局，写回副本的 touch_keyboard_layout 在 NativeClient.create 之前；displayedTouchLayout 只在没有视图时用记住的布局，有视图时按视图画，不再经 TouchLayoutHintPolicy 让提示压过视图。
@@ -455,11 +483,13 @@ if ! rg -q 'smartPunctuationArmRaw|smartPunctuationDecideRaw' \
   echo "Android smart punctuation must cross the shared Host API through JNI" >&2
   exit 1
 fi
-# 「自动补全成对标点」曾经只是设置页上的一个开关：这个宿主从不读 paired_punctuation，开着也只上屏半个括号（#5608）。键盘标点键的补全规则与 iOS、HarmonyOS 同一份（PairedPunctuationPolicy.completion），符号面板走 symbolClosing，在面板里轻点自动补上的后半个要跨过它（stepOverPairedSymbol），否则面板里补出（|）再点 ）会多一个；补完书名号要经 JNI 通知 Engine 平衡嵌套。
+# 「自动补全成对标点」曾经只是设置页上的一个开关：这个宿主从不读 paired_punctuation，开着也只上屏半个括号（#5608）。键盘标点键的补全规则与 iOS、HarmonyOS 同一份：宿主经 PairedPunctuationPolicy.punctuationCommit 取整段决定，它再按 completion 决定补哪半个（光标短语模板不补）。符号面板走 symbolClosing，在面板里轻点自动补上的后半个要跨过它（stepOverPairedSymbol），否则面板里补出（|）再点 ）会多一个；补完书名号要经 JNI 通知 Engine 平衡嵌套。
 if ! rg -q 'optBoolean\("paired_punctuation"' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
-  || ! rg -q 'PairedPunctuationPolicy\.completion\(' \
+  || ! rg -q 'PairedPunctuationPolicy\.punctuationCommit\(' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+  || ! rg -q 'new PunctuationCommit\(landed, completion\(landed' \
+    "$repo_root/platforms/android/java/app/msime/android/keyboard/PairedPunctuationPolicy.java" \
   || ! rg -q 'PairedPunctuationPolicy\.symbolClosing\(' \
     "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
   || ! rg -q 'stepOverPairedSymbol\(' \
@@ -1039,6 +1069,27 @@ if ! rg -q 'ClipboardSelectionPolicy\.canSelect' \
   || ! rg -q 'exportSelectedText' \
     "$repo_root/platforms/android/java/app/msime/android/clipboard/ClipboardHistoryStore.java"; then
   echo "Android clipboard multi-selection must cap at 20 and export the selected records (#9957)" >&2
+  exit 1
+fi
+# 多选「插入」按 ①②③④ 的顺序一次插入 1 到 4 项（#10411）。上限、序号和拼接由 ClipboardSelectionPolicySmoke 覆盖；接线在面板和 InputMethodService 里，JVM 冒烟碰不到，这里钉住：顶行有「插入」并按 canInsert 置灰，选中项的读屏前缀从 ordinal 算出，角标画在承载单列和网格两种排法的左滑格里、并加进卡片自己的浮层（不做兄弟视图，带阴影的皮肤抬高卡片后会把它盖住），每次重画按读出的历史收窄选择（多选中左滑删掉的记录不能再被插入），服务按 canInsert 守住条数、经 insertionText 拼成一次 commitText。
+if ! rg -q 'clipboardAction\(header, "插入"' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
+  || ! rg -q 'ClipboardSelectionPolicy\.canInsert\(clipboardSelectedTexts\.size\(\)\)' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
+  || ! rg -q 'ClipboardSelectionPolicy\.selectedDescription\(ordinal\)' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
+  || ! rg -A 40 'private FrameLayout clipboardSwipeCell\(' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
+    | rg_q_stdin 'ClipboardSelectionPolicy\.ordinalLabel\(ordinal\)' \
+  || ! rg -A 40 'private FrameLayout clipboardSwipeCell\(' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
+    | rg_q_stdin 'card\.getOverlay\(\)\.add\(badge\)' \
+  || ! rg -q 'clipboardSelectedTexts\.retainAll\(listed\)' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
+  || ! rg -A 6 'void insertClipboardTexts\(' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+    | rg_q_stdin 'ClipboardSelectionPolicy\.insertionText\(texts\)'; then
+  echo "Android clipboard multi-selection must insert 1 to 4 records in ordinal order with badges (#10411)" >&2
   exit 1
 fi
 # 长按全文预览的「详情」排在「插入」左边，详情页返回时回到这个预览（#9963）。返回到哪一级由 ClipboardDetailPolicySmoke 覆盖；接线在 PopupWindow 和面板里，JVM 冒烟碰不到，这里钉住：预览先加「详情」再加「插入」，本机记录的预览把详情交给 Origin.PREVIEW，返回经 reopensPreview 决定是否重开预览，顶栏和底部操作行的两个「返回」都按来源给读屏说明。

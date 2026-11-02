@@ -1425,6 +1425,27 @@ pub struct KoreanPreferences {
     pub layout: KoreanLayout,
 }
 
+/// 桌面宿主的粤拼按什么解释：`Jyutping` 是普通粤拼，前两键不是完整音节、又能解成双拼码时自动按粤语双拼读；`Shuangpin` 从第一键起按粤语双拼两键一音节读，与粤拼同形的码（如 `oi`）也按双拼。触屏宿主不读这一项，粤语双拼在那里是独立的触屏方案（`TouchKeyboardScheme::CantoneseShuangpin`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CantoneseInputMethod {
+    #[default]
+    Jyutping,
+    Shuangpin,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct CantonesePreferences {
+    pub input_method: CantoneseInputMethod,
+}
+
+impl CantonesePreferences {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 /// How Vietnamese letters and tones are typed. The Engine code is the declaration order (`vietnamese_input_method`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -2007,6 +2028,9 @@ pub struct Preferences {
     /// 可选韩语布局；宿主未声明能力时仍运行两套式。
     #[serde(default)]
     pub korean: KoreanPreferences,
+    /// 桌面宿主的粤拼解释方式（普通粤拼或粤语双拼）。等于默认值时不写进文档，没动过这一项的文档与以前的版本相同。
+    #[serde(default, skip_serializing_if = "CantonesePreferences::is_default")]
+    pub cantonese: CantonesePreferences,
     /// 只出单字：全拼、双拼、五笔和粤拼的候选只留单个汉字，选一个字后剩下的拼写接着组字。默认关闭。
     #[serde(default)]
     pub single_character_only: bool,
@@ -2396,6 +2420,18 @@ pub struct VoiceInputPreferences {
     pub doubao_enable_ddc: bool,
     #[serde(default)]
     pub doubao_boosting_table_id: String,
+    /// 点按开始的本地识别出字后停顿多久结束录音（毫秒），500–5000、步进 100，默认 1500，与 Android 本机设置 `platform.android.voice_pause_millis` 同一范围。鸿蒙和 iOS 读它；Android 的这一项在它自己的本机设置里，不读这个字段。`voice_input` 整组不进设置文件导出，账号同步也不导出这一项，所以只留在本机。默认值不写进文档。
+    #[serde(
+        default = "default_voice_pause_millis",
+        skip_serializing_if = "is_default_voice_pause_millis"
+    )]
+    pub pause_millis: u16,
+    /// 判停灵敏度，10–90、默认 50：越高越容易判定说完、结束录音。只作用于按停顿结束的本地整段模型，宿主把它换成 Silero VAD 的判定阈值（灵敏度 ÷ 100，默认正是原来的 0.5）。与 `pause_millis` 一样只留在本机，默认值不写进文档。
+    #[serde(
+        default = "default_voice_stop_sensitivity",
+        skip_serializing_if = "is_default_voice_stop_sensitivity"
+    )]
+    pub stop_sensitivity: u8,
 }
 
 /// EveryAPI 的识别默认模型以前写成 `openai/whisper-large-v3-turbo`，那是照搬 Apple 预设的名字，EveryAPI 从没有它的渠道（请求返回 503 `model_not_found`）。共享设置页切到 EveryAPI 时会把默认模型写进 `asr_model`，所以选过 EveryAPI 的文档里存的就是这个值。
@@ -2455,6 +2491,8 @@ impl Default for VoiceInputPreferences {
             doubao_enable_punc: true,
             doubao_enable_ddc: source_voice_default(),
             doubao_boosting_table_id: String::new(),
+            pause_millis: VOICE_PAUSE_MILLIS_DEFAULT,
+            stop_sensitivity: VOICE_STOP_SENSITIVITY_DEFAULT,
         }
     }
 }
@@ -4187,6 +4225,30 @@ fn default_doubao_auth_mode() -> String {
     "api_key".to_owned()
 }
 
+/// 本地识别停顿时间的范围、步进和默认值（毫秒），与 Android `AndroidLocalSettings.VOICE_PAUSE_*` 相同；默认值就是改成可调之前写死的 1500。
+pub const VOICE_PAUSE_MILLIS_RANGE: std::ops::RangeInclusive<u16> = 500..=5000;
+pub const VOICE_PAUSE_MILLIS_STEP: u16 = 100;
+pub const VOICE_PAUSE_MILLIS_DEFAULT: u16 = 1500;
+/// 判停灵敏度的范围和默认值；默认 50 对应原来写死的 VAD 阈值 0.5。
+pub const VOICE_STOP_SENSITIVITY_RANGE: std::ops::RangeInclusive<u8> = 10..=90;
+pub const VOICE_STOP_SENSITIVITY_DEFAULT: u8 = 50;
+
+fn default_voice_pause_millis() -> u16 {
+    VOICE_PAUSE_MILLIS_DEFAULT
+}
+
+fn is_default_voice_pause_millis(value: &u16) -> bool {
+    *value == VOICE_PAUSE_MILLIS_DEFAULT
+}
+
+fn default_voice_stop_sensitivity() -> u8 {
+    VOICE_STOP_SENSITIVITY_DEFAULT
+}
+
+fn is_default_voice_stop_sensitivity(value: &u8) -> bool {
+    *value == VOICE_STOP_SENSITIVITY_DEFAULT
+}
+
 impl Default for Preferences {
     fn default() -> Self {
         Self {
@@ -4286,6 +4348,7 @@ impl Default for Preferences {
             shuangpin_keymap_hint: None,
             vietnamese: VietnamesePreferences::default(),
             korean: KoreanPreferences::default(),
+            cantonese: CantonesePreferences::default(),
             single_character_only: false,
             caret_edit_suffix: false,
             candidate_page_size: 6,
@@ -5132,6 +5195,13 @@ impl Preferences {
         {
             return Err(PreferencesError::InvalidVoiceInput);
         }
+        if !VOICE_PAUSE_MILLIS_RANGE.contains(&self.voice_input.pause_millis)
+            || !(self.voice_input.pause_millis - VOICE_PAUSE_MILLIS_RANGE.start())
+                .is_multiple_of(VOICE_PAUSE_MILLIS_STEP)
+            || !VOICE_STOP_SENSITIVITY_RANGE.contains(&self.voice_input.stop_sensitivity)
+        {
+            return Err(PreferencesError::InvalidVoicePause);
+        }
         if !(50..=200).contains(&self.floating_toolbar.scale_percent)
             || !(12..=48).contains(&self.floating_toolbar.font_size)
         {
@@ -5376,6 +5446,8 @@ pub enum PreferencesError {
     InvalidNetwork,
     #[error("voice recognition or polishing provider is not supported")]
     InvalidVoiceInput,
+    #[error("本地识别停顿时间须为 500–5000 毫秒、步进 100，判停灵敏度须为 10–90")]
+    InvalidVoicePause,
     #[error("custom translation endpoint or API key is invalid")]
     InvalidCustomTranslation,
     #[error("Tencent translation credentials or region are invalid")]
@@ -6464,7 +6536,7 @@ fn acceptable_preferences(candidate: &serde_json::Map<String, serde_json::Value>
         .is_ok_and(|preferences| preferences.validate().is_ok())
 }
 
-/// 读盘时把更新的版本才有的标量取值换成本版本的取值，免得一个键让整份文档读不了；只用于读磁盘，设置提交仍由枚举反序列化严格校验。目前只有韩文布局：更新的版本的未知布局回退到两套式。
+/// 读盘时把更新的版本才有的标量取值换成本版本的取值，免得一个键让整份文档读不了；只用于读磁盘，设置提交仍由枚举反序列化严格校验。目前有韩文布局和粤拼解释方式：更新的版本的未知取值分别回退到两套式和普通粤拼。
 fn settle_newer_values_on_read(document: &mut serde_json::Value) {
     if let Some(layout) = document.pointer_mut("/preferences/korean/layout") {
         if layout
@@ -6472,6 +6544,14 @@ fn settle_newer_values_on_read(document: &mut serde_json::Value) {
             .is_some_and(|value| !matches!(value, "dubeolsik" | "romaja"))
         {
             *layout = "dubeolsik".into();
+        }
+    }
+    if let Some(method) = document.pointer_mut("/preferences/cantonese/input_method") {
+        if method
+            .as_str()
+            .is_some_and(|value| !matches!(value, "jyutping" | "shuangpin"))
+        {
+            *method = "jyutping".into();
         }
     }
 }

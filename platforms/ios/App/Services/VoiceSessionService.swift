@@ -33,6 +33,8 @@ final class VoiceSessionService: ObservableObject {
   /// `current` 上一次随通知发出的时刻；心跳只刷新时间，不算发出。
   private var publishedAt = Date.distantPast
   private var dictation: (id: UUID, task: Task<Void, Never>, limit: Task<Void, Never>)?
+  /// 点按开始的本地识别的停顿计时（#10310）；按住说话、系统识别和云端服务没有它。
+  private var pauseStop: VoicePauseStop?
   /// 听写中定时把麦克风电平报给键盘，听写结束就停。
   private var levelTimer: Timer?
   /// 上次报给键盘的电平；这次听写还没报过时为 nil。
@@ -144,6 +146,7 @@ final class VoiceSessionService: ObservableObject {
     guard isActive, let expiresAt else { return }
     let state = VoiceSessionState(phase: phase, request: request, text: text, message: message,
                                   level: phase == .listening ? publishedLevel : nil,
+                                  endsOnPause: phase == .listening && pauseStop != nil ? true : nil,
                                   heartbeat: Date(), expiresAt: expiresAt)
     current = state
     publishedAt = Date()
@@ -186,9 +189,10 @@ final class VoiceSessionService: ObservableObject {
     switch command.action {
     case .start:
       guard dictation?.id != command.request, current?.request != command.request else { return }
-      start(command.request)
+      start(command.request, tapStarted: command.tapStarted == true)
     case .stop:
       if dictation?.id == command.request {
+        endPauseStop()
         tap.end()
         publish(.recognizing, request: command.request, text: current?.text ?? "")
       } else if current?.request != command.request {
@@ -203,7 +207,7 @@ final class VoiceSessionService: ObservableObject {
     }
   }
 
-  private func start(_ id: UUID) {
+  private func start(_ id: UUID, tapStarted: Bool) {
     cancelDictation()
     let configuration = CustomServiceConfiguration.load(.voice)
     let settings = VoicePolishSettings(MetasequoiaInputSessionBridge.loadSharedPreferences())
@@ -214,11 +218,12 @@ final class VoiceSessionService: ObservableObject {
     startLevelUpdates(id)
     let task = Task { [weak self] in
       guard let self else { return }
-      await recognize(id: id, pcm: pcm, configuration: configuration, settings: settings)
+      await recognize(id: id, pcm: pcm, configuration: configuration, settings: settings, tapStarted: tapStarted)
     }
     let limit = Task { [weak self] in
       do { try await Task.sleep(nanoseconds: UInt64(Self.dictationLimit * 1_000_000_000)) } catch { return }
       guard let self, dictation?.id == id else { return }
+      endPauseStop()
       tap.end()
       publish(.recognizing, request: id, text: current?.text ?? "")
     }
@@ -226,6 +231,7 @@ final class VoiceSessionService: ObservableObject {
   }
 
   private func cancelDictation() {
+    endPauseStop()
     guard let dictation else { return }
     self.dictation = nil
     dictation.limit.cancel()
@@ -262,9 +268,9 @@ final class VoiceSessionService: ObservableObject {
     publish(.listening, request: id, text: current.text)
   }
 
-  /// 识别一段听写，按语音设置里选的服务：本地模型（没有下载模型时退回系统语音识别）、系统语音识别、豆包边说边识别，其他服务在说完后上传整段录音。
+  /// 识别一段听写，按语音设置里选的服务：本地模型（没有下载模型时退回系统语音识别）、系统语音识别、豆包边说边识别，其他服务在说完后上传整段录音。点按开始的本地识别还按用户设的停顿时间和判停灵敏度在停顿后自己结束录音（#10310），与 Android、鸿蒙键盘里的本地识别一致；按住说话由松手结束，系统识别、豆包和上传式服务都不按停顿结束。
   private func recognize(id: UUID, pcm: AsyncStream<Data>, configuration: CustomServiceConfiguration,
-                         settings: VoicePolishSettings) async {
+                         settings: VoicePolishSettings, tapStarted: Bool) async {
     let partial: @Sendable (String) -> Void = { text in
       Task { @MainActor [weak self] in
         guard let self, dictation?.id == id, current?.phase == .listening || current?.phase == .recognizing else { return }
@@ -281,8 +287,33 @@ final class VoiceSessionService: ObservableObject {
           let hotwords = await Task.detached(priority: .userInitiated) {
             resources.map { LocalSpeechModelStore.hotwords(resources: $0, stateRoot: stateRoot) } ?? []
           }.value
-          result = try await LocalSpeechRecognizer.transcribe(pcm: pcm, modelDirectory: model, language: settings.language,
-                                                             hotwords: hotwords, partial: partial)
+          let pause = VoicePauseSettings.forDictation(tapStarted: tapStarted,
+                                                      preferences: MetasequoiaInputSessionBridge.loadSharedPreferences())
+          if let pause, dictation?.id == id {
+            pauseStop = VoicePauseStop(milliseconds: pause.pauseMilliseconds) { [weak self] in self?.endOnPause(id) }
+            // 马上告诉键盘这次会在停顿后结束，聆听面板换成相应的提示，不等下一次出字或电平变化。
+            if let current, current.phase == .listening, current.request == id {
+              publish(.listening, request: id, text: current.text)
+            }
+          }
+          // 出字和说话状态都先回到主线程再交给停顿计时，与实时文字走同一条路。
+          let heard: @Sendable (String) -> Void = { text in
+            partial(text)
+            guard !text.isEmpty else { return }
+            Task { @MainActor [weak self] in
+              guard let self, dictation?.id == id else { return }
+              pauseStop?.heard()
+            }
+          }
+          let speech: @Sendable (Bool) -> Void = { speaking in
+            Task { @MainActor [weak self] in
+              guard let self, dictation?.id == id else { return }
+              pauseStop?.speech(speaking)
+            }
+          }
+          result = try await LocalSpeechRecognizer.transcribe(
+            pcm: pcm, modelDirectory: model, language: settings.language, hotwords: hotwords,
+            vadThreshold: pause?.vadThreshold ?? VoicePauseSettings.defaultVADThreshold, partial: heard, speech: speech)
         } else {
           result = try await SystemSpeechRecognizer.transcribe(pcm: pcm, language: settings.language, partial: partial)
         }
@@ -326,8 +357,22 @@ final class VoiceSessionService: ObservableObject {
     }
   }
 
+  /// 点按开始的本地识别停顿够久了：和到时长上限一样停止录音，识别器读完剩下的音频后照常交出结果。
+  private func endOnPause(_ id: UUID) {
+    guard dictation?.id == id, let current, current.phase == .listening, current.request == id else { return }
+    pauseStop = nil
+    tap.end()
+    publish(.recognizing, request: id, text: current.text)
+  }
+
+  private func endPauseStop() {
+    pauseStop?.cancel()
+    pauseStop = nil
+  }
+
   private func finish(_ id: UUID) {
     guard let dictation, dictation.id == id else { return }
+    endPauseStop()
     dictation.limit.cancel()
     self.dictation = nil
     _ = tap.end()

@@ -91,10 +91,11 @@ class CEndCompositionEditSession : public CEditSessionBase
 //
 //----------------------------------------------------------------------------
 
-void CMetasequoiaIME::_TerminateComposition(TfEditCookie ec, _In_ ITfContext *pContext, BOOL isCalledFromDeactivate)
+HRESULT CMetasequoiaIME::_TerminateComposition(TfEditCookie ec, _In_ ITfContext *pContext, BOOL isCalledFromDeactivate)
 {
     isCalledFromDeactivate;
     PerfTimer timer;
+    HRESULT result = S_OK;
 
     if (_pComposition != nullptr)
     {
@@ -119,6 +120,7 @@ void CMetasequoiaIME::_TerminateComposition(TfEditCookie ec, _In_ ITfContext *pC
         const bool wasTerminatingOwnComposition = _terminatingOwnComposition;
         _terminatingOwnComposition = true;
         const HRESULT endResult = SafeEndComposition(terminatingComposition, ec);
+        result = endResult;
         _terminatingOwnComposition = wasTerminatingOwnComposition;
         if (FAILED(endResult) && _pComposition == terminatingComposition)
         {
@@ -159,6 +161,7 @@ void CMetasequoiaIME::_TerminateComposition(TfEditCookie ec, _In_ ITfContext *pC
         }
         terminatingComposition->Release();
     }
+    return result;
 }
 
 //+---------------------------------------------------------------------------

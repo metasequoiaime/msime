@@ -48,3 +48,21 @@ test("marks the dictionary save action busy", () => {
   expect((button as HTMLButtonElement).disabled).toBe(true);
   expect(button.getAttribute("aria-busy")).toBe("true");
 });
+
+test("explains the cursor marker only when editing a quick phrase", () => {
+  const props = {
+    entries: [],
+    form: { key: "tt", value: 'title:"${cursor}"', weight: 100, previous: null },
+    busy: false,
+    listRef: { current: null },
+    onFormChange: vi.fn(),
+    onSave: vi.fn(),
+    onCancel: vi.fn(),
+    onEdit: vi.fn(),
+    onRemove: vi.fn(),
+  };
+  const { rerender } = render(<DictionaryEntries kind="quick_phrase" {...props} />);
+  expect(screen.getByText(/编辑器不支持定位时光标留在末尾。以前存过/)).toBeTruthy();
+  rerender(<DictionaryEntries kind="pinyin" {...props} />);
+  expect(screen.queryByText(/编辑器不支持定位时光标留在末尾/)).toBeNull();
+});

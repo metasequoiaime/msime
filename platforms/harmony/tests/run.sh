@@ -605,12 +605,28 @@ if ! grep -qF 'this.recordLetterTouch($$.letter, event);' "$view" \
   echo "KeyboardView must record each letter's touch-down against the key it pressed, drop it on Cancel and when the face is replaced, record the semicolon key, take it through takeTouch at the key's current rect, and compute touchLayout on every key without a cache" >&2
   exit 1
 fi
-# 硬件键盘快捷键 LOCK 锁定录音后，松开按键不再结束录音，会话按点按开始对待：面板给「说完了」「取消」，流式识别停顿自动结束。按钮文字由 voice-listening-policy.test.ts 的 `VoiceListeningPolicy.primaryLabel`、`cancelLabel` 覆盖；视图是 ArkTS，这里钉住接线：LOCK 分支清掉 `voiceHeldByKey`，面板按钮从策略取。
+# 硬件键盘快捷键 LOCK 锁定录音后，松开按键不再结束录音，会话按点按开始对待：面板给「说完了」「取消」，触屏上本地识别和系统识别停顿自动结束（`VoiceRecordingBehaviourPolicy.keyboardStopsOnPause`）。按钮文字由 voice-listening-policy.test.ts 的 `VoiceListeningPolicy.primaryLabel`、`cancelLabel` 覆盖；视图是 ArkTS，这里钉住接线：LOCK 分支清掉 `voiceHeldByKey`，面板按钮从策略取。
 lock_branch=$(sed -n '/^      if (action === VoiceHotkeyAction.LOCK) {$/,/^      }$/p' "$view")
 if ! grep -qF 'this.voiceHeldByKey = false;' <<< "$lock_branch" \
   || ! grep -qF 'primaryLabel: VoiceListeningPolicy.primaryLabel(this.voiceListeningSession()),' "$view" \
   || ! grep -qF 'cancelLabel: VoiceListeningPolicy.cancelLabel(this.voiceListeningSession()),' "$view"; then
   echo "A hotkey LOCK must turn the held session into a tap session (clear voiceHeldByKey), and the listening panel must take its button labels from VoiceListeningPolicy" >&2
+  exit 1
+fi
+# 停顿时间和判停灵敏度（#10310）：规则由 keyboard-logic.test.ts 的 `VoiceRecognitionPolicy.pauseMillis`、`LocalAsrPolicy.vadThreshold`、`VoiceRecordingBehaviourPolicy.keyboardStopsOnPause` 覆盖；视图、识别器和 worker 是 ArkTS，这里钉住接线：触屏上只有本地识别和系统识别在出字后按停顿计时（本地识别用用户的停顿时间），判停灵敏度只交给点按开始的本地识别，worker 按它换算 Silero 阈值，设置桥按设备形态报告能力位。
+start_voice_body=$(sed -n '/^  private startVoice(fromHotkey: boolean = false): void {$/,/^  }$/p' "$view")
+if ! grep -qF 'this.voicePauseEnds = this.touchDesign() && VoiceRecordingBehaviourPolicy.keyboardStopsOnPause(voiceConfiguration);' <<< "$start_voice_body" \
+  || ! grep -qF 'this.voicePauseMs = VoiceRecordingBehaviourPolicy.pauseMillis(voiceConfiguration);' <<< "$start_voice_body" \
+  || ! grep -qF 'VoiceRecordingBehaviourPolicy.stopSensitivity(voiceConfiguration, this.voicePauseEnds && !fromHotkey);' <<< "$start_voice_body" \
+  || ! grep -qF 'if (!final && text.length > 0 && this.voicePauseEnds) {' <<< "$start_voice_body" \
+  || ! grep -qF '}, this.voicePauseMs);' "$view" \
+  || ! grep -qF "scratch: config.local_model_scratch ?? '', stopSensitivity: config.local_stop_sensitivity ?? 0" \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/input/HarmonyLocalAsrRecognizer.ets" \
+  || ! grep -qF 'const threshold: number = LocalAsrPolicy.vadThreshold(request.stopSensitivity);' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/workers/LocalAsrWorker.ets" \
+  || ! grep -qF "value['voice_pause_settings'] = projection.voicePauseSettings;" \
+    "$repo_root/platforms/harmony/entry/src/main/ets/pages/Settings.ets"; then
+  echo "Only touch-started local and system recognition may end on a pause (local on the user's pause time), the stop sensitivity must reach the worker's Silero threshold only for tap-started local sessions, and the settings bridge must report voice_pause_settings" >&2
   exit 1
 fi
 # 聆听面板的水杉娘指示区（#10313）：画不画人物和红线的数值由 voice-listening-policy.test.ts 的 `VoiceListeningPolicy.showsMascot`、`mascotArcs` 覆盖；视图是 ArkTS，这里钉住接线：开始录音在任何提前返回之前就按这次尝试（`fromHotkey`）经策略算出指示区，开不了录音时显示原因的面板也不沿用上一次会话的；LOCK 清掉 `voiceHeldByKey` 之后经 refreshVoiceMascot 重算；面板拿到 mascot、表情包里的图片地址和是否在录音（收尾识别时红线立即收起）；图片解码出来之前画圆盘、画布不画耳部（`onComplete` 在读到数据时也回调一次，只认解码成功）；人物图片和画布不进读屏。
@@ -793,6 +809,23 @@ if [[ $(grep -cF 'panel.changeFlag(' "$floating_ability") -ne 1 ]] \
   echo "The floating keyboard must change the panel flag only while the panel is hidden and show it again afterwards, never move a fixed panel, refit the floating panel when the display changes, save the dragged position, suspend one-handed mode while floating or split, and stop drawing the split keyboard while floating" >&2
   exit 1
 fi
+# 触屏剪贴板多选按序号插入（#10411）：上限、序号和拼接由 clipboard-selection.test.ts 的 `ClipboardSelectionPolicy` 覆盖；视图是 ArkTS，node 下编不了，这里钉住接线：多选时点卡片经 toggleClipSelection 选中，角标经 ordinalLabel 画出、读屏前缀经 selectedDescription，「插入」按 canInsert 标成禁用（读屏读得出它点不了）并守住条数、经 insertionText 拼好后走和单条插入同一个 `KeyboardSession.shared.insert` 一次上屏。
+clip_insert=$(sed -n '/^  private insertClipSelection(): void {$/,/^  }$/p' \
+  "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets")
+if ! grep -qF '.onClick(() => this.toggleClipSelection(entry.text))' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets" \
+  || ! grep -qF 'ClipboardSelectionPolicy.ordinalLabel(this.clipOrdinal(entry.text))' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets" \
+  || ! grep -qF 'ClipboardSelectionPolicy.selectedDescription(this.clipOrdinal(entry.text))' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets" \
+  || ! grep -qF '.enabled(ClipboardSelectionPolicy.canInsert(this.clipSelection.length))' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets" \
+  || ! grep -qF 'ClipboardSelectionPolicy.canInsert(this.clipSelection.length)' <<< "$clip_insert" \
+  || ! grep -qF 'ClipboardSelectionPolicy.insertionText(this.clipSelection)' <<< "$clip_insert" \
+  || ! grep -qF 'KeyboardSession.shared.insert(text);' <<< "$clip_insert"; then
+  echo "Harmony clipboard multi-selection must badge entries in tap order and insert 1 to 4 of them in one commit (#10411)" >&2
+  exit 1
+fi
 # 键盘调整遮罩（取代高度条）：四项的范围、生效条件、外框换算、各边拖动约束、存放和面板高度含抬高由 keyboard-adjust.test.ts 覆盖。视图、会话和扩展能力是 ArkTS，这里钉住接线：离开键盘调整的唯一出口 `show` 在离开时保存（没有恢复快照的「取消」路径），收起键盘、换输入框、切应用（`onPanelHidden`）都经它离开；「确认」也走它；设置页中途重载不盖掉预览；根节点按 `adjustFrame` 让出两侧和底部，面板高度和冷启动第一帧都算进抬高；外框和左右沿拖动按量到的面板宽换算（停靠面板是建面板时的屏幕宽，转屏、折叠屏开合后与此刻的屏幕宽不同），中间一排按钮按外框宽缩放；离开时抬高、宽度、位置只存生效且动过的项（`KeyboardAdjustPolicy.saved`，与 Android `keyboardAdjustEdits` 相同），打开时记下原值；调整期间工具条和按键整块不进读屏，读屏只走遮罩上的柄和按钮；旧的高度条不再存在。
 adjust_view="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets"
 adjust_show=$(sed -n '/^  private show(surface: string): void {$/,/^  }$/p' "$adjust_view")
@@ -877,11 +910,24 @@ if ! grep -qF "KeyboardSession.shared.readAloudText(" "$repo_root/platforms/harm
   exit 1
 fi
 "$tsc" --project "$here/tsconfig.json"
+# Telemetry.ets 是 .ets，不在上面的 tsconfig 里，telemetry-adapter.test.cjs 又用 --noCheck 发射，删掉 TelemetryPolicy 成员后 HAP 编译失败而这里仍然全绿。把它复制成 .ts，连同真实的 TelemetryPolicy.ts、系统模块的 any 声明和同级模块的 any 存根做一次严格类型检查。
+telemetry_check="$repo_root/target/harmony-tests/telemetry-typecheck"
+rm -rf "$telemetry_check"
+mkdir -p "$telemetry_check/telemetry" "$telemetry_check/keyboard" "$telemetry_check/privacy"
+cp "$repo_root/platforms/harmony/entry/src/main/ets/telemetry/Telemetry.ets" "$telemetry_check/telemetry/Telemetry.ts"
+cp "$repo_root/platforms/harmony/entry/src/main/ets/telemetry/TelemetryPolicy.ts" "$telemetry_check/telemetry/TelemetryPolicy.ts"
+printf 'export declare const KeyboardLog: any;\nexport declare function describeError(error: unknown): string;\n' > "$telemetry_check/keyboard/KeyboardLog.d.ts"
+printf 'export declare const HarmonyPrivacyConsent: any;\n' > "$telemetry_check/privacy/HarmonyPrivacyConsent.d.ts"
+"$tsc" --ignoreConfig --noEmit --strict --target es2021 --module commonjs --skipLibCheck \
+  "$here/telemetry-typecheck.d.ts" "$telemetry_check/telemetry/Telemetry.ts" "$telemetry_check/telemetry/TelemetryPolicy.ts"
 node "$here/idle-dictionary-lifecycle.test.cjs"
 # 上面已编译所有 tests/*.test.ts；逐个运行它们的输出。遍历源文件而不是输出目录，可以避免已删除测试遗留的旧 .js 被运行。
 for source in "$here"/*.test.ts; do
   node "$repo_root/target/harmony-tests/tests/$(basename "${source%.ts}").js"
 done
+# 实际 ArkTS 生命周期适配器在替代系统 API 后执行，补上纯策略测试碰不到的请求接线。
+node "$here/telemetry-adapter.test.cjs"
+bash "$here/check-native-capture.sh"
 # The key-sound renderer is plain C++ over miniaudio with no NAPI in it, so the build machine's compiler checks what it writes and what it refuses.
 out="$repo_root/target/harmony-tests"
 miniaudio="$repo_root/platforms/windows/third_party/miniaudio"

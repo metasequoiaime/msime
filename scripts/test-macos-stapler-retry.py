@@ -30,7 +30,7 @@ class StaplerRetryTests(unittest.TestCase):
         self.bin.mkdir()
         self.state = self.directory / "state.json"
         self.plan = self.directory / "plan.json"
-        self.dmg = self.directory / "合成 安装包.dmg"
+        self.dmg = self.directory / "合成 安装包.pkg"
         self.dmg.write_bytes(b"synthetic package")
         runner = self.directory / "tools.py"
         runner.write_text(

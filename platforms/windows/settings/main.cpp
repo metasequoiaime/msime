@@ -43,6 +43,9 @@
 #include "../../../shared/contracts/windows_ipc.h"
 #include "../tsf/IPC/AuxNamedpipeSender.h"
 #include "../../common/HostApiString.h"
+#include "../../common/CrashRecorder.h"
+#include "../../common/Telemetry.h"
+#include <thread>
 #include "../common/GameCompatProfile.h"
 #include "AboutPageModel.h"
 #include "AccountPageModel.h"
@@ -714,6 +717,9 @@ uint64_t strict_revision(JsonObject const &object, std::wstring_view key,
   return static_cast<uint64_t>(raw);
 }
 
+// 保存后立即刷新持久授权；窗口存活期间另有独立观察器跟随其他进程的修改。
+void RefreshCrashCapture() { msime::telemetry::refresh(); }
+
 class PreferencesDocument {
 public:
   PreferencesDocument() { reset_defaults(); }
@@ -766,6 +772,7 @@ public:
           JsonObject::Parse(text(response.text)).GetNamedObject(L"value");
       preferences_ = document_.GetNamedObject(L"preferences");
       revision_ = strict_revision(document_, L"revision", revision_);
+      RefreshCrashCapture();
       return std::nullopt;
     } catch (...) {
       // 设置已写入，但返回内容读不了：调用方重读已存的设置。
@@ -4644,6 +4651,7 @@ private:
     font_catalog_button_ = nullptr;
     font_menu_updaters_.clear();
     focus_target_ = nullptr;
+    community_preview_views_.clear();
 
     StackPanel page;
     page.Padding(content_padding(scroll_.ActualWidth()));
@@ -10290,7 +10298,7 @@ private:
 
   // 社区皮肤的预览图：每款读一次，卡片和详情共用（共享页的 loadPreview）；最多留 16 张，再加上当前列表里的那些，免得列表一重画就把刚读到的又读一遍。读到后就地换上正在显示它的卡片，不重画整页。
   void show_community_preview(Border const &host, std::wstring const &id, std::wstring const &name) {
-    community_preview_views_.emplace(id, make_weak(host));
+    community_preview_views_.emplace(id, host);
     auto found = community_previews_.find(id);
     if (found == community_previews_.end()) {
       community_previews_.emplace(id, CommunityPreview{});
@@ -10378,8 +10386,7 @@ private:
       name = skin_gallery_.selected->name;
     const auto [first, last] = community_preview_views_.equal_range(id);
     for (auto it = first; it != last; ++it)
-      if (auto host = it->second.get())
-        fill_community_preview(host, found->second, name);
+      fill_community_preview(it->second, found->second, name);
   }
 
   // ---- 图库的界面 ----
@@ -10837,7 +10844,6 @@ private:
       build_skin_community_detail(page);
       return;
     }
-    community_preview_views_.clear();
     community_search<CommunitySkinItem>(page, L"搜索候选窗口皮肤");
     community_heading<CommunitySkinItem>(
         page, L"社区皮肤", L"为输入候选窗口换一身新装，安装后在「本地皮肤」中启用",
@@ -10885,7 +10891,6 @@ private:
   }
 
   void build_skin_community_detail(StackPanel const &page) {
-    community_preview_views_.clear();
     auto &gallery = skin_gallery_;
     auto const selected = *gallery.selected;
     auto body = community_detail_frame<CommunitySkinItem>(page);
@@ -13821,9 +13826,14 @@ private:
       segment_row(group, 0xE8AB, L"韩语布局",
                   L"默认两套式，可切换为罗马字。罗马字用 x 输入声母 ㅇ（xa → 아，hangug → 한국），Shift+G/D/B/J/S 输入紧音；退格删除当前拼写的最后一个拉丁字母，标点为半角",
                   L"korean.layout", {{L"dubeolsik", L"两套式"}, {L"romaja", L"罗马字"}}, L"dubeolsik");
+    // 粤语双拼与粤拼共用同一个方案和词典，做成粤拼方案下的选项，说明与共享页的「粤拼方案」相同。
     if (scheme == L"cantonese")
-      add_row(group, 0xE8AB, L"粤拼方案",
-              L"粤拼：按不带声调的粤拼输入，用 ' 分隔音节，数字键选词，候选为繁体字词", nullptr);
+      segment_row(group, 0xE8AB, L"粤拼方案",
+                  document_.String(L"cantonese.input_method", L"jyutping") == L"shuangpin"
+                      ? L"两键一个音节，第一键是声母、第二键是韵母，ing 和 ik 在 ; 键上；从第一键起按双拼解释，与粤拼同形的码（如 oi）也按双拼。数字键选词，候选为繁体字词"
+                      : L"按不带声调的粤拼输入，用 ' 分隔音节，数字键选词，候选为繁体字词",
+                  L"cantonese.input_method", {{L"jyutping", L"粤拼"}, {L"shuangpin", L"粤语双拼"}},
+                  L"jyutping");
     if (scheme == L"zhuyin")
       add_row(group, 0xE8AB, L"注音键盘",
               L"大千：按大千键位输入注音符号，空格为一声，6 3 4 7 为二、三、四声和轻声，候选为繁体字词",
@@ -15827,6 +15837,12 @@ private:
     weight.Value(previous ? static_cast<double>(previous->weight) : 10.0);
     form.Children().Append(key);
     form.Children().Append(value);
+    // 与共享页 dictionary-entries.tsx 一样，在短语框下说明光标标记的写法。
+    if (kind == L"quick_phrase" && !bundled) {
+      auto note = make_text(pg::quick_phrase_cursor_note, 12, palette_.sub);
+      note.MaxWidth(360);
+      form.Children().Append(note);
+    }
     form.Children().Append(weight);
     ContentDialog dialog;
     dialog.Title(box_value(hstring(previous ? (bundled ? L"调权重" : L"编辑词条") : L"新增词条")));
@@ -22495,6 +22511,7 @@ private:
       body.Children().Append(make_text(L"编码是 K 之后输入的小写字母，最多 32 个；同一个编码可以对应几段文字。文字最多 " +
                                            std::to_wstring(pg::max_text_utf16) + L" 个字符，不能换行。",
                                        12, palette_.sub));
+      body.Children().Append(make_text(pg::phrase_cursor_note, 12, palette_.sub));
       for (std::size_t i = 0; i < std::min(draft.phrases.size(), plugin_editor_shown_); ++i) {
         const auto at = L"第 " + std::to_wstring(i + 1) + L" 条短语";
         auto key = plugin_editor_field(
@@ -27556,7 +27573,8 @@ private:
   std::optional<std::wstring> plugin_kind_shown_;
   std::map<std::wstring, CommunityPreview> community_previews_;
   std::vector<std::wstring> community_preview_order_;
-  std::multimap<std::wstring, weak_ref<Border>> community_preview_views_;
+  // 正在显示预览图的卡片位置，每次画页面时清空，所以只留当前页面的。这里必须是强引用：只由可视树持有的 Border，它的 weak_ref 在创建时还能解析，随后就解析不出来了，卡片却还在页面上（#10005 在 Windows 11 实机上记录到，读到的预览图因此一直填不进卡片）。
+  std::multimap<std::wstring, Border> community_preview_views_;
   bool skin_sync_running_ = false;
   bool skin_sync_queued_ = false;
   SkinPublish skin_publish_;
@@ -27653,6 +27671,19 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR command, int) {
   if (activation != msime::settings::SettingsInstance::Start::primary)
     return activation == msime::settings::SettingsInstance::Start::forwarded ? 0 : 1;
   init_apartment(apartment_type::single_threaded);
+  msime::crash::install_crash_handlers();
+  std::vector<wchar_t> local(32768);
+  const DWORD length = GetEnvironmentVariableW(L"LOCALAPPDATA", local.data(), static_cast<DWORD>(local.size()));
+  const auto telemetryDirectory = length && length < local.size()
+      ? std::filesystem::path(std::wstring(local.data(), length)) / MSIME_EDITION_USER_DATA_DIRECTORY
+      : std::filesystem::path();
+  // 原生设置只产生独立崩溃，不建立输入会话；启动补报沿用一次后台发送。没有绝对偏好目录就读不到持续授权，此时不启动采集，免得落入旧协议的默认开启；带上包内版本，首次读取授权时不会把非 full 版本的偏好按 full 初始化。
+  if (const auto preferences = state_directory(); preferences.is_absolute())
+    msime::telemetry::begin({"windows", MSIME_WINDOWS_VERSION, telemetryDirectory,
+                            std::nullopt, preferences, "settings", true, MSIME_EDITION_ID});
+  msime::telemetry::ConsentObserver reporting;
+  std::thread([] { msime::telemetry::flush(); }).detach();
+  std::set_terminate([] { msime_native_crash_record("std::terminate in settings"); std::abort(); });
   Application::Start([&instance](auto &&) { make<App>(instance); });
   return 0;
 }
