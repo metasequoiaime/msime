@@ -24,5 +24,9 @@ ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "
 name = "calibrate"
 required-features = ["runtime"]
 
+[[example]]
+name = "footprint"
+required-features = ["runtime"]
+
 [lints]
 workspace = true
