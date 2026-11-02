@@ -33,6 +33,13 @@ target_compile_options(input-mode-identifiers-test PRIVATE -fobjc-arc -UNDEBUG -
 set_target_properties(input-mode-identifiers-test PROPERTIES OBJCXX_STANDARD 17)
 target_link_libraries(input-mode-identifiers-test PRIVATE "-framework Foundation")
 add_test(NAME input-mode-identifiers COMMAND input-mode-identifiers-test)
+# 菜单栏中/英状态项的图像：切换模式时必须跟着变，又要与系统输入源的模式字形区分开。图像取仓库里的 resources 目录，不往菜单栏放东西。
+add_executable(input-mode-status-item-test tests/input/InputModeStatusItemTest.mm src/input/InputModeStatusItem.mm)
+target_compile_options(input-mode-status-item-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
+target_compile_definitions(input-mode-status-item-test PRIVATE MSIME_MACOS_RESOURCES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/resources")
+set_target_properties(input-mode-status-item-test PROPERTIES OBJCXX_STANDARD 17)
+target_link_libraries(input-mode-status-item-test PRIVATE "-framework AppKit")
+add_test(NAME input-mode-status-item COMMAND input-mode-status-item-test)
 # 中日英循环切换在 macOS 这一侧只做两处翻译：控制器状态 → msime_client_language_cycle 的入参、
 # 答复 → 控制器要执行的动作。循环顺序在 crates/client-core/src/language_cycle.rs 的单测里。
 add_executable(trilingual-cycle-routing-test tests/input/TrilingualCycleRoutingTest.mm)
