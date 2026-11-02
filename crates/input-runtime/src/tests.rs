@@ -10784,6 +10784,8 @@ mod candidate_scorer;
 
 mod prediction_rerank;
 
+mod sentence_pool;
+
 mod settled_async;
 
 mod online_slot_order_equivalence;

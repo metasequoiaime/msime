@@ -281,6 +281,11 @@ impl CandidateScorer for OnnxScorer {
         self.within_keystroke_budget
     }
 
+    /// 大小两档都要引擎解满一次比较的条数：多出的三条在 Pixel 3 XL（6x256，4 线程）上让整键 p95 从 9.0 ms 到 9.8 ms，仍在 10 ms 的逐键预算之内；桌面 8x448 的整键 p99 从 3.1 ms 到 3.6 ms。见 `.agents/notes/implemented/feature/2026-11-02-sentence-pool-for-reranker.md`。
+    fn sentence_pool(&self) -> usize {
+        msime_engine::ordering::SENTENCE_POOL
+    }
+
     /// 打不了分（候选为空、太长，或图运行失败）时返回空表，`rerank_pick` 见长度不符就不动候选；失败后缓存作废，下一次按键从上文重来。
     fn log_probabilities(&mut self, context: &str, candidates: &[&str]) -> Vec<f32> {
         if candidates.is_empty() || candidates.iter().any(|c| c.is_empty()) {

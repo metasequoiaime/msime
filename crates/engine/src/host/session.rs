@@ -185,6 +185,11 @@ impl Session {
         self.inner.set_prediction_pool(enabled);
     }
 
+    /// 整句读法条数下限，同 [`crate::Session::set_sentence_pool`]。
+    pub fn set_sentence_pool(&mut self, paths: usize) {
+        self.inner.set_sentence_pool(paths);
+    }
+
     /// 按模型给刚上屏之后的联想排序，同 [`crate::Session::order_prediction`]。
     pub fn order_prediction(
         &mut self,
