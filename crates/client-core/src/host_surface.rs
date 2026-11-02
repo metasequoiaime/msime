@@ -58,6 +58,7 @@ impl HostPlatform {
             HostPlatform::Android
                 | HostPlatform::Linux
                 | HostPlatform::Macos
+                | HostPlatform::Ios
                 | HostPlatform::Harmony
         )
     }

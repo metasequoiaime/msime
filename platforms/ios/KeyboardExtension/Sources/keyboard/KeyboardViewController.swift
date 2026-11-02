@@ -93,6 +93,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let candidateScrollView = CandidateScrollView()
   private let diagnosticLabel = UILabel()
   private let expandCandidatesButton = UIButton()
+  /// 上屏后联想时展开箭头左边的关闭键 ×（#10078 在 Android 定下的三种样式之一），显示与否看 `NextWordPredictionButtons`；点它送取消，不往文档写任何字符。
+  private let closePredictionButton = UIButton()
   /// 候选词块与展开箭头之间那条 1×22 的细线。
   private let expandDivider = UIView()
   private let candidateStack = UIStackView()
@@ -610,6 +612,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var visibleCandidatePageCount = 0
   private var appliedCandidateColumnWidth: CGFloat = 0
   private var visibleCandidatesAnsweredByPinyinFallback = false
+  /// 最近一次快照是不是上屏后联想（View 的 `prediction`）。看的是会话的状态，不是候选条：数字键要不要交给会话去选联想，按会话里有没有联想定。
+  private var enginePrediction = false
+  /// 候选条此刻画的就是会话的联想（不是邮箱后缀、英文建议这些键盘自己的列表），关闭键和长按菜单据此决定。
+  private var visibleCandidatesArePrediction = false
   private var visibleDiagnostic: String?
   private var diagnosticDismissTimer: Timer?
   private var shuangpinKeyHints: [String: String] = [:]
@@ -970,8 +976,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       self.updateLanguageModeButton()
       self.updateLetterCaseControls()
       // 邮箱后缀不是候选条底下的内容，由 `updateCandidateStrip` 按这时的上文重新决定给不给。
+      // 重画的是同一份会话候选时，上屏后联想的标记跟着留下，关闭键和展开键不因这次重画消失。
       self.updateCandidateStrip(preedit: self.visiblePreedit,
-                                candidates: self.visibleEmailSuffixes.isEmpty ? self.visibleCandidates : [])
+                                candidates: self.visibleEmailSuffixes.isEmpty ? self.visibleCandidates : [],
+                                prediction: self.visibleCandidatesArePrediction)
     }
     synchronizeInputContext()
     prepareKeyFeedback()
@@ -1224,6 +1232,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       textDocumentProxy.unmarkText()
       noteOwnEdit()
       render(discardComposition())
+      return
+    }
+    // 上屏后联想还在时，外部移动光标或改了文字：在同一个会话上重新获得焦点，清掉联想，也切断个人词序与重排的上下文，随后选中的词不会记成旧位置的后续词（与 Android 一样）。结束组字只清建议，保留已上屏的词序，代替不了它。
+    if enginePrediction {
+      render(session.refocus())
       return
     }
     // A genuine host-initiated change — the caret moved, the field was cleared, the document was
@@ -2520,6 +2533,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     expandCandidatesButton.addAction(
       UIAction { [weak self] _ in self?.toggleCandidatePanel() },
       for: .primaryActionTriggered)
+    closePredictionButton.addTarget(self, action: #selector(prepareKeyFeedback), for: .touchDown)
+    closePredictionButton.addAction(
+      UIAction { [weak self] _ in self?.dismissPrediction() },
+      for: .primaryActionTriggered)
 
     preeditButton.translatesAutoresizingMaskIntoConstraints = false
     compositionRow.addSubview(preeditButton)
@@ -2527,13 +2544,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
     let content = UIStackView(arrangedSubviews: [
       candidateScrollView, diagnosticLabel,
-      candidateEmptySpacer, expandDivider, expandCandidatesButton, exitLocalModeButton, hanjaButton,
+      candidateEmptySpacer, expandDivider, closePredictionButton, expandCandidatesButton, exitLocalModeButton, hanjaButton,
     ])
     content.axis = .horizontal
     content.alignment = .center
     content.spacing = 12
     // 箭头紧贴它的分隔线，对应设计稿里紧跟细线的那个 40pt 按钮。
     content.setCustomSpacing(0, after: expandDivider)
+    // 关闭键和箭头并排时也紧挨着，同一条细线只画在 × 左边，与 Android 一样。
+    content.setCustomSpacing(0, after: closePredictionButton)
     content.translatesAutoresizingMaskIntoConstraints = false
     container.addSubview(content)
     candidateContent = content
@@ -2971,6 +2990,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         incognito.toggle()
         KeyboardPrivacyPreference.incognito = incognito
         applyLearningPreferences()
+        // 隐私会话立即禁止上屏后联想，运行时当场清掉建议，但设置隐私的接口只回一个布尔值：另取会话此刻的视图重画，候选条上不留旧联想。
+        if incognito && enginePrediction { render(session.currentSnapshot()) }
         configureDiagnosticLog()
         updateShortcutButtons()
       },
@@ -4596,6 +4617,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return number > chips
   }
 
+  /// 上屏后联想时数字键作为字符交给会话（msime_client.h 的 `View.prediction`）：本页内的数字由运行时选中对应的一条，越过本页的数字照常输入。不是 private：测试会固定它。
+  static func digitGoesToSessionDuringPrediction(_ symbol: String, prediction: Bool) -> Bool {
+    prediction && symbol.count == 1 && symbol >= "0" && symbol <= "9"
+  }
+
   private func handleSymbol(_ symbol: String) {
     // 符号的去向看组字、候选条和本地模式，先画完此前异步投递的按键，不按旧画面判断。
     session.flushPendingCharacters()
@@ -4648,6 +4674,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
     // 韩语、越南语和藏文的数字作为字符交给会话。汉字列表打开时数字 1-9 从当前页选字，以已处理返回并把汉字作为上屏；VNI 数字给正在拼的越南语单词加符号；其余情况下数字结束正在拼的音节或单词，以未处理按键的上屏返回，随后再把数字打进去。藏文的数字保持原样，不转成藏文数字。
     if typesKorean || typesCasedLetters, symbol.count == 1, symbol >= "0", symbol <= "9" {
+      let snapshot = session.handleCharacter(symbol)
+      render(snapshot)
+      if !snapshot.isHandled { insertDirectText(symbol) }
+      return
+    }
+
+    // 上屏后联想和普通候选一样用数字选：作为字符交给会话，本页内的数字由运行时选中对应的一条并上屏；越过本页的数字以未处理返回，再照常写进文档。不走下面的候选编号：那里「组字中越过词块的数字什么也不做」只属于组字，联想时没有组字可护。
+    if Self.digitGoesToSessionDuringPrediction(symbol, prediction: enginePrediction) {
       let snapshot = session.handleCharacter(symbol)
       render(snapshot)
       if !snapshot.isHandled { insertDirectText(symbol) }
@@ -6125,6 +6159,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 低于 required：候选行可能比按钮稍矮，以行高为准。
     height.priority = .init(999)
     NSLayoutConstraint.activate([expandCandidatesButton.widthAnchor.constraint(equalToConstant: side), height])
+    var closeConfiguration = configuration
+    closeConfiguration.image = KeyboardIcon.candidateClose.image(pointSize: Self.expandIconSide)
+    closePredictionButton.configuration = closeConfiguration
+    closePredictionButton.accessibilityLabel = "关闭联想"
+    closePredictionButton.accessibilityIdentifier = "closePrediction"
+    closePredictionButton.isHidden = true
+    let closeHeight = closePredictionButton.heightAnchor.constraint(equalToConstant: side)
+    closeHeight.priority = .init(999)
+    NSLayoutConstraint.activate([closePredictionButton.widthAnchor.constraint(equalToConstant: side), closeHeight])
     expandDivider.isUserInteractionEnabled = false
     expandDivider.isAccessibilityElement = false
     expandDivider.accessibilityIdentifier = "expandCandidatesDivider"
@@ -6353,9 +6396,26 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func updateExpandControl() {
     // 只要组字有候选就提供，与设计稿一致。网格列出会话的完整结果，所以会话不持有的列表不提供这个控件：英文联想和手写识别结果。
-    let hidden = !hasComposition || visibleCandidates.isEmpty || visibleDiagnostic != nil
-    expandCandidatesButton.isHidden = hidden
-    expandDivider.isHidden = hidden
+    // 上屏后联想没有组字，但候选同样是会话的，展开键和关闭键按用户在「联想栏按键」里选的样式出现（`NextWordPredictionButtons`）。
+    let prediction = visibleCandidatesArePrediction && visibleDiagnostic == nil
+    let buttons = prediction ? NextWordPredictionButtons.style(in: session.sharedPreferences) : .expandOnly
+    let expandHidden = !(hasComposition || prediction) || visibleCandidates.isEmpty || visibleDiagnostic != nil
+      || !buttons.allowsExpand(prediction: prediction)
+    let closeHidden = !buttons.showsClose(prediction: prediction)
+    expandCandidatesButton.isHidden = expandHidden
+    closePredictionButton.isHidden = closeHidden
+    expandDivider.isHidden = expandHidden && closeHidden
+  }
+
+  /// 联想候选栏上的关闭键：送取消清掉上屏后联想。引擎对联想的取消报已处理，不上屏、不往文档写任何字符（空格会选中高亮的一条），已上屏的词序照旧保留；候选清空后候选条换回工具栏。候选网格开着时先收起，再取消。
+  private func dismissPrediction() {
+    playInputClick()
+    guard enginePrediction else {
+      renderCandidateStrip()
+      return
+    }
+    if candidatePanel != nil { closeKeyboardPicker() }
+    render(session.cancel())
   }
 
   // The engine's local input modes open on a capital carried with a shift-only modifier, which this
@@ -8000,6 +8060,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let wasComposing = renderedComposition
     let wasKoreanHanjaListOpen = koreanHanjaListOpen
     hasComposition = !snapshot.preedit.isEmpty
+    enginePrediction = snapshot.isPrediction
     if hasComposition != wasComposing { updateFourteenKeySeparator() }
     // 菜单与工具栏共用顶栏，组字时顶栏会变成候选条；菜单打开时到来的组字（手写或回复结果）会把菜单关掉。
     if hasComposition && morePicker != nil { closeKeyboardPicker() }
@@ -8057,7 +8118,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                          candidateConfidentCorrections: visibleValues(snapshot.candidateConfidentCorrections),
                          candidatePageCount: snapshot.candidatePageCount,
                          candidateEngineIndices: visibleIndices,
-                         answeredByPinyinFallback: snapshot.answeredByPinyinFallback)
+                         answeredByPinyinFallback: snapshot.answeredByPinyinFallback,
+                         prediction: snapshot.isPrediction)
     // The Hanja list opens and closes while the syllable keeps composing, and Return chooses a Hanja only while it is open.
     if !inputScheme.isJapanese && koreanHanjaListOpen != wasKoreanHanjaListOpen { updateReturnKey() }
     refreshCandidatePanelAnnotations()
@@ -8107,7 +8169,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                                     candidateFixedPositions: [Int] = [], candidateHighlighted: [Bool] = [],
                                     candidateConfidentCorrections: [Bool] = [], candidatePageCount: Int = 0,
                                     candidateEngineIndices: [Int]? = nil,
-                                    answeredByPinyinFallback: Bool = false) {
+                                    answeredByPinyinFallback: Bool = false, prediction: Bool = false) {
     // 光标前打到 `xxx@` 时邮箱后缀占候选条，排在英文建议之前，与 Android 一样；它们不是 Engine 的候选，不带编码、释义和来源。
     // 还在输入线程上算的英文建议不能再盖掉这次的内容。
     englishSuggestionStripGeneration &+= 1
@@ -8140,6 +8202,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     visibleCandidatePageCount = showsEmailSuffixes ? 0 : candidatePageCount
     visibleCandidatesAnsweredByPinyinFallback = showsEmailSuffixes ? false : answeredByPinyinFallback
+    visibleCandidatesArePrediction = prediction && !showsEmailSuffixes && !candidates.isEmpty
     requestCandidateTranslations()
     // Any new candidate list is a different composition or a different set of matches, so the page
     // it was showing no longer describes anything.
@@ -8973,6 +9036,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let glosses = glossMenuElements(at: index)
     let fixedPosition = visibleCandidateFixedPositions.indices.contains(index) ? visibleCandidateFixedPositions[index] : 0
     let identity = visibleCandidateIdentities.indices.contains(index) ? visibleCandidateIdentities[index] : nil
+    // 上屏后联想不是正在输入的编码的候选，固定、删除和以词定字都没有对象，与 Android 一样只留释义、朗读和生词本。
+    if visibleCandidatesArePrediction {
+      return glosses + personalWordbookElements(candidate: candidate, glosses: candidateGlosses(at: index))
+    }
     let management = candidateMenuElements(candidate: candidate, fixedPosition: fixedPosition) { [weak self] operation in
       guard let self, candidateRevision == revision,
             visibleCandidates.indices.contains(index), visibleCandidates[index] == candidate else { return nil }
@@ -8998,7 +9065,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// The same menu for a candidate identified the way the expanded panel holds it. Panel positions
   /// index the engine's whole answer, not the visible strip, so they cannot use the visible index.
   func candidateMenuElements(generation: UInt64, globalIndex: UInt64) -> [UIMenuElement] {
-    guard isChineseMode, inputScheme.writesChinese, !isInLocalMode else { return [] }
+    guard isChineseMode, inputScheme.writesChinese, !isInLocalMode, !enginePrediction else { return [] }
     let entry = (try? CandidatePanelSnapshot.decode(session.allCandidates()))
       .flatMap { $0.generation == generation ? $0.entries.first { $0.index == globalIndex } : nil }
     return candidateMenuElements(candidate: entry?.text, fixedPosition: entry?.fixedPosition ?? 0) { [weak self] operation in
@@ -9025,7 +9092,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let personal = personalWordbookElements(
       candidate: candidate,
       glosses: self.glosses(word: candidate, offline: offlineGloss, source: source, highlighted: highlighted))
-    guard session.isOnCurrentPage(generation: generation, globalIndex: globalIndex) else { return glosses + personal }
+    guard !enginePrediction, session.isOnCurrentPage(generation: generation, globalIndex: globalIndex) else { return glosses + personal }
     let management = candidateMenuElements(candidate: candidate, fixedPosition: fixedPosition) { [weak self] operation in
       self?.session.editCandidate(generation: generation, globalIndex: globalIndex, action: operation)
     }
@@ -9893,6 +9960,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     exitLocalModeButton.configuration?.baseForegroundColor = candidatePalette?.accent ?? skin.accent
     preeditButton.configuration?.baseForegroundColor = candidatePalette?.preeditText ?? candidatePalette?.secondary ?? skin.secondary
     expandCandidatesButton.configuration?.baseForegroundColor = candidatePalette?.text ?? skin.keyForeground
+    closePredictionButton.configuration?.baseForegroundColor = candidatePalette?.text ?? skin.keyForeground
     expandDivider.backgroundColor = skin.hairline
     adjustOverlay?.apply(skin: skin)
     oneHandGutter.apply(skin: skin)
@@ -10031,6 +10099,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     exitLocalModeButton.configuration?.baseForegroundColor = candidatePalette?.accent ?? skin.accent
     preeditButton.configuration?.baseForegroundColor = candidatePalette?.preeditText ?? candidatePalette?.secondary ?? skin.secondary
     expandCandidatesButton.configuration?.baseForegroundColor = candidatePalette?.text ?? skin.keyForeground
+    closePredictionButton.configuration?.baseForegroundColor = candidatePalette?.text ?? skin.keyForeground
     renderCandidateStrip()
   }
 

@@ -205,6 +205,7 @@
 		2DDFE1928D74C113DF773969 /* WAVPCMExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF406F60D186354E48767AFB /* WAVPCMExtractor.swift */; };
 		2DE8B388D6BE850877524B62 /* KeyboardLayoutTables.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58FA4200E8A4B07CEFC31B28 /* KeyboardLayoutTables.swift */; };
 		2DF00FC8D27ED68FD561CA2F /* KeyboardCloudClipboardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70EF2588A63F3119450E2EBD /* KeyboardCloudClipboardTests.swift */; };
+		2D57808EFA5CE226199A1AB7 /* NextWordPredictionPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F7C0482B7864B9928A36F47 /* NextWordPredictionPreference.swift */; };
 		2E403AEC31F6573FB2C834F9 /* IOSCloudClipboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4AA3E70ECE1072E2BA5BD6A /* IOSCloudClipboard.swift */; };
 		2E9D7B7016A9238789018EFD /* CandidateTranslationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44FA49473CBC55923C7B4378 /* CandidateTranslationStore.swift */; };
 		2EA8399606D4D9616E25AFDD /* BackendAnonymousAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A28330A8A6A26456C5CAB1A /* BackendAnonymousAccount.swift */; };
@@ -295,6 +296,7 @@
 		3CB42E8F39CCE96339EC341C /* CrashSignalRecorder.c in Sources */ = {isa = PBXBuildFile; fileRef = 50635AF2CA70ACBDFD233367 /* CrashSignalRecorder.c */; };
 		3D3F31AE61B61B25C947C9EC /* CustomService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C721F2EB6F186F5A7C93B12 /* CustomService.swift */; };
 		3D6810B991EAB97C21AA9F8A /* KeyboardBrand.png in Resources */ = {isa = PBXBuildFile; fileRef = 998740623BE3E698150DCE1E /* KeyboardBrand.png */; };
+		3C834C66054C281DD6CD93EF /* NextWordPredictionPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F7C0482B7864B9928A36F47 /* NextWordPredictionPreference.swift */; };
 		3D7EC81B52FFB582928DB997 /* BackendSnapshotClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A88CE15A172F9A54B2186B3 /* BackendSnapshotClient.swift */; };
 		3E36426D4A5644366D2FD411 /* HandwritingInputViewFallback.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB16ED43E02A5C32A83690FE /* HandwritingInputViewFallback.swift */; };
 		3E39568B907FFAAEE129E837 /* BackendSnapshotClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A88CE15A172F9A54B2186B3 /* BackendSnapshotClient.swift */; };
@@ -398,6 +400,7 @@
 		56D83128B499AAB87AC60CEE /* LocalSpeechModelsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72D81D6CD9EC76C593AD3287 /* LocalSpeechModelsView.swift */; };
 		56F219C2DD544BBD8DAA4B3A /* BackendChatClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4382C16C3E9BCE74058CA5F8 /* BackendChatClient.swift */; };
 		57585332C5EB580BAE547BFA /* BackendCandidateClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94F8DF30A61A7F6604ED4032 /* BackendCandidateClient.swift */; };
+		56800239675F17C082423585 /* NextWordPredictionPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F7C0482B7864B9928A36F47 /* NextWordPredictionPreference.swift */; };
 		57B6CE08D7D6D5E556529821 /* BackendCommunityResourceClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7FA6A2465AAF8B5759E2157 /* BackendCommunityResourceClient.swift */; };
 		57C49313AF58A336E23C01A9 /* ImeModeMemoryPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 703F0A6DF0E8C6C550A36C13 /* ImeModeMemoryPreference.swift */; };
 		57C89EAF2F48CBDE254E6681 /* FakeRustTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E98D3FBDDCA31BF49882659 /* FakeRustTable.swift */; };
@@ -559,6 +562,7 @@
 		7B76619B0856C65DE7A3A73E /* KeyboardCandidatePanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CB98B9A352C70A51ED5BCE /* KeyboardCandidatePanelView.swift */; };
 		7B8D3470C884433C4D457DDD /* GlideTyping.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB65620E5B3B44FBBEC6462C /* GlideTyping.swift */; };
 		7B931E1654E95FE9AAA3AC34 /* offline-glosses in Resources */ = {isa = PBXBuildFile; fileRef = BA1FE7CB15B9A5A9BCD3C244 /* offline-glosses */; };
+		7B5B36C5B04333F34BFCAD3D /* NextWordPredictionPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F7C0482B7864B9928A36F47 /* NextWordPredictionPreference.swift */; };
 		7C194374413F83E8ECB9AD44 /* KeyboardAITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D46EFDD9BA187AAD3B6ECA1 /* KeyboardAITests.swift */; };
 		7CAD93D5038DBB1FC054219E /* KeyboardSchemePickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32D4D354FEFD88EABBB73877 /* KeyboardSchemePickerView.swift */; };
 		7CDE8094A882DC9C4352C50A /* EngineResources in Resources */ = {isa = PBXBuildFile; fileRef = 2FED55ACBEABB84672AFC0A6 /* EngineResources */; };
@@ -932,6 +936,7 @@
 		D3AB08E805DD1EF4ACABCEFA /* CommunityUnseenItemsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8689978BDC5F40537C38D95 /* CommunityUnseenItemsTests.swift */; };
 		D3F7CCA5FC6EB1A6FCA6095B /* BackendPreferencesClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76C6B7C24EC7317B2B471A2E /* BackendPreferencesClient.swift */; };
 		D40C673625F2A5D8FD323E8C /* KeyboardSkinCollection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89FAEEA3C7B2D7B657583FAA /* KeyboardSkinCollection.swift */; };
+		D32B682349AB8AB97334061E /* NextWordPredictionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F39134CB30EC12FDBF7908E /* NextWordPredictionTests.swift */; };
 		D41566CB00BACD61D32455C0 /* CandidateTranslationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44FA49473CBC55923C7B4378 /* CandidateTranslationStore.swift */; };
 		D420E106F048182438C70B17 /* CandidateMarker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62B836D28DBED9680F0BBDD3 /* CandidateMarker.swift */; };
 		D42FA47325BCBE29EA3A6F81 /* EnglishSuggestionsPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10FD906BDEA9610C563DF699 /* EnglishSuggestionsPreference.swift */; };
@@ -1383,6 +1388,7 @@
 		53CF49EF428CBDDE70EB9A2F /* DiagnosticLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticLog.swift; sourceTree = "<group>"; };
 		542D625F9AC28F9D0FFEE604 /* onnxruntime-ThirdPartyNotices.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "onnxruntime-ThirdPartyNotices.txt"; sourceTree = "<group>"; };
 		543C9DADA404F7AA48009C2B /* FourteenKeyLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourteenKeyLayout.swift; sourceTree = "<group>"; };
+		4F7C0482B7864B9928A36F47 /* NextWordPredictionPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextWordPredictionPreference.swift; sourceTree = "<group>"; };
 		554DF108CE1D88971DE22972 /* CommunitySkinTrialView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommunitySkinTrialView.swift; sourceTree = "<group>"; };
 		56116E1E60ACAF9CC705B0D2 /* DoubaoLiveFailureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubaoLiveFailureTests.swift; sourceTree = "<group>"; };
 		5634B081FC6ABBB98C23F4D7 /* CustomThemeCandidateSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomThemeCandidateSection.swift; sourceTree = "<group>"; };
@@ -1473,6 +1479,7 @@
 		82618C844A1985076A84B3CF /* NineKeySidebarPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NineKeySidebarPreference.swift; sourceTree = "<group>"; };
 		8287109EE6C4EB060ACDFD01 /* CandidateFontSizeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CandidateFontSizeTests.swift; sourceTree = "<group>"; };
 		83C5BB90CF0932462B49BF08 /* LocalSpeechModelStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalSpeechModelStore.swift; sourceTree = "<group>"; };
+		7F39134CB30EC12FDBF7908E /* NextWordPredictionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextWordPredictionTests.swift; sourceTree = "<group>"; };
 		84C84616F00768E7DA4291F4 /* KeyboardChatHistoryPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardChatHistoryPolicy.swift; sourceTree = "<group>"; };
 		84E0EA58776B85E03854D05F /* OnboardingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingUITests.swift; sourceTree = "<group>"; };
 		85767C9258553C6420A8C955 /* VerificationCodePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerificationCodePolicy.swift; sourceTree = "<group>"; };
@@ -2298,6 +2305,7 @@
 			);
 			path = input;
 			sourceTree = "<group>";
+				7F39134CB30EC12FDBF7908E /* NextWordPredictionTests.swift */,
 		};
 		67CB1EE6F4FD062F9A7A500A /* clipboard */ = {
 			isa = PBXGroup;
@@ -2756,6 +2764,7 @@
 			path = preferences;
 			sourceTree = "<group>";
 		};
+				4F7C0482B7864B9928A36F47 /* NextWordPredictionPreference.swift */,
 		D55ABD0C783059587D822287 /* dictionary */ = {
 			isa = PBXGroup;
 			children = (
@@ -3535,6 +3544,8 @@
 				91B2070AD23612E8658EF9D7 /* OwnEditEchoWindow.swift in Sources */,
 				BF78A75C36DFFEA794FF53B6 /* OwnEditEchoWindowTests.swift in Sources */,
 				C54E0D63405A3CE89839E5A6 /* PairedPunctuationPolicy.swift in Sources */,
+				2D57808EFA5CE226199A1AB7 /* NextWordPredictionPreference.swift in Sources */,
+				D32B682349AB8AB97334061E /* NextWordPredictionTests.swift in Sources */,
 				41FBB3A860E1C365C24C696F /* PairedPunctuationTests.swift in Sources */,
 				5AACF8DA8AF76C0D40C819F6 /* PersonalDictionaryBridge.swift in Sources */,
 				FAEA73FB47FFE8ED7D5AA801 /* PersonalDictionaryHansImportTests.swift in Sources */,
@@ -3769,6 +3780,7 @@
 				B613A6205364F21B96B9DBAC /* PersonalWordbookStore.swift in Sources */,
 				E37B991DA5C354349FEB3AB9 /* PromotionText.swift in Sources */,
 				88B767175B7AE2AF408837D7 /* ReplyKeyboardView.swift in Sources */,
+				3C834C66054C281DD6CD93EF /* NextWordPredictionPreference.swift in Sources */,
 				659CCE2CA825D0FF09328626 /* ScrollEdgeEffects.swift in Sources */,
 				3F4D41063E9987AFCF5BAACC /* SentenceAssociationPreference.swift in Sources */,
 				C09E5057BBBC7ED8F72018E8 /* SharedNumber.swift in Sources */,
@@ -3982,6 +3994,7 @@
 				DF49913DE4842A115CE729D4 /* PersonalWordBridge.swift in Sources */,
 				055980AE86F4AFE9B8F2F35C /* PersonalWordbookStore.swift in Sources */,
 				909FEDE810DAFD7A0166E3EF /* PromotionText.swift in Sources */,
+				7B5B36C5B04333F34BFCAD3D /* NextWordPredictionPreference.swift in Sources */,
 				F6E6CDA6735358A1BDC96422 /* ReplyKeyboardView.swift in Sources */,
 				F15CA3088A526483C2319C60 /* ScrollEdgeEffects.swift in Sources */,
 				A2C3DC0C34BFC6D66B03EAA9 /* ScrollEdgeEffectsTests.swift in Sources */,
@@ -4292,6 +4305,7 @@
 				27C09C6EB1F8A3BDB8669AF1 /* PluginCatalog.swift in Sources */,
 				AE0F9E13AAD727375A3BFBCB /* PluginDetailView.swift in Sources */,
 				5022DD9FBC4B739F490D4F29 /* PluginEditorModel.swift in Sources */,
+				56800239675F17C082423585 /* NextWordPredictionPreference.swift in Sources */,
 				55B0595228A50AD39F22BEB1 /* PluginEditorView.swift in Sources */,
 				FC211AA68C7DAE75B2E3F3FB /* PluginLibrary.swift in Sources */,
 				2EBBCD60980DC55E22691066 /* PluginsSettingsView.swift in Sources */,
