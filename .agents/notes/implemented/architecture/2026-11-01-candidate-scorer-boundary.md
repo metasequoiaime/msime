@@ -6,7 +6,7 @@ Status: implemented
 
 按键重排和停顿重排原来把 chinese-ime-lm 的 `Reranker` 写死在类型里：`rerank_pick`、`pick_contest` 取 `&mut Reranker`，`Runtime` 的 `reranker` 和 `settled_reranker` 是 `Option<Reranker>`，停顿评分请求也带着一个 `Reranker`。这个模型是纯 Rust 的单线程参考实现，约 12.5 GMAC/s，24.9M 一次决策 71 ms，chinese-ime-lm 的文档写明它不能上按键路径。
 
-下一代重排模型（chinese-ime-lm #94 的 8x448 与手机用的 6x256）在 ctx-v1 上有上下文 91.8%、无上下文 83.4%，但要靠 ONNX Runtime 的多线程 int8 内核才进得了按键预算：桌面 2 线程按键 p95 约 3 ms，iPhone 17 约 3 ms。ONNX Runtime 是 C++ 原生库，而 `crates/engine` 是纯 Rust、还要编到网页引擎的 wasm（`docs/ARCHITECTURE.md` 的分层）。类型写死时，接新后端只能把原生库塞进引擎，或者在 `input-runtime` 里另写一份排序规则，两条都越界。
+下一代重排模型（chinese-ime-lm #94 的 8x448 与手机用的 6x256）在 ctx-v1 上有上下文 91.9% 和 90.4%、无上下文 82.7% 和 83.0%（随包的 `model-v1` 同口径 79.5% / 76.1%），但要靠 ONNX Runtime 的多线程 int8 内核才进得了按键预算：桌面 2 线程按键 p95 约 3 ms，iPhone 17 约 3 ms。ONNX Runtime 是 C++ 原生库，而 `crates/engine` 是纯 Rust、还要编到网页引擎的 wasm（`docs/ARCHITECTURE.md` 的分层）。类型写死时，接新后端只能把原生库塞进引擎，或者在 `input-runtime` 里另写一份排序规则，两条都越界。
 
 ## Decision
 

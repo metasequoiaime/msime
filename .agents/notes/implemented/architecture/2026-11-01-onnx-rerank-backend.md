@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-整句联想「增强」的逐键重排用随包的 chinese-ime-lm `model-v1`（4.25M），推理是 chinese-ime-lm 的纯 Rust 参考实现：单线程、int8 权重逐元素转 f32，文档记的吞吐约 12.5 GMAC/s，已接近单核上限。2026-11-01 在真实运行时（`rerank_latency`，sentences-v2 与 typing-chat-v1 共 643 条、约 8100 次按键）里量，它在 Pixel 3 XL 上让 20% 的按键超过一帧（16 ms），整键 p95 38–40 ms；iPhone XR 上整键 p95 11–12 ms。更准的模型更大：chinese-ime-lm `rerank-v1` 的 8x448 在 ctx-v1 上有上下文 91.8%、无上下文 83.4%（4.25M 同口径 89.6% / 81.3%），用同一个参考实现一次决策 71 ms，上不了按键路径。
+整句联想「增强」的逐键重排用随包的 chinese-ime-lm `model-v1`（4.25M），推理是 chinese-ime-lm 的纯 Rust 参考实现：单线程、int8 权重逐元素转 f32，文档记的吞吐约 12.5 GMAC/s，已接近单核上限。2026-11-01 在真实运行时（`rerank_latency`，sentences-v2 与 typing-chat-v1 共 643 条、约 8100 次按键）里量，它在 Pixel 3 XL 上让 20% 的按键超过一帧（16 ms），整键 p95 38–40 ms；iPhone XR 上整键 p95 11–12 ms。更准的模型更大：chinese-ime-lm `rerank-v1` 的 8x448 在 ctx-v1 上有上下文 91.9%、无上下文 82.7%（`model-v1` 的 4.25M 同口径 79.5% / 76.1%：同一个候选池，挑按字平均对数概率最高的那个，上文按 `rerank_context` 截，每条用例从空缓存开始），用同一个参考实现一次决策 71 ms，上不了按键路径。
 
 ## Decision
 
@@ -34,7 +34,7 @@ Status: implemented
 - **收益**：同一台设备上，新模型比 `model-v1` 既更准又更快：Pixel 3 XL 上重排开销 p95 从 36 ms 降到 6.9 ms，超过一帧的按键从 20% 降到 0.1%；iPhone XR 整键 p95 从约 11.5 ms 降到约 4.6 ms。
 - **代价**：多一个 C++ 依赖要按平台自己编（苹果与安卓在 macOS 上编，Linux 在 msime 发 Linux 版的同一个镜像里编，Windows 要 MSVC），换模型若算子清单变了要重编全部平台、发一个新的 `-r<序号>` 并更新锁。`ort-sys` 会把静态库复制进自己的输出目录，换库后要 `cargo clean -p ort-sys`。权重是动态量化的，同一个前缀与不同的节点一起算时分数会差在第三位小数（约 0.005），测试按这个量级放宽。
 - **还没做的**：各平台构建打开 `onnx-rerank`、用下载脚本取库并带上 `rerank-model/`、`rerank-model-small/` 资源；锁里补上 Linux x86_64。做完之前上面的收益只在 `rerank_latency` 里量得到，用户拿到的仍是随包模型。
-- **已知上限**：iPhone 17 上 8x448 整键 p95 在 4 ms 上下，手机档 6x256 在 ctx-v1 有上下文只高出 90% 的线 0.1 个点；HarmonyOS 没有 ONNX Runtime 产物（不在官方支持的平台里），照旧用随包模型；Windows 有库，但还没在真机上量过 `rerank_latency` 和自测分档。量化或模型换代后，要重跑 `rerank_latency` 与 `calibrate` 并更新 `LARGE_RERANK_MODEL_BUDGET_MS` 旁的数字。
+- **已知上限**：iPhone 17 上 8x448 整键 p95 在 4 ms 上下，手机档 6x256 在 ctx-v1 有上下文只高出 90% 的线 0.4 个点（90.4%；宿主连着打分、沿用上一条的缓存时是 90.2%）；HarmonyOS 没有 ONNX Runtime 产物（不在官方支持的平台里），照旧用随包模型；Windows 有库，但还没在真机上量过 `rerank_latency` 和自测分档。量化或模型换代后，要重跑 `rerank_latency` 与 `calibrate` 并更新 `LARGE_RERANK_MODEL_BUDGET_MS` 旁的数字。
 
 ## Verification
 

@@ -228,11 +228,11 @@ pub(crate) fn keyboard_reranker(
     })
 }
 
-/// 资源目录里放 ONNX Runtime 重排模型的子目录：chinese-ime-lm 的 `neural/choice/export_step.py` 导出的 `lm_step.ort`、`model.json` 和 `vocab.json`。这是大的那个（8x448，ctx-v1 有上下文 91.8%、无上下文 83.4%）。
+/// 资源目录里放 ONNX Runtime 重排模型的子目录：chinese-ime-lm 的 `neural/choice/export_step.py` 导出的 `lm_step.ort`、`model.json` 和 `vocab.json`。这是大的那个（8x448，ctx-v1 有上下文 91.9%、无上下文 82.7%）。
 #[cfg(feature = "onnx-rerank")]
 pub(crate) const RERANK_MODEL_DIRECTORY: &str = "rerank-model";
 
-/// 小的那个（6x256，跳过全字表 softmax，ctx-v1 有上下文 90.1%、无上下文 82.8%），给大模型在按键预算里跑不动的机器。
+/// 小的那个（6x256，跳过全字表 softmax，ctx-v1 有上下文 90.4%、无上下文 83.0%），给大模型在按键预算里跑不动的机器。
 #[cfg(feature = "onnx-rerank")]
 pub(crate) const SMALL_RERANK_MODEL_DIRECTORY: &str = "rerank-model-small";
 
