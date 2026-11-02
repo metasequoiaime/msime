@@ -625,6 +625,7 @@ fn a_value_this_host_has_no_meaning_for_skips_only_its_key() {
         ),
         ("input.character_set", string("esperanto")),
         ("input.wubi_schema", string("wubi06")),
+        ("input.wubi_schema", string("wubixsj")),
         ("input.quote_style", string("semantic")),
     ] {
         let applied = apply(

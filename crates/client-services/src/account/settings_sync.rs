@@ -1131,12 +1131,9 @@ fn apply_input_settings(applier: &mut Applier<'_>) -> Result<(), AccountError> {
         };
         Some(())
     })?;
+    // 不认识的版本（更新的版本加的码表版本）只跳过这个键，保留本机的五笔版本，文档里其余的键照常应用。
     applier.set_string("input.wubi_schema", |preferences, value| {
-        preferences.wubi_profile = match value {
-            "wubi86" => WubiProfile::Wubi86,
-            "wubi98" => WubiProfile::Wubi98,
-            _ => return None,
-        };
+        preferences.wubi_profile = WubiProfile::parse(value)?;
         Some(())
     })?;
     applier.set_bool("input.learning", |preferences, value| {

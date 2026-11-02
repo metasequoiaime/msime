@@ -603,7 +603,7 @@ fn settings_sync_unknown_enum_values_skip_only_their_key() {
     let unknown_values = [
         ("input.character_set", "cyrillic"),
         ("input.shuangpin_schema", "sogou"),
-        ("input.wubi_schema", "wubi06"),
+        ("input.wubi_schema", "wubixsj"),
         ("input.frequency_mode", "random"),
         ("input.quote_style", "semantic"),
         ("input.traditional_variant", "s2hk"),
