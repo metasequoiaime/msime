@@ -1,3 +1,4 @@
+import { InfoTip } from "../core/info-tip";
 import { useEffect, useRef, useState } from "react";
 import { useConfirm } from "../core/confirm";
 import { readDictionaryFile } from "../dictionary/dictionary-file";
@@ -286,9 +287,24 @@ export function VocabularyReviewPage({
   return (
     <section className={page} aria-labelledby="vocabulary-heading">
       <div className="section">
-        <h2 className={heading} id="vocabulary-heading">
-          背单词
-        </h2>
+        {/* 背单词怎么用、进度存在哪里：收进标题旁的「?」，不常驻在统计下面。 */}
+        <div className="flex items-center gap-1.5">
+          <h2 className={heading} id="vocabulary-heading">
+            背单词
+          </h2>
+          <InfoTip subject="背单词">
+            <span className="block">
+              {reviewing
+                ? "复习不会改变打字时的候选或组词。进度保存在本机，不会上传。"
+                : "在这里管理词书；复习在背单词面板里进行。进度保存在本机，不会上传。"}
+            </span>
+            {client.removePersonalWord && (
+              <span className="mt-1.5 block">
+                打字时在候选的操作菜单里选「加入生词本」，候选旁显示的释义就会收进生词本；它只存在这台设备上。
+              </span>
+            )}
+          </InfoTip>
+        </div>
         <div className={metricRow} role="status" aria-live="polite">
           <div className={metric}>
             <span className={metricValue}>{status.due}</span>
@@ -303,11 +319,6 @@ export function VocabularyReviewPage({
             <span className={metricLabel}>未开始</span>
           </div>
         </div>
-        <p className={note}>
-          {reviewing
-            ? "复习不会改变打字时的候选或组词。进度保存在本机，不会上传。"
-            : "在这里管理词书；复习在背单词面板里进行。进度保存在本机，不会上传。"}
-        </p>
         {managing && openPanel && (
           <ActionButton
             action={() => void openPanel()}
@@ -395,7 +406,6 @@ export function VocabularyReviewPage({
           {client.removePersonalWord && (
             <p className={note}>
               {personalBook ? `生词本里有 ${personalBook.total} 个词。` : "生词本还是空的。"}
-              打字时在候选的操作菜单里选「加入生词本」，候选旁显示的释义就会收进生词本；它只存在这台设备上。
             </p>
           )}
           {client.exportPersonalWordbook && personalBook && (

@@ -13,7 +13,6 @@ import { StatisticsNote } from "./statistics-note";
 import { StatisticsChartButton } from "./statistics-chart-button";
 import { StatisticsSection } from "./statistics-section";
 
-const footerNote = "mt-3.5 mb-0 text-xs leading-relaxed [color:var(--p-sub)]";
 // 热力图按等级选择强调色透明度；零级使用空轨道底色。
 const heatLevels = [
   "bg-subtle",
@@ -162,7 +161,11 @@ export function KeyboardHeatmap({
   const model = keyboardHeatmapModel(scopedKeyCounts(dailyKeys, scopeKeys), mobile, platform);
   const count = (value: number) => formatZhNumber(value);
   return (
-    <StatisticsSection id="statistics-keys-title" title={`按键热力图 · ${scopeLabel}`}>
+    <StatisticsSection
+      id="statistics-keys-title"
+      title={`按键热力图 · ${scopeLabel}`}
+      help="只保存每个键每天被按下的次数，不保存按键顺序和输入内容；按住不放只算一次，密码框中的按键不计入。"
+    >
       {model.total === 0 ? (
         <SettingsEmptyMessage centered className="mt-3.5">
           这段时间还没有按键记录
@@ -243,9 +246,6 @@ export function KeyboardHeatmap({
           </ol>
         </>
       )}
-      <p className={footerNote}>
-        只保存每个键每天被按下的次数，不保存按键顺序和输入内容；按住不放只算一次，密码框中的按键不计入。
-      </p>
     </StatisticsSection>
   );
 }

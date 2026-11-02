@@ -5,6 +5,8 @@ import { SettingField } from "./setting-field";
 export interface SettingToggleProps {
   label: ReactNode;
   description?: ReactNode;
+  /** 状态或前置条件（「登录后可用」），常驻标题下方。 */
+  detail?: ReactNode;
   checked: boolean;
   ariaLabel?: string;
   disabled?: boolean;
@@ -18,6 +20,7 @@ export interface SettingToggleProps {
 export function SettingToggle({
   label,
   description,
+  detail,
   checked,
   ariaLabel,
   disabled,
@@ -29,6 +32,7 @@ export function SettingToggle({
     <SettingField
       label={label}
       description={description}
+      detail={detail}
       className={`section-header${rowClassName ? ` ${rowClassName}` : ""}`}
     >
       <ControlledCheckbox

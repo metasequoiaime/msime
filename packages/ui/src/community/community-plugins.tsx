@@ -146,7 +146,7 @@ export function CommunityPluginsPage({
         onSearchChange={setSearch}
         onSearchSubmit={() => void requestList(search, false)}
         title="社区插件"
-        note={
+        help={
           shownKinds
             ? `${shownKinds.map((item) => kindLabels[item]).join("、")}，安装后在「我的插件」中选用；这台设备用不上的类型不在这里列出`
             : scriptPlugins
