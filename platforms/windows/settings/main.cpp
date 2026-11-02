@@ -14222,6 +14222,23 @@ private:
     }
   }
 
+  // 「整句联想」的「标准 / 增强」，与手机宿主的同名选择写同一个 `sentence_association.neural_keyboard`：增强在每次按键时用键盘模型重排整句，默认开（缺键按开读）；host-api 只在这台电脑跑得进逐键预算时才挂上模型，跑不进时与标准相同。手机上的「关闭」在这里是「更多选项」里的「本地整句联想」；逐键重排不看词网格开没开（host-api `keyboard_reranker_enabled`），所以那一项关着时这一行照样可选，与共享设置页相同。不带键盘模型的版本没有增强可选，不列这一行。
+  void build_sentence_level_settings(StackPanel const &group) {
+    if constexpr (MSIME_EDITION_NEURAL_KEYBOARD != 0) {
+      const bool enhanced = document_.Boolean(L"sentence_association.neural_keyboard", true);
+      auto selector = select_control(
+          L"整句联想", {{L"standard", L"标准"}, {L"enhanced", L"增强"}},
+          enhanced ? L"enhanced" : L"standard",
+          [this](std::wstring const &value) {
+            change([&](PreferencesDocument &doc) {
+              doc.SetBoolean(L"sentence_association.neural_keyboard", value == L"enhanced");
+            }, false);
+          });
+      A11y::SetAutomationId(selector, L"sentence-association-level");
+      add_row(group, 0xE8C1, L"整句联想", L"更准确，但更耗电", selector);
+    }
+  }
+
   // 安装包不带落定重排模型（Prepare-PackageFiles.ps1），与共享页一样在「桌面神经联想」打开时给出它的下载行，否则开关打开了也没有模型可用。
   void build_neural_desktop_settings(StackPanel const &group) {
     bool_row(group, 0xE8C1, L"桌面神经联想",
@@ -14574,6 +14591,7 @@ private:
       bool_row(candidates_more, 0xE8C1, L"本地整句联想",
                L"把词库组合出的整句加入候选；关闭后仍保留单词候选",
                L"sentence_association.word_lattice", true);
+      build_sentence_level_settings(candidates);
       build_neural_desktop_settings(candidates);
       bool_row(candidates, 0xE8C1, L"去重后补充次选",
                L"某个模型的首选与已有候选重复时，显示该模型排名最高的下一条不同结果",
