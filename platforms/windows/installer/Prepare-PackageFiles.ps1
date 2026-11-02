@@ -345,7 +345,7 @@ else {
     Reset-Directory -LiteralPath $targetAppData
     $defaultConfigPath = Join-Path $targetAppData 'config.default.toml'
     # 出厂配置来自本仓库的 default_config，不依赖本机是否已安装输入法。安装脚本用 onlyifdoesntexist 生成用户 config.toml，升级不会覆盖已有方案/主题。
-    [IO.File]::WriteAllText($defaultConfigPath, $defaultConfig, [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText($defaultConfigPath, $defaultConfig, [Text.UTF8Encoding]::new($true))
 
     $targetHelpcodes = Join-Path $targetAppData 'helpcodes'
     Reset-Directory -LiteralPath $targetHelpcodes
@@ -566,7 +566,7 @@ foreach ($name in @('MetasequoiaImeTsf.dll', 'MetasequoiaImeTsf.pdb', $werHelper
 
 # 版本声明（Edition::PACKAGE_MARKER_FILE）：MSIME.exe 和 msime-mcp.exe 从自己所在的 Server 目录读它，决定连哪个版本的 Server、用哪个状态目录。只有管理员能写 Program Files，普通进程改不了它。每个版本（包括 full）都写：full 在 Windows 上也有自己的一组名字（版本表 platforms.windows），不再是引入版本之前的那组。
 $editionMarker = Join-Path $targetServer 'edition.json'
-[IO.File]::WriteAllText($editionMarker, "{`"edition`": `"$Edition`"}`n", [Text.UTF8Encoding]::new($false))
+[IO.File]::WriteAllText($editionMarker, "{`"edition`": `"$Edition`"}`n", [Text.UTF8Encoding]::new($true))
 
 Reset-Directory -LiteralPath $targetTsf
 $targetTsf32 = Join-Path $targetTsf '32'
@@ -617,7 +617,14 @@ $updatedIss = [regex]::Replace(
     "#define MyAppVersion   `"$TargetVersion`""
 )
 $updatedIss = $updatedIss.TrimEnd("`r", "`n") + "`r`n"
-[IO.File]::WriteAllText($targetIss, $updatedIss, [Text.UTF8Encoding]::new($false))
+# 带 BOM 写回，和仓库里存的那一份一致：Inno Setup 6.3 之前读没有 BOM 的脚本会按系统
+# ANSI 代码页解释，而这个脚本里有中文的用户可见文字——开始菜单的「卸载 …」项，以及
+# [Code] 里缺 WebView2 / VC 运行库时的提示。同一件事在 editions.iss 上已经发生过：生成器
+# 当时不写 BOM，用 Inno Setup 6.2.2 编出来的 Windows 7 安装包里中文显示名就是乱码
+# （#10638 改成了 utf-8-sig）。改写版本号是编译前的最后一次落盘，不该顺带改掉一个被跟踪
+# 文件的编码：Windows 7 那条流水线编译时用的正是 6.2.2，而本机 ACP 是 65001 的机器丢了
+# BOM 也看不出问题，于是出不出乱码取决于在哪台机器上打包。
+[IO.File]::WriteAllText($targetIss, $updatedIss, [Text.UTF8Encoding]::new($true))
 
 }
 

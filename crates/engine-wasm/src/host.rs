@@ -41,6 +41,12 @@ pub const RESOURCES: &str = "/res";
 /// 日语方案读模型的位置：`RESOURCES` 下的 `assets::JAPANESE_MODEL`。网页没有文件系统，宿主下载后经 `msime_engine::preload_japanese_dictionary` 交给引擎。
 pub const JAPANESE_DICTIONARY_PATH: &str = "/res/msime-japanese.dat";
 
+/// 粤拼和粤语双拼读的词库文件名，放在 `RESOURCES` 下（wasm 上是 `CANTONESE_DICTIONARY_PATH`，原生测试是 `new_with_paths` 的目录）。和各平台宿主一样是词库 release 的 `msime-cantonese.db` 原样，只有切到粤语方案时引擎才打开它。
+pub const CANTONESE_DICTIONARY: &str = "msime-cantonese.db";
+
+/// wasm 上粤语词库的位置：宿主下载后经 `import_database` 导入内存 VFS 的这个路径。
+pub const CANTONESE_DICTIONARY_PATH: &str = "/res/msime-cantonese.db";
+
 /// 网页支持的输入方案。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scheme {
@@ -56,10 +62,14 @@ pub enum Scheme {
     Japanese,
     /// 韩文两套式（두벌식）：字母键是字母，Shift 打双辅音和 ㅒ ㅖ，音节在组字区里拼好、下一个键开始新音节时自动上屏。不用词库，也不出候选。
     Korean,
+    /// 粤拼（不打声调）：读 `CANTONESE_DICTIONARY` 的 `msime-cantonese.db`，候选是繁体，选中只覆盖前几个音节的候选时上屏它、其余接着组字，不学习。和桌面宿主的「粤语」一样，前两键不是完整音节、又能解成双拼码时自动按粤语双拼读。
+    Jyutping,
+    /// 粤语双拼：同一个引擎方案和词库，从第一键起按两键一音节读（引擎的 `force_cantonese_shuangpin`，和触屏宿主独立的「粤语双拼」方案相同），`;` 是韵母 ing/ik。
+    CantoneseShuangpin,
 }
 
 impl Scheme {
-    /// `"quanpin"`、`"xiaohe"`、`"ziranma"`、`"shoudao"`、`"microsoft"`、`"wubi86"`、`"japanese"`、`"korean"`；其他名字返回 None。
+    /// `"quanpin"`、`"xiaohe"`、`"ziranma"`、`"shoudao"`、`"microsoft"`、`"wubi86"`、`"japanese"`、`"korean"`、`"jyutping"`、`"cantonese_shuangpin"`；其他名字返回 None。
     pub fn parse(name: &str) -> Option<Scheme> {
         match name {
             "quanpin" => Some(Scheme::Quanpin),
@@ -70,6 +80,8 @@ impl Scheme {
             "wubi86" => Some(Scheme::Wubi86),
             "japanese" => Some(Scheme::Japanese),
             "korean" => Some(Scheme::Korean),
+            "jyutping" => Some(Scheme::Jyutping),
+            "cantonese_shuangpin" => Some(Scheme::CantoneseShuangpin),
             _ => None,
         }
     }
@@ -83,6 +95,7 @@ impl Scheme {
             Scheme::Wubi86 => SchemeType::Wubi,
             Scheme::Japanese => SchemeType::JapaneseRomaji,
             Scheme::Korean => SchemeType::Korean,
+            Scheme::Jyutping | Scheme::CantoneseShuangpin => SchemeType::Cantonese,
         }
     }
 
@@ -95,7 +108,9 @@ impl Scheme {
             | Scheme::Xiaohe
             | Scheme::Wubi86
             | Scheme::Japanese
-            | Scheme::Korean => ShuangpinProfileKind::Xiaohe,
+            | Scheme::Korean
+            | Scheme::Jyutping
+            | Scheme::CantoneseShuangpin => ShuangpinProfileKind::Xiaohe,
         }
     }
 
@@ -111,6 +126,11 @@ impl Scheme {
         self == Scheme::Korean
     }
 
+    /// 粤拼和粤语双拼：共用粤语词库，彼此可以就地切换。
+    fn is_cantonese(self) -> bool {
+        matches!(self, Scheme::Jyutping | Scheme::CantoneseShuangpin)
+    }
+
     /// 全拼和四种双拼：共用拼音库，也是辅助码起作用的方案。
     fn is_pinyin(self) -> bool {
         matches!(
@@ -123,9 +143,9 @@ impl Scheme {
         )
     }
 
-    /// 句子模型只给拼音方案重排：五笔不重排（D16），日语的整句转换有自己的模型，韩文没有候选可排。
+    /// 句子模型只给拼音方案重排：五笔不重排（D16），日语的整句转换有自己的模型，韩文没有候选可排，粤语的候选按词库自己的顺序（`ordering::reorders_candidates` 对它同样不重排）。
     fn uses_model(self) -> bool {
-        !self.is_wubi() && !self.is_japanese() && !self.is_korean()
+        self.is_pinyin()
     }
 }
 
@@ -323,7 +343,7 @@ pub struct WebHost {
 }
 
 impl WebHost {
-    /// 主库必须已在 /res/msime-pinyin.db（wasm 上由 import_database 放入；原生测试用真实路径构造，见 new_with_paths）。路径必须是 `assets::MAIN_DICTIONARY` 的现名：wasm32-unknown-unknown 上读不到文件元数据，`RuntimePaths` 退回旧名 msime.db 的逻辑不会生效
+    /// 主库必须已在 /res/msime-pinyin.db（wasm 上由 import_database 放入；原生测试用真实路径构造，见 new_with_paths）。路径必须是 `assets::MAIN_DICTIONARY` 的现名：wasm32-unknown-unknown 上读不到文件元数据，`RuntimePaths` 退回旧名 msime.db 的逻辑不会生效。粤语方案不读主库，读的是 `CANTONESE_DICTIONARY_PATH`，同样要先导入，没有时创建失败
     pub fn new(scheme: Scheme, page_size: usize, model: Option<&[u8]>) -> Result<WebHost, String> {
         let resources = PathBuf::from(RESOURCES);
         let scratch = PathBuf::from("/scratch");
@@ -370,7 +390,7 @@ impl WebHost {
         options.first_page_rows = page_size;
         let session = open_session(&options)?;
         let revision = session.candidate_revision();
-        // 五笔、日语和韩文不重排，所以不加载模型；模型读不出来也不致命，只是没有重排。
+        // 五笔、日语、韩文和粤语不重排，所以不加载模型；模型读不出来也不致命，只是没有重排。
         let reranker = model
             .filter(|_| scheme.uses_model())
             .and_then(|bytes| SentenceModel::load(bytes).ok())
@@ -803,9 +823,14 @@ impl WebHost {
             return;
         }
         let composing = self.composing();
-        // 全拼里光标不在开头时，撇号是音节分隔符，日语组字中的撇号是拼写的一部分（`n'a` 是 んあ）；微软双拼组字中的 `;` 是韵母 ing（引擎只在音节的第二键收它）。引擎不收时按标点处理（`Runtime::dispatch` 里未处理的字符落到 `punctuation`）。
+        // 全拼里光标不在开头时，撇号是音节分隔符，日语组字中的撇号是拼写的一部分（`n'a` 是 んあ）；微软双拼组字中的 `;` 是韵母 ing（引擎只在音节的第二键收它）。粤语组字中引擎当拼写的符号（`SessionSnapshot::spelling_symbols`：撇号是音节分界，按粤语双拼读时 `;` 是韵母 ing/ik）交给引擎。引擎不收时按标点处理（`Runtime::dispatch` 里未处理的字符落到 `punctuation`）。
         let spells = composing
             && match byte {
+                _ if self.scheme.is_cantonese() => self
+                    .ensure_snapshot()
+                    .spelling_symbols
+                    .as_bytes()
+                    .contains(&byte),
                 b'\'' => {
                     (self.scheme == Scheme::Quanpin || self.scheme.is_japanese())
                         && self.ensure_snapshot().caret_position > 0
@@ -1332,9 +1357,18 @@ fn is_han(ch: char) -> bool {
 }
 
 fn session_options(scheme: Scheme, paths: RuntimePaths) -> SessionOptions {
+    // 粤语词库在词库目录下；其他方案不读它，路径留空，和没有这个文件的宿主一样。
+    let cantonese_dictionary = if scheme.is_cantonese() {
+        paths.dictionaries.join(CANTONESE_DICTIONARY)
+    } else {
+        PathBuf::new()
+    };
     let mut options = SessionOptions::new(paths);
     options.scheme = scheme.scheme_type();
     options.shuangpin_profile = scheme.shuangpin_profile();
+    options.cantonese_dictionary = cantonese_dictionary;
+    // 和 host-api 的 `force_cantonese_shuangpin` 一样：只有独立的粤语双拼方案从第一键起按双拼读。
+    options.force_cantonese_shuangpin = scheme == Scheme::CantoneseShuangpin;
     options.wubi = WubiInputOptions {
         mixed_pinyin: false,
         z_wildcard: false,
@@ -1457,6 +1491,12 @@ mod tests {
         assert_eq!(Scheme::parse("wubi86"), Some(Scheme::Wubi86));
         assert_eq!(Scheme::parse("japanese"), Some(Scheme::Japanese));
         assert_eq!(Scheme::parse("korean"), Some(Scheme::Korean));
+        assert_eq!(Scheme::parse("jyutping"), Some(Scheme::Jyutping));
+        assert_eq!(
+            Scheme::parse("cantonese_shuangpin"),
+            Some(Scheme::CantoneseShuangpin)
+        );
+        assert_eq!(Scheme::parse("cantonese"), None);
         assert_eq!(Scheme::parse("wubi98"), None);
         assert_eq!(Scheme::parse("shuangpin"), None);
         assert_eq!(Scheme::parse(""), None);
@@ -1476,8 +1516,44 @@ mod tests {
             assert!(scheme.is_pinyin() && scheme.uses_model(), "{scheme:?}");
         }
         assert!(Scheme::Quanpin.is_pinyin());
-        for scheme in [Scheme::Wubi86, Scheme::Japanese, Scheme::Korean] {
+        for scheme in [
+            Scheme::Wubi86,
+            Scheme::Japanese,
+            Scheme::Korean,
+            Scheme::Jyutping,
+            Scheme::CantoneseShuangpin,
+        ] {
             assert!(!scheme.is_pinyin(), "{scheme:?}");
+            assert!(!scheme.uses_model(), "{scheme:?}");
+        }
+    }
+
+    /// 两种粤语方案是引擎的同一个粤语方案、读同一个词库，只有粤语双拼强制按两键读；其他方案不带粤语词库的路径。
+    #[test]
+    fn cantonese_schemes_share_the_engine_scheme_and_dictionary() {
+        let paths = |root: &str| RuntimePaths {
+            resources: PathBuf::from(root),
+            user_data: PathBuf::from("/scratch"),
+            cache: PathBuf::from("/scratch"),
+            dictionaries: PathBuf::from(root),
+        };
+        for (scheme, forced) in [
+            (Scheme::Jyutping, false),
+            (Scheme::CantoneseShuangpin, true),
+        ] {
+            let options = session_options(scheme, paths(RESOURCES));
+            assert_eq!(options.scheme, SchemeType::Cantonese, "{scheme:?}");
+            assert_eq!(options.force_cantonese_shuangpin, forced, "{scheme:?}");
+            assert_eq!(
+                options.cantonese_dictionary,
+                Path::new(CANTONESE_DICTIONARY_PATH),
+                "{scheme:?}"
+            );
+        }
+        for scheme in [Scheme::Quanpin, Scheme::Wubi86, Scheme::Japanese] {
+            let options = session_options(scheme, paths(RESOURCES));
+            assert!(options.cantonese_dictionary.as_os_str().is_empty());
+            assert!(!options.force_cantonese_shuangpin);
         }
     }
 
