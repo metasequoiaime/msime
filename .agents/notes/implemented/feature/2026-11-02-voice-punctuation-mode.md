@@ -45,9 +45,18 @@ Status: implemented
 
 Java 侧 `VoicePunctuation`（`platforms/android/java/app/msime/android/voice/VoicePunctuation.java`）只认取值、调 JNI；`auto` 和空文本不进共享层，共享层调用失败时返回原文。设置页 `VoicePage` 的「识别」组在「自动添加标点」下面加「语音标点」四选一，说明收进「?」。
 
+### iOS 接线
+
+与 Android 相同，只处理最终文本，每条路径处理一次。Swift 侧 `VoicePunctuation`（`platforms/ios/SharedUI/voice/VoicePunctuation.swift`）只认取值、调 `msime_client_voice_punctuation`，`auto` 和空文本不进共享层，调用失败时返回原文；`finalText` 在识别出了内容、处理后只剩空白时返回 nil，调用方提示「没有识别到文字」。
+
+- 键盘听写：识别和润色都在后台的主 App（`VoiceSessionService`）里，它不处理标点，原样把最终结果交给键盘。键盘在开始聆听时（`startVoiceFromSpace`）读取取值，在 `KeyboardViewController.insertVoiceResult` 里处理一次，直接上屏的和因输入位置变化存进语音交接的都是处理后的文字。
+- App 语音页（「试一下」和键盘深链进来的录音页）：`ServiceSettingsView.deliver` 是三条识别路径的汇合点，润色用原文，识别原文和润色结果都存处理后的文字，所以「改用识别原文」和「发送到键盘」交出去的就是页面上显示的。只剩标点时结果留空，因为语音交接不收空白文字。AI 服务页的「测试」也走 `deliver`，它不处理。
+- 键盘领取「语音结果」（`showKeyboardVoice`）时不再处理，免得同一段文字处理两次。
+- 设置页 `VoiceSettingsView` 的「识别」组在「自动添加标点」下面加「语音标点」四选一，只写 `voice_input.punctuation_mode` 这一个键；选项名称和说明与 Android `VoicePage` 逐字相同。iOS 设置是原生 SwiftUI，没有 WebView，共享 React 设置页的这一项到不了 iOS，所以另画一行。
+
 ### 其他平台
 
-iOS、鸿蒙、桌面三端暂不读这个字段，各自的接线见 #10595、#10596、#10597。macOS 偏好覆盖清单（`platforms/macos/tests/settings/preference_coverage.py`）把它列为暂未接上，接上后删掉那一条。
+鸿蒙、桌面两端暂不读这个字段，各自的接线见 #10596、#10597。macOS 偏好覆盖清单（`platforms/macos/tests/settings/preference_coverage.py`）把它列为暂未接上，接上后删掉那一条。
 
 ### 不做
 
@@ -63,7 +72,7 @@ iOS、鸿蒙、桌面三端暂不读这个字段，各自的接线见 #10595、#
 ## Consequences
 
 - **收益**：默认用本地模型的用户第一次能去掉语音标点；一处规则对四种识别服务和润色都生效，iOS、鸿蒙、桌面接线时只需要在上屏点调一次 FFI。
-- **代价**：iOS、鸿蒙、桌面在跟进 issue 做完之前读不到这一项，桌面的共享设置页也还看不到它。`omit_all` 会让「3.5%，10:30」变成「3.5%10:30」这类紧挨在一起的写法，这是「省略所有标点」本身的含义；数字之外的全角句点、半角 `~` 等边缘写法按上面的列表处理，出现误删时改 `punctuation.rs` 的字符表并补测试。
+- **代价**：鸿蒙、桌面在跟进 issue 做完之前读不到这一项，桌面的共享设置页也还看不到它。`omit_all` 会让「3.5%，10:30」变成「3.5%10:30」这类紧挨在一起的写法，这是「省略所有标点」本身的含义；数字之外的全角句点、半角 `~` 等边缘写法按上面的列表处理，出现误删时改 `punctuation.rs` 的字符表并补测试。
 - **语音样本上传**：打开「上传语音以改进识别」时，上传的文本是处理后的上屏文本，与此前上传润色后文本的做法一致。
 
 ## Verification
@@ -72,3 +81,4 @@ iOS、鸿蒙、桌面三端暂不读这个字段，各自的接线见 #10595、#
 - `cargo test -p msime-client-core --lib voice_punctuation_mode`：缺键读成 `auto` 且不写进文档，选过的值和不认识的值都能读写。
 - `cargo test -p msime-host-api --lib voice_punctuation mobile_voice_configuration_reports`：FFI 的四种方式、未知方式、只剩标点、缺字段、超长、空指针；共享解析给出归一后的 `punctuationMode`。
 - `platforms/android/check-host.sh`：`VoicePunctuationSmoke`（取值、标签、`auto` 不进共享层、调用失败保留原文），设置搜索收录「语音标点」，`client_jni.cpp` 对共享头编译。
+- iOS `MSIMEKeyboardTests/VoicePunctuationTests`：对真实 FFI 跑取值、标签、只写一个键、四种方式、数字和时间、只剩标点；`SpaceVoicePanelTests/testVoicePunctuationAppliesOnceToTheFinalText` 经真实语音会话通知走完键盘听写，确认上屏的是处理后的文字、只剩标点时不上屏也不存进语音交接。三种识别服务在真机上的实际上屏结果和设置页截图需要人工确认。
