@@ -5030,6 +5030,66 @@ test("the HarmonyOS 2-in-1 keeps the shuangpin preedit on exactly one page", asy
   expect(screen.getAllByRole("combobox", { name: "双拼预编辑", hidden: true })).toHaveLength(1);
 });
 
+// #10557：粤语双拼的展开显示也跟随这个偏好，用粤语双拼时在当前方案下就能改，不必先切到普通话双拼。
+test("macOS offers the shuangpin preedit under 粤语双拼 and saves the shared preference", async () => {
+  const cantonese: Snapshot = {
+    ...initial,
+    preferences: {
+      ...initial.preferences,
+      scheme: "cantonese",
+      cantonese: { input_method: "shuangpin" },
+    },
+  };
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...cantonese,
+    revision: 8,
+    preferences,
+  }));
+  render(
+    <SettingsPage
+      initialPage="input"
+      client={{
+        load: vi.fn().mockResolvedValue(cantonese),
+        save,
+        host: testHost({ platform: "macos" }),
+      }}
+    />,
+  );
+  await settingsReady();
+  selectSettingsTab("方案");
+  const preedit = (await screen.findByRole("combobox", {
+    name: "双拼预编辑",
+  })) as HTMLSelectElement;
+  expect(preedit.value).toBe("raw");
+  fireEvent.change(preedit, { target: { value: "pinyin" } });
+  saveSettingsNow();
+  await screen.findByText("已保存");
+  expect(save).toHaveBeenCalledWith(7, {
+    ...cantonese.preferences,
+    shuangpin_preedit_uses_raw: false,
+  });
+  expect(screen.getAllByRole("combobox", { name: "双拼预编辑", hidden: true })).toHaveLength(1);
+});
+
+// 鸿蒙手机的「候选栏」页按设计单独布局，双拼预编辑收在「更多选项」里；粤语双拼也跟随它，说明要写明（#10557）。
+test("the HarmonyOS phone candidate page offers the shuangpin preedit for 粤语双拼 too", async () => {
+  render(
+    <SettingsPage
+      initialPage="appearance"
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        touchKeyboardSchemes: true,
+        host: testHost({ platform: "harmony", mobile_settings: true, shuangpin_preedit: true }),
+      }}
+    />,
+  );
+  await settingsReady();
+  const preedit = screen.getByRole("combobox", { name: "双拼预编辑", hidden: true });
+  expect(preedit).toBeTruthy();
+  expect(screen.getByText(/粤语双拼/)).toBeTruthy();
+});
+
 test("font family controls validate drafts and save Unicode without touching the fallback list", async () => {
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
     ...initial,
