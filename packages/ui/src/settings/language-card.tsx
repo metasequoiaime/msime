@@ -61,6 +61,8 @@ function schemeName(scheme: TouchKeyboardScheme, wubiProfile: Preferences["wubi_
       return "手写";
     case "cantonese":
       return "粤拼";
+    case "cantonese_shuangpin":
+      return "粤语双拼";
     case "japanese_nine_key":
       return "9 键";
     case "japanese":

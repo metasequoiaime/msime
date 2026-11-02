@@ -1,8 +1,8 @@
 import Foundation
 
-/// 整句联想 in the shared document's `sentence_association`, with the same three levels as the Android 表达 page and the shared settings page: 关闭 turns the word lattice off, 标准 (the default) is the lattice alone, and 增强 adds the keyboard sentence model (`neural_keyboard`).
+/// 整句联想 in the shared document's `sentence_association`, with the same three levels as the Android 表达 page and the shared settings page: 关闭 turns the word lattice off, 标准 is the lattice alone, and 增强 (the default) adds the keyboard sentence model (`neural_keyboard`).
 ///
-/// 增强 is opt-in because the model runs inside every keystroke. Before host-api honoured the switch it ran for everyone whose resources ship the model, and iOS had no way to say which level it wanted; this page is that way.
+/// 增强 is the default because host-api attaches the model only where this device runs it inside the keystroke budget (the large or the small ONNX model by its own measurement); where it does not, 增强 types like 标准. The model runs inside every keystroke, so 标准 stays as the way to turn it off.
 enum SentenceAssociationPreference {
   enum Level: Int, CaseIterable, Identifiable {
     case off, standard, enhanced
@@ -20,11 +20,11 @@ enum SentenceAssociationPreference {
 
   static let documentKey = "sentence_association"
 
-  /// The level a document asks for. A missing object or field reads as its default (`word_lattice` on, `neural_keyboard` off), which is 标准, and a lattice that is off is 关闭 whatever the model switch says, as on Android.
+  /// The level a document asks for. A missing object or field reads as its default (`word_lattice` on, `neural_keyboard` on), which is 增强, and a lattice that is off is 关闭 whatever the model switch says, as on Android.
   static func level(in document: [String: Any]?) -> Level {
     let association = document?[documentKey] as? [String: Any]
     let lattice = association?["word_lattice"] as? Bool ?? true
-    let neural = association?["neural_keyboard"] as? Bool ?? false
+    let neural = association?["neural_keyboard"] as? Bool ?? true
     if !lattice { return .off }
     return neural ? .enhanced : .standard
   }

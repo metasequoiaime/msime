@@ -644,6 +644,8 @@ PuncSwitch 的 keycode 与 StatusSnapshot/FocusRestored 的 pinyin_length 同步
 
 msime_client_set_chinese_punctuation 是 ABI 1 的附加符号，适配器和宿主库须成套更新。其返回值为未变化的 View；关闭时空组合 ASCII 标点由宿主透传，组合中标点仍按共享运行时的完成策略处理。这个接口只管每会话的标点开关，全局作用域由 `ModeAuthority` 和共享的 `ime_mode_scope` 决定。
 
+TIP 的标点 compartment 在激活和每次切换中英文（Shift、语言栏、Server 推送的应用规则）时回到这个模式的起始状态：`punctuation_lock` 为跟随时，英文模式用英文标点，中文模式用已存的 `chinese_punctuation`（设置「标点」里的「中文标点」「英文标点」，出厂为中文标点）；锁定时取锁定值。规则在 `tsf/Global/PunctuationModePolicy.h` 的 `PunctuationOpenForImeMode`，接在 `CompositionProcessorEngine.cpp` 的 `SyncPunctuationWithImeMode`、`InitializeMetasequoiaIMECompartment` 和 OPENCLOSE 回调上，起始标点与锁定一起由 `FanyUtils::RefreshPunctuationLockFromConfig` 从内存快照刷新。Ctrl+.、工具栏和托盘的切换只改当前 compartment（`PunctuationOpenForRequest`），不写偏好，下一次激活或中英文切换后回到起始标点。`msime-tsf-punctuation-mode-policy` 测试核对规则和这几处接线。
+
 ### 书名号自动补全后的嵌套回退
 
 候选打开时 `<` 由 Server 的 Engine 转换，Engine 的书名号嵌套计数随之加一；开启配对补全后右半边由 TSF 自己插入，之后的 `>` 只跨过它，Server 收不到能回退计数的按键，于是后面每个书名号都变成〈〉。所以 TSF 自动补全 `<` 后发 Main 事件 PairedPunctuationAutoClosed（16），keycode 为开口键，只能是 `<`，其他值在 `valid_main_frame` 被拒。它是没有回复的通知，和 PuncSwitch 一样经 FocusRouter 限定当前焦点，在输入队列里调用 `msime_client_balance_paired_punctuation_after_auto_close`；管道按序投递，所以回退先于下一个按键生效。开口由 TSF 本地解析时也照发：两边计数都在零处截止，多回退一次无害。事件编号由 `scripts/apply_engine_paired_punctuation_ipc.py` 叠加进 Engine 契约头。
@@ -741,6 +743,8 @@ TSF 在收到 Server 回复之前就要决定一个键是组合输入还是选�
 内置音效包由安装器放在 DataDir 的 `sound-packs`（与提示音 `audios` 同级），Server 通过 `src/system/SoundPackRoot.h` 在会话选项里写入 `sound_packs`；开发运行的状态目录里没有它时不写，由共享库按 resources 旁边的默认位置查找。官方插件包（uuid 脚本插件、latex-symbols 短语表，`plugins/official-packs.json` 登记的那些）不放 DataDir，而由安装器从 `server_exe/plugin-packs` 装到 Program Files 下 Server 目录的 `plugin-packs`：那里只有管理员能写。Server 通过 `src/system/PluginPackRoot.h` 在会话选项里写入 `plugin_packs`，目录不在（开发运行）时也照样写上，免得共享库退回到可写的 DataDir 旁边去找；原生设置应用和 Tauri 设置壳都取自己所在目录的 `plugin-packs`。它们默认停用：脚本插件要在授权页授权，短语表要在插件页启用。
 
 内置辅助码表同样不在资源目录里：安装器把它们放在 DataDir 的 `helpcodes`，Server 的 `server\resources` 没有 `helpcodes\`，而共享库只从资源目录的 `helpcodes\` 读内置码表，缺表时才读 `helpcode_fallback_resources`。Server 和 TIP 都通过 `src/system/HelpcodeRoot.h` 在内存里的会话选项中把 DataDir 写成 `helpcode_fallback_resources`（TIP 在 `tsf/HostConfiguration.cpp` 读 `runtime-options.json` 时写），不写回文件；DataDir 下没有 `helpcodes` 目录（开发运行）或选项里已有这个键时不写。
+
+用户自己的辅助码表（`custom/<文件名>`）放在 DataDir 的 `helpcodes\custom`：Engine、设置窗口和 Win7 设置都先读状态根下的这一份，再读 `server\resources\helpcodes\custom`（以前的位置，`server` 目录每次安装都整个删掉）。安装器清理 DataDir 的安装包条目时留下 `helpcodes\custom`，删 `server` 目录之前把那里的 `*.txt` 搬进 DataDir（同名不覆盖，`AdoptCustomHelpcodes`），Server 每次准备宿主时 host-api 也会把资源目录里剩下的表搬过来（#10707）。
 
 ### 打字特效
 

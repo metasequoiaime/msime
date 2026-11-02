@@ -707,6 +707,134 @@ static NSEvent *LayoutRepeatKey(unsigned short code, NSString *characters, NSEve
     return WithLayoutCharacters([NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:0 context:nil characters:characters charactersIgnoringModifiers:characters isARepeat:YES keyCode:code], characters);
 }
 
+// 上屏后联想（#9433）和普通候选一样选：空格选高亮的一行，数字键选候选窗上这一页的那一行（选词路径见 CandidateRowLayoutTest）。候选窗上没有那一行的数字、回车和标点照常输入，标点不翻页；Esc 只关闭联想（Vim 名单里的应用照常收到 Esc）；方向键或光标被挪走时重新聚焦，切断旧的词序上下文，其余键只送 Cancel。
+static void TestNextWordPredictionKeysTypeNormally(void) {
+    NSString *suite = [@"msime.next-word-prediction." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    [appearance applySharedInputPreferences:@{@"vim_mode_apps": @[@"org.example.Editor"]}];
+    appearance.englishMode = NO;
+    appearance.fullWidthInput = NO;
+    NSDictionary *idle = @{@"focused": @YES, @"editing_text": @"", @"candidates": @[], @"scheme": @0};
+    NSDictionary *prediction = @{@"focused": @YES, @"editing_text": @"", @"preedit": @"", @"scheme": @0, @"prediction": @YES,
+        @"session": @1, @"generation": @9, @"candidates": @[
+            @{@"text": @"饭", @"highlighted": @YES, @"id": @{@"session": @1, @"generation": @9, @"index": @0}},
+            @{@"text": @"东西", @"highlighted": @NO, @"id": @{@"session": @1, @"generation": @9, @"index": @1}}]};
+    NSString *cancel = [NSString stringWithFormat:@"command:%u", MSIME_CANCEL];
+    struct Case { unsigned short code; NSString *characters; NSEventModifierFlags flags; BOOL moveCaret; BOOL vim; };
+    // 每一种按键都在一个新的联想上按：先经 apply: 进入联想（像真实的上屏回复一样），再按键。
+    auto run = [&](Case key, BOOL (^check)(ShortcutSession *, ShortcutClient *, ModeController *, BOOL handled)) {
+        ModeController *controller = [ModeController alloc];
+        ShortcutSession *session = [ShortcutSession new];
+        VimModeClient *client = [VimModeClient new];
+        client.bundleIdentifier = key.vim ? @"org.example.Editor" : @"org.example.Other";
+        client.document = @"我想";
+        client.selection = NSMakeRange(2, 0);
+        TestCandidatePanel *panel = [TestCandidatePanel new];
+        [controller setValue:appearance forKey:@"appearance"];
+        [controller setValue:session forKey:@"session"];
+        [controller setValue:client forKey:@"activeClient"];
+        [controller setValue:panel forKey:@"panel"];
+        [controller setValue:idle forKey:@"view"];
+        [controller apply:@{@"handled": @YES, @"commit": @"吃", @"view": prediction}];
+        assert([client.document isEqual:@"我想吃"] && MSIMEViewPrediction([controller valueForKey:@"view"]));
+        // 测试客户端不报告光标矩形，候选窗不会真的画出来；按显示着处理，选词路径才有机会误拦。
+        panel.visible = YES;
+        if (key.moveCaret) client.selection = NSMakeRange(0, 0);
+        session.calls = [NSMutableArray array];
+        // 取消联想报已处理；Vim 用例里空闲的那次 Esc 也送 Cancel，runtime 对它报未处理，所以那里让 Cancel 落到 nextTransition。
+        session.cancelTransition = key.vim ? nil : @{@"handled": @YES, @"commit": NSNull.null, @"view": idle};
+        session.nextTransition = @{@"handled": @NO, @"commit": NSNull.null, @"view": idle};
+        const BOOL handled = [controller handleEvent:LayoutKey(key.code, key.characters, key.flags) client:client];
+        assert(![client.document hasPrefix:@"我想吃饭"]);
+        assert(!MSIMEViewPrediction([controller valueForKey:@"view"]) && !panel.visible);
+        assert(check(session, client, controller, handled));
+        // 控制器没有经 IMK 初始化，不能走 deactivateServer:；只把全局鼠标监视器摘掉。
+        [controller stopPredictionMouseMonitoring];
+    };
+    // 测试候选窗没有画出行：数字越过了这一页，照常交给引擎和应用，不选第一个联想。
+    run({18, @"1", 0, NO, NO}, ^BOOL(ShortcutSession *session, ShortcutClient *, ModeController *, BOOL handled) {
+        return !handled && [session.calls containsObject:cancel] && session.lastASCII == '1' &&
+            [session.calls indexOfObject:cancel] < [session.calls indexOfObject:@"ascii"];
+    });
+    // 空格选高亮的联想：不先取消，测试候选窗没有画出高亮行时交给会话的 MSIME_COMMIT_CANDIDATE（runtime 在联想时选高亮的一行）。
+    run({49, @" ", 0, NO, NO}, ^BOOL(ShortcutSession *session, ShortcutClient *, ModeController *, BOOL) {
+        return ![session.calls containsObject:cancel] && session.lastCommand == MSIME_COMMIT_CANDIDATE;
+    });
+    // 光标已经被挪走：空格不把旧位置的联想选进新位置，重新聚焦后照常输入。
+    run({49, @" ", 0, YES, NO}, ^BOOL(ShortcutSession *session, ShortcutClient *, ModeController *, BOOL) {
+        NSString *commit = [NSString stringWithFormat:@"command:%u", MSIME_COMMIT_CANDIDATE];
+        // 重新聚焦先清掉联想，之后的空格落在空闲会话上，runtime 对它报未处理，应用照常插入空格。
+        return [session.calls containsObject:@"focus:1"] &&
+            [session.calls indexOfObject:@"focus:1"] < [session.calls indexOfObject:commit];
+    });
+    // 逗号、句号是标点，不是联想的翻页键。
+    for (NSArray *mark in @[@[@43, @","], @[@47, @"."], @[@27, @"-"], @[@24, @"="]]) {
+        run({(unsigned short)[mark[0] intValue], mark[1], 0, NO, NO}, ^BOOL(ShortcutSession *session, ShortcutClient *, ModeController *, BOOL) {
+            NSString *previous = [NSString stringWithFormat:@"command:%u", MSIME_PREVIOUS_PAGE];
+            NSString *next = [NSString stringWithFormat:@"command:%u", MSIME_NEXT_PAGE];
+            return [session.calls containsObject:cancel] && ![session.calls containsObject:previous] && ![session.calls containsObject:next] &&
+                session.asciiCalls + session.contextualPunctuationCalls + session.enginePunctuationCalls + session.punctuationASCIICalls > 0;
+        });
+    }
+    // 回车照常交给应用换行。
+    run({36, @"\r", 0, NO, NO}, ^BOOL(ShortcutSession *session, ShortcutClient *, ModeController *, BOOL handled) {
+        return !handled && [session.calls containsObject:cancel];
+    });
+    // Esc 只关闭联想，这一键不交给应用，也不切英文。
+    run({53, @"\x1b", 0, NO, NO}, ^BOOL(ShortcutSession *session, ShortcutClient *, ModeController *controller, BOOL handled) {
+        MSIMEAppearancePreferences *prefs = [controller valueForKey:@"appearance"];
+        NSPredicate *dispatch = [NSPredicate predicateWithFormat:@"SELF BEGINSWITH 'command:' OR SELF BEGINSWITH 'focus:' OR SELF == 'ascii' OR SELF == 'select'"];
+        return handled && [[session.calls filteredArrayUsingPredicate:dispatch] isEqual:@[cancel]] && !prefs.englishMode;
+    });
+    // Vim 名单里的应用：联想关掉，Esc 照常到应用并切到英文。
+    run({53, @"\x1b", 0, NO, YES}, ^BOOL(ShortcutSession *session, ShortcutClient *, ModeController *controller, BOOL handled) {
+        MSIMEAppearancePreferences *prefs = [controller valueForKey:@"appearance"];
+        const BOOL english = prefs.englishMode;
+        prefs.englishMode = NO;
+        return !handled && [session.calls containsObject:cancel] && english;
+    });
+    // 方向键和 Command 组合键会挪动光标或改动文档：重新聚焦，不送 Cancel。
+    for (NSArray *chord in @[@[@123, @0], @[@126, @0], @[@9, @(NSEventModifierFlagCommand)], @[@14, @(NSEventModifierFlagControl)]]) {
+        run({(unsigned short)[chord[0] intValue], @"v", (NSEventModifierFlags)[chord[1] unsignedLongValue], NO, NO},
+            ^BOOL(ShortcutSession *session, ShortcutClient *, ModeController *, BOOL) {
+            return [session.calls containsObject:@"focus:1"] && ![session.calls containsObject:cancel];
+        });
+    }
+    // 联想出现之后光标被挪走（点到了别处）：下一个键重新聚焦，字母照常开始组字。
+    run({0, @"a", 0, YES, NO}, ^BOOL(ShortcutSession *session, ShortcutClient *, ModeController *, BOOL) {
+        return [session.calls containsObject:@"focus:1"] && ![session.calls containsObject:cancel] && session.lastASCII == 'a';
+    });
+
+    // 点击别处：选区没变时留着联想，变了才重新聚焦；应用不报告选区时无从比较，按挪走了处理。
+    for (NSValue *after in @[[NSValue valueWithRange:NSMakeRange(3, 0)], [NSValue valueWithRange:NSMakeRange(1, 0)]]) {
+        ModeController *controller = [ModeController alloc];
+        ShortcutSession *session = [ShortcutSession new];
+        ShortcutClient *client = [ShortcutClient new];
+        client.document = @"我想";
+        client.selection = NSMakeRange(2, 0);
+        [controller setValue:appearance forKey:@"appearance"];
+        [controller setValue:session forKey:@"session"];
+        [controller setValue:client forKey:@"activeClient"];
+        [controller setValue:[TestCandidatePanel new] forKey:@"panel"];
+        [controller setValue:idle forKey:@"view"];
+        [controller apply:@{@"handled": @YES, @"commit": @"吃", @"view": prediction}];
+        client.selection = after.rangeValue;
+        session.calls = [NSMutableArray array];
+        [controller predictionClientWasClicked];
+        const BOOL moved = after.rangeValue.location != 3;
+        assert([session.calls containsObject:@"focus:1"] == moved);
+        assert(MSIMEViewPrediction([controller valueForKey:@"view"]) == !moved);
+        // 控制器没有经 IMK 初始化，不能走 deactivateServer:；只把全局鼠标监视器摘掉。
+        [controller stopPredictionMouseMonitoring];
+    }
+
+    // 联想不是组字：中日英循环不把它当成要先上屏的组字。
+    assert(!MSIMEViewHasCompositionCandidates(prediction));
+    assert(MSIMEViewHasCompositionCandidates(@{@"candidates": prediction[@"candidates"]}));
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 // 字母快捷键按当前键盘布局在这个键上打出的字母认键（#5552）。
 static void TestShortcutLetterFollowsKeyboardLayout(void) {
     for (unsigned short code = 0; code < 128; ++code) {
@@ -3785,7 +3913,8 @@ static void TestGlossSenseTraditionalOutput(MSIMEAppearancePreferences *appearan
     self.editing = [self.editing substringFromIndex:1];
     self.highlighted = 0;
     ++self.generation;
-    return @{@"handled": @YES, @"view": [self gridView]};
+    // 真实会话没有上屏时 `commit` 是 JSON null，桥接后是 NSNull，不是缺字段（#10583）。
+    return @{@"handled": @YES, @"commit": NSNull.null, @"view": [self gridView]};
 }
 @end
 
@@ -5811,14 +5940,21 @@ static void TestMusicIsClaimedOnceTheSessionOpens() {
 @property(nonatomic) NSUInteger updates;
 @property(nonatomic) NSUInteger failedUpdatesRemaining;
 @property(nonatomic, copy) NSDictionary *lastPreferences;
+@property(nonatomic, copy) NSDictionary *startupHostOptions;
 @end
 @implementation AsyncPreferenceSession
+- (NSDictionary *)hostOptions { return self.startupHostOptions ?: @{}; }
 - (NSDictionary *)updatePreferencesSnapshot:(NSDictionary *)snapshot error:(NSError **)error {
     self.lastPreferences = snapshot; ++self.updates;
     if (self.failedUpdatesRemaining) {
         --self.failedUpdatesRemaining;
         if (error) *error = [NSError errorWithDomain:@"synthetic-preferences" code:1 userInfo:nil];
         return nil;
+    }
+    if (self.startupHostOptions) {
+        NSMutableDictionary *options = [self.startupHostOptions mutableCopy];
+        options[@"preferences"] = snapshot[@"preferences"];
+        self.startupHostOptions = options;
     }
     return @{@"view":@{@"focused":@YES, @"editing_text":@"", @"candidates":@[]}};
 }
@@ -6189,6 +6325,255 @@ static void TestFreshProcessActsOnTheSharedSchemeNotTheStaleLocalOne() {
     MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
     [NSFileManager.defaultManager removeItemAtPath:root error:nil];
     MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
+@interface StartupVoiceController : ModeController
+@property(nonatomic, copy) NSDictionary *options;
+@property(nonatomic) NSUInteger voiceFailures;
+@property(nonatomic) NSUInteger preferenceCompletions;
+@property(nonatomic) NSUInteger toolbarVoiceRequests;
+@end
+@implementation StartupVoiceController
+// alloc 夹具没有 IMK 基类的服务连接；模式报告先于激活时还没有客户端。
+- (id)client { return [self valueForKey:@"activeClient"]; }
+- (NSDictionary *)runtimeOptions { return self.options; }
+// 首帧断言故意不放行后台读取，也不启动系统输入源切换或联网授权。
+- (void)startPreferencesMonitoring {}
+- (void)scheduleSystemInputModeSyncForClient:(id)client { (void)client; }
+- (void)syncSystemInputModeForClient:(id)client { (void)client; }
+- (void)requestCloudCandidatesConsentIfNeeded {}
+// 工具栏路由只记录接收者，不打开面板或采集音频。
+- (void)showVoicePanel { ++self.toolbarVoiceRequests; }
+- (void)claimBackgroundMusic {}
+- (void)completePreferenceLoad:(NSDictionary *)snapshot error:(NSError *)error generation:(uint64_t)generation
+                       session:(MSIMEClientSession *)session client:(id)client {
+    [super completePreferenceLoad:snapshot error:error generation:generation session:session client:client];
+    ++self.preferenceCompletions;
+}
+- (void)reportVoiceFailure:(MSIMEVoiceFailure)failure {
+    assert(failure == MSIMEVoiceFailureMissingLocalModel);
+    ++self.voiceFailures;
+}
+@end
+
+static void IgnoreBaseActivation(id object, SEL selector, id sender) { (void)object; (void)selector; (void)sender; }
+
+static void TestStartupVoicePreferences() {
+    NSUserDefaults *standard = NSUserDefaults.standardUserDefaults;
+    NSDictionary *previousDefaults = standard.dictionaryRepresentation;
+    Method base = class_getInstanceMethod(IMKInputController.class, @selector(activateServer:));
+    IMP original = method_setImplementation(base, (IMP)IgnoreBaseActivation);
+    Method baseDeactivation = class_getInstanceMethod(IMKInputController.class, @selector(deactivateServer:));
+    IMP originalDeactivation = method_setImplementation(baseDeactivation, (IMP)IgnoreBaseActivation);
+    for (NSNumber *enabled in @[@YES, @NO]) for (NSUInteger entry = 0; entry < 12; ++entry) {
+        const char *selectedEntry = std::getenv("MSIME_STARTUP_VOICE_CASE");
+        if (selectedEntry && entry != std::strtoul(selectedEntry, nullptr, 10)) continue;
+        NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+        NSError *error = nil;
+        NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
+        assert(snapshot && !error);
+        NSMutableDictionary *document = [snapshot[@"preferences"] mutableCopy];
+        NSMutableDictionary *toolbar = [document[@"floating_toolbar"] mutableCopy];
+        toolbar[@"voice"] = enabled; toolbar[@"enabled"] = @(entry != 8 && entry != 10); toolbar[@"auto_hide"] = @NO;
+        document[@"floating_toolbar"] = toolbar;
+        NSMutableDictionary *voice = [document[@"voice_input"] mutableCopy];
+        voice[@"enabled"] = enabled; voice[@"asr_provider"] = @"local";
+        voice[@"asr_model_path"] = [root stringByAppendingPathComponent:@"missing-synthetic-model"];
+        document[@"voice_input"] = voice;
+        if (entry == 7) document[@"english_online_candidates"] = enabled;
+        if (entry == 9) document[@"diagnostic_log"] = @{@"server":@YES};
+        NSMutableDictionary *keys = [document[@"keybindings"] mutableCopy];
+        keys[@"toggle_voice_input"] = @"Ctrl+Meta+KeyZ";
+        document[@"keybindings"] = keys;
+        NSDictionary *saved = [MSIMEClientSession savePreferencesInDirectory:root
+            expectedRevision:[snapshot[@"revision"] unsignedLongLongValue]
+            snapshot:@{@"format_version":@1, @"revision":snapshot[@"revision"], @"preferences":document} error:&error];
+        assert(saved && !error);
+        NSString *suite = [@"msime.startup-voice." stringByAppendingString:NSUUID.UUID.UUIDString];
+        NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+        MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+        prefs.englishMode = YES;
+        StartupVoiceController *controller = [StartupVoiceController alloc];
+        controller.options = @{@"preferences_directory":root};
+        [controller setValue:prefs forKey:@"appearance"];
+        if (entry != 9) [controller setValue:root forKey:@"preferencesDirectory"];
+        if (entry == 8) prefs.floatingToolbarEnabled = YES;
+        AsyncPreferenceSession *startupSession = nil;
+        if (entry == 7) {
+            startupSession = [AsyncPreferenceSession new];
+            startupSession.startupHostOptions = @{@"preferences_directory":root,
+                @"preferences":@{@"english_online_candidates":@(!enabled.boolValue)}};
+            [controller setValue:startupSession forKey:@"session"];
+        }
+        // 原生缓存故意与共享文档相反，模拟进程退出期间设置应用改过总开关。
+        [NSUserDefaults.standardUserDefaults setBool:!enabled.boolValue forKey:@"MSIMEClientVoiceEnabled"];
+        MSIMEFloatingToolbarPanel *panel = MSIMEFloatingToolbarPanel.sharedPanel;
+        [panel applySizingPreferences:@{}];
+        ShortcutClient *client = [ShortcutClient new];
+        BOOL expected = enabled.boolValue;
+        StartupVoiceController *previousOwner = nil;
+        if (entry == 10 || entry == 11) {
+            // 两个控制器共用外观对象；旧控制器正常失焦后，常驻工具栏仍归它所有。
+            NSMutableDictionary *oldDocument = [document mutableCopy];
+            NSMutableDictionary *oldToolbar = [toolbar mutableCopy];
+            oldToolbar[@"enabled"] = @YES;
+            oldDocument[@"floating_toolbar"] = oldToolbar;
+            saved = [MSIMEClientSession savePreferencesInDirectory:root
+                expectedRevision:[saved[@"revision"] unsignedLongLongValue]
+                snapshot:@{@"format_version":@1, @"revision":saved[@"revision"], @"preferences":oldDocument} error:&error];
+            assert(saved && !error);
+            previousOwner = [StartupVoiceController alloc];
+            previousOwner.options = controller.options;
+            [previousOwner setValue:prefs forKey:@"appearance"];
+            [previousOwner setValue:root forKey:@"preferencesDirectory"];
+            ShortcutClient *previousClient = [ShortcutClient new];
+            [previousOwner activateServer:previousClient];
+            assert(panel.toolbarDelegate == previousOwner && panel.isVisible);
+            [previousOwner deactivateServer:previousClient];
+            assert(![previousOwner valueForKey:@"activeClient"]);
+            assert(panel.toolbarDelegate == previousOwner && panel.isVisible);
+            saved = [MSIMEClientSession savePreferencesInDirectory:root
+                expectedRevision:[saved[@"revision"] unsignedLongLongValue]
+                snapshot:@{@"format_version":@1, @"revision":saved[@"revision"], @"preferences":document} error:&error];
+            assert(saved && !error);
+        }
+        if (entry == 1 || entry == 5) {
+            MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+            [controller systemDidReportInputMode:MSIMEKoreanInputModeID client:client];
+            assert([prefs.inputScheme isEqual:@"korean"]);
+        }
+        if (entry == 4 || entry == 6) [controller applySharedInputPreferencesBeforeFirstUse];
+        if (entry == 3) {
+            NSString *invalid = [root stringByAppendingPathComponent:@"not-a-directory"];
+            assert([@"synthetic" writeToFile:invalid atomically:YES encoding:NSUTF8StringEncoding error:nil]);
+            [controller setValue:invalid forKey:@"preferencesDirectory"];
+            [controller applySharedInputPreferencesBeforeFirstUse];
+            [controller setValue:root forKey:@"preferencesDirectory"];
+        }
+        if (entry == 4 || entry == 5 || entry == 6) {
+            // 文档已更新；同一控制器的重载或另一控制器的激活已经把全局缓存推进到新值。
+            NSMutableDictionary *newer = [document mutableCopy];
+            NSMutableDictionary *newToolbar = [toolbar mutableCopy], *newVoice = [voice mutableCopy];
+            expected = !expected;
+            newToolbar[@"voice"] = @(expected); newVoice[@"enabled"] = @(expected);
+            newer[@"floating_toolbar"] = newToolbar; newer[@"voice_input"] = newVoice;
+            saved = [MSIMEClientSession savePreferencesInDirectory:root
+                expectedRevision:[saved[@"revision"] unsignedLongLongValue]
+                snapshot:@{@"format_version":@1, @"revision":saved[@"revision"], @"preferences":newer} error:&error];
+            assert(saved && !error);
+            if (entry == 4) [controller applySharedToolbarPreferences:newer];
+            else {
+                NSString *peerSuite = [suite stringByAppendingString:@".peer"];
+                NSUserDefaults *peerDefaults = [[NSUserDefaults alloc] initWithSuiteName:peerSuite];
+                StartupVoiceController *peer = [StartupVoiceController alloc];
+                peer.options = controller.options;
+                MSIMEAppearancePreferences *peerPreferences = [[MSIMEAppearancePreferences alloc] initWithDefaults:peerDefaults];
+                peerPreferences.englishMode = YES;
+                [peer setValue:peerPreferences forKey:@"appearance"];
+                [peer setValue:root forKey:@"preferencesDirectory"];
+                [peer activateServer:[ShortcutClient new]];
+                assert(MSIMEVoiceInputEnabled(NSUserDefaults.standardUserDefaults) == expected);
+                assert(((NSButton *)[panel valueForKey:@"voiceButton"]).hidden == !expected);
+                [panel deactivateForDelegate:peer];
+                MSIMEFocusedController = nil;
+                MSIMERemoveTestPreferenceSuite(peerDefaults, peerSuite);
+            }
+        }
+        if (entry == 2 || entry == 6) {
+            // 首个修饰键也能接管焦点，夹具不能预先给控制器放入工具栏。
+            assert(![controller valueForKey:@"toolbar"]);
+            [controller setValue:[ShortcutSession new] forKey:@"session"];
+            [controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 56, 0, 1) client:client];
+        } else if (entry == 8) {
+            // 工具栏被共享文档关闭时，首个 KeyDown 连一次显示请求也不能发出。
+            __block NSUInteger wakeRequests = 0;
+            Method wake = class_getInstanceMethod(MSIMEFloatingToolbarPanel.class, @selector(wakeForInputDelegate:));
+            IMP recorder = imp_implementationWithBlock(^(id panel, id owner) { (void)panel; (void)owner; ++wakeRequests; });
+            IMP originalWake = method_setImplementation(wake, recorder);
+            [controller setValue:[ShortcutSession new] forKey:@"session"];
+            [controller handleEvent:ModeKey(0, 0, NO) client:client];
+            method_setImplementation(wake, originalWake);
+            imp_removeBlock(recorder);
+            std::fprintf(stdout, "startup keydown wake_requests=%lu\n", (unsigned long)wakeRequests);
+            std::fflush(stdout);
+            assert(wakeRequests == 0 && !prefs.floatingToolbarEnabled);
+        } else if (entry == 10 || entry == 11) {
+            assert(![controller valueForKey:@"toolbar"]);
+            AsyncPreferenceSession *handoffSession = [AsyncPreferenceSession new];
+            [controller setValue:handoffSession forKey:@"session"];
+            [controller handleEvent:ModeKey(0, 0, NO) client:client];
+            std::fprintf(stdout, "startup handoff entry=%lu new_owner=%d visible=%d expected_visible=%d\n",
+                (unsigned long)entry, panel.toolbarDelegate == controller, panel.isVisible, entry == 11);
+            std::fflush(stdout);
+            assert(panel.toolbarDelegate == controller && panel.isVisible == (entry == 11));
+            [controller reloadPreferences];
+            NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2];
+            while (!controller.preferenceCompletions && deadline.timeIntervalSinceNow > 0)
+                [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
+            assert(controller.preferenceCompletions == 1 && handoffSession.updates == 1);
+            assert(panel.toolbarDelegate == controller && panel.isVisible == (entry == 11));
+            if (entry == 11 && enabled.boolValue) {
+                [panel performSelector:@selector(toggleVoice:) withObject:nil];
+                assert(controller.toolbarVoiceRequests == 1 && previousOwner.toolbarVoiceRequests == 0);
+            }
+        } else [controller activateServer:client];
+        if (entry == 9) {
+            std::fprintf(stdout, "startup diagnostics=%d\n", msime_macos_diagnostic_enabled());
+            std::fflush(stdout);
+            assert(msime_macos_diagnostic_enabled());
+        }
+        if (entry == 1 || entry == 5) assert([prefs.inputScheme isEqual:@"korean"]);
+        if (entry == 7) {
+            // 走真实 prepareSession 的运行态恢复分支；会话里仍是旧 runtime options。
+            [controller prepareSession];
+            assert([[controller valueForKey:@"englishOnlineCandidatesEnabled"] boolValue] == !enabled.boolValue);
+            [controller reloadPreferences];
+            SettleWindowLayout();
+            NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2];
+            while (!controller.preferenceCompletions && deadline.timeIntervalSinceNow > 0)
+                [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
+            assert(controller.preferenceCompletions == 1 && startupSession.updates == 1);
+            std::fprintf(stdout, "startup english_online=%d expected=%d\n",
+                [[controller valueForKey:@"englishOnlineCandidatesEnabled"] boolValue], enabled.boolValue);
+            std::fflush(stdout);
+            assert([[controller valueForKey:@"englishOnlineCandidatesEnabled"] boolValue] == enabled.boolValue);
+            assert([startupSession.hostOptions[@"preferences"][@"english_online_candidates"] isEqual:enabled]);
+        }
+        NSButton *microphone = [panel valueForKey:@"voiceButton"];
+        const char *captureEntry = std::getenv("MSIME_STARTUP_VOICE_CAPTURE_ENTRY");
+        if (enabled.boolValue && entry == (captureEntry ? std::strtoul(captureEntry, nullptr, 10) : 0)) {
+            if (const char *capture = std::getenv("MSIME_STARTUP_VOICE_CAPTURE")) {
+                [panel.contentView layoutSubtreeIfNeeded];
+                NSBitmapImageRep *bitmap = [panel.contentView bitmapImageRepForCachingDisplayInRect:panel.contentView.bounds];
+                [panel.contentView cacheDisplayInRect:panel.contentView.bounds toBitmapImageRep:bitmap];
+                [[bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:@(capture) atomically:YES];
+            }
+        }
+        std::fprintf(stdout, "startup entry=%lu expected=%d microphone=%d runtime_enabled=%d\n",
+            (unsigned long)entry, expected, !microphone.hidden, MSIMEVoiceInputEnabled(NSUserDefaults.standardUserDefaults));
+        std::fflush(stdout);
+        assert(microphone.hidden == !expected);
+        assert(MSIMEVoiceInputEnabled(NSUserDefaults.standardUserDefaults) == expected);
+        assert([[NSUserDefaults.standardUserDefaults stringForKey:@"MSIMEClientVoiceASRModelPath"] isEqual:voice[@"asr_model_path"]]);
+        assert([controller matchesVoiceToggleHotkey:ModeKey(6, NSEventModifierFlagControl | NSEventModifierFlagCommand, NO)]);
+        if (expected) {
+            [controller setValue:[ShortcutSession new] forKey:@"session"];
+            // 缺的是合成模型，实际语音入口应先报告错误；永远到不了权限申请或音频采集。
+            [controller toggleVoiceInput:nil];
+            assert(controller.voiceFailures == 1);
+        }
+        [panel deactivateForDelegate:controller];
+        if (entry == 9) msime_macos_diagnostic_configure("", false);
+        MSIMEFocusedController = nil;
+        MSIMERemoveTestPreferenceSuite(defaults, suite);
+        [NSFileManager.defaultManager removeItemAtPath:root error:nil];
+    }
+    method_setImplementation(baseDeactivation, originalDeactivation);
+    method_setImplementation(base, original);
+    for (NSString *key in standard.dictionaryRepresentation) if ([key hasPrefix:@"MSIMEClientVoice"]) {
+        if (previousDefaults[key]) [standard setObject:previousDefaults[key] forKey:key];
+        else [standard removeObjectForKey:key];
+    }
 }
 
 // The poll reads the preferences document once a second, and most of those reads find exactly what
@@ -13464,6 +13849,80 @@ static void TestQuickPhraseCursorThroughRealSession() {
     assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
 }
 
+// 辅助码触发键（#10625）走真实会话：偏好里的 `trigger_key` 经 host-api 交给 Engine，macOS 按键路由把 Engine 发布的触发键当字符送进去。拼音后按触发键不上屏、不结束组字，接着打的码与 Shift 加大写字母得到同一个组字；没设触发键时同一个键照旧结束组字。
+static void TestHelpcodeTriggerThroughRealSession() {
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    NSString *suite = [@"msime.helpcode-trigger." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    NSDictionary *defaultPreferences = [MSIMEClientSession loadPreferencesInDirectory:
+        [root stringByAppendingPathComponent:@"preferences_directory"] error:nil][@"preferences"];
+    assert(defaultPreferences);
+    for (NSString *scheme in @[@"quanpin", @"shuangpin"]) {
+        NSString *family = [scheme stringByAppendingString:@"_helpcode"];
+        for (NSArray *trigger in @[@[@";", @41], @[@"/", @44], @[@"\\", @42], @[@"`", @50], @[@"=", @24], @[@"", @44]]) {
+            NSString *key = trigger[0];
+            NSMutableDictionary *preferences = [defaultPreferences mutableCopy];
+            [preferences addEntriesFromDictionary:@{@"scheme": scheme, @"default_ime_mode": @"chinese", @"learning": @NO, @"cloud_candidates": @NO,
+                @"shuangpin_profile": @"xiaohe"}];
+            NSMutableDictionary *helpcode = [preferences[family] mutableCopy];
+            helpcode[@"enabled"] = @YES;
+            helpcode[@"trigger_key"] = key;
+            preferences[family] = helpcode;
+            NSMutableDictionary *options = [@{@"api_version": @1, @"preferences": preferences} mutableCopy];
+            for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries", @"preferences_directory"]) {
+                NSString *path = [root stringByAppendingPathComponent:name];
+                assert([NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
+                options[name] = path;
+            }
+            // 同一组按键分别在触发键路线和 Shift 路线上各跑一个会话，比较两边的组字。
+            NSString *(^run)(NSArray<NSEvent *> *, BOOL *, NSString **) = ^NSString *(NSArray<NSEvent *> *events, BOOL *committed, NSString **afterTrigger) {
+                NSError *error = nil;
+                MSIMEClientSession *session = [[MSIMEClientSession alloc] initWithOptions:options error:&error];
+                assert(session && !error);
+                NSDictionary *focused = [session setFocused:YES error:&error];
+                MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+                [prefs applySharedInputPreferences:preferences];
+                prefs.smartPunctuation = YES;
+                ShortcutClient *client = [ShortcutClient new];
+                client.document = @"";
+                client.selection = NSMakeRange(0, 0);
+                ModeController *controller = [ModeController alloc];
+                [controller setValue:prefs forKey:@"appearance"];
+                [controller setValue:session forKey:@"session"];
+                [controller setValue:client forKey:@"activeClient"];
+                [controller setValue:[[HiddenCandidatePanel alloc] init] forKey:@"panel"];
+                [controller setValue:focused[@"view"] forKey:@"view"];
+                for (NSUInteger index = 0; index < events.count; ++index) {
+                    NSEvent *event = events[index];
+                    if (![controller handleEvent:event client:client]) [client insertText:event.characters replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+                    if (index == 2 && afterTrigger) *afterTrigger = [controller valueForKey:@"view"][@"editing_text"];
+                }
+                *committed = client.insertions.count > 0;
+                NSString *editing = [session viewWithError:&error][@"editing_text"];
+                assert(!error && [session closeWithError:&error] && !error);
+                return editing;
+            };
+            NSEvent *n = LayoutKey(45, @"n", 0), *i = LayoutKey(34, @"i", 0);
+            NSEvent *f = LayoutKey(3, @"f", 0), *upperF = LayoutKey(3, @"F", NSEventModifierFlagShift);
+            BOOL committed = NO;
+            NSString *afterTrigger = nil;
+            NSString *triggered = run(@[n, i, LayoutKey([trigger[1] unsignedShortValue], key.length ? key : @"/", 0), f], &committed, &afterTrigger);
+            if (!key.length) {
+                // 没设触发键：`/` 在拼音后照旧结束组字，后面的 `f` 开始新的组字。
+                assert(committed && [triggered isEqual:@"f"]);
+                continue;
+            }
+            assert(!committed && [afterTrigger isEqual:@"ni"]);
+            BOOL shiftedCommitted = NO;
+            NSString *shifted = run(@[n, i, upperF], &shiftedCommitted, nil);
+            assert(!shiftedCommitted && shifted.length > 2);
+            assert([triggered isEqual:shifted]);
+        }
+    }
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+    assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
+}
+
 static void TestCrossCommitSpacingInTextView() {
     NSString *suite = [@"msime.cross-commit-spacing-appkit." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
@@ -13573,6 +14032,10 @@ int main(int argc, char **argv) {
             TestQuickPhraseCursorThroughRealSession();
             return 0;
         }
+        if (argc == 2 && std::string(argv[1]) == "--helpcode-trigger") {
+            TestHelpcodeTriggerThroughRealSession();
+            return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--cross-commit-spacing") {
             TestCrossCommitSpacing();
             TestCrossCommitSpacingReentrancy();
@@ -13638,6 +14101,10 @@ int main(int argc, char **argv) {
         }
         if (argc == 2 && std::string(argv[1]) == "--glass-visual") {
             TestGlassInputModeHUD(YES);
+            return 0;
+        }
+        if (argc == 2 && std::string(argv[1]) == "--startup-voice") {
+            TestStartupVoicePreferences();
             return 0;
         }
         if (argc == 2 && std::string(argv[1]) == "--key-focus-preferences") {
@@ -15322,6 +15789,49 @@ int main(int argc, char **argv) {
         assert([controller handleEvent:reverseTab client:client] && session.lastCommand == MSIME_PREVIOUS_PAGE);
         session.nextTransition = nil;
         [controller setValue:pageView forKey:@"view"];
+        // 全拼、双拼的辅助码触发键（#10625）：Engine 把此刻会开辅助码段的 `;` `/` `\` 反引号 `=` 列进 spelling_symbols，候选窗开着时这一键也要作为字符送进 Engine，不能被 `=` 翻页、智能标点或标点上屏抢走；没列出时 `=` 照旧翻页。
+        {
+            const BOOL savedSmart = appearance.smartPunctuation;
+            const BOOL minusEqualPaging = [appearance navigationEnabled:@"minus_equal"];
+            appearance.smartPunctuation = YES;
+            [appearance setNavigation:@"minus_equal" enabled:YES];
+            for (NSArray *entry in @[@[@";", @41], @[@"/", @44], @[@"\\", @42], @[@"`", @50], @[@"=", @24]]) {
+                NSString *glyph = entry[0];
+                NSMutableDictionary *triggerView = [pageView mutableCopy];
+                triggerView[@"scheme"] = @0;
+                triggerView[@"local_mode"] = @"none";
+                triggerView[@"editing_text"] = @"ni";
+                triggerView[@"caret_position"] = @2;
+                triggerView[@"spelling_symbols"] = glyph;
+                [controller setValue:triggerView forKey:@"view"];
+                layoutPanel.requestedVisible = YES;
+                session.nextTransition = @{@"handled": @YES, @"view": triggerView};
+                session.lastCommand = UINT32_MAX;
+                session.asciiCalls = 0;
+                session.punctuationASCIICalls = 0;
+                session.contextualPunctuationCalls = 0;
+                session.enginePunctuationCalls = 0;
+                client.committed = nil;
+                assert([controller handleEvent:LayoutKey([entry[1] unsignedShortValue], glyph, 0) client:client]);
+                assert(session.asciiCalls == 1 && session.lastASCII == [glyph characterAtIndex:0] && !session.lastShift);
+                assert(session.lastCommand == UINT32_MAX);
+                assert(session.punctuationASCIICalls == 0 && session.contextualPunctuationCalls == 0 && session.enginePunctuationCalls == 0);
+                assert(client.committed == nil);
+            }
+            // 对照：Engine 没有发布 `=`（没设触发键，或此刻不能开辅助码段）时，`=` 仍是下一页。
+            NSMutableDictionary *plainView = [pageView mutableCopy];
+            plainView[@"spelling_symbols"] = @"";
+            [controller setValue:plainView forKey:@"view"];
+            layoutPanel.requestedVisible = YES;
+            session.lastCommand = UINT32_MAX;
+            session.asciiCalls = 0;
+            assert([controller handleEvent:LayoutKey(24, @"=", 0) client:client]);
+            assert(session.lastCommand == MSIME_NEXT_PAGE && session.asciiCalls == 0);
+            [appearance setNavigation:@"minus_equal" enabled:minusEqualPaging];
+            appearance.smartPunctuation = savedSmart;
+            session.nextTransition = nil;
+            [controller setValue:pageView forKey:@"view"];
+        }
         // 文档里存着 Tab 和 Page Up / Page Down 翻页为关时，它们照样翻页：macOS 固定开启这两组键。
         [appearance applySharedCandidatePreferences:@{@"navigation": @{@"tab": @NO, @"page_up_down": @NO}}];
         for (NSArray *entry in @[@[@"\t", @48, @0, @(MSIME_NEXT_PAGE)],
@@ -15632,6 +16142,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestSavedPreferencesReachTheFocusedController(); }
         @autoreleasepool { TestModeSwitchReachesTheSessionBeforeTheNextKey(); }
         @autoreleasepool { TestFreshProcessActsOnTheSharedSchemeNotTheStaleLocalOne(); }
+        @autoreleasepool { TestStartupVoicePreferences(); }
         @autoreleasepool { TestPreferenceRevisionSkipsUnchangedDocuments(); }
         @autoreleasepool { TestPreferenceRevisionRetriesFailedUpdate(); }
         @autoreleasepool { TestKeyFocusRestoresPreferenceMonitoring(); }
@@ -15676,6 +16187,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestInputStateHUDs(); }
         @autoreleasepool { TestToggleHotkeyRebinding(); }
         @autoreleasepool { TestVimModeEscapeRouting(); }
+        @autoreleasepool { TestNextWordPredictionKeysTypeNormally(); }
         @autoreleasepool { TestDedicatedEnglish(appearance); }
         @autoreleasepool { TestConsecutiveUppercaseGoesToTheClient(appearance); }
         @autoreleasepool { TestSystemInputModeReport(appearance); }

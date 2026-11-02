@@ -85,7 +85,7 @@ pub use types::{
     WubiProfileKind, DEFAULT_FIRST_PAGE_ROWS,
 };
 // 辅助码表：`SessionOptions::helpcode_table` 与 `Session::set_helpcode_table` 收的就是它，宿主自己读表（辅助码表插件、没有文件系统的网页）时用这几项。
-pub use helpcode::{load_helpcode_keymap, HelpcodeKeymap, SharedKeymap};
+pub use helpcode::{load_helpcode_keymap, load_helpcode_keymap_in, HelpcodeKeymap, SharedKeymap};
 // 用户自定义的 26 键双拼表（`SessionOptions::shuangpin_custom_profile`）的校验：宿主在把表交给会话之前先校验，不合法就不要传。设置页编辑表用的辅助函数（内置表作起点、不留存的校验）是产品胶水，在 `host` 里。
 pub use shuangpin::custom::{
     validate_custom_profile as validate_shuangpin_custom_profile,

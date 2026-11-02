@@ -4,7 +4,7 @@
 //!
 //! 方案输入不带声调的粤拼，所以每个读音都去掉声调数字，条目的键是去声调的音节以一个空格连接（`nei hou`）。只差声调的读音合成一个条目，取最大的权重。词的权重是它的 essay 分数。essay 以书面语为主，词表里约五分之二的词它没有收，最常用的口语词也在其中（我哋、佢哋、嗰啲、食咗）。这类词若语料有计数，权重是语料次数乘以 `corpus_scale`，即两者都收的词上 essay 分数与语料次数之比的中位数，把语料次数换算到 essay 的尺度（我哋在语料里出现 446 次，落在點解附近）。语料次数不到 `CORPUS_MIN_COUNT` 的词压到同键 essay 所列最轻的词之下一位，免得只出现过一次的异写或切分偶然（物証之于物證）排到 essay 收录的词前面。其余没收的词按 `unlisted_word_weight` 加权：1 加上它最罕用的字的 essay 分数以 2 为底的对数，这样同音词按用字的常见程度排序，又远低于 essay 给收录词的分数（大多至少 100）。字的权重是它的 essay 分数，行里给了比例时按比例折算，最低为 1；主要出现在词里的字再按 `WORD_FLOOR_CEILING` 由所在的词带出一个下限（「词带字」）。
 //!
-//! 字表、词表和 essay 用 OpenCC 标准字形（爲、衆），HKCanCor 用香港实际书写的字形（為、眾）。构建时把 OpenCC 字形换成香港字形，换哪些字由数据决定：异体对取自 OpenCC 的 `TWVariants.txt`（msime-dictionary 的 `sources/opencc/` 原样收录），一对里只有 HKCanCor 词频表用另一形、完全不用 OpenCC 形时才换（`hong_kong_forms`）；两形语料都没有的对、两形都用的对（着/著）、香港仍用 OpenCC 形的对（裏/裡）都不动。词频表不收单字词，判定只看两个及以上汉字的词：语料里单独成词的字不算，固定提交的 HKCanCor 里「羣」单独出现过 1 次，按词频表仍换成「群」。这张表不收 說/説、溫/温、戶/户、衛/衞 这类《常用字字形表》的异体，它们本来就不在考虑之内。替换只改写入的字面：字的权重仍按原字面查 essay，词、essay 补词和人工词表按替换后的字面查 essay 与语料（`essay_by_hong_kong_form` 把各写法的 essay 分数合到香港字形上，HKCanCor 本来就是香港字形），合并后的两行由 `Dictionary::insert` 取较大权重，所以「為」继承「爲」的 184291，「因爲」写成「因為」。单字另外保留 OpenCC 字形：「峯」「羣」这类字本身也常用（人名里尤其多），粤语方案又没有学习数据，换掉就打不出来，所以 OpenCC 字形的单字行照样写入，权重取它自己的分数与香港字形权重减一中较小的那个（至少为 1），「爲」得 184290，紧排在「為」下面；词只写香港字形。
+//! 字表、词表和 essay 用 OpenCC 标准字形（爲、衆），HKCanCor 用香港实际书写的字形（為、眾）。构建时把 OpenCC 字形换成香港字形，换哪些字由数据决定：异体对取自 OpenCC 的 `TWVariants.txt`（msime-dictionary 的 `sources/opencc/` 原样收录），外加臺灣沿用 OpenCC 字形、因而这张表不列的 `HONG_KONG_ONLY_VARIANTS`（溼/濕），一对里只有 HKCanCor 词频表用另一形、完全不用 OpenCC 形时才换（`hong_kong_forms`）；两形语料都没有的对、两形都用的对（着/著）、香港仍用 OpenCC 形的对（裏/裡）都不动。词频表不收单字词，判定只看两个及以上汉字的词：语料里单独成词的字不算，固定提交的 HKCanCor 里「羣」单独出现过 1 次，按词频表仍换成「群」。这张表不收 說/説、溫/温、戶/户、衛/衞 这类《常用字字形表》的异体，它们本来就不在考虑之内。替换只改写入的字面：字的权重仍按原字面查 essay，词、essay 补词和人工词表按替换后的字面查 essay 与语料（`essay_by_hong_kong_form` 把各写法的 essay 分数合到香港字形上，HKCanCor 本来就是香港字形），合并后的两行由 `Dictionary::insert` 取较大权重，所以「為」继承「爲」的 184291，「因爲」写成「因為」。单字另外保留 OpenCC 字形：「峯」「羣」这类字本身也常用（人名里尤其多），粤语方案又没有学习数据，换掉就打不出来，所以 OpenCC 字形的单字行照样写入，权重取它自己的分数与香港字形权重减一中较小的那个（至少为 1），「爲」得 184290，紧排在「為」下面；词只写香港字形。
 //!
 //! The words file lacks some of the commonest words because Rime composes them from characters at typing time (你好 is one), and the engine does not compose sentences. So an essay word the words file does not list becomes an entry too when the essay counts it at least `ESSAY_WORD_MIN_COUNT` times and each of its characters has exactly one toneless reading in the characters file, which makes its key certain.
 //!
@@ -28,6 +28,8 @@ pub const CORPUS: &str = crate::hkcancor::OUTPUT;
 pub const CUSTOM: &str = "custom/cantonese.txt";
 /// OpenCC 的臺灣异体字表（Apache-2.0），只用来列出候选的异体对，哪一对替换由 HKCanCor 决定；表里的字不写进词库，词库的许可不变。
 pub const VARIANTS: &str = "sources/opencc/TWVariants.txt";
+/// `TWVariants.txt` 收不到的候选异体对：香港字形与 OpenCC 字形不同、臺灣却沿用 OpenCC 字形的字，臺灣异体表里自然没有这一行。每一对照抄 OpenCC `HKVariants.txt` 的同一行，和 `VARIANTS` 的对一样只是候选，换不换仍由 `hong_kong_forms` 按 HKCanCor 判定。「溼」：rime-cantonese 的字表、词表和 essay 只用「溼」，HKCanCor 只用「濕」（乾濕褸、風濕、濕濕碎碎），「濕」因此只有下限 1 分、不在任何词里（#10697）。不整份读 `HKVariants.txt`：按同样的规则它还会把「搵」换成「揾」（固定提交的 HKCanCor 只用「揾」，rime-cantonese 和香港日常书写多用「搵」），还会把「菸」换成「煙」，这类对要逐个人工确认后才加进来。
+pub const HONG_KONG_ONLY_VARIANTS: [(char, char); 1] = [('溼', '濕')];
 /// The sources lock reference whose commit is recorded as the database's `source_commit`.
 pub const REFERENCE: &str = "rime-cantonese";
 /// The SPDX identifier recorded as the database's `license`.
@@ -54,11 +56,12 @@ pub const FLOORS: Floors = Floors {
 };
 
 /// Keys whose first entries, as many as the third field, must include the text, as a check against gross ranking errors. 「逾」「慈」主要出现在词里，essay 单字分数只有 177，靠 `WORD_FLOOR_CEILING` 的词带字下限才排进前列，没有下限时分别落在 jyu 的第 204 位、ci 的第 171 位（#10448）。
-pub const EXPECTED: [(&str, &str, usize); 6] = [
+pub const EXPECTED: [(&str, &str, usize); 7] = [
     ("nei hou", "你好", 3),
     ("gwong dung waa", "廣東話", 3),
     ("wai", "為", 3),
     ("jan wai", "因為", 3),
+    ("sap", "濕", 3),
     ("jyu", "逾", 50),
     ("ci", "慈", 30),
 ];
@@ -155,6 +158,17 @@ pub fn parse_variants(source: &str) -> Result<Vec<(char, Vec<char>)>> {
             );
         };
         pairs.push(pair);
+    }
+    Ok(pairs)
+}
+
+/// 判定用的全部候选异体对：`TWVariants.txt` 的行，再加上 `HONG_KONG_ONLY_VARIANTS` 里表中还没有的字。
+pub fn candidate_variants(tw_variants: &str) -> Result<Vec<(char, Vec<char>)>> {
+    let mut pairs = parse_variants(tw_variants)?;
+    for (opencc, hong_kong) in HONG_KONG_ONLY_VARIANTS {
+        if !pairs.iter().any(|(key, _)| *key == opencc) {
+            pairs.push((opencc, vec![hong_kong]));
+        }
     }
     Ok(pairs)
 }
@@ -728,7 +742,7 @@ mod tests {
     const HEADER: &str = "# Rime dictionary\n# encoding: utf-8\n\n---\nname: jyut6ping3.chars\nversion: \"2026.08.10\"\nsort: by_weight\n...\n\n";
 
     fn characters_source() -> String {
-        format!("{HEADER}你\tnei5\n妳\tnei5\n好\thou2\n好\thou3\t40%\n號\thou6\t0%\n廣\tgwong2\n東\tdung1\n話\twaa6\t80%\n話\twaa2\t20%\n呢\tne1\n呢\tnei4\t5%\n爲\twai4\n為\twai4\t5%\n因\tjan1\n逾\tjyu4\n慈\tci4\n")
+        format!("{HEADER}你\tnei5\n妳\tnei5\n好\thou2\n好\thou3\t40%\n號\thou6\t0%\n廣\tgwong2\n東\tdung1\n話\twaa6\t80%\n話\twaa2\t20%\n呢\tne1\n呢\tnei4\t5%\n爲\twai4\n為\twai4\t5%\n因\tjan1\n逾\tjyu4\n慈\tci4\n溼\tsap1\n濕\tsap1\n")
     }
 
     fn words_source() -> String {
@@ -736,7 +750,7 @@ mod tests {
     }
 
     const ESSAY_TEXT: &str =
-        "你\t7000\n好\t5000\n話\t900\n呢\t2000\n廣東話\t6851\n你好\t21493\n好呢\t3000\n你哋\t40\n號\t10\n你好\t5\n爲\t184291\n因爲\t713185\n";
+        "你\t7000\n好\t5000\n話\t900\n呢\t2000\n廣東話\t6851\n你好\t21493\n好呢\t3000\n你哋\t40\n號\t10\n你好\t5\n爲\t184291\n因爲\t713185\n溼\t49742\n";
 
     fn entries(dictionary: &Dictionary) -> Vec<(&str, &str, i64)> {
         dictionary
@@ -759,22 +773,20 @@ mod tests {
         )
     }
 
-    /// 只把「爲」换成「為」，让样例库满足 `EXPECTED` 里的 ("wai", "為") 与 ("jan wai", "因為")；字表里的「逾」「慈」满足 jyu 与 ci 两项。
+    /// 把「爲」换成「為」、「溼」换成「濕」，让样例库满足 `EXPECTED` 里的 ("wai", "為")、("jan wai", "因為") 与 ("sap", "濕")；字表里的「逾」「慈」满足 jyu 与 ci 两项。
     fn sample_forms() -> HongKongForms {
-        HongKongForms::from([(
-            '爲',
-            HongKongForm {
-                hong_kong: '為',
-                corpus_count: 1,
-            },
-        )])
+        let form = |hong_kong| HongKongForm {
+            hong_kong,
+            corpus_count: 1,
+        };
+        HongKongForms::from([('溼', form('濕')), ('爲', form('為'))])
     }
 
     #[test]
     fn rows_after_the_header_lose_their_tones() {
         let characters = characters_source();
         let rows = parse_characters(&characters).unwrap();
-        assert_eq!(rows.len(), 16);
+        assert_eq!(rows.len(), 18);
         assert_eq!(
             rows[3],
             Row {
@@ -818,6 +830,9 @@ mod tests {
                 ("nei dei", "你哋", 40),
                 // Every character of 你好 has one toneless reading and the essay counts it often enough; the larger of its two counts wins.
                 ("nei hou", "你好", 21493),
+                // 溼仍单列，排在濕下面一位；濕只有字表一行、没有 essay 分数，合并后取溼的 49742。
+                ("sap", "溼", 49741),
+                ("sap", "濕", 49742),
                 // 80% of 900 is 720, below the 1548 廣東話 brings.
                 ("waa", "話", 1548),
                 // 為自己的 5% 份额没有 essay 分数，合并后取爲的 184291；爲仍单列，排在為下面一位。
@@ -833,7 +848,7 @@ mod tests {
                 dictionary.words,
                 dictionary.essay_words
             ),
-            (14, 4, 1)
+            (16, 4, 1)
         );
         assert_eq!(dictionary.characters_raised, 4);
     }
@@ -1175,6 +1190,41 @@ mod tests {
     }
 
     #[test]
+    fn hong_kong_only_pairs_join_the_taiwan_table() {
+        let variants = candidate_variants(VARIANTS_TEXT).unwrap();
+        assert_eq!(variants.last(), Some(&('溼', vec!['濕'])));
+        // 臺灣异体表将来收进同一个字时不重复列出。
+        let doubled = candidate_variants("溼\t濕\n").unwrap();
+        assert_eq!(doubled, [('溼', vec!['濕'])]);
+        // 语料只用「濕」，「溼」换成「濕」，单字「溼」紧排其下，词只写「濕」（#10697）。
+        let corpus = crate::hkcancor::parse("乾濕褸\t1\n濕濕碎碎\t1\n風濕\t1\n").unwrap();
+        let forms = hong_kong_forms(&variants, &corpus);
+        assert_eq!(forms.keys().collect::<String>(), "溼");
+        let characters = format!("{HEADER}溼\tsap1\n濕\tsap1\n十\tsap6\n紙\tzi2\n巾\tgan1\n");
+        let words = format!("{HEADER}溼紙巾\tsap1 zi2 gan1\n");
+        let essay = parse_essay("十\t80444\n溼\t49742\n紙\t9000\n巾\t3000\n").unwrap();
+        let dictionary = build(
+            &parse_characters(&characters).unwrap(),
+            &parse_words(&words).unwrap(),
+            &essay,
+            &corpus,
+            &[],
+            &forms,
+        );
+        let weight = |key: &str, text: &str| {
+            dictionary
+                .entries
+                .get(&(key.to_owned(), text.to_owned()))
+                .copied()
+        };
+        assert_eq!(weight("sap", "十"), Some(80444));
+        assert_eq!(weight("sap", "濕"), Some(49742));
+        assert_eq!(weight("sap", "溼"), Some(49741));
+        assert!(weight("sap zi gan", "濕紙巾").is_some());
+        assert_eq!(weight("sap zi gan", "溼紙巾"), None);
+    }
+
+    #[test]
     fn opencc_forms_hand_their_weights_to_the_hong_kong_forms() {
         let characters = format!(
             "{HEADER}爲\twai4\n為\twai4\t5%\n為\twai6\t5%\n爲\twai6\t5%\n因\tjan1\n人\tjan4\n着\tzoek6\n裏\tleoi5\n面\tmin6\n說\tsyut3\n僞\tngai6\n偽\tngai6\n"
@@ -1270,7 +1320,7 @@ mod tests {
             syllables,
             [
                 "ci", "dei", "dung", "fe", "fi", "gwong", "hou", "jan", "jyu", "le", "li", "ne",
-                "nei", "waa", "wai"
+                "nei", "sap", "waa", "wai"
             ]
         );
     }
@@ -1409,32 +1459,32 @@ mod tests {
     fn verify_enforces_the_floors_and_the_expected_entries() {
         let (_dir, path) = written(&sample());
         let floors = Floors {
-            syllables: 15,
-            characters: 14,
+            syllables: 16,
+            characters: 16,
             words: 5,
         };
         assert_eq!(
             verify(&path, floors).unwrap(),
             Counts {
-                syllables: 15,
-                characters: 14,
+                syllables: 16,
+                characters: 16,
                 words: 5
             }
         );
         for (below, what) in [
             (
                 Floors {
-                    syllables: 16,
+                    syllables: 17,
                     ..floors
                 },
-                "15 syllables, below the floor of 16",
+                "16 syllables, below the floor of 17",
             ),
             (
                 Floors {
-                    characters: 15,
+                    characters: 17,
                     ..floors
                 },
-                "14 character entries, below the floor of 15",
+                "16 character entries, below the floor of 17",
             ),
             (
                 Floors { words: 6, ..floors },

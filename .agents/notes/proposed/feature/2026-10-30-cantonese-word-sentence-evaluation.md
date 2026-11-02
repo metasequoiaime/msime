@@ -73,6 +73,7 @@ Python 3.10+，只用标准库。首次 `--fetch` 下载约 13.7 MB 固定公开
 - [粤语双拼两键定音节](../../implemented/bug-fix/2026-10-29-cantonese-shuangpin-strict-expansion.md)部分重叠，持有编码与切分正确性，本篇评估词面覆盖及句子组合，不翻转该决定。
 - [粤语双拼](../../implemented/feature/2026-10-26-cantonese-shuangpin.md)持有映射规则，本篇不改变双拼表。
 - [粤语词库收录人工审校词表](../../implemented/feature/2026-10-31-cantonese-reviewed-word-list.md)部分落实路线 1：已有收录机制（msime-dictionary 的 `custom/cantonese.txt`、构建时的读音检查与 check-words 门禁），首批只有 #10369 的「周杰倫」，本篇建议的经审校小批扩充仍未开始。
+- [粤语词图组句与粤语双拼展开预编辑](../../implemented/feature/2026-11-02-cantonese-word-lattice-sentence.md)部分落实路线 2：复用注音的词图转换，粤拼和粤语双拼都在首位给出由已有词和单字组成的整句，并附合成留一回归集和按键耗时；本篇要求的母语者开发集仍未建立，路线 1 的批量扩充和路线 3 的 n-gram 也未开始。
 - [语言词库许可证](../../implemented/process/2026-10-29-language-dictionary-licence-expressions-and-mobile-notice.md)持有已有来源的随包声明，本篇新增来源前先核对，不扩大现有授权范围。
 
 ## Alternatives considered

@@ -104,6 +104,8 @@ pub struct ImeSession {
     shuangpin_helpcode_modes: crate::types::ShuangpinHelpcodeModes,
     fuzzy: FuzzyPinyinOptions,
     sentence_alternatives: bool,
+    /// 26 键全拼的整句读法条数下限，随每个请求交给全拼引擎（`QueryRequest::sentence_pool`）。
+    sentence_pool: usize,
     /// 首页行数随每个请求交给各方案引擎；只影响词库要不要并入补全词。
     first_page_rows: FirstPageRows,
     sentence_association: SentenceAssociationOptions,
@@ -186,6 +188,7 @@ impl ImeSession {
             shuangpin_helpcode_modes: crate::types::ShuangpinHelpcodeModes::default(),
             fuzzy: FuzzyPinyinOptions::default(),
             sentence_alternatives: false,
+            sentence_pool: 0,
             first_page_rows: FirstPageRows::default(),
             sentence_association: SentenceAssociationOptions::default(),
             rescoring_context: String::new(),
@@ -268,6 +271,13 @@ impl ImeSession {
         self.scheme
             .as_cantonese()
             .is_some_and(crate::cantonese::CantoneseScheme::is_shuangpin)
+    }
+
+    /// 粤语双拼组字展开成粤拼的显示文字，见 `CantoneseScheme::jyutping_display`；不在粤语双拼时为 `None`。
+    pub fn cantonese_jyutping_display(&self, leading: Option<(&str, usize)>) -> Option<String> {
+        self.scheme
+            .as_cantonese()
+            .and_then(|scheme| scheme.jyutping_display(leading))
     }
 
     /// 当前粤拼组字是否接受 `;` 作为双拼韵母键。
@@ -940,6 +950,10 @@ impl ImeSession {
         self.sentence_alternatives = enabled;
     }
 
+    pub fn set_sentence_pool(&mut self, paths: usize) {
+        self.sentence_pool = paths;
+    }
+
     /// Carried on every request; the engines reset their caches when it changes (overlays.md §1.6.1).
     pub fn set_sentence_association(&mut self, options: SentenceAssociationOptions) {
         self.sentence_association = options;
@@ -1139,6 +1153,7 @@ impl ImeSession {
         request.enable_quanpin_helpcode = self.quanpin_helpcode;
         request.strict_quanpin_helpcode = self.strict_quanpin_helpcode;
         request.sentence_alternatives = self.sentence_alternatives;
+        request.sentence_pool = self.sentence_pool;
         request.enable_quanpin_autocorrect_transposition =
             self.autocorrect_types & autocorrect_type::TRANSPOSITION != 0;
         request.enable_quanpin_autocorrect_neighbor =

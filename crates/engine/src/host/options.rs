@@ -98,6 +98,8 @@ pub struct EngineOptions {
     pub helpcode_table: Option<SharedKeymap>,
     /// 主资源缺少内置辅助码表时，从宿主指定的随包资源根目录读取；自定义表不回退。
     pub helpcode_fallback_resources: Option<String>,
+    /// 用户自己的辅助码表所在的根目录（宿主的状态根）：`custom/<stem>` 先读这里的 `helpcodes/custom`，没有时再读 `resources` 里的，见 `load_helpcode_keymap_in`。
+    pub custom_helpcode_root: Option<String>,
     pub chinese_punctuation: bool,
     pub paired_punctuation: bool,
     pub punctuation_lock: u8,
@@ -251,6 +253,7 @@ pub fn prepare_options_for(
         helpcode_trigger_key: None,
         helpcode_table: None,
         helpcode_fallback_resources: None,
+        custom_helpcode_root: None,
         chinese_punctuation: true,
         paired_punctuation: true,
         punctuation_lock: 0,
@@ -369,6 +372,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
             .helpcode_fallback_resources
             .as_ref()
             .map(PathBuf::from),
+        custom_helpcode_root: options.custom_helpcode_root.as_ref().map(PathBuf::from),
         autocorrect_types,
         helpcode: options.helpcode,
         strict_quanpin_helpcode: options.strict_quanpin_helpcode,

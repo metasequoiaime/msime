@@ -58,6 +58,7 @@ ARGUMENTS = {
     "input/backspace_selected_phrase.cpp": ["platforms/windows/tests/input/fixtures/msime-phrase-backspace.db"],
     "input/shuangpin_paged_selection.cpp": ["platforms/windows/tests/input/fixtures/msime-shuangpin-paging.db"],
     "input/host_online_candidates.cpp": ["platforms/windows/tests/input/fixtures/msime-pinyin-online.db"],
+    "input/cloud_seat_navigation.cpp": ["platforms/windows/tests/input/fixtures/msime-pinyin-online.db"],
     "core/installer_launch.cpp": ["platforms/windows/installer/msime_setup.iss"],
     "input/zhuyin_keys.cpp": ["platforms/windows/tests/input/fixtures/msime-zhuyin.db"],
     "input/stroke_keys.cpp": ["platforms/windows/tests/input/fixtures/msime-stroke.db"],
@@ -119,6 +120,12 @@ COMPANIONS: dict[str, tuple[list[str], bool]] = {
     "input/preedit_caret.cpp": (["src/input/ChineseTextConversion.cpp"], True),
     "ui/candidate_render_request.cpp": (["src/input/ChineseTextConversion.cpp"], True),
     "core/candidate_continuation_pipe.cpp": (["src/ipc/ReplyCodec.cpp"], False),
+    # 方向键让过云占位席位：真实 Server 会话的回复合成、候选窗投影与 TIP 宿主会话的导航（#10665）。
+    "input/cloud_seat_navigation.cpp": (
+        ["src/ipc/ReplyComposer.cpp", "src/ipc/ReplyCodec.cpp", "src/ipc/ServerSession.cpp",
+         "src/input/ChineseTextConversion.cpp", "tsf/EngineSessionAdapter.cpp", "tsf/EngineResponse.cpp"],
+        True,
+    ),
     # 两份真实引擎会话通过外部候选选择继续组字。
     "input/host_online_candidates.cpp": (
         ["src/ipc/ServerSession.cpp", "src/input/ChineseTextConversion.cpp", "tsf/EngineSessionAdapter.cpp", "tsf/EngineResponse.cpp"], True,

@@ -451,6 +451,8 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
   /// View 的 `punctuation_marks`：顿号 `\` 键与 `/` 键各自开着与否（契约 `enumerationComma` 段，host-api 已归一「至少一个开」），符号面板选顿号时按它挑发给 Engine 的键。
   let enumerationCommaBackslash: Bool
   let enumerationCommaSlash: Bool
+  /// View 的 `prediction`：上屏后的空闲联想（`next_word_prediction`），这时没有组字，`preedit`、`reading` 和 `editingText` 都为空。联想和普通候选一样选：点选、数字键选本页对应的一条、空格选高亮的一条；回车和标点照常输入，关闭键送取消；普通状态没有这个字段，按 false 读。
+  let isPrediction: Bool
 
   var isInLocalMode: Bool { !localMode.isEmpty && localMode != "none" }
 
@@ -474,7 +476,8 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
        nineKeySpellings: [String] = [], nineKeyReading: String = "", nineKeySingleCharacter: Bool = false,
        nineKeyStrokes: String = "", editingText: String = "", caretPosition: Int = 0,
        cornerQuotes: Bool = false, hollowBrackets: Bool = false,
-       enumerationCommaBackslash: Bool = true, enumerationCommaSlash: Bool = false) {
+       enumerationCommaBackslash: Bool = true, enumerationCommaSlash: Bool = false,
+       isPrediction: Bool = false) {
     self.isHandled = isHandled
     self.commitText = commitText
     self.commitCursorSuffix = commitCursorSuffix
@@ -506,6 +509,7 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
     self.hollowBrackets = hollowBrackets
     self.enumerationCommaBackslash = enumerationCommaBackslash
     self.enumerationCommaSlash = enumerationCommaSlash
+    self.isPrediction = isPrediction
   }
 }
 
@@ -1220,6 +1224,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func commitCandidate() -> MetasequoiaInputSnapshot { command(1) }
   func commitRaw() -> MetasequoiaInputSnapshot { command(2) }
   func cancel() -> MetasequoiaInputSnapshot { command(3) }
+  /// 在同一个会话上重新获得焦点：清掉旧组字和上屏后联想，并切断个人词序与重排的上下文（msime_client.h 的 `msime_client_focus`）。外部移动光标或改动文字之后，随后选中的词不能记成旧位置的后续词；普通的取消保留已上屏的词序，代替不了它。
+  func refocus() -> MetasequoiaInputSnapshot { dispatch { msimeClientFocus(handle, true) } }
   func finishComposition() -> MetasequoiaInputSnapshot { command(9) }
   func cycleKanaVariant() -> MetasequoiaInputSnapshot { command(10) }
   func commitReading() -> MetasequoiaInputSnapshot { command(11) }
@@ -1896,6 +1902,18 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     return (response as? [String: String]) ?? [:]
   }
 
+  /// 粤语双拼的键位提示，和 `shuangpinKeyHints` 一样从引擎取：引擎按粤语双拼编码用的同一张表生成，宿主不另存键位。粤语双拼不是普通话双拼方案，没有方案名，用保留名 `cantonese` 取。会话跑的不是粤拼时（比如缺了 `msime-cantonese.db`，运行时留在上一个中文方案）给空表，免得把键标成没在跑的方案。
+  func cantoneseShuangpinKeyHints() -> [String: String] {
+    guard let snapshot = try? view(),
+          Self.strictUInt64(snapshot["scheme"]) == UInt64(Self.cantoneseSchemeCode),
+          let data = "cantonese".data(using: .utf8) else { return [:] }
+    let response = try? data.withUnsafeBytes { bytes -> Any in
+      try Self.decode(msimeClientShuangpinKeyHints(
+        bytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(data.count)))
+    }
+    return (response as? [String: String]) ?? [:]
+  }
+
   // The engine keeps its dictionary access from creation until destroy, and those lock files sit in
   // the App Group container. iOS terminates an extension that is suspended while holding a lock
   // there, which it reports as 0xdead10cc, so putting the keyboard away has to hand the access back
@@ -2275,6 +2293,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
 
   /// `View.scheme` for double pinyin, as the shared runtime numbers the Engine's schemes.
   private static let shuangpinSchemeCode: UInt8 = 1
+  /// `View.scheme` for Cantonese Jyutping, which also runs Cantonese shuangpin.
+  private static let cantoneseSchemeCode: UInt8 = 5
 
   private static func ascii(_ value: String) -> MSIMEByte? {
     guard value.utf8.count == 1, let byte = value.utf8.first else { return nil }
@@ -2360,7 +2380,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       cornerQuotes: marks["quotes"] as? String == "corner",
       hollowBrackets: marks["brackets"] as? String == "hollow",
       enumerationCommaBackslash: marks["enumeration_comma_backslash"] as? Bool ?? true,
-      enumerationCommaSlash: marks["enumeration_comma_slash"] as? Bool ?? false)
+      enumerationCommaSlash: marks["enumeration_comma_slash"] as? Bool ?? false,
+      isPrediction: try strictBool(view["prediction"], fallback: false))
   }
 
   private static func strictInt(_ value: Any?, fallback: Int, range: ClosedRange<Int>) throws -> Int {

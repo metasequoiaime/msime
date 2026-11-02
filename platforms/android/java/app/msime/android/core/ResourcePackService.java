@@ -45,7 +45,7 @@ import org.json.JSONObject;
  *
  * <p>本地语音模型（{@link LocalVoiceModels}）和资源包走同一条队列：同样几十到几百 MB、同样要在主进程的工作线程上跑、同样要能从通知里取消。它们在这里的键是 {@code voice-model:<id>}（{@link #voiceModelKey}），状态、进度、取消和结果通知与资源包完全相同，只是安装和取消调用的是模型的共享接口。
  *
- * <p>下载只由用户的操作发起：在「添加语言」里加日语、粤语、注音、笔画或五笔，打开离线释义，打开离线识别，或在设置页点「下载」「重试」。启动时不自动下载，只有一个例外：偏好里当前方案或要切回的中文方案是五笔、而本机没有五笔码表时（升级到不带码表的瘦包后，旧码表与新词库锁对不上收编不了；或在首启引导里选了五笔），设置应用回到前台时弹窗问一次要不要下载（{@link #requestOnBehalf}），见 {@link KeyboardScheme#wubiTableWanted}。服务也不在进程被杀后自己重启（{@link #START_NOT_STICKY}）；没下完的文件留在共享层的续传目录里，下次点下载时用 HTTP Range 接着下。
+ * <p>下载只由用户的操作发起：在「添加语言」里加日语、粤语、注音、笔画或五笔，打开离线释义，打开离线识别，把整句候选选成「增强」，或在设置页点「下载」「重试」。启动时不自动下载，只有两个例外。一是整句候选「增强」的逐键重排模型：「增强」开着而本机没有它时，{@link RerankModelDownload} 排的后台任务在不按流量计费的网络上替用户在后台下载（不进前台、不发通知，状态照样记在这里，设置页那一行看得到进度），按流量计费时设置应用回到前台问一次。二是偏好里当前方案或要切回的中文方案是五笔、而本机没有五笔码表时（升级到不带码表的瘦包后，旧码表与新词库锁对不上收编不了；或在首启引导里选了五笔），设置应用回到前台时弹窗问一次要不要下载（{@link #requestOnBehalf}），见 {@link KeyboardScheme#wubiTableWanted}。服务也不在进程被杀后自己重启（{@link #START_NOT_STICKY}）；没下完的文件留在共享层的续传目录里，下次点下载时用 HTTP Range 接着下。
  *
  * <p>同一个资源包同一时间只有一个下载：这里按资源包记着状态，正在下的再点一次什么也不做（共享层另有 {@code resource_pack_busy} 兜底）。服务不声明 {@code android:process}，所以和设置页一样跑在主进程，:ime 进程从不安装：两个进程同时装同一个包会互相清掉对方的暂存目录。
  *
@@ -63,7 +63,8 @@ public final class ResourcePackService extends Service {
     private static final int RESULT_NOTIFICATION = 0x6d730510;
     private static final List<String> PACKS = List.of(ResourcePacks.JAPANESE, ResourcePacks.LANGUAGE_DICTIONARIES,
         ResourcePacks.OFFLINE_GLOSSES, ResourcePacks.PRONUNCIATIONS, ResourcePacks.VOICE_RUNTIME,
-        ResourcePacks.OCR_MODULE, ResourcePacks.WUBI, ResourcePacks.TARGET_PRONUNCIATIONS);
+        ResourcePacks.OCR_MODULE, ResourcePacks.WUBI, ResourcePacks.TARGET_PRONUNCIATIONS,
+        ResourcePacks.RERANK_MODEL);
     private static final String VOICE_MODEL_PREFIX = "voice-model:";
 
     /** 一个资源包正在经历的阶段。下载完成后不再有状态。 */
@@ -276,6 +277,7 @@ public final class ResourcePackService extends Service {
             case ResourcePacks.TARGET_PRONUNCIATIONS -> "离线外语读音词典";
             case ResourcePacks.OCR_MODULE -> "离线拍照识字模块";
             case ResourcePacks.VOICE_RUNTIME -> "本地语音运行库";
+            case ResourcePacks.RERANK_MODEL -> "整句增强模型";
             default -> isVoiceModel(pack) ? MODEL_TITLES.getOrDefault(pack, "本地语音模型") : pack;
         };
     }
@@ -300,6 +302,39 @@ public final class ResourcePackService extends Service {
         Intent intent = new Intent(context, ResourcePackService.class)
             .setAction(ACTION_INSTALL).putExtra(EXTRA_PACK, pack);
         context.startForegroundService(intent);
+    }
+
+    // ---- 后台任务替用户下载（home.RerankModelJobService，任务自己的工作线程） ----
+
+    /** 后台任务开始下载前在主线程上占住这个资源包，与设置页的下载共用一份状态：已经在下或正在卸载时返回 false，任务就不下了。 */
+    public static boolean claimInBackground(String pack) {
+        Status current = STATUS.get(pack);
+        if ((current != null && current.running()) || REMOVING.contains(pack)) return false;
+        CANCELLING.remove(pack);
+        STATUS.put(pack, new Status(Phase.DOWNLOADING, 0, 0, null));
+        notifyListeners(pack, false);
+        return true;
+    }
+
+    /** 后台下载的进度，任意线程：只更新状态和页面，不发通知（没有前台服务）。用户在页面上点了取消时把取消交给共享层。 */
+    public static void backgroundProgress(String pack, String phase, long done, long total) {
+        if (CANCELLING.contains(pack)) cancelInstall(pack);
+        Phase next = "download".equals(phase) ? Phase.DOWNLOADING : Phase.VERIFYING;
+        Status updated = new Status(next, done, total, null);
+        Status previous = STATUS.get(pack);
+        if (previous != null && previous.phase() == next && previous.percent() == updated.percent()) return;
+        STATUS.put(pack, updated);
+        MAIN.post(() -> notifyListeners(pack, false));
+    }
+
+    /** 后台下载结束，任意线程。{@code failureCode} 为 null 是成功，{@code local_model_cancelled} 是取消（系统停了任务或用户点了取消），都不留状态；其它记成失败原因，页面那一行显示它和「重试」。 */
+    public static void backgroundFinished(String pack, @Nullable String failureCode, @Nullable String message) {
+        MAIN.post(() -> {
+            CANCELLING.remove(pack);
+            if (failureCode == null || "local_model_cancelled".equals(failureCode)) STATUS.remove(pack);
+            else STATUS.put(pack, new Status(Phase.FAILED, 0, 0, "下载失败：" + reason(failureCode, message)));
+            notifyListeners(pack, true);
+        });
     }
 
     // ---- 服务 ----
@@ -501,7 +536,7 @@ public final class ResourcePackService extends Service {
     }
 
     /** 用户在共享偏好里填的下载镜像前缀（与本地语音模型共用的 `voice_input.asr_model_mirror`）；没填时为空，按项目镜像、锁文件原地址的顺序下载。 */
-    private static List<String> mirrors(Context context) {
+    public static List<String> mirrors(Context context) {
         JSONObject snapshot = HostStore.loadPreferences(context);
         JSONObject preferences = snapshot == null ? null : snapshot.optJSONObject("preferences");
         JSONObject voice = preferences == null ? null : preferences.optJSONObject("voice_input");

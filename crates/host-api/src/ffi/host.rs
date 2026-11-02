@@ -749,15 +749,9 @@ pub unsafe extern "C" fn msime_client_import_settings(
     })
 }
 
-/// Per-key double-pinyin hint text for one profile, read out of the Engine's own
-/// profile tables.
+/// Per-key double-pinyin hint text for one profile, read out of the Engine's own profile tables.
 ///
-/// A touch keyboard labels its letter keys with the units they carry, and a face
-/// that keeps its own copy of that keymap drifts from the scheme the session
-/// actually runs. The hints depend only on the profile, not on session state, so
-/// this takes no handle. An unknown name yields an empty object rather than the
-/// default profile's hints: labelling the keys with a scheme the session is not
-/// running is worse than labelling nothing.
+/// A touch keyboard labels its letter keys with the units they carry, and a face that keeps its own copy of that keymap drifts from the scheme the session actually runs. The hints depend only on the profile, not on session state, so this takes no handle. The reserved name `cantonese` gives the Cantonese shuangpin face, read out of the same table its encoder uses. An unknown name yields an empty object rather than the default profile's hints: labelling the keys with a scheme the session is not running is worse than labelling nothing.
 /// # Safety
 /// `profile` points to `length` readable UTF-8 bytes. Null is rejected.
 /// The returned response must be released with `msime_client_string_free`.
@@ -1365,27 +1359,32 @@ pub unsafe extern "C" fn msime_client_skin_catalog(
     })
 }
 
-/// Scan the Engine resource directory for optional custom helper-code tables. Native settings
-/// presenters use the same metadata as the shared settings page; the Engine remains responsible
-/// for parsing and applying the table itself. An absent `helpcodes/custom` directory is an empty
-/// catalog rather than an error.
+/// 列出自定义辅助码表：状态根和资源目录两处的 `helpcodes/custom`，规则见 [`crate::list_custom_helpcode_schemas`]。原生设置界面和共享设置页用同一份元数据，码表本身仍由 Engine 解析。目录不在时是空列表，不算错。
 /// # Safety
-/// `resources` points to `length` readable UTF-8 bytes naming an absolute resource directory.
-/// Null is rejected. The returned JSON must be released with `msime_client_string_free`.
+/// `resources` points to `length` readable UTF-8 bytes naming an absolute resource directory; null is rejected. `state_root` is null (with `state_root_length` 0) or points to `state_root_length` readable UTF-8 bytes naming the absolute state root (HostOptions `preferences_directory`). The returned JSON must be released with `msime_client_string_free`.
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_helpcode_schemas(
     resources: *const u8,
     length: usize,
+    state_root: *const u8,
+    state_root_length: usize,
 ) -> *mut c_char {
     response(|| {
-        if resources.is_null() || length > 16_384 {
+        if resources.is_null() || length > 16_384 || state_root_length > 16_384 {
             return Err("invalid helpcode resource buffer".into());
         }
         // SAFETY: guaranteed by the documented caller contract; size checked above.
         let bytes = unsafe { std::slice::from_raw_parts(resources, length) };
         let resources =
             std::str::from_utf8(bytes).map_err(|_| "invalid helpcode resource encoding")?;
-        let schemas = crate::list_custom_helpcode_schemas(resources)?;
+        let state_root = if state_root.is_null() {
+            None
+        } else {
+            // SAFETY: guaranteed by the documented caller contract; size checked above.
+            let bytes = unsafe { std::slice::from_raw_parts(state_root, state_root_length) };
+            Some(std::str::from_utf8(bytes).map_err(|_| "invalid helpcode state root encoding")?)
+        };
+        let schemas = crate::list_custom_helpcode_schemas(resources, state_root)?;
         serde_json::to_value(schemas).map_err(|error| error.to_string())
     })
 }

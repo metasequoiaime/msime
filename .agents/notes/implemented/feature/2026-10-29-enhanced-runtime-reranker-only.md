@@ -22,7 +22,7 @@ Status: implemented
 - 「增强」只挂 runtime 的逐键重排器。是否挂由 host-api `keyboard_reranker_enabled` 决定：偏好 `neural_keyboard` 打开、且本版本 `edition.features.neural_keyboard` 为真。建会话（`ffi/session.rs`）和应用偏好（`HostSession::apply_pending`）都用它；`ffi::keyboard_reranker` 改为接收这个布尔值和资源目录，不再读 `EngineOptions` 里的引擎开关。
 - `engine_sentence_association` 把引擎的 `SentenceAssociationOptions::neural_keyboard` 固定为 false。引擎层的代码、选项和测试原样保留，默认关，留给直接构造选项的评测和实验（`convert_eval --keyboard-neural`、测量补丁里的 `rerank_latency --model-arm engine|both`）。
 - 不新增偏好字段。引擎选项本身就是独立开关，评测直接设它；给用户加一个隐藏偏好要动偏好 schema、各端合并逻辑和发版偏好快照，而真机上需要比较的只有「关」和「只 runtime」两臂。
-- 「增强」的缺省值仍是关。2026-10-29 在 Pixel 3 XL 上量过只开 runtime 层的这一版（见下面的真机测量），按键 p95 191 ms，远超 16 ms 的按键预算，所以不默认打开；三端宿主都不改缺省值。
+- 「增强」的缺省值仍是关。2026-10-29 在 Pixel 3 XL 上量过只开 runtime 层的这一版（见下面的真机测量），按键 p95 191 ms，远超 16 ms 的按键预算，所以不默认打开；三端宿主都不改缺省值。（这一条已被[整句联想默认「增强」](2026-11-02-keystroke-reranker-default-on.md)取代：ONNX 后端落地后改成默认开，挂不挂由每台设备按自测速度决定，跑不动的设备不挂。）
 - 设置文案不改：Android「增强增加神经模型重排」、iOS、HarmonyOS（共享设置页）的描述都不区分层次，只开 runtime 层后依旧准确。
 - `apply_local_mode_resource_gates` 里对引擎开关的版本门控保留：宿主不再打开它，这一行对 host-api 构造的选项不起作用，但仍表达「不带模型的版本不交给 Engine」这条约束。
 - 桌面不受影响：桌面设置页写的是 `neural_desktop`，它只控制 runtime 的 settled 重排（`Runtime::set_settled_rerank_enabled`），从来不进引擎，没有同样的耦合。桌面宿主同样经 host-api 读 `neural_keyboard`，界面不提供这个开关；手改偏好文件打开它时，桌面也只挂 runtime 层。

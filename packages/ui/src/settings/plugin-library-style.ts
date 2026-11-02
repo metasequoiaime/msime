@@ -21,6 +21,8 @@ export const filter =
   "inline-flex min-h-7 cursor-pointer items-center gap-1.5 rounded-md border border-transparent bg-transparent px-2.5 py-1 text-xs text-[var(--p-sub)] [font-family:inherit] hover:bg-[var(--p-hover)] aria-pressed:border-accent-soft-border aria-pressed:bg-accent-soft aria-pressed:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
 export const sections = "flex min-w-0 flex-col gap-5";
 export const sectionHeading = "mb-2.5 flex items-center justify-between gap-2";
+/** 分类名和它旁边的「?」排在一行。 */
+export const sectionTitleLine = "flex items-center gap-1";
 export const sectionTitle = "m-0 text-xs font-semibold text-[var(--p-sub)]";
 export const grid = "grid grid-cols-1 gap-2.5 @min-[500px]/plugin:grid-cols-2";
 export const card =

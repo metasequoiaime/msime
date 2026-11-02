@@ -1472,23 +1472,31 @@ std::optional<std::vector<std::wstring>> read_font_catalog() {
 
 // ---- 辅助码方案的来源 ----
 
-// 资源目录 helpcodes/custom 下的自定义辅助码表，与 Tauri 的 list_helpcode_schemas 相同：资源目录是输入法宿主选项（runtime-options.json）的 resources。还没有宿主选项时是失败的响应，页面当作没有自定义码表。读目录，只在 UI 线程之外调用。
+// 自定义辅助码表，与 Tauri 的 list_helpcode_schemas 相同：输入法宿主选项（runtime-options.json）里状态根 preferences_directory（即 DataDir）和资源目录 resources 下的 helpcodes/custom，同一主干取状态根那份。还没有宿主选项时是失败的响应，页面当作没有自定义码表。读目录，只在 UI 线程之外调用。
 Response helpcode_schemas_call() {
   const auto options = runtime_options_document();
   std::wstring resources;
+  std::wstring state_root;
   if (options) {
     try {
-      resources = JsonObject::Parse(text(*options)).GetNamedString(L"resources", L"").c_str();
+      const auto document = JsonObject::Parse(text(*options));
+      resources = document.GetNamedString(L"resources", L"").c_str();
+      state_root = document.GetNamedString(L"preferences_directory", L"").c_str();
     } catch (...) {
       resources.clear();
+      state_root.clear();
     }
   }
   // 与 Tauri 一样只接受绝对路径。
   if (resources.empty() || !std::filesystem::path(resources).is_absolute())
     return {"{\"ok\":false,\"error\":\"no host options\"}", false};
+  if (!state_root.empty() && !std::filesystem::path(state_root).is_absolute())
+    state_root.clear();
   const auto path = utf8(hstring(resources));
+  const auto state = utf8(hstring(state_root));
   return take_response(msime_client_helpcode_schemas(
-      reinterpret_cast<const uint8_t *>(path.data()), path.size()));
+      reinterpret_cast<const uint8_t *>(path.data()), path.size(),
+      state.empty() ? nullptr : reinterpret_cast<const uint8_t *>(state.data()), state.size()));
 }
 
 // 本安装随包带的内置声音包：Server 状态目录下的 sound-packs，与 Tauri 的 builtin_sound_packs 在 Windows 上取的 `server_state_directory()/sound-packs` 相同（StateDirectory.h 的 resolve_state_directory 是同一顺序的 C++ 版本）。目录不在时为空，只列已安装的包。会查文件系统，只在 UI 线程之外调用。
@@ -13406,7 +13414,7 @@ private:
       Canvas::SetLeft(cell, rect.left * scale);
       Canvas::SetTop(cell, rect.top * scale);
       const bool chinese_mode = document_.String(L"default_ime_mode", L"chinese") != L"english";
-      // 标点按钮照 TIP 的 ResolvePunctuationOpen 画：锁定时取锁定值，跟随时随中英文模式（PunctuationSettings.h 的 toolbar_chinese_punctuation）。
+      // 标点按钮照 TIP 激活时定下的标点画：锁定时取锁定值，跟随时英文模式是英文标点、中文模式是已存的起始标点（PunctuationSettings.h 的 toolbar_chinese_punctuation）。
       const bool state =
           component.button == msime::windows::kToolbarLanguage
               ? chinese_mode
@@ -13415,7 +13423,8 @@ private:
                     L"fullwidth"
           : component.button == msime::windows::kToolbarPunctuation
               ? ps::toolbar_chinese_punctuation(
-                    chinese_mode, document_.String(L"punctuation_lock", L"follow"))
+                    chinese_mode, document_.Boolean(L"chinese_punctuation", true),
+                    document_.String(L"punctuation_lock", L"follow"))
           : component.button == msime::windows::kToolbarCharacterSet
               ? document_.Boolean(L"traditional_chinese_output", false)
               : true;
@@ -14222,6 +14231,23 @@ private:
     }
   }
 
+  // 「整句联想」的「标准 / 增强」，与手机宿主的同名选择写同一个 `sentence_association.neural_keyboard`：增强在每次按键时用键盘模型重排整句，默认开（缺键按开读）；host-api 只在这台电脑跑得进逐键预算时才挂上模型，跑不进时与标准相同。手机上的「关闭」在这里是「更多选项」里的「本地整句联想」；逐键重排不看词网格开没开（host-api `keyboard_reranker_enabled`），所以那一项关着时这一行照样可选，与共享设置页相同。不带键盘模型的版本没有增强可选，不列这一行。
+  void build_sentence_level_settings(StackPanel const &group) {
+    if constexpr (MSIME_EDITION_NEURAL_KEYBOARD != 0) {
+      const bool enhanced = document_.Boolean(L"sentence_association.neural_keyboard", true);
+      auto selector = select_control(
+          L"整句联想", {{L"standard", L"标准"}, {L"enhanced", L"增强"}},
+          enhanced ? L"enhanced" : L"standard",
+          [this](std::wstring const &value) {
+            change([&](PreferencesDocument &doc) {
+              doc.SetBoolean(L"sentence_association.neural_keyboard", value == L"enhanced");
+            }, false);
+          });
+      A11y::SetAutomationId(selector, L"sentence-association-level");
+      add_row(group, 0xE8C1, L"整句联想", L"更准确，但更耗电", selector);
+    }
+  }
+
   // 安装包不带落定重排模型（Prepare-PackageFiles.ps1），与共享页一样在「桌面神经联想」打开时给出它的下载行，否则开关打开了也没有模型可用。
   void build_neural_desktop_settings(StackPanel const &group) {
     bool_row(group, 0xE8C1, L"桌面神经联想",
@@ -14543,6 +14569,10 @@ private:
       // 学习选词习惯决定「高级选项」里「拼音方案调频」组画不画，改它时重画这一页。
       bool_row(candidates, 0xE82D, L"学习选词习惯", L"根据选词调整候选顺序", L"learning",
                true, true);
+      // 后加的可选键，默认关，共享序列化关着时不写它，回退值必须是 false（client-core 的 `next_word_prediction`）。位置和共享页桌面一样，紧跟学习开关。
+      bool_row(candidates, 0xE8BD, L"上屏后联想",
+               L"选词上屏后推荐后续文字，点选、按数字键或空格上屏，继续输入其他内容时消失；使用现有词库，开启学习时也参考个人词序，隐私输入不显示",
+               L"next_word_prediction", false);
       // 与共享页一样，少有人改的混输开关收在组末的「更多选项」里。
       auto candidates_more = add_more_options(
           candidates, candidates_more_open_,
@@ -14574,6 +14604,7 @@ private:
       bool_row(candidates_more, 0xE8C1, L"本地整句联想",
                L"把词库组合出的整句加入候选；关闭后仍保留单词候选",
                L"sentence_association.word_lattice", true);
+      build_sentence_level_settings(candidates);
       build_neural_desktop_settings(candidates);
       bool_row(candidates, 0xE8C1, L"去重后补充次选",
                L"某个模型的首选与已有候选重复时，显示该模型排名最高的下一条不同结果",
@@ -25026,10 +25057,14 @@ private:
     if (!local_models_ && local_models_notice_.empty())
       block.Children().Append(make_text(L"正在读取模型列表…", 13, palette_.sub));
     const auto model_path = document_.String(L"voice_input.asr_model_path", L"");
+    bool notice_on_card = false;
     if (local_models_)
-      for (auto const &model : *local_models_)
+      for (auto const &model : *local_models_) {
+        notice_on_card = notice_on_card || model.id == local_models_notice_id_;
         block.Children().Append(local_model_card(model, model_path));
-    if (!local_models_notice_.empty()) {
+      }
+    // 说明属于某个模型的操作（下载、导入、删除）时画在那张卡片里，见 set_local_models_notice；只有读列表失败这类不属于某张卡片的说明才放在最后。
+    if (!local_models_notice_.empty() && !notice_on_card) {
       auto notice = make_text(local_models_notice_, 13, palette_.text);
       A11y::SetLiveSetting(notice, Automation::Peers::AutomationLiveSetting::Polite);
       block.Children().Append(notice);
@@ -25185,6 +25220,15 @@ private:
           button_control(L"从文件导入", [this, id = model.id] { install_local_model(id, true); }));
     }
     lines.Children().Append(buttons);
+    if (!local_models_notice_.empty() && model.id == local_models_notice_id_) {
+      InfoBar notice;
+      notice.IsOpen(true);
+      notice.IsClosable(false);
+      notice.Severity(local_models_notice_severity_);
+      notice.Message(hstring(local_models_notice_));
+      A11y::SetLiveSetting(notice, Automation::Peers::AutomationLiveSetting::Assertive);
+      lines.Children().Append(notice);
+    }
     Border card;
     card.BorderBrush(brush(palette_.stroke));
     card.BorderThickness(Thickness{1, 1, 1, 1});
@@ -25199,7 +25243,7 @@ private:
   void reset_local_models() {
     ++local_models_generation_;
     local_models_.reset();
-    local_models_notice_.clear();
+    set_local_models_notice(L"");
     local_model_progress_.clear();
     local_model_installing_.clear();
     local_model_importing_.clear();
@@ -25207,12 +25251,20 @@ private:
     local_models_stale_ = true;
   }
 
+  // 模型管理器的说明。`id` 非空时说明属于这个模型的下载、导入或删除，画在它的卡片里、按钮下面，紧挨着用户刚点的按钮；为空时（读列表失败）画在所有卡片之后。原来所有说明都在最后，模型卡片有四张，导入失败的说明落在窗口下沿以外，按钮又变回「从文件导入」，看上去像什么都没发生（#10633）。
+  void set_local_models_notice(std::wstring message, std::wstring id = {},
+                               InfoBarSeverity severity = InfoBarSeverity::Error) {
+    local_models_notice_ = std::move(message);
+    local_models_notice_id_ = local_models_notice_.empty() ? std::wstring() : std::move(id);
+    local_models_notice_severity_ = severity;
+  }
+
   // 在工作线程上经 msime_client_voice_local_models 读模型目录和已安装的模型，完成后重画。
   void refresh_local_models() {
     local_models_stale_ = false;
     const auto root = local_model_root();
     if (root.empty()) {
-      local_models_notice_ = *model_errors::error_message(L"local_model_invalid_root");
+      set_local_models_notice(*model_errors::error_message(L"local_model_invalid_root"));
       return;
     }
     JsonObject request;
@@ -25227,15 +25279,15 @@ private:
           if (generation != local_models_generation_)
             return;
           if (!response.ok) {
-            local_models_notice_ =
+            set_local_models_notice(
                 model_errors::error_message(model_errors::error_code(response_error(response)))
-                    .value_or(L"");
+                    .value_or(L""));
           } else {
             try {
               local_models_ = parse_local_models(
                   JsonObject::Parse(text(response.text)).GetNamedObject(L"value"));
             } catch (...) {
-              local_models_notice_ = *model_errors::error_message(L"");
+              set_local_models_notice(*model_errors::error_message(L""));
             }
           }
           redraw_voice();
@@ -25308,8 +25360,8 @@ private:
     }
   }
 
-  // 「下载」和「从文件导入」（install、importFiles）：导入先让用户在打开对话框里多选下载好的文件，关掉对话框不算失败。下载用已保存的下载镜像。安装在工作线程上进行，完成后若还没有选模型就用上这个，并重读列表。
-  void install_local_model(std::wstring const &id, bool import) {
+  // 「下载」和「从文件导入」（install、importFiles）：导入先让用户在打开对话框里多选下载好的文件，关掉对话框不算失败，对话框打不开或给不出文件路径时说明原因。下载用已保存的下载镜像。安装在工作线程上进行，完成后若还没有选模型就用上这个，并重读列表；结果写在这个模型的卡片里。`id` 按值传：打开对话框期间页面可能重画，按钮和它持有的 id 随之换掉。
+  void install_local_model(std::wstring id, bool import) {
     if (!local_models_)
       return;
     const auto found = std::find_if(local_models_->begin(), local_models_->end(),
@@ -25320,19 +25372,26 @@ private:
     const auto archive_size = found->archive_size;
     std::vector<std::wstring> files;
     if (import) {
-      auto picked = pick_model_files();
+      HRESULT failure = S_OK;
+      auto picked = pick_model_files(failure);
+      if (const auto message = vs::local_model_picker_error_message(
+              failure, picked.has_value() && picked->empty())) {
+        set_local_models_notice(*message, id);
+        redraw_voice();
+        return;
+      }
       if (!picked)
         return;
       files = std::move(*picked);
     }
     const auto root = local_model_root();
     if (root.empty()) {
-      local_models_notice_ = *model_errors::error_message(L"local_model_invalid_root");
+      set_local_models_notice(*model_errors::error_message(L"local_model_invalid_root"), id);
       redraw_voice();
       return;
     }
     flush_pending();
-    local_models_notice_.clear();
+    set_local_models_notice(L"");
     JsonObject request;
     request.SetNamedValue(L"root", JsonValue::CreateStringValue(hstring(root.wstring())));
     request.SetNamedValue(L"id", JsonValue::CreateStringValue(hstring(id)));
@@ -25361,7 +25420,8 @@ private:
           if (generation != local_models_generation_)
             return;
           if (response.ok) {
-            local_models_notice_ = L"「" + title + (import ? L"」已导入。" : L"」已下载。");
+            set_local_models_notice(L"「" + title + (import ? L"」已导入。" : L"」已下载。"), id,
+                                    InfoBarSeverity::Success);
             std::wstring path;
             try {
               path = JsonObject::Parse(text(response.text))
@@ -25381,9 +25441,11 @@ private:
             const auto code = model_errors::error_code(response_error(response));
             const auto message = import ? vs::local_model_import_error_message(code)
                                         : model_errors::error_message(code);
-            local_models_notice_ =
-                message ? *message
-                        : (import ? L"已取消导入「" : L"已取消下载「") + title + L"」。";
+            if (message)
+              set_local_models_notice(*message, id);
+            else
+              set_local_models_notice((import ? L"已取消导入「" : L"已取消下载「") + title + L"」。",
+                                      id, InfoBarSeverity::Informational);
           }
           local_model_installing_.erase(id);
           local_model_importing_.erase(id);
@@ -25407,11 +25469,11 @@ private:
       co_return;
     const auto root = local_model_root();
     if (root.empty()) {
-      local_models_notice_ = *model_errors::error_message(L"local_model_invalid_root");
+      set_local_models_notice(*model_errors::error_message(L"local_model_invalid_root"), model.id);
       redraw_voice();
       co_return;
     }
-    local_models_notice_.clear();
+    set_local_models_notice(L"");
     local_model_removing_.insert(model.id);
     JsonObject request;
     request.SetNamedValue(L"root", JsonValue::CreateStringValue(hstring(root.wstring())));
@@ -25433,9 +25495,10 @@ private:
                 doc.SetString(L"voice_input.asr_model_path", L"");
               }, false);
           } else {
-            local_models_notice_ =
+            set_local_models_notice(
                 model_errors::error_message(model_errors::error_code(response_error(response)))
-                    .value_or(L"");
+                    .value_or(L""),
+                model.id);
           }
           local_model_removing_.erase(model.id);
           refresh_local_models();
@@ -25468,23 +25531,28 @@ private:
     return chosen;
   }
 
-  // 「从文件导入」的打开对话框（与 Tauri 的 voice_local_model_import 相同的标题）：可以多选，不按扩展名过滤，下载工具可能改过名，认文件靠内容。用户取消或对话框打不开时返回空。
-  std::optional<std::vector<std::wstring>> pick_model_files() {
+  // 「从文件导入」的打开对话框（与 Tauri 的 voice_local_model_import 相同的标题）：可以多选，不按扩展名过滤，下载工具可能改过名，认文件靠内容。返回空时用户关掉了对话框，或对话框打不开、读不到所选的文件，后两种把错误写进 `failure`，由调用方说明，不再和取消一样什么都不显示。所选文件都没有本机路径时返回空列表。
+  std::optional<std::vector<std::wstring>> pick_model_files(HRESULT &failure) {
+    failure = S_OK;
     com_ptr<IFileOpenDialog> dialog;
-    if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
-                                IID_PPV_ARGS(dialog.put()))))
+    if (failure = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
+                                   IID_PPV_ARGS(dialog.put()));
+        FAILED(failure))
       return std::nullopt;
     FILEOPENDIALOGOPTIONS options = 0;
     dialog->GetOptions(&options);
     dialog->SetTitle(L"选择下载好的模型文件");
     dialog->SetOptions(options | FOS_ALLOWMULTISELECT | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST);
-    if (dialog->Show(GetActiveWindow()) != S_OK)
+    if (const HRESULT shown = dialog->Show(GetActiveWindow()); shown != S_OK) {
+      if (shown != HRESULT_FROM_WIN32(ERROR_CANCELLED))
+        failure = FAILED(shown) ? shown : E_UNEXPECTED;
       return std::nullopt;
+    }
     com_ptr<IShellItemArray> items;
-    if (FAILED(dialog->GetResults(items.put())))
+    if (failure = dialog->GetResults(items.put()); FAILED(failure))
       return std::nullopt;
     DWORD count = 0;
-    if (FAILED(items->GetCount(&count)))
+    if (failure = items->GetCount(&count); FAILED(failure))
       return std::nullopt;
     std::vector<std::wstring> files;
     for (DWORD index = 0; index < count; ++index) {
@@ -27292,6 +27360,8 @@ private:
   bool capture_busy_ = false;
   std::optional<std::vector<LocalModel>> local_models_;
   std::wstring local_models_notice_;
+  std::wstring local_models_notice_id_;
+  InfoBarSeverity local_models_notice_severity_ = InfoBarSeverity::Error;
   std::map<std::wstring, LocalModelProgress> local_model_progress_;
   std::set<std::wstring> local_model_installing_;
   std::set<std::wstring> local_model_importing_;

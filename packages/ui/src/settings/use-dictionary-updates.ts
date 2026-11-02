@@ -3,6 +3,10 @@ import type { DictionaryClient, DictionaryUpdateStatus } from "../dictionary/dic
 import { subscribeToInterval } from "../core/use-interval";
 import { useAsyncGeneration } from "./use-async-generation";
 
+/** 「自动更新词库」做什么：解释开关，收进它的「?」，不当作状态常驻。 */
+export const DICTIONARY_AUTO_UPDATE_DESCRIPTION =
+  "每天自动检查兼容的词库版本，个人词条和学习记录保留";
+
 /** 管理词库更新状态、两秒轮询与最新请求结果；实际检查、配置和回退由共享宿主执行。 */
 export function useDictionaryUpdates(request: NonNullable<DictionaryClient["updates"]>) {
   const [status, setStatus] = useState<DictionaryUpdateStatus | null>(null);
@@ -47,6 +51,6 @@ export function useDictionaryUpdates(request: NonNullable<DictionaryClient["upda
             ? "词库已准备好，下次启动输入法或重新打开键盘时生效"
             : status?.phase === "current"
               ? "词库已是最新版本"
-              : "每天自动检查兼容的词库版本，个人词条和学习记录保留");
+              : "");
   return { status, running, message, action };
 }

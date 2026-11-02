@@ -32,6 +32,7 @@
 #include "HelpcodeRoot.h"
 #include "SoundPackRoot.h"
 #include "PluginPackRoot.h"
+#include "RerankModelRoot.h"
 #include "MaintenanceHotkey.h"
 #include "NativeTextInput.h"
 #include "ModeAuthority.h"
@@ -1139,6 +1140,12 @@ int wmain(int argc, wchar_t **argv) {
     auto follow_cursor = std::make_shared<std::atomic<bool>>(
         prepared.at("value").at("preferences")
             .value("candidate_follow_cursor", true));
+    // 游戏兜底锚点放客户区上部。多数游戏的聊天输入框在左下角，默认的落点就是按那里定的；
+    // 输入框在画面上沿的游戏（DNF）把这一项打开，候选窗才落在输入处附近。
+    auto game_anchor_top = std::make_shared<std::atomic<bool>>(
+        prepared.at("value").at("preferences")
+            .value("game_compatibility", nlohmann::json::object())
+            .value("overlay_anchor_top", false));
     // 「输入时显示双拼键位提示」（共享偏好 `shuangpin_keymap_hint`，没选过时文档里没有这一项，按关处理），同样经原子量发布，改了设置不用重启 Server。
     auto shuangpin_keymap_enabled = std::make_shared<std::atomic<bool>>(
         shuangpin_keymap_preference(prepared.at("value").at("preferences")));
@@ -1272,7 +1279,7 @@ int wmain(int argc, wchar_t **argv) {
     options.preferences_directory = config.state_root.u8string();
     options.preferences_published =
         [&, voice_config, voice_config_mutex, voice_host_options, traditional_output,
-         toolbar_enabled, follow_cursor, shuangpin_keymap_enabled, typing_feedback, candidate_mouse_wheel, voice_theme, candidate_fonts, candidate_style,
+         toolbar_enabled, follow_cursor, game_anchor_top, shuangpin_keymap_enabled, typing_feedback, candidate_mouse_wheel, voice_theme, candidate_fonts, candidate_style,
          toolbar_theme, menu_theme, mode_scope_global, app_mode_rules,
          input_mode_hud_enabled, input_mode_hud_logo, tsf_config, candidate_layout,
          tsf_config_mutex, tray_preferences, tray_preferences_mutex,
@@ -1348,6 +1355,10 @@ int wmain(int argc, wchar_t **argv) {
           follow_cursor->store(
               preferences.value("candidate_follow_cursor", true),
               std::memory_order_release);
+          game_anchor_top->store(
+              preferences.value("game_compatibility", nlohmann::json::object())
+                  .value("overlay_anchor_top", false),
+              std::memory_order_release);
           shuangpin_keymap_enabled->store(shuangpin_keymap_preference(preferences),
                                           std::memory_order_release);
           typing_feedback->store(typing_feedback_wanted(preferences),
@@ -1413,6 +1424,7 @@ int wmain(int argc, wchar_t **argv) {
     name_builtin_sound_packs(session_options, config.state_root);
     name_builtin_helpcodes(session_options, config.state_root);
     name_official_plugin_packs(session_options, executable_directory());
+    name_rerank_models(session_options, executable_directory());
     startup_stage = "pipe_server";
     SessionPump::Presentation pump_presentation;
     pump_presentation.delivered = [&](const FocusLease &lease, const PendingReply &reply,
@@ -1761,6 +1773,7 @@ int wmain(int argc, wchar_t **argv) {
       candidate_skin_applied = theme.candidate_skin;
     }
     candidate_settings.follow_cursor = follow_cursor->load(std::memory_order_acquire);
+    candidate_settings.game_anchor_top = game_anchor_top->load(std::memory_order_acquire);
     candidate_settings.keymap_enabled = shuangpin_keymap_enabled->load(std::memory_order_acquire);
     candidates.start(candidate_settings);
     // The toolbar and the menus draw the card's theme in their own light/dark mode, with the card's layout deciding whether a package is drawn.
@@ -2633,6 +2646,8 @@ int wmain(int argc, wchar_t **argv) {
       }
       candidate_settings.follow_cursor =
           follow_cursor->load(std::memory_order_acquire);
+      candidate_settings.game_anchor_top =
+          game_anchor_top->load(std::memory_order_acquire);
       candidate_settings.mouse_wheel =
           candidate_mouse_wheel->load(std::memory_order_acquire);
       candidate_settings.keymap_enabled = shuangpin_keymap_enabled->load(std::memory_order_acquire);

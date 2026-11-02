@@ -33,6 +33,13 @@ target_compile_options(input-mode-identifiers-test PRIVATE -fobjc-arc -UNDEBUG -
 set_target_properties(input-mode-identifiers-test PROPERTIES OBJCXX_STANDARD 17)
 target_link_libraries(input-mode-identifiers-test PRIVATE "-framework Foundation")
 add_test(NAME input-mode-identifiers COMMAND input-mode-identifiers-test)
+# 菜单栏中/英状态项的图像：切换模式时必须跟着变，又要与系统输入源的模式字形区分开。图像取仓库里的 resources 目录，不往菜单栏放东西。
+add_executable(input-mode-status-item-test tests/input/InputModeStatusItemTest.mm src/input/InputModeStatusItem.mm)
+target_compile_options(input-mode-status-item-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
+target_compile_definitions(input-mode-status-item-test PRIVATE MSIME_MACOS_RESOURCES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/resources")
+set_target_properties(input-mode-status-item-test PROPERTIES OBJCXX_STANDARD 17)
+target_link_libraries(input-mode-status-item-test PRIVATE "-framework AppKit")
+add_test(NAME input-mode-status-item COMMAND input-mode-status-item-test)
 # 中日英循环切换在 macOS 这一侧只做两处翻译：控制器状态 → msime_client_language_cycle 的入参、
 # 答复 → 控制器要执行的动作。循环顺序在 crates/client-core/src/language_cycle.rs 的单测里。
 add_executable(trilingual-cycle-routing-test tests/input/TrilingualCycleRoutingTest.mm)
@@ -308,6 +315,8 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../LICENSE" "${MSIME_LEGAL_DIRECT
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/resources/Licenses/THIRD_PARTY_NOTICES.txt" "${MSIME_LEGAL_DIRECTORY}/THIRD_PARTY_NOTICES.txt" COPYONLY)
 # 固定词库发布里的词库数据、stage-resources.sh 放进 EngineResources/helpcodes 的辅助码表的来源声明（Engine 带来的五套、加加和五笔 86），以及 zinnia（crates/engine/src/handwriting 移植了它的识别器，host-api 链接进来）。第一份和最后一份来自 resources/licenses，是各平台随包的同一份副本。
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/msime-engine-dictionary-NOTICE.md" "${MSIME_LEGAL_DIRECTORY}/msime-engine-dictionary-NOTICE.md" COPYONLY)
+# EngineResources 里的整句重排模型 sentence-model.safetensors（以及按需下载或随包的 settled-model/sentence-model-desktop.safetensors）是 chinese-ime-lm 的 model-v1，Apache-2.0：第 4(a)、4(d) 条要求随副本附上许可证全文和上游 NOTICE，训练语料（中文 C4 为 ODC-BY，LCCC 为 MIT）要求署名随权重传播。resources/licenses 里这份各平台共用的文件三样都有。
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/sentence-model-Apache-2.0.txt" "${MSIME_LEGAL_DIRECTORY}/sentence-model-Apache-2.0.txt" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/ENGINE-NOTICE.md" "${MSIME_LEGAL_DIRECTORY}/msime-engine-helpcode-NOTICE.md" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/NOTICE.md" "${MSIME_LEGAL_DIRECTORY}/msime-helpcode-jiajia-NOTICE.md" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/NOTICE-wubi86.md" "${MSIME_LEGAL_DIRECTORY}/msime-helpcode-wubi86-NOTICE.md" COPYONLY)
@@ -352,6 +361,8 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/MPL-2.0.txt
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../shared/voice/third_party/sherpa-onnx/LICENSE" "${MSIME_LEGAL_DIRECTORY}/sherpa-onnx-Apache-2.0.txt" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../linux/data/licenses/onnxruntime-MIT.txt" "${MSIME_LEGAL_DIRECTORY}/onnxruntime-MIT.txt" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../linux/data/licenses/onnxruntime-ThirdPartyNotices.txt" "${MSIME_LEGAL_DIRECTORY}/onnxruntime-ThirdPartyNotices.txt" COPYONLY)
+# 整句联想「增强」逐键重排的两档模型（chinese-ime-lm 的 rerank-v1，放在输入法 bundle 的 Contents/rerank-model 与 Contents/rerank-model-small）是 Apache-2.0：第 4(a)、4(d) 条要求随副本附上许可证全文和上游 NOTICE，训练语料（C4 与 FineWeb-2 中文部分为 ODC-BY，LCCC 为 MIT）要求署名随权重传播。resources/licenses 里这份各平台共用的文件三样都有；不带模型的版本也留着它。
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rerank-model-Apache-2.0.txt" "${MSIME_LEGAL_DIRECTORY}/rerank-model-Apache-2.0.txt" COPYONLY)
 # cppcodec 编进输入法（shared/voice 的百炼请求用它做 Base64），MIT 要求随副本附带版权与许可声明。
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../shared/voice/third_party/cppcodec/LICENSE" "${MSIME_LEGAL_DIRECTORY}/cppcodec-MIT.txt" COPYONLY)
 file(GLOB MSIME_LEGAL_RESOURCES CONFIGURE_DEPENDS "${MSIME_LEGAL_DIRECTORY}/*")
@@ -474,6 +485,32 @@ else()
   # 关掉之后重新构建同一个构建目录时，上一次拷进去的运行库还在 bundle 里，删掉它。
   add_custom_command(TARGET MSIMEClientInputMethod POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E rm -f "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks/libsherpa-onnx-c-api.dylib")
+endif()
+# 整句联想「增强」逐键重排的两档 ONNX 模型（chinese-ime-lm 的 rerank-v1：8x448 与 6x256），给开着 onnx-rerank 编的 host 库用（见 .agents/notes/implemented/architecture/2026-11-01-onnx-rerank-backend.md）。host-api 在随包资源目录的上一级找 rerank-model/ 与 rerank-model-small/，而输入法把自己 bundle 的 Contents/Resources 作为随包资源目录交给会话（InputController.mm 的 MSIMESessionOptions，helpcode_fallback_resources），所以模型放在 Contents/rerank-model 与 Contents/rerank-model-small。它们跟着输入法 bundle 走，不放进设置应用：Sparkle 单独更新输入法时，模型与链进去的 ONNX Runtime 版本、算子清单始终是同一次构建的。scripts/fetch_rerank_model.py 按 resources/rerank-model.lock.json 下载核对一次，之后复用；锁或脚本变了才重跑。没有这两个目录、或 host 库没开 onnx-rerank 时，「增强」退回随包的 sentence-model.safetensors。
+option(MSIME_BUNDLE_RERANK_MODELS "Stage the two ONNX keystroke rerank models into Contents/rerank-model and Contents/rerank-model-small" ON)
+set(MSIME_RERANK_MODEL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../target/rerank-model" CACHE PATH "Where scripts/fetch_rerank_model.py puts rerank-model/ and rerank-model-small/")
+set(MSIME_RERANK_MODEL_DIRECTORIES rerank-model rerank-model-small)
+if(MSIME_BUNDLE_RERANK_MODELS)
+  set(MSIME_RERANK_MODEL_STAMP "${CMAKE_CURRENT_BINARY_DIR}/rerank-model.stamp")
+  add_custom_command(OUTPUT "${MSIME_RERANK_MODEL_STAMP}"
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/fetch_rerank_model.py" --out "${MSIME_RERANK_MODEL_DIR}"
+    COMMAND "${CMAKE_COMMAND}" -E touch "${MSIME_RERANK_MODEL_STAMP}"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/rerank-model.lock.json" "${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/fetch_rerank_model.py"
+    COMMENT "Fetching the pinned ONNX keystroke rerank models"
+    VERBATIM)
+  add_custom_target(macos-rerank-models DEPENDS "${MSIME_RERANK_MODEL_STAMP}")
+  add_dependencies(MSIMEClientInputMethod macos-rerank-models)
+  # 先删后拷：copy_directory 不删目标里多出来的文件，锁换了文件名时旧文件会留在 bundle 里。
+  foreach(MSIME_RERANK_MODEL_DIRECTORY IN LISTS MSIME_RERANK_MODEL_DIRECTORIES)
+    add_custom_command(TARGET MSIMEClientInputMethod POST_BUILD
+      COMMAND "${CMAKE_COMMAND}" -E rm -rf "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/${MSIME_RERANK_MODEL_DIRECTORY}"
+      COMMAND "${CMAKE_COMMAND}" -E copy_directory "${MSIME_RERANK_MODEL_DIR}/${MSIME_RERANK_MODEL_DIRECTORY}" "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/${MSIME_RERANK_MODEL_DIRECTORY}")
+  endforeach()
+else()
+  foreach(MSIME_RERANK_MODEL_DIRECTORY IN LISTS MSIME_RERANK_MODEL_DIRECTORIES)
+    add_custom_command(TARGET MSIMEClientInputMethod POST_BUILD
+      COMMAND "${CMAKE_COMMAND}" -E rm -rf "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/${MSIME_RERANK_MODEL_DIRECTORY}")
+  endforeach()
 endif()
 set(MSIME_OPTIONS_FILE "" CACHE FILEPATH "Optional development runtime configuration; never distribute this file")
 if(MSIME_OPTIONS_FILE)
@@ -1069,6 +1106,7 @@ add_test(NAME shortcut-nested-commit COMMAND shortcut-test --nested-commit)
 add_test(NAME shortcut-english-punctuation COMMAND shortcut-test --english-punctuation)
 add_test(NAME shortcut-cross-commit-spacing COMMAND shortcut-test --cross-commit-spacing)
 add_test(NAME shortcut-quick-phrase-cursor COMMAND shortcut-test --quick-phrase-cursor)
+add_test(NAME shortcut-helpcode-trigger COMMAND shortcut-test --helpcode-trigger)
 # Around 25 s locally: several cases wait on real input-source and run-loop round trips, which is past the 20 s CI default.
 # The controllers under test read runtime-options.json from Application Support, so each run gets an empty home of its own: an installed or demo profile on the developer's Mac must not reach into these cases.
 set(MSIME_SHORTCUT_TEST_HOME "${CMAKE_CURRENT_BINARY_DIR}/shortcut-test-home")
@@ -1077,6 +1115,7 @@ set(MSIME_CAPS_LOCK_TEST_HOME "${CMAKE_CURRENT_BINARY_DIR}/caps-lock-test-home")
 file(MAKE_DIRECTORY "${MSIME_CAPS_LOCK_TEST_HOME}")
 set_tests_properties(caps-lock PROPERTIES TIMEOUT 30 ENVIRONMENT "CFFIXED_USER_HOME=${MSIME_CAPS_LOCK_TEST_HOME}")
 set_tests_properties(shortcut-nested-commit PROPERTIES ENVIRONMENT "CFFIXED_USER_HOME=${MSIME_SHORTCUT_TEST_HOME}")
+set_tests_properties(shortcut-helpcode-trigger PROPERTIES ENVIRONMENT "CFFIXED_USER_HOME=${MSIME_SHORTCUT_TEST_HOME}")
 # The ceiling is for the sanitizer leg, where the same binary takes several times as long: measured
 # at about 16 s unsanitized and about 120 s under AddressSanitizer on one machine. A ceiling that
 # only fits the unsanitized run turns the slow leg into a timeout that says nothing about the code,
@@ -1084,6 +1123,8 @@ set_tests_properties(shortcut-nested-commit PROPERTIES ENVIRONMENT "CFFIXED_USER
 # 300 s ctest ceiling, so a genuinely stuck run is still this test's failure rather than the job's.
 set_tests_properties(shortcut PROPERTIES TIMEOUT 240 ENVIRONMENT "CFFIXED_USER_HOME=${MSIME_SHORTCUT_TEST_HOME}")
 set_tests_properties(shortcut-expanded-scroll PROPERTIES TIMEOUT 60 ENVIRONMENT "CFFIXED_USER_HOME=${MSIME_SHORTCUT_TEST_HOME}")
+add_test(NAME shortcut-startup-voice COMMAND shortcut-test --startup-voice)
+set_tests_properties(shortcut-startup-voice PROPERTIES ENVIRONMENT "CFFIXED_USER_HOME=${MSIME_SHORTCUT_TEST_HOME}")
 add_test(NAME shortcut-translations COMMAND shortcut-test --translations)
 set_tests_properties(shortcut-translations PROPERTIES ENVIRONMENT "CFFIXED_USER_HOME=${MSIME_SHORTCUT_TEST_HOME}")
 add_test(NAME shortcut-translation-font-size COMMAND shortcut-test --translation-font-size)
@@ -1391,6 +1432,11 @@ set(MSIME_BUNDLE_VOICE_RUNTIME_ARGUMENTS "")
 if(NOT MSIME_BUNDLE_VOICE_RUNTIME)
   set(MSIME_BUNDLE_VOICE_RUNTIME_ARGUMENTS --without-voice-runtime)
 endif()
+# 关掉 MSIME_BUNDLE_RERANK_MODELS 的构建，它核对两档逐键重排模型确实不在 bundle 里；默认核对它们在 Contents/rerank-model{,-small}。
+set(MSIME_BUNDLE_RERANK_MODEL_ARGUMENTS "")
+if(NOT MSIME_BUNDLE_RERANK_MODELS)
+  set(MSIME_BUNDLE_RERANK_MODEL_ARGUMENTS --without-rerank-models)
+endif()
 set(MSIME_BUNDLE_PLUGIN_PACKS_ARGUMENTS "")
 if(MSIME_STAGED_PLUGIN_PACKS)
   set(MSIME_BUNDLE_PLUGIN_PACKS_ARGUMENTS --plugin-packs "${MSIME_PLUGIN_PACKS_DIR}")
@@ -1402,7 +1448,8 @@ add_test(
           "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>"
           --languages zh-Hans,en
           ${MSIME_BUNDLE_PLUGIN_PACKS_ARGUMENTS}
-          ${MSIME_BUNDLE_VOICE_RUNTIME_ARGUMENTS})
+          ${MSIME_BUNDLE_VOICE_RUNTIME_ARGUMENTS}
+          ${MSIME_BUNDLE_RERANK_MODEL_ARGUMENTS})
 add_test(
   NAME info-plist-icons
   COMMAND "${Python3_EXECUTABLE}"

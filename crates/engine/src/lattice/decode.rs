@@ -146,6 +146,9 @@ impl Default for LatticeOptions<'_> {
     }
 }
 
+/// 产品路径每次解码留下的整句读法条数（[`SentenceNgramTables::options`]）。全拼在挂了逐键打分器时可以多解几条（`QuanpinDictionary::set_sentence_pool`）。
+pub(crate) const SENTENCE_PATHS: usize = 6;
+
 /// 活动词典持有构造时预热的 n 元表，按键查询不再构造路径或访问进程共享缓存。
 #[derive(Default)]
 pub(crate) struct SentenceNgramTables {
@@ -163,7 +166,7 @@ impl SentenceNgramTables {
 
     pub(crate) fn options<'a>(&self, sentence_alternatives: bool) -> LatticeOptions<'a> {
         LatticeOptions {
-            nbest: 6,
+            nbest: SENTENCE_PATHS,
             emit: if sentence_alternatives { 0 } else { 1 },
             bigram: self.bigram.clone(),
             trigram: self.trigram.clone(),

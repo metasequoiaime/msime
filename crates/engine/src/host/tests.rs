@@ -92,6 +92,7 @@ fn options(root: &Path) -> EngineOptions {
         quick_phrase_frequency: true,
         helpcode_table: None,
         helpcode_fallback_resources: None,
+        custom_helpcode_root: None,
         sentence_association: SentenceAssociationOptions {
             word_lattice: true,
             neural_keyboard: false,
@@ -1195,6 +1196,39 @@ fn custom_table() -> crate::types::ShuangpinCustomTable {
     }
 }
 
+/// #10632：双拼选了「拼音分词」时 `preedit` 是展开的全拼，组字光标要按音节落在 `preedit` 里，而不是拿原文的偏移去数 `preedit` 的字母（那样 `uiui` 打完光标落在 `shi's|hi`）。
+#[test]
+fn expanded_shuangpin_preedit_carries_the_caret_by_syllable() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut options = options(dir.path());
+    options.scheme = SchemeType::Shuangpin as u8;
+    options.shuangpin_preedit_uses_raw = false;
+    let mut session = Session::new(&options).unwrap();
+    type_text(&mut session, b"uiui");
+    let snapshot = session.snapshot().unwrap();
+    assert_eq!(snapshot.preedit, "shi'shi");
+    assert_eq!(snapshot.caret_position, 4);
+    assert_eq!(snapshot.preedit_caret, 7);
+    // 左移一个字母进到第二个单位中间，按单位起点算：第一个音节后面、隔音符前面。
+    session.command(Command::MoveLeft).unwrap();
+    let snapshot = session.snapshot().unwrap();
+    assert_eq!(snapshot.caret_position, 3);
+    assert_eq!(snapshot.preedit_caret, 3);
+    session.command(Command::MoveLeft).unwrap();
+    assert_eq!(session.snapshot().unwrap().preedit_caret, 3);
+    session.command(Command::MoveHome).unwrap();
+    assert_eq!(session.snapshot().unwrap().preedit_caret, 0);
+
+    // 「原始按键」时 `preedit` 就是按键，光标照搬。
+    options.shuangpin_preedit_uses_raw = true;
+    let mut session = Session::new(&options).unwrap();
+    type_text(&mut session, b"uiui");
+    session.command(Command::MoveLeft).unwrap();
+    let snapshot = session.snapshot().unwrap();
+    assert_eq!(snapshot.preedit, "uiui");
+    assert_eq!(snapshot.preedit_caret, snapshot.caret_position);
+}
+
 #[test]
 fn custom_profile_runs_the_users_table() {
     let dir = tempfile::tempdir().unwrap();
@@ -1346,6 +1380,26 @@ fn shuangpin_key_hints_reject_an_unknown_profile() {
     assert!(shuangpin_key_hints("").is_empty());
     assert!(shuangpin_key_hints("xiaohe-v2").is_empty());
     assert!(shuangpin_key_hints("quanpin").is_empty());
+    assert!(shuangpin_key_hints("Cantonese").is_empty());
+    assert!(shuangpin_key_hints("cantonese_shuangpin").is_empty());
+}
+
+/// 粤语双拼没有普通话双拼的方案名，宿主用保留名取它的键面；这个名字不会被当成普通话方案。
+#[test]
+fn shuangpin_key_hints_answer_for_cantonese_shuangpin_by_its_reserved_name() {
+    let hints: std::collections::HashMap<String, String> =
+        shuangpin_key_hints(super::CANTONESE_SHUANGPIN_HINTS)
+            .into_iter()
+            .map(|entry| (entry.key, entry.hint))
+            .collect();
+    assert_eq!(hints.len(), 27);
+    assert_eq!(hints.get("I").map(String::as_str), Some("gw / i"));
+    assert_eq!(hints.get(";").map(String::as_str), Some("ik ing"));
+    assert!(shuangpin_zero_initials(super::CANTONESE_SHUANGPIN_HINTS).is_empty());
+    assert_eq!(
+        shuangpin_uses_semicolon(super::CANTONESE_SHUANGPIN_HINTS),
+        None
+    );
 }
 
 /// 评测工具靠它把全拼用例编成双拼按键：按名字取内置方案，`custom` 和不认识的名字没有表可编。

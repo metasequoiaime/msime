@@ -24,6 +24,20 @@ Status: implemented
 - 整行是按钮的 `LinkRow` 和旧式 `<label>` 包裹的 `SettingSectionTitle` 里不能再嵌按钮（嵌进 label 还会取代输入框成为 label 指向的控件），那里的「?」是只在悬停时出气泡的图标，说明由外层的描述或标签读出。HarmonyOS 手机的 `PickerRow` 整行是按钮，说明改为写在点开后选项面板的副标题里。
 - 「?」的读屏名称四端统一为「<标题>的说明：<正文>」，没有标题时为「说明：<正文>」（Windows、iOS、Android 同样）：读屏一听就知道是哪一项的说明，不用再单独读描述。名称以标题开头，按 `/^标题/` 找控件的测试要排除 `[data-info-tip]`。设置搜索定位到一行时跳过它（`data-info-tip`），聚焦行里真正的控件。组名外面多了一层 `[data-group-header]`，搜索索引读组名的选择器跟着改。
 
+### 2026-11-02 补扫：不走 `Row` 的说明
+
+第一轮按 `Row` 的 `description` 和 `SettingsGroupNote` 改，绕过它们的说明没有跟上。用 Playwright 把共享设置页的每个页面和标签按 macOS、Linux、HarmonyOS 2in1 和手机各渲染一遍，读出所有常驻文字逐条核对，再按代码搜一遍，补齐了这些写法：
+
+- 页首说明 `PageIntro`：快捷键页的生效范围进「输入模式切换」组的「?」，主题页的作用表面进「明暗」组的「?」，自定义双拼编辑页的说明进子页标题的「?」（`SettingsSubViewHeader` 的 `help`）。手机「帮助与反馈」页的导语进「反馈与交流」组的「?」，共享设置页不再有地方用 `PageIntro`。
+- 旧式字段：`SettingsTextareaField` 原来把 `description` 直接画在标签里，改成标签用 `htmlFor` 指向文本框、「?」放在标签外（不用 `passive`，手机点得开），校验问题走新的 `detail`；`SettingField`、`SecretSettingField`、`SettingToggle` 也加了 `detail`。
+- 状态反被收进「?」的：Linux 的 AI、语音、腾讯云凭据把「尚未保存 / 已保存 / 与上方设置不一致 / 文件无效」和「凭据写在哪里」拼成一句塞进悬停图标，状态看不见。模型拆成 `status`（常驻）和 `description`（进「?」）；打字统计「上传到云端」的「登录水杉账号后可以打开」同理改为常驻。
+- 没有组名可挂的段落：社区皮肤和社区插件的栏目说明（含 MCP 制作皮肤的整段）进栏目标题旁的「?」（`CommunityGalleryHeading` 的 `help`，标题下的副标题 `note` 照旧常驻）；打字统计各图下的「怎么读、记什么」进图表标题旁的「?」（`StatisticsSection` 的 `help`），页末的统计口径与隐私说明并进「记录打字统计」的「?」；QQ 群助手、设置同步、背单词、本地识别模型、个人词库文件这些卡片的说明进卡片标题旁的「?」；插件库的指令表、脚本插件分类说明进分类名旁的「?」，脚本插件的残余风险仍是常驻警告。
+- `SettingsManagerBlock` 里的长段解释：MCP 连接说明、@ 名单用法、插件编辑器的许可证和编码规则挪到块外，作为组内说明进组名的「?」；块里紧贴按钮讲后果的句子不动。
+- 手搭的行：插件页「自己制作」「从文件导入」两行用 `controls.rowDescription` 手写了常驻说明，改用 `Row`。
+- 其余零散的：候选窗口预览的「固定样例…不代表实际输入候选」进预览标签旁的「?」（`SettingsPreviewBlock` 的 `help`）；HarmonyOS 手机词库页「点进词库可以启用…」进「已安装」组的「?」，读取失败照旧常驻；词库编辑表单里快捷短语的光标标记说明在 `<label>` 里，用悬停的「?」。
+
+刻意留在原处的：各页插画引导的一句话（页面导语，不是设置项说明）、词库页标签栏旁的「词库工具」小标题、Linux 悬浮工具栏的几段宿主说明（宿主限制）、卸载和提交反馈按钮旁讲后果的话、内嵌云词库面板的一句话（与独立的云词库窗口共用，没有标题可挂）、手机打字统计页末的隐私说明（那一页没有可挂的开关）、编码长度提示（「1–4 个字母」，是输入约束）、背单词导入按钮旁的格式说明和复习卡下的作答规则（复习在背单词面板里进行，那是面板不是设置）、插件编辑器「添加一组」旁的符号组排位说明、九宫格数字键盘空格位置的说明（#10056 有意放在胶囊正下方并有测试钉住）、九键左侧符号编辑页顶部的说明（#10452 正在改那个文件）、空列表与前置条件提示。
+
 ### 原生设置界面（Windows、iOS、Android）
 
 各自实现一个可复用的「?」组件，按同一套分类改完所有页面，分别在各自的 PR 里落地。
@@ -49,4 +63,5 @@ Status: implemented
 - `apps/desktop/tests/core/platform-controls.test.tsx` 覆盖只有说明的组收起空卡片、键盘聚焦打开的气泡在滚动时收起，两条测试在改动前都失败。
 - 共享设置页：`apps/desktop`、`apps/harmony` 的 `tsc --noEmit`，`vp lint`、`vp fmt --check`，`apps/desktop` 全量 vitest。
 - 用临时页面以 `data-platform="mac"` 渲染剪贴板页的两个分组，无头 Chromium 截了收起、行的气泡展开、组名气泡展开三种状态；截图留在 `~/msime-screenshots/settings-description-tooltip/`。
+- 2026-11-02 补扫：在浏览器里用模拟的 Tauri IPC（macOS、Linux）和 ArkWeb 桥（HarmonyOS 2in1、手机）挂上真实的宿主能力（`HostCapabilities::for_platform` 的输出）和随仓库的已发布偏好，逐页逐标签截全页图，改动前后各一套，留在 `~/msime-screenshots/settings-tooltip-sweep/`。
 - 没有在真实的 macOS 设置应用、Linux 设置应用和 HarmonyOS 设备上看过；原生三端的验证写在各自的 PR 里。

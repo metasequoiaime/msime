@@ -11,6 +11,7 @@
 
 #include "../../../../shared/contracts/windows_ipc.h"
 #include "../Global/CandidateOverlayHostPolicy.h"
+#include "../Global/PunctuationModePolicy.h"
 #include "../../common/DedicatedEnglishMirror.h"
 #include "../../common/InputSchemeTraits.h"
 
@@ -144,26 +145,24 @@ namespace DataFromServerMsgType = FanyImeReplyType;
 
 namespace DataToTsfWorkerThreadMsgType = FanyImeWorkerReplyType;
 
-namespace PunctuationLock
-{
-constexpr int Follow = 0;
-constexpr int AlwaysChinese = 1;
-constexpr int AlwaysEnglish = 2;
-} // namespace PunctuationLock
-
 inline std::atomic<int> PunctuationLockMode{PunctuationLock::Follow};
+// 已存的 `chinese_punctuation`（中文模式下的起始标点），与 PunctuationLockMode 一起由 FanyUtils::RefreshPunctuationLockFromConfig 从内存快照刷新；还没有快照时按出厂默认的中文标点。
+inline std::atomic_bool SavedChinesePunctuation{true};
 
-inline BOOL ResolvePunctuationOpen(BOOL followImeOpen)
+// 显式请求的标点（Ctrl+.、工具栏、托盘、conversion mode），规则见 PunctuationModePolicy.h 的 PunctuationOpenForRequest。
+inline BOOL ResolvePunctuationOpen(BOOL requested)
 {
-    switch (PunctuationLockMode.load(std::memory_order_relaxed))
-    {
-    case PunctuationLock::AlwaysChinese:
-        return TRUE;
-    case PunctuationLock::AlwaysEnglish:
-        return FALSE;
-    default:
-        return followImeOpen;
-    }
+    return PunctuationOpenForRequest(PunctuationLockMode.load(std::memory_order_relaxed), requested != FALSE) ? TRUE
+                                                                                                             : FALSE;
+}
+
+// 激活和切换中英文时标点回到的状态，规则见 PunctuationModePolicy.h 的 PunctuationOpenForImeMode。
+inline BOOL ResolveImeModePunctuationOpen(BOOL imeOpen)
+{
+    return PunctuationOpenForImeMode(PunctuationLockMode.load(std::memory_order_relaxed), imeOpen != FALSE,
+                                     SavedChinesePunctuation.load(std::memory_order_relaxed))
+               ? TRUE
+               : FALSE;
 }
 
 inline bool IsPunctuationLocked()

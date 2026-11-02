@@ -9429,7 +9429,8 @@ public final class MSIMEInputService extends InputMethodService {
             ? ((selectedScheme == KeyboardScheme.JAPANESE
                 || selectedScheme == KeyboardScheme.JAPANESE_NINE_KEY) ? 3
                 : selectedScheme == KeyboardScheme.KOREAN ? KoreanInputPolicy.KOREAN_SCHEME
-                : selectedScheme == KeyboardScheme.CANTONESE ? InputSchemeTraits.CANTONESE
+                : selectedScheme == KeyboardScheme.CANTONESE
+                    || selectedScheme == KeyboardScheme.CANTONESE_SHUANGPIN ? InputSchemeTraits.CANTONESE
                 : selectedScheme == KeyboardScheme.ZHUYIN
                     || selectedScheme == KeyboardScheme.ZHUYIN_NINE_KEY ? InputSchemeTraits.ZHUYIN
                 : selectedScheme == KeyboardScheme.VIETNAMESE ? InputSchemeTraits.VIETNAMESE

@@ -106,8 +106,9 @@ test("手机标点面板保留抽取后选项的顺序、名称和写回值", as
 
 describe("整句联想 levels", () => {
   test("the stored switches read as the Android levels", () => {
-    expect(sentenceAssociationLevel(undefined)).toBe(1);
-    expect(sentenceAssociationLevel({})).toBe(1);
+    // 缺键时按默认的「增强」读。
+    expect(sentenceAssociationLevel(undefined)).toBe(2);
+    expect(sentenceAssociationLevel({})).toBe(2);
     expect(sentenceAssociationLevel({ word_lattice: false })).toBe(0);
     // 关闭的 lattice 优先于仍开着的 neural 开关。
     expect(sentenceAssociationLevel({ word_lattice: false, neural_keyboard: true })).toBe(0);
@@ -209,7 +210,7 @@ describe("the HarmonyOS phone 表达 page", () => {
     ).toBe(false);
     expect(within(punctuation).queryByRole("switch", { name: "中文标点" })).toBeNull();
     const smart = group("智能");
-    expect(within(smart).getByRole("button", { name: /整句联想.*标准/ })).toBeTruthy();
+    expect(within(smart).getByRole("button", { name: /整句联想.*增强/ })).toBeTruthy();
     expect(
       (within(smart).getByRole("switch", { name: "英文联想" }) as HTMLInputElement).checked,
     ).toBe(true);
@@ -229,11 +230,11 @@ describe("the HarmonyOS phone 表达 page", () => {
     expect((await saveAndRead(save, 0)).chinese_punctuation).toBe(false);
 
     fireEvent.click(within(group("智能")).getByRole("button", { name: /整句联想/ }));
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /增强/ }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /标准/ }));
     expect((await saveAndRead(save, 1)).sentence_association).toEqual({
       neural_desktop: true,
       word_lattice: true,
-      neural_keyboard: true,
+      neural_keyboard: false,
     });
 
     fireEvent.click(within(group("智能")).getByRole("button", { name: /整句联想/ }));
@@ -322,6 +323,36 @@ describe("the HarmonyOS phone 表达 page", () => {
     const sheet = screen.getByRole("dialog");
     expect(within(sheet).getByRole("button", { name: /标准/ })).toBeTruthy();
     expect(within(sheet).queryByRole("button", { name: /增强/ })).toBeNull();
+  });
+
+  // 上屏后联想（#9433）：鸿蒙宿主声明 `next_word_prediction` 后，开关和联想栏按键样式列在「智能」组，与 Android 原生的「表达 → 智能」一致。
+  test("lists 上屏后联想 and its strip buttons under 智能 and saves both", async () => {
+    const save = await mountPhone({}, { next_word_prediction: true });
+    const smart = group("智能");
+    const toggle = within(smart).getByRole("switch", { name: /^上屏后联想/ }) as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+    // 说明来自共享组件，手机和电脑同一句：联想能点选、按数字键或空格上屏。
+    expect(within(smart).getByText(/点选、按数字键或空格上屏/)).toBeTruthy();
+    const buttons = () => within(smart).getByRole("button", { name: /^联想栏按键/ });
+    expect(buttons().textContent).toContain("只有展开 ∨");
+    fireEvent.click(toggle);
+    expect((await saveAndRead(save, 0)).next_word_prediction).toBe(true);
+
+    fireEvent.click(buttons());
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "联想栏按键" })).getByRole("button", {
+        name: "关闭 × 和展开 ∨",
+      }),
+    );
+    const saved = await saveAndRead(save, 1);
+    expect(saved.next_word_prediction).toBe(true);
+    expect(saved.next_word_prediction_buttons).toBe("close_and_expand");
+  });
+
+  test("a host without next-word prediction lists no 上屏后联想", async () => {
+    await mountPhone({ next_word_prediction: true }, { next_word_prediction: false });
+    expect(within(group("智能")).queryByRole("switch", { name: /^上屏后联想/ })).toBeNull();
+    expect(within(group("智能")).queryByRole("button", { name: /^联想栏按键/ })).toBeNull();
   });
 
   test("the 2in1 keeps the desktop page", async () => {

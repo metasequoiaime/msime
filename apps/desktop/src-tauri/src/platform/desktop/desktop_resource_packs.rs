@@ -202,10 +202,11 @@ fn offered_by(pack: ResourcePack, edition: &Edition, installation: &Installation
         ResourcePack::TargetPronunciations => {
             installation.platform == DesktopPlatform::Linux && !installation.target_pronunciations
         }
-        // Android 专属资源不出现在桌面入口。
+        // Android 专属资源不出现在桌面入口。桌面的「增强」逐键重排模型随安装包放在资源目录旁边，不按需下载。
         ResourcePack::OfflineGlosses
         | ResourcePack::VoiceRuntime
-        | ResourcePack::AndroidOcrModule => false,
+        | ResourcePack::AndroidOcrModule
+        | ResourcePack::RerankModelSmall => false,
         ResourcePack::Wubi => {
             installation.platform == DesktopPlatform::Macos
                 && edition.input_schemes.contains(&InputScheme::Wubi)
@@ -746,7 +747,7 @@ mod tests {
         }
     }
 
-    /// 离线释义、语音运行库和 OCR 模块只给 Android，三个桌面平台都不列出。
+    /// 离线释义、语音运行库、OCR 模块和逐键重排的手机档模型只给 Android，三个桌面平台都不列出。
     #[test]
     fn desktops_never_offer_the_android_packs() {
         for platform in [
@@ -758,6 +759,7 @@ mod tests {
                 ResourcePack::OfflineGlosses,
                 ResourcePack::VoiceRuntime,
                 ResourcePack::AndroidOcrModule,
+                ResourcePack::RerankModelSmall,
             ] {
                 assert!(
                     !offered_by(pack, Edition::full(), &installation(platform)),
