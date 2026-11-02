@@ -2615,6 +2615,7 @@ public final class MSIMEInputService extends InputMethodService {
             catch (Exception | LinkageError ignored) { /* Never log editor text or native responses. */ }
             try { NativeClient.destroy(session); } catch (LinkageError ignored) { }
             session = 0;
+            schedulePersonalLearningFlush();
             imeDebugOverlay.recordPerf(DiagnosticEventKind.ENGINE_SESSION_DESTROY,
                 SystemClock.uptimeMillis() - destroyStartedAt);
         }
@@ -2645,6 +2646,18 @@ public final class MSIMEInputService extends InputMethodService {
             if (!keepTextEdit) imeTextEditPanel.close();
         } else {
             closeToolbarPanels();
+        }
+    }
+
+    /** Android 的会话销毁不能在输入线程上冲刷所有个人上下文模型；把全局收尾排到统计工作线程。 */
+    private void schedulePersonalLearningFlush() {
+        try {
+            typingStatisticsWorker.execute(() -> {
+                try { NativeClient.flushAll(); }
+                catch (RuntimeException | LinkageError ignored) { }
+            });
+        } catch (RuntimeException ignored) {
+            // 服务正在销毁时由 onDestroy 的最后一次 flush 兜底。
         }
     }
 
