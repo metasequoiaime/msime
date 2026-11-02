@@ -13862,14 +13862,39 @@ private:
       segment_row(group, 0xE8AB, L"韩语布局",
                   L"默认两套式，可切换为罗马字。罗马字用 x 输入声母 ㅇ（xa → 아，hangug → 한국），Shift+G/D/B/J/S 输入紧音；退格删除当前拼写的最后一个拉丁字母，标点为半角",
                   L"korean.layout", {{L"dubeolsik", L"两套式"}, {L"romaja", L"罗马字"}}, L"dubeolsik");
-    // 粤语双拼与粤拼共用同一个方案和词典，做成粤拼方案下的选项，说明与共享页的「粤拼方案」相同。
-    if (scheme == L"cantonese")
+    // 粤语双拼与粤拼共用同一个方案和词典，做成粤拼方案下的选项，说明与共享页的「粤拼方案」相同。选了粤语双拼时下面跟着「双拼预编辑」，普通粤拼打的就是粤拼，没有按键要展开；换解释方式时 segment_row 整页重画，这一行随之出现或消失。
+    if (scheme == L"cantonese") {
+      const bool cantonese_shuangpin =
+          document_.String(L"cantonese.input_method", L"jyutping") == L"shuangpin";
       segment_row(group, 0xE8AB, L"粤拼方案",
-                  document_.String(L"cantonese.input_method", L"jyutping") == L"shuangpin"
+                  cantonese_shuangpin
                       ? L"两键一个音节，第一键是声母、第二键是韵母，ing 和 ik 在 ; 键上；从第一键起按双拼解释，与粤拼同形的码（如 oi）也按双拼。数字键选词，候选为繁体字词"
                       : L"按不带声调的粤拼输入，用 ' 分隔音节，数字键选词，候选为繁体字词",
                   L"cantonese.input_method", {{L"jyutping", L"粤拼"}, {L"shuangpin", L"粤语双拼"}},
                   L"jyutping");
+      // 「双拼预编辑」与普通话双拼共用 shuangpin_preedit_uses_raw（#10557），展开的是粤拼。引擎的粤语双拼不读 shuangpin_preedit_separated（#10717），所以这里只有原始按键 / 粤拼分词两项：存着双拼分隔时它显示的就是原始按键，下拉框照实选中「原始按键」；写回与普通话双拼那一行同一套换算（InputSettingsModel.h），选粤拼分词时分隔一并清掉。
+      if (cantonese_shuangpin) {
+        auto const stored_preedit =
+            ism::shuangpin_preedit(document_.Boolean(L"shuangpin_preedit_uses_raw", true),
+                                   document_.Boolean(L"shuangpin_preedit_separated", false));
+        add_row(group, 0xE8AB, L"双拼预编辑",
+                L"保留原始粤语双拼按键，或显示展开后的粤拼。与普通话双拼共用这一项。",
+                select_control(L"双拼预编辑", {{L"raw", L"原始按键"}, {L"pinyin", L"粤拼分词"}},
+                               stored_preedit == ism::ShuangpinPreedit::pinyin ? L"pinyin" : L"raw",
+                               [this](std::wstring const &value) {
+                                 auto const style = value == L"pinyin" ? ism::ShuangpinPreedit::pinyin
+                                                                       : ism::ShuangpinPreedit::raw;
+                                 change(
+                                     [&](PreferencesDocument &doc) {
+                                       doc.SetBoolean(L"shuangpin_preedit_uses_raw",
+                                                      ism::shuangpin_preedit_uses_raw(style));
+                                       doc.SetBoolean(L"shuangpin_preedit_separated",
+                                                      ism::shuangpin_preedit_separated(style));
+                                     },
+                                     false);
+                               }));
+      }
+    }
     if (scheme == L"zhuyin")
       add_row(group, 0xE8AB, L"注音键盘",
               L"大千：按大千键位输入注音符号，空格为一声，6 3 4 7 为二、三、四声和轻声，候选为繁体字词",
