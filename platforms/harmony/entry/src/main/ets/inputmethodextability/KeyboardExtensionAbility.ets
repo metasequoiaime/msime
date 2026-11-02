@@ -1,5 +1,6 @@
 import { CandidateLayoutPolicy } from '../keyboard/candidate/CandidateSkinPolicy';
 import { CandidateCanvasPolicy } from '../keyboard/candidate/CandidateCanvasPolicy';
+import { NextWordPredictionPolicy } from '../keyboard/candidate/NextWordPredictionPolicy';
 import { CandidateCanvasDecoder } from '../keyboard/candidate/CandidateCanvasFrame';
 import InputMethodExtensionAbility from '@ohos.InputMethodExtensionAbility';
 import inputMethodEngine from '@ohos.inputMethodEngine';
@@ -143,7 +144,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       // When follow-cursor is disabled, the first composition position is the anchor for the
       // whole candidate window lifetime. Keep recording the latest caret while idle so the next
       // composition still starts beside the newly focused text.
-      if (KeyboardSession.shared.composing()
+      if (KeyboardSession.shared.candidateWindowWanted()
         && KeyboardSession.shared.preferences().candidateFollowCursor) {
         this.placeCandidateWindow();
       }
@@ -529,7 +530,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     }
     if (surface === DesktopSurface.NONE) {
       this.resizeCandidateWindow(surface).then((): void => {
-        if (!KeyboardSession.shared.composing()) {
+        if (!KeyboardSession.shared.candidateWindowWanted()) {
           panel.hide();
         }
       }).catch((error: Object): void => {
@@ -806,6 +807,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
   private readonly releasedKeys: Set<number> = new Set<number>();
   /** Key codes whose key-down the emoji panel took, so their key-up is taken too. */
   private readonly panelKeys: Set<number> = new Set<number>();
+  /** 按下时关闭或选中了上屏后联想的键（Esc、空格、数字），抬起和按住时的重复一并收下。 */
+  private readonly predictionKeys: Set<number> = new Set<number>();
 
   private readonly typed: (event: InputKeyEvent) => boolean = (event: InputKeyEvent): boolean => {
     const session: KeyboardSession = KeyboardSession.shared;
@@ -907,6 +910,30 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     })) {
       this.panelKeys.add(event.key.code);
       return true;
+    }
+    // 上屏后联想：Esc 关闭联想（送 Cancel），与候选栏的关闭键 × 相同；空格选高亮的一条，数字选本页对应的一条，都交给运行时。没有组字时路由会把这几个键交给应用，所以在这里先拦。运行时没收下的数字（越过本页）照常交给应用。回车和退格照常走下去交给应用，编辑器的改动回报随后清掉联想（`KeyboardSession.editorTextChanged`）；字母开始新的组字，标点由引擎清掉联想后输入。按住时的重复不再选：选中后马上又是新的一组联想，一直按着会连着上屏。
+    if (event.action !== KeyAction.DOWN && this.predictionKeys.delete(event.key.code)) {
+      return true;
+    }
+    if (event.action === KeyAction.DOWN && !newPress && this.predictionKeys.has(event.key.code)) {
+      return true;
+    }
+    if (event.action === KeyAction.DOWN && NextWordPredictionPolicy.dismissesOnKey(event.key.code,
+      event.ctrlKey, event.altKey, event.logoKey, event.shiftKey) && session.dismissPrediction()) {
+      this.predictionKeys.add(event.key.code);
+      return true;
+    }
+    const numpad: HardwareKey = HardwareKeyRouter.normalizeNumpad(key);
+    const predictionKey: number = NextWordPredictionPolicy.selectionKey(numpad.keyCode, numpad.unicodeChar,
+      event.ctrlKey, event.altKey, event.logoKey, event.shiftKey,
+      KeyboardSession.shared.preferences().numberRowSelection);
+    if (event.action === KeyAction.DOWN && newPress && predictionKey >= 0 && session.predicting()) {
+      if (session.pressPredictionKey(predictionKey)) {
+        this.predictionKeys.add(event.key.code);
+        return true;
+      }
+      this.releasedKeys.add(event.key.code);
+      return false;
     }
     // A space with nothing being composed is the editor's, with one exception: it is also the key
     // that rewrites a just-committed Chinese mark as ASCII, and that arming only exists after a
@@ -1247,7 +1274,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
           };
           KeyboardSession.shared.onCandidateCount = (count: number): void => {
             this.candidateCount = count;
-            if (KeyboardSession.shared.composing()
+            if (KeyboardSession.shared.candidateWindowWanted()
               && KeyboardSession.shared.openSurface() === DesktopSurface.NONE) {
               this.resizeCandidateWindow(DesktopSurface.NONE).then((): void => {
                 this.placeCandidateWindow();
