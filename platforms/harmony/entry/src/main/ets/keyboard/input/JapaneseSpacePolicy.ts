@@ -1,3 +1,5 @@
+import { CandidatePresentationPolicy } from "../candidate/CandidatePresentationPolicy";
+
 /**
  * Whether Japanese Space converts the composition or commits it, ported from platforms/android/java/app/msime/android/policy/JapaneseSpacePolicy.java.
  *
@@ -13,5 +15,12 @@ export class JapaneseSpacePolicy {
       return false;
     }
     return !(candidateCount === 1 && firstSource === JapaneseSpacePolicy.CANDIDATE_SOURCE_FALLBACK);
+  }
+
+  /** 空格数的行：这一页去掉云占位行（`CandidatePresentationPolicy.isVisible`）之后各行的来源，次序不变。候选条不画占位行，运行时的「下一个」也越过它（#10665）；按原始行数数，走到本页末尾时要多按一次才回到首条。行数取返回数组的长度，`converts` 的 `firstSource` 取它的第一项。 */
+  static countedSources(sources: number[]): number[] {
+    return sources.filter((source: number): boolean =>
+      CandidatePresentationPolicy.isVisible(source),
+    );
   }
 }

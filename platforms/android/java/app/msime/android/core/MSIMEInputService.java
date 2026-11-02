@@ -5554,9 +5554,14 @@ public final class MSIMEInputService extends InputMethodService {
         if (japaneseSchemeActive() && view != null) {
             String editingText = InputViewValuePolicy.editingText(view);
             JSONArray candidates = view.optJSONArray("candidates");
-            int count = candidates == null ? 0 : candidates.length();
-            JSONObject first = count > 0 ? candidates.optJSONObject(0) : null;
-            int firstSource = InputViewValuePolicy.integer(first, "source", -1);
+            int[] sources = new int[candidates == null ? 0 : candidates.length()];
+            for (int index = 0; index < sources.length; index++) {
+                sources[index] = InputViewValuePolicy.integer(candidates.optJSONObject(index), "source", -1);
+            }
+            // 只数高亮能停的行：运行时的「下一个」越过云占位行（#10665）。
+            int[] counted = JapaneseSpacePolicy.countedSources(sources);
+            int count = counted.length;
+            int firstSource = count > 0 ? counted[0] : -1;
             if (!editingText.isEmpty() && JapaneseSpacePolicy.converts(count, firstSource)) {
                 if (japaneseConversionIndex == null
                         || !editingText.equals(japaneseConversionEditingText)) {

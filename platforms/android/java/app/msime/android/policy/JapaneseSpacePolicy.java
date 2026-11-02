@@ -16,4 +16,16 @@ public final class JapaneseSpacePolicy {
         if (candidateCount <= 0) return false;
         return !(candidateCount == 1 && firstSource == CANDIDATE_SOURCE_FALLBACK);
     }
+
+    /**
+     * 空格数的行：这一页去掉云占位行（{@link AiPendingCandidatePolicy#isVisible}）之后各行的来源，次序不变。候选条不画占位行，运行时的「下一个」也越过它（#10665）；按原始行数数，走到本页末尾时要多按一次才回到首条。行数取返回数组的长度，{@link #converts} 的 {@code firstSource} 取它的第一项。
+     */
+    public static int[] countedSources(int[] sources) {
+        int[] counted = new int[sources.length];
+        int count = 0;
+        for (int source : sources) {
+            if (AiPendingCandidatePolicy.isVisible(source)) counted[count++] = source;
+        }
+        return java.util.Arrays.copyOf(counted, count);
+    }
 }

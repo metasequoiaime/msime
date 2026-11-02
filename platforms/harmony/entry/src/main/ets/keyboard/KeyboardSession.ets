@@ -5014,9 +5014,12 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** Space starts Japanese conversion, then advances and wraps without committing. False leaves Space to its normal commit, which is also what a lone Fallback row (the raw composition) needs. */
   convertJapanese(): boolean {
-    const firstSource: number = this.currentCandidates.length > 0 ? this.currentCandidates[0].source : -1;
+    // 只数高亮能停的行：运行时的「下一个」越过云占位行（#10665）。
+    const counted: number[] = JapaneseSpacePolicy.countedSources(
+      this.currentCandidates.map((candidate: Candidate): number => candidate.source));
+    const firstSource: number = counted.length > 0 ? counted[0] : -1;
     if (this.scheme !== JAPANESE_SCHEME || this.editing.length === 0
-        || !JapaneseSpacePolicy.converts(this.currentCandidates.length, firstSource)) {
+        || !JapaneseSpacePolicy.converts(counted.length, firstSource)) {
       return false;
     }
     if (this.japaneseConversionIndex < 0
@@ -5026,7 +5029,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       return true;
     }
     const next: number = this.japaneseConversionIndex + 1;
-    const wraps: boolean = next >= this.currentCandidates.length;
+    const wraps: boolean = next >= counted.length;
     const wanted: number = wraps ? 0 : next;
     if (!this.command(wraps ? InputCommand.FIRST_CANDIDATE : InputCommand.NEXT_CANDIDATE)) {
       return false;
