@@ -61,6 +61,11 @@ public final class LanguageNumberKeySwapDeviceSmoke extends DeviceSmoke {
                     await(languageKey());
                     stage = layout[0] + (swapped ? " swapped positions" : " default positions");
                     checkPositions(key("123"), swapped);
+                    if (layout[0].equals("japanese_nine_key") && swapped) {
+                        // 交换后日语九键的语言键在左列最下一格，符 在它上面（#10437）。
+                        stage = "japanese_nine_key language key at bottom of left column";
+                        checkBelowSymbol();
+                    }
                     if (layout[0].equals("quanpin")) {
                         // 英文切换和数字层按键动作仍工作，位置保持交换状态。
                         stage = "quanpin English switch";
@@ -120,6 +125,17 @@ public final class LanguageNumberKeySwapDeviceSmoke extends DeviceSmoke {
         awaitStableBounds(layerKey).getBoundsInScreen(layer);
         if (swapped ? language.centerX() >= layer.centerX() : language.centerX() <= layer.centerX())
             throw new AssertionError("Language/number keys did not use selected order");
+    }
+
+    private void checkBelowSymbol() throws Exception {
+        Rect language = new Rect(), symbol = new Rect();
+        awaitStableBounds(languageKey()).getBoundsInScreen(language);
+        // 只认左列的 符 键（读屏描述带「按键」前缀），不认顶部工具栏的符号快捷键。
+        awaitStableBounds(key("符").and(node -> node.getContentDescription() != null
+            && node.getContentDescription().toString().startsWith("按键 打开符号面板"))).getBoundsInScreen(symbol);
+        if (language.centerX() < symbol.left || language.centerX() > symbol.right || language.top < symbol.bottom)
+            throw new AssertionError("Japanese nine-key language key is not below 符 in the left column: language="
+                + language.toShortString() + " symbol=" + symbol.toShortString());
     }
 
     private void openEditor() throws Exception {

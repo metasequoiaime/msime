@@ -77,6 +77,17 @@ if ! rg_q_stdin -F 'addJapaneseSideKey(modeColumn, japaneseSymbolPanelKey(s.japa
   echo "The Japanese nine-key left column must always carry the 符 symbol-panel key, with emoji on its long press when the toolbar has no emoji button" >&2
   exit 1
 fi
+# 打开「交换语言键与数字键」时日语九键的语言键在左列最下一格（#10437）：符 和 切换 在它上面，123 换到右列原语言键的位置；不交换时左列仍是 123、符、切换，右列是语言键。
+if ! awk '
+  /if \(!swapLanguageNumber\) addJapaneseSideKey\(modeColumn, s\.japaneseSymbolsKey, 1\);/ { layer = NR }
+  /addJapaneseSideKey\(modeColumn, japaneseSymbolPanelKey\(s\.japaneseSideEmojiKey\(\)\), 1\);/ { symbol = NR }
+  /addJapaneseSideKey\(modeColumn, globe, 1\);/ { globe = NR }
+  /if \(swapLanguageNumber\) addJapaneseSideKey\(modeColumn, language, 1\);/ { language = NR }
+  /addJapaneseSideKey\(side, swapLanguageNumber \? s\.japaneseSymbolsKey : language, 1\);/ { right = 1 }
+  END { exit !(layer && symbol && globe && language && right && layer < symbol && symbol < globe && globe < language) }' <<< "$japanese_nine_key_rows"; then
+  echo "With the language/number swap on, the Japanese nine-key language key must sit in the bottom cell of the left column, below 符 and the globe key" >&2
+  exit 1
+fi
 # 只改大小写时不重建键行（#6997）：重建出的新键在下一次布局前宽高为 0，Shift 之后立刻按下的字母找不到键而被丢掉。Shift、一次性大写用掉和自动大写都经 refreshLetterCase 就地改键面；字母键的气泡读按下时的键面，不能用建键时记下的那个。触发和重建之间允许夹着 `//` 注释行（Shift 处理里就有一行），不然改回 rebuildKeyRows 时这道检查认不出来。
 if rg -U -n '(consumeLetter\(\)\)\s*\{?|letterCase\.toggle\(SystemClock\.uptimeMillis\(\)\);|applyAutomatic\(next\)\))(\s*//[^\n]*)*\s*imeLetterRows\.rebuildKeyRows\(\)' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
