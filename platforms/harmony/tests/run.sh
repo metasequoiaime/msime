@@ -462,6 +462,14 @@ if ! grep -qF 'this.typingStatisticsWrites.execute(new taskpool.Task(writeTyping
   echo "KeyboardSession must write typing statistics on its TaskPool SequenceRunner and flush them on hide, focus loss and teardown" >&2
   exit 1
 fi
+# 键盘获得焦点时先导入设置应用的偏好，再发布自己的当前快照；否则上次会话的旧偏好会先写出一份较新的镜像时间，随后按变化时间跳过设置应用刚保存的值（#10619）。
+sync_body=$(sed -n '/^  static keyboardSync(mirror: SharedStateMirror, stateDirectory: string, fullMode: boolean): string\[\] {$/,/^  }$/p' "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/SharedStateSync.ets")
+import_line=$(grep -nF "mirror.importFrom('settings', SETTINGS_ENTRIES, fullMode, handlers)" <<< "$sync_body" | head -1 | cut -d: -f1)
+publish_line=$(grep -nF 'SharedStateSync.keyboardPublish(mirror);' <<< "$sync_body" | head -1 | cut -d: -f1)
+if [[ -z "$import_line" || -z "$publish_line" || "$publish_line" -le "$import_line" ]]; then
+  echo "Harmony keyboardSync must import settings preferences before publishing its current snapshot" >&2
+  exit 1
+fi
 # 完整体验模式下键盘失焦、获得焦点各发布一次共享状态，文件身份没变时不读文件、不再算指纹（缓存规则由 shared-state-mirror-policy.test.ts 的 `FingerprintCache` 覆盖）；每次获得焦点比偏好修订号时，文档身份没变就不经 NAPI 读整份文档；构建会话时处理词库快照队列、显示后查一次队列状态，队列空着都不扫词库算本机版本。这些都是 ArkTS，这里钉住接线。
 mirror_ets="$ets/keyboard/SharedStateMirror.ets"
 fingerprint_body=$(sed -n '/^  private static fingerprintOf(entry: MirrorEntry, path: string): string {$/,/^  }$/p' "$mirror_ets")
