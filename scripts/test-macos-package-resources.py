@@ -41,6 +41,10 @@ PACKAGING_INPUTS = (
     "resources/voice-runtime-macos.lock.json",
     "resources/wordbook.lock.json",
     "scripts/fetch_wordbooks.py",
+    "resources/rerank-model.lock.json",
+    "scripts/fetch_rerank_model.py",
+    "resources/onnxruntime-minimal.lock.json",
+    "scripts/fetch_onnxruntime.py",
     "crates/client-core/src/resources.rs",
     "crates/client-providers/src/resource_packs.rs",
     "crates/client-providers/src/voice/local_models.rs",
@@ -400,6 +404,14 @@ def main() -> int:
             failures.append(f"package-release.sh copies language dictionaries into the package: {line.strip()}")
     check("install_resource_pack" in package_text, "package-release.sh does not check the on-demand packs with install_resource_pack")
     check("MSIME_MACOS_OMIT_ON_DEMAND=1" in package_text, "package-release.sh does not stage with MSIME_MACOS_OMIT_ON_DEMAND=1")
+    # 整句联想「增强」的逐键重排：host 库开着 onnx-rerank、按锁链接两种架构的精简 ONNX Runtime，CMake 按锁取两档模型放进输入法 bundle，打包时按版本去留并在包里核对。
+    check("scripts/fetch_onnxruntime.py --target" in package_text, "package-release.sh does not fetch the locked ONNX Runtime for each target")
+    check("--features msime-host-api/onnx-rerank" in package_text, "package-release.sh builds the host library without onnx-rerank")
+    check('ORT_LIB_LOCATION="${ort_locations[$index]}"' in package_text, "package-release.sh does not point each target's build at its own ONNX Runtime")
+    check('test -s "$nested/Contents/$rerank_directory/$rerank_file"' in package_text, "package-release.sh does not check the rerank models in the input method bundle")
+    check('features.neural_keyboard' in package_text, "package-release.sh does not decide the rerank models by the edition's neural_keyboard feature")
+    cmake = "\n".join(live_lines(ROOT / "platforms/macos/CMakeLists.txt"))
+    check("scripts/fetch_rerank_model.py" in cmake, "CMakeLists.txt does not fetch the locked rerank models into the input method bundle")
     # 包内检查要逐个确认按需文件不在 EngineResources 里，名单多了一个文件时这里跟着要求多一行。
     for name in EXPECTED_ON_DEMAND:
         check(f'test ! -e "$resources_dir/EngineResources/{name}"' in package_text, f"package-release.sh does not check that {name} stays out of EngineResources")

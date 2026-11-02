@@ -384,11 +384,7 @@ char *msime_client_resolve_theme(const uint8_t *request, size_t length);
 char *msime_client_app_theme_catalog(void);
 /* 应用主题在宿主当前月份与明暗模式下的颜色。JSON 请求（<=4096 字节，拒绝未知键）{app_theme:"siji"|"chunya"|"xiayin"|"qiushan"|"dongxue", month?:1-12, dark:bool}；month 是宿主本地日历的月份，只影响 siji，省略时用 UTC 月份，超出 1-12 时请求失败。返回 {id, season, accent, accent_soft, on_accent, background, card, hair, candidate_accent}，season 是实际画的那一季。纯计算，可在主线程调用。 */
 char *msime_client_resolve_app_theme(const uint8_t *request, size_t length);
-/* Per-key double-pinyin hint text for one profile name, as a JSON object mapping
- * an uppercase key to "initials / finals" - or to whichever side that key carries.
- * Read out of the Engine's own profile tables so a keyboard face never carries a
- * second copy of the keymap. An unknown profile name yields an empty object
- * rather than the default profile's hints. */
+/* Per-key double-pinyin hint text for one profile name, as a JSON object mapping an uppercase key (or ";") to "initials / finals" - or to whichever side that key carries. Read out of the Engine's own profile tables so a keyboard face never carries a second copy of the keymap. The reserved name "cantonese" gives the Cantonese shuangpin face. An unknown profile name yields an empty object rather than the default profile's hints. */
 char *msime_client_shuangpin_key_hints(const uint8_t *profile, size_t length);
 /* The double-pinyin codes of the whole zero-initial syllables for one profile name, as a JSON object mapping each syllable to its two-key code, e.g. {"a":"aa","ang":"ah",...}. Read out of the Engine's own profile tables. An unknown profile name yields an empty object. */
 char *msime_client_shuangpin_zero_initials(const uint8_t *profile, size_t length);
@@ -706,7 +702,7 @@ char *msime_client_voice_local_model_cancel(const uint8_t *request, size_t lengt
 char *msime_client_voice_local_model_remove(const uint8_t *request, size_t length);
 char *msime_client_voice_model_setting_check(const uint8_t *request, size_t length);
 /* 按需资源包存放在 <state_root>/resource-packs/<id>/；state_root 是 HostOptions 的 preferences_directory（Android: files/bootstrap/state），会话下次取得焦点时读取新发布的包。
- * 包 ID：`japanese`、`language-dictionaries`、`handwriting`、`settled-model`、`grammar-model-wanxiang`、`grammar-model-baguwen`、`grammar-model-baguwen-compact`、`offline-glosses`、`voice-runtime`、`wubi`、`voice-runtime-macos`（锁文件固定了重签的 macOS 运行库之后才有）。请求为 `length` 字节的 JSON（<=16384），响应使用标准封装。`install` 和 `adopt` 是阻塞调用，只能放在工作线程。
+ * 包 ID：`japanese`、`language-dictionaries`、`handwriting`、`settled-model`、`grammar-model-wanxiang`、`grammar-model-baguwen`、`grammar-model-baguwen-compact`、`offline-glosses`、`voice-runtime`、`wubi`、`rerank-model-small`、`voice-runtime-macos`（锁文件固定了重签的 macOS 运行库之后才有）。请求为 `length` 字节的 JSON（<=16384），响应使用标准封装。`install` 和 `adopt` 是阻塞调用，只能放在工作线程。
  * 错误为 "invalid resource pack request"、"invalid state root"、"invalid source"、"resource_pack_unknown"、"resource_pack_busy"（本进程正在安装、校验、收编或卸载该包）或 "local_model_*"。
  * resource_packs: {state_root} -> [{id, state:"missing"|"installed"|"outdated", size, schemes:[...], import_files:[{name,url,size}]}]，每包一项；size 为下载字节数，import_files 为离线安装所需文件（voice-runtime 使用归档），url 为上游下载地址。
  * resource_pack_install: {state_root, pack, sources?:["https://mirror/", ...], files?:[absolute path]} -> {path}。

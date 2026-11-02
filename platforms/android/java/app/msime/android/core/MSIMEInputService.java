@@ -3970,6 +3970,8 @@ public final class MSIMEInputService extends InputMethodService {
         selectedScheme = nextSchemeConfiguration.selected();
         rememberChineseScheme();
         preferencesSnapshot = accepted;
+        // 「增强」开着而逐键重排模型没装（多半是缺省或同步来的「增强」，用户从没在设置里选过）：排一个只在不按流量计费的网络上跑的后台下载，由主进程去下；每个进程只排一次，这里不联网。
+        RerankModelDownload.scheduleIfWanted(this, preferences, installedResourcePackIds);
         refreshModeSkinLibrary(preferences);
         imeTextEditPanel.applyPreferences(preferences);
         if (!clipboardHistoryEnabled && clipboardHistory != null) {
@@ -6123,11 +6125,14 @@ public final class MSIMEInputService extends InputMethodService {
             scheme = InputViewValuePolicy.scheme(view, -1);
             profile = InputViewValuePolicy.textOr(view, "shuangpin_profile", "");
             localMode = InputViewValuePolicy.textOr(view, "local_mode", "none");
-            rememberShuangpinProfile(ShuangpinKeyHintPolicy.rememberedProfile(scheme, profile));
+            // 粤语双拼与普通粤拼是同一个引擎方案，只有选中的触屏方案说明是哪一个；粤语双拼用引擎的保留名 `cantonese` 取键面。
+            profile = ShuangpinKeyHintPolicy.rememberedProfile(scheme, profile, selectedScheme.preferenceId());
+            rememberShuangpinProfile(profile);
+            scheme = ShuangpinKeyHintPolicy.hintScheme(scheme, profile);
         } else {
             // view 还没到时按上次的双拼方案画，和 touchLayoutHint 同理；会话到达后方案不同由这次之后的 render 改正。
             profile = ShuangpinKeyHintPolicy.profileWithoutView(
-                session != 0 || engineStartupPending(), shuangpinProfileHint());
+                session != 0 || engineStartupPending(), shuangpinProfileHint(), selectedScheme.preferenceId());
             scheme = profile.isEmpty() ? -1 : 1;
             localMode = "none";
         }
