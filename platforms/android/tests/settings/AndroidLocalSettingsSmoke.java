@@ -59,6 +59,9 @@ public final class AndroidLocalSettingsSmoke {
         check(settings.bool(AndroidLocalSettings.KEY_POPUP), "key popup default");
         check(settings.bool(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS), "swipe default");
         check("up".equals(settings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION)), "swipe direction default");
+        check(settings.bool(AndroidLocalSettings.LETTER_CORNER_HINTS), "letter corner hints are drawn by default");
+        check(AndroidLocalSettings.spec(AndroidLocalSettings.LETTER_CORNER_HINTS).synced,
+            "letter corner hints sync like the swipe switch beside them");
         AndroidLocalSettings.Snapshot explicitDown = new AndroidLocalSettings.Snapshot(
             AndroidLocalSettings.accepted(Map.of(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION, "down")));
         check("down".equals(explicitDown.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION)),
@@ -246,7 +249,7 @@ public final class AndroidLocalSettingsSmoke {
         check("off".equals(snapshot.choice(AndroidLocalSettings.ONE_HANDED)), "dropped value reads its default");
         check(snapshot.has(AndroidLocalSettings.APP_THEME) && !snapshot.has(AndroidLocalSettings.ONE_HANDED), "has()");
         Map<String, Object> synced = snapshot.synced();
-        check(synced.size() == 18, "eighteen synced keys, got " + synced.size());
+        check(synced.size() == 19, "nineteen synced keys, got " + synced.size());
         check(Boolean.FALSE.equals(synced.get(AndroidLocalSettings.SPLIT_KEYBOARD)), "split keyboard syncs its default");
         check("dongxue".equals(synced.get(AndroidLocalSettings.APP_THEME)), "synced carries explicit values");
         check(Boolean.TRUE.equals(synced.get(AndroidLocalSettings.KEY_POPUP)), "synced carries defaults");
