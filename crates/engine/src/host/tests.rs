@@ -1194,6 +1194,39 @@ fn custom_table() -> crate::types::ShuangpinCustomTable {
     }
 }
 
+/// #10632：双拼选了「拼音分词」时 `preedit` 是展开的全拼，组字光标要按音节落在 `preedit` 里，而不是拿原文的偏移去数 `preedit` 的字母（那样 `uiui` 打完光标落在 `shi's|hi`）。
+#[test]
+fn expanded_shuangpin_preedit_carries_the_caret_by_syllable() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut options = options(dir.path());
+    options.scheme = SchemeType::Shuangpin as u8;
+    options.shuangpin_preedit_uses_raw = false;
+    let mut session = Session::new(&options).unwrap();
+    type_text(&mut session, b"uiui");
+    let snapshot = session.snapshot().unwrap();
+    assert_eq!(snapshot.preedit, "shi'shi");
+    assert_eq!(snapshot.caret_position, 4);
+    assert_eq!(snapshot.preedit_caret, 7);
+    // 左移一个字母进到第二个单位中间，按单位起点算：第一个音节后面、隔音符前面。
+    session.command(Command::MoveLeft).unwrap();
+    let snapshot = session.snapshot().unwrap();
+    assert_eq!(snapshot.caret_position, 3);
+    assert_eq!(snapshot.preedit_caret, 3);
+    session.command(Command::MoveLeft).unwrap();
+    assert_eq!(session.snapshot().unwrap().preedit_caret, 3);
+    session.command(Command::MoveHome).unwrap();
+    assert_eq!(session.snapshot().unwrap().preedit_caret, 0);
+
+    // 「原始按键」时 `preedit` 就是按键，光标照搬。
+    options.shuangpin_preedit_uses_raw = true;
+    let mut session = Session::new(&options).unwrap();
+    type_text(&mut session, b"uiui");
+    session.command(Command::MoveLeft).unwrap();
+    let snapshot = session.snapshot().unwrap();
+    assert_eq!(snapshot.preedit, "uiui");
+    assert_eq!(snapshot.preedit_caret, snapshot.caret_position);
+}
+
 #[test]
 fn custom_profile_runs_the_users_table() {
     let dir = tempfile::tempdir().unwrap();
