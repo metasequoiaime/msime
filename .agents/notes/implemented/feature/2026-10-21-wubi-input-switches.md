@@ -36,8 +36,9 @@ Status: implemented
 ### 五码顶字
 
 - 共享偏好新增 `wubi_fifth_code_top_commit: bool`，`#[serde(default = "enabled_by_default")]`，缺省开：对齐来源出厂，也是接入开关之前唯一可能的行为。
-- 判定抽成纯函数 `wubi_top_commit_on_next_key(&WubiTopCommitRequest)`，五项输入显式列出；`Runtime::dispatch` 只负责把 `self.wubi_fifth_code_top_commit`、`engine.wubi_mixed_pinyin()`、四码完整性、无暂存词段、读音是否续输填进去。
+- 判定抽成纯函数 `wubi_top_commit_on_next_key(&WubiTopCommitRequest)`，六项输入显式列出；`Runtime::dispatch` 只负责把 `self.wubi_fifth_code_top_commit`、`engine.wubi_mixed_pinyin()`、`engine.wubi_extended_length_allowed()`、四码完整性、无暂存词段、读音是否续输填进去。
 - **关掉只在混输开启时生效**：`(top_commit_enabled || !mixed_pinyin)`。混输关掉时引擎把码裁回四位，字母无处容纳；宿主已经按下的键不能丢，所以仍按顶字上屏。这正是来源 `ShouldCommitCompleteWubiCodeOnNextKey` 的兜底分支。
+- **混输开着但引擎收不下时同样顶字**（#10696 补）：条件是 `(top_commit_enabled || !mixed_pinyin || !extended_length_allowed)`。混输开着时引擎并不总收第五个字母：它只在四码没被五笔码表答出、或上一键已有可续写的拼音候选时放开四位上限（`ime/mod.rs` 的 `refresh_candidates`），这个字母本身能续写读音时按键当场放开（`handle_key`）。三者都不成立时第五个字母被拒收；此前 runtime 在顶字关掉、混输开着时一律不顶，两层都不收这个键，整键以 `handled=false` 交回宿主，Windows 宿主把字母交给应用，组字仍停在四码，字母跑到组字前面。#10696 让 Windows 设置第一次能一键点到这对组合，所以在同一个 PR 里补上。`InputEngine` 为此加 `wubi_extended_length_allowed()`（默认 `false`），`Session` 从 `WubiScheme::extended_length_allowed` 转发；字母能续写读音那一支仍由 `!pinyin_continues` 管，不并进这个事实——`wubi_pinyin_continues` 故意不看延长状态（见它的注释），顶字开着时不能被继承来的延长挡住。
 - 为了让 runtime 知道混输状态，`InputEngine` 加 `wubi_mixed_pinyin()`（默认 `false`），`Session` 从 `WubiInputOptions::mixed_pinyin` 转发。runtime 不复制引擎的读音规则。
 - 宿主状态而不是 Engine 状态：改偏好不必等 Engine 空闲重建，下一键生效，与 `wubi_auto_commit_unique` 同一条规矩。
 - 顶下来的首选立即上屏，开着 `phrase_preedit` 的宿主（六个宿主都开）也不进暂存词段，与 14 键顶字一致。此前这里记的是「和组字中途的选词一样暂存、下一段选词时一起上屏」，那样会挡住之后每次顶字与四码唯一自动上屏，续打的码被截在四码外丢掉，Esc 还连已顶的字一起丢；改动与理由见[五笔顶字立即上屏，不进暂存词段](../bug-fix/2026-11-01-wubi-top-commit-skips-phrase-hold.md)。安卓设备验收「26 键五笔第五码顶字」与运行时回归 `a_fifth_letter_after_wqiy_commits_the_topped_word_even_with_phrase_preedit` 钉住这条。
@@ -58,6 +59,7 @@ Status: implemented
 - **z 通配与临时拼音反查同时打开，按 `z` 的位置分流**：首字母走反查、中间走通配，看起来两边都保住。没有采用：来源两条路互斥，混输打开时反查本来就关；再叠一条按位置的规则，用户按同一个键会得到两种结果，而界面只有一个开关能解释它。
 - **顶字开关做成「关掉就一概不顶字」**：语义最直白。没有采用：混输关掉时第五个字母无处容纳，引擎会把码裁回四位，宿主已经显示了这个字母——一概不顶字就是丢按键。来源为此专门写了 `(top_commit_enabled || !mixed_pinyin_enabled)` 的兜底。
 - **把顶字判定放进 Engine**：偏好流经现成管道，不用动 `InputEngine` trait。没有采用：上不上屏是宿主行为，Engine 只回答「这个码是不是完整四码、这个字母还能不能续拼音」；把提交与否塞回 Engine 会让「Engine 报告事实、宿主决定动作」的分工反过来，而且 Engine 重建要等组字空闲，开关的生效会滞后。
+- **#10696 那一格改成让引擎在混输开着时总是收下第五个字母**：顶字关掉时字母一定并进混输串，与说明文字逐字相符。没有采用：四位上限是故意的（`WubiScheme` 的 `extended_length_allowed` 注释：熟练五笔用户看不到变化），码表答出四码、字母又续不上任何读音时，延长出来的是一段查不出候选的五码，等于把错按的键留在组字里；而且要动引擎对所有混输用户的码长规则，顶字开着的用户也会受影响。runtime 在引擎收不下时照样顶字，只改这一格，理由与混输关掉的兜底相同。
 - **只在 macOS 接开关**：改动最小。没有采用：三键都是共享偏好，判定在共享 runtime 与共享 Engine 里，只接一端会让两端行为分叉。
 
 ## Consequences
@@ -72,7 +74,7 @@ Status: implemented
 
 - 已经习惯「组字开头 `z` 必开反查」的五笔用户在打开通配后会失去反查；两个功能抢同一个键，这是来源的既定取舍，界面说明里写清了通配含首位。
 - 顶字关掉只在混输开启时能观察到差别。混输关掉的用户打开这个开关看不到任何变化，说明文字必须解释这一点，否则会被当成无效开关。
-- 混输开着、顶字关掉时，「这个字母并进混输串」只在引擎还能延长码长时成立。引擎只在四码没被五笔码表答出、或上一键已有可续写的拼音候选时放开四位上限（`ime/mod.rs` 的 `refresh_candidates`），否则第五个字母被拒收，runtime 不顶字，整键以 `handled=false` 交回宿主，组字仍是四码。#10696 排查时用合成码表复现过：`supe` 有五笔词、拼音表只有 `su`（再加 `su'pei` 也一样）时，敲 `r` 得到 `handled=false`。这一条没有修，需要另定：要么让引擎在混输开着时总是收下第五个字母，要么让 runtime 在引擎收不下时照样顶字。
+- 混输开着、顶字关掉时，「这个字母并进混输串」只在引擎还能延长码长时成立；收不下时照样顶字（见 Decision），所以关掉顶字的用户在码表答出四码、字母又续不上读音时仍会看到顶字。说明文字没有为这一格再加一句：六端共享同一段文案，「关闭只在拼音混输开启时生效」仍然成立，而这一格的结果与开着时相同，不会让人以为键丢了。
 - 通配查询在首位是 `z` 时整表扫描。来源同样如此（`?bc*` 无法用索引），代价是首码不确定时一次全表 GLOB + 权重排序。
 
 ## Testing
@@ -82,12 +84,14 @@ Status: implemented
 1. **z 通配**：把 `build_request_into` 里的 `request.wubi_z_wildcard` 强制改回 `false`，`cargo test -p msime-engine --lib wubi_wildcard` 两条会话用例失败（`left: []`，候选为空）；恢复后三条全过。
 2. **五码顶字**：把纯函数首行改成 `true &&`，`cargo test -p msime-input-runtime --lib turning_off_the_wubi_top_commit` 的 `turning_off_the_wubi_top_commit_lets_a_mixed_spelling_grow` 失败（`grown.commit` 不是 `None`）；恢复后两条全过。
 3. **四码自动上屏**：把纯函数首行改成 `true &&`，`the_wubi_auto_commit_decision_needs_all_five_facts` 失败；恢复后通过。
+4. **混输开着、引擎收不下（#10696）**：把纯函数首行改回 `(top_commit_enabled || !mixed_pinyin)`，`cargo test -p msime-host-api a_fifth_wubi_letter` 在 `mixed_pinyin=true top_commit=false` 一格失败（`handled` 为 `false`，`editing_text` 停在 `supe`）；恢复后四种组合全过。
 
 新增回归：
 
 - `msime-engine`：`a_z_in_the_code_matches_any_one_letter_when_the_wildcard_is_on`、`a_wildcard_query_does_not_leak_glob_metacharacters`、`the_wildcard_only_takes_the_pattern_path_when_the_code_holds_z`、`the_wubi_wildcard_matches_any_letter_and_keeps_guessing_codes_open`、`the_wubi_wildcard_takes_z_from_the_pinyin_lookup`、`turning_the_wubi_wildcard_off_keeps_z_out_of_the_code`、`a_wildcard_code_never_counts_as_a_unique_four_code`。
 - `msime-client-core`：`wubi_z_wildcard_defaults_off_and_roundtrips`、`wubi_fifth_code_top_commit_defaults_on_and_roundtrips`（缺键仍读出出厂值、显式值往返保持）。
-- `msime-input-runtime`：`the_wubi_top_commit_decision_is_the_reference_truth_table`（来源六项真值表逐条）、`the_wubi_top_commit_tops_a_mixed_letter_that_continues_no_reading`（混输与顶字都开时，续不上读音的字母顶字、能续写的保留组字）、`the_wubi_auto_commit_decision_needs_all_five_facts`、`turning_off_the_wubi_top_commit_lets_a_mixed_spelling_grow`、`turning_off_the_wubi_top_commit_still_tops_with_mixed_input_off`。
+- `msime-input-runtime`：`the_wubi_top_commit_decision_is_the_reference_truth_table`（来源六项真值表逐条）、`the_wubi_top_commit_tops_a_mixed_letter_that_continues_no_reading`（混输与顶字都开时，续不上读音的字母顶字、能续写的保留组字）、`the_wubi_auto_commit_decision_needs_all_five_facts`、`turning_off_the_wubi_top_commit_lets_a_mixed_spelling_grow`、`turning_off_the_wubi_top_commit_still_tops_with_mixed_input_off`、`turning_off_the_wubi_top_commit_still_tops_when_the_engine_cannot_extend`（#10696）。
+- `msime-host-api`：`a_fifth_wubi_letter_the_engine_cannot_take_tops_the_first_candidate`（#10696，真实引擎与合成码表，混输与顶字四种组合都顶字）。
 - `msime-client-services`：账号同步导出的键清单与逐键往返带上 `input.wubi_fifth_code_top_commit`。
 - `apps/desktop`：`wubi-preferences.test.ts` 的缺键默认值、`wubi-section.test.tsx` 的两行控件与各自写回的 patch。
 

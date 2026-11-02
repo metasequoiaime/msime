@@ -2118,10 +2118,10 @@ fn wubi_auto_commit_unique_reaches_the_runtime_without_waiting_for_the_engine() 
     read(msime_client_destroy(handle));
 }
 
-/// #10696：完整四码之后再敲第五个字母，经真实 Engine 与 runtime 走一遍。混输关闭时第五个字母无处容纳（引擎把五笔码截在四位），不论「第五码将首选上屏」开着还是关着，都把首选顶上屏、字母留作下一组开头；混输开着、顶字开着、这个字母续不上任何拼音读音时同样顶字。报告人以为是「四码唯一自动上屏」关不掉，看到的其实是这条。
+/// #10696：完整四码之后再敲第五个字母，经真实 Engine 与 runtime 走一遍，混输与「第五码将首选上屏」四种组合都在。这里的四码由五笔码表答出、这个字母续不上任何拼音读音，引擎不会放开四码上限，第五个字母无处容纳，所以四种组合都把首选顶上屏、字母留作下一组开头。混输开着、顶字关掉这一格曾经两层都不收这个键：`handled=false` 交回宿主，组字停在 `supe`，字母跑到组字前面落进应用。报告人以为是「四码唯一自动上屏」关不掉，看到的其实是顶字。
 #[test]
-fn a_fifth_wubi_letter_tops_the_first_candidate_whenever_mixed_input_is_off() {
-    for (mixed_pinyin, top_commit) in [(false, true), (false, false), (true, true)] {
+fn a_fifth_wubi_letter_the_engine_cannot_take_tops_the_first_candidate() {
+    for (mixed_pinyin, top_commit) in [(false, true), (false, false), (true, true), (true, false)] {
         let dir = tempfile::tempdir().unwrap();
         let path = |name| {
             let path = dir.path().join(name);

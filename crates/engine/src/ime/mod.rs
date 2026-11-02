@@ -661,6 +661,13 @@ impl ImeSession {
             .is_some_and(|wubi| wubi.has_complete_code())
     }
 
+    /// 五笔混输已放开四码上限：码表答不出当前码，或上一键的拼音候选还能续写（由 `refresh_candidates` 决定）。放开时下一个字母一定被收进组字；没放开时，除非这个字母本身能续写读音（[`Self::wubi_pinyin_continues`]，按键时会当场放开），完整四码之后的字母会被拒收。
+    pub fn wubi_extended_length_allowed(&self) -> bool {
+        self.scheme
+            .as_wubi()
+            .is_some_and(crate::wubi::scheme::WubiScheme::extended_length_allowed)
+    }
+
     /// 四码命中五笔时，后续小写字母能否继续当前拼音候选的完整读音或开始下一个音节。
     /// 只匹配真实读音前缀，简拼、纠错和模糊音不能把不相关的第五码当成拼音。
     /// 不看已放开的延长状态：四码时它只是从前三码“有任何全拼行”继承来的，`wqi` 的简拼或纠错行也会让 `wqiy` 之后的任意字母被当成续写，顶字就失效了。

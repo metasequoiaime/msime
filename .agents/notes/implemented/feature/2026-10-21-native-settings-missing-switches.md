@@ -23,6 +23,7 @@ Windows 侧：本次没有做，上游当时在 `platforms/windows/settings/main
 - Win7 表单（`win7/SchemeForm.h`）在「候选显示剩余编码」之后加两个复选框（`scheme_wubi_z_wildcard`、`scheme_wubi_top_commit`，插在 `scheme_cantonese_method` 之前，`command` 的 ID 区间不用改），`valid`、`refresh`、`enable`、`BN_CLICKED` 四处与兄弟开关同表绑定；复选框下面照抄共享页的两句说明，因为单看标题猜不出边界（通配会停用 `z` 反查，顶字关掉只在混输开启时生效）。其余五笔复选框维持只有标题。
 - `scripts/test-windows-wubi-settings-copy.py`（contracts job 自动发现）逐句比较共享页的开关与 WinUI 的 `bool_row`（顺序、标题、说明、偏好键、出厂缺省），并核对 Win7 每个开关都有同标题的复选框、四处绑定同一个键。文案三处各写一份，与 `test-windows-autocorrect-settings-copy.py` 守全拼纠错组的做法相同。
 - Server 不用改：两个键早已经共享 host-api 下发（`lib.rs` 把 `wubi_z_wildcard` 交给 Engine 的五笔选项，`set_wubi_fifth_code_top_commit` 交给 runtime）。
+- 同一个 PR 修了共享 runtime 的一格：混输开着、顶字关掉、引擎又收不下第五个字母时，两层都不收这个键，Windows 宿主会把它交给应用。这一格以前只有手改配置才碰得到，现在设置里点一下就到，所以先修再开放；判定与取舍记在[补齐五笔 z 通配与第五码顶字开关](2026-10-21-wubi-input-switches.md)。
 
 `local_modes.symbol`、`ai_assistant.english_candidates` 在 Windows 原生窗口的情况不在 #10696 的范围内。
 

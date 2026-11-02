@@ -196,6 +196,10 @@ pub trait InputEngine {
     fn wubi_mixed_pinyin(&self) -> bool {
         false
     }
+    /// 五笔混输已放开四码上限，完整四码之后的下一个字母会被收进组字。顶字关掉时，没放开、字母又续不上读音，引擎就会拒收这个字母，runtime 只能照样顶字。没有混输的引擎从不放开。
+    fn wubi_extended_length_allowed(&self) -> bool {
+        false
+    }
     /// 九宫格组码到上限时，这一键能不能先选掉首选再接着打。`grid_key` 为真时 `value` 来自 `grid_key`，否则来自 `character`。没有九宫格的引擎没有上限。
     fn grid_limit_pick_ready(&self, _value: u8, _grid_key: bool) -> bool {
         false
@@ -445,6 +449,9 @@ impl InputEngine for Session {
     }
     fn wubi_mixed_pinyin(&self) -> bool {
         Session::wubi_mixed_pinyin(self)
+    }
+    fn wubi_extended_length_allowed(&self) -> bool {
+        Session::wubi_extended_length_allowed(self)
     }
     fn grid_limit_pick_ready(&self, value: u8, grid_key: bool) -> bool {
         Session::grid_limit_pick_ready(self, value, grid_key)

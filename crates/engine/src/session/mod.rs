@@ -616,6 +616,11 @@ impl Session {
         self.input.engine.wubi_input_options().mixed_pinyin
     }
 
+    /// 五笔混输已放开四码上限，下一个字母会被收进组字；见 `ImeSession::wubi_extended_length_allowed`。
+    pub fn wubi_extended_length_allowed(&self) -> bool {
+        self.input.engine.wubi_extended_length_allowed()
+    }
+
     /// 宿主的清缓存动作（维护快捷键、iOS 键盘扩展的内存告警）：清掉本会话各方案的候选缓存，并放掉进程级缓存里的日文模型和没有会话在用的个人学习模型，让不再用它们的进程能交还内存；本会话若正持有模型，照常用到会话结束。
     pub fn reset_cache(&mut self) {
         self.candidates_may_change();

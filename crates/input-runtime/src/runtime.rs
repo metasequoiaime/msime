@@ -3579,14 +3579,13 @@ impl<E: InputEngine> Runtime<E> {
         let mut selected_by_digit = false;
         // 五笔 14 键的一键与字母键一样可能凑满四码。
         let character_action = matches!(action, Action::Character { .. } | Action::GridKey(_));
-        // 四码已有五笔候选时，后续字母通常顶字上屏并开始下一组编码。混输拼音能继续当前候选的读音时，
-        // 由引擎保留组字，避免把五字母拼音截成四码。判定本身是纯函数（`wubi_top_commit_on_next_key`），
-        // 开关、混输、四码完整性与读音续输四项都在那里，方便单测覆盖。
+        // 四码已有五笔候选时，后续字母通常顶字上屏并开始下一组编码。混输拼音能继续当前候选的读音时，由引擎保留组字，避免把五字母拼音截成四码。判定本身是纯函数（`wubi_top_commit_on_next_key`），开关、混输、引擎能否延长、四码完整性与读音续输都在那里，方便单测覆盖。
         let wubi_top_commit = match action {
             Action::Character { value, shift } if value.is_ascii_alphabetic() => {
                 wubi_top_commit_on_next_key(&WubiTopCommitRequest {
                     top_commit_enabled: self.wubi_fifth_code_top_commit,
                     mixed_pinyin: self.engine.wubi_mixed_pinyin(),
+                    extended_length_allowed: self.engine.wubi_extended_length_allowed(),
                     four_code_is_complete: self.snapshot_valid
                         && wubi_four_code_is_complete(&self.cached),
                     phrase_prefix_empty: self.phrase_prefix.is_empty(),
@@ -3597,6 +3596,7 @@ impl<E: InputEngine> Runtime<E> {
             Action::GridKey(_) => wubi_top_commit_on_next_key(&WubiTopCommitRequest {
                 top_commit_enabled: self.wubi_fifth_code_top_commit,
                 mixed_pinyin: false,
+                extended_length_allowed: false,
                 four_code_is_complete: self.snapshot_valid
                     && self.cached.grid_composing
                     && wubi_four_code_is_complete(&self.cached),
@@ -4069,12 +4069,14 @@ pub(crate) fn wubi_auto_commit_on_fourth_key(request: &WubiAutoCommitRequest) ->
         && request.phrase_prefix_empty
 }
 
-/// 顶字判定的五项输入，每一项都由调用方先问出来，函数本身只看布尔值。
+/// 顶字判定的六项输入，每一项都由调用方先问出来，函数本身只看布尔值。
 pub(crate) struct WubiTopCommitRequest {
     /// 用户开着「第五码将首选上屏」。
     pub top_commit_enabled: bool,
     /// 五笔拼音混输开着。
     pub mixed_pinyin: bool,
+    /// 引擎已放开四码上限（混输延长中），下一个字母一定会被收进组字。
+    pub extended_length_allowed: bool,
     /// 当前组字是码表答过的完整四码（[`wubi_four_code_is_complete`]），且快照没有失效、没有暂存词段。
     pub four_code_is_complete: bool,
     /// 没有暂存的词段：造词时 raw 还是正在拼的前缀，提交它会提前结束这个词。
@@ -4085,11 +4087,11 @@ pub(crate) struct WubiTopCommitRequest {
 
 /// 完整四码之后再敲一个字母时，是否先顶字上屏首选、再把这个字母留作下一组开头。
 ///
-/// 关掉只在混输打开时生效：那时字母并进混输串，用户想继续打拼音。混输关掉时引擎会把码裁回四位，
-/// 字母无处容纳，宿主已经按下的键不能丢，所以仍按顶字上屏——与来源 `ShouldCommitCompleteWubiCodeOnNextKey`
-/// 的 `(top_commit_enabled || !mixed_pinyin_enabled)` 是同一个条件。`!pinyin_continues` 是水杉自己加的（#8619）：字母能继续混输拼音的读音时，无论开关如何都保留组字，否则 `guiyi` 这类首四码碰上五笔整码的拼音打不出来。
+/// 关掉只在混输打开时生效：那时字母并进混输串，用户想继续打拼音。混输关掉时引擎会把码裁回四位，字母无处容纳，宿主已经按下的键不能丢，所以仍按顶字上屏——与来源 `ShouldCommitCompleteWubiCodeOnNextKey` 的 `(top_commit_enabled || !mixed_pinyin_enabled)` 是同一个条件。`!pinyin_continues` 是水杉自己加的（#8619）：字母能继续混输拼音的读音时，无论开关如何都保留组字，否则 `guiyi` 这类首四码碰上五笔整码的拼音打不出来。
+///
+/// `!extended_length_allowed` 也是水杉加的（#10696）：混输开着时引擎并不总收第五个字母，码表答出四码、上一键又没有可续写的拼音候选时，它照样卡在四位。这时顶字关掉、字母又续不上读音，两层都不收这个键，宿主会把它交给应用、组字留在原处，字母跑到组字前面。所以引擎收不下时照样顶字，与混输关掉是同一个理由。
 pub(crate) fn wubi_top_commit_on_next_key(request: &WubiTopCommitRequest) -> bool {
-    (request.top_commit_enabled || !request.mixed_pinyin)
+    (request.top_commit_enabled || !request.mixed_pinyin || !request.extended_length_allowed)
         && request.four_code_is_complete
         && request.phrase_prefix_empty
         && !request.pinyin_continues

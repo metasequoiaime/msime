@@ -38,6 +38,8 @@ struct FactEngine {
     mixed_pinyin: bool,
     /// 当前第五键可继续当前混输拼音读音。
     pinyin_continues: bool,
+    /// 混输已放开四码上限；没放开时真实引擎会拒收完整四码之后的字母（这个替身照收，拒收由 host-api 的真实引擎测试覆盖）。
+    extended_length_allowed: bool,
 }
 
 impl FactEngine {
@@ -57,6 +59,9 @@ impl InputEngine for FactEngine {
     }
     fn wubi_pinyin_continues(&self, _value: u8, _shift: bool) -> bool {
         self.pinyin_continues
+    }
+    fn wubi_extended_length_allowed(&self) -> bool {
+        self.extended_length_allowed
     }
     fn snapshot(&self) -> Result<EngineSnapshot, RuntimeError> {
         let composing = !self.text.is_empty() || !self.conversion.is_empty();
@@ -342,40 +347,51 @@ fn a_letter_after_a_complete_wubi_code_is_a_top_commit() {
 
 #[test]
 fn the_wubi_top_commit_decision_is_the_reference_truth_table() {
+    // 第二项是混输、第三项是引擎已放开四码上限；混输关掉时引擎从不放开。
     let request = |top_commit_enabled,
                    mixed_pinyin,
+                   extended_length_allowed,
                    four_code_is_complete,
                    phrase_prefix_empty,
                    pinyin_continues| {
         WubiTopCommitRequest {
             top_commit_enabled,
             mixed_pinyin,
+            extended_length_allowed,
             four_code_is_complete,
             phrase_prefix_empty,
             pinyin_continues,
         }
     };
-    // 开关开：四码完整、没有暂存词段、拼音不再续输时顶字，混输开不开都一样。
-    for mixed in [false, true] {
+    // 开关开：四码完整、没有暂存词段、拼音不再续输时顶字，混输开不开、引擎放没放开都一样。
+    for (mixed, extended) in [(false, false), (true, false), (true, true)] {
         assert!(wubi_top_commit_on_next_key(&request(
-            true, mixed, true, true, false
+            true, mixed, extended, true, true, false
         )));
     }
-    // 开关关 + 混输开：字母并进混输串，不顶字。
+    // 开关关 + 混输开 + 引擎已放开：字母并进混输串，不顶字。
     assert!(!wubi_top_commit_on_next_key(&request(
-        false, true, true, true, false
+        false, true, true, true, true, false
+    )));
+    // 开关关 + 混输开 + 引擎没放开（#10696）：引擎会拒收这个字母，仍按顶字上屏，否则这个键会越过组字落进应用。
+    assert!(wubi_top_commit_on_next_key(&request(
+        false, true, false, true, true, false
     )));
     // 开关关 + 混输关：字母无处容纳，仍按顶字上屏，一个键都不丢。
     assert!(wubi_top_commit_on_next_key(&request(
-        false, false, true, true, false
+        false, false, false, true, true, false
     )));
-    // 其余每一项都是必要条件：开关关+混输关这条兜底也守不住它们。
+    // 其余每一项都是必要条件：开关关+引擎收不下这条兜底也守不住它们。
     for request in [
-        request(false, false, false, true, false),
-        request(false, false, true, false, false),
-        request(true, false, true, true, true),
-        request(true, true, true, true, true),
-        request(false, true, false, true, false),
+        request(false, false, false, false, true, false),
+        request(false, false, false, true, false, false),
+        request(false, true, false, false, true, false),
+        request(false, true, false, true, false, false),
+        // 字母能续写读音时引擎会当场放开上限收下它，所以没放开也不顶字。
+        request(false, true, false, true, true, true),
+        request(true, false, false, true, true, true),
+        request(true, true, true, true, true, true),
+        request(false, true, true, false, true, false),
     ] {
         assert!(!wubi_top_commit_on_next_key(&request));
     }
@@ -456,11 +472,12 @@ fn the_wubi_auto_commit_decision_needs_all_five_facts() {
 
 #[test]
 fn turning_off_the_wubi_top_commit_lets_a_mixed_spelling_grow() {
-    // 混输打开、顶字关掉：第五个字母并进混输串，不上屏，也没有顶字那次选择。
+    // 混输打开、引擎已放开四码上限、顶字关掉：第五个字母并进混输串，不上屏，也没有顶字那次选择。
     let mut mixed = focused(FactEngine {
         scheme: 2,
         words: vec!["合成甲".into(), "合成乙".into()],
         mixed_pinyin: true,
+        extended_length_allowed: true,
         ..FactEngine::default()
     });
     mixed.set_wubi_fifth_code_top_commit(false);
@@ -470,6 +487,31 @@ fn turning_off_the_wubi_top_commit_lets_a_mixed_spelling_grow() {
     assert!(grown.commit.is_none());
     assert_eq!(grown.view.editing_text, "wqabx");
     assert_eq!(selection(&mixed), None);
+}
+
+#[test]
+fn turning_off_the_wubi_top_commit_still_tops_when_the_engine_cannot_extend() {
+    // #10696：混输打开、顶字关掉，但引擎没放开四码上限、字母也续不上读音。引擎会拒收这个字母，runtime 不顶字的话它会越过组字落进应用，所以照样顶字。
+    let mut mixed = focused(FactEngine {
+        scheme: 2,
+        words: vec!["合成甲".into(), "合成乙".into()],
+        mixed_pinyin: true,
+        ..FactEngine::default()
+    });
+    mixed.set_wubi_fifth_code_top_commit(false);
+    type_keys(&mut mixed, b"wqab");
+    let topped = type_keys(&mut mixed, b"x");
+    assert_eq!(topped.commit.as_deref(), Some("合成甲"));
+    assert_eq!(topped.view.editing_text, "x");
+    assert_eq!(
+        selection(&mixed),
+        Some(fact(
+            0,
+            0,
+            SelectionHow::WubiTop,
+            SelectionOutcome::Committed
+        ))
+    );
 }
 
 #[test]

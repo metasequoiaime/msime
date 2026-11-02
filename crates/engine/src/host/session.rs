@@ -626,6 +626,11 @@ impl Session {
         self.inner.wubi_mixed_pinyin()
     }
 
+    /// 五笔混输已放开四码上限：顶字关掉时，只有这时（或字母能续写读音时）第五个字母才有地方去。
+    pub fn wubi_extended_length_allowed(&self) -> bool {
+        self.inner.wubi_extended_length_allowed()
+    }
+
     /// `CHARACTER_MUST_BE_ASCII` above 127.
     pub fn character(&mut self, value: u8, shift: bool) -> Result<EngineResult> {
         require_ascii(value, diagnostics::CHARACTER_MUST_BE_ASCII)?;
