@@ -1461,6 +1461,7 @@ int main(int argc, char **argv) {
     emojiGroupResultFencing();
     require(argc == 2 || (argc == 3 && (std::string(argv[2]) == "--helpcode-trigger" ||
                                        std::string(argv[2]) == "--voice-hotkey" ||
+                                       std::string(argv[2]) == "--voice-close" ||
                                        std::string(argv[2]) == "--ai" ||
                                        std::string(argv[2]) == "--ctrl-space" ||
                                        std::string(argv[2]) == "--modifier-focus" ||
@@ -1471,7 +1472,7 @@ int main(int argc, char **argv) {
                                        std::string(argv[2]) == "--local-modes" ||
                                        std::string(argv[2]) == "--smart-abc" ||
                                        std::string(argv[2]) == "--punctuation-context")),
-            "usage: fcitx5-native-test <verified-resources> [--voice-hotkey|--ai|--ctrl-space|--modifier-focus|--mode-field-hints|--caps-lock|--app-rules|--japanese-toggle|--local-modes|--smart-abc|--punctuation-context|--helpcode-trigger]");
+            "usage: fcitx5-native-test <verified-resources> [--voice-hotkey|--voice-close|--ai|--ctrl-space|--modifier-focus|--mode-field-hints|--caps-lock|--app-rules|--japanese-toggle|--local-modes|--smart-abc|--punctuation-context|--helpcode-trigger]");
     const bool ai = argc == 3 && std::string(argv[2]) == "--ai";
     const std::string suggestion = ai ? "合成候选" : "在线";
     char temporary[] = "/tmp/msime-fcitx5-test-XXXXXX";
@@ -1795,6 +1796,63 @@ int main(int argc, char **argv) {
     require(state->voice_hotkey_hold_space_lock_,
             "a stored false no longer turns off the hold-to-lock space lock");
     require(state->view_.contains("candidates"), "focus must unpack transition view");
+    if (argc == 3 && std::string(argv[2]) == "--voice-close") {
+      const auto lease = std::filesystem::path(options.at("user_data").get<std::string>()) /
+                         std::string(msime::linux_host::kDictionaryQuiesceLeaseName);
+      const auto committed = ic.committed;
+      for (const bool maintenance : {true, false}) {
+        for (const bool failure : {false, true}) {
+          for (const bool reopen : {false, true}) {
+            require(state->ensure(), "语音关闭回归需要活动会话");
+            // promise 与 detachedJob 的 packaged_task 一样，丢弃 future 不等待工作线程。
+            // 显式控制完成时机，覆盖关闭后迟到的成功、异常和流式反馈。
+            std::promise<Json> completion;
+            state->voice_job_ = completion.get_future().share();
+            auto mailbox = std::make_shared<FcitxVoiceMailbox>();
+            state->voice_mailbox_ = mailbox;
+            state->voice_loading_ = true;
+            state->voice_cancelled_ = false;
+            state->voice_socket_.clear();
+            state->voice_generation_ = 0;
+            if (maintenance) {
+              std::ofstream(lease) << msime::linux_host::dictionary_quiesce_now_ms() + 10000 << '\n';
+              state->refreshDictionaryQuiesce();
+            } else {
+              state->close();
+            }
+            require(state->session_ == 0 && state->view_.empty(), "关闭释放会话与候选视图");
+            if (maintenance) {
+              require(!state->ensure(), "维护租约存续期间不开新会话");
+              std::filesystem::remove(lease);
+            }
+            if (reopen) require(state->ensure(), "维护结束后可立即重建会话");
+            mailbox->partial = "旧录音反馈";
+            if (failure)
+              completion.set_exception(std::make_exception_ptr(std::runtime_error("合成语音异常")));
+            else
+              completion.set_value(Json{{"text", "旧录音结果"}});
+            require(!state->refreshVoice(), "关闭后的旧录音不得上屏或重画空视图");
+            require(mailbox->cancelled.load(), "无 socket 时也取消本地流式回调");
+            require(!state->voice_job_.valid() && !state->voice_mailbox_ && !state->voice_loading_,
+                    "关闭解除旧录音的完成与反馈入口");
+            require(ic.committed == committed && !state->voice_failure_visible_,
+                    "迟到的结果或异常不提交也不显示错误提示");
+          }
+        }
+      }
+      require(state->ensure(), "旧录音关闭后会话仍可用");
+      std::promise<Json> next;
+      state->voice_job_ = next.get_future().share();
+      state->voice_loading_ = true;
+      state->voice_cancelled_ = false;
+      next.set_value(Json{{"text", "新录音结果"}});
+      require(state->refreshVoice() && ic.committed == committed + "新录音结果",
+              "关闭旧会话不影响下一轮语音提交");
+      state->close();
+      removeFixtureTree(directory);
+      std::cout << "Fcitx5 语音会话关闭与词库维护回归通过\n";
+      return 0;
+    }
     if (argc == 3 && std::string(argv[2]) == "--mode-field-hints") {
       const auto modifier = [&](fcitx::KeySym sym, bool release = false) {
         const auto held = (sym == FcitxKey_Shift_L || sym == FcitxKey_Shift_R)
