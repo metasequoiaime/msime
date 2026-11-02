@@ -113,6 +113,8 @@ cp resources/licenses/rime-wubi86-jidian-Apache-2.0.txt "$notices/rime-wubi86-ji
 cp resources/licenses/rime-wanxiang-CC-BY-4.0.txt "$notices/rime-wanxiang-CC-BY-4.0.txt"
 # 随 APK 和资源包分发的词库（msime-pinyin.db、msime-english.db、msime-others.db、msime-bigram.bin、msime-trigram.bin，按需下载或随非瘦包带上的 msime-wubi.db 与日文词典）逐个来源的上游、提交与条款写在 msime-dictionary 的 NOTICE.md 里，这是它的副本，另有 msime 一侧加进同一批词库的来源：其中有 msime-bigram.bin 与 msime-trigram.bin 要求的中文维基百科（CC BY-SA 4.0）署名，以及 msime-wubi.db 各份码表的出处。
 cp resources/licenses/msime-engine-dictionary-NOTICE.md "$notices/msime-engine-dictionary-NOTICE.md"
+# 随 APK 的词库目录里的整句重排模型 sentence-model.safetensors 是 chinese-ime-lm 的 model-v1（Apache-2.0）：第 4(a)、4(d) 条要求随副本附上许可证全文和上游 NOTICE，训练语料（中文 C4 为 ODC-BY，LCCC 为 MIT）要求署名随权重传播，这份各平台共用的文件三样都有。
+cp resources/licenses/sentence-model-Apache-2.0.txt "$notices/sentence-model-Apache-2.0.txt"
 # 世界时钟内嵌 IANA 城市目录，随原生库分发公共领域许可。
 cp resources/licenses/world-clock-NOTICE.txt "$notices/world-clock-NOTICE.txt"
 echo "Android native libraries built: $output (not yet device-verified)"

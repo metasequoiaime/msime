@@ -281,6 +281,11 @@ impl CandidateScorer for OnnxScorer {
         self.within_keystroke_budget
     }
 
+    /// 8x448 和 6x256 比随包模型准得多，混合里词网格分只占三成。2026-11-02 在 dev（ctx-v1 分句与选词、typing-chat-v1）上从 0.2 扫到 0.5 定的，见 `.agents/notes/implemented/feature/2026-11-02-onnx-static-evidence-weight.md`。
+    fn static_evidence_weight(&self) -> f64 {
+        0.3
+    }
+
     /// 打不了分（候选为空、太长，或图运行失败）时返回空表，`rerank_pick` 见长度不符就不动候选；失败后缓存作废，下一次按键从上文重来。
     fn log_probabilities(&mut self, context: &str, candidates: &[&str]) -> Vec<f32> {
         if candidates.is_empty() || candidates.iter().any(|c| c.is_empty()) {
