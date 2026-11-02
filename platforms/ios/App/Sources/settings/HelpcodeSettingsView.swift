@@ -30,6 +30,9 @@ struct HelpcodeSettingsView: View {
   @State private var enabled: [String: Bool] = [:]
   @State private var schema: [String: String] = [:]
   @State private var shown: [String: Bool] = [:]
+  @State private var strict: [String: Bool] = [:]
+  /// 双拼辅助码对象里的 `modes`，缺这一段时为空：各行缺字段时按 `Mode.fallback` 读。
+  @State private var storedModes: [String: Any] = [:]
   /// 每份方案选中的已导入码表，没选时为空字符串。
   @State private var selectedPack: [String: String] = [:]
   /// 已导入的码表；读不出来时为空，方案列表照样列出内置方案。
@@ -74,6 +77,20 @@ struct HelpcodeSettingsView: View {
           Toggle("在候选栏中显示\(scheme.label)辅助码", isOn: stored(scheme.key, "show_in_candidate_window", $shown, scheme.defaultShown))
             .disabled(!on)
             .accessibilityIdentifier("\(scheme.key).shown")
+          Toggle(isOn: stored(scheme.key, "strict_filter", $strict, false)) {
+            SettingsOptionLabel(title: "\(scheme.label)一码严格筛选", info: Self.strictFilterInfo)
+          }
+            .disabled(!on)
+            .accessibilityIdentifier("\(scheme.key).strictFilter")
+          if scheme.key == Self.shuangpin.key {
+            ForEach(Self.modes, id: \.field) { mode in
+              Toggle(isOn: modeBinding(mode)) {
+                SettingsOptionLabel(title: mode.title, info: mode.info)
+              }
+                .disabled(!Self.modeEnabled(mode, helpcodeOn: on, stored: storedModes))
+                .accessibilityIdentifier("\(scheme.key).modes.\(mode.field)")
+            }
+          }
         } header: {
           Text(scheme.label)
         } footer: {
@@ -109,6 +126,16 @@ struct HelpcodeSettingsView: View {
     } message: {
       Text(notice ?? "")
     }
+  }
+
+  /// 双拼触发方式的一行。互斥（句中间接开着时同一枚触发键归句中、句中间接与逐音节直接不同时开）由 client-core 在写入端归一，所以保存后总是读回，显示归一后的值。
+  private func modeBinding(_ mode: Mode) -> Binding<Bool> {
+    Binding(get: { Self.modeValue(mode, stored: storedModes) }, set: { value in
+      saveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences {
+        Self.mergeMode(mode.field, value, document: &$0)
+      }
+      reload()
+    })
   }
 
   /// 方案列表的选择：选了包时是 `pack:<id>`，否则是内置方案。写法见 `HelpcodeChoicePolicy.choose`；写不进去时读回实际值。
@@ -263,8 +290,10 @@ struct HelpcodeSettingsView: View {
       enabled[scheme.key] = stored["enabled"] as? Bool ?? true
       schema[scheme.key] = stored["schema"] as? String ?? scheme.defaultSchema
       shown[scheme.key] = stored["show_in_candidate_window"] as? Bool ?? scheme.defaultShown
+      strict[scheme.key] = stored["strict_filter"] as? Bool ?? false
       selectedPack[scheme.key] = HelpcodeChoicePolicy.selectedPack(of: scheme, in: preferences)
     }
+    storedModes = (preferences[Self.shuangpin.key] as? [String: Any])?["modes"] as? [String: Any] ?? [:]
     let id = ViewRequestTask.claim(request: $request, pending: $pending)
     pending = Task<Void, Never> { @MainActor in
       defer { ViewRequestTask.clear(request: $request, pending: $pending, id: id) }
@@ -273,5 +302,77 @@ struct HelpcodeSettingsView: View {
       guard (try? request.checkCurrent(id)) != nil else { return }
       packs = loaded
     }
+  }
+}
+
+// MARK: - 双拼辅助码的触发方式
+
+/// 双拼辅助码的触发方式（client-core `ShuangpinHelpcodeModes`，文档里是 `shuangpin_helpcode.modes`，#10624）：顺序、标题和说明与共享页 `helpcode-page.tsx` 的 modesRows 相同，与 Windows、Android 一致。`fallback` 是 `ShuangpinHelpcodeModes::default()` 的值，这一段等于出厂值时 client-core 不写进文档，缺这一段或缺某个字段时都按它读。Tab 手动辅助码（`manual_tab`）只在 macOS 生效，不列。
+///
+/// 触屏键盘在中文方案下把分号、反引号和 `/` 按字面上屏（数字九宫格只在本地模式和越南文、藏文里把拼写符号交给会话，#+= 层没有这三个键），用到它们的那几行在说明里写明要外接键盘；大写字母和直接接码在触屏上照常可用。
+extension HelpcodeSettingsView {
+  struct Mode {
+    enum Parent { case none, midSentence, directHelpcode }
+    let field: String
+    let title: String
+    let info: String
+    let fallback: Bool
+    let parent: Parent
+  }
+
+  /// 「一码严格筛选」的说明，与共享页 strictFilterRow 相同。
+  static let strictFilterInfo = "关闭时一码只把匹配项前移；打开后排除辅助码不匹配的候选。两码本来就是严格筛选。"
+
+  private static let touchSemicolon = "。触屏键盘上的分号直接上屏，这种触发要用外接键盘"
+  private static let touchBacktick = "。触屏键盘上的反引号直接上屏，这种触发要用外接键盘"
+
+  static let modes: [Mode] = [
+    Mode(field: "direct", title: "双拼末尾直接辅助码", info: "完整音节后直接接辅助码", fallback: true, parent: .none),
+    Mode(field: "trigger_semicolon", title: "双拼末尾间接触发（分号）",
+         info: "完整音节后按分号，再输入一到两个辅助码字母；微软双拼的分号优先补全韵母" + touchSemicolon, fallback: true, parent: .none),
+    Mode(field: "trigger_backtick", title: "双拼末尾间接触发（反引号）",
+         info: "完整音节后按反引号，再输入一到两个辅助码字母" + touchBacktick, fallback: false, parent: .none),
+    Mode(field: "trigger_uppercase", title: "双拼末尾间接触发（大写字母）", info: "完整音节后输入大写字母作为辅助码",
+         fallback: false, parent: .none),
+    Mode(field: "mid_sentence", title: "双拼句中间接辅助码", info: "触发键把它前面的音节标上辅助码，约束带进整句，后面还能接着打",
+         fallback: false, parent: .none),
+    Mode(field: "mid_sentence_backtick", title: "双拼句中触发键（反引号）", info: "用反引号在句中标记辅助码" + touchBacktick,
+         fallback: true, parent: .midSentence),
+    Mode(field: "mid_sentence_semicolon", title: "双拼句中触发键（分号）",
+         info: "用分号在句中标记辅助码；微软双拼的分号优先补全韵母" + touchSemicolon, fallback: false, parent: .midSentence),
+    Mode(field: "mid_sentence_uppercase", title: "双拼句中触发键（大写字母）", info: "完整音节后输入大写字母在句中标记辅助码",
+         fallback: false, parent: .midSentence),
+    Mode(field: "direct_helpcode", title: "双拼逐音节直接辅助码", info: "不要引导键，逐音节接辅码；三码自动识别，四码单独敲时直接定字",
+         fallback: false, parent: .none),
+    Mode(field: "direct_helpcode_slash", title: "双拼逐音节直接（/ 结束）",
+         info: "用 / 结束一位或两位辅码。触屏键盘上的 / 直接上屏，这种结束方式要用外接键盘", fallback: true, parent: .directHelpcode),
+    Mode(field: "direct_helpcode_uppercase", title: "双拼逐音节直接（第二码大写结束）", info: "第二位辅码敲大写来结束一段",
+         fallback: false, parent: .directHelpcode),
+  ]
+
+  /// 这一行此刻的值：`stored` 是文档里的 `modes`，缺字段时按出厂值。
+  static func modeValue(_ mode: Mode, stored: [String: Any]) -> Bool {
+    stored[mode.field] as? Bool ?? mode.fallback
+  }
+
+  /// 这一行能不能改：双拼辅助码关着时全部置灰，句中三枚触发键还要「句中间接辅助码」开着，两种结束方式还要「逐音节直接辅助码」开着，与共享页的 disabled 相同。
+  static func modeEnabled(_ mode: Mode, helpcodeOn: Bool, stored: [String: Any]) -> Bool {
+    guard helpcodeOn else { return false }
+    switch mode.parent {
+    case .none: return true
+    case .midSentence: return switchOn("mid_sentence", stored: stored)
+    case .directHelpcode: return switchOn("direct_helpcode", stored: stored)
+    }
+  }
+
+  private static func switchOn(_ field: String, stored: [String: Any]) -> Bool {
+    modes.first { $0.field == field }.map { modeValue($0, stored: stored) } ?? false
+  }
+
+  /// 把一项触发方式写进文档：只改这一个字段，`modes` 里其他键（包括 macOS 同步来的 `manual_tab`）原样留着；缺 `modes` 时只写这一项，其余由 client-core 按出厂值补。
+  nonisolated static func mergeMode(_ field: String, _ value: Bool, document: inout [String: Any]) {
+    var modes = (document[shuangpin.key] as? [String: Any])?["modes"] as? [String: Any] ?? [:]
+    modes[field] = value
+    merge("modes", modes, into: shuangpin, document: &document)
   }
 }
