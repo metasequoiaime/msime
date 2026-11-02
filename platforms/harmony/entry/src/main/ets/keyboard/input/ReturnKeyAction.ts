@@ -32,7 +32,12 @@ export class ReturnKeyAction {
     korean: boolean = false,
     vietnamese: boolean = false,
     stroke: boolean = false,
+    prediction: boolean = false,
   ): ReturnDispatch {
+    // 上屏后联想只是建议：回车照常换行或执行编辑器动作。先结束联想（引擎对联想的 FINISH_COMPOSITION 清掉建议、报未处理，什么也不上屏），再交给编辑器；按候选数走「上屏高亮」的话，引擎清掉建议却不换行，这一下回车就被吞了。
+    if (prediction) {
+      return ReturnDispatch.FINISH_THEN_EDITOR;
+    }
     // Stroke's Return commits the typed letters even with candidates on the strip, as a hardware Return (MSIME_COMMIT_RAW) does here and the iOS and Android keyboards do; Space is what picks the highlighted character.
     if (stroke) {
       return composing ? ReturnDispatch.COMMIT_RAW : ReturnDispatch.EDITOR;

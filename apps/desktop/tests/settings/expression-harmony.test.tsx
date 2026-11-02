@@ -324,6 +324,36 @@ describe("the HarmonyOS phone 表达 page", () => {
     expect(within(sheet).queryByRole("button", { name: /增强/ })).toBeNull();
   });
 
+  // 上屏后联想（#9433）：鸿蒙宿主声明 `next_word_prediction` 后，开关和联想栏按键样式列在「智能」组，与 Android 原生的「表达 → 智能」一致。
+  test("lists 上屏后联想 and its strip buttons under 智能 and saves both", async () => {
+    const save = await mountPhone({}, { next_word_prediction: true });
+    const smart = group("智能");
+    const toggle = within(smart).getByRole("switch", { name: /^上屏后联想/ }) as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+    // 说明来自共享组件，手机和电脑同一句：联想能点选、按数字键或空格上屏。
+    expect(within(smart).getByText(/点选、按数字键或空格上屏/)).toBeTruthy();
+    const buttons = () => within(smart).getByRole("button", { name: /^联想栏按键/ });
+    expect(buttons().textContent).toContain("只有展开 ∨");
+    fireEvent.click(toggle);
+    expect((await saveAndRead(save, 0)).next_word_prediction).toBe(true);
+
+    fireEvent.click(buttons());
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "联想栏按键" })).getByRole("button", {
+        name: "关闭 × 和展开 ∨",
+      }),
+    );
+    const saved = await saveAndRead(save, 1);
+    expect(saved.next_word_prediction).toBe(true);
+    expect(saved.next_word_prediction_buttons).toBe("close_and_expand");
+  });
+
+  test("a host without next-word prediction lists no 上屏后联想", async () => {
+    await mountPhone({ next_word_prediction: true }, { next_word_prediction: false });
+    expect(within(group("智能")).queryByRole("switch", { name: /^上屏后联想/ })).toBeNull();
+    expect(within(group("智能")).queryByRole("button", { name: /^联想栏按键/ })).toBeNull();
+  });
+
   test("the 2in1 keeps the desktop page", async () => {
     await mountPhone({}, { mobile_settings: false, panel_windows: true });
     expect(screen.getByRole("group", { name: "标点与翻译" })).toBeTruthy();

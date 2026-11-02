@@ -334,14 +334,15 @@ fn capabilities_describe_each_host() {
     ] {
         assert!(!HostCapabilities::for_platform(platform).caret_edit_suffix);
     }
-    // 上屏后联想只在宿主接好显示和按键之后才提供，目前只有 Android。
-    assert!(HostCapabilities::for_platform(HostPlatform::Android).next_word_prediction);
+    // 上屏后联想只在宿主接好显示和按键之后才提供，目前是 Android 和 HarmonyOS（手机和 2in1 是同一个宿主）。
+    for platform in [HostPlatform::Android, HostPlatform::Harmony] {
+        assert!(HostCapabilities::for_platform(platform).next_word_prediction);
+    }
     for platform in [
         HostPlatform::Windows,
         HostPlatform::Linux,
         HostPlatform::Macos,
         HostPlatform::Ios,
-        HostPlatform::Harmony,
     ] {
         assert!(!HostCapabilities::for_platform(platform).next_word_prediction);
     }

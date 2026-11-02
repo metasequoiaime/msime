@@ -53,7 +53,7 @@ impl HostPlatform {
 
     /// 这个宿主是否显示上屏后联想（偏好 `next_word_prediction`），见 `HostCapabilities::next_word_prediction`。联想没有组字，宿主要能在没有预编辑时显示候选，并且像普通候选一样能点选、按数字键或空格选中联想，回车和标点照常输入，Esc 关闭联想。每个宿主在接好这些的那次改动里加上自己；host-api 只在这里为真的宿主上把偏好交给 Engine。
     pub fn shows_next_word_prediction(self) -> bool {
-        matches!(self, HostPlatform::Android)
+        matches!(self, HostPlatform::Android | HostPlatform::Harmony)
     }
 
     /// 这个宿主是否读偏好里的中英混输触发字符数，见 `HostCapabilities::mixed_input_minimum_prefix`。只有触屏宿主（Android、iOS、HarmonyOS）读：九键、十四键上触发字符数是按键次数，在玻璃上多打几个字母的代价更大，Android 也是应用户要求才加的这一项。三个桌面宿主（macOS、Windows、Linux）不读，固定用 [`crate::preferences::DEFAULT_MIXED_INPUT_MINIMUM_PREFIX`]。
