@@ -133,6 +133,37 @@ test("greys out the swipe direction while swiping for symbols is off", () => {
   expect((screen.getByLabelText("滑动方向") as HTMLSelectElement).disabled).toBe(true);
 });
 
+test("draws the letter corner hint switch only when the host gives it, and does not grey it with the swipe", () => {
+  const onLetterCornerHintsChange = vi.fn();
+  const { rerender } = render(
+    <TouchKeyboardGeometrySection
+      {...baseProps}
+      swipeSymbols={false}
+      letterCornerHints={true}
+      onLetterCornerHintsChange={onLetterCornerHintsChange}
+    />,
+  );
+  const row = screen.getByLabelText("显示字母键角标") as HTMLInputElement;
+  expect(row.checked).toBe(true);
+  expect(row.disabled).toBe(false);
+  fireEvent.click(row);
+  expect(onLetterCornerHintsChange).toHaveBeenCalledWith(false);
+
+  rerender(<TouchKeyboardGeometrySection {...baseProps} letterCornerHints={undefined} />);
+  expect(screen.queryByLabelText("显示字母键角标")).toBeNull();
+
+  rerender(
+    <TouchKeyboardGeometrySection
+      {...baseProps}
+      glideTyping={undefined}
+      swipeSymbols={undefined}
+      letterCornerHints={false}
+    />,
+  );
+  expect(screen.getByText("手势")).toBeTruthy();
+  expect((screen.getByLabelText("显示字母键角标") as HTMLInputElement).checked).toBe(false);
+});
+
 test("draws the gestures group for the swipe alone", () => {
   render(<TouchKeyboardGeometrySection {...baseProps} glideTyping={undefined} />);
 
@@ -352,8 +383,8 @@ test("puts the one-handed side number pad switch in the phone 布局 group with 
   ).toBeTruthy();
 });
 
-// 九键滑动输入数字（#10229）：三端同一行文字、同一组选项，紧跟 26 键的「滑动方向」。
-test("lists 九键滑动输入数字 right after 滑动方向 and hands each choice's own spelling back", () => {
+// 九键滑动输入数字（#10229）：三端同一行文字、同一组选项，在 26 键「滑动方向」和「显示字母键角标」（#10587）之后。
+test("lists 九键滑动输入数字 after 滑动方向 and 显示字母键角标 and hands each choice's own spelling back", () => {
   const onNineKeySwipeDigitsChange = vi.fn();
   const { rerender } = render(<TouchKeyboardGeometrySection {...baseProps} />);
   expect(screen.queryByLabelText("九键滑动输入数字")).toBeNull();
@@ -361,11 +392,13 @@ test("lists 九键滑动输入数字 right after 滑动方向 and hands each cho
   rerender(
     <TouchKeyboardGeometrySection
       {...baseProps}
+      letterCornerHints={true}
       nineKeySwipeDigits="off"
       onNineKeySwipeDigitsChange={onNineKeySwipeDigitsChange}
     />,
   );
   const row = screen.getByLabelText("九键滑动输入数字") as HTMLSelectElement;
+  const cornerHints = screen.getByLabelText("显示字母键角标");
   expect(row.value).toBe("off");
   expect([...row.options].map((option) => [option.value, option.textContent])).toEqual([
     ["off", "关闭"],
@@ -374,9 +407,10 @@ test("lists 九键滑动输入数字 right after 滑动方向 and hands each cho
   ]);
   expect(screen.getByText("沿所选方向滑动输入数字，反方向弹出字母。")).toBeTruthy();
   expect(
-    screen.getByLabelText("滑动方向").compareDocumentPosition(row) &
+    screen.getByLabelText("滑动方向").compareDocumentPosition(cornerHints) &
       Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
+  expect(cornerHints.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(
     row.compareDocumentPosition(screen.getByLabelText("滑行输入")) &
       Node.DOCUMENT_POSITION_FOLLOWING,
