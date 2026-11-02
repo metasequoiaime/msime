@@ -236,7 +236,7 @@ pub(crate) fn keyboard_reranker(
         match onnx_reranker(root) {
             OnnxAttach::Attached(attached) => {
                 report_keyboard_reranker(attached.category, &attached.detail);
-                return Some(Box::new(SharedOnnxScorer(attached.scorer)));
+                return Some(Box::new(SharedOnnxScorer::new(attached.scorer)));
             }
             OnnxAttach::OverLimit(detail) => {
                 report_keyboard_reranker(KEYBOARD_RERANKER_OVER_BUDGET, &detail);
@@ -573,45 +573,87 @@ fn onnx_reranker(root: &Path) -> OnnxAttach {
 }
 
 /// 共用重排器在一个会话里的那一份：每次打分时加锁。同一时刻通常只有一个会话在打字，锁几乎不会等。
+///
+/// 上屏后的新上文交给这个会话自己的后台线程编码（[`msime_onnx_rerank::OnnxScorer::prime_context`]），按键线程不等这一步；线程在第一次上屏时才起，会话的这一份放开时随之结束。用户在编码完之前就按下一个键时，按键在锁上等它做完，与没有这个线程时按键自己编码花的时间相同。
 #[cfg(feature = "onnx-rerank")]
-struct SharedOnnxScorer(Arc<Mutex<msime_onnx_rerank::OnnxScorer>>);
+pub(crate) struct SharedOnnxScorer {
+    scorer: Arc<Mutex<msime_onnx_rerank::OnnxScorer>>,
+    primer: Option<std::sync::mpsc::Sender<String>>,
+}
+
+#[cfg(feature = "onnx-rerank")]
+impl SharedOnnxScorer {
+    pub(crate) fn new(scorer: Arc<Mutex<msime_onnx_rerank::OnnxScorer>>) -> Self {
+        Self {
+            scorer,
+            primer: None,
+        }
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, msime_onnx_rerank::OnnxScorer> {
+        self.scorer
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+/// 起一个编码上文的后台线程：每次只编码排队里最新的那段上文，连着几次上屏时中间的不必编码。发送端放开时线程结束；起不了线程时返回 `None`，按键照旧自己编码。
+#[cfg(feature = "onnx-rerank")]
+fn spawn_context_primer(
+    scorer: Arc<Mutex<msime_onnx_rerank::OnnxScorer>>,
+) -> Option<std::sync::mpsc::Sender<String>> {
+    let (sender, receiver) = std::sync::mpsc::channel::<String>();
+    std::thread::Builder::new()
+        .name("msime-rerank-context".into())
+        .spawn(move || {
+            while let Ok(mut context) = receiver.recv() {
+                while let Ok(newer) = receiver.try_recv() {
+                    context = newer;
+                }
+                scorer
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .prime_context(&context);
+            }
+        })
+        .ok()?;
+    Some(sender)
+}
 
 #[cfg(feature = "onnx-rerank")]
 impl msime_input_runtime::CandidateScorer for SharedOnnxScorer {
     fn context_length(&self) -> usize {
-        self.0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .context_length()
+        self.lock().context_length()
     }
 
     fn scores_prediction_pool_within_keystroke_budget(&self) -> bool {
-        self.0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .scores_prediction_pool_within_keystroke_budget()
+        self.lock().scores_prediction_pool_within_keystroke_budget()
     }
 
     fn log_probabilities(&mut self, context: &str, candidates: &[&str]) -> Vec<f32> {
-        self.0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .log_probabilities(context, candidates)
+        self.lock().log_probabilities(context, candidates)
     }
 
     // 不转发就落到默认的 0，宿主挂上的 ONNX 后端从来用不上整句池，而直接挂 `OnnxScorer` 的评测示例照常用得上，看不出来。
     fn sentence_pool(&self) -> usize {
-        self.0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .sentence_pool()
+        self.lock().sentence_pool()
     }
 
     fn static_evidence_weight(&self) -> f64 {
-        self.0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .static_evidence_weight()
+        self.lock().static_evidence_weight()
+    }
+
+    fn context_changed(&mut self, context: &str) {
+        if self.primer.is_none() {
+            self.primer = spawn_context_primer(Arc::clone(&self.scorer));
+        }
+        let sent = self
+            .primer
+            .as_ref()
+            .is_some_and(|primer| primer.send(context.to_owned()).is_ok());
+        if !sent {
+            self.primer = None;
+        }
     }
 }
 

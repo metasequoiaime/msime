@@ -2323,6 +2323,12 @@ impl<E: InputEngine> Runtime<E> {
             }
         }
         self.engine.set_rescoring_context(&self.ai_context);
+        // 下一次按键要按新的上文排序；后端趁用户还没按下一个键先编码好，见 `CandidateScorer::context_changed`。
+        if !self.ai_context.is_empty() {
+            if let Some(reranker) = self.reranker.as_mut() {
+                reranker.context_changed(&self.ai_context);
+            }
+        }
     }
 
     /// 回退暂存词段：普通退格在拼写末尾剩零或一个字符时恢复最近一次选词；

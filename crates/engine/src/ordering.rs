@@ -37,6 +37,9 @@ pub trait CandidateScorer: Send {
         0.5
     }
 
+    /// 上屏的文字变了（runtime 每次上屏、或宿主送来上文之后调），`context` 是此后按键时排序所依据的全部上文，尚未按 [`rerank_context`] 截短。按上文缓存模型状态的后端可以趁下一次按键之前在别的线程把它编码好，按键线程就不用等；默认什么都不做。这里不能同步做耗时的事：调用就在上屏那一次按键里。
+    fn context_changed(&mut self, _context: &str) {}
+
     /// 模型认为应当提到首位的候选下标，`None` 为不动；规则同 [`Reranker::best_where`]：首行是可信的词典命中或首行不回答按键时不比较，只比较前 [`COMPARED_LIMIT`] 条回答按键的候选，少于两条不比较。
     fn best_where(
         &mut self,

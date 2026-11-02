@@ -8813,6 +8813,49 @@ fn enhanced_mounts_the_runtime_reranker_without_the_engine_layer() {
     assert!(ffi::keyboard_reranker(false, "", None, None, None, None, None).is_none());
 }
 
+/// 会话的那一份把上屏后的上文交给后台线程编码：紧接着按键（线程可能还没做完、也可能做完了）与连着几次上屏只编码最后那段，分数都与不经后台线程时一样；会话放开这一份时线程跟着结束，不挂住进程。
+#[cfg(feature = "onnx-rerank")]
+#[test]
+fn the_session_scorer_primes_the_context_off_the_keystroke() {
+    use msime_input_runtime::CandidateScorer as _;
+    let fixtures =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../onnx-rerank/tests/fixtures");
+    let load = || {
+        msime_onnx_rerank::OnnxScorer::load_file(
+            &fixtures.join("lm_step.ort"),
+            &std::fs::read_to_string(fixtures.join("model.json")).unwrap(),
+            &std::fs::read_to_string(fixtures.join("vocab.json")).unwrap(),
+            1,
+            true,
+        )
+        .unwrap()
+    };
+    let candidates = ["去北京", "去背景", "去"];
+    let context = "我们今天下午";
+    let expected = load().log_probabilities(context, &candidates);
+    assert_eq!(expected.len(), candidates.len());
+    let shared = std::sync::Arc::new(std::sync::Mutex::new(load()));
+    let mut session = ffi::SharedOnnxScorer::new(std::sync::Arc::clone(&shared));
+    for partial in ["我们", "我们今天", context] {
+        session.context_changed(partial);
+    }
+    let scored = session.log_probabilities(context, &candidates);
+    for (got, want) in scored.iter().zip(&expected) {
+        assert!((got - want).abs() < 2e-2, "{scored:?} vs {expected:?}");
+    }
+    assert_eq!(scored.len(), expected.len());
+    drop(session);
+    // 线程结束后只剩测试这一份引用。
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while std::sync::Arc::strong_count(&shared) > 1 {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the primer thread outlived its session"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
 /// 随包资源目录旁边有 `rerank-model/` 时，「增强」的逐键重排用它（ONNX Runtime 后端）；再装了 `rerank-model-small/` 时按自测速度在两者之间选；ONNX 模型都读不了就退回随包的句子模型。用 `crates/onnx-rerank` 测试用的小模型，两个目录里放同一份图，只把小模型 `model.json` 的 `context_chars` 改成 48，好从 `context_length`（上文字数加 16）看出挂的是哪一个：大的是 80，小的是 64。
 ///
 /// 模型放在资源目录的兄弟目录里而不是资源目录里：资源目录要与词库锁逐项相符，多一个目录校验就失败（最后一段断言这一点）。`resources` 换成下载的词库代次时按 `bundle`（随包资源目录）找模型。
