@@ -20,6 +20,9 @@ for layout in horizontal vertical; do
     "fcitx5-wayland-canvas-$layout-png"
     "fcitx5-wayland-canvas-$layout-gif" "fcitx5-wayland-canvas-$layout-webp")
 done
+if [[ ${MSIME_RESOURCE_SMOKE_ONLY:-0} == 1 ]]; then
+  names=(fcitx5-custom-voice-hotkey fcitx5-native-context)
+fi
 pattern="^($(IFS='|'; echo "${names[*]}"))\$"
 ctest --test-dir /build/fcitx5 -R "$pattern" \
   --output-on-failure --output-junit /build/fcitx5-acceptance.xml

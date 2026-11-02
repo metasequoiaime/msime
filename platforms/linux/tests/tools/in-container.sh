@@ -38,7 +38,8 @@ if [[ ${MSIME_TEST_FCITX5:-0} == 1 ]]; then
 fi
 cmake -S platforms/linux -B /build/ibus -G Ninja \
   -DMSIME_HOST_LIBRARY=/build/cargo/debug/libmsime_host_api.so \
-  -DMSIME_LINUX_VOICE=ON -DMSIME_ENGINE_RESOURCES=/resources
+  -DMSIME_LINUX_VOICE=ON -DMSIME_ENGINE_RESOURCES=/resources \
+  -DMSIME_RESOURCE_SMOKE_ONLY="${MSIME_RESOURCE_SMOKE_ONLY:-0}"
 cmake --build /build/ibus
 ctest --test-dir /build/ibus --output-on-failure --no-tests=error
 rm -rf /build/stage

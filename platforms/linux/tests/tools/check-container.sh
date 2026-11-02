@@ -28,5 +28,6 @@ docker run --rm --init \
   -e CARGO_TARGET_DIR=/build/cargo -e CARGO_HOME=/build/cargo-home -e CARGO_BUILD_JOBS=4 \
   -e MSIME_ISOLATED_LINUX_TEST=1 \
   -e MSIME_SKIP_RUST_TESTS="${MSIME_SKIP_RUST_TESTS:-0}" \
+  -e MSIME_RESOURCE_SMOKE_ONLY="${MSIME_RESOURCE_SMOKE_ONLY:-0}" \
   -e MSIME_TEST_FCITX5=$( [[ ${2:-} == --fcitx5 ]] && echo 1 || echo 0 ) \
   "$test_image" bash platforms/linux/tests/tools/in-container.sh

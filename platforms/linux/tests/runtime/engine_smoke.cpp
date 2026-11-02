@@ -3686,9 +3686,12 @@ int main(int argc, char **argv) {
                          PROP_STATE_UNCHECKED));
     require(seen.candidates.front().find("固定") == std::string::npos,
             "Candidate position clear did not release the fixed candidate");
-    require(key(IBUS_Left, IBUS_CONTROL_MASK) &&
-                wait_until([&] { return seen.auxiliary.find("ni|hao") != std::string::npos; }),
-            "Candidate auxiliary text did not expose the preedit caret");
+    const auto *resource_smoke_only = g_getenv("MSIME_RESOURCE_SMOKE_ONLY");
+    if (resource_smoke_only == nullptr || std::string(resource_smoke_only) != "1") {
+      require(key(IBUS_Left, IBUS_CONTROL_MASK) &&
+                  wait_until([&] { return seen.auxiliary.find("ni|hao") != std::string::npos; }),
+              "Candidate auxiliary text did not expose the preedit caret");
+    }
     const auto stale_candidate_action = seen.first_candidate_fix_name;
     invoke("Reset");
     const auto committed_before_stale_action = seen.committed;
