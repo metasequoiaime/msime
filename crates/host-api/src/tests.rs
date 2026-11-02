@@ -8716,6 +8716,7 @@ fn enhanced_mounts_the_runtime_reranker_without_the_engine_layer() {
 #[cfg(feature = "onnx-rerank")]
 #[test]
 fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
+    use msime_input_runtime::CandidateScorer as _;
     let fixtures =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../onnx-rerank/tests/fixtures");
     let install = |directory: &std::path::Path, context_chars: u64| {
@@ -8754,6 +8755,13 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
     let inside = tempfile::tempdir().unwrap();
     install(&inside.path().join(ffi::RERANK_MODEL_DIRECTORY), 64);
     assert!(ffi::keyboard_reranker(true, inside.path().to_str().unwrap(), None, None).is_none());
+
+    // 之后的会话共用进程里已加载、自测过的那一个，不再各加载一份；「增强」关掉时放开它。
+    let (_, _, again) = ffi::onnx_reranker(bundle.path()).unwrap();
+    assert!(again.ends_with("(shared)"), "{again}");
+    assert!(ffi::keyboard_reranker(false, root, None, None).is_none());
+    let (_, _, reloaded) = ffi::onnx_reranker(bundle.path()).unwrap();
+    assert!(!reloaded.ends_with("(shared)"), "{reloaded}");
 
     // 下载的词库代次旁边没有模型，按随包资源目录找。
     let generations = tempfile::tempdir().unwrap();
