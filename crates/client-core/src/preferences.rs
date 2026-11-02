@@ -4611,6 +4611,8 @@ impl ShuangpinCustomProfile {
 }
 
 /// 五笔码表版本。Engine 的编码是声明顺序（`wubi_profile`）。
+///
+/// 读盘时不认识的值（更新的版本加的码表版本）按 86 读（`settle_newer_values_on_read`），不让整份偏好读不了；设置提交仍由反序列化严格校验。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum WubiProfile {
     #[default]
@@ -4618,6 +4620,17 @@ pub enum WubiProfile {
     Wubi86,
     #[serde(rename = "wubi98")]
     Wubi98,
+}
+
+impl WubiProfile {
+    /// 文档和账号设置里的写法（`wubi86`、`wubi98`）读成版本，不认识的值为 `None`。
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "wubi86" => Some(Self::Wubi86),
+            "wubi98" => Some(Self::Wubi98),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -6536,8 +6549,16 @@ fn acceptable_preferences(candidate: &serde_json::Map<String, serde_json::Value>
         .is_ok_and(|preferences| preferences.validate().is_ok())
 }
 
-/// 读盘时把更新的版本才有的标量取值换成本版本的取值，免得一个键让整份文档读不了；只用于读磁盘，设置提交仍由枚举反序列化严格校验。目前有韩文布局和粤拼解释方式：更新的版本的未知取值分别回退到两套式和普通粤拼。
+/// 读盘时把更新的版本才有的标量取值换成本版本的取值，免得一个键让整份文档读不了；只用于读磁盘，设置提交仍由枚举反序列化严格校验。目前有韩文布局、粤拼解释方式和五笔码表版本：更新的版本的未知取值分别回退到两套式、普通粤拼和 86 五笔。
 fn settle_newer_values_on_read(document: &mut serde_json::Value) {
+    if let Some(profile) = document.pointer_mut("/preferences/wubi_profile") {
+        if profile
+            .as_str()
+            .is_some_and(|value| WubiProfile::parse(value).is_none())
+        {
+            *profile = "wubi86".into();
+        }
+    }
     if let Some(layout) = document.pointer_mut("/preferences/korean/layout") {
         if layout
             .as_str()
