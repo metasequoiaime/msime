@@ -34,7 +34,8 @@ Windows 候选窗投影的不变式**不放宽**，也不加防御性 `try/catch
 有几个宿主不读回高亮，而是按发出的命令数推算它在哪。运行时越过占位行后，一次「下一个」可能走两格，这些推算就会差一格，所以一起改：
 
 - **macOS 收起展开网格**（`closeExpandedCandidates`）：原来「下一个」就把位置加一，经过占位行会多走一格。改为每一步从回复的视图读回真实高亮，步数以身份距离为上限，和 `moveEngineHighlightToIndex` 一样。
-- **日文空格转换**：Engine 对日文罗马字同样放云占位行（`online_query` 里罗马字 `cloud_eligible`）。状态机在 `shared/input/JapaneseConversion.h`，宿主数第几次空格、回车按这个下标选词。现在约定：数的是去掉云占位行之后的行。macOS 用 `MSIMEVisibleCandidates`，IBus 和 Fcitx5 用 `japanese_conversion_rows`，Windows Server 只数 `candidate_source_is_visible` 的行。macOS 和 Linux 的回车按下标选词，不改的话越过占位行之后会上屏高亮前面那一个。
+- **日文空格转换**：Engine 对日文罗马字同样放云占位行（`online_query` 里罗马字 `cloud_eligible`）。状态机在 `shared/input/JapaneseConversion.h`，宿主数第几次空格、回车按这个下标选词。现在约定：六端数的都是去掉云占位行之后的行，`first_source` 取其中第一行。macOS 用 `MSIMEVisibleCandidates`，IBus 和 Fcitx5 用 `japanese_conversion_rows`，Windows Server 用 `japanese_space_rows`（`JapaneseSpacePolicy.h`），Android 和 HarmonyOS 用各自 `JapaneseSpacePolicy.countedSources`，iOS 原本就按 `visibleCandidates` 数。macOS 和 Linux 的回车按下标选词，不改的话越过占位行之后会上屏高亮前面那一个；Windows、Android 和 HarmonyOS 的回车上屏高亮候选，不改不会选错词，但页里有占位行时走到本页末尾要多按一次才回到首条，各端的空格节奏就不一样了。
+- `shared/input/JapaneseConversion.h` 里的 `kCandidateSourceFallback`、`kCandidateSourceCloudPending` 是照引擎枚举抄的值，`scripts/test-candidate-sources.py` 现在连它们一起钉在 `crates/engine/src/types.rs` 上，和 Windows `CandidateSources.h` 一样。
 
 ## Alternatives considered
 
@@ -46,12 +47,14 @@ Windows 候选窗投影的不变式**不放宽**，也不加防御性 `try/catch
 
 - **收益**：Windows 不再因为方向键停掉 Server；macOS 和移动端硬件键盘的高亮不再消失；Linux 上方向键越过画出来的「☁」。
 - **可见的行为变化**：Linux 照旧画「☁」，方向键现在越过它。它本来就选不中（`commit.rs` 对它「什么都不做但算处理过」），不是改出厂默认值。
-- **未改的计数**：Android（`MSIMEInputService` 日文空格）和 HarmonyOS（`KeyboardSession.convertJapanese`）的日文空格仍按原始行数决定何时回到首条。它们的回车上屏高亮候选，不会选错词；页里有占位行时，走到本页末尾会多走一步（落到下一页第一个）才回到首条。修复前同一位置的那一步落在看不见的占位行上，高亮消失。
 - **重访信号**：引擎再加一种选不中的占位来源，或者 AI 占位行（12）重新被产出，`seat_takes_highlight` 和宿主的可见性规则要一起改。
 
 ## Verification
 
 - `crates/input-runtime/src/tests.rs`：`arrow_keys_skip_the_cloud_placeholder`、`horizontal_left_right_skips_the_cloud_placeholder`、`paging_one_by_one_skips_the_cloud_placeholder`、`a_late_refresh_does_not_leave_the_highlight_on_the_cloud_placeholder`、`only_the_cloud_placeholder_is_skipped`。前四个在修复前失败；异步刷新那条另外单独验证过：只去掉 `keep_highlight_on_same_candidate` 里的挪开，其余修复保留，它仍然失败（高亮停在「☁」）。
-- `platforms/windows/tests/candidate/cloud_pending_presentation.cpp`（`windows-cloud-pending-presentation`）：高亮在看得见的行上时两条投影路径都照常生成，高亮在占位行上时投影仍然拒绝。
+- 同一文件的 `stepping_past_a_trailing_cloud_placeholder_reaches_candidates_the_engine_withheld` 钉住 `expand_for_next_candidate` 的末尾判断：已给出的是 `[甲, ☁]`、引擎还压着候选时，↓ 先展开再落到放出来的第一个真候选。按旧判断（`highlighted + 1 == len`）不展开，↓ 卡在首选上。测试 Fixture 展开时给放出来的候选补上来源，原来来源会因长度失配整列退成 0，占位行在展开后就认不出来了。
+- `platforms/windows/tests/candidate/cloud_pending_presentation.cpp`（`windows-cloud-pending-presentation`）：高亮在看得见的行上时两条投影路径都照常生成，高亮在占位行上时投影仍然拒绝。它登记在 `scripts/test-windows-native-run.py` 的 `COMPANIONS` 里（伴随 `ChineseTextConversion.cpp`），否则原生测试脚本链接失败、只算跳过。
+- `platforms/windows/tests/input/japanese_space_policy.cpp`：`[行, ☁, 行, 行]` 数成三行，第四次空格回到首条；第一行是占位行时 `first_source` 取第一条看得见的行。
 - `platforms/linux/tests/core/japanese_conversion.cpp`：去掉占位行之后，第二次空格停的行就是回车选的行。
+- Android `tests/core/JapaneseSpacePolicySmoke.java` 和 HarmonyOS `tests/japanese-space-cloud-placeholder.test.ts`：`countedSources` 只去掉来源 15。
 - 没有在真机上复现报告的现象再确认消失。需要 Windows 11 实机开云候选、横排，按 ↓/→ 确认候选窗不消失、`server.log` 里没有 `session controller failed (input queue)`；macOS 上同样开云候选，从首选按 ↓ 确认高亮落在第二个看得见的候选上。
