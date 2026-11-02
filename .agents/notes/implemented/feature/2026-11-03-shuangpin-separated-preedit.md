@@ -41,7 +41,7 @@ Status: implemented
 
 收益：双拼用户能看见音节边界，看到的又是自己按下的键；光标、提交和候选都不变，旧版本和账号同步不受影响。代价：偏好里多一个只在另一个键为真时才有意义的键，读它的地方都要先看 `shuangpin_preedit_uses_raw`（共享页、Windows 两套设置各有一个换算函数，换算规则写在一处之外的地方都有测试钉住）；「双拼分隔」不随 macOS 账号同步漫游；IBus、Fcitx5 菜单仍只有原始/展开两态。
 
-验证：引擎门面 `host::tests::separated_shuangpin_preedit_keeps_the_keys_and_carries_the_caret` 用真实会话打自然码 `nimf`，`preedit` 为 `ni'mf`、`editing_text` 为 `nimf`，光标在末尾、第二个音节中间、音节边界、行首分别是 5、4、2、0，还覆盖了半个音节、用户打的隔音符、末尾隔音符、字面大写，以及拼音分词时不读分隔；把引擎分支改回去后这条测试失败。client-core 的 `shuangpin_preedit_separated_is_a_separate_key_left_out_until_chosen` 钉住缺省不写进文档、旧键仍是布尔。前端 vitest 覆盖三档的读写与选项顺序，`input_settings_model.cpp` 覆盖 Windows 的换算，Win7 原生控件测试覆盖第二、三档写回两个键。iOS 加了活会话重读的单测，但没有在本机跑；鸿蒙的组字行画哪一段没有在设备上核对。
+验证：引擎门面 `host::tests::separated_shuangpin_preedit_keeps_the_keys_and_carries_the_caret` 用真实会话打自然码 `nimf`，`preedit` 为 `ni'mf`、`editing_text` 为 `nimf`，光标在末尾、第二个音节中间、音节边界、行首分别是 5、4、2、0，还覆盖了半个音节、用户打的隔音符、末尾隔音符、字面大写，以及拼音分词时不读分隔；把引擎分支改回去后这条测试失败。client-core 的 `shuangpin_preedit_separated_is_a_separate_key_left_out_until_chosen` 钉住缺省不写进文档、旧键仍是布尔。前端 vitest 覆盖三档的读写与选项顺序，`input_settings_model.cpp` 覆盖 Windows 的换算（本机 clang 编译运行通过）。Win7 原生控件测试加了第二、三档写回两个键的断言，只在本机用 MinGW 做了语法检查，没有在 Windows 上运行；Windows 现代设置（WinUI）在本机编不了，交给 CI 的 Windows runner 编译。iOS 加了活会话重读的单测，没有在本机跑；鸿蒙的组字行画哪一段没有在设备上核对。
 
 ## Existing notes audit
 
