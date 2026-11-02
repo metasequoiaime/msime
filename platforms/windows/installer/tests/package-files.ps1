@@ -120,6 +120,16 @@ try {
         source_commit = ('a' * 40); artifacts = $artifacts
     } | ConvertTo-Json -Depth 5)
     Write-Fixture 'target/desktop-resources/unlisted-private-file.txt' 'synthetic excluded data'
+    # 两档逐键重排模型（scripts/fetch_rerank_model.py 下载到 target/rerank-model），按合成的锁核对后装进 Server 目录旁边。
+    $rerankModels = @(foreach ($directory in @('rerank-model', 'rerank-model-small')) {
+        @{ directory = $directory; artifacts = @(foreach ($name in @('lm_step.ort', 'model.json', 'vocab.json')) {
+            Write-Fixture "target/rerank-model/$directory/$name" "synthetic $directory $name"
+            $path = Join-Path $fixture "target/rerank-model/$directory/$name"
+            @{ name = "$directory-$name"; file = $name; size = (Get-Item $path).Length; sha256 = (Get-FileHash $path).Hash.ToLowerInvariant() }
+        }) }
+    })
+    Write-Fixture 'resources/rerank-model.lock.json' (@{ release_tag = 'rerank-v1'; models = $rerankModels } | ConvertTo-Json -Depth 6)
+    Write-Fixture 'target/rerank-model/rerank-model/stray.bin' 'synthetic file the lock does not name'
     Write-Fixture 'server/build-release/bin/Release/resources/stale.txt' 'synthetic stale bundle'
     & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -TargetVersion '2026.9.1'
     # 改写版本号之后安装脚本还是带 BOM 的 UTF-8：Inno Setup 6.3 之前读没有 BOM 的脚本按
@@ -216,6 +226,8 @@ try {
                          'server_exe/character-glosses/character-glosses-NOTICE.txt',
                          'server_exe/wordbooks/cet4.json',
                          'server_exe/wordbooks/wordbooks-NOTICE.txt',
+                         'server_exe/rerank-model/lm_step.ort', 'server_exe/rerank-model/model.json', 'server_exe/rerank-model/vocab.json',
+                         'server_exe/rerank-model-small/lm_step.ort', 'server_exe/rerank-model-small/model.json', 'server_exe/rerank-model-small/vocab.json',
                          'app_data/helpcodes/helpcode.txt',
                          'app_data/sound-packs/default/plugin.toml', 'app_data/sound-packs/default/key.wav',
                          'server_exe/plugin-packs/script/uuid/plugin.toml',
@@ -227,6 +239,15 @@ try {
     # 官方插件包只进 Program Files 下的 Server 目录，不进普通用户可写的 DataDir。
     if (Test-Path (Join-Path $installer 'app_data/plugin-packs')) { throw 'Staged the official plugin packs into the user-writable data directory' }
     Assert-NoOnDemandModels 'Full package'
+    # 只装锁里列出的模型文件；模型文件与锁不符时拒绝，并且不动上一次暂存的模型。
+    if (Test-Path (Join-Path $installer 'server_exe/rerank-model/stray.bin')) { throw 'Packaged a rerank model file the lock does not name' }
+    if ([IO.File]::ReadAllText((Join-Path $installer 'server_exe/rerank-model-small/lm_step.ort')) -ne 'synthetic rerank-model-small lm_step.ort') { throw 'Rerank model staged from the wrong file' }
+    $rerankSource = Join-Path $fixture 'target/rerank-model/rerank-model/lm_step.ort'
+    [IO.File]::WriteAllText($rerankSource, 'x' * (Get-Item $rerankSource).Length)
+    $rejected = $false
+    try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture } catch { $rejected = $_.Exception.Message -match 'rerank-model\.lock\.json' }
+    if (-not $rejected) { throw 'A rerank model that does not match its lock was accepted' }
+    [IO.File]::WriteAllText($rerankSource, 'synthetic rerank-model lm_step.ort')
     # 读音和英文释义表只随授权声明一起装：夹具里 word-glosses 没有声明，就不装。
     if (Test-Path (Join-Path $installer 'server_exe/word-glosses')) { throw 'Packaged word glosses without their notice' }
     if (Test-Path (Join-Path $installer 'app_data/helpcodes/NOTICE.md')) { throw 'Staged a helpcode notice as a table' }
@@ -363,6 +384,7 @@ try {
         if (Test-Path (Join-Path $installer "server_exe/$testFile")) { throw 'Light package contains a Client test artifact' }
     }
     if (Test-Path (Join-Path $installer 'server_exe/resources')) { throw 'Light package unexpectedly carries dictionaries' }
+    if (Test-Path (Join-Path $installer 'server_exe/rerank-model')) { throw 'Light package unexpectedly carries the keystroke rerank models' }
     Write-Fixture 'custom build/shell.exe' 'synthetic alternate shell'
     Write-Fixture 'server/build-release/bin/Release/msime-client-settings.exe' 'synthetic native shell'
     Write-Fixture 'server/build-release/bin/Release/msime-client-settings.pdb' 'synthetic native symbols'
@@ -543,6 +565,8 @@ try {
     # 五笔版提供中文方案，非英文离线释义照常装；手写模型和落定重排模型和其他版本一样不进安装包。
     if (-not (Test-Path (Join-Path $installer 'server_exe/offline-glosses/zh-fr.db'))) { throw 'Chinese edition lost server_exe/offline-glosses/zh-fr.db' }
     Assert-NoOnDemandModels 'Chinese edition package'
+    # 五笔版不带键盘神经模型（版本表 features.neural_keyboard 为 false），逐键重排模型不装。
+    if ((Test-Path (Join-Path $installer 'server_exe/rerank-model')) -or (Test-Path (Join-Path $installer 'server_exe/rerank-model-small'))) { throw 'Edition without the keyboard model packaged the keystroke rerank models' }
     # 越南文版没有中文方案（版本表 features.offline_glosses 为 false）：非英文离线释义不装，即使构建目录里有它们。
     Write-Fixture 'windows/build32-release/Release/msime_host_api_vietnamese.dll' 'synthetic x86 vietnamese host'
     Write-Fixture 'windows/build64-release/Release/msime_host_api_vietnamese.dll' 'synthetic x64 vietnamese host'

@@ -35,6 +35,7 @@ enum ControlId {
   mixed_enabled = 750, mixed_english, mixed_first_page_count, mixed_emoji, mixed_symbols,
   mixed_kaomoji, mixed_japanese, learn_candidates, single_character_only, word_lattice,
   multilingual_enabled, multilingual_chinese, multilingual_english, multilingual_japanese, caret_edit_suffix,
+  sentence_association_level,
   next_word_prediction,
   default_ime_mode = 800, ime_mode_scope, input_mode_hud, app_rule_name, app_rule_add,
   app_rule_list, app_rule_mode, app_rule_remove,

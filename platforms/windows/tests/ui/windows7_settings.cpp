@@ -667,6 +667,32 @@ int main() {
   click(caret_edit_suffix);
   assert(!store.load().snapshot->preferences().contains("caret_edit_suffix"));
   assert(SendMessageW(GetDlgItem(body, caret_edit_suffix), BM_GETCHECK, 0, 0) == BST_UNCHECKED);
+#if MSIME_EDITION_NEURAL_KEYBOARD
+  // 「整句联想」两档写共享的 `neural_keyboard`：选「标准」写 false、选「增强」写 true，下拉框跟着文档走；「本地整句联想」关着时照样可选（逐键重排不看词网格），开关它不改存着的档位。
+  {
+    const HWND level = GetDlgItem(body, sentence_association_level);
+    assert(level);
+    const auto association = [&] { return store.load().snapshot->preferences().at("sentence_association"); };
+    assert(association().value("word_lattice", true));
+    assert(SendMessageW(level, CB_GETCURSEL, 0, 0) == (association().value("neural_keyboard", true) ? 1 : 0));
+    select_value(sentence_association_level, 0);
+    assert(association().at("neural_keyboard") == false);
+    assert(SendMessageW(level, CB_GETCURSEL, 0, 0) == 0);
+    select_value(sentence_association_level, 1);
+    assert(association().at("neural_keyboard") == true);
+    assert(SendMessageW(level, CB_GETCURSEL, 0, 0) == 1);
+    click(word_lattice);
+    assert(association().at("word_lattice") == false);
+    assert(IsWindowEnabled(level));
+    assert(association().at("neural_keyboard") == true);
+    click(word_lattice);
+    assert(association().at("word_lattice") == true);
+    assert(IsWindowEnabled(level));
+    assert(association().at("neural_keyboard") == true);
+  }
+#else
+  assert(!GetDlgItem(body, sentence_association_level));
+#endif
   // 「上屏后联想」与 Android、共享页同一个标题，缺省为关、关着时不写键；打开写 true，再关掉键又消失。
   assert(GetDlgItem(body, next_word_prediction));
   assert(caption(GetDlgItem(body, next_word_prediction)) == L"上屏后联想");

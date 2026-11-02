@@ -1,22 +1,31 @@
 import { expect, test } from "vitest";
 import {
+  keyboardRerankLevel,
   sentenceAssociationControlState,
   sentenceAssociationLevel,
   sentenceAssociationWithLevel,
   type SentenceAssociationLevel,
 } from "../../../../packages/ui/src/settings/sentence-association-preferences";
 
-test("缺键文档默认开启词网格，两个宿主的神经联想各自默认关闭", () => {
+test("缺键文档默认开启词网格和逐键重排（增强），桌面神经联想默认关闭", () => {
   for (const value of [undefined, Object.freeze({})]) {
     for (const mobile of [false, true]) {
       expect(sentenceAssociationControlState(value, { mobile })).toEqual({
         wordLatticeChecked: true,
-        neuralChecked: false,
+        neuralChecked: mobile,
         neuralVisible: true,
       });
     }
-    expect(sentenceAssociationLevel(value)).toBe(1);
+    expect(sentenceAssociationLevel(value)).toBe(2);
+    expect(keyboardRerankLevel(value)).toBe(2);
   }
+});
+
+test("桌面「整句联想」只看逐键重排开关：显式的标准保留，词网格关闭不影响它", () => {
+  expect(keyboardRerankLevel({ neural_keyboard: false })).toBe(1);
+  expect(keyboardRerankLevel({ neural_keyboard: true })).toBe(2);
+  expect(keyboardRerankLevel({ word_lattice: false })).toBe(2);
+  expect(keyboardRerankLevel({ word_lattice: false, neural_keyboard: false })).toBe(1);
 });
 
 test("桌面和键盘开关独立，显式关闭词网格不清除神经选择", () => {
@@ -59,7 +68,7 @@ test("级别读取覆盖词网格与键盘神经开关的所有组合", () => {
   for (const word_lattice of [undefined, false, true]) {
     for (const neural_keyboard of [undefined, false, true]) {
       expect(sentenceAssociationLevel({ word_lattice, neural_keyboard })).toBe(
-        word_lattice === false ? 0 : neural_keyboard ? 2 : 1,
+        word_lattice === false ? 0 : neural_keyboard === false ? 1 : 2,
       );
     }
   }

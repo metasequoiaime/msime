@@ -3970,6 +3970,8 @@ public final class MSIMEInputService extends InputMethodService {
         selectedScheme = nextSchemeConfiguration.selected();
         rememberChineseScheme();
         preferencesSnapshot = accepted;
+        // 「增强」开着而逐键重排模型没装（多半是缺省或同步来的「增强」，用户从没在设置里选过）：排一个只在不按流量计费的网络上跑的后台下载，由主进程去下；每个进程只排一次，这里不联网。
+        RerankModelDownload.scheduleIfWanted(this, preferences, installedResourcePackIds);
         refreshModeSkinLibrary(preferences);
         imeTextEditPanel.applyPreferences(preferences);
         if (!clipboardHistoryEnabled && clipboardHistory != null) {

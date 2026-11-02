@@ -1,0 +1,96 @@
+name: ONNX Runtime minimal (Windows)
+
+# 按键重排后端链接的精简版 ONNX Runtime，Windows 的两种架构要用 MSVC 编，只能在 Windows 上编；其余平台在 macOS 与 Linux 容器里用 tools/onnxruntime-minimal/build.sh 编（见同目录 README）。改了算子清单或构建方式的 Pull Request 上自动跑，产物作为构建附件上传，由维护者核对后发布并写进 resources/onnxruntime-minimal.lock.json。它不发布任何东西。
+on:
+  pull_request:
+    paths:
+      - tools/onnxruntime-minimal/**
+      - .github/workflows/onnxruntime-minimal.yml
+  workflow_dispatch:
+
+concurrency:
+  group: onnxruntime-minimal-${{ github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows ${{ matrix.variant }}
+    runs-on: windows-2025
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        # arm64 links the static CRT (/MT): platforms/windows/Build-RustOutputs.ps1 builds the arm64 host-api with +crt-static, and an ONNX Runtime built against the DLL CRT (/MD) leaves LNK1120 unresolved externals there. x64 host-api uses the DLL CRT, so x64 stays /MD.
+        include:
+          - variant: x64
+            extra: ""
+          - variant: arm64-crt-static
+            extra: "--arm64 --enable_msvc_static_runtime"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Fetch ONNX Runtime 1.24.4
+        shell: pwsh
+        run: |
+          git clone --quiet --depth 1 --branch v1.24.4 https://github.com/microsoft/onnxruntime.git "$env:RUNNER_TEMP\onnxruntime"
+          $commit = git -C "$env:RUNNER_TEMP\onnxruntime" rev-parse HEAD
+          # 与 README 写的提交对得上才编：标签被改过就停下。
+          if ($commit -ne '2d924974ef147392ced8409d36bd6d2e7fcc8a74') { throw "v1.24.4 resolved to $commit" }
+      - name: Build
+        shell: pwsh
+        env:
+          ARCH_FLAGS: ${{ matrix.extra }}
+        run: |
+          python -m pip install --quiet flatbuffers
+          # The windows-2025 image moves between Visual Studio releases (it no longer has 2022), so name the generator of the one it has, as release-windows.yml does. vswhere reports the product line as the major version from Visual Studio 2026 on, so take the full generator name from CMake's own list; ONNX Runtime 1.24.4's build.py accepts both 2022 and 2026.
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $major = ([version](& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationVersion)).Major
+          $generator = @(cmake --help | Select-String -Pattern "Visual Studio $major \d{4}" -AllMatches | ForEach-Object { $_.Matches.Value } | Select-Object -Unique)
+          if ($generator.Count -ne 1) { throw "no single CMake generator for Visual Studio $major" }
+          $generator = $generator[0]
+          Write-Output "CMake generator: $generator"
+          # ONNX Runtime applies its dependency patches with the patch.exe find_package(Patch) picks from PATH. On the runner that is Strawberry Perl's GNU patch 2.5.9, which asserts ("Expression: hunk") on the cpuinfo patch only the arm64 build applies, so name Git for Windows' current GNU patch instead. Only Patch_EXECUTABLE is set: putting Git's usr\bin on PATH would also shadow tools such as link.exe.
+          $patch = (Join-Path $env:ProgramFiles 'Git\usr\bin\patch.exe') -replace '\\', '/'
+          if (-not (Test-Path -LiteralPath $patch -PathType Leaf)) { throw "no GNU patch at $patch" }
+          $config = "$env:GITHUB_WORKSPACE\tools\onnxruntime-minimal\required_operators_and_types.config"
+          $build = "$env:RUNNER_TEMP\build"
+          $arguments = @('tools\ci_build\build.py', '--build_dir', $build, '--config', 'MinSizeRel', '--update', '--build', '--parallel',
+            '--minimal_build', '--disable_ml_ops', '--disable_rtti', '--disable_exceptions', '--skip_tests',
+            '--include_ops_by_config', $config, '--enable_reduced_operator_type_support',
+            '--cmake_generator', $generator,
+            # MSVC 14.5 (Visual Studio 2026) reports size_t-to-int conversions (C4267, C4244) inside ONNX Runtime 1.24.4's own sources, which it builds with /WX. Keep the warnings, drop /WX; the generated code is the same.
+            '--compile_no_warning_as_error',
+            '--cmake_extra_defines', 'CMAKE_POLICY_VERSION_MINIMUM=3.5', 'onnxruntime_BUILD_UNIT_TESTS=OFF', "Patch_EXECUTABLE=$patch",
+            # build.py defaults the debug information format to ProgramDatabase (/Zi) even for MinSizeRel. The compiler PDBs never ship with a static library, so the .debug$S records only bloat it (x64: 374 MB to 111 MB without them) and make every consumer's link warn LNK4099. Empty means no debug information.
+            'CMAKE_MSVC_DEBUG_INFORMATION_FORMAT=')
+          if ($env:ARCH_FLAGS) { $arguments += -split $env:ARCH_FLAGS }
+          Push-Location "$env:RUNNER_TEMP\onnxruntime"
+          python @arguments
+          if ($LASTEXITCODE -ne 0) { throw "build.py failed with exit code $LASTEXITCODE" }
+          Pop-Location
+      - name: Merge into onnxruntime.lib
+        shell: pwsh
+        env:
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $lib = & $vswhere -latest -products * -find 'VC\Tools\MSVC\**\bin\Hostx64\x64\lib.exe' | Select-Object -First 1
+          if (-not $lib) { throw 'lib.exe not found' }
+          $libraries = Get-ChildItem "$env:RUNNER_TEMP\build\MinSizeRel" -Recurse -Filter *.lib |
+            Where-Object { $_.FullName -notmatch 'test|gtest|gmock|benchmark' } | ForEach-Object { $_.FullName }
+          $out = "$env:RUNNER_TEMP\out\windows-$env:VARIANT"
+          New-Item -ItemType Directory -Force $out | Out-Null
+          & $lib /NOLOGO "/OUT:$out\onnxruntime.lib" @libraries
+          if ($LASTEXITCODE -ne 0) { throw "lib.exe failed with exit code $LASTEXITCODE" }
+          python -c "import gzip, shutil, sys; f = gzip.GzipFile(sys.argv[1] + '.gz', 'wb', 9, mtime=0); shutil.copyfileobj(open(sys.argv[1], 'rb'), f); f.close()" "$out\onnxruntime.lib"
+          Get-ChildItem $out | Format-Table Name, Length
+          Get-FileHash -Algorithm SHA256 "$out\*" | Format-Table Hash, Path
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: onnxruntime-minimal-windows-${{ matrix.variant }}
+          path: ${{ runner.temp }}/out/windows-${{ matrix.variant }}/
+          if-no-files-found: error

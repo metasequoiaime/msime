@@ -45,6 +45,7 @@ impl QuanpinEngine {
         // Each setter is a no-op when the value is unchanged, so this costs nothing per keystroke. The association options and the context select the series slot rather than clearing it; only a change of the sentence-alternatives answer clears the cached lists.
         self.dictionary
             .set_sentence_alternatives(request.sentence_alternatives);
+        self.dictionary.set_sentence_pool(request.sentence_pool);
         self.dictionary
             .set_sentence_association(request.sentence_association.clone());
         self.dictionary.set_first_page_rows(request.first_page_rows);

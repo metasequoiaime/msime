@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/path-trust", "crates/client-base", "crates/client-core", "crates/client-providers", "crates/client-services", "crates/engine", "crates/engine-capi", "crates/engine-wasm", "crates/input-runtime", "crates/host-api", "crates/host-windows", "crates/host-macos", "crates/tauri-mobile-platform", "crates/ios-native-ffi", "crates/mcp-server", "crates/dict-builder", "crates/backend-engine", "crates/pack-tool", "crates/script-runtime", "crates/script-sdk", "crates/clipboard-relay", "apps/desktop/src-tauri"]
+members = ["crates/path-trust", "crates/client-base", "crates/client-core", "crates/client-providers", "crates/client-services", "crates/engine", "crates/engine-capi", "crates/engine-wasm", "crates/input-runtime", "crates/onnx-rerank", "crates/host-api", "crates/host-windows", "crates/host-macos", "crates/tauri-mobile-platform", "crates/ios-native-ffi", "crates/mcp-server", "crates/dict-builder", "crates/backend-engine", "crates/pack-tool", "crates/script-runtime", "crates/script-sdk", "crates/clipboard-relay", "apps/desktop/src-tauri"]
 # Everything except the desktop app: a bare `cargo test` should cover the
 # libraries, and msime-desktop needs a built frontend and a packaged platform
 # bundle before its build script will run.
@@ -13,6 +13,7 @@ default-members = [
     "crates/engine-capi",
     "crates/engine-wasm",
     "crates/input-runtime",
+    "crates/onnx-rerank",
     "crates/host-api",
     "crates/host-windows",
     "crates/host-macos",

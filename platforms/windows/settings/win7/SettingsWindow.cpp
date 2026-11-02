@@ -1636,6 +1636,16 @@ struct SettingsWindow::State {
           SendMessageW(count, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(title));
         top += 120;
       }
+      // 「整句联想」的「标准 / 增强」紧跟「本地整句联想」，写共享的 `sentence_association.neural_keyboard`，与现代设置窗口和手机宿主的同名选择一致；不带键盘模型的版本不列。
+      if (field.id == word_lattice && MSIME_EDITION_NEURAL_KEYBOARD != 0) {
+        item(L"STATIC", L"整句联想", SS_LEFT, -1, top, 24);
+        item(L"STATIC", L"更准确，但更耗电。", SS_LEFT, -1, top + 32, 28);
+        const auto level = item(WC_COMBOBOXW, L"整句联想", WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
+            sentence_association_level, top + 70, 160);
+        for (const auto* title : {L"标准", L"增强"})
+          SendMessageW(level, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(title));
+        top += 120;
+      }
     }
     if (SchemeForm::offers("quanpin")) {
       item(L"BUTTON", L"连续多语言输入（实验）", WS_TABSTOP | BS_AUTOCHECKBOX | BS_NOTIFY,
@@ -1684,6 +1694,10 @@ struct SettingsWindow::State {
             candidate_group(preferences, field).value(field.field, field.fallback) ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(GetDlgItem(body, mixed_first_page_count), CB_SETCURSEL,
         preferences.at("mixed_input").value("first_page_count", 1) - 1, 0);
+    // 缺键按默认的「增强」读。
+    if (const auto level = GetDlgItem(body, sentence_association_level))
+      SendMessageW(level, CB_SETCURSEL,
+          preferences.at("sentence_association").value("neural_keyboard", true) ? 1 : 0, 0);
     const auto multilingual = multilingual_document(preferences);
     SendMessageW(GetDlgItem(body, multilingual_enabled), BM_SETCHECK,
         multilingual.at("enabled").get<bool>() ? BST_CHECKED : BST_UNCHECKED, 0);
@@ -1717,6 +1731,9 @@ struct SettingsWindow::State {
         EnableWindow(control, enabled && (field.id == mixed_enabled || std::string_view(field.group) != "mixed_input" || mixed));
     EnableWindow(GetDlgItem(body, mixed_first_page_count), enabled && mixed && snapshot &&
         snapshot->preferences().at("mixed_input").at("english").get<bool>());
+    // 逐键重排不看词网格开没开（host-api `keyboard_reranker_enabled`），「本地整句联想」关着时「标准 / 增强」照样可选，与共享设置页、现代设置窗口相同。
+    if (const auto level = GetDlgItem(body, sentence_association_level))
+      EnableWindow(level, enabled && snapshot);
     EnableWindow(GetDlgItem(body, multilingual_enabled), enabled);
     const bool multilingual = snapshot && multilingual_document(snapshot->preferences()).at("enabled").get<bool>();
     for (const auto& option : multilingual_options)
@@ -1986,6 +2003,9 @@ struct SettingsWindow::State {
       }
       if (!group.at(field.field).is_boolean()) return false;
     }
+    // 「整句联想」的「标准 / 增强」：缺键按默认的开读，有就必须是布尔值。
+    const auto& association = preferences.at("sentence_association");
+    if (association.contains("neural_keyboard") && !association.at("neural_keyboard").is_boolean()) return false;
     const auto& mixed = preferences.at("mixed_input");
     if (mixed.contains("first_page_count") && !mixed.at("first_page_count").is_number_integer()) return false;
     if (mixed.value("first_page_count", 1) < 1 || mixed.value("first_page_count", 1) > 3) return false;
@@ -2949,6 +2969,12 @@ struct SettingsWindow::State {
       const auto selected = SendMessageW(GetDlgItem(body, id), CB_GETCURSEL, 0, 0);
       if (selected < 0 || selected > 2) return;
       job.changes.push_back({{"mixed_input", "first_page_count"}, selected + 1});
+    } else if (id == sentence_association_level && HIWORD(command) == CBN_SELCHANGE) {
+      const auto control = GetDlgItem(body, id);
+      if (!control || !IsWindowEnabled(control)) return;
+      const auto selected = SendMessageW(control, CB_GETCURSEL, 0, 0);
+      if (selected < 0 || selected > 1) return;
+      job.changes.push_back({{"sentence_association", "neural_keyboard"}, selected == 1});
     } else if (id >= multilingual_enabled && id <= multilingual_japanese && HIWORD(command) == BN_CLICKED) {
       const auto control = GetDlgItem(body, id);
       if (!snapshot || !control || !IsWindowEnabled(control)) return;

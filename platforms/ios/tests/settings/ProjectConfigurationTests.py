@@ -244,6 +244,24 @@ class ProjectConfigurationTests(unittest.TestCase):
             self.assertEqual(generated.count(f"{licence} in Resources"), 2, licence)
             self.assertIn(f'LicenseNotice(file: "{licence.removesuffix(".txt")}"', about)
 
+    def test_app_ships_the_licence_and_attribution_of_the_keystroke_rerank_models(self):
+        # 键盘扩展随包带着逐键重排的两档模型（chinese-ime-lm 的 rerank-v1，Apache-2.0）。Apache-2.0 第 4(a)、4(d) 条要求随副本附上许可证全文和上游 NOTICE，训练语料要求署名随权重传播；共用的 rerank-model-Apache-2.0.txt 三样都有。键盘扩展只随 App 一起安装，所以它作为 App 的资源分发，关于页列出；键盘扩展不带第二份。
+        project = (IOS_ROOT / "project.yml").read_text()
+        targets = dict(target_blocks(project))
+        generated = (IOS_ROOT / "MSIMEClient.xcodeproj/project.pbxproj").read_text()
+        about = (IOS_ROOT / "App/Sources/settings/AboutAndDownloadViews.swift").read_text()
+        licence = "rerank-model-Apache-2.0.txt"
+        path = f"../../resources/licenses/{licence}"
+        blocks = source_path_blocks(targets["MSIMEApp"], path)
+        self.assertEqual(len(blocks), 1)
+        self.assertIn("buildPhase: resources", blocks[0])
+        text = (IOS_ROOT / path).read_text()
+        for phrase in ("releases/tag/rerank-v1", "Copyright 2026 chinese-ime-lm contributors", "FineWeb-2 (cmn_Hani) (ODC-BY", "Version 2.0, January 2004", "END OF TERMS AND CONDITIONS"):
+            self.assertIn(phrase, text)
+        self.assertEqual(generated.count(f"{licence} in Resources"), 2)
+        self.assertIn(f'LicenseNotice(file: "{licence.removesuffix(".txt")}"', about)
+        self.assertEqual(source_path_blocks(targets["MSIMEKeyboardExtension"], path), [])
+
     def test_app_ships_the_gpl_text_of_the_app_and_the_pinyin_dictionary(self):
         # 水杉输入法本身是 GPL-3.0-only，键盘扩展 EngineResources 里的 msime-pinyin.db 含 rime-ice 的 GPL-3.0 数据，GPL-3.0 要求随目标代码附上许可证全文。键盘扩展只随 App 一起安装，所以全文作为 App 的资源分发：仓库根目录的 LICENSE 原样进 bundle，关于页按没有扩展名的 LICENSE 找它，排在第一项。
         project = (IOS_ROOT / "project.yml").read_text()
@@ -457,6 +475,26 @@ class ProjectConfigurationTests(unittest.TestCase):
         project = (IOS_ROOT / "MSIMEClient.xcodeproj/project.pbxproj").read_text()
         self.assertIn("path = HelpAndFeedbackViews.swift", project)
         self.assertEqual(project.count("HelpAndFeedbackViews.swift in Sources"), 2)
+
+    def test_keyboard_ships_the_onnx_rerank_backend_and_both_models(self):
+        # 整句联想「增强」的逐键重排：host 库打开 onnx-rerank、链接按锁下载的精简 ONNX Runtime，两档模型暂存在 EngineResources 旁边（资源目录本身要与词库锁逐项相符），键盘扩展把它们作为文件夹打包，build-app.sh 核对它们真的进了扩展。
+        native = (IOS_ROOT / "build-native.sh").read_text()
+        self.assertIn('scripts/fetch_onnxruntime.py" --target "$rust_target"', native)
+        self.assertIn('ORT_LIB_LOCATION="$ort_location"', native)
+        self.assertIn("cargo build -p msime-host-api --features onnx-rerank", native)
+        staging = (IOS_ROOT / "stage-resources.sh").read_text()
+        self.assertIn('scripts/fetch_rerank_model.py', staging)
+        project = (IOS_ROOT / "project.yml").read_text()
+        keyboard = dict(target_blocks(project))["MSIMEKeyboardExtension"]
+        app = (IOS_ROOT / "build-app.sh").read_text()
+        for directory in ("rerank-model", "rerank-model-small"):
+            blocks = source_path_blocks(keyboard, f"../../target/ios/{directory}")
+            self.assertEqual(len(blocks), 1, directory)
+            self.assertIn("buildPhase: resources", blocks[0])
+            self.assertIn("type: folder", blocks[0])
+            self.assertIn(f'"$repo_root/target/ios/{directory}"', staging.replace("$directory", directory))
+        self.assertIn("for directory in rerank-model rerank-model-small; do", app)
+        self.assertIn('[ -s "$keyboard_bundle/$directory/$name" ]', app)
 
     def test_host_library_links_before_the_system_sqlite(self):
         # The host library carries rusqlite's bundled SQLite. Linked after $(inherited) (MLKit's -l"sqlite3") or -lsqlite3, the Xcode 27 SDK binds every sqlite3_* to /usr/lib/libsqlite3.dylib, and sqlite3_set_errmsg does not exist there before iOS 27.

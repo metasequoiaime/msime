@@ -10,7 +10,7 @@ struct ExpressionSettingsView: View {
   @State private var paired = true
   @State private var smart = true
   @State private var lock = "follow"
-  @State private var sentenceLevel = SentenceAssociationPreference.Level.standard
+  @State private var sentenceLevel = SentenceAssociationPreference.Level.enhanced
   @State private var nextWordPrediction = false
   @State private var predictionButtons = NextWordPredictionButtons.expandOnly
   @State private var failedGroup: PageGroup?
