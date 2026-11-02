@@ -3658,6 +3658,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean previousCandidateGloss = candidateEnglishGloss;
         boolean previousCandidatePronunciation = candidatePronunciationEnabled;
         String previousSpellingPosition = spellingPosition;
+        boolean previousCandidatePageNumber = candidatePageNumberShown;
         boolean previousCandidateTranslations = candidateTranslationsEnabled;
         boolean previousCandidateTranslationAccount = candidateTranslationAccount;
         CandidateTranslationRoute previousCandidateTranslationRoute = candidateTranslationRoute;
@@ -3695,6 +3696,7 @@ public final class MSIMEInputService extends InputMethodService {
                 || previousCandidateGloss != candidateEnglishGloss
                 || previousCandidatePronunciation != candidatePronunciationEnabled
                 || !previousSpellingPosition.equals(spellingPosition)
+                || previousCandidatePageNumber != candidatePageNumberShown
                 || previousCandidateTranslations != candidateTranslationsEnabled
                 || previousCandidateTranslationAccount != candidateTranslationAccount
                 || !previousCandidateTranslationRoute.equals(candidateTranslationRoute)
@@ -3873,6 +3875,7 @@ public final class MSIMEInputService extends InputMethodService {
         candidateFontSize = nextFontSize;
         candidatePreeditFontSize = nextPreeditFontSize;
         candidateScalePercent = nextScalePercent;
+        candidatePageNumberShown = CandidatePageLabelPolicy.shown(preferences.opt(CandidatePageLabelPolicy.PREFERENCE));
         spellingPosition = nextSpellingPosition;
         touchKeySpacingTenths = nextKeySpacing;
         touchRowSpacingTenths = nextRowSpacing;
