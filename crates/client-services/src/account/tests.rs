@@ -1765,6 +1765,61 @@ fn account_dictionary_transport_maps_flattened_responses() {
     assert_eq!(changes.next, 44);
     assert!(!changes.has_more);
 
+    // 更新的版本加的词库种类（新世纪五笔 `wubixsj`）这一版不认识：那一侧读成没有，改动和修订号照常保留，认识的那一侧照常读出。
+    let entry = |kind: &str, revision: i64| {
+        serde_json::json!({
+            "id": "a".repeat(64),
+            "kind": kind,
+            "code": "ent",
+            "word": "力",
+            "weight": 10,
+            "revision": revision,
+        })
+    };
+    let changes_body = serde_json::json!({
+        "changes": [
+            {"revision": 44, "previous": null, "replacement": entry("wubixsj", 44)},
+            {"revision": 45, "previous": entry("wubixsj", 44), "replacement": entry("wubi", 45)},
+        ],
+        "next": 45,
+        "has_more": false
+    })
+    .to_string();
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{}",
+        changes_body.len(),
+        changes_body
+    );
+    let client = BackendAccountClient::loopback(&serve_once(response.into_bytes())).unwrap();
+    let changes = client.dictionary_changes(43, 2, &token(b'a')).unwrap();
+    assert_eq!(changes.next, 45);
+    assert_eq!(changes.changes.len(), 2);
+    assert_eq!(changes.changes[0].revision, 44);
+    assert_eq!(changes.changes[0].replacement, None);
+    assert_eq!(changes.changes[1].previous, None);
+    assert_eq!(
+        changes.changes[1]
+            .replacement
+            .as_ref()
+            .map(|entry| entry.kind),
+        Some(DictionaryKind::Wubi)
+    );
+    // 种类不是字符串仍是不合规的响应。
+    let malformed = serde_json::json!({
+        "changes": [{"revision": 44, "previous": null, "replacement": entry("wubi", 44)}],
+        "next": 44,
+        "has_more": false
+    })
+    .to_string()
+    .replace(r#""kind":"wubi""#, r#""kind":7"#);
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{}",
+        malformed.len(),
+        malformed
+    );
+    let client = BackendAccountClient::loopback(&serve_once(response.into_bytes())).unwrap();
+    assert!(client.dictionary_changes(43, 1, &token(b'a')).is_err());
+
     let snapshot = b"{\"type\":\"header\"}\n".to_vec();
     let response = format!(
         "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/x-ndjson\r\n\r\n",
