@@ -137,7 +137,9 @@ fn validate_entry(
                 return invalid(SYLLABLE_COUNT_MISMATCH);
             }
         }
-        PersonalDictionaryKind::Wubi | PersonalDictionaryKind::Wubi98 => {
+        PersonalDictionaryKind::Wubi
+        | PersonalDictionaryKind::Wubi98
+        | PersonalDictionaryKind::WubiXsj => {
             if key.len() > 4 || !key.bytes().all(letters) {
                 return invalid(INVALID_WUBI_CODE);
             }
@@ -483,7 +485,9 @@ fn bundled_entry_present(connection: &Connection, entry: &PersonalDictionaryEntr
             };
             ("main", table, "key", "value")
         }
-        PersonalDictionaryKind::Wubi | PersonalDictionaryKind::Wubi98 => {
+        PersonalDictionaryKind::Wubi
+        | PersonalDictionaryKind::Wubi98
+        | PersonalDictionaryKind::WubiXsj => {
             let Some(table) = entry.kind.wubi_table() else {
                 return Ok(false);
             };
@@ -779,7 +783,9 @@ fn apply_personal_edit(
         PersonalDictionaryKind::Pinyin => {
             apply_pinyin(connection, key_bytes, value_bytes, remove, weight)?
         }
-        PersonalDictionaryKind::Wubi | PersonalDictionaryKind::Wubi98 => apply_simple(
+        PersonalDictionaryKind::Wubi
+        | PersonalDictionaryKind::Wubi98
+        | PersonalDictionaryKind::WubiXsj => apply_simple(
             connection,
             entry.kind.wubi_table().unwrap_or_default(),
             key_bytes,
@@ -912,7 +918,9 @@ mod tests {
                 assets::ENGLISH_DICTIONARY,
                 "SELECT count(*) FROM english_words WHERE word=?1 AND display=?2".to_owned(),
             ),
-            PersonalDictionaryKind::Wubi | PersonalDictionaryKind::Wubi98 => (
+            PersonalDictionaryKind::Wubi
+            | PersonalDictionaryKind::Wubi98
+            | PersonalDictionaryKind::WubiXsj => (
                 assets::MAIN_DICTIONARY,
                 format!(
                     "SELECT count(*) FROM {} WHERE key=?1 AND value=?2",
@@ -1075,6 +1083,7 @@ mod tests {
             (entry(Wubi, "abcde", "词", 1), INVALID_WUBI_CODE),
             (entry(Wubi, "ab1", "词", 1), INVALID_WUBI_CODE),
             (entry(Wubi98, "abcde", "词", 1), INVALID_WUBI_CODE),
+            (entry(WubiXsj, "abcde", "词", 1), INVALID_WUBI_CODE),
             (
                 entry(QuickPhrase, "bad;code", "text", 1),
                 INVALID_QUICK_PHRASE_CODE,
@@ -1375,7 +1384,7 @@ mod tests {
         let journal = paths.user(assets::USER_JOURNAL);
         ensure_user_database(&journal).unwrap();
         let connection = open_database(&journal, OpenFlags::SQLITE_OPEN_READ_WRITE).unwrap();
-        for kind in [Pinyin, Wubi, QuickPhrase, English, Wubi98] {
+        for kind in [Pinyin, Wubi, QuickPhrase, English, Wubi98, WubiXsj] {
             for (key, value, weight) in [
                 ("a", "合成甲", 11),
                 ("a", "合成乙", 12),
@@ -1397,7 +1406,7 @@ mod tests {
              ('japanese','a','合成未知','upsert',23,1);",
         ).unwrap();
         drop(connection);
-        for kind in [Pinyin, Wubi, QuickPhrase, English, Wubi98] {
+        for kind in [Pinyin, Wubi, QuickPhrase, English, Wubi98, WubiXsj] {
             let mut expected = vec![
                 entry(kind, "a", "合成乙", 12),
                 entry(kind, "a", "合成甲", 11),
@@ -1524,7 +1533,12 @@ mod tests {
             &paths.dictionary(assets::MAIN_DICTIONARY),
             "INSERT INTO wubi86 VALUES('abcd','甲',100),('efgh','乙',100),('abef','占位',1);",
         );
-        assert!(crate::user_dictionary::wubi_learning::learn(&paths, "甲乙").unwrap());
+        assert!(crate::user_dictionary::wubi_learning::learn(
+            &paths,
+            "甲乙",
+            crate::WubiProfileKind::Wubi86
+        )
+        .unwrap());
         let listed = || {
             personal_dictionary_entries(&paths, 0, 10, false)
                 .unwrap()
@@ -1548,7 +1562,12 @@ mod tests {
             &paths.user(assets::USER_JOURNAL),
             "DELETE FROM user_dictionary_operations",
         );
-        assert!(crate::user_dictionary::wubi_learning::learn(&paths, "甲乙").unwrap());
+        assert!(crate::user_dictionary::wubi_learning::learn(
+            &paths,
+            "甲乙",
+            crate::WubiProfileKind::Wubi86
+        )
+        .unwrap());
         assert_eq!(listed(), vec![derived.clone()]);
         edit_personal_dictionary(&paths, Some(&derived), None, "remove").unwrap();
         assert!(listed().is_empty());

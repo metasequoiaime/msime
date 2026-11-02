@@ -413,7 +413,8 @@ impl InputSession {
     ) -> Result<()> {
         self.canonical_phrase_engine()
             .create_word_from_canonical_pinyin(pinyin, word)?;
-        if crate::user_dictionary::wubi_learning::learn(&self.paths, word)? {
+        let profile = self.engine.wubi_input_options().profile;
+        if crate::user_dictionary::wubi_learning::learn(&self.paths, word, profile)? {
             self.engine.reset_cache();
         }
         Ok(())

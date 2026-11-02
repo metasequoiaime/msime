@@ -670,16 +670,16 @@ pub fn merge_dictionary_state(
                         PersonalDictionaryKind::Pinyin => {
                             apply_pinyin(&transaction, key_bytes, value_bytes, *deleted, *weight)
                         }
-                        PersonalDictionaryKind::Wubi | PersonalDictionaryKind::Wubi98 => {
-                            apply_simple(
-                                &transaction,
-                                kind.wubi_table().unwrap_or_default(),
-                                key_bytes,
-                                value_bytes,
-                                *deleted,
-                                *weight,
-                            )
-                        }
+                        PersonalDictionaryKind::Wubi
+                        | PersonalDictionaryKind::Wubi98
+                        | PersonalDictionaryKind::WubiXsj => apply_simple(
+                            &transaction,
+                            kind.wubi_table().unwrap_or_default(),
+                            key_bytes,
+                            value_bytes,
+                            *deleted,
+                            *weight,
+                        ),
                         PersonalDictionaryKind::QuickPhrase => apply_simple(
                             &transaction,
                             "quick_parases",

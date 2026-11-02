@@ -130,6 +130,7 @@ pub fn dictionary_table_entries(
             // 五笔与英文编码按小写存储，前缀范围可以使用主索引。
             PersonalDictionaryKind::Wubi
             | PersonalDictionaryKind::Wubi98
+            | PersonalDictionaryKind::WubiXsj
             | PersonalDictionaryKind::English => (
                 format!("{key_column}>=?1 AND {key_column}<?3"),
                 format!("{key_column}=?1"),
@@ -382,9 +383,9 @@ pub fn edit_bundled_dictionary_entry_with(
 fn bundled_table(kind: PersonalDictionaryKind, key: &str) -> Option<String> {
     match kind {
         PersonalDictionaryKind::Pinyin => pinyin_table(key),
-        PersonalDictionaryKind::Wubi | PersonalDictionaryKind::Wubi98 => {
-            kind.wubi_table().map(str::to_owned)
-        }
+        PersonalDictionaryKind::Wubi
+        | PersonalDictionaryKind::Wubi98
+        | PersonalDictionaryKind::WubiXsj => kind.wubi_table().map(str::to_owned),
         PersonalDictionaryKind::QuickPhrase => Some("quick_parases".to_owned()),
         PersonalDictionaryKind::English => Some("english_words".to_owned()),
     }
@@ -401,6 +402,7 @@ fn lookup_tables(kind: PersonalDictionaryKind, code: &str, word_search: bool) ->
         PersonalDictionaryKind::Pinyin => (format::MAXIMUM_NUMBERED_SYLLABLES + 1) * initials.len(),
         PersonalDictionaryKind::Wubi
         | PersonalDictionaryKind::Wubi98
+        | PersonalDictionaryKind::WubiXsj
         | PersonalDictionaryKind::QuickPhrase
         | PersonalDictionaryKind::English => 1,
     };
@@ -415,9 +417,9 @@ fn lookup_tables(kind: PersonalDictionaryKind, code: &str, word_search: bool) ->
                 }
             }
         }
-        PersonalDictionaryKind::Wubi | PersonalDictionaryKind::Wubi98 => {
-            tables.extend(kind.wubi_table().map(str::to_owned))
-        }
+        PersonalDictionaryKind::Wubi
+        | PersonalDictionaryKind::Wubi98
+        | PersonalDictionaryKind::WubiXsj => tables.extend(kind.wubi_table().map(str::to_owned)),
         PersonalDictionaryKind::QuickPhrase => tables.push("quick_parases".to_owned()),
         PersonalDictionaryKind::English => tables.push("english_words".to_owned()),
     }
