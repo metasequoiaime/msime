@@ -30,9 +30,8 @@ jobs:
       - name: Build the official plugin packs
         run: |
           set -euo pipefail
-          # 安装 rust-toolchain.toml 钉住的工具链，再给它加上 wasm 目标。
-          rustup toolchain install
-          rustup target add wasm32-unknown-unknown
+          # 安装 rust-toolchain.toml 钉住的工具链，再给它加上 wasm 目标；联网失败时重试，见脚本开头。
+          bash scripts/rustup-install.sh wasm32-unknown-unknown
           bash scripts/build-official-plugins.sh
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -210,7 +209,7 @@ jobs:
           name: official-plugin-packs-macos
           path: target/plugin-packs
       - name: Add the Rust targets for the universal package
-        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+        run: bash scripts/rustup-install.sh aarch64-apple-darwin x86_64-apple-darwin
       - name: Build macOS package
         env:
           VERSION: "${{ steps.version.outputs.value }}"
