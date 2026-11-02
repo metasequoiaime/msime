@@ -424,7 +424,7 @@ MDBG 每天用新导出覆盖同一个地址（`https://www.mdbg.net/chinese/exp
 - **Apache-2.0 第 4(a) 条要求附上许可证全文，第 4(d) 条要求带上上游的 NOTICE。** 上游是 `chinese-ime-lm` 仓库的 `NOTICE` 和 `reference/LICENSE`（仓库根目录的 `LICENSE` 是 GPL-3.0，管的是训练代码，不是权重）。
 - **训练语料要求署名随权重传播。** 中文 C4 与 FineWeb-2 中文部分是 ODC-BY，LCCC 是 MIT。署名写在每个 `lm_step.ort` 的图元数据 `attribution` 和每个 `model.json` 的 `attribution` 字段里，原样随模型安装；锁定的两份 `model.json` 里这句话一字不差：`Trained on the Chinese portion of C4 (ODC-BY, https://huggingface.co/datasets/allenai/c4), FineWeb-2 (cmn_Hani) (ODC-BY, https://huggingface.co/datasets/HuggingFaceFW/fineweb-2) and LCCC (MIT, https://github.com/thu-coai/CDial-GPT).`
 
-三样东西放在同一份文件里：[`resources/licenses/rerank-model-Apache-2.0.txt`](../resources/licenses/rerank-model-Apache-2.0.txt)。开头一段写来源、两档模型的 `lm_step.ort` SHA-256 和上面那句语料署名，后面是上游 NOTICE 和 Apache-2.0 全文，两段与上游逐字相同。各平台照它们收别的许可证的方式收这一份，装出来的文件名都叫 `rerank-model-Apache-2.0.txt`。`scripts/test-rerank-model-notice.py` 核对这份文件、锁和各平台的声明渠道：哪个平台的打包脚本取了模型（脚本里出现 `fetch_rerank_model.py` 或 `rerank-model.lock.json`），它的声明渠道就必须带上这份文件。
+三样东西放在同一份文件里：[`resources/licenses/rerank-model-Apache-2.0.txt`](../resources/licenses/rerank-model-Apache-2.0.txt)。开头一段写来源、两档模型的 `lm_step.ort` SHA-256 和上面那句语料署名，后面是上游 NOTICE 和 Apache-2.0 全文，两段与上游逐字相同。各平台照它们收别的许可证的方式收这一份，装出来的文件名都叫 `rerank-model-Apache-2.0.txt`。`scripts/test-model-notices.py`（与上面整句重排模型共用，`MODELS` 里的 `rerank-v1` 一项）核对这份文件、锁和各平台的声明渠道：哪个平台的打包脚本取了模型（脚本里出现 `fetch_rerank_model.py` 或 `rerank-model.lock.json`），它的声明渠道就必须带上这份文件。
 
 | 文件 | 来源 | 长度 | SHA-256 |
 | --- | --- | --- | --- |
