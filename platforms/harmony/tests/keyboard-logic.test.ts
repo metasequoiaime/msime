@@ -2827,7 +2827,13 @@ group("五笔只有一个方案，标题和角标跟随 wubi_profile", () => {
   check(KeyboardScheme.normalizedWubiProfile("wubi98") === "wubi98", "wubi98 保持原样");
   check(KeyboardScheme.normalizedWubiProfile("wubi86") === "wubi86", "wubi86 保持原样");
   check(KeyboardScheme.normalizedWubiProfile(undefined) === "wubi86", "缺省按 86 版");
+  check(KeyboardScheme.normalizedWubiProfile("wubixsj") === "wubixsj", "wubixsj 保持原样");
   check(KeyboardScheme.normalizedWubiProfile("WUBI98") === "wubi86", "未知值按 86 版");
+  check(
+    KeyboardScheme.normalizedWubiProfile("wubi06") === "wubi86" &&
+      KeyboardScheme.normalizedWubiProfile("WUBIXSJ") === "wubi86",
+    "像新世纪的未知值也按 86 版",
+  );
   check(
     KeyboardScheme.title(KeyboardScheme.WUBI, "wubi98") === "98 五笔" &&
       KeyboardScheme.badge(KeyboardScheme.WUBI, "wubi98") === "98",
@@ -2839,6 +2845,24 @@ group("五笔只有一个方案，标题和角标跟随 wubi_profile", () => {
     "86 版和缺省显示「86 五笔」和「86」",
   );
   check(
+    KeyboardScheme.title(KeyboardScheme.WUBI, "wubixsj") === "新世纪五笔" &&
+      KeyboardScheme.badge(KeyboardScheme.WUBI, "wubixsj") === "新",
+    "新世纪版显示「新世纪五笔」和「新」",
+  );
+  check(
+    KeyboardScheme.title(KeyboardScheme.WUBI, "wubi06") === "86 五笔" &&
+      KeyboardScheme.badge(KeyboardScheme.WUBI, "wubi06") === "86",
+    "不认识的版本显示成 86 版",
+  );
+  check(
+    KeyboardScheme.wubiSpaceLabel("wubi86") === "五笔 86" &&
+      KeyboardScheme.wubiSpaceLabel("wubi98") === "五笔 98" &&
+      KeyboardScheme.wubiSpaceLabel("wubixsj") === "五笔 新世纪" &&
+      KeyboardScheme.wubiSpaceLabel(undefined) === "五笔 86" &&
+      KeyboardScheme.wubiSpaceLabel("wubi06") === "五笔 86",
+    "空格键上写「五笔 86」「五笔 98」「五笔 新世纪」，未知值写 86",
+  );
+  check(
     KeyboardScheme.SCHEMES.filter((scheme) => scheme.engineScheme === "wubi").length === 1,
     "方案列表里仍只有一个五笔入口",
   );
@@ -2847,7 +2871,9 @@ group("五笔只有一个方案，标题和角标跟随 wubi_profile", () => {
       (scheme) =>
         scheme === KeyboardScheme.WUBI ||
         (KeyboardScheme.title(scheme, "wubi98") === scheme.title &&
-          KeyboardScheme.badge(scheme, "wubi98") === scheme.badge),
+          KeyboardScheme.badge(scheme, "wubi98") === scheme.badge &&
+          KeyboardScheme.title(scheme, "wubixsj") === scheme.title &&
+          KeyboardScheme.badge(scheme, "wubixsj") === scheme.badge),
     ),
     "其它方案不受五笔版本影响",
   );
@@ -8717,13 +8743,21 @@ group(
 group(
   "显示字母键角标 is a device switch in the feedback file, on unless turned off, as on Android (#10587)",
   () => {
-    check(KeyboardFeedback.DEFAULTS.letterCornerHints === true, "a keyboard that never saw it draws the corner symbols");
+    check(
+      KeyboardFeedback.DEFAULTS.letterCornerHints === true,
+      "a keyboard that never saw it draws the corner symbols",
+    );
     const old = KeyboardFeedback.parse(
       JSON.stringify({ sound: true, haptics: false, strength: "light", swipeSymbols: false }),
     );
     check(old.letterCornerHints === true, "a file written before it existed reads as on");
     const hidden = KeyboardFeedback.parse(
-      JSON.stringify({ sound: false, haptics: false, strength: "medium", letterCornerHints: false }),
+      JSON.stringify({
+        sound: false,
+        haptics: false,
+        strength: "medium",
+        letterCornerHints: false,
+      }),
     );
     check(
       hidden.letterCornerHints === false && hidden.swipeSymbols === true,
@@ -8734,10 +8768,14 @@ group(
       "and survives being written again",
     );
     check(
-      KeyboardFeedback.parse(JSON.stringify({ letterCornerHints: "no" })).letterCornerHints === true,
+      KeyboardFeedback.parse(JSON.stringify({ letterCornerHints: "no" })).letterCornerHints ===
+        true,
       "a value that is not a boolean falls back to on",
     );
-    check(KeyboardFeedbackBridge.toShared(hidden).letterCornerHints === false, "the page is shown it as stored");
+    check(
+      KeyboardFeedbackBridge.toShared(hidden).letterCornerHints === false,
+      "the page is shown it as stored",
+    );
     check(
       KeyboardFeedbackBridge.fromShared(
         { soundEnabled: false, hapticsEnabled: false, hapticStrength: "medium" },
@@ -8747,7 +8785,12 @@ group(
     );
     check(
       KeyboardFeedbackBridge.fromShared(
-        { soundEnabled: false, hapticsEnabled: false, hapticStrength: "medium", letterCornerHints: true },
+        {
+          soundEnabled: false,
+          hapticsEnabled: false,
+          hapticStrength: "medium",
+          letterCornerHints: true,
+        },
         hidden,
       ).letterCornerHints === true,
       "a page save turns it back on",
