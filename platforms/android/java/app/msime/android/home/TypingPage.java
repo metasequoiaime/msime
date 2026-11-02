@@ -74,7 +74,7 @@ public final class TypingPage extends ReloadingDetailPage {
         ZHUYIN("注", "注音", KeyboardScheme.ZHUYIN, KeyboardScheme.ZHUYIN_NINE_KEY),
         STROKE("笔", "笔画", KeyboardScheme.STROKE),
         HANDWRITING("写", "手写", KeyboardScheme.HANDWRITING),
-        CANTONESE("粤", "粤拼", KeyboardScheme.CANTONESE),
+        CANTONESE("粤", "粤拼", KeyboardScheme.CANTONESE, KeyboardScheme.CANTONESE_SHUANGPIN),
         JAPANESE("あ", "日语", KeyboardScheme.JAPANESE, KeyboardScheme.JAPANESE_NINE_KEY),
         KOREAN("한", "韩语", KeyboardScheme.KOREAN),
         VIETNAMESE("越", "越南语", KeyboardScheme.VIETNAMESE),
@@ -550,6 +550,7 @@ public final class TypingPage extends ReloadingDetailPage {
         return switch (scheme) {
             case QUANPIN, QUANPIN_FOURTEEN_KEY, QUANPIN_EIGHTEEN_KEY, QUANPIN_NINE_KEY -> scheme.title();
             case CANTONESE -> "粤拼";
+            case CANTONESE_SHUANGPIN -> "粤语双拼";
             case WUBI -> scheme.title(InputViewValuePolicy.textOr(preferences, "wubi_profile", KeyboardScheme.WUBI_86));
             case JAPANESE -> "26 键";
             case JAPANESE_NINE_KEY -> "9 键";
