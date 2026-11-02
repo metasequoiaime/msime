@@ -881,6 +881,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     inputView = KeyboardInputView(frame: .zero, inputViewStyle: .keyboard)
   }
 
+  /// 把整棵键盘视图从输入视图上摘下来，控制器一走它们就跟着释放。
+  ///
+  /// iOS 27 上任何 `UIInputView` 都释放不掉：它和 UIKit 自己挂上的 `_UIInputViewContent` 互相强引用（`_leftContentView` 与 `_inputView`），连一个刚建好、从没进过窗口的 `UIInputView` 也是这样，控制器释放了它也还在。挂在它下面的按键、候选条、皮肤图片因此一起留下：系统每换一个宿主应用就新建一个控制器，同一个键盘进程里每重新加载一次键盘就多留一整套，2026-11-02 在 iPhone 17 上每次 10 MB 左右，五六次后键盘扩展碰到 176 MB 的上限被系统结束。子视图摘下后照常释放，留下的只有那个空壳，约 2 KB。
+  ///
+  /// UIKit 总在主线程上释放视图控制器，所以这里可以按主线程执行。
+  deinit {
+    MainActor.assumeIsolated {
+      viewIfLoaded?.subviews.forEach { $0.removeFromSuperview() }
+    }
+  }
+
   override func viewDidLoad() {
     super.viewDidLoad()
     registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitHorizontalSizeClass.self]) {
@@ -914,6 +925,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     incognito = KeyboardPrivacyPreference.incognito
     readGesturePreferences()
     configureDiagnosticLog()
+    DiagnosticLog.forwardHostLines()
     DiagnosticLog.shared.write("keyboard_loaded full_access=\(hasFullAccess ? 1 : 0) idiom=\(UIDevice.current.userInterfaceIdiom == .pad ? "pad" : "phone") base=\(DiagnosticLog.MemorySample.mebibytes(launchMemory.footprint)) session=\(DiagnosticLog.MemorySample.mebibytes(sessionMemory.footprint)) \(loadedMemory.fields)")
     if session.initializationFailed { DiagnosticLog.shared.write("runtime_initialization_failed") }
     // 音标表在不在决定顶栏多不多留一行，第一帧之前就要知道。

@@ -409,6 +409,46 @@ MDBG 每天用新导出覆盖同一个地址（`https://www.mdbg.net/chinese/exp
 | --- | --- | --- |
 | LaTeX 命令名到 Unicode 码位的对照（369 条） | MIT（本项目） | `plugins/phrase_table/latex-symbols/symbols.tsv` 由本项目编写，命令名取自 LaTeX 内核、amssymb、amsmath、latexsym、stmaryrd、mathtools、gensymb 和 textcomp 的公开文档，名字与码位的对应是事实，不照录任何受版权保护的表：不用 unicode-math 的 `unicode-math-table.tex`（LPPL）、fcitx5 的 `latex.mb`（LGPL）或 Julia 的 `latex_symbols.jl`（许可未核实）。`plugins/phrase_table/tools/gen_latex_symbols.py` 生成包里的 `plugin.toml` |
 
+## 按键重排的 ONNX 后端（`crates/onnx-rerank`）
+
+宿主打开 `onnx-rerank` 特性时才编进来，默认构建不带；iOS 键盘扩展和 Android 的构建打开它，macOS 的发布包与 CI 也打开它，库链进输入法和 `msime-mcp`，两档模型在输入法 bundle 的 `Contents/rerank-model`、`Contents/rerank-model-small`，许可证随输入法的 `Contents/Resources/Licenses`；Windows 的 x64 宿主 DLL（`msime_host_api.dll`，Server 加载它跑逐键重排）也打开它（见 `.agents/notes/implemented/architecture/2026-11-01-onnx-rerank-backend.md`）。Windows 安装包的 `THIRD_PARTY_NOTICES.txt` 由 `platforms/windows/Collect-Notices.ps1` 收进下面这份 ONNX Runtime 的许可证与第三方通知，`ort` / `ort-sys` 的声明由 `collect-notices.py cargo … msime-host-api:onnx-rerank` 收集。Android 的 APK 只带链进 `libmsime_host_api.so` 的运行库，模型（6x256）是用户选「增强」时下载的资源包；它沿用 APK 里已有的 ONNX Runtime 许可证与第三方通知（`assets/native-notices/<ABI>/onnxruntime.txt`、`onnxruntime-third-party.txt`）。
+
+| 组件 | 许可证 | 说明 |
+| --- | --- | --- |
+| [microsoft/onnxruntime](https://github.com/microsoft/onnxruntime) 1.24.4（提交 `2d924974ef147392ced8409d36bd6d2e7fcc8a74`） | MIT | 按 `tools/onnxruntime-minimal/required_operators_and_types.config` 精简构建的静态库，链进宿主。本仓库自己编、作为 Release `onnxruntime-minimal-1.24.4-r2` 的附件发布（r1 的附件原样带过来，补上 Linux x86_64），`resources/onnxruntime-minimal.lock.json` 按目标三元组固定，`scripts/fetch_onnxruntime.py` 下载核对。分发时要带它的许可证与第三方通知：`resources/licenses/onnxruntime-MIT.txt` 与 1.24.4 的相同；`resources/licenses/onnxruntime-ThirdPartyNotices.txt` 是 1.31.0 的，包含 1.24.4 那份的全部内容（另多 Mbed TLS 与 cpp_client_telemetry 两节） |
+| `ort` / `ort-sys` 2.0.0-rc.15 | MIT OR Apache-2.0 | ONNX Runtime 的 Rust 绑定，关掉默认特性、`api-24` |
+| 按键重排模型 `rerank-v1`（8x448 与 6x256，ORT 格式） | Apache-2.0 | 来源：GitHub Release [`metasequoiaime/chinese-ime-lm` 的 `rerank-v1`](https://github.com/metasequoiaime/chinese-ime-lm/releases/tag/rerank-v1)（文件名带尺寸前缀，如 `rerank-8x448.ort`），同一批文件也在 Hugging Face：[`msime/pinyin-ime-keystroke-reranker-25M`](https://huggingface.co/msime/pinyin-ime-keystroke-reranker-25M)（8x448）和 [`msime/pinyin-ime-keystroke-reranker-8M`](https://huggingface.co/msime/pinyin-ime-keystroke-reranker-8M)（6x256），那里是原名（`lm_step.ort`、`model.json`、`vocab.json`）并附 `LICENSE` 与 `NOTICE`。两处的 `.ort` 逐位相同（8x448 SHA-256 `ad729f94…a4a93`，6x256 `ceeb3a8d…8bad4`）。训练语料为中文 C4（ODC-BY）、FineWeb-2 中文部分（ODC-BY）和 LCCC（MIT），语料要求的署名写在图的元数据 `attribution` 和 `model.json` 里，**再分发时要保留**，与上面整句重排模型的要求相同。宿主从资源目录旁边的 `rerank-model/`、`rerank-model-small/` 读它们。随 iOS 键盘扩展、macOS 输入法 bundle 和 Linux 发布页的 deb、rpm、tar.gz（full 与 pinyin 版，装在 `share/msime-client/`）分发；Linux 包旁边带 `rerank-model-Apache-2.0.txt`（上游 `NOTICE` 与许可证全文）和 `rerank-model.lock.json`；Windows 安装包里带键盘神经模型的版本（full、pinyin）把它们装在 Server 目录旁边（`platforms/windows/installer/Prepare-PackageFiles.ps1`），`model.json` 随模型一起装，署名照原样保留，上游 NOTICE 与 Apache-2.0 全文（`resources/licenses/rerank-model-Apache-2.0.txt`）由 `Collect-Notices.ps1` 收进 `THIRD_PARTY_NOTICES.txt` |
+
+### 按键重排模型的许可与署名
+
+随包分发 `rerank-v1` 的平台要做两件事，缺一样都不满足再分发条件：
+
+- **Apache-2.0 第 4(a) 条要求附上许可证全文，第 4(d) 条要求带上上游的 NOTICE。** 上游是 `chinese-ime-lm` 仓库的 `NOTICE` 和 `reference/LICENSE`（仓库根目录的 `LICENSE` 是 GPL-3.0，管的是训练代码，不是权重）。
+- **训练语料要求署名随权重传播。** 中文 C4 与 FineWeb-2 中文部分是 ODC-BY，LCCC 是 MIT。署名写在每个 `lm_step.ort` 的图元数据 `attribution` 和每个 `model.json` 的 `attribution` 字段里，原样随模型安装；锁定的两份 `model.json` 里这句话一字不差：`Trained on the Chinese portion of C4 (ODC-BY, https://huggingface.co/datasets/allenai/c4), FineWeb-2 (cmn_Hani) (ODC-BY, https://huggingface.co/datasets/HuggingFaceFW/fineweb-2) and LCCC (MIT, https://github.com/thu-coai/CDial-GPT).`
+
+三样东西放在同一份文件里：[`resources/licenses/rerank-model-Apache-2.0.txt`](../resources/licenses/rerank-model-Apache-2.0.txt)。开头一段写来源、两档模型的 `lm_step.ort` SHA-256 和上面那句语料署名，后面是上游 NOTICE 和 Apache-2.0 全文，两段与上游逐字相同。各平台照它们收别的许可证的方式收这一份，装出来的文件名都叫 `rerank-model-Apache-2.0.txt`。`scripts/test-model-notices.py`（与上面整句重排模型共用，`MODELS` 里的 `rerank-v1` 一项）核对这份文件、锁和各平台的声明渠道：哪个平台的打包脚本取了模型（脚本里出现 `fetch_rerank_model.py` 或 `rerank-model.lock.json`），它的声明渠道就必须带上这份文件。
+
+| 文件 | 来源 | 长度 | SHA-256 |
+| --- | --- | --- | --- |
+| `rerank-model/lm_step.ort`（8x448） | `rerank-8x448.ort` | 30,834,688 | `ad729f94fc10cae0326269e2f089d7747ee8efae3dd2affe365c2740c59a4a93` |
+| `rerank-model/model.json` | `rerank-8x448.model.json` | 682 | `2a92e6aad513335e0800ff24ef7037acb365d0ae9abb7ae5b92ebf241c065a20` |
+| `rerank-model/vocab.json` | `rerank-8x448.vocab.json` | 85,613 | `d7fb2e70de9f0c2c65b822a8fbf604655bfef6d0dcd8f1975d73f1cd5ea7f038` |
+| `rerank-model-small/lm_step.ort`（6x256） | `rerank-6x256.ort` | 8,220,064 | `ceeb3a8def8ed00277063146121fe1ce152eba34006c23844a1c0c0ed188bad4` |
+| `rerank-model-small/model.json` | `rerank-6x256.model.json` | 679 | `eb7ccb2fd2153906ce131891aeaa04cc1092aeb9a22eeb9543aa206443ee7ba5` |
+| `rerank-model-small/vocab.json` | `rerank-6x256.vocab.json` | 85,613 | `d7fb2e70de9f0c2c65b822a8fbf604655bfef6d0dcd8f1975d73f1cd5ea7f038` |
+
+来源一栏是 GitHub Release [`rerank-v1`](https://github.com/metasequoiaime/chinese-ime-lm/releases/tag/rerank-v1) 的附件名，Hugging Face 上 [`msime/pinyin-ime-keystroke-reranker-25M`](https://huggingface.co/msime/pinyin-ime-keystroke-reranker-25M)（8x448）和 [`msime/pinyin-ime-keystroke-reranker-8M`](https://huggingface.co/msime/pinyin-ime-keystroke-reranker-8M)（6x256）是同一批文件，用原名。两档共用同一份 `vocab.json`。以 `resources/rerank-model.lock.json` 为准，锁换了这张表和许可文件开头的摘要跟着改。
+
+各平台的声明渠道：
+
+| 平台 | 收进哪里 | 用户在哪看到 |
+| --- | --- | --- |
+| iOS | `platforms/ios/project.yml` 把它作为 `MSIMEApp` 的资源（键盘扩展只随 App 安装，不另带一份） | 设置 App 关于页的「开源许可」，`AboutAndDownloadViews.swift` 的 `LicenseNotice` |
+| macOS | `platforms/macos/CMakeLists.txt` 复制进输入法 bundle 的 `Contents/Resources/Licenses`，`THIRD_PARTY_NOTICES.txt` 写明它覆盖什么 | 同目录 |
+| Linux | `platforms/linux/CMakeLists.txt` 在装了模型时装进声明目录（目前用的是 `platforms/linux/data/licenses/` 里同名的一份，开头一段写的是 Linux 包的路径，NOTICE 和许可证两段与共用的这份逐字相同，由上面的测试守着） | `share/doc/msime-client` 里的声明与 `THIRD_PARTY_NOTICES.txt` |
+| Windows | `platforms/windows/Collect-Notices.ps1` 收进 `THIRD_PARTY_NOTICES.txt`（所有版本都收：x64 宿主 DLL 都链着 ONNX Runtime，模型只在 full、pinyin 里） | 安装目录的 `THIRD_PARTY_NOTICES.txt` |
+| Android | 模型打包 PR 加一行：在 `build-native.sh` 里复制进 `assets/native-notices` | Android 关于页的「开源许可」自动列出 `native-notices` 里的文件 |
+
 ## 本地语音识别
 
 语音服务选 `local` 且 `asr_model_path` 指向已安装的模型目录时，识别在设备上完成。这条路径分两部分：一份随包分发的推理运行时，和由用户在设置页按需下载的模型。**模型不随包分发**，仓库只携带下载地址、长度和 SHA-256。

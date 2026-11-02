@@ -543,6 +543,49 @@ if (-not $Light) {
         }
     }
 }
+# 整句联想「增强」逐键重排的两档 ONNX 模型（chinese-ime-lm 的 rerank-v1：8x448 与 6x256），scripts/fetch_rerank_model.py 按 resources/rerank-model.lock.json 下载核对到 target/rerank-model。装在 Server 目录旁边的 rerank-model 和 rerank-model-small：Server 把自己所在的目录作为模型目录告诉它的会话（src/system/RerankModelRoot.h），x64 宿主 DLL 开着 onnx-rerank（Build-RustOutputs.ps1），加载时先自测大的、打一页超过 10 ms 换小的；没有模型时退回 resources 里随包的 sentence-model.safetensors。只给带键盘神经模型的版本（版本表 features.neural_keyboard）；轻量包不带，Win7 包也不带（Win7 的宿主不链接 ONNX Runtime，见 Build-Windows7Core.ps1）。暂存前按锁核对长度和 SHA-256；设置 MSIME_REQUIRE_RERANK_MODELS=1 时缺了就失败。
+$rerankSource = Join-Path $RepoRoot 'target/rerank-model'
+$rerankLock = Get-Content -LiteralPath (Join-Path $RepoRoot 'resources/rerank-model.lock.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+$editionNeuralKeyboard = [bool]$editionEntry[0].features.neural_keyboard
+$rerankWanted = -not $Light -and $Windows7Architecture -eq '' -and $editionNeuralKeyboard
+$rerankComplete = $rerankWanted
+if ($rerankWanted) {
+    # 先核对再动暂存目录：不符时拒绝，上一次暂存的模型原样留着。
+    foreach ($model in $rerankLock.models) {
+        foreach ($artifact in $model.artifacts) {
+            $rerankFile = Join-Path (Join-Path $rerankSource $model.directory) $artifact.file
+            if (-not (Test-Path -LiteralPath $rerankFile -PathType Leaf)) {
+                $rerankComplete = $false
+                continue
+            }
+            if ((Get-Item -LiteralPath $rerankFile).Length -ne [long]$artifact.size -or
+                (Get-FileHash -LiteralPath $rerankFile -Algorithm SHA256).Hash.ToLowerInvariant() -ne $artifact.sha256) {
+                throw "$rerankFile 与 resources/rerank-model.lock.json 不符，重新运行 python scripts/fetch_rerank_model.py"
+            }
+        }
+    }
+    if (-not $rerankComplete -and $env:MSIME_REQUIRE_RERANK_MODELS -eq '1') {
+        throw "MSIME_REQUIRE_RERANK_MODELS=1，但 $rerankSource 里没有 resources/rerank-model.lock.json 列出的全部模型文件，先运行 python scripts/fetch_rerank_model.py"
+    }
+}
+foreach ($model in $rerankLock.models) {
+    $rerankTarget = Join-Path $targetServer $model.directory
+    if (Test-Path -LiteralPath $rerankTarget) {
+        Remove-Item -LiteralPath $rerankTarget -Recurse -Force
+    }
+}
+if ($rerankComplete) {
+    foreach ($model in $rerankLock.models) {
+        $rerankTarget = Join-Path $targetServer $model.directory
+        New-Item -ItemType Directory -Path $rerankTarget -Force | Out-Null
+        foreach ($artifact in $model.artifacts) {
+            Copy-Item -LiteralPath (Join-Path (Join-Path $rerankSource $model.directory) $artifact.file) -Destination $rerankTarget -Force
+        }
+    }
+    Write-Host "逐键重排模型已装入：$(@($rerankLock.models | ForEach-Object { Join-Path $targetServer $_.directory }) -join ', ')"
+} elseif ($rerankWanted) {
+    Write-Host "未找到逐键重排模型（$rerankSource），整句联想「增强」退回随包的句子模型"
+}
 if ($null -eq $voiceRuntimeFrom) {
     Write-Host "未找到本地语音识别运行时（$voiceRuntimeSource），安装包不含本地语音识别"
 } elseif ($voiceRuntimeFrom -ne $serverRelease) {

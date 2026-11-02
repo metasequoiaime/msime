@@ -56,6 +56,8 @@
         </activity>
         <!-- 自动更新：每天一次检查、下载并核对更新，只在用户打开「自动更新」后排程。 -->
         <service android:name="app.msime.android.home.UpdateJobService" android:exported="false" android:permission="android.permission.BIND_JOB_SERVICE" />
+        <!-- 「增强」开着、逐键重排模型没装时，在不按流量计费的网络上替用户在后台下载（rerank-model-small 资源包）。跑在主进程：输入法进程只排任务，从不联网。 -->
+        <service android:name="app.msime.android.home.RerankModelJobService" android:exported="false" android:permission="android.permission.BIND_JOB_SERVICE" />
         <!-- 按需资源包下载：只由用户操作启动，跑在主进程（不设 android:process），:ime 进程从不安装资源包。 -->
         <service android:name="app.msime.android.ResourcePackService" android:exported="false" android:foregroundServiceType="dataSync" />
         <service android:name="app.msime.android.MSIMEInputService" android:process=":ime" android:exported="true" android:permission="android.permission.BIND_INPUT_METHOD">

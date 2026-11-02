@@ -32,6 +32,7 @@
 #include "HelpcodeRoot.h"
 #include "SoundPackRoot.h"
 #include "PluginPackRoot.h"
+#include "RerankModelRoot.h"
 #include "MaintenanceHotkey.h"
 #include "NativeTextInput.h"
 #include "ModeAuthority.h"
@@ -1423,6 +1424,7 @@ int wmain(int argc, wchar_t **argv) {
     name_builtin_sound_packs(session_options, config.state_root);
     name_builtin_helpcodes(session_options, config.state_root);
     name_official_plugin_packs(session_options, executable_directory());
+    name_rerank_models(session_options, executable_directory());
     startup_stage = "pipe_server";
     SessionPump::Presentation pump_presentation;
     pump_presentation.delivered = [&](const FocusLease &lease, const PendingReply &reply,

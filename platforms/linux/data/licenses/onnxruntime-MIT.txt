@@ -2,6 +2,8 @@ ONNX Runtime (microsoft/onnxruntime), https://github.com/microsoft/onnxruntime
 
 libonnxruntime.so, installed beside msime-voice-local as the inference backend of the sherpa-onnx runtime (resources/voice-runtime.lock.json). The upstream sherpa-onnx archive carries no license file, so the license of the ONNX Runtime release the library reports (1.28.2) is pinned here from https://github.com/microsoft/onnxruntime/blob/v1.28.2/LICENSE; that release's ThirdPartyNotices.txt ships beside it as onnxruntime-ThirdPartyNotices.txt.
 
+The same license covers ONNX Runtime 1.24.4 (commit 2d924974ef147392ced8409d36bd6d2e7fcc8a74), built with only the operators the keystroke rerank models use (tools/onnxruntime-minimal in this project's source tree, resources/onnxruntime-minimal.lock.json) and statically linked into libmsime_host_api.so; its LICENSE is identical to the text below, and every notice of its ThirdPartyNotices.txt is also in the 1.28.2 onnxruntime-ThirdPartyNotices.txt.
+
 MIT License
 
 Copyright (c) Microsoft Corporation

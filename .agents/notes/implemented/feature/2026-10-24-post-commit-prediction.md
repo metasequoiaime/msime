@@ -47,6 +47,8 @@ macOS 把联想画在普通候选窗里。空格和候选窗上画着那一行�
 
 联想时候选栏右端放展开键还是关闭键由用户在三种样式里选，关闭键送 Cancel、不插入空格，见[上屏后联想的候选栏按键样式](2026-10-29-post-commit-prediction-buttons.md)。
 
+挂了逐键打分器的宿主，词库续写多取到 32 条、按模型读上文给的总对数概率排序后仍给 8 条，个人习惯行不动，见[上屏后联想的词库续写按逐键打分器排序](2026-11-02-next-word-prediction-rerank.md)；没挂打分器时仍是本篇的词频顺序。
+
 Windows 由 TIP 在光标处显示联想、Server 画候选窗，上屏顺带的隐藏不清联想，见 [Windows 上屏后联想](2026-11-02-windows-post-commit-prediction.md)。
 
 ## Verification

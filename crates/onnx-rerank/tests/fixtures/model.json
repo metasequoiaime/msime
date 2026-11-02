@@ -1,0 +1,23 @@
+{
+  "layers": 2,
+  "heads": 2,
+  "head_dim": 16,
+  "width": 32,
+  "max_positions": 128,
+  "context_chars": 64,
+  "bos": 2,
+  "unk": 1,
+  "self_normalized": false,
+  "config": {
+    "vocab": 114,
+    "n_layer": 2,
+    "n_head": 2,
+    "n_embd": 32,
+    "max_positions": 128,
+    "dropout": 0.0,
+    "lm_term": false,
+    "ngram_buckets": 0,
+    "gelu_tanh": false,
+    "self_normalized": false
+  }
+}

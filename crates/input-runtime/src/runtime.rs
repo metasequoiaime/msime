@@ -3,8 +3,8 @@
 
 use super::*;
 use msime_engine::ordering::{
-    apply_order_with, ensure_engine_order, rerank_needs_model, rerank_pick, rotate_to_front,
-    runner_up_order_with, ParallelOrderRows, StaticEvidence,
+    apply_order_with, ensure_engine_order, rerank_needs_model, rerank_pick, rerank_pick_within,
+    rotate_to_front, runner_up_order_with, CandidateScorer, ParallelOrderRows, StaticEvidence,
 };
 use msime_engine::touch::{KeyGeometry, KeyTouch};
 // 排序决策搬进了 `msime_engine::ordering`；`tests.rs` 仍按原来的 crate 内名字引用这几项，这里为它们重新导出。
@@ -170,7 +170,7 @@ pub struct Runtime<E: InputEngine = Session> {
     ///
     /// Absent unless a host calls [`Runtime::set_reranker`], and absent is the only state the
     /// hosts that ship no model ever see.
-    pub(crate) reranker: Option<Reranker>,
+    pub(crate) reranker: Option<Box<dyn CandidateScorer>>,
     /// A second, larger model run once the user stops typing, when one is attached.
     ///
     /// Capacity is the most effective lever the model has — the 24M preset beats the 6.8M one by
@@ -180,7 +180,7 @@ pub struct Runtime<E: InputEngine = Session> {
     /// they are answers to different questions. While the user is typing, the first row has to be
     /// plausible now; when the user stops to read the candidates, it has to be right. The fast
     /// model owns the first job and this one owns the second.
-    pub(crate) settled_reranker: Option<Reranker>,
+    pub(crate) settled_reranker: Option<Box<dyn CandidateScorer>>,
     /// Whether [`Runtime::rerank_settled`] runs the settled model: the product's desktop sentence model switch. On unless a host turns it off, so a caller that attaches a model and says nothing else gets it.
     pub(crate) settled_rerank_enabled: bool,
     // 开关和模型分别拥有不复用的身份，防止在途评分跨配置发布或恢复旧模型。
@@ -318,7 +318,7 @@ pub struct SettledRerankRequest {
     scheme: u8,
     answered_by_pinyin_fallback: bool,
     rows: SettledRerankRows,
-    reranker: Reranker,
+    reranker: Box<dyn CandidateScorer>,
 }
 
 /// [`score_settled_rerank`] 产生的模型和待提升的候选行。
@@ -327,7 +327,7 @@ pub struct SettledRerankScore {
     settings_epoch: Arc<()>,
     model_epoch: Arc<()>,
     promote: Option<usize>,
-    reranker: Reranker,
+    reranker: Box<dyn CandidateScorer>,
 }
 
 /// [`Runtime::apply_settled_rerank`] 对评分的发布结果。
@@ -351,7 +351,7 @@ pub fn score_settled_rerank(mut request: SettledRerankRequest) -> SettledRerankS
         )
         .with_static_evidence(&request.rows.static_evidence);
         rerank_pick(
-            &mut request.reranker,
+            request.reranker.as_mut(),
             &request.context,
             request.scheme,
             request.answered_by_pinyin_fallback,
@@ -1169,7 +1169,16 @@ impl<E: InputEngine> Runtime<E> {
     /// lives is a packaging question that differs per platform and the runtime has no business
     /// guessing at it.
     pub fn set_reranker(&mut self, reranker: Option<Reranker>) {
-        self.reranker = reranker;
+        self.set_candidate_scorer(reranker.map(|r| Box::new(r) as Box<dyn CandidateScorer>));
+    }
+
+    /// 同 [`Runtime::set_reranker`]，挂任意实现了 [`CandidateScorer`] 的逐键打分器，比如需要原生运行库的模型后端。
+    ///
+    /// 挂上的打分器报 [`CandidateScorer::scores_prediction_pool_within_keystroke_budget`] 时，上屏后联想的词库续写也交给它排序（见 [`Self::order_prediction`]），引擎为此多取一池续写；拿掉打分器或它不报时，引擎只取 8 条，联想与没挂打分器时逐行相同。
+    pub fn set_candidate_scorer(&mut self, scorer: Option<Box<dyn CandidateScorer>>) {
+        self.reranker = scorer;
+        self.engine.set_prediction_pool(self.orders_prediction());
+        self.engine.set_sentence_pool(self.sentence_pool());
     }
 
     /// Whether a per-keystroke reranker is attached, so a host can attach or drop it when the preference that governs it changes.
@@ -1179,8 +1188,15 @@ impl<E: InputEngine> Runtime<E> {
 
     /// 安装或移除停顿模型；替换后不得恢复在途评分携带的旧模型。
     pub fn set_settled_reranker(&mut self, reranker: Option<Reranker>) {
+        self.set_settled_candidate_scorer(
+            reranker.map(|r| Box::new(r) as Box<dyn CandidateScorer>),
+        );
+    }
+
+    /// 同 [`Runtime::set_settled_reranker`]，挂任意实现了 [`CandidateScorer`] 的停顿打分器。
+    pub fn set_settled_candidate_scorer(&mut self, scorer: Option<Box<dyn CandidateScorer>>) {
         self.settled_model_epoch = Arc::new(());
-        self.settled_reranker = reranker;
+        self.settled_reranker = scorer;
     }
 
     /// 开关改变时作废在途评分，但保留模型，重新开启时不必加载。
@@ -1336,7 +1352,11 @@ impl<E: InputEngine> Runtime<E> {
         self.settled_order_scratch = order;
     }
 
-    fn restore_settled_reranker(&mut self, reranker: Reranker, model_epoch: &Arc<()>) {
+    fn restore_settled_reranker(
+        &mut self,
+        reranker: Box<dyn CandidateScorer>,
+        model_epoch: &Arc<()>,
+    ) {
         if Arc::ptr_eq(model_epoch, &self.settled_model_epoch) && self.settled_reranker.is_none() {
             self.settled_reranker = Some(reranker);
         }
@@ -2086,6 +2106,9 @@ impl<E: InputEngine> Runtime<E> {
         self.engine.set_rescoring_context(&self.ai_context);
         // 键位几何同样属于宿主：布局没变，宿主不会重发。
         self.engine.set_key_geometry(self.key_geometry.clone());
+        // 打分器挂在 runtime 上，新引擎同样要按它的速度决定多不多取联想的候选池。
+        self.engine.set_prediction_pool(self.orders_prediction());
+        self.engine.set_sentence_pool(self.sentence_pool());
         self.load_snapshot(cached);
         self.snapshot_valid = true;
         self.page_size = page_size.into();
@@ -2877,12 +2900,19 @@ impl<E: InputEngine> Runtime<E> {
             } else {
                 rows
             };
-            rerank_pick(
-                reranker,
+            // 整池只比较 26 键上引擎多解的读法；键位网格（九宫格、14 键）照九条比较，见 `rerank_pick_within`。
+            let pool = if snapshot.key_grid.is_none() {
+                reranker.sentence_pool()
+            } else {
+                0
+            };
+            rerank_pick_within(
+                reranker.as_mut(),
                 &self.ai_context,
                 snapshot.scheme,
                 snapshot.answered_by_pinyin_fallback,
                 &rows,
+                pool,
             )
         };
         let Some(promote) = promote else {
@@ -3014,6 +3044,38 @@ impl<E: InputEngine> Runtime<E> {
         self.highlighted = found.unwrap_or(page_start).min(visible - 1);
     }
 
+    /// 挂着的逐键打分器在上屏时同步排一池联想仍在逐键预算之内（[`CandidateScorer::scores_prediction_pool_within_keystroke_budget`]）。引擎的联想候选池按它开关。
+    fn orders_prediction(&self) -> bool {
+        self.reranker
+            .as_deref()
+            .is_some_and(CandidateScorer::scores_prediction_pool_within_keystroke_budget)
+    }
+
+    /// 引擎每条切分至少解出的整句读法条数：挂着的逐键打分器报的 [`CandidateScorer::sentence_pool`]；没挂或它报 0 时引擎照默认条数，候选与不挂打分器的宿主逐行相同。
+    fn sentence_pool(&self) -> usize {
+        self.reranker
+            .as_deref()
+            .map_or(0, CandidateScorer::sentence_pool)
+    }
+
+    /// 上屏后联想的词库续写交给逐键打分器排序，排序规则和「每次上屏只排一次」都在引擎里（`Session::order_prediction`）；没挂打分器、或打分器不在预算之内（[`Self::orders_prediction`]）时什么都不做。
+    ///
+    /// 在取快照之前做，引擎的行已经是最终顺序：座位就是引擎下标，选词照常按代次核对，插件的变换看到的也是排好的行。这次上屏的文字要等 [`Self::transition`] 才进 `ai_context`，所以上文只到这次上屏之前，引擎自己接上刚上屏的词；暂存的词段（`phrase_prefix`）会和这次的词一起上屏，接在上文末尾。
+    fn order_prediction(&mut self) {
+        if !self.orders_prediction() {
+            return;
+        }
+        let Some(scorer) = self.reranker.as_mut() else {
+            return;
+        };
+        let before = if self.phrase_prefix.is_empty() {
+            std::borrow::Cow::Borrowed(self.ai_context.as_str())
+        } else {
+            std::borrow::Cow::Owned(format!("{}{}", self.ai_context, self.phrase_prefix))
+        };
+        self.engine.order_prediction(scorer.as_mut(), &before);
+    }
+
     pub(crate) fn refresh(&mut self) -> Result<(), RuntimeError> {
         // 派发类调用里先问插件指令，行在取快照之前写进引擎：同一次派发，代次不变。
         self.run_command_provider();
@@ -3025,6 +3087,7 @@ impl<E: InputEngine> Runtime<E> {
         self.engine_order.clear();
         let previous_highlight = self.highlighted;
         self.highlighted = 0;
+        self.order_prediction();
         // Drop cached candidate identities even if fetching the replacement fails.
         let snapshot = match self.engine.snapshot() {
             Ok(snapshot) => snapshot,
