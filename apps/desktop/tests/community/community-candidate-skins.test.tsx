@@ -147,10 +147,14 @@ test("lists with the exact offset, search and scope", async () => {
   render(<CommunityCandidateSkinsPage client={communityClient} />);
   await waitFor(() => expect(communityClient.list).toHaveBeenCalledWith(0, "", false, null));
   expect(screen.getByRole("heading", { name: "社区皮肤" })).not.toBeNull();
-  expect(screen.getByText("为输入候选窗口换一身新装，安装后在「本地皮肤」中启用")).not.toBeNull();
-  expect(
-    screen.getByText(/MCP 可以让 Claude、Codex 等 AI 助手在本机帮你制作候选窗口皮肤/),
-  ).not.toBeNull();
+  // 栏目说明和 MCP 制作皮肤的说明都收进标题旁的「?」，读屏名称以标题开头。
+  const help = screen.getByRole("button", { name: /^社区皮肤的说明：/ });
+  expect(help.getAttribute("aria-label")).toContain(
+    "为输入候选窗口换一身新装，安装后在「本地皮肤」中启用",
+  );
+  expect(help.getAttribute("aria-label")).toContain(
+    "MCP 可以让 Claude、Codex 等 AI 助手在本机帮你制作候选窗口皮肤",
+  );
 
   fireEvent.change(screen.getByRole("textbox", { name: "搜索候选窗口皮肤" }), {
     target: { value: " 水墨 " },

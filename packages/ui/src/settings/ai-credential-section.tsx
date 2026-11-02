@@ -31,7 +31,7 @@ export function AiCredentialSection({
   onSave,
   onClear,
 }: AiCredentialSectionProps) {
-  const { description, tokenDisabled, saveDisabled, clearDisabled, hasStoredCredential } =
+  const { status, description, tokenDisabled, saveDisabled, clearDisabled, hasStoredCredential } =
     aiCredentialEditorModel({ endpoint, model, origin, token, stored, invalid, busy });
   return (
     <SettingsManagerBlock role="group" aria-label="AI 凭据">
@@ -40,6 +40,7 @@ export function AiCredentialSection({
         inputLabel="AI API Token"
         value={token}
         description={description}
+        detail={status}
         disabled={tokenDisabled}
         onChange={onTokenChange}
       />

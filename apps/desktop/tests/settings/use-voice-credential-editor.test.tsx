@@ -42,7 +42,7 @@ test("纯模型复用旧凭据、提示差异并支持显式清空接口地址",
     resourceId: "resource-a",
   });
   expect(model.endpoint).toBe("wss://voice.example.test");
-  expect(model.description).toContain("不一致");
+  expect(model.status).toContain("不一致");
   expect(model.saveDisabled).toBe(false);
   expect(model.tokenLabel).toBe("识别 API Token");
   expect(
@@ -53,8 +53,7 @@ test("纯模型复用旧凭据、提示差异并支持显式清空接口地址",
     }).endpoint,
   ).toBe("");
   expect(
-    voiceCredentialEditorModel({ ...base, credentials: { ...stored, voiceInvalid: true } })
-      .description,
+    voiceCredentialEditorModel({ ...base, credentials: { ...stored, voiceInvalid: true } }).status,
   ).toContain("无效");
   expect(typeof DoubaoStreamEndpointSelect).toBe("function");
 });

@@ -95,8 +95,10 @@ export function ShortcutsSettingsSection({
       {panel(
         "settings",
         <>
-          {!harmonyPhone && <ShortcutsIntroSection mobile={mobile} />}
+          {/* 总说明跟着「输入模式切换」组进组名的「?」；宿主不提供切换快捷键、没有这一组时照旧画在页首。 */}
+          {!harmonyPhone && !showModeSwitchShortcuts && <ShortcutsIntroSection mobile={mobile} />}
           <InputModeShortcutsSection
+            intro={harmonyPhone ? undefined : <ShortcutsIntroSection mobile={mobile} />}
             keybindings={keybindings}
             onChange={onKeybindingsChange}
             showModeSwitchShortcuts={showModeSwitchShortcuts}

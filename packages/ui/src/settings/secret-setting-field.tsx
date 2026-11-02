@@ -6,6 +6,8 @@ export interface SecretSettingFieldProps {
   label: ReactNode;
   inputLabel?: string;
   description?: ReactNode;
+  /** 状态或错误，常驻标题下方。 */
+  detail?: ReactNode;
   value: string;
   placeholder?: string;
   disabled?: boolean;
@@ -17,13 +19,14 @@ export function SecretSettingField({
   label,
   inputLabel,
   description,
+  detail,
   value,
   placeholder,
   disabled,
   onChange,
 }: SecretSettingFieldProps) {
   return (
-    <SettingField label={label} description={description}>
+    <SettingField label={label} description={description} detail={detail}>
       <SecretInput
         label={inputLabel ?? String(label)}
         value={value}

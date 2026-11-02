@@ -10,6 +10,8 @@ import { GroupList, Segmented, Switch } from "../core/platform-controls";
 import { SyntaxBlock, type SyntaxToken, tokensText } from "./mcp-syntax";
 import { ActionButton } from "./action-button";
 import { SettingsManagerNote } from "./settings-manager-note";
+import { SettingsGroupNote } from "./settings-group-note";
+import { InfoTip } from "../core/info-tip";
 import { SettingsManagerActions } from "./settings-manager-actions";
 import { SettingsManagerBlock } from "./settings-manager-block";
 import { SettingsNotice } from "./settings-notice";
@@ -73,11 +75,12 @@ export function McpConnectSection({ status, install, copyText }: McpConnectOptio
 
   return (
     <GroupList title="连接 AI 助手">
+      {/* MCP 是什么、连上之后能做什么：解释整组，收进组名旁的「?」。放在 `SettingsManagerBlock` 外面，那里面的说明照旧画在原处。 */}
+      <SettingsGroupNote>
+        MCP（Model Context Protocol）让 AI
+        助手通过本机服务调用水杉输入法的功能，除了把皮肤发布到社区之外不联网。连接后，助手可以管理快捷短语和设置、制作、切换和删除候选窗口皮肤、读取打字统计和已安装皮肤，并用你在设置里登录的账号把皮肤发布到社区（助手自己不登录）；遇到卡顿或候选窗口问题时，也能读取诊断日志帮助排查。助手能否修改内容由下面两个开关决定，默认都开；复制的命令、配置和一键写入都带上开着的权限。两个都关时只读，除了开关诊断日志不改动任何设置。
+      </SettingsGroupNote>
       <SettingsManagerBlock role="group" aria-label="连接 AI 助手">
-        <SettingsManagerNote>
-          MCP（Model Context Protocol）让 AI
-          助手通过本机服务调用水杉输入法的功能，除了把皮肤发布到社区之外不联网。连接后，助手可以管理快捷短语和设置、制作、切换和删除候选窗口皮肤、读取打字统计和已安装皮肤，并用你在设置里登录的账号把皮肤发布到社区（助手自己不登录）；遇到卡顿或候选窗口问题时，也能读取诊断日志帮助排查。助手能否修改内容由下面两个开关决定，默认都开；复制的命令、配置和一键写入都带上开着的权限。两个都关时只读，除了开关诊断日志不改动任何设置。
-        </SettingsManagerNote>
         {loadFailed && <ErrorAlert>无法读取 MCP 服务器的状态。</ErrorAlert>}
         {copyFailed && <ErrorAlert>复制失败，请重试。</ErrorAlert>}
         {server &&
@@ -181,9 +184,12 @@ export function McpConnectSection({ status, install, copyText }: McpConnectOptio
               {mcpPermissionFlags.map((permission) => (
                 <SettingsServiceRow key={permission.flag}>
                   <span>
-                    {permission.title}
+                    <span className="inline-flex items-center gap-1">
+                      {permission.title}
+                      <InfoTip subject={permission.title}>{permission.detail}</InfoTip>
+                    </span>
                     <small>
-                      <code>{permission.flag}</code> {permission.detail}
+                      <code>{permission.flag}</code>
                     </small>
                   </span>
                   <Switch
