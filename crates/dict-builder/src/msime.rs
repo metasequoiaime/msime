@@ -1,4 +1,4 @@
-//! `msime-pinyin.db`: the quanpin tables, the hand-maintained custom words merged into them, the 86 and 98 wubi tables and the quick phrase table.
+//! `msime-pinyin.db`: the quanpin tables, the hand-maintained custom words merged into them, the 86, 98 and 新世纪 wubi tables and the quick phrase table.
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -17,6 +17,7 @@ use crate::text;
 const CREATE_QUANPIN_TABLE: &str = "\ncreate table if not exists {} (\n   \"key\" text, -- 全拼拼音\n   \"jp\" text, -- 全拼简拼\n   \"value\" text, -- 对应的汉字或者词组\n   \"weight\" integer default 0 -- 权重\n);\n";
 const CREATE_WUBI_TABLE: &str = "\n            CREATE TABLE wubi86 (\n                \"key\" TEXT NOT NULL,\n                \"value\" TEXT NOT NULL,\n                \"weight\" INTEGER NOT NULL DEFAULT 0,\n                UNIQUE(\"key\", \"value\")\n            )\n            ";
 const CREATE_WUBI98_TABLE: &str = "\n            CREATE TABLE wubi98 (\n                \"key\" TEXT NOT NULL,\n                \"value\" TEXT NOT NULL,\n                \"weight\" INTEGER NOT NULL DEFAULT 0,\n                UNIQUE(\"key\", \"value\")\n            )\n            ";
+const CREATE_WUBIXSJ_TABLE: &str = "\n            CREATE TABLE wubixsj (\n                \"key\" TEXT NOT NULL,\n                \"value\" TEXT NOT NULL,\n                \"weight\" INTEGER NOT NULL DEFAULT 0,\n                UNIQUE(\"key\", \"value\")\n            )\n            ";
 const CREATE_QUICK_PHRASE_TABLE: &str = "\n            CREATE TABLE quick_parases (\n                \"key\" TEXT NOT NULL,\n                \"value\" TEXT NOT NULL,\n                \"weight\" INTEGER NOT NULL DEFAULT 0,\n                UNIQUE(\"key\", \"value\")\n            )\n            ";
 
 /// Characters added to the pinned single-character whitelist. The whitelist only applies to a build that includes unlicensed inputs (a licensed build accepts every single character), but where it applies it must not drop a reading the source has.
@@ -390,7 +391,18 @@ const WUBI98: CodeTable = CodeTable {
     code_first: false,
 };
 
-/// Weight step between neighbouring candidates of one 98 code, the step the 86 table uses for its lowest ranks.
+/// 新世纪五笔表，由 [`build_wubixsj`] 从上游 Rime 码表的单字行构建；结构与索引和 86、98 两张表相同。
+const WUBIXSJ: CodeTable = CodeTable {
+    name: "wubixsj",
+    create: CREATE_WUBIXSJ_TABLE,
+    indexes: &[
+        "CREATE INDEX idx_wubixsj_key_weight ON wubixsj(\"key\", \"weight\" DESC)",
+        "CREATE INDEX idx_wubixsj_value ON wubixsj(\"value\")",
+    ],
+    code_first: false,
+};
+
+/// Weight step between neighbouring candidates of one 98 code, the step the 86 table uses for its lowest ranks. 新世纪五笔的单字也按编码内的名次用这个步长。
 const WUBI98_WEIGHT_STEP: i64 = 10;
 
 const QUICK_PHRASES: CodeTable = CodeTable {
@@ -578,19 +590,7 @@ pub(crate) fn wubi98_rows(
             _ => skipped += 1,
         }
     }
-    let mut remaining: HashMap<&str, i64> = HashMap::new();
-    for (key, _) in &parsed {
-        *remaining.entry(key.as_str()).or_default() += 1;
-    }
-    let mut weighted = Vec::with_capacity(parsed.len());
-    for (key, value) in &parsed {
-        let left = remaining
-            .get_mut(key.as_str())
-            .expect("every parsed code was counted");
-        let weight = *left * WUBI98_WEIGHT_STEP;
-        *left -= 1;
-        weighted.push((key.clone(), value.clone(), weight));
-    }
+    let mut weighted = rank_weights(parsed);
     for supplement in supplements {
         for line in text::universal_lines(supplement) {
             match parse_fcitx_wubi98_line(line) {
@@ -602,6 +602,140 @@ pub(crate) fn wubi98_rows(
         }
     }
     (weighted, skipped)
+}
+
+/// 给按“同一编码内越靠前越好”排好的 `(code, value)` 行配上权重：每行是 [`WUBI98_WEIGHT_STEP`] 乘以该编码从这一行起还剩的行数，同一编码的最后一行是一步。行的先后不变。
+fn rank_weights(parsed: Vec<(String, String)>) -> Vec<(String, String, i64)> {
+    let mut remaining: HashMap<String, i64> = HashMap::new();
+    for (key, _) in &parsed {
+        *remaining.entry(key.clone()).or_default() += 1;
+    }
+    parsed
+        .into_iter()
+        .map(|(key, value)| {
+            let left = remaining
+                .get_mut(&key)
+                .expect("every parsed code was counted");
+            let weight = *left * WUBI98_WEIGHT_STEP;
+            *left -= 1;
+            (key, value, weight)
+        })
+        .collect()
+}
+
+/// 新世纪五笔单字表的解析结果。
+pub(crate) struct WubiXsjRows {
+    /// `(code, value, weight)`：按编码首次出现的先后分组，同一编码内按上游权重从高到低（同权重保持文件里的先后），权重由 [`rank_weights`] 按名次重算，上游的权重值本身不进表。
+    pub rows: Vec<(String, String, i64)>,
+    /// 丢弃的多字词行：词组全部由 `wubixsj_supplement` 按本表的单字全码重新生成。
+    pub phrases: usize,
+    /// 不收的单字行：字不在 CJK 统一汉字基本区（U+4E00–U+9FFF），或编码不是 1 到 4 个 a–y 字母。
+    pub filtered: usize,
+    /// 列数不够、权重不是非负整数的数据行，以及重复的“编码、字”。
+    pub skipped: usize,
+}
+
+/// 解析上游的 Rime 码表 `sources/wubi/wubixsj-byujiang.txt`：`...` 一行结束 YAML 表头，之后是 `text<TAB>code<TAB>weight[<TAB>stem]` 数据行，`#` 开头的是注释。只取单字行。
+///
+/// 上游的权重是个人手调的数值，不进表；但它是这张表里唯一的“同码先后”信息，所以只拿来定同一编码内的名次。文件里同一编码的行既不按常用程度也不按码位排（例如 `g` 下「王」在「一」之前、`hgd` 下「丄」在「上」之前），照文件先后排会把一级简码排到第二位。
+pub(crate) fn wubixsj_rows(source: &str) -> Result<WubiXsjRows> {
+    let lines = text::universal_lines(text::without_bom(source));
+    let Some(header_end) = lines.iter().position(|line| *line == "...") else {
+        bail!("no `...` line ends the Rime dictionary header");
+    };
+    let (mut phrases, mut filtered, mut skipped) = (0, 0, 0);
+    let mut by_code: IndexMap<String, Vec<(String, i64)>> = IndexMap::new();
+    for line in &lines[header_end + 1..] {
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let columns: Vec<&str> = line.split('\t').collect();
+        let [value, code, weight, ..] = columns[..] else {
+            skipped += 1;
+            continue;
+        };
+        let Some(weight) = weight.parse::<i64>().ok().filter(|weight| *weight >= 0) else {
+            skipped += 1;
+            continue;
+        };
+        let mut chars = value.chars();
+        let (Some(character), None) = (chars.next(), chars.next()) else {
+            phrases += usize::from(!value.is_empty());
+            skipped += usize::from(value.is_empty());
+            continue;
+        };
+        let valid_code =
+            (1..=4).contains(&code.len()) && code.bytes().all(|b| (b'a'..=b'y').contains(&b));
+        if !('\u{4e00}'..='\u{9fff}').contains(&character) || !valid_code {
+            filtered += 1;
+            continue;
+        }
+        by_code
+            .entry(code.to_owned())
+            .or_default()
+            .push((value.to_owned(), weight));
+    }
+    let mut parsed = Vec::new();
+    for (code, mut candidates) in by_code {
+        // 稳定排序：同权重保持文件里的先后。
+        candidates.sort_by_key(|candidate| std::cmp::Reverse(candidate.1));
+        let mut seen = HashSet::new();
+        for (value, _) in candidates {
+            if seen.insert(value.clone()) {
+                parsed.push((code.clone(), value));
+            } else {
+                skipped += 1;
+            }
+        }
+    }
+    Ok(WubiXsjRows {
+        rows: rank_weights(parsed),
+        phrases,
+        filtered,
+        skipped,
+    })
+}
+
+/// `build_wubixsj` 的计数。
+#[derive(Debug, PartialEq, Eq)]
+pub struct WubiXsjCounts {
+    pub imported: usize,
+    pub skipped: usize,
+    pub filtered: usize,
+    pub phrases: usize,
+}
+
+/// 构建 `wubixsj`：先是 [`wubixsj_rows`] 的单字行，再按顺序并入 `generated`（`wubixsj_supplement` 生成的 `value<TAB>code<TAB>weight` 词组行）。provider 同权重时按 rowid 排序，所以同权重的单字排在词组之前。词组行里的基本区外字符和私用区字符同样不写入。
+pub fn build_wubixsj(
+    connection: &mut Connection,
+    path: &Path,
+    generated: &[&Path],
+) -> Result<WubiXsjCounts> {
+    let source = text::read(path)?;
+    let singles = wubixsj_rows(&source).with_context(|| format!("parsing {}", path.display()))?;
+    let generated_sources = generated
+        .iter()
+        .map(|path| text::read(path))
+        .collect::<Result<Vec<_>>>()?;
+    let rows = singles
+        .rows
+        .iter()
+        .map(|(key, value, weight)| Some((key.clone(), value.as_str(), *weight)))
+        .chain(generated_sources.iter().flat_map(|source| {
+            text::universal_lines(text::without_bom(source))
+                .into_iter()
+                .map(|line| match parse_code_line(line, false) {
+                    Some((_, value, _)) if unsupported_wubi_value(value) => None,
+                    row => row,
+                })
+        }));
+    let (imported, generated_skipped) = write_code_table(connection, &WUBIXSJ, rows)?;
+    Ok(WubiXsjCounts {
+        imported,
+        skipped: singles.skipped + generated_skipped,
+        filtered: singles.filtered,
+        phrases: singles.phrases,
+    })
 }
 
 pub(crate) fn decode_utf16le(bytes: &[u8]) -> Result<String> {
@@ -1106,6 +1240,64 @@ mod tests {
                 ("ukuy".into(), "部门".into(), 1)
             ]
         );
+    }
+
+    /// 新世纪五笔只收基本区单字：同一编码内按上游权重定先后、按名次重算权重，词组、部首、私用区、扩展区、标点和非法编码都不收；生成的词组行并在单字之后，同权重时单字在前。
+    #[test]
+    fn the_xsj_table_ranks_single_characters_by_upstream_weight() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = "# Rime dictionary: wubi06\n---\nname: wubi06\n...\n\n王\tg\t100000\n一\tg\t200000\n丄\thgd\t2000\n上\thgd\t9000\n上\th\t200000\n一\tggll\t10\n工人\taw\t500\n\u{E81E}\tcny\t40\n⺋\tbnn\t100\n·\tdot\t111\n㐀\tgggg\t1\n力\tz\t1\n力\tentab\t1\n力\tent\t100\n力\tent\t5\n男\tler\tx\n# comment\n力\n";
+        let path = write(dir.path(), "wubixsj-byujiang.txt", source);
+        let generated = write(
+            dir.path(),
+            "wubixsj-supplement.txt",
+            "# header\n一上\tggh\t10\n上一\thgg\t9\n\u{E821}\tggll\t1\n",
+        );
+        let mut connection = Connection::open_in_memory().unwrap();
+        assert_eq!(
+            build_wubixsj(&mut connection, &path, &[&generated]).unwrap(),
+            WubiXsjCounts {
+                imported: 9,
+                skipped: 5,
+                filtered: 6,
+                phrases: 1
+            }
+        );
+        let rows: Vec<(String, String, i64)> = connection
+            .prepare("select key, value, weight from wubixsj order by rowid")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("g".into(), "一".into(), 20),
+                ("g".into(), "王".into(), 10),
+                ("hgd".into(), "上".into(), 20),
+                ("hgd".into(), "丄".into(), 10),
+                ("h".into(), "上".into(), 10),
+                ("ggll".into(), "一".into(), 10),
+                ("ent".into(), "力".into(), 10),
+                ("ggh".into(), "一上".into(), 10),
+                ("hgg".into(), "上一".into(), 9),
+            ]
+        );
+        let indexes: i64 = connection
+            .query_row(
+                "select count(*) from sqlite_master where name in ('idx_wubixsj_key_weight', 'idx_wubixsj_value')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(indexes, 2);
+    }
+
+    #[test]
+    fn the_xsj_table_needs_the_rime_header_end() {
+        assert!(wubixsj_rows("一\tg\t1\n").is_err());
+        assert!(wubixsj_rows("---\n...\n").unwrap().rows.is_empty());
     }
 
     #[test]
