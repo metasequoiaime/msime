@@ -1,4 +1,4 @@
-#ifndef Edition
+﻿#ifndef Edition
 #define Edition "full"
 #endif
 #define MyDataDirMarkerPrefix ".metasequoiaime-data"
