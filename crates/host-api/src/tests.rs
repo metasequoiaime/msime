@@ -8801,11 +8801,8 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
     );
     let mut scorer = ffi::keyboard_reranker(true, root, None, None).expect("the ONNX model loads");
     assert_eq!(scorer.context_length(), LARGE);
-    // 共用的那一份要把整句池也报出来，runtime 才会让引擎多解读法。
-    assert_eq!(
-        scorer.sentence_pool(),
-        msime_engine::ordering::SENTENCE_POOL
-    );
+    // 共用的那一份要把整句池也报出来，runtime 才会让引擎多解读法。池多大看这台机器此刻多快，至少 9 条。
+    assert!(scorer.sentence_pool() >= msime_engine::ordering::SENTENCE_POOL);
     assert_eq!(
         scorer
             .log_probabilities("我们今天", &["去北京", "去背景"])
@@ -8828,7 +8825,9 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
             .unwrap()
             .scores_prediction_pool_within_keystroke_budget()
     };
-    let mut rerankers = ffi::OnnxRerankers::default();
+    // 下面直接建的 `OnnxRerankers` 都用固定的整句池规则（一律 32 条），档位不随并行测试时机器的忙闲变。
+    let widest = || ffi::OnnxRerankers::with_pool_rule(Box::new(|_| Some(32)));
+    let mut rerankers = widest();
     let first = rerankers.attach(bundle.path(), 0.0, None).unwrap();
     // 每个会话都来挂一次（2026-11-02 的 macOS 输入法里三分钟建了 11 个会话，各加载、自测一份大模型，进程占到 558 MB），加载的只有第一次那一份。
     for _ in 0..10 {
@@ -8859,10 +8858,8 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
         .expect("the bundled ONNX model is found through the bundle");
     assert_eq!(downloaded.context_length(), LARGE);
 
-    // 只装了大的时不自测，预算再小、内存再少也用它。
-    let large_only = ffi::OnnxRerankers::default()
-        .attach(bundle.path(), 0.0, Some(0))
-        .unwrap();
+    // 只装了大的时预算再小、内存再少也用它；为定整句池量过它打一页多快，但这一次不算排不排上屏后联想的自测。
+    let large_only = widest().attach(bundle.path(), 0.0, Some(0)).unwrap();
     assert_eq!(context(&large_only), LARGE);
     assert_eq!(large_only.category, "keyboard reranker onnx large");
     // 没自测过，不知道它在这台机器上多快，所以不排上屏后联想。
@@ -8871,10 +8868,16 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
     // 再装一个小模型，两条路都走一遍：自测值在预算之内留用大的，超过预算换小的。`f64::MAX` 的预算只在自测真的量出了一个有限的时间时才留用大的（自测失败返回无穷大）；0 毫秒的预算任何一次真实的图运行都超过。
     let small = bundle.path().join(ffi::SMALL_RERANK_MODEL_DIRECTORY);
     install(&small, 48);
-    let mut tiers = ffi::OnnxRerankers::default();
+    let mut tiers = widest();
     let fast = tiers.attach(bundle.path(), f64::MAX, None).unwrap();
     assert_eq!(context(&fast), LARGE);
     assert_eq!(fast.category, "keyboard reranker onnx large");
+    // 这个小模型打一页远不到一毫秒，按键预算放得下最大的整句池，于是不必再看小模型。
+    assert_eq!(
+        fast.scorer.lock().unwrap().sentence_pool(),
+        msime_engine::ordering::MAX_SENTENCE_POOL
+    );
+    assert!(fast.detail.contains("sentence pool 32"), "{}", fast.detail);
     // 过了预算的大模型同时也排上屏后联想；退到小模型的机器不排。
     assert!(ranks_prediction(&fast));
     let calibrated = |detail: &str| detail[detail.find("(calibrated").expect(detail)..].to_owned();
@@ -8901,7 +8904,7 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
     assert!(ranks_prediction(&again));
 
     // 可用内存不够加载大模型时直接用小的，不先加载大的去自测；档位定下后，内存再多也沿用到放开为止。刚好够时用大的。
-    let mut low = ffi::OnnxRerankers::default();
+    let mut low = widest();
     let short = low
         .attach(
             bundle.path(),
@@ -8925,6 +8928,27 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
         .unwrap();
     assert_eq!(context(&enough), LARGE);
     assert!(enough.detail.contains("calibrated"), "{}", enough.detail);
+
+    // 大模型放得下的池比小模型小、而小模型配它的池在 dev 上更准时，换成小模型（`keyboard reranker onnx small (wider pool)`），像 Mac 上大模型只放得下 9 条、小模型放得下 32 条那样；池一样大时留用大的。规则按调用顺序给：先量大的，再量小的。
+    let rule = |large: usize, small: usize| {
+        let mut calls = 0;
+        ffi::OnnxRerankers::with_pool_rule(Box::new(move |_| {
+            calls += 1;
+            Some(if calls == 1 { large } else { small })
+        }))
+    };
+    let wider = rule(9, 32).attach(bundle.path(), f64::MAX, None).unwrap();
+    assert_eq!(context(&wider), SMALL);
+    assert_eq!(wider.category, "keyboard reranker onnx small (wider pool)");
+    assert_eq!(wider.scorer.lock().unwrap().sentence_pool(), 32);
+    assert!(
+        wider.detail.contains("sentence pool 32"),
+        "{}",
+        wider.detail
+    );
+    let same = rule(16, 16).attach(bundle.path(), f64::MAX, None).unwrap();
+    assert_eq!(context(&same), LARGE);
+    assert_eq!(same.scorer.lock().unwrap().sentence_pool(), 16);
 
     // 宿主用的预算是 10 毫秒，这个两层、32 维的小模型打一页远在其内，所以也排上屏后联想。小模型装上后重新定档位，不沿用只装了大的时加载、没自测的那一份。
     let hosted = ffi::keyboard_reranker(true, root, None, None).unwrap();
@@ -8950,6 +8974,31 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
     assert_eq!(fallback.context_length(), bundled.context_length());
     assert_ne!(fallback.context_length(), LARGE);
     assert_ne!(fallback.context_length(), SMALL);
+}
+
+/// 整句池按自测速度定：表里的系数是 Mac 上量的，几个真机的自测值落在哪一档要与实测相符。
+#[cfg(feature = "onnx-rerank")]
+#[test]
+fn sentence_pool_follows_the_measured_page() {
+    let pools: Vec<Option<usize>> = [0.5, 1.2, 2.0, 4.1, 6.0, 10.0, 30.0]
+        .into_iter()
+        .map(ffi::sentence_pool_for)
+        .collect();
+    // 越快的机器池越大，从不变小。
+    for pair in pools.windows(2) {
+        assert!(pair[0].unwrap_or(0) >= pair[1].unwrap_or(0), "{pools:?}");
+    }
+    if cfg!(any(target_os = "ios", target_os = "android")) {
+        // iPhone 17 的大模型一页 4 ms 左右，比得下 24 条；Pixel 3 XL 的小模型一页 8.9 ms，比得下 9 条（整键实测 9.8 ms），12 条就超了（10.9 ms）。慢到 9 条也放不下时宿主仍给默认的 9 条。
+        assert_eq!(ffi::sentence_pool_for(4.1), Some(24));
+        assert_eq!(ffi::sentence_pool_for(8.9), Some(9));
+        assert_eq!(ffi::sentence_pool_for(10.0), None);
+    } else {
+        // Mac：小模型一页 1.2 ms 放得下 32 条，大模型一页 4.1 ms 只放得下 9 条。
+        assert_eq!(ffi::sentence_pool_for(1.2), Some(32));
+        assert_eq!(ffi::sentence_pool_for(4.1), Some(9));
+        assert_eq!(ffi::sentence_pool_for(6.0), None);
+    }
 }
 
 /// The keyboard model runs inside every keystroke, so it is attached only while `neural_keyboard` (整句联想「增强」) is on: not on the default 标准, attached when the switch turns on, dropped when it turns off again. It is attached to the runtime alone; the Engine's own keyboard-model rerank stays off throughout. It takes the real model from `MSIME_EVAL_RESOURCES` or `MSIME_NEURAL_MODEL_DIR` as the Engine's model tests do, and without one a tiny context-free model (`write_context_free_sentence_model`), so CI, which has no model, still checks that session creation and every preference update use `keyboard_reranker_enabled`.

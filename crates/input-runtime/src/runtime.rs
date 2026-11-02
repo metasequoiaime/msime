@@ -3,8 +3,8 @@
 
 use super::*;
 use msime_engine::ordering::{
-    apply_order_with, ensure_engine_order, rerank_needs_model, rerank_pick, rotate_to_front,
-    runner_up_order_with, CandidateScorer, ParallelOrderRows, StaticEvidence,
+    apply_order_with, ensure_engine_order, rerank_needs_model, rerank_pick, rerank_pick_within,
+    rotate_to_front, runner_up_order_with, CandidateScorer, ParallelOrderRows, StaticEvidence,
 };
 use msime_engine::touch::{KeyGeometry, KeyTouch};
 // 排序决策搬进了 `msime_engine::ordering`；`tests.rs` 仍按原来的 crate 内名字引用这几项，这里为它们重新导出。
@@ -2894,12 +2894,19 @@ impl<E: InputEngine> Runtime<E> {
             } else {
                 rows
             };
-            rerank_pick(
+            // 整池只比较 26 键上引擎多解的读法；键位网格（九宫格、14 键）照九条比较，见 `rerank_pick_within`。
+            let pool = if snapshot.key_grid.is_none() {
+                reranker.sentence_pool()
+            } else {
+                0
+            };
+            rerank_pick_within(
                 reranker.as_mut(),
                 &self.ai_context,
                 snapshot.scheme,
                 snapshot.answered_by_pinyin_fallback,
                 &rows,
+                pool,
             )
         };
         let Some(promote) = promote else {

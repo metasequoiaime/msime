@@ -249,7 +249,7 @@ pub(crate) fn keyboard_reranker(
     scorer
 }
 
-/// 「增强」开着时逐键重排挂的是哪一个，写一行诊断。类别本身就说明了档位（`keyboard reranker onnx large`、`keyboard reranker onnx small`、可用内存不够加载大的时的 `keyboard reranker onnx small (low memory)`、`keyboard reranker bundled model`、`keyboard reranker missing`），只留类别的宿主（macOS、iOS）也看得出来；细节是模型目录、大模型的自测毫秒数、可用内存，以及是不是与之前的会话共用（`(shared)`）。只在会话建立和开关打开时写，不在按键路径上写。
+/// 「增强」开着时逐键重排挂的是哪一个，写一行诊断。类别本身就说明了档位（`keyboard reranker onnx large`、`keyboard reranker onnx small`、可用内存不够加载大的时的 `keyboard reranker onnx small (low memory)`、小模型配更大的整句池比大模型更准时的 `keyboard reranker onnx small (wider pool)`、`keyboard reranker bundled model`、`keyboard reranker missing`），只留类别的宿主（macOS、iOS）也看得出来；细节是模型目录、大模型的自测毫秒数、挂上的模型打一页的毫秒数和给它的整句池、可用内存，以及是不是与之前的会话共用（`(shared)`）。只在会话建立和开关打开时写，不在按键路径上写。
 fn report_keyboard_reranker(category: &'static str, detail: &str) {
     crate::diagnostics::report(category, detail);
 }
@@ -272,6 +272,69 @@ pub(crate) const SMALL_RERANK_MODEL_DIRECTORY: &str = "rerank-model-small";
 /// 大模型打一页重负载（[`msime_onnx_rerank::OnnxScorer::calibrate`]）超过这么多毫秒就换小模型。2026-11-01 在真机上量的自测值：iPhone 17 是 3.8 到 4.8 ms，Mac 是 4 到 7 ms（机器很忙时），iPhone XR 是 21.9 到 23.4 ms，Pixel 3 XL（四线程）是 30.4 ms。前两台用大模型时整键 p95 在 4 ms 上下；后两台用大模型是 13 到 27 ms，用小模型是 4.4 到 4.9 和 9.3 ms。
 #[cfg(feature = "onnx-rerank")]
 pub(crate) const LARGE_RERANK_MODEL_BUDGET_MS: f64 = 10.0;
+
+/// 整句池（[`msime_onnx_rerank::OnnxScorer::set_sentence_pool`]）的候选档位，从大到小试。
+///
+/// 每档两个系数：模型打一页重负载的自测毫秒数（`OnnxScorer::calibrate`）乘上它，就是这一档在真实运行时里给每次按键加上的尾部耗时，前一个是手机的 p95，后一个是桌面的 p99。用 `rerank_latency --sentence-pool`（sentences-v2 与 typing-chat-v1，8104 次按键，交替跑）在 2026-11-02 量的：
+///
+/// - 桌面那一列来自 Mac（M 系列，2 线程）：大模型一页 4.0–4.3 ms、小模型 1.1–1.3 ms，两个模型算出的系数相差不到一成，共用一列。
+/// - 手机那一列来自 Pixel 3 XL 上的 6x256（4 线程，一页 8.8–8.9 ms）：池 9、12、16 整键 p95 是 9.8、10.9、12.5–12.9 ms，比 Mac 的 p95 系数一致地高约一成；20 条以上没有在手机上量，按同一比例从 Mac 推出来。
+#[cfg(feature = "onnx-rerank")]
+const SENTENCE_POOL_COST: [(usize, f64, f64); 6] = [
+    (32, 1.60, 1.86),
+    (24, 1.35, 1.49),
+    (20, 1.20, 1.42),
+    (16, 1.04, 1.22),
+    (12, 0.84, 1.03),
+    (9, 0.72, 0.76),
+];
+
+/// 引擎自己（不算模型）每次按键的尾部耗时，和逐键预算：手机守整键 p95 ≤ 10 ms，按 Pixel 3 XL 上引擎那一份的 p95（3.5 ms）算；桌面守整键 p99 ≤ 4 ms，按 Mac 上引擎的 p99（0.7 ms）算。
+#[cfg(all(feature = "onnx-rerank", any(target_os = "ios", target_os = "android")))]
+const ENGINE_TAIL_MS: f64 = 3.5;
+#[cfg(all(feature = "onnx-rerank", any(target_os = "ios", target_os = "android")))]
+const KEYSTROKE_BUDGET_MS: f64 = 10.0;
+#[cfg(all(
+    feature = "onnx-rerank",
+    not(any(target_os = "ios", target_os = "android"))
+))]
+const ENGINE_TAIL_MS: f64 = 0.7;
+#[cfg(all(
+    feature = "onnx-rerank",
+    not(any(target_os = "ios", target_os = "android"))
+))]
+const KEYSTROKE_BUDGET_MS: f64 = 4.0;
+
+/// 模型打一页要 `page_ms` 的这台机器上，按键预算之内能比较多大的整句池；连 9 条都放不下时为 `None`。手机看 p95、桌面看 p99（[`KEYSTROKE_BUDGET_MS`]）。Pixel 3 XL 的 6x256（一页约 8.9 ms）落在 9 条，iPhone 17 的 8x448（一页约 4 ms）落在 24 条，Mac 的 6x256（一页约 1.2 ms）落在 32 条。
+#[cfg(feature = "onnx-rerank")]
+pub(crate) fn sentence_pool_for(page_ms: f64) -> Option<usize> {
+    let phone = cfg!(any(target_os = "ios", target_os = "android"));
+    SENTENCE_POOL_COST
+        .iter()
+        .find(|&&(_, p95, p99)| {
+            ENGINE_TAIL_MS + page_ms * if phone { p95 } else { p99 } <= KEYSTROKE_BUDGET_MS
+        })
+        .map(|&(pool, _, _)| pool)
+}
+
+/// 大小两个模型在各个整句池下的 dev 首选对的条数之和（ctx-v1 dev 分句 741 条 + 选词 737 条 + typing-chat-v1 dev 110 段，2026-11-02），用来在「大模型配它放得下的池」和「小模型配它放得下的池」之间选：池大一档的小模型可能比池小的大模型更准，Mac 上小模型配 32 条（1220）就比大模型配 9 条（1195）好，还更快。池相同时大模型总是更准。
+#[cfg(feature = "onnx-rerank")]
+const DEV_CORRECT: [(usize, u32, u32); 6] = [
+    (32, 1233, 1220),
+    (24, 1227, 1214),
+    (20, 1222, 1207),
+    (16, 1213, 1201),
+    (12, 1200, 1190),
+    (9, 1195, 1186),
+];
+
+#[cfg(feature = "onnx-rerank")]
+fn dev_correct(large: bool, pool: usize) -> u32 {
+    DEV_CORRECT
+        .iter()
+        .find(|&&(entry, _, _)| entry == pool)
+        .map_or(0, |&(_, big, small)| if large { big } else { small })
+}
 
 /// 进程可用内存（iOS 的 `os_proc_available_memory`）少于这么多时不加载大模型，直接用小的。
 ///
@@ -346,7 +409,15 @@ pub(crate) struct OnnxRerankers {
     loaded: Option<LoadedOnnxReranker>,
     /// 大模型的自测结果：模型根目录、当时大模型的文件戳和毫秒数。
     calibrated: Option<(PathBuf, ModelStamp, f64)>,
+    /// 定整句池时量的其余模型（小模型、只装了一个时的那一个）打一页的毫秒数：模型目录、文件戳、毫秒数。同样每个进程只量一次。
+    pages: Vec<(PathBuf, ModelStamp, f64)>,
+    /// 按一页的毫秒数定整句池的规则，`None` 是 [`sentence_pool_for`]。测试在这里换成与机器快慢无关的规则：测试用的小模型在并行跑测试时一页可能慢到放不下 32 条，档位就跟着机器忙闲变。
+    pool_rule: Option<PoolRule>,
 }
+
+/// [`OnnxRerankers`] 定整句池的规则：一页的毫秒数 → 放得下的池，`None` 是 9 条也放不下。
+#[cfg(feature = "onnx-rerank")]
+pub(crate) type PoolRule = Box<dyn FnMut(f64) -> Option<usize> + Send>;
 
 #[cfg(feature = "onnx-rerank")]
 fn onnx_rerankers() -> std::sync::MutexGuard<'static, OnnxRerankers> {
@@ -401,6 +472,24 @@ impl msime_input_runtime::CandidateScorer for SharedOnnxScorer {
 
 #[cfg(feature = "onnx-rerank")]
 impl OnnxRerankers {
+    /// 用 `rule` 代替 [`sentence_pool_for`] 定整句池，只给测试用。
+    #[cfg(test)]
+    pub(crate) fn with_pool_rule(rule: PoolRule) -> Self {
+        Self {
+            pool_rule: Some(rule),
+            ..Self::default()
+        }
+    }
+
+    /// 这一页放得下的整句池，按 `pool_rule`，放不下 9 条时也给 9 条。
+    fn pool_for(&mut self, page_ms: f64) -> usize {
+        match self.pool_rule.as_mut() {
+            Some(rule) => rule(page_ms),
+            None => sentence_pool_for(page_ms),
+        }
+        .unwrap_or(msime_engine::ordering::SENTENCE_POOL)
+    }
+
     /// 给一个新会话挂重排器。已经为 `root` 加载过、两个模型文件都没换时直接共用（细节标 `(shared)`）；否则定档位并加载：
     ///
     /// - 只装了一个模型就用那一个；大的读不了就用小的。
@@ -416,6 +505,7 @@ impl OnnxRerankers {
         const LARGE: &str = "keyboard reranker onnx large";
         const SMALL: &str = "keyboard reranker onnx small";
         const SMALL_LOW_MEMORY: &str = "keyboard reranker onnx small (low memory)";
+        const SMALL_WIDER_POOL: &str = "keyboard reranker onnx small (wider pool)";
         let large = root.join(RERANK_MODEL_DIRECTORY);
         let small = root.join(SMALL_RERANK_MODEL_DIRECTORY);
         let (large_stamp, small_stamp) = (model_stamp(&large), model_stamp(&small));
@@ -440,43 +530,62 @@ impl OnnxRerankers {
                     available >> 20,
                     LARGE_RERANK_MODEL_MIN_AVAILABLE >> 20
                 );
-                return self.load(&small, stamps, SMALL_LOW_MEMORY, note);
+                return self.load_pooled(&small, stamps, SMALL_LOW_MEMORY, note);
             }
             let known = self
                 .calibrated
                 .as_ref()
                 .filter(|(calibrated, stamp, _)| calibrated == root && *stamp == large_stamp)
                 .map(|&(_, _, measured)| measured);
-            let note =
-                |measured: f64| format!(" (calibrated {measured:.1} ms, budget {budget_ms:.1} ms)");
-            if let Some(measured) = known {
-                let note = note(measured);
-                if measured > budget_ms {
-                    if let Some(attached) = self.load(&small, stamps, SMALL, note.clone()) {
-                        return Some(attached);
-                    }
-                }
-                // 新加载的这一份带上之前量出的结论：过了预算的同时也排上屏后联想。
-                return self
-                    .load_calibrated(&large, stamps, LARGE, note.clone(), (measured, budget_ms))
-                    .or_else(|| self.load(&small, stamps, SMALL, note));
-            }
+            // 先放开换下来的那个，加载新模型的那一刻不必两个都由这里占着。
             self.loaded = None;
-            let Some(mut scorer) = load_onnx_reranker(&large) else {
-                return self.load(&small, stamps, SMALL, String::new());
+            let Some(mut large_scorer) = load_onnx_reranker(&large) else {
+                return self.load_pooled(&small, stamps, SMALL, String::new());
             };
-            // 过了预算的大模型同时也排上屏后联想；退到小模型的机器不排，见 `OnnxScorer::fits_keystroke_budget`。
-            let measured = scorer.calibrate_for_keystroke_budget(budget_ms);
-            self.calibrated = Some((root.to_path_buf(), large_stamp, measured));
+            // 自测在进程里只做一次；量过的结论交给新加载的这一份：过了预算的大模型同时也排上屏后联想，退到小模型的机器不排，见 `OnnxScorer::fits_keystroke_budget`。
+            let measured = match known {
+                Some(measured) => {
+                    large_scorer.accept_calibration(measured, budget_ms);
+                    measured
+                }
+                None => {
+                    let measured = large_scorer.calibrate_for_keystroke_budget(budget_ms);
+                    self.calibrated = Some((root.to_path_buf(), large_stamp, measured));
+                    measured
+                }
+            };
+            let note = format!(" (calibrated {measured:.1} ms, budget {budget_ms:.1} ms)");
             if measured > budget_ms {
-                if let Some(attached) = self.load(&small, stamps, SMALL, note(measured)) {
+                if let Some(attached) = self.load_pooled(&small, stamps, SMALL, note.clone()) {
                     return Some(attached);
                 }
             }
-            return Some(self.keep(&large, stamps, scorer, LARGE, note(measured)));
+            // 大模型放得下的整句池不到最大时，再看小模型配它放得下的池是不是更准（`DEV_CORRECT`）：桌面上大模型只放得下 9 条，小模型放得下 32 条，后者更准也更快。
+            let large_pool = self.pool_for(measured);
+            if measured <= budget_ms && large_pool < msime_engine::ordering::MAX_SENTENCE_POOL {
+                if let Some(mut small_scorer) = load_onnx_reranker(&small) {
+                    let page = self.page_ms(&small, &mut small_scorer);
+                    let small_pool = self.pool_for(page);
+                    if dev_correct(false, small_pool) > dev_correct(true, large_pool) {
+                        drop(large_scorer);
+                        small_scorer.set_sentence_pool(small_pool);
+                        let note = format!("{note}{}", pool_note(page, small_pool));
+                        return Some(self.keep(
+                            &small,
+                            stamps,
+                            small_scorer,
+                            SMALL_WIDER_POOL,
+                            note,
+                        ));
+                    }
+                }
+            }
+            large_scorer.set_sentence_pool(large_pool);
+            let note = format!("{note}{}", pool_note(measured, large_pool));
+            return Some(self.keep(&large, stamps, large_scorer, LARGE, note));
         }
-        self.load(&large, stamps, LARGE, String::new())
-            .or_else(|| self.load(&small, stamps, SMALL, String::new()))
+        self.load_pooled(&large, stamps, LARGE, String::new())
+            .or_else(|| self.load_pooled(&small, stamps, SMALL, String::new()))
     }
 
     /// 「增强」关掉时放开 `root` 下的重排器：还挂着它的会话照常用到结束，之后模型的内存就还给系统。自测结果留着，再打开时不重测。
@@ -490,35 +599,39 @@ impl OnnxRerankers {
         }
     }
 
-    fn load(
+    /// 加载 `directory` 的模型，按它在这台机器上打一页的速度定整句池（[`sentence_pool_for`]，进程里只量一次）。没有这个模型就什么都不动，已加载的那个留着。
+    fn load_pooled(
         &mut self,
         directory: &Path,
         stamps: [ModelStamp; 2],
         category: &'static str,
         note: String,
     ) -> Option<AttachedOnnxReranker> {
-        // 没有这个模型就什么都不动，已加载的那个留着。
         model_stamp(directory)?;
         // 先放开换下来的那个，加载新模型的那一刻不必两个都由这里占着。
         self.loaded = None;
-        let scorer = load_onnx_reranker(directory)?;
+        let mut scorer = load_onnx_reranker(directory)?;
+        let page = self.page_ms(directory, &mut scorer);
+        let pool = self.pool_for(page);
+        scorer.set_sentence_pool(pool);
+        let note = format!("{note}{}", pool_note(page, pool));
         Some(self.keep(directory, stamps, scorer, category, note))
     }
 
-    /// 同 [`Self::load`]，再把这个进程里之前对同一个模型文件量出的 `(毫秒数, 预算)` 交给它（`OnnxScorer::accept_calibration`），不重测。
-    fn load_calibrated(
-        &mut self,
-        directory: &Path,
-        stamps: [ModelStamp; 2],
-        category: &'static str,
-        note: String,
-        (measured_ms, budget_ms): (f64, f64),
-    ) -> Option<AttachedOnnxReranker> {
-        model_stamp(directory)?;
-        self.loaded = None;
-        let mut scorer = load_onnx_reranker(directory)?;
-        scorer.accept_calibration(measured_ms, budget_ms);
-        Some(self.keep(directory, stamps, scorer, category, note))
+    /// `directory` 的模型在这台机器上打一页要多少毫秒：这个进程对同一个模型文件量过就用量过的，否则用 `scorer` 量一次记下（`OnnxScorer::calibrate`，不改它排不排上屏后联想）。
+    fn page_ms(&mut self, directory: &Path, scorer: &mut msime_onnx_rerank::OnnxScorer) -> f64 {
+        let stamp = model_stamp(directory);
+        if let Some(&(_, _, page)) = self
+            .pages
+            .iter()
+            .find(|(measured, measured_stamp, _)| measured == directory && *measured_stamp == stamp)
+        {
+            return page;
+        }
+        let page = scorer.calibrate();
+        self.pages.retain(|(measured, _, _)| measured != directory);
+        self.pages.push((directory.to_path_buf(), stamp, page));
+        page
     }
 
     fn keep(
@@ -544,6 +657,12 @@ impl OnnxRerankers {
             detail,
         }
     }
+}
+
+/// 诊断行里的整句池：这一页量出多少毫秒、给了多大的池。
+#[cfg(feature = "onnx-rerank")]
+fn pool_note(page_ms: f64, pool: usize) -> String {
+    format!(" (page {page_ms:.1} ms, sentence pool {pool})")
 }
 
 #[cfg(feature = "onnx-rerank")]
