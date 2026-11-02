@@ -8873,6 +8873,62 @@ fn keyboard_reranker_uses_the_downloaded_small_model_pack() {
     assert!(ffi::rerank_models_root(root, None, Some(state.path())).is_none());
 }
 
+/// 「增强」开着的会话建立时还没有重排模型（Android 上资源包还在下载），设置应用装好 `rerank-model-small` 后，下一次聚焦就把它挂上，不必等会话重建；再聚焦一次、来源没变时不重新加载。
+#[cfg(feature = "onnx-rerank")]
+#[test]
+fn a_rerank_model_pack_installed_after_the_session_opened_is_attached_on_focus() {
+    let root = tempfile::tempdir().unwrap();
+    let path = |name| {
+        let path = root.path().join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    };
+    let state = path("state");
+    let resources = path("resources");
+    rusqlite::Connection::open(resources.join("msime-pinyin.db"))
+        .unwrap()
+        .execute_batch("CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);")
+        .unwrap();
+    bundle_wubi_table(&resources);
+    let dictionaries = path("dictionaries");
+    std::fs::copy(
+        resources.join("msime-pinyin.db"),
+        dictionaries.join("msime-pinyin.db"),
+    )
+    .unwrap();
+    let mut preferences = chinese_preferences();
+    preferences.sentence_association.neural_keyboard = true;
+    let options = json!({ "api_version": 1, "resources": resources, "user_data": path("user"), "cache": path("cache"), "dictionaries": dictionaries, "preferences": preferences, "preferences_directory": state }).to_string();
+    let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+    assert_eq!(created["ok"], true, "{created}");
+    let handle = created["value"]["session"].as_u64().unwrap();
+    let observed = || {
+        SESSIONS.with(|sessions| {
+            let sessions = sessions.borrow();
+            let session = sessions.get(&handle).unwrap();
+            (
+                session.keyboard_reranker_source.clone(),
+                session.runtime.has_reranker(),
+            )
+        })
+    };
+    // 没有随包的句子模型，也还没有资源包：什么都没挂。
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    assert_eq!(observed(), (None, false));
+
+    let fixtures =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../onnx-rerank/tests/fixtures");
+    let pack = publish_resource_pack(&state, ResourcePack::RerankModelSmall, &[]);
+    for name in ["lm_step.ort", "model.json", "vocab.json"] {
+        std::fs::copy(fixtures.join(name), pack.join(name)).unwrap();
+    }
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    assert_eq!(observed(), (Some(resource_packs::root(&state)), true));
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    assert_eq!(observed(), (Some(resource_packs::root(&state)), true));
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
 /// The keyboard model runs inside every keystroke, so it is attached only while `neural_keyboard` (整句联想「增强」) is on: not on the default 标准, attached when the switch turns on, dropped when it turns off again. It is attached to the runtime alone; the Engine's own keyboard-model rerank stays off throughout. It takes the real model from `MSIME_EVAL_RESOURCES` or `MSIME_NEURAL_MODEL_DIR` as the Engine's model tests do, and without one a tiny context-free model (`write_context_free_sentence_model`), so CI, which has no model, still checks that session creation and every preference update use `keyboard_reranker_enabled`.
 #[test]
 fn keyboard_reranker_follows_the_keyboard_model_switch() {
