@@ -407,6 +407,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         quick_phrase_frequency: true,
         helpcode_table: None,
         helpcode_fallback_resources: None,
+        custom_helpcode_root: None,
         sentence_association: msime_engine::SentenceAssociationOptions {
             word_lattice: true,
             neural_keyboard: false,
@@ -5650,8 +5651,11 @@ fn skin_catalog_reaches_native_presenters_without_the_settings_shell() {
 fn custom_helpcode_schemas_reach_native_presenters_without_the_settings_shell() {
     let directory = tempfile::tempdir().unwrap();
     let resources = directory.path().join("resources");
-    let scan =
-        |path: &str| read(unsafe { msime_client_helpcode_schemas(path.as_ptr(), path.len()) });
+    let scan = |path: &str| {
+        read(unsafe {
+            msime_client_helpcode_schemas(path.as_ptr(), path.len(), std::ptr::null(), 0)
+        })
+    };
     let path = resources.to_str().unwrap().to_owned();
 
     // Missing optional assets are an empty catalog, not an unavailable settings surface.
@@ -5680,9 +5684,38 @@ fn custom_helpcode_schemas_reach_native_presenters_without_the_settings_shell() 
 
     assert_eq!(scan("relative/resources")["ok"], false);
     assert_eq!(
-        read(unsafe { msime_client_helpcode_schemas(std::ptr::null(), 0) })["ok"],
+        read(unsafe { msime_client_helpcode_schemas(std::ptr::null(), 0, std::ptr::null(), 0) })
+            ["ok"],
         false
     );
+
+    // 状态根下的表一起列出，同一主干取状态根那份；相对的状态根被拒绝。
+    let state = directory.path().join("state");
+    let user = state.join("helpcodes/custom");
+    std::fs::create_dir_all(&user).unwrap();
+    std::fs::write(user.join("synthetic.txt"), "# name: Mine\nword=ab\n").unwrap();
+    std::fs::write(user.join("upgraded.txt"), "word=ab\n").unwrap();
+    let with_state = |state: &str| {
+        read(unsafe {
+            msime_client_helpcode_schemas(path.as_ptr(), path.len(), state.as_ptr(), state.len())
+        })
+    };
+    let listed = with_state(state.to_str().unwrap());
+    assert_eq!(listed["ok"], true);
+    let listed: Vec<_> = listed["value"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|schema| (schema["schema"].clone(), schema["name"].clone()))
+        .collect();
+    assert_eq!(
+        listed,
+        [
+            (json!("custom/synthetic"), json!("Mine")),
+            (json!("custom/upgraded"), json!(""))
+        ]
+    );
+    assert_eq!(with_state("relative/state")["ok"], false);
 }
 
 #[test]
@@ -5693,7 +5726,9 @@ fn discovered_custom_helpcode_extensions_are_loadable_by_the_engine() {
     std::fs::create_dir_all(&custom).unwrap();
     std::fs::write(custom.join("synthetic.TXT"), "# name: uppercase\n你=ab\n").unwrap();
     let path = resources.to_str().unwrap();
-    let catalog = read(unsafe { msime_client_helpcode_schemas(path.as_ptr(), path.len()) });
+    let catalog = read(unsafe {
+        msime_client_helpcode_schemas(path.as_ptr(), path.len(), std::ptr::null(), 0)
+    });
     assert_eq!(catalog["ok"], true);
     assert_eq!(catalog["value"].as_array().unwrap().len(), 1);
     let schema = catalog["value"][0]["schema"].as_str().unwrap();
@@ -16683,6 +16718,77 @@ fn windows_sessions_read_the_builtin_helpcode_tables_from_the_data_directory() {
     let view = type_letters(handle, b"m");
     assert_eq!(view["candidates"][0]["text"], "杨", "yhm: {view}");
     read(msime_client_destroy(handle));
+}
+
+/// 自定义辅助码表（`custom/<stem>`）以前只放在资源目录里，而资源目录归安装包：Windows 升级删掉整个 `server` 目录，macOS 换掉整个应用包，在线词库更新换成新代次，表随之消失，偏好里还写着 `custom/mine`，Engine 只得到一张空表（#10707）。准备运行时配置时把表搬到状态根下，资源目录里的表之后被删掉，会话照样读到它：`yh` 下「杨」带着 mu，`yhm` 把它提到首位。
+#[test]
+fn a_custom_helpcode_table_outlives_the_resource_directory_it_was_placed_in() {
+    let directory = tempfile::tempdir().unwrap();
+    let resources = directory.path().join("server/resources");
+    let state = directory.path().join("DataDir");
+    let mut set = synthetic_desktop_lock(&resources);
+    rusqlite::Connection::open(resources.join("msime-pinyin.db"))
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE tbl_1_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+             INSERT INTO tbl_1_y VALUES('yang','y','阳',2000),('yang','y','杨',1000);
+             CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+             CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);",
+        )
+        .unwrap();
+    for artifact in &mut set.artifacts {
+        let bytes = std::fs::read(resources.join(&artifact.name)).unwrap();
+        artifact.sha256 = hex::encode(Sha256::digest(&bytes));
+        artifact.size = bytes.len() as u64;
+    }
+    std::fs::create_dir_all(resources.join("helpcodes/custom")).unwrap();
+    std::fs::write(
+        resources.join("helpcodes/custom/mine.txt"),
+        "阳=rr\n杨=mu\n",
+    )
+    .unwrap();
+
+    let mut options: Value = serde_json::from_str(
+        &prepare_host_with_updates(&resources, &state, Edition::full(), &set).unwrap(),
+    )
+    .unwrap();
+    // 升级替换了资源目录：放在那里的表没有了。
+    std::fs::remove_dir_all(resources.join("helpcodes")).unwrap();
+    let mut preferences = chinese_preferences();
+    preferences.scheme = InputScheme::Shuangpin;
+    preferences.learning = false;
+    preferences.cloud_candidates = false;
+    preferences.shuangpin_helpcode.enabled = true;
+    preferences.shuangpin_helpcode.schema =
+        msime_client_core::preferences::HelpcodeSchema::Custom("custom/mine".into());
+    preferences.shuangpin_helpcode.show_in_candidate_window = true;
+    options["preferences"] = serde_json::to_value(&preferences).unwrap();
+    let document = options.to_string();
+    let created = read(unsafe { msime_client_create(document.as_ptr(), document.len()) });
+    assert_eq!(created["ok"], true, "{created}");
+    let handle = created["value"]["session"].as_u64().unwrap();
+    read(msime_client_focus(handle, true));
+    let view = type_letters(handle, b"yh");
+    let annotation = view["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|candidate| candidate["text"] == "杨")
+        .and_then(|candidate| candidate["annotation"].as_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    assert!(annotation.contains("mu"), "yh: {view}");
+    let view = type_letters(handle, b"m");
+    assert_eq!(view["candidates"][0]["text"], "杨", "yhm: {view}");
+    read(msime_client_destroy(handle));
+    // 设置页照样列得出它。
+    let listed = crate::list_custom_helpcode_schemas(
+        resources.to_str().unwrap(),
+        Some(std::path::absolute(&state).unwrap().to_str().unwrap()),
+    )
+    .unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].schema, "custom/mine");
 }
 
 /// 设置页新增一条快捷短语（`edit` 不带 `previous`），再按 `options` 列出快捷短语，返回列出的短语。

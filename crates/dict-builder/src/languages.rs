@@ -36,7 +36,7 @@ pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<Strin
     };
     let corpus = hkcancor::parse(&corpus)?;
     let variants = text::read(&sources.pinned(cantonese::VARIANTS)?)?;
-    let forms = cantonese::hong_kong_forms(&cantonese::parse_variants(&variants)?, &corpus);
+    let forms = cantonese::hong_kong_forms(&cantonese::candidate_variants(&variants)?, &corpus);
     let dictionary = cantonese::build(
         &characters,
         &cantonese::parse_words(&words)?,

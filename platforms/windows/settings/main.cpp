@@ -1472,23 +1472,31 @@ std::optional<std::vector<std::wstring>> read_font_catalog() {
 
 // ---- 辅助码方案的来源 ----
 
-// 资源目录 helpcodes/custom 下的自定义辅助码表，与 Tauri 的 list_helpcode_schemas 相同：资源目录是输入法宿主选项（runtime-options.json）的 resources。还没有宿主选项时是失败的响应，页面当作没有自定义码表。读目录，只在 UI 线程之外调用。
+// 自定义辅助码表，与 Tauri 的 list_helpcode_schemas 相同：输入法宿主选项（runtime-options.json）里状态根 preferences_directory（即 DataDir）和资源目录 resources 下的 helpcodes/custom，同一主干取状态根那份。还没有宿主选项时是失败的响应，页面当作没有自定义码表。读目录，只在 UI 线程之外调用。
 Response helpcode_schemas_call() {
   const auto options = runtime_options_document();
   std::wstring resources;
+  std::wstring state_root;
   if (options) {
     try {
-      resources = JsonObject::Parse(text(*options)).GetNamedString(L"resources", L"").c_str();
+      const auto document = JsonObject::Parse(text(*options));
+      resources = document.GetNamedString(L"resources", L"").c_str();
+      state_root = document.GetNamedString(L"preferences_directory", L"").c_str();
     } catch (...) {
       resources.clear();
+      state_root.clear();
     }
   }
   // 与 Tauri 一样只接受绝对路径。
   if (resources.empty() || !std::filesystem::path(resources).is_absolute())
     return {"{\"ok\":false,\"error\":\"no host options\"}", false};
+  if (!state_root.empty() && !std::filesystem::path(state_root).is_absolute())
+    state_root.clear();
   const auto path = utf8(hstring(resources));
+  const auto state = utf8(hstring(state_root));
   return take_response(msime_client_helpcode_schemas(
-      reinterpret_cast<const uint8_t *>(path.data()), path.size()));
+      reinterpret_cast<const uint8_t *>(path.data()), path.size(),
+      state.empty() ? nullptr : reinterpret_cast<const uint8_t *>(state.data()), state.size()));
 }
 
 // 本安装随包带的内置声音包：Server 状态目录下的 sound-packs，与 Tauri 的 builtin_sound_packs 在 Windows 上取的 `server_state_directory()/sound-packs` 相同（StateDirectory.h 的 resolve_state_directory 是同一顺序的 C++ 版本）。目录不在时为空，只列已安装的包。会查文件系统，只在 UI 线程之外调用。

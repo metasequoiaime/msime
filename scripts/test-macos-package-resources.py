@@ -5,6 +5,9 @@
 
 只用标准库；任何一个输入文件缺失时打印 skipped 并以 0 退出。
 """
+import contextlib
+import importlib.util
+import io
 import json
 import plistlib
 import re
@@ -20,6 +23,7 @@ DESKTOP_LOCK = ROOT / "resources/desktop-dictionary.lock.json"
 LANGUAGE_LOCK = ROOT / "resources/language-dictionaries.lock.json"
 HANDWRITING_LOCK = ROOT / "resources/handwriting-model.lock.json"
 PACKAGE = ROOT / "platforms/macos/package-release.sh"
+ENGINE_BUDGET = ROOT / "platforms/macos/scripts/engine_resources_budget.py"
 TAURI_MACOS = ROOT / "apps/desktop/src-tauri/tauri.macos.conf.json"
 PR_WORKFLOW = ROOT / ".github/workflows/ci-macos-package.yml"
 RELEASE_WORKFLOW = ROOT / ".github/workflows/release-macos.yml"
@@ -31,10 +35,13 @@ PACKAGING_INPUTS = (
     "platforms/macos/package-release.sh",
     "platforms/macos/scripts/installer_package.py",
     "platforms/macos/scripts/edition_bundle.py",
+    "platforms/macos/scripts/engine_resources_budget.py",
     "platforms/macos/resources/installer/",
     "platforms/macos/stage-resources.sh",
     "apps/desktop/src-tauri/tauri.macos.conf.json",
     "resources/desktop-dictionary.lock.json",
+    "resources/editions/",
+    "resources/helpcodes/",
     "resources/language-dictionaries.lock.json",
     "resources/handwriting-model.lock.json",
     "resources/offline-glosses.lock.json",
@@ -306,12 +313,14 @@ def check_pkg_naming_and_order(package_text: str) -> None:
 
 def check_core_dictionary_budget() -> None:
     source = PACKAGE.read_text(encoding="utf-8")
-    helper = re.search(r"^core_dictionary_budget_kib\(\) \{\n.*?^\}\n", source, re.MULTILINE | re.DOTALL)
-    check(helper is not None, "核心词库预算没有随版本锁计算，五笔新锁仍会被旧的固定预算拒绝")
-    if helper is None:
-        return
-    check('engine_budget_kib="$(core_dictionary_budget_kib "$resources_dir/EngineResources")"' in source,
-          "check_app 没有使用锁驱动的核心词库预算")
+    check('python3 -I "$repo_root/platforms/macos/scripts/engine_resources_budget.py" --edition "$edition" "$resources_dir/EngineResources"' in source,
+          "check_app 没有用 engine_resources_budget.py 核对锁驱动的核心词库预算")
+    # du 量的是已分配块数，同一份内容展开安装包后曾多出 18 MiB，让 0.57.0 正式版的五笔包被误拒；体积检查只能按文件长度计。
+    check_body = re.search(r"^check_app\(\) \{\n.*?^\}\n", source, re.MULTILINE | re.DOTALL)
+    check(check_body is not None and "du -sk" not in check_body.group(), "check_app 又用 du 的已分配块数去比按长度计的核心词库预算")
+    spec = importlib.util.spec_from_file_location("engine_resources_budget", ENGINE_BUDGET)
+    budget = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(budget)
     with tempfile.TemporaryDirectory(prefix="msime-core-budget-") as directory:
         root = Path(directory)
         (root / "resources/editions").mkdir(parents=True)
@@ -325,16 +334,30 @@ def check_core_dictionary_budget() -> None:
         (root / "resources/desktop-dictionary.lock.json").write_text(json.dumps(lock))
         for artifact in artifacts:
             (staged / artifact["name"]).touch()
-        probe = 'set -euo pipefail\nrepo_root=$1\nedition=$2\n' + helper.group() + '\ncore_dictionary_budget_kib "$3"'
         for edition, omit_wubi in (("wubi", False), ("full", True)):
             if omit_wubi:
                 (staged / "msime-wubi.db").unlink()
-            result = subprocess.run(["bash", "-c", probe, "probe", str(root), edition, str(staged)],
-                                    capture_output=True, text=True, timeout=10)
             expected = sum((a["size"] + 4095) // 4096 * 4 for a in artifacts
                            if not omit_wubi or a["name"] != "msime-wubi.db") + 4096
-            check(result.returncode == 0 and result.stdout.strip() == str(expected),
-                  f"{edition} 核心词库预算应为 {expected} KiB，实际为 {result.stdout.strip()}；{result.stderr.strip()}")
+            actual = budget.budget_kib(root, edition, staged)
+            check(actual == expected, f"{edition} 核心词库预算应为 {expected} KiB，实际为 {actual}")
+
+        # 被量的一侧按长度计：一个没分配块的稀疏文件照样按全长算，du 会把它量成 0；预算内的内容通过，多出一个文件就超限。
+        small = root / "Small"
+        (small / "helpcodes").mkdir(parents=True)
+        with open(small / "msime-pinyin.db", "wb") as handle:
+            handle.truncate(10 * 1024 * 1024 + 1)
+        (small / "helpcodes/helpcode.txt").write_bytes(b"a")
+        check(budget.content_kib(small) == 10 * 1024 + 4 + 4, f"EngineResources 应按长度计为 {10 * 1024 + 8} KiB，实际为 {budget.content_kib(small)}")
+        (root / "resources/editions/probe.lock.json").write_text(json.dumps({"artifacts": [{"name": "msime-pinyin.db", "size": 10 * 1024 * 1024 + 1}]}))
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            within = budget.check(root, "probe", small)
+        check(within == 0, "按长度计在预算内的 EngineResources 被拒绝")
+        with open(small / "unexpected.bin", "wb") as handle:
+            handle.truncate(4096 * 1024 + 1)
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            over = budget.check(root, "probe", small)
+        check(over == 1, "多出一个不在锁里的 4 MiB 文件仍在预算内")
 
 
 def check_input_method_supplementary_tables() -> None:
