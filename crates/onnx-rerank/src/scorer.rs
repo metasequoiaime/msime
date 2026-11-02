@@ -212,7 +212,7 @@ impl CandidateScorer for OnnxScorer {
         self.info.context_chars + CANDIDATE_ROOM
     }
 
-    /// 宿主按 [`OnnxScorer::calibrate`] 挑的是在按键预算里跑得动的那一档，一次上屏的整池与几次按键相当：6x256 在 Pixel 3 XL 上量过，见 `.agents/notes/implemented/feature/2026-11-02-next-word-prediction-rerank.md`。
+    /// 宿主按 [`OnnxScorer::calibrate`] 挑的是在按键预算里跑得动的那一档，一次上屏的整池约等于一次重负载的按键：Pixel 3 XL 上 6x256（四线程）让上屏多花 p50 约 8–9 ms、p95 约 13–14 ms，Mac 上 8x448 p95 约 5 ms。见 `.agents/notes/implemented/feature/2026-11-02-next-word-prediction-rerank.md`。
     fn scores_prediction_pool_within_a_frame(&self) -> bool {
         true
     }

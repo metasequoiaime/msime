@@ -20,7 +20,7 @@ pub trait CandidateScorer: Send {
 
     /// 在上屏的那一次派发里同步给一整池联想续写（[`prediction_order`]，最多 32 条）打分，是否仍在一帧之内。是的话 runtime 才打开引擎的联想候选池、让它排上屏后联想；不是的话联想与没挂打分器时逐行相同。
     ///
-    /// 默认 `false`，后端要量过才报 `true`。随包的 [`Reranker`]（`model-v1`，纯 Rust 参考实现）在 Pixel 3 XL 上让每次上屏多花 p50 约 130 ms，所以不报；ONNX Runtime 后端的两档模型都是按按键预算挑出来的，一次上屏的整池在 Mac 上多花 p95 不到 6 ms。见 `.agents/notes/implemented/feature/2026-11-02-next-word-prediction-rerank.md`。
+    /// 默认 `false`，后端要量过才报 `true`。在 Pixel 3 XL 上量（`next_word_eval`）：随包的 [`Reranker`]（`model-v1`，纯 Rust 参考实现）让每次上屏多花 p50 约 50 ms、p95 约 100–120 ms（装好的 APK 里连着打字时 p50 约 130 ms），所以不报；ONNX Runtime 后端的 6x256 多花 p50 约 8–9 ms、p95 约 13–14 ms，报。见 `.agents/notes/implemented/feature/2026-11-02-next-word-prediction-rerank.md`。
     fn scores_prediction_pool_within_a_frame(&self) -> bool {
         false
     }

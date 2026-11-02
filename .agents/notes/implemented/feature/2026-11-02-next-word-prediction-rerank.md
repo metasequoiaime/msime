@@ -60,6 +60,22 @@ Status: implemented
 
 `next_word_eval` 的配对差 p50 41–42 ms、p95 75–94 ms，命中率与 Mac 上逐格相同。APK 里的数字更大，没有逐项拆开量过，最可能的差别是上文长度：连着打字时上文一直是满的（模型读得下的那么长），评测的上文是 Tatoeba 句子的开头，平均短得多。同一次量里排序之后下一次按键的 p95 从 23.4 ms 降到 9.7–10.0 ms（上屏时已经为新上文编码过前缀），但省下的远抵不上上屏多出的 130 ms。
 
+同一天在同一台 Pixel 3 XL 上量 ONNX 后端（`next_word_eval` 交叉编译到 aarch64-linux-android，静态链接按算子清单精简构建的 ONNX Runtime；6x256，四线程，与安卓宿主相同；`--unranked` 另加「挂着但不排联想」的臂，即产品里随包模型的样子；上屏之后接着打答案第一个词的读音，量逐键重排在新上文上的那几键）。各 3000 例，种子 7，dict-v2.0.41，去掉前 20 次；单位毫秒，配对差 = 这一臂减「今天」：
+
+| 两字以内 / 单字 | 上屏 p50 | 上屏 p95 | 上屏配对差 p50 | 上屏配对差 p95 | 上屏加下一个词 p50 | 上屏加下一个词 p95 |
+|---|---|---|---|---|---|---|
+| 今天 | 2.12 / 5.32 | 12.04 / 22.94 | — | — | 9.33 / 8.80 | 28.16 / 28.35 |
+| 6x256 排联想 | 11.22 / 14.79 | 22.39 / 33.66 | 8.39 / 8.92 | 13.87 / 12.95 | 18.88 / 18.56 | 39.51 / 39.18 |
+| 6x256 不排 | 2.11 / 5.35 | 12.04 / 23.10 | 0.00 / 0.04 | 0.22 / 0.47 | 10.20 / 9.03 | 30.37 / 28.73 |
+| model-v1 强制排 | 53.69 / 62.52 | 119.64 / 107.33 | 49.44 / 53.65 | 117.79 / 99.91 | 64.13 / 66.30 | 131.40 / 111.90 |
+| model-v1 不排（现在的安卓） | 2.13 / 5.40 | 12.15 / 23.12 | 0.01 / 0.05 | 0.22 / 0.49 | 10.30 / 9.07 | 41.41 / 31.25 |
+
+命中率与 Mac 上逐格相同（6x256 两字以内 hit@1 9.3%、单字 18.0%）。读法：
+
+- **ONNX 排联想让上屏多花 p50 8–9 ms、p95 13–14 ms。** 在一帧（16.7 ms）之内，但高于逐键 p95 ≤ 10 ms 的预算；上屏一个词才一次，不是每键都付。排过的上屏本身 p95 是 22–34 ms，不排时已经是 12–23 ms（引擎选词、查续写、取快照本身在这台手机上就不快）。
+- **这份代价几乎都是新增的，不是从下一键挪过来的。** 不排时打下一个词，第一次调到模型的那一键要为新上文编码前缀；两字以内那一组里这让「6x256 不排」下一个词的 p95 配对差是 7.5 ms，排过之后降到 4.9 ms，只省下约 2.6 ms。单字那一组下一个词多是单字读音，按键大多不调模型，省下的不到 1 ms。随包模型省得多一些（下一个词 p95 配对差 24.1 对 14.8 ms），但与上屏多出的一百毫秒不在一个量级。
+- **随包模型不排时与今天相同。** 上屏配对差 p95 0.2–0.5 ms，是挂着打分器的运行时的固定开销，联想行与今天逐行相同（命中率逐格相同，McNemar +0/−0）。
+
 ## Alternatives considered
 
 - **保持词频顺序** — 最强的理由是零成本、完全可预期，而且联想默认关，现在只有安卓的设置页能打开。但它不看上文：同一个词之后永远是同一串建议。评测里单字上屏的首位命中词频顺序是 11.5%，8x448 排序后 18.4%，随包模型 16.3%；模型已经挂着、按键时已经在跑，多花的只是上屏时的一次打分。
@@ -77,9 +93,11 @@ Status: implemented
 - **代价**：每次产生联想的上屏多一次模型打分和一次多取 32 条的词库查询；联想行在有没有模型的宿主之间不再相同。
 - **已知上限**：只能在词库续写的范围里挑，答案不在 32 条池里时排序帮不上；词库续写按刚上屏的那一个词查，暂存词段只进模型的上文、不进查询。
 - **现在没有一个发布的宿主会排**：排序只交给 ONNX 后端，而 ONNX 后端（host-api 的 `onnx-rerank` 特性）还没进任何平台的发布构建；安卓是现在唯一能打开联想的平台，用的是随包模型，所以安卓上的联想与合并前逐行相同。ONNX 后端随哪个平台发布，那个平台的联想就跟着按上文排，不用另改代码；发布前要在那个平台的真机上按上面的方式量一次上屏延迟。
+- **最慢的手机上 ONNX 排联想也略超逐键预算**：Pixel 3 XL 上 6x256 让上屏多花 p95 13–14 ms，比逐键 p95 ≤ 10 ms 的线高。现在按「一次上屏、一帧之内」接受它；若要守住 10 ms，下一步可以让 `OnnxScorer` 按 `calibrate` 的自测值决定报不报（老手机上不报），或在这些机器上把池缩到 16 条，而不是改 runtime。
 
 ## Verification
 
 - `crates/engine/src/session/tests/prediction_pool.rs`：没开池时与之前逐行相同、给了打分器也不打分；开池后在排序前显示的仍是词频前 8 条；整池按总分排（平均分高、总分低的两字行排在单字行后面）、只显示 8 条、上文是之前的文字接上这次上屏的词；每次上屏只打一次分；分数条数不对时不动；重排后选第 0 行上屏的就是它，下一轮按它的种子查、上文接的是这次上屏的那一行；只有一条续写时不打分；个人行在前且顺序不变、不送去打分；关池丢掉待排的那一次。`ordering.rs` 的 `prediction_order_*` 守住总分、同分保序、NaN 排最后和上文截取。
-- `crates/input-runtime/src/tests/prediction_rerank.rs`：真实引擎加桩打分器，覆盖没挂打分器时保持词频、挂上时按上屏后的上文排序且后续刷新不再打分、每个座位选中上屏的都是它显示的那一行、旧代次的身份作废、拿掉打分器和换引擎、隐私门禁、暂存词段进上文。
-- `next_word_eval`：上面的表；`cargo run --release -p msime-input-runtime --example next_word_eval -- --resources <锁定资源> --corpus cmn_sentences_detailed.tsv --longest 2`，加 `--features onnx-rerank`（`ORT_LIB_LOCATION` 见 `tools/onnxruntime-minimal/README.md`）和 `--onnx-model <目录>` 量 ONNX 后端。
+- `crates/input-runtime/src/tests/prediction_rerank.rs`：真实引擎加桩打分器，覆盖报 `scores_prediction_pool_within_a_frame` 为假的打分器挂着时联想与没挂时逐行相同、不多取也不打分，随包 `Reranker` 不排（同一个模型包一层报真就排，作对照），从够快换到不够快的打分器时关池、再换回来时重开，换引擎后按打分器速度决定开不开池；没挂打分器时保持词频、挂上时按上屏后的上文排序且后续刷新不再打分、每个座位选中上屏的都是它显示的那一行、旧代次的身份作废、拿掉打分器和换引擎、隐私门禁、暂存词段进上文。
+- `crates/onnx-rerank/tests/golden.rs` 的 `the_onnx_backend_orders_prediction`：`OnnxScorer` 报真。
+- `next_word_eval`：上面的表；真机那张表是在 Studio 上用 NDK 28 的 `aarch64-linux-android28-clang` 当链接器、`ORT_LIB_LOCATION` 指向 `tools/onnxruntime-minimal` 编出的 `android-arm64`，`cargo build --release -p msime-input-runtime --features onnx-rerank --example next_word_eval --target aarch64-linux-android`，推到 `/data/local/tmp` 与 NDK 的 `libc++_shared.so` 放在一起，加 `--onnx-model <6x256> --onnx-threads 4 --unranked` 跑的；`cargo run --release -p msime-input-runtime --example next_word_eval -- --resources <锁定资源> --corpus cmn_sentences_detailed.tsv --longest 2`，加 `--features onnx-rerank`（`ORT_LIB_LOCATION` 见 `tools/onnxruntime-minimal/README.md`）和 `--onnx-model <目录>` 量 ONNX 后端。
