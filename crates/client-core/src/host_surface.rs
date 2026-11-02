@@ -61,6 +61,7 @@ impl HostPlatform {
                 | HostPlatform::Linux
                 | HostPlatform::Macos
                 | HostPlatform::Windows
+                | HostPlatform::Ios
         )
     }
 
