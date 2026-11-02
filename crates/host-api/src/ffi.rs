@@ -210,17 +210,18 @@ pub(crate) fn sentence_model_path(resources: &str, configured: Option<&str>) -> 
 ///
 /// The switch is opt-in because this model runs inside every `character` call, on the thread the host types on: one decision costs a few milliseconds, and the first one after a commit, which has to read the new context from scratch, about 20 ms on a desktop CPU and five to ten times that on a phone. Attaching it whenever the file was present ran it for every touch user on 标准 and 关闭 too, which is what made fast typing on Android fall behind and drop keys. The model is not loaded at all while the switch is off.
 ///
-/// 编译时打开了 `onnx-rerank`、随包资源目录旁边又有 [`RERANK_MODEL_DIRECTORY`] 时用那个模型（ONNX Runtime 后端），读不了就退回随包的句子模型。`bundle` 是随包资源目录（`EngineOptions::helpcode_fallback_resources`）：`resources` 换成下载的词库代次时，ONNX 模型仍在安装包里，按它去找；为 `None` 时 `resources` 本身就是随包的那个。
+/// 编译时打开了 `onnx-rerank`、随包资源目录旁边又有 [`RERANK_MODEL_DIRECTORY`] 时用那个模型（ONNX Runtime 后端），读不了就退回随包的句子模型。`bundle` 是随包资源目录（`EngineOptions::helpcode_fallback_resources`）：`resources` 换成下载的词库代次时，ONNX 模型仍在安装包里，按它去找；为 `None` 时 `resources` 本身就是随包的那个。`sound_packs` 是会话的内置音效包目录（[`crate::key_sound::PluginRoots::builtin_sounds`]），资源目录旁边没有模型时按它找安装目录，见 [`rerank_models_root`]。
 ///
 /// 开关打开时写一行诊断，说挂上的是哪一个（见 [`report_keyboard_reranker`]）。
 pub(crate) fn keyboard_reranker(
     enabled: bool,
     resources: &str,
     bundle: Option<&str>,
+    sound_packs: Option<&Path>,
     configured: Option<&str>,
 ) -> Option<Box<dyn msime_input_runtime::CandidateScorer>> {
     #[cfg(feature = "onnx-rerank")]
-    let root = rerank_models_root(resources, bundle);
+    let root = rerank_models_root(resources, bundle, sound_packs);
     if !enabled {
         #[cfg(feature = "onnx-rerank")]
         if let Some(root) = root.as_deref() {
@@ -234,7 +235,7 @@ pub(crate) fn keyboard_reranker(
         return Some(Box::new(SharedOnnxScorer(attached.scorer)));
     }
     #[cfg(not(feature = "onnx-rerank"))]
-    let _ = bundle;
+    let _ = (bundle, sound_packs);
     let scorer = sentence_model(resources, configured).map(|model| {
         Box::new(Reranker::new(model)) as Box<dyn msime_input_runtime::CandidateScorer>
     });
@@ -255,10 +256,33 @@ fn report_keyboard_reranker(category: &'static str, detail: &str) {
 }
 
 /// 放 ONNX 重排模型的目录：随包资源目录的上一级，与 `settled-model/`、`language-dictionaries/` 一样是资源目录的兄弟。不放进资源目录本身，因为那里必须与词库锁逐项相符（`ResourceStore::verify` 只放过 `helpcodes/`），多一个目录整套资源就校验失败。
+///
+/// 那里没有模型时，再看内置音效包目录（`sound_packs`）的上一级。Linux 的安装包不带词库，`msime-linux-setup` 把它下载到用户自己的 `$XDG_DATA_HOME/msime-client/resources`，所以 `resources` 的上一级是用户目录，模型却装在 `/usr/share/msime-client/rerank-model`；两个宿主都按自己的安装位置把 `/usr/share/msime-client/sound-packs` 写成 `sound_packs`（Host API 已经据此找官方插件包，见 [`crate::key_sound::PluginRoots::new`]），它的上一级就是安装目录。Windows 不这样找：那里的内置音效包在普通用户可写的数据目录里，旁边的目录不能当作安装包的东西。
 #[cfg(feature = "onnx-rerank")]
-pub(crate) fn rerank_models_root(resources: &str, bundle: Option<&str>) -> Option<PathBuf> {
+pub(crate) fn rerank_models_root(
+    resources: &str,
+    bundle: Option<&str>,
+    sound_packs: Option<&Path>,
+) -> Option<PathBuf> {
     let bundled = bundle.filter(|path| !path.is_empty()).unwrap_or(resources);
-    Path::new(bundled).parent().map(Path::to_path_buf)
+    let beside = Path::new(bundled).parent().map(Path::to_path_buf);
+    let holds_models = |root: &Path| {
+        root.join(RERANK_MODEL_DIRECTORY).is_dir()
+            || root.join(SMALL_RERANK_MODEL_DIRECTORY).is_dir()
+    };
+    if beside.as_deref().is_some_and(holds_models) {
+        return beside;
+    }
+    #[cfg(not(target_os = "windows"))]
+    if let Some(installed) = sound_packs
+        .and_then(Path::parent)
+        .filter(|root| holds_models(root))
+    {
+        return Some(installed.to_path_buf());
+    }
+    #[cfg(target_os = "windows")]
+    let _ = sound_packs;
+    beside
 }
 
 /// 资源目录旁边放 ONNX Runtime 重排模型的子目录：chinese-ime-lm 的 `neural/choice/export_step.py` 导出的 `lm_step.ort`、`model.json` 和 `vocab.json`。这是大的那个（8x448，ctx-v1 有上下文 91.9%、无上下文 82.7%）。
@@ -396,6 +420,13 @@ impl msime_input_runtime::CandidateScorer for SharedOnnxScorer {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .sentence_pool()
+    }
+
+    fn static_evidence_weight(&self) -> f64 {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .static_evidence_weight()
     }
 }
 

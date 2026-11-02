@@ -128,12 +128,12 @@ msime-dictionary 在 [#84](https://github.com/metasequoiaime/msime-dictionary/pu
 
 ### 整句重排模型的署名要求
 
-`sentence-model.safetensors` 来自 [`metasequoiaime/chinese-ime-lm`](https://github.com/metasequoiaime/chinese-ime-lm) 的 `model-v1` 发布。它的许可信息不在任何外部文档里，而是嵌在权重文件自身的 safetensors `__metadata__` 头中——上游这样做正是为了让署名无法与权重分离。以下内容读自本仓库锁定的那一份（SHA-256 与 `desktop-dictionary.lock.json` 逐位一致）：
+`sentence-model.safetensors` 来自 [`metasequoiaime/chinese-ime-lm`](https://github.com/metasequoiaime/chinese-ime-lm) 的 `model-v1` 发布。它的许可信息嵌在权重文件自身的 safetensors `__metadata__` 头中——上游这样做正是为了让署名无法与权重分离。以下内容读自本仓库锁定的那一份（SHA-256 与 `desktop-dictionary.lock.json` 逐位一致），`sentence-model-desktop.safetensors` 的 `license` 与 `attribution` 两项与它相同：
 
 | 字段 | 值 |
 | --- | --- |
 | `license` | `Apache-2.0` |
-| `attribution` | Trained on the Chinese portion of C4 (ODC-BY) and LCCC (MIT) |
+| `attribution` | `Trained on the Chinese portion of C4 (ODC-BY, https://huggingface.co/datasets/allenai/c4) and LCCC (MIT, https://github.com/thu-coai/CDial-GPT).` |
 | `precision` | `int8` |
 | `version` | `1` |
 
@@ -150,6 +150,31 @@ print(json.loads(f.read(n))["__metadata__"]["attribution"])
 ```
 
 上游仓库还说明，`corpus/fetch.py` 支持的中文维基百科、MDN、Kubernetes 文档等来源带有 share-alike 义务，**本仓库分发的这份权重不使用它们**。
+
+### 整句重排模型的许可文件
+
+只保留元数据头还不够：权重是 Apache-2.0，第 4(a) 条要求随副本附上许可证全文，第 4(d) 条要求带上上游的 NOTICE。这两样和上面那句语料署名一起放在 [`resources/licenses/sentence-model-Apache-2.0.txt`](../resources/licenses/sentence-model-Apache-2.0.txt)：开头一段写来源和两份权重的 SHA-256，后面是 chinese-ime-lm 在 `model-v1` 标签（提交 `094bbb2f3796cee46aaa25f3d6874dca81b28e72`）时的 `NOTICE` 与 `reference/LICENSE`（Apache-2.0 全文；该仓库根目录的 `LICENSE` 是 GPL-3.0，管的是训练代码，不是权重），两段与上游逐字相同。
+
+| 文件 | 长度 | SHA-256 | Hugging Face 上的同一份 |
+| --- | --- | --- | --- |
+| `sentence-model.safetensors`（4.25M 参数） | 4,486,280 | `86ac529510cb3b4968a5e6ade83ec8080f5b34a0a681e75c362accbbd387d1c1` | [`msime/pinyin-ime-reranker-4M`](https://huggingface.co/msime/pinyin-ime-reranker-4M) |
+| `sentence-model-desktop.safetensors`（24.9M 参数） | 25,480,184 | `0a6ecba69bf1d39c7eb49549c716477dd6c03fdf05757773e1f50435262fb469` | [`msime/pinyin-ime-reranker-25M`](https://huggingface.co/msime/pinyin-ime-reranker-25M) |
+
+两份都是 GitHub Release [`model-v1`](https://github.com/metasequoiaime/chinese-ime-lm/releases/tag/model-v1) 的附件，Hugging Face 上两个仓库里的文件名都是 `sentence-model.safetensors`。以 `resources/neural-model.lock.json` 为准，锁换了这张表和许可文件开头的摘要跟着改。
+
+小模型随六个平台的词库资源和网页引擎分发，大模型随设置应用按需下载的 `settled-model` 资源包或发行版打包分发，所以每个平台都收这份文件，装出来都叫 `sentence-model-Apache-2.0.txt`：
+
+| 平台 | 收进哪里 | 用户在哪看到 |
+| --- | --- | --- |
+| iOS | `platforms/ios/project.yml` 把它作为 `MSIMEApp` 的资源（键盘扩展只随 App 安装，不另带一份） | 设置 App 关于页的「开源许可」，`AboutAndDownloadViews.swift` 的 `LicenseNotice` |
+| macOS | `platforms/macos/CMakeLists.txt` 复制进输入法 bundle 的 `Contents/Resources/Licenses`，`THIRD_PARTY_NOTICES.txt` 写明它覆盖什么，`bundle_contents.py` 核对 | 同目录 |
+| Windows | `platforms/windows/Collect-Notices.ps1` 收进 `THIRD_PARTY_NOTICES.txt` | 安装目录 |
+| Linux | `platforms/linux/CMakeLists.txt` 装进 `share/doc/msime-client`，`data/THIRD_PARTY_NOTICES.txt` 写明它覆盖什么 | `share/doc/msime-client` |
+| Android | `platforms/android/build-native.sh` 复制进 `assets/native-notices` | 关于页的「开源许可」自动列出 |
+| HarmonyOS | `platforms/harmony/stage-resources.sh` 复制进 HAP 的 `resfile/licenses` | 同目录 |
+| 网页引擎 | `scripts/web-engine-notice.sh` 把全文收进 `resources/licenses/web-engine-NOTICE.md`，release 改名为 `NOTICE.md` 发布 | npm 包与 release |
+
+`scripts/test-model-notices.py` 核对许可文件、锁和这些渠道。随包模型的许可都按这个结构处理（共用文件、逐平台一行、同一个检查），加新模型时在那个检查的 `MODELS` 里加一项。
 
 ## 自带辅助码表（`resources/helpcodes/`）
 
@@ -388,9 +413,9 @@ MDBG 每天用新导出覆盖同一个地址（`https://www.mdbg.net/chinese/exp
 
 | 组件 | 许可证 | 说明 |
 | --- | --- | --- |
-| [microsoft/onnxruntime](https://github.com/microsoft/onnxruntime) 1.24.4（提交 `2d924974ef147392ced8409d36bd6d2e7fcc8a74`） | MIT | 按 `tools/onnxruntime-minimal/required_operators_and_types.config` 精简构建的静态库，链进宿主。本仓库自己编、作为 Release `onnxruntime-minimal-1.24.4-r1` 的附件发布，`resources/onnxruntime-minimal.lock.json` 按目标三元组固定，`scripts/fetch_onnxruntime.py` 下载核对。分发时要带它的许可证与第三方通知：`resources/licenses/onnxruntime-MIT.txt` 与 1.24.4 的相同；`resources/licenses/onnxruntime-ThirdPartyNotices.txt` 是 1.31.0 的，包含 1.24.4 那份的全部内容（另多 Mbed TLS 与 cpp_client_telemetry 两节） |
+| [microsoft/onnxruntime](https://github.com/microsoft/onnxruntime) 1.24.4（提交 `2d924974ef147392ced8409d36bd6d2e7fcc8a74`） | MIT | 按 `tools/onnxruntime-minimal/required_operators_and_types.config` 精简构建的静态库，链进宿主。本仓库自己编、作为 Release `onnxruntime-minimal-1.24.4-r2` 的附件发布（r1 的附件原样带过来，补上 Linux x86_64），`resources/onnxruntime-minimal.lock.json` 按目标三元组固定，`scripts/fetch_onnxruntime.py` 下载核对。分发时要带它的许可证与第三方通知：`resources/licenses/onnxruntime-MIT.txt` 与 1.24.4 的相同；`resources/licenses/onnxruntime-ThirdPartyNotices.txt` 是 1.31.0 的，包含 1.24.4 那份的全部内容（另多 Mbed TLS 与 cpp_client_telemetry 两节） |
 | `ort` / `ort-sys` 2.0.0-rc.15 | MIT OR Apache-2.0 | ONNX Runtime 的 Rust 绑定，关掉默认特性、`api-24` |
-| 按键重排模型 `rerank-v1`（8x448 与 6x256，ORT 格式） | Apache-2.0 | 来源：GitHub Release [`metasequoiaime/chinese-ime-lm` 的 `rerank-v1`](https://github.com/metasequoiaime/chinese-ime-lm/releases/tag/rerank-v1)（文件名带尺寸前缀，如 `rerank-8x448.ort`），同一批文件也在 Hugging Face：[`msime/pinyin-ime-keystroke-reranker-25M`](https://huggingface.co/msime/pinyin-ime-keystroke-reranker-25M)（8x448）和 [`msime/pinyin-ime-keystroke-reranker-8M`](https://huggingface.co/msime/pinyin-ime-keystroke-reranker-8M)（6x256），那里是原名（`lm_step.ort`、`model.json`、`vocab.json`）并附 `LICENSE` 与 `NOTICE`。两处的 `.ort` 逐位相同（8x448 SHA-256 `ad729f94…a4a93`，6x256 `ceeb3a8d…8bad4`）。训练语料为中文 C4（ODC-BY）、FineWeb-2 中文部分（ODC-BY）和 LCCC（MIT），语料要求的署名写在图的元数据 `attribution` 和 `model.json` 里，**再分发时要保留**，与上面整句重排模型的要求相同。宿主从资源里的 `rerank-model/`、`rerank-model-small/` 读它们，还没有随任何安装包分发 |
+| 按键重排模型 `rerank-v1`（8x448 与 6x256，ORT 格式） | Apache-2.0 | 来源：GitHub Release [`metasequoiaime/chinese-ime-lm` 的 `rerank-v1`](https://github.com/metasequoiaime/chinese-ime-lm/releases/tag/rerank-v1)（文件名带尺寸前缀，如 `rerank-8x448.ort`），同一批文件也在 Hugging Face：[`msime/pinyin-ime-keystroke-reranker-25M`](https://huggingface.co/msime/pinyin-ime-keystroke-reranker-25M)（8x448）和 [`msime/pinyin-ime-keystroke-reranker-8M`](https://huggingface.co/msime/pinyin-ime-keystroke-reranker-8M)（6x256），那里是原名（`lm_step.ort`、`model.json`、`vocab.json`）并附 `LICENSE` 与 `NOTICE`。两处的 `.ort` 逐位相同（8x448 SHA-256 `ad729f94…a4a93`，6x256 `ceeb3a8d…8bad4`）。训练语料为中文 C4（ODC-BY）、FineWeb-2 中文部分（ODC-BY）和 LCCC（MIT），语料要求的署名写在图的元数据 `attribution` 和 `model.json` 里，**再分发时要保留**，与上面整句重排模型的要求相同。宿主从资源目录旁边的 `rerank-model/`、`rerank-model-small/` 读它们。随 iOS 键盘扩展和 Linux 发布页的 deb、rpm、tar.gz（full 与 pinyin 版，装在 `share/msime-client/`）分发；Linux 包旁边带 `rerank-model-Apache-2.0.txt`（上游 `NOTICE` 与许可证全文）和 `rerank-model.lock.json` |
 
 ### 按键重排模型的许可与署名
 
@@ -399,7 +424,7 @@ MDBG 每天用新导出覆盖同一个地址（`https://www.mdbg.net/chinese/exp
 - **Apache-2.0 第 4(a) 条要求附上许可证全文，第 4(d) 条要求带上上游的 NOTICE。** 上游是 `chinese-ime-lm` 仓库的 `NOTICE` 和 `reference/LICENSE`（仓库根目录的 `LICENSE` 是 GPL-3.0，管的是训练代码，不是权重）。
 - **训练语料要求署名随权重传播。** 中文 C4 与 FineWeb-2 中文部分是 ODC-BY，LCCC 是 MIT。署名写在每个 `lm_step.ort` 的图元数据 `attribution` 和每个 `model.json` 的 `attribution` 字段里，原样随模型安装；锁定的两份 `model.json` 里这句话一字不差：`Trained on the Chinese portion of C4 (ODC-BY, https://huggingface.co/datasets/allenai/c4), FineWeb-2 (cmn_Hani) (ODC-BY, https://huggingface.co/datasets/HuggingFaceFW/fineweb-2) and LCCC (MIT, https://github.com/thu-coai/CDial-GPT).`
 
-三样东西放在同一份文件里：[`resources/licenses/rerank-model-Apache-2.0.txt`](../resources/licenses/rerank-model-Apache-2.0.txt)。开头一段写来源、两档模型的 `lm_step.ort` SHA-256 和上面那句语料署名，后面是上游 NOTICE 和 Apache-2.0 全文，两段与上游逐字相同。各平台照它们收别的许可证的方式收这一份，装出来的文件名都叫 `rerank-model-Apache-2.0.txt`。`scripts/test-rerank-model-notice.py` 核对这份文件、锁和各平台的声明渠道：哪个平台的打包脚本取了模型（脚本里出现 `fetch_rerank_model.py` 或 `rerank-model.lock.json`），它的声明渠道就必须带上这份文件。
+三样东西放在同一份文件里：[`resources/licenses/rerank-model-Apache-2.0.txt`](../resources/licenses/rerank-model-Apache-2.0.txt)。开头一段写来源、两档模型的 `lm_step.ort` SHA-256 和上面那句语料署名，后面是上游 NOTICE 和 Apache-2.0 全文，两段与上游逐字相同。各平台照它们收别的许可证的方式收这一份，装出来的文件名都叫 `rerank-model-Apache-2.0.txt`。`scripts/test-model-notices.py`（与上面整句重排模型共用，`MODELS` 里的 `rerank-v1` 一项）核对这份文件、锁和各平台的声明渠道：哪个平台的打包脚本取了模型（脚本里出现 `fetch_rerank_model.py` 或 `rerank-model.lock.json`），它的声明渠道就必须带上这份文件。
 
 | 文件 | 来源 | 长度 | SHA-256 |
 | --- | --- | --- | --- |

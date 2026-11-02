@@ -161,6 +161,7 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
         keyboard_reranker_enabled(&applied.sentence_association, edition),
         &options.resources,
         options.helpcode_fallback_resources.as_deref(),
+        plugin_roots.builtin_sounds.as_deref(),
         sentence_model_path.as_deref(),
     ));
 

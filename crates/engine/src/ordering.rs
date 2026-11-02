@@ -32,6 +32,11 @@ pub trait CandidateScorer: Send {
         0
     }
 
+    /// 词网格整句之间比较时（[`rerank_pick`] 的静态证据分支），词网格逐字分在混合里的权重，模型逐字分占其余。默认 0.5，等权，是在随包 `model-v1` 上定的（`.agents/notes/implemented/bug-fix/2026-10-14-rerank-static-evidence.md`）。更准的模型可以让它少一些：ONNX Runtime 后端报 0.3，见 `.agents/notes/implemented/feature/2026-11-02-onnx-static-evidence-weight.md`。
+    fn static_evidence_weight(&self) -> f64 {
+        0.5
+    }
+
     /// 模型认为应当提到首位的候选下标，`None` 为不动；规则同 [`Reranker::best_where`]：首行是可信的词典命中或首行不回答按键时不比较，只比较前 [`COMPARED_LIMIT`] 条回答按键的候选，少于两条不比较。
     fn best_where(
         &mut self,
@@ -534,10 +539,13 @@ pub fn rerank_pick<'a, R: OrderRowSource<'a> + ?Sized>(
         if let Some(count) =
             fill_static_rerank_inputs(rows, answers_key, &mut considered, &mut statik, &mut subset)
         {
+            let weight = reranker.static_evidence_weight();
             let neural = reranker.log_probabilities(context, &subset[..count]);
             if neural.len() == count {
-                // 模型逐字分与词网格逐字分等权混合，两侧均为自然对数。
-                let combined = |index: usize| (statik[index] + f64::from(neural[index])) * 0.5;
+                // 词网格逐字分与模型逐字分按打分器给的权重混合，两侧均为自然对数。
+                let combined = |index: usize| {
+                    statik[index] * weight + f64::from(neural[index]) * (1.0 - weight)
+                };
                 let mut best = 0;
                 for index in 1..count {
                     if combined(index) > combined(best) {
