@@ -239,6 +239,54 @@ final class LanguageSchemesTests: XCTestCase {
     XCTAssertFalse(shown(try semicolon(in: plain)), "plain Jyutping has no semicolon final")
   }
 
+  /// 「双拼键位提示」对粤语双拼也生效（#10438）：提示从引擎取，I 键写 `gw / i`、V 键写 `ng / ui yu`，读屏读同一行；开关关掉时不画。普通粤拼完整拼写，不画提示。
+  func testCantoneseShuangpinLabelsItsKeysWhenTheHintSwitchIsOn() throws {
+    try XCTSkipUnless(InputSchemePreference.installedLanguageSchemes?.contains(.cantoneseShuangpin) == true,
+                      "msime-cantonese.db is not staged into the test host")
+    let previousScheme = InputSchemePreference.scheme
+    let previousHints = KeyboardLayoutPreference.shuangpinKeyHints
+    defer {
+      InputSchemePreference.scheme = previousScheme
+      KeyboardLayoutPreference.shuangpinKeyHints = previousHints
+    }
+    let shown = { (view: UIView) in sequence(first: view, next: \.superview).allSatisfy { !$0.isHidden } }
+    func keyboard(_ scheme: ChineseInputScheme, hints: Bool) -> KeyboardViewController {
+      InputSchemePreference.scheme = scheme
+      KeyboardLayoutPreference.shuangpinKeyHints = hints
+      let controller = KeyboardViewController()
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+      controller.viewWillAppear(false)
+      controller.view.layoutIfNeeded()
+      return controller
+    }
+    func letter(_ face: String, in controller: KeyboardViewController) throws -> UIButton {
+      try XCTUnwrap(nodes(controller.view).first { $0.accessibilityLabel == "字母 \(face)" && shown($0) } as? UIButton)
+    }
+    // 提示行是直接加在按键上的 9pt 标签，见 `attachHintLabel`。
+    func hintLabel(of button: UIButton) -> UILabel? {
+      button.subviews.compactMap { $0 as? UILabel }.first { $0.font.pointSize == 9 }
+    }
+
+    let labelled = keyboard(.cantoneseShuangpin, hints: true)
+    defer { labelled.viewDidDisappear(false) }
+    let i = try letter("I", in: labelled)
+    XCTAssertEqual(i.accessibilityValue, "gw / i")
+    XCTAssertEqual(hintLabel(of: i)?.text, "gw / i")
+    XCTAssertEqual(hintLabel(of: i)?.isHidden, false)
+    XCTAssertEqual(i.configuration?.contentInsets.bottom, 11)
+    XCTAssertEqual(try letter("V", in: labelled).accessibilityValue, "ng / ui yu")
+    XCTAssertEqual(try letter("P", in: labelled).accessibilityValue, "eon un ung ut")
+
+    let off = keyboard(.cantoneseShuangpin, hints: false)
+    defer { off.viewDidDisappear(false) }
+    XCTAssertNil(try letter("I", in: off).accessibilityValue, "the switch also covers Cantonese shuangpin")
+
+    let plain = keyboard(.cantonese, hints: true)
+    defer { plain.viewDidDisappear(false) }
+    XCTAssertNil(try letter("I", in: plain).accessibilityValue, "plain Jyutping is spelled out in full")
+  }
+
   /// 全拼 14 键：引擎方案是全拼，共享文档里的 id 和布局都是 `fourteen_key`，云端按全拼上传，默认不启用，空格键和方案简称写「全拼」，统计来源是 `fourteenKey`。
   func testTheFourteenKeySchemeIsQuanpinOnItsOwnLayout() {
     let scheme = ChineseInputScheme.fourteenKey
