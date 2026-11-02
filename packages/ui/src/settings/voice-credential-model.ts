@@ -39,6 +39,9 @@ export interface VoiceCredentialEditorModel {
   customEndpoint: boolean;
   name: string;
   tokenLabel: string;
+  /** 凭据现在的状态（未保存、已保存、与上方设置不一致、文件无效），常驻标题下方。 */
+  status: string;
+  /** 凭据存在哪里、谁来读：解释，收进标题旁的「?」。 */
   description: string;
   saveDisabled: boolean;
   clearDisabled: boolean;
@@ -78,13 +81,14 @@ export function voiceCredentialEditorModel({
     customEndpoint: doubaoStreamEndpointId(streamEndpoint) === "custom",
     name,
     tokenLabel: doubao && !legacy ? "Doubao API Key" : `${name} API Token`,
-    description: credentials?.voiceInvalid
+    status: credentials?.voiceInvalid
       ? "现有 voice-provider.json 无效，语音服务不会启动；请修复或删除该文件"
       : !stored
-        ? "尚未保存；保存后只写入用户配置目录的 voice-provider.json，由语音服务读取"
+        ? "尚未保存"
         : mismatch
           ? "已保存的凭据与上方模型或豆包设置不一致；保存后改为绑定当前设置"
           : "已保存，留空则保留原凭据",
+    description: "保存后只写入用户配置目录的 voice-provider.json，由语音服务读取。",
     saveDisabled:
       busy ||
       (!input.token.trim() && !stored) ||

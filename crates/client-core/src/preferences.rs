@@ -551,13 +551,13 @@ impl<'de> Deserialize<'de> for TouchNineKeySwipeDigits {
     }
 }
 
-/// 上屏后联想显示时候选栏右端放哪些按键（#10078）。只在 `next_word_prediction` 开着时有意义；普通组字的候选栏不受它影响。目前只有 Android 原生键盘读它，其他宿主原样保留。
+/// 上屏后联想显示时候选栏右端放哪些按键（#10078）。只在 `next_word_prediction` 开着时有意义；普通组字的候选栏不受它影响。只有触屏宿主读它（候选栏右端有按键可放），桌面宿主的候选窗没有这两个键，原样保留。
 ///
 /// 读文档时不认识的值按默认读，不是字符串照样报错，与 [`TouchTwentySixKeyStyle`] 一致。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum NextWordPredictionButtons {
-    /// 现有样式：只有展开键（联想多于一页时才出现），关闭联想靠空格或继续输入。
+    /// 现有样式：只有展开键（联想多于一页时才出现），关闭联想靠继续输入。
     #[default]
     ExpandOnly,
     /// 关闭键 × 加展开键；展开面板打开时 × 仍在 ∧ 左边。
@@ -1770,7 +1770,7 @@ pub struct Preferences {
     /// its model is installed.
     #[serde(default)]
     pub sentence_association: SentenceAssociationPreferences,
-    /// 上屏后推荐下一词；Android 原生键盘提供入口，独立于整句候选，默认关闭。
+    /// 上屏后推荐下一词，独立于整句候选，默认关闭；只有声明了 `HostCapabilities::next_word_prediction` 的宿主读它（Android 原生键盘、Windows 原生设置都有入口）。
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub next_word_prediction: bool,
     /// 上屏后联想时候选栏右端的按键，见 [`NextWordPredictionButtons`]；默认即现有的只有展开键，不写进文档。

@@ -99,6 +99,8 @@ STDAPI CMetasequoiaIME::OnSetFocus(_In_ ITfDocumentMgr *pDocMgrFocus, _In_ ITfDo
     {
         return S_OK;
     }
+    // 上屏后联想属于原来那个文档的光标，文档焦点一变就关掉。
+    _DismissPrediction();
 
     if (pDocMgrFocus && _pContext && _IsComposing() && !_localSessionResetPending.load(std::memory_order_acquire))
     {
