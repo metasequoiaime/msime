@@ -245,8 +245,9 @@ CREATE TABLE IF NOT EXISTS user_dictionary_operations(
 | `wubi98` | 主库的 `wubi98` | 同上 |
 | `quick` | 主库的 `quick_parases` | 1 到 32 个字母或数字 |
 | `english` | 英文库的 `english_words`，`display` 列是展示形式 | 1 到 64 个字母 |
+| `cantonese` | 不回放，计为跳过：粤语方案查词时直接读日志里 `user_inserted=1` 的 upsert 行，并进 `msime-cantonese.db` 的候选（`cantonese::UserWords`）。词库快照不收这些行，整份换上快照时宿主从旧日志抄进新的一代（`add_cantonese_words`） | 不带声调的粤拼音节，单个空格分隔（与 [§13](#13-语言词库msime-cantonesedbmsime-zhuyindbmsime-strokedb) 的 `entries.key` 同一写法） |
 
-`operation='delete'` 是墓碑，回放时删除对应行；`user_inserted=1` 表示用户自己加的词（删除后仍记着它曾是用户的）。权重低于 1 的 `pinyin` upsert 是旧版调频留下的，回放时跳过，`ensure_user_database` 会把它们删掉。代次里没有对应表的行（只读英文库的代次里的非英文行，还没有五笔表时的五笔行）计为跳过，留在日志里。**未知的 `dictionary` 值和存不进去的 `key` 算失败行，任何一行失败整次回放回滚、代次准备被拒**，所以新增取值必须先让引擎认得它，再往日志里写。
+`operation='delete'` 是墓碑，回放时删除对应行；`user_inserted=1` 表示用户自己加的词（删除后仍记着它曾是用户的）。权重低于 1 的 `pinyin` upsert 是旧版调频留下的，回放时跳过，`ensure_user_database` 会把它们删掉。代次里没有对应表的行（只读英文库的代次里的非英文行，还没有五笔表时的五笔行）计为跳过，留在日志里。**未知的 `dictionary` 值和存不进去的 `key` 算失败行，任何一行失败整次回放回滚、代次准备被拒**，所以新增取值必须先让引擎认得它，再往日志里写。`cantonese` 是这样加进来的最近一个取值：认得它之前的引擎（降级安装）遇到用户加过粤语词的日志会拒绝准备新代次。
 
 ### 6.3 其余表
 
@@ -379,6 +380,7 @@ CREATE TABLE IF NOT EXISTS metadata(name TEXT PRIMARY KEY, value TEXT NOT NULL) 
 - 行的 rowid 顺序有意义：同码同权重的候选按 rowid 排，反查编码也以 rowid 作最后的排序键，所以拆分和合并都按 rowid 复制。
 - 只收基本区汉字，CJK 扩展区和私用区字符不进表。
 - `metadata` 见 [§4.3](#43-文件内版本)；合并进主库时只搬 `wubi86`、`wubi98`，不搬 `metadata`。
+- msime-dictionary 收了新世纪词组快照 `sources/wubi/wubixsj-supplement.txt` 之后的发布里还有第三张表 `wubixsj`（构建器只拿这份快照在不在当开关，见 `crates/dict-builder/README.md`「新世纪五笔」），结构与上面两张相同（`UNIQUE("key", "value")`、`idx_wubixsj_key_weight`）。单字取自上游码表的基本区单字，权重是同码名次乘 10；词组全部由构建器按新世纪单字全码生成（`crates/dict-builder/README.md`「新世纪五笔」）。这是只加表的改动，`format_version` 不变：现有引擎准备代次时只搬 `wubi86`、`wubi98`，不认识的 `wubixsj` 留在 `msime-wubi.db` 里不用；引擎支持新世纪方案时再把它并进工作主库。
 
 准备代次时这两张表并进工作主库，五笔查询、学习和个人词典都在工作主库上进行。旧的合并发布（五笔表还在 `msime-pinyin.db` 里）照常可用。
 
@@ -544,7 +546,7 @@ dict-builder 的其他子命令（`places`、`hanja`、`syllable-frequency`）�
 | 文件 | 数据许可证 |
 | --- | --- |
 | `msime-pinyin.db` | GPL-3.0（rime-ice 及其补充）；与万象共有词条的权重和字频为 CC-BY-4.0（rime-wanxiang）；单字读音按 MIT 的 pinyin-data 校正；行政区划地名为 WTFPL |
-| `msime-wubi.db` | Apache-2.0（极点 86）、LGPL-3.0（rime-wubi 补入的词条）、GPL-3.0-or-later（fcitx 98）、Unlicense（98 五笔小组）；本项目生成的 86、98 补充表为 GPL-3.0，词条依据 GPL-3.0 的 rime-ice、人工词条与 WTFPL 的区划名称 |
+| `msime-wubi.db` | Apache-2.0（极点 86）、LGPL-3.0（rime-wubi 补入的词条）、GPL-3.0-or-later（fcitx 98）、Unlicense（98 五笔小组）；本项目生成的 86、98 补充表为 GPL-3.0，词条依据 GPL-3.0 的 rime-ice、人工词条与 WTFPL 的区划名称。带 `wubixsj` 的发布另有：新世纪单字码为 GPL-3.0（byujiang/wubi06_rime，许可由转载者给出，来源没有记录、很可能派生自商业码表，见 `resources/licenses/msime-engine-dictionary-NOTICE.md`）；新世纪词组为本项目生成，GPL-3.0，词条来源同上，极点表里有的词沿用极点表（Apache-2.0）的权重 |
 | `msime-english.db` | GPL-3.0（rime-ice-en 及补充）；含 SCOWL 的词，分发时必须附 `msime-scowl_Copyright.txt`；Google 词频以来源页面说明为准 |
 | `msime-bigram.bin`、`msime-trigram.bin` | 计数来自中文维基百科（CC-BY-SA-4.0），词表是 GPL-3.0 的 `msime-pinyin.db` |
 | `msime-others.db` | emoji 数据与颜文字（`resources/dictionary-sources/kaomoji/kaomoji.txt`）的来源都未记录，PiliApp 符号未声明许可，再分发前需另行确认 |

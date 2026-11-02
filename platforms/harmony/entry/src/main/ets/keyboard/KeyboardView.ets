@@ -24,7 +24,7 @@ import { ExpandedCandidateCell, ExpandedCandidateLayout } from './candidate/Expa
 import { CandidateScalePolicy } from './candidate/CandidateScalePolicy';
 import { ExpandedCandidateBatchPolicy } from './candidate/ExpandedCandidateBatchPolicy';
 import { CandidatePanelSelectionPolicy } from './candidate/CandidatePanelSelectionPolicy';
-import { ShuangpinKeyHintPolicy } from './input/ShuangpinKeyHintPolicy';
+import { CANTONESE_PROFILE, ShuangpinKeyHintPolicy } from './input/ShuangpinKeyHintPolicy';
 import { ReturnDispatch, ReturnKeyAction } from './input/ReturnKeyAction';
 import { InputDiagnosticPolicy } from './input/InputDiagnosticPolicy';
 import { LocalInputMode, LocalInputModeDefinition } from './input/LocalInputMode';
@@ -196,6 +196,8 @@ interface KeyOptions {
   hint?: string;
   /** 触屏键盘字母键右上角的符号提示（`LetterHintTable`），滑动或长按会输入它；其他键上为空或不设。有提示的键按下时也会显示预览气泡。 */
   cornerHint?: string;
+  /** 画不画 `cornerHint`，缺省画。「显示字母键角标」关掉时为假：键面不画角标、字母回到正中，`cornerHint` 照旧交给触摸，长按和滑动照样输入它（#10587）。 */
+  showCornerHint?: boolean;
   /**
    * 字母键的小写字母。设了它，键面和读屏文字在绘制时按当前大小写现算，`face` 和 `label` 不再用：自动大写在每次文字变化后异步切换大小写，若把大小写放进 `ForEach` 的键标识，每次切换都会重建全部字母键，手指正按着的那个键也被换掉，这次按键就丢了。
    */
@@ -1306,6 +1308,10 @@ struct KeyboardView {
 
   /** 提示跟随当前选中的方案，切换后立即更新，不等下一次按键的引擎回报。 */
   private letterHint(letter: string): string {
+    if (ShuangpinKeyHintPolicy.cantoneseFace(this.scheme.preferenceId, this.engineScheme)) {
+      return ShuangpinKeyHintPolicy.hint(CANTONESE_PROFILE, letter, this.english, 1, this.localMode,
+        this.shuangpinKeyHints);
+    }
     if (this.scheme.engineScheme !== 'shuangpin') {
       return '';
     }
@@ -2063,7 +2069,7 @@ struct KeyboardView {
   }
 
   private keyFaceHasCornerHint(options: KeyOptions): boolean {
-    return options.cornerHint !== undefined && options.cornerHint.length > 0;
+    return options.showCornerHint !== false && options.cornerHint !== undefined && options.cornerHint.length > 0;
   }
 
   @Builder
@@ -3740,7 +3746,7 @@ struct KeyboardView {
       + `${this.quanpinShift}:${this.engineScheme}:${this.scheme.preferenceId}:${this.symbols}:${this.moreSymbols}:`
       + `${this.twentySixKeyStyle}:${this.fourteenKeyStyle}:${this.nineKeyStyle}:${this.numberRow}:`
       + `${this.twentySixSymbolFirst}:${this.numberPadSpace}:${this.languageKeyLeft}:`
-      + `${this.standardRowsField}:${this.skin.key()}`;
+      + `${this.feedback.letterCornerHints}:${this.standardRowsField}:${this.skin.key()}`;
   }
 
   /**
@@ -3829,6 +3835,7 @@ struct KeyboardView {
       letter: letter,
       hint: this.letterHint(letter),
       cornerHint: this.letterCornerHint(letter),
+      showCornerHint: this.feedback.letterCornerHints,
       size: this.letterFontSize(),
       emphasized: false,
       width: 0,
@@ -3837,7 +3844,7 @@ struct KeyboardView {
   }
 
   /**
-   * 字母键角上的符号提示，与 Android 的 `ImeLetterRows` 在其标准字母键上的绘制一致：26 键字母行的每个键面都有，韩文字母除外（注音有自己的行）；无论「滑动输入符号」是否开启都绘制，因为长按总会输入它。仅限触屏键盘；2in1 的屏幕键盘保持原样。
+   * 字母键角上的符号提示，与 Android 的 `ImeLetterRows` 在其标准字母键上的绘制一致：26 键字母行的每个键面都有，韩文字母除外（注音有自己的行）；无论「滑动输入符号」是否开启都给出，因为长按总会输入它。画不画另由「显示字母键角标」决定（`KeyOptions.showCornerHint`），这里给出的符号照样交给触摸。仅限触屏键盘；2in1 的屏幕键盘保持原样。
    */
   private letterCornerHint(letter: string): string {
     if (!this.touchDesign() || this.koreanFace()) {
@@ -3854,7 +3861,7 @@ struct KeyboardView {
   /**
    * 第二行字母是否以 ; 键结尾。
    *
-   * 微软双拼用分号拼 ing，所以这个键要能在字母行里直接按到，而不是藏在符号层后面。触屏上设计稿把这一行画成两端各缩进半个键的九个字母，; 键只在微软双拼正在组合时才出现，与 Android 一致（`MicrosoftShuangpinKeyPolicy`）。两笔式在那里没有字母，越南语和威利转写也不用它，所以韩语、越南语和藏文把这一行画成九个键。
+   * 微软双拼用分号拼 ing，粤语双拼用它拼 ing 和 ik，所以这个键要能在字母行里直接按到，而不是藏在符号层后面。触屏上设计稿把这一行画成两端各缩进半个键的九个字母，; 键只在微软双拼和粤语双拼下出现，与 Android 一致（`MicrosoftShuangpinKeyPolicy`）。两笔式在那里没有字母，越南语和威利转写也不用它，所以韩语、越南语和藏文把这一行画成九个键。
    */
   private secondRowSemicolon(): boolean {
     if (this.symbols || this.koreanFace() || this.vietnameseFace() || this.tibetanFace()) {
@@ -3863,8 +3870,7 @@ struct KeyboardView {
     if (!this.touchDesign()) {
       return true;
     }
-    return !this.english && this.localMode === 'none'
-      && this.scheme.preferenceId === KeyboardScheme.MICROSOFT.preferenceId;
+    return !this.english && this.localMode === 'none' && KeyboardScheme.showsSemicolonFinal(this.scheme);
   }
 
   /** 第二行字母是否两端各缩进半个键：即触屏键盘的九字母行。 */
@@ -3874,6 +3880,12 @@ struct KeyboardView {
 
   /** What a screen reader says for a letter key under the current case. */
   private letterLabel(letter: string): string {
+    // 粤语双拼的 `;` 读出它打的韵母，而不是「字母 ;」。
+    const semicolonFinal: string | null = letter === ';' && this.touchDesign()
+      ? KeyboardScheme.semicolonFinalLabel(this.scheme) : null;
+    if (semicolonFinal !== null) {
+      return semicolonFinal;
+    }
     if (this.koreanFace()) {
       // The jamo itself, which is what a screen reader set to Korean reads.
       return this.letterFace(letter);
@@ -8183,6 +8195,7 @@ struct KeyboardView {
       keyPopup: current.keyPopup,
       swipeSymbols: current.swipeSymbols,
       swipeSymbolsDirection: current.swipeSymbolsDirection,
+      letterCornerHints: current.letterCornerHints,
       oneHanded: current.oneHanded,
       incognito: current.incognito,
       floating: current.floating,
@@ -8210,6 +8223,7 @@ struct KeyboardView {
       keyPopup: current.keyPopup,
       swipeSymbols: current.swipeSymbols,
       swipeSymbolsDirection: current.swipeSymbolsDirection,
+      letterCornerHints: current.letterCornerHints,
       oneHanded: mode,
       incognito: current.incognito,
       floating: current.floating,

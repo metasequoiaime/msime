@@ -1860,7 +1860,7 @@ final class ImeLayoutRows {
                 || CandidateGlossPolicy.strictOr(s.view.opt("session"), Long.MIN_VALUE) != session
                 || CandidateGlossPolicy.strictOr(s.view.opt("generation"), Long.MIN_VALUE) != generation)
             return;
-        try { s.apply(NativeClient.chooseNineKeySpelling(s.session, generation, index)); }
+        try { s.apply(s.timedEngineCall(() -> NativeClient.chooseNineKeySpelling(s.session, generation, index))); }
         catch (JSONException | LinkageError error) { s.fail(error); }
     }
 

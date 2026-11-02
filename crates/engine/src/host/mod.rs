@@ -33,7 +33,7 @@ pub use crate::wubi::lookup::{
     WubiCodeLookup, WubiTextCodes, MAX_LOOKUP_CHARACTERS as MAX_WUBI_LOOKUP_CHARACTERS,
 };
 pub use dictionary::{
-    cached_dictionary_state_revision, count_learning_habits, dictionary_edit,
+    add_cantonese_words, cached_dictionary_state_revision, count_learning_habits, dictionary_edit,
     dictionary_edit_batch, dictionary_edit_bundled, dictionary_edit_collection_batch,
     dictionary_entries, dictionary_entries_for_kind, dictionary_entries_source,
     dictionary_export_entries, dictionary_export_entries_for_kind, dictionary_state_revision,
@@ -57,5 +57,5 @@ pub use text::{
     emoji_catalog_filtered_page, emoji_catalog_groups, emoji_catalog_slice, emoji_symbol_groups,
     encode_shuangpin, hanzi_to_pinyin, hanzi_to_pinyin_batch, is_shuangpin_syllable,
     main_dictionary_path, normalize_full_pinyin, shuangpin_key_hints, shuangpin_uses_semicolon,
-    shuangpin_zero_initials, wubi_code_lookup,
+    shuangpin_zero_initials, wubi_code_lookup, CANTONESE_SHUANGPIN_HINTS,
 };

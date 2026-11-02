@@ -11,7 +11,7 @@ Status: implemented
 - 给共享触屏方案枚举追加 `cantonese_shuangpin`，保留现有 `cantonese` 的标识、顺序和默认启用状态；新入口仅在 iOS 的「添加方案」中展示，仍用同一份粤拼词典和 26 键键面。
 - 方案选择经共享偏好的 `touch_keyboard_schemes.selected` 传给宿主，再传到引擎会话的粤拼模式。选中双拼时从第一键起按两键码解释，包括与合法粤拼同形的码；选中普通粤拼时保留现有自动识别行为，避免升级后改变老用户输入。
 - 会话重建、切换到别的方案再切回、光标编辑和退格都保留所选模式。候选查询仍只读现有 `msime-cantonese.db`，不复制词表。
-- Android、HarmonyOS 等宿主若读到新标识应能保留偏好且不崩溃，但这次不在它们的方案列表增加新入口。
+- Android、HarmonyOS 等宿主若读到新标识应能保留偏好且不崩溃，但这次不在它们的方案列表增加新入口。两端的入口后来补上，见 [Android 与 HarmonyOS 的粤语双拼入口](2026-11-02-mobile-cantonese-shuangpin-entry.md)。
 
 ## 分号键
 

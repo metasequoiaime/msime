@@ -320,7 +320,7 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 拼音网格左上角的 @#（1 键）不打开符号面板：短按把当前模式的常用标点放进候选条，就是逗号长按的那一组（`QuickPunctuationPolicy.entries`，中文模式是 `， 。 ？ ！ 、 ； ：`），组字中也一样。点选一个与侧栏标点一样交给 Engine 的标点处理（组字中先上屏首选），候选条随即清空；Engine 下一次回报候选（`onChanged`）或打开别的界面时换回 Engine 的候选。长按仍输入 1。
 
-「九键滑动输入数字」（#10229，共享偏好 `touch_nine_key_swipe_digits`，`off` / `up` / `down`，默认 `off`，同步键 `platform.harmony.nine_key_swipe`）在设置页「屏幕键盘 › 手势」里、紧跟 26 键的「滑动方向」，只在触屏宿主且版本提供全拼九键时列出。选了方向后，拼音九键字母层 1–9 键（`nineKeyHoldKey`，两处网格都经它）沿这个方向滑过 24 vp 的那一刻键面换成这个键的数字、角标藏起来，松手按长按选数字的同一条路径上屏（先结束组字再字面上屏），按键音、振动和键位统计与点按这一格相同；反方向滑过 24 vp 弹出和长按相同的数字和字母（1 键没有字母，反方向什么也不做）。判定在 `input/NineKeySwipePolicy.ts`，与 Android `NineKeySwipePolicy.gesture` 逐条相同：只看纵向位移、严格大于阈值、一次触摸只判定一次，滑出去之后点击和长按都不再做事，长按先弹出时不再判定，系统取消时什么也不输入。阈值固定 24 vp；Android 的阈值是本机「九键滑动距离」（14–48 dp，默认 24），鸿蒙和 iOS 没有这个滑块，这是三端唯一的差异。数字层、九键双拼、笔画和借来的数字九宫格不受影响；2in1 没有这项设置，同步过来的值也不在 2in1 上判定。
+「九键滑动输入数字」（#10229，共享偏好 `touch_nine_key_swipe_digits`，`off` / `up` / `down`，默认 `off`，同步键 `platform.harmony.nine_key_swipe`）在设置页「屏幕键盘 › 手势」里、26 键「滑动方向」和「显示字母键角标」之后，只在触屏宿主且版本提供全拼九键时列出。选了方向后，拼音九键字母层 1–9 键（`nineKeyHoldKey`，两处网格都经它）沿这个方向滑过 24 vp 的那一刻键面换成这个键的数字、角标藏起来，松手按长按选数字的同一条路径上屏（先结束组字再字面上屏），按键音、振动和键位统计与点按这一格相同；反方向滑过 24 vp 弹出和长按相同的数字和字母（1 键没有字母，反方向什么也不做）。判定在 `input/NineKeySwipePolicy.ts`，与 Android `NineKeySwipePolicy.gesture` 逐条相同：只看纵向位移、严格大于阈值、一次触摸只判定一次，滑出去之后点击和长按都不再做事，长按先弹出时不再判定，系统取消时什么也不输入。阈值固定 24 vp；Android 的阈值是本机「九键滑动距离」（14–48 dp，默认 24），鸿蒙和 iOS 没有这个滑块，这是三端唯一的差异。数字层、九键双拼、笔画和借来的数字九宫格不受影响；2in1 没有这项设置，同步过来的值也不在 2in1 上判定。
 
 ## 大屏单手侧边数字键盘
 
@@ -418,7 +418,7 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 数字层的排列是固定的：九键的数字层按电话拨号盘排，1 2 3 在上（`NineKeyLayout.digits()`）；触屏 26 键和 14 键按 123 出的是一行 1–0 的 123 / #+= 双层。共享偏好 `touch_number_keypad_order` 和 `touch_twenty_six_key_number_layout` 仍随账号同步（`platform.harmony.number_keypad_order`、`platform.harmony.twenty_six_key_number_layout`），但设置页不再列出它们，键盘也不读取。
 
-共享偏好 `touch_shuangpin_key_hints` 为 `false` 时（设置页「屏幕键盘 › 布局」的「双拼键位提示」），26 键双拼的字母键不再画底部的声母/韵母提示，提示行不占高度；缺省和旧文档都按开。账号同步键是 `platform.harmony.shuangpin_key_hints`。
+共享偏好 `touch_shuangpin_key_hints` 为 `false` 时（设置页「屏幕键盘 › 布局」的「双拼键位提示」），26 键双拼的字母键不再画底部的声母/韵母提示，提示行不占高度；缺省和旧文档都按开。账号同步键是 `platform.harmony.shuangpin_key_hints`。粤语双拼（#10438）也受这个开关控制：选中的触屏方案是 `cantonese_shuangpin`、会话也跑着粤拼（scheme 5）时（`ShuangpinKeyHintPolicy.cantoneseFace`），字母键画 `cantonese` 键面，表抄自引擎 `cantonese::shuangpin::key_hints`，`keyboard-logic.test.ts` 逐键核对；普通粤拼不画。
 
 共享偏好 `touch_quanpin_shift`（设置页「屏幕键盘 › 布局」的「组字时保留 Shift」）默认开启，全拼 26 键组字时第三排左端保留 ⇧，点一下臂辅助码（Shift+字母），不再换成「分词」键；明确写 `false` 后改为分词，九键、14 键和 18 键自带的分词键不受它影响。键盘在 `KeyboardSession` 准备偏好时按 `!== false` 读它（缺键、类型错都按开），`KeyboardView` 的 `usesQuanpinSeparator()` 和键面 `faceKey()` 都按它分支，开关变化即重画。账号同步键是 `platform.harmony.quanpin_shift`。
 

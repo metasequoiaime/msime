@@ -51,6 +51,15 @@ for field in this.twentySixKeyStyle this.fourteenKeyStyle this.nineKeyStyle this
     exit 1
   fi
 done
+# 「显示字母键角标」（#10587）同理要在 faceKey() 里，键盘开着切换时已画好的字母键才会收起或画回角标；字母键只把它交给键面的 showCornerHint，cornerHint 照旧给出，长按和滑动照样输入角标。
+if ! grep -qF 'this.feedback.letterCornerHints' <<< "$face_key_body" \
+  || ! grep -qF 'showCornerHint: this.feedback.letterCornerHints,' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets" \
+  || ! grep -qF 'return options.showCornerHint !== false && options.cornerHint !== undefined' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets"; then
+  echo "The letter corner hint switch must reach faceKey() and only hide the drawn hint, keeping cornerHint for the gestures" >&2
+  exit 1
+fi
 # 组字中 Shift 加字母是辅助码：引擎只认大写字母，不看 Shift 标志，所以字母键要按 Shift 发大写字母，规则由 keyboard-logic.test.ts 覆盖，这里钉住视图的接线。
 if ! grep -qF 'const input: string = ChineseHelpcodePolicy.letterInput(letter, shifted);' \
   "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets"; then

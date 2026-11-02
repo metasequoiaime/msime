@@ -94,7 +94,7 @@ public:
           id == kToolbarFullwidth ? preferences_.value("character_width", std::string("halfwidth")) == "fullwidth" :
           id == kToolbarCharacterSet ? preferences_.value("traditional_chinese_output", false) :
           id == kToolbarPunctuation ? punctuation::toolbar_chinese_punctuation(chinese,
-              control_text::wide(preferences_.value("punctuation_lock", std::string("follow")))) : true;
+              preferences_.value("chinese_punctuation", true), control_text::wide(preferences_.value("punctuation_lock", std::string("follow")))) : true;
       const auto icon = toolbar_icon(id, state, language);
       const auto font = CreateFontW(-std::max(1, static_cast<int>(std::lround(metrics.icon * toolbar_glyph_scale * unit))), 0, 0, 0,
           FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,

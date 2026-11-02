@@ -94,8 +94,17 @@
     "handled": true
    },
    "snapshot": {
-    "candidate_count": 1,
+    "candidate_count": 2,
     "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "ngo oi",
+      "pinyin": "ngo'oi",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 8500,
+      "word": "我愛"
+     },
      {
       "answers_key": false,
       "canonical_pinyin": "ngo",
@@ -124,8 +133,17 @@
     "handled": true
    },
    "snapshot": {
-    "candidate_count": 1,
+    "candidate_count": 2,
     "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "ngo oi",
+      "pinyin": "ngo'oi",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 8500,
+      "word": "我愛"
+     },
      {
       "answers_key": false,
       "canonical_pinyin": "ngo",
@@ -154,8 +172,17 @@
     "handled": true
    },
    "snapshot": {
-    "candidate_count": 1,
+    "candidate_count": 2,
     "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "ngo i",
+      "pinyin": "ngo'i",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 6100,
+      "word": "我衣"
+     },
      {
       "answers_key": false,
       "canonical_pinyin": "ngo",

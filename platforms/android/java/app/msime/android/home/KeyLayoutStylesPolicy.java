@@ -89,7 +89,7 @@ public final class KeyLayoutStylesPolicy {
         if (current.shuangpinProfile() != null)
             return fourteenKeyLayout(shuangpinLayout) ? Kind.FOURTEEN : Kind.TWENTY_SIX;
         return switch (current) {
-            case QUANPIN, CANTONESE -> Kind.TWENTY_SIX;
+            case QUANPIN, CANTONESE, CANTONESE_SHUANGPIN -> Kind.TWENTY_SIX;
             case WUBI -> "fourteen_key".equals(wubiLayout) ? Kind.FOURTEEN : Kind.TWENTY_SIX;
             case QUANPIN_FOURTEEN_KEY, QUANPIN_EIGHTEEN_KEY -> Kind.FOURTEEN;
             case QUANPIN_NINE_KEY, NINE_KEY_SHUANGPIN, STROKE -> Kind.NINE;
