@@ -14529,6 +14529,10 @@ private:
       // 学习选词习惯决定「高级选项」里「拼音方案调频」组画不画，改它时重画这一页。
       bool_row(candidates, 0xE82D, L"学习选词习惯", L"根据选词调整候选顺序", L"learning",
                true, true);
+      // 后加的可选键，默认关，共享序列化关着时不写它，回退值必须是 false（client-core 的 `next_word_prediction`）。位置和共享页桌面一样，紧跟学习开关。
+      bool_row(candidates, 0xE8BD, L"上屏后联想",
+               L"选词上屏后推荐后续文字，点选才上屏；使用现有词库，开启学习时也参考个人词序，隐私输入不显示",
+               L"next_word_prediction", false);
       // 与共享页一样，少有人改的混输开关收在组末的「更多选项」里。
       auto candidates_more = add_more_options(
           candidates, candidates_more_open_,
