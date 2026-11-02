@@ -17,7 +17,8 @@ struct FakeHost {
   int calls = 0;
   std::optional<Json> operator()(const std::string &request) {
     ++calls;
-    (void)Json::parse(request);
+    const auto parsed = Json::parse(request);
+    assert(parsed.is_object());
     return value;
   }
 };
