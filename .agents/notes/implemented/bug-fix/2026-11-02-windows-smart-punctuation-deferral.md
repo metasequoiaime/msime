@@ -48,7 +48,8 @@ keydown-classified vk=0x20 fn=4  eaten=0       # 空格，当普通文本交给�
 
 ## Verification
 
-- `platforms/windows/tsf/tests/input/deferred_smart_punctuation.cpp`（新增，已挂进 `platforms/windows/tsf/CMakeLists.txt` 的 ctest）：三条策略的判定表逐个断言，并按源码检查接线——认领排在「可打印键排队」之前、应用文本的判定只写一份、武装判断与有效期都在。同一份用例对 `origin/develop` 的 `KeyEventSink.cpp`/`Composition.cpp` 运行会红（9 条断言失败），对本次改动全绿。
+- `platforms/windows/tsf/tests/input/deferred_smart_punctuation.cpp`（新增，已挂进 `platforms/windows/tsf/CMakeLists.txt` 的 ctest）：三条策略的判定表逐个断言，并按源码检查它执行不到的部分——应用文本的判定只写一份、影子与盲删的前置条件。同一份用例对 `origin/develop` 的 `KeyEventSink.cpp`/`Composition.cpp` 运行会红（8 条断言失败），对本次改动全绿。
+- `scripts/test-windows-deferred-classification.py`（既有用例，直接编译 `_ClassifyDeferredKeyDown` 本体）：新增四组断言——屏障里已武装的空格得到 `FUNCTION_SMART_PUNCTUATION_CONVERT`、同一按键得到 `FUNCTION_SMART_PUNCTUATION_REVERT`，以及组字中（当前的或投影里的）空格不会被认领。把认领块摘掉后这两条会红（反向验证过），288 项检查全过。
 - `python scripts/test-windows-native-run.py`：新增用例编译并执行通过；唯一失败是 `caps_lock_tap.cpp`，在未改动的 `develop` 主工作区上同样失败，属于本机既有差异，与本次改动无关。
 - **没有在 QQ 里验收。** 本机 QQ 未登录、且桌面同时被另一个会话占用，自动化打字会互相干扰，所以「偶发失效消失了没有」必须由报告者在 QQ 里按原步骤复现确认；确认手段是打开 `diagnostic_log.tsf` 后看 `[msime][smart-punctuation] shadow=yes` 是否稳定出现在数字后的句号上。
 - 没有在 Windows 原生构建里编译过（本机无 MinGW、无 MSVC），TSF 的编译由 CI 的 Windows 作业覆盖。

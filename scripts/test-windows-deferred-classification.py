@@ -28,6 +28,7 @@ HARNESS = r'''
 #include "WubiCandidateSelectionPolicy.h"
 #include "LocalModeKeyPolicy.h"
 #include "AltGrKeyPolicy.h"
+#include "SmartPunctuationDeferralPolicy.h"
 #include "HostKoreanKey.h"
 using std::min;
 using UINT = unsigned;
@@ -169,6 +170,7 @@ struct CMetasequoiaIME {
     bool _DeferredKeyQueueHasCapacity() const { return _deferredKeyDowns.size() < 64; }
     void _ScheduleDeferredKeyDownDrain() {}
     void _EnsureDeferredKeyProjection();
+    bool _DeferredProjectionHasComposition() const;
     void _ApplyDeferredKeyProjection(const _KEYSTROKE_STATE &, WCHAR, UINT);
     bool _QueueDeferredKeyDown(ITfContext *, WPARAM, LPARAM, WCHAR, UINT, const _KEYSTROKE_STATE &,
                                const msime::panel_key::Owner * = nullptr);
@@ -203,6 +205,11 @@ struct CMetasequoiaIME {
     void _NoteKeyEventIpcFailure() {}
     uint64_t _CaptureFocusSessionToken() const { return 11; }
     bool _IsFocusSessionCurrent(uint64_t, ITfContext * = nullptr) const { return true; }
+    // 智能标点的武装只存在本进程里；测试直接置位，验证屏障会不会先认领它们。
+    bool smartSpaceArmed = false;
+    WCHAR smartRevertAscii = 0;
+    bool _CanConvertSmartPunctuationSpace() const { return smartSpaceArmed; }
+    bool _CanRevertSmartPunctuation(WCHAR wch) const { return smartRevertAscii != 0 && wch == smartRevertAscii; }
     void _ClearDeferredKeyDowns() {
         _wubiCommitOwner.clear();
         ++_deferredKeyFocusGeneration;
@@ -298,6 +305,51 @@ int main() {
         f.ime._DrainOneDeferredKeyDown();
         check(f.ime.dispatched.size() == 1 && f.ime._deferredKeyDowns.empty() && f.context.refs == 1,
               "released preference transition dispatches the following key exactly once");
+    }
+    // 屏障把可打印键排进应用文本队列之前，必须先认领两条本地命令：否则空格会被当成
+    // 普通空格插进文档，刚打出的中文标点再也换不回 ASCII（QQ 这类慢宿主里间歇发生）。
+    {
+        Fixture f;
+        f.finishSelection(L"", false);
+        f.ime._preferenceNotificationPending.store(true);
+        f.ime.smartSpaceArmed = true;
+        check(f.capture(VK_SPACE, L' '), "barrier captures the space that converts punctuation");
+        check(f.ime._deferredKeyDowns.back().keyState.Function == FUNCTION_SMART_PUNCTUATION_CONVERT &&
+              f.ime._deferredKeyDowns.back().kind == CMetasequoiaIME::DeferredKeyDown::Kind::KeyDown,
+              "space conversion is claimed as an IME command before printable keys are queued as text");
+        f.ime.smartSpaceArmed = false;
+        f.ime._preferenceNotificationPending.store(false);
+    }
+    {
+        Fixture f;
+        f.finishSelection(L"", false);
+        f.ime._preferenceNotificationPending.store(true);
+        f.ime.smartRevertAscii = L'.';
+        check(f.capture(VK_OEM_PERIOD, L'.'), "barrier captures the repeat-to-Chinese gesture");
+        check(f.ime._deferredKeyDowns.back().keyState.Function == FUNCTION_SMART_PUNCTUATION_REVERT,
+              "repeat-to-Chinese is claimed as an IME command before printable keys are queued as text");
+        f.ime.smartRevertAscii = 0;
+        f.ime._preferenceNotificationPending.store(false);
+    }
+    // 组字中（当前的或投影里的）空格是选词，不许被认领成标点转换。
+    for (bool liveComposition : {true, false}) {
+        Fixture f;
+        f.finishSelection(L"", false);
+        f.ime._preferenceNotificationPending.store(true);
+        if (liveComposition) {
+            f.engine.current = {L"ht", 2, false, false};
+            f.ime._deferredKeyProjectionValid = false;
+        }
+        else {
+            f.ime._EnsureDeferredKeyProjection();
+            f.ime._deferredProjectedInputLength = 2;
+        }
+        f.ime.smartSpaceArmed = true;
+        check(f.capture(VK_SPACE, L' '), "composing space stays captured");
+        check(f.ime._deferredKeyDowns.back().keyState.Function != FUNCTION_SMART_PUNCTUATION_CONVERT,
+              "a composing space is never claimed as a punctuation conversion");
+        f.ime.smartSpaceArmed = false;
+        f.ime._preferenceNotificationPending.store(false);
     }
     {
         Fixture f;

@@ -72,13 +72,10 @@ int main(int argc, char **argv)
     // 会话还在协商（令牌不变、窗口不变）不属于上面的任何一种：那正是 QQ 里丢掉手势的原因。
     check(SmartPunctuationArmStillBelongsToDocument(7, 7, true, true), "会话暂时没就绪不算换了文档");
 
-    // 4. 接线。
+    // 4. 接线。屏障里认领两条命令的顺序由 scripts/test-windows-deferred-classification.py
+    //    直接编译 `_ClassifyDeferredKeyDown` 验证（那里断言的是行为），这里只钉住它看不到的部分。
     const std::string root = argc > 1 ? argv[1] : "platforms/windows/tsf";
     const std::string sink = read(root + "/Key/KeyEventSink.cpp");
-    const auto claim = sink.find("Global::DeferredSmartPunctuationClaimFor(");
-    const auto queue = sink.find("if (printable || plainEditingKey) return true;");
-    check(claim != std::string::npos && queue != std::string::npos && claim < queue,
-          "认领排在可打印键排队之前");
     // 队列和智能标点共用同一条「应用文本」规则，不能再各写一份。
     check(sink.find("keyState.Category == CATEGORY_NONE && keyState.Function == FUNCTION_NONE") == std::string::npos,
           "应用文本的判定只写一份");
