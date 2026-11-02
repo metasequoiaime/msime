@@ -216,11 +216,14 @@ test("complete personal dictionary exports when a kind has no words", async () =
     .mockResolvedValueOnce({ entries: [], has_more: false })
     .mockResolvedValueOnce({ entries: [], has_more: false })
     .mockResolvedValueOnce({ entries: [], has_more: false })
+    .mockResolvedValueOnce({ entries: [], has_more: false })
     .mockResolvedValueOnce({ entries: [], has_more: false });
   await expect(loadAllPersonalDictionaryEntries({ list })).resolves.toEqual([
     { kind: "pinyin", key: "a", value: "甲", weight: 1 },
   ]);
-  expect(list).toHaveBeenCalledTimes(6);
+  // 拼音、86、98、新世纪、快捷短语、英文、粤语各读一页。
+  expect(list).toHaveBeenCalledTimes(7);
+  expect(list).toHaveBeenLastCalledWith(0, 100, "cantonese", "");
 });
 
 test("complete personal dictionary reports an empty export without rows", () => {
