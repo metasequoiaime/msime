@@ -165,6 +165,23 @@ if (-not $preserved.Contains('(CompareText(FileName, DataDirMarkerName) = 0)')) 
     throw 'Upgrade cleanup deletes the data-directory ownership marker'
 }
 
+# 用户自己的辅助码表放在 DataDir\helpcodes\custom（#10707）：升级清掉安装包的内置码表时留下它；删 server 目录、清安装包条目之前，先把以前放在 server\resources\helpcodes\custom 的表搬过来。
+$helpcodes = Get-Block 'procedure CleanPackageHelpcodes' 'procedure CleanAppDataExceptUserFiles;'
+if (-not $helpcodes.Contains("(CompareText(FindRec.Name, 'custom') <> 0)")) {
+    throw 'Upgrade cleanup deletes the user helpcode tables in DataDir\helpcodes\custom'
+}
+$clean = Get-Block 'procedure CleanAppDataExceptUserFiles;' 'procedure TryDeleteSystemVersionDirs'
+if (-not $clean.Contains('CleanPackageHelpcodes(ItemPath)')) {
+    throw 'Upgrade cleanup removes DataDir\helpcodes as a whole'
+}
+$adopt = $prepare.IndexOf("AdoptCustomHelpcodes(ExpandConstant('{autopf}\{#MyEditionInstallDir}\server\resources\helpcodes\custom'));")
+$serverMatch = [regex]::Match($prepare, "TryDeleteTree\(ExpandConstant\(\s*'\{autopf\}\\\{#MyEditionInstallDir\}\\server'\)\);")
+$serverGone = if ($serverMatch.Success) { $serverMatch.Index } else { -1 }
+$packageGone = $prepare.IndexOf('CleanAppDataExceptUserFiles;')
+if ($adopt -lt 0 -or $serverGone -lt 0 -or $packageGone -lt 0 -or $adopt -gt $serverGone -or $adopt -gt $packageGone) {
+    throw 'The custom helpcode tables under server\resources are not kept before the server directory is deleted'
+}
+
 # ---- the medium-integrity Server and settings window can write the data directory ----
 if ($script -notmatch '(?m)^Name: "\{code:GetDataDir\}"; Permissions: users-modify') {
     throw 'The data directory is not created with Users modify permission'

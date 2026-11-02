@@ -81,6 +81,7 @@ pub(super) struct InputSession {
     pub helpcode_entry: Option<usize>,
     pub helpcode_keymap: Option<SharedKeymap>,
     pub helpcode_fallback_resources: Option<PathBuf>,
+    pub custom_helpcode_root: Option<PathBuf>,
     pub chinese_punctuation_enabled: bool,
     pub punctuation_lock: i32,
     pub learning_enabled: bool,
@@ -198,6 +199,7 @@ impl InputSession {
             helpcode_entry: None,
             helpcode_keymap: None,
             helpcode_fallback_resources: options.helpcode_fallback_resources.clone(),
+            custom_helpcode_root: options.custom_helpcode_root.clone(),
             chinese_punctuation_enabled: true,
             punctuation_lock: 0,
             learning_enabled: true,
@@ -2023,6 +2025,7 @@ impl InputSession {
             &self.paths.resources,
             schema,
             self.helpcode_fallback_resources.as_deref(),
+            self.custom_helpcode_root.as_deref(),
         )?);
         self.install_helpcode_table(keymap);
         Ok(())

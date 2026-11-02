@@ -2501,6 +2501,11 @@ impl HostOptions {
             quick_phrase_frequency: self.preferences.mixed_input.quick_phrase_frequency,
             helpcode_table: None,
             helpcode_fallback_resources,
+            // 用户自己的辅助码表放在状态根下（`msime_client_core::helpcode::user_helpcode_root`），`resources` 是安装包或词库代次，升级会换掉它。
+            custom_helpcode_root: state_root
+                .as_deref()
+                .and_then(Path::to_str)
+                .map(str::to_owned),
             sentence_association: engine_sentence_association(
                 &self.preferences.sentence_association,
                 absolute_state_root(self.preferences_directory.as_deref()).as_deref(),
@@ -2960,6 +2965,20 @@ pub fn prepare_host_configuration_for_edition(
     prepare_host_with_updates(resources, state_root, edition, &specification)
 }
 
+/// 把还留在资源目录里的自定义辅助码表（`helpcodes/custom`）复制到状态根下的同名目录，Engine 和设置页都先读那里（`msime_engine::load_helpcode_keymap_in`）。资源目录是安装包或词库代次，升级和在线词库更新会换掉或删掉它；准备和刷新运行时配置时各搬一次，表还在就不会跟着旧目录一起丢。只复制，不删源文件，状态根里已有同一主干的表不覆盖。
+fn adopt_custom_helpcodes(state_root: &Path, sources: &[&Path]) {
+    let Ok(state_root) = std::path::absolute(state_root) else {
+        return;
+    };
+    let adopted = msime_client_core::helpcode::adopt_custom_helpcodes(&state_root, sources);
+    if adopted > 0 {
+        crate::diagnostics::report(
+            "custom helpcode tables adopted",
+            &format!("copied {adopted} table(s) from the resource directory into the state root"),
+        );
+    }
+}
+
 /// 安装选择与随包基线共用准备流程，测试用小型真实词库验证代次切换与日志回放。
 fn prepare_host_with_updates(
     resources: &Path,
@@ -2967,9 +2986,18 @@ fn prepare_host_with_updates(
     edition: &'static Edition,
     specification: &ResourceSet,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    if let Some((updated, selected)) =
-        dictionary_updates::selected_resources(state_root, specification)
-    {
+    let selected_update = dictionary_updates::selected_resources(state_root, specification);
+    let recorded_bundle =
+        msime_client_providers::dictionary_updates::bundled_resources(state_root, specification);
+    let mut sources = vec![resources];
+    sources.extend(recorded_bundle.as_deref());
+    sources.extend(
+        selected_update
+            .as_ref()
+            .map(|(updated, _)| updated.as_path()),
+    );
+    adopt_custom_helpcodes(state_root, &sources);
+    if let Some((updated, selected)) = selected_update {
         if verify_resources_once(&updated, &selected, state_root, &[]).is_ok() {
             let mut document: Value = serde_json::from_str(&prepare_shipped_host_configuration(
                 &updated,
@@ -3239,6 +3267,18 @@ fn refresh_options_file(
             }
         })?;
     let document: Value = serde_json::from_slice(&bytes)?;
+    // 刷新可能把 `resources` 换成别的目录（新代次、应用包里的那份），换之前先把旧目录里的自定义辅助码表搬到状态根下。
+    if let Some(state) = document["preferences_directory"]
+        .as_str()
+        .map(Path::new)
+        .filter(|state| state.is_absolute())
+    {
+        let sources: Vec<&Path> = ["resources", "helpcode_fallback_resources"]
+            .into_iter()
+            .filter_map(|key| document[key].as_str().map(Path::new))
+            .collect();
+        adopt_custom_helpcodes(state, &sources);
+    }
     // 文档记录的版本，缺省是 full。新代次按同一个版本准备；`refreshed_layout` 只替换 `resources` 和 `dictionaries`，`edition` 键原样保留。
     let edition =
         Edition::of_host_options(&document).ok_or("runtime options name an unknown edition")?;
@@ -3725,22 +3765,22 @@ pub fn local_symbol_catalog(resources: &str) -> Result<Vec<LocalSymbolCatalogGro
     Ok(result)
 }
 
-/// Discover the optional helper-code tables installed below a verified resource directory.
+/// 列出设置页可选的自定义辅助码表：状态根 `state_root` 下的 `helpcodes/custom`（用户自己的表放在这里，升级不会动它）和资源目录里的 `helpcodes/custom`（以前的位置），同一主干取状态根那份，与 Engine 读表的顺序一致。
 ///
-/// The table files are Engine-owned assets, but their display metadata belongs to the shared
-/// settings surface. Keep the path check at this host boundary so neither a native caller nor the
-/// Tauri shell can ask the client core to inspect an arbitrary relative location. An absent or
-/// unreadable `helpcodes/custom` directory is a valid empty catalog.
+/// 码表文件归 Engine 解析，显示名属于设置界面。路径检查留在宿主边界上，原生调用方和 Tauri 外壳都不能让 client-core 去看一个相对路径。目录不在或读不了时是空列表。`state_root` 为 `None` 时只看资源目录。
 pub fn list_custom_helpcode_schemas(
     resources: &str,
+    state_root: Option<&str>,
 ) -> Result<Vec<msime_client_core::helpcode::CustomHelpcodeSchema>, &'static str> {
     let path = std::path::Path::new(resources);
     if !path.is_absolute() {
         return Err("resources path must be absolute");
     }
-    Ok(msime_client_core::helpcode::list_custom_helpcode_schemas(
-        path,
-    ))
+    let state_root = state_root.map(std::path::Path::new);
+    if state_root.is_some_and(|state_root| !state_root.is_absolute()) {
+        return Err("state root must be absolute");
+    }
+    Ok(msime_client_core::helpcode::list_custom_helpcode_schemas_in(path, state_root))
 }
 
 fn response(operation: impl FnOnce() -> Result<Value, String>) -> *mut c_char {
