@@ -515,6 +515,7 @@ HRESULT CMetasequoiaIME::_HandlePredictionSelectKey(TfEditCookie ec, _In_ ITfCon
             return _CommitPredictionCandidate(ec, pContext, text);
         }
     }
-    // 什么都没选中（Server 那边的联想已经没了、数字超出了它那一页）：不上屏。宿主会话的联想照旧，编辑会话结束时由 _RefreshPrediction 决定留着还是关掉。
+    // 什么都没选中：Server 那边的联想已经没了（两个会话出的联想不一致，或者它已经被关掉）。这个键已经吃下，不再补上；关掉这一边的联想，后面的数字和空格照常交给应用，不再一个个被吞掉。
+    _DismissPrediction();
     return S_OK;
 }
