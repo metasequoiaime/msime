@@ -8,13 +8,13 @@ macOS 冷启动时先同步读取共享输入设置，工具栏组件与语音�
 
 ## Decision
 
-`applySharedInputPreferencesBeforeFirstUse` 保留首次同步读到的同一份共享快照。`activateServer:` 创建工具栏后、首次呈现前通过 `applyInitialHostPreferences` 应用宿主设置；`handleKeyEvent:client:` 直接接管焦点时也走这一步。正常重载或保存通知替换尚未消费的快照；工具栏已经存在时清掉待应用值，避免旧快照覆盖新设置。工具栏还没创建时保留最新快照，之后补上组件和尺寸。
+`applySharedInputPreferencesBeforeFirstUse` 保留首次同步读到的同一份共享快照。`activateServer:` 创建工具栏后、首次呈现前通过 `applyInitialHostPreferences` 应用宿主设置，但不重放已经恢复的输入设置，保留其后系统报告的方案选择；`handleKeyEvent:client:` 直接接管焦点时也走这一步。正常重载或保存通知替换尚未消费的快照；工具栏已经存在时清掉待应用值，避免旧快照覆盖新设置。工具栏还没创建时保留最新快照，之后补上组件和尺寸。
 
 读取失败不标记首次读取完成，后续激活可以再读，既有后台重试与客户端代次保护也保留。复用已有同步读取，没有新增按键热路径读盘，不改变任何默认值、不提前写文件、不申请录音权限。
 
 ## Verification
 
-`shortcut-startup-voice` 使用隔离的合成偏好与相反的原生语音缓存，暂停后台监视，直接执行生产控制器的激活或按键路径。修前首帧输出 `microphone=0 runtime_enabled=0`，在麦克风可见性断言失败；修后十种组合通过：首次激活、提前读取后再激活、首个按键恢复焦点、首次读取失败后重试、更新快照抢先应用，分别覆盖明确开启与关闭。
+`shortcut-startup-voice` 使用隔离的合成偏好与相反的原生语音缓存，暂停后台监视，直接执行生产控制器的激活或按键路径。修前首帧输出 `microphone=0 runtime_enabled=0`，在麦克风可见性断言失败；修后十种组合通过：首次激活、系统先报告韩语再激活、首个按键恢复焦点、首次读取失败后重试、更新快照抢先应用，分别覆盖明确开启与关闭。
 
 语音入口使用实际 `toggleVoiceInput:`，合成模型路径保证在权限申请与音频采集之前报告缺模型错误，确认旧的关闭缓存不再挡住语音命令。独立的 `voice-wave-overlay` 验证聆听面板与波形状态，不采集麦克风。`shortcut` 全量控制器用例、`shortcut-toggle-hotkeys`、`floating-toolbar-panel`、`shared-voice-preferences` 与以上两项共六项 CTest 通过。首帧改前与改后图片保留在本机诊断目录。
 

@@ -5369,7 +5369,8 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
 - (void)applyInitialHostPreferences {
     NSDictionary *preferences = _initialHostPreferences;
     _initialHostPreferences = nil;
-    if (preferences) [self applySharedToolbarPreferences:preferences];
+    // 输入设置已先应用，系统模式报告可能随后改过方案，不能在这里重放旧输入状态。
+    if (preferences) [self applySharedToolbarPreferences:preferences applyInputPreferences:NO];
 }
 // 在系统输入菜单里打开一个按需模式。只有 Engine 会话会碰到 TIS；测试的替身会话只走测试设的 enabler，没有就什么也不做，所以测试不会改开发者的输入菜单。返回 NO 表示模式没有打开——没有发出请求，或者系统拒绝了——这次切换不记为已同步，下一次同步再试；以前不论 TIS 返回什么都算成功，启用失败一次，这个模式就再也不会被打开。
 - (BOOL)enableOptInInputMode:(NSString *)identifier {
@@ -6937,6 +6938,9 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
 }
 
 - (void)applySharedToolbarPreferences:(NSDictionary *)preferences {
+    [self applySharedToolbarPreferences:preferences applyInputPreferences:YES];
+}
+- (void)applySharedToolbarPreferences:(NSDictionary *)preferences applyInputPreferences:(BOOL)applyInputPreferences {
     // 更晚的重载替换启动快照；工具栏尚未创建时保留它，创建后再应用尺寸与组件。
     if ([preferences isKindOfClass:NSDictionary.class])
         _initialHostPreferences = _toolbar ? nil : [preferences copy];
@@ -7064,7 +7068,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     id pageSize = preferences[@"candidate_page_size"];
     NSUInteger strictPageSize = 0;
     if (MSIMEStrictUnsignedIntegerValue(pageSize, &strictPageSize) && strictPageSize >= msime::mac::kMinimumCandidatePageSize && strictPageSize <= msime::mac::kMaximumCandidatePageSize && strictPageSize != _requestedPageSize) _requestedPageSize = 0;
-    [_appearance applySharedInputPreferences:preferences];
+    if (applyInputPreferences) [_appearance applySharedInputPreferences:preferences];
     [_appearance applySharedCandidatePreferences:preferences];
     if (!_appearance.inputModeHUD) [[MSIMEInputModeHUDPanel sharedPanel] orderOut:nil];
     // 共享文档里的开关在载入它的这一刻生效，不等下一次切换中英文：组字中推迟应用文档的分支只走到这里，不会调 sync。关上时总是隐藏；打开时只有持有客户端的控制器按当前模式显示，输入法不在前台时收到的通知不把它放回菜单栏。文档只在有控制器持有客户端时才被载入（每秒一次的轮询和保存后的重新载入都要求 _activeClient），所以在设置应用里拨开关时要等回到输入框、输入法重新获得焦点才生效。

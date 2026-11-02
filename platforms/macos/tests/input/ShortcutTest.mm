@@ -6196,6 +6196,8 @@ static void TestFreshProcessActsOnTheSharedSchemeNotTheStaleLocalOne() {
 @property(nonatomic) NSUInteger voiceFailures;
 @end
 @implementation StartupVoiceController
+// alloc 夹具没有 IMK 基类的服务连接；模式报告先于激活时还没有客户端。
+- (id)client { return [self valueForKey:@"activeClient"]; }
 - (NSDictionary *)runtimeOptions { return self.options; }
 // 首帧断言故意不放行后台读取，也不启动系统输入源切换或联网授权。
 - (void)startPreferencesMonitoring {}
@@ -6250,7 +6252,12 @@ static void TestStartupVoicePreferences() {
         [panel applySizingPreferences:@{}];
         ShortcutClient *client = [ShortcutClient new];
         BOOL expected = enabled.boolValue;
-        if (entry == 1 || entry == 4) [controller applySharedInputPreferencesBeforeFirstUse];
+        if (entry == 1) {
+            MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+            [controller systemDidReportInputMode:MSIMEKoreanInputModeID client:client];
+            assert([prefs.inputScheme isEqual:@"korean"]);
+        }
+        if (entry == 4) [controller applySharedInputPreferencesBeforeFirstUse];
         if (entry == 3) {
             NSString *invalid = [root stringByAppendingPathComponent:@"not-a-directory"];
             assert([@"synthetic" writeToFile:invalid atomically:YES encoding:NSUTF8StringEncoding error:nil]);
@@ -6273,6 +6280,7 @@ static void TestStartupVoicePreferences() {
             [controller setValue:[ShortcutSession new] forKey:@"session"];
             [controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 56, 0, 1) client:client];
         } else [controller activateServer:client];
+        if (entry == 1) assert([prefs.inputScheme isEqual:@"korean"]);
         NSButton *microphone = [panel valueForKey:@"voiceButton"];
         if (enabled.boolValue && entry == 0) {
             if (const char *capture = std::getenv("MSIME_STARTUP_VOICE_CAPTURE")) {
