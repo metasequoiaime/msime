@@ -8707,7 +8707,7 @@ fn enhanced_mounts_the_runtime_reranker_without_the_engine_layer() {
     assert!(!wubi.features.neural_keyboard);
     assert!(!keyboard_reranker_enabled(&association, wubi));
     // 关着时连模型文件都不去读。
-    assert!(ffi::keyboard_reranker(false, "", None, None).is_none());
+    assert!(ffi::keyboard_reranker(false, "", None, None, None).is_none());
 }
 
 /// 随包资源目录旁边有 `rerank-model/` 时，「增强」的逐键重排用它（ONNX Runtime 后端）；再装了 `rerank-model-small/` 时按自测速度在两者之间选；ONNX 模型都读不了就退回随包的句子模型。用 `crates/onnx-rerank` 测试用的小模型，两个目录里放同一份图，只把小模型 `model.json` 的 `context_chars` 改成 48，好从 `context_length`（上文字数加 16）看出挂的是哪一个：大的是 80，小的是 64。
@@ -8741,7 +8741,8 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
         ffi::rerank_models_root(root, None).as_deref(),
         Some(bundle.path())
     );
-    let mut scorer = ffi::keyboard_reranker(true, root, None, None).expect("the ONNX model loads");
+    let mut scorer =
+        ffi::keyboard_reranker(true, root, None, None, None).expect("the ONNX model loads");
     assert_eq!(scorer.context_length(), LARGE);
     assert_eq!(
         scorer
@@ -8753,15 +8754,33 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
     // 资源目录里的同名目录不算：那里只放词库锁里的文件。
     let inside = tempfile::tempdir().unwrap();
     install(&inside.path().join(ffi::RERANK_MODEL_DIRECTORY), 64);
-    assert!(ffi::keyboard_reranker(true, inside.path().to_str().unwrap(), None, None).is_none());
+    assert!(
+        ffi::keyboard_reranker(true, inside.path().to_str().unwrap(), None, None, None).is_none()
+    );
 
     // 下载的词库代次旁边没有模型，按随包资源目录找。
     let generations = tempfile::tempdir().unwrap();
     let generation = generations.path().join("generation");
     std::fs::create_dir(&generation).unwrap();
-    let downloaded = ffi::keyboard_reranker(true, generation.to_str().unwrap(), Some(root), None)
-        .expect("the bundled ONNX model is found through the bundle");
+    let downloaded =
+        ffi::keyboard_reranker(true, generation.to_str().unwrap(), Some(root), None, None)
+            .expect("the bundled ONNX model is found through the bundle");
     assert_eq!(downloaded.context_length(), LARGE);
+
+    // 宿主指明模型目录（`rerank_models`）时只在那里找。Windows 的 Server 就是这样：随包资源目录的回退（`helpcode_fallback_resources`）是放辅助码表的 DataDir，装了在线词库更新后资源目录又换成 DataDir 下的代次，两条都推不到 Program Files 里 Server 旁边的模型。
+    let data = tempfile::tempdir().unwrap();
+    let data_root = data.path().to_str().unwrap();
+    let generation_root = generation.to_str().unwrap();
+    assert!(ffi::keyboard_reranker(true, generation_root, Some(data_root), None, None).is_none());
+    let named = ffi::keyboard_reranker(
+        true,
+        generation_root,
+        Some(data_root),
+        bundle.path().to_str(),
+        None,
+    )
+    .expect("the ONNX model is found in the named directory");
+    assert_eq!(named.context_length(), LARGE);
 
     // 只装了大的时不自测，预算再小也用它。
     let large_only = ffi::onnx_reranker_within(bundle.path(), 0.0).unwrap();
@@ -8780,7 +8799,7 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
     assert_eq!(slow.category, "keyboard reranker onnx small");
     // 宿主用的预算是 10 毫秒，这个两层、32 维的小模型打一页远在其内。
     assert_eq!(
-        ffi::keyboard_reranker(true, root, None, None)
+        ffi::keyboard_reranker(true, root, None, None, None)
             .unwrap()
             .context_length(),
         LARGE
@@ -8789,7 +8808,7 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
     // 大的坏了就用小的，不管预算。
     std::fs::write(directory.join("lm_step.ort"), b"not a model").unwrap();
     assert_eq!(
-        ffi::keyboard_reranker(true, root, None, None)
+        ffi::keyboard_reranker(true, root, None, None, None)
             .unwrap()
             .context_length(),
         SMALL
@@ -8797,12 +8816,12 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
 
     // 两个都坏，资源目录里也没有随包的句子模型，于是什么都不挂。
     std::fs::write(small.join("lm_step.ort"), b"not a model").unwrap();
-    assert!(ffi::keyboard_reranker(true, root, None, None).is_none());
+    assert!(ffi::keyboard_reranker(true, root, None, None, None).is_none());
 
     // 两个都坏、但有随包的句子模型时退回它。句子模型按路径缓存，上面那次已经把资源目录里的默认路径记成了「没有」，所以这里经 `configured` 指向另一个文件。
     let sentence = bundle.path().join("fallback-sentence-model.safetensors");
     write_context_free_sentence_model(&sentence);
-    let fallback = ffi::keyboard_reranker(true, root, None, sentence.to_str())
+    let fallback = ffi::keyboard_reranker(true, root, None, None, sentence.to_str())
         .expect("falls back to the bundled sentence model");
     let bundled = ffi::sentence_model(root, sentence.to_str()).unwrap();
     assert_eq!(fallback.context_length(), bundled.context_length());
@@ -8824,16 +8843,23 @@ fn keyboard_reranker_follows_the_keyboard_model_switch() {
             write_context_free_sentence_model(&path);
             path
         });
-    let create = |root: &std::path::Path, preferences: &Preferences| {
+    let create_with = |root: &std::path::Path, preferences: &Preferences, extra: Value| {
         let path = |name| {
             let path = root.join(name);
             std::fs::create_dir_all(&path).unwrap();
             path
         };
-        let options = json!({ "api_version": 1, "resources": path("resources"), "user_data": path("user"), "cache": path("cache"), "dictionaries": path("dictionaries"), "sentence_model": model, "preferences": preferences }).to_string();
+        let mut options = json!({ "api_version": 1, "resources": path("resources"), "user_data": path("user"), "cache": path("cache"), "dictionaries": path("dictionaries"), "sentence_model": model, "preferences": preferences });
+        for (key, value) in extra.as_object().unwrap() {
+            options[key] = value.clone();
+        }
+        let options = options.to_string();
         let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
         assert_eq!(created["ok"], true, "{created}");
         created["value"]["session"].as_u64().unwrap()
+    };
+    let create = |root: &std::path::Path, preferences: &Preferences| {
+        create_with(root, preferences, json!({}))
     };
     // 挂没挂 runtime 的逐键重排器；引擎那层键盘模型在任何时候都不打开。
     let attached = |handle: u64| {
@@ -8870,6 +8896,24 @@ fn keyboard_reranker_follows_the_keyboard_model_switch() {
         "增强 attaches the keyboard model when the session opens"
     );
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+
+    // 镜像会话（Windows TIP 在应用进程里的宿主会话，`keyboard_reranker: false`）建立时和开关再打开时都不挂：候选窗的顺序是它跟着的那个会话排的。
+    let directory = tempfile::tempdir().unwrap();
+    let mirror = create_with(
+        directory.path(),
+        &preferences,
+        json!({ "keyboard_reranker": false }),
+    );
+    assert!(
+        !attached(mirror),
+        "a mirror session never loads the keyboard model"
+    );
+    preferences.sentence_association.neural_keyboard = false;
+    assert_eq!(update(mirror, 1, &preferences)["value"]["deferred"], false);
+    preferences.sentence_association.neural_keyboard = true;
+    assert_eq!(update(mirror, 2, &preferences)["value"]["deferred"], false);
+    assert!(!attached(mirror));
+    assert_eq!(read(msime_client_destroy(mirror))["ok"], true);
 }
 
 /// Writes the smallest sentence model `SentenceModel::load` accepts: no layers, a one-wide embedding and only the three special tokens, so every context gets the same logits. It is good for checking that a reranker is mounted, not for anything it would rank.

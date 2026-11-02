@@ -48,6 +48,8 @@ foreach ($notice in @(
     @('platforms/windows/settings/assets/feedback/NOTICE.md', 'Feedback channel icons on the about page of msime-client-settings.exe, GitHub and Telegram from yldm-tech/ai-logo (MIT), QQ from bytedance/IconPark (Apache-2.0)'),
     @('resources/licenses/world-clock-NOTICE.txt', '离线世界时钟：IANA 城市目录与 Rust 时间、时区和太阳事件依赖'),
     @('resources/licenses/OpenCC-Apache-2.0.txt', 'OpenCC dictionaries, BYVoid/OpenCC @ 26753884f1984add422f3b0249ccee8613deaff6'),
+    @('resources/licenses/onnxruntime-MIT.txt', 'ONNX Runtime 1.24.4 (microsoft/onnxruntime @ 2d924974ef147392ced8409d36bd6d2e7fcc8a74), minimal build statically linked into the x64 host DLL for the keystroke reranker, MIT License'),
+    @('resources/licenses/onnxruntime-ThirdPartyNotices.txt', 'ONNX Runtime third-party notices for the statically linked minimal build (the 1.31.0 file, which carries every section of the 1.24.4 one)'),
     @('plugins/script/LICENSE', 'Official script plugin uuid in server\plugin-packs, this project''s own code under MIT rather than GPL-3.0; the pack carries the same text as LICENSE.txt'),
     @('plugins/phrase_table/LICENSE', 'LaTeX command table compiled into the host library for symbol mode (S mode, crates/engine/src/local/latex_symbols.tsv), and the official phrase table latex-symbols in server\plugin-packs built from the same data, this project''s own data under MIT rather than GPL-3.0; the pack carries the same text as LICENSE.txt'))) {
     $relative = $notice[0]

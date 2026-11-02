@@ -53,6 +53,8 @@ std::shared_ptr<const HostConfiguration> LoadConfiguration(
     msime::windows::name_builtin_helpcodes(session, std::filesystem::u8path(next->directory));
     // TIP 的宿主会话跟着 Server 选同一个词（空格、数字键、点选），选词位置由 Server 的会话记；这里也记就会把每次选词算两遍。
     session["selection_statistics"] = false;
+    // 「增强」的逐键重排也只在 Server 的会话里跑：候选窗是 Server 画的、顺序是它排的，TIP 按文字选中同一个词（HostServerSelection.h），自己再排一遍用不上，却要在每个打字的应用进程里各加载一份模型（ONNX 大模型 31 MB）。
+    session["keyboard_reranker"] = false;
     next->hostOptions = session.dump();
     const auto user = parsed.find("user_data");
     next->userData = user != parsed.end() && user->is_string()

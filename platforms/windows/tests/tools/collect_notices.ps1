@@ -26,7 +26,8 @@ try {
         'platforms/windows/msimeui/UPSTREAM.md', 'platforms/windows/msimeui/LICENSE',
         'platforms/windows/third_party/miniaudio/LICENSE', 'shared/voice/third_party/cppcodec/LICENSE',
         'platforms/windows/settings/assets/feedback/NOTICE.md',
-        'resources/licenses/OpenCC-Apache-2.0.txt', 'plugins/script/LICENSE', 'plugins/phrase_table/LICENSE')
+        'resources/licenses/OpenCC-Apache-2.0.txt', 'resources/licenses/onnxruntime-MIT.txt',
+        'resources/licenses/onnxruntime-ThirdPartyNotices.txt', 'plugins/script/LICENSE', 'plugins/phrase_table/LICENSE')
     foreach ($relative in $repositoryNotices) {
         $path = Join-Path $root $relative
         New-Item -ItemType Directory -Force (Split-Path -Parent $path) | Out-Null

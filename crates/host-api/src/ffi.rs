@@ -210,27 +210,31 @@ pub(crate) fn sentence_model_path(resources: &str, configured: Option<&str>) -> 
 ///
 /// The switch is opt-in because this model runs inside every `character` call, on the thread the host types on: one decision costs a few milliseconds, and the first one after a commit, which has to read the new context from scratch, about 20 ms on a desktop CPU and five to ten times that on a phone. Attaching it whenever the file was present ran it for every touch user on 标准 and 关闭 too, which is what made fast typing on Android fall behind and drop keys. The model is not loaded at all while the switch is off.
 ///
-/// 编译时打开了 `onnx-rerank`、随包资源目录旁边又有 [`RERANK_MODEL_DIRECTORY`] 时用那个模型（ONNX Runtime 后端），读不了就退回随包的句子模型。`bundle` 是随包资源目录（`EngineOptions::helpcode_fallback_resources`）：`resources` 换成下载的词库代次时，ONNX 模型仍在安装包里，按它去找；为 `None` 时 `resources` 本身就是随包的那个。
+/// 编译时打开了 `onnx-rerank`、随包资源目录旁边又有 [`RERANK_MODEL_DIRECTORY`] 时用那个模型（ONNX Runtime 后端），读不了就退回随包的句子模型。`bundle` 是随包资源目录（`EngineOptions::helpcode_fallback_resources`）：`resources` 换成下载的词库代次时，ONNX 模型仍在安装包里，按它去找；为 `None` 时 `resources` 本身就是随包的那个。`models` 是宿主指明的模型目录（HostOptions 的 `rerank_models`），给了就只在那里找，不再按资源目录推。
 ///
 /// 开关打开时写一行诊断，说挂上的是哪一个（见 [`report_keyboard_reranker`]）。
 pub(crate) fn keyboard_reranker(
     enabled: bool,
     resources: &str,
     bundle: Option<&str>,
+    models: Option<&str>,
     configured: Option<&str>,
 ) -> Option<Box<dyn msime_input_runtime::CandidateScorer>> {
     if !enabled {
         return None;
     }
     #[cfg(feature = "onnx-rerank")]
-    let root = rerank_models_root(resources, bundle);
+    let root = match models {
+        Some(models) => Some(PathBuf::from(models)),
+        None => rerank_models_root(resources, bundle),
+    };
     #[cfg(feature = "onnx-rerank")]
     if let Some(attached) = root.as_deref().and_then(onnx_reranker) {
         report_keyboard_reranker(attached.category, &attached.detail);
         return Some(attached.scorer);
     }
     #[cfg(not(feature = "onnx-rerank"))]
-    let _ = bundle;
+    let _ = (bundle, models);
     let scorer = sentence_model(resources, configured).map(|model| {
         Box::new(Reranker::new(model)) as Box<dyn msime_input_runtime::CandidateScorer>
     });

@@ -59,6 +59,8 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
     let recorded_settled_model = options.settled_model.clone();
     let phrase_preedit = options.phrase_preedit.unwrap_or(false);
     let statistics_recorded_elsewhere = options.selection_statistics == Some(false);
+    let keyboard_reranker_allowed = options.keyboard_reranker != Some(false);
+    let recorded_rerank_models = options.rerank_models.clone();
     // 聚焦时据此重新查找按需下载的资源包，见 `HostSession::refresh_resource_packs`。
     let state_root = absolute_state_root(options.preferences_directory.as_deref());
     let recorded_language_dictionaries = options
@@ -158,9 +160,11 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
         applied.traditional_chinese_variant,
     );
     runtime.set_candidate_scorer(keyboard_reranker(
-        keyboard_reranker_enabled(&applied.sentence_association, edition),
+        keyboard_reranker_allowed
+            && keyboard_reranker_enabled(&applied.sentence_association, edition),
         &options.resources,
         options.helpcode_fallback_resources.as_deref(),
+        recorded_rerank_models.as_deref(),
         sentence_model_path.as_deref(),
     ));
 
@@ -230,6 +234,8 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
                 recorded_language_dictionaries,
                 resources_pending: false,
                 recorded_sentence_model: sentence_model_path,
+                keyboard_reranker_allowed,
+                recorded_rerank_models,
                 recorded_settled_model,
                 settled_model,
                 settled_model_attached,
