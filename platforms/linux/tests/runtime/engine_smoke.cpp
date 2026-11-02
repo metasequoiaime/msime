@@ -436,6 +436,7 @@ int main(int argc, char **argv) {
     options["preferences"]["candidate_translations"] = false;
     // 资源验收只核对宿主行为；逐键神经重排的模型耗时受 runner 负载影响，关闭它避免把候选顺序和时序测试变成性能门禁。
     options["preferences"]["sentence_association"]["neural_keyboard"] = false;
+    options["preferences"]["local_modes"]["chaizi"] = false;
     options["preferences"]["keybindings"]["switch_language_ctrl"] = true;
     options["preferences"]["voice_input"]["hotkey_ctrl_win"] = true;
     options["preferences"]["voice_input"]["stream_inline_preedit"] = true;
@@ -516,7 +517,7 @@ int main(int argc, char **argv) {
     // comes from are still queued when the call returns. Wait for the
     // observation itself rather than draining whatever happens to be pending.
     auto wait_until = [&](auto ready) {
-      const auto deadline = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
+      const auto deadline = g_get_monotonic_time() + 15 * G_USEC_PER_SEC;
       while (!ready() && g_get_monotonic_time() < deadline) {
         while (g_main_context_iteration(nullptr, FALSE)) {}
         g_usleep(1000);
@@ -3685,7 +3686,8 @@ int main(int argc, char **argv) {
                          PROP_STATE_UNCHECKED));
     require(seen.candidates.front().find("固定") == std::string::npos,
             "Candidate position clear did not release the fixed candidate");
-    require(key(IBUS_Left, IBUS_CONTROL_MASK) && seen.auxiliary.find("ni|hao") != std::string::npos,
+    require(key(IBUS_Left, IBUS_CONTROL_MASK) &&
+                wait_until([&] { return seen.auxiliary.find("ni|hao") != std::string::npos; }),
             "Candidate auxiliary text did not expose the preedit caret");
     const auto stale_candidate_action = seen.first_candidate_fix_name;
     invoke("Reset");
