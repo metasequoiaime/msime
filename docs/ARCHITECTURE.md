@@ -69,7 +69,7 @@ Tauri 在 macOS、Linux 和现代 Windows 上还承载共享面板：表情与�
 
 说明文字对读屏仍然可读：它以视觉隐藏的形式留在原处，控件通过 `aria-describedby`（或各平台的等价属性）读到它。「?」自己的读屏名称四端一致：有标题时是「<标题>的说明：<正文>」，没有标题时是「说明：<正文>」。
 
-落地到代码：共享设置页的 `Row` 及其包装组件（`SwitchRow`、`SelectRow`、`SliderRow` 等）把 `description` 画成标题旁的 `InfoTip`（`packages/ui/src/core/info-tip.tsx`），上面列的常驻内容走 `detail`；`SettingsGroupNote` 在有组名的 `GroupList` 里自动收进组名旁的「?」，是内容而不是解释的段落标 `inline`，`role="status"` 的反馈和 `SettingsManagerBlock` 里紧贴按钮的说明留在原处。Windows、iOS、Android 的原生设置界面各有一个对应的可复用「?」组件，新设置项都用它，不在页面上另写常驻说明段落。写说明之前先想这句话能不能不要；要的话写进 `description`，不要写成标题下面的一段灰字。
+落地到代码：共享设置页的 `Row` 及其包装组件（`SwitchRow`、`SelectRow`、`SliderRow` 等）把 `description` 画成标题旁的 `InfoTip`（`packages/ui/src/core/info-tip.tsx`），上面列的常驻内容走 `detail`；`SettingsGroupNote` 在有组名的 `GroupList` 里自动收进组名旁的「?」，是内容而不是解释的段落标 `inline`，`role="status"` 的反馈和 `SettingsManagerBlock` 里紧贴按钮的说明留在原处。不走 `Row` 的自绘区块也一样：统计图表的标题（`StatisticsSection` 的 `note`）、子页标题（`SettingsSubViewHeader` 的 `note`）、社区图库标题、预览块（`SettingsPreviewBlock` 的 `note`）和多行文本框（`SettingsTextareaField` 的 `description`，状态走 `detail`）都把解释放进标题旁的 `InfoTip`。Windows、iOS、Android 的原生设置界面各有一个对应的可复用「?」组件，新设置项都用它，不在页面上另写常驻说明段落。写说明之前先想这句话能不能不要；要的话写进 `description`，不要写成标题下面的一段灰字。
 
 ## 四条不能打破的边界
 

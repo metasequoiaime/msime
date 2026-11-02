@@ -550,7 +550,7 @@ export function CandidateSkinEditor({
         <SettingsGroupBlock>
           <SettingsTextareaField
             label="说明"
-            description={problemFor("description")}
+            detail={problemFor("description")}
             ariaLabel="皮肤说明"
             rows={2}
             value={draft.description}

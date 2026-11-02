@@ -83,7 +83,12 @@ export function PluginMentionsView({
     );
   return (
     <>
-      <PluginViewHeader title="@ 名单" onBack={onBack} />
+      {/* 名单怎么用、存在哪收进标题旁的「?」；@ 模式没开、方案不支持这类状态照旧留在页面上。 */}
+      <PluginViewHeader
+        title="@ 名单"
+        note="在「输入 → 快捷模式」打开 @ 名字与地点后，按 @ 再输入拼音或首字母，就会从这份名单里出候选。名单只保存在本机，不随账号同步，也不会读取通讯录或位置。拼音可以留空，中文名字会自动取读音。"
+        onBack={onBack}
+      />
       {(!mode || schemeNote) && (
         <GroupList>
           {!mode && (
@@ -113,10 +118,6 @@ export function PluginMentionsView({
       )}
       <GroupList>
         <SettingsManagerBlock>
-          <SettingsManagerNote>
-            在「输入 → 快捷模式」打开 @ 名字与地点后，按 @
-            再输入拼音或首字母，就会从这份名单里出候选。名单只保存在本机，不随账号同步，也不会读取通讯录或位置。拼音可以留空，中文名字会自动取读音。
-          </SettingsManagerNote>
           {mentions.map((entry, index) => (
             <SettingsPhraseForm key={index}>
               <SettingsInputField

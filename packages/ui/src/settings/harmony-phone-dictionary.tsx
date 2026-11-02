@@ -18,6 +18,7 @@ import { useMobileSettingsSubview } from "./use-mobile-settings-subview";
 import { useSettingsForm } from "./settings-form-context";
 import { useDictionaryCollectionsState } from "../dictionary/use-dictionary-collections-state";
 import { SwitchRow } from "./switch-row";
+import { SettingsGroupNote } from "./settings-group-note";
 
 const BUILTIN = "builtin:pinyin";
 
@@ -124,6 +125,10 @@ export function HarmonyPhoneDictionary() {
     <>
       <div className="flex flex-col gap-2">
         <GroupList title="已安装">
+          {/* 怎么用这一组收进组名旁的「?」；读取失败的错误照旧画在组下面。 */}
+          <SettingsGroupNote>
+            点进词库可以启用、停用和编辑词条。已启用的词库会一起参与候选。
+          </SettingsGroupNote>
           {dictionary && (
             <NavRow
               variant="me"
@@ -160,9 +165,11 @@ export function HarmonyPhoneDictionary() {
             />
           )}
         </GroupList>
-        <p className={footnote} role={loadFailure ? "alert" : undefined}>
-          {loadFailure || "点进词库可以启用、停用和编辑词条。已启用的词库会一起参与候选。"}
-        </p>
+        {loadFailure && (
+          <p className={footnote} role="alert">
+            {loadFailure}
+          </p>
+        )}
       </div>
       {collections && client.communityResources && (
         <DiscoverDictionaries

@@ -4,7 +4,7 @@ import { SettingsManagerActions } from "../settings-manager-actions";
 import { SettingsManagerNote } from "../settings-manager-note";
 import * as doc from "../document-style";
 import { useSettingsForm } from "../settings-form-context";
-import { GroupList, LinkRow, PageIntro } from "../../core/platform-controls";
+import { GroupList, LinkRow } from "../../core/platform-controls";
 import { SubPageEntries } from "./sub-page-entries";
 import { createSettingsExternalActions } from "../settings-external-actions";
 import { FeedbackChannels } from "../feedback-channels";
@@ -45,7 +45,6 @@ export function FeedbackSettingsPage() {
   }
   return (
     <SettingsPageFieldset disabled={busy} hidden={page !== "feedback"} ariaLabel="帮助与反馈">
-      <PageIntro>遇到问题或有功能建议时，可以通过以下渠道提交和交流。</PageIntro>
       <FeedbackSections />
     </SettingsPageFieldset>
   );
@@ -147,6 +146,8 @@ function FeedbackChannelsGroup() {
   });
   return (
     <GroupList title="反馈与交流">
+      {/* 页首原来的一句引导讲的就是这一组，收进组名旁的「?」。 */}
+      <SettingsGroupNote>遇到问题或有功能建议时，可以通过以下渠道提交和交流。</SettingsGroupNote>
       <FeedbackChannels
         issuesUrl={platformIssuesUrl}
         feedbackCopied={feedbackCopied}

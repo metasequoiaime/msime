@@ -3,7 +3,7 @@ import type { ConfirmRequest } from "../core/confirm";
 import { downloadBlob } from "../core/download-blob";
 import { exceptionMessage } from "../core/exception-message";
 import { ErrorAlert } from "../core/error-alert";
-import { GroupList, PageIntro, Row } from "../core/platform-controls";
+import { GroupList, Row } from "../core/platform-controls";
 import { select as selectStyle, textInput } from "../core/platform-controls-style";
 import { StatusMessage } from "../core/status-message";
 import { useAsyncActionRunner, type AsyncActionOperation } from "../core/use-async-action";
@@ -344,9 +344,9 @@ function KeyTableEditor<Profile extends string>({
     <div className={settings.subViewStack}>
       <SettingsSubViewHeader
         title={definition.title}
+        note={definition.intro}
         back={{ label: "输入", ariaLabel: "返回输入", onClick: () => void leave(), ref: back }}
       />
-      <PageIntro>{definition.intro}</PageIntro>
       <GroupList title="起点与文件">
         <Row title="从内置方案开始" description="用它的键位填满整张表，再改动想换的键。">
           <select

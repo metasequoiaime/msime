@@ -73,7 +73,6 @@ export {
 const heading = rowHeading;
 // 摘要在标签行上方，切换标签时保持不动，所以压成紧凑的 3 × 2 网格，单位和数字放在同一行；会随标签变化的内容都放在标签下方。
 const metricGrid = "grid grid-cols-3 gap-x-6 gap-y-[18px] max-phone:grid-cols-2 max-phone:gap-x-3";
-const footerNote = "mt-3.5 mb-0 text-xs leading-relaxed [color:var(--p-sub)]";
 const privacy = "mt-4 mb-0 text-xs leading-[1.7] [color:var(--p-sub)]";
 // The page container. Named because this component returns it from three places -- loading, error and
 // loaded -- and the loading branch was the one that got left behind when the class it used was
@@ -343,11 +342,12 @@ function TypingStatisticsContent({
         <p className="mt-3.5 mb-0 text-right text-[11px] leading-relaxed [color:var(--p-sub)]">
           {statisticsOverviewDetails(activity).best}
         </p>
-        <p className="mt-4 mb-0 border-t border-edge pt-3 text-[11px] leading-relaxed [color:var(--p-sub)]">
-          {activity.hasActivity
-            ? "速度统计汉字与字母；两次上屏间隔超过 10 秒视为休息，不计入活跃时长。"
-            : "还没有测量到活跃时长。这项从本次更新后开始记录，之前的输入只有字数。"}
-        </p>
+        {/* 速度和活跃时长怎么算收进「今日速度」「今日活跃」旁的「?」；这里只留「还没测到」的状态。 */}
+        {!activity.hasActivity && (
+          <p className="mt-4 mb-0 border-t border-edge pt-3 text-[11px] leading-relaxed [color:var(--p-sub)]">
+            还没有测量到活跃时长。这项从本次更新后开始记录，之前的输入只有字数。
+          </p>
+        )}
       </section>
       <div className={segmented(6)} role="tablist" aria-label="统计内容">
         {(
@@ -379,6 +379,7 @@ function TypingStatisticsContent({
         <StatisticsSection
           id="statistics-trend-title"
           title={`每日趋势 · ${mobile && trendDays.length >= 360 ? "近一年" : `近 ${trendDays.length} 天`}`}
+          note={mobile ? "点按热力图查看当天的分类与占比。" : "点按柱形查看当天的分类与占比。"}
         >
           <StatisticsDailyTrend
             days={trendDays}
@@ -397,9 +398,6 @@ function TypingStatisticsContent({
               />
             </>
           )}
-          <p className={footerNote}>
-            {mobile ? "点按热力图查看当天的分类与占比。" : "点按柱形查看当天的分类与占比。"}
-          </p>
           {selectedDay && (
             <ActionButton action={() => setSelectedDay(null)} label="返回整个时间范围" />
           )}
@@ -493,7 +491,17 @@ function TypingStatisticsContent({
         <section className="section m-0">
           <SettingToggle
             label="记录打字统计"
-            description="关闭后，新提交不会增加统计。"
+            // 统计记了什么、存在哪、保留多久也是这一项的说明，一起收进「?」，不在页面底部常驻一段。
+            description={
+              <>
+                关闭后，新提交不会增加统计。
+                字数统计水杉键盘提交的字符，以及英文模式和放行给应用的字母、数字与符号（按按键时估计），含标点及表情，不含空格和换行。组合表情计为一个字符，删除文字不扣减。按键热力图只保存每个键每天被按下的次数，不保存按键顺序和输入内容。
+                {uploadEnabled
+                  ? "日期、分类和数量保存在本机，不保存输入内容；已打开「上传到云端」，最近 7 天的每日计数和候选位次会上传到你的水杉账号，按键热力图不上传。"
+                  : "仅在本机保存日期、分类和数量，不保存输入内容。"}
+                每日明细默认永久保留，可在「自动清理」中改为只保留最近一段时间；清理删除的日期同时从累计总数与分类中扣除。
+              </>
+            }
             ariaLabel="记录打字统计"
             rowClassName="mb-4"
             compact
@@ -548,13 +556,6 @@ function TypingStatisticsContent({
               label="清空统计"
             />
           </div>
-          <p className={privacy}>
-            字数统计水杉键盘提交的字符，以及英文模式和放行给应用的字母、数字与符号（按按键时估计），含标点及表情，不含空格和换行。组合表情计为一个字符，删除文字不扣减。按键热力图只保存每个键每天被按下的次数，不保存按键顺序和输入内容。
-            {uploadEnabled
-              ? "日期、分类和数量保存在本机，不保存输入内容；已打开「上传到云端」，最近 7 天的每日计数和候选位次会上传到你的水杉账号，按键热力图不上传。"
-              : "仅在本机保存日期、分类和数量，不保存输入内容。"}
-            每日明细默认永久保留，可在「自动清理」中改为只保留最近一段时间；清理删除的日期同时从累计总数与分类中扣除。
-          </p>
         </section>
       )}
       {availabilityMessage && (

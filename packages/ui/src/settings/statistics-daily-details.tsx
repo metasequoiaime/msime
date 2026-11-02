@@ -4,8 +4,6 @@ import { StatisticsSection } from "./statistics-section";
 import { dayLabel, formatActiveTime } from "./typing-statistics-helpers";
 import { DETAIL_DAYS, type DailyDetailRow } from "./typing-statistics-model";
 
-const footerNote = "mt-3.5 mb-0 text-xs leading-relaxed [color:var(--p-sub)]";
-
 /** 按字符种类区分汉字和字母，其余文字归入「其他」，不按文本语言命名列。 */
 const detailColumns = [
   "日期",
@@ -22,7 +20,11 @@ const detailColumns = [
 export function StatisticsDailyDetails({ rows }: { rows: DailyDetailRow[] }) {
   const count = (value: number) => formatZhNumber(value);
   return (
-    <StatisticsSection id="statistics-details-title" title={`按日明细 · 最近 ${DETAIL_DAYS} 天`}>
+    <StatisticsSection
+      id="statistics-details-title"
+      title={`按日明细 · 最近 ${DETAIL_DAYS} 天`}
+      note={`列出最近 ${DETAIL_DAYS} 个有记录的日期，新的在上；「其他」含其他文字、表情、符号与历史未分类。活跃与速度显示「—」的日期早于活跃时长的记录。`}
+    >
       {rows.length === 0 ? (
         <SettingsEmptyMessage centered className="mt-3.5">
           暂无输入记录
@@ -62,10 +64,6 @@ export function StatisticsDailyDetails({ rows }: { rows: DailyDetailRow[] }) {
           </table>
         </div>
       )}
-      <p className={footerNote}>
-        列出最近 {DETAIL_DAYS}{" "}
-        个有记录的日期，新的在上；「其他」含其他文字、表情、符号与历史未分类。活跃与速度显示「—」的日期早于活跃时长的记录。
-      </p>
     </StatisticsSection>
   );
 }

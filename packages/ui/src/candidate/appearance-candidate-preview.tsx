@@ -105,7 +105,7 @@ export function AppearanceCandidatePreview({
     <SettingsPreviewBlock
       as="section"
       aria-label={`${surfaceName}预览`}
-      label="预览：固定样例随当前设置草稿变化，不代表实际输入候选。"
+      note="固定样例随当前设置草稿变化，不代表实际输入候选。"
     >
       {builtin ? (
         plain

@@ -1,4 +1,5 @@
 import type { RefObject } from "react";
+import { InfoTip } from "../core/info-tip";
 import type {
   DictionaryEntry,
   DictionaryLookupEntry,
@@ -67,14 +68,17 @@ export function DictionaryEntries({
           </label>
           <label>
             {kind === "quick_phrase" ? "短语" : "词条"}{" "}
+            {/* 光标标记怎么写是解释，收进「?」；在 label 里不能再嵌按钮，用只悬停的「?」，说明以文字留在标签里，由输入框的名称读出（同 `SettingSectionTitle`）。 */}
+            {kind === "quick_phrase" && (
+              <InfoTip passive subject="短语">
+                {QUICK_PHRASE_DICTIONARY_CURSOR_NOTE}
+              </InfoTip>
+            )}{" "}
             <input
               value={form.value}
               readOnly={form.previous?.source === "bundled"}
               onChange={(event) => onFormChange({ ...form, value: event.target.value })}
             />
-            {kind === "quick_phrase" && (
-              <small className={settings.keyHint}>{QUICK_PHRASE_DICTIONARY_CURSOR_NOTE}</small>
-            )}
           </label>
           <label>
             权重{" "}

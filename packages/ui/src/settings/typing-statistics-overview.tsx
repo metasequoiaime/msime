@@ -1,4 +1,5 @@
 import { formatZhNumber } from "../core/format-number";
+import { InfoTip } from "../core/info-tip";
 import { dayLabel, formatActiveTime } from "./typing-statistics-helpers";
 import type { ActivityMetrics, TypingStatistics } from "./typing-statistics-model";
 
@@ -8,7 +9,10 @@ export type StatisticsOverviewMetric = {
   value: string;
   unit?: string;
   ariaLabel: string;
+  /** 状态或读数（单日最多、累计），常驻数值下方。 */
   note?: string;
+  /** 这一项怎么算：收进标题旁的「?」。 */
+  explanation?: string;
 };
 
 export function statisticsOverviewMetrics({
@@ -48,6 +52,7 @@ export function statisticsOverviewMetrics({
       title: "连续打字的时间",
       value: formatActiveTime(activity.todayActiveMs),
       ariaLabel: "今日活跃时长",
+      explanation: "两次上屏间隔超过 10 秒视为休息，不计入活跃时长。",
       ...(activity.hasActivity ? { note: `累计 ${formatActiveTime(activity.totalActiveMs)}` } : {}),
     },
     {
@@ -55,6 +60,7 @@ export function statisticsOverviewMetrics({
       value: formatZhNumber(Math.round(activity.todaySpeed)),
       unit: "字 / 分钟",
       ariaLabel: "今日输入速度",
+      explanation: "速度统计汉字与字母。",
       ...(activity.fastestDay
         ? {
             note: `单日最快 ${formatZhNumber(Math.round(activity.fastestSpeed))} 字 / 分钟 · ${dayLabel(activity.fastestDay)}`,
@@ -80,7 +86,10 @@ export function statisticsOverviewMetrics({
 export function StatisticsMetric({ metric }: { metric: StatisticsOverviewMetric }) {
   return (
     <div className="flex min-w-0 flex-col gap-1 [&>span]:text-xs [&>span]:[color:var(--p-sub)]">
-      <span title={metric.title}>{metric.label}</span>
+      <span className="inline-flex items-center gap-1">
+        <span title={metric.title}>{metric.label}</span>
+        {metric.explanation && <InfoTip subject={metric.label}>{metric.explanation}</InfoTip>}
+      </span>
       <div className="flex min-w-0 flex-wrap items-baseline gap-x-1 [&>small]:text-xs [&>small]:[color:var(--p-sub)]">
         <strong
           className="text-[22px] font-[650] leading-tight wrap-anywhere tabular-nums [color:var(--p-accent-text)]"

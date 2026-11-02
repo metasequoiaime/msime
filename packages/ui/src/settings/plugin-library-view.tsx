@@ -1,4 +1,5 @@
 import { useId } from "react";
+import { InfoTip } from "../core/info-tip";
 import { FluentIcon, type FluentIconName } from "../core/fluent-icons";
 import { SearchGlyph } from "../core/search-glyph";
 import { ActionButton } from "./action-button";
@@ -258,24 +259,27 @@ export function PluginLibraryView({
             aria-label={kind === "script" ? "脚本插件（实验）" : kindLabels[kind]}
           >
             <div className={style.sectionHeading}>
-              <h3 className={style.sectionTitle}>
-                {kind === "script" ? "脚本插件（实验）" : kindLabels[kind]}
-              </h3>
+              <span className="flex min-w-0 items-center gap-1">
+                <h3 className={style.sectionTitle}>
+                  {kind === "script" ? "脚本插件（实验）" : kindLabels[kind]}
+                </h3>
+                {/* 怎么用、按什么顺序生效收进标题旁的「?」；风险警告和空列表提示照旧留在下面。 */}
+                {kind === "command_table" && triggers && (
+                  <InfoTip subject={kindLabels[kind]}>
+                    在「输入 → 快捷模式」打开 / 指令后，按 /
+                    再输入指令字母即可使用。启用的指令表按启用顺序排列，同一指令以靠前的表为准；最多启用{" "}
+                    {MAX_COMMAND_TABLES} 个。
+                  </InfoTip>
+                )}
+                {kind === "script" && (
+                  <InfoTip subject="脚本插件（实验）">
+                    脚本插件会在输入法里运行第三方代码，只做你在授权时允许的事；导入后默认不运行，打开它的详情授权后才启用。
+                  </InfoTip>
+                )}
+              </span>
               <span className={style.secondary}>{packs.length + gone.length}</span>
             </div>
-            {kind === "command_table" && triggers && (
-              <p className={style.note}>
-                在「输入 → 快捷模式」打开 / 指令后，按 /
-                再输入指令字母即可使用。启用的指令表按启用顺序排列，同一指令以靠前的表为准；最多启用{" "}
-                {MAX_COMMAND_TABLES} 个。
-              </p>
-            )}
-            {kind === "script" && (
-              <p className={style.note}>
-                脚本插件会在输入法里运行第三方代码，只做你在授权时允许的事；导入后默认不运行，打开它的详情授权后才启用。
-                {scripts?.risk ?? ""}
-              </p>
-            )}
+            {kind === "script" && scripts?.risk && <p className={style.note}>{scripts.risk}</p>}
             {!packs.length && !gone.length && (
               <p className={style.note}>
                 {hasClient

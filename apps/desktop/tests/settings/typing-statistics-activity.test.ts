@@ -214,6 +214,7 @@ test("overview metric descriptors keep labels, units and notes together", () => 
       title: "连续打字的时间",
       value: "2分",
       ariaLabel: "今日活跃时长",
+      explanation: "两次上屏间隔超过 10 秒视为休息，不计入活跃时长。",
       note: "累计 2分",
     },
     {
@@ -221,6 +222,7 @@ test("overview metric descriptors keep labels, units and notes together", () => 
       value: "6",
       unit: "字 / 分钟",
       ariaLabel: "今日输入速度",
+      explanation: "速度统计汉字与字母。",
       note: "单日最快 6 字 / 分钟 · 9月21日",
     },
     {

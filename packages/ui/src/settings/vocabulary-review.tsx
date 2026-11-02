@@ -9,6 +9,7 @@ import { compactPage } from "../core/page-style";
 import { compactMutedNote } from "../core/text-style";
 import { downloadBlob } from "../core/download-blob";
 import { FluentIcon } from "../core/fluent-icons";
+import { InfoTip } from "../core/info-tip";
 import { readAloudText } from "./read-aloud";
 
 // The largest word list the page reads. The shared layer takes at most 8 MiB of decoded text (`vocabulary::session::MAX_IMPORT_BYTES`), well under the dictionary import's bound, so this keeps the 1 MiB the page has always read rather than following that one.
@@ -286,9 +287,17 @@ export function VocabularyReviewPage({
   return (
     <section className={page} aria-labelledby="vocabulary-heading">
       <div className="section">
-        <h2 className={heading} id="vocabulary-heading">
-          背单词
-        </h2>
+        {/* 这一页做什么、进度存在哪收进标题旁的「?」，不在指标下面常驻一段。 */}
+        <div className="flex items-center gap-1">
+          <h2 className={heading} id="vocabulary-heading">
+            背单词
+          </h2>
+          <InfoTip subject="背单词">
+            {reviewing
+              ? "复习不会改变打字时的候选或组词。进度保存在本机，不会上传。答「不认识」的词会在本次复习里再次出现；答「认识」的词按间隔安排到以后的某一天。"
+              : "在这里管理词书；复习在背单词面板里进行。进度保存在本机，不会上传。"}
+          </InfoTip>
+        </div>
         <div className={metricRow} role="status" aria-live="polite">
           <div className={metric}>
             <span className={metricValue}>{status.due}</span>
@@ -303,11 +312,6 @@ export function VocabularyReviewPage({
             <span className={metricLabel}>未开始</span>
           </div>
         </div>
-        <p className={note}>
-          {reviewing
-            ? "复习不会改变打字时的候选或组词。进度保存在本机，不会上传。"
-            : "在这里管理词书；复习在背单词面板里进行。进度保存在本机，不会上传。"}
-        </p>
         {managing && openPanel && (
           <ActionButton
             action={() => void openPanel()}
@@ -373,19 +377,21 @@ export function VocabularyReviewPage({
                   if (file) void chooseFile(file);
                 }}
               />
-              <ActionButton
-                action={() => fileRef.current?.click()}
-                ariaBusy={busy}
-                ariaLabel="导入词表文件"
-                className="secondary"
-                disabled={busy}
-                label="导入词表（CSV / TXT）"
-              />
-              <p className={note}>
-                每行一个词，用逗号或制表符分隔：<code>单词,音标,释义</code> 或{" "}
-                <code>单词,释义</code>
-                。释义里有逗号时用英文引号括起来。
-              </p>
+              <span className="inline-flex items-center gap-1">
+                <ActionButton
+                  action={() => fileRef.current?.click()}
+                  ariaBusy={busy}
+                  ariaLabel="导入词表文件"
+                  className="secondary"
+                  disabled={busy}
+                  label="导入词表（CSV / TXT）"
+                />
+                <InfoTip subject="导入词表">
+                  每行一个词，用逗号或制表符分隔：<code>单词,音标,释义</code> 或{" "}
+                  <code>单词,释义</code>
+                  。释义里有逗号时用英文引号括起来。
+                </InfoTip>
+              </span>
             </>
           )}
           {importNote && <p className={note}>{importNote}</p>}
@@ -393,9 +399,11 @@ export function VocabularyReviewPage({
             <p className={note}>这本书来自插件，在「插件」页卸载；卸载后复习进度仍会保留。</p>
           )}
           {client.removePersonalWord && (
-            <p className={note}>
+            <p className={`${note} flex items-center gap-1`}>
               {personalBook ? `生词本里有 ${personalBook.total} 个词。` : "生词本还是空的。"}
-              打字时在候选的操作菜单里选「加入生词本」，候选旁显示的释义就会收进生词本；它只存在这台设备上。
+              <InfoTip subject="生词本">
+                打字时在候选的操作菜单里选「加入生词本」，候选旁显示的释义就会收进生词本；它只存在这台设备上。
+              </InfoTip>
             </p>
           )}
           {client.exportPersonalWordbook && personalBook && (
@@ -515,9 +523,6 @@ export function VocabularyReviewPage({
                   />
                 </div>
               )}
-              <p className={note}>
-                答「不认识」的词会在本次复习里再次出现；答「认识」的词按间隔安排到以后的某一天。
-              </p>
             </>
           )}
         </div>
