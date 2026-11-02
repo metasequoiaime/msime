@@ -1,6 +1,6 @@
 name: macOS package
 
-# macOS 发布包的打包检查：发布包只带核心词库，日文词典、五笔码表、粤拼/注音词库和手写模型由 App 按需下载。这里确认核心词库的暂存规则、按需资源包仍能按锁文件下载，并在 Apple 芯片的 runner 上真打一次未签名的 universal 包，让打包脚本的问题在发布当天之前暴露出来。
+# macOS 发布包的打包检查：发布包只带核心词库，日文词典、五笔码表、粤拼/注音词库和手写模型由 App 按需下载。这里确认核心词库的暂存规则、按需资源包仍能按锁文件下载，并在 Apple 芯片的 runner 上真打一次未签名的 universal pkg 安装包、展开核对它的结构，让打包脚本的问题在发布当天之前暴露出来。
 #
 # 这不是分支保护要求的检查，也不在 PR 上跑：打包是合进 develop 之后的事，功能分支只需要编译和测试（见 .agents/notes/implemented/process/2026-10-09-no-packaging-on-pull-requests.md）。推到 develop 时在文件内部算这次推送的改动范围，没碰打包输入的推送里后面的 job 被 `if:` 跳过、上报 skipped。每周一次的定时运行不看路径，资源包地址失效最多隔一周就会报出来。
 
@@ -49,8 +49,10 @@ jobs:
           while IFS= read -r path; do
             [[ -z "$path" ]] && continue
             case "$path" in
-              # 打包输入：打包脚本、Tauri 的 macOS 资源声明、核心词库和三个资源包的锁、决定暂存与下载的 client-core、client-providers 代码和示例、发布工作流和这个文件。scripts/test-macos-package-resources.py 核对这份清单覆盖了每个打包输入。
+              # 打包输入：打包脚本、安装包的模板和渲染脚本、Tauri 的 macOS 资源声明、核心词库和三个资源包的锁、决定暂存与下载的 client-core、client-providers 代码和示例、发布工作流和这个文件。scripts/test-macos-package-resources.py 核对这份清单覆盖了每个打包输入。
               platforms/macos/package-release.sh|platforms/macos/scripts/settings_updater.py|platforms/macos/stage-resources.sh|apps/desktop/src-tauri/tauri.macos.conf.json)
+                echo "package=true" >> "$GITHUB_OUTPUT"; echo "打包脚本改动: $path"; exit 0 ;;
+              platforms/macos/scripts/installer_package.py|platforms/macos/scripts/edition_bundle.py|platforms/macos/resources/installer/*)
                 echo "package=true" >> "$GITHUB_OUTPUT"; echo "打包脚本改动: $path"; exit 0 ;;
               resources/desktop-dictionary.lock.json|resources/language-dictionaries.lock.json|resources/handwriting-model.lock.json|resources/offline-glosses.lock.json|resources/voice-runtime-macos.lock.json|resources/wordbook.lock.json|scripts/fetch_wordbooks.py)
                 echo "package=true" >> "$GITHUB_OUTPUT"; echo "资源锁改动: $path"; exit 0 ;;
@@ -166,20 +168,29 @@ jobs:
       # 背单词的内置词书：从锁定的 ECDICT 提交生成到 target/wordbooks，MSIME_REQUIRE_WORDBOOKS=1 让缺了它们的包打不出来。
       - name: Build the bundled wordbooks
         run: python3 scripts/fetch_wordbooks.py
-      # 不签名、不公证：没有 MACOS_SIGNING_IDENTITY 时 package-release.sh 用 ad-hoc 签名，其余步骤和发布完全相同，包括编译前的资源包可下载检查和 check_app 的缺席与体积检查。
+      # 不签名、不公证：没有 MACOS_SIGNING_IDENTITY 和 MACOS_INSTALLER_IDENTITY 时 package-release.sh 用 ad-hoc 签名应用、出未签名的 pkg，其余步骤和发布完全相同，包括编译前的资源包可下载检查、check_app 的缺席与体积检查，以及展开安装包后对分发文件、PackageInfo（安装到 /Applications、没有可重定位的组件）、Bom（只在应用目录下）、postinstall 和载荷里的应用的检查。
       - name: Build the macOS package
         env:
           MSIME_REQUIRE_WORDBOOKS: '1'
         run: bash platforms/macos/package-release.sh "$(tr -d '[:space:]' < platforms/macos/version.txt)" "$RUNNER_TEMP/dist"
+      # 结构已由 package-release.sh 的 finish_edition 核对过；这里把 PackageInfo 和分发文件打进日志和摘要，改动安装包时不用下载 artifact 也能看到实际内容。
       - name: Report the package
         run: |
           set -euo pipefail
           ls -l "$RUNNER_TEMP/dist"
+          expanded="$RUNNER_TEMP/expanded"
+          rm -rf "$expanded"
+          pkgutil --expand "$RUNNER_TEMP/dist/msime-macos-$(tr -d '[:space:]' < platforms/macos/version.txt)-universal.pkg" "$expanded"
+          cat "$expanded/Distribution" "$expanded"/*.pkg/PackageInfo
           {
             echo '### macOS package (unsigned)'
             echo
             echo '```'
             ls -l "$RUNNER_TEMP/dist"
+            echo '```'
+            echo
+            echo '```xml'
+            cat "$expanded"/*.pkg/PackageInfo
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload the package
