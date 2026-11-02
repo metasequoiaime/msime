@@ -5,7 +5,7 @@ package app.msime.android;
  *
  * <p>引擎的光标是 {@code caret_position}，一个落在 {@code editing_text}（打下的原始按键，全拼是字母，九键是数字）里的字节偏移；读音行画的却不一定是这串按键：九键画的是首选读法的拼音（{@code 9426} 画成 {@code xi'an}）或选过拼音后的 {@code ni'426}，里面还夹着引擎自己加的音节分隔。两者按顺序对齐：读音行里只在显示时才有的分隔（{@code '} 和空格）跳过，字母对数字时按九键键位比，其余逐字相同。对不上的读音（读音行显示的不是这串按键）一律不处理，光标照旧在末尾。
  *
- * <p>只有输入法本身让光标留在组字里的方案才可以点：全拼（含九键）、双拼、五笔、粤拼。韩语、注音、越南语、藏文的光标锁在末尾（{@code locks_caret}），移动光标会把组字写进文档；日语和笔画画的是 reading，与按键不是逐字对应。本地模式（表情、计算等）的光标归各模式自己。
+ * <p>只有输入法本身让光标留在组字里的方案才可以点：全拼（含九键、14 键、18 键）、双拼、五笔、粤拼。韩语、注音、越南语、藏文的光标锁在末尾（{@code locks_caret}），移动光标会把组字写进文档；日语和笔画画的是 reading，与按键不是逐字对应。本地模式（表情、计算等）的光标归各模式自己。五笔 14 键网格里打的组字也不能点（#10591，与 iOS 的 {@code typesWubiGrid} 一致）：它的 {@code editing_text} 是每组的代表字母（QW 组记成 {@code q}），不是用户打的码，在里面放光标没有意义。
  */
 public final class CompositionCaretPolicy {
     /** 画在读音行里表示光标的字符。 */
@@ -18,12 +18,18 @@ public final class CompositionCaretPolicy {
 
     private CompositionCaretPolicy() {}
 
-    /** 这一刻的组字能不能点读音行移光标。 */
-    public static boolean editable(int scheme, String localMode, boolean dedicatedEnglish, String editingText) {
+    /**
+     * 这一刻的组字能不能点读音行移光标。
+     *
+     * @param gridComposing 这次组字在引擎的组码网格里（View 的 {@code grid_composing}）；五笔只有 14 键是网格，网格开着时硬件键盘打的五笔码走 26 键，为假，照常可以编辑
+     */
+    public static boolean editable(int scheme, String localMode, boolean dedicatedEnglish, String editingText,
+            boolean gridComposing) {
         if (dedicatedEnglish || !"none".equals(localMode == null ? "none" : localMode)) return false;
         if (editingText == null || editingText.isEmpty()) return false;
         if (scheme != InputSchemeTraits.QUANPIN && scheme != InputSchemeTraits.SHUANGPIN
                 && scheme != InputSchemeTraits.WUBI && scheme != InputSchemeTraits.CANTONESE) return false;
+        if (scheme == InputSchemeTraits.WUBI && gridComposing) return false;
         for (int index = 0; index < editingText.length(); index++) {
             if (editingText.charAt(index) > 0x7f) return false;
         }

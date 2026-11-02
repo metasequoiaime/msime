@@ -40,19 +40,27 @@ public final class CompositionCaretPolicySmoke {
         check(CompositionCaretPolicy.displayOffset("ni'hao", "64426", 2, true) == 3,
             "magnified caret follows a display separator");
         // 能点的方案：光标留在组字里的那些。韩语、注音、越南语、藏文锁住光标，日语和笔画画的是 reading，本地模式和专用英文各管各的。
-        check(CompositionCaretPolicy.editable(InputSchemeTraits.QUANPIN, "none", false, "jintianci"), "quanpin");
-        check(CompositionCaretPolicy.editable(InputSchemeTraits.SHUANGPIN, "none", false, "jntm"), "shuangpin");
-        check(CompositionCaretPolicy.editable(InputSchemeTraits.WUBI, "none", false, "wqvb"), "wubi");
-        check(CompositionCaretPolicy.editable(InputSchemeTraits.CANTONESE, "none", false, "nei hou"), "cantonese");
+        check(CompositionCaretPolicy.editable(InputSchemeTraits.QUANPIN, "none", false, "jintianci", false), "quanpin");
+        check(CompositionCaretPolicy.editable(InputSchemeTraits.SHUANGPIN, "none", false, "jntm", false), "shuangpin");
+        check(CompositionCaretPolicy.editable(InputSchemeTraits.WUBI, "none", false, "wqvb", false), "wubi");
+        check(CompositionCaretPolicy.editable(InputSchemeTraits.CANTONESE, "none", false, "nei hou", false), "cantonese");
         for (int scheme : new int[] {InputSchemeTraits.KOREAN, InputSchemeTraits.ZHUYIN,
                 InputSchemeTraits.VIETNAMESE, InputSchemeTraits.TIBETAN, InputSchemeTraits.JAPANESE,
                 InputSchemeTraits.STROKE, -1}) {
-            check(!CompositionCaretPolicy.editable(scheme, "none", false, "abc"), "scheme " + scheme);
+            check(!CompositionCaretPolicy.editable(scheme, "none", false, "abc", false), "scheme " + scheme);
         }
-        check(!CompositionCaretPolicy.editable(InputSchemeTraits.QUANPIN, "emoji", false, "vbq"), "local mode");
-        check(!CompositionCaretPolicy.editable(InputSchemeTraits.QUANPIN, "none", true, "hello"), "dedicated English");
-        check(!CompositionCaretPolicy.editable(InputSchemeTraits.QUANPIN, "none", false, ""), "nothing composed");
-        check(!CompositionCaretPolicy.editable(InputSchemeTraits.QUANPIN, "none", false, "ni好"), "non-ASCII spelling");
+        check(!CompositionCaretPolicy.editable(InputSchemeTraits.QUANPIN, "emoji", false, "vbq", false), "local mode");
+        check(!CompositionCaretPolicy.editable(InputSchemeTraits.QUANPIN, "none", true, "hello", false), "dedicated English");
+        check(!CompositionCaretPolicy.editable(InputSchemeTraits.QUANPIN, "none", false, "", false), "nothing composed");
+        check(!CompositionCaretPolicy.editable(InputSchemeTraits.QUANPIN, "none", false, "ni好", false), "non-ASCII spelling");
+        // #10591：网格里打的拼音照常能编辑：九键的数字、14 键和 18 键的组码字母、九键双拼的数字都和按键一一对应。
+        check(CompositionCaretPolicy.editable(InputSchemeTraits.QUANPIN, "none", false, "64426", true), "quanpin nine-key grid");
+        check(CompositionCaretPolicy.editable(InputSchemeTraits.QUANPIN, "none", false, "bugao", true), "quanpin 14/18-key grid");
+        check(CompositionCaretPolicy.editable(InputSchemeTraits.SHUANGPIN, "none", false, "jntm", true), "shuangpin grid");
+        // 五笔 14 键的 editing_text 是每组的代表字母（QW 组记成 q），不是用户打的码，不能编辑，与 iOS 的 typesWubiGrid 一致。
+        check(!CompositionCaretPolicy.editable(InputSchemeTraits.WUBI, "none", false, "qq", true), "wubi 14-key grid");
+        // 网格开着时硬件键盘打的五笔码走 26 键，grid_composing 为假，照常能编辑。
+        check(CompositionCaretPolicy.editable(InputSchemeTraits.WUBI, "none", false, "wqvb", false), "wubi typed on a hardware keyboard");
 
         // 全拼：读音就是按键。#5613 的例子：jintianciwufanlemei 里把 ci 改成 chi，点在 c 和 i 之间。
         String typed = "jintianciwufanlemei";

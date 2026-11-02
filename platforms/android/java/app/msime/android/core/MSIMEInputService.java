@@ -5207,7 +5207,8 @@ public final class MSIMEInputService extends InputMethodService {
     boolean compositionEditable() {
         return session != 0 && view != null && CompositionCaretPolicy.editable(
             InputViewValuePolicy.scheme(view, -1), InputViewValuePolicy.textOr(view, "local_mode", "none"),
-            dedicatedEnglish, InputViewValuePolicy.editingText(view));
+            dedicatedEnglish, InputViewValuePolicy.editingText(view),
+            InputViewValuePolicy.booleanValue(view, "grid_composing", false));
     }
 
     /** 放大条与输入框点击都只移动引擎光标，不在宿主重建拼写。 */
@@ -12311,15 +12312,15 @@ public final class MSIMEInputService extends InputMethodService {
             // 新设计去掉了空闲时的品牌药丸：空闲时读音行整行隐藏，品牌标在工具栏最左。
             brandPillVisible = false;
             String phrasePrefix = InputViewValuePolicy.textOr(view, "phrase_prefix", "");
+            // 隔着显示分隔时光标画在哪一侧，看这次组字是不是在组码网格里打的（九键、14 键、18 键的退格先删切分），不看按键是不是数字，也不看 key_grid：网格开着时硬件键盘的字母照样走 26 键，退格删的是分隔前的字母。五笔 14 键网格组字不能编辑也看它。
+            boolean caretKeyGrid = InputViewValuePolicy.booleanValue(view, "grid_composing", false);
             // 组字光标（#5613）：点读音行把光标移到点中的字母前；光标被移离末尾时画进读音行（「不显示」也画，下一个键就作用在那里）。读音对不上按键时退回画原始按键。
             boolean caretEditable = !idleTitle && view != null && CompositionCaretPolicy.editable(
-                InputViewValuePolicy.scheme(view, -1), localModeKey, dedicatedEnglish, editingText);
+                InputViewValuePolicy.scheme(view, -1), localModeKey, dedicatedEnglish, editingText, caretKeyGrid);
             int caret = caretEditable
                 ? InputViewValuePolicy.integer(view, "caret_position", editingText.length())
                 : editingText.length();
             String caretSpelling = spelling;
-            // 隔着显示分隔时光标画在哪一侧，看这次组字是不是在组码网格里打的（九键、14 键、18 键的退格先删切分），不看按键是不是数字，也不看 key_grid：网格开着时硬件键盘的字母照样走 26 键，退格删的是分隔前的字母。
-            boolean caretKeyGrid = InputViewValuePolicy.booleanValue(view, "grid_composing", false);
             int caretMark = caretEditable
                 ? CompositionCaretPolicy.markIndex(spelling, editingText, caret, caretKeyGrid) : -1;
             if (caretEditable && caret < editingText.length() && caretMark < 0) {
