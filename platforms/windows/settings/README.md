@@ -44,6 +44,8 @@ Win7 兼容设置是独立的 Win32 产品范围，只展示本机核心设置�
 
 选用五笔时，「输入」页「输入方案」标签的「方案」组提供「五笔快捷选词」（`wubi_candidate_selection`，默认关闭）：开启后默认用 `;` / `'` 选择当前页第 2、3 候选，候选不足时仍输入标点。两个候选键可改为不同的英文标点，按「保存选词键」一起保存。输入时与共享页一样就地校验（`InputSettingsModel.h`）：不是两个不同的单个英文标点时，「自定义选词键」的说明换成「请输入两个不同的单个英文标点。」，保存按钮变灰；保存时共享偏好库再校验标点、重复与翻页/以词定字冲突，拒绝时恢复已保存设置并提示。关闭后保留自定义键位。通用的二三候选（`second_third_candidate`）是另一项偏好，与 macOS 一样不在设置窗口里。
 
+快捷选词之后是「z 键通配」（`wubi_z_wildcard`，默认关）和「第五码将首选上屏」（`wubi_fifth_code_top_commit`，默认开），再是「五笔四码唯一候选自动上屏」，顺序、标题和说明与共享页 `WubiSection`（`packages/ui/src/settings/wubi-section.tsx`）相同，Win7 表单（`win7/SchemeForm.h`）的复选框用同样的标题并在下面写出这两项的说明；`scripts/test-windows-wubi-settings-copy.py` 逐句比较。顶字关掉只在「五笔拼音混输」开启时生效，混输关闭时第五个字母仍把首选顶上屏，说明里写明了这一点。
+
 选用五笔时，「输入」页「输入方案」标签在方案组后面有「五笔查码」组，与共享设置的 `WubiCodeLookupSection`（`packages/ui/src/settings/wubi-code-lookup-section.tsx`）相同：输入或粘贴汉字（最多 1000 个字符）后「查码」，经 `msime_client_settings_dictionary` 发只读的词库请求 `wubi_codes`，在工作线程上查；结果表列出整段文字作为一个词和每个不同汉字的 86、98 五笔编码（简码在前，码表里没有时写 —），当前选用的码表标「（当前）」，字太多时说明只列出了前多少个。
 
 `--route=settings:<id>` 指定打开的页面，可以是共享路由的设置分类 id（`appearance`、`dictionary`、`about` 等，映射见 `route_aliases`），也可以是本窗口的页面 id；其他值打开默认的「输入」页。

@@ -1025,6 +1025,15 @@ int main() {
     const bool hint_before = store.load().snapshot->preferences().at("wubi_code_hint").get<bool>();
     click(scheme_wubi_hint);
     assert(store.load().snapshot->preferences().at("wubi_code_hint").get<bool>() != hint_before);
+    // z 通配与第五码顶字：复选框读出文档里的值，点一下只翻转自己的偏好键（#10696）。
+    for (const auto& [control, key] : std::vector<std::pair<int, const char*>>{
+             {scheme_wubi_z_wildcard, "wubi_z_wildcard"}, {scheme_wubi_top_commit, "wubi_fifth_code_top_commit"}}) {
+      const bool before = store.load().snapshot->preferences().at(key).get<bool>();
+      assert((SendMessageW(GetDlgItem(body, control), BM_GETCHECK, 0, 0) == BST_CHECKED) == before);
+      click(control);
+      assert(store.load().snapshot->preferences().at(key).get<bool>() != before);
+      assert((SendMessageW(GetDlgItem(body, control), BM_GETCHECK, 0, 0) == BST_CHECKED) != before);
+    }
     const bool unique_before = store.load().snapshot->preferences().at("wubi_auto_commit_unique").get<bool>();
     click(scheme_wubi_unique);
     assert(store.load().snapshot->preferences().at("wubi_auto_commit_unique").get<bool>() != unique_before);
