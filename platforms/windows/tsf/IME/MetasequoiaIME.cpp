@@ -1792,6 +1792,8 @@ STDAPI CMetasequoiaIME::Deactivate()
     // down the engine and thread manager. Context stack changes can otherwise
     // re-enter a half-deactivated service.
     _InitTextEditSink(nullptr);
+    // 连接已经关了，Server 那边随焦点一起清掉联想；这里只放掉手里的区间和上下文。
+    _ForgetPrediction();
     // TODO: 去掉共享内存，只保留命名管道
     // CloseNamedpipe();
 
@@ -3052,6 +3054,8 @@ LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND hWnd, UINT message, WPARAM wPar
         break;
     }
     case WM_UpdateIMEStatus: {
+        // 中英切换结束上屏后联想。
+        pIME->_DismissPrediction();
         SendCurrentImeStatusSnapshot(pIME);
         break;
     }

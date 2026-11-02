@@ -25,6 +25,7 @@
 #include "FanyLog.h"
 #include "../Utils/PerfTimer.h"
 #include "../HostKoreanKey.h"
+#include "../HostPrediction.h"
 #include "../../common/PipeMetadata.h"
 #include "../../common/SecondThirdCandidatePolicy.h"
 #include "../../common/WubiCandidateSelectionPolicy.h"
@@ -1133,6 +1134,18 @@ BOOL CMetasequoiaIME::_IsKeyEaten(         //
 
     if (isOpen) // Chinese mode
     {
+        // 上屏后联想显示着时的数字键和空格是选词：送给 Server 在它的会话里选中那一行，TIP 读回复插在光标处（FUNCTION_PREDICTION_SELECT）。联想没有组字，下面的组字分类不会认领它们。
+        if (!freshCompositionState && !_IsComposing() &&
+            msime::tsf::PredictionKey(_IsPredictionVisible(), codeIn, CaptureIpcModifiers(), _PredictionRows()) ==
+                msime::tsf::PredictionKeyAction::Select)
+        {
+            if (pKeyState)
+            {
+                pKeyState->Category = CATEGORY_CANDIDATE;
+                pKeyState->Function = FUNCTION_PREDICTION_SELECT;
+            }
+            return TRUE;
+        }
         // AltGr reads as Ctrl+Alt; a character it types is input, not a shortcut (AltGr+0 is '@' on AZERTY).
         const UINT shortcutModifiers = Global::CharacterModifiers(CaptureIpcModifiers(), wch, *pCodeOut);
         if (!_serverUnavailableFallbackActive && IsCharacterSetInputModeToggle(*pCodeOut, shortcutModifiers))
@@ -2430,6 +2443,23 @@ STDAPI CMetasequoiaIME::OnTestKeyDown(ITfContext *pContext, WPARAM wParam, LPARA
     PerfTimer onTestKeyDownTimer;
     Global::UpdateModifiers(wParam, lParam);
     _TrackModifierHotkeyArming(wParam, lParam, false);
+    // 上屏后联想显示着：Esc 只关掉它（真正关在 OnKeyDown）；数字和空格留着它，由 _IsKeyEaten 认领成选词；其他键先关掉它再照常处理。交给应用的键不一定还会到 OnKeyDown，所以在这里关。
+    switch (msime::tsf::PredictionKey(_IsPredictionVisible(), LOWORD(wParam), CaptureIpcModifiers(), _PredictionRows()))
+    {
+    case msime::tsf::PredictionKeyAction::Close:
+        *pIsEaten = TRUE;
+        return S_OK;
+    case msime::tsf::PredictionKeyAction::Dismiss:
+        _DismissPrediction();
+        break;
+    case msime::tsf::PredictionKeyAction::Select:
+        // 排队等前面的键时分类按将来的组字状态算，认不出联想选词；这种情况下关掉联想，数字和空格照常交给应用。
+        if (_HasDeferredKeyBarrier())
+            _DismissPrediction();
+        break;
+    case msime::tsf::PredictionKeyAction::None:
+        break;
+    }
     if (_ApplyBackspaceHoldGuard(wParam, lParam))
     {
         *pIsEaten = TRUE;
@@ -3188,6 +3218,23 @@ STDAPI CMetasequoiaIME::OnKeyDown(ITfContext *pContext, WPARAM wParam, LPARAM lP
     // Usually a repeat of the OnTestKeyDown probe and dropped as one; it counts only for a host that calls OnKeyDown without testing first.
     _NoteKeyPressStatistics(wParam, lParam);
     PerfTimer onKeyDownTimer;
+    // 和 OnTestKeyDown 同一条规则；有的宿主不先测试就直接交来按键。
+    switch (msime::tsf::PredictionKey(_IsPredictionVisible(), LOWORD(wParam), CaptureIpcModifiers(), _PredictionRows()))
+    {
+    case msime::tsf::PredictionKeyAction::Close:
+        _DismissPrediction();
+        *pIsEaten = TRUE;
+        return S_OK;
+    case msime::tsf::PredictionKeyAction::Dismiss:
+        _DismissPrediction();
+        break;
+    case msime::tsf::PredictionKeyAction::Select:
+        if (_HasDeferredKeyBarrier())
+            _DismissPrediction();
+        break;
+    case msime::tsf::PredictionKeyAction::None:
+        break;
+    }
     const uint64_t focusGeneration = _deferredKeyFocusGeneration;
     (void)_DispatchKeyDown(pContext, wParam, lParam, pIsEaten, nullptr, nullptr, nullptr, true, focusGeneration);
     // TIP 只把 Ctrl+Shift+E 当作 Engine 英文模式的切换键吞下（_IsKeyEaten 与 _ClassifyDeferredKeyDown 同一条规则），之后不读 Server 的回复。在这里先翻转镜像：后面的字母无论立即分类还是入队时分类，都在本线程上排在它之后。每次按下 TSF 只调用一次 OnKeyDown，排队回放不经过这里，所以只翻一次。

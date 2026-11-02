@@ -73,7 +73,8 @@ public:
         value.caret_anchor_y = latest_->caret_anchor_y;
       }
       latest_ = std::move(value);
-      suppressed_ = false;
+      // 上屏后联想先藏着：上屏那一下 TIP 还要结束组字、再按光标位置发 Show，在那之前露出来会先在旧的组字位置闪一下。TIP 不显示它（比如它自己的会话没出联想）时就一直藏着，直到下一个按键换掉它。
+      suppressed_ = latest_->prediction;
       pending_hide_.reset();
     }
   }
@@ -284,6 +285,12 @@ public:
     case FanyImePipeEventType::HideCandidateWnd:
       if ((packet.modifiers_down & internal_continuation_hide) != 0) {
         pending_hide_.reset();
+        break;
+      }
+      // 会话留着联想（FocusedSession::hide_candidate 的 PredictionKept）：先藏起来，内容留给 TIP 随后的 Show。
+      if ((packet.modifiers_down & internal_prediction_hide) != 0 && latest_->prediction) {
+        pending_hide_.reset();
+        suppressed_ = true;
         break;
       }
       // Only a hide delivered behind a congested input queue describes state

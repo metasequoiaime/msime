@@ -1749,7 +1749,7 @@ pub struct Preferences {
     /// its model is installed.
     #[serde(default)]
     pub sentence_association: SentenceAssociationPreferences,
-    /// 上屏后推荐下一词；Android 原生键盘提供入口，独立于整句候选，默认关闭。
+    /// 上屏后推荐下一词，独立于整句候选，默认关闭；只有声明了 `HostCapabilities::next_word_prediction` 的宿主读它（Android 原生键盘、Windows 原生设置都有入口）。
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub next_word_prediction: bool,
     /// 上屏后联想时候选栏右端的按键，见 [`NextWordPredictionButtons`]；默认即现有的只有展开键，不写进文档。

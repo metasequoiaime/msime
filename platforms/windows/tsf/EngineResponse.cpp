@@ -43,6 +43,7 @@ bool EngineSessionAdapter::parse_result(const std::string &text,
       parsed.view.conversion = view.value("conversion", "");
       parsed.view.conversion_focus_start = view.value("conversion_focus_start", std::size_t{0});
       parsed.view.conversion_focus_end = view.value("conversion_focus_end", std::size_t{0});
+      parsed.view.prediction = view.value("prediction", false);
       for (const auto &candidate : view.value("candidates", json::array())) {
         std::string id;
         std::size_t index = candidate.value("index", std::size_t{0});

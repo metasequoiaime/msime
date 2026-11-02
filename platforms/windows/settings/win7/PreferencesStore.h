@@ -62,6 +62,7 @@ public:
            change.path == std::vector<std::string>{"backspace_reverts_selection"} ||
            change.path == std::vector<std::string>{"chinese_english_spacing"} ||
            change.path == std::vector<std::string>{"caret_edit_suffix"} ||
+           change.path == std::vector<std::string>{"next_word_prediction"} ||
            change.path == std::vector<std::string>{"shuangpin_keymap_hint"} ||
            change.path == std::vector<std::string>{"mixed_input", "enabled"} ||
            change.path == std::vector<std::string>{"mixed_input", "symbols"} ||

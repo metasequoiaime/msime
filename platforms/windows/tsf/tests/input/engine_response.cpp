@@ -80,6 +80,17 @@ int main() {
     if (result.view.scheme != 0)
       return EXIT_FAILURE;
   }
+  // 上屏后联想的 view 带 prediction=true，没有组字；普通 view 不带这个字段，读作 false。
+  {
+    EngineResult predicted;
+    const std::string selected =
+        R"({"ok":true,"value":{"handled":true,"commit":"吃","diagnostic":null,"view":{"preedit":"","editing_text":"","caret_position":0,"scheme":0,"prediction":true,"generation":12,"candidates":[{"id":{"session":3,"generation":12,"index":0},"text":"饭","highlighted":true}]}}})";
+    if (!EngineSessionAdapter::parse_result(selected, &predicted, &error) || !predicted.view.prediction ||
+        predicted.view.generation != 12 || predicted.view.candidates.size() != 1 ||
+        predicted.view.candidates[0].text != "饭" || !predicted.has_commit || predicted.commit != "吃" ||
+        result.view.prediction)
+      return EXIT_FAILURE;
+  }
   // A Zhuyin view names the keys that spell its composition, so the TIP keeps them in the composition instead of committing.
   {
     EngineResult zhuyin;
