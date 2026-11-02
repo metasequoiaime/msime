@@ -54,6 +54,8 @@ class ProjectConfigurationTests(unittest.TestCase):
         project = (IOS_ROOT / "project.yml").read_text()
         keyboard = dict(target_blocks(project))["MSIMEKeyboardTests"]
         self.assertIn("- path: App/Sources/settings/HelpcodeSettingsView.swift", keyboard)
+        # 辅助码页的触发方式行用 SettingsOptionLabel 画标题和「?」（#10624）。
+        self.assertIn("- path: App/Sources/settings/SettingsOptionLabel.swift", keyboard)
         self.assertIn("- path: App/Sources/app/ViewRequestGeneration.swift", keyboard)
         self.assertIn("- path: App/Sources/app/ViewRequestTask.swift", keyboard)
 
