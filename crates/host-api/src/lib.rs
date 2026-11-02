@@ -1031,6 +1031,7 @@ impl HostSession {
                 &options.resources,
                 options.helpcode_fallback_resources.as_deref(),
                 self.recorded_rerank_models.as_deref(),
+                self.plugin_roots.builtin_sounds.as_deref(),
                 self.recorded_sentence_model.as_deref(),
             ));
         }
