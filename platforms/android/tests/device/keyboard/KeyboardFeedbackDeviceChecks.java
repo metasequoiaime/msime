@@ -134,9 +134,6 @@ final class KeyboardFeedbackDeviceChecks {
     }
 
     /**
-     * 关掉系统触摸提示音并卸载系统音效（系统设置页关掉开关时就是这样做的），这时系统按键音一声不响；默认的「清脆键盘」包要由本进程自己的 SoundPool 播出来。直接观察 Android 音频服务的播放记录，不依靠听模拟器声音。新版系统只在播放器状态变化时记一笔，同一个 SoundPool 第二次播放不再留下记录，所以这里只断言第一次。
-     */
-    /**
      * 九键反方向滑出、长按弹出的数字与字母选项跟着同一次按压拖选（#10443）：滑进选项松手选中一次；没滑进过就松手，弹窗留着等点选，下一次按下这个键时关掉；滑进又滑出再松手关闭且不输入；长按后拖选松手选中，并由补发的 CANCEL 收起按键的按下态；系统 CANCEL 关闭弹窗且不输入。选项的点击换成计数，不依赖输入连接；计数之后照原样关闭弹窗。
      */
     private void checkDragSelect() throws Exception {
@@ -238,6 +235,9 @@ final class KeyboardFeedbackDeviceChecks {
         return new float[] {location[0] + option.getWidth() / 2f, location[1] + option.getHeight() / 2f};
     }
 
+    /**
+     * 关掉系统触摸提示音并卸载系统音效（系统设置页关掉开关时就是这样做的），这时系统按键音一声不响；默认的「清脆键盘」包要由本进程自己的 SoundPool 播出来。直接观察 Android 音频服务的播放记录，不依靠听模拟器声音。新版系统只在播放器状态变化时记一笔，同一个 SoundPool 第二次播放不再留下记录，所以这里只断言第一次。
+     */
     private void checkSound() throws Exception {
         String beforeSetting = shell("settings get system sound_effects_enabled").trim();
         android.media.AudioManager audio = (android.media.AudioManager)
