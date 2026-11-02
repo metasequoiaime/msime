@@ -1159,9 +1159,15 @@ begin
     )) or
     (ResultCode <> 0)
   then
-    RaiseException(
-      '无法创建输入法登录启动任务（退出码：' +
-      IntToStr(ResultCode) + '）。');
+  begin
+    { 看门狗只是让 Server 在登录时就启动；没有这个任务，TSF 在第一次用到输入法时拉起 Server，Server 再带起看门狗。所以建不成任务不该让安装半途中止：后面的数据目录授权和迁移收尾必须照常执行。360、火绒这类安全软件拦截创建计划任务时，Exec 拿到的是“拒绝访问”（5）。 }
+    Log('Creating the watchdog logon task failed: ' + IntToStr(ResultCode) + ' ' + SysErrorMessage(ResultCode));
+    SuppressibleMsgBox(
+      '没能创建开机自动启动任务（错误代码：' + IntToStr(ResultCode) + '）。' + #13#10#13#10 +
+      '输入法已经装好，不影响使用：开机后第一次切换到 {#MyAppName} 时会自动启动。' + #13#10 +
+      '如果装有安全软件，可能是它拦截了创建计划任务，放行后重新运行安装程序即可恢复开机启动。',
+      mbInformation, MB_OK, IDOK);
+  end;
 end;
 
 procedure TryDeleteTree(const Path: String);
@@ -1325,7 +1331,7 @@ begin
   ) and (ResultCode >= 0) and (ResultCode < 8);
 end;
 
-{ 与来源安装包一样是"移动"数据目录：旧目录里的全部用户状态搬到新目录，安装成功后旧目录被删除。但分两步做：这里只复制，原目录保持不动；删除推迟到 ssPostInstall 的最后（FinishDataDirMove），登录任务失败会在那之前中止，旧数据因此在任何半途失败后都还在。来源安装包直接使用破坏性的移动参数，主库可能先被移走而 WAL 或配置失败，两边都不剩完整状态。}
+{ 与来源安装包一样是"移动"数据目录：旧目录里的全部用户状态搬到新目录，安装成功后旧目录被删除。但分两步做：这里只复制，原目录保持不动；删除推迟到 ssPostInstall 的最后（FinishDataDirMove），前面任何一步抛错都会在那之前中止，旧数据因此在任何半途失败后都还在。来源安装包直接使用破坏性的移动参数，主库可能先被移走而 WAL 或配置失败，两边都不剩完整状态。}
 function MigrateUserDataDir(const OldDir, NewDir: String): String;
 var
   FindRec: TFindRec;
