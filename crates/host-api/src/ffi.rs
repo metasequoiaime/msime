@@ -210,25 +210,58 @@ pub(crate) fn sentence_model_path(resources: &str, configured: Option<&str>) -> 
 ///
 /// The switch is opt-in because this model runs inside every `character` call, on the thread the host types on: one decision costs a few milliseconds, and the first one after a commit, which has to read the new context from scratch, about 20 ms on a desktop CPU and five to ten times that on a phone. Attaching it whenever the file was present ran it for every touch user on 标准 and 关闭 too, which is what made fast typing on Android fall behind and drop keys. The model is not loaded at all while the switch is off.
 ///
-/// 编译时打开了 `onnx-rerank`、资源目录里又有 [`RERANK_MODEL_DIRECTORY`] 时用那个模型（ONNX Runtime 后端），读不了就退回随包的句子模型。
+/// 编译时打开了 `onnx-rerank`、随包资源目录旁边又有 [`RERANK_MODEL_DIRECTORY`] 时用那个模型（ONNX Runtime 后端），读不了就退回随包的句子模型。`bundle` 是随包资源目录（`EngineOptions::helpcode_fallback_resources`）：`resources` 换成下载的词库代次时，ONNX 模型仍在安装包里，按它去找；为 `None` 时 `resources` 本身就是随包的那个。
+///
+/// 开关打开时写一行诊断，说挂上的是哪一个（见 [`report_keyboard_reranker`]）。
 pub(crate) fn keyboard_reranker(
     enabled: bool,
     resources: &str,
+    bundle: Option<&str>,
     configured: Option<&str>,
 ) -> Option<Box<dyn msime_input_runtime::CandidateScorer>> {
+    #[cfg(feature = "onnx-rerank")]
+    let root = rerank_models_root(resources, bundle);
     if !enabled {
+        #[cfg(feature = "onnx-rerank")]
+        if let Some(root) = root.as_deref() {
+            onnx_rerankers().release(root);
+        }
         return None;
     }
     #[cfg(feature = "onnx-rerank")]
-    if let Some(scorer) = onnx_reranker(Path::new(resources)) {
-        return Some(scorer);
+    if let Some(attached) = root.as_deref().and_then(onnx_reranker) {
+        report_keyboard_reranker(attached.category, &attached.detail);
+        return Some(Box::new(SharedOnnxScorer(attached.scorer)));
     }
-    sentence_model(resources, configured).map(|model| {
+    #[cfg(not(feature = "onnx-rerank"))]
+    let _ = bundle;
+    let scorer = sentence_model(resources, configured).map(|model| {
         Box::new(Reranker::new(model)) as Box<dyn msime_input_runtime::CandidateScorer>
-    })
+    });
+    let path = sentence_model_path(resources, configured);
+    match &scorer {
+        Some(_) => report_keyboard_reranker(
+            "keyboard reranker bundled model",
+            &path.display().to_string(),
+        ),
+        None => report_keyboard_reranker("keyboard reranker missing", &path.display().to_string()),
+    }
+    scorer
 }
 
-/// 资源目录里放 ONNX Runtime 重排模型的子目录：chinese-ime-lm 的 `neural/choice/export_step.py` 导出的 `lm_step.ort`、`model.json` 和 `vocab.json`。这是大的那个（8x448，ctx-v1 有上下文 91.9%、无上下文 82.7%）。
+/// 「增强」开着时逐键重排挂的是哪一个，写一行诊断。类别本身就说明了档位（`keyboard reranker onnx large`、`keyboard reranker onnx small`、可用内存不够加载大的时的 `keyboard reranker onnx small (low memory)`、`keyboard reranker bundled model`、`keyboard reranker missing`），只留类别的宿主（macOS、iOS）也看得出来；细节是模型目录、大模型的自测毫秒数、可用内存，以及是不是与之前的会话共用（`(shared)`）。只在会话建立和开关打开时写，不在按键路径上写。
+fn report_keyboard_reranker(category: &'static str, detail: &str) {
+    crate::diagnostics::report(category, detail);
+}
+
+/// 放 ONNX 重排模型的目录：随包资源目录的上一级，与 `settled-model/`、`language-dictionaries/` 一样是资源目录的兄弟。不放进资源目录本身，因为那里必须与词库锁逐项相符（`ResourceStore::verify` 只放过 `helpcodes/`），多一个目录整套资源就校验失败。
+#[cfg(feature = "onnx-rerank")]
+pub(crate) fn rerank_models_root(resources: &str, bundle: Option<&str>) -> Option<PathBuf> {
+    let bundled = bundle.filter(|path| !path.is_empty()).unwrap_or(resources);
+    Path::new(bundled).parent().map(Path::to_path_buf)
+}
+
+/// 资源目录旁边放 ONNX Runtime 重排模型的子目录：chinese-ime-lm 的 `neural/choice/export_step.py` 导出的 `lm_step.ort`、`model.json` 和 `vocab.json`。这是大的那个（8x448，ctx-v1 有上下文 91.9%、无上下文 82.7%）。
 #[cfg(feature = "onnx-rerank")]
 pub(crate) const RERANK_MODEL_DIRECTORY: &str = "rerank-model";
 
@@ -238,7 +271,13 @@ pub(crate) const SMALL_RERANK_MODEL_DIRECTORY: &str = "rerank-model-small";
 
 /// 大模型打一页重负载（[`msime_onnx_rerank::OnnxScorer::calibrate`]）超过这么多毫秒就换小模型。2026-11-01 在真机上量的自测值：iPhone 17 是 3.8 到 4.8 ms，Mac 是 4 到 7 ms（机器很忙时），iPhone XR 是 21.9 到 23.4 ms，Pixel 3 XL（四线程）是 30.4 ms。前两台用大模型时整键 p95 在 4 ms 上下；后两台用大模型是 13 到 27 ms，用小模型是 4.4 到 4.9 和 9.3 ms。
 #[cfg(feature = "onnx-rerank")]
-const LARGE_RERANK_MODEL_BUDGET_MS: f64 = 10.0;
+pub(crate) const LARGE_RERANK_MODEL_BUDGET_MS: f64 = 10.0;
+
+/// 进程可用内存（iOS 的 `os_proc_available_memory`）少于这么多时不加载大模型，直接用小的。
+///
+/// iOS 键盘扩展有硬上限（2026-11-02 的 iPhone 17 上是 176 MB），超过就被系统结束。2026-11-02 在 iOS 模拟器里用 `msime-onnx-rerank` 的 `footprint` 示例量 phys_footprint（比加载前多出的部分，按 iOS 的设置：内存池关着，ONNX Runtime 自己读文件）：8x448 加载时峰值 74 MiB，加载后 40 MiB，打字时 46 到 47 MiB；6x256 峰值 17 MiB，打字时 11 到 12 MiB。门槛是大模型的加载峰值再留 46 MiB：键盘界面在会话建立之后才画出来，iPhone 17 上那一段是 20 MB 左右，打字时词库页面和候选缓存还会涨。
+#[cfg(feature = "onnx-rerank")]
+pub(crate) const LARGE_RERANK_MODEL_MIN_AVAILABLE: u64 = 120 << 20;
 
 /// 一次图运行用几个线程。安卓手机多是四个大核加四个小核：Pixel 3 XL 上用 `rerank_latency` 在真实运行时里量，手机模型每键整键 p95 两线程 10.8 ms、三线程 10.0 ms、四线程 9.3 ms，所以安卓用四线程。苹果的 A 系列芯片只有两个大核，四线程在 iPhone XR 和 iPhone 17 上都比两线程慢；桌面两线程已在预算之内，不多占核。
 #[cfg(all(feature = "onnx-rerank", target_os = "android"))]
@@ -246,40 +285,271 @@ const RERANK_MODEL_THREADS: usize = 4;
 #[cfg(all(feature = "onnx-rerank", not(target_os = "android")))]
 const RERANK_MODEL_THREADS: usize = 2;
 
-/// 装了两个 ONNX 模型时先加载大的、量它在这台机器上打一页重负载要多久，超过 [`LARGE_RERANK_MODEL_BUDGET_MS`] 就换小的；只装了一个就用那一个。按量出来的速度选，不按机型名单选。
-#[cfg(feature = "onnx-rerank")]
-fn onnx_reranker(resources: &Path) -> Option<Box<dyn msime_input_runtime::CandidateScorer>> {
-    onnx_reranker_within(resources, LARGE_RERANK_MODEL_BUDGET_MS)
+/// ONNX Runtime 的 CPU 内存池只在 iOS 上关掉：键盘扩展有硬上限，内存池留着的那几十 MB 在那里是被系统结束和不被结束的差别；其他平台没有这样的上限，留着内存池省下每次运行重新要内存的时间。数字见 `msime_onnx_rerank::OnnxScorer::load`。
+#[cfg(all(feature = "onnx-rerank", target_os = "ios"))]
+const RERANK_MEMORY_ARENA: bool = false;
+#[cfg(all(feature = "onnx-rerank", not(target_os = "ios")))]
+const RERANK_MEMORY_ARENA: bool = true;
+
+/// 进程此刻还能用多少内存，只有 iOS 说得出（`os_proc_available_memory`，模拟器上是 0，当作不知道）；不知道时不按内存挑档位。
+#[cfg(all(feature = "onnx-rerank", target_os = "ios"))]
+fn available_memory() -> Option<u64> {
+    extern "C" {
+        fn os_proc_available_memory() -> usize;
+    }
+    // SAFETY: 不带参数、只读进程的内存额度，iOS 13 起都有。
+    let available = unsafe { os_proc_available_memory() };
+    (available > 0).then_some(available as u64)
 }
 
-/// [`onnx_reranker`] 的实现，自测预算由调用方给：测试用它在同一台机器上分别走「大的够快」和「大的太慢」两条路。
+#[cfg(all(feature = "onnx-rerank", not(target_os = "ios")))]
+fn available_memory() -> Option<u64> {
+    None
+}
+
+/// 挂上的 ONNX 重排模型，连同诊断行的类别与细节。`scorer` 是进程里共用的那一份，各会话拿它的引用。
 #[cfg(feature = "onnx-rerank")]
-pub(crate) fn onnx_reranker_within(
-    resources: &Path,
-    budget_ms: f64,
-) -> Option<Box<dyn msime_input_runtime::CandidateScorer>> {
-    let small = || load_onnx_reranker(&resources.join(SMALL_RERANK_MODEL_DIRECTORY));
-    let chosen = match load_onnx_reranker(&resources.join(RERANK_MODEL_DIRECTORY)) {
-        Some(mut large) if resources.join(SMALL_RERANK_MODEL_DIRECTORY).is_dir() => {
-            // 过了预算的大模型同时也排上屏后联想；退到小模型的机器不排，见 `OnnxScorer::fits_keystroke_budget`。
-            if large.fits_keystroke_budget(budget_ms) {
-                Some(large)
-            } else {
-                small().or(Some(large))
-            }
+pub(crate) struct AttachedOnnxReranker {
+    pub(crate) scorer: Arc<Mutex<msime_onnx_rerank::OnnxScorer>>,
+    pub(crate) category: &'static str,
+    pub(crate) detail: String,
+}
+
+/// 模型文件 `lm_step.ort` 的长度与修改时间，用来认出缓存里的重排器和自测结果是不是还对应磁盘上的文件；文件不在时是 `None`。
+#[cfg(feature = "onnx-rerank")]
+type ModelStamp = Option<(u64, std::time::SystemTime)>;
+
+#[cfg(feature = "onnx-rerank")]
+fn model_stamp(directory: &Path) -> ModelStamp {
+    let metadata = std::fs::metadata(directory.join("lm_step.ort")).ok()?;
+    Some((metadata.len(), metadata.modified().ok()?))
+}
+
+/// 已加载的那一个：模型目录（大的或小的）、定档位时大小两个模型的文件戳（任一个变了就重新定）、重排器本身和它的诊断类别。
+#[cfg(feature = "onnx-rerank")]
+struct LoadedOnnxReranker {
+    directory: PathBuf,
+    stamps: [ModelStamp; 2],
+    scorer: Arc<Mutex<msime_onnx_rerank::OnnxScorer>>,
+    category: &'static str,
+    detail: String,
+}
+
+/// 进程里的 ONNX 重排器：同一时刻只加载一个模型，各会话共用；大模型的自测在进程里只做一次。
+///
+/// iOS 每弹出一次键盘就建一个新会话。原来每个会话各自加载、自测一份大模型，2026-11-02 在 iPhone 17 上键盘扩展每弹出一次占用就涨二十多 MB，连续弹出五六次就碰到 176 MB 的上限被系统结束。重排器的缓存按上文分开，换会话、换上文时自己从头算，所以共用不影响打分。
+///
+/// 档位在进程里第一次挂上时定下（自测速度，加上 iOS 上的可用内存，见 [`OnnxRerankers::attach`]），之后的会话沿用，不因为某一刻的内存多少在大小模型之间来回换；「增强」关掉（[`OnnxRerankers::release`]）或模型文件换了以后再定一次，自测结果留着不重测。内存警告时不放开：挂着它的会话还在用，放开也省不下内存，下一个会话还要再加载一遍。
+#[cfg(feature = "onnx-rerank")]
+#[derive(Default)]
+pub(crate) struct OnnxRerankers {
+    loaded: Option<LoadedOnnxReranker>,
+    /// 大模型的自测结果：模型根目录、当时大模型的文件戳和毫秒数。
+    calibrated: Option<(PathBuf, ModelStamp, f64)>,
+}
+
+#[cfg(feature = "onnx-rerank")]
+fn onnx_rerankers() -> std::sync::MutexGuard<'static, OnnxRerankers> {
+    static RERANKERS: OnceLock<Mutex<OnnxRerankers>> = OnceLock::new();
+    RERANKERS
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// 装了两个 ONNX 模型时按自测速度和可用内存在两者之间选，只装了一个就用那一个，见 [`OnnxRerankers::attach`]。`root` 是放两个模型目录的地方（[`rerank_models_root`]）。
+#[cfg(feature = "onnx-rerank")]
+fn onnx_reranker(root: &Path) -> Option<AttachedOnnxReranker> {
+    onnx_rerankers().attach(root, LARGE_RERANK_MODEL_BUDGET_MS, available_memory())
+}
+
+/// 共用重排器在一个会话里的那一份：每次打分时加锁。同一时刻通常只有一个会话在打字，锁几乎不会等。
+#[cfg(feature = "onnx-rerank")]
+struct SharedOnnxScorer(Arc<Mutex<msime_onnx_rerank::OnnxScorer>>);
+
+#[cfg(feature = "onnx-rerank")]
+impl msime_input_runtime::CandidateScorer for SharedOnnxScorer {
+    fn context_length(&self) -> usize {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .context_length()
+    }
+
+    fn scores_prediction_pool_within_keystroke_budget(&self) -> bool {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .scores_prediction_pool_within_keystroke_budget()
+    }
+
+    fn log_probabilities(&mut self, context: &str, candidates: &[&str]) -> Vec<f32> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .log_probabilities(context, candidates)
+    }
+}
+
+#[cfg(feature = "onnx-rerank")]
+impl OnnxRerankers {
+    /// 给一个新会话挂重排器。已经为 `root` 加载过、两个模型文件都没换时直接共用（细节标 `(shared)`）；否则定档位并加载：
+    ///
+    /// - 只装了一个模型就用那一个；大的读不了就用小的。
+    /// - 两个都装了：`available`（字节）少于 [`LARGE_RERANK_MODEL_MIN_AVAILABLE`] 时直接用小的，不先加载大的去自测；否则加载大的、量它打一页重负载要多久（进程里只量一次），超过 `budget_ms` 就换小的。按量出来的速度选，不按机型名单选。
+    ///
+    /// 换下来的那个只从这里放开，还挂着它的会话照常用到结束，之后内存还给系统。
+    pub(crate) fn attach(
+        &mut self,
+        root: &Path,
+        budget_ms: f64,
+        available: Option<u64>,
+    ) -> Option<AttachedOnnxReranker> {
+        const LARGE: &str = "keyboard reranker onnx large";
+        const SMALL: &str = "keyboard reranker onnx small";
+        const SMALL_LOW_MEMORY: &str = "keyboard reranker onnx small (low memory)";
+        let large = root.join(RERANK_MODEL_DIRECTORY);
+        let small = root.join(SMALL_RERANK_MODEL_DIRECTORY);
+        let (large_stamp, small_stamp) = (model_stamp(&large), model_stamp(&small));
+        let stamps = [large_stamp, small_stamp];
+        if let Some(loaded) = self
+            .loaded
+            .as_ref()
+            .filter(|loaded| loaded.directory.parent() == Some(root) && loaded.stamps == stamps)
+        {
+            return Some(AttachedOnnxReranker {
+                scorer: Arc::clone(&loaded.scorer),
+                category: loaded.category,
+                detail: format!("{} (shared)", loaded.detail),
+            });
         }
-        Some(large) => Some(large),
-        None => small(),
-    };
-    chosen.map(|scorer| Box::new(scorer) as Box<dyn msime_input_runtime::CandidateScorer>)
+        if large_stamp.is_some() && small_stamp.is_some() {
+            if let Some(available) =
+                available.filter(|&bytes| bytes < LARGE_RERANK_MODEL_MIN_AVAILABLE)
+            {
+                let note = format!(
+                    " (available {} MiB, large needs {} MiB)",
+                    available >> 20,
+                    LARGE_RERANK_MODEL_MIN_AVAILABLE >> 20
+                );
+                return self.load(&small, stamps, SMALL_LOW_MEMORY, note);
+            }
+            let known = self
+                .calibrated
+                .as_ref()
+                .filter(|(calibrated, stamp, _)| calibrated == root && *stamp == large_stamp)
+                .map(|&(_, _, measured)| measured);
+            let note =
+                |measured: f64| format!(" (calibrated {measured:.1} ms, budget {budget_ms:.1} ms)");
+            if let Some(measured) = known {
+                let note = note(measured);
+                if measured > budget_ms {
+                    if let Some(attached) = self.load(&small, stamps, SMALL, note.clone()) {
+                        return Some(attached);
+                    }
+                }
+                // 新加载的这一份带上之前量出的结论：过了预算的同时也排上屏后联想。
+                return self
+                    .load_calibrated(&large, stamps, LARGE, note.clone(), (measured, budget_ms))
+                    .or_else(|| self.load(&small, stamps, SMALL, note));
+            }
+            self.loaded = None;
+            let Some(mut scorer) = load_onnx_reranker(&large) else {
+                return self.load(&small, stamps, SMALL, String::new());
+            };
+            // 过了预算的大模型同时也排上屏后联想；退到小模型的机器不排，见 `OnnxScorer::fits_keystroke_budget`。
+            let measured = scorer.calibrate_for_keystroke_budget(budget_ms);
+            self.calibrated = Some((root.to_path_buf(), large_stamp, measured));
+            if measured > budget_ms {
+                if let Some(attached) = self.load(&small, stamps, SMALL, note(measured)) {
+                    return Some(attached);
+                }
+            }
+            return Some(self.keep(&large, stamps, scorer, LARGE, note(measured)));
+        }
+        self.load(&large, stamps, LARGE, String::new())
+            .or_else(|| self.load(&small, stamps, SMALL, String::new()))
+    }
+
+    /// 「增强」关掉时放开 `root` 下的重排器：还挂着它的会话照常用到结束，之后模型的内存就还给系统。自测结果留着，再打开时不重测。
+    pub(crate) fn release(&mut self, root: &Path) {
+        if self
+            .loaded
+            .as_ref()
+            .is_some_and(|loaded| loaded.directory.parent() == Some(root))
+        {
+            self.loaded = None;
+        }
+    }
+
+    fn load(
+        &mut self,
+        directory: &Path,
+        stamps: [ModelStamp; 2],
+        category: &'static str,
+        note: String,
+    ) -> Option<AttachedOnnxReranker> {
+        // 没有这个模型就什么都不动，已加载的那个留着。
+        model_stamp(directory)?;
+        // 先放开换下来的那个，加载新模型的那一刻不必两个都由这里占着。
+        self.loaded = None;
+        let scorer = load_onnx_reranker(directory)?;
+        Some(self.keep(directory, stamps, scorer, category, note))
+    }
+
+    /// 同 [`Self::load`]，再把这个进程里之前对同一个模型文件量出的 `(毫秒数, 预算)` 交给它（`OnnxScorer::accept_calibration`），不重测。
+    fn load_calibrated(
+        &mut self,
+        directory: &Path,
+        stamps: [ModelStamp; 2],
+        category: &'static str,
+        note: String,
+        (measured_ms, budget_ms): (f64, f64),
+    ) -> Option<AttachedOnnxReranker> {
+        model_stamp(directory)?;
+        self.loaded = None;
+        let mut scorer = load_onnx_reranker(directory)?;
+        scorer.accept_calibration(measured_ms, budget_ms);
+        Some(self.keep(directory, stamps, scorer, category, note))
+    }
+
+    fn keep(
+        &mut self,
+        directory: &Path,
+        stamps: [ModelStamp; 2],
+        scorer: msime_onnx_rerank::OnnxScorer,
+        category: &'static str,
+        note: String,
+    ) -> AttachedOnnxReranker {
+        let scorer = Arc::new(Mutex::new(scorer));
+        let detail = format!("{}{note}", directory.display());
+        self.loaded = Some(LoadedOnnxReranker {
+            directory: directory.to_path_buf(),
+            stamps,
+            scorer: Arc::clone(&scorer),
+            category,
+            detail: detail.clone(),
+        });
+        AttachedOnnxReranker {
+            scorer,
+            category,
+            detail,
+        }
+    }
 }
 
 #[cfg(feature = "onnx-rerank")]
 fn load_onnx_reranker(directory: &Path) -> Option<msime_onnx_rerank::OnnxScorer> {
-    let model = std::fs::read(directory.join("lm_step.ort")).ok()?;
     let info = std::fs::read_to_string(directory.join("model.json")).ok()?;
     let vocabulary = std::fs::read_to_string(directory.join("vocab.json")).ok()?;
-    msime_onnx_rerank::OnnxScorer::load(&model, &info, &vocabulary, RERANK_MODEL_THREADS).ok()
+    msime_onnx_rerank::OnnxScorer::load_file(
+        &directory.join("lm_step.ort"),
+        &info,
+        &vocabulary,
+        RERANK_MODEL_THREADS,
+        RERANK_MEMORY_ARENA,
+    )
+    .ok()
 }
 
 pub mod account;

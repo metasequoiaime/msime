@@ -8764,13 +8764,16 @@ fn enhanced_mounts_the_runtime_reranker_without_the_engine_layer() {
     assert!(!wubi.features.neural_keyboard);
     assert!(!keyboard_reranker_enabled(&association, wubi));
     // 关着时连模型文件都不去读。
-    assert!(ffi::keyboard_reranker(false, "", None).is_none());
+    assert!(ffi::keyboard_reranker(false, "", None, None).is_none());
 }
 
-/// 资源目录里有 `rerank-model/` 时，「增强」的逐键重排用它（ONNX Runtime 后端）；再装了 `rerank-model-small/` 时按自测速度在两者之间选；ONNX 模型都读不了就退回随包的句子模型。用 `crates/onnx-rerank` 测试用的小模型，两个目录里放同一份图，只把小模型 `model.json` 的 `context_chars` 改成 48，好从 `context_length`（上文字数加 16）看出挂的是哪一个：大的是 80，小的是 64。
+/// 随包资源目录旁边有 `rerank-model/` 时，「增强」的逐键重排用它（ONNX Runtime 后端）；再装了 `rerank-model-small/` 时按自测速度在两者之间选；ONNX 模型都读不了就退回随包的句子模型。用 `crates/onnx-rerank` 测试用的小模型，两个目录里放同一份图，只把小模型 `model.json` 的 `context_chars` 改成 48，好从 `context_length`（上文字数加 16）看出挂的是哪一个：大的是 80，小的是 64。
+///
+/// 模型放在资源目录的兄弟目录里而不是资源目录里：资源目录要与词库锁逐项相符，多一个目录校验就失败（最后一段断言这一点）。`resources` 换成下载的词库代次时按 `bundle`（随包资源目录）找模型。
 #[cfg(feature = "onnx-rerank")]
 #[test]
 fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
+    use msime_input_runtime::CandidateScorer as _;
     let fixtures =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../onnx-rerank/tests/fixtures");
     let install = |directory: &std::path::Path, context_chars: u64| {
@@ -8786,11 +8789,17 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
     };
     const LARGE: usize = 80;
     const SMALL: usize = 64;
-    let resources = tempfile::tempdir().unwrap();
-    let directory = resources.path().join(ffi::RERANK_MODEL_DIRECTORY);
+    let bundle = tempfile::tempdir().unwrap();
+    let resources = bundle.path().join("EngineResources");
+    std::fs::create_dir(&resources).unwrap();
+    let directory = bundle.path().join(ffi::RERANK_MODEL_DIRECTORY);
     install(&directory, 64);
-    let root = resources.path().to_str().unwrap();
-    let mut scorer = ffi::keyboard_reranker(true, root, None).expect("the ONNX model loads");
+    let root = resources.to_str().unwrap();
+    assert_eq!(
+        ffi::rerank_models_root(root, None).as_deref(),
+        Some(bundle.path())
+    );
+    let mut scorer = ffi::keyboard_reranker(true, root, None, None).expect("the ONNX model loads");
     assert_eq!(scorer.context_length(), LARGE);
     assert_eq!(
         scorer
@@ -8799,41 +8808,138 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
         2
     );
 
-    // 只装了大的时不自测，预算再小也用它。
-    let large_only = ffi::onnx_reranker_within(resources.path(), 0.0).unwrap();
-    assert_eq!(large_only.context_length(), LARGE);
+    // 资源目录里的同名目录不算：那里只放词库锁里的文件。
+    let inside = tempfile::tempdir().unwrap();
+    install(&inside.path().join(ffi::RERANK_MODEL_DIRECTORY), 64);
+    assert!(ffi::keyboard_reranker(true, inside.path().to_str().unwrap(), None, None).is_none());
+
+    // 进程里的重排器：同一个模型再挂一次是同一份（细节标 `(shared)`），不再各加载一份；「增强」关掉时放开，再打开时重新加载。
+    let context =
+        |attached: &ffi::AttachedOnnxReranker| attached.scorer.lock().unwrap().context_length();
+    let ranks_prediction = |attached: &ffi::AttachedOnnxReranker| {
+        attached
+            .scorer
+            .lock()
+            .unwrap()
+            .scores_prediction_pool_within_keystroke_budget()
+    };
+    let mut rerankers = ffi::OnnxRerankers::default();
+    let first = rerankers.attach(bundle.path(), 0.0, None).unwrap();
+    // 每个会话都来挂一次（2026-11-02 的 macOS 输入法里三分钟建了 11 个会话，各加载、自测一份大模型，进程占到 558 MB），加载的只有第一次那一份。
+    for _ in 0..10 {
+        let again = rerankers.attach(bundle.path(), 0.0, None).unwrap();
+        assert!(Arc::ptr_eq(&first.scorer, &again.scorer));
+        assert!(again.detail.ends_with("(shared)"), "{}", again.detail);
+    }
+    rerankers.release(bundle.path());
+    let reloaded = rerankers.attach(bundle.path(), 0.0, None).unwrap();
+    assert!(!Arc::ptr_eq(&first.scorer, &reloaded.scorer));
+    assert!(
+        !reloaded.detail.ends_with("(shared)"),
+        "{}",
+        reloaded.detail
+    );
+    // 别的根目录下没有模型，挂不上，也不放开已经加载的那个。
+    assert!(rerankers.attach(&resources, 0.0, None).is_none());
+    assert!(Arc::ptr_eq(
+        &reloaded.scorer,
+        &rerankers.attach(bundle.path(), 0.0, None).unwrap().scorer
+    ));
+
+    // 下载的词库代次旁边没有模型，按随包资源目录找。
+    let generations = tempfile::tempdir().unwrap();
+    let generation = generations.path().join("generation");
+    std::fs::create_dir(&generation).unwrap();
+    let downloaded = ffi::keyboard_reranker(true, generation.to_str().unwrap(), Some(root), None)
+        .expect("the bundled ONNX model is found through the bundle");
+    assert_eq!(downloaded.context_length(), LARGE);
+
+    // 只装了大的时不自测，预算再小、内存再少也用它。
+    let large_only = ffi::OnnxRerankers::default()
+        .attach(bundle.path(), 0.0, Some(0))
+        .unwrap();
+    assert_eq!(context(&large_only), LARGE);
+    assert_eq!(large_only.category, "keyboard reranker onnx large");
     // 没自测过，不知道它在这台机器上多快，所以不排上屏后联想。
-    assert!(!large_only.scores_prediction_pool_within_keystroke_budget());
+    assert!(!ranks_prediction(&large_only));
 
     // 再装一个小模型，两条路都走一遍：自测值在预算之内留用大的，超过预算换小的。`f64::MAX` 的预算只在自测真的量出了一个有限的时间时才留用大的（自测失败返回无穷大）；0 毫秒的预算任何一次真实的图运行都超过。
-    let small = resources.path().join(ffi::SMALL_RERANK_MODEL_DIRECTORY);
+    let small = bundle.path().join(ffi::SMALL_RERANK_MODEL_DIRECTORY);
     install(&small, 48);
-    let fast = ffi::onnx_reranker_within(resources.path(), f64::MAX).unwrap();
-    assert_eq!(fast.context_length(), LARGE);
+    let mut tiers = ffi::OnnxRerankers::default();
+    let fast = tiers.attach(bundle.path(), f64::MAX, None).unwrap();
+    assert_eq!(context(&fast), LARGE);
+    assert_eq!(fast.category, "keyboard reranker onnx large");
     // 过了预算的大模型同时也排上屏后联想；退到小模型的机器不排。
-    assert!(fast.scores_prediction_pool_within_keystroke_budget());
-    let slow = ffi::onnx_reranker_within(resources.path(), 0.0).unwrap();
-    assert_eq!(slow.context_length(), SMALL);
-    assert!(!slow.scores_prediction_pool_within_keystroke_budget());
-    // 宿主用的预算是 10 毫秒，这个两层、32 维的小模型打一页远在其内，所以也排上屏后联想。
-    let hosted = ffi::keyboard_reranker(true, root, None).unwrap();
+    assert!(ranks_prediction(&fast));
+    let calibrated = |detail: &str| detail[detail.find("(calibrated").expect(detail)..].to_owned();
+    let measured = calibrated(&fast.detail);
+    // 自测在进程里只做一次：放开后换一个预算再挂，用的还是那一次量出来的毫秒数，于是换成小的，是另一份重排器。
+    tiers.release(bundle.path());
+    let slow = tiers.attach(bundle.path(), 0.0, None).unwrap();
+    assert_eq!(context(&slow), SMALL);
+    assert_eq!(slow.category, "keyboard reranker onnx small");
+    assert_eq!(
+        calibrated(&slow.detail).split(", budget").next(),
+        measured.split(", budget").next()
+    );
+    assert!(!Arc::ptr_eq(&fast.scorer, &slow.scorer));
+    assert!(!ranks_prediction(&slow));
+    // 再放开、按原来的预算挂回大的：还是不重测，量过的结论交给新加载的这一份，照样排上屏后联想。
+    tiers.release(bundle.path());
+    let again = tiers.attach(bundle.path(), f64::MAX, None).unwrap();
+    assert_eq!(context(&again), LARGE);
+    assert_eq!(
+        calibrated(&again.detail).split(", budget").next(),
+        measured.split(", budget").next()
+    );
+    assert!(ranks_prediction(&again));
+
+    // 可用内存不够加载大模型时直接用小的，不先加载大的去自测；档位定下后，内存再多也沿用到放开为止。刚好够时用大的。
+    let mut low = ffi::OnnxRerankers::default();
+    let short = low
+        .attach(
+            bundle.path(),
+            f64::MAX,
+            Some(ffi::LARGE_RERANK_MODEL_MIN_AVAILABLE - 1),
+        )
+        .unwrap();
+    assert_eq!(context(&short), SMALL);
+    assert_eq!(short.category, "keyboard reranker onnx small (low memory)");
+    assert!(!short.detail.contains("calibrated"), "{}", short.detail);
+    assert!(!ranks_prediction(&short));
+    let plenty = low.attach(bundle.path(), f64::MAX, Some(u64::MAX)).unwrap();
+    assert!(Arc::ptr_eq(&short.scorer, &plenty.scorer));
+    low.release(bundle.path());
+    let enough = low
+        .attach(
+            bundle.path(),
+            f64::MAX,
+            Some(ffi::LARGE_RERANK_MODEL_MIN_AVAILABLE),
+        )
+        .unwrap();
+    assert_eq!(context(&enough), LARGE);
+    assert!(enough.detail.contains("calibrated"), "{}", enough.detail);
+
+    // 宿主用的预算是 10 毫秒，这个两层、32 维的小模型打一页远在其内，所以也排上屏后联想。小模型装上后重新定档位，不沿用只装了大的时加载、没自测的那一份。
+    let hosted = ffi::keyboard_reranker(true, root, None, None).unwrap();
     assert_eq!(hosted.context_length(), LARGE);
     assert!(hosted.scores_prediction_pool_within_keystroke_budget());
 
     // 大的坏了就用小的，不管预算；小的没自测过，不排上屏后联想。
     std::fs::write(directory.join("lm_step.ort"), b"not a model").unwrap();
-    let fallback_small = ffi::keyboard_reranker(true, root, None).unwrap();
+    let fallback_small = ffi::keyboard_reranker(true, root, None, None).unwrap();
     assert_eq!(fallback_small.context_length(), SMALL);
     assert!(!fallback_small.scores_prediction_pool_within_keystroke_budget());
 
     // 两个都坏，资源目录里也没有随包的句子模型，于是什么都不挂。
     std::fs::write(small.join("lm_step.ort"), b"not a model").unwrap();
-    assert!(ffi::keyboard_reranker(true, root, None).is_none());
+    assert!(ffi::keyboard_reranker(true, root, None, None).is_none());
 
     // 两个都坏、但有随包的句子模型时退回它。句子模型按路径缓存，上面那次已经把资源目录里的默认路径记成了「没有」，所以这里经 `configured` 指向另一个文件。
-    let sentence = resources.path().join("fallback-sentence-model.safetensors");
+    let sentence = bundle.path().join("fallback-sentence-model.safetensors");
     write_context_free_sentence_model(&sentence);
-    let fallback = ffi::keyboard_reranker(true, root, sentence.to_str())
+    let fallback = ffi::keyboard_reranker(true, root, None, sentence.to_str())
         .expect("falls back to the bundled sentence model");
     let bundled = ffi::sentence_model(root, sentence.to_str()).unwrap();
     assert_eq!(fallback.context_length(), bundled.context_length());

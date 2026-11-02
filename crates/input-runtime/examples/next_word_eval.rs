@@ -173,6 +173,7 @@ fn onnx_scorer(
         &read("model.json")?,
         &read("vocab.json")?,
         threads,
+        true,
     )?))
 }
 

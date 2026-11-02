@@ -188,6 +188,9 @@ def main() -> int:
     # 百炼请求的 Base64 编码用的 cppcodec 编进了输入法，MIT 要求随副本附带它的许可声明。
     if not (contents / "Resources" / "Licenses" / "cppcodec-MIT.txt").is_file():
         failures.append("Contents/Resources/Licenses/cppcodec-MIT.txt is missing; cppcodec, compiled into the input method, ships without its licence")
+    # 逐键重排的两档模型（chinese-ime-lm 的 rerank-v1）是 Apache-2.0，第 4(a)、4(d) 条要求随副本附上许可证全文和上游 NOTICE，训练语料要求署名随权重传播；这份文件三样都有。不带模型的版本也留着它，只是一份文本。
+    if not (contents / "Resources" / "Licenses" / "rerank-model-Apache-2.0.txt").is_file():
+        failures.append("Contents/Resources/Licenses/rerank-model-Apache-2.0.txt is missing; the keystroke rerank models ship without their licence, upstream NOTICE and corpus attribution")
     # The input engine is MPL-2.0 itself, the sound player links MPL-2.0 crates (symphonia, triple_buffer) into the input method, and the engine links rink-core.
     if not (contents / "Resources" / "Licenses" / "MPL-2.0.txt").is_file():
         failures.append("Contents/Resources/Licenses/MPL-2.0.txt is missing; the input engine and the MPL-2.0 crates of the sound player and unit conversion ship without their licence")

@@ -82,7 +82,9 @@ jobs:
         id: ort-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: target/onnxruntime-minimal/out/linux-x86_64/libonnxruntime.a
+          path: |
+            target/onnxruntime-minimal/out/linux-x86_64/libonnxruntime.a
+            target/onnxruntime-minimal/out/linux-x86_64/libonnxruntime.a.gz
           key: onnxruntime-minimal-linux-x86_64-v1.24.4-${{ hashFiles('tools/onnxruntime-minimal/required_operators_and_types.config', 'tools/onnxruntime-minimal/build.sh') }}
       # 与 README 和 onnxruntime-minimal.yml 同一个版本、同一个提交；标签被改过就停下。build.sh 在 msime 发 Linux 版的同一个镜像里编，产物与发布时链接的是同一种库。
       - name: Build the minimal ONNX Runtime
@@ -95,6 +97,14 @@ jobs:
           commit=$(git -C "$RUNNER_TEMP/onnxruntime" rev-parse HEAD)
           if [[ "$commit" != 2d924974ef147392ced8409d36bd6d2e7fcc8a74 ]]; then echo "v1.24.4 resolved to $commit" >&2; exit 1; fi
           zsh tools/onnxruntime-minimal/build.sh "$RUNNER_TEMP/onnxruntime" "$ORT_WORK" linux-x86_64
+      # resources/onnxruntime-minimal.lock.json 的 x86_64-unknown-linux-gnu 就是这里编出的库：发新的 onnxruntime-minimal-<版本>-r<序号> 时从这个作业的附件取 libonnxruntime.a.gz（build.sh 用 gzip -9 -n 压的），不在别的机器上另编。附件只留 14 天，发布前重跑一次即可。
+      - name: Upload the minimal ONNX Runtime
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: libonnxruntime-x86_64-unknown-linux-gnu
+          path: target/onnxruntime-minimal/out/linux-x86_64/libonnxruntime.a.gz
+          if-no-files-found: error
+          retention-days: 14
       # golden.rs：小模型逐键打分与 ONNX Runtime 的 Python 包一致、复用缓存与从头算一致；host-api：装了模型挂它、按自测在大小两档之间选、都坏了退回随包的句子模型。
       - name: Golden and mounting tests against ONNX Runtime
         run: |

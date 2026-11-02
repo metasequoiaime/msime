@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import fetch_handwriting_model  # noqa: E402
 import fetch_onnxruntime  # noqa: E402
+import fetch_rerank_model  # noqa: E402
 import fetch_settled_model  # noqa: E402
 import fetch_voice_runtime  # noqa: E402
 
@@ -74,6 +75,7 @@ def main():
     failures = []
     exercise(fetch_handwriting_model, failures)
     exercise(fetch_onnxruntime, failures)
+    exercise(fetch_rerank_model, failures)
     exercise(fetch_settled_model, failures)
     exercise(fetch_voice_runtime, failures)
     for failure in failures:
