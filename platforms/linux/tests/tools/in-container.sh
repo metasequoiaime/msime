@@ -41,7 +41,11 @@ cmake -S platforms/linux -B /build/ibus -G Ninja \
   -DMSIME_LINUX_VOICE=ON -DMSIME_ENGINE_RESOURCES=/resources \
   -DMSIME_RESOURCE_SMOKE_ONLY="${MSIME_RESOURCE_SMOKE_ONLY:-0}"
 cmake --build /build/ibus
-ctest --test-dir /build/ibus --output-on-failure --no-tests=error
+if [[ ${MSIME_RESOURCE_SMOKE_ONLY:-0} == 1 ]]; then
+  ctest --test-dir /build/ibus -R '^ibus-custom-voice-hotkey$' --output-on-failure --no-tests=error
+else
+  ctest --test-dir /build/ibus --output-on-failure --no-tests=error
+fi
 rm -rf /build/stage
 DESTDIR=/build/stage cmake --install /build/ibus
 if [[ -x /build/stage/usr/local/bin/msime-linux-clipboard-watch-x11 ]]; then
@@ -105,8 +109,10 @@ echo "Linux clipboard remove-index acceptance passed"
 [[ ! -e "$clipboard_fixture/history.json" ]]
 echo "Linux clipboard clear acceptance passed"
 /build/ibus/ibus-engine-smoke /resources --voice-hotkey
-/build/ibus/ibus-engine-smoke /resources
-/build/ibus/ibus-engine-smoke /resources --helpcode-trigger
+if [[ ${MSIME_RESOURCE_SMOKE_ONLY:-0} != 1 ]]; then
+  /build/ibus/ibus-engine-smoke /resources
+  /build/ibus/ibus-engine-smoke /resources --helpcode-trigger
+fi
 installed_host=/build/stage/usr/local/bin/msime-linux-ibus
 python3 - "$installed_host" <<'PYTHON'
 import re
