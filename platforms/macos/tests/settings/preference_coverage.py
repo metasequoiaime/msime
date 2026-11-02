@@ -85,7 +85,7 @@ NOT_APPLICABLE = {
     "harmony_toolbar": "the HarmonyOS phone keyboard's toolbar tools and display mode; the page offers them only where the host reports `touch_toolbar_tools`",
     "number_row_selection": "releasing the number row back to the editor, offered only where the host advertises it - Linux and HarmonyOS; Windows and macOS both keep number selection",
     "english_suggestions": "the mobile suggestion strip; desktop hosts show English candidates through mixed_input instead",
-    "next_word_prediction_buttons": "仅 Android 原生键盘在上屏后联想候选行画关闭键与展开键；host-api 只在 Android 打开引擎的上屏后联想，macOS 没有联想状态，也就没有这一行候选可放按键，共享设置页不提供此项",
+    "next_word_prediction_buttons": "只有触屏键盘在上屏后联想的候选栏右端画关闭键与展开键；macOS 的联想画在普通候选窗里，Esc 关闭、点选上屏，没有这两个键可放，共享设置页桌面输入页的「上屏后联想」不列出这一行（`showButtons={false}`）",
     "game_compatibility": "Windows TSF only: whether the TIP skips ITfUIElementMgr for games that declare UI-less and draw nothing; macOS has no UI-less host contract",
     # 下面几条是嵌套子字段。父结构整体不适用时门禁不下降，所以这里列出的是父结构仍在 macOS 被读、但这一项本身不读的字段。
     "keybindings.switch_language_ctrl_space": "Ctrl+Space 换语言只在 Linux 提供：共享设置页按 `linux` 决定是否写这个字段（`packages/ui/src/settings/input-mode-shortcuts-model.ts` 的 `languageSwitchPatch`），macOS 走 Ctrl+Alt+Space 与 Caps Lock，不读这一项",

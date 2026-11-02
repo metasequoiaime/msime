@@ -55,7 +55,7 @@ impl HostPlatform {
     pub fn shows_next_word_prediction(self) -> bool {
         matches!(
             self,
-            HostPlatform::Android | HostPlatform::Linux | HostPlatform::Ios
+            HostPlatform::Android | HostPlatform::Linux | HostPlatform::Macos | HostPlatform::Ios
         )
     }
 
