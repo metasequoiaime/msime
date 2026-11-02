@@ -2144,7 +2144,7 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 
 ### Windows 五笔设置补上 z 键通配与第五码顶字（2026-11-02）
 
-共享偏好 `wubi_z_wildcard`（缺省关）和 `wubi_fifth_code_top_commit`（缺省开）早就由共享 host-api 下发给 Windows 的 Server 和会话（`host-api/src/lib.rs` 读通配、`set_wubi_fifth_code_top_commit` 交给 runtime），共享设置页和 macOS 原生面板也有开关，只有 Windows 的两个原生设置窗口没有。#10696 的报告人关掉「五笔四码唯一候选自动上屏」后敲 `super`，「格斗家」照样上屏、留下 `r`，以为开关失效；实际是第五个字母触发了顶字，混输关闭时这是有意的行为，Windows 上却找不到能解释它、也能改它的那一行。现在 WinUI 窗口（`settings/main.cpp`）在「五笔快捷选词」之后、「五笔四码唯一候选自动上屏」之前加「z 键通配」「第五码将首选上屏」两行，顺序、标题、说明和缺省与共享页 `WubiSection` 相同；Win7 表单（`settings/win7/SchemeForm.h`）在「候选显示剩余编码」之后加两个复选框，下面照抄两句说明。`scripts/test-windows-wubi-settings-copy.py` 逐句比较三处并核对 Win7 的校验、读出和写回都绑了同一个键。顶字的运行时行为不变：关掉只在拼音混输开启时生效，混输关闭时第五个字母无处容纳，仍按顶字上屏。未在 Windows 上实机验证。
+共享偏好 `wubi_z_wildcard`（缺省关）和 `wubi_fifth_code_top_commit`（缺省开）早就由共享 host-api 下发给 Windows 的 Server 和会话（`host-api/src/lib.rs` 读通配、`set_wubi_fifth_code_top_commit` 交给 runtime），共享设置页和 macOS 原生面板也有开关，只有 Windows 的两个原生设置窗口没有。#10696 的报告人关掉「五笔四码唯一候选自动上屏」后敲 `super`，「格斗家」照样上屏、留下 `r`，以为开关失效；实际是第五个字母触发了顶字，混输关闭时这是有意的行为，Windows 上却找不到能解释它、也能改它的那一行。现在 WinUI 窗口（`settings/main.cpp`）在「五笔快捷选词」之后、「五笔四码唯一候选自动上屏」之前加「z 键通配」「第五码将首选上屏」两行，顺序、标题、说明和缺省与共享页 `WubiSection` 相同；Win7 表单（`settings/win7/SchemeForm.h`）在「候选显示剩余编码」之后加两个复选框，下面照抄两句说明。`scripts/test-windows-wubi-settings-copy.py` 逐句比较三处并核对 Win7 的校验、读出和写回都绑了同一个键。顶字关掉只在拼音混输开启时生效，混输关闭时第五个字母无处容纳，仍按顶字上屏。设置里能点到「混输开、顶字关」之后，共享 runtime 补了一格：这对组合下引擎若没放开四码上限、字母又续不上读音，引擎会拒收第五个字母，runtime 以前也不顶字，整键以 `handled=false` 交回，Windows 宿主把字母交给应用、组字停在四码；现在引擎收不下时照样顶字（`wubi_top_commit_on_next_key` 的 `extended_length_allowed`，host-api 的 `a_fifth_wubi_letter_the_engine_cannot_take_tops_the_first_candidate` 用真实引擎钉住四种组合）。未在 Windows 上实机验证。
 
 ### 单按 Caps Lock 切换中英文、Shift+字母进入快捷模式总开关（2026-10-11）
 
