@@ -12,7 +12,7 @@ Status: implemented
 
 自建一个满足同样四条的匿名图床 sugi.moe（Cloudflare Worker + R2，代码在 yldm-tech/sugi），PR 截图改传它。
 
-- 上传：`curl -F file=@<图片> https://sugi.moe/upload`，返回 `https://sugi.moe/<内容哈希>.<扩展名>` 直链，以 Markdown 图片的形式嵌进正文；网页 https://sugi.moe 也能拖拽、粘贴上传。贴进正文之前把链接下载回来，确认是图片且与本地文件逐字节一致。
+- 上传：`sugi up <图片>`（命令行，`curl -fsSL https://sugi.moe/install.sh | bash` 安装）或 `curl -F file=@<图片> https://sugi.moe/api/upload`，返回 `https://files.sugi.moe/<id>.<扩展名>` 直链；旧的 `POST /upload`（返回 `https://sugi.moe/<内容哈希>.<扩展名>`）继续可用，以 Markdown 图片的形式嵌进正文；网页 https://sugi.moe 也能拖拽、粘贴上传。贴进正文之前把链接下载回来，确认是图片且与本地文件逐字节一致。
 - 只收 PNG、JPEG、WebP、GIF，按文件内容判断类型，单张不超过 20 MB；同一内容总是同一个链接，已有文件不会被覆盖。
 - 上传是公开、永久、匿名的，传错了贡献者自己删不掉：图里不能出现真实输入、账号、个人资料、本机路径或凭据。误传了发信到 abuse@sugi.moe 请维护者删。
 - sugi.moe 暂时不可用时退回 files.catbox.moe 的直链；两者以外的匿名文件站（tmpfiles.org、file.io 一类）一律不用。
