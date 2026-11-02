@@ -38,10 +38,6 @@ RUST_ONLY: dict[str, set[str]] = {
         "android_keyboard_skin_dark",
         # 组字时保留 Shift 只由 Android 与 iOS 的原生键盘设置页提供，其他宿主没有触屏全拼 26 键，React 设置页不显示。
         "touch_quanpin_shift",
-        # 上屏后联想先在 Android 原生键盘验收，其他宿主保留字段，尚无共享设置入口。
-        "next_word_prediction",
-        # 上屏后联想候选栏右端的按键样式（#10078）随联想开关一起只在 Android 原生设置页提供。
-        "next_word_prediction_buttons",
         # 词库 WebDAV 同步（#9880）的核心先合入，各平台的设置界面随之后的平台 PR 接入。
         "dictionary_sync_webdav",
         # 崩溃上报授权代次是共享基础的本机内部状态；平台设置入口留给后续各宿主 PR，不在共享 React 页提前暴露。

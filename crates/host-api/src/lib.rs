@@ -397,6 +397,21 @@ fn caret_edit_suffix_applies(preferences: &Preferences) -> bool {
     CARET_EDIT_SUFFIX_HOST && preferences.caret_edit_suffix
 }
 
+/// 请求的偏好与会话已应用的是否不同到需要重建 Engine。持续上报授权的历史（`usage_reporting_consent`）不算：它只属于本机，由上报观察线程自己从偏好文件读（`ffi/reporting.rs`），Engine 和会话都不用；宿主交来的选项文档多半不带它，算进去会让每个新会话第一次读偏好时白白排上一次重建，这次重建落在第一次上屏之后，把刚出来的上屏后联想清掉（Linux IBus 上实测）。
+fn session_preferences_differ(requested: &Preferences, applied: &Preferences) -> bool {
+    if requested.usage_reporting_consent == applied.usage_reporting_consent {
+        return requested != applied;
+    }
+    let mut requested = requested.clone();
+    requested.usage_reporting_consent = applied.usage_reporting_consent;
+    requested != *applied
+}
+
+/// 上屏后联想只在接好了显示和按键的宿主上交给 Engine（`HostPlatform::shows_next_word_prediction`）：别的宿主收到联想会把它当成组字，数字、空格或回车可能把用户没选的词上屏。偏好随同步到达这些宿主时一律按关。
+fn next_word_prediction_applies(preferences: &Preferences) -> bool {
+    ffi::host::compiled_platform().shows_next_word_prediction() && preferences.next_word_prediction
+}
+
 fn multilingual_languages_for(
     preferences: &Preferences,
     edition: &Edition,
@@ -822,7 +837,11 @@ impl HostSession {
                 self.report_settled_model();
             }
         }
-        if !(self.preferences_pending || self.resources_pending) || !self.runtime.is_idle() {
+        // 上屏后联想也算空闲，但重建 Engine 会清掉它：等联想结束（下一个按键或选中之外的任何操作）再重建。
+        if !(self.preferences_pending || self.resources_pending)
+            || !self.runtime.is_idle()
+            || self.runtime.shows_prediction()
+        {
             return Ok(None);
         }
         // 只因资源包变化而重建时，没有新请求的偏好，按已应用的那份重建。
@@ -853,8 +872,7 @@ impl HostSession {
         options.single_character_only = preferences.single_character_only;
         options.caret_edit_suffix = caret_edit_suffix_applies(&preferences);
         options.learning = preferences.learning;
-        options.next_word_prediction =
-            preferences.next_word_prediction && cfg!(target_os = "android");
+        options.next_word_prediction = next_word_prediction_applies(&preferences);
         options.learn_english_on_enter = preferences.enter_learns_english_word;
         options.autocorrect_transposition = preferences.quanpin.autocorrect_transposition;
         options.autocorrect_neighbor = preferences.quanpin.autocorrect_neighbor;
@@ -1312,7 +1330,7 @@ impl HostSession {
                 .clear_online_candidates(1)
                 .map_err(|e| e.to_string())?;
         }
-        self.preferences_pending = snapshot.preferences != self.applied;
+        self.preferences_pending = session_preferences_differ(&snapshot.preferences, &self.applied);
         self.requested = Some(snapshot);
         self.requested_settled = false;
         let requested_preferences = self
@@ -1392,7 +1410,7 @@ impl HostSession {
     /// `update` 的回复：宿主都会读其中的 `view`。
     fn preferences_response(&self, fallback: Option<String>) -> Value {
         let snapshot = self.requested.as_ref().expect("requested snapshot exists");
-        let mut response = json!({ "revision": snapshot.revision, "deferred": snapshot.preferences != self.applied, "view": self.runtime.view(), "floating_toolbar": { "enabled": snapshot.preferences.floating_toolbar.enabled, "english_mode": snapshot.preferences.floating_toolbar.english_mode, "scale_percent": snapshot.preferences.floating_toolbar.scale_percent, "font_size": snapshot.preferences.floating_toolbar.font_size, "fullwidth": snapshot.preferences.floating_toolbar.fullwidth, "punctuation": snapshot.preferences.floating_toolbar.punctuation, "character_set": snapshot.preferences.floating_toolbar.character_set, "emoji": snapshot.preferences.floating_toolbar.emoji, "screen_keyboard": snapshot.preferences.floating_toolbar.screen_keyboard, "settings": snapshot.preferences.floating_toolbar.settings } });
+        let mut response = json!({ "revision": snapshot.revision, "deferred": session_preferences_differ(&snapshot.preferences, &self.applied), "view": self.runtime.view(), "floating_toolbar": { "enabled": snapshot.preferences.floating_toolbar.enabled, "english_mode": snapshot.preferences.floating_toolbar.english_mode, "scale_percent": snapshot.preferences.floating_toolbar.scale_percent, "font_size": snapshot.preferences.floating_toolbar.font_size, "fullwidth": snapshot.preferences.floating_toolbar.fullwidth, "punctuation": snapshot.preferences.floating_toolbar.punctuation, "character_set": snapshot.preferences.floating_toolbar.character_set, "emoji": snapshot.preferences.floating_toolbar.emoji, "screen_keyboard": snapshot.preferences.floating_toolbar.screen_keyboard, "settings": snapshot.preferences.floating_toolbar.settings } });
         // Applied at once, so no transition will carry the reason the preferred scheme was replaced; a deferred change reports it from `complete_transition` instead.
         if let Some(fallback) = fallback {
             response["diagnostic"] = fallback.into();
@@ -2383,8 +2401,7 @@ impl HostOptions {
             caret_edit_suffix: caret_edit_suffix_applies(&self.preferences),
             learning: self.preferences.learning,
             learn_english_on_enter: self.preferences.enter_learns_english_word,
-            next_word_prediction: self.preferences.next_word_prediction
-                && cfg!(target_os = "android"),
+            next_word_prediction: next_word_prediction_applies(&self.preferences),
             autocorrect_transposition: self.preferences.quanpin.autocorrect_transposition,
             autocorrect_neighbor: self.preferences.quanpin.autocorrect_neighbor,
             fuzzy_pinyin_rules: self.preferences.fuzzy_pinyin.active_rules(),
