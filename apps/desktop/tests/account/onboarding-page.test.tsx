@@ -371,6 +371,21 @@ test("HarmonyOS offers only the keyboards the version and the host have", async 
   expect(screen.getByText("全拼、9 键和五笔用的是同一套引擎，词库和自造词通用。")).toBeTruthy();
 });
 
+test("HarmonyOS 的五笔卡片写明当前是新世纪版", async () => {
+  render(
+    <WelcomeFlowPage
+      actions={makeActions({ platform: "harmony" })}
+      onComplete={vi.fn().mockResolvedValue(undefined)}
+      inputSchemes={["quanpin", "wubi"]}
+      wubiProfile="wubixsj"
+    />,
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  await screen.findByRole("heading", { name: "选一套输入方案" });
+  expect(screen.getByRole("radio", { name: /五笔.*形码 · 当前新世纪版/ })).toBeTruthy();
+});
+
 test("the HarmonyOS phone turns pages with a horizontal swipe and steps back through the history", async () => {
   const onComplete = vi.fn().mockResolvedValue(undefined);
   render(
