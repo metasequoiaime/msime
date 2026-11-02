@@ -5064,9 +5064,11 @@ test("macOS offers the shuangpin preedit under 粤语双拼 and saves the shared
   fireEvent.change(preedit, { target: { value: "pinyin" } });
   saveSettingsNow();
   await screen.findByText("已保存");
+  // 与普通话双拼那一行一样经 `shuangpinPreeditPatch` 写回，选粤拼分词时「双拼分隔」（#10717）一并清掉。
   expect(save).toHaveBeenCalledWith(7, {
     ...cantonese.preferences,
     shuangpin_preedit_uses_raw: false,
+    shuangpin_preedit_separated: false,
   });
   expect(screen.getAllByRole("combobox", { name: "双拼预编辑", hidden: true })).toHaveLength(1);
 });
