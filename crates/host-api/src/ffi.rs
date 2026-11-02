@@ -254,7 +254,7 @@ pub(crate) fn keyboard_reranker(
     scorer
 }
 
-/// 「增强」开着时逐键重排挂的是哪一个，写一行诊断。类别本身就说明了档位（`keyboard reranker onnx large`、`keyboard reranker onnx small`、可用内存不够加载大的时的 `keyboard reranker onnx small (low memory)`、小模型配更大的整句池比大模型更准时的 `keyboard reranker onnx small (wider pool)`、`keyboard reranker bundled model`、`keyboard reranker missing`），只留类别的宿主（macOS、iOS）也看得出来；细节是模型目录、大模型的自测毫秒数、挂上的模型打一页的毫秒数和给它的整句池、可用内存，以及是不是与之前的会话共用（`(shared)`）。只在会话建立和开关打开时写，不在按键路径上写。
+/// 「增强」开着时逐键重排挂的是哪一个，写一行诊断。类别本身就说明了档位（`keyboard reranker onnx large`、`keyboard reranker onnx small`、可用内存不够加载大的时的 `keyboard reranker onnx small (low memory)`、`keyboard reranker bundled model`、`keyboard reranker missing`），只留类别的宿主（macOS、iOS）也看得出来；细节是模型目录、大模型的自测毫秒数、挂上的模型打一页的毫秒数和给它的整句池、可用内存，以及是不是与之前的会话共用（`(shared)`）。只在会话建立和开关打开时写，不在按键路径上写。
 fn report_keyboard_reranker(category: &'static str, detail: &str) {
     crate::diagnostics::report(category, detail);
 }
@@ -333,7 +333,7 @@ const ENGINE_TAIL_MS: f64 = 0.7;
 ))]
 const KEYSTROKE_BUDGET_MS: f64 = 4.0;
 
-/// 模型打一页要 `page_ms` 的这台机器上，按键预算之内能比较多大的整句池；连 9 条都放不下时为 `None`。手机看 p95、桌面看 p99（[`KEYSTROKE_BUDGET_MS`]）。Pixel 3 XL 的 6x256（一页约 8.9 ms）落在 9 条，iPhone 17 的 8x448（一页约 4 ms）落在 24 条，Mac 的 6x256（一页约 1.2 ms）落在 32 条。
+/// 模型打一页要 `page_ms` 的这台机器上，按键预算之内能比较多大的整句池；连 9 条都放不下时为 `None`。手机看 p95、桌面看 p99（[`KEYSTROKE_BUDGET_MS`]）。Pixel 3 XL 的 6x256（一页约 8.9 ms）落在 9 条，iPhone 17 的 8x448（一页约 4 ms）落在 24 条，Mac 的 8x448（一页约 4.1 ms）落在 9 条。
 #[cfg(feature = "onnx-rerank")]
 pub(crate) fn sentence_pool_for(page_ms: f64) -> Option<usize> {
     let phone = cfg!(any(target_os = "ios", target_os = "android"));
@@ -343,25 +343,6 @@ pub(crate) fn sentence_pool_for(page_ms: f64) -> Option<usize> {
             ENGINE_TAIL_MS + page_ms * if phone { p95 } else { p99 } <= KEYSTROKE_BUDGET_MS
         })
         .map(|&(pool, _, _)| pool)
-}
-
-/// 大小两个模型在各个整句池下的 dev 首选对的条数之和（ctx-v1 dev 分句 741 条 + 选词 737 条 + typing-chat-v1 dev 110 段，2026-11-02），用来在「大模型配它放得下的池」和「小模型配它放得下的池」之间选：池大一档的小模型可能比池小的大模型更准，Mac 上小模型配 32 条（1220）就比大模型配 9 条（1195）好，还更快。池相同时大模型总是更准。
-#[cfg(feature = "onnx-rerank")]
-const DEV_CORRECT: [(usize, u32, u32); 6] = [
-    (32, 1233, 1220),
-    (24, 1227, 1214),
-    (20, 1222, 1207),
-    (16, 1213, 1201),
-    (12, 1200, 1190),
-    (9, 1195, 1186),
-];
-
-#[cfg(feature = "onnx-rerank")]
-fn dev_correct(large: bool, pool: usize) -> u32 {
-    DEV_CORRECT
-        .iter()
-        .find(|&&(entry, _, _)| entry == pool)
-        .map_or(0, |&(_, big, small)| if large { big } else { small })
 }
 
 /// 进程可用内存（iOS 的 `os_proc_available_memory`）少于这么多时不加载大模型，直接用小的。
@@ -540,7 +521,6 @@ impl OnnxRerankers {
         const LARGE: &str = "keyboard reranker onnx large";
         const SMALL: &str = "keyboard reranker onnx small";
         const SMALL_LOW_MEMORY: &str = "keyboard reranker onnx small (low memory)";
-        const SMALL_WIDER_POOL: &str = "keyboard reranker onnx small (wider pool)";
         let large = root.join(RERANK_MODEL_DIRECTORY);
         let small = root.join(SMALL_RERANK_MODEL_DIRECTORY);
         let (large_stamp, small_stamp) = (model_stamp(&large), model_stamp(&small));
@@ -595,26 +575,8 @@ impl OnnxRerankers {
                     return Some(attached);
                 }
             }
-            // 大模型放得下的整句池不到最大时，再看小模型配它放得下的池是不是更准（`DEV_CORRECT`）：桌面上大模型只放得下 9 条，小模型放得下 32 条，后者更准也更快。
+            // 档位照自测定，整句池只在这个已选定的模型上定，不为了池大一些换成小模型（桌面上 8x448 只放得下 9 条也用它，见 `.agents/notes/implemented/feature/2026-11-02-sentence-pool-by-device-speed.md`）。
             let large_pool = self.pool_for(measured);
-            if measured <= budget_ms && large_pool < msime_engine::ordering::MAX_SENTENCE_POOL {
-                if let Some(mut small_scorer) = load_onnx_reranker(&small) {
-                    let page = self.page_ms(&small, &mut small_scorer);
-                    let small_pool = self.pool_for(page);
-                    if dev_correct(false, small_pool) > dev_correct(true, large_pool) {
-                        drop(large_scorer);
-                        small_scorer.set_sentence_pool(small_pool);
-                        let note = format!("{note}{}", pool_note(page, small_pool));
-                        return Some(self.keep(
-                            &small,
-                            stamps,
-                            small_scorer,
-                            SMALL_WIDER_POOL,
-                            note,
-                        ));
-                    }
-                }
-            }
             large_scorer.set_sentence_pool(large_pool);
             let note = format!("{note}{}", pool_note(measured, large_pool));
             return Some(self.keep(&large, stamps, large_scorer, LARGE, note));

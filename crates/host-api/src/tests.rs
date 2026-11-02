@@ -9011,26 +9011,18 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
     assert_eq!(context(&enough), LARGE);
     assert!(enough.detail.contains("calibrated"), "{}", enough.detail);
 
-    // 大模型放得下的池比小模型小、而小模型配它的池在 dev 上更准时，换成小模型（`keyboard reranker onnx small (wider pool)`），像 Mac 上大模型只放得下 9 条、小模型放得下 32 条那样；池一样大时留用大的。规则按调用顺序给：先量大的，再量小的。
-    let rule = |large: usize, small: usize| {
-        let mut calls = 0;
-        ffi::OnnxRerankers::with_pool_rule(Box::new(move |_| {
-            calls += 1;
-            Some(if calls == 1 { large } else { small })
-        }))
-    };
-    let wider = rule(9, 32).attach(bundle.path(), f64::MAX, None).unwrap();
-    assert_eq!(context(&wider), SMALL);
-    assert_eq!(wider.category, "keyboard reranker onnx small (wider pool)");
-    assert_eq!(wider.scorer.lock().unwrap().sentence_pool(), 32);
+    // 整句池只在选定的模型上定：大模型过了预算就用它，池再小也不换成小模型。
+    let only_nine = ffi::OnnxRerankers::with_pool_rule(Box::new(|_| Some(9)))
+        .attach(bundle.path(), f64::MAX, None)
+        .unwrap();
+    assert_eq!(context(&only_nine), LARGE);
+    assert_eq!(only_nine.category, "keyboard reranker onnx large");
+    assert_eq!(only_nine.scorer.lock().unwrap().sentence_pool(), 9);
     assert!(
-        wider.detail.contains("sentence pool 32"),
+        only_nine.detail.contains("sentence pool 9"),
         "{}",
-        wider.detail
+        only_nine.detail
     );
-    let same = rule(16, 16).attach(bundle.path(), f64::MAX, None).unwrap();
-    assert_eq!(context(&same), LARGE);
-    assert_eq!(same.scorer.lock().unwrap().sentence_pool(), 16);
 
     // 宿主用的预算是 10 毫秒，这个两层、32 维的小模型打一页远在其内，所以也排上屏后联想。小模型装上后重新定档位，不沿用只装了大的时加载、没自测的那一份。
     let hosted = ffi::keyboard_reranker(true, root, None, None, None, None).unwrap();
