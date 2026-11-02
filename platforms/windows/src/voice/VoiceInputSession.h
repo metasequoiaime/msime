@@ -110,6 +110,8 @@ public:
   bool init_cues(const std::wstring &start_path, const std::wstring &end_path);
   bool recording() const { return recording_.load(); }
   bool locked() const { return locked_.load(); }
+  // The current session epoch. start() and cancel() each advance it and stop() does not, so a caller that remembers the value right after starting a recording can later tell whether the recording running then is still that one.
+  uint64_t session() const { return session_.load(); }
 
 private:
   bool start(std::shared_ptr<VoiceReviewResult> review = {},

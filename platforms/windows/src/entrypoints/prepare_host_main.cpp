@@ -1,6 +1,7 @@
 #include "PrepareHost.h"
 #include "msime_client.h"
 #include "../../../common/HostApiString.h"
+#include "../../common/AuxiliaryCrashCapture.h"
 #include <iostream>
 
 int wmain(int argc, wchar_t **argv) {
@@ -16,7 +17,13 @@ int wmain(int argc, wchar_t **argv) {
     return 2;
   }
   try {
-    msime::windows::prepare_host_state(argv[1], argv[2], [](const std::string &request) {
+    std::unique_ptr<msime::telemetry::CaptureOnly> crash_capture;
+    const std::filesystem::path state(argv[2]);
+    msime::windows::prepare_host_state(argv[1], state, [&](const std::string &request) {
+      // 独占建目录之后才按包内版本读取新偏好；既不能抢建目录，也不能在版本标记之前保存 full 默认值。
+      crash_capture = std::make_unique<msime::telemetry::CaptureOnly>([state] {
+        return msime::windows::auxiliary_crash_host("prepare", MSIME_WINDOWS_VERSION, state);
+      });
       auto response = msime::host_api::own_string(
           msime_client_prepare_host(
               reinterpret_cast<const uint8_t *>(request.data()), request.size()));
@@ -27,7 +34,7 @@ int wmain(int argc, wchar_t **argv) {
     std::cout << "Prepared runtime-options.json successfully\n";
     return 0;
   } catch (...) {
-    // Host errors may contain private paths. Never forward their raw contents.
+    // 宿主错误可能带私人路径，不转发原始内容。
     std::cerr << "Preparation failed; existing and partially prepared data retained\n";
     return 1;
   }

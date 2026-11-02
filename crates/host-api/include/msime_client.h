@@ -264,7 +264,7 @@ char *msime_client_create(const uint8_t *options, size_t length);
  * {options: <same HostOptions as create>, action: {operation:"list",offset:0,limit:100}}
  * List 的 kind 与 query 可选：ASCII 查询匹配编码前缀，含非 ASCII 字符时匹配词条字面内容。无查询时列个人词条；指定 kind 与非空查询时包含内置行，quick_phrase 空查询也包含内置行。个人行优先；user_only:true 始终只列个人词条，在整库筛选后分页。
  * or action:{operation:"edit",previous:null|Entry,replacement:null|Entry,request_id:"..."}.
- * Batch import: action:{operation:"import",kind:"pinyin"|"wubi"|"wubi98"|"quick_phrase"|"english",
+ * Batch import: action:{operation:"import",kind:"pinyin"|"wubi"|"wubi98"|"quick_phrase"|"english"|"cantonese",
  * format:"standard"|"windows"|"rime"|"hans",text:"word<TAB>code<TAB>weight\\n",request_id:"..."}.
  * Standard rows are word, code, weight; Windows rows are code, word, weight. Rime rows are
  * word, code, optional weight and may include YAML front matter between --- and ...; Rime's
@@ -275,7 +275,8 @@ char *msime_client_create(const uint8_t *options, size_t length);
  * with deterministic receipt IDs derived from request_id so retries are safe.
  * Export: action:{operation:"export",kind,format:"standard"|"windows",offset,limit} returns
  * {text,has_more}; use pages of at most 1000 rows. Standard output is word, code, weight.
- * Entry:{kind:"pinyin"|"wubi"|"wubi98"|"quick_phrase"|"english",key,value,weight,source?:"user"|"bundled"}.
+ * Entry:{kind:"pinyin"|"wubi"|"wubi98"|"quick_phrase"|"english"|"cantonese",key,value,weight,source?:"user"|"bundled"}.
+ * 粤语（cantonese）只有用户自己的词：key 是粤拼音节，空格或 ' 分隔、可带声调数字 1–6，Engine 去掉声调、收成单个空格分隔后存进日志，粤语方案查词时并进候选。list、count、export、edit、import 都认它；browse 的 kind:"cantonese" 仍指发布的粤语词库（只读）。云词库和词库快照不收粤语词。
  * List returns {entries,has_more} and sets source on every entry; edit returns {applied:true}. Errors are redacted.
  * A bundled entry passed back as previous can only be re-weighted (replacement with the same kind, key and value) or deleted (replacement null); anything else fails with "bundled dictionary entry is read-only". Export of pinyin also carries the weights set or learned for bundled words and omits single characters; the other kinds export user words only.
  * 清除学习记录：action:{operation:"reset"} 取独占维护权（会话开着时报 dictionary maintenance busy），换回随包的工作词库和英文词库、清空日志（调频、置顶、固定位置、选词计数、整句联想、拼写纠错和用户自己的词），偏好、常用语、剪贴板和打字统计不动；options 带 preferences_directory 时先删掉那里还没合并的输入记录和输入习惯（pending-learning-merge 和 pending-habits-merge 的待合并、已认领和失败计数文件，删不掉时报 learned-data reset rejected、什么也没清），重置后再把已启用命名词库的词重新排进它们的待发送队列（`DictionaryCollectionsStore::requeue_enabled_after_reset`），宿主随后照常送出。返回 {reset:true,collections_requeued:n}；重置成功而重排失败时照样是 reset:true，collections_requeued 为 null，另带 collections_error:"learned-data reset collections unavailable"。云同步的待上传标记由宿主自己打（Android 用 msime_client_cloud_sync 的 dictionary_reset）。
@@ -371,8 +372,8 @@ char *msime_client_import_settings(const uint8_t *directory, size_t directory_le
                                    uint64_t expected_revision, const uint8_t *document,
                                    size_t document_length);
 /* The transcription provider and optional rewrite this device is configured for, read from an
- * absolute preferences directory. Response value: {provider:{...}|null, polish:{...}|null}; both
- * absent means nothing is configured and the host uses whatever it falls back to. Contains
+ * absolute preferences directory. Response value: {provider:{...}|null, polish:{...}|null, punctuationMode}; both
+ * absent means nothing is configured and the host uses whatever it falls back to. punctuationMode 是 voice_input.punctuation_mode 归一后的取值（auto、omit_trailing、omit_all、space，不认识的值给 auto），宿主把它交给 msime_client_voice_punctuation。 Contains
  * credentials: never log the response; release with msime_client_string_free. provider.requestFormat 是请求格式："multipart"（OpenAI 兼容的 /audio/transcriptions）、"chat_audio"（Chat Completions 带 input_audio，阿里云百炼）、"doubao_websocket" 或 "local"；宿主按它挑请求构造，不按 provider 名字判断。 */
 char *msime_client_mobile_voice_configuration(const uint8_t *directory, size_t length);
 /* 全局主题选择器：{themes:[{id,title,platforms,appearance,preview,candidate,keyboard},...],default:"system"}。只列出本库编译到的平台提供的主题，按选择器顺序：system, native（仅 iOS）, shuishan, light, paper, night, ink, custom。platforms 为提供该主题的宿主（如 ["ios"]），null 表示所有宿主。appearance is "light"|"dark"|null; preview {background,panel,accent,text}, candidate and keyboard are the built-in palettes and are null for system, native and custom. Keys are snake_case. Hosts keep no copy of the ids, titles or colours. */
@@ -695,6 +696,8 @@ char *msime_client_voice_hotwords(const uint8_t *request, size_t length);
 char *msime_client_voice_hotword_correct(const uint8_t *request, size_t length);
 /* voice_normalize_numbers: {text, kind} -> {text}. 本地模型最终文本里汉字写的数字改成数字（二零零二年 → 2002年，百分之五十七 → 57%），一个、十分有趣这类词不动。只改写不自带 ITN 的 kind（online_transducer、offline_transducer），其他 kind 原样返回，宿主对每个本地模型的最终文本都可以调用；只用于最终文本，不用于中间结果。Pure. text 上限 10000 个 Unicode 标量，kind 上限 64 字节，请求 <=1048576 字节。 */
 char *msime_client_voice_normalize_numbers(const uint8_t *request, size_t length);
+/* voice_punctuation: {text, mode} -> {text}. 语音标点：按 mode 处理最终识别结果，auto 原样返回，omit_trailing 去掉句末标点，omit_all 去掉所有标点，space 把每串标点换成一个空格；不认识的 mode 按 auto。只动识别器写出的句读（，。、；：？！…～ 和半角 , . ; : ? !），数字和网址里的点、数字之间的冒号和逗号保留，引号和括号保留。整段只有标点时返回空串。宿主在所有识别服务和润色之后、上屏之前调用，mode 取 msime_client_mobile_voice_configuration 的 punctuationMode。Pure. text 上限 10000 个 Unicode 标量，mode 上限 64 字节，请求 <=1048576 字节。 */
+char *msime_client_voice_punctuation(const uint8_t *request, size_t length);
 char *msime_client_voice_local_models(const uint8_t *request, size_t length);
 char *msime_client_voice_local_model_install(
     const uint8_t *request, size_t length,
@@ -1351,7 +1354,7 @@ char *msime_client_world_clock(const uint8_t *request, size_t length);
 char *msime_client_common_phrases(const uint8_t *request, size_t length);
 /* 具名词库集合（<=17 MiB）：{options: 带 preferences_directory 的 HostOptions, action:{operation:"load"|"create"|"rename"|"delete"|"set_enabled"|"add_words"|"remove_words"|"import"|"install_community"|"queue_words"{entries}|"flush"|"synchronize"|"third_party_matches"{entries}, ...}}，格式见 client-services 的 dictionary::collections；import 的 format 为 "scel"（搜狗细胞词库）时文件按 base64 放在 bytes_base64（不超过 8 MiB），不带 text，结构损坏时是 import_malformed；queue_words 把不属于任何集合的词（本地备份恢复的个人词库，每次最多 20000 个）排进待发送队列，value 带 queued；third_party_matches 只读地核对最多 128 个准备发布到社区的词，value 的 third_party_matches 是其中出现在搜狗细胞词库导入的集合里的下标。词条经个人词库队列传过去，键盘在下一次会话时应用。synchronize 在 budget_millis（1–2000，默认 2000）毫秒软预算内逐批应用个人队列并补充待发项，每批个人队列至多 128 项，集合直接应用至多 4096 项，在整批结束后释放维护租约，返回 {synchronized,pending_count,failed_count,snapshot_error,sent,applied_count}，sent 和 applied_count 累计整个调用，后者累计个人队列的 Written 确认（含幂等重试）；pending_count 包括未发送的集合条目；普通操作的 Value 是集合视图；错误是固定的代码（collections_*、builtin_locked、unsupported_format、import_*、personal_dictionary_*）。在工作线程上调用。 */
 char *msime_client_dictionary_collections(const uint8_t *request, size_t length);
-/* 诊断包（<=65536 字节）：{state_root: 偏好目录, include:{crash_logs,performance_logs,input_events,config_snapshot}, sources:{crash_logs,performance_logs,input_events: 绝对路径|null}, destination: .zip 的绝对路径|null}。输入事件和性能记录只有恰好是 {t_ms, kind, duration_ms} 时才保留，kind 以 client-services diagnostics.rs 的 EVENT_KINDS 为准（按键、候选、面板、ime_start/ime_finish、input_failure_*、engine_session_*、voice_engine_*、touch_layout_* 等），不在里面的种类整行丢掉，带其他任何键（text、key、candidate……）的整行都丢掉并计数。崩溃记录只保留异常类型和栈帧：异常说明可能带着正在输入的文字，message 只留冒号前的异常类型，stack 的说明行同样处理，路径只留文件名。input_failure_* 仅供本地诊断，云端上传器须按服务端白名单过滤。配置快照把所有凭据换成 "<redacted>"。给了 destination 时写出 zip，value 是 {path,bytes,counts}；没给时 value 是 {counts,sections}，sections 是上传请求体的对象（crash_logs、perf_trace、input_events、config_snapshot）。错误：diagnostics_invalid、diagnostics_source、diagnostics_preferences、diagnostics_write。在工作线程上调用。 */
+/* 诊断包（<=65536 字节）：{state_root: 偏好目录, include:{crash_logs,performance_logs,input_events,config_snapshot}, sources:{crash_logs,performance_logs,input_events: 绝对路径|null}, destination: .zip 的绝对路径|null}。输入事件和性能记录只有恰好是 {t_ms, kind, duration_ms} 时才保留，kind 以 client-services diagnostics.rs 的 EVENT_KINDS 为准（按键、候选、面板、ime_start/ime_finish、input_failure_*、engine_session_*、engine_call、candidate_rendered、voice_engine_*、touch_layout_* 等），不在里面的种类整行丢掉，带其他任何键（text、key、candidate……）的整行都丢掉并计数。崩溃记录只保留异常类型和栈帧：异常说明可能带着正在输入的文字，message 只留冒号前的异常类型，stack 的说明行同样处理，路径只留文件名。input_failure_* 仅供本地诊断，云端上传器须按服务端白名单过滤。配置快照把所有凭据换成 "<redacted>"。给了 destination 时写出 zip，value 是 {path,bytes,counts}；没给时 value 是 {counts,sections}，sections 是上传请求体的对象（crash_logs、perf_trace、input_events、config_snapshot）。错误：diagnostics_invalid、diagnostics_source、diagnostics_preferences、diagnostics_write。在工作线程上调用。 */
 char *msime_client_diagnostic_bundle(const uint8_t *request, size_t length);
 /* 账号设置文档导出（<=4 MiB）：{preferences_directory, feedback?:{soundEnabled,hapticsEnabled,hapticStrength}|null, custom_keyboard_skins?: JSON 数组字符串|null, android_local?: {同步键: 值}|null, schema?: 偏好字段表|null, cloud?: {revision,settings}|null}。Value {settings, merged?}：settings 按本版本过滤（给了 schema 时再按它的字段过滤）；同时给了 schema 和 cloud 时，merged 是带着云端 revision 去 PUT 的整份文档。android_local 是 Android 本机设置文件里参与同步的值（应用主题、单手模式、按键细节、工具栏的常用语/方案/隐藏项、手写、离线语音），不认识的键和非法值不导出。凭据和诊断日志从不导出；隐私模式、开发者选项和语音贡献只在 Android 本机文件里，从不同步。 */
 char *msime_client_account_settings_export(const uint8_t *request, size_t length);

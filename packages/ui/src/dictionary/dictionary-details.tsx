@@ -7,6 +7,7 @@ import { useToast } from "../core/toast";
 import { SwitchRow } from "../settings/switch-row";
 import * as settings from "../settings/settings-style";
 import {
+  CANTONESE_NEW_WORD_WEIGHT,
   displayPinyinCode,
   type DictionaryCollection,
   type DictionaryCollectionsView,
@@ -116,30 +117,33 @@ export function CollectionDetail({
   );
 }
 
-/** 内置拼音词库：始终启用，可以搜词条、加词和导出自己加过的词。 */
+/** 内置拼音词库：始终启用，可以搜词条、加词和导出自己加过的词。`kind` 为 `cantonese` 时是粤语词库：只有自己加的粤语词，粤语方案打字时和发布的粤语词一起出候选。 */
 export function BuiltinDictionaryDetail({
   dictionary,
   count,
   onExport,
+  kind = "pinyin",
 }: {
   dictionary: DictionaryClient;
   count: number | null;
   onExport?: () => Promise<string>;
+  kind?: "pinyin" | "cantonese";
 }) {
   const toast = useToast();
+  const cantonese = kind === "cantonese";
   const { query, setQuery, entries, more, loading, reload, loadMore } = useBuiltinDictionaryEntries(
-    { dictionary, onNotice: toast },
+    { dictionary, kind, onNotice: toast },
   );
   const [adding, setAdding] = useState(false);
   const searchId = useId();
 
   return (
     <>
-      <SettingsSubViewHeader title="拼音词库" />
+      <SettingsSubViewHeader title={cantonese ? "粤语词库" : "拼音词库"} />
       <GroupList>
         <SwitchRow
           title="启用此词库"
-          detail={`内置词库始终启用${count ? `，有 ${formatZhNumber(count)} 条自己的词` : ""}`}
+          detail={`${cantonese ? "粤语方案" : "内置词库"}始终启用${count ? `，有 ${formatZhNumber(count)} 条自己的词` : ""}`}
           checked
           disabled
           onChange={() => undefined}
@@ -168,7 +172,7 @@ export function BuiltinDictionaryDetail({
                 {entry.value}
               </span>
               <span className="block truncate text-[12px] [color:var(--p-sub)]">
-                {displayPinyinCode(entry.key)}
+                {cantonese ? entry.key : displayPinyinCode(entry.key)}
               </span>
             </span>
             <span className="shrink-0 text-[13px] [color:var(--p-sub)]">{entry.weight}</span>
@@ -176,7 +180,11 @@ export function BuiltinDictionaryDetail({
         ))}
         {!loading && entries.length === 0 && (
           <p className={settings.groupNote}>
-            {query ? "没有匹配的词条。" : "还没有自己添加或学到的词。输入拼音可以搜索内置词条。"}
+            {query
+              ? "没有匹配的词条。"
+              : cantonese
+                ? "还没有自己加的粤语词。加进来的词在粤语方案里打同样的粤拼时出现。"
+                : "还没有自己添加或学到的词。输入拼音可以搜索内置词条。"}
           </p>
         )}
         {more && (
@@ -203,19 +211,25 @@ export function BuiltinDictionaryDetail({
           <NavRow
             variant="me"
             title="导出词库"
-            description="导出自己加过的拼音词条"
+            description={cantonese ? "导出自己加过的粤语词条" : "导出自己加过的拼音词条"}
             onClick={() => void onExport().then((message) => message && toast(message))}
           />
         </GroupList>
       )}
       {adding && (
         <DictionaryWordDialog
+          cantonese={cantonese}
           onClose={() => setAdding(false)}
           onSubmit={async (word, code) => {
             try {
               await dictionary.edit(
                 null,
-                { kind: "pinyin", key: code, value: word, weight: 10 },
+                {
+                  kind,
+                  key: code,
+                  value: word,
+                  weight: cantonese ? CANTONESE_NEW_WORD_WEIGHT : 10,
+                },
                 `phone-dictionary-${Date.now()}`,
               );
               setAdding(false);

@@ -31,7 +31,7 @@ pub const MAX_CRASH_STACK_BYTES: usize = 16 * 1024;
 const MAX_LINE_BYTES: usize = 32 * 1024;
 
 /// 诊断包固定事件种类；输入失败类别仅供本地导出，云端上传器另按服务契约过滤。
-pub const EVENT_KINDS: [&str; 89] = [
+pub const EVENT_KINDS: [&str; 91] = [
     "key_down",
     "key_up",
     "candidate_shown",
@@ -122,6 +122,9 @@ pub const EVENT_KINDS: [&str; 89] = [
     "touch_layout_live_zhuyin_nine_key",
     "touch_layout_live_fourteen_key",
     "touch_layout_live_eighteen_key",
+    // Android 按键路径拆段计时（#10457）：一次按键同步调引擎的耗时，和按键到 render() 改完视图的耗时。
+    "engine_call",
+    "candidate_rendered",
 ];
 
 /// 要包含哪几类内容。缺省全部不包含。

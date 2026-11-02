@@ -9,6 +9,8 @@ iOS 键盘扩展有硬上限，2026-11-02 的 iPhone 17（iOS 27.2）上是 176 
 1. **重新加载键盘一次涨一截。** 同一个键盘进程里每次系统重新加载键盘（换了宿主应用，`focus_out` 之后又一行 `keyboard_loaded`），`base=` 涨 10 MB 左右：82 → 91 → 102 → 112，内存警告后 149 → 160，`focus_in mem=174 avail=2`，10 秒后进程被换掉。更早的构建里每个会话各加载、自测一份大模型，每次涨二十多 MB（7 → 29 → 51）；改成进程里共用一份后还剩这 10 MB。
 2. **不重新加载也只剩二十来 MB。** 一个进程连续打字 30 分钟，大模型挂上后约 105–110 MB，打字中稳定在 152–157 MB，`avail` 19–24 MB，期间收到过一次内存警告。
 
+同样的「每个会话各加载、自测一份」在 macOS 上更明显：输入法进程三分钟里建了 11 个会话，各加载、自测一次大模型，phys_footprint 到 558 MB（峰值 686 MB）。
+
 第一件不在重排器里：iOS 27 的 `UIInputView` 自己释放不掉。它和 UIKit 挂在它下面的 `_UIInputViewContent` 互相强引用（`_leftContentView` ↔ `_inputView`），一个刚建好、从没进过窗口的 `UIInputView` 也是这样；控制器释放了，输入视图和挂在它下面的整套键盘（按键、候选条、皮肤图片）都留下。模拟器上在测试宿主里连续建、显示、收起、释放十次控制器，占用 38 → 109 MiB。
 
 第二件主要是 ONNX Runtime 的 CPU 内存池：它按一次运行用到的最大量留着内存、只增不减，而上文和候选前缀的缓存每次按键长度不同。
@@ -16,7 +18,7 @@ iOS 键盘扩展有硬上限，2026-11-02 的 iPhone 17（iOS 27.2）上是 176 
 ## Decision
 
 - **控制器释放时把键盘视图从输入视图上摘下来。** `KeyboardViewController` 的 `deinit` 在主线程上（UIKit 总在主线程释放视图控制器，所以用 `MainActor.assumeIsolated`）把 `view` 的子视图逐个 `removeFromSuperview`。输入视图本身和 `_UIInputViewContent` 照旧留下，约 2 KB；挂在下面的全部释放。模拟器上同样十次是 26 → 28 MiB。
-- **重排器进程里只加载一份，自测只做一次。** `ffi::OnnxRerankers`（host-api）是进程级缓存：同一时刻只加载一个模型，各会话经 `Arc<Mutex<OnnxScorer>>` 共用；档位在第一次挂上时定下，之后的会话沿用，不因为某一刻的内存多少在大小模型之间来回换；大模型的自测结果按根目录和 `lm_step.ort` 的长度、修改时间记下，放开再挂不重测。「增强」关掉时放开，模型文件换了重新定。要换模型时先放开缓存里旧的那个再加载新的。
+- **重排器进程里只加载一份，自测只做一次。** `ffi::OnnxRerankers`（host-api）是进程级缓存，各平台的宿主都经它挂重排器：同一时刻只加载一个模型，各会话经 `Arc<Mutex<OnnxScorer>>` 共用；档位在第一次挂上时定下，之后的会话沿用，不因为某一刻的内存多少在大小模型之间来回换；大模型的自测结果按根目录和 `lm_step.ort` 的长度、修改时间记下，放开再挂不重测，重新加载的那一份经 `OnnxScorer::accept_calibration` 带上之前的结论（过了预算的大模型同时排上屏后联想）。「增强」关掉时放开，模型文件换了重新定。要换模型时先放开缓存里旧的那个再加载新的。
 - **可用内存不够时不加载大模型。** iOS 上 `os_proc_available_memory()` 少于 `LARGE_RERANK_MODEL_MIN_AVAILABLE`（120 MiB）且两档都装着时，直接用小的，不先加载大的去自测；类别写成 `keyboard reranker onnx small (low memory)`。门槛是大模型的加载峰值 74 MiB 再留 46 MiB：会话建立之后键盘界面才画出来，iPhone 17 上那一段是 20 MB 左右，打字时词库页面和候选缓存还会涨。拿不到余量（模拟器、其他平台，函数返回 0）时不按内存挑。
 - **iOS 上关掉 ONNX Runtime 的 CPU 内存池。** `OnnxScorer::load` / `load_file` 多一个 `memory_arena` 参数，host-api 的 `RERANK_MEMORY_ARENA` 只在 `target_os = "ios"` 时为假。其他平台没有扩展这样的硬上限，留着内存池省下每次运行重新向系统要内存的时间。
 - **让 ONNX Runtime 自己读模型文件。** 宿主用 `OnnxScorer::load_file`（`commit_from_file`），不先把 31 MB 的文件读进 `Vec` 再交过去，加载那一刻少一份文件内容。
@@ -48,13 +50,13 @@ iOS 键盘扩展有硬上限，2026-11-02 的 iPhone 17（iOS 27.2）上是 176 
 
 ## Consequences
 
-- **收益**：重新加载键盘不再一次留下一整套视图；重排器每个进程加载、自测各一次；iOS 上大模型打字时少占 34 MiB 左右，加载峰值少 29 MiB；内存紧的时候第一次挂上就用小模型，不先把大的加载进来。
+- **收益**：重新加载键盘不再一次留下一整套视图；重排器每个进程加载、自测各一次，macOS 输入法不再随会话数累积大模型；iOS 上大模型打字时少占 34 MiB 左右，加载峰值少 29 MiB；内存紧的时候第一次挂上就用小模型，不先把大的加载进来。
 - **代价**：iOS 上每次图运行都重新向系统要内存，模拟器里大模型每键 p50 多 0.8 ms、p95 多 2.5 ms，小模型 p50 多 0.3 ms、p95 多 1.1 ms；iPhone 17 上大模型整键 p95 原来 4 ms 上下，按比例估在 5 ms 上下，仍在 10 ms 的线内，没有在真机上量过。可用内存不够时定下的小模型会一直用到「增强」关掉或进程结束。共用的重排器每次打分加一把锁，同一时刻通常只有一个会话在打字。
 - **已知上限**：数字来自模拟器，模拟器构建不带 ML Kit，内存页的计法也与设备不同；真机的余量和延迟要拿下一份诊断日志和 `rerank_latency` 核对，偏差大时重访 120 MiB 的门槛和内存池的取舍。`deinit` 里的 `MainActor.assumeIsolated` 依赖 UIKit 在主线程释放视图控制器，不在主线程释放时会直接崩溃而不是悄悄泄漏。
 
 ## Verification
 
 - `MSIMEKeyboardTests/KeyboardMemoryTests`：`testADismissedKeyboardControllerReleasesItsViews`（控制器和它挂在输入视图下的子视图都释放）、`testReloadingTheKeyboardTenTimesDoesNotAccumulateMemory`（十次重新加载后占用涨不到 8 MiB）。去掉 `deinit` 里那一行，两条都失败（留下 `KeyboardSkinBackgroundView`、`KeyAreaStackView`；38 → 108 MiB），加回去通过（29 → 31 MiB）。
-- `crates/host-api/src/tests.rs` 的 `keyboard_reranker_prefers_the_onnx_model_when_one_is_installed`：同一个模型再挂一次是同一份、细节标 `(shared)`，放开后重新加载，别的根目录挂不上也不放开已加载的；自测只做一次（放开后换预算再挂，沿用那次的毫秒数，换成小的、是另一份）；可用内存少于门槛时用小的且不自测，定下后内存再多也沿用，刚好够时用大的。
+- `crates/host-api/src/tests.rs` 的 `keyboard_reranker_prefers_the_onnx_model_when_one_is_installed`：同一个模型连挂十一次都是同一份、细节标 `(shared)`，放开后重新加载，别的根目录挂不上也不放开已加载的；自测只做一次（放开后换预算再挂，沿用那次的毫秒数，换成小的、是另一份；再按原预算挂回大的，仍不重测、照样排上屏后联想）；可用内存少于门槛时用小的且不自测，定下后内存再多也沿用，刚好够时用大的。
 - `crates/onnx-rerank/tests/golden.rs` 的 `reading_the_file_without_a_memory_arena_scores_the_same`：运行时读文件、关内存池时分数与参考运行时一致。
 - 量内存：`ORT_LIB_LOCATION=$(python3 scripts/fetch_onnxruntime.py --target aarch64-apple-ios-sim) CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER=$(xcrun --sdk iphonesimulator --find clang) cargo build --release -p msime-onnx-rerank --features runtime --example footprint --target aarch64-apple-ios-sim`，再 `xcrun simctl spawn <设备> target/aarch64-apple-ios-sim/release/examples/footprint <模型目录> [arena|no-arena] [file|bytes]`。

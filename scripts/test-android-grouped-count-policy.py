@@ -44,7 +44,7 @@ def main() -> int:
         errors.append(f"{COMMUNITY_SMOKE}: 应直接检查 NumberPolicy.groupedCount")
     if "public static String countLabel(" in collections:
         errors.append(f"{COLLECTIONS}: 不应保留条数展示转发方法")
-    if pages.count("NumberPolicy.groupedCount(") != 6:
+    if pages.count("NumberPolicy.groupedCount(") != 7:
         errors.append("Android 词库页面没有直接调用共享条数展示方法")
     if "DictionaryCollectionsStore.countLabel(" in pages:
         errors.append("Android 词库页面仍通过存储类转发条数展示")

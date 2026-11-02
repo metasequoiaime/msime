@@ -325,11 +325,11 @@ fn model_stamp(directory: &Path) -> ModelStamp {
     Some((metadata.len(), metadata.modified().ok()?))
 }
 
-/// 已加载的那一个：模型目录（大的或小的）、加载时的文件戳、重排器本身和它的诊断类别。
+/// 已加载的那一个：模型目录（大的或小的）、定档位时大小两个模型的文件戳（任一个变了就重新定）、重排器本身和它的诊断类别。
 #[cfg(feature = "onnx-rerank")]
 struct LoadedOnnxReranker {
     directory: PathBuf,
-    stamp: ModelStamp,
+    stamps: [ModelStamp; 2],
     scorer: Arc<Mutex<msime_onnx_rerank::OnnxScorer>>,
     category: &'static str,
     detail: String,
@@ -376,6 +376,13 @@ impl msime_input_runtime::CandidateScorer for SharedOnnxScorer {
             .context_length()
     }
 
+    fn scores_prediction_pool_within_keystroke_budget(&self) -> bool {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .scores_prediction_pool_within_keystroke_budget()
+    }
+
     fn log_probabilities(&mut self, context: &str, candidates: &[&str]) -> Vec<f32> {
         self.0
             .lock()
@@ -386,7 +393,7 @@ impl msime_input_runtime::CandidateScorer for SharedOnnxScorer {
 
 #[cfg(feature = "onnx-rerank")]
 impl OnnxRerankers {
-    /// 给一个新会话挂重排器。已经为 `root` 加载过、文件也没换时直接共用（细节标 `(shared)`）；否则定档位并加载：
+    /// 给一个新会话挂重排器。已经为 `root` 加载过、两个模型文件都没换时直接共用（细节标 `(shared)`）；否则定档位并加载：
     ///
     /// - 只装了一个模型就用那一个；大的读不了就用小的。
     /// - 两个都装了：`available`（字节）少于 [`LARGE_RERANK_MODEL_MIN_AVAILABLE`] 时直接用小的，不先加载大的去自测；否则加载大的、量它打一页重负载要多久（进程里只量一次），超过 `budget_ms` 就换小的。按量出来的速度选，不按机型名单选。
@@ -404,14 +411,12 @@ impl OnnxRerankers {
         let large = root.join(RERANK_MODEL_DIRECTORY);
         let small = root.join(SMALL_RERANK_MODEL_DIRECTORY);
         let (large_stamp, small_stamp) = (model_stamp(&large), model_stamp(&small));
-        if let Some(loaded) = self.loaded.as_ref().filter(|loaded| {
-            let stamp = if loaded.directory == large {
-                &large_stamp
-            } else {
-                &small_stamp
-            };
-            loaded.directory.parent() == Some(root) && loaded.stamp == *stamp
-        }) {
+        let stamps = [large_stamp, small_stamp];
+        if let Some(loaded) = self
+            .loaded
+            .as_ref()
+            .filter(|loaded| loaded.directory.parent() == Some(root) && loaded.stamps == stamps)
+        {
             return Some(AttachedOnnxReranker {
                 scorer: Arc::clone(&loaded.scorer),
                 category: loaded.category,
@@ -427,7 +432,7 @@ impl OnnxRerankers {
                     available >> 20,
                     LARGE_RERANK_MODEL_MIN_AVAILABLE >> 20
                 );
-                return self.load(&small, small_stamp, SMALL_LOW_MEMORY, note);
+                return self.load(&small, stamps, SMALL_LOW_MEMORY, note);
             }
             let known = self
                 .calibrated
@@ -438,29 +443,32 @@ impl OnnxRerankers {
                 |measured: f64| format!(" (calibrated {measured:.1} ms, budget {budget_ms:.1} ms)");
             if let Some(measured) = known {
                 let note = note(measured);
-                return if measured > budget_ms {
-                    self.load(&small, small_stamp, SMALL, note.clone())
-                        .or_else(|| self.load(&large, large_stamp, LARGE, note))
-                } else {
-                    self.load(&large, large_stamp, LARGE, note.clone())
-                        .or_else(|| self.load(&small, small_stamp, SMALL, note))
-                };
+                if measured > budget_ms {
+                    if let Some(attached) = self.load(&small, stamps, SMALL, note.clone()) {
+                        return Some(attached);
+                    }
+                }
+                // 新加载的这一份带上之前量出的结论：过了预算的同时也排上屏后联想。
+                return self
+                    .load_calibrated(&large, stamps, LARGE, note.clone(), (measured, budget_ms))
+                    .or_else(|| self.load(&small, stamps, SMALL, note));
             }
             self.loaded = None;
             let Some(mut scorer) = load_onnx_reranker(&large) else {
-                return self.load(&small, small_stamp, SMALL, String::new());
+                return self.load(&small, stamps, SMALL, String::new());
             };
-            let measured = scorer.calibrate();
+            // 过了预算的大模型同时也排上屏后联想；退到小模型的机器不排，见 `OnnxScorer::fits_keystroke_budget`。
+            let measured = scorer.calibrate_for_keystroke_budget(budget_ms);
             self.calibrated = Some((root.to_path_buf(), large_stamp, measured));
             if measured > budget_ms {
-                if let Some(attached) = self.load(&small, small_stamp, SMALL, note(measured)) {
+                if let Some(attached) = self.load(&small, stamps, SMALL, note(measured)) {
                     return Some(attached);
                 }
             }
-            return Some(self.keep(&large, large_stamp, scorer, LARGE, note(measured)));
+            return Some(self.keep(&large, stamps, scorer, LARGE, note(measured)));
         }
-        self.load(&large, large_stamp, LARGE, String::new())
-            .or_else(|| self.load(&small, small_stamp, SMALL, String::new()))
+        self.load(&large, stamps, LARGE, String::new())
+            .or_else(|| self.load(&small, stamps, SMALL, String::new()))
     }
 
     /// 「增强」关掉时放开 `root` 下的重排器：还挂着它的会话照常用到结束，之后模型的内存就还给系统。自测结果留着，再打开时不重测。
@@ -477,21 +485,38 @@ impl OnnxRerankers {
     fn load(
         &mut self,
         directory: &Path,
-        stamp: ModelStamp,
+        stamps: [ModelStamp; 2],
         category: &'static str,
         note: String,
     ) -> Option<AttachedOnnxReranker> {
-        stamp?;
+        // 没有这个模型就什么都不动，已加载的那个留着。
+        model_stamp(directory)?;
         // 先放开换下来的那个，加载新模型的那一刻不必两个都由这里占着。
         self.loaded = None;
         let scorer = load_onnx_reranker(directory)?;
-        Some(self.keep(directory, stamp, scorer, category, note))
+        Some(self.keep(directory, stamps, scorer, category, note))
+    }
+
+    /// 同 [`Self::load`]，再把这个进程里之前对同一个模型文件量出的 `(毫秒数, 预算)` 交给它（`OnnxScorer::accept_calibration`），不重测。
+    fn load_calibrated(
+        &mut self,
+        directory: &Path,
+        stamps: [ModelStamp; 2],
+        category: &'static str,
+        note: String,
+        (measured_ms, budget_ms): (f64, f64),
+    ) -> Option<AttachedOnnxReranker> {
+        model_stamp(directory)?;
+        self.loaded = None;
+        let mut scorer = load_onnx_reranker(directory)?;
+        scorer.accept_calibration(measured_ms, budget_ms);
+        Some(self.keep(directory, stamps, scorer, category, note))
     }
 
     fn keep(
         &mut self,
         directory: &Path,
-        stamp: ModelStamp,
+        stamps: [ModelStamp; 2],
         scorer: msime_onnx_rerank::OnnxScorer,
         category: &'static str,
         note: String,
@@ -500,7 +525,7 @@ impl OnnxRerankers {
         let detail = format!("{}{note}", directory.display());
         self.loaded = Some(LoadedOnnxReranker {
             directory: directory.to_path_buf(),
-            stamp,
+            stamps,
             scorer: Arc::clone(&scorer),
             category,
             detail: detail.clone(),

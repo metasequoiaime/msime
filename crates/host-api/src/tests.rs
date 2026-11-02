@@ -1772,6 +1772,63 @@ fn an_identical_preferences_resend_answers_like_the_first_update() {
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
 
+/// 桌面宿主只按 `cantonese.input_method` 强制粤语双拼，触屏宿主只按当前触屏方案；两边的字段互不影响，别的方案下都不强制。
+#[test]
+fn cantonese_shuangpin_is_forced_by_each_host_kind_own_field() {
+    let desktop_choice = Preferences {
+        cantonese: msime_client_core::preferences::CantonesePreferences {
+            input_method: CantoneseInputMethod::Shuangpin,
+        },
+        ..Preferences::default()
+    };
+    let mut touch_choice = Preferences::default();
+    touch_choice.touch_keyboard_schemes.selected = Some(TouchKeyboardScheme::CantoneseShuangpin);
+    for platform in [
+        HostPlatform::Macos,
+        HostPlatform::Windows,
+        HostPlatform::Linux,
+    ] {
+        assert!(
+            force_cantonese_shuangpin_for(platform, InputScheme::Cantonese, &desktop_choice),
+            "{platform:?}"
+        );
+        assert!(
+            !force_cantonese_shuangpin_for(platform, InputScheme::Cantonese, &touch_choice),
+            "{platform:?}"
+        );
+        assert!(
+            !force_cantonese_shuangpin_for(platform, InputScheme::Quanpin, &desktop_choice),
+            "{platform:?}"
+        );
+        assert!(
+            !force_cantonese_shuangpin_for(
+                platform,
+                InputScheme::Cantonese,
+                &Preferences::default()
+            ),
+            "{platform:?}"
+        );
+    }
+    for platform in [
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        assert!(
+            force_cantonese_shuangpin_for(platform, InputScheme::Cantonese, &touch_choice),
+            "{platform:?}"
+        );
+        assert!(
+            !force_cantonese_shuangpin_for(platform, InputScheme::Cantonese, &desktop_choice),
+            "{platform:?}"
+        );
+        assert!(
+            !force_cantonese_shuangpin_for(platform, InputScheme::Wubi, &touch_choice),
+            "{platform:?}"
+        );
+    }
+}
+
 /// 不读触发字符数的宿主（macOS、Windows、Linux）一律拿默认的 5，触屏宿主照文档里存的数。
 #[test]
 fn english_minimum_prefix_is_fixed_where_the_host_does_not_read_it() {
@@ -8759,11 +8816,21 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
     // 进程里的重排器：同一个模型再挂一次是同一份（细节标 `(shared)`），不再各加载一份；「增强」关掉时放开，再打开时重新加载。
     let context =
         |attached: &ffi::AttachedOnnxReranker| attached.scorer.lock().unwrap().context_length();
+    let ranks_prediction = |attached: &ffi::AttachedOnnxReranker| {
+        attached
+            .scorer
+            .lock()
+            .unwrap()
+            .scores_prediction_pool_within_keystroke_budget()
+    };
     let mut rerankers = ffi::OnnxRerankers::default();
     let first = rerankers.attach(bundle.path(), 0.0, None).unwrap();
-    let again = rerankers.attach(bundle.path(), 0.0, None).unwrap();
-    assert!(Arc::ptr_eq(&first.scorer, &again.scorer));
-    assert!(again.detail.ends_with("(shared)"), "{}", again.detail);
+    // 每个会话都来挂一次（2026-11-02 的 macOS 输入法里三分钟建了 11 个会话，各加载、自测一份大模型，进程占到 558 MB），加载的只有第一次那一份。
+    for _ in 0..10 {
+        let again = rerankers.attach(bundle.path(), 0.0, None).unwrap();
+        assert!(Arc::ptr_eq(&first.scorer, &again.scorer));
+        assert!(again.detail.ends_with("(shared)"), "{}", again.detail);
+    }
     rerankers.release(bundle.path());
     let reloaded = rerankers.attach(bundle.path(), 0.0, None).unwrap();
     assert!(!Arc::ptr_eq(&first.scorer, &reloaded.scorer));
@@ -8793,6 +8860,8 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
         .unwrap();
     assert_eq!(context(&large_only), LARGE);
     assert_eq!(large_only.category, "keyboard reranker onnx large");
+    // 没自测过，不知道它在这台机器上多快，所以不排上屏后联想。
+    assert!(!ranks_prediction(&large_only));
 
     // 再装一个小模型，两条路都走一遍：自测值在预算之内留用大的，超过预算换小的。`f64::MAX` 的预算只在自测真的量出了一个有限的时间时才留用大的（自测失败返回无穷大）；0 毫秒的预算任何一次真实的图运行都超过。
     let small = bundle.path().join(ffi::SMALL_RERANK_MODEL_DIRECTORY);
@@ -8801,6 +8870,8 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
     let fast = tiers.attach(bundle.path(), f64::MAX, None).unwrap();
     assert_eq!(context(&fast), LARGE);
     assert_eq!(fast.category, "keyboard reranker onnx large");
+    // 过了预算的大模型同时也排上屏后联想；退到小模型的机器不排。
+    assert!(ranks_prediction(&fast));
     let calibrated = |detail: &str| detail[detail.find("(calibrated").expect(detail)..].to_owned();
     let measured = calibrated(&fast.detail);
     // 自测在进程里只做一次：放开后换一个预算再挂，用的还是那一次量出来的毫秒数，于是换成小的，是另一份重排器。
@@ -8813,6 +8884,16 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
         measured.split(", budget").next()
     );
     assert!(!Arc::ptr_eq(&fast.scorer, &slow.scorer));
+    assert!(!ranks_prediction(&slow));
+    // 再放开、按原来的预算挂回大的：还是不重测，量过的结论交给新加载的这一份，照样排上屏后联想。
+    tiers.release(bundle.path());
+    let again = tiers.attach(bundle.path(), f64::MAX, None).unwrap();
+    assert_eq!(context(&again), LARGE);
+    assert_eq!(
+        calibrated(&again.detail).split(", budget").next(),
+        measured.split(", budget").next()
+    );
+    assert!(ranks_prediction(&again));
 
     // 可用内存不够加载大模型时直接用小的，不先加载大的去自测；档位定下后，内存再多也沿用到放开为止。刚好够时用大的。
     let mut low = ffi::OnnxRerankers::default();
@@ -8826,6 +8907,7 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
     assert_eq!(context(&short), SMALL);
     assert_eq!(short.category, "keyboard reranker onnx small (low memory)");
     assert!(!short.detail.contains("calibrated"), "{}", short.detail);
+    assert!(!ranks_prediction(&short));
     let plenty = low.attach(bundle.path(), f64::MAX, Some(u64::MAX)).unwrap();
     assert!(Arc::ptr_eq(&short.scorer, &plenty.scorer));
     low.release(bundle.path());
@@ -8839,22 +8921,16 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
     assert_eq!(context(&enough), LARGE);
     assert!(enough.detail.contains("calibrated"), "{}", enough.detail);
 
-    // 宿主用的预算是 10 毫秒，这个两层、32 维的小模型打一页远在其内。
-    assert_eq!(
-        ffi::keyboard_reranker(true, root, None, None)
-            .unwrap()
-            .context_length(),
-        LARGE
-    );
+    // 宿主用的预算是 10 毫秒，这个两层、32 维的小模型打一页远在其内，所以也排上屏后联想。小模型装上后重新定档位，不沿用只装了大的时加载、没自测的那一份。
+    let hosted = ffi::keyboard_reranker(true, root, None, None).unwrap();
+    assert_eq!(hosted.context_length(), LARGE);
+    assert!(hosted.scores_prediction_pool_within_keystroke_budget());
 
-    // 大的坏了就用小的，不管预算。
+    // 大的坏了就用小的，不管预算；小的没自测过，不排上屏后联想。
     std::fs::write(directory.join("lm_step.ort"), b"not a model").unwrap();
-    assert_eq!(
-        ffi::keyboard_reranker(true, root, None, None)
-            .unwrap()
-            .context_length(),
-        SMALL
-    );
+    let fallback_small = ffi::keyboard_reranker(true, root, None, None).unwrap();
+    assert_eq!(fallback_small.context_length(), SMALL);
+    assert!(!fallback_small.scores_prediction_pool_within_keystroke_budget());
 
     // 两个都坏，资源目录里也没有随包的句子模型，于是什么都不挂。
     std::fs::write(small.join("lm_step.ort"), b"not a model").unwrap();
@@ -16868,6 +16944,74 @@ fn voice_number_normalization_follows_the_model_kind() {
         read(unsafe { msime_client_voice_normalize_numbers(std::ptr::null(), 4) })["ok"],
         false
     );
+}
+
+#[test]
+fn voice_punctuation_follows_the_mode_and_rejects_malformed_requests() {
+    let call = |text: &str, mode: &str| {
+        let request = json!({ "text": text, "mode": mode }).to_string();
+        read(unsafe { msime_client_voice_punctuation(request.as_ptr(), request.len()) })
+    };
+    for (mode, expected) in [
+        ("auto", "天啊！他是谁？"),
+        ("omit_trailing", "天啊！他是谁"),
+        ("omit_all", "天啊他是谁"),
+        ("space", "天啊 他是谁"),
+        // 不认识的方式不改动识别结果。
+        ("from_a_newer_version", "天啊！他是谁？"),
+    ] {
+        assert_eq!(
+            call("天啊！他是谁？", mode),
+            json!({"ok": true, "value": {"text": expected}}),
+            "{mode}"
+        );
+    }
+    assert_eq!(
+        call("。", "omit_trailing"),
+        json!({"ok": true, "value": {"text": ""}})
+    );
+    let missing_mode = b"{\"text\": \"x\"}";
+    assert_eq!(
+        read(unsafe { msime_client_voice_punctuation(missing_mode.as_ptr(), missing_mode.len()) })
+            ["ok"],
+        false
+    );
+    let too_long = json!({ "text": "好".repeat(10_001), "mode": "omit_all" }).to_string();
+    assert_eq!(
+        read(unsafe { msime_client_voice_punctuation(too_long.as_ptr(), too_long.len()) })["ok"],
+        false
+    );
+    assert_eq!(
+        read(unsafe { msime_client_voice_punctuation(std::ptr::null(), 4) })["ok"],
+        false
+    );
+}
+
+#[test]
+fn mobile_voice_configuration_reports_the_punctuation_mode() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().to_str().unwrap().to_owned();
+    let configuration =
+        || read(unsafe { msime_client_mobile_voice_configuration(path.as_ptr(), path.len()) });
+    assert_eq!(configuration()["value"]["punctuationMode"], "auto");
+
+    let store = PreferencesStore::new(directory.path());
+    for (saved, reported) in [
+        ("omit_trailing", "omit_trailing"),
+        ("space", "space"),
+        // 更新版本写下的新选项在这里按 auto 交给宿主。
+        ("from_a_newer_version", "auto"),
+    ] {
+        let snapshot = store.load().unwrap();
+        let mut preferences = snapshot.preferences;
+        preferences.voice_input.punctuation_mode = saved.into();
+        store.save(snapshot.revision, preferences).unwrap();
+        assert_eq!(
+            configuration()["value"]["punctuationMode"],
+            reported,
+            "{saved}"
+        );
+    }
 }
 
 #[test]

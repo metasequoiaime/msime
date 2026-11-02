@@ -106,6 +106,7 @@ fn legacy_cached_fuzzy_rows(
             rules,
             limit,
             typed: typed.to_owned(),
+            path_count: paths.len(),
             rows: rows.clone(),
         },
     );
@@ -157,15 +158,17 @@ fn hot_fuzzy_rows_project_without_temporary_pages() {
         assert_eq!(actual.capacity(), expected.capacity());
         before.fuzzy_cache.clear();
         after.fuzzy_cache.clear();
+        let skipped = skipped_path_allocations(&after, "zan'hao", options());
+        assert!(skipped > 0, "两个前缀页都在行缓存里");
         let (expected, old_count) = count(|| before.legacy_fuzzy_candidates("zan'hao", options()));
         let (actual, new_count) = count(|| after.fuzzy_candidates("zan'hao", options()));
         assert_fields_and_capacity(&actual, &expected);
         assert_eq!(actual.capacity(), expected.capacity());
         println!("模糊热行每表 {rows} 行：申请 {old_count}→{new_count}");
         assert_eq!(
-            new_count + 2 + 2,
+            new_count + 2 + 2 + skipped,
             old_count,
-            "两个非空前缀页各省一次临时向量，输入音节另省两个副本"
+            "两个非空前缀页各省一次临时向量，输入音节另省两个副本，命中的前缀不再展开路径"
         );
     }
 }
@@ -180,15 +183,17 @@ fn distinct_inputs_share_hot_prefix_without_changing_cold_or_outer_hits() {
     assert_fields_and_capacity(&actual, &expected);
     assert_eq!(actual.capacity(), expected.capacity());
     assert_eq!(new_count + 2, old_count, "全冷查询省去两个输入音节副本");
+    let skipped = skipped_path_allocations(&after, "zan'ma", options());
+    assert!(skipped > 0, "共享的前缀 zan 在行缓存里");
     let (expected, old_count) = count(|| before.legacy_fuzzy_candidates("zan'ma", options()));
     let (actual, new_count) = count(|| after.fuzzy_candidates("zan'ma", options()));
     assert_fields_and_capacity(&actual, &expected);
     assert_eq!(actual.capacity(), expected.capacity());
     println!("不同输入共享模糊前缀：申请 {old_count}→{new_count}");
     assert_eq!(
-        new_count + 1 + 2,
+        new_count + 1 + 2 + skipped,
         old_count,
-        "共享前缀页省一次临时向量，输入音节另省两个副本"
+        "共享前缀页省一次临时向量，输入音节另省两个副本，命中的前缀不再展开路径"
     );
     let (expected, old_count) = count(|| before.legacy_fuzzy_candidates("zan'ma", options()));
     let (actual, new_count) = count(|| after.fuzzy_candidates("zan'ma", options()));
@@ -237,4 +242,88 @@ fn fuzzy_projection_keeps_empty_pages_owned_outputs_and_cache_capacities() {
         drop(after);
         assert_eq!(owned, before.legacy_fuzzy_candidates("zan'hao", options()));
     }
+}
+
+// 行缓存命中时按记下的路径条数扣预算，不再展开路径（#10457）。规则全开、读音长到预算在中途用完时，先查较短的读音把前缀页热起来，再查更长的读音：和每个前缀都展开路径的旧实现给出同样的行，预算用完以后的短前缀（这里是能查出「合成前缀」的 zan）照样不查。
+#[test]
+fn row_cache_hits_spend_the_recorded_path_budget() {
+    let fixture = fixture(8);
+    let all = FuzzyPinyinOptions {
+        rules: fuzzy_rule::ALL,
+    };
+    let mut before = QuanpinDictionary::new(&fixture.paths);
+    let mut after = QuanpinDictionary::new(&fixture.paths);
+    for typed in [
+        "zan",
+        "zan'hao",
+        "zan'can'san'lan'fan",
+        "zan'can'san'lan'fan'ran",
+        "zan'can'san'lan'fan'ran'zan",
+        "zan'hao",
+        "can'san'lan'fan'ran'zan",
+    ] {
+        let expected = before.legacy_fuzzy_candidates(typed, all);
+        let actual = after.fuzzy_candidates(typed, all);
+        assert_fields_and_capacity(&actual, &expected);
+        assert_eq!(actual.capacity(), expected.capacity(), "{typed}");
+    }
+    let long = after.fuzzy_candidates("zan'can'san'lan'fan'ran", all);
+    assert!(
+        !long.iter().any(|item| item.word.starts_with("合成前缀")),
+        "预算在长前缀上用完，不该再查到单音节 zan"
+    );
+    assert!(after
+        .fuzzy_candidates("zan", all)
+        .iter()
+        .any(|item| item.word.starts_with("合成前缀")));
+}
+
+/// 行缓存命中的前缀不再展开路径（#10457）：在 `dictionary` 查 `segmentation` 之前调用，按查询同样的预算走一遍前缀，把行缓存已经有的那些前缀展开路径要申请的次数加起来，就是这次查询比每个前缀都展开路径时少申请的次数。整条候选缓存命中时什么也不展开，返回 0。
+pub(super) fn skipped_path_allocations(
+    dictionary: &QuanpinDictionary,
+    segmentation: &str,
+    options: FuzzyPinyinOptions,
+) -> usize {
+    if options.rules == 0 {
+        return 0;
+    }
+    if dictionary
+        .fuzzy_cache
+        .get_ref(&fuzzy_cache_hash(options.rules, segmentation))
+        .is_some_and(|cached| fuzzy_cache_key_matches(cached, options.rules, segmentation))
+    {
+        return 0;
+    }
+    let segments = if segmentation.is_empty() {
+        Vec::new()
+    } else {
+        segmentation
+            .split('\'')
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    let mut budget = FUZZY_PATH_BUDGET;
+    let mut skipped = 0;
+    for length in (1..=segments.len()).rev() {
+        if budget <= 1 {
+            break;
+        }
+        let limit = FUZZY_SEGMENTATION_LIMIT.min(budget);
+        let typed = segments[..length].join("'");
+        let (paths, allocations) =
+            count(|| fuzzy_segmentations(&segments[..length], options, limit));
+        if paths.is_empty() {
+            continue;
+        }
+        budget -= paths.len();
+        let hash = fuzzy_row_cache_hash(options.rules, limit, &typed);
+        if dictionary
+            .fuzzy_row_cache
+            .get_ref(&hash)
+            .is_some_and(|cached| fuzzy_row_cache_key_matches(cached, options.rules, limit, &typed))
+        {
+            skipped += allocations;
+        }
+    }
+    skipped
 }
