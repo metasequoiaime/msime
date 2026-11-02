@@ -866,6 +866,10 @@ target_link_libraries(doubao-voice-request-test PRIVATE apple-client "-framework
 add_test(NAME doubao-voice-request COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/voice/doubao_voice_fixture.py" "$<TARGET_FILE:doubao-voice-request-test>")
 # Above the fixture's own 60 s client limit plus the 3 s stack sample it takes of a hung client, so a hang reports where it is stuck instead of being killed silently.
 set_tests_properties(doubao-voice-request PROPERTIES TIMEOUT 80)
+add_executable(voice-punctuation-test tests/voice/VoicePunctuationTest.mm)
+target_compile_options(voice-punctuation-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(voice-punctuation-test PRIVATE apple-client "-framework Foundation")
+add_test(NAME voice-punctuation COMMAND voice-punctuation-test)
 add_executable(local-voice-request-test tests/voice/LocalVoiceRequestTest.mm src/voice/LocalVoiceRequest.mm)
 target_compile_options(local-voice-request-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(local-voice-request-test PRIVATE apple-client "-framework Foundation")

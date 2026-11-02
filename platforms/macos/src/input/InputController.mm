@@ -33,6 +33,7 @@
 #import "../voice/VoiceHoldShortcut.h"
 #import "../voice/DoubaoVoiceRequest.h"
 #import "../voice/LocalVoiceRequest.h"
+#import "../voice/VoicePunctuation.h"
 #import "../voice/VoiceFailureMessages.h"
 #import "../core/SupportWindowController.h"
 #import "../backend/account/BackendAccountEntry.h"
@@ -1972,6 +1973,8 @@ static NSImage *MSIMECandidateLogoImage() {
     uint64_t _voiceHoldGeneration;
     BOOL _voiceHoldStarting;
     NSDictionary *_voiceThemePreferences;
+    // 共享文档里的语音标点方式（MSIMEVoicePunctuationMode），每次读到偏好时更新，三条识别路线在最终文本上屏前用它。
+    NSString *_voicePunctuationMode;
     NSDictionary *_menuThemePreferences;
     MSIMEDictionaryWindowController *_dictionaryWindow;
     NSTimer *_cloudTimer;
@@ -5607,6 +5610,8 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
 - (void)applyDoubaoFinalText:(NSString *)text request:(id<MSIMEStreamingVoiceRequest>)request {
     if (_doubaoVoiceRequest != request) return;
     if ([self ownsDoubaoVoiceFocus]) {
+        // 语音标点在润色之后处理；只剩标点、处理后为空时和识别结果为空一样提示没听到。
+        text = MSIMEVoicePunctuated(text, _voicePunctuationMode);
         if (!text.length) { [self reportVoiceFailure:MSIMEVoiceFailureNoSpeech]; return; }
         NSDictionary *result = text.length ? [_doubaoVoiceSession applyVoiceText:text generation:_doubaoVoiceGeneration error:nil] : nil;
         if (result) { _doubaoVoiceMarked = NO; [self applyVoiceResult:result route:_doubaoVoiceCommit]; }
@@ -5867,6 +5872,8 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         if (!controller || controller->_httpVoiceRequest != request) return;
         if (controller->_activeClient != client || controller->_session != session ||
             controller->_voiceGeneration != generation || !controller->_voiceService.active) { [controller cancelHTTPVoiceInput]; return; }
+        // 整句识别的结果已经过润色（HTTPVoiceRequest），这里再按语音标点处理；只剩标点、处理后为空时提示没听到。
+        if (!failure) text = MSIMEVoicePunctuated(text, controller->_voicePunctuationMode);
         if (failure || !text.length) { [controller reportVoiceFailure:failure ? MSIMEVoiceFailureProvider : MSIMEVoiceFailureNoSpeech detail:MSIMEVoiceFailureDetail(failure)]; return; }
         if (!failure && text.length && controller->_activeClient == client &&
             controller->_session == session && controller->_voiceGeneration == generation && controller->_voiceService.active) {
@@ -5951,6 +5958,8 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
 - (void)applyLiveVoiceFinalText:(NSString *)text token:(id)token {
     if (!token || token != _liveVoiceToken) return;
     if ([self ownsLiveVoiceToken:token]) {
+        // 语音标点在润色之后处理；只剩标点、处理后为空时和识别结果为空一样提示没听到。
+        text = MSIMEVoicePunctuated(text, _voicePunctuationMode);
         if (!text.length) { [self reportVoiceFailure:MSIMEVoiceFailureNoSpeech]; return; }
         NSDictionary *result = text.length ? [_liveVoiceSession applyVoiceText:text generation:_liveVoiceGeneration error:nil] : nil;
         if (result) { _liveVoiceMarked = NO; [self applyVoiceResult:result route:_liveVoiceCommit]; }
@@ -6969,6 +6978,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
             CFGetTypeID((__bridge CFTypeRef)wubiCodeHint) == CFBooleanGetTypeID())
             _wubiCodeHintEnabled = [wubiCodeHint boolValue];
         _voiceThemePreferences = [preferences copy];
+        _voicePunctuationMode = MSIMEVoicePunctuationMode(preferences[@"voice_input"]);
         _menuThemePreferences = [preferences copy];
         if (_voiceOverlay) [_voiceOverlay applyThemePreferences:preferences];
     }

@@ -240,6 +240,20 @@ int main() {
         [controller finishHTTPVoiceInput];
         controller.requestFixture.completion(@"", nil);
         assert(overlay.failure == MSIMEVoiceFailureNoSpeech && !capture.active);
+        // 语音标点：省略句末标点时，会话收到去掉句末标点的文字；识别结果只剩标点时和空结果一样提示没听到。
+        [controller setValue:@"omit_trailing" forKey:@"voicePunctuationMode"];
+        assert([controller startHTTPVoiceInputWithOptions:@{}]);
+        [controller finishHTTPVoiceInput];
+        const NSUInteger beforePunctuated = session.submissions;
+        controller.requestFixture.completion(@"synthetic。", nil);
+        assert(session.submissions == beforePunctuated + 1 && !capture.active);
+        assert([controller startHTTPVoiceInputWithOptions:@{}]);
+        [controller finishHTTPVoiceInput];
+        const NSUInteger beforePunctuationOnly = overlay.failures;
+        controller.requestFixture.completion(@"。", nil);
+        assert(overlay.failure == MSIMEVoiceFailureNoSpeech && overlay.failures == beforePunctuationOnly + 1);
+        assert(session.submissions == beforePunctuated + 1 && !capture.active);
+        [controller setValue:nil forKey:@"voicePunctuationMode"];
         assert([controller startHTTPVoiceInputWithOptions:@{}]);
         [controller finishHTTPVoiceInput];
         [controller setValue:[MSIMEVoiceClientFixture new] forKey:@"activeClient"];
