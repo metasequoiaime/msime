@@ -2174,7 +2174,7 @@ impl NineKeySession {
         )
     }
 
-    /// 读音行：首行的拼音截到它覆盖的那几个键，后面接上没覆盖的键码和切分，例如 `94'26` 上的 西安 是 `xi'an`，`942` 上的 遗产 是 `yi'c`。首行不是从拼音读出来的（英文词、emoji、日期时间行）或者没有首行时为空；14 键的首行是英文词时是这个词覆盖已打键数的那段小写字母，一键一个字母，没有歧义。
+    /// 读音行：首行的拼音截到它覆盖的那几个键，后面接上没覆盖的那段按音节频度切出的拼音（切不成音节时是原样的键码和切分），例如 `94'26` 上的 西安 是 `xi'an`，`942` 上的 遗产 是 `yi'c`。首行不是从拼音读出来的（英文词、emoji、日期时间行）或者没有首行时为空；14 键的首行是英文词时是这个词覆盖已打键数的那段小写字母，一键一个字母，没有歧义。
     #[cfg(test)]
     fn reading_for(&self, front: Option<&WordItem>) -> String {
         let mut reading = String::new();
@@ -2259,6 +2259,9 @@ impl NineKeySession {
         let mut start = covered.min(self.digits.len());
         if start < self.digits.len() {
             reading.push('\'');
+            if self.write_tail_spelling(start, reading) {
+                return;
+            }
             for &split in &self.splits {
                 if split > start && split < self.digits.len() {
                     reading.push_str(&self.digits[start..split]);
@@ -2268,6 +2271,36 @@ impl NineKeySession {
             }
             reading.push_str(&self.digits[start..]);
         }
+    }
+
+    /// 首行没覆盖的尾段写成最可能的那条音节切分（与左列、切分路径同一份音节频度，音节少的在前），而不是原样的键码：整句关掉时首行常常只是前面一段的词，`今天你` 后面的 `926` 显示成 `yao`，不再把数字写进读音行和输入框（#10603）。用户打的切分照样守住；尾段切不成音节（`77`、切分处不能断开）时返回 `false`，由调用方按原样写键码。
+    fn write_tail_spelling(&self, start: usize, reading: &mut String) -> bool {
+        let Some(prior) = self.prior.as_ref() else {
+            return false;
+        };
+        let tail = &self.digits[start..];
+        let mut splits = [0usize; DIGIT_LIMIT];
+        let mut split_count = 0;
+        for &split in &self.splits {
+            if split > start && split < self.digits.len() {
+                splits[split_count] = split - start;
+                split_count += 1;
+            }
+        }
+        let paths =
+            self.grid
+                .spelling_table()
+                .split_paths_limited(tail, &splits[..split_count], prior, 1);
+        let Some(path) = paths.first() else {
+            return false;
+        };
+        for (index, syllable) in path.iter().enumerate() {
+            if index != 0 {
+                reading.push('\'');
+            }
+            reading.push_str(syllable);
+        }
+        true
     }
 
     /// `unanswered`：拼音一行候选都没有，英文词就是整个答案，和英文模式一样不受混输开关和最短前缀限制；锁定了拼音时仍不给。
@@ -7282,6 +7315,54 @@ mod tests {
         );
         type_digits(&mut fresh, "64426");
         assert!(sentence_words(&fresh).is_empty(), "{:?}", words(&fresh));
+    }
+
+    /// #10603：整句关掉时首行只覆盖前面一段（`你好` 覆盖 `64426`），读音行后面接的是没覆盖那段最可能的拼音，不是原样的数字 `926`；用户打的切分照样守住，切不成音节的尾段仍按原样显示键码。
+    #[test]
+    fn uncovered_tail_reads_as_pinyin_when_sentences_are_off() {
+        let fixture = fixture_with(&format!(
+            "{MAIN_FIXTURE}CREATE TABLE tbl_1_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_y VALUES('yao','y','要',100);"
+        ));
+        let mut session = open(&fixture.paths, false, EnglishInputOptions::default());
+        session.set_sentence_options(
+            SentenceAssociationOptions {
+                word_lattice: false,
+                ..SentenceAssociationOptions::default()
+            },
+            false,
+        );
+        type_digits(&mut session, "64426926");
+        assert!(sentence_words(&session).is_empty(), "{:?}", words(&session));
+        assert_eq!(words(&session).first().map(String::as_str), Some("你好"));
+        assert_eq!(session.snapshot().nine_key_reading, "ni'hao'yao");
+        session.command(Command::Cancel);
+
+        // 尾段里用户打的切分：`92'6` 只能是两段。
+        type_keys(&mut session, "6442692'6");
+        let reading = session.snapshot().nine_key_reading;
+        assert!(reading.starts_with("ni'hao'"), "{reading}");
+        let tail: Vec<&str> = reading["ni'hao'".len()..].split('\'').collect();
+        assert_eq!(tail.len(), 2, "{reading}");
+        assert!(
+            tail.iter()
+                .all(|syllable| syllable.bytes().all(|byte| byte.is_ascii_lowercase())),
+            "{reading}"
+        );
+        session.command(Command::Cancel);
+
+        // 没打完的尾段显示为音节的开头字母。
+        type_digits(&mut session, "644269");
+        let reading = session.snapshot().nine_key_reading;
+        assert!(reading.starts_with("ni'hao'"), "{reading}");
+        assert!(
+            !reading.bytes().any(|byte| byte.is_ascii_digit()),
+            "{reading}"
+        );
+        session.command(Command::Cancel);
+
+        // 切不成音节的尾段仍显示键码：`77` 不是任何音节的开头，这时首行只有 `你`，`42677` 原样接在后面。
+        type_digits(&mut session, "6442677");
+        assert_eq!(session.snapshot().nine_key_reading, "ni'42677");
     }
 
     /// 九键打 我们走路去（966369685878）首选曾是「我们有巨乳」：zou/you、lu/ju、qu/ru 同码，粗俗词 巨乳 靠多字词奖励被拼进整句。粗俗词不进词网格之后，整串打出来的候选里没有它；整串就是它的读音时它照样是候选。权重取自 dict-v2.0.39。

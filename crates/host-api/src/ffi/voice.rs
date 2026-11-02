@@ -812,6 +812,38 @@ pub unsafe extern "C" fn msime_client_voice_normalize_numbers(
     })
 }
 
+/// 按语音标点方式处理一段最终识别结果（`voice::punctuation`）。
+///
+/// 请求 `{"text": "...", "mode": "auto" | "omit_trailing" | "omit_all" | "space"}`，响应 `{"text": "..."}`。不认识的 `mode` 按 `auto` 原样返回；整段只有标点时返回空串，宿主按没有识别到内容处理。纯函数；只用于最终文本，文本上限与 `msime_client_voice_hotword_correct` 相同。
+///
+/// # Safety
+/// `request` 必须指向 `length` 个可读字节；null 会被拒绝。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_voice_punctuation(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        #[derive(Deserialize)]
+        struct PunctuationRequest {
+            text: String,
+            mode: String,
+        }
+        let request: PunctuationRequest =
+            local_voice_request(request, length, LOCAL_VOICE_REQUEST_LIMIT)?;
+        if !is_bounded_chars_without_nul(&request.text, MAX_VOICE_CORRECTION_TEXT_CHARS)
+            || !is_bounded_text(&request.mode, 64)
+        {
+            return Err("invalid voice punctuation request".into());
+        }
+        let mode =
+            msime_client_providers::voice::punctuation::PunctuationMode::parse(&request.mode);
+        Ok(json!({
+            "text": msime_client_providers::voice::punctuation::apply(&request.text, mode),
+        }))
+    })
+}
+
 /// The on-device model catalog with what is installed under a root.
 ///
 /// Request `{"root": "<absolute dir>"}`; response `{"models": [LocalModelStatus], "default": "<id>"}`. A model's `path` is what `voice_input.asr_model_path` is set to when the user picks it.
@@ -839,7 +871,7 @@ pub unsafe extern "C" fn msime_client_voice_local_models(
 
 /// 下载、校验并安装一个目录模型。阻塞到结束，必须在工作线程上调用。
 ///
-/// 请求 `{"root": "<absolute dir>", "id": "<catalog id>", "mirror": ""}`，响应 `{"path": "<root>/<id>"}`。`progress` 可为空，在调用线程上收到 `{"id","stage","downloaded","total"}` JSON，阶段为 download、verify、extract 或 done，缓冲区只在回调期间有效。登记后、访问文件或网络前先报告 download（导入为 import）的零字节进度，回调可重入 `msime_client_voice_local_model_cancel` 取消本次安装。取消入口可从任何线程调用，安装随后报 "local_model_cancelled"。每个 id 同时只允许一次安装，重复调用报 "local_model_install_running"。其余失败使用 "local_model_*" 错误码（network、http_status、size_mismatch、checksum_mismatch、unsafe_archive、missing_file、io、invalid_mirror、unknown）。
+/// 请求 `{"root": "<absolute dir>", "id": "<catalog id>", "mirror": ""}`，响应 `{"path": "<root>/<id>"}`。`progress` 可为空，在调用线程上收到 `{"id","stage","downloaded","total"}` JSON，阶段为 download、verify、extract 或 done，缓冲区只在回调期间有效。登记后、访问文件或网络前先报告 download（导入为 import）的零字节进度，回调可重入 `msime_client_voice_local_model_cancel` 取消本次安装。取消入口可从任何线程调用，安装随后报 "local_model_cancelled"，还在等别的安装（其他进程，或本进程里另一个模型）放开模型目录的锁时也一样。每个 id 同时只允许一次安装，重复调用报 "local_model_install_running"。其余失败使用 "local_model_*" 错误码（network、http_status、size_mismatch、checksum_mismatch、unsafe_archive、missing_file、io、invalid_mirror、unknown）。
 ///
 /// 请求带 `"files": ["<absolute path>", ...]`（至多 16 个）时不联网，改用用户自己下载好的这些文件安装（`msime_client_providers::voice::local_models::import`）：按长度和 SHA-256 认文件，不看文件名，`mirror` 不用；进度里原来的 download 阶段报成 import；缺文件时失败为 "local_model_import_missing: <上游文件名>"，所选文件打不开或读出错时为 "local_model_import_unreadable: <说明>"。和下载共用同一个按 id 的登记，所以取消、互斥和删除时的拒绝都一样。
 ///

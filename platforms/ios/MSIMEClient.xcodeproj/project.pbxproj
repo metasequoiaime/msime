@@ -602,6 +602,7 @@
 		85B42AA26418B805D10DD115 /* CloudClipboardDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD9FA2AA31325228FFBDEEEE /* CloudClipboardDriver.swift */; };
 		85D64D42F86088B57B1B7914 /* WubiCodeLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34AE1AF5AE90D3D2B58E439D /* WubiCodeLookup.swift */; };
 		85DB438FEA114E4745AD6581 /* CloudClipboardRelayPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC74B616257D0FF716CA70FD /* CloudClipboardRelayPolicy.swift */; };
+		85F967CC4D41CDC34E69E8EF /* sentence-model-Apache-2.0.txt in Resources */ = {isa = PBXBuildFile; fileRef = 0146BFD678E30F01D26C80F8 /* sentence-model-Apache-2.0.txt */; };
 		860E4B67446CCF79E5EDE19F /* SharedNumberTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA4E6A847043CEAF3C238278 /* SharedNumberTests.swift */; };
 		86239A5E5A3CDB20E901C5D3 /* CommunityValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = F80CA053F64086B87190448F /* CommunityValidation.swift */; };
 		86485B6CEA633455FA7812FB /* KeyboardAIView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03F455BDE0DBDA8A761F0373 /* KeyboardAIView.swift */; };
@@ -1205,6 +1206,7 @@
 /* Begin PBXFileReference section */
 		00E85789EA19D3907FAA0C8A /* PersonalDictionaryStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalDictionaryStoreTests.swift; sourceTree = "<group>"; };
 		011C4FBDC81E473AA36023F6 /* AsynchronousLetterInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AsynchronousLetterInputTests.swift; sourceTree = "<group>"; };
+		0146BFD678E30F01D26C80F8 /* sentence-model-Apache-2.0.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "sentence-model-Apache-2.0.txt"; sourceTree = "<group>"; };
 		01D5C080EC1AAF97F3A2693A /* WAVPCMExtractorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WAVPCMExtractorTests.swift; sourceTree = "<group>"; };
 		023934934A4525CEB02938DB /* KeyboardAppearancePreferenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardAppearancePreferenceTests.swift; sourceTree = "<group>"; };
 		033DAEFB7D7248DC329FC47C /* ClipboardHistorySettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardHistorySettingsView.swift; sourceTree = "<group>"; };
@@ -2153,6 +2155,7 @@
 				CC9DA57D2C03A9393C8D3153 /* rime-stroke-LGPL-3.0.txt */,
 				3AAA13A376F1FDB79CE448ED /* rime-wanxiang-CC-BY-4.0.txt */,
 				F63EAB6A92E9F05D12FA4811 /* rime-wubi86-jidian-Apache-2.0.txt */,
+				0146BFD678E30F01D26C80F8 /* sentence-model-Apache-2.0.txt */,
 				878CC48498E56BE0FF350C22 /* Unicode-License-V3.txt */,
 				F00250F90DDDC57808459590 /* vi-MIT.txt */,
 				4C2C5B473825FD259C6CC8E7 /* world-clock-NOTICE.txt */,
@@ -3224,6 +3227,7 @@
 				51742FCD17AE5FCD99E076A3 /* rime-wanxiang-CC-BY-4.0.txt in Resources */,
 				3B76199DED7C44CA453AC150 /* rime-wubi86-jidian-Apache-2.0.txt in Resources */,
 				9F45F5699531E114030FDFBA /* rime_kaomoji_dict-MIT.txt in Resources */,
+				85F967CC4D41CDC34E69E8EF /* sentence-model-Apache-2.0.txt in Resources */,
 				3A9DCFCB09183E115E3D3295 /* vi-MIT.txt in Resources */,
 				12E1F4B872538DE5CEA96003 /* world-clock-NOTICE.txt in Resources */,
 			);

@@ -1425,6 +1425,27 @@ pub struct KoreanPreferences {
     pub layout: KoreanLayout,
 }
 
+/// 桌面宿主的粤拼按什么解释：`Jyutping` 是普通粤拼，前两键不是完整音节、又能解成双拼码时自动按粤语双拼读；`Shuangpin` 从第一键起按粤语双拼两键一音节读，与粤拼同形的码（如 `oi`）也按双拼。触屏宿主不读这一项，粤语双拼在那里是独立的触屏方案（`TouchKeyboardScheme::CantoneseShuangpin`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CantoneseInputMethod {
+    #[default]
+    Jyutping,
+    Shuangpin,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct CantonesePreferences {
+    pub input_method: CantoneseInputMethod,
+}
+
+impl CantonesePreferences {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 /// How Vietnamese letters and tones are typed. The Engine code is the declaration order (`vietnamese_input_method`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -2007,6 +2028,9 @@ pub struct Preferences {
     /// 可选韩语布局；宿主未声明能力时仍运行两套式。
     #[serde(default)]
     pub korean: KoreanPreferences,
+    /// 桌面宿主的粤拼解释方式（普通粤拼或粤语双拼）。等于默认值时不写进文档，没动过这一项的文档与以前的版本相同。
+    #[serde(default, skip_serializing_if = "CantonesePreferences::is_default")]
+    pub cantonese: CantonesePreferences,
     /// 只出单字：全拼、双拼、五笔和粤拼的候选只留单个汉字，选一个字后剩下的拼写接着组字。默认关闭。
     #[serde(default)]
     pub single_character_only: bool,
@@ -2408,6 +2432,12 @@ pub struct VoiceInputPreferences {
         skip_serializing_if = "is_default_voice_stop_sensitivity"
     )]
     pub stop_sensitivity: u8,
+    /// 语音标点：识别结果上屏前怎么处理标点，`auto`（原样，出厂默认）、`omit_trailing`（去掉句末标点）、`omit_all`（去掉所有标点）、`space`（标点换成空格）。对所有识别服务和润色后的文本都生效，规则在 `msime_client_providers::voice::punctuation`，宿主上屏前经 `msime_client_voice_punctuation` 调用。读的时候不认识的值按 `auto` 处理，所以这里不校验取值，更新版本写下的新选项不会让旧版本读不了偏好。与 `doubao_enable_punc` 无关：那一项只决定豆包请求时要不要标点。默认值不写进文档。
+    #[serde(
+        default = "default_voice_punctuation_mode",
+        skip_serializing_if = "is_default_voice_punctuation_mode"
+    )]
+    pub punctuation_mode: String,
 }
 
 /// EveryAPI 的识别默认模型以前写成 `openai/whisper-large-v3-turbo`，那是照搬 Apple 预设的名字，EveryAPI 从没有它的渠道（请求返回 503 `model_not_found`）。共享设置页切到 EveryAPI 时会把默认模型写进 `asr_model`，所以选过 EveryAPI 的文档里存的就是这个值。
@@ -2469,6 +2499,7 @@ impl Default for VoiceInputPreferences {
             doubao_boosting_table_id: String::new(),
             pause_millis: VOICE_PAUSE_MILLIS_DEFAULT,
             stop_sensitivity: VOICE_STOP_SENSITIVITY_DEFAULT,
+            punctuation_mode: default_voice_punctuation_mode(),
         }
     }
 }
@@ -2612,6 +2643,10 @@ pub struct GameCompatibilityPreferences {
     pub overlay_processes: Vec<String>,
     /// 从不由水杉显示候选窗的进程基名，优先于 `overlay_processes` 和内置规则。
     pub excluded_processes: Vec<String>,
+    /// 游戏给不出可信光标时，兜底锚点放在客户区上部而不是下部。默认关闭：多数游戏的
+    /// 聊天输入框在左下角，`GameCandidateAnchor.h` 的落点就是按那里定的。少数游戏的
+    /// 输入框在顶部（DNF 的聊天行在画面上沿），对它们左下角的兜底点离输入处最远。
+    pub overlay_anchor_top: bool,
 }
 
 impl Default for GameCompatibilityPreferences {
@@ -2620,6 +2655,7 @@ impl Default for GameCompatibilityPreferences {
             candidate_overlay: true,
             overlay_processes: Vec::new(),
             excluded_processes: Vec::new(),
+            overlay_anchor_top: false,
         }
     }
 }
@@ -4225,6 +4261,17 @@ fn is_default_voice_stop_sensitivity(value: &u8) -> bool {
     *value == VOICE_STOP_SENSITIVITY_DEFAULT
 }
 
+/// `voice_input.punctuation_mode` 的出厂值：识别结果原样上屏。
+pub const VOICE_PUNCTUATION_MODE_DEFAULT: &str = "auto";
+
+fn default_voice_punctuation_mode() -> String {
+    VOICE_PUNCTUATION_MODE_DEFAULT.into()
+}
+
+fn is_default_voice_punctuation_mode(value: &str) -> bool {
+    value == VOICE_PUNCTUATION_MODE_DEFAULT
+}
+
 impl Default for Preferences {
     fn default() -> Self {
         Self {
@@ -4324,6 +4371,7 @@ impl Default for Preferences {
             shuangpin_keymap_hint: None,
             vietnamese: VietnamesePreferences::default(),
             korean: KoreanPreferences::default(),
+            cantonese: CantonesePreferences::default(),
             single_character_only: false,
             caret_edit_suffix: false,
             candidate_page_size: 6,
@@ -6511,7 +6559,7 @@ fn acceptable_preferences(candidate: &serde_json::Map<String, serde_json::Value>
         .is_ok_and(|preferences| preferences.validate().is_ok())
 }
 
-/// 读盘时把更新的版本才有的标量取值换成本版本的取值，免得一个键让整份文档读不了；只用于读磁盘，设置提交仍由枚举反序列化严格校验。目前只有韩文布局：更新的版本的未知布局回退到两套式。
+/// 读盘时把更新的版本才有的标量取值换成本版本的取值，免得一个键让整份文档读不了；只用于读磁盘，设置提交仍由枚举反序列化严格校验。目前有韩文布局和粤拼解释方式：更新的版本的未知取值分别回退到两套式和普通粤拼。
 fn settle_newer_values_on_read(document: &mut serde_json::Value) {
     if let Some(layout) = document.pointer_mut("/preferences/korean/layout") {
         if layout
@@ -6519,6 +6567,14 @@ fn settle_newer_values_on_read(document: &mut serde_json::Value) {
             .is_some_and(|value| !matches!(value, "dubeolsik" | "romaja"))
         {
             *layout = "dubeolsik".into();
+        }
+    }
+    if let Some(method) = document.pointer_mut("/preferences/cantonese/input_method") {
+        if method
+            .as_str()
+            .is_some_and(|value| !matches!(value, "jyutping" | "shuangpin"))
+        {
+            *method = "jyutping".into();
         }
     }
 }

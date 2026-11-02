@@ -130,13 +130,17 @@ export function CommunityCandidateSkinsPage({
         onSearchChange={setSearch}
         onSearchSubmit={() => void requestList(search, false)}
         title="社区皮肤"
-        note="为输入候选窗口换一身新装，安装后在「本地皮肤」中启用"
+        help={
+          <>
+            <span className="block">为输入候选窗口换一身新装，安装后在「本地皮肤」中启用。</span>
+            <span className="mt-1.5 block">
+              MCP 可以让 Claude、Codex 等 AI 助手在本机帮你制作候选窗口皮肤。先到桌面设置的「AI →
+              连接助手」（手机为「AI 助手」）连接
+              MCP，打开「允许修改设置」，再告诉助手想要的颜色、风格和明暗模式；例如“帮我做一款深色的青绿色皮肤”。助手会生成并安装皮肤，登录后还会保存到你的皮肤库。回到这里点「发布皮肤」，就能把它分享给社区。
+            </span>
+          </>
+        }
       />
-      <CommunityNotice>
-        MCP 可以让 Claude、Codex 等 AI 助手在本机帮你制作候选窗口皮肤。先到桌面设置的「AI →
-        连接助手」（手机为「AI 助手」）连接
-        MCP，打开「允许修改设置」，再告诉助手想要的颜色、风格和明暗模式；例如“帮我做一款深色的青绿色皮肤”。助手会生成并安装皮肤，登录后还会保存到你的皮肤库。回到这里点「发布皮肤」，就能把它分享给社区。
-      </CommunityNotice>
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <CommunityScopeButtons
           className="flex gap-0.5 rounded-lg bg-subtle p-0.5 [&>button]:m-0 [&>button]:rounded-md [&>button]:border-0 [&>button]:bg-transparent [&>button]:px-3 [&>button]:py-1.5 [&>button]:font-medium [&>button]:whitespace-nowrap [&>button]:text-secondary [&>button[aria-pressed=true]]:bg-raised [&>button[aria-pressed=true]]:text-body [&>button[aria-pressed=true]]:shadow-card"

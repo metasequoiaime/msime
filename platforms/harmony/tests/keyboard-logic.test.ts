@@ -268,7 +268,10 @@ import {
   CorrectionMarkPolicy,
   CorrectionSurfaceColors,
 } from "../entry/src/main/ets/keyboard/candidate/CorrectionMarkPolicy";
-import { ShuangpinKeyHintPolicy } from "../entry/src/main/ets/keyboard/input/ShuangpinKeyHintPolicy";
+import {
+  CANTONESE_PROFILE,
+  ShuangpinKeyHintPolicy,
+} from "../entry/src/main/ets/keyboard/input/ShuangpinKeyHintPolicy";
 import { EditorPolicy, EditorTraits } from "../entry/src/main/ets/keyboard/input/EditorPolicy";
 import { EditEchoLedger } from "../entry/src/main/ets/keyboard/input/EditEchoLedger";
 import { CaretContextEcho } from "../entry/src/main/ets/keyboard/input/CaretContextEcho";
@@ -350,11 +353,7 @@ import {
   VoiceInputConfigurationPolicy,
   DoubaoCredentialPolicy,
 } from "../entry/src/main/ets/keyboard/input/VoiceInputConfiguration";
-import {
-  CrashDestination,
-  CrashReport,
-  TelemetryPolicy,
-} from "../entry/src/main/ets/telemetry/TelemetryPolicy";
+import { CrashReport, TelemetryPolicy } from "../entry/src/main/ets/telemetry/TelemetryPolicy";
 import { NoticePolicy } from "../entry/src/main/ets/notices/NoticePolicy";
 import {
   HttpRequestLike,
@@ -2614,7 +2613,7 @@ group("enabled schemes keep the fixed order and never resolve to nothing", () =>
   );
   check(
     KeyboardScheme.enabledFromPreferenceIds(null) === KeyboardScheme.DEFAULT_ENABLED &&
-      KeyboardScheme.DEFAULT_ENABLED.length === KeyboardScheme.SCHEMES.length - 8,
+      KeyboardScheme.DEFAULT_ENABLED.length === KeyboardScheme.SCHEMES.length - 9,
     "a null list means every scheme but the six the user turns on",
   );
 });
@@ -3473,7 +3472,7 @@ group("全拼 14 键的键表与引擎的组码表是同一张", () => {
 group("全拼 14 键是追加在最后的一张卡，只给全拼，默认不启用", () => {
   const fourteen: SchemeDefinition = KeyboardScheme.QUANPIN_FOURTEEN_KEY;
   check(
-    KeyboardScheme.SCHEMES[17] === fourteen && KeyboardScheme.SCHEMES.length === 19,
+    KeyboardScheme.SCHEMES[17] === fourteen && KeyboardScheme.SCHEMES.length === 20,
     "按 append-only 排在笔画之后",
   );
   check(
@@ -8719,6 +8718,52 @@ group(
 );
 
 group(
+  "显示字母键角标 is a device switch in the feedback file, on unless turned off, as on Android (#10587)",
+  () => {
+    check(KeyboardFeedback.DEFAULTS.letterCornerHints === true, "a keyboard that never saw it draws the corner symbols");
+    const old = KeyboardFeedback.parse(
+      JSON.stringify({ sound: true, haptics: false, strength: "light", swipeSymbols: false }),
+    );
+    check(old.letterCornerHints === true, "a file written before it existed reads as on");
+    const hidden = KeyboardFeedback.parse(
+      JSON.stringify({ sound: false, haptics: false, strength: "medium", letterCornerHints: false }),
+    );
+    check(
+      hidden.letterCornerHints === false && hidden.swipeSymbols === true,
+      "hiding the symbols leaves the swipe switch on",
+    );
+    check(
+      KeyboardFeedback.parse(KeyboardFeedback.serialize(hidden)).letterCornerHints === false,
+      "and survives being written again",
+    );
+    check(
+      KeyboardFeedback.parse(JSON.stringify({ letterCornerHints: "no" })).letterCornerHints === true,
+      "a value that is not a boolean falls back to on",
+    );
+    check(KeyboardFeedbackBridge.toShared(hidden).letterCornerHints === false, "the page is shown it as stored");
+    check(
+      KeyboardFeedbackBridge.fromShared(
+        { soundEnabled: false, hapticsEnabled: false, hapticStrength: "medium" },
+        hidden,
+      ).letterCornerHints === false,
+      "a save that does not carry it, as the account sync builds one, keeps the stored value",
+    );
+    check(
+      KeyboardFeedbackBridge.fromShared(
+        { soundEnabled: false, hapticsEnabled: false, hapticStrength: "medium", letterCornerHints: true },
+        hidden,
+      ).letterCornerHints === true,
+      "a page save turns it back on",
+    );
+    check(
+      KeyboardFeedback.withFloating(hidden, true, 0.5, 0.5).letterCornerHints === false &&
+        KeyboardFeedback.withAdjust(hidden, 0, 100, 0.5).letterCornerHints === false,
+      "moving or adjusting the keyboard keeps it",
+    );
+  },
+);
+
+group(
   "单手模式 and 隐私模式 are device settings in the feedback file, both off as on Android",
   () => {
     check(
@@ -10700,6 +10745,59 @@ group("each profile has its own table", () => {
   check(
     ShuangpinKeyHintPolicy.hint("shoudao", "E", false, 1, "none", true) === "sh / e",
     "shoudao puts sh on e rather than on u",
+  );
+});
+
+group("Cantonese shuangpin labels its keys with the engine's face (#10438)", () => {
+  // 与 crates/engine/src/cantonese/shuangpin.rs 的 `key_hints_label_every_key_with_what_it_types` 逐键相同：鸿蒙没有接 `msime_client_shuangpin_key_hints`，表是抄过来的，这里钉住不漂移。
+  const expected: [string, string][] = [
+    ["Q", "iu"],
+    ["W", "oe"],
+    ["E", "e"],
+    ["R", "uk yun yut"],
+    ["T", "ek it"],
+    ["Y", "j / eoi eot"],
+    ["U", "kw / u"],
+    ["I", "gw / i"],
+    ["O", "o oi"],
+    ["P", "eon un ung ut"],
+    ["A", "a aa"],
+    ["S", "ok on ong ot"],
+    ["D", "am ap"],
+    ["F", "an at"],
+    ["G", "ak ang eng"],
+    ["H", "aak aang"],
+    ["J", "aan aat"],
+    ["K", "aau au"],
+    ["L", "aai ai"],
+    ["Z", "ei"],
+    ["X", "oek oeng"],
+    ["C", "aam aap"],
+    ["V", "ng / ui yu"],
+    ["B", "ou"],
+    ["N", "in"],
+    ["M", "im ip"],
+    [";", "ik ing"],
+  ];
+  for (const [key, hint] of expected) {
+    const actual = ShuangpinKeyHintPolicy.hint(CANTONESE_PROFILE, key, false, 1, "none", true);
+    check(actual === hint, `cantonese ${key} should read "${hint}", got "${actual}"`);
+  }
+  check(
+    ShuangpinKeyHintPolicy.hint(CANTONESE_PROFILE, "q", false, 1, "none", false) === "",
+    "the same switch turns Cantonese shuangpin hints off",
+  );
+  check(
+    ShuangpinKeyHintPolicy.cantoneseFace("cantonese_shuangpin", 5),
+    "Cantonese shuangpin on a Cantonese session draws its face",
+  );
+  check(
+    !ShuangpinKeyHintPolicy.cantoneseFace("cantonese", 5),
+    "plain Jyutping is spelled out in full and draws none",
+  );
+  check(
+    !ShuangpinKeyHintPolicy.cantoneseFace("cantonese_shuangpin", 0),
+    "a session left on another scheme (no Cantonese dictionary) draws none",
   );
 });
 
@@ -15651,7 +15749,7 @@ group("Korean draws the syllable, not the key letters behind it", () => {
 
 group("the Korean scheme is one more card, and remembers the Chinese scheme it replaced", () => {
   check(
-    KeyboardScheme.SCHEMES[11] === KeyboardScheme.KOREAN && KeyboardScheme.SCHEMES.length === 19,
+    KeyboardScheme.SCHEMES[11] === KeyboardScheme.KOREAN && KeyboardScheme.SCHEMES.length === 20,
     "appended after the first ten, as the shared seventeen-entry picker has it",
   );
   check(
@@ -18261,7 +18359,7 @@ group(
   "Cantonese, Zhuyin and Vietnamese are three more cards, Cantonese and Zhuyin needing a dictionary",
   () => {
     check(
-      KeyboardScheme.SCHEMES.length === 19 &&
+      KeyboardScheme.SCHEMES.length === 20 &&
         KeyboardScheme.SCHEMES[11] === KeyboardScheme.KOREAN &&
         KeyboardScheme.SCHEMES[12] === KeyboardScheme.CANTONESE &&
         KeyboardScheme.SCHEMES[13] === KeyboardScheme.ZHUYIN &&
@@ -18431,9 +18529,57 @@ group("the Dachen keys wear their bopomofo and send their ASCII key", () => {
   );
 });
 
+group("粤语双拼是追加在最后的一张卡：粤拼的方案、布局和词典，默认不启用，带 ; 韵母键", () => {
+  const shuangpin: SchemeDefinition = KeyboardScheme.CANTONESE_SHUANGPIN;
+  check(
+    KeyboardScheme.SCHEMES[KeyboardScheme.SCHEMES.length - 1] === shuangpin &&
+      shuangpin.preferenceId === "cantonese_shuangpin" &&
+      shuangpin.engineScheme === "cantonese" &&
+      shuangpin.touchKeyboardLayout === "twenty_six_key" &&
+      shuangpin.glyph === "粤" &&
+      shuangpin.badge === "双",
+    "按 append-only 排在最后，与共享 TouchKeyboardScheme::ALL 一致",
+  );
+  check(
+    !KeyboardScheme.DEFAULT_ENABLED.includes(shuangpin) &&
+      KeyboardScheme.languageDictionary(shuangpin.engineScheme) === "msime-cantonese.db",
+    "默认不启用，并且和粤拼一样要 msime-cantonese.db",
+  );
+  check(
+    KeyboardScheme.fromPreferenceId("cantonese_shuangpin") === shuangpin &&
+      KeyboardScheme.fromPreferences("cantonese", null, "twenty_six_key") ===
+        KeyboardScheme.CANTONESE &&
+      KeyboardScheme.resolveEnabledSelection(KeyboardScheme.CANTONESE, "cantonese_shuangpin", [
+        KeyboardScheme.QUANPIN,
+        KeyboardScheme.CANTONESE,
+        shuangpin,
+      ]) === shuangpin,
+    "只靠 selected 与粤拼区分，按方案和布局反查时落到粤拼",
+  );
+  const mapping: PreferenceMapping = KeyboardScheme.mapping(shuangpin, "wubi", null);
+  check(
+    mapping.scheme === "cantonese" &&
+      mapping.lastChineseScheme === "cantonese" &&
+      mapping.touchKeyboardLayout === "twenty_six_key",
+    "写进偏好的是粤拼方案和 26 键布局",
+  );
+  check(
+    KeyboardScheme.showsSemicolonFinal(shuangpin) &&
+      KeyboardScheme.showsSemicolonFinal(KeyboardScheme.MICROSOFT) &&
+      !KeyboardScheme.showsSemicolonFinal(KeyboardScheme.CANTONESE) &&
+      !KeyboardScheme.showsSemicolonFinal(KeyboardScheme.XIAOHE),
+    "微软双拼和粤语双拼带 ; 键，普通粤拼和别的双拼不带",
+  );
+  check(
+    KeyboardScheme.semicolonFinalLabel(shuangpin) === "分号，粤语双拼 ing 和 ik" &&
+      KeyboardScheme.semicolonFinalLabel(KeyboardScheme.MICROSOFT) === null,
+    "粤语双拼的 ; 键读出它打的韵母",
+  );
+});
+
 group("Stroke is one more card, opt-in and needing msime-stroke.db", () => {
   check(
-    KeyboardScheme.SCHEMES.length === 19 &&
+    KeyboardScheme.SCHEMES.length === 20 &&
       KeyboardScheme.SCHEMES[15] === KeyboardScheme.TIBETAN &&
       KeyboardScheme.SCHEMES[16] === KeyboardScheme.STROKE,
     "appended after Tibetan, as the shared TouchKeyboardScheme::ALL appends it",
@@ -19221,10 +19367,7 @@ group("usage reporting reads HiAppEvent crash reports without leaking directorie
       },
     }),
   );
-  check(
-    javascript?.message === "TypeError: Cannot read property 'x' of undefined",
-    "a JavaScript crash keeps the error name and the first line of its message",
-  );
+  check(javascript?.message === "TypeError", "JavaScript 崩溃只保留类型，不上传异常消息");
   check(javascript?.stack.startsWith("at view") === true, "and its stack, trimmed");
 
   check(TelemetryPolicy.crashReport("not json") === null, "an unreadable report is ignored");
@@ -19242,69 +19385,80 @@ group("usage reporting reads HiAppEvent crash reports without leaking directorie
   );
 });
 
-group(
-  "a crash belongs to the unfinished keyboard session only before this keyboard begins its own",
-  () => {
-    const report: CrashReport = { pid: 99, time: 1, message: "SIGABRT", stack: "" };
-    check(
-      TelemetryPolicy.destination(report, 99, false) === CrashDestination.Session,
-      "the previous keyboard process's crash, before begin, is that session's crash",
-    );
-    check(
-      TelemetryPolicy.destination(report, 99, true) === CrashDestination.Standalone,
-      "after begin the marker is this run's, so the crash stands alone",
-    );
-    check(
-      TelemetryPolicy.destination(report, 12, false) === CrashDestination.Standalone,
-      "another process's crash (the settings application) never closes the keyboard session",
-    );
-    check(
-      TelemetryPolicy.destination(report, null, false) === CrashDestination.Standalone,
-      "with no remembered keyboard process nothing is attributed",
-    );
-    check(
-      TelemetryPolicy.standaloneRecordName(report) === "harmony-99-1.crash",
-      "a standalone record is named by process and time, so a report delivered twice is written once",
-    );
-    check(
-      TelemetryPolicy.recordText(report) === "SIGABRT\n",
-      "a record is the summary line, then the frames",
-    );
-    check(
-      TelemetryPolicy.rememberedPid('{"pid":4321}') === 4321,
-      "the remembered process id is read",
-    );
-    check(TelemetryPolicy.rememberedPid("{}") === null, "and a file without one is no process");
-  },
-);
+group("鸿蒙共享授权响应不能由错误或布尔缓存绕过", () => {
+  const epoch = "12345678-1234-4234-8234-123456789abc";
+  const response = (enabled: unknown, identity: unknown = epoch, since: unknown = 1000): string =>
+    JSON.stringify({ ok: true, value: { enabled, epoch: identity, since_unix_ms: since } });
+  const current = TelemetryPolicy.sharedConsentReply(response(true));
+  check(current?.epoch === epoch && current.since === 1000, "共享 UUID 与起点原样保留");
+  for (const invalid of [
+    response(false),
+    response("true"),
+    response(true, "1-1-1-1-1"),
+    response(true, "00000000-0000-0000-0000-000000000000"),
+    response(true, epoch, "1000"),
+    response(true, epoch, 0),
+    response(true, epoch, 1.5),
+    "{}",
+    "invalid",
+    JSON.stringify({ ok: false, value: { enabled: true, epoch, since_unix_ms: 1000 } }),
+  ]) {
+    check(TelemetryPolicy.sharedConsentReply(invalid) === null, "错误授权响应保持拒绝");
+  }
+});
 
-group("usage reporting is cleared only by a saved document that turns it off", () => {
-  const saved = '{"ok":true,"value":{"revision":3}}';
-  check(
-    TelemetryPolicy.reportingTurnedOff(
-      '{"format_version":1,"preferences":{"usage_reporting":false}}',
-      saved,
-    ),
-    "an explicit false that was saved turns reporting off",
+group("鸿蒙系统诊断必须处于持续同意的时间范围内", () => {
+  const report: CrashReport = { pid: 42, time: 2000, message: "SIGABRT", stack: "" };
+  check(TelemetryPolicy.diagnosticAllowed(report, 1000, 3000), "同意后发生的诊断允许补报");
+  check(!TelemetryPolicy.diagnosticAllowed(report, 2500, 3000), "重新开启统计不追认关闭期间的故障");
+  check(!TelemetryPolicy.diagnosticAllowed(report, null, 3000), "没有持久同意标记时不追认历史诊断");
+  check(!TelemetryPolicy.diagnosticAllowed(report, 1000, 1500), "未来诊断不能提前认领");
+});
+
+group("鸿蒙卡死独立归属且不携带系统原文", () => {
+  const report = TelemetryPolicy.freezeReport(
+    JSON.stringify({
+      pid: 42,
+      time: 100,
+      bundle_version: "0.1.0",
+      exception: { name: "THREAD_BLOCK_6S", message: "synthetic private content" },
+      hilog: ["synthetic private log"],
+      external_log: ["/private/synthetic.log"],
+    }),
   );
   check(
-    !TelemetryPolicy.reportingTurnedOff('{"format_version":1,"preferences":{}}', saved),
-    "an absent key is the default, which is on",
+    report?.message === "Hang THREAD_BLOCK_6S" && report.outsideSession === true,
+    "卡死不改变输入会话崩溃计数",
   );
   check(
-    !TelemetryPolicy.reportingTurnedOff(
-      '{"format_version":1,"preferences":{"usage_reporting":false}}',
-      '{"ok":false,"error":"conflict"}',
-    ),
-    "a save the store refused changed nothing",
+    report?.stack === "" && !JSON.stringify(report).includes("private"),
+    "系统日志和异常原文不进入记录",
   );
-  check(TelemetryPolicy.flushDue(0, 1000), "a keyboard that has not sent yet sends");
-  check(!TelemetryPolicy.flushDue(1000, 1000 + 60 * 60 * 1000), "an hour later it waits");
   check(
-    TelemetryPolicy.flushDue(1000, 1000 + 6 * 60 * 60 * 1000),
-    "six hours later it sends again",
+    report !== null &&
+      TelemetryPolicy.standaloneRecordName(report) === "harmony-freeze-42-100.crash",
+    "卡死身份稳定且与同刻崩溃区分",
   );
-  check(TelemetryPolicy.flushDue(5000, 1000), "a clock that went back does not stop it for good");
+  const unknown = TelemetryPolicy.freezeReport(
+    JSON.stringify({ pid: 42, time: 101, exception: { name: "synthetic private name" } }),
+  );
+  check(unknown?.message === "Hang unknown", "未知原因不泄露任意字符串");
+  check(TelemetryPolicy.freezeReport("invalid") === null, "拒绝损坏的卡死报告");
+});
+
+group("系统诊断文件名和原始版本在重复投递时保持稳定", () => {
+  const report: CrashReport = { pid: 99, time: 1, message: "SIGABRT", stack: "" };
+  check(
+    TelemetryPolicy.standaloneRecordName(report) === "harmony-99-1.crash",
+    "a standalone record is named by process and time, so a report delivered twice is written once",
+  );
+});
+
+group("遥测补发保持六小时间隔并处理时钟回拨", () => {
+  check(TelemetryPolicy.flushDue(0, 1000), "尚未发送的键盘允许补发");
+  check(!TelemetryPolicy.flushDue(1000, 1000 + 60 * 60 * 1000), "一小时后仍等待");
+  check(TelemetryPolicy.flushDue(1000, 1000 + 6 * 60 * 60 * 1000), "六小时后重新补发");
+  check(TelemetryPolicy.flushDue(5000, 1000), "时钟回拨不能永久阻止补发");
 });
 
 group("notices are shown from client-core's answer and their links leave the application", () => {

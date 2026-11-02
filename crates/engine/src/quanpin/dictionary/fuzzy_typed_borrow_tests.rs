@@ -81,6 +81,7 @@ fn legacy_typed_append_cached_fuzzy_rows(
             rules,
             limit,
             typed: typed.clone(),
+            path_count: paths.len(),
             rows: rows.clone(),
         },
     );
@@ -266,6 +267,9 @@ fn full_fuzzy_queries_own_typed_prefixes_only_for_real_consumers() {
                             after.fuzzy_cache.clear();
                         }
                     }
+                    let skipped = super::fuzzy_row_projection_tests::skipped_path_allocations(
+                        &after, typed, options,
+                    );
                     let (expected, old_count) =
                         count(|| before.legacy_typed_fuzzy_candidates(typed, options));
                     let (mut actual, new_count) = count(|| after.fuzzy_candidates(typed, options));
@@ -283,7 +287,11 @@ fn full_fuzzy_queries_own_typed_prefixes_only_for_real_consumers() {
                             .filter(|part| !part.is_empty())
                             .count()
                     };
-                    let saved = if mode == 2 { 0 } else { unused + input_copies };
+                    let saved = if mode == 2 {
+                        0
+                    } else {
+                        unused + input_copies + skipped
+                    };
                     saw_empty_page |=
                         rules != 0 && plan.iter().any(|(_, _, paths)| *paths) && actual.is_empty();
                     assert_eq!(
@@ -339,15 +347,19 @@ fn supplied_owned_typed_keeps_first_row_capacity_and_cold_cache_capacity() {
                 )
             });
             let (_, new_count) = count(|| {
-                append_cached_fuzzy_rows(
-                    &new_database,
-                    &mut after,
-                    &paths,
-                    options.rules,
-                    64,
-                    new_typed,
-                    &mut actual,
-                )
+                if let Err(new_typed) =
+                    append_cached_fuzzy_rows(&mut after, options.rules, 64, new_typed, &mut actual)
+                {
+                    append_queried_fuzzy_rows(
+                        &new_database,
+                        &mut after,
+                        &paths,
+                        options.rules,
+                        64,
+                        new_typed,
+                        &mut actual,
+                    );
+                }
             });
             assert_rows(&actual, &expected);
             assert_eq!(new_count, old_count);

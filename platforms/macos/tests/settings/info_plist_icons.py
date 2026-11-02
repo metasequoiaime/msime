@@ -90,7 +90,7 @@ def main() -> int:
                     f"{value} is missing the {missing} page; the menu slot crops what it is given"
                 )
 
-    # 输入法 bundle 自身与状态项使用这张产品 logo；它必须继续由 plist 声明为输入法图标。
+    # 输入法 bundle 自身使用这张产品 logo，菜单栏状态项在模式图标缺失时也退回它；它必须继续由 plist 声明为输入法图标。
     if "MSIMEClientInputMethodMenuIcon.tiff" not in named.get("tsInputMethodIconFileKey", set()):
         failures.append("tsInputMethodIconFileKey no longer names MSIMEClientInputMethodMenuIcon.tiff, the product logo is missing")
 

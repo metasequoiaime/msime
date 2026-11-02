@@ -303,7 +303,7 @@ ctest --test-dir target/windows-full/x64/wer-lifecycle -C RelWithDebInfo --outpu
 platforms/windows/tsf/tests/Invoke-SystemWer.ps1 -BuildDirectory target/windows-full/x64/wer-lifecycle -OutputDirectory C:/msime-tests/wer-system-new-run
 ```
 
-`OutputDirectory` 必须是尚不存在的合成目录。系统专项临时将本次 helper 的完整路径加入当前用户的 WER 允许列表，结束时只删除自己的值；不改通用 WER 策略、不调用产品上传入口。它验证 TIP/Host API 自有故障、外部故障、授权撤回重开、最后租约释放和被宿主捕获的异常，分别核对系统退出码与落盘。x86 将构建目录改为 `target/windows-full/x86/wer-lifecycle`、架构改为 `Win32`，使用不同输出目录。脚本带 UTF-8 BOM，可直接由 Windows PowerShell 5 执行。生产安装器和 Arm64X 已接线；合成控制器与系统回调通过仍不等于完整 TIP 产品、真实编辑器、ARM64 或后台验收，范围见[TSF 采集提案](../../.agents/notes/proposed/feature/2026-10-28-windows-tsf-wer-capture.md)。
+`OutputDirectory` 必须是尚不存在的合成目录。系统专项临时将本次 helper 的完整路径加入当前用户的 WER 允许列表，结束时只删除自己的值；不改通用 WER 策略、不调用产品上传入口。它验证 TIP/Host API 自有故障、外部故障、授权撤回重开、最后租约释放和被宿主捕获的异常，分别核对系统退出码与落盘。x86 的系统 WER 偶尔会把挂起的目标停在 WerSvc 的 LPC 回复上、不再结束它；脚本只对这种已确认的形态在 `<用例>-retry` 目录重跑一次，重跑仍须通过全部断言，首次诊断保留在原目录的 `timeout.json`。x86 将构建目录改为 `target/windows-full/x86/wer-lifecycle`、架构改为 `Win32`，使用不同输出目录。脚本带 UTF-8 BOM，可直接由 Windows PowerShell 5 执行。生产安装器和 Arm64X 已接线；合成控制器与系统回调通过仍不等于完整 TIP 产品、真实编辑器、ARM64 或后台验收，范围见[TSF 采集笔记](../../.agents/notes/implemented/feature/2026-11-01-windows-tsf-wer-capture.md)。
 
 `bash tests/tools/check-cross.sh /absolute/nlohmann-include-root` 使用 x86_64/i686 MinGW 分别编译适配器、测试源和 `shared/contracts` 中的 IPC 契约，验证 32/64 位 COFF 和 Windows SDK 键码断言；另将不依赖 Rust 的编码测试链接为 Windows PE。不会链接 Windows Rust 库，也不执行 Windows 二进制。会话测试覆盖真实 Unicode 输入、锁定词库第二页数字选词、配置延迟、客户端/焦点/线程拒绝及本地取消不回复。
 
@@ -643,6 +643,8 @@ ABI 1 的附加符号 msime_client_punctuation，适配器与宿主库必须成�
 PuncSwitch 的 keycode 与 StatusSnapshot/FocusRestored 的 pinyin_length 同步到当前会话的中文标点开关。经共享 C ABI 调用固定 Engine 的运行时 setter，不重建会话，不改变组合、光标、候选代次或引号配对。待回复和过期焦点仍不能修改状态。TSF 开关是每会话临时覆盖，不写入配置文件，并在共享偏好替换 Engine 时重新应用；未收到覆盖的会话继续使用持久化偏好默认值。
 
 msime_client_set_chinese_punctuation 是 ABI 1 的附加符号，适配器和宿主库须成套更新。其返回值为未变化的 View；关闭时空组合 ASCII 标点由宿主透传，组合中标点仍按共享运行时的完成策略处理。这个接口只管每会话的标点开关，全局作用域由 `ModeAuthority` 和共享的 `ime_mode_scope` 决定。
+
+TIP 的标点 compartment 在激活和每次切换中英文（Shift、语言栏、Server 推送的应用规则）时回到这个模式的起始状态：`punctuation_lock` 为跟随时，英文模式用英文标点，中文模式用已存的 `chinese_punctuation`（设置「标点」里的「中文标点」「英文标点」，出厂为中文标点）；锁定时取锁定值。规则在 `tsf/Global/PunctuationModePolicy.h` 的 `PunctuationOpenForImeMode`，接在 `CompositionProcessorEngine.cpp` 的 `SyncPunctuationWithImeMode`、`InitializeMetasequoiaIMECompartment` 和 OPENCLOSE 回调上，起始标点与锁定一起由 `FanyUtils::RefreshPunctuationLockFromConfig` 从内存快照刷新。Ctrl+.、工具栏和托盘的切换只改当前 compartment（`PunctuationOpenForRequest`），不写偏好，下一次激活或中英文切换后回到起始标点。`msime-tsf-punctuation-mode-policy` 测试核对规则和这几处接线。
 
 ### 书名号自动补全后的嵌套回退
 

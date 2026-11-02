@@ -234,9 +234,12 @@ test("the HarmonyOS phone 词库 page lists dictionaries the way Android does, w
   for (const gone of ["新建词库", "导入词库", "导出词库", "刷新词库"]) {
     expect(screen.queryByText(gone)).toBeNull();
   }
-  // 说明在卡片下面，不在卡片里。
-  const note = screen.getByText("点进词库可以启用、停用和编辑词条。已启用的词库会一起参与候选。");
-  expect(group("已安装").contains(note)).toBe(false);
+  // 说明收进「已安装」组名旁的「?」，不常驻在卡片下面。
+  expect(
+    screen.getByRole("button", {
+      name: "已安装的说明：点进词库可以启用、停用和编辑词条。已启用的词库会一起参与候选。",
+    }),
+  ).toBeTruthy();
 });
 
 test("the list flushes queued words when it opens", async () => {

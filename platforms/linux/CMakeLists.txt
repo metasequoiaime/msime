@@ -1385,6 +1385,8 @@ set(MSIME_NOTICE_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/ewts-MIT.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-stroke-LGPL-3.0.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/OpenCC-Apache-2.0.txt"
+  # 资源目录里的整句重排模型 sentence-model.safetensors 与随包时 settled-model/ 里的 sentence-model-desktop.safetensors 是 chinese-ime-lm 的 model-v1（Apache-2.0）：许可证全文、上游 NOTICE 与训练语料要求的署名都在这份各平台共用的文件里。
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/sentence-model-Apache-2.0.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/pinyin-data-MIT.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/ECDICT-MIT.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime_kaomoji_dict-MIT.txt"
@@ -1412,6 +1414,7 @@ set(MSIME_NOTICE_NAMES
   ewts-MIT.txt
   rime-stroke-LGPL-3.0.txt
   OpenCC-Apache-2.0.txt
+  sentence-model-Apache-2.0.txt
   pinyin-data-MIT.txt
   ECDICT-MIT.txt
   rime_kaomoji_dict-MIT.txt

@@ -119,12 +119,19 @@ export function InputSchemeSettingsContent({
     .filter(
       ([scheme]) =>
         (scheme !== "cantonese" &&
+          scheme !== "cantonese_shuangpin" &&
           scheme !== "zhuyin" &&
           scheme !== "vietnamese" &&
           scheme !== "tibetan" &&
           scheme !== "stroke" &&
           scheme !== "zhuyin_nine_key") ||
-        inputSchemes.includes(scheme === "zhuyin_nine_key" ? "zhuyin" : scheme),
+        inputSchemes.includes(
+          scheme === "zhuyin_nine_key"
+            ? "zhuyin"
+            : scheme === "cantonese_shuangpin"
+              ? "cantonese"
+              : scheme,
+        ),
     )
     .filter(([scheme]) => {
       if (!edition) return true;
@@ -251,6 +258,8 @@ export function InputSchemeSettingsContent({
           koreanRomaja={koreanRomaja}
           korean={preferences.korean}
           onKoreanChange={(korean) => onPreferencesChange({ korean })}
+          cantonese={preferences.cantonese}
+          onCantoneseChange={(cantonese) => onPreferencesChange({ cantonese })}
           onVietnameseChange={(vietnamese) => onPreferencesChange({ vietnamese })}
         />
         {schemePackRow}

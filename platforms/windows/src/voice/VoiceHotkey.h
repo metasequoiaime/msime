@@ -30,6 +30,7 @@ private:
   static LRESULT CALLBACK keyboard_proc(int, WPARAM, LPARAM);
   LRESULT handle_window(HWND, UINT, WPARAM, LPARAM);
   void activate(VoiceHoldShortcut);
+  void replay_as_ralt_chord(const KBDLLHOOKSTRUCT &key);
   void reset_state();
   VoiceModifierState modifiers() const;
 
@@ -49,6 +50,12 @@ private:
   std::atomic<bool> suppress_ralt_until_up_{false};
   std::atomic<bool> suppress_win_until_up_{false};
   std::atomic<VoiceHoldShortcut> active_hold_{VoiceHoldShortcut::None};
+  // Whether space has locked the active hold. A locked hold is dictation the user asked to keep, so another key does not turn it into a chord.
+  std::atomic<bool> hold_locked_{false};
+  // Set when a right-Alt hold was handed to the application as a chord, until right Alt comes back up; see voice_hold_may_activate.
+  std::atomic<bool> ralt_chord_until_up_{false};
+  // Window thread only. The session epoch of the recording the latest voice hold started, 0 when it started none; kChordCancelMessage cancels only that recording.
+  std::uint64_t hold_session_ = 0;
   bool observed_config_ = false;
   bool observed_enabled_ = true;
   bool observed_hotkey_ralt_ = true;

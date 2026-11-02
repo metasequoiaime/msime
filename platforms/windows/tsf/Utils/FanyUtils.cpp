@@ -77,9 +77,23 @@ int ReadConfiguredPunctuationLock()
     return Global::PunctuationLock::Follow;
 }
 
+BOOL ReadConfiguredChinesePunctuation()
+{
+    if (const auto preferences = ReadSharedPreferences())
+    {
+        const auto value = preferences->find("chinese_punctuation");
+        if (value != preferences->end() && value->is_boolean())
+        {
+            return value->get<bool>() ? TRUE : FALSE;
+        }
+    }
+    return TRUE;
+}
+
 void RefreshPunctuationLockFromConfig()
 {
     Global::PunctuationLockMode.store(ReadConfiguredPunctuationLock(), std::memory_order_relaxed);
+    Global::SavedChinesePunctuation.store(ReadConfiguredChinesePunctuation() != FALSE, std::memory_order_relaxed);
 }
 
 std::string ReadConfiguredInputScheme()

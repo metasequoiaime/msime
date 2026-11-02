@@ -167,6 +167,8 @@ pub struct View {
     pub editing_text: String,
     /// Byte offset in Engine's ASCII editing_text, not an OS UTF-16 offset.
     pub caret_position: usize,
+    /// 组字光标在 `preedit` 里的位置，按 Unicode 标量计，宿主自己换算成它的字符串单位。宿主画 `preedit`（全拼分词、双拼「拼音分词」展开的全拼）时用它放光标；画 `editing_text` 时仍用 `caret_position`。两者没有可靠对应时等于 `preedit` 的长度。
+    pub preedit_caret: usize,
     /// 整句改字时改好的整句，宿主在它非空时把它（接在 `phrase_prefix` 后面）画在行内代替拼音，光标画在 `conversion_focus_start` 处，`conversion_focus_start..conversion_focus_end` 是候选所替换的那一段；候选是这一段的字和词。不在改字时为空。
     pub conversion: String,
     /// 光标在 `conversion` 的第几个字之前，按 Unicode 标量计，宿主自己换算成它的字符串单位。

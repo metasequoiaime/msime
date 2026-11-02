@@ -292,6 +292,31 @@ fn swapped_inputs_are_rejected() {
     assert!(!output.status.success());
 }
 
+/// 带新世纪五笔表的 release：`wubixsj` 和 `wubi98` 一样在两个输出里都清空，表和索引保留；上面其余的用例用的是还没有这张表的 release，照常能裁。
+#[test]
+fn a_release_with_the_xsj_table_empties_it_in_both_outputs() {
+    let (dir, pinyin, wubi) = inputs();
+    Connection::open(&wubi)
+        .unwrap()
+        .execute_batch(&format!(
+            "{} INSERT INTO wubixsj VALUES ('ent', '力', 10), ('ytny', '为', 10);",
+            keyed_table("wubixsj")
+        ))
+        .unwrap();
+    let out = dir.path().join("web");
+    run(&pinyin, &wubi, &out, Some(2));
+    for name in ["msime-pinyin.db", "msime-wubi86.db"] {
+        let db = open(&out.join(name));
+        assert_eq!(count(&db, "wubixsj"), 0, "{name}");
+        assert_eq!(count(&db, "wubi98"), 0, "{name}");
+        assert!(names(&db, "index").contains(&"idx_wubixsj_key_weight".to_owned()));
+    }
+    assert_eq!(
+        rows(&open(&out.join("msime-wubi86.db")), "wubi86"),
+        [("你".into(), 3), ("我".into(), 9), ("一".into(), 1)]
+    );
+}
+
 /// 带文件内版本的 release（两个输入都有 `metadata`）：两个输出库各留一份拼音库的 `metadata`，引擎读到当前版本；`msime-wubi.db` 的那份不复制。
 #[test]
 fn versioned_inputs_keep_one_metadata_table() {

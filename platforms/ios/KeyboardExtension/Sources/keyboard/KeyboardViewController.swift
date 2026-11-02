@@ -83,7 +83,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let dictionarySync = KeyboardDictionarySync()
   private var lastKeyTouchTime: TimeInterval = -.infinity
   private var synchronizingPersonalDictionary = false
-  private let preeditButton = UIButton()
+  private let preeditButton = PreeditButton()
   private var appliedPreeditMenuKey: String?
   private let exitLocalModeButton = UIButton()
   /// 漢 on the candidate row: the touch counterpart of a Korean keyboard's Hanja key. Shown only while a Korean syllable composes; it lists the syllable's Hanja on the strip and closes the list again.
@@ -162,6 +162,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 「滑动输入符号」（`KeyboardLayoutPreference.swipeSymbols`）的开关，每次键盘出现时读一次，再交给每个字母键。
   private var swipeSymbolsEnabled = true
   private var swipeSymbolsDirection: KeyboardLayoutPreference.SwipeDirection = .up
+  /// 「显示字母键角标」（`KeyboardLayoutPreference.letterCornerHints`），每次键盘出现时读一次。只管画不画，按键上的 `cornerHint` 照旧赋值，长按和滑动不受它影响。
+  private var letterCornerHintsEnabled = true
   /// 上次配置诊断日志时闸门是否挡着它，`textDidChange` 据此判断要不要重新配置。
   private var diagnosticLogSuppressed = false
   /// 存储的单手模式，在键盘出现时读取，由它的磁贴和侧栏修改。
@@ -1181,6 +1183,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     spaceVoiceEnabled = spaceVoice
     swipeSymbolsEnabled = KeyboardLayoutPreference.swipeSymbols
     swipeSymbolsDirection = KeyboardLayoutPreference.swipeSymbolsDirection
+    let letterCornerHints = KeyboardLayoutPreference.letterCornerHints
+    let letterCornerHintsChanged = letterCornerHints != letterCornerHintsEnabled
+    letterCornerHintsEnabled = letterCornerHints
     cursorSwipeEnabled = KeyboardLayoutPreference.cursorSwipe
     if !cursorSwipeEnabled { endKeyboardCursorSwipe() }
     keyboardCursorPan.isEnabled = cursorSwipeEnabled
@@ -1197,6 +1202,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     // 空格键上的麦克风跟着长按空格语音走：从设置 App 改完切回键盘时立刻换键面（#10143）。键盘还没建好时（`viewDidLoad` 里第一次读）由建完后的那次 `updateSpaceKeyTitle` 画。
     if spaceVoiceChanged && !spaceKeys.isEmpty { updateSpaceKeyTitle() }
+    // 从设置 App 切回键盘时已经画好的字母键当场收起或画回角标；`LetterCaseInputs` 带着这一位，键面会重写。
+    if letterCornerHintsChanged { updateLetterCaseControls() }
   }
 
   /// 空格键的 VoiceOver 提示：语音关闭时，长按空格改为移动光标。
@@ -2638,6 +2645,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 读音并入候选行时最多占这一行的这一份宽度，更长的读音截掉尾部。
   static let inlineReadingMaximumShare: CGFloat = 0.3
+
+  /// 读音按钮只有拼写那么大，打 wo 这样的短拼写时很难点中（#10474）。它的可点区域放大到整个读音段（`compositionRow`）：读音单独一行时是这一行从行首到行尾、上下占满，拼音选择条显示时叠在它上面，先接住落在选择条里的触摸；读音并入候选行时这一段只有读音那么宽，放大的是上下，占满候选行的高度。只改命中，不改布局，行高、标题位置和候选的位置都不变。
+  private final class PreeditButton: UIButton {
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+      guard let row = superview else { return super.point(inside: point, with: event) }
+      return convert(row.bounds, from: row).contains(point)
+    }
+  }
 
   /// 按当前方案把读音放到单独一行或候选行最左边，顶栏和键盘高度跟着变；顶栏还没建好时（`viewDidLoad` 里先读方案）什么都不做，建顶栏时直接按当前方案装约束。
   private func applyReadingRowPlacement() {
@@ -4990,7 +5005,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       chinese: isChineseMode, scheme: inputScheme, state: letterCaseState,
       localMode: currentLocalMode, entersHelpcode: entersHelpcode,
       casedLetters: typesCasedLetters, korean: typesKorean,
-      swipeSymbols: swipeSymbolsEnabled, shuangpinHints: shuangpinKeyHintsEnabled)
+      swipeSymbols: swipeSymbolsEnabled, shuangpinHints: shuangpinKeyHintsEnabled,
+      cornerHints: letterCornerHintsEnabled)
     guard appliedLetterCaseInputs != inputs else { return }
     appliedLetterCaseInputs = inputs
     // 中文模式的字母键面画大写（与搜狗、微信、百度、豆包的拼音 26 键一致），输入的仍是小写拼写；英文模式画小写，只有下一键真的会输入大写时键面才变大写：英文的 Shift 或大写锁定，组字中的辅助码 Shift（无障碍标签里也会体现，并以大写辅助码交给 Engine），以及越南语和藏文区分大小写的字母（它们按 Shift 画大小写，不跟中文模式画大写）。日语罗马字照日文键盘的惯例画小写；本地输入模式（英文补全、Unicode、快捷短语等）按字面输入，也画小写。
@@ -5003,9 +5019,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let koreanShifted = korean && letterCaseState != .lowercase
     for (button, lowercase, hintLabel, cornerLabel) in letterButtons {
       // 角标符号属于所有模式和方案下的 QWERTY 字母键面，与 Android 的 `standardLetters` 一致；韩文字母键面没有，微软双拼的 `;` 也没有。
+      // 「显示字母键角标」关掉时只藏起这一行，`cornerHint` 照旧交给按键，长按和滑动照样输入它（#10587）。
       let corner = korean ? nil : LetterHintTable.hint(for: lowercase)
       cornerLabel.text = corner
-      cornerLabel.isHidden = corner == nil
+      cornerLabel.isHidden = corner == nil || !letterCornerHintsEnabled
       (button as? KeyboardKeyButton)?.cornerHint = corner
       (button as? KeyboardKeyButton)?.swipesCornerHint = swipeSymbolsEnabled
       (button as? KeyboardKeyButton)?.cornerHintSwipeDirection = swipeSymbolsDirection
@@ -6553,7 +6570,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func updateSchemeButton() {
     // The hints come from the engine's own profile for the scheme the session is running, so they
     // are refreshed wherever the scheme is, and cannot drift from what the keys actually produce.
-    shuangpinKeyHints = session.shuangpinKeyHints()
+    // 粤语双拼与普通粤拼是同一个引擎方案，只有键盘知道选的是哪一个；普通粤拼完整拼写，不画提示。
+    shuangpinKeyHints = inputScheme == .cantoneseShuangpin
+      ? session.cantoneseShuangpinKeyHints() : session.shuangpinKeyHints()
     nineKeyShuangpinLayout = inputScheme == .nineKeyShuangpin ? try? .current(in: session.sharedPreferences) : nil
     updateLetterCaseControls()
 
@@ -6693,6 +6712,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let korean: Bool
     let swipeSymbols: Bool
     let shuangpinHints: Bool
+    let cornerHints: Bool
   }
 
   private struct SpellingStripInputs: Equatable {
@@ -8951,9 +8971,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       configuration.attributedTitle = title
     }
     configuration.contentInsets = candidatePalette?.layout?.chipInsets(fontSize: candidateFont.pointSize, fallback: Self.candidateChipInsets) ?? Self.candidateChipInsets
-    button.configuration = configuration
-    button.titleLineCount = 1 + lines.count
-    pinCandidateWidth(of: button, contentWidth: contentWidth)
+    // 被手指按过的词块，UIKit 之后再套用 configuration 会给标题挂 0.25s 的淡入淡出（`CATransition` fade），同一个位置上新旧两个词叠着渐变。候选按 #10330 立即呈现，换字和随之的布局放在不带动画的块里做完。
+    UIView.performWithoutAnimation {
+      button.configuration = configuration
+      button.titleLineCount = 1 + lines.count
+      pinCandidateWidth(of: button, contentWidth: contentWidth)
+      button.layoutIfNeeded()
+    }
     // `hintSpoken` 是注释另有读法时的朗读文字，比如拆字的读音不是还要输入的键。
     button.accessibilityLabel = annotation.isEmpty
       ? "候选词 \(number)：\(display)"

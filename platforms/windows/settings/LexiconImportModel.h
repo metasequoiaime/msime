@@ -273,12 +273,14 @@ struct LocalKind {
   std::wstring_view export_name;
 };
 
-inline constexpr std::array<LocalKind, 5> local_kinds{{
+// 粤语既是个人词库（自己加的粤语词，经 `list` 读）也是资源词库（发布的粤语词库，经 `browse` 读），两边的 id 都是 `cantonese`，下拉框和「是不是资源词库」的判断要按所选的那一项分开，不能只看 id。
+inline constexpr std::array<LocalKind, 6> local_kinds{{
     {L"pinyin", L"中文 · 拼音", L"拼音", L"水杉IME-拼音用户词库.txt"},
     {L"wubi", L"中文 · 86 五笔", L"86 五笔", L"水杉IME-五笔用户词库.txt"},
     {L"wubi98", L"中文 · 98 五笔", L"98 五笔", L"水杉IME-98五笔用户词库.txt"},
     {L"english", L"英文", L"英文", L"水杉IME-英文用户词库.txt"},
     {L"quick_phrase", L"快捷短语", L"快捷短语", L"水杉IME-快捷短语用户词库.txt"},
+    {L"cantonese", L"中文 · 粤语", L"粤语", L"水杉IME-粤语用户词库.txt"},
 }};
 
 // 一种只读的资源词库（`resourceDictionaryKinds`）：下拉框里的名字、搜索框的提示（`ResourceDictionaryLookup` 的 `placeholders`）和列表上面那句说明。日语和韩语的第一列是读音。
@@ -293,10 +295,25 @@ struct ResourceKind {
 inline constexpr std::array<ResourceKind, 5> resource_kinds{{
     {L"japanese", L"日语", L"例如：日本、にほん 或 ニホン", L"基础词库只读，显示假名读音与词条。", true},
     {L"korean_hanja", L"韩语 · 汉字", L"输入韩文读音或汉字，例如：한 或 韓", L"基础词库只读，按内置汉字表顺序显示。", true},
-    {L"cantonese", L"中文 · 粤语", L"输入词条或粤拼，例如：你好 或 nei", L"基础词库只读。", false},
+    {L"cantonese", L"中文 · 粤语（基础词库）", L"输入词条或粤拼，例如：你好 或 nei", L"基础词库只读。", false},
     {L"zhuyin", L"中文 · 注音", L"输入词条或注音，例如：你好 或 ㄋㄧ", L"基础词库只读。", false},
     {L"stroke", L"中文 · 笔画", L"输入汉字或笔画编码，例如：一 或 h", L"基础词库只读。", false},
 }};
+
+// 「查找词库」下拉框里资源词库那几项的值：`resource:` 加 id，不和同名的个人词库（粤语）撞上。
+inline constexpr std::wstring_view resource_option_prefix = L"resource:";
+
+inline std::wstring resource_option(std::wstring_view id) {
+  return std::wstring(resource_option_prefix) + std::wstring(id);
+}
+
+// 下拉框的值对应的资源词库 id；不是资源词库那几项时为空。
+inline std::wstring_view resource_from_option(std::wstring_view value) {
+  // 这个头文件也按 C++17 编译（Win7 设置窗口），没有 starts_with。
+  return value.substr(0, resource_option_prefix.size()) == resource_option_prefix
+             ? value.substr(resource_option_prefix.size())
+             : std::wstring_view{};
+}
 
 // 个人词库搜索框的提示。
 inline constexpr std::wstring_view personal_placeholder = L"例如：你好 或 nihao";
@@ -324,9 +341,10 @@ inline std::wstring_view kind_label(std::wstring_view id) {
   return L"词库";
 }
 
-// 资源词库没有装时列表处的说法。共享页还让用户去「输入」设置里下载，Windows 没有这个下载入口，所以只说没有安装。
+// 资源词库没有装时列表处的说法。共享页还让用户去「输入」设置里下载，Windows 没有这个下载入口，所以只说没有安装。用资源词库自己的名字：粤语的 id 也是个人词库的。
 inline std::wstring resource_unavailable(std::wstring_view id) {
-  return std::wstring(kind_label(id)) + L"词库尚未安装。";
+  const auto *kind = find_resource_kind(id);
+  return std::wstring(kind ? kind->title : kind_label(id)) + L"词库尚未安装。";
 }
 
 // 一页查询结果的状态，与 `dictionaryPageStatus` 逐字相同。
@@ -344,8 +362,8 @@ inline std::wstring page_status(std::uint32_t offset, std::size_t count, bool ha
 inline constexpr std::uint64_t max_export_bytes = 32ull * 1024 * 1024;
 
 // 「导出全部」读的种类和顺序，以及每行开头的类别（`personalDictionaryExportKinds`），和「导出当前类型」的下拉框顺序不同。
-inline constexpr std::array<std::wstring_view, 5> personal_export_kinds{
-    {L"pinyin", L"wubi", L"wubi98", L"quick_phrase", L"english"}};
+inline constexpr std::array<std::wstring_view, 6> personal_export_kinds{
+    {L"pinyin", L"wubi", L"wubi98", L"quick_phrase", L"english", L"cantonese"}};
 
 inline constexpr std::wstring_view personal_export_name = L"水杉用户词库.txt";
 inline constexpr std::wstring_view personal_export_header = L"# 类别\t编码\t词条\t权重\n";

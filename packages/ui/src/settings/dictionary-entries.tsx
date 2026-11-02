@@ -6,13 +6,10 @@ import type {
   LocalDictionaryKind,
 } from "../dictionary/dictionary-file";
 import { dictionaryKindKeyHint } from "../dictionary/dictionary-messages";
-import {
-  isResourceDictionaryKind,
-  localDictionaryKinds,
-  resourceDictionaryKinds,
-} from "../dictionary/dictionary-kinds";
+import { localDictionaryKinds, resourceDictionaryKinds } from "../dictionary/dictionary-kinds";
 import * as settings from "./settings-style";
 import { SettingsPhraseForm } from "./settings-phrase-form";
+import { InfoTip } from "../core/info-tip";
 import { ActionButton } from "./action-button";
 import { QUICK_PHRASE_DICTIONARY_CURSOR_NOTE } from "./plugin-editor-model";
 import { SettingsEmptyMessage } from "./settings-empty-message";
@@ -72,8 +69,11 @@ export function DictionaryEntries({
               readOnly={form.previous?.source === "bundled"}
               onChange={(event) => onFormChange({ ...form, value: event.target.value })}
             />
+            {/* 光标标记怎么写是解释：在 label 里只能放悬停的「?」，文本框照旧以 label 命名。 */}
             {kind === "quick_phrase" && (
-              <small className={settings.keyHint}>{QUICK_PHRASE_DICTIONARY_CURSOR_NOTE}</small>
+              <InfoTip passive subject="短语">
+                {QUICK_PHRASE_DICTIONARY_CURSOR_NOTE}
+              </InfoTip>
             )}
           </label>
           <label>
@@ -90,6 +90,7 @@ export function DictionaryEntries({
       )}
       <DictionaryEntryList
         kind={kind}
+        resource={false}
         entries={entries}
         busy={busy}
         emptyMessage={emptyMessage}
@@ -101,9 +102,10 @@ export function DictionaryEntries({
   );
 }
 
-/** 查询结果共用同一列表；资源类型即使来源标记异常也不出现写入操作。 */
+/** 查询结果共用同一列表；资源类型即使来源标记异常也不出现写入操作。`resource` 由调用方说明：粤语既是个人词库也是资源词库，只看种类分不出来。 */
 export function DictionaryEntryList({
   kind,
+  resource,
   entries,
   busy,
   emptyMessage,
@@ -112,6 +114,7 @@ export function DictionaryEntryList({
   onRemove,
 }: {
   kind: DictionaryLookupKind;
+  resource: boolean;
   entries: DictionaryLookupEntry[];
   busy: boolean;
   emptyMessage?: string;
@@ -119,7 +122,6 @@ export function DictionaryEntryList({
   onEdit?: (entry: DictionaryEntry) => void;
   onRemove?: (entry: DictionaryEntry) => void;
 }) {
-  const resource = isResourceDictionaryKind(kind);
   const columns = resource ? settings.phraseResourceColumns : settings.phrasePersonalColumns;
   const reading = kind === "japanese" || kind === "korean_hanja";
 
@@ -128,7 +130,7 @@ export function DictionaryEntryList({
       {emptyMessage || (
         <>
           输入关键词后查看
-          {[...localDictionaryKinds, ...resourceDictionaryKinds].find(
+          {(resource ? resourceDictionaryKinds : localDictionaryKinds).find(
             ([value]) => value === kind,
           )?.[1] ?? "词库"}
           词条
@@ -169,23 +171,20 @@ export function DictionaryEntryList({
                   {entry.source === "bundled" ? "内置" : "个人"}
                 </small>
                 <span className={settings.phraseEntryActions}>
-                  {!isResourceDictionaryKind(entry.kind) &&
-                    entry.source !== "bundled" &&
-                    onEdit &&
-                    onRemove && (
-                      <>
-                        <ActionButton
-                          action={() => onEdit(entry as DictionaryEntry)}
-                          disabled={busy}
-                          label="编辑"
-                        />
-                        <ActionButton
-                          action={() => onRemove(entry as DictionaryEntry)}
-                          disabled={busy}
-                          label="删除"
-                        />
-                      </>
-                    )}
+                  {entry.source !== "bundled" && onEdit && onRemove && (
+                    <>
+                      <ActionButton
+                        action={() => onEdit(entry as DictionaryEntry)}
+                        disabled={busy}
+                        label="编辑"
+                      />
+                      <ActionButton
+                        action={() => onRemove(entry as DictionaryEntry)}
+                        disabled={busy}
+                        label="删除"
+                      />
+                    </>
+                  )}
                 </span>
               </>
             )}

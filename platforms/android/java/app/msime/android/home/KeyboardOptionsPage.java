@@ -162,11 +162,11 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             null, () -> new TextEditOrderSheet(this, preferences, this::reload).show()).help("调整文本编辑面板两侧的七个功能键，方向键与换行位置固定");
         layout.nav("符号分类顺序", null,
             null, () -> new SymbolCategoryOrderSheet(this, settings, this::reload).show()).help("调整符号面板底部分类的排列顺序");
-        // 只有双拼方案的 26 键画键位提示；本版本没有双拼时不列这一行。缺省为关，与键盘和 client-core 一致。
-        if (KeyboardScheme.XIAOHE.offeredBy(edition)) {
+        // 只有双拼方案和粤语双拼的 26 键画键位提示；本版本两者都没有时不列这一行。粤语双拼与粤拼共用引擎方案和词典，有粤拼就有粤语双拼。缺省为关，与键盘和 client-core 一致。
+        if (KeyboardScheme.XIAOHE.offeredBy(edition) || KeyboardScheme.CANTONESE.offeredBy(edition)) {
             layout.toggle("双拼键位提示", null,
                 preferences.optBoolean(ShuangpinKeyHintPolicy.PREFERENCE_KEY, false),
-                checked -> savePreference(ShuangpinKeyHintPolicy.PREFERENCE_KEY, checked)).help("双拼方案的 26 键键盘在字母键底部显示这个键代表的声母和韵母；关闭后键面只留字母");
+                checked -> savePreference(ShuangpinKeyHintPolicy.PREFERENCE_KEY, checked)).help("双拼方案和粤语双拼的 26 键键盘在字母键底部显示这个键代表的声母和韵母；关闭后键面只留字母");
         }
         layout.toggle("组字时保留 Shift", null,
             preferences.optBoolean(QuanpinSeparatorPolicy.PREFERENCE_KEY, true),
@@ -273,6 +273,9 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         directionRow[0] = gestures.nav("滑动方向", null,
             swipeDirectionLabel(swipeDirection), () -> pickSwipeDirection(swipeDirection, directionRow[0])).help("该方向直接输入角标，中文时反方向打开选项；关闭滑动输入符号后两种滑动都不生效");
         directionRow[0].setEnabled(swipeSymbols);
+        // 只管画不画，不跟着「滑动输入符号」置灰：关掉滑动后长按仍输入角标，键面上的角标仍有用（#10587）。
+        gestures.toggle("显示字母键角标", null, settings.bool(AndroidLocalSettings.LETTER_CORNER_HINTS),
+            checked -> saveLocalSetting(AndroidLocalSettings.LETTER_CORNER_HINTS, checked)).help("26 键字母键右上角显示长按或滑动输入的符号；关闭后只是不显示，长按和滑动照样输入");
         // 九键的滑动单独一项、默认关闭（#5580）：九键原来没有滑动，和 26 键共用上面那个默认开着的开关会改变老用户的点按。它在共享偏好 `touch_nine_key_swipe_digits` 里、随账号同步，三端同一行、同一套文字（#10229）；本机旧值在 reload 里先迁过来。本版本没有拼音九键时不列。
         boolean quanpinNineKey = KeyboardScheme.QUANPIN_NINE_KEY.offeredBy(edition);
         if (quanpinNineKey) {

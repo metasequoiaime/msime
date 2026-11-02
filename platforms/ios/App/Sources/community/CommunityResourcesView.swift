@@ -552,8 +552,8 @@ struct CommunityResourceDetail: View {
 }
 
 private extension PersonalWordKind {
-  /// 社区词库收的种类（`pinyin`、`wubi`、`quick`、`english`，见 `SkinCommunityAPI.validResource`），不含 98 五笔。
-  static let communityCases = allCases.filter { $0 != .wubi98 }
+  /// 社区词库收的种类（`pinyin`、`wubi`、`quick`、`english`，见 `SkinCommunityAPI.validResource`），不含 98 五笔和粤语。
+  static let communityCases = allCases.filter { $0 != .wubi98 && $0 != .cantonese }
 }
 
 struct CommunityResourceEditor: View {
@@ -640,7 +640,7 @@ struct CommunityResourceEditor: View {
             run { id in
               let imported = try await Task.detached { try PersonalDictionaryImport.read(from: url) }.value
               try request.checkCurrent(id)
-              guard imported.entries.allSatisfy({ PersonalWordKind.communityCases.contains($0.kind) }) else { throw CommunityFailure(message: "社区词库暂不支持 98 五笔词条，请从文件中去掉后再选择。") }
+              guard imported.entries.allSatisfy({ PersonalWordKind.communityCases.contains($0.kind) }) else { throw CommunityFailure(message: "社区词库暂不支持 98 五笔和粤语词条，请从文件中去掉后再选择。") }
               let additions = CommunityUnseenItems.filter(existing: words, incoming: imported.entries)
               guard words.count + additions.count <= 128 else { throw CommunityFailure(message: "每份社区词库最多 128 条，请先精简文件。") }
               words += additions

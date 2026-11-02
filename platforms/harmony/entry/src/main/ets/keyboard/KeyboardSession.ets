@@ -6473,6 +6473,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       keyPopup: current.keyPopup,
       swipeSymbols: current.swipeSymbols,
       swipeSymbolsDirection: current.swipeSymbolsDirection,
+      letterCornerHints: current.letterCornerHints,
       oneHanded: current.oneHanded,
       incognito: on,
       floating: current.floating,

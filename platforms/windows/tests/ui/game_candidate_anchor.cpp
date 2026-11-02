@@ -74,6 +74,23 @@ int main() {
     require(at(game_candidate_anchor(scaled), 24, 240));
     scaled.scale = std::numeric_limits<double>::quiet_NaN();
     require(at(game_candidate_anchor(scaled), 24, 240));
+    // 兜底点放客户区上部（game_compatibility.overlay_anchor_top）：少数游戏的聊天行在
+    // 画面上沿，落点取 top + height/5，和下部的 bottom - height/5 对称；横向的边距不变。
+    auto upper = game(screen, std::nullopt);
+    upper.anchor_top = true;
+    require(at(game_candidate_anchor(upper), 96, 216));
+    // 窗口化的游戏跟着客户区走，不是跟着显示器。
+    auto upper_window = game(window, POINT{0, 0});
+    upper_window.anchor_top = true;
+    require(at(game_candidate_anchor(upper_window), 140, 220));
+    // 这个开关只挪兜底点，不改判定：可信的锚点照样原样返回。
+    auto upper_valid = game(window, POINT{300, 400});
+    upper_valid.anchor_top = true;
+    require(!game_candidate_anchor(upper_valid));
+    // 负坐标的副屏，上部落点同样按客户区算。
+    auto upper_left = game(left, std::nullopt);
+    upper_left.anchor_top = true;
+    require(at(game_candidate_anchor(upper_left), -1824, 216));
     std::cout << "Game candidate anchor: fallback only for owned game sessions\n";
   } catch (const std::exception &failure) {
     std::cerr << failure.what() << '\n';

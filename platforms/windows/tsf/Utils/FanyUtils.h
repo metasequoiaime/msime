@@ -25,7 +25,9 @@ std::string ReadConfiguredInputScheme();
 int ReadConfiguredRunningScheme();
 // 从内存快照读取 punctuation_lock：0 跟随输入法（也用于尚无有效快照），1 固定中文，2 固定英文。
 int ReadConfiguredPunctuationLock();
-// 使用已发布快照更新进程内的标点锁定模式，不读取文件。
+// 从内存快照读取 chinese_punctuation（中文模式下的起始标点）；尚无有效快照或键缺失、类型不对时按出厂默认返回 TRUE。
+BOOL ReadConfiguredChinesePunctuation();
+// 使用已发布快照更新进程内的标点锁定模式和已存的起始标点，不读取文件。
 void RefreshPunctuationLockFromConfig();
 
 struct SwitchLanguageHotkeys

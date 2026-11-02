@@ -191,12 +191,8 @@ export function AiSettingsPageSection({
           <SettingsManagerBlock>
             <SettingsTextareaField
               label="提示词内容"
-              description={
-                <span className="block mt-1">
-                  留空使用内置提示词；填写后完整替换，请要求只输出 JSON 格式的候选。
-                  {promptSlot === "custom_1" ? "" : `当前使用槽位${slot.name}。`}
-                </span>
-              }
+              description="留空使用内置提示词；填写后完整替换，请要求只输出 JSON 格式的候选。"
+              detail={promptSlot === "custom_1" ? undefined : `当前使用槽位${slot.name}。`}
               rows={4}
               className={`${settings.fieldInput} min-h-24 w-full resize-y leading-relaxed`}
               ariaLabel="AI 联想自定义提示词"

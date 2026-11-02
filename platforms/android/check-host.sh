@@ -77,6 +77,17 @@ if ! rg_q_stdin -F 'addJapaneseSideKey(modeColumn, japaneseSymbolPanelKey(s.japa
   echo "The Japanese nine-key left column must always carry the 符 symbol-panel key, with emoji on its long press when the toolbar has no emoji button" >&2
   exit 1
 fi
+# 打开「交换语言键与数字键」时日语九键的语言键在左列最下一格（#10437）：符 和 切换 在它上面，123 换到右列原语言键的位置；不交换时左列仍是 123、符、切换，右列是语言键。
+if ! awk '
+  /if \(!swapLanguageNumber\) addJapaneseSideKey\(modeColumn, s\.japaneseSymbolsKey, 1\);/ { layer = NR }
+  /addJapaneseSideKey\(modeColumn, japaneseSymbolPanelKey\(s\.japaneseSideEmojiKey\(\)\), 1\);/ { symbol = NR }
+  /addJapaneseSideKey\(modeColumn, globe, 1\);/ { globe = NR }
+  /if \(swapLanguageNumber\) addJapaneseSideKey\(modeColumn, language, 1\);/ { language = NR }
+  /addJapaneseSideKey\(side, swapLanguageNumber \? s\.japaneseSymbolsKey : language, 1\);/ { right = 1 }
+  END { exit !(layer && symbol && globe && language && right && layer < symbol && symbol < globe && globe < language) }' <<< "$japanese_nine_key_rows"; then
+  echo "With the language/number swap on, the Japanese nine-key language key must sit in the bottom cell of the left column, below 符 and the globe key" >&2
+  exit 1
+fi
 # 只改大小写时不重建键行（#6997）：重建出的新键在下一次布局前宽高为 0，Shift 之后立刻按下的字母找不到键而被丢掉。Shift、一次性大写用掉和自动大写都经 refreshLetterCase 就地改键面；字母键的气泡读按下时的键面，不能用建键时记下的那个。触发和重建之间允许夹着 `//` 注释行（Shift 处理里就有一行），不然改回 rebuildKeyRows 时这道检查认不出来。
 if rg -U -n '(consumeLetter\(\)\)\s*\{?|letterCase\.toggle\(SystemClock\.uptimeMillis\(\)\);|applyAutomatic\(next\)\))(\s*//[^\n]*)*\s*imeLetterRows\.rebuildKeyRows\(\)' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
@@ -205,6 +216,23 @@ if ! rg -q 'setEnabled\(emojiShortcutButton, ToolbarReadinessPolicy\.emojiEnable
   || ! sed -n '/^    void showFeedbackMenu() {$/,/^    }$/p' "$panels_java" | rg_q_stdin 's\.dropDeferredToolbarPanel\(\);' \
   || ! sed -n '/languageButton\.setOnClickListener/,/});/p' "$service_java" | rg -A2 'case ENGINE' | rg_q_stdin 'pendingLanguageTap = false;'; then
   echo "Toolbar emoji, phrases, skin, scheme and the language key must stay usable while the engine session starts" >&2
+  exit 1
+fi
+# 符号面板不需要引擎会话（#10517，.agents/notes/implemented/bug-fix/2026-11-02-android-symbol-panel-sessionless-editors.md）。终端类应用把输入框声明成可见密码，这类输入框不建会话，原先点「符」只提示「尚未就绪」、长按 123 没反应。能不能打开、补不补后半个、记不记常用由 SymbolPanelEntryPolicySmoke 覆盖；接线在 InputMethodService 和面板里，JVM 冒烟碰不到，这里钉住：showSymbolPanel、长按 123、文本编辑面板长按回车和两个「符」按钮的可用性都经 SymbolPanelEntryPolicy.opens，showSymbolPanel 只在有会话时才 command(2)；点按的后半个经 pairsClosingMark、常用经 recordsRecent 按输入框类型判断；不建会话的输入框读外观时也填上资源目录，颜文字和各符号分类才读得到。
+symbol_show_body=$(sed -n '/^    void showSymbolPanel() {$/,/^    }$/p' "$panels_java")
+symbol_hold_body=$(sed -n '/^    void bindSymbolPanelHold(Button button) {$/,/^    }$/p' "$service_java")
+if ! rg -q 'SymbolPanelEntryPolicy\.opens\(s\.connection != null, s\.symbolPanel != null\)' <<< "$symbol_show_body" \
+  || rg -q 's\.session == 0 \|\| s\.connection == null \|\| s\.symbolPanel == null' <<< "$symbol_show_body" \
+  || ! rg -U -q 'if \(s\.session != 0\) \{\n(\s*//[^\n]*\n)?\s*s\.command\(2\);' <<< "$symbol_show_body" \
+  || ! rg -q 'SymbolPanelEntryPolicy\.opens\(connection != null, symbolPanel != null\)' <<< "$symbol_hold_body" \
+  || rg -q 'session == 0' <<< "$symbol_hold_body" \
+  || ! rg -q 'setEnabled\(symbolPanelButton, SymbolPanelEntryPolicy\.opens\(' "$service_java" \
+  || ! rg -q 'setEnabled\(symbolShortcutButton, SymbolPanelEntryPolicy\.opens\(' "$service_java" \
+  || ! rg -q 'SymbolPanelEntryPolicy\.opens\(s\.connection != null, s\.symbolPanel != null\)' "$android_java/core/ImeTextEditPanel.java" \
+  || ! rg -q 'SymbolPanelEntryPolicy\.pairsClosingMark\(s\.editorInputType, s\.pairedPunctuation\)' "$panels_java" \
+  || ! sed -n '/^    private void recordSymbolRecent(String symbol) {$/,/^    }$/p' "$panels_java" | rg_q_stdin 'SymbolPanelEntryPolicy\.recordsRecent\(s\.editorInputType, s\.learningSuppressed\(\)\)' \
+  || ! sed -n '/^                if (!engineWanted) {$/,/^                }$/p' "$service_java" | rg_q_stdin 'emojiResources = resources;'; then
+  echo "The Android symbol panel must open without an engine session, and password fields must not pair or remember symbols" >&2
   exit 1
 fi
 # 没读到实时偏好时按记住的全拼九键建会话（#10389，.agents/notes/implemented/bug-fix/2026-10-31-android-nine-key-first-frame.md）。改哪种组合由 TouchLayoutHintPolicySmoke 覆盖；接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：只在 livePreferences 为 null 时取选项里的偏好副本，用 touchLayoutHint() 经 TouchLayoutHintPolicy.startupTouchKeyboardLayout 算布局，写回副本的 touch_keyboard_layout 在 NativeClient.create 之前；displayedTouchLayout 只在没有视图时用记住的布局，有视图时按视图画，不再经 TouchLayoutHintPolicy 让提示压过视图。
@@ -1498,9 +1526,9 @@ if [[ "$sidebar_readers" != "platforms/android/java/app/msime/android/settings/K
   echo "Android nine-key sidebar tables must come from touch_nine_key_sidebar_symbols / touch_nine_key_digit_sidebar_symbols: only KeyLayoutStyleMigration reads and deletes the legacy local keys, the keyboard re-renders and the long press opens 按键布局, and 按键布局 lists both rows and saves only that shared table" >&2
   exit 1
 fi
-# 「文本编辑按键顺序」「符号分类顺序」按住把手拖动排序（#10392，.agents/notes/implemented/feature/2026-10-31-android-order-sheets-drag.md）：挪动、位次、落点、贴边滚动步长和序号由 ReorderPolicySmoke 覆盖；拖动和读屏操作在 ReorderList 里，JVM 冒烟碰不到，这里钉住：两张面板都经 ReorderList 画行、不再有上下箭头；拖动模型与「九键左侧符号」编辑页相同，按下把手就拿起、只改 translationY，落点按布局中线算，松手经 ReorderPolicy.moved 改草稿；手指贴近面板上下边缘时滚动外层 NestedScrollView，滚过的距离算进跟手位移；读屏模型也相同：名称念「第 N 项，名称」，把手状态念「第 N 项」，「上移」「下移」挂在把手上，键盘焦点在把手上时 Alt+↑ / Alt+↓ 挪一格；把手的触控区与原来的箭头一样宽 48 dp、高占满整行。
+# 排序面板按住把手拖动排序（#10392、#10396，#10546 合成一份，.agents/notes/implemented/feature/2026-10-31-android-order-sheets-drag.md）：挪动、位次、落点、贴边滚动步长和序号的规则只在 ReorderPolicy 里，由 ReorderPolicySmoke 覆盖；拖动和读屏操作只在控制器 ReorderList 里，行的内容由各面板画。ReorderList 引用 androidx，JVM 冒烟碰不到，这里钉住：「文本编辑按键顺序」「符号分类顺序」「按钮顺序」都经 ReorderList 排序、不再有上下箭头；「九键左侧符号」编辑页不再自带一份拖动代码或规则，符号牌念「第 N 项，符号：X」；拖动按下把手就拿起、只改 translationY，落点按布局中线算，松手经 ReorderPolicy.moved 改草稿；手指贴近面板上下边缘时滚动外层 NestedScrollView，滚过的距离算进跟手位移；读屏：行念「第 N 项，名称」，把手状态念「第 N 项」，「上移」「下移」挂在把手上，键盘焦点在把手上时 Alt+↑ / Alt+↓ 挪一格；把手的触控区与原来的箭头一样宽 48 dp、高占满整行；落位动画结束后换回行原来的底色。
 reorder_list="$repo_root/platforms/android/java/app/msime/android/home/ReorderList.java"
-for reorder_sheet in TextEditOrderSheet SymbolCategoryOrderSheet; do
+for reorder_sheet in TextEditOrderSheet SymbolCategoryOrderSheet ToolbarOrderSheet; do
   reorder_sheet_file="$repo_root/platforms/android/java/app/msime/android/home/$reorder_sheet.java"
   if ! rg -qF 'rows = new ReorderList<>(' "$reorder_sheet_file" \
     || rg -q 'addArrow|"↑"|"↓"|上下箭头' "$reorder_sheet_file"; then
@@ -1508,6 +1536,14 @@ for reorder_sheet in TextEditOrderSheet SymbolCategoryOrderSheet; do
     exit 1
   fi
 done
+if ! rg -qF 'rows = new ReorderList<>(context, current, this::symbolRow);' "$sidebar_sheet" \
+  || rg -q 'NineKeySidebarPolicy\.(moved|dragSlot|dragTarget|edgeScrollStep|scrollTowardRoom|positionDescription|ordinalDescription)|setOnTouchListener|addAccessibilityAction' "$sidebar_sheet" \
+  || rg -q 'static .* (moved|dragSlot|dragTarget|edgeScrollStep|scrollTowardRoom|positionDescription|ordinalDescription)\(' "$repo_root/platforms/android/java/app/msime/android/keyboard/NineKeySidebarPolicy.java" \
+  || ! rg -qF 'symbol.setContentDescription(ReorderPolicy.ordinalDescription(position, "符号：" + text));' "$sidebar_sheet" \
+  || ! rg -qF 'ImageView handle = ReorderList.addHandle(context, row, text);' "$sidebar_sheet"; then
+  echo "Android nine-key sidebar editor must reorder through ReorderList with ReorderPolicy's rules, not a drag controller or rule set of its own, and read each row as 第 N 项，符号：X" >&2
+  exit 1
+fi
 if rg -q 'ItemTouchHelper|RecyclerView' "$reorder_list" \
   || ! rg -qF 'handle.setOnTouchListener((touched, event) -> handleDrag(views, event));' "$reorder_list" \
   || ! rg -qF 'int target = ReorderPolicy.dragTarget(centers[dragFrom] + offset, dragFrom, centers);' "$reorder_list" \
@@ -1517,11 +1553,13 @@ if rg -q 'ItemTouchHelper|RecyclerView' "$reorder_list" \
   || ! rg -qF 'step = ReorderPolicy.scrollTowardRoom(step,' "$reorder_list" \
   || ! rg -qF 'ViewCompat.addAccessibilityAction(handle, "上移",' "$reorder_list" \
   || ! rg -qF 'ViewCompat.addAccessibilityAction(handle, "下移",' "$reorder_list" \
-  || ! rg -qF 'views.title().setContentDescription(ReorderPolicy.ordinalDescription(position, views.label()));' "$reorder_list" \
+  || ! rg -qF 'title.setContentDescription(ReorderPolicy.ordinalDescription(position, text));' "$reorder_list" \
+  || ! rg -qF 'views.renumber().accept(position);' "$reorder_list" \
+  || ! rg -qF '.withEndAction(() -> ViewPolicy.setBackground(landed, resting)).start();' "$reorder_list" \
   || ! rg -qF 'ViewCompat.setStateDescription(views.handle(), ReorderPolicy.positionDescription(position));' "$reorder_list" \
   || ! rg -qF 'handle.setOnKeyListener((focused, keyCode, event) -> onKey(views, keyCode, event));' "$reorder_list" \
   || ! rg -qF 'row.addView(handle, new LinearLayout.LayoutParams(DimensionPolicy.pixels(context, 48),' "$reorder_list"; then
-  echo "Android order sheets must drag from the handle the way the nine-key sidebar editor does (translationY, layout midlines, edge-scrolling the sheet), keep 上移 / 下移 and the 第 N 项 position on the handle for screen readers and Alt+Up / Alt+Down for keyboards, and keep a 48 dp handle" >&2
+  echo "Android ReorderList must drag from the handle (translationY, layout midlines, edge-scrolling the sheet, restoring the row background after the drop), keep 上移 / 下移 and the 第 N 项 position on the handle for screen readers and Alt+Up / Alt+Down for keyboards, and keep a 48 dp handle" >&2
   exit 1
 fi
 # 「中/英键放在空格左边」（#10228，`touch_language_key_side`）：排法由 TouchKeyStyleSmoke 覆盖，预览与高亮由 KeyLayoutStylesPolicySmoke 覆盖，这里钉住接线：底行签名带着它、字母层底行和数字九宫格都按它排；右侧大回车九宫格下方那一行按它排，变了经 tallReturnStale 整块重建；设置页三个分段都显示这个开关（不在 26 键的 if 里，排在互换开关之后），改它先重画预览再写 left / right；热力图跟着画；设置搜索登记了标题。

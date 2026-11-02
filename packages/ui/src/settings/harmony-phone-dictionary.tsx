@@ -5,6 +5,7 @@ import { Badge, PlusGlyph } from "../dictionary/dictionary-detail-parts";
 import { useState } from "react";
 import { formatZhNumber } from "../core/format-number";
 import { GroupList, NavRow } from "../core/platform-controls";
+import { SettingsGroupNote } from "./settings-group-note";
 import { useToast } from "../core/toast";
 import {
   binaryCollectionFormat,
@@ -20,9 +21,11 @@ import { useDictionaryCollectionsState } from "../dictionary/use-dictionary-coll
 import { SwitchRow } from "./switch-row";
 
 const BUILTIN = "builtin:pinyin";
+/** 粤语词库：只有自己加的粤语词，不是命名词库，和拼音词库一样常开。 */
+const BUILTIN_CANTONESE = "builtin:cantonese";
 
 /**
- * HarmonyOS 手机的「词库」页，按 Android 的 `LexiconPage` 布局：「已安装」列出拼音词库和用户自己的词库，点进去启用、停用和编辑；「管理」里新建、导入、导出和刷新；「发现词库」是社区词库，「添加」后成为一个可以停用或删除的词库，末尾的「浏览更多词库」切到底部「社区」标签的「词库」分类；然后是学习开关和「更多」。
+ * HarmonyOS 手机的「词库」页，按 Android 的 `LexiconPage` 布局：「已安装」列出拼音词库、粤语词库和用户自己的词库，点进去启用、停用和编辑；「管理」里新建、导入、导出和刷新；「发现词库」是社区词库，「添加」后成为一个可以停用或删除的词库，末尾的「浏览更多词库」切到底部「社区」标签的「词库」分类；然后是学习开关和「更多」。
  *
  * 词库详情在本页内打开，推入一条历史记录，系统返回键和左上角的返回都回到列表。
  */
@@ -39,6 +42,11 @@ export function HarmonyPhoneDictionary() {
   } = useSettingsForm();
   const collections = client.dictionaryCollections;
   const dictionary = client.dictionary;
+  // 粤语词库只给粤语方案用：宿主或本版本没有粤语方案时不列出，与方案选择的过滤一致。
+  const cantoneseOffered =
+    !client.host ||
+    (client.host.input_schemes.includes("cantonese") &&
+      (!client.host.edition || client.host.edition.input_schemes.includes("cantonese")));
   const toast = useToast();
   const {
     value: detail,
@@ -57,7 +65,7 @@ export function HarmonyPhoneDictionary() {
   });
   const [creating, setCreating] = useState(false);
   const [addingDictionary, setAddingDictionary] = useState(false);
-  const { view, loadFailure, builtinCount, busy, run, captureOwner } =
+  const { view, loadFailure, builtinCount, cantoneseCount, busy, run, captureOwner } =
     useDictionaryCollectionsState({
       collections,
       dictionary,
@@ -81,6 +89,20 @@ export function HarmonyPhoneDictionary() {
         onExport={
           dictionary.export
             ? () => exportPersonalPinyinDictionary(dictionary, client.saveExport)
+            : undefined
+        }
+      />
+    );
+  }
+  if (detail === BUILTIN_CANTONESE && dictionary) {
+    return (
+      <BuiltinDictionaryDetail
+        kind="cantonese"
+        dictionary={dictionary}
+        count={cantoneseCount}
+        onExport={
+          dictionary.export
+            ? () => exportPersonalPinyinDictionary(dictionary, client.saveExport, "cantonese")
             : undefined
         }
       />
@@ -124,6 +146,9 @@ export function HarmonyPhoneDictionary() {
     <>
       <div className="flex flex-col gap-2">
         <GroupList title="已安装">
+          <SettingsGroupNote>
+            点进词库可以启用、停用和编辑词条。已启用的词库会一起参与候选。
+          </SettingsGroupNote>
           {dictionary && (
             <NavRow
               variant="me"
@@ -132,6 +157,18 @@ export function HarmonyPhoneDictionary() {
               description={builtinDescription(builtinCount)}
               value="已启用"
               onClick={() => openDetail(BUILTIN)}
+            />
+          )}
+          {dictionary && cantoneseOffered && (
+            <NavRow
+              variant="me"
+              icon={<Badge>粤</Badge>}
+              title="粤语词库"
+              description={
+                cantoneseCount ? `${formatZhNumber(cantoneseCount)} 条自己的词` : "自己加的粤语词"
+              }
+              value="已启用"
+              onClick={() => openDetail(BUILTIN_CANTONESE)}
             />
           )}
           {view?.collections.map((item) => (
@@ -160,9 +197,12 @@ export function HarmonyPhoneDictionary() {
             />
           )}
         </GroupList>
-        <p className={footnote} role={loadFailure ? "alert" : undefined}>
-          {loadFailure || "点进词库可以启用、停用和编辑词条。已启用的词库会一起参与候选。"}
-        </p>
+        {/* 怎么用是解释，收进「已安装」组名旁的「?」；读取失败是错误，照旧画在原处。 */}
+        {loadFailure && (
+          <p className={footnote} role="alert">
+            {loadFailure}
+          </p>
+        )}
       </div>
       {collections && client.communityResources && (
         <DiscoverDictionaries

@@ -282,9 +282,10 @@ int main(int argc, char **argv) {
         for (bool wubi98 : {false, true}) {
           scenario(argv[1], style, uiless, wubi98, true, true, "wqaa", "合成甲", "");
           scenario(argv[1], style, uiless, wubi98, true, true, "wqaawqaa", "合成甲合成甲", "", false, 2);
-          scenario(argv[1], style, uiless, wubi98, true, true, "wqabw", "", "w", false, 1, "合成乙");
+          // 顶字不是造词中途的选词：顶下来的词立即写入文档，不进暂存词段（#10480）。
+          scenario(argv[1], style, uiless, wubi98, true, true, "wqabw", "合成乙", "w", false, 1, "");
           scenario(argv[1], style, uiless, wubi98, true, true, "wqabA", "合成乙A", "");
-          scenario(argv[1], style, uiless, wubi98, false, true, "wqaaw", "", "w", false, 1, "合成甲");
+          scenario(argv[1], style, uiless, wubi98, false, true, "wqaaw", "合成甲", "w", false, 1, "");
           scenario(argv[1], style, uiless, wubi98, false, false, "wqaa", "", "wqaa", true);
           // #9696：没有组字时 Shift+T、Shift+U 在五笔下进入日期时间和 Unicode 模式，两边会话都把后面的字母留在模式里，不当五笔码组字，也不走四码自动上屏和顶字；空格上屏模式的首选。临时英文要英文词库，这份合成表没有，由 Engine 的回归覆盖。
           scenario(argv[1], style, uiless, wubi98, true, true, "Tdate", "", "Tdate");
