@@ -346,6 +346,7 @@ private struct LicenseNotice: Identifiable {
     LicenseNotice(file: "GoogleSignIn-Dependencies", title: "Google Sign-In", detail: "Google 登录 · Apache-2.0"),
     LicenseNotice(file: "VoiceRuntime-NOTICES", title: "sherpa-onnx", detail: "语音识别 · Apache-2.0 与 MIT"),
     LicenseNotice(file: "onnxruntime-ThirdPartyNotices", title: "ONNX Runtime", detail: "语音识别 · 第三方声明"),
+    LicenseNotice(file: "rerank-model-Apache-2.0", title: "chinese-ime-lm 逐键重排模型", detail: "整句联想「增强」 · Apache-2.0 与语料署名"),
     LicenseNotice(file: "libhangul-hanja-BSD-3-Clause", title: "libhangul 汉字表", detail: "韩文 · BSD-3-Clause"),
     LicenseNotice(file: "rime-cantonese-CC-BY-4.0", title: "rime-cantonese", detail: "粤语 · CC BY 4.0"),
     LicenseNotice(file: "libchewing-data-LGPL-2.1", title: "libchewing-data", detail: "注音 · LGPL-2.1"),
