@@ -25,6 +25,13 @@ pub trait CandidateScorer: Send {
         false
     }
 
+    /// 挂着这个打分器时，引擎每条切分至少解出几条整句读法给它比较（`Session::set_sentence_pool`）；0 是引擎的默认条数（6）。
+    ///
+    /// 默认 0：多比较几条要多花模型的时间，后端要在真实运行时里量过才报。随包的 [`Reranker`]（`model-v1`）不报，它在 Pixel 3 XL 上本来就超出逐键预算。ONNX Runtime 后端报 [`SENTENCE_POOL`]。
+    fn sentence_pool(&self) -> usize {
+        0
+    }
+
     /// 词网格整句之间比较时（[`rerank_pick`] 的静态证据分支），词网格逐字分在混合里的权重，模型逐字分占其余。默认 0.5，等权，是在随包 `model-v1` 上定的（`.agents/notes/implemented/bug-fix/2026-10-14-rerank-static-evidence.md`）。更准的模型可以让它少一些：ONNX Runtime 后端报 0.3，见 `.agents/notes/implemented/feature/2026-11-02-onnx-static-evidence-weight.md`。
     fn static_evidence_weight(&self) -> f64 {
         0.5
@@ -113,6 +120,9 @@ const SMALL_RERANK_TEXTS: usize = 128;
 
 /// 静态证据分支只比较前九条真正回答按键的候选。
 const STATIC_RERANK_LIMIT: usize = 9;
+
+/// 报这个数的逐键打分器（[`CandidateScorer::sentence_pool`]）挂着时，26 键全拼每条切分解出的整句读法条数（`Session::set_sentence_pool`），正好填满模型一次比较的条数。不挂时引擎只解 6 条，长句的比较位常有三条空着，而对的那句往往就排在第 7 到第 9 条：ctx-v1 的 dev 分句上，金标准出现在候选里的比例从 72.1% 到 75.6%，6x256 的首选从 65.7% 到 67.9%。更多的读法还会更准（解 32 条、比较 32 条是 72.3%），但模型的耗时随比较的条数增长，Pixel 3 XL 上 6x256 已经用到逐键预算的九成，所以只填满现有的比较位。见 `.agents/notes/implemented/feature/2026-11-02-sentence-pool-for-reranker.md`。
+pub const SENTENCE_POOL: usize = STATIC_RERANK_LIMIT;
 
 /// 候选行不在任何窄裁决点上。
 pub const CONTEST_NONE: u8 = 0;

@@ -418,6 +418,14 @@ impl msime_input_runtime::CandidateScorer for SharedOnnxScorer {
             .log_probabilities(context, candidates)
     }
 
+    // 不转发就落到默认的 0，宿主挂上的 ONNX 后端从来用不上整句池，而直接挂 `OnnxScorer` 的评测示例照常用得上，看不出来。
+    fn sentence_pool(&self) -> usize {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .sentence_pool()
+    }
+
     fn static_evidence_weight(&self) -> f64 {
         self.0
             .lock()

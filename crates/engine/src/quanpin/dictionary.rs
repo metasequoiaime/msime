@@ -19,6 +19,7 @@ use crate::ime::online_batch::{
 };
 use crate::lattice::decode::{
     decode_pinned, BeamPrefixCache, BeamResume, BigramMemo, PinnedSpan, SentenceNgramTables,
+    SENTENCE_PATHS,
 };
 use crate::lattice::merge::{
     decode_lattice, decode_lattice_borrowed, merge_decoded, merge_decoded_borrowed,
@@ -52,11 +53,12 @@ use crate::user_dictionary::ngram_store::PersonalNgramStore;
 use crate::user_dictionary::typo_profile::PersonalTypoProfile;
 
 use super::series::{
-    append_unique_words, fold_reading, has_corrected_cut, lead_literal_abbreviation_phrases,
-    mark_autocorrect_candidates, merge_alternative_rows, merge_alternative_segmentations,
-    merge_series_by_coverage, resolve_series_query, series_cache_key, SeriesResolution,
-    ALTERNATIVE_SEGMENTATION_CANDIDATE_LIMIT, AUTOCORRECT_CUT_KBEST, LONGER_PHRASE_EXTRA_SYLLABLES,
-    LONGER_PHRASE_LIMIT, MAX_SYLLABLES_FOR_MULTIPLE_SEGMENTATIONS,
+    append_unique_words, defer_pooled_sentences, fold_reading, has_corrected_cut,
+    lead_literal_abbreviation_phrases, mark_autocorrect_candidates, merge_alternative_rows,
+    merge_alternative_segmentations, merge_series_by_coverage, resolve_series_query,
+    series_cache_key, SeriesResolution, ALTERNATIVE_SEGMENTATION_CANDIDATE_LIMIT,
+    AUTOCORRECT_CUT_KBEST, LONGER_PHRASE_EXTRA_SYLLABLES, LONGER_PHRASE_LIMIT,
+    MAX_SYLLABLES_FOR_MULTIPLE_SEGMENTATIONS,
 };
 use super::typo_edges::collect_typo_edges;
 
@@ -235,6 +237,8 @@ pub struct QuanpinDictionary {
     /// `GramDb::shared` 进程内共享，缺失或非法时为 `None` 退回无搭配打分。
     collocation_db: Option<Arc<crate::lattice::octagram::GramDb>>,
     sentence_alternatives: bool,
+    /// 每条切分至少解出几条整句读法，0 为默认的 [`SENTENCE_PATHS`]；宿主挂了逐键打分器时由 runtime 经 `QueryRequest::sentence_pool` 给出。
+    sentence_pool: usize,
     sentence_association: SentenceAssociationOptions,
     /// 首页放得下几行，决定全长组的补全词是按权重并进来还是接在整组末尾；来自宿主的每页候选数（`QueryRequest::first_page_rows`）。存成 `FirstPageRows` 是为了让 0 在这里没有入口，全拼和九键的「0 当 1」只在 `FirstPageRows::new` 做一次。
     first_page_rows: FirstPageRows,
@@ -286,6 +290,7 @@ impl QuanpinDictionary {
             rerankers: Vec::new(),
             collocation_db: None,
             sentence_alternatives: false,
+            sentence_pool: 0,
             sentence_association: SentenceAssociationOptions::default(),
             first_page_rows: FirstPageRows::default(),
             rescoring_context: String::new(),
@@ -733,6 +738,17 @@ impl QuanpinDictionary {
         self.beam_prefixes.clear();
     }
 
+    /// 整句读法条数下限（[`crate::Session::set_sentence_pool`]）。改了就清掉按旧条数解出、拼好的整句和整条答案，同 `set_sentence_alternatives`；按切分查出的词库行与它无关，留着。
+    pub fn set_sentence_pool(&mut self, paths: usize) {
+        if self.sentence_pool == paths {
+            return;
+        }
+        self.sentence_pool = paths;
+        self.series_cache.clear();
+        self.sentence_decode_cache.clear();
+        self.beam_prefixes.clear();
+    }
+
     /// 首页行数只决定补全词是按权重并进来还是接在整组末尾；改了就清掉按旧门槛组装的整条答案（照 `set_sentence_alternatives`）。`cache` 存的是按切分查出来的词库行，补全词是查完它才并进来的，所以这里动不了它，清掉只会白白丢掉 128 行、再查一次 SQLite。
     pub fn set_first_page_rows(&mut self, rows: FirstPageRows) {
         if self.first_page_rows == rows {
@@ -1063,6 +1079,9 @@ impl QuanpinDictionary {
         }
         if !supplemental.is_empty() {
             merge_series_by_coverage(&mut result, supplemental);
+            if self.sentence_pool > SENTENCE_PATHS {
+                defer_pooled_sentences(&mut result, raw, SENTENCE_PATHS);
+            }
         }
         result
     }
@@ -1281,6 +1300,7 @@ impl QuanpinDictionary {
         if !self.rerankers.is_empty() {
             options.nbest = MAX_RERANK_PATHS;
         }
+        options.nbest = options.nbest.max(self.sentence_pool);
         options.include_lattice_best = association.word_lattice;
         options.include_collocation_best = include_collocation_best;
         options.show_next_on_duplicate = association.show_next_on_duplicate;

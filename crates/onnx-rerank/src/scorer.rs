@@ -281,6 +281,11 @@ impl CandidateScorer for OnnxScorer {
         self.within_keystroke_budget
     }
 
+    /// 大小两档都要引擎解满一次比较的条数：多出的三条在 Pixel 3 XL（6x256，4 线程）上让整键 p95 从 9.0 ms 到 9.8 ms，仍在 10 ms 的逐键预算之内；桌面 8x448 的整键 p99 从 3.1 ms 到 3.6 ms。见 `.agents/notes/implemented/feature/2026-11-02-sentence-pool-for-reranker.md`。
+    fn sentence_pool(&self) -> usize {
+        msime_engine::ordering::SENTENCE_POOL
+    }
+
     /// 8x448 和 6x256 比随包模型准得多，混合里词网格分只占三成。2026-11-02 在 dev（ctx-v1 分句与选词、typing-chat-v1）上从 0.2 扫到 0.5 定的，见 `.agents/notes/implemented/feature/2026-11-02-onnx-static-evidence-weight.md`。
     fn static_evidence_weight(&self) -> f64 {
         0.3

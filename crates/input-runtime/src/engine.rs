@@ -27,6 +27,8 @@ pub trait InputEngine {
     fn set_prediction_allowed(&mut self, _allowed: bool) {}
     /// 上屏后联想的词库续写多取一池留给模型排序，runtime 挂上或拿掉逐键打分器、换引擎时下发；没有联想的引擎忽略它。
     fn set_prediction_pool(&mut self, _enabled: bool) {}
+    /// 整句读法至少解出几条留给逐键打分器比较（[`msime_engine::ordering::SENTENCE_POOL`]），0 是引擎的默认条数；时机同 [`Self::set_prediction_pool`]。没有整句的引擎忽略它。
+    fn set_sentence_pool(&mut self, _paths: usize) {}
     /// 按模型给刚上屏之后的联想排序，`before` 是这次上屏之前的文字；每次上屏只排一次。返回显示的行变了没有，没有联想的引擎什么都不做。
     fn order_prediction(&mut self, _scorer: &mut dyn CandidateScorer, _before: &str) -> bool {
         false
@@ -293,6 +295,9 @@ impl InputEngine for Session {
     }
     fn set_prediction_pool(&mut self, enabled: bool) {
         Session::set_prediction_pool(self, enabled);
+    }
+    fn set_sentence_pool(&mut self, paths: usize) {
+        Session::set_sentence_pool(self, paths);
     }
     fn order_prediction(&mut self, scorer: &mut dyn CandidateScorer, before: &str) -> bool {
         Session::order_prediction(self, scorer, before)
