@@ -9,9 +9,9 @@ Status: implemented
 停顿有两种形态，共同点是目标进程没退出、恰好一个线程在等、其余线程全部 `Suspended`、没有 `.werpartial`，正向样本的记录已经完整落盘，负向样本一条记录都没有，helper 没有越权。
 
 - A 形：等待线程停在 `LpcReply` 上等 WerSvc 的回复，系统里找不到为它工作的 `WerFault`。上面四次都是这一形态。
-- B 形：等待线程停在 `UserRequest` 上，唯一相关的 worker 是目标自己拉起的 `WerFault.exe`（父进程就是目标），45 s 后仍然活着却不结束目标。首次重跑落地后才出现：PR #10617 的 `41371083017`（`reopened`，记录已完整落盘）和 PR #10643 的 `41396949560`（负向样本 `withdrawn`）。`withdrawn` 的 helper 在看到未登记后立即返回，所以拖住 `WerFault` 的不是 helper，而是 helper 之后或之外的系统流程。
+- B 形：等待线程停在 `UserRequest` 上，唯一相关的 worker 是目标自己拉起的 `WerFault.exe`（父进程就是目标），45 s 后仍然活着却不结束目标。首次重跑落地后才出现：PR #10617 的 `41371083017` 两次尝试（第一次 `host`、第二次 `reopened`，记录都已完整落盘）和 PR #10643 的 `41396949560`（负向样本 `withdrawn`）。`withdrawn` 的 helper 在看到未登记后立即返回，所以拖住 `WerFault` 的不是 helper，而是 helper 之后或之外的系统流程。
 
-2026-11-01T23:43Z 首次重跑合入后的 66 个 Windows native settings job 里，A 形 3 次被重跑救回，B 形 2 次直接失败，另有 1 次 A 形落在还没合入重跑的分支上，合计约 9%，全部是 x86。[TSF WER 采集](../feature/2026-11-01-windows-tsf-wer-capture.md)此前把这种停顿归因于负向样本请求排队，并让负向样本不再带 `WER_FAULT_REPORTING_FLAG_QUEUE`；上面几次失败都已包含那次修改（`d8d058445c`），`external` 照样停住，正向样本也会停，所以停顿和排队标志无关，是 32 位进程的系统 WER 流程偶发地不把挂起的目标结束。产品侧回调 `OutOfProcessExceptionEventCallback` 只做有界的 `ReadProcessMemory` 和文件写入，不等待，且总把 `*ownership` 置为 `FALSE`。
+2026-11-01T23:43Z 首次重跑合入后的 66 个 Windows native settings job 里，A 形 3 次被重跑救回，B 形 2 次直接失败（不含上面第一次尝试），另有 1 次 A 形落在还没合入重跑的分支上，合计约 9%，全部是 x86。[TSF WER 采集](../feature/2026-11-01-windows-tsf-wer-capture.md)此前把这种停顿归因于负向样本请求排队，并让负向样本不再带 `WER_FAULT_REPORTING_FLAG_QUEUE`；上面几次失败都已包含那次修改（`d8d058445c`），`external` 照样停住，正向样本也会停，所以停顿和排队标志无关，是 32 位进程的系统 WER 流程偶发地不把挂起的目标结束。产品侧回调 `OutOfProcessExceptionEventCallback` 只做有界的 `ReadProcessMemory` 和文件写入，不等待，且总把 `*ownership` 置为 `FALSE`。
 
 ## Decision
 
