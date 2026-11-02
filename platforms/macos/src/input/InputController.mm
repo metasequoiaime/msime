@@ -7803,6 +7803,11 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     else if (voiceShortcut.action == MSIMEVoiceHoldShortcut::Action::Cancel) {
         [self cancelHTTPVoiceInput]; [self cancelDoubaoVoiceInput]; [self cancelLiveVoiceInput];
     }
+    // 按住右 Option 时按了组合键（#10580）：丢掉这次按住开始的录音，不上屏。代次变了说明那段录音已经结束、现在的录音不是它开始的，不动。
+    // 不 return，这个键接着往下走，带着 Option 交给应用。
+    else if (voiceShortcut.action == MSIMEVoiceHoldShortcut::Action::ChordCancel && _voiceHoldGeneration == _voiceGeneration) {
+        [self cancelHTTPVoiceInput]; [self cancelDoubaoVoiceInput]; [self cancelLiveVoiceInput];
+    }
     if (voiceShortcut.consumed) return YES;
     if ([self observeModifierTap:event client:sender]) {
         [self toggleInputModeFromModifierTap];
