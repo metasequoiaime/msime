@@ -22,7 +22,8 @@ export type TouchKeyboardScheme =
   | "stroke"
   | "zhuyin_nine_key"
   | "fourteen_key"
-  | "eighteen_key";
+  | "eighteen_key"
+  | "cantonese_shuangpin";
 export type TouchKeyboardSchemePreferences = {
   enabled: TouchKeyboardScheme[];
   selected?: TouchKeyboardScheme;
@@ -49,6 +50,8 @@ export function touchKeyboardSchemeInputScheme(scheme: TouchKeyboardScheme): Inp
       return "japanese";
     case "zhuyin_nine_key":
       return "zhuyin";
+    case "cantonese_shuangpin":
+      return "cantonese";
     case "wubi":
     case "korean":
     case "cantonese":
@@ -125,6 +128,7 @@ export const touchKeyboardSchemeOptions: [TouchKeyboardScheme, string][] = [
   ["fourteen_key", "全拼 14 键"],
   ["nine_key_shuangpin", "九键双拼"],
   ["eighteen_key", "全拼 18 键"],
+  ["cantonese_shuangpin", "粤语双拼"],
 ];
 /** Every touch scheme in picker order; schemes are appended, never reordered. Mirrors `TouchKeyboardScheme::ALL` in client-core. */
 export const allTouchKeyboardSchemes = touchKeyboardSchemeOptions.map(([scheme]) => scheme);
@@ -139,7 +143,8 @@ export const defaultTouchKeyboardSchemes: TouchKeyboardScheme[] = allTouchKeyboa
     scheme !== "zhuyin_nine_key" &&
     scheme !== "nine_key_shuangpin" &&
     scheme !== "fourteen_key" &&
-    scheme !== "eighteen_key",
+    scheme !== "eighteen_key" &&
+    scheme !== "cantonese_shuangpin",
 );
 
 /**
@@ -296,6 +301,15 @@ export function selectTouchKeyboardScheme(
       touch_keyboard_layout: "twenty_six_key",
       touch_keyboard_schemes,
     };
+  // 粤语双拼与粤拼是同一个方案和布局，只靠 `selected` 让会话按两键码解释。
+  if (selected === "cantonese_shuangpin")
+    return {
+      ...preferences,
+      scheme: "cantonese",
+      last_chinese_scheme: "cantonese",
+      touch_keyboard_layout: "twenty_six_key",
+      touch_keyboard_schemes,
+    };
   if (selected === "wubi")
     return {
       ...preferences,
@@ -404,7 +418,7 @@ export const touchKeyboardLanguages: readonly TouchKeyboardLanguage[] = [
   { id: "mandarin_zhuyin", badge: "注", title: "注音", schemes: ["zhuyin", "zhuyin_nine_key"] },
   { id: "mandarin_stroke", badge: "笔", title: "笔画", schemes: ["stroke"] },
   { id: "mandarin_handwriting", badge: "写", title: "手写", schemes: ["handwriting"] },
-  { id: "cantonese", badge: "粤", title: "粤拼", schemes: ["cantonese"] },
+  { id: "cantonese", badge: "粤", title: "粤拼", schemes: ["cantonese", "cantonese_shuangpin"] },
   { id: "japanese", badge: "あ", title: "日语", schemes: ["japanese", "japanese_nine_key"] },
   { id: "korean", badge: "한", title: "韩语", schemes: ["korean"] },
   { id: "vietnamese", badge: "Vi", title: "越南语", schemes: ["vietnamese"] },

@@ -132,6 +132,16 @@ try {
     Write-Fixture 'target/rerank-model/rerank-model/stray.bin' 'synthetic file the lock does not name'
     Write-Fixture 'server/build-release/bin/Release/resources/stale.txt' 'synthetic stale bundle'
     & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -TargetVersion '2026.9.1'
+    # 改写版本号之后安装脚本还是带 BOM 的 UTF-8：Inno Setup 6.3 之前读没有 BOM 的脚本按
+    # 打包机器的 ANSI 代码页解释，脚本里的开始菜单项名和 [Code] 的提示都是中文，Windows 7
+    # 那条流水线用的 6.2.2 正在这个范围里（editions.iss 上发生过，见 #10638）。
+    $issBytes = [IO.File]::ReadAllBytes((Join-Path $installer 'msime_setup.iss'))
+    if ($issBytes.Length -lt 3 -or $issBytes[0] -ne 0xEF -or $issBytes[1] -ne 0xBB -or $issBytes[2] -ne 0xBF) {
+        throw 'Rewriting the installer version dropped the UTF-8 BOM from msime_setup.iss'
+    }
+    if ([IO.File]::ReadAllText((Join-Path $installer 'msime_setup.iss')) -notmatch '(?m)^#define\s+MyAppVersion\s+"2026\.9\.1"\s*$') {
+        throw 'Installer version was not written into msime_setup.iss'
+    }
     # tsf_dll\arm64 包含 Arm64X TIP、它的 PDB、WER helper 和 ARM64 宿主 DLL：TIP 的 ARM64EC 那一半用的 x64 宿主由 tsf_dll\64 装进同一个版本目录。
     $arm64Staged = @(Get-ChildItem -LiteralPath (Join-Path $installer 'tsf_dll/arm64') -File | ForEach-Object Name | Sort-Object)
     if (($arm64Staged -join ',') -ne 'MetasequoiaImeCrashWer.dll,MetasequoiaImeTsf.dll,MetasequoiaImeTsf.pdb,msime_host_api_arm64.dll' -or

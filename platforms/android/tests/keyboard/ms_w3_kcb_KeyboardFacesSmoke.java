@@ -14,6 +14,8 @@ public final class ms_w3_kcb_KeyboardFacesSmoke {
         check("五笔 98".equals(SpaceKeyFace.schemeLabel(KeyboardScheme.WUBI, KeyboardScheme.WUBI_98, false)),
             "wubi 98 label");
         check("笔画".equals(SpaceKeyFace.schemeLabel(KeyboardScheme.STROKE, null, false)), "stroke label");
+        check("粤语双拼".equals(SpaceKeyFace.schemeLabel(KeyboardScheme.CANTONESE_SHUANGPIN, null, false)),
+            "cantonese shuangpin label");
         check("日语".equals(SpaceKeyFace.schemeLabel(KeyboardScheme.JAPANESE_NINE_KEY, null, false)),
             "japanese label");
         check("注音".equals(SpaceKeyFace.schemeLabel(KeyboardScheme.ZHUYIN_NINE_KEY, null, false)),
