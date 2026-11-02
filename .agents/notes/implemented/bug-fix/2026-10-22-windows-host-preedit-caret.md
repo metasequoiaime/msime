@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-[回车提交观测](2026-10-24-windows-enter-commit-observation.md)单独持有发送给 Server 的原文载荷，本篇继续负责预编辑绘制。已有按键快照的视图转换由 `KeyCompositionStateFromView` 持有，绘制时从同一次 `host->view()` 的结果取得文字、原文与光标。没有宿主会话时保留旧缓冲；有效宿主视图读取失败则返回失败，不绘制另一份旧组字。分词符映射、已选词前缀、隐藏预编辑、锁定光标方案和整句改字的优先级保持现有规则。
+[回车提交观测](2026-10-24-windows-enter-commit-observation.md)单独持有发送给 Server 的原文载荷，本篇继续负责预编辑绘制。已有按键快照的视图转换由 `KeyCompositionStateFromView` 持有，绘制时从同一次 `host->view()` 的结果取得文字、原文与光标。没有宿主会话时保留旧缓冲；有效宿主视图读取失败则返回失败，不绘制另一份旧组字。分词符映射、已选词前缀、隐藏预编辑、锁定光标方案和整句改字的优先级保持现有规则；画的正好是引擎的 `preedit` 时，光标改用引擎给出的位置，见[组字光标在 preedit 里的位置由引擎给出](2026-11-02-engine-preedit-caret.md)。
 
 TSF 范围定位归 `KeyHandler.cpp` 的局部 `SetCompositionCaret` 持有，绘制、纯光标移动与左右移动三处复用：先检查起点折叠、`ShiftEnd` 返回值和实际移动长度、终点折叠，全部成功后才调用 `SetSelection`。范围引用仍由原调用方释放；定位失败不发布临时范围，也不猜测跨区域的偏移。纯光标移动传播局部定位函数的失败，`GetRange` 失败或返回空范围仍沿用原有成功返回；文字已经写入的绘制路径保留成功结果，避免把完成的输入交给失败重放。未改变引擎光标、按键排队或 TIP/Server 协议。
 

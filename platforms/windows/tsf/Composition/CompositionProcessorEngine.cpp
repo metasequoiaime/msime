@@ -487,6 +487,12 @@ DWORD_PTR CCompositionProcessorEngine::GetRenderedCaretPosition(const std::wstri
     return msime::tsf::MapPreeditCaret(editingText, caret, _renderedPreedit, _renderedPreeditPrefixLength);
 }
 
+DWORD_PTR CCompositionProcessorEngine::GetRenderedCaretPosition(const msime::tsf::KeyCompositionState &composition) const
+{
+    return msime::tsf::MapPreeditCaret(composition.rawInput, composition.caret, _renderedPreedit,
+                                       _renderedPreeditPrefixLength, composition.preedit, composition.preeditCaret);
+}
+
 //+---------------------------------------------------------------------------
 //
 // PurgeVirtualKey
