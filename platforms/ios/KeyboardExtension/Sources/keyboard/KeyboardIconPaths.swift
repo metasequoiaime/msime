@@ -20,6 +20,8 @@ enum KeyboardIcon: String, CaseIterable {
   case collapse
   /// design candidate expand chevron (20dp)
   case candidateExpand
+  /// Lucide-style x (关闭上屏后联想)
+  case candidateClose
   /// design key shift
   case shift
   /// design key caps lock
@@ -82,7 +84,7 @@ enum KeyboardIcon: String, CaseIterable {
   var lineWidth: CGFloat {
     switch self {
     case .toolbarEmoji, .toolbarPhrase, .toolbarClipboard, .toolbarSkin, .toolbarScheme, .shift, .capsLock, .backspace, .returnKey, .mic, .emoji, .handwriting, .lexicon, .keyboardHeight, .settings, .keySound, .vibration, .oneHand, .incognito, .feedback, .about, .aiAssist, .localInput, .voiceResult, .vibrationStrength, .clipboardHistory, .keyboardLayout, .plus, .oneHandExit: return 1.7
-    case .collapse, .candidateExpand, .oneHandSwapLeft, .oneHandSwapRight: return 1.8
+    case .collapse, .candidateExpand, .candidateClose, .oneHandSwapLeft, .oneHandSwapRight: return 1.8
     case .check: return 4
     }
   }
@@ -134,6 +136,7 @@ enum KeyboardIcon: String, CaseIterable {
     case .toolbarScheme: Self.appendIosToolbarScheme(p)
     case .collapse: Self.appendToolbarDismiss(p)
     case .candidateExpand: Self.appendChevron(p)
+    case .candidateClose: Self.appendClose(p)
     case .shift: Self.appendShift(p)
     case .capsLock: Self.appendCapsLock(p)
     case .backspace: Self.appendBackspace(p)
@@ -283,6 +286,13 @@ enum KeyboardIcon: String, CaseIterable {
     p.move(to: CGPoint(x: 6, y: 9.5))
     p.addLine(to: CGPoint(x: 12, y: 15.5))
     p.addLine(to: CGPoint(x: 18, y: 9.5))
+  }
+
+  private static func appendClose(_ p: UIBezierPath) {
+    p.move(to: CGPoint(x: 18, y: 6))
+    p.addLine(to: CGPoint(x: 6, y: 18))
+    p.move(to: CGPoint(x: 6, y: 6))
+    p.addLine(to: CGPoint(x: 18, y: 18))
   }
 
   private static func appendShift(_ p: UIBezierPath) {

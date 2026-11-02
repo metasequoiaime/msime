@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// 表达：输入的文字如何输出，对应 Android 的 `ExpressionPage`。标点分组放三个日常标点开关，其余规则在标点页，点一行就到；智能分组放整句联想和英文联想；常用语打开键盘常用语面板发送的那些短语。
+/// 表达：输入的文字如何输出，对应 Android 的 `ExpressionPage`。标点分组放三个日常标点开关，其余规则在标点页，点一行就到；智能分组放整句联想、上屏后联想及其联想栏按键、英文联想；常用语打开键盘常用语面板发送的那些短语。
 ///
-/// 标点开关和整句联想读写共享偏好文档，键盘下次出现时应用。英文联想沿用 App Group 开关（`EnglishSuggestionsPreference`），控制原文及唯一纠错候选和空格默认纠错；不增加第二个开关。
+/// 标点开关、整句联想和上屏后联想读写共享偏好文档，键盘下次出现时应用。英文联想沿用 App Group 开关（`EnglishSuggestionsPreference`），控制原文及唯一纠错候选和空格默认纠错；不增加第二个开关。
 struct ExpressionSettingsView: View {
   @AppStorage(EnglishSuggestionsPreference.enabledKey, store: EnglishSuggestionsPreference.defaults)
   private var englishSuggestions = true
@@ -11,11 +11,15 @@ struct ExpressionSettingsView: View {
   @State private var smart = true
   @State private var lock = "follow"
   @State private var sentenceLevel = SentenceAssociationPreference.Level.standard
+  @State private var nextWordPrediction = false
+  @State private var predictionButtons = NextWordPredictionButtons.expandOnly
   @State private var failedGroup: PageGroup?
 
   private enum PageGroup { case punctuation, intelligence }
 
   private static let sentenceSubtitle = "更准确，但更耗电"
+  private static let predictionInfo = "选词上屏后推荐后续文字，点选、按数字键或空格上屏，继续输入其他内容时消失；使用现有词库，开启学习时也参考个人词序，隐私输入不显示"
+  private static let predictionButtonsInfo = "联想出现时候选栏右端的按键：× 关闭联想，不输入任何字符；∨ 展开更多联想。只有关闭时左右滑动候选栏选词"
 
   var body: some View {
     ScrollView {
@@ -46,6 +50,20 @@ struct ExpressionSettingsView: View {
                           selection: Binding(get: { sentenceLevel }, set: saveSentenceLevel),
                           sheetTitle: "整句联想", sheetMessage: Self.sentenceSubtitle,
                           identifier: "sentenceAssociationPicker")
+          DesignDivider()
+          DesignToggleRow(title: "上屏后联想", info: Self.predictionInfo,
+                          isOn: stored(NextWordPredictionButtons.enabledKey, $nextWordPrediction, group: .intelligence))
+            .accessibilityIdentifier("nextWordPredictionToggle")
+          DesignDivider()
+          // 联想按键的样式只在开启上屏后联想后可选，关着时整行变灰，与 Android 一样。
+          DesignSelectRow(title: "联想栏按键", info: Self.predictionButtonsInfo,
+                          options: NextWordPredictionButtons.allCases.map { DesignOption(title: $0.title, value: $0) },
+                          selection: SharedPreferenceBinding.custom(state: $predictionButtons, onSave: { record($0, group: .intelligence) }) {
+                            $0[NextWordPredictionButtons.documentKey] = $1.rawValue
+                          },
+                          sheetTitle: "联想栏按键", sheetMessage: Self.predictionButtonsInfo,
+                          identifier: "nextWordPredictionButtonsPicker")
+            .disabled(!nextWordPrediction)
           DesignDivider()
           DesignToggleRow(title: "英文联想", info: "保留原文并提供纠错，空格默认采用纠错结果", isOn: $englishSuggestions)
             .accessibilityIdentifier("englishSuggestionsToggle")
@@ -113,5 +131,7 @@ struct ExpressionSettingsView: View {
     smart = preferences["smart_punctuation"] as? Bool ?? true
     lock = preferences["punctuation_lock"] as? String ?? "follow"
     sentenceLevel = SentenceAssociationPreference.level(in: preferences)
+    nextWordPrediction = preferences[NextWordPredictionButtons.enabledKey] as? Bool ?? false
+    predictionButtons = NextWordPredictionButtons.style(in: preferences)
   }
 }
