@@ -216,6 +216,14 @@ int main() {
                 std::wstring(L"操作失败，请重试。"),
         "导入复用取消与未知错误的公共处理");
 
+  // #10633：对话框打不开或读不到所选文件时要有说明，用户自己关掉对话框不算失败。
+  check(!local_model_picker_error_message(0, false) &&
+            local_model_picker_error_message(static_cast<std::int32_t>(0x80004005U), false) ==
+                std::wstring(L"无法打开或读取文件选择对话框（错误 0x80004005），请重试。") &&
+            local_model_picker_error_message(0, true) ==
+                std::wstring(L"读不到所选文件在本机上的路径，请先把模型文件保存到本机磁盘上的文件夹，再重新选择。"),
+        "导入对话框失败的说明");
+
   // 「服务配置 ›」的状态（desktopVoiceServiceStatus 的 Windows 分支）：豆包没填时照实说没填，不说「暂用系统识别」。
   check(service_status(L"local", false, true, L"", L"", L"", L"", L"api_key") == L"未选模型" &&
             service_status(L"local", false, true, L"C:\\models\\a", L"", L"", L"", L"api_key") ==

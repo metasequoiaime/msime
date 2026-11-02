@@ -1310,7 +1310,7 @@ fn removing_a_stray_file_model_slot_succeeds_and_cleans_it() {
 #[test]
 fn a_finished_model_operation_releases_the_lock_while_a_copy_remains_open() {
     let root = tempfile::tempdir().unwrap();
-    let held = acquire_model_lock(root.path()).unwrap();
+    let held = acquire_model_lock(root.path(), &AtomicBool::new(false)).unwrap();
     let inherited = held._file.try_clone().unwrap();
     let contender =
         crate::file_lock::open_private_lock_file(root.path().join(MODEL_LOCK_FILE)).unwrap();
@@ -1341,7 +1341,7 @@ fn removing_while_a_different_process_installs_reports_busy() {
     let state = tempfile::tempdir().unwrap();
     let root = state.path().join("models");
     fs::create_dir(&root).unwrap();
-    let held = acquire_model_lock(&root).unwrap();
+    let held = acquire_model_lock(&root, &AtomicBool::new(false)).unwrap();
     let remove_root = root.clone();
     let (result_tx, result_rx) = mpsc::channel();
     let removal = thread::spawn(move || {
@@ -1609,6 +1609,75 @@ fn cancelling_an_import_leaves_nothing_behind() {
 
     assert!(matches!(result, Err(LocalModelError::Cancelled)));
     assert!(root_entries(root.path()).is_empty());
+}
+
+// #10633：模型根目录的锁被另一个安装（别的进程、或同一进程里另一个模型的下载）占着时，导入在拿锁处等待。原来用阻塞的 `exclusive`，等待期间看不到取消，界面停在「导入中 0%」，「取消导入」和关窗都叫不停它。
+#[test]
+fn cancelling_an_import_that_waits_for_the_model_lock_returns_promptly() {
+    let root = tempfile::tempdir().unwrap();
+    let downloads = tempfile::tempdir().unwrap();
+    let archive = good_archive();
+    let model = fixture_model(&archive);
+    let files = vec![
+        picked(downloads.path(), "model.tar.bz2", &archive),
+        picked(downloads.path(), "vad.onnx", EXTRA),
+    ];
+    let held = acquire_model_lock(root.path(), &AtomicBool::new(false)).unwrap();
+    let cancel = std::sync::Arc::new(AtomicBool::new(false));
+    let (result_tx, result_rx) = mpsc::channel();
+    let import_root = root.path().to_path_buf();
+    let import_cancel = cancel.clone();
+    let importing = thread::spawn(move || {
+        let result = import_model(&import_root, &model, &files, &mut |_| {}, &import_cancel);
+        result_tx.send(result).unwrap();
+    });
+
+    // 先确认导入确实在等锁，再取消；时限只防止阻塞实现挂死测试。
+    assert!(result_rx.recv_timeout(Duration::from_millis(200)).is_err());
+    cancel.store(true, Ordering::Relaxed);
+    let result = result_rx.recv_timeout(Duration::from_secs(10));
+    drop(held);
+    importing.join().unwrap();
+    assert!(matches!(
+        result.expect("等锁的导入应在取消后返回，而不是等到锁释放"),
+        Err(LocalModelError::Cancelled)
+    ));
+    assert!(root_entries(root.path()).is_empty());
+}
+
+#[test]
+fn an_import_waiting_for_the_model_lock_installs_once_it_is_released() {
+    let root = tempfile::tempdir().unwrap();
+    let downloads = tempfile::tempdir().unwrap();
+    let archive = good_archive();
+    let model = fixture_model(&archive);
+    let files = vec![
+        picked(downloads.path(), "model.tar.bz2", &archive),
+        picked(downloads.path(), "vad.onnx", EXTRA),
+    ];
+    let held = acquire_model_lock(root.path(), &AtomicBool::new(false)).unwrap();
+    let (result_tx, result_rx) = mpsc::channel();
+    let import_root = root.path().to_path_buf();
+    let importing = thread::spawn(move || {
+        let result = import_model(
+            &import_root,
+            &model,
+            &files,
+            &mut |_| {},
+            &AtomicBool::new(false),
+        );
+        result_tx.send(result).unwrap();
+    });
+
+    // 锁被占着时只等，不报错也不动目录。
+    assert!(result_rx.recv_timeout(Duration::from_millis(200)).is_err());
+    drop(held);
+    let result = result_rx.recv_timeout(Duration::from_secs(10));
+    importing.join().unwrap();
+    assert_eq!(
+        result.expect("锁释放后导入应继续完成").unwrap(),
+        root.path().join("fixture")
+    );
 }
 
 #[test]
