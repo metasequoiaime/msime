@@ -162,6 +162,14 @@ pub fn open_private_directory(parent: &Path) -> io::Result<File> {
 
 #[cfg(all(unix, not(target_vendor = "apple")))]
 pub fn open_private_directory(parent: &Path) -> io::Result<File> {
+    if fs::symlink_metadata(parent).is_ok_and(|metadata| metadata.file_type().is_symlink())
+        && !msime_path_trust::is_trusted_system_alias(parent)
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "private directory path is a symbolic link",
+        ));
+    }
     let flags = rustix::fs::OFlags::RDONLY
         | rustix::fs::OFlags::DIRECTORY
         | rustix::fs::OFlags::NOFOLLOW
