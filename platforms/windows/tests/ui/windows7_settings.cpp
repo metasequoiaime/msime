@@ -4,6 +4,7 @@
 #include "../../settings/win7/CommunitySkinData.h"
 #include "../../settings/win7/ControlText.h"
 #include "../../settings/win7/StatisticsData.h"
+#include "../../settings/win7/HelpcodeForm.h"
 #include "../../settings/InputSettingsModel.h"
 #include "../../../../shared/contracts/msime_edition.h"
 
@@ -962,6 +963,34 @@ int main() {
     assert(find_option(L"合成插件（插件）") == CB_ERR);
     assert(store.load().snapshot->revision() == revision);
     assert(store.load().snapshot->preferences().at("ai_assistant").at("tokens") == tokens);
+    // 一码严格筛选和双拼触发方式（#10624）：文档里没有这几项时按 client-core 的出厂值显示；改一项只改这一项，保存后显示写入端归一后的值。
+    const auto checked = [&](int id) { return SendMessageW(GetDlgItem(body, id), BM_GETCHECK, 0, 0) == BST_CHECKED; };
+    const auto enabled_control = [&](int id) { return IsWindowEnabled(GetDlgItem(body, id)) != FALSE; };
+    const int strict = helpcode_first + HelpcodeForm::strict_first;
+    // 下标见 HelpcodeModesModel.h：0 末尾直接、2 末尾反引号、4 句中间接、5 句中反引号、8 逐音节直接、9 逐音节 / 结束。
+    const int modes = helpcode_first + HelpcodeForm::modes_first;
+    assert(!store.load().snapshot->preferences().at("shuangpin_helpcode").contains("modes"));
+    assert(!checked(strict) && !checked(strict + 1));
+    assert(checked(modes) && !checked(modes + 2) && !checked(modes + 4) && checked(modes + 5) && checked(modes + 9));
+    if (!checked(helpcode_first + 3)) {
+      assert(!enabled_control(strict + 1) && !enabled_control(modes));
+      click(helpcode_first + 3);
+    }
+    assert(enabled_control(strict + 1) && enabled_control(modes) && enabled_control(modes + 4));
+    assert(!enabled_control(modes + 5) && !enabled_control(modes + 9));
+    click(strict + 1);
+    saved = store.load();
+    assert(saved.snapshot->preferences().at("shuangpin_helpcode").at("strict_filter") == true);
+    assert(!saved.snapshot->preferences().at("quanpin_helpcode").value("strict_filter", false));
+    click(modes + 2);
+    assert(store.load().snapshot->preferences().at("shuangpin_helpcode").at("modes").at("trigger_backtick") == true);
+    assert(checked(modes + 2));
+    // 打开句中间接后反引号归句中：client-core 清掉末尾反引号，页面跟着显示关，句中的三枚触发键可改。
+    click(modes + 4);
+    const auto modes_saved = store.load().snapshot->preferences().at("shuangpin_helpcode").at("modes");
+    assert(modes_saved.at("mid_sentence") == true && modes_saved.at("trigger_backtick") == false);
+    assert(modes_saved.at("direct") == true && modes_saved.at("trigger_semicolon") == true);
+    assert(!checked(modes + 2) && checked(modes + 4) && enabled_control(modes + 5));
   }
   select_tab(L"输入方案");
   const auto find_combo = [&](int id, const wchar_t* title) {
