@@ -6,7 +6,7 @@ Status: implemented
 
 #10591 要求三端「点读音行编辑拼写」的行为一致。三端对齐方案（PR #10689 的评审结论，用户 2026-11-02 拍板）定下以 Android 的「读音 / 笔图标 → 放大编辑条」为基准，什么时候能点则采用 Android 的 `CompositionCaretPolicy.editable`，再加上 iOS 的「排除五笔 14 键」。
 
-Android 的 `editable` 只看方案、本地模式、专用英文和 `editing_text` 是否为 ASCII，五笔一律可编辑，包括五笔 14 键网格里打的组字。可那时的 `editing_text` 是每组的代表字母（QW QW 记成 `qq`），不是用户打的码，读音行显示的是首选编码（`wq`），两者对不上；引擎在五笔 14 键组字时也不接 `Session::set_caret`（[五笔 14 键](../feature/2026-10-25-wubi-fourteen-key.md)：「14 键组码没有可落脚的光标」）。iOS 早已用 `typesWubiGrid` 关掉这里的拼写光标、拼写菜单和空格拖动，Android 却仍把读音标成「编辑拼写」、点了能打开放大编辑条。
+Android 的 `editable` 只看方案、本地模式、专用英文和 `editing_text` 是否为 ASCII，五笔一律可编辑，包括五笔 14 键网格里打的组字。可那时的 `editing_text` 是每组的代表字母（QW QW 记成 `qq`），不是用户打的码，读音行显示的是首选编码（`wq`），两者对不上；引擎在五笔 14 键组字时也不接 `Session::set_caret`（[五笔 14 键](../feature/2026-10-25-wubi-fourteen-key.md)：「14 键组码没有可落脚的光标」）。iOS 早已用 `typesWubiGrid` 关掉这里的拼写光标、拼写菜单和空格拖动，Android 却仍把读音标成「编辑拼写」、点了能打开放大编辑条，条上显示的是用户没打过的代表字母 `qq`（API 35 模拟器上实测）。
 
 另外，读音行可点区域（[手机键盘放大读音行的点按区域](2026-11-02-mobile-preedit-tap-target.md)）是三端命中区的基准，但它的计算写在 `ImeToolbar` 里、直接读 `View`，没有任何测试覆盖。
 
@@ -26,4 +26,5 @@ Android 的 `editable` 只看方案、本地模式、专用英文和 `editing_te
 
 - Android 五笔 14 键用户失去一个入口：组字中点读音不再打开放大编辑条。这是三端统一时有意的收紧，与 iOS 相同；鸿蒙按同一规则移植时也要排除五笔网格。
 - `editable` 的签名变了，调用方只有 `MSIMEInputService` 两处；日后新增调用方必须传 `grid_composing`。
-- 测试：`CompositionCaretPolicySmoke` 补了全拼九键、全拼 14/18 键、双拼网格可编辑，五笔网格不可编辑，硬件键盘打的五笔码可编辑；`ReadingRowPolicySmoke` 补了三种排布下的可点区域。设备套件 `FourteenKeyWubiDeviceChecks` 原先按读屏描述「编辑拼写」找五笔 14 键的读音，现在改为断言读音显示编码、不可点、描述就是编码，并且屏上没有「编辑拼写」。这一改动只经 `check-host.sh` 编译，没有在模拟器上运行。
+- 测试：`CompositionCaretPolicySmoke` 补了全拼九键、全拼 14/18 键、双拼网格可编辑，五笔网格不可编辑，硬件键盘打的五笔码可编辑；`ReadingRowPolicySmoke` 补了三种排布下的可点区域。设备套件 `FourteenKeyWubiDeviceChecks` 原先按读屏描述「编辑拼写」找五笔 14 键的读音，现在改为断言读音显示编码、不可点、描述就是编码，并且屏上没有「编辑拼写」。这一改动只经 `check-host.sh` 编译，没有在模拟器上运行这个套件。
+- 模拟器（API 35，arm64，开发签名的 APK）上手动对照过：改动前五笔 14 键 QW QW 后读音 `wq` 的读屏描述是「编辑拼写」，点读音打开放大编辑条、条上是 `qq`；改动后描述是 `wq`、不可点，点读音行没有反应。同一构建里硬件键盘打的五笔码 `wqiy` 仍是「编辑拼写」，全拼 26 键点笔图标照常打开编辑条。
