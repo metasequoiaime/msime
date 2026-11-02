@@ -404,6 +404,71 @@ fn checkpoints_with_inconsistent_contents_are_refused() {
     assert_eq!(ReplicaFile::from_replica(&replica), good);
 }
 
+/// 更新的版本加的词库类别（例如新世纪五笔 `wubixsj`）这一版不认识：只跳过那几条，检查点照常读出其余的词条；那几条的其余字段仍要合规。
+#[test]
+fn checkpoint_entries_of_an_unknown_kind_are_skipped() {
+    let known = (
+        "pinyin".to_owned(),
+        "ma".to_owned(),
+        "字".to_owned(),
+        10u64 << 10,
+        0usize,
+        1u64,
+        true,
+    );
+    let foreign = (
+        "wubixsj".to_owned(),
+        "ent".to_owned(),
+        "力".to_owned(),
+        11u64 << 10,
+        0usize,
+        2u64,
+        true,
+    );
+    let file = ReplicaFile {
+        writers: vec![A.to_owned()],
+        devices: vec![(A.to_owned(), 1, AT, false)],
+        entries: vec![known.clone(), foreign.clone()],
+    };
+    let replica = file.into_replica(2).unwrap();
+    assert_eq!(
+        ReplicaFile::from_replica(&replica),
+        ReplicaFile {
+            writers: vec![A.to_owned()],
+            devices: vec![(A.to_owned(), 1, AT, false)],
+            entries: vec![known.clone()],
+        }
+    );
+    // 不认识的类别不放过其余字段：序号超过检查点、写入者下标越界仍拒绝整份。
+    for broken in [
+        (
+            foreign.0.clone(),
+            foreign.1.clone(),
+            foreign.2.clone(),
+            foreign.3,
+            0,
+            9,
+            true,
+        ),
+        (
+            foreign.0.clone(),
+            foreign.1.clone(),
+            foreign.2.clone(),
+            foreign.3,
+            1,
+            2,
+            true,
+        ),
+    ] {
+        let file = ReplicaFile {
+            writers: vec![A.to_owned()],
+            devices: vec![],
+            entries: vec![known.clone(), broken],
+        };
+        assert!(file.into_replica(2).is_none());
+    }
+}
+
 #[test]
 fn format_negotiation_accepts_only_this_version() {
     assert!(format_supported(&format_bytes()));
