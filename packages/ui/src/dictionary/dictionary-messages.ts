@@ -46,6 +46,8 @@ export function dictionaryKindKeyHint(kind: string): string {
       return "1–64 个字母";
     case "pinyin":
       return "完整音节，用 ' 分隔，如 ni'hao";
+    case "cantonese":
+      return "粤拼，每字一个音节，用空格分隔，如 nei hou";
     default:
       return "";
   }
@@ -58,6 +60,7 @@ const personalDictionaryKindTitles: Record<PersonalDictionaryImportEntry["kind"]
   wubixsj: "新世纪五笔",
   quickPhrase: "快捷短语",
   english: "英文",
+  cantonese: "粤语",
 };
 
 export function personalDictionaryKindTitle(kind: PersonalDictionaryImportEntry["kind"]): string {

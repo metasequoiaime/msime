@@ -24,16 +24,18 @@ enum Kind {
     QuickPhrase,
     English,
     Wubi98,
+    /// 用户自己加的粤语词，编码是粤拼音节。只在本机，不进云词库和词库快照。
+    Cantonese,
     /// 新世纪五笔，JSON 里是 `wubixsj`。追加在末尾。
     Wubixsj,
 }
 
-/// 浏览类型独立于个人词库类型，资源词条不能流入编辑、导入或云同步协议。
+/// 浏览类型独立于个人词库类型，资源词条不能流入编辑、导入或云同步协议。`cantonese` 两边都有，浏览时一直指发布的粤语词库：资源排在前面，untagged 按顺序先试它。个人粤语词由 `list` 列出。
 #[derive(Clone, Copy, Deserialize, Serialize)]
 #[serde(untagged)]
 enum LookupKind {
-    Personal(Kind),
     Resource(ResourceKind),
+    Personal(Kind),
 }
 
 #[derive(Clone, Copy, Deserialize, Serialize)]
@@ -141,6 +143,7 @@ impl From<Entry> for DictionaryEntry {
                 Kind::QuickPhrase => DictionaryKind::QuickPhrase,
                 Kind::English => DictionaryKind::English,
                 Kind::Wubi98 => DictionaryKind::Wubi98,
+                Kind::Cantonese => DictionaryKind::Cantonese,
                 Kind::Wubixsj => DictionaryKind::WubiXsj,
             },
             key: entry.key,
@@ -158,6 +161,7 @@ impl From<Kind> for msime_engine::host::DictionaryKind {
             Kind::QuickPhrase => Self::QuickPhrase,
             Kind::English => Self::English,
             Kind::Wubi98 => Self::Wubi98,
+            Kind::Cantonese => Self::Cantonese,
             Kind::Wubixsj => Self::WubiXsj,
         }
     }
@@ -173,6 +177,7 @@ impl TryFrom<DictionaryEntry> for Entry {
             DictionaryKind::QuickPhrase => Kind::QuickPhrase,
             DictionaryKind::English => Kind::English,
             DictionaryKind::Wubi98 => Kind::Wubi98,
+            DictionaryKind::Cantonese => Kind::Cantonese,
             DictionaryKind::WubiXsj => Kind::Wubixsj,
             _ => return Err("unsupported dictionary kind"),
         };
@@ -885,9 +890,11 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             if prefix.len() > 256 {
                 return Err("invalid dictionary page".into());
             }
-            // 非空查询在目标词库内筛选后分页，以便找到并调整内置行；快捷短语允许整表列出，其余空查询仅列个人词条。
+            // 非空查询在目标词库内筛选后分页，以便找到并调整内置行；快捷短语允许整表列出，其余空查询仅列个人词条。粤语的发布词在只读的语言词库里（由 `browse` 浏览），这里只列个人粤语词。
             if let Some(kind) = kind.filter(|kind| {
-                !user_only && (*kind == Kind::QuickPhrase || names_a_code(*kind, &prefix))
+                !user_only
+                    && *kind != Kind::Cantonese
+                    && (*kind == Kind::QuickPhrase || names_a_code(*kind, &prefix))
             }) {
                 let (entries, has_more) =
                     table_entries_page(&options, kind, prefix.trim(), offset, limit)?;
@@ -1251,6 +1258,7 @@ fn kind_name(kind: Kind) -> &'static str {
         Kind::QuickPhrase => "quick_phrase",
         Kind::English => "english",
         Kind::Wubi98 => "wubi98",
+        Kind::Cantonese => "cantonese",
         Kind::Wubixsj => "wubixsj",
     }
 }
@@ -1941,6 +1949,7 @@ fn personal_engine_entry(word: &PersonalWord) -> msime_engine::host::DictionaryE
             PersonalWordKind::QuickPhrase => DictionaryKind::QuickPhrase,
             PersonalWordKind::English => DictionaryKind::English,
             PersonalWordKind::Wubi98 => DictionaryKind::Wubi98,
+            PersonalWordKind::Cantonese => DictionaryKind::Cantonese,
             PersonalWordKind::WubiXsj => DictionaryKind::WubiXsj,
         },
         key: word.key.clone(),
@@ -2012,6 +2021,7 @@ fn personal_kind(kind: DictionaryKind) -> PersonalWordKind {
         DictionaryKind::QuickPhrase => PersonalWordKind::QuickPhrase,
         DictionaryKind::English => PersonalWordKind::English,
         DictionaryKind::Wubi98 => PersonalWordKind::Wubi98,
+        DictionaryKind::Cantonese => PersonalWordKind::Cantonese,
         DictionaryKind::WubiXsj => PersonalWordKind::WubiXsj,
         // `DictionaryKind` 是 Engine 的 `non_exhaustive` 枚举，以后加的种类在这里补上；在那之前按 86 五笔不对，所以仍然拦下。
         _ => unreachable!("unsupported personal dictionary kind"),
@@ -2026,6 +2036,7 @@ fn personal_to_kind(kind: PersonalWordKind) -> Kind {
         PersonalWordKind::WubiXsj => Kind::Wubixsj,
         PersonalWordKind::QuickPhrase => Kind::QuickPhrase,
         PersonalWordKind::English => Kind::English,
+        PersonalWordKind::Cantonese => Kind::Cantonese,
     }
 }
 
@@ -2059,7 +2070,7 @@ fn validate_entry_within(
     weights: std::ops::RangeInclusive<i64>,
 ) -> Result<(), String> {
     let key_limit = match entry.kind {
-        Kind::Pinyin => 512,
+        Kind::Pinyin | Kind::Cantonese => 512,
         Kind::Wubi | Kind::Wubi98 | Kind::Wubixsj => 4,
         Kind::QuickPhrase => 32,
         Kind::English => 64,
@@ -2077,6 +2088,9 @@ fn validate_entry_within(
             )
         }
         Kind::English => msime_client_services::dictionary::english_code_is_well_formed(&entry.key),
+        Kind::Cantonese => {
+            msime_client_services::dictionary::cantonese_code_is_well_formed(&entry.key)
+        }
     };
     let allowed_controls: &[char] = if matches!(entry.kind, Kind::QuickPhrase) {
         &['\n', '\t']
@@ -2126,6 +2140,7 @@ impl From<&Kind> for msime_client_services::dictionary::import::ImportKind {
             Kind::QuickPhrase => ImportKind::QuickPhrase,
             Kind::English => ImportKind::English,
             Kind::Wubi98 => ImportKind::Wubi98,
+            Kind::Cantonese => ImportKind::Cantonese,
             Kind::Wubixsj => ImportKind::Wubixsj,
         }
     }

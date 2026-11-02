@@ -1,4 +1,4 @@
-//! The providers, one per scheme family (`R/providers/provider_registry.cpp`, `pinyin_candidate_provider.cpp`): pinyin (quanpin and shuangpin engines), wubi and Japanese. Korean syllables are the text, so a Korean query answers nothing until the user opens the Hanja list, and then the embedded Hanja table (`korean::hanja`) answers it. Cantonese is answered by `msime-cantonese.db`, which is opened the first time the scheme is activated and then kept for the session. Zhuyin's editor reads `msime-zhuyin.db` itself while it converts, so the registry opens that file the first time the scheme is activated, lends the connection to each Zhuyin scheme built and takes it back when that scheme is replaced; its list rows reach the session through the scheme, never through `query`. Stroke is answered by `msime-stroke.db` the way Cantonese is: opened the first time the scheme is activated, kept for the session, and read by `query`.
+//! The providers, one per scheme family (`R/providers/provider_registry.cpp`, `pinyin_candidate_provider.cpp`): pinyin (quanpin and shuangpin engines), wubi and Japanese. Korean syllables are the text, so a Korean query answers nothing until the user opens the Hanja list, and then the embedded Hanja table (`korean::hanja`) answers it. Cantonese is answered by `msime-cantonese.db`, which is opened the first time the scheme is activated and then kept for the session, together with the Cantonese words the user added to the personal dictionary, read from the user journal (`cantonese::UserWords`). Zhuyin's editor reads `msime-zhuyin.db` itself while it converts, so the registry opens that file the first time the scheme is activated, lends the connection to each Zhuyin scheme built and takes it back when that scheme is replaced; its list rows reach the session through the scheme, never through `query`. Stroke is answered by `msime-stroke.db` the way Cantonese is: opened the first time the scheme is activated, kept for the session, and read by `query`.
 //!
 //! The registry answers queries and lookups only. The reference also routed `create_word` / `update_weight_by_pinyin_and_word` / `delete_by_pinyin_and_word` through it; here the session writes pins, removals and frequency learning into user_dictionary itself, choosing the dictionary kind from the selected row's scheme (overlays.md §3.3), and phrases through its own canonical-pinyin `QuanpinEngine`, so a second writer path would only diverge from it.
 
@@ -8,7 +8,10 @@ use std::sync::Arc;
 
 use crate::assets;
 use crate::cantonese::scheme::CantoneseQueryBuffer;
-use crate::cantonese::{CantoneseCandidate, CantoneseDictionary, CantoneseScheme, Inventory};
+use crate::cantonese::{
+    CantoneseCandidate, CantoneseDictionary, CantoneseLexicon, CantoneseScheme, Inventory,
+    UserWords,
+};
 use crate::diagnostics;
 use crate::error::{EngineError, Result};
 use crate::helpcode::SharedKeymap;
@@ -40,6 +43,8 @@ pub struct ProviderRegistry {
     /// Where `msime-cantonese.db` is; empty when the host has none.
     cantonese_path: PathBuf,
     cantonese: Option<CantoneseDictionary>,
+    /// 用户在个人词库里加的粤语词，每次粤语查询前按日志是否变过刷新。
+    cantonese_user: UserWords,
     cantonese_scheme: Option<CantoneseScheme>,
     cantonese_candidates: Vec<CantoneseCandidate>,
     cantonese_buffer: CantoneseQueryBuffer,
@@ -104,6 +109,7 @@ impl ProviderRegistry {
             keymap: None,
             cantonese_path,
             cantonese: None,
+            cantonese_user: UserWords::new(paths.user(assets::USER_JOURNAL)),
             cantonese_scheme: None,
             cantonese_candidates: Vec::new(),
             cantonese_buffer: CantoneseQueryBuffer::default(),
@@ -363,7 +369,7 @@ impl ProviderRegistry {
         }
     }
 
-    /// The `msime-cantonese.db` rows for the request's letters, read again through the activated inventory, as `CantoneseScheme::candidates` lists them. Each row is keyed by the typed letters it covers (`pinyin`, apostrophes kept) and the dictionary key it was found under (`canonical_pinyin`), which is what selecting it takes out of the composition. A read that fails answers nothing, like the wubi table.
+    /// The `msime-cantonese.db` rows, with the user's own Cantonese words merged in, for the request's letters, read again through the activated inventory, as `CantoneseScheme::candidates` lists them. Each row is keyed by the typed letters it covers (`pinyin`, apostrophes kept) and the dictionary key it was found under (`canonical_pinyin`), which is what selecting it takes out of the composition. A read that fails answers nothing, like the wubi table.
     fn cantonese_candidates(&mut self, request: &QueryRequest) -> Vec<WordItem> {
         let mut destination = Vec::new();
         self.query_cantonese_into(request, &mut destination);
@@ -389,8 +395,9 @@ impl ProviderRegistry {
             return;
         };
         scheme.set_raw_input(&request.raw_input);
+        self.cantonese_user.refresh();
         fill_cantonese_candidates(
-            dictionary,
+            CantoneseLexicon::new(dictionary.dictionary(), Some(&self.cantonese_user)),
             scheme,
             &mut self.cantonese_buffer,
             &mut self.cantonese_candidates,
@@ -408,8 +415,9 @@ impl ProviderRegistry {
             destination.clear();
             return;
         };
+        self.cantonese_user.refresh();
         fill_cantonese_candidates(
-            dictionary,
+            CantoneseLexicon::new(dictionary.dictionary(), Some(&self.cantonese_user)),
             scheme,
             &mut self.cantonese_buffer,
             &mut self.cantonese_candidates,
@@ -545,16 +553,13 @@ impl ProviderRegistry {
 }
 
 fn fill_cantonese_candidates(
-    dictionary: &CantoneseDictionary,
+    lexicon: CantoneseLexicon<'_>,
     scheme: &CantoneseScheme,
     buffer: &mut CantoneseQueryBuffer,
     source: &mut Vec<CantoneseCandidate>,
     destination: &mut Vec<WordItem>,
 ) {
-    if scheme
-        .candidates_into(dictionary.dictionary(), buffer, source)
-        .is_err()
-    {
+    if scheme.candidates_into(lexicon, buffer, source).is_err() {
         destination.clear();
         return;
     }

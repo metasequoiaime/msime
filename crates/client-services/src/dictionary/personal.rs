@@ -36,6 +36,9 @@ pub enum PersonalWordKind {
     English,
     #[serde(rename = "wubi98")]
     Wubi98,
+    /// 粤语，编码是粤拼音节。只存在本机：云词库和词库集合都不收它。
+    #[serde(rename = "cantonese")]
+    Cantonese,
     /// 新世纪五笔。追加在末尾：隐式序号会进 outbox 的请求号。
     #[serde(rename = "wubixsj")]
     WubiXsj,
@@ -62,6 +65,7 @@ impl PersonalWord {
                 PersonalWordKind::WubiXsj => "wubixsj",
                 PersonalWordKind::QuickPhrase => "quickPhrase",
                 PersonalWordKind::English => "english",
+                PersonalWordKind::Cantonese => "cantonese",
             },
             self.key.len(),
             self.key,
@@ -77,6 +81,7 @@ impl PersonalWord {
             PersonalWordKind::Wubi | PersonalWordKind::Wubi98 | PersonalWordKind::WubiXsj => 4,
             PersonalWordKind::QuickPhrase => 32,
             PersonalWordKind::English => 64,
+            PersonalWordKind::Cantonese => 512,
         };
         let key_valid = match self.kind {
             PersonalWordKind::Pinyin => super::pinyin_code_is_well_formed(&self.key, true),
@@ -87,6 +92,7 @@ impl PersonalWord {
                 super::quick_phrase_transport_code_is_well_formed(&self.key)
             }
             PersonalWordKind::English => super::english_code_is_well_formed(&self.key),
+            PersonalWordKind::Cantonese => super::cantonese_code_is_well_formed(&self.key),
         };
         let allowed_controls: &[char] = if self.kind == PersonalWordKind::QuickPhrase {
             &['\n', '\t']

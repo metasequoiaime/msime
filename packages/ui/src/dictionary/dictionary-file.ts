@@ -104,7 +104,7 @@ export async function readScelFile(
 }
 
 export type PersonalDictionaryImportEntry = {
-  kind: "pinyin" | "wubi" | "wubi98" | "wubixsj" | "quickPhrase" | "english";
+  kind: "pinyin" | "wubi" | "wubi98" | "wubixsj" | "quickPhrase" | "english" | "cantonese";
   key: string;
   value: string;
   weight: number;
@@ -117,6 +117,7 @@ const personalDictionaryKinds = new Set<PersonalDictionaryImportEntry["kind"]>([
   "wubixsj",
   "quickPhrase",
   "english",
+  "cantonese",
 ]);
 
 function personalEntryIdentity(entry: PersonalDictionaryImportEntry): string {
@@ -165,7 +166,11 @@ export function parsePersonalDictionaryImport(text: string): PersonalDictionaryI
       throw new Error(`第 ${index + 1} 条：词条格式无效。`);
     }
     const normalizedKey =
-      kind === "pinyin" ? key.toLowerCase().replaceAll(" ", "'") : key.toLowerCase();
+      kind === "pinyin"
+        ? key.toLowerCase().replaceAll(" ", "'")
+        : kind === "cantonese"
+          ? key.toLowerCase().trim().replace(/[ ']+/g, " ")
+          : key.toLowerCase();
     const entry = {
       kind: kind as PersonalDictionaryImportEntry["kind"],
       key: normalizedKey,
@@ -180,7 +185,9 @@ export function parsePersonalDictionaryImport(text: string): PersonalDictionaryI
           ? normalizedKey.length > 0 && keyBytes <= 4 && /^[a-z]+$/.test(normalizedKey)
           : entry.kind === "quickPhrase"
             ? normalizedKey.length > 0 && keyBytes <= 32 && /^[a-z]+$/.test(normalizedKey)
-            : normalizedKey.length > 0 && keyBytes <= 64 && /^[a-z'-]+$/.test(normalizedKey);
+            : entry.kind === "cantonese"
+              ? keyBytes <= 512 && /^[a-z]+[1-6]?( [a-z]+[1-6]?)*$/.test(normalizedKey)
+              : normalizedKey.length > 0 && keyBytes <= 64 && /^[a-z'-]+$/.test(normalizedKey);
     if (
       !keyValid ||
       word.length === 0 ||
@@ -225,7 +232,8 @@ export type LocalDictionaryKind =
   | "wubi98"
   | "wubixsj"
   | "quick_phrase"
-  | "english";
+  | "english"
+  | "cantonese";
 export type ResourceDictionaryKind =
   | "japanese"
   | "cantonese"

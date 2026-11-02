@@ -1588,8 +1588,10 @@ pub enum PersonalDictionaryKind {
     English = 3,
     /// 98 五笔，写入 `wubi98` 表。序号追加在末尾，已有的值不变。
     Wubi98 = 4,
+    /// 粤语，编码是不带声调的粤拼音节，以单个空格连接（与 `msime-cantonese.db` 的 `entries.key` 同一写法）。只记在用户日志里，没有工作表：粤语方案查词时从日志读出合进候选（`cantonese::UserWords`）。
+    Cantonese = 5,
     /// 新世纪五笔，写入 `wubixsj` 表，日志里的 `dictionary` 也是 `wubixsj`。序号追加在末尾，已有的值不变。
-    WubiXsj = 5,
+    WubiXsj = 6,
 }
 
 impl PersonalDictionaryKind {
@@ -1600,7 +1602,8 @@ impl PersonalDictionaryKind {
             2 => Self::QuickPhrase,
             3 => Self::English,
             4 => Self::Wubi98,
-            5 => Self::WubiXsj,
+            5 => Self::Cantonese,
+            6 => Self::WubiXsj,
             _ => return None,
         })
     }
@@ -1610,13 +1613,18 @@ impl PersonalDictionaryKind {
         matches!(self, Self::Wubi | Self::Wubi98 | Self::WubiXsj)
     }
 
+    /// 不写 `msime-pinyin.db` 的种类：英文词写在 `msime-english.db`，粤语词只记在日志里。代次里没有主词库时只有它们能编辑、列出。
+    pub fn stored_without_main_dictionary(self) -> bool {
+        matches!(self, Self::English | Self::Cantonese)
+    }
+
     /// 五笔种类对应的 `msime-pinyin.db` 码表。
     pub fn wubi_table(self) -> Option<&'static str> {
         match self {
             Self::Wubi => Some(WubiProfileKind::Wubi86.table()),
             Self::Wubi98 => Some(WubiProfileKind::Wubi98.table()),
             Self::WubiXsj => Some(WubiProfileKind::WubiXsj.table()),
-            Self::Pinyin | Self::QuickPhrase | Self::English => None,
+            Self::Pinyin | Self::QuickPhrase | Self::English | Self::Cantonese => None,
         }
     }
 
@@ -1628,6 +1636,7 @@ impl PersonalDictionaryKind {
             Self::QuickPhrase => "quick",
             Self::English => "english",
             Self::Wubi98 => "wubi98",
+            Self::Cantonese => "cantonese",
             Self::WubiXsj => "wubixsj",
         }
     }
@@ -1639,13 +1648,14 @@ impl PersonalDictionaryKind {
             "quick" => Self::QuickPhrase,
             "english" => Self::English,
             "wubi98" => Self::Wubi98,
+            "cantonese" => Self::Cantonese,
             "wubixsj" => Self::WubiXsj,
             _ => return None,
         })
     }
 }
 
-/// A user's own dictionary entry. Pinyin keys are complete syllables joined by `'`; wubi 1..=4 letters; quick phrases 1..=32 letters or digits; English 1..=64 letters.
+/// A user's own dictionary entry. Pinyin keys are complete syllables joined by `'`; wubi 1..=4 letters; quick phrases 1..=32 letters or digits; English 1..=64 letters; 粤语是不带声调的粤拼音节，以单个空格连接。
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PersonalDictionaryEntry {
     pub kind: PersonalDictionaryKind,

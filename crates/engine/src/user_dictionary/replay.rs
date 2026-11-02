@@ -106,6 +106,11 @@ fn replay_with(user_db: &Path, main_db: Option<&Path>, english_db: &Path) -> Rep
                 result.skipped += 1;
                 continue;
             }
+            // 粤语词只记在日志里，粤语方案查词时直接读日志（`cantonese::UserWords`），工作库里没有它的表，计入 skipped。这一版认识这个种类，它不在 `KNOWN_KINDS` 里只是因为回放不写它。
+            if operation.kind == b"cantonese" {
+                result.skipped += 1;
+                continue;
+            }
             // 这一版不认识的词库种类（更新的版本加的，例如降级前写下的新五笔版本）计入 `skipped`：行留在日志里不动，回到认识它的版本时照常回放。算作失败会让整次回放回滚、这个代次被拒，降级后输入法就用不了。
             if !JournalRow::KNOWN_KINDS.contains(&operation.kind.as_slice()) {
                 result.skipped += 1;

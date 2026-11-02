@@ -264,7 +264,7 @@ char *msime_client_create(const uint8_t *options, size_t length);
  * {options: <same HostOptions as create>, action: {operation:"list",offset:0,limit:100}}
  * List 的 kind 与 query 可选：ASCII 查询匹配编码前缀，含非 ASCII 字符时匹配词条字面内容。无查询时列个人词条；指定 kind 与非空查询时包含内置行，quick_phrase 空查询也包含内置行。个人行优先；user_only:true 始终只列个人词条，在整库筛选后分页。
  * or action:{operation:"edit",previous:null|Entry,replacement:null|Entry,request_id:"..."}.
- * Batch import: action:{operation:"import",kind:"pinyin"|"wubi"|"wubi98"|"wubixsj"|"quick_phrase"|"english",
+ * Batch import: action:{operation:"import",kind:"pinyin"|"wubi"|"wubi98"|"wubixsj"|"quick_phrase"|"english"|"cantonese",
  * format:"standard"|"windows"|"rime"|"hans",text:"word<TAB>code<TAB>weight\\n",request_id:"..."}.
  * Standard rows are word, code, weight; Windows rows are code, word, weight. Rime rows are
  * word, code, optional weight and may include YAML front matter between --- and ...; Rime's
@@ -275,7 +275,8 @@ char *msime_client_create(const uint8_t *options, size_t length);
  * with deterministic receipt IDs derived from request_id so retries are safe.
  * Export: action:{operation:"export",kind,format:"standard"|"windows",offset,limit} returns
  * {text,has_more}; use pages of at most 1000 rows. Standard output is word, code, weight.
- * Entry:{kind:"pinyin"|"wubi"|"wubi98"|"wubixsj"|"quick_phrase"|"english",key,value,weight,source?:"user"|"bundled"}. wubixsj is 新世纪五笔.
+ * Entry:{kind:"pinyin"|"wubi"|"wubi98"|"wubixsj"|"quick_phrase"|"english"|"cantonese",key,value,weight,source?:"user"|"bundled"}. wubixsj is 新世纪五笔.
+ * 粤语（cantonese）只有用户自己的词：key 是粤拼音节，空格或 ' 分隔、可带声调数字 1–6，Engine 去掉声调、收成单个空格分隔后存进日志，粤语方案查词时并进候选。list、count、export、edit、import 都认它；browse 的 kind:"cantonese" 仍指发布的粤语词库（只读）。云词库和词库快照不收粤语词。
  * List returns {entries,has_more} and sets source on every entry; edit returns {applied:true}. Errors are redacted.
  * A bundled entry passed back as previous can only be re-weighted (replacement with the same kind, key and value) or deleted (replacement null); anything else fails with "bundled dictionary entry is read-only". Export of pinyin also carries the weights set or learned for bundled words and omits single characters; the other kinds export user words only.
  * 清除学习记录：action:{operation:"reset"} 取独占维护权（会话开着时报 dictionary maintenance busy），换回随包的工作词库和英文词库、清空日志（调频、置顶、固定位置、选词计数、整句联想、拼写纠错和用户自己的词），偏好、常用语、剪贴板和打字统计不动；options 带 preferences_directory 时先删掉那里还没合并的输入记录和输入习惯（pending-learning-merge 和 pending-habits-merge 的待合并、已认领和失败计数文件，删不掉时报 learned-data reset rejected、什么也没清），重置后再把已启用命名词库的词重新排进它们的待发送队列（`DictionaryCollectionsStore::requeue_enabled_after_reset`），宿主随后照常送出。返回 {reset:true,collections_requeued:n}；重置成功而重排失败时照样是 reset:true，collections_requeued 为 null，另带 collections_error:"learned-data reset collections unavailable"。云同步的待上传标记由宿主自己打（Android 用 msime_client_cloud_sync 的 dictionary_reset）。
@@ -371,8 +372,8 @@ char *msime_client_import_settings(const uint8_t *directory, size_t directory_le
                                    uint64_t expected_revision, const uint8_t *document,
                                    size_t document_length);
 /* The transcription provider and optional rewrite this device is configured for, read from an
- * absolute preferences directory. Response value: {provider:{...}|null, polish:{...}|null}; both
- * absent means nothing is configured and the host uses whatever it falls back to. Contains
+ * absolute preferences directory. Response value: {provider:{...}|null, polish:{...}|null, punctuationMode}; both
+ * absent means nothing is configured and the host uses whatever it falls back to. punctuationMode 是 voice_input.punctuation_mode 归一后的取值（auto、omit_trailing、omit_all、space，不认识的值给 auto），宿主把它交给 msime_client_voice_punctuation。 Contains
  * credentials: never log the response; release with msime_client_string_free. provider.requestFormat 是请求格式："multipart"（OpenAI 兼容的 /audio/transcriptions）、"chat_audio"（Chat Completions 带 input_audio，阿里云百炼）、"doubao_websocket" 或 "local"；宿主按它挑请求构造，不按 provider 名字判断。 */
 char *msime_client_mobile_voice_configuration(const uint8_t *directory, size_t length);
 /* 全局主题选择器：{themes:[{id,title,platforms,appearance,preview,candidate,keyboard},...],default:"system"}。只列出本库编译到的平台提供的主题，按选择器顺序：system, native（仅 iOS）, shuishan, light, paper, night, ink, custom。platforms 为提供该主题的宿主（如 ["ios"]），null 表示所有宿主。appearance is "light"|"dark"|null; preview {background,panel,accent,text}, candidate and keyboard are the built-in palettes and are null for system, native and custom. Keys are snake_case. Hosts keep no copy of the ids, titles or colours. */
@@ -695,6 +696,8 @@ char *msime_client_voice_hotwords(const uint8_t *request, size_t length);
 char *msime_client_voice_hotword_correct(const uint8_t *request, size_t length);
 /* voice_normalize_numbers: {text, kind} -> {text}. 本地模型最终文本里汉字写的数字改成数字（二零零二年 → 2002年，百分之五十七 → 57%），一个、十分有趣这类词不动。只改写不自带 ITN 的 kind（online_transducer、offline_transducer），其他 kind 原样返回，宿主对每个本地模型的最终文本都可以调用；只用于最终文本，不用于中间结果。Pure. text 上限 10000 个 Unicode 标量，kind 上限 64 字节，请求 <=1048576 字节。 */
 char *msime_client_voice_normalize_numbers(const uint8_t *request, size_t length);
+/* voice_punctuation: {text, mode} -> {text}. 语音标点：按 mode 处理最终识别结果，auto 原样返回，omit_trailing 去掉句末标点，omit_all 去掉所有标点，space 把每串标点换成一个空格；不认识的 mode 按 auto。只动识别器写出的句读（，。、；：？！…～ 和半角 , . ; : ? !），数字和网址里的点、数字之间的冒号和逗号保留，引号和括号保留。整段只有标点时返回空串。宿主在所有识别服务和润色之后、上屏之前调用，mode 取 msime_client_mobile_voice_configuration 的 punctuationMode。Pure. text 上限 10000 个 Unicode 标量，mode 上限 64 字节，请求 <=1048576 字节。 */
+char *msime_client_voice_punctuation(const uint8_t *request, size_t length);
 char *msime_client_voice_local_models(const uint8_t *request, size_t length);
 char *msime_client_voice_local_model_install(
     const uint8_t *request, size_t length,

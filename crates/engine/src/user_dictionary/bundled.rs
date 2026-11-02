@@ -49,7 +49,7 @@ pub struct DictionaryTablePage {
 
 /// 只读查询：ASCII 按编码前缀，含非 ASCII 字符时按词条字面包含匹配，空查询列出全部。拼音编码忽略分隔符、空格和大小写。个人行优先，再按精确匹配、权重、编码和词条排序。
 ///
-/// 无效编码或缺少目标词库时返回空页；查询不创建或写入词库和 journal。
+/// 无效编码或缺少目标词库时返回空页；查询不创建或写入词库和 journal。粤语没有可浏览的工作表（发布词在 `msime-cantonese.db`，由 `dictionary_lookup` 浏览；个人粤语词只在日志里，由 `personal_dictionary_entries_for_kind` 列出），总是空页。
 pub fn dictionary_table_entries(
     paths: &RuntimePaths,
     kind: PersonalDictionaryKind,
@@ -73,7 +73,7 @@ pub fn dictionary_table_entries(
         };
         code
     };
-    if code.is_empty() && !query.trim().is_empty() {
+    if (code.is_empty() && !query.trim().is_empty()) || kind == PersonalDictionaryKind::Cantonese {
         return Ok(DictionaryTablePage::default());
     }
     paths.validate().map_err(|_| failed(STORAGE_UNAVAILABLE))?;
@@ -131,7 +131,8 @@ pub fn dictionary_table_entries(
             PersonalDictionaryKind::Wubi
             | PersonalDictionaryKind::Wubi98
             | PersonalDictionaryKind::WubiXsj
-            | PersonalDictionaryKind::English => (
+            | PersonalDictionaryKind::English
+            | PersonalDictionaryKind::Cantonese => (
                 format!("{key_column}>=?1 AND {key_column}<?3"),
                 format!("{key_column}=?1"),
             ),
@@ -388,6 +389,8 @@ fn bundled_table(kind: PersonalDictionaryKind, key: &str) -> Option<String> {
         | PersonalDictionaryKind::WubiXsj => kind.wubi_table().map(str::to_owned),
         PersonalDictionaryKind::QuickPhrase => Some("quick_parases".to_owned()),
         PersonalDictionaryKind::English => Some("english_words".to_owned()),
+        // 粤语的发布词在只读的 `msime-cantonese.db`，不能改权重或删除。
+        PersonalDictionaryKind::Cantonese => None,
     }
 }
 
@@ -405,6 +408,7 @@ fn lookup_tables(kind: PersonalDictionaryKind, code: &str, word_search: bool) ->
         | PersonalDictionaryKind::WubiXsj
         | PersonalDictionaryKind::QuickPhrase
         | PersonalDictionaryKind::English => 1,
+        PersonalDictionaryKind::Cantonese => 0,
     };
     let mut tables = Vec::with_capacity(capacity);
     match kind {
@@ -422,6 +426,7 @@ fn lookup_tables(kind: PersonalDictionaryKind, code: &str, word_search: bool) ->
         | PersonalDictionaryKind::WubiXsj => tables.extend(kind.wubi_table().map(str::to_owned)),
         PersonalDictionaryKind::QuickPhrase => tables.push("quick_parases".to_owned()),
         PersonalDictionaryKind::English => tables.push("english_words".to_owned()),
+        PersonalDictionaryKind::Cantonese => {}
     }
     tables
 }
