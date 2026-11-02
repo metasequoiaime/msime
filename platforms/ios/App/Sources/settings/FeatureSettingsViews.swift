@@ -1002,16 +1002,24 @@ struct ServiceSettingsView: View {
       }
     }
   }
-  /// Shows a recognized result, polished first when the voice page asks for it.
+  /// 显示一段识别结果，语音页要求润色时先润色。AI 服务页的「测试」也经过这里，它的回复不是语音结果，不处理标点。语音标点（#10595）在所有识别服务和润色之后处理一次：识别原文和润色结果都存处理后的文字，「改用识别原文」和「发送到键盘」交出去的就是页面上显示的，键盘领取语音结果时不再处理。只剩标点时 `output` 留空，因为语音交接不收空白文字，状态提示没有识别到文字，与 Android 的识别窗口一致。
   @MainActor private func deliver(_ result: String, polish: VoicePolishSettings?, id: UUID) async throws {
-    if let polish, !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-      transcript = result
-      output = result
+    let punctuation = kind == .voice
+      ? VoicePunctuation.mode(MetasequoiaInputSessionBridge.loadSharedPreferences()) : VoicePunctuation.auto
+    guard let text = VoicePunctuation.finalText(result, mode: punctuation) else {
+      output = ""
+      status = "没有识别到文字"
+      return
+    }
+    if let polish, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      transcript = text
+      output = text
       status = "识别完成，正在润色…"
       do {
         let polished = try await VoicePolishService.polish(result, settings: polish)
         try request.checkCurrent(id)
-        output = polished
+        // 润色结果只剩标点时保留处理后的识别原文，不交出一段空白。
+        output = VoicePunctuation.finalText(polished, mode: punctuation) ?? text
         status = "已完成"
       } catch is CancellationError {
         throw CancellationError()
@@ -1020,7 +1028,7 @@ struct ServiceSettingsView: View {
         status = "润色失败，已保留识别原文：\(error.localizedDescription)"
       }
     } else {
-      output = result
+      output = text
       status = "已完成"
     }
   }
