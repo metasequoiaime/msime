@@ -459,13 +459,13 @@ private struct PersonalWordEditor: View {
           } else {
             TextField("词条内容", text: $word.value).accessibilityIdentifier("personalWordValue")
           }
-          TextField(word.kind == .pinyin ? "完整拼音，例如 ni hao" : "输入编码", text: $word.key)
+          TextField(word.kind == .pinyin ? "完整拼音，例如 ni hao" : word.kind == .cantonese ? "粤拼，例如 nei hou" : "输入编码", text: $word.key)
             .keyboardType(.asciiCapable).textInputAutocapitalization(.never).autocorrectionDisabled()
             .accessibilityIdentifier("personalWordCode")
             .onChange(of: word.key) { _, key in sanitizeCode(key) }
             .onChange(of: word.kind) { _, _ in sanitizeCode(word.key) }
         } footer: {
-          Text(word.kind == .pinyin ? "每个字填写一个完整拼音音节，用空格或英文单引号分隔；ü 用 v。全拼、双拼和九键共用这个词条。" : "五笔使用 1–4 个字母；快捷短语使用英文字母，在键盘“本地输入 → 快捷短语”输入；英文编码使用字母、连字符或撇号，可以和词条不同，例如用 dont 打出 don't。" + (word.kind == .quickPhrase ? "\n在文字中用 ${cursor} 指定上屏后的光标位置，例如 title:\"${cursor}\" 会输入 title:\"\"，光标停在引号内。只定位第一个标记；要输入标记本身，请写 $${cursor}。编辑器不支持定位时光标留在末尾。以前存过、要照原样输入 ${cursor} 的短语，请改写成 $${cursor}。" : ""))
+          Text(word.kind == .pinyin ? "每个字填写一个完整拼音音节，用空格或英文单引号分隔；ü 用 v。全拼、双拼和九键共用这个词条。" : word.kind == .cantonese ? "每个字填写一个粤拼音节，用空格分隔，不带声调（带了也会去掉）。粤拼和粤语双拼共用这个词条，只存在本机。" : "五笔使用 1–4 个字母；快捷短语使用英文字母，在键盘“本地输入 → 快捷短语”输入；英文编码使用字母、连字符或撇号，可以和词条不同，例如用 dont 打出 don't。" + (word.kind == .quickPhrase ? "\n在文字中用 ${cursor} 指定上屏后的光标位置，例如 title:\"${cursor}\" 会输入 title:\"\"，光标停在引号内。只定位第一个标记；要输入标记本身，请写 $${cursor}。编辑器不支持定位时光标留在末尾。以前存过、要照原样输入 ${cursor} 的短语，请改写成 $${cursor}。" : ""))
         }
         }
         Section {
@@ -498,11 +498,21 @@ private struct PersonalWordEditor: View {
     }
   }
 
-  /// 拼音和五笔编码都是小写字母，拼音音节用 ' 或空格分隔，所以其他字符在输入或粘贴时就被丢弃，与设计稿的添加词条对话框一致。智能标点会把输入的 ' 变成 ’，读回时再当作 '。快捷短语和英文有各自的规则（英文编码可以含连字符），由 Engine 在保存时检查。
+  /// 拼音和五笔编码都是小写字母，拼音音节用 ' 或空格分隔，所以其他字符在输入或粘贴时就被丢弃，与设计稿的添加词条对话框一致。智能标点会把输入的 ' 变成 ’，读回时再当作 '。粤拼另外留下声调数字 1–6，由 Engine 保存时去掉。快捷短语和英文有各自的规则（英文编码可以含连字符），由 Engine 在保存时检查。
   private func sanitizeCode(_ key: String) {
-    guard [.pinyin, .wubi, .wubi98].contains(word.kind) else { return }
-    let clean = Self.sanitizedCode(key)
+    guard [.pinyin, .wubi, .wubi98, .cantonese].contains(word.kind) else { return }
+    let clean = word.kind == .cantonese ? Self.sanitizedCantoneseCode(key) : Self.sanitizedCode(key)
     if clean != key { word.key = clean }
+  }
+
+  static func sanitizedCantoneseCode(_ key: String) -> String {
+    String(key.lowercased().compactMap { character -> Character? in
+      switch character {
+      case "a"..."z", "1"..."6", " ", "'": return character
+      case "\u{2019}", "\u{2018}": return "'"
+      default: return nil
+      }
+    })
   }
 
   static func sanitizedCode(_ key: String) -> String {

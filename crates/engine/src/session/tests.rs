@@ -10991,6 +10991,53 @@ fn cantonese_key_refresh_reuses_query_rows() {
     );
 }
 
+/// 个人词库里加的粤语词在活着的会话下一次查询时就进候选，不用重建会话；改回去也一样。
+#[test]
+fn a_personal_cantonese_word_joins_the_candidates_of_a_live_session() {
+    use crate::types::{PersonalDictionaryEntry, PersonalDictionaryKind};
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Cantonese;
+        options.cantonese_dictionary = cantonese_dictionary(fixture.path());
+    });
+    type_text(&mut session, "neihou");
+    assert_eq!(words(&session), ["你好", "妳好", "你", "妳"]);
+    session.command(Command::Cancel);
+
+    let word = PersonalDictionaryEntry {
+        kind: PersonalDictionaryKind::Cantonese,
+        key: "nei5 hou2".to_owned(),
+        value: "禮好".to_owned(),
+        weight: 100_000,
+    };
+    crate::user_dictionary::personal::edit_personal_dictionary_with(
+        &fixture.paths(),
+        true,
+        None,
+        Some(&word),
+        "",
+    )
+    .unwrap();
+    type_text(&mut session, "neihou");
+    assert_eq!(words(&session), ["禮好", "你好", "妳好", "你", "妳"]);
+    assert_eq!(session.select(0).commit.as_deref(), Some("禮好"));
+
+    let stored = PersonalDictionaryEntry {
+        key: "nei hou".to_owned(),
+        ..word
+    };
+    crate::user_dictionary::personal::edit_personal_dictionary_with(
+        &fixture.paths(),
+        true,
+        Some(&stored),
+        None,
+        "",
+    )
+    .unwrap();
+    type_text(&mut session, "neihou");
+    assert_eq!(words(&session), ["你好", "妳好", "你", "妳"]);
+}
+
 #[test]
 fn pinyin_candidate_refresh_reuses_preedit_storage() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);

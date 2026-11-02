@@ -1,5 +1,6 @@
 import type { DictionaryEntry, LocalDictionaryKind } from "../dictionary/dictionary-file";
 import type { DictionaryPhraseForm } from "./dictionary-entries";
+import { CANTONESE_NEW_WORD_WEIGHT } from "../dictionary/dictionary-collections";
 
 export interface CreateDictionaryPanelActionsOptions {
   dictionaryKind: LocalDictionaryKind;
@@ -31,7 +32,13 @@ export function createDictionaryPanelActions({
 }: CreateDictionaryPanelActionsOptions) {
   return {
     onQuery: () => void loadPhrases(dictionaryKind, 0),
-    onAdd: () => setPhraseForm({ key: "", value: "", weight: 10, previous: null }),
+    onAdd: () =>
+      setPhraseForm({
+        key: "",
+        value: "",
+        weight: dictionaryKind === "cantonese" ? CANTONESE_NEW_WORD_WEIGHT : 10,
+        previous: null,
+      }),
     onExportCurrent: () => void exportPhrases(),
     onExportAll: () => void exportAllPhrases(),
     onImport: (file: File) => void importPhrases(file),
