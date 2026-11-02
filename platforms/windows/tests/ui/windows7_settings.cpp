@@ -976,6 +976,14 @@ int main() {
     assert((GetWindowLongPtrW(GetDlgItem(body, scheme_wubi_profile), GWL_STYLE) & WS_VISIBLE) != 0);
     if (GetDlgItem(body, scheme_shuangpin_profile))
       assert((GetWindowLongPtrW(GetDlgItem(body, scheme_shuangpin_profile), GWL_STYLE) & WS_VISIBLE) == 0);
+    // 三个码表版本按 InputSettingsModel.h 的顺序，选哪项就存哪个值；最后留在 98，下面的用例照旧。
+    assert(SendMessageW(GetDlgItem(body, scheme_wubi_profile), CB_GETCOUNT, 0, 0) == 3);
+    assert(find_combo(scheme_wubi_profile, L"新世纪五笔") == 2);
+    select_value(scheme_wubi_profile, 2);
+    assert(store.load().snapshot->preferences().at("wubi_profile") == "wubixsj");
+    SendMessageW(host, WM_COMMAND, MAKEWPARAM(reload_settings, BN_CLICKED), 0);
+    pump_until([&] { return IsWindowEnabled(language) != FALSE; });
+    assert(SendMessageW(GetDlgItem(body, scheme_wubi_profile), CB_GETCURSEL, 0, 0) == 2);
     select_value(scheme_wubi_profile, 1);
     assert(store.load().snapshot->preferences().at("wubi_profile") == "wubi98");
     const bool mixed_before = store.load().snapshot->preferences().at("wubi_mixed_pinyin").get<bool>();
@@ -1021,7 +1029,8 @@ int main() {
     click(scheme_wubi_lookup);
     const auto lookup_text = caption(GetDlgItem(body, scheme_wubi_result));
     assert(lookup_text.find(L"字") != std::wstring::npos && lookup_text.find(L"文") != std::wstring::npos);
-    assert(lookup_text.find(L"86 五笔") != std::wstring::npos && lookup_text.find(L"98 五笔") != std::wstring::npos);
+    assert(lookup_text.find(L"86 五笔") != std::wstring::npos && lookup_text.find(L"98 五笔") != std::wstring::npos &&
+           lookup_text.find(L"新世纪五笔") != std::wstring::npos);
     assert(lookup_text.find(L"失败") == std::wstring::npos);
     assert(store.load().snapshot->revision() == before_lookup);
     click(scheme_wubi_selection);

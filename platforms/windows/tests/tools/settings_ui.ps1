@@ -2044,7 +2044,7 @@ try {
     if (-not $process.WaitForExit(10000)) { throw 'Settings window failed to close' }
     if ($process.ExitCode -ne 0) { throw "Settings exited with $($process.ExitCode)" }
     $process = $null
-    # 五笔方案与五笔查码要能查码的运行时选项。另开一次窗口，经 MSIME_CLIENT_HOST_OPTIONS 交给它一份：资源目录里的 msime-wubi.db 是 tests/input/fixtures/msime-wubi-commit.db 这份合成五笔表，文件不叫 runtime-options.json。在「输入」页选五笔，截下展开的「五笔方案」下拉框，再查「力男为上」，截下结果表。
+    # 五笔方案与五笔查码要能查码的运行时选项。另开一次窗口，经 MSIME_CLIENT_HOST_OPTIONS 交给它一份：资源目录里的 msime-wubi.db 是 tests/input/fixtures/msime-wubi-commit.db 这份合成五笔表，文件不叫 runtime-options.json。在「输入」页选五笔，截下展开的「五笔方案」下拉框，再查「力男为上」，截下结果表。然后选新世纪五笔、读回存储值再查一次：结果表还是三列，「（当前）」移到新世纪那列，那列是合成表里只有新世纪才有的 ent ler ytny hgd；最后选回 86 五笔。
     $wubiRoot = Join-Path $state 'wubi-lookup'
     # 偏好用这个窗口正在用的那份完整文档，与 Win7 设置测试的运行时选项一样：宿主按严格的偏好结构解析选项，空对象解析不了，查码会整次失败。
     $wubiPreferences = ((Read-SettingsSnapshotText (Join-Path $state 'preferences.json')) | ConvertFrom-Json).preferences
@@ -2093,9 +2093,24 @@ try {
     Save-Window $window 'wubi-profile-options.png'
     $combo.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Collapse()
     Write-Host "Wubi profile options: $($profiles -join ', ')"
-    if ($profiles[0] -ne '86 五笔' -or $profiles[1] -ne '98 五笔') { throw "Wubi profile options are wrong: $($profiles -join ', ')" }
-    Invoke-WubiLookup $window '力男为上' '86 五笔（当前）' | Out-Null
+    if (($profiles -join '|') -ne '86 五笔|98 五笔|新世纪五笔') { throw "Wubi profile options are wrong: $($profiles -join ', ')" }
+    $content = Invoke-WubiLookup $window '力男为上' '86 五笔（当前）'
+    foreach ($header in @('98 五笔', '新世纪五笔')) { if (-not (Find-ByName $content $header)) { throw "Wubi lookup is missing the $header column" } }
     Save-Window $window 'wubi-lookup-wubi86.png'
+    foreach ($choice in @(@{label = '新世纪五笔'; value = 'wubixsj'}, @{label = '86 五笔'; value = 'wubi86'})) {
+        Select-ComboChoice $window 'wubi-profile' $choice.label
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        do {
+            Start-Sleep -Milliseconds 200
+            $saved = (Read-SettingsSnapshotText (Join-Path $state 'preferences.json')) | ConvertFrom-Json
+        } while ($saved.preferences.wubi_profile -ne $choice.value -and [DateTime]::UtcNow -lt $deadline)
+        if ($saved.preferences.wubi_profile -ne $choice.value) { throw "Wubi profile was not saved: $($choice.value)" }
+        if ($choice.value -ne 'wubixsj') { continue }
+        $content = Invoke-WubiLookup $window '力男为上' '新世纪五笔（当前）'
+        foreach ($name in @('86 五笔', '98 五笔', 'ent', 'ler', 'ytny', 'hgd')) { if (-not (Find-ByName $content $name)) { throw "New century lookup is missing $name" } }
+        Save-Window $window 'wubi-lookup-wubixsj.png'
+        Write-Host 'New century Wubi: selected, saved and looked up in its own column'
+    }
     $process.CloseMainWindow() | Out-Null
     if (-not $process.WaitForExit(10000)) { throw 'Settings window failed to close' }
     if ($process.ExitCode -ne 0) { throw "Settings exited with $($process.ExitCode)" }
