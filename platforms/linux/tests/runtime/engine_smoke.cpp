@@ -434,6 +434,8 @@ int main(int argc, char **argv) {
             {"show_in_candidate_window", false}, {"trigger_key", std::string(family) == "quanpin_helpcode" ? "/" : ";"}};
     }
     options["preferences"]["candidate_translations"] = false;
+    // 资源验收只核对宿主行为；逐键神经重排的模型耗时受 runner 负载影响，关闭它避免把候选顺序和时序测试变成性能门禁。
+    options["preferences"]["sentence_association"]["neural_keyboard"] = false;
     options["preferences"]["keybindings"]["switch_language_ctrl"] = true;
     options["preferences"]["voice_input"]["hotkey_ctrl_win"] = true;
     options["preferences"]["voice_input"]["stream_inline_preedit"] = true;

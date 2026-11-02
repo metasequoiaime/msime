@@ -10,6 +10,8 @@ IBus 的 `ibus-engine-smoke` 默认入口没有注册为资源测试，Fcitx5 �
 
 CMake 在提供已校验资源目录时注册 `ibus-native-context`，并保留 Fcitx5 的 `fcitx5-native-context` 资源测试。资源验收在独立的 Linux CI job 中按 `resources/desktop-dictionary.lock.json` 下载词库，再分别调用现有 IBus 与 Fcitx5 容器脚本；编译门禁继续保持无资源的快速路径。IBus 合并断言改为要求离线命中与远端释义同时存在，不依赖候选排序；Fcitx5 标点样式断言等待完整的引号与括号视图，而不是只等待引号字段。Host API 导出检查按容器平台去掉 Windows 条件块后再逐个核对动态库符号；共享私有目录打开器在每个 Linux 路径分量上核对 `fstat` 类型，拒绝 `O_PATH` 打开的非目录分量，并在最终路径上用 `symlink_metadata` 拒绝非受信符号链接。
 
+资源夹具关闭逐键神经重排，只验收宿主行为，避免模型耗时把候选时序断言变成 runner 性能门禁。
+
 ## Alternatives considered
 
 - 只在 `in-container.sh` 中手工执行默认入口：不能让 CTest 记录默认分支，也无法在 CI 检查测试是否注册。
