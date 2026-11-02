@@ -41,6 +41,7 @@ Status: implemented
 - 代价：Android 与共享页各多了一段手写的拖动代码（跟手、让位、落位、边缘滚动），规则（`moved`、`dragSlot`、`dragTarget`、`edgeScrollStep`、序号写法）在 Android 侧由 `NineKeySidebarPolicySmoke` 覆盖，共享页由 `apps/desktop/tests/settings/nine-key-sidebar-settings.test.tsx` 覆盖；共享页那几个函数是组件内的私有实现，没有和 Android 共用代码，两端规则靠注释互指和各自的测试对齐。
 - 让位距离按被拖行的高度算，假定各行等高（同一种行模板，符号牌单行）；行高不一时让位会差几个像素，松手重画后归位。
 - 有意保留的差异：iOS 拖动途中序号不变，落下后刷新。
+- 后续：#10546 把 Android 这张页的拖动并进了排序面板共用的 `ReorderList`，规则只留 `ReorderPolicy` 一份，上文提到的 `NineKeySidebarPolicy.moved` / `dragTarget` / `edgeScrollStep` 等现在都是 `ReorderPolicy` 的同名函数，见 [Android 排序面板改为按住把手拖动](2026-10-31-android-order-sheets-drag.md)。
 
 ## Verification
 

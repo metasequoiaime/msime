@@ -1526,9 +1526,9 @@ if [[ "$sidebar_readers" != "platforms/android/java/app/msime/android/settings/K
   echo "Android nine-key sidebar tables must come from touch_nine_key_sidebar_symbols / touch_nine_key_digit_sidebar_symbols: only KeyLayoutStyleMigration reads and deletes the legacy local keys, the keyboard re-renders and the long press opens 按键布局, and 按键布局 lists both rows and saves only that shared table" >&2
   exit 1
 fi
-# 「文本编辑按键顺序」「符号分类顺序」按住把手拖动排序（#10392，.agents/notes/implemented/feature/2026-10-31-android-order-sheets-drag.md）：挪动、位次、落点、贴边滚动步长和序号由 ReorderPolicySmoke 覆盖；拖动和读屏操作在 ReorderList 里，JVM 冒烟碰不到，这里钉住：两张面板都经 ReorderList 画行、不再有上下箭头；拖动模型与「九键左侧符号」编辑页相同，按下把手就拿起、只改 translationY，落点按布局中线算，松手经 ReorderPolicy.moved 改草稿；手指贴近面板上下边缘时滚动外层 NestedScrollView，滚过的距离算进跟手位移；读屏模型也相同：名称念「第 N 项，名称」，把手状态念「第 N 项」，「上移」「下移」挂在把手上，键盘焦点在把手上时 Alt+↑ / Alt+↓ 挪一格；把手的触控区与原来的箭头一样宽 48 dp、高占满整行。
+# 排序面板按住把手拖动排序（#10392、#10396，#10546 合成一份，.agents/notes/implemented/feature/2026-10-31-android-order-sheets-drag.md）：挪动、位次、落点、贴边滚动步长和序号的规则只在 ReorderPolicy 里，由 ReorderPolicySmoke 覆盖；拖动和读屏操作只在控制器 ReorderList 里，行的内容由各面板画。ReorderList 引用 androidx，JVM 冒烟碰不到，这里钉住：「文本编辑按键顺序」「符号分类顺序」「按钮顺序」都经 ReorderList 排序、不再有上下箭头；「九键左侧符号」编辑页不再自带一份拖动代码或规则，符号牌念「第 N 项，符号：X」；拖动按下把手就拿起、只改 translationY，落点按布局中线算，松手经 ReorderPolicy.moved 改草稿；手指贴近面板上下边缘时滚动外层 NestedScrollView，滚过的距离算进跟手位移；读屏：行念「第 N 项，名称」，把手状态念「第 N 项」，「上移」「下移」挂在把手上，键盘焦点在把手上时 Alt+↑ / Alt+↓ 挪一格；把手的触控区与原来的箭头一样宽 48 dp、高占满整行；落位动画结束后换回行原来的底色。
 reorder_list="$repo_root/platforms/android/java/app/msime/android/home/ReorderList.java"
-for reorder_sheet in TextEditOrderSheet SymbolCategoryOrderSheet; do
+for reorder_sheet in TextEditOrderSheet SymbolCategoryOrderSheet ToolbarOrderSheet; do
   reorder_sheet_file="$repo_root/platforms/android/java/app/msime/android/home/$reorder_sheet.java"
   if ! rg -qF 'rows = new ReorderList<>(' "$reorder_sheet_file" \
     || rg -q 'addArrow|"↑"|"↓"|上下箭头' "$reorder_sheet_file"; then
@@ -1536,6 +1536,14 @@ for reorder_sheet in TextEditOrderSheet SymbolCategoryOrderSheet; do
     exit 1
   fi
 done
+if ! rg -qF 'rows = new ReorderList<>(context, current, this::symbolRow);' "$sidebar_sheet" \
+  || rg -q 'NineKeySidebarPolicy\.(moved|dragSlot|dragTarget|edgeScrollStep|scrollTowardRoom|positionDescription|ordinalDescription)|setOnTouchListener|addAccessibilityAction' "$sidebar_sheet" \
+  || rg -q 'static .* (moved|dragSlot|dragTarget|edgeScrollStep|scrollTowardRoom|positionDescription|ordinalDescription)\(' "$repo_root/platforms/android/java/app/msime/android/keyboard/NineKeySidebarPolicy.java" \
+  || ! rg -qF 'symbol.setContentDescription(ReorderPolicy.ordinalDescription(position, "符号：" + text));' "$sidebar_sheet" \
+  || ! rg -qF 'ImageView handle = ReorderList.addHandle(context, row, text);' "$sidebar_sheet"; then
+  echo "Android nine-key sidebar editor must reorder through ReorderList with ReorderPolicy's rules, not a drag controller or rule set of its own, and read each row as 第 N 项，符号：X" >&2
+  exit 1
+fi
 if rg -q 'ItemTouchHelper|RecyclerView' "$reorder_list" \
   || ! rg -qF 'handle.setOnTouchListener((touched, event) -> handleDrag(views, event));' "$reorder_list" \
   || ! rg -qF 'int target = ReorderPolicy.dragTarget(centers[dragFrom] + offset, dragFrom, centers);' "$reorder_list" \
@@ -1545,11 +1553,13 @@ if rg -q 'ItemTouchHelper|RecyclerView' "$reorder_list" \
   || ! rg -qF 'step = ReorderPolicy.scrollTowardRoom(step,' "$reorder_list" \
   || ! rg -qF 'ViewCompat.addAccessibilityAction(handle, "上移",' "$reorder_list" \
   || ! rg -qF 'ViewCompat.addAccessibilityAction(handle, "下移",' "$reorder_list" \
-  || ! rg -qF 'views.title().setContentDescription(ReorderPolicy.ordinalDescription(position, views.label()));' "$reorder_list" \
+  || ! rg -qF 'title.setContentDescription(ReorderPolicy.ordinalDescription(position, text));' "$reorder_list" \
+  || ! rg -qF 'views.renumber().accept(position);' "$reorder_list" \
+  || ! rg -qF '.withEndAction(() -> ViewPolicy.setBackground(landed, resting)).start();' "$reorder_list" \
   || ! rg -qF 'ViewCompat.setStateDescription(views.handle(), ReorderPolicy.positionDescription(position));' "$reorder_list" \
   || ! rg -qF 'handle.setOnKeyListener((focused, keyCode, event) -> onKey(views, keyCode, event));' "$reorder_list" \
   || ! rg -qF 'row.addView(handle, new LinearLayout.LayoutParams(DimensionPolicy.pixels(context, 48),' "$reorder_list"; then
-  echo "Android order sheets must drag from the handle the way the nine-key sidebar editor does (translationY, layout midlines, edge-scrolling the sheet), keep 上移 / 下移 and the 第 N 项 position on the handle for screen readers and Alt+Up / Alt+Down for keyboards, and keep a 48 dp handle" >&2
+  echo "Android ReorderList must drag from the handle (translationY, layout midlines, edge-scrolling the sheet, restoring the row background after the drop), keep 上移 / 下移 and the 第 N 项 position on the handle for screen readers and Alt+Up / Alt+Down for keyboards, and keep a 48 dp handle" >&2
   exit 1
 fi
 # 「中/英键放在空格左边」（#10228，`touch_language_key_side`）：排法由 TouchKeyStyleSmoke 覆盖，预览与高亮由 KeyLayoutStylesPolicySmoke 覆盖，这里钉住接线：底行签名带着它、字母层底行和数字九宫格都按它排；右侧大回车九宫格下方那一行按它排，变了经 tallReturnStale 整块重建；设置页三个分段都显示这个开关（不在 26 键的 if 里，排在互换开关之后），改它先重画预览再写 left / right；热力图跟着画；设置搜索登记了标题。
