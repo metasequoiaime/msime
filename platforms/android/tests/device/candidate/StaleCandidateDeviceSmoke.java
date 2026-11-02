@@ -165,7 +165,7 @@ public final class StaleCandidateDeviceSmoke extends Instrumentation {
             }
         });
         result.putString("stream", failure[0] == null
-            ? nextWord ? "MSIME_DEVICE_SMOKE_PASSED: post-commit prediction tap, space and digit selection, editor echo, external cursor and privacy\n"
+            ? nextWord ? "MSIME_DEVICE_SMOKE_PASSED: post-commit prediction tap, space and digit selection, letter long-press and corner character, editor echo, external cursor and privacy\n"
                 : "MSIME_DEVICE_SMOKE_PASSED: stale menu, expanded button and spelling preserve session without editor writes; fresh candidate commits\n"
             : "MSIME_DEVICE_SMOKE_FAILED: " + stage + " (" + failure[0].getClass().getSimpleName() + ")\n");
         finish(failure[0] == null ? Activity.RESULT_OK : Activity.RESULT_CANCELED, result);
@@ -302,6 +302,29 @@ public final class StaleCandidateDeviceSmoke extends Instrumentation {
         typeKey.invoke(service, '9');
         check(commits.size() == 1 && commits.get(0).matches("[9９]"), "越过本页的数字没有照常输入：" + commits);
         check(!((JSONObject) field(type, "view").get(service)).optBoolean("prediction", false), "照常输入的数字留下联想");
+
+        stage = "prediction keeps letter long-press and swipe";
+        ((android.view.View) field(type, "candidateViewport").get(service)).setVisibility(android.view.View.VISIBLE);
+        Object letterRows = field(type, "imeLetterRows").get(service);
+        Method tapsOnly = letterRows.getClass().getDeclaredMethod("candidateTapsOnly"); tapsOnly.setAccessible(true);
+        suggestions = prediction(nativeType, session);
+        field(type, "view").set(service, suggestions);
+        check(!(Boolean) tapsOnly.invoke(letterRows), "联想时字母键长按和滑动退化成点按");
+        Method character = nativeType.getMethod("character", long.class, int.class, boolean.class);
+        field(type, "view").set(service, value(character.invoke(null, session, (int) 'c', false)).getJSONObject("view"));
+        check((Boolean) tapsOnly.invoke(letterRows), "组字时字母键长按和滑动没有按点按处理");
+        nativeType.getMethod("command", long.class, int.class).invoke(null, session, 3);
+
+        stage = "corner character during prediction types it and clears prediction";
+        suggestions = prediction(nativeType, session);
+        field(type, "view").set(service, suggestions);
+        Object layoutRows = field(type, "imeLayoutRows").get(service);
+        Method cornerHint = layoutRows.getClass().getDeclaredMethod("commitLetterHint", String.class);
+        cornerHint.setAccessible(true);
+        commits.clear();
+        cornerHint.invoke(layoutRows, "w");
+        check(commits.size() == 1 && commits.get(0).matches("[2２]"), "联想时 W 的键角没有输入 2：" + commits);
+        check(!((JSONObject) field(type, "view").get(service)).optBoolean("prediction", false), "键角字符上屏后留下联想");
     }
 
     private static Field field(Class<?> type, String name) throws Exception {

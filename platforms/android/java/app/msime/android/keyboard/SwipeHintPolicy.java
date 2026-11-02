@@ -17,6 +17,16 @@ public final class SwipeHintPolicy {
     }
 
     /**
+     * 26 键中文字母键这次触摸是否把长按和滑动都当成普通点按：组字中候选栏可见时是，免得选词时误出符号或字母选项。上屏后联想（`View.prediction`）也让候选栏可见，但它不算组字，长按和滑动照常输入键角字符，和空闲时一样；联想由运行时在下一个键时清掉（#10611）。
+     *
+     * @param candidateVisible 候选栏此刻可见，且当前方案的长按会打开中文字母选项
+     * @param prediction 当前视图是上屏后联想
+     */
+    public static boolean tapsOnly(boolean candidateVisible, boolean prediction) {
+        return candidateVisible && !prediction;
+    }
+
+    /**
      * 是否已经沿 `direction` 构成滑动。
      *
      * @param direction {@link #DOWN} 或 {@link #UP}；其它取值按下滑处理
