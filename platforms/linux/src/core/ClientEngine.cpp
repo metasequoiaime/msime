@@ -26,6 +26,7 @@
 #include "MenuLabels.h"
 #include "VocabularyDue.h"
 #include "ViewComposition.h"
+#include "NextWordPrediction.h"
 #include "ReplacedProgram.h"
 #include "SmartPunctuationSpace.h"
 #include "SmartPunctuationChoice.h"
@@ -526,6 +527,8 @@ struct State {
   // Japanese converts with Space and commits with Enter; see core/JapaneseConversion.h.
   msime::linux_host::JapaneseConversion japanese_conversion;
   msime::linux_host::BackspaceHoldPolicy backspace_hold;
+  // 自己上屏、出了上屏后联想之后紧跟着的 reset 不收起联想（NextWordPrediction.h）。
+  msime::linux_host::PredictionResetEcho prediction_echo;
   std::string ai_context;
   // surrounding text 不可用时，只用本会话由输入法自己上屏的末尾文本判断智能标点；任何交给应用的按键、光标移动或删除都会使它失效。
   std::string smart_punctuation_shadow;
@@ -4664,6 +4667,9 @@ bool apply(IBusEngine *engine, char *raw, PunctuationPairMode pair_mode,
     }
   }
   state(engine).view = result.at("view");
+  if (commit.is_string())
+    state(engine).prediction_echo.committed(
+        msime::linux_host::view_is_prediction(state(engine).view), g_get_monotonic_time() / 1000);
   render(engine, state(engine).view);
   online_schedule(engine);
   translation_schedule(engine);
@@ -6636,6 +6642,11 @@ void reset(IBusEngine *engine) {
     state(engine).last_smart_punctuation_time = 0;
     state(engine).smart_punctuation_rejected = 0;
     state(engine).paired_tracker.clear();
+    // 自己上屏之后客户端回头送来的 reset 是上屏的回声，不是光标移动，联想留着（NextWordPrediction.h）。
+    if (state(engine).prediction_echo.keeps(msime::linux_host::view_is_prediction(state(engine).view),
+                                            g_get_monotonic_time() / 1000))
+      return;
+    state(engine).prediction_echo.forget();
     if (state(engine).session)
       apply(engine, msime_client_command(state(engine).session, MSIME_CANCEL));
     clear(engine);
@@ -7647,6 +7658,31 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   };
   guarded(engine, "process_key", [&] {
     s.open();
+    // 上屏后联想（NextWordPrediction.h）：空格和选词数字照常走下面按渲染行 id 选词的路径（select_rendered_highlight 与数字选词），点选走 candidate_clicked；别的键先收起建议，再按没有候选的状态走，逗号句号这些翻页键因此照常出中文标点，回车照常换行。Esc 收起后不再交给应用。
+    s.prediction_echo.forget();
+    const bool prediction = msime::linux_host::view_is_prediction(s.view);
+    bool picks = false;
+    if (prediction && modifiers == 0) {
+      if (key == IBUS_space) {
+        picks = true;
+      } else if (s.number_row_selection && s.rendered_session == s.session &&
+                 s.rendered_candidates.is_array()) {
+        const auto slot = candidate_digit_slot(key, keycode, flags, s.rendered_view);
+        picks = slot && *slot < s.rendered_candidates.size();
+      }
+    }
+    switch (msime::linux_host::prediction_key(prediction, key == IBUS_Escape && modifiers == 0, picks)) {
+    case msime::linux_host::PredictionKey::Route:
+    case msime::linux_host::PredictionKey::Pick:
+      break;
+    case msime::linux_host::PredictionKey::DismissThenRoute:
+      apply(engine, msime_client_command(s.session, MSIME_CANCEL));
+      break;
+    case msime::linux_host::PredictionKey::Close:
+      apply(engine, msime_client_command(s.session, MSIME_CANCEL));
+      handled = true;
+      return;
+    }
     const bool bare_backspace = key == IBUS_BackSpace && modifiers == 0;
     if (!bare_backspace) {
       s.backspace_hold.reset();

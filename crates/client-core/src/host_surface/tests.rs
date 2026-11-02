@@ -334,13 +334,16 @@ fn capabilities_describe_each_host() {
     ] {
         assert!(!HostCapabilities::for_platform(platform).caret_edit_suffix);
     }
-    // 上屏后联想只在宿主接好显示和按键之后才提供，目前是 Android 和 macOS。
-    for platform in [HostPlatform::Android, HostPlatform::Macos] {
+    // 上屏后联想只在宿主接好显示和按键之后才提供，目前是 Android、Linux（IBus 与 Fcitx5）和 macOS。
+    for platform in [
+        HostPlatform::Android,
+        HostPlatform::Linux,
+        HostPlatform::Macos,
+    ] {
         assert!(HostCapabilities::for_platform(platform).next_word_prediction);
     }
     for platform in [
         HostPlatform::Windows,
-        HostPlatform::Linux,
         HostPlatform::Ios,
         HostPlatform::Harmony,
     ] {
