@@ -3431,6 +3431,7 @@
 				9A34AEFB1AA5ABFF24281810 /* HelpcodeChoicePolicyTests.swift in Sources */,
 				7A6248019AC34B794ABB9ED1 /* HelpcodeSettingsTests.swift in Sources */,
 				0A435C5432F68DF80143C641 /* HelpcodeSettingsView.swift in Sources */,
+				96F41804754520CC58688C26 /* SettingsOptionLabel.swift in Sources */,
 				ED73287A559EDE1494B5D713 /* IOSCloudClipboard.swift in Sources */,
 				29328C4C3B27F612B74637B4 /* IOSCloudDictionary.swift in Sources */,
 				78480680705EF5C3D8FEE3F1 /* IOSCloudSettings.swift in Sources */,
