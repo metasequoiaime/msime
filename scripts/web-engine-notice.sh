@@ -65,6 +65,7 @@ repo_section="$work/repo.md"
     "resources/licenses/pinyin-data-MIT.txt|MIT：mozillazg/pinyin-data（拼音库 msime-pinyin.db 的单字读音按它校正）" \
     "resources/licenses/rime-wanxiang-CC-BY-4.0.txt|CC BY 4.0：amzxyz/rime-wanxiang（拼音库 msime-pinyin.db 里与它共有的单字和词语的权重改编自它；署名、改动说明与许可证全文）" \
     "resources/licenses/rime-wubi86-jidian-Apache-2.0.txt|Apache-2.0：KyleBing/rime-wubi86-jidian（五笔 86 库 msime-wubi86.db 的码表；上游提交 063377a0e3ae7d4084a45f03e4269f62f874f7dc 的 LICENSE，即取用这张表时适用的条款，上游 2026-10-29 起改为 MIT）" \
+    "resources/licenses/sentence-model-Apache-2.0.txt|Apache-2.0：chinese-ime-lm 的整句重排模型 model-v1（sentence-model.safetensors，release 里是 gzip 压缩的同一份文件；上游 NOTICE、训练语料要求的署名与许可证全文）" \
     "resources/licenses/mozc-BSD-3-Clause.txt|BSD-3-Clause：Mozc（日语模型 msime-japanese.dat 的来源，词库 release 的 msime-mozc_LICENSE.txt）" \
     "resources/licenses/mozc-dictionary_oss-README.txt|IPAdic、ICOT 与冲绳词典的条款（日语模型 msime-japanese.dat，词库 release 的 msime-mozc_dictionary_oss_README.txt）" \
     "resources/helpcodes/ENGINE-NOTICE.md|辅助码表 helpcode-lantian、helpcode-ziranma、helpcode-shouyou2_0、helpcode-shouyouplus、helpcode-xiaohe（只在 npm 包里）的来源与权利说明" \

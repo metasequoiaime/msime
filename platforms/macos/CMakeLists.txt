@@ -308,6 +308,8 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../LICENSE" "${MSIME_LEGAL_DIRECT
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/resources/Licenses/THIRD_PARTY_NOTICES.txt" "${MSIME_LEGAL_DIRECTORY}/THIRD_PARTY_NOTICES.txt" COPYONLY)
 # 固定词库发布里的词库数据、stage-resources.sh 放进 EngineResources/helpcodes 的辅助码表的来源声明（Engine 带来的五套、加加和五笔 86），以及 zinnia（crates/engine/src/handwriting 移植了它的识别器，host-api 链接进来）。第一份和最后一份来自 resources/licenses，是各平台随包的同一份副本。
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/msime-engine-dictionary-NOTICE.md" "${MSIME_LEGAL_DIRECTORY}/msime-engine-dictionary-NOTICE.md" COPYONLY)
+# EngineResources 里的整句重排模型 sentence-model.safetensors（以及按需下载或随包的 settled-model/sentence-model-desktop.safetensors）是 chinese-ime-lm 的 model-v1，Apache-2.0：第 4(a)、4(d) 条要求随副本附上许可证全文和上游 NOTICE，训练语料（中文 C4 为 ODC-BY，LCCC 为 MIT）要求署名随权重传播。resources/licenses 里这份各平台共用的文件三样都有。
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/sentence-model-Apache-2.0.txt" "${MSIME_LEGAL_DIRECTORY}/sentence-model-Apache-2.0.txt" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/ENGINE-NOTICE.md" "${MSIME_LEGAL_DIRECTORY}/msime-engine-helpcode-NOTICE.md" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/NOTICE.md" "${MSIME_LEGAL_DIRECTORY}/msime-helpcode-jiajia-NOTICE.md" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/NOTICE-wubi86.md" "${MSIME_LEGAL_DIRECTORY}/msime-helpcode-wubi86-NOTICE.md" COPYONLY)
