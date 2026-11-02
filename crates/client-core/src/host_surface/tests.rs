@@ -699,6 +699,16 @@ fn harmony_groups_with_mobile_hosts_and_claims_nothing_unwritten() {
     ] {
         assert!(HostCapabilities::for_platform(platform).voice_stream_preedit);
     }
+    assert!(HostCapabilities::for_platform(HostPlatform::Harmony).voice_punctuation);
+    for platform in [
+        HostPlatform::Windows,
+        HostPlatform::Macos,
+        HostPlatform::Linux,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+    ] {
+        assert!(!HostCapabilities::for_platform(platform).voice_punctuation);
+    }
     // Drawn from the input method's status-bar panel, which scales itself by the shared
     // scale and font size, hides the buttons the user turned off, and opens the emoji panel
     // and the screen keyboard in the window its candidates otherwise occupy.

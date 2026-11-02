@@ -36,6 +36,7 @@ import { DoubaoOptionsRows } from "./doubao-options-section";
 import { VoiceRecordingBehaviorSettingsSection } from "./voice-recording-behavior-settings-section";
 import { VoiceCueSwitchesSection } from "./voice-recording-behavior-section";
 import { VoiceStreamPreeditSection } from "./voice-stream-preedit-section";
+import { VoicePunctuationSection, type VoicePunctuationMode } from "./voice-punctuation-section";
 import { VoicePauseRows, voicePauseText } from "./voice-pause-rows";
 import { VoiceCredentialControl } from "./voice-credential-control";
 import {
@@ -130,6 +131,7 @@ export interface VoiceSettingsContentProps extends VoiceCredentialBindings {
   showCredentialTests: boolean;
   showVoiceProviderSettings: boolean;
   showVoiceStreamPreedit: boolean;
+  showVoicePunctuation: boolean;
   showVoiceCommitMode: boolean;
   showVoiceCaptureDevices: boolean;
   /** 宿主读空格锁定（`voice_space_lock_switch`）。 */
@@ -186,6 +188,7 @@ export function VoiceSettingsContent({
   showCredentialTests,
   showVoiceProviderSettings,
   showVoiceStreamPreedit,
+  showVoicePunctuation,
   showVoiceCommitMode,
   showVoiceCaptureDevices,
   showVoiceSpaceLockSwitch,
@@ -378,13 +381,16 @@ export function VoiceSettingsContent({
     <VoiceRecognitionResultSection
       showStreamPreedit={showStreamPreedit}
       showCommitMode={showVoiceCommitMode}
+      showPunctuation={showVoicePunctuation}
       macos={macosPlatform}
       streamInlinePreedit={voiceInput.stream_inline_preedit === true}
       commitMode={voiceInput.commit_mode ?? "tsf"}
+      punctuationMode={(voiceInput.punctuation_mode ?? "auto") as VoicePunctuationMode}
       onStreamInlinePreeditChange={(stream_inline_preedit) =>
         updateVoice({ stream_inline_preedit })
       }
       onCommitModeChange={(commit_mode) => updateVoice({ commit_mode })}
+      onPunctuationModeChange={(punctuation_mode) => updateVoice({ punctuation_mode })}
     />
   );
   const captureDevices = (active: boolean) =>
@@ -513,13 +519,17 @@ export function VoiceSettingsContent({
         />
         <SwitchRow
           title="自动添加标点"
-          detail={
-            punctuationSupported ? undefined : "当前识别服务不支持，仅豆包语音识别可以自动加标点"
-          }
+          description="只对豆包生效；其他识别服务的标点用下面的「语音标点」"
           disabled={!punctuationSupported}
           checked={voiceInput.doubao_enable_punc !== false}
           onChange={(doubao_enable_punc) => updateVoice({ doubao_enable_punc })}
         />
+        {showVoicePunctuation && (
+          <VoicePunctuationSection
+            value={(voiceInput.punctuation_mode ?? "auto") as VoicePunctuationMode}
+            onChange={(punctuation_mode) => updateVoice({ punctuation_mode })}
+          />
+        )}
         {showVoiceStreamPreedit && (
           <SwitchRow
             title="边说边显示"
@@ -635,6 +645,7 @@ export function VoiceSettingsContent({
           <SwitchRow
             title="自动添加标点"
             aria-label="自动添加标点"
+            description="只对豆包生效；其他识别服务的标点用「语音标点」处理"
             checked={voiceInput.doubao_enable_punc !== false}
             onChange={(doubao_enable_punc) => updateVoice({ doubao_enable_punc })}
           />

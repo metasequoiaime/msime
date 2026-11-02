@@ -419,6 +419,8 @@ static napi_value SnapshotRestore(napi_env env, napi_callback_info info) {
 TEXT_ENTRY(VoiceHotwordCorrect, msime_client_voice_hotword_correct)
 // 本地模型最终文本里的汉字数字改写成数字；纯函数，只改写不自带 ITN 的 kind。
 TEXT_ENTRY(VoiceNormalizeNumbers, msime_client_voice_normalize_numbers)
+// 识别结果上屏前按共享偏好处理标点；只由最终结果路径调用。
+TEXT_ENTRY(VoicePunctuation, msime_client_voice_punctuation)
 TEXT_ENTRY(VoiceLocalModels, msime_client_voice_local_models)
 TEXT_ENTRY(VoiceLocalModelCancel, msime_client_voice_local_model_cancel)
 
@@ -1953,6 +1955,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("voiceHotwords", VoiceHotwords),
         ENTRY("voiceHotwordCorrect", VoiceHotwordCorrect),
         ENTRY("voiceNormalizeNumbers", VoiceNormalizeNumbers),
+        ENTRY("voicePunctuation", VoicePunctuation),
         ENTRY("voiceLocalModels", VoiceLocalModels),
         ENTRY("voiceLocalModelInstall", VoiceLocalModelInstall),
         ENTRY("voiceLocalModelCancel", VoiceLocalModelCancel),

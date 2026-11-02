@@ -1440,6 +1440,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   // 当前录音的开始时间，以及上一次未取消的录音时长：即「统计」页的语音时长，在识别结果进入编辑框时记录（对应 Android 的 `elapsedMillis`）。
   private voiceRecordingStartedMs: number = 0;
   private voiceRecordedMs: number = 0;
+  private voicePunctuationAlreadyApplied: boolean = false;
   private voiceBehaviour: HarmonyVoiceRecordingBehaviour = new HarmonyVoiceRecordingBehaviour();
   // Key, melody, commit and achievement sounds. Configured off on a phone, which keeps its own key feedback.
   private readonly soundPlayer: KeySoundPlayer = new KeySoundPlayer();
@@ -8108,12 +8109,40 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.recordTypingStatistics(output, source);
   }
 
+  /** 只处理最终识别文本的标点；调用失败时保留原文，不能因为设置或桥接异常丢掉识别结果。 */
+  voicePunctuation(text: string): string {
+    if (text.length === 0) return text;
+    const mode: string = this.voiceInput.punctuation_mode ?? 'auto';
+    if (mode !== 'omit_trailing' && mode !== 'omit_all' && mode !== 'space') return text;
+    try {
+      const request: string = JSON.stringify({ text: text, mode: mode });
+      const response: NativeReply<{ text: string }> =
+        JSON.parse(client.voicePunctuation(request)) as NativeReply<{ text: string }>;
+      return response.ok === true && typeof response.value?.text === 'string'
+        ? response.value.text : text;
+    } catch (error) {
+      KeyboardLog.error(`voice punctuation unavailable: ${describeError(error)}`);
+      return text;
+    }
+  }
+
+  /** 视图已为显示结果处理过标点，随后插入时跳过第二次处理。 */
+  markVoicePunctuationApplied(): void {
+    this.voicePunctuationAlreadyApplied = true;
+  }
+
   /**
    * 识别结果进入编辑框：在打字统计里记为语音输入，并在隐私闸门允许时把这次录音的时长计入「统计」页的语音时长一次（`record_voice`，「语音达人」徽章），与 Android 的 `ImeVoiceEntry` 在提交后的做法相同。
    */
   insertVoiceResult(text: string): void {
-    if (this.inputClient === undefined || text.length === 0) return;
-    this.insertWithSource(text, 'voice');
+    if (this.inputClient === undefined || text.length === 0) {
+      this.voicePunctuationAlreadyApplied = false;
+      return;
+    }
+    const output: string = this.voicePunctuationAlreadyApplied ? text : this.voicePunctuation(text);
+    this.voicePunctuationAlreadyApplied = false;
+    if (output.length === 0) return;
+    this.insertWithSource(output, 'voice');
     const milliseconds: number = Math.min(this.voiceRecordedMs, KeyboardSession.MAX_VOICE_RECORD_MS);
     this.voiceRecordedMs = 0;
     if (milliseconds <= 0 || this.stateDirectory.length === 0

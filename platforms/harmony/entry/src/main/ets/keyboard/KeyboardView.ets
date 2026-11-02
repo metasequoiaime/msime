@@ -8778,10 +8778,16 @@ struct KeyboardView {
       this.voiceNotice = '输入位置已变化，结果已保留，可点插入文字。';
       return;
     }
-    KeyboardSession.shared.insertVoiceResult(accepted);
+    const punctuated: string = KeyboardSession.shared.voicePunctuation(accepted);
+    if (punctuated.length === 0) {
+      this.voiceNotice = '没有识别到文字。';
+      return;
+    }
+    KeyboardSession.shared.markVoicePunctuationApplied();
+    KeyboardSession.shared.insertVoiceResult(punctuated);
     this.voiceText = '';
     this.voiceNotice = '';
-    this.voiceDone = accepted;
+    this.voiceDone = punctuated;
     this.voiceDoneTimer = setTimeout((): void => {
       this.voiceDoneTimer = -1;
       if (this.voiceDone !== accepted) {
@@ -8880,7 +8886,13 @@ struct KeyboardView {
     if (text.length === 0 || this.voiceBusy) {
       return;
     }
-    KeyboardSession.shared.insertVoiceResult(text);
+    const punctuated: string = KeyboardSession.shared.voicePunctuation(text);
+    if (punctuated.length === 0) {
+      this.voiceNotice = '没有识别到文字。';
+      return;
+    }
+    KeyboardSession.shared.markVoicePunctuationApplied();
+    KeyboardSession.shared.insertVoiceResult(punctuated);
     this.voiceText = '';
     this.voiceNotice = '已提交';
   }
