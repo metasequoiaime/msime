@@ -880,20 +880,21 @@ function Assert-SentenceModelSettings($window, [string]$theme) {
                     foreach ($choice in $models) {
                         if (-not $choice.pack) { continue }
                         $download = Find-ById $window "sentence-model-download-$($choice.pack)"
-                        # 没装的模型同时给出「从文件导入」（#10622），只跟着选中的模型出现。
+                        # 没装的模型同时给出「从文件导入」和列出要下载的文件的「不联网安装」一句（#10622），只跟着选中的模型出现。
                         $import = Find-ById $window "sentence-model-import-$($choice.pack)"
+                        $offline = Find-ById $window "sentence-model-offline-$($choice.pack)"
                         if ($choice.pack -eq $model.pack) {
                             $ready = $ready -and $null -ne $download -and $download.Current.IsEnabled
-                            $ready = $ready -and $null -ne $import -and $import.Current.IsEnabled
+                            $ready = $ready -and $null -ne $import -and $import.Current.IsEnabled -and $null -ne $offline
                         } else {
-                            $ready = $ready -and $null -eq $download -and $null -eq $import
+                            $ready = $ready -and $null -eq $download -and $null -eq $import -and $null -eq $offline
                         }
                     }
                 } catch [System.Windows.Automation.ElementNotAvailableException] {
                     $ready = $false
                 }
             } while (-not $ready -and [DateTime]::UtcNow -lt $deadline)
-            if (-not $ready) { throw "Grammar model selection did not save and refresh its download and import actions: $($model.value)" }
+            if (-not $ready) { throw "Grammar model selection did not save and refresh its download, import and offline-install entries: $($model.value)" }
             $content = Find-ById $window 'settings-content'
             $content.GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern).SetScrollPercent(-1, 100)
             Start-Sleep -Milliseconds 250
