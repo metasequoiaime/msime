@@ -94,6 +94,8 @@ struct Shuangpin {
     custom: Option<ShuangpinCustom>,
     /// 预编辑显示按键原文（默认）而不是还原出的全拼。
     preedit_shows_keys: Option<bool>,
+    /// 预编辑保留原始双拼按键并在音节之间插入撇号，缺省关闭。
+    preedit_shows_separator: Option<bool>,
 }
 
 #[derive(Deserialize, Clone, Copy)]
@@ -361,6 +363,9 @@ pub(crate) fn parse(json: &str) -> Outcome<SessionOptions> {
         }
         if let Some(raw) = shuangpin.preedit_shows_keys {
             options.shuangpin_preedit_uses_raw = raw;
+        }
+        if let Some(separator) = shuangpin.preedit_shows_separator {
+            options.shuangpin_preedit_shows_separator = separator;
         }
     }
     if let Some(wubi) = parsed.wubi {

@@ -49,8 +49,8 @@ export interface InputSchemeSettingsContentProps {
   shuangpinKeymapHint?: boolean;
   /** Linux 宿主；见 `InputSchemeDetailsSection` 的同名属性。 */
   linux?: boolean;
-  /** 「双拼预编辑」的当前样式，宿主不画双拼预编辑或在触屏宿主上时不传；改动写进共享偏好 `shuangpin_preedit_uses_raw`。 */
-  shuangpinPreedit?: "raw" | "pinyin";
+  /** 「双拼预编辑」的当前样式，宿主不画双拼预编辑或在触屏宿主上时不传；改动写进共享偏好。 */
+  shuangpinPreedit?: "raw" | "raw_separator" | "pinyin";
   /** macOS 的输入法列表；有它时在方案组末尾显示「菜单栏入口」。 */
   macosInputModes?: MacosInputModesClient;
   onError?: (message: string) => void;
@@ -251,8 +251,18 @@ export function InputSchemeSettingsContent({
           onShuangpinKeymapHintChange={(shuangpin_keymap_hint) =>
             onPreferencesChange({ shuangpin_keymap_hint })
           }
-          onShuangpinPreeditChange={(shuangpin_preedit_uses_raw) =>
-            onPreferencesChange({ shuangpin_preedit_uses_raw })
+          onShuangpinPreeditChange={(style) =>
+            onPreferencesChange(
+              style === "pinyin"
+                ? {
+                    shuangpin_preedit_uses_raw: false,
+                    shuangpin_preedit_shows_separator: false,
+                  }
+                : {
+                    shuangpin_preedit_uses_raw: true,
+                    shuangpin_preedit_shows_separator: style === "raw_separator",
+                  },
+            )
           }
           vietnamese={preferences.vietnamese}
           koreanRomaja={koreanRomaja}

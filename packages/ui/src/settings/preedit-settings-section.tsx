@@ -3,11 +3,16 @@ import {
   type PreeditPreferences,
   type TsfPreeditStyle,
   type CandidatePreeditStyle,
+  type ShuangpinPreeditStyle,
 } from "./preedit-preferences";
 import { PreeditStyleRow } from "./preedit-style-row";
 import { SwitchRow } from "./switch-row";
 
-export type { TsfPreeditStyle, CandidatePreeditStyle } from "./preedit-preferences";
+export type {
+  TsfPreeditStyle,
+  CandidatePreeditStyle,
+  ShuangpinPreeditStyle,
+} from "./preedit-preferences";
 
 export interface PreeditSettingsPreferences extends PreeditPreferences {}
 
@@ -47,10 +52,23 @@ export function PreeditSettingsSection({
       {showShuangpinPreedit && (
         <PreeditStyleRow
           title="双拼预编辑"
-          description="仅在双拼方案下生效；选择保留原始双拼按键，或显示展开后的拼音分词。"
+          description="仅在双拼方案下生效；可保留原始双拼按键、显示双拼分隔，或显示展开后的拼音分词。"
           mode="shuangpin"
           value={state.shuangpinStyle}
-          onChange={(value) => onChange({ shuangpin_preedit_uses_raw: value === "raw" })}
+          onChange={(value) => {
+            const style = value as ShuangpinPreeditStyle;
+            onChange(
+              style === "pinyin"
+                ? {
+                    shuangpin_preedit_uses_raw: false,
+                    shuangpin_preedit_shows_separator: false,
+                  }
+                : {
+                    shuangpin_preedit_uses_raw: true,
+                    shuangpin_preedit_shows_separator: style === "raw_separator",
+                  },
+            );
+          }}
         />
       )}
       {!mobile &&

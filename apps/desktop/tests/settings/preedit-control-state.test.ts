@@ -43,3 +43,12 @@ test("visible candidates and pinyin inline keys preserve explicit styles", () =>
     inlineStyle: "pinyin",
   });
 });
+
+test("raw separator is selected when the explicit separator preference is enabled", () => {
+  expect(
+    preeditControlState({
+      shuangpin_preedit_uses_raw: true,
+      shuangpin_preedit_shows_separator: true,
+    }).shuangpinStyle,
+  ).toBe("raw_separator");
+});

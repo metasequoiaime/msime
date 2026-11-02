@@ -84,7 +84,7 @@ private final class CloudPreferences: @unchecked Sendable {
     case "status": return FakeRust.ok(["user": FakeRust.user("synthetic-user")])
     case "preferences_schema":
       var fields: [String: Any] = ["platform.macos.global_theme": ["type": "string"], "platform.macos.candidate_font_size": ["type": "integer"],
-                                   "platform.macos.candidate_learning": ["type": "boolean"], "platform.macos.shuangpin_preedit_uses_raw": ["type": "boolean"],
+                                   "platform.macos.candidate_learning": ["type": "boolean"], "platform.macos.shuangpin_preedit_uses_raw": ["type": "boolean"], "platform.macos.shuangpin_preedit_shows_separator": ["type": "boolean"],
                                    "platform.ios.nine_key": ["type": "boolean"]]
       // 服务端只登记了主题组的一部分，就像早于自定义主题的服务端那样。
       if themeSchema {
@@ -522,14 +522,15 @@ private final class CloudPreferences: @unchecked Sendable {
   @MainActor static func rustSettingsModel() async throws {
     let cloud = CloudPreferences()
     FakeRust.answer(cloud.respond)
-    var localSettings: MacSettingsAccess.Values = ["platform.macos.global_theme": .string("shuishan"), "platform.macos.custom_theme_base": .string("system"), "platform.macos.custom_candidate_skin": .string(""), "platform.macos.custom_candidate_skin_dark": .string("night-card"), "platform.macos.candidate_font_size": .integer(16), "platform.macos.candidate_learning": .boolean(false), "platform.macos.shuangpin_preedit_uses_raw": .boolean(false)]
+    var localSettings: MacSettingsAccess.Values = ["platform.macos.global_theme": .string("shuishan"), "platform.macos.custom_theme_base": .string("system"), "platform.macos.custom_candidate_skin": .string(""), "platform.macos.custom_candidate_skin_dark": .string("night-card"), "platform.macos.candidate_font_size": .integer(16), "platform.macos.candidate_learning": .boolean(false), "platform.macos.shuangpin_preedit_uses_raw": .boolean(false), "platform.macos.shuangpin_preedit_shows_separator": .boolean(false)]
     let settings = MacSettingsModel(accountID: "synthetic-user", rust: FakeRust.account, local: .init(snapshot: { localSettings }, validate: { values in
-      guard values.count == 7 else { throw Failure() }
+      guard values.count == 8 else { throw Failure() }
     }, apply: { localSettings = $0 }))
     settings.download(); try await finished(settings)
     try require(settings.preview?["platform.macos.candidate_font_size"] == .integer(18))
     try require(settings.preview?["platform.macos.global_theme"] == .string("shuishan"))
     try require(settings.preview?["platform.macos.shuangpin_preedit_uses_raw"] == .boolean(false))
+    try require(settings.preview?["platform.macos.shuangpin_preedit_shows_separator"] == .boolean(false))
     // 云端的辅助码方案下标 9 是本机没有的方案，预览换成本机的选择；6（五笔 86）本机认得，照常进预览。
     let helpcodeLocal: MacSettingsAccess.Values = ["platform.macos.candidate_font_size": .integer(16), "platform.macos.quanpin_helpcode_schema": .integer(0), "platform.macos.shuangpin_helpcode_schema": .integer(2)]
     let helpcodeSettings = MacSettingsModel(accountID: "synthetic-user", rust: FakeRust.account, local: .init(snapshot: { helpcodeLocal }, validate: { _ in }, apply: { _ in }))

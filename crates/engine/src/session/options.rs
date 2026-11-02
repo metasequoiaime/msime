@@ -26,6 +26,8 @@ pub struct SessionOptions {
     pub shuangpin_custom_profile: Option<ShuangpinCustomTable>,
     /// Shuangpin preedit shows the typed keys rather than the decoded quanpin.
     pub shuangpin_preedit_uses_raw: bool,
+    /// 双拼预编辑保留原始按键，并在音节边界插入撇号。
+    pub shuangpin_preedit_shows_separator: bool,
     /// How the Vietnamese scheme spells marks: Telex letters or VNI digits.
     pub vietnamese_input_method: VietnameseInputMethod,
     /// Where the Vietnamese scheme puts the tone on `oa`, `oe` and `uy`.
@@ -122,6 +124,7 @@ impl SessionOptions {
             shuangpin_profile: ShuangpinProfileKind::Xiaohe,
             shuangpin_custom_profile: None,
             shuangpin_preedit_uses_raw: true,
+            shuangpin_preedit_shows_separator: false,
             vietnamese_input_method: VietnameseInputMethod::Telex,
             vietnamese_tone_style: VietnameseToneStyle::Modern,
             korean_layout: crate::KoreanLayout::Dubeolsik,

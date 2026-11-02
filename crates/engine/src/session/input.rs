@@ -259,7 +259,9 @@ impl InputSession {
         };
 
         // session.cpp:15-29.
-        session.shuangpin_preedit_uses_raw = options.shuangpin_preedit_uses_raw;
+        // 分隔显示同样需要原始双拼分段参与编辑和辅助码装饰；展示层再决定是否把撇号画出来。
+        session.shuangpin_preedit_uses_raw =
+            options.shuangpin_preedit_uses_raw || options.shuangpin_preedit_shows_separator;
         session.set_autocorrect_types(options.autocorrect_types);
         session
             .engine

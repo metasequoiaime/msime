@@ -10,7 +10,7 @@ int main() {
     assert([initial[@"platform.macos.candidate_page_size"] isEqual:@9]);
     assert([initial[@"platform.macos.candidate_panel_style"] isEqual:@0]);
     assert(MSIMEValidateCloudAppearance(initial));
-    assert(initial.count == 26);
+    assert(initial.count == 27);
     // A fresh install is on the system theme with no custom base or package.
     assert([initial[@"platform.macos.global_theme"] isEqual:@"system"]);
     assert([initial[@"platform.macos.custom_theme_base"] isEqual:@"system"]);
@@ -24,6 +24,7 @@ int main() {
     assert([MSIMECloudAppearanceSnapshot(defaults)[@"platform.macos.local_input_modes"] isEqual:@YES]);
     [defaults removeObjectForKey:@"MSIMEClientLocalModes"];
     assert([initial[@"platform.macos.shuangpin_preedit_uses_raw"] isEqual:@YES]);
+    assert([initial[@"platform.macos.shuangpin_preedit_shows_separator"] isEqual:@NO]);
     // 每套内置辅助码在全拼和双拼里都能导出，再导入回相同选择。
     for (NSString *scheme in @[@"quanpin", @"shuangpin"]) {
       for (NSUInteger index = 0; index < MSIMECloudHelpcodeSchemas().count; ++index) {
@@ -232,10 +233,10 @@ int main() {
     NSArray *wubi = @[@"wubi"];
     NSDictionary *wubiSnapshot = MSIMENarrowCloudAppearance(saved, wubi);
     assert(wubiSnapshot[@"platform.macos.input_scheme"] == nil);
-    for (NSString *key in @[@"platform.macos.quanpin_helpcode_schema", @"platform.macos.shuangpin_helpcode_schema", @"platform.macos.shuangpin_keymap", @"platform.macos.shuangpin_preedit_uses_raw"])
+    for (NSString *key in @[@"platform.macos.quanpin_helpcode_schema", @"platform.macos.shuangpin_helpcode_schema", @"platform.macos.shuangpin_keymap", @"platform.macos.shuangpin_preedit_uses_raw", @"platform.macos.shuangpin_preedit_shows_separator"])
       assert(wubiSnapshot[key] == nil);
     assert(wubiSnapshot[@"platform.macos.wubi_auto_commit_unique"] != nil);
-    assert(wubiSnapshot.count == saved.count - 5);
+    assert(wubiSnapshot.count == saved.count - 6);
     assert(MSIMEValidateCloudAppearanceForSchemes(wubiSnapshot, wubi));
     // 一份 full 的完整快照不是五笔版的快照，反之亦然。
     assert(!MSIMEValidateCloudAppearanceForSchemes(saved, wubi));

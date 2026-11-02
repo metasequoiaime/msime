@@ -29,6 +29,7 @@ fn options(root: &Path) -> EngineOptions {
         shuangpin_profile: 0,
         shuangpin_custom_profile: None,
         shuangpin_preedit_uses_raw: true,
+        shuangpin_preedit_shows_separator: false,
         force_cantonese_shuangpin: false,
         single_character_only: false,
         caret_edit_suffix: false,
@@ -197,8 +198,13 @@ fn quanpin_host_preedit_preserves_case_and_shuangpin_display_preference() {
     assert_eq!(session.snapshot().unwrap().editing_text, "niHao");
     drop(session);
     options.scheme = SchemeType::Shuangpin as u8;
-    for (raw_display, expected) in [(true, "nihc"), (false, "ni'hao")] {
+    for (raw_display, separator, expected) in [
+        (true, false, "nihc"),
+        (false, false, "ni'hao"),
+        (true, true, "ni'hc"),
+    ] {
         options.shuangpin_preedit_uses_raw = raw_display;
+        options.shuangpin_preedit_shows_separator = separator;
         let mut session = Session::new(&options).unwrap();
         type_text(&mut session, b"nihc");
         assert_eq!(session.snapshot().unwrap().preedit, expected);
@@ -2366,6 +2372,7 @@ fn session_options_map_every_host_field() {
     value.scheme = 1;
     value.shuangpin_profile = 2;
     value.shuangpin_preedit_uses_raw = false;
+    value.shuangpin_preedit_shows_separator = true;
     value.single_character_only = true;
     value.learning = true;
     value.autocorrect_transposition = false;
@@ -2410,6 +2417,7 @@ fn session_options_map_every_host_field() {
         crate::ShuangpinProfileKind::Shoudao
     );
     assert!(!mapped.shuangpin_preedit_uses_raw);
+    assert!(mapped.shuangpin_preedit_shows_separator);
     assert!(mapped.single_character_only);
     assert!(mapped.learning);
     assert_eq!(mapped.autocorrect_types, crate::autocorrect_type::NEIGHBOR);

@@ -52,6 +52,7 @@ pub struct Session {
     /// 触屏的组码网格：九键的数字从 `character` 进来，14 键的字母从 `grid_key` 进来；`None` 是不用网格。
     key_grid: Option<KeyGrid>,
     shuangpin_preedit_uses_raw: bool,
+    shuangpin_preedit_shows_separator: bool,
     /// `SessionOptions::learn_typed_spellings_on_enter`。
     learn_typed_spellings_on_enter: bool,
     prediction: prediction::Prediction,
@@ -109,6 +110,7 @@ impl Session {
             nine_key,
             key_grid: None,
             shuangpin_preedit_uses_raw: options.shuangpin_preedit_uses_raw,
+            shuangpin_preedit_shows_separator: options.shuangpin_preedit_shows_separator,
             learn_typed_spellings_on_enter: options.learn_typed_spellings_on_enter,
             prediction: prediction::Prediction::new(
                 options.next_word_prediction,
@@ -796,7 +798,7 @@ impl Session {
         self.snapshot_with_display_options(true, false)
     }
 
-    /// 给宿主画在屏幕上的快照：全拼的 `preedit` 按音节分开（双拼照 `shuangpin_preedit_uses_raw`），辅助码注释照常给出。[`Session::snapshot`] 的 `preedit` 保留全拼的按键原文，参考回放按它比对；其余字段两者相同。C 接口的 `msime_engine_state` 读的是这一份。
+    /// 给宿主画在屏幕上的快照：全拼的 `preedit` 按音节分开，双拼按预编辑显示设置选择展开拼音或原始按键（可带音节分隔），辅助码注释照常给出。[`Session::snapshot`] 的 `preedit` 保留全拼的按键原文，参考回放按它比对；其余字段两者相同。C 接口的 `msime_engine_state` 读的是这一份。
     pub fn display_snapshot(&self) -> SessionSnapshot {
         self.snapshot_with_display_options(true, true)
     }
@@ -849,7 +851,9 @@ impl Session {
             .unwrap_or_default();
         // 宿主显示全拼分词；参考回放的底层快照仍保留原文。
         let segmented_preedit = (segmented_quanpin && input.scheme() == SchemeType::Quanpin)
-            || (!self.shuangpin_preedit_uses_raw && input.scheme() == SchemeType::Shuangpin);
+            || (((segmented_quanpin && self.shuangpin_preedit_shows_separator)
+                || !self.shuangpin_preedit_uses_raw)
+                && input.scheme() == SchemeType::Shuangpin);
         let plain_composition =
             input.local_mode == LocalInputMode::None && !input.dedicated_english;
         let preedit = if segmented_preedit && plain_composition {

@@ -173,7 +173,7 @@ msime_engine_string_free(dictionaries);
   "paths": {"resources": "/abs/res", "user_data": "/abs/user", "cache": "/abs/cache", "dictionaries": "/abs/user/dictionaries/dict-v2_0_41"},
   "scheme": "quanpin",
   "enabled_schemes": ["quanpin", "shuangpin", "wubi"],
-  "shuangpin": {"profile": "xiaohe", "preedit_shows_keys": true},
+  "shuangpin": {"profile": "xiaohe", "preedit_shows_keys": true, "preedit_shows_separator": false},
   "fuzzy_pinyin": ["z_zh", "in_ing"],
   "autocorrect": ["transposition", "neighbor"],
   "frequency": {"mode": "promote"},
@@ -190,6 +190,7 @@ msime_engine_string_free(dictionaries);
 | `shuangpin.profile` | `xiaohe`、`ziranma`、`shoudao`、`microsoft`、`smart_abc`、`custom` |
 | `shuangpin.custom` | `profile` 为 `custom` 时的键位表：`{"initials": {"zh": "v", …}, "finals": {"iang": "l", …}, "zero_initials": {"a": "aa", …}}`；键是小写字母或 `;`，`ü` 写作 `v`，表不合法时建会话失败 |
 | `shuangpin.preedit_shows_keys` | 预编辑显示按键原文（缺省 true）还是还原出的全拼 |
+| `shuangpin.preedit_shows_separator` | 保留原始双拼按键并在音节之间显示 `'`（缺省 false）；开启时自动使用原始按键 |
 | `wubi` | `profile`（`wubi86`、`wubi98`）、`mixed_pinyin`（码表没有时按全拼出字）、`z_wildcard`（`z` 匹配任一码位） |
 | `vietnamese` | `input_method`（`telex`、`vni`）、`tone_style`（`modern` 声调在第二个元音上、`classic`） |
 | `korean.layout` | `dubeolsik`、`romaja` |

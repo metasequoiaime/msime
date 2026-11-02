@@ -65,7 +65,8 @@ static inline NSDictionary *MSIMECloudBooleanPreferences() {
              @"wubi_auto_commit_unique": @[@"MSIMEClientWubiAutoCommitUnique", @YES],
              @"candidate_learning": @[@"MSIMEClientCandidateLearning", @YES],
              @"shuangpin_keymap": @[@"MSIMEClientShuangpinKeymap", @NO],
-             @"shuangpin_preedit_uses_raw": @[@"MSIMEClientShuangpinPreeditUsesRaw", @YES]};
+             @"shuangpin_preedit_uses_raw": @[@"MSIMEClientShuangpinPreeditUsesRaw", @YES],
+             @"shuangpin_preedit_shows_separator": @[@"MSIMEClientShuangpinPreeditShowsSeparator", @NO]};
 }
 
 // 版本与账号同步：几个版本同时登录同一个账号，云端只有一份 macOS 设置。规则与 client-core 的 `filter_uploaded_account_settings` / `filter_downloaded_account_settings` 相同——只有一个方案的版本既不上传也不应用 `input_scheme`；有几个方案的版本只认自己有的方案；只属于某个方案的字段，本版本没有那个方案时不上传也不应用，免得一个版本拿本机缺省值盖掉另一个版本在云端的选择。`offered` 是 MSIMEEditionInputSchemes()，nil 表示 full，什么也不去掉。
@@ -76,6 +77,7 @@ static inline NSDictionary<NSString *, NSString *> *MSIMECloudSchemeScopedKeys()
              @"platform.macos.shuangpin_helpcode_schema": @"shuangpin",
              @"platform.macos.shuangpin_keymap": @"shuangpin",
              @"platform.macos.shuangpin_preedit_uses_raw": @"shuangpin",
+             @"platform.macos.shuangpin_preedit_shows_separator": @"shuangpin",
              @"platform.macos.wubi_auto_commit_unique": @"wubi"};
 }
 

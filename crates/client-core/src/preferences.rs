@@ -2017,6 +2017,9 @@ pub struct Preferences {
     pub nine_key_shuangpin_custom_profile: ShuangpinCustomProfile,
     #[serde(default = "enabled_by_default")]
     pub shuangpin_preedit_uses_raw: bool,
+    /// 双拼预编辑保留原始按键并在音节之间显示撇号，默认关闭；开启时会自动使用原始双拼按键。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub shuangpin_preedit_shows_separator: bool,
     /// 「输入时显示双拼键位提示」：双拼组字时在候选窗旁显示当前方案的键位图，高亮刚按下的键，上屏后隐藏。macOS 和 Windows 画它。
     ///
     /// 没写过时为 `None`，不写进文档：这个开关以前只存在 macOS 本机的 defaults 里（`MSIMEClientShuangpinKeymap`），macOS 在文档从没带过这一项时仍读那里的旧选择，再由下一次保存写进文档；文档带着这一项载入过一次之后 macOS 删掉那个旧键，此后缺这一项在所有宿主上都是关。
@@ -4384,6 +4387,7 @@ impl Default for Preferences {
             nine_key_shuangpin_profile: NineKeyShuangpinProfile::default(),
             nine_key_shuangpin_custom_profile: ShuangpinCustomProfile::default(),
             shuangpin_preedit_uses_raw: true,
+            shuangpin_preedit_shows_separator: false,
             shuangpin_keymap_hint: None,
             vietnamese: VietnamesePreferences::default(),
             korean: KoreanPreferences::default(),

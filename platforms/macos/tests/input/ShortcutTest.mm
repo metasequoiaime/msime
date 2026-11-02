@@ -1331,6 +1331,10 @@ static void TestSharedInputPreferences() {
     assert(saves == 0);
     assert([[defaults stringForKey:@"MSIMEClientInputScheme"] isEqual:@"quanpin"]);
     for (NSString *key in shared) assert([[prefs sharedPreferencesByMerging:shared][key] isEqual:shared[key]]);
+    NSDictionary *separatorShared = @{@"scheme": @"shuangpin", @"shuangpin_preedit_shows_separator": @YES};
+    [controller applySharedToolbarPreferences:separatorShared];
+    assert(prefs.shuangpinPreeditShowsSeparator && preedit.indexOfSelectedItem == 2);
+    assert([[prefs sharedPreferencesByMerging:separatorShared][@"shuangpin_preedit_shows_separator"] isEqual:@YES]);
     [controller applySharedToolbarPreferences:@{@"scheme": NSNull.null, @"shuangpin_profile": @42, @"shuangpin_preedit_uses_raw": @1}];
     [controller applySharedToolbarPreferences:@{}];
     assert([prefs.inputScheme isEqual:@"shuangpin"] && [prefs.shuangpinProfile isEqual:@"microsoft"] && !prefs.shuangpinPreeditUsesRaw && saves == 0);

@@ -345,6 +345,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         shuangpin_profile: 0,
         shuangpin_custom_profile: None,
         shuangpin_preedit_uses_raw: true,
+        shuangpin_preedit_shows_separator: false,
         force_cantonese_shuangpin: false,
         single_character_only: false,
         caret_edit_suffix: false,

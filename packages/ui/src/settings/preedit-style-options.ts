@@ -8,6 +8,7 @@ export const preeditStyleOptions: Record<
 > = {
   shuangpin: [
     { value: "raw", label: "原始按键" },
+    { value: "raw_separator", label: "双拼分隔" },
     { value: "pinyin", label: "拼音分词" },
   ],
   inline: [

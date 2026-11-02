@@ -874,6 +874,7 @@ impl HostSession {
         let fallback =
             scheme_fallback.or(profile_fallback.filter(|_| scheme == InputScheme::Shuangpin));
         options.shuangpin_preedit_uses_raw = preferences.shuangpin_preedit_uses_raw;
+        options.shuangpin_preedit_shows_separator = preferences.shuangpin_preedit_shows_separator;
         options.force_cantonese_shuangpin = force_cantonese_shuangpin(scheme, &preferences);
         options.single_character_only = preferences.single_character_only;
         options.caret_edit_suffix = caret_edit_suffix_applies(&preferences);
@@ -2444,6 +2445,7 @@ impl HostOptions {
             shuangpin_profile: profile_code(self.preferences.shuangpin_profile),
             shuangpin_custom_profile: None,
             shuangpin_preedit_uses_raw: self.preferences.shuangpin_preedit_uses_raw,
+            shuangpin_preedit_shows_separator: self.preferences.shuangpin_preedit_shows_separator,
             force_cantonese_shuangpin: force_cantonese_shuangpin(scheme, &self.preferences),
             single_character_only: self.preferences.single_character_only,
             caret_edit_suffix: caret_edit_suffix_applies(&self.preferences),

@@ -6892,6 +6892,18 @@ fn shuangpin_snapshot_does_not_build_unused_raw_preedit() {
 }
 
 #[test]
+fn shuangpin_snapshot_can_show_raw_keys_with_separator() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Shuangpin;
+        options.shuangpin_preedit_shows_separator = true;
+    });
+    type_text(&mut session, "nihc");
+    assert_eq!(session.snapshot().preedit, "nihc");
+    assert_eq!(session.display_snapshot().preedit, "ni'hc");
+}
+
+#[test]
 fn japanese_engine_refresh_reuses_candidate_strings() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = fixture.session_with(|options| options.scheme = SchemeType::JapaneseRomaji);

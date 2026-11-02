@@ -87,6 +87,7 @@ static NSString *const SchemeKey = @"MSIMEClientInputScheme";
 static NSString *const LastSyncedSchemeKey = @"MSIMEClientLastSyncedInputScheme";
 static NSString *const ShuangpinProfileKey = @"MSIMEClientShuangpinProfile";
 static NSString *const ShuangpinPreeditKey = @"MSIMEClientShuangpinPreeditUsesRaw";
+static NSString *const ShuangpinPreeditSeparatorKey = @"MSIMEClientShuangpinPreeditShowsSeparator";
 /// 五笔码表版本：`wubi86` 或 `wubi98`，写进共享偏好文档的 `wubi_profile`。
 static NSString *const WubiProfileKey = @"MSIMEClientWubiProfile";
 static NSString *const LocalModesKey = @"MSIMEClientLocalModes";
@@ -459,6 +460,7 @@ static NSDictionary<NSString *, NSString *> *SharedOverrideProperties() {
         SchemeKey : @"sharedInputScheme",
         ShuangpinProfileKey : @"sharedShuangpinProfile",
         ShuangpinPreeditKey : @"sharedShuangpinPreeditUsesRaw",
+        ShuangpinPreeditSeparatorKey : @"sharedShuangpinPreeditShowsSeparator",
         KeymapKey : @"sharedShuangpinKeymap",
         WubiProfileKey : @"sharedWubiProfile",
         WubiMixedPinyinKey : @"sharedWubiMixedPinyin",
@@ -561,6 +563,7 @@ static NSDictionary<NSString *, MSIMESettingProbe> *SettingProbes() {
             SchemeKey : ^id(MSIMEAppearancePreferences *p) { return p.inputScheme ?: NSNull.null; },
             ShuangpinProfileKey : ^id(MSIMEAppearancePreferences *p) { return p.shuangpinProfile ?: NSNull.null; },
             ShuangpinPreeditKey : ^id(MSIMEAppearancePreferences *p) { return @(p.shuangpinPreeditUsesRaw); },
+            ShuangpinPreeditSeparatorKey : ^id(MSIMEAppearancePreferences *p) { return @(p.shuangpinPreeditShowsSeparator); },
             WubiProfileKey : ^id(MSIMEAppearancePreferences *p) { return p.wubiProfile ?: NSNull.null; },
             KeymapKey : ^id(MSIMEAppearancePreferences *p) { return @(p.shuangpinKeymap); },
             WubiKey : ^id(MSIMEAppearancePreferences *p) { return @(p.wubiAutoCommitUnique); },
@@ -1218,6 +1221,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSString *_lastChineseScheme;
     NSString *_sharedShuangpinProfile;
     NSNumber *_sharedShuangpinPreeditUsesRaw;
+    NSNumber *_sharedShuangpinPreeditShowsSeparator;
     // 共享偏好 `shuangpin_keymap_hint`。文档里没有这一项时为 nil，getter 退回本机 defaults 里升级前的选择；文档带着这一项载入过之后那个旧键已经删除，退回的就是关。
     NSNumber *_sharedShuangpinKeymap;
     NSString *_sharedWubiProfile;
@@ -1470,6 +1474,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     if (![@[@"japanese", @"korean", @"vietnamese", @"tibetan"] containsObject:self.inputScheme] || _lastChineseScheme) merged[@"last_chinese_scheme"] = self.lastChineseScheme;
     merged[@"shuangpin_profile"] = self.shuangpinProfile;
     merged[@"shuangpin_preedit_uses_raw"] = @(self.shuangpinPreeditUsesRaw);
+    merged[@"shuangpin_preedit_shows_separator"] = @(self.shuangpinPreeditShowsSeparator);
     // 双拼键位提示以前只存在 defaults 里。载入过文档之后总是写当前值，这样「恢复默认值」清掉文档缓存和 defaults 后写回的是关，而不是让文档里的旧值在下次载入时又回来；还没载入过文档时只在本机留下过选择才写，把升级前的选择带进共享偏好，否则不写，免得没读到的文档值被这里的缺省覆盖。
     if (_sharedInputPreferencesApplied || _sharedShuangpinKeymap || [_defaults objectForKey:KeymapKey] != nil)
         merged[@"shuangpin_keymap_hint"] = @(self.shuangpinKeymap);
@@ -1695,6 +1700,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     _sharedVertical = nil;
     _sharedInputScheme = nil;
     _sharedShuangpinPreeditUsesRaw = nil;
+    _sharedShuangpinPreeditShowsSeparator = nil;
     // 双拼键位提示同样在云快照里（platform.macos.shuangpin_keymap，写进 defaults），套用后丢掉文档缓存，由 getter 读新值，下一次保存再写回文档。
     _sharedShuangpinKeymap = nil;
     // 四码唯一自动上屏在云快照里，所以套用之后要丢掉共享文档缓存，让新的值经 getter 生效。
@@ -1744,6 +1750,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     for (NSString *mode in MSIMECloudLocalModeKeys()) allLocalModes = allLocalModes && [self localModeEnabled:mode];
     snapshot[@"platform.macos.local_input_modes"] = @(allLocalModes);
     snapshot[@"platform.macos.shuangpin_preedit_uses_raw"] = @(self.shuangpinPreeditUsesRaw);
+    snapshot[@"platform.macos.shuangpin_preedit_shows_separator"] = @(self.shuangpinPreeditShowsSeparator);
     // 双拼键位提示的权威值在共享文档里（共享设置页只写文档），导出取宿主真正在用的值，而不是 defaults 里可能过时的旧值。
     snapshot[@"platform.macos.shuangpin_keymap"] = @(self.shuangpinKeymap);
     // 这个键只写共享文档、不再写 defaults，所以导出要取宿主真正在用的值，而不是 defaults 里的旧值。
@@ -2161,6 +2168,8 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
 - (void)setWubiProfile:(NSString *)value { if (![@[@"wubi86", @"wubi98"] containsObject:value]) value = @"wubi86"; _sharedWubiProfile = nil; [_defaults setObject:value forKey:WubiProfileKey]; [self preferencesChanged]; }
 - (BOOL)shuangpinPreeditUsesRaw { if (_sharedShuangpinPreeditUsesRaw) return _sharedShuangpinPreeditUsesRaw.boolValue; return [_defaults objectForKey:ShuangpinPreeditKey] == nil ? YES : [_defaults boolForKey:ShuangpinPreeditKey]; }
 - (void)setShuangpinPreeditUsesRaw:(BOOL)value { _sharedShuangpinPreeditUsesRaw = nil; [_defaults setBool:value forKey:ShuangpinPreeditKey]; [self preferencesChanged]; }
+- (BOOL)shuangpinPreeditShowsSeparator { return _sharedShuangpinPreeditShowsSeparator ? _sharedShuangpinPreeditShowsSeparator.boolValue : [_defaults boolForKey:ShuangpinPreeditSeparatorKey]; }
+- (void)setShuangpinPreeditShowsSeparator:(BOOL)value { _sharedShuangpinPreeditShowsSeparator = nil; [_defaults setBool:value forKey:ShuangpinPreeditSeparatorKey]; [self preferencesChanged]; }
 // 从没设置过时取本版本的默认值：五笔版默认打开混拼，full 默认关闭（与 client-core 的版本默认偏好一致）。它会被合并进共享偏好文档，所以缺省值不能是一个固定的 NO。
 - (BOOL)wubiMixedPinyinEnabled {
     if (_sharedWubiMixedPinyin) return _sharedWubiMixedPinyin.boolValue;
@@ -2333,6 +2342,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     id scheme = preferences[@"scheme"];
     id profile = preferences[@"shuangpin_profile"];
     id raw = preferences[@"shuangpin_preedit_uses_raw"];
+    id separator = preferences[@"shuangpin_preedit_shows_separator"];
     id wubiMixedPinyin = preferences[@"wubi_mixed_pinyin"];
     id wubiAutoCommitUnique = preferences[@"wubi_auto_commit_unique"];
     id wubiZWildcard = preferences[@"wubi_z_wildcard"];
@@ -2343,7 +2353,12 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     if ([@[@"quanpin", @"shuangpin", @"wubi", @"cantonese", @"zhuyin", @"stroke"] containsObject:lastChinese] && MSIMEEditionOffersScheme(lastChinese)) _lastChineseScheme = [lastChinese copy];
     // 自定义表由共享偏好管理；原生设置暂不编辑它，但保存其它选项时必须保留这个方案名。
     if ([@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft", @"smart_abc", @"custom"] containsObject:profile]) _sharedShuangpinProfile = [profile copy];
-    if (LocalModeBoolean(raw)) _sharedShuangpinPreeditUsesRaw = raw;
+    if (LocalModeBoolean(raw)) {
+        _sharedShuangpinPreeditUsesRaw = raw;
+        // 旧共享文档没有分隔字段；切换到任一旧档位时把此前缓存的第三档清掉。
+        if (!LocalModeBoolean(separator)) _sharedShuangpinPreeditShowsSeparator = @NO;
+    }
+    if (LocalModeBoolean(separator)) _sharedShuangpinPreeditShowsSeparator = separator;
     // 文档没有这一项时回到 nil，getter 读 defaults：从没在共享设置里选过，就沿用本机升级前的选择。文档一旦带着这一项载入，那个选择已经发布过（或者文档里有更新的选择），文档从此是唯一来源：删掉本机旧键，之后文档再缺这一项（共享设置页恢复默认设置、导入不带这一项的设置文件）就是关，旧选择不会复活。与 AppInputModeRulesKey 迁移完成后删除旧键是同一个做法。
     id keymap = preferences[@"shuangpin_keymap_hint"];
     _sharedShuangpinKeymap = LocalModeBoolean(keymap) ? keymap : nil;
@@ -3553,7 +3568,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     const BOOL wubi98 = [self.wubiProfile isEqual:@"wubi98"];
     [_wubiSchemeButton selectItemAtIndex:wubi98 ? 1 : 0];
     _wubiProfileLabel.stringValue = wubi98 ? @"98 五笔" : @"86 五笔";
-    [_preeditButton selectItemAtIndex:self.shuangpinPreeditUsesRaw ? 1 : 0];
+    [_preeditButton selectItemAtIndex:self.shuangpinPreeditShowsSeparator ? 2 : (self.shuangpinPreeditUsesRaw ? 1 : 0)];
     [_fontButton selectItemAtIndex:self.fontSize - 12];
     _englishFontFamilyControl.stringValue = self.candidateEnglishFont ?: @"";
     _fontFamilyControl.stringValue = self.fontFamily;
@@ -3785,7 +3800,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     _profileButton.target = self;
     _profileButton.action = @selector(profileChanged:);
     _preeditButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    [_preeditButton addItemsWithTitles:@[@"全拼显示", @"原始双拼显示"]];
+    [_preeditButton addItemsWithTitles:@[@"全拼显示", @"原始双拼显示", @"双拼分隔"]];
     _preeditButton.target = self;
     _preeditButton.action = @selector(preeditChanged:);
     _fontButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
@@ -4223,7 +4238,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
         [self sectionHeader:@"输入模式" keys:@[DefaultImeModeKey, ImeModeScopeKey]], inputModeCard,
         [self sectionHeader:@"应用例外" keys:@[AppInputModeRulesKey, VimModeAppsKey]], appRuleCard,
         [self sectionHeader:@"中文输入方案"
-                       keys:@[SchemeKey, ShuangpinProfileKey, ShuangpinPreeditKey, KeymapKey, WubiKey, WubiProfileKey,
+                       keys:@[SchemeKey, ShuangpinProfileKey, ShuangpinPreeditKey, ShuangpinPreeditSeparatorKey, KeymapKey, WubiKey, WubiProfileKey,
                               WubiMixedPinyinKey, WubiZWildcardKey, WubiFifthCodeTopCommitKey, HelpcodeOptionsKey,
                               QuanpinHelpcodeKey, ShuangpinHelpcodeKey]],
         schemeCard, _quanpinCard, _shuangpinCard, _wubiCard,
@@ -5320,7 +5335,13 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
 - (void)shuangpinHelpcodeChanged:(NSSwitch *)sender { self.shuangpinHelpcodeEnabled = sender.state == NSControlStateValueOn; }
 - (void)profileChanged:(NSPopUpButton *)sender { self.shuangpinProfile = @[@"xiaohe", @"ziranma", @"shoudao", @"microsoft", @"smart_abc"][sender.indexOfSelectedItem]; }
 - (void)wubiProfileChanged:(NSPopUpButton *)sender { self.wubiProfile = sender.indexOfSelectedItem == 1 ? @"wubi98" : @"wubi86"; }
-- (void)preeditChanged:(NSPopUpButton *)sender { self.shuangpinPreeditUsesRaw = sender.indexOfSelectedItem == 1; }
+- (void)preeditChanged:(NSPopUpButton *)sender {
+    _sharedShuangpinPreeditUsesRaw = nil;
+    _sharedShuangpinPreeditShowsSeparator = nil;
+    [_defaults setBool:sender.indexOfSelectedItem != 0 forKey:ShuangpinPreeditKey];
+    [_defaults setBool:sender.indexOfSelectedItem == 2 forKey:ShuangpinPreeditSeparatorKey];
+    [self preferencesChanged];
+}
 - (void)inputModeShortcutChanged:(NSSwitch *)sender { self.inputModeShortcut = sender.state == NSControlStateValueOn; }
 - (void)capsLockTapShortcutChanged:(NSSwitch *)sender { self.capsLockTapShortcut = sender.state == NSControlStateValueOn; }
 - (void)defaultImeModeChanged:(NSPopUpButton *)sender { self.defaultImeMode = sender.indexOfSelectedItem == 1 ? @"english" : @"chinese"; }

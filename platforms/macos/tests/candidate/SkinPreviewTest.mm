@@ -146,7 +146,7 @@ static void TestCloudImportCache(MSIMEAppearancePreferences *preferences, NSUser
     assert([effective[@"platform.macos.candidate_page_size"] isEqual:@1]);
     assert([effective[@"platform.macos.candidate_panel_style"] isEqual:@1]);
     assert([effective[@"platform.macos.input_scheme"] isEqual:@2]);
-    for (NSString *key in @[@"chinese_punctuation", @"shuangpin_preedit_uses_raw", @"floating_toolbar"])
+    for (NSString *key in @[@"chinese_punctuation", @"shuangpin_preedit_uses_raw", @"shuangpin_preedit_shows_separator", @"floating_toolbar"])
         assert([effective[[@"platform.macos." stringByAppendingString:key]] isEqual:@NO]);
     assert([MSIMECloudAppearanceSnapshot(defaults) isEqual:original]);
     NSMutableDictionary *imported = [original mutableCopy];

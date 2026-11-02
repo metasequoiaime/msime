@@ -86,7 +86,21 @@ test("双拼预编辑 sits in the Shuangpin details and appears only under Shuan
   const preedit = screen.getByLabelText("双拼预编辑") as HTMLSelectElement;
   expect(preedit.value).toBe("raw");
   fireEvent.change(preedit, { target: { value: "pinyin" } });
-  expect(onShuangpinPreeditChange).toHaveBeenCalledWith(false);
+  expect(onShuangpinPreeditChange).toHaveBeenCalledWith("pinyin");
+
+  rerender(
+    <InputSchemeDetailsSection
+      scheme="shuangpin"
+      shuangpinProfile="xiaohe"
+      hasTouchKeyboardSchemes={false}
+      shuangpinPreedit="raw_separator"
+      onShuangpinProfileChange={vi.fn()}
+      onShuangpinPreeditChange={onShuangpinPreeditChange}
+    />,
+  );
+  expect((screen.getByLabelText("双拼预编辑") as HTMLSelectElement).value).toBe("raw_separator");
+  fireEvent.change(screen.getByLabelText("双拼预编辑"), { target: { value: "raw" } });
+  expect(onShuangpinPreeditChange).toHaveBeenLastCalledWith("raw");
 
   for (const scheme of ["quanpin", "wubi", "japanese"] as const) {
     rerender(

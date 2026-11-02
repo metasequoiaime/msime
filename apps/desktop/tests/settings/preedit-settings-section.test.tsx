@@ -43,6 +43,7 @@ test("missing preferences preserve the preedit defaults and each selector's orde
     value: "raw",
     options: [
       ["raw", "原始按键"],
+      ["raw_separator", "双拼分隔"],
       ["pinyin", "拼音分词"],
     ],
   });
@@ -72,11 +73,38 @@ test("desktop preedit selectors report each changed preference", () => {
     [...document.querySelectorAll("[data-row-title]")].map((title) => title.textContent),
   ).toEqual(["候选窗口预编辑", "双拼预编辑", "行内预编辑"]);
   fireEvent.change(screen.getByLabelText("双拼预编辑"), { target: { value: "pinyin" } });
-  expect(onChange).toHaveBeenCalledWith({ shuangpin_preedit_uses_raw: false });
+  expect(onChange).toHaveBeenCalledWith({
+    shuangpin_preedit_uses_raw: false,
+    shuangpin_preedit_shows_separator: false,
+  });
   fireEvent.change(screen.getByLabelText("行内预编辑"), { target: { value: "empty" } });
   expect(onChange).toHaveBeenCalledWith({ tsf_preedit_style: "empty" });
   fireEvent.change(screen.getByLabelText("候选窗口预编辑"), { target: { value: "empty" } });
   expect(onChange).toHaveBeenCalledWith({ candidate_preedit_style: "empty" });
+});
+
+test("双拼分隔与其它两档互相切换时保持两个偏好一致", () => {
+  const onChange = vi.fn();
+  render(
+    <PreeditSettingsSection
+      preferences={{ ...preferences, shuangpin_preedit_shows_separator: true }}
+      mobile={false}
+      showShuangpinPreedit
+      onChange={onChange}
+    />,
+  );
+  const preedit = screen.getByLabelText("双拼预编辑") as HTMLSelectElement;
+  expect(preedit.value).toBe("raw_separator");
+  fireEvent.change(preedit, { target: { value: "raw" } });
+  expect(onChange).toHaveBeenLastCalledWith({
+    shuangpin_preedit_uses_raw: true,
+    shuangpin_preedit_shows_separator: false,
+  });
+  fireEvent.change(preedit, { target: { value: "pinyin" } });
+  expect(onChange).toHaveBeenLastCalledWith({
+    shuangpin_preedit_uses_raw: false,
+    shuangpin_preedit_shows_separator: false,
+  });
 });
 
 // 触屏键盘固定把拼写写进输入框、候选栏不画它，所以只剩双拼预编辑。
