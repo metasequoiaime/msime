@@ -1,4 +1,5 @@
 #include "JapaneseSpacePolicy.h"
+#include <nlohmann/json.hpp>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -60,6 +61,41 @@ void sequence() {
   // 没有候选时也不接管。
   require(!japanese_space_step(fallback.space("x", 0, -1)));
 }
+
+void cloud_placeholder() {
+  // 开着云候选时第二格是云占位行「☁」。候选窗不画它，运行时的「下一个」越过它（#10665），所以空格只数看得见的三行：开始、下一个、下一个，第四次回到首条；按原始的四行数要多走一步。
+  const auto page = nlohmann::json::array({
+      {{"text", "日"}, {"source", 0}},
+      {{"text", "☁"}, {"source", candidate_source_cloud_pending}},
+      {{"text", "本"}, {"source", 0}},
+      {{"text", "二本"}, {"source", 0}},
+  });
+  const auto rows = japanese_space_rows(page);
+  require(rows.count == 3);
+  require(rows.first_source == 0);
+  msime::input::JapaneseConversion conversion;
+  require(japanese_space_step(conversion.space("nihon", rows.count, rows.first_source))->command == std::nullopt);
+  require(japanese_space_step(conversion.space("nihon", rows.count, rows.first_source))->command ==
+          static_cast<uint32_t>(MSIME_NEXT_CANDIDATE));
+  require(japanese_space_step(conversion.space("nihon", rows.count, rows.first_source))->command ==
+          static_cast<uint32_t>(MSIME_NEXT_CANDIDATE));
+  require(japanese_space_step(conversion.space("nihon", rows.count, rows.first_source))->command ==
+          static_cast<uint32_t>(MSIME_FIRST_CANDIDATE));
+
+  // 第一行就是占位行时，first_source 取第一条看得见的行：唯一看得见的是 Fallback，空格照常上屏原文。
+  const auto fallback = japanese_space_rows(nlohmann::json::array({
+      {{"text", "☁"}, {"source", candidate_source_cloud_pending}},
+      {{"text", "x"}, {"source", msime::input::kCandidateSourceFallback}},
+  }));
+  require(fallback.count == 1 && fallback.first_source == msime::input::kCandidateSourceFallback);
+  msime::input::JapaneseConversion raw;
+  require(!japanese_space_step(raw.space("x", fallback.count, fallback.first_source)));
+
+  // 只剩占位行时没有可转换的行；没写来源的行照常数进去，来源记作 -1。
+  require(japanese_space_rows(nlohmann::json::array({{{"text", "☁"}, {"source", candidate_source_cloud_pending}}})).count == 0);
+  const auto unsourced = japanese_space_rows(nlohmann::json::array({{{"text", "日"}}}));
+  require(unsourced.count == 1 && unsourced.first_source == -1);
+}
 } // namespace
 
 int main() {
@@ -67,6 +103,7 @@ int main() {
     applies();
     steps();
     sequence();
+    cloud_placeholder();
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';
     return 1;

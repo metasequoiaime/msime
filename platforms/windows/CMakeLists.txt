@@ -249,6 +249,7 @@ add_test(NAME windows-navigation-policy COMMAND windows-navigation-policy)
 # 日语空格「変換」：哪些空格归状态机，状态机的回答在 Server 会话里怎么执行。
 add_executable(windows-japanese-space-policy tests/input/japanese_space_policy.cpp)
 target_include_directories(windows-japanese-space-policy PRIVATE src ../../shared/contracts ../../crates/host-api/include)
+target_link_libraries(windows-japanese-space-policy PRIVATE nlohmann_json::nlohmann_json)
 if(MSVC)
   target_compile_options(windows-japanese-space-policy PRIVATE /W4 /WX /utf-8)
 else()

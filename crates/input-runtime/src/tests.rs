@@ -992,6 +992,11 @@ impl InputEngine for Fixture {
         if self.withheld.is_empty() {
             return Ok(false);
         }
+        // 来源和已给出的候选逐行对应时，放出来的那些也补上来源：它们是本地词库的候选。
+        if !self.sources.is_empty() && self.sources.len() == self.words.len() {
+            self.sources
+                .resize(self.words.len() + self.withheld.len(), 0);
+        }
         self.words.append(&mut self.withheld);
         Ok(true)
     }
@@ -8098,6 +8103,28 @@ fn only_the_cloud_placeholder_is_skipped() {
     let mut runtime = cloud_pending_runtime(&["甲", "…", "乙"], &[0, AI_PENDING, 0], 2);
     let down = runtime.dispatch(Action::NextCandidate).unwrap().view;
     assert_eq!(highlighted_text(&down).as_deref(), Some("…"));
+}
+
+/// 已给出的候选里首选后面只剩云占位行、引擎还压着更多候选时，↓ 先展开再越过占位行，落到放出来的第一个真候选上；只按「高亮是不是最后一行」判断末尾，这里不会展开，↓ 卡在首选上。
+#[test]
+fn stepping_past_a_trailing_cloud_placeholder_reaches_candidates_the_engine_withheld() {
+    let mut runtime = Runtime::new(
+        Fixture {
+            local_mode: "none".into(),
+            words: vec!["甲".into(), "☁".into()],
+            sources: vec![0, CLOUD_PENDING],
+            withheld: vec!["乙".into(), "丙".into()],
+            ..Fixture::default()
+        },
+        5,
+    )
+    .unwrap();
+    runtime.focus(true).unwrap();
+    type_key(&mut runtime);
+    assert_eq!(runtime.view().candidates.len(), 2);
+    let down = runtime.dispatch(Action::NextCandidate).unwrap().view;
+    assert_eq!(down.candidates.len(), 4, "↓ 必须先放出引擎压着的候选");
+    assert_eq!(highlighted_text(&down).as_deref(), Some("乙"));
 }
 
 #[test]

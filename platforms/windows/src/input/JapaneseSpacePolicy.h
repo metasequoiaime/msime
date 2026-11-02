@@ -1,7 +1,9 @@
 #pragma once
+#include "CandidateSources.h"
 #include "InputSchemeTraits.h"
 #include "msime_client.h"
 #include "../../../../shared/input/JapaneseConversion.h"
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 
@@ -33,5 +35,25 @@ inline std::optional<JapaneseSpaceStep> japanese_space_step(input::JapaneseConve
     break;
   }
   return std::nullopt;
+}
+
+// 空格数的行：候选窗画出来、高亮能停的那些。云占位行不画，运行时的「下一个」也越过它（#10665）；按原始行数数，走到本页末尾时会多走一步才回到首条。`first_source` 是其中第一行的来源，没有这样的行时是 -1；没写来源的行照常数进去。
+struct JapaneseSpaceRows {
+  std::size_t count = 0;
+  int first_source = -1;
+};
+// 按页的类型取模板，与 `visible_page_candidate` 一样不让这个头引入 nlohmann。
+template <typename Page>
+JapaneseSpaceRows japanese_space_rows(const Page &page) {
+  JapaneseSpaceRows rows;
+  for (const auto &candidate : page) {
+    const auto found = candidate.find("source");
+    const int source = found != candidate.end() && found->is_number_integer() ? found->template get<int>() : -1;
+    if (source >= 0 && !candidate_source_is_visible(static_cast<unsigned>(source)))
+      continue;
+    if (rows.count++ == 0)
+      rows.first_source = source;
+  }
+  return rows;
 }
 } // namespace msime::windows
