@@ -59,33 +59,71 @@ pub struct OnnxScorer {
     within_keystroke_budget: bool,
 }
 
+/// 建 ONNX Runtime 会话：`threads` 是一次图运行用几个线程；`memory_arena` 为假时关掉 CPU 内存池，每次运行完把张量的内存还给系统。
+///
+/// 内存池按一次运行用到的最大量留着内存、只增不减，上文和候选前缀的缓存每次按键长度不同，它攒下的比真正同时在用的多得多。2026-11-02 在 iOS 模拟器里用 `footprint` 示例量 phys_footprint（比加载前多出的部分）：8x448 模型开着内存池打字后是 80 MiB，关掉是 46 MiB；6x256 是 28 与 11 MiB。代价是每次运行重新向系统要内存，同一负载在 M 系列 Mac 的模拟器里每键 p50 从 1.9 到 2.7 ms、p95 从 9.3 到 11.8 ms，自测从 4.0 到 4.5 ms。
+fn session_builder(
+    threads: usize,
+    memory_arena: bool,
+) -> Result<ort::session::builder::SessionBuilder, ort::Error> {
+    Session::builder(environment()?)?
+        .with_intra_threads(threads.max(1))
+        .map_err(ort::Error::<()>::from)?
+        .with_execution_providers([ort::ep::CPU::default()
+            .with_arena_allocator(memory_arena)
+            .build()])
+        .map_err(ort::Error::<()>::from)
+}
+
+/// 读 `model.json` 与 `vocab.json`。在建会话之前读，元数据坏了就不去加载模型。
+fn metadata(model_json: &str, vocab_json: &str) -> Result<(ModelInfo, Vocabulary), LoadError> {
+    let info: ModelInfo = serde_json::from_str(model_json)?;
+    #[derive(serde::Deserialize)]
+    struct Tokens {
+        tokens: Vec<String>,
+    }
+    let tokens: Tokens = serde_json::from_str(vocab_json)?;
+    let vocabulary = Vocabulary::new(&tokens.tokens, info.unk);
+    Ok((info, vocabulary))
+}
+
 impl OnnxScorer {
-    /// `model` 是 ORT 格式的 `lm_step.ort`，`model_json` 与 `vocab_json` 是同一次导出的 `model.json` 和 `vocab.json`；`threads` 是一次图运行用几个线程。
+    /// `model` 是 ORT 格式的 `lm_step.ort` 的内容，`model_json` 与 `vocab_json` 是同一次导出的 `model.json` 和 `vocab.json`；`threads` 与 `memory_arena` 见 `session_builder`。
     pub fn load(
         model: &[u8],
         model_json: &str,
         vocab_json: &str,
         threads: usize,
+        memory_arena: bool,
     ) -> Result<Self, LoadError> {
-        let info: ModelInfo = serde_json::from_str(model_json)?;
-        #[derive(serde::Deserialize)]
-        struct Tokens {
-            tokens: Vec<String>,
-        }
-        let tokens: Tokens = serde_json::from_str(vocab_json)?;
-        let session = Session::builder(environment()?)?
-            .with_intra_threads(threads.max(1))
-            .map_err(ort::Error::from)?
-            .commit_from_memory(model)?;
-        Ok(Self {
+        let (info, vocabulary) = metadata(model_json, vocab_json)?;
+        let session = session_builder(threads, memory_arena)?.commit_from_memory(model)?;
+        Ok(Self::with_session(session, info, vocabulary))
+    }
+
+    /// 同 [`OnnxScorer::load`]，但让 ONNX Runtime 自己读 `model` 这个文件。宿主用这一个：先把文件读进内存再交给运行时，加载的那一刻文件内容多一份，8x448 模型加载时的内存峰值因此高出约 30 MiB（iOS 模拟器里比加载前多 104 MiB，自己读是 74 MiB），而 iOS 键盘扩展有硬上限。
+    pub fn load_file(
+        model: &std::path::Path,
+        model_json: &str,
+        vocab_json: &str,
+        threads: usize,
+        memory_arena: bool,
+    ) -> Result<Self, LoadError> {
+        let (info, vocabulary) = metadata(model_json, vocab_json)?;
+        let session = session_builder(threads, memory_arena)?.commit_from_file(model)?;
+        Ok(Self::with_session(session, info, vocabulary))
+    }
+
+    fn with_session(session: Session, info: ModelInfo, vocabulary: Vocabulary) -> Self {
+        Self {
             session,
-            vocabulary: Vocabulary::new(&tokens.tokens, info.unk),
+            vocabulary,
             info,
             prefixes: PrefixCache::default(),
             cache: None,
             context: None,
             within_keystroke_budget: false,
-        })
+        }
     }
 
     fn empty_cache(&self) -> Result<Cache, ort::Error> {
@@ -185,11 +223,16 @@ impl OnnxScorer {
         self.calibrate_for_keystroke_budget(budget_ms) <= budget_ms
     }
 
-    /// 与 [`Self::fits_keystroke_budget`] 相同地量一次并记下结论，返回量出来的毫秒数而不是结论：宿主要把自测值写进诊断行（host-api 的 `onnx_reranker_within`），不能为此再量一遍。
+    /// 与 [`Self::fits_keystroke_budget`] 相同地量一次并记下结论，返回量出来的毫秒数而不是结论：宿主要把自测值写进诊断行（host-api 的 `OnnxRerankers::attach`），不能为此再量一遍。
     pub fn calibrate_for_keystroke_budget(&mut self, budget_ms: f64) -> f64 {
         let measured = self.calibrated();
-        self.within_keystroke_budget = measured <= budget_ms;
+        self.accept_calibration(measured, budget_ms);
         measured
+    }
+
+    /// 记下同一个模型文件在这个进程里之前量出的 `measured_ms`，结论与刚量过一样，不再量：宿主重新加载同一个模型时用它（host-api 的 `OnnxRerankers` 每个进程只自测一次）。
+    pub fn accept_calibration(&mut self, measured_ms: f64, budget_ms: f64) {
+        self.within_keystroke_budget = measured_ms <= budget_ms;
     }
 
     fn calibrated(&mut self) -> f64 {
