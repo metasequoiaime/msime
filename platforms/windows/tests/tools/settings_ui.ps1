@@ -2046,7 +2046,9 @@ try {
     $process = $null
     # 五笔方案与五笔查码要能查码的运行时选项。另开一次窗口，经 MSIME_CLIENT_HOST_OPTIONS 交给它一份：资源目录里的 msime-wubi.db 是 tests/input/fixtures/msime-wubi-commit.db 这份合成五笔表，文件不叫 runtime-options.json。在「输入」页选五笔，截下展开的「五笔方案」下拉框，再查「力男为上」，截下结果表。
     $wubiRoot = Join-Path $state 'wubi-lookup'
-    $wubiOptions = [ordered]@{api_version = 1; preferences = @{}}
+    # 偏好用这个窗口正在用的那份完整文档，与 Win7 设置测试的运行时选项一样：宿主按严格的偏好结构解析选项，空对象解析不了，查码会整次失败。
+    $wubiPreferences = ((Read-SettingsSnapshotText (Join-Path $state 'preferences.json')) | ConvertFrom-Json).preferences
+    $wubiOptions = [ordered]@{api_version = 1; preferences_directory = $state; preferences = $wubiPreferences}
     foreach ($name in @('resources', 'dictionaries', 'user_data', 'cache')) {
         $directory = Join-Path $wubiRoot $name
         New-Item -ItemType Directory -Force $directory | Out-Null
@@ -2054,7 +2056,7 @@ try {
     }
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../input/fixtures/msime-wubi-commit.db') -Destination (Join-Path $wubiRoot 'resources/msime-wubi.db')
     $hostOptions = Join-Path $state 'wubi-host-options.json'
-    [IO.File]::WriteAllText($hostOptions, ($wubiOptions | ConvertTo-Json), (New-Object Text.UTF8Encoding($false)))
+    [IO.File]::WriteAllText($hostOptions, ($wubiOptions | ConvertTo-Json -Depth 64), (New-Object Text.UTF8Encoding($false)))
     $env:MSIME_CLIENT_HOST_OPTIONS = $hostOptions
     try { $window = Start-SettingsWindow 'settings:typing' } finally { $env:MSIME_CLIENT_HOST_OPTIONS = $oldHostOptions }
     if (-not [SettingsWindowProbe]::SetWindowPos($process.MainWindowHandle, [IntPtr]::Zero, 0, 0, 1000, 780, 0x0040)) { throw 'Window resize failed' }
