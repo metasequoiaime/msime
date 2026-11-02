@@ -8813,11 +8813,8 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
     let mut scorer = ffi::keyboard_reranker(true, root, None, None, None, None, None)
         .expect("the ONNX model loads");
     assert_eq!(scorer.context_length(), LARGE);
-    // 共用的那一份要把整句池也报出来，runtime 才会让引擎多解读法。
-    assert_eq!(
-        scorer.sentence_pool(),
-        msime_engine::ordering::SENTENCE_POOL
-    );
+    // 共用的那一份要把整句池也报出来，runtime 才会让引擎多解读法。池多大看这台机器此刻多快，至少 9 条。
+    assert!(scorer.sentence_pool() >= msime_engine::ordering::SENTENCE_POOL);
     // 共用的那一份要把 ONNX 后端的混合权重也报出来，不能落回默认的 0.5。
     assert_eq!(scorer.static_evidence_weight(), 0.3);
     assert_eq!(
@@ -8851,7 +8848,9 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
             .unwrap()
             .scores_prediction_pool_within_keystroke_budget()
     };
-    let mut rerankers = ffi::OnnxRerankers::default();
+    // 下面直接建的 `OnnxRerankers` 多数用固定的整句池规则（一律 32 条），池不随并行测试时机器的忙闲变。
+    let widest = || ffi::OnnxRerankers::with_pool_rule(Box::new(|_| Some(32)));
+    let mut rerankers = widest();
     let first = rerankers
         .attach(bundle.path(), 0.0, f64::MAX, None)
         .attached()
@@ -8978,8 +8977,8 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
         Some(bundle.path())
     );
 
-    // 只装了大的时不换档，换档的预算再小、内存再少也用它；只查它打一页在上限之内。
-    let large_only = ffi::OnnxRerankers::default()
+    // 只装了大的时不换档，换档的预算再小、内存再少也用它；只查它打一页在上限之内，整句池也按这一页定。
+    let large_only = widest()
         .attach(bundle.path(), 0.0, f64::MAX, Some(0))
         .attached()
         .unwrap();
@@ -9004,13 +9003,19 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
     // 再装一个小模型，两条路都走一遍：自测值在预算之内留用大的，超过预算换小的。`f64::MAX` 的预算只在自测真的量出了一个有限的时间时才留用大的（自测失败返回无穷大）；0 毫秒的预算任何一次真实的图运行都超过。
     let small = bundle.path().join(ffi::SMALL_RERANK_MODEL_DIRECTORY);
     install(&small, 48);
-    let mut tiers = ffi::OnnxRerankers::default();
+    let mut tiers = widest();
     let fast = tiers
         .attach(bundle.path(), f64::MAX, f64::MAX, None)
         .attached()
         .unwrap();
     assert_eq!(context(&fast), LARGE);
     assert_eq!(fast.category, "keyboard reranker onnx large");
+    // 这个小模型打一页远不到一毫秒，按键预算放得下最大的整句池，于是不必再看小模型。
+    assert_eq!(
+        fast.scorer.lock().unwrap().sentence_pool(),
+        msime_engine::ordering::MAX_SENTENCE_POOL
+    );
+    assert!(fast.detail.contains("sentence pool 32"), "{}", fast.detail);
     // 过了预算的大模型同时也排上屏后联想；退到小模型的机器不排。
     assert!(ranks_prediction(&fast));
     let calibrated = |detail: &str| detail[detail.find("(calibrated").expect(detail)..].to_owned();
@@ -9043,7 +9048,7 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
     assert!(ranks_prediction(&again));
 
     // 可用内存不够加载大模型时直接用小的，不先加载大的去自测；档位定下后，内存再多也沿用到放开为止。刚好够时用大的。
-    let mut low = ffi::OnnxRerankers::default();
+    let mut low = widest();
     let short = low
         .attach(
             bundle.path(),
@@ -9074,6 +9079,20 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
         .unwrap();
     assert_eq!(context(&enough), LARGE);
     assert!(enough.detail.contains("calibrated"), "{}", enough.detail);
+
+    // 整句池只在选定的模型上定：大模型过了预算就用它，池再小也不换成小模型。
+    let only_nine = ffi::OnnxRerankers::with_pool_rule(Box::new(|_| Some(9)))
+        .attach(bundle.path(), f64::MAX, f64::MAX, None)
+        .attached()
+        .unwrap();
+    assert_eq!(context(&only_nine), LARGE);
+    assert_eq!(only_nine.category, "keyboard reranker onnx large");
+    assert_eq!(only_nine.scorer.lock().unwrap().sentence_pool(), 9);
+    assert!(
+        only_nine.detail.contains("sentence pool 9"),
+        "{}",
+        only_nine.detail
+    );
 
     // 大模型过不了换档线、小模型打一页又超过上限时什么都不挂（`OverLimit`）。小模型量过的结论留着：再挂时不加载它就知道超了；上限放宽时按量过的那个数挂上它，不重量。
     let mut strict = ffi::OnnxRerankers::default();
@@ -9127,6 +9146,31 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
     assert_eq!(fallback.context_length(), bundled.context_length());
     assert_ne!(fallback.context_length(), LARGE);
     assert_ne!(fallback.context_length(), SMALL);
+}
+
+/// 整句池按自测速度定：表里的系数是 Mac 上量的，几个真机的自测值落在哪一档要与实测相符。
+#[cfg(feature = "onnx-rerank")]
+#[test]
+fn sentence_pool_follows_the_measured_page() {
+    let pools: Vec<Option<usize>> = [0.5, 1.2, 2.0, 4.1, 6.0, 10.0, 30.0]
+        .into_iter()
+        .map(ffi::sentence_pool_for)
+        .collect();
+    // 越快的机器池越大，从不变小。
+    for pair in pools.windows(2) {
+        assert!(pair[0].unwrap_or(0) >= pair[1].unwrap_or(0), "{pools:?}");
+    }
+    if cfg!(any(target_os = "ios", target_os = "android")) {
+        // iPhone 17 的大模型一页 4 ms 左右，比得下 24 条；Pixel 3 XL 的小模型一页 8.9 ms，比得下 9 条（整键实测 9.8 ms），12 条就超了（10.9 ms）。慢到 9 条也放不下时宿主仍给默认的 9 条。
+        assert_eq!(ffi::sentence_pool_for(4.1), Some(24));
+        assert_eq!(ffi::sentence_pool_for(8.9), Some(9));
+        assert_eq!(ffi::sentence_pool_for(10.0), None);
+    } else {
+        // Mac：小模型一页 1.2 ms 放得下 32 条，大模型一页 4.1 ms 只放得下 9 条。
+        assert_eq!(ffi::sentence_pool_for(1.2), Some(32));
+        assert_eq!(ffi::sentence_pool_for(4.1), Some(9));
+        assert_eq!(ffi::sentence_pool_for(6.0), None);
+    }
 }
 
 /// Android 发布包不带 ONNX 重排模型，「增强」打开时由设置应用下载 `rerank-model-small` 资源包。随包资源目录旁边没有模型时，逐键重排用状态目录下装好的这个资源包；没装、或装的与锁不一致（过期）时不算，退回随包的句子模型。用 `crates/onnx-rerank` 测试用的小模型冒充资源包里的文件（`installed_file` 只核对清单与锁，不重算摘要），`context_chars` 改成 48，挂上的 `context_length` 是 64。

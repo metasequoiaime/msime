@@ -57,6 +57,8 @@ pub struct OnnxScorer {
     context: Option<String>,
     /// [`Self::fits_keystroke_budget`] 量过、且在预算之内；[`CandidateScorer::scores_prediction_pool_within_keystroke_budget`] 报的就是它。
     within_keystroke_budget: bool,
+    /// [`CandidateScorer::sentence_pool`] 报的条数，默认 [`msime_engine::ordering::SENTENCE_POOL`]；宿主按这台机器量出的速度用 [`Self::set_sentence_pool`] 改。
+    sentence_pool: usize,
 }
 
 /// 建 ONNX Runtime 会话：`threads` 是一次图运行用几个线程；`memory_arena` 为假时关掉 CPU 内存池，每次运行完把张量的内存还给系统。
@@ -123,7 +125,13 @@ impl OnnxScorer {
             cache: None,
             context: None,
             within_keystroke_budget: false,
+            sentence_pool: msime_engine::ordering::SENTENCE_POOL,
         }
+    }
+
+    /// 让引擎每条切分至少解出 `paths` 条整句读法交给这个打分器比较（[`CandidateScorer::sentence_pool`]），最多 [`msime_engine::ordering::MAX_SENTENCE_POOL`]。比较的条数越多越准，模型的耗时也随之增长，所以由宿主按自测速度定（host-api 的 `sentence_pool_for`）。
+    pub fn set_sentence_pool(&mut self, paths: usize) {
+        self.sentence_pool = paths.min(msime_engine::ordering::MAX_SENTENCE_POOL);
     }
 
     fn empty_cache(&self) -> Result<Cache, ort::Error> {
@@ -281,16 +289,15 @@ impl CandidateScorer for OnnxScorer {
         self.within_keystroke_budget
     }
 
-    /// 大小两档都要引擎解满一次比较的条数：多出的三条在 Pixel 3 XL（6x256，4 线程）上让整键 p95 从 9.0 ms 到 9.8 ms，仍在 10 ms 的逐键预算之内；桌面 8x448 的整键 p99 从 3.1 ms 到 3.6 ms。见 `.agents/notes/implemented/feature/2026-11-02-sentence-pool-for-reranker.md`。
+    /// 没改过时是 [`msime_engine::ordering::SENTENCE_POOL`]（9，填满一次比较）：多出的三条在 Pixel 3 XL（6x256，4 线程）上让整键 p95 从 9.0 ms 到 9.8 ms，仍在 10 ms 的逐键预算之内。宿主按这台机器的速度改它（host-api 的 `sentence_pool_for`）。见 `.agents/notes/implemented/feature/2026-11-02-sentence-pool-for-reranker.md` 和 `.agents/notes/implemented/feature/2026-11-02-sentence-pool-by-device-speed.md`。
     fn sentence_pool(&self) -> usize {
-        msime_engine::ordering::SENTENCE_POOL
+        self.sentence_pool
     }
 
     /// 8x448 和 6x256 比随包模型准得多，混合里词网格分只占三成。2026-11-02 在 dev（ctx-v1 分句与选词、typing-chat-v1）上从 0.2 扫到 0.5 定的，见 `.agents/notes/implemented/feature/2026-11-02-onnx-static-evidence-weight.md`。
     fn static_evidence_weight(&self) -> f64 {
         0.3
     }
-
     /// 打不了分（候选为空、太长，或图运行失败）时返回空表，`rerank_pick` 见长度不符就不动候选；失败后缓存作废，下一次按键从上文重来。
     fn log_probabilities(&mut self, context: &str, candidates: &[&str]) -> Vec<f32> {
         if candidates.is_empty() || candidates.iter().any(|c| c.is_empty()) {
