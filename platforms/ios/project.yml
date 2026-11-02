@@ -303,6 +303,15 @@ targets:
         buildPhase: resources
         type: folder
         optional: true
+      # stage-resources.sh 从 resources/rerank-model.lock.json 暂存的两档逐键重排模型（8x448 与 6x256，ONNX Runtime 的 ORT 格式），放在 EngineResources 旁边：host-api 在随包资源目录的兄弟目录里找它们，资源目录本身要与词库锁逐项相符。整句联想「增强」打开时加载，先自测大的、太慢换小的。
+      - path: ../../target/ios/rerank-model
+        buildPhase: resources
+        type: folder
+        optional: true
+      - path: ../../target/ios/rerank-model-small
+        buildPhase: resources
+        type: folder
+        optional: true
       - path: SharedResources/KeyboardBrand.png
         buildPhase: resources
       # 表情面板的水杉娘表情包：66 张 320px 透明 WebP 和清单，三个手机键盘共用仓库里的同一份。

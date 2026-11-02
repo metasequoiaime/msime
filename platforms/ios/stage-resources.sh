@@ -112,4 +112,11 @@ for pack_dir in "$repo_root"/resources/sound-packs/*/; do
 done
 [ -f "$sound_packs_destination/default/plugin.toml" ] || { echo "the default key sound pack was not staged into $sound_packs_destination" >&2; exit 1; }
 echo "key sound packs staged: $sound_packs_destination"
+# 整句联想「增强」逐键重排的两档 ONNX 模型（chinese-ime-lm 的 rerank-v1：8x448 与 6x256），按 resources/rerank-model.lock.json 下载核对，暂存在 EngineResources 旁边的 rerank-model/ 与 rerank-model-small/：host-api 在随包资源目录的兄弟目录里找它们（资源目录本身要与词库锁逐项相符，多一个目录校验就失败）。build-native.sh 编的 host 库打开了 onnx-rerank，两份都在时加载时先自测大的、一页超过 10 ms 换小的；都没有时退回 EngineResources 里随包的 sentence-model.safetensors。瘦包同样带，它们不是按需下载的资源。
+rerank_source=$(python3 "$repo_root/scripts/fetch_rerank_model.py")
+for directory in rerank-model rerank-model-small; do
+  rm -rf "$repo_root/target/ios/$directory"
+  cp -R "$rerank_source/$directory" "$repo_root/target/ios/$directory"
+done
+echo "keystroke rerank models staged: $repo_root/target/ios/rerank-model, $repo_root/target/ios/rerank-model-small"
 echo "iOS resources staged from the pinned dictionary release: $destination"

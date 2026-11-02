@@ -2,6 +2,9 @@ import Foundation
 import Darwin
 import os
 
+@_silgen_name("msime_client_set_diagnostic_sink")
+private func msime_client_set_diagnostic_sink(_ sink: (@convention(c) (UnsafePointer<CChar>?) -> Void)?)
+
 /// 「诊断日志」: the keyboard's host log, the iOS counterpart of the macOS and Linux host logs, turned on by the shared `diagnostic_log.server`.
 ///
 /// Callers pass only fixed event labels, never key values, input text, candidates, paths or provider responses. Every record is cut to 192 bytes of printable ASCII anyway, so a mistake at a call site cannot leak text into the file. The log sits next to the shared preference document in the App Group, where the App can read, share and clear it; past 1 MiB it keeps one `.1` copy, like the desktop hosts. Writing is best-effort: a keyboard without full access cannot write to the App Group, and a failed write never reaches the input path.
@@ -67,6 +70,17 @@ final class DiagnosticLog: @unchecked Sendable {
   /// Printable ASCII only, cut to `maxEventBytes`; anything else becomes `?`.
   static func sanitize(_ event: String) -> String {
     String(decoding: event.utf8.prefix(maxEventBytes).map { (0x20...0x7e).contains($0) ? $0 : UInt8(ascii: "?") }, as: UTF8.self)
+  }
+
+  /// Route host-api's own diagnostic lines (`<category>: <detail>`, see `msime_client_set_diagnostic_sink`) into this log as `host_api: <category>`, as the macOS input method does. Only the category is kept: it is a fixed English phrase, while the detail can hold a pack id, a path or an error text. Among them is the line saying which keystroke reranker 整句联想「增强」 attached (`keyboard reranker onnx large` and so on). The sink is process-wide and set once; lines arriving while the log is off are dropped like every other record, so the line from the first session of a keyboard process, created before the log is configured, only shows up for later sessions and switch changes.
+  static func forwardHostLines() {
+    msime_client_set_diagnostic_sink { line in
+      guard let line else { return }
+      let text = String(cString: line)
+      let category = text.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? ""
+      guard !category.isEmpty else { return }
+      DiagnosticLog.shared.write("host_api: \(category)")
+    }
   }
 
   func configure(directory: String?, enabled: Bool) {
