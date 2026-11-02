@@ -4651,6 +4651,7 @@ private:
     font_catalog_button_ = nullptr;
     font_menu_updaters_.clear();
     focus_target_ = nullptr;
+    community_preview_views_.clear();
 
     StackPanel page;
     page.Padding(content_padding(scroll_.ActualWidth()));
@@ -10297,7 +10298,7 @@ private:
 
   // 社区皮肤的预览图：每款读一次，卡片和详情共用（共享页的 loadPreview）；最多留 16 张，再加上当前列表里的那些，免得列表一重画就把刚读到的又读一遍。读到后就地换上正在显示它的卡片，不重画整页。
   void show_community_preview(Border const &host, std::wstring const &id, std::wstring const &name) {
-    community_preview_views_.emplace(id, make_weak(host));
+    community_preview_views_.emplace(id, host);
     auto found = community_previews_.find(id);
     if (found == community_previews_.end()) {
       community_previews_.emplace(id, CommunityPreview{});
@@ -10385,8 +10386,7 @@ private:
       name = skin_gallery_.selected->name;
     const auto [first, last] = community_preview_views_.equal_range(id);
     for (auto it = first; it != last; ++it)
-      if (auto host = it->second.get())
-        fill_community_preview(host, found->second, name);
+      fill_community_preview(it->second, found->second, name);
   }
 
   // ---- 图库的界面 ----
@@ -10844,7 +10844,6 @@ private:
       build_skin_community_detail(page);
       return;
     }
-    community_preview_views_.clear();
     community_search<CommunitySkinItem>(page, L"搜索候选窗口皮肤");
     community_heading<CommunitySkinItem>(
         page, L"社区皮肤", L"为输入候选窗口换一身新装，安装后在「本地皮肤」中启用",
@@ -10892,7 +10891,6 @@ private:
   }
 
   void build_skin_community_detail(StackPanel const &page) {
-    community_preview_views_.clear();
     auto &gallery = skin_gallery_;
     auto const selected = *gallery.selected;
     auto body = community_detail_frame<CommunitySkinItem>(page);
@@ -27575,7 +27573,8 @@ private:
   std::optional<std::wstring> plugin_kind_shown_;
   std::map<std::wstring, CommunityPreview> community_previews_;
   std::vector<std::wstring> community_preview_order_;
-  std::multimap<std::wstring, weak_ref<Border>> community_preview_views_;
+  // 正在显示预览图的卡片位置，每次画页面时清空，所以只留当前页面的。这里必须是强引用：只由可视树持有的 Border，它的 weak_ref 在创建时还能解析，随后就解析不出来了，卡片却还在页面上（#10005 在 Windows 11 实机上记录到，读到的预览图因此一直填不进卡片）。
+  std::multimap<std::wstring, Border> community_preview_views_;
   bool skin_sync_running_ = false;
   bool skin_sync_queued_ = false;
   SkinPublish skin_publish_;
