@@ -10,6 +10,7 @@ export function CommunityGalleryHeader({
   onSearchSubmit,
   title,
   note,
+  help,
   children,
 }: {
   searchLabel: string;
@@ -17,7 +18,9 @@ export function CommunityGalleryHeader({
   onSearchChange: (value: string) => void;
   onSearchSubmit: () => void;
   title: ReactNode;
-  note: ReactNode;
+  note?: ReactNode;
+  /** 收进标题旁「?」的说明，见 `CommunityGalleryHeading`。 */
+  help?: ReactNode;
   children?: ReactNode;
 }) {
   return (
@@ -28,7 +31,7 @@ export function CommunityGalleryHeader({
         onChange={onSearchChange}
         onSubmit={onSearchSubmit}
       />
-      <CommunityGalleryHeading title={title} note={note}>
+      <CommunityGalleryHeading title={title} note={note} help={help}>
         {children}
       </CommunityGalleryHeading>
     </>

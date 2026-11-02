@@ -33,6 +33,13 @@ target_compile_options(input-mode-identifiers-test PRIVATE -fobjc-arc -UNDEBUG -
 set_target_properties(input-mode-identifiers-test PROPERTIES OBJCXX_STANDARD 17)
 target_link_libraries(input-mode-identifiers-test PRIVATE "-framework Foundation")
 add_test(NAME input-mode-identifiers COMMAND input-mode-identifiers-test)
+# 菜单栏中/英状态项的图像：切换模式时必须跟着变，又要与系统输入源的模式字形区分开。图像取仓库里的 resources 目录，不往菜单栏放东西。
+add_executable(input-mode-status-item-test tests/input/InputModeStatusItemTest.mm src/input/InputModeStatusItem.mm)
+target_compile_options(input-mode-status-item-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
+target_compile_definitions(input-mode-status-item-test PRIVATE MSIME_MACOS_RESOURCES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/resources")
+set_target_properties(input-mode-status-item-test PROPERTIES OBJCXX_STANDARD 17)
+target_link_libraries(input-mode-status-item-test PRIVATE "-framework AppKit")
+add_test(NAME input-mode-status-item COMMAND input-mode-status-item-test)
 # 中日英循环切换在 macOS 这一侧只做两处翻译：控制器状态 → msime_client_language_cycle 的入参、
 # 答复 → 控制器要执行的动作。循环顺序在 crates/client-core/src/language_cycle.rs 的单测里。
 add_executable(trilingual-cycle-routing-test tests/input/TrilingualCycleRoutingTest.mm)
@@ -308,6 +315,8 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../LICENSE" "${MSIME_LEGAL_DIRECT
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/resources/Licenses/THIRD_PARTY_NOTICES.txt" "${MSIME_LEGAL_DIRECTORY}/THIRD_PARTY_NOTICES.txt" COPYONLY)
 # 固定词库发布里的词库数据、stage-resources.sh 放进 EngineResources/helpcodes 的辅助码表的来源声明（Engine 带来的五套、加加和五笔 86），以及 zinnia（crates/engine/src/handwriting 移植了它的识别器，host-api 链接进来）。第一份和最后一份来自 resources/licenses，是各平台随包的同一份副本。
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/msime-engine-dictionary-NOTICE.md" "${MSIME_LEGAL_DIRECTORY}/msime-engine-dictionary-NOTICE.md" COPYONLY)
+# EngineResources 里的整句重排模型 sentence-model.safetensors（以及按需下载或随包的 settled-model/sentence-model-desktop.safetensors）是 chinese-ime-lm 的 model-v1，Apache-2.0：第 4(a)、4(d) 条要求随副本附上许可证全文和上游 NOTICE，训练语料（中文 C4 为 ODC-BY，LCCC 为 MIT）要求署名随权重传播。resources/licenses 里这份各平台共用的文件三样都有。
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/sentence-model-Apache-2.0.txt" "${MSIME_LEGAL_DIRECTORY}/sentence-model-Apache-2.0.txt" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/ENGINE-NOTICE.md" "${MSIME_LEGAL_DIRECTORY}/msime-engine-helpcode-NOTICE.md" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/NOTICE.md" "${MSIME_LEGAL_DIRECTORY}/msime-helpcode-jiajia-NOTICE.md" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/NOTICE-wubi86.md" "${MSIME_LEGAL_DIRECTORY}/msime-helpcode-wubi86-NOTICE.md" COPYONLY)
@@ -1069,6 +1078,7 @@ add_test(NAME shortcut-nested-commit COMMAND shortcut-test --nested-commit)
 add_test(NAME shortcut-english-punctuation COMMAND shortcut-test --english-punctuation)
 add_test(NAME shortcut-cross-commit-spacing COMMAND shortcut-test --cross-commit-spacing)
 add_test(NAME shortcut-quick-phrase-cursor COMMAND shortcut-test --quick-phrase-cursor)
+add_test(NAME shortcut-helpcode-trigger COMMAND shortcut-test --helpcode-trigger)
 # Around 25 s locally: several cases wait on real input-source and run-loop round trips, which is past the 20 s CI default.
 # The controllers under test read runtime-options.json from Application Support, so each run gets an empty home of its own: an installed or demo profile on the developer's Mac must not reach into these cases.
 set(MSIME_SHORTCUT_TEST_HOME "${CMAKE_CURRENT_BINARY_DIR}/shortcut-test-home")
@@ -1077,6 +1087,7 @@ set(MSIME_CAPS_LOCK_TEST_HOME "${CMAKE_CURRENT_BINARY_DIR}/caps-lock-test-home")
 file(MAKE_DIRECTORY "${MSIME_CAPS_LOCK_TEST_HOME}")
 set_tests_properties(caps-lock PROPERTIES TIMEOUT 30 ENVIRONMENT "CFFIXED_USER_HOME=${MSIME_CAPS_LOCK_TEST_HOME}")
 set_tests_properties(shortcut-nested-commit PROPERTIES ENVIRONMENT "CFFIXED_USER_HOME=${MSIME_SHORTCUT_TEST_HOME}")
+set_tests_properties(shortcut-helpcode-trigger PROPERTIES ENVIRONMENT "CFFIXED_USER_HOME=${MSIME_SHORTCUT_TEST_HOME}")
 # The ceiling is for the sanitizer leg, where the same binary takes several times as long: measured
 # at about 16 s unsanitized and about 120 s under AddressSanitizer on one machine. A ceiling that
 # only fits the unsanitized run turns the slow leg into a timeout that says nothing about the code,

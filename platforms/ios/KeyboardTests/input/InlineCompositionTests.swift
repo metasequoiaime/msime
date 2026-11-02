@@ -103,4 +103,19 @@ final class InlineCompositionDefaultTests: XCTestCase {
     XCTAssertFalse(marked.contains { $0.isNumber }, marked)
     XCTAssertTrue(try view("preeditButton", in: controller).isHidden)
   }
+
+  /// 候选按 #10330 立即呈现：每按一个键，候选条上的词块、读音和展开箭头都直接画成新状态，图层上不挂任何动画。
+  ///
+  /// 被手指按过的词块换字时叠着渐变（标题 0.25s 的 `CATransition` fade）只在系统键盘里的真实触摸之后出现，进程内设 `isHighlighted` 或合成触摸都触发不了，那一项靠模拟器录屏验收（见 2026-10-30-candidate-immediate-presentation）；这里守住按键重画候选条这条路径本身不带动画。
+  func testTypingRedrawsTheStripWithoutAnimations() throws {
+    let controller = controller(.quanpin)
+    func layers(_ layer: CALayer) -> [CALayer] { [layer] + (layer.sublayers ?? []).flatMap { layers($0) } }
+    for letter in ["N", "I", "H", "A", "O"] {
+      try tap({ $0.accessibilityLabel == "字母 \(letter)" }, in: controller)
+      let animated = layers(try view("candidateStrip", in: controller).layer).flatMap { layer in
+        (layer.animationKeys() ?? []).map { "\(layer.delegate.map { String(describing: Swift.type(of: $0)) } ?? "\(layer)") \($0)" }
+      }
+      XCTAssertEqual(animated, [], "按下 \(letter) 后候选条上挂着动画")
+    }
+  }
 }

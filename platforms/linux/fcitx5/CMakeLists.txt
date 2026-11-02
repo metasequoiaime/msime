@@ -288,6 +288,9 @@ if(BUILD_TESTING)
     add_test(NAME fcitx5-custom-voice-hotkey
       COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}" --voice-hotkey)
     set_tests_properties(fcitx5-custom-voice-hotkey PROPERTIES TIMEOUT 60)
+    add_test(NAME fcitx5-voice-session-close
+      COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}" --voice-close)
+    set_tests_properties(fcitx5-voice-session-close PROPERTIES TIMEOUT 60)
     add_test(NAME fcitx5-helpcode-trigger
       COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}" --helpcode-trigger)
     set_tests_properties(fcitx5-helpcode-trigger PROPERTIES TIMEOUT 60)

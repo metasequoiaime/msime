@@ -1,4 +1,4 @@
-//! 86/98 五笔词组补充表共用的编码与排名规则。
+//! 86、98 五笔词组补充表与新世纪五笔词组表共用的编码与排名规则。
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -143,19 +143,22 @@ pub(crate) fn rank<'a>(
     }
 }
 
-/// 来源引用来自已校验的构建锁，不把上游提交再硬编码一遍。
-pub(crate) fn upstreams(lock: &crate::sources::Lock) -> String {
-    [
-        "rime-ice",
-        "rime-ice-supplement",
-        "98wubi-tables",
-        "fcitx5-table-extra",
-    ]
-    .iter()
-    .filter_map(|name| lock.references.get(*name))
-    .map(|source| format!("{} 提交 {}", source.repository, source.commit))
-    .collect::<Vec<_>>()
-    .join("、")
+/// 86、98 补充表表头列出的上游。
+pub(crate) const UPSTREAMS: [&str; 4] = [
+    "rime-ice",
+    "rime-ice-supplement",
+    "98wubi-tables",
+    "fcitx5-table-extra",
+];
+
+/// 来源引用来自已校验的构建锁，不把上游提交再硬编码一遍；`names` 是要列出的 reference，按给出的顺序。
+pub(crate) fn upstreams(lock: &crate::sources::Lock, names: &[&str]) -> String {
+    names
+        .iter()
+        .filter_map(|name| lock.references.get(*name))
+        .map(|source| format!("{} 提交 {}", source.repository, source.commit))
+        .collect::<Vec<_>>()
+        .join("、")
 }
 
 #[cfg(test)]

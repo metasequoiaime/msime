@@ -694,8 +694,8 @@ public:
     emoji_next_offset_ = {};
     emoji_complete_ = false;
     emoji_previous_offsets_.clear();
+    if (voice_mailbox_) voice_mailbox_->cancelled.store(true, std::memory_order_relaxed);
     if (voice_job_.valid() && !voice_socket_.empty() && voice_generation_ != 0) {
-      if (voice_mailbox_) voice_mailbox_->cancelled.store(true, std::memory_order_relaxed);
       const auto socket = voice_socket_;
       const auto generation = voice_generation_;
       msime::host_api::discard_string(msime_client_voice_provider_cancel(
@@ -720,17 +720,11 @@ public:
     voice_space_locked_ = false;
     voice_preedit_.clear();
     voice_transcript_.clear();
-    if (voice_job_.valid()) {
-      if (voice_job_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
-        try { voice_job_.get(); } catch (...) {}
-        voice_job_ = {};
-        voice_cancelled_ = false;
-      } else {
-        // Keep the async state alive; destroying an async future here would
-        // synchronously wait for a provider that is being cancelled.
-        voice_cancelled_ = true;
-      }
-    }
+    // detachedJob 的 future 析构不等待 worker；关闭时解除完成入口，避免
+    // 迟到的结果或异常在 refreshVoice() 中重画已经清空的 view_。
+    // worker 持有自己的 mailbox，插件卸载仍由 tracker 等待它退出。
+    voice_job_ = {};
+    voice_cancelled_ = false;
     voice_mailbox_.reset();
     voice_generation_ = 0;
     voice_partial_seen_ = false;

@@ -58,6 +58,8 @@ pub struct UserWords {
     version: Option<i64>,
     /// 键是不带声调、以单个空格连接的粤拼（与 `msime-cantonese.db` 的 `entries.key` 同一写法），值按权重从重到轻、同权重按文字排好。
     words: BTreeMap<String, Vec<LanguageEntry>>,
+    /// `words` 的内容每变一次加一（重读到的词与原来相同时不变）。按读音缓存查词结果的地方（组句的 `CantoneseQueryBuffer::best`）凭它判断缓存是否还对得上。
+    generation: u64,
 }
 
 impl UserWords {
@@ -68,6 +70,7 @@ impl UserWords {
             connection: None,
             version: None,
             words: BTreeMap::new(),
+            generation: 0,
         }
     }
 
@@ -99,7 +102,10 @@ impl UserWords {
             return;
         }
         if let Ok(words) = read_user_words(connection) {
-            self.words = words;
+            if words != self.words {
+                self.words = words;
+                self.generation = self.generation.wrapping_add(1);
+            }
             self.version = Some(version);
         }
     }
@@ -154,14 +160,77 @@ fn read_user_words(
 pub struct CantoneseLexicon<'a> {
     dictionary: &'a LanguageDictionary,
     user: Option<&'a UserWords>,
+    /// `UserWords::generation`，在空词表被滤成 `None` 之前取：用户把词删光也算一次变化。
+    user_generation: u64,
 }
 
 impl<'a> CantoneseLexicon<'a> {
     pub fn new(dictionary: &'a LanguageDictionary, user: Option<&'a UserWords>) -> Self {
         Self {
             dictionary,
+            user_generation: user.map_or(0, |user| user.generation),
             user: user.filter(|user| !user.words.is_empty()),
         }
+    }
+
+    /// 用户粤语词的内容版本（`UserWords::generation`）；不带用户词时是 0。发布词库在会话内只读，查词结果只会随它变。
+    pub(crate) fn user_generation(&self) -> u64 {
+        self.user_generation
+    }
+
+    /// `LanguageDictionary::lookup_readings(positions, 1)`，并入用户的词：键按位置逐段取自 `positions[i]` 的词条里最重的一条，两边按同一规则比较（权重从重到轻，再按文字、键）。同一个键下的同一个词两边都有时取较大的权重，与 `lookup_into` 的合并规则一致。
+    pub(crate) fn lookup_best_reading(
+        &self,
+        positions: &[&[String]],
+    ) -> Result<Option<(String, LanguageEntry)>> {
+        let mut best = self
+            .dictionary
+            .lookup_readings(positions, 1)?
+            .into_iter()
+            .next();
+        let Some(user) = self.user else {
+            return Ok(best);
+        };
+        let Some((first, rest)) = positions.split_first() else {
+            return Ok(best);
+        };
+        let mut consider = |key: &String, entries: &Vec<LanguageEntry>| {
+            // 每个键下的词已按权重从重到轻、同权重按文字排好，第一条就是这个键最重的。
+            let Some(entry) = entries.first() else {
+                return;
+            };
+            let heavier = best.as_ref().is_none_or(|(best_key, best_entry)| {
+                entry
+                    .weight
+                    .cmp(&best_entry.weight)
+                    .then_with(|| best_entry.text.cmp(&entry.text))
+                    .then_with(|| best_key.cmp(key))
+                    .is_gt()
+            });
+            if heavier {
+                best = Some((key.clone(), entry.clone()));
+            }
+        };
+        for reading in first.iter() {
+            if rest.is_empty() {
+                if let Some((key, entries)) = user.words.get_key_value(reading.as_str()) {
+                    consider(key, entries);
+                }
+                continue;
+            }
+            // 以 `reading` 加空格开头的键都落在 [`reading `, `reading!`) 里（`!` 紧跟空格），同发布库的范围查询。
+            let lower = format!("{reading} ");
+            let upper = format!("{reading}!");
+            for (key, entries) in user.words.range::<str, _>((
+                std::ops::Bound::Included(lower.as_str()),
+                std::ops::Bound::Excluded(upper.as_str()),
+            )) {
+                if language_dictionary::key_matches(key, positions) {
+                    consider(key, entries);
+                }
+            }
+        }
+        Ok(best)
     }
 
     /// `LanguageDictionary::lookup_into`，并入用户在 `key` 下的词。

@@ -35,6 +35,8 @@ bool EngineSessionAdapter::parse_result(const std::string &text,
       parsed.view.reading = view.value("reading", "");
       parsed.view.generation = view.value("generation", uint64_t{0});
       parsed.view.caret = view.value("caret_position", std::size_t{0});
+      if (view.contains("preedit_caret") && view.at("preedit_caret").is_number_unsigned())
+        parsed.view.preedit_caret = view.at("preedit_caret").get<std::size_t>();
       parsed.view.scheme = view.value("scheme", uint32_t{0});
       parsed.view.key_grid = view.value("key_grid", std::string{"none"});
       parsed.view.spelling_symbols = view.value("spelling_symbols", "");

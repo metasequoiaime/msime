@@ -96,7 +96,7 @@ void wiring(const std::string &root) {
     // Server 的低级钩子要在跳过注入按键之前计入 Caps Lock，否则撤回的那一下漏掉，Server 报告的大写锁定从此反着。
     const std::string hook = read(root + "/../src/input/MaintenanceHotkey.cpp");
     const auto counted = hook.find("self->caps_.press()");
-    const auto skipped = hook.find("if (injected)\n    return CallNextHookEx");
+    const auto skipped = hook.find("if (!maintenance_stroke_may_trigger(injected, event->dwExtraInfo))\n    return CallNextHookEx");
     check(counted != std::string::npos && skipped != std::string::npos && counted < skipped,
           "the Server's hook counts the injected Caps Lock before skipping injected strokes");
 
