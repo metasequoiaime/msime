@@ -35,6 +35,7 @@ Status: implemented
 - **逐表并入代次**：`SPLIT_WUBI_TABLES` 是三张表。`merge_downloaded_wubi` 不再是「主词库里有任何一张五笔表就不动」，改用 `lacks_split_wubi_tables`：主词库还缺、而下载的码表里有的表才补进来。
   - 这一条是给已有代次用的：代次是用没有新世纪表的旧码表准备的，之后下载的码表带着 `wubixsj`，只补这一张，86/98 和学到的权重不动。
   - `merge_split_wubi` 本来就逐表处理，不用改。
+  - 并表和回放不在一个事务里：表先提交，回放另开连接。以前这一步只在代次一张五笔表都没有时跑，现在会在正被使用的代次上跑，回放碰上另一个进程占着写锁而超时的机会更大；失败后三张表都在了，下一次建会话就不会再回放，日志里的新世纪行一直写不进表。所以并表时在同一个事务里建标记表 `msime_wubi_replay_pending`，回放成功后删掉，下一次建会话看到它就再回放一遍（`a_failed_replay_after_merging_a_table_is_retried_on_the_next_session`）。回放按日志重写，多回放一遍结果相同。
   - 查码选「读代次还是读下载的那份」也用同一个判断。
 - **回放逐行看表**：`replay` 先查出代次里有哪几张五笔表，一行五笔记录只看它自己的表在不在，不在就计入 `skipped`。以前是「有任何一张五笔表就逐行写、缺的那张算失败」。两种情况因此都只是跳过，不再整次回滚：
   - 旧词库没有 `wubixsj` 表；
@@ -53,9 +54,10 @@ Status: implemented
 |---|---|
 | 账号设置 | `settings_sync::account_wubi_schema` 返回 `Option`，新世纪为 `None`，不导出 `input.wubi_schema`。iOS 的 `local_account_preferences` 同样处理。应用账号设置时，本机选着新世纪就不拿账号里留着的旧版本覆盖它，与 `shuangpin_schema` 对智能 ABC 的处理相同。别的设备写来的 `wubixsj` 照常读 |
 | 云词库 | `policy::personal_kind("wubixsj")` 是 `None`。`validate_cloud_request` 的种类表不加它，按种类分的编码规则已经写上它，打开时只改那一处 |
-| WebDAV | `dictionary_webdav::word_kind(WubiXsj)` 是 `None`。反方向的 `engine_kind` 写全 |
-| 词库快照导出 | `export_local_snapshot` 只在 `include_learning`（本地备份）时写新世纪的词。云同步上传用的是不带这个参数的那份，服务端还不收这个种类 |
-| 快照读回 | `record::decode` 认识 `wubixsj` |
+| WebDAV | 两个方向都不收。本机这一侧 `dictionary_webdav::word_kind(WubiXsj)` 是 `None`；网盘这一侧协议核心读事件和检查点用 `WordKind::from_synced_name`，读到 `wubixsj` 与读到不认识的类别一样只跳过那一条。`engine_kind` 写全只为穷尽匹配 |
+| 词库快照导出 | `export_local_snapshot` 只在 `include_learning`（本地备份）时写新世纪的词。云同步上传用的是不带这个参数的那份，服务端还不收这个种类。不收的种类列在 `LOCAL_ONLY_KINDS` 一处 |
+| 云同步下载 | 整份换上云端快照时，`carry_local_learning` 先用 Engine 的 `carry_dictionary_rows` 把旧的一代日志里 `LOCAL_ONLY_KINDS` 的全部行（用户的词、学习调权、删除记录）原样并进新的一代并改工作词库，再合并输入记录 |
+| 快照读回 | `record::decode` 认识 `wubixsj`。Android 本地备份恢复（`DictionarySnapshotWords.personalKind`）也认它，备份里的新世纪词恢复得回来 |
 
 ### 其余
 
@@ -72,6 +74,8 @@ Status: implemented
 - **账号设置照常导出 `wubixsj`。** 选择能跨设备同步，用户省事。不用它，是因为已经发布的 iOS 读到不认识的 `input.wubi_schema` 会拒绝整份账号设置，那台设备从此收不到任何设置。等宽松读取的版本覆盖了足够多的用户再打开（第 8 节）。
 - **云同步上传的快照照常带新世纪的词，交给服务端拒绝。** 不用改导出。不用它，是因为服务端的 `user_dictionary_entries_kind_check` 会让整份上传失败，所有新世纪用户的云词库同步就都断了。
 - **给快照导出加一个显式的「是否本地备份」参数，不借 `include_learning`。** 语义更直。不用它，是因为 `msime_client.h` 已经把 `include_learning` 写成「为真是本地备份、为假是云同步上传」。Android 的 `CloudSync.java` 和 `LocalBackup` 都按这个约定调用。另加参数的话，Java 那边不跟着改，云同步上传就会带上新世纪的词。
+- **WebDAV 只在宿主这一侧挡住新世纪。** `word_kind` 返回 `None` 看起来就够了。不够的原因：协议核心要是照收网盘上的新世纪词条，`engine_kind` 会把它写进本机，下一轮读本机词库时又读不出它，核对就把它当成本机删掉的，向共享日志发删除，所有设备上的这个词都被删。这比宽松读取的版本还危险（那一版整条跳过，不发删除），而打开同步的 PR 是按宽松读取版本的覆盖率决定能不能打开的，会把这一版误算成安全的设备。所以网盘这一侧用 `from_synced_name` 同样跳过。不直接把 `WordKind::WubiXsj` 删掉，是因为鸿蒙设置应用和输入法之间的词条互通（`user_words_mirror`）是同一台设备上同一个版本的两个进程，以后可以单独收新世纪的词，不受 WebDAV 已发布版本的约束。
+- **云同步下载时让 `merge_dictionary_state` 也写新世纪的用户词。** 不用另加 Engine 接口。不用它，是因为本地备份恢复也走这个合并，那里用户的词要经个人词库队列写，才会进云同步的待发送队列；给它加例外会把两种语义搅在一起。`carry_dictionary_rows` 只做「云端快照里没有的种类原样带过去」这一件事，连学习调权和删除记录一起带，还能在新的一代没有新世纪表时只写日志，等码表并进来后的回放再写。
 - **`merge_downloaded_wubi` 保持「有任何五笔表就不动」，靠换代次补表。** 代码不动。不用它，是因为按需下载的码表更新后，宿主的代次内容标识怎么推导、会不会换代次，没有核实过。逐表判断不依赖这一点，已有代次也能拿到新表。
 
 ## Consequences
@@ -81,7 +85,9 @@ Status: implemented
   - 宿主接口、C 接口、MCP 都能选这个版本、存这个种类的词。
   - 词库还没有新世纪表时，日志里的新世纪行只是跳过，不影响 86/98 用户。
 - **代价**：
-  - 新世纪的选择、个人词和学习暂时只在本机。快照本地备份带着它们，云同步和 WebDAV 不带。
+  - 新世纪的选择、个人词和学习暂时只在本机。快照本地备份带着它们，云同步和 WebDAV 不带；云同步「下载」整份换上云端快照时它们从旧的一代原样带过去。
+  - 目前只有 Android 会做带 `include_learning` 的本地备份。桌面和 iOS 没有这样的备份，新世纪的词在那里只在本机日志里。
+  - 鸿蒙设置应用和输入法之间的词条互通（`user_words_mirror`）与 WebDAV 共用 `word_kind`，所以也不交换新世纪的词。鸿蒙平台的 PR 放开设置页里的新世纪词库时要单独处理这一条。
   - 从 86/98 换到新世纪，以前用拼音造的词没有新世纪码。
   - 用过新世纪的用户降级到宽松读取之前的版本不受支持，发布说明要写明。
 - **还没做的**：
@@ -109,9 +115,11 @@ Status: implemented
   - `every_engine_dictionary_kind_maps_to_a_host_kind_and_back`（`personal_kind` 不会走到 `unreachable!`）；
   - `wubi_codes` 的三列；
   - `new_century_words_go_into_local_backups_but_not_the_cloud_snapshot`；
+  - `a_cloud_download_activation_keeps_the_local_new_century_words`：云端快照里没有新世纪的词，下载激活后本机的新世纪个人词和删除记录仍在日志里，新的一代的工作词库也按它们改过；
   - `new_century_wubi_words_stay_out_of_webdav_sync`；
   - `wubi_profile_reaches_engine_options`（新世纪是 2）。
-- `cargo test -p msime-client-core`：全部通过。新世纪偏好的存取与严格提交；`WordKind` 的序列化名和排序。
+- `cargo test -p msime-client-core`：全部通过。新世纪偏好的存取与严格提交；`WordKind` 的序列化名和排序；`new_century_wubi_words_from_the_drive_are_skipped_until_sync_carries_them`（网盘上的新世纪操作和检查点词条只跳过那一条）。
+- Android JVM 冒烟 `DictionarySnapshotWordsSmoke`：本地备份恢复认 `wubixsj`。
 - `cargo test -p msime-client-services`：`typing_statistics::batch_tests` 的几项在并行时随机失败，`--test-threads=1` 单独运行全部通过。这几项与本改动无关，没有动 `typing_statistics`。其余全部通过，含以下用例：
   - 鸿蒙和 iOS 的 `the_new_century_wubi_profile_stays_on_the_device`；
   - `new_century_wubi_words_are_not_synced_through_the_cloud_yet`。
