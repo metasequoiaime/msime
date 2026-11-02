@@ -66,6 +66,10 @@ RUST_ONLY: dict[str, set[str]] = {
         "sentence_collocation_weak_penalty",
         "sentence_collocation_rear_penalty",
     },
+    "GameCompatibilityPreferences": {
+        # Windows 游戏候选兜底点挪到客户区上部的开关，给聊天行在画面上沿的游戏（DNF）用；按设计没有设置界面入口（WinUI、React 页和 MCP 白名单都不含它），只能手改 preferences.json，见 .agents/notes/implemented/feature/2026-10-08-windows-game-candidate-overlay.md。
+        "overlay_anchor_top",
+    },
 }
 
 

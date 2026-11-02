@@ -21,5 +21,16 @@ int main() {
     // A host caret must not be replaced by the stale legacy buffer's caret.
     if (MapPreeditCaret(L"nihao", 1, L"ni'hao", 0) != 1 ||
         MapPreeditCaret(L"nihao", 4, L"ni'hao", 0) != 5) return EXIT_FAILURE;
+    // #10632：双拼「拼音分词」的 preedit 是展开的全拼（uiui 是 shi'shi），按字母数会落在 shi's|hi。画的就是引擎的 preedit 时用引擎给的位置，已选词段照样往后移。
+    if (MapPreeditCaret(L"uiui", 4, L"shi'shi", 0) == 7 ||
+        MapPreeditCaret(L"uiui", 4, L"shi'shi", 0, L"shi'shi", 7) != 7 ||
+        MapPreeditCaret(L"uiui", 3, L"shi'shi", 0, L"shi'shi", 3) != 3 ||
+        MapPreeditCaret(L"uiui", 4, L"你shi'shi", 1, L"shi'shi", 7) != 8 ||
+        MapPreeditCaret(L"uiui", 4, L"shi'shi", 0, L"shi'shi", 99) != 7)
+        return EXIT_FAILURE;
+    // 画的不是引擎的 preedit（原始按键、Server 送来的另一份），或者视图里没有这一项时，照旧按字母数换。
+    if (MapPreeditCaret(L"uiui", 2, L"uiui", 0, L"shi'shi", 3) != 2 ||
+        MapPreeditCaret(L"nihao", 2, L"ni'hao", 0, L"ni'hao", std::nullopt) != 2)
+        return EXIT_FAILURE;
     return EXIT_SUCCESS;
 }

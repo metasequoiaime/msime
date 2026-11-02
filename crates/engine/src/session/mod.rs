@@ -679,6 +679,11 @@ impl Session {
         self.prediction.set_pool(enabled);
     }
 
+    /// 宿主挂了逐键打分器时，26 键全拼每条切分至少解出 `paths` 条整句读法，留给打分器从中挑首选（[`crate::ordering::SENTENCE_POOL`]）；0（默认）照不挂打分器时的条数。九键、双拼和其他方案不受影响。只影响之后的查询，不改正在显示的行。
+    pub fn set_sentence_pool(&mut self, paths: usize) {
+        self.input.set_sentence_pool(paths);
+    }
+
     /// 按模型给刚上屏之后的联想排序：词库续写按「接在上文后面」的总对数概率重排（[`crate::ordering::prediction_order`]），个人习惯行原样留在前面，最后仍只给 8 条。`before` 是这次上屏之前的文字，刚上屏的那一段由会话自己接上。每次上屏只排一次，之后的调用、没有打开候选池（[`Self::set_prediction_pool`]）或没有联想时什么都不做。返回显示的行变了没有。
     pub fn order_prediction(&mut self, scorer: &mut dyn CandidateScorer, before: &str) -> bool {
         let changed = self.prediction.order(scorer, before);
@@ -845,11 +850,26 @@ impl Session {
         // 宿主显示全拼分词；参考回放的底层快照仍保留原文。
         let segmented_preedit = (segmented_quanpin && input.scheme() == SchemeType::Quanpin)
             || (!self.shuangpin_preedit_uses_raw && input.scheme() == SchemeType::Shuangpin);
-        let preedit = if segmented_preedit
-            && input.local_mode == LocalInputMode::None
-            && !input.dedicated_english
-        {
+        let plain_composition =
+            input.local_mode == LocalInputMode::None && !input.dedicated_english;
+        let preedit = if segmented_preedit && plain_composition {
             input.pinyin_segmentation_with_cases().into_owned()
+        } else if segmented_quanpin
+            && !self.shuangpin_preedit_uses_raw
+            && plain_composition
+            && !caret_edit_suffix
+            && input.scheme() == SchemeType::Cantonese
+        {
+            // 粤语双拼跟随「双拼显示原始按键」：关掉时画展开后的粤拼，读音取首选候选用的那一个。只改显示，编辑文字和回车提交仍是原始按键。
+            let leading = input
+                .candidates()
+                .iter()
+                .find(|item| item.scheme == SchemeType::Cantonese)
+                .map(|item| (item.canonical_pinyin.as_str(), item.pinyin.len()));
+            input
+                .engine
+                .cantonese_jyutping_display(leading)
+                .unwrap_or_else(|| input.preedit())
         } else {
             input.preedit()
         };

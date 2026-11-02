@@ -61,6 +61,37 @@ pub struct GrammarModelUpdate {
     pub size: u64,
 }
 
+/// 每个语法模型只接受来自编译期固定的上游 Release 的下载地址。在线目录取自 `develop` 分支，摘要和地址出自同一份文件，所以目录本身证明不了来源；这里把来源钉死在上游仓库，目录被改坏时最多只能指向同一仓库的另一个 Release 附件，不能指向任意主机。
+fn grammar_release_prefix(id: &str) -> Option<&'static str> {
+    match id {
+        "wanxiang" => Some("https://github.com/amzxyz/rime-wanxiang-data/releases/download/"),
+        "baguwen" | "baguwen-compact" => {
+            Some("https://github.com/lotem/rime-octagram-data/releases/download/")
+        }
+        _ => None,
+    }
+}
+
+/// 地址必须正好是 `<前缀><tag>/<文件名>`。`tag` 只允许普通字符，排除 `..`、查询串和片段，因为 URL 解析会把 `..` 段折叠掉，单靠前缀匹配挡不住跳出仓库路径。
+fn grammar_url_from_upstream(model: &GrammarCatalogModel) -> bool {
+    let Some(prefix) = grammar_release_prefix(&model.id) else {
+        return false;
+    };
+    let Some(rest) = model.artifact.url.strip_prefix(prefix) else {
+        return false;
+    };
+    let Some((tag, name)) = rest.split_once('/') else {
+        return false;
+    };
+    !tag.is_empty()
+        && tag != "."
+        && tag != ".."
+        && tag
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+        && name == model.artifact.name
+}
+
 fn validate_grammar_catalog(catalog: &GrammarCatalog) -> Result<(), LocalModelError> {
     if catalog.version != 1 || catalog.models.is_empty() || catalog.models.len() > 9 {
         return Err(LocalModelError::Network("invalid grammar catalog".into()));
@@ -82,7 +113,7 @@ fn validate_grammar_catalog(catalog: &GrammarCatalog) -> Result<(), LocalModelEr
             || !matches!(model.channel.as_str(), "stable" | "beta" | "nightly")
             || model.format != "gram-v1"
             || !crate::is_lower_hex(&model.source_commit, 40)
-            || !model.artifact.url.starts_with("https://")
+            || !grammar_url_from_upstream(model)
             || !crate::is_lower_hex(&model.artifact.sha256, 64)
             || model.artifact.size < GRAMMAR_HEADER_BYTES as u64
             || model.artifact.size > 2 * 1024 * 1024 * 1024
@@ -1595,6 +1626,26 @@ mod tests {
         let mut invalid = channels.clone();
         invalid.models[0].artifact.url = "http://example.invalid/model.gram".into();
         assert!(validate_grammar_catalog(&invalid).is_err());
+        // 目录被改坏时不能把下载指向上游 Release 以外的地方，包括别的主机、同主机的别的仓库、借 `..` 折叠跳出路径和换掉文件名。
+        let wanxiang = channels.models[0].artifact.url.clone();
+        let name = channels.models[0].artifact.name.clone();
+        for url in [
+            format!("https://example.invalid/LTS/{name}"),
+            format!("https://github.com/someone/rime-wanxiang-data/releases/download/LTS/{name}"),
+            format!("https://github.com/lotem/rime-octagram-data/releases/download/20260712/{name}"),
+            format!("https://github.com/amzxyz/rime-wanxiang-data/releases/download/../../../../evil/x/releases/download/LTS/{name}"),
+            format!("https://github.com/amzxyz/rime-wanxiang-data/releases/download/../{name}"),
+            format!("https://github.com/amzxyz/rime-wanxiang-data/releases/download/LTS/{name}?x=1"),
+            format!("https://github.com/amzxyz/rime-wanxiang-data/releases/download/LTS/x/{name}"),
+            "https://github.com/amzxyz/rime-wanxiang-data/releases/download/LTS/other.gram".into(),
+        ] {
+            let mut invalid = channels.clone();
+            invalid.models[0].artifact.url = url.clone();
+            assert!(validate_grammar_catalog(&invalid).is_err(), "{url}");
+        }
+        let mut retagged = channels.clone();
+        retagged.models[0].artifact.url = wanxiang.replace("/LTS/", "/v2026.11.01/");
+        validate_grammar_catalog(&retagged).unwrap();
         let mut invalid = channels;
         invalid.models.push(invalid.models[0].clone());
         assert!(validate_grammar_catalog(&invalid).is_err());

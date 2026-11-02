@@ -1055,6 +1055,8 @@ pub struct QueryRequest {
     pub fuzzy_pinyin: FuzzyPinyinOptions,
     /// Hand back every whole-sentence reading rather than only the best.
     pub sentence_alternatives: bool,
+    /// 26 键全拼每条切分至少解出多少条整句读法交给逐键打分器比较；0 是不挂打分器时的默认条数。见 [`crate::Session::set_sentence_pool`]。
+    pub sentence_pool: usize,
     pub sentence_association: SentenceAssociationOptions,
     /// 首页能放下的行数：全长度组的精确同音词够这么多就不再并入更长的补全词。
     pub first_page_rows: FirstPageRows,

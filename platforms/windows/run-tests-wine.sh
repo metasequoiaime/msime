@@ -268,6 +268,7 @@ for exe in /bin-win/windows-*.exe /bin-win/tsf/msime-tsf-*.exe /bin-win/msimeui-
   [ "$name" = msime-tsf-smart-punctuation-focus-wiring-test ] && argument="$MSIME_TSF_SOURCE"
   [ "$name" = msime-tsf-japanese-conversion-wiring-test ] && argument="$MSIME_TSF_SOURCE"
   [ "$name" = msime-tsf-gloss-column-wiring-test ] && argument="$MSIME_TSF_SOURCE"
+  [ "$name" = msime-tsf-punctuation-mode-policy-test ] && argument="$MSIME_TSF_SOURCE"
   if timeout 120 xvfb-run -a wine "/run/t/$name.exe" $argument >/dev/null 2>&1; then
     echo "PASS $name"
   else

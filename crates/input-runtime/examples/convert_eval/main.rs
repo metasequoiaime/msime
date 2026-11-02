@@ -112,6 +112,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut jobs = 1usize;
     let mut learn_replay: Option<i64> = None;
     let mut fuzzy_all = false;
+    let mut onnx_model: Option<PathBuf> = None;
+    let mut onnx_threads = 2usize;
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut index = 0;
@@ -168,6 +170,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--autocorrect" => autocorrect = true,
             // 打开全部 11 条模糊音规则（#10457 报告者的设置），给模糊音路径的改动比对候选用；默认关，与产品出厂一致。只支持全拼。
             "--fuzzy-all" => fuzzy_all = true,
+            "--onnx-model" => onnx_model = Some(PathBuf::from(take(&mut index)?)),
+            "--onnx-threads" => onnx_threads = take(&mut index)?.parse()?,
             "--max-syllables" => max_syllables = Some(take(&mut index)?.parse()?),
             "--shuangpin-profile" => {
                 for name in take(&mut index)?.split(',') {
@@ -321,6 +325,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("{} cases from {} set(s)", cases.len(), sets.len());
 
     let state = tempfile::tempdir()?;
+    let models = Models::load(&resources, onnx_model.as_deref(), onnx_threads)?;
     let mut clean_top1_changed = 0;
     let mut clean_first_seat = Vec::new();
     let json = match &shuangpin {
@@ -330,6 +335,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &cases,
             dump.as_deref(),
             eval,
+            &models,
             autocorrect,
             keyboard_neural,
             first_page_rows,
@@ -344,6 +350,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &cases,
                 dump.as_deref(),
                 grid,
+                &models,
                 keyboard_neural,
                 autocorrect,
                 fuzzy_all,
@@ -526,11 +533,47 @@ struct Models {
     settled: Option<Arc<SentenceModel>>,
     /// 每次按键重排用的模型（`sentence-model.safetensors`）。
     keystroke: Option<Arc<SentenceModel>>,
+    /// `--onnx-model <目录>`：逐键重排改挂 ONNX Runtime 后端（`lm_step.ort`、`model.json`、`vocab.json`），不挂 `keystroke`；第二项是一次图运行的线程数。每个 Runtime 各建一个打分器，前缀缓存跟着会话走。
+    onnx: Option<(OnnxModelFiles, usize)>,
+}
+
+/// 一个 ONNX 重排模型目录里的三个文件，读一次，各 Runtime 用它各建自己的打分器。
+struct OnnxModelFiles {
+    model: Vec<u8>,
+    info: String,
+    vocabulary: String,
+}
+
+#[cfg(feature = "onnx-rerank")]
+fn onnx_scorer(
+    files: &OnnxModelFiles,
+    threads: usize,
+) -> Result<Box<dyn msime_input_runtime::CandidateScorer>, Box<dyn std::error::Error>> {
+    Ok(Box::new(msime_onnx_rerank::OnnxScorer::load(
+        &files.model,
+        &files.info,
+        &files.vocabulary,
+        threads,
+        // 桌面宿主留着 ONNX Runtime 的内存池（host-api 的 `RERANK_MEMORY_ARENA`），评测照它。
+        true,
+    )?))
+}
+
+#[cfg(not(feature = "onnx-rerank"))]
+fn onnx_scorer(
+    _: &OnnxModelFiles,
+    _: usize,
+) -> Result<Box<dyn msime_input_runtime::CandidateScorer>, Box<dyn std::error::Error>> {
+    Err("--onnx-model needs the onnx-rerank feature (and ORT_LIB_LOCATION pointing at a minimal ONNX Runtime build)".into())
 }
 
 impl Models {
     // Measuring the shipped path means measuring it with whatever the resource set contains. The model is optional there, so its absence has to leave these numbers exactly as they were.
-    fn load(resources: &Path) -> Result<Self, Box<dyn std::error::Error>> {
+    fn load(
+        resources: &Path,
+        onnx_model: Option<&Path>,
+        onnx_threads: usize,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         // The settled model, when the resource set ships one. Attaching it is what lets the eval measure the shipped pair rather than either model alone: the fast one ranks every keystroke and this one ranks once at the end, which is exactly what a host does with its settle timer.
         let settled_path = resources.join("sentence-model-desktop.safetensors");
         let settled = match std::fs::read(&settled_path) {
@@ -544,6 +587,22 @@ impl Models {
                 None
             }
         };
+        if let Some(directory) = onnx_model {
+            let read = |name: &str| std::fs::read_to_string(directory.join(name));
+            let files = OnnxModelFiles {
+                model: std::fs::read(directory.join("lm_step.ort"))?,
+                info: read("model.json")?,
+                vocabulary: read("vocab.json")?,
+            };
+            // 先建一个，文件不对或没编进后端时在跑之前就报错。
+            onnx_scorer(&files, onnx_threads)?;
+            eprintln!("reranking with ONNX model {}", directory.display());
+            return Ok(Self {
+                settled,
+                keystroke: None,
+                onnx: Some((files, onnx_threads)),
+            });
+        }
         let model_path = resources.join("sentence-model.safetensors");
         let keystroke = match std::fs::read(&model_path) {
             Ok(bytes) => {
@@ -559,7 +618,11 @@ impl Models {
                 None
             }
         };
-        Ok(Self { settled, keystroke })
+        Ok(Self {
+            settled,
+            keystroke,
+            onnx: None,
+        })
     }
 }
 
@@ -644,6 +707,9 @@ fn open_runtime(
     if let Some(model) = &models.keystroke {
         runtime.set_reranker(Some(Reranker::new(Arc::clone(model))));
     }
+    if let Some((files, threads)) = &models.onnx {
+        runtime.set_candidate_scorer(Some(onnx_scorer(files, *threads)?));
+    }
     // dispatch() drops every action while unfocused, which yields an empty candidate list rather
     // than an error.
     runtime.focus(true)?;
@@ -695,6 +761,7 @@ fn run(
     cases: &[Case],
     dump: Option<&Path>,
     grid: Option<KeyGrid>,
+    models: &Models,
     keyboard_neural: bool,
     autocorrect: bool,
     fuzzy_all: bool,
@@ -703,11 +770,10 @@ fn run(
 ) -> Result<Report, Box<dyn std::error::Error>> {
     // Optional JSONL of the real candidate lists, for offline experiments that must not be able to change what the harness measures.
     let mut dumped = String::new();
-    let models = Models::load(resources)?;
     let mut runtime = open_runtime(
         resources,
         state,
-        &models,
+        models,
         keyboard_neural,
         autocorrect,
         first_page_rows,
@@ -777,6 +843,7 @@ fn run_shuangpin(
     cases: &[Case],
     dump: Option<&Path>,
     eval: &ShuangpinEval,
+    models: &Models,
     autocorrect: bool,
     keyboard_neural: bool,
     first_page_rows: Option<usize>,
@@ -784,7 +851,6 @@ fn run_shuangpin(
     clean_top1_changed: &mut usize,
     clean_first_seat: &mut Vec<CleanFirstSeat>,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let models = Models::load(resources)?;
     // 落点分布只取决于几何、σ 和偏置，各方案、各模式共用同一份几何时不必重算；在开线程前一次算好，各方案只读。只有 noisy、realistic 和要送落点的 clean 要抽落点。
     let needs_noise = eval.modes.iter().any(|mode| match mode {
         TouchMode::None => false,
@@ -809,7 +875,7 @@ fn run_shuangpin(
             resources,
             // 每个方案各用一份可写目录，同时跑的会话不争同一个用户词库。
             &state.join(profile.name()),
-            &models,
+            models,
             &noises,
             cases,
             dump.is_some(),

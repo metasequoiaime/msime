@@ -1264,7 +1264,7 @@ fn english_online_capability_only_names_a_host_with_the_input_path() {
 }
 
 #[test]
-fn custom_helpcode_trigger_is_only_offered_by_linux_and_harmony() {
+fn custom_helpcode_trigger_is_offered_by_hosts_that_route_spelling_symbols() {
     for platform in [
         HostPlatform::Linux,
         HostPlatform::Macos,
@@ -1275,7 +1275,11 @@ fn custom_helpcode_trigger_is_only_offered_by_linux_and_harmony() {
     ] {
         assert_eq!(
             HostCapabilities::for_platform(platform).helpcode_trigger_key,
-            matches!(platform, HostPlatform::Linux | HostPlatform::Harmony)
+            matches!(
+                platform,
+                HostPlatform::Linux | HostPlatform::Harmony | HostPlatform::Macos
+            ),
+            "{platform:?}"
         );
     }
 }

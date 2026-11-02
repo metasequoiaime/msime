@@ -70,6 +70,8 @@ class CCompositionProcessorEngine
     void SetRenderedPreedit(std::wstring preedit, size_t prefixLength);
     DWORD_PTR GetRenderedCaretPosition() const;
     DWORD_PTR GetRenderedCaretPosition(const std::wstring &editingText, size_t caret) const;
+    // 宿主会话的组字：引擎给了光标在 preedit 里的位置时用它（MapPreeditCaret 的重载）。
+    DWORD_PTR GetRenderedCaretPosition(const msime::tsf::KeyCompositionState &composition) const;
 
     DWORD_PTR GetVirtualKeyLength()
     {

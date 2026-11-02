@@ -8,7 +8,7 @@ use crate::pinyin::autocorrect::{
 };
 use crate::pinyin::segment::join_segments;
 use crate::pinyin::syllables::{has_only_complete_pinyin_segments, is_intact, is_prefix};
-use crate::types::{autocorrect_type, WordItem};
+use crate::types::{autocorrect_type, CandidateSource, WordItem};
 
 /// How many ranked correction cuts feed the query pipeline: the primary cut becomes the query key and the rest ride along as alternative segmentations. Dropped-initial keys such as `uan` have 10-15 equally weighted deletion targets (cuan/duan/guan/...), and k = 3 cut the list by table order before reaching the right reading (quan'li for uanli); k = 9 lifted R@1/R@3 on the deletion and mixed eval sets with no p95 change (QD:90-97).
 pub const AUTOCORRECT_CUT_KBEST: usize = 9;
@@ -320,6 +320,64 @@ pub(super) fn merge_series_by_coverage(result: &mut Vec<WordItem>, supplemental:
     retain_unique_sorted_rows(result);
 }
 
+/// 挂了逐键打分器时每条切分多解几条整句读法（`QuanpinDictionary::set_sentence_pool`），而打分器只比较前九条回答整串的行（`ordering::COMPARED_LIMIT`）。主切分多出来的读法照原样排在备选切分的整句前面，就会把备选切分的整句挤出比较：「fangan」的主切分是 fan'gan，多解三条「反感…」以后，备选切分 fang'an 的「两个方案都挺好的」排到第十位，模型再也看不到它，首选从「方案」变成「反感」。
+///
+/// 所以主切分（第一条整句所在的切分）的整句只留前 `kept` 条在原位，其余挪到所有备选切分的整句之后；整句只来自一条切分时什么都不动。`kept` 是不挂打分器时的条数，备选切分进入比较的那几条因此和以前相同，多解的读法只占用原来空着的比较位。只动来源为词网格、读满整串、不是纠错读出的行，其余行的座位不变。
+pub(super) fn defer_pooled_sentences(rows: &mut Vec<WordItem>, raw: &str, kept: usize) {
+    let letters = |text: &str| text.bytes().filter(|&byte| byte != b'\'').count();
+    let full = letters(raw);
+    let slots: Vec<usize> = rows
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| {
+            row.source == CandidateSource::Generated
+                && row.sentence_association
+                && row.corrected_from.is_empty()
+                && letters(&row.pinyin) == full
+        })
+        .map(|(index, _)| index)
+        .collect();
+    let Some(&first) = slots.first() else {
+        return;
+    };
+    let primary = rows[first].canonical_pinyin.clone();
+    if slots
+        .iter()
+        .all(|&index| rows[index].canonical_pinyin == primary)
+    {
+        return;
+    }
+    // 新的第 k 个整句座位放原来第 `order[k]` 个整句。
+    let mut order = Vec::with_capacity(slots.len());
+    let mut deferred = Vec::new();
+    let mut primary_seen = 0;
+    for (position, &index) in slots.iter().enumerate() {
+        if rows[index].canonical_pinyin == primary {
+            primary_seen += 1;
+            if primary_seen > kept {
+                deferred.push(position);
+                continue;
+            }
+        }
+        order.push(position);
+    }
+    if deferred.is_empty() {
+        return;
+    }
+    order.extend(deferred);
+    // 先按座位从后往前取出全部整句，再按新顺序从前往后放回原来的座位。
+    let mut taken: Vec<Option<WordItem>> = slots
+        .iter()
+        .rev()
+        .map(|&index| Some(rows.remove(index)))
+        .collect();
+    taken.reverse();
+    for (&index, &from) in slots.iter().zip(&order) {
+        let row = taken[from].take().expect("each sentence is placed once");
+        rows.insert(index, row);
+    }
+}
+
 /// 对已排序的行按词面去重，保留首条及原有向量容量。
 fn retain_unique_sorted_rows(rows: &mut Vec<WordItem>) {
     // 候选页规模内直接扫描已保留的词，避免为一次合并建立临时哈希表和布尔数组。
@@ -412,6 +470,66 @@ mod tests {
 
     fn words(items: &[WordItem]) -> Vec<&str> {
         items.iter().map(|item| item.word.as_str()).collect()
+    }
+
+    /// 词网格整句行：`typed` 是打的拼音，`canonical` 是这条切分的读音。
+    fn sentence(typed: &str, canonical: &str, word: &str) -> WordItem {
+        let mut item = WordItem::new(typed, word, 0, CandidateSource::Generated, canonical);
+        item.sentence_association = true;
+        item
+    }
+
+    /// 主切分 fan'gan 解了 9 条、备选切分 fang'an 解了 3 条，中间夹着词典行和前缀行。
+    fn pooled_rows() -> Vec<WordItem> {
+        let mut rows = vec![row("fan'gan", "反感", 900)];
+        rows.extend((1..=9).map(|n| sentence("fan'gan", "fan'gan", &format!("主{n}"))));
+        rows.extend((1..=3).map(|n| sentence("fang'an", "fang'an", &format!("备{n}"))));
+        rows.push(row("fan", "反", 800));
+        rows
+    }
+
+    #[test]
+    fn pooled_primary_readings_go_behind_the_other_segmentation() {
+        let mut rows = pooled_rows();
+        defer_pooled_sentences(&mut rows, "fangan", 6);
+        assert_eq!(
+            words(&rows),
+            [
+                "反感", "主1", "主2", "主3", "主4", "主5", "主6", "备1", "备2", "备3", "主7",
+                "主8", "主9", "反"
+            ]
+        );
+    }
+
+    #[test]
+    fn one_segmentation_or_no_extra_readings_stay_put() {
+        let mut single: Vec<WordItem> = (1..=9)
+            .map(|n| sentence("fan'gan", "fan'gan", &format!("主{n}")))
+            .collect();
+        let before = words(&single).join(",");
+        defer_pooled_sentences(&mut single, "fangan", 6);
+        assert_eq!(words(&single).join(","), before);
+
+        let mut rows = pooled_rows();
+        let before = words(&rows).join(",");
+        defer_pooled_sentences(&mut rows, "fangan", 9);
+        assert_eq!(words(&rows).join(","), before);
+    }
+
+    #[test]
+    fn corrected_and_partial_readings_keep_their_seats() {
+        let mut rows = pooled_rows();
+        // 纠错读出的整句和只读了前缀的整句不参与挪动。
+        rows[8].corrected_from = "fnagan".into();
+        rows.insert(2, sentence("fan", "fan", "帆"));
+        defer_pooled_sentences(&mut rows, "fangan", 6);
+        assert_eq!(
+            words(&rows),
+            [
+                "反感", "主1", "帆", "主2", "主3", "主4", "主5", "主6", "备1", "主8", "备2", "备3",
+                "主7", "主9", "反"
+            ]
+        );
     }
 
     #[test]

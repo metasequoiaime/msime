@@ -282,6 +282,39 @@ fn encode_cases(
     Ok(typed)
 }
 
+/// `--sentence-pool <n>`：照原样打分，只把报给 runtime 的 [`CandidateScorer::sentence_pool`] 换成 `n`，在同一台机器上量引擎多解几条整句、模型多比较几条要多花多少（`--sentence-pool 0` 是不加池时的样子）。
+struct PoolOverride {
+    inner: Box<dyn msime_input_runtime::CandidateScorer>,
+    pool: usize,
+}
+
+impl msime_input_runtime::CandidateScorer for PoolOverride {
+    fn context_length(&self) -> usize {
+        self.inner.context_length()
+    }
+
+    fn log_probabilities(&mut self, context: &str, candidates: &[&str]) -> Vec<f32> {
+        self.inner.log_probabilities(context, candidates)
+    }
+
+    fn scores_prediction_pool_within_keystroke_budget(&self) -> bool {
+        self.inner.scores_prediction_pool_within_keystroke_budget()
+    }
+
+    fn sentence_pool(&self) -> usize {
+        self.pool
+    }
+
+    fn best_where(
+        &mut self,
+        context: &str,
+        texts: &[&str],
+        facts: &dyn Fn(usize) -> msime_input_runtime::CandidateFacts,
+    ) -> Option<usize> {
+        self.inner.best_where(context, texts, facts)
+    }
+}
+
 #[cfg(feature = "onnx-rerank")]
 fn onnx_scorer(
     directory: &Path,
@@ -325,6 +358,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // `--onnx-model <目录>`：模型臂挂 ONNX Runtime 后端（`export_step.py` 导出的 `lm_step.ort`、`model.json`、`vocab.json`），不挂随包的句子模型；`--onnx-threads` 是它一次图运行用几个线程。
     let mut onnx_model: Option<PathBuf> = None;
     let mut onnx_threads = 2usize;
+    let mut sentence_pool: Option<usize> = None;
     let mut seed = 20261027;
     let mut touch_points = true;
     let mut touch_arms = false;
@@ -366,12 +400,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--touch-arms" => touch_arms = true,
             "--onnx-model" => onnx_model = Some(PathBuf::from(take(&mut index)?)),
             "--onnx-threads" => onnx_threads = take(&mut index)?.parse()?,
+            "--sentence-pool" => sentence_pool = Some(take(&mut index)?.parse()?),
             other => return Err(format!("unknown argument: {other}").into()),
         }
         index += 1;
     }
     let resources = resources.ok_or(
-        "usage: rerank_latency --resources <verified-dir> --set <file.tsv> [--resource-lock <file.json>] [--budget-ms 16] [--warmup 5] [--limit N] [--grid nine|fourteen|shuangpin-<profile>] [--scheme shuangpin --shuangpin-profile <profile> [--autocorrect] [--key-geometry <file.json>... --touch-sigma <σ> [--touch-bias-y <b>] [--touch-mode realistic] [--seed N] [--no-touch-points] [--touch-arms]]] [--onnx-model <dir> [--onnx-threads 2]]",
+        "usage: rerank_latency --resources <verified-dir> --set <file.tsv> [--resource-lock <file.json>] [--budget-ms 16] [--warmup 5] [--limit N] [--grid nine|fourteen|shuangpin-<profile>] [--scheme shuangpin --shuangpin-profile <profile> [--autocorrect] [--key-geometry <file.json>... --touch-sigma <σ> [--touch-bias-y <b>] [--touch-mode realistic] [--seed N] [--no-touch-points] [--touch-arms]]] [--onnx-model <dir> [--onnx-threads 2]] [--sentence-pool <n>]",
     )?;
     if sets.is_empty() {
         return Err("at least one --set is required".into());
@@ -499,13 +534,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let scorer =
         || -> Result<Box<dyn msime_input_runtime::CandidateScorer>, Box<dyn std::error::Error>> {
-            match (&onnx_model, &sentence_model) {
-                (Some(directory), _) => onnx_scorer(directory, onnx_threads),
-                (None, Some(model)) => Ok(Box::new(Reranker::new(model.clone()))),
-                (None, None) => {
-                    unreachable!("the sentence model is loaded whenever --onnx-model is absent")
-                }
-            }
+            let scorer: Box<dyn msime_input_runtime::CandidateScorer> =
+                match (&onnx_model, &sentence_model) {
+                    (Some(directory), _) => onnx_scorer(directory, onnx_threads)?,
+                    (None, Some(model)) => Box::new(Reranker::new(model.clone())),
+                    (None, None) => {
+                        unreachable!("the sentence model is loaded whenever --onnx-model is absent")
+                    }
+                };
+            Ok(match sentence_pool {
+                Some(pool) => Box::new(PoolOverride {
+                    inner: scorer,
+                    pool,
+                }),
+                None => scorer,
+            })
         };
 
     let mut plain = Runtime::new(Session::new(&options)?, 9)?;

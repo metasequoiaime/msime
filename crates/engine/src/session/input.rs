@@ -1673,6 +1673,10 @@ impl InputSession {
         self.engine.set_rescoring_context(context);
     }
 
+    pub fn set_sentence_pool(&mut self, paths: usize) {
+        self.engine.set_sentence_pool(paths);
+    }
+
     /// 首页行数只决定词库要不要并入补全词；宿主改每页候选数时不必重建会话，跟着改一下即可。
     pub fn set_first_page_rows(&mut self, rows: FirstPageRows) {
         self.first_page_rows = rows.get();

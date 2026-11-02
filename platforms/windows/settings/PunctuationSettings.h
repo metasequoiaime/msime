@@ -19,10 +19,9 @@ inline constexpr std::array<Choice, 4> mode_choices{{
     {L"always_english", L"始终英文标点"},
 }};
 
-// 「标点」一行的说明。前半句与共享页 PunctuationModeRow 相同；后半句是 Windows 的实情：TIP 每次激活和每次切换中英文时都按中英文模式重定标点（`CompositionProcessorEngine.cpp` 的 SetPunctuationMode、`Ipc.h` 的 ResolvePunctuationOpen），从不读已存的 `chinese_punctuation`，所以不锁定时这台电脑上的标点总是跟随中英文模式，「中文标点」「英文标点」只作为会上云的起始标点，在 macOS、Linux 和手机上生效。
+// 「标点」一行的说明，与共享页 PunctuationModeRow 相同：TIP 每次激活和每次切换中英文时，中文模式回到已存的 `chinese_punctuation`、英文模式用英文标点（`CompositionProcessorEngine.cpp` 的 SyncPunctuationWithImeMode、`tsf/Global/PunctuationModePolicy.h` 的 PunctuationOpenForImeMode）。
 inline constexpr std::wstring_view mode_description =
-    L"中文模式下使用的标点。选「始终」时切到英文模式也不变，不能用 Ctrl+. 或工具栏临时切换。"
-    L"Windows 上不锁定时，标点在切换中英文时随模式改变，中文标点和英文标点只决定同一账号其他设备上的起始标点";
+    L"中文模式下使用的标点。选中文标点或英文标点时，可用快捷键或工具栏临时切换，切到英文模式时用英文标点；选「始终」时不能临时切换";
 
 // 从两个已存的键推出「标点」选择显示的值，只读不写：锁定优先，因为锁定时宿主不看起始标点（TIP 的 ResolvePunctuationOpen、共享层的 engine_chinese_punctuation）。不认得的锁定值按跟随处理，与偏好库读不懂时退回默认相同。
 inline std::wstring_view mode(bool chinese_punctuation, std::wstring_view lock) {
@@ -33,13 +32,13 @@ inline std::wstring_view mode(bool chinese_punctuation, std::wstring_view lock) 
   return chinese_punctuation ? L"chinese" : L"english";
 }
 
-// 设置窗口工具栏预览里的标点按钮画成中文还是英文，与 TIP 的 ResolvePunctuationOpen 相同：锁定时取锁定值；跟随时随中英文模式（预览里语言按钮画的 `default_ime_mode`），不看已存的 `chinese_punctuation`，因为 TIP 从不读它，预览照它画会和这台电脑上真正的工具栏对不上。
-inline bool toolbar_chinese_punctuation(bool chinese_mode, std::wstring_view lock) {
+// 设置窗口工具栏预览里的标点按钮画成中文还是英文，与 TIP 激活时定下的标点相同（`tsf/Global/PunctuationModePolicy.h` 的 PunctuationOpenForImeMode）：锁定时取锁定值；跟随时英文模式（预览里语言按钮画的 `default_ime_mode`）是英文标点，中文模式是已存的 `chinese_punctuation`。
+inline bool toolbar_chinese_punctuation(bool chinese_mode, bool chinese_punctuation, std::wstring_view lock) {
   if (lock == L"chinese")
     return true;
   if (lock == L"english")
     return false;
-  return chinese_mode;
+  return chinese_mode && chinese_punctuation;
 }
 
 // 用户选定一项时写入的值；没有值的键不写。

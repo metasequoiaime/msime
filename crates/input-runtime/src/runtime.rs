@@ -1178,6 +1178,7 @@ impl<E: InputEngine> Runtime<E> {
     pub fn set_candidate_scorer(&mut self, scorer: Option<Box<dyn CandidateScorer>>) {
         self.reranker = scorer;
         self.engine.set_prediction_pool(self.orders_prediction());
+        self.engine.set_sentence_pool(self.sentence_pool());
     }
 
     /// Whether a per-keystroke reranker is attached, so a host can attach or drop it when the preference that governs it changes.
@@ -1576,6 +1577,7 @@ impl<E: InputEngine> Runtime<E> {
             display_reading: self.cached.display_reading.clone(),
             editing_text: self.cached.editing_text.clone(),
             caret_position: self.cached.caret_position,
+            preedit_caret: self.cached.preedit_caret,
             conversion: self.cached.conversion.clone(),
             conversion_focus_start: self.cached.conversion_focus_start,
             conversion_focus_end: self.cached.conversion_focus_end,
@@ -2101,6 +2103,7 @@ impl<E: InputEngine> Runtime<E> {
         self.engine.set_key_geometry(self.key_geometry.clone());
         // 打分器挂在 runtime 上，新引擎同样要按它的速度决定多不多取联想的候选池。
         self.engine.set_prediction_pool(self.orders_prediction());
+        self.engine.set_sentence_pool(self.sentence_pool());
         self.load_snapshot(cached);
         self.snapshot_valid = true;
         self.page_size = page_size.into();
@@ -3036,6 +3039,13 @@ impl<E: InputEngine> Runtime<E> {
             .is_some_and(CandidateScorer::scores_prediction_pool_within_keystroke_budget)
     }
 
+    /// 引擎每条切分至少解出的整句读法条数：挂着的逐键打分器报的 [`CandidateScorer::sentence_pool`]；没挂或它报 0 时引擎照默认条数，候选与不挂打分器的宿主逐行相同。
+    fn sentence_pool(&self) -> usize {
+        self.reranker
+            .as_deref()
+            .map_or(0, CandidateScorer::sentence_pool)
+    }
+
     /// 上屏后联想的词库续写交给逐键打分器排序，排序规则和「每次上屏只排一次」都在引擎里（`Session::order_prediction`）；没挂打分器、或打分器不在预算之内（[`Self::orders_prediction`]）时什么都不做。
     ///
     /// 在取快照之前做，引擎的行已经是最终顺序：座位就是引擎下标，选词照常按代次核对，插件的变换看到的也是排好的行。这次上屏的文字要等 [`Self::transition`] 才进 `ai_context`，所以上文只到这次上屏之前，引擎自己接上刚上屏的词；暂存的词段（`phrase_prefix`）会和这次的词一起上屏，接在上文末尾。
@@ -3105,6 +3115,7 @@ impl<E: InputEngine> Runtime<E> {
                     display_reading: String::new(),
                     editing_text: String::new(),
                     caret_position: 0,
+                    preedit_caret: 0,
                     segment_raw_boundaries: vec![],
                     candidates: Vec::new(),
                     conversion: String::new(),

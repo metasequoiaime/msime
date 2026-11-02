@@ -33,12 +33,15 @@ int main() {
   check(mode(true, L"english") == L"always_english", "the English lock wins over a Chinese start");
   check(mode(true, L"sideways") == L"chinese", "an unknown lock reads as following");
 
-  // 工具栏预览的标点按钮：锁定时取锁定值，跟随时随中英文模式，与 TIP 的 ResolvePunctuationOpen 相同。
-  check(toolbar_chinese_punctuation(true, L"follow"), "following a Chinese mode shows Chinese punctuation");
-  check(!toolbar_chinese_punctuation(false, L"follow"), "following an English mode shows English punctuation");
-  check(toolbar_chinese_punctuation(false, L"chinese"), "the Chinese lock shows Chinese even in English mode");
-  check(!toolbar_chinese_punctuation(true, L"english"), "the English lock shows English even in Chinese mode");
-  check(toolbar_chinese_punctuation(true, L"sideways"), "an unknown lock reads as following");
+  // 工具栏预览的标点按钮：锁定时取锁定值，跟随时英文模式是英文标点、中文模式是已存的起始标点，与 TIP 的 PunctuationOpenForImeMode 相同。
+  check(toolbar_chinese_punctuation(true, true, L"follow"), "a Chinese start in Chinese mode shows Chinese punctuation");
+  check(!toolbar_chinese_punctuation(true, false, L"follow"), "an English start in Chinese mode shows English punctuation");
+  check(!toolbar_chinese_punctuation(false, true, L"follow"), "following an English mode shows English punctuation");
+  check(toolbar_chinese_punctuation(false, false, L"chinese"), "the Chinese lock shows Chinese even in English mode");
+  check(!toolbar_chinese_punctuation(true, true, L"english"), "the English lock shows English even in Chinese mode");
+  check(toolbar_chinese_punctuation(true, true, L"sideways"), "an unknown lock reads as following");
+  // 说明与共享页 PunctuationModeRow 相同，不再写「只决定其他设备上的起始标点」。
+  check(mode_description.find(L"其他设备") == std::wstring_view::npos, "the description no longer says the start only applies elsewhere");
 
   // 前两项把两个键一起写，「始终」两项只写锁定，不碰会上云的 chinese_punctuation。
   const auto chinese = mode_patch(L"chinese");
