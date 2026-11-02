@@ -57,7 +57,11 @@ for key in (
     'request.SetNamedValue(L"files", paths)',
     "vs::local_model_import_error_message(code)",
     "正在导入和校验模型…",
+    # 失败说明画在模型行里：行在页面底部，页首提示条看不见（#10633 的语音模型卡片同理）。
+    "sentence_pack_errors_[id] = *message",
 ):
     assert key in packs, f"Windows 整句模型缺少从文件导入的 {key}"
+install = packs[packs.index("  void install_sentence_pack("):]
+assert "show_notice(" not in install, "Windows 整句模型的下载、导入失败应画在模型行里，不用页首提示条"
 
 print("windows input habits: sentence association switches, the 标准/增强 level, settled model download, offline import and locked grammar model management are present")

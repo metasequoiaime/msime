@@ -14312,7 +14312,8 @@ private:
     actions.Orientation(Orientation::Horizontal);
     actions.Spacing(8);
     // 没装或要更新时，除了联网下载，也可以先用浏览器下载列出的文件再「从文件导入」（与语音模型卡片的「不联网安装」相同）；导入走资源包安装的 `files`，按内容认文件，不联网。
-    FrameworkElement offline_files{nullptr};
+    StackPanel below;
+    below.Spacing(6);
     if (status != L"installed" && !installing && !removing) {
       auto download = button_control(status == L"outdated" ? L"更新" : L"下载",
                                      [this, pack] { install_sentence_pack(pack, false); }, loaded_);
@@ -14326,7 +14327,6 @@ private:
         if (entry.id != pack || entry.import_files.empty())
           continue;
         auto offline = make_text(L"", 12, palette_.sub);
-        offline.Margin(Thickness{0, 6, 0, 0});
         append_run(offline, L"不联网安装：先用浏览器下载 ");
         for (size_t index = 0; index < entry.import_files.size(); ++index) {
           auto const &file = entry.import_files[index];
@@ -14335,7 +14335,7 @@ private:
           append_link(offline, file.name + L"（" + vs::format_model_bytes(file.size) + L"）", file.url);
         }
         append_run(offline, L"，再点“从文件导入”一起选中。文件改过名也能认出。");
-        offline_files = offline;
+        below.Children().Append(offline);
       }
     }
     if (status == L"installed" && grammar_updates_available_.count(pack) > 0 &&
@@ -14347,7 +14347,23 @@ private:
                                                 loaded_));
     if (installing)
       actions.Children().Append(button_control(L"取消", [this, pack] { cancel_sentence_pack(pack); }, true));
-    inline_subtitle(add_row(group, 0xE8C1, title, subtitle, actions, offline_files));
+    // 下载或导入失败的说明画在这一行里、紧挨着按钮：模型行在「候选与联想」页底部，页首的提示条滚出窗口外，失败后按钮变回原样，看上去像什么都没发生（与语音模型卡片 #10633 相同）。
+    if (const auto error = sentence_pack_errors_.find(pack);
+        error != sentence_pack_errors_.end() && !installing && !removing) {
+      InfoBar notice;
+      notice.IsOpen(true);
+      notice.IsClosable(false);
+      notice.Severity(InfoBarSeverity::Error);
+      notice.Message(hstring(error->second));
+      A11y::SetLiveSetting(notice, Automation::Peers::AutomationLiveSetting::Assertive);
+      below.Children().Append(notice);
+    }
+    FrameworkElement extra{nullptr};
+    if (below.Children().Size() > 0) {
+      below.Margin(Thickness{0, 6, 0, 0});
+      extra = below;
+    }
+    inline_subtitle(add_row(group, 0xE8C1, title, subtitle, actions, extra));
   }
 
   static std::wstring grammar_pack_for_model(std::wstring const &model) {
@@ -14464,7 +14480,8 @@ private:
       auto picked = pick_model_files(failure);
       if (const auto message = vs::local_model_picker_error_message(
               failure, picked.has_value() && picked->empty())) {
-        show_notice(*message, InfoBarSeverity::Error);
+        sentence_pack_errors_[id] = *message;
+        redraw_input();
         return;
       }
       if (!picked)
@@ -14473,6 +14490,7 @@ private:
     }
     const auto root = state_directory();
     if (root.empty() || !root.is_absolute()) return;
+    sentence_pack_errors_.erase(id);
     sentence_pack_installing_.insert(id);
     if (import)
       sentence_pack_importing_.insert(id);
@@ -14508,7 +14526,7 @@ private:
             const auto code = model_errors::error_code(response_error(response));
             if (const auto message = import ? vs::local_model_import_error_message(code)
                                             : model_errors::error_message(code))
-              show_notice(*message, InfoBarSeverity::Error);
+              sentence_pack_errors_[id] = *message;
           } else {
             grammar_updates_available_.erase(id);
           }
@@ -27427,6 +27445,8 @@ private:
   std::set<std::wstring> sentence_pack_installing_;
   // 正在安装的资源包里，从文件导入（而不是联网下载）的那些；副标题据此说「导入」。
   std::set<std::wstring> sentence_pack_importing_;
+  // 每个资源包最近一次下载或导入失败的说明，画在它那一行里；重新开始安装时清掉。取消不算失败，不留说明。
+  std::map<std::wstring, std::wstring> sentence_pack_errors_;
   std::set<std::wstring> sentence_pack_removing_;
   std::set<std::wstring> grammar_updates_available_;
   bool grammar_updates_checking_ = false;
