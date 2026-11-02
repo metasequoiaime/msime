@@ -76,3 +76,56 @@ fn a_boxed_scorer_reranks_like_the_bundled_model() {
         );
     }
 }
+
+/// 记下 runtime 每次告诉它上文变了时交来的上文。
+struct ContextRecorder(std::sync::Arc<std::sync::Mutex<Vec<String>>>);
+
+impl CandidateScorer for ContextRecorder {
+    fn context_length(&self) -> usize {
+        64
+    }
+
+    fn log_probabilities(&mut self, _context: &str, candidates: &[&str]) -> Vec<f32> {
+        vec![-1.0; candidates.len()]
+    }
+
+    fn context_changed(&mut self, context: &str) {
+        self.0.lock().unwrap().push(context.to_owned());
+    }
+}
+
+/// 每次上屏和宿主送来上文之后，挂着的打分器都拿到此后排序所依据的全部上文，好在下一次按键之前把它编码好；失焦清空上文时不通知。
+#[test]
+fn the_scorer_hears_each_new_context_after_a_commit() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = real_engine_options(directory.path());
+    let database = std::path::Path::new(&options.dictionaries).join("msime-pinyin.db");
+    rusqlite::Connection::open(database)
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE tbl_1_t(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+             INSERT INTO tbl_1_t VALUES('ta','t','他',1000);",
+        )
+        .unwrap();
+    let mut runtime = Runtime::new(msime_engine::host::Session::new(&options).unwrap(), 9).unwrap();
+    runtime.focus(true).unwrap();
+    let heard = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    runtime.set_candidate_scorer(Some(Box::new(ContextRecorder(std::sync::Arc::clone(
+        &heard,
+    )))));
+
+    runtime.seed_context("我们");
+    for value in b"ta" {
+        runtime
+            .dispatch(Action::Character {
+                value: *value,
+                shift: false,
+            })
+            .unwrap();
+    }
+    let committed = runtime.dispatch(Action::SelectHighlighted).unwrap();
+    assert_eq!(committed.commit.as_deref(), Some("他"));
+    runtime.focus(false).unwrap();
+
+    assert_eq!(*heard.lock().unwrap(), ["我们", "我们他"]);
+}
