@@ -44,4 +44,5 @@ Status: implemented
 
 - `msime-tsf-host-prediction`（联想不算组字、数字和空格选词、超出行数和带修饰键的照常、编辑会话结束时显示还是关掉）、`windows-prediction-presentation`（两条投影）、`windows-session-smoke` 里候选窗信箱的联想段（送达先藏、顺带的隐藏保留、Show 露出、关闭的隐藏清空、UI-less 不露出）、`msime-tsf-engine-response`（解析 `prediction`）、`tests/ui/windows7_settings.cpp`（Win7 开关缺省为关、打开写键、关掉删键）。
 - `crates/client-core` 的 `host_surface` 测试：Android 与 Windows 声明能力，其余四个宿主不声明。
-- 实机验收结果见 PR 正文。
+- 实机：Windows 11 验收虚拟机上把这次构建的 x64 Server、宿主 DLL、TSF DLL 和 WinUI 设置换进已安装的 0.4.0，在经典记事本里用合成按键验收：设置里打开开关后偏好写入 `next_word_prediction: true`，关掉后键被删掉；`nihao` 按 1 上屏「你好」后联想出现在光标下；联想上数字键、空格、点选都上屏对应的行，有续词时下一代联想在新光标处接着出来；Esc 关掉联想、文档不变；回车换行、逗号打出「，」、超出行数的 9 原样输入，都同时关掉联想；左方向键和鼠标点文档别处关掉联想；组字中点选候选后同样出联想，组字中的 Esc 和空格行为不变。
+- 实机验收发现 Server 选中联想后按来源（Generated）把它当整段上屏，又发一次 `MSIME_CANCEL`，把引擎刚出的下一代联想清掉，TIP 的宿主会话却留着，于是下一个空格被当作选词吞掉；`ServerSession::select_with` 在联想上不再这样处理。
