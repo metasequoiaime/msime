@@ -12,8 +12,7 @@ import {
   type TouchKeyboardLanguageId,
   type TouchKeyboardScheme,
 } from "./touch-keyboard-scheme-helpers";
-
-type WubiProfile = NonNullable<Preferences["wubi_profile"]>;
+import { knownWubiProfile, wubiProfiles, type WubiProfile } from "./wubi-preferences";
 
 const shuangpinSchemes = ["xiaohe", "ziranma", "microsoft", "shoudao"] as const;
 type ShuangpinScheme = (typeof shuangpinSchemes)[number];
@@ -25,14 +24,19 @@ const shuangpinNames: Record<ShuangpinScheme, string> = {
   shoudao: "首道",
 };
 
-const wubiProfiles: readonly WubiProfile[] = ["wubi86", "wubi98"];
-
 function isShuangpin(scheme: TouchKeyboardScheme): scheme is ShuangpinScheme {
   return (shuangpinSchemes as readonly string[]).includes(scheme);
 }
 
+/** 五笔行里的版本名，「五笔 86」这种倒序写法；不认识的值按 86。 */
+const wubiNames: Record<WubiProfile, string> = {
+  wubi86: "五笔 86",
+  wubi98: "五笔 98",
+  wubixsj: "五笔 新世纪",
+};
+
 function wubiName(profile: Preferences["wubi_profile"]): string {
-  return profile === "wubi98" ? "五笔 98" : "五笔 86";
+  return wubiNames[knownWubiProfile(profile)];
 }
 
 /** 方案在其所属语言内的名称：要简短，因为行或弹窗标题已经写出了语言。 */
@@ -106,7 +110,7 @@ export interface LanguageCardProps {
 }
 
 /**
- * 三端手机共用的「语言与方案」卡片。中文的全拼、双拼、五笔、注音、笔画和手写各自成行，粤拼也直接作为方案显示；日语、韩语、越南语和藏语仍按语言成行。点开一行可选该行的方案（双拼直接列小鹤、自然码等，五笔直接列 86 和 98，都不再套子菜单），移除会把这一行的所有方案从键盘上撤下。「添加方案」列出没有任何方案开启的行，添加时开启其第一个方案但不切换过去。
+ * 三端手机共用的「语言与方案」卡片。中文的全拼、双拼、五笔、注音、笔画和手写各自成行，粤拼也直接作为方案显示；日语、韩语、越南语和藏语仍按语言成行。点开一行可选该行的方案（双拼直接列小鹤、自然码等，五笔直接列 86、98 和新世纪，都不再套子菜单），移除会把这一行的所有方案从键盘上撤下。「添加方案」列出没有任何方案开启的行，添加时开启其第一个方案但不切换过去。
  *
  * 在弹窗里选中的方案若处于关闭状态会先启用。卡片绝不会让键盘没有方案：当某一行持有仅有的已启用方案时，不能移除它。
  */
@@ -146,11 +150,11 @@ export function LanguageCard({
       label: schemeName(scheme, wubiProfile),
       selected: selectedIn(scheme),
     });
-    // 每行的方案直接列在这一层：双拼列小鹤、自然码等，五笔列 86 和 98。再套一层子菜单，「双拼」行、方案面板、双拼面板就成了三层。
+    // 每行的方案直接列在这一层：双拼列小鹤、自然码等，五笔列 86、98 和新世纪。再套一层子菜单，「双拼」行、方案面板、双拼面板就成了三层。
     if (language.id === "mandarin_wubi" && schemes.includes("wubi")) {
-      // 选中 86 或 98 即保存版本并切到五笔。
+      // 选中哪一版即保存版本并切到五笔。
       const wubi = selectedIn("wubi");
-      const profile = wubiProfile ?? "wubi86";
+      const profile = knownWubiProfile(wubiProfile);
       options.push(
         ...wubiProfiles.map((option) => ({
           value: `${WUBI_PREFIX}${option}`,
