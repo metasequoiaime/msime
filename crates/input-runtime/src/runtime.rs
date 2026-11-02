@@ -1826,6 +1826,11 @@ impl<E: InputEngine> Runtime<E> {
             && (self.cached.prediction || self.cached.candidates.is_empty())
     }
 
+    /// 是否正显示上屏后联想。联想没有组字，[`Self::is_idle`] 照样为真；要等联想结束再做的事（例如重建 Engine）看这一项。
+    pub fn shows_prediction(&self) -> bool {
+        self.cached.prediction
+    }
+
     /// 是否有组字：暂存词段、预编辑、读音或候选任一非空。
     ///
     /// 与 [`Self::is_idle`] 的区别是不看 `snapshot_valid`：一次失败的 refresh 让快照失效，但用户眼里并没有多出一段组字，生命周期核心据此判断组字开始和结束时不能把它算进去。
