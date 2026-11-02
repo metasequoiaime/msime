@@ -56,8 +56,10 @@ pub(crate) struct CantoneseQueryBuffer {
     entries: Vec<LanguageEntry>,
     completions: Vec<(String, LanguageEntry)>,
     key: String,
-    /// 组句时各音节区间的最重词条，键是区间各位置的读音（`describe`）。词库在会话内只读，缓存按内容寻址，连续打字时只有新音节结尾的区间要查。
+    /// 组句时各音节区间的最重词条（发布词和用户的粤语词合起来），键是区间各位置的读音（`describe`）。发布词库在会话内只读，缓存按内容寻址，连续打字时只有新音节结尾的区间要查；用户的粤语词会在会话中途变（`UserWords::refresh` 读到设置页或别的进程提交的增删），所以缓存记下填它时的 `best_generation`，词库的 `user_generation` 不同就整体清空。
     best: HashMap<String, Option<(String, LanguageEntry)>>,
+    /// 填 `best` 时用户粤语词的内容版本（`CantoneseLexicon::user_generation`）。
+    best_generation: u64,
     description: String,
 }
 
@@ -819,15 +821,18 @@ fn write_key(reading: &Segmentation, input: &str, count: usize, destination: &mu
 /// 多音节词经过一个解出多个读音的双拼码时，词频最多可以比它覆盖的最弱单字轻多少倍。取值见 `.agents/notes/implemented/feature/2026-11-02-cantonese-word-lattice-sentence.md` 的留一评估。
 const SENTENCE_AMBIGUOUS_WORD_FLOOR: i64 = 1000;
 
-/// 用注音的词图转换（`zhuyin::conversion`）把各位置拼成一句：每段取区间内最重的词条，长词优先，同长度比权重和。整句只有一段（本来就是整段词条）、或有位置连单字都查不到时不出整句。`floor` 见 `SENTENCE_AMBIGUOUS_WORD_FLOOR`。
+/// 用注音的词图转换（`zhuyin::conversion`）把各位置拼成一句：每段取区间内最重的词条（发布词和用户的粤语词按同一规则比），长词优先，同长度比权重和。整句只有一段（本来就是整段词条）、或有位置连单字都查不到时不出整句。`floor` 见 `SENTENCE_AMBIGUOUS_WORD_FLOOR`。
 fn compose_sentence(
     dictionary: CantoneseLexicon<'_>,
     buffer: &mut CantoneseQueryBuffer,
     positions: &[SentencePosition],
     floor: i64,
 ) -> Result<Option<CantoneseCandidate>> {
-    if buffer.best.len() > SENTENCE_CACHE_LIMIT {
+    if buffer.best.len() > SENTENCE_CACHE_LIMIT
+        || buffer.best_generation != dictionary.user_generation()
+    {
         buffer.best.clear();
+        buffer.best_generation = dictionary.user_generation();
     }
     let readings = positions
         .iter()
@@ -916,7 +921,7 @@ fn clears_ambiguous_word_floor(
     entry.weight.saturating_mul(floor) >= weakest
 }
 
-/// 查 `positions` 区间最重的词条并交给 `consume`；同一组读音在会话内只查一次。
+/// 查 `positions` 区间最重的词条（含用户的粤语词）并交给 `consume`；用户词不变时，同一组读音在会话内只查一次。
 fn cached_best<T>(
     dictionary: CantoneseLexicon<'_>,
     buffer: &mut CantoneseQueryBuffer,
@@ -927,11 +932,7 @@ fn cached_best<T>(
     if let Some(entry) = buffer.best.get(buffer.description.as_str()) {
         return Ok(consume(entry.as_ref()));
     }
-    let entry = dictionary
-        .dictionary
-        .lookup_readings(positions, 1)?
-        .into_iter()
-        .next();
+    let entry = dictionary.lookup_best_reading(positions)?;
     let description = buffer.description.clone();
     Ok(consume(
         buffer.best.entry(description).or_insert(entry).as_ref(),
@@ -1827,6 +1828,164 @@ mod tests {
         assert_eq!(
             texts(&typed("neihou"), &words),
             ["你好/2", "妳好/2", "你/1", "妳/1"]
+        );
+    }
+
+    /// 向用户日志写入粤语词（`user_inserted=1` 的 upsert），返回写入用的连接。
+    fn user_journal_with(journal: &Path, rows: &[(&str, &str, i64)]) -> Connection {
+        crate::user_dictionary::journal::ensure_user_database(journal).unwrap();
+        let writer = Connection::open(journal).unwrap();
+        for (key, text, weight) in rows {
+            writer
+                .execute(
+                    "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,user_inserted) VALUES ('cantonese',?1,?2,'upsert',?3,1)",
+                    (key, text, weight),
+                )
+                .unwrap();
+        }
+        writer
+    }
+
+    /// 首行的 `文字/音节数` 和键，用同一个会话缓冲查。
+    fn first_row(
+        scheme: &CantoneseScheme,
+        lexicon: CantoneseLexicon<'_>,
+        buffer: &mut CantoneseQueryBuffer,
+    ) -> (String, String) {
+        let mut candidates = Vec::new();
+        scheme
+            .candidates_into(lexicon, buffer, &mut candidates)
+            .unwrap();
+        let first = &candidates[0];
+        (
+            format!("{}/{}", first.text, first.syllables),
+            first.key.clone(),
+        )
+    }
+
+    /// 用户加的粤语词和发布词一样参与组句：多音节词按长词优先拼进整句，单字词与发布的同键同字合成一行、取较大的权重。
+    #[test]
+    fn user_words_take_part_in_the_composed_sentence() {
+        use crate::cantonese::UserWords;
+
+        let fixture = fixture();
+        let dir = tempfile::tempdir().unwrap();
+        let journal = dir.path().join("msime-user.db");
+        let _writer = user_journal_with(&journal, &[("oi waa", "噯哇", 10), ("gwong", "廣", 5000)]);
+        let mut words = UserWords::new(journal);
+        words.refresh();
+        let with_user = CantoneseLexicon::new(&fixture.dictionary, Some(&words));
+
+        // 只查发布词库时，`ngo oi waa` 只能由三个单字拼成。
+        let scheme = typed("ngo'oi'waa");
+        assert_eq!(listed(&scheme, &fixture.dictionary), ["我愛話/3", "我/1"]);
+        let mut buffer = CantoneseQueryBuffer::default();
+        let mut candidates = Vec::new();
+        scheme
+            .candidates_into(with_user, &mut buffer, &mut candidates)
+            .unwrap();
+        let sentence = &candidates[0];
+        assert_eq!(
+            (
+                sentence.text.as_str(),
+                sentence.key.as_str(),
+                sentence.weight
+            ),
+            ("我噯哇", "ngo oi waa", 6000 + 10)
+        );
+
+        // 单个位置：用户的「廣」（5000）比发布的「光」（2000）重，整句用它；发布库里「廣」原本只有 900，合并取较大的权重。
+        let scheme = typed("gwong'waa");
+        assert_eq!(listed(&scheme, &fixture.dictionary)[0], "光話/2");
+        let mut candidates = Vec::new();
+        scheme
+            .candidates_into(with_user, &mut buffer, &mut candidates)
+            .unwrap();
+        assert_eq!(
+            (candidates[0].text.as_str(), candidates[0].weight),
+            ("廣話", 5000 + 3000)
+        );
+    }
+
+    /// 组句缓存 `best` 跨按键保留，但用户词在会话中途变了（`UserWords::refresh` 重读）时要整体作废：加词后不能还用缓存里「查不到」的结果，删词后不能还用缓存里那个词。内容没变的重读（别的种类的词改了）不作废。
+    #[test]
+    fn sentence_cache_follows_user_word_changes() {
+        use crate::cantonese::UserWords;
+
+        let fixture = fixture();
+        let dir = tempfile::tempdir().unwrap();
+        let journal = dir.path().join("msime-user.db");
+        let writer = user_journal_with(&journal, &[]);
+        let mut words = UserWords::new(journal);
+        words.refresh();
+        let scheme = typed("ngo'oi'waa");
+        let mut buffer = CantoneseQueryBuffer::default();
+
+        // 先在没有用户词时组一次句，缓存记下 `oi waa` 查不到词。
+        assert_eq!(
+            first_row(
+                &scheme,
+                CantoneseLexicon::new(&fixture.dictionary, Some(&words)),
+                &mut buffer
+            ),
+            ("我愛話/3".to_owned(), "ngo oi waa".to_owned())
+        );
+        assert!(buffer.best.contains_key("oi waa"));
+
+        writer
+            .execute(
+                "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,user_inserted) VALUES ('cantonese','oi waa','噯哇','upsert',10,1)",
+                [],
+            )
+            .unwrap();
+        words.refresh();
+        assert_eq!(
+            first_row(
+                &scheme,
+                CantoneseLexicon::new(&fixture.dictionary, Some(&words)),
+                &mut buffer
+            )
+            .0,
+            "我噯哇/3"
+        );
+        let generation = buffer.best_generation;
+
+        // 别的种类的词改了：日志的 data_version 变了，粤语词没变，缓存保留。
+        writer
+            .execute(
+                "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,user_inserted) VALUES ('pinyin','ai''wa','哎哇','upsert',10,1)",
+                [],
+            )
+            .unwrap();
+        words.refresh();
+        assert_eq!(words.generation, generation);
+        assert_eq!(
+            first_row(
+                &scheme,
+                CantoneseLexicon::new(&fixture.dictionary, Some(&words)),
+                &mut buffer
+            )
+            .0,
+            "我噯哇/3"
+        );
+
+        // 删掉唯一的粤语词：词表变空、`CantoneseLexicon` 不再带用户词，缓存里的「噯哇」也要作废。
+        writer
+            .execute(
+                "UPDATE user_dictionary_operations SET operation='delete', weight=0 WHERE dictionary='cantonese' AND value='噯哇'",
+                [],
+            )
+            .unwrap();
+        words.refresh();
+        assert_ne!(words.generation, generation);
+        assert_eq!(
+            first_row(
+                &scheme,
+                CantoneseLexicon::new(&fixture.dictionary, Some(&words)),
+                &mut buffer
+            )
+            .0,
+            "我愛話/3"
         );
     }
 

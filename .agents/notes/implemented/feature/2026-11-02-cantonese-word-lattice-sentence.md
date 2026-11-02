@@ -11,12 +11,12 @@ Status: implemented
 `CantoneseScheme::candidates_into` 在原有候选之外插入一行整句，粤拼和粤语双拼共用。
 
 - 位置：双拼时每个完整两键码一个位置，读音是 `shuangpin::decode` 在库存里解出的全部音节；普通粤拼时是 `syllable::best` 切出的完整音节，每个一个读音。末尾单独的声母键和还没拼完的音节不参与。
-- 转换：复用注音的 `zhuyin::conversion::convert_filtered`（可见性从 `pub(super)` 放宽到 `pub(crate)`，算法不动）。每个区间取 `LanguageDictionary::lookup_readings(.., 1)` 的最重词条，路径分数先比各段长度平方和，再比权重和。
+- 转换：复用注音的 `zhuyin::conversion::convert_filtered`（可见性从 `pub(super)` 放宽到 `pub(crate)`，算法不动）。每个区间取 `CantoneseLexicon::lookup_best_reading` 的最重词条：发布库 `LanguageDictionary::lookup_readings(.., 1)` 的那一条和用户在个人词库加的粤语词（`UserWords`，#10594）按同一规则比（权重从重到轻，再按文字、键），同一个键下的同一个词取较大的权重，与候选各段的合并规则一致。用户加的词因此和发布词一样能拼进整句，也同样受下面的多读音下限约束。路径分数先比各段长度平方和，再比权重和。
 - 何时不出：位置少于 2 个或多于 `SENTENCE_MAX_SYLLABLES`（20，与注音上限相同）；已有候选行正好覆盖全部位置（整段本来就是词条，它已排在前面）；结果只有一段；或有位置连单字都查不到，兜底段的文字是拉丁读音本身。
 - 排序：整句插在第一行「覆盖音节数不超过它」的行前面。末尾单键或末尾半个音节补全出的行覆盖更多音节，仍在它前面，连续打字时首选不在整句和补全之间来回跳。
 - 多读音下限：经过多读音双拼码的多音节词，权重乘 `SENTENCE_AMBIGUOUS_WORD_FLOOR`（1000）要不低于区间内最弱的单字权重，做法与注音九键的 `AMBIGUOUS_WORD_FLOOR` 相同。普通粤拼每个位置只有一个读音，不受影响。
-- 缓存：`CantoneseQueryBuffer.best` 按区间各位置的读音缓存最重词条。词库在会话内只读，缓存按内容寻址，连续打字时只有以新音节结尾的区间要查；条目超过 2048 时整体清空。
-- 整句行的 `key` 是各段所用读音以空格连接，`weight` 是各段权重之和，`end` 是最后一个位置的结束字节。选中它沿用 `select_end`，一次上屏，提交路径不变。粤语不学习，不涉及用户词库。
+- 缓存：`CantoneseQueryBuffer.best` 按区间各位置的读音缓存最重词条，连续打字时只有以新音节结尾的区间要查；条目超过 2048 时整体清空。发布词库在会话内只读，用户的粤语词却会在会话中途变（`UserWords::refresh` 读到设置页或个人词库队列提交的增删），所以 `UserWords` 每次读到不同的词就把 `generation` 加一，`CantoneseLexicon` 带着它，缓存记下填它时的版本（`best_generation`），对不上就整体清空。只看日志的 `data_version` 不够细：别的种类的词改了也会让它变，那时粤语词没变，缓存照留。
+- 整句行的 `key` 是各段所用读音以空格连接，`weight` 是各段权重之和，`end` 是最后一个位置的结束字节。选中它沿用 `select_end`，一次上屏，提交路径不变。粤语不学习，上屏不写用户词库；用户手动加的粤语词只读不写。
 
 预编辑展开跟随已有的「双拼显示原始按键」（`shuangpin_preedit_uses_raw`，默认仍是原始按键）。关掉时，宿主快照（`display_snapshot` / `snapshot_for_host`）的 `preedit` 改为 `CantoneseScheme::jyutping_display` 的结果：首选候选覆盖的完整码按它用的读音写，其余的码取库存里解出的第一个读音，末尾单独的声母键和 `'` 原样保留（`vo'danzd` → `ngo' daa nei d`）。`editing_text`、`normalized_segmentation` 和 `Session::snapshot` 的 `preedit` 都不变，因为粤拼的编辑文字会被 `set_raw_input` 读回成原始输入，换成粤拼就和按键对不上了。光标后编辑时不展开。iOS 设置副标题改成「关闭后显示按键对应的完整拼音或粤拼」，不新增开关。
 
@@ -64,10 +64,11 @@ Status: implemented
 - 收益：库里已有的词能拼成整句放在首位，「我打你」「周杰倫」这类整段不在库里的输入一次上屏（#10369 原先要分两次选）。粤语双拼可以显示展开后的粤拼，三端宿主画的都是同一个快照字段，不需要改宿主代码。
 - 代价：整句不对时，原先排第一的开头单字或短词退到第二位，空格会上屏错的整句。这会改变普通粤拼和粤语双拼用户的首位候选，属于默认行为变化，已经维护者批准。每次按键多约 0.25 ms（p50）。
 - 验证缺口：没有母语者开发集和独立盲测集，评估笔记建议的「至少 200 个由母语者固定读音与可接受候选的样例」仍未建立。真机上的首候选延迟和内存没有测，标记文本显示粤拼后在第三方 App 里的删除、移动光标和回车也没有在真机上验证。
-- 测试：`cantonese::scheme` 单元测试覆盖双拼与普通粤拼组句、排序、兜底、上限、多读音下限和展开文字；`session::tests::cantonese_shuangpin_sentence_commits_whole_and_preedit_follows_the_raw_key_preference` 覆盖整句一次上屏，以及两种偏好下的显示快照、编辑文字和原始快照。
+- 测试：`cantonese::scheme` 单元测试覆盖双拼与普通粤拼组句、排序、兜底、上限、多读音下限和展开文字；`session::tests::cantonese_shuangpin_sentence_commits_whole_and_preedit_follows_the_raw_key_preference` 覆盖整句一次上屏，以及两种偏好下的显示快照、编辑文字和原始快照。`user_words_take_part_in_the_composed_sentence` 覆盖用户的多音节词拼进整句、单字词与发布的同字取较大权重；`sentence_cache_follows_user_word_changes` 用同一个会话缓冲覆盖加词、删光词后缓存作废，以及别的种类改词时缓存保留（去掉版本比较时这条测试失败）。
 
 ## Related notes audit
 
+- [粤语个人词条](2026-11-02-cantonese-personal-words.md)：部分重叠。它定下 `UserWords` 与 `CantoneseLexicon` 的读取和合并规则，本篇组句沿用同一规则取最重词条，并给 `UserWords` 加了内容版本，供组句缓存作废。
 - [粤语整词与整句的分阶段评估](../../proposed/feature/2026-10-30-cantonese-word-sentence-evaluation.md)：部分落实。本篇实现路线 2，路线 1（审校词表扩充）和路线 3（n-gram）仍是提案，母语者开发集的门槛也没有满足，所以那一篇保持 proposed，并加上指向本篇的链接。
 - [粤语双拼两键定音节](../bug-fix/2026-10-29-cantonese-shuangpin-strict-expansion.md)：部分重叠。它持有展开、分段和候选排序规则，本篇沿用这些规则，只多插入一行整句，不改变它的决定。
 - [粤语双拼](2026-10-26-cantonese-shuangpin.md)：部分重叠。编辑文字仍是两键一组（`nz hb`），本篇只给宿主显示另加展开文字。
