@@ -537,7 +537,11 @@ test.each(["windows", "macos", "linux"] as const)(
   },
 );
 
-test("hosts that do not process voice punctuation do not offer it", async () => {
-  await openVoice("android");
-  expect(screen.queryByRole("combobox", { name: "语音标点" })).toBeNull();
-});
+// Android 和 iOS 的键盘还没在上屏前处理语音标点（iOS 见 #10595），设置页不给这一行，免得选了不起作用。
+test.each(["android", "ios"] as const)(
+  "%s does not offer voice punctuation before its host processes it",
+  async (platform) => {
+    await openVoice(platform);
+    expect(screen.queryByRole("combobox", { name: "语音标点" })).toBeNull();
+  },
+);
