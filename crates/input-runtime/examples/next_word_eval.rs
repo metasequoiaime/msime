@@ -4,7 +4,7 @@
 //!
 //! 每条用例在每一臂里都走真实的运行时和引擎：清掉上文再放进这条的上文（`seed_context`），打这个词的拼音，选中文字等于它的那一行上屏，读上屏后显示的联想行。「今天」一臂不挂打分器，就是不排序的联想；其余各臂挂一个打分器（随包的 `model-v1`，以及每个 `--onnx-model`），引擎因此多取 32 条词库续写、排序后显示 8 条。产品里只有报 `scores_prediction_pool_within_a_frame` 的打分器（ONNX 后端）才排联想，随包模型不排；这里给每一臂都套上 [`Pooled`]，量的是排了会怎样，随包模型那一臂的延迟就是它在产品里不排的理由。`--unranked` 再给每个打分器加一臂「挂着但不排联想」，就是产品里随包模型的样子。排序规则（总对数概率、32 条候选池、个人习惯行在前）在看评测数字之前就定了，这里不调任何参数。
 //!
-//! 计时的是上屏那一次 `dispatch`（引擎选词、查续写、打分、取快照），以及紧接着按下的一个键（`d`，逐键重排读的是同一段新上文），各臂轮流先跑，配对的差就是打分器多花的时间。上屏时排联想要为新的上文重新编码前缀，这一份不排时下一次按键也要付，所以上屏的差是上屏那一帧的代价；「上屏加下一键」与 `--unranked` 那一臂的差才是排联想真正新增的代价。不学习（`learning = false`），所以没有个人习惯行，量的只是词库续写的排序。
+//! 计时的是上屏那一次 `dispatch`（引擎选词、查续写、打分、取快照），以及上屏之后接着打答案里第一个词的读音（逐键重排读的是同一段新上文），各臂轮流先跑，配对的差就是打分器多花的时间。上屏时排联想要为新的上文编码前缀，不排时这一份落在之后第一次真正调到模型的按键上（首行是可信的词典命中时按键不调模型），所以上屏的差是上屏那一帧的代价；「上屏加下一个词」与 `--unranked` 那一臂的差才是排联想真正新增的代价。不学习（`learning = false`），所以没有个人习惯行，量的只是词库续写的排序。
 //!
 //! 用法：`next_word_eval --resources <verified-dir> --corpus cmn_sentences_detailed.tsv [--cases 3000] [--longest 2] [--seed 7] [--warmup 20] [--no-bundled] [--onnx-model <dir>]... [--onnx-threads 2] [--unranked] [--dump cases.jsonl]`
 mod eval_resources;
@@ -25,6 +25,8 @@ struct Case {
     word: String,
     pinyin: String,
     gold: String,
+    /// 答案里第一个词的读音：上屏之后接着打它，量逐键重排在新上文上的那几键。
+    next_pinyin: String,
 }
 
 fn is_han(character: char) -> bool {
@@ -138,11 +140,19 @@ fn build_cases(
         }
         let (start, word) = bounds[random.random_range(0..bounds.len())];
         let end = start + word.chars().count();
+        // 切词首尾相接，`end` 不在句末，所以总有一个词从这里开始。
+        let next = words
+            .iter()
+            .find(|(next, _)| *next == end)
+            .map_or("", |(_, next)| next.as_str());
         cases.push(Case {
             context: run[..*start].iter().collect(),
             word: word.clone(),
             pinyin: readings[word].0.clone(),
             gold: run[end..].iter().collect(),
+            next_pinyin: readings
+                .get(next)
+                .map_or_else(String::new, |(key, _)| key.clone()),
         });
         if cases.len() == count {
             break;
@@ -206,14 +216,14 @@ struct Arm {
     _state: tempfile::TempDir,
     /// 每条用例上屏后显示的联想行；没走到上屏的用例为 `None`。
     rows: Vec<Option<Vec<String>>>,
-    /// 上屏那一次 `dispatch` 和紧接着的下一键的耗时，按用例下标，预热的用例不计。
+    /// 上屏那一次 `dispatch` 和接着打下一个词的读音的耗时，按用例下标，预热的用例不计。
     timings: Vec<Option<(Duration, Duration)>>,
 }
 
-/// 上屏后显示的联想行，上屏那一次 `dispatch` 和紧接着的下一键的耗时。
+/// 上屏后显示的联想行，上屏那一次 `dispatch` 和接着打下一个词的读音的耗时。
 type Committed = (Vec<String>, Duration, Duration);
 
-/// 打这条用例的拼音，选中文字等于这个词的那一行上屏，再按一个 `d`；返回上屏后的联想行和两次的耗时。找不到这一行或上屏的不是这个词时为 `None`。
+/// 打这条用例的拼音，选中文字等于这个词的那一行上屏，再打下一个词的读音；返回上屏后的联想行和两段的耗时。找不到这一行或上屏的不是这个词时为 `None`。
 fn run_case(
     runtime: &mut Runtime<Session>,
     case: &Case,
@@ -253,10 +263,12 @@ fn run_case(
         Vec::new()
     };
     let started = Instant::now();
-    runtime.dispatch(Action::Character {
-        value: b'd',
-        shift: false,
-    })?;
+    for byte in case.next_pinyin.bytes() {
+        runtime.dispatch(Action::Character {
+            value: byte,
+            shift: false,
+        })?;
+    }
     let next = started.elapsed();
     Ok(Some((rows, elapsed, next)))
 }
@@ -558,8 +570,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
     report("commit dispatch", &|(commit, _)| commit);
-    report("next key after the commit", &|(_, next)| next);
-    report("commit plus next key", &|(commit, next)| commit + next);
+    report("typing the next word's reading after the commit", &|(
+        _,
+        next,
+    )| {
+        next
+    });
+    report("commit plus the next word's reading", &|(commit, next)| {
+        commit + next
+    });
 
     if let Some(path) = dump {
         let mut file = std::io::BufWriter::new(std::fs::File::create(path)?);
