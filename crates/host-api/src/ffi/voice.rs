@@ -812,6 +812,38 @@ pub unsafe extern "C" fn msime_client_voice_normalize_numbers(
     })
 }
 
+/// 按语音标点方式处理一段最终识别结果（`voice::punctuation`）。
+///
+/// 请求 `{"text": "...", "mode": "auto" | "omit_trailing" | "omit_all" | "space"}`，响应 `{"text": "..."}`。不认识的 `mode` 按 `auto` 原样返回；整段只有标点时返回空串，宿主按没有识别到内容处理。纯函数；只用于最终文本，文本上限与 `msime_client_voice_hotword_correct` 相同。
+///
+/// # Safety
+/// `request` 必须指向 `length` 个可读字节；null 会被拒绝。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_voice_punctuation(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        #[derive(Deserialize)]
+        struct PunctuationRequest {
+            text: String,
+            mode: String,
+        }
+        let request: PunctuationRequest =
+            local_voice_request(request, length, LOCAL_VOICE_REQUEST_LIMIT)?;
+        if !is_bounded_chars_without_nul(&request.text, MAX_VOICE_CORRECTION_TEXT_CHARS)
+            || !is_bounded_text(&request.mode, 64)
+        {
+            return Err("invalid voice punctuation request".into());
+        }
+        let mode =
+            msime_client_providers::voice::punctuation::PunctuationMode::parse(&request.mode);
+        Ok(json!({
+            "text": msime_client_providers::voice::punctuation::apply(&request.text, mode),
+        }))
+    })
+}
+
 /// The on-device model catalog with what is installed under a root.
 ///
 /// Request `{"root": "<absolute dir>"}`; response `{"models": [LocalModelStatus], "default": "<id>"}`. A model's `path` is what `voice_input.asr_model_path` is set to when the user picks it.

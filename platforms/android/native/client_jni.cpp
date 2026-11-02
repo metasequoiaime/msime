@@ -1152,6 +1152,9 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_voiceHotwordCor
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_voiceNormalizeNumbersRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kVoiceRequestLimit, msime_client_voice_normalize_numbers);
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_voicePunctuationRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kVoiceRequestLimit, msime_client_voice_punctuation);
+}
 // 应用主题目录与当季颜色：纯计算。
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_appThemeCatalogRaw(JNIEnv *env, jclass) {
     return response(env, msime_client_app_theme_catalog());

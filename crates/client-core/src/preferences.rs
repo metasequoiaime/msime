@@ -2432,6 +2432,12 @@ pub struct VoiceInputPreferences {
         skip_serializing_if = "is_default_voice_stop_sensitivity"
     )]
     pub stop_sensitivity: u8,
+    /// 语音标点：识别结果上屏前怎么处理标点，`auto`（原样，出厂默认）、`omit_trailing`（去掉句末标点）、`omit_all`（去掉所有标点）、`space`（标点换成空格）。对所有识别服务和润色后的文本都生效，规则在 `msime_client_providers::voice::punctuation`，宿主上屏前经 `msime_client_voice_punctuation` 调用。读的时候不认识的值按 `auto` 处理，所以这里不校验取值，更新版本写下的新选项不会让旧版本读不了偏好。与 `doubao_enable_punc` 无关：那一项只决定豆包请求时要不要标点。默认值不写进文档。
+    #[serde(
+        default = "default_voice_punctuation_mode",
+        skip_serializing_if = "is_default_voice_punctuation_mode"
+    )]
+    pub punctuation_mode: String,
 }
 
 /// EveryAPI 的识别默认模型以前写成 `openai/whisper-large-v3-turbo`，那是照搬 Apple 预设的名字，EveryAPI 从没有它的渠道（请求返回 503 `model_not_found`）。共享设置页切到 EveryAPI 时会把默认模型写进 `asr_model`，所以选过 EveryAPI 的文档里存的就是这个值。
@@ -2493,6 +2499,7 @@ impl Default for VoiceInputPreferences {
             doubao_boosting_table_id: String::new(),
             pause_millis: VOICE_PAUSE_MILLIS_DEFAULT,
             stop_sensitivity: VOICE_STOP_SENSITIVITY_DEFAULT,
+            punctuation_mode: default_voice_punctuation_mode(),
         }
     }
 }
@@ -4247,6 +4254,17 @@ fn default_voice_stop_sensitivity() -> u8 {
 
 fn is_default_voice_stop_sensitivity(value: &u8) -> bool {
     *value == VOICE_STOP_SENSITIVITY_DEFAULT
+}
+
+/// `voice_input.punctuation_mode` 的出厂值：识别结果原样上屏。
+pub const VOICE_PUNCTUATION_MODE_DEFAULT: &str = "auto";
+
+fn default_voice_punctuation_mode() -> String {
+    VOICE_PUNCTUATION_MODE_DEFAULT.into()
+}
+
+fn is_default_voice_punctuation_mode(value: &str) -> bool {
+    value == VOICE_PUNCTUATION_MODE_DEFAULT
 }
 
 impl Default for Preferences {

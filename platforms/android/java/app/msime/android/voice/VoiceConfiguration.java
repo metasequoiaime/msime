@@ -25,6 +25,8 @@ public final class VoiceConfiguration {
     private final VoiceRecognitionActivity.Streaming streaming;
     private final VoiceRecognitionActivity.Polish polish;
     private final String localModel;
+    /** 语音标点方式（{@link VoicePunctuation}），共享解析的 `punctuationMode`；与选了哪种识别服务无关，没有配置服务时同样生效。 */
+    private String punctuationMode = VoicePunctuation.AUTO;
 
     private VoiceConfiguration(String providerName, String endpoint, String model, String token,
                                VoiceRecognitionActivity.Streaming streaming,
@@ -91,6 +93,11 @@ public final class VoiceConfiguration {
         return polish;
     }
 
+    /** 上屏前怎么处理识别结果里的标点，交给 {@link VoicePunctuation#apply}；读不到共享解析时是 {@link VoicePunctuation#AUTO}。 */
+    public String punctuationMode() {
+        return punctuationMode;
+    }
+
     /** The installed model directory for on-device recognition, or null for every other engine. */
     public String localModel() {
         return localModel;
@@ -119,40 +126,47 @@ public final class VoiceConfiguration {
             if (!JsonPolicy.strictTrue(document.opt("ok"))) return none();
             JSONObject value = document.optJSONObject("value");
             if (value == null) return none();
-            JSONObject provider = value.optJSONObject("provider");
-            JSONObject polishValue = value.optJSONObject("polish");
-            VoiceRecognitionActivity.Polish polish = polish(polishValue, requestId);
-            if (provider == null) return new VoiceConfiguration(null, null, null, null, null, polish);
-            String name = JsonPolicy.strictStringOrEmpty(provider.opt("provider"));
-            String requestFormat = JsonPolicy.strictStringOrEmpty(provider.opt("requestFormat"));
-            String endpoint = JsonPolicy.strictStringOrEmpty(provider.opt("endpoint"));
-            String model = JsonPolicy.strictStringOrEmpty(provider.opt("model"));
-            String token = JsonPolicy.strictStringOrEmpty(provider.opt("token"));
-            String[] headers = headers(provider.optJSONArray("headers"));
-            String modelPath = JsonPolicy.strictStringOrEmpty(provider.opt("modelPath"));
-            if ("local".equals(name)) {
-                return fromProvider(name, modelPath, polish);
-            }
-            if (LocalAsrPolicy.usable(name, modelPath)) {
-                return new VoiceConfiguration(name, null, null, null, null, polish, modelPath);
-            }
-            if (DoubaoAsrPolicy.usable(name, endpoint, java.util.Arrays.asList(names(headers)))) {
-                return new VoiceConfiguration(name, null, null, null,
-                    new VoiceRecognitionActivity.Streaming(endpoint, headers,
-                        JsonPolicy.strictTrue(provider.opt("enableItn")),
-                        JsonPolicy.strictTrue(provider.opt("enablePunctuation")),
-                        JsonPolicy.strictTrue(provider.opt("enableDdc")),
-                        JsonPolicy.strictStringOrEmpty(provider.opt("boostingTableId"))),
-                    polish);
-            }
-            if (HttpAsrPolicy.usable(requestFormat, endpoint, model, token)) {
-                return new VoiceConfiguration(name, requestFormat, endpoint, model, token, null,
-                    polish, null);
-            }
-            return new VoiceConfiguration(null, null, null, null, null, polish);
+            VoiceConfiguration configuration = engine(value, requestId);
+            configuration.punctuationMode = VoicePunctuation.mode(value.opt("punctuationMode"));
+            return configuration;
         } catch (JSONException error) {
             return none();
         }
+    }
+
+    /** 共享解析里的识别服务和润色。 */
+    private static VoiceConfiguration engine(JSONObject value, String requestId) {
+        JSONObject provider = value.optJSONObject("provider");
+        JSONObject polishValue = value.optJSONObject("polish");
+        VoiceRecognitionActivity.Polish polish = polish(polishValue, requestId);
+        if (provider == null) return new VoiceConfiguration(null, null, null, null, null, polish);
+        String name = JsonPolicy.strictStringOrEmpty(provider.opt("provider"));
+        String requestFormat = JsonPolicy.strictStringOrEmpty(provider.opt("requestFormat"));
+        String endpoint = JsonPolicy.strictStringOrEmpty(provider.opt("endpoint"));
+        String model = JsonPolicy.strictStringOrEmpty(provider.opt("model"));
+        String token = JsonPolicy.strictStringOrEmpty(provider.opt("token"));
+        String[] headers = headers(provider.optJSONArray("headers"));
+        String modelPath = JsonPolicy.strictStringOrEmpty(provider.opt("modelPath"));
+        if ("local".equals(name)) {
+            return fromProvider(name, modelPath, polish);
+        }
+        if (LocalAsrPolicy.usable(name, modelPath)) {
+            return new VoiceConfiguration(name, null, null, null, null, polish, modelPath);
+        }
+        if (DoubaoAsrPolicy.usable(name, endpoint, java.util.Arrays.asList(names(headers)))) {
+            return new VoiceConfiguration(name, null, null, null,
+                new VoiceRecognitionActivity.Streaming(endpoint, headers,
+                    JsonPolicy.strictTrue(provider.opt("enableItn")),
+                    JsonPolicy.strictTrue(provider.opt("enablePunctuation")),
+                    JsonPolicy.strictTrue(provider.opt("enableDdc")),
+                    JsonPolicy.strictStringOrEmpty(provider.opt("boostingTableId"))),
+                polish);
+        }
+        if (HttpAsrPolicy.usable(requestFormat, endpoint, model, token)) {
+            return new VoiceConfiguration(name, requestFormat, endpoint, model, token, null,
+                polish, null);
+        }
+        return new VoiceConfiguration(null, null, null, null, null, polish);
     }
 
     /** 即使本机无法使用路径，也保留明确选择的本地识别，不能静默切到系统云端识别。 */

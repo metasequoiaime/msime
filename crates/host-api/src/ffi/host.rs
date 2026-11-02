@@ -441,7 +441,14 @@ pub unsafe extern "C" fn msime_client_mobile_voice_configuration(
                 "promptCustom3": value.prompt_custom_3,
             })
         });
-        Ok(json!({ "provider": provider, "polish": polish }))
+        let punctuation = msime_client_providers::voice::punctuation::PunctuationMode::configured(
+            &snapshot.preferences,
+        );
+        Ok(json!({
+            "provider": provider,
+            "polish": polish,
+            "punctuationMode": punctuation.as_str(),
+        }))
     })
 }
 
