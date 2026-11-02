@@ -125,6 +125,26 @@ constexpr bool ShouldRouteSpellingShiftCandidateDigit(bool candidatePanelVisible
     return candidatePanelVisible && digitIsSpelling && shiftOnly && !shiftedIsSpelling;
 }
 
+// 上屏后联想显示时，这个键会不会把光标从联想所接的位置挪走或改动文档：方向键、Home、End、Page Up/Down 移动光标，Command 和 Control 组合键是应用的命令（粘贴、撤销、Emacs 式移动光标）。这些键收掉联想时要重新聚焦、切断旧的词序上下文；打字的键（字母、标点、回车、退格、Tab、Esc，以及没有选中联想的数字和空格）只取消联想。
+constexpr bool PredictionKeyMovesCaret(unsigned short keyCode, bool command, bool control)
+{
+    if (command || control) return true;
+    switch (keyCode)
+    {
+    case 123: // kVK_LeftArrow
+    case 124: // kVK_RightArrow
+    case 125: // kVK_DownArrow
+    case 126: // kVK_UpArrow
+    case 115: // kVK_Home
+    case 119: // kVK_End
+    case 116: // kVK_PageUp
+    case 121: // kVK_PageDown
+        return true;
+    default:
+        return false;
+    }
+}
+
 // The digit a candidate slot's physical key types, so it can be looked up in spelling_symbols whatever the keyboard layout puts on that key.
 constexpr char PhysicalCandidateDigitCharacter(int slot)
 {
