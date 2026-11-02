@@ -35,7 +35,9 @@ export function WubiCodeLookupResults({ result, profile }: WubiCodeLookupResults
           >
             <thead>
               <tr>
-                <th scope="col">文字</th>
+                <th scope="col" className="whitespace-nowrap">
+                  文字
+                </th>
                 {wubiProfiles.map((column) => (
                   <th scope="col" key={column}>
                     {column === current ? `${columnTitles[column]}（当前）` : columnTitles[column]}
