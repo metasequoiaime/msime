@@ -161,8 +161,14 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
         keyboard_reranker_enabled(&applied.sentence_association, edition),
         &options.resources,
         options.helpcode_fallback_resources.as_deref(),
+        state_root.as_deref(),
         sentence_model_path.as_deref(),
     ));
+    let keyboard_reranker_source = crate::ffi::onnx_rerank_source(
+        &options.resources,
+        options.helpcode_fallback_resources.as_deref(),
+        state_root.as_deref(),
+    );
 
     // The settled model is optional and independent: a resource set that ships only the small
     // one behaves exactly as before, and one that ships both gets the fast model per keystroke
@@ -230,6 +236,7 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
                 recorded_language_dictionaries,
                 resources_pending: false,
                 recorded_sentence_model: sentence_model_path,
+                keyboard_reranker_source,
                 recorded_settled_model,
                 settled_model,
                 settled_model_attached,

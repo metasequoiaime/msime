@@ -330,6 +330,8 @@ struct HostSession {
     resources_pending: bool,
     /// HostOptions 记录的键盘模型路径（`sentence_model`），为 `None` 时用资源目录里的那份；`neural_keyboard` 在会话中途打开时按它加载逐键重排，见 [`ffi::keyboard_reranker`]。
     recorded_sentence_model: Option<String>,
+    /// 上一次挂逐键重排时 ONNX 模型的来源目录（[`ffi::onnx_rerank_source`]），没有 ONNX 模型或没开特性时为 `None`。聚焦时与此刻的来源比较：设置应用刚装好（或移除了）`rerank-model-small` 资源包时重新挂。
+    keyboard_reranker_source: Option<PathBuf>,
     /// HostOptions 记录的落定重排模型路径（`settled_model`）：随包的模型优先于下载的资源包，见 [`settled_model_file`]。
     recorded_settled_model: Option<String>,
     /// 当前挂在 runtime 上的落定重排模型文件，没有模型时为 `None`。
@@ -1007,8 +1009,14 @@ impl HostSession {
                 keyboard,
                 &options.resources,
                 options.helpcode_fallback_resources.as_deref(),
+                self.state_root.as_deref(),
                 self.recorded_sentence_model.as_deref(),
             ));
+            self.keyboard_reranker_source = ffi::onnx_rerank_source(
+                &options.resources,
+                options.helpcode_fallback_resources.as_deref(),
+                self.state_root.as_deref(),
+            );
         }
         self.options = options;
         self.plugin_tables = plugin_tables;
@@ -1098,6 +1106,24 @@ impl HostSession {
                 &self.options.resources,
                 self.settled_model.clone(),
             ));
+        }
+        // 「增强」开着时，设置应用可能刚装好（或移除了）逐键重排模型的资源包（Android 的 `rerank-model-small`）：来源变了就重新挂，随包的句子模型换成 ONNX 模型，或反过来。
+        if keyboard_reranker_enabled(&self.applied.sentence_association, self.edition) {
+            let source = ffi::onnx_rerank_source(
+                &self.options.resources,
+                self.options.helpcode_fallback_resources.as_deref(),
+                state_root,
+            );
+            if source != self.keyboard_reranker_source {
+                self.runtime.set_candidate_scorer(ffi::keyboard_reranker(
+                    true,
+                    &self.options.resources,
+                    self.options.helpcode_fallback_resources.as_deref(),
+                    state_root,
+                    self.recorded_sentence_model.as_deref(),
+                ));
+                self.keyboard_reranker_source = source;
+            }
         }
         let downloaded = state_root.map(DownloadedDictionaries::new);
         let dictionaries = LanguageDictionaries::resolve(
