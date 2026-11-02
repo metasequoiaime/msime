@@ -35,6 +35,7 @@ import {
   packFromDraft,
   parsePhraseLines,
   parseWordLines,
+  QUICK_PHRASE_CURSOR_NOTE,
   type AuthoringDraft,
   type DraftGroup,
   type DraftWord,
@@ -379,6 +380,7 @@ function PhraseRows({
           编码是 K 之后输入的小写字母，最多 32 个；同一个编码可以对应几段文字。文字最多{" "}
           {MAX_TEXT_UTF16} 个字符，不能换行。
         </SettingsManagerNote>
+        <SettingsManagerNote>{QUICK_PHRASE_CURSOR_NOTE}</SettingsManagerNote>
         {rows.slice(0, shown).map((row, index) => (
           <SettingsPhraseForm key={index}>
             <SettingsInputField

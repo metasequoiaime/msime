@@ -43,6 +43,9 @@
 #include "../../../shared/contracts/windows_ipc.h"
 #include "../tsf/IPC/AuxNamedpipeSender.h"
 #include "../../common/HostApiString.h"
+#include "../../common/CrashRecorder.h"
+#include "../../common/Telemetry.h"
+#include <thread>
 #include "../common/GameCompatProfile.h"
 #include "AboutPageModel.h"
 #include "AccountPageModel.h"
@@ -714,6 +717,9 @@ uint64_t strict_revision(JsonObject const &object, std::wstring_view key,
   return static_cast<uint64_t>(raw);
 }
 
+// 保存后立即刷新持久授权；窗口存活期间另有独立观察器跟随其他进程的修改。
+void RefreshCrashCapture() { msime::telemetry::refresh(); }
+
 class PreferencesDocument {
 public:
   PreferencesDocument() { reset_defaults(); }
@@ -766,6 +772,7 @@ public:
           JsonObject::Parse(text(response.text)).GetNamedObject(L"value");
       preferences_ = document_.GetNamedObject(L"preferences");
       revision_ = strict_revision(document_, L"revision", revision_);
+      RefreshCrashCapture();
       return std::nullopt;
     } catch (...) {
       // 设置已写入，但返回内容读不了：调用方重读已存的设置。
@@ -15827,6 +15834,12 @@ private:
     weight.Value(previous ? static_cast<double>(previous->weight) : 10.0);
     form.Children().Append(key);
     form.Children().Append(value);
+    // 与共享页 dictionary-entries.tsx 一样，在短语框下说明光标标记的写法。
+    if (kind == L"quick_phrase" && !bundled) {
+      auto note = make_text(pg::quick_phrase_cursor_note, 12, palette_.sub);
+      note.MaxWidth(360);
+      form.Children().Append(note);
+    }
     form.Children().Append(weight);
     ContentDialog dialog;
     dialog.Title(box_value(hstring(previous ? (bundled ? L"调权重" : L"编辑词条") : L"新增词条")));
@@ -22495,6 +22508,7 @@ private:
       body.Children().Append(make_text(L"编码是 K 之后输入的小写字母，最多 32 个；同一个编码可以对应几段文字。文字最多 " +
                                            std::to_wstring(pg::max_text_utf16) + L" 个字符，不能换行。",
                                        12, palette_.sub));
+      body.Children().Append(make_text(pg::phrase_cursor_note, 12, palette_.sub));
       for (std::size_t i = 0; i < std::min(draft.phrases.size(), plugin_editor_shown_); ++i) {
         const auto at = L"第 " + std::to_wstring(i + 1) + L" 条短语";
         auto key = plugin_editor_field(
@@ -27653,6 +27667,19 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR command, int) {
   if (activation != msime::settings::SettingsInstance::Start::primary)
     return activation == msime::settings::SettingsInstance::Start::forwarded ? 0 : 1;
   init_apartment(apartment_type::single_threaded);
+  msime::crash::install_crash_handlers();
+  std::vector<wchar_t> local(32768);
+  const DWORD length = GetEnvironmentVariableW(L"LOCALAPPDATA", local.data(), static_cast<DWORD>(local.size()));
+  const auto telemetryDirectory = length && length < local.size()
+      ? std::filesystem::path(std::wstring(local.data(), length)) / MSIME_EDITION_USER_DATA_DIRECTORY
+      : std::filesystem::path();
+  // 原生设置只产生独立崩溃，不建立输入会话；启动补报沿用一次后台发送。没有绝对偏好目录就读不到持续授权，此时不启动采集，免得落入旧协议的默认开启；带上包内版本，首次读取授权时不会把非 full 版本的偏好按 full 初始化。
+  if (const auto preferences = state_directory(); preferences.is_absolute())
+    msime::telemetry::begin({"windows", MSIME_WINDOWS_VERSION, telemetryDirectory,
+                            std::nullopt, preferences, "settings", true, MSIME_EDITION_ID});
+  msime::telemetry::ConsentObserver reporting;
+  std::thread([] { msime::telemetry::flush(); }).detach();
+  std::set_terminate([] { msime_native_crash_record("std::terminate in settings"); std::abort(); });
   Application::Start([&instance](auto &&) { make<App>(instance); });
   return 0;
 }
