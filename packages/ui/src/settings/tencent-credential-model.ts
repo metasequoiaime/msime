@@ -26,6 +26,9 @@ export interface TencentCredentialEditorModelOptions extends TencentCredentialSa
 export interface TencentCredentialEditorModel {
   stored: TencentCredentialStatus["tencent"] | undefined;
   region: string;
+  /** 凭据现在的状态（文件无效、已保存），常驻；还没保存时为 null。 */
+  status: string | null;
+  /** 凭据存在哪里、谁来读：解释，收进「在线翻译服务」旁的「?」。 */
   description: string;
   regionInvalid: boolean;
   saveDisabled: boolean;
@@ -46,11 +49,13 @@ export function tencentCredentialEditorModel(
   return {
     stored,
     region,
-    description: status?.tencentInvalid
+    status: status?.tencentInvalid
       ? "现有 tencent-provider.json 无效，provider 服务不会发出翻译请求；请修复或删除该文件。"
       : stored
         ? "腾讯云凭据已保存；SecretId 和 SecretKey 留空则保留原值。"
-        : "凭据只写入用户配置目录的 tencent-provider.json，由 provider 服务读取，不进入共享设置。",
+        : null,
+    description:
+      "由用户管理的 Linux provider 服务负责网络请求和凭据。凭据只写入用户配置目录的 tencent-provider.json，由 provider 服务读取，不进入共享设置。",
     regionInvalid: tencentCredentialIssue("", "", region) !== "",
     saveDisabled: busy || (!stored && (!input.secretId.trim() || !input.secretKey.trim())),
     clearDisabled: busy,

@@ -1,7 +1,7 @@
 import { downloadBlob } from "../core/download-blob";
 import { exceptionMessage } from "../core/exception-message";
 import { SettingsGroupNote } from "./settings-group-note";
-import { SettingsManagerNote } from "./settings-manager-note";
+import { InfoTip } from "../core/info-tip";
 import { SettingsManagerActions } from "./settings-manager-actions";
 import { useRef, useState } from "react";
 import { useAsyncActionRunner } from "../core/use-async-action";
@@ -161,11 +161,12 @@ export function PersonalDictionaryImportCard({
   if (embedded) {
     return (
       <SettingsManagerBlock role="group" aria-label="个人词库文件">
-        <div>
+        {/* 嵌在别的组里时没有组名可挂，「?」跟在这一块的标题后面。 */}
+        <div className="flex items-center gap-1">
           <span className={rowTitle} data-row-title="">
             个人词库文件
           </span>
-          <SettingsManagerNote>{note}</SettingsManagerNote>
+          <InfoTip subject="个人词库文件">{note}</InfoTip>
         </div>
         {content}
       </SettingsManagerBlock>

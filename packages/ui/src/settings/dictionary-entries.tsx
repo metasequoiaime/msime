@@ -13,6 +13,7 @@ import {
 } from "../dictionary/dictionary-kinds";
 import * as settings from "./settings-style";
 import { SettingsPhraseForm } from "./settings-phrase-form";
+import { InfoTip } from "../core/info-tip";
 import { ActionButton } from "./action-button";
 import { QUICK_PHRASE_DICTIONARY_CURSOR_NOTE } from "./plugin-editor-model";
 import { SettingsEmptyMessage } from "./settings-empty-message";
@@ -72,8 +73,11 @@ export function DictionaryEntries({
               readOnly={form.previous?.source === "bundled"}
               onChange={(event) => onFormChange({ ...form, value: event.target.value })}
             />
+            {/* 光标标记怎么写是解释：在 label 里只能放悬停的「?」，文本框照旧以 label 命名。 */}
             {kind === "quick_phrase" && (
-              <small className={settings.keyHint}>{QUICK_PHRASE_DICTIONARY_CURSOR_NOTE}</small>
+              <InfoTip passive subject="短语">
+                {QUICK_PHRASE_DICTIONARY_CURSOR_NOTE}
+              </InfoTip>
             )}
           </label>
           <label>

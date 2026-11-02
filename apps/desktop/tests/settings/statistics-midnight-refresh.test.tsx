@@ -30,7 +30,7 @@ test.each([false, true])(
       );
     });
     fireEvent.click(screen.getByRole("tab", { name: "趋势" }));
-    const trend = screen.getByRole("heading", { name: /每日趋势/ }).parentElement!;
+    const trend = screen.getByRole("heading", { name: /每日趋势/ }).closest("section")!;
     expect(within(trend).getByText("6月17日")).toBeTruthy();
     expect(screen.getByLabelText("今日输入字符数").textContent).toBe("4");
 
@@ -40,7 +40,9 @@ test.each([false, true])(
 
     expect(load).toHaveBeenCalledTimes(2);
     expect(
-      within(screen.getByRole("heading", { name: /每日趋势/ }).parentElement!).getByText("6月18日"),
+      within(screen.getByRole("heading", { name: /每日趋势/ }).closest("section")!).getByText(
+        "6月18日",
+      ),
     ).toBeTruthy();
     expect(screen.getByLabelText("今日输入字符数").textContent).toBe("0");
   },
@@ -66,7 +68,9 @@ test.each([false, true])("回到前台后趋势随本地日期更新（mobile=%s
 
   expect(load).toHaveBeenCalledTimes(2);
   expect(
-    within(screen.getByRole("heading", { name: /每日趋势/ }).parentElement!).getByText("6月18日"),
+    within(screen.getByRole("heading", { name: /每日趋势/ }).closest("section")!).getByText(
+      "6月18日",
+    ),
   ).toBeTruthy();
   expect(screen.getByLabelText("今日输入字符数").textContent).toBe("0");
 });
@@ -98,7 +102,7 @@ test.each([false, true])(
       else window.dispatchEvent(new Event("focus"));
     });
 
-    const trend = screen.getByRole("heading", { name: /每日趋势/ }).parentElement!;
+    const trend = screen.getByRole("heading", { name: /每日趋势/ }).closest("section")!;
     expect(within(trend).getByText("6月18日")).toBeTruthy();
     expect(screen.getByLabelText("今日输入字符数").textContent).toBe("3");
     if (!mobile)

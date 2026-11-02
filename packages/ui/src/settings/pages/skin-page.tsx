@@ -206,6 +206,8 @@ export function SkinSettingsPage({
   };
   const colourMode = (
     <GroupList title="明暗">
+      {/* 主题作用于哪些表面、明暗预览不改设置：整页的说明，收进这一组的「?」。只有桌面标签页画这一组，手机网格没有分浅色/深色的预览，用不着它。 */}
+      <SkinPlatformNotice mobile={mobilePlatform} linux={linuxPlatform} />
       <SegmentedRow
         title="颜色模式"
         // 各界面一律跟随颜色模式的宿主上它不再是可被各界面覆盖的默认值，而是除候选窗口以外所有界面的明暗。
@@ -390,9 +392,6 @@ export function SkinSettingsPage({
   return (
     <>
       <SettingsPageFieldset disabled={busy} hidden={!shown} ariaLabel={pageName}>
-        {/* 桌面页首的插画引导已经说明本页管什么、布局在哪里改，这里不再重复一段。 */}
-        {/* 手机网格的卡片没有分浅色/深色的预览，用不着这段说明。 */}
-        {!phoneGrid && <SkinPlatformNotice mobile={mobilePlatform} linux={linuxPlatform} />}
         {/* 这条说明指出面板会忽略本页的皮肤和颜色，而它们在别处都无法编辑，所以除了「候选窗口」预览下方，这里也保留一份。 */}
         {host?.candidate_panel_limit && (
           <CandidatePanelLimitSection limit={host.candidate_panel_limit} />

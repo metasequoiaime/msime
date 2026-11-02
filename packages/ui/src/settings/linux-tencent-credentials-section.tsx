@@ -43,16 +43,19 @@ export function LinuxTencentCredentialsSection({
   onClear,
   children,
 }: LinuxTencentCredentialsSectionProps) {
-  const { region, stored, description, regionInvalid, saveDisabled, clearDisabled } =
-    tencentCredentialEditorModel({ status, input, busy });
+  const {
+    region,
+    stored,
+    status: credentialStatus,
+    description,
+    regionInvalid,
+    saveDisabled,
+    clearDisabled,
+  } = tencentCredentialEditorModel({ status, input, busy });
 
   return (
     <div className="section" role="group" aria-label="在线翻译服务">
-      <SettingSectionTitle
-        as="div"
-        title="在线翻译服务"
-        description="由用户管理的 Linux provider 服务负责网络请求和凭据"
-      />
+      <SettingSectionTitle as="div" title="在线翻译服务" description={description} />
       {!available ? (
         <SettingsInputDescription>
           候选词翻译开启后，provider 从用户配置目录的 <code>tencent-provider.json</code>{" "}
@@ -60,7 +63,9 @@ export function LinuxTencentCredentialsSection({
         </SettingsInputDescription>
       ) : (
         <>
-          <SettingsInputDescription>{description}</SettingsInputDescription>
+          {credentialStatus && (
+            <SettingsInputDescription>{credentialStatus}</SettingsInputDescription>
+          )}
           <PasswordSettingField
             label="SecretId"
             inputLabel="腾讯云 SecretId"

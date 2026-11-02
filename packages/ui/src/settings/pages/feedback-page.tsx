@@ -4,7 +4,7 @@ import { SettingsManagerActions } from "../settings-manager-actions";
 import { SettingsManagerNote } from "../settings-manager-note";
 import * as doc from "../document-style";
 import { useSettingsForm } from "../settings-form-context";
-import { GroupList, LinkRow, PageIntro } from "../../core/platform-controls";
+import { GroupList, LinkRow } from "../../core/platform-controls";
 import { SubPageEntries } from "./sub-page-entries";
 import { createSettingsExternalActions } from "../settings-external-actions";
 import { FeedbackChannels } from "../feedback-channels";
@@ -45,14 +45,18 @@ export function FeedbackSettingsPage() {
   }
   return (
     <SettingsPageFieldset disabled={busy} hidden={page !== "feedback"} ariaLabel="帮助与反馈">
-      <PageIntro>遇到问题或有功能建议时，可以通过以下渠道提交和交流。</PageIntro>
-      <FeedbackSections />
+      <FeedbackSections intro />
     </SettingsPageFieldset>
   );
 }
 
 /** 「帮助」入口、「提交可复现的问题」和「反馈与交流」三组：「帮助与反馈」页的正文，桌面上画在「关于」里。 */
-export function FeedbackSections() {
+export function FeedbackSections({
+  intro = false,
+}: {
+  /** 单独成页时（手机）带上页面导语，收进「反馈与交流」组名旁的「?」；并进「关于」时不需要。 */
+  intro?: boolean;
+} = {}) {
   const {
     client,
     feedbackKind,
@@ -116,7 +120,7 @@ export function FeedbackSections() {
           )}
         </SettingsRowStack>
       </GroupList>
-      <FeedbackChannelsGroup />
+      <FeedbackChannelsGroup intro={intro} />
     </>
   );
 }
@@ -130,7 +134,7 @@ function HelpEntry() {
   );
 }
 
-function FeedbackChannelsGroup() {
+function FeedbackChannelsGroup({ intro = false }: { intro?: boolean }) {
   const {
     client,
     platformIssuesUrl,
@@ -147,6 +151,9 @@ function FeedbackChannelsGroup() {
   });
   return (
     <GroupList title="反馈与交流">
+      {intro && (
+        <SettingsGroupNote>遇到问题或有功能建议时，可以通过以下渠道提交和交流。</SettingsGroupNote>
+      )}
       <FeedbackChannels
         issuesUrl={platformIssuesUrl}
         feedbackCopied={feedbackCopied}

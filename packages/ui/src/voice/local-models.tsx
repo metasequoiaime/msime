@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useLatestRef } from "../core/use-latest-ref";
 import { SettingsManagerBlock } from "../settings/settings-manager-block";
-import { SettingsManagerNote } from "../settings/settings-manager-note";
+import { InfoTip } from "../core/info-tip";
 import { rowTitle } from "../core/platform-controls-style";
 import { ActionButton } from "../core/action-button";
 import {
@@ -250,11 +250,11 @@ export function LocalModelManager({
   const models = list ? visibleLocalModels(list.models, mobile, modelPath) : [];
   return (
     <SettingsManagerBlock role="group" aria-label="本地识别模型">
-      <div>
+      <div className="flex items-center gap-1">
         <span className={rowTitle} data-row-title="">
           本地识别模型
         </span>
-        <SettingsManagerNote>{localModelNote}</SettingsManagerNote>
+        <InfoTip subject="本地识别模型">{localModelNote}</InfoTip>
       </div>
       {!list && !notice && <p>正在读取模型列表…</p>}
       <ul className="m-0 grid list-none gap-3 p-0" aria-label="可用的本地模型">

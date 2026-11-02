@@ -7,6 +7,7 @@ import {
   languageSwitchPatch,
   type LanguageSwitchChoice,
 } from "./input-mode-shortcuts-model";
+import type { ReactNode } from "react";
 import type { KeybindingPreferences } from "./keybinding-preferences";
 import { defaultKeybindings } from "./keybinding-defaults";
 import { SettingsGroupNote } from "./settings-group-note";
@@ -39,6 +40,8 @@ export interface InputModeShortcutsSectionProps {
   japaneseToggle?: boolean;
   /** 宿主把「切换中英文」接进中日英循环并且本版本同时提供中文方案和日语（`offersTrilingualCycle`），显示它的开关。 */
   trilingualCycle?: boolean;
+  /** 整页快捷键的总说明（`ShortcutsIntroSection`），作为组内说明放在组首，和组说明一起收进组名旁的「?」。 */
+  intro?: ReactNode;
   /** HarmonyOS 手机的「通用」分组：只列出其硬件按键路由处理的组合键，每项都是一个可选「无」的选择，并且没有分组说明。 */
   harmonyPhone?: boolean;
 }
@@ -60,6 +63,7 @@ export function InputModeShortcutsSection({
   japaneseToggle = false,
   trilingualCycle = false,
   harmonyPhone = false,
+  intro,
 }: InputModeShortcutsSectionProps) {
   if (!showModeSwitchShortcuts) return null;
   if (harmonyPhone)
@@ -71,6 +75,7 @@ export function InputModeShortcutsSection({
   return (
     <GroupList title="输入模式切换">
       <SettingsRowStack role="group" aria-label="输入模式切换快捷键">
+        {intro}
         <SettingsGroupNote>
           在当前输入上下文中切换中英文模式；未选用或关闭的快捷键会交给应用处理。
         </SettingsGroupNote>

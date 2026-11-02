@@ -33,6 +33,8 @@ export const heading =
   "flex items-start justify-between gap-4 px-0.5 py-1 max-tight:flex-col max-tight:items-stretch max-tight:gap-2";
 /** The heading's left column has to be allowed to shrink or the actions get pushed off the edge. */
 export const headingBody = minWidthZero;
+/** 标题和它旁边的「?」排在一行。 */
+export const headingTitleLine = "flex items-center gap-1.5";
 export const headingTitle = "m-0 text-xl [color:var(--p-text)]";
 export const headingNote = "mt-[5px] mb-0 [font-size:var(--p-sub-fs)] [color:var(--p-sub)]";
 /** Stacked on a roomy window, laid out in a row once the heading has to share a phone's width. */

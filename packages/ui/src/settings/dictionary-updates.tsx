@@ -4,7 +4,7 @@ import { SwitchRow } from "./switch-row";
 import { SummaryRow } from "./summary-row";
 import { ActionRow } from "./action-row";
 import { SettingsGroupNote } from "./settings-group-note";
-import { useDictionaryUpdates } from "./use-dictionary-updates";
+import { DICTIONARY_AUTO_UPDATE_DESCRIPTION, useDictionaryUpdates } from "./use-dictionary-updates";
 
 /** 开关只控制之后的自动检查，已下载的词库保留；手动检查由宿主启动后台任务。 */
 export function DictionaryUpdates({
@@ -17,6 +17,7 @@ export function DictionaryUpdates({
     <GroupList title="词库更新">
       <SwitchRow
         title="自动更新词库"
+        description={DICTIONARY_AUTO_UPDATE_DESCRIPTION}
         checked={status?.enabled ?? true}
         disabled={!status}
         onChange={(enabled) => {
@@ -39,7 +40,7 @@ export function DictionaryUpdates({
           action={() => action("rollback")}
         />
       )}
-      <SettingsGroupNote inline>{message}</SettingsGroupNote>
+      {message && <SettingsGroupNote inline>{message}</SettingsGroupNote>}
     </GroupList>
   );
 }

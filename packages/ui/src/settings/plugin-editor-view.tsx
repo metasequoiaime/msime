@@ -10,6 +10,7 @@ import { SettingsInputField } from "./settings-input-field";
 import { SettingsManagerActions } from "./settings-manager-actions";
 import { SettingsManagerBlock } from "./settings-manager-block";
 import { SettingsManagerNote } from "./settings-manager-note";
+import { SettingsGroupNote } from "./settings-group-note";
 import { SettingsPhraseForm } from "./settings-phrase-form";
 import { SettingsTextareaField } from "./settings-textarea-field";
 import { SettingsWarning } from "./settings-warning";
@@ -201,6 +202,12 @@ export function PluginEditorView({
     <>
       <PluginViewHeader title={title} onBack={() => void back()} />
       <GroupList title="基本信息">
+        {/* 许可证怎么选：收进组名旁的「?」，不常驻在表单中间。 */}
+        <SettingsGroupNote>
+          许可证决定别人能怎样使用这个插件。{DEFAULT_LICENSE}{" "}
+          表示放弃全部权利，任何人都能随意使用和改编；想让别人注明出自你，可以写
+          CC-BY-4.0。这里只能写 SPDX 许可证代码。
+        </SettingsGroupNote>
         <SettingsManagerBlock>
           <SettingsPhraseForm>
             <SettingsInputField
@@ -233,11 +240,6 @@ export function PluginEditorView({
               onChange={(license) => update({ license })}
             />
           </SettingsPhraseForm>
-          <SettingsManagerNote>
-            许可证决定别人能怎样使用这个插件。{DEFAULT_LICENSE}{" "}
-            表示放弃全部权利，任何人都能随意使用和改编；想让别人注明出自你，可以写
-            CC-BY-4.0。这里只能写 SPDX 许可证代码。
-          </SettingsManagerNote>
           <SettingsTextareaField
             label="介绍（可不填）"
             ariaLabel="介绍"
@@ -375,12 +377,13 @@ function PhraseRows({
 }) {
   return (
     <GroupList title={`短语（${rows.length}）`}>
+      {/* 编码和文字怎么写：收进组名旁的「?」，不常驻在表单上方。 */}
+      <SettingsGroupNote>
+        编码是 K 之后输入的小写字母，最多 32 个；同一个编码可以对应几段文字。文字最多{" "}
+        {MAX_TEXT_UTF16} 个字符，不能换行。
+      </SettingsGroupNote>
+      <SettingsGroupNote>{QUICK_PHRASE_CURSOR_NOTE}</SettingsGroupNote>
       <SettingsManagerBlock>
-        <SettingsManagerNote>
-          编码是 K 之后输入的小写字母，最多 32 个；同一个编码可以对应几段文字。文字最多{" "}
-          {MAX_TEXT_UTF16} 个字符，不能换行。
-        </SettingsManagerNote>
-        <SettingsManagerNote>{QUICK_PHRASE_CURSOR_NOTE}</SettingsManagerNote>
         {rows.slice(0, shown).map((row, index) => (
           <SettingsPhraseForm key={index}>
             <SettingsInputField
@@ -425,12 +428,12 @@ function CommandRows({
 }) {
   return (
     <GroupList title={`指令（${rows.length}）`}>
+      <SettingsGroupNote>
+        指令是 / 之后输入的小写字母。要插入的文字里可以写 {"{date}"}（日期）、{"{time}"}（时间）和{" "}
+        {"{weekday}"}（星期几），例如「{"{date}"} 张三」；日期和时间也可以带格式，例如{" "}
+        {"{date:%m月%d日}"}。
+      </SettingsGroupNote>
       <SettingsManagerBlock>
-        <SettingsManagerNote>
-          指令是 / 之后输入的小写字母。要插入的文字里可以写 {"{date}"}（日期）、{"{time}"}（时间）和{" "}
-          {"{weekday}"}（星期几），例如「{"{date}"} 张三」；日期和时间也可以带格式，例如{" "}
-          {"{date:%m月%d日}"}。
-        </SettingsManagerNote>
         {rows.map((row, index) => (
           <SettingsPhraseForm key={index}>
             <SettingsInputField
@@ -561,10 +564,10 @@ function WordRows({
 }) {
   return (
     <GroupList title={`单词（${rows.length}）`}>
+      <SettingsGroupNote>
+        每个单词要有释义，音标可以不填。单词本的名字最多 64 个字，最多 {MAX_WORDS} 个单词。
+      </SettingsGroupNote>
       <SettingsManagerBlock>
-        <SettingsManagerNote>
-          每个单词要有释义，音标可以不填。单词本的名字最多 64 个字，最多 {MAX_WORDS} 个单词。
-        </SettingsManagerNote>
         {rows.slice(0, shown).map((row, index) => (
           <SettingsPhraseForm key={index}>
             <SettingsInputField

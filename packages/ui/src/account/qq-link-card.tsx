@@ -3,6 +3,7 @@ import { ActionButton } from "../core/action-button";
 import { errorCode } from "../core/error-code";
 import { formatDateTime } from "../core/format-date";
 import { StatusMessage } from "../core/status-message";
+import { InfoTip } from "../core/info-tip";
 import { accountMessage } from "./account-errors";
 import type { AccountQqLink, QqLinksClient } from "./account-model";
 import { useAccountAction } from "./account-operation";
@@ -89,24 +90,26 @@ export function QqLinkCard({
   };
   const hasLinks = Boolean(links?.length);
   const showForm = links !== null && (!hasLinks || adding);
+  const heading = hasLinks ? "QQ 群助手" : "绑定 QQ 群助手";
+  const help = showForm
+    ? "在水杉输入法的 QQ 群里 @机器人 发 /bind，把收到的 8 位绑定码填在这里。绑定后发 /stats 能看到你的打字数据（先在「打字统计」页打开「上传到云端」）；机器人在群里的回复所有人都看得到。"
+    : hasLinks
+      ? "已绑定。在 QQ 群里 @机器人 发 /stats 就能看到你的打字数据（先在「打字统计」页打开「上传到云端」）；机器人在群里的回复所有人都看得到。"
+      : undefined;
 
   return (
     <section className={`${account.section} ${account.stack}`}>
-      {showHeading && (
-        <h2 className={account.heading}>{hasLinks ? "QQ 群助手" : "绑定 QQ 群助手"}</h2>
-      )}
-      {hasLinks && (
-        <p className={account.note}>
-          已绑定。在 QQ 群里 @机器人 发 /stats
-          就能看到你的打字数据（先在「打字统计」页打开「上传到云端」）；机器人在群里的回复所有人都看得到。
-        </p>
+      {showHeading ? (
+        // 怎么绑定、绑定后能做什么：收进标题旁的「?」，不常驻卡片；没有标题时（页面标题已经是它）照旧画在原处。
+        <div className="flex items-center gap-1.5">
+          <h2 className={account.heading}>{heading}</h2>
+          {help && <InfoTip subject={heading}>{help}</InfoTip>}
+        </div>
+      ) : (
+        help && <p className={account.note}>{help}</p>
       )}
       {showForm && (
         <>
-          <p className={account.note}>
-            在水杉输入法的 QQ 群里 @机器人 发 /bind，把收到的 8 位绑定码填在这里。绑定后发 /stats
-            能看到你的打字数据（先在「打字统计」页打开「上传到云端」）；机器人在群里的回复所有人都看得到。
-          </p>
           <label className={account.field}>
             绑定码
             <input

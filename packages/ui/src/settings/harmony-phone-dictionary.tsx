@@ -5,6 +5,7 @@ import { Badge, PlusGlyph } from "../dictionary/dictionary-detail-parts";
 import { useState } from "react";
 import { formatZhNumber } from "../core/format-number";
 import { GroupList, NavRow } from "../core/platform-controls";
+import { SettingsGroupNote } from "./settings-group-note";
 import { useToast } from "../core/toast";
 import {
   binaryCollectionFormat,
@@ -124,6 +125,9 @@ export function HarmonyPhoneDictionary() {
     <>
       <div className="flex flex-col gap-2">
         <GroupList title="已安装">
+          <SettingsGroupNote>
+            点进词库可以启用、停用和编辑词条。已启用的词库会一起参与候选。
+          </SettingsGroupNote>
           {dictionary && (
             <NavRow
               variant="me"
@@ -160,9 +164,12 @@ export function HarmonyPhoneDictionary() {
             />
           )}
         </GroupList>
-        <p className={footnote} role={loadFailure ? "alert" : undefined}>
-          {loadFailure || "点进词库可以启用、停用和编辑词条。已启用的词库会一起参与候选。"}
-        </p>
+        {/* 怎么用是解释，收进「已安装」组名旁的「?」；读取失败是错误，照旧画在原处。 */}
+        {loadFailure && (
+          <p className={footnote} role="alert">
+            {loadFailure}
+          </p>
+        )}
       </div>
       {collections && client.communityResources && (
         <DiscoverDictionaries
