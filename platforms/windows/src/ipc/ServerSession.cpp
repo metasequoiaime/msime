@@ -9,6 +9,7 @@
 #include "input/CandidateTextPolicy.h"
 #include "KeyEvent.h"
 #include "LifecyclePolicy.h"
+#include "PredictionPolicy.h"
 #include "PunctuationPolicy.h"
 #include <algorithm>
 #include <optional>
@@ -229,11 +230,13 @@ KeyResult ServerSession::key(const FanyImeNamedpipeData &packet,
   // letter press. Typing shuangpin through this path could not work at all,
   // and nothing noticed because these suites had never been run.
   // 韩文和注音只在列表打开时有候选，这时数字从中选择；越南文和藏文没有候选。其他情况下数字是文字，引擎作为字符收到时要么拼写它，要么让它结束组字。
+  // 上屏后联想的候选只有点选才上屏（idle_prediction_view）：数字是文字，交给引擎作为字符，引擎同时清掉联想。
   const bool selection_digit =
       digit_key >= '1' && digit_key <= '9' &&
       !(current.is_object() &&
         scheme::AlwaysInlinePreedit(static_cast<int>(current.value("scheme", 0u))) &&
-        current.at("candidates").empty());
+        current.at("candidates").empty()) &&
+      !idle_prediction_view(current);
   if (selection_digit && !current.is_null() &&
       digit_selects_candidate(
           current.at("local_mode").get<std::string>(),

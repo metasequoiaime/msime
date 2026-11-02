@@ -2038,7 +2038,8 @@ void CandidateWindow::paint() {
                                        value->candidates[i].fixed_position != 0);
     // 序号从行左缘 number_left 处左对齐（缺省 8 DIP，皮肤写了 number_inset 时是它），到候选文字之前为止，和第一行文字竖直居中，和 macOS 一样。number_scale 让序号字号小到画不出（0）时就不画。
     const auto number_label = std::to_wstring(i + 1);
-    if (metrics.number_font >= 1.0)
+    // 上屏后联想只有点选才上屏，数字照常输入，画序号会让人以为按数字能选，所以不画。
+    if (metrics.number_font >= 1.0 && !value->prediction)
       compat::DrawTextWithWindows7Emoji(device_.GetDWriteFactory(), target,
           number_label.c_str(), static_cast<UINT32>(number_label.size()),
           format(metrics.number_font, DWRITE_TEXT_ALIGNMENT_LEADING),

@@ -8,6 +8,7 @@
 #include "InputSchemeTraits.h"
 #include "PipeMetadata.h"
 #include "PreeditDisplayCaret.h"
+#include "PredictionPolicy.h"
 #include "ReplyComposer.h"
 #include "ShuangpinKeymapLayout.h"
 #include "TranslationDisplay.h"
@@ -305,6 +306,8 @@ struct CandidatePresentation {
   bool caret_edit_suffix = false;
   // 光标后编辑里首选（index 为 0 的那一行）开头固定的那段文字（view 的 caret_edit_prefix），已按输出模式换成和候选文字一样的写法。候选窗把首选开头的这几个字画淡，见 candidate_caret_edit_dim。没有生效时为空。
   std::string caret_edit_prefix{};
+  // 上屏后联想（view 的 prediction，idle_prediction_view）：没有拼音，候选是建议的后续文字。只有点选才上屏，数字不选它，所以候选窗不画序号；CandidateMailbox 等 TIP 在光标处发 Show 之后才让它露出来。
+  bool prediction = false;
 };
 // 光标后编辑生效时首行右侧的提示：只是一行字，不能点。
 inline constexpr const char *candidate_caret_edit_hint = "候选编辑：光标后";
@@ -422,22 +425,24 @@ candidate_presentation_from_view(const FocusLease &lease,
   output.visible = false;
   output.x = x;
   output.y = y;
+  const bool prediction = idle_prediction_view(view);
   if (!view.at("focused").get<bool>() ||
-      view.at("editing_text").get<std::string>().empty()) {
+      (view.at("editing_text").get<std::string>().empty() && !prediction)) {
     output.composition_ended = view.at("focused").get<bool>();
     return output;
   }
+  output.prediction = prediction;
   const auto text = view.at("preedit").get<std::string>();
   if (prefix.size() > 4096 ||
       text.size() > 4096 - prefix.size() || view.at("candidates").size() > 9)
     throw std::invalid_argument("Oversized candidate presentation");
   output.traditional_output = traditional_output;
-  output.preedit = prefix + text;
+  output.preedit = prediction ? std::string{} : prefix + text;
   // caret_position is a byte offset into the Engine's ASCII editing_text. It carries over to the drawn preedit when the two are the same string, or when the preedit is those letters with display separators added (segmented quanpin), see preedit_display_caret; the prefix this host prepends shifts it by its own length.
   const auto editing = view.at("editing_text").get<std::string>();
   const auto caret =
       preedit_display_caret(editing, text, view.value("caret_position", editing.size()));
-  if (caret != std::string::npos)
+  if (caret != std::string::npos && !prediction)
     output.preedit_caret = prefix.size() + caret;
   size_t highlighted = 0;
   const bool hanja = korean_hanja_view(view);
@@ -511,20 +516,23 @@ candidate_presentation(const FocusLease &lease, const PendingReply &reply,
   output.x = packet.point[0];
   output.y = packet.point[1];
   output.game_host = (packet.modifiers_down & PipeMetadata::GameHost) != 0;
+  const bool prediction = idle_prediction_view(view);
   if (!view.at("focused").get<bool>() ||
       (packet.modifiers_down & FanyImePipeFlags::UiLess) ||
-      view.at("editing_text").get<std::string>().empty()) {
+      (view.at("editing_text").get<std::string>().empty() && !prediction)) {
     output.composition_ended = view.at("focused").get<bool>() &&
                                (packet.modifiers_down & FanyImePipeFlags::UiLess) == 0;
     return output;
   }
+  output.prediction = prediction;
   const auto text = view.at("preedit").get<std::string>();
   if (reply.next_prefix.size() > 4096 ||
       text.size() > 4096 - reply.next_prefix.size() ||
       view.at("candidates").size() > 9)
     throw std::invalid_argument("Oversized candidate presentation");
   output.traditional_output = reply.traditional_output;
-  output.preedit = reply.next_prefix + text;
+  // 联想没有拼音；上屏的前缀已经进了文档，不再画。
+  output.preedit = prediction ? std::string{} : reply.next_prefix + text;
   size_t highlighted = 0;
   const bool hanja = korean_hanja_view(view);
   for (const auto &candidate : view.at("candidates")) {
