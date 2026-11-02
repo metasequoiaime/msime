@@ -43,12 +43,23 @@ deps="$repo_root/target/android-deps/$abi"
 ANDROID_NDK_HOME="$ndk" VCPKG_DISABLE_METRICS=1 "$vcpkg_root/vcpkg" install \
   --x-manifest-root="$repo_root/platforms/android" --x-install-root="$deps" \
   --overlay-triplets="$repo_root/platforms/android/triplets" --triplet="$triplet"
+# 整句联想「增强」的逐键重排跑在 ONNX Runtime 上（host-api 的 `onnx-rerank` 特性，见 .agents/notes/implemented/architecture/2026-11-01-onnx-rerank-backend.md）：精简构建的静态库按 resources/onnxruntime-minimal.lock.json 下载核对，链进 libmsime_host_api.so（链接 libc++_shared.so，下面照旧随包）。两个 ABI 在锁里都有；32 位不在锁里，这个脚本也不编 32 位。模型不进 APK：瘦包已贴着体积上限，手机档模型是资源包 rerank-model-small，用户选「增强」时下载，没装时退回随包的 sentence-model.safetensors。
+ort_location=$(python3 scripts/fetch_onnxruntime.py --target "$rust_target")
+# ort-sys 把静态库复制进自己的输出目录，库换了也不会重新复制；按锁里库的 SHA-256 记一个戳，变了就让它重新复制。
+ort_stamp="$repo_root/target/android-cargo/onnxruntime-$rust_target.sha256"
+ort_library_sha=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["targets"][sys.argv[2]]["library_sha256"])' resources/onnxruntime-minimal.lock.json "$rust_target")
+if [ -d "$repo_root/target/android-cargo/$rust_target" ] && [ "$(cat "$ort_stamp" 2>/dev/null)" != "$ort_library_sha" ]; then
+  CARGO_TARGET_DIR="$repo_root/target/android-cargo" cargo clean -p ort-sys --target "$rust_target" --release
+fi
 env "CC_${rust_target//-/_}=$compiler" "CXX_${rust_target//-/_}=$compiler++" \
   "AR_${rust_target//-/_}=$toolchain/bin/llvm-ar" "$cargo_linker=$compiler" \
   CARGO_TARGET_DIR="$repo_root/target/android-cargo" \
   CARGO_PROFILE_RELEASE_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_STRIP=none \
   RUSTFLAGS="-C link-arg=-Wl,-z,max-page-size=16384 -C link-arg=-Wl,--build-id=sha1" \
-  cargo build -p msime-host-api --target "$rust_target" --release --locked
+  ORT_LIB_LOCATION="$ort_location" \
+  cargo build -p msime-host-api --features onnx-rerank --target "$rust_target" --release --locked
+mkdir -p "$repo_root/target/android-cargo"
+printf '%s\n' "$ort_library_sha" > "$ort_stamp"
 cp "$repo_root/target/android-cargo/$rust_target/release/libmsime_host_api.so" "$output/"
 cp "$toolchain/sysroot/usr/lib/$compiler_target/libc++_shared.so" "$output/"
 # On-device speech recognition: the sherpa-onnx C API and ONNX Runtime come prebuilt from the pinned release in resources/voice-runtime.lock.json (fetched and hash-checked, never committed). Only the two native libraries are taken from the .aar; LocalAsr loads the C API with dlopen, so a missing runtime disables local recognition instead of the keyboard.
@@ -65,7 +76,7 @@ fi
   -Wl,--no-undefined -Wl,-z,max-page-size=16384 -Wl,-soname,libmsime_android.so \
   platforms/android/native/client_jni.cpp platforms/android/native/JniCallbacks.cpp platforms/common/CrashRecorder.cpp shared/voice/LocalAsr.cpp \
   -Icrates/host-api/include -Ishared -Ishared/voice/third_party -I"$deps/$triplet/include" \
-  -L"$output" -lmsime_host_api -ldl -o "$output/libmsime_android.so"
+  -L"$output" -lmsime_host_api -ldl -llog -o "$output/libmsime_android.so"
 bash platforms/android/verify-native.sh "$toolchain/bin/llvm-readelf" "$output" "$abi"
 notices="$repo_root/target/android/notices/$abi"
 mkdir -p "$notices"
@@ -74,7 +85,7 @@ for copyright_file in "$deps/$triplet"/share/*/copyright; do
   cp "$copyright_file" "$notices/$package.txt"
 done
 cp "$toolchain/NOTICE" "$notices/ndk-toolchain.txt"
-# 省略语音运行库时这三份声明照样随包：下载的资源包是同一份上游库，加载它的仍是这个应用。
+# 省略语音运行库时这三份声明照样随包：下载的资源包是同一份上游库，加载它的仍是这个应用。libmsime_host_api.so 静态链接的精简 ONNX Runtime（逐键重排）也是同一个项目的 MIT 代码，同样由这两份声明覆盖。
 cp shared/voice/third_party/sherpa-onnx/LICENSE "$notices/sherpa-onnx.txt"
 cp platforms/linux/data/licenses/onnxruntime-MIT.txt "$notices/onnxruntime.txt"
 cp platforms/linux/data/licenses/onnxruntime-ThirdPartyNotices.txt "$notices/onnxruntime-third-party.txt"

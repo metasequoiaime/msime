@@ -13,7 +13,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * 按需下载的资源包（日文词典、语言词库、五笔码表、离线释义、英文音标、语音运行库），经共享层的 {@code msime_client_resource_pack_*} 列出、下载和收编。
+ * 按需下载的资源包（日文词典、语言词库、五笔码表、离线释义、英文音标、语音运行库、「增强」重排模型），经共享层的 {@code msime_client_resource_pack_*} 列出、下载和收编。
  *
  * <p>资源包装在 {@code filesDir/bootstrap/state/resource-packs/<id>/}：{@code bootstrap/state} 就是 host-api 的 {@code preferences_directory}，会话在获得焦点时从那里找到新装好的资源包；Bootstrap 随安装包替换的目录碰不到它。设置页和键盘的方案可用判断都以这里的 {@link #installed} 为准。
  *
@@ -30,6 +30,8 @@ public final class ResourcePacks {
     public static final String TARGET_PRONUNCIATIONS = "target-pronunciations";
     public static final String OCR_MODULE = "ocr-module-android";
     public static final String VOICE_RUNTIME = "voice-runtime";
+    /** 整句候选「增强」逐键重排的手机档 ONNX 模型（6x256）：发布包不带，用户选「增强」时下载；没装好时输入法用随包的句子模型。 */
+    public static final String RERANK_MODEL = "rerank-model-small";
 
     /** 不联网安装时用户要自己下载的一个文件：上游文件名、下载地址和长度。资源包和本地语音模型共用。 */
     public record ImportFile(String name, String url, long size) {}

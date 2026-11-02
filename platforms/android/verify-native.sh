@@ -62,3 +62,8 @@ if grep -Eq 'handwriting_recognize|msime_engine::handwriting::(recognizer|model|
   echo "Android host unexpectedly contains the Engine handwriting recognizer" >&2; exit 1
 fi
 echo "libmsime_host_api.so: Engine handwriting recognizer excluded for Android"
+# 整句联想「增强」的逐键重排要 host 库静态链接精简的 ONNX Runtime（build-native.sh 开着 onnx-rerank）。没链进去时会话只能退回随包的句子模型，用户下载的 rerank-model-small 资源包永远用不上，而编译、打包和装机都不会报错。
+if ! grep -q 'OrtGetApiBase' <<< "$host_symbols"; then
+  echo "libmsime_host_api.so does not link ONNX Runtime; build it with --features onnx-rerank" >&2; exit 1
+fi
+echo "libmsime_host_api.so: ONNX Runtime linked for the keystroke reranker"

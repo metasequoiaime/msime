@@ -86,6 +86,8 @@ jobs:
             esac
             case "$path" in
               platforms/android/*) android=true ;;
+              # Android 的 host 库按这份锁下载、静态链接精简的 ONNX Runtime（build-native.sh 开着 onnx-rerank），设备作业和发版构建要用新锁重编一次。
+              resources/onnxruntime-minimal.lock.json) android=true ;;
               platforms/linux/*) linux=true ;;
               platforms/harmony/*) harmonyos=true ;;
               platforms/windows/*) windows=true ;;

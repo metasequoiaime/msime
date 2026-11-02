@@ -384,7 +384,7 @@ MDBG 每天用新导出覆盖同一个地址（`https://www.mdbg.net/chinese/exp
 
 ## 按键重排的 ONNX 后端（`crates/onnx-rerank`）
 
-宿主打开 `onnx-rerank` 特性时才编进来，默认构建不带；目前没有哪个平台的发布打开它（见 `.agents/notes/implemented/architecture/2026-11-01-onnx-rerank-backend.md`）。
+宿主打开 `onnx-rerank` 特性时才编进来，默认构建不带；iOS 和 Android 的构建打开它（见 `.agents/notes/implemented/architecture/2026-11-01-onnx-rerank-backend.md`）。Android 的 APK 只带链进 `libmsime_host_api.so` 的运行库，模型（6x256）是用户选「增强」时下载的资源包；它沿用 APK 里已有的 ONNX Runtime 许可证与第三方通知（`assets/native-notices/<ABI>/onnxruntime.txt`、`onnxruntime-third-party.txt`）。
 
 | 组件 | 许可证 | 说明 |
 | --- | --- | --- |
