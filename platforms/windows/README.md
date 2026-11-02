@@ -644,6 +644,8 @@ PuncSwitch 的 keycode 与 StatusSnapshot/FocusRestored 的 pinyin_length 同步
 
 msime_client_set_chinese_punctuation 是 ABI 1 的附加符号，适配器和宿主库须成套更新。其返回值为未变化的 View；关闭时空组合 ASCII 标点由宿主透传，组合中标点仍按共享运行时的完成策略处理。这个接口只管每会话的标点开关，全局作用域由 `ModeAuthority` 和共享的 `ime_mode_scope` 决定。
 
+TIP 的标点 compartment 在激活和每次切换中英文（Shift、语言栏、Server 推送的应用规则）时回到这个模式的起始状态：`punctuation_lock` 为跟随时，英文模式用英文标点，中文模式用已存的 `chinese_punctuation`（设置「标点」里的「中文标点」「英文标点」，出厂为中文标点）；锁定时取锁定值。规则在 `tsf/Global/PunctuationModePolicy.h` 的 `PunctuationOpenForImeMode`，接在 `CompositionProcessorEngine.cpp` 的 `SyncPunctuationWithImeMode`、`InitializeMetasequoiaIMECompartment` 和 OPENCLOSE 回调上，起始标点与锁定一起由 `FanyUtils::RefreshPunctuationLockFromConfig` 从内存快照刷新。Ctrl+.、工具栏和托盘的切换只改当前 compartment（`PunctuationOpenForRequest`），不写偏好，下一次激活或中英文切换后回到起始标点。`msime-tsf-punctuation-mode-policy` 测试核对规则和这几处接线。
+
 ### 书名号自动补全后的嵌套回退
 
 候选打开时 `<` 由 Server 的 Engine 转换，Engine 的书名号嵌套计数随之加一；开启配对补全后右半边由 TSF 自己插入，之后的 `>` 只跨过它，Server 收不到能回退计数的按键，于是后面每个书名号都变成〈〉。所以 TSF 自动补全 `<` 后发 Main 事件 PairedPunctuationAutoClosed（16），keycode 为开口键，只能是 `<`，其他值在 `valid_main_frame` 被拒。它是没有回复的通知，和 PuncSwitch 一样经 FocusRouter 限定当前焦点，在输入队列里调用 `msime_client_balance_paired_punctuation_after_auto_close`；管道按序投递，所以回退先于下一个按键生效。开口由 TSF 本地解析时也照发：两边计数都在零处截止，多回退一次无害。事件编号由 `scripts/apply_engine_paired_punctuation_ipc.py` 叠加进 Engine 契约头。

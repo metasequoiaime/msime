@@ -1634,7 +1634,7 @@ void CMetasequoiaIME::_ApplyDeferredPreservedKeyProjection(REFGUID preservedKey)
     case CCompositionProcessorEngine::PreservedKeyAction::ToggleImeMode:
         FanyUtils::RefreshPunctuationLockFromConfig();
         _deferredProjectedImeOpen = !_deferredProjectedImeOpen;
-        _deferredProjectedPunctuationOpen = Global::ResolvePunctuationOpen(_deferredProjectedImeOpen) != FALSE;
+        _deferredProjectedPunctuationOpen = Global::ResolveImeModePunctuationOpen(_deferredProjectedImeOpen) != FALSE;
         _deferredProjectedInputLength = 0;
         _deferredProjectedRawInput.clear();
         _deferredProjectedCaret = 0;

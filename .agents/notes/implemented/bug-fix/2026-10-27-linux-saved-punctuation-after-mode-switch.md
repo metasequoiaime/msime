@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-「跟随」时英文模式仍使用英文标点；回到中文模式时读取保存的 `chinese_punctuation`，不把会话快捷键的临时选择写回文件。固定中英文标点继续优先。IBus 与 Fcitx5 同步修复，并在各自真实宿主测试中覆盖默认英文标点的模式往返。macOS 的同类起始标点规则已有[独立修复](../../implemented/bug-fix/2026-10-22-macos-initial-english-punctuation.md)，其运行时覆盖保留范围不同，本篇只处理 Linux 两个宿主。
+「跟随」时英文模式仍使用英文标点；回到中文模式时读取保存的 `chinese_punctuation`，不把会话快捷键的临时选择写回文件。固定中英文标点继续优先。IBus 与 Fcitx5 同步修复，并在各自真实宿主测试中覆盖默认英文标点的模式往返。macOS 的同类起始标点规则已有[独立修复](../../implemented/bug-fix/2026-10-22-macos-initial-english-punctuation.md)，其运行时覆盖保留范围不同，本篇只处理 Linux 两个宿主。Windows TIP 的同一规则见[Windows TIP 以已存的起始标点开始中文模式](2026-11-02-windows-saved-start-punctuation.md)。
 
 ## Alternatives considered
 
