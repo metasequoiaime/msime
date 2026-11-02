@@ -27,6 +27,7 @@ foreach ($notice in @(
     @('resources/licenses/python-pinyin-MIT.txt', 'Phrase readings of the emoji, kaomoji and symbol keywords in msime-others.db, lazy_pinyin output of mozillazg/python-pinyin 0.55, MIT'),
     @('resources/licenses/rime-wubi86-jidian-Apache-2.0.txt', '86 Wubi table of msime-wubi.db, KyleBing/rime-wubi86-jidian, Apache-2.0 (the upstream LICENSE @ 063377a0e3ae7d4084a45f03e4269f62f874f7dc, the terms the table was taken under; upstream moved to MIT on 2026-10-29)'),
     @('resources/licenses/rime-wanxiang-CC-BY-4.0.txt', 'Ranking weights of msime-pinyin.db and, through them, character weights of msime-stroke.db for the entries shared with amzxyz/rime-wanxiang @ 7ab73ee0c7f80190004233e70f954833df64c80e (release v18.0.16), adapted by msime-dictionary, CC BY 4.0 (attribution, list of changes and licence text)'),
+    @('resources/licenses/sentence-model-Apache-2.0.txt', 'Sentence rerank models model-v1 of chinese-ime-lm: sentence-model.safetensors among the dictionary resources, and sentence-model-desktop.safetensors in the settled-model resource pack the settings app downloads; installed unmodified, Apache License 2.0, with the upstream NOTICE and the attribution of the training corpora (C4 Chinese ODC-BY, LCCC MIT)'),
     @('resources/helpcodes/NOTICE.md', 'Helpcode table (jiajia)'),
     @('resources/helpcodes/NOTICE-wubi86.md', 'Helpcode table (wubi86), generated from KyleBing/rime-wubi86-jidian, Apache-2.0, with 16 characters from rime/rime-wubi, LGPL-3.0 distributed under GPL-3.0'),
     @('resources/licenses/Zinnia-LICENSE.txt', 'zinnia, whose recognizer the host library ports, BSD License'),
@@ -48,6 +49,9 @@ foreach ($notice in @(
     @('platforms/windows/settings/assets/feedback/NOTICE.md', 'Feedback channel icons on the about page of msime-client-settings.exe, GitHub and Telegram from yldm-tech/ai-logo (MIT), QQ from bytedance/IconPark (Apache-2.0)'),
     @('resources/licenses/world-clock-NOTICE.txt', '离线世界时钟：IANA 城市目录与 Rust 时间、时区和太阳事件依赖'),
     @('resources/licenses/OpenCC-Apache-2.0.txt', 'OpenCC dictionaries, BYVoid/OpenCC @ 26753884f1984add422f3b0249ccee8613deaff6'),
+    @('resources/licenses/onnxruntime-MIT.txt', 'ONNX Runtime 1.24.4 (microsoft/onnxruntime @ 2d924974ef147392ced8409d36bd6d2e7fcc8a74), minimal build statically linked into the x64 host DLL for the keystroke reranker, MIT License'),
+    @('resources/licenses/onnxruntime-ThirdPartyNotices.txt', 'ONNX Runtime third-party notices for the statically linked minimal build (the 1.31.0 file, which carries every section of the 1.24.4 one)'),
+    @('resources/licenses/rerank-model-Apache-2.0.txt', 'Keystroke rerank models rerank-v1 of chinese-ime-lm in server\rerank-model (8x448) and server\rerank-model-small (6x256) of the editions that carry them, installed unmodified: corpus attribution, upstream NOTICE and Apache License 2.0'),
     @('plugins/script/LICENSE', 'Official script plugin uuid in server\plugin-packs, this project''s own code under MIT rather than GPL-3.0; the pack carries the same text as LICENSE.txt'),
     @('plugins/phrase_table/LICENSE', 'LaTeX command table compiled into the host library for symbol mode (S mode, crates/engine/src/local/latex_symbols.tsv), and the official phrase table latex-symbols in server\plugin-packs built from the same data, this project''s own data under MIT rather than GPL-3.0; the pack carries the same text as LICENSE.txt'))) {
     $relative = $notice[0]

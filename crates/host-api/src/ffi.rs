@@ -210,18 +210,20 @@ pub(crate) fn sentence_model_path(resources: &str, configured: Option<&str>) -> 
 ///
 /// The switch is opt-in because this model runs inside every `character` call, on the thread the host types on: one decision costs a few milliseconds, and the first one after a commit, which has to read the new context from scratch, about 20 ms on a desktop CPU and five to ten times that on a phone. Attaching it whenever the file was present ran it for every touch user on 标准 and 关闭 too, which is what made fast typing on Android fall behind and drop keys. The model is not loaded at all while the switch is off.
 ///
-/// 编译时打开了 `onnx-rerank`、随包资源目录旁边又有 [`RERANK_MODEL_DIRECTORY`] 时用那个模型（ONNX Runtime 后端），读不了就退回随包的句子模型。`bundle` 是随包资源目录（`EngineOptions::helpcode_fallback_resources`）：`resources` 换成下载的词库代次时，ONNX 模型仍在安装包里，按它去找；为 `None` 时 `resources` 本身就是随包的那个。安装包没带模型时（Android）再看 `state_root` 下有没有装好的 `rerank-model-small` 资源包，见 [`rerank_models_root`]。
+/// 编译时打开了 `onnx-rerank`、随包资源目录旁边又有 [`RERANK_MODEL_DIRECTORY`] 时用那个模型（ONNX Runtime 后端），读不了就退回随包的句子模型。`bundle` 是随包资源目录（`EngineOptions::helpcode_fallback_resources`）：`resources` 换成下载的词库代次时，ONNX 模型仍在安装包里，按它去找；为 `None` 时 `resources` 本身就是随包的那个。`sound_packs` 是会话的内置音效包目录（[`crate::key_sound::PluginRoots::builtin_sounds`]），资源目录旁边没有模型时按它找安装目录，见 [`rerank_models_root`]。`models` 是宿主指明的模型目录（HostOptions 的 `rerank_models`），给了就只在那里找，不再按资源目录推。安装包没带模型时（Android）再看 `state_root` 下有没有装好的 `rerank-model-small` 资源包，见 [`rerank_models_root`]。
 ///
 /// 开关打开时写一行诊断，说挂上的是哪一个（见 [`report_keyboard_reranker`]）。
 pub(crate) fn keyboard_reranker(
     enabled: bool,
     resources: &str,
     bundle: Option<&str>,
+    models: Option<&str>,
+    sound_packs: Option<&Path>,
     state_root: Option<&Path>,
     configured: Option<&str>,
 ) -> Option<Box<dyn msime_input_runtime::CandidateScorer>> {
     #[cfg(feature = "onnx-rerank")]
-    let root = rerank_models_root(resources, bundle, state_root);
+    let root = onnx_rerank_source(resources, bundle, models, sound_packs, state_root);
     if !enabled {
         #[cfg(feature = "onnx-rerank")]
         if let Some(root) = root.as_deref() {
@@ -235,7 +237,7 @@ pub(crate) fn keyboard_reranker(
         return Some(Box::new(SharedOnnxScorer(attached.scorer)));
     }
     #[cfg(not(feature = "onnx-rerank"))]
-    let _ = (bundle, state_root);
+    let _ = (bundle, models, sound_packs, state_root);
     let scorer = sentence_model(resources, configured).map(|model| {
         Box::new(Reranker::new(model)) as Box<dyn msime_input_runtime::CandidateScorer>
     });
@@ -257,38 +259,58 @@ fn report_keyboard_reranker(category: &'static str, detail: &str) {
 
 /// 放 ONNX 重排模型的目录：随包资源目录的上一级，与 `settled-model/`、`language-dictionaries/` 一样是资源目录的兄弟。不放进资源目录本身，因为那里必须与词库锁逐项相符（`ResourceStore::verify` 只放过 `helpcodes/`），多一个目录整套资源就校验失败。
 ///
-/// 那里两个目录都没有时（Android 发布包不带模型，体积上限放不下），用 `state_root` 下装好的 `rerank-model-small` 资源包：资源包目录 `<state_root>/resource-packs/` 里的子目录名就是资源包 id，与 [`SMALL_RERANK_MODEL_DIRECTORY`] 相同，所以返回的是资源包根目录。只认与锁一致、完整发布的资源包（`installed_file`）；都没有时为 `None`，退回随包的句子模型。
+/// 那里没有模型时，再看内置音效包目录（`sound_packs`）的上一级。Linux 的安装包不带词库，`msime-linux-setup` 把它下载到用户自己的 `$XDG_DATA_HOME/msime-client/resources`，所以 `resources` 的上一级是用户目录，模型却装在 `/usr/share/msime-client/rerank-model`；两个宿主都按自己的安装位置把 `/usr/share/msime-client/sound-packs` 写成 `sound_packs`（Host API 已经据此找官方插件包，见 [`crate::key_sound::PluginRoots::new`]），它的上一级就是安装目录。Windows 不这样找：那里的内置音效包在普通用户可写的数据目录里，旁边的目录不能当作安装包的东西。
+///
+/// 音效包目录的上一级也没有时（Android 发布包不带模型，体积上限放不下），用 `state_root` 下装好的 `rerank-model-small` 资源包：资源包目录 `<state_root>/resource-packs/` 里的子目录名就是资源包 id，与 [`SMALL_RERANK_MODEL_DIRECTORY`] 相同，所以返回的是资源包根目录。只认与锁一致、完整发布的资源包（`installed_file`）；都没有时为 `None`，退回随包的句子模型。
 #[cfg(feature = "onnx-rerank")]
 pub(crate) fn rerank_models_root(
     resources: &str,
     bundle: Option<&str>,
+    sound_packs: Option<&Path>,
     state_root: Option<&Path>,
 ) -> Option<PathBuf> {
     use msime_client_providers::resource_packs::{self, ResourcePack};
     let bundled = bundle.filter(|path| !path.is_empty()).unwrap_or(resources);
-    let beside = Path::new(bundled).parent().filter(|root| {
+    let holds_models = |root: &Path| {
         root.join(RERANK_MODEL_DIRECTORY).is_dir()
             || root.join(SMALL_RERANK_MODEL_DIRECTORY).is_dir()
-    });
-    if let Some(root) = beside {
-        return Some(root.to_path_buf());
+    };
+    if let Some(beside) = Path::new(bundled)
+        .parent()
+        .filter(|root| holds_models(root))
+    {
+        return Some(beside.to_path_buf());
     }
+    #[cfg(not(target_os = "windows"))]
+    if let Some(installed) = sound_packs
+        .and_then(Path::parent)
+        .filter(|root| holds_models(root))
+    {
+        return Some(installed.to_path_buf());
+    }
+    #[cfg(target_os = "windows")]
+    let _ = sound_packs;
     let state_root = state_root?;
     resource_packs::installed_file(state_root, ResourcePack::RerankModelSmall, "lm_step.ort")
         .map(|_| resource_packs::root(state_root))
 }
 
-/// 会话此刻会从哪里挂 ONNX 重排模型（[`rerank_models_root`]）；没开 `onnx-rerank` 特性时总是 `None`。聚焦时与上次挂的比较，资源包刚装好或被移除时换掉逐键重排。
+/// 会话此刻会从哪里挂 ONNX 重排模型：宿主指明了模型目录（`models`，HostOptions 的 `rerank_models`）就是那里，否则按 [`rerank_models_root`] 找；没开 `onnx-rerank` 特性时总是 `None`。[`keyboard_reranker`] 按它挂，聚焦时与上次挂的比较，资源包刚装好或被移除时换掉逐键重排。
 pub(crate) fn onnx_rerank_source(
     resources: &str,
     bundle: Option<&str>,
+    models: Option<&str>,
+    sound_packs: Option<&Path>,
     state_root: Option<&Path>,
 ) -> Option<PathBuf> {
     #[cfg(feature = "onnx-rerank")]
-    return rerank_models_root(resources, bundle, state_root);
+    return match models {
+        Some(models) => Some(PathBuf::from(models)),
+        None => rerank_models_root(resources, bundle, sound_packs, state_root),
+    };
     #[cfg(not(feature = "onnx-rerank"))]
     {
-        let _ = (resources, bundle, state_root);
+        let _ = (resources, bundle, models, sound_packs, state_root);
         None
     }
 }
@@ -420,6 +442,13 @@ impl msime_input_runtime::CandidateScorer for SharedOnnxScorer {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .log_probabilities(context, candidates)
+    }
+
+    fn static_evidence_weight(&self) -> f64 {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .static_evidence_weight()
     }
 }
 

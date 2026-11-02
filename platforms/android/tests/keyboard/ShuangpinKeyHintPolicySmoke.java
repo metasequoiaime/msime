@@ -44,6 +44,28 @@ public final class ShuangpinKeyHintPolicySmoke {
         check(ShuangpinKeyHintPolicy.profileWithoutView(true, "").isEmpty()
                 && ShuangpinKeyHintPolicy.profileWithoutView(true, null).isEmpty(),
             "Nothing remembered draws no hints");
+        // 粤语双拼（#10438）与普通粤拼是同一个引擎方案（5），只有选中的触屏方案区分两者；粤语双拼用引擎的保留名 `cantonese` 取键面，普通粤拼不画。
+        check(ShuangpinKeyHintPolicy.rememberedProfile(5, "", "cantonese_shuangpin").equals("cantonese"),
+            "Cantonese shuangpin asks the Engine for its reserved face");
+        check(ShuangpinKeyHintPolicy.rememberedProfile(5, "", "cantonese").isEmpty(),
+            "Plain Jyutping draws no hints");
+        check(ShuangpinKeyHintPolicy.rememberedProfile(0, "", "cantonese_shuangpin").isEmpty(),
+            "A session not running Cantonese gets no Cantonese face");
+        check(ShuangpinKeyHintPolicy.rememberedProfile(1, "xiaohe", "xiaohe").equals("xiaohe"),
+            "Mandarin double pinyin is unchanged");
+        check(ShuangpinKeyHintPolicy.hintScheme(5, "cantonese") == 1
+                && ShuangpinKeyHintPolicy.hintScheme(5, "") == 5,
+            "The Cantonese face is drawn like double pinyin");
+        Map<String, String> cantonese = ShuangpinKeyHintPolicy.decode(
+            "{\"ok\":true,\"value\":{\"I\":\"gw / i\",\";\":\"ik ing\"}}");
+        check(ShuangpinKeyHintPolicy.hint(cantonese, "i", false,
+                ShuangpinKeyHintPolicy.hintScheme(5, "cantonese"), "none", true).equals("gw / i")
+                && ShuangpinKeyHintPolicy.hint(cantonese, ";", false, 1, "none", true).equals("ik ing"),
+            "Cantonese shuangpin hints decode and draw");
+        check(ShuangpinKeyHintPolicy.profileWithoutView(true, "cantonese", "cantonese_shuangpin").equals("cantonese")
+                && ShuangpinKeyHintPolicy.profileWithoutView(true, "cantonese", "cantonese").isEmpty()
+                && ShuangpinKeyHintPolicy.profileWithoutView(true, "xiaohe", "quanpin").equals("xiaohe"),
+            "The remembered Cantonese face is used only while Cantonese shuangpin stays selected");
         System.out.println("Android double-pinyin key hints passed");
     }
 }

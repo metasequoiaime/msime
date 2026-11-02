@@ -352,6 +352,10 @@ struct HostSession {
     recorded_sentence_model: Option<String>,
     /// 上一次挂逐键重排时 ONNX 模型的来源目录（[`ffi::onnx_rerank_source`]），没有 ONNX 模型或没开特性时为 `None`。聚焦时与此刻的来源比较：设置应用刚装好（或移除了）`rerank-model-small` 资源包时重新挂。
     keyboard_reranker_source: Option<PathBuf>,
+    /// 宿主在会话选项里写了 `keyboard_reranker: false`（镜像会话）时为 `false`：「增强」打开也不挂逐键重排。
+    keyboard_reranker_allowed: bool,
+    /// HostOptions 记录的 ONNX 重排模型目录（`rerank_models`），为 `None` 时在随包资源目录旁边找，见 [`ffi::keyboard_reranker`]。
+    recorded_rerank_models: Option<String>,
     /// HostOptions 记录的落定重排模型路径（`settled_model`）：随包的模型优先于下载的资源包，见 [`settled_model_file`]。
     recorded_settled_model: Option<String>,
     /// 当前挂在 runtime 上的落定重排模型文件，没有模型时为 `None`。
@@ -1021,18 +1025,23 @@ impl HostSession {
                 &preferences,
             ));
         // The keyboard model follows its switch the same way, but is dropped rather than idled while off: it is the one that runs inside every keystroke.
-        let keyboard = keyboard_reranker_enabled(&preferences.sentence_association, self.edition);
+        let keyboard = self.keyboard_reranker_allowed
+            && keyboard_reranker_enabled(&preferences.sentence_association, self.edition);
         if keyboard != self.runtime.has_reranker() {
             self.runtime.set_candidate_scorer(ffi::keyboard_reranker(
                 keyboard,
                 &options.resources,
                 options.helpcode_fallback_resources.as_deref(),
+                self.recorded_rerank_models.as_deref(),
+                self.plugin_roots.builtin_sounds.as_deref(),
                 self.state_root.as_deref(),
                 self.recorded_sentence_model.as_deref(),
             ));
             self.keyboard_reranker_source = ffi::onnx_rerank_source(
                 &options.resources,
                 options.helpcode_fallback_resources.as_deref(),
+                self.recorded_rerank_models.as_deref(),
+                self.plugin_roots.builtin_sounds.as_deref(),
                 self.state_root.as_deref(),
             );
         }
@@ -1126,10 +1135,14 @@ impl HostSession {
             ));
         }
         // 「增强」开着时，设置应用可能刚装好（或移除了）逐键重排模型的资源包（Android 的 `rerank-model-small`）：来源变了就重新挂，随包的句子模型换成 ONNX 模型，或反过来。
-        if keyboard_reranker_enabled(&self.applied.sentence_association, self.edition) {
+        if self.keyboard_reranker_allowed
+            && keyboard_reranker_enabled(&self.applied.sentence_association, self.edition)
+        {
             let source = ffi::onnx_rerank_source(
                 &self.options.resources,
                 self.options.helpcode_fallback_resources.as_deref(),
+                self.recorded_rerank_models.as_deref(),
+                self.plugin_roots.builtin_sounds.as_deref(),
                 state_root,
             );
             if source != self.keyboard_reranker_source {
@@ -1137,6 +1150,8 @@ impl HostSession {
                     true,
                     &self.options.resources,
                     self.options.helpcode_fallback_resources.as_deref(),
+                    self.recorded_rerank_models.as_deref(),
+                    self.plugin_roots.builtin_sounds.as_deref(),
                     state_root,
                     self.recorded_sentence_model.as_deref(),
                 ));
@@ -2198,6 +2213,12 @@ struct HostOptions {
     /// `false`：这个会话不记选词位置和上屏效率。给与另一个会话处理同一次选词的镜像会话用：Windows TIP 在应用进程里的宿主会话跟着 Server 选同一个词，两边都记就会算两遍，由 Server 的会话记。缺省照常记。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     selection_statistics: Option<bool>,
+    /// `false`：这个会话不挂逐键重排（整句联想「增强」的模型），开关打开也不挂。给只跟着另一个会话选词的镜像会话用：Windows TIP 在每个打字的应用进程里各有一个宿主会话，候选窗是 Server 画的、顺序是 Server 的会话排的，TIP 按文字选中同一个词（`tsf/HostServerSelection.h`），自己再排一遍用不上，却要在每个进程里各加载一份模型（ONNX 大模型 31 MB）。缺省照常挂。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    keyboard_reranker: Option<bool>,
+    /// 放两档 ONNX 逐键重排模型（`rerank-model/`、`rerank-model-small/`）的目录。缺省时在随包资源目录旁边找（[`ffi::rerank_models_root`]）。Windows 的 Server 在内存里写它：它的随包资源目录在 Program Files 的 `server\resources`，模型装在旁边，但 `helpcode_fallback_resources` 是 DataDir（辅助码表在那里），装了在线词库更新后 `resources` 又换成 DataDir 下的代次，两条都找不到安装包里的模型。不写进准备好的 runtime-options.json。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    rerank_models: Option<String>,
     /// macOS 和 Linux 的两个宿主把普通组字里的快捷短语也作为候选显示；缺省关闭以保持其他宿主和旧文档的入口契约。建会话时写进 `EngineOptions`，偏好变更重建 Engine 时沿用同一份选项。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     quick_phrase_candidates: Option<bool>,
@@ -3066,6 +3087,8 @@ fn prepare_shipped_host_configuration(
         ),
         phrase_preedit: None,
         selection_statistics: None,
+        keyboard_reranker: None,
+        rerank_models: None,
         quick_phrase_candidates: None,
         korean_romaja: None,
         clipboard_history_path: None,

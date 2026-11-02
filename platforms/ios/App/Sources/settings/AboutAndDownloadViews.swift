@@ -365,6 +365,7 @@ private struct LicenseNotice: Identifiable {
     LicenseNotice(file: "python-pinyin-MIT", title: "python-pinyin", detail: "表情与颜文字关键词读音 · MIT"),
     LicenseNotice(file: "rime-wubi86-jidian-Apache-2.0", title: "rime-wubi86-jidian", detail: "五笔 86 码表 · Apache-2.0"),
     LicenseNotice(file: "rime-wanxiang-CC-BY-4.0", title: "rime-wanxiang", detail: "拼音与笔画词库的词频 · CC BY 4.0"),
+    LicenseNotice(file: "sentence-model-Apache-2.0", title: "chinese-ime-lm 整句重排模型", detail: "整句联想 · Apache-2.0 与语料署名"),
     LicenseNotice(file: "msime-engine-dictionary-NOTICE", title: "词库数据来源", detail: "各词库与整句上下文表的来源与条款", fileExtension: "md")
   ]
 

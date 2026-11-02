@@ -1883,6 +1883,18 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     return (response as? [String: String]) ?? [:]
   }
 
+  /// 粤语双拼的键位提示，和 `shuangpinKeyHints` 一样从引擎取：引擎按粤语双拼编码用的同一张表生成，宿主不另存键位。粤语双拼不是普通话双拼方案，没有方案名，用保留名 `cantonese` 取。会话跑的不是粤拼时（比如缺了 `msime-cantonese.db`，运行时留在上一个中文方案）给空表，免得把键标成没在跑的方案。
+  func cantoneseShuangpinKeyHints() -> [String: String] {
+    guard let snapshot = try? view(),
+          Self.strictUInt64(snapshot["scheme"]) == UInt64(Self.cantoneseSchemeCode),
+          let data = "cantonese".data(using: .utf8) else { return [:] }
+    let response = try? data.withUnsafeBytes { bytes -> Any in
+      try Self.decode(msimeClientShuangpinKeyHints(
+        bytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(data.count)))
+    }
+    return (response as? [String: String]) ?? [:]
+  }
+
   // The engine keeps its dictionary access from creation until destroy, and those lock files sit in
   // the App Group container. iOS terminates an extension that is suspended while holding a lock
   // there, which it reports as 0xdead10cc, so putting the keyboard away has to hand the access back
@@ -2262,6 +2274,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
 
   /// `View.scheme` for double pinyin, as the shared runtime numbers the Engine's schemes.
   private static let shuangpinSchemeCode: UInt8 = 1
+  /// `View.scheme` for Cantonese Jyutping, which also runs Cantonese shuangpin.
+  private static let cantoneseSchemeCode: UInt8 = 5
 
   private static func ascii(_ value: String) -> MSIMEByte? {
     guard value.utf8.count == 1, let byte = value.utf8.first else { return nil }
