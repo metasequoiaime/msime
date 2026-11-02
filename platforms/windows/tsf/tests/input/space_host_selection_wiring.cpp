@@ -72,10 +72,11 @@ int main(int argc, char **argv) {
     expect_before(partial, "_SelectHighlightedHostCandidate(ec, pContext, serverMsgType, &serverCandidateString)", "AddVirtualKey(remainingRawInput[i])",
                   "a partial Space selection advances the host session before the legacy key buffer is rebuilt");
 
-    // 点选上屏：任何宿主会话拥有的组字都要丢掉，不只韩文这类内联方案。
+    // 点选上屏：宿主会话先按文字跟着选同一个词（#10611，上屏后联想才接得上）；跟不上时它拥有的组字都要丢掉，不只韩文这类内联方案。
     const std::string clicked = between(finalize, "if (!pendingCommitCandidate.empty())", "UINT serverMsgType");
-    expect_before(clicked, "if (hostOwnsComposition)\n            {\n                (void)_CancelHostComposition();", "_HandleCompleteCommitFirst(ec, pContext);",
-                  "a clicked commit drops the host session's composition for every scheme");
+    expect_before(clicked, "if (hostOwnsComposition && !_FollowServerClickInHost(pendingCommitCandidate))\n            {\n                (void)_CancelHostComposition();",
+                  "_HandleCompleteCommitFirst(ec, pContext);",
+                  "a clicked commit the host session cannot follow drops its composition for every scheme");
     expect(clicked, "AlwaysInlinePreedit", false, "dropping the host composition after a click is not limited to inline schemes");
 
     // 数字键和空格用同一个宿主选词函数。
