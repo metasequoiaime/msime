@@ -1,6 +1,7 @@
 {
   "source": "https://github.com/metasequoiaime/chinese-ime-lm/releases/tag/rerank-v1",
   "release_tag": "rerank-v1",
+  "source_commit": "e5ec20f3175efc65dc898792150c719dd6a670cb",
   "license": "Apache-2.0",
   "models": [
     {

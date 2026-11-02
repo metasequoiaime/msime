@@ -106,8 +106,9 @@ test("手机标点面板保留抽取后选项的顺序、名称和写回值", as
 
 describe("整句联想 levels", () => {
   test("the stored switches read as the Android levels", () => {
-    expect(sentenceAssociationLevel(undefined)).toBe(1);
-    expect(sentenceAssociationLevel({})).toBe(1);
+    // 缺键时按默认的「增强」读。
+    expect(sentenceAssociationLevel(undefined)).toBe(2);
+    expect(sentenceAssociationLevel({})).toBe(2);
     expect(sentenceAssociationLevel({ word_lattice: false })).toBe(0);
     // 关闭的 lattice 优先于仍开着的 neural 开关。
     expect(sentenceAssociationLevel({ word_lattice: false, neural_keyboard: true })).toBe(0);
@@ -209,7 +210,7 @@ describe("the HarmonyOS phone 表达 page", () => {
     ).toBe(false);
     expect(within(punctuation).queryByRole("switch", { name: "中文标点" })).toBeNull();
     const smart = group("智能");
-    expect(within(smart).getByRole("button", { name: /整句联想.*标准/ })).toBeTruthy();
+    expect(within(smart).getByRole("button", { name: /整句联想.*增强/ })).toBeTruthy();
     expect(
       (within(smart).getByRole("switch", { name: "英文联想" }) as HTMLInputElement).checked,
     ).toBe(true);
@@ -229,11 +230,11 @@ describe("the HarmonyOS phone 表达 page", () => {
     expect((await saveAndRead(save, 0)).chinese_punctuation).toBe(false);
 
     fireEvent.click(within(group("智能")).getByRole("button", { name: /整句联想/ }));
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /增强/ }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /标准/ }));
     expect((await saveAndRead(save, 1)).sentence_association).toEqual({
       neural_desktop: true,
       word_lattice: true,
-      neural_keyboard: true,
+      neural_keyboard: false,
     });
 
     fireEvent.click(within(group("智能")).getByRole("button", { name: /整句联想/ }));

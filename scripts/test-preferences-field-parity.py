@@ -27,6 +27,8 @@ RUST_ONLY: dict[str, set[str]] = {
         "smart_punctuation_migrated",
         # AI 辅助翻译统一成显式选择时的一次性迁移标记，不是设置：读入时由 client-core 设上，保存时只增不减，设置页不显示也不写它。
         "translation_ai_migrated",
+        # 整句联想默认「增强」的一次性迁移标记，不是设置：读入时由 client-core 设上，保存时只增不减，设置页不显示也不写它。
+        "keyboard_reranker_migrated",
         # 快捷符号当前只有 iOS 原生设置页提供编辑，其他宿主保留共享字段，不在 React 设置页重复增加入口。
         "touch_quick_punctuation_symbols",
         # 日语九键连点切换只在 Android 原生输入设置页提供，其他宿主保留共享字段，React 设置页不显示。

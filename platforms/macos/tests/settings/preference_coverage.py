@@ -97,6 +97,7 @@ NOT_APPLICABLE = {
     "voice_input.punctuation_mode": "语音标点目前只有 Android 在上屏前按它处理（#10558）；macOS 宿主和共享设置页还没接上，见 #10597，接上后删掉这一条",
     "smart_punctuation_migrated": "not a setting: the one-time marker client-core's PreferencesStore sets while reading the document, after turning the old macOS default (smart punctuation off) on; the host reads the migrated values through msime_client_load_preferences",
     "translation_ai_migrated": "not a setting: the one-time marker client-core's PreferencesStore sets while reading the document; only Android and iOS turn their old implicit AI translation into an explicit translation_ai choice before setting it, macOS just sets it",
+    "keyboard_reranker_migrated": "not a setting: the one-time marker client-core's PreferencesStore sets while reading the document, after turning the old default 标准 (sentence_association.neural_keyboard off) into 增强 where the word lattice is on; the host reads the migrated value through msime_client_load_preferences",
     "diagnostic_log.command_line_candidates": "不是输入法读的偏好：只由终端里的 `msime candidates`（`crates/mcp-server` 的 msime-mcp）在查询前检查，关着就提示并以错误码退出；输入法宿主打字时不看它。共享设置页在 macOS 的「维护与诊断」里显示这个开关",
     "fuzzy_pinyin.seeded": "not a setting: `FuzzyPinyinPreferences::seeded` 是内部标记，用来区分「首次开启」和「有意清空规则」，落盘但不渲染（`crates/client-core/src/preferences.rs` 的 `seed_fuzzy_pinyin_rules` 读它、设置页不显示）；宿主不消费它是设计如此",
     "custom_theme.keyboard.key_background": "触屏键盘的自定义设计；macOS 的 AppearancePreferences 仅透传 keyboard，屏幕键盘不消费此设计",

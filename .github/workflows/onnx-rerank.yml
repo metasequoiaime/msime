@@ -13,6 +13,8 @@ on:
       - crates/host-api/Cargo.toml
       - crates/host-api/src/ffi.rs
       - crates/host-api/src/tests.rs
+      - crates/client-providers/src/resource_packs.rs
+      - resources/rerank-model.lock.json
       - tools/onnxruntime-minimal/**
       - resources/onnxruntime-minimal.lock.json
       - scripts/fetch_onnxruntime.py
@@ -30,6 +32,8 @@ on:
       - crates/host-api/Cargo.toml
       - crates/host-api/src/ffi.rs
       - crates/host-api/src/tests.rs
+      - crates/client-providers/src/resource_packs.rs
+      - resources/rerank-model.lock.json
       - tools/onnxruntime-minimal/**
       - resources/onnxruntime-minimal.lock.json
       - scripts/fetch_onnxruntime.py

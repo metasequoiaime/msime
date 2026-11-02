@@ -79,7 +79,7 @@ pub fn export_document(preferences: &Preferences) -> Result<String, serde_json::
     serde_json::to_string_pretty(&Value::Object(document))
 }
 
-/// 把设置文件换算成要保存的偏好：文件里的设置覆盖 `current`，[`LOCAL_SECTIONS`] 保留 `current` 的值，`fuzzy_pinyin.seeded` 只会从假变真（本机种过、文件里标着种过，或文件里模糊音开着），`smart_punctuation_migrated` 和 `translation_ai_migrated` 也一样；文件里的输入方案本版本不提供时保留本机的方案（与账号同步下载时的规则一样，见 `edition::filter_downloaded_account_settings`），只有一个方案的版本根本不从文件里取方案。
+/// 把设置文件换算成要保存的偏好：文件里的设置覆盖 `current`，[`LOCAL_SECTIONS`] 保留 `current` 的值，`fuzzy_pinyin.seeded` 只会从假变真（本机种过、文件里标着种过，或文件里模糊音开着），`smart_punctuation_migrated`、`translation_ai_migrated` 和 `keyboard_reranker_migrated` 也一样；文件里的输入方案本版本不提供时保留本机的方案（与账号同步下载时的规则一样，见 `edition::filter_downloaded_account_settings`），只有一个方案的版本根本不从文件里取方案。
 pub fn import_document(
     bytes: &[u8],
     current: &Preferences,
@@ -131,6 +131,9 @@ pub fn import_document(
     // AI 辅助翻译的迁移标记同理：文件里的翻译服务选择照文件的值导入，不再迁移。
     preferences.translation_ai_migrated =
         current.translation_ai_migrated || preferences.translation_ai_migrated;
+    // 整句联想默认「增强」的迁移标记同理：文件里的 `neural_keyboard` 照文件的值导入，不再迁移。
+    preferences.keyboard_reranker_migrated =
+        current.keyboard_reranker_migrated || preferences.keyboard_reranker_migrated;
     narrow_to_edition(&mut preferences, current, edition);
     preferences
         .validate()
@@ -265,6 +268,25 @@ mod tests {
             import_document(text.as_bytes(), &Preferences::default(), Edition::full()).unwrap();
         assert!(!imported.translation_ai);
         assert!(imported.translation_ai_migrated);
+    }
+
+    // 整句联想默认改成「增强」之前导出的文件没有迁移标记，`neural_keyboard` 是当时默认的 `false`。导入照文件的值来（「标准」），本机的标记保留，之后读文档不会再把它改成「增强」。
+    #[test]
+    fn an_old_file_keeps_its_sentence_level_and_this_machine_s_marker() {
+        let mut document: Value =
+            serde_json::from_str(&export_document(&Preferences::default()).unwrap()).unwrap();
+        let preferences = document["preferences"].as_object_mut().unwrap();
+        assert_eq!(
+            preferences.remove("keyboard_reranker_migrated"),
+            Some(Value::Bool(true))
+        );
+        preferences["sentence_association"]["neural_keyboard"] = Value::Bool(false);
+        let text = serde_json::to_string(&document).unwrap();
+
+        let imported =
+            import_document(text.as_bytes(), &Preferences::default(), Edition::full()).unwrap();
+        assert!(!imported.sentence_association.neural_keyboard);
+        assert!(imported.keyboard_reranker_migrated);
     }
 
     #[test]

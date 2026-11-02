@@ -411,7 +411,7 @@ MDBG 每天用新导出覆盖同一个地址（`https://www.mdbg.net/chinese/exp
 
 ## 按键重排的 ONNX 后端（`crates/onnx-rerank`）
 
-宿主打开 `onnx-rerank` 特性时才编进来，默认构建不带；iOS 键盘扩展的构建打开它，macOS 的发布包与 CI 也打开它，库链进输入法和 `msime-mcp`，两档模型在输入法 bundle 的 `Contents/rerank-model`、`Contents/rerank-model-small`，许可证随输入法的 `Contents/Resources/Licenses`；Windows 的 x64 宿主 DLL（`msime_host_api.dll`，Server 加载它跑逐键重排）也打开它（见 `.agents/notes/implemented/architecture/2026-11-01-onnx-rerank-backend.md`）。Windows 安装包的 `THIRD_PARTY_NOTICES.txt` 由 `platforms/windows/Collect-Notices.ps1` 收进下面这份 ONNX Runtime 的许可证与第三方通知，`ort` / `ort-sys` 的声明由 `collect-notices.py cargo … msime-host-api:onnx-rerank` 收集。
+宿主打开 `onnx-rerank` 特性时才编进来，默认构建不带；iOS 键盘扩展和 Android 的构建打开它，macOS 的发布包与 CI 也打开它，库链进输入法和 `msime-mcp`，两档模型在输入法 bundle 的 `Contents/rerank-model`、`Contents/rerank-model-small`，许可证随输入法的 `Contents/Resources/Licenses`；Windows 的 x64 宿主 DLL（`msime_host_api.dll`，Server 加载它跑逐键重排）也打开它（见 `.agents/notes/implemented/architecture/2026-11-01-onnx-rerank-backend.md`）。Windows 安装包的 `THIRD_PARTY_NOTICES.txt` 由 `platforms/windows/Collect-Notices.ps1` 收进下面这份 ONNX Runtime 的许可证与第三方通知，`ort` / `ort-sys` 的声明由 `collect-notices.py cargo … msime-host-api:onnx-rerank` 收集。Android 的 APK 只带链进 `libmsime_host_api.so` 的运行库，模型（6x256）是用户选「增强」时下载的资源包；它沿用 APK 里已有的 ONNX Runtime 许可证与第三方通知（`assets/native-notices/<ABI>/onnxruntime.txt`、`onnxruntime-third-party.txt`）。
 
 | 组件 | 许可证 | 说明 |
 | --- | --- | --- |
