@@ -304,11 +304,6 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
         }
     }
 
-    /**
-     * 确认清空的顶行在窄键盘上也要整行落在键盘宽度以内：问句、「取消」「清空」都有宽高，按钮不出右边界（#10030）。
-     *
-     * <p>顶行原来套在 HorizontalScrollView 里按 UNSPECIFIED 宽度量，整行约 270dp；240dp 宽时「清空」被挤到右侧屏外，要横滑才点得到。
-     */
     /** 用真实面板渲染覆盖按钮开启和工具栏隐藏的四种组合，不因快捷入口而删除语音磁贴。 */
     private static void checkVoiceTileRetained(Class<?> type, Object service) throws Exception {
         Object panel = field(type, "imeFunctionPanel").get(service);
@@ -328,6 +323,11 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
         }
     }
 
+    /**
+     * 确认清空的顶行在窄键盘上也要整行落在键盘宽度以内：问句、「取消」「清空」都有宽高，按钮不出右边界（#10030）。
+     *
+     * <p>顶行原来套在 HorizontalScrollView 里按 UNSPECIFIED 宽度量，整行约 270dp；240dp 宽时「清空」被挤到右侧屏外，要横滑才点得到。
+     */
     private static void checkClipboardClearConfirm(Object panels, ViewGroup header, ViewGroup surface,
             float density) throws Exception {
         Field pending = field(panels.getClass(), "clipboardClearPending");

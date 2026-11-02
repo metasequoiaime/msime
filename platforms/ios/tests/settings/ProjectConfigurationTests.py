@@ -182,6 +182,24 @@ class ProjectConfigurationTests(unittest.TestCase):
         self.assertIn('LicenseNotice(file: "msime-engine-dictionary-NOTICE"', about)
         self.assertIn('fileExtension: "md")', about)
 
+    def test_app_ships_the_licence_and_attribution_of_the_sentence_model(self):
+        # 键盘扩展 EngineResources 里的 sentence-model.safetensors 是 chinese-ime-lm 的 model-v1（Apache-2.0）。Apache-2.0 第 4(a)、4(d) 条要求随副本附上许可证全文和上游 NOTICE，训练语料要求署名随权重传播；共用的 sentence-model-Apache-2.0.txt 三样都有。键盘扩展只随 App 一起安装，所以它作为 App 的资源分发，关于页列出；键盘扩展不带第二份。
+        project = (IOS_ROOT / "project.yml").read_text()
+        targets = dict(target_blocks(project))
+        generated = (IOS_ROOT / "MSIMEClient.xcodeproj/project.pbxproj").read_text()
+        about = (IOS_ROOT / "App/Sources/settings/AboutAndDownloadViews.swift").read_text()
+        licence = "sentence-model-Apache-2.0.txt"
+        path = f"../../resources/licenses/{licence}"
+        blocks = source_path_blocks(targets["MSIMEApp"], path)
+        self.assertEqual(len(blocks), 1)
+        self.assertIn("buildPhase: resources", blocks[0])
+        text = (IOS_ROOT / path).read_text()
+        for phrase in ("releases/tag/model-v1", "Copyright 2026 chinese-ime-lm contributors", "LCCC (MIT, https://github.com/thu-coai/CDial-GPT)", "Version 2.0, January 2004", "END OF TERMS AND CONDITIONS"):
+            self.assertIn(phrase, text)
+        self.assertEqual(generated.count(f"{licence} in Resources"), 2)
+        self.assertIn(f'LicenseNotice(file: "{licence.removesuffix(".txt")}"', about)
+        self.assertEqual(source_path_blocks(targets["MSIMEKeyboardExtension"], path), [])
+
     def test_app_ships_the_licence_of_the_component_lookup_table(self):
         # 链接进 App 和键盘扩展的 Engine 编入了拆字反查的部件拼音表，它改编自開放詞典的漢語拆字字典（CC BY 3.0），署名、固定提交和改动说明都在这份许可证文件里。
         project = (IOS_ROOT / "project.yml").read_text()
