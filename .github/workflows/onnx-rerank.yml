@@ -14,6 +14,9 @@ on:
       - crates/host-api/src/ffi.rs
       - crates/host-api/src/tests.rs
       - tools/onnxruntime-minimal/**
+      - resources/onnxruntime-minimal.lock.json
+      - scripts/fetch_onnxruntime.py
+      - platforms/windows/Build-RustOutputs.ps1
       - Cargo.toml
       - Cargo.lock
       - rust-toolchain.toml
@@ -28,6 +31,9 @@ on:
       - crates/host-api/src/ffi.rs
       - crates/host-api/src/tests.rs
       - tools/onnxruntime-minimal/**
+      - resources/onnxruntime-minimal.lock.json
+      - scripts/fetch_onnxruntime.py
+      - platforms/windows/Build-RustOutputs.ps1
       - Cargo.toml
       - Cargo.lock
       - rust-toolchain.toml
@@ -113,3 +119,44 @@ jobs:
           test -f "$ORT_LIB_LOCATION/libonnxruntime.a"
           cargo test --locked -p msime-onnx-rerank --features runtime
           cargo test --locked -p msime-host-api --features onnx-rerank --lib keyboard_reranker
+
+  # Windows 的发布（Build-RustOutputs.ps1）给 x64 宿主开着 onnx-rerank，链接锁里发布的 x86_64-pc-windows-msvc 精简库（/MD）。上面的 Linux 作业现编自己的库，碰不到 MSVC 的链接和这一份发布的库；这里用 fetch_onnxruntime.py 按锁下载核对它，跑同样的 golden 和挂载测试。只编 x64：x86 和 arm64 的宿主只给 TIP 加载，TIP 的会话不挂逐键重排，不开这个特性。
+  windows:
+    name: ONNX rerank backend (Windows x64)
+    runs-on: depot-windows-2025-8
+    timeout-minutes: 90
+    env:
+      SCCACHE_IGNORE_SERVER_IO_ERROR: '1'
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install sccache
+        id: sccache
+        continue-on-error: true
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+      - name: Enable sccache
+        if: ${{ steps.sccache.outcome == 'success' }}
+        shell: bash
+        run: |
+          if sccache --start-server; then
+            echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          else
+            echo "::warning::sccache did not start; the Rust build runs without the compile cache"
+          fi
+      - name: Golden and mounting tests against the released ONNX Runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # rust-toolchain.toml pins the compiler; this installs it from the repository root.
+          rustup toolchain install
+          if ($LASTEXITCODE -ne 0) { throw 'rustup toolchain install failed' }
+          $location = @(& python scripts/fetch_onnxruntime.py --target x86_64-pc-windows-msvc)
+          if ($LASTEXITCODE -ne 0) { throw 'fetch_onnxruntime.py failed' }
+          $env:ORT_LIB_LOCATION = $location[-1]
+          if (-not (Test-Path -LiteralPath (Join-Path $env:ORT_LIB_LOCATION 'onnxruntime.lib') -PathType Leaf)) { throw "no onnxruntime.lib in $env:ORT_LIB_LOCATION" }
+          cargo test --locked -p msime-onnx-rerank --features runtime
+          if ($LASTEXITCODE -ne 0) { throw 'msime-onnx-rerank tests failed' }
+          cargo test --locked -p msime-host-api --features onnx-rerank --lib keyboard_reranker
+          if ($LASTEXITCODE -ne 0) { throw 'host-api keyboard_reranker tests failed' }

@@ -59,6 +59,8 @@ cargo build -p msime-host-api --features onnx-rerank
 
 `--list` 列出锁里的目标。锁里没有的目标，指向上面 `build.sh` 输出的那个平台的目录（`<工作目录>/out/<平台>`）。
 
+各平台的接入：iOS 是 `platforms/ios/build-native.sh`，Linux 是 `platforms/linux/package-container.sh`；Windows 是 `platforms/windows/Build-RustOutputs.ps1`，只给 x64 宿主取 `x86_64-pc-windows-msvc` 的库、开 `onnx-rerank`（逐键重排只在 Server 的会话里跑，Server 是 x64 程序）。`aarch64-pc-windows-msvc` 的库发布了，但现在没有构建用它：arm64 宿主只给 TIP 的原生那一半加载，TIP 的会话不挂重排。
+
 CI 的 `.github/workflows/onnx-rerank.yml` 在 Linux x86_64 上用 `build.sh` 编出库（按算子清单和构建脚本缓存，并作为附件上传，见上），跑 `msime-onnx-rerank` 的 golden 测试和 host-api 的挂载测试。Linux 的发布包不用它，由 `platforms/linux/package-container.sh` 按锁下载。没有库时 `cargo clippy` / `cargo check` 也能开着这些特性做类型检查，`ort-sys` 把找不到库的报错推迟到链接。
 
 `ort-sys` 的构建脚本会把这个库复制进自己的输出目录，之后换了库文件也不会重新复制；换库之后先 `cargo clean -p ort-sys`。
