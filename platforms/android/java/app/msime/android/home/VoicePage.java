@@ -31,6 +31,7 @@ import app.msime.android.VoiceProviderCatalog;
 import app.msime.android.VoiceProviderPolicy;
 import app.msime.android.VoiceProviderSettings;
 import app.msime.android.VoiceLanguageCatalog;
+import app.msime.android.VoicePunctuation;
 import app.msime.android.VoiceRecognitionActivity;
 import app.msime.android.core.InputViewValuePolicy;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
@@ -42,11 +43,11 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * 语音输入页：识别服务及其密钥，识别语言、自动添加标点、离线识别、启动方式，以及隐私组的「上传语音以改进识别」。
+ * 语音输入页：识别服务及其密钥，识别语言、自动添加标点、语音标点、离线识别、启动方式，以及隐私组的「上传语音以改进识别」。
  *
  * <p>识别服务写共享偏好的 `voice_input.asr_provider`，密钥、接口和模型写同一对象里的 `asr_token` / `asr_tokens`、`asr_app_key`、`doubao_auth_mode`、`asr_endpoint`、`asr_model`、`asr_resource_id`，键盘经共享解析读它们，这里不另存一份。切换服务和凭据分槽的规则在 {@link VoiceProviderPolicy}。密钥只在本机：设置同步只带识别语言。
  *
- * <p>键盘读同一批存储：语言是共享偏好的 `voice_input.language`（普通话 `zh-cn`、粤语 `yue`、英语 `en`、普通话 + 英语 `auto`）；自动标点绑定已有的 `voice_input.doubao_enable_punc`，只有豆包识别支持，其他识别器下置灰并写明原因；离线识别只有 Android 有，在 {@link AndroidLocalSettings} 的 `platform.android.voice_offline_fallback`；启动方式没有自己的字段，由本地设置的长按空格（`platform.android.space_voice`）和共享偏好的 `touch_voice_shortcut` 联合派生；组合项开启长按空格并保留工具栏选择，「无」关闭两个快捷入口。
+ * <p>键盘读同一批存储：语言是共享偏好的 `voice_input.language`（普通话 `zh-cn`、粤语 `yue`、英语 `en`、普通话 + 英语 `auto`）；自动标点绑定已有的 `voice_input.doubao_enable_punc`，只决定豆包请求时要不要标点，其他识别器下置灰并指向「语音标点」；「语音标点」写共享偏好的 `voice_input.punctuation_mode`（{@link VoicePunctuation}），键盘和识别窗口在所有识别服务和润色之后、上屏之前按它处理；离线识别只有 Android 有，在 {@link AndroidLocalSettings} 的 `platform.android.voice_offline_fallback`；启动方式没有自己的字段，由本地设置的长按空格（`platform.android.space_voice`）和共享偏好的 `touch_voice_shortcut` 联合派生；组合项开启长按空格并保留工具栏选择，「无」关闭两个快捷入口。
  *
  * <p>本地识别（识别服务选「本地模型」，或打开离线识别）用 `voice_input.asr_model_path` 指向的模型。选了本地模型或打开离线识别时出现「本地模型」组：列出共享目录里手机可用的模型，可以下载、取消、选用和删除，下载经 {@link ResourcePackService} 排队，装在 `filesDir/voice-models/<id>`（{@link LocalVoiceModels}），下载完成且还没选用模型时自动选用。
  *
@@ -66,6 +67,9 @@ public final class VoicePage extends ReloadingDetailPage {
     static final String TRIGGER_NONE_HINT = "空格键和工具栏上不放语音入口，长按空格只输入空格；要说话可在「更多工具」里点「语音输入」";
     static final String TRIGGER_COMBINED_HINT = "选择后开启长按空格语音；工具栏按钮在「键盘 → 工具栏 → 语音」单独开关，两种方式可同时使用";
     static final String TRIGGER_SHEET_HINT = TRIGGER_COMBINED_HINT + "。选「无」时" + TRIGGER_NONE_HINT;
+    /** 「语音标点」的「?」：四个选项各自的效果。 */
+    static final String PUNCTUATION_MODE_HINT = "识别结果上屏前怎么处理标点，对所有识别服务和 AI 润色后的结果都生效。智能添加：识别出什么标点就上屏什么；省略句末标点：「你好。」上屏为「你好」；省略所有标点：「天啊！他是谁？」上屏为「天啊他是谁」；空格代替标点：上屏为「天啊 他是谁」。小数点、时间里的冒号和引号括号不受影响";
+    static final String PUNCTUATION_MODE_SHEET_HINT = "对所有识别服务和 AI 润色后的结果生效，下一次识别起作用";
     /** 工具栏整体隐藏时，不替用户改变显示方式；长按空格与「更多工具」入口仍按各自规则可用。 */
     static final String TRIGGER_TOOLBAR_HIDDEN_HINT = "工具栏已隐藏，按钮暂不显示；可在「键盘 → 工具栏」更改显示方式，或在「更多工具」里点「语音输入」";
 
@@ -196,9 +200,15 @@ public final class VoicePage extends ReloadingDetailPage {
 
         boolean punctuation = voice.optBoolean("doubao_enable_punc", true);
         GroupCard.Row punctuationRow = recognition.toggle("自动添加标点",
-            state.punctuationSupported() ? null : "当前识别服务不支持，仅豆包语音识别可以自动加标点",
-            punctuation, checked -> saveVoice("doubao_enable_punc", checked));
+            state.punctuationSupported() ? null : "只对豆包生效；其他识别服务的标点用下面的「语音标点」",
+            punctuation, checked -> saveVoice("doubao_enable_punc", checked))
+            .help("只决定豆包识别要不要在结果里加标点。本地模型、系统识别和其他服务自己会加标点，要去掉或替换它们，用下面的「语音标点」");
         punctuationRow.setEnabled(state.punctuationSupported());
+
+        String punctuationMode = VoicePunctuation.mode(voice.opt("punctuation_mode"));
+        GroupCard.Row[] punctuationModeRow = new GroupCard.Row[1];
+        punctuationModeRow[0] = recognition.nav("语音标点", null, VoicePunctuation.label(punctuationMode),
+            () -> pickPunctuationMode(punctuationMode, punctuationModeRow[0])).help(PUNCTUATION_MODE_HINT);
 
         recognition.toggle("离线识别", null, offline,
             checked -> KeyboardSheets.saveLocal(this, AndroidLocalSettings.VOICE_OFFLINE_FALLBACK, checked, () -> {
@@ -702,6 +712,19 @@ public final class VoicePage extends ReloadingDetailPage {
             sheet.option(label, value.equals(current), () -> {
                 row.setValue(label);
                 saveVoice("language", value);
+            });
+        }
+        sheet.show();
+    }
+
+    private void pickPunctuationMode(String selected, GroupCard.Row row) {
+        OptionSheet sheet = new OptionSheet(requireContext(), "语音标点", PUNCTUATION_MODE_SHEET_HINT);
+        for (int index = 0; index < VoicePunctuation.MODES.length; index++) {
+            String value = VoicePunctuation.MODES[index];
+            String label = VoicePunctuation.LABELS[index];
+            sheet.option(label, value.equals(selected), () -> {
+                row.setValue(label);
+                saveVoice("punctuation_mode", value);
             });
         }
         sheet.show();

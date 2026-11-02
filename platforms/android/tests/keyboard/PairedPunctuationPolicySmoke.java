@@ -9,6 +9,7 @@ public final class PairedPunctuationPolicySmoke {
         stepOver();
         symbolStepOver();
         caretAfterClosingCommit();
+        explicitCursor();
         punctuationStyles();
         System.out.println("PairedPunctuationPolicySmoke: PASS");
     }
@@ -70,6 +71,38 @@ public final class PairedPunctuationPolicySmoke {
             "fullwidth ＜ and 《 still pair");
         for (String single : new String[] {"）", "”", "\"", "'", ">", "，", "︵", "﹁", "http://", null})
             check(PairedPunctuationPolicy.symbolClosing(single) == null, single + " is inserted alone");
+    }
+
+    /** `title:"${cursor}"` 以 `(` 结束时上屏 `title:""（`，后缀是 `"（`：光标落在两个引号之间，那里既不补后半个也不改回前引号。宿主两处调用都只走 `punctuationCommit`，这里直接测它。 */
+    private static void explicitCursor() {
+        check(PairedPunctuationPolicy.explicitCursor("title:\"\"（", "\"（"), "a cursor phrase finished by ( asks for a position");
+        check(PairedPunctuationPolicy.explicitCursor("末尾（", ""), "the end marker is an explicit template too");
+        check(PairedPunctuationPolicy.explicitCursor("好”", "”"), "a quote tail keeps the request");
+        check(!PairedPunctuationPolicy.explicitCursor("（", null), "an ordinary commit has no request");
+        check(!PairedPunctuationPolicy.explicitCursor("title:\"\"（", "stale"), "a mismatched suffix is no request");
+        check(!PairedPunctuationPolicy.explicitCursor(null, ""), "no commit, no request");
+
+        PairedPunctuationPolicy.PunctuationCommit template =
+            PairedPunctuationPolicy.punctuationCommit("title:\"\"（", "\"（", '(', true);
+        check(template.commit().equals("title:\"\"（") && template.completion() == null,
+            "a cursor template finished by ( lands as written with no closing mark");
+        PairedPunctuationPolicy.PunctuationCommit end = PairedPunctuationPolicy.punctuationCommit("末尾（", "", '(', true);
+        check(end.commit().equals("末尾（") && end.completion() == null, "the end marker lands as written too");
+        PairedPunctuationPolicy.PunctuationCommit quote = PairedPunctuationPolicy.punctuationCommit("好”", "”", '"', true);
+        check(quote.commit().equals("好”") && quote.completion() == null, "a cursor template's quote is not reopened");
+        PairedPunctuationPolicy.PunctuationCommit plainQuote = PairedPunctuationPolicy.punctuationCommit("好”", null, '"', true);
+        check(plainQuote.commit().equals("好“") && plainQuote.completion() != null
+            && plainQuote.completion().closing().equals("”"), "without a template the quote reopens and closes");
+        PairedPunctuationPolicy.PunctuationCommit plain = PairedPunctuationPolicy.punctuationCommit("你好（", null, '(', true);
+        check(plain.commit().equals("你好（") && plain.completion() != null
+            && plain.completion().closing().equals("）"), "without a template ( still closes");
+        PairedPunctuationPolicy.PunctuationCommit stale =
+            PairedPunctuationPolicy.punctuationCommit("title:\"\"（", "stale", '(', true);
+        check(stale.completion() != null, "a mismatched suffix is an ordinary commit");
+        PairedPunctuationPolicy.PunctuationCommit off = PairedPunctuationPolicy.punctuationCommit("好”", null, '"', false);
+        check(off.commit().equals("好”") && off.completion() == null, "switch off: no reopen, no closing");
+        PairedPunctuationPolicy.PunctuationCommit none = PairedPunctuationPolicy.punctuationCommit(null, "\"", '"', true);
+        check(none.commit() == null && none.completion() == null, "no commit, nothing to do");
     }
 
     private static void literalPairs() {

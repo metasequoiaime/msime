@@ -704,10 +704,21 @@ public final class VoiceRecognitionActivity extends Activity {
         return polished == null ? text : polished;
     }
 
+    /**
+     * 存下最终结果，交给键盘插入。所有识别服务和润色都在这之前结束，语音标点（{@link VoicePunctuation}）在这里按偏好处理一次；只剩标点时不存，提示没有识别到文字。
+     */
     @SuppressWarnings("deprecation")
-    private void saveResult(String text) {
-        diagnostic(DiagnosticEventKind.VOICE_SUCCESS);
+    private void saveResult(String recognized) {
         File files = getFilesDir();
+        String text = VoicePunctuation.apply(recognized, files == null ? VoicePunctuation.AUTO
+            : VoiceConfiguration.read(HostOptionsPolicy.readOption(files, "preferences_directory"),
+                getIntent().getStringExtra(EXTRA_REQUEST_ID)).punctuationMode());
+        if (text != null && text.isEmpty() && recognized != null && !recognized.isEmpty()) {
+            diagnostic(DiagnosticEventKind.VOICE_EMPTY);
+            Toast.makeText(this, "没有识别到文字", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        diagnostic(DiagnosticEventKind.VOICE_SUCCESS);
         if (files == null) {
             Toast.makeText(this, "语音结果无法保存", Toast.LENGTH_SHORT).show();
             return;

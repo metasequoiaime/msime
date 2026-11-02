@@ -33,6 +33,11 @@ export class HarmonyPrivacyConsent {
     return PrivacyConsentPolicy.networkAllowed(HarmonyPrivacyConsent.record, PRIVACY_POLICY_VERSION);
   }
 
+  /** 只作为本机上报授权的政策身份，不上传，也不供其他联网功能绕过政策门禁。 */
+  static reportingIdentity(): string {
+    return HarmonyPrivacyConsent.record === null ? 'undecided' : PrivacyConsentPolicy.serialize(HarmonyPrivacyConsent.record);
+  }
+
   /** 打开设置应用时要不要弹窗。 */
   static shouldPrompt(): boolean {
     return PrivacyConsentPolicy.shouldPrompt(HarmonyPrivacyConsent.record, PRIVACY_POLICY_VERSION);

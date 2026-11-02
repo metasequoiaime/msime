@@ -33,6 +33,15 @@ enum PairedPunctuationPolicy {
     return completions.first { commit.hasSuffix($0.openingMark) }
       .map { PairedPunctuationCompletion(opening: $0.opening, closing: $0.closing) }
   }
+
+  /// 标点键这次上屏实际落地的快照，以及随后要写的后半个。要求定位光标的快捷短语模板（`commitCursorSuffix`，空的末尾标记也算）按原样落地：渲染时光标已经放进模板里，这时补的后半个会写在那里；改回前引号又会改变上屏文字、丢掉定位请求。macOS 用 `hasCursorRequest` 拦下同样的两步。
+  static func punctuationCommit(_ snapshot: MetasequoiaInputSnapshot, ascii: String, enabled: Bool)
+    -> (snapshot: MetasequoiaInputSnapshot, completion: PairedPunctuationCompletion?) {
+    guard snapshot.commitCursorSuffix == nil else { return (snapshot, nil) }
+    let reopened = reopenQuote(snapshot.commitText, ascii: ascii, enabled: enabled)
+    let landed = reopened != snapshot.commitText ? snapshot.replacingCommit(reopened) : snapshot
+    return (landed, completion(landed.commitText, enabled: enabled))
+  }
 }
 
 /// The pairs the keyboard has closed whose closing half still waits to the right of the caret, innermost last, as the reference's `_pairedPunctuationStack` keeps them.
@@ -82,10 +91,13 @@ struct PairedPunctuationStack {
 }
 
 extension MetasequoiaInputSnapshot {
-  /// The same snapshot committing `text` instead.
+  /// 替换上屏正文；实际改写时丢弃旧定位，同一份 UTF-8 正文保留位置请求。
   func replacingCommit(_ text: String?) -> MetasequoiaInputSnapshot {
-    MetasequoiaInputSnapshot(
-      isHandled: isHandled, commitText: text, scriptConversion: scriptConversion,
+    let unchanged = text.flatMap { replacement in commitText.map { replacement.utf8.elementsEqual($0.utf8) } } ?? false
+    return MetasequoiaInputSnapshot(
+      isHandled: isHandled, commitText: text,
+      commitCursorSuffix: unchanged ? commitCursorSuffix : nil,
+      scriptConversion: scriptConversion,
       preedit: preedit, reading: reading, phrasePrefix: phrasePrefix,
       candidates: candidates, candidateCodes: candidateCodes, candidateGlosses: candidateGlosses,
       candidateAnnotations: candidateAnnotations, candidateSources: candidateSources,

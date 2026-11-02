@@ -87,7 +87,11 @@ struct CEditSessionBase {
     void Release() {}
 };
 struct CMetasequoiaIME {
-    struct WorkerCandidateCommit { std::wstring text; uint64_t focusToken=0,compositionEpoch=0; };
+    struct WorkerCandidateCommit {
+        std::wstring text;
+        uint64_t focusToken=0,compositionEpoch=0;
+        std::optional<std::size_t> cursorSuffix = std::nullopt;
+    };
     struct DeferredKeyDown { ITfContext *context=nullptr; WPARAM wParam=0; wchar_t translatedWch=0; uint64_t focusGeneration=0;
         struct { int Category=0,Function=0; } keyState; };
     std::atomic<bool> _localSessionResetPending{false};
@@ -119,6 +123,9 @@ struct CMetasequoiaIME {
     HWND _msgWndHandle=1;
     int _tfClientId=1, completed=0,dirty=0,writes=0;
     bool writeFails=false;
+    uint64_t editorSerial=0;
+    std::optional<std::size_t> cursorSeen;
+    void _BeginEditorOperation() { ++editorSerial; }
     uint64_t focus=1,epoch=1;
     ThreadMgr thread;
     bool _IsComposing() { return true; }
@@ -133,8 +140,9 @@ struct CMetasequoiaIME {
         if (_hasDeferredKeyInFlight && token==_deferredKeyReplayToken) {
             ++completed; _hasDeferredKeyInFlight=false; _deferredKeyReplayToken=0;
             _deferredKeyInFlight.context->Release(); _deferredKeyInFlight={}; } }
-    HRESULT _HandleCommitCandidateAndContinue(TfEditCookie,ITfContext*,const std::wstring&) {
-        ++writes; ++epoch; return writeFails?E_FAIL:S_OK; }
+    HRESULT _HandleCommitCandidateAndContinue(TfEditCookie,ITfContext*,const std::wstring&,
+                                               std::optional<std::size_t> cursor) {
+        cursorSeen=cursor; ++writes; ++epoch; return writeFails?E_FAIL:S_OK; }
     bool _IsWubiWorkerEditCurrent(uint64_t,uint64_t,ITfContext*) const;
     bool _FinishWubiLocalEdit(uint64_t,bool);
     void _FinishWubiWorkerEdit(uint64_t,bool);
@@ -225,6 +233,15 @@ int main() {
       check(!f.context.pending && f.ime.writes==0,"modern worker without retained ownership never writes"); }
     { Fixture f;f.engine.host.enabled=false;f.payload();f.ime.dispatch(17);f.execute();
       check(f.ime.writes==1,"legacy host without an adapter keeps its original worker route"); }
+    for (std::size_t suffix : {std::size_t{0}, std::size_t{3}}) {
+        Fixture f; f.arm(); f.result(); f.finish(); f.payload();
+        f.ime._pendingServerCommitMessages[17].cursorSuffix=suffix;
+        f.ime.dispatch(17);
+        check(f.ime.editorSerial==0,"queueing does not take document ownership");
+        f.execute();
+        check(f.ime.cursorSeen==suffix && f.ime.editorSerial==1 && f.ime.writes==1 && f.ime.completed==1,
+              "cursor metadata and explicit zero survive worker queue and granted edit session");
+    }
     std::printf("Wubi worker lifecycle: %d checks, %d failures\n",checks,failures);return failures?1:0;
 }
 '''

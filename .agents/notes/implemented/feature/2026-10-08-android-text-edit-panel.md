@@ -18,6 +18,7 @@ Status: implemented
 - 打开前由 Engine 完成组字，之后所有动作直接作用于编辑器，不经过 Engine：
   - 方向键发 DPAD 按键事件；「选择」开着时先发左 Shift 按下、再发带 Shift meta 的方向键、最后松开 Shift。EditText 的 `ArrowKeyMovementMethod.isSelecting` 只看文字缓冲里 MetaKeyKeyListener 记下的 Shift，不看事件的 meta；WebView 看事件的 meta，所以两样都给。事件的设备是 `VIRTUAL_KEYBOARD`，它的修饰键是 chorded，Shift 松开即清除，不会留下粘滞的 Shift。
   - #8175 的选择状态直接复用面板的 `selecting`：开启时键面和无障碍动作读作「取消选择」，关闭时恢复「选择」及原有「选择模式」描述。剪切、粘贴、退格和重新打开面板仍按已有规则关闭选择模式，标签随同刷新，不另存一份状态。
+  - #10454：开着时「选择」键（以及触控板模式下的「选择」键）整块填成皮肤强调色，字用 onAccent，和大小写键、简繁键表示「开着」的方式一样。键帽不是 state-list，`ImeStyler.styleButton` 按调用那一刻的 `isSelected()` 装背景；面板开着时不经过引擎 render，也不会整树换肤，所以 `renderState()` 改完 selected 标志后要立即对这两个键调一次 `styleButton(…, true)`，否则只有文字变成「取消选择」、键面不变色。角色传 ACCENT，是因为整树换肤按无障碍描述推角色，这两个键的描述没有「按键 」前缀，推出来也是 ACCENT，两边一致，`KeyboardPressButton` 的键帽缓存不会来回失效。issue 里提的七彩渐变边框不做：那是一种新装饰样式，要在所有内置、照片和社区皮肤上都协调做不到，也和现有「开着就用强调色填充」的表达不一致。
   - 移到开头 / 结尾是 Ctrl+Home / Ctrl+End，到整篇文档两端（issue 说的是文本的头部和尾部，不是当前行）。
   - 全选、复制、剪切、粘贴走 `performContextMenuAction`。编辑器不支持时只有粘贴退回到直接上屏剪贴板文字。
   - 退格发 `KEYCODE_DEL`（有选区时删选区），复用删除键的连发与上滑快速删除。方向键按住连发，节奏同删除键。剪切、粘贴、退格之后关闭「选择」。
@@ -45,6 +46,7 @@ Status: implemented
 - #8487：`check-host.sh` 通过（242 个 Android JVM smoke、150 个设备测试源编译），`TextEditPanelModelSmoke` 覆盖三项滚动快捷键、直接按键码和原有 4 × 4 网格。
 - `TextEditRecentClipboardDeviceSmoke` 在 API 28、API 35 专用模拟器通过：开启后键面及无障碍描述为「取消选择」，方向键延伸 EditText 选区；关闭后恢复「选择」，下一次方向键只移动光标。原有复制、剪切、粘贴、顶部预览和返回键验收同时通过。
 - `bash scripts/verify-local.sh --quick`、`pnpm run verify-notes` 与差异检查通过。
+- #10454：`TextEditRecentClipboardDeviceSmoke` 在原有 selected 断言之外直接读屏幕像素：取「选择」键上沿往下四分之一处一点，开启后要稳定变成与关闭时不同的颜色，延伸选区时保持，关闭后恢复成原来的颜色。只看 `isSelected()` 正是这个 bug 一直没被发现的原因。
 
 2026-10-19 整套设备回归复查：换行专项原来向单行 `EditText` 断言换行，数字页返回也硬编码旧英文键面 `ABC`。合成编辑器现在通过专用 Intent 参数为该套件启用多行，其余套件仍使用原单行输入框；返回数字页按稳定的「切换到字母键盘」无障碍动作查找，兼容当前中文九宫格。API 35 独立专项通过：滚动、空格、真实换行、数字往返、选择、复制剪切、预览和返回均执行。没有修改产品提交换行或数字页的行为。
 

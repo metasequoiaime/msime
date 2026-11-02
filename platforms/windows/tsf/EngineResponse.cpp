@@ -17,6 +17,13 @@ bool EngineSessionAdapter::parse_result(const std::string &text,
     parsed.has_commit = value.value("has_commit", value.contains("commit") && !value.at("commit").is_null());
     if (value.contains("commit") && !value.at("commit").is_null())
       parsed.commit = value.at("commit").get<std::string>();
+    if (parsed.has_commit && value.contains("commit") && value.at("commit").is_string() &&
+        value.contains("commit_cursor_suffix") && value.at("commit_cursor_suffix").is_string()) {
+      const auto suffix = value.at("commit_cursor_suffix").get<std::string>();
+      if (suffix.size() <= parsed.commit.size() &&
+          parsed.commit.compare(parsed.commit.size() - suffix.size(), suffix.size(), suffix) == 0)
+        parsed.commit_cursor_suffix = suffix;
+    }
     if (value.contains("diagnostic") && !value.at("diagnostic").is_null())
       parsed.diagnostic = value.at("diagnostic").get<std::string>();
     if (value.contains("view") || value.contains("preedit")) {

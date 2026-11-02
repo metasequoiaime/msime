@@ -66,7 +66,7 @@
       <TreatWarningAsError>true</TreatWarningAsError>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(HostApiInclude);$(MSBuildProjectDirectory)\..\common;$(MSBuildProjectDirectory)\..\src\system;$(MSBuildProjectDirectory)\..\src\candidate;$(MSBuildProjectDirectory)\..\msimeui\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(HostApiInclude);$(NativeDependenciesInclude);$(MSBuildProjectDirectory)\..\common;$(MSBuildProjectDirectory)\..\src\system;$(MSBuildProjectDirectory)\..\src\candidate;$(MSBuildProjectDirectory)\..\msimeui\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/utf-8 /bigobj %(AdditionalOptions)</AdditionalOptions>
       <PreprocessorDefinitions>UNICODE;_UNICODE;NOMINMAX;WIN32_LEAN_AND_MEAN;MSIME_EDITION_$(MsimeEdition.ToUpperInvariant());MSIME_WINDOWS_VERSION=&quot;$(MsimeVersion)&quot;;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
@@ -84,6 +84,8 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="..\..\common\CrashRecorder.cpp" />
+    <ClCompile Include="..\..\common\Telemetry.cpp" />
     <ClCompile Include="..\msimeui\src\AnimatedImage.cpp" />
     <ClCompile Include="..\src\system\ShellLauncher.cpp" />
     <ResourceCompile Include="Settings.rc" />
@@ -94,6 +96,10 @@
     <PackageReference Include="Microsoft.Windows.CppWinRT" Version="2.0.250303.1" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <!-- 共用遥测包装器使用与原生宿主相同的 nlohmann-json；由构建入口传入已准备的依赖前缀。 -->
+  <Target Name="MsimeNativeDependencies" BeforeTargets="ClCompile">
+    <Error Condition="'$(NativeDependenciesInclude)' == '' or !Exists('$(NativeDependenciesInclude)\nlohmann\json.hpp')" Text="NativeDependenciesInclude 必须指向含 nlohmann/json.hpp 的原生依赖 include 目录" />
+  </Target>
   <!-- 求值阶段不能运行进程，git 回退只能放在目标里，所以 MSIME_WINDOWS_RELEASE_DATE 在编译前加到编译项上，而不是写进上面的 ItemDefinitionGroup。git 不在 PATH 上或不在仓库里时不报错，日期为空。Exec 经 cmd 批处理执行，%25%25 在批处理里是一个 %，git 收到的是 %cs。 -->
   <Target Name="MsimeReleaseDate" BeforeTargets="ClCompile">
     <Error Condition="'$(MsimeReleaseDate)' != '' and !$([System.Text.RegularExpressions.Regex]::IsMatch('$(MsimeReleaseDate)', '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'))" Text="MSIME_RELEASE_DATE 或 release-date.txt 必须是 YYYY-MM-DD：$(MsimeReleaseDate)" />

@@ -5,13 +5,14 @@ use std::sync::Arc;
 
 use super::shuangpin;
 use super::syllable::{self, Inventory, Segmentation};
+use super::CantoneseLexicon;
 use crate::error::Result;
 use crate::language_dictionary::{LanguageDictionary, LanguageEntry};
 use crate::types::{QueryRequest, SchemeKey, SchemeType};
 use crate::zhuyin::conversion::{self, Lookup};
 
-/// Entries read for one span of complete syllables.
-pub const SPAN_LIMIT: usize = 200;
+/// Entries read for one span of complete syllables. It covers every row of the heaviest key in `msime-cantonese.db` (`zi` has 386 in dict-v2.0.48), so a character at the end of a key can still be paged to; at 200 the 839 rows past it on ten keys were never offered (#10448). `msime-dict-build languages` fails a build in which some key has more rows than this.
+pub const SPAN_LIMIT: usize = 512;
 /// Entries read for a reading whose last syllable is still a prefix.
 pub const COMPLETION_LIMIT: usize = 50;
 const SMALL_CANDIDATE_DEDUP: usize = 64;
@@ -357,7 +358,7 @@ impl CantoneseScheme {
     pub fn candidates(&self, dictionary: &LanguageDictionary) -> Result<Vec<CantoneseCandidate>> {
         let mut candidates = Vec::new();
         self.candidates_into(
-            dictionary,
+            dictionary.into(),
             &mut CantoneseQueryBuffer::default(),
             &mut candidates,
         )?;
@@ -365,10 +366,10 @@ impl CantoneseScheme {
         Ok(candidates)
     }
 
-    /// 将候选写入已有缓冲，并复用字典行和候选行中的字符串容量。
+    /// 将候选写入已有缓冲，并复用字典行和候选行中的字符串容量。`dictionary` 带上用户的粤语词时，它们和发布词按同样的规则排进各段。
     pub(crate) fn candidates_into(
         &self,
-        dictionary: &LanguageDictionary,
+        dictionary: CantoneseLexicon<'_>,
         buffer: &mut CantoneseQueryBuffer,
         candidates: &mut Vec<CantoneseCandidate>,
     ) -> Result<()> {
@@ -385,7 +386,7 @@ impl CantoneseScheme {
     /// 双拼码的各个粤拼读法分别查词，合在一起按覆盖音节数和权重排。
     fn shuangpin_candidates_into(
         &self,
-        dictionary: &LanguageDictionary,
+        dictionary: CantoneseLexicon<'_>,
         buffer: &mut CantoneseQueryBuffer,
         expansion: &ShuangpinExpansion,
         candidates: &mut Vec<CantoneseCandidate>,
@@ -440,7 +441,7 @@ impl CantoneseScheme {
     /// 没有哪一行正好覆盖全部完整音节时，把组出来的整句插在覆盖音节数不超过它的第一行前面。覆盖更多音节的行（末尾单键、末尾半个音节的补全）仍在它前面，连续打字时首选不在整句和补全之间来回跳。
     fn insert_sentence(
         &self,
-        dictionary: &LanguageDictionary,
+        dictionary: CantoneseLexicon<'_>,
         buffer: &mut CantoneseQueryBuffer,
         shuangpin: bool,
         candidates: &mut Vec<CantoneseCandidate>,
@@ -513,7 +514,7 @@ impl CantoneseScheme {
     /// 末尾只按了一个双拼键：前面的完整音节照常定死，最后一个音节只知道声母。`groups` 的每一组来自一个 `initial_prefixes` 前缀，组内各段由 `shuangpin::key_spans` 收窄过，段下没有别的键的音节，别的键上的重行不会占满查询上限。每组合起来最多留最重的 `SPAN_LIMIT` 行。
     fn trailing_initial_candidates(
         &self,
-        dictionary: &LanguageDictionary,
+        dictionary: CantoneseLexicon<'_>,
         buffer: &mut CantoneseQueryBuffer,
         reading: &str,
         key: u8,
@@ -664,7 +665,7 @@ impl CantoneseScheme {
     /// `complete_trailing` 为假时，整段读法的末音节即使还是更长音节的开头也不再补全；双拼展开出的音节都是按键定死的。
     fn candidates_into_jyutping(
         &self,
-        dictionary: &LanguageDictionary,
+        dictionary: CantoneseLexicon<'_>,
         buffer: &mut CantoneseQueryBuffer,
         candidates: &mut Vec<CantoneseCandidate>,
         complete_trailing: bool,
@@ -820,7 +821,7 @@ const SENTENCE_AMBIGUOUS_WORD_FLOOR: i64 = 1000;
 
 /// 用注音的词图转换（`zhuyin::conversion`）把各位置拼成一句：每段取区间内最重的词条，长词优先，同长度比权重和。整句只有一段（本来就是整段词条）、或有位置连单字都查不到时不出整句。`floor` 见 `SENTENCE_AMBIGUOUS_WORD_FLOOR`。
 fn compose_sentence(
-    dictionary: &LanguageDictionary,
+    dictionary: CantoneseLexicon<'_>,
     buffer: &mut CantoneseQueryBuffer,
     positions: &[SentencePosition],
     floor: i64,
@@ -917,7 +918,7 @@ fn clears_ambiguous_word_floor(
 
 /// 查 `positions` 区间最重的词条并交给 `consume`；同一组读音在会话内只查一次。
 fn cached_best<T>(
-    dictionary: &LanguageDictionary,
+    dictionary: CantoneseLexicon<'_>,
     buffer: &mut CantoneseQueryBuffer,
     positions: &[&[String]],
     consume: impl FnOnce(Option<&(String, LanguageEntry)>) -> T,
@@ -926,7 +927,11 @@ fn cached_best<T>(
     if let Some(entry) = buffer.best.get(buffer.description.as_str()) {
         return Ok(consume(entry.as_ref()));
     }
-    let entry = dictionary.lookup_readings(positions, 1)?.into_iter().next();
+    let entry = dictionary
+        .dictionary
+        .lookup_readings(positions, 1)?
+        .into_iter()
+        .next();
     let description = buffer.description.clone();
     Ok(consume(
         buffer.best.entry(description).or_insert(entry).as_ref(),
@@ -1652,6 +1657,34 @@ mod tests {
     }
 
     #[test]
+    fn every_row_of_a_key_up_to_the_span_limit_is_offered() {
+        // 发布库里条目最多的键（zi、ji、jyu）都在上限以内，构建器的 verify 保证这一点；上限内排在最后的一行也要能翻到（#10448 的「逾」曾排在 jyu 的第 201 位而打不出）。
+        let rows: Vec<(&str, String, i64)> = (0..=SPAN_LIMIT)
+            .map(|index| {
+                let weight = 100_000 - i64::try_from(index).unwrap();
+                ("jyu", format!("字{index}"), weight)
+            })
+            .collect();
+        let entries: Vec<(&str, &str, i64)> = rows
+            .iter()
+            .map(|(key, text, weight)| (*key, text.as_str(), *weight))
+            .collect();
+        let fixture = fixture_from(&["jyu"], &entries);
+        let code = shuangpin::encode("jyu").unwrap();
+        let code = std::str::from_utf8(&code).unwrap();
+        for (keys, force) in [("jyu", false), (code, true)] {
+            let texts: Vec<String> = shuangpin_typed_with(&["jyu"], keys, force)
+                .candidates(&fixture.dictionary)
+                .unwrap()
+                .into_iter()
+                .map(|candidate| candidate.text)
+                .collect();
+            assert_eq!(texts.len(), SPAN_LIMIT, "{keys}");
+            assert_eq!(texts.last().unwrap(), &format!("字{}", SPAN_LIMIT - 1));
+        }
+    }
+
+    #[test]
     fn apostrophe_boundaries_reset_pairing_and_candidate_span() {
         let fixture = fixture();
         let scheme = typed("nz'hb");
@@ -1700,7 +1733,7 @@ mod tests {
         let mut buffer = CantoneseQueryBuffer::default();
         let mut candidates = Vec::new();
         scheme
-            .candidates_into(&fixture.dictionary, &mut buffer, &mut candidates)
+            .candidates_into((&fixture.dictionary).into(), &mut buffer, &mut candidates)
             .unwrap();
         let pointers = candidates
             .iter()
@@ -1709,7 +1742,7 @@ mod tests {
 
         let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
             scheme
-                .candidates_into(&fixture.dictionary, &mut buffer, &mut candidates)
+                .candidates_into((&fixture.dictionary).into(), &mut buffer, &mut candidates)
                 .unwrap();
         });
         assert!(
@@ -1729,6 +1762,72 @@ mod tests {
     fn ime_scheme_exposes_the_active_cantonese_state() {
         let scheme = crate::ime::scheme::Scheme::Cantonese(typed("neih"));
         assert_eq!(scheme.as_cantonese().unwrap().input(), "neih");
+    }
+
+    /// 用户的粤语词按发布词的规则排进各段：同一个键下的同一个词合成一行、取较大的权重，补全末音节时也列出；删除留下的墓碑、学到的行和别的种类都不算。日志被别的连接改过以后，下一次刷新就读到。
+    #[test]
+    fn user_words_rank_with_the_dictionary_rows_and_follow_the_journal() {
+        use crate::cantonese::{CantoneseLexicon, UserWords};
+
+        let fixture = fixture();
+        let dir = tempfile::tempdir().unwrap();
+        let journal = dir.path().join("msime-user.db");
+        let mut words = UserWords::new(journal.clone());
+        // 日志还不存在：什么也不打开，候选与只查发布词库时相同。
+        words.refresh();
+        let texts = |scheme: &CantoneseScheme, words: &UserWords| -> Vec<String> {
+            let mut candidates = Vec::new();
+            scheme
+                .candidates_into(
+                    CantoneseLexicon::new(&fixture.dictionary, Some(words)),
+                    &mut CantoneseQueryBuffer::default(),
+                    &mut candidates,
+                )
+                .unwrap();
+            candidates
+                .iter()
+                .map(|candidate| format!("{}/{}", candidate.text, candidate.syllables))
+                .collect()
+        };
+        assert_eq!(
+            texts(&typed("neihou"), &words),
+            listed(&typed("neihou"), &fixture.dictionary)
+        );
+
+        crate::user_dictionary::journal::ensure_user_database(&journal).unwrap();
+        let writer = Connection::open(&journal).unwrap();
+        writer
+            .execute_batch(
+                "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,user_inserted) VALUES
+                 ('cantonese','nei hou','禮好','upsert',100000,1),
+                 ('cantonese','nei hou','你好','upsert',10,1),
+                 ('cantonese','nei hoeng','你響','upsert',2000,1),
+                 ('cantonese','nei hou','刪除','delete',0,1),
+                 ('cantonese','nei hou','學到','upsert',99999,0),
+                 ('pinyin','nei''hou','拼音','upsert',99999,1);",
+            )
+            .unwrap();
+        words.refresh();
+        assert_eq!(
+            texts(&typed("neihou"), &words),
+            ["禮好/2", "你好/2", "妳好/2", "你/1", "妳/1"]
+        );
+        assert_eq!(
+            texts(&typed("neih"), &words),
+            ["禮好/2", "你響/2", "你好/2", "妳好/2", "你向/2", "你/1", "妳/1"]
+        );
+
+        writer
+            .execute(
+                "UPDATE user_dictionary_operations SET operation='delete', weight=0 WHERE dictionary='cantonese' AND value='禮好'",
+                [],
+            )
+            .unwrap();
+        words.refresh();
+        assert_eq!(
+            texts(&typed("neihou"), &words),
+            ["你好/2", "妳好/2", "你/1", "妳/1"]
+        );
     }
 
     #[test]
@@ -2027,6 +2126,7 @@ mod tests {
         drop(connection);
         let opened = crate::cantonese::CantoneseDictionary::open(&path).unwrap();
         let dictionary = opened.dictionary();
+        let lexicon = CantoneseLexicon::from(dictionary);
         let floors = [1, 10, 100, 1000, 10_000, i64::MAX];
         for (name, set) in [
             ("common", &common),
@@ -2050,7 +2150,7 @@ mod tests {
                 scheme.set_raw_input(&codes);
                 let mut candidates = Vec::new();
                 scheme
-                    .candidates_into(dictionary, &mut buffer, &mut candidates)
+                    .candidates_into(lexicon, &mut buffer, &mut candidates)
                     .unwrap();
                 if candidates.first().is_some_and(|row| &row.text == text) {
                     first_shuangpin += 1;
@@ -2065,7 +2165,7 @@ mod tests {
                 let positions = scheme.sentence_positions(true);
                 for (index, floor) in floors.iter().enumerate() {
                     let sentence =
-                        compose_sentence(dictionary, &mut buffer, &positions, *floor).unwrap();
+                        compose_sentence(lexicon, &mut buffer, &positions, *floor).unwrap();
                     if sentence.is_some_and(|sentence| &sentence.text == text) {
                         by_floor[index] += 1;
                     }
@@ -2108,13 +2208,13 @@ mod tests {
                 scheme.set_raw_input(&codes[..length]);
                 let started = std::time::Instant::now();
                 scheme
-                    .candidates_into(dictionary, &mut buffer, &mut candidates)
+                    .candidates_into(lexicon, &mut buffer, &mut candidates)
                     .unwrap();
                 warm.push(started.elapsed());
                 let started = std::time::Instant::now();
                 scheme
                     .candidates_into(
-                        dictionary,
+                        lexicon,
                         &mut CantoneseQueryBuffer::default(),
                         &mut candidates,
                     )
@@ -2125,14 +2225,14 @@ mod tests {
                 match scheme.shuangpin_expansions() {
                     Some(expansion) => scheme
                         .shuangpin_candidates_into(
-                            dictionary,
+                            lexicon,
                             &mut buffer,
                             &expansion,
                             &mut candidates,
                         )
                         .unwrap(),
                     None => scheme
-                        .candidates_into_jyutping(dictionary, &mut buffer, &mut candidates, true)
+                        .candidates_into_jyutping(lexicon, &mut buffer, &mut candidates, true)
                         .unwrap(),
                 }
                 baseline.push(started.elapsed());

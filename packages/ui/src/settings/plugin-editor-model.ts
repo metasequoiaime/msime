@@ -58,6 +58,11 @@ export const MAX_COMMANDS = 256;
 const MAX_KEY_LETTERS = 32;
 /** 短语文字和指令模板的 UTF-16 单元上限：Windows 候选管道的文本字段。 */
 export const MAX_TEXT_UTF16 = 199;
+/** 短语文字里光标标记的说明，与 Android、iOS、Windows 的短语表编辑器同一句；展开由共享层 `expand_quick_phrase` 做。 */
+export const QUICK_PHRASE_CURSOR_NOTE =
+  '在文字中用 ${cursor} 指定上屏后的光标位置，例如 title:"${cursor}" 会输入 title:""，光标停在引号内。只定位第一个标记；要输入标记本身，请写 $${cursor}。编辑器不支持定位时光标留在末尾。';
+/** 词库页编辑用户快捷短语时的说明：同一套标记，另外提醒以前存过字面 ${cursor} 的短语要改写。 */
+export const QUICK_PHRASE_DICTIONARY_CURSOR_NOTE = `${QUICK_PHRASE_CURSOR_NOTE}以前存过、要照原样输入 \${cursor} 的短语，请改写成 $\${cursor}。`;
 const MAX_COMMAND_TITLE_BYTES = 48;
 /** `symbol_set::MAX_GROUPS`。 */
 export const MAX_GROUPS = 32;

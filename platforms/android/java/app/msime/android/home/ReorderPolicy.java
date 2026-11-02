@@ -4,9 +4,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 排序面板（「文本编辑按键顺序」「符号分类顺序」）的纯逻辑：拖动和读屏「上移」「下移」都经 {@link #moved} 改草稿，行首序号和读屏描述经 {@link #ordinal} / {@link #ordinalDescription} 生成，拖动途中的位次、落点和贴边自动滚动经 {@link #dragSlot} / {@link #dragTarget} / {@link #edgeScrollStep} / {@link #scrollTowardRoom} 算。
+ * 排序面板（「文本编辑按键顺序」「符号分类顺序」「按钮顺序」和「九键左侧符号」编辑页）的纯逻辑：拖动和读屏「上移」「下移」都经 {@link #moved} 改草稿，行首序号和读屏描述经 {@link #ordinal} / {@link #ordinalDescription} 生成，拖动途中的位次、落点和贴边自动滚动经 {@link #dragSlot} / {@link #dragTarget} / {@link #edgeScrollStep} / {@link #scrollTowardRoom} 算。
  *
- * <p>拖动规则与「九键左侧符号」编辑页（#10396 的 `NineKeySidebarPolicy`）逐条相同，两边的手感和读屏念法一致。不引用 androidx，好让 check-host 的 JVM 冒烟（`ReorderPolicySmoke`）直接测到；画行和拖动在 {@link ReorderList} 里。
+ * <p>几张面板只有这一份规则（#10546 之前「九键左侧符号」在 `NineKeySidebarPolicy` 里另有一份），手感和读屏念法因此一致；那张页只保留自己的可见序号写法 `NineKeySidebarPolicy.ordinal`（「1.」，三端同一写法），读屏描述用 {@link #ordinalDescription} 传「符号：X」。不引用 androidx，好让 check-host 的 JVM 冒烟（`ReorderPolicySmoke`）直接测到；拖动在 {@link ReorderList} 里，行的内容由各面板画。
  */
 final class ReorderPolicy {
     private ReorderPolicy() {}

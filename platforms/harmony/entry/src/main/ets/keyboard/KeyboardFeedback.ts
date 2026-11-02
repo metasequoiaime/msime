@@ -7,7 +7,7 @@
  *
  * 手写板的识别延迟和笔迹也出于同样的原因放在这里：它们描述的是这台设备上手写板的行为，共享偏好设置里也没有对应的键。
  *
- * 按键弹出预览和滑动输入符号及其方向同样如此，Android 把它们存在自己的本地设置文件里（`platform.android.key_popup`、`platform.android.swipe_down_symbols`、`platform.android.swipe_symbols_direction`），默认值相同：都开启，向上滑动。
+ * 按键弹出预览、滑动输入符号及其方向和「显示字母键角标」同样如此，Android 把它们存在自己的本地设置文件里（`platform.android.key_popup`、`platform.android.swipe_down_symbols`、`platform.android.swipe_symbols_direction`、`platform.android.letter_corner_hints`），默认值相同：都开启，向上滑动。
  *
  * 功能面板的单手模式和隐私模式也是如此，对应 Android 的 `platform.android.one_handed`（关）和 `platform.android.incognito`（关）。隐私模式尤其只属于这台设备：Android 从不同步它，这里的账号同步也只携带三个反馈字段。
  *
@@ -54,6 +54,8 @@ export interface FeedbackSettings {
   readonly swipeSymbols: boolean;
   /** 滑动的方向。 */
   readonly swipeSymbolsDirection: SwipeSymbolsDirection;
+  /** 显示字母键角标：26 键字母键右上角画不画角标符号。除非关闭，否则开启；关掉只是不画，长按和滑动照样输入角标（#10587）。 */
+  readonly letterCornerHints: boolean;
   /** 单手模式：按键靠向哪一侧，或关闭。 */
   readonly oneHanded: OneHandedMode;
   /** 隐私模式：开启期间，这里输入的内容都不会被学习、统计或保存（PrivacyGate）。 */
@@ -159,6 +161,7 @@ export class KeyboardFeedback {
     keyPopup: true,
     swipeSymbols: true,
     swipeSymbolsDirection: SwipeSymbolsDirection.UP,
+    letterCornerHints: true,
     oneHanded: OneHandedPolicy.DEFAULT,
     incognito: PrivacyGate.DEFAULT,
     floating: false,
@@ -268,6 +271,10 @@ export class KeyboardFeedback {
             ? raw.swipeSymbols
             : KeyboardFeedback.DEFAULTS.swipeSymbols,
         swipeSymbolsDirection: SwipeHintPolicy.direction(raw.swipeSymbolsDirection),
+        letterCornerHints:
+          typeof raw.letterCornerHints === "boolean"
+            ? raw.letterCornerHints
+            : KeyboardFeedback.DEFAULTS.letterCornerHints,
         oneHanded: OneHandedPolicy.parse(raw.oneHanded),
         incognito:
           typeof raw.incognito === "boolean" ? raw.incognito : KeyboardFeedback.DEFAULTS.incognito,
@@ -318,6 +325,7 @@ export class KeyboardFeedback {
       keyPopup: settings.keyPopup,
       swipeSymbols: settings.swipeSymbols,
       swipeSymbolsDirection: settings.swipeSymbolsDirection,
+      letterCornerHints: settings.letterCornerHints,
       oneHanded: settings.oneHanded,
       incognito: settings.incognito,
       floating: floating,
@@ -347,6 +355,7 @@ export class KeyboardFeedback {
       keyPopup: settings.keyPopup,
       swipeSymbols: settings.swipeSymbols,
       swipeSymbolsDirection: settings.swipeSymbolsDirection,
+      letterCornerHints: settings.letterCornerHints,
       oneHanded: settings.oneHanded,
       incognito: settings.incognito,
       floating: settings.floating,

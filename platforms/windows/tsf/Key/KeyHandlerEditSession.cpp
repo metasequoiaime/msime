@@ -80,6 +80,7 @@ STDAPI CKeyHandlerEditSession::DoEditSession(TfEditCookie ec)
         (!SupportsGroupedPanelKeys() || _pTextService->_IsServerUnavailableFallbackActive() ||
          !_pTextService->_IsGroupedPanelReplayCurrent(_deferredReplayToken))) return S_FALSE;
 
+    _pTextService->_BeginEditorOperation();
     const bool serverCandidateOperation = _KeyState.Function == FUNCTION_CANDIDATE_CONTINUATION ||
                                           _KeyState.Function == FUNCTION_HOST_ONLINE_CANDIDATES;
     HRESULT hResult = serverCandidateOperation ? E_FAIL : S_OK;
@@ -96,7 +97,11 @@ STDAPI CKeyHandlerEditSession::DoEditSession(TfEditCookie ec)
         pKeyStateCategoryFactory ? pKeyStateCategoryFactory->MakeKeyStateCategory(_KeyState.Category, _pTextService)
                                  : nullptr;
 
-    if (pKeyStateCategory)
+    if (_cursorSuffix) {
+        hResult = _pTextService->_CommitServerExactText(ec, _pContext, _prefetchedText, _cursorSuffix);
+        deferredReplayCompletion.applied = hResult == S_OK;
+    }
+    else if (pKeyStateCategory)
     {
         KeyHandlerEditSessionDTO keyHandlerEditSessioDTO(ec, _pContext, _uCode, _wch, _KeyState.Function, _requestId,
                                                          _prefetchedText,
@@ -106,8 +111,8 @@ STDAPI CKeyHandlerEditSession::DoEditSession(TfEditCookie ec)
         hResult = pKeyStateCategory->KeyStateHandler(_KeyState.Function, keyHandlerEditSessioDTO);
         deferredReplayCompletion.applied = hResult == S_OK;
 
-        pKeyStateCategory->Release();
     }
+    if (pKeyStateCategory) pKeyStateCategory->Release();
     if (pKeyStateCategoryFactory)
     {
         pKeyStateCategoryFactory->Release();
