@@ -182,6 +182,14 @@ impl OnnxScorer {
         Ok(scores)
     }
 
+    /// 模型实际读的那段上文：`context` 的末尾 `context_chars` 个字。
+    pub(crate) fn context_tail(&self, context: &str) -> String {
+        let chars: Vec<char> = context.chars().collect();
+        chars[chars.len().saturating_sub(self.info.context_chars)..]
+            .iter()
+            .collect()
+    }
+
     fn score(&mut self, context: &str, candidates: &[&str]) -> Result<Vec<f32>, ort::Error> {
         let bodies: Vec<Vec<u32>> = candidates
             .iter()
@@ -201,12 +209,7 @@ impl OnnxScorer {
 
     /// 让模型缓存装着 `context` 的末尾 `context_chars` 个字：已经是这段上文、缓存还在、前缀没攒过 [`PREFIX_LIMIT`] 时什么都不做，否则清空缓存重新编码。返回上文连同 `longest` 个字的候选放不放得进位置表，放不下时不动缓存。
     fn encode_context(&mut self, context: &str, longest: usize) -> Result<bool, ort::Error> {
-        let tail: String = {
-            let chars: Vec<char> = context.chars().collect();
-            chars[chars.len().saturating_sub(self.info.context_chars)..]
-                .iter()
-                .collect()
-        };
+        let tail = self.context_tail(context);
         let fresh = self.context.as_deref() != Some(tail.as_str())
             || self.cache.is_none()
             || self.prefixes.len() > PREFIX_LIMIT;
