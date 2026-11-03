@@ -6,6 +6,7 @@ import {
   SETTINGS_ENTRIES,
   SharedStateMirrorPolicy,
 } from "../entry/src/main/ets/keyboard/SharedStateMirrorPolicy";
+import { SharedStateSyncPolicy } from "../entry/src/main/ets/keyboard/input/SharedStateSyncPolicy";
 
 let failures = 0;
 let checks = 0;
@@ -42,6 +43,18 @@ function manifest(
 }
 
 console.log("Harmony shared state mirror policy");
+
+group("keyboard sync imports settings before draining and publishing", () => {
+  check(
+    JSON.stringify(SharedStateSyncPolicy.keyboardActions(true)) ===
+      JSON.stringify(["import", "drain", "publish"]),
+    "full mode imports settings before the keyboard snapshot",
+  );
+  check(
+    JSON.stringify(SharedStateSyncPolicy.keyboardActions(false)) === JSON.stringify(["import"]),
+    "basic mode only imports settings",
+  );
+});
 
 group("preferences fingerprints ignore the revision and key order", () => {
   const a = SharedStateMirrorPolicy.preferencesFingerprint(
