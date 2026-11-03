@@ -52,8 +52,8 @@ Android 和鸿蒙在同一个改动里，把按键区里按键的反馈挪到手
 
 ## Verification
 
-- `KeyPressFeedbackPolicySmoke`（Android JVM）和 `key-press-feedback.test.ts`（鸿蒙 node）按各端的调用先后模拟普通点击、退格按下即删、长按确认、多指、快速连点、没有上屏的按下和读屏点击。`scripts/test-android-key-sound-lifecycle.py` 编译真实的 `ImeKeyFeedback`，验证按下时响一次、这次点击不响、令牌交还后的点击照常响。
-- Android 的视图接线由设备套件的 `KeyPressAreaDeviceChecks` 覆盖（`smoke.sh` 默认的 API 35 套件经 `OptionSheetDeviceSmoke -e key-feedback press-area` 跑）：在合成的 `KeyboardKeyArea` 上分发 `MotionEvent`，核对直接命中、空隙、回车让位、多指各自回调，不可用的键、`ACTION_CANCEL` 和滑行接管之后不回调抬起，抬起的令牌在点击之后交还。宿主 JVM 上只有 `android.jar` 的空实现，`KeyboardKeyArea` 的分发跑不起来，所以放在设备套件里。键面替身映射（`ImeKeyFeedback.visible`，⇧ ⌫ 空格 ↵ 的按下和点击落在同一个键上）要真的服务和键面替身，没有自动测试，留给真机验收。
+- `KeyPressFeedbackPolicySmoke`（Android JVM）和 `key-press-feedback.test.ts`（鸿蒙 node）按各端的调用先后模拟普通点击、退格按下即删、长按确认、多指、快速连点、没有上屏的按下和读屏点击。`scripts/test-android-key-sound-lifecycle.py` 编译真实的 `ImeKeyFeedback`，验证按下时响一次、这次点击不响、令牌交还后的点击照常响；键面替身（`stageFace`）登记后，按键区回调的键面和原按钮发出的点击算同一个键，按下分发和抬手分发里原按钮的点击都不响，抬手的确认（`confirm`）照常响。
+- Android 的视图接线由设备套件的 `KeyPressAreaDeviceChecks` 覆盖（`smoke.sh` 默认的 API 35 套件经 `OptionSheetDeviceSmoke -e key-feedback press-area` 跑）：在合成的 `KeyboardKeyArea` 上分发 `MotionEvent`，核对直接命中、空隙、回车让位、多指各自回调，不可用的键、`ACTION_CANCEL` 和滑行接管之后不回调抬起，抬起的令牌在点击之后交还。宿主 JVM 上只有 `android.jar` 的空实现，`KeyboardKeyArea` 的分发跑不起来，所以放在设备套件里。键面替身映射本身（`ImeKeyFeedback.stageFace` / `visible`）由上面的按键音回归覆盖；`ImeBottomRow`、`ImeLetterRows` 是否给 ⇧ ⌫ 空格 ↵ 每一个都登记了替身，要真的服务建出键盘才看得到，留给真机验收。
 - 鸿蒙 `tests/run.sh` 钉住 `keyPressTouch` 挂在装着 `keyFaces` 的那一列上、按下交给 `keyDown`、抬起和取消交给 `keyUp`、拼写列表置上 `keyPressOutsideKeys` 且不拦冒泡、`tapFeedback` 先消耗令牌，以及九键滑出数字经 `keyFeedback` 而不是 `holdFeedback`。
 - `platforms/android/check-host.sh` 全部通过（含新冒烟和设备测试源码的编译）；`platforms/harmony/tests/run.sh` 通过，`scripts/test-harmony-arkts-subset.py` 通过。鸿蒙 HAP 没有编译：PR 上的 CI 不打 HAP，本机这次也没打。
 - 真机验收还没做，留给设备轮次：Android 和鸿蒙开振动和按键音快速连打 26 键和九键，确认按下即振、抬手不再振；退格有、无撤回备份都只振一次；上滑清空松手、长按符号选项、九键滑出数字、空格拖光标和长按语音、滑行输入的反馈次数；Android 日文九键滑动输入假名只在按下时响一次，没有会话时按「中/英」不振，⇧ ⌫ 空格 ↵ 只振一次；鸿蒙按键音仍在抬手时出声，九键拼写列表滚动和点选不振。

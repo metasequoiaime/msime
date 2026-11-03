@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""执行完整 ImeKeyFeedback，验证来源切换与迟到加载不会串用音效，以及按下即出声后这次点击不再出声（#10757）。"""
+"""执行完整 ImeKeyFeedback，验证来源切换与迟到加载不会串用音效，以及按下即出声后这次点击不再出声，键面替身的按下和原按钮的点击算同一个键（#10757）。"""
 from pathlib import Path
 import re
 import shutil
@@ -227,6 +227,23 @@ public class KeySoundLifecycleCheck {
             player.settled(token);
             player.playFeedback(key);
             check(current.plays == 3, "a click after the press settled must play again");
+            // 键面替身（⇧ ⌫ 空格 ↵）：按键区按下时回调的是键面，点击由不在键盘树里的原按钮发出、拿原按钮来播反馈。两边要落在同一个键上：按下响一次，按下分发和抬手分发里原按钮的点击都不再响，抬手时的确认照常响。
+            android.view.View original = new android.view.View();
+            android.view.View face = new android.view.View();
+            player.stageFace(original, face);
+            check(player.visible(original) == face, "a staged original must resolve to its face");
+            Object faceDown = player.pressed(face);
+            check(current.plays == 4, "a press on a staged face must play the key sound");
+            player.playFeedback(original);
+            check(current.plays == 4, "the original's click in the press dispatch must stay silent");
+            Object faceUp = player.releasing(face);
+            player.playFeedback(original);
+            check(current.plays == 4, "the original's click after the release must stay silent");
+            player.confirm(original);
+            check(current.plays == 5, "a release confirmation on the original must still play");
+            player.settled(faceDown); player.settled(faceUp);
+            player.playFeedback(original);
+            check(current.plays == 6, "a click on the original after both tokens settled must play again");
             // 同一来源 A 先后两次请求：最早一次的回调不能冒充最新请求。
             select(service, "third-pack"); player.prepare();
             select(service, "fourth-pack"); player.prepare();
@@ -238,7 +255,7 @@ public class KeySoundLifecycleCheck {
             player.shutdown(); service.main.next();
             for (SoundPool pool : SoundPool.created) check(pool.released, "shutdown must release all pools");
         } finally { player.shutdown(); }
-        System.out.println("真实按键音宿主：目录切换、缓存 A-B-A、请求 A-B-A 与关闭释放通过");
+        System.out.println("真实按键音宿主：目录切换、缓存 A-B-A、请求 A-B-A、按下即出声、键面替身与关闭释放通过");
     }
 }
 '''
