@@ -297,7 +297,7 @@ void scaled() {
   cairo_destroy(cr);
 }
 
-// #10748：字体描述里的字重画候选、序号、释义和页码，预编辑至少半粗；描述不带字重时与原来一样是常规和半粗。
+// #10748：序号、释义和页码按候选字重偏好（content.font_weight）画，拼音行至少半粗；字重只取偏好，描述里自带的样式词（Fcitx5 的 classicui Font 里用户写的 Bold、Light）不带到这几段上，偏好是常规时与原来一样是常规和半粗。
 void font_weight() {
   const auto weight = [](const std::string &font) {
     auto *description = pango_font_description_from_string(font.c_str());
@@ -306,25 +306,39 @@ void font_weight() {
     return value;
   };
   assert(weight(host::native_canvas_font_variant("Sans 16px", 12)) == PANGO_WEIGHT_NORMAL);
+  assert(weight(host::native_canvas_font_variant("Sans, Bold 16px", 12)) == PANGO_WEIGHT_NORMAL);
   assert(weight(host::native_canvas_font_variant("Sans 16px", 12, PANGO_WEIGHT_SEMIBOLD)) == PANGO_WEIGHT_SEMIBOLD);
-  assert(weight(host::native_canvas_font_variant("Sans, Medium 16px", 12)) == PANGO_WEIGHT_MEDIUM);
-  assert(weight(host::native_canvas_font_variant("Sans, Medium 16px", 12, PANGO_WEIGHT_SEMIBOLD)) == PANGO_WEIGHT_SEMIBOLD);
-  assert(weight(host::native_canvas_font_variant("Sans, Bold 16px", 12)) == PANGO_WEIGHT_BOLD);
-  assert(weight(host::native_canvas_font_variant("Sans, Bold 16px", 12, PANGO_WEIGHT_SEMIBOLD)) == PANGO_WEIGHT_BOLD);
+  assert(host::candidate_preedit_font_weight(400) == 600 && host::candidate_preedit_font_weight(500) == 600);
+  assert(host::candidate_preedit_font_weight(600) == 600 && host::candidate_preedit_font_weight(700) == 700);
 
   const auto target = image(10, 10, 0);
   auto *cr = cairo_create(target.get());
   auto assets = theme_assets(1.0);
   auto content = page(false);
+  // 选了粗体：描述带 Bold（CandidateFontSync 写给 classicui 的），偏好也是粗体，各段都粗，拼音行跟到粗体。
   content.font = "Sans, Bold 16px";
+  content.font_weight = 700;
   const auto layout = host::measure_native_canvas(cr, *assets, content, 2400);
   assert(weight(layout.metrics.font) == PANGO_WEIGHT_BOLD && weight(layout.metrics.number_font) == PANGO_WEIGHT_BOLD);
   assert(weight(layout.gloss_font) == PANGO_WEIGHT_BOLD && weight(layout.indicator_font) == PANGO_WEIGHT_BOLD);
-  assert(weight(layout.preedit_font) == PANGO_WEIGHT_BOLD);
-  content.font = "Sans 16px";
-  const auto regular = host::measure_native_canvas(cr, *assets, content, 2400);
-  assert(weight(regular.metrics.font) == PANGO_WEIGHT_NORMAL && weight(regular.gloss_font) == PANGO_WEIGHT_NORMAL);
-  assert(weight(regular.preedit_font) == PANGO_WEIGHT_SEMIBOLD);
+  assert(weight(layout.symbol_font) == PANGO_WEIGHT_BOLD && weight(layout.preedit_font) == PANGO_WEIGHT_BOLD);
+  // 中等：拼音行仍是半粗。
+  content.font = "Sans, Medium 16px";
+  content.font_weight = 500;
+  const auto medium = host::measure_native_canvas(cr, *assets, content, 2400);
+  assert(weight(medium.metrics.number_font) == PANGO_WEIGHT_MEDIUM && weight(medium.preedit_font) == PANGO_WEIGHT_SEMIBOLD);
+  // 偏好是常规、但用户在 fcitx5-configtool 里把 classicui 字体设成了「Sans Bold」或「Sans Light」：候选正文照旧用这个描述，序号、释义和页码仍是常规，拼音行仍是半粗，与这个设置出现之前一样。
+  const std::pair<const char *, PangoWeight> desktop_fonts[] = {
+      {"Sans Bold 16px", PANGO_WEIGHT_BOLD}, {"Sans Light 16px", PANGO_WEIGHT_LIGHT}, {"Sans 16px", PANGO_WEIGHT_NORMAL}};
+  for (const auto &[font, body] : desktop_fonts) {
+    content.font = font;
+    content.font_weight = 400;
+    const auto regular = host::measure_native_canvas(cr, *assets, content, 2400);
+    assert(weight(regular.metrics.font) == body);
+    assert(weight(regular.metrics.number_font) == PANGO_WEIGHT_NORMAL && weight(regular.gloss_font) == PANGO_WEIGHT_NORMAL);
+    assert(weight(regular.indicator_font) == PANGO_WEIGHT_NORMAL && weight(regular.symbol_font) == PANGO_WEIGHT_NORMAL);
+    assert(weight(regular.preedit_font) == PANGO_WEIGHT_SEMIBOLD);
+  }
   cairo_destroy(cr);
 }
 

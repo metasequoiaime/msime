@@ -1,6 +1,7 @@
 #pragma once
 
 // macOS 候选窗结构的原生画布（NativeCanvasAssets::chrome）。几何规则逐条对照 platforms/macos/src/input/InputController.mm 的 renderCandidates、candidatePageGeometry 和 platforms/macos/src/candidate/CandidateChrome.h 的 MSIMECandidateButton；行排版、尺寸常量、装饰摆放和动效数值都取自 shared/candidate，与 macOS 同一份。canvas 皮肤包的 Windows 版式在 NativeCanvas.h（measure_native_canvas_skin）。
+#include "CandidateFontPolicy.h"
 #include "NativeCanvas.h"
 
 namespace msime::linux_host {
@@ -13,12 +14,12 @@ struct NativeCanvasMotion {
   std::vector<msime::candidate::CardMotionFrame> rows;
 };
 
-// 同一族字体换绝对字号；Pango 把绝对字号写成「…px」。字重取描述里的字重（候选字重 `candidate_font_weight`）和 `minimum` 中更粗的一个：预编辑传半粗，候选字重更粗时跟着变粗。
+// 同一族字体换绝对字号和字重；Pango 把绝对字号写成「…px」。
 inline std::string native_canvas_font_variant(const std::string &font, double size,
-                                              PangoWeight minimum = PANGO_WEIGHT_NORMAL) {
+                                              PangoWeight weight = PANGO_WEIGHT_NORMAL) {
   auto *description = pango_font_description_from_string(font.c_str());
   if (size > 0) pango_font_description_set_absolute_size(description, size * PANGO_SCALE);
-  pango_font_description_set_weight(description, std::max(minimum, pango_font_description_get_weight(description)));
+  pango_font_description_set_weight(description, weight);
   char *value = pango_font_description_to_string(description);
   std::string result(value);
   g_free(value);
@@ -96,12 +97,15 @@ inline NativeCanvasLayout measure_native_canvas_chrome(cairo_t *cr, const Native
   const double number_scale = geometry.contains("numberScale") && geometry["numberScale"].is_number()
       ? std::clamp(geometry["numberScale"].get<double>(), 0.0, 2.0) : shared::kCandidateNumberScale;
   metrics.number_scale = number_scale;
-  metrics.number_font = native_canvas_font_variant(metrics.font, std::max(0.01, font_size * number_scale));
-  layout.gloss_font = native_canvas_font_variant(metrics.font, shared::kCandidateTranslationPointSize * s);
+  // 序号、释义和页码按候选字重画，拼音行至少半粗（candidate_preedit_font_weight）；字重只取偏好，常规时与这个设置出现之前一样是常规和半粗。
+  const auto weight = static_cast<PangoWeight>(content.font_weight);
+  const auto preedit_weight = static_cast<PangoWeight>(candidate_preedit_font_weight(content.font_weight));
+  metrics.number_font = native_canvas_font_variant(metrics.font, std::max(0.01, font_size * number_scale), weight);
+  layout.gloss_font = native_canvas_font_variant(metrics.font, shared::kCandidateTranslationPointSize * s, weight);
   layout.preedit_font = native_canvas_font_variant(metrics.font, content.preedit_size > 0 ? content.preedit_size : font_size,
-                                                   PANGO_WEIGHT_SEMIBOLD);
-  layout.indicator_font = native_canvas_font_variant(metrics.font, shared::kCandidatePageIndicatorPointSize * s);
-  layout.symbol_font = native_canvas_font_variant(metrics.font, shared::kCandidatePageIndicatorPointSize * s);
+                                                   preedit_weight);
+  layout.indicator_font = native_canvas_font_variant(metrics.font, shared::kCandidatePageIndicatorPointSize * s, weight);
+  layout.symbol_font = native_canvas_font_variant(metrics.font, shared::kCandidatePageIndicatorPointSize * s, weight);
   const bool custom_height = geometry.contains("itemExtraHeight");
   const double row_floor = custom_height ? font_size * 1.35 + length("itemExtraHeight", 0) : 0;
   const double row_padding = custom_height ? 0 : shared::kCandidateRowPadding * s;

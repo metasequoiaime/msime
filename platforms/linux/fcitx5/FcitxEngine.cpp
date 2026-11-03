@@ -8652,6 +8652,8 @@ bool FcitxState::renderNativeCanvas() {
     const auto preedit_size = preferences_.find("candidate_preedit_font_size");
     content.preedit_size = (preedit_size != preferences_.end() && preedit_size->is_number_integer() &&
                             *preedit_size >= 12 && *preedit_size <= 32 ? preedit_size->get<int>() : 15) * scale;
+    // 序号、释义、页码和拼音行的字重只取候选字重偏好，不取 classicui 的 Font 里用户自己写的样式词。
+    content.font_weight = host::read_candidate_font(preferences_).weight;
     // 横排为还没到的释义预留高度（translationReservedLines），韩文汉字列表再加训音一行。
     content.reserved_gloss_lines = translationReservedLines() + (host::korean_hanja_list_open(view_) ? 1 : 0);
     content.selection_context = view_.value("editing_text", std::string{}) + "\n" +
