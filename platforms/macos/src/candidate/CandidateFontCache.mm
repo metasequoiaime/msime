@@ -1,6 +1,8 @@
 #import "CandidateFontCache.h"
 #import <CoreText/CoreText.h>
 #include <os/lock.h>
+#include <cmath>
+#include <utility>
 
 static os_unfair_lock CandidateFontCacheLock = OS_UNFAIR_LOCK_INIT;
 // 缓存键是字体族名（常规字重）或「族名\n字重」，值是匹配到的 NSFontDescriptor，没装的族是 NSNull。族名不含控制字符，换行不会和族名撞上。
@@ -23,6 +25,43 @@ static void ClearCandidateFontCache() {
 
 NSFontDescriptor *MSIMEInstalledFontFamilyDescriptor(NSString *family) {
     return MSIMEInstalledFontFamilyDescriptorWithWeight(family, NSFontWeightRegular);
+}
+
+static NSDictionary *CandidateFaceTraits(NSFontDescriptor *face) {
+    return (__bridge_transfer NSDictionary *)CTFontDescriptorCopyAttribute((__bridge CTFontDescriptorRef)face, kCTFontTraitsAttribute);
+}
+
+// 按 CSS Fonts 的字重匹配规则在族里挑字面，与 DirectWrite、fontconfig 的就近选法一致：要的字重在常规到中等之间（400–500）时，先取不超过中等、不轻于它的字面，再取更轻的，最后才取更粗的；要的字重比中等粗时先取更粗的，再取更轻的。CoreText 把字重当非必需键匹配时直接取更粗的字面，只有常规和粗体的族（Helvetica、Menlo、宋体）选中等会画成粗体，和另外两端不一样。只在与常规字面同宽、同为正体的字面里挑，斜体和窄体不算。
+static NSFontDescriptor *CandidateWeightedFace(NSString *family, NSFontDescriptor *regularFace, NSFontWeight weight) {
+    // 同一档字重在不同字体里可能差在小数点后几位，比较时留一点余量。
+    const CGFloat epsilon = 0.01;
+    const auto traitValue = [](NSDictionary *traits, CFStringRef key) { return [traits[(__bridge NSString *)key] doubleValue]; };
+    // 排序键：先比所在的优先区间（0 最好），同一区间里比离要的字重有多远。
+    const auto rank = [&](CGFloat faceWeight) -> std::pair<int, CGFloat> {
+        const CGFloat distance = std::fabs(faceWeight - weight);
+        if (distance <= epsilon) return {0, 0};
+        if (weight <= NSFontWeightMedium + epsilon) {
+            if (faceWeight > weight && faceWeight <= NSFontWeightMedium + epsilon) return {1, distance};
+            return {faceWeight < weight ? 2 : 3, distance};
+        }
+        return {faceWeight > weight ? 1 : 2, distance};
+    };
+    NSDictionary *regularTraits = CandidateFaceTraits(regularFace);
+    const CGFloat regularWidth = traitValue(regularTraits, kCTFontWidthTrait);
+    NSFontDescriptor *best = regularFace;
+    auto bestRank = rank(traitValue(regularTraits, kCTFontWeightTrait));
+    NSFontDescriptor *query = [NSFontDescriptor fontDescriptorWithFontAttributes:@{NSFontFamilyAttribute:family}];
+    for (NSFontDescriptor *face in [query matchingFontDescriptorsWithMandatoryKeys:[NSSet setWithObject:NSFontFamilyAttribute]]) {
+        NSDictionary *traits = CandidateFaceTraits(face);
+        if ([traits[(__bridge NSString *)kCTFontSymbolicTrait] unsignedIntValue] & kCTFontTraitItalic) continue;
+        if (std::fabs(traitValue(traits, kCTFontWidthTrait) - regularWidth) > epsilon) continue;
+        const auto faceRank = rank(traitValue(traits, kCTFontWeightTrait));
+        if (faceRank < bestRank) {
+            best = face;
+            bestRank = faceRank;
+        }
+    }
+    return best;
 }
 
 NSFontDescriptor *MSIMEInstalledFontFamilyDescriptorWithWeight(NSString *family, NSFontWeight weight) {
@@ -56,13 +95,13 @@ NSFontDescriptor *MSIMEInstalledFontFamilyDescriptorWithWeight(NSString *family,
             os_unfair_lock_unlock(&CandidateFontCacheLock);
         }
         // The match runs outside the lock because it is the slow part; two threads racing on one family only store equal answers.
-        // 指定字重时族名仍是必须匹配的键，字重只是偏好：族里没有这一档就落到 CoreText 选的就近字面，不会换族，也不会合成加粗。
-        NSDictionary *attributes = regular ? @{NSFontFamilyAttribute:family}
-                                           : @{NSFontFamilyAttribute:family, NSFontTraitsAttribute:@{NSFontWeightTrait:@(weight)}};
-        NSFontDescriptor *requested = [NSFontDescriptor fontDescriptorWithFontAttributes:attributes];
-        cached = [available containsObject:family]
-            ? [requested matchingFontDescriptorWithMandatoryKeys:[NSSet setWithObject:NSFontFamilyAttribute]] ?: NSNull.null
-            : NSNull.null;
+        NSFontDescriptor *requested = [NSFontDescriptor fontDescriptorWithFontAttributes:@{NSFontFamilyAttribute:family}];
+        NSFontDescriptor *matched = [available containsObject:family]
+            ? [requested matchingFontDescriptorWithMandatoryKeys:[NSSet setWithObject:NSFontFamilyAttribute]]
+            : nil;
+        // 指定字重时在同一个族里按 CSS 的就近规则挑字面（CandidateWeightedFace），不换族，也不合成加粗。
+        if (matched && !regular) matched = CandidateWeightedFace(family, matched, weight);
+        cached = matched ?: NSNull.null;
         os_unfair_lock_lock(&CandidateFontCacheLock);
         if (generation == CandidateFontCacheGeneration) {
             [CandidateFontCacheOrder removeObject:key];
