@@ -245,7 +245,7 @@ export type Preferences = PunctuationPreferences &
     show_candidate_expand_button?: boolean;
     /** 候选窗、悬浮工具栏、菜单和触屏键盘共用的主题；`theme` 仍表示 `system` 和设置窗口跟随的明暗模式。 */
     global_theme?: GlobalTheme;
-    /** `custom` 全局主题由外部候选皮肤包、七个候选颜色选项与键盘编辑器设计组成。 */
+    /** `custom` 全局主题由外部候选皮肤包、八个候选颜色选项与键盘编辑器设计组成。 */
     custom_theme?: CustomTheme;
     learning: boolean;
     /** 回车上屏英文时把该单词写入英文词库；Windows 出厂缺省为开启。 */
