@@ -664,13 +664,22 @@ where
     F: Fn(OrderRow<'a>) -> bool,
 {
     let mut count = 0;
+    // 只和首选同样多字的读法比较：全拼整句一个字一个音节，字数不同就是同一串字母的另一种切法（`xian` 切成 `xi'an`）。那种读法要多出一个音节，词网格分已经说明它不像，模型却只看字，常把「要上线」换成「要上西安」。
+    // 比较的窗口不变（前 `considered.len()` 条回答按键的行），只在窗口里跳过字数不同的：跳过的不能让窗口外更靠后的读法补进来。
+    let mut width = None;
+    let mut window = 0;
     for index in 0..rows.len() {
         let row = rows.get(index);
         if !answers_key(row) {
             continue;
         }
-        if count == considered.len() {
+        if window == considered.len() {
             break;
+        }
+        window += 1;
+        let characters = row.text.chars().count();
+        if *width.get_or_insert(characters) != characters {
+            continue;
         }
         considered[count] = index;
         statik[count] = rows.static_evidence(index)?.mean()?;
