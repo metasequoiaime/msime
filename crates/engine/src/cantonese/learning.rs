@@ -12,7 +12,7 @@ use crate::types::{
     PersonalDictionaryKind,
 };
 use crate::user_dictionary::journal::{
-    is_user_deleted, open_journal, record_user_insert, write_upsert, MISSING_ROW,
+    is_user_deleted, open_journal, record_user_insert, MISSING_ROW,
 };
 use crate::user_dictionary::personal::validate_personal_dictionary_entry;
 use crate::user_dictionary::ranking::{
@@ -28,6 +28,9 @@ pub const LEARNED_WORD_WEIGHT: i64 = crate::dictionary::pinyin::INSERTED_WEIGHT;
 /// 造词最多几个音节，与拼音记整句的上限相同（`session::learning::MAX_LEARNED_SENTENCE_SYLLABLES`）：分几次选完一长串时不把整句记成词。
 pub const MAX_LEARNED_WORD_SYLLABLES: usize = 7;
 
+/// 调频写权重的语句。与 `UPSERT_JOURNAL_SQL` 不同的只有冲突时的 `user_inserted`：已有的行是墓碑（用户在「我的词条」里删过这个词）时清成 0，其余照旧保留。粤语没有工作表，删掉的个人词若发布的词库里也有，候选里照样有这一行，再选它调频时若沿用墓碑上的 `user_inserted=1`，删掉的词就回到「我的词条」里。SET 右边都按更新前的行求值，所以 `CASE` 看到的是墓碑。
+const LEARNED_WEIGHT_SQL: &str = "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,display) VALUES(?1,?2,?3,'upsert',?4,'') ON CONFLICT(dictionary,key,value) DO UPDATE SET operation='upsert',weight=excluded.weight,display='',user_inserted=CASE WHEN operation='delete' THEN 0 ELSE user_inserted END,updated_at=unixepoch()";
+
 /// 调频的一行：候选文字和它现在的权重。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RankedRow {
@@ -35,7 +38,7 @@ pub struct RankedRow {
     pub weight: i64,
 }
 
-/// 选中 `key` 下的 `value` 一次。`rows` 是候选里与它覆盖同一段输入的那几行（含它自己），按权重比名次，与拼音调频按权重而不按显示顺序比的道理相同（`adjust_candidate_ranking`）。计数够了 `trigger_count` 次、它又不是权重最重的那一行时，按调频方式算出目标名次，把它的权重写成目标名次那一行的权重加一。返回是否写了权重。调频方式为「关闭」时什么也不写。
+/// 选中 `key` 下的 `value` 一次。`rows` 是候选里与它覆盖同一段输入的那几行（含它自己），按权重比名次，与拼音调频按权重而不按显示顺序比的道理相同（`adjust_candidate_ranking`）。计数够了 `trigger_count` 次、它又不是权重最重的那一行时，按调频方式算出目标名次，把它的权重写成目标名次那一行的权重加一。返回是否写了权重。调频方式为「关闭」时什么也不写。用户删过的词再被调频时写成 `user_inserted=0`，不回到「我的词条」（[`LEARNED_WEIGHT_SQL`]）。
 pub fn adjust_frequency(
     journal: &Path,
     rows: &[RankedRow],
@@ -75,14 +78,14 @@ pub fn adjust_frequency(
     }
     let target = ranking_target(rank, options.mode, options.linear_step, false);
     let weight = clamp_managed_weight(weights[target].weight.saturating_add(1));
-    write_upsert(
-        &transaction,
-        PersonalDictionaryKind::Cantonese,
-        key,
-        value,
-        weight,
-        "",
-    )?;
+    transaction
+        .prepare_cached(LEARNED_WEIGHT_SQL)?
+        .execute(params![
+            PersonalDictionaryKind::Cantonese.journal_name(),
+            key,
+            value,
+            weight
+        ])?;
     transaction.commit()?;
     Ok(true)
 }
@@ -216,6 +219,31 @@ mod tests {
                 "SELECT weight FROM user_dictionary_operations WHERE key='nei hou' AND value='妳好' AND user_inserted=1"
             ),
             Some(901)
+        );
+    }
+
+    /// 用户删过的词（墓碑带着 `user_inserted=1`）发布的词库里也有时，候选里还在；再选它调频只记权重，不让它回到「我的词条」。
+    #[test]
+    fn a_deleted_user_word_is_ranked_without_coming_back() {
+        let dir = Dir::new();
+        let connection = open_journal(&dir.journal()).unwrap();
+        connection
+            .execute(
+                "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,user_inserted) VALUES('cantonese','nei hou','妳好','delete',0,1)",
+                [],
+            )
+            .unwrap();
+        drop(connection);
+        let group = rows(&[("你好", 900), ("妳好", 40)]);
+        let pin = options(FrequencyAdjustmentMode::Pin, 1);
+        assert!(adjust_frequency(&dir.journal(), &group, "nei hou", "妳好", pin).unwrap());
+        assert_eq!(learned_weight(&dir, "nei hou", "妳好"), Some(901));
+        assert_eq!(
+            count(
+                &dir.journal(),
+                "SELECT count(*) FROM user_dictionary_operations WHERE user_inserted=1"
+            ),
+            0
         );
     }
 

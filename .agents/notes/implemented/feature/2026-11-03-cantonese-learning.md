@@ -18,7 +18,7 @@ Status: implemented
 调频（`session/cantonese_learning.rs` 的 `learn_cantonese_frequency`、`cantonese/learning.rs` 的 `adjust_frequency`）：
 
 - 选中的不是首选、是粤语词库里的行时才调。比较的那组是与它覆盖同一段输入（同一个 `WordItem::pinyin`）的粤语行：整段的词一组，只覆盖前几个音节的词各一组，与粤语候选「先按覆盖、再按权重」的排法对应。组内按权重比名次，与拼音调频按权重不按显示顺序比的理由相同。
-- 计数记在 `candidate_selection_state`，上下文是 `cantonese:` 加粤拼键（`SELECTION_CONTEXT_PREFIX`），够了触发频次后按 `ranking_target` 算目标名次，把选中词的权重写成目标名次那一行的权重加一（上限 `MANAGED_WEIGHT_CEILING`），写成用户日志里 `dictionary='cantonese'` 的 upsert。新行 `user_inserted=0`，不进「我的词条」；已经是用户词的行调频后仍是 `user_inserted=1`（`UPSERT_JOURNAL_SQL` 冲突时不动这一列）。
+- 计数记在 `candidate_selection_state`，上下文是 `cantonese:` 加粤拼键（`SELECTION_CONTEXT_PREFIX`），够了触发频次后按 `ranking_target` 算目标名次，把选中词的权重写成目标名次那一行的权重加一（上限 `MANAGED_WEIGHT_CEILING`），写成用户日志里 `dictionary='cantonese'` 的 upsert。新行 `user_inserted=0`，不进「我的词条」；已经是用户词的行调频后仍是 `user_inserted=1`。写法是 `cantonese/learning.rs` 自己的 `LEARNED_WEIGHT_SQL`，不用拼音的 `UPSERT_JOURNAL_SQL`：用户删掉个人词时墓碑带着 `user_inserted=1`（`personal.rs` 的删除语句），拼音那条语句冲突时不动这一列，墓碑翻回 upsert 就又是用户词。拼音删词时回放会连同名的发布行一起删，删掉的词不再是候选，碰不到这种情况；粤语没有工作表，删掉的个人词若 `msime-cantonese.db` 里也有，候选里照样有它，再选它调频时就会让删掉的词回到「我的词条」。所以冲突的那一行是墓碑时把 `user_inserted` 清成 0，学到的权重照常生效，词不回来（`a_deleted_cantonese_word_stays_deleted_when_it_is_picked_again`）。
 - 发布的 `msime-cantonese.db` 只读，学到的权重只在日志里。`cantonese::UserWords` 改为读日志里全部粤语 upsert 行（以前只读 `user_inserted=1`），`CantoneseLexicon` 合并同键同字时本来就取较大的权重，所以调频写下的权重直接生效，活着的会话下一次查询就看得到。
 
 造词（`note_cantonese_piece`、`create_word`）：
@@ -34,6 +34,8 @@ Status: implemented
 - 整份换上快照时 `carry_cantonese_words` 把旧一代里没删的粤语行全部抄进新的一代，`user_inserted` 照原样（`add_cantonese_words` 不再只收用户词）；粤语的选词计数不抄，从头再计。
 
 宿主不用改：各端的学习开关本来就是会话的 `learning` 和 `frequency`，所有设置页文案都没有写「粤语不学习」。iOS `InputSchemePreference.swift` 里说粤语 nothing learned 的源码注释顺手改正。
+
+设置页的文字这次不改：调频组的标题仍是「拼音方案调频」（共享设置 `frequency-section.tsx`、Windows WinUI 与 Win7），iOS「学习常用词」的说明仍是「学习支持的拼音组词」，它们现在少说了粤语。这个组名照参考产品的分组来（`docs/windows-parity.md` 的对照记录、桌面设置测试都按它核对），改名要六端设置页、对照文档和测试一起动，还要附改前改后截图；维护者这次拍板的是「沿用现有开关、不加新开关」，没有涉及改名。是否改成「拼音与粤语调频」一类的说法留给维护者决定，PR 里单独提出。
 
 ## Alternatives considered
 
@@ -52,7 +54,7 @@ Status: implemented
 
 ## Verification
 
-- `cargo test -p msime-engine --lib cantonese`：`a_cantonese_candidate_picked_again_and_again_rises`（逐次前移、新会话保持、分段只和同段比）、`cantonese_pieces_picked_in_one_composition_become_a_word`（调频关着也造词、取消不造词、不重复造）、`a_composed_cantonese_sentence_is_learned_as_a_word`（学习关着不记）、`cantonese_rows_are_not_edited_and_learn_nothing_with_learning_off`、`selecting_a_cantonese_candidate_does_not_clone_the_full_row`（分配上限不变），以及 `cantonese::learning` 的单元测试。
+- `cargo test -p msime-engine --lib cantonese`：`a_cantonese_candidate_picked_again_and_again_rises`（逐次前移、新会话保持、分段只和同段比）、`a_deleted_cantonese_word_stays_deleted_when_it_is_picked_again`（删掉的个人词再被调频不回到「我的词条」）、`cantonese_pieces_picked_in_one_composition_become_a_word`（调频关着也造词、取消不造词、不重复造）、`a_composed_cantonese_sentence_is_learned_as_a_word`（学习关着不记）、`cantonese_rows_are_not_edited_and_learn_nothing_with_learning_off`、`selecting_a_cantonese_candidate_does_not_clone_the_full_row`（分配上限不变），以及 `cantonese::learning` 的单元测试。
 - `cargo test -p msime-engine --lib user_dictionary::state`（`cantonese_words_are_added_to_a_generation_and_existing_rows_are_kept` 带上学到的行）。
 - `cargo test -p msime-host-api --lib dictionary_snapshot`：`a_learning_export_leaves_out_cantonese_learning`、`a_snapshot_activation_keeps_the_personal_cantonese_words`（学到的行带过去、粤语计数不带）。
 - `cargo test -p msime-engine --test golden`：`yue_partial_commit_no_learning` 改成学习关着的场景，期望文件不变。

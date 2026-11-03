@@ -11009,6 +11009,53 @@ fn a_cantonese_candidate_picked_again_and_again_rises() {
     assert_eq!(words(&session), ["你好", "妳好", "妳", "你"]);
 }
 
+/// 用户在「我的词条」里删掉的粤语词若发布的词库里也有，候选里照样有这一行；再选它（非首选）调频，学到的权重照常生效，但它不回到「我的词条」。
+#[test]
+fn a_deleted_cantonese_word_stays_deleted_when_it_is_picked_again() {
+    use crate::types::{PersonalDictionaryEntry, PersonalDictionaryKind};
+    use crate::user_dictionary::personal::{
+        edit_personal_dictionary_with, personal_dictionary_entries_for_kind,
+    };
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let cantonese = cantonese_dictionary(fixture.path());
+    let configure = cantonese_learning_options(&cantonese, FrequencyAdjustmentMode::Pin);
+    let word = PersonalDictionaryEntry {
+        kind: PersonalDictionaryKind::Cantonese,
+        key: "nei hou".to_owned(),
+        value: "妳好".to_owned(),
+        weight: 30,
+    };
+    edit_personal_dictionary_with(&fixture.paths(), true, None, Some(&word), "").unwrap();
+    edit_personal_dictionary_with(&fixture.paths(), true, Some(&word), None, "").unwrap();
+    let listed = || {
+        personal_dictionary_entries_for_kind(
+            &fixture.paths(),
+            true,
+            PersonalDictionaryKind::Cantonese,
+            0,
+            10,
+        )
+        .unwrap()
+        .entries
+    };
+    assert!(listed().is_empty());
+
+    let mut session = fixture.session_with(&configure);
+    type_text(&mut session, "neihou");
+    assert_eq!(words(&session), ["你好", "妳好", "你", "妳"]);
+    assert_eq!(session.select(1).commit.as_deref(), Some("妳好"));
+    type_text(&mut session, "neihou");
+    assert_eq!(words(&session), ["妳好", "你好", "你", "妳"]);
+    drop(session);
+    crate::flush_personal_learning();
+
+    assert!(listed().is_empty());
+    assert_eq!(
+        cantonese_journal_rows(&fixture),
+        [("nei hou".to_owned(), "妳好".to_owned(), 901, false)]
+    );
+}
+
 /// 一次组字分几次选完时，整段记成一个词（`user_inserted=1`，和拼音造的词一样进「我的词条」），下次打同一读音就在候选里；这和调频方式无关，调频关着也造词，但不调频。
 #[test]
 fn cantonese_pieces_picked_in_one_composition_become_a_word() {

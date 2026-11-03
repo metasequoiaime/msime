@@ -1853,7 +1853,7 @@ mod tests {
         );
     }
 
-    /// 粤语词写进一代的日志：已有同一个词的保留已有的那一行，超出日志上限的跳过，不是粤语用户词的记录整批拒绝、什么也不写。
+    /// 粤语词写进一代的日志：已有同一个词的保留已有的那一行，超出日志上限的跳过；学到的权重（`user_inserted=0`）照原样写入；不是粤语的、或已删的记录整批拒绝、什么也不写。
     #[test]
     fn cantonese_words_are_added_to_a_generation_and_existing_rows_are_kept() {
         use PersonalDictionaryKind::*;
