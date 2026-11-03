@@ -403,6 +403,46 @@ pub(crate) fn installed_bundle_path() -> Result<PathBuf, InstallError> {
     installed_bundle_path_in(&home_input_methods()?, Path::new(SYSTEM_INPUT_METHODS))
 }
 
+/// 设置窗口不承担全局监听；只通知已安装且声明该能力的原生宿主注册或撤销后台项。
+pub(crate) fn configure_global_voice(enabled: bool) -> Result<(), String> {
+    let bundle = installed_bundle_path().map_err(|_| "input_method_missing")?;
+    if !bundle
+        .join("Contents/Library/LaunchAgents/app.msime.global-voice.plist")
+        .is_file()
+    {
+        return Err("input_method_update_required".into());
+    }
+    let executable = bundle
+        .join("Contents/MacOS")
+        .join(input_source_executable());
+    let mut child = std::process::Command::new(executable)
+        .args([
+            "--configure-global-voice",
+            if enabled { "enable" } else { "disable" },
+        ])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|_| "input_method_start_failed")?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    loop {
+        if let Some(status) = child.try_wait().map_err(|_| "background_setup_failed")? {
+            return if status.success() {
+                Ok(())
+            } else {
+                Err("background_setup_failed".into())
+            };
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("background_setup_timeout".into());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
 fn installed_bundle_path_in(
     user_input_methods: &Path,
     system_input_methods: &Path,

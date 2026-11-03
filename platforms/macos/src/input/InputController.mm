@@ -31,6 +31,7 @@
 #import "../voice/VoiceDeactivation.h"
 #import "../voice/HTTPVoiceRequest.h"
 #import "../voice/VoiceHoldShortcut.h"
+#import "../voice/GlobalVoiceCoordinator.h"
 #import "../voice/DoubaoVoiceRequest.h"
 #import "../voice/LocalVoiceRequest.h"
 #import "../voice/VoiceFailureMessages.h"
@@ -1724,7 +1725,7 @@ static constexpr uint64_t MSIMESessionRecoveryNoticeInterval = 60 * NSEC_PER_SEC
 - (void)later:(id)sender { [self.recoveryDelegate dismissSessionRecoveryNotice:sender]; }
 @end
 
-@interface MSIMEInputController : IMKInputController <MSIMEFloatingToolbarDelegate, MSIMEInputSessionRecoveryDelegate>
+@interface MSIMEInputController : IMKInputController <MSIMEFloatingToolbarDelegate, MSIMEInputSessionRecoveryDelegate, MSIMEGlobalVoiceTarget>
 - (MSIMECustomTranslationBatch *)aiBatchForItems:(NSArray<NSDictionary *> *)items
                                        completion:(void (^)(NSArray<NSDictionary *> *))completion;
 - (NSDictionary *)recoverPreferencesInDirectory:(NSString *)directory error:(NSError **)error;
@@ -1751,6 +1752,10 @@ static NSImage *MSIMECandidateLogoImage() {
 }
 
 @implementation MSIMEInputController {
+    id _globalVoiceClient;
+    MSIMEClientSession *_globalVoiceSession;
+    BOOL _globalVoiceDetached;
+    pid_t _globalVoicePID;
     MSIMEClientSession *_session;
     uint64_t _dictionarySessionLastUse;
     // Stands in for TISEnableInputSource when set, so a test can see which opt-in mode a scheme change enables.
@@ -2608,7 +2613,68 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
 
 BOOL MSIMEInputControllerHasUnfinishedInput(void) {
     MSIMEInputController *focused = MSIMEFocusedController;
-    return focused != nil && [focused hasUnfinishedInput];
+    return (focused != nil && [focused hasUnfinishedInput]) || [MSIMEGlobalVoiceHost().owner globalVoiceBusy];
+}
+
+// 全局入口只取得真实聚焦的 IMK 控制器，不把旧应用留下的客户端当作目标。
+id<MSIMEGlobalVoiceTarget> MSIMEFocusedGlobalVoiceTarget(void) { return MSIMEFocusedController; }
+- (pid_t)globalVoiceTargetPID {
+    NSRunningApplication *application = NSWorkspace.sharedWorkspace.frontmostApplication;
+    if (MSIMEFocusedController != self || !_activeClient ||
+        ![application.bundleIdentifier isEqual:[_activeClient bundleIdentifier]]) return 0;
+    NSRect caret = NSZeroRect;
+    [(id<IMKTextInput>)_activeClient attributesForCharacterIndex:0 lineHeightRectangle:&caret];
+    return MSIMEValidCaret(caret) ? application.processIdentifier : 0;
+}
+- (BOOL)globalVoiceBusy {
+    return _voicePermissionToken || _httpVoiceRequest || _doubaoVoiceRequest || _liveVoiceToken || _voiceService.active;
+}
+- (BOOL)globalVoiceProcessing { return _httpVoiceProcessing || _doubaoVoiceProcessing || _liveVoiceProcessing; }
+- (BOOL)voiceOwnsClient:(id)client session:(MSIMEClientSession *)session {
+    return (_activeClient == client && _session == session) ||
+        (_globalVoiceClient == client && _globalVoiceSession == session && MSIMEGlobalVoiceHost().owner == self);
+}
+- (BOOL)retainDetachedGlobalVoiceText:(NSString *)text {
+    if (!_globalVoiceClient || MSIMEGlobalVoiceHost().owner != self) return NO;
+    id focus = MSIMEGlobalVoiceFocusIdentity();
+    id original = MSIMEGlobalVoiceHost().focusIdentity;
+    if (!_globalVoiceDetached && _activeClient == _globalVoiceClient && MSIMEFocusedController == self &&
+        [self globalVoiceTargetPID] == _globalVoicePID && focus && original &&
+        CFEqual((__bridge CFTypeRef)focus, (__bridge CFTypeRef)original)) return NO;
+    if (text.length && MSIMEGlobalVoiceHost().recover) MSIMEGlobalVoiceHost().recover(text);
+    return YES;
+}
+- (void)startGlobalVoiceHolding:(BOOL)holding {
+    if ([self globalVoiceBusy] || ![self globalVoiceTargetPID]) return;
+    if (!_session) [self prepareSession];
+    NSDictionary *snapshot = _preferencesDirectory.length ? [MSIMEClientSession loadPreferencesInDirectory:_preferencesDirectory error:nil] : nil;
+    if (snapshot) [self applySharedToolbarPreferences:snapshot[@"preferences"]];
+    _globalVoiceClient = _activeClient; _globalVoiceSession = _session; _globalVoiceDetached = NO; _globalVoicePID = [self globalVoiceTargetPID];
+    _voiceHoldStarting = holding;
+    [self toggleVoiceInput:nil];
+    _voiceHoldStarting = NO;
+}
+- (void)stopGlobalVoice {
+    // 权限回调不得在松手之后补开麦克风；识别和润色则等最终结果，不再次 toggle。
+    _voicePermissionToken = nil;
+    if (_httpVoiceRequest && !_httpVoiceProcessing) [self finishHTTPVoiceInput];
+    else if (_doubaoVoiceRequest && !_doubaoVoiceProcessing) [self finishDoubaoVoiceInput];
+    else if (_liveVoiceToken && !_liveVoiceProcessing) [self finishLiveVoiceInput];
+    else if (![self globalVoiceProcessing] && _voiceService.active) [_voiceService cancelWithError:nil];
+}
+- (void)cancelGlobalVoice {
+    _voicePermissionToken = nil;
+    [self cancelHTTPVoiceInput]; [self cancelDoubaoVoiceInput]; [self cancelLiveVoiceInput];
+    if (_voiceService.active) [_voiceService cancelWithError:nil];
+    [_voiceAudioMuter restore]; [self voiceCaptureDidEnd];
+    [_voiceOverlay setListening:NO];
+}
+- (void)endGlobalVoice { _globalVoiceClient = nil; _globalVoiceSession = nil; _globalVoiceDetached = NO; _globalVoicePID = 0; }
+- (void)lockGlobalVoice { [_voiceOverlay setRecordingLocked:YES]; }
+- (void)detachGlobalVoice {
+    if (!_globalVoiceClient || MSIMEGlobalVoiceHost().owner != self) return;
+    _globalVoiceDetached = YES;
+    [self stopGlobalVoice];
 }
 
 // Dropping the page without putting anything back, for the paths that are about to replace the view
@@ -4342,7 +4408,7 @@ static const NSTimeInterval kSettledRerankPoll = 1.0 / 60.0;
     __weak MSIMEInputController *weakSelf = self;
     return ^(NSEvent *event) {
         MSIMEInputController *controller = weakSelf;
-        if (!controller || !controller->_activeClient || event.isARepeat ||
+        if (!controller || MSIMEGlobalVoiceOwnsToggle(event) || !controller->_activeClient || event.isARepeat ||
             !MSIMEVoiceInputEnabled(NSUserDefaults.standardUserDefaults) ||
             ![controller matchesVoiceToggleHotkey:event]) return;
         // AppKit delivers event-monitor handlers on the main thread. Handle
@@ -5424,7 +5490,9 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         if (!optIn || [self enableOptInInputMode:optIn]) _appearance.lastSyncedInputScheme = scheme;
     }
     NSString *mode = MSIMEInputModeID(MSIMEInputModeFor(_appearance.englishMode, scheme));
-    MSIMESelectSystemInputMode(MSIMESharedSystemInputModeState(), mode, client, [self inputModeAvailability]);
+    if (MSIMESelectSystemInputMode(MSIMESharedSystemInputModeState(), mode, client, [self inputModeAvailability]) &&
+        MSIMEGlobalVoiceHost().owner == self && MSIMEGlobalVoiceHost().selectedMode)
+        MSIMEGlobalVoiceHost().selectedMode(MSIMESharedSystemInputModeState().current);
     // 菜单栏状态项显示控制器算出的模式，而不是 MSIMESelectSystemInputMode 回退后的那个：「双」「五」等模式没有加成输入源时系统图标停在「中」，状态项仍显示真实方案。
     [self presentInputModeStatusItem:_appearance.inputModeStatusItem ? mode : nil];
 }
@@ -5624,6 +5692,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
 }
 - (void)applyDoubaoFinalText:(NSString *)text request:(id<MSIMEStreamingVoiceRequest>)request {
     if (_doubaoVoiceRequest != request) return;
+    if ([self retainDetachedGlobalVoiceText:text]) { [self cancelDoubaoVoiceInput]; return; }
     if ([self ownsDoubaoVoiceFocus]) {
         if (!text.length) { [self reportVoiceFailure:MSIMEVoiceFailureNoSpeech]; return; }
         NSDictionary *result = text.length ? [_doubaoVoiceSession applyVoiceText:text generation:_doubaoVoiceGeneration error:nil] : nil;
@@ -5644,8 +5713,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     return [self makeDoubaoVoiceRequest:options error:error];
 }
 - (BOOL)ownsDoubaoVoiceFocus {
-    return _doubaoVoiceRequest && _activeClient == _doubaoVoiceClient &&
-        _session == _doubaoVoiceSession && _voiceGeneration == _doubaoVoiceGeneration && _voiceService.active;
+    return _doubaoVoiceRequest && [self voiceOwnsClient:_doubaoVoiceClient session:_doubaoVoiceSession] && _voiceGeneration == _doubaoVoiceGeneration && _voiceService.active;
 }
 - (void)voiceCaptureDidStart {
     if (_voiceCueRecording) return;
@@ -5833,7 +5901,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     request.polishingHandler = ^{
         MSIMEInputController *controller = weakSelf;
         if (!controller || !weakRequest || controller->_httpVoiceRequest != weakRequest || !controller->_httpVoiceProcessing ||
-            controller->_activeClient != controller->_httpVoiceClient || controller->_session != controller->_httpVoiceSession ||
+            ![controller voiceOwnsClient:controller->_httpVoiceClient session:controller->_httpVoiceSession] ||
             controller->_voiceGeneration != controller->_httpVoiceGeneration || !controller->_voiceService.active) return;
         [controller->_voiceOverlay setProcessing:YES];
     };
@@ -5844,7 +5912,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         dispatch_async(dispatch_get_main_queue(), ^{
             MSIMEInputController *controller = weakSelf;
             if (!controller || controller->_httpVoiceRequest != request || controller->_httpVoiceProcessing ||
-                controller->_activeClient != controller->_httpVoiceClient || controller->_session != controller->_httpVoiceSession ||
+                ![controller voiceOwnsClient:controller->_httpVoiceClient session:controller->_httpVoiceSession] ||
                 controller->_voiceGeneration != controller->_httpVoiceGeneration || !controller->_voiceService.active) return;
             [controller->_voiceOverlay setInputLevel:level];
             // MSIME-Windows keeps every sample and tells the user when the upload is too large; this host keeps only what the provider takes. Once it has that much, end the recording the way a release does, so the overlay turns to 识别中... and the end cue plays instead of the wave animating over audio that is no longer kept. The physical release that follows must not cancel the recognition.
@@ -5857,7 +5925,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         (void)failure;
         MSIMEInputController *controller = weakSelf;
         if (!controller || controller->_httpVoiceRequest != request) return;
-        if (controller->_activeClient != controller->_httpVoiceClient || controller->_session != controller->_httpVoiceSession ||
+        if (![controller voiceOwnsClient:controller->_httpVoiceClient session:controller->_httpVoiceSession] ||
             controller->_voiceGeneration != controller->_httpVoiceGeneration) { [controller cancelHTTPVoiceInput]; return; }
         [controller reportVoiceFailure:MSIMEVoiceFailureCapture];
     } error:&error]) { [self reportVoiceFailure:MSIMEVoiceFailureCapture]; return NO; }
@@ -5883,11 +5951,11 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     if (![request recognizePCM:pcm completion:^(NSString *text, NSError *failure) {
         MSIMEInputController *controller = weakSelf;
         if (!controller || controller->_httpVoiceRequest != request) return;
-        if (controller->_activeClient != client || controller->_session != session ||
+        if (![controller voiceOwnsClient:client session:session] ||
             controller->_voiceGeneration != generation || !controller->_voiceService.active) { [controller cancelHTTPVoiceInput]; return; }
         if (failure || !text.length) { [controller reportVoiceFailure:failure ? MSIMEVoiceFailureProvider : MSIMEVoiceFailureNoSpeech detail:MSIMEVoiceFailureDetail(failure)]; return; }
-        if (!failure && text.length && controller->_activeClient == client &&
-            controller->_session == session && controller->_voiceGeneration == generation && controller->_voiceService.active) {
+        if ([controller retainDetachedGlobalVoiceText:text]) { [controller cancelHTTPVoiceInput]; return; }
+        if (!failure && text.length && [controller voiceOwnsClient:client session:session] && controller->_voiceGeneration == generation && controller->_voiceService.active) {
             // Native host session methods are main-thread-only. Recheck the
             // departing focus identity before the runtime's own generation check.
             NSDictionary *result = [session applyVoiceText:text generation:generation error:nil];
@@ -5897,8 +5965,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     } error:&error]) [self reportVoiceFailure:MSIMEVoiceFailureProvider detail:MSIMEVoiceFailureDetail(error)];
 }
 - (BOOL)ownsLiveVoiceToken:(id)token {
-    return token && token == _liveVoiceToken && _activeClient == _liveVoiceClient &&
-        _session == _liveVoiceSession && _voiceGeneration == _liveVoiceGeneration && _voiceService.active;
+    return token && token == _liveVoiceToken && [self voiceOwnsClient:_liveVoiceClient session:_liveVoiceSession] && _voiceGeneration == _liveVoiceGeneration && _voiceService.active;
 }
 - (void)cancelLiveVoiceInput {
     if (!_liveVoiceToken) return;
@@ -5951,7 +6018,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     id http = _httpVoiceRequest, doubao = _doubaoVoiceRequest, live = _liveVoiceToken;
     _voiceOverlay.actionHandler = ^(BOOL cancel) {
         MSIMEInputController *controller = weakSelf;
-        if (!controller || controller->_activeClient != client || controller->_session != session ||
+        if (!controller || ![controller voiceOwnsClient:client session:session] ||
             controller->_voiceGeneration != generation || !controller->_voiceService.active ||
             controller->_httpVoiceRequest != http || controller->_doubaoVoiceRequest != doubao ||
             controller->_liveVoiceToken != live || !(http || doubao || live)) return;
@@ -5968,6 +6035,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
 }
 - (void)applyLiveVoiceFinalText:(NSString *)text token:(id)token {
     if (!token || token != _liveVoiceToken) return;
+    if ([self retainDetachedGlobalVoiceText:text]) { [self cancelLiveVoiceInput]; return; }
     if ([self ownsLiveVoiceToken:token]) {
         if (!text.length) { [self reportVoiceFailure:MSIMEVoiceFailureNoSpeech]; return; }
         NSDictionary *result = text.length ? [_liveVoiceSession applyVoiceText:text generation:_liveVoiceGeneration error:nil] : nil;
@@ -6117,7 +6185,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         [controller->_voiceOverlay setListening:YES];
         NSString *language = [[NSUserDefaults standardUserDefaults] stringForKey:@"MSIMEClientVoiceLanguage"] ?: @"zh-CN";
         NSString *socket = MSIMEVoiceProviderSocket();
-        NSDictionary *query = @{ @"language": language.lowercaseString, @"generation": @(controller->_voiceGeneration), @"stream": @([defaults objectForKey:@"MSIMEClientVoiceStreamInlinePreedit"] == nil || [defaults boolForKey:@"MSIMEClientVoiceStreamInlinePreedit"]), @"asr_provider": [defaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"local", @"asr_endpoint": [defaults stringForKey:@"MSIMEClientVoiceASREndpoint"] ?: @"", @"asr_model": [defaults stringForKey:@"MSIMEClientVoiceASRModel"] ?: @"", @"asr_model_path": [defaults stringForKey:@"MSIMEClientVoiceASRModelPath"] ?: @"", @"asr_token": [defaults stringForKey:@"MSIMEClientVoiceASRToken"] ?: @"", @"doubao_boosting_table_id": [defaults stringForKey:@"MSIMEClientVoiceDoubaoBoostingTableID"] ?: @"", @"asr_app_key": [defaults stringForKey:@"MSIMEClientVoiceDoubaoAppKey"] ?: @"", @"asr_resource_id": [defaults stringForKey:@"MSIMEClientVoiceDoubaoResourceID"] ?: @"", @"polish_enabled": @([defaults boolForKey:@"MSIMEClientVoicePolish"]), @"polish_prompt_id": [defaults stringForKey:@"MSIMEClientVoicePolishPromptID"] ?: @"cleanup", @"polish_provider": [defaults stringForKey:@"MSIMEClientVoicePolishProvider"] ?: MSIMEVoicePolishDefaultProvider, @"polish_model": [defaults stringForKey:@"MSIMEClientVoicePolishModel"] ?: @"", @"polish_endpoint": [defaults stringForKey:@"MSIMEClientVoicePolishEndpoint"] ?: @"", @"polish_token": [defaults stringForKey:@"MSIMEClientVoicePolishToken"] ?: @"", @"polish_thinking": [defaults stringForKey:@"MSIMEClientVoicePolishThinking"] ?: @"", @"polish_prompt_custom_1": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom1"] ?: @"", @"polish_prompt_custom_2": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom2"] ?: @"", @"polish_prompt_custom_3": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom3"] ?: @"" };
+        NSDictionary *query = @{ @"language": language.lowercaseString, @"generation": @(controller->_voiceGeneration), @"stream": @(!controller->_globalVoiceClient && ([defaults objectForKey:@"MSIMEClientVoiceStreamInlinePreedit"] == nil || [defaults boolForKey:@"MSIMEClientVoiceStreamInlinePreedit"])), @"asr_provider": [defaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"local", @"asr_endpoint": [defaults stringForKey:@"MSIMEClientVoiceASREndpoint"] ?: @"", @"asr_model": [defaults stringForKey:@"MSIMEClientVoiceASRModel"] ?: @"", @"asr_model_path": [defaults stringForKey:@"MSIMEClientVoiceASRModelPath"] ?: @"", @"asr_token": [defaults stringForKey:@"MSIMEClientVoiceASRToken"] ?: @"", @"doubao_boosting_table_id": [defaults stringForKey:@"MSIMEClientVoiceDoubaoBoostingTableID"] ?: @"", @"asr_app_key": [defaults stringForKey:@"MSIMEClientVoiceDoubaoAppKey"] ?: @"", @"asr_resource_id": [defaults stringForKey:@"MSIMEClientVoiceDoubaoResourceID"] ?: @"", @"polish_enabled": @([defaults boolForKey:@"MSIMEClientVoicePolish"]), @"polish_prompt_id": [defaults stringForKey:@"MSIMEClientVoicePolishPromptID"] ?: @"cleanup", @"polish_provider": [defaults stringForKey:@"MSIMEClientVoicePolishProvider"] ?: MSIMEVoicePolishDefaultProvider, @"polish_model": [defaults stringForKey:@"MSIMEClientVoicePolishModel"] ?: @"", @"polish_endpoint": [defaults stringForKey:@"MSIMEClientVoicePolishEndpoint"] ?: @"", @"polish_token": [defaults stringForKey:@"MSIMEClientVoicePolishToken"] ?: @"", @"polish_thinking": [defaults stringForKey:@"MSIMEClientVoicePolishThinking"] ?: @"", @"polish_prompt_custom_1": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom1"] ?: @"", @"polish_prompt_custom_2": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom2"] ?: @"", @"polish_prompt_custom_3": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom3"] ?: @"" };
         query = MSIMEVoiceProviderOptions(query, defaults);
         if (socket.length) {
             id token = [controller beginLiveVoiceWithOptions:query socket:socket];
@@ -6326,6 +6394,7 @@ static constexpr NSUInteger MSIMEIdleDictionarySessionLimit = 4;
 
 - (void)activateServer:(id)sender {
     ++_spacingInputSequence;
+    if (_globalVoiceClient && _globalVoiceClient != sender) [self detachGlobalVoice];
     if (_activeClient && _activeClient != sender && ![self commitManagedEnglishRaw]) return;
     [MSIMEInputSessionRecoveryPanel dismissForDelegate:nil];
     // A newly activated IME session may target a different document/client.
@@ -6339,9 +6408,9 @@ static constexpr NSUInteger MSIMEIdleDictionarySessionLimit = 4;
     [_voiceOverlay dismissFailure];
     _voicePermissionToken = nil;
     _voiceHoldShortcut.reset();
-    if (_activeClient && _activeClient != sender) [self cancelLiveVoiceInput];
-    if (_activeClient && _activeClient != sender) [self cancelDoubaoVoiceInput];
-    if (_activeClient && _activeClient != sender) [self cancelHTTPVoiceInput];
+    if (!_globalVoiceClient && _activeClient && _activeClient != sender) [self cancelLiveVoiceInput];
+    if (!_globalVoiceClient && _activeClient && _activeClient != sender) [self cancelDoubaoVoiceInput];
+    if (!_globalVoiceClient && _activeClient && _activeClient != sender) [self cancelHTTPVoiceInput];
     [self cancelCandidateTranslations];
     [self cancelCloudCandidates];
     [self resetCandidateAnchor];
@@ -7173,11 +7242,14 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     msime_macos_diagnostic_write("focus_out");
     _voicePermissionToken = nil;
     _voiceHoldShortcut.reset();
-    [self cancelLiveVoiceInput];
-    [self cancelDoubaoVoiceInput];
-    [self cancelHTTPVoiceInput];
-    MSIMEDeactivateVoice(_voiceService, _session, _voiceAudioMuter, _voiceOverlay,
-        MSIMEVoiceProviderSocket(), _voiceGeneration);
+    if (_globalVoiceClient && MSIMEGlobalVoiceHost().owner == self) [self detachGlobalVoice];
+    else {
+        [self cancelLiveVoiceInput];
+        [self cancelDoubaoVoiceInput];
+        [self cancelHTTPVoiceInput];
+        MSIMEDeactivateVoice(_voiceService, _session, _voiceAudioMuter, _voiceOverlay,
+            MSIMEVoiceProviderSocket(), _voiceGeneration);
+    }
     [self cancelCandidateTranslations];
     [self cancelCloudCandidates];
     [self discardGlossSensePage];
@@ -7816,7 +7888,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     if (!voiceEnabled) _voiceHoldShortcut.reset();
     const NSEventModifierFlags physicalModifierFlags = voiceEnabled && event.type == NSEventTypeFlagsChanged
         ? MSIMEPhysicalModifierFlagsState(kCGEventSourceStateHIDSystemState) : 0;
-    const auto voiceShortcut = voiceEnabled ? _voiceHoldShortcut.observe(event, {
+    const auto voiceShortcut = voiceEnabled && !MSIMEGlobalVoiceHost().keyboard ? _voiceHoldShortcut.observe(event, {
         [voiceDefaults boolForKey:@"MSIMEClientVoiceHotkeyRightAlt"] != NO,
         [voiceDefaults boolForKey:@"MSIMEClientVoiceHotkeyCtrlCommand"] != NO,
         [voiceDefaults boolForKey:@"MSIMEClientVoiceHotkeyCtrlOption"] != NO,
@@ -7875,13 +7947,15 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
                [event.characters characterAtIndex:0] != _lastSmartPunctuation) {
         [self resetSmartPunctuationState];
     }
-    if (voiceEnabled && !event.isARepeat && [self matchesVoiceToggleHotkey:event]) {
+    if (voiceEnabled && !MSIMEGlobalVoiceOwnsToggle(event) && !event.isARepeat && [self matchesVoiceToggleHotkey:event]) {
         [self toggleVoiceInput:nil];
         return YES;
     }
     const NSEventModifierFlags competing = NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption;
-    if (_doubaoVoiceRequest) [self cancelDoubaoVoiceInput];
-    if (_liveVoiceToken) [self cancelLiveVoiceInput];
+    if (!(_globalVoiceClient && MSIMEGlobalVoiceHost().owner == self)) {
+        if (_doubaoVoiceRequest) [self cancelDoubaoVoiceInput];
+        if (_liveVoiceToken) [self cancelLiveVoiceInput];
+    }
     // 「切换中英文」这一组快捷键（Ctrl+Option+Space、Shift+Space）和中英文切换的修饰键轻点走同一条路：
     // 中日英循环开着时它们一起参与循环，关着时仍是二态切换。
     if (_appearance.controlOptionSpaceShortcut && event.keyCode == 49 &&
@@ -8561,6 +8635,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
 
 - (void)applyVoiceResult:(NSDictionary *)transition route:(const MSIMEVoiceCommitRoute &)route {
     NSString *text = transition[@"commit"];
+    if ([self retainDetachedGlobalVoiceText:text]) return;
     if ([route.mode isEqual:@"tsf"] || ![text isKindOfClass:NSString.class] || !text.length) {
         _typingSourceOverride = @(static_cast<NSInteger>(msime::mac::TypingSource::Voice));
         [self apply:transition];

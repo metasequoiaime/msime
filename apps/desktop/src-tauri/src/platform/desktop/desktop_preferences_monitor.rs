@@ -141,6 +141,8 @@ mod inotify_tests {
 /// One shared polling state for all desktop shells. Input capture remains in the host.
 pub(crate) struct Monitor {
     revision: Option<u64>,
+    #[cfg(target_os = "macos")]
+    global_voice: Option<bool>,
     history: Option<Vec<ClipboardHistoryEntry>>,
 }
 
@@ -148,6 +150,8 @@ impl Monitor {
     pub(crate) fn new(store: &PreferencesStore) -> Self {
         Self {
             revision: store.load().ok().map(|snapshot| snapshot.revision),
+            #[cfg(target_os = "macos")]
+            global_voice: None,
             history: None,
         }
     }
@@ -159,6 +163,23 @@ impl Monitor {
         history: &Mutex<ClipboardHistoryStore>,
     ) {
         let Ok(snapshot) = store.load() else { return };
+        #[cfg(target_os = "macos")]
+        {
+            let enabled = snapshot.preferences.voice_input.hotkey_global
+                && snapshot.preferences.voice_input.enabled;
+            if self.global_voice != Some(enabled) {
+                let previous = self.global_voice.replace(enabled);
+                if enabled || previous == Some(true) {
+                    // 监视器本身在后台线程，串行执行避免快速开关把注册顺序倒过来。
+                    if let Err(category) =
+                        crate::platform::macos::macos_input_source::configure_global_voice(enabled)
+                    {
+                        eprintln!("MSIME global voice setup: {category}");
+                    }
+                }
+            }
+        }
+
         if let Ok(mut history) = history.lock() {
             history.set_limit(snapshot.preferences.clipboard_history_limit);
         }

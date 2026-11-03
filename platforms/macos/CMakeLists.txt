@@ -178,6 +178,8 @@ target_sources(MSIMEClientInputMethod PRIVATE src/voice/DoubaoVoiceRequest.mm sr
 target_sources(MSIMEClientInputMethod PRIVATE src/core/DesktopInputSession.mm)
 target_sources(MSIMEClientInputMethod PRIVATE src/core/UsageReporting.mm)
 target_sources(MSIMEClientInputMethod PRIVATE src/core/DesktopCloudClipboard.mm)
+target_sources(MSIMEClientInputMethod PRIVATE src/voice/GlobalVoiceCoordinator.mm)
+target_link_libraries(MSIMEClientInputMethod PRIVATE "-framework ServiceManagement")
 target_link_libraries(MSIMEClientInputMethod PRIVATE "-framework ApplicationServices" "-framework CoreGraphics" "-framework CoreText" "-framework UniformTypeIdentifiers")
 file(GLOB_RECURSE MSIME_BACKEND_SWIFT CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/account/*.swift"
@@ -378,6 +380,15 @@ set_source_files_properties(${MSIME_HELPCODE_RESOURCES} PROPERTIES MACOSX_PACKAG
 # The Dock takes its label from the bundle's filename — not CFBundleDisplayName, CFBundleName or a
 # localized InfoPlist.strings, all of which it ignores here. Naming the product is the only lever.
 set_target_properties(MSIMEClientInputMethod PROPERTIES OUTPUT_NAME "${MSIME_INPUT_METHOD_NAME}")
+# 登录引导程序复用同一输入法应用，按版本标识区分后台项。
+execute_process(COMMAND "${Python3_EXECUTABLE}" "${MSIME_EDITION_SCRIPT}" field --edition "${MSIME_EDITION}" input_method_bundle_id
+  OUTPUT_VARIABLE MSIME_GLOBAL_VOICE_BUNDLE_ID OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+set(MSIME_GLOBAL_VOICE_LABEL "${MSIME_GLOBAL_VOICE_BUNDLE_ID}.global-voice")
+configure_file(GlobalVoiceAgent.plist.in "${CMAKE_CURRENT_BINARY_DIR}/global-voice/app.msime.global-voice.plist" @ONLY)
+target_sources(MSIMEClientInputMethod PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/global-voice/app.msime.global-voice.plist")
+set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/global-voice/app.msime.global-voice.plist"
+  PROPERTIES MACOSX_PACKAGE_LOCATION "Library/LaunchAgents")
+
 # The preferences window runs under NSApplicationActivationPolicyRegular, so the bundle appears in
 # the Dock and needs an icon; without CFBundleIconFile plus the file itself it shows the generic one.
 target_sources(MSIMEClientInputMethod PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethod.icns")
@@ -1093,7 +1104,8 @@ target_compile_options(shortcut-test PRIVATE "-F${MSIME_SPARKLE_ROOT}")
 target_link_libraries(shortcut-test PRIVATE "${MSIME_SPARKLE_FRAMEWORK}")
 target_sources(shortcut-test PRIVATE src/settings/PreferencesWindowController.mm src/core/SupportWindowController.mm src/candidate/CandidateSkinAppearance.mm src/core/ScreenKeyboardPanel.mm src/voice/VoiceInputService.mm src/voice/VoicePCMBuffer.mm src/voice/VoiceWaveOverlay.mm src/voice/VoiceCuePlayer.mm src/voice/VoiceAudioMuter.mm src/voice/VoiceSettings.mm src/voice/VoiceProviderSettings.mm src/cloud/CloudCandidateRequest.mm src/core/CustomTranslationBatch.mm)
 target_sources(shortcut-test PRIVATE src/voice/HTTPVoiceRequest.mm src/voice/DoubaoVoiceRequest.mm src/voice/LocalVoiceRequest.mm src/core/DesktopInputSession.mm)
-target_sources(shortcut-test PRIVATE src/core/DesktopCloudClipboard.mm)
+target_sources(shortcut-test PRIVATE src/core/DesktopCloudClipboard.mm src/voice/GlobalVoiceCoordinator.mm)
+target_link_libraries(shortcut-test PRIVATE "-framework ServiceManagement")
 target_link_libraries(shortcut-test PRIVATE msime-voice-providers)
 target_link_libraries(shortcut-test PRIVATE "-framework AudioToolbox")
 target_link_libraries(MSIMEClientInputMethod PRIVATE "-framework AudioToolbox")
@@ -1643,6 +1655,12 @@ add_executable(typing-effect-panel-test tests/input/TypingEffectPanelTest.mm src
 target_compile_options(typing-effect-panel-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(typing-effect-panel-test PRIVATE "-framework AppKit" "-framework QuartzCore")
 add_test(NAME typing-effect-panel COMMAND typing-effect-panel-test)
+
+add_executable(global-voice-state-test tests/voice/GlobalVoiceStateTest.cpp)
+target_compile_options(global-voice-state-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME global-voice-state COMMAND global-voice-state-test)
+
+add_test(NAME global-voice-boundaries COMMAND shortcut-test --global-voice)
 
 # 其余测试也换一个主目录（#10728）。控制器经 runtime-options.json 找到偏好目录，语音静音的恢复日志、资源包这些也都按 Application Support 定位；不换的话，在装着输入法的开发机上跑测试，会把测试进程里的设置（连同它们放进 NSArgumentDomain 的临时值）写进这台机器正在用的 preferences.json。CFFIXED_USER_HOME 只换 NSHomeDirectory 和 Application Support，NSUserDefaults 仍在真实的 ~/Library/Preferences。上面已经给了自己主目录的测试保持不变。
 set(MSIME_TEST_HOME "${CMAKE_CURRENT_BINARY_DIR}/test-home")

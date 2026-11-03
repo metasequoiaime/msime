@@ -14018,6 +14018,172 @@ static void TestCrossCommitSpacing() {
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
+
+// 只替换系统入口与录音动作；真实协调器仍处理修饰键、短按与代次，不请求权限或打开麦克风。
+@interface MSIMEGlobalVoiceCoordinator (BoundaryTest)
+- (CGEventRef)observe:(CGEventRef)event type:(CGEventType)type;
+- (void)reload;
+- (void)configure;
+- (void)begin:(BOOL)holding;
+- (void)toggle;
+- (void)stop;
+- (void)cancel;
+- (void)handleHotkey:(UInt32)identifier down:(BOOL)down;
+- (BOOL)shortcutRecorderFocused;
+- (void)replayKey:(UInt32)identifier down:(BOOL)down;
+@end
+@interface GlobalVoiceGestureProbe : MSIMEGlobalVoiceCoordinator
+@property(nonatomic) NSUInteger begins;
+@property(nonatomic) NSUInteger stops;
+@property(nonatomic) NSUInteger cancels;
+@property(nonatomic) NSUInteger toggles;
+@property(nonatomic) BOOL recordingShortcut;
+@property(nonatomic) NSUInteger replayedDown;
+@property(nonatomic) NSUInteger replayedUp;
+@end
+@implementation GlobalVoiceGestureProbe
+- (void)reload {}
+- (void)configure {}
+- (void)begin:(BOOL)holding { assert(holding); ++_begins; }
+- (void)stop { ++_stops; }
+- (void)cancel { ++_cancels; }
+- (void)toggle { ++_toggles; }
+- (BOOL)shortcutRecorderFocused { return _recordingShortcut; }
+- (void)replayKey:(UInt32)identifier down:(BOOL)down { assert(identifier < 2); if (down) ++_replayedDown; else ++_replayedUp; }
+@end
+
+@interface GlobalVoiceBoundaryController : MSIMEInputController
+@property(nonatomic) NSUInteger finishes;
+@property(nonatomic) NSUInteger cancellations;
+@property(nonatomic) NSUInteger toggles;
+@end
+@implementation GlobalVoiceBoundaryController
+- (void)finishHTTPVoiceInput { ++_finishes; [self setValue:@YES forKey:@"httpVoiceProcessing"]; }
+- (void)cancelHTTPVoiceInput { ++_cancellations; [self setValue:nil forKey:@"httpVoiceRequest"]; }
+- (BOOL)matchesVoiceToggleHotkey:(NSEvent *)event { (void)event; return YES; }
+- (void)toggleVoiceInput:(id)sender { (void)sender; ++_toggles; }
+@end
+
+static CGEventRef GlobalGestureEvent(CGEventType type, CGKeyCode code, CGEventFlags flags) {
+    CGEventRef event = CGEventCreateKeyboardEvent(nullptr, code, type == kCGEventKeyDown);
+    CGEventSetType(event, type); CGEventSetFlags(event, flags);
+    CGEventSetIntegerValueField(event, kCGEventSourceUnixProcessID, 0);
+    return event;
+}
+static void GlobalGestureSend(GlobalVoiceGestureProbe *probe, CGEventType type, CGKeyCode code, CGEventFlags flags) {
+    CGEventRef event = GlobalGestureEvent(type, code, flags);
+    assert([probe observe:event type:type] == event);
+    CFRelease(event);
+}
+static void GlobalGestureWait() {
+    NSDate *until = [NSDate dateWithTimeIntervalSinceNow:0.3];
+    while (until.timeIntervalSinceNow > 0) [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+}
+static GlobalVoiceGestureProbe *GlobalGestureProbe() {
+    GlobalVoiceGestureProbe *probe = [[GlobalVoiceGestureProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)nil; }];
+    [probe setValue:@YES forKey:@"enabled"];
+    [probe setValue:@{@"voice_input":@{@"hotkey_ralt":@YES}} forKey:@"preferences"];
+    return probe;
+}
+static void TestGlobalVoiceBoundaries() {
+    const CGEventFlags rightOption = kCGEventFlagMaskAlternate | NX_DEVICERALTKEYMASK;
+    {
+        GlobalVoiceGestureProbe *probe = GlobalGestureProbe();
+        GlobalGestureSend(probe, kCGEventFlagsChanged, 61, rightOption);
+        GlobalGestureSend(probe, kCGEventFlagsChanged, 61, 0);
+        GlobalGestureWait();
+        assert(probe.begins == 0); // 松手后，延时回调不能补开录音。
+    }
+    {
+        GlobalVoiceGestureProbe *probe = GlobalGestureProbe();
+        GlobalGestureSend(probe, kCGEventFlagsChanged, 61, rightOption);
+        GlobalGestureSend(probe, kCGEventKeyDown, 8, rightOption);
+        GlobalGestureWait();
+        assert(probe.begins == 0 && probe.cancels == 1); // 普通 Option+C 仍原样交给应用。
+    }
+    {
+        GlobalVoiceGestureProbe *probe = GlobalGestureProbe();
+        GlobalGestureSend(probe, kCGEventFlagsChanged, 61, rightOption);
+        GlobalGestureWait();
+        assert(probe.begins == 1);
+        GlobalGestureSend(probe, kCGEventFlagsChanged, 61, 0);
+        GlobalGestureWait();
+        assert(probe.stops == 1);
+    }
+    {
+        GlobalVoiceGestureProbe *probe = GlobalGestureProbe();
+        probe.recordingShortcut = YES;
+        [probe handleHotkey:0 down:YES]; [probe handleHotkey:0 down:YES];
+        assert(probe.replayedDown == 1 && probe.toggles == 0);
+        probe.recordingShortcut = NO;
+        [probe handleHotkey:0 down:NO];
+        assert(probe.replayedUp == 1);
+        [probe handleHotkey:0 down:YES];
+        assert(probe.toggles == 1);
+    }
+    {
+        GlobalVoiceGestureProbe *probe = GlobalGestureProbe();
+        [probe setValue:[GlobalVoiceBoundaryController alloc] forKey:@"owner"];
+        GlobalGestureSend(probe, kCGEventFlagsChanged, 61, rightOption);
+        GlobalGestureWait();
+        assert(probe.toggles == 1 && probe.begins == 0);
+        GlobalGestureSend(probe, kCGEventFlagsChanged, 61, 0);
+        assert(probe.stops == 0); // 已有录音的切换在按下时完成，松手不能再切一次。
+    }
+    {
+        GlobalVoiceGestureProbe *probe = GlobalGestureProbe();
+        CGEventRef own = GlobalGestureEvent(kCGEventFlagsChanged, 61, rightOption);
+        CGEventSetIntegerValueField(own, kCGEventSourceUnixProcessID, getpid());
+        assert([probe observe:own type:kCGEventFlagsChanged] == own);
+        CFRelease(own); GlobalGestureWait();
+        assert(probe.begins == 0);
+        CGEventRef remapped = GlobalGestureEvent(kCGEventFlagsChanged, 61, rightOption);
+        CGEventSetIntegerValueField(remapped, kCGEventSourceUnixProcessID, 424242);
+        assert([probe observe:remapped type:kCGEventFlagsChanged] == remapped);
+        CFRelease(remapped); GlobalGestureWait();
+        assert(probe.begins == 1);
+    }
+    GlobalVoiceBoundaryController *controller = [GlobalVoiceBoundaryController alloc];
+    NSObject *client = [NSObject new];
+    ShortcutSession *session = [ShortcutSession new];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:client forKey:@"globalVoiceClient"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:session forKey:@"globalVoiceSession"];
+    [controller setValue:[NSObject new] forKey:@"httpVoiceRequest"];
+    [controller setValue:[NSObject new] forKey:@"voicePermissionToken"];
+    MSIMEGlobalVoiceHost().owner = controller;
+    assert(MSIMEInputControllerHasUnfinishedInput());
+    assert([controller voiceOwnsClient:client session:(MSIMEClientSession *)(id)session]);
+    [controller stopGlobalVoice];
+    assert(controller.finishes == 1 && [controller valueForKey:@"voicePermissionToken"] == nil);
+    [controller stopGlobalVoice];
+    assert(controller.finishes == 1 && controller.cancellations == 0); // 已停麦后仍等最终识别。
+    [controller detachGlobalVoice];
+    [controller setValue:[NSObject new] forKey:@"activeClient"];
+    [controller setValue:[ShortcutSession new] forKey:@"session"];
+    assert([controller voiceOwnsClient:client session:(MSIMEClientSession *)(id)session]);
+    __block NSString *recovered = nil;
+    MSIMEGlobalVoiceHost().recover = ^(NSString *text) { recovered = text; };
+    [controller applyVoiceResult:@{@"commit":@"合成语音结果"} route:MSIMEVoiceCommitRoute{}];
+    assert([recovered isEqual:@"合成语音结果"]); // 新输入框没有得到旧会话的文字。
+    [controller cancelHTTPVoiceInput];
+    MSIMEGlobalVoiceHost().owner = nil; MSIMEGlobalVoiceHost().recover = nil;
+    [controller endGlobalVoice];
+    assert(![controller voiceOwnsClient:client session:(MSIMEClientSession *)(id)session]);
+    MSIMEGlobalVoiceHost().toggleHandled = nil;
+    MSIMEGlobalVoiceHost().keyboard = true;
+    [controller globalVoiceHotkeyHandler](ModeKey(101, NSEventModifierFlagControl, NO));
+    assert(controller.toggles == 0);
+    MSIMEGlobalVoiceHost().toggleHandled = ^BOOL(NSEvent *event) { (void)event; return NO; };
+    [controller globalVoiceHotkeyHandler](ModeKey(101, NSEventModifierFlagControl, NO));
+    assert(controller.toggles == 1); // 监听可用但组合键注册失败时，仍保留本地绑定。
+    MSIMEGlobalVoiceHost().keyboard = false;
+    [controller globalVoiceHotkeyHandler](ModeKey(101, NSEventModifierFlagControl, NO));
+    assert(controller.toggles == 2); // 全局监听不可用时保留原有 IMK 路径。
+    MSIMEGlobalVoiceHost().toggleHandled = nil;
+}
+
 int main(int argc, char **argv) {
     const IsolatedUserHome userHome;
     const IsolatedDefaultSkinsRoot skinsRoot;
@@ -14027,6 +14193,7 @@ int main(int argc, char **argv) {
     assert(MSIMEShouldRegisterInputSource(2, registerArguments));
     @autoreleasepool {
         [NSApplication sharedApplication];
+        if (argc == 2 && std::string(argv[1]) == "--global-voice") { TestGlobalVoiceBoundaries(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--quick-phrase-cursor") {
             TestQuickPhraseCursorInEditors();
             TestQuickPhraseCursorThroughRealSession();
