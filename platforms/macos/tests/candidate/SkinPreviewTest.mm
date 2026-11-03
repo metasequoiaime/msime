@@ -828,15 +828,17 @@ int main(int argc, const char **argv) {
         [preferences applySharedCandidatePreferences:@{@"custom_theme": Pickers(@{@"text": NSNull.null})}];
         assert(preferences.candidateTextColor == nil);
         NSDictionary *rowColors = @{@"text": @"#102030", @"number": @"#203040", @"accent": @"#304050", @"selected": @"#405060",
-            @"hover": @"#506070", @"surface": @"#607080", @"border": @"#708090"};
+            @"selected_text": @"#7B3FBF", @"hover": @"#506070", @"surface": @"#607080", @"border": @"#708090"};
         [preferences applySharedCandidatePreferences:@{@"global_theme": @"custom", @"custom_theme": Pickers(rowColors)}];
         NSArray *pickedColors = @[preferences.candidateTextColor, preferences.candidateAccentColor,
-            preferences.candidateSelectedColor, preferences.candidateHoverColor, preferences.candidateSurfaceColor];
-        NSArray *expectedColors = @[@"#102030", @"#304050", @"#405060", @"#506070", @"#607080"];
+            preferences.candidateSelectedColor, preferences.candidateSelectedTextColor, preferences.candidateHoverColor,
+            preferences.candidateSurfaceColor];
+        NSArray *expectedColors = @[@"#102030", @"#304050", @"#405060", @"#7B3FBF", @"#506070", @"#607080"];
         assert([pickedColors isEqual:expectedColors]);
         {
             const msime::mac::SkinTokens tokens = [preferences resolvedSkinForDark:NO].tokens;
-            const msime::mac::Rgba drawn[] = {tokens.text, tokens.accent, tokens.selected, tokens.hover, tokens.surface};
+            const msime::mac::Rgba drawn[] = {tokens.text, tokens.accent, tokens.selected, tokens.selectedText, tokens.hover,
+                                              tokens.surface};
             for (NSUInteger index = 0; index < expectedColors.count; ++index) assert(TokenIs(drawn[index], expectedColors[index]));
             // 文档里的编号色和边框色在 macOS 上不读：编号色由文字颜色推出（约 62% 不透明），边框跟随主题，都不是文档里的值。
             assert(TokenIs(tokens.number, @"#102030", 0x9d / 255.0));

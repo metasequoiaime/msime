@@ -101,6 +101,8 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 /// `custom_theme.candidate_colors` 里的其余候选取色器，同样是「#rrggbb」字符串，用主题自己的颜色时为 nil。设置任何一个都会选中自定义主题（正在显示的主题成为它的底）；设为 nil 只清掉这一个槽位。候选窗用 -resolvedSkinForDark: 画，那里已经套用了它们。编号色和边框色不在其中：macOS 上它们固定跟随主题和皮肤。
 @property(nonatomic, copy) NSString *candidateAccentColor;
 @property(nonatomic, copy) NSString *candidateSelectedColor;
+/// 候选选中文字色（`custom_theme.candidate_colors.selected_text`，#10740）：选中行的文字颜色，压过由选中色、皮肤和强调色推出的颜色。
+@property(nonatomic, copy) NSString *candidateSelectedTextColor;
 @property(nonatomic, copy) NSString *candidateHoverColor;
 @property(nonatomic, copy) NSString *candidateSurfaceColor;
 /// 明暗选择：整个客户端取 system、dark 或 light；候选窗口取 follow、dark 或 light，可以覆盖全局那一项。悬浮工具栏、菜单和各面板一律跟随颜色模式。
@@ -120,7 +122,7 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 - (void)removeCustomCandidateSkin:(NSString *)skinId;
 /// 自定义主题不使用外部皮肤：两个槽位一起清，自定义主题的其他部分不动。
 - (void)clearCustomCandidateSkin;
-/// 这里存的自定义主题（底色、两个皮肤槽位和七个取色器），即宿主解析器要的形状。
+/// 这里存的自定义主题（底色、两个皮肤槽位和取色器），即宿主解析器要的形状。
 - (msime::mac::CustomTheme)customTheme;
 @property(nonatomic) NSUInteger pageSize;
 // Native routing preferences; English passes keys through without preparing Engine.
