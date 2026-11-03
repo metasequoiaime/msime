@@ -410,10 +410,11 @@ fn keystore_round_trips_every_state_and_rejects_tampering() {
         KeyState::Confirmed,
         KeyState::Unconfirmed,
         KeyState::Rejected,
+        KeyState::Rotated,
     ] {
         keystore.key = Some(HeldKey {
             id: KEY_ID.to_owned(),
-            key: (state != KeyState::Rejected).then(fixed_key),
+            key: (!state.keyless()).then(fixed_key),
             approver,
             state,
         });
@@ -440,6 +441,8 @@ fn keystore_round_trips_every_state_and_rejects_tampering() {
     assert!(Keystore::parse(&parts("confirmed", &key)).is_some());
     assert!(Keystore::parse(&parts("confirmed", "-")).is_none());
     assert!(Keystore::parse(&parts("rejected", &key)).is_none());
+    assert!(Keystore::parse(&parts("rotated", &key)).is_none());
+    assert!(Keystore::parse(&parts("rotated", "-")).is_some());
     assert!(Keystore::parse(&parts("approved", &key)).is_none());
     assert!(Keystore::parse(&parts("confirmed", &B64.encode([3u8; 32]))).is_none());
     assert!(Keystore::parse(&format!("{}.extra", parts("confirmed", &key))).is_none());
@@ -732,6 +735,26 @@ impl Device {
     }
 }
 
+/// 用户对界面上显示的这份核对（`status` 结果里的 `confirm`）点「一致」或「不一致」。
+fn answer(shown: &Value, agree: bool) -> Operation {
+    let key_id = shown["confirm"]["key_id"].as_str().unwrap().to_owned();
+    let approver_device_id = shown["confirm"]["approver_device_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    if agree {
+        Operation::Confirm {
+            key_id,
+            approver_device_id,
+        }
+    } else {
+        Operation::Deny {
+            key_id,
+            approver_device_id,
+        }
+    }
+}
+
 /// 第一台设备建钥，第二台被它批准并核对反向核对码。
 fn paired(server: &mut FakeServer) -> (Device, Device) {
     let mut mac = Device::new("MacBook");
@@ -751,7 +774,7 @@ fn paired(server: &mut FakeServer) -> (Device, Device) {
     assert_eq!(status["status"], "confirm");
     assert_eq!(status["confirm"]["code"], shown_on_mac);
     assert_eq!(
-        phone.run(server, Operation::Confirm).unwrap()["status"],
+        phone.run(server, answer(&status, true)).unwrap()["status"],
         "ready"
     );
     (mac, phone)
@@ -823,12 +846,13 @@ fn a_new_device_reads_blobs_only_after_approval_and_confirmation() {
     assert_eq!(confirm["confirm"]["code"], approved["approved"]["code"]);
     assert_eq!(confirm["confirm"]["approver_device_id"], mac.id());
     assert_eq!(confirm["confirm"]["approver_name"], "MacBook");
+    assert_eq!(confirm["confirm"]["key_id"], server.key_id.clone().unwrap());
     // 核对之前不能解密，再取一次状态也还是等核对。
     assert!(phone.keys().open_blob(&mac.id(), &envelope).is_none());
     assert_eq!(phone.status(&mut server)["status"], "confirm");
 
     assert_eq!(
-        phone.run(&mut server, Operation::Confirm).unwrap()["status"],
+        phone.run(&mut server, answer(&confirm, true)).unwrap()["status"],
         "ready"
     );
     assert_eq!(
@@ -855,9 +879,10 @@ fn denying_the_reverse_code_drops_the_key_until_someone_else_approves() {
         },
     )
     .unwrap();
-    assert_eq!(tablet.status(&mut server)["status"], "confirm");
+    let shown = tablet.status(&mut server);
+    assert_eq!(shown["status"], "confirm");
 
-    let denied = tablet.run(&mut server, Operation::Deny).unwrap();
+    let denied = tablet.run(&mut server, answer(&shown, false)).unwrap();
     assert_eq!(denied["status"], "pending");
     assert_eq!(denied["notice"], "learning_sas_mismatch");
     assert!(tablet.keys().key.as_ref().unwrap().key.is_none());
@@ -869,7 +894,7 @@ fn denying_the_reverse_code_drops_the_key_until_someone_else_approves() {
     // 拒绝之后再点确认没有可确认的。
     assert_eq!(
         tablet
-            .run(&mut server, Operation::Confirm)
+            .run(&mut server, answer(&shown, true))
             .unwrap_err()
             .code,
         "invalid_state"
@@ -889,8 +914,8 @@ fn a_different_approver_after_a_denial_is_asked_again() {
         },
     )
     .unwrap();
-    tablet.status(&mut server);
-    tablet.run(&mut server, Operation::Deny).unwrap();
+    let shown = tablet.status(&mut server);
+    tablet.run(&mut server, answer(&shown, false)).unwrap();
     let approved = phone
         .run(
             &mut server,
@@ -973,8 +998,8 @@ fn removing_a_device_rotates_the_key_and_others_are_asked_again() {
         },
     )
     .unwrap();
-    tablet.status(&mut server);
-    tablet.run(&mut server, Operation::Confirm).unwrap();
+    let shown = tablet.status(&mut server);
+    tablet.run(&mut server, answer(&shown, true)).unwrap();
     let old_key = mac.keys().ready_key_id().unwrap().to_owned();
     let old_envelope = mac.keys().seal_blob(1, b"old").unwrap();
 
@@ -1003,10 +1028,134 @@ fn removing_a_device_rotates_the_key_and_others_are_asked_again() {
     let tablet_status = tablet.status(&mut server);
     assert_eq!(tablet_status["status"], "pending");
     assert_eq!(tablet_status["notice"], "learning_key_rotated");
+    // 共用密钥串的另一个进程（设置页、后台同步）再取状态也还能看到这个提示，旧密钥不再能用。
+    let again = tablet.status(&mut server);
+    assert_eq!(again["notice"], "learning_key_rotated");
+    assert!(tablet.keys().ready_key_id().is_none());
+    assert_eq!(tablet.keys().seal_blob(1, b"x"), Err(SealError::NotReady));
+    // 重新被允许、核对之后提示消失。
+    mac.run(
+        &mut server,
+        Operation::Approve {
+            device_id: tablet.id(),
+        },
+    )
+    .unwrap();
+    let shown = tablet.status(&mut server);
+    assert_eq!(shown["status"], "confirm");
+    assert_eq!(shown["notice"], Value::Null);
+    let ready = tablet.run(&mut server, answer(&shown, true)).unwrap();
+    assert_eq!(ready["status"], "ready");
+    assert_eq!(ready["notice"], Value::Null);
+    assert_eq!(tablet.keys().ready_key_id(), Some(new_key.as_str()));
     // 被移除的设备重新登记后只是一台待批准的设备。
     let phone_status = phone.status(&mut server);
     assert_eq!(phone_status["status"], "pending");
     assert!(phone.keys().ready_key_id().is_none());
+}
+
+#[test]
+fn a_stale_choice_does_not_confirm_a_key_swapped_in_meanwhile() {
+    let mut server = FakeServer::default();
+    let (mut mac, _phone) = paired(&mut server);
+    let mut tablet = Device::new("Tablet");
+    tablet.status(&mut server);
+    mac.run(
+        &mut server,
+        Operation::Approve {
+            device_id: tablet.id(),
+        },
+    )
+    .unwrap();
+    // 设置页显示了 Mac 给的号码。
+    let shown = tablet.status(&mut server);
+    assert_eq!(shown["confirm"]["approver_device_id"], mac.id());
+
+    // 用户还没点，服务端换成假设备 F 给的另一把密钥，另一个进程取状态时把它记成了待核对。
+    let fake = secret(9);
+    let fake_public = public(&fake);
+    server.devices.push(FakeDevice {
+        device_id: device_id(&fake_public),
+        public_key: B64.encode(fake_public),
+        name: "MacBook".to_owned(),
+        session: "server".to_owned(),
+    });
+    let forged = LearningKey::new([3u8; 32]);
+    let tablet_public = tablet.keys().public_key();
+    server.key_id = Some(forged.id.clone());
+    server.forged_wrap = Some((
+        wrap_key(&forged, &fake, &tablet_public).unwrap().unwrap(),
+        device_id(&fake_public),
+    ));
+    let swapped = tablet.status(&mut server);
+    assert_eq!(swapped["status"], "confirm");
+    assert_eq!(swapped["confirm"]["key_id"], forged.id);
+
+    // 旧画面上点「一致」或「不一致」都不碰换进来的那把。
+    let log = server.log.len();
+    for agree in [true, false] {
+        assert_eq!(
+            tablet
+                .run(&mut server, answer(&shown, agree))
+                .unwrap_err()
+                .code,
+            "invalid_state"
+        );
+    }
+    assert_eq!(server.log.len(), log);
+    let held = tablet.keys().key.unwrap();
+    assert_eq!(held.state, KeyState::Unconfirmed);
+    assert_eq!(held.id, forged.id);
+    assert!(tablet.keys().ready_key_id().is_none());
+}
+
+#[test]
+fn a_paired_device_whose_registration_was_dropped_waits_for_approval_again() {
+    let mut server = FakeServer::default();
+    let (mut mac, mut phone) = paired(&mut server);
+    let key_id = server.key_id.clone().unwrap();
+    // 服务端删掉手机的登记（会话过期清理、180 天清理或任何会话的 DELETE），密钥编号不变。
+    assert!(server.remove_device(&phone.id()));
+    assert_eq!(server.key_id.as_deref(), Some(key_id.as_str()));
+
+    let status = phone.status(&mut server);
+    assert_eq!(status["status"], "pending");
+    assert_eq!(status["notice"], Value::Null);
+    assert!(server
+        .devices
+        .iter()
+        .any(|device| device.device_id == phone.id()));
+    // 等待批准时不去批准别的设备，直接说在等。
+    let mut tablet = Device::new("Tablet");
+    tablet.status(&mut server);
+    let log = server.log.len();
+    assert_eq!(
+        phone
+            .run(
+                &mut server,
+                Operation::Approve {
+                    device_id: tablet.id(),
+                },
+            )
+            .unwrap_err()
+            .code,
+        "learning_waiting_approval"
+    );
+    assert!(!server.log[log..]
+        .iter()
+        .any(|entry| entry.starts_with("PUT /v1/users/me/learning/wraps/")));
+
+    // Mac 重新允许之后恢复，本机留着核对过的那把，不用再核对。
+    mac.run(
+        &mut server,
+        Operation::Approve {
+            device_id: phone.id(),
+        },
+    )
+    .unwrap();
+    let status = phone.status(&mut server);
+    assert_eq!(status["status"], "ready");
+    assert_eq!(phone.keys().ready_key_id(), Some(key_id.as_str()));
 }
 
 #[test]
@@ -1047,7 +1196,7 @@ fn concurrent_first_devices_settle_on_one_key() {
     let mut phone_step = start(Operation::Status, None, "Phone").unwrap();
     let advance = |server: &mut FakeServer, session: &str, step: Step| match step {
         Step::Request { request, state, .. } => {
-            resume(state, server.handle(session, &request)).unwrap()
+            resume(*state, server.handle(session, &request)).unwrap()
         }
         other => other,
     };
@@ -1186,7 +1335,16 @@ fn the_last_device_disabling_removes_the_account_key() {
 
 #[test]
 fn local_choices_without_a_pending_key_fail_before_any_request() {
-    for operation in [Operation::Confirm, Operation::Deny] {
+    for operation in [
+        Operation::Confirm {
+            key_id: KEY_ID.to_owned(),
+            approver_device_id: DEVICE_ID_A.to_owned(),
+        },
+        Operation::Deny {
+            key_id: KEY_ID.to_owned(),
+            approver_device_id: DEVICE_ID_A.to_owned(),
+        },
+    ] {
         let step = start(operation, None, "Mac").unwrap();
         let Step::Failed { error, .. } = step else {
             panic!("expected a local failure");

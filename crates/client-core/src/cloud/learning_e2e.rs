@@ -374,6 +374,8 @@ enum KeyState {
     Unconfirmed,
     /// 用户核对时点了「不一致」。密钥本身已丢弃，只记着编号和批准者，同一个批准者给同一把密钥的封装不再解开。
     Rejected,
+    /// 本机原来有经过核对的密钥，账号换了钥、本机还没被重新允许。密钥本身已丢弃，只留一个标记，让共用这份密钥串的每个进程都能回报 `learning_key_rotated`，直到本机重新拿到密钥。
+    Rotated,
 }
 
 impl KeyState {
@@ -382,6 +384,7 @@ impl KeyState {
             Self::Confirmed => "confirmed",
             Self::Unconfirmed => "unconfirmed",
             Self::Rejected => "rejected",
+            Self::Rotated => "rotated",
         }
     }
 
@@ -390,15 +393,21 @@ impl KeyState {
             "confirmed" => Some(Self::Confirmed),
             "unconfirmed" => Some(Self::Unconfirmed),
             "rejected" => Some(Self::Rejected),
+            "rotated" => Some(Self::Rotated),
             _ => None,
         }
+    }
+
+    /// 这种状态下密钥串不留密钥本身，密钥一栏写 `-`。
+    fn keyless(self) -> bool {
+        matches!(self, Self::Rejected | Self::Rotated)
     }
 }
 
 #[derive(Clone)]
 struct HeldKey {
     id: String,
-    /// `Rejected` 时为 `None`，其余两种状态一定有。
+    /// `Rejected` 和 `Rotated` 时为 `None`，其余两种状态一定有。
     key: Option<LearningKey>,
     /// 封装这把密钥的批准者的公钥；本机生成的就是本机公钥。
     approver: [u8; 32],
@@ -443,10 +452,10 @@ impl Keystore {
                 if !crate::text::is_lower_hex(id, 32) {
                     return None;
                 }
-                let key = match (state, key) {
-                    (KeyState::Rejected, "-") => None,
-                    (KeyState::Rejected, _) | (_, "-") => return None,
-                    (_, key) => {
+                let key = match (state.keyless(), key) {
+                    (true, "-") => None,
+                    (true, _) | (false, "-") => return None,
+                    (false, key) => {
                         let key = LearningKey::new(decode_exact::<32>(key)?);
                         if key.id != id {
                             return None;
@@ -466,7 +475,7 @@ impl Keystore {
         Some(Self { secret, key })
     }
 
-    /// `v1.<私钥>`；有账号密钥时再接 `.<key_id>.<密钥或 ->.<批准者公钥>.<confirmed|unconfirmed|rejected>`，被拒绝的密钥只留编号，密钥一栏写 `-`。
+    /// `v1.<私钥>`；有账号密钥时再接 `.<key_id>.<密钥或 ->.<批准者公钥>.<confirmed|unconfirmed|rejected|rotated>`，被拒绝的密钥和换钥标记只留编号，密钥一栏写 `-`。
     pub fn encode(&self) -> String {
         let mut value = format!("{VERSION_PREFIX}{}", B64.encode(self.secret.as_bytes()));
         if let Some(held) = &self.key {
@@ -546,16 +555,30 @@ impl Keystore {
 // ---- 驱动 ----
 
 /// 宿主可以发起的操作。`confirm` 和 `deny` 是用户核对反向核对码之后的选择，`disable` 是本机关闭输入习惯同步。
+///
+/// `confirm` 和 `deny` 带上界面显示核对码时 `status` 结果里 `confirm` 的 `key_id` 和 `approver_device_id`：密钥串由输入法、设置应用和面板共用，显示号码之后另一个进程取状态可能已经把待核对的密钥换成了别的批准者给的另一把，用户的选择只对他看到的那一份生效。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Operation {
     Status,
-    Approve { device_id: String },
-    Reject { device_id: String },
-    Remove { device_id: String },
+    Approve {
+        device_id: String,
+    },
+    Reject {
+        device_id: String,
+    },
+    Remove {
+        device_id: String,
+    },
     Reset,
-    Confirm,
-    Deny,
+    Confirm {
+        key_id: String,
+        approver_device_id: String,
+    },
+    Deny {
+        key_id: String,
+        approver_device_id: String,
+    },
     Disable,
 }
 
@@ -564,7 +587,8 @@ pub enum Operation {
 pub enum Step {
     Request {
         request: HttpRequest,
-        state: DriverState,
+        /// 装箱是因为它比另外两种大得多（`confirm` 和 `deny` 带着两段编号）。
+        state: Box<DriverState>,
         keystore: String,
     },
     Done {
@@ -714,15 +738,23 @@ pub fn start(
                 None,
             ))
         }
-        Operation::Confirm | Operation::Deny => {
-            let Some(held) = keystore
-                .key
-                .as_mut()
-                .filter(|held| held.state == KeyState::Unconfirmed)
-            else {
+        Operation::Confirm {
+            key_id,
+            approver_device_id,
+        }
+        | Operation::Deny {
+            key_id,
+            approver_device_id,
+        } => {
+            // 只认用户看到的那一份：待核对的密钥已经换成别的（另一个进程取状态时换的）就不改，宿主重新取状态、让用户重新核对。
+            let Some(held) = keystore.key.as_mut().filter(|held| {
+                held.state == KeyState::Unconfirmed
+                    && held.id == key_id
+                    && device_id(&held.approver) == approver_device_id
+            }) else {
                 return Ok(fail(&state, DriverError::local("invalid_state")));
             };
-            if state.operation == Operation::Confirm {
+            if matches!(state.operation, Operation::Confirm { .. }) {
                 held.state = KeyState::Confirmed;
             } else {
                 held.state = KeyState::Rejected;
@@ -1007,6 +1039,10 @@ fn rekey(
 /// 根据服务端状态判断本机能不能用，必要时解开封装并更新本机密钥。
 ///
 /// 封装只在找得到批准者公钥时才解：批准者是本机（第一台设备、本机换的钥）时直接采用，是别的设备时要等用户核对反向核对码。用户拒绝过的「同一把密钥、同一个批准者」不再解开；换了批准者或换了密钥就重新解、重新核对。
+///
+/// 本机持有核对过的当前密钥、服务端却没有给本机的封装时（本机的登记被删过又重新登记，服务端不保留批准），本机留着这把密钥，但报等待批准：这时批准别的设备和上传都会被服务端拒绝，另一台设备重新允许本机之后就恢复，不用再核对一次。
+///
+/// 本机原来有核对过的密钥、账号换了钥又解不开新封装时，密钥串留下 `Rotated` 标记，直到本机重新拿到密钥，每次取状态都回报 `learning_key_rotated`。
 fn evaluate(keystore: &mut Keystore, server: &ServerState) -> Readiness {
     let Some(server_key) = server
         .key_id
@@ -1018,26 +1054,27 @@ fn evaluate(keystore: &mut Keystore, server: &ServerState) -> Readiness {
     };
     let own_public = keystore.public_key();
     let own_id = device_id(&own_public);
-    let mut rotated = false;
+    let mut rotated = None;
     if let Some(held) = &keystore.key {
-        if held.id == server_key {
-            match held.state {
-                KeyState::Confirmed => return Readiness::Ready,
-                KeyState::Unconfirmed => return Readiness::Confirm,
-                KeyState::Rejected => {
-                    let same_approver = server
-                        .wrap
-                        .as_ref()
-                        .is_none_or(|wrap| wrap.approver_device_id == device_id(&held.approver));
-                    if same_approver {
-                        return Readiness::Pending {
-                            notice: Some("learning_sas_mismatch"),
-                        };
-                    }
+        let current = held.id == server_key;
+        match held.state {
+            KeyState::Rotated => rotated = Some((held.id.clone(), held.approver)),
+            KeyState::Confirmed if !current => rotated = Some((held.id.clone(), held.approver)),
+            KeyState::Confirmed if server.wrap.is_some() => return Readiness::Ready,
+            KeyState::Confirmed => return Readiness::Pending { notice: None },
+            KeyState::Unconfirmed if current => return Readiness::Confirm,
+            KeyState::Rejected if current => {
+                let same_approver = server
+                    .wrap
+                    .as_ref()
+                    .is_none_or(|wrap| wrap.approver_device_id == device_id(&held.approver));
+                if same_approver {
+                    return Readiness::Pending {
+                        notice: Some("learning_sas_mismatch"),
+                    };
                 }
             }
-        } else {
-            rotated = held.state == KeyState::Confirmed;
+            KeyState::Unconfirmed | KeyState::Rejected => {}
         }
     }
     let unwrapped = server.wrap.as_ref().and_then(|wrap| {
@@ -1073,10 +1110,14 @@ fn evaluate(keystore: &mut Keystore, server: &ServerState) -> Readiness {
             }
         }
         None => {
-            keystore.key = None;
-            Readiness::Pending {
-                notice: rotated.then_some("learning_key_rotated"),
-            }
+            let notice = rotated.is_some().then_some("learning_key_rotated");
+            keystore.key = rotated.map(|(id, approver)| HeldKey {
+                id,
+                key: None,
+                approver,
+                state: KeyState::Rotated,
+            });
+            Readiness::Pending { notice }
         }
     }
 }
@@ -1112,6 +1153,7 @@ fn status_view(
             let approver_id = device_id(&held.approver);
             Some(json!({
                 "code": reverse_code(key, &held.approver, &own_public),
+                "key_id": held.id,
                 "approver_device_id": approver_id,
                 "approver_name": name_of(&approver_id),
             }))
@@ -1181,7 +1223,7 @@ fn request(state: DriverState, method: &str, path: String, body: Option<Value>) 
             path,
             body: body.map(|body| body.to_string()),
         },
-        state,
+        state: Box::new(state),
         keystore,
     }
 }
@@ -1290,7 +1332,7 @@ pub fn run<E>(
             Step::Request { request, state, .. } => {
                 sent = true;
                 let response = send(&request)?;
-                step = match resume(state, response) {
+                step = match resume(*state, response) {
                     Ok(step) => step,
                     Err(RandomUnavailable) => return Err(random_unavailable()),
                 };

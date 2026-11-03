@@ -286,7 +286,7 @@ Engine 里每一条在冲突分支里改写 `user_dictionary_operations`、`pinn
 
 learning 域的密钥串与云剪贴板的分开存放，名字是 `learning-keystore`，放在与 `cloud-clipboard-keystore` 相同的位置（各平台的位置见 [云剪贴板协议的密钥串存放位置](cloud-clipboard-e2e.md#密钥串的存放位置)），里面另外记着 `K_learn` 是否已经过反向核对。同一台设备的输入法、设置应用和面板共用一份；读、比、写在同一把跨进程锁里做完，不替换另一个设备身份，规则与剪贴板相同。退出登录时与会话一起删除，重新登录要重新批准。HarmonyOS 的键盘不生成身份，用设置应用经共享沙箱镜像过来的那份。
 
-编码是 `v1.<b64(设备私钥)>`；有账号密钥时再接 `.<key_id>.<b64(K_learn)>.<b64(批准者公钥)>.<状态>`，状态是 `confirmed`（本机生成的，或者用户已核对一致）、`unconfirmed`（已解开封装、等用户核对）或 `rejected`（用户点了「不一致」，密钥一栏写 `-`，只留编号和批准者）。只有 `confirmed` 的密钥能加解密。开头那段私钥就是设备身份，`Keystore::same_identity` 只比这一段。
+编码是 `v1.<b64(设备私钥)>`；有账号密钥时再接 `.<key_id>.<b64(K_learn)>.<b64(批准者公钥)>.<状态>`，状态是 `confirmed`（本机生成的，或者用户已核对一致）、`unconfirmed`（已解开封装、等用户核对）、`rejected`（用户点了「不一致」，密钥一栏写 `-`，只留编号和批准者）或 `rotated`（本机原来有核对过的密钥，账号换了钥、本机还没被重新允许；密钥一栏写 `-`，只留旧编号和旧批准者，作为回报 `learning_key_rotated` 的标记）。只有 `confirmed` 的密钥能加解密。开头那段私钥就是设备身份，`Keystore::same_identity` 只比这一段。
 
 ## 客户端驱动
 
@@ -303,9 +303,11 @@ learning 域的密钥串与云剪贴板的分开存放，名字是 `learning-key
 | `reject`（带 `device_id`） | `DELETE /devices/{device_id}` | 拒绝一台待批准的设备 |
 | `remove`（带 `device_id`） | `POST /rekey`，`revoke` 是这台设备 | 换钥，新密钥只封装给本机；账号还没有密钥时只删登记 |
 | `reset` | `POST /rekey`（没有密钥时 `POST /key`） | 「重置输入习惯同步」 |
-| `confirm` | 只改本机，再 `GET` 回报 | 用户核对反向核对码一致，密钥改成 `confirmed` |
-| `deny` | 只改本机，再 `GET` 回报 | 用户点「不一致」，见「反向核对」 |
+| `confirm`（带 `key_id`、`approver_device_id`） | 只改本机，再 `GET` 回报 | 用户核对反向核对码一致，密钥改成 `confirmed` |
+| `deny`（带 `key_id`、`approver_device_id`） | 只改本机，再 `GET` 回报 | 用户点「不一致」，见「反向核对」 |
 | `disable` | `DELETE /devices/{本机}` | 先在本机丢掉密钥再注销；本机已不在服务端（404）也算关好 |
+
+`confirm` 和 `deny` 带的是界面显示号码时那份 `confirm` 里的 `key_id` 和 `approver_device_id`。密钥串由输入法、设置应用和面板共用，号码显示出来之后，另一个进程取状态可能已经把待核对的密钥换成了别的批准者给的另一把；两项与本机待核对的不符时以 `invalid_state` 失败、不改本机，宿主重新 `status`，让用户核对新的号码。
 
 建钥、换钥、批准遇到 409 `learning_key_conflict` 时重取状态再来一次，一次操作最多取 4 次状态，超过时以 `learning_key_conflict` 失败。
 
@@ -313,12 +315,12 @@ learning 域的密钥串与云剪贴板的分开存放，名字是 `learning-key
 
 ```json
 {"status": "ready|confirm|pending", "notice": null, "device_id": "…", "code": "1234 5678 9012 3456",
- "confirm": {"code": "…", "approver_device_id": "…", "approver_name": "…"},
+ "confirm": {"code": "…", "key_id": "…", "approver_device_id": "…", "approver_name": "…"},
  "approved": {"device_id": "…", "code": "…", "name": "…"},
  "devices": [{"device_id", "name", "created_at", "last_seen", "approved", "current", "code"}]}
 ```
 
-- `status`：`ready` 能批准和同步；`confirm` 要用户核对 `confirm.code`（其余时候 `confirm` 为 `null`）；`pending` 等待另一台设备允许，界面显示本机的 `code`。
-- `notice`：`pending` 时的原因，`learning_sas_mismatch`（拒绝过当前这份封装）或 `learning_key_rotated`（本机原来有密钥，账号换了钥，要重新被允许），否则为 `null`。`learning_key_rotated` 只在发现换钥的那一次回报，之后本机已不再持有旧密钥，回报普通的等待。
+- `status`：`ready` 能批准和同步，要求本机持有核对过的当前密钥、并且服务端有给本机的当前封装；`confirm` 要用户核对 `confirm.code`（其余时候 `confirm` 为 `null`）；`pending` 等待另一台设备允许，界面显示本机的 `code`。本机的登记被服务端删过（会话过期清理、180 天清理、任何会话的 `DELETE /devices`）又重新登记时，密钥编号没变但本机已没有封装，报 `pending`：本机留着核对过的那把密钥，另一台设备重新允许之后直接回到 `ready`，不用再核对。同步轮次只在 `ready` 时上传。
+- `notice`：`pending` 时的原因，`learning_sas_mismatch`（拒绝过当前这份封装）或 `learning_key_rotated`（本机原来有密钥，账号换了钥，要重新被允许），否则为 `null`。`learning_key_rotated` 一直回报到本机重新拿到密钥（解开新封装或本机建钥、换钥）或关闭为止：密钥串里留着 `rotated` 标记，共用密钥串的设置页、面板和后台同步看到的都一样，不会被先取状态的那个进程用掉。
 - `approved`：只在 `approve` 的结果里有，批准者把 `approved.code` 显示给用户，与新设备的 `confirm.code` 核对。
 - `devices`：公钥与编号对得上的设备，最多 20 台，`code` 是各自的设备核对码。
