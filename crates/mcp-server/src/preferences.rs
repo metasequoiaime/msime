@@ -4,9 +4,9 @@
 
 use msime_client_core::edition::Edition;
 use msime_client_core::preferences::{
-    AppInputModeRule, CandidateLayout, CharacterWidthPreference, ChineseScheme, DefaultImeMode,
-    InputScheme, NineKeyShuangpinProfile, Preferences, PreferencesSnapshot, PreferencesStore,
-    ShuangpinCustomProfile, ShuangpinProfile, WubiProfile,
+    AppInputModeRule, CandidateFontWeight, CandidateLayout, CharacterWidthPreference,
+    ChineseScheme, DefaultImeMode, InputScheme, NineKeyShuangpinProfile, Preferences,
+    PreferencesSnapshot, PreferencesStore, ShuangpinCustomProfile, ShuangpinProfile, WubiProfile,
 };
 use msime_client_core::theme::{GlobalTheme, ThemeAppearance};
 use msime_client_services::skin::{catalog, theme::skin_appearance};
@@ -174,6 +174,17 @@ pub enum WubiVersion {
 pub enum Layout {
     Horizontal,
     Vertical,
+}
+
+/// 候选窗文字的字重，从细到粗；预编辑行至少半粗。
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(rename_all = "snake_case")]
+pub enum FontWeight {
+    Regular,
+    Medium,
+    Semibold,
+    Bold,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
@@ -383,6 +394,28 @@ impl From<Layout> for CandidateLayout {
     }
 }
 
+impl From<CandidateFontWeight> for FontWeight {
+    fn from(value: CandidateFontWeight) -> Self {
+        match value {
+            CandidateFontWeight::Regular => Self::Regular,
+            CandidateFontWeight::Medium => Self::Medium,
+            CandidateFontWeight::Semibold => Self::Semibold,
+            CandidateFontWeight::Bold => Self::Bold,
+        }
+    }
+}
+
+impl From<FontWeight> for CandidateFontWeight {
+    fn from(value: FontWeight) -> Self {
+        match value {
+            FontWeight::Regular => Self::Regular,
+            FontWeight::Medium => Self::Medium,
+            FontWeight::Semibold => Self::Semibold,
+            FontWeight::Bold => Self::Bold,
+        }
+    }
+}
+
 /// What `get_preferences` shows.
 #[derive(Debug, Serialize, JsonSchema, PartialEq, Eq)]
 #[schemars(crate = "rmcp::schemars")]
@@ -401,6 +434,8 @@ pub struct PreferencesView {
     pub candidate_page_size: u8,
     /// Candidate font size in points, 12 to 32.
     pub candidate_font_size: u8,
+    /// 候选窗文字的字重（macOS、Windows 和 Linux 的候选窗；移动端键盘不读）。字体族没有这一档字面时按就近的字面画，Linux 的 IBus 面板认不认取决于桌面面板本身。
+    pub candidate_font_weight: FontWeight,
     /// Overall size of the floating candidate window in percent, 50 to 200; the font size and the window's geometry are both multiplied by it (Windows, macOS and the Linux Fcitx5 candidate window; the Linux IBus panel scales only the font).
     pub candidate_scale_percent: u16,
     /// Opacity of the candidate window's background, border and skin image in percent, 50 to 100; the text stays opaque. The Linux Fcitx5 candidate window honours it, the Linux IBus panel does not.
@@ -488,6 +523,7 @@ impl From<&PreferencesSnapshot> for PreferencesView {
             .then(|| NineKeyShuangpinTable::from(&preferences.nine_key_shuangpin_custom_profile)),
             candidate_page_size: preferences.candidate_page_size,
             candidate_font_size: preferences.candidate_font_size,
+            candidate_font_weight: preferences.candidate_font_weight.into(),
             candidate_scale_percent: preferences.candidate_scale_percent,
             candidate_opacity_percent: preferences.candidate_opacity_percent,
             candidate_corner_radius: preferences.candidate_corner_radius,
@@ -552,6 +588,8 @@ pub struct PreferencesChange {
     pub candidate_page_size: Option<u8>,
     /// 12 to 32.
     pub candidate_font_size: Option<u8>,
+    /// macOS 还没有设置这一项的界面，用户想把候选字加粗时在这里改。
+    pub candidate_font_weight: Option<FontWeight>,
     /// 50 to 200.
     pub candidate_scale_percent: Option<u16>,
     /// 50 to 100.
@@ -621,6 +659,7 @@ impl PreferencesChange {
             && self.nine_key_shuangpin_custom_profile.is_none()
             && self.candidate_page_size.is_none()
             && self.candidate_font_size.is_none()
+            && self.candidate_font_weight.is_none()
             && self.candidate_scale_percent.is_none()
             && self.candidate_opacity_percent.is_none()
             && self.candidate_corner_radius.is_none()
@@ -696,6 +735,9 @@ impl PreferencesChange {
         }
         if let Some(size) = self.candidate_font_size {
             preferences.candidate_font_size = size;
+        }
+        if let Some(weight) = self.candidate_font_weight {
+            preferences.candidate_font_weight = weight.into();
         }
         if let Some(scale) = self.candidate_scale_percent {
             preferences.candidate_scale_percent = scale;
@@ -996,6 +1038,15 @@ mod tests {
         for layout in [CandidateLayout::Horizontal, CandidateLayout::Vertical] {
             same(json!(Layout::from(layout)), json!(layout));
             assert_eq!(CandidateLayout::from(Layout::from(layout)), layout);
+        }
+        for weight in [
+            CandidateFontWeight::Regular,
+            CandidateFontWeight::Medium,
+            CandidateFontWeight::Semibold,
+            CandidateFontWeight::Bold,
+        ] {
+            same(json!(FontWeight::from(weight)), json!(weight));
+            assert_eq!(CandidateFontWeight::from(FontWeight::from(weight)), weight);
         }
         for mode in [DefaultImeMode::Chinese, DefaultImeMode::English] {
             same(json!(StartMode::from(mode)), json!(mode));
@@ -1598,6 +1649,51 @@ mod tests {
             ..change(updated.revision)
         };
         assert!(update(directory.path(), &options, Edition::full(), &invalid).is_err());
+    }
+
+    /// 候选字重能设、能改回常规，常规不写进文档；不认识的字重在解析时就被拒（#10748）。macOS 的原生设置迁移之前，这里和偏好文档是改它的入口。
+    #[test]
+    fn the_candidate_font_weight_is_set_and_returned_to_regular() {
+        let directory = tempfile::tempdir().unwrap();
+        let options = directory.path().join("runtime-options.json");
+        std::fs::write(&options, br#"{"api_version":1}"#).unwrap();
+        let before = load(directory.path(), Edition::full()).unwrap();
+        assert_eq!(before.candidate_font_weight, FontWeight::Regular);
+
+        let bold: PreferencesChange = serde_json::from_value(json!({
+            "expected_revision": before.revision,
+            "candidate_font_weight": "bold",
+        }))
+        .unwrap();
+        assert!(!bold.is_empty());
+        let updated = update(directory.path(), &options, Edition::full(), &bold).unwrap();
+        assert_eq!(updated.candidate_font_weight, FontWeight::Bold);
+        let stored = PreferencesStore::new(directory.path()).load().unwrap();
+        assert_eq!(
+            stored.preferences.candidate_font_weight,
+            CandidateFontWeight::Bold
+        );
+
+        let regular: PreferencesChange = serde_json::from_value(json!({
+            "expected_revision": updated.revision,
+            "candidate_font_weight": "regular",
+        }))
+        .unwrap();
+        let updated = update(directory.path(), &options, Edition::full(), &regular).unwrap();
+        assert_eq!(updated.candidate_font_weight, FontWeight::Regular);
+        let document: Value = serde_json::from_slice(
+            &std::fs::read(directory.path().join("preferences.json")).unwrap(),
+        )
+        .unwrap();
+        assert!(document["preferences"]
+            .get("candidate_font_weight")
+            .is_none());
+
+        assert!(serde_json::from_value::<PreferencesChange>(json!({
+            "expected_revision": updated.revision,
+            "candidate_font_weight": "italic",
+        }))
+        .is_err());
     }
 
     /// 代理只能开关游戏里的候选窗，用户写下的两张进程表原样保留。
