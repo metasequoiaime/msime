@@ -92,7 +92,13 @@ enum SettingsPage: String, CaseIterable, Identifiable {
     }
   }
 
-  @ViewBuilder var destination: some View {
+  /// 搜索 `query` 时这一页结果要带给页面的目标：第一个命中的关键词，只命中标题时为 nil（`SettingsSearchAnchor.anchor`）。
+  func searchAnchor(for query: String) -> String? {
+    SettingsSearchAnchor.anchor(keywords: keywords, query: query)
+  }
+
+  /// 这一页的视图；`searchAnchor` 来自搜索结果时，带分段的页面从命中的那一段开始（目前是插件页的「社区插件」）。
+  @ViewBuilder func destination(searchAnchor: String? = nil) -> some View {
     switch self {
     case .skin: SkinSettingsView()
     case .candidate: CandidateOptionsSettingsView()
@@ -101,7 +107,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
     case .ai: ExpressionSettingsView()
     case .phrases: CommonPhrasesSettingsView()
     case .dictionary: DictionarySettingsView()
-    case .plugins: PluginsSettingsView()
+    case .plugins: PluginsSettingsView(searchAnchor: searchAnchor)
     case .layout: KeyboardLayoutSettingsView()
     case .voice: VoiceSettingsView()
     case .handwriting: HandwritingSettingsView()
