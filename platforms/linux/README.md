@@ -592,7 +592,7 @@ Windows 的 `clipboard_history` 依赖独立剪贴板监听器和候选历史 UI
 
 Linux 桌面外壳现在提供与 Windows、macOS 同样的九个账号命令（`account_status`、`account_providers`、`account_request_code`、`account_login`、`account_profile`、`account_rename`、`account_logout`、`account_delete`、`account_forget`），共享设置页的账号分类因此在 Linux 上可用。此前这些命令只为 Windows、macOS、Android、iOS 注册，`main.tsx` 也只在前两者注入 `account` 客户端，Linux 上整个账号界面没有宿主可调。
 
-登录后，账号页还有和 Windows 相同的「设置同步」卡片（四个 `account_preferences_*` 命令，`platform/desktop/desktop_settings_sync.rs` 与 Windows 共用）：上传、应用的只有各平台共有的 `input.*` 键（输入方案、繁简、双拼和五笔版本、词库学习、调频和标点），应用走与设置页保存相同的路径，同步进 `runtime-options.json` 后两个宿主当场读到。账号文档里没有 Linux 自己的键，候选窗口、快捷键和皮肤这些桌面设置不随设置同步。社区页的「词包与回复模板」也与 Windows 一样接在这个会话上（`community_resource_*` 命令）：浏览、收藏、评分、举报和发布，词包可以导入本机个人词库或账号云词库；桌面没有「高情商回复」键盘，回复模板不能存进本机。
+登录后，账号页还有和 Windows、macOS 相同的「设置同步」卡片（四个 `account_preferences_*` 命令，`platform/desktop/desktop_settings_sync.rs` 三个桌面共用）：上传、应用的是各平台共有的 `input.*` 键（输入方案、繁简、双拼和五笔版本、词库学习、调频和标点），加上共享设置页能改的快捷短语混输、语法模型、符号模式、日期菜单、第二三候选和 AI 候选翻译（client-services 的 `DesktopHost::Linux`，macOS 用同一套键），应用走与设置页保存相同的路径，同步进 `runtime-options.json` 后两个宿主当场读到。账号文档里没有 Linux 自己的键，候选窗口、快捷键和皮肤这些桌面设置不随设置同步。社区页的「词包与回复模板」也与 Windows 一样接在这个会话上（`community_resource_*` 命令）：浏览、收藏、评分、举报和发布，词包可以导入本机个人词库或账号云词库；桌面没有「高情商回复」键盘，回复模板不能存进本机。
 
 命令本体与 Windows 完全一致，差别只在会话文件所在的目录：Linux 没有一个所有目标桌面都保证在跑的密钥服务，因此会话保存在共享状态目录下的 `account-session.json`，以 0600 创建、按临时文件加原子重命名发布，读取前核对是普通文件（不跟随符号链接）、属主是当前用户、其他用户无任何权限、且大小不超过 64 KiB；不满足时报告存储错误而不是伪装成「未登录」。这与 Linux provider 私有配置文件一直声明的规则相同，也沿用 `msime-linux-prepare` 建立的 0700 状态目录。**它不加密静态数据**；macOS 与 Windows 桌面端现在用的是同一个文件存储（`crates/client-services/src/account/file_storage.rs`），不再用 Keychain 或凭据管理器。令牌只在桌面宿主进程内，交给 WebView 的仍是与其他平台相同的脱敏 DTO。
 
