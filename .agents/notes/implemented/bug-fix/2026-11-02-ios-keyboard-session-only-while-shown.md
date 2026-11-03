@@ -36,7 +36,7 @@ Status: implemented
 
 - **收益**：只建过控制器、从没出现的键盘不持任何 App Group 锁；收起之后晚到的 `viewDidAppear` 不再重启维护；释放失败第一次有了重试和日志。
 - **代价**：建会话的时机从控制器创建挪到第一次 `viewWillAppear`，首帧前的同步开销总量不变，但 `keyboard_loaded` 的 `session=` 现在只量准备选项，会话的内存算进 `keyboard_shown`。挂起期间改的偏好只记在桥上，不经 `msime_client_update_preferences` 校验；校验推迟到建会话时（`create_session` 同样 `validate()`），宿主写出不合法的值时表现为 `dictionary_resume_failed`，而不是改的那一下被拒。这些改动都来自宿主自己的代码（方案名、钳过范围的几何、学习开关），同样的值在键盘可见时也要过会话的校验。
-- **代价**：直接构造 `KeyboardViewController`、不调 `viewWillAppear` 就打字的单测要补上这一步。PR 第一次跑 CI 时有 47 个这样的用例全部拿到「输入运行时尚未准备完成。」（九键、邮箱后缀、快捷短语光标、韩文、日文九键等），都按真实生命周期补了 `viewWillAppear(false)`，没有改产品代码去迁就它们。
+- **代价**：直接构造 `KeyboardViewController`、不调 `viewWillAppear` 就打字的单测要补上这一步。PR 第一次跑 CI 时有 47 个这样的用例全部拿到「输入运行时尚未准备完成。」（九键、邮箱后缀、快捷短语光标、韩文、日文九键等），都按真实生命周期补了 `viewWillAppear(false)`，没有改产品代码去迁就它们。补完之后又露出一处真回归：`updateSchemeButton` 在 `viewDidLoad` 里向会话取双拼键面提示表，会话不在时取到空表，第一次出现的双拼键盘不画键位提示（`testTheShuangpinKeyHint*` 两条用例）。现在会话在 `viewWillAppear` 建好后重取提示表（`refreshShuangpinKeyHints`）；表不在 `LetterCaseInputs` 里，表变了要作废 `appliedLetterCaseInputs` 才会重画。凡是在 `viewDidLoad` 里向会话视图取值并缓存在控制器上的状态都有同样的风险，`sharedPreferences` 一类读桥上选项的不受影响。
 - **重访信号**：真机诊断日志里出现 `dictionary_suspend_failed`、`host_background session_held=1` 或 `controller_released session_held=1`，说明还有路径在键盘不可见时持着会话。
 
 相关决定：[收起时释放词库快照租约](2026-10-14-ios-snapshot-worker-lock-release.md) 处理的是快照工作者的 `worker.lock`；[低端机功耗](2026-10-27-ios-keyboard-low-end-power.md) 记了每次收起都销毁会话、出现时重建的代价；[崩溃诊断归因](2026-10-25-ios-crash-diagnostic-session-attribution.md) 列过 0xdead10cc 的候选路径，这一篇补上了会话本身的那一条。
