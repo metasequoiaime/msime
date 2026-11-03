@@ -1071,7 +1071,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let resumeStart = ProcessInfo.processInfo.systemUptime
     do {
       try session.resumeDictionarySession()
-      if rebuildsSession { DiagnosticLog.shared.write("dictionary_resumed ms=\(Self.elapsedMilliseconds(since: resumeStart))") }
+      if rebuildsSession {
+        DiagnosticLog.shared.write("dictionary_resumed ms=\(Self.elapsedMilliseconds(since: resumeStart))")
+        // 第一次出现之前会话还不在（#10634），`viewDidLoad` 里取到的键面提示表是空的；会话建好了再取一次。以后每次出现重建的会话方案不变，表相同，不重画。
+        refreshShuangpinKeyHints()
+        updateLetterCaseControls()
+      }
     }
     catch {
       DiagnosticLog.shared.write("dictionary_resume_failed")
@@ -6614,12 +6619,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return ChineseTextConversion.outputString(text, traditional: usesTraditionalOutput)
   }
 
-  private func updateSchemeButton() {
-    // The hints come from the engine's own profile for the scheme the session is running, so they
-    // are refreshed wherever the scheme is, and cannot drift from what the keys actually produce.
-    // 粤语双拼与普通粤拼是同一个引擎方案，只有键盘知道选的是哪一个；普通粤拼完整拼写，不画提示。
-    shuangpinKeyHints = inputScheme == .cantoneseShuangpin
+  /// 重取双拼键面提示表。提示表不在 `LetterCaseInputs` 里，只换表的话下一次 `updateLetterCaseControls` 会当作没变而不重画，所以表变了就作废上次的输入；重画留给调用方。
+  ///
+  /// The hints come from the engine's own profile for the scheme the session is running, so they are refreshed wherever the scheme is, and cannot drift from what the keys actually produce. 粤语双拼与普通粤拼是同一个引擎方案，只有键盘知道选的是哪一个；普通粤拼完整拼写，不画提示。
+  private func refreshShuangpinKeyHints() {
+    let hints = inputScheme == .cantoneseShuangpin
       ? session.cantoneseShuangpinKeyHints() : session.shuangpinKeyHints()
+    guard hints != shuangpinKeyHints else { return }
+    shuangpinKeyHints = hints
+    appliedLetterCaseInputs = nil
+  }
+
+  private func updateSchemeButton() {
+    refreshShuangpinKeyHints()
     nineKeyShuangpinLayout = inputScheme == .nineKeyShuangpin ? try? .current(in: session.sharedPreferences) : nil
     updateLetterCaseControls()
 
