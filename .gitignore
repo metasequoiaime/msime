@@ -18,8 +18,6 @@ dist/
 !Cargo.lock
 !pnpm-lock.yaml
 /apps/desktop/src-tauri/gen/*
-!/apps/desktop/src-tauri/gen/android/
-!/apps/desktop/src-tauri/gen/apple/
 /platforms/ios/Pods/
 /platforms/ios/MSIMEClient.xcworkspace/
 /platforms/harmony/.hvigor/

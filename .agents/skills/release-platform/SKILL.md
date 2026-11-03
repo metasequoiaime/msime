@@ -61,7 +61,7 @@ iOS、HarmonyOS 改完用 `git grep -nF '<旧版本号>' -- platforms/<os> apps/
 处理方式：先 `git fetch origin develop` 看是不是已经有人修了（第一处在我修完后十几分钟被别人独立修掉，rebase 时 git 自动丢掉了重复的提交）；没人修就在同一个 PR 里修，提交分开写，PR 正文说明，不要 `--no-verify`。门禁日志很长，失败项用 `grep -nE 'FAIL|error'` 找。`Android host` 失败在本地复现用 CI 同款命令：
 
 ```sh
-rbuild env ANDROID_HOME=/Users/xiaomo/Library/Android/sdk apps/desktop/src-tauri/gen/android/gradlew \
+rbuild env ANDROID_HOME=/Users/xiaomo/Library/Android/sdk platforms/android/gradle-app/gradlew \
   --project-dir platforms/android/gradle-app --console=plain \
   compileFullReleaseJavaWithJavac compilePinyinReleaseJavaWithJavac compileWubiReleaseJavaWithJavac \
   compileJapaneseReleaseJavaWithJavac compileVietnameseReleaseJavaWithJavac compileTibetanReleaseJavaWithJavac

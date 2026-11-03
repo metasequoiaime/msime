@@ -514,18 +514,11 @@ class ProjectConfigurationTests(unittest.TestCase):
 
     def test_shipping_build_uses_the_native_ios_host(self):
         script = (IOS_ROOT / "build-app.sh").read_text()
-        self.assertIn('tauri_target=aarch64-sim', script)
-        self.assertIn('tauri_target=aarch64', script)
-        guard = 'if [ "${MSIME_IOS_TAURI_COMPONENT:-0}" = 1 ]; then'
-        self.assertIn(guard, script)
-        component, shipping = script.split(guard, 1)[1].split("\nfi\n", 1)
-        # The Tauri iOS build is the shared component, reachable only behind the explicit opt-in.
-        self.assertIn('pnpm --filter @msime/desktop tauri ios build \\', component)
-        self.assertIn('--target "$tauri_target" --no-sign --ci', component)
-        self.assertNotIn('tauri ios build', shipping)
-        # The default product is the native host under platforms/ios.
-        self.assertIn('xcodegen generate', shipping)
-        self.assertIn('-scheme MSIMEApp', shipping)
+        # 产品只有 platforms/ios 下的原生宿主；Tauri 的 iOS 工程已经删掉，脚本里不能再有构建它的路径。
+        self.assertNotIn('tauri ios build', script)
+        self.assertNotIn('MSIME_IOS_TAURI_COMPONENT', script)
+        self.assertIn('xcodegen generate', script)
+        self.assertIn('-scheme MSIMEApp', script)
         self.assertNotIn('MSIME_IOS_LEGACY_APP', script)
 
     def test_on_device_speech_runtime_is_fetched_and_embedded_only_in_the_app(self):

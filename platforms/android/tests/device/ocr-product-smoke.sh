@@ -23,7 +23,7 @@ restore() {
   "$adb" -s "$serial" shell svc data enable >/dev/null 2>&1 || true
 }
 trap restore EXIT
-gradlew=apps/desktop/src-tauri/gen/android/gradlew
+gradlew=platforms/android/gradle-app/gradlew
 "$gradlew" --project-dir platforms/android/gradle-app --console=plain -PmsimeOcrModule=true \
   :ocr-module:assembleRelease :ocr-module:lintRelease
 "$gradlew" --project-dir platforms/android/gradle-app --console=plain -PmsimeOcrModule=true \

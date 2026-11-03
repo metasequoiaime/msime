@@ -38,7 +38,7 @@ Status: proposed
 
 工期是单人常规速度的估算，合计约 143.5 周，评审认为偏低；按仓库历史速度，日历时间可能是它的 1/3 到 1/5。
 
-- **共享清理**（约 1 周）：删除 Tauri 移动外壳（`gen/android`、`gen/apple`、`crates/tauri-mobile-platform`、`crates/ios-native-ffi`、移动端 Rust 和只服务它的 Kotlin），先把 Gradle wrapper 迁到 `platforms/android/gradle-app`。
+- **共享清理**（约 1 周）：删除 Tauri 移动外壳（`gen/android`、`gen/apple`、`crates/tauri-mobile-platform`、`crates/ios-native-ffi`、移动端 Rust 和只服务它的 Kotlin），先把 Gradle wrapper 迁到 `platforms/android/gradle-app`。已由[删除从未发布的 Tauri 移动壳](../../implemented/simplification/2026-11-03-remove-tauri-mobile-shells.md)完成。
 - **Windows**（约 11 周）：面板改走 `panels/win7` 那套原生宿主，在现代版构建里编成中性名字的 `msime-client-panels.exe`，`ShellSurfaces.h` 的 `shell_executable_names`、WinUI 设置的 `shell_executable()` 和托盘、工具栏的可用性判断都指向它。补齐与 React 面板的差距：18 键分组按键（`crates/host-windows/src/grouped_panel_key.rs` 先导出到 C ABI）、长按连发、表情网格与清除最近使用、手写重做与只复制模式、语音的识别语言与 Esc 取消、背单词朗读改用 SAPI、按显示器感知 DPI、深色模式、单实例复用窗口。只在新系统需要的能力用运行时加载隔离，保证 Win7 不受影响。完成后安装包不再带 `MSIME.exe`，也不再检测 WebView2。
 - **共享 Rust 下沉**（约 8 周）：把 `apps/desktop/src-tauri` 里与 Tauri 无关的后端抽成独立 crate（IMK 安装与修复、数据目录、资源包、Linux 首次配置、剪贴板历史、背单词、语音、更新检查等），把只写在 TS 里的规则（页面投影与可见性、引导默认值、AI 服务商目录、候选布局选项）移进 `client-services`，对应的 vitest 用例改写成 Rust 测试或共用 fixture。
 - **macOS**（约 29.5 周）：先把 `MSIMEAppearancePreferences` 拆成纯模型和旧 UI（`InputController.mm` 有 382 处访问），再把表情、手写、云剪贴板、云词库面板改为 IMK 内的原生默认路径并补齐差距，然后抽出 iOS 与 macOS 共用的 SwiftUI 包，用沿用同一 bundle id、签名和 Sparkle appcast 的原生容器 App 接替 Tauri 版（先只发 beta 通道），最后逐页原生化设置。
