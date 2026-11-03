@@ -492,7 +492,7 @@ static NSString *CandidateSourceBadge(NSDictionary *candidate, NSString *aiBadge
 
 // 画候选文字（含来源与固定排位的角标）。徽标串由调用方按偏好算好：AI 来源用它替换写死的 🤖，
 // 固定排位追加在来源角标之后，与 Windows candidate_view_model.h 的 text+annotation+badge 顺序一致。
-static NSString *CandidateDisplayWithBadges(NSDictionary *candidate, BOOL traditional, NSString *aiBadge, NSString *fixedBadge) {
+static NSString *CandidateDisplayWithBadges(NSDictionary *candidate, BOOL traditional, uint32_t variant, NSString *aiBadge, NSString *fixedBadge) {
     // 未提供缓存时回退出厂徽标；显式空串保留关闭状态，不把 nil 传给字符串拼接。
     aiBadge = aiBadge ?: MSIMECandidateBadgeString(msime::mac::candidate_ai_badge("robot"));
     fixedBadge = fixedBadge ?: MSIMECandidateBadgeString(msime::mac::candidate_fixed_badge(true, "paperclip"));
@@ -506,7 +506,7 @@ static NSString *CandidateDisplayWithBadges(NSDictionary *candidate, BOOL tradit
                                CFGetTypeID((__bridge CFTypeRef)source) != CFBooleanGetTypeID() &&
                                !CFNumberIsFloatType((__bridge CFNumberRef)source);
     // 来源 13 是日文，来源 18 已由运行时逐段转换；两者都不能再次整行简转繁。
-    if (!(integerSource && ([source isEqual:@13] || [source isEqual:@18]))) text = MSIMEChineseOutputString(text, traditional);
+    if (!(integerSource && ([source isEqual:@13] || [source isEqual:@18]))) text = MSIMEChineseOutputString(text, traditional, variant);
     // 来源与固定排位角标只参与显示，不改变候选身份或上屏内容。
     NSString *badge = CandidateSourceBadge(candidate, aiBadge);
     if (fixedBadge.length && MSIMECandidateIsFixedPosition(candidate[@"fixed_position"]))
@@ -592,26 +592,26 @@ static NSString *MSIMEWubiCodeHint(NSDictionary *candidate, NSDictionary *view, 
     return hint.empty() ? @"" : [[NSString alloc] initWithBytes:hint.data() length:hint.size() encoding:NSUTF8StringEncoding];
 }
 
-static NSString *CandidateDisplayWithWubiHint(NSDictionary *candidate, BOOL traditional, NSString *hint, NSString *aiBadge, NSString *fixedBadge) {
-    if (![hint isKindOfClass:NSString.class] || hint.length == 0) return CandidateDisplayWithBadges(candidate, traditional, aiBadge, fixedBadge);
+static NSString *CandidateDisplayWithWubiHint(NSDictionary *candidate, BOOL traditional, uint32_t variant, NSString *hint, NSString *aiBadge, NSString *fixedBadge) {
+    if (![hint isKindOfClass:NSString.class] || hint.length == 0) return CandidateDisplayWithBadges(candidate, traditional, variant, aiBadge, fixedBadge);
     NSMutableDictionary *annotated = [candidate mutableCopy];
     annotated[@"annotation"] = [NSString stringWithFormat:@"(%@)", hint];
-    return CandidateDisplayWithBadges(annotated, traditional, aiBadge, fixedBadge);
+    return CandidateDisplayWithBadges(annotated, traditional, variant, aiBadge, fixedBadge);
 }
 
 // The panel draws the 辅助码 (or the engine's annotation) as a run of its own after the candidate text, so it can move under a text that leaves it no room, as the Windows presenter does. The tooltip and accessibility label keep the combined CandidateDisplayWithWubiHint form.
-static NSString *CandidateTextRun(NSDictionary *candidate, BOOL traditional, NSString *aiBadge, NSString *fixedBadge) {
-    if (candidate[@"annotation"] == nil) return CandidateDisplayWithBadges(candidate, traditional, aiBadge, fixedBadge);
+static NSString *CandidateTextRun(NSDictionary *candidate, BOOL traditional, uint32_t variant, NSString *aiBadge, NSString *fixedBadge) {
+    if (candidate[@"annotation"] == nil) return CandidateDisplayWithBadges(candidate, traditional, variant, aiBadge, fixedBadge);
     NSMutableDictionary *plain = [candidate mutableCopy];
     [plain removeObjectForKey:@"annotation"];
-    return CandidateDisplayWithBadges(plain, traditional, aiBadge, fixedBadge);
+    return CandidateDisplayWithBadges(plain, traditional, variant, aiBadge, fixedBadge);
 }
 
-static NSString *CandidateAnnotationRun(NSDictionary *candidate, BOOL traditional, NSString *hint) {
+static NSString *CandidateAnnotationRun(NSDictionary *candidate, BOOL traditional, uint32_t variant, NSString *hint) {
     NSString *annotation = [hint isKindOfClass:NSString.class] && hint.length ? [NSString stringWithFormat:@"(%@)", hint]
                                                                               : candidate[@"annotation"];
     if (![annotation isKindOfClass:NSString.class] || annotation.length == 0) return @"";
-    return MSIMEChineseOutputString(annotation, traditional);
+    return MSIMEChineseOutputString(annotation, traditional, variant);
 }
 
 // One page of candidate rows laid out at the card width they get: what the panel draws, what its buttons answer clicks in, and what the keymap panel keeps clear of.
@@ -2635,7 +2635,8 @@ BOOL MSIMEInputControllerHasUnfinishedInput(void) {
         return NO;
     NSString *sense = _glossSenses[index];
     // The page is drawn through the same conversion (renderCandidates), and _view is still the page view carrying the saved composition's scheme and local_mode, so what is inserted is what is shown.
-    if (_appearance.traditionalOutput && MSIMEScriptConversionApplies(_view)) sense = MSIMEChineseOutputString(sense, YES);
+    if (_appearance.traditionalOutput && MSIMEScriptConversionApplies(_view))
+        sense = MSIMEChineseOutputString(sense, YES, _appearance.traditionalChineseVariant);
     [self discardGlossSensePage];
     [(id<MSIMETextClient>)sender insertText:sense replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
     // The sense is the output; what was being composed goes away rather than following it out.
@@ -3006,7 +3007,8 @@ BOOL MSIMEInputControllerHasUnfinishedInput(void) {
     NSString *gloss = MSIMECandidateTranslationColumn(candidate, column);
     if (!gloss.length) return NO;
     // Inserted text follows the traditional-output switch like every other commit (the reference's CandidateTextForOutput); Latin and kana glosses pass through unchanged.
-    if (_appearance.traditionalOutput && MSIMEScriptConversionApplies(_view)) gloss = MSIMEChineseOutputString(gloss, YES);
+    if (_appearance.traditionalOutput && MSIMEScriptConversionApplies(_view))
+        gloss = MSIMEChineseOutputString(gloss, YES, _appearance.traditionalChineseVariant);
     [(id<MSIMETextClient>)sender insertText:gloss replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
     _armedGlossColumn = 0;
     // The gloss is what the user asked for, so the composition goes away rather than being
@@ -8568,7 +8570,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         return;
     }
     if (_appearance.traditionalOutput && MSIMEScriptConversionApplies(transition[@"commit_context"]))
-        text = MSIMEChineseOutputString(text, YES);
+        text = MSIMEChineseOutputString(text, YES, _appearance.traditionalChineseVariant);
     // Posted voice text reaches the application without passing the shadow.
     [self invalidateSmartPunctuationShadow];
     if ([self postVoiceText:text route:route] == MSIMEVoiceCommitOutcome::unavailable) {
@@ -8623,11 +8625,13 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         [wordCharacter[@"word_character_prefix"] isKindOfClass:NSString.class]) {
         NSString *prefix = wordCharacter[@"word_character_prefix"];
         NSString *candidate = wordCharacter[@"word_character_candidate"];
-        NSString *convertedWord = MSIMEChineseOutputString([prefix stringByAppendingString:candidate], YES);
+        NSString *convertedWord = MSIMEChineseOutputString([prefix stringByAppendingString:candidate], YES,
+                                                           _appearance.traditionalChineseVariant);
         NSString *edge = MSIMEEdgeHanCharacter(convertedWord, MSIMEStrictBoolean(wordCharacter[@"word_character_first"]));
         if (edge.length) {
             NSMutableDictionary *converted = [transition mutableCopy];
-            converted[@"commit"] = [MSIMEChineseOutputString(prefix, YES) stringByAppendingString:edge];
+            converted[@"commit"] = [MSIMEChineseOutputString(prefix, YES, _appearance.traditionalChineseVariant)
+                stringByAppendingString:edge];
             converted[@"word_character_converted"] = @YES;
             transition = converted;
         }
@@ -8710,9 +8714,9 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     if (_appearance.traditionalOutput && !MSIMEStrictBoolean(transition[@"word_character_converted"]) &&
         MSIMEScriptConversionApplies(transition[@"commit_context"]) && [transition[@"commit"] isKindOfClass:NSString.class]) {
         NSMutableDictionary *converted = [transition mutableCopy];
-        converted[@"commit"] = MSIMEChineseOutputString(transition[@"commit"], YES);
+        converted[@"commit"] = MSIMEChineseOutputString(transition[@"commit"], YES, _appearance.traditionalChineseVariant);
         if ([cursorSuffix isKindOfClass:NSString.class])
-            converted[@"commit_cursor_suffix"] = MSIMEChineseOutputString(cursorSuffix, YES);
+            converted[@"commit_cursor_suffix"] = MSIMEChineseOutputString(cursorSuffix, YES, _appearance.traditionalChineseVariant);
         displayTransition = converted;
     }
     const uint64_t applySequence = _applySequence;
@@ -9012,6 +9016,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     MSIMECandidatePageGeometry geometry;
     const BOOL vertical = _appearance.vertical && columnCount == 0;
     const BOOL traditional = _appearance.traditionalOutput && MSIMEScriptConversionApplies(_view);
+    const uint32_t traditionalVariant = _appearance.traditionalChineseVariant;
     // The fonts arrive at the window's scale already; the row's own paddings follow them.
     const CGFloat scale = MSIMECandidateScale(_appearance);
     const auto &layout = _candidateLayoutGeometry;
@@ -9049,8 +9054,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     NSUInteger index = 0;
     for (NSDictionary *candidate in candidates) {
         NSString *hint = MSIMEWubiCodeHint(candidate, _view, _wubiCodeHintEnabled);
-        NSString *text = CandidateTextRun(candidate, traditional, _aiBadgeString, _fixedBadgeString);
-        NSString *annotation = CandidateAnnotationRun(candidate, traditional, hint);
+        NSString *text = CandidateTextRun(candidate, traditional, traditionalVariant, _aiBadgeString, _fixedBadgeString);
+        NSString *annotation = CandidateAnnotationRun(candidate, traditional, traditionalVariant, hint);
         NSString *reading = @"";
         if (hanjaReadings) {
             reading = annotation;
@@ -9062,7 +9067,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         NSString *gloss = MSIMECandidateGlossRun(reading, translation);
         // The tooltip and the accessibility label keep the reading apart from the Hanja rather than running the two together.
         NSString *display = hanjaReadings ? (reading.length ? [NSString stringWithFormat:@"%@ %@", text, reading] : text)
-                                          : CandidateDisplayWithWubiHint(candidate, traditional, hint, _aiBadgeString, _fixedBadgeString);
+                                          : CandidateDisplayWithWubiHint(candidate, traditional, traditionalVariant, hint, _aiBadgeString, _fixedBadgeString);
         [texts addObject:text];
         [annotations addObject:annotation];
         [displays addObject:display];
@@ -9629,7 +9634,8 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
                 NSString *badge = skin.decorationCandidate->stripBadge ? @"" : CandidateSourceBadge(candidate, _aiBadgeString);
                 word = MSIMEChineseOutputString([text stringByAppendingString:badge],
                     _appearance.traditionalOutput && MSIMEScriptConversionApplies(_view) &&
-                    ![candidate[@"source"] isEqual:@13] && ![candidate[@"source"] isEqual:@18]);
+                    ![candidate[@"source"] isEqual:@13] && ![candidate[@"source"] isEqual:@18],
+                    _appearance.traditionalChineseVariant);
             }
         }
     }
@@ -10340,7 +10346,8 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     BOOL caretEditHintShown = caretEditHintWidth > 0;
     NSDictionary *onlinePreview = preedit.length ? MSIMECandidateOnlinePreview(candidates) : nil;
     NSString *previewText = onlinePreview ? MSIMEChineseOutputString(onlinePreview[@"text"],
-        _appearance.traditionalOutput && MSIMEScriptConversionApplies(_view)) : @"";
+        _appearance.traditionalOutput && MSIMEScriptConversionApplies(_view),
+        _appearance.traditionalChineseVariant) : @"";
     NSFont *previewFont = [_appearance candidateFontOfSize:MSIMECandidatePageIndicatorPointSize * scale englishFirst:NO];
     const CGFloat previewIconSide = ceil(previewFont.pointSize);
     const CGFloat previewGap = 12 * scale;

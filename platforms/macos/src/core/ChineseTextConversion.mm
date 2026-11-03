@@ -2,13 +2,13 @@
 
 #include "../../../common/ChineseTextConversion.h"
 
-NSString *MetasequoiaChineseOutputString(NSString *text, BOOL traditionalOutput) {
+NSString *MetasequoiaChineseOutputString(NSString *text, BOOL traditionalOutput, uint32_t variant) {
     if (!traditionalOutput || text.length == 0) return text;
-    // The shared OpenCC s2t tables, the same phrase-level conversion the reference server ships. A character table cannot tell 头发 (頭髮) from 发展 (發展); CFStringTransform was one.
+    // 共享 OpenCC 词表：`variant` 0 是 s2t（与旧调用相同），1 s2tw、2 s2twp。逐字表分不清「头发」和「发展」；CFStringTransform 也分不清。
     const char *utf8 = text.UTF8String;
     if (!utf8) return text;
-    const auto converted = msime::host_api::simplified_to_traditional(
-        std::string_view(utf8, strlen(utf8)));
+    const auto converted = msime::host_api::convert_to_traditional(
+        std::string_view(utf8, strlen(utf8)), variant);
     if (!converted) return text;
     NSString *result = [NSString stringWithUTF8String:converted->c_str()];
     return result ?: text;

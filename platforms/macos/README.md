@@ -172,7 +172,7 @@ SwiftUI 设置同步覆盖 28 个当前宿主偏好：全局主题、自定义�
 
 打开字符面板同样先完成组合，再请求系统 Character Viewer；测试以替身记录系统入口，不实际打开面板。原生测试覆盖菜单勾选、偏好保存、组合完成/失败、英文按键旁路、七种竞争修饰组合、重复/禁用快捷键、无会话懒加载与焦点恢复。输入法菜单和悬浮工具栏的“检查更新…”在有 `SUFeedURL` 的发布包里直接交给 Sparkle 原生更新控制器（见「Sparkle 更新」）；没有 feed 时优先打开 Tauri 共享 About 页，Tauri 不可用时会明确说明不能应用内检查，并在用户确认后打开固定的官方发布页，打开失败也会显示错误，而不是静默无动作。共享 `theme` 与 `candidate_theme` 作用于实际 IMK 候选窗：`dark`/`light` 表面覆盖全局主题，`follow` 继承全局，`system` 通过 `NSPanel.appearance = nil` 交给 AppKit 跟随系统；偏好热更新会保留当前 Engine 组合并重绘候选皮肤。
 
-原生菜单提供“简体输出”（默认）与“繁体输出”，保存到宿主偏好 `MSIMEClientTraditionalOutput`。调用 `msime-host-api` 的 `msime_client_simplified_to_traditional` 导出转换候选显示、完整 tooltip 和最终上屏文本（包括 Ctrl+Enter 上屏的译文、释义页选中的义项与 Option/Ctrl+数字取的释义列；释义页按转换后的文本绘制，选中后上屏的就是页面上显示的那一项），与 Windows、Linux 及来源同用 OpenCC s2t 词级词典（「头发」→「頭髮」而非逐字的「頭發」），输入不是合法 UTF-8 时保留原文；日语方案与 Unicode 精确码点模式不转换。转换只发生在原生展示/插入边界，Engine 原文、候选 ID、组合与运行时视图保持不变。
+原生菜单提供“简体输出”（默认）与“繁体输出”，保存到宿主偏好 `MSIMEClientTraditionalOutput`。菜单、工具栏和 Ctrl+Shift+F 只翻转这个开关。候选显示、完整 tooltip 和最终上屏文本（包括 Ctrl+Enter 上屏的译文、释义页选中的义项与 Option/Ctrl+数字取的释义列；释义页按转换后的文本绘制，选中后上屏的就是页面上显示的那一项）经 `msime_client_convert_to_traditional` 按共享偏好 `traditional_chinese_variant` 转换：`s2t` 是 OpenCC 标准繁体，「吃」→「喫」、「里面」→「裏面」；`s2tw` 是臺灣字形，「吃」仍是「吃」、「里面」→「裡面」；`s2twp` 再加臺灣惯用词，「软件」→「軟體」。词级转换与 Linux 相同（「头发」→「頭髮」而非逐字的「頭發」），输入不是合法 UTF-8 时保留原文；日语方案与 Unicode 精确码点模式不转换。转换只发生在原生展示/插入边界，Engine 原文、候选 ID、组合与运行时视图保持不变。设置页在 macOS 上列出台湾正体 / 台湾用词，因为 `HostCapabilities::traditional_chinese_variants` 为真。
 
 系统从强制 ASCII 的应用恢复水杉输入源时，`activateServer:` 只立即刷新状态项，把系统模式同步延后一轮主队列。执行时确认客户端、焦点与激活代次仍有效，并重新读取 TIS；仍是外部输入源或未知状态时跳过自动选择，已恢复到目标模式时不重复请求。用户主动切换模式会取消旧的排队校准。`shortcut-test --input-source-restore` 与 `input-mode-identifiers` 使用合成输入源验证这些时序，不代表已完成真实 Kindle 切换验收。
 

@@ -700,8 +700,11 @@ impl HostCapabilities {
                 platform,
                 HostPlatform::Macos | HostPlatform::Windows | HostPlatform::Linux
             ),
-            // 目前只有 Linux 的 IBus 与 Fcitx5 宿主把变体交给 `msime_client_convert_to_traditional`。
-            traditional_chinese_variants: matches!(platform, HostPlatform::Linux),
+            // Linux 的 IBus / Fcitx5 与 macOS 的 IMK 宿主把变体交给 `msime_client_convert_to_traditional`。
+            traditional_chinese_variants: matches!(
+                platform,
+                HostPlatform::Linux | HostPlatform::Macos
+            ),
             // The iOS strip scales its composition line by `candidate_preedit_font_size`.
             candidate_preedit_font: matches!(
                 platform,

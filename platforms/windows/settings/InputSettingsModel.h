@@ -54,7 +54,7 @@ inline std::wstring_view wubi_candidate_keys_description(bool valid) {
                : L"请输入两个不同的单个英文标点。";
 }
 
-// 「中文输出」一行的说明，随选项和方案变：粤拼、注音直接输出繁体，笔画按所选的字原样输出，都不受这个选项影响。Windows 不认繁体变体（`HostCapabilities.traditional_chinese_variants` 只在 Linux 为真），只有简体和标准繁体两项。
+// 「中文输出」一行的说明，随选项和方案变：粤拼、注音直接输出繁体，笔画按所选的字原样输出，都不受这个选项影响。Windows 不认繁体变体（`HostCapabilities.traditional_chinese_variants` 目前 Linux 与 macOS 为真），只有简体和标准繁体两项。
 inline std::wstring chinese_output_description(bool traditional, std::wstring_view scheme) {
   std::wstring description = traditional
                                  ? L"将提交的简体中文转换为繁体中文（OpenCC 标准繁体）"
