@@ -14732,7 +14732,7 @@ fn custom_helpcode_trigger_is_visible_while_it_waits_for_codes() {
             ShuangpinProfileKind::Xiaohe,
             true,
             false,
-            "ni;F",
+            "ni';F",
             "ni'FR",
         ),
         (
@@ -14748,7 +14748,7 @@ fn custom_helpcode_trigger_is_visible_while_it_waits_for_codes() {
             ShuangpinProfileKind::Xiaohe,
             true,
             true,
-            "ni;F",
+            "ni';F",
             "ni'fR",
         ),
         (
@@ -14756,7 +14756,7 @@ fn custom_helpcode_trigger_is_visible_while_it_waits_for_codes() {
             ShuangpinProfileKind::Xiaohe,
             false,
             false,
-            "ni;f",
+            "ni';f",
             "ni'fR",
         ),
         (
@@ -14772,7 +14772,7 @@ fn custom_helpcode_trigger_is_visible_while_it_waits_for_codes() {
             ShuangpinProfileKind::Microsoft,
             false,
             false,
-            "ni;f",
+            "ni';f",
             "ni'fR",
         ),
     ] {

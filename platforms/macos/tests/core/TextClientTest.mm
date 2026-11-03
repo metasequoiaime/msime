@@ -603,14 +603,14 @@ static void TestHelpcodeTriggerInMarkedText() {
                                                        @"helpcode_trigger": trigger}},
                                          client, MSIMEInlinePreeditStyleRaw);
     assert([client.markedString isEqual:@"ni;"] && NSEqualRanges(client.selection, NSMakeRange(3, 0)));
-    MSIMEApplyTransitionWithPreeditStyle(@{@"view": @{@"editing_text": @"niF", @"preedit": @"ni;F", @"caret_position": @3,
+    MSIMEApplyTransitionWithPreeditStyle(@{@"view": @{@"editing_text": @"niF", @"preedit": @"ni';F", @"caret_position": @3,
                                                        @"helpcode_trigger": trigger}},
                                          client, MSIMEInlinePreeditStyleRaw);
     assert([client.markedString isEqual:@"ni;F"] && NSEqualRanges(client.selection, NSMakeRange(4, 0)));
-    MSIMEApplyTransitionWithPreeditStyle(@{@"view": @{@"editing_text": @"niF", @"preedit": @"ni;F", @"caret_position": @3,
+    MSIMEApplyTransitionWithPreeditStyle(@{@"view": @{@"editing_text": @"niF", @"preedit": @"ni';F", @"caret_position": @3,
                                                        @"helpcode_trigger": trigger}},
                                          client, MSIMEInlinePreeditStylePinyin);
-    assert([client.markedString isEqual:@"ni;F"] && NSEqualRanges(client.selection, NSMakeRange(4, 0)));
+    assert([client.markedString isEqual:@"ni';F"] && NSEqualRanges(client.selection, NSMakeRange(5, 0)));
     // 退出前导状态后视图里没有这个字段，原文照旧。
     MSIMEApplyTransitionWithPreeditStyle(@{@"view": @{@"editing_text": @"ni", @"preedit": @"ni", @"caret_position": @2}},
                                          client, MSIMEInlinePreeditStyleRaw);
@@ -623,6 +623,15 @@ static void TestHelpcodeTriggerInMarkedText() {
                                              client, MSIMEInlinePreeditStyleRaw);
         assert([client.markedString isEqual:@"ni"] && NSEqualRanges(client.selection, NSMakeRange(2, 0)));
     }
+    // 置顶按 preedit 记码：去掉前导键后与按下它之前、与 Shift 辅助码得到的拼写相同。
+    assert([MSIMEPreeditWithoutHelpcodeTrigger(@"ni;", @"ni", trigger) isEqual:@"ni"]);
+    assert([MSIMEPreeditWithoutHelpcodeTrigger(@"ni';F", @"niF", trigger) isEqual:@"ni'F"]);
+    assert([MSIMEPreeditWithoutHelpcodeTrigger(@"ni;f", @"niF", trigger) isEqual:@"nif"]);
+    assert([MSIMEPreeditWithoutHelpcodeTrigger(@"ni'/F", @"ni'F", (@{@"key": @"/", @"position": @3})) isEqual:@"ni'F"]);
+    assert([MSIMEPreeditWithoutHelpcodeTrigger(@"ni'FR", @"niFR", nil) isEqual:@"ni'FR"]);
+    // 引擎在末尾对不上码时不插，这里也不删别的字符。
+    assert([MSIMEPreeditWithoutHelpcodeTrigger(@"ni'F", @"niF", trigger) isEqual:@"ni'F"]);
+    assert([MSIMEPreeditWithoutHelpcodeTrigger(@"ni;", @"ni", (@{@"key": @";", @"position": @3})) isEqual:@"ni;"]);
 }
 
 int main() {

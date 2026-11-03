@@ -764,7 +764,9 @@ static NSArray<NSDictionary *> *MSIMESessionTranslations(NSArray<NSDictionary *>
 static NSString *const MSIMEPinnedCandidatesPreferenceKey = @"MSIMEClientPinnedCandidates";
 
 static NSString *MSIMECandidatePinCode(NSDictionary *view) {
-    NSString *code = [view[@"preedit"] isKindOfClass:NSString.class] ? view[@"preedit"] : nil;
+    // 辅助码前导键只是显示，按下它不该换掉这个码下的置顶（#10731）。
+    NSString *code = [view[@"preedit"] isKindOfClass:NSString.class]
+        ? MSIMEPreeditWithoutHelpcodeTrigger(view[@"preedit"], view[@"editing_text"], view[@"helpcode_trigger"]) : nil;
     if (code.length == 0 && [view[@"editing_text"] isKindOfClass:NSString.class]) code = view[@"editing_text"];
     return code.length > 0 ? code : @"";
 }

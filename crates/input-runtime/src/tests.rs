@@ -5891,7 +5891,7 @@ fn helpcode_trigger_reaches_the_view_json() {
     );
     let one = press(b'f');
     assert_eq!(one.view.editing_text, "niF");
-    assert_eq!(one.view.preedit, "ni;F");
+    assert_eq!(one.view.preedit, "ni';F");
     let two = press(b'r');
     assert_eq!(two.view.helpcode_trigger, None);
     assert!(serde_json::to_value(&two.view)

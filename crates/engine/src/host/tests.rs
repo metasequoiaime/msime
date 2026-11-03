@@ -1049,8 +1049,8 @@ fn helpcode_trigger_reaches_the_host_snapshot() {
     );
     type_text(&mut session, b"f");
     let snapshot = session.snapshot().unwrap();
-    assert_eq!(snapshot.preedit, "ni;F");
-    assert_eq!(snapshot.preedit_caret, 4);
+    assert_eq!(snapshot.preedit, "ni';F");
+    assert_eq!(snapshot.preedit_caret, 5);
     assert_eq!(snapshot.editing_text, "niF");
     type_text(&mut session, b"r");
     let snapshot = session.snapshot().unwrap();

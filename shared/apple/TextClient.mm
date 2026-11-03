@@ -46,6 +46,22 @@ static NSString *MSIMEEditingWithHelpcodeTrigger(NSString *editing, id trigger, 
     return [editing stringByReplacingCharactersInRange:NSMakeRange(position, 0) withString:key];
 }
 
+// Engine 把前导键紧挨着插在 preedit 末尾已输入的码前面，只插不删；码的位数是 editing_text 长度减 position。
+NSString *MSIMEPreeditWithoutHelpcodeTrigger(NSString *preedit, id editing, id trigger) {
+    if (![preedit isKindOfClass:NSString.class] || ![editing isKindOfClass:NSString.class] ||
+        ![trigger isKindOfClass:NSDictionary.class]) return preedit;
+    NSString *key = ((NSDictionary *)trigger)[@"key"];
+    NSUInteger position = 0;
+    if (![key isKindOfClass:NSString.class] || !key.length ||
+        !MSIMEStrictCaretPosition(((NSDictionary *)trigger)[@"position"], &position) ||
+        position > [(NSString *)editing length]) return preedit;
+    const NSUInteger codes = [(NSString *)editing length] - position;
+    if (preedit.length < codes + key.length) return preedit;
+    const NSRange range = NSMakeRange(preedit.length - codes - key.length, key.length);
+    if (![[preedit substringWithRange:range] isEqualToString:key]) return preedit;
+    return [preedit stringByReplacingCharactersInRange:range withString:@""];
+}
+
 static NSString *MSIMEPreeditLetters(NSString *text) {
     NSMutableString *letters = [NSMutableString string];
     for (NSUInteger i = 0; i < text.length; ++i) {

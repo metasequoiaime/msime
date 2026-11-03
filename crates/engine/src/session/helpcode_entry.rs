@@ -83,14 +83,13 @@ impl InputSession {
         })
     }
 
-    /// 把前导键插进显示用的 `preedit`，放在末尾已输入的辅助码前面。各种显示里辅助码都在 `preedit` 末尾（`ni'F`、`niF`、双拼拼音分词的 `ni'f`），引擎为隔开辅助码插的 `'` 由前导键顶替（`ni;F`），用户自己打的 `'` 保留（`ni';F`）。末尾对不上辅助码时不插，宁可不显示也不画错位置。
+    /// 把前导键插进显示用的 `preedit`，紧挨在末尾已输入的辅助码前面。各种显示里辅助码都在 `preedit` 末尾（`ni'F`、`niF`、双拼拼音分词的 `ni'f`），插进去是 `ni';F`、`ni;F`、`ni';f`。只插不删：引擎为隔开辅助码画的 `'` 留着，宿主（macOS 的置顶按 `preedit` 记码）因此能按 `editing_text` 里码的位数把前导键原样摘掉，拿回不含它的拼写。末尾对不上辅助码时不插，宁可不显示也不画错位置。
     pub(super) fn preedit_with_helpcode_trigger(
         &self,
         preedit: String,
         trigger: HelpcodeTrigger,
     ) -> String {
-        let raw = self.raw_with_cases();
-        let Some(codes) = raw.get(trigger.position..) else {
+        let Some(codes) = self.raw_with_cases().get(trigger.position..) else {
             return preedit;
         };
         let Some(split) = preedit.len().checked_sub(codes.len()) else {
@@ -99,15 +98,8 @@ impl InputSession {
         if !preedit.is_char_boundary(split) || !preedit[split..].eq_ignore_ascii_case(codes) {
             return preedit;
         }
-        let (mut head, tail) = preedit.split_at(split);
-        let typed_separator = raw.as_bytes()[..trigger.position].last() == Some(&b'\'');
-        if !codes.is_empty() && !typed_separator {
-            head = head.strip_suffix('\'').unwrap_or(head);
-        }
-        let mut shown = String::with_capacity(preedit.len() + 1);
-        shown.push_str(head);
-        shown.push(trigger.key);
-        shown.push_str(tail);
+        let mut shown = preedit;
+        shown.insert(split, trigger.key);
         shown
     }
 
