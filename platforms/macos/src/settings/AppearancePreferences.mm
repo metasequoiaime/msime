@@ -2,6 +2,7 @@
 #import "SettingsLayout.h"
 #import "../backend/account/BackendAccountEntry.h"
 #import "../candidate/CandidateFontCache.h"
+#import "../candidate/CandidateFontWeight.h"
 #import "../candidate/CandidateSkinPreviewView.h"
 #import "../candidate/CandidateCanvas.h"
 #import "../candidate/SkinSettingsView.h"
@@ -1157,6 +1158,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSString *_sharedFontFamily;
     id _sharedCandidateEnglishFont;
     NSArray<NSString *> *_sharedFallbackFonts;
+    /// 共享文档的 `candidate_font_weight`，nil 表示文档里没有（常规）。macOS 还没有设置它的界面，只读不写。
+    NSString *_sharedCandidateFontWeight;
     NSSwitch *_inputModeHUDToggle;
     NSSwitch *_inputModeStatusItemToggle;
     NSSwitch *_appLogoToggle;
@@ -2866,6 +2869,9 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     id value = _sharedCandidateEnglishFont ?: [_defaults objectForKey:CandidateEnglishFontKey];
     return ValidFontFamily(value) ? value : nil;
 }
+- (NSString *)candidateFontWeight {
+    return _sharedCandidateFontWeight ?: @"regular";
+}
 - (NSString *)candidateTextColor {
     id value = _sharedTextColor ?: [_defaults objectForKey:TextColorKey];
     return ValidTextColor(value) ? value : nil;
@@ -3022,6 +3028,8 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     // Resolve a family without silently substituting a different installed family.
     // Preserve unavailable cross-platform names in preferences. Resolve installed
     // supplementary families in order, retaining system fallback at the end.
+    // 共享的候选字重作用于链上每一个字体族和最后的系统字体；族里没有这一档时用族里就近的字面。
+    const NSFontWeight weight = MSIMECandidateFontWeightValue(self.candidateFontWeight);
     NSMutableArray<NSFontDescriptor *> *resolved = [NSMutableArray array];
     NSMutableArray<NSString *> *families = [NSMutableArray array];
     if (englishFirst && self.candidateEnglishFont.length) [families addObject:self.candidateEnglishFont];
@@ -3029,10 +3037,10 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     [families addObjectsFromArray:self.fallbackFonts];
     // The family list is read afresh on every call so writes from other processes apply; only the per-family match is cached.
     for (NSString *family in families) {
-        NSFontDescriptor *matched = MSIMEInstalledFontFamilyDescriptor(family);
+        NSFontDescriptor *matched = MSIMEInstalledFontFamilyDescriptorWithWeight(family, weight);
         if (matched) [resolved addObject:matched];
     }
-    NSFont *system = [NSFont systemFontOfSize:size];
+    NSFont *system = weight == NSFontWeightRegular ? [NSFont systemFontOfSize:size] : [NSFont systemFontOfSize:size weight:weight];
     if (!resolved.count) return system;
     NSFontDescriptor *primary = resolved.firstObject;
     [resolved removeObjectAtIndex:0];
@@ -3342,6 +3350,10 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     else if (ValidFontFamily(englishFamily)) _sharedCandidateEnglishFont = [englishFamily copy];
     id fallbacks = preferences[@"candidate_fallback_fonts"];
     if (ValidFallbackFonts(fallbacks)) _sharedFallbackFonts = [[NSArray alloc] initWithArray:fallbacks copyItems:YES];
+    // 共享序列化在常规时不写这个键，所以缺省一律读作常规；认不出的值不改现在画的字重。
+    id fontWeight = preferences[@"candidate_font_weight"];
+    if (!fontWeight) _sharedCandidateFontWeight = nil;
+    else if ([MSIMECandidateFontWeightIds() containsObject:fontWeight]) _sharedCandidateFontWeight = [fontWeight copy];
     id preeditFont = preferences[@"candidate_preedit_font_size"];
     id preeditStyle = preferences[@"candidate_preedit_style"];
     if (ValidCandidateStyleInteger(preeditFont, 12, 32)) _sharedPreeditFontSize = preeditFont;

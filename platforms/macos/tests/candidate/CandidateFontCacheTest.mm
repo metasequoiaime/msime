@@ -56,6 +56,27 @@ static void TestUnavailableFamilyKeysAreReleased() {
     assert(newestFamily == nil);
 }
 
+static void TestWeightedFamilies() {
+    // 常规字重就是原来的族匹配，连缓存里的描述符都是同一个，默认画法不变。
+    assert(MSIMEInstalledFontFamilyDescriptorWithWeight(@"Helvetica", NSFontWeightRegular) == MSIMEInstalledFontFamilyDescriptor(@"Helvetica"));
+    // 选了粗体就落到这个族自己的粗体字面，结果按族和字重一起缓存。
+    NSFontDescriptor *bold = MSIMEInstalledFontFamilyDescriptorWithWeight(@"Helvetica", NSFontWeightBold);
+    assert(bold);
+    NSFont *boldFont = [NSFont fontWithDescriptor:bold size:18];
+    assert([boldFont.familyName isEqual:@"Helvetica"]);
+    assert(boldFont.fontDescriptor.symbolicTraits & NSFontDescriptorTraitBold);
+    assert(![[NSFont fontWithDescriptor:MSIMEInstalledFontFamilyDescriptor(@"Helvetica") size:18].fontName isEqual:boldFont.fontName]);
+    assert(MSIMEInstalledFontFamilyDescriptorWithWeight(@"Helvetica", NSFontWeightBold) == bold);
+    // 族里没有这一档字面时退回族里就近的字面，不换成别的族，也不合成加粗。
+    NSFontDescriptor *regularOnly = MSIMEInstalledFontFamilyDescriptor(@"Academy Engraved LET");
+    assert(regularOnly);
+    NSFontDescriptor *nearest = MSIMEInstalledFontFamilyDescriptorWithWeight(@"Academy Engraved LET", NSFontWeightBold);
+    assert(nearest);
+    assert([[NSFont fontWithDescriptor:nearest size:18].fontName isEqual:[NSFont fontWithDescriptor:regularOnly size:18].fontName]);
+    // 没装的族不论字重都是 nil。
+    assert(!MSIMEInstalledFontFamilyDescriptorWithWeight(@"MSIME Synthetic Unavailable Family", NSFontWeightBold));
+}
+
 int main() {
     @autoreleasepool {
         [NSApplication sharedApplication];
@@ -100,6 +121,7 @@ int main() {
         [NSFileManager.defaultManager removeItemAtURL:directory error:nil];
 
         TestUnavailableFamilyKeysAreReleased();
+        TestWeightedFamilies();
 
         // Lookups and clears from many threads at once neither crash nor return a wrong family.
         NSFontDescriptor *helvetica = MSIMEInstalledFontFamilyDescriptor(@"Helvetica");

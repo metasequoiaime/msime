@@ -9,6 +9,7 @@
 #include "msime_client.h"
 #include "../../../common/HostApiString.h"
 #import "../candidate/CandidatePlacement.h"
+#import "../candidate/CandidateFontWeight.h"
 #import "../candidate/CandidateWindowLevel.h"
 #import "../candidate/CandidateGlossSenses.h"
 #import "InputSourceRegistration.h"
@@ -1002,7 +1003,7 @@ static double MSIMEDecorationMotionMargin(const msime::mac::ResolvedSkin &skin) 
     return skin.decorationMotion != msime::mac::DecorationMotion::none ? msime::mac::kDecorationMotionMargin : 0.0;
 }
 
-// The reading in the candidate window's top row is set semibold (dc.html L1325) at the size the user picked for it. A resolved family is named by its face (Menlo-Regular), which pins the weight, so the face is swapped for the family and the fallback cascade is kept; a family whose nearest heavier face is bold draws bold, and one with no heavier face keeps its regular one.
+// 候选窗首行的拼音用半粗（dc.html L1325）、用户给它选的字号；候选字重选得比半粗更粗时跟到同一档（`MSIMECandidatePreeditFontWeightValue`）。解析出的字体以字面命名（Menlo-Regular），字面名会钉死字重，所以换回族名并保留回退链；族里最近的更粗字面是粗体就画粗体，没有更粗字面的保留它自己的字面。
 static NSFont *MSIMECandidatePreeditFont(MSIMEAppearancePreferences *appearance) {
     const CGFloat size = appearance.preeditFontSize * MSIMECandidateScale(appearance);
     NSFont *regular = [appearance candidateFontOfSize:size englishFirst:YES];
@@ -1011,7 +1012,7 @@ static NSFont *MSIMECandidatePreeditFont(MSIMEAppearancePreferences *appearance)
         [attributes removeObjectForKey:NSFontNameAttribute];
         attributes[NSFontFamilyAttribute] = regular.familyName;
     }
-    attributes[NSFontTraitsAttribute] = @{NSFontWeightTrait: @(NSFontWeightSemibold)};
+    attributes[NSFontTraitsAttribute] = @{NSFontWeightTrait: @(MSIMECandidatePreeditFontWeightValue(appearance.candidateFontWeight))};
     return [NSFont fontWithDescriptor:[NSFontDescriptor fontDescriptorWithFontAttributes:attributes] size:size] ?: regular;
 }
 

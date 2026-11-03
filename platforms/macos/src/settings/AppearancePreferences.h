@@ -79,6 +79,8 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 /// Optional leading face for Latin glyphs in the candidate cascade.
 @property(nonatomic, copy) NSString *candidateEnglishFont;
 @property(nonatomic, copy) NSArray<NSString *> *fallbackFonts;
+/// 共享偏好 `candidate_font_weight`：`regular`（缺省）、`medium`、`semibold` 或 `bold`，-candidateFontOfSize: 画出的全部候选窗文字都用它，预编辑行至少半粗。macOS 的设置界面还没有这一项，经 MCP 的 `update_preferences` 或偏好文档设置。
+@property(nonatomic, readonly) NSString *candidateFontWeight;
 - (NSFont *)candidateFontOfSize:(CGFloat)size;
 - (NSFont *)candidateFontOfSize:(CGFloat)size englishFirst:(BOOL)englishFirst;
 @property(nonatomic) NSUInteger preeditFontSize;
