@@ -5275,6 +5275,7 @@ group("the resolve request drops the number and border colours the host does not
       number: "#123456",
       accent: "#203040",
       selected: "#304050",
+      selected_text: "#7B3FBF",
       hover: "#405060",
       surface: "#506070",
       border: "#654321",
@@ -5287,6 +5288,7 @@ group("the resolve request drops the number and border colours the host does not
         text: "#102030",
         accent: "#203040",
         selected: "#304050",
+        selected_text: "#7B3FBF",
         hover: "#405060",
         surface: "#506070",
       }),
@@ -5304,6 +5306,32 @@ group("the resolve request drops the number and border colours the host does not
   check(
     GlobalTheme.hostDrawnCustomTheme(plain) === plain,
     "a theme without colours passes through",
+  );
+});
+
+// #10740：手机和平板的触屏候选条照旧用键盘配色，只有选了自定义主题、设了候选选中文字色时，首选候选的字换成它。
+group("the touch strip takes the picked selected text only under the custom theme", () => {
+  const custom = { base: "paper", candidate_colors: { selected_text: "#7b3fbf" } };
+  check(
+    GlobalTheme.touchSelectedText("custom", custom) === "#7B3FBF",
+    "the picked colour reaches the strip",
+  );
+  check(
+    GlobalTheme.touchSelectedText("paper", custom) === null,
+    "another global theme keeps the keyboard colour",
+  );
+  check(
+    GlobalTheme.touchSelectedText("custom", { base: "paper" }) === null,
+    "no picker keeps the keyboard colour",
+  );
+  check(
+    GlobalTheme.touchSelectedText("custom", undefined) === null,
+    "no custom theme keeps the keyboard colour",
+  );
+  check(
+    GlobalTheme.touchSelectedText("custom", { candidate_colors: { selected_text: "purple" } }) ===
+      null,
+    "a value that is not #RRGGBB is not drawn",
   );
 });
 
