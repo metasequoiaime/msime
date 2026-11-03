@@ -5,10 +5,11 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace msime::windows {
-// What a tray entry asks a desktop surface to open. Settings uses the native WinUI 3 process; panels use the shared Tauri process. Both hosts read the same `--route=` argument, so routing remains one small protocol.
+// 托盘一行要桌面界面打开什么。设置由原生 WinUI 3 进程承载；面板由共享 Tauri 进程或原生面板宿主承载（见下面的 PanelHost）。各宿主读同一个 `--route=` 参数，路由始终是同一个小协议。
 struct ShellSurfaceRequest {
   // Panel route head. Empty opens the settings window itself.
   std::string panel;
@@ -98,23 +99,44 @@ inline std::string shell_surface_route(const ShellSurfaceRequest &request) {
   return request.panel;
 }
 
-// 同仓 Win7 包使用系统原生窗口；普通包继续使用 WinUI 设置与共享面板。由构建明确选定，不能按目录残留文件猜测。
+// 现代 Windows 包里承载面板的进程。Shared 是 Tauri/WebView2 的 MSIME.exe，Native 是由 panels/win7 同一份源码编出的 msime-client-panels.exe；全部界面改为原生的迁移期间两者都随包安装，缺省仍是 Shared。
+enum class PanelHost { Shared, Native };
+// 选择面板宿主的环境变量。Server 启动时读一次，设置窗口每次打开面板时读；值是 native（不分大小写）才选原生宿主，没设、为空或任何别的值都按 Shared，拼错不会让面板消失。
+inline constexpr wchar_t panel_host_variable[] = L"MSIME_WINDOWS_PANEL_HOST";
+inline PanelHost panel_host_from_setting(std::wstring_view value) {
+  static constexpr std::wstring_view native = L"native";
+  if (value.size() != native.size())
+    return PanelHost::Shared;
+  for (size_t i = 0; i < value.size(); ++i) {
+    wchar_t c = value[i];
+    if (c >= L'A' && c <= L'Z')
+      c = static_cast<wchar_t>(c - L'A' + L'a');
+    if (c != native[i])
+      return PanelHost::Shared;
+  }
+  return PanelHost::Native;
+}
+
+// 同仓 Win7 包使用系统原生窗口；普通包继续使用 WinUI 设置，面板按 panel_host 选共享面板或原生面板宿主。产品类型由构建明确选定，面板宿主由调用方读到的开关选定，都不能按目录残留文件猜测。Win7 包只有原生面板，忽略 panel_host。
 inline std::vector<std::wstring>
-shell_executable_names(const ShellSurfaceRequest &request) {
+shell_executable_names(const ShellSurfaceRequest &request, PanelHost panel_host) {
 #if defined(MSIME_WINDOWS7_CLIENT) && MSIME_WINDOWS7_CLIENT
+  (void)panel_host;
   if (request.panel.empty())
     return {L"msime-client-settings-win7.exe"};
   return {L"msime-client-panels-win7.exe"};
 #else
   if (request.panel.empty())
     return {L"msime-client-settings.exe"};
+  if (panel_host == PanelHost::Native)
+    return {L"msime-client-panels.exe"};
   return {L"MSIME.exe"};
 #endif
 }
 inline std::optional<std::filesystem::path>
 shell_executable(const std::filesystem::path &directory,
                  const std::wstring &configured,
-                 const ShellSurfaceRequest &request) {
+                 const ShellSurfaceRequest &request, PanelHost panel_host) {
   std::error_code error;
   if (request.panel.empty() && !configured.empty()) {
     const std::filesystem::path path(configured);
@@ -124,7 +146,7 @@ shell_executable(const std::filesystem::path &directory,
   }
   if (directory.empty() || !directory.is_absolute())
     return std::nullopt;
-  for (const auto &name : shell_executable_names(request)) {
+  for (const auto &name : shell_executable_names(request, panel_host)) {
     const auto path = directory / name;
     if (std::filesystem::is_regular_file(path, error))
       return path;
