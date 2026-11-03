@@ -5,6 +5,20 @@ use super::*;
 const KEY_WIDTH: f32 = 100.0;
 const KEY_HEIGHT: f32 = 150.0;
 
+#[test]
+fn an_english_word_uses_the_shared_geometry_and_collapses_repeated_letters() {
+    for word in ["hello", "meeting", "women", "world"] {
+        let matcher = GlideMatcher::new(&keyboard(), &stroke(word, 0.1, &[])).unwrap();
+        let score = matcher.score(word).unwrap();
+        assert!(score.is_finite(), "{word}");
+        assert!(matcher.score("zqxzqx").is_none_or(|wrong| score < wrong));
+    }
+    let points = stroke("helo", 0.0, &[]);
+    let matcher = GlideMatcher::new(&keyboard(), &points).unwrap();
+    assert_eq!(matcher.score("hello"), matcher.score("helo"));
+    assert!(matcher.score("hello-world").is_none());
+}
+
 /// 各移动宿主画的 26 键布局：第二行缩进半个键，第三行越过 Shift 缩进一个半键。
 pub(crate) fn keyboard() -> GlideKeyboard {
     let rows: [(&[u8], f32); 3] = [(b"qwertyuiop", 0.0), (b"asdfghjkl", 0.5), (b"zxcvbnm", 1.5)];

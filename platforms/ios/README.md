@@ -216,6 +216,14 @@ platforms/ios/build-native.sh simulator
 platforms/ios/build-app.sh "$resource_dir" simulator
 ```
 
+### 中英混合滑行
+
+在「首页 → 键盘 → 手势」打开「滑行输入」和「中英混合滑行」。混合滑行默认关闭，只保存在本机。启用后可在中文全拼 26 键上交替滑入中文和英文，无需切换语言；连续滑行会保留整段组字，点击候选、空格或回车确认当前高亮项后才输入正文。确认候选的这次回车不追加换行，组字结束后恢复输入框原来的回车动作。输入标点前先选词。
+
+`women` 可能同时对应「我们」和英文 `women`，可在候选栏改选。长英文候选会为其它备选留出空间，完整词形可展开查看。英文候选保留有用的中文释义，隐藏重复的英文译文及解码拼写。混合滑行候选不参与个人词库学习；普通中文滑行和键入不受影响。
+
+设计与兼容边界见[中英文滑行](../../.agents/notes/implemented/feature/2026-11-03-bilingual-glide.md)。
+
 ## 真机签名构建
 
 产品宿主 `MSIMEApp` 的装机走 XcodeGen 工程加 CocoaPods workspace。`build-app.sh … device` 固定 `CODE_SIGNING_ALLOWED=NO`，只验证编译与打包，产物装不上真机；要装机就直接调 `xcodebuild` 并允许签名：

@@ -97,6 +97,19 @@ impl InputSession {
 
     /// 前缀或引擎候选经过个人上下文重排，再混入英文、表情、颜文字并应用固定位置。
     pub(super) fn update_mixed_candidates(&mut self) {
+        if !self.has_composition() {
+            self.glide_selection_pending = false;
+        }
+        if let Some((spelling, _)) = &self.glide_candidates {
+            if self.local_mode == LocalInputMode::None
+                && !self.dedicated_english
+                && self.raw_with_cases() == spelling
+                && self.caret_position() == spelling.len()
+            {
+                return;
+            }
+        }
+        self.glide_candidates = None;
         self.multilingual_conversion = None;
         if self.update_literal_candidates() {
             return;
