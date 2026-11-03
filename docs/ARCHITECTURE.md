@@ -36,6 +36,8 @@ crates/engine                  同上，只经核心层 `Session`
 
 设置界面按平台分属两套实现：macOS、Linux 与 HarmonyOS 用 `packages/ui` 的共享 React 设置页，Windows、iOS 与 Android 发布包用各自的原生设置界面。决定的理由和放弃的方案见[决策笔记](../.agents/notes/implemented/architecture/2026-10-15-settings-ui-ownership-by-platform.md)。
 
+**方向：所有界面改为原生，不再使用 WebView。** 2026-11-03 决定六个平台的设置和面板都迁到原生，按 Windows → macOS → HarmonyOS → Linux 的顺序，迁完后删除 Tauri、`packages/ui` 与 `apps/desktop`（`@msime/web-engine` 不受影响）。下表是迁移完成前的现状。迁移期间新的设置功能先把规则写进共享 Rust，再在已有原生设置的平台上实现界面，`packages/ui` 只修缺陷。终态、步骤和风险见[全部界面改为原生](../.agents/notes/proposed/architecture/2026-11-03-all-native-ui.md)。
+
 | 平台 | 设置界面 | 入口与承载 |
 | --- | --- | --- |
 | macOS | 共享 React 设置页 | 输入法菜单的设置项以 `--route=settings:<类别>` 拉起 Tauri 设置应用 `app.msime.macos`（`platforms/macos/src/core/DesktopSettingsLauncher.h`） |
