@@ -34,6 +34,18 @@ static NSUInteger MSIMEScalarOffset(NSString *text, id value) {
     return offset;
 }
 
+// 辅助码前导键不在按键原文里（View.helpcode_trigger，#10731）：画原文时把它插回 position 处，光标不在它前面时跟着后移。按键原文是 ASCII，position 的字节偏移就是 UTF-16 下标。字段不合法时原样返回。
+static NSString *MSIMEEditingWithHelpcodeTrigger(NSString *editing, id trigger, NSUInteger *caret) {
+    if (![trigger isKindOfClass:NSDictionary.class]) return editing;
+    NSString *key = ((NSDictionary *)trigger)[@"key"];
+    NSUInteger position = 0;
+    if (![key isKindOfClass:NSString.class] || !key.length ||
+        !MSIMEStrictCaretPosition(((NSDictionary *)trigger)[@"position"], &position) || position > editing.length)
+        return editing;
+    if (*caret >= position) *caret += key.length;
+    return [editing stringByReplacingCharactersInRange:NSMakeRange(position, 0) withString:key];
+}
+
 static NSString *MSIMEPreeditLetters(NSString *text) {
     NSMutableString *letters = [NSMutableString string];
     for (NSUInteger i = 0; i < text.length; ++i) {
@@ -226,8 +238,8 @@ void MSIMEApplyTransitionWithCommitObserver(NSDictionary *transition, id<MSIMETe
         caret = start;
         focus = NSMakeRange(start, end - start);
     } else if (style == MSIMEInlinePreeditStyleRaw) {
-        marked = editing;
         caret = validCaret ? MIN(rawCaret, editing.length) : editing.length;
+        marked = MSIMEEditingWithHelpcodeTrigger(editing, view[@"helpcode_trigger"], &caret);
     } else if (style == MSIMEInlinePreeditStyleEmpty) {
         marked = @"";
         caret = 0;

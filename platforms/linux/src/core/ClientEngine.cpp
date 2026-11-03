@@ -16,6 +16,7 @@
 #include "NativeCompose.h"
 #include "PhrasePreedit.h"
 #include "CaretEditSuffix.h"
+#include "HelpcodeTrigger.h"
 #include "JapaneseConversion.h"
 #include "KoreanHanja.h"
 #include "InputSchemes.h"
@@ -4359,6 +4360,9 @@ void render(IBusEngine *engine, const Json &view) {
             reading, caret, view.value("editing_text", std::string{}).size())) {
       text = reading;
       caret = reading.size();
+    } else if (style == "raw" && !always_inline) {
+      // 按键原文里没有辅助码前导键，画原文时插回去，光标跟着后移（#10731）。
+      msime::linux_host::insert_helpcode_trigger(view, text, caret);
     }
     // A phrase being assembled leads the reading, exactly as the reference draws
     // `word_for_creating_word`, so the piece the user has already picked is on screen instead of
