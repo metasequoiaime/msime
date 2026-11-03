@@ -21,7 +21,9 @@ final class DesignInfoBubbleTests: XCTestCase {
     XCTAssertGreaterThan(wrapped, Self.font.lineHeight * 5, "the fixture has to wrap to many lines to mean anything")
 
     let size = try idealSize(DesignInfoBubble(text: Self.longHint))
-    XCTAssertEqual(size.width, DesignInfoBubble.maxTextWidth + Self.horizontalPadding, accuracy: 1)
+    // 具体字体的最长一行可能比上限短一两个点；只要求长说明使用接近上限的布局，且绝不能超出气泡上限。
+    XCTAssertGreaterThan(size.width, DesignInfoBubble.maxTextWidth + Self.horizontalPadding - 2)
+    XCTAssertLessThanOrEqual(size.width, DesignInfoBubble.maxTextWidth + Self.horizontalPadding)
     // 允许 SwiftUI 与 TextKit 的行高差一点，但不能少掉一整行。
     XCTAssertGreaterThan(size.height, wrapped + Self.verticalPadding - Self.font.lineHeight, "bubble \(size) cuts off wrapped lines")
   }
