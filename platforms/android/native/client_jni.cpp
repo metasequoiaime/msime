@@ -938,6 +938,9 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_clearOnlineCand
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_destroyRaw(JNIEnv *env, jclass, jlong handle) {
     return response(env, msime_client_destroy(static_cast<uint64_t>(handle)));
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_flushAllRaw(JNIEnv *env, jclass) {
+    return response(env, msime_client_flush_all());
+}
 }
 
 // ---- on-device speech recognition ----
