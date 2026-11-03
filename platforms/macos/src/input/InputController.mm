@@ -5751,6 +5751,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
 }
 - (void)voiceCaptureEngineDidStart {
     if (!_globalVoiceClient) { [self voiceCaptureDidStart]; return; }
+    os_log(OS_LOG_DEFAULT, "MSIME global voice: microphone engine started");
     // 全局录音在第一份有效 PCM 到达后才展示波形和提示音，不能把引擎启动成功当成已经收到声音。
     const NSUInteger epoch = ++_voiceCaptureEpoch;
     const uint64_t generation = _voiceGeneration;

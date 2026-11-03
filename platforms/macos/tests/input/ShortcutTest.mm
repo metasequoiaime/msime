@@ -14308,6 +14308,39 @@ static void TestGlobalVoiceBoundaries() {
     }
 
     {
+        GlobalVoiceTargetProbe *target = [GlobalVoiceTargetProbe new]; target.pid = 42;
+        GlobalVoiceSessionProbe *probe = [[GlobalVoiceSessionProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)target; }];
+        probe.application = [GlobalVoiceApplicationProbe new]; probe.application.processIdentifier = 42;
+        probe.clock = 1; probe.focus = [NSObject new]; probe.source = @"com.apple.keylayout.ABC";
+        id original = probe.focus;
+        [probe begin:YES];
+        probe.source = @"synthetic.msime.Hans"; probe.focus = [NSObject new];
+        [probe advance];
+        // 切源期间临时报告其他 AX 元素时继续等待，但不能对该元素启动或取得插入权限。
+        assert(target.starts == 0 && [probe valueForKey:@"sessionPoll"] != nil);
+        assert(MSIMEGlobalVoiceHost().owner == nil && MSIMEGlobalVoiceHost().sessionToken == nil);
+        probe.clock += 0.2; probe.focus = original;
+        [probe advance];
+        assert(target.starts == 1 && target.busy);
+        // 真正开始录音后换元素仍立即停止，不能把等待窗口扩大为跨字段录音。
+        probe.focus = [NSObject new];
+        [probe advance];
+        assert(target.detachments == 1);
+        [probe cancel];
+    }
+    {
+        GlobalVoiceTargetProbe *target = [GlobalVoiceTargetProbe new]; target.pid = 42;
+        GlobalVoiceSessionProbe *probe = [[GlobalVoiceSessionProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)target; }];
+        probe.application = [GlobalVoiceApplicationProbe new]; probe.application.processIdentifier = 42;
+        probe.clock = 1; probe.focus = [NSObject new]; probe.source = @"com.apple.keylayout.ABC";
+        [probe begin:NO];
+        probe.source = @"synthetic.msime.Hans"; probe.focus = [NSObject new];
+        [probe advance]; probe.clock = 4.1; [probe advance];
+        assert(target.starts == 0 && [probe valueForKey:@"sessionPoll"] == nil);
+        assert([probe.selected isEqual:@"com.apple.keylayout.ABC"]);
+    }
+
+    {
         AXUIElementRef system = AXUIElementCreateSystemWide();
         AXUIElementRef application = AXUIElementCreateApplication(getpid());
         AXUIElementRef field = AXUIElementCreateApplication(getpid());

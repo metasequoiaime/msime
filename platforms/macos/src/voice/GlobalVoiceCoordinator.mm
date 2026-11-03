@@ -179,6 +179,7 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
     BOOL _snapshotErrorShown;
     NSTimeInterval _missingFocusSince;
     BOOL _starting;
+    NSInteger _waitReason;
 }
 - (instancetype)initWithTarget:(id<MSIMEGlobalVoiceTarget> (^)(void))target {
     if (!(self = [super init])) return nil;
@@ -526,7 +527,7 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
     if ([target globalVoiceBusy]) return;
     if (!_state.begin(source.UTF8String, application.processIdentifier, [self monotonicTime])) return;
     _application = application; _focusIdentity = focus; _holding = holding; _requiresHold = holding; _locked = NO;
-    _missingFocusSince = 0;
+    _missingFocusSince = 0; _waitReason = -1;
     _state.selected = selected.UTF8String;
     const auto generation = _state.generation;
     os_log(OS_LOG_DEFAULT, "MSIME global voice: source switch requested");
@@ -536,6 +537,12 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
     __weak MSIMEGlobalVoiceCoordinator *weakSelf = self;
     _sessionPoll = [NSTimer scheduledTimerWithTimeInterval:0.05 repeats:YES block:^(NSTimer *timer) { (void)timer; [weakSelf advance]; }];
     [self advance];
+}
+// 1 切源、2 控制器、3 焦点、4 客户端、5 忙、6 等原焦点恢复；不记录元素身份或输入。
+- (void)waitingFor:(NSInteger)reason {
+    if (_waitReason == reason) return;
+    _waitReason = reason;
+    os_log(OS_LOG_DEFAULT, "MSIME global voice: waiting gate=%{public}ld", (long)reason);
 }
 - (void)advance {
     if (_starting) return;
@@ -547,13 +554,22 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
         const BOOL arrived = _state.observeWaitingSource(source.UTF8String ?: "", [self isOwnSourceIdentifier:source]);
         if (_state.manual) { [self cancel]; return; }
         if (!arrived) {
+            [self waitingFor:1];
             if (_state.timedOut([self monotonicTime])) { [self cancel]; [self showFailure:@"输入法切换未能完成，已取消语音。请重试。"]; }
             return;
         }
         id<MSIMEGlobalVoiceTarget> target = _target();
         id focus = [self focusIdentity];
-        if (focus && _focusIdentity && !CFEqual((__bridge CFTypeRef)focus, (__bridge CFTypeRef)_focusIdentity)) { [self cancel]; return; }
-        if (target && focus && [target globalVoiceTargetPID] == _state.targetPID && ![target globalVoiceBusy]) {
+        if (focus && _focusIdentity && !CFEqual((__bridge CFTypeRef)focus, (__bridge CFTypeRef)_focusIdentity)) {
+            // 切源时 Web 编辑器可能暂时报出另一元素；原元素回来前不录音，也不改变插入目标。
+            [self waitingFor:6];
+            if (_state.timedOut([self monotonicTime])) {
+                [self cancel]; [self showFailure:@"输入位置已改变，已取消语音。请重新聚焦后重试。"];
+            }
+            return;
+        }
+        const pid_t targetPID = target && focus ? [target globalVoiceTargetPID] : 0;
+        if (target && focus && targetPID == _state.targetPID && ![target globalVoiceBusy]) {
             const auto generation = _state.generation;
             _owner = target; MSIMEGlobalVoiceHost().owner = target; MSIMEGlobalVoiceHost().focusIdentity = _focusIdentity;
             MSIMEGlobalVoiceHost().sessionToken = [NSObject new];
@@ -573,8 +589,11 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
                 MSIMEGlobalVoiceHost().sessionToken = nil;
                 if (_state.timedOut([self monotonicTime])) { [self cancel]; [self showFailure:@"输入位置尚未就绪，已取消语音。请重试。"]; }
             }
-        } else if (_state.timedOut([self monotonicTime])) {
-            [self cancel]; [self showFailure:@"没有获得可编辑的输入位置，已取消语音。"];
+        } else {
+            [self waitingFor:!target ? 2 : !focus ? 3 : targetPID != _state.targetPID ? 4 : 5];
+            if (_state.timedOut([self monotonicTime])) {
+                [self cancel]; [self showFailure:@"没有获得可编辑的输入位置，已取消语音。"];
+            }
         }
         return;
     }
@@ -619,6 +638,8 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
     [self complete];
 }
 - (void)complete {
+    os_log(OS_LOG_DEFAULT, "MSIME global voice: complete phase=%{public}d owner=%{public}d busy=%{public}d",
+        (int)_state.phase, _owner != nil, _owner && [_owner globalVoiceBusy]);
     NSString *source = [self currentSourceIdentifier];
     NSString *original = [NSString stringWithUTF8String:_state.original.c_str()];
     BOOL restore = _state.canRestore(source.UTF8String ?: "");
