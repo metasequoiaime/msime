@@ -69,7 +69,7 @@ Tauri 在 macOS、Linux 和现代 Windows 上还承载共享面板：表情与�
 - 空列表和截断提示：「还没有应用例外」「只显示前 20 条」。
 - 紧贴按钮、讲这个按钮后果的一句话（「改回水杉账号会清除…」「卸载后默认保留词库」）和风险警告。
 
-一项暂时不能用、整行变灰时，「?」照样能点开：说明往往正好在讲它为什么不能用。只禁用开关、选择或步进器本身，不要把整行（或包着几行的分组）一起禁用；iOS 的 SwiftUI `.disabled` 会传到行里的「?」，用 `DesignToggleRow`、`DesignSelectRow` 的 `enabled` 参数，`scripts/test-ios-disabled-row-info-tip.py` 检查这一条。
+一项暂时不能用、整行变灰时，「?」照样能点开：说明往往正好在讲它为什么不能用。只禁用开关、选择或步进器本身，不要把整行（或包着几行的分组）一起禁用；iOS 的 SwiftUI `.disabled` 会传到行里的「?」，用 `DesignToggleRow`、`DesignSelectRow` 的 `enabled` 参数，`scripts/test-ios-disabled-row-info-tip.py` 检查这一条。HarmonyOS 手机上整行是按钮的 `PickerRow` 平时把说明写在选项面板里，变灰时面板打不开，所以这时它不做成按钮，「?」放在标题旁。
 
 说明文字对读屏仍然可读：它以视觉隐藏的形式留在原处，控件通过 `aria-describedby`（或各平台的等价属性）读到它。「?」自己的读屏名称四端一致：有标题时是「<标题>的说明：<正文>」，没有标题时是「说明：<正文>」。
 

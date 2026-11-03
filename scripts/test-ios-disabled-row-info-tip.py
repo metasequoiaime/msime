@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """iOS 设置里变灰的行仍要能点开「?」。
 
-SwiftUI 的 `.disabled` 沿视图树向下传，加在带说明的行（或包着这些行的分区）上时，标题旁的「?」也一起被禁用，点了没反应。而这类说明往往正是在讲这一项为什么现在不能用（真机验收：iPhone XR 上「自动添加标点」「中英混输」等行变灰后「?」点不开）。带说明的行要变灰时用行自己的 `enabled:` 参数（`DesignToggleRow`、`DesignSelectRow`、候选页的 `stepperRow`、标点页的 `ruleToggle`），只禁用开关或选择本身。
+SwiftUI 的 `.disabled` 沿视图树向下传，加在带说明的行（或包着这些行的分区）上时，标题旁的「?」也一起被禁用，点了没反应。而这类说明往往正是在讲这一项为什么现在不能用（真机验收：iPhone XR 上「自动添加标点」「中英混输」等行变灰后「?」点不开）。带说明的行要变灰时用行自己的 `enabled:` 参数（`DesignToggleRow`、`DesignSelectRow`、候选页的 `stepperRow`、标点页的 `smartRule`），只禁用开关或选择本身。
 
 这里扫描 App 的 Swift 源码：找到每个 `.disabled(...)` 修饰的那一段视图表达式，表达式里只要出现不是直接写 nil 的 `info:` 就算违规。`ALLOWED` 里是忙碌时短暂整块禁用的地方（导出、同步、录音进行中），以及禁用时 `info` 本来就是 nil 的行，各自写明原因。
 """
@@ -61,7 +61,7 @@ def condition(line: str, start: int) -> str:
 
 
 def modified_expression(lines: list[str], row: int, column: int) -> str:
-    """`.disabled` 修饰的那一段视图表达式：从它往回找，括号配平、不是以 `.` 开头的修饰器行、缩进不比它深的那一行就是表达式的开头。"""
+    """`.disabled` 修饰的那一段视图表达式：从它往回找，括号配平、不是以 `.` 开头的修饰器行、缩进不比它深的那一行就是表达式的开头。只有注释或空白的行跳过，不当作开头，否则行和 `.disabled` 之间夹一句注释就看不到上面的 `info:`。"""
     line = lines[row]
     prefix = line[:column]
     depth = balance(prefix)
@@ -72,7 +72,7 @@ def modified_expression(lines: list[str], row: int, column: int) -> str:
         text = lines[index]
         parts.append(text)
         depth += balance(text)
-        stripped = text.strip()
+        stripped = code_only(text).strip()
         if depth <= 0 and stripped and not stripped.startswith(".") and indent(text) <= indent(line):
             break
     return "\n".join(reversed(parts))
@@ -139,6 +139,22 @@ class IOSDisabledRowInfoTip(unittest.TestCase):
             "            .disabled(!enabled)",
         ]
         self.assertNotIn("info:", modified_expression(sibling, 3, sibling[3].find(DISABLED)))
+        # 行和 `.disabled` 之间隔着注释或空行，照样往上找到带 `info:` 的那一行。
+        commented = [
+            '          DesignToggleRow(title: "符号混输", info: "说明", isOn: $symbols)',
+            "            // 关着时变灰",
+            "",
+            "            .disabled(!on)",
+        ]
+        self.assertIn("info:", modified_expression(commented, 3, commented[3].find(DISABLED)))
+        commented_group = [
+            '        DesignGroup(title: "智能标点", info: "说明") {',
+            "          rows",
+            "        }",
+            "        // 智能标点关着时整组变灰",
+            "        .disabled(hidden)",
+        ]
+        self.assertIn("info:", modified_expression(commented_group, 4, commented_group[4].find(DISABLED)))
         nil_info = ['        MeRow(title: "手动同步", info: signedIn ? "说明" : nil)', "        .disabled(!signedIn)"]
         self.assertTrue(INFO.search(modified_expression(nil_info, 1, nil_info[1].find(DISABLED))))
 
