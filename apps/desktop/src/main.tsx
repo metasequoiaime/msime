@@ -312,6 +312,8 @@ const client: SettingsClient = {
   readAppReleaseDate: () => invoke<string>("app_release_date"),
   resolveFontFamilies: (names) => invoke("resolve_font_families", { names }),
   scanSkinCatalog: () => invoke("scan_skin_catalog"),
+  // 「主题」页皮肤卡片上的「删除」：规则在 client-services 的 `candidate_sync::delete_unselected`，页面只给文件夹名。
+  deleteSkin: (id) => invoke("delete_skin", { id }),
   // 「制作皮肤」：两条命令都走 client-services 的 `skin::candidate_editor`，失败以 `{code, detail}` 拒绝；装进哪个目录由宿主决定。
   candidateSkinEditor: {
     check: ({ packageId, manifest, files }) =>

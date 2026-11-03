@@ -46,7 +46,8 @@ use platform::desktop::desktop_settings_sync;
 use platform::desktop::{
     desktop_account, desktop_candidate_skin_community, desktop_community_block,
     desktop_community_report, desktop_plugin_community, desktop_plugins,
-    desktop_preferences_monitor, desktop_resource_packs, desktop_typing_upload,
+    desktop_preferences_monitor, desktop_resource_packs, desktop_skin_delete,
+    desktop_typing_upload,
 };
 #[cfg(target_os = "linux")]
 use platform::linux::{
@@ -5505,6 +5506,8 @@ pub fn run() {
             scan_skin_catalog,
             candidate_skin_check,
             candidate_skin_create,
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+            desktop_skin_delete::delete_skin,
             list_helpcode_schemas,
             resolve_theme,
             validate_shuangpin_custom_profile,

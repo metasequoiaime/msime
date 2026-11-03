@@ -241,6 +241,7 @@ export function ExternalSkinCard({
   activeTheme,
   toolbarPreview,
   onPublish,
+  onDelete,
   windowStyle,
 }: {
   skin: ExternalSkin;
@@ -260,6 +261,8 @@ export function ExternalSkinCard({
   toolbarPreview: boolean;
   /** Offers the package to the community; absent on hosts without the candidate-skin community. */
   onPublish?: (id: string) => void;
+  /** 删除这款皮肤（确认框和能不能删都在调用方和宿主那里）；没有删除能力的宿主不提供，卡片上就没有「删除」。 */
+  onDelete?: (id: string) => void;
   /** 用户在「候选窗口」页设的窗口圆角和不透明度，卡片和候选窗一样画在包的几何之上；不传时按包自己的画。 */
   windowStyle?: CandidateWindowStylePreferences;
 }) {
@@ -371,6 +374,13 @@ export function ExternalSkinCard({
                 action={() => onPublish(skin.id)}
                 className={settings.skinPreviewSwitch}
                 label="发布到社区"
+              />
+            )}
+            {onDelete && (
+              <ActionButton
+                action={() => onDelete(skin.id)}
+                className={settings.skinPreviewSwitch}
+                label="删除"
               />
             )}
           </>
