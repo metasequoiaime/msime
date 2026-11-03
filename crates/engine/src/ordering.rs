@@ -8,6 +8,37 @@ use crate::SchemeType;
 
 pub use chinese_ime_lm::{CandidateFacts, Reranker, SentenceModel, DICTIONARY_SOURCES};
 
+/// 引擎拼整句时给句子前缀打分的模型：给上文和一批文字，返回各自的逐字平均自然对数概率，顺序同 `candidates`，打不了分时返回空表。可以从任何线程调用，实现自己加锁。
+///
+/// 和 [`CandidateScorer`] 的区别：那个在 runtime 里、最后从引擎给的整句里挑；这个交给引擎，在词网格的束搜索里每一列给假设打分，让模型看着像话的前缀留到后面，正确的整句不至于在半路被剪掉（`lattice::decode` 的 `BeamModel`）。只有挂上的逐键打分器给出它（[`CandidateScorer::sentence_scorer`]）时引擎才用。
+pub trait SentenceScorer: Send + Sync {
+    fn log_probabilities(&self, context: &str, candidates: &[&str]) -> Vec<f32>;
+}
+
+/// 交给引擎的整句打分器，随每个请求带着（`QueryRequest::sentence_scorer`）。按指针比较：同一个打分器才算没变。
+#[derive(Clone, Default)]
+pub struct SentenceScorerHandle(pub Option<std::sync::Arc<dyn SentenceScorer>>);
+
+impl PartialEq for SentenceScorerHandle {
+    fn eq(&self, other: &Self) -> bool {
+        match (&self.0, &other.0) {
+            (Some(a), Some(b)) => std::sync::Arc::ptr_eq(a, b),
+            (None, None) => true,
+            _ => false,
+        }
+    }
+}
+
+impl std::fmt::Debug for SentenceScorerHandle {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(if self.0.is_some() {
+            "SentenceScorerHandle(Some)"
+        } else {
+            "SentenceScorerHandle(None)"
+        })
+    }
+}
+
 /// 排序决策要的模型能力：按上文给候选打逐字平均自然对数概率，以及模型一次能读多少字。
 ///
 /// `rerank_pick` 只经这个接口用模型，所以随包的纯 Rust 句子模型（[`Reranker`]）和需要原生运行库的模型后端走同一套规则：裁决点、词网格分混合、词典首选的豁免都在这里，后端只管算分。引擎本身仍是纯 Rust，原生后端放在引擎之外的 crate 里实现这个接口。
@@ -43,6 +74,11 @@ pub trait CandidateScorer: Send {
     /// 挂着这个逐键打分器时，停顿后的落定重排（`Runtime::rerank_settled`）不再做：它逐键排出的顺序就是最终顺序。默认 `false`，随包的 [`Reranker`] 不报。ONNX Runtime 后端报 `true`：落定模型是随包的 `model-v1` 桌面版，比它弱，停顿后再排一遍只会把它选对的换掉——2026-11-03 在 typing-chat test 上，6x256 配 32 条首选 79.1%，加上落定重排降到 73.6%，与真实 macOS 输入法停顿后按空格量出的 73.2% 吻合（220 段里 192 段首选一字不差）。
     fn supersedes_settled_rerank(&self) -> bool {
         false
+    }
+
+    /// 交给引擎、在拼整句时给前缀打分的同一个模型（[`SentenceScorer`]）。默认 `None`：随包的 [`Reranker`] 不给，它跑不进束搜索每一列的预算。ONNX Runtime 后端给，共用同一个模型和前缀缓存。
+    fn sentence_scorer(&self) -> Option<std::sync::Arc<dyn SentenceScorer>> {
+        None
     }
 
     /// 模型认为应当提到首位的候选下标，`None` 为不动；规则同 [`Reranker::best_where`]：首行是可信的词典命中或首行不回答按键时不比较，只比较前 [`COMPARED_LIMIT`] 条回答按键的候选，少于两条不比较。

@@ -1675,6 +1675,13 @@ impl InputSession {
         self.engine.set_rescoring_context(context);
     }
 
+    pub fn set_sentence_scorer(
+        &mut self,
+        scorer: Option<std::sync::Arc<dyn crate::ordering::SentenceScorer>>,
+    ) {
+        self.engine.set_sentence_scorer(scorer);
+    }
+
     pub fn set_sentence_pool(&mut self, paths: usize) {
         self.engine.set_sentence_pool(paths);
     }

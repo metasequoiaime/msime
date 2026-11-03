@@ -10,6 +10,10 @@ pub mod prefix;
 mod scorer;
 #[cfg(feature = "runtime")]
 pub use scorer::{LoadError, OnnxScorer};
+#[cfg(feature = "runtime")]
+mod shared;
+#[cfg(feature = "runtime")]
+pub use shared::SharedOnnxScorer;
 
 use serde::Deserialize;
 

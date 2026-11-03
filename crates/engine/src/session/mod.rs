@@ -690,6 +690,14 @@ impl Session {
     }
 
     /// 宿主挂了逐键打分器时，26 键全拼每条切分至少解出 `paths` 条整句读法，留给打分器从中挑首选（[`crate::ordering::SENTENCE_POOL`]）；0（默认）照不挂打分器时的条数。九键、双拼和其他方案不受影响。只影响之后的查询，不改正在显示的行。
+    /// 26 键全拼拼整句时给前缀打分的模型（[`crate::ordering::SentenceScorer`]），`None` 是不用模型。挂上的逐键打分器给出它时由 runtime 交过来，见 [`crate::ordering::CandidateScorer::sentence_scorer`]。
+    pub fn set_sentence_scorer(
+        &mut self,
+        scorer: Option<std::sync::Arc<dyn crate::ordering::SentenceScorer>>,
+    ) {
+        self.input.set_sentence_scorer(scorer);
+    }
+
     pub fn set_sentence_pool(&mut self, paths: usize) {
         self.input.set_sentence_pool(paths);
     }
