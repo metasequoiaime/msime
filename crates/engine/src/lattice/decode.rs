@@ -325,6 +325,36 @@ impl TypoSentence {
     }
 }
 
+/// 单独成边的轻声助词（「的」「了」「着」……）的加分（自然对数）。
+///
+/// 多字词每个音节拿 [`PHRASE_LENGTH_BONUS`]，单字拿不到。词库从语料里收了很多「某字 + 助词」的条目（飘了 17738、闲的 486358、躺了），它们凭这份奖励把正确的切分压下去：「高铁票了」里「高铁 | 飘了」两个条目各拿一份，「高铁票 | 了」的「了」一份也没有，整句就成了「高铁飘了」。给单独的助词一份加分，两种切分在助词那里打平，回到按词频和 n-gram 比。
+///
+/// 2026-11-03 在 typing-chat-v1 dev、sentences-neutral-v1、sentences-v2 上扫 0、8、14、20（只用引擎，和 6x256 配 32 条两组），8 是三个集合都不变差的最大值：再大，「贯彻得」这类「得」会变成「的」。没参与调参的 typing-chat test、sentences-v1、语气词集上，两组合计改对 11、改错 0。见 `.agents/notes/implemented/feature/2026-11-03-function-word-bonus.md`。
+pub const FUNCTION_WORD_BONUS: f64 = 8.0;
+
+/// 读轻声的结构助词和时态助词，连同它们在这里的读音。
+const FUNCTION_WORDS: &[(char, &str)] = &[
+    ('的', "de"),
+    ('地', "de"),
+    ('得', "de"),
+    ('了', "le"),
+    ('着', "zhe"),
+];
+
+/// 单字助词那条边的加分 [`FUNCTION_WORD_BONUS`]，其余为 0。读音要对得上：「了」读 liao、「着」读 zhao、「的」读 di 时不是助词。
+fn function_word_bonus(word: &str, span: &[String]) -> f64 {
+    let mut chars = word.chars();
+    let single = match (chars.next(), chars.next(), span) {
+        (Some(c), None, [reading]) => FUNCTION_WORDS.iter().any(|&(f, r)| f == c && r == reading),
+        _ => false,
+    };
+    if single {
+        FUNCTION_WORD_BONUS
+    } else {
+        0.0
+    }
+}
+
 /// 单字权重按语料计数归一；多字词按音节奖励，并为每次插入扣一份奖励，避免拆成更多词组额外赚取正的词频分。
 pub fn edge_log_prob(weight: i64, syllables: usize, options: &LatticeOptions<'_>) -> f64 {
     let weight = if weight > 0 { weight as f64 } else { 1.0 };
@@ -470,7 +500,7 @@ pub(super) fn build_graph(
                             row.weight,
                             bonus_syllables(&row.value, end - start),
                             options,
-                        );
+                        ) + function_word_bonus(&row.value, span);
                         edges.push(Edge {
                             end,
                             word: row.value,
@@ -558,7 +588,7 @@ pub(super) fn build_graph_borrowed<'rows>(
                                 row.weight,
                                 bonus_syllables(&row.value, end - start),
                                 options,
-                            ),
+                            ) + function_word_bonus(&row.value, span),
                             typo: false,
                         });
                     }
@@ -1732,6 +1762,38 @@ pub(super) mod tests {
         assert!(opens_sentence("好的\n"));
         assert!(opens_sentence("到了。"));
         assert!(!opens_sentence("你和"));
+    }
+
+    /// 「高铁 | 飘了」两个条目各拿一份成词奖励，「高铁票 | 了」的「了」一份也没有，不计 n-gram 时前者领先 8.7。单独的助词拿到加分后，两者差距不到 1，交给 n-gram 和逐键模型决定（产品的二元表里「票」接「了」，评测里这句因此改对）。权重取自锁定词库。
+    #[test]
+    fn a_lone_function_word_competes_with_entries_that_swallow_it() {
+        let rows = table(&[
+            ("gao'tie", &[("高铁", 60812)]),
+            ("gao'tie'piao", &[("高铁票", 3413)]),
+            ("piao", &[("票", 179517), ("飘", 56068)]),
+            ("le", &[("了", 52009647)]),
+            ("piao'le", &[("飘了", 17738)]),
+        ]);
+        let paths = decode("gao'tie'piao'le", &rows, &LatticeOptions::default());
+        let score = |sentence: &str, words: usize| {
+            paths
+                .iter()
+                .find(|path| path.sentence == sentence && path.words.len() == words)
+                .map(|path| path.log_prob)
+                .unwrap_or_else(|| panic!("{sentence} is not among {paths:?}"))
+        };
+        let swallowed = score("高铁飘了", 2);
+        let split = score("高铁票了", 2);
+        assert!((swallowed - split).abs() < 1.0, "{swallowed} vs {split}");
+        let span = |reading: &str| reading.split('\'').map(str::to_string).collect::<Vec<_>>();
+        assert_eq!(function_word_bonus("了", &span("le")), FUNCTION_WORD_BONUS);
+        assert_eq!(function_word_bonus("的", &span("de")), FUNCTION_WORD_BONUS);
+        // 读音不是轻声助词时不加：「了」读 liao、「的」读 di、「着」读 zhao。
+        assert_eq!(function_word_bonus("了", &span("liao")), 0.0);
+        assert_eq!(function_word_bonus("的", &span("di")), 0.0);
+        assert_eq!(function_word_bonus("着", &span("zhao")), 0.0);
+        // 只加给单独成边的助词，多字条目照旧。
+        assert_eq!(function_word_bonus("飘了", &span("piao'le")), 0.0);
     }
 
     #[test]
