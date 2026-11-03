@@ -21,7 +21,7 @@ Status: implemented
 | HarmonyOS | 共享 React 设置页 | 不经过 Tauri：`stage-settings.sh` 把 `apps/harmony` 构建成 `rawfile/settings/index.html`，`pages/Settings.ets` 用 ArkWeb 加载，ArkTS 一侧只做原生桥，经 NAPI 调 Rust |
 | Windows | 原生 WinUI 3 | `msime-client-settings.exe` 绘制全部 17 页；托盘、开始菜单和不带面板的请求都打开它（`platforms/windows/src/system/ShellSurfaces.h`） |
 | iOS | 原生 SwiftUI | `platforms/ios/App/Sources/`，App 里没有 WebView |
-| Android | 原生 Java | 发布 APK 的 `home/`，另有 `settings/`、`account/`、`community/`、`statistics/`；React 只在不发布的 Tauri 合包里 |
+| Android | 原生 Java | 发布 APK 的 `home/`，另有 `settings/`、`account/`、`community/`、`statistics/`；原来只有不发布的 Tauri 合包里有 React，合包已删除（[删除从未发布的 Tauri 移动壳](../simplification/2026-11-03-remove-tauri-mobile-shells.md)） |
 
 Tauri 在三个桌面平台上还承载共享面板：表情与符号、手写、屏幕键盘、语音、云词库、云剪贴板，Linux 另有本地剪贴板面板（`SurfaceRoute::Clipboard`，`msime-linux-settings --panel clipboard`）。Windows 原生设置窗口里语音、屏幕键盘、手写、云词库和云剪贴板这 5 个面板的入口拉起 Tauri 的 `MSIME.exe`（`SettingsNavigation.h` 的 `shell_links::all`）；表情与符号面板由 Server 的托盘菜单和浮动工具栏拉起（`ShellSurfaces.h` 的 `shell_surface_request`），不经过设置窗口。
 
