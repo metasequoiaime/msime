@@ -20,7 +20,7 @@
 #include "editions.iss"
 #define MyAppName      MyEditionAppName
 #ifndef MyAppVersion
-#define MyAppVersion   "0.4.1"
+#define MyAppVersion   "0.0.1"
 #endif
 #define MyAppPublisher "Metasequoia"
 #define MyAppExeName   "MetasequoiaImeServer.exe"
