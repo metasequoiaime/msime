@@ -9173,6 +9173,39 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
         only_nine.detail
     );
 
+    // 大模型在预算里只比较得了九条、小模型比较得了整池时挂小模型配整池（桌面上的 8x448 与 6x256）。两个目录里是同一张图，自测毫秒数分不出大小，所以规则按调用的先后给池：每次挂时第一次问的是大模型，之后问的是小模型；每次挂之前把计数清零。小模型的自测按同一个预算记下，同样排上屏后联想。
+    let asked = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counter = Arc::clone(&asked);
+    let mut desktop = ffi::OnnxRerankers::with_pool_rule(Box::new(move |_| {
+        let call = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Some(if call == 0 { 9 } else { 32 })
+    }));
+    let switched = desktop
+        .attach(bundle.path(), f64::MAX, f64::MAX, None)
+        .attached()
+        .unwrap();
+    assert_eq!(context(&switched), SMALL);
+    assert_eq!(switched.category, "keyboard reranker onnx small");
+    assert_eq!(
+        switched.scorer.lock().unwrap().sentence_pool(),
+        msime_engine::ordering::MAX_SENTENCE_POOL
+    );
+    assert!(
+        switched.detail.contains("compares 9"),
+        "{}",
+        switched.detail
+    );
+    assert!(ranks_prediction(&switched));
+    // 量过的结论留着：放开再挂不重测，照样是小模型配整池。
+    desktop.release(bundle.path());
+    asked.store(0, std::sync::atomic::Ordering::SeqCst);
+    let again = desktop
+        .attach(bundle.path(), f64::MAX, f64::MAX, None)
+        .attached()
+        .unwrap();
+    assert_eq!(context(&again), SMALL);
+    assert!(ranks_prediction(&again));
+
     // 大模型过不了换档线、小模型打一页又超过上限时什么都不挂（`OverLimit`）。小模型量过的结论留着：再挂时不加载它就知道超了；上限放宽时按量过的那个数挂上它，不重量。
     let mut strict = ffi::OnnxRerankers::default();
     let page = |detail: &str| detail[detail.find("(page").expect(detail)..].to_owned();
