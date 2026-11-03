@@ -24,7 +24,7 @@ let
     inherit src version;
     pname = "msime-host-api";
     strictDeps = true;
-    # 不带 -p 时会构建 default-members，其中 tauri-mobile-platform 要拉起整套 Tauri 依赖。
+    # 不带 -p 时会构建全部 default-members，这里只需要 host-api。
     cargoExtraArgs = "--locked -p msime-host-api";
     # Rust 单测由 verify-local.sh 负责；这里的验证是 fcitx5.nix 里链接产物后跑的 ctest。
     doCheck = false;

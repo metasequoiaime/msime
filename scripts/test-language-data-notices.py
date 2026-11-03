@@ -98,7 +98,6 @@ ENGINE_LICENCE = "resources/licenses/MPL-2.0.txt"
 ENGINE_LICENCE_MARKERS = ("Mozilla Public License Version 2.0", "Exhibit A - Source Code Form License Notice")
 MOBILE_LICENCE_CHANNELS = {
     "platforms/android/build-apk.sh": ('cp LICENSE "$assets/client-LICENSE.txt"',),
-    "platforms/android/build-client-apk.sh": ('cp LICENSE "$assets/client-LICENSE.txt"',),
     "platforms/android/build-native.sh": ('cp resources/licenses/MPL-2.0.txt "$notices/MPL-2.0.txt"',),
     "platforms/android/java/app/msime/android/home/AboutPage.java": ('"client-LICENSE.txt"', 'assets.list("native-notices")'),
     "platforms/ios/project.yml": ("- path: ../../LICENSE", "- path: ../../resources/licenses/MPL-2.0.txt"),

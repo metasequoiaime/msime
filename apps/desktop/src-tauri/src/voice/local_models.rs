@@ -409,20 +409,8 @@ pub(crate) fn dictionary_hotwords_with(
 #[cfg(unix)]
 fn list_dictionary_page(options: &Value, action: &Value) -> Option<Value> {
     let request = serde_json::json!({ "options": options, "action": action });
-    #[cfg(target_os = "ios")]
-    {
-        crate::ios_personal_dictionary_request(&request).ok()
-    }
-    #[cfg(target_os = "android")]
-    {
-        let bytes = serde_json::to_vec(&request).ok()?;
-        msime_host_api::personal_dictionary_request_json(&bytes).ok()
-    }
-    #[cfg(not(any(target_os = "ios", target_os = "android")))]
-    {
-        let bytes = serde_json::to_vec(&request).ok()?;
-        msime_host_api::dictionary_request_json(&bytes).ok()
-    }
+    let bytes = serde_json::to_vec(&request).ok()?;
+    msime_host_api::dictionary_request_json(&bytes).ok()
 }
 
 /// Hotwords for a `local` session starting now, from the dictionary this host's settings page edits.
@@ -440,7 +428,7 @@ pub(crate) fn session_hotwords(dictionary: &DictionaryHostOptions) -> Vec<Hotwor
 /// Add `hotwords` to the provider options as the `voice_hotwords` option while the serialised options stay within `budget` bytes, heaviest first.
 ///
 /// The provider takes only boolean and string options, so the words go the way the Linux IBus and Fcitx5 hosts send them: one `text<TAB>pinyin` line per word in a single string. The provider socket refuses a whole request over 16 KiB, and the options already carry up to 8 KiB of polishing prompt, so the list is cut to what fits rather than risking the recording. Words carrying a tab or a line break would break the packing and are skipped.
-#[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
+#[cfg(unix)]
 pub(crate) fn add_hotwords_within(options: &mut Value, hotwords: &[Hotword], budget: usize) {
     let Some(object) = options.as_object_mut() else {
         return;
