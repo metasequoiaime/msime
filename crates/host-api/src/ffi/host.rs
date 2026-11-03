@@ -1614,6 +1614,52 @@ pub unsafe extern "C" fn msime_client_skin_import(
     })
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SkinDeleteRequest {
+    directory: String,
+    preferences_directory: String,
+    id: String,
+}
+
+/// 设置页「主题」卡片上的「删除」，规则在 `candidate_sync::delete_unselected`：只删用户装的外部皮肤，偏好的浅色或深色槽位还放着它时是 `candidate_skin_in_use`，什么都不删；同步状态保留，下一次同步把账号皮肤库里私有的那一行一起删掉，公开发布的保留。成功时回复 `{synced, directory, packages, issues}`：`synced` 是它是否和皮肤库同步过，其余是重新扫描的目录，与 `msime_client_skin_catalog` 同形。失败时 `error` 是 `candidate_skin_in_use`、`candidate_skin_not_installed`、`candidate_skin_package`、`storage`，或请求不合法的说明。
+/// # Safety
+/// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_skin_delete(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    use msime_client_core::preferences::PreferencesStore;
+    use msime_client_services::skin::{candidate_sync, catalog};
+    response(|| {
+        if request.is_null() || length == 0 || length > 65_536 {
+            return Err("invalid skin delete request".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: SkinDeleteRequest =
+            serde_json::from_slice(bytes).map_err(|_| "invalid skin delete request")?;
+        let root = Path::new(&request.directory);
+        let preferences = Path::new(&request.preferences_directory);
+        if !root.is_absolute() || !preferences.is_absolute() {
+            return Err("skin paths must be absolute".into());
+        }
+        let synced = candidate_sync::delete_unselected(
+            root,
+            &candidate_sync::state_path(root),
+            &PreferencesStore::new(preferences),
+            &request.id,
+        )
+        .map_err(str::to_owned)?;
+        let mut value =
+            serde_json::to_value(catalog::scan(root)).map_err(|_| "storage".to_owned())?;
+        value["directory"] = Value::String(root.to_string_lossy().into_owned());
+        value["synced"] = Value::Bool(synced);
+        Ok(value)
+    })
+}
+
 /// 「制作皮肤」请求最大的长度：图片合计 2 MiB 换成 base64 后约 2.7 MiB，加上 64 KiB 的清单和 JSON 的键，留出余量。
 const MAX_CANDIDATE_SKIN_EDITOR_REQUEST_BYTES: usize = 4 << 20;
 

@@ -5774,6 +5774,78 @@ fn a_picked_skin_folder_is_copied_in_through_the_c_abi() {
 }
 
 #[test]
+fn an_installed_skin_is_deleted_through_the_c_abi_unless_a_slot_holds_it() {
+    use msime_client_core::preferences::PreferencesStore;
+    let files = tempfile::tempdir().unwrap();
+    let state = tempfile::tempdir().unwrap();
+    let root = state.path().join("skins");
+    for id in ["sakura", "dusk"] {
+        let source = files.path().join(id);
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::write(
+            source.join("skin.toml"),
+            format!(
+                "schema_version = 1\nid = '{id}'\nname = '{id}'\nversion = '1.0'\nbase = 'system'\n\
+                 [supports]\nlayouts = ['vertical']\nthemes = ['light']\n[candidate_window]\nmin_width_dip = 10\n"
+            ),
+        )
+        .unwrap();
+        let request = json!({"source": source, "directory": root}).to_string();
+        assert_eq!(
+            read(unsafe { msime_client_skin_import(request.as_ptr(), request.len()) })["ok"],
+            true
+        );
+    }
+    // 偏好与皮肤根目录在同一个状态目录下，与 Windows 设置和 Tauri 相同；深色槽位放着 dusk。
+    let store = PreferencesStore::new(state.path());
+    let current = store.load().unwrap();
+    let mut preferences = current.preferences;
+    preferences.custom_theme.candidate_skin_dark = Some("dusk".into());
+    store.save(current.revision, preferences).unwrap();
+    let call = |request: String| {
+        read(unsafe { msime_client_skin_delete(request.as_ptr(), request.len()) })
+    };
+    let delete = |id: &str| {
+        call(
+            json!({"directory": root, "preferences_directory": state.path(), "id": id}).to_string(),
+        )
+    };
+
+    let in_use = delete("dusk");
+    assert_eq!(in_use["ok"], false);
+    assert_eq!(in_use["error"], "candidate_skin_in_use");
+    assert!(root.join("dusk/skin.toml").is_file());
+
+    // 删掉以后回复重新扫描的目录，宿主直接拿它画卡片。
+    let deleted = delete("sakura");
+    assert_eq!(deleted["ok"], true, "{deleted}");
+    assert_eq!(deleted["value"]["synced"], false);
+    assert_eq!(
+        deleted["value"]["directory"],
+        root.to_string_lossy().as_ref()
+    );
+    let listed: Vec<&str> = deleted["value"]["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|package| package["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(listed, ["dusk"]);
+    assert!(!root.join("sakura").exists());
+
+    assert_eq!(delete("sakura")["error"], "candidate_skin_not_installed");
+    assert_eq!(delete("night")["error"], "candidate_skin_package");
+    let relative =
+        json!({"directory": "skins", "preferences_directory": state.path(), "id": "dusk"});
+    assert_eq!(call(relative.to_string())["ok"], false);
+    assert_eq!(
+        read(unsafe { msime_client_skin_delete(std::ptr::null(), 0) })["ok"],
+        false
+    );
+    assert!(root.join("dusk/skin.toml").is_file());
+}
+
+#[test]
 fn the_skin_editor_checks_and_installs_drafts_through_the_c_abi() {
     // 1×1 的合成 PNG。
     const PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGBgAAAABQABpfZFQAAAAABJRU5ErkJggg==";
