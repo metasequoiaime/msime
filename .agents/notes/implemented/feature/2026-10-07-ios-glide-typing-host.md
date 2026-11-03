@@ -13,7 +13,7 @@ Status: implemented
 - `GlideTypingGestureRecognizer`（`KeyboardExtension/Sources/keyboard/GlideTypingGesture.swift`）挂在键区根视图 `KeyAreaStackView` 上，判定为滑行之前一直停在 `.possible`，`delaysTouchesBegan`/`delaysTouchesEnded` 都关掉，轻点的时序不变；判定成立时进入 `.began`，`cancelsTouchesInView` 让 UIKit 取消原来那个键的触摸，它不上屏、高亮和放大预览一起消失。采样用 `coalescedTouches`。
 - 滑行开始前第二根手指落下，手势失败，两根手指照常打字；滑行进行中 `KeyAreaStackView.suppressesKeyHits` 让新落下的手指命中键区自己而不是键，手势忽略它们。手势不经抬手或系统取消就被重置时补一次取消，键区不会一直挡着手指。
 - 只在开关打开、显示全拼 26 键字母层、中文模式、没有本地输入模式、Shift 没有把下一个字母变成辅助码时开始滑行。抬手后经 `MetasequoiaInputSessionBridge.glide` 交给 Engine，回应和轻点字母键一样渲染；`handled` 为 false 时整笔丢掉。系统取消时什么都不发送。
-- 轨迹 `GlideTrailView` 是盖在键区上的 `CAShapeLayer`：键盘强调色、4pt、经过中点的二次曲线，抬手 0.2 秒淡出，被打断时直接清空。滑行不另加声音或振动：iOS 的按键反馈在抬手的 primary action 里，按下只预热振动器，滑行取消了那次 action，所以整笔没有额外反馈。
+- 轨迹 `GlideTrailView` 是盖在键区上的 `CAShapeLayer`：键盘强调色、4pt、经过中点的二次曲线，抬手 0.2 秒淡出，被打断时直接清空。滑行不另加声音或振动：起笔落在字母键上的那一下按下照常有一次按键反馈（iOS 的按键按下即反馈，见[iOS 按键按下即反馈](../bug-fix/2026-11-03-ios-key-feedback-on-press.md)），滑行取消了那个键松手时的动作，整笔不再有别的反馈。
 
 ## Alternatives considered
 
