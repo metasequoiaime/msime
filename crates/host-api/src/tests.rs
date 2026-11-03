@@ -345,6 +345,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         shuangpin_profile: 0,
         shuangpin_custom_profile: None,
         shuangpin_preedit_uses_raw: true,
+        shuangpin_preedit_separated: false,
         force_cantonese_shuangpin: false,
         single_character_only: false,
         caret_edit_suffix: false,
@@ -407,6 +408,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         quick_phrase_frequency: true,
         helpcode_table: None,
         helpcode_fallback_resources: None,
+        custom_helpcode_root: None,
         sentence_association: msime_engine::SentenceAssociationOptions {
             word_lattice: true,
             neural_keyboard: false,
@@ -5650,8 +5652,11 @@ fn skin_catalog_reaches_native_presenters_without_the_settings_shell() {
 fn custom_helpcode_schemas_reach_native_presenters_without_the_settings_shell() {
     let directory = tempfile::tempdir().unwrap();
     let resources = directory.path().join("resources");
-    let scan =
-        |path: &str| read(unsafe { msime_client_helpcode_schemas(path.as_ptr(), path.len()) });
+    let scan = |path: &str| {
+        read(unsafe {
+            msime_client_helpcode_schemas(path.as_ptr(), path.len(), std::ptr::null(), 0)
+        })
+    };
     let path = resources.to_str().unwrap().to_owned();
 
     // Missing optional assets are an empty catalog, not an unavailable settings surface.
@@ -5680,9 +5685,38 @@ fn custom_helpcode_schemas_reach_native_presenters_without_the_settings_shell() 
 
     assert_eq!(scan("relative/resources")["ok"], false);
     assert_eq!(
-        read(unsafe { msime_client_helpcode_schemas(std::ptr::null(), 0) })["ok"],
+        read(unsafe { msime_client_helpcode_schemas(std::ptr::null(), 0, std::ptr::null(), 0) })
+            ["ok"],
         false
     );
+
+    // 状态根下的表一起列出，同一主干取状态根那份；相对的状态根被拒绝。
+    let state = directory.path().join("state");
+    let user = state.join("helpcodes/custom");
+    std::fs::create_dir_all(&user).unwrap();
+    std::fs::write(user.join("synthetic.txt"), "# name: Mine\nword=ab\n").unwrap();
+    std::fs::write(user.join("upgraded.txt"), "word=ab\n").unwrap();
+    let with_state = |state: &str| {
+        read(unsafe {
+            msime_client_helpcode_schemas(path.as_ptr(), path.len(), state.as_ptr(), state.len())
+        })
+    };
+    let listed = with_state(state.to_str().unwrap());
+    assert_eq!(listed["ok"], true);
+    let listed: Vec<_> = listed["value"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|schema| (schema["schema"].clone(), schema["name"].clone()))
+        .collect();
+    assert_eq!(
+        listed,
+        [
+            (json!("custom/synthetic"), json!("Mine")),
+            (json!("custom/upgraded"), json!(""))
+        ]
+    );
+    assert_eq!(with_state("relative/state")["ok"], false);
 }
 
 #[test]
@@ -5693,7 +5727,9 @@ fn discovered_custom_helpcode_extensions_are_loadable_by_the_engine() {
     std::fs::create_dir_all(&custom).unwrap();
     std::fs::write(custom.join("synthetic.TXT"), "# name: uppercase\n你=ab\n").unwrap();
     let path = resources.to_str().unwrap();
-    let catalog = read(unsafe { msime_client_helpcode_schemas(path.as_ptr(), path.len()) });
+    let catalog = read(unsafe {
+        msime_client_helpcode_schemas(path.as_ptr(), path.len(), std::ptr::null(), 0)
+    });
     assert_eq!(catalog["ok"], true);
     assert_eq!(catalog["value"].as_array().unwrap().len(), 1);
     let schema = catalog["value"][0]["schema"].as_str().unwrap();
@@ -8778,6 +8814,49 @@ fn enhanced_mounts_the_runtime_reranker_without_the_engine_layer() {
     assert!(ffi::keyboard_reranker(false, "", None, None, None, None, None).is_none());
 }
 
+/// 会话的那一份把上屏后的上文交给后台线程编码：紧接着按键（线程可能还没做完、也可能做完了）与连着几次上屏只编码最后那段，分数都与不经后台线程时一样；会话放开这一份时线程跟着结束，不挂住进程。
+#[cfg(feature = "onnx-rerank")]
+#[test]
+fn the_session_scorer_primes_the_context_off_the_keystroke() {
+    use msime_input_runtime::CandidateScorer as _;
+    let fixtures =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../onnx-rerank/tests/fixtures");
+    let load = || {
+        msime_onnx_rerank::OnnxScorer::load_file(
+            &fixtures.join("lm_step.ort"),
+            &std::fs::read_to_string(fixtures.join("model.json")).unwrap(),
+            &std::fs::read_to_string(fixtures.join("vocab.json")).unwrap(),
+            1,
+            true,
+        )
+        .unwrap()
+    };
+    let candidates = ["去北京", "去背景", "去"];
+    let context = "我们今天下午";
+    let expected = load().log_probabilities(context, &candidates);
+    assert_eq!(expected.len(), candidates.len());
+    let shared = std::sync::Arc::new(std::sync::Mutex::new(load()));
+    let mut session = ffi::SharedOnnxScorer::new(std::sync::Arc::clone(&shared));
+    for partial in ["我们", "我们今天", context] {
+        session.context_changed(partial);
+    }
+    let scored = session.log_probabilities(context, &candidates);
+    for (got, want) in scored.iter().zip(&expected) {
+        assert!((got - want).abs() < 2e-2, "{scored:?} vs {expected:?}");
+    }
+    assert_eq!(scored.len(), expected.len());
+    drop(session);
+    // 线程结束后只剩测试这一份引用。
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while std::sync::Arc::strong_count(&shared) > 1 {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the primer thread outlived its session"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
 /// 随包资源目录旁边有 `rerank-model/` 时，「增强」的逐键重排用它（ONNX Runtime 后端）；再装了 `rerank-model-small/` 时按自测速度在两者之间选；ONNX 模型都读不了就退回随包的句子模型。用 `crates/onnx-rerank` 测试用的小模型，两个目录里放同一份图，只把小模型 `model.json` 的 `context_chars` 改成 48，好从 `context_length`（上文字数加 16）看出挂的是哪一个：大的是 80，小的是 64。
 ///
 /// 模型放在资源目录的兄弟目录里而不是资源目录里：资源目录要与词库锁逐项相符，多一个目录校验就失败（最后一段断言这一点）。`resources` 换成下载的词库代次时按 `bundle`（随包资源目录）找模型。
@@ -8817,6 +8896,8 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
     assert!(scorer.sentence_pool() >= msime_engine::ordering::SENTENCE_POOL);
     // 共用的那一份要把 ONNX 后端的混合权重也报出来，不能落回默认的 0.5。
     assert_eq!(scorer.static_evidence_weight(), 0.3);
+    // 也要报出它比落定模型强，否则停顿后随包的 model-v1 仍会把它排好的顺序再排一遍。
+    assert!(scorer.supersedes_settled_rerank());
     assert_eq!(
         scorer
             .log_probabilities("我们今天", &["去北京", "去背景"])
@@ -9094,6 +9175,39 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
         only_nine.detail
     );
 
+    // 大模型在预算里只比较得了九条、小模型比较得了整池时挂小模型配整池（桌面上的 8x448 与 6x256）。两个目录里是同一张图，自测毫秒数分不出大小，所以规则按调用的先后给池：每次挂时第一次问的是大模型，之后问的是小模型；每次挂之前把计数清零。小模型的自测按同一个预算记下，同样排上屏后联想。
+    let asked = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counter = Arc::clone(&asked);
+    let mut desktop = ffi::OnnxRerankers::with_pool_rule(Box::new(move |_| {
+        let call = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Some(if call == 0 { 9 } else { 32 })
+    }));
+    let switched = desktop
+        .attach(bundle.path(), f64::MAX, f64::MAX, None)
+        .attached()
+        .unwrap();
+    assert_eq!(context(&switched), SMALL);
+    assert_eq!(switched.category, "keyboard reranker onnx small");
+    assert_eq!(
+        switched.scorer.lock().unwrap().sentence_pool(),
+        msime_engine::ordering::MAX_SENTENCE_POOL
+    );
+    assert!(
+        switched.detail.contains("compares 9"),
+        "{}",
+        switched.detail
+    );
+    assert!(ranks_prediction(&switched));
+    // 量过的结论留着：放开再挂不重测，照样是小模型配整池。
+    desktop.release(bundle.path());
+    asked.store(0, std::sync::atomic::Ordering::SeqCst);
+    let again = desktop
+        .attach(bundle.path(), f64::MAX, f64::MAX, None)
+        .attached()
+        .unwrap();
+    assert_eq!(context(&again), SMALL);
+    assert!(ranks_prediction(&again));
+
     // 大模型过不了换档线、小模型打一页又超过上限时什么都不挂（`OverLimit`）。小模型量过的结论留着：再挂时不加载它就知道超了；上限放宽时按量过的那个数挂上它，不重量。
     let mut strict = ffi::OnnxRerankers::default();
     let page = |detail: &str| detail[detail.find("(page").expect(detail)..].to_owned();
@@ -9264,6 +9378,7 @@ fn a_rerank_model_pack_installed_after_the_session_opened_is_attached_on_focus()
     assert_eq!(created["ok"], true, "{created}");
     let handle = created["value"]["session"].as_u64().unwrap();
     let observed = || {
+        settle_keyboard_reranker(handle);
         SESSIONS.with(|sessions| {
             let sessions = sessions.borrow();
             let session = sessions.get(&handle).unwrap();
@@ -9288,6 +9403,35 @@ fn a_rerank_model_pack_installed_after_the_session_opened_is_attached_on_focus()
     assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
     assert_eq!(observed(), (Some(resource_packs::root(&state)), true));
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
+/// 逐键重排器在后台挂（`HostSession::keyboard_reranker_loading`）：等它挂完，再像下一次按键之后那样走一遍 `apply_pending` 把它换上。
+fn settle_keyboard_reranker(handle: u64) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    loop {
+        let loaded = SESSIONS.with(|sessions| {
+            sessions.borrow()[&handle]
+                .keyboard_reranker_loading
+                .as_ref()
+                .is_none_or(|slot| slot.lock().unwrap().is_some())
+        });
+        if loaded {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the keyboard reranker never finished loading"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    SESSIONS.with(|sessions| {
+        sessions
+            .borrow_mut()
+            .get_mut(&handle)
+            .unwrap()
+            .apply_pending()
+            .unwrap();
+    });
 }
 
 /// The keyboard model runs inside every keystroke, so it is attached only while `neural_keyboard` (整句联想「增强」) is on: attached on the default 增强, dropped when the user picks 标准, attached again when the switch turns back on. It is attached to the runtime alone; the Engine's own keyboard-model rerank stays off throughout. It takes the real model from `MSIME_EVAL_RESOURCES` or `MSIME_NEURAL_MODEL_DIR` as the Engine's model tests do, and without one a tiny context-free model (`write_context_free_sentence_model`), so CI, which has no model, still checks that session creation and every preference update use `keyboard_reranker_enabled`.
@@ -9324,6 +9468,7 @@ fn keyboard_reranker_follows_the_keyboard_model_switch() {
     };
     // 挂没挂 runtime 的逐键重排器；引擎那层键盘模型在任何时候都不打开。
     let attached = |handle: u64| {
+        settle_keyboard_reranker(handle);
         SESSIONS.with(|sessions| {
             let session = &sessions.borrow()[&handle];
             assert!(!session.options.sentence_association.neural_keyboard);
@@ -9335,6 +9480,12 @@ fn keyboard_reranker_follows_the_keyboard_model_switch() {
     let mut preferences = chinese_preferences();
     assert!(preferences.sentence_association.neural_keyboard);
     let handle = create(directory.path(), &preferences);
+    // 会话建立时不等模型加载：逐键重排器在后台挂，挂好之前 runtime 上什么都没挂（#10743）。
+    SESSIONS.with(|sessions| {
+        let session = &sessions.borrow()[&handle];
+        assert!(session.keyboard_reranker_loading.is_some());
+        assert!(!session.runtime.has_reranker());
+    });
     assert!(
         attached(handle),
         "the default 增强 attaches the keyboard model when the session opens"
@@ -16683,6 +16834,77 @@ fn windows_sessions_read_the_builtin_helpcode_tables_from_the_data_directory() {
     let view = type_letters(handle, b"m");
     assert_eq!(view["candidates"][0]["text"], "杨", "yhm: {view}");
     read(msime_client_destroy(handle));
+}
+
+/// 自定义辅助码表（`custom/<stem>`）以前只放在资源目录里，而资源目录归安装包：Windows 升级删掉整个 `server` 目录，macOS 换掉整个应用包，在线词库更新换成新代次，表随之消失，偏好里还写着 `custom/mine`，Engine 只得到一张空表（#10707）。准备运行时配置时把表搬到状态根下，资源目录里的表之后被删掉，会话照样读到它：`yh` 下「杨」带着 mu，`yhm` 把它提到首位。
+#[test]
+fn a_custom_helpcode_table_outlives_the_resource_directory_it_was_placed_in() {
+    let directory = tempfile::tempdir().unwrap();
+    let resources = directory.path().join("server/resources");
+    let state = directory.path().join("DataDir");
+    let mut set = synthetic_desktop_lock(&resources);
+    rusqlite::Connection::open(resources.join("msime-pinyin.db"))
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE tbl_1_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+             INSERT INTO tbl_1_y VALUES('yang','y','阳',2000),('yang','y','杨',1000);
+             CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+             CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);",
+        )
+        .unwrap();
+    for artifact in &mut set.artifacts {
+        let bytes = std::fs::read(resources.join(&artifact.name)).unwrap();
+        artifact.sha256 = hex::encode(Sha256::digest(&bytes));
+        artifact.size = bytes.len() as u64;
+    }
+    std::fs::create_dir_all(resources.join("helpcodes/custom")).unwrap();
+    std::fs::write(
+        resources.join("helpcodes/custom/mine.txt"),
+        "阳=rr\n杨=mu\n",
+    )
+    .unwrap();
+
+    let mut options: Value = serde_json::from_str(
+        &prepare_host_with_updates(&resources, &state, Edition::full(), &set).unwrap(),
+    )
+    .unwrap();
+    // 升级替换了资源目录：放在那里的表没有了。
+    std::fs::remove_dir_all(resources.join("helpcodes")).unwrap();
+    let mut preferences = chinese_preferences();
+    preferences.scheme = InputScheme::Shuangpin;
+    preferences.learning = false;
+    preferences.cloud_candidates = false;
+    preferences.shuangpin_helpcode.enabled = true;
+    preferences.shuangpin_helpcode.schema =
+        msime_client_core::preferences::HelpcodeSchema::Custom("custom/mine".into());
+    preferences.shuangpin_helpcode.show_in_candidate_window = true;
+    options["preferences"] = serde_json::to_value(&preferences).unwrap();
+    let document = options.to_string();
+    let created = read(unsafe { msime_client_create(document.as_ptr(), document.len()) });
+    assert_eq!(created["ok"], true, "{created}");
+    let handle = created["value"]["session"].as_u64().unwrap();
+    read(msime_client_focus(handle, true));
+    let view = type_letters(handle, b"yh");
+    let annotation = view["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|candidate| candidate["text"] == "杨")
+        .and_then(|candidate| candidate["annotation"].as_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    assert!(annotation.contains("mu"), "yh: {view}");
+    let view = type_letters(handle, b"m");
+    assert_eq!(view["candidates"][0]["text"], "杨", "yhm: {view}");
+    read(msime_client_destroy(handle));
+    // 设置页照样列得出它。
+    let listed = crate::list_custom_helpcode_schemas(
+        resources.to_str().unwrap(),
+        Some(std::path::absolute(&state).unwrap().to_str().unwrap()),
+    )
+    .unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].schema, "custom/mine");
 }
 
 /// 设置页新增一条快捷短语（`edit` 不带 `previous`），再按 `options` 列出快捷短语，返回列出的短语。

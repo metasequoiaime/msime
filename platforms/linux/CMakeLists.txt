@@ -348,6 +348,9 @@ if(BUILD_TESTING)
     MSIME_ZHUYIN_DICTIONARY_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime/zhuyin_dictionary.py"
     MSIME_STROKE_DICTIONARY_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime/stroke_dictionary.py")
   if(MSIME_ENGINE_RESOURCES)
+    add_test(NAME ibus-native-context
+      COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}")
+    set_tests_properties(ibus-native-context PROPERTIES TIMEOUT 120)
     add_test(NAME ibus-custom-voice-hotkey
       COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --voice-hotkey)
     set_tests_properties(ibus-custom-voice-hotkey PROPERTIES TIMEOUT 60)
@@ -360,9 +363,11 @@ if(BUILD_TESTING)
     add_test(NAME ibus-empty-translation
       COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --empty-translation)
     set_tests_properties(ibus-empty-translation PROPERTIES TIMEOUT 60)
+    if(NOT MSIME_RESOURCE_SMOKE_ONLY)
     add_test(NAME ibus-translation-scope
       COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --translation-scope)
     set_tests_properties(ibus-translation-scope PROPERTIES TIMEOUT 60)
+    endif()
     add_test(NAME ibus-caps-lock-tap
       COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --caps-lock)
     set_tests_properties(ibus-caps-lock-tap PROPERTIES TIMEOUT 60)
@@ -372,9 +377,11 @@ if(BUILD_TESTING)
     add_test(NAME ibus-japanese-toggle
       COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --japanese-toggle)
     set_tests_properties(ibus-japanese-toggle PROPERTIES TIMEOUT 60)
+    if(NOT MSIME_RESOURCE_SMOKE_ONLY)
     add_test(NAME ibus-chaizi
       COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --chaizi)
     set_tests_properties(ibus-chaizi PROPERTIES TIMEOUT 60)
+    endif()
     add_test(NAME ibus-stale-candidate-click
       COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --stale-candidate-click)
     set_tests_properties(ibus-stale-candidate-click PROPERTIES TIMEOUT 60)
@@ -595,6 +602,11 @@ if(BUILD_TESTING)
   target_include_directories(linux-voice-punctuation-test PRIVATE src ../../crates/host-api/include)
   target_link_libraries(linux-voice-punctuation-test PRIVATE nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}")
   add_test(NAME linux-voice-punctuation COMMAND linux-voice-punctuation-test)
+  add_executable(linux-voice-hold-chord-test tests/voice/voice_hold_chord.cpp)
+  target_compile_options(linux-voice-hold-chord-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+  target_include_directories(linux-voice-hold-chord-test PRIVATE src)
+  target_link_libraries(linux-voice-hold-chord-test PRIVATE PkgConfig::IBUS)
+  add_test(NAME linux-voice-hold-chord COMMAND linux-voice-hold-chord-test)
   add_executable(linux-prepare-paths-test tests/core/prepare_paths.cpp)
   target_compile_options(linux-prepare-paths-test PRIVATE -Wall -Wextra -Werror)
   target_include_directories(linux-prepare-paths-test PRIVATE src)

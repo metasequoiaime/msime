@@ -54,7 +54,10 @@ pub(crate) fn destroy_session(handle: u64) -> Result<Value, String> {
         crate::ffi::session::flush_typing_statistics(
             crate::ffi::session::FLUSHES_TYPING_STATISTICS_INLINE_ON_DESTROY,
         );
-        // Dropping the engine session writes its own journal's delayed context learning; this also covers every other journal the process learned into, while this session still holds its dictionary access.
+        // 引擎会话销毁时会写下本日志的延迟上下文学习。桌面宿主可能马上退出，所以仍在这里
+        // 冲刷进程里的其他日志；Android 把进程级冲刷排到输入法工作线程，导航不再等待 UI
+        // 线程上的磁盘写入。
+        #[cfg(not(target_os = "android"))]
         msime_engine::flush_personal_learning();
         // 停顿模型可能仍在后台评分；销毁会话时放弃任务，避免模型残留在作业表中。
         crate::ffi::settled::abandon_settled_job(handle);

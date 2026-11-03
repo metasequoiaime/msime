@@ -435,7 +435,8 @@ fn load(path: &Path) -> Result<Vec<Case>, Box<dyn std::error::Error>> {
             input: fields[1].to_string(),
             gold: fields[2].to_string(),
             syllables: fields[3].parse()?,
-            context: fields.get(5).unwrap_or(&"").to_string(),
+            // 上文里的换行写成 `\n`（一行一条用例，字段里放不下真的换行）：聊天集里消息之间的回车就是这样记的。
+            context: fields.get(5).unwrap_or(&"").replace("\\n", "\n"),
             full_input: None,
             tags: fields
                 .get(4)

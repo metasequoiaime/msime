@@ -152,6 +152,40 @@ fn going_back_to_an_earlier_context_starts_over() {
     );
 }
 
+/// 上屏后先编码好上文（宿主在后台线程里做），接着打字的分数与按键时才编码的一样：两种做法都是先单独跑一次上文、再跑按键。
+#[test]
+fn priming_the_context_scores_like_encoding_it_on_the_keystroke() {
+    let mut scorer = scorer();
+    for (context, keystrokes) in &cases() {
+        scorer.prime_context(context);
+        for (i, k) in keystrokes.iter().enumerate() {
+            assert_within(
+                &scorer.log_probabilities(context, &texts(k)),
+                &k.scores,
+                TOLERANCE,
+                &format!("primed {context:?} keystroke {i}"),
+            );
+        }
+    }
+}
+
+/// 编码好的上文与按键时交来的不同（用户在编码完之前又上屏了，或者长候选让上文截短了），按键照旧从它自己的上文重来。
+#[test]
+fn a_keystroke_after_priming_another_context_starts_over() {
+    let mut scorer = scorer();
+    let cases = cases();
+    let (first, first_keys) = &cases[0];
+    let (second, _) = &cases[2];
+    scorer.prime_context(second);
+    let last = first_keys.last().unwrap();
+    assert_within(
+        &scorer.log_probabilities(first, &texts(last)),
+        &last.scores,
+        REBATCHED,
+        "primed another context",
+    );
+}
+
 #[test]
 fn nothing_to_score_declines() {
     let mut scorer = scorer();

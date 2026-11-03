@@ -2669,8 +2669,16 @@ void CMetasequoiaIME::_PollPreferenceTransition()
     }
     if (_preferenceTransitionStarted == 0) _preferenceTransitionStarted = GetTickCount64();
     if (GetTickCount64() - _preferenceTransitionStarted >= 2000) {
+        // 放弃这一次有序切换，而不是留着屏障等下一次轮询。屏障不清、计时不归零时，
+        // `WM_ApplyPreferenceTransition` 和 500ms 的偏好刷新每来一次都仍然判定「已经超时」，
+        // 于是每来一次就 MarkNamedpipeSessionDirty 一次：新激活令牌、关掉反向下行管道、
+        // 重连，而重连中的会话又让这次应用配置继续失败——超时和重连互为因果，停不下来。
+        // 会话稳定的下一次通知还会重新开始一次屏障，不需要靠反复重连去救。
         KillTimer(_msgWndHandle, TIMER_PREFERENCE_TRANSITION);
+        _preferenceBarrier.reset();
+        _preferenceTransitionStarted = 0;
         MarkNamedpipeSessionDirtyForOwner(this);
+        _ScheduleDeferredKeyDownDrain();
         return;
     }
     SetTimer(_msgWndHandle, TIMER_PREFERENCE_TRANSITION, 10, nullptr);
@@ -2680,7 +2688,14 @@ void CMetasequoiaIME::_PollPreferenceTransition()
     if (!configuration || configuration->revision < _preferenceBarrier.target() ||
         configuration->preferenceSnapshot.empty() || !engine || !engine->GetHostEngineAdapter() ||
         !engine->GetHostEngineAdapter()->valid()) {
+        // 没有可应用的对象：配置还没读进来，或者这次焦点还没把引擎会话建起来。留着屏障只会
+        // 把 10ms 轮询一直拖到两秒后判超时，而且在 500ms 的偏好刷新里 `active()` 一挡，
+        // 宿主会话重建和按键补发都进不来。放弃这一次有序切换，下一次通知重新开始。
+        KillTimer(_msgWndHandle, TIMER_PREFERENCE_TRANSITION);
+        _preferenceBarrier.reset();
+        _preferenceTransitionStarted = 0;
         msime::tsf::invalidate_host_configuration();
+        _ScheduleDeferredKeyDownDrain();
         return;
     }
     const auto focusGeneration = _deferredKeyFocusGeneration;

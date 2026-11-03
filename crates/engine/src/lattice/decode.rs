@@ -32,6 +32,8 @@ pub type CollocationScorer<'a> = dyn Fn(&str, &str, bool) -> f64 + 'a;
 /// The knobs of one decode.
 #[derive(Clone)]
 pub struct LatticeOptions<'a> {
+    /// 这次输入是不是一句话的开头（[`opens_sentence`]）：开头的第一条边是只出现在句尾的语气词时扣 [`SENTENCE_OPENING_PARTICLE_PENALTY`]。
+    pub opens_sentence: bool,
     pub beam: usize,
     /// 从末列回溯的路径数。默认5条；产品的 `SentenceNgramTables::options` 搜索6条，神经重排启用时搜索12条。
     pub nbest: usize,
@@ -96,6 +98,27 @@ const REDUPLICATED_INTERJECTIONS: &[char] = &[
     '啊', '呃', '哦', '嗯', '呀', '哇', '噢', '唉', '哎', '喔', '诶', '额', '谔',
 ];
 
+/// 只出现在句尾的语气词：[`SENTENCE_FINAL_PARTICLES`] 里去掉也常作叹词放在句首的那些（啊、呀、哦、哇）。
+pub const SENTENCE_ONLY_FINAL_PARTICLES: &[char] =
+    &['吧', '呢', '吗', '啦', '嘛', '呗', '咯', '喽'];
+
+/// 这类语气词出现在一句话开头时扣的分（自然对数），与 [`SENTENCE_FINAL_PARTICLE_BONUS`] 对称。「吧」「吗」的词频几乎全来自句尾，可整句解码不看位置，聊天里一条消息开头的「爸肯定很开心」「爸又出去钓鱼了吗」被解成「吧肯定很开心」「吧友出去…」。
+pub const SENTENCE_OPENING_PARTICLE_PENALTY: f64 = 3.0;
+
+/// 上文为空，或者最后一个字是换行或句末标点：接下来打的是一句话的开头。没有组字时按的回车由 runtime 记成上文里的换行（`Runtime::remember_commit`）。
+pub fn opens_sentence(context: &str) -> bool {
+    context
+        .trim_end_matches([' ', '\t'])
+        .chars()
+        .last()
+        .is_none_or(|last| matches!(last, '\n' | '。' | '！' | '？' | '!' | '?' | '…'))
+}
+
+fn is_sentence_only_final_particle(word: &str) -> bool {
+    let mut chars = word.chars();
+    matches!((chars.next(), chars.next()), (Some(c), None) if SENTENCE_ONLY_FINAL_PARTICLES.contains(&c))
+}
+
 fn is_sentence_final_particle(word: &str) -> bool {
     let mut chars = word.chars();
     matches!((chars.next(), chars.next()), (Some(c), None) if SENTENCE_FINAL_PARTICLES.contains(&c))
@@ -119,6 +142,7 @@ fn bonus_syllables(word: &str, syllables: usize) -> usize {
 impl Default for LatticeOptions<'_> {
     fn default() -> Self {
         Self {
+            opens_sentence: false,
             beam: 32,
             nbest: 5,
             span_limit: 32,
@@ -301,6 +325,36 @@ impl TypoSentence {
     }
 }
 
+/// 单独成边的轻声助词（「的」「了」「着」……）的加分（自然对数）。
+///
+/// 多字词每个音节拿 [`PHRASE_LENGTH_BONUS`]，单字拿不到。词库从语料里收了很多「某字 + 助词」的条目（飘了 17738、闲的 486358、躺了），它们凭这份奖励把正确的切分压下去：「高铁票了」里「高铁 | 飘了」两个条目各拿一份，「高铁票 | 了」的「了」一份也没有，整句就成了「高铁飘了」。给单独的助词一份加分，两种切分在助词那里打平，回到按词频和 n-gram 比。
+///
+/// 2026-11-03 在 typing-chat-v1 dev、sentences-neutral-v1、sentences-v2 上扫 0、8、14、20（只用引擎，和 6x256 配 32 条两组），8 是三个集合都不变差的最大值：再大，「贯彻得」这类「得」会变成「的」。没参与调参的 typing-chat test、sentences-v1、语气词集上，两组合计改对 11、改错 0。见 `.agents/notes/implemented/feature/2026-11-03-function-word-bonus.md`。
+pub const FUNCTION_WORD_BONUS: f64 = 8.0;
+
+/// 读轻声的结构助词和时态助词，连同它们在这里的读音。
+const FUNCTION_WORDS: &[(char, &str)] = &[
+    ('的', "de"),
+    ('地', "de"),
+    ('得', "de"),
+    ('了', "le"),
+    ('着', "zhe"),
+];
+
+/// 单字助词那条边的加分 [`FUNCTION_WORD_BONUS`]，其余为 0。读音要对得上：「了」读 liao、「着」读 zhao、「的」读 di 时不是助词。
+fn function_word_bonus(word: &str, span: &[String]) -> f64 {
+    let mut chars = word.chars();
+    let single = match (chars.next(), chars.next(), span) {
+        (Some(c), None, [reading]) => FUNCTION_WORDS.iter().any(|&(f, r)| f == c && r == reading),
+        _ => false,
+    };
+    if single {
+        FUNCTION_WORD_BONUS
+    } else {
+        0.0
+    }
+}
+
 /// 单字权重按语料计数归一；多字词按音节奖励，并为每次插入扣一份奖励，避免拆成更多词组额外赚取正的词频分。
 pub fn edge_log_prob(weight: i64, syllables: usize, options: &LatticeOptions<'_>) -> f64 {
     let weight = if weight > 0 { weight as f64 } else { 1.0 };
@@ -446,7 +500,7 @@ pub(super) fn build_graph(
                             row.weight,
                             bonus_syllables(&row.value, end - start),
                             options,
-                        );
+                        ) + function_word_bonus(&row.value, span);
                         edges.push(Edge {
                             end,
                             word: row.value,
@@ -534,7 +588,7 @@ pub(super) fn build_graph_borrowed<'rows>(
                                 row.weight,
                                 bonus_syllables(&row.value, end - start),
                                 options,
-                            ),
+                            ) + function_word_bonus(&row.value, span),
                             typo: false,
                         });
                     }
@@ -1123,6 +1177,12 @@ fn decode_graph_with_terminal<const WIDE_TERMINAL: bool>(
                 if edge.end == n && hyp.edge.is_some() && is_sentence_final_particle(&edge.word) {
                     score += SENTENCE_FINAL_PARTICLE_BONUS;
                 }
+                if options.opens_sentence
+                    && hyp.edge.is_none()
+                    && is_sentence_only_final_particle(&edge.word)
+                {
+                    score -= SENTENCE_OPENING_PARTICLE_PENALTY;
+                }
                 let static_bonus = bonuses.map_or(0.0, |bonuses| f64::from(bonuses[at]));
                 if bigram.is_some() {
                     // Only a pair the table favours moves the path. A pair it calls less likely than chance counts the same as one it never kept: the table drops rare pairs, so an absent pair is usually rarer still, and penalising the observed one made a common word lose to a rarer one with no pair at all. 句首→一大 is -1.0 and 句首→益达 is absent, which put 益达拖 ahead of 一大拖 for yidatuo (#7583).
@@ -1685,6 +1745,55 @@ pub(super) mod tests {
             ("shang", &[("上", 9000)]),
         ]);
         assert_eq!(best("ma'shang", &rows, &LatticeOptions::default()), "马上");
+    }
+
+    /// 一句话开头的第一条边是只出现在句尾的语气词时扣分：聊天里一条消息开头的 ba'ken'ding 是「爸肯定」，不是「吧肯定」。权重取自锁定词库。句中（`opens_sentence` 为假）照旧按词频。
+    #[test]
+    fn a_sentence_does_not_open_with_a_final_particle() {
+        let rows = table(&[
+            ("ba", &[("吧", 8425271), ("爸", 6909598)]),
+            ("ken'ding", &[("肯定", 1530000)]),
+        ]);
+        let mut options = LatticeOptions::default();
+        assert_eq!(best("ba'ken'ding", &rows, &options), "吧肯定");
+        options.opens_sentence = true;
+        assert_eq!(best("ba'ken'ding", &rows, &options), "爸肯定");
+        assert!(opens_sentence(""));
+        assert!(opens_sentence("好的\n"));
+        assert!(opens_sentence("到了。"));
+        assert!(!opens_sentence("你和"));
+    }
+
+    /// 「高铁 | 飘了」两个条目各拿一份成词奖励，「高铁票 | 了」的「了」一份也没有，不计 n-gram 时前者领先 8.7。单独的助词拿到加分后，两者差距不到 1，交给 n-gram 和逐键模型决定（产品的二元表里「票」接「了」，评测里这句因此改对）。权重取自锁定词库。
+    #[test]
+    fn a_lone_function_word_competes_with_entries_that_swallow_it() {
+        let rows = table(&[
+            ("gao'tie", &[("高铁", 60812)]),
+            ("gao'tie'piao", &[("高铁票", 3413)]),
+            ("piao", &[("票", 179517), ("飘", 56068)]),
+            ("le", &[("了", 52009647)]),
+            ("piao'le", &[("飘了", 17738)]),
+        ]);
+        let paths = decode("gao'tie'piao'le", &rows, &LatticeOptions::default());
+        let score = |sentence: &str, words: usize| {
+            paths
+                .iter()
+                .find(|path| path.sentence == sentence && path.words.len() == words)
+                .map(|path| path.log_prob)
+                .unwrap_or_else(|| panic!("{sentence} is not among {paths:?}"))
+        };
+        let swallowed = score("高铁飘了", 2);
+        let split = score("高铁票了", 2);
+        assert!((swallowed - split).abs() < 1.0, "{swallowed} vs {split}");
+        let span = |reading: &str| reading.split('\'').map(str::to_string).collect::<Vec<_>>();
+        assert_eq!(function_word_bonus("了", &span("le")), FUNCTION_WORD_BONUS);
+        assert_eq!(function_word_bonus("的", &span("de")), FUNCTION_WORD_BONUS);
+        // 读音不是轻声助词时不加：「了」读 liao、「的」读 di、「着」读 zhao。
+        assert_eq!(function_word_bonus("了", &span("liao")), 0.0);
+        assert_eq!(function_word_bonus("的", &span("di")), 0.0);
+        assert_eq!(function_word_bonus("着", &span("zhao")), 0.0);
+        // 只加给单独成边的助词，多字条目照旧。
+        assert_eq!(function_word_bonus("飘了", &span("piao'le")), 0.0);
     }
 
     #[test]

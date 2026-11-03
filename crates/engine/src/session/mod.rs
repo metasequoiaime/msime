@@ -52,6 +52,8 @@ pub struct Session {
     /// 触屏的组码网格：九键的数字从 `character` 进来，14 键的字母从 `grid_key` 进来；`None` 是不用网格。
     key_grid: Option<KeyGrid>,
     shuangpin_preedit_uses_raw: bool,
+    /// `SessionOptions::shuangpin_preedit_separated`。
+    shuangpin_preedit_separated: bool,
     /// `SessionOptions::learn_typed_spellings_on_enter`。
     learn_typed_spellings_on_enter: bool,
     prediction: prediction::Prediction,
@@ -109,6 +111,7 @@ impl Session {
             nine_key,
             key_grid: None,
             shuangpin_preedit_uses_raw: options.shuangpin_preedit_uses_raw,
+            shuangpin_preedit_separated: options.shuangpin_preedit_separated,
             learn_typed_spellings_on_enter: options.learn_typed_spellings_on_enter,
             prediction: prediction::Prediction::new(
                 options.next_word_prediction,
@@ -606,6 +609,13 @@ impl Session {
             && self.input.engine.wubi_pinyin_continues(value)
     }
 
+    /// 第五码顶字关掉时，让完整四码后的下一个字母并进混输串；见 `ImeSession::allow_wubi_mixed_extension`。本地模式和专用英文里的字母不是五笔码，不放开。
+    pub fn allow_wubi_mixed_extension(&mut self) -> bool {
+        !self.input.dedicated_english
+            && self.input.local_mode == LocalInputMode::None
+            && self.input.engine.allow_wubi_mixed_extension()
+    }
+
     pub fn set_wubi_mixed_pinyin(&mut self, enabled: bool) {
         self.candidates_may_change();
         self.input.set_wubi_mixed_pinyin(enabled);
@@ -796,7 +806,7 @@ impl Session {
         self.snapshot_with_display_options(true, false)
     }
 
-    /// 给宿主画在屏幕上的快照：全拼的 `preedit` 按音节分开（双拼照 `shuangpin_preedit_uses_raw`），辅助码注释照常给出。[`Session::snapshot`] 的 `preedit` 保留全拼的按键原文，参考回放按它比对；其余字段两者相同。C 接口的 `msime_engine_state` 读的是这一份。
+    /// 给宿主画在屏幕上的快照：全拼的 `preedit` 按音节分开（双拼照 `shuangpin_preedit_uses_raw` 与 `shuangpin_preedit_separated`），辅助码注释照常给出。[`Session::snapshot`] 的 `preedit` 保留全拼的按键原文，参考回放按它比对；其余字段两者相同。C 接口的 `msime_engine_state` 读的是这一份。
     pub fn display_snapshot(&self) -> SessionSnapshot {
         self.snapshot_with_display_options(true, true)
     }
@@ -847,9 +857,10 @@ impl Session {
             .caret_edit_prefix()
             .filter(|_| caret_edit_suffix && !candidates.is_empty())
             .unwrap_or_default();
-        // 宿主显示全拼分词；参考回放的底层快照仍保留原文。
+        // 宿主显示全拼分词；参考回放的底层快照仍保留原文。双拼按「双拼预编辑」：拼音分词画展开的全拼，双拼分隔画按音节切开的原始按键（`raw_segmentation`，`pinyin_segmentation_with_cases` 在原始按键时取它），保留原始按键不切。
         let segmented_preedit = (segmented_quanpin && input.scheme() == SchemeType::Quanpin)
-            || (!self.shuangpin_preedit_uses_raw && input.scheme() == SchemeType::Shuangpin);
+            || (input.scheme() == SchemeType::Shuangpin
+                && (!self.shuangpin_preedit_uses_raw || self.shuangpin_preedit_separated));
         let plain_composition =
             input.local_mode == LocalInputMode::None && !input.dedicated_english;
         let preedit = if segmented_preedit && plain_composition {

@@ -192,6 +192,10 @@ pub trait InputEngine {
     fn wubi_pinyin_continues(&self, _value: u8, _shift: bool) -> bool {
         false
     }
+    /// 顶字关掉、混输开着时，让完整四码后的下一个字母并进混输串，而不是被四码上限挡掉。没有混输的引擎什么也不做。
+    fn allow_wubi_mixed_extension(&mut self) -> bool {
+        false
+    }
     /// 五笔拼音混输是否打开。顶字关掉时，混输关着就没有地方容纳第五个字母，仍要顶字上屏；混输开着才让它并进混输串。
     fn wubi_mixed_pinyin(&self) -> bool {
         false
@@ -445,6 +449,9 @@ impl InputEngine for Session {
     }
     fn wubi_mixed_pinyin(&self) -> bool {
         Session::wubi_mixed_pinyin(self)
+    }
+    fn allow_wubi_mixed_extension(&mut self) -> bool {
+        Session::allow_wubi_mixed_extension(self)
     }
     fn grid_limit_pick_ready(&self, value: u8, grid_key: bool) -> bool {
         Session::grid_limit_pick_ready(self, value, grid_key)

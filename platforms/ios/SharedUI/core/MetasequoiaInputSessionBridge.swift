@@ -769,6 +769,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     "paired_punctuation", "punctuation_lock",
     // 「双拼显示原始按键」 on the candidate page: the session rebuilds its Engine with it once idle, like the punctuation fields.
     "shuangpin_preedit_uses_raw",
+    // 同一组的「原始按键按音节分隔」（#10717）。
+    "shuangpin_preedit_separated",
     // 输入页的「只出单字」：同样在会话空闲时重建 Engine。
     "single_character_only",
     // 标点页的「中英文之间加空格」：会话在上屏时读最新请求的偏好，交给活着的会话后下一次上屏就生效。

@@ -108,6 +108,7 @@
 #include "SystemTheme.h"
 #include "PrecedingCharacters.h"
 #include "../src/voice/VoiceAction.h"
+#include "../src/voice/VoiceHoldChord.h"
 #include "../src/voice/VoiceHotwords.h"
 #include "../src/voice/VoiceProviderOptions.h"
 #include "../src/voice/VoicePunctuation.h"
@@ -718,6 +719,8 @@ public:
     voice_toggle_held_ = 0;
     voice_ctrl_win_held_ = false;
     voice_rctrl_ralt_held_ = false;
+    voice_hold_started_ = false;
+    voice_ralt_chord_until_up_ = false;
     voice_space_consumed_ = false;
     voice_space_locked_ = false;
     voice_preedit_.clear();
@@ -3406,6 +3409,8 @@ public:
                      !view_.value("candidates", Json::array()).empty()))
       command(MSIME_CANCEL);
     voice_loading_ = true;
+    // 新的一段录音先算作不是按住开始的，由开始它的按住自己改成 true。
+    voice_hold_started_ = false;
     syncMusic();
     voice_cancelled_ = false;
     const auto socket = voice_socket_;
@@ -4384,6 +4389,10 @@ public:
   fcitx::KeySym toggle_chord_held_ = FcitxKey_None;
   bool voice_ctrl_win_held_ = false;
   bool voice_rctrl_ralt_held_ = false;
+  // 当前这段录音是不是右 Alt（或右 Ctrl+右 Alt）这次按住自己开始的。按住只是接管已有录音时为 false，别处开始新录音时 requestVoice 也把它清掉。按住期间按了组合键，只取消它为 true 的那段（#10580）。
+  bool voice_hold_started_ = false;
+  // 按住期间按了组合键之后右 Alt 还按着：它的自动重复和松开继续吞掉，既不重新开始按住，也不结束录音，到松开为止。
+  bool voice_ralt_chord_until_up_ = false;
   bool voice_space_consumed_ = false;
   bool voice_space_locked_ = false;
   uint64_t voice_failure_id_ = 0;
@@ -9050,6 +9059,23 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     if (event.isRelease()) toggle_chord_held_ = FcitxKey_None;
     return true;
   }
+  // 按住右 Alt（或右 Ctrl+右 Alt）时又按下一个非修饰键，用户按的是组合键而不是要说话（#10580，对齐 Windows #10581）：按住就此结束，这次按住自己开始、还没锁定的录音取消、不上屏。
+  // 按键本身不吞，照常往下走：它的修饰状态里本来就带着 Alt，应用收到的是组合键，不必像 Windows 那样补发修饰键。哪些键算组合键见 voice_hold_becomes_chord。Ctrl+Win 吞的是 Win，不在此列。
+  if ((voice_ralt_held_ || voice_rctrl_ralt_held_) && !event.isRelease() &&
+      msime::linux_host::voice_hold_becomes_chord(static_cast<uint32_t>(sym), voice_hotkey_hold_space_lock_,
+                                                  voice_space_locked_)) {
+    const bool drop = voice_hold_started_ && voice_loading_ && !wave_overlay_.processing();
+    voice_ralt_held_ = false;
+    voice_rctrl_ralt_held_ = false;
+    voice_hold_started_ = false;
+    voice_ralt_chord_until_up_ = true;
+    if (drop) cancelVoice();
+  }
+  // 应用没收到过右 Alt 的按下，它的自动重复和松开也一并吞掉；右 Ctrl 的松开照常交给应用，它的按下应用是收到了的。
+  if (sym == FcitxKey_Alt_R && voice_ralt_chord_until_up_) {
+    if (event.isRelease()) voice_ralt_chord_until_up_ = false;
+    return true;
+  }
   if (sym == FcitxKey_Alt_R && voice_ralt_held_) {
     if (event.isRelease()) {
       voice_ralt_held_ = false;
@@ -9264,8 +9290,10 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
       !states.testAny(fcitx::KeyStates{fcitx::KeyState::Shift, fcitx::KeyState::Super,
                                        fcitx::KeyState::Hyper}) &&
       !restricted() && !privateInput() && ic_.hasFocus()) {
-    if (!voice_loading_ && !requestVoice()) return false;
+    const bool starts = !voice_loading_;
+    if (starts && !requestVoice()) return false;
     voice_rctrl_ralt_held_ = true;
+    voice_hold_started_ = starts;
     return true;
   }
   if (voice_hotkey_ctrl_win_ && voice_enabled_ && !voice_socket_.empty() &&
@@ -9282,8 +9310,10 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
       !states.testAny(fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Shift,
                                        fcitx::KeyState::Super, fcitx::KeyState::Hyper}) &&
       !restricted() && !privateInput() && ic_.hasFocus()) {
-    if (!voice_loading_ && !requestVoice()) return false;
+    const bool starts = !voice_loading_;
+    if (starts && !requestVoice()) return false;
     voice_ralt_held_ = true;
+    voice_hold_started_ = starts;
     return true;
   }
   if (event.isRelease() || key.isModifier()) return false;

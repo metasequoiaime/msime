@@ -1357,6 +1357,18 @@ else()
 endif()
 add_test(NAME windows-host-online-candidates COMMAND windows-host-online-candidates ${CMAKE_CURRENT_SOURCE_DIR}/tests/input/fixtures/msime-pinyin-online.db)
 set_tests_properties(windows-host-online-candidates PROPERTIES TIMEOUT 30)
+# 方向键不把高亮停在候选窗不画的云占位席位上（#10665）：Server 会话与 TIP 宿主会话都让过它，候选窗投影成立、两边停在同一格。合成词库，云候选打开、不联网。
+add_executable(windows-cloud-seat-navigation tests/input/cloud_seat_navigation.cpp
+               tsf/EngineSessionAdapter.cpp tsf/EngineResponse.cpp)
+target_include_directories(windows-cloud-seat-navigation PRIVATE src ../../shared/contracts)
+target_link_libraries(windows-cloud-seat-navigation PRIVATE msime-windows-composer)
+if(MSVC)
+  target_compile_options(windows-cloud-seat-navigation PRIVATE /W4 /WX /UNDEBUG /utf-8)
+else()
+  target_compile_options(windows-cloud-seat-navigation PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+endif()
+add_test(NAME windows-cloud-seat-navigation COMMAND windows-cloud-seat-navigation ${CMAKE_CURRENT_SOURCE_DIR}/tests/input/fixtures/msime-pinyin-online.db)
+set_tests_properties(windows-cloud-seat-navigation PROPERTIES TIMEOUT 30)
 add_executable(windows-candidate-continuation tests/input/candidate_continuation.cpp
                tsf/EngineSessionAdapter.cpp tsf/EngineResponse.cpp)
 target_link_libraries(windows-candidate-continuation PRIVATE msime-windows-composer)

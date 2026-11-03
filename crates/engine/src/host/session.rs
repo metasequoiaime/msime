@@ -500,6 +500,7 @@ impl Session {
                         .helpcode_fallback_resources
                         .as_deref()
                         .map(Path::new),
+                    self.options.custom_helpcode_root.as_deref().map(Path::new),
                 )
                 .unwrap_or_else(|error| {
                     crate::logging::warn(format_args!(
@@ -619,6 +620,11 @@ impl Session {
     /// 由引擎判断第五码是否继续混输拼音，宿主不复制读音规则。
     pub fn wubi_pinyin_continues(&self, value: u8, shift: bool) -> bool {
         self.inner.wubi_pinyin_continues(value, shift)
+    }
+
+    /// 第五码顶字关掉、混输开着时，让下一个字母并进混输串；见 `Session::allow_wubi_mixed_extension`。
+    pub fn allow_wubi_mixed_extension(&mut self) -> bool {
+        self.inner.allow_wubi_mixed_extension()
     }
 
     /// 五笔拼音混输开着时，顶字关掉才有地方容纳第五个字母。

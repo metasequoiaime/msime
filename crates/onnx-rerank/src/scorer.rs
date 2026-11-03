@@ -182,29 +182,8 @@ impl OnnxScorer {
             .iter()
             .map(|c| self.vocabulary.encode(c))
             .collect();
-        let tail: String = {
-            let chars: Vec<char> = context.chars().collect();
-            chars[chars.len().saturating_sub(self.info.context_chars)..]
-                .iter()
-                .collect()
-        };
         let longest = bodies.iter().map(Vec::len).max().unwrap_or(0);
-        let fresh = self.context.as_deref() != Some(tail.as_str())
-            || self.cache.is_none()
-            || self.prefixes.len() > PREFIX_LIMIT;
-        if fresh {
-            let mut encoded = vec![self.info.bos];
-            encoded.extend(self.vocabulary.encode(&tail));
-            if encoded.len() + longest > self.info.max_positions {
-                return Ok(Vec::new());
-            }
-            self.cache = None;
-            self.context = None;
-            let step = self.prefixes.encode_context(&encoded);
-            let empty = self.empty_cache()?;
-            self.run(empty, step)?;
-            self.context = Some(tail);
-        } else if self.prefixes.context_len() + longest > self.info.max_positions {
+        if !self.encode_context(context, longest)? {
             return Ok(Vec::new());
         }
         let step = self.prefixes.keystroke(&bodies);
@@ -214,9 +193,52 @@ impl OnnxScorer {
             .ok_or_else(|| ort::Error::new("no model cache"))?;
         self.run(cache, step)
     }
+
+    /// 让模型缓存装着 `context` 的末尾 `context_chars` 个字：已经是这段上文、缓存还在、前缀没攒过 [`PREFIX_LIMIT`] 时什么都不做，否则清空缓存重新编码。返回上文连同 `longest` 个字的候选放不放得进位置表，放不下时不动缓存。
+    fn encode_context(&mut self, context: &str, longest: usize) -> Result<bool, ort::Error> {
+        let tail: String = {
+            let chars: Vec<char> = context.chars().collect();
+            chars[chars.len().saturating_sub(self.info.context_chars)..]
+                .iter()
+                .collect()
+        };
+        let fresh = self.context.as_deref() != Some(tail.as_str())
+            || self.cache.is_none()
+            || self.prefixes.len() > PREFIX_LIMIT;
+        if !fresh {
+            return Ok(self.prefixes.context_len() + longest <= self.info.max_positions);
+        }
+        let mut encoded = vec![self.info.bos];
+        encoded.extend(self.vocabulary.encode(&tail));
+        if encoded.len() + longest > self.info.max_positions {
+            return Ok(false);
+        }
+        self.cache = None;
+        self.context = None;
+        let step = self.prefixes.encode_context(&encoded);
+        let empty = self.empty_cache()?;
+        self.run(empty, step)?;
+        self.context = Some(tail);
+        Ok(true)
+    }
+
+    fn forget(&mut self) {
+        self.prefixes.clear();
+        self.cache = None;
+        self.context = None;
+    }
 }
 
 impl OnnxScorer {
+    /// 上屏之后、下一次按键之前先把新的上文编码进模型缓存，下一次按键只算候选前缀。
+    ///
+    /// 上文一变，按键时就要先把整段上文（大模型 64 个字）重新编码一遍：2026-11-03 在 Mac 上照真实的输入法配置回放 typing-chat-v1，这一步每段第一次用模型时约 9 ms，忙时到 18 ms，是逐键 p99 超线的来源；真实的 macOS 输入法里同一线程还要画候选窗，更慢。宿主在上屏后从别的线程调它（host-api 的 `SharedOnnxScorer`），按键线程就不再等这一步。`context` 与按键时 `rerank_context` 交过来的同样取末尾 `context_chars` 个字：候选不超过 `CANDIDATE_ROOM` 个字时两者一致，按键直接复用；更长的候选让上文截短，那一次照旧重新编码。
+    pub fn prime_context(&mut self, context: &str) {
+        if self.encode_context(context, 0).is_err() {
+            self.forget();
+        }
+    }
+
     /// 这台机器上这个模型打一页重负载要多久（毫秒）：32 字的上文之后，9 个 6 字的候选只共享第一个字，一次要新算 37 个前缀，相当于长句打字时尾部的那种按键。先预热一次，再取 3 次的中位数；每次换一组候选，不让缓存帮忙。测完清空缓存。
     ///
     /// 宿主拿它在大小两个模型之间选：桌面和新手机上大模型这一页只要几毫秒，老手机上要二三十毫秒，按键预算挡不住。
@@ -270,9 +292,7 @@ impl OnnxScorer {
             if run > 0 {
                 times.push(elapsed);
             }
-            self.prefixes.clear();
-            self.cache = None;
-            self.context = None;
+            self.forget();
         }
         times.sort_by(f64::total_cmp);
         times[times.len() / 2]
@@ -298,6 +318,11 @@ impl CandidateScorer for OnnxScorer {
     fn static_evidence_weight(&self) -> f64 {
         0.3
     }
+
+    /// 两个 ONNX 模型都比落定重排用的随包 `model-v1` 桌面版准，停顿后不再让它重排一遍。
+    fn supersedes_settled_rerank(&self) -> bool {
+        true
+    }
     /// 打不了分（候选为空、太长，或图运行失败）时返回空表，`rerank_pick` 见长度不符就不动候选；失败后缓存作废，下一次按键从上文重来。
     fn log_probabilities(&mut self, context: &str, candidates: &[&str]) -> Vec<f32> {
         if candidates.is_empty() || candidates.iter().any(|c| c.is_empty()) {
@@ -306,9 +331,7 @@ impl CandidateScorer for OnnxScorer {
         match self.score(context, candidates) {
             Ok(scores) => scores,
             Err(_) => {
-                self.prefixes.clear();
-                self.cache = None;
-                self.context = None;
+                self.forget();
                 Vec::new()
             }
         }

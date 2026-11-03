@@ -1306,6 +1306,7 @@ impl QuanpinDictionary {
         options.show_next_on_duplicate = association.show_next_on_duplicate;
         options.personal = Some(&*model);
         options.bigram_memo = Some(&self.bigram_memo);
+        options.opens_sentence = crate::lattice::decode::opens_sentence(&self.rescoring_context);
         // 搭配项逐边叠加字级搭配分，与二元/三元在同一 Viterbi 里竞争；
         // query() 是自然对数域，乘 LN_TO_LOG10 换到主分的域。
         let scorer;
@@ -1340,7 +1341,8 @@ impl QuanpinDictionary {
         };
         // 模型已按需重载，此刻的版本就是这次解码用的版本。
         let personal_version = personal.version();
-        let decode_key = sentence_decode_key(segments, types, typo_eligible);
+        let decode_key =
+            sentence_decode_key(segments, types, typo_eligible, options.opens_sentence);
         let cached = self
             .sentence_decode_cache
             .get_ref(&decode_key)
@@ -1820,8 +1822,13 @@ fn warm_lattice_span_cache(
     }
 }
 
-/// `sentence_decode_cache` 的键：音节串、这次查询的纠错类型和是否规划纠错整句。纠错整句只在后两者允许时才解，同一串音节在两种情况下的结果不同。
-fn sentence_decode_key(segments: &[String], types: u32, typo_eligible: bool) -> String {
+/// `sentence_decode_cache` 的键：音节串、这次查询的纠错类型、是否规划纠错整句，以及是不是一句话的开头。纠错整句只在纠错类型和规划允许时才解，句首的语气词要扣分（`LatticeOptions::opens_sentence`），同一串音节在这些情况下的结果不同。
+fn sentence_decode_key(
+    segments: &[String],
+    types: u32,
+    typo_eligible: bool,
+    opens_sentence: bool,
+) -> String {
     let mut key = String::with_capacity(
         segments
             .iter()
@@ -1838,6 +1845,7 @@ fn sentence_decode_key(segments: &[String], types: u32, typo_eligible: bool) -> 
     key.push('\u{1f}');
     key.push_str(&types.to_string());
     key.push(if typo_eligible { 't' } else { '-' });
+    key.push(if opens_sentence { 's' } else { '-' });
     key
 }
 

@@ -661,6 +661,22 @@ impl ImeSession {
             .is_some_and(|wubi| wubi.has_complete_code())
     }
 
+    /// 宿主关掉了第五码顶字：混输开着时，完整四码后的下一个字母并进混输串，不再被四码上限挡掉（#10696）。
+    /// 平时只有码表答不出或读音能续写时才放开长度；这里只放开这一次，之后的查询按 `inherited_pinyin_continuation` 的「已放开、超过四码」继承。混输关着、14 键组码或码不满四位时什么也不做，返回 `false`。
+    pub fn allow_wubi_mixed_extension(&mut self) -> bool {
+        if !self.wubi_options.mixed_pinyin
+            || self.wubi_grid_composing()
+            || !self.wubi_has_complete_code()
+        {
+            return false;
+        }
+        let Some(wubi) = self.scheme.as_wubi_mut() else {
+            return false;
+        };
+        wubi.set_extended_length_allowed(true);
+        true
+    }
+
     /// 四码命中五笔时，后续小写字母能否继续当前拼音候选的完整读音或开始下一个音节。
     /// 只匹配真实读音前缀，简拼、纠错和模糊音不能把不相关的第五码当成拼音。
     /// 不看已放开的延长状态：四码时它只是从前三码“有任何全拼行”继承来的，`wqi` 的简拼或纠错行也会让 `wqiy` 之后的任意字母被当成续写，顶字就失效了。
