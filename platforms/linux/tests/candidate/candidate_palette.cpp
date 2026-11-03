@@ -143,6 +143,15 @@ int main() {
   assert(picked.colors.number == host::composite_color(0x123456u, 0x9D, 0x303030u));
   assert(picked.colors.selected == 0xFFD400u && picked.colors.selected_text == 0x000000u);
   assert(picked.colors.selected_number == 0x000000u && picked.colors.border == 0x404040u);
+  // #10740：`system` 底上只设了选中文字取色器时，选中底仍是原生的实心 #1A5FB4，文字和序号换成取色器的颜色（序号的 9D 透明度合成在选中底上）。
+  const Json text_only = Json::parse(
+      R"({"id":"custom","source":"custom","appearance":null,"candidate":{"surface":null,"border":null,"text":null,)"
+      R"("number":null,"secondary":null,"accent":null,"selected":null,"selected_text":"#7B3FBF",)"
+      R"("selected_number":"#7B3FBF9D","hover":null,"show_selected_bar":null},"keyboard":null,"candidate_skin":null})");
+  const auto text_only_colors = host::candidate_theme_colors(text_only, true);
+  assert(text_only_colors.colors.selected == host::kLinuxSelection);
+  assert(text_only_colors.colors.selected_text == 0x7B3FBFu);
+  assert(text_only_colors.colors.selected_number == host::composite_color(0x7B3FBFu, 0x9D, host::kLinuxSelection));
   // A selected fill without its own foreground takes the theme's text when the theme sets one.
   auto filled = custom;
   filled["candidate"]["selected"] = "#654321";
