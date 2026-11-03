@@ -1,6 +1,7 @@
 # Agent Note: Android nightly 各版本共用临时开发签名
 
 Status: implemented
+Archived: 2026-11-04
 
 ## Problem
 

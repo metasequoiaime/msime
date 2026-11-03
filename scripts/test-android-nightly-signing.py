@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""检查 Android nightly 的矩阵 runner 是否共享同一份临时开发签名。"""
+"""检查 Android 发布链（含 nightly 与 publish=false 的构建）一律用正式发布密钥签名，且密钥不经 workflow artifact 或缓存在 job 之间传递。"""
 
 from __future__ import annotations
 
@@ -10,6 +10,16 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/release-android.yml"
+NIGHTLY = ROOT / ".github/workflows/nightly.yml"
+BUILD_STEP = "      - name: Build native Android host\n"
+SECRET_ENV = {
+    "RELEASE_KEYSTORE_BASE64": "${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}",
+    "MSIME_ANDROID_RELEASE_KEYSTORE_PASSWORD": "${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}",
+}
+MISSING_SECRET_CHECK = '[[ -n "$RELEASE_KEYSTORE_BASE64" && -n "$MSIME_ANDROID_RELEASE_KEYSTORE_PASSWORD" ]] || {'
+# 密钥文件、解出目录或 secret 名出现在 artifact / 缓存步骤的参数里，就说明密钥被当成中间产物在 job 之间传递了。
+KEY_MATERIAL = re.compile(r"keystore|signing|\.p12\b|\.jks\b|secrets\.", re.IGNORECASE)
+TRANSFER_ACTIONS = re.compile(r"uses: actions/(upload-artifact|download-artifact|cache)(/save|/restore)?@")
 
 
 def fail(message: str) -> int:
@@ -17,43 +27,85 @@ def fail(message: str) -> int:
     return 1
 
 
+def jobs(text: str) -> dict[str, str]:
+    """按两格缩进的 job 名切分 jobs: 段。"""
+    body = text[text.index("\njobs:\n") + len("\njobs:\n"):]
+    starts = [(m.start(), m.group(1)) for m in re.finditer(r"^  ([A-Za-z0-9_-]+):\n", body, re.MULTILINE)]
+    return {name: body[start:(starts[i + 1][0] if i + 1 < len(starts) else len(body))] for i, (start, name) in enumerate(starts)}
+
+
+def steps(job: str) -> list[str]:
+    """按六格缩进的 `- ` 切分一个 job 的步骤。"""
+    starts = [m.start() for m in re.finditer(r"^      - ", job, re.MULTILINE)]
+    return [job[start:(starts[i + 1] if i + 1 < len(starts) else len(job))] for i, start in enumerate(starts)]
+
+
 def main() -> int:
     if not WORKFLOW.exists():
         return 0
     text = WORKFLOW.read_text(encoding="utf-8")
 
-    required = {
-        "shared key job": "  development-signing-key:\n    needs: source",
-        "nightly key preparation guard": "        if: ${{ !inputs.publish }}\n        env:\n          NIGHTLY_KEYSTORE_BASE64: \"${{ secrets.ANDROID_NIGHTLY_KEYSTORE_BASE64 }}\"\n          NIGHTLY_KEYSTORE_PASSWORD: \"${{ secrets.ANDROID_NIGHTLY_KEYSTORE_PASSWORD }}\"\n        run: |\n          set -euo pipefail\n          [[ -n \"$NIGHTLY_KEYSTORE_BASE64\" && -n \"$NIGHTLY_KEYSTORE_PASSWORD\" ]]",
-        "stable key alias": "-alias msime-release",
-        "shared key upload": "          name: msime-android-nightly-signing-${{ github.run_id }}-${{ github.run_attempt }}",
-        "short artifact retention": "          retention-days: 1",
-        "release depends on shared key": "    needs: [source, development-signing-key]",
-        "nightly key download": "          name: msime-android-nightly-signing-${{ github.run_id }}-${{ github.run_attempt }}\n          path: ${{ runner.temp }}/android-nightly-signing",
-        "nightly keystore path": '            export MSIME_ANDROID_RELEASE_KEYSTORE="$RUNNER_TEMP/android-nightly-signing/msime-nightly.p12"',
-        "nightly keystore password": '            export MSIME_ANDROID_RELEASE_KEYSTORE_PASSWORD="$NIGHTLY_KEYSTORE_PASSWORD"',
-        "missing key is fatal": '            [[ -f "$MSIME_ANDROID_RELEASE_KEYSTORE" ]] || { echo "nightly shared development keystore is missing" >&2; exit 1; }',
-    }
-    for label, fragment in required.items():
-        if fragment not in text:
-            return fail(f"{label} contract is missing")
+    if "ANDROID_NIGHTLY_KEYSTORE" in text:
+        return fail("nightly must not require a dedicated ANDROID_NIGHTLY_KEYSTORE_* secret; it signs with the release key")
+    all_jobs = jobs(text)
+    if "development-signing-key" in text:
+        return fail("the development-signing-key job must be gone; each build job decodes the key from the secret itself")
 
-    generation = text.index("  development-signing-key:")
-    release = text.index("  release:")
-    download = text.index("      - name: 下载 nightly 共享开发密钥")
-    build = text.index("      - name: Build native Android host")
-    if not generation < release:
-        return fail("shared key job must be declared before release")
-    if not download < build:
-        return fail("nightly key must be downloaded before the Android build")
+    # 任何 job 都不得把密钥材料上传、下载或缓存成 artifact。
+    for name, job in all_jobs.items():
+        for step in steps(job):
+            if TRANSFER_ACTIONS.search(step) and KEY_MATERIAL.search(step):
+                return fail(f"job {name} moves key material through an artifact or cache step:\n{step}")
 
-    build_block = text[build : text.index("      - uses: actions/upload-artifact", build)]
-    if not re.search(r'if \[\[ "\$PUBLISH" == true \]\]; then', build_block):
-        return fail("formal signing branch is missing")
-    if 'else\n            export MSIME_ANDROID_RELEASE_KEYSTORE=' not in build_block:
-        return fail("nightly signing branch is missing")
+    release = all_jobs.get("release")
+    if release is None:
+        return fail("release job is missing")
+    editions = re.search(r"^        edition: \[([^\]]*)\]$", release, re.MULTILINE)
+    if editions is None or len([e for e in editions.group(1).split(",") if e.strip()]) != 6:
+        return fail("release matrix must still build all six editions")
 
-    print("Android nightly shared-signing workflow contract passed")
+    build = next((step for step in steps(release) if step.startswith(BUILD_STEP)), None)
+    if build is None:
+        return fail("release job has no 'Build native Android host' step")
+    if re.search(r"^        if:", build, re.MULTILINE):
+        return fail("the signing build step must run for every edition and every publish value")
+    for name, value in SECRET_ENV.items():
+        if f'          {name}: "{value}"' not in build:
+            return fail(f"build step must read {name} from {value}")
+
+    script = build[build.index("        run: |\n"):]
+    if 'if [[ "$PUBLISH" == true ]]' in script:
+        return fail("release-key decoding must not depend on publish; nightly and publish=false builds sign with the same key")
+    if script.count(MISSING_SECRET_CHECK) != 1 or text.count(MISSING_SECRET_CHECK) != 1:
+        return fail("a missing release secret must fail explicitly, in exactly one place")
+    decode = 'printf \'%s\' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$MSIME_ANDROID_RELEASE_KEYSTORE"'
+    ordered = [
+        MISSING_SECRET_CHECK,
+        'export MSIME_ANDROID_RELEASE_KEYSTORE="$RUNNER_TEMP/msime-release.p12"',
+        "trap 'rm -f \"$MSIME_ANDROID_RELEASE_KEYSTORE\"' EXIT",
+        decode,
+        'bash platforms/android/build-apk.sh "$resource_dir"',
+    ]
+    positions = [script.find(fragment) for fragment in ordered]
+    if -1 in positions:
+        return fail(f"build step is missing: {ordered[positions.index(-1)]}")
+    if positions != sorted(positions):
+        return fail("build step must check the secret, decode it into $RUNNER_TEMP with a cleanup trap, then build")
+
+    # 密钥只在这一步出现，而且不打印、不开 shell 跟踪。
+    if text.count("secrets.ANDROID_RELEASE_KEYSTORE_BASE64") != 1:
+        return fail("ANDROID_RELEASE_KEYSTORE_BASE64 must be read only by the signing build step")
+    if re.search(r"set -[a-z]*x|echo[^\n]*\$\{?(RELEASE_KEYSTORE_BASE64|MSIME_ANDROID_RELEASE_KEYSTORE_PASSWORD)", script):
+        return fail("build step must not trace or echo the keystore or its password")
+
+    if NIGHTLY.exists():
+        nightly = NIGHTLY.read_text(encoding="utf-8")
+        call = nightly[nightly.index("uses: ./.github/workflows/release-android.yml"):]
+        call = call[:call.index("\n\n")] if "\n\n" in call else call
+        if "publish: false" not in call or "secrets: inherit" not in call:
+            return fail("nightly must call release-android.yml with publish: false and inherit the repository secrets")
+
+    print("Android release-key signing workflow contract passed")
     return 0
 
 
