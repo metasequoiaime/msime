@@ -2328,6 +2328,9 @@ pub struct Preferences {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VoiceInputPreferences {
+    /// macOS 允许现有语音键在其他输入法下触发；缺省关闭，不改变既有输入手感。
+    #[serde(default)]
+    pub hotkey_global: bool,
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
     #[serde(default = "enabled_by_default")]
@@ -2463,6 +2466,7 @@ impl Default for VoiceInputPreferences {
     fn default() -> Self {
         let polish = default_polish_service();
         Self {
+            hotkey_global: false,
             enabled: true,
             sound_enabled: true,
             start_sound: true,

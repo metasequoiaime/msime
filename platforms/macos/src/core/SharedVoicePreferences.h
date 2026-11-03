@@ -136,6 +136,7 @@ static inline NSDictionary *MSIMEVoicePreferencesFromDefaults(NSUserDefaults *de
         @"doubao_enable_ddc": @"MSIMEClientVoiceDoubaoEnableDDC",
         @"hotkey_ctrl_f9": @"MSIMEClientVoiceHotkeyCtrlF9",
         @"hotkey_ralt": @"MSIMEClientVoiceHotkeyRightAlt",
+        @"hotkey_global": @"MSIMEClientVoiceHotkeyGlobal",
         @"hotkey_rctrl_ralt": @"MSIMEClientVoiceHotkeyCtrlOption",
         @"hotkey_ctrl_win": @"MSIMEClientVoiceHotkeyCtrlCommand"
     };
@@ -199,6 +200,7 @@ static inline BOOL MSIMEApplySharedVoicePreferences(id voice, NSUserDefaults *de
         @"doubao_enable_ddc": @"DoubaoEnableDDC",
         @"hotkey_ctrl_f9": @"HotkeyCtrlF9",
         @"hotkey_ralt": @"HotkeyRightAlt",
+        @"hotkey_global": @"HotkeyGlobal",
         @"hotkey_rctrl_ralt": @"HotkeyCtrlOption",
         // The shared Windows modifier is Command on macOS.
         @"hotkey_ctrl_win": @"HotkeyCtrlCommand"

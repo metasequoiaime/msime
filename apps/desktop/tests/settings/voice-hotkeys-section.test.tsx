@@ -99,3 +99,51 @@ test("the space lock switch follows the host and the chosen hold key", () => {
   );
   expect(screen.queryByLabelText("长按录音时按空格锁定")).toBeNull();
 });
+
+test("macOS global scope is opt-in and reuses the existing key choices", () => {
+  const onChange = vi.fn(),
+    onGlobalChange = vi.fn();
+  const { rerender } = render(
+    <VoiceHotkeysSection
+      platform="macos"
+      values={{}}
+      onChange={onChange}
+      onGlobalChange={onGlobalChange}
+    />,
+  );
+  const scope = screen.getByRole("combobox", { name: "快捷键生效范围" }) as HTMLSelectElement;
+  expect(scope.value).toBe("input_method");
+  fireEvent.change(scope, { target: { value: "global" } });
+  expect(onGlobalChange).toHaveBeenCalledExactlyOnceWith(true);
+  expect(onChange).not.toHaveBeenCalled();
+  rerender(
+    <VoiceHotkeysSection
+      platform="macos"
+      values={{}}
+      onChange={onChange}
+      global
+      onGlobalChange={onGlobalChange}
+    />,
+  );
+  expect(scope.value).toBe("global");
+  expect(screen.getByText("需允许水杉在后台运行，并授予辅助功能权限。")).toBeTruthy();
+  expect((screen.getByRole("combobox", { name: "按住录音" }) as HTMLSelectElement).value).toBe(
+    "hotkey_ralt",
+  );
+});
+
+test.each(["windows", "linux", "harmony", "other"] as const)(
+  "%s does not expose the macOS global scope",
+  (platform) => {
+    render(
+      <VoiceHotkeysSection
+        platform={platform}
+        values={{}}
+        onChange={vi.fn()}
+        global
+        onGlobalChange={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole("combobox", { name: "快捷键生效范围" })).toBeNull();
+  },
+);
