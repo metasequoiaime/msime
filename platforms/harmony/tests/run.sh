@@ -341,7 +341,7 @@ if ! grep -qF 'this.commaSwipe.down(touch.windowX, touch.windowY, Date.now());' 
   echo "KeyboardView must feed the comma touch's down, move and up with their time into CommaSwipeGesture, and the design-row comma's long press must ask commaSwipe.longPress() first" >&2
   exit 1
 fi
-# 九键滑动输入数字（#10229）：判定的方向、阈值、1 键、锁定和长按与点击的先后由 nine-key-swipe.test.ts 覆盖。会话和视图是 ArkTS，这里钉住接线：会话经 `NineKeySwipePolicy.mode` 读共享偏好 `touch_nine_key_swipe_digits`；拼音九键字母层的键（`nineKeyHoldKey`，两处网格都经它）把触摸交给 `nineKeySwipeTouch`，按下时读当前设置，滑出去之后点击和长按都不再做事；数字层和九键双拼不经 `nineKeyHoldKey`，不受影响；抬手按长按选数字的路径上屏（先结束组字再字面上屏），并补上点按的按键音、振动和键位统计；滑出数字时角标藏起来；键被替换时丢掉进行中的判定。
+# 九键滑动输入数字（#10229）：判定的方向、阈值、1 键、锁定和长按与点击的先后由 nine-key-swipe.test.ts 覆盖。会话和视图是 ArkTS，这里钉住接线：会话经 `NineKeySwipePolicy.mode` 读共享偏好 `touch_nine_key_swipe_digits`；拼音九键字母层的键（`nineKeyHoldKey`，两处网格都经它）把触摸交给 `nineKeySwipeTouch`，按下时读当前设置，滑出去之后点击和长按都不再做事；数字层和九键双拼不经 `nineKeyHoldKey`，不受影响；抬手按长按选数字的路径上屏（先结束组字再字面上屏），并补上点按的键位统计（振动在按下时由按键区给出，上屏只经 `keyFeedback` 去重，规则由 key-press-feedback.test.ts 覆盖，#10757）；滑出数字时角标藏起来；键被替换时丢掉进行中的判定。
 nine_hold_body=$(sed -n '/^  nineKeyHoldKey(key: NineKey) {$/,/^  }$/p' "$view")
 nine_swipe_body=$(sed -n '/^  private nineKeySwipeTouch(key: NineKey, event: TouchEvent): void {$/,/^  }$/p' "$view")
 nine_digit_body=$(sed -n '/^  private typeNineKeySwipeDigit(key: NineKey): void {$/,/^  }$/p' "$view")
@@ -360,12 +360,31 @@ if ! grep -qF 'nineKeySwipeDigits: NineKeySwipePolicy.mode(preferences.touch_nin
   || ! grep -qF 'this.openKeyHold(NineKeyLayout.holdOptions(key));' <<< "$nine_swipe_body" \
   || ! grep -qF 'this.typeNineKeySwipeDigit(key);' <<< "$nine_swipe_body" \
   || ! grep -qF 'KeyboardSession.shared.softKeyPress(KeyIdPolicy.nineKey(key.input));' <<< "$nine_digit_body" \
-  || ! grep -qF 'KeyboardSession.shared.holdFeedback();' <<< "$nine_digit_body" \
+  || ! grep -qF 'KeyboardSession.shared.keyFeedback();' <<< "$nine_digit_body" \
+  || grep -qF 'KeyboardSession.shared.holdFeedback();' <<< "$nine_digit_body" \
   || [[ $(grep -A1 -F 'KeyboardSession.shared.finishComposition();' <<< "$nine_digit_body" | grep -cF 'KeyboardSession.shared.insert(digit);') -ne 1 ]] \
   || ! grep -qF 'this.nineKeySwipes.clear();' <<< "$drop_nine_body" \
   || ! grep -qF 'nineKeyInput: this.symbols || shuangpin ? undefined : key.input,' "$view" \
   || ! grep -qF ': this.nineKeySwipeFace($$.nineKeyInput, this.eighteenSwipeFace($$.swipeLetters, $$.face)))' "$view"; then
   echo "Harmony must read touch_nine_key_swipe_digits through NineKeySwipePolicy, feed the pinyin nine-key letter keys' touches into NineKeySwipeGesture, swallow the click and the long press once a swipe took the touch, type the digit the way a held key's digit is typed, hide the corner digit while the face shows it, and drop the tracker when keys are replaced" >&2
+  exit 1
+fi
+# 按键区按下即振动（#10757）：令牌的武装、消耗和撤回由 key-press-feedback.test.ts 覆盖。视图和会话是 ArkTS，这里钉住接线：装着 `keyFaces` 的那一列把触摸交给 `keyPressTouch`；按下时画着按键（`keyFacesShowKeys`）、又不是落在九键拼写列表这类不是键的地方（`keyPressOutsideKeys`）才交给 `keyDown`，抬起和取消都交给 `keyUp`；拼写列表按下时置上 `keyPressOutsideKeys`，不拦冒泡；会话的上屏振动先问令牌，九键滑出数字补振动时经会消耗令牌的 `keyFeedback` 而不是确认用的 `holdFeedback`（见上一段）。
+key_press_body=$(sed -n '/^  private keyPressTouch(event: TouchEvent): void {$/,/^  }$/p' "$view")
+nine_grid_body=$(sed -n '/^  nineKeyGrid() {$/,/^  }$/p' "$view")
+tap_feedback_body=$(sed -n '/^  private tapFeedback(): void {$/,/^  }$/p' "$session")
+key_down_body=$(sed -n '/^  keyDown(finger: number): void {$/,/^  }$/p' "$session")
+if [[ $(grep -cF '.onTouch((event: TouchEvent): void => this.keyPressTouch(event))' "$view") -ne 1 ]] \
+  || ! grep -qF 'this.keyFaces()' <<< "$(grep -B6 -F '.onTouch((event: TouchEvent): void => this.keyPressTouch(event))' "$view")" \
+  || ! grep -qF 'KeyboardSession.shared.keyDown(touch.id);' <<< "$key_press_body" \
+  || ! grep -qF 'KeyboardSession.shared.keyUp(touch.id);' <<< "$key_press_body" \
+  || ! grep -qF 'if (outsideKeys || !this.keyFacesShowKeys()) {' <<< "$key_press_body" \
+  || ! grep -qF 'this.keyPressOutsideKeys = false;' <<< "$key_press_body" \
+  || ! grep -qF 'this.keyPressOutsideKeys = true;' <<< "$nine_grid_body" \
+  || grep -qF 'stopPropagation' <<< "$nine_grid_body" \
+  || ! grep -qF 'this.keyPress.down(finger);' <<< "$key_down_body" \
+  || ! grep -qF 'if (this.keyPress.consume()) {' <<< "$tap_feedback_body"; then
+  echo "Harmony must vibrate key presses on touch-down through keyPressTouch on the keyFaces column (not for the nine-key spelling list), hand ups and cancels to keyUp, and let tapFeedback consume the press token" >&2
   exit 1
 fi
 # 密码框和只收数字的编辑框里三种键面类型都退回标准底行（`TouchLayoutStylePolicy.fieldRowStyle`、`EditorPolicy.keepsStandardRows` 由测试覆盖）：会话从编辑框类型认出只收数字，视图每次接上编辑框都刷新这个状态，九键外框与 26/14/18 键底行都经 fieldRowStyle 取样式。

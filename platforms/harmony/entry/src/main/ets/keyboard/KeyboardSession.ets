@@ -48,6 +48,7 @@ import { AppEdition } from './AppEdition';
 import { KeyboardScheme, KeyGrid, PreferenceMapping, SchemeDefinition } from './KeyboardScheme';
 import { NineKeyShuangpinFace, normalizedNineKeyShuangpinProfile } from './input/NineKeyShuangpinKeypad';
 import { NineKeySwipePolicy } from './input/NineKeySwipePolicy';
+import { KeyPressFeedback } from './input/KeyPressFeedback';
 import { EditorPolicy, EditorTraits } from './input/EditorPolicy';
 import { EditEchoLedger } from './input/EditEchoLedger';
 import { CaretContextEcho } from './input/CaretContextEcho';
@@ -5323,6 +5324,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   private vibratorFailed: boolean = false;
   /** 上一下按键振动还没交给振动服务。这时再按一下就不振了：排队的振动会在手指离开后才一串串地振。 */
   private vibrationPending: boolean = false;
+  /** 按键区按下即振动（#10757）：按下时振过的按键，上屏时不再振第二次。 */
+  private readonly keyPress: KeyPressFeedback = new KeyPressFeedback();
   private traditional: boolean = false;
   private chinesePunctuation: boolean = true;
   private smartPunctuation: boolean = true;
@@ -6637,18 +6640,47 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
   }
 
+  /** 长按工具栏按钮、长按九键符号栏时的那一下按键反馈，与 Android 长按工具栏打开编辑页时一样。这是确认，不是一次按键的上屏，按下时的振动不顶替它。 */
+  holdFeedback(): void {
+    this.vibrateKey();
+  }
+
   /**
-   * Fires the feedback a key press asks for.
+   * 按键区里一根手指按下（#10757，规则见 `KeyPressFeedback`）：这时就振动，这次按下的上屏（`tapFeedback`）不再振第二次。视图只在画着按键时调用。
+   */
+  keyDown(finger: number): void {
+    this.keyPress.down(finger);
+    this.vibrateKey();
+  }
+
+  /** 按键区里按下过的手指抬起或被取消：等这次点击处理完再撤回它没被消耗的令牌，没有上屏的按下（Shift、切层、滑出去取消）不会吞掉之后的振动。 */
+  keyUp(finger: number): void {
+    const token: number | undefined = this.keyPress.up(finger);
+    if (token !== undefined) {
+      setTimeout((): void => this.keyPress.settle(token), KeyPressFeedback.RELEASE_GRACE_MS);
+    }
+  }
+
+  /** 不经会话上屏路径的按键补上点按会有的那一下振动，例如九键滑出的数字走字面上屏、`insert` 不振动；按下时已经振过就不再振。 */
+  keyFeedback(): void {
+    this.tapFeedback();
+  }
+
+  /** 一次按键上屏时的振动：按下时已经振过（`keyDown`）就不再振；读屏点击这类没有按下的上屏照常振。 */
+  private tapFeedback(): void {
+    if (this.keyPress.consume()) {
+      return;
+    }
+    this.vibrateKey();
+  }
+
+  /**
+   * Fires the vibration a key press asks for.
    *
    * Failures are logged once rather than per keystroke: a device without a vibrator would otherwise
    * fill the log with the same line at typing speed.
    */
-  /** 长按工具栏按钮时的那一下按键反馈，与 Android 长按工具栏打开编辑页时一样；九键滑动输入数字抬手时也用它补上点按会有的那一下振动（数字走字面上屏，`insert` 不振动）。 */
-  holdFeedback(): void {
-    this.tapFeedback();
-  }
-
-  private tapFeedback(): void {
+  private vibrateKey(): void {
     const settings: FeedbackSettings = this.feedbackCurrent;
     if (!settings.haptics || this.vibratorFailed || this.vibrationPending) {
       return;
@@ -8269,6 +8301,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.onPanelHidden !== undefined) {
       this.onPanelHidden();
     }
+    // 收起时还按着的手指收不到抬起，它们的令牌不留到下一次显示。
+    this.keyPress.clear();
     this.flushTypingStatistics();
     this.pauseIdleDictionaryWork();
     // 候选释义按文件身份缓存在 UI 线程上的词库连接和自定义译文，隐藏的键盘不留着它们（关掉释义以后也不会一直占着）；下一次显示后的第一次查询重新打开。

@@ -894,6 +894,8 @@ struct KeyboardView {
   @State keyPreview: KeyPreviewFrame | null = null;
   /** 气泡所属按键对应的手指，这样别处抬起的手指不会撤掉仍被按住的键的气泡；未显示时为 -1。 */
   private keyPreviewFinger: number = -1;
+  /** 这一次按下落在按键区里不是键的地方（九键左列的拼写列表）：那里的处理器先置上，冒泡到 `keyPressTouch` 时读掉并清掉，这次按下不振动（#10757）。 */
+  private keyPressOutsideKeys: boolean = false;
   /** 字母键上可能输入角标提示而不是字母的触摸。 */
   private letterHints: LetterHintGesture = new LetterHintGesture();
   /** 中文组字中的 26 键竖向滑动辅助码；与角标手势分开跟踪，长按仍保留角标。 */
@@ -1871,6 +1873,40 @@ struct KeyboardView {
       this.keyPreview = null;
       this.keyPreviewFinger = -1;
     }
+  }
+
+  /**
+   * 按键区按下即振动（#10757，`KeyPressFeedback`）：触屏键盘上 `keyFaces` 画着按键时，每根手指按下就交给会话振动，抬起或取消时交还这次按下，会话在点击处理完之后撤回没用掉的那一下。面板、键盘调整这些不是按键的界面不经过这里，仍在上屏时振动。
+   */
+  private keyPressTouch(event: TouchEvent): void {
+    if (event.type === TouchType.Down) {
+      const outsideKeys: boolean = this.keyPressOutsideKeys;
+      this.keyPressOutsideKeys = false;
+      if (outsideKeys || !this.keyFacesShowKeys()) {
+        return;
+      }
+      for (const touch of event.changedTouches) {
+        KeyboardSession.shared.keyDown(touch.id);
+      }
+    } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+      for (const touch of event.changedTouches) {
+        KeyboardSession.shared.keyUp(touch.id);
+      }
+    }
+  }
+
+  /** `keyFaces` 此刻画的是不是按键（`handedKeys`），而不是某个面板或键盘调整；条件与 `keyFaces` 的分支一一对应。 */
+  private keyFacesShowKeys(): boolean {
+    if (this.surface === SURFACE_GEOMETRY) {
+      return false;
+    }
+    if (this.isTools() && this.editing.length === 0 && this.candidates.length === 0) {
+      return false;
+    }
+    return this.surface !== SURFACE_EXPANDED && this.surface !== SURFACE_CLIPBOARD
+      && this.surface !== SURFACE_PHRASES && this.surface !== SURFACE_REPLY && this.surface !== SURFACE_POLISH
+      && this.surface !== SURFACE_VOICE && !this.isPicker() && this.surface !== SURFACE_EMOJI
+      && this.surface !== SURFACE_SYMBOLS;
   }
 
   /** 键盘上任何位置的每次按下都会在按键自身的处理器之后到达这里：若气泡对应的手指已不在屏幕上，说明它的抬起事件丢给了在其下方被重建的键，气泡随之撤掉。 */
@@ -6076,6 +6112,12 @@ struct KeyboardView {
           .scrollBar(BarState.Off)
           .width('100%')
           .height('100%')
+          // 拼写列表不是键：滚动或点选拼写的按下不振动，与 Android 一样（#10757）。不拦冒泡，键盘根上的 `pruneKeyPreview` 照样看得到这次按下。
+          .onTouch((event: TouchEvent): void => {
+            if (event.type === TouchType.Down) {
+              this.keyPressOutsideKeys = true;
+            }
+          })
         } else {
           ForEach(NineKeyLayout.punctuation(), (symbol: string, index: number) => {
             Column() {
@@ -6288,7 +6330,7 @@ struct KeyboardView {
       return;
     }
     KeyboardSession.shared.softKeyPress(KeyIdPolicy.nineKey(key.input));
-    KeyboardSession.shared.holdFeedback();
+    KeyboardSession.shared.keyFeedback();
     KeyboardSession.shared.finishComposition();
     KeyboardSession.shared.insert(digit);
   }
@@ -12027,6 +12069,8 @@ struct KeyboardView {
         }
         .width('100%')
         .margin({ top: this.stripShown() ? KeyboardMetrics.STRIP_GAP_VP : 0 })
+        // 按键的触摸处理完之后冒泡到这里：手指落在按键上就振动，抬手上屏时不再振（#10757）。
+        .onTouch((event: TouchEvent): void => this.keyPressTouch(event))
       }
       .width('100%')
       // 键盘调整时遮罩下的工具条和按键只是预览：读屏整块跳过，免得双击落到遮罩下的「表情」或按键上，读屏只走遮罩上的柄和按钮（`adjustOverlay`），与 Android 的 IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS、iOS 的 accessibilityViewIsModal 相同。

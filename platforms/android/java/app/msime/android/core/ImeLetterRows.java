@@ -597,7 +597,8 @@ final class ImeLetterRows {
                     cancelBackspaceRepeat();
                     button.setPressed(false);
                     if (target != BackspaceSwipePolicy.ClearTarget.NONE) {
-                        s.imeKeyFeedback.playFeedback(button);
+                        // 松手清空是确认，不是这次按键的删除：按下时的反馈不顶替它。
+                        s.imeKeyFeedback.confirm(button);
                         if (undo) s.undoQuickDelete();
                         else if (target == BackspaceSwipePolicy.ClearTarget.COMPOSITION) {
                             if (s.hasEngineComposition()) s.discardComposition();

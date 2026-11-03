@@ -305,7 +305,8 @@ final class ImeBottomRow {
             voiced[0] = true;
             cancelled[0] = true;
             button.setPressed(false);
-            s.imeKeyFeedback.playFeedback(button);
+            // 开始语音是长按的确认，松手那一刻才补判出来时也一样，按下时的反馈不顶替它。
+            s.imeKeyFeedback.confirm(button);
             voiceBefore[0] = s.imeVoiceEntry.generation();
             s.startVoiceRecognition();
             s.imeVoiceEntry.plainIndicator(voiceBefore[0]);
