@@ -12,9 +12,9 @@ Status: implemented
 
 ## Decision
 
-- 键盘按键在按下的那一刻反馈。造按键的两处 `makeKey(…primaryAction:)` 和 `makeIconKey` 在 `.touchDown` 上挂 `keyPressFeedback(_:)`，它播按键音、振动，并在按键上记下这次按下已经反馈过（`KeyboardKeyButton.markPressFedBack`）。空格、退格、回车按自己的声音类别出声（`KeyboardKeyButton.pressSoundClass`，造这几个键时设好）。
+- 键盘按键在按下的那一刻反馈。造按键的两处 `makeKey(…primaryAction:)` 和 `makeIconKey` 在 `.touchDown` 上挂 `keyPressFeedback(_:)`，它播按键音、振动，并在按键上记下这次按下已经反馈过（`KeyboardKeyButton.beginPressFeedback`）。空格、退格、回车按自己的声音类别出声（`KeyboardKeyButton.pressSoundClass`，造这几个键时设好）；九键候选面板右栏的 ⌫ 也经 `makeKey` 造出，同样设成退格类，否则选了自带退格样本的按键音包时，它按下会播字母键的样本。
 - 松手不重复。`KeyboardKeyButton.touchesEnded` 整段放在 `KeyboardKeyButton.releasing(self)` 里执行：这次按下反馈过时，范围里的 `playInputClick` 不出声，并取走标记。点按、角标、九键滑动输入数字都在 `touchesEnded` 里同步上屏，都在这个范围内。手势接管了按键触摸、在手势结束时才上屏的两处也包进同一个范围：假名滑动（`JapaneseNineKeyView` 的 `KanaFlickGesture` 结束时）和 18 键横滑（`handleEighteenKeySwipe` 的 `.ended`）。
-- 标记跟着按键的这一次按下，不用全局计数器。范围只在同步执行期间有效，结束就还原。没有经过按下的激活（`sendActions`、读屏激活）和候选、面板、工具栏的按钮，在范围外、或范围里的标记为假，照常在动作里出声。被手势取消的触摸不清标记，因为假名滑动和 18 键横滑在取消之后才结束；下一次按下会重新记，所以留下的标记只可能被同一个键的松手取走。键离开窗口时清掉标记。
+- 标记跟着按键的这一次按下，不用全局计数器。范围只在同步执行期间有效，结束就还原。没有经过按下的激活（`sendActions`、读屏激活）和候选、面板、工具栏的按钮，在范围外、或范围里的标记为假，照常在动作里出声。被手势取消的触摸不清标记，因为假名滑动和 18 键横滑在取消之后才结束。每一次按下都重写标记，包括不在按下时反馈的那种（滚得动的容器里）：它会把标记清掉，否则上一次被取消的触摸留下的标记会让这次松手的动作不出声，这一下就什么反馈都没有。所以留下的标记只可能被同一次按下的松手取走。键离开窗口时清掉标记。
 - `prepareKeyFeedback` 不改，`decorateKey` 也不挂新的反馈。候选词块、`closePredictionButton`、`hanjaButton` 都挂着 `prepareKeyFeedback`；换皮肤时 `applyKeyboardSkin` 又会对所有带底色的按钮调一次 `decorateKey`。把反馈放进这两处，候选栏一开始滑动就会振。
 - 在滚得动的容器里的键（`KeyboardKeyButton.sitsInScrollableContent`：祖先里有开着滚动、内容比可见区域大的 `UIScrollView`），例如九键左列的自定义符号表和九键面板的拼音栏，按下可能是在开始滚动，所以仍由松手时的动作反馈，滑一下列表不振。放得下、滚不动的列按下即反馈。
 - 长按生效时照旧各有一下反馈：弹出九键或 14 键的长按菜单（包括九键反方向滑动弹出）、长按空格开语音、长按 123 开符号面板。它们原来就是这一次触摸唯一的反馈，现在按下时多了一下。按住退格连删时，每删一下也照旧响一下。
@@ -37,5 +37,5 @@ Status: implemented
 
 ## Verification
 
-- `platforms/ios/KeyboardTests/input/KeyPressFeedbackTests.swift`（`MSIMEKeyboardTests`）：一次按下只让一次松手静音，松手取走标记；没有按下的激活、不是按键的按钮、嵌套范围都照常出声；滚得动的判定；26 键的字母、Shift、空格、退格、回车都挂了 `keyPressFeedback:`，空格、退格、回车的声音类别正确。
+- `platforms/ios/KeyboardTests/input/KeyPressFeedbackTests.swift`（`MSIMEKeyboardTests`）：一次按下只让一次松手静音，松手取走标记；没有按下的激活、不是按键的按钮、嵌套范围都照常出声；滚得动的判定；滚得动的容器里按下会清掉上一次留下的标记；26 键的字母、Shift、空格、退格、回车都挂了 `keyPressFeedback:`，空格、退格、回车的声音类别正确；九键候选面板的 ⌫ 是退格类、其余功能键是普通类。
 - 本次只在 Mac Studio 上用 `rbuild` 编译了测试目标（`build-for-testing`），没有在模拟器上运行，因为当时设备和模拟器被另一个工作流占用。真机核对清单写在 PR 的「验证」一节。

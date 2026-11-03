@@ -284,10 +284,14 @@ final class KeyboardKeyButton: UIButton {
   /// 按下时播哪一类按键音：空格、退格、回车各有一声，与它们的动作在 `playInputClick` 里用的类别相同。控制器造这几个键时设好。
   var pressSoundClass: KeySoundClass = .standard
 
-  /// 这个键最近一次按下已经给过按键音和振动（`KeyboardViewController.keyPressFeedback`），由下一次松手（`releasing`）取走。触摸被手势接管而取消时不清：滑动选假名、18 键横滑在手势结束时才上屏，那时仍算这次按下的松手。下一次按下会重新记，所以留下的标记只可能被同一个键的松手取走。
+  /// 这个键最近一次按下已经给过按键音和振动（`beginPressFeedback`），由下一次松手（`releasing`）取走。触摸被手势接管而取消时不清：滑动选假名、18 键横滑在手势结束时才上屏，那时仍算这次按下的松手。每次按下都会重写它，所以留下的标记只可能被同一次按下的松手取走。
   private(set) var pressFedBack = false
 
-  func markPressFedBack() { pressFedBack = true }
+  /// 一次按下开始（`KeyboardViewController.keyPressFeedback` 在 touchDown 上调）：返回这次要不要现在就反馈，并照此重写 `pressFedBack`。滚得动的容器里的键不在按下时反馈，也要清掉上一次按下留下的标记，否则那次被取消的触摸留下的标记会让这次松手的动作不出声，这一下就什么反馈都没有。
+  func beginPressFeedback() -> Bool {
+    pressFedBack = !sitsInScrollableContent
+    return pressFedBack
+  }
 
   /// 正在处理的松手所属的那次按下已经反馈过。为真时 `playInputClick` 不再出声，一次按键只响一下、振一下。
   private(set) static var releasingPressThatFedBack = false

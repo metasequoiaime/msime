@@ -29,7 +29,7 @@ final class KeyPressFeedbackTests: XCTestCase {
 
   func testReleaseOfAPressThatFedBackIsSilent() {
     let key = KeyboardKeyButton(type: .system)
-    key.markPressFedBack()
+    XCTAssertTrue(key.beginPressFeedback())
     var silenced: Bool?
     KeyboardKeyButton.releasing(key) { silenced = KeyboardKeyButton.releasingPressThatFedBack }
     XCTAssertEqual(silenced, true)
@@ -39,7 +39,7 @@ final class KeyPressFeedbackTests: XCTestCase {
   /// 一次按下只抵一次松手：同一个键之后再有松手（例如这一下被手势接管后又在手势结束时上屏）不再被吞掉。
   func testReleaseConsumesThePress() {
     let key = KeyboardKeyButton(type: .system)
-    key.markPressFedBack()
+    XCTAssertTrue(key.beginPressFeedback())
     KeyboardKeyButton.releasing(key) {}
     var silenced: Bool?
     KeyboardKeyButton.releasing(key) { silenced = KeyboardKeyButton.releasingPressThatFedBack }
@@ -58,7 +58,7 @@ final class KeyPressFeedbackTests: XCTestCase {
 
   func testNestedReleaseRestoresTheOuterOne() {
     let pressed = KeyboardKeyButton(type: .system)
-    pressed.markPressFedBack()
+    XCTAssertTrue(pressed.beginPressFeedback())
     var seen: [Bool] = []
     KeyboardKeyButton.releasing(pressed) {
       KeyboardKeyButton.releasing(KeyboardKeyButton(type: .system)) { seen.append(KeyboardKeyButton.releasingPressThatFedBack) }
@@ -83,6 +83,40 @@ final class KeyPressFeedbackTests: XCTestCase {
     XCTAssertTrue(key.sitsInScrollableContent)
     scroll.isScrollEnabled = false
     XCTAssertFalse(key.sitsInScrollableContent)
+  }
+
+  /// 每次按下都重写标记：滚得动的容器里按下不在当时反馈，也要清掉上一次被取消的触摸留下的标记，否则这次松手的动作不出声，这一下就什么反馈都没有。
+  func testPressInScrollableContentClearsAStaleMark() {
+    let scroll = UIScrollView(frame: CGRect(x: 0, y: 0, width: 40, height: 100))
+    let key = KeyboardKeyButton(type: .system)
+    scroll.addSubview(key)
+    scroll.contentSize = CGSize(width: 40, height: 100)
+    XCTAssertTrue(key.beginPressFeedback())
+    // 这次触摸被取消（手势接管、系统取消），标记留在键上；之后容器变得滚得动，同一个键再按下。
+    scroll.contentSize = CGSize(width: 40, height: 200)
+    XCTAssertFalse(key.beginPressFeedback())
+    XCTAssertFalse(key.pressFedBack)
+    var silenced: Bool?
+    KeyboardKeyButton.releasing(key) { silenced = KeyboardKeyButton.releasingPressThatFedBack }
+    XCTAssertEqual(silenced, false)
+  }
+
+  /// 九键候选面板右栏的 ⌫ 也是 `makeKey` 造的、按下就反馈，要按退格类出声；它的动作里删笔画、删拼音时的退格声在松手里不再出声。
+  func testNineKeyPanelDeleteSoundsAsBackspace() throws {
+    let columns = KeyboardNineKeyPanelColumns(makeKey: { title, label, _ in
+      let button = KeyboardKeyButton(type: .system)
+      button.setTitle(title, for: .normal)
+      button.accessibilityLabel = label
+      return button
+    })
+    let classes = try Dictionary(uniqueKeysWithValues: columns.trailing.arrangedSubviews.map { view in
+      let key = try XCTUnwrap(view as? KeyboardKeyButton)
+      return (try XCTUnwrap(key.accessibilityIdentifier), key.pressSoundClass)
+    })
+    XCTAssertEqual(classes["candidatePanelDelete"], .backspace)
+    for identifier in ["candidatePanelBack", "candidatePanelClear", "candidatePanelStrokeToggle", "candidatePanelSingleToggle"] {
+      XCTAssertEqual(classes[identifier], .standard, identifier)
+    }
   }
 
   /// 键盘按键都在按下时反馈，空格、退格和回车按自己的声音类别出声。

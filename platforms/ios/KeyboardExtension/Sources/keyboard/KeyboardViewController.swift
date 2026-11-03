@@ -10216,8 +10216,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 键盘按键（`makeKey`、`makeIconKey` 造的键）按下的那一刻就出按键音、振动，与系统键盘一样（#10768）；原来要等松手时的动作才发，开着振动打字会觉得按下去有延迟。按键记下这次已经反馈过，松手时动作里的 `playInputClick` 就不再重复。在滚得动的容器里的键按下可能是在开始滚动，仍由松手时的动作反馈。`prepareKeyFeedback` 不改：候选词块和候选栏的几个按钮也挂着它，它们按下时只预热，候选栏一滑就振不对。
   @objc private func keyPressFeedback(_ sender: UIButton) {
-    guard let key = sender as? KeyboardKeyButton, !key.sitsInScrollableContent else { return }
-    key.markPressFedBack()
+    guard let key = sender as? KeyboardKeyButton, key.beginPressFeedback() else { return }
     emitKeyFeedback(key.pressSoundClass)
   }
 
