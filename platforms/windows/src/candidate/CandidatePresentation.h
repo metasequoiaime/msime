@@ -275,7 +275,7 @@ struct CandidatePresentation {
   int x = 0;
   int y = 0;
   std::string preedit;
-  // Byte offset of the caret within `preedit`, or npos when it cannot be placed. The Engine reports the caret against editing_text, which is not always the same string as the preedit being drawn; putting the caret at the wrong character is worse than not drawing one, so it is only carried when the two agree or the preedit is editing_text's letters with display separators (preedit_display_caret).
+  // 组字光标在 `preedit` 里的字节位置，画不出时为 npos。位置取自引擎的 View.preedit_caret，视图里没有它时按 preedit_display_caret 换，见 candidate_view_preedit_caret。
   size_t preedit_caret = std::string::npos;
   std::vector<PresentationCandidate> candidates;
   bool traditional_output = false;
@@ -410,6 +410,23 @@ inline void candidate_presentation_page(CandidatePresentation &output,
     output.page_count = count;
   }
 }
+// 候选窗拼音行里组字光标在 view 的 preedit 里的字节位置（不含宿主加在前面的已选词段），没有可画的位置时为 npos。引擎在 View.preedit_caret 里给出光标在 preedit 里的位置（Unicode 标量，见 msime_client.h）：全拼分词的 ni'hao、双拼分隔的 ni'mf、双拼「拼音分词」展开的全拼 shi'shi 都按它放，音节边界上落在隔音符前面；两段文字没有可靠对应（韩文音节、假名、笔画字形）时它在末尾，和 macOS 候选窗一样画在末尾。视图里没有这一项时退回 preedit_display_caret，按按键原文的字母数换。位置越过 preedit 说明两边对不上，不猜。按键送达和异步刷新两条投影都用它，候选窗打字、左右移光标时插入点都跟着。
+inline size_t candidate_view_preedit_caret(const nlohmann::json &view, std::string_view preedit) {
+  const auto engine = view.find("preedit_caret");
+  if (engine == view.end() || !engine->is_number_integer() || engine->get<int64_t>() < 0) {
+    const auto editing = view.at("editing_text").get<std::string>();
+    return preedit_display_caret(editing, preedit, view.value("caret_position", editing.size()));
+  }
+  size_t bytes = 0;
+  for (auto scalars = engine->get<size_t>(); scalars; --scalars) {
+    if (bytes >= preedit.size())
+      return std::string::npos;
+    ++bytes;
+    while (bytes < preedit.size() && (static_cast<unsigned char>(preedit[bytes]) & 0xC0u) == 0x80u)
+      ++bytes;
+  }
+  return bytes;
+}
 inline CandidatePresentation
 candidate_presentation_from_view(const FocusLease &lease,
                                  const nlohmann::json &view, int x, int y,
@@ -438,10 +455,8 @@ candidate_presentation_from_view(const FocusLease &lease,
     throw std::invalid_argument("Oversized candidate presentation");
   output.traditional_output = traditional_output;
   output.preedit = prediction ? std::string{} : prefix + text;
-  // caret_position is a byte offset into the Engine's ASCII editing_text. It carries over to the drawn preedit when the two are the same string, or when the preedit is those letters with display separators added (segmented quanpin), see preedit_display_caret; the prefix this host prepends shifts it by its own length.
-  const auto editing = view.at("editing_text").get<std::string>();
-  const auto caret =
-      preedit_display_caret(editing, text, view.value("caret_position", editing.size()));
+  // 插入点见 candidate_view_preedit_caret；宿主加在前面的已选词段把它整体后移。
+  const auto caret = candidate_view_preedit_caret(view, text);
   if (caret != std::string::npos && !prediction)
     output.preedit_caret = prefix.size() + caret;
   size_t highlighted = 0;
@@ -533,6 +548,10 @@ candidate_presentation(const FocusLease &lease, const PendingReply &reply,
   output.traditional_output = reply.traditional_output;
   // 联想没有拼音；上屏的前缀已经进了文档，不再画。
   output.preedit = prediction ? std::string{} : reply.next_prefix + text;
+  // 和异步刷新的投影放同一个插入点。这条路径以前不带光标，候选窗每次按键重画都把它丢掉，拼音行里从来看不到插入点。
+  const auto caret = candidate_view_preedit_caret(view, text);
+  if (caret != std::string::npos && !prediction)
+    output.preedit_caret = reply.next_prefix.size() + caret;
   size_t highlighted = 0;
   const bool hanja = korean_hanja_view(view);
   for (const auto &candidate : view.at("candidates")) {
