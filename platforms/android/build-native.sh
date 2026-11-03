@@ -3,7 +3,7 @@ set -euo pipefail
 repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$repo_root"
 abi=${1:-arm64-v8a}
-# 第二个参数 --omit-voice-runtime 由 build-apk.sh 在 MSIME_ANDROID_OMIT_ON_DEMAND=1 时传入：本地语音运行库（libsherpa-onnx-c-api.so 与 libonnxruntime.so）不进 jniLibs，由应用在用户打开离线识别时作为资源包 voice-runtime 下载（固定在 resources/voice-runtime-android.lock.json）。不带这个参数时照旧取出这两个库，build-client-apk.sh 的 Tauri 合包靠的就是这条默认路径。
+# 第二个参数 --omit-voice-runtime 由 build-apk.sh 在 MSIME_ANDROID_OMIT_ON_DEMAND=1 时传入：本地语音运行库（libsherpa-onnx-c-api.so 与 libonnxruntime.so）不进 jniLibs，由应用在用户打开离线识别时作为资源包 voice-runtime 下载（固定在 resources/voice-runtime-android.lock.json）。不带这个参数时照旧取出这两个库。
 include_voice_runtime=1
 case "${2:-}" in
   '') ;;
@@ -102,7 +102,7 @@ cp resources/licenses/libcxx-Apache-2.0-WITH-LLVM-exception.txt "$notices/libcxx
 cp resources/licenses/latex-symbols-MIT.txt "$notices/latex-symbols-MIT.txt"
 # 输入引擎本身（crates/engine、crates/path-trust，源码在本仓库）和它链接的 rink-core（单位换算，源码在 crates.io）是 MPL-2.0，二进制分发要附上许可证全文。
 cp resources/licenses/MPL-2.0.txt "$notices/MPL-2.0.txt"
-# The engine's Cantonese and Zhuyin schemes take their Jyutping and bopomofo syllables and words from data derived from rime-cantonese (CC BY 4.0, which requires attribution) and libchewing-data (LGPL-2.1-or-later, which requires the licence text and a source pointer). build-apk.sh and build-client-apk.sh package the dictionaries themselves, each beside its own licence text, when target/language-dictionaries (or MSIME_LANGUAGE_DICTIONARIES) holds them; the notices travel with every engine build either way so that one notice list covers every platform.
+# 引擎的粤拼和注音方案用到的音节和词来自 rime-cantonese（CC BY 4.0，要求署名）和 libchewing-data（LGPL-2.1-or-later，要求附许可证全文和源码出处）的派生数据。target/language-dictionaries（或 MSIME_LANGUAGE_DICTIONARIES）里有词库时，build-apk.sh 把词库连同各自的许可证一起打包；不论有没有词库，这些声明都随每份引擎构建分发，这样一份声明清单就覆盖所有平台。
 cp resources/licenses/rime-cantonese-CC-BY-4.0.txt "$notices/rime-cantonese.txt"
 cp resources/licenses/libchewing-data-LGPL-2.1.txt "$notices/libchewing-data.txt"
 # The Stroke scheme's stroke orders come from rime-stroke (LGPL-3.0, whose main table also carries the CNS11643 attribution); its notice travels the same way.
