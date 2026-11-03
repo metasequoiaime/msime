@@ -29,6 +29,8 @@ import { CandidateBadgeSettingsSection } from "../candidate-badge-settings-secti
 import { SegmentedRow } from "../segmented-row";
 import { SliderRow } from "../slider-row";
 import { SwitchRow } from "../switch-row";
+import { CandidateColorRow } from "../candidate-colors-section";
+import { createSettingsDraftActions } from "../settings-draft-actions";
 
 /** 候选窗口按功能分区，共用预览；手机保留直列和折叠区。 */
 export function AppearanceSettingsPage() {
@@ -399,12 +401,14 @@ function HarmonyPhoneCandidateGroups() {
     setDraft,
     mobileKeyboardFeedback,
     saveMobileKeyboardFeedback,
+    keyboardPreviewTheme,
   } = useSettingsForm();
   const appearanceActions = createAppearanceSettingsActions({
     mobileKeyboardFeedback,
     saveMobileKeyboardFeedback,
     setDraft,
   });
+  const { onCandidateColorChange } = createSettingsDraftActions({ setDraft });
   return (
     <>
       {host?.candidate_panel_limit && (
@@ -454,6 +458,16 @@ function HarmonyPhoneCandidateGroups() {
             }
           />
         )}
+        {/* #10740 维护者特许（迁移期 packages/ui 不加新设置的例外）。手机和平板的触屏候选条照旧画键盘皮肤的颜色，自定义主题的其余取色器不作用于它，只有这一项照画（`GlobalTheme.touchSelectedText`），所以主题页在这里不给取色器，这一行放在候选栏页，与 Android 键盘页那一行对应。选了颜色会切到自定义主题（`updateCandidateColor`）。 */}
+        <CandidateColorRow
+          title="候选选中文字色"
+          slot="selected_text"
+          value={draft.custom_theme?.candidate_colors?.selected_text}
+          fallback={keyboardPreviewTheme === "dark" ? "#8ab4f8" : "#1a73e8"}
+          onChange={onCandidateColorChange}
+          resetLabel="候选选中文字色跟随主题"
+          description="首选候选文字的颜色，选了颜色会切到自定义主题；跟随主题时候选栏照旧用键盘皮肤的颜色"
+        />
         <MoreOptions>
           {showCandidateFontControls && (
             <>

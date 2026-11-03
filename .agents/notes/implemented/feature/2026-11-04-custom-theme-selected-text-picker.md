@@ -30,10 +30,10 @@ Status: implemented
 - **Windows**：Server 照解析结果画；`CandidateSkin.h` 的 `apply_candidate_skin_extra_slots` 设了选中底色或选中文字取色器时都不再叠皮肤包的三个选中细分槽位。WinUI 和 Win7 设置共用的 `ThemeSkinModel.h` `color_slots` 在「候选选中色」后面加一项，没设时色块显示原生选中行的白字。
 - **macOS**：IMK 新存储键 `MSIMEClientCandidateSelectedTextColor`，读写、账号推送和恢复默认都走 `CandidateColorControls()` 那张表；解析请求带上 `selected_text`。解析结果给了 `selected_text` 时 macOS 本来就不再按选中底推导前景。原生回退窗口「配色」里多一个取色器；主路径的 Tauri 设置页靠 `packages/ui` 那一行。
 - **Linux**：IBus 和 Fcitx5 经典界面原来在主题不给选中底也不给强调色时一律画原生白字，`system` 底上只设这个取色器会不生效；`candidate_theme_colors` 现在在这种情况下也读解析结果的 `selected_text`、`selected_number`，序号的透明度合成在原生选中底上。X11 原生画布本来就读解析结果。设置在共享页。
-- **HarmonyOS**：`GlobalTheme.hostDrawnCustomTheme` 的白名单加上 `selected_text`，2in1 候选窗经解析器取到它；手机和平板的触屏候选条照旧用键盘配色（其余取色器也不作用于它），只在自定义主题设了这个取色器时把首选候选的字换成它（`GlobalTheme.touchSelectedText`）。设置是 ArkWeb 加载的共享页。
+- **HarmonyOS**：`GlobalTheme.hostDrawnCustomTheme` 的白名单加上 `selected_text`，2in1 候选窗经解析器取到它；手机和平板的触屏候选条照旧用键盘配色（其余取色器也不作用于它），只在自定义主题设了这个取色器时把首选候选的字换成它（`GlobalTheme.touchSelectedText`）。设置是 ArkWeb 加载的共享页：2in1 用主题页「自定义配色」里那一行；手机和平板的主题页按设计只有皮肤网格，不渲染「自定义主题」组，所以取色器放在「候选栏」页的「候选栏」组（`HarmonyPhoneCandidateGroups`），只有这一个，与 Android 键盘页那一行对应，其余候选取色器在手机上照旧不给，因为候选条不画它们。
 - **Android**：候选栏同样照旧用键盘配色，同一条例外（`CandidateSelectedTextPolicy.stripColour`）；用了候选皮肤包时由解析器给出。键盘页「键盘工具栏」组加「候选选中文字色」一行，Android 没有系统取色器，给跟随主题、七种常用颜色和「自定义…」输入 `#RRGGBB`。
 - **iOS**：「外部皮肤与候选颜色」在「候选栏使用主题配色」打开时多一个「首选文字」，候选条首选候选和展开面板选中项本来就画解析结果的 `selectedText`；「恢复皮肤颜色」一并清掉它。
-- **共享设置页**：「自定义配色」里「候选选中色」后面加「候选选中文字色」，和强调色、选中色一样只在 `candidate_row_colors` 为真时出现。没有新加 `HostCapabilities` 位：所有给出行颜色的宿主都画它，一个处处为真的能力位不带任何信息。
+- **共享设置页**：「自定义配色」里「候选选中色」后面加「候选选中文字色」，和强调色、选中色一样只在 `candidate_row_colors` 为真时出现；鸿蒙手机另在「候选栏」页给这一行，见上。没有新加 `HostCapabilities` 位：所有给出行颜色的宿主都画它，一个处处为真的能力位不带任何信息。
 
 选颜色时文档跟着改什么与其余取色器相同（共享页 `updateCandidateColor`、Windows `candidate_color_change`、iOS `pickingCandidateColor`、Android `CandidateSelectedTextPolicy.change`）：选了颜色就选上自定义主题，原来不是自定义主题时把当时的主题留作底并清掉两个皮肤槽位；交还给主题只清这一项。
 
@@ -43,6 +43,7 @@ Status: implemented
 - **只做共享 Rust 和已有原生设置的宿主，`packages/ui` 不破例** — 最强的理由是守住迁移期规则，冻结只靠评审守。没有采用：报告者在 macOS 主路径（Tauri 设置页）上，鸿蒙的设置也是同一份共享页，不破例的话这两个平台的用户都改不了；设置页的预览本来就要和 Rust 对齐，镜像那一处无论如何要改。维护者明确给了这一行例外，规则本身不变。
 - **加一个 `HostCapabilities::candidate_selected_text_color` 位** — 最强的理由是和编号色、边框色一样按宿主开关，以后某个宿主不画时可以单独藏起来。没有采用：这次所有给出行颜色的宿主都画它，新位在每个平台都是真，只多一处要同步的契约；真有宿主不画时再加。
 - **触屏候选条（Android、鸿蒙手机）完全照旧，只在桌面候选窗和皮肤包里生效** — 最强的理由是其余取色器都不作用于触屏候选条，保持一致。没有采用：维护者要求 Android 也给取色器，候选条不照它画就是一个背后什么都没有的控件；只放开首选候选的字色这一项，候选条的底、其余候选和工具栏照旧跟随键盘配色。
+- **把触屏候选条的规则和「选颜色时文档跟着改什么」放进共享 Rust（`skin::theme` 加一个返回触屏首选字色的函数，经 `resolve_theme` 下发；`client-services` 加一个改文档的入口）** — 最强的理由是任务约束要求规则先进共享 Rust，宿主只读：现在「只在 `global_theme == custom` 且值是合法 `#RRGGBB` 时照画」在 Android（`CandidateSelectedTextPolicy.stripColour`）和鸿蒙（`GlobalTheme.touchSelectedText`）各写一份，改文档的规则在共享页 `updateCandidateColor`、Windows、iOS、Android 有四份，以后容易走样。没有采用：触屏候选条的配色来自键盘调色板，不经过 `resolve_theme`，要下发就得给解析结果加一个只有触屏宿主读的字段，改 host C ABI 的 JSON 契约；改文档的规则从来没有共享入口，已有的三份也是宿主各写各的，为一个取色器新开 C ABI 不划算。两份触屏规则都只有一行判断，各有测试（`CandidateSelectedTextPolicySmoke`、鸿蒙 `keyboard-logic.test.ts`），逐条和共享页对过。原生迁移把设置页搬进各宿主时，取色器写文档的规则随之统一收进 `client-services`，那时一并处理。
 
 ## Consequences
 

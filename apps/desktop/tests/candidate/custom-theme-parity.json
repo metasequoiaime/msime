@@ -26,9 +26,7 @@
           "text": "#112233"
         }
       },
-      "themes": [
-        "light"
-      ]
+      "themes": ["light"]
     }
   },
   {
@@ -56,9 +54,7 @@
           "accent": "#AA0000"
         }
       },
-      "themes": [
-        "light"
-      ]
+      "themes": ["light"]
     }
   },
   {
@@ -89,9 +85,7 @@
           "translation": "rgba(1, 2, 3, .5)"
         }
       },
-      "themes": [
-        "light"
-      ]
+      "themes": ["light"]
     }
   },
   {
@@ -120,9 +114,7 @@
         },
         "light": {}
       },
-      "themes": [
-        "dark"
-      ]
+      "themes": ["dark"]
     }
   },
   {
@@ -159,10 +151,7 @@
           "surface": "#ffffff"
         }
       },
-      "themes": [
-        "dark",
-        "light"
-      ]
+      "themes": ["dark", "light"]
     }
   },
   {
@@ -194,9 +183,7 @@
           "surface": "#FFF0F5"
         }
       },
-      "themes": [
-        "light"
-      ]
+      "themes": ["light"]
     }
   },
   {
@@ -226,9 +213,7 @@
           "surface": "#FFF0F5"
         }
       },
-      "themes": [
-        "light"
-      ]
+      "themes": ["light"]
     }
   },
   {
@@ -259,9 +244,7 @@
           "selected": "#11111180"
         }
       },
-      "themes": [
-        "light"
-      ]
+      "themes": ["light"]
     }
   },
   {
@@ -293,9 +276,7 @@
           "surface": "rgba(1, 2, 3, 1.5)"
         }
       },
-      "themes": [
-        "light"
-      ]
+      "themes": ["light"]
     }
   },
   {
@@ -424,9 +405,7 @@
           "selected": "#11111180"
         }
       },
-      "themes": [
-        "light"
-      ]
+      "themes": ["light"]
     }
   },
   {
@@ -524,9 +503,7 @@
           "selected": "#11111180"
         }
       },
-      "themes": [
-        "light"
-      ]
+      "themes": ["light"]
     }
   },
   {
@@ -557,9 +534,7 @@
         },
         "light": {}
       },
-      "themes": [
-        "dark"
-      ]
+      "themes": ["dark"]
     }
   },
   {
@@ -575,9 +550,7 @@
           "surface": "#FFF0F5"
         }
       },
-      "themes": [
-        "light"
-      ]
+      "themes": ["light"]
     }
   }
 ]
