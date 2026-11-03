@@ -95,17 +95,43 @@ struct DesignInfoTip: View {
     .accessibilityLabel(Self.accessibilityName(subject: subject, text: text))
     .accessibilityIdentifier("designInfoTip")
     .popover(isPresented: $presented) {
-      Text(text)
-        .font(.system(size: 14))
-        .foregroundStyle(.primary)
-        .multilineTextAlignment(.leading)
-        .frame(maxWidth: 280, alignment: .leading)
-        .fixedSize(horizontal: false, vertical: true)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+      DesignInfoBubble(text: text)
         // 手机上 popover 默认会变成整页弹窗；固定成气泡，和桌面、鸿蒙的说明气泡一致。
         .presentationCompactAdaptation(.popover)
     }
+  }
+}
+
+/// 「?」弹出的气泡内容。
+///
+/// popover 按内容不给宽度时的理想尺寸定气泡大小。旧写法 `frame(maxWidth: 280)` 在那时让 Text 按一行量高度，长说明实际折成多行，气泡却只有几行高，上下被裁掉、也不能滚动（#10708 在 iPhone XR 上「语音标点」的说明只露出中间三行）。所以先按文字量出宽度并固定下来，Text 在这个宽度下自己算高度。
+struct DesignInfoBubble: View {
+  let text: String
+
+  static let fontSize: CGFloat = 14
+  /// 气泡里文字的最大宽度。
+  static let maxTextWidth: CGFloat = 280
+
+  /// 气泡里文字的宽度：一行放得下的短说明按它自己的宽度（多留 1pt，免得 SwiftUI 排版比这里量的宽一点就把最后一个字挤到下一行），放不下的固定为最大宽度、折行显示。
+  static func textWidth(for text: String) -> CGFloat {
+    let measured = (text as NSString).boundingRect(
+      with: CGSize(width: maxTextWidth, height: .greatestFiniteMagnitude),
+      options: [.usesLineFragmentOrigin, .usesFontLeading],
+      attributes: [.font: UIFont.systemFont(ofSize: fontSize)],
+      context: nil
+    ).width
+    return min(maxTextWidth, ceil(measured) + 1)
+  }
+
+  var body: some View {
+    Text(text)
+      .font(.system(size: Self.fontSize))
+      .foregroundStyle(.primary)
+      .multilineTextAlignment(.leading)
+      .fixedSize(horizontal: false, vertical: true)
+      .frame(width: Self.textWidth(for: text), alignment: .leading)
+      .padding(.horizontal, 14)
+      .padding(.vertical, 12)
   }
 }
 
@@ -363,28 +389,53 @@ struct DesignNavRowLabel: View {
 }
 
 /// 开关行；开关打开时的颜色是季节强调色。
+///
+/// `enabled` 为 false 时整行半透明、开关不能拨，但标题旁的「?」照样能点开说明：说明往往正是在讲这一项为什么现在不能用。不要对整行用 `.disabled`，那会连「?」一起禁用（#10708 在 iPhone XR 上「自动添加标点」的「?」点不开）。与 Android `GroupCard.Row.setEnabled` 一样只禁用开关本身。
 struct DesignToggleRow: View {
   let title: String
   var subtitle: String? = nil
   var info: String? = nil
+  var enabled = true
   @Binding var isOn: Bool
 
-  init(title: String, subtitle: String? = nil, info: String? = nil, isOn: Binding<Bool>) {
+  init(title: String, subtitle: String? = nil, info: String? = nil, enabled: Bool = true, isOn: Binding<Bool>) {
     self.title = title
     self.subtitle = subtitle
     self.info = info
+    self.enabled = enabled
     _isOn = isOn
   }
 
+  /// 不可用时整行的不透明度。
+  static let disabledOpacity = 0.5
+
   var body: some View {
-    Toggle(isOn: $isOn) {
-      DesignRowLabel(title: title, subtitle: subtitle, info: info)
+    if enabled {
+      Toggle(isOn: $isOn) {
+        DesignRowLabel(title: title, subtitle: subtitle, info: info)
+      }
+      .toggleStyle(.switch)
+      .tint(MetasequoiaTheme.switchOn)
+      .padding(.vertical, 8)
+      .padding(.horizontal, 20)
+      .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+    } else {
+      // 标题和「?」不放进被禁用的 Toggle 里：Toggle 的标签随它一起禁用。开关单独禁用，读屏仍以标题称呼它。
+      HStack(spacing: 12) {
+        DesignRowLabel(title: title, subtitle: subtitle, info: info)
+        Spacer(minLength: 8)
+        Toggle(title, isOn: $isOn)
+          .labelsHidden()
+          .toggleStyle(.switch)
+          .tint(MetasequoiaTheme.switchOn)
+          .disabled(true)
+      }
+      .opacity(Self.disabledOpacity)
+      .padding(.vertical, 8)
+      .padding(.horizontal, 20)
+      .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+      .accessibilityElement(children: .contain)
     }
-    .toggleStyle(.switch)
-    .tint(MetasequoiaTheme.switchOn)
-    .padding(.vertical, 8)
-    .padding(.horizontal, 20)
-    .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
   }
 }
 

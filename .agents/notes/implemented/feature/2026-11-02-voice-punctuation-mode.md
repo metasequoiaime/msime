@@ -53,6 +53,8 @@ Java 侧 `VoicePunctuation`（`platforms/android/java/app/msime/android/voice/Vo
 - App 语音页（「试一下」和键盘深链进来的录音页）：`ServiceSettingsView.deliver` 是三条识别路径的汇合点，润色拿带标点的识别原文（模型靠标点断句），语音标点在润色完成之后处理；识别原文和润色结果都存处理后的文字，所以「改用识别原文」和「发送到键盘」交出去的就是页面上显示的。是否只剩标点看润色之后的结果，与 Android 先润色再 `saveResult` 的顺序相同；只剩标点时结果留空，因为语音交接不收空白文字；识别原文只剩标点、润色又失败时同样提示没有识别到文字，不说保留了原文。AI 服务页的「测试」也走 `deliver`，它不处理。
 - 键盘领取「语音结果」（`showKeyboardVoice`）时不再处理，免得同一段文字处理两次。
 - 设置页 `VoiceSettingsView` 的「识别」组在「自动添加标点」下面加「语音标点」四选一，只写 `voice_input.punctuation_mode` 这一个键；选项名称和说明与 Android `VoicePage` 逐字相同，设置搜索的关键词与 Android `PageId.VOICE` 一样收「语音标点」。iOS 设置是原生 SwiftUI，没有 WebView，共享 React 设置页的这一项到不了 iOS，所以另画一行。
+- 非豆包时「自动添加标点」不能拨，但标题旁的「?」要能点开：说明讲的正是其他识别服务该用「语音标点」。整行 `.disabled` 会连「?」一起禁用（iPhone XR 真机验收里点不开），所以由 `DesignToggleRow(enabled:)` 只禁用开关本身，标题和「?」放在开关旁边而不是它的标签里，与 Android `GroupCard.Row.setEnabled` 一样。
+- 「语音标点」的说明是设置页里最长的一类，「?」气泡按旧写法 `frame(maxWidth: 280)` 定尺寸时，popover 按一行的理想高度定气泡大小，iPhone XR 上只露出中间三行、不能滚动。`DesignInfoBubble` 先量出文字宽度再固定下来，气泡高度由 Text 在这个宽度下算；这是所有「?」共用的气泡，其他长说明一并受益。
 
 ### 其他平台
 
@@ -81,4 +83,5 @@ Java 侧 `VoicePunctuation`（`platforms/android/java/app/msime/android/voice/Vo
 - `cargo test -p msime-client-core --lib voice_punctuation_mode`：缺键读成 `auto` 且不写进文档，选过的值和不认识的值都能读写。
 - `cargo test -p msime-host-api --lib voice_punctuation mobile_voice_configuration_reports`：FFI 的四种方式、未知方式、只剩标点、缺字段、超长、空指针；共享解析给出归一后的 `punctuationMode`。
 - `platforms/android/check-host.sh`：`VoicePunctuationSmoke`（取值、标签、`auto` 不进共享层、调用失败保留原文），设置搜索收录「语音标点」，`client_jni.cpp` 对共享头编译。
-- iOS `MSIMEKeyboardTests/VoicePunctuationTests`：对真实 FFI 跑取值、标签、只写一个键、四种方式、数字和时间、只剩标点；`SpaceVoicePanelTests/testVoicePunctuationAppliesOnceToTheFinalText` 经真实语音会话通知走完键盘听写，确认上屏的是处理后的文字、只剩标点时不上屏也不存进语音交接。App 语音页和设置搜索在主 App 的 SwiftUI 视图里，不在任何 XCTest target 中，由 `scripts/test-ios-voice-punctuation.py` 钉源码：`deliver` 只在语音页读取偏好，润色拿识别原文、润色后再处理，三条路径各处理一次，识别原文只剩标点时润色失败不说保留了原文，键盘领取语音结果时不再处理；搜「语音标点」能找到语音输入页。三种识别服务在真机上的实际上屏结果和设置页截图需要人工确认。
+- iOS `MSIMEKeyboardTests/VoicePunctuationTests`：对真实 FFI 跑取值、标签、只写一个键、四种方式、数字和时间、只剩标点；`SpaceVoicePanelTests/testVoicePunctuationAppliesOnceToTheFinalText` 经真实语音会话通知走完键盘听写，确认上屏的是处理后的文字、只剩标点时不上屏也不存进语音交接。App 语音页和设置搜索在主 App 的 SwiftUI 视图里，不在任何 XCTest target 中，由 `scripts/test-ios-voice-punctuation.py` 钉源码：`deliver` 只在语音页读取偏好，润色拿识别原文、润色后再处理，三条路径各处理一次，识别原文只剩标点时润色失败不说保留了原文，键盘领取语音结果时不再处理；搜「语音标点」能找到语音输入页；非豆包时「自动添加标点」只禁用开关、标题和「?」不在被禁用的 Toggle 里，「?」气泡按量出的文字宽度定尺寸。`MSIMEKeyboardTests/DesignInfoBubbleTests` 用 `ImageRenderer` 量气泡不给尺寸时的理想大小：「语音标点」那段说明的气泡要容得下按 280pt 折行后的每一行，一行的短说明贴着文字、不折行。
+- iPhone XR（iOS 18.7）真机验收：「语音标点」一行的位置、出厂值、选择面板、冷启动后保留、设置搜索都符合预期；发现非豆包时「自动添加标点」的「?」点不开、「语音标点」的说明气泡被裁成三行，两处已按上面修正，待真机复核。手机没有可用的语音来源（Mac 被静音、系统听写关闭），四种方式的实际上屏结果、各识别服务和润色路径还没有在真机上确认。

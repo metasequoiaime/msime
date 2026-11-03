@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""iOS 语音标点（#10595）在 SwiftUI 页面里的接线：设置搜索能找到「语音标点」，App 语音页（`ServiceSettingsView.deliver`）在润色之后、每条路径只处理一次。
+"""iOS 语音标点（#10595）在 SwiftUI 页面里的接线：设置搜索能找到「语音标点」，App 语音页（`ServiceSettingsView.deliver`）在润色之后、每条路径只处理一次，非豆包时「自动添加标点」只禁用开关、「?」仍能点开。
 
-这两处都在主 App 的 SwiftUI 视图里，不在任何 XCTest target 中，所以在这里钉源码；处理规则本身由 `MSIMEKeyboardTests/VoicePunctuationTests` 对着真实 FFI 测，键盘听写由 `SpaceVoicePanelTests/testVoicePunctuationAppliesOnceToTheFinalText` 走完真实会话。"""
+这几处都在主 App 的 SwiftUI 视图里，不在任何 XCTest target 中，所以在这里钉源码；处理规则本身由 `MSIMEKeyboardTests/VoicePunctuationTests` 对着真实 FFI 测，键盘听写由 `SpaceVoicePanelTests/testVoicePunctuationAppliesOnceToTheFinalText` 走完真实会话，「?」气泡的尺寸由 `MSIMEKeyboardTests/DesignInfoBubbleTests` 量。"""
 from pathlib import Path
 import re
 import unittest
@@ -14,6 +14,7 @@ VOICE_PAGE = (IOS / "App/Sources/settings/VoiceSettingsView.swift").read_text(en
 FEATURE = (IOS / "App/Sources/settings/FeatureSettingsViews.swift").read_text(encoding="utf-8")
 SERVICE = FEATURE.split("struct ServiceSettingsView", 1)[1].split("private struct AICandidatePromptView", 1)[0]
 KEYBOARD = (IOS / "KeyboardExtension/Sources/keyboard/KeyboardViewController.swift").read_text(encoding="utf-8")
+DESIGN_KIT = (IOS / "App/Sources/app/DesignKit.swift").read_text(encoding="utf-8")
 ANDROID_PAGES = (ROOT / "platforms/android/java/app/msime/android/home/PageId.java").read_text(encoding="utf-8")
 
 
@@ -110,6 +111,46 @@ class ServiceSettingsDeliverTests(unittest.TestCase):
         claim = member(KEYBOARD, "  private func showKeyboardVoice() {")
         self.assertIn("let text = try store.consume(entry.id)", claim)
         self.assertNotIn("VoicePunctuation", claim)
+
+
+def swift_type(source: str, name: str) -> str:
+    """`struct <name>` 到下一个顶层声明为止的源码。"""
+    start = source.index(f"struct {name}")
+    following = re.search(r"\n(?:struct|private struct|extension|private extension|enum|final class|// MARK)", source[start + 1:])
+    return source[start:start + 1 + following.start()] if following else source[start:]
+
+
+class DisabledToggleHelpTests(unittest.TestCase):
+    """真机验收（iPhone XR）：非豆包时整行 `.disabled` 连「自动添加标点」的「?」一起禁用，告诉用户改用「语音标点」的说明点不开。"""
+
+    def setUp(self):
+        start = VOICE_PAGE.index('DesignToggleRow(title: "自动添加标点"')
+        self.row = VOICE_PAGE[start:VOICE_PAGE.index("DesignDivider()", start)]
+        self.toggle_row = swift_type(DESIGN_KIT, "DesignToggleRow")
+
+    def test_voice_page_disables_only_the_switch(self):
+        self.assertIn("enabled: provider == .doubao,", self.row)
+        self.assertNotIn(".disabled(", self.row, "a row-wide .disabled also disables the 「?」")
+        self.assertNotIn(".opacity(", self.row, "the row dims itself when it is not enabled")
+
+    def test_disabled_toggle_row_keeps_the_label_outside_the_disabled_toggle(self):
+        enabled, disabled = self.toggle_row.split("    } else {\n", 1)
+        self.assertIn("if enabled {", enabled)
+        label = disabled.index("DesignRowLabel(title: title, subtitle: subtitle, info: info)")
+        switch = disabled.index("Toggle(title, isOn: $isOn)")
+        self.assertLess(label, switch, "title and 「?」 sit beside the switch, not in its label")
+        after_switch = disabled[switch:]
+        self.assertRegex(after_switch, re.compile(r"\.labelsHidden\(\)(?:\s*\.[a-zA-Z]+\([^\n]*\))*\s*\.disabled\(true\)\n\s*\}"),
+                         "only the switch itself is disabled")
+        self.assertEqual(disabled.count(".disabled("), 1)
+
+    def test_info_bubble_is_sized_from_its_measured_text_width(self):
+        tip = swift_type(DESIGN_KIT, "DesignInfoTip")
+        self.assertIn("DesignInfoBubble(text: text)", tip)
+        bubble = swift_type(DESIGN_KIT, "DesignInfoBubble")
+        self.assertNotIn("maxWidth", bubble, "frame(maxWidth:) lets the popover size the bubble from a one-line height")
+        self.assertRegex(bubble, re.compile(
+            r"\.fixedSize\(horizontal: false, vertical: true\)\s*\.frame\(width: Self\.textWidth\(for: text\), alignment: \.leading\)"))
 
 
 if __name__ == "__main__":
