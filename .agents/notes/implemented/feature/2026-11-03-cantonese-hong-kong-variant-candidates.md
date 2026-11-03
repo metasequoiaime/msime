@@ -35,11 +35,13 @@ Status: implemented
 - 菸/煙：含「菸」的 188 条里，187 个词改写成「煙」，其中 8 个和库里已有的「煙」字词合并（防煙門、戒煙、香煙、煙花、煙海、煙雨、煙霧、煙通），所以条目少了 8 条；单字「菸」保留，权重从 1868 降到 266（它原来的分数主要来自「词带字」下限，词都改写成「煙」后下限归了「煙」），「煙」20644 不变。合并后「戒煙」266 → 1232、「香煙」1334 → 1690。另有 19 个单字的权重因为「词带字」下限的来源词变了而小幅变动（如「囪」622 → 734、「烽」961 → 1192、「霾」363 → 552；「戒」1880 → 1879，因为「戒菸」「戒煙」两个词合成了一个）。
 - 「搵」「揾」「啓」「啟」与 `dict-v2.0.50` 完全相同：`wan` 下「搵」525289 排第一，含「搵」的 145 条不变；`kai` 下「啟」1924 排第一，「啓」1154。
 
+再与 `dict-v2.0.51`（msime-dictionary#120 合入后由 `develop` `93815fffb5` 的构建器发布，已含 #10711 的 溼→濕，不读两个新文件）逐行比较：音节 729 不变，差异只有含「煙」「菸」的条目和上面那 19 个单字的权重，溼/濕、搵、啟/啓 的条目完全一致。这直接证实了相对 `develop` 只多了 菸→煙 一对。
+
 msime-dictionary#119 往 `custom/cantonese.txt` 加「濕紙巾 sap1 zi2 gan1」。自 #10711 起词表里的「溼紙巾」就写成「濕紙巾」，权重取 essay 里「溼紙巾」的 12；人工词按香港字形查到同样的 12，只升不降，不改变输出，所以那个 PR 对构建结果是多余的。
 
 ## 合入顺序
 
-先合 msime-dictionary 的 PR：它触发的自动发布用 msime `develop` 的构建器，旧构建器不读这两个新文件，产出和 #10711 之后一样（已经含 溼→濕）。再合 msime 的 PR，然后手动重跑一次 msime-dictionary 的发布（或等下一次源数据推送）让 菸→煙 与否决表生效，再按惯例更新 `resources/language-dictionaries.lock.json`、同步 `resources/licenses/msime-engine-dictionary-NOTICE.md`、重新生成 `tools/cantonese-evaluation/report.json`。顺序反了也不会发出错误数据：msime 先合入后，msime-dictionary 在收录 `HKVariants.txt` 之前的任何一次发布都会因为缺文件而失败。
+msime-dictionary 的 PR（metasequoiaime/msime-dictionary#120）已经先合入，它触发的自动发布 `dict-v2.0.51` 用的是 msime `develop` 的构建器，不读这两个新文件，产出和 #10711 之后一样（已经含 溼→濕）。msime 的 PR 合入后，手动重跑一次 msime-dictionary 的发布（或等下一次源数据推送）让 菸→煙 与否决表生效，再按惯例更新 `resources/language-dictionaries.lock.json`、同步 `resources/licenses/msime-engine-dictionary-NOTICE.md`、重新生成 `tools/cantonese-evaluation/report.json`。顺序反了也不会发出错误数据：msime 先合入后，msime-dictionary 在收录 `HKVariants.txt` 之前的任何一次发布都会因为缺文件而失败。
 
 ## Alternatives considered
 
@@ -53,7 +55,7 @@ msime-dictionary#119 往 `custom/cantonese.txt` 加「濕紙巾 sap1 zi2 gan1」
 
 - 收益：香港字形的候选范围扩大到 `HKVariants.txt` 的 66 行，以后 HKCanCor 或 OpenCC 换版本时新出现的对会自动按同一规则判定，不再要求每对都改构建器；人工判断集中在一份可以随时增删的否决表里；`EXPECTED` 从此守住 濕、濕紙巾、啟 和否决的「搵」。
 - 代价：「搵」的否决和固定提交的 HKCanCor（只写「揾」）相反，是维护者对用户习惯的判断，不是语料证据。菸→煙 证据只有 6 次。HKCanCor 或 OpenCC 换版本后替换清单可能变化，发布时要看构建摘要里的替换清单和否决表留下的字。msime-cloud 的词库管理页把 `custom/` 下的文件都当作只追加的词表显示，否决表的删行要直接在 msime-dictionary 提 PR。`check-words` 仍不读异体表，这一点和原笔记一样留作后续。
-- 用户要等 msime-dictionary 发布含本改动的 `dict-v*`、msime 换锁之后才拿到 菸→煙；溼→濕 在 msime-dictionary 下一次发布（#10711 的构建器）里就有。#10725 的「啟」在已锁定的 `dict-v2.0.50` 里已经生效，开了词库自动更新、或装了带这把锁的版本即可看到；报告人看到的是不是旧库还要等对方确认。
+- 用户要等 msime-dictionary 发布含本改动的 `dict-v*`、msime 换锁之后才拿到 菸→煙；溼→濕 已经在 `dict-v2.0.51` 里，msime 把锁从 `dict-v2.0.50` 换过去就能拿到。#10725 的「啟」在已锁定的 `dict-v2.0.50` 里已经生效，开了词库自动更新、或装了带这把锁的版本即可看到；报告人看到的是不是旧库还要等对方确认。
 
 ## Verification
 
