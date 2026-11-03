@@ -123,10 +123,10 @@ final class KeyPressFeedbackTests: XCTestCase {
   func testKeyboardKeysFeedBackOnPress() throws {
     let controller = makeController(.quanpin)
     let pressActions = { (button: UIButton) in button.actions(forTarget: controller, forControlEvent: .touchDown) ?? [] }
-    for label in ["Q", "M", "大写", "空格", "删除", "换行"] {
+    for label in ["字母 Q", "字母 M", "切换到英文大写", "空格", "删除", "换行"] {
       XCTAssertTrue(pressActions(try key(labelled: label, in: controller)).contains("keyPressFeedback:"), label)
     }
-    XCTAssertEqual(try key(labelled: "Q", in: controller).pressSoundClass, .standard)
+    XCTAssertEqual(try key(labelled: "字母 Q", in: controller).pressSoundClass, .standard)
     XCTAssertEqual(try key(labelled: "空格", in: controller).pressSoundClass, .space)
     XCTAssertEqual(try key(labelled: "删除", in: controller).pressSoundClass, .backspace)
     XCTAssertEqual(try key(labelled: "换行", in: controller).pressSoundClass, .enter)
