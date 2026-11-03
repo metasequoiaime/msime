@@ -48,8 +48,8 @@ int main() {
                 ->panel == "handwriting");
     require(shell_surface_request(TrayMenuCommand::OpenKeyboardPanel)->panel ==
             "keyboard");
-    require(shell_surface_request(TrayMenuCommand::ToggleVoiceInput)->panel ==
-            "voice");
+    // The tray's 语音 row toggles the Server's own voice input, so it is not a shell surface.
+    require(!shell_surface_request(TrayMenuCommand::ToggleVoiceInput));
     const auto settings = shell_surface_request(TrayMenuCommand::OpenSettings);
     require(settings && settings->panel.empty() && settings->page.empty());
     const auto about = shell_surface_request(TrayMenuCommand::OpenAbout);
