@@ -12080,7 +12080,7 @@ private:
 
   // ---- 候选颜色 ----
 
-  // 「自定义主题」组「自定义配色」里的五个取色器（编号色和边框色跟随主题，见 ThemeSkinModel.h 的 color_slots）。没设的颜色在色块上显示候选窗口当前明暗下的默认色，与共享页按预览明暗取默认色一样。
+  // 「自定义主题」组「自定义配色」里的六个取色器（编号色和边框色跟随主题，见 ThemeSkinModel.h 的 color_slots）。没设的颜色在色块上显示候选窗口当前明暗下的默认色，与共享页按预览明暗取默认色一样。
   void candidate_color_rows(StackPanel const &group) {
     const bool light = !candidate_dark();
     for (const auto &slot : sk::color_slots) {
@@ -12117,7 +12117,7 @@ private:
     }
   }
 
-  // 色块打开 WinUI 的取色器；拖动时颜色随时写入并重画轮播里「自定义」卡片的样例（update_custom_theme_card），停下后保存，取色器关上时整页重画。「跟随主题」把这一项交还给底下的主题：文字、强调、选中和悬停的按钮在没设颜色时是按下的，再点不起作用；表面色的没有按下状态，点它总会清掉那一项。
+  // 色块打开 WinUI 的取色器；拖动时颜色随时写入并重画轮播里「自定义」卡片的样例（update_custom_theme_card），停下后保存，取色器关上时整页重画。「跟随主题」把这一项交还给底下的主题：文字、强调、选中、选中文字和悬停的按钮在没设颜色时是按下的，再点不起作用；表面色的没有按下状态，点它总会清掉那一项。
   FrameworkElement candidate_color_control(sk::ColorSlot const &slot, std::wstring const &key,
                                            bool set, std::wstring const &shown) {
     const std::wstring title(slot.title);
