@@ -40,22 +40,47 @@ inline BOOL MSIMEGlobalVoiceOwnsToggle(NSEvent *event) {
 // 只处理明确的引导参数，其余参数继续走 IMK 的正常启动路径。
 BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode);
 
-// 绑定焦点元素而非仅绑定进程；同一编辑器里换一个输入框也不沿用插入权限。
-inline id MSIMEGlobalVoiceFocusIdentity() {
-    AXUIElementRef system = AXUIElementCreateSystemWide();
-    AXUIElementSetMessagingTimeout(system, 0.05f);
+// 系统级焦点在部分 Web 编辑器里不可用；应用级查询仍必须绑定同一个前台进程。
+template <typename CopyAttribute, typename ElementPID>
+inline id MSIMEGlobalVoiceFocusIdentityFor(pid_t expectedPID, AXUIElementRef system, AXUIElementRef application,
+                                         CopyAttribute copy, ElementPID elementPID) {
     CFTypeRef element = nullptr;
-    AXError error = AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute, &element);
-    CFRelease(system);
+    AXError error = copy(system, kAXFocusedUIElementAttribute, &element);
+    if (error != kAXErrorSuccess || !element) {
+        if (element) CFRelease(element);
+        element = nullptr;
+        error = copy(application, kAXFocusedUIElementAttribute, &element);
+    }
     if (error != kAXErrorSuccess || !element || CFGetTypeID(element) != AXUIElementGetTypeID()) {
         if (element) CFRelease(element);
         return nil;
     }
+    pid_t pid = 0;
+    if (elementPID((AXUIElementRef)element, &pid) != kAXErrorSuccess || pid != expectedPID) {
+        CFRelease(element);
+        return nil;
+    }
     AXUIElementSetMessagingTimeout((AXUIElementRef)element, 0.05f);
     CFTypeRef subrole = nullptr;
-    AXUIElementCopyAttributeValue((AXUIElementRef)element, kAXSubroleAttribute, &subrole);
-    BOOL secure = subrole && CFEqual(subrole, CFSTR("AXSecureTextField"));
+    copy((AXUIElementRef)element, kAXSubroleAttribute, &subrole);
+    const BOOL secure = subrole && CFEqual(subrole, CFSTR("AXSecureTextField"));
     if (subrole) CFRelease(subrole);
     if (secure) { CFRelease(element); return nil; }
     return CFBridgingRelease(element);
+}
+
+// 绑定焦点元素而非仅绑定进程；同一编辑器里换一个输入框也不沿用插入权限。
+inline id MSIMEGlobalVoiceFocusIdentity() {
+    NSRunningApplication *front = NSWorkspace.sharedWorkspace.frontmostApplication;
+    if (!front || front.processIdentifier <= 0) return nil;
+    AXUIElementRef system = AXUIElementCreateSystemWide();
+    AXUIElementRef application = AXUIElementCreateApplication(front.processIdentifier);
+    AXUIElementSetMessagingTimeout(system, 0.05f);
+    AXUIElementSetMessagingTimeout(application, 0.15f);
+    id focus = MSIMEGlobalVoiceFocusIdentityFor(front.processIdentifier, system, application,
+        AXUIElementCopyAttributeValue, AXUIElementGetPid);
+    CFRelease(application);
+    CFRelease(system);
+    if (NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier != front.processIdentifier) return nil;
+    return focus;
 }

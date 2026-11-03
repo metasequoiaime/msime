@@ -14129,6 +14129,39 @@ static GlobalVoiceGestureProbe *GlobalGestureProbe() {
 }
 static void TestGlobalVoiceBoundaries() {
     {
+        AXUIElementRef system = AXUIElementCreateSystemWide();
+        AXUIElementRef application = AXUIElementCreateApplication(getpid());
+        AXUIElementRef field = AXUIElementCreateApplication(getpid());
+        NSUInteger systemQueries = 0, applicationQueries = 0;
+        BOOL secure = NO, wrongPID = NO, unavailable = NO;
+        auto copy = [&](AXUIElementRef owner, CFStringRef key, CFTypeRef *value) -> AXError {
+            *value = nullptr;
+            if (CFEqual(key, kAXSubroleAttribute)) {
+                if (secure) *value = CFRetain(CFSTR("AXSecureTextField"));
+                return kAXErrorSuccess;
+            }
+            assert(CFEqual(key, kAXFocusedUIElementAttribute));
+            if (owner == system) { ++systemQueries; return kAXErrorCannotComplete; }
+            assert(owner == application); ++applicationQueries;
+            if (unavailable) return kAXErrorNoValue;
+            *value = CFRetain(field); return kAXErrorSuccess;
+        };
+        auto pid = [&](AXUIElementRef owner, pid_t *value) -> AXError {
+            assert(owner == field); *value = wrongPID ? getpid() + 1 : getpid(); return kAXErrorSuccess;
+        };
+        id focus = MSIMEGlobalVoiceFocusIdentityFor(getpid(), system, application, copy, pid);
+        assert(focus && CFEqual((__bridge CFTypeRef)focus, field));
+        assert(systemQueries == 1 && applicationQueries == 1);
+        secure = YES;
+        assert(!MSIMEGlobalVoiceFocusIdentityFor(getpid(), system, application, copy, pid));
+        secure = NO; wrongPID = YES;
+        assert(!MSIMEGlobalVoiceFocusIdentityFor(getpid(), system, application, copy, pid));
+        wrongPID = NO; unavailable = YES;
+        assert(!MSIMEGlobalVoiceFocusIdentityFor(getpid(), system, application, copy, pid));
+        CFRelease(field); CFRelease(application); CFRelease(system);
+    }
+
+    {
         GlobalVoiceRegistrationProbe *probe = [[GlobalVoiceRegistrationProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)nil; }];
         probe.service = [GlobalVoiceServiceProbe new];
         probe.service.status = SMAppServiceStatusNotFound;
