@@ -43,6 +43,11 @@ let
         ]
       ))
       (root + "/shared/contracts")
+      # msime-desktop 与 msime-mcp-server 的 build.rs 在 Linux 上用 cc 编这份崩溃记录器，
+      # 只用到同目录的两个头文件。
+      (root + "/platforms/common/CrashRecorder.cpp")
+      (root + "/platforms/common/CrashRecorder.h")
+      (root + "/platforms/common/PosixCrashFile.h")
     ];
   rustArgs = common // {
     inherit craneLib cargoSources;
