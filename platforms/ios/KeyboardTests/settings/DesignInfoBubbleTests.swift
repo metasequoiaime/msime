@@ -37,7 +37,10 @@ final class DesignInfoBubbleTests: XCTestCase {
   }
 
   func testTextWidthNeverExceedsTheBubbleLimit() {
-    XCTAssertEqual(DesignInfoBubble.textWidth(for: Self.longHint), DesignInfoBubble.maxTextWidth)
+    // 不同系统字体的量字结果可能比上限短一两个点，但长说明仍应接近上限且不能超出。
+    let longWidth = DesignInfoBubble.textWidth(for: Self.longHint)
+    XCTAssertGreaterThan(longWidth, DesignInfoBubble.maxTextWidth - 2)
+    XCTAssertLessThanOrEqual(longWidth, DesignInfoBubble.maxTextWidth)
     XCTAssertLessThan(DesignInfoBubble.textWidth(for: Self.shortHint), DesignInfoBubble.maxTextWidth)
   }
 
