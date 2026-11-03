@@ -68,7 +68,8 @@ public:
       const int start = top;
       profile_ = choice(scheme_shuangpin_profile, L"双拼方案", profiles());
       hint_ = check(scheme_shuangpin_hint, L"输入时显示双拼键位提示");
-      preedit_ = choice(scheme_shuangpin_preedit, L"双拼预编辑", {{"raw", L"原始按键"}, {"pinyin", L"拼音分词"}});
+      // 三档的顺序与 input::shuangpin_preedit_options 相同，下标就是 input::ShuangpinPreedit 的值。
+      preedit_ = choice(scheme_shuangpin_preedit, L"双拼预编辑", {{"raw", L"原始按键"}, {"separated", L"双拼分隔"}, {"pinyin", L"拼音分词"}});
       heights_[static_cast<size_t>(section)] = top - start;
     }
     if (offers("wubi")) {
@@ -144,6 +145,7 @@ public:
       if (!preferences.contains(key) || !preferences.at(key).is_boolean()) return false;
     if (preferences.contains("last_chinese_scheme") && !preferences.at("last_chinese_scheme").is_string()) return false;
     if (preferences.contains("shuangpin_keymap_hint") && !preferences.at("shuangpin_keymap_hint").is_boolean()) return false;
+    if (preferences.contains("shuangpin_preedit_separated") && !preferences.at("shuangpin_preedit_separated").is_boolean()) return false;
     if (preferences.contains("wubi_candidate_selection")) {
       const auto& group = preferences.at("wubi_candidate_selection");
       if (!group.is_object() || !group.contains("enabled") || !group.at("enabled").is_boolean()) return false;
@@ -175,7 +177,9 @@ public:
       fill(profile_, options);
       select(profile_, options, preferences.at("shuangpin_profile").get<std::string>());
       SendMessageW(hint_, BM_SETCHECK, preferences.value("shuangpin_keymap_hint", false) ? BST_CHECKED : BST_UNCHECKED, 0);
-      SendMessageW(preedit_, CB_SETCURSEL, preferences.at("shuangpin_preedit_uses_raw").get<bool>() ? 0 : 1, 0);
+      const auto preedit = input::shuangpin_preedit(preferences.at("shuangpin_preedit_uses_raw").get<bool>(),
+                                                    preferences.value("shuangpin_preedit_separated", false));
+      SendMessageW(preedit_, CB_SETCURSEL, static_cast<WPARAM>(preedit), 0);
     }
     if (wubi_profile_) {
       SendMessageW(wubi_profile_, CB_SETCURSEL, preferences.at("wubi_profile") == "wubi98" ? 1 : 0, 0);
@@ -249,7 +253,11 @@ public:
           result.changes.push_back({{"shuangpin_profile"}, profiles()[static_cast<size_t>(selected)].value});
       } else if (id == scheme_shuangpin_preedit && IsWindowEnabled(preedit_)) {
         const auto selected = SendMessageW(preedit_, CB_GETCURSEL, 0, 0);
-        if (selected == 0 || selected == 1) result.changes.push_back({{"shuangpin_preedit_uses_raw"}, selected == 0});
+        if (selected >= 0 && static_cast<size_t>(selected) < input::shuangpin_preedit_options.size()) {
+          const auto style = input::shuangpin_preedit_options[static_cast<size_t>(selected)].style;
+          result.changes.push_back({{"shuangpin_preedit_uses_raw"}, input::shuangpin_preedit_uses_raw(style)});
+          result.changes.push_back({{"shuangpin_preedit_separated"}, input::shuangpin_preedit_separated(style)});
+        }
       } else if (id == scheme_wubi_profile && IsWindowEnabled(wubi_profile_)) {
         const auto selected = SendMessageW(wubi_profile_, CB_GETCURSEL, 0, 0);
         if (selected == 0 || selected == 1) result.changes.push_back({{"wubi_profile"}, selected == 0 ? "wubi86" : "wubi98"});

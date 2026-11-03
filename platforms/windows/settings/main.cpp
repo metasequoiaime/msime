@@ -13799,20 +13799,32 @@ private:
       bool_row(group, 0xE765, L"输入时显示双拼键位提示",
                L"双拼输入时显示当前方案的键位图，完成上屏后自动隐藏。",
                L"shuangpin_keymap_hint", false);
-      // 与共享设置「输入 › 方案」双拼详情里的「双拼预编辑」相同，只在双拼方案下出现：偏好是布尔值 shuangpin_preedit_uses_raw，这里按原始按键 / 拼音分词两项给出，缺省是原始按键。
+      // 与共享设置「输入 › 方案」双拼详情里的「双拼预编辑」相同，只在双拼方案下出现：原始按键 / 双拼分隔 / 拼音分词三档，存成 shuangpin_preedit_uses_raw 和 shuangpin_preedit_separated 两个布尔（InputSettingsModel.h），缺省是原始按键。
+      std::vector<Option> preedit_options;
+      std::wstring preedit_value;
+      auto const stored_preedit =
+          ism::shuangpin_preedit(document_.Boolean(L"shuangpin_preedit_uses_raw", true),
+                                   document_.Boolean(L"shuangpin_preedit_separated", false));
+      for (auto const &option : ism::shuangpin_preedit_options) {
+        preedit_options.push_back({std::wstring(option.value), std::wstring(option.label)});
+        if (option.style == stored_preedit)
+          preedit_value = option.value;
+      }
       add_row(
           group, 0xE8AB, L"双拼预编辑",
-          L"保留原始双拼按键，或显示展开后的拼音分词。",
-          select_control(L"双拼预编辑",
-                         {{L"raw", L"原始按键"}, {L"pinyin", L"拼音分词"}},
-                         document_.Boolean(L"shuangpin_preedit_uses_raw", true)
-                             ? L"raw"
-                             : L"pinyin",
+          L"保留原始双拼按键、在原始按键之间按音节加分隔符，或显示展开后的拼音分词。",
+          select_control(L"双拼预编辑", std::move(preedit_options), preedit_value,
                          [this](std::wstring const &value) {
+                           auto style = ism::ShuangpinPreedit::raw;
+                           for (auto const &option : ism::shuangpin_preedit_options)
+                             if (option.value == value)
+                               style = option.style;
                            change(
                                [&](PreferencesDocument &doc) {
                                  doc.SetBoolean(L"shuangpin_preedit_uses_raw",
-                                                value == L"raw");
+                                                ism::shuangpin_preedit_uses_raw(style));
+                                 doc.SetBoolean(L"shuangpin_preedit_separated",
+                                                ism::shuangpin_preedit_separated(style));
                                },
                                false);
                          }));

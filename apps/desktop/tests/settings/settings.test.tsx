@@ -4983,6 +4983,7 @@ test("macOS shows the shuangpin preedit in the 双拼 details and persists the e
   expect(save).toHaveBeenCalledWith(7, {
     ...shuangpin.preferences,
     shuangpin_preedit_uses_raw: false,
+    shuangpin_preedit_separated: false,
   });
   // 「候选窗口」页的预编辑各行不再画它，每项偏好只有一个入口。那几行收在页面的「更多选项」里，所以带上 hidden。
   fireEvent.click(screen.getByRole("button", { name: "候选窗口" }));

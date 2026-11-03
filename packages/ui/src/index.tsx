@@ -849,11 +849,16 @@ export {
 export {
   PreeditStyleSelect,
   type PreeditStyle,
+  type PreeditStyleOption,
   type PreeditStyleSelectMode,
   type PreeditStyleSelectProps,
 } from "./settings/preedit-style-select";
 export { PreeditStyleRow, type PreeditStyleRowProps } from "./settings/preedit-style-row";
-export { preeditControlState } from "./settings/preedit-preferences";
+export {
+  preeditControlState,
+  shuangpinPreeditPatch,
+  type ShuangpinPreeditStyle,
+} from "./settings/preedit-preferences";
 export {
   CandidateColorsSection,
   type CandidateColorKey,
