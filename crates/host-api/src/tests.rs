@@ -9376,6 +9376,7 @@ fn a_rerank_model_pack_installed_after_the_session_opened_is_attached_on_focus()
     assert_eq!(created["ok"], true, "{created}");
     let handle = created["value"]["session"].as_u64().unwrap();
     let observed = || {
+        settle_keyboard_reranker(handle);
         SESSIONS.with(|sessions| {
             let sessions = sessions.borrow();
             let session = sessions.get(&handle).unwrap();
@@ -9400,6 +9401,35 @@ fn a_rerank_model_pack_installed_after_the_session_opened_is_attached_on_focus()
     assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
     assert_eq!(observed(), (Some(resource_packs::root(&state)), true));
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
+/// 逐键重排器在后台挂（`HostSession::keyboard_reranker_loading`）：等它挂完，再像下一次按键之后那样走一遍 `apply_pending` 把它换上。
+fn settle_keyboard_reranker(handle: u64) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    loop {
+        let loaded = SESSIONS.with(|sessions| {
+            sessions.borrow()[&handle]
+                .keyboard_reranker_loading
+                .as_ref()
+                .is_none_or(|slot| slot.lock().unwrap().is_some())
+        });
+        if loaded {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the keyboard reranker never finished loading"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    SESSIONS.with(|sessions| {
+        sessions
+            .borrow_mut()
+            .get_mut(&handle)
+            .unwrap()
+            .apply_pending()
+            .unwrap();
+    });
 }
 
 /// The keyboard model runs inside every keystroke, so it is attached only while `neural_keyboard` (整句联想「增强」) is on: attached on the default 增强, dropped when the user picks 标准, attached again when the switch turns back on. It is attached to the runtime alone; the Engine's own keyboard-model rerank stays off throughout. It takes the real model from `MSIME_EVAL_RESOURCES` or `MSIME_NEURAL_MODEL_DIR` as the Engine's model tests do, and without one a tiny context-free model (`write_context_free_sentence_model`), so CI, which has no model, still checks that session creation and every preference update use `keyboard_reranker_enabled`.
@@ -9436,6 +9466,7 @@ fn keyboard_reranker_follows_the_keyboard_model_switch() {
     };
     // 挂没挂 runtime 的逐键重排器；引擎那层键盘模型在任何时候都不打开。
     let attached = |handle: u64| {
+        settle_keyboard_reranker(handle);
         SESSIONS.with(|sessions| {
             let session = &sessions.borrow()[&handle];
             assert!(!session.options.sentence_association.neural_keyboard);
@@ -9447,6 +9478,12 @@ fn keyboard_reranker_follows_the_keyboard_model_switch() {
     let mut preferences = chinese_preferences();
     assert!(preferences.sentence_association.neural_keyboard);
     let handle = create(directory.path(), &preferences);
+    // 会话建立时不等模型加载：逐键重排器在后台挂，挂好之前 runtime 上什么都没挂（#10743）。
+    SESSIONS.with(|sessions| {
+        let session = &sessions.borrow()[&handle];
+        assert!(session.keyboard_reranker_loading.is_some());
+        assert!(!session.runtime.has_reranker());
+    });
     assert!(
         attached(handle),
         "the default 增强 attaches the keyboard model when the session opens"

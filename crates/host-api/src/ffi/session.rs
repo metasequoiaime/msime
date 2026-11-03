@@ -159,16 +159,30 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
         applied.traditional_chinese_output,
         applied.traditional_chinese_variant,
     );
-    runtime.set_candidate_scorer(keyboard_reranker(
-        keyboard_reranker_allowed
-            && keyboard_reranker_enabled(&applied.sentence_association, edition),
-        &options.resources,
-        options.helpcode_fallback_resources.as_deref(),
-        recorded_rerank_models.as_deref(),
-        plugin_roots.builtin_sounds.as_deref(),
-        state_root.as_deref(),
-        sentence_model_path.as_deref(),
-    ));
+    // 开关开着时逐键重排器在后台挂，挂好后由 `apply_pending` 在输入空闲时换上，见 `HostSession::keyboard_reranker_loading`；关着时照旧当场放开。
+    let keyboard_reranker_loading = if keyboard_reranker_allowed
+        && keyboard_reranker_enabled(&applied.sentence_association, edition)
+    {
+        Some(crate::load_keyboard_reranker(
+            &options.resources,
+            options.helpcode_fallback_resources.as_deref(),
+            recorded_rerank_models.as_deref(),
+            plugin_roots.builtin_sounds.as_deref(),
+            state_root.as_deref(),
+            sentence_model_path.as_deref(),
+        ))
+    } else {
+        runtime.set_candidate_scorer(keyboard_reranker(
+            false,
+            &options.resources,
+            options.helpcode_fallback_resources.as_deref(),
+            recorded_rerank_models.as_deref(),
+            plugin_roots.builtin_sounds.as_deref(),
+            state_root.as_deref(),
+            sentence_model_path.as_deref(),
+        ));
+        None
+    };
     let keyboard_reranker_source = crate::ffi::onnx_rerank_source(
         &options.resources,
         options.helpcode_fallback_resources.as_deref(),
@@ -244,6 +258,7 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
                 resources_pending: false,
                 recorded_sentence_model: sentence_model_path,
                 keyboard_reranker_source,
+                keyboard_reranker_loading,
                 keyboard_reranker_allowed,
                 recorded_rerank_models,
                 recorded_settled_model,
