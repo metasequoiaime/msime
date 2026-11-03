@@ -3172,9 +3172,7 @@ dependencies = [
  "msime-host-macos",
  "msime-host-windows",
  "msime-input-runtime",
- "msime-ios-native-ffi",
  "msime-path-trust",
- "msime-tauri-mobile-platform",
  "reqwest 0.12.28",
  "rustix",
  "serde",
@@ -3187,7 +3185,6 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tempfile",
  "time",
- "uuid",
 ]
 
 [[package]]
@@ -3341,10 +3338,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "msime-ios-native-ffi"
-version = "0.1.0"
-
-[[package]]
 name = "msime-mcp-server"
 version = "0.1.0"
 dependencies = [
@@ -3408,18 +3401,6 @@ dependencies = [
 [[package]]
 name = "msime-script-sdk"
 version = "0.1.0"
-
-[[package]]
-name = "msime-tauri-mobile-platform"
-version = "0.1.0"
-dependencies = [
- "msime-client-core",
- "msime-client-providers",
- "serde",
- "serde_json",
- "tauri",
- "tauri-plugin",
-]
 
 [[package]]
 name = "muda"

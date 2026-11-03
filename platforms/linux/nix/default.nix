@@ -136,8 +136,7 @@ in
   };
 
   devShell = pkgs.mkShell {
-    # msime-desktop 带进 Tauri 外壳（msime-desktop、tauri-mobile-platform）要的 GTK 与 WebKit，
-    # verify-local.sh 的 cargo check 会编到它们。
+    # msime-desktop 带进 Tauri 外壳要的 GTK 与 WebKit，verify-local.sh 的 cargo check 会编到它们。
     inputsFrom = [
       msime-host-api
       msime-fcitx5
