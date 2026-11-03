@@ -293,6 +293,9 @@ private:
   std::optional<ComponentFailureSite> failure_site_;
   unsigned font_size_ = 16;
   unsigned preedit_font_size_ = 16;
+  // 共享偏好 `candidate_font_weight`：预编辑以外的候选窗文字用 font_weight_，预编辑用 preedit_weight_（至少半粗）。缺省就是原来的常规和半粗。
+  DWRITE_FONT_WEIGHT font_weight_ = DWRITE_FONT_WEIGHT_NORMAL;
+  DWRITE_FONT_WEIGHT preedit_weight_ = DWRITE_FONT_WEIGHT_SEMI_BOLD;
   // Direct2D's imaging factory is a COM server, and this thread is the Server's
   // own UI thread, which otherwise never enters an apartment.
   struct Apartment {

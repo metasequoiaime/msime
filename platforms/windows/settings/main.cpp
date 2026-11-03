@@ -53,6 +53,7 @@
 #include "AppInputModeRuleList.h"
 #include "CandidateCanvasPreview.h"
 #include "CandidateFontPresets.h"
+#include "CandidateFontWeight.h"
 #include "CandidatePalette.h"
 #include "CandidateWindowStyle.h"
 #include "ClientAgent.h"
@@ -12636,6 +12637,13 @@ private:
       if (!family.empty())
         family_chain += L"," + family;
     const auto preview_font = FontFamily(hstring(family_chain));
+    // 字重与候选窗一致：候选文字按 `candidate_font_weight`，拼音行至少半粗。
+    const auto weight_id = document_.String(L"candidate_font_weight", L"regular");
+    unsigned body_weight = msime::windows::candidate_regular_font_weight;
+    for (const auto &option : msime::windows::candidate_font_weights)
+      if (std::wstring(option.id.begin(), option.id.end()) == weight_id)
+        body_weight = option.weight;
+    const auto preview_weight = Windows::UI::Text::FontWeight{static_cast<uint16_t>(body_weight)};
     // Scale, opacity and radius through the rules the card itself uses (CandidateWindowStyle.h): the user's radius, else the drawn package's, else the theme's.
     const auto style = candidate_window_style();
     const double scale = style.scale();
@@ -12713,7 +12721,8 @@ private:
             scale;
         auto pre = make_text(L"ni'mf", preedit_size, to_color(theme.accent));
         pre.FontFamily(preview_font);
-        pre.FontWeight(Windows::UI::Text::FontWeight{600});
+        pre.FontWeight(Windows::UI::Text::FontWeight{
+            static_cast<uint16_t>(msime::windows::candidate_preedit_font_weight(body_weight))});
         pre.VerticalAlignment(VerticalAlignment::Center);
         head.Children().Append(pre);
         Border caret;
@@ -12776,6 +12785,7 @@ private:
           theme, theme.text, highlighted, false);
       auto number =
           make_text(std::to_wstring(i + 1), font * 0.8 * scale, to_color(number_color));
+      number.FontWeight(preview_weight);
       number.VerticalAlignment(VerticalAlignment::Center);
       cell.Children().Append(number);
       // 辅助码紧跟在候选后面、同字号同色，写成「你们(rR)」，与共享页的样例相同；自己输入的示例文字没有辅助码。
@@ -12785,12 +12795,14 @@ private:
       A11y::SetAutomationId(candidate, hstring(L"candidate-preview-word-" + std::to_wstring(i)));
       candidate.TextWrapping(TextWrapping::NoWrap);
       candidate.FontFamily(preview_font);
+      candidate.FontWeight(preview_weight);
       words.Children().Append(candidate);
       if (helpcode && samples.empty()) {
         auto suffix = make_text(std::wstring(L"(") + code + L")", font * scale,
                                 to_color(row_color));
         suffix.TextWrapping(TextWrapping::NoWrap);
         suffix.FontFamily(preview_font);
+        suffix.FontWeight(preview_weight);
         words.Children().Append(suffix);
       }
       cell.Children().Append(words);
@@ -12872,6 +12884,12 @@ private:
       const bool main_font = candidate_font_rows(font);
       number_select_row(font, 0xE8E9, L"字号", L"", L"candidate_font_size",
                         candidate_font_sizes(), 18, L"");
+      // 共享偏好 `candidate_font_weight`（#10748），四档和字重在 CandidateFontWeight.h；缺值是常规，等于这一项出现之前的画法。
+      std::vector<Option> weights;
+      for (const auto &option : msime::windows::candidate_font_weights)
+        weights.push_back({std::wstring(option.id.begin(), option.id.end()), std::wstring(option.label)});
+      select_row(font, 0xE8DD, L"字重", L"作用于候选、注释、序号和释义，拼音行至少半粗。字体没有这一档字面时按最接近的字面显示。",
+                 L"candidate_font_weight", std::move(weights), L"regular");
       candidate_english_font_row(font, !main_font);
       candidate_percent_row(font, L"整体大小", L"candidate_scale_percent", 75, 150,
                             L"字号与窗口尺寸一起缩放");
