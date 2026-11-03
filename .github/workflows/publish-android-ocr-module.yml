@@ -24,9 +24,9 @@ jobs:
       - name: Build the module
         run: |
           set -euo pipefail
-          apps/desktop/src-tauri/gen/android/gradlew --project-dir platforms/android/gradle-app --console=plain \
+          platforms/android/gradle-app/gradlew --project-dir platforms/android/gradle-app --console=plain \
             -PmsimeOcrModule=true :ocr-module:assembleRelease :ocr-module:lintRelease
-          apps/desktop/src-tauri/gen/android/gradlew --project-dir platforms/android/gradle-app --console=plain \
+          platforms/android/gradle-app/gradlew --project-dir platforms/android/gradle-app --console=plain \
             -PmsimeOcrModule=true :ocr-module:dependencies --configuration releaseRuntimeClasspath > ocr-module-dependencies.txt
           mkdir -p dist
           cp platforms/android/gradle-app/ocr-module/build/outputs/apk/release/ocr-module-release-unsigned.apk "dist/$MSIME_OCR_ASSET"
