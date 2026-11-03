@@ -8350,7 +8350,7 @@ test.each(optionHosts)("候选窗口在 %s 上按四个顶部标签分组", asyn
     "布局",
     "候选项排列方式",
     "每页候选项数量",
-    platform === "macos" ? "显示页码和翻页按钮" : "显示页码",
+    "显示页码和翻页按钮",
     "跟随光标",
     "字体与大小",
     "候选字体",
@@ -8389,7 +8389,7 @@ test("the page number row needs a host that draws one", async () => {
   );
   await settingsReady();
   const appearance = screen.getByRole("group", { name: "候选窗口" });
-  expect(within(appearance).queryByLabelText("显示页码")).toBeNull();
+  expect(within(appearance).queryByLabelText(/^显示页码/)).toBeNull();
 });
 
 test("the page number switch saves show_candidate_page_number", async () => {
@@ -8409,7 +8409,8 @@ test("the page number switch saves show_candidate_page_number", async () => {
     />,
   );
   await settingsReady();
-  const toggle = screen.getByLabelText("显示页码") as HTMLInputElement;
+  // Windows 候选窗首行的页码和 ‹ › 一起隐藏，行名同 macOS（#10709）。
+  const toggle = screen.getByLabelText("显示页码和翻页按钮") as HTMLInputElement;
   expect(toggle.checked).toBe(true);
   fireEvent.click(toggle);
   saveSettingsNow();

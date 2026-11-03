@@ -57,7 +57,7 @@ enum ControlId {
   appearance_scale, appearance_opacity, appearance_radius, appearance_preedit, appearance_inline,
   appearance_game_overlay, appearance_game_always, appearance_game_always_remove,
   appearance_game_never, appearance_game_never_remove, appearance_game_name, appearance_game_list,
-  appearance_game_add, appearance_game_profile, appearance_preview,
+  appearance_game_add, appearance_game_profile, appearance_preview, appearance_page_number,
   ai_enabled = 1400, ai_provider, ai_endpoint, ai_endpoint_hint, ai_token,
   ai_token_reveal, ai_token_save, ai_model, ai_service_save, ai_models_fetch,
   ai_models_status, ai_prompt, ai_prompt_save, ai_test, ai_test_result,
