@@ -1328,6 +1328,11 @@ add_executable(candidate-hover-test tests/candidate/CandidateHoverTest.mm src/ca
 target_compile_options(candidate-hover-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(candidate-hover-test PRIVATE "-framework AppKit" "-framework QuartzCore" "-framework ImageIO")
 add_test(NAME candidate-hover COMMAND candidate-hover-test)
+# 候选窗按钮不经 +buttonWithTitle:target:action: 建（那里的 sizeToFit 每键都白算），工厂建出的按钮要和它逐项一致。
+add_executable(candidate-button-factory-test tests/candidate/CandidateButtonFactoryTest.mm src/candidate/CandidateCanvas.mm)
+target_compile_options(candidate-button-factory-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(candidate-button-factory-test PRIVATE "-framework AppKit" "-framework QuartzCore" "-framework ImageIO")
+add_test(NAME candidate-button-factory COMMAND candidate-button-factory-test)
 
 add_executable(settings-glass-test tests/settings/SettingsGlassTest.mm)
 target_compile_options(settings-glass-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
