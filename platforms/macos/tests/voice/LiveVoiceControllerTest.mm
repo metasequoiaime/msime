@@ -2,6 +2,7 @@
 #import "VoiceCueFixture.h"
 #import "VoiceClientFixture.h"
 #import "VoiceMeterFixture.h"
+#import "VoiceRuntimeIsolationFixture.h"
 #include <cassert>
 #include <cstring>
 #include <sys/socket.h>
@@ -104,6 +105,8 @@
 @property NSUInteger externalCommits;
 @end
 @implementation LiveControllerFixture
+// 合成控制器不读取已安装应用的定位器，偏好轮询与保存都不能落到用户目录。
+- (NSDictionary *)runtimeOptions { return @{}; }
 - (MSIMEVoiceCommitOutcome)postVoiceText:(NSString *)text route:(const MSIMEVoiceCommitRoute &)route {
     assert([text isEqual:@"synthetic routed"] && ![route.mode isEqual:@"tsf"]);
     ++self.externalCommits; return MSIMEVoiceCommitOutcome::posted;
@@ -167,6 +170,7 @@ static int MSIMEBindSyntheticVoiceSocket(NSString *path)
 @end
 int main(int argc, char **) {
     @autoreleasepool {
+        MSIMEAssertVoiceRuntimeIsolation(LiveControllerFixture.class);
         NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
         NSMutableDictionary *options = [@{@"api_version": @1, @"preferences": @{@"scheme": @"quanpin", @"learning": @NO, @"candidate_page_size": @5, @"chinese_punctuation": @YES}} mutableCopy];
         for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries"]) {

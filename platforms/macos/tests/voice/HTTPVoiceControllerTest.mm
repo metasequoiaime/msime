@@ -2,6 +2,7 @@
 #import "VoiceCueFixture.h"
 #import "VoiceClientFixture.h"
 #import "VoiceMeterFixture.h"
+#import "VoiceRuntimeIsolationFixture.h"
 #include <cassert>
 
 @interface HTTPRequestFixture : NSObject
@@ -70,6 +71,8 @@
 @property NSUInteger requestSampleLimit;
 @end
 @implementation HTTPControllerFixture
+// 合成控制器不读取已安装应用的定位器，偏好轮询与保存都不能落到用户目录。
+- (NSDictionary *)runtimeOptions { return @{}; }
 - (void)ensureAppearance {}
 // 语音夹具没有完整会话；切换客户端时也只消费测试提供的偏好，不启动真实偏好的异步重载。
 - (void)reloadPreferences {}
@@ -137,6 +140,7 @@ OSStatus OrderSet(AudioObjectID object, const AudioObjectPropertyAddress *addres
 
 int main() {
     @autoreleasepool {
+        MSIMEAssertVoiceRuntimeIsolation(HTTPControllerFixture.class);
         HTTPControllerFixture *controller = [HTTPControllerFixture alloc];
         HTTPOverlayFixture *overlay = [HTTPOverlayFixture new];
         [controller setValue:overlay forKey:@"voiceOverlay"];
