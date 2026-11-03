@@ -314,6 +314,29 @@ int main() {
         }
         capture.capturedSeconds = 0.25;
         controller.usePolishFixture = NO;
+        // 语音标点（#10597）：本地模型和豆包共用这条流式路线。省略所有标点时，行内预编辑里带标点的中间结果照原样显示，最终结果去掉标点后替换它上屏。
+        [controller setValue:@"omit_all" forKey:@"voicePunctuationMode"];
+        const NSUInteger beforePunctuated = client.commits.count, beforePunctuatedFailures = presentation.failures;
+        assert(Start(controller, capture, session, YES));
+        controller.fixture.result(@"天啊，他是谁？", NO, nil);
+        assert([client.marked isEqual:@"天啊，他是谁？"]);
+        controller.fixture.result(@"天啊，他是谁？", YES, nil);
+        assert(client.commits.count == beforePunctuated + 1 && [client.commits.lastObject isEqual:@"天啊他是谁"]);
+        assert(!client.marked.length && !capture.active && presentation.failures == beforePunctuatedFailures);
+        assert(![controller valueForKey:@"doubaoVoiceRequest"]);
+        // 整段只有标点：和空结果一样提示没听到，清掉行内预编辑、停掉录音、放开请求；下一次录音照常开始并上屏，不会卡在识别中。
+        assert(Start(controller, capture, session, YES));
+        DoubaoRequestFixture *punctuationOnly = controller.fixture;
+        punctuationOnly.result(@"。", NO, nil);
+        punctuationOnly.result(@"。", YES, nil);
+        assert(presentation.failure == MSIMEVoiceFailureNoSpeech && presentation.failures == beforePunctuatedFailures + 1);
+        assert(client.commits.count == beforePunctuated + 1 && !client.marked.length && !capture.active);
+        assert(![controller valueForKey:@"doubaoVoiceRequest"] && punctuationOnly.cancellations == 1);
+        assert(Start(controller, capture, session, YES));
+        controller.fixture.result(@"明天见，好吗？", YES, nil);
+        assert(client.commits.count == beforePunctuated + 2 && [client.commits.lastObject isEqual:@"明天见好吗"]);
+        assert(!capture.active && ![controller valueForKey:@"doubaoVoiceRequest"]);
+        [controller setValue:nil forKey:@"voicePunctuationMode"];
         for (NSString *mode in @[@"sendinput", @"ctrl_v"]) {
             uint64_t generation = 0;
             assert([capture startWithSession:session generation:&generation error:nil]);

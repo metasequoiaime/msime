@@ -687,6 +687,29 @@ int main(int argc, char **) {
             [controller applyLiveVoiceText:@"synthetic routed" final:YES token:routeToken];
             assert(client.commits.count == imk && controller.externalCommits == external + 1);
         }
+        // 语音标点（#10597）在系统识别这条路线上同样只处理最终结果：省略所有标点时去掉标点上屏；整段只有标点时（期望上屏为空串）提示没听到并放开这次录音，下一次照常上屏。
+        [controller setValue:@"omit_all" forKey:@"voicePunctuationMode"];
+        for (NSArray<NSString *> *pair in @[@[@"天啊，他是谁？", @"天啊他是谁"], @[@"。", @""], @[@"明天见，好吗？", @"明天见好吗"]]) {
+            NSString *recognised = pair[0], *expected = pair[1];
+            uint64_t punctuationGeneration = 0;
+            assert([capture startWithSession:session generation:&punctuationGeneration error:nil] && punctuationGeneration);
+            [controller setValue:@(punctuationGeneration) forKey:@"voiceGeneration"];
+            const NSUInteger commits = client.commits.count, failures = presentation.failures;
+            id punctuationToken = [controller beginLiveVoiceWithOptions:@{@"stream": @YES} socket:nil];
+            assert(punctuationToken && [[controller valueForKey:@"liveVoiceInline"] boolValue]);
+            [controller applyLiveVoiceText:recognised final:NO token:punctuationToken];
+            assert([client.marked isEqual:recognised]);
+            [controller applyLiveVoiceText:recognised final:YES token:punctuationToken];
+            assert(!client.marked.length && !capture.active && ![controller valueForKey:@"liveVoiceToken"]);
+            if (expected.length) {
+                assert(client.commits.count == commits + 1 && [client.commits.lastObject isEqual:expected]);
+                assert(presentation.failures == failures);
+            } else {
+                assert(client.commits.count == commits && presentation.failures == failures + 1);
+                assert(presentation.failure == MSIMEVoiceFailureNoSpeech);
+            }
+        }
+        [controller setValue:nil forKey:@"voicePunctuationMode"];
         {
             [defaults setVolatileDomain:@{
                 @"MSIMEClientVoiceEnabled": @YES, @"MSIMEClientVoiceHotkeyRightAlt": @YES,
