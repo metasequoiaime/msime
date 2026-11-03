@@ -308,6 +308,24 @@ if ! rg -q 'CandidateAppearance\.STRIP_CHIP_MIN_WIDTH_DP' <<< "$style_body" \
   echo "Candidate strip buttons must keep only the touch minimum width, not the skin's desktop itemMinWidth" >&2
   exit 1
 fi
+# 候选条、表情和手写面板与键盘读同一明暗的皮肤选择（#10749，.agents/notes/implemented/bug-fix/2026-11-03-android-candidate-strip-follows-keyboard-skin.md）。选择怎么解析由 ThemeModeDeviceSmoke 在设备上覆盖（换成纸白后候选配色跟着变）；接线在 InputMethodService 里，JVM 冒烟读不了 org.json，这里钉住：surfaceSkin 对每块面板都经 KeyboardSkinModeChoice.selected 取主题，不再只给 screen_keyboard_theme；设计库读完的回调把候选条、表情、手写和键盘一起重算，否则槽位是我的设计时冷启动后候选条停在旧主题上；键盘皮肤面板选了一款库里还没有的设计时，saveKeyboardSkin 先把它补进设计库再算候选条，否则保存往返期间键盘已换、候选条回到旧主题；候选行纵向居中（ThemeModeDeviceSmoke 也量了候选 1 和候选条的纵向中心），否则候选词贴在候选条上半截。
+surface_skin_body=$(sed -n '/^    private KeyboardSkin surfaceSkin(JSONObject preferences, String key, boolean systemDark) {$/,/^    }$/p' \
+  "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java")
+mode_library_body=$(sed -n '/^    private void refreshModeSkinLibrary(JSONObject preferences) {$/,/^    }$/p' \
+  "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java")
+save_skin_body=$(sed -n '/^    void saveKeyboardSkin(String identifier, JSONObject design, String libraryId) {$/,/^    }$/p' \
+  "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java")
+if ! rg -q 'KeyboardSkinModeChoice\.selected\(preferences, dark, modeSkinLibrary\)' <<< "$surface_skin_body" \
+  || ! rg -q -U 'modeSkinLibrary = java\.util\.List\.copyOf\(library\);\n\s*\}\n\s*emojiSkin = surfaceSkin\(preferences, "emoji_theme"\);' <<< "$save_skin_body" \
+  || rg -q '"screen_keyboard_theme"\.equals\(key\)|global_theme' <<< "$surface_skin_body" \
+  || ! rg -q 'candidateAppearance = candidateAppearanceFor\(current\);' <<< "$mode_library_body" \
+  || ! rg -q 'emojiSkin = surfaceSkin\(current, "emoji_theme"\);' <<< "$mode_library_body" \
+  || ! rg -q 'handwritingSkin = surfaceSkin\(current, "handwriting_theme"\);' <<< "$mode_library_body" \
+  || ! rg -q -U 'candidates = LayoutPolicy\.row\(this\);\n(\s*//[^\n]*\n)?\s*ViewPolicy\.setCenteredVertically\(candidates\);' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
+  echo "Android candidate strip, emoji and handwriting panels must follow the keyboard's per-mode skin choice, refresh with the design library (including a design picked before the library knows it), and centre the candidate row (#10749)" >&2
+  exit 1
+fi
 # 双拼触点纠错坐上首选的显式标记（#10018）：字段怎么读、读屏补什么、候选字和注释取什么颜色、不带标记的行颜色和改动前一样，都由 CandidateCorrectionMarkPolicySmoke 覆盖；接线在 InputMethodService 和 ImeCandidates 里，JVM 冒烟碰不到，这里钉住：候选条（含固定槽位）的 updateCandidateButton 和展开面板的 expandedCandidateButton 都经 CandidateCorrectionMarkPolicy 读 View JSON 候选上的字段，把结果交给 candidateLabel，并把「，已纠正」接进读屏描述；candidateLabel 是否建 span、候选字和注释的颜色都经这个策略决定，候选字的标记色只在策略给出时盖上，并且同一段加且只加一道下划线（首选 chip 上候选字本来就是强调色，只换颜色看不出来）；不带 corrected 的四参数重载传 false，翻译义项等其他调用方不会被标记。
 service_source="$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"
 update_body=$(sed -n '/^    void updateCandidateButton(Button button, JSONObject candidate, int slot, int visibleSlot) {$/,/^    }$/p' "$service_source")
