@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::candidates::clone_candidate_rows;
+use super::cantonese_learning::CantonesePhraseProgress;
 use super::caret_edit::CaretEdit;
 use super::chain::CommitChain;
 use super::clock::Clock;
@@ -71,6 +72,8 @@ pub(super) struct InputSession {
     pub profile: &'static ShuangpinProfile,
     pub caret: Option<usize>,
     pub phrase_progress: CreatingWordProgress,
+    /// 粤语组字里已经上屏的几段，组字结束时决定要不要造词（`cantonese_learning`）。
+    pub cantonese_progress: CantonesePhraseProgress,
     pub pending_sequence: Option<String>,
     pub pending_sequence_with_cases: Option<String>,
     pub autocorrect_types: u32,
@@ -190,6 +193,7 @@ impl InputSession {
             profile,
             caret: None,
             phrase_progress: CreatingWordProgress::default(),
+            cantonese_progress: CantonesePhraseProgress::default(),
             pending_sequence: None,
             pending_sequence_with_cases: None,
             autocorrect_types: 0,
@@ -1723,6 +1727,7 @@ impl InputSession {
         self.prefix_active = false;
         self.caret_edit = CaretEdit::default();
         self.phrase_progress = CreatingWordProgress::default();
+        self.cantonese_progress = CantonesePhraseProgress::default();
         self.pending_sequence = None;
         self.pending_sequence_with_cases = None;
         self.invalidate_online_requests();

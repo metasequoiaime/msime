@@ -38,6 +38,7 @@ foreach ($required in @($serverDirectory, $tsfDirectory)) {
 $editionRoot = Join-Path $Directory $Edition
 $required = @(
     'server_exe/MetasequoiaImeServer.exe', 'server_exe/MetasequoiaImeWatchdog.exe', 'server_exe/msime-mcp.exe', 'server_exe/msime-client-settings.exe'
+    'server_exe/msime-client-panels.exe'
     foreach ($arch in @('32', '64')) {
         "tsf_dll/$arch/MetasequoiaImeTsf.dll"
         "tsf_dll/$arch/MetasequoiaImeCrashWer.dll"

@@ -11,4 +11,6 @@ bool launch_shell_surface(const std::filesystem::path &executable,
 bool launch_shell_surface(const std::filesystem::path &executable,
                           const ShellSurfaceRequest &request,
                           const ShellLaunchContext &context);
+// 本进程环境里 MSIME_WINDOWS_PANEL_HOST 选定的面板宿主，按 panel_host_from_setting 解析；读不到或值超长时按 Shared。
+PanelHost configured_panel_host();
 } // namespace msime::windows

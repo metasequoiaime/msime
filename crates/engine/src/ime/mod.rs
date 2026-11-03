@@ -285,6 +285,16 @@ impl ImeSession {
             .is_some_and(crate::cantonese::CantoneseScheme::accepts_semicolon)
     }
 
+    /// 粤语词库在 `key` 下有没有 `text` 这一行，见 `ProviderRegistry::cantonese_has_entry`。
+    pub fn cantonese_has_entry(&mut self, key: &str, text: &str) -> bool {
+        self.registry.cantonese_has_entry(key, text)
+    }
+
+    /// 粤语候选里 `key` 下的 `text` 是不是组出来的整句，见 `ProviderRegistry::cantonese_row_is_composed`。
+    pub fn cantonese_row_is_composed(&self, key: &str, text: &str) -> bool {
+        self.registry.cantonese_row_is_composed(key, text)
+    }
+
     /// 会话允许运行的方案。
     pub fn enabled_schemes(&self) -> SchemeSet {
         self.registry.enabled()
