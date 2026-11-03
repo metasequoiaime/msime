@@ -1638,3 +1638,14 @@ add_executable(typing-effect-panel-test tests/input/TypingEffectPanelTest.mm src
 target_compile_options(typing-effect-panel-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(typing-effect-panel-test PRIVATE "-framework AppKit" "-framework QuartzCore")
 add_test(NAME typing-effect-panel COMMAND typing-effect-panel-test)
+
+# 其余测试也换一个主目录（#10728）。控制器经 runtime-options.json 找到偏好目录，语音静音的恢复日志、资源包这些也都按 Application Support 定位；不换的话，在装着输入法的开发机上跑测试，会把测试进程里的设置（连同它们放进 NSArgumentDomain 的临时值）写进这台机器正在用的 preferences.json。CFFIXED_USER_HOME 只换 NSHomeDirectory 和 Application Support，NSUserDefaults 仍在真实的 ~/Library/Preferences。上面已经给了自己主目录的测试保持不变。
+set(MSIME_TEST_HOME "${CMAKE_CURRENT_BINARY_DIR}/test-home")
+file(MAKE_DIRECTORY "${MSIME_TEST_HOME}")
+get_property(msime_tests DIRECTORY PROPERTY TESTS)
+foreach(msime_test IN LISTS msime_tests)
+  get_test_property(${msime_test} ENVIRONMENT msime_test_environment)
+  if(NOT msime_test_environment MATCHES "CFFIXED_USER_HOME=")
+    set_property(TEST ${msime_test} APPEND PROPERTY ENVIRONMENT "CFFIXED_USER_HOME=${MSIME_TEST_HOME}")
+  endif()
+endforeach()

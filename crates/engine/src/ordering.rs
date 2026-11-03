@@ -603,7 +603,7 @@ pub fn rerank_pick_within<'a, R: OrderRowSource<'a> + ?Sized>(
 
 /// 一句话开头单打一个音节、首选却是句尾语气词（`ma` 的「吗」、`ba` 的「吧」）时，该提到首位的那一行；不是这种情形时为 `None`。
 ///
-/// 「吗」的词频是「妈」的 51 倍、「吧」比「爸」高两成，可这些词频几乎全来自句尾，句首单打 `ma` 想要的不会是「吗」。聊天记录（typing-chat-v1）里每段会话开头的「妈」52 次全被打成「吗」，而逐键模型碰不到它：词典首选是可信的，[`rerank_needs_model`] 不交给模型比较。这里只在句首（`lattice::decode::opens_sentence`：上文为空，或以换行、句末标点结尾）时动，首选让给第一页里第一个不是语气词、同样回答按键的单字词典行；挂着打分器时由它在这些单字里挑。句中照常（「好 | 吧」先上屏「好」再打 `ba`，要的就是「吧」）。
+/// 「吗」的词频是「妈」的 51 倍、「吧」比「爸」高两成，可这些词频几乎全来自句尾，句首单打 `ma` 想要的不会是「吗」。聊天记录（typing-chat-v1）里每段会话开头的「妈」52 次全被打成「吗」，而逐键模型碰不到它：词典首选是可信的，[`rerank_needs_model`] 不交给模型比较。这里只在 `lattice::decode::opens_sentence` 为真时动，首选让给第一页里第一个不是语气词、同样回答按键的单字词典行；挂着打分器时由它在这些单字里挑。句中照常（「好 | 吧」先上屏「好」再打 `ba`，要的就是「吧」）。
 pub fn opening_particle_pick<'a, R: OrderRowSource<'a> + ?Sized>(
     reranker: Option<&mut (dyn CandidateScorer + '_)>,
     context: &str,
