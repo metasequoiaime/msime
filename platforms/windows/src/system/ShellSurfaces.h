@@ -32,8 +32,6 @@ shell_surface_request(TrayMenuCommand command) {
     return ShellSurfaceRequest{"handwriting", {}};
   case TrayMenuCommand::OpenKeyboardPanel:
     return ShellSurfaceRequest{"keyboard", {}};
-  case TrayMenuCommand::ToggleVoiceInput:
-    return ShellSurfaceRequest{"voice", {}};
   case TrayMenuCommand::OpenSettings:
     return ShellSurfaceRequest{{}, {}};
   case TrayMenuCommand::OpenAbout:
@@ -59,7 +57,8 @@ shell_surface_request(TrayMenuCommand command) {
   // 「背单词（今日待复习 N）…」打开共享应用的背单词面板，路由与 macOS 输入菜单的同一行相同（client-core 的 SurfaceRoute::Vocabulary）；Windows 7 的面板宿主认同一个路由。
   case TrayMenuCommand::OpenVocabulary:
     return ShellSurfaceRequest{"vocabulary", {}};
-  // 系统表情面板、官网和隐藏工具栏都不是外壳的界面。
+  // 系统表情面板、官网和隐藏工具栏都不是外壳的界面。托盘的「语音」一行由 Server 自己的 VoiceInputSession 开关（server_main.cpp 在走到 shell_surface_request 之前就处理了它），也不打开外壳的语音面板。
+  case TrayMenuCommand::ToggleVoiceInput:
   case TrayMenuCommand::OpenSystemEmoji:
   case TrayMenuCommand::OpenWebsite:
   case TrayMenuCommand::OpenPromotion:
