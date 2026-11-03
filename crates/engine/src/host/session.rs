@@ -187,6 +187,14 @@ impl Session {
         self.inner.set_prediction_pool(enabled);
     }
 
+    /// 拼整句时给前缀打分的模型，同 [`crate::Session::set_sentence_scorer`]。
+    pub fn set_sentence_scorer(
+        &mut self,
+        scorer: Option<std::sync::Arc<dyn crate::ordering::SentenceScorer>>,
+    ) {
+        self.inner.set_sentence_scorer(scorer);
+    }
+
     /// 整句读法条数下限，同 [`crate::Session::set_sentence_pool`]。
     pub fn set_sentence_pool(&mut self, paths: usize) {
         self.inner.set_sentence_pool(paths);

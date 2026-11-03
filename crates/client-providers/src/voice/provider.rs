@@ -897,4 +897,135 @@ mod tests {
         );
         assert_eq!(mobile_voice_local_status(true, true), None);
     }
+
+    #[test]
+    fn voice_batch_configuration_uses_current_preferences_and_safe_defaults() {
+        let mut preferences = Preferences::default();
+        preferences.voice_input.asr_provider = "openai".into();
+        preferences.voice_input.asr_endpoint.clear();
+        preferences.voice_input.asr_model.clear();
+        preferences.voice_input.asr_token = "synthetic-current".into();
+        preferences
+            .voice_input
+            .asr_tokens
+            .insert("openai".into(), "synthetic-stale".into());
+        let configuration = mobile_voice_provider_configuration(&preferences).unwrap();
+        assert_eq!(configuration.provider, "openai");
+        assert_eq!(
+            configuration.endpoint,
+            "https://api.openai.com/v1/audio/transcriptions"
+        );
+        assert_eq!(configuration.model, "whisper-1");
+        assert_eq!(configuration.token, "synthetic-current");
+        assert!(configuration.headers.is_empty());
+
+        preferences.voice_input.asr_provider = "groq".into();
+        preferences.voice_input.asr_endpoint = "https://fixture.invalid/transcribe".into();
+        preferences.voice_input.asr_model = "fixture-model".into();
+        preferences.voice_input.asr_token.clear();
+        preferences
+            .voice_input
+            .asr_tokens
+            .insert("groq".into(), "synthetic-slot".into());
+        let configuration = mobile_voice_provider_configuration(&preferences).unwrap();
+        assert_eq!(configuration.endpoint, "https://fixture.invalid/transcribe");
+        assert_eq!(configuration.model, "fixture-model");
+        assert_eq!(configuration.token, "synthetic-slot");
+        assert!(configuration.headers.is_empty());
+    }
+
+    // EveryAPI and Mistral are the two transcription services the Apple client offers that the
+    // shared client did not carry. They use the same multipart upload as the providers above, so
+    // what has to be right is the endpoint and model each one resolves to on its own.
+    #[test]
+    fn voice_batch_configuration_covers_everyapi_and_mistral() {
+        for (provider, endpoint, model) in [
+            (
+                "everyapi",
+                "https://api.everyapi.ai/v1/audio/transcriptions",
+                "volc.seedasr.sauc.duration",
+            ),
+            (
+                "mistral",
+                "https://api.mistral.ai/v1/audio/transcriptions",
+                "voxtral-mini-latest",
+            ),
+            (
+                "bailian",
+                "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+                "qwen3-asr-flash",
+            ),
+        ] {
+            let mut preferences = Preferences::default();
+            preferences.voice_input.asr_provider = provider.into();
+            preferences.voice_input.asr_endpoint.clear();
+            preferences.voice_input.asr_model.clear();
+            preferences
+                .voice_input
+                .asr_tokens
+                .insert(provider.into(), "synthetic-slot".into());
+            assert!(preferences.validate().is_ok());
+            let configuration = mobile_voice_provider_configuration(&preferences).unwrap();
+            assert_eq!(configuration.provider, provider);
+            assert_eq!(configuration.endpoint, endpoint);
+            assert_eq!(configuration.model, model);
+            assert_eq!(configuration.token, "synthetic-slot");
+            assert_eq!(
+                configuration.request_format,
+                if provider == "bailian" {
+                    "chat_audio"
+                } else {
+                    "multipart"
+                }
+            );
+            // Only Doubao carries request headers; a batch provider that grew any would be
+            // sending something the multipart transport never validated.
+            assert!(configuration.headers.is_empty());
+        }
+    }
+
+    #[test]
+    fn voice_doubao_configuration_uses_shared_auth_and_current_preferences() {
+        let mut preferences = Preferences::default();
+        // 出厂服务是本地识别，这里要的是豆包。
+        preferences.voice_input.asr_provider = "doubao".into();
+        preferences.voice_input.asr_token = "synthetic-key".into();
+        preferences.voice_input.asr_app_key = "stale-app".into();
+        preferences.voice_input.doubao_auth_mode = "api_key".into();
+        preferences.voice_input.doubao_boosting_table_id = "fixture-table".into();
+        // The first-run value differs between the macOS test host and the mobile hosts, so state it.
+        preferences.voice_input.doubao_enable_ddc = false;
+        let configuration = mobile_voice_provider_configuration(&preferences).unwrap();
+        assert_eq!(configuration.provider, "doubao");
+        assert_eq!(
+            configuration.endpoint,
+            "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async"
+        );
+        assert!(configuration.model.is_empty());
+        assert!(configuration.token.is_empty());
+        assert!(configuration.enable_itn);
+        assert!(configuration.enable_punctuation);
+        assert!(!configuration.enable_ddc);
+        assert_eq!(configuration.boosting_table_id, "fixture-table");
+        assert!(configuration
+            .headers
+            .iter()
+            .any(|header| header.name == "x-api-key" && header.value == "synthetic-key"));
+        assert!(!configuration
+            .headers
+            .iter()
+            .any(|header| header.name == "x-api-app-key"));
+
+        preferences.voice_input.doubao_auth_mode = "legacy".into();
+        preferences.voice_input.asr_app_key = "synthetic-app".into();
+        let configuration = mobile_voice_provider_configuration(&preferences).unwrap();
+        assert!(configuration
+            .headers
+            .iter()
+            .any(|header| header.name == "x-api-app-key" && header.value == "synthetic-app"));
+        assert!(configuration
+            .headers
+            .iter()
+            .any(|header| header.name == "x-api-access-key"));
+    }
 }

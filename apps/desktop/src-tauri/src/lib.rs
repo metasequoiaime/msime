@@ -1,9 +1,5 @@
 mod account_name;
-#[cfg(any(
-    target_os = "macos",
-    target_os = "windows",
-    all(test, not(target_os = "android"))
-))]
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
 mod ai;
 mod clipboard_history;
 // Only the two hosts that have to replay input into another window build this.
@@ -40,14 +36,7 @@ use panel_input::{
 #[cfg(target_os = "windows")]
 use panel_input::{send_panel_key_windows, send_panel_text_windows, windows_panel_position};
 
-#[cfg(target_os = "android")]
-use platform::android::android_account;
-#[cfg(any(
-    target_os = "ios",
-    target_os = "android",
-    target_os = "windows",
-    target_os = "linux"
-))]
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 use platform::community_resources;
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use platform::desktop::desktop_cloud_dictionary;
@@ -59,8 +48,6 @@ use platform::desktop::{
     desktop_community_report, desktop_plugin_community, desktop_plugins,
     desktop_preferences_monitor, desktop_resource_packs, desktop_typing_upload,
 };
-#[cfg(target_os = "ios")]
-use platform::ios::ios_account;
 #[cfg(target_os = "linux")]
 use platform::linux::{
     linux_account, linux_audio_devices, linux_data_directory, linux_process,
@@ -71,10 +58,6 @@ use platform::macos::{
     macos_account, macos_cloud_clipboard, macos_cloud_dictionary, macos_data_directory,
     macos_handwriting, macos_input_source, macos_keyboard, macos_launch, macos_panel_session,
 };
-#[cfg(any(target_os = "ios", target_os = "android"))]
-use platform::mobile::mobile_account_helpers::parse_cloud_dictionary_request;
-#[cfg(any(target_os = "ios", target_os = "android"))]
-use platform::mobile::mobile_community;
 #[cfg(windows)]
 use platform::windows::{windows_account, windows_voice};
 
@@ -96,41 +79,18 @@ use msime_client_services::typing_statistics::TypingSource;
 use msime_client_services::typing_statistics::{
     TypingStatistics, TypingStatisticsStatus, TypingStatisticsStore,
 };
-#[cfg(target_os = "android")]
-use msime_tauri_mobile_platform::{AndroidVoicePlatform, AndroidVoicePolishRequest};
-// Both mobile hosts build the same transcription request; only the transport differs.
-#[cfg(any(target_os = "ios", test))]
-use msime_tauri_mobile_platform::IosKeyboardAiPreferences;
-#[cfg(target_os = "ios")]
-use msime_tauri_mobile_platform::MobilePlatform;
-#[cfg(any(target_os = "ios", target_os = "android"))]
-use msime_tauri_mobile_platform::MobileVoiceRequestHeader;
-#[cfg(any(target_os = "ios", target_os = "android"))]
-use msime_tauri_mobile_platform::MobileVoiceTranscriptionRequest;
 // The packaged recognizer runs on every host; only the socket provider is unix.
-#[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
+#[cfg(unix)]
 use msime_input_runtime::UnixSocketProvider;
 use msime_input_runtime::{HandwritingPoint, HandwritingQuery};
 use serde_json::Value;
 use std::collections::HashMap;
-#[cfg(any(
-    target_os = "linux",
-    target_os = "windows",
-    target_os = "android",
-    target_os = "ios",
-    test
-))]
+#[cfg(any(target_os = "linux", target_os = "windows", test))]
 #[cfg(target_os = "windows")]
 use std::io::Write;
-#[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
+#[cfg(unix)]
 use std::os::unix::fs::FileTypeExt;
-#[cfg(any(
-    target_os = "linux",
-    target_os = "windows",
-    target_os = "android",
-    target_os = "ios",
-    test
-))]
+#[cfg(any(target_os = "linux", target_os = "windows", test))]
 use std::path::Path;
 use std::path::PathBuf;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -147,16 +107,10 @@ use shared::export_file;
 use shared::skin_directory;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 use shared::voice::voice_output;
-#[cfg(any(
-    all(unix, not(any(target_os = "ios", target_os = "android"))),
-    target_os = "windows"
-))]
+#[cfg(any(unix, target_os = "windows"))]
 use shared::voice::voice_sessions;
 
-#[cfg(any(
-    not(any(target_os = "android", target_os = "ios", target_os = "macos")),
-    test
-))]
+#[cfg(any(not(target_os = "macos"), test))]
 const MAX_RUNTIME_OPTIONS_CANDIDATE_CAPACITY: usize = 4;
 
 #[tauri::command]
@@ -170,9 +124,8 @@ fn app_release_date() -> String {
     env!("MSIME_APP_RELEASE_DATE").to_owned()
 }
 
-/// iOS lists UIKit's families through the mobile-platform plugin rather than host-api, the way the HarmonyOS page asks ArkUI.
 fn font_catalog_supported() -> bool {
-    cfg!(target_os = "ios") || system_fonts::supported()
+    system_fonts::supported()
 }
 
 /// The platform this shell is running on. The shared UI previously inferred this
@@ -183,10 +136,6 @@ pub(crate) fn host_platform() -> HostPlatform {
         HostPlatform::Windows
     } else if cfg!(target_os = "macos") {
         HostPlatform::Macos
-    } else if cfg!(target_os = "android") {
-        HostPlatform::Android
-    } else if cfg!(target_os = "ios") {
-        HostPlatform::Ios
     } else {
         HostPlatform::Linux
     }
@@ -295,9 +244,9 @@ pub(crate) fn host_edition(
 
 /// 背单词内置词书的资源根，`wordbooks/` 在它下面（`builtin::directory`）：放着 Engine 资源目录的那一层，不是资源目录本身。
 ///
-/// Linux 的 Engine 资源装在 `share/<client>/resources`，不在 `resource_dir()`（`<prefix>/lib/<productName>`，安装时从不创建）下，所以按 HostOptions 求随包资源的目录（`msime_host_api::bundled_resource_root`：`resources` 的上一级，词库在线更新后是原安装包目录的上一级），词书装在那里的 `share/<client>/wordbooks`（platforms/linux/CMakeLists.txt）。Android 合包同理：`resource_dir()` 是 `asset://localhost/`，不是真实目录，HostOptions（`files/runtime-options.json`）的 `resources` 是 `files/bootstrap/resources`，Bootstrap 把词书解到它的同级 `files/bootstrap/wordbooks`，与原生背单词页读的是同一处。每次命令时现读：首次运行时这份文档还没写好。读不到时退回 `fallback`，那里没有词书，页面只列导入的词表。其余平台用 `fallback`，即 `VocabularyState` 里的 `resource_dir()`。
+/// Linux 的 Engine 资源装在 `share/<client>/resources`，不在 `resource_dir()`（`<prefix>/lib/<productName>`，安装时从不创建）下，所以按 HostOptions 求随包资源的目录（`msime_host_api::bundled_resource_root`：`resources` 的上一级，词库在线更新后是原安装包目录的上一级），词书装在那里的 `share/<client>/wordbooks`（platforms/linux/CMakeLists.txt）。每次命令时现读：首次运行时这份文档还没写好。读不到时退回 `fallback`，那里没有词书，页面只列导入的词表。其余平台用 `fallback`，即 `VocabularyState` 里的 `resource_dir()`。
 fn vocabulary_resources(app: &tauri::AppHandle, fallback: &std::path::Path) -> PathBuf {
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(target_os = "linux")]
     if let Some(root) = app
         .try_state::<DictionaryHostOptions>()
         .and_then(|options| options.snapshot().ok())
@@ -305,7 +254,7 @@ fn vocabulary_resources(app: &tauri::AppHandle, fallback: &std::path::Path) -> P
     {
         return root;
     }
-    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    #[cfg(not(target_os = "linux"))]
     let _ = app;
     fallback.to_path_buf()
 }
@@ -497,20 +446,6 @@ fn settings_page_from_route(route: Option<SurfaceRoute>) -> Option<String> {
 
 #[tauri::command]
 async fn list_font_families(app: tauri::AppHandle) -> Result<Vec<String>, CommandError> {
-    #[cfg(target_os = "ios")]
-    let listed = {
-        let platform = app
-            .try_state::<MobilePlatform<tauri::Wry>>()
-            .ok_or(CommandError {
-                code: "font_catalog",
-            })?
-            .inner()
-            .clone();
-        tauri::async_runtime::spawn_blocking(move || {
-            platform.list_font_families().map_err(|_| "font_catalog")
-        })
-    };
-    #[cfg(not(target_os = "ios"))]
     let listed = {
         let _ = app;
         tauri::async_runtime::spawn_blocking(system_fonts::list)
@@ -589,15 +524,15 @@ async fn capture_voice_pcm(milliseconds: u32) -> Result<Vec<f32>, CommandError> 
 struct ClipboardHistoryState(Arc<Mutex<ClipboardHistoryStore>>);
 #[derive(Clone)]
 struct DictionaryHostOptions {
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(target_os = "linux")]
     path: PathBuf,
-    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    #[cfg(not(target_os = "linux"))]
     document: Arc<Value>,
 }
 
 impl DictionaryHostOptions {
     fn snapshot(&self) -> Result<Value, CommandError> {
-        #[cfg(any(target_os = "linux", target_os = "android"))]
+        #[cfg(target_os = "linux")]
         {
             // Keep the installer-selected path separate from the IBus runtime path; deployments can supply different files for these roles.
             let mut document =
@@ -608,7 +543,7 @@ impl DictionaryHostOptions {
             }
             Ok(document)
         }
-        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        #[cfg(not(target_os = "linux"))]
         {
             Ok((*self.document).clone())
         }
@@ -1007,44 +942,10 @@ async fn read_skin_font(
 
 #[tauri::command]
 async fn open_skin_directory(
-    #[cfg_attr(not(target_os = "ios"), allow(unused_variables))] app: tauri::AppHandle,
     directory: tauri::State<'_, SkinDirectoryState>,
 ) -> Result<(), CommandError> {
     let root = directory.0.clone();
-    // The iOS skin folder is in the App Group container, which Files cannot show, so the button imports a folder the user picks instead; `skin_directory_import` tells the page to say so.
-    #[cfg(target_os = "ios")]
-    return import_picked_skin(&app, root).await;
-    #[cfg(not(target_os = "ios"))]
     open_directory(root).await
-}
-
-#[cfg(target_os = "ios")]
-async fn import_picked_skin(app: &tauri::AppHandle, root: PathBuf) -> Result<(), CommandError> {
-    let platform = app
-        .try_state::<MobilePlatform<tauri::Wry>>()
-        .ok_or(CommandError {
-            code: "unavailable",
-        })?
-        .inner()
-        .clone();
-    let Some(source) = platform
-        .pick_skin_folder()
-        .await
-        .map_err(|_| CommandError {
-            code: "skin_import",
-        })?
-    else {
-        return Ok(());
-    };
-    let copied = tauri::async_runtime::spawn_blocking(move || {
-        msime_client_services::skin::folder_import::import(&source, &root)
-    })
-    .await;
-    let _ = platform.end_skin_folder_access();
-    copied
-        .map_err(|_| CommandError { code: "storage" })?
-        .map(|_| ())
-        .map_err(|code| CommandError { code })
 }
 
 #[derive(serde::Serialize)]
@@ -1365,16 +1266,16 @@ struct RuntimeOptionsState {
     skins: Option<PathBuf>,
 }
 
-#[cfg(all(unix, not(mobile)))]
+#[cfg(unix)]
 impl RuntimeOptionsState {
     fn snapshot(&self) -> Result<Value, std::io::Error> {
         let document = self
             .document
             .lock()
             .map_err(|_| std::io::Error::other("runtime options lock poisoned"))?;
-        #[cfg(any(target_os = "linux", target_os = "android"))]
+        #[cfg(target_os = "linux")]
         let mut document = document;
-        #[cfg(any(target_os = "linux", target_os = "android"))]
+        #[cfg(target_os = "linux")]
         if let Some(path) = self.path.as_ref() {
             *document = read_runtime_options(path)?;
         }
@@ -1382,22 +1283,10 @@ impl RuntimeOptionsState {
     }
 }
 
-#[cfg(any(
-    target_os = "linux",
-    target_os = "windows",
-    target_os = "android",
-    target_os = "ios",
-    test
-))]
+#[cfg(any(target_os = "linux", target_os = "windows", test))]
 const RUNTIME_OPTIONS_READ_LIMIT: u64 = 2 << 20;
 
-#[cfg(any(
-    target_os = "linux",
-    target_os = "windows",
-    target_os = "android",
-    target_os = "ios",
-    test
-))]
+#[cfg(any(target_os = "linux", target_os = "windows", test))]
 fn read_runtime_options_bytes(path: &Path) -> Result<Vec<u8>, std::io::Error> {
     if let Some(parent) = path.parent() {
         crate::shared::atomic_file::check_directory_ancestors(parent)?;
@@ -1420,7 +1309,7 @@ fn read_runtime_options_bytes(path: &Path) -> Result<Vec<u8>, std::io::Error> {
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "android"))]
+#[cfg(target_os = "linux")]
 fn read_runtime_options(path: &Path) -> Result<Value, std::io::Error> {
     let document: Value = serde_json::from_slice(&read_runtime_options_bytes(path)?)
         .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
@@ -1593,7 +1482,6 @@ async fn restored_default_preferences(
 }
 
 /// What the settings page's 修复配置文件 produced.
-#[cfg(not(target_os = "ios"))]
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PreferencesRecovery {
@@ -1605,8 +1493,7 @@ struct PreferencesRecovery {
 
 /// Repair a preferences document that `load_preferences` rejects, as the Windows source repairs a config.toml that does not parse.
 ///
-/// `PreferencesStore::recover` backs the damaged file up beside it before anything is written and keeps every setting and service key the current schema still accepts. The runtime options are republished like a save, so hosts that read them see the repaired values, and a repaired document that leaves clipboard history off clears the stored history as a save would. iOS is left out: its keyboard keeps a native mirror of the AI settings that only the save path updates, and a repair there would leave the two describing different services.
-#[cfg(not(target_os = "ios"))]
+/// `PreferencesStore::recover` backs the damaged file up beside it before anything is written and keeps every setting and service key the current schema still accepts. The runtime options are republished like a save, so hosts that read them see the repaired values, and a repaired document that leaves clipboard history off clears the stored history as a save would.
 #[tauri::command]
 async fn recover_preferences(
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
@@ -1766,29 +1653,16 @@ async fn save_preferences_impl(
     runtime: RuntimeOptionsState,
     expected_revision: u64,
     preferences: Preferences,
-    #[cfg(target_os = "ios")] platform: MobilePlatform<tauri::Wry>,
 ) -> Result<PreferencesSnapshot, CommandError> {
     tauri::async_runtime::spawn_blocking(move || {
-        #[cfg(any(target_os = "ios", target_os = "linux"))]
+        #[cfg(target_os = "linux")]
         let previous = store.load().map_err(CommandError::from)?;
         let snapshot = store
             .save(expected_revision, preferences)
             .map_err(CommandError::from)?;
-        #[cfg(target_os = "ios")]
-        if let Err(_) = platform.save_keyboard_ai(&ios_keyboard_ai_preferences(
-            &snapshot.preferences.ai_assistant,
-        )) {
-            // Do not leave the canonical Rust document and the keyboard's
-            // native mirror describing different AI services. The revision
-            // returned by save() is the only revision that can safely roll
-            // back the write; a concurrent writer is reported as storage
-            // failure rather than overwritten.
-            let _ = store.save(snapshot.revision, previous.preferences);
-            return Err(CommandError { code: "ai_storage" });
-        }
         // Published before the clipboard history is cleared, so a save refused here has not already deleted the history its restored preferences keep enabled.
         let synced = sync_runtime_options(&runtime, &snapshot.preferences);
-        // A document the Linux hosts could not read is refused, and so is the save that produced it: the store goes back to the preferences the hosts still run with, so the page's error is the whole outcome rather than a store and a runtime options file that disagree. As with the iOS rollback above, a concurrent writer wins over the rollback.
+        // A document the Linux hosts could not read is refused, and so is the save that produced it: the store goes back to the preferences the hosts still run with, so the page's error is the whole outcome rather than a store and a runtime options file that disagree. A concurrent writer wins over the rollback.
         #[cfg(target_os = "linux")]
         if matches!(synced, Err(RuntimeOptionsError::TooLarge)) {
             let _ = store.save(snapshot.revision, previous.preferences);
@@ -1810,26 +1684,6 @@ async fn save_preferences_impl(
     .map_err(|_| CommandError { code: "storage" })?
 }
 
-#[cfg(target_os = "ios")]
-#[tauri::command]
-async fn save_preferences(
-    store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
-    runtime: tauri::State<'_, RuntimeOptionsState>,
-    platform: tauri::State<'_, MobilePlatform<tauri::Wry>>,
-    expected_revision: u64,
-    preferences: serde_json::Value,
-) -> Result<PreferencesSnapshot, CommandError> {
-    save_preferences_impl(
-        store.inner().clone(),
-        runtime.inner().clone(),
-        expected_revision,
-        Preferences::from_submission(preferences).map_err(CommandError::from)?,
-        platform.inner().clone(),
-    )
-    .await
-}
-
-#[cfg(not(target_os = "ios"))]
 #[tauri::command]
 async fn save_preferences(
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
@@ -1844,55 +1698,6 @@ async fn save_preferences(
         Preferences::from_submission(preferences).map_err(CommandError::from)?,
     )
     .await
-}
-
-#[cfg(any(target_os = "ios", test))]
-fn ios_keyboard_ai_preferences(
-    preferences: &msime_client_core::preferences::AiAssistantPreferences,
-) -> IosKeyboardAiPreferences {
-    let provider = match preferences.provider.as_str() {
-        "everyapi" => "everyAPI",
-        "openai" => "openAI",
-        "anthropic" => "anthropic",
-        "gemini" => "gemini",
-        "deepseek" => "deepSeek",
-        "qwen" => "qwen",
-        "kimi" => "kimi",
-        "zhipu" => "zhipu",
-        "siliconflow" => "siliconFlow",
-        "openrouter" => "openRouter",
-        _ => "custom",
-    }
-    .to_owned();
-    // 来源键与设置页一致：https 不限主机，http 只认本机或局域网（`ai::endpoint`）。
-    let token = msime_client_providers::ai::credential_for_endpoint(preferences)
-        .map(str::to_owned)
-        .unwrap_or_default();
-    let enabled = preferences.enabled
-        && !preferences.endpoint.trim().is_empty()
-        && !preferences.model.trim().is_empty()
-        && !token.trim().is_empty();
-    let prompt = match preferences.prompt_id.as_str() {
-        "custom_2" => &preferences.prompt_custom_2,
-        "custom_3" => &preferences.prompt_custom_3,
-        _ => &preferences.prompt_custom_1,
-    };
-    let prompt = if prompt.trim().is_empty() {
-        "请润色以下文字，保持原意，只返回修改后的文字。".to_owned()
-    } else {
-        prompt.clone()
-    };
-    IosKeyboardAiPreferences {
-        // Rust preferences may intentionally be enabled before the user has
-        // supplied a credential. Keep that draft in the canonical store, but
-        // clear the native mirror until the keyboard can actually authenticate.
-        enabled,
-        provider,
-        endpoint: preferences.endpoint.clone(),
-        model: preferences.model.clone(),
-        prompt,
-        token,
-    }
 }
 
 #[cfg(any(target_os = "linux", all(test, unix)))]
@@ -2056,32 +1861,7 @@ async fn test_api_credential(
             message: result.message,
         })
     }
-    #[cfg(target_os = "ios")]
-    {
-        let _ = runtime;
-        let result = tauri::async_runtime::spawn_blocking(move || {
-            let result = msime_client_providers::credential::probe::test_chat(
-                &service,
-                &config,
-                &msime_client_providers::credential::probe::ChatProbeTransport,
-            );
-            msime_input_runtime::CredentialTestResult {
-                ok: result.ok,
-                message: result.message,
-            }
-        })
-        .await
-        .map_err(|_| CommandError {
-            code: "unavailable",
-        })?;
-        Ok(result)
-    }
-    #[cfg(not(any(
-        target_os = "linux",
-        target_os = "windows",
-        target_os = "macos",
-        target_os = "ios"
-    )))]
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
     {
         let _ = (runtime, service, config);
         Err(CommandError {
@@ -2144,7 +1924,7 @@ fn sync_runtime_options(
     runtime: &RuntimeOptionsState,
     preferences: &Preferences,
 ) -> Result<(), RuntimeOptionsError> {
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(target_os = "linux")]
     {
         let Some(path) = runtime.path.as_ref() else {
             return Ok(());
@@ -2183,13 +1963,10 @@ fn sync_runtime_options(
             )?,
             None => linux_runtime_options::runtime_options_bytes(&current)?,
         };
-        #[cfg(target_os = "android")]
-        let bytes = serde_json::to_vec_pretty(&current)
-            .map_err(|error| std::io::Error::other(error.to_string()))?;
         shared::atomic_file::write(path, &bytes)?;
         *document = current;
     }
-    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    #[cfg(not(target_os = "linux"))]
     {
         let _ = (runtime, preferences);
     }
@@ -2298,48 +2075,6 @@ fn start_desktop_preferences_monitor(
         });
 }
 
-#[cfg(any(target_os = "ios", test))]
-fn ios_personal_dictionary_action(action: &Value) -> bool {
-    matches!(
-        action.get("operation").and_then(Value::as_str),
-        Some(
-            "list" | "edit" | "import" | "import_personal" | "export" | "retry" | "dismiss_failure"
-        )
-    )
-}
-
-#[cfg(target_os = "ios")]
-fn ios_personal_dictionary_request(request: &Value) -> Result<Value, CommandError> {
-    let bytes = serde_json::to_vec(
-        request
-            .get("action")
-            .ok_or(CommandError { code: "storage" })?,
-    )
-    .map_err(|_| CommandError { code: "storage" })?;
-    if bytes.len() > 1_200_000 {
-        return Err(CommandError { code: "storage" });
-    }
-    let response = msime_ios_native_ffi::personal_dictionary_request(&bytes)
-        .ok_or(CommandError { code: "storage" })?;
-    let envelope: Value =
-        serde_json::from_slice(&response).map_err(|_| CommandError { code: "storage" })?;
-    if envelope.get("ok") == Some(&Value::Bool(true)) {
-        return envelope
-            .get("value")
-            .cloned()
-            .ok_or(CommandError { code: "storage" });
-    }
-    let code = match envelope.get("error").and_then(Value::as_str) {
-        Some("dictionary_busy") => "dictionary_busy",
-        Some("dictionary_conflict") => "dictionary_conflict",
-        Some("dictionary_too_many") => "dictionary_too_many",
-        Some("dictionary_unavailable") => "dictionary_unavailable",
-        Some("dictionary_import_rejected") => "dictionary_import_rejected",
-        _ => "storage",
-    };
-    Err(CommandError { code })
-}
-
 #[tauri::command]
 async fn dictionary_request(
     state: tauri::State<'_, DictionaryHostOptions>,
@@ -2349,33 +2084,16 @@ async fn dictionary_request(
     tauri::async_runtime::spawn_blocking(move || {
         let options = options.snapshot()?;
         let request = serde_json::json!({ "options": options, "action": action });
-        #[cfg(target_os = "ios")]
-        if ios_personal_dictionary_action(&request["action"]) {
-            return ios_personal_dictionary_request(&request);
-        }
-        #[cfg(target_os = "android")]
-        {
-            let bytes =
-                serde_json::to_vec(&request).map_err(|_| CommandError { code: "storage" })?;
-            msime_host_api::personal_dictionary_request_json(&bytes).map_err(|reason| {
-                CommandError {
-                    code: msime_host_api::settings_dictionary::error_code(&reason),
-                }
-            })
-        }
         // The input hosts are released before a write, an import is batched and a refusal becomes the page's code in the host API, where the native Windows settings window gets the same through msime_client_settings_dictionary. The macOS input method is also told at once over a distributed notification when the release first goes up.
-        #[cfg(not(target_os = "android"))]
-        {
-            msime_host_api::settings_dictionary::request(
-                &request["options"],
-                &request["action"],
-                || {
-                    #[cfg(target_os = "macos")]
-                    msime_host_macos::quiesce_input_sessions();
-                },
-            )
-            .map_err(|code| CommandError { code })
-        }
+        msime_host_api::settings_dictionary::request(
+            &request["options"],
+            &request["action"],
+            || {
+                #[cfg(target_os = "macos")]
+                msime_host_macos::quiesce_input_sessions();
+            },
+        )
+        .map_err(|code| CommandError { code })
     })
     .await
     .map_err(|_| CommandError { code: "storage" })?
@@ -2392,7 +2110,6 @@ async fn dictionary_scel_text(bytes_base64: String) -> Result<serde_json::Value,
 }
 
 /// 桌面端一个云剪贴板请求由谁来答，按优先级依次是：宿主选项或环境变量里指定的 provider socket、共享偏好里配置的自建中继（`docs/cloud-clipboard-relay.md`）、打开这个面板的 macOS 输入法的原生会话、在用户运行时目录里发现的 provider socket，都没有时是这个外壳登录的水杉账号。
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[derive(Debug, PartialEq)]
 enum CloudClipboardRoute<N, R> {
     #[cfg_attr(not(unix), allow(dead_code))]
@@ -2404,7 +2121,6 @@ enum CloudClipboardRoute<N, R> {
 }
 
 /// 为一个请求选出 [`CloudClipboardRoute`]。显式配置的 socket 直接胜出，不是绝对路径时报错而不是往下找：用户点名要那个 provider，就不能由账号代答。中继在用户显式配置的 socket 之后、输入法原生会话之前：配置了中继就只走中继，读不出中继配置时同样报错而不退回账号。两者都没有配置时才看原生会话和自动发现的 socket。
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn cloud_clipboard_route<N, R>(
     configured: Option<String>,
     relay: impl FnOnce() -> Result<Option<R>, CommandError>,
@@ -2432,7 +2148,6 @@ fn cloud_clipboard_route<N, R>(
         .map_or(CloudClipboardRoute::Account, CloudClipboardRoute::Provider))
 }
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn cloud_clipboard_route_for_action<N, R>(
     action: &Value,
     configured: Option<String>,
@@ -2451,7 +2166,6 @@ fn cloud_clipboard_route_for_action<N, R>(
     cloud_clipboard_route(configured, relay, native, discover)
 }
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 async fn cloud_clipboard_request(
     app: tauri::AppHandle,
@@ -2532,7 +2246,6 @@ async fn cloud_clipboard_request(
 }
 
 /// WebDAV 设置的「测试连接」（`docs/cloud-clipboard-webdav.md`）：用设置页里还没保存的地址、账号和应用密码，在网盘上试一遍云剪贴板日志要用的行为，通过答 `{}`；通过后删掉本机的日志缓存，防回退从网盘现在的样子重新开始。不合格是 `webdav_unsupported`，账号或密码不对是 `relay_unauthorized`。会联网，大约二十个请求。
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 async fn cloud_clipboard_webdav_probe(
     account: tauri::State<'_, desktop_account::AccountState>,
@@ -2570,29 +2283,6 @@ async fn dictionary_sync(
     })?
 }
 
-#[cfg(any(target_os = "ios", target_os = "android"))]
-#[tauri::command]
-async fn cloud_clipboard_request(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, platform::mobile::MobileAccountState>,
-    action: Value,
-) -> Result<Value, CommandError> {
-    msime_host_api::cloud_clipboard::validate_request(&action).map_err(|_| CommandError {
-        code: "invalid_cloud_clipboard",
-    })?;
-    // 设置页的「发到云剪贴板」和云剪贴板面板都经这里。用户在原生设置里选了自建中继时，这里只能经账号答，所以拒绝而不是发往水杉账号。
-    let store = app
-        .try_state::<std::sync::Arc<PreferencesStore>>()
-        .map(|store| std::sync::Arc::clone(store.inner()))
-        .ok_or(CommandError { code: "storage" })?;
-    tauri::async_runtime::spawn_blocking(move || {
-        platform::cloud_clipboard::require_no_relay(&store)
-    })
-    .await
-    .map_err(|_| CommandError { code: "storage" })??;
-    platform::cloud_clipboard::cloud_clipboard_request(state.session(), action).await
-}
-
 #[tauri::command]
 fn cloud_clipboard_can_send_text(app: tauri::AppHandle, window: tauri::WebviewWindow) -> bool {
     #[cfg(target_os = "macos")]
@@ -2607,7 +2297,6 @@ fn cloud_clipboard_can_send_text(app: tauri::AppHandle, window: tauri::WebviewWi
     }
 }
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 async fn cloud_dictionary_request(
     app: tauri::AppHandle,
@@ -2678,26 +2367,6 @@ async fn cloud_dictionary_request(
     let account = app.state::<desktop_account::AccountState>();
     let snapshots = app.state::<desktop_cloud_dictionary::CloudDictionaryState>();
     desktop_cloud_dictionary::request(&account.session, snapshots.inner(), document, request).await
-}
-
-#[cfg(target_os = "ios")]
-#[tauri::command]
-async fn cloud_dictionary_request(
-    state: tauri::State<'_, ios_account::AccountState>,
-    action: Value,
-) -> Result<Value, CommandError> {
-    let request = parse_cloud_dictionary_request(&action)?;
-    ios_account::cloud_dictionary_request(state, request).await
-}
-
-#[cfg(target_os = "android")]
-#[tauri::command]
-async fn cloud_dictionary_request(
-    state: tauri::State<'_, android_account::AccountState>,
-    action: Value,
-) -> Result<Value, CommandError> {
-    let request = parse_cloud_dictionary_request(&action)?;
-    android_account::cloud_dictionary_request(state, request).await
 }
 
 #[derive(serde::Serialize)]
@@ -4000,7 +3669,6 @@ pub(crate) fn chrome_background(theme: Option<tauri::Theme>) -> tauri::window::C
     }
 }
 
-#[cfg(any(not(mobile), test))]
 fn launch_route_from_args(args: &[String]) -> Option<SurfaceRoute> {
     args.iter().find_map(|argument| {
         argument
@@ -4014,7 +3682,6 @@ fn launch_route_from_args(args: &[String]) -> Option<SurfaceRoute> {
 /// 产品自己打开的界面都带路由：Windows 宿主在 `platforms/windows/src/system/ShellLauncher.cpp` 里把 `--route=` 拼进命令行，托盘、悬浮工具栏和原生设置窗口里的面板入口都经过它。Windows 的设置本身是 WinUI 3 原生程序 `msime-client-settings.exe`（`platforms/windows/settings/`），托盘的设置项和开始菜单都打开它，不打开本程序；按 `platforms/windows/src/system/ShellSurfaces.h` 的 `shell_executable_names`，本程序 `MSIME.exe` 在 Windows 上只收到面板路由。所以不带路由的启动是用户自己启动本程序：Linux 的桌面入口，macOS 的 Finder 或启动台，Windows 上则是直接运行 `MSIME.exe`；这时用户要的是设置窗口。
 ///
 /// 这种情况下什么都不做，再次启动就像坏了：已在运行的实例留在前台窗口后面，点击看起来被忽略。参照实现在这里激活已有窗口，而不是悄悄退出。
-#[cfg(any(not(mobile), test))]
 fn second_launch_route(args: &[String]) -> SurfaceRoute {
     launch_route_from_args(args).unwrap_or(SurfaceRoute::Settings(None))
 }
@@ -4308,7 +3975,7 @@ async fn recognize_handwriting(
     // A user-managed socket owns recognizer and model policy where one is
     // configured; otherwise the Engine's packaged recognizer answers, which is
     // the only path hosts without unix sockets have.
-    #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
+    #[cfg(unix)]
     let socket = match std::env::var_os("MSIME_HANDWRITING_PROVIDER_SOCKET") {
         Some(value) => {
             let path = PathBuf::from(value);
@@ -4321,7 +3988,7 @@ async fn recognize_handwriting(
         }
         None => discover_session_provider("handwriting.sock"),
     };
-    #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
+    #[cfg(unix)]
     if let Some(path) = socket {
         let candidates = tauri::async_runtime::spawn_blocking(move || {
             UnixSocketProvider::new(path).handwriting(query)
@@ -4393,7 +4060,7 @@ fn ink_handwriting_answer(ink: Option<Vec<String>>, has_model: bool) -> Option<V
     }
 }
 
-#[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
+#[cfg(unix)]
 fn discover_session_provider(filename: &str) -> Option<PathBuf> {
     std::env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
@@ -4401,7 +4068,7 @@ fn discover_session_provider(filename: &str) -> Option<PathBuf> {
         .and_then(|directory| discover_session_provider_in(&directory, filename))
 }
 
-#[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
+#[cfg(unix)]
 fn discover_session_provider_in(
     runtime_directory: &std::path::Path,
     filename: &str,
@@ -4896,46 +4563,10 @@ async fn send_voice_text(
     return macos_panel_session::submit(app, window, text).await;
     #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
     {
-        #[cfg(target_os = "ios")]
-        {
-            let platform = app
-                .try_state::<MobilePlatform<tauri::Wry>>()
-                .ok_or(HostActionError {
-                    code: "unavailable",
-                })?
-                .inner()
-                .clone();
-            platform
-                .save_voice_text(&text)
-                .map_err(|_| HostActionError {
-                    code: "unavailable",
-                })?;
-            let _ = (window, state, typing_statistics, store);
-            Ok(())
-        }
-        #[cfg(target_os = "android")]
-        {
-            let platform = app
-                .try_state::<AndroidVoicePlatform<tauri::Wry>>()
-                .ok_or(HostActionError {
-                    code: "unavailable",
-                })?
-                .inner();
-            platform
-                .save_voice_text(&text)
-                .map_err(|_| HostActionError {
-                    code: "unavailable",
-                })?;
-            let _ = (window, state, typing_statistics, store);
-            Ok(())
-        }
-        #[cfg(not(any(target_os = "ios", target_os = "android")))]
-        {
-            let _ = (app, window, state, typing_statistics, store, text);
-            Err(HostActionError {
-                code: "unavailable",
-            })
-        }
+        let _ = (app, window, state, typing_statistics, store, text);
+        Err(HostActionError {
+            code: "unavailable",
+        })
     }
 }
 
@@ -4976,26 +4607,6 @@ fn external_url_is_safe(url: &str) -> bool {
         })
 }
 
-#[cfg(target_os = "android")]
-#[tauri::command]
-fn open_external_url(
-    url: String,
-    account: tauri::State<'_, android_account::AccountState>,
-) -> Result<(), HostActionError> {
-    if !external_url_is_safe(&url) {
-        return Err(HostActionError {
-            code: "invalid_url",
-        });
-    }
-    account
-        .platform
-        .run_mobile_plugin::<()>("openExternalUrl", serde_json::json!({ "url": url }))
-        .map_err(|_| HostActionError {
-            code: "unavailable",
-        })
-}
-
-#[cfg(not(target_os = "android"))]
 #[tauri::command]
 async fn open_external_url(url: String) -> Result<(), HostActionError> {
     tauri::async_runtime::spawn_blocking(move || open_external_url_blocking(&url))
@@ -5005,7 +4616,6 @@ async fn open_external_url(url: String) -> Result<(), HostActionError> {
         })?
 }
 
-#[cfg(not(target_os = "android"))]
 fn open_external_url_blocking(url: &str) -> Result<(), HostActionError> {
     if !external_url_is_safe(url) {
         return Err(HostActionError {
@@ -5016,7 +4626,6 @@ fn open_external_url_blocking(url: &str) -> Result<(), HostActionError> {
 }
 
 /// Hands an https URL the caller has already validated to the default browser. None of the launch paths goes through a shell (`open` and `xdg-open` receive it as one argument, Windows uses ShellExecuteW), so encoded query parameters such as the feedback form's `&`-separated title and body are safe to pass through.
-#[cfg(not(target_os = "android"))]
 fn launch_external_url(url: &str) -> Result<(), HostActionError> {
     #[cfg(target_os = "macos")]
     let result = std::process::Command::new("open").arg(url).status();
@@ -5218,113 +4827,6 @@ impl LinuxStateDirectory {
     }
 }
 
-#[cfg(any(target_os = "ios", test))]
-fn ios_host_options_document(
-    contents: Option<&str>,
-    resources: &std::path::Path,
-    state_root: &std::path::Path,
-) -> Result<Value, String> {
-    match contents {
-        Some(contents) => serde_json::from_str(contents)
-            .map_err(|_| "Cannot parse prepared HostOptions JSON".to_owned()),
-        None => {
-            let mut document = serde_json::json!({
-                "resources": resources.to_string_lossy(),
-                "state_root": state_root.to_string_lossy(),
-            });
-            // The Cantonese, Zhuyin and Stroke dictionaries are bundled beside EngineResources; naming them here is what lets host-api run those schemes and the page offer them.
-            if let Some(directory) = msime_host_api::installed_language_dictionaries(resources) {
-                document["language_dictionaries"] = Value::String(directory);
-            }
-            Ok(document)
-        }
-    }
-}
-
-#[cfg(any(target_os = "ios", test))]
-fn ios_custom_skin_library_root(state_root: &std::path::Path) -> PathBuf {
-    state_root
-        .parent()
-        .map(std::path::Path::to_path_buf)
-        .unwrap_or_else(|| state_root.to_path_buf())
-}
-
-#[cfg(any(target_os = "ios", test))]
-fn ios_community_resource_library_path(state_root: &std::path::Path) -> PathBuf {
-    ios_custom_skin_library_root(state_root).join("CommunityLibrary.json")
-}
-
-#[cfg(target_os = "ios")]
-#[tauri::command]
-async fn open_system_keyboard_settings(
-    state: tauri::State<'_, msime_tauri_mobile_platform::MobilePlatform<tauri::Wry>>,
-) -> Result<(), CommandError> {
-    let platform = state.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || platform.open_system_keyboard_settings())
-        .await
-        .map_err(|_| CommandError {
-            code: "system_settings",
-        })?
-        .map_err(|_| CommandError {
-            code: "system_settings",
-        })
-}
-
-#[cfg(target_os = "ios")]
-#[tauri::command]
-async fn ios_onboarding_status(
-    state: tauri::State<'_, msime_tauri_mobile_platform::MobilePlatform<tauri::Wry>>,
-) -> Result<bool, CommandError> {
-    let platform = state.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || platform.onboarding_completed())
-        .await
-        .map_err(|_| CommandError { code: "onboarding" })?
-        .map_err(|_| CommandError { code: "onboarding" })
-}
-
-#[cfg(target_os = "ios")]
-#[tauri::command]
-async fn ios_onboarding_complete(
-    state: tauri::State<'_, msime_tauri_mobile_platform::MobilePlatform<tauri::Wry>>,
-) -> Result<(), CommandError> {
-    let platform = state.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || platform.complete_onboarding())
-        .await
-        .map_err(|_| CommandError { code: "onboarding" })?
-        .map_err(|_| CommandError { code: "onboarding" })
-}
-
-#[cfg(target_os = "ios")]
-#[tauri::command]
-async fn app_icon_info(
-    state: tauri::State<'_, msime_tauri_mobile_platform::MobilePlatform<tauri::Wry>>,
-) -> Result<msime_tauri_mobile_platform::AppIconInfo, CommandError> {
-    let platform = state.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || platform.app_icon_info())
-        .await
-        .map_err(|_| CommandError { code: "app_icon" })?
-        .map_err(|_| CommandError { code: "app_icon" })
-}
-
-#[cfg(target_os = "ios")]
-#[tauri::command]
-async fn app_icon_set(
-    state: tauri::State<'_, msime_tauri_mobile_platform::MobilePlatform<tauri::Wry>>,
-    style: String,
-) -> Result<msime_tauri_mobile_platform::AppIconInfo, CommandError> {
-    if !msime_tauri_mobile_platform::is_supported_app_icon_style(&style) {
-        return Err(CommandError {
-            code: "invalid_app_icon",
-        });
-    }
-    let platform = state.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || platform.set_app_icon(&style))
-        .await
-        .map_err(|_| CommandError { code: "app_icon" })?
-        .map_err(|_| CommandError { code: "app_icon" })
-}
-
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
 /// `--sync-omarchy-theme`, which the Omarchy theme-set hook runs through msime-linux-settings: rewrite the `omarchy` skin from the current Omarchy palette and publish the catalog to the hosts, the way a rescan from the settings page would, then exit without opening a window. The state directory is the one the settings window would open on, so the package lands in the skin root it lists.
 #[cfg(target_os = "linux")]
 fn sync_omarchy_theme() -> i32 {
@@ -5490,18 +4992,12 @@ pub fn run() {
     // The 插件 page's import picker. Rust calls it host-side; no capability grants the webview any dialog command, so the page cannot open a dialog or name a path itself.
     #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
     let builder = builder.plugin(tauri_plugin_dialog::init());
-    #[cfg(target_os = "android")]
-    let builder = builder.plugin(android_account::init());
-    #[cfg(target_os = "ios")]
-    let builder = builder.plugin(msime_tauri_mobile_platform::init());
     builder
         .setup(|app| {
             #[cfg(target_os = "macos")]
             macos_account::setup(app.handle())?;
             #[cfg(target_os = "windows")]
             windows_account::setup(app.handle())?;
-            #[cfg(target_os = "ios")]
-            ios_account::setup(app.handle())?;
             #[cfg(target_os = "macos")]
             app.manage(macos_panel_session::PanelState::from_environment()?);
             #[cfg(target_os = "macos")]
@@ -5568,8 +5064,6 @@ pub fn run() {
             };
             #[cfg(target_os = "macos")]
             let directory = macos_launch.preferences_directory.clone();
-            #[cfg(target_os = "android")]
-            let directory = app.path().app_data_dir()?.join("files/bootstrap/state");
             // 首次运行时 runtime-options.json 还不存在，目录先落在本应用的数据目录；首次配置写出这份文件后由 `hand_over_settings_process` 换到新进程，见 `LinuxStateDirectory`。
             #[cfg(target_os = "linux")]
             let state_directory = LinuxStateDirectory::resolve(
@@ -5583,7 +5077,7 @@ pub fn run() {
             let directory = state_directory.startup.clone();
             #[cfg(target_os = "linux")]
             app.manage(state_directory);
-            #[cfg(not(any(target_os = "android", target_os = "macos", target_os = "linux")))]
+            #[cfg(not(any(target_os = "macos", target_os = "linux")))]
             let directory = match std::env::var_os("MSIME_CLIENT_STATE_DIR") {
                 Some(value) => {
                     let path = std::path::PathBuf::from(value);
@@ -5623,31 +5117,8 @@ pub fn run() {
             linux_account::setup(app.handle(), &directory)?;
             let keyboard_skin_trials =
                 KeyboardSkinTrialStore::new(&directory, Arc::clone(&preferences));
-            #[cfg(target_os = "android")]
-            let _ = keyboard_skin_trials.restore_pending();
-            // The iOS keyboard extension stores named designs in the App Group
-            // root, while the Rust preferences live below App Group/MSIME.
-            // Point both hosts at the same bounded library file.
-            #[cfg(target_os = "ios")]
-            let custom_skin_directory = ios_custom_skin_library_root(&directory);
-            #[cfg(not(target_os = "ios"))]
             let custom_skin_directory = directory.clone();
             app.manage(CustomSkinLibraryStore::new(custom_skin_directory));
-            #[cfg(target_os = "android")]
-            let community_resource_library_path = app
-                .path()
-                .app_data_dir()?
-                .join("files/CommunityLibrary.json");
-            // The iOS reply keyboard reads downloads directly from the App
-            // Group root. Keep the Tauri community page on that exact file;
-            // the Rust preferences and statistics remain below App Group/MSIME.
-            #[cfg(target_os = "ios")]
-            let community_resource_library_path =
-                ios_community_resource_library_path(&directory);
-            #[cfg(any(target_os = "android", target_os = "ios"))]
-            app.manage(msime_client_services::community::resource_library::CommunityResourceLibraryStore::new(
-                community_resource_library_path,
-            ));
             app.manage(keyboard_skin_trials);
             app.manage(TypingStatisticsState(TypingStatisticsStore::new(&directory)));
             app.manage(DiagnosticLogState(directory.clone()));
@@ -5753,25 +5224,17 @@ pub fn run() {
                     });
                 }
             }
-            // Same condition as `shared::voice::voice_sessions`: the mobile hosts record through
-            // their own native plugins and never build this module.
-            #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
+            // Same condition as `shared::voice::voice_sessions`.
+            #[cfg(unix)]
             app.manage(voice_sessions::VoiceSessions::default());
             app.manage(voice::local_models::LocalModelInstalls::default());
             #[cfg(target_os = "linux")]
             app.manage(linux_setup::LinuxSetupState::default());
             // Native packaging/installer supplies this verified HostOptions JSON.
             // Webview input never controls resource or state paths.
-            #[cfg(target_os = "android")]
-            let host_options_path = app
-                .path()
-                .app_data_dir()?
-                .join("files/runtime-options.json");
-            #[cfg(target_os = "ios")]
-            let host_options_path = directory.join("runtime-options.json");
             #[cfg(target_os = "macos")]
             let host_options_path = macos_launch.options_path;
-            #[cfg(not(any(target_os = "android", target_os = "ios", target_os = "macos")))]
+            #[cfg(not(target_os = "macos"))]
             let host_options_path = std::env::var_os("MSIME_CLIENT_HOST_OPTIONS")
                 .map(PathBuf::from)
                 .filter(|path| path.is_absolute())
@@ -5819,43 +5282,6 @@ pub fn run() {
                         .to_string()
                 })?;
             let host_document: Value = {
-                #[cfg(target_os = "android")]
-                {
-                    match read_runtime_options_bytes(&host_options_path) {
-                        Ok(host_options) => serde_json::from_slice(&host_options)
-                            .map_err(|_| "Cannot parse prepared HostOptions JSON".to_string())?,
-                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                            // The Tauri shell owns the first-run guide. Before the
-                            // native bootstrap publishes HostOptions, keep the
-                            // managed states valid while resource-backed commands
-                            // correctly fail closed until preparation completes.
-                            serde_json::json!({
-                                "resources": "",
-                                "state_root": app.path().app_data_dir()?.join("files/bootstrap/state"),
-                            })
-                        }
-                        Err(_) => return Err("Cannot read prepared HostOptions JSON".into()),
-                    }
-                }
-                #[cfg(target_os = "ios")]
-                {
-                    let resources = app.path().resource_dir()?.join("EngineResources");
-                    match read_runtime_options_bytes(&host_options_path) {
-                        Ok(host_options) => {
-                            let host_options = std::str::from_utf8(&host_options)
-                                .map_err(|_| "Cannot parse prepared HostOptions JSON".to_string())?;
-                            ios_host_options_document(
-                                Some(host_options),
-                                &resources,
-                                &directory,
-                            )?
-                        }
-                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                            ios_host_options_document(None, &resources, &directory)?
-                        }
-                        Err(_) => return Err("Cannot read prepared HostOptions JSON".into()),
-                    }
-                }
                 #[cfg(target_os = "macos")]
                 {
                     macos_launch.document
@@ -5872,12 +5298,7 @@ pub fn run() {
                         Err(_) => return Err("Cannot read prepared HostOptions JSON".into()),
                     }
                 }
-                #[cfg(not(any(
-                    target_os = "android",
-                    target_os = "ios",
-                    target_os = "macos",
-                    target_os = "linux"
-                )))]
+                #[cfg(not(any(target_os = "macos", target_os = "linux")))]
                 {
                     let host_options = read_runtime_options_bytes(&host_options_path)
                         .map_err(|_| "Cannot read prepared HostOptions JSON".to_string())?;
@@ -5890,9 +5311,9 @@ pub fn run() {
                 .filter(|path| path.is_absolute())
                 .or_else(|| Some(host_options_path.clone()));
             app.manage(DictionaryHostOptions {
-                #[cfg(any(target_os = "linux", target_os = "android"))]
+                #[cfg(target_os = "linux")]
                 path: host_options_path,
-                #[cfg(not(any(target_os = "linux", target_os = "android")))]
+                #[cfg(not(target_os = "linux"))]
                 document: Arc::new(host_document.clone()),
             });
             // 这次启动打开的是设置窗口，不是某个面板（屏幕键盘、表情、剪贴板等由输入法按需拉起）。
@@ -5999,7 +5420,7 @@ pub fn run() {
             #[cfg(any(
                 target_os = "macos",
                 target_os = "windows",
-                all(test, not(target_os = "android"), not(target_os = "linux"))
+                all(test, not(target_os = "linux"))
             ))]
             ai::ai_models,
             #[cfg(target_os = "linux")]
@@ -6007,7 +5428,7 @@ pub fn run() {
             #[cfg(any(
                 target_os = "macos",
                 target_os = "windows",
-                all(test, not(target_os = "android"), not(target_os = "linux"))
+                all(test, not(target_os = "linux"))
             ))]
             ai::ai_test,
             #[cfg(target_os = "linux")]
@@ -6018,7 +5439,6 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             repair_macos_oobe_resources,
             restored_default_preferences,
-            #[cfg(not(target_os = "ios"))]
             recover_preferences,
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
             open_preferences_directory,
@@ -6163,8 +5583,7 @@ pub fn run() {
             dictionary_request,
             dictionary_scel_text,
             cloud_clipboard_request,
-            #[cfg(not(any(target_os = "android", target_os = "ios")))]
-            cloud_clipboard_webdav_probe,
+                        cloud_clipboard_webdav_probe,
             #[cfg(any(target_os = "macos", target_os = "linux"))]
             dictionary_sync,
             cloud_clipboard_can_send_text,
@@ -6211,8 +5630,6 @@ pub fn run() {
             pick_application,
             #[cfg(target_os = "macos")]
             application_names,
-            #[cfg(target_os = "android")]
-            android_account::account_status,
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             desktop_account::account_status,
             #[cfg(target_os = "linux")]
@@ -6229,46 +5646,18 @@ pub fn run() {
             linux_setup::open_fcitx5_configtool,
             #[cfg(target_os = "linux")]
             linux_setup::open_linux_input_method_settings,
-            #[cfg(target_os = "android")]
-            android_account::android_open_input_method_settings,
-            #[cfg(target_os = "android")]
-            android_account::android_open_keyboard_tryout,
-            #[cfg(target_os = "android")]
-            android_account::android_show_input_method_picker,
-            #[cfg(target_os = "android")]
-            android_account::android_bootstrap_status,
-            #[cfg(target_os = "android")]
-            android_account::android_prepare_bootstrap,
-            #[cfg(target_os = "android")]
-            android_account::ai_models,
-            #[cfg(target_os = "android")]
-            android_account::ai_test,
-            #[cfg(target_os = "android")]
-            android_account::account_providers,
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             desktop_account::account_providers,
-            #[cfg(target_os = "android")]
-            android_account::account_request_code,
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             desktop_account::account_request_code,
-            #[cfg(target_os = "android")]
-            android_account::account_login,
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             desktop_account::account_login,
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             desktop_account::account_google_login,
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             desktop_account::account_google_cancel,
-            #[cfg(target_os = "android")]
-            android_account::account_profile,
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             desktop_account::account_profile,
-            #[cfg(target_os = "android")]
-            android_account::account_chat_models,
-            #[cfg(target_os = "android")]
-            android_account::account_chat,
-            #[cfg(target_os = "android")]
-            android_account::account_rename,
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             desktop_account::account_rename,
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
@@ -6277,16 +5666,10 @@ pub fn run() {
             desktop_account::account_choose_avatar,
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             desktop_account::account_remove_avatar,
-            #[cfg(target_os = "android")]
-            android_account::account_logout,
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             desktop_account::account_logout,
-            #[cfg(target_os = "android")]
-            android_account::account_delete,
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             desktop_account::account_delete,
-            #[cfg(target_os = "android")]
-            android_account::account_forget,
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             desktop_account::account_forget,
             #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -6345,151 +5728,20 @@ pub fn run() {
             desktop_plugin_community::plugin_community_rate,
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
             desktop_plugin_community::plugin_community_delete,
-            #[cfg(target_os = "android")]
-            android_account::app_icon_info,
-            #[cfg(target_os = "android")]
-            android_account::app_icon_set,
-            #[cfg(target_os = "android")]
-            android_account::mobile_keyboard_feedback_load,
-            #[cfg(target_os = "android")]
-            android_account::mobile_keyboard_feedback_save,
-            #[cfg(target_os = "android")]
-            android_account::mobile_keyboard_feedback_preview,
-            #[cfg(target_os = "ios")]
-            open_system_keyboard_settings,
-            #[cfg(target_os = "ios")]
-            ios_onboarding_status,
-            #[cfg(target_os = "ios")]
-            ios_onboarding_complete,
-            #[cfg(target_os = "ios")]
-            app_icon_info,
-            #[cfg(target_os = "ios")]
-            app_icon_set,
-            #[cfg(target_os = "ios")]
-            ios_account::account_status,
-            #[cfg(target_os = "ios")]
-            ios_account::account_providers,
-            #[cfg(target_os = "ios")]
-            ios_account::account_request_code,
-            #[cfg(target_os = "ios")]
-            ios_account::account_login,
-            #[cfg(target_os = "ios")]
-            ios_account::account_apple_login,
-            #[cfg(target_os = "ios")]
-            ios_account::account_profile,
-            #[cfg(target_os = "ios")]
-            ios_account::account_chat_models,
-            #[cfg(target_os = "ios")]
-            ios_account::account_chat,
-            #[cfg(target_os = "ios")]
-            ios_account::ai_models,
-            #[cfg(target_os = "ios")]
-            ios_account::ai_test,
-            #[cfg(target_os = "ios")]
-            ios_account::account_rename,
-            #[cfg(target_os = "ios")]
-            ios_account::account_logout,
-            #[cfg(target_os = "ios")]
-            ios_account::account_delete,
-            #[cfg(target_os = "ios")]
-            ios_account::account_forget,
-            #[cfg(target_os = "ios")]
-            ios_account::account_preferences_schema,
-            #[cfg(target_os = "ios")]
-            ios_account::account_preferences_load,
-            #[cfg(target_os = "ios")]
-            ios_account::account_preferences_upload,
-            #[cfg(target_os = "ios")]
-            ios_account::account_preferences_apply,
-            #[cfg(target_os = "ios")]
-            ios_account::mobile_keyboard_feedback_load,
-            #[cfg(target_os = "ios")]
-            ios_account::mobile_keyboard_feedback_save,
-            #[cfg(target_os = "ios")]
-            ios_account::mobile_keyboard_feedback_preview,
-            #[cfg(target_os = "android")]
-            android_account::account_preferences_schema,
-            #[cfg(target_os = "android")]
-            android_account::account_preferences_load,
-            #[cfg(target_os = "android")]
-            android_account::account_preferences_upload,
-            #[cfg(target_os = "android")]
-            android_account::account_preferences_apply,
-            #[cfg(any(target_os = "ios", target_os = "android"))]
-            mobile_community::community_report,
-            #[cfg(any(target_os = "ios", target_os = "android"))]
-            mobile_community::community_skin_list,
-            #[cfg(any(target_os = "ios", target_os = "android"))]
-            mobile_community::community_skin_detail,
-            #[cfg(any(target_os = "ios", target_os = "android"))]
-            mobile_community::community_skin_download,
-            #[cfg(any(target_os = "ios", target_os = "android"))]
-            mobile_community::community_skin_rate,
-            #[cfg(any(target_os = "ios", target_os = "android"))]
-            mobile_community::community_skin_publish,
-            #[cfg(any(target_os = "ios", target_os = "android"))]
-            mobile_community::community_skin_unpublish,
-            #[cfg(any(target_os = "ios", target_os = "android"))]
-            mobile_community::community_skin_set_category,
-            #[cfg(any(target_os = "ios", target_os = "android"))]
-            mobile_community::community_skin_finish_trial,
-            #[cfg(any(target_os = "ios", target_os = "android"))]
-            mobile_community::ai_skin_generate,
-            #[cfg(any(target_os = "ios", target_os = "android"))]
-            mobile_community::ai_skin_cancel,
-            #[cfg(any(
-                target_os = "ios",
-                target_os = "android",
-                target_os = "windows",
-                target_os = "linux"
-            ))]
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
             community_resources::community_resource_list,
-            #[cfg(any(
-                target_os = "ios",
-                target_os = "android",
-                target_os = "windows",
-                target_os = "linux"
-            ))]
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
             community_resources::community_resource_detail,
-            #[cfg(any(
-                target_os = "ios",
-                target_os = "android",
-                target_os = "windows",
-                target_os = "linux"
-            ))]
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
             community_resources::community_resource_publish,
-            #[cfg(any(
-                target_os = "ios",
-                target_os = "android",
-                target_os = "windows",
-                target_os = "linux"
-            ))]
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
             community_resources::community_resource_apply,
-            #[cfg(any(
-                target_os = "ios",
-                target_os = "android",
-                target_os = "windows",
-                target_os = "linux"
-            ))]
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
             community_resources::community_resource_save,
-            #[cfg(any(
-                target_os = "ios",
-                target_os = "android",
-                target_os = "windows",
-                target_os = "linux"
-            ))]
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
             community_resources::community_resource_rate,
-            #[cfg(any(
-                target_os = "ios",
-                target_os = "android",
-                target_os = "windows",
-                target_os = "linux"
-            ))]
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
             community_resources::community_resource_unpublish,
-            #[cfg(any(target_os = "ios", target_os = "android"))]
-            mobile_community::community_resource_store_reply,
-            #[cfg(any(target_os = "ios", target_os = "android"))]
-            mobile_community::community_resource_remove_reply,
         ])
         .build(context)
         .expect("client application failed")

@@ -6026,7 +6026,7 @@ private:
 
   // ---- Launching ----
 
-  // The shared desktop app (MSIME.exe) is installed beside this executable.
+  // 本程序自己的路径。面板宿主（MSIME.exe 或 msime-client-panels.exe）和随包资源都装在它旁边。
   static std::filesystem::path shell_executable() {
     std::wstring buffer(MAX_PATH, L'\0');
     for (;;) {
@@ -6059,22 +6059,24 @@ private:
     auto queue = DispatcherQueue();
     const msime::windows::ShellSurfaceRequest request{
         std::string(target.panel), std::string(target.page)};
-    const auto executable = shell_executable();
+    const auto panel_host = msime::windows::configured_panel_host();
+    const auto directory = shell_executable().parent_path();
+    const auto file = msime::windows::shell_executable_names(request, panel_host).front();
     const auto context = launch_context();
     co_await resume_background();
-    std::error_code error;
+    const auto executable =
+        msime::windows::shell_executable(directory, {}, request, panel_host);
     const bool started =
-        !executable.empty() &&
-        std::filesystem::is_regular_file(executable, error) &&
-        (context ? msime::windows::launch_shell_surface(executable, request,
+        executable &&
+        (context ? msime::windows::launch_shell_surface(*executable, request,
                                                         *context)
-                 : msime::windows::launch_shell_surface(executable, request));
+                 : msime::windows::launch_shell_surface(*executable, request));
     if (started)
       co_return;
-    queue.TryEnqueue([weak] {
+    queue.TryEnqueue([weak, file] {
       if (auto self = weak.get())
         self->show_notice(
-            L"无法打开水杉输入法应用（MSIME.exe）。请重新安装输入法后再试。");
+            L"无法打开水杉输入法应用（" + file + L"）。请重新安装输入法后再试。");
     });
   }
 

@@ -584,7 +584,10 @@ fn onnx_scorer(
     if let Some(paths) = settings.sentence_pool {
         scorer.set_sentence_pool(paths);
     }
-    Ok(Box::new(scorer))
+    // 与宿主（host-api）挂的同一种共用包装：逐键重排、拼整句时给前缀打分、上屏后在后台编码上文，三处共用一个模型。
+    Ok(Box::new(msime_onnx_rerank::SharedOnnxScorer::new(
+        std::sync::Arc::new(std::sync::Mutex::new(scorer)),
+    )))
 }
 
 #[cfg(not(feature = "onnx-rerank"))]
