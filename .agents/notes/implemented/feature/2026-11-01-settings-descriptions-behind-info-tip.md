@@ -42,6 +42,14 @@ Status: implemented
 
 各自实现一个可复用的「?」组件，按同一套分类改完所有页面，分别在各自的 PR 里落地。
 
+### 变灰的行，「?」照样能点
+
+一项暂时不能用时，它的说明往往正好在讲为什么不能用、该去哪里改，所以行变灰时只禁用开关、选择或步进器本身，标题旁的「?」照样能点开。共享设置页的行组件只把 `disabled` 交给控件，Android 的 `GroupCard.Row.setEnabled` 只禁用行容器和开关、滑块、按钮，`InfoTipView` 不受影响，两边原本就是这样。
+
+iOS 不一样：SwiftUI 的 `.disabled` 沿视图树往下传，加在整行（或包着几行的 `Section`）上时，标签里的「?」一起被禁用。真机验收在 iPhone XR 上点不开「自动添加标点」的「?」，同样的写法还有候选页「候选混输」关着时的中英混输、两个步进器、符号 / emoji / 颜文字混输，表达页的「联想栏按键」，翻译组的「候选词翻译」「翻译范围」，以及标点页包着四条智能标点细则的整个分区。现在 `DesignToggleRow` 和 `DesignSelectRow` 有 `enabled` 参数：为 false 时整行半透明，开关单独禁用、选择行不再包在按钮里，「?」不在任何被禁用的视图里；候选页的步进器行和标点页的细则行用同样的写法。`scripts/test-ios-disabled-row-info-tip.py` 扫描 App 源码，`.disabled(...)` 修饰的视图表达式里出现非 nil 的 `info:` 就失败；导出、同步、录音这类忙碌时整页或整块短暂禁用的地方，以及禁用时 `info` 本来就是 nil 的「我的」同步行，在它的白名单里各写了原因。
+
+同一轮验收还发现 iOS 的说明气泡会把长说明裁掉：`frame(maxWidth: 280)` 在 popover 不给宽度、按理想尺寸量的时候让 Text 按一行量高度，长说明实际折成多行，气泡却只有三行高，上下被裁掉。`DesignInfoBubble` 先按文字量出宽度并固定下来，Text 在这个宽度下自己算高度；`KeyboardTests/settings/DesignInfoBubbleTests.swift` 用 `ImageRenderer` 量同一个理想尺寸。这一段和 `DesignToggleRow` 的 `enabled` 与 #10708 的改动逐字相同，两个 PR 谁先合都不会冲突。
+
 ## Alternatives considered
 
 - **用元素的 `title` 属性做 tooltip。** 最省事，一行代码，浏览器自带。但它要停留约一秒才出现、样式不可控、键盘聚焦不显示，触屏设备上完全没有，HarmonyOS 手机等于把说明删掉了。
@@ -49,6 +57,8 @@ Status: implemented
 - **Popover API（`popover` 属性）进顶层。** 不受裁剪，浏览器负责点外关闭。但 macOS 设置窗口跑在系统 WKWebView 上，最低支持的 macOS 13 带的是 Safari 16，Linux 的 WebKitGTK 旧版本也没有它，要再写一套回退。
 - **每组底部一个「更多说明」折叠区。** 不用逐行加图标。但还是占一行、要多点一次，说明和它解释的设置项分开了，用户要自己对哪句说的是哪一项。
 - **保留说明、只把文字改短。** 用户明确不要页面上的常驻说明，缩短只是程度不同。
+- **iOS 变灰的行沿用整行 `.disabled`，把说明挪到副标题。** 改动最小，不用动行组件。但这正是这套设计语言要去掉的常驻解释，而且同一句说明在启用时进「?」、禁用时摊在页面上，两种状态下页面长短不一样。
+- **iOS 给 `DesignInfoTip` 加 `.disabled(false)` 盖掉外层的禁用。** 一行代码就能让所有页面恢复。但 Apple 的 `disabled(_:)` 文档写明外层的 `.disabled(true)` 优先于内层的设置，内层写 `false` 撤销不了它。
 
 ## Consequences
 
