@@ -3,6 +3,7 @@
 #import <CoreText/CoreText.h>
 #import <CommonCrypto/CommonDigest.h>
 #import <AVFoundation/AVFoundation.h>
+#import <os/log.h>
 #import "MSIMEClientSession.h"
 #import "../settings/RuntimeOptions.h"
 #import "../../../../shared/apple/TextClient.h"
@@ -1767,6 +1768,7 @@ static NSImage *MSIMECandidateLogoImage() {
     MSIMEVoiceWaveOverlay *_voiceOverlay;
     MSIMEVoiceCuePlayer *_voiceCuePlayer;
     BOOL _voiceCueRecording;
+    NSUInteger _voiceCaptureEpoch;
     MSIMEVoiceAudioMuter *_voiceAudioMuter;
     MSIMEHTTPVoiceRequest *_httpVoiceRequest;
     MSIMEClientSession *_httpVoiceSession;
@@ -5715,9 +5717,29 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
 - (BOOL)ownsDoubaoVoiceFocus {
     return _doubaoVoiceRequest && [self voiceOwnsClient:_doubaoVoiceClient session:_doubaoVoiceSession] && _voiceGeneration == _doubaoVoiceGeneration && _voiceService.active;
 }
+- (void)verifyGlobalVoiceCapture:(MSIMEVoiceInputService *)service generation:(uint64_t)generation epoch:(NSUInteger)epoch {
+    if (!_globalVoiceClient || _voiceService != service || _voiceGeneration != generation || _voiceCaptureEpoch != epoch ||
+        !service.active || [self globalVoiceProcessing]) return;
+    const BOOL received = service.recordedDuration > 0;
+    os_log(OS_LOG_DEFAULT, "MSIME global voice: microphone delivered frames=%{public}d", received);
+    if (!received) [self reportVoiceFailure:MSIMEVoiceFailureCapture detail:@"麦克风没有送来音频。请检查输入设备后重试。"];
+}
+- (void)voiceCaptureEngineDidStart {
+    if (!_globalVoiceClient) { [self voiceCaptureDidStart]; return; }
+    // 全局录音在第一份有效 PCM 到达后才展示波形和提示音，不能把引擎启动成功当成已经收到声音。
+    const NSUInteger epoch = ++_voiceCaptureEpoch;
+    const uint64_t generation = _voiceGeneration;
+    MSIMEVoiceInputService *service = _voiceService;
+    __weak MSIMEInputController *weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        [weakSelf verifyGlobalVoiceCapture:service generation:generation epoch:epoch];
+    });
+}
 - (void)voiceCaptureDidStart {
     if (_voiceCueRecording) return;
     _voiceCueRecording = YES;
+    [_voiceOverlay setListening:YES];
+    os_log(OS_LOG_DEFAULT, "MSIME global voice: capture ready");
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
     // Windows plays the start cue and only then mutes other audio. The macOS mute is device-wide and would swallow the cue, so it waits for the cue to finish; any restore before then cancels it.
     void (^mute)(void) = nil;
@@ -5726,6 +5748,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     else if (mute) mute();
 }
 - (void)voiceCaptureDidEnd {
+    ++_voiceCaptureEpoch;
     if (!_voiceCueRecording) return;
     _voiceCueRecording = NO;
     if (MSIMEVoiceCuesEnabled(NSUserDefaults.standardUserDefaults)) [_voiceCuePlayer playStopCue];
@@ -5847,10 +5870,13 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
             if (controller->_doubaoFinalReceived) return;
             if (![controller ownsDoubaoVoiceFocus]) { [controller cancelDoubaoVoiceInput]; return; }
             if (!sent) [controller reportVoiceFailure:MSIMEVoiceFailureCapture];
-            else if (!controller->_doubaoVoiceProcessing) [controller->_voiceOverlay setInputLevel:level];
+            else if (!controller->_doubaoVoiceProcessing) {
+                if (controller->_globalVoiceClient) [controller voiceCaptureDidStart];
+                [controller->_voiceOverlay setInputLevel:level];
+            }
         });
     } deviceUID:device error:&error]) { [self reportVoiceFailure:MSIMEVoiceFailureCapture]; return NO; }
-    [self voiceCaptureDidStart];
+    [self voiceCaptureEngineDidStart];
     return YES;
 }
 - (void)finishDoubaoVoiceInput {
@@ -5914,6 +5940,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
             if (!controller || controller->_httpVoiceRequest != request || controller->_httpVoiceProcessing ||
                 ![controller voiceOwnsClient:controller->_httpVoiceClient session:controller->_httpVoiceSession] ||
                 controller->_voiceGeneration != controller->_httpVoiceGeneration || !controller->_voiceService.active) return;
+            if (controller->_globalVoiceClient) [controller voiceCaptureDidStart];
             [controller->_voiceOverlay setInputLevel:level];
             // MSIME-Windows keeps every sample and tells the user when the upload is too large; this host keeps only what the provider takes. Once it has that much, end the recording the way a release does, so the overlay turns to 识别中... and the end cue plays instead of the wave animating over audio that is no longer kept. The physical release that follows must not cancel the recognition.
             if (controller->_voiceService.recordedDuration * 16000.0 >= sampleLimit) {
@@ -5929,7 +5956,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
             controller->_voiceGeneration != controller->_httpVoiceGeneration) { [controller cancelHTTPVoiceInput]; return; }
         [controller reportVoiceFailure:MSIMEVoiceFailureCapture];
     } error:&error]) { [self reportVoiceFailure:MSIMEVoiceFailureCapture]; return NO; }
-    [self voiceCaptureDidStart];
+    [self voiceCaptureEngineDidStart];
     return YES;
 }
 - (void)finishHTTPVoiceInput {
@@ -6182,7 +6209,6 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         // 存着别的平台的录音后端时不再拒绝录音：MSIMEVoiceCaptureDeviceUID 把它当作系统默认设备。
         NSError *error = nil;
         if (![controller->_voiceService startWithSession:controller->_session generation:&controller->_voiceGeneration error:&error]) { [controller reportVoiceFailure:MSIMEVoiceFailureSession]; return; }
-        [controller->_voiceOverlay setListening:YES];
         NSString *language = [[NSUserDefaults standardUserDefaults] stringForKey:@"MSIMEClientVoiceLanguage"] ?: @"zh-CN";
         NSString *socket = MSIMEVoiceProviderSocket();
         NSDictionary *query = @{ @"language": language.lowercaseString, @"generation": @(controller->_voiceGeneration), @"stream": @(!controller->_globalVoiceClient && ([defaults objectForKey:@"MSIMEClientVoiceStreamInlinePreedit"] == nil || [defaults boolForKey:@"MSIMEClientVoiceStreamInlinePreedit"])), @"asr_provider": [defaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"local", @"asr_endpoint": [defaults stringForKey:@"MSIMEClientVoiceASREndpoint"] ?: @"", @"asr_model": [defaults stringForKey:@"MSIMEClientVoiceASRModel"] ?: @"", @"asr_model_path": [defaults stringForKey:@"MSIMEClientVoiceASRModelPath"] ?: @"", @"asr_token": [defaults stringForKey:@"MSIMEClientVoiceASRToken"] ?: @"", @"doubao_boosting_table_id": [defaults stringForKey:@"MSIMEClientVoiceDoubaoBoostingTableID"] ?: @"", @"asr_app_key": [defaults stringForKey:@"MSIMEClientVoiceDoubaoAppKey"] ?: @"", @"asr_resource_id": [defaults stringForKey:@"MSIMEClientVoiceDoubaoResourceID"] ?: @"", @"polish_enabled": @([defaults boolForKey:@"MSIMEClientVoicePolish"]), @"polish_prompt_id": [defaults stringForKey:@"MSIMEClientVoicePolishPromptID"] ?: @"cleanup", @"polish_provider": [defaults stringForKey:@"MSIMEClientVoicePolishProvider"] ?: MSIMEVoicePolishDefaultProvider, @"polish_model": [defaults stringForKey:@"MSIMEClientVoicePolishModel"] ?: @"", @"polish_endpoint": [defaults stringForKey:@"MSIMEClientVoicePolishEndpoint"] ?: @"", @"polish_token": [defaults stringForKey:@"MSIMEClientVoicePolishToken"] ?: @"", @"polish_thinking": [defaults stringForKey:@"MSIMEClientVoicePolishThinking"] ?: @"", @"polish_prompt_custom_1": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom1"] ?: @"", @"polish_prompt_custom_2": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom2"] ?: @"", @"polish_prompt_custom_3": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom3"] ?: @"" };
@@ -6220,11 +6246,13 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
             const float level = MSIMEVoiceInputLevel(buffer);
             dispatch_async(dispatch_get_main_queue(), ^{
                 MSIMEInputController *liveController = weakSelf;
-                if ([liveController ownsLiveVoiceToken:token] && !liveController->_liveVoiceProcessing)
+                if ([liveController ownsLiveVoiceToken:token] && !liveController->_liveVoiceProcessing) {
+                    if (liveController->_globalVoiceClient) [liveController voiceCaptureDidStart];
                     [liveController->_voiceOverlay setInputLevel:level];
+                }
             });
         } deviceUID:deviceUID error:&error]) { [controller reportVoiceFailure:MSIMEVoiceFailureCapture]; return; }
-        [controller voiceCaptureDidStart];
+        [controller voiceCaptureEngineDidStart];
     };
     // A permission sheet can outlive the physical hold. Require a fresh hold
     // after authorization instead of starting capture after the key was released.

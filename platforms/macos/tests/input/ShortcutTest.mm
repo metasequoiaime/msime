@@ -14032,6 +14032,14 @@ static void TestCrossCommitSpacing() {
 - (void)handleHotkey:(UInt32)identifier down:(BOOL)down;
 - (BOOL)shortcutRecorderFocused;
 - (void)replayKey:(UInt32)identifier down:(BOOL)down;
+- (void)advance;
+- (NSTimeInterval)monotonicTime;
+- (BOOL)isOwnSourceIdentifier:(NSString *)identifier;
+- (NSString *)currentSourceIdentifier;
+- (NSString *)enabledSourceIdentifier;
+- (BOOL)selectSourceIdentifier:(NSString *)identifier;
+- (id)focusIdentity;
+- (NSRunningApplication *)frontApplication;
 - (void)applySnapshot:(NSDictionary *)snapshot;
 - (BOOL)accessibilityTrusted;
 - (BOOL)keyboardListenerAvailable;
@@ -14094,6 +14102,50 @@ static void TestCrossCommitSpacing() {
 - (void)replayKey:(UInt32)identifier down:(BOOL)down { assert(identifier < 2); if (down) ++_replayedDown; else ++_replayedUp; }
 @end
 
+@interface GlobalVoiceApplicationProbe : NSObject
+@property(nonatomic) pid_t processIdentifier;
+@property(nonatomic, getter=isTerminated) BOOL terminated;
+@end
+@implementation GlobalVoiceApplicationProbe
+@end
+@interface GlobalVoiceTargetProbe : NSObject <MSIMEGlobalVoiceTarget>
+@property(nonatomic) pid_t pid;
+@property(nonatomic) BOOL busy;
+@property(nonatomic) NSUInteger starts;
+@property(nonatomic) NSUInteger detachments;
+@end
+@implementation GlobalVoiceTargetProbe
+- (pid_t)globalVoiceTargetPID { return _pid; }
+- (BOOL)globalVoiceBusy { return _busy; }
+- (BOOL)globalVoiceProcessing { return NO; }
+- (void)startGlobalVoiceHolding:(BOOL)holding { (void)holding; ++_starts; _busy = YES; }
+- (void)stopGlobalVoice { _busy = NO; }
+- (void)cancelGlobalVoice { _busy = NO; }
+- (void)endGlobalVoice { _busy = NO; }
+- (void)lockGlobalVoice {}
+- (void)detachGlobalVoice { ++_detachments; _busy = NO; }
+@end
+@interface GlobalVoiceSessionProbe : MSIMEGlobalVoiceCoordinator
+@property(nonatomic) NSTimeInterval clock;
+@property(nonatomic, copy) NSString *source;
+@property(nonatomic, copy) NSString *selected;
+@property(nonatomic) id focus;
+@property(nonatomic) GlobalVoiceApplicationProbe *application;
+@end
+@implementation GlobalVoiceSessionProbe
+- (void)reload {}
+- (void)configure {}
+- (BOOL)shortcutRecorderFocused { return NO; }
+- (NSTimeInterval)monotonicTime { return _clock; }
+- (NSString *)currentSourceIdentifier { return _source; }
+- (BOOL)isOwnSourceIdentifier:(NSString *)identifier { return [identifier hasPrefix:@"synthetic.msime."]; }
+- (NSString *)enabledSourceIdentifier { return @"synthetic.msime.Hans"; }
+- (BOOL)selectSourceIdentifier:(NSString *)identifier { _selected = identifier; return YES; }
+- (id)focusIdentity { return _focus; }
+- (NSRunningApplication *)frontApplication { return (id)_application; }
+- (void)showFailure:(NSString *)detail { (void)detail; }
+@end
+
 @interface GlobalVoiceBoundaryController : MSIMEInputController
 @property(nonatomic) NSUInteger finishes;
 @property(nonatomic) NSUInteger cancellations;
@@ -14128,6 +14180,35 @@ static GlobalVoiceGestureProbe *GlobalGestureProbe() {
     return probe;
 }
 static void TestGlobalVoiceBoundaries() {
+    {
+        GlobalVoiceTargetProbe *target = [GlobalVoiceTargetProbe new]; target.pid = 42;
+        GlobalVoiceSessionProbe *probe = [[GlobalVoiceSessionProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)target; }];
+        probe.application = [GlobalVoiceApplicationProbe new]; probe.application.processIdentifier = 42;
+        probe.clock = 1; probe.focus = [NSObject new]; probe.source = @"com.apple.keylayout.ABC";
+        [probe begin:NO];
+        // TIS 已接受切换但仍报告原输入源时，协调器必须继续等待，不能静默取消。
+        assert([probe valueForKey:@"sessionPoll"] != nil && target.starts == 0);
+        [probe advance];
+        assert([probe valueForKey:@"sessionPoll"] != nil && target.starts == 0);
+        probe.source = @"synthetic.msime.Hans";
+        [probe advance];
+        assert(target.starts == 1);
+        id originalFocus = probe.focus;
+        probe.focus = nil;
+        [probe advance];
+        // 同一应用的 AX 暂时无响应不能立刻停止刚启动的麦克风。
+        assert(target.detachments == 0);
+        probe.clock += 0.1; probe.focus = originalFocus;
+        [probe advance];
+        assert(target.detachments == 0 && target.busy);
+        probe.focus = nil;
+        [probe advance];
+        probe.clock += 0.31;
+        [probe advance];
+        assert(target.detachments == 1);
+        [probe cancel];
+    }
+
     {
         AXUIElementRef system = AXUIElementCreateSystemWide();
         AXUIElementRef application = AXUIElementCreateApplication(getpid());

@@ -4,6 +4,22 @@
 int main() {
     using State = msime::mac::GlobalVoiceState;
     State state;
+    assert(state.begin("ABC", 10, 0));
+    state.selected = "MSIME.Hans";
+    assert(state.canRestore("ABC")); // 松手取消时也撤回尚未完成的切换请求。
+    assert(!state.observeWaitingSource("", false) && !state.manual);
+    assert(!state.observeWaitingSource("ABC", false));
+    assert(!state.manual && state.phase == State::Phase::Waiting);
+    assert(!state.observeWaitingSource("ABC", false));
+    assert(state.observeWaitingSource("MSIME.Hans", true));
+    assert(state.selectedObserved && !state.manual);
+    assert(!state.observeWaitingSource("ABC", false) && state.manual);
+    state.clear();
+    assert(state.begin("ABC", 10, 0));
+    state.selected = "MSIME.Hans";
+    assert(!state.observeWaitingSource("Japanese", false) && state.manual);
+    state.clear();
+
     assert(!state.begin("", 10, 0));
     assert(!state.begin("ABC", 0, 0));
     assert(state.begin("ABC", 10, 0));
