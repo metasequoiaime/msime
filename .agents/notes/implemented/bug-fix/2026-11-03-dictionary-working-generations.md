@@ -18,7 +18,7 @@ Status: implemented
 
 留下三类：本安装包词库锁的代次（`baseline.generation()`），宿主配置记着的那一代（`configured`），和下载版本还留着的那些。后者由 client-providers 的 `retained_generations` 回答：`installed.json` 的当前和可回退的上一个、`loaded.json` 记录的、以及 `generations/` 下还有清单 `<代次>.json` 的（有会话占用或删不掉、被 `remove_old_versions` 留下的版本都在其中）。清单只看文件名不读内容，多留只是多占空间。`generations/` 路径上有符号链接、读不了，或者 `installed.json`、`loaded.json` 在却读不出来时返回 `None`，这一轮什么也不删。
 
-宿主配置记着的那一代不能只靠下面的锁保护。Linux 上用户自己下载的词库在包升级换锁之后，`msime_client_refresh_host` 报 `dictionary_outdated`，两个宿主按设计继续用 `runtime-options.json` 记着的旧锁代次，直到用户点「立即更新」；这一代既不是新的随包代次，也不是下载版本。而 Fcitx5 每次失焦都销毁会话，建会话时只按 `dictionaries` 取 `DictionaryAccess::try_session`，不重新准备代次，没有焦点的那一刻谁也不持锁。设置应用在窗口获得焦点、每小时都发自动检查，只靠锁的话这一代迟早被删，之后每次建会话都失败，重启宿主也准备不回来（刷新照样报 `dictionary_outdated`），用户完全打不了字。Linux 和 Android 的设置应用每次请求都现读 `runtime-options.json`（`DictionaryHostOptions::snapshot`），拿到的就是输入法此刻在用的那份；包升级后、`fcitx5 -r` 之前还在跑的旧插件同理，它建会话时读的也是这份文件。macOS 和 Windows 的设置应用用启动时准备好的文档，记着的是那一刻的代次，最坏是在设置应用重启前多留一份。
+宿主配置记着的那一代不能只靠下面的锁保护。Linux 上用户自己下载的词库在包升级换锁之后，`msime_client_refresh_host` 报 `dictionary_outdated`，两个宿主按设计继续用 `runtime-options.json` 记着的旧锁代次，直到用户点「立即更新」；这一代既不是新的随包代次，也不是下载版本。而 Fcitx5 每次失焦都销毁会话，建会话时只按 `dictionaries` 取 `DictionaryAccess::try_session`，不重新准备代次，没有焦点的那一刻谁也不持锁。设置应用在窗口获得焦点、每小时都发自动检查，只靠锁的话这一代迟早被删，之后每次建会话都失败，重启宿主也准备不回来（刷新照样报 `dictionary_outdated`），用户完全打不了字。发来请求的设置应用每次请求都现读 `runtime-options.json`：Linux 是 Tauri 设置应用的 `DictionaryHostOptions::snapshot`，Android 是原生设置的 `DictionaryUpdates.request`（`HostOptionsPolicy.readRuntimeOptions`），Windows 是原生设置窗口的 `runtime_options_document`（Server 每次启动用 `publish_prepared_dictionaries` 把准备好的代次写回这份文件）。拿到的就是输入法此刻在用的那份；包升级后、`fcitx5 -r` 之前还在跑的旧插件同理，它建会话时读的也是这份文件。macOS 的设置应用用启动时准备好的文档，记着的是那一刻的代次，最坏是在设置应用重启前多留一份；iOS 在进程里自己拼 HostOptions。
 
 候选是 `user/dictionaries/` 下名字恰为 64 位十六进制、本身是真实目录（不是符号链接）的项；暂存目录（名字里带 `.`）和别的名字不碰。每个候选：
 
@@ -48,7 +48,7 @@ Status: implemented
 - **代价与已知上限**：
   - 回收只跟着在线词库检查发生，关掉自动更新又不手动检查的用户，工作词库照旧不回收；只靠包管理器升级、从不检查的 Linux 用户同样。
   - Linux `dictionary_outdated`（自己下载的词库在升级换锁后没更新）这种状态下，宿主配置记着的旧锁代次一直留着，直到「立即更新」切换成功、配置换到新代次后的下一次检查才回收。保护只看发来请求的那份配置：用 `--state` 另建过状态、或设置应用读的配置文件与输入宿主读的不是同一份（`MSIME_CLIENT_STATE_DIR` 这类部署）时，另一份配置记着的代次只受会话锁保护，没有会话的空档里可能被删，删后那份配置要「立即更新」或重新准备才能再用。
-  - 宿主配置之外、没有会话、此刻也不在维护的进程不受保护：macOS、Windows 上升级后还没重启的旧版宿主若此刻一个会话都没有，而它的旧随包代次也不是设置应用启动时记着的那一代，可能被删，下一次建会话时 `DictionaryAccess::try_session` 找不到目录而失败，要等它重启后重新准备。Windows 安装程序升级时先停掉输入法进程、装完再启动新的，这个窗口只在安装过程中；macOS 上旧输入法进程在换到新程序之前同样有这个窗口，没有核实它有多长，以后若出现这类报告，应让输入宿主自己的配置也参与保留。Linux 两个宿主都按 `runtime-options.json` 建会话，由上一条覆盖。
+  - 宿主配置之外、没有会话、此刻也不在维护的进程不受保护：macOS、Windows 上升级后还没重启的旧版宿主若此刻一个会话都没有，而它的旧随包代次也不是设置应用读到的那一代，可能被删，下一次建会话时 `DictionaryAccess::try_session` 找不到目录而失败，要等它重启后重新准备。Windows 安装程序升级时先停掉输入法进程、装完再启动新的，这个窗口只在安装过程中；macOS 上旧输入法进程在换到新程序之前同样有这个窗口，没有核实它有多长，以后若出现这类报告，应让输入宿主自己的配置也参与保留。Linux 两个宿主都按 `runtime-options.json` 建会话，由上一条覆盖。
   - 下载版本的工作词库沿用上一篇的保留范围：同一进程里没有会话却还拿着旧 `dictionaries` 路径的宿主（例如设置宿主的配置停在已被挤出保留范围的版本），下次用它时要重新准备。上一篇对下载代次本身已经接受了同一个前提。
   - 鸿蒙键盘在自己的沙箱里有一份状态目录，下载代次靠设置应用镜像过去，但键盘不跑检查任务，那里的工作词库仍然不回收。
   - Linux 上这次修复之前留下的 `resources-*` 不会被自动删除，用 `--state` 另建过状态、共用同一份下载目录的，默认状态目录之外的那些也不会被发现。
