@@ -14033,6 +14033,7 @@ static void TestCrossCommitSpacing() {
 - (BOOL)shortcutRecorderFocused;
 - (void)replayKey:(UInt32)identifier down:(BOOL)down;
 - (void)advance;
+- (void)sourceChanged:(NSNotification *)notification;
 - (NSTimeInterval)monotonicTime;
 - (BOOL)isOwnSourceIdentifier:(NSString *)identifier;
 - (NSString *)currentSourceIdentifier;
@@ -14115,6 +14116,8 @@ static void TestCrossCommitSpacing() {
 @property(nonatomic) NSUInteger detachments;
 @property(nonatomic) NSUInteger retries;
 @property(nonatomic) BOOL failStart;
+@property(nonatomic) BOOL acceptsText;
+@property(nonatomic) NSUInteger commits;
 @end
 @implementation GlobalVoiceTargetProbe
 - (pid_t)globalVoiceTargetPID { return _pid; }
@@ -14126,6 +14129,11 @@ static void TestCrossCommitSpacing() {
 - (void)endGlobalVoice { _busy = NO; }
 - (void)lockGlobalVoice {}
 - (void)detachGlobalVoice { ++_detachments; _busy = NO; }
+- (BOOL)commitGlobalVoiceText:(NSString *)text pid:(pid_t)pid focus:(id)focus token:(id)token {
+    assert(text.length && pid == _pid && focus && token == MSIMEGlobalVoiceHost().sessionToken);
+    if (!_acceptsText) return NO;
+    ++_commits; return YES;
+}
 @end
 @interface GlobalVoiceSessionProbe : MSIMEGlobalVoiceCoordinator
 @property(nonatomic) NSTimeInterval clock;
@@ -14133,6 +14141,8 @@ static void TestCrossCommitSpacing() {
 @property(nonatomic, copy) NSString *selected;
 @property(nonatomic) id focus;
 @property(nonatomic) GlobalVoiceApplicationProbe *application;
+@property(nonatomic, copy) NSString *recovered;
+@property(nonatomic, copy) NSString *posted;
 @end
 @implementation GlobalVoiceSessionProbe
 - (void)reload {}
@@ -14146,6 +14156,10 @@ static void TestCrossCommitSpacing() {
 - (id)focusIdentity { return _focus; }
 - (NSRunningApplication *)frontApplication { return (id)_application; }
 - (void)showFailure:(NSString *)detail { (void)detail; }
+- (void)recover:(NSString *)text { _recovered = text; }
+- (MSIMEVoiceCommitOutcome)postGlobalVoiceText:(NSString *)text route:(const MSIMEVoiceCommitRoute &)route {
+    assert(route.current && route.current()); _posted = text; return MSIMEVoiceCommitOutcome::posted;
+}
 @end
 
 @interface GlobalVoiceBoundaryController : MSIMEInputController
@@ -14250,7 +14264,7 @@ static void TestGlobalVoiceBoundaries() {
         probe.source = @"synthetic.msime.Hans";
         [probe advance];
         assert(target.starts == 1 && !target.busy && [probe valueForKey:@"sessionPoll"] == nil);
-        assert([probe.selected isEqual:@"com.apple.keylayout.ABC"]);
+        assert(probe.selected == nil);
         [probe advance];
         assert(target.starts == 1); // 明确失败不能反复触发提供商或权限请求。
     }
@@ -14284,11 +14298,9 @@ static void TestGlobalVoiceBoundaries() {
         probe.application = [GlobalVoiceApplicationProbe new]; probe.application.processIdentifier = 42;
         probe.clock = 1; probe.focus = [NSObject new]; probe.source = @"com.apple.keylayout.ABC";
         [probe begin:NO];
-        // TIS 已接受切换但仍报告原输入源时，协调器必须继续等待，不能静默取消。
-        assert([probe valueForKey:@"sessionPoll"] != nil && target.starts == 0);
-        [probe advance];
-        assert([probe valueForKey:@"sessionPoll"] != nil && target.starts == 0);
-        probe.source = @"synthetic.msime.Hans";
+        // 开麦克风不再依赖切源和 IMK 客户端，原输入源保持不变。
+        assert([probe valueForKey:@"sessionPoll"] != nil && target.starts == 1);
+        assert(probe.selected == nil && [probe.source isEqual:@"com.apple.keylayout.ABC"]);
         [probe advance];
         assert(target.starts == 1);
         id originalFocus = probe.focus;
@@ -14312,32 +14324,77 @@ static void TestGlobalVoiceBoundaries() {
         GlobalVoiceSessionProbe *probe = [[GlobalVoiceSessionProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)target; }];
         probe.application = [GlobalVoiceApplicationProbe new]; probe.application.processIdentifier = 42;
         probe.clock = 1; probe.focus = [NSObject new]; probe.source = @"com.apple.keylayout.ABC";
-        id original = probe.focus;
         [probe begin:YES];
-        probe.source = @"synthetic.msime.Hans"; probe.focus = [NSObject new];
-        [probe advance];
-        // 切源期间临时报告其他 AX 元素时继续等待，但不能对该元素启动或取得插入权限。
-        assert(target.starts == 0 && [probe valueForKey:@"sessionPoll"] != nil);
-        assert(MSIMEGlobalVoiceHost().owner == nil && MSIMEGlobalVoiceHost().sessionToken == nil);
-        probe.clock += 0.2; probe.focus = original;
-        [probe advance];
-        assert(target.starts == 1 && target.busy);
-        // 真正开始录音后换元素仍立即停止，不能把等待窗口扩大为跨字段录音。
+        assert(target.starts == 1 && target.busy && probe.selected == nil);
         probe.focus = [NSObject new];
         [probe advance];
-        assert(target.detachments == 1);
+        assert(target.detachments == 1); // 录音独立启动不放宽跨字段提交边界。
         [probe cancel];
     }
     {
+        // 录音目标存在而 IMK 交付目标不存在：先录音，松手后才切源，超时显式保留结果。
+        GlobalVoiceTargetProbe *target = [GlobalVoiceTargetProbe new]; target.pid = 42;
+        GlobalVoiceSessionProbe *probe = [[GlobalVoiceSessionProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)target; }
+            deliveryTarget:^{ return (id<MSIMEGlobalVoiceTarget>)nil; }];
+        probe.application = [GlobalVoiceApplicationProbe new]; probe.application.processIdentifier = 42;
+        probe.clock = 1; probe.focus = [NSObject new]; probe.source = @"com.apple.keylayout.ABC";
+        __block BOOL completed = NO;
+        [probe begin:YES];
+        MSIMEGlobalVoiceHost().deliver(@"synthetic result", @"tsf", ^{ completed = YES; });
+        assert(target.starts == 1 && probe.selected == nil && !completed);
+        [probe setValue:@NO forKey:@"holding"]; [probe advance];
+        assert([probe.selected isEqual:@"synthetic.msime.Hans"] && !completed);
+        probe.source = @"synthetic.msime.Hans"; probe.clock = 4.1; [probe advance];
+        assert(completed && [probe.recovered isEqual:@"synthetic result"]);
+        assert([probe.selected isEqual:@"com.apple.keylayout.ABC"]);
+    }
+    {
+        GlobalVoiceTargetProbe *capture = [GlobalVoiceTargetProbe new]; capture.pid = 42;
+        GlobalVoiceTargetProbe *delivery = [GlobalVoiceTargetProbe new]; delivery.pid = 42; delivery.acceptsText = YES;
+        GlobalVoiceSessionProbe *probe = [[GlobalVoiceSessionProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)capture; }
+            deliveryTarget:^{ return (id<MSIMEGlobalVoiceTarget>)delivery; }];
+        probe.application = [GlobalVoiceApplicationProbe new]; probe.application.processIdentifier = 42;
+        probe.clock = 1; probe.focus = [NSObject new]; probe.source = @"com.apple.keylayout.ABC";
+        [probe begin:YES];
+        __block BOOL completed = NO;
+        MSIMEGlobalVoiceHost().deliver(@"synthetic result", @"tsf", ^{ completed = YES; });
+        assert(capture.starts == 1 && delivery.starts == 0 && delivery.commits == 0 && probe.selected == nil);
+        [probe setValue:@NO forKey:@"holding"]; [probe advance];
+        assert(!completed && delivery.commits == 0);
+        MSIMEGlobalVoiceHost().selectedMode(@"synthetic.msime.Roman");
+        probe.source = @"synthetic.msime.Roman"; [probe sourceChanged:nil]; [probe advance];
+        assert(completed && delivery.commits == 1 && probe.recovered == nil);
+        assert([probe.selected isEqual:@"com.apple.keylayout.ABC"]);
+        [probe advance]; assert(delivery.commits == 1);
+    }
+    {
+        // 显式模拟输入策略不依赖 IMK；保留简繁转换并只统计一次成功提交，不发真实事件。
+        GlobalVoiceTargetProbe *target = [GlobalVoiceTargetProbe new]; target.pid = 42;
+        GlobalVoiceSessionProbe *probe = [[GlobalVoiceSessionProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)target; }];
+        probe.application = [GlobalVoiceApplicationProbe new]; probe.application.processIdentifier = 42;
+        probe.clock = 1; probe.focus = [NSObject new]; probe.source = @"com.apple.keylayout.ABC";
+        [probe setValue:@{@"traditional_chinese_output":@YES} forKey:@"preferences"];
+        [probe begin:NO];
+        __block NSUInteger recorded = 0;
+        MSIMEGlobalVoiceHost().didCommit = ^(NSString *text) { assert([text isEqual:@"發展"]); ++recorded; };
+        MSIMEGlobalVoiceHost().deliver(@"发展", @"sendinput", ^{});
+        assert([probe.posted isEqual:@"發展"] && recorded == 1 && probe.selected == nil);
+        MSIMEGlobalVoiceHost().didCommit = nil;
+    }
+    {
+        // 识别期间手动选第三个源，最终结果不能自动插入，结束也不抢回输入源。
         GlobalVoiceTargetProbe *target = [GlobalVoiceTargetProbe new]; target.pid = 42;
         GlobalVoiceSessionProbe *probe = [[GlobalVoiceSessionProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)target; }];
         probe.application = [GlobalVoiceApplicationProbe new]; probe.application.processIdentifier = 42;
         probe.clock = 1; probe.focus = [NSObject new]; probe.source = @"com.apple.keylayout.ABC";
         [probe begin:NO];
-        probe.source = @"synthetic.msime.Hans"; probe.focus = [NSObject new];
-        [probe advance]; probe.clock = 4.1; [probe advance];
-        assert(target.starts == 0 && [probe valueForKey:@"sessionPoll"] == nil);
-        assert([probe.selected isEqual:@"com.apple.keylayout.ABC"]);
+        probe.source = @"synthetic.other";
+        [probe sourceChanged:nil];
+        __block BOOL completed = NO;
+        MSIMEGlobalVoiceHost().recover = ^(NSString *text) { (void)text; };
+        MSIMEGlobalVoiceHost().deliver(@"synthetic result", @"tsf", ^{ completed = YES; });
+        assert(completed && probe.selected == nil);
+        MSIMEGlobalVoiceHost().recover = nil;
     }
 
     {

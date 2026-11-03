@@ -34,7 +34,7 @@ public:
     bool timedOut(double now) const { return phase == Phase::Waiting && now >= deadline; }
     bool canRestore(const std::string &current) const {
         return phase != Phase::Idle && !manual && !selected.empty() && original != selected && (current == selected ||
-            (phase == Phase::Waiting && !selectedObserved && current == original));
+            (!selectedObserved && current == original));
     }
     void clear() { phase = Phase::Idle; original.clear(); selected.clear(); targetPID = 0; selectedObserved = false; }
     Phase phase = Phase::Idle;

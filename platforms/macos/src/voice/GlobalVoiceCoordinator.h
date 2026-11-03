@@ -18,13 +18,19 @@ typedef NS_ENUM(NSInteger, MSIMEGlobalVoiceStartResult) {
 - (void)endGlobalVoice;
 - (void)lockGlobalVoice;
 - (void)detachGlobalVoice;
+@optional
+// 只允许当前真实 IMK 客户端在原字段接收这一轮的最终文本。
+- (BOOL)commitGlobalVoiceText:(NSString *)text pid:(pid_t)pid focus:(id)focus token:(id)token;
 @end
 
 // 单进程桥接只在主线程访问，不接受外部录音命令。测试可替换回调而不用加载事件 tap。
 struct MSIMEGlobalVoiceBridge {
     bool keyboard = false;
+    bool delivering = false;
     __weak id<MSIMEGlobalVoiceTarget> owner = nil;
     void (^recover)(NSString *) = nil;
+    void (^deliver)(NSString *, NSString *, void (^)(void)) = nil;
+    void (^didCommit)(NSString *) = nil;
     id focusIdentity = nil;
     id sessionToken = nil;
     void (^selectedMode)(NSString *) = nil;
@@ -42,6 +48,8 @@ inline BOOL MSIMEGlobalVoiceOwnsToggle(NSEvent *event) {
 
 @interface MSIMEGlobalVoiceCoordinator : NSObject
 - (instancetype)initWithTarget:(id<MSIMEGlobalVoiceTarget> (^)(void))target;
+- (instancetype)initWithTarget:(id<MSIMEGlobalVoiceTarget> (^)(void))target
+                deliveryTarget:(id<MSIMEGlobalVoiceTarget> (^)(void))deliveryTarget;
 @end
 
 // 只处理明确的引导参数，其余参数继续走 IMK 的正常启动路径。

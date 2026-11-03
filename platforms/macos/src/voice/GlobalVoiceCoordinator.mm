@@ -3,6 +3,7 @@
 #import "VoiceHoldShortcut.h"
 #import "VoiceWaveOverlay.h"
 #import "VoiceTextCommit.h"
+#import "../core/ChineseTextConversion.h"
 #import "../core/SharedVoicePreferences.h"
 #import "../settings/RuntimeOptions.h"
 #import "../input/ToggleHotkeys.h"
@@ -134,6 +135,7 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
 
 @implementation MSIMEGlobalVoiceCoordinator {
     id<MSIMEGlobalVoiceTarget> (^_target)(void);
+    id<MSIMEGlobalVoiceTarget> (^_deliveryTarget)(void);
     id<MSIMEGlobalVoiceTarget> _owner;
     NSTimer *_poll;
     NSTimer *_sessionPoll;
@@ -180,12 +182,25 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
     NSTimeInterval _missingFocusSince;
     BOOL _starting;
     NSInteger _waitReason;
+    NSString *_pendingText;
+    NSString *_commitMode;
+    void (^_deliveryEnd)(void);
+    NSTimeInterval _deliveryDeadline;
+    BOOL _deliveryStarted;
 }
 - (instancetype)initWithTarget:(id<MSIMEGlobalVoiceTarget> (^)(void))target {
+    return [self initWithTarget:target deliveryTarget:target];
+}
+- (instancetype)initWithTarget:(id<MSIMEGlobalVoiceTarget> (^)(void))target
+                deliveryTarget:(id<MSIMEGlobalVoiceTarget> (^)(void))deliveryTarget {
     if (!(self = [super init])) return nil;
     _target = [target copy];
+    _deliveryTarget = [deliveryTarget copy];
     __weak MSIMEGlobalVoiceCoordinator *weakSelf = self;
     MSIMEGlobalVoiceHost().recover = ^(NSString *text) { [weakSelf recover:text]; };
+    MSIMEGlobalVoiceHost().deliver = ^(NSString *text, NSString *mode, void (^completion)(void)) {
+        [weakSelf deliver:text mode:mode completion:completion];
+    };
     MSIMEGlobalVoiceHost().toggleHandled = ^BOOL(NSEvent *event) {
         MSIMEGlobalVoiceCoordinator *self = weakSelf;
         if (!self) return NO;
@@ -200,7 +215,8 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
     };
     MSIMEGlobalVoiceHost().selectedMode = ^(NSString *mode) {
         MSIMEGlobalVoiceCoordinator *self = weakSelf;
-        if (self && self->_owner && ![self->_owner globalVoiceBusy]) self->_state.hostSelectedSource(mode.UTF8String ?: "");
+        if (self && self->_owner && (self->_deliveryStarted || ![self->_owner globalVoiceBusy]))
+            self->_state.hostSelectedSource(mode.UTF8String ?: "");
     };
     _poll = [NSTimer scheduledTimerWithTimeInterval:1 repeats:YES block:^(NSTimer *timer) { (void)timer; [weakSelf reload]; }];
     [self reload];
@@ -524,16 +540,12 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
     NSString *source = [self currentSourceIdentifier], *selected = [self enabledSourceIdentifier];
     if (!application || application.processIdentifier == getpid() || !source || !selected) { [self showFailure:@"请先启用水杉输入法，并将光标放入可编辑文本框。"] ; return; }
     id<MSIMEGlobalVoiceTarget> target = _target();
-    if ([target globalVoiceBusy]) return;
+    if ([target globalVoiceBusy] || [_deliveryTarget() globalVoiceBusy]) return;
     if (!_state.begin(source.UTF8String, application.processIdentifier, [self monotonicTime])) return;
     _application = application; _focusIdentity = focus; _holding = holding; _requiresHold = holding; _locked = NO;
     _missingFocusSince = 0; _waitReason = -1;
-    _state.selected = selected.UTF8String;
-    const auto generation = _state.generation;
-    os_log(OS_LOG_DEFAULT, "MSIME global voice: source switch requested");
-    if (![self selectSourceIdentifier:selected]) { [self cancel]; [self showFailure:@"无法切换到已启用的水杉输入法。"] ; return; }
-    // 选择过程中可能重入取消或切源通知，不能把已结束的一轮重新挂上计时器。
-    if (_state.phase != msime::mac::GlobalVoiceState::Phase::Waiting || _state.generation != generation) return;
+    // 录音阶段保留原输入源，不把 IMK 激活或切源 IPC 放在开麦克风的前置条件里。
+    _state.selected = source.UTF8String;
     __weak MSIMEGlobalVoiceCoordinator *weakSelf = self;
     _sessionPoll = [NSTimer scheduledTimerWithTimeInterval:0.05 repeats:YES block:^(NSTimer *timer) { (void)timer; [weakSelf advance]; }];
     [self advance];
@@ -551,17 +563,11 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
     if (_state.phase == Phase::Waiting) {
         if (_requiresHold && !_holding && !_locked) { [self cancel]; return; }
         if (_application.terminated || [self frontApplication].processIdentifier != _state.targetPID) { [self cancel]; return; }
-        const BOOL arrived = _state.observeWaitingSource(source.UTF8String ?: "", [self isOwnSourceIdentifier:source]);
-        if (_state.manual) { [self cancel]; return; }
-        if (!arrived) {
-            [self waitingFor:1];
-            if (_state.timedOut([self monotonicTime])) { [self cancel]; [self showFailure:@"输入法切换未能完成，已取消语音。请重试。"]; }
-            return;
-        }
+        if (_state.original != (source.UTF8String ?: "")) { _state.manual = true; [self cancel]; return; }
         id<MSIMEGlobalVoiceTarget> target = _target();
         id focus = [self focusIdentity];
         if (focus && _focusIdentity && !CFEqual((__bridge CFTypeRef)focus, (__bridge CFTypeRef)_focusIdentity)) {
-            // 切源时 Web 编辑器可能暂时报出另一元素；原元素回来前不录音，也不改变插入目标。
+            // 尚未启动时等待原字段，不能把另一个字段当作录音目标。
             [self waitingFor:6];
             if (_state.timedOut([self monotonicTime])) {
                 [self cancel]; [self showFailure:@"输入位置已改变，已取消语音。请重新聚焦后重试。"];
@@ -597,6 +603,7 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
         }
         return;
     }
+    if (_pendingText) { [self advanceDelivery]; return; }
     id focus = [self focusIdentity];
     if (_owner) {
         const BOOL different = focus && _focusIdentity && !CFEqual((__bridge CFTypeRef)focus, (__bridge CFTypeRef)_focusIdentity);
@@ -617,15 +624,88 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
     (void)notification;
     NSString *source = [self currentSourceIdentifier];
     if (_state.phase == msime::mac::GlobalVoiceState::Phase::Waiting) {
-        _state.observeWaitingSource(source.UTF8String ?: "", [self isOwnSourceIdentifier:source]);
+        if (_state.original != (source.UTF8String ?: "")) _state.manual = true;
         if (_state.manual) [self cancel];
     } else if (_state.phase != msime::mac::GlobalVoiceState::Phase::Idle) {
-        if (MSIMESharedSystemInputModeState().selecting && _owner && ![_owner globalVoiceBusy])
+        if (_deliveryStarted && !_state.selectedObserved && _state.original == (source.UTF8String ?: "")) {
+            // 最终结果交付也要等实际切源，TIS 接受请求后的原源通知不代表用户手动切走。
+        } else if (MSIMESharedSystemInputModeState().selecting && _owner && (_deliveryStarted || ![_owner globalVoiceBusy]))
             _state.hostSelectedSource(source.UTF8String ?: "");
         else _state.sourceChanged(source.UTF8String ?: "");
     }
     // 布局变化后重新解码字母键；录音中的改动等这一轮结束再应用。
     if (_state.phase == msime::mac::GlobalVoiceState::Phase::Idle && _enabled && ![_layoutID isEqual:KeyboardLayoutID()]) [self configure];
+}
+- (BOOL)originalTargetCurrent {
+    id focus = [self focusIdentity];
+    return !_application.terminated && [self frontApplication].processIdentifier == _state.targetPID && focus && _focusIdentity &&
+        CFEqual((__bridge CFTypeRef)focus, (__bridge CFTypeRef)_focusIdentity);
+}
+- (void)deliver:(NSString *)text mode:(NSString *)mode completion:(void (^)(void))completion {
+    if (!_owner || !text.length || text.length > 65536 || _pendingText) { if (completion) completion(); return; }
+    _pendingText = [text copy]; _commitMode = MSIMEVoiceCommitMode(mode); _deliveryEnd = [completion copy];
+    [self advanceDelivery];
+}
+- (void)finishDelivery:(BOOL)delivered {
+    NSString *text = _pendingText;
+    void (^completion)(void) = _deliveryEnd;
+    _pendingText = nil; _commitMode = nil; _deliveryEnd = nil; _deliveryStarted = NO; _deliveryDeadline = 0;
+    if (!delivered && text.length) [self recover:text];
+    if (completion) completion();
+    [self complete];
+}
+- (MSIMEVoiceCommitOutcome)postGlobalVoiceText:(NSString *)text route:(const MSIMEVoiceCommitRoute &)route {
+    return route.deliver(text);
+}
+- (void)advanceDelivery {
+    if (!_pendingText) return;
+    if (![_owner globalVoiceBusy]) { [self complete]; return; }
+    id token = MSIMEGlobalVoiceHost().sessionToken;
+    const auto generation = _state.generation;
+    BOOL current = [self originalTargetCurrent];
+    if (!_pendingText || _state.generation != generation || MSIMEGlobalVoiceHost().sessionToken != token) return;
+    if (_state.manual || !current) { [self finishDelivery:NO]; return; }
+    if (_holding) return;
+    if (!_deliveryStarted) {
+        _deliveryStarted = YES;
+        if (![_commitMode isEqual:@"tsf"]) {
+            MSIMEVoiceCommitRoute route;
+            route.mode = _commitMode; route.pid = _state.targetPID;
+            route.current = [self, token] {
+                if (MSIMEGlobalVoiceHost().sessionToken != token) return false;
+                const BOOL valid = [self originalTargetCurrent];
+                return valid && MSIMEGlobalVoiceHost().sessionToken == token;
+            };
+            id setting = _preferences[@"traditional_chinese_output"];
+            const BOOL valid = [setting isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)setting) == CFBooleanGetTypeID();
+            const BOOL traditional = valid ? [setting boolValue] : [NSUserDefaults.standardUserDefaults boolForKey:@"MSIMEClientTraditionalOutput"];
+            NSString *text = traditional ? MSIMEChineseOutputString(_pendingText, YES) : _pendingText;
+            const auto outcome = [self postGlobalVoiceText:text route:route];
+            if (outcome == MSIMEVoiceCommitOutcome::posted && MSIMEGlobalVoiceHost().didCommit) MSIMEGlobalVoiceHost().didCommit(text);
+            if (outcome != MSIMEVoiceCommitOutcome::unavailable) { [self finishDelivery:outcome == MSIMEVoiceCommitOutcome::posted]; return; }
+        }
+        NSString *selected = [self enabledSourceIdentifier];
+        if (!selected) { [self finishDelivery:NO]; return; }
+        _deliveryDeadline = [self monotonicTime] + 3;
+        MSIMEGlobalVoiceHost().delivering = true;
+        _state.hostSelectedSource(selected.UTF8String);
+        _state.selectedObserved = false;
+        os_log(OS_LOG_DEFAULT, "MSIME global voice: delivery source requested");
+        if (![self selectSourceIdentifier:selected]) { [self finishDelivery:NO]; return; }
+        // TIS 和 IMK 调用可能重入取消；不能交付已被撤销的结果。
+        if (_state.generation != generation || MSIMEGlobalVoiceHost().sessionToken != token || !_pendingText) return;
+    }
+    NSString *source = [self currentSourceIdentifier];
+    const BOOL arrived = [self isOwnSourceIdentifier:source];
+    if (arrived) _state.selectedObserved = true;
+    id<MSIMEGlobalVoiceTarget> target = arrived ? _deliveryTarget() : nil;
+    if ([target respondsToSelector:@selector(commitGlobalVoiceText:pid:focus:token:)] &&
+        [target commitGlobalVoiceText:_pendingText pid:_state.targetPID focus:_focusIdentity token:token]) {
+        if (_state.generation == generation && MSIMEGlobalVoiceHost().sessionToken == token) [self finishDelivery:YES];
+    } else if ([self monotonicTime] >= _deliveryDeadline) {
+        os_log(OS_LOG_DEFAULT, "MSIME global voice: delivery target unavailable");
+        [self finishDelivery:NO];
+    }
 }
 - (void)stop {
     if (_state.phase == msime::mac::GlobalVoiceState::Phase::Waiting) [self cancel];
@@ -643,6 +723,8 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
     NSString *source = [self currentSourceIdentifier];
     NSString *original = [NSString stringWithUTF8String:_state.original.c_str()];
     BOOL restore = _state.canRestore(source.UTF8String ?: "");
+    _pendingText = nil; _commitMode = nil; _deliveryEnd = nil; _deliveryStarted = NO; _deliveryDeadline = 0;
+    MSIMEGlobalVoiceHost().delivering = false;
     [_sessionPoll invalidate]; _sessionPoll = nil;
     [_owner endGlobalVoice]; _owner = nil; MSIMEGlobalVoiceHost().owner = nil; MSIMEGlobalVoiceHost().focusIdentity = nil;
     MSIMEGlobalVoiceHost().sessionToken = nil;

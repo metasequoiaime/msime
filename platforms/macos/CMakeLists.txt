@@ -178,7 +178,7 @@ target_sources(MSIMEClientInputMethod PRIVATE src/voice/DoubaoVoiceRequest.mm sr
 target_sources(MSIMEClientInputMethod PRIVATE src/core/DesktopInputSession.mm)
 target_sources(MSIMEClientInputMethod PRIVATE src/core/UsageReporting.mm)
 target_sources(MSIMEClientInputMethod PRIVATE src/core/DesktopCloudClipboard.mm)
-target_sources(MSIMEClientInputMethod PRIVATE src/voice/GlobalVoiceCoordinator.mm)
+target_sources(MSIMEClientInputMethod PRIVATE src/voice/GlobalVoiceCoordinator.mm src/voice/GlobalVoiceSession.mm)
 target_link_libraries(MSIMEClientInputMethod PRIVATE "-framework ServiceManagement")
 target_link_libraries(MSIMEClientInputMethod PRIVATE "-framework ApplicationServices" "-framework CoreGraphics" "-framework CoreText" "-framework UniformTypeIdentifiers")
 file(GLOB_RECURSE MSIME_BACKEND_SWIFT CONFIGURE_DEPENDS
@@ -1095,6 +1095,14 @@ add_executable(voice-session-delivery-test tests/voice/VoiceSessionDeliveryTest.
 target_compile_options(voice-session-delivery-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(voice-session-delivery-test PRIVATE apple-client "-framework AVFoundation" "-framework Speech" "-framework CoreAudio" "-framework AudioToolbox")
 add_test(NAME voice-session-delivery COMMAND voice-session-delivery-test)
+add_executable(global-voice-session-test tests/voice/GlobalVoiceSessionTest.mm
+  src/voice/GlobalVoiceSession.mm src/voice/VoiceInputService.mm src/voice/VoicePCMBuffer.mm
+  src/voice/VoiceWaveOverlay.mm src/voice/VoiceCuePlayer.mm src/voice/VoiceAudioMuter.mm
+  src/voice/LocalVoiceRequest.mm src/voice/DoubaoVoiceRequest.mm src/voice/HTTPVoiceRequest.mm)
+target_compile_options(global-voice-session-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(global-voice-session-test PRIVATE apple-client msime-voice-providers
+  "-framework AppKit" "-framework AVFoundation" "-framework Speech" "-framework CoreAudio" "-framework AudioToolbox")
+add_test(NAME global-voice-session COMMAND global-voice-session-test)
 add_executable(shortcut-test tests/input/ShortcutTest.mm src/core/DiagnosticLog.cpp src/core/BoundedFileReader.mm src/core/UpdateController.mm src/settings/AppearancePreferences.mm src/candidate/CandidateSkin.cpp src/candidate/CandidateSkinPreviewView.mm src/candidate/SkinSettingsView.mm src/core/ChineseTextConversion.mm src/settings/ShuangpinKeymapPanel.mm src/input/InputSourceRegistration.mm src/core/FloatingToolbarPanel.mm src/dictionary/DictionaryWindowController.mm src/core/ClientDictionaryRuntime.mm)
 target_compile_options(shortcut-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(shortcut-test PRIVATE apple-client "-framework AppKit" "-framework InputMethodKit" "-framework Carbon" "-framework ApplicationServices")

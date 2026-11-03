@@ -2620,6 +2620,31 @@ BOOL MSIMEInputControllerHasUnfinishedInput(void) {
 
 // 全局入口只取得真实聚焦的 IMK 控制器，不把旧应用留下的客户端当作目标。
 id<MSIMEGlobalVoiceTarget> MSIMEFocusedGlobalVoiceTarget(void) { return MSIMEFocusedController; }
+void MSIMERecordGlobalVoiceCommit(NSString *text) {
+    NSString *directory = MSIMELoadRuntimeOptions()[@"preferences_directory"];
+    MSIMEReloadTypingStatisticsEnabled(directory);
+    MSIMERecordTypingStatistics(directory, text, msime::mac::TypingSource::Voice);
+}
+- (BOOL)commitGlobalVoiceText:(NSString *)text pid:(pid_t)pid focus:(id)original token:(id)token {
+    if (!text.length || text.length > 65536 || !original || !token ||
+        MSIMEGlobalVoiceHost().sessionToken != token || !MSIMEGlobalVoiceHost().owner ||
+        MSIMEGlobalVoiceHost().owner == self || [self hasUnfinishedInput]) return NO;
+    id client = _activeClient;
+    if (!client || [self globalVoiceTargetPID] != pid) return NO;
+    id focus = MSIMEGlobalVoiceFocusIdentity();
+    // 光标查询经过 IMK IPC，返回后重新核对客户端、焦点和令牌，不沿用重入前的授权。
+    if (_activeClient != client || MSIMEFocusedController != self || [self hasUnfinishedInput] ||
+        MSIMEGlobalVoiceHost().sessionToken != token || !focus ||
+        !CFEqual((__bridge CFTypeRef)focus, (__bridge CFTypeRef)original) ||
+        NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier != pid) return NO;
+    NSString *commit = _appearance.traditionalOutput ? MSIMEChineseOutputString(text, YES) : text;
+    if (_activeClient != client || MSIMEFocusedController != self || MSIMEGlobalVoiceHost().sessionToken != token) return NO;
+    [(id<MSIMETextClient>)client insertText:commit replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+    [self invalidateSmartPunctuationShadow];
+    MSIMERecordTypingStatistics(_preferencesDirectory ?: MSIMEStatisticsHostOptions(_session)[@"preferences_directory"],
+        commit, msime::mac::TypingSource::Voice);
+    return YES;
+}
 - (pid_t)globalVoiceTargetPID {
     NSRunningApplication *application = NSWorkspace.sharedWorkspace.frontmostApplication;
     if (MSIMEFocusedController != self || !_activeClient ||
@@ -5518,7 +5543,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     }
     NSString *mode = MSIMEInputModeID(MSIMEInputModeFor(_appearance.englishMode, scheme));
     if (MSIMESelectSystemInputMode(MSIMESharedSystemInputModeState(), mode, client, [self inputModeAvailability]) &&
-        MSIMEGlobalVoiceHost().owner == self && MSIMEGlobalVoiceHost().selectedMode)
+        (MSIMEGlobalVoiceHost().owner == self || MSIMEGlobalVoiceHost().delivering) && MSIMEGlobalVoiceHost().selectedMode)
         MSIMEGlobalVoiceHost().selectedMode(MSIMESharedSystemInputModeState().current);
     // 菜单栏状态项显示控制器算出的模式，而不是 MSIMESelectSystemInputMode 回退后的那个：「双」「五」等模式没有加成输入源时系统图标停在「中」，状态项仍显示真实方案。
     [self presentInputModeStatusItem:_appearance.inputModeStatusItem ? mode : nil];
@@ -6194,6 +6219,8 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
 }
 - (void)toggleVoiceInput:(id)sender {
     (void)sender;
+    if (MSIMEGlobalVoiceHost().owner && MSIMEGlobalVoiceHost().owner != self &&
+        [MSIMEGlobalVoiceHost().owner globalVoiceBusy]) return;
     if (_voicePermissionToken) { _voicePermissionToken = nil; return; }
     // All menu, toolbar, local/global shortcut and permission callbacks converge
     // here. Recheck after asynchronous permission delivery, before any capture.
@@ -6247,8 +6274,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         }
         NSString *language = [[NSUserDefaults standardUserDefaults] stringForKey:@"MSIMEClientVoiceLanguage"] ?: @"zh-CN";
         NSString *socket = MSIMEVoiceProviderSocket();
-        NSDictionary *query = @{ @"language": language.lowercaseString, @"generation": @(controller->_voiceGeneration), @"stream": @(!controller->_globalVoiceClient && ([defaults objectForKey:@"MSIMEClientVoiceStreamInlinePreedit"] == nil || [defaults boolForKey:@"MSIMEClientVoiceStreamInlinePreedit"])), @"asr_provider": [defaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"local", @"asr_endpoint": [defaults stringForKey:@"MSIMEClientVoiceASREndpoint"] ?: @"", @"asr_model": [defaults stringForKey:@"MSIMEClientVoiceASRModel"] ?: @"", @"asr_model_path": [defaults stringForKey:@"MSIMEClientVoiceASRModelPath"] ?: @"", @"asr_token": [defaults stringForKey:@"MSIMEClientVoiceASRToken"] ?: @"", @"doubao_boosting_table_id": [defaults stringForKey:@"MSIMEClientVoiceDoubaoBoostingTableID"] ?: @"", @"asr_app_key": [defaults stringForKey:@"MSIMEClientVoiceDoubaoAppKey"] ?: @"", @"asr_resource_id": [defaults stringForKey:@"MSIMEClientVoiceDoubaoResourceID"] ?: @"", @"polish_enabled": @([defaults boolForKey:@"MSIMEClientVoicePolish"]), @"polish_prompt_id": [defaults stringForKey:@"MSIMEClientVoicePolishPromptID"] ?: @"cleanup", @"polish_provider": [defaults stringForKey:@"MSIMEClientVoicePolishProvider"] ?: MSIMEVoicePolishDefaultProvider, @"polish_model": [defaults stringForKey:@"MSIMEClientVoicePolishModel"] ?: @"", @"polish_endpoint": [defaults stringForKey:@"MSIMEClientVoicePolishEndpoint"] ?: @"", @"polish_token": [defaults stringForKey:@"MSIMEClientVoicePolishToken"] ?: @"", @"polish_thinking": [defaults stringForKey:@"MSIMEClientVoicePolishThinking"] ?: @"", @"polish_prompt_custom_1": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom1"] ?: @"", @"polish_prompt_custom_2": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom2"] ?: @"", @"polish_prompt_custom_3": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom3"] ?: @"" };
-        query = MSIMEVoiceProviderOptions(query, defaults);
+        NSDictionary *query = MSIMEVoiceQuery(defaults, controller->_voiceGeneration, !controller->_globalVoiceClient);
         if (socket.length) {
             id token = [controller beginLiveVoiceWithOptions:query socket:socket];
             if (!token) return;

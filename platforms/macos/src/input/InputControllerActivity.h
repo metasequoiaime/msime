@@ -7,3 +7,4 @@ BOOL MSIMEInputControllerHasUnfinishedInput(void);
 
 @protocol MSIMEGlobalVoiceTarget;
 id<MSIMEGlobalVoiceTarget> MSIMEFocusedGlobalVoiceTarget(void);
+void MSIMERecordGlobalVoiceCommit(NSString *text);
