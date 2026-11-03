@@ -178,6 +178,7 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
     BOOL _listenerErrorShown;
     BOOL _snapshotErrorShown;
     NSTimeInterval _missingFocusSince;
+    BOOL _starting;
 }
 - (instancetype)initWithTarget:(id<MSIMEGlobalVoiceTarget> (^)(void))target {
     if (!(self = [super init])) return nil;
@@ -439,6 +440,7 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
 }
 - (CGEventRef)observe:(CGEventRef)event type:(CGEventType)type {
     if (type == kCGEventTapDisabledByTimeout || type == kCGEventTapDisabledByUserInput) {
+        os_log(OS_LOG_DEFAULT, "MSIME global voice: listener was disabled, rearming");
         [self cancel];
         CGEventTapEnable(_tap, true);
         return event;
@@ -476,14 +478,19 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
         _holdStartedSession = !_owner;
         if (_owner) { [self queueGestureAction:2]; return event; }
         _armed = YES;
+        os_log(OS_LOG_DEFAULT, "MSIME global voice: hold armed");
         const NSUInteger generation = ++_holdGeneration;
         __weak MSIMEGlobalVoiceCoordinator *weakSelf = self;
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 250 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
             MSIMEGlobalVoiceCoordinator *self = weakSelf;
-            if (self && self->_enabled && self->_armed && generation == self->_holdGeneration) { self->_armed = NO; [self begin:YES]; }
+            if (self && self->_enabled && self->_armed && generation == self->_holdGeneration) {
+                os_log(OS_LOG_DEFAULT, "MSIME global voice: hold admitted");
+                self->_armed = NO; [self begin:YES];
+            }
         });
     }
     if (result.onRelease) {
+        os_log(OS_LOG_DEFAULT, "MSIME global voice: hold released");
         _holding = NO; _armed = NO; ++_holdGeneration;
         if (!_locked && (_holdStartedSession || result.action == MSIMEVoiceHoldShortcut::Action::Toggle)) [self queueGestureAction:1];
         _holdStartedSession = NO;
@@ -504,12 +511,13 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
 - (id)focusIdentity { return MSIMEGlobalVoiceFocusIdentity(); }
 - (NSRunningApplication *)frontApplication { return NSWorkspace.sharedWorkspace.frontmostApplication; }
 - (void)begin:(BOOL)holding {
+    os_log(OS_LOG_DEFAULT, "MSIME global voice: begin requested phase=%{public}d", (int)_state.phase);
     if ([self shortcutRecorderFocused]) return;
-    if (_state.phase != msime::mac::GlobalVoiceState::Phase::Idle) return;
+    if (_starting || _state.phase != msime::mac::GlobalVoiceState::Phase::Idle) return;
     if (_recoveryText.length) { [_recovery orderFrontRegardless]; return; }
     NSRunningApplication *application = [self frontApplication];
     id focus = [self focusIdentity];
-    if (!focus) { [self showFailure:@"当前输入位置不支持全局语音。请将光标放入普通可编辑文本框。"] ; return; }
+    if (!focus) { os_log(OS_LOG_DEFAULT, "MSIME global voice: begin has no focus identity"); [self showFailure:@"当前输入位置不支持全局语音。请将光标放入普通可编辑文本框。"] ; return; }
     NSString *source = [self currentSourceIdentifier], *selected = [self enabledSourceIdentifier];
     if (!application || application.processIdentifier == getpid() || !source || !selected) { [self showFailure:@"请先启用水杉输入法，并将光标放入可编辑文本框。"] ; return; }
     id<MSIMEGlobalVoiceTarget> target = _target();
@@ -528,6 +536,7 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
     [self advance];
 }
 - (void)advance {
+    if (_starting) return;
     using Phase = msime::mac::GlobalVoiceState::Phase;
     NSString *source = [self currentSourceIdentifier];
     if (_state.phase == Phase::Waiting) {
@@ -543,10 +552,25 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
         id focus = [self focusIdentity];
         if (focus && _focusIdentity && !CFEqual((__bridge CFTypeRef)focus, (__bridge CFTypeRef)_focusIdentity)) { [self cancel]; return; }
         if (target && focus && [target globalVoiceTargetPID] == _state.targetPID && ![target globalVoiceBusy]) {
-            _state.activate(_state.targetPID, source.UTF8String);
+            const auto generation = _state.generation;
             _owner = target; MSIMEGlobalVoiceHost().owner = target; MSIMEGlobalVoiceHost().focusIdentity = _focusIdentity;
-            os_log(OS_LOG_DEFAULT, "MSIME global voice: editable target ready, requesting capture");
-            [_owner startGlobalVoiceHolding:_holding];
+            MSIMEGlobalVoiceHost().sessionToken = [NSObject new];
+            _starting = YES;
+            const auto result = [target startGlobalVoiceHolding:_holding];
+            _starting = NO;
+            os_log(OS_LOG_DEFAULT, "MSIME global voice: capture start outcome=%{public}ld", (long)result);
+            if (_state.generation != generation || _state.phase != Phase::Waiting || _owner != target) return;
+            if (result == MSIMEGlobalVoiceStartAccepted) {
+                NSString *activeSource = [self currentSourceIdentifier];
+                _state.activate(_state.targetPID, (activeSource ?: source).UTF8String);
+            } else if (result == MSIMEGlobalVoiceStartFailed) {
+                [self complete];
+            } else {
+                [target endGlobalVoice];
+                _owner = nil; MSIMEGlobalVoiceHost().owner = nil; MSIMEGlobalVoiceHost().focusIdentity = nil;
+                MSIMEGlobalVoiceHost().sessionToken = nil;
+                if (_state.timedOut([self monotonicTime])) { [self cancel]; [self showFailure:@"输入位置尚未就绪，已取消语音。请重试。"]; }
+            }
         } else if (_state.timedOut([self monotonicTime])) {
             [self cancel]; [self showFailure:@"没有获得可编辑的输入位置，已取消语音。"];
         }
@@ -598,6 +622,7 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
     BOOL restore = _state.canRestore(source.UTF8String ?: "");
     [_sessionPoll invalidate]; _sessionPoll = nil;
     [_owner endGlobalVoice]; _owner = nil; MSIMEGlobalVoiceHost().owner = nil; MSIMEGlobalVoiceHost().focusIdentity = nil;
+    MSIMEGlobalVoiceHost().sessionToken = nil;
     _state.clear(); _application = nil; _focusIdentity = nil; _locked = NO; _requiresHold = NO; _missingFocusSince = 0;
     if (restore) [self selectSourceIdentifier:original];
     if (_configurationPending) {

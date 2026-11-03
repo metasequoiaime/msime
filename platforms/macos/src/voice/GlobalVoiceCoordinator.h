@@ -2,11 +2,17 @@
 #import <AppKit/AppKit.h>
 #import <ApplicationServices/ApplicationServices.h>
 
+typedef NS_ENUM(NSInteger, MSIMEGlobalVoiceStartResult) {
+    MSIMEGlobalVoiceStartRetry,
+    MSIMEGlobalVoiceStartAccepted,
+    MSIMEGlobalVoiceStartFailed,
+};
+
 @protocol MSIMEGlobalVoiceTarget <NSObject>
 - (pid_t)globalVoiceTargetPID;
 - (BOOL)globalVoiceBusy;
 - (BOOL)globalVoiceProcessing;
-- (void)startGlobalVoiceHolding:(BOOL)holding;
+- (MSIMEGlobalVoiceStartResult)startGlobalVoiceHolding:(BOOL)holding;
 - (void)stopGlobalVoice;
 - (void)cancelGlobalVoice;
 - (void)endGlobalVoice;
@@ -20,6 +26,7 @@ struct MSIMEGlobalVoiceBridge {
     __weak id<MSIMEGlobalVoiceTarget> owner = nil;
     void (^recover)(NSString *) = nil;
     id focusIdentity = nil;
+    id sessionToken = nil;
     void (^selectedMode)(NSString *) = nil;
     BOOL (^toggleHandled)(NSEvent *) = nil;
 };

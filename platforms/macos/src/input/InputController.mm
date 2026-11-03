@@ -2646,15 +2646,26 @@ id<MSIMEGlobalVoiceTarget> MSIMEFocusedGlobalVoiceTarget(void) { return MSIMEFoc
     if (text.length && MSIMEGlobalVoiceHost().recover) MSIMEGlobalVoiceHost().recover(text);
     return YES;
 }
-- (void)startGlobalVoiceHolding:(BOOL)holding {
-    if ([self globalVoiceBusy] || ![self globalVoiceTargetPID]) return;
+- (MSIMEGlobalVoiceStartResult)startGlobalVoiceHolding:(BOOL)holding {
+    id token = MSIMEGlobalVoiceHost().sessionToken;
+    if ([self globalVoiceBusy]) return MSIMEGlobalVoiceStartRetry;
     if (!_session) [self prepareSession];
+    if (!_session) { [self reportVoiceFailure:MSIMEVoiceFailureSession]; return MSIMEGlobalVoiceStartFailed; }
     NSDictionary *snapshot = _preferencesDirectory.length ? [MSIMEClientSession loadPreferencesInDirectory:_preferencesDirectory error:nil] : nil;
     if (snapshot) [self applySharedToolbarPreferences:snapshot[@"preferences"]];
-    _globalVoiceClient = _activeClient; _globalVoiceSession = _session; _globalVoiceDetached = NO; _globalVoicePID = [self globalVoiceTargetPID];
+    id client = _activeClient;
+    MSIMEClientSession *session = _session;
+    const pid_t pid = [self globalVoiceTargetPID];
+    // IMK 查询与准备会话可能重入激活/取消；只在返回后仍是同一目标时承认启动。
+    if (!pid || !client || _activeClient != client || _session != session ||
+        MSIMEGlobalVoiceHost().owner != self || MSIMEGlobalVoiceHost().sessionToken != token)
+        return MSIMEGlobalVoiceStartRetry;
+    _globalVoiceClient = client; _globalVoiceSession = session; _globalVoiceDetached = NO; _globalVoicePID = pid;
     _voiceHoldStarting = holding;
     [self toggleVoiceInput:nil];
     _voiceHoldStarting = NO;
+    if (MSIMEGlobalVoiceHost().sessionToken != token) return MSIMEGlobalVoiceStartRetry;
+    return [self globalVoiceBusy] ? MSIMEGlobalVoiceStartAccepted : MSIMEGlobalVoiceStartFailed;
 }
 - (void)stopGlobalVoice {
     // 权限回调不得在松手之后补开麦克风；识别和润色则等最终结果，不再次 toggle。
@@ -5739,7 +5750,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     if (_voiceCueRecording) return;
     _voiceCueRecording = YES;
     [_voiceOverlay setListening:YES];
-    os_log(OS_LOG_DEFAULT, "MSIME global voice: capture ready");
+    if (_globalVoiceClient) os_log(OS_LOG_DEFAULT, "MSIME global voice: capture ready");
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
     // Windows plays the start cue and only then mutes other audio. The macOS mute is device-wide and would swallow the cue, so it waits for the cue to finish; any restore before then cancels it.
     void (^mute)(void) = nil;
@@ -5765,6 +5776,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
 }
 - (void)reportVoiceFailure:(MSIMEVoiceFailure)failure { [self reportVoiceFailure:failure detail:nil]; }
 - (void)reportVoiceFailure:(MSIMEVoiceFailure)failure detail:(NSString *)detail {
+    if (_globalVoiceClient) os_log(OS_LOG_DEFAULT, "MSIME global voice: voice failure category=%{public}ld", (long)failure);
     _voicePermissionToken = nil; _voiceHoldShortcut.reset();
     [self cancelHTTPVoiceInput]; [self cancelDoubaoVoiceInput]; [self cancelLiveVoiceInput];
     if (_voiceService.active) [_voiceService cancelWithError:nil];
@@ -6201,14 +6213,23 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         [self reportVoiceFailure:MSIMEVoiceFailureMissingLocalModel];
         return;
     }
+    id globalToken = _globalVoiceClient ? MSIMEGlobalVoiceHost().sessionToken : nil;
+    id startClient = _activeClient;
+    MSIMEClientSession *startSession = _session;
     __weak MSIMEInputController *weakSelf = self;
     void (^start)(void) = ^{
         MSIMEInputController *controller = weakSelf;
         if (!controller || !controller->_session) return;
+        if (globalToken && (MSIMEGlobalVoiceHost().sessionToken != globalToken || MSIMEGlobalVoiceHost().owner != controller ||
+            controller->_activeClient != startClient || controller->_session != startSession)) return;
         NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
         // 存着别的平台的录音后端时不再拒绝录音：MSIMEVoiceCaptureDeviceUID 把它当作系统默认设备。
         NSError *error = nil;
         if (![controller->_voiceService startWithSession:controller->_session generation:&controller->_voiceGeneration error:&error]) { [controller reportVoiceFailure:MSIMEVoiceFailureSession]; return; }
+        if (globalToken && (MSIMEGlobalVoiceHost().sessionToken != globalToken || MSIMEGlobalVoiceHost().owner != controller ||
+            controller->_activeClient != startClient || controller->_session != startSession)) {
+            [controller->_voiceService cancelWithError:nil]; return;
+        }
         NSString *language = [[NSUserDefaults standardUserDefaults] stringForKey:@"MSIMEClientVoiceLanguage"] ?: @"zh-CN";
         NSString *socket = MSIMEVoiceProviderSocket();
         NSDictionary *query = @{ @"language": language.lowercaseString, @"generation": @(controller->_voiceGeneration), @"stream": @(!controller->_globalVoiceClient && ([defaults objectForKey:@"MSIMEClientVoiceStreamInlinePreedit"] == nil || [defaults boolForKey:@"MSIMEClientVoiceStreamInlinePreedit"])), @"asr_provider": [defaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"local", @"asr_endpoint": [defaults stringForKey:@"MSIMEClientVoiceASREndpoint"] ?: @"", @"asr_model": [defaults stringForKey:@"MSIMEClientVoiceASRModel"] ?: @"", @"asr_model_path": [defaults stringForKey:@"MSIMEClientVoiceASRModelPath"] ?: @"", @"asr_token": [defaults stringForKey:@"MSIMEClientVoiceASRToken"] ?: @"", @"doubao_boosting_table_id": [defaults stringForKey:@"MSIMEClientVoiceDoubaoBoostingTableID"] ?: @"", @"asr_app_key": [defaults stringForKey:@"MSIMEClientVoiceDoubaoAppKey"] ?: @"", @"asr_resource_id": [defaults stringForKey:@"MSIMEClientVoiceDoubaoResourceID"] ?: @"", @"polish_enabled": @([defaults boolForKey:@"MSIMEClientVoicePolish"]), @"polish_prompt_id": [defaults stringForKey:@"MSIMEClientVoicePolishPromptID"] ?: @"cleanup", @"polish_provider": [defaults stringForKey:@"MSIMEClientVoicePolishProvider"] ?: MSIMEVoicePolishDefaultProvider, @"polish_model": [defaults stringForKey:@"MSIMEClientVoicePolishModel"] ?: @"", @"polish_endpoint": [defaults stringForKey:@"MSIMEClientVoicePolishEndpoint"] ?: @"", @"polish_token": [defaults stringForKey:@"MSIMEClientVoicePolishToken"] ?: @"", @"polish_thinking": [defaults stringForKey:@"MSIMEClientVoicePolishThinking"] ?: @"", @"polish_prompt_custom_1": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom1"] ?: @"", @"polish_prompt_custom_2": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom2"] ?: @"", @"polish_prompt_custom_3": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom3"] ?: @"" };

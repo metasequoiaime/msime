@@ -14113,12 +14113,14 @@ static void TestCrossCommitSpacing() {
 @property(nonatomic) BOOL busy;
 @property(nonatomic) NSUInteger starts;
 @property(nonatomic) NSUInteger detachments;
+@property(nonatomic) NSUInteger retries;
+@property(nonatomic) BOOL failStart;
 @end
 @implementation GlobalVoiceTargetProbe
 - (pid_t)globalVoiceTargetPID { return _pid; }
 - (BOOL)globalVoiceBusy { return _busy; }
 - (BOOL)globalVoiceProcessing { return NO; }
-- (void)startGlobalVoiceHolding:(BOOL)holding { (void)holding; ++_starts; _busy = YES; }
+- (MSIMEGlobalVoiceStartResult)startGlobalVoiceHolding:(BOOL)holding { (void)holding; ++_starts; if (_failStart) return MSIMEGlobalVoiceStartFailed; if (_retries) { --_retries; return MSIMEGlobalVoiceStartRetry; } _busy = YES; return MSIMEGlobalVoiceStartAccepted; }
 - (void)stopGlobalVoice { _busy = NO; }
 - (void)cancelGlobalVoice { _busy = NO; }
 - (void)endGlobalVoice { _busy = NO; }
@@ -14180,6 +14182,43 @@ static GlobalVoiceGestureProbe *GlobalGestureProbe() {
     return probe;
 }
 static void TestGlobalVoiceBoundaries() {
+    {
+        GlobalVoiceTargetProbe *target = [GlobalVoiceTargetProbe new]; target.pid = 42; target.failStart = YES;
+        GlobalVoiceSessionProbe *probe = [[GlobalVoiceSessionProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)target; }];
+        probe.application = [GlobalVoiceApplicationProbe new]; probe.application.processIdentifier = 42;
+        probe.clock = 1; probe.focus = [NSObject new]; probe.source = @"com.apple.keylayout.ABC";
+        [probe begin:NO];
+        probe.source = @"synthetic.msime.Hans";
+        [probe advance];
+        assert(target.starts == 1 && !target.busy && [probe valueForKey:@"sessionPoll"] == nil);
+        assert([probe.selected isEqual:@"com.apple.keylayout.ABC"]);
+        [probe advance];
+        assert(target.starts == 1); // 明确失败不能反复触发提供商或权限请求。
+    }
+    {
+        GlobalVoiceTargetProbe *target = [GlobalVoiceTargetProbe new]; target.pid = 42; target.retries = 10;
+        GlobalVoiceSessionProbe *probe = [[GlobalVoiceSessionProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)target; }];
+        probe.application = [GlobalVoiceApplicationProbe new]; probe.application.processIdentifier = 42;
+        probe.clock = 1; probe.focus = [NSObject new]; probe.source = @"synthetic.msime.Hans";
+        [probe begin:YES];
+        assert(target.starts == 1 && !target.busy);
+        [probe setValue:@NO forKey:@"holding"];
+        [probe advance];
+        assert(target.starts == 1 && [probe valueForKey:@"sessionPoll"] == nil);
+    }
+
+    {
+        GlobalVoiceTargetProbe *target = [GlobalVoiceTargetProbe new]; target.pid = 42; target.retries = 1;
+        GlobalVoiceSessionProbe *probe = [[GlobalVoiceSessionProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)target; }];
+        probe.application = [GlobalVoiceApplicationProbe new]; probe.application.processIdentifier = 42;
+        probe.clock = 1; probe.focus = [NSObject new]; probe.source = @"synthetic.msime.Hans";
+        [probe begin:NO];
+        assert(target.starts == 1 && !target.busy);
+        [probe advance];
+        assert(target.starts == 2 && target.busy); // 客户端暂时未准备好时不能把整轮提前结束。
+        [probe cancel];
+    }
+
     {
         GlobalVoiceTargetProbe *target = [GlobalVoiceTargetProbe new]; target.pid = 42;
         GlobalVoiceSessionProbe *probe = [[GlobalVoiceSessionProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)target; }];
