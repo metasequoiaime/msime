@@ -2852,13 +2852,20 @@ final class NineKeyKeyboardTests: XCTestCase {
     let state = FileManager.default.temporaryDirectory
       .appendingPathComponent("msime-suspend-\(UUID().uuidString)", isDirectory: true)
     defer { try? FileManager.default.removeItem(at: state) }
+    let locks = try dictionaryLockFiles(stateRoot: state)
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    XCTAssertTrue(bridge.holdsSession)
     var snapshot = bridge.cancel()
     for letter in "nihao" { snapshot = bridge.handleCharacter(String(letter)) }
     XCTAssertTrue(snapshot.candidates.contains("你好"))
+    // 键盘收起时的退路（`releaseDictionarySession`）就靠这两步：组字没结束时拒绝销毁、锁还在手上；取消剩下的组字后再试，锁就放掉了（#10634）。
     XCTAssertFalse(bridge.suspendDictionarySession(), "an open composition still owns the session")
+    XCTAssertTrue(bridge.holdsSession)
+    XCTAssertFalse(locks.allSatisfy(exclusiveLockAvailable), "a refused suspend must leave the session and its lease alone")
     _ = bridge.cancel()
     XCTAssertTrue(bridge.suspendDictionarySession())
+    XCTAssertFalse(bridge.holdsSession)
+    XCTAssertTrue(locks.allSatisfy(exclusiveLockAvailable), "suspending after the cancel did not hand the lease back")
     XCTAssertTrue(bridge.suspendDictionarySession(), "suspending twice is not an error")
     // Pausing learning would leave the session, and its dictionary access, very much alive. Only a
     // destroyed session hands the access back, and a destroyed session cannot answer a keystroke.
@@ -2881,6 +2888,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state, startsSuspended: true)
     XCTAssertFalse(bridge.initializationFailed)
     XCTAssertTrue(bridge.dictionarySessionSuspended)
+    XCTAssertFalse(bridge.holdsSession)
     XCTAssertTrue(locks.allSatisfy(exclusiveLockAvailable), "a bridge that has not resumed holds the dictionary lease")
     // 键盘出现之前 `viewDidLoad` 就按文档设一遍这些状态：不能报「尚未准备完成」，也不能丢。
     XCTAssertNil(bridge.switch(toShuangpinProfile: "xiaohe").diagnosticText)
@@ -2911,6 +2919,20 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(snapshot.candidates.contains("你好"), "nine-key chosen while suspended did not reach the session")
     _ = bridge.cancel()
     XCTAssertTrue(bridge.suspendDictionarySession())
+  }
+
+  /// 运行时准备失败的桥从没建过会话，也没进挂起状态。诊断日志里的 `session_held` 看的是 `holdsSession`，不能看「没挂起」，否则这样的键盘在真机日志里会被记成持锁（#10634）。
+  func testABridgeWhoseRuntimeFailedToPrepareHoldsNoSession() throws {
+    let root = FileManager.default.temporaryDirectory
+      .appendingPathComponent("msime-prepare-failed-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let resources = root.appendingPathComponent("resources", isDirectory: true)
+    try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
+    let bridge = MetasequoiaInputSessionBridge(resources: resources,
+                                               stateRoot: root.appendingPathComponent("state", isDirectory: true),
+                                               startsSuspended: true)
+    XCTAssertTrue(bridge.initializationFailed, "precondition: an empty resource directory must fail preparation")
+    XCTAssertFalse(bridge.holdsSession)
   }
 
   /// 键盘控制器在出现之前不持锁、收起之后不再持锁，中间正常打字；收起之后才到的 `viewDidAppear` 不把会话建回来。

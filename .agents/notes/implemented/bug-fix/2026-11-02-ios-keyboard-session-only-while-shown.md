@@ -10,7 +10,7 @@ Status: implemented
 
 - 取得过早。`KeyboardViewController` 的存储属性 `session = MetasequoiaInputSessionBridge()` 在控制器创建时执行，桥的 `init` 当场建会话。系统为输入框建了控制器、键盘却还没出现（或出现被打断）时，锁已经在手上。
 - 只有一个释放点。会话只在 `viewWillDisappear` 里由 `suspendDictionarySession` 销毁，没有 `viewDidDisappear` 兜底，扩展级通知只注册了 `NSExtensionHostWillResignActive`，而且不放会话。
-- 释放会静默失败。`finishComposition` 之后还留着组字时 `suspendDictionarySession` 返回 false，会话和锁都留着，调用方既不重试也不记日志。
+- 释放会静默失败。`suspendDictionarySession` 在还有组字时返回 false，会话和锁都留着，调用方既不重试也不记日志。按代码看 iOS 上走不到这一步：键盘不设高亮，`finishComposition` 总从第 0 行结束，引擎的 `finish_composition` 逐段上屏到没有组字为止（唯一提前返回的「📅日期」入口从不排在第 0 行），九键的 `finish` 最后总是 `Cancel`。但这一点靠的是引擎和运行时（插件行、快捷模式前缀）各条结束路径的细节，不是桥的契约，所以仍按会失败处理。
 
 另有一条概率较低的路径：收起之后才到的 `viewDidAppear` 会重启两秒一轮的词库维护定时器，有活动的云词库快照请求时 `DictionarySnapshotWorker.tick` 可能重新取得 `worker.lock`。
 
@@ -22,8 +22,8 @@ Status: implemented
 - 挂起且选项已准备好（`recordsStateForNextSession`）时，桥只记状态、不报诊断：`updatePreferences` 把改动写进 `options["preferences"]` 并返回 true，下一个会话由 `engineOptions` 带上它；网格、全角、中文标点经 `applySessionState` 记在桥上、返回空快照，`createFocusedSession` 建会话时重放（AI 凭据和隐私标记原本就这样记、这样重放）。`viewDidLoad` 在键盘出现之前就按文档设一遍方案、网格、全角和学习偏好，所以这一条是必需的：否则方案切换报「九键模式切换失败」、网格不记下，建出来的会话回到 26 键。准备失败（选项为空）时照旧报失败。
 - `applyInputContext` 在会话挂起时不再 `render(discardComposition())`：没有组字可丢，问会话只会拿回「输入运行时尚未准备完成。」画在键盘上。
 - 控制器加 `isPresented`，`viewWillAppear` 置 true、`viewWillDisappear` 置 false。`idleForMaintenance` 要求它为 true，`viewDidAppear` 在它为 false 时不开始维护、不起定时器。
-- 释放集中在 `releaseDictionarySession()`：`suspendDictionarySession()` 返回 false 时记 `dictionary_suspend_retry`，取消剩下的组字再试一次（用户的输入已经由 `finishComposition` 上屏，取消的只是不随它结束的那一截）；仍然失败记 `dictionary_suspend_failed`。`viewDidDisappear` 在 `isPresented` 为 false 时再调一次，作为第二道保险。
-- 真机验收用的诊断：`NSExtensionHostDidEnterBackground` 时记 `host_background session_held= presented=`，控制器释放时还持着会话记 `controller_released session_held=1`。
+- 释放集中在 `releaseDictionarySession()`：`suspendDictionarySession()` 返回 false 时记 `dictionary_suspend_retry`，取消剩下的组字再试一次（用户的输入已经由 `finishComposition` 上屏，取消的只是不随它结束的那一截）；仍然失败记 `dictionary_suspend_failed`。宿主能走到的输入里没找到在 `finishComposition` 之后还留着组字的，这条退路是防御性的，控制器层面没有用例能触发它；它依赖的两步由桥的单测守着（见 Verification）。`viewDidDisappear` 在 `isPresented` 为 false 时再调一次，作为第二道保险。
+- 真机验收用的诊断：`NSExtensionHostDidEnterBackground` 时记 `host_background session_held= presented=`，控制器释放时还持着会话记 `controller_released session_held=1`。`session_held` 看桥的 `holdsSession`（句柄非零），不看「没挂起」：运行时准备失败时 `init` 在置 `suspended` 之前就返回了，桥既没挂起也没有会话，按「没挂起」记会让准备失败的键盘在日志里显示成持锁，把重访信号变成误报。
 
 ## Alternatives considered
 
@@ -44,6 +44,8 @@ Status: implemented
 ## Verification
 
 - `MSIMEKeyboardTests/NineKeyKeyboardTests/testABridgeThatStartsSuspendedHoldsNoLockUntilResumed`：只准备不建会话的桥在 `resume` 之前、`suspend` 之后都能对两个 `.msime-dictionary-access.lock` 取得独占 flock；挂起时选的小鹤双拼（会话有小鹤键面提示，`nihc` 打出「你好」）和九键在建出来的会话里生效。
+- `MSIMEKeyboardTests/NineKeyKeyboardTests/testSuspendReleasesDictionaryAccessAndResumeStillConverts`：`releaseDictionarySession` 退路依赖的两步。组字没结束时 `suspendDictionarySession` 返回 false，会话还在（`holdsSession`）、两个 `.msime-dictionary-access.lock` 都取不到独占锁；`cancel` 之后再挂起成功，锁都放掉。控制器里「失败就取消再试」那三行本身没有用例触发，理由见 Decision。
+- `MSIMEKeyboardTests/NineKeyKeyboardTests/testABridgeWhoseRuntimeFailedToPrepareHoldsNoSession`：资源目录为空、准备失败的桥 `holdsSession` 为 false，诊断里的 `session_held` 不会把它记成持锁。
 - `MSIMEKeyboardTests/NineKeyKeyboardTests/testKeyboardHoldsTheDictionaryLeaseOnlyWhileItIsShown`：控制器 `loadViewIfNeeded` 加 `applyInputContext` 之后不持锁、不显示诊断，`viewWillAppear` 后持锁并能打出「你好」，`viewDidAppear` 后两秒维护定时器在走；`viewWillDisappear` 后定时器停、不持锁，晚到的 `viewDidAppear` 不重启定时器、不取回锁。
 - `MSIMEKeyboardTests/NineKeyKeyboardTests/testABridgeThatStartsSuspendedHoldsNoGenerationLeaseUntilResumed`：把随包资源复制成 `dictionary-updates/generations/<64 位十六进制>` 这样的下载代次交给挂起起步的桥，`resume` 之前、`suspend` 之后都能对 `generations/<代次>.lock` 取得独占 flock，会话存在时取不到。Rust 侧 `a_session_on_a_downloaded_generation_holds_it_until_destroyed` 守着同一把锁从建会话持有到销毁。
 - 真机：iPhone XR 上按 #10634 的操作（设置页与试用页之间快速来回切换，同时唤出、收起键盘）做 50 次以上，Console 里不应再出现 `dead10cc`，诊断日志里不应出现上面三条重访信号。

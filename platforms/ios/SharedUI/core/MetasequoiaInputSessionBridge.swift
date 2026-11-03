@@ -1927,6 +1927,9 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   /// 会话在收起时销毁、还没在下一次出现时重建：这时 `resumeDictionarySession` 要同步建一整个会话。
   var dictionarySessionSuspended: Bool { suspended }
 
+  /// 手上是否真有一个会话（也就持着它的词库租约和代次锁）。不能拿 `!dictionarySessionSuspended` 代替：运行时准备失败时桥没进挂起状态，却从没建过会话，诊断里若按「没挂起」记成持锁，真机上就会把它误当成还有一条持锁路径（#10634）。
+  var holdsSession: Bool { handle != 0 }
+
   // Recreated from the options prepared when this process started. Preparation streams every pinned
   // resource through SHA-256, so repeating it for each presentation would cost far more than the
   // session itself; the options stay valid for the life of the process.

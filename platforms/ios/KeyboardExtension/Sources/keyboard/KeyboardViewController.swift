@@ -893,7 +893,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     MainActor.assumeIsolated {
       viewIfLoaded?.subviews.forEach { $0.removeFromSuperview() }
       // 会话随桥一起销毁；释放时还持着会话，说明它跳过了 `viewWillDisappear`，在那之前锁一直在手上（#10634）。
-      if !session.dictionarySessionSuspended { DiagnosticLog.shared.write("controller_released session_held=1") }
+      if session.holdsSession { DiagnosticLog.shared.write("controller_released session_held=1") }
     }
   }
 
@@ -9757,7 +9757,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   @objc private func noteSessionInBackground() {
-    DiagnosticLog.shared.write("host_background session_held=\(session.dictionarySessionSuspended ? 0 : 1) presented=\(isPresented ? 1 : 0)")
+    DiagnosticLog.shared.write("host_background session_held=\(session.holdsSession ? 1 : 0) presented=\(isPresented ? 1 : 0)")
   }
 
   private func selectTraditionalOutput(_ traditional: Bool) {
