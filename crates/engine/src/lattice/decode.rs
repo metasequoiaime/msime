@@ -32,6 +32,8 @@ pub type CollocationScorer<'a> = dyn Fn(&str, &str, bool) -> f64 + 'a;
 /// The knobs of one decode.
 #[derive(Clone)]
 pub struct LatticeOptions<'a> {
+    /// 束搜索里给假设打分的模型，见 [`BeamModel`]；`None` 时整句只按词频和 n 元表解。
+    pub beam_model: Option<BeamModel<'a>>,
     /// 这次输入是不是一句话的开头（[`opens_sentence`]）：开头的第一条边是只出现在句尾的语气词时扣 [`SENTENCE_OPENING_PARTICLE_PENALTY`]。
     pub opens_sentence: bool,
     pub beam: usize,
@@ -142,6 +144,7 @@ fn bonus_syllables(word: &str, syllables: usize) -> usize {
 impl Default for LatticeOptions<'_> {
     fn default() -> Self {
         Self {
+            beam_model: None,
             opens_sentence: false,
             beam: 32,
             nbest: 5,
@@ -999,6 +1002,97 @@ pub(super) fn decode_graph_resuming(
     }
 }
 
+/// 束搜索里让模型给假设打分（[`crate::ordering::SentenceScorer`]）：每一列剪枝之后、往后展开之前，给这一列每个假设的整段文字打逐字平均对数概率，把这一步新增的模型分乘 `weight` 加进假设的分。
+///
+/// 只靠词频和 n 元表时，正确的整句常常在半路就被剪掉：「下周 | 死伤 | 闲的」凭成词奖励一路领先，到最后交给逐键模型比较的几十条整句里根本没有「下周四上线的」，模型再准也挑不到。让模型在每一列就参与，看着不像话的前缀留不到后面。2026-11-03 在 Mac 上用 6x256 配 32 条量（权重 1）：正确整句出现在候选里的比例 typing-chat dev 83.6% → 92.7%，首选 68.2% → 76.4%，六个集合合计改对 70、改错 20。见 `.agents/notes/implemented/feature/2026-11-03-model-in-lattice-beam.md`。
+#[derive(Clone, Copy)]
+pub struct BeamModel<'a> {
+    pub scorer: &'a dyn crate::ordering::SentenceScorer,
+    /// 模型读的上文：已经上屏的文字。
+    pub context: &'a str,
+    /// 模型分（自然对数，逐字之和）乘以它加进假设的分；词网格的分同样是自然对数。
+    pub weight: f64,
+    /// 文字 → 逐字平均对数概率的备忘，只对 `context` 成立。每次按键整句都重解，前面几列和上一键一样，只有新的一列要跑模型。
+    pub memo: &'a RefCell<HashMap<String, f32>>,
+}
+
+/// 挂着整句打分器时，模型分在假设的分里占的权重。在 typing-chat dev、sentences-neutral、sentences-v2 上试了 0.5、1、2：1 在三个集合上都不比别的差，2 让 neutral 和语气词集变差。
+pub const BEAM_MODEL_WEIGHT: f64 = 1.0;
+
+/// 假设一路走过来的文字：沿前驱回溯到起点，把每条边的词接起来。前驱都在 `earlier` 这些列里。
+fn hyp_text(earlier: &[BeamColumn<'_>], hyp: &Hyp<'_>) -> String {
+    let mut words = Vec::new();
+    if let Some(edge) = hyp.edge {
+        words.push(edge.word.as_str());
+    }
+    let mut at = hyp.edge.map(|_| hyp.prev);
+    while let Some((column, row)) = at {
+        let step = &earlier[column].hyps[row];
+        let Some(edge) = step.edge else { break };
+        words.push(edge.word.as_str());
+        at = Some(step.prev);
+    }
+    words.reverse();
+    words.concat()
+}
+
+/// 给 `hyps`（前驱都在 `earlier` 里）加上模型分，返回每个假设到此为止的模型总分（逐字之和），与 `hyps` 对齐；`totals` 是前面各列的。`terminal` 时末尾那条边是句尾语气词的假设不加：模型不知道句子在这里结束，句尾的「呀」「吧」在它看来像句中，交给 [`SENTENCE_FINAL_PARTICLE_BONUS`]。模型打不了分时这一列不动。
+fn beam_model_rescore(
+    model: &BeamModel<'_>,
+    earlier: &[BeamColumn<'_>],
+    totals: &[Vec<f64>],
+    hyps: &mut [Hyp<'_>],
+    terminal: bool,
+) -> Vec<f64> {
+    let parent = |hyp: &Hyp<'_>| {
+        if hyp.edge.is_none() {
+            0.0
+        } else {
+            totals
+                .get(hyp.prev.0)
+                .and_then(|column| column.get(hyp.prev.1))
+                .copied()
+                .unwrap_or(0.0)
+        }
+    };
+    let texts: Vec<String> = hyps.iter().map(|hyp| hyp_text(earlier, hyp)).collect();
+    if texts.is_empty() || texts.iter().any(String::is_empty) {
+        return hyps.iter().map(parent).collect();
+    }
+    let mut memo = model.memo.borrow_mut();
+    let missing: Vec<&str> = {
+        let mut seen = HashSet::new();
+        texts
+            .iter()
+            .map(String::as_str)
+            .filter(|text| !memo.contains_key(*text) && seen.insert(*text))
+            .collect()
+    };
+    if !missing.is_empty() {
+        let scores = model.scorer.log_probabilities(model.context, &missing);
+        if scores.len() != missing.len() {
+            return hyps.iter().map(parent).collect();
+        }
+        for (text, score) in missing.into_iter().zip(scores) {
+            memo.insert(text.to_owned(), score);
+        }
+    }
+    hyps.iter_mut()
+        .zip(&texts)
+        .map(|(hyp, text)| {
+            let total = f64::from(memo[text.as_str()]) * text.chars().count() as f64;
+            let final_particle = terminal
+                && hyp
+                    .edge
+                    .is_some_and(|edge| is_sentence_final_particle(&edge.word));
+            if !final_particle {
+                hyp.score += model.weight * (total - parent(hyp));
+            }
+            total
+        })
+        .collect()
+}
+
 fn decode_graph_with_terminal<const WIDE_TERMINAL: bool>(
     graph: &Graph,
     options: &LatticeOptions<'_>,
@@ -1044,6 +1138,18 @@ fn decode_graph_with_terminal<const WIDE_TERMINAL: bool>(
         edge: None,
         typo_edges: 0,
     });
+    // 模型分只对这段上文成立，接前缀的存档里没有它：挂着模型时不接前缀，前面几列重解一遍，模型分从备忘里取。
+    let beam_model = options.beam_model;
+    if beam_model.is_some() {
+        resume = None;
+    }
+    let mut model_totals: Vec<Vec<f64>> = if beam_model.is_some() {
+        let mut totals = vec![Vec::new(); n + 1];
+        totals[0] = vec![0.0];
+        totals
+    } else {
+        Vec::new()
+    };
     // 只有不带附加边、音节数与图相符时才接前缀；接上时列 0..=resumed_at 已经是剪枝后的终态。
     let resume_scoring = resume
         .as_deref()
@@ -1073,6 +1179,11 @@ fn decode_graph_with_terminal<const WIDE_TERMINAL: bool>(
                 cxx_sort::finish_partial(&mut columns[pos].hyps, options.beam, &mut scores_higher);
             } else {
                 keep_beam(&mut columns[pos].hyps, options.beam);
+            }
+            if let (Some(model), true) = (beam_model.as_ref(), pos > 0) {
+                let (earlier, rest) = columns.split_at_mut(pos);
+                model_totals[pos] =
+                    beam_model_rescore(model, earlier, &model_totals, &mut rest[0].hyps, false);
             }
         }
         // 图边在列内按终点升序排；补展开只走终点越过 resumed_at 的那一段列尾。
@@ -1230,6 +1341,9 @@ fn decode_graph_with_terminal<const WIDE_TERMINAL: bool>(
         cxx_sort::finish_partial(&mut last, terminal_limit, &mut scores_higher);
     } else {
         keep_beam(&mut last, terminal_limit);
+    }
+    if let Some(model) = beam_model.as_ref() {
+        beam_model_rescore(model, &columns[..n], &model_totals, &mut last, true);
     }
     cxx_sort::sort(&mut last, &mut scores_higher);
     let take = options.nbest.min(last.len());
@@ -1794,6 +1908,76 @@ pub(super) mod tests {
         assert_eq!(function_word_bonus("着", &span("zhao")), 0.0);
         // 只加给单独成边的助词，多字条目照旧。
         assert_eq!(function_word_bonus("飘了", &span("piao'le")), 0.0);
+    }
+
+    /// 只认「下周四上线」这一句的打分器：它的前缀每字 -1，别的每字 -6。数一数被要了几条文字的分，看备忘有没有用上。
+    struct PrefersOneSentence {
+        sentence: &'static str,
+        scored: std::sync::atomic::AtomicUsize,
+    }
+
+    impl crate::ordering::SentenceScorer for PrefersOneSentence {
+        fn log_probabilities(&self, _context: &str, candidates: &[&str]) -> Vec<f32> {
+            self.scored
+                .fetch_add(candidates.len(), std::sync::atomic::Ordering::Relaxed);
+            candidates
+                .iter()
+                .map(|text| {
+                    if self.sentence.starts_with(text) {
+                        -1.0
+                    } else {
+                        -6.0
+                    }
+                })
+                .collect()
+        }
+    }
+
+    /// 只看词频，「下周死上线」领先「下周四上线」。模型在每一列剪枝之后给束里的前缀打分，分数随假设带到后面的列，「下周四」一路领先，成为首选；同一段上文再解一遍，前面各列的分全从备忘里取，不再问模型。
+    #[test]
+    fn the_beam_model_scores_prefixes_and_remembers_them() {
+        let rows = table(&[
+            ("xia'zhou", &[("下周", 50000)]),
+            ("si", &[("死", 9000), ("四", 8000)]),
+            ("si'shang", &[("死伤", 20000)]),
+            ("shang", &[("上", 9000)]),
+            ("xian", &[("线", 8000), ("闲", 7000)]),
+            ("shang'xian", &[("上线", 20000)]),
+        ]);
+        let mut options = LatticeOptions {
+            beam: 2,
+            ..LatticeOptions::default()
+        };
+        assert_eq!(
+            best("xia'zhou'si'shang'xian", &rows, &options),
+            "下周死上线"
+        );
+
+        let scorer = PrefersOneSentence {
+            sentence: "下周四上线",
+            scored: Default::default(),
+        };
+        let memo = RefCell::default();
+        options.beam_model = Some(BeamModel {
+            scorer: &scorer,
+            context: "",
+            weight: BEAM_MODEL_WEIGHT,
+            memo: &memo,
+        });
+        assert_eq!(
+            best("xia'zhou'si'shang'xian", &rows, &options),
+            "下周四上线"
+        );
+        let scored = scorer.scored.load(std::sync::atomic::Ordering::Relaxed);
+        assert!(scored > 0);
+        assert_eq!(
+            best("xia'zhou'si'shang'xian", &rows, &options),
+            "下周四上线"
+        );
+        assert_eq!(
+            scorer.scored.load(std::sync::atomic::Ordering::Relaxed),
+            scored
+        );
     }
 
     #[test]
