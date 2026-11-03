@@ -7298,6 +7298,78 @@ fn mixed_wubi_continues_a_pinyin_reading_past_a_native_four_code() {
     }
 }
 
+/// #10696：四码唯一自动上屏和第五码顶字是两个开关。只关前者时，完整四码之后再敲字母仍按顶字上屏首选，看起来像自动上屏没关掉；两个都关、混输开着时，这串字母才整串留在组字里，回车按原样上屏，空格仍选首选。混输关着时纯五笔没有地方放第五个字母，照旧顶字，不丢键。
+#[test]
+fn wubi_fifth_letter_stays_in_the_composition_only_when_top_commit_is_off_and_mixed_is_on() {
+    let start = |mixed: bool, unique: bool, top: bool| {
+        let directory = tempfile::tempdir().unwrap();
+        let mut options = real_engine_options(directory.path());
+        options.scheme = 2;
+        options.wubi_mixed_pinyin = mixed;
+        options.mixed_english = false;
+        rusqlite::Connection::open(
+            std::path::Path::new(&options.dictionaries).join(msime_engine::assets::MAIN_DICTIONARY),
+        )
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
+                INSERT INTO wubi86 VALUES('wqaa','合成甲',100),('eeee','合成乙',100);",
+        )
+        .unwrap();
+        let mut runtime =
+            Runtime::new(msime_engine::host::Session::new(&options).unwrap(), 5).unwrap();
+        runtime.set_wubi_auto_commit_unique(unique);
+        runtime.set_wubi_fifth_code_top_commit(top);
+        runtime.focus(true).unwrap();
+        (directory, runtime)
+    };
+    let type_key = |runtime: &mut Runtime<msime_engine::host::Session>, value: u8| {
+        runtime
+            .dispatch(Action::Character {
+                value,
+                shift: false,
+            })
+            .unwrap()
+    };
+
+    // 出厂设置（两个开关都开）：第四键就把唯一的词上屏。
+    let (_directory, mut runtime) = start(true, true, true);
+    let committed: Vec<_> = b"wqaa"
+        .iter()
+        .filter_map(|value| type_key(&mut runtime, *value).commit)
+        .collect();
+    assert_eq!(committed, ["合成甲"]);
+
+    for mixed in [false, true] {
+        for top in [false, true] {
+            // 自动上屏关掉：四码停在候选里。
+            let (_directory, mut runtime) = start(mixed, false, top);
+            for value in b"wqaa" {
+                assert!(type_key(&mut runtime, *value).commit.is_none());
+            }
+            assert_eq!(runtime.view().editing_text, "wqaa");
+            assert_eq!(runtime.view().candidates[0].text, "合成甲");
+            let fifth = type_key(&mut runtime, b'e');
+            if mixed && !top {
+                assert!(fifth.commit.is_none(), "{fifth:?}");
+                assert_eq!(fifth.view.editing_text, "wqaae");
+                let raw = runtime
+                    .dispatch(Action::Command(Command::CommitRaw))
+                    .unwrap();
+                assert_eq!(raw.commit.as_deref(), Some("wqaae"));
+            } else {
+                // 顶字：首选上屏，第五个字母开始下一组编码。
+                assert_eq!(
+                    fifth.commit.as_deref(),
+                    Some("合成甲"),
+                    "mixed={mixed} top={top}"
+                );
+                assert_eq!(fifth.view.editing_text, "e");
+            }
+        }
+    }
+}
+
 /// Android 设备验收「26 键五笔第五码顶字（混输开）」在运行时的对应：`wqiy` 的简拼前缀不挡顶字，`a` 选掉「你」并开始下一组编码。宿主开着 `phrase_preedit`（安卓、现代 Windows）时「你」留在暂存词段、不立即上屏，下一段选词时连同它一起上屏。
 #[test]
 fn a_fifth_letter_after_wqiy_commits_the_topped_word_even_with_phrase_preedit() {

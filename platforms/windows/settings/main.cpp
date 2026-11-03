@@ -13843,6 +13843,13 @@ private:
                L"在候选后面标出还要再打哪几个字母才能单独打出它。已经打完整码的候选不标。",
                L"wubi_code_hint", true);
       build_wubi_candidate_selection(group);
+      // 下面两项与共享设置页 WubiSection 的同名开关相同，缺省值取 Rust `Preferences::default`（z 通配关、顶字开）。
+      bool_row(group, 0xE8CB, L"z 键通配",
+               L"开启后 z 可匹配码表中该位置的任意字母（含首位），常用于首码不确定时起头；同时停用 z 引导的临时拼音反查。",
+               L"wubi_z_wildcard", false);
+      bool_row(group, 0xE8CB, L"第五码将首选上屏",
+               L"完整四码后再敲字母时上屏首选，并把该字母留作下一组开头；关闭只在拼音混输开启时生效，这个字母并入混输串。混输关闭时仍按顶字上屏，不会丢字。",
+               L"wubi_fifth_code_top_commit", true);
       bool_row(group, 0xE8CB, L"五笔四码唯一候选自动上屏",
                L"五笔输入达到四码且只有一个候选时，自动提交该候选。关闭后这个词留在候选列表里，用空格或数字键选它。",
                L"wubi_auto_commit_unique", true);

@@ -3588,9 +3588,9 @@ impl<E: InputEngine> Runtime<E> {
         // 四码已有五笔候选时，后续字母通常顶字上屏并开始下一组编码。混输拼音能继续当前候选的读音时，
         // 由引擎保留组字，避免把五字母拼音截成四码。判定本身是纯函数（`wubi_top_commit_on_next_key`），
         // 开关、混输、四码完整性与读音续输四项都在那里，方便单测覆盖。
-        let wubi_top_commit = match action {
+        let letter_request = match action {
             Action::Character { value, shift } if value.is_ascii_alphabetic() => {
-                wubi_top_commit_on_next_key(&WubiTopCommitRequest {
+                Some(WubiTopCommitRequest {
                     top_commit_enabled: self.wubi_fifth_code_top_commit,
                     mixed_pinyin: self.engine.wubi_mixed_pinyin(),
                     four_code_is_complete: self.snapshot_valid
@@ -3599,6 +3599,19 @@ impl<E: InputEngine> Runtime<E> {
                     pinyin_continues: self.engine.wubi_pinyin_continues(value, shift),
                 })
             }
+            _ => None,
+        };
+        // 顶字关掉、混输开着：这个小写字母并进混输串（#10696）。引擎平时只在码表答不出或读音能续写时放开四码上限，不先放开的话这一键会被挡掉。
+        if let (Action::Character { shift: false, .. }, Some(request)) = (&action, &letter_request)
+        {
+            if wubi_mixed_grows_on_next_key(request) {
+                self.engine.allow_wubi_mixed_extension();
+            }
+        }
+        let wubi_top_commit = match action {
+            Action::Character { .. } if letter_request.is_some() => letter_request
+                .as_ref()
+                .is_some_and(wubi_top_commit_on_next_key),
             // 五笔 14 键：组码不进混输拼音，四码之后的一键只能顶字，不看混输开关。
             Action::GridKey(_) => wubi_top_commit_on_next_key(&WubiTopCommitRequest {
                 top_commit_enabled: self.wubi_fifth_code_top_commit,
@@ -4096,6 +4109,15 @@ pub(crate) struct WubiTopCommitRequest {
 /// 的 `(top_commit_enabled || !mixed_pinyin_enabled)` 是同一个条件。`!pinyin_continues` 是水杉自己加的（#8619）：字母能继续混输拼音的读音时，无论开关如何都保留组字，否则 `guiyi` 这类首四码碰上五笔整码的拼音打不出来。
 pub(crate) fn wubi_top_commit_on_next_key(request: &WubiTopCommitRequest) -> bool {
     (request.top_commit_enabled || !request.mixed_pinyin)
+        && request.four_code_is_complete
+        && request.phrase_prefix_empty
+        && !request.pinyin_continues
+}
+
+/// 完整四码之后再敲一个字母、顶字开关关着时，这个字母是否并进混输串：混输开着、四码完整、没有暂存词段。读音能续写时引擎自己会放开长度，不必再问。
+pub(crate) fn wubi_mixed_grows_on_next_key(request: &WubiTopCommitRequest) -> bool {
+    !request.top_commit_enabled
+        && request.mixed_pinyin
         && request.four_code_is_complete
         && request.phrase_prefix_empty
         && !request.pinyin_continues
