@@ -318,6 +318,11 @@ impl CandidateScorer for OnnxScorer {
     fn static_evidence_weight(&self) -> f64 {
         0.3
     }
+
+    /// 两个 ONNX 模型都比落定重排用的随包 `model-v1` 桌面版准，停顿后不再让它重排一遍。
+    fn supersedes_settled_rerank(&self) -> bool {
+        true
+    }
     /// 打不了分（候选为空、太长，或图运行失败）时返回空表，`rerank_pick` 见长度不符就不动候选；失败后缓存作废，下一次按键从上文重来。
     fn log_probabilities(&mut self, context: &str, candidates: &[&str]) -> Vec<f32> {
         if candidates.is_empty() || candidates.iter().any(|c| c.is_empty()) {

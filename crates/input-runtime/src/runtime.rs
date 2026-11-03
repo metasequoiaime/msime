@@ -1313,6 +1313,11 @@ impl<E: InputEngine> Runtime<E> {
         // 重排必须推进候选代次，避免旧身份选到新座位；代次耗尽时不得重排。
         !self.settled_rerank_enabled
             || self.settled_reranker.is_none()
+            // 逐键打分器比落定模型强时，它排出的就是最终顺序，见 `CandidateScorer::supersedes_settled_rerank`。
+            || self
+                .reranker
+                .as_deref()
+                .is_some_and(CandidateScorer::supersedes_settled_rerank)
             || self.is_idle()
             || self.generation.checked_add(1).is_none()
             // 落定重排按座位挪行，插件插入的行没有引擎下标，会被当成引擎的候选挪走；有插入的行时不做。
