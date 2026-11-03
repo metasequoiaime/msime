@@ -2902,7 +2902,7 @@ fn default_candidate_columns() -> u8 {
     6
 }
 
-/// 候选窗文字的字重。只有这四档：中文字体的字面大多落在这几档之间，更细或更轻的档位多数字体没有，选了也只会落到同一个字面上；斜体不提供，汉字没有真斜体，系统只能把字形硬倾斜。
+/// 候选窗文字的字重。只有这四档：中文字体的字面大多落在这几档之间，更细或更轻的档位多数字体没有，选了也只会落到同一个字面上；斜体不提供，汉字没有真斜体，系统只能把字形硬倾斜。宿主各抄了一份字重表（macOS、Windows、Linux），scripts/test-candidate-font-weight-parity.py 核对它们的取值、数值和预编辑下限与这里一致。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum CandidateFontWeight {

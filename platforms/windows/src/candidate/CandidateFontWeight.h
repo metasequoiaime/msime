@@ -5,7 +5,7 @@
 #include <string_view>
 
 namespace msime::windows {
-// 共享偏好 `candidate_font_weight`（client-core 的 `CandidateFontWeight`）：文档里的取值、DirectWrite 用的 OpenType 字重和设置页上的名字。缺这个键就是常规，等于这个设置出现之前的画法。
+// 共享偏好 `candidate_font_weight`（client-core 的 `CandidateFontWeight`）：文档里的取值、DirectWrite 用的 OpenType 字重和设置页上的名字。缺这个键就是常规，等于这个设置出现之前的画法。这份表抄自 Rust，scripts/test-candidate-font-weight-parity.py 核对它与 Rust 和另外两端一致。
 struct CandidateFontWeightOption {
   std::string_view id;
   unsigned weight;
