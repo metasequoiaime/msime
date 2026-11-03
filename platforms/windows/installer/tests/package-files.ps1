@@ -47,6 +47,8 @@ try {
         'server/build-release/bin/Release/msime-client-settings.pdb',
         'server/build-release/bin/Release/MSIME.exe',
         'server/build-release/bin/Release/MSIME.pdb',
+        'server/build-release/bin/Release/msime-client-panels.exe',
+        'server/build-release/bin/Release/msime-client-panels.pdb',
         'server/build-release/bin/Release/RestartAgent.exe',
         'windows/build32-release/Release/MetasequoiaImeTsf.dll',
         'windows/build32-release/Release/MetasequoiaImeTsf.pdb',
@@ -212,6 +214,8 @@ try {
                          'server_exe/msime-client-settings.pdb',
                          'server_exe/MSIME.exe',
                          'server_exe/MSIME.pdb',
+                         'server_exe/msime-client-panels.exe',
+                         'server_exe/msime-client-panels.pdb',
                          'server_exe/msime-client-prepare.exe',
                          'server_exe/msime-client-prepare.pdb',
                          'server_exe/RestartAgent.exe',
@@ -365,6 +369,14 @@ try {
     if (-not $rejected) { throw 'Missing WinUI settings shell was accepted' }
     if ([IO.File]::ReadAllText($database) -ne 'preserved user data') { throw 'Missing shell damaged previous staging' }
     [IO.File]::WriteAllText($nativeDesktop, 'fixture')
+    # 现代包缺原生面板宿主同样在动旧暂存之前拒绝。
+    $nativePanels = Join-Path $fixture 'server/build-release/bin/Release/msime-client-panels.exe'
+    Remove-Item -LiteralPath $nativePanels
+    $rejected = $false
+    try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Light } catch { $rejected = $_.Exception.Message -match 'msime-client-panels' }
+    if (-not $rejected) { throw 'Missing native panel host was accepted' }
+    if ([IO.File]::ReadAllText($database) -ne 'preserved user data') { throw 'Missing native panel host damaged previous staging' }
+    [IO.File]::WriteAllText($nativePanels, 'fixture')
     # 声明目录给绝对路径时照用，不再接到 RepoRoot 后面（Invoke-LocalInstall.ps1 传的就是绝对路径）。
     & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -TsfDirectory windows -ServerDirectory server -NoticesDirectory ([IO.Path]::GetFullPath($fixture)) -Light
     if ([IO.File]::ReadAllText($database) -ne 'preserved user data') { throw 'Light package replaced dictionary data' }
@@ -640,7 +652,7 @@ foreach($name in @('MetasequoiaImeTsf.dll','MetasequoiaImeCrashWer.dll','msime_h
         foreach ($name in @('msime-client-settings-win7.exe','msime-client-panels-win7.exe','msime_host_api.dll')) {
             if ([IO.File]::ReadAllText((Join-Path $package "server_exe/$name")) -cne "synthetic $arch $name") { throw "Win7 wrong architecture or entry: $arch $name" }
         }
-        foreach ($name in @('msime-client-settings.exe','MSIME.exe','MetasequoiaImeTsf.dll','MetasequoiaImeCrashWer.dll','windows7-websocket-runtime.exe','files.txt','windows7-imports.txt','windows7-runtime-closure.json')) {
+        foreach ($name in @('msime-client-settings.exe','MSIME.exe','msime-client-panels.exe','MetasequoiaImeTsf.dll','MetasequoiaImeCrashWer.dll','windows7-websocket-runtime.exe','files.txt','windows7-imports.txt','windows7-runtime-closure.json')) {
             if (Test-Path (Join-Path $package "server_exe/$name")) { throw "Win7 packaged extraneous file: $name" }
         }
         foreach ($tip in @('32') + @($(if ($arch -eq 'x64') { '64' }))) {
