@@ -31,6 +31,8 @@ macOS 的 AppKit 设置窗口冻结为最小回退。`platforms/macos/src/settin
 
 归属表和这两条规则的现行表述在 `docs/ARCHITECTURE.md` 的「设置界面按平台归属」一节，根 README、各语言 README、parity 文档和平台 README 都指向那里。
 
+2026-11-03 起方向改为所有平台的全部界面原生化、不再使用 WebView，见[全部界面改为原生](../../proposed/architecture/2026-11-03-all-native-ui.md)。本篇的归属表仍是迁移完成前的现状；「每平台只写界面、规则下沉到 Rust」继续有效；「macOS 上的新设置只进共享 React 设置页」被那篇的迁移期规则取代：`packages/ui` 只修缺陷，新设置先进共享 Rust，再进已有原生设置的平台。
+
 ### iOS 昵称
 
 iOS 的 `CommunityProfilePolicy` 只经既有 `msime_client_account_name` 取得规范化昵称、合法性与长度上限；昵称编辑页和保存入口消费同一份结果，不再用 Foundation 的空白集合、控制字符集合和本地常量重建规则。这个接口不创建会话、不访问文件和网络，可以同步用于输入提示；请求仍受共享 C 接口的 16 KiB 上限约束，失败时不能保存，不用 Swift 校验兜底。
