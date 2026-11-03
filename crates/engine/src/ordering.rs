@@ -40,6 +40,11 @@ pub trait CandidateScorer: Send {
     /// 上屏的文字变了（runtime 每次上屏、或宿主送来上文之后调），`context` 是此后按键时排序所依据的全部上文，尚未按 [`rerank_context`] 截短。按上文缓存模型状态的后端可以趁下一次按键之前在别的线程把它编码好，按键线程就不用等；默认什么都不做。这里不能同步做耗时的事：调用就在上屏那一次按键里。
     fn context_changed(&mut self, _context: &str) {}
 
+    /// 挂着这个逐键打分器时，停顿后的落定重排（`Runtime::rerank_settled`）不再做：它逐键排出的顺序就是最终顺序。默认 `false`，随包的 [`Reranker`] 不报。ONNX Runtime 后端报 `true`：落定模型是随包的 `model-v1` 桌面版，比它弱，停顿后再排一遍只会把它选对的换掉——2026-11-03 在 typing-chat test 上，6x256 配 32 条首选 79.1%，加上落定重排降到 73.6%，与真实 macOS 输入法停顿后按空格量出的 73.2% 吻合（220 段里 192 段首选一字不差）。
+    fn supersedes_settled_rerank(&self) -> bool {
+        false
+    }
+
     /// 模型认为应当提到首位的候选下标，`None` 为不动；规则同 [`Reranker::best_where`]：首行是可信的词典命中或首行不回答按键时不比较，只比较前 [`COMPARED_LIMIT`] 条回答按键的候选，少于两条不比较。
     fn best_where(
         &mut self,

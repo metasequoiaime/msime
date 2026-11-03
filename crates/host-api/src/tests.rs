@@ -8896,6 +8896,8 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
     assert!(scorer.sentence_pool() >= msime_engine::ordering::SENTENCE_POOL);
     // 共用的那一份要把 ONNX 后端的混合权重也报出来，不能落回默认的 0.5。
     assert_eq!(scorer.static_evidence_weight(), 0.3);
+    // 也要报出它比落定模型强，否则停顿后随包的 model-v1 仍会把它排好的顺序再排一遍。
+    assert!(scorer.supersedes_settled_rerank());
     assert_eq!(
         scorer
             .log_probabilities("我们今天", &["去北京", "去背景"])

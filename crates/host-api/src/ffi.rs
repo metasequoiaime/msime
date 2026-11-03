@@ -643,6 +643,11 @@ impl msime_input_runtime::CandidateScorer for SharedOnnxScorer {
         self.lock().static_evidence_weight()
     }
 
+    // 不转发就落到默认的 `false`，宿主挂上 ONNX 后端时停顿后仍会让随包的 model-v1 再排一遍。
+    fn supersedes_settled_rerank(&self) -> bool {
+        self.lock().supersedes_settled_rerank()
+    }
+
     fn context_changed(&mut self, context: &str) {
         if self.primer.is_none() {
             self.primer = spawn_context_primer(Arc::clone(&self.scorer));

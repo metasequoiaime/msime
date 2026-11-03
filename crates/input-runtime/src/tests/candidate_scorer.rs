@@ -129,3 +129,65 @@ fn the_scorer_hears_each_new_context_after_a_commit() {
 
     assert_eq!(*heard.lock().unwrap(), ["我们", "我们他"]);
 }
+
+/// 给每个候选同样的分，逐键重排不动；`supersedes` 是它报的 `supersedes_settled_rerank`。
+struct Even {
+    supersedes: bool,
+}
+
+impl CandidateScorer for Even {
+    fn context_length(&self) -> usize {
+        64
+    }
+
+    fn log_probabilities(&mut self, _context: &str, candidates: &[&str]) -> Vec<f32> {
+        vec![-1.0; candidates.len()]
+    }
+
+    fn supersedes_settled_rerank(&self) -> bool {
+        self.supersedes
+    }
+}
+
+/// 逐键打分器报自己比落定模型强（ONNX 后端）时，停顿后不再让落定模型重排：同步、异步两条路都不动。不报时（随包模型）照旧重排。
+#[test]
+fn a_stronger_keystroke_scorer_leaves_no_settled_rerank() {
+    let open = |supersedes: bool| {
+        let mut runtime = Runtime::new(
+            Fixture {
+                local_mode: "none".into(),
+                words: vec!["甲甲".into(), "乙乙".into()],
+                codes: vec!["jia'jia".into(), "jia'jia".into()],
+                sources: vec![LATTICE_SOURCE, LATTICE_SOURCE],
+                ..Fixture::default()
+            },
+            5,
+        )
+        .unwrap();
+        runtime.set_candidate_scorer(Some(Box::new(Even { supersedes })));
+        runtime.set_settled_reranker(Some(Reranker::new(std::sync::Arc::new(favouring_model(
+            &CHARACTERS,
+            &['乙'],
+        )))));
+        runtime.set_settled_rerank_enabled(true);
+        runtime.focus(true).unwrap();
+        runtime
+            .dispatch(Action::Character {
+                value: b'j',
+                shift: false,
+            })
+            .unwrap();
+        runtime
+    };
+    let first = |runtime: &Runtime<Fixture>| runtime.view().candidates[0].text.clone();
+
+    let mut onnx = open(true);
+    assert_eq!(first(&onnx), "甲甲");
+    assert!(onnx.begin_settled_rerank().is_none());
+    assert!(!onnx.rerank_settled());
+    assert_eq!(first(&onnx), "甲甲");
+
+    let mut bundled = open(false);
+    assert!(bundled.rerank_settled());
+    assert_eq!(first(&bundled), "乙乙");
+}
