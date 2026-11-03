@@ -551,6 +551,33 @@ def clear_dictionary_outdated() -> None:
                 marker.unlink()
 
 
+def remove_replaced_resources(prefix: Path, options_file: Path, replaced: Path, target: Path) -> bool:
+    """切换成功后删掉被换下的那份词库目录（#10735），返回是否删掉了。以前它一直留着让用户自己删，每次升级换锁就多一个 resources-* 目录。
+
+    只删当前用户自己下载的那份（与 updatable 同一条规则），随包词库的位置一律不删，哪怕装在 ~/.local 这类前缀下；符号链接、已经不是目录的、与新目录是同一个的都不碰。默认状态目录的 runtime-options.json 若不是这次更新的那份、却还指着它（用 --state 另建过一份状态），也留下。与锁一致的文件在新目录里是硬链接，删旧目录只去掉旧的那个名字。删除出错只是少删，不影响已经完成的切换。"""
+    try:
+        if replaced.is_symlink() or not replaced.is_dir():
+            return False
+        resolved = replaced.resolve()
+        if resolved in ((prefix / "share/msime-client/resources").resolve(), target.resolve()):
+            return False
+    except OSError:
+        return False
+    if not updatable(replaced, prefix):
+        return False
+    default = config_home() / "msime-client/runtime-options.json"
+    if default != options_file and default.is_file():
+        try:
+            recorded = read_options(default).get("resources")
+        except SystemExit:
+            # 读不出来就不知道它指着哪里，按还在用处理。
+            return False
+        if not isinstance(recorded, str) or Path(recorded).resolve() == resolved:
+            return False
+    shutil.rmtree(replaced, ignore_errors=True)
+    return not replaced.exists()
+
+
 def update_dictionaries(prefix: Path, lock: dict, options_file: Path, download: bool) -> int:
     """把已有状态记录的那份词库补到已安装的锁，再切换代次并回放用户词库。"""
     document = read_options(options_file)
@@ -590,6 +617,8 @@ def update_dictionaries(prefix: Path, lock: dict, options_file: Path, download: 
             result, switched = run_refresh(prefix, options_file, document, target)
             if switched and running("ibus-daemon"):
                 time.sleep(IBUS_OPTIONS_RELOAD)
+            # 会话仍被请走时删：配置已经指向新目录，宿主重新打开的会话不会再读旧目录。
+            removed = bool(switched) and target != resources and remove_replaced_resources(prefix, options_file, resources, target)
     except HostsBusy:
         print("输入法仍有输入会话占用词库，没有切换：runtime-options.json 未改动，输入法继续使用旧词库。请稍后再运行一次。", file=sys.stderr)
         return 1
@@ -601,8 +630,10 @@ def update_dictionaries(prefix: Path, lock: dict, options_file: Path, download: 
             print("已切换到新版本的词库，用户词库已回放进去。输入法在切换期间暂停了输入会话，现在已恢复，新的输入即使用新词库。")
         else:
             print(f"已改用校验通过的词库目录 {target}。词库版本没有变化，用户词库原样沿用，不需要回放；输入法在切换期间暂停了输入会话，现在已恢复。")
-        if target != resources:
-            print(f"旧词库目录 {resources} 保留未动，确认新词库正常后可以自行删除。")
+        if removed:
+            print(f"已删除换下的旧词库目录 {resources}。")
+        elif target != resources:
+            print(f"旧词库目录 {resources} 还有别的配置在用或删不掉，保留未动；确认不再需要后可以自行删除。")
         return 0
     if result.returncode == 0 and target == resources:
         # 记录的目录本来就与锁一致：词库已校验，代次也已是当前的，没有要改的。新目录没能换进配置（刷新输出了认不出的结果）则不算成功，落到下面的失败说明。
