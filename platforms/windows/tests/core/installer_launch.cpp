@@ -218,7 +218,7 @@ int main(int argc, char **argv) {
     const auto post_install = between(script, "if CurStep = ssPostInstall then",
                                       "procedure CurUninstallStepChanged");
     const auto finish_call = post_install.find("FinishDataDirMove;");
-    for (const char *step : {"CreateWatchdogLogonTask;", "EnsureImeUserDataDir;"})
+    for (const char *step : {"CreateWatchdogLogonTask then", "EnsureImeUserDataDir;"})
       if (finish_call == std::string::npos ||
           post_install.find(step) == std::string::npos ||
           post_install.find(step) > finish_call)

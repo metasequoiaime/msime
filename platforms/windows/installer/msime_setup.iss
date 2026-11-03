@@ -1,4 +1,4 @@
-﻿; Metasequoia IME — Inno Setup script
+; Metasequoia IME — Inno Setup script
 ; 源文件根目录：本脚本所在目录
 ;
 ; 编译方法：
@@ -20,7 +20,7 @@
 #include "editions.iss"
 #define MyAppName      MyEditionAppName
 #ifndef MyAppVersion
-#define MyAppVersion   "0.0.1"
+#define MyAppVersion   "0.4.1"
 #endif
 #define MyAppPublisher "Metasequoia"
 #define MyAppExeName   "MetasequoiaImeServer.exe"
@@ -1234,8 +1234,9 @@ begin
   then
   begin
     { 任务已经建好、开机自启照常，只是还带着默认的降级设置；这不是装不装得上的问题，
-      不能像创建失败那样打断安装，也不值得让用户做一个他做不了的动作，只记日志。 }
-    Log('Configuring the watchdog logon task failed: ' + IntToStr(ResultCode) + ' ' + SysErrorMessage(ResultCode));
+      不能像创建失败那样打断安装，也不值得让用户做一个他做不了的动作，只记日志。
+      这里不记 SysErrorMessage：脚本的退出码是我们自己定的 1，不是 Win32 错误码。 }
+    Log('Configuring the watchdog logon task failed: ' + IntToStr(ResultCode));
   end;
 end;
 

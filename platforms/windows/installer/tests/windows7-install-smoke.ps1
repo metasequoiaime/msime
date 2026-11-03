@@ -80,8 +80,8 @@ if ($task) {
     $settings = $task.Definition.Settings
     Check ($settings.Priority -eq 4) 'watchdog task keeps the normal priority'
     Check ($settings.ExecutionTimeLimit -eq 'PT0S') 'watchdog task has no execution time limit'
-    Check ($task.Principal.LogonType -eq 3) 'watchdog task keeps the interactive logon type'
-    Check ($task.Principal.RunLevel -eq 0) 'watchdog task keeps the non-elevated run level'
+    Check ($task.Definition.Principal.LogonType -eq 3) 'watchdog task keeps the interactive logon type'
+    Check ($task.Definition.Principal.RunLevel -eq 0) 'watchdog task keeps the non-elevated run level'
 }
 $rules = (Get-Acl -LiteralPath $dataDir).GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])
 $modify = @($rules | Where-Object { $_.AccessControlType -eq 'Allow' -and $_.IdentityReference.Value -eq 'S-1-5-32-545' -and

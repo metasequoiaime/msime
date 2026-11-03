@@ -26,7 +26,7 @@ msime-windows 的 PR 1328（`fix(server): 恢复交互优先级并修正登录�
 
 **输入线程**（`src/system/ThreadPriority.*` + `InputQueue`）：`InputQueue::submit` 增加 `InputTaskPriority` 参数，默认 `Background`。`InputQueue::run` 执行任务时对 `Foreground` 任务套一个 `ScopedThreadPriorityBoost(THREAD_PRIORITY_ABOVE_NORMAL)`，离开作用域恢复进入时的值（不是硬编码 Normal）。
 
-标记为 `Foreground` 的是用户正在等结果的路径：`SessionPump` 的连接、每包 `dispatch`、按键、按键直接引发的界面/焦点事件、送达确认，以及 `SessionController` 的点选、候选动作（置顶/删除/固定/清除）、翻页，和 Aux 管道里 DLL 只等 150 ms 的 `deactivate_terminal`。后两项与上游同一份分级：PR 1328 的 `event_listener_task_class.cpp` 把 `UiPinCandidate`、`UiDeleteCandidate`、`UiFixCandidatePosition`、`UiClearCandidatePosition`、`ClientDeactivated` 都归在 `Foreground`，`UserAction` 只收 `UiExpandCandidates`、`ExitEnglishInputMode`、`ToolbarLanguageToggle`。字典维护（quiesce/resume）、偏好发布、展开取完整列表、富化结果回填、模式读取保持 `Background`：提权是为了让用户的按键抢得过后台计算，不是让后台计算抢按键。
+标记为 `Foreground` 的是用户正在等结果的路径：`SessionPump` 的连接、每包 `dispatch`、按键、按键直接引发的界面/焦点事件、送达确认，以及 `SessionController` 的点选、候选动作（置顶/删除/固定/清除）、翻页，和 Aux 管道里 DLL 只等 150 ms 的 `deactivate_terminal`。候选动作与 `deactivate_terminal` 的分级出处是上游 PR #1329（`d56e7d2f48`）：它把置顶、删除、固定、清除从 `UserAction` 挪进 `Foreground`，并把 `ClientDeactivated` 留在 `Foreground`，动机是候选操作与会话重建的 IPC 顺序。本仓库的输入队列本来就是先进先出，不需要那个顺序保证；这里保留 `Foreground` 只是为了提权，和上游的顺序动机无关。字典维护（quiesce/resume）、偏好发布、展开取完整列表、富化结果回填、模式读取保持 `Background`：提权是为了让用户的按键抢得过后台计算，不是让后台计算抢按键。
 
 ## Alternatives considered
 
@@ -56,7 +56,8 @@ msime-windows 的 PR 1328（`fix(server): 恢复交互优先级并修正登录�
 - `windows-process-priority`（`tests/runtime/process_priority.cpp`）：先把进程降到 `BELOW_NORMAL_PRIORITY_CLASS` + `MEMORY_PRIORITY_LOW` 并读回确认，调用恢复逻辑后读回 Normal。内存优先级只在宿主真的两种值都写得进去时才验；Wine 那类只实现一半 API 的环境按不支持处理，不会因此判失败。环境不允许（job 对象、没有该 API）时以 77 跳过。本机 MSVC 实跑：`restore cpu_ok=1 cpu_error=0 memory_ok=1 memory_error=0 class=0x20 memory=5 lowered_memory=1`。
 - `windows-thread-priority`（`tests/runtime/thread_priority.cpp`）：先从 Normal 起步证明这台主机接受 Above normal，再验守卫启用期间读回 Above normal、析构回到进入值；从 Below normal 进入再提升一次，证明恢复的是捕获值。本机实跑：`boost active=1 priority=1`。
 - `windows-input-queue` 增加用例：后台任务看到的就是工作线程进入时的优先级，前台任务运行期间读回 Above normal，之后再跑一个后台任务确认已恢复；主机拒绝优先级时按跳过处理。
-- `installer/tests/watchdog-task.ps1`：静态核对配置脚本走 COM、设置 `Priority=4` 与 `PT0S`、不碰电池、读回失败要 `exit 1`、失败后先查任务是否存在、只在创建成功后才配置；在提权的 Windows 会话里把安装器里的脚本原样抽出来跑一遍，再用 `Get-ScheduledTask` 读回设置和主体，并用坏 `UserId` 让一次注册失败，确认任务和设置都还在。本机（非提权）通过了静态部分；抽脚本、跑脚本、读回设置、失败保留、删任务后重建这四条流程都在探针任务上手跑过，结果一致（含中文任务名）。
-- `installer/tests/install-smoke.ps1` 增加安装后任务的 `Priority` 与执行时限核对；`windows7-install-smoke.ps1` 补同样的两项，外加 `LogonType`、`RunLevel` 不变（PS 2.0，走 COM）；`lifecycle.ps1` 的 `EnsureImeUserDataDir` 块结束标记跟着改成 `function CreateWatchdogLogonTask: Boolean;`。
+- `installer/tests/watchdog-task.ps1`：静态核对配置脚本走 COM、设置 `Priority=4` 与 `PT0S`、不碰电池、读回失败要 `exit 1`、失败后先查任务是否存在、只在创建成功后才配置；在提权的 Windows 会话里把安装器里的脚本原样抽出来，按两条真实调用路径各跑一遍——系统自带 `powershell.exe -Command "<脚本>"`（安装器用的就是这条，Win7 是 2.0，其它系统是 5.1）和 `pwsh -EncodedCommand`——每次都从默认 Priority 7 起步并用 `Get-ScheduledTask` 读回设置与主体，再用坏 `UserId` 让一次注册失败，确认任务和设置都还在。本机（非提权）通过了静态部分；抽脚本、内联 `-Command` 跑脚本、读回设置、失败保留、删任务后重建这五条流程都在探针任务上手跑过，结果一致（含中文任务名）。
+- 没有自动化覆盖的路径：`ConfigureWatchdogLogonTask` 里「注册失败且任务已经消失，用同一份定义再注册一次重建」那一支。要触发它必须先让第一次注册失败、同时任务不在，安装器的正常输入做不到；本机手工验证过「删任务后用同一份定义 `RegisterTaskDefinition(6)` 能连同主体一起重建」，脚本这一支只有静态检查。
+- `installer/tests/install-smoke.ps1` 增加安装后任务的 `Priority` 与执行时限核对；`windows7-install-smoke.ps1` 补同样的两项，外加 `Definition.Principal.LogonType`、`RunLevel` 不变（PS 2.0，走 COM；`IRegisteredTask` 本身没有 `Principal`，它在 `Definition` 下面）；`lifecycle.ps1` 的 `EnsureImeUserDataDir` 块结束标记跟着改成 `function CreateWatchdogLogonTask: Boolean;`。
 - `src/input/InputQueue.cpp`、`src/ipc/SessionPump.cpp`、`src/ipc/SessionController.cpp` 用 MSVC `/W4 /EHsc` 单独编过；同环境下有 `WordCharacterPolicy.h` 触发的既有 C4244，与本改动无关，固定工具链上没有。
 - 这些 CTest 用例不会在 CI 上执行：Windows GNU 交叉构建只链接不运行，MSVC 也不编主 CMake 工程。实跑靠维护者或本机。

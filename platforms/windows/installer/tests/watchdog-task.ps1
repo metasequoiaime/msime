@@ -120,12 +120,15 @@ try {
         $_.Value.Substring(1, $_.Value.Length - 2).Replace("''", "'")
     })
     $configureScript = $configureScript.Replace('{#MyWatchdogTaskName}', $taskName)
-    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($configureScript))
-    $shell = (Get-Process -Id $PID).Path
-    $configured = Start-Process -FilePath $shell -ArgumentList @(
-        '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $encoded) -Wait -PassThru
+
+    # 安装器用的是系统自带的 Windows PowerShell 加内联 -Command（Win7 上是 2.0，其它系统是
+    # 5.1）。先按这条真实命令行跑一遍，确认脚本在安装器那条路径上也成立。
+    if ($configureScript.Contains('"')) { throw 'The priority configuration script cannot be passed inline' }
+    $systemShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $inline = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "' + $configureScript + '"'
+    $configured = Start-Process -FilePath $systemShell -ArgumentList $inline -Wait -PassThru
     if ($configured.ExitCode -ne 0) {
-        throw "Priority configuration failed with exit code $($configured.ExitCode)"
+        throw "Priority configuration through powershell.exe -Command failed with exit code $($configured.ExitCode)"
     }
     $configuredTask = Get-ScheduledTask -TaskName $taskName
     $stored = $configuredTask.Settings
@@ -140,6 +143,23 @@ try {
         @($configuredTask.Triggers).Count -ne 1 -or
         @($configuredTask.Triggers)[0].CimClass.CimClassName -ne 'MSFT_TaskLogonTrigger') {
         throw 'Priority configuration did not preserve the logon trigger or the interactive principal'
+    }
+
+    # 再从默认 Priority 7 重建一次，用编码命令跑同一份脚本：两条调用路径都覆盖。
+    $null = Invoke-Schtasks "/Delete /F /TN `"$taskName`""
+    $recreated = Invoke-Schtasks $arguments
+    if ($recreated.ExitCode -ne 0) { throw "schtasks /Create failed again ($($recreated.ExitCode)): $($recreated.Output)" }
+    if ((Get-ScheduledTask -TaskName $taskName).Settings.Priority -ne 7) {
+        throw 'The recreated task did not start from the default priority'
+    }
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($configureScript))
+    $second = Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList @(
+        '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $encoded) -Wait -PassThru
+    if ($second.ExitCode -ne 0) {
+        throw "Priority configuration through -EncodedCommand failed with exit code $($second.ExitCode)"
+    }
+    if ((Get-ScheduledTask -TaskName $taskName).Settings.Priority -ne 4) {
+        throw 'The encoded-command path did not raise the priority'
     }
 
     # 注册失败时任务必须还在：安装器的兜底只在它真的消失时才重建。这里用一个坏的
