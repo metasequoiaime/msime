@@ -1085,7 +1085,7 @@ begin
   ServerDir := ExpandConstant('{autopf}\{#MyEditionInstallDir}\server');
   { Watchdog 必须先停，否则它可能在升级或卸载期间重新启动 Server。}
   StopProcessesUnder(ServerDir, 'MetasequoiaImeWatchdog');
-  { 然后是 Server、WinUI 设置窗口、承载面板的 MSIME.exe 和 AI 助手拉起的 msime-mcp.exe：它们都在 server 目录里，也都不在 Server 的进程树里。}
+  { 然后是 Server、WinUI 设置窗口、承载面板的 MSIME.exe 或 msime-client-panels.exe 和 AI 助手拉起的 msime-mcp.exe：它们都在 server 目录里，也都不在 Server 的进程树里。}
   StopProcessesUnder(ServerDir, '');
 end;
 

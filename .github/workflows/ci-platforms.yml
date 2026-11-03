@@ -833,6 +833,16 @@ jobs:
           Copy-Item target/debug/msime_host_api.dll "$output/RelWithDebInfo/"
           ctest --test-dir $output -C RelWithDebInfo --output-on-failure
           if ($LASTEXITCODE -ne 0) { throw 'Windows 7 handwriting controls tests failed' }
+          # 同一份面板源码的现代 Windows 变体：Build-Client.ps1 把它编成 msime-client-panels.exe 随现代包安装（MSIME_WINDOWS_PANEL_HOST=native 时承载面板）。不链接 HarfBuzz、版本取 version.txt、跳到别的界面时找现代包的程序名，这里用同一套面板测试核对它在现代 Windows 上编得过、跑得通。
+          $modern = 'target/windows-full/x64/panels'
+          cmake -S platforms/windows/panels/win7 -B $modern -A x64 -DMSIME_PANELS_MODERN_WINDOWS=ON "-DCMAKE_TOOLCHAIN_FILE=$toolchain" "-DVCPKG_MANIFEST_DIR=$env:GITHUB_WORKSPACE/platforms/windows/settings/win7" "-DVCPKG_INSTALLED_DIR=$env:GITHUB_WORKSPACE/target/windows-native-deps/win7-settings" -DVCPKG_TARGET_TRIPLET=x64-windows-static-md "-DMSIME_HOST_LIBRARY=$env:GITHUB_WORKSPACE/target/debug/msime_host_api.dll.lib"
+          if ($LASTEXITCODE -ne 0) { throw 'Modern native panel host configuration failed' }
+          cmake --build $modern --config RelWithDebInfo --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'Modern native panel host build failed' }
+          if (-not (Test-Path -LiteralPath "$modern/RelWithDebInfo/msime-client-panels.exe" -PathType Leaf) -or (Test-Path -LiteralPath "$modern/RelWithDebInfo/msime-client-panels-win7.exe")) { throw 'Modern native panel host has the wrong executable name' }
+          Copy-Item target/debug/msime_host_api.dll "$modern/RelWithDebInfo/"
+          ctest --test-dir $modern -C RelWithDebInfo --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'Modern native panel host tests failed' }
       - name: Check Windows 7 product editions
         if: ${{ needs.changes.outputs.windows == 'true' }}
         shell: pwsh
