@@ -64,9 +64,9 @@ fn incomplete_evidence_falls_back_to_the_existing_model() {
     }
 }
 
+/// 全拼整句一个字一个音节，字数不同就是同一串字母的另一种切法（`yaoshangxian` 的「要上线」和切成 xi'an 的「要上西安」）。模型只在和首选同样多字的读法之间换，哪怕它更喜欢另一种切法。
 #[test]
-fn static_means_compare_complete_readings_of_different_lengths() {
-    // 模型同样喜欢每个字；总分会选短读法，逐字平均必须让长读法胜出。
+fn readings_of_another_length_are_not_compared() {
     let rows = [row("乙"), row("乙乙")];
     let scores = [evidence(-5000, 1), evidence(-6000, 2)];
     assert_eq!(
@@ -77,16 +77,56 @@ fn static_means_compare_complete_readings_of_different_lengths() {
             false,
             &ScoredOrderRows::new(&rows, &scores)
         ),
-        Some(1)
+        None
     );
-    let tied = [evidence(-3000, 1), evidence(-6000, 2)];
+}
+
+/// 同样字数的读法照常按词网格逐字平均和模型分的混合比较：词网格分相同时听模型的，词网格分差得足够多时不换。
+#[test]
+fn readings_of_the_same_length_mix_static_means_with_the_model() {
+    let rows = [row("甲甲"), row("乙乙")];
+    let even = [evidence(-6000, 2), evidence(-6000, 2)];
     assert_eq!(
         rerank_pick(
             &mut model(),
             "",
             0,
             false,
-            &ScoredOrderRows::new(&rows, &tied)
+            &ScoredOrderRows::new(&rows, &even)
+        ),
+        Some(1)
+    );
+    let apart = [evidence(-1000, 2), evidence(-60000, 2)];
+    assert_eq!(
+        rerank_pick(
+            &mut model(),
+            "",
+            0,
+            false,
+            &ScoredOrderRows::new(&rows, &apart)
+        ),
+        None
+    );
+}
+
+/// 跳过字数不同的读法不扩大比较的窗口：窗口外排得更靠后的读法不会因此补进来。
+#[test]
+fn skipping_other_lengths_keeps_the_comparison_window() {
+    let mut texts = vec!["甲甲".to_owned()];
+    texts.extend((0..8).map(|_| "甲甲甲".to_owned()));
+    texts.push("乙乙".to_owned());
+    let rows: Vec<OrderRow<'_>> = texts.iter().map(|text| row(text)).collect();
+    let scores: Vec<_> = texts
+        .iter()
+        .map(|text| evidence(-3000 * text.chars().count() as i64, text.chars().count()))
+        .collect();
+    assert_eq!(
+        rerank_pick(
+            &mut model(),
+            "",
+            0,
+            false,
+            &ScoredOrderRows::new(&rows, &scores)
         ),
         None
     );
