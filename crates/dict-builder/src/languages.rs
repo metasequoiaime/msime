@@ -35,7 +35,7 @@ pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<Strin
         None => Vec::new(),
     };
     let corpus = hkcancor::parse(&corpus)?;
-    // 两张异体表和否决表都必须在 checkout 里：缺了 `HKVariants.txt` 就换不出「濕」，缺了否决表就会把「搵」换成「揾」，与其悄悄构建出另一份字形，不如直接失败。
+    // 两张异体表和否决表都必须在 checkout 里，缺了就直接失败，不退回旧的替换清单：只有 msime-dictionary 的发布跑 `languages`，它总是构建 `main` 的当前提交，碰到缺文件只可能是两个仓库的 PR 合反了顺序，报出缺哪个文件比悄悄发布另一份字形好查。
     let tw_variants = text::read(&sources.pinned(cantonese::TW_VARIANTS)?)?;
     let hk_variants = text::read(&sources.pinned(cantonese::HK_VARIANTS)?)?;
     let vetoes =
