@@ -44,6 +44,8 @@ RUST_ONLY: dict[str, set[str]] = {
         "dictionary_sync_webdav",
         # 崩溃上报授权代次是共享基础的本机内部状态；平台设置入口留给后续各宿主 PR，不在共享 React 页提前暴露。
         "usage_reporting_consent",
+        # 候选字重（#10748）：packages/ui 迁移期只修缺陷，控件只在 Windows 原生设置页；macOS 随原生设置迁移再加，期间经 MCP 或偏好文档设置。
+        "candidate_font_weight",
 
     },
     "KeybindingPreferences": set(),
