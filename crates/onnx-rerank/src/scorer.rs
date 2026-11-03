@@ -10,6 +10,11 @@ use std::sync::OnceLock;
 /// 上文留给候选的字数：[`CandidateScorer::context_length`] 报上文字数加这么多，`rerank_context` 据此在候选不太长时把上文完整交过来，又在候选很长时提前截短。
 const CANDIDATE_ROOM: usize = 16;
 
+/// 未知字这一类大约有多少个字：字表外的汉字（CJK 统一汉字及扩展 A 约 2.7 万，扩展 B 以后更多）减去字表里的 1.2 万，取 2 万。
+///
+/// 模型给未知字的概率是「随便哪个生僻字」的总概率，拿它和一个具体的常用字比不公平：2026-11-03 在 Mac 上，句首的「饭别做太多」成了「𫔍别做太多」，「别什么都」成了「癟什么都」，这两个字都不在字表里。每个未知字扣 ln(这个数)，把这一类的概率摊回到一个字上。
+const UNKNOWN_CLASS_SIZE: f64 = 20_000.0;
+
 /// 缓存里的候选前缀超过这么多就从上文重来：长时间不上屏、反复改拼音时缓存只增不减，每次按键的注意力也跟着变长。
 const PREFIX_LIMIT: usize = 512;
 
@@ -329,7 +334,17 @@ impl CandidateScorer for OnnxScorer {
             return Vec::new();
         }
         match self.score(context, candidates) {
-            Ok(scores) => scores,
+            Ok(mut scores) => {
+                // 分数是逐字平均：每个未知字扣 ln(UNKNOWN_CLASS_SIZE)，再按字数摊。
+                for (score, candidate) in scores.iter_mut().zip(candidates) {
+                    let unknown = self.vocabulary.unknown(candidate);
+                    if unknown > 0 {
+                        let characters = candidate.chars().count() as f64;
+                        *score -= (unknown as f64 * UNKNOWN_CLASS_SIZE.ln() / characters) as f32;
+                    }
+                }
+                scores
+            }
             Err(_) => {
                 self.forget();
                 Vec::new()
