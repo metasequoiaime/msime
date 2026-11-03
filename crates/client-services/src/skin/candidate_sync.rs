@@ -413,6 +413,9 @@ pub fn delete_installed(root: &Path, state_path: &Path, id: &str) -> Result<bool
 /// [`delete_unselected`] 要删的皮肤还放在偏好的浅色或深色槽位里。
 pub const IN_USE: &str = "candidate_skin_in_use";
 
+/// [`delete_unselected`] 读不出偏好，没法判断皮肤是否选着，什么都没删。与 `storage`（皮肤文件夹或同步状态读写失败）分开，宿主据此说清是哪一样出了问题。
+pub const PREFERENCES_UNREADABLE: &str = "preferences_unreadable";
+
 /// 自定义主题里放着皮肤 `id` 的槽位，按 `candidate_skin`、`candidate_skin_dark` 的顺序给出字段名。不看当前全局主题是不是 `custom`：切回自定义主题时槽位里的皮肤还会被用上。
 pub fn selected_slots(custom: &CustomTheme, id: &str) -> Vec<&'static str> {
     [
@@ -425,7 +428,7 @@ pub fn selected_slots(custom: &CustomTheme, id: &str) -> Vec<&'static str> {
     .collect()
 }
 
-/// 设置页和 MCP 的「删除皮肤」：偏好 `preferences` 里浅色或深色槽位（[`selected_slots`]）还放着 `id` 时返回 [`IN_USE`]，什么都不删，也不顺手改偏好：改偏好要走保存时的修订号比较，删除不该绕开它，用户先在卡片上关掉这款皮肤再删。其余同 [`delete_installed`]，包括同步状态不动、下一次同步把库里私有的那一行一起删掉、公开发布的保留。不是外部皮肤 id 时先返回 `candidate_skin_package`，不读偏好；偏好读不出来时是 `storage`。
+/// 设置页和 MCP 的「删除皮肤」：偏好 `preferences` 里浅色或深色槽位（[`selected_slots`]）还放着 `id` 时返回 [`IN_USE`]，什么都不删，也不顺手改偏好：改偏好要走保存时的修订号比较，删除不该绕开它，用户先在卡片上关掉这款皮肤再删。其余同 [`delete_installed`]，包括同步状态不动、下一次同步把库里私有的那一行一起删掉、公开发布的保留。不是外部皮肤 id 时先返回 `candidate_skin_package`，不读偏好；偏好读不出来时是 [`PREFERENCES_UNREADABLE`]，什么都不删。
 ///
 /// 读偏好和删文件夹之间不持偏好锁：这中间另一个进程把它选上的话，皮肤目录里少了这款，宿主照找不到皮肤时的规则退回自定义主题的底，与用户自己在磁盘上删掉文件夹相同。
 pub fn delete_unselected(
@@ -439,7 +442,7 @@ pub fn delete_unselected(
     }
     let custom = preferences
         .load()
-        .map_err(|_| STORAGE)?
+        .map_err(|_| PREFERENCES_UNREADABLE)?
         .preferences
         .custom_theme;
     if !selected_slots(&custom, id).is_empty() {

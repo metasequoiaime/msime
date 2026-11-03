@@ -395,6 +395,11 @@ pub fn delete(
             "no skin {id} is installed; list_candidate_skins shows the installed skins"
         )),
         Err("candidate_skin_package") => Err(format!("{id} in the skin directory is not a folder (it is a file or a symbolic link), which this tool does not remove")),
+        // 偏好读不出来时什么都没删；再读一次取原来的错误说明给代理，与改用共享规则之前一样。
+        Err(candidate_sync::PREFERENCES_UNREADABLE) => Err(preferences.load().err().map_or_else(
+            || "the preferences could not be read, so nothing was deleted".to_owned(),
+            |error| error.to_string(),
+        )),
         Err(_) => Err("the skin folder could not be removed".into()),
     }
 }
@@ -999,6 +1004,18 @@ mod tests {
         let error = delete("sunset").unwrap_err();
         assert!(error.contains("chosen as candidate_skin_dark"), "{error}");
         assert!(state.path().join("skins/sunset").is_dir());
+
+        // 偏好读不出来时什么都不删，说明讲的是偏好，不是皮肤文件夹。
+        let document = state.path().join("preferences.json");
+        let saved = std::fs::read(&document).unwrap();
+        std::fs::remove_file(&document).unwrap();
+        std::fs::create_dir(&document).unwrap();
+        let error = delete("dusk").unwrap_err();
+        assert!(error.contains("preferences document"), "{error}");
+        assert!(!error.contains("skin folder"), "{error}");
+        assert!(state.path().join("skins/dusk").is_dir());
+        std::fs::remove_dir(&document).unwrap();
+        std::fs::write(&document, saved).unwrap();
 
         for (id, expected) in [
             ("night", "cannot be deleted"),

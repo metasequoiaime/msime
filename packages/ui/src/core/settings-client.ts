@@ -103,7 +103,7 @@ export interface SettingsClient {
   listFontFamilies?: FontCatalogReader;
   resolveFontFamilies?: (names: string[]) => Promise<string[]>;
   scanSkinCatalog?: () => Promise<SkinCatalog>;
-  /** 删除用户装的外部皮肤（「主题」页皮肤卡片上的「删除」），只给文件夹名，皮肤根目录和偏好由宿主决定。规则在 client-services 的 `candidate_sync::delete_unselected`：自定义主题的浅色或深色槽位还放着它时以 `candidate_skin_in_use` 拒绝，什么都不删；其余失败码是 `candidate_skin_not_installed`、`candidate_skin_package`、`storage`。成功时回复重新扫描的目录，`synced` 是它是否和账号皮肤库同步过：同步过的私人副本下次同步时一起删掉，公开发布的保留。不提供时卡片上没有「删除」。 */
+  /** 删除用户装的外部皮肤（「主题」页皮肤卡片上的「删除」），只给文件夹名，皮肤根目录和偏好由宿主决定。规则在 client-services 的 `candidate_sync::delete_unselected`：自定义主题的浅色或深色槽位还放着它时以 `candidate_skin_in_use` 拒绝，什么都不删；其余失败码是 `candidate_skin_not_installed`、`candidate_skin_package`、`preferences_unreadable`（偏好读不出来，什么都没删）、`storage`。成功时回复重新扫描的目录，`synced` 是它是否和账号皮肤库同步过：同步过的私人副本下次同步时一起删掉，公开发布的保留。不提供时卡片上没有「删除」。 */
   deleteSkin?: (id: string) => Promise<SkinCatalog & { synced: boolean }>;
   /** 「制作皮肤」的宿主一侧：按皮肤目录的规则读一份清单，或把编辑器做的皮肤经共享安装器装进本机皮肤目录。还要 `host.candidate_skin_editor` 为真，标签才出现。 */
   candidateSkinEditor?: CandidateSkinEditorClient;

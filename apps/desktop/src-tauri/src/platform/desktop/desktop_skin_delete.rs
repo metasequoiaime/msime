@@ -16,7 +16,7 @@ pub struct SkinDeleteResponse {
     catalog: SkinCatalogResponse,
 }
 
-/// 删掉 `root` 下的皮肤 `id` 并重扫；Linux 上重扫也把新目录发布给 IBus 和 Fcitx5 宿主，与装皮肤之后相同。失败时的码原样交给页面：`candidate_skin_in_use`（偏好的槽位还放着它）、`candidate_skin_not_installed`、`candidate_skin_package`、`storage`。
+/// 删掉 `root` 下的皮肤 `id` 并重扫；Linux 上重扫也把新目录发布给 IBus 和 Fcitx5 宿主，与装皮肤之后相同。失败时的码原样交给页面：`candidate_skin_in_use`（偏好的槽位还放着它）、`candidate_skin_not_installed`、`candidate_skin_package`、`preferences_unreadable`（偏好读不出来，什么都没删）、`storage`。
 pub(crate) fn delete_skin_at(
     root: &Path,
     preferences: &PreferencesStore,

@@ -682,6 +682,24 @@ fn deleting_from_settings_removes_an_unselected_skin_and_keeps_the_sync_state() 
 }
 
 #[test]
+fn deleting_from_settings_with_unreadable_preferences_deletes_nothing() {
+    let fixture = Fixture::new();
+    write_skin(&fixture.root, "sakura", "樱花", 1);
+    fixture.sync();
+    let state = fs::read(&fixture.state).unwrap();
+    // 偏好文件的位置是个目录：读不出偏好，判断不了是否选着，什么都不删，码与皮肤文件夹读写失败的 `storage` 分开。
+    let directory = tempfile::tempdir().unwrap();
+    fs::create_dir(directory.path().join("preferences.json")).unwrap();
+    let store = crate::preferences::PreferencesStore::new(directory.path());
+    assert_eq!(
+        delete_unselected(&fixture.root, &fixture.state, &store, "sakura"),
+        Err(PREFERENCES_UNREADABLE)
+    );
+    assert!(fixture.installed("sakura"));
+    assert_eq!(fs::read(&fixture.state).unwrap(), state);
+}
+
+#[test]
 fn a_local_deletion_does_not_discard_a_newer_library_copy() {
     let fixture = Fixture::new();
     write_skin(&fixture.root, "sakura", "樱花", 1);

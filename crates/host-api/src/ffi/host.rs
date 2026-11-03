@@ -1622,7 +1622,7 @@ struct SkinDeleteRequest {
     id: String,
 }
 
-/// 设置页「主题」卡片上的「删除」，规则在 `candidate_sync::delete_unselected`：只删用户装的外部皮肤，偏好的浅色或深色槽位还放着它时是 `candidate_skin_in_use`，什么都不删；同步状态保留，下一次同步把账号皮肤库里私有的那一行一起删掉，公开发布的保留。成功时回复 `{synced, directory, packages, issues}`：`synced` 是它是否和皮肤库同步过，其余是重新扫描的目录，与 `msime_client_skin_catalog` 同形。失败时 `error` 是 `candidate_skin_in_use`、`candidate_skin_not_installed`、`candidate_skin_package`、`storage`，或请求不合法的说明。
+/// 设置页「主题」卡片上的「删除」，规则在 `candidate_sync::delete_unselected`：只删用户装的外部皮肤，偏好的浅色或深色槽位还放着它时是 `candidate_skin_in_use`，什么都不删；同步状态保留，下一次同步把账号皮肤库里私有的那一行一起删掉，公开发布的保留。成功时回复 `{synced, directory, packages, issues}`：`synced` 是它是否和皮肤库同步过，其余是重新扫描的目录，与 `msime_client_skin_catalog` 同形。失败时 `error` 是 `candidate_skin_in_use`、`candidate_skin_not_installed`、`candidate_skin_package`、`preferences_unreadable`（偏好读不出来，什么都没删）、`storage`，或请求不合法的说明。
 /// # Safety
 /// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
 #[no_mangle]
