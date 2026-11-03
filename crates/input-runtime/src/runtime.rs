@@ -1584,6 +1584,7 @@ impl<E: InputEngine> Runtime<E> {
             display_reading: self.cached.display_reading.clone(),
             editing_text: self.cached.editing_text.clone(),
             caret_position: self.cached.caret_position,
+            helpcode_trigger: self.cached.helpcode_trigger,
             preedit_caret: self.cached.preedit_caret,
             conversion: self.cached.conversion.clone(),
             conversion_focus_start: self.cached.conversion_focus_start,
@@ -3177,6 +3178,7 @@ impl<E: InputEngine> Runtime<E> {
                     display_reading: String::new(),
                     editing_text: String::new(),
                     caret_position: 0,
+                    helpcode_trigger: None,
                     preedit_caret: 0,
                     segment_raw_boundaries: vec![],
                     candidates: Vec::new(),
@@ -3237,6 +3239,7 @@ impl<E: InputEngine> Runtime<E> {
         if cached.preedit != previous.preedit
             || cached.editing_text != previous.editing_text
             || cached.caret_position != previous.caret_position
+            || cached.helpcode_trigger != previous.helpcode_trigger
             || cached.reading != previous.reading
             || cached.display_reading != previous.display_reading
             || cached.conversion != previous.conversion

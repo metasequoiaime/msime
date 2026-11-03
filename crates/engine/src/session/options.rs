@@ -179,6 +179,15 @@ impl SessionOptions {
     }
 }
 
+/// 显式辅助码前导键（`SessionOptions::helpcode_trigger_key`）在组字里的显示位置。前导键只是会话里的状态，不进 `editing_text`，宿主画按键原文时按这里把它插回去，用户才看得见自己已经进了辅助码（#10731）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub struct HelpcodeTrigger {
+    /// 前导键本身，ASCII 标点。
+    pub key: char,
+    /// 插在 `editing_text` 的第几个字节之前；后面是已经输入的辅助码（0 或 1 位）。
+    pub position: usize,
+}
+
 /// A value copy of the composition; safe to hand to another thread. `candidate_sources`, `candidate_annotations` and `candidate_answers_key` are aligned with `candidates`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SessionSnapshot {
@@ -196,6 +205,8 @@ pub struct SessionSnapshot {
     /// The ASCII source text; `caret_position` is a byte offset into it.
     pub editing_text: String,
     pub caret_position: usize,
+    /// 前导键在等辅助码（还没输或只输了一位）时它在 `editing_text` 里的位置，否则为 `None`。显示快照的 `preedit` 已经把它插在辅助码前面（`ni;`、`ni;F`）；`editing_text` 和光标不含它，前导键只在光标位于末尾时生效，所以光标总在它后面。
+    pub helpcode_trigger: Option<HelpcodeTrigger>,
     pub nine_key_spellings: Vec<String>,
     /// 九键组字时的读音行：首选候选覆盖的数字显示成它的拼音，其余数字按 `preedit` 原样显示（`xi'an`、`yi'c`、`ni'hao'9`）；首选不是拼音候选时为空。只用于显示，`preedit` 仍是数字。
     pub nine_key_reading: String,

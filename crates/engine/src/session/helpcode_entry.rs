@@ -1,6 +1,7 @@
 //! 显式辅助码前导键只转换后续字母；筛选和编码消费继续由既有辅助码算法负责。
 
 use super::input::InputSession;
+use super::options::HelpcodeTrigger;
 use crate::types::{Command, KeyResult, LocalInputMode, SchemeType};
 
 impl InputSession {
@@ -69,6 +70,45 @@ impl InputSession {
             self.helpcode_entry = None;
         }
         None
+    }
+
+    /// 前导键还在等辅助码时它在原文里的位置（#10731）。两位码齐了就不再显示：下一个字母开始新的拼音，前导状态随之结束，分号若留到那一键才消失，看起来像被那个字母吃掉了。
+    pub(super) fn helpcode_trigger_display(&self) -> Option<HelpcodeTrigger> {
+        let begin = self.helpcode_entry?;
+        let key = self.helpcode_trigger_key?;
+        let codes = self.raw_with_cases().len().checked_sub(begin)?;
+        (codes < 2).then_some(HelpcodeTrigger {
+            key: char::from(key),
+            position: begin,
+        })
+    }
+
+    /// 把前导键插进显示用的 `preedit`，放在末尾已输入的辅助码前面。各种显示里辅助码都在 `preedit` 末尾（`ni'F`、`niF`、双拼拼音分词的 `ni'f`），引擎为隔开辅助码插的 `'` 由前导键顶替（`ni;F`），用户自己打的 `'` 保留（`ni';F`）。末尾对不上辅助码时不插，宁可不显示也不画错位置。
+    pub(super) fn preedit_with_helpcode_trigger(
+        &self,
+        preedit: String,
+        trigger: HelpcodeTrigger,
+    ) -> String {
+        let raw = self.raw_with_cases();
+        let Some(codes) = raw.get(trigger.position..) else {
+            return preedit;
+        };
+        let Some(split) = preedit.len().checked_sub(codes.len()) else {
+            return preedit;
+        };
+        if !preedit.is_char_boundary(split) || !preedit[split..].eq_ignore_ascii_case(codes) {
+            return preedit;
+        }
+        let (mut head, tail) = preedit.split_at(split);
+        let typed_separator = raw.as_bytes()[..trigger.position].last() == Some(&b'\'');
+        if !codes.is_empty() && !typed_separator {
+            head = head.strip_suffix('\'').unwrap_or(head);
+        }
+        let mut shown = String::with_capacity(preedit.len() + 1);
+        shown.push_str(head);
+        shown.push(trigger.key);
+        shown.push_str(tail);
+        shown
     }
 
     fn set_first_shuangpin_helpcode_case(&mut self, begin: usize, uppercase: bool) {
