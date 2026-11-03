@@ -10,10 +10,15 @@ cargo build -p msime-host-api --locked
 python3 - <<'PY'
 import ctypes
 import re
+import sys
 from pathlib import Path
 
 header = Path("crates/host-api/include/msime_client.h").read_text()
 library = ctypes.CDLL("/build/cargo/debug/libmsime_host_api.so")
+# 头文件同时声明 Windows 与 Unix 的入口；Linux 动态库不会导出受
+# `_WIN32` 条件保护的 Windows 专用函数，先按当前容器的平台裁掉这些声明。
+if sys.platform != "win32":
+    header = re.sub(r"#if(?:def)?\s+(?:defined\(_WIN32\)|_WIN32).*?#endif", "", header, flags=re.S)
 symbols = set(re.findall(r"\b(msime_client_\w+)\s*\(", header))
 inline_symbols = set(re.findall(
     r"\bstatic\s+inline\b[^{;]*\b(msime_client_\w+)\s*\(", header
@@ -24,14 +29,25 @@ for name in sorted(symbols):
     getattr(library, name)
 print("Host API header exports verified")
 PY
-cargo test -p msime-client-base -p msime-client-core -p msime-client-providers -p msime-client-services -p msime-input-runtime -p msime-host-api --locked
+if [[ ${MSIME_SKIP_RUST_TESTS:-0} != 1 ]]; then
+  cargo test -p msime-client-base -p msime-client-core -p msime-client-providers -p msime-client-services -p msime-input-runtime -p msime-host-api --locked
+fi
 if [[ ${MSIME_TEST_FCITX5:-0} == 1 ]]; then
   bash platforms/linux/tests/tools/fcitx5-container.sh
   exit 0
 fi
-cmake -S platforms/linux -B /build/ibus -G Ninja -DMSIME_HOST_LIBRARY=/build/cargo/debug/libmsime_host_api.so -DMSIME_LINUX_VOICE=ON
+cmake -S platforms/linux -B /build/ibus -G Ninja \
+  -DMSIME_HOST_LIBRARY=/build/cargo/debug/libmsime_host_api.so \
+  -DMSIME_LINUX_VOICE=ON -DMSIME_ENGINE_RESOURCES=/resources \
+  -DMSIME_RESOURCE_SMOKE_ONLY="${MSIME_RESOURCE_SMOKE_ONLY:-0}"
 cmake --build /build/ibus
-ctest --test-dir /build/ibus --output-on-failure --no-tests=error
+if [[ ${MSIME_RESOURCE_SMOKE_ONLY:-0} == 1 ]]; then
+  ctest --test-dir /build/ibus -R '^ibus-custom-voice-hotkey$' --output-on-failure --no-tests=error
+  echo "IBus voice smoke acceptance passed"
+  exit 0
+else
+  ctest --test-dir /build/ibus --output-on-failure --no-tests=error
+fi
 rm -rf /build/stage
 DESTDIR=/build/stage cmake --install /build/ibus
 if [[ -x /build/stage/usr/local/bin/msime-linux-clipboard-watch-x11 ]]; then
@@ -95,8 +111,10 @@ echo "Linux clipboard remove-index acceptance passed"
 [[ ! -e "$clipboard_fixture/history.json" ]]
 echo "Linux clipboard clear acceptance passed"
 /build/ibus/ibus-engine-smoke /resources --voice-hotkey
-/build/ibus/ibus-engine-smoke /resources
-/build/ibus/ibus-engine-smoke /resources --helpcode-trigger
+if [[ ${MSIME_RESOURCE_SMOKE_ONLY:-0} != 1 ]]; then
+  /build/ibus/ibus-engine-smoke /resources
+  /build/ibus/ibus-engine-smoke /resources --helpcode-trigger
+fi
 installed_host=/build/stage/usr/local/bin/msime-linux-ibus
 python3 - "$installed_host" <<'PYTHON'
 import re

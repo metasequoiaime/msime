@@ -1683,7 +1683,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn remove_does_not_follow_pack_or_root_symlinks() {
-        use std::os::unix::fs::symlink;
+        use msime_path_trust::untrusted_symlink as symlink;
         let dir = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();
         let pack = ResourcePack::GrammarBaguwenCompact;
@@ -1928,7 +1928,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn executable_verification_rejects_file_and_parent_symlinks() {
-        use std::os::unix::fs::symlink;
+        use msime_path_trust::untrusted_symlink as symlink;
         let dir = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();
         let set = synthetic_executable_set();

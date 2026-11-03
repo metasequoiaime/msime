@@ -212,6 +212,36 @@ jobs:
         if: ${{ needs.changes.outputs.linux != 'true' }}
         run: echo 'No Linux or shared-platform changes; platform gate skipped.'
 
+  linux-resource-integration:
+    needs: changes
+    name: Linux native host resource integration
+    runs-on: depot-ubuntu-24.04-8
+    timeout-minutes: 45
+    env:
+      MSIME_SKIP_RUST_TESTS: '1'
+      MSIME_RESOURCE_SMOKE_ONLY: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download the locked desktop resources
+        if: ${{ needs.changes.outputs.linux == 'true' }}
+        run: |
+          set -euo pipefail
+          mkdir -p target/linux-resources
+          resource_dir="$(cargo run --quiet --locked -p msime-client-core --example install_resources -- target/linux-resources | tail -n 1)"
+          test -d "$resource_dir"
+          printf '%s\n' "$resource_dir" > target/linux-resources/path
+      - name: Run IBus resource acceptance
+        if: ${{ needs.changes.outputs.linux == 'true' }}
+        run: bash platforms/linux/tests/tools/check-container.sh "$(cat target/linux-resources/path)"
+      - name: Run Fcitx5 resource acceptance
+        if: ${{ needs.changes.outputs.linux == 'true' }}
+        run: bash platforms/linux/tests/tools/check-container.sh "$(cat target/linux-resources/path)" --fcitx5
+      - name: Linux platform unchanged
+        if: ${{ needs.changes.outputs.linux != 'true' }}
+        run: echo 'No Linux or shared-platform changes; platform gate skipped.'
+
   # 上面的门禁只在 Debian bookworm 容器里编 Debug、跑 ctest；发版的 .rpm 在 Fedora 44 容器里以 Release 编、再跑一遍同一套 ctest（release-linux.yml 的 rpm 作业），Fedora 的 Pango、字体和编译器不同，有的测试只在那里失败：2026-10-27 的 nightly 就红在 linux-candidate-native-canvas-chrome，PR 上从来看不到。这里在 PR 上用同一个镜像、同一份 package-container.sh 编 full 版并跑 ctest，MSIME_PACKAGE_TESTS_ONLY=1 让它停在 ctest，不出包、不编桌面二进制，不违反「PR 上不打包」（.agents/notes/implemented/process/2026-10-09-no-packaging-on-pull-requests.md）。
   linux-fedora:
     needs: changes

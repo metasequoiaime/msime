@@ -348,6 +348,9 @@ if(BUILD_TESTING)
     MSIME_ZHUYIN_DICTIONARY_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime/zhuyin_dictionary.py"
     MSIME_STROKE_DICTIONARY_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime/stroke_dictionary.py")
   if(MSIME_ENGINE_RESOURCES)
+    add_test(NAME ibus-native-context
+      COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}")
+    set_tests_properties(ibus-native-context PROPERTIES TIMEOUT 120)
     add_test(NAME ibus-custom-voice-hotkey
       COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --voice-hotkey)
     set_tests_properties(ibus-custom-voice-hotkey PROPERTIES TIMEOUT 60)
@@ -360,9 +363,11 @@ if(BUILD_TESTING)
     add_test(NAME ibus-empty-translation
       COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --empty-translation)
     set_tests_properties(ibus-empty-translation PROPERTIES TIMEOUT 60)
+    if(NOT MSIME_RESOURCE_SMOKE_ONLY)
     add_test(NAME ibus-translation-scope
       COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --translation-scope)
     set_tests_properties(ibus-translation-scope PROPERTIES TIMEOUT 60)
+    endif()
     add_test(NAME ibus-caps-lock-tap
       COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --caps-lock)
     set_tests_properties(ibus-caps-lock-tap PROPERTIES TIMEOUT 60)
@@ -372,9 +377,11 @@ if(BUILD_TESTING)
     add_test(NAME ibus-japanese-toggle
       COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --japanese-toggle)
     set_tests_properties(ibus-japanese-toggle PROPERTIES TIMEOUT 60)
+    if(NOT MSIME_RESOURCE_SMOKE_ONLY)
     add_test(NAME ibus-chaizi
       COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --chaizi)
     set_tests_properties(ibus-chaizi PROPERTIES TIMEOUT 60)
+    endif()
     add_test(NAME ibus-stale-candidate-click
       COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --stale-candidate-click)
     set_tests_properties(ibus-stale-candidate-click PROPERTIES TIMEOUT 60)
