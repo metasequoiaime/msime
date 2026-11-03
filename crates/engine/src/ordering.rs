@@ -596,6 +596,69 @@ pub fn rerank_pick_within<'a, R: OrderRowSource<'a> + ?Sized>(
     })
 }
 
+/// 一句话开头单打一个音节、首选却是句尾语气词（`ma` 的「吗」、`ba` 的「吧」）时，该提到首位的那一行；不是这种情形时为 `None`。
+///
+/// 「吗」的词频是「妈」的 51 倍、「吧」比「爸」高两成，可这些词频几乎全来自句尾，句首单打 `ma` 想要的不会是「吗」。聊天记录（typing-chat-v1）里每段会话开头的「妈」52 次全被打成「吗」，而逐键模型碰不到它：词典首选是可信的，[`rerank_needs_model`] 不交给模型比较。这里只在 [`crate::lattice::decode::opens_sentence`] 时动，首选让给第一页里第一个不是语气词、同样回答按键的单字词典行；挂着打分器时由它在这些单字里挑。句中照常（「好 | 吧」先上屏「好」再打 `ba`，要的就是「吧」）。
+pub fn opening_particle_pick<'a, R: OrderRowSource<'a> + ?Sized>(
+    reranker: Option<&mut (dyn CandidateScorer + '_)>,
+    context: &str,
+    scheme: u8,
+    rows: &'a R,
+) -> Option<usize> {
+    if !reorders_candidates(scheme) || scheme_type(scheme) == Some(SchemeType::Wubi) {
+        return None;
+    }
+    if rows.len() < 2 || !crate::lattice::decode::opens_sentence(context) {
+        return None;
+    }
+    let single = |text: &str| {
+        let mut chars = text.chars();
+        chars.next().filter(|_| chars.next().is_none())
+    };
+    let leader = rows.get(0);
+    let particle = |c: char| crate::lattice::decode::SENTENCE_ONLY_FINAL_PARTICLES.contains(&c);
+    if !DICTIONARY_SOURCES.contains(&leader.source)
+        || !row_answers_key(scheme, leader)
+        || !single(leader.text).is_some_and(particle)
+    {
+        return None;
+    }
+    let mut considered = [0; COMPARED_LIMIT];
+    let mut texts = [""; COMPARED_LIMIT];
+    let mut count = 0;
+    for index in 1..rows.len().min(COMPARED_LIMIT + 1) {
+        let row = rows.get(index);
+        if count < COMPARED_LIMIT
+            && DICTIONARY_SOURCES.contains(&row.source)
+            && row_answers_key(scheme, row)
+            && single(row.text).is_some_and(|c| !particle(c))
+        {
+            considered[count] = index;
+            texts[count] = row.text;
+            count += 1;
+        }
+    }
+    if count == 0 {
+        return None;
+    }
+    let Some(reranker) = reranker else {
+        return Some(considered[0]);
+    };
+    let context = rerank_context(context, reranker.context_length(), 1);
+    let scores = reranker.log_probabilities(context, &texts[..count]);
+    if scores.len() != count {
+        return Some(considered[0]);
+    }
+    let best = (1..count).fold(0, |best, slot| {
+        if scores[slot] > scores[best] {
+            slot
+        } else {
+            best
+        }
+    });
+    Some(considered[best])
+}
+
 /// 一次窄裁决最多比较几行：首页放得下的行数。
 const CONTEST_LIMIT: usize = 9;
 
