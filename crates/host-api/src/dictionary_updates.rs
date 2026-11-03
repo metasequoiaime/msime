@@ -64,6 +64,7 @@ pub(crate) fn request(
                 let mut task = context.clone();
                 task.mirrors = saved_mirrors(options, Path::new(state));
                 let automatic = command == "automatic";
+                let configured = configured_generation(options);
                 if std::thread::Builder::new()
                     .name("dictionary-update".into())
                     .spawn(move || {
@@ -71,7 +72,11 @@ pub(crate) fn request(
                         if updates::check(&task, automatic).is_ok_and(|status| {
                             matches!(status.phase.as_str(), "ready" | "current")
                         }) {
-                            remove_unused_working_generations(&task.state_root, &task.baseline);
+                            remove_unused_working_generations(
+                                &task.state_root,
+                                &task.baseline,
+                                configured.as_deref(),
+                            );
                         }
                         if let Ok(mut running) = tasks.lock() {
                             running.remove(&task.state_root);
@@ -94,10 +99,14 @@ pub(crate) fn request(
 
 /// 回收再也用不上的工作词库代次（#10735）。宿主为每个词库版本在 `<state>/user/dictionaries/<代次>` 准备一份工作词库（主词库、英文词库和 n-gram 表的副本，回放过用户日志，一份几十到上百 MB），代次就是那一版资源集合的 `generation()`：随包词库是本安装包的词库锁，在线更新的是下载版本的桌面代次。以前这里只建不删，每装一个新版本、每升级一次换了词库锁，就多留一份。
 ///
-/// 留下：本安装包词库锁的代次，和下载版本还留着的那些（[`updates::retained_generations`]：当前、可回退的上一个、输入法最近载入的、有会话占用而没删的）。其余 64 位十六进制名字的目录逐个先取这一个目录上的独占词库访问锁：每个会话都以共享方式持着它所用代次的这把锁（`DictionaryAccess::try_session`），设置里改词这类维护也持着它，取不到就说明还有人在用，跳过，下次再试。升级后还没重启的旧版输入法进程用的就是上一个词库锁的代次，它的会话活着时也因此不会被删。取到锁之后再问一次哪些版本还留着，避开在这期间刚发布的新版本，然后改名成 `<代次>.<随机串>.removing` 认领再删，删到一半留下的目录由引擎准备代次时清理暂存目录的那一步收尾（`.removing` 后缀与它约定一致）。Windows 上目录里有打开的文件时改名失败：先放掉锁再试一次，还是失败就留到下次。
+/// 留下：本安装包词库锁的代次，宿主配置记着的那一代（`configured`，即发来请求的 HostOptions 的 `dictionaries`），和下载版本还留着的那些（[`updates::retained_generations`]：当前、可回退的上一个、输入法最近载入的、有会话占用而没删的）。宿主配置那一代不能只靠锁保护：Linux 上自己下载的词库在升级换锁后刷新报 `dictionary_outdated`，宿主按设计继续用 `runtime-options.json` 记着的旧锁代次，而 Fcitx5 每次失焦都销毁会话、建会话时不重新准备代次，没有焦点的那一刻谁也不持锁，删了它之后每次建会话都失败，重启宿主也准备不回来。Linux 和 Android 的设置应用每次请求都现读 `runtime-options.json`，这里拿到的就是输入法此刻在用的那份。其余 64 位十六进制名字的目录逐个先取这一个目录上的独占词库访问锁：每个会话都以共享方式持着它所用代次的这把锁（`DictionaryAccess::try_session`），设置里改词这类维护也持着它，取不到就说明还有人在用，跳过，下次再试。升级后还没重启的旧版输入法进程用的就是上一个词库锁的代次，它的会话活着时也因此不会被删。取到锁之后再问一次哪些版本还留着，避开在这期间刚发布的新版本，然后改名成 `<代次>.<随机串>.removing` 认领再删，删到一半留下的目录由引擎准备代次时清理暂存目录的那一步收尾（`.removing` 后缀与它约定一致）。Windows 上目录里有打开的文件时改名失败：先放掉锁再试一次，还是失败就留到下次。
 ///
 /// 代次里的内容都能从资源和用户日志重新准备出来，删错的代价是下次用到它时重新复制、回放一遍，不丢用户数据。出什么错都只是少删。
-pub(crate) fn remove_unused_working_generations(state: &Path, baseline: &ResourceSet) {
+pub(crate) fn remove_unused_working_generations(
+    state: &Path,
+    baseline: &ResourceSet,
+    configured: Option<&str>,
+) {
     let Ok(current) = baseline.generation() else {
         return;
     };
@@ -111,7 +120,10 @@ pub(crate) fn remove_unused_working_generations(state: &Path, baseline: &Resourc
     let candidates: Vec<String> = entries
         .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
         .filter(|name| {
-            name.len() == 64 && name.bytes().all(|b| b.is_ascii_hexdigit()) && *name != current
+            name.len() == 64
+                && name.bytes().all(|b| b.is_ascii_hexdigit())
+                && *name != current
+                && Some(name.as_str()) != configured
         })
         .collect();
     for name in candidates {
@@ -139,6 +151,14 @@ pub(crate) fn remove_unused_working_generations(state: &Path, baseline: &Resourc
             let _ = std::fs::remove_dir_all(&claimed);
         }
     }
+}
+
+/// 宿主配置的工作词库目录（HostOptions 的 `dictionaries`）的代次名。只取文件名，不核对它是不是在 `user/dictionaries/` 下：多留一份只是多占空间。
+fn configured_generation(options: &HostOptions) -> Option<String> {
+    Path::new(&options.dictionaries)
+        .file_name()?
+        .to_str()
+        .map(str::to_owned)
 }
 
 /// 认领目录名里的随机串：引擎只认字母数字，这里用进程号和当前纳秒的十六进制。
@@ -540,7 +560,7 @@ mod tests {
             linked
         };
 
-        remove_unused_working_generations(&state, &baseline);
+        remove_unused_working_generations(&state, &baseline, None);
         for path in [&bundled, &retained, &loaded, &in_use, &staging, &unrelated] {
             assert!(path.is_dir(), "{path:?}");
         }
@@ -565,7 +585,7 @@ mod tests {
         // 会话结束、下载版本也删掉之后，下一次检查把它们收走；本安装包的那份始终留着。
         drop(session);
         std::fs::remove_file(downloads.join(format!("{}.json", generation('1')))).unwrap();
-        remove_unused_working_generations(&state, &baseline);
+        remove_unused_working_generations(&state, &baseline, None);
         assert!(!in_use.exists() && !retained.exists());
         assert!(bundled.is_dir() && loaded.is_dir());
         assert_eq!(claimed(&dictionaries), 0);
@@ -573,8 +593,54 @@ mod tests {
         // 下载记录读不出来时不知道该留哪一版，什么也不删。
         let unknown = working(&generation('8'));
         std::fs::write(state.join("dictionary-updates/installed.json"), b"{").unwrap();
-        remove_unused_working_generations(&state, &baseline);
+        remove_unused_working_generations(&state, &baseline, None);
         assert!(unknown.is_dir());
+    }
+
+    /// #10735：Linux 上自己下载的词库在升级换锁后刷新报 `dictionary_outdated`，宿主继续用 runtime-options.json 记着的旧锁代次。Fcitx5 失焦就销毁会话，此刻没有任何会话持锁，这一代也既不是新的随包代次、也不是下载版本；只有宿主配置记着它，删了输入法就再也建不了会话。
+    #[test]
+    fn the_generation_the_host_configuration_records_is_kept_without_a_session() {
+        let root = tempfile::tempdir().unwrap();
+        let resources = root.path().join("resources");
+        let state = root.path().join("state");
+        let mut previous = crate::tests::synthetic_desktop_lock(&resources);
+        hash_files(&resources, &mut previous, "dict-v2.0.9");
+        // 升级前按旧锁准备好的宿主配置，就是 runtime-options.json 里那份。
+        let document: Value = serde_json::from_str(
+            &crate::prepare_host_with_updates(&resources, &state, Edition::full(), &previous)
+                .unwrap(),
+        )
+        .unwrap();
+        let options: HostOptions = serde_json::from_value(document).unwrap();
+        let outdated = state
+            .join("user/dictionaries")
+            .join(previous.generation().unwrap());
+        assert_eq!(Path::new(&options.dictionaries), outdated);
+        assert!(outdated
+            .join(msime_engine::assets::GENERATION_READY)
+            .is_file());
+        // 升级换了词库锁；用户下载的那份词库没人替换，新锁的代次从来没准备过。
+        let mut upgraded = previous.clone();
+        let changed = resources.join(&upgraded.artifacts[0].name);
+        let mut bytes = std::fs::read(&changed).unwrap();
+        bytes.extend_from_slice(b"upgraded");
+        std::fs::write(&changed, bytes).unwrap();
+        hash_files(&resources, &mut upgraded, "dict-v2.0.10");
+        assert_ne!(
+            upgraded.generation().unwrap(),
+            previous.generation().unwrap()
+        );
+
+        let configured = configured_generation(&options);
+        assert_eq!(
+            configured.as_deref(),
+            Some(previous.generation().unwrap().as_str())
+        );
+        remove_unused_working_generations(&state, &upgraded, configured.as_deref());
+        assert!(outdated.join("msime-pinyin.db").is_file(), "{outdated:?}");
+        // 宿主配置换到别的代次之后，这一代才按无人再用回收。
+        remove_unused_working_generations(&state, &upgraded, None);
+        assert!(!outdated.exists());
     }
 
     /// 检查任务用的镜像来自设置里保存的 `voice_input.asr_model_mirror`：读实时偏好文件，不用准备宿主时那份副本；实时文件读不了时才用副本。

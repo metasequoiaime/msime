@@ -551,10 +551,27 @@ def clear_dictionary_outdated() -> None:
                 marker.unlink()
 
 
-def remove_replaced_resources(prefix: Path, options_file: Path, replaced: Path, target: Path) -> bool:
+def downloaded_generation(options_file: Path, document: dict, path: Path) -> bool:
+    """path 是否在在线词库更新的目录（状态目录下的 dictionary-updates/）里。在线版本生效时 runtime-options.json 的 resources 指着那里的 generations/<代次>；它有清单、代次锁和校验标记，由宿主的检查任务按 installed.json 和 loaded.json 回收，这个脚本不删。状态目录取 runtime-options.json 所在的目录和它记的 preferences_directory 两处。"""
+    states = [options_file.parent]
+    recorded = document.get("preferences_directory")
+    if isinstance(recorded, str) and Path(recorded).is_absolute():
+        states.append(Path(recorded))
+    try:
+        resolved = path.resolve()
+        roots = [(state / "dictionary-updates").resolve() for state in states]
+    except OSError:
+        # 解析不了就当作是，宁可不删。
+        return True
+    return any(root == resolved or root in resolved.parents for root in roots)
+
+
+def remove_replaced_resources(prefix: Path, options_file: Path, document: dict, replaced: Path, target: Path) -> bool:
     """切换成功后删掉被换下的那份词库目录（#10735），返回是否删掉了。以前它一直留着让用户自己删，每次升级换锁就多一个 resources-* 目录。
 
-    只删当前用户自己下载的那份（与 updatable 同一条规则），随包词库的位置一律不删，哪怕装在 ~/.local 这类前缀下；符号链接、已经不是目录的、与新目录是同一个的都不碰。默认状态目录的 runtime-options.json 若不是这次更新的那份、却还指着它（用 --state 另建过一份状态），也留下。与锁一致的文件在新目录里是硬链接，删旧目录只去掉旧的那个名字。删除出错只是少删，不影响已经完成的切换。"""
+    只删当前用户自己下载的那份（与 updatable 同一条规则），随包词库的位置一律不删，哪怕装在 ~/.local 这类前缀下；符号链接、已经不是目录的、与新目录是同一个的都不碰。在线词库更新的下载代次（downloaded_generation）也不删：它归当前用户、可写，updatable 认它，但删掉目录会让它的清单指着一个不存在的目录，宿主按清单留着的工作词库也永远收不回，统一交给宿主的检查任务回收。默认状态目录的 runtime-options.json 若不是这次更新的那份、却还指着它（用 --state 另建过一份状态），也留下。与锁一致的文件在新目录里是硬链接，删旧目录只去掉旧的那个名字。删除出错只是少删，不影响已经完成的切换。"""
+    if downloaded_generation(options_file, document, replaced):
+        return False
     try:
         if replaced.is_symlink() or not replaced.is_dir():
             return False
@@ -618,7 +635,7 @@ def update_dictionaries(prefix: Path, lock: dict, options_file: Path, download: 
             if switched and running("ibus-daemon"):
                 time.sleep(IBUS_OPTIONS_RELOAD)
             # 会话仍被请走时删：配置已经指向新目录，宿主重新打开的会话不会再读旧目录。
-            removed = bool(switched) and target != resources and remove_replaced_resources(prefix, options_file, resources, target)
+            removed = bool(switched) and target != resources and remove_replaced_resources(prefix, options_file, document, resources, target)
     except HostsBusy:
         print("输入法仍有输入会话占用词库，没有切换：runtime-options.json 未改动，输入法继续使用旧词库。请稍后再运行一次。", file=sys.stderr)
         return 1
@@ -632,6 +649,8 @@ def update_dictionaries(prefix: Path, lock: dict, options_file: Path, download: 
             print(f"已改用校验通过的词库目录 {target}。词库版本没有变化，用户词库原样沿用，不需要回放；输入法在切换期间暂停了输入会话，现在已恢复。")
         if removed:
             print(f"已删除换下的旧词库目录 {resources}。")
+        elif target != resources and downloaded_generation(options_file, document, resources):
+            print(f"旧词库目录 {resources} 是在线词库更新下载的版本，由词库更新自己回收，保留未动，请不要手动删除。")
         elif target != resources:
             print(f"旧词库目录 {resources} 还有别的配置在用或删不掉，保留未动；确认不再需要后可以自行删除。")
         return 0

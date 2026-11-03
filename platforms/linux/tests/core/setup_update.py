@@ -408,6 +408,19 @@ def check_setup(harness: Harness) -> None:
     assert result.returncode == 0, result
     assert linked.is_symlink() and (real / "b.db").read_bytes() == harness.previous_b
 
+    # 换下的是在线词库更新的下载代次（在线版本生效时 resources 指着 dictionary-updates/generations/<代次>）：它有清单和代次锁，由宿主的检查任务回收，这里不删，也不叫用户手动删。
+    state = harness.scratch / "state-online"
+    downloaded = state / "dictionary-updates/generations" / ("ab" * 32)
+    manifest = downloaded.parent / f"{downloaded.name}.json"
+    harness.installed("state-online", downloaded)
+    manifest.write_text("{}")
+    result = harness.run("--update", "--download", "--state", str(state))
+    assert result.returncode == 0, result
+    assert options(state)["resources"] == str(harness.staged(downloaded)), options(state)
+    assert (downloaded / "b.db").read_bytes() == harness.previous_b
+    assert manifest.is_file()
+    assert "在线词库更新下载的版本" in result.stdout and "已删除" not in result.stdout, result.stdout
+
     # A refresh that fails leaves the options naming the previous directory, which was never written, and says where the new dictionaries wait.
     state = harness.installed("state-refresh-failed")
     resources = Path(options(state)["resources"])
