@@ -7,7 +7,7 @@ private func msimeClientAIEndpointStringFree(_ value: UnsafeMutablePointer<CChar
 
 /// AI 辅助接口地址的传输策略：https 不限主机；http 只能指向本机或局域网，因为 API Token 不能明文经过互联网。规则只在 Rust（`crates/client-providers/src/ai/endpoint.rs`），这里经 `msime_client_ai_endpoint_check` 询问，不再自己判断；`AIEndpointPolicyTests` 经 C 接口逐条跑 `shared/contracts/ai-endpoint/cases.json`。
 ///
-/// 只用于 AI 辅助（候选栏 AI 候选、键盘 AI、润色）这条路径；云候选、翻译、语音识别仍然只走 https。`crates/tauri-mobile-platform` 的插件编不进这个文件，那里另有一份同样的判断。
+/// 只用于 AI 辅助（候选栏 AI 候选、键盘 AI、润色）这条路径；云候选、翻译、语音识别仍然只走 https。
 enum AIEndpointPolicy {
   enum Problem: Error, Equatable {
     /// 不是带主机的完整 `http(s)://` 地址，或者带了用户名、密码、`#` 片段、控制字符、反斜杠，或者 `http://` 的主机不是规范写法。
