@@ -2,6 +2,7 @@
 #include "InputModeHudLayout.h"
 #include "../system/FocusLease.h"
 #include <chrono>
+#include <functional>
 #include <mutex>
 #include <utility>
 
@@ -15,10 +16,22 @@ inline bool input_hud_same_focus(const FocusLease &a, const FocusLease &b) {
 class InputStateHudFeedback final {
 public:
   using Clock = std::chrono::steady_clock;
+  // 界面线程平时在 MsgWaitForMultipleObjectsEx 里最多等 50 毫秒才看一次信箱，所以发布之后要叫醒它，提示不必等满这一拍。工作线程调用；没有设置时什么也不做。
+  void set_wake(std::function<void()> wake) {
+    std::lock_guard lock(mutex_);
+    wake_ = std::move(wake);
+  }
   void publish(InputStateHudText text, std::optional<FocusLease> lease = {},
                uintptr_t foreground = 0, Clock::time_point now = Clock::now()) {
-    std::lock_guard lock(mutex_);
-    latest_ = Notice{std::move(text), lease, foreground, now};
+    std::function<void()> wake;
+    {
+      std::lock_guard lock(mutex_);
+      latest_ = Notice{std::move(text), lease, foreground, now};
+      wake = wake_;
+    }
+    // 叫醒放在锁外：回调是界面线程的 PostThreadMessage，不该在持锁时调用。
+    if (wake)
+      wake();
   }
   std::optional<InputStateHudText> take(const std::optional<FocusLease> &lease,
                                       uintptr_t foreground,
@@ -40,6 +53,7 @@ private:
   };
   std::mutex mutex_;
   std::optional<Notice> latest_;
+  std::function<void()> wake_;
 };
 
 // 只在输入队列使用。快照建立基线，只有 TIP 确认的显式切换事件产生提示。

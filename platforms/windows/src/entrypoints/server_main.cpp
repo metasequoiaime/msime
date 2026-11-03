@@ -1166,6 +1166,11 @@ int wmain(int argc, wchar_t **argv) {
     // a newly connected client may dispatch its first key immediately.
     startup_stage = "workers";
     InputStateHudFeedback hud_feedback;
+    // 提示由工作线程发布、界面线程绘制，而界面线程在消息循环里最多等 50 毫秒才看一次信箱。发布之后给自己投一条空消息把这一轮叫醒：单按 Shift 切完中英文，提示不必等满这一拍才出现。
+    {
+      const DWORD ui_thread = GetCurrentThreadId();
+      hud_feedback.set_wake([ui_thread] { PostThreadMessageW(ui_thread, WM_NULL, 0, 0); });
+    }
     InputStateHudModeTracker hud_mode_tracker;
     CharacterSetClickWorker character_set_clicks(
         [traditional_output, &hud_feedback, directory = config.state_root](
