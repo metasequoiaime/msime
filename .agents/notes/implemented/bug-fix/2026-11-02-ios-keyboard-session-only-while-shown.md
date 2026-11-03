@@ -36,14 +36,14 @@ Status: implemented
 
 - **收益**：只建过控制器、从没出现的键盘不持任何 App Group 锁；收起之后晚到的 `viewDidAppear` 不再重启维护；释放失败第一次有了重试和日志。
 - **代价**：建会话的时机从控制器创建挪到第一次 `viewWillAppear`，首帧前的同步开销总量不变，但 `keyboard_loaded` 的 `session=` 现在只量准备选项，会话的内存算进 `keyboard_shown`。挂起期间改的偏好只记在桥上，不经 `msime_client_update_preferences` 校验；校验推迟到建会话时（`create_session` 同样 `validate()`），宿主写出不合法的值时表现为 `dictionary_resume_failed`，而不是改的那一下被拒。这些改动都来自宿主自己的代码（方案名、钳过范围的几何、学习开关），同样的值在键盘可见时也要过会话的校验。
-- **代价**：直接构造 `KeyboardViewController`、不调 `viewWillAppear` 就打字的单测要补上这一步。
+- **代价**：直接构造 `KeyboardViewController`、不调 `viewWillAppear` 就打字的单测要补上这一步。PR 第一次跑 CI 时有 47 个这样的用例全部拿到「输入运行时尚未准备完成。」（九键、邮箱后缀、快捷短语光标、韩文、日文九键等），都按真实生命周期补了 `viewWillAppear(false)`，没有改产品代码去迁就它们。
 - **重访信号**：真机诊断日志里出现 `dictionary_suspend_failed`、`host_background session_held=1` 或 `controller_released session_held=1`，说明还有路径在键盘不可见时持着会话。
 
 相关决定：[收起时释放词库快照租约](2026-10-14-ios-snapshot-worker-lock-release.md) 处理的是快照工作者的 `worker.lock`；[低端机功耗](2026-10-27-ios-keyboard-low-end-power.md) 记了每次收起都销毁会话、出现时重建的代价；[崩溃诊断归因](2026-10-25-ios-crash-diagnostic-session-attribution.md) 列过 0xdead10cc 的候选路径，这一篇补上了会话本身的那一条。
 
 ## Verification
 
-- `MSIMEKeyboardTests/NineKeyKeyboardTests/testABridgeThatStartsSuspendedHoldsNoLockUntilResumed`：只准备不建会话的桥在 `resume` 之前、`suspend` 之后都能对两个 `.msime-dictionary-access.lock` 取得独占 flock；挂起时选的小鹤双拼和九键在建出来的会话里生效。
-- `MSIMEKeyboardTests/NineKeyKeyboardTests/testKeyboardHoldsTheDictionaryLeaseOnlyWhileItIsShown`：控制器 `loadViewIfNeeded` 加 `applyInputContext` 之后不持锁、不显示诊断，`viewWillAppear` 后持锁并能打出「你好」，`viewWillDisappear` 后、晚到的 `viewDidAppear` 后都不持锁。
-- 下载代次的 `generations/<代次>.lock` 在模拟器单测里取不到（测试宿主用随包资源，`lease` 返回 `None`），它与词库租约同生同死，由同一次 `msimeClientDestroy` 放掉。
+- `MSIMEKeyboardTests/NineKeyKeyboardTests/testABridgeThatStartsSuspendedHoldsNoLockUntilResumed`：只准备不建会话的桥在 `resume` 之前、`suspend` 之后都能对两个 `.msime-dictionary-access.lock` 取得独占 flock；挂起时选的小鹤双拼（会话有小鹤键面提示，`nihc` 打出「你好」）和九键在建出来的会话里生效。
+- `MSIMEKeyboardTests/NineKeyKeyboardTests/testKeyboardHoldsTheDictionaryLeaseOnlyWhileItIsShown`：控制器 `loadViewIfNeeded` 加 `applyInputContext` 之后不持锁、不显示诊断，`viewWillAppear` 后持锁并能打出「你好」，`viewDidAppear` 后两秒维护定时器在走；`viewWillDisappear` 后定时器停、不持锁，晚到的 `viewDidAppear` 不重启定时器、不取回锁。
+- `MSIMEKeyboardTests/NineKeyKeyboardTests/testABridgeThatStartsSuspendedHoldsNoGenerationLeaseUntilResumed`：把随包资源复制成 `dictionary-updates/generations/<64 位十六进制>` 这样的下载代次交给挂起起步的桥，`resume` 之前、`suspend` 之后都能对 `generations/<代次>.lock` 取得独占 flock，会话存在时取不到。Rust 侧 `a_session_on_a_downloaded_generation_holds_it_until_destroyed` 守着同一把锁从建会话持有到销毁。
 - 真机：iPhone XR 上按 #10634 的操作（设置页与试用页之间快速来回切换，同时唤出、收起键盘）做 50 次以上，Console 里不应再出现 `dead10cc`，诊断日志里不应出现上面三条重访信号。
