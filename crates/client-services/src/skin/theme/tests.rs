@@ -751,6 +751,105 @@ fn a_selected_picker_draws_readable_text_on_itself() {
     assert_eq!(picked.selected_text.as_deref(), Some("#FFFFFF"));
 }
 
+/// #10740：选中文字取色器在选中文字色的取值链最上面：选中文字取色器 > 选中底色取色器推出的黑白 > 皮肤包的 `selected_text` > 内置底上的强调色。选中编号随它取同色的 `9D` 透明度，选中行底色照旧。
+#[test]
+fn a_selected_text_picker_beats_every_derived_selected_text() {
+    let resolve_picked =
+        |base: GlobalTheme, colors: CustomCandidateColors, package: Option<&ThemePackage>| {
+            let custom = CustomTheme {
+                base,
+                candidate_skin: package.map(|package| package.id.clone()),
+                candidate_colors: colors,
+                ..CustomTheme::default()
+            };
+            resolve(
+                GlobalTheme::Custom,
+                &custom,
+                false,
+                CandidateLayout::Vertical,
+                package,
+            )
+            .candidate
+            .unwrap()
+        };
+    let only_text = || CustomCandidateColors {
+        selected_text: Some("#7b3fbf".into()),
+        ..CustomCandidateColors::default()
+    };
+
+    // Over a built-in base it beats the accent; the selected row still follows the accent.
+    let paper = resolve_picked(GlobalTheme::Paper, only_text(), None);
+    assert_eq!(paper.selected_text.as_deref(), Some("#7B3FBF"));
+    assert_eq!(paper.selected_number.as_deref(), Some("#7B3FBF9D"));
+    assert_eq!(
+        paper.selected.as_deref(),
+        Some(with_alpha("#2C7A4B", SELECTED_ALPHA).as_str())
+    );
+    assert_eq!(paper.accent.as_deref(), Some("#2C7A4B"));
+
+    // It beats the black or white a selected picker derives.
+    let with_fill = resolve_picked(
+        GlobalTheme::Paper,
+        CustomCandidateColors {
+            selected: Some("#ffe680".into()),
+            ..only_text()
+        },
+        None,
+    );
+    assert_eq!(with_fill.selected.as_deref(), Some("#FFE680"));
+    assert_eq!(with_fill.selected_text.as_deref(), Some("#7B3FBF"));
+    assert_eq!(with_fill.selected_number.as_deref(), Some("#7B3FBF9D"));
+
+    // It beats a package's own selected text and numbers.
+    let mut packaged = package(GlobalTheme::Light, true, false);
+    let palette = packaged.light.as_mut().unwrap();
+    palette.selected_text = Some("#112233".into());
+    palette.selected_number = Some("#445566".into());
+    let package_only = resolve_picked(
+        GlobalTheme::Light,
+        CustomCandidateColors::default(),
+        Some(&packaged),
+    );
+    assert_eq!(package_only.selected_text.as_deref(), Some("#112233"));
+    let over_package = resolve_picked(GlobalTheme::Light, only_text(), Some(&packaged));
+    assert_eq!(over_package.selected_text.as_deref(), Some("#7B3FBF"));
+    assert_eq!(over_package.selected_number.as_deref(), Some("#7B3FBF9D"));
+
+    // Over system it is drawn on the platform's own selected row, which stays with the platform.
+    let system = resolve_picked(GlobalTheme::System, only_text(), None);
+    assert_eq!(system.selected_text.as_deref(), Some("#7B3FBF"));
+    assert_eq!(system.selected_number.as_deref(), Some("#7B3FBF9D"));
+    assert_eq!(system.selected, None);
+    assert_eq!(system.accent, None);
+    assert_eq!(system.text, None);
+}
+
+/// 选中文字取色器也给皮肤包的选中释义细分槽位定色，与选中底色取色器推出的黑白同一规则（同色 `9D`）。
+#[test]
+fn a_selected_text_picker_colours_the_selected_translation_details() {
+    let custom = CustomTheme {
+        candidate_skin: Some("sakura".into()),
+        candidate_colors: CustomCandidateColors {
+            selected: Some("#ffffff".into()),
+            selected_text: Some("#7b3fbf".into()),
+            ..CustomCandidateColors::default()
+        },
+        ..CustomTheme::default()
+    };
+    let mut packaged = package(GlobalTheme::Light, true, false);
+    packaged.light.as_mut().unwrap().selected_translation = Some("#abcdef".into());
+    let details = resolve(
+        GlobalTheme::Custom,
+        &custom,
+        false,
+        CandidateLayout::Vertical,
+        Some(&packaged),
+    )
+    .candidate_details
+    .unwrap();
+    assert_eq!(details.selected_translation.as_deref(), Some("#7B3FBF9D"));
+}
+
 #[test]
 fn custom_package_is_used_only_for_declared_modes_and_its_own_id() {
     let dark = resolve(
@@ -1129,6 +1228,27 @@ fn web_custom_theme_mirror_cases_match_resolve() {
             "base": "paper", "dark": false,
             "package": {"themes": ["light"], "candidate": {"light": {"selected": "#11111180", "accent": "#AA0000"}, "dark": {}}},
             "colors": {"selected": "#1A3D7C"},
+        },
+        {
+            "name": "a selected text picker beats the accent over a built-in base",
+            "base": "paper", "dark": false, "package": null,
+            "colors": {"selected_text": "#7b3fbf"},
+        },
+        {
+            "name": "a selected text picker beats the text a selected picker derives",
+            "base": "ink", "dark": false, "package": null,
+            "colors": {"selected": "#FFE680", "selected_text": "#7B3FBF"},
+        },
+        {
+            "name": "a selected text picker over system leaves the selected row to the platform",
+            "base": "system", "dark": true, "package": null,
+            "colors": {"selected_text": "#7B3FBF"},
+        },
+        {
+            "name": "a selected text picker beats the package selected row's text",
+            "base": "paper", "dark": false,
+            "package": {"themes": ["light"], "candidate": {"light": {"selected": "#11111180", "accent": "#AA0000"}, "dark": {}}},
+            "colors": {"selected_text": "#7B3FBF"},
         },
         {
             "name": "a dark package is not drawn in light mode and the base follows the host",

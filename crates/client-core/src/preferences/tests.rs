@@ -4393,6 +4393,7 @@ fn custom_theme_round_trips_every_part() {
             number: Some("#202020".into()),
             accent: Some("#303030".into()),
             selected: Some("#404040".into()),
+            selected_text: Some("#454545".into()),
             hover: Some("#505050".into()),
             surface: Some("#606060".into()),
             border: Some("#707070".into()),
@@ -4425,8 +4426,17 @@ fn custom_theme_round_trips_every_part() {
         custom_theme
     );
 
+    // 选中文字色是取色器槽位（#10740），原样往返；选中编号色没有取色器，仍当未知字段丢掉。
+    let mut picked = serde_json::to_value(&custom_theme).unwrap();
+    picked["candidate_colors"]["selected_text"] = "#7B3FBF".into();
+    let read = serde_json::from_value::<CustomTheme>(picked.clone()).unwrap();
+    assert_eq!(
+        read.candidate_colors.selected_text.as_deref(),
+        Some("#7B3FBF")
+    );
+    assert_eq!(serde_json::to_value(&read).unwrap(), picked);
     let mut unknown = serde_json::to_value(&custom_theme).unwrap();
-    unknown["candidate_colors"]["selected_text"] = "#000000".into();
+    unknown["candidate_colors"]["selected_number"] = "#000000".into();
     let (read, ignored) = deserialize_keeping_unknown::<CustomTheme>(&unknown, &[]).unwrap();
     assert_eq!(read, custom_theme);
     assert_eq!(ignored.len(), 1);
@@ -6622,6 +6632,7 @@ fn candidate_appearance_colors_accept_hex_and_reject_unsafe_values() {
     check!(number, InvalidCandidateNumberColor);
     check!(accent, InvalidCandidateAccentColor);
     check!(selected, InvalidCandidateSelectedColor);
+    check!(selected_text, InvalidCandidateSelectedTextColor);
     check!(hover, InvalidCandidateHoverColor);
     check!(surface, InvalidCandidateSurfaceColor);
     check!(border, InvalidCandidateBorderColor);

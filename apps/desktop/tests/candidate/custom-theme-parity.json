@@ -26,7 +26,9 @@
           "text": "#112233"
         }
       },
-      "themes": ["light"]
+      "themes": [
+        "light"
+      ]
     }
   },
   {
@@ -54,7 +56,9 @@
           "accent": "#AA0000"
         }
       },
-      "themes": ["light"]
+      "themes": [
+        "light"
+      ]
     }
   },
   {
@@ -85,7 +89,9 @@
           "translation": "rgba(1, 2, 3, .5)"
         }
       },
-      "themes": ["light"]
+      "themes": [
+        "light"
+      ]
     }
   },
   {
@@ -114,7 +120,9 @@
         },
         "light": {}
       },
-      "themes": ["dark"]
+      "themes": [
+        "dark"
+      ]
     }
   },
   {
@@ -151,7 +159,10 @@
           "surface": "#ffffff"
         }
       },
-      "themes": ["dark", "light"]
+      "themes": [
+        "dark",
+        "light"
+      ]
     }
   },
   {
@@ -183,7 +194,9 @@
           "surface": "#FFF0F5"
         }
       },
-      "themes": ["light"]
+      "themes": [
+        "light"
+      ]
     }
   },
   {
@@ -213,7 +226,9 @@
           "surface": "#FFF0F5"
         }
       },
-      "themes": ["light"]
+      "themes": [
+        "light"
+      ]
     }
   },
   {
@@ -244,7 +259,9 @@
           "selected": "#11111180"
         }
       },
-      "themes": ["light"]
+      "themes": [
+        "light"
+      ]
     }
   },
   {
@@ -276,7 +293,9 @@
           "surface": "rgba(1, 2, 3, 1.5)"
         }
       },
-      "themes": ["light"]
+      "themes": [
+        "light"
+      ]
     }
   },
   {
@@ -405,7 +424,109 @@
           "selected": "#11111180"
         }
       },
-      "themes": ["light"]
+      "themes": [
+        "light"
+      ]
+    }
+  },
+  {
+    "base": "paper",
+    "colors": {
+      "selected_text": "#7b3fbf"
+    },
+    "dark": false,
+    "expected": {
+      "accent": "#2C7A4B",
+      "border": "#0000001F",
+      "hover": "#1A1E1B0F",
+      "number": "#6E6A5E",
+      "secondary": "#6E6A5E",
+      "selected": "#2C7A4B24",
+      "selected_number": "#7B3FBF9D",
+      "selected_text": "#7B3FBF",
+      "show_selected_bar": null,
+      "surface": "#F7F5F0",
+      "text": "#1A1E1B"
+    },
+    "name": "a selected text picker beats the accent over a built-in base",
+    "package": null
+  },
+  {
+    "base": "ink",
+    "colors": {
+      "selected": "#FFE680",
+      "selected_text": "#7B3FBF"
+    },
+    "dark": false,
+    "expected": {
+      "accent": "#FFFFFF",
+      "border": "#0000001F",
+      "hover": "#9A9A9A0F",
+      "number": "#9A9A9A",
+      "secondary": "#9A9A9A",
+      "selected": "#FFE680",
+      "selected_number": "#7B3FBF9D",
+      "selected_text": "#7B3FBF",
+      "show_selected_bar": null,
+      "surface": "#1A1A1A",
+      "text": "#9A9A9A"
+    },
+    "name": "a selected text picker beats the text a selected picker derives",
+    "package": null
+  },
+  {
+    "base": "system",
+    "colors": {
+      "selected_text": "#7B3FBF"
+    },
+    "dark": true,
+    "expected": {
+      "accent": null,
+      "border": null,
+      "hover": null,
+      "number": null,
+      "secondary": null,
+      "selected": null,
+      "selected_number": "#7B3FBF9D",
+      "selected_text": "#7B3FBF",
+      "show_selected_bar": null,
+      "surface": null,
+      "text": null
+    },
+    "name": "a selected text picker over system leaves the selected row to the platform",
+    "package": null
+  },
+  {
+    "base": "paper",
+    "colors": {
+      "selected_text": "#7B3FBF"
+    },
+    "dark": false,
+    "expected": {
+      "accent": "#AA0000",
+      "border": "#0000001F",
+      "hover": "#1A1E1B0F",
+      "number": "#6E6A5E",
+      "secondary": "#6E6A5E",
+      "selected": "#11111180",
+      "selected_number": "#7B3FBF9D",
+      "selected_text": "#7B3FBF",
+      "show_selected_bar": null,
+      "surface": "#F7F5F0",
+      "text": "#1A1E1B"
+    },
+    "name": "a selected text picker beats the package selected row's text",
+    "package": {
+      "candidate": {
+        "dark": {},
+        "light": {
+          "accent": "#AA0000",
+          "selected": "#11111180"
+        }
+      },
+      "themes": [
+        "light"
+      ]
     }
   },
   {
@@ -436,7 +557,9 @@
         },
         "light": {}
       },
-      "themes": ["dark"]
+      "themes": [
+        "dark"
+      ]
     }
   },
   {
@@ -452,7 +575,9 @@
           "surface": "#FFF0F5"
         }
       },
-      "themes": ["light"]
+      "themes": [
+        "light"
+      ]
     }
   }
 ]

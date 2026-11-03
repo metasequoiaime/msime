@@ -966,6 +966,10 @@ impl CustomTheme {
                 &colors.selected,
                 PreferencesError::InvalidCandidateSelectedColor,
             ),
+            (
+                &colors.selected_text,
+                PreferencesError::InvalidCandidateSelectedTextColor,
+            ),
             (&colors.hover, PreferencesError::InvalidCandidateHoverColor),
             (
                 &colors.surface,
@@ -1006,7 +1010,7 @@ impl CustomTheme {
     }
 }
 
-/// The seven candidate colour pickers, each `#RRGGBB` or unset.
+/// The eight candidate colour pickers, each `#RRGGBB` or unset.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CustomCandidateColors {
@@ -1018,6 +1022,9 @@ pub struct CustomCandidateColors {
     pub accent: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub selected: Option<String>,
+    /// 选中候选（高亮行）的文字颜色（#10740）。没设时照旧推导：设了选中底色取色器时按底色亮度取黑或白，否则取皮肤包的 `selected_text`，再没有时内置底上取强调色；设了它就压过这几项，选中编号取同色的 `9D` 透明度。取值顺序见 `skin::theme::resolve`。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selected_text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hover: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -5541,6 +5548,8 @@ pub enum PreferencesError {
     InvalidCandidateAccentColor,
     #[error("candidate selected color must be #RRGGBB or omitted")]
     InvalidCandidateSelectedColor,
+    #[error("candidate selected text color must be #RRGGBB or omitted")]
+    InvalidCandidateSelectedTextColor,
     #[error("candidate hover color must be #RRGGBB or omitted")]
     InvalidCandidateHoverColor,
     #[error("candidate surface color must be #RRGGBB or omitted")]

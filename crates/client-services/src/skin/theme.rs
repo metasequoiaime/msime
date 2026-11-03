@@ -1,6 +1,6 @@
 //! The global theme: one id that colours the candidate window, the floating toolbar, the menus and the touch keyboard on every host.
 //!
-//! 共有八个 id。`system`（跟随系统）不带调色板，由宿主自己取色：桌面宿主画平台 token，触屏键盘按应用主题当前季节取色；`native`（原生）同样不带调色板，只画宿主系统自带的键盘 token，不跟季节，目前只有 iOS 提供；`shuishan`、`light`、`paper`、`night` 和 `ink` 是内置调色板，照抄设计稿的 `THEMES` 表；`custom` 是用户在 `Preferences::custom_theme` 里组合出来的主题（外部候选皮肤包、七个候选颜色取色器，以及编辑器、社区皮肤库或 AI 生成的键盘设计）。
+//! 共有八个 id。`system`（跟随系统）不带调色板，由宿主自己取色：桌面宿主画平台 token，触屏键盘按应用主题当前季节取色；`native`（原生）同样不带调色板，只画宿主系统自带的键盘 token，不跟季节，目前只有 iOS 提供；`shuishan`、`light`、`paper`、`night` 和 `ink` 是内置调色板，照抄设计稿的 `THEMES` 表；`custom` 是用户在 `Preferences::custom_theme` 里组合出来的主题（外部候选皮肤包、八个候选颜色取色器，以及编辑器、社区皮肤库或 AI 生成的键盘设计）。
 //!
 //! Hosts do not keep their own copy of these palettes. They read the catalog (`catalog`) to draw the picker and call `resolve` for the colours on screen, so a palette is changed here once and every host follows.
 //!
@@ -256,7 +256,7 @@ pub fn skin_appearance(base: GlobalTheme) -> Option<ThemeAppearance> {
 ///
 /// 自定义主题画在一个底上：选中皮肤包清单里的 `base`，否则是 `custom.base`。皮肤包只在它 `base` 的明暗下绘制：`base` 是固定明暗的内置主题、且与 `dark` 不符时，这个模式不画它，主题落回底加取色器，所以浅色模式不会出现深色皮肤，反之亦然。设过皮肤却在这个模式下没有可画的包时，`custom.base` 也只在属于当前明暗时作底，否则按 `system`；完全没设皮肤的自定义主题照旧用 `custom.base`。`system` 底的皮肤包两种模式都画，按 `dark` 取对应配色。皮肤包也只在清单声明的排列和模式下绘制：其余情况下它不提供任何颜色，也不出现在 `candidate_skin` 里，底照常与取色器一起画。`system` 底不提供槽位颜色，按 `dark` 绘制。
 ///
-/// Candidate colours are layered: the base, then the package palette, then every picker the user set. A text picker also sets the numbers to that colour at `PICKED_NUMBER_ALPHA` unless the number picker is set. `secondary` is the package's `translation` colour, and otherwise follows `number`. Over a built-in base the slots that base derives keep following their sources unless the package or a picker set them: `selected` is `accent` at `SELECTED_ALPHA`, `hover` is `text` at `HOVER_ALPHA`, `selected_text` is `accent` and `selected_number` is `number`. When the selected picker is set, on any base, `selected_text` is black or white by that colour's luminance and `selected_number` is the same colour at `PICKED_NUMBER_ALPHA`, so the highlighted candidate stays readable whatever colour was picked. A custom theme over `system` with no package slots and no pickers has no candidate palette at all and draws the platform's own.
+/// Candidate colours are layered: the base, then the package palette, then every picker the user set. A text picker also sets the numbers to that colour at `PICKED_NUMBER_ALPHA` unless the number picker is set. `secondary` is the package's `translation` colour, and otherwise follows `number`. Over a built-in base the slots that base derives keep following their sources unless the package or a picker set them: `selected` is `accent` at `SELECTED_ALPHA`, `hover` is `text` at `HOVER_ALPHA`, `selected_text` is `accent` and `selected_number` is `number`. When the selected picker is set, on any base, `selected_text` is black or white by that colour's luminance and `selected_number` is the same colour at `PICKED_NUMBER_ALPHA`, so the highlighted candidate stays readable whatever colour was picked. The selected text picker (#10740) sits above all of that: when it is set, on any base, `selected_text` is that colour and `selected_number` (and the package's selected translation details) that colour at `PICKED_NUMBER_ALPHA`, over the black or white the selected picker derives, the package's own and the accent; the selected row itself is left as the rest of the chain makes it. The full order is: selected text picker, then the selected picker's black or white, then the package's `selected_text`, then the accent over a built-in base, and over `system` nothing (the host draws its own). A custom theme over `system` with no package slots and no pickers has no candidate palette at all and draws the platform's own.
 ///
 /// The keyboard is the user's design when there is one, otherwise the base theme's keyboard (`None`, the platform keyboard, over `system`).
 pub fn resolve(
@@ -325,10 +325,12 @@ pub fn resolve(
         explicit.apply(Overrides::from_package(palette));
     }
     let pickers = Overrides::from_pickers(&custom.candidate_colors);
-    // 选中底色取色器优先于包内的选中文字色；按实际底色推导黑白文字，避免旧的贴图配色落在新底色上失去对比。
-    let picked_selected_text = pickers.selected.as_deref().map(|selected| {
-        let background = u32::from_str_radix(&selected[1..7], 16).unwrap_or_default();
-        rgb(readable_text(background))
+    // 选中文字取色器（#10740）最优先；没设时，选中底色取色器优先于包内的选中文字色，按实际底色推导黑白文字，避免旧的贴图配色落在新底色上失去对比。
+    let picked_selected_text = pickers.selected_text.clone().or_else(|| {
+        pickers.selected.as_deref().map(|selected| {
+            let background = u32::from_str_radix(&selected[1..7], 16).unwrap_or_default();
+            rgb(readable_text(background))
+        })
     });
     let picked_number = match (&pickers.text, &pickers.number) {
         (Some(text), None) => Some(with_alpha(text, PICKED_NUMBER_ALPHA)),
@@ -474,7 +476,7 @@ impl Overrides {
             hover: color(&pickers.hover),
             translation: None,
             show_selected_bar: None,
-            selected_text: None,
+            selected_text: color(&pickers.selected_text),
             selected_number: None,
         }
     }
