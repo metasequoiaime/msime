@@ -51,6 +51,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
     controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.viewWillAppear(false)
     try button("nineKey1", in: controller).sendActions(for: .primaryActionTriggered)
     try button("nineKeyZero", in: controller).sendActions(for: .primaryActionTriggered)
     XCTAssertEqual(try button("preeditButton", in: controller).accessibilityValue, "10",
@@ -264,6 +265,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
     controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.viewWillAppear(false)
     for digit in "94" { try button("nineKey\(digit)", in: controller).sendActions(for: .primaryActionTriggered) }
     try button("nineKeyMiddleKey", in: controller).sendActions(for: .primaryActionTriggered)
     for digit in "26" { try button("nineKey\(digit)", in: controller).sendActions(for: .primaryActionTriggered) }
@@ -566,6 +568,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       let controller = KeyboardViewController()
       controller.loadViewIfNeeded()
       controller.view.frame = CGRect(x: 0, y: 0, width: width, height: KeyboardViewController.defaultKeyboardHeight)
+      controller.viewWillAppear(false)
       let ordinary = UUID()
       controller.applyInputContext(keyboardType: .default, documentIdentifier: ordinary)
       for type in [UIKeyboardType.asciiCapable, .emailAddress, .URL] {
@@ -707,6 +710,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       InputSchemePreference.scheme = scheme
       let controller = KeyboardViewController()
       controller.loadViewIfNeeded()
+      controller.viewWillAppear(false)
       for character in (scheme == .nineKey ? "64426" : "nihao") {
         if scheme == .nineKey {
           try button("nineKey\(character)", in: controller).sendActions(for: .primaryActionTriggered)
@@ -1571,6 +1575,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     KeyboardLayoutPreference.quanpinShift = false
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
+    controller.viewWillAppear(false)
     let language = try button("bottomLanguageKey", in: controller)
     let left = try button("shiftButton", in: controller)
     let right = try button("rightShiftButton", in: controller)
@@ -1701,6 +1706,7 @@ final class NineKeyKeyboardTests: XCTestCase {
                                 ("bottomPeriodKey", ["H", "E", "L"]), ("returnKey", ["H", "E", "L"])] {
       let controller = KeyboardViewController()
       controller.loadViewIfNeeded()
+      controller.viewWillAppear(false)
       let language = try button("bottomLanguageKey", in: controller)
       try button("shiftButton", in: controller).sendActions(for: .primaryActionTriggered)
       XCTAssertEqual(language.accessibilityValue, "英文输入")
@@ -1800,6 +1806,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     controller.view.frame = CGRect(
       x: 0, y: 0, width: 390,
       height: KeyboardViewController.defaultKeyboardHeight)
+    controller.viewWillAppear(false)
 
     func letterKey(_ letter: String) throws -> UIButton {
       try XCTUnwrap(descendants(controller.view).first {
@@ -2060,6 +2067,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       controller.loadViewIfNeeded()
       controller.view.frame = CGRect(
         x: 0, y: 0, width: 414, height: KeyboardViewController.defaultKeyboardHeight)
+      controller.viewWillAppear(false)
       controller.view.layoutIfNeeded()
 
       let a = try XCTUnwrap(
@@ -2107,6 +2115,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       let controller = KeyboardViewController()
       controller.loadViewIfNeeded()
       controller.view.frame = CGRect(x: 0, y: 0, width: width, height: KeyboardViewController.defaultKeyboardHeight)
+      controller.viewWillAppear(false)
       controller.view.layoutIfNeeded()
       let toolbar = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardShortcutBar" })
       XCTAssertFalse(toolbar.isHidden)
@@ -2167,6 +2176,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       let controller = KeyboardViewController()
       controller.loadViewIfNeeded()
       controller.view.frame = CGRect(x: 0, y: 0, width: 320, height: KeyboardViewController.defaultKeyboardHeight)
+      controller.viewWillAppear(false)
       func type(_ text: String) throws {
         for character in text {
           let key: UIButton
@@ -2442,6 +2452,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
     controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.viewWillAppear(false)
     controller.openLocalInputMode("C")
     controller.view.layoutIfNeeded()
     XCTAssertEqual(try button("preeditButton", in: controller).configuration?.title, "拆字")
@@ -2469,6 +2480,7 @@ final class NineKeyKeyboardTests: XCTestCase {
         let controller = KeyboardViewController()
         controller.loadViewIfNeeded()
         controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: KeyboardViewController.defaultKeyboardHeight)
+        controller.viewWillAppear(false)
         controller.openLocalInputMode(trigger)
         try layoutAtRequestedHeight(controller)
         let modeTitles = ["U": "Unicode 码点", "T": "日期时间", "J": "超级简拼", "C": "拆字"]
@@ -2572,6 +2584,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
     controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.viewWillAppear(false)
     for letter in "watashihanihonjindesu" {
       let key = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 \(String(letter).uppercased())" } as? UIButton)
       key.sendActions(for: .primaryActionTriggered)
@@ -2878,8 +2891,11 @@ final class NineKeyKeyboardTests: XCTestCase {
 
     try bridge.resumeDictionarySession()
     XCTAssertFalse(locks.allSatisfy(exclusiveLockAvailable), "a resumed session holds its dictionary lease")
+    // 只有跑着双拼的会话才有键面提示，小鹤的 K 是 ing 和 uai。
+    XCTAssertEqual(bridge.shuangpinKeyHints()["K"], "ing uai", "the scheme chosen while suspended did not reach the session")
     var snapshot = bridge.cancel()
-    for letter in "nihk" { snapshot = bridge.handleCharacter(String(letter)) }
+    // 小鹤双拼的 hao 是 h + c（ao 在 C 上）。
+    for letter in "nihc" { snapshot = bridge.handleCharacter(String(letter)) }
     XCTAssertNil(snapshot.diagnosticText)
     XCTAssertTrue(snapshot.candidates.contains("你好"), "the scheme chosen while suspended did not reach the session")
     _ = bridge.cancel()
@@ -2931,13 +2947,48 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
     controller.view.layoutIfNeeded()
     XCTAssertTrue(try XCTUnwrap(button("candidate-1", in: controller).configuration?.title).contains("你好"))
+    controller.viewDidAppear(false)
+    XCTAssertTrue(maintenanceTimerRunning(controller), "a shown keyboard runs its two-second dictionary maintenance")
 
     controller.viewWillDisappear(false)
     XCTAssertTrue(locks.allSatisfy(exclusiveLockAvailable), "the keyboard kept the lease after it was put away")
+    XCTAssertFalse(maintenanceTimerRunning(controller), "putting the keyboard away stops the maintenance timer")
+    // UIKit 的外观回调可能乱序：收起之后才到的 `viewDidAppear` 不能再开维护，维护会取 App Group 里的锁（快照工作者的 worker.lock）。
     controller.viewDidAppear(false)
+    XCTAssertFalse(maintenanceTimerRunning(controller), "a late viewDidAppear restarted dictionary maintenance")
     controller.viewDidDisappear(false)
     RunLoop.current.run(until: Date().addingTimeInterval(0.1))
     XCTAssertTrue(locks.allSatisfy(exclusiveLockAvailable), "a late viewDidAppear took the lease back")
+  }
+
+  /// 会话持着的锁不止词库访问租约：资源是下载的词库代次时，建会话还会在 `dictionary-updates/generations/<代次>.lock` 上取一把共享锁（client-providers 的 `dictionary_updates::lease`），同样在 App Group 里、同样随会话销毁才放。挂起起步的桥在 resume 之前不持它，挂起之后放掉它。
+  func testABridgeThatStartsSuspendedHoldsNoGenerationLeaseUntilResumed() throws {
+    let state = FileManager.default.temporaryDirectory
+      .appendingPathComponent("msime-generation-lease-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: state) }
+    let generations = state.appendingPathComponent("dictionary-updates/generations", isDirectory: true)
+    try FileManager.default.createDirectory(at: generations, withIntermediateDirectories: true)
+    // 代次目录名是 64 位十六进制；内容用随包资源的副本，准备时照常通过校验。
+    let generation = String(repeating: "d", count: 64)
+    let resources = generations.appendingPathComponent(generation, isDirectory: true)
+    try FileManager.default.copyItem(
+      at: try XCTUnwrap(Bundle.main.resourceURL?.appendingPathComponent("EngineResources", isDirectory: true)),
+      to: resources)
+    let lock = generations.appendingPathComponent("\(generation).lock").path
+
+    let bridge = MetasequoiaInputSessionBridge(resources: resources, stateRoot: state, startsSuspended: true)
+    XCTAssertFalse(bridge.initializationFailed)
+    XCTAssertTrue(exclusiveLockAvailable(lock), "a bridge that has not resumed holds the generation lease")
+    try bridge.resumeDictionarySession()
+    XCTAssertFalse(exclusiveLockAvailable(lock), "a session on a downloaded generation holds its lease")
+    XCTAssertTrue(bridge.suspendDictionarySession())
+    XCTAssertTrue(exclusiveLockAvailable(lock), "suspending did not hand the generation lease back")
+  }
+
+  /// 控制器的两秒词库维护定时器（私有的 `personalDictionaryTimer`）是否在走，只能经反射看。
+  private func maintenanceTimerRunning(_ controller: KeyboardViewController) -> Bool {
+    let timer = Mirror(reflecting: controller).children.first { $0.label == "personalDictionaryTimer" }?.value as? Timer
+    return timer?.isValid == true
   }
 
   /// 引擎词库访问租约的两个锁文件（`user_data` 和 `dictionaries` 下的 `.msime-dictionary-access.lock`），按键盘准备选项时的路径。
@@ -3115,6 +3166,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       let controller = KeyboardViewController()
       controller.loadViewIfNeeded()
       controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+      controller.viewWillAppear(false)
       controller.view.layoutIfNeeded()
       let button = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 U" } as? UIButton)
       return (button, controller)
@@ -3162,6 +3214,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
     controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.viewWillAppear(false)
     controller.view.layoutIfNeeded()
     let letterU = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 U" } as? UIButton)
     // 提示行是直接加在按键上的 9pt 标签，见 `attachHintLabel`。
@@ -3456,6 +3509,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
     controller.view.frame = CGRect(x: 0, y: 0, width: 320, height: KeyboardViewController.keyboardHeight(landscape: true))
+    controller.viewWillAppear(false)
     controller.view.layoutIfNeeded()
 
     let nine = try button("nineKey6", in: controller)
@@ -3520,6 +3574,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     controller.loadViewIfNeeded()
     controller.view.frame = CGRect(
       x: 0, y: 0, width: 320, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.viewWillAppear(false)
     for digit in "926439" {
       try button("nineKey\(digit)", in: controller).sendActions(for: .primaryActionTriggered)
     }
@@ -3574,6 +3629,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       let controller = KeyboardViewController()
       controller.loadViewIfNeeded()
       controller.view.frame = CGRect(x: 0, y: 0, width: width, height: KeyboardViewController.defaultKeyboardHeight)
+      controller.viewWillAppear(false)
       controller.view.layoutIfNeeded()
       let keys = try (1...9).map { try button("nineKey\($0)", in: controller) }
       let frames = keys.map { $0.convert($0.bounds, to: controller.view) }
@@ -3752,6 +3808,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
     controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.viewWillAppear(false)
     controller.view.layoutIfNeeded()
     for label in ["字母 N", "字母 I"] {
       let key = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == label } as? UIButton)
@@ -3856,6 +3913,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
     controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.viewWillAppear(false)
     controller.view.layoutIfNeeded()
     let skin = KeyboardTheme.current
     let traits = controller.traitCollection
@@ -3927,6 +3985,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
     controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.viewWillAppear(false)
     controller.view.layoutIfNeeded()
     let expand = try button("expandCandidates", in: controller)
     XCTAssertTrue(expand.isHidden, "nothing to expand while idle")
@@ -4253,6 +4312,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
     controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.viewWillAppear(false)
     controller.view.layoutIfNeeded()
     for letter in ["N", "I", "H", "A", "O"] {
       try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 \(letter)" } as? UIButton)
@@ -4301,6 +4361,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
     controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.viewWillAppear(false)
     controller.view.layoutIfNeeded()
     for letter in ["Y", "I"] {
       try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 \(letter)" } as? UIButton)
@@ -4845,6 +4906,7 @@ final class NineKeySwipeDigitsTests: XCTestCase {
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
     controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.viewWillAppear(false)
     controller.view.layoutIfNeeded()
     return controller
   }
