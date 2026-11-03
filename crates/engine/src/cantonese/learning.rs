@@ -38,7 +38,7 @@ pub struct RankedRow {
     pub weight: i64,
 }
 
-/// 选中 `key` 下的 `value` 一次。`rows` 是候选里与它覆盖同一段输入的那几行（含它自己），按权重比名次，与拼音调频按权重而不按显示顺序比的道理相同（`adjust_candidate_ranking`）。计数够了 `trigger_count` 次、它又不是权重最重的那一行时，按调频方式算出目标名次，把它的权重写成目标名次那一行的权重加一。返回是否写了权重。调频方式为「关闭」时什么也不写。用户删过的词再被调频时写成 `user_inserted=0`，不回到「我的词条」（[`LEARNED_WEIGHT_SQL`]）。
+/// 选中 `key` 下的 `value` 一次。`rows` 是候选里与它覆盖同一段输入的那几行（含它自己），按权重比名次，与拼音调频按权重而不按显示顺序比的道理相同（`adjust_candidate_ranking`）。计数够了 `trigger_count` 次、它又不是权重最重的那一行时，按调频方式算出目标名次，把它的权重写成目标名次那一行的权重加一。返回是否写了权重。调频方式为「关闭」时什么也不写。用户删过的词再被调频时写成 `user_inserted=0`，不回到「我的词条」（`LEARNED_WEIGHT_SQL`）。
 pub fn adjust_frequency(
     journal: &Path,
     rows: &[RankedRow],
