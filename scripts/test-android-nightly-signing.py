@@ -5,12 +5,14 @@ from __future__ import annotations
 
 import pathlib
 import re
+import subprocess
 import sys
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/release-android.yml"
 NIGHTLY = ROOT / ".github/workflows/nightly.yml"
+EDITION_ANDROID = ROOT / "platforms/android/scripts/edition_android.py"
 BUILD_STEP = "      - name: Build native Android host\n"
 SECRET_ENV = {
     "RELEASE_KEYSTORE_BASE64": "${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}",
@@ -60,9 +62,16 @@ def main() -> int:
     release = all_jobs.get("release")
     if release is None:
         return fail("release job is missing")
+    # 矩阵要与版本表里有 Android 段的版本一一对应（publish 也读同一张表核对 APK），不写死个数，版本表增删版本时这里跟着走。
     editions = re.search(r"^        edition: \[([^\]]*)\]$", release, re.MULTILINE)
-    if editions is None or len([e for e in editions.group(1).split(",") if e.strip()]) != 6:
-        return fail("release matrix must still build all six editions")
+    expected = subprocess.run(
+        [sys.executable, str(EDITION_ANDROID), "editions"], check=True, capture_output=True, text=True
+    ).stdout.strip().split(",")
+    if editions is None:
+        return fail("release job has no edition matrix")
+    matrix = [e.strip() for e in editions.group(1).split(",") if e.strip()]
+    if sorted(matrix) != sorted(expected) or len(matrix) != len(set(matrix)):
+        return fail(f"release matrix {matrix} must build exactly the Android editions in shared/contracts/editions.json: {expected}")
 
     build = next((step for step in steps(release) if step.startswith(BUILD_STEP)), None)
     if build is None:
@@ -79,7 +88,9 @@ def main() -> int:
     if script.count(MISSING_SECRET_CHECK) != 1 or text.count(MISSING_SECRET_CHECK) != 1:
         return fail("a missing release secret must fail explicitly, in exactly one place")
     decode = 'printf \'%s\' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$MSIME_ANDROID_RELEASE_KEYSTORE"'
+    # 资源先用 cargo 生成，再解出密钥：密钥文件只在 build-apk.sh 运行期间存在，install_resources 那一轮完整 cargo 构建（含第三方 build.rs）读不到它。
     ordered = [
+        'resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)"',
         MISSING_SECRET_CHECK,
         'export MSIME_ANDROID_RELEASE_KEYSTORE="$RUNNER_TEMP/msime-release.p12"',
         "trap 'rm -f \"$MSIME_ANDROID_RELEASE_KEYSTORE\"' EXIT",
@@ -90,7 +101,7 @@ def main() -> int:
     if -1 in positions:
         return fail(f"build step is missing: {ordered[positions.index(-1)]}")
     if positions != sorted(positions):
-        return fail("build step must check the secret, decode it into $RUNNER_TEMP with a cleanup trap, then build")
+        return fail("build step must generate resources first, then check the secret, decode it into $RUNNER_TEMP with a cleanup trap, then build")
 
     # 密钥只在这一步出现，而且不打印、不开 shell 跟踪。
     if text.count("secrets.ANDROID_RELEASE_KEYSTORE_BASE64") != 1:

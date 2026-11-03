@@ -14,7 +14,7 @@ Issue #7767 希望用户在正式版之间能下载新提交的可安装构建�
 
 为六个正式平台的 release workflow 增加 `workflow_call` 入口，保留原有 `workflow_dispatch`。新增的 nightly workflow 按定时任务或手动触发并行调用 Android、iOS、macOS、Linux、HarmonyOS、Windows 六条现有发布链，统一传入只构建、不创建平台 release 的参数；六个平台都成功后，下载各自的 workflow artifacts，按平台打成一个滚动的 `nightly` GitHub prerelease。iOS nightly 复用现有的签名与外部 TestFlight 流程，上传到外部测试组并提交 Apple 审核；其余平台不使用正式发布密钥或签名服务。Android 这一项已由[Android nightly 改用正式发布密钥签名](../bug-fix/2026-11-04-android-nightly-release-key.md)取代：nightly 与正式版用同一把发布密钥签名，同一版本的 nightly 包和正式包可以互相覆盖安装。
 
-为支持非发布构建，Android 只在 `publish=true` 时强制发布密钥，Windows 只在发布时调用 SignPath，macOS 只在发布时导入 Developer ID 和公证凭据。macOS 这一项已由[macOS nightly 用 Developer ID 签名并公证](2026-10-15-macos-nightly-notarized.md)取代：ad-hoc 的 DMG 注册不了输入法，nightly 的 macOS 下载因此没法用。三个桌面发布 workflow 的官方插件 artifact 改用平台专属名称，避免六个 reusable workflow 在同一个 nightly run 中互相覆盖。iOS 构建号使用 2020 年起的 UTC 秒数，两条入口共用发布并发组，避免各 workflow 独立的 run_number 产生重复编号。
+为支持非发布构建，Android 只在 `publish=true` 时强制发布密钥（Android 这一项已由[Android nightly 改用正式发布密钥签名](../bug-fix/2026-11-04-android-nightly-release-key.md)取代：nightly 与 `publish=false` 也强制发布密钥），Windows 只在发布时调用 SignPath，macOS 只在发布时导入 Developer ID 和公证凭据。macOS 这一项已由[macOS nightly 用 Developer ID 签名并公证](2026-10-15-macos-nightly-notarized.md)取代：ad-hoc 的 DMG 注册不了输入法，nightly 的 macOS 下载因此没法用。三个桌面发布 workflow 的官方插件 artifact 改用平台专属名称，避免六个 reusable workflow 在同一个 nightly run 中互相覆盖。iOS 构建号使用 2020 年起的 UTC 秒数，两条入口共用发布并发组，避免各 workflow 独立的 run_number 产生重复编号。
 
 nightly 的回归修复保留 iOS 词库页原有的发现加载、下拉刷新和个人词库导入 sheet。HarmonyOS 接线门禁要求三条候选路径的六个释义调用完整闭合并传入显示开关，忽略注释且允许换行，防止相同参数文本的注释掩盖真实接线错误。Android 模糊拼音验收以候选内容和关闭规则后的缺席为契约；词库排序或学习改变候选排名时，仍能验证模糊规则本身。macOS DMG 创建输出系统工具错误，最多重试三次，每次前后清理半成品；持续失败继续阻止签名和上传。
 

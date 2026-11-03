@@ -13,10 +13,10 @@ Status: implemented
 维护者 2026-11-04 决定：Android nightly 与所有 `publish=false` 的构建一律用正式发布密钥签名，取自已经配置好的 `ANDROID_RELEASE_KEYSTORE_BASE64`、`ANDROID_RELEASE_KEYSTORE_PASSWORD`，不引入、也不要求任何 `ANDROID_NIGHTLY_KEYSTORE_*` secret。
 
 - 删掉 `development-signing-key` job 和矩阵里下载密钥 artifact 的步骤，`release` 只依赖 `source`。签名密钥不再经 workflow artifact 在 job 之间传递，各构建 job 直接从 secret 解出。
-- 六个 edition 的 `Build native Android host` 步骤不分 publish 与否，都先检查两个 secret，再把密钥解到 `$RUNNER_TEMP/msime-release.p12`，用 `trap` 在步骤结束时删除，然后照旧经 `signing.sh` 签名。没有任何步骤上传或缓存密钥材料。
+- 六个 edition 的 `Build native Android host` 步骤不分 publish 与否，先用 `install_resources` 生成资源，再检查两个 secret，把密钥解到 `$RUNNER_TEMP/msime-release.p12`，用 `trap` 在步骤结束时删除，然后照旧经 `build-apk.sh` 里的 `signing.sh` 签名。资源生成放在解码之前，是为了让密钥文件只在 `build-apk.sh` 运行期间存在，`install_resources` 那一轮完整 cargo 构建（含第三方 `build.rs`）读不到它。没有任何步骤上传或缓存密钥材料。
 - secret 缺失时只在这一处明确失败，错误信息说明正式版、beta、nightly 与 `publish=false` 都要它；不退回开发密钥，免得悄悄打出另一张证书的包。
 - 这个 job 本来就留在 GitHub 托管的 runner 上（发版密钥无法更换，不搬到 Depot），注释改回「不论 publish 与否都会解码发版签名密钥」。
-- `scripts/test-android-nightly-signing.py` 守住这些约束：不得出现 `ANDROID_NIGHTLY_KEYSTORE` 和 `development-signing-key`；任何 job 的 upload-artifact、download-artifact、cache 步骤都不得带密钥文件、签名目录或 secret；构建步骤没有 `if:`，解码不在 `PUBLISH` 分支里，缺 secret 的检查全文件只有一处，且顺序是检查、解到 `$RUNNER_TEMP`、注册清理、解码、构建；发布密钥 secret 只在这一步读取，步骤里不开 shell 跟踪、不回显密钥或口令；矩阵仍是六个 edition；`nightly.yml` 以 `publish: false` 加 `secrets: inherit` 调用它。
+- `scripts/test-android-nightly-signing.py` 守住这些约束：不得出现 `ANDROID_NIGHTLY_KEYSTORE` 和 `development-signing-key`；任何 job 的 upload-artifact、download-artifact、cache 步骤都不得带密钥文件、签名目录或 secret；构建步骤没有 `if:`，解码不在 `PUBLISH` 分支里，缺 secret 的检查全文件只有一处，且顺序是生成资源、检查、解到 `$RUNNER_TEMP`、注册清理、解码、构建；发布密钥 secret 只在这一步读取，步骤里不开 shell 跟踪、不回显密钥或口令；矩阵与 `edition_android.py editions` 读出的版本表 Android 版本一一对应（不写死个数，publish 核对 APK 也读这张表）；`nightly.yml` 以 `publish: false` 加 `secrets: inherit` 调用它。
 
 这推翻了[Android nightly 各版本共用临时开发签名](../../archived/bug-fix/2026-11-03-android-nightly-shared-signing-key.md)（#10716）的决定，也取代了[六个平台共用发布构建链的 nightly 产物](../process/2026-10-14-six-platform-nightly-builds.md)里「nightly 的 Android 不使用正式发布密钥、用开发签名」那一项。专用 nightly 密钥被放弃的理由：它从未配置、已经让 nightly 红了；它让 nightly 与正式包永远不能互相覆盖安装，用户在两者之间切换就要卸载重装、丢掉本地词库和设置；它多出一把要长期保管的密钥和一个在 job 之间传递密钥的 artifact。旧决定反对 nightly 碰正式密钥，理由是扩大正式密钥的暴露面；macOS nightly 已经用 Developer ID 签名并公证（见[macOS nightly 用 Developer ID 签名并公证](../process/2026-10-15-macos-nightly-notarized.md)），Android 这里同样只在 GitHub 托管 runner 的单个步骤里解出、步骤结束即删、不进任何 artifact，维护者接受每晚多解码一次的代价，换取 nightly 与正式版同一张证书。
 
@@ -33,4 +33,5 @@ Status: implemented
 - 正式版、beta、nightly、`publish=false` 构建和有发布密钥的本地构建用同一张证书（别名 `msime-release`）。同一 edition 的 nightly 与正式包具备互相覆盖安装的必要条件，能否覆盖仍受 versionCode 不能降级的约束；不同 edition 的 `applicationId` 仍由版本表决定。
 - 没有配置发布密钥 secret 的仓库（例如 fork）运行 `release-android.yml` 会在构建步骤明确失败；此前 nightly 在 `development-signing-key` 同样会失败。本地构建与 `android-device.yml` 的模拟器构建不读这两个 secret，仍按 `signing.sh` 的顺序取密钥或退回开发密钥，行为不变。
 - 发布密钥现在每晚都会在 GitHub 托管 runner 上解码一次，`release` job 不能搬到 Depot 的约束因此对 nightly 同样成立。
-- 只改 workflow、契约脚本和文档，不涉及 APK 运行时代码。本地验证了 actionlint、契约脚本（含把旧 workflow、注入密钥 artifact 步骤、注入密钥缓存步骤、把解码放回 `PUBLISH` 分支、给构建步骤加 `if:` 这五种变体都判为失败）和 `scripts/run-checks.sh`；没有在本地跑发布 workflow。合并后由维护者重跑 nightly，再核对六个 APK 的证书 SHA-256 与正式版一致，并在真机上用 nightly 覆盖安装正式版、再用正式版覆盖回去。
+- 密钥文件与口令的暴露窗口只收窄到 `build-apk.sh`：它自己还会跑 cargo（`verify_resources`、原生库构建）和 Gradle，这些进程运行时密钥文件在 `$RUNNER_TEMP` 里，口令一直在步骤环境变量里。完全隔离要把签名拆成单独的步骤或 job，在拿到未签名 APK 之后才解出密钥，那是对 `build-apk.sh` 签名流程的改动，不在本次范围；`publish=true` 一直就是这样，区别是现在每晚 develop HEAD 的依赖构建脚本也处在这个窗口里。
+- 只改 workflow、契约脚本和文档，不涉及 APK 运行时代码。本地验证了 actionlint、契约脚本（含把旧 workflow、注入密钥 artifact 步骤、注入密钥缓存步骤、把解码放回 `PUBLISH` 分支、给构建步骤加 `if:`、把资源生成放回解码之后、矩阵换掉或少掉一个版本这几种变体都判为失败）和 `scripts/run-checks.sh`；没有在本地跑发布 workflow。合并后由维护者重跑 nightly，再核对六个 APK 的证书 SHA-256 与正式版一致，并在真机上用 nightly 覆盖安装正式版、再用正式版覆盖回去。

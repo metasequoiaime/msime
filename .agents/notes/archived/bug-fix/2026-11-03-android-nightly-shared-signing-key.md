@@ -3,11 +3,13 @@
 Status: implemented
 Archived: 2026-11-04
 
+> 已被取代（2026-11-04）：见 [Android nightly 改用正式发布密钥签名](../../implemented/bug-fix/2026-11-04-android-nightly-release-key.md)。nightly 与 `publish=false` 的构建改用正式发布密钥签名，`development-signing-key` job 和 `ANDROID_NIGHTLY_KEYSTORE_*` secrets 都已删除。下文保留原文，供追溯当时的理由。
+
 ## Problem
 
 Issue #10709 反馈 Android nightly 的各个版本包签名不一致。`release-android.yml` 的 `release` 是矩阵任务，每个 edition 在独立 runner 上构建；非发布构建没有正式密钥时，`signing.sh` 会在各自的 `HOME/.android/debug.keystore` 中生成开发密钥。每个 runner 都有自己的文件，因此 full、wubi、pinyin 等包的证书不同，用户安装或更新时会被 Android 当作不同签名，重新安装还会丢失 WebDAV 剪贴板和词库数据。
 
-现有 nightly 流程明确禁止解码正式发布密钥，相关约束见[六个平台共用发布构建链的 nightly 产物](../process/2026-10-14-six-platform-nightly-builds.md)。问题是开发密钥的作用域只覆盖单个 runner，而不是一次 workflow。
+现有 nightly 流程明确禁止解码正式发布密钥，相关约束见[六个平台共用发布构建链的 nightly 产物](../../implemented/process/2026-10-14-six-platform-nightly-builds.md)。问题是开发密钥的作用域只覆盖单个 runner，而不是一次 workflow。
 
 ## Decision
 

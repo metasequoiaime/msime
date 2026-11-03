@@ -91,13 +91,14 @@ jobs:
           MSIME_ANDROID_RELEASE_KEYSTORE_PASSWORD: "${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}"
         run: |
           set -euo pipefail
+          # 先生成资源再解出密钥：install_resources 是一轮完整的 cargo 构建（含第三方 build.rs），密钥文件只在 build-apk.sh 运行期间存在。
+          mkdir -p target/resources
+          resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)"
           # 缺 secret 时在这里明确失败，不退回 signing.sh 的开发密钥：开发密钥签的包与正式包互相不能覆盖安装。
           [[ -n "$RELEASE_KEYSTORE_BASE64" && -n "$MSIME_ANDROID_RELEASE_KEYSTORE_PASSWORD" ]] || { echo "ANDROID_RELEASE_KEYSTORE_BASE64 and ANDROID_RELEASE_KEYSTORE_PASSWORD must be configured; release, beta, nightly and publish=false builds all sign with the release key" >&2; exit 1; }
           export MSIME_ANDROID_RELEASE_KEYSTORE="$RUNNER_TEMP/msime-release.p12"
           trap 'rm -f "$MSIME_ANDROID_RELEASE_KEYSTORE"' EXIT
           printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$MSIME_ANDROID_RELEASE_KEYSTORE"
-          mkdir -p target/resources
-          resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)"
           bash platforms/android/build-apk.sh "$resource_dir"
           # 按版本取 APK 名（full 是 msime-android，五笔版是 msime-android-wubi），放进 dist/ 交给汇总发布的那一步。
           apk_name="$(python3 platforms/android/scripts/edition_android.py field --edition "$MSIME_EDITION" apk_name)"
