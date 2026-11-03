@@ -9253,13 +9253,22 @@ private:
   // 皮肤包卡片上的「删除」（共享页的 useSkinDeletion）：确认后在工作线程上经 msime_client_skin_delete 删。选着的不能删是 client-services 的规则（candidate_sync::delete_unselected），这里只把回的码翻成 SkinDeleteModel.h 的话；删掉或发现已经不在时重扫皮肤目录。`shown_in_use` 是卡片上显示着「使用中」，只用来挑提示的说法。
   fire_and_forget delete_skin(std::wstring id, std::wstring name, bool shown_in_use) {
     auto strong = get_strong();
+    // 上一次的结果在确认框关上后就撤掉，与共享页的 setNotice(null) 相同；取消时也要重画，不然旧的那句一直留在页面上。
+    const bool had_notice = !skin_deleted_notice_.empty();
     skin_deleted_notice_.clear();
-    if (!co_await confirm(L"删除皮肤", sd::question(name), L"删除") || closed_)
+    const bool confirmed = co_await confirm(L"删除皮肤", sd::question(name), L"删除");
+    if (had_notice)
+      redraw_themes();
+    if (!confirmed || closed_)
       co_return;
     const auto root = skins_root();
     const auto preferences = state_directory();
-    if (!root.is_absolute() || !preferences.is_absolute())
+    // 用户已经确认过，找不到目录时也要说一句，不能什么都不发生。
+    if (!root.is_absolute() || !preferences.is_absolute()) {
+      skin_deleted_notice_ = sd::failure("", name, shown_in_use);
+      redraw_themes();
       co_return;
+    }
     JsonObject request;
     request.SetNamedValue(L"directory", JsonValue::CreateStringValue(hstring(root.wstring())));
     request.SetNamedValue(L"preferences_directory",

@@ -120,5 +120,41 @@ test("宿主答 candidate_skin_in_use 时提示先关掉这款皮肤，卡片保
   const notice = await screen.findByRole("alert");
   expect(notice.textContent).toContain("樱花");
   expect(notice.textContent).toContain("关掉");
+  // 卡片没显示「使用中」（全局主题不是自定义）：打开再关掉开关会换成自定义主题，提示要说删完选回原来的主题。
+  expect(notice.textContent).toContain("选回原来的主题");
   expect(card("樱花")).not.toBeNull();
+});
+
+test("卡片显示「使用中」时只提示关掉开关，不说选回主题", async () => {
+  const deleteSkin = vi.fn().mockRejectedValue({ code: "candidate_skin_in_use" });
+  const inUse: Snapshot = {
+    ...initial,
+    preferences: {
+      ...initial.preferences,
+      global_theme: "custom",
+      custom_theme: { base: "system", candidate_skin: "sakura", candidate_skin_dark: "sakura" },
+    },
+  };
+  render(
+    <SettingsPage
+      initialPage="skin"
+      client={{
+        load: async () => inUse,
+        save: vi.fn(),
+        scanSkinCatalog: vi.fn().mockResolvedValue(both),
+        deleteSkin,
+      }}
+    />,
+  );
+  await screen.findByRole("article", { name: "樱花" });
+  await waitFor(() =>
+    expect(within(card("樱花")).getByRole("switch").getAttribute("aria-checked")).toBe("true"),
+  );
+  fireEvent.click(within(card("樱花")).getByRole("button", { name: "删除" }));
+  fireEvent.click(
+    within(await screen.findByRole("alertdialog")).getByRole("button", { name: "删除" }),
+  );
+  const notice = await screen.findByRole("alert");
+  expect(notice.textContent).toContain("正在使用");
+  expect(notice.textContent).not.toContain("选回原来的主题");
 });

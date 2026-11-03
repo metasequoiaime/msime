@@ -10,7 +10,7 @@ type Notice = { failed: boolean; text: string };
 /**
  * 删除没成功时给用户的一句话，按宿主回的码。能不能删由宿主（client-services 的 `candidate_sync::delete_unselected`）决定，页面只把码翻成白话。
  *
- * `shownInUse`：卡片上正显示着「使用中」。槽位里留着这款皮肤、但当前全局主题不是自定义主题时，卡片的开关是关着的，要先打开再关掉才能把它从自定义主题里取下。
+ * `shownInUse`：卡片上正显示着「使用中」。槽位里留着这款皮肤、但当前全局主题不是自定义主题时，卡片的开关是关着的，要先打开再关掉才能把它从自定义主题里取下；开关打开和关掉都会选上自定义主题，所以提示里还要让用户删完选回原来的主题。
  */
 export function skinDeletionFailure(
   code: string | undefined,
@@ -21,7 +21,7 @@ export function skinDeletionFailure(
     case "candidate_skin_in_use":
       return shownInUse
         ? `「${name}」正在使用，先关掉它的开关再删除。`
-        : `自定义主题里还留着「${name}」，切回自定义主题时会用上它。先打开再关掉它的开关，把它从自定义主题里取下，再删除。`;
+        : `自定义主题里还留着「${name}」，切回自定义主题时会用上它。先打开再关掉它的开关，把它从自定义主题里取下，再删除。这样做会换成自定义主题，删完再选回原来的主题。`;
     case "candidate_skin_not_installed":
       return `「${name}」已经不在皮肤目录里了。`;
     case "candidate_skin_package":

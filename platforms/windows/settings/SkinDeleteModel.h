@@ -19,12 +19,12 @@ inline std::wstring done(std::wstring const &name, bool synced) {
          (synced ? std::wstring(L"云端皮肤库里的私人副本会在下次同步时一起删掉。") : std::wstring());
 }
 
-// 删除没成功时的一句话，按 msime_client_skin_delete 回的码。`shown_in_use` 是卡片上正显示着「使用中」：槽位里留着这款皮肤、但当前全局主题不是自定义主题时，卡片的开关是关着的，要先打开再关掉才能把它从自定义主题里取下。
+// 删除没成功时的一句话，按 msime_client_skin_delete 回的码。`shown_in_use` 是卡片上正显示着「使用中」：槽位里留着这款皮肤、但当前全局主题不是自定义主题时，卡片的开关是关着的，要先打开再关掉才能把它从自定义主题里取下；use_skin 打开和关掉都会选上自定义主题，所以提示里还要让用户删完选回原来的主题。
 inline std::wstring failure(std::string_view code, std::wstring const &name, bool shown_in_use) {
   if (code == "candidate_skin_in_use")
     return shown_in_use ? L"「" + name + L"」正在使用，先关掉它的开关再删除。"
                         : L"自定义主题里还留着「" + name +
-                              L"」，切回自定义主题时会用上它。先打开再关掉它的开关，把它从自定义主题里取下，再删除。";
+                              L"」，切回自定义主题时会用上它。先打开再关掉它的开关，把它从自定义主题里取下，再删除。这样做会换成自定义主题，删完再选回原来的主题。";
   if (code == "candidate_skin_not_installed")
     return L"「" + name + L"」已经不在皮肤目录里了。";
   if (code == "candidate_skin_package")

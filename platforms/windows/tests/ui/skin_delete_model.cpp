@@ -31,6 +31,11 @@ int main() {
         "an in-use skin asks to turn it off first");
   check(contains(failure("candidate_skin_in_use", L"樱花", false), L"先打开再关掉"),
         "a skin left in a slot explains how to take it out");
+  // 打开再关掉开关会把全局主题换成自定义，提示要说删完选回原来的主题。
+  check(contains(failure("candidate_skin_in_use", L"樱花", false), L"选回原来的主题"),
+        "taking a skin out of a slot says to pick the original theme again");
+  check(!contains(failure("candidate_skin_in_use", L"樱花", true), L"选回原来的主题"),
+        "an in-use skin is already on the custom theme");
   check(contains(failure("candidate_skin_not_installed", L"樱花", false), L"已经不在皮肤目录里"),
         "a missing skin says so");
   check(contains(failure("candidate_skin_package", L"樱花", false), L"手动删除"),
