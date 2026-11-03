@@ -197,6 +197,39 @@ fn fetch_grammar_catalog() -> Result<GrammarCatalog, LocalModelError> {
     Ok(catalog)
 }
 
+/// 编译进来的 `grammar-models.lock.json` 改写成一份只有稳定通道的目录。锁文件随程序一起审过，比在线目录更可信，所以不需要再钉来源。
+fn locked_grammar_catalog() -> GrammarCatalog {
+    let models = [
+        ResourcePack::GrammarWanxiang,
+        ResourcePack::GrammarBaguwen,
+        ResourcePack::GrammarBaguwenCompact,
+    ]
+    .into_iter()
+    .map(|pack| {
+        let set = pack.set();
+        GrammarCatalogModel {
+            id: pack
+                .id()
+                .strip_prefix("grammar-model-")
+                .expect("grammar pack id has the grammar-model- prefix")
+                .to_owned(),
+            channel: "stable".into(),
+            source_commit: set.source_commit.clone(),
+            artifact: set.artifacts[0].clone(),
+            format: "gram-v1".into(),
+        }
+    })
+    .collect();
+    GrammarCatalog { version: 1, models }
+}
+
+/// 安装用的模型目录。在线目录直连 raw.githubusercontent.com，国内网络常常读不到，而模型文件本身可以走用户镜像和项目镜像；目录读不到或被整份作废时，改用编译进来的锁文件，不让目录这一步挡住整次安装（#10761）。只用于用户发起的安装，主动检查更新仍要求读到在线目录，否则会把锁文件里的旧版本当成更新。
+///
+/// 锁文件里万象 LTS 的摘要可能已经落后于上游原地替换的文件，这时下载完会按摘要不符失败，和没有目录时一样不会装上未审过的字节。
+fn grammar_catalog_for_install(fetched: Result<GrammarCatalog, LocalModelError>) -> GrammarCatalog {
+    fetched.unwrap_or_else(|_| locked_grammar_catalog())
+}
+
 /// 联网获取当前模型目录并比较已安装模型的本地快照；不下载、不替换任何文件。
 pub fn check_grammar_updates(
     state_root: &Path,
@@ -1260,7 +1293,7 @@ pub fn install_for_channel(
         local_models::check_root(&root(state_root))?;
         crate::storage::create_directory_and_check(&root(state_root))
             .map_err(LocalModelError::from)?;
-        let catalog = fetch_grammar_catalog()?;
+        let catalog = grammar_catalog_for_install(fetch_grammar_catalog());
         let model_id = match pack {
             ResourcePack::GrammarWanxiang => "wanxiang",
             ResourcePack::GrammarBaguwen => "baguwen",
@@ -1649,6 +1682,45 @@ mod tests {
         let mut invalid = channels;
         invalid.models.push(invalid.models[0].clone());
         assert!(validate_grammar_catalog(&invalid).is_err());
+    }
+
+    /// 国内网络常常连不上 raw.githubusercontent.com。读不到在线目录时，安装改用编译进来的锁文件，三个可下载的语法模型都要能从中找到，地址、长度、摘要和上游提交与锁文件一致；读得到时照用在线目录。
+    #[test]
+    fn grammar_install_falls_back_to_lock_when_catalog_unavailable() {
+        use msime_client_core::preferences::UpdateChannel;
+        for channel in [
+            UpdateChannel::Stable,
+            UpdateChannel::Beta,
+            UpdateChannel::Nightly,
+        ] {
+            let catalog = grammar_catalog_for_install(Err(LocalModelError::Network(
+                "connection refused".into(),
+            )));
+            validate_grammar_catalog(&catalog).unwrap();
+            let selected = select_grammar_models(&catalog, channel);
+            assert_eq!(selected.len(), 3);
+            for pack in [
+                ResourcePack::GrammarWanxiang,
+                ResourcePack::GrammarBaguwen,
+                ResourcePack::GrammarBaguwenCompact,
+            ] {
+                let model = selected
+                    .iter()
+                    .find(|model| format!("grammar-model-{}", model.id) == pack.id())
+                    .unwrap_or_else(|| panic!("{} missing from fallback", pack.id()));
+                let locked = &pack.set().artifacts[0];
+                assert_eq!(model.source_commit, pack.set().source_commit);
+                assert_eq!(model.artifact.name, locked.name);
+                assert_eq!(model.artifact.url, locked.url);
+                assert_eq!(model.artifact.sha256, locked.sha256);
+                assert_eq!(model.artifact.size, locked.size);
+            }
+        }
+
+        let mut fetched: GrammarCatalog = serde_json::from_str(EMBEDDED_GRAMMAR_CATALOG).unwrap();
+        fetched.models[0].source_commit = "b".repeat(40);
+        let catalog = grammar_catalog_for_install(Ok(fetched));
+        assert_eq!(catalog.models[0].source_commit, "b".repeat(40));
     }
 
     /// 伪造一个已发布的资源包目录：所有文件加上当前的 `msime-model.json`。
