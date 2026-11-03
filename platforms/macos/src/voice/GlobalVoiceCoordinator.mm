@@ -435,7 +435,7 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
         // 修饰键已按原样交给应用，此刻的普通组合键也原样交付。
     }
     NSDictionary *voice = _preferences[@"voice_input"];
-    MSIMEVoiceHoldShortcut::Options options = {![voice[@"hotkey_ralt"] isEqual:@NO], [voice[@"hotkey_ctrl_win"] isEqual:@YES], [voice[@"hotkey_rctrl_ralt"] isEqual:@YES], true};
+    MSIMEVoiceHoldShortcut::Options options = {![voice[@"hotkey_ralt"] isEqual:@NO], [voice[@"hotkey_ctrl_win"] isEqual:@YES] != NO, [voice[@"hotkey_rctrl_ralt"] isEqual:@YES] != NO, true};
     auto result = _gesture.observe(native, options, _owner != nil, CGEventSourceFlagsState(kCGEventSourceStateHIDSystemState));
     if (result.action == MSIMEVoiceHoldShortcut::Action::Toggle && !result.onRelease) {
         _holding = YES;

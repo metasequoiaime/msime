@@ -43,3 +43,5 @@ macOS 使用 `voice_input.hotkey_global` 增加「快捷键生效范围」：默
 界面改前、改后的组件预览使用当前 React 控件、macOS 平台 token、既有发布 CSS 和 WKWebView 截图，留在本机 `local-evidence/macos-global-voice`；这是组件效果图，不是真实原生设置窗口的截图。真实登录启动、权限撤销与重新授权、原输入源恢复、Chrome/TextEdit 等编辑器以及录键按钮的系统级验收仍待完整安装后进行。本任务没有安装、发布或开 PR。用户要求跳过全平台本地检查，验证只运行这些相关路径。
 
 只读 TIS 探测在本机找到一个已启用且可选择的水杉输入源，未切换输入源或访问麦克风。已生成 bundle 的后台项标识、可执行文件与参数检查通过；这不等同于系统批准或登录验收。
+
+完整 universal 打包补充验证：Intel ABI 的 Objective-C `BOOL` 是有符号字节，直接放进 C++ `bool` 聚合初始化会触发窄化错误；按住键选项先用 `!= NO` 转为真正的 C++ 布尔值，保留原有语义。Apple silicon 和 Intel 的原生目标均编译通过，聚焦原生套件复跑。打包明确使用仓库钉住的 Rustup `1.97.1`，不能让 PATH 中 Homebrew 的同名编译器拿自己的 sysroot 去找 Rustup 安装的 Intel 标准库。
