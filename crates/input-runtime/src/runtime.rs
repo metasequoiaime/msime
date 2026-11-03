@@ -3,8 +3,9 @@
 
 use super::*;
 use msime_engine::ordering::{
-    apply_order_with, ensure_engine_order, rerank_needs_model, rerank_pick, rerank_pick_within,
-    rotate_to_front, runner_up_order_with, CandidateScorer, ParallelOrderRows, StaticEvidence,
+    apply_order_with, ensure_engine_order, opening_particle_pick, rerank_needs_model, rerank_pick,
+    rerank_pick_within, rotate_to_front, runner_up_order_with, CandidateScorer, ParallelOrderRows,
+    StaticEvidence,
 };
 use msime_engine::touch::{KeyGeometry, KeyTouch};
 // 排序决策搬进了 `msime_engine::ordering`；`tests.rs` 仍按原来的 crate 内名字引用这几项，这里为它们重新导出。
@@ -2871,7 +2872,8 @@ impl<E: InputEngine> Runtime<E> {
         if self.cached.prediction {
             return false;
         }
-        let mut moved = self.rerank(true);
+        let mut moved = self.lift_opening_particle();
+        moved |= self.rerank(true);
         moved |= self.demote_runner_up_readings();
         moved |= self.normalize_online_slots();
         moved
@@ -2925,6 +2927,32 @@ impl<E: InputEngine> Runtime<E> {
             return false;
         };
         self.promote_row(promote)
+    }
+
+    /// 一句话开头单打一个音节、首选是句尾语气词时把它让开，规则见 `msime_engine::ordering::opening_particle_pick`。
+    fn lift_opening_particle(&mut self) -> bool {
+        if !self.cached.conversion.is_empty() || self.cached.caret_edit_suffix {
+            return false;
+        }
+        let promote = {
+            let snapshot = &self.cached;
+            let count = snapshot.candidates.len();
+            if count < 2
+                || snapshot.candidate_sources.len() != count
+                || snapshot.candidate_codes.len() != count
+                || snapshot.candidate_answers_key.len() != count
+                || snapshot.candidate_corrected.len() != count
+            {
+                return false;
+            }
+            opening_particle_pick(
+                self.reranker.as_deref_mut(),
+                &self.ai_context,
+                snapshot.scheme,
+                &order_rows(snapshot),
+            )
+        };
+        promote.is_some_and(|promote| self.promote_row(promote))
     }
 
     /// 把 `promote` 旋到首位，并同步候选元数据和引擎座位映射。下标为 0 或越界时不动。
@@ -3914,6 +3942,14 @@ impl<E: InputEngine> Runtime<E> {
             }
             if raw_route {
                 self.facts.raw = result.has_commit;
+                // 没有组字时按的回车交给了应用：聊天里是发出一条消息，编辑器里是换行。记成上文里的换行，下一次打字就知道是一句话的开头（`msime_engine::lattice::decode::opens_sentence`），开头的「吗」「吧」不再排在「妈」「爸」前面。
+                if len == 0
+                    && self.phrase_prefix.is_empty()
+                    && !result.has_commit
+                    && !result.handled
+                {
+                    self.remember_commit("\n");
+                }
             }
             if top_tail > 0 {
                 self.facts.tail_chars = top_tail;

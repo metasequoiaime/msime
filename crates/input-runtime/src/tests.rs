@@ -10879,6 +10879,7 @@ mod candidate_scorer;
 mod prediction_rerank;
 
 mod sentence_pool;
+mod sentence_start;
 
 mod settled_async;
 
