@@ -14183,6 +14183,65 @@ static GlobalVoiceGestureProbe *GlobalGestureProbe() {
 }
 static void TestGlobalVoiceBoundaries() {
     {
+        NSUserDefaults *standard = NSUserDefaults.standardUserDefaults;
+        NSMutableDictionary *previousVoice = [NSMutableDictionary dictionary];
+        for (NSString *key in standard.dictionaryRepresentation)
+            if ([key hasPrefix:@"MSIMEClientVoice"]) previousVoice[key] = [standard objectForKey:key];
+        NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+        NSError *error = nil;
+        NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
+        assert(snapshot && !error);
+        NSMutableDictionary *document = [snapshot[@"preferences"] mutableCopy];
+        NSMutableDictionary *voice = [document[@"voice_input"] mutableCopy];
+        voice[@"hotkey_ralt"] = @YES; voice[@"hotkey_rctrl_ralt"] = @NO; voice[@"hotkey_global"] = @YES;
+        document[@"voice_input"] = voice;
+        assert(([MSIMEClientSession savePreferencesInDirectory:root expectedRevision:[snapshot[@"revision"] unsignedLongLongValue]
+            snapshot:@{@"format_version":@1, @"revision":snapshot[@"revision"], @"preferences":document} error:&error]));
+        [standard setBool:NO forKey:@"MSIMEClientVoiceHotkeyRightAlt"];
+        [standard setBool:YES forKey:@"MSIMEClientVoiceHotkeyCtrlOption"];
+        NSString *suite = [@"msime.global-voice-startup." stringByAppendingString:NSUUID.UUID.UUIDString];
+        NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+        MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+        MusicClaimController *controller = [MusicClaimController alloc]; controller.options = @{@"preferences_directory":root};
+        [controller setValue:appearance forKey:@"appearance"];
+        [controller applySharedInputPreferencesBeforeFirstUse];
+        NSDictionary *capturedVoice = [appearance sharedPreferencesByMerging:@{}][@"voice_input"];
+        const BOOL correct = [capturedVoice[@"hotkey_ralt"] isEqual:@YES] && [capturedVoice[@"hotkey_rctrl_ralt"] isEqual:@NO];
+        // 已载入过的控制器也可能晚于设置页写回别的外观字段；这种保存不拥有语音选择。
+        [standard setBool:NO forKey:@"MSIMEClientVoiceHotkeyRightAlt"];
+        [standard setBool:YES forKey:@"MSIMEClientVoiceHotkeyCtrlOption"];
+        [controller setValue:root forKey:@"preferencesDirectory"];
+        auto waitForSave = [&](uint64_t revision, bool requireVoiceOff = false) -> NSDictionary * {
+            NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2];
+            NSDictionary *latest = nil;
+            while (deadline.timeIntervalSinceNow > 0) {
+                [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+                latest = [MSIMEClientSession loadPreferencesInDirectory:root error:nil];
+                if ([latest[@"revision"] unsignedLongLongValue] > revision &&
+                    (!requireVoiceOff || [latest[@"preferences"][@"voice_input"][@"hotkey_ralt"] isEqual:@NO])) return latest;
+            }
+            return latest;
+        };
+        NSDictionary *before = [MSIMEClientSession loadPreferencesInDirectory:root error:nil];
+        [controller persistAppearancePreferences];
+        NSDictionary *after = waitForSave([before[@"revision"] unsignedLongLongValue]);
+        const BOOL preserved = [after[@"preferences"][@"voice_input"][@"hotkey_ralt"] isEqual:@YES];
+        [controller persistAppearancePreferences];
+        [controller persistVoicePreferences];
+        // 队列中的明确编辑必须保留当时的快照，不能被晚到的载入再次改写。
+        [standard setBool:YES forKey:@"MSIMEClientVoiceHotkeyRightAlt"];
+        NSDictionary *explicitVoice = waitForSave([after[@"revision"] unsignedLongLongValue], true);
+        const BOOL nativeEditSaved = [explicitVoice[@"preferences"][@"voice_input"][@"hotkey_ralt"] isEqual:@NO];
+        [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
+        for (NSString *key in standard.dictionaryRepresentation)
+            if ([key hasPrefix:@"MSIMEClientVoice"]) [standard removeObjectForKey:key];
+        for (NSString *key in previousVoice) [standard setObject:previousVoice[key] forKey:key];
+        [NSFileManager.defaultManager removeItemAtPath:root error:nil];
+        MSIMERemoveTestPreferenceSuite(defaults, suite);
+        assert(correct && preserved && nativeEditSaved); // 首次加载与无关保存都保护新选择，明确的原生语音编辑仍可保存。
+    }
+
+    {
         GlobalVoiceTargetProbe *target = [GlobalVoiceTargetProbe new]; target.pid = 42; target.failStart = YES;
         GlobalVoiceSessionProbe *probe = [[GlobalVoiceSessionProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)target; }];
         probe.application = [GlobalVoiceApplicationProbe new]; probe.application.processIdentifier = 42;

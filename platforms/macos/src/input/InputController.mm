@@ -4457,7 +4457,7 @@ static const NSTimeInterval kSettledRerankPoll = 1.0 / 60.0;
     }
     return _candidateAnchorValid ? _candidateAnchorCaret : reported;
 }
-- (void)voiceProviderSettingsChanged:(NSNotification *)notification { (void)notification; _preferenceLoadState.reset(); _voicePermissionToken = nil; _voiceHoldShortcut.reset(); [self cancelLiveVoiceInput]; [self cancelDoubaoVoiceInput]; [self cancelHTTPVoiceInput]; if (_voiceService.active) [_voiceService cancelWithError:nil]; [_voiceOverlay dismissFailure]; [self persistAppearancePreferences]; }
+- (void)voiceProviderSettingsChanged:(NSNotification *)notification { (void)notification; _preferenceLoadState.reset(); _voicePermissionToken = nil; _voiceHoldShortcut.reset(); [self cancelLiveVoiceInput]; [self cancelDoubaoVoiceInput]; [self cancelHTTPVoiceInput]; if (_voiceService.active) [_voiceService cancelWithError:nil]; [_voiceOverlay dismissFailure]; [self persistVoicePreferences]; }
 - (void)translationPreferencesSaved:(NSNotification *)notification {
     _preferenceLoadState.reset();
     [self applySharedToolbarPreferences:notification.userInfo];
@@ -4541,16 +4541,21 @@ static const NSTimeInterval kSettledRerankPoll = 1.0 / 60.0;
     // 原生设置窗口在输入法进程里，点它的开关时焦点在这个窗口上，没有控制器持有客户端，上面的同步和之后的重新载入都走不到：关上时由每个控制器直接隐藏状态项；打开则等下一次获得焦点时由 activateServer: 的同步按当前模式放上，没有客户端的控制器说不准该显示哪个方案。
     else if (_appearance && !_appearance.inputModeStatusItem) [self presentInputModeStatusItem:nil];
     // Every Shift tap lands here. Saving then wrote this process's whole view of the settings over the shared document once per mode switch, so a controller that had not yet reloaded an edit made elsewhere put the old value back, and two writers that disagreed traded the document on every tap.
-    if (![notification.userInfo[MSIMEAppearanceInputModeOnlyKey] isEqual:@YES]) [self persistAppearancePreferences];
+    if (![notification.userInfo[MSIMEAppearanceInputModeOnlyKey] isEqual:@YES]) {
+        if ([notification.userInfo[MSIMEAppearanceVoicePreferencesKey] isEqual:@YES]) [self persistVoicePreferences];
+        else [self persistAppearancePreferences];
+    }
 }
 // One save in flight for the whole process. IMK keeps a controller per text input client and every one of them observes the same shared appearance, so one change asks each of them to save the same document; with a save state per controller they each ran a load and a compare-and-swap save under the exclusive preferences lock, fsync included, at the same time. What they save is the shared appearance, whichever controller asks, so one save and at most one queued behind it cover them all.
 static MSIMEPreferenceSaveState MSIMESharedPreferenceSaveState;
+static NSDictionary *MSIMEPendingVoiceSave = nil;
 // The controller behind the queued save, which runs it when the one in flight finishes, whether or not the controller that started that one is still alive.
 static __weak MSIMEInputController *MSIMEQueuedPreferenceSaver;
 // 方案只能经由共享偏好文档到达 Engine，而外观改动触发的保存在主线程之外进行，所以从 한 切到 中 之后紧接着敲的键仍按韩文组字，未完成的音节又会把新方案一直挡到它结束。因此切换时在这里、在下一个按键之前于主线程写入文档，并把写入的内容原样交给持有焦点的会话。切换方案前已经结束了组字，会话处于空闲状态，会立即应用新方案。外观改动另外触发的那次保存会再写一遍相同的偏好，会话视为没有变化。Fcitx5 切换方案时同样等待保存完成；这里保存失败时，切换交由那次后台保存完成。
 - (void)applyPreferencesToSessionNow {
     if (!_session || !_activeClient || !_preferencesDirectory || !_appearance) return;
-    NSDictionary *overrides = [_appearance sharedPreferencesByMerging:@{}];
+    NSMutableDictionary *overrides = [[_appearance sharedPreferencesByMerging:@{}] mutableCopy];
+    [overrides removeObjectForKey:@"voice_input"];
     NSDictionary *saved = nil;
     // 后台保存可能在中间抢先占用 revision；第二次尝试会像那次保存一样，在它写入的内容上合并。
     for (int attempt = 0; attempt < 2 && !saved; ++attempt) {
@@ -4569,13 +4574,22 @@ static __weak MSIMEInputController *MSIMEQueuedPreferenceSaver;
     if (!_preferenceLoadState.begin()) return;
     [self completePreferenceLoad:saved error:nil generation:_preferenceLoadState.generation session:_session client:_activeClient];
 }
+- (void)persistVoicePreferences {
+    if (!_preferencesDirectory) return;
+    MSIMEPendingVoiceSave = [MSIMEVoicePreferencesFromDefaults(NSUserDefaults.standardUserDefaults) copy];
+    [self persistAppearancePreferences];
+}
 - (void)persistAppearancePreferences {
     if (!_preferencesDirectory) return;
     if (!MSIMESharedPreferenceSaveState.request()) { MSIMEQueuedPreferenceSaver = self; return; }
     NSString *directory = [_preferencesDirectory copy];
-    // Capture all host-owned fields together on the main thread. Both CAS
-    // attempts use this same snapshot; later changes schedule a fresh save.
-    NSDictionary *overrides = [_appearance sharedPreferencesByMerging:@{}];
+    NSDictionary *voiceEdits = MSIMEPendingVoiceSave;
+    MSIMEPendingVoiceSave = nil;
+    // 在主线程冻结本次拥有的字段；CAS 重试复用这份快照，后来的编辑另排保存。
+    NSMutableDictionary *overrides = [[_appearance sharedPreferencesByMerging:@{}] mutableCopy];
+    // 模式、皮肤等保存不拥有语音字段，不能把尚未载入的旧默认值覆盖到设置应用的新选择上。
+    [overrides removeObjectForKey:@"voice_input"];
+    if (voiceEdits) overrides[@"voice_input"] = voiceEdits;
     __weak MSIMEInputController *weakSelf = self;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         NSError *loadError = nil;

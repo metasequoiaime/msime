@@ -74,6 +74,7 @@ extern "C" void MSIMEAccountPaneClose(void) __attribute__((weak_import));
 NSNotificationName const MSIMEAppearanceDidChangeNotification = @"MSIMEClientAppearanceDidChange";
 NSNotificationName const MSIMETranslationPreferencesDidSaveNotification = @"MSIMEClientTranslationPreferencesDidSave";
 NSString *const MSIMEAppearanceInputModeOnlyKey = @"MSIMEClientAppearanceInputModeOnly";
+NSString *const MSIMEAppearanceVoicePreferencesKey = @"MSIMEClientAppearanceVoicePreferences";
 static NSString *const LayoutKey = @"MSIMEClientCandidatePanelStyle";
 static NSString *const CandidateFollowCursorKey = @"MSIMEClientCandidateFollowCursor";
 static NSString *const InputModeHUDKey = @"MSIMEClientInputModeHUD";
@@ -2786,26 +2787,26 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
 - (BOOL)voiceInputEnabled { return MSIMEVoiceInputEnabled(_defaults); }
 - (void)setVoiceInputEnabled:(BOOL)value {
     [_defaults setBool:value forKey:VoiceEnabledKey];
-    [self preferencesChanged];
+    [self voicePreferencesChanged];
 }
 - (NSString *)voiceLanguage {
     return [[_defaults stringForKey:VoiceLanguageKey] isEqualToString:@"en-US"] ? @"en-US" : @"zh-CN";
 }
 - (void)setVoiceLanguage:(NSString *)value {
     [_defaults setObject:[value isEqualToString:@"en-US"] ? @"en-US" : @"zh-CN" forKey:VoiceLanguageKey];
-    [self preferencesChanged];
+    [self voicePreferencesChanged];
 }
 - (BOOL)voiceSoundEnabled {
     return [_defaults objectForKey:VoiceSoundKey] == nil || [_defaults boolForKey:VoiceSoundKey];
 }
 - (void)setVoiceSoundEnabled:(BOOL)value {
     [_defaults setBool:value forKey:VoiceSoundKey];
-    [self preferencesChanged];
+    [self voicePreferencesChanged];
 }
 - (BOOL)voiceMuteSystemAudio { return MSIMEVoiceMuteSystemAudioEnabled(_defaults); }
 - (void)setVoiceMuteSystemAudio:(BOOL)value {
     [_defaults setBool:value forKey:VoiceMuteSystemAudioKey];
-    [self preferencesChanged];
+    [self voicePreferencesChanged];
 }
 - (BOOL)voiceStreamInlinePreedit {
     return [_defaults objectForKey:VoiceStreamInlinePreeditKey] == nil ||
@@ -2813,14 +2814,14 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
 }
 - (void)setVoiceStreamInlinePreedit:(BOOL)value {
     [_defaults setBool:value forKey:VoiceStreamInlinePreeditKey];
-    [self preferencesChanged];
+    [self voicePreferencesChanged];
 }
 - (BOOL)voiceHotkeyCtrlF9 {
     return [_defaults objectForKey:VoiceHotkeyCtrlF9Key] == nil || [_defaults boolForKey:VoiceHotkeyCtrlF9Key];
 }
 - (void)setVoiceHotkeyCtrlF9:(BOOL)value {
     [_defaults setBool:value forKey:VoiceHotkeyCtrlF9Key];
-    [self preferencesChanged];
+    [self voicePreferencesChanged];
 }
 // 三个按住录音的组合键里只有「按住右 Option」（`hotkey_ralt`）默认打开，与共享默认
 // `VoiceInputPreferences::default()`、Windows、Linux 和共享设置页一致；另外两个默认关。设置窗口是独立
@@ -2829,17 +2830,17 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
 - (BOOL)voiceHotkeyRightAlt { return [_defaults objectForKey:VoiceHotkeyRightAltKey] == nil || [_defaults boolForKey:VoiceHotkeyRightAltKey]; }
 - (void)setVoiceHotkeyRightAlt:(BOOL)value {
     [_defaults setBool:value forKey:VoiceHotkeyRightAltKey];
-    [self preferencesChanged];
+    [self voicePreferencesChanged];
 }
 - (BOOL)voiceHotkeyCtrlCommand { return [_defaults boolForKey:VoiceHotkeyCtrlCommandKey]; }
 - (void)setVoiceHotkeyCtrlCommand:(BOOL)value {
     [_defaults setBool:value forKey:VoiceHotkeyCtrlCommandKey];
-    [self preferencesChanged];
+    [self voicePreferencesChanged];
 }
 - (BOOL)voiceHotkeyCtrlOption { return [_defaults boolForKey:VoiceHotkeyCtrlOptionKey]; }
 - (void)setVoiceHotkeyCtrlOption:(BOOL)value {
     [_defaults setBool:value forKey:VoiceHotkeyCtrlOptionKey];
-    [self preferencesChanged];
+    [self voicePreferencesChanged];
 }
 - (void)setInputModeShortcut:(BOOL)value {
     _sharedInputModeShortcut = nil;
@@ -3056,6 +3057,12 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     _sharedFontSize = nil;
     [_defaults setInteger:value >= 12 && value <= 32 ? value : 18 forKey:FontKey];
     [self preferencesChanged];
+}
+- (void)voicePreferencesChanged {
+    [self refreshControls];
+    if (_silent) return;
+    [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEAppearanceDidChangeNotification object:self
+        userInfo:@{MSIMEAppearanceVoicePreferencesKey:@YES}];
 }
 - (void)preferencesChanged {
     [self resolveSelectedSkinIfChanged];

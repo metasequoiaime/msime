@@ -269,6 +269,8 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
     }
     _revision = snapshot[@"revision"];
     _preferences = snapshot[@"preferences"];
+    if (_enabled || [_preferences[@"voice_input"][@"hotkey_global"] isEqual:@YES])
+        MSIMEApplySharedVoicePreferences(_preferences[@"voice_input"], NSUserDefaults.standardUserDefaults);
     [self configure];
 }
 - (void)reload {
