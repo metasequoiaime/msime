@@ -127,5 +127,23 @@ int main() {
   assert(!foreign.next(defaultFont, std::string("Sans 10")));
   CandidateFontSync pixels;
   assert(!pixels.next(defaultFont, std::string("Noto Sans SC, Microsoft YaHei, 18px")));
+
+  // #10748：字重写成 Pango 的样式词，放在字体列表和字号之间，面板据此在族里挑字面；常规不写，描述与这个设置出现之前逐字节相同。
+  const auto weighted = [](const char *weight) {
+    return read_candidate_font(nlohmann::json{{"candidate_font_weight", weight}});
+  };
+  assert(candidate_pango_font(weighted("regular")) == "Noto Sans SC, Microsoft YaHei, 18px");
+  assert(candidate_pango_font(weighted("medium")) == "Noto Sans SC, Microsoft YaHei, Medium 18px");
+  assert(candidate_pango_font(weighted("semibold")) == "Noto Sans SC, Microsoft YaHei, Semi-Bold 18px");
+  assert(candidate_pango_font(weighted("bold")) == "Noto Sans SC, Microsoft YaHei, Bold 18px");
+  assert(candidate_pango_font(weighted("bold"), CandidateFontUnit::Points) == "Noto Sans SC, Microsoft YaHei, Bold 13.5");
+  // 认不出的值按常规；没有字体族时只剩样式词和字号。
+  assert(candidate_pango_font(weighted("italic")) == "Noto Sans SC, Microsoft YaHei, 18px");
+  assert(candidate_pango_font({"", {}, 14, {}, 100, 700}) == "Bold 14px");
+  // 选了字重是一次字体选择，第一次同步就写给面板；选回常规的文档仍算没动过。
+  assert(candidate_font_is_default(weighted("regular")));
+  assert(!candidate_font_is_default(weighted("bold")));
+  CandidateFontSync heavier;
+  assert(heavier.next(weighted("semibold")) == "Noto Sans SC, Microsoft YaHei, Semi-Bold 18px");
   return 0;
 }

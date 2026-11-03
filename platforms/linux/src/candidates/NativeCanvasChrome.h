@@ -13,12 +13,12 @@ struct NativeCanvasMotion {
   std::vector<msime::candidate::CardMotionFrame> rows;
 };
 
-// 同一族字体换绝对字号和字重；Pango 把绝对字号写成「…px」。
+// 同一族字体换绝对字号；Pango 把绝对字号写成「…px」。字重取描述里的字重（候选字重 `candidate_font_weight`）和 `minimum` 中更粗的一个：预编辑传半粗，候选字重更粗时跟着变粗。
 inline std::string native_canvas_font_variant(const std::string &font, double size,
-                                              PangoWeight weight = PANGO_WEIGHT_NORMAL) {
+                                              PangoWeight minimum = PANGO_WEIGHT_NORMAL) {
   auto *description = pango_font_description_from_string(font.c_str());
   if (size > 0) pango_font_description_set_absolute_size(description, size * PANGO_SCALE);
-  pango_font_description_set_weight(description, weight);
+  pango_font_description_set_weight(description, std::max(minimum, pango_font_description_get_weight(description)));
   char *value = pango_font_description_to_string(description);
   std::string result(value);
   g_free(value);

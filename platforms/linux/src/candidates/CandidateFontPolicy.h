@@ -25,6 +25,8 @@ struct CandidateFont {
   // candidate_english_font. Windows draws candidate text in this face first and falls back for the glyphs it lacks, and macOS and Android name it ahead of the primary family; a Pango family list resolves per glyph the same way, so the Linux answer is to put it first. Empty when unset, which leaves the description exactly as it was before the setting existed.
   std::string english_family{};
   int scale_percent = 100;
+  // candidate_font_weight 的 OpenType 字重（400、500、600、700）。常规时描述里不写样式词，与这个设置出现之前逐字节相同。
+  int weight = 400;
 };
 
 inline constexpr const char *kDefaultCandidateFontFamily = "Noto Sans SC";
@@ -59,7 +61,23 @@ inline CandidateFont read_candidate_font(const nlohmann::json &preferences) {
   if (const auto english = preferences.find("candidate_english_font");
       english != preferences.end() && english->is_string())
     font.english_family = english->get<std::string>();
+  // 共享偏好 `candidate_font_weight`（client-core 的 `CandidateFontWeight`），常规时不写进文档；认不出的值按常规。
+  if (const auto weight = preferences.find("candidate_font_weight");
+      weight != preferences.end() && weight->is_string()) {
+    const auto value = weight->get<std::string>();
+    font.weight = value == "medium" ? 500 : value == "semibold" ? 600 : value == "bold" ? 700 : 400;
+  }
   return font;
+}
+
+// 字重在 Pango 描述里的样式词，放在字体列表之后、字号之前；常规为空。面板按它在每个字体族里挑最接近的字面，族里没有这一档时由 fontconfig 就近选或合成加粗，取决于桌面的字体配置。
+inline const char *candidate_font_weight_word(int weight) {
+  switch (weight) {
+  case 500: return "Medium";
+  case 600: return "Semi-Bold";
+  case 700: return "Bold";
+  default: return "";
+  }
 }
 
 inline std::string trimmed_font_family(const std::string &value) {
@@ -113,7 +131,7 @@ inline int scaled_candidate_font_size(const CandidateFont &font) {
   return std::max(1, (size * scale + 50) / 100);
 }
 
-// 描述先列选了的英文字体，再列主字体和回退字体，去掉重复；字体列表以逗号结尾，名字以 Pango 认得的样式词（"Bold"、"Light"）结尾时仍算名字的一部分。
+// 描述先列选了的英文字体，再列主字体和回退字体，去掉重复；字体列表以逗号结尾，名字以 Pango 认得的样式词（"Bold"、"Light"）结尾时仍算名字的一部分。逗号之后才是真正的样式词：选了字重时写在这里。
 inline std::string candidate_pango_font(const CandidateFont &font,
                                         CandidateFontUnit unit = CandidateFontUnit::Pixels) {
   std::vector<std::string> families;
@@ -132,6 +150,10 @@ inline std::string candidate_pango_font(const CandidateFont &font,
     description += family;
   }
   if (!description.empty()) description += ",";
+  if (const std::string_view weight = candidate_font_weight_word(font.weight); !weight.empty()) {
+    if (!description.empty()) description += ' ';
+    description += weight;
+  }
   const int size = scaled_candidate_font_size(font);
   if (!description.empty()) description += ' ';
   description += candidate_font_size_text(size, unit);

@@ -297,6 +297,37 @@ void scaled() {
   cairo_destroy(cr);
 }
 
+// #10748：字体描述里的字重画候选、序号、释义和页码，预编辑至少半粗；描述不带字重时与原来一样是常规和半粗。
+void font_weight() {
+  const auto weight = [](const std::string &font) {
+    auto *description = pango_font_description_from_string(font.c_str());
+    const auto value = pango_font_description_get_weight(description);
+    pango_font_description_free(description);
+    return value;
+  };
+  assert(weight(host::native_canvas_font_variant("Sans 16px", 12)) == PANGO_WEIGHT_NORMAL);
+  assert(weight(host::native_canvas_font_variant("Sans 16px", 12, PANGO_WEIGHT_SEMIBOLD)) == PANGO_WEIGHT_SEMIBOLD);
+  assert(weight(host::native_canvas_font_variant("Sans, Medium 16px", 12)) == PANGO_WEIGHT_MEDIUM);
+  assert(weight(host::native_canvas_font_variant("Sans, Medium 16px", 12, PANGO_WEIGHT_SEMIBOLD)) == PANGO_WEIGHT_SEMIBOLD);
+  assert(weight(host::native_canvas_font_variant("Sans, Bold 16px", 12)) == PANGO_WEIGHT_BOLD);
+  assert(weight(host::native_canvas_font_variant("Sans, Bold 16px", 12, PANGO_WEIGHT_SEMIBOLD)) == PANGO_WEIGHT_BOLD);
+
+  const auto target = image(10, 10, 0);
+  auto *cr = cairo_create(target.get());
+  auto assets = theme_assets(1.0);
+  auto content = page(false);
+  content.font = "Sans, Bold 16px";
+  const auto layout = host::measure_native_canvas(cr, *assets, content, 2400);
+  assert(weight(layout.metrics.font) == PANGO_WEIGHT_BOLD && weight(layout.metrics.number_font) == PANGO_WEIGHT_BOLD);
+  assert(weight(layout.gloss_font) == PANGO_WEIGHT_BOLD && weight(layout.indicator_font) == PANGO_WEIGHT_BOLD);
+  assert(weight(layout.preedit_font) == PANGO_WEIGHT_BOLD);
+  content.font = "Sans 16px";
+  const auto regular = host::measure_native_canvas(cr, *assets, content, 2400);
+  assert(weight(regular.metrics.font) == PANGO_WEIGHT_NORMAL && weight(regular.gloss_font) == PANGO_WEIGHT_NORMAL);
+  assert(weight(regular.preedit_font) == PANGO_WEIGHT_SEMIBOLD);
+  cairo_destroy(cr);
+}
+
 // 顶带装饰：窗口比卡片高出装饰带，图片底边压在卡片顶边下 pad 处；有待机动效时四周留 4pt。
 void band() {
   const auto target = image(1200, 800, 0);
@@ -588,6 +619,7 @@ int main() {
   pointer_and_grid();
   caret_edit_suffix();
   scaled();
+  font_weight();
   band();
   background();
   shadow();
