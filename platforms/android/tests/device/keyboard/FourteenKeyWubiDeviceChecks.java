@@ -155,7 +155,11 @@ final class FourteenKeyWubiDeviceChecks {
             t.await(t.key("五98"));
             t.awaitStableBounds(t.described("按键 Q W"));
             groups("Q W", "Q W");
-            t.await(t.described("编辑拼写"));
+            t.await(node -> DeviceSmoke.equalsText("app.msime.android", node.getPackageName())
+                && node.getText() != null && !node.isClickable()
+                && java.util.List.of("qq", "qw", "wq", "ww").contains(node.getText().toString())
+                && DeviceSmoke.equalsText(node.getText().toString(), node.getContentDescription()));
+            absent(t.described("编辑拼写"));
             t.tap(t.describedPrefix("候选 1："));
             t.await(t.field("msime-test-plain").and(node -> node.getText() != null
                 && node.getText().length() > before.length()));
