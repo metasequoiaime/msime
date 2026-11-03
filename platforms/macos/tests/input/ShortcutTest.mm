@@ -7,6 +7,7 @@
 #include <sqlite3.h>
 #include <sys/resource.h>
 #import <objc/runtime.h>
+#import <ServiceManagement/ServiceManagement.h>
 #import "../settings/TestPreferenceSuite.h"
 #import "../settings/PreferenceViewLookup.h"
 
@@ -14031,6 +14032,47 @@ static void TestCrossCommitSpacing() {
 - (void)handleHotkey:(UInt32)identifier down:(BOOL)down;
 - (BOOL)shortcutRecorderFocused;
 - (void)replayKey:(UInt32)identifier down:(BOOL)down;
+- (void)applySnapshot:(NSDictionary *)snapshot;
+- (BOOL)accessibilityTrusted;
+- (BOOL)keyboardListenerAvailable;
+- (SMAppService *)backgroundService;
+- (void)showFailure:(NSString *)detail;
+@end
+@interface GlobalVoiceServiceProbe : NSObject
+@property(nonatomic) SMAppServiceStatus status;
+@property(nonatomic) NSUInteger registrations;
+@property(nonatomic) NSUInteger removals;
+@end
+@implementation GlobalVoiceServiceProbe
+- (BOOL)registerAndReturnError:(NSError **)error {
+    (void)error; ++_registrations; _status = SMAppServiceStatusEnabled; return YES;
+}
+- (BOOL)unregisterAndReturnError:(NSError **)error {
+    (void)error; ++_removals; _status = SMAppServiceStatusNotRegistered; return YES;
+}
+@end
+@interface GlobalVoiceRegistrationProbe : MSIMEGlobalVoiceCoordinator
+@property(nonatomic) GlobalVoiceServiceProbe *service;
+@end
+@implementation GlobalVoiceRegistrationProbe
+- (void)reload {}
+- (BOOL)accessibilityTrusted { return NO; }
+- (SMAppService *)backgroundService { return (id)_service; }
+- (void)showFailure:(NSString *)detail { (void)detail; }
+@end
+@interface GlobalVoiceSnapshotProbe : MSIMEGlobalVoiceCoordinator
+@property(nonatomic) BOOL permitted;
+@property(nonatomic) BOOL listener;
+@property(nonatomic) NSUInteger configurations;
+@end
+@implementation GlobalVoiceSnapshotProbe
+- (void)reload {}
+- (BOOL)accessibilityTrusted { return _permitted; }
+- (BOOL)keyboardListenerAvailable { return _listener; }
+- (void)configure {
+    ++_configurations;
+    [self setValue:@(NSProcessInfo.processInfo.systemUptime + 5) forKey:@"nextListenerRetry"];
+}
 @end
 @interface GlobalVoiceGestureProbe : MSIMEGlobalVoiceCoordinator
 @property(nonatomic) NSUInteger begins;
@@ -14086,6 +14128,54 @@ static GlobalVoiceGestureProbe *GlobalGestureProbe() {
     return probe;
 }
 static void TestGlobalVoiceBoundaries() {
+    {
+        GlobalVoiceRegistrationProbe *probe = [[GlobalVoiceRegistrationProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)nil; }];
+        probe.service = [GlobalVoiceServiceProbe new];
+        probe.service.status = SMAppServiceStatusNotFound;
+        [probe setValue:@YES forKey:@"permissionAsked"];
+        [probe setValue:@{@"voice_input":@{@"enabled":@YES, @"hotkey_global":@YES}} forKey:@"preferences"];
+        [probe configure];
+        assert(probe.service.registrations == 1 && probe.service.status == SMAppServiceStatusEnabled);
+        [probe configure];
+        assert(probe.service.registrations == 1);
+        probe.service.status = SMAppServiceStatusRequiresApproval;
+        [probe configure];
+        assert(probe.service.registrations == 1); // 等待用户批准时不重新注册。
+        [probe setValue:@{@"voice_input":@{@"hotkey_global":@NO}} forKey:@"preferences"];
+        [probe configure];
+        assert(probe.service.removals == 1);
+        probe.service.status = SMAppServiceStatusNotFound;
+        [probe configure];
+        assert(probe.service.removals == 1);
+    }
+    {
+        GlobalVoiceSnapshotProbe *probe = [[GlobalVoiceSnapshotProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)nil; }];
+        [probe setValue:@YES forKey:@"enabled"];
+        NSDictionary *snapshot = @{@"revision":@1, @"preferences":@{@"voice_input":@{@"hotkey_global":@YES}}};
+        [probe applySnapshot:snapshot];
+        assert(probe.configurations == 1);
+        [probe applySnapshot:snapshot];
+        assert(probe.configurations == 1); // 拒绝权限时不反复申请。
+        probe.permitted = YES;
+        [probe applySnapshot:snapshot];
+        assert(probe.configurations == 2); // 偏好修订未变，授权后仍要启动监听。
+        [probe setValue:@0 forKey:@"nextListenerRetry"];
+        [probe applySnapshot:snapshot];
+        assert(probe.configurations == 3); // 首次建监听失败后自动重试。
+        [probe applySnapshot:snapshot];
+        assert(probe.configurations == 3); // 重试有间隔。
+        probe.listener = YES;
+        [probe setValue:@0 forKey:@"nextListenerRetry"];
+        [probe applySnapshot:snapshot];
+        assert(probe.configurations == 3); // 已有监听不能被轮询重置。
+        probe.permitted = NO;
+        [probe applySnapshot:snapshot];
+        assert(probe.configurations == 4); // 撤销权限也进入清理路径。
+        [probe setValue:@NO forKey:@"enabled"];
+        probe.permitted = YES;
+        [probe applySnapshot:snapshot];
+        assert(probe.configurations == 4);
+    }
     const CGEventFlags rightOption = kCGEventFlagMaskAlternate | NX_DEVICERALTKEYMASK;
     {
         GlobalVoiceGestureProbe *probe = GlobalGestureProbe();
