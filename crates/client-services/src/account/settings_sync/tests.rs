@@ -1864,6 +1864,60 @@ fn settings_sync_new_shared_keys_follow_what_each_host_can_change() {
         linux.get("second_third_candidate.keys"),
         Some(&AccountPreferenceValue::String("semicolon_quote".into()))
     );
+    // macOS 的共享设置页与 Linux 是同一套，这八项在 macOS 上都有控件、运行时也读；两个思考强度和三个切换热键本次不同步（见 [`DesktopHost::MacOS`]）。`platform.macos.*` 是原生回退窗口的快照，这里不写。
+    let macos = export_desktop_settings_for(DesktopHost::MacOS, &preferences);
+    assert_eq!(macos, linux);
+    assert!(macos.keys().all(|key| !key.starts_with("platform.")));
+}
+
+/// macOS 往返：导出的每一项都应用回来；账号文档里旧版原生窗口上传的 `platform.macos.*`、别的设备选的思考强度和切换热键都不动本机。
+#[test]
+fn settings_sync_macos_round_trips_the_shared_page_keys_and_leaves_the_rest() {
+    let local = Preferences::default();
+    let remote = new_shared_preferences();
+    let mut settings = export_desktop_settings_for(DesktopHost::MacOS, &remote);
+    settings.insert(
+        "platform.macos.input_scheme".into(),
+        AccountPreferenceValue::Integer(2),
+    );
+    settings.insert(
+        "platform.macos.global_theme".into(),
+        AccountPreferenceValue::String("dongxue".into()),
+    );
+    settings.insert(
+        "ai_assistant.thinking".into(),
+        AccountPreferenceValue::String("high".into()),
+    );
+    settings.insert(
+        "keybindings.toggle_punctuation".into(),
+        AccountPreferenceValue::String(String::new()),
+    );
+    let mut schema = full_schema();
+    for (key, kind) in [
+        ("platform.macos.input_scheme", "integer"),
+        ("platform.macos.global_theme", "string"),
+    ] {
+        schema.fields.insert(
+            key.into(),
+            AccountPreferenceField {
+                value_type: kind.into(),
+            },
+        );
+    }
+
+    let applied =
+        apply_desktop_settings_for(DesktopHost::MacOS, &local, &document(settings), &schema)
+            .unwrap();
+    assert!(applied.skipped.is_empty(), "{:?}", applied.skipped);
+    let mut expected = local.clone();
+    expected.mixed_input.quick_phrase = remote.mixed_input.quick_phrase;
+    expected.mixed_input.quick_phrase_frequency = remote.mixed_input.quick_phrase_frequency;
+    expected.sentence_association.grammar_model = remote.sentence_association.grammar_model;
+    expected.local_modes.symbol = remote.local_modes.symbol;
+    expected.local_modes.date_time_menu = remote.local_modes.date_time_menu;
+    expected.second_third_candidate = remote.second_third_candidate;
+    expected.translation_ai = remote.translation_ai;
+    assert_eq!(applied.preferences, expected);
 }
 
 /// Linux 往返：导出的每一项都应用回来；Windows 只应用语法模型，云端的 `translation.ai` 等不动本机（Windows 运行时读它，设置里却关不掉）。
