@@ -323,6 +323,8 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         bar.toggle("显示页码", null,
             CandidatePageLabelPolicy.shown(preferences.opt(CandidatePageLabelPolicy.PREFERENCE)),
             checked -> savePreference(CandidatePageLabelPolicy.PREFERENCE, checked)).help("候选多于一页时在读音行右侧显示当前页与总页数；关闭后仍可滑动候选栏或展开面板翻看");
+        // 共享偏好 `custom_theme.candidate_colors.selected_text`（#10740），规则和写法在 CandidateSelectedTextRow。
+        CandidateSelectedTextRow.add(bar, this, preferences, this::reload);
         boolean customToolbarSize = settings.has(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT);
         int toolbarSize = settings.integer(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT);
         bar.nav("工具栏尺寸", null,

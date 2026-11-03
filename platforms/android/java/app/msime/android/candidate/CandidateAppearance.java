@@ -35,7 +35,12 @@ public final class CandidateAppearance {
             : JsonPolicy.strictStringOrEmpty(preferences.opt("candidate_english_font"));
         JSONArray fallback = preferences == null ? null
             : preferences.optJSONArray("candidate_fallback_fonts");
-        return fromSkin(strip, fontFamily, englishFont, fallbackFonts(fallback));
+        JSONObject custom = preferences == null ? null : preferences.optJSONObject("custom_theme");
+        JSONObject colors = custom == null ? null : custom.optJSONObject("candidate_colors");
+        Integer picked = CandidateSelectedTextPolicy.stripColour(
+            preferences == null ? null : JsonPolicy.strictString(preferences.opt("global_theme")),
+            colors == null ? null : JsonPolicy.strictString(colors.opt(CandidateSelectedTextPolicy.SLOT)));
+        return fromSkin(strip, fontFamily, englishFont, fallbackFonts(fallback), picked);
     }
 
     /** Value-only resolver used by host smoke tests without an Android JSON runtime. */
@@ -45,7 +50,26 @@ public final class CandidateAppearance {
 
     public static Palette fromSkin(KeyboardSkin strip, String fontFamily, String englishFont,
                                    List<String> fallbackFonts) {
+        return fromSkin(strip, fontFamily, englishFont, fallbackFonts, null);
+    }
+
+    /** `pickedSelectedText` 是 {@link CandidateSelectedTextPolicy#stripColour} 给出的候选选中文字色（#10740）；不为 null 时首选候选的字用它，其余仍按键盘配色。 */
+    public static Palette fromSkin(KeyboardSkin strip, String fontFamily, String englishFont,
+                                   List<String> fallbackFonts, Integer pickedSelectedText) {
         int text = ColorPolicy.parseHex(strip.keyForeground(), 0xff000000);
+        int chipText = pickedSelectedText != null ? pickedSelectedText
+            : ColorPolicy.parseHex(strip.candidateSelectedForeground(), ColorPolicy.parseHex(strip.accent(), text));
+        int number = ColorPolicy.parseHex(strip.secondary(), ColorPolicy.withAlpha(text, 0x9d));
+        if (pickedSelectedText != null) {
+            return new Palette(strip.id(), text, number,
+                ColorPolicy.parseHex(strip.accent(), text), 0, ColorPolicy.withAlpha(text, 0x0f),
+                ColorPolicy.parseHex(strip.background(), 0xffffffff), 0,
+                safeFont(fontFamily, "Noto Sans SC"), safeFont(englishFont, ""),
+                safeFallbackFonts(fallbackFonts),
+                ColorPolicy.parseHex(strip.candidateSelectedBackground(),
+                    ColorPolicy.parseHex(strip.keyBackground(), 0xffffffff)),
+                chipText, number, number, false, null, Map.of(), null, true);
+        }
         return new Palette(strip.id(), text,
             ColorPolicy.parseHex(strip.secondary(), ColorPolicy.withAlpha(text, 0x9d)),
             ColorPolicy.parseHex(strip.accent(), text), 0, ColorPolicy.withAlpha(text, 0x0f),
@@ -146,6 +170,8 @@ public final class CandidateAppearance {
         private final CandidateCanvasAssets canvas;
         private final Map<String, String> details;
         private final Layout layout;
+        /** 未使用包时首选候选的字是否来自候选选中文字色取色器（#10740）；为真时 {@link #textFor} 也取 {@link #chipText}。 */
+        private final boolean selectedTextPicked;
 
         private Palette(String id, int text, int number, int accent, int selected,
                         int hover, int surface, int border, String fontFamily,
@@ -167,6 +193,15 @@ public final class CandidateAppearance {
                         String englishFont, List<String> fallbackFonts, int chip, int chipText,
                         int secondary, int selectedNumber, boolean externalSkin, CandidateCanvasAssets canvas,
                         Map<String, String> details, Layout layout) {
+            this(id, text, number, accent, selected, hover, surface, border, fontFamily, englishFont,
+                fallbackFonts, chip, chipText, secondary, selectedNumber, externalSkin, canvas, details, layout, false);
+        }
+
+        private Palette(String id, int text, int number, int accent, int selected,
+                        int hover, int surface, int border, String fontFamily,
+                        String englishFont, List<String> fallbackFonts, int chip, int chipText,
+                        int secondary, int selectedNumber, boolean externalSkin, CandidateCanvasAssets canvas,
+                        Map<String, String> details, Layout layout, boolean selectedTextPicked) {
             this.id = id;
             this.text = text;
             this.number = number;
@@ -186,6 +221,7 @@ public final class CandidateAppearance {
             this.canvas = canvas;
             this.details = Map.copyOf(details);
             this.layout = layout;
+            this.selectedTextPicked = selectedTextPicked;
         }
 
         public String id() { return id; }
@@ -207,7 +243,7 @@ public final class CandidateAppearance {
         public List<String> fallbackFonts() { return fallbackFonts; }
         /** 首选候选底色：候选包的选中填充，未使用包时为字母键的颜色。 */
         public int chip() { return chip; }
-        /** 首选候选文字色：包的选中文字色，未使用包时为皮肤强调色。 */
+        /** 首选候选文字色：包的选中文字色，未使用包时为皮肤强调色；自定义主题设了候选选中文字色时为它（#10740）。 */
         public int chipText() { return chipText; }
         /** 是否使用外部候选包，展开网格据此使用候选底色而非键帽底色。 */
         public boolean externalSkin() { return externalSkin; }
@@ -219,9 +255,9 @@ public final class CandidateAppearance {
         public int weightFor(boolean selected) { return selected ? SELECTED_FONT_WEIGHT : 400; }
         public String preferredFont() { return englishFont.isEmpty() ? fontFamily : englishFont; }
 
-        /** 包可指定选中文字色；未使用包时保留候选条的强调色文字。 */
+        /** 包可指定选中文字色；未使用包时保留候选条的强调色文字，设了候选选中文字色取色器时用它。 */
         public int textFor(boolean selected) {
-            return selected ? (externalSkin ? chipText : accent) : text;
+            return selected ? (externalSkin || selectedTextPicked ? chipText : accent) : text;
         }
 
         /** 坐上首选的触点纠错行（#10018，CandidateCorrectionMarkPolicy）的标记色：选中的 chip 上取 {@link #chipText()}，未使用包时它就是皮肤强调色，用了包时是包给 chip 底配的选中文字色，标记不会和 chip 底撞色；不在选中位置时取强调色。 */
@@ -235,7 +271,7 @@ public final class CandidateAppearance {
                 + ":" + Integer.toHexString(hover) + ":" + Integer.toHexString(surface)
                 + ":" + Integer.toHexString(border) + ":" + fontFamily + ":" + englishFont
                 + ":" + String.join(",", fallbackFonts) + ":" + Integer.toHexString(chip)
-                + ":" + Integer.toHexString(chipText) + ":" + externalSkin
+                + ":" + Integer.toHexString(chipText) + ":" + externalSkin + ":" + selectedTextPicked
                 + ":" + Integer.toHexString(secondary) + ":" + Integer.toHexString(selectedNumber)
                 + ":" + preeditText() + ":" + preeditCaret(accent) + ":" + secondaryFor(true)
                 + ":" + (canvas == null ? "" : canvas.key())
