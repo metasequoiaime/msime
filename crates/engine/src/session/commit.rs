@@ -1,5 +1,6 @@
 //! Selection and commit (core-session.md §5.7).
 
+use super::cantonese_learning::{is_cantonese_row, CantonesePick};
 use super::chain::Pick;
 use super::input::InputSession;
 use crate::diagnostics;
@@ -240,14 +241,28 @@ impl InputSession {
                 return KeyResult::committed(text);
             };
             let text = candidate.word.clone();
+            let key = candidate.canonical_pinyin.clone();
+            let cantonese_row = is_cantonese_row(candidate);
             let end = candidate.pinyin.len();
-            if self.engine.select_cantonese_end(end) {
+            // 组句标记和调频都在拿走这一段之前取：拿走后候选换成剩下那段的。
+            let pick = CantonesePick {
+                key: &key,
+                word: &text,
+                cantonese_row,
+                composed: cantonese_row && self.engine.cantonese_row_is_composed(&key, &text),
+            };
+            let mut diagnostic = self.learn_cantonese_frequency(index, &pick);
+            let composing = self.engine.select_cantonese_end(end);
+            if let Some(phrase_diagnostic) = self.note_cantonese_piece(&pick, composing) {
+                diagnostic.get_or_insert(phrase_diagnostic);
+            }
+            if composing {
                 self.update_mixed_candidates();
             } else {
                 self.reset_composition();
             }
             self.chain.reset();
-            return KeyResult::committed(text);
+            return committed(Some(text.to_string()), diagnostic);
         }
         if self.korean_rules_apply() || self.vietnamese_rules_apply() || self.tibetan_rules_apply()
         {

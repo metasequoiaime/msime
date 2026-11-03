@@ -245,7 +245,7 @@ CREATE TABLE IF NOT EXISTS user_dictionary_operations(
 | `wubi98` | 主库的 `wubi98` | 同上 |
 | `quick` | 主库的 `quick_parases` | 1 到 32 个字母或数字 |
 | `english` | 英文库的 `english_words`，`display` 列是展示形式 | 1 到 64 个字母 |
-| `cantonese` | 不回放，计为跳过：粤语方案查词时直接读日志里 `user_inserted=1` 的 upsert 行，并进 `msime-cantonese.db` 的候选（`cantonese::UserWords`）。词库快照不收这些行，整份换上快照时宿主从旧日志抄进新的一代（`add_cantonese_words`） | 不带声调的粤拼音节，单个空格分隔（与 [§13](#13-语言词库msime-cantonesedbmsime-zhuyindbmsime-strokedb) 的 `entries.key` 同一写法） |
+| `cantonese` | 不回放，计为跳过：粤语方案查词时直接读日志里的 upsert 行，并进 `msime-cantonese.db` 的候选（`cantonese::UserWords`），同一个词两边都有时取较大的权重。`user_inserted=1` 是用户加的词和打字造的词，`user_inserted=0` 是粤语调频写下的权重（`cantonese::learning`）。词库快照不收这些行，整份换上快照时宿主从旧日志抄进新的一代（`add_cantonese_words`，`user_inserted` 照原样） | 不带声调的粤拼音节，单个空格分隔（与 [§13](#13-语言词库msime-cantonesedbmsime-zhuyindbmsime-strokedb) 的 `entries.key` 同一写法） |
 
 `operation='delete'` 是墓碑，回放时删除对应行；`user_inserted=1` 表示用户自己加的词（删除后仍记着它曾是用户的）。权重低于 1 的 `pinyin` upsert 是旧版调频留下的，回放时跳过，`ensure_user_database` 会把它们删掉。代次里没有对应表的行（只读英文库的代次里的非英文行，还没有五笔表时的五笔行）计为跳过，留在日志里。**未知的 `dictionary` 值和存不进去的 `key` 算失败行，任何一行失败整次回放回滚、代次准备被拒**，所以新增取值必须先让引擎认得它，再往日志里写。`cantonese` 是这样加进来的最近一个取值：认得它之前的引擎（降级安装）遇到用户加过粤语词的日志会拒绝准备新代次。
 
@@ -307,7 +307,7 @@ CREATE TABLE IF NOT EXISTS quick_phrase_slots(
 | 表 | 内容 |
 | --- | --- |
 | `personal_dictionary_receipts` | 个人词典编辑请求的回执，按 `request_id` 去重 |
-| `candidate_selection_state` | 调频的选中计数 |
+| `candidate_selection_state` | 调频的选中计数。`context_key` 以 `cantonese:` 开头的是粤语的计数（后接粤拼键），词库快照不收 |
 | `fixed_candidate_positions` | 固定位置（1 到 5） |
 | `pick_transitions` | 连续选中的两个词，够多次就成词 |
 | `pinyin_typo_counts`、`pinyin_autocorrect_suppressions` | 全拼纠错的学习与按输入关闭纠错 |
