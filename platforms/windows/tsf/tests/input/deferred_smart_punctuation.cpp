@@ -71,7 +71,7 @@ int main(int argc, char **argv)
     // 会话还在协商（令牌不变、窗口不变）不属于上面的任何一种：那正是丢掉手势的原因。
     check(SmartPunctuationArmStillBelongsToDocument(7, 7, true), "会话暂时没就绪不算换了文档");
 
-    // 4. 接线。屏障里认领两条命令的顺序由 scripts/test-windows-deferred-classification.py
+    // 4. 接线。屏障里认领两条命令（含排空重分类）由 scripts/test-windows-deferred-classification.py
     //    直接编译 `_ClassifyDeferredKeyDown` 验证（那里断言的是行为），这里只钉住它看不到的部分。
     const std::string root = argc > 1 ? argv[1] : "platforms/windows/tsf";
     const std::string sink = read(root + "/Key/KeyEventSink.cpp");
@@ -79,9 +79,13 @@ int main(int argc, char **argv)
     check(sink.find("keyState.Category == CATEGORY_NONE && keyState.Function == FUNCTION_NONE") == std::string::npos,
           "应用文本的判定只写一份");
     check(sink.find("Global::DeferredKeyIsApplicationText(") != std::string::npos, "队列按这条规则分应用文本");
+    // 认领在「可打印键排队」之外，回放重分类（replayedKey 非空）才走得到。
+    check(sink.find("if (!replayedKey && (_deferredKeyClassificationPending") != std::string::npos &&
+              sink.find("composingBeforeKey") != std::string::npos,
+          "认领对所有屏障按键生效，应用文本排队只限首次分类");
 
     // 以下几条是抽取式用例（scripts/test-windows-deferred-classification.py）执行不到的接线：
-    // 影子在应用文本真正写进文档时记，以及读不回前文时的三条退路。
+    // 影子在应用文本真正写进文档时记、读不回前文时的三条退路，以及重复标点武装过期后的退路。
     const std::string composition = read(root + "/Composition/Composition.cpp");
     check(composition.find("Global::SmartPunctuationArmStillBelongsToDocument(") != std::string::npos,
           "武装的存活判断走同一条规则");
@@ -94,6 +98,9 @@ int main(int argc, char **argv)
           "读不回文档又被打断时只插入普通空格");
     check(composition.find("if (preceding == 0 && _QueueSmartPunctuationRewrite(ascii))") != std::string::npos,
           "读不回文档且没被打断时才盲删一个字符");
+    check(composition.find("CStringRange typed;") != std::string::npos &&
+              composition.find("typed.Set(&wch, 1);") != std::string::npos,
+          "重复标点的武装在排队期间过期时按用户按下的字写入，不丢这颗键");
     check(read(root + "/IME/MetasequoiaIME.cpp").find("_NoteSmartPunctuationDocumentText(_wch)") != std::string::npos,
           "排队等回放的应用文本写进文档时才记前文");
 

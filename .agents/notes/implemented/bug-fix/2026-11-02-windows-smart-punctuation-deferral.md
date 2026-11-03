@@ -18,10 +18,11 @@ Status: implemented
 ## Decision
 
 1. 排队等回放的应用文本，在它**真正写进文档**时记前文：`CDeferredApplicationTextEditSession` 的 `SetText` 成功后调 `_NoteSmartPunctuationDocumentText`。入队时那两处 `_NoteKeyForSmartPunctuation` 维持原样（被吃掉的键照旧让影子失效）——影子必须反映文档顺序，入队时就记会把后面排队的字当成前文（屏障里连打 `.` `1` 就会让 `.` 读到 `1`）。
-2. 空格转换与重复标点转中文在屏障里先认领，排在「可打印键排队」之前（`Global::DeferredSmartPunctuationClaimFor` 给出认领哪一条）。入口条件与 `_IsKeyEaten` 对齐：键盘开着，或在中文标点/全角语义下；自己组字的方案（韩文、注音、越南文、藏文）不认领；当前或投影里有组字、有候选时不认领。
+2. 空格转换与重复标点转中文在屏障里先认领，排在「可打印键排队」和影子分类之前（`Global::DeferredSmartPunctuationClaimFor` 给出认领哪一条）。入口条件与 `_IsKeyEaten` 对齐：键盘开着，或在中文标点/全角语义下；自己组字的方案（韩文、注音、越南文、藏文）不认领；宿主会话、引擎里的组码或候选里有组字时不认领。认领对**排空时的重分类**同样生效：先排队的标点和空格在排到空格那一刻武装才出现，只在入队时认领会把这一步漏掉（`_ClassifyDeferredKeyDown` 的 `replayedKey` 分支）。判断「排到它时有没有组字」时，入队看投影（含前面排队的键），回放只能看宿主当前状态——投影已经包含它之后的键，拿它判断会把后面的字算进来。
 3. 已经武装的空格转换只在焦点会话令牌变了或前台窗口变了时丢（`Global::SmartPunctuationArmStillBelongsToDocument`），会话暂时没就绪不再丢，是否就绪留到空格那一刻再判。不加时限：其他宿主的空格转换也没有时限，新增时限是用户能感知的行为变化。退格直接作废武装（与 macOS 下一个键就消费武装一致）；只按修饰键不算打断。
 4. 读不回文档又被打断时只插入普通空格。盲删会删掉用户后来打的字；原地改写（`ShiftStart(-1)` + `SetText`）在终端代理存储里会报成功却什么都不改，空格就被吞了。
 5. 新增 TSF 诊断记录 `[msime][smart-punctuation] before=digit|letter|other|none shadow=yes|no result=ascii|chinese process=…`：只记类别、不记字符、不记按了哪个键，与 macOS 的 `[smart-punctuation]` 同一约定。
+6. 认领发生在入队、执行在排空之后，中间可能过期：重复标点的武装只有 2 秒窗口，排空时已被 `_NoteKeyForSmartPunctuation` 清掉的话，`_HandleSmartPunctuationRevert` 不再返回 `E_INVALIDARG` 把那颗键丢掉，而是按用户实际按下的字写进文档。空格那一侧的过期只会退化成普通空格，本身不丢键。
 
 ## Alternatives considered
 
@@ -33,16 +34,18 @@ Status: implemented
 ## Consequences
 
 - 屏障窗口里数字/字母后的 `,` `.` `:` 仍按前文出 ASCII；读不回前文的宿主不再因为「有没有屏障」时好时坏。
-- 屏障窗口里中文标点后的空格仍能转换，重复按同一标点仍能换回中文。
+- 屏障窗口里中文标点后的空格仍能转换，重复按同一标点仍能换回中文；标点和空格在同一次屏障里先后排队也一样（认领在排空重分类时补上）。
+- 重复标点的武装在排队期间过期时，那颗键按用户按下的字写进文档，不再静默消失。
 - 英文模式与韩文等自己组字的方案在屏障内外行为一致（都不认领）。
 - 读不回前文时，标点后按过别的键就只插入空格，不会再盲删或盲改用户的字。
 - 诊断日志只在 `diagnostic_log.tsf` 打开时写，一次标点一行，只含类别、不含任何用户文本。
 
 ## Verification
 
-- `scripts/test-windows-deferred-classification.py`（既有抽取式用例，直接编译 `_ClassifyDeferredKeyDown` 本体）：新增六组断言——屏障里已武装的空格得到 `FUNCTION_SMART_PUNCTUATION_CONVERT`、同一按键得到 `FUNCTION_SMART_PUNCTUATION_REVERT`、组字中（当前的或投影里的）空格不被认领、键盘关闭时不认领、自己组字的方案不认领。反向验证过两次：摘掉认领块 → 前两条红；把入口条件换成 `true` → 后两条红。294 项检查全过。
-- `platforms/windows/tsf/tests/input/deferred_smart_punctuation.cpp`（新增，已挂进 `platforms/windows/tsf/CMakeLists.txt` 的 ctest）：策略真值表（应用文本判定、认领选择、武装存活），加上抽取式用例执行不到的接线——应用文本写入时才记影子、退格作废武装、修饰键不算打断、读不回时只插空格。
-- `platforms/windows/Build-Client.ps1` 本地全量构建（MSVC，x64/x86，Arm64X 两遍链接）通过，确认改动在真实 TSF 编译单元里成立；只有既有的 C4189/C4244 告警。
-- `python scripts/test-windows-native-run.py`：新增用例编译并执行通过；唯一失败是 `caps_lock_tap.cpp`，在未改动的 `develop` 主工作区上同样失败。
+- `scripts/test-windows-deferred-classification.py`（既有抽取式用例，直接编译 `_ClassifyDeferredKeyDown` 本体）：新增十组断言——屏障里已武装的空格得到 `FUNCTION_SMART_PUNCTUATION_CONVERT`、同一按键得到 `FUNCTION_SMART_PUNCTUATION_REVERT`、组字中（当前的或投影里的）空格不被认领、键盘关闭时不认领、自己组字的方案不认领；以及**同一次屏障**里先排队的标点与空格、先排队的重复标点键在排空重分类时仍被认领，排到时已在组字的回放空格仍归组字（选词），投影里只在**后面**排队的字母不算到空格头上。反向验证：这条回放用例在修正前红（空格落进 `applicationText`，`dispatched` 里没有它），修正后绿。313 项检查全过。
+- `platforms/windows/tsf/tests/input/deferred_smart_punctuation.cpp`（新增，已挂进 `platforms/windows/tsf/CMakeLists.txt` 的 ctest）：策略真值表（应用文本判定、认领选择、武装存活），加上抽取式用例执行不到的接线——应用文本写入时才记影子、退格作废武装、修饰键不算打断、读不回时只插空格、武装过期时按按下的字写入。用 `cmake --build ... --target msime-tsf-deferred-smart-punctuation-test` 编出并运行通过。
+- `cmake --build target/windows-full/x64 --config RelWithDebInfo --target msime-tsf` 与同一条 x86 构建通过：改动在真实 TSF 编译单元里成立（Arm64X 这一轮没有重跑，改动不涉及平台差异）。
+- `python scripts/test-windows-application-key-replay.py` 204 项全过。
+- `python scripts/test-windows-native-run.py`：146 项通过，2 项按宿主差异排除，0 失败。
 - `pnpm run verify-notes`、`git diff --check` 通过。
 - **没有在 QQ 里复测。** 本机 QQ 未登录、桌面同时被另一个会话占用。确认手段是打开 `diagnostic_log.tsf`，在 QQ 里打 `1.2`、以及「中文标点 + 空格」，看 `logs\server.log` 里 `[msime][smart-punctuation]` 的次数与 `shadow=yes` 是否稳定；同时观察屏障事件（`keydown-deferred-queued`）附近是否仍有 `result=chinese`。

@@ -507,7 +507,15 @@ HRESULT CMetasequoiaIME::_HandleSmartPunctuationRevert(TfEditCookie ec, _In_ ITf
     const bool sameKey = wch == ascii || (ascii == L'/' && wch == L'\\');
     if (ascii == 0 || chinese == 0 || !sameKey)
     {
-        return E_INVALIDARG;
+        // 武装在排队等回放时可能已经过期（重复标点只有 2 秒窗口）。这颗键已经被吃掉，
+        // 返回失败会把它整个丢掉；手势不成立就按用户实际按下的字写进文档。
+        if (wch == 0)
+        {
+            return E_INVALIDARG;
+        }
+        CStringRange typed;
+        typed.Set(&wch, 1);
+        return _AddCharAndFinalize(ec, pContext, &typed);
     }
 
     const WCHAR preceding = _GetPrecedingDocumentChar(ec, pContext);

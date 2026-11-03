@@ -1884,28 +1884,36 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
         projectedImeOpen || (msime::windows::scheme::UsesChinesePunctuation(scheme) &&
                              (projectedPunctuationOpen || projectedDoubleSingleByteOpen));
     const bool hostComposed = msime::windows::scheme::AlwaysInlinePreedit(scheme);
+    // 排到这颗键时是不是在组字。入队时看投影（含前面排队的键）；回放重分类时 useProjection 为假，
+    // 只能用宿主当前状态——投影已经包含它之后的键，拿它判断会把后面的字算进来。引擎里的组码也算
+    // 组字（与 _IsKeyEaten 的 isInputInProgress 一致）：宿主组字建起来之前它已经有内容，这时空格
+    // 是选词而不是标点转换。
+    const bool composingBeforeKey =
+        useProjection ? _DeferredProjectionHasComposition()
+                      : (_IsComposing() != FALSE || _candidateMode != CANDIDATE_NONE ||
+                         _pCompositionProcessorEngine->GetVirtualKeyLength() > 0);
+    // 空格转换和重复标点转中文只看本进程记住的上一次上屏和当前焦点，不需要 Server 的分类
+    // 结果，所以必须排在「可打印键排队」和影子分类之前认领。回放重分类也要走这里：标点和
+    // 空格先后排进队列时，排到空格那一刻武装才出现，少了这一步转换会在重分类时丢掉。
+    if ((capturedModifiers & 0b110u) == 0 && !windowsKeyDown && !IsBareModifierKey(*classifiedCode) &&
+        !_IsKeyboardDisabled() && punctuationActive && !hostComposed && !composingBeforeKey)
+    {
+        const auto claim = Global::DeferredSmartPunctuationClaimFor(*classifiedCode == VK_SPACE,
+                                                                   _CanConvertSmartPunctuationSpace(),
+                                                                   _CanRevertSmartPunctuation(*classifiedWch));
+        if (claim != Global::DeferredSmartPunctuationClaim::None)
+        {
+            keyState->Category = CATEGORY_COMPOSING;
+            keyState->Function = claim == Global::DeferredSmartPunctuationClaim::SpaceConvert
+                                     ? FUNCTION_SMART_PUNCTUATION_CONVERT
+                                     : FUNCTION_SMART_PUNCTUATION_REVERT;
+            return true;
+        }
+    }
     if (!replayedKey && (_deferredKeyClassificationPending || _HasPendingApplicationKeyReplay() || _preferenceBarrier.active() ||
          _preferenceNotificationPending.load(std::memory_order_acquire)) && (capturedModifiers & 0b110u) == 0 &&
         !windowsKeyDown && !IsBareModifierKey(*classifiedCode) && !_IsKeyboardDisabled())
     {
-        // 空格转换和重复标点转中文只看本进程记住的上一次上屏和当前焦点，不需要 Server 的
-        // 分类结果，所以必须排在下面那条「可打印键排队」之前认领：否则屏障窗口里的空格会
-        // 被当成普通空格插进文档，刚打出的中文标点再也换不回 ASCII。
-        if (punctuationActive && !hostComposed && !_DeferredProjectionHasComposition() && !_IsComposing() &&
-            _candidateMode == CANDIDATE_NONE)
-        {
-            const auto claim = Global::DeferredSmartPunctuationClaimFor(*classifiedCode == VK_SPACE,
-                                                                       _CanConvertSmartPunctuationSpace(),
-                                                                       _CanRevertSmartPunctuation(*classifiedWch));
-            if (claim != Global::DeferredSmartPunctuationClaim::None)
-            {
-                keyState->Category = CATEGORY_COMPOSING;
-                keyState->Function = claim == Global::DeferredSmartPunctuationClaim::SpaceConvert
-                                         ? FUNCTION_SMART_PUNCTUATION_CONVERT
-                                         : FUNCTION_SMART_PUNCTUATION_REVERT;
-                return true;
-            }
-        }
         const bool printable = *classifiedWch != L'\0' && std::iswprint(static_cast<wint_t>(*classifiedWch)) != 0;
         const bool plainEditingKey = (capturedModifiers & 1u) == 0 &&
             (msime::tsf::is_korean_caret_or_edit_key(*classifiedCode) ||
