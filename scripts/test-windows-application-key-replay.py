@@ -108,10 +108,14 @@ SHORT VkKeyScanW(WCHAR value) {
 }
 std::wstring appliedText;
 struct TestRange {
-    int refs = 1;
+    int refs = 1, setTextResult = 0;
     void AddRef() { ++refs; }
     void Release() { --refs; }
-    int SetText(int, int, const WCHAR *text, int length) { appliedText.append(text, length); return S_OK; }
+    int SetText(int, int, const WCHAR *text, int length) {
+        if (setTextResult != 0) return setTextResult;
+        appliedText.append(text, length);
+        return 0;
+    }
     void Collapse(int, int) {}
 };
 struct TF_SELECTION { TestRange *range = nullptr; };
@@ -205,6 +209,9 @@ struct CMetasequoiaIME {
     void _ArmDeferredRecoveryForTransport(ITfContext *);
     int retries = 0;
     void _RetryDeferredKeyReplay(std::uint64_t) { ++retries; }
+    // 应用文本真正写进文档时，智能标点的前文影子按这个顺序记。
+    std::wstring notedShadow;
+    void _NoteSmartPunctuationDocumentText(WCHAR wch) { notedShadow.push_back(wch); }
     void *_msgWndHandle = testWindow;
     void _ClearDeferredKeyDowns() { std::abort(); }
     bool _deferredKeyDrainPosted = false;
@@ -482,9 +489,23 @@ int main() {
         if (invalid == 0 || invalid == 7) {
             check(appliedText == L"." && f.ime.retries == 0 && !f.ime._hasDeferredKeyInFlight,
                   "offline application text completes once even when caret placement fails");
+            check(f.ime.notedShadow == L".", "a character that reached the document is noted for smart punctuation once");
             edit.DoEditSession(1);
             check(appliedText == L".", "late duplicate edit session cannot insert twice");
-        } else check(appliedText.empty() && f.ime.retries == 1, "async application text rejects disabled or stale owner before SetText");
+            check(f.ime.notedShadow == L".", "a rejected duplicate never notes the character again");
+        } else {
+            check(appliedText.empty() && f.ime.retries == 1, "async application text rejects disabled or stale owner before SetText");
+            check(f.ime.notedShadow.empty(), "a rejected application-text session never notes the character");
+        }
+    }
+    {
+        // SetText 失败也一样：没写进文档就不能当成用户打的字。
+        Fixture f; f.ime._serverUnavailableFallbackActive = true; f.ime.focusCurrent = false;
+        f.context.range.setTextResult = E_FAIL;
+        CDeferredApplicationTextEditSession edit(&f.ime, &f.context, L'.', 0, 7, 42, testWindow);
+        edit.DoEditSession(1);
+        check(appliedText.empty() && f.ime.notedShadow.empty() && f.ime.retries == 1,
+              "a failed SetText neither lands in the document nor becomes the punctuation context");
     }
     UINT lastMarker = NextApplicationKeyReplayMarker();
     bool increasing = true;

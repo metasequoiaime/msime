@@ -367,6 +367,9 @@ class CDeferredApplicationTextEditSession : public CEditSessionBase
                 // selection-placement failure must not retry the character,
                 // otherwise the application receives it twice.
                 textApplied = true;
+                // 回放的按键到这里才真正进文档：前文影子按这个顺序记，入队时记账会把后面
+                // 排队的字当成前文（屏障里连打 `.` `1` 就是这么错的）。
+                _pTextService->_NoteSmartPunctuationDocumentText(_wch);
                 selection.range->Collapse(ec, TF_ANCHOR_END);
                 hr = _pContext->SetSelection(ec, 1, &selection);
             }

@@ -331,6 +331,38 @@ int main() {
         f.ime.smartRevertAscii = 0;
         f.ime._preferenceNotificationPending.store(false);
     }
+    // 英文模式（键盘关闭又没有中文标点）里空格不该被认领：与 _IsKeyEaten 的入口条件一致。
+    {
+        Fixture f;
+        f.finishSelection(L"", false);
+        f.ime._preferenceNotificationPending.store(true);
+        f.ime._deferredKeyProjectionValid = false;
+        f.engine.imeOpen = false;
+        f.engine.punctuationOpen = false;
+        f.engine.fullwidth = false;
+        f.ime.smartSpaceArmed = true;
+        check(f.capture(VK_SPACE, L' '), "closed-keyboard space stays captured");
+        check(f.ime._deferredKeyDowns.back().keyState.Function != FUNCTION_SMART_PUNCTUATION_CONVERT,
+              "a closed keyboard never claims the punctuation conversion");
+        f.ime.smartSpaceArmed = false;
+        f.engine.imeOpen = true;
+        f.ime._preferenceNotificationPending.store(false);
+    }
+    // 自己组字的方案（韩文等）里空格是组字键，空格转换同样不该抢先。
+    {
+        Fixture f;
+        f.finishSelection(L"", false);
+        f.ime._preferenceNotificationPending.store(true);
+        f.ime._deferredKeyProjectionValid = false;
+        Global::InputModeScheme = msime::windows::scheme::Korean;
+        f.ime.smartSpaceArmed = true;
+        check(f.capture(VK_SPACE, L' '), "host-composed space stays captured");
+        check(f.ime._deferredKeyDowns.back().keyState.Function != FUNCTION_SMART_PUNCTUATION_CONVERT,
+              "a host-composed scheme never claims the punctuation conversion");
+        f.ime.smartSpaceArmed = false;
+        Global::InputModeScheme = msime::windows::scheme::Quanpin;
+        f.ime._preferenceNotificationPending.store(false);
+    }
     // 组字中（当前的或投影里的）空格是选词，不许被认领成标点转换。
     for (bool liveComposition : {true, false}) {
         Fixture f;

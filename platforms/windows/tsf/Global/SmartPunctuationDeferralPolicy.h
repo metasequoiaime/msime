@@ -46,14 +46,14 @@ constexpr DeferredSmartPunctuationClaim DeferredSmartPunctuationClaimFor(bool sp
 // `_CanConvertSmartPunctuationSpace()` 还要等 Server 会话说「就绪」，而那个状态在焦点会话
 // 协商、偏好事务期间会短暂为假并自己恢复。用它在每个中间按键上判一次就把手势丢掉了：
 // 标点先上屏、紧接着一个键落到协商窗口里，空格就再也不会转换。这里只丢真正回不来的
-// 情况——焦点会话换了、前台窗口换了、过期；是否就绪留到空格那一刻再判一次。
+// 情况——焦点会话换了、前台窗口换了；是否就绪留到空格那一刻再判一次。不加时限：其他宿主
+// 的空格转换也没有时限，时限会变成用户能感知的行为变化。
 //
 // 「重复标点转中文」不走这一条：它靠盲删一个字符兑现，读不回前文时放宽窗口只会多出误删
 // 的机会，仍按每个按键判。
 constexpr bool SmartPunctuationArmStillBelongsToDocument(unsigned long long armedToken,
-                                                         unsigned long long currentToken, bool sameForeground,
-                                                         bool withinWindow)
+                                                         unsigned long long currentToken, bool sameForeground)
 {
-    return withinWindow && sameForeground && armedToken != 0 && armedToken == currentToken;
+    return sameForeground && armedToken != 0 && armedToken == currentToken;
 }
 } // namespace Global

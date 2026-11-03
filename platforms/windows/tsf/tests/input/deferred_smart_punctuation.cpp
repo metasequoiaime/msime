@@ -63,14 +63,13 @@ int main(int argc, char **argv)
     check(DeferredSmartPunctuationClaimFor(false, true, false) == DeferredSmartPunctuationClaim::None,
           "空格转换只认空格键");
 
-    // 3. 已武装的空格转换只在「真的回不来」时才丢。
-    check(SmartPunctuationArmStillBelongsToDocument(7, 7, true, true), "同一篇文档、同一窗口、未过期");
-    check(!SmartPunctuationArmStillBelongsToDocument(7, 8, true, true), "焦点会话换了");
-    check(!SmartPunctuationArmStillBelongsToDocument(7, 7, false, true), "前台窗口换了");
-    check(!SmartPunctuationArmStillBelongsToDocument(7, 7, true, false), "过期了");
-    check(!SmartPunctuationArmStillBelongsToDocument(0, 0, true, true), "没有焦点令牌就等于没有文档");
-    // 会话还在协商（令牌不变、窗口不变）不属于上面的任何一种：那正是 QQ 里丢掉手势的原因。
-    check(SmartPunctuationArmStillBelongsToDocument(7, 7, true, true), "会话暂时没就绪不算换了文档");
+    // 3. 已武装的空格转换只在「真的回不来」时才丢，没有时限（其他宿主也没有）。
+    check(SmartPunctuationArmStillBelongsToDocument(7, 7, true), "同一篇文档、同一窗口");
+    check(!SmartPunctuationArmStillBelongsToDocument(7, 8, true), "焦点会话换了");
+    check(!SmartPunctuationArmStillBelongsToDocument(7, 7, false), "前台窗口换了");
+    check(!SmartPunctuationArmStillBelongsToDocument(0, 0, true), "没有焦点令牌就等于没有文档");
+    // 会话还在协商（令牌不变、窗口不变）不属于上面的任何一种：那正是丢掉手势的原因。
+    check(SmartPunctuationArmStillBelongsToDocument(7, 7, true), "会话暂时没就绪不算换了文档");
 
     // 4. 接线。屏障里认领两条命令的顺序由 scripts/test-windows-deferred-classification.py
     //    直接编译 `_ClassifyDeferredKeyDown` 验证（那里断言的是行为），这里只钉住它看不到的部分。
@@ -79,25 +78,24 @@ int main(int argc, char **argv)
     // 队列和智能标点共用同一条「应用文本」规则，不能再各写一份。
     check(sink.find("keyState.Category == CATEGORY_NONE && keyState.Function == FUNCTION_NONE") == std::string::npos,
           "应用文本的判定只写一份");
-    check(sink.find("Global::DeferredKeyIsApplicationText(") != std::string::npos, "队列与智能标点共用这条规则");
-    check(sink.find("_NoteKeyForSmartPunctuation(deferredCode, deferredWch, *pIsEaten && !deferredAsText)") !=
-              std::string::npos,
-          "应用文本不当作被吃掉的键");
-    check(sink.find("_NoteKeyForSmartPunctuation(deferredCode, deferredWch, *pIsEaten ? true : false)") ==
-              std::string::npos,
-          "旧的「吃了就丢前文」写法不再出现");
+    check(sink.find("Global::DeferredKeyIsApplicationText(") != std::string::npos, "队列按这条规则分应用文本");
 
+    // 以下几条是抽取式用例（scripts/test-windows-deferred-classification.py）执行不到的接线：
+    // 影子在应用文本真正写进文档时记，以及读不回前文时的三条退路。
     const std::string composition = read(root + "/Composition/Composition.cpp");
     check(composition.find("Global::SmartPunctuationArmStillBelongsToDocument(") != std::string::npos,
           "武装的存活判断走同一条规则");
-    check(composition.find("_smartPunctuationSpaceArmedTick + SMART_PUNCTUATION_SPACE_WINDOW_MS") !=
-              std::string::npos,
-          "空格转换的武装有有效期，读不回前文的宿主没有指纹可以反悔");
     check(composition.find("_smartPunctuationSpaceInterrupted = true;") != std::string::npos,
           "标点之后按过别的键要记下来");
-    check(composition.find("if (preceding == 0 && !interrupted && _QueueSmartPunctuationRewrite(ascii))") !=
-              std::string::npos,
-          "读不回文档时只在不被打断的情况下盲删一个字符");
+    check(composition.find("IsSmartPunctuationModifierKey(code)") != std::string::npos, "修饰键不算打断");
+    check(composition.find("if (code == VK_BACK)") != std::string::npos, "退格有专门的作废分支");
+    check(composition.find("_ClearSmartPunctuationSpace();") != std::string::npos, "作废时清掉武装");
+    check(composition.find("if (preceding == 0 && interrupted)") != std::string::npos,
+          "读不回文档又被打断时只插入普通空格");
+    check(composition.find("if (preceding == 0 && _QueueSmartPunctuationRewrite(ascii))") != std::string::npos,
+          "读不回文档且没被打断时才盲删一个字符");
+    check(read(root + "/IME/MetasequoiaIME.cpp").find("_NoteSmartPunctuationDocumentText(_wch)") != std::string::npos,
+          "排队等回放的应用文本写进文档时才记前文");
 
     if (failures != 0)
     {

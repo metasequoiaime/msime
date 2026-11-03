@@ -1867,14 +1867,32 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
     const UINT capturedModifiers =
         Global::CharacterModifiers(modifiersDown ? *modifiersDown : CaptureIpcModifiers(), *classifiedWch,
                                    *classifiedCode);
+    const bool projectedImeOpen = useProjection
+                                      ? _deferredProjectedImeOpen
+                                      : _pCompositionProcessorEngine->GetIMEMode(_pThreadMgr, _tfClientId) != FALSE;
+    const bool projectedPunctuationOpen =
+        useProjection ? _deferredProjectedPunctuationOpen
+                      : _pCompositionProcessorEngine->GetPunctuationMode(_pThreadMgr, _tfClientId) != FALSE;
+    const bool projectedDoubleSingleByteOpen =
+        useProjection ? _deferredProjectedDoubleSingleByteOpen
+                      : _pCompositionProcessorEngine->GetDoubleSingleByteMode(_pThreadMgr, _tfClientId) != FALSE;
+    const int scheme = Global::InputModeScheme.load(std::memory_order_relaxed);
+    // 与 _IsKeyEaten 的入口条件一致：英文模式（键盘关闭又没有中文标点）以及自己组字的方案
+    // （韩文、注音、越南文、藏文）都到不了本地改写那一步，屏障里也不能先认领，否则同一个空格
+    // 在进不进屏障时会有两套行为。
+    const bool punctuationActive =
+        projectedImeOpen || (msime::windows::scheme::UsesChinesePunctuation(scheme) &&
+                             (projectedPunctuationOpen || projectedDoubleSingleByteOpen));
+    const bool hostComposed = msime::windows::scheme::AlwaysInlinePreedit(scheme);
     if (!replayedKey && (_deferredKeyClassificationPending || _HasPendingApplicationKeyReplay() || _preferenceBarrier.active() ||
          _preferenceNotificationPending.load(std::memory_order_acquire)) && (capturedModifiers & 0b110u) == 0 &&
         !windowsKeyDown && !IsBareModifierKey(*classifiedCode) && !_IsKeyboardDisabled())
     {
         // 空格转换和重复标点转中文只看本进程记住的上一次上屏和当前焦点，不需要 Server 的
         // 分类结果，所以必须排在下面那条「可打印键排队」之前认领：否则屏障窗口里的空格会
-        // 被当成普通空格插进文档，刚打出的中文标点再也换不回 ASCII（QQ 这类慢宿主里间歇发生）。
-        if (!_DeferredProjectionHasComposition() && !_IsComposing() && _candidateMode == CANDIDATE_NONE)
+        // 被当成普通空格插进文档，刚打出的中文标点再也换不回 ASCII。
+        if (punctuationActive && !hostComposed && !_DeferredProjectionHasComposition() && !_IsComposing() &&
+            _candidateMode == CANDIDATE_NONE)
         {
             const auto claim = Global::DeferredSmartPunctuationClaimFor(*classifiedCode == VK_SPACE,
                                                                        _CanConvertSmartPunctuationSpace(),
@@ -1894,9 +1912,6 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
              *classifiedCode == VK_BACK || *classifiedCode == VK_ESCAPE);
         if (printable || plainEditingKey) return true;
     }
-    const bool projectedImeOpen = useProjection
-                                      ? _deferredProjectedImeOpen
-                                      : _pCompositionProcessorEngine->GetIMEMode(_pThreadMgr, _tfClientId) != FALSE;
     if (projectedImeOpen && !_serverUnavailableFallbackActive && !_IsKeyboardDisabled() &&
         IsCharacterSetInputModeToggle(*classifiedCode, capturedModifiers))
     {
@@ -1912,7 +1927,6 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
         return true;
     }
     // Korean, Zhuyin and Vietnamese have no Server-owned English candidate mode, as in _IsKeyEaten.
-    const int scheme = Global::InputModeScheme.load(std::memory_order_relaxed);
     if (projectedImeOpen && !msime::windows::scheme::AlwaysInlinePreedit(scheme) &&
         IsEnglishInputModeToggle(*classifiedCode, capturedModifiers))
     {
@@ -2555,15 +2569,9 @@ STDAPI CMetasequoiaIME::OnTestKeyDown(ITfContext *pContext, WPARAM wParam, LPARA
             _ClassifyDeferredKeyDown(pContext, wParam, lParam, nullptr, nullptr, &deferredWch, &deferredCode, &deferredState)
                 ? TRUE
                 : FALSE;
-        // 排队等回放的应用文本由 TIP 自己按顺序插进文档，和直通键一样是用户刚打的字；
-        // 只有真正被吃进组字或命令的键才让前文影子失效。否则数字后直出在屏障窗口里失去
-        // 依据，只能去问读不回前文的宿主文本存储。
-        const bool deferredAsText =
-            *pIsEaten != FALSE && Global::DeferredKeyIsApplicationText(deferredState.Category != CATEGORY_NONE,
-                                                                      deferredState.Function != FUNCTION_NONE);
         // Classify always fills code/wch before failing. Track rejection even
         // when the key is handed back to the app (typical for VK_BACK).
-        _NoteKeyForSmartPunctuation(deferredCode, deferredWch, *pIsEaten && !deferredAsText);
+        _NoteKeyForSmartPunctuation(deferredCode, deferredWch, *pIsEaten ? true : false);
         if (!*pIsEaten)
         {
             // The deferred classifier fills its out-char before its own keyboard-disabled check, and not every exit runs that check, so the char proves nothing about the keyboard state.

@@ -1,55 +1,48 @@
-# Agent Note: Windows 延迟键屏障里保留智能标点的前文与手势
+# Agent Note: Windows 延迟键屏障里的智能标点
 
 Status: implemented
 
 ## Problem
 
-用户在 QQ 里报告智能标点时好时坏：数字后打 `.` `,` `:` 有时候仍是中文标点，「中文标点后按空格转换」也时灵时不灵；同一个输入法在别的程序里稳定。复现不了「一定坏」，只能描述成偶发。
+用户在 QQ 里报告智能标点时好时坏：数字后打 `.` `,` `:` 有时候仍出中文标点，「中文标点后按空格转换」也时灵时不灵；同一个输入法在别的程序里稳定。
 
-诊断日志（`%LOCALAPPDATA%\metasequoiaime-full\logs\server.log` 里 TSF 经管道回传的 `[msime]` 记录）给出了形状：QQ 里一次典型的 `1` `.` 空格 会得到
+这不是「功能没实现」，而是两处在屏障窗口里才会出现的缺口：
 
-```
-keydown-classified vk=0x31 fn=4 eaten=0        # 数字，直通
-keydown-classified vk=0xBE fn=23 eaten=1       # 句号，走标点路径
-keydown-classified vk=0x20 fn=4  eaten=0       # 空格，当普通文本交给宿主
-```
+1. 屏障（`_HasDeferredKeyBarrier()`）会把「没有功能」的可打印键排成应用文本，由 TIP 自己按顺序插进文档。这条路径上智能标点的前文影子（`_smartPunctuationShadowChar`）从来不会被记：入队时按「被吃掉的键」清掉，插入文档时又没人补记。QQ 是 Chromium/IMM32 宿主，`ITfContext` 的文本存储读不回光标前的字，于是下一格标点只能拿到「读不到」，数字后直出退回中文标点——有没有屏障决定对错。
+2. `_ClassifyDeferredKeyDown` 里没有 `_IsKeyEaten` 那两条本地命令（空格转换、重复标点转中文）的分支，屏障窗口里的空格一律被当成普通文本排队，转换永远轮不到。
 
-空格从来没有拿到 `FUNCTION_SMART_PUNCTUATION_CONVERT`（函数号 30，整份日志里一次都没有）。这条链路上的两个前提都靠「TIP 记得用户刚才打了什么」：
+另外两处会让手势在屏障里更容易丢：`_NoteKeyForSmartPunctuation` 在任何一个中间按键上发现 `_CanConvertSmartPunctuationSpace()` 为假就清掉武装，而那个条件含 Server 会话说「就绪」，焦点会话协商期间会短暂为假并自己恢复。
 
-- `_GetPrecedingCharForSmartPunctuation()` 先用本进程的前文影子（`_smartPunctuationShadowChar`），影子无效才去读宿主文本存储。QQ 是 Chromium/IMM32 宿主，`ITfContext` 的文本存储读不回光标前的字，读回 0 个字符。
-- 「中文标点后按空格转换」在 `_ClassifyDeferredKeyDown` 里根本没有对应分支，只有正常路径 `_IsKeyEaten` 有。
-
-而 Server 回得慢、或有偏好事务在排队时，TIP 走延迟键屏障（`_HasDeferredKeyBarrier()`）：可打印键被吃掉、排队、稍后由 TIP 自己按顺序插进文档。这条路径上有三处把前文和手势弄丢：
-
-1. 排队等回放的**应用文本**被记成「被吃进组字的键」，`_UpdateSmartPunctuationShadow` 因此让影子失效。可那个字符明明就是用户刚打进文档的字。下一格标点只能去读读不回来的文档，于是出中文标点——取决于那一瞬间有没有屏障，这就是「时好时坏」。
-2. 屏障的兜底规则是「可打印键一律排进应用文本队列」，空格也在其中，于是它永远轮不到转换分支。
-3. `_NoteKeyForSmartPunctuation` 在任何一个中间按键上发现 `_CanConvertSmartPunctuationSpace()` 为假就立刻清掉武装。而那个条件里含 Server 会话说「就绪」（`_workerCommitReady`），焦点会话协商、偏好事务期间会短暂为假并自己恢复——用它判一次就把已经打出的手势永久丢掉了。
+**没能证明的部分**：手上只有 `1` `.` 空格 的日志，而 `1` `.` 出 ASCII 时本来就不会武装空格转换，那三行也是非屏障路径（`keydown-classified`）。所以「QQ 里那一次到底是不是屏障」没有证据；#10678 修的焦点令牌反复更换同样会清掉武装，也是候选来源之一，它已合并。这里的改动是把两处**代码上成立**的缺口补齐，QQ 里是否因此不再偶发要等复测。
 
 ## Decision
 
-1. 排队等回放的应用文本按「写进文档的字」记前文。判定统一成 `Global::DeferredKeyIsApplicationText(hasCategory, hasFunction)`：没有 `Category` 也没有 `Function` 才是被排队的应用文本，队列分拣和智能标点记前文共用这一条（此前 `_QueueDeferredKeyDown` 里那份判断和这里各写一遍）。
-2. 空格转换和重复标点转中文在屏障里先认领，排在「可打印键排队」之前（`Global::DeferredSmartPunctuationClaimFor` 直接给出要认领哪一条，不再由调用方重算一遍是不是空格键）。两条命令只看本进程记住的上一次上屏和当前焦点，不需要 Server 的分类结果。条件与 `_IsKeyEaten` 对齐：没有组字投影、没有候选、没有活动组字。
-3. 武装的存活判断换成 `Global::SmartPunctuationArmStillBelongsToDocument`：只丢真正回不来的情况——焦点会话令牌换了、前台窗口换了、超过 `SMART_PUNCTUATION_SPACE_WINDOW_MS`（2 秒，与重复标点同长）。会话暂时没就绪不再丢；开关关掉时 `_CanConvertSmartPunctuationSpace()` 自己会拦，不必在这里再判一次。「重复标点转中文」不跟着放宽：它靠盲删一个字符兑现，读不回前文时放宽窗口只会多出误删的机会。为了让放宽后的空格手势同样不盲删，标点之后只要按过别的键就记下 `_smartPunctuationSpaceInterrupted`，读不回文档时那条 SendInput 路径不再兑现（文档读得回来时仍按指纹判）。
-
-另外补一条 TSF 诊断记录 `[msime][smart-punctuation] before=digit|letter|other|none shadow=yes|no result=ascii|chinese process=…`：只记类别、不记字符、不记按了哪个键，和 macOS 的 `[smart-punctuation]` 同一约定。这条问题只能在读不回前文的宿主里靠它确认，否则「修好了没有」永远说不清。
+1. 排队等回放的应用文本，在它**真正写进文档**时记前文：`CDeferredApplicationTextEditSession` 的 `SetText` 成功后调 `_NoteSmartPunctuationDocumentText`。入队时那两处 `_NoteKeyForSmartPunctuation` 维持原样（被吃掉的键照旧让影子失效）——影子必须反映文档顺序，入队时就记会把后面排队的字当成前文（屏障里连打 `.` `1` 就会让 `.` 读到 `1`）。
+2. 空格转换与重复标点转中文在屏障里先认领，排在「可打印键排队」之前（`Global::DeferredSmartPunctuationClaimFor` 给出认领哪一条）。入口条件与 `_IsKeyEaten` 对齐：键盘开着，或在中文标点/全角语义下；自己组字的方案（韩文、注音、越南文、藏文）不认领；当前或投影里有组字、有候选时不认领。
+3. 已经武装的空格转换只在焦点会话令牌变了或前台窗口变了时丢（`Global::SmartPunctuationArmStillBelongsToDocument`），会话暂时没就绪不再丢，是否就绪留到空格那一刻再判。不加时限：其他宿主的空格转换也没有时限，新增时限是用户能感知的行为变化。退格直接作废武装（与 macOS 下一个键就消费武装一致）；只按修饰键不算打断。
+4. 读不回文档又被打断时只插入普通空格。盲删会删掉用户后来打的字；原地改写（`ShiftStart(-1)` + `SetText`）在终端代理存储里会报成功却什么都不改，空格就被吞了。
+5. 新增 TSF 诊断记录 `[msime][smart-punctuation] before=digit|letter|other|none shadow=yes|no result=ascii|chinese process=…`：只记类别、不记字符、不记按了哪个键，与 macOS 的 `[smart-punctuation]` 同一约定。
 
 ## Alternatives considered
 
-- **让 TSF 用 UI Automation 读宿主前文。** QQ 的输入框在 UIA 里是有文本的，能绕开浅文本存储；但那是跨进程、跨 COM 的同步查询，要在按键分类这条热路径上做，延迟和重入风险都比一个进程内的影子大得多，而且 UIA 客户端在 Chromium 里通常要先唤醒无障碍树才拿得到文本。参考实现（msime-windows）也是靠影子。
-- **空格转换不再要求 Server 会话说就绪。** 它写的是文档里的上一个字符，确实不需要 Server；但浅文本存储那一侧会退化成 SendInput 盲删一个字符，读不回前文时唯一的安全依据就是焦点令牌和前台窗口。这一步会把「不转换」的方向从偶发失败改成偶发误删，风险比收益大，只做上面第 3 条（不丢武装、但仍在转换那一刻判一次）。
-- **只要屏障就把按键直接交给宿主。** 屏障存在的意义就是保持顺序；把它拆掉会让慢宿主上的选词和组字错位，代价远大于这两条标点命令。
+- **在入队时就记影子。** 省掉编辑会话里的一处调用，但屏障里连打 `.` `1` 时 `.` 会读到后面那个 `1`；而且 `OnKeyDown` 的屏障分支还会以 `isEaten=true` 再 Note 一次，影子立刻被清掉。写入点必须跟文档顺序一致。
+- **给空格武装加时限（放在策略里）。** 能挡住「很久以后才按的空格兑现旧手势」，但 develop 和 macOS 都没有这个限制，用户能感知；而且只在 Note 里判时限、`_CanConvertSmartPunctuationSpace()` 不看时间，两处判据会分叉。改为：打断时只插普通空格，退格作废，其余交给文档指纹。
+- **读不回文档且被打断时走原地改写。** 终端代理存储会接受 `SetText` 并报成功而什么都不改，结果空格被吞而标点没换，比不转换更糟。
+- **只用源码字符串断言做回归。** 把认领前的防护改成 `if (true)` 也照样通过。行为判定改由 `scripts/test-windows-deferred-classification.py` 抽出真实分类函数执行；C++ 用例只留策略真值表和它执行不到的接线（编辑会话写入点、读不回的三条退路）。
 
 ## Consequences
 
-- 屏障窗口里数字/字母后的 `,` `.` `:` 继续按前文出 ASCII；QQ 这类宿主的偶发回退消失。
-- 屏障窗口里中文标点后的空格仍能转换成 ASCII，重复按同一标点也仍能换回中文。
-- 手势在会话协商期间不再被丢掉，但最多只活 2 秒：读不回前文的宿主没有指纹可以反悔，过期的手势不能再兑现；标点之后按过别的键时，读不回文档的一侧也不兑现。
-- 诊断日志只在 `diagnostic_log.tsf` 打开时写，一次标点一行，只含类别，不含任何用户文本。
+- 屏障窗口里数字/字母后的 `,` `.` `:` 仍按前文出 ASCII；读不回前文的宿主不再因为「有没有屏障」时好时坏。
+- 屏障窗口里中文标点后的空格仍能转换，重复按同一标点仍能换回中文。
+- 英文模式与韩文等自己组字的方案在屏障内外行为一致（都不认领）。
+- 读不回前文时，标点后按过别的键就只插入空格，不会再盲删或盲改用户的字。
+- 诊断日志只在 `diagnostic_log.tsf` 打开时写，一次标点一行，只含类别、不含任何用户文本。
 
 ## Verification
 
-- `platforms/windows/tsf/tests/input/deferred_smart_punctuation.cpp`（新增，已挂进 `platforms/windows/tsf/CMakeLists.txt` 的 ctest）：三条策略的判定表逐个断言，并按源码检查它执行不到的部分——应用文本的判定只写一份、影子与盲删的前置条件。同一份用例对 `origin/develop` 的 `KeyEventSink.cpp`/`Composition.cpp` 运行会红（8 条断言失败），对本次改动全绿。
-- `scripts/test-windows-deferred-classification.py`（既有用例，直接编译 `_ClassifyDeferredKeyDown` 本体）：新增四组断言——屏障里已武装的空格得到 `FUNCTION_SMART_PUNCTUATION_CONVERT`、同一按键得到 `FUNCTION_SMART_PUNCTUATION_REVERT`，以及组字中（当前的或投影里的）空格不会被认领。把认领块摘掉后这两条会红（反向验证过），288 项检查全过。
-- `python scripts/test-windows-native-run.py`：新增用例编译并执行通过；唯一失败是 `caps_lock_tap.cpp`，在未改动的 `develop` 主工作区上同样失败，属于本机既有差异，与本次改动无关。
-- **没有在 QQ 里验收。** 本机 QQ 未登录、且桌面同时被另一个会话占用，自动化打字会互相干扰，所以「偶发失效消失了没有」必须由报告者在 QQ 里按原步骤复现确认；确认手段是打开 `diagnostic_log.tsf` 后看 `[msime][smart-punctuation] shadow=yes` 是否稳定出现在数字后的句号上。
-- 没有在 Windows 原生构建里编译过（本机无 MinGW、无 MSVC），TSF 的编译由 CI 的 Windows 作业覆盖。
+- `scripts/test-windows-deferred-classification.py`（既有抽取式用例，直接编译 `_ClassifyDeferredKeyDown` 本体）：新增六组断言——屏障里已武装的空格得到 `FUNCTION_SMART_PUNCTUATION_CONVERT`、同一按键得到 `FUNCTION_SMART_PUNCTUATION_REVERT`、组字中（当前的或投影里的）空格不被认领、键盘关闭时不认领、自己组字的方案不认领。反向验证过两次：摘掉认领块 → 前两条红；把入口条件换成 `true` → 后两条红。294 项检查全过。
+- `platforms/windows/tsf/tests/input/deferred_smart_punctuation.cpp`（新增，已挂进 `platforms/windows/tsf/CMakeLists.txt` 的 ctest）：策略真值表（应用文本判定、认领选择、武装存活），加上抽取式用例执行不到的接线——应用文本写入时才记影子、退格作废武装、修饰键不算打断、读不回时只插空格。
+- `platforms/windows/Build-Client.ps1` 本地全量构建（MSVC，x64/x86，Arm64X 两遍链接）通过，确认改动在真实 TSF 编译单元里成立；只有既有的 C4189/C4244 告警。
+- `python scripts/test-windows-native-run.py`：新增用例编译并执行通过；唯一失败是 `caps_lock_tap.cpp`，在未改动的 `develop` 主工作区上同样失败。
+- `pnpm run verify-notes`、`git diff --check` 通过。
+- **没有在 QQ 里复测。** 本机 QQ 未登录、桌面同时被另一个会话占用。确认手段是打开 `diagnostic_log.tsf`，在 QQ 里打 `1.2`、以及「中文标点 + 空格」，看 `logs\server.log` 里 `[msime][smart-punctuation]` 的次数与 `shadow=yes` 是否稳定；同时观察屏障事件（`keydown-deferred-queued`）附近是否仍有 `result=chinese`。
