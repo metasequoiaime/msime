@@ -59,6 +59,11 @@ impl Vocabulary {
         chars.into_iter().map(|(_, c)| c)
     }
 
+    /// `text` 里有几个字不在字表里（按未知字编码）。
+    pub fn unknown(&self, text: &str) -> usize {
+        text.chars().filter(|c| !self.ids.contains_key(c)).count()
+    }
+
     pub fn encode(&self, text: &str) -> Vec<u32> {
         text.chars()
             .map(|c| self.ids.get(&c).copied().unwrap_or(self.unk))
