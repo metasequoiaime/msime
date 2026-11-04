@@ -877,12 +877,12 @@ pub fn parse_custom_translations(text: &str) -> Result<Vec<CustomTranslation>> {
     Ok(entries)
 }
 
-/// 人工译文的原文是不是中文（含 U+3400 及以后的字符）：是的话这一行是中译英。
+/// 人工译文的源词是否含 U+3400 起的字符；含有时按中译英处理。
 pub fn is_chinese_source(source: &str) -> bool {
     source.chars().any(|c| c >= '\u{3400}')
 }
 
-/// One line of custom/translations.txt: `None` for a blank or `#` comment line, an error naming the problem (without its location) for a malformed one. Fields after the gloss are ignored. `check-words` validates contributed lines with this same function.
+/// 解析 `custom/translations.txt` 的一行：空行或 `#` 注释返回 `None`，格式错误返回不带位置的问题说明，释义之后的字段忽略。`check-words` 用同一函数检查投稿行。
 pub fn parse_custom_translation(line: &str) -> Result<Option<CustomTranslation>> {
     let stripped = text::strip(line);
     if stripped.is_empty() || stripped.starts_with('#') {

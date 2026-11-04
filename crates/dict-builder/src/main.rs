@@ -77,7 +77,7 @@ enum Stage {
     ReadingCorrections,
     /// 从全拼表删掉 --dictionary checkout 的 curation/pinyin-vetoes.txt 否决的词（整词）或读音（词+全拼）；没有这个文件时什么也不做。
     WordVetoes,
-    /// 把 --dictionary checkout 的 curation/pinyin-weight-overrides.txt 里每个读音的权重设成给定的值，可降可升，不能改 custom/words.txt 定的权重；没有这个文件时什么也不做。
+    /// 把 --dictionary checkout 的 curation/pinyin-weight-overrides.txt 里每个读音的权重设成给定的值，可降可升，不能覆盖 custom/words.txt 从已有行提权的读音；没有这个文件时什么也不做。
     WeightOverrides,
     /// 把 --dictionary checkout 的 curation/offensive-words.txt 写进 msime-pinyin.db 的 sentence_excluded 表，引擎拼整句时按它拦粗俗词；没有这个文件时不建这张表，引擎用内嵌表。
     SentenceExcluded,
@@ -1173,7 +1173,7 @@ fn check_words(arguments: &CheckWords) -> Result<bool> {
         .map(cantonese::parse_characters)
         .transpose()?;
     let readings = characters.as_deref().map(cantonese::character_readings);
-    // 否决表和构建一样，文件不在就是空表：check-words.yml 传 head 检出里的路径，词库仓库还没有这张表时照常检查。
+    // 否决表和构建一样，文件不在就是空表；调用方应传 PR 基准提交的表，防止同一个 PR 撤掉否决后加回词条。
     let optional = |path: &Path| -> Result<String> {
         if path.exists() {
             text::read(path)
@@ -1321,7 +1321,7 @@ impl Build {
         sqlite::open(&self.out.join(name))
     }
 
-    /// The quanpin stage's inputs: the single-character table, the whitelist it is filtered by (only with the licensing record), and the phrase inputs in load order.
+    /// 全拼阶段的输入：单字表、许可记录允许时使用的单字白名单，以及按加载次序排列的词组表。
     fn quanpin_inputs(&self) -> Result<(PathBuf, Option<HashSet<String>>, Vec<PathBuf>)> {
         let single_chars = self.sources.pinned("sources/pinyin/single-chars.txt")?;
         let (mut phrases, whitelist) = if self.complete {
@@ -1339,7 +1339,7 @@ impl Build {
                 Some(whitelist),
             )
         } else {
-            // Without a provenance record the whitelist cannot be applied, so every single character of the licensed source is accepted.
+            // 没有来源记录时不能应用白名单，接受许可来源里的全部单字。
             (
                 vec![self.sources.pinned("sources/pinyin/rime-ice.txt")?],
                 None,
