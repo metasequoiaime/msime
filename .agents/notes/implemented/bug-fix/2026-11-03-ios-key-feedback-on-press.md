@@ -20,6 +20,7 @@ Status: implemented
 - 长按生效时照旧各有一下反馈：弹出九键或 14 键的长按菜单（包括九键反方向滑动弹出）、长按空格开语音、长按 123 开符号面板。它们原来就是这一次触摸唯一的反馈，现在按下时多了一下。按住退格连删时，每删一下也照旧响一下。
 - 滑行输入的起笔按下现在会有一次反馈，和系统键盘一样，整笔不再有别的反馈。[iOS 键盘的滑行输入宿主](../feature/2026-10-07-ios-glide-typing-host.md)里「滑行不另加声音或振动」那条的依据（按键反馈在抬手的 primary action 里）不再成立，已同步改成现在的事实。
 - 出厂默认不动：振动开关、档位和按键音都不改。
+- 按键测试通过 `sendActions(for: .touchDown)` 分发按下事件，同时触发反馈和退格回调并传入真实 sender。`actions(...).first` 的顺序不构成协议：新增 `keyPressFeedback:` 后无参 `perform` 会把无效指针当成 sender，导致原有清空组字用例崩溃。保留原用例输入、默认设置和断言。
 
 ## Alternatives considered
 
@@ -38,4 +39,6 @@ Status: implemented
 ## Verification
 
 - `platforms/ios/KeyboardTests/input/KeyPressFeedbackTests.swift`（`MSIMEKeyboardTests`）：一次按下只让一次松手静音，松手取走标记；没有按下的激活、不是按键的按钮、嵌套范围都照常出声；滚得动的判定；滚得动的容器里按下会清掉上一次留下的标记；26 键的字母、Shift、空格、退格、回车都挂了 `keyPressFeedback:`，空格、退格、回车的声音类别正确；九键候选面板的 ⌫ 是退格类、其余功能键是普通类。
-- 本次只在 Mac Studio 上用 `rbuild` 编译了测试目标（`build-for-testing`），没有在模拟器上运行，因为当时设备和模拟器被另一个工作流占用。真机核对清单写在 PR 的「验证」一节。
+- 原提交只在 Mac Studio 上 `build-for-testing`。复审下载 CI 结果包确认两条原用例都崩在 `objc_retain → keyPressFeedback(_:) → clearComposition(in:)`，修复测试事件分发。
+- 本机 iOS 26.5 模拟器首轮停在 testmanagerd 会话握手、未开始测试，已中断并保留结果包。恢复后重跑原先崩溃的两条 `NineKeyKeyboardTests` 与全部 `KeyPressFeedbackTests`，10/10 通过、零跳过；最终源码 `build-for-testing` 也通过。真机核对清单仍在 PR 的「验证」一节。
+- 同文件的分词回归原先把按钮完整标题等同「西安」。开启离线释义后标题附有下一行，CI 在异常重启后保留开启的偏好，从而误报候选缺失。本机在同一二进制上验证原配置通过、只开释义就失败；查找改成比较首行候选文字，保留原默认用例，另加开启释义的用例，不改输入、默认值、分词开关或分词结果断言；修复后连同反馈回归共 12 项通过。

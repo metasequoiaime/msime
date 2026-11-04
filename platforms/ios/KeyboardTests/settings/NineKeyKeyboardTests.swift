@@ -1560,6 +1560,15 @@ final class NineKeyKeyboardTests: XCTestCase {
 
   /// 两侧分词键通过实际按键事件切分组合，切回英文时复用控件并恢复大小写。
   func testQuanpinSeparatorKeepsChineseAndSplitsCurrentComposition() throws {
+    try checkQuanpinSeparatorKeepsChineseAndSplitsCurrentComposition()
+  }
+
+  func testQuanpinSeparatorWithGlossKeepsChineseAndSplitsCurrentComposition() throws {
+    setCandidateGloss(true)
+    try checkQuanpinSeparatorKeepsChineseAndSplitsCurrentComposition()
+  }
+
+  private func checkQuanpinSeparatorKeepsChineseAndSplitsCurrentComposition() throws {
     let previous = InputSchemePreference.scheme
     let previousShift = KeyboardLayoutPreference.quanpinShift
     defer {
@@ -1595,8 +1604,9 @@ final class NineKeyKeyboardTests: XCTestCase {
       separator.sendActions(for: .primaryActionTriggered)
       try type("an")
       XCTAssertEqual(try preedit(in: controller), "xi'an")
+      // 释义会另占标题下面的行，候选文字仍是首行；不能要求完整标题只有词条。
       let candidate = try XCTUnwrap(descendants(controller.view).first {
-        ($0 as? UIButton)?.configuration?.title == "西安"
+        ($0 as? UIButton)?.configuration?.title?.split(separator: "\n").first == "西安"
       } as? UIButton)
       candidate.sendActions(for: .primaryActionTriggered)
     }
@@ -2003,14 +2013,13 @@ final class NineKeyKeyboardTests: XCTestCase {
     } as? UIButton
   }
 
-  /// Clear the whole composition the way the keyboard does it: holding delete past the repeat
-  /// threshold wipes the composition instead of deleting one more character. There is no separate
-  /// clear key to press -- the tests used to reach for a `nineKeyClear` that no keyboard has ever
-  /// built, so they failed looking it up before asserting anything.
+  /// 按住退格越过连删阈值来清空组字；键盘没有单独的 `nineKeyClear` 按键。
   private func clearComposition(in controller: KeyboardViewController) throws {
     let delete = try button("nineKeyDelete", in: controller)
-    let begin = try XCTUnwrap(delete.actions(forTarget: controller, forControlEvent: .touchDown)?.first)
-    controller.perform(NSSelectorFromString(begin))
+    let actions = try XCTUnwrap(delete.actions(forTarget: controller, forControlEvent: .touchDown))
+    XCTAssertFalse(actions.isEmpty)
+    // 由控件分发全部回调并传入真实 sender，不能无参执行排在第一位的反馈动作。
+    delete.sendActions(for: .touchDown)
     controller.perform(NSSelectorFromString("repeatBackspace"))
   }
 

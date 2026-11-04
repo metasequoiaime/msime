@@ -1085,6 +1085,7 @@
 		EEDABC563F556FDBBE40A504 /* GoogleSignIn-Dependencies.txt in Resources */ = {isa = PBXBuildFile; fileRef = 2B7ADA6A964F03595EE175C6 /* GoogleSignIn-Dependencies.txt */; };
 		EEF2B92AD2E1215BBECF6A2C /* AIEndpointPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFC2ABA346D43E3C2EC9A54C /* AIEndpointPolicy.swift */; };
 		EEF62F7F95D353839FD7441D /* DoubaoVoiceCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7FE5DEC53AAC548F03142BC /* DoubaoVoiceCoordinator.swift */; };
+		F003071A505C87242A3F5058 /* KeyPressFeedbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B3D2E7C8BEA6FFB550DAE5B /* KeyPressFeedbackTests.swift */; };
 		F0EE9B12827B617898721805 /* KeySoundPackPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC54216DCD2ACA277B771AA9 /* KeySoundPackPolicyTests.swift */; };
 		F102A6AF2C3194067148568E /* KeyboardVoiceDictation.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC16F48D69EAE6A22D3599EC /* KeyboardVoiceDictation.swift */; };
 		F13CFDAF00D61710DF1AA8F7 /* HandwritingDownloadSession.m in Sources */ = {isa = PBXBuildFile; fileRef = DA3994022F73A592AC2A907B /* HandwritingDownloadSession.m */; };
@@ -1491,6 +1492,7 @@
 		7AEC648B8DF5B836576B34E5 /* TypingStatistics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TypingStatistics.swift; sourceTree = "<group>"; };
 		7AFB5521ABA30309C3B646AD /* CompositionBoundaryPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompositionBoundaryPolicy.swift; sourceTree = "<group>"; };
 		7B175FCF7AAD7C2AC6688205 /* SplashView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplashView.swift; sourceTree = "<group>"; };
+		7B3D2E7C8BEA6FFB550DAE5B /* KeyPressFeedbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyPressFeedbackTests.swift; sourceTree = "<group>"; };
 		7B4BF32181CDCA60E434E4A4 /* VoiceLevel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceLevel.swift; sourceTree = "<group>"; };
 		7D57B7D531FF4C9E8A0BC19C /* ExpressionSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpressionSettingsView.swift; sourceTree = "<group>"; };
 		7EB05BA77651888FE838F965 /* FuzzyPinyinDocumentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuzzyPinyinDocumentTests.swift; sourceTree = "<group>"; };
@@ -2324,6 +2326,7 @@
 				C30CB2AE35E87F5DE80C72DE /* KeyboardCursorSwipeTests.swift */,
 				3BB15E61581E05671073DC68 /* KeyboardHostContextTests.swift */,
 				9C8022874BAD6A46E9F82250 /* KeyGapRoutingTests.swift */,
+				7B3D2E7C8BEA6FFB550DAE5B /* KeyPressFeedbackTests.swift */,
 				366D83CF1D514D43B8B93CAE /* KeystrokeLatencyTests.swift */,
 				3B7C88992D4866617DCC4285 /* KoreanDubeolsikTests.swift */,
 				1E03EB48F31CAB4266A11C60 /* LanguageSchemesTests.swift */,
@@ -3498,6 +3501,7 @@
 				44A5412BE8AFB4B2BF898F33 /* KeyGapRouting.swift in Sources */,
 				FC18B26D6857A1C8FD7E35D8 /* KeyGapRoutingTests.swift in Sources */,
 				B779275EC16EDCFF2E56E214 /* KeyLayoutStyleTests.swift in Sources */,
+				F003071A505C87242A3F5058 /* KeyPressFeedbackTests.swift in Sources */,
 				326E812EA24EDEBFFDE3B218 /* KeySoundPackPolicy.swift in Sources */,
 				F0EE9B12827B617898721805 /* KeySoundPackPolicyTests.swift in Sources */,
 				C4F87DF97DE81D88F347BBBD /* KeyboardAIService.swift in Sources */,
