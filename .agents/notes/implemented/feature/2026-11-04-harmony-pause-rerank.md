@@ -15,12 +15,13 @@ Status: implemented
 
 ## Decision
 
-- **宿主声明会在停顿时重解（HostOptions 的 `pause_rerank`）时，跑不进逐键预算的 ONNX 模型延后到停顿。** host-api 的 `keyboard_reranker_for` 按 `RerankerMount` 挂：`KeystrokeOrPause` 的宿主上，一页超过 `PAUSE_HOST_KEYSTROKE_PAGE_MS`（4 ms）就挂成延后（`MountedReranker::Pause` → `Runtime::set_deferred_scorer`），诊断写 `keyboard reranker at pause`，细节是原来那一档的类别和细节；加载上限放宽到 `PAUSE_RERANK_LIMIT_MS`（60 ms），刚装完应用、忙的那一刻自测偏慢的进程也照样挂上。4 ms 由手机按键预算 10 ms、引擎尾部 3.5 ms 和上面量出的 1.6 倍定。没写 `pause_rerank` 的宿主（Android、iOS、桌面）走 `Keystroke`，与以前逐字节相同。只有鸿蒙的键盘写它。
+- **宿主声明会在停顿时重解（HostOptions 的 `pause_rerank`）时，跑不进逐键预算的 ONNX 模型延后到停顿。** host-api 的 `keyboard_reranker_for` 按 `RerankerMount` 挂：`KeystrokeOrPause` 的宿主上，一页超过 `PAUSE_HOST_KEYSTROKE_PAGE_MS`（4 ms）就挂成延后（`MountedReranker::Pause` → `Runtime::set_deferred_scorer`），诊断写 `keyboard reranker at pause`，细节是原来那一档的类别和细节；加载上限放宽到 `PAUSE_RERANK_LIMIT_MS`（60 ms），刚装完应用、忙的那一刻自测偏慢的进程也照样挂上。4 ms 由手机按键预算 10 ms、引擎尾部 3.5 ms 和上面量出的 1.6 倍定。没写 `pause_rerank` 的宿主（iOS、桌面）走 `Keystroke`，与以前逐字节相同。鸿蒙和安卓的键盘写它。
 - **按键上不挂模型。** 延后的打分器停在 `Runtime::deferred_scorer`，引擎照没有模型时那样解码，整键开销与「标准」相同。`has_reranker` 把它算进去；`set_candidate_scorer(None)`（关掉「增强」）同时拿掉它。
 - **停顿时挂上模型重解，不是只给候选换序。** `Runtime::settle_deferred_scorer` 把它当逐键打分器挂上（整句池、束搜索里的整句打分器、最后的逐键重排都在），经 `InputSession::recompute_candidates`（`SchemeKey::Requery`）不改组字重解，照逐键时那样排好，再摘下来；候选在下一个按键之前一直是模型排的。M1 Max 上 typing-chat-v1 整句首选与逐键相同（85.2%）。只给已经解出的候选换序不够：模型参与束搜索（[整句解码里的模型](2026-11-03-model-in-lattice-beam.md)）把首选从 58.3% 提到 80.0%，没有它正确的整句常常根本没解出来；走落定重排那条路（`rerank(false)`）还不越过可信的词典首选，只有 77.4%。
 - **分片，按键最多等一片。** 整段组字的模型计算挤到停顿时一次做完，M1 Max 上 p50 24 ms，手机要慢五倍以上，停顿后紧接着的按键会等上一两百毫秒。束搜索的打分器包一层预算（`BudgetedSentenceScorer`，一片约 8 ms 的模型时间，host-api 的 `PAUSE_SLICE`）：到时限就回空表，束搜索见分数个数不对就不给这一列加模型分、也不记备忘，所以这一片作废，打过的分留着。这一片没解完时不带模型再解一遍，屏幕上的候选不变，回 `DeferredSettle::Continue`；下一片接着备忘往前走，每片至少跑一次模型，一定会解完。包装在挂上时只建一次，引擎按指针认它。
 - **模型分备忘跨片、跨停顿保留。** 全拼词典的 `set_sentence_scorer` 换打分器时照旧清掉整句缓存，但 `beam_model_memo` 只在换成另一个模型时清（`beam_model_owner`，弱引用，不拉住已关掉的模型），换成 `None` 时留着；上文变了照旧清。第二次停顿只算新出现的前缀。
 - **接口沿用 `msime_client_start_settled_rerank`。** 挂着延后的模型时，它在会话线程上当场跑一片：解完回 `status: done`，没解完回 `status: continue`，候选变了附带 `moved: true` 和 `view`。会话是线程局部的（`SESSIONS.with`），引擎去不了工作线程，所以只能分片。候选预览（`settle_now`）一片片做到解完。
+- **安卓的键盘照鸿蒙的做法接上（`MSIMEInputService.schedulePauseRerank`，JNI 的 `NativeClient.startSettledRerank`）。** 当初安卓的逐键预算是用 `rerank_latency` 在 Pixel 3 XL 上只量 runtime 那一层得出的（池 9 整键 p95 9.8 ms）；2026-11-04 在同一台手机上用 `rerank_replay` 走宿主的整条路径（host-api 的 C ABI，每键连同视图）打 typing-chat-v1 test 的 115 条整句，四线程挂在按键上整键 p95 24.6 ms、p99 42.0 ms，超过预算，自测一页 9.2–11.5 ms，所以安卓同样延后。
 - **鸿蒙的键盘每次画完组字重新计时，停顿 300 ms 后调 `startSettledRerank`。** `continue` 时用 `setTimeout(0)` 排下一片，两片之间排队的触摸先走；新按键画完会作废计时和还没跑的那一片；翻译页开着时不跑；失焦与会话结束时与在线候选一起取消。300 ms 是读候选的停顿：打字时按键间隔常在 150 ms 上下，线太短会让下一个键常碰上正在跑的那一片。
 
 ## Alternatives considered
@@ -36,11 +37,12 @@ Status: implemented
 
 - **收益**：畅享 90 Plus 这类设备上「增强」从「挂了但每键 p95 19.5 ms」或「判超线后不挂」变成按键与「标准」相同、停下来读候选时是 2.0 的结果；刚装完应用时自测偏慢也不再让整个进程没有模型。没写 `pause_rerank` 的宿主不受影响。
 - **代价**：停顿后候选会换一次位置；停顿刚好开始重解时接着按的键最多等一片（模型时间 8 ms，加上前后两次不带模型的解码，M1 Max 上一片平均 p50 9.8 ms、p95 15.6 ms）；没解完的片要多解一遍，总耗时比一次做完多约一半。停顿与上屏之间若不足以解完，上屏的是没有模型的首选。
-- **重访信号**：真机上一片明显超过逐键模式的整键 p95（19.5 ms），或停顿后按键的延迟分布比逐键模式差，就要把不带模型的那次解码去掉（两套整句缓存按有无模型分开存）或缩短一片；更快的鸿蒙机型自测一页在 4 ms 以内会挂在按键上，那里逐键的真实开销没有量过；`PAUSE_HOST_KEYSTROKE_PAGE_MS` 的 1.6 倍只在一台手机上量过。安卓、iOS 的慢设备同样受「自测低估」影响，它们没有接停顿，仍按 15 ms 的上限挂或不挂。
+- **重访信号**：真机上一片明显超过逐键模式的整键 p95（19.5 ms），或停顿后按键的延迟分布比逐键模式差，就要把不带模型的那次解码去掉（两套整句缓存按有无模型分开存）或缩短一片；更快的鸿蒙机型自测一页在 4 ms 以内会挂在按键上，那里逐键的真实开销没有量过；`PAUSE_HOST_KEYSTROKE_PAGE_MS` 的 1.6 倍只在一台手机上量过。iOS 的慢设备同样受「自测低估」影响，它没有接停顿，仍按 15 ms 的上限挂或不挂。
 
 ## Verification
 
 - `crates/input-runtime/src/tests/deferred_scorer.rs`：按键上不调模型；停顿后首选换成只有模型提得上来的读法、代次前进，之后的按键又不调模型；1 ms 一片对 5 ms 一次的模型会分多片，没解完的片不改候选，同一段文字只交给模型一次；第二次停顿不再调模型；关掉「增强」同时拿掉延后的模型。
 - `crates/host-api/src/tests.rs` 的 `only_a_pausing_host_defers_a_model_too_slow_for_keys`：只有 `KeystrokeOrPause` 的宿主、一页超过 4 ms 时延后。
 - 真机（2026-11-04，华为畅享 90 Plus，用 `uinput -T` 注入触摸打 typing-chat-v1 test 的 115 条整句、3163 键，每条打完等 2.5 s 再读候选，不选词不上屏）：诊断 `keyboard reranker at pause`（刚装完应用自测 17.5 ms，以前会判超线不挂）；首选 94/115、前三 102/115，与逐键模式逐条相同；整键 p50 2.6 ms、p95 5.0 ms、p99 9.3 ms，超过 10 ms 的 28 键（逐键模式 p95 21.1 ms、四成超过 10 ms）；一片 p50 13.3 ms、p95 18.5 ms、最长 29.4 ms，一次停顿 p50 6 片、最多 13 片、合计 p50 73 ms，137 次停顿都解完了。停顿时接着按键要等多久没有量：NAPI 的探针只量调用本身，排在一片后面的等待在 UI 线程的队列里。
+- 安卓（2026-11-04，Pixel 3 XL，Android 12）：`rerank_replay` 交叉编译后在手机上跑（`/data/local/tmp`，状态目录都是临时的）同样 115 条整句：挂在按键上首选 85.2%、整键 p50 8.7 ms、p95 24.6 ms、p99 42.0 ms；延后到停顿首选 85.2%、整键 p50 2.3 ms、p95 7.6 ms、p99 16.7 ms，与不挂模型（p95 7.5 ms、首选 58.3%）相同；一片平均 p50 17.5 ms，一次停顿 p50 7 片。装上带这个改动的完整 APK（发布证书覆盖安装）后，在测试编辑器里用硬件按键事件打前 30 条、每条停 2.5 s 读候选：首选 24/30，与鸿蒙逐键模式的同 30 条相同；不挂模型的旧包 17/30。把一句分三段、段间停 350 ms 打（停顿重解在打字中途开始），三句的按键都没丢。快速点按屏幕上的键会被这个键盘认成按住或手势（丢字母、切到英文），所以安卓的验收用按键事件。
 - `rerank_replay <options> <cases> <models> pause`：宿主选项写 `pause_rerank`，每段打完调停顿重解直到解完，报整键、停顿总耗时、每片平均、每次停顿几片和停顿后第一个键。M1 Max（强制延后、整句池 9）上 typing-chat-v1 test 115 条整句：首选 85.2%（与 `on` 相同），整键 p95 3.40 ms（`on` 7.26 ms），停顿 p50 36.8 ms、每次 p50 4 片，停顿后第一个键 p95 3.19 ms。
