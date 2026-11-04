@@ -380,6 +380,7 @@ check "Shared voice catalog JNI acceptance failed" MSIME_DEVICE_SMOKE_PASSED run
 # 用合成内存文档核对共享换槽和清空字段策略，不保存或发送凭据。
 check "Shared voice settings JNI acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.VoiceProviderSettingsDeviceSmoke
 # 语音接口提示与运行时共用校验；只传合成地址，不保存或联网。
+check "设置搜索定位验收失败" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e settings-search-anchor true
 check "组合语音入口设置验收失败" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e voice-triggers true
 check "Shared voice endpoint JNI acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.VoiceEndpointSettingsDeviceSmoke
 check "Local voice pause settings acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e local-voice-pause true

@@ -1027,18 +1027,6 @@ if rg -q 'requestFocus\(\)|Type\.ime\(\)|showSoftInput' "$clipboard_search_page"
   echo "Android clipboard search must not focus its search field or show the keyboard on entry, tapping anywhere on SearchPill must focus the field and show the keyboard, SettingsNavigator must dismiss the keyboard of the page it hides, and ClipboardEditPage must show the keyboard itself once its field is ready (#10074)" >&2
   exit 1
 fi
-# 设置首页的搜索结果带着命中的关键词打开详情页，页面切到那一行所在的分类、滚过去并高亮；以前结果只给页面，搜「显示页码」打开「键盘」停在第一个分类「布局」，这一行在「工具栏」。选关键词和认行的规则由 SettingsSearchAnchorPolicySmoke 覆盖，视图里的接线 JVM 冒烟碰不到，这里钉住：两类搜索结果都经 openResult 交出 SettingsSearchAnchorPolicy.anchor 给的关键词，openResult 把它放进 HostDeepLink.ARG_ROW；DetailPage 读 ARG_ROW，目标是分类标题时直接选中那个分类，否则在每次布局后的回调里找这一行。
-keyboard_fragment="$repo_root/platforms/android/java/app/msime/android/home/KeyboardFragment.java"
-detail_page="$repo_root/platforms/android/java/app/msime/android/home/DetailPage.java"
-if [ "$(rg -c 'String anchor = SettingsSearchAnchorPolicy\.anchor\(page\.keywords\(\), query\);' "$keyboard_fragment")" != 2 ] \
-  || [ "$(rg -c '\(\) -> openResult\(page, anchor\)' "$keyboard_fragment")" != 2 ] \
-  || ! rg -A 6 'private void openResult\(' "$keyboard_fragment" | rg_q_stdin 'args\.putString\(HostDeepLink\.ARG_ROW, anchor\)' \
-  || ! rg -q 'args\.getString\(HostDeepLink\.ARG_ROW\)' "$detail_page" \
-  || ! rg -q 'SettingsSearchAnchorPolicy\.section\(sectionTitles\(\), row\)' "$detail_page" \
-  || ! rg -A 3 'addOnGlobalLayoutListener\(\(\) -> \{' "$detail_page" | rg_q_stdin 'revealPendingRow\(column\)'; then
-  echo "Android settings search results must open the page at the matched row: KeyboardFragment passes SettingsSearchAnchorPolicy.anchor as HostDeepLink.ARG_ROW, and DetailPage selects that section or finds the row after layout" >&2
-  exit 1
-fi
 # 分享只把用户长按选中的一条记录交给系统选择器；输入法服务启动 chooser 必须带新任务标志，不能把历史列表或内部标识一起发出去。
 share_body=$(rg -A 24 'void shareClipboardText\(' \
   "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" || true)

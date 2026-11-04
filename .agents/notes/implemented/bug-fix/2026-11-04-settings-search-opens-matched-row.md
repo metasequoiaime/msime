@@ -28,5 +28,5 @@ iOS 有同类问题：`SettingsPage.destination` 无参创建 `PluginsSettingsVi
 
 - **收益**：Android 搜「显示页码」打开「键盘 › 工具栏」并停在这一行、短暂高亮；搜「社区插件」在 Android 和 iOS 都直接打开「社区插件」分段。所有带分类的详情页（表达、词库、AI 润色与回复、开发者选项、隐私、关于等）都按同一条路径定位，新页面不用额外接线。
 - **代价**：关键词要和页面上的行标题、分类标题一字不差才能定位；别名（「键盘调整」「折叠屏」）打开时停在页面开头。`GroupCard` 的分组和卡片占用了视图的 `tag`，别处不能再给它们设 tag。一直找不到目标的页面在用户滚动前每次布局都会扫一遍视图树。
-- **验证**：`SettingsSearchAnchorPolicySmoke` 钉住选关键词、分类命中、完全相同的认行规则和参数键；`check-host.sh` 的源码守卫钉住两类搜索结果都经 `openResult` 传 `ARG_ROW`、`DetailPage` 读它并在布局回调里找行；`gradlew compileFullReleaseJavaWithJavac` 编译通过。iOS 的 `SettingsSearchAnchorTests` 由 iOS CI 跑，规则另用 `swiftc` 在 macOS 上编译运行过。
-- **未覆盖**：没有在真机或模拟器上点过搜索结果：Android 上的切分类、滚动位置、高亮观感和 TalkBack 焦点，iOS 上搜「社区插件」进插件页的起始分段，都留给设备轮次。
+- **验证**：`SettingsSearchAnchorPolicySmoke` 钉住选关键词、分类命中、完全相同的认行规则和参数键；`SettingsSearchAnchorDeviceChecks` 从首页真实搜索框输入「显示页码」「更新后仍有旧问题」「社区插件」，点击结果并断言工具栏目标行可见、问题分类及社区插件分类已选中，覆盖首页行和额外页面两类结果；`check-host.sh` 不再新增源码 grep，设备测试经已有的 `SettingsDeviceSmoke -e settings-search-anchor true` 入口由默认 `smoke.sh` 套件运行，不增加 instrumentation 入口；`gradlew compileFullReleaseJavaWithJavac` 编译通过。iOS 的 `SettingsSearchAnchorTests` 由 iOS CI 跑，规则另用 `swiftc` 在 macOS 上编译运行过。
+- **未覆盖**：新增 Android 设备回归这一轮只编译，尚未在真机或模拟器运行；不能将设备用例存在当作验收通过。Android 上的高亮观感和 TalkBack 焦点，iOS 上搜「社区插件」进插件页的起始分段，仍留给设备轮次。

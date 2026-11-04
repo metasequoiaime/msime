@@ -5,7 +5,7 @@ import java.util.List;
 /**
  * 设置首页搜索结果要带着命中的设置项打开详情页：以前结果和首页普通入口一样只给页面，带分类标签的页面总是停在第一个分类，搜「显示页码」打开「键盘」停在「布局」，这一行在「工具栏」。
  *
- * <p>这里钉住不碰 Android 视图的那一半：结果带哪个关键词作为目标、这个关键词什么时候直接就是一个分类、页面上的哪段文字算命中、参数怎么写进 Bundle 的键。在视图树里找这一行、切分类、滚动和高亮在 `DetailPage` 和 `GroupCard` 里，要设备，check-host 用源码守卫钉住接线。
+ * <p>这里钉住不碰 Android 视图的那一半：结果带哪个关键词作为目标、这个关键词什么时候直接就是一个分类、页面上的哪段文字算命中、参数怎么写进 Bundle 的键。在视图树里找这一行、切分类和滚动由 SettingsSearchAnchorDeviceChecks 点击真实搜索结果验证；短暂高亮的观感仍需设备验收。
  */
 public final class SettingsSearchAnchorPolicySmoke {
     private static final List<String> KEYBOARD_SECTIONS = List.of("布局", "反馈", "手势", "工具栏");
