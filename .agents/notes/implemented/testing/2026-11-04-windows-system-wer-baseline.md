@@ -27,6 +27,6 @@ Status: implemented
 
 ## Verification
 
-- 本机完整 `bash scripts/verify-local.sh --quick` 退出 0，包含 Windows 原生行为门禁、仓库契约、笔记、Rust workspace/wasm、Apple 桥接及 x64/x86 管道交叉构建；完整 Windows 宿主因依赖树未配置而跳过。
+- 本机完整 `bash scripts/verify-local.sh --quick` 退出 0，包含 Windows 原生行为门禁、仓库契约、笔记、Rust workspace、Apple 桥接及 x64/x86 管道交叉构建；完整 Windows 宿主因依赖树未配置而跳过，wasm 按改动范围跳过。
 - PowerShell Parser 校验通过；MinGW x64/x86 按 full 版宏定义执行 C++17 `-Wall -Wextra -Werror -fsyntax-only` 均通过。
 - 尚未在真实 Windows 上运行新增基线。PR 的 `Windows TSF system WER` 作业会调用同一脚本；必须读取该作业的实际结果后再判断系统故障路径。
