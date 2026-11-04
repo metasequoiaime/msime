@@ -1,6 +1,6 @@
 #!/usr/bin/env xcrun swift
 
-// 渲染输入菜单用的模板 TIFF：MSIMEClientInputMethodMenuIcon.tiff 是 bundle 自己引用的标志，取自 MSIMEClientInputMethodMenuIcon.svg 那条笔画；每个输入模式的图标则只有一个大字——中、双、五、粤、注、日、한、越、ཀ、笔或英——在图块四周留出空白，不带标志。菜单栏和 Ctrl+空格 切换条按 16 点绘制这些图标，以前「标志加右下角角标」的画法里角标只剩几个像素，认不出是哪个模式；苹果自家和其他输入法的输入源都是一个大字，一眼就能分清，这里照同样的做法。
+// 渲染输入菜单用的模板 TIFF：MSIMEClientInputMethodMenuIcon.tiff 是 bundle 自己引用的标志，取自 MSIMEClientInputMethodMenuIcon.svg 那条笔画；每个输入模式的图标则只有一个大字——中、双、五、粤、注、日、한、越、ཀ、笔或英——在图块四周留出空白，不带标志。系统输入法菜单里所有模式都改用上面的产品标志，这些大字只给菜单栏状态项画。菜单栏和 Ctrl+空格 切换条按 16 点绘制这些图标，以前「标志加右下角角标」的画法里角标只剩几个像素，认不出是哪个模式；苹果自家和其他输入法的输入源都是一个大字，一眼就能分清，这里照同样的做法。
 //
 // The input menu draws this through HIToolbox rather than through NSImage, and that path reads the TIFF's
 // pages, not the DPI metadata of a single one: a lone 2x page is taken for a 32-point image, which the
