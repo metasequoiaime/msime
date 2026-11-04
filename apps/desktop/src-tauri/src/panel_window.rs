@@ -22,10 +22,8 @@ use crate::voice::cancel_voice;
 use crate::{DictionaryHostOptions, HostActionError, PanelInputState};
 use msime_client_core::host_surface::{PanelSurface, SurfaceRoute};
 use tauri::Manager;
-#[cfg(not(mobile))]
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 
-#[cfg(any(not(mobile), test))]
 pub(crate) fn panel_accepts_focus(label: &str) -> bool {
     label != "keyboard-panel"
 }
@@ -187,93 +185,26 @@ pub(crate) fn open_panel_window(
     height: f64,
     position: Option<tauri::Position>,
 ) -> Result<(), HostActionError> {
-    #[cfg(mobile)]
-    {
-        let _ = (app, label, route, title, width, height, position);
-        Err(HostActionError {
-            code: "unavailable",
-        })
-    }
-    #[cfg(not(mobile))]
-    {
-        let accepts_focus = panel_accepts_focus(label);
-        if let Some(window) = app.get_webview_window(label) {
-            #[cfg(target_os = "macos")]
-            if label == "keyboard-panel" {
-                return macos_keyboard::show(&window).map_err(|_| HostActionError {
-                    code: "unavailable",
-                });
-            }
-            // The window is reused, so a height saved since it was created is applied here; the minimum goes first because it was created at the old height.
-            #[cfg(target_os = "windows")]
-            if label == "keyboard-panel" {
-                let size = tauri::LogicalSize::new(width, height);
-                let _ = window.set_min_size(Some(size));
-                let _ = window.set_size(size);
-            }
-            #[cfg(target_os = "linux")]
-            let position = linux_panel_position(&window, label, position, width, height);
-            #[cfg(any(target_os = "linux", target_os = "windows"))]
-            if let Some(position) = position {
-                let _ = window.set_position(position);
-            }
-            window
-                .show()
-                .and_then(|_| {
-                    if accepts_focus {
-                        window.set_focus()
-                    } else {
-                        Ok(())
-                    }
-                })
-                .map_err(|_| HostActionError {
-                    code: "unavailable",
-                })?;
-            return Ok(());
-        }
-        let builder = WebviewWindowBuilder::new(
-            app,
-            label,
-            WebviewUrl::App(format!("index.html?panel={route}").into()),
-        )
-        .title(title);
-        // A panel is shown as soon as it is positioned, which is well before its page paints. The
-        // settings window carries the system theme, so the panel opens in the colour it is about
-        // to paint rather than in the platform's white.
-        let theme = app
-            .get_webview_window("main")
-            .and_then(|window| window.theme().ok());
-        let resizable = label == "emoji-panel";
-        let (minimum_width, minimum_height) = if resizable {
-            (560.0, 480.0)
-        } else {
-            (width, height)
-        };
-        let window = builder
-            .background_color(crate::chrome_background(theme))
-            .inner_size(width, height)
-            .visible(false)
-            .focused(false)
-            .focusable(accepts_focus)
-            .min_inner_size(minimum_width, minimum_height)
-            .resizable(resizable)
-            .decorations(false)
-            .always_on_top(true)
-            .skip_taskbar(true)
-            .build()
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?;
-        #[cfg(target_os = "linux")]
-        let position = linux_panel_position(&window, label, position, width, height);
-        if let Some(position) = position {
-            let _ = window.set_position(position);
-        }
+    let accepts_focus = panel_accepts_focus(label);
+    if let Some(window) = app.get_webview_window(label) {
         #[cfg(target_os = "macos")]
         if label == "keyboard-panel" {
             return macos_keyboard::show(&window).map_err(|_| HostActionError {
                 code: "unavailable",
             });
+        }
+        // The window is reused, so a height saved since it was created is applied here; the minimum goes first because it was created at the old height.
+        #[cfg(target_os = "windows")]
+        if label == "keyboard-panel" {
+            let size = tauri::LogicalSize::new(width, height);
+            let _ = window.set_min_size(Some(size));
+            let _ = window.set_size(size);
+        }
+        #[cfg(target_os = "linux")]
+        let position = linux_panel_position(&window, label, position, width, height);
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
+        if let Some(position) = position {
+            let _ = window.set_position(position);
         }
         window
             .show()
@@ -286,8 +217,65 @@ pub(crate) fn open_panel_window(
             })
             .map_err(|_| HostActionError {
                 code: "unavailable",
-            })
+            })?;
+        return Ok(());
     }
+    let builder = WebviewWindowBuilder::new(
+        app,
+        label,
+        WebviewUrl::App(format!("index.html?panel={route}").into()),
+    )
+    .title(title);
+    // A panel is shown as soon as it is positioned, which is well before its page paints. The
+    // settings window carries the system theme, so the panel opens in the colour it is about
+    // to paint rather than in the platform's white.
+    let theme = app
+        .get_webview_window("main")
+        .and_then(|window| window.theme().ok());
+    let resizable = label == "emoji-panel";
+    let (minimum_width, minimum_height) = if resizable {
+        (560.0, 480.0)
+    } else {
+        (width, height)
+    };
+    let window = builder
+        .background_color(crate::chrome_background(theme))
+        .inner_size(width, height)
+        .visible(false)
+        .focused(false)
+        .focusable(accepts_focus)
+        .min_inner_size(minimum_width, minimum_height)
+        .resizable(resizable)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .build()
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?;
+    #[cfg(target_os = "linux")]
+    let position = linux_panel_position(&window, label, position, width, height);
+    if let Some(position) = position {
+        let _ = window.set_position(position);
+    }
+    #[cfg(target_os = "macos")]
+    if label == "keyboard-panel" {
+        return macos_keyboard::show(&window).map_err(|_| HostActionError {
+            code: "unavailable",
+        });
+    }
+    window
+        .show()
+        .and_then(|_| {
+            if accepts_focus {
+                window.set_focus()
+            } else {
+                Ok(())
+            }
+        })
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })
 }
 
 /// This host's window geometry for a panel route, from the shared route table.

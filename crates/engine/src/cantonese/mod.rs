@@ -1,5 +1,6 @@
-//! Cantonese input in toneless Jyutping, read against `msime-cantonese.db` (`language_dictionary`) and the Cantonese words the user added to the personal dictionary (`UserWords`). Output is Traditional as stored, and nothing is learned: typing never writes a Cantonese row, only the personal dictionary does.
+//! Cantonese input in toneless Jyutping, read against `msime-cantonese.db` (`language_dictionary`) and the Cantonese rows of the user journal (`UserWords`): the words the user added to the personal dictionary, and what typing learned. Output is Traditional as stored. 选词按拼音的学习开关调频、造词，规则见 [`learning`]；发布的 `msime-cantonese.db` 只读，学到的都写在日志里。
 
+pub mod learning;
 pub mod scheme;
 pub mod shuangpin;
 pub mod syllable;
@@ -48,7 +49,7 @@ impl CantoneseDictionary {
     }
 }
 
-/// 用户在个人词库里加的粤语词（`PersonalDictionaryKind::Cantonese`）。它们只记在用户日志 `user_dictionary_operations` 里，没有工作表，所以粤语方案自己读：整份读进内存，之后每次查词前只问一次 `PRAGMA data_version`，别的连接（设置页、键盘的个人词库队列）提交过才重读。逐键的查询因此不碰日志，也不分配。
+/// 用户日志里的粤语行（`PersonalDictionaryKind::Cantonese`）：用户在个人词库里加的词和打字造的词（`user_inserted=1`），以及调频写下的权重（`user_inserted=0`，同一个词在发布词库里也有，合并时取较大的权重）。它们只记在用户日志 `user_dictionary_operations` 里，没有工作表，所以粤语方案自己读：整份读进内存，之后每次查词前只问一次 `PRAGMA data_version`，别的连接（设置页、键盘的个人词库队列、会话学习时经 `open_journal` 开的那条）提交过才重读。逐键的查询因此不碰日志，也不分配。
 ///
 /// 日志还不存在时什么也不打开，下次查词再看；读失败（另一个进程正在提交、表还没建）时保留上一次读到的词，不让候选因此消失。连接只读，忙时不等（`busy_timeout` 为 0），输入线程不会被别的进程的写入卡住。
 pub struct UserWords {
@@ -134,7 +135,7 @@ fn read_user_words(
     connection: &Connection,
 ) -> rusqlite::Result<BTreeMap<String, Vec<LanguageEntry>>> {
     let mut statement = connection.prepare(
-        "SELECT key,value,weight FROM user_dictionary_operations WHERE dictionary=?1 AND operation='upsert' AND user_inserted=1",
+        "SELECT key,value,weight FROM user_dictionary_operations WHERE dictionary=?1 AND operation='upsert'",
     )?;
     let mut rows = statement.query([PersonalDictionaryKind::Cantonese.journal_name()])?;
     let mut words = BTreeMap::<String, Vec<LanguageEntry>>::new();
@@ -176,6 +177,17 @@ impl<'a> CantoneseLexicon<'a> {
     /// 用户粤语词的内容版本（`UserWords::generation`）；不带用户词时是 0。发布词库在会话内只读，查词结果只会随它变。
     pub(crate) fn user_generation(&self) -> u64 {
         self.user_generation
+    }
+
+    /// `key` 下有没有 `text` 这一行（发布词库或用户的粤语行），不分配。
+    pub(crate) fn contains(&self, key: &str, text: &str) -> Result<bool> {
+        if self
+            .user
+            .is_some_and(|user| user.exact(key).iter().any(|entry| entry.text == text))
+        {
+            return Ok(true);
+        }
+        self.dictionary.contains(key, text)
     }
 
     /// `LanguageDictionary::lookup_readings(positions, 1)`，并入用户的词：键按位置逐段取自 `positions[i]` 的词条里最重的一条，两边按同一规则比较（权重从重到轻，再按文字、键）。同一个键下的同一个词两边都有时取较大的权重，与 `lookup_into` 的合并规则一致。

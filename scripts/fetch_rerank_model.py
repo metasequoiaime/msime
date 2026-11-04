@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fetch the two ONNX keystroke rerank models a host built with `onnx-rerank` ships, verify them, and lay them out the way host-api reads them.
 
-`resources/rerank-model.lock.json` pins chinese-ime-lm's `rerank-v1` release: for each model the directory host-api looks in (`rerank-model` is 8x448, `rerank-model-small` is 6x256) and its three files, each with the release asset's URL, SHA-256 and size and the name it takes on disk (`lm_step.ort`, `model.json`, `vocab.json`). A download that does not match is discarded before it replaces anything. How host-api picks between the two is in `.agents/notes/implemented/architecture/2026-11-01-onnx-rerank-backend.md`.
+`resources/rerank-model.lock.json` pins chinese-ime-lm's `rerank-v2` release: for each model the directory host-api looks in (`rerank-model` is 8x448, `rerank-model-small` is 6x256) and its three files, each with the release asset's URL, SHA-256 and size and the name it takes on disk (`lm_step.ort`, `model.json`, `vocab.json`). A download that does not match is discarded before it replaces anything. How host-api picks between the two is in `.agents/notes/implemented/architecture/2026-11-01-onnx-rerank-backend.md`.
 
 The models are not in `resources/desktop-dictionary.lock.json` for the same reason as the settled model (`scripts/fetch_settled_model.py`): that lock is shared by every platform and `ResourceStore::verify` requires a resource directory to match it exactly, so host-api looks for these directories beside the resource directory, not inside it.
 

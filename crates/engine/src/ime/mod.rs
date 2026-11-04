@@ -106,6 +106,8 @@ pub struct ImeSession {
     sentence_alternatives: bool,
     /// 26 键全拼的整句读法条数下限，随每个请求交给全拼引擎（`QueryRequest::sentence_pool`）。
     sentence_pool: usize,
+    /// 26 键全拼拼整句时给前缀打分的模型，随每个请求交给全拼引擎（`QueryRequest::sentence_scorer`）。
+    sentence_scorer: crate::ordering::SentenceScorerHandle,
     /// 首页行数随每个请求交给各方案引擎；只影响词库要不要并入补全词。
     first_page_rows: FirstPageRows,
     sentence_association: SentenceAssociationOptions,
@@ -189,6 +191,7 @@ impl ImeSession {
             fuzzy: FuzzyPinyinOptions::default(),
             sentence_alternatives: false,
             sentence_pool: 0,
+            sentence_scorer: Default::default(),
             first_page_rows: FirstPageRows::default(),
             sentence_association: SentenceAssociationOptions::default(),
             rescoring_context: String::new(),
@@ -280,6 +283,16 @@ impl ImeSession {
         self.scheme
             .as_cantonese()
             .is_some_and(crate::cantonese::CantoneseScheme::accepts_semicolon)
+    }
+
+    /// 粤语词库在 `key` 下有没有 `text` 这一行，见 `ProviderRegistry::cantonese_has_entry`。
+    pub fn cantonese_has_entry(&mut self, key: &str, text: &str) -> bool {
+        self.registry.cantonese_has_entry(key, text)
+    }
+
+    /// 粤语候选里 `key` 下的 `text` 是不是组出来的整句，见 `ProviderRegistry::cantonese_row_is_composed`。
+    pub fn cantonese_row_is_composed(&self, key: &str, text: &str) -> bool {
+        self.registry.cantonese_row_is_composed(key, text)
     }
 
     /// 会话允许运行的方案。
@@ -965,6 +978,13 @@ impl ImeSession {
         self.sentence_pool = paths;
     }
 
+    pub fn set_sentence_scorer(
+        &mut self,
+        scorer: Option<std::sync::Arc<dyn crate::ordering::SentenceScorer>>,
+    ) {
+        self.sentence_scorer = crate::ordering::SentenceScorerHandle(scorer);
+    }
+
     /// Carried on every request; the engines reset their caches when it changes (overlays.md §1.6.1).
     pub fn set_sentence_association(&mut self, options: SentenceAssociationOptions) {
         self.sentence_association = options;
@@ -1165,6 +1185,7 @@ impl ImeSession {
         request.strict_quanpin_helpcode = self.strict_quanpin_helpcode;
         request.sentence_alternatives = self.sentence_alternatives;
         request.sentence_pool = self.sentence_pool;
+        request.sentence_scorer = self.sentence_scorer.clone();
         request.enable_quanpin_autocorrect_transposition =
             self.autocorrect_types & autocorrect_type::TRANSPOSITION != 0;
         request.enable_quanpin_autocorrect_neighbor =

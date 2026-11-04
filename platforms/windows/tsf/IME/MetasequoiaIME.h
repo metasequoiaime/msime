@@ -917,6 +917,8 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     // Bare Shift/Ctrl toggle arming (Weasel-style: release within timeout).
     bool _shiftHotkeyArmed;
     bool _ctrlHotkeyArmed;
+    // RDP 切换后可能残留远程会话释放的修饰键位，直到本地再次观察到该键。
+    std::uint32_t _staleModifierMaskAfterFocusLoss;
     std::chrono::steady_clock::time_point _modifierHotkeyExpire;
     // 单按 Caps Lock 切换中英文的判定，三个桌面宿主共用一套规则（shared/input/CapsLockTap.h）。
     msime::input::CapsLockTap _capsLockTap;

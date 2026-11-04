@@ -4,6 +4,8 @@
 
 use super::*;
 
+mod bilingual_glide_selection;
+
 #[test]
 fn telemetry_test_origin_rejects_before_storage_or_network() {
     use crate::ffi::reporting::*;
@@ -3506,6 +3508,64 @@ fn a_glide_stroke_composes_through_the_host_boundary() {
     assert_eq!(glided["value"]["handled"], true);
     assert_eq!(glided["value"]["view"]["editing_text"], "nihao");
     assert_eq!(glided["value"]["view"]["candidates"][0]["text"], "本地");
+    read(msime_client_destroy(handle));
+}
+
+#[test]
+fn a_bilingual_glide_request_preserves_default_requests_and_rejects_invalid_flags() {
+    let dir = tempfile::tempdir().unwrap();
+    for name in ["resources", "dictionaries"] {
+        std::fs::create_dir_all(dir.path().join(name)).unwrap();
+        rusqlite::Connection::open(dir.path().join(name).join("msime-english.db")).unwrap()
+            .execute_batch("CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER); INSERT INTO english_words VALUES('hello','hello',1000);").unwrap();
+    }
+    let handle = test_host_with_pinyin_fixture(dir.path(), chinese_preferences());
+    read(msime_client_focus(handle, true));
+    let mut request: Value = serde_json::from_str(&glide_request("nihao")).unwrap();
+    request["bilingual"] = json!(true);
+    let encoded = request.to_string();
+    let result = read(unsafe { msime_client_glide(handle, encoded.as_ptr(), encoded.len()) });
+    assert_eq!(result["ok"], true, "{result}");
+    assert_eq!(result["value"]["handled"], true);
+    assert!(result["value"]["view"]["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|row| row["text"] == "本地"));
+    request["bilingual"] = json!("true");
+    let invalid = request.to_string();
+    let rejected = read(unsafe { msime_client_glide(handle, invalid.as_ptr(), invalid.len()) });
+    assert_eq!(rejected["ok"], false);
+    let view = &result["value"]["view"];
+    let index = view["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .position(|row| row["text"] == "本地")
+        .unwrap();
+    let selected = read(msime_client_select(
+        handle,
+        view["generation"].as_u64().unwrap(),
+        index,
+    ));
+    assert_eq!(selected["value"]["commit"], "本地");
+    let mut english: Value = serde_json::from_str(&glide_request("hello")).unwrap();
+    english["bilingual"] = json!(true);
+    let encoded = english.to_string();
+    let result = read(unsafe { msime_client_glide(handle, encoded.as_ptr(), encoded.len()) });
+    let view = &result["value"]["view"];
+    let index = view["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .position(|row| row["text"] == "hello")
+        .unwrap();
+    let selected = read(msime_client_select(
+        handle,
+        view["generation"].as_u64().unwrap(),
+        index,
+    ));
+    assert_eq!(selected["value"]["commit"], "hello ");
     read(msime_client_destroy(handle));
 }
 
