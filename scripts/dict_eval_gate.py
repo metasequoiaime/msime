@@ -268,8 +268,15 @@ def run_jobs(jobs: list, binary: Path, parallel: int) -> None:
         return job
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, parallel)) as pool:
-        for future in concurrent.futures.as_completed([pool.submit(one, job) for job in jobs]):
-            future.result()
+        futures = [pool.submit(one, job) for job in jobs]
+        try:
+            for future in concurrent.futures.as_completed(futures):
+                future.result()
+        except BaseException:
+            # 一个失败门槛就跑不完了：还没开始的评测不再启动，退出 `with` 时只等已经在跑的那几个。
+            for future in futures:
+                future.cancel()
+            raise
 
 
 # ---- 三道跑评测的门槛 ----
