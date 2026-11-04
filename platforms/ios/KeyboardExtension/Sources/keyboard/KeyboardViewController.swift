@@ -3582,27 +3582,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
-  // A key is about 36pt wide and the longest Xiaohe mapping is nine characters, so the hint has to
-  // be one line that shrinks rather than a subtitle that wraps: wrapping pushed the letter itself
-  // out of the top of the key.
+  // 双拼提示保持单行缩字，由按键按最终尺寸排版，避免隐藏标签参与约束引擎迁移。
   private func attachHintLabel(to button: UIButton) -> UILabel {
-    let label = UILabel()
-    label.font = .systemFont(ofSize: 9, weight: .regular)
-    label.textColor = KeyboardTheme.current.accent.withAlphaComponent(0.8)
-    label.textAlignment = .center
-    label.numberOfLines = 1
-    label.adjustsFontSizeToFitWidth = true
-    label.minimumScaleFactor = 0.6
-    label.isHidden = true
-    label.isAccessibilityElement = false
-    label.translatesAutoresizingMaskIntoConstraints = false
+    let label = KeyboardBottomHintLabel()
     button.addSubview(label)
-
-    NSLayoutConstraint.activate([
-      label.leadingAnchor.constraint(equalTo: button.leadingAnchor, constant: 2),
-      label.trailingAnchor.constraint(equalTo: button.trailingAnchor, constant: -2),
-      label.bottomAnchor.constraint(equalTo: button.bottomAnchor, constant: -2),
-    ])
+    (button as? KeyboardKeyButton)?.bottomHintLabel = label
     return label
   }
 
