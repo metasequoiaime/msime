@@ -665,7 +665,7 @@ pub fn load_offensive_words(sources: &Sources) -> Result<Option<msime_engine::Of
         .with_context(|| format!("{OFFENSIVE_WORDS} lists no word"))
 }
 
-/// 粗俗内容政策的第二档（词本身保留、不当首选）在五笔上的落实：五笔码表（`wubi86`、`wubi98`、`wubixsj`）里含 `offensive` 粗俗词的行（规则与引擎拼整句时相同，豁免写法盖住的不算）挪到同码其余行之后。权重改成同码其余行最低的权重减 1（最低为 0），删掉再插回去，这样同权重时按 rowid 也排在最后；几行粗俗词之间保持原来的先后。同码只有粗俗词的不动，它照样是那个码唯一的候选。引擎的首选排位（`session::offensive_placement`）只管拼音、九键和英文，五笔的整码是确定的输入，原表里的 kkuq 口交、cqcn 鸡巴 就一直是首选。返回挪动的行数。
+/// 粗俗内容政策的第二档（词本身保留、不当首选）在五笔上的落实：五笔码表（`wubi86`、`wubi98`、`wubixsj`）里含 `offensive` 粗俗词的行（规则与引擎拼整句时相同，豁免写法盖住的不算）挪到同码其余行之后。权重改成同码其余行最低的权重减 1（最低为 0），原来就更低的保持原权重、不往上提（引擎的前缀补全跨编码按权重排，提权会让它在更短的码下往前挪），删掉再插回去，这样同权重时按 rowid 也排在最后；几行粗俗词之间保持原来的先后。同码只有粗俗词的不动，它照样是那个码唯一的候选。引擎的首选排位（`session::offensive_placement`）只管拼音、九键和英文，五笔的整码是确定的输入，原表里的 kkuq 口交、cqcn 鸡巴 就一直是首选。返回挪动的行数。
 pub fn place_offensive_last_in_wubi(
     connection: &mut Connection,
     table: &str,
@@ -717,10 +717,10 @@ pub fn place_offensive_last_in_wubi(
                 .map(|row| row.2)
                 .min()
                 .context("a code with a clean row has a lowest clean weight")?;
-            let weight = (lowest - 1).max(0);
-            for (rowid, value, _, _) in rows.iter().filter(|row| row.3) {
+            let ceiling = (lowest - 1).max(0);
+            for (rowid, value, weight, _) in rows.iter().filter(|row| row.3) {
                 delete.execute([rowid])?;
-                insert.execute(params![key, value, weight])?;
+                insert.execute(params![key, value, (*weight).min(ceiling)])?;
                 moved += 1;
             }
         }
@@ -1167,7 +1167,8 @@ mod tests {
                    ('cqcn', '鸡巴', 10), ('cqcn', '鸡巴结', 10), ('cqcn', '又狠又快', 9),
                    ('wtsx', '傻逼', 0), ('wtsx', '刹闭', 0),
                    ('vbfg', '好人', 5), ('vbfg', '傻逼', 3),
-                   ('wtss', '傻逼', 7);",
+                   ('wtss', '傻逼', 7),
+                   ('ufwf', '傻逼', 10), ('ufwf', '着重', 9), ('ufwf', '口交', 2);",
             )
             .unwrap();
         let offensive = msime_engine::OffensiveWords::from_entries(
@@ -1185,7 +1186,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             place_offensive_last_in_wubi(&mut connection, "wubi86", &offensive).unwrap(),
-            3
+            5
         );
         let code = |key: &str| -> Vec<(String, i64)> {
             connection
@@ -1211,6 +1212,11 @@ mod tests {
         assert_eq!(code("wtsx"), owned(&[("刹闭", 0), ("傻逼", 0)]));
         assert_eq!(code("vbfg"), owned(&[("好人", 5), ("傻逼", 3)]));
         assert_eq!(code("wtss"), owned(&[("傻逼", 7)]));
+        // 已经排在最后、权重更低的粗俗词不往上提：口交 留在 2，不升到 8，前缀补全里不往前挪。
+        assert_eq!(
+            code("ufwf"),
+            owned(&[("着重", 9), ("傻逼", 8), ("口交", 2)])
+        );
     }
 
     #[test]

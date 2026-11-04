@@ -418,9 +418,10 @@ impl CandidateQueries {
                 Vec::new()
             };
         // 英文粗俗词和蔑称不领先（`offensive_placement`），只在把拼写打全时坐优先位置，与中文粗俗词打全拼写时只让出首选一致。2 到 4 个字母、又能整段切成完整音节的输入（na、ai、bole），英文词和中文争的是同一串字母，查出来的第一行英文不论权重都会坐到首选之后，所以这时还要常见（`english::takes_priority_slot`），用户自己加过或选过、拼写打全了的词除外（`takes_priority_slot_or_own`，只有这一行要查日志）。坐不上的照原来的先后接在列表末尾。
-        let short_pinyin = (2..=4).contains(&prefix.len())
-            && !english_rows.is_empty()
-            && spells_whole_syllables(prefix, scheme, self.profile);
+        // 只有查到了英文才算音节完整性：双拼的判定每段要分配一次。下面的优先位置和领先都用这一个结果。
+        let whole_syllables =
+            !english_rows.is_empty() && spells_whole_syllables(prefix, scheme, self.profile);
+        let short_pinyin = (2..=4).contains(&prefix.len()) && whole_syllables;
         let seats_without_journal = |row: &WordItem| {
             if short_pinyin {
                 takes_priority_slot(row)
@@ -472,14 +473,12 @@ impl CandidateQueries {
         } else {
             Vec::new()
         };
-        // 只有查到了英文才算音节完整性：双拼的判定每段要分配一次。
         let english_lead = (english_may_lead
             && prefix.len() >= english.minimum_prefix
             && !english_rows.is_empty()
-            && !short_pinyin
             && !offensive_first
-            && !spells_whole_syllables(prefix, scheme, self.profile))
-        .then_some(prefix);
+            && !whole_syllables)
+            .then_some(prefix);
         let mut candidates = insert_mixed_rows_with_japanese(
             candidates,
             english_rows,
