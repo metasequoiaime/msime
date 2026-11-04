@@ -1,4 +1,5 @@
 # emoji<TAB>category<TAB>sort_order
+# 注释规则：`#` 开头、不含制表符的行是注释；`#` 开头又带制表符的行只有首字段是 `#` 或 `#️⃣` 时算数据，其余让构建失败。要停用一行就删掉它（粗口或配错的关键词同时记进 keyword-vetoes.txt），不要在行首加 `#`：加了 `#` 的行会被当成关键词 `#…` 收进来。
 😀	Smileys and emotion	0
 😃	Smileys and emotion	1
 😄	Smileys and emotion	2

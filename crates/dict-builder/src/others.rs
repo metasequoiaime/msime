@@ -50,9 +50,18 @@ fn full_and_initials(pinyin: &Pinyin, keyword: &str) -> (String, String) {
     (full, initials)
 }
 
-/// 注释行：`#` 开头、不含制表符。数据行至少有一个制表符，所以 emoji `#️⃣` 打头的目录行和英文关键词 `#` 打头的关键词行不会被当成注释丢掉（以前就是这样丢的：`#️⃣` 落到目录外按 Symbols 排在最后，也少了 `#` 这个关键词）。
-fn is_comment(line: &str) -> bool {
-    line.starts_with('#') && !line.contains('\t')
+/// 注释行：`#` 开头、不含制表符。`#` 开头又带制表符的行只有两种是数据行：首字段恰好是 `#`（英文关键词 `#`），或 `#` 后紧跟 U+FE0F、U+20E3（emoji `#️⃣` 的目录行和关键词行）。以前 `#` 开头一律当注释，这两种行被丢掉：`#️⃣` 落到目录外按 Symbols 排在最后，也少了 `#` 这个关键词。其余 `#` 开头又带制表符的行像是用 `#` 停用的数据行（`#鸡巴<TAB>🐔`），照收会让 `#鸡巴` 成为关键词、拒绝表也拦不住，所以报错：要停用一行就删掉它。
+fn is_comment(line: &str) -> Result<bool> {
+    let Some(rest) = line.strip_prefix('#') else {
+        return Ok(false);
+    };
+    if !line.contains('\t') {
+        return Ok(true);
+    }
+    if rest.starts_with(['\t', '\u{fe0f}', '\u{20e3}']) {
+        return Ok(false);
+    }
+    bail!("{line:?} starts with # and has a tab, so it is neither a comment nor a # or #\u{fe0f}\u{20e3} data line; delete the line instead of commenting it out")
 }
 
 /// 关键词表里的数据行：1 起的行号、关键词、表情或颜文字，都去掉了首尾空白；关键词或表情为空的行跳过。
@@ -60,7 +69,9 @@ fn keyword_lines(source: &str) -> Result<Vec<(usize, &str, &str)>> {
     let mut lines = Vec::new();
     for (index, line) in text::splitlines(source).into_iter().enumerate() {
         let stripped = text::strip(line);
-        if stripped.is_empty() || is_comment(stripped) {
+        if stripped.is_empty()
+            || is_comment(stripped).with_context(|| format!("line {}", index + 1))?
+        {
             continue;
         }
         let (keyword, item) = stripped
@@ -94,7 +105,7 @@ pub fn read_emoji_catalog(source: &str) -> Result<IndexMap<String, (String, i64)
     let mut catalog = IndexMap::new();
     for line in text::splitlines(source) {
         let stripped = text::strip(line);
-        if stripped.is_empty() || is_comment(stripped) {
+        if stripped.is_empty() || is_comment(stripped).context("emoji_catalog.txt")? {
             continue;
         }
         let fields: Vec<&str> = stripped.split('\t').collect();
@@ -386,10 +397,12 @@ fn parse_keyword_vetoes(source: &str) -> Result<Vec<KeywordVeto<'_>>> {
         .enumerate()
     {
         let stripped = text::strip(line);
-        if stripped.is_empty() || is_comment(stripped) {
+        let at = index + 1;
+        if stripped.is_empty()
+            || is_comment(stripped).with_context(|| format!("{KEYWORD_VETOES}:{at}"))?
+        {
             continue;
         }
-        let at = index + 1;
         let fields: Vec<&str> = stripped.split('\t').map(text::strip).collect();
         let (keyword, item) = match fields[..] {
             [keyword] => (keyword, None),
@@ -424,7 +437,7 @@ pub fn check_keyword_vetoes(vetoes: &str, files: &[(&str, &str)]) -> Result<()> 
     let mut problems = Vec::new();
     let mut items = HashSet::new();
     for (path, source) in files {
-        for (line, keyword, item) in keyword_lines(source)? {
+        for (line, keyword, item) in keyword_lines(source).with_context(|| path.to_string())? {
             items.insert(strip_vs(item));
             for veto in &vetoes {
                 if same_keyword(veto.keyword, keyword)
@@ -765,6 +778,27 @@ mod tests {
         )
         .unwrap();
         assert_eq!(en["#\u{fe0f}\u{20e3}"], ["#", "keycap: #"]);
+    }
+
+    /// 用 `#` 停用的数据行不会作为 `#鸡巴` 这样的关键词收进来，三份关键词表、目录和拒绝表都报错；`#` 开头不带制表符的照旧是注释。
+    #[test]
+    fn commented_out_data_lines_are_rejected() {
+        let error = load_keyword_map("# c\n#鸡巴\t🐔\n鸡\t🐔\n").unwrap_err();
+        let error = format!("{error:#}");
+        assert!(error.contains("line 2"), "{error}");
+        assert!(error.contains("delete the line"), "{error}");
+        assert!(load_keyword_map("#  鸡巴\t🐔\n").is_err());
+        assert!(read_emoji_catalog("#😀\tSmileys and emotion\t0\n").is_err());
+        assert!(check_keyword_vetoes("#nmsl\t🤬\n", &[]).is_err());
+        let error = check_keyword_vetoes("nmsl\n", &[("emoji.txt", "#草泥马\t🦙\n")]).unwrap_err();
+        let error = format!("{error:#}");
+        assert!(error.contains("emoji.txt"), "{error}");
+        assert_eq!(
+            load_keyword_map("#鸡巴 🐔\n# keyword<TAB>emoji\n")
+                .unwrap()
+                .len(),
+            0
+        );
     }
 
     /// 仓库里的 #️⃣ 按目录的位置排，不再落到目录外排最后。

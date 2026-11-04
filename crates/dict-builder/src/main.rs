@@ -2319,6 +2319,49 @@ mod tests {
         (temporary, dictionary, out, build)
     }
 
+    /// Emoji、Kaomoji 两个阶段都先过拒绝表：关键词表里有被拒绝的行时，两个阶段都在读目录、写数据库之前失败，并指出命中的行。这里只放拒绝表和三份关键词表，目录不在，阶段要是不先查拒绝表，报的就是缺目录。
+    #[test]
+    fn emoji_and_kaomoji_stages_check_the_keyword_vetoes() {
+        let temporary = tempfile::tempdir().unwrap();
+        let inputs = temporary.path().join("resources/dictionary-sources");
+        let write = |path: &str, text: &str| {
+            let file = inputs.join(path);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, text).unwrap();
+        };
+        write(others::KEYWORD_VETOES, "草泥马\n");
+        write("emoji/emoji.txt", "羊驼\t🦙\n草泥马\t🦙\n");
+        write("emoji/emoji_en.txt", "llama\t🦙\n");
+        write("kaomoji/kaomoji.txt", "开心\t(^_^)\n");
+        let lock: Lock = serde_json::from_value(serde_json::json!({
+            "references": {},
+            "mozc": {"repository": "https://example.invalid/mozc", "commit": "b".repeat(40)},
+            "files": [],
+        }))
+        .unwrap();
+        let out = temporary.path().join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        let build = Build {
+            sources: Sources {
+                dictionary: None,
+                lock,
+                repository_inputs: inputs.clone(),
+                cache: temporary.path().join("cache"),
+                offline: true,
+            },
+            out: out.clone(),
+            complete: false,
+        };
+        for stage in [Stage::Emoji, Stage::Kaomoji] {
+            let error = format!("{:#}", build.run(stage).unwrap_err());
+            assert!(
+                error.contains("emoji/emoji.txt:2: 草泥马 -> 🦙 is vetoed"),
+                "{error}"
+            );
+        }
+        assert!(!out.join("msime-others.db").exists());
+    }
+
     fn has_table(db: &rusqlite::Connection, table: &str) -> bool {
         db.query_row(
             "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1)",
