@@ -4886,65 +4886,37 @@ public final class MSIMEInputService extends InputMethodService {
         main.postDelayed(onlineTask, OnlineCandidatePolicy.QUIET_INTERVAL_MILLIS);
     }
 
-    /**
-     * 停顿多久才调 {@link NativeClient#startSettledRerank}。跑不进逐键预算的设备上，整句联想「增强」的模型只在这时带着把组字重解一遍（host-api 的 {@code pause_rerank}），一片约 8 ms 的模型时间，没解完就一片接一片。打字时按键间隔常有 150 ms 上下，停顿的线定得太短，接着打的下一个键就常碰上正在跑的那一片；300 ms 是读候选的停顿。与鸿蒙的键盘相同。
-     */
-    private static final long PAUSE_RERANK_DELAY_MILLIS = 300;
-    private Runnable pauseRerankTask;
-    private long pauseRerankEpoch;
-    /** 正在画停顿重解给的视图：render 照常安排在线候选和翻译，但不再安排下一次停顿重解，否则解完会再解一遍。 */
-    private boolean renderingPauseRerank;
-
-    /** 每次画完组字都重新计时；有新按键时这次画会作废之前的计时和还没跑的那一片。 */
-    private void schedulePauseRerank() {
-        if (renderingPauseRerank) return;
-        cancelPauseRerank();
-        if (session == 0 || view == null || view.optString("editing_text", "").isEmpty()) return;
-        JSONArray rows = view.optJSONArray("candidates");
-        if (rows == null || rows.length() < 2) return;
-        postPauseRerank(pauseRerankEpoch, session, PAUSE_RERANK_DELAY_MILLIS);
-    }
-
-    private void cancelPauseRerank() {
-        pauseRerankEpoch++;
-        if (pauseRerankTask != null) {
-            main.removeCallbacks(pauseRerankTask);
-            pauseRerankTask = null;
-        }
-    }
-
-    private void postPauseRerank(long epoch, long targetSession, long delay) {
-        pauseRerankTask = () -> {
-            pauseRerankTask = null;
-            runPauseRerank(epoch, targetSession);
-        };
-        main.postDelayed(pauseRerankTask, delay);
-    }
-
-    /** 跑一片停顿重解。continue 时排下一片，两片之间排队的触摸先走，按键最多等一片。 */
-    private void runPauseRerank(long epoch, long targetSession) {
-        if (epoch != pauseRerankEpoch || targetSession != session) return;
-        JSONObject result;
-        try {
-            result = value(NativeClient.startSettledRerank(targetSession));
-        } catch (JSONException | RuntimeException | LinkageError error) {
-            android.util.Log.w("MSIMEHost", "Pause rerank failed", error);
-            return;
-        }
-        JSONObject next = InputViewValuePolicy.booleanValue(result, "moved", false)
-            ? result.optJSONObject("view") : null;
-        if (next != null) {
-            view = next;
-            renderingPauseRerank = true;
-            try {
-                if (!renderingSuppressed) render();
-            } finally {
-                renderingPauseRerank = false;
+    private final PauseRerankController<JSONObject> pauseRerank = new PauseRerankController<>(
+        new PauseRerankController.Scheduler() {
+            @Override public void post(Runnable task, long delay) { main.postDelayed(task, delay); }
+            @Override public void remove(Runnable task) { main.removeCallbacks(task); }
+        }, new PauseRerankController.Bridge<>() {
+            @Override public PauseRerankController.Reply<JSONObject> start(long handle) throws JSONException {
+                return pauseRerankReply(NativeClient.startSettledRerank(handle));
             }
-        }
-        if ("continue".equals(result.optString("status")) && epoch == pauseRerankEpoch)
-            postPauseRerank(epoch, targetSession, 0);
+            @Override public PauseRerankController.Reply<JSONObject> poll(long handle, long token,
+                    boolean accept) throws JSONException {
+                return pauseRerankReply(NativeClient.pollSettledRerank(handle, token, accept));
+            }
+        }, () -> session, next -> {
+            view = next;
+            if (!renderingSuppressed) render();
+        }, () -> android.util.Log.w("MSIMEHost", "Pause rerank failed"));
+
+    private PauseRerankController.Reply<JSONObject> pauseRerankReply(String response) throws JSONException {
+        JSONObject result = value(response);
+        return new PauseRerankController.Reply<>(InputViewValuePolicy.text(result, "status"),
+            NumberPolicy.strictLong(result.opt("token"), 0),
+            InputViewValuePolicy.booleanValue(result, "moved", false), result.optJSONObject("view"));
     }
+
+    private void schedulePauseRerank() {
+        JSONArray rows = view == null ? null : view.optJSONArray("candidates");
+        pauseRerank.schedule(view != null && !InputViewValuePolicy.editingText(view).isEmpty()
+            && rows != null && rows.length() >= 2);
+    }
+
+    private void cancelPauseRerank() { pauseRerank.cancel(); }
 
     /** 在线 worker 执行网络请求；失败时释放仍属于本请求的签名。 */
     private void fetchOnlineCandidates(long targetSession, String document, long epoch,
