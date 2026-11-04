@@ -224,6 +224,9 @@ def main() -> int:
     # ECDICT 的文件由锁文件固定，两份总览写的是它的提交，换了提交却忘了改声明会在这里失败。
     ecdict = lock["references"]["ECDICT"]["commit"]
     check(any(entry["path"] == "ecdict/ecdict.csv" and f"/{ecdict}/" in entry["url"] for entry in lock["files"]), f"the sources lock does not download ecdict.csv at the ECDICT reference {ecdict}")
+    # 万象词库由 msime-dictionary 原样收在 sources/pinyin/wanxiang/，构建器 reweight 阶段读它，要求 checkout 记录的提交等于锁文件的 rime-wanxiang 引用；署名文件写的提交必须是同一个。
+    wanxiang = lock["references"].get("rime-wanxiang", {}).get("commit")
+    check(wanxiang == WANXIANG_COMMIT, f"resources/dictionary-sources.lock.json's rime-wanxiang reference is {wanxiang}, not {WANXIANG_COMMIT}, the commit {WANXIANG_LICENCE} covers")
     for overview in OVERVIEWS:
         check(ecdict in (ROOT / overview).read_text(encoding="utf-8"), f"{overview} does not name ECDICT commit {ecdict}")
         check(WANXIANG_COMMIT in (ROOT / overview).read_text(encoding="utf-8"), f"{overview} does not name rime-wanxiang commit {WANXIANG_COMMIT}, the commit {WANXIANG_LICENCE} covers")

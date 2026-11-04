@@ -266,6 +266,16 @@ GPL-3.0 全文就是本项目根目录的 `LICENSE`，已随每个平台分发�
 
 从拆分后的布局起，构建器在读入之后对这两份数据做下面的修改，源文件本身不改：rime-wubi 那一份里，极点表已经收了的词组不写入它给的另一个编码，实际是 2 行，「版权所有」的 `bqsy`（拼音首字母，正确的 `tsrd` 由极点表提供）和「T恤」的 `ttnt`（极点表是 `tntl`）；上游权重为 0 的 12 个部首、部件（如 ⺻ `vhgd`）按 0 写入，排在同码的补充词之后；其余的行按 10 写入（同码极点行有更低的名次时取那个名次），上游的词频（最高 444000000）不进表，只用来排同码几行的先后，所以这些行排在同码的极点行之后；两份里的 CJK 兼容汉字（U+F900–U+FAFF）与扩展区字一样不写入。词库锁换到收录这次拆分的 `dict-v*` 后，上面的副本会带上对应条目，到那时删掉本节。
 
+### 万象词库 `7ab73ee` 全套与构建期重算
+
+| 文件 | 上游 | 上游许可 |
+| --- | --- | --- |
+| `sources/pinyin/wanxiang/` 下 17 份 `.dict.yaml`（msime-dictionary） | [amzxyz/rime-wanxiang](https://github.com/amzxyz/rime-wanxiang) 标签 `v18.0.16`（提交 `7ab73ee0c7f80190004233e70f954833df64c80e`）的 `dicts/` 目录，除 `abbrev.dict.yaml`、`t9_abbrev.dict.yaml`、`en.dict.yaml` 以外的全部词库：`cuoyin`、`diming`、`duoyin`、`fangyan`、`huaxue`、`jichu`、`lianxiang`、`mingren`、`mixed`、`renming`、`shici`、`taifeng`、`wuzhong`、`yaopin`、`yiren`、`yixue`、`zi` | CC BY 4.0（上游仓库 `LICENSE`），作者 amzxyz，词库数据源自同一作者的 [amzxyz/RIME-LMDG](https://github.com/amzxyz/RIME-LMDG) |
+
+上面副本里「万象词库原始文件」记的是 `aa9947f` 的 15 份；msime-dictionary 把它们换成了 `7ab73ee` 的这 17 份（逐字节，Git blob 与上游相同），由 `upstream.lock.json` 以上游名 `rime-wanxiang` 固定大小和 SHA-256，msime 的锁文件和 `UPSTREAM_FILES` 登记同一个提交。上面「拼音权重与万象对齐」用的就是这一份数据。
+
+构建器的 `reweight` 阶段（`crates/dict-builder/src/reweight.rs`，在 `quanpin` 之后、`places-supplement` 之前）每次构建都按这 17 份文件重算全拼表里与万象共有的行的权重，规则与「拼音权重与万象对齐」相同：`wanxiang.dict.yaml` 导入的 15 份词库（`cuoyin`、`mixed` 只校验字节、不读），去掉声调、ü 写作 v、取最高权重，乘 `single-chars.txt` 9.42、`rime-ice.txt` 9.2、`rime-ice-supplement.txt` 9.28，四舍五入；只认写了非负整数权重的万象行。三份文件现在的权重就是这样算出来的（共有的 597343 行逐行吻合），所以这一步不改变产物。msime-dictionary 有 `curation/pinyin-reweight.txt` 时另做第二步：`renming`、`duoyin` 两份词库的权重先乘表里给的比例，万象任何一份参与对照的词库都不收的多字词，权重不高于同一全拼键上万象收录的最高词。两步改的都只是权重，用的只是万象的权重和收录与否，不加入任何万象词条。再分发由此构建的 `msime-pinyin.db` 时，须保留对万象拼音（rime-wanxiang）与作者 amzxyz 的署名、来源链接、[CC BY 4.0 许可链接](https://creativecommons.org/licenses/by/4.0/)和这里的改动说明；许可全文见 `resources/licenses/rime-wanxiang-CC-BY-4.0.txt`。
+
 ### 构建时对 rime-ice 数据的删改
 
 从包含 msime `crates/dict-builder/src/curation.rs` 的构建器构建的第一次 `dict-v*` 发布起，构建器在读入之后对 rime-ice（GPL-3.0）的数据做下面的修改，源文件本身不改：
