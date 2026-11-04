@@ -317,7 +317,7 @@ jobs:
         if: ${{ needs.changes.outputs.linux != 'true' }}
         run: echo 'No Linux or shared-platform changes; platform gate skipped.'
 
-  # msime-engine 的单元测试和 golden 基准此前没有任何 CI 作业运行：上面的 Linux 容器只测 client-base、client-core、client-providers、client-services、input-runtime 和 host-api，提交前的 `verify-local.sh --quick` 不跑 Rust 测试，只有很少有人跑的全量 `verify-local.sh` 才跑。引擎里钉死精确次数的分配预算测试因此在 develop 上红了好几个 PR 都没人发现（见 .agents/notes/implemented/testing/2026-10-10-engine-tests-in-ci.md）。这里以 runner 的普通用户运行；整句模型不在仓库里，依赖它的测试会自行跳过并说明原因。
+  # msime-engine 的单元测试和 golden 基准此前没有任何 CI 作业运行：上面的 Linux 容器原本只测 client-base、client-core、client-providers、client-services、input-runtime 和 host-api（资源集成作业设了 MSIME_SKIP_RUST_TESTS，实际都跳过了，input-runtime 现在在这里测），提交前的 `verify-local.sh --quick` 不跑 Rust 测试，只有很少有人跑的全量 `verify-local.sh` 才跑。引擎里钉死精确次数的分配预算测试因此在 develop 上红了好几个 PR 都没人发现（见 .agents/notes/implemented/testing/2026-10-10-engine-tests-in-ci.md）。这里以 runner 的普通用户运行；整句模型不在仓库里，依赖它的测试会自行跳过并说明原因。
   engine:
     needs: changes
     name: Rust engine
@@ -375,6 +375,10 @@ jobs:
           # 安装 rust-toolchain.toml 钉住的工具链。
           rustup toolchain install
           cargo test --locked -p msime-engine
+      # msime-input-runtime 的单元测试此前也没有作业运行：Linux 资源集成作业设了 MSIME_SKIP_RUST_TESTS，跳过了容器里的 cargo test。2026-11-03 #10758 让粤语按学习开关调频时漏改了这里的一条用例，develop 一直红到发 macOS 0.58.0 前才被发现（#10820）。它与引擎同一套触发条件，接在引擎测试后面复用同一份编译缓存。
+      - name: Unit tests for msime-input-runtime
+        if: ${{ needs.changes.outputs.engine == 'true' }}
+        run: cargo test --locked -p msime-input-runtime
       # msime 自己经 path 依赖用引擎的源码，crates.io 上的采用方拿到的是按 include 白名单打出来的包；新加的数据文件漏进白名单、或者 README 里的路径在包里不存在，我们这边照常编过，只有下载包的人编不过。所以每个改了引擎的 PR 都把三个发布的 crate 按发布时的方式打包，并在打包后的源码上各编一遍。用 cargo package 不用 cargo publish --dry-run：后者遇到 crates.io 上已有的版本会失败，而版本号只在发版时才改。
       - name: Published crates build from their packages
         if: ${{ needs.changes.outputs.engine == 'true' }}

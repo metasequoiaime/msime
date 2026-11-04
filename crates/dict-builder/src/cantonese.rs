@@ -1,10 +1,10 @@
 //! `msime-cantonese.db`：粤语方案的粤拼词库，按 `msime_engine::language_dictionary` 定义的结构写出。数据是 rime-cantonese（CC BY 4.0，见 `resources/licenses/rime-cantonese-CC-BY-4.0.txt`）在 `resources/dictionary-sources.lock.json` 的 `rime-cantonese` 引用所记提交的文件，由 msime-dictionary 原样收在 `sources/cantonese/` 下；构建从 `--dictionary` checkout 读取，并按它的 `upstream.lock.json` 校验。
 //!
-//! 读取的上游文件：`jyut6ping3.chars.dict.yaml`（每行一个字、它的带声调读音，以及可选的 `N%`，即这个读音占该字用量的比例）、`jyut6ping3.words.dict.yaml`（每行一个词和它的带声调读音）、`essay-cantonese.txt`（Rime 的词频表，每行 `text<TAB>count`）、`hkcancor-word-counts.txt`（香港粤语语料库 HKCanCor 的词频，CC BY 4.0，由 `hkcancor.rs` 生成到 msime-dictionary，只列两个及以上汉字的词），以及 OpenCC 的 `TWVariants.txt`（`VARIANTS`，只用来列出候选的异体对，见下文）；另外读本项目自己的 `custom/cantonese.txt`（`CUSTOM`，见下文）。`jyut6ping3.maps.dict.yaml` 是 ODbL，`jyut6ping3.phrase.dict.yaml` 没有读音、来源也不清楚，两者都不固定、不读取；`jyut6ping3.lettered.dict.yaml` 也不读。
+//! 读取的上游文件：`jyut6ping3.chars.dict.yaml`（每行一个字、它的带声调读音，以及可选的 `N%`，即这个读音占该字用量的比例）、`jyut6ping3.words.dict.yaml`（每行一个词和它的带声调读音）、`essay-cantonese.txt`（Rime 的词频表，每行 `text<TAB>count`）、`hkcancor-word-counts.txt`（香港粤语语料库 HKCanCor 的词频，CC BY 4.0，由 `hkcancor.rs` 生成到 msime-dictionary，只列两个及以上汉字的词），以及 OpenCC 的 `TWVariants.txt` 与 `HKVariants.txt`（`TW_VARIANTS`、`HK_VARIANTS`，只用来列出候选的异体对，见下文）；另外读本项目自己的 `custom/cantonese.txt`（`CUSTOM`）与 `custom/cantonese-variant-vetoes.txt`（`VARIANT_VETOES`），见下文。`jyut6ping3.maps.dict.yaml` 是 ODbL，`jyut6ping3.phrase.dict.yaml` 没有读音、来源也不清楚，两者都不固定、不读取；`jyut6ping3.lettered.dict.yaml` 也不读。
 //!
 //! 方案输入不带声调的粤拼，所以每个读音都去掉声调数字，条目的键是去声调的音节以一个空格连接（`nei hou`）。只差声调的读音合成一个条目，取最大的权重。词的权重是它的 essay 分数。essay 以书面语为主，词表里约五分之二的词它没有收，最常用的口语词也在其中（我哋、佢哋、嗰啲、食咗）。这类词若语料有计数，权重是语料次数乘以 `corpus_scale`，即两者都收的词上 essay 分数与语料次数之比的中位数，把语料次数换算到 essay 的尺度（我哋在语料里出现 446 次，落在點解附近）。语料次数不到 `CORPUS_MIN_COUNT` 的词压到同键 essay 所列最轻的词之下一位，免得只出现过一次的异写或切分偶然（物証之于物證）排到 essay 收录的词前面。其余没收的词按 `unlisted_word_weight` 加权：1 加上它最罕用的字的 essay 分数以 2 为底的对数，这样同音词按用字的常见程度排序，又远低于 essay 给收录词的分数（大多至少 100）。字的权重是它的 essay 分数，行里给了比例时按比例折算，最低为 1；主要出现在词里的字再按 `WORD_FLOOR_CEILING` 由所在的词带出一个下限（「词带字」）。
 //!
-//! 字表、词表和 essay 用 OpenCC 标准字形（爲、衆），HKCanCor 用香港实际书写的字形（為、眾）。构建时把 OpenCC 字形换成香港字形，换哪些字由数据决定：异体对取自 OpenCC 的 `TWVariants.txt`（msime-dictionary 的 `sources/opencc/` 原样收录），外加臺灣沿用 OpenCC 字形、因而这张表不列的 `HONG_KONG_ONLY_VARIANTS`（溼/濕），一对里只有 HKCanCor 词频表用另一形、完全不用 OpenCC 形时才换（`hong_kong_forms`）；两形语料都没有的对、两形都用的对（着/著）、香港仍用 OpenCC 形的对（裏/裡）都不动。词频表不收单字词，判定只看两个及以上汉字的词：语料里单独成词的字不算，固定提交的 HKCanCor 里「羣」单独出现过 1 次，按词频表仍换成「群」。这张表不收 說/説、溫/温、戶/户、衛/衞 这类《常用字字形表》的异体，它们本来就不在考虑之内。替换只改写入的字面：字的权重仍按原字面查 essay，词、essay 补词和人工词表按替换后的字面查 essay 与语料（`essay_by_hong_kong_form` 把各写法的 essay 分数合到香港字形上，HKCanCor 本来就是香港字形），合并后的两行由 `Dictionary::insert` 取较大权重，所以「為」继承「爲」的 184291，「因爲」写成「因為」。单字另外保留 OpenCC 字形：「峯」「羣」这类字本身也常用（人名里尤其多），粤语方案又没有学习数据，换掉就打不出来，所以 OpenCC 字形的单字行照样写入，权重取它自己的分数与香港字形权重减一中较小的那个（至少为 1），「爲」得 184290，紧排在「為」下面；词只写香港字形。
+//! 字表、词表和 essay 用 OpenCC 标准字形（爲、衆），HKCanCor 用香港实际书写的字形（為、眾）。构建时把 OpenCC 字形换成香港字形，换哪些字由数据决定：候选异体对取自 OpenCC 的 `TWVariants.txt` 与 `HKVariants.txt`（msime-dictionary 的 `sources/opencc/` 原样收录，`candidate_variants` 把两张表合成一份，香港表补上臺灣沿用 OpenCC 字形的 溼/濕 这类对），一对里只有 HKCanCor 词频表用另一形、完全不用 OpenCC 形时才换（`hong_kong_forms`）；两形语料都没有的对、两形都用的对（着/著）、香港仍用 OpenCC 形的对（裏/裡、說/説）都不动，人工否决表列出的 OpenCC 字形（搵）也不动。词频表不收单字词，判定只看两个及以上汉字的词：语料里单独成词的字不算，固定提交的 HKCanCor 里「羣」单独出现过 1 次，按词频表仍换成「群」。`HKVariants.txt` 也列 說/説、溫/温、戶/户、衛/衞 这类《常用字字形表》的异体，HKCanCor 照用前者，按规则不换。替换只改写入的字面：字的权重仍按原字面查 essay，词、essay 补词和人工词表按替换后的字面查 essay 与语料（`essay_by_hong_kong_form` 把各写法的 essay 分数合到香港字形上，HKCanCor 本来就是香港字形），合并后的两行由 `Dictionary::insert` 取较大权重，所以「為」继承「爲」的 184291，「因爲」写成「因為」。单字另外保留 OpenCC 字形：「峯」「羣」这类字本身也常用（人名里尤其多），粤语方案又没有学习数据，换掉就打不出来，所以 OpenCC 字形的单字行照样写入，权重取它自己的分数与香港字形权重减一中较小的那个（至少为 1），「爲」得 184290，紧排在「為」下面；词只写香港字形。
 //!
 //! The words file lacks some of the commonest words because Rime composes them from characters at typing time (你好 is one), and the engine does not compose sentences. So an essay word the words file does not list becomes an entry too when the essay counts it at least `ESSAY_WORD_MIN_COUNT` times and each of its characters has exactly one toneless reading in the characters file, which makes its key certain.
 //!
@@ -27,9 +27,11 @@ pub const CORPUS: &str = crate::hkcancor::OUTPUT;
 /// 人工审校的粤语词表，本项目自己的数据（CC BY 4.0，与 msime-cantonese.db 的其余来源同一许可），不是上游数据，不在 `upstream.lock.json` 里，内容由 checkout 的提交固定。
 pub const CUSTOM: &str = "custom/cantonese.txt";
 /// OpenCC 的臺灣异体字表（Apache-2.0），只用来列出候选的异体对，哪一对替换由 HKCanCor 决定；表里的字不写进词库，词库的许可不变。
-pub const VARIANTS: &str = "sources/opencc/TWVariants.txt";
-/// `TWVariants.txt` 收不到的候选异体对：香港字形与 OpenCC 字形不同、臺灣却沿用 OpenCC 字形的字，臺灣异体表里自然没有这一行。每一对照抄 OpenCC `HKVariants.txt` 的同一行，和 `VARIANTS` 的对一样只是候选，换不换仍由 `hong_kong_forms` 按 HKCanCor 判定。「溼」：rime-cantonese 的字表、词表和 essay 只用「溼」，HKCanCor 只用「濕」（乾濕褸、風濕、濕濕碎碎），「濕」因此只有下限 1 分、不在任何词里（#10697）。不整份读 `HKVariants.txt`：按同样的规则它还会把「搵」换成「揾」（固定提交的 HKCanCor 只用「揾」，rime-cantonese 和香港日常书写多用「搵」），还会把「菸」换成「煙」，这类对要逐个人工确认后才加进来。
-pub const HONG_KONG_ONLY_VARIANTS: [(char, char); 1] = [('溼', '濕')];
+pub const TW_VARIANTS: &str = "sources/opencc/TWVariants.txt";
+/// OpenCC 的香港异体字表（Apache-2.0），与 `TW_VARIANTS` 同一提交、同样只列候选异体对。它补上臺灣沿用 OpenCC 字形、香港不用的字，臺灣表里自然没有这些行：「溼」在 rime-cantonese 的字表、词表和 essay 里是唯一写法，HKCanCor 只用「濕」（乾濕褸、風濕、濕濕碎碎），没有这张表时「濕」只有下限 1 分、不在任何词里（#10697）。它也列 說/説、戶/户 这类《常用字字形表》的异体，HKCanCor 照用 OpenCC 字形，`hong_kong_forms` 不会换。
+pub const HK_VARIANTS: &str = "sources/opencc/HKVariants.txt";
+/// 人工否决表（msime-dictionary 的自有数据，由维护者审定）：每行一个 OpenCC 字形，即使按 HKCanCor 该换也不换。「搵」：固定提交的 HKCanCor 只写「揾」（34 次），rime-cantonese 只写「搵」，维护者决定保留「搵食、搵錢」的写法（#10697）。表里的字必须是两张异体表里某一行的键，否则构建失败，笔误不会悄悄失效。
+pub const VARIANT_VETOES: &str = "custom/cantonese-variant-vetoes.txt";
 /// The sources lock reference whose commit is recorded as the database's `source_commit`.
 pub const REFERENCE: &str = "rime-cantonese";
 /// The SPDX identifier recorded as the database's `license`.
@@ -55,13 +57,16 @@ pub const FLOORS: Floors = Floors {
     words: 90_000,
 };
 
-/// Keys whose first entries, as many as the third field, must include the text, as a check against gross ranking errors. 「逾」「慈」主要出现在词里，essay 单字分数只有 177，靠 `WORD_FLOOR_CEILING` 的词带字下限才排进前列，没有下限时分别落在 jyu 的第 204 位、ci 的第 171 位（#10448）。
-pub const EXPECTED: [(&str, &str, usize); 7] = [
+/// Keys whose first entries, as many as the third field, must include the text, as a check against gross ranking errors. 「逾」「慈」主要出现在词里，essay 单字分数只有 177，靠 `WORD_FLOOR_CEILING` 的词带字下限才排进前列，没有下限时分别落在 jyu 的第 204 位、ci 的第 171 位（#10448）。為、因為、濕、濕紙巾、啟 守住香港字形替换（#10420、#10697、#10725），搵 守住否决表：「搵」被换成「揾」时 wan 的第一位会变成「揾」。
+pub const EXPECTED: [(&str, &str, usize); 10] = [
     ("nei hou", "你好", 3),
     ("gwong dung waa", "廣東話", 3),
     ("wai", "為", 3),
     ("jan wai", "因為", 3),
     ("sap", "濕", 3),
+    ("sap zi gan", "濕紙巾", 1),
+    ("kai", "啟", 3),
+    ("wan", "搵", 1),
     ("jyu", "逾", 50),
     ("ci", "慈", 30),
 ];
@@ -133,27 +138,29 @@ pub struct HongKongForm {
 /// OpenCC 字形到香港字形，按 OpenCC 字形排序。
 pub type HongKongForms = BTreeMap<char, HongKongForm>;
 
-/// `TWVariants.txt`：`字<TAB>异体[ 异体…]`，`#` 注释行与空行跳过。键和每个值都必须是一个字。
-pub fn parse_variants(source: &str) -> Result<Vec<(char, Vec<char>)>> {
-    let one = |text: &str| {
-        let mut characters = text.chars();
-        match (characters.next(), characters.next()) {
-            (Some(character), None) => Some(character),
-            _ => None,
-        }
-    };
+/// `text` 正好是一个字时返回这个字。
+fn one_character(text: &str) -> Option<char> {
+    let mut characters = text.chars();
+    match (characters.next(), characters.next()) {
+        (Some(character), None) => Some(character),
+        _ => None,
+    }
+}
+
+/// OpenCC 异体字表（`name` 是 `TW_VARIANTS` 或 `HK_VARIANTS`，只用于报错）：`字<TAB>异体[ 异体…]`，`#` 注释行与空行跳过。键和每个值都必须是一个字。
+pub fn parse_variants(name: &str, source: &str) -> Result<Vec<(char, Vec<char>)>> {
     let mut pairs = Vec::new();
     for (index, line) in source.lines().enumerate() {
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
         let parsed = line.split_once('\t').and_then(|(key, values)| {
-            let values: Option<Vec<char>> = values.split(' ').map(one).collect();
-            Some((one(key)?, values?))
+            let values: Option<Vec<char>> = values.split(' ').map(one_character).collect();
+            Some((one_character(key)?, values?))
         });
         let Some(pair) = parsed else {
             bail!(
-                "{VARIANTS}: line {} is not character<TAB>character[ character...]",
+                "{name}: line {} is not character<TAB>character[ character...]",
                 index + 1
             );
         };
@@ -162,14 +169,52 @@ pub fn parse_variants(source: &str) -> Result<Vec<(char, Vec<char>)>> {
     Ok(pairs)
 }
 
-/// 判定用的全部候选异体对：`TWVariants.txt` 的行，再加上 `HONG_KONG_ONLY_VARIANTS` 里表中还没有的字。
-pub fn candidate_variants(tw_variants: &str) -> Result<Vec<(char, Vec<char>)>> {
-    let mut pairs = parse_variants(tw_variants)?;
-    for (opencc, hong_kong) in HONG_KONG_ONLY_VARIANTS {
-        if !pairs.iter().any(|(key, _)| *key == opencc) {
-            pairs.push((opencc, vec![hong_kong]));
+/// `custom/cantonese-variant-vetoes.txt`：每行一个字，`#` 注释行与空行跳过，同一个字写两次算错。
+pub fn parse_variant_vetoes(source: &str) -> Result<BTreeSet<char>> {
+    let mut vetoes = BTreeSet::new();
+    for (index, line) in crate::text::without_bom(source).lines().enumerate() {
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some(character) = one_character(line) else {
+            bail!(
+                "{VARIANT_VETOES}: line {}: {line:?} is not one character",
+                index + 1
+            );
+        };
+        if !vetoes.insert(character) {
+            bail!("{VARIANT_VETOES}: line {} repeats {character}", index + 1);
         }
     }
+    Ok(vetoes)
+}
+
+/// 判定用的全部候选异体对：`TWVariants.txt` 的行在前，`HKVariants.txt` 里臺灣表没有的键按原顺序接在后面；两张表都有的键合成一行，臺灣表的值在前，重复的值只留一个（`hong_kong_forms` 并列时取先列的）。`vetoes` 里的键整行去掉；否决了两张表都没有的键时报错。
+pub fn candidate_variants(
+    tw_variants: &str,
+    hk_variants: &str,
+    vetoes: &BTreeSet<char>,
+) -> Result<Vec<(char, Vec<char>)>> {
+    let mut pairs = parse_variants(TW_VARIANTS, tw_variants)?;
+    for (key, values) in parse_variants(HK_VARIANTS, hk_variants)? {
+        match pairs.iter_mut().find(|(candidate, _)| *candidate == key) {
+            Some((_, merged)) => {
+                for value in values {
+                    if !merged.contains(&value) {
+                        merged.push(value);
+                    }
+                }
+            }
+            None => pairs.push((key, values)),
+        }
+    }
+    if let Some(veto) = vetoes
+        .iter()
+        .find(|veto| !pairs.iter().any(|(key, _)| key == *veto))
+    {
+        bail!("{VARIANT_VETOES}: {veto} is not a key of {TW_VARIANTS} or {HK_VARIANTS}");
+    }
+    pairs.retain(|(key, _)| !vetoes.contains(key));
     Ok(pairs)
 }
 
@@ -742,15 +787,15 @@ mod tests {
     const HEADER: &str = "# Rime dictionary\n# encoding: utf-8\n\n---\nname: jyut6ping3.chars\nversion: \"2026.08.10\"\nsort: by_weight\n...\n\n";
 
     fn characters_source() -> String {
-        format!("{HEADER}你\tnei5\n妳\tnei5\n好\thou2\n好\thou3\t40%\n號\thou6\t0%\n廣\tgwong2\n東\tdung1\n話\twaa6\t80%\n話\twaa2\t20%\n呢\tne1\n呢\tnei4\t5%\n爲\twai4\n為\twai4\t5%\n因\tjan1\n逾\tjyu4\n慈\tci4\n溼\tsap1\n濕\tsap1\n")
+        format!("{HEADER}你\tnei5\n妳\tnei5\n好\thou2\n好\thou3\t40%\n號\thou6\t0%\n廣\tgwong2\n東\tdung1\n話\twaa6\t80%\n話\twaa2\t20%\n呢\tne1\n呢\tnei4\t5%\n爲\twai4\n為\twai4\t5%\n因\tjan1\n逾\tjyu4\n慈\tci4\n溼\tsap1\n濕\tsap1\n紙\tzi2\n巾\tgan1\n啓\tkai2\n啟\tkai2\n搵\twan2\n揾\twan2\n")
     }
 
     fn words_source() -> String {
-        format!("{HEADER}廣東話\tgwong2 dung1 waa2\n廣東話\tgwong2 dung1 waa6\n你哋\tnei5 dei6\nfi li fe le\tfi4 li1 fe4 le4\n因爲\tjan1 wai4\n")
+        format!("{HEADER}廣東話\tgwong2 dung1 waa2\n廣東話\tgwong2 dung1 waa6\n你哋\tnei5 dei6\nfi li fe le\tfi4 li1 fe4 le4\n因爲\tjan1 wai4\n溼紙巾\tsap1 zi2 gan1\n")
     }
 
     const ESSAY_TEXT: &str =
-        "你\t7000\n好\t5000\n話\t900\n呢\t2000\n廣東話\t6851\n你好\t21493\n好呢\t3000\n你哋\t40\n號\t10\n你好\t5\n爲\t184291\n因爲\t713185\n溼\t49742\n";
+        "你\t7000\n好\t5000\n話\t900\n呢\t2000\n廣東話\t6851\n你好\t21493\n好呢\t3000\n你哋\t40\n號\t10\n你好\t5\n爲\t184291\n因爲\t713185\n溼\t49742\n啓\t1155\n搵\t525289\n";
 
     fn entries(dictionary: &Dictionary) -> Vec<(&str, &str, i64)> {
         dictionary
@@ -773,20 +818,20 @@ mod tests {
         )
     }
 
-    /// 把「爲」换成「為」、「溼」换成「濕」，让样例库满足 `EXPECTED` 里的 ("wai", "為")、("jan wai", "因為") 与 ("sap", "濕")；字表里的「逾」「慈」满足 jyu 与 ci 两项。
+    /// 把「爲」换成「為」、「溼」换成「濕」、「啓」换成「啟」，让样例库满足 `EXPECTED` 里的 ("wai", "為")、("jan wai", "因為")、("sap", "濕")、("sap zi gan", "濕紙巾") 与 ("kai", "啟")；「搵」不换（真实构建里由否决表挡下），满足 ("wan", "搵")；字表里的「逾」「慈」满足 jyu 与 ci 两项。
     fn sample_forms() -> HongKongForms {
         let form = |hong_kong| HongKongForm {
             hong_kong,
             corpus_count: 1,
         };
-        HongKongForms::from([('溼', form('濕')), ('爲', form('為'))])
+        HongKongForms::from([('啓', form('啟')), ('溼', form('濕')), ('爲', form('為'))])
     }
 
     #[test]
     fn rows_after_the_header_lose_their_tones() {
         let characters = characters_source();
         let rows = parse_characters(&characters).unwrap();
-        assert_eq!(rows.len(), 18);
+        assert_eq!(rows.len(), 24);
         assert_eq!(
             rows[3],
             Row {
@@ -811,6 +856,8 @@ mod tests {
                 // 東、廣、話的 essay 单字分数低于廣東話带来的下限 6851 × 2000 / (6851 + 2000)。
                 ("dung", "東", 1548),
                 ("fi li fe le", "fi li fe le", 1),
+                // 紙、巾没有 essay 分数，所在的「濕紙巾」essay 也没列，不带字。
+                ("gan", "巾", 1),
                 ("gwong", "廣", 1548),
                 ("gwong dung waa", "廣東話", 6851),
                 // 好 is hou2 (5000) and hou3 at 40% (2000); the tones collapse into the larger weight.
@@ -822,6 +869,9 @@ mod tests {
                 // 因爲写成因為，沿用它的 essay 分数。
                 ("jan wai", "因為", 713185),
                 ("jyu", "逾", 1),
+                // 啓仍单列，排在啟下面一位（#10725）。
+                ("kai", "啓", 1154),
+                ("kai", "啟", 1155),
                 ("ne", "呢", 2000),
                 ("nei", "你", 7000),
                 // 5% of 2000.
@@ -833,11 +883,17 @@ mod tests {
                 // 溼仍单列，排在濕下面一位；濕只有字表一行、没有 essay 分数，合并后取溼的 49742。
                 ("sap", "溼", 49741),
                 ("sap", "濕", 49742),
+                // 词表的「溼紙巾」写成「濕紙巾」，essay 与语料都没有它，取兜底权重。
+                ("sap zi gan", "濕紙巾", 1),
                 // 80% of 900 is 720, below the 1548 廣東話 brings.
                 ("waa", "話", 1548),
                 // 為自己的 5% 份额没有 essay 分数，合并后取爲的 184291；爲仍单列，排在為下面一位。
                 ("wai", "為", 184291),
                 ("wai", "爲", 184290),
+                // 搵不在 forms 里，照原样排第一。
+                ("wan", "揾", 1),
+                ("wan", "搵", 525289),
+                ("zi", "紙", 1),
             ]
         );
         // 好呢 is frequent but 呢 reads ne or nei, so its key is uncertain and it stays out.
@@ -848,7 +904,7 @@ mod tests {
                 dictionary.words,
                 dictionary.essay_words
             ),
-            (16, 4, 1)
+            (22, 5, 1)
         );
         assert_eq!(dictionary.characters_raised, 4);
     }
@@ -1146,9 +1202,12 @@ mod tests {
     /// `TWVariants.txt` 的真实行，外加一条表里没有的 `說\t説`，用来说明香港语料照用的字形不会被换掉。
     const VARIANTS_TEXT: &str = "# Open Chinese Convert (OpenCC) Dictionary\n\n僞\t偽\n爲\t為\n# @reverse-prefer: 梁\n梁\t梁\n樑\t梁 樑\n着\t著\n衆\t眾\n裏\t裡\n麼\t麼 么\n說\t説\n";
 
+    /// `HKVariants.txt` 的真实行：溼/濕、搵/揾、菸/煙 是臺灣异体表没有的对，爲、衆 两表都有，啓 的值里先列它自己，說 的香港字形是「説」。
+    const HK_VARIANTS_TEXT: &str = "# Open Chinese Convert (OpenCC) Dictionary\n\n啓\t啓 啟\n搵\t揾\n溼\t濕\n# @reverse-prefer: 煙\n煙\t煙\n爲\t為\n菸\t煙 菸\n衆\t眾\n說\t説\n";
+
     #[test]
     fn only_forms_the_corpus_uses_instead_of_the_opencc_form_are_replaced() {
-        let variants = parse_variants(VARIANTS_TEXT).unwrap();
+        let variants = parse_variants(TW_VARIANTS, VARIANTS_TEXT).unwrap();
         assert_eq!(variants[3], ('樑', vec!['梁', '樑']));
         let corpus = crate::hkcancor::parse(
             "因為\t30\n認為\t5\n群眾\t4\n跟着\t3\n睇著\t2\n呢裏\t6\n說話\t6\n梁生\t2\n",
@@ -1179,23 +1238,108 @@ mod tests {
     }
 
     #[test]
-    fn malformed_variant_rows_name_their_line() {
+    fn malformed_variant_rows_name_their_file_and_line() {
         for source in ["爲為\n", "爲\t為 \n", "爲\t為為\n", "爲爲\t為\n", "\t為\n"] {
-            let error = parse_variants(source).unwrap_err().to_string();
+            for (name, expected) in [
+                (TW_VARIANTS, "TWVariants.txt: line 1 is not"),
+                (HK_VARIANTS, "HKVariants.txt: line 1 is not"),
+            ] {
+                let error = parse_variants(name, source).unwrap_err().to_string();
+                assert!(error.contains(expected), "{source:?}: {error}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_hong_kong_table_joins_the_taiwan_table() {
+        let variants =
+            candidate_variants(VARIANTS_TEXT, HK_VARIANTS_TEXT, &BTreeSet::new()).unwrap();
+        let keys: String = variants.iter().map(|(key, _)| key).collect();
+        // 臺灣表的行在前、顺序不变；香港表里臺灣表没有的键按香港表的顺序接在后面。
+        assert_eq!(keys, "僞爲梁樑着衆裏麼說啓搵溼煙菸");
+        let values = |key: char| {
+            variants
+                .iter()
+                .find(|(candidate, _)| *candidate == key)
+                .map(|(_, values)| values.iter().collect::<String>())
+        };
+        // 两张表都有的键合成一行，臺灣表的值在前，重复的值只列一次。
+        assert_eq!(values('爲').as_deref(), Some("為"));
+        assert_eq!(values('說').as_deref(), Some("説"));
+        assert_eq!(values('菸').as_deref(), Some("煙菸"));
+        assert_eq!(values('啓').as_deref(), Some("啓啟"));
+        // 臺灣表里 啓 一行在前时，值按 啟、啓 的顺序合并。
+        let merged = candidate_variants("啓\t啟\n", "啓\t啓 啟\n", &BTreeSet::new()).unwrap();
+        assert_eq!(merged, [('啓', vec!['啟', '啓'])]);
+        // 语料只写「啟」（固定提交里是「啟民」1 次），合并后的行仍把「啓」换成「啟」（#10725）。
+        let corpus = crate::hkcancor::parse("啟民\t1\n").unwrap();
+        assert_eq!(
+            hong_kong_forms(&merged, &corpus)
+                .into_iter()
+                .collect::<Vec<_>>(),
+            [(
+                '啓',
+                HongKongForm {
+                    hong_kong: '啟',
+                    corpus_count: 1
+                }
+            )]
+        );
+    }
+
+    #[test]
+    fn vetoed_opencc_forms_are_never_replaced() {
+        // 固定提交的 HKCanCor 只写「揾」「煙」「濕」，OpenCC 字形一次都没有。
+        let corpus =
+            crate::hkcancor::parse("揾食\t20\n揾錢\t14\n煙花\t5\n吸煙\t1\n風濕\t1\n").unwrap();
+        let forms = |vetoes: &str| {
+            let vetoes = parse_variant_vetoes(vetoes).unwrap();
+            hong_kong_forms(
+                &candidate_variants(VARIANTS_TEXT, HK_VARIANTS_TEXT, &vetoes).unwrap(),
+                &corpus,
+            )
+            .into_keys()
+            .collect::<String>()
+        };
+        assert_eq!(forms(""), "搵溼菸");
+        assert_eq!(forms("# 保留「搵」\n搵\n"), "溼菸");
+        // 否决表里写了两张异体表都没有的字，多半是笔误，构建失败。
+        let error = candidate_variants(
+            VARIANTS_TEXT,
+            HK_VARIANTS_TEXT,
+            &parse_variant_vetoes("搵\n揾\n").unwrap(),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains("cantonese-variant-vetoes.txt: 揾 is not a key"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn veto_rows_are_single_characters_listed_once() {
+        assert_eq!(
+            parse_variant_vetoes("\u{feff}# 注释\n\n搵\n菸\n").unwrap(),
+            BTreeSet::from(['搵', '菸'])
+        );
+        for (source, expected) in [
+            ("搵\n搵揾\n", "line 2: \"搵揾\" is not one character"),
+            ("搵 \n", "line 1: \"搵 \" is not one character"),
+            ("搵\n\n搵\n", "line 3 repeats 搵"),
+        ] {
+            let error = parse_variant_vetoes(source).unwrap_err().to_string();
             assert!(
-                error.contains("TWVariants.txt: line 1 is not"),
+                error.contains(&format!("{VARIANT_VETOES}: {expected}")),
                 "{source:?}: {error}"
             );
         }
     }
 
     #[test]
-    fn hong_kong_only_pairs_join_the_taiwan_table() {
-        let variants = candidate_variants(VARIANTS_TEXT).unwrap();
-        assert_eq!(variants.last(), Some(&('溼', vec!['濕'])));
-        // 臺灣异体表将来收进同一个字时不重复列出。
-        let doubled = candidate_variants("溼\t濕\n").unwrap();
-        assert_eq!(doubled, [('溼', vec!['濕'])]);
+    fn opencc_wet_is_spelled_the_hong_kong_way() {
+        let variants =
+            candidate_variants(VARIANTS_TEXT, HK_VARIANTS_TEXT, &BTreeSet::new()).unwrap();
         // 语料只用「濕」，「溼」换成「濕」，单字「溼」紧排其下，词只写「濕」（#10697）。
         let corpus = crate::hkcancor::parse("乾濕褸\t1\n濕濕碎碎\t1\n風濕\t1\n").unwrap();
         let forms = hong_kong_forms(&variants, &corpus);
@@ -1235,7 +1379,10 @@ mod tests {
         )
         .unwrap();
         let corpus = crate::hkcancor::parse("因為\t300\n着數\t6\n呢裏\t6\n說話\t6\n").unwrap();
-        let forms = hong_kong_forms(&parse_variants(VARIANTS_TEXT).unwrap(), &corpus);
+        let forms = hong_kong_forms(
+            &parse_variants(TW_VARIANTS, VARIANTS_TEXT).unwrap(),
+            &corpus,
+        );
         assert_eq!(forms.keys().collect::<String>(), "爲");
         let dictionary = build(
             &parse_characters(&characters).unwrap(),
@@ -1280,7 +1427,7 @@ mod tests {
         let essay =
             parse_essay("峯\t4372\n峰\t7741\n高\t90000\n高峯\t600\n點解\t845000\n").unwrap();
         let corpus = crate::hkcancor::parse("高峰\t2\n點解\t1000\n").unwrap();
-        let forms = hong_kong_forms(&parse_variants("峯\t峰\n").unwrap(), &corpus);
+        let forms = hong_kong_forms(&parse_variants(TW_VARIANTS, "峯\t峰\n").unwrap(), &corpus);
         let dictionary = build(
             &parse_characters(&characters).unwrap(),
             &parse_words(&words).unwrap(),
@@ -1319,8 +1466,8 @@ mod tests {
         assert_eq!(
             syllables,
             [
-                "ci", "dei", "dung", "fe", "fi", "gwong", "hou", "jan", "jyu", "le", "li", "ne",
-                "nei", "sap", "waa", "wai"
+                "ci", "dei", "dung", "fe", "fi", "gan", "gwong", "hou", "jan", "jyu", "kai", "le",
+                "li", "ne", "nei", "sap", "waa", "wai", "wan", "zi"
             ]
         );
     }
@@ -1372,9 +1519,18 @@ mod tests {
     fn only_the_licensed_files_are_read() {
         for excluded in ["maps", "phrase", "lettered"] {
             assert!(
-                [CHARACTERS, WORDS, ESSAY, CORPUS, CUSTOM, VARIANTS]
-                    .iter()
-                    .all(|input| !input.contains(excluded)),
+                [
+                    CHARACTERS,
+                    WORDS,
+                    ESSAY,
+                    CORPUS,
+                    CUSTOM,
+                    TW_VARIANTS,
+                    HK_VARIANTS,
+                    VARIANT_VETOES
+                ]
+                .iter()
+                .all(|input| !input.contains(excluded)),
                 "{excluded}"
             );
         }
@@ -1395,10 +1551,18 @@ mod tests {
             crate::sources::upstream_reference(CORPUS),
             Some(crate::hkcancor::REFERENCE)
         );
-        // 异体字表是 OpenCC 的原样文件，按 OpenCC 的上游记录校验。
-        assert_eq!(crate::sources::upstream_reference(VARIANTS), Some("OpenCC"));
-        // 人工词表是本项目自己的数据，不按上游记录校验。
-        assert_eq!(crate::sources::upstream_reference(CUSTOM), None);
+        // 两张异体字表是 OpenCC 的原样文件，按 OpenCC 的上游记录校验。
+        for input in [TW_VARIANTS, HK_VARIANTS] {
+            assert_eq!(
+                crate::sources::upstream_reference(input),
+                Some("OpenCC"),
+                "{input}"
+            );
+        }
+        // 人工词表与否决表是本项目自己的数据，不按上游记录校验。
+        for input in [CUSTOM, VARIANT_VETOES] {
+            assert_eq!(crate::sources::upstream_reference(input), None, "{input}");
+        }
         assert!(!lock
             .files
             .iter()
@@ -1459,36 +1623,36 @@ mod tests {
     fn verify_enforces_the_floors_and_the_expected_entries() {
         let (_dir, path) = written(&sample());
         let floors = Floors {
-            syllables: 16,
-            characters: 16,
-            words: 5,
+            syllables: 20,
+            characters: 22,
+            words: 6,
         };
         assert_eq!(
             verify(&path, floors).unwrap(),
             Counts {
-                syllables: 16,
-                characters: 16,
-                words: 5
+                syllables: 20,
+                characters: 22,
+                words: 6
             }
         );
         for (below, what) in [
             (
                 Floors {
-                    syllables: 17,
+                    syllables: 21,
                     ..floors
                 },
-                "16 syllables, below the floor of 17",
+                "20 syllables, below the floor of 21",
             ),
             (
                 Floors {
-                    characters: 17,
+                    characters: 23,
                     ..floors
                 },
-                "16 character entries, below the floor of 17",
+                "22 character entries, below the floor of 23",
             ),
             (
-                Floors { words: 6, ..floors },
-                "5 word entries, below the floor of 6",
+                Floors { words: 7, ..floors },
+                "6 word entries, below the floor of 7",
             ),
         ] {
             let error = verify(&path, below).unwrap_err().to_string();
@@ -1519,6 +1683,26 @@ mod tests {
         .unwrap_err()
         .to_string();
         assert!(error.contains("without 你好"), "{error}");
+
+        // 否决表没挡住「搵」时，wan 的第一位变成「揾」，发布构建失败。
+        let mut forms = sample_forms();
+        forms.insert(
+            '搵',
+            HongKongForm {
+                hong_kong: '揾',
+                corpus_count: 34,
+            },
+        );
+        let (_dir, path) = written(&build(
+            &parse_characters(&characters).unwrap(),
+            &parse_words(&words).unwrap(),
+            &parse_essay(ESSAY_TEXT).unwrap(),
+            &HashMap::new(),
+            &[],
+            &forms,
+        ));
+        let error = verify(&path, floors).unwrap_err().to_string();
+        assert!(error.contains("without 搵 in its first 1"), "{error}");
     }
 
     #[test]

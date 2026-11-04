@@ -38,7 +38,7 @@ The speech recognition models are not part of this package; the settings page do
 
 The built-in sound packs in share/msime-client/sound-packs are this project's own work, synthesized by scripts/generate_sound_packs.py, and dedicated to the public domain under CC0-1.0 (the license field of each plugin.toml).
 
-The keystroke rerank models in share/msime-client/rerank-model (8x448) and share/msime-client/rerank-model-small (6x256), when the package carries them, are rerank-v1 of chinese-ime-lm (https://github.com/metasequoiaime/chinese-ime-lm/releases/tag/rerank-v1), pinned by rerank-model.lock.json — Apache License 2.0, with the upstream NOTICE and the license text in rerank-model-Apache-2.0.txt. The attribution their training corpora require is in each lm_step.ort and model.json and travels with them.
+The keystroke rerank models in share/msime-client/rerank-model (8x448) and share/msime-client/rerank-model-small (6x256), when the package carries them, are rerank-v2 of chinese-ime-lm (https://github.com/metasequoiaime/chinese-ime-lm/releases/tag/rerank-v2), pinned by rerank-model.lock.json — Apache License 2.0, with the upstream NOTICE and the license text in rerank-model-Apache-2.0.txt. The attribution their training corpora require is in each lm_step.ort and model.json and travels with them.
 
 The official plugin packs in share/msime-client/plugin-packs (the uuid script plugin and the latex-symbols phrase table, listed in plugins/official-packs.json of the source tree), when the package carries them, are this project's own work under the MIT License, not GPL-3.0; each pack carries that license as LICENSE.txt beside its plugin.toml. They are off until the user grants or enables them.
 

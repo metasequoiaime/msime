@@ -8,6 +8,8 @@ Status: implemented
 
 ## Decision
 
+原有中文解码保持，iOS 可选的同笔中英能力见[中英文滑行](2026-11-03-bilingual-glide.md)。
+
 - 解码分两层，都在引擎。`crates/engine/src/pinyin/glide.rs` 是纯几何解码器（不碰 SQLite）：坐标先按键宽、键高归一化，轨迹按 0.25 个键重采样（至多 128 点），在全拼音节前缀树约束下做令牌传递搜索。一个字母串的代价由四部分组成：对齐点到键中心的距离平方；对齐点之间的采样点偏离两键连线的距离平方，以及逆着两键方向往回走的距离；跳过的停留（手指在 0.35 键内停 120ms 以上）；每个字母的固定价，重复字母另加一点。代价随扩展单调不减，凑满 `limit` 个完整串后，比第 `limit` 名还贵的前缀直接剪掉。`rank_by_dictionary` 再用词典重排：取各切分里是词的最高对数权重，多音节词每多一个音节加 1.5，不是词的串按最罕见音节计分再罚 6，乘 0.7 后从几何代价里减掉。
 - 会话层 `Session::glide`（`session/glide.rs`）只在全拼、无本地模式、非专用英文、九键数字没在组字时处理：取排名第一的串，用一次 `replace_editing_text` 写到光标处；组字里已有字母时两侧补 `'`，先 `xi` 再滑 `an` 得到 `xi'an` 而不是 `xian`。词典权重经 `ProviderRegistry::quanpin_best_weights` → `QuanpinDictionary::best_weights` → `PinyinDatabase::query_exact_keys_per_key` 一次批量查询取得。
 - 宿主契约是 `msime_client_glide(handle, request, length)`：JSON 请求带 a..z 的键中心、一个字母键的尺寸和轨迹点 `[x, y]` 或 `[x, y, ms]`（2..1024 个，<=64KB，拒绝未知键），坐标系由宿主自选。返回值与 `msime_client_character` 相同；`handled=false` 时宿主丢掉这一笔，不得把经过的键当按键输入。经 input-runtime 的 `Action::Glide` 走与按键相同的 `dispatch`。
