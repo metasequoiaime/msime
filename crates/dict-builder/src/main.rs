@@ -51,6 +51,7 @@ mod text;
 mod web;
 mod wubi86_helpcode;
 mod wubi86_supplement;
+mod wubi86_table;
 mod wubi98_supplement;
 mod wubi_supplement;
 mod wubixsj_supplement;
@@ -646,13 +647,15 @@ fn build_wubi86_supplement(arguments: &Wubi86Supplement) -> Result<()> {
     let wubi98_path = sources.pinned(wubi86_supplement::WUBI98)?;
     let wubi98 = msime::decode_utf16le(&crate::sources::read_private(&wubi98_path)?)
         .with_context(|| format!("decoding {}", wubi98_path.display()))?;
-    let (jidian, wubi98_fcitx, base) = (
-        read(wubi86_supplement::JIDIAN)?,
+    let wubi86 = wubi86_table::Files::locate(&sources)?;
+    let table = wubi86.read()?;
+    let (wubi98_fcitx, base) = (
         read(wubi86_supplement::WUBI98_FCITX)?,
         read(wubi86_supplement::BASE)?,
     );
     let supplement = wubi86_supplement::build(&wubi86_supplement::Inputs {
-        jidian: &jidian,
+        jidian: &table.jidian,
+        rime_wubi: table.rime_wubi.as_deref(),
         wubi98: &wubi98,
         wubi98_fcitx: &wubi98_fcitx,
         base: &base,
@@ -662,23 +665,28 @@ fn build_wubi86_supplement(arguments: &Wubi86Supplement) -> Result<()> {
         curation: &curation,
     })?;
     // 表头里的 SHA-256 按实际读到的字节计算。
-    let digests = [
-        wubi86_supplement::JIDIAN,
-        wubi86_supplement::WUBI98,
-        wubi86_supplement::WUBI98_FCITX,
-        wubi86_supplement::BASE,
-        wubi86_supplement::PINYIN_SUPPLEMENT,
-        wubi86_supplement::PLACES,
-        wubi86_supplement::CUSTOM,
-    ]
-    .into_iter()
-    .map(|path| Ok((path, sha256_file(&sources.pinned(path)?)?)))
-    .chain(
-        curation::present_digests(&sources, &curation::PINYIN_TABLES)?
+    let digests = wubi86
+        .digests()?
+        .into_iter()
+        .map(Ok)
+        .chain(
+            [
+                wubi86_supplement::WUBI98,
+                wubi86_supplement::WUBI98_FCITX,
+                wubi86_supplement::BASE,
+                wubi86_supplement::PINYIN_SUPPLEMENT,
+                wubi86_supplement::PLACES,
+                wubi86_supplement::CUSTOM,
+            ]
             .into_iter()
-            .map(Ok),
-    )
-    .collect::<Result<Vec<_>>>()?;
+            .map(|path| Ok((path, sha256_file(&sources.pinned(path)?)?))),
+        )
+        .chain(
+            curation::present_digests(&sources, &curation::PINYIN_TABLES)?
+                .into_iter()
+                .map(Ok),
+        )
+        .collect::<Result<Vec<_>>>()?;
     let inputs: Vec<(&str, &str)> = digests
         .iter()
         .map(|(path, sha256)| (*path, sha256.as_str()))
@@ -713,7 +721,7 @@ struct Wubi86Helpcode {
     /// 读取来源锁文件（`resources/dictionary-sources.lock.json`）的 msime checkout。
     #[arg(long, default_value_os_t = repository_root())]
     repository: PathBuf,
-    /// 读取 `sources/wubi/wubi86-jidian.txt` 的 msime-dictionary checkout（按其 `upstream.lock.json` 校验）。
+    /// 读取 86 原表（`sources/wubi/wubi86-jidian.txt`，拆分之后连同 `sources/wubi/wubi86-rime-wubi.txt`）的 msime-dictionary checkout（新布局按其 `upstream.lock.json` 校验）。
     #[arg(long, value_name = "PATH")]
     dictionary: PathBuf,
 }
@@ -730,10 +738,16 @@ fn build_wubi86_helpcode(arguments: &Wubi86Helpcode) -> Result<()> {
         offline: true,
         dictionary: Some(dictionary),
     };
-    let jidian_path = sources.pinned(wubi86_supplement::JIDIAN)?;
-    let helpcode = wubi86_helpcode::build(&text::read(&jidian_path)?)?;
+    let wubi86 = wubi86_table::Files::locate(&sources)?;
+    let table = wubi86.read()?;
+    let helpcode = wubi86_helpcode::build(&table.jidian, table.rime_wubi.as_deref())?;
     // 表头里的 SHA-256 按实际读到的字节计算。
-    let rendered = wubi86_helpcode::render(&helpcode, &sha256_file(&jidian_path)?);
+    let digests = wubi86.digests()?;
+    let inputs: Vec<(&str, &str)> = digests
+        .iter()
+        .map(|(path, sha256)| (*path, sha256.as_str()))
+        .collect();
+    let rendered = wubi86_helpcode::render(&helpcode, &inputs);
     std::fs::write(&arguments.out, rendered)
         .with_context(|| format!("writing {}", arguments.out.display()))?;
     for line in wubi86_helpcode::report(&helpcode) {
@@ -782,15 +796,17 @@ fn build_wubi98_supplement(arguments: &Wubi98Supplement) -> Result<()> {
     let wubi98_path = sources.pinned(wubi98_supplement::WUBI98)?;
     let wubi98 = msime::decode_utf16le(&crate::sources::read_private(&wubi98_path)?)
         .with_context(|| format!("decoding {}", wubi98_path.display()))?;
-    let (wubi98_fcitx, jidian, base) = (
+    let wubi86 = wubi86_table::Files::locate(&sources)?;
+    let table = wubi86.read()?;
+    let (wubi98_fcitx, base) = (
         read(wubi98_supplement::WUBI98_FCITX)?,
-        read(wubi98_supplement::JIDIAN)?,
         read(wubi98_supplement::BASE)?,
     );
     let supplement = wubi98_supplement::build(&wubi98_supplement::Inputs {
         wubi98: &wubi98,
         wubi98_fcitx: &wubi98_fcitx,
-        jidian: &jidian,
+        jidian: &table.jidian,
+        rime_wubi: table.rime_wubi.as_deref(),
         base: &base,
         pinyin_supplement: &read(wubi98_supplement::PINYIN_SUPPLEMENT)?,
         places: &read(wubi98_supplement::PLACES)?,
@@ -798,23 +814,27 @@ fn build_wubi98_supplement(arguments: &Wubi98Supplement) -> Result<()> {
         curation: &curation,
     })?;
     // 表头里的 SHA-256 按实际读到的字节计算。
-    let digests = [
-        wubi98_supplement::WUBI98,
-        wubi98_supplement::WUBI98_FCITX,
-        wubi98_supplement::JIDIAN,
-        wubi98_supplement::BASE,
-        wubi98_supplement::PINYIN_SUPPLEMENT,
-        wubi98_supplement::PLACES,
-        wubi98_supplement::CUSTOM,
-    ]
-    .into_iter()
-    .map(|path| Ok((path, sha256_file(&sources.pinned(path)?)?)))
-    .chain(
-        curation::present_digests(&sources, &curation::PINYIN_TABLES)?
+    let pinned_digest = |path: &'static str| Ok((path, sha256_file(&sources.pinned(path)?)?));
+    let digests = [wubi98_supplement::WUBI98, wubi98_supplement::WUBI98_FCITX]
+        .into_iter()
+        .map(pinned_digest)
+        .chain(wubi86.digests()?.into_iter().map(Ok))
+        .chain(
+            [
+                wubi98_supplement::BASE,
+                wubi98_supplement::PINYIN_SUPPLEMENT,
+                wubi98_supplement::PLACES,
+                wubi98_supplement::CUSTOM,
+            ]
             .into_iter()
-            .map(Ok),
-    )
-    .collect::<Result<Vec<_>>>()?;
+            .map(pinned_digest),
+        )
+        .chain(
+            curation::present_digests(&sources, &curation::PINYIN_TABLES)?
+                .into_iter()
+                .map(Ok),
+        )
+        .collect::<Result<Vec<_>>>()?;
     let inputs: Vec<(&str, &str)> = digests
         .iter()
         .map(|(path, sha256)| (*path, sha256.as_str()))
@@ -876,15 +896,17 @@ fn build_wubixsj_supplement(arguments: &WubiXsjSupplement) -> Result<()> {
     let wubi98_path = sources.pinned(wubixsj_supplement::WUBI98)?;
     let wubi98 = msime::decode_utf16le(&crate::sources::read_private(&wubi98_path)?)
         .with_context(|| format!("decoding {}", wubi98_path.display()))?;
-    let (wubixsj, jidian, wubi98_fcitx, base) = (
+    let wubi86 = wubi86_table::Files::locate(&sources)?;
+    let table = wubi86.read()?;
+    let (wubixsj, wubi98_fcitx, base) = (
         read(wubixsj_supplement::WUBIXSJ)?,
-        read(wubixsj_supplement::JIDIAN)?,
         read(wubixsj_supplement::WUBI98_FCITX)?,
         read(wubixsj_supplement::BASE)?,
     );
     let supplement = wubixsj_supplement::build(&wubixsj_supplement::Inputs {
         wubixsj: &wubixsj,
-        jidian: &jidian,
+        jidian: &table.jidian,
+        rime_wubi: table.rime_wubi.as_deref(),
         wubi98: &wubi98,
         wubi98_fcitx: &wubi98_fcitx,
         base: &base,
@@ -894,24 +916,29 @@ fn build_wubixsj_supplement(arguments: &WubiXsjSupplement) -> Result<()> {
         curation: &curation,
     })?;
     // 表头里的 SHA-256 按实际读到的字节计算。
-    let digests = [
-        wubixsj_supplement::WUBIXSJ,
-        wubixsj_supplement::JIDIAN,
-        wubixsj_supplement::WUBI98,
-        wubixsj_supplement::WUBI98_FCITX,
-        wubixsj_supplement::BASE,
-        wubixsj_supplement::PINYIN_SUPPLEMENT,
-        wubixsj_supplement::PLACES,
-        wubixsj_supplement::CUSTOM,
-    ]
-    .into_iter()
-    .map(|path| Ok((path, sha256_file(&sources.pinned(path)?)?)))
-    .chain(
-        curation::present_digests(&sources, &curation::PINYIN_TABLES)?
+    let pinned_digest = |path: &'static str| Ok((path, sha256_file(&sources.pinned(path)?)?));
+    let digests = [wubixsj_supplement::WUBIXSJ]
+        .into_iter()
+        .map(pinned_digest)
+        .chain(wubi86.digests()?.into_iter().map(Ok))
+        .chain(
+            [
+                wubixsj_supplement::WUBI98,
+                wubixsj_supplement::WUBI98_FCITX,
+                wubixsj_supplement::BASE,
+                wubixsj_supplement::PINYIN_SUPPLEMENT,
+                wubixsj_supplement::PLACES,
+                wubixsj_supplement::CUSTOM,
+            ]
             .into_iter()
-            .map(Ok),
-    )
-    .collect::<Result<Vec<_>>>()?;
+            .map(pinned_digest),
+        )
+        .chain(
+            curation::present_digests(&sources, &curation::PINYIN_TABLES)?
+                .into_iter()
+                .map(Ok),
+        )
+        .collect::<Result<Vec<_>>>()?;
     let inputs: Vec<(&str, &str)> = digests
         .iter()
         .map(|(path, sha256)| (*path, sha256.as_str()))
@@ -1542,18 +1569,23 @@ impl Build {
                 Ok(format!("{listed} words and {exempt} exempt patterns"))
             }
             Stage::Wubi => {
-                let jidian = self.sources.pinned(wubi86_supplement::JIDIAN)?;
+                let table = wubi86_table::Files::locate(&self.sources)?;
                 let supplement = self.fresh_wubi_supplement(WubiTable::Wubi86)?;
                 let custom = self.sources.optional(msime::CUSTOM_WUBI86)?;
-                let mut paths = vec![jidian.as_path(), supplement.as_path()];
-                paths.extend(custom.as_deref());
+                let mut later = vec![supplement.as_path()];
+                later.extend(custom.as_deref());
                 let vetoes = curation::PinyinCuration::load(&self.sources)?.vetoes;
                 let mut connection = self.database("msime-pinyin.db")?;
                 let (imported, skipped, filtered, vetoed) =
-                    msime::build_wubi(&mut connection, &paths, &vetoes)?;
+                    msime::build_wubi(&mut connection, &table, &later, &vetoes)?;
                 let offensive = self.place_offensive_last_in_wubi(&mut connection, "wubi86")?;
                 Ok(format!(
-                    "{imported} rows imported, {skipped} skipped, {filtered} unsupported Wubi values left out, {vetoed} vetoed{offensive}{}",
+                    "{imported} rows imported, {skipped} skipped, {filtered} unsupported Wubi values left out, {vetoed} vetoed{offensive}; {}{}",
+                    if table.rime_wubi.is_some() {
+                        format!("{} at weight {}", wubi86_table::RIME_WUBI, wubi86_table::RIME_WUBI_WEIGHT)
+                    } else {
+                        format!("no {} in the checkout, so {} is read as one table", wubi86_table::RIME_WUBI, wubi86_table::JIDIAN)
+                    },
                     if custom.is_some() {
                         ""
                     } else {
@@ -2359,6 +2391,92 @@ mod tests {
             .map(Result::unwrap)
             .collect();
         assert_eq!(rows, [("甲".to_owned(), 100), ("①".to_owned(), 1)]);
+    }
+
+    /// 拆分之后的 checkout：86 原表是极点表加 `wubi86-rime-wubi.txt`，两者都按 `upstream.lock.json` 校验；rime-wubi 的行（甲甲 带着五百万的词频）按 10 写入，排在同码极点行之后、补充行之前，整词否决、三张表的补充词照常。记录列了极点表而 rime-wubi 文件丢了时，Wubi 阶段报错。
+    #[test]
+    fn the_split_86_layout_ranks_rime_wubi_rows_below_jidian_rows() {
+        let (temporary, dictionary, out, _) = wubi_fixture(XsjCheckout::Published);
+        let root = temporary.path().join("builder");
+        std::fs::write(
+            dictionary.join(wubi86_table::JIDIAN),
+            "甲\tabcd\t100\n乙\tefgh\t100\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dictionary.join(wubi86_table::RIME_WUBI),
+            "乙乙\tefef\t10\r\n甲甲\tabcd\t5000000\r\n",
+        )
+        .unwrap();
+        let read_json = |path: &Path| -> serde_json::Value {
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+        };
+        let lock_path = root.join("resources/dictionary-sources.lock.json");
+        let record_path = dictionary.join(sources::UPSTREAM_LOCK);
+        let (mut lock, mut record) = (read_json(&lock_path), read_json(&record_path));
+        for (name, path) in [
+            (wubi86_table::JIDIAN_REFERENCE, wubi86_table::JIDIAN),
+            (wubi86_table::RIME_WUBI_REFERENCE, wubi86_table::RIME_WUBI),
+        ] {
+            let reference = serde_json::json!({"repository": format!("https://example.invalid/{name}"), "commit": "a".repeat(40)});
+            lock["references"][name] = reference.clone();
+            record["upstreams"][name] = reference;
+            record["files"].as_array_mut().unwrap().push(serde_json::json!({"path": path, "upstream": name, "size": std::fs::metadata(dictionary.join(path)).unwrap().len(), "sha256": sha256_file(&dictionary.join(path)).unwrap()}));
+        }
+        std::fs::write(&lock_path, serde_json::to_vec(&lock).unwrap()).unwrap();
+        std::fs::write(&record_path, serde_json::to_vec(&record).unwrap()).unwrap();
+        let lock = Lock::load(&lock_path).unwrap();
+        let build = Build {
+            sources: Sources {
+                dictionary: Some(Dictionary::open(dictionary.clone(), &lock).unwrap()),
+                lock,
+                repository_inputs: root.join("resources/dictionary-sources"),
+                cache: temporary.path().join("cache"),
+                offline: true,
+            },
+            out: out.clone(),
+            complete: false,
+        };
+        let summary = build.run(Stage::Wubi).unwrap();
+        assert!(
+            summary.contains("wubi86-rime-wubi.txt at weight 10"),
+            "{summary}"
+        );
+        for stage in [Stage::Wubi98, Stage::WubiXsj] {
+            build.run(stage).unwrap();
+        }
+        let db = rusqlite::Connection::open(out.join("msime-pinyin.db")).unwrap();
+        let rows: Vec<(String, i64)> = db
+            .prepare(
+                "SELECT value, weight FROM wubi86 WHERE key='abcd' ORDER BY weight DESC, rowid",
+            )
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(rows, [("甲".to_owned(), 100), ("甲甲".to_owned(), 10)]);
+        // 新世纪表的第一层沿用换算后的权重；甲乙 照常由补充表给出 86 词组码。
+        assert_eq!(
+            db.query_row(
+                "SELECT max(weight) FROM wubixsj WHERE value='甲甲'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            10
+        );
+        assert_eq!(
+            db.query_row("SELECT key FROM wubi86 WHERE value='甲乙'", [], |row| row
+                .get::<_, String>(0))
+                .unwrap(),
+            "abef"
+        );
+        drop(db);
+
+        std::fs::remove_file(dictionary.join(wubi86_table::RIME_WUBI)).unwrap();
+        let error = format!("{:#}", build.run(Stage::Wubi).unwrap_err());
+        assert!(error.contains("missing"), "{error}");
     }
 
     /// 收快照之前的 checkout 都不发布新世纪表：只收了上游码表的（PR 合入顺序的中间状态，这时合入的日常词条也会触发发布），和连上游码表都没有、按旧 `upstream.lock.json` 打开的（重建 `dict-v2.0.41` 这类旧提交）。两者的 86、98 照常构建，新世纪阶段跳过而不是失败。

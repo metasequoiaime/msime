@@ -255,6 +255,17 @@ Aspell 词典包里的 `Copyright` 文件另含 Benjamin Titze 的澳大利亚�
 
 GPL-3.0 全文就是本项目根目录的 `LICENSE`，已随每个平台分发。
 
+### 86 五笔原表拆成极点表与 rime-wubi 两个文件
+
+| 文件 | 上游 | 上游许可 |
+| --- | --- | --- |
+| `sources/wubi/wubi86-jidian.txt`（msime-dictionary） | [KyleBing/rime-wubi86-jidian](https://github.com/KyleBing/rime-wubi86-jidian)，提交 `28f19e3affdabb37d11d38f457c7a08a4694b226` 的 `wubi86_jidian.dict.yaml` 数据区，另有 msime-dictionary 的 6 处改动 | Apache-2.0（取用时上游的条款） |
+| `sources/wubi/wubi86-rime-wubi.txt`（msime-dictionary） | [rime/rime-wubi](https://github.com/rime/rime-wubi)，提交 `152a0d3f3efe40cae216d1e3b338242446848d07` 的 `wubi86.dict.yaml` 里极点表没有的行 | LGPL-3.0 |
+
+上面副本里的 `sources/wubi/wubi86-jidian.txt` 是极点表加上 msime-dictionary #36 接在末尾的 rime-wubi 行。msime-dictionary 把两段按原样拆开，两个文件首尾相接仍是拆分前那个文件的全部字节，由它的 `upstream.lock.json` 分别记在 `rime-wubi86-jidian` 和 `rime-wubi` 下，构建器按同名的 reference 核对提交。极点表那一份与上游数据区不完全一致：msime-dictionary 的提交 `923ca17` 删掉了编码 `cokg` 下词为空、第 4 列写着「全角空格」的一行，给上游没有权重的 5 行补了权重 10，#36 给末行补了换行；逐条改动写在 msime-dictionary 的 `NOTICE.md`。上游 2026-10-29 把许可改成 MIT，这张表取自那之前的提交，那时的 `LICENSE` 与随包的 `rime-wubi86-jidian-Apache-2.0.txt`（提交 `063377a0e3ae7d4084a45f03e4269f62f874f7dc` 的 `LICENSE`）逐字节相同。
+
+从拆分后的布局起，构建器在读入之后对这两份数据做下面的修改，源文件本身不改：rime-wubi 那一份的每一行权重一律按 10 写入，上游的词频（0 到 444000000）不进表，所以这些行排在同码的极点行之后；两份里的 CJK 兼容汉字（U+F900–U+FAFF）与扩展区字一样不写入。词库锁换到收录这次拆分的 `dict-v*` 后，上面的副本会带上对应条目，到那时删掉本节。
+
 ### 构建时对 rime-ice 数据的删改
 
 从包含 msime `crates/dict-builder/src/curation.rs` 的构建器构建的第一次 `dict-v*` 发布起，构建器在读入之后对 rime-ice（GPL-3.0）的数据做下面的修改，源文件本身不改：

@@ -52,7 +52,7 @@ impl Lock {
 /// 构建器读取的 msime-dictionary 顶层目录；其下的路径只从 `--dictionary` checkout 读取，锁文件不固定其中任何文件。`curation/` 是维护者审定的否决表、权重覆盖表和粗俗词表（`curation.rs`），不接受投稿，也不是 msime-web、msime-cloud 读写的 `custom/`。
 const DICTIONARY_DIRECTORIES: [&str; 3] = ["sources/", "custom/", "curation/"];
 /// msime 认定为上游数据的 msime-dictionary 文件：原样复制自某个上游、或由 msime 的生成器从某个上游生成（`hkcancor-counts` 来自 HKCanCor，`english-supplement` 来自 SCOWL），写成精确路径或目录前缀，并配上上游名。manifest 的 references 和 `mozc_revision`、语言词库的 `source_commit` 以及随包许可证都写着这些上游的提交，所以 checkout 的 `upstream.lock.json` 必须用同一个上游名列出这些路径，并固定它们的大小和 SHA-256；记录里每个上游的提交必须等于锁文件的同名 reference（`mozc` 对应 `lock.mozc`）。要换成新版上游，先在 msime 改 reference 和 `resources/licenses`，再改 `upstream.lock.json`。
-const UPSTREAM_FILES: [(&str, &str); 17] = [
+const UPSTREAM_FILES: [(&str, &str); 19] = [
     ("sources/pinyin/rime-ice.txt", "rime-ice"),
     (
         "sources/pinyin/rime-ice-supplement.txt",
@@ -80,6 +80,15 @@ const UPSTREAM_FILES: [(&str, &str); 17] = [
     ("sources/wubi/wubi98-fcitx.txt", "fcitx5-table-extra"),
     // 新世纪五笔单字表：上游 `dicts/wubi06.dict.yaml` 的原样副本，许可与来源存疑之处见 msime-engine-dictionary-NOTICE.md。
     ("sources/wubi/wubixsj-byujiang.txt", "wubi06-rime"),
+    // 86 五笔原表拆成两个文件之后的布局（`wubi86_table.rs`）：极点表与 rime-wubi 补进来的行分别记在各自的上游名下。拆分之前的提交两者合在 `wubi86-jidian.txt` 里、锁里也没有它，那种布局由 `wubi86_table::Files::locate` 不经记录读取。
+    (
+        crate::wubi86_table::JIDIAN,
+        crate::wubi86_table::JIDIAN_REFERENCE,
+    ),
+    (
+        crate::wubi86_table::RIME_WUBI,
+        crate::wubi86_table::RIME_WUBI_REFERENCE,
+    ),
 ];
 
 /// The upstream reference `path` is a copy of or is generated from at a recorded commit, if any. The first matching entry of `UPSTREAM_FILES` wins, so an exact path listed before its directory's prefix (HKCanCor's counts beside rime-cantonese's files) names its own upstream.
@@ -239,6 +248,13 @@ impl Sources {
             bail!("missing repository input {}", resolved.display());
         }
         Ok(resolved)
+    }
+
+    /// checkout 的 `upstream.lock.json` 是否记录了 `path`；没有 checkout 时为 `false`。
+    pub fn records(&self, path: &str) -> bool {
+        self.dictionary
+            .as_ref()
+            .is_some_and(|dictionary| dictionary.file(path).is_some())
     }
 
     /// `path` 在 `--dictionary` checkout 里的位置；没有 checkout，或 `path` 不属于 msime-dictionary 时为 `None`。

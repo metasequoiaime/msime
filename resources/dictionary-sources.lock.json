@@ -52,6 +52,14 @@
       "repository": "https://github.com/byujiang/wubi06_rime.git",
       "commit": "fc1cedbb21cde3ca160ce291888fa70697720ab3"
     },
+    "rime-wubi86-jidian": {
+      "repository": "https://github.com/KyleBing/rime-wubi86-jidian.git",
+      "commit": "28f19e3affdabb37d11d38f457c7a08a4694b226"
+    },
+    "rime-wubi": {
+      "repository": "https://github.com/rime/rime-wubi.git",
+      "commit": "152a0d3f3efe40cae216d1e3b338242446848d07"
+    },
     "OpenCC": {
       "repository": "https://github.com/BYVoid/OpenCC.git",
       "commit": "26753884f1984add422f3b0249ccee8613deaff6"

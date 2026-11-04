@@ -3,6 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::curation::PinyinCuration;
+use crate::msime;
 use crate::places_supplement::is_han;
 
 /// 每个字的全码：码表里该字单独出现时最长的编码。
@@ -113,7 +114,7 @@ pub(crate) fn pinyin_words<'a>(
         .collect()
 }
 
-/// 既有行定义全码、同码最低权重和唯一四码；候选已由各版本独立筛选。
+/// 既有行定义全码、同码最低权重和唯一四码；候选已由各版本独立筛选。同码最低权重和唯一四码只算构建会写入的行（[`msime::unsupported_wubi_value`] 为假）：扩展区字的行几乎都是 0 权重，算进去会把同码补充词一律压成 0（极点表合并 rime-wubi 之后有 20538 个编码这样），而构建根本不写这些行。
 pub(crate) fn rank<'a>(
     rows: &[(String, &str, i64)],
     candidates: impl IntoIterator<Item = &'a str>,
@@ -123,7 +124,10 @@ pub(crate) fn rank<'a>(
     let codes = full_codes(rows);
     let mut lowest: HashMap<&str, i64> = HashMap::new();
     let mut per_code: HashMap<&str, usize> = HashMap::new();
-    for (code, _, weight) in rows {
+    for (code, _, weight) in rows
+        .iter()
+        .filter(|(_, value, _)| !msime::unsupported_wubi_value(value))
+    {
         let slot = lowest.entry(code.as_str()).or_insert(*weight);
         *slot = (*slot).min(*weight);
         *per_code.entry(code.as_str()).or_default() += 1;
@@ -223,5 +227,33 @@ mod tests {
         assert_eq!(frequency.order["民工"], 99);
         let words = pinyin_words(&frequency.threshold, 100, &[custom], &curation);
         assert_eq!(words.into_iter().collect::<Vec<_>>(), ["人民", "工人日"]);
+    }
+
+    /// 同码最低权重只看构建会写入的行：`ukuy` 上 0 权重的扩展 A 区字和兼容汉字不写入，补充词的上限仍是 9；`wwna` 上只有扩展区的行，也按没有原有行算，四码唯一的统计也不把它算进去。
+    #[test]
+    fn rank_ignores_rows_the_build_leaves_out() {
+        let rows = vec![
+            ("ukbh".to_owned(), "部", 10),
+            ("uyhn".to_owned(), "门", 10),
+            ("ukuy".to_owned(), "冲凉", 10),
+            ("ukuy".to_owned(), "\u{3400}", 0),
+            ("ukuy".to_owned(), "\u{FA0C}", 0),
+            ("wwww".to_owned(), "人", 10),
+            ("nav".to_owned(), "民", 10),
+            ("wwna".to_owned(), "\u{20000}", 0),
+        ];
+        let ranked = rank(
+            &rows,
+            ["部门", "人民"],
+            &HashMap::from([("部门", 100), ("人民", 100)]),
+            9,
+        );
+        let weights: Vec<(&str, &str, i64)> = ranked
+            .entries
+            .iter()
+            .map(|entry| (entry.word, entry.code.as_str(), entry.weight))
+            .collect();
+        assert_eq!(weights, [("部门", "ukuy", 9), ("人民", "wwna", 9)]);
+        assert_eq!(ranked.unique_codes_shared, 1);
     }
 }

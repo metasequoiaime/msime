@@ -324,16 +324,25 @@ impl PinyinCuration {
     }
 }
 
-/// 五笔原表（86 极点表、两张 98 表）的每一行：`(文件, 编码, 词)`，按文件和行的先后，按构建读它们的方式解析。整词否决在这些表里也生效：`word-vetoes` 判断只在五笔里出现的整词否决是否过期、`cleanse-report` 找五笔原表里的粗俗碎片，读的都是它。新世纪表只收单字，整词否决不收单字，所以不读它。
+/// 五笔原表（86 原表、两张 98 表）的每一行：`(文件, 编码, 词)`，按文件和行的先后，按构建读它们的方式解析。86 原表经 [`crate::wubi86_table`] 读，拆分后的布局里 rime-wubi 那部分只算构建会写入的行，记在 [`crate::wubi86_table::RIME_WUBI`] 名下。整词否决在这些表里也生效：`word-vetoes` 判断只在五笔里出现的整词否决是否过期、`cleanse-report` 找五笔原表里的粗俗碎片，读的都是它。新世纪表只收单字，整词否决不收单字，所以不读它。
 pub fn wubi_source_rows(sources: &Sources) -> Result<Vec<(&'static str, String, String)>> {
     use crate::{
-        wubi86_supplement::JIDIAN, wubi98_supplement::WUBI98, wubi98_supplement::WUBI98_FCITX,
+        wubi86_table::{JIDIAN, RIME_WUBI},
+        wubi98_supplement::WUBI98,
+        wubi98_supplement::WUBI98_FCITX,
     };
     let mut rows = Vec::new();
-    let jidian = text::read(&sources.pinned(JIDIAN)?)?;
-    for line in text::universal_lines(text::without_bom(&jidian)) {
-        if let Some((code, value, _)) = msime::parse_code_line(line, false) {
-            rows.push((JIDIAN, code, value.to_owned()));
+    let table = crate::wubi86_table::Files::locate(sources)?.read()?;
+    // `wubi86_table::rows` 先逐行给出极点表（每行一项，无效行为 `None`），之后才是 rime-wubi 留下的行，所以按项数就能分出所在的文件。
+    let jidian_rows = crate::wubi86_table::rows(&table.jidian, None).count();
+    for (index, row) in table.rows().enumerate() {
+        if let Some((code, value, _)) = row {
+            let file = if index < jidian_rows {
+                JIDIAN
+            } else {
+                RIME_WUBI
+            };
+            rows.push((file, code, value.to_owned()));
         }
     }
     let wubi98_path = sources.pinned(WUBI98)?;

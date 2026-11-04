@@ -13,6 +13,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use crate::curation::PinyinVetoes;
 use crate::sqlite;
 use crate::text;
+use crate::wubi86_table;
 
 // The SQL text is kept byte for byte as the Python pipeline wrote it: SQLite stores it in sqlite_master, and the schema is part of what a rebuild must reproduce.
 const CREATE_QUANPIN_TABLE: &str = "\ncreate table if not exists {} (\n   \"key\" text, -- 全拼拼音\n   \"jp\" text, -- 全拼简拼\n   \"value\" text, -- 对应的汉字或者词组\n   \"weight\" integer default 0 -- 权重\n);\n";
@@ -496,24 +497,26 @@ fn write_code_table<'a>(
 /// msime-dictionary 手工维护的 86 五笔词条（`value<TAB>code<TAB>weight`，只追加），例如挂在 一…十 的五笔码上的 ①…⑩。构建时接在极点表和生成补充表之后，没有这个文件的 checkout 按空表构建。
 pub const CUSTOM_WUBI86: &str = "custom/wubi86.txt";
 
-/// 按极点表、生成补充表、手工词条（[`CUSTOM_WUBI86`]，有的话）的顺序构建 `wubi86`；provider 对同权重候选按 rowid 排序，因此后面来源中同码同权重的行排在前面来源之后。基本区以外的字符和 Unicode 私用区字符不写入词库，`vetoes` 整词否决的词也不写入。返回导入、跳过（空行、注释或无效行）、过滤和否决的行数。
+/// 按 86 原表（[`wubi86_table::Files`]：极点表，新布局下再加 rime-wubi 的行，权重按 [`wubi86_table::rows`] 换算）、`later`（生成补充表、手工词条 [`CUSTOM_WUBI86`]，有的话）的顺序构建 `wubi86`；provider 对同权重候选按 rowid 排序，因此后面来源中同码同权重的行排在前面来源之后。基本区以外的字符、Unicode 私用区字符和兼容汉字不写入词库，`vetoes` 整词否决的词也不写入。返回导入、跳过（空行、注释或无效行）、过滤和否决的行数。
 pub fn build_wubi(
     connection: &mut Connection,
-    paths: &[&Path],
+    table: &wubi86_table::Files,
+    later: &[&Path],
     vetoes: &PinyinVetoes,
 ) -> Result<(usize, usize, usize, usize)> {
-    let sources = paths
+    let table = table.read()?;
+    let later = later
         .iter()
         .map(|path| text::read(path))
         .collect::<Result<Vec<_>>>()?;
     let mut filtered = 0;
-    let rows = sources
-        .iter()
-        .flat_map(|source| {
+    let rows = table
+        .rows()
+        .chain(later.iter().flat_map(|source| {
             text::universal_lines(text::without_bom(source))
                 .into_iter()
                 .map(|line| parse_code_line(line, false))
-        })
+        }))
         .filter_map(|row| match row {
             Some((_, value, _)) if unsupported_wubi_value(value) => {
                 filtered += 1;
@@ -532,13 +535,13 @@ pub(crate) fn outside_basic_cjk(value: &str) -> bool {
         .any(|character| matches!(u32::from(character), 0x3400..=0x4DBF | 0x10000..))
 }
 
-/// 判断五笔候选是否不能由内置字体稳定显示：基本区外字符和 Unicode 私用区字符都没有通用字形。
+/// 判断五笔候选是否不写入词库：基本区外字符和 Unicode 私用区字符都没有通用字形；CJK 兼容汉字区（U+F900–U+FAFF）大多是为与旧字符集往返保留的码位，有规范分解、与基本区的某个字同形（U+FA0C 分解为 兀 U+5140），码表里它们和正规字共用编码、有时还排在正规字之前，选到的字检索、比对都对不上；区内另有 12 个没有分解的字（如 U+FA11），只见于日文人名等场合，一并不收。
 pub(crate) fn unsupported_wubi_value(value: &str) -> bool {
     outside_basic_cjk(value)
         || value.chars().any(|character| {
             matches!(
                 u32::from(character),
-                0xE000..=0xF8FF | 0xF0000..=0xFFFFD | 0x100000..=0x10FFFD
+                0xE000..=0xF8FF | 0xF900..=0xFAFF | 0xF0000..=0xFFFFD | 0x100000..=0x10FFFD
             )
         })
 }
@@ -824,6 +827,14 @@ mod tests {
         let path = dir.join(name);
         std::fs::write(&path, text).unwrap();
         path
+    }
+
+    /// 旧布局：一个合并的 86 原表。
+    fn merged(jidian: std::path::PathBuf) -> wubi86_table::Files {
+        wubi86_table::Files {
+            jidian,
+            rime_wubi: None,
+        }
     }
 
     #[test]
@@ -1365,7 +1376,13 @@ mod tests {
         );
         let mut connection = Connection::open_in_memory().unwrap();
         assert_eq!(
-            build_wubi(&mut connection, &[&wubi], &PinyinVetoes::default()).unwrap(),
+            build_wubi(
+                &mut connection,
+                &merged(wubi),
+                &[],
+                &PinyinVetoes::default()
+            )
+            .unwrap(),
             (2, 0, 5, 0)
         );
         let values: Vec<String> = connection
@@ -1390,7 +1407,7 @@ mod tests {
         );
         let mut connection = Connection::open_in_memory().unwrap();
         assert_eq!(
-            build_wubi(&mut connection, &[&wubi], &vetoes).unwrap(),
+            build_wubi(&mut connection, &merged(wubi), &[], &vetoes).unwrap(),
             (2, 0, 0, 1)
         );
         let mut bytes = vec![0xff, 0xfe];
@@ -1418,6 +1435,86 @@ mod tests {
         }
     }
 
+    /// 新布局下 rime-wubi 的行按 10 写入，排在同码极点行之后、补充行之前；兼容汉字（U+FA0C、U+FA11）不论来自哪个文件都不写入。旧布局读同样的字节时 rime-wubi 的行保留原来的权重，排到极点首选之前。
+    #[test]
+    fn wubi86_ranks_rime_wubi_rows_after_jidian_rows_and_drops_compatibility_ideographs() {
+        let dir = tempfile::tempdir().unwrap();
+        let jidian = write(
+            dir.path(),
+            "jidian.txt",
+            "兄\tkq\t20\n叫\tkq\t10\n\u{FA11}\tmukh\t10\n",
+        );
+        let rime_wubi = write(
+            dir.path(),
+            "rime-wubi.txt",
+            "\u{FA0C}\tgqv\t2370000\r\n咪\tkq\t61900000\r\n兄弟\tkq\t300\r\n",
+        );
+        let supplement = write(dir.path(), "supplement.txt", "另\tkq\t9\n");
+        let order = |connection: &Connection| -> Vec<(String, i64)> {
+            connection
+                .prepare(
+                    "select value, weight from wubi86 where key = 'kq' order by weight desc, rowid",
+                )
+                .unwrap()
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .unwrap()
+                .map(Result::unwrap)
+                .collect()
+        };
+        let mut connection = Connection::open_in_memory().unwrap();
+        let split = wubi86_table::Files {
+            jidian: jidian.clone(),
+            rime_wubi: Some(rime_wubi.clone()),
+        };
+        assert_eq!(
+            build_wubi(
+                &mut connection,
+                &split,
+                &[&supplement],
+                &PinyinVetoes::default()
+            )
+            .unwrap(),
+            (5, 0, 2, 0)
+        );
+        assert_eq!(
+            order(&connection),
+            [
+                ("兄".to_owned(), 20),
+                ("叫".to_owned(), 10),
+                ("咪".to_owned(), 10),
+                ("兄弟".to_owned(), 10),
+                ("另".to_owned(), 9),
+            ]
+        );
+        let compatibility: i64 = connection
+            .query_row(
+                "select count(*) from wubi86 where value in (?1, ?2)",
+                params!["\u{FA0C}", "\u{FA11}"],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(compatibility, 0);
+
+        let whole = dir.path().join("merged.txt");
+        std::fs::write(
+            &whole,
+            [
+                std::fs::read(&jidian).unwrap(),
+                std::fs::read(&rime_wubi).unwrap(),
+            ]
+            .concat(),
+        )
+        .unwrap();
+        build_wubi(
+            &mut connection,
+            &merged(whole),
+            &[],
+            &PinyinVetoes::default(),
+        )
+        .unwrap();
+        assert_eq!(order(&connection)[0], ("咪".to_owned(), 61900000));
+    }
+
     #[test]
     fn code_tables_skip_invalid_lines_and_keep_the_higher_weight() {
         let dir = tempfile::tempdir().unwrap();
@@ -1428,7 +1525,13 @@ mod tests {
         );
         let mut connection = Connection::open_in_memory().unwrap();
         assert_eq!(
-            build_wubi(&mut connection, &[&wubi], &PinyinVetoes::default()).unwrap(),
+            build_wubi(
+                &mut connection,
+                &merged(wubi),
+                &[],
+                &PinyinVetoes::default()
+            )
+            .unwrap(),
             (3, 4, 0, 0)
         );
         let wubi_rows: Vec<(String, String, i64)> = connection

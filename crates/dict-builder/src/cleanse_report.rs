@@ -1007,9 +1007,12 @@ pub fn run(options: &Options, sources: &crate::sources::Sources) -> Result<Vec<(
     write("vulgar-fragments.tsv", out, found.len())?;
 
     let wubi = curation::wubi_source_rows(sources)?;
-    let mut wubi_digests = Vec::new();
+    let mut wubi_digests: Vec<(String, String)> = crate::wubi86_table::Files::locate(sources)?
+        .digests()?
+        .into_iter()
+        .map(|(path, digest)| (path.to_owned(), digest))
+        .collect();
     for path in [
-        crate::wubi86_supplement::JIDIAN,
         crate::wubi86_supplement::WUBI98,
         crate::wubi86_supplement::WUBI98_FCITX,
     ] {
