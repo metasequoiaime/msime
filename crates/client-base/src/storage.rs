@@ -121,6 +121,14 @@ impl Drop for StagingDirectory {
 /// Apple 平台不逐级打开：iOS 沙盒不允许应用以读方式打开容器的祖先目录（`/private/var/mobile/Containers/Shared/AppGroup` 这些），逐级 `RDONLY` 在走到 App Group 容器之前就 EPERM，统计、账号、剪贴板等私有文件读写全部失败，而 Darwin 没有 `O_PATH`。`O_NOFOLLOW_ANY` 让内核在一次解析里拒绝路径上任何一级符号链接，与逐级 `NOFOLLOW` 一样不留检查与打开之间的窗口，解析只需要祖先的搜索权限。路径经过 `msime-path-trust` 列出的系统别名（`/var`、`/tmp`）时先换成它唯一受信任的目标再打开。
 #[cfg(target_vendor = "apple")]
 pub fn open_private_directory(parent: &Path) -> io::Result<File> {
+    if fs::symlink_metadata(parent).is_ok_and(|metadata| metadata.file_type().is_symlink())
+        && !msime_path_trust::is_trusted_system_alias(parent)
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "private directory path is a symbolic link",
+        ));
+    }
     let flags = rustix::fs::OFlags::RDONLY
         | rustix::fs::OFlags::DIRECTORY
         | rustix::fs::OFlags::NOFOLLOW_ANY
@@ -154,6 +162,14 @@ pub fn open_private_directory(parent: &Path) -> io::Result<File> {
 
 #[cfg(all(unix, not(target_vendor = "apple")))]
 pub fn open_private_directory(parent: &Path) -> io::Result<File> {
+    if fs::symlink_metadata(parent).is_ok_and(|metadata| metadata.file_type().is_symlink())
+        && !msime_path_trust::is_trusted_system_alias(parent)
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "private directory path is a symbolic link",
+        ));
+    }
     let flags = rustix::fs::OFlags::RDONLY
         | rustix::fs::OFlags::DIRECTORY
         | rustix::fs::OFlags::NOFOLLOW
@@ -198,6 +214,18 @@ pub fn open_private_directory(parent: &Path) -> io::Result<File> {
             }
             std::path::Component::Normal(name) => {
                 logical.push(name);
+                let kind = rustix::fs::FileType::from_raw_mode(
+                    rustix::fs::statat(&directory, name, rustix::fs::AtFlags::SYMLINK_NOFOLLOW)?
+                        .st_mode,
+                );
+                if kind != rustix::fs::FileType::Directory
+                    && !msime_path_trust::is_trusted_system_alias(&logical)
+                {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "private directory path contains a non-directory",
+                    ));
+                }
                 directory =
                     match rustix::fs::openat(&directory, name, search, rustix::fs::Mode::empty()) {
                         Ok(directory) => directory,
@@ -215,6 +243,14 @@ pub fn open_private_directory(parent: &Path) -> io::Result<File> {
                         }
                         Err(error) => return Err(error.into()),
                     };
+                if rustix::fs::FileType::from_raw_mode(rustix::fs::fstat(&directory)?.st_mode)
+                    != rustix::fs::FileType::Directory
+                {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "private directory path contains a non-directory",
+                    ));
+                }
             }
         }
     }

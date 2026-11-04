@@ -11,7 +11,7 @@ import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 
-/** Device-bound encrypted storage for the backend account session. 原生安装包里由 {@link AccountStore} 交给 Rust 读写，Tauri 合包里由 {@code AccountPlugin} 交给 Tauri 的 Rust 客户端。 */
+/** 与设备绑定的账号会话加密存储，由 {@link AccountStore} 交给 Rust 读写。 */
 public final class AndroidAccountSessionStorage {
     public static final String PREFERENCES_NAME = "msime_account_session_v1";
     public static final int MAX_PAYLOAD_BYTES = 16 * 1024;

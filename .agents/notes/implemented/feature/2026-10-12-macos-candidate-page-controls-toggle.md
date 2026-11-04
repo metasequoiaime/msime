@@ -22,6 +22,8 @@ macOS 复用 `show_candidate_page_number`，不新增偏好：
 - 输入法保存偏好时总把当前值写进 `show_candidate_page_number`，和 `show_app_logo` 一样。输入法每次载入文档都先填 `_sharedShowsCandidatePageNumber`，所以写回去的就是文档里的值；「恢复默认值」清掉本机值和共享值后，写回的是默认的显示，恢复才落到文档里。
 - `InputController.mm` 的 `renderCandidates` 用 `pageControls = paging && showsCandidatePageNumber` 决定画不画「1 / 3」和 ‹ ›、首行高度和宽度、以及 `candidatePageGeometry` 为箭头留的 76pt 最小宽度。`paging` 本身不变，面板的 `hasPreviousPage` / `hasNextPage` 仍按页码设置，滚轮（打开时）和键盘翻页不受开关影响。`updateKeymapPanel` 算双拼键位图让开的高度时用同一条规则。
 - MCP `update_preferences` 和 `msime config set` 也能读写这个字段（`crates/mcp-server/src/preferences.rs`），和 `show_app_logo` 一样。
+- Windows 和 Android 也声明 `candidate_page_number`（#10709）。Windows 候选窗自[缺省几何对齐 macOS](2026-10-20-windows-candidate-mac-default-geometry.md)起就按这个字段一起隐藏首行的「1 / 3」和 ‹ ›（`CandidateLayoutSettings.h`），只是没声明能力、原生设置窗口也没有这一行，用户关不掉。现代 Windows 设置「候选窗口 › 布局」在每页候选数之后加「显示页码和翻页按钮」（`settings/main.cpp`，说明同 macOS），Win7 设置的「候选窗口布局」加同名复选框（`settings/win7/CandidateAppearanceForm.h`，缺值和 null 读成开）。Android 候选栏读音行右侧的「1/3」改由 `CandidatePageLabelPolicy` 按这个字段决定，键盘只跟实时偏好、读到之前按开；设置 App「键盘 › 工具栏 › 键盘工具栏」在「候选栏大小」之后加「显示页码」，写同一个共享字段。Android 候选栏没有翻页箭头，共享设置页对 Android 仍用「显示页码」这个行名。
+- 出厂值不动：client-core 的默认、各宿主缺字段时的读法都还是显示，这次只让已有的开关在 Windows 和 Android 上够得着。鸿蒙 2in1 的候选窗也画页码和 ‹ ›（`CandidatePagerPolicy.ts`），但宿主不读这个字段，仍不声明；iOS 候选栏不画页码。
 
 logo、拼音、页码和翻页按钮都关掉时，首行高度为 0，卡片只剩候选行。
 
@@ -58,11 +60,12 @@ Linux 的开关只去掉辅助文本里的当前页/总页数，那里没有箭�
   - 同一个 `show_candidate_page_number` 在 Linux 和 macOS 上管的范围不同（macOS 多了箭头），靠两个平台各自的行名说明。
   - 关掉页码和翻页按钮后鼠标只能用滚轮翻页，而滚轮翻页默认关，用户要按说明自己打开它。
   - `candidate_padding` 是新顶层字段，`Preferences` 带 `deny_unknown_fields`，早于它的设置应用或 `msime-mcp` 会拒读设过内边距的文档；没设过时字段不写入，不受影响。正式发布里输入法和设置应用同包，版本一致。
-  - Windows 候选窗首行也画「1 / 3」和 ‹ ›（[Windows 候选窗](2026-10-10-windows-candidate-window-mac-parity.md) 的 `pager_visible`），已经读 `show_candidate_page_number`（[Windows 缺省几何对齐 macOS](2026-10-20-windows-candidate-mac-default-geometry.md)），但还没有声明 `candidate_page_number`，原生设置窗口也还没有这一行；内边距同样只有 macOS 读。
+  - 同一个字段在 Android 上只管页码文字，在 macOS、Windows 和 Fcitx5 上连同 ‹ › 一起管，靠各端行名区分。内边距仍只有 macOS 读。
+  - 鸿蒙 2in1 候选窗的页码还关不掉，要等它的宿主读这个字段再声明。
 
 ## Verification
 
-- `crates/client-core/tests/candidate_page_number.rs` 的 `linux_and_macos_expose_the_page_number_control` 断言只有 Linux 和 macOS 声明能力；`host_surface/tests.rs` 的 `only_macos_offers_the_candidate_padding` 断言只有 macOS 声明 `candidate_padding`。
+- `crates/client-core/tests/candidate_page_number.rs` 的 `hosts_that_draw_page_numbers_expose_the_page_number_control` 断言 Linux、macOS、Windows 和 Android 声明能力，iOS 和鸿蒙不声明；`candidate-page-number-section.test.tsx` 断言 Windows 的行名和说明同 macOS、Android 仍是「显示页码」；Win7 的 `tests/ui/windows7_settings.cpp` 断言复选框缺值时勾选、点掉写 false、再点写回 true；Android JVM 冒烟 `CandidatePageLabelPolicySmoke` 断言只有布尔 false 隐藏页码、其余值按开，以及标签的格式。`host_surface/tests.rs` 的 `only_macos_offers_the_candidate_padding` 断言只有 macOS 声明 `candidate_padding`。
 - `preferences/tests.rs` 的 `candidate_padding_is_absent_by_default_and_bounded`：缺省不写入文档，0、2、16 往返不变并能存进偏好库，17 被拒。
 - `crates/mcp-server/src/preferences.rs` 的 `the_page_number_switch_is_read_and_written` 和 `the_candidate_padding_is_set_and_returned_to_the_skin`：开关能关掉；内边距能设、null 交还皮肤、17 被拒。
 - `apps/desktop/tests/settings/settings.test.tsx`：macOS 宿主上行名是「显示页码和翻页按钮」，说明指向滚轮翻页的设置，点掉后保存 `show_candidate_page_number: false`；「basic to advanced」按平台期待行名。

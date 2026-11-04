@@ -66,6 +66,8 @@ pub struct EngineOptions {
     /// `shuangpin_profile` 为 4 时的键位表（`SessionOptions::shuangpin_custom_profile`）。双拼在 `enabled_schemes` 里时缺表或表不合法，建会话失败（`INVALID_CUSTOM_SHUANGPIN_PROFILE`）；宿主应先用 `validate_shuangpin_custom_profile` 校验，不合法就不要传 4。
     pub shuangpin_custom_profile: Option<ShuangpinCustomTable>,
     pub shuangpin_preedit_uses_raw: bool,
+    /// `SessionOptions::shuangpin_preedit_separated`：原始按键按音节插 `'`。
+    pub shuangpin_preedit_separated: bool,
     /// 独立粤语双拼入口强制解释同形两键码；其余入口为 false。
     pub force_cantonese_shuangpin: bool,
     pub learning: bool,
@@ -96,6 +98,8 @@ pub struct EngineOptions {
     pub helpcode_table: Option<SharedKeymap>,
     /// 主资源缺少内置辅助码表时，从宿主指定的随包资源根目录读取；自定义表不回退。
     pub helpcode_fallback_resources: Option<String>,
+    /// 用户自己的辅助码表所在的根目录（宿主的状态根）：`custom/<stem>` 先读这里的 `helpcodes/custom`，没有时再读 `resources` 里的，见 `load_helpcode_keymap_in`。
+    pub custom_helpcode_root: Option<String>,
     pub chinese_punctuation: bool,
     pub paired_punctuation: bool,
     pub punctuation_lock: u8,
@@ -228,6 +232,7 @@ pub fn prepare_options_for(
         shuangpin_profile: ShuangpinProfileKind::Xiaohe as u8,
         shuangpin_custom_profile: None,
         shuangpin_preedit_uses_raw: true,
+        shuangpin_preedit_separated: false,
         force_cantonese_shuangpin: false,
         single_character_only: false,
         caret_edit_suffix: false,
@@ -248,6 +253,7 @@ pub fn prepare_options_for(
         helpcode_trigger_key: None,
         helpcode_table: None,
         helpcode_fallback_resources: None,
+        custom_helpcode_root: None,
         chinese_punctuation: true,
         paired_punctuation: true,
         punctuation_lock: 0,
@@ -350,6 +356,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
         shuangpin_profile,
         shuangpin_custom_profile: options.shuangpin_custom_profile.clone(),
         shuangpin_preedit_uses_raw: options.shuangpin_preedit_uses_raw,
+        shuangpin_preedit_separated: options.shuangpin_preedit_separated,
         vietnamese_input_method,
         vietnamese_tone_style,
         korean_layout,
@@ -365,6 +372,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
             .helpcode_fallback_resources
             .as_ref()
             .map(PathBuf::from),
+        custom_helpcode_root: options.custom_helpcode_root.as_ref().map(PathBuf::from),
         autocorrect_types,
         helpcode: options.helpcode,
         strict_quanpin_helpcode: options.strict_quanpin_helpcode,

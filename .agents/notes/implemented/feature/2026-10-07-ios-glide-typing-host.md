@@ -8,6 +8,8 @@ Status: implemented
 
 ## Decision
 
+iOS 可选的同笔中英能力与明确选词规则见[中英文滑行](2026-11-03-bilingual-glide.md)。
+
 - 开关「滑行输入」在 App 的「键盘」页新增的「手势」一节，存 App Group 的 `keyboard.gesture.glide`（`KeyboardLayoutPreference.glideTyping`），默认关；键盘每次出现时读一次。只在本机，不进共享文档，也不随设置同步。
 - 判定与请求的纯逻辑在 `KeyboardExtension/Sources/input/GlideTyping.swift`，不依赖 UIKit：手指在另一个字母键上、且横向离开按下点至少 0.4 个键宽才开始滑行；请求的 `keys` 是 a..z 的键中心，`key_width`/`key_height` 取二十六个键里最小的宽和高，`points` 均匀抽到至多 1024 个、首尾保留，坐标一位小数、时间取整毫秒。
 - `GlideTypingGestureRecognizer`（`KeyboardExtension/Sources/keyboard/GlideTypingGesture.swift`）挂在键区根视图 `KeyAreaStackView` 上，判定为滑行之前一直停在 `.possible`，`delaysTouchesBegan`/`delaysTouchesEnded` 都关掉，轻点的时序不变；判定成立时进入 `.began`，`cancelsTouchesInView` 让 UIKit 取消原来那个键的触摸，它不上屏、高亮和放大预览一起消失。采样用 `coalescedTouches`。

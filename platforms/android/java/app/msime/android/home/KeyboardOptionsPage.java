@@ -2,6 +2,7 @@ package app.msime.android.home;
 
 import app.msime.android.ClipboardExport;
 import app.msime.android.ClipboardHistoryPolicy;
+import app.msime.android.CandidatePageLabelPolicy;
 import app.msime.android.CandidateScalePolicy;
 import app.msime.android.CandidatePreeditStylePolicy;
 
@@ -318,6 +319,10 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         bar.slider("候选栏大小", null,
             CandidateScalePolicy.MIN_PERCENT, CandidateScalePolicy.MAX_PERCENT, CandidateScalePolicy.STEP_PERCENT,
             candidateScale, value -> value + "%", this::saveCandidateScale).help("候选字和工具栏一起缩放，按键大小不变");
+        // 共享偏好 `show_candidate_page_number`，与桌面「候选窗口」页的页码开关是同一个字段，缺值按开（#10709）。候选栏读音行右侧的「1/3」跟着它显示或隐藏；工具栏隐藏时候选栏照常显示页码，所以这一行不跟着置灰。
+        bar.toggle("显示页码", null,
+            CandidatePageLabelPolicy.shown(preferences.opt(CandidatePageLabelPolicy.PREFERENCE)),
+            checked -> savePreference(CandidatePageLabelPolicy.PREFERENCE, checked)).help("候选多于一页时在读音行右侧显示当前页与总页数；关闭后仍可滑动候选栏或展开面板翻看");
         boolean customToolbarSize = settings.has(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT);
         int toolbarSize = settings.integer(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT);
         bar.nav("工具栏尺寸", null,

@@ -2,6 +2,19 @@ import UIKit
 import XCTest
 
 final class InputBridgeResponseTests: XCTestCase {
+  func testExplicitCandidateSelectionStateIsDecodedAndPreserved() throws {
+    let state = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: state) }
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    XCTAssertFalse(try bridge.snapshot(from: ["view": [:]]).requiresCandidateSelection)
+    let pending = try bridge.snapshot(from: ["view": ["requires_candidate_selection": true]])
+    XCTAssertTrue(pending.requiresCandidateSelection)
+    XCTAssertTrue(pending.replacingCommit(nil).requiresCandidateSelection)
+    for invalid: Any in ["true", 1, NSNull()] {
+      XCTAssertThrowsError(try bridge.snapshot(from: ["view": ["requires_candidate_selection": invalid]]))
+    }
+  }
+
   func testQuickPhraseCursorSuffixDecodingAndCommitReplacement() throws {
     let state = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: state) }

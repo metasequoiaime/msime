@@ -233,6 +233,12 @@ pub struct QuanpinDictionary {
     /// 最近几张整句图的非末列束状态，没命中 `sentence_decode_cache` 的解码从共用前缀的那张图接着解（`BeamPrefixCache`）。与 `sentence_decode_cache` 一起清空，个人模型版本另在每张存档里核对。
     beam_prefixes: BeamPrefixCache,
     rerankers: Vec<NeuralReranker>,
+    /// 拼整句时给前缀打分的模型（`QueryRequest::sentence_scorer`），见 `lattice::decode::BeamModel`。换了就清掉整句缓存。
+    sentence_scorer: crate::ordering::SentenceScorerHandle,
+    /// 束搜索里模型分的备忘：文字 → 逐字平均对数概率，只对 `rescoring_context` 这一段上文成立，上文或模型一变就清空。同一句话每次按键都重解一遍，前面几列的假设和上一键一样，备忘里都有，只有新的一列要跑模型。
+    beam_model_memo: RefCell<HashMap<String, f32>>,
+    /// 这次查询的主读法的音节。整句打分器只进它的束搜索：同一串拼音的备选切分（`nian'gao` 之外的 `ni'an'ga'o`）每个都要整句解一遍，都让模型打分，一次按键要跑五六遍模型。
+    beam_model_segments: Vec<String>,
     /// octagram `.gram` 语法模型；路径由 `set_sentence_association` 给定、经
     /// `GramDb::shared` 进程内共享，缺失或非法时为 `None` 退回无搭配打分。
     collocation_db: Option<Arc<crate::lattice::octagram::GramDb>>,
@@ -288,6 +294,9 @@ impl QuanpinDictionary {
             sentence_decode_cache: FifoCache::new(SENTENCE_DECODE_CACHE_CAPACITY),
             beam_prefixes: BeamPrefixCache::default(),
             rerankers: Vec::new(),
+            sentence_scorer: Default::default(),
+            beam_model_memo: RefCell::default(),
+            beam_model_segments: Vec::new(),
             collocation_db: None,
             sentence_alternatives: false,
             sentence_pool: 0,
@@ -792,7 +801,20 @@ impl QuanpinDictionary {
         let trimmed = last_characters(context, CONTEXT_CHARACTERS);
         if self.rescoring_context != trimmed {
             self.rescoring_context = trimmed.to_string();
+            self.beam_model_memo.borrow_mut().clear();
         }
+    }
+
+    /// 拼整句时给前缀打分的模型，见 [`crate::ordering::SentenceScorer`]。换了（按指针比较）就清掉按旧模型解出的整句和模型分备忘。
+    pub fn set_sentence_scorer(&mut self, scorer: &crate::ordering::SentenceScorerHandle) {
+        if self.sentence_scorer == *scorer {
+            return;
+        }
+        self.sentence_scorer = scorer.clone();
+        self.series_cache.clear();
+        self.sentence_decode_cache.clear();
+        self.beam_prefixes.clear();
+        self.beam_model_memo.borrow_mut().clear();
     }
 
     /// The series cache slot of a resolution's key (overlays.md §1.6.2). The association switches decide which sentence rows a list carries, so they are always part of the slot. The reference bypassed the cache while a neural model ran, because its scores came from an asynchronous worker; scoring here is synchronous, so a reranked list is cached under the trimmed context it was scored with and a commit moves the next query to a fresh slot instead of clearing every list.
@@ -800,7 +822,7 @@ impl QuanpinDictionary {
         series_slot_key(
             cache_key,
             &self.sentence_association,
-            !self.rerankers.is_empty(),
+            !self.rerankers.is_empty() || self.sentence_scorer.0.is_some(),
             &self.rescoring_context,
         )
     }
@@ -890,7 +912,7 @@ impl QuanpinDictionary {
         let mut segments = None;
         let segmentation_cache = &mut self.segmentation_cache;
         let association = self.sentence_association.clone();
-        let has_rerankers = !self.rerankers.is_empty();
+        let has_rerankers = !self.rerankers.is_empty() || self.sentence_scorer.0.is_some();
         let context = &self.rescoring_context;
         let pinyin_segmentation = &mut self.pinyin_segmentation;
         let (resolution_hash, (resolution, marking_alternatives, slot)) =
@@ -955,6 +977,15 @@ impl QuanpinDictionary {
         self.validate_row_caches();
         let alternatives = alternative_segmentations(raw, &segments, &resolution, types);
         let primary_segmentation = resolution.segmentation.as_str();
+        // 不挂整句打分器时不记，冷查询的分配次数与以前相同。
+        if self.sentence_scorer.0.is_some() {
+            self.beam_model_segments
+                .clone_from(if resolution.corrected_input {
+                    &resolution.corrected
+                } else {
+                    &segments
+                });
+        }
         let mut result;
         if resolution.corrected_input {
             // The corrected reading is the primary key, so selection and weight updates land on the right rows; the literal reading stays behind it as a fallback tail.
@@ -1306,6 +1337,23 @@ impl QuanpinDictionary {
         options.show_next_on_duplicate = association.show_next_on_duplicate;
         options.personal = Some(&*model);
         options.bigram_memo = Some(&self.bigram_memo);
+        options.opens_sentence = crate::lattice::decode::opens_sentence(&self.rescoring_context);
+        // 挂着整句打分器时，束搜索里每一列都让模型打分，见 `lattice::decode::BeamModel`。
+        let sentence_scorer = self
+            .sentence_scorer
+            .0
+            .clone()
+            .filter(|_| segments == self.beam_model_segments.as_slice());
+        let model_context = self.rescoring_context.clone();
+        options.beam_model =
+            sentence_scorer
+                .as_deref()
+                .map(|scorer| crate::lattice::decode::BeamModel {
+                    scorer,
+                    context: &model_context,
+                    weight: crate::lattice::decode::BEAM_MODEL_WEIGHT,
+                    memo: &self.beam_model_memo,
+                });
         // 搭配项逐边叠加字级搭配分，与二元/三元在同一 Viterbi 里竞争；
         // query() 是自然对数域，乘 LN_TO_LOG10 换到主分的域。
         let scorer;
@@ -1340,7 +1388,13 @@ impl QuanpinDictionary {
         };
         // 模型已按需重载，此刻的版本就是这次解码用的版本。
         let personal_version = personal.version();
-        let decode_key = sentence_decode_key(segments, types, typo_eligible);
+        let decode_key = sentence_decode_key(
+            segments,
+            types,
+            typo_eligible,
+            options.opens_sentence,
+            options.beam_model.map(|model| model.context),
+        );
         let cached = self
             .sentence_decode_cache
             .get_ref(&decode_key)
@@ -1820,8 +1874,14 @@ fn warm_lattice_span_cache(
     }
 }
 
-/// `sentence_decode_cache` 的键：音节串、这次查询的纠错类型和是否规划纠错整句。纠错整句只在后两者允许时才解，同一串音节在两种情况下的结果不同。
-fn sentence_decode_key(segments: &[String], types: u32, typo_eligible: bool) -> String {
+/// `sentence_decode_cache` 的键：音节串、这次查询的纠错类型、是否规划纠错整句、是不是一句话的开头，以及挂着整句打分器时的上文。纠错整句只在纠错类型和规划允许时才解，句首的语气词要扣分（`LatticeOptions::opens_sentence`），同一串音节在这些情况下的结果不同。
+fn sentence_decode_key(
+    segments: &[String],
+    types: u32,
+    typo_eligible: bool,
+    opens_sentence: bool,
+    model_context: Option<&str>,
+) -> String {
     let mut key = String::with_capacity(
         segments
             .iter()
@@ -1838,6 +1898,12 @@ fn sentence_decode_key(segments: &[String], types: u32, typo_eligible: bool) -> 
     key.push('\u{1f}');
     key.push_str(&types.to_string());
     key.push(if typo_eligible { 't' } else { '-' });
+    key.push(if opens_sentence { 's' } else { '-' });
+    // 挂着整句打分器时，解出来的整句随上文而变。
+    if let Some(context) = model_context {
+        key.push('\u{1f}');
+        key.push_str(context);
+    }
     key
 }
 
@@ -2301,3 +2367,7 @@ mod evicted_page_tests;
 
 #[cfg(test)]
 mod online_cache_update_tests;
+
+#[cfg(test)]
+#[path = "dictionary/online_beam_context_tests.rs"]
+mod online_beam_context_tests;

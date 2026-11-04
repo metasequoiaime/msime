@@ -38,6 +38,7 @@ Status: implemented
 - 共享偏好新增 `wubi_fifth_code_top_commit: bool`，`#[serde(default = "enabled_by_default")]`，缺省开：对齐来源出厂，也是接入开关之前唯一可能的行为。
 - 判定抽成纯函数 `wubi_top_commit_on_next_key(&WubiTopCommitRequest)`，五项输入显式列出；`Runtime::dispatch` 只负责把 `self.wubi_fifth_code_top_commit`、`engine.wubi_mixed_pinyin()`、四码完整性、无暂存词段、读音是否续输填进去。
 - **关掉只在混输开启时生效**：`(top_commit_enabled || !mixed_pinyin)`。混输关掉时引擎把码裁回四位，字母无处容纳；宿主已经按下的键不能丢，所以仍按顶字上屏。这正是来源 `ShouldCommitCompleteWubiCodeOnNextKey` 的兜底分支。
+- **混输开着、顶字关掉时，runtime 先让引擎放开四码上限再交字母**：引擎只在码表答不出、或读音能续写时才放开长度（[混输续输](../bug-fix/2026-10-18-wubi-mixed-pinyin-continuation.md)），码表答过的四码后面接一个续不上读音的字母会被挡掉，既不顶字也不进组字，这一键就丢了。runtime 用纯函数 `wubi_mixed_grows_on_next_key` 判定（顶字关、混输开、四码完整、无暂存词段、读音不能续写、不是 Shift 字母），成立时先调 `InputEngine::allow_wubi_mixed_extension`，引擎只放开这一次，之后超过四码的查询沿用已有的延长继承。「放不放开」的事实仍归引擎，开关仍是宿主状态，引擎不读顶字偏好。原先的 runtime 回归 `turning_off_the_wubi_top_commit_lets_a_mixed_spelling_grow` 用的是假引擎，假引擎不设四码上限，所以没发现；真实引擎回归 `wubi_fifth_letter_stays_in_the_composition_only_when_top_commit_is_off_and_mixed_is_on` 在修复前失败（`wqaa` 后的 `e` 被丢掉，组字停在 `wqaa`），见 #10696。
 - 为了让 runtime 知道混输状态，`InputEngine` 加 `wubi_mixed_pinyin()`（默认 `false`），`Session` 从 `WubiInputOptions::mixed_pinyin` 转发。runtime 不复制引擎的读音规则。
 - 宿主状态而不是 Engine 状态：改偏好不必等 Engine 空闲重建，下一键生效，与 `wubi_auto_commit_unique` 同一条规矩。
 - 顶下来的首选立即上屏，开着 `phrase_preedit` 的宿主（六个宿主都开）也不进暂存词段，与 14 键顶字一致。此前这里记的是「和组字中途的选词一样暂存、下一段选词时一起上屏」，那样会挡住之后每次顶字与四码唯一自动上屏，续打的码被截在四码外丢掉，Esc 还连已顶的字一起丢；改动与理由见[五笔顶字立即上屏，不进暂存词段](../bug-fix/2026-11-01-wubi-top-commit-skips-phrase-hold.md)。安卓设备验收「26 键五笔第五码顶字」与运行时回归 `a_fifth_letter_after_wqiy_commits_the_topped_word_even_with_phrase_preedit` 钉住这条。
@@ -94,7 +95,7 @@ Status: implemented
 
 原有命令与结果见本次提交（`cargo test -p msime-engine`、`cargo fmt --all --check`、`cargo clippy -p msime-engine --all-targets --locked -- -D warnings`、`cargo check -p msime-host-api -p msime-input-runtime --all-targets`、`pnpm --filter @msime/desktop test`、`pnpm format:check`、`pnpm run verify-notes`）。
 
-设置界面范围：共享 React 页由 macOS、Linux 与 HarmonyOS 承载；Windows、Android、iOS 的产品设置各自原生绘制，本 PR 没有给它们增加这两个开关。Windows 原生设置和 macOS 原生外观面板不会因共享页改动自动出现新控件。真机设置窗口未验收。
+设置界面范围：共享 React 页由 macOS、Linux 与 HarmonyOS 承载；Windows、Android、iOS 的产品设置各自原生绘制，本 PR 没有给它们增加这两个开关。Windows 的现代设置（`platforms/windows/settings/main.cpp`）与 Windows 7 设置（`win7/SchemeForm.h`）在 #10696 补上了「z 键通配」「第五码将首选上屏」，文案与缺省值照共享页和 `Preferences::default`；在那之前 Windows 用户只能关掉四码唯一自动上屏，第五码顶字关不掉，表现就像自动上屏开关无效。Android、iOS 仍没有这两个开关。Windows 原生设置和 macOS 原生外观面板不会因共享页改动自动出现新控件。真机设置窗口未验收。
 
 ## Related notes
 

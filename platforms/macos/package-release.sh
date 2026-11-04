@@ -578,27 +578,6 @@ chmod -R u+rwX,go+rX,go-w "$app"
 sign "$app"
 codesign --verify --deep --strict "$app"
 
-# 资源完整性由 verify_resources 逐项校验；预算跟随本版本实际随包的锁定资源，再为目录、辅助码和其他小文件留固定 4 MiB 余量。
-core_dictionary_budget_kib() {
-  python3 - "$repo_root" "$edition" "$1" <<'PYBUDGET'
-import json
-import sys
-from pathlib import Path
-
-root, edition, staged = Path(sys.argv[1]), sys.argv[2], Path(sys.argv[3])
-lock = root / ("resources/desktop-dictionary.lock.json" if edition == "full" else f"resources/editions/{edition}.lock.json")
-artifacts = json.loads(lock.read_text())["artifacts"]
-# 按 4 KiB 文件分配粒度向上取整；按需省略的锁条目不占本版本预算。
-locked_kib = sum((artifact["size"] + 4095) // 4096 * 4
-                 for artifact in artifacts if (staged / artifact["name"]).is_file())
-helpcodes = root / "resources/helpcodes"
-names = ("helpcode.txt", "zrm_helpcode_big_unique.txt", "shouyou2_0_helpcode.txt", "shouyouplus_helpcode.txt", "xiaohe_helpcode.txt", "jiajia_helpcode.txt", "wubi86_helpcode.txt", "ENGINE-NOTICE.md", "NOTICE.md", "NOTICE-wubi86.md")
-helpcodes_kib = sum((path.stat().st_size + 4095) // 4096 * 4
-                    for name in names if (path := helpcodes / name).is_file())
-print(locked_kib + helpcodes_kib + 4096)
-PYBUDGET
-}
-
 # 包里必须有安装按钮和第一次启动要读的东西才值得发：对打好的应用查一遍，展开安装包后对载荷里的那份再查一遍。
 check_app() {
   local root="$1"
@@ -630,14 +609,8 @@ check_app() {
   test ! -e "$resources_dir/language-dictionaries"
   test ! -e "$resources_dir/handwriting/handwriting-zh_CN.model"
   test -f "$resources_dir/handwriting/Zinnia-LICENSE.txt"
-  # 词库升级的体积由版本锁评审；预算只为本版本随包的文件加固定余量，额外资源仍会超限。
-  local engine_kib engine_budget_kib
-  engine_kib="$(du -sk "$resources_dir/EngineResources" | cut -f1)"
-  engine_budget_kib="$(core_dictionary_budget_kib "$resources_dir/EngineResources")"
-  test "$engine_kib" -le "$engine_budget_kib" || {
-    echo "EngineResources is ${engine_kib} KiB, over the ${engine_budget_kib} KiB locked core-dictionary budget: $resources_dir/EngineResources" >&2
-    exit 1
-  }
+  # 词库升级的体积由版本锁评审；预算只为本版本随包的文件加固定余量，额外资源仍会超限。两边都按文件长度取整到 4 KiB 计，不用 du 的已分配块数：同一份内容展开安装包后 du 曾多量出 18 MiB，让 0.57.0 正式版的五笔包被误拒（见 engine_resources_budget.py）。
+  python3 -I "$repo_root/platforms/macos/scripts/engine_resources_budget.py" --edition "$edition" "$resources_dir/EngineResources" || exit 1
   test -f "$resources_dir/Licenses/THIRD_PARTY_NOTICES.txt"
   test -x "$root/Contents/MacOS/msime-mcp"
   codesign --verify --strict "$root/Contents/MacOS/msime-mcp"

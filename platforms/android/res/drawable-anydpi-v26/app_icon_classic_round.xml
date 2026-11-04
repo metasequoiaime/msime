@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 清单里的 android:roundIcon：系统设了 config_useRoundIcon（圆形遮罩的设备）时框架用它代替 app_icon_classic，深色圆盘的绿圈正好落在圆形遮罩的边上。 -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/app_icon_ground_classic" />
+    <foreground android:drawable="@drawable/app_icon_classic_round_foreground" />
+</adaptive-icon>

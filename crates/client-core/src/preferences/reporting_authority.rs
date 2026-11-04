@@ -405,7 +405,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn reporting_authority_refuses_linked_lock_document_and_directory() {
-        use std::os::unix::fs::symlink;
+        use msime_path_trust::untrusted_symlink as symlink;
         let root = tempfile::tempdir().unwrap();
         let source = PreferencesStore::new(root.path().join("source"));
         let authority = ReportingAuthority::new(root.path().join("authority"));

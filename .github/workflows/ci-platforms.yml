@@ -169,7 +169,7 @@ jobs:
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
         run: >-
-          apps/desktop/src-tauri/gen/android/gradlew --project-dir platforms/android/gradle-app --console=plain
+          platforms/android/gradle-app/gradlew --project-dir platforms/android/gradle-app --console=plain
           compileFullReleaseJavaWithJavac compilePinyinReleaseJavaWithJavac compileWubiReleaseJavaWithJavac
           compileJapaneseReleaseJavaWithJavac compileVietnameseReleaseJavaWithJavac compileTibetanReleaseJavaWithJavac
       # 编译通过不代表能在 minSdk 的设备上运行：javac 按 compileSdk 解析，0.2.0 调用的 Path.of 要 API 34，Android 9 到 12 上准备词库直接 NoSuchMethodError。lint 在 gradle-app 里只开了 NewApi，这一步专门拦高于 minSdk 的调用。
@@ -177,7 +177,7 @@ jobs:
         if: ${{ needs.changes.outputs.android == 'true' }}
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
-        run: apps/desktop/src-tauri/gen/android/gradlew --project-dir platforms/android/gradle-app --console=plain lintFullRelease
+        run: platforms/android/gradle-app/gradlew --project-dir platforms/android/gradle-app --console=plain lintFullRelease
       - name: Android platform unchanged
         if: ${{ needs.changes.outputs.android != 'true' }}
         run: echo 'No Android or shared-platform changes; platform gate skipped.'
@@ -208,6 +208,36 @@ jobs:
       - name: Build IBus and Fcitx5 hosts in the pinned container
         if: ${{ needs.changes.outputs.linux == 'true' }}
         run: bash platforms/linux/build-container.sh
+      - name: Linux platform unchanged
+        if: ${{ needs.changes.outputs.linux != 'true' }}
+        run: echo 'No Linux or shared-platform changes; platform gate skipped.'
+
+  linux-resource-integration:
+    needs: changes
+    name: Linux native host resource integration
+    runs-on: depot-ubuntu-24.04-8
+    timeout-minutes: 45
+    env:
+      MSIME_SKIP_RUST_TESTS: '1'
+      MSIME_RESOURCE_SMOKE_ONLY: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download the locked desktop resources
+        if: ${{ needs.changes.outputs.linux == 'true' }}
+        run: |
+          set -euo pipefail
+          mkdir -p target/linux-resources
+          resource_dir="$(cargo run --quiet --locked -p msime-client-core --example install_resources -- target/linux-resources | tail -n 1)"
+          test -d "$resource_dir"
+          printf '%s\n' "$resource_dir" > target/linux-resources/path
+      - name: Run IBus resource acceptance
+        if: ${{ needs.changes.outputs.linux == 'true' }}
+        run: bash platforms/linux/tests/tools/check-container.sh "$(cat target/linux-resources/path)"
+      - name: Run Fcitx5 resource acceptance
+        if: ${{ needs.changes.outputs.linux == 'true' }}
+        run: bash platforms/linux/tests/tools/check-container.sh "$(cat target/linux-resources/path)" --fcitx5
       - name: Linux platform unchanged
         if: ${{ needs.changes.outputs.linux != 'true' }}
         run: echo 'No Linux or shared-platform changes; platform gate skipped.'
@@ -287,7 +317,7 @@ jobs:
         if: ${{ needs.changes.outputs.linux != 'true' }}
         run: echo 'No Linux or shared-platform changes; platform gate skipped.'
 
-  # msime-engine 的单元测试和 golden 基准此前没有任何 CI 作业运行：上面的 Linux 容器只测 client-base、client-core、client-providers、client-services、input-runtime 和 host-api，提交前的 `verify-local.sh --quick` 不跑 Rust 测试，只有很少有人跑的全量 `verify-local.sh` 才跑。引擎里钉死精确次数的分配预算测试因此在 develop 上红了好几个 PR 都没人发现（见 .agents/notes/implemented/testing/2026-10-10-engine-tests-in-ci.md）。这里以 runner 的普通用户运行；整句模型不在仓库里，依赖它的测试会自行跳过并说明原因。
+  # msime-engine 的单元测试和 golden 基准此前没有任何 CI 作业运行：上面的 Linux 容器原本只测 client-base、client-core、client-providers、client-services、input-runtime 和 host-api（资源集成作业设了 MSIME_SKIP_RUST_TESTS，实际都跳过了，input-runtime 现在在这里测），提交前的 `verify-local.sh --quick` 不跑 Rust 测试，只有很少有人跑的全量 `verify-local.sh` 才跑。引擎里钉死精确次数的分配预算测试因此在 develop 上红了好几个 PR 都没人发现（见 .agents/notes/implemented/testing/2026-10-10-engine-tests-in-ci.md）。这里以 runner 的普通用户运行；整句模型不在仓库里，依赖它的测试会自行跳过并说明原因。
   engine:
     needs: changes
     name: Rust engine
@@ -345,6 +375,10 @@ jobs:
           # 安装 rust-toolchain.toml 钉住的工具链。
           rustup toolchain install
           cargo test --locked -p msime-engine
+      # msime-input-runtime 的单元测试此前也没有作业运行：Linux 资源集成作业设了 MSIME_SKIP_RUST_TESTS，跳过了容器里的 cargo test。2026-11-03 #10758 让粤语按学习开关调频时漏改了这里的一条用例，develop 一直红到发 macOS 0.58.0 前才被发现（#10820）。它与引擎同一套触发条件，接在引擎测试后面复用同一份编译缓存。
+      - name: Unit tests for msime-input-runtime
+        if: ${{ needs.changes.outputs.engine == 'true' }}
+        run: cargo test --locked -p msime-input-runtime
       # msime 自己经 path 依赖用引擎的源码，crates.io 上的采用方拿到的是按 include 白名单打出来的包；新加的数据文件漏进白名单、或者 README 里的路径在包里不存在，我们这边照常编过，只有下载包的人编不过。所以每个改了引擎的 PR 都把三个发布的 crate 按发布时的方式打包，并在打包后的源码上各编一遍。用 cargo package 不用 cargo publish --dry-run：后者遇到 crates.io 上已有的版本会失败，而版本号只在发版时才改。
       - name: Published crates build from their packages
         if: ${{ needs.changes.outputs.engine == 'true' }}
@@ -765,25 +799,6 @@ jobs:
           ctest --test-dir target/windows7-compat/x64 -C Release --output-on-failure
           if ($LASTEXITCODE -ne 0) { throw 'Compatibility API tests failed' }
           & ./platforms/windows/tests/tools/windows7_imports.ps1
-      # 独立工程复用生产采集器和 helper，只依赖已有的头文件包，不重新构建完整产品或 Rust。
-      - name: Build and run TSF system WER capture (x64 and x86)
-        if: ${{ needs.changes.outputs.windows == 'true' }}
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $jsonConfig = "$env:GITHUB_WORKSPACE/target/windows-native-deps/win7-settings/x64-windows-static-md/share/nlohmann_json"
-          if (-not (Test-Path -LiteralPath "$jsonConfig/nlohmann_jsonConfig.cmake" -PathType Leaf)) { throw 'nlohmann-json configuration not found' }
-          foreach ($architecture in @(@{ Name = 'x64'; Generator = 'x64' }, @{ Name = 'x86'; Generator = 'Win32' })) {
-            $build = "target/windows-full/$($architecture.Name)/wer-lifecycle"
-            cmake -S platforms/windows/tsf/tests/capture_lifecycle -B $build -A $architecture.Generator "-Dnlohmann_json_DIR=$jsonConfig"
-            if ($LASTEXITCODE -ne 0) { throw "$($architecture.Name) TSF WER configuration failed" }
-            cmake --build $build --config RelWithDebInfo --parallel 2
-            if ($LASTEXITCODE -ne 0) { throw "$($architecture.Name) TSF WER build failed" }
-            ctest --test-dir $build -C RelWithDebInfo --output-on-failure --output-junit wer-tests.xml
-            if ($LASTEXITCODE -ne 0) { throw "$($architecture.Name) TSF WER callback or lifecycle test failed" }
-            & platforms/windows/tsf/tests/Invoke-SystemWer.ps1 -BuildDirectory $build -OutputDirectory "$build/system-wer"
-            if ($LASTEXITCODE -ne 0) { throw "$($architecture.Name) TSF system WER capture failed" }
-          }
       - name: Build and test Windows 7 handwriting host
         if: ${{ needs.changes.outputs.windows == 'true' }}
         shell: pwsh
@@ -803,6 +818,16 @@ jobs:
           Copy-Item target/debug/msime_host_api.dll "$output/RelWithDebInfo/"
           ctest --test-dir $output -C RelWithDebInfo --output-on-failure
           if ($LASTEXITCODE -ne 0) { throw 'Windows 7 handwriting controls tests failed' }
+          # 同一份面板源码的现代 Windows 变体：Build-Client.ps1 把它编成 msime-client-panels.exe 随现代包安装（MSIME_WINDOWS_PANEL_HOST=native 时承载面板）。不链接 HarfBuzz、版本取 version.txt、跳到别的界面时找现代包的程序名，这里用同一套面板测试核对它在现代 Windows 上编得过、跑得通。
+          $modern = 'target/windows-full/x64/panels'
+          cmake -S platforms/windows/panels/win7 -B $modern -A x64 -DMSIME_PANELS_MODERN_WINDOWS=ON "-DCMAKE_TOOLCHAIN_FILE=$toolchain" "-DVCPKG_MANIFEST_DIR=$env:GITHUB_WORKSPACE/platforms/windows/settings/win7" "-DVCPKG_INSTALLED_DIR=$env:GITHUB_WORKSPACE/target/windows-native-deps/win7-settings" -DVCPKG_TARGET_TRIPLET=x64-windows-static-md "-DMSIME_HOST_LIBRARY=$env:GITHUB_WORKSPACE/target/debug/msime_host_api.dll.lib"
+          if ($LASTEXITCODE -ne 0) { throw 'Modern native panel host configuration failed' }
+          cmake --build $modern --config RelWithDebInfo --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'Modern native panel host build failed' }
+          if (-not (Test-Path -LiteralPath "$modern/RelWithDebInfo/msime-client-panels.exe" -PathType Leaf) -or (Test-Path -LiteralPath "$modern/RelWithDebInfo/msime-client-panels-win7.exe")) { throw 'Modern native panel host has the wrong executable name' }
+          Copy-Item target/debug/msime_host_api.dll "$modern/RelWithDebInfo/"
+          ctest --test-dir $modern -C RelWithDebInfo --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'Modern native panel host tests failed' }
       - name: Check Windows 7 product editions
         if: ${{ needs.changes.outputs.windows == 'true' }}
         shell: pwsh
@@ -839,6 +864,47 @@ jobs:
           name: windows-native-settings-screenshots
           path: target/windows-full/x64/settings-screenshots/
           if-no-files-found: warn
+      - name: Windows settings unchanged
+        if: ${{ needs.changes.outputs.windows != 'true' }}
+        run: echo 'No Windows settings changes; native gate skipped.'
+
+  windows-wer:
+    needs: changes
+    name: Windows TSF system WER
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Prepare WER test headers
+        if: ${{ needs.changes.outputs.windows == 'true' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vcpkgRoot = if ($env:VCPKG_INSTALLATION_ROOT) { $env:VCPKG_INSTALLATION_ROOT } else { 'C:\vcpkg' }
+          $nativeDeps = Join-Path $env:GITHUB_WORKSPACE 'target/windows-native-deps/wer'
+          & (Join-Path $vcpkgRoot 'vcpkg.exe') install 'nlohmann-json:x64-windows-static-md' "--x-install-root=$nativeDeps" --disable-metrics
+          if ($LASTEXITCODE -ne 0) { throw 'WER test header install failed' }
+      # 独立工程复用生产采集器和 helper，只依赖已有的头文件包，不重新构建完整产品或 Rust。
+      - name: Build and run TSF system WER capture (x64 and x86)
+        if: ${{ needs.changes.outputs.windows == 'true' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $jsonConfig = "$env:GITHUB_WORKSPACE/target/windows-native-deps/wer/x64-windows-static-md/share/nlohmann_json"
+          if (-not (Test-Path -LiteralPath "$jsonConfig/nlohmann_jsonConfig.cmake" -PathType Leaf)) { throw 'nlohmann-json configuration not found' }
+          foreach ($architecture in @(@{ Name = 'x64'; Generator = 'x64' }, @{ Name = 'x86'; Generator = 'Win32' })) {
+            $build = "target/windows-full/$($architecture.Name)/wer-lifecycle"
+            cmake -S platforms/windows/tsf/tests/capture_lifecycle -B $build -A $architecture.Generator "-Dnlohmann_json_DIR=$jsonConfig"
+            if ($LASTEXITCODE -ne 0) { throw "$($architecture.Name) TSF WER configuration failed" }
+            cmake --build $build --config RelWithDebInfo --parallel 2
+            if ($LASTEXITCODE -ne 0) { throw "$($architecture.Name) TSF WER build failed" }
+            ctest --test-dir $build -C RelWithDebInfo --output-on-failure --output-junit wer-tests.xml
+            if ($LASTEXITCODE -ne 0) { throw "$($architecture.Name) TSF WER callback or lifecycle test failed" }
+            & platforms/windows/tsf/tests/Invoke-SystemWer.ps1 -BuildDirectory $build -OutputDirectory "$build/system-wer"
+            if ($LASTEXITCODE -ne 0) { throw "$($architecture.Name) TSF system WER capture failed" }
+          }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ always() && needs.changes.outputs.windows == 'true' }}
         with:
@@ -847,9 +913,9 @@ jobs:
             target/windows-full/*/wer-lifecycle/system-wer/
             target/windows-full/*/wer-lifecycle/wer-tests.xml
           if-no-files-found: warn
-      - name: Windows settings unchanged
+      - name: Windows WER unchanged
         if: ${{ needs.changes.outputs.windows != 'true' }}
-        run: echo 'No Windows settings changes; native gate skipped.'
+        run: echo 'No Windows changes; system WER gate skipped.'
 
   windows-scripts:
     needs: changes

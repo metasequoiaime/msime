@@ -8720,13 +8720,21 @@ group(
 group(
   "显示字母键角标 is a device switch in the feedback file, on unless turned off, as on Android (#10587)",
   () => {
-    check(KeyboardFeedback.DEFAULTS.letterCornerHints === true, "a keyboard that never saw it draws the corner symbols");
+    check(
+      KeyboardFeedback.DEFAULTS.letterCornerHints === true,
+      "a keyboard that never saw it draws the corner symbols",
+    );
     const old = KeyboardFeedback.parse(
       JSON.stringify({ sound: true, haptics: false, strength: "light", swipeSymbols: false }),
     );
     check(old.letterCornerHints === true, "a file written before it existed reads as on");
     const hidden = KeyboardFeedback.parse(
-      JSON.stringify({ sound: false, haptics: false, strength: "medium", letterCornerHints: false }),
+      JSON.stringify({
+        sound: false,
+        haptics: false,
+        strength: "medium",
+        letterCornerHints: false,
+      }),
     );
     check(
       hidden.letterCornerHints === false && hidden.swipeSymbols === true,
@@ -8737,10 +8745,14 @@ group(
       "and survives being written again",
     );
     check(
-      KeyboardFeedback.parse(JSON.stringify({ letterCornerHints: "no" })).letterCornerHints === true,
+      KeyboardFeedback.parse(JSON.stringify({ letterCornerHints: "no" })).letterCornerHints ===
+        true,
       "a value that is not a boolean falls back to on",
     );
-    check(KeyboardFeedbackBridge.toShared(hidden).letterCornerHints === false, "the page is shown it as stored");
+    check(
+      KeyboardFeedbackBridge.toShared(hidden).letterCornerHints === false,
+      "the page is shown it as stored",
+    );
     check(
       KeyboardFeedbackBridge.fromShared(
         { soundEnabled: false, hapticsEnabled: false, hapticStrength: "medium" },
@@ -8750,7 +8762,12 @@ group(
     );
     check(
       KeyboardFeedbackBridge.fromShared(
-        { soundEnabled: false, hapticsEnabled: false, hapticStrength: "medium", letterCornerHints: true },
+        {
+          soundEnabled: false,
+          hapticsEnabled: false,
+          hapticStrength: "medium",
+          letterCornerHints: true,
+        },
         hidden,
       ).letterCornerHints === true,
       "a page save turns it back on",
@@ -12276,9 +12293,10 @@ group("the icon paths are arc-free absolute commands inside their view box", () 
     "the chevrons are 1.8 at 21 and 20vp",
   );
   check(
-    KeyboardIconPaths.BRAND_STROKE_WIDTH === 9 &&
+    KeyboardIconPaths.BRAND_STROKE_WIDTH === 9.6 &&
+      KeyboardIconPaths.BRAND_STROKE_MITER_LIMIT === 4 &&
       KeyboardIconPaths.BRAND_STROKE_COLOR === "#FFFFFF",
-    "the brand stroke is white at 9",
+    "the brand stroke is msime.svg's, white at 9.6 (8 x 1.2) with SVG's miter limit 4",
   );
 });
 

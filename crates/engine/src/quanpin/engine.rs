@@ -47,6 +47,8 @@ impl QuanpinEngine {
             .set_sentence_alternatives(request.sentence_alternatives);
         self.dictionary.set_sentence_pool(request.sentence_pool);
         self.dictionary
+            .set_sentence_scorer(&request.sentence_scorer);
+        self.dictionary
             .set_sentence_association(request.sentence_association.clone());
         self.dictionary.set_first_page_rows(request.first_page_rows);
         self.dictionary
