@@ -80,8 +80,10 @@ def load_dump(path: Path) -> dict:
     """`convert_eval --dump` 按 id 返回整行。"""
     rows = {}
     with path.open(encoding="utf-8") as file:
-        for line in file:
+        for number, line in enumerate(file, 1):
             if line.strip():
                 row = json.loads(line)
+                if row["id"] in rows:
+                    raise SystemExit(f"{path}:{number}: duplicate id {row['id']}; compare one configuration per dump")
                 rows[row["id"]] = row
     return rows

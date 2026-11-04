@@ -78,6 +78,14 @@ with tempfile.TemporaryDirectory(prefix="msime-must-outrank-") as temporary:
     nine_dump.write_text(json.dumps({"id": "n1", "input": "mdgpm", "gold": "内容", "candidates": [{"text": "内容", "source": 0}, {"text": "Negro", "source": 4}]}, ensure_ascii=False) + "\n", encoding="utf-8")
     results = must_outrank.check(rows, {"full": must_outrank.eval_keys.load_dump(full_dump), "nine": must_outrank.eval_keys.load_dump(nine_dump)}, 6)
     assert [r["passed"] for r in results] == [False, False]
+    for field in ("input", "gold"):
+        altered = must_outrank.eval_keys.load_dump(full_dump)
+        altered["f1"][field] = "synthetic-other"
+        try:
+            must_outrank.check([rows[0]], {"full": altered}, 6)
+            raise AssertionError("same id with different input or gold must fail")
+        except SystemExit as error:
+            assert "input or gold" in str(error)
     assert must_outrank.print_results(results) == 1
     try:
         must_outrank.check(rows, {"full": {}, "nine": {}}, 6)

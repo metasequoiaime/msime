@@ -148,7 +148,11 @@ def check(rows: list, dumps: dict, first_page_rows: int) -> list:
             raise SystemExit(f"{row['id']}: no dump for keyboard {row['keyboard']}")
         if row["id"] not in dump:
             raise SystemExit(f"{row['id']}: not in the {row['keyboard']} dump; it was run on another set")
-        texts = [candidate["text"] for candidate in dump[row["id"]].get("candidates", [])]
+        observation = dump[row["id"]]
+        gold = row["should_rank_higher"] if row["should_rank_higher"] not in ("", "-") else row["should_rank_lower"]
+        if (observation.get("input"), observation.get("gold")) != (typed_letters(row), gold):
+            raise SystemExit(f"{row['id']}: input or gold differs from the preference fixture")
+        texts = [candidate["text"] for candidate in observation.get("candidates", [])]
         results.append(judge(row, texts, first_page_rows))
     return results
 

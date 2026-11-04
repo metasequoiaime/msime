@@ -7,7 +7,7 @@
 
 判定：
 - 粗俗词：候选含 `crates/engine/src/lattice/offensive_words.txt` 里的词（按子串，豁免写法盖住的不算，与引擎 `lattice::offensive::is_offensive` 同一规则）。`--extra-words` 可以再给一份同格式的表（以后词库仓库 curation/ 里的粗俗词表、牛逼 卧槽 这类只在九键歧义码上避开的流行口语）。
-- 英文冒犯词：英文候选（不分大小写）在 `crates/dict-builder/src/english_supplement.rs` 的 `OFFENSIVE`（55 个蔑称）或 `--extra-words` 的 ASCII 词里。英文的脏话（shitty、cumshot）目前不在任何一张表里，只能从第 2 位英文清单里人工看。
+- 英文冒犯词：英文候选（不分大小写）在 `crates/dict-builder/src/english_supplement.rs` 的 `OFFENSIVE`（55 个蔑称）或 `--extra-words` 的 ASCII 词里。同时读引擎的 `offensive_english_words.txt`，覆盖脏话和蔑称。九键另读 `mild_slang_words.txt`，全键盘不把轻度粗口计入。
 - 精确读音：粗俗词本身的读音恰好就是这串输入（全键盘逐字母、九键按数字串）时记为 exact。方案的政策是这些词不当首选，也不出现在前缀、简拼和九键、14 键歧义码的首屏；只有全键盘打它自己读音时可以在首屏（但不当首选）。九键的一串数字几乎都对应好几种读法，exact 在九键上不豁免，所以 `vulgar_first_page_inputs_violating`（违反政策的首屏输入数）在全键盘上去掉只有 exact 命中的输入，在九键、14 键上等于全部首屏命中；exact 仍逐行标出供审阅。
 
 `run` 用 `convert_eval --dump --mixed-english` 在全键盘和九键上各打一遍（混输英文是产品出厂设置），再出报告；`report` 只读已有的 dump。给了 `--baseline`（上一次的报告 JSON）时逐项比较：粗俗首屏输入数、粗俗首选输入数、英文冒犯词首屏输入数任何一项比基线多，退出码 1。
@@ -33,6 +33,8 @@ import eval_keys
 ROOT = eval_keys.ROOT
 OFFENSIVE_WORDS = ROOT / "crates/engine/src/lattice/offensive_words.txt"
 ENGLISH_OFFENSIVE_SOURCE = ROOT / "crates/dict-builder/src/english_supplement.rs"
+ENGLISH_WORDS = ROOT / "crates/engine/src/lattice/offensive_english_words.txt"
+MILD_WORDS = ROOT / "crates/engine/src/lattice/mild_slang_words.txt"
 SETS = {"full": ROOT / "resources/eval/exposure-quanpin-v1.tsv", "nine": ROOT / "resources/eval/exposure-nine-key-v1.tsv"}
 DEFAULT_TOP = 5000
 FIRST_PAGE_ROWS = 6
@@ -112,10 +114,13 @@ def english_offensive(source: Path) -> list:
     raise SystemExit(f"{source}: could not find the OFFENSIVE array")
 
 
-def load_word_list(extra: list) -> WordList:
+def load_word_list(extra: list, keyboard: str = "full") -> WordList:
     words = WordList()
     words.add_file(OFFENSIVE_WORDS)
     words.add_english(english_offensive(ENGLISH_OFFENSIVE_SOURCE))
+    words.add_file(ENGLISH_WORDS)
+    if keyboard != "full":
+        words.add_file(MILD_WORDS)
     for path in extra:
         words.add_file(path)
     return words
@@ -217,6 +222,10 @@ def analyze(keyboard: str, cases: dict, dump: dict, words: WordList, first_page_
     missing = sorted(cases.keys() - dump.keys())
     if missing:
         raise SystemExit(f"{len(missing)} {keyboard} input(s) are not in the dump (e.g. {missing[:3]}); it was run on another set")
+    for case_id, case in cases.items():
+        row = dump[case_id]
+        if (row.get("input"), row.get("gold")) != (case["input"], case["word"]):
+            raise SystemExit(f"{keyboard} {case_id}: input or gold differs from the exposure set")
     hits, english_hits, second_slot, targets = [], [], [], []
     for case_id, case in cases.items():
         candidates = dump[case_id].get("candidates", [])
@@ -269,9 +278,9 @@ def summarize(keyboard: str, analysis: dict, cases: dict) -> dict:
 
 
 def report(dumps: dict, database: Path | None, extra: list, first_page_rows: int) -> dict:
-    words = load_word_list(extra)
-    result = {"first_page_rows": first_page_rows, "word_lists": [str(OFFENSIVE_WORDS.relative_to(ROOT)), str(ENGLISH_OFFENSIVE_SOURCE.relative_to(ROOT)) + " OFFENSIVE", *map(str, extra)], "keyboards": {}}
+    result = {"first_page_rows": first_page_rows, "word_lists": [str(OFFENSIVE_WORDS.relative_to(ROOT)), str(ENGLISH_OFFENSIVE_SOURCE.relative_to(ROOT)) + " OFFENSIVE", str(ENGLISH_WORDS.relative_to(ROOT)), str(MILD_WORDS.relative_to(ROOT)) + " (ambiguous keyboards only)", *map(str, extra)], "keyboards": {}}
     for keyboard, dump in dumps.items():
+        words = load_word_list(extra, keyboard)
         cases = load_set(SETS[keyboard])
         analysis = analyze(keyboard, cases, dump, words, first_page_rows)
         mark_exact(keyboard, analysis["hits"], readings_of(database, {hit["word"] for hit in analysis["hits"]}))
@@ -294,6 +303,8 @@ GATED = ("vulgar_first_page_inputs", "vulgar_top1_inputs", "english_offensive_fi
 
 def compare_baseline(result: dict, baseline: dict) -> list:
     """逐项比较：基线里有的键盘，粗俗首屏、粗俗首选、英文冒犯词首屏三项都不得增加。输入集不同（set_sha256 不同）时不可比，报错。"""
+    if result.get("first_page_rows") != baseline.get("first_page_rows"):
+        return ["first_page_rows differs from the baseline; measure both arms with the same page size"]
     problems = []
     for keyboard, previous in baseline["keyboards"].items():
         current = result["keyboards"].get(keyboard)

@@ -24,10 +24,16 @@ assert words.is_offensive("鸡巴") and words.is_offensive("别鸡巴") and word
 assert not words.is_offensive("水乳交融") and not words.is_offensive("口交换机") and not words.is_offensive("狗吃屎")
 assert words.is_offensive("吃屎了")
 assert not words.is_offensive("屎") and not words.is_offensive("内容")
-# 英文蔑称取自 dict-builder 的 OFFENSIVE，不分大小写；不在表里的英文词不算。
+# 英文蔑称保留构建器清单，并读取引擎新增的粗俗词表，不分大小写。
 english = exposure.english_offensive(exposure.ENGLISH_OFFENSIVE_SOURCE)
 assert len(english) == 55 and "chink" in english and "yids" in english
-assert words.is_offensive_english("Chink") and not words.is_offensive_english("Negro")
+assert words.is_offensive_english("Chink") and words.is_offensive_english("Negro")
+assert words.is_offensive_english("Shitty") and words.is_offensive_english("gangbang")
+assert not words.is_offensive_english("cocktail")
+# 轻度粗口只在歧义码上计入，26 键仍按原政策处理。
+assert not words.is_offensive("牛逼")
+assert exposure.load_word_list([], "nine").is_offensive("牛逼")
+assert not exposure.load_word_list([], "nine").is_offensive("我操心")
 
 with tempfile.TemporaryDirectory(prefix="msime-vulgar-exposure-") as temporary:
     root = Path(temporary)
@@ -35,6 +41,15 @@ with tempfile.TemporaryDirectory(prefix="msime-vulgar-exposure-") as temporary:
     extra.write_text("# 测试用\n牛逼\nNegro\n!牛逼哄哄\n", encoding="utf-8")
     more = exposure.load_word_list([extra])
     assert more.is_offensive("牛逼") and not more.is_offensive("牛逼哄哄") and more.is_offensive_english("negro")
+
+    # 同一份候选在全键盘保留轻度粗口，九键将其计入；新增英文表两者都计入。
+    probe_cases = {"probe": {"input": "niu", "word": "牛", "kinds": ["prefix"]}}
+    probe_dump = {"probe": {"input": "niu", "gold": "牛", "candidates": [
+        {"text": "牛逼", "source": 0}, {"text": "Shitty", "source": eval_keys.ENGLISH_SOURCE}]}}
+    for keyboard, expected in [("full", 0), ("nine", 1)]:
+        measured = exposure.analyze(keyboard, probe_cases, probe_dump, exposure.load_word_list([], keyboard), 6)
+        assert len(measured["hits"]) == expected
+        assert len(measured["english_hits"]) == 1
 
     # 部分输入：打全、每个更短的前缀、前 k 个音节的首字母。
     inputs = exposure.partial_inputs("che'jian")
@@ -64,7 +79,24 @@ with tempfile.TemporaryDirectory(prefix="msime-vulgar-exposure-") as temporary:
         "c": candidates("内容", "Chink"),
         "d": candidates("车间", "车件", "1", "2", "3", "4", "鸡巴"),
     }
+    for case_id, row in dump.items():
+        row.update(input=cases[case_id]["input"], gold=cases[case_id]["word"])
     analysis = exposure.analyze("full", cases, dump, words, 6)
+    # 同 id 换输入或金标准不是同一次测量，不能空过。
+    for field in ("input", "gold"):
+        altered = {**dump, "a": {**dump["a"], field: "synthetic-other"}}
+        try:
+            exposure.analyze("full", cases, altered, words, 6)
+            raise AssertionError("mismatched dump identity must fail")
+        except SystemExit as error:
+            assert "input or gold" in str(error)
+    duplicate = root / "duplicate.jsonl"
+    duplicate.write_text('{"id":"a"}\n{"id":"a"}\n', encoding="utf-8")
+    try:
+        eval_keys.load_dump(duplicate)
+        raise AssertionError("duplicate ids must fail")
+    except SystemExit as error:
+        assert "duplicate id" in str(error)
     exposure.mark_exact("full", analysis["hits"], {"傻逼": {"shabi"}, "别鸡巴": {"biejiba"}, "煞笔": {"shabi"}})
     summary = exposure.summarize("full", analysis, cases)
     assert summary["vulgar_first_page_inputs"] == 2, summary   # a、b；d 的鸡巴在第 7 位，不在首屏
@@ -89,13 +121,15 @@ with tempfile.TemporaryDirectory(prefix="msime-vulgar-exposure-") as temporary:
 
     # 基线比较：三项门槛任何一项增加就报；输入集换了不可比。
     def result(first_page, top1, english_count, digest="x"):
-        return {"keyboards": {"nine": {"summary": {"vulgar_first_page_inputs": first_page, "vulgar_top1_inputs": top1, "english_offensive_first_page_inputs": english_count, "set_sha256": digest}}}}
+        return {"first_page_rows": 6, "keyboards": {"nine": {"summary": {"vulgar_first_page_inputs": first_page, "vulgar_top1_inputs": top1, "english_offensive_first_page_inputs": english_count, "set_sha256": digest}}}}
 
     assert exposure.compare_baseline(result(3, 1, 0), result(3, 1, 0)) == []
+    narrower = {**result(0, 0, 0), "first_page_rows": 1}
+    assert "first_page_rows" in exposure.compare_baseline(narrower, result(3, 1, 0))[0]
     assert exposure.compare_baseline(result(2, 0, 0), result(3, 1, 0)) == []
     assert exposure.compare_baseline(result(4, 1, 0), result(3, 1, 0)) == ["nine: vulgar_first_page_inputs 3 -> 4"]
     assert "input set changed" in exposure.compare_baseline(result(3, 1, 0, "y"), result(3, 1, 0))[0]
-    assert "not measured" in exposure.compare_baseline({"keyboards": {}}, result(3, 1, 0))[0]
+    assert "not measured" in exposure.compare_baseline({"first_page_rows": 6, "keyboards": {}}, result(3, 1, 0))[0]
 
 # 提交的输入集：表头记着参照词库，id 和码都不重复，方案点名的目标码都在九键集里。
 for keyboard, path in exposure.SETS.items():
