@@ -365,7 +365,7 @@ export class KeyboardScheme {
     }
   }
 
-  /** 五笔方案在空格键上的名称，版本写在后面：「五笔 86」「五笔 98」「五笔 新世纪」，与 Android `SpaceKeyFace` 和 iOS `InputSchemeLabels` 相同。 */
+  /** 五笔方案在空格键上的名称，版本写在后面：「五笔 86」「五笔 98」「五笔 新世纪」，86、98 两种写法与 Android `SpaceKeyFace` 和 iOS `InputSchemeLabels` 相同；那两端目前不提供新世纪，只显示 86 或 98。 */
   static wubiSpaceLabel(wubiProfile: string | null | undefined): string {
     switch (KeyboardScheme.normalizedWubiProfile(wubiProfile)) {
       case KeyboardScheme.WUBI_98:

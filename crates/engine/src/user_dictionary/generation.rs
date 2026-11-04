@@ -480,12 +480,18 @@ pub(crate) fn merge_downloaded_wubi(paths: &RuntimePaths, wubi: &Path) -> Result
         english: true,
     };
     replay_into(paths, &paths.dictionaries, dictionaries)?;
-    // 删不掉标记只是下一次建会话再回放一遍：回放按日志重写，结果相同。
-    open_database(&main_db, OpenFlags::SQLITE_OPEN_READ_WRITE).and_then(|connection| {
-        connection
-            .execute_batch(&format!("DROP TABLE IF EXISTS \"{WUBI_REPLAY_PENDING}\""))
-            .map_err(Into::into)
-    })?;
+    // 删不掉标记只是下一次建会话再回放一遍：回放按日志重写，结果相同。所以只记下来，不当作并表失败，照常建反查索引、报告已并入。
+    if let Err(error) =
+        open_database(&main_db, OpenFlags::SQLITE_OPEN_READ_WRITE).and_then(|connection| {
+            connection
+                .execute_batch(&format!("DROP TABLE IF EXISTS \"{WUBI_REPLAY_PENDING}\""))
+                .map_err(Into::into)
+        })
+    {
+        crate::logging::warn(format_args!(
+            "wubi replay marker not dropped, the next session replays again: {error}"
+        ));
+    }
     index_reverse_lookup(&paths.dictionaries, dictionaries);
     Ok(true)
 }
