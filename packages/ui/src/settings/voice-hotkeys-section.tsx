@@ -25,18 +25,14 @@ export interface VoiceHotkeysSectionProps {
   onChange: (patch: Partial<Record<VoiceHotkeyKey, boolean>>) => void;
   /** 宿主读空格锁定（`voice_space_lock_switch`）。macOS、Windows、Linux、HarmonyOS 把它固定为开，不给开关。 */
   spaceLock?: boolean;
-  global?: boolean;
-  onGlobalChange?: (enabled: boolean) => void;
 }
 
-/** 按宿主展示现有语音快捷键，跨输入法范围仅由 macOS 承载。 */
+/** 按宿主展示现有语音快捷键。 */
 export function VoiceHotkeysSection({
   platform,
   values,
   onChange,
   spaceLock = true,
-  global = false,
-  onGlobalChange,
 }: VoiceHotkeysSectionProps) {
   const labels = Object.fromEntries(hotkeyOptions(platform)) as Record<VoiceHotkeyKey, string>;
   const hold = holdChoice(platform);
@@ -44,19 +40,6 @@ export function VoiceHotkeysSection({
   return (
     <GroupList title="语音快捷键">
       <SettingsGroupNote>{description(platform)}</SettingsGroupNote>
-      {platform === "macos" && onGlobalChange && (
-        <SelectRow
-          title="快捷键生效范围"
-          aria-label="快捷键生效范围"
-          description="使用相同的按住说话和切换快捷键。跨输入法录音结束并上屏后恢复原输入法；手动切换时不自动恢复。普通修饰键组合继续正常使用。"
-          detail={global ? "需允许水杉在后台运行，并授予辅助功能权限。" : undefined}
-          value={global ? "global" : "input_method"}
-          onChange={(event) => onGlobalChange(event.target.value === "global")}
-        >
-          <option value="input_method">仅水杉输入法</option>
-          <option value="global">任意输入法</option>
-        </SelectRow>
-      )}
       {/* 三个按住录音的组合键合成一个选择：宿主同一时刻只认一个按住的组合键。选项直接写成 `<option>`，HarmonyOS 的选择面板只认直接子元素。 */}
       <SelectRow
         title={hold.title}

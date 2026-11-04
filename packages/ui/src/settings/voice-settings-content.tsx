@@ -352,8 +352,6 @@ export function VoiceSettingsContent({
         values={draft.voice_input ?? {}}
         onChange={updateVoice}
         spaceLock={showVoiceSpaceLockSwitch}
-        global={draft.voice_input?.hotkey_global === true}
-        onGlobalChange={(hotkey_global) => updateVoice({ hotkey_global })}
       />
       {(macosPlatform || linuxPlatform) && (
         <ToggleHotkeysSection
