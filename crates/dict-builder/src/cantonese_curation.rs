@@ -2,7 +2,7 @@
 //!
 //! essay 补词是词表（`jyut6ping3.words.dict.yaml`）没有收、essay 分数达到 `cantonese::ESSAY_WORD_MIN_COUNT` 的词。essay 是 Rime 按书面语料统计的词频，切分出的片段和小说人名也在其中（嘉琪 30967 分，压过同音的 假期 6318；歲的、中最），这些词按 essay 分数入库，在 `dict-v2.0.55` 的 945 个键上压过了词表收录的每一个词。所以 essay 补词要有佐证才保留 essay 分数：HKCanCor 词频表（`cantonese::CORPUS`）数到过它，或者逐字换成简体（OpenCC 的 `TSCharacters.txt`，每个字取第一个简体字形）后是拼音库的词（`PINYIN_TABLES`），或者是 `custom/cantonese.txt` 人工审校过的词，或者在豁免表里。没有佐证的词压到同键「有证据的」词表词里最轻的那个之下一位：有证据指 essay 或 HKCanCor 数到过这个词表词；只靠 `unlisted_word_weight` 兜底权重的词表词（壽飯 8、蚊飯 16、髀飯 13）本身没有证据，压到它们之下等于让没人用的词压过 essay 数过几千次的 收返、問返、畀返，所以不算。键上没有有证据的词表词时不动。拼音库只用来判断一个词在不在，库里不写入它的任何内容，所以粤拼库的 `LICENSE` 不变。
 //!
-//! 拼音库的佐证只取上游锁定的三张拼音表，不取 `custom/words.txt`：那是 msime-web 和 msime-cloud 直接写入的投稿表，拼音投稿不该悄悄改变粤拼库的排序。三张表按拼音构建删词改权重之后的样子读：`curation/pinyin-vetoes.txt` 否决的读音不算，`curation/pinyin-weight-overrides.txt` 压低了权重的读音也不算（压低就是维护者认定它是碎片），一个词至少有一个读音留下才算拼音库的词。所以改这两张拼音表也会改变粤拼库，审拼音表的 PR 时要连粤拼库的产物差异一起看。
+//! 拼音库的佐证只取上游锁定的三张拼音表，不取 `custom/words.txt`：那是 msime-web 和 msime-cloud 直接写入的投稿表，拼音投稿不该悄悄改变粤拼库的排序。三张表只去掉 `curation/pinyin-vetoes.txt` 否决的读音，一个词至少有一个读音没被否决才算拼音库的词。`curation/pinyin-weight-overrides.txt` 不影响一个词在不在库：不带 `wubi` 的行是相对同一全拼键上竞争词定的降权（张相 让给 长相），带 `wubi` 的行是本地权重损坏恢复上游值这类频率修正，两种都只说明它在普通话同键上该排第几，不说明它不是词，张相、上都、劲舞 在粤语里照样是常用词；一个词有过拼音读音，就有过佐证。所以改拼音否决表会改变粤拼库，审否决表的 PR 时要连粤拼库的产物差异一起看，覆盖表不会。
 //!
 //! HKCanCor 把 咗、返、住、緊 这些体貌助词和 嗰、呢 这些指示词单独切成一个词，所以「动词加助词」「指示词加量词」（講咗、收返、開住、嗰種）永远得不到 HKCanCor 的佐证，拼音库也不会有。这类常用口语词由维护者审过 `cap_uncorroborated` 列出的压低清单后写进豁免表 `curation/cantonese-essay-keep.txt`，一行 `词<TAB>粤拼`（粤拼写库里的键：去掉声调的音节，一个空格分隔），保留 essay 分数。表里每一行都必须是这次构建会压低的 essay 补词，否则构建失败：输入变了、这个词已经有了佐证或者不再是 essay 补词时，表就过期了。同一个词既豁免又否决也让构建失败。
 //!
@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use anyhow::{bail, Result};
 
-use crate::curation::PinyinCuration;
+use crate::curation::PinyinVetoes;
 use crate::places_supplement::weighted_rows;
 use crate::text;
 
@@ -67,20 +67,16 @@ pub struct PinyinWords {
 }
 
 impl PinyinWords {
-    /// `tables` 是 `PINYIN_TABLES` 各文件的内容，按 `weighted_rows` 读 `词<TAB>全拼<TAB>权重` 的行；`curation` 否决的读音、以及覆盖表把权重压低了的读音不算，一个词有一个读音留下就是拼音库的词。`traditional_to_simplified` 是 `TSCharacters.txt` 的行，每个繁体字取第一个简体字形。
+    /// `tables` 是 `PINYIN_TABLES` 各文件的内容，按 `weighted_rows` 读 `词<TAB>全拼<TAB>权重` 的行；`vetoes`（`curation/pinyin-vetoes.txt`）否决的读音不算，一个词有一个读音留下就是拼音库的词。权重覆盖表不在这里，见模块文档。`traditional_to_simplified` 是 `TSCharacters.txt` 的行，每个繁体字取第一个简体字形。
     pub fn new(
         tables: &[&str],
         traditional_to_simplified: &[(char, Vec<char>)],
-        curation: &PinyinCuration,
+        vetoes: &PinyinVetoes,
     ) -> Self {
         let mut words = HashSet::new();
         for table in tables {
-            for (word, key, weight) in weighted_rows(text::without_bom(table)) {
-                let demoted = curation
-                    .overrides
-                    .get(word, key)
-                    .is_some_and(|override_weight| override_weight < weight);
-                if !word.is_empty() && !curation.vetoes.vetoes(word, key) && !demoted {
+            for (word, key, _) in weighted_rows(text::without_bom(table)) {
+                if !word.is_empty() && !vetoes.vetoes(word, key) {
                     words.insert(word.to_owned());
                 }
             }
@@ -375,12 +371,8 @@ mod tests {
     }
 
     #[test]
-    fn pinyin_words_are_looked_up_in_simplified_form_without_vetoed_or_demoted_readings() {
-        let curation = PinyinCuration::parse(
-            "个鸡巴\n我训\two'xun\n",
-            "中最\tzhong'zui\t1\n加号\tjia'hao\t9000\n",
-        )
-        .unwrap();
+    fn pinyin_words_are_looked_up_in_simplified_form_without_vetoed_readings() {
+        let vetoes = PinyinVetoes::parse("个鸡巴\n我训\two'xun\n").unwrap();
         let traditional = crate::cantonese::parse_variants(
             TRADITIONAL_TO_SIMPLIFIED,
             "假\t假\n個\t个\n濕\t湿\n紙\t纸\n雞\t鸡\n乾\t干 乾\n號\t号\n",
@@ -392,17 +384,18 @@ mod tests {
                 "\u{feff}干杯\tgan'bei\t100\n没有权重\tmei'you\n",
             ],
             &traditional,
-            &curation,
+            &vetoes,
         );
         assert!(words.contains("假期"));
         // 濕紙巾 逐字换成 湿纸巾 之后在拼音库里；乾 取第一个简体字形 干；对照里没有的字原样查，所以 濕紙巾 写成 濕纸巾 也查得到。
         assert!(words.contains("濕紙巾"));
         assert!(words.contains("濕纸巾"));
         assert!(words.contains("乾杯"));
-        // 整词否决、按读音否决的词，以及覆盖表压低了权重的读音，都不算拼音库的词；覆盖表抬高权重的读音照算。
+        // 整词否决、按读音否决的词不算拼音库的词。
         assert!(!words.contains("個雞巴"));
         assert!(!words.contains("我訓"));
-        assert!(!words.contains("中最"));
+        // 权重覆盖表不决定一个词在不在库，所以这里不读它：中最、加号 不管在覆盖表里被压低还是抬高，都照算拼音库的词。
+        assert!(words.contains("中最"));
         assert!(words.contains("加號"));
         assert!(!words.contains("嘉琪"));
         // 没有权重列的行不是拼音表的行。

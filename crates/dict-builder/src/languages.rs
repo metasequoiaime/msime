@@ -200,13 +200,13 @@ pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<Strin
     Ok(summaries)
 }
 
-/// 粤拼库的清洗输入：拼音库三张上游词表（按 `curation/pinyin-vetoes.txt`、`curation/pinyin-weight-overrides.txt` 去掉否决和压低了的读音）、繁转简字表，以及 `curation/cantonese-essay-keep.txt`、`curation/cantonese-word-vetoes.txt`；`curation/` 的表不在时按空表。
+/// 粤拼库的清洗输入：拼音库三张上游词表（按 `curation/pinyin-vetoes.txt` 去掉否决了的读音；权重覆盖表不影响一个词在不在库，见 `cantonese_curation` 的模块文档）、繁转简字表，以及 `curation/cantonese-essay-keep.txt`、`curation/cantonese-word-vetoes.txt`；`curation/` 的表不在时按空表。
 fn cantonese_curation_inputs(sources: &Sources) -> Result<cantonese_curation::Curation> {
     let mut tables = Vec::with_capacity(cantonese_curation::PINYIN_TABLES.len());
     for path in cantonese_curation::PINYIN_TABLES {
         tables.push(text::read(&sources.pinned(path)?)?);
     }
-    let pinyin_curation = crate::curation::PinyinCuration::load(sources)?;
+    let pinyin_vetoes = crate::curation::PinyinCuration::load(sources)?.vetoes;
     let traditional_to_simplified = cantonese::parse_variants(
         cantonese_curation::TRADITIONAL_TO_SIMPLIFIED,
         &text::read(&sources.pinned(cantonese_curation::TRADITIONAL_TO_SIMPLIFIED)?)?,
@@ -223,7 +223,7 @@ fn cantonese_curation_inputs(sources: &Sources) -> Result<cantonese_curation::Cu
         pinyin: cantonese_curation::PinyinWords::new(
             &tables.iter().map(String::as_str).collect::<Vec<_>>(),
             &traditional_to_simplified,
-            &pinyin_curation,
+            &pinyin_vetoes,
         ),
         keeps,
         vetoes,
