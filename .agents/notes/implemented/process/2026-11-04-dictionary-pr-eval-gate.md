@@ -11,13 +11,15 @@ msime-dictionary 合入 main 就发布 dict-v，客户端默认每 24 小时自�
 msime 侧是 `scripts/dict_eval_gate.py`，测试是 `scripts/test-dict-eval-gate.py`（随 `scripts/run-checks.sh` 运行）；词库仓库侧是 `.github/workflows/eval-gate.yml`，作业名 `Eval gate`。用法和五道门槛的口径写在 `resources/eval/README.md` 的「`scripts/dict_eval_gate.py`」一节。
 
 - **入口只编排和判定。** 判定规则全部来自 `eval_compare.py`、`must_outrank.py`、`vulgar_exposure.py`，入口不重写任何口径；所有 `convert_eval` 都加 `--mixed-english`、每页 6 个，与产品出厂设置一致。评测集目录里每一份 `.tsv` 都必须归进「取金标准的词级集 / 打字流集 / 不取」三张清单之一，测试检查这一点：新加的集合要先决定它算不算金标准。
-- **退出码三态。** 0 全部通过，1 有门槛失败，2 没跑完（输入不全、`convert_eval` 失败、被调用的脚本以 `SystemExit` 报不可比）。workflow 把 2 也判为检查失败，但报告里写的是「没跑完」，不冒充门槛结论。
-- **must-outrank 用棘轮。** B 上通过、C 上失败的行算退步，门槛失败；两边都失败的行逐条列在报告里，不卡。`--must-outrank-strict` 是方案字面的「全部通过」。
+- **退出码三态。** 0 全部通过，1 五道门槛都算出了结果且有一道失败，2 没跑完（输入不全、`convert_eval` 失败、被调用的脚本以 `SystemExit` 报不可比、库文件损坏、脚本自己出错）。入口捕获全部异常、打印 traceback 后返回 2，写报告也算在内：Python 默认以 1 结束未捕获的异常，不这样做的话一个打不开的库会被 workflow 报成「有门槛失败」。workflow 把 2 也判为检查失败，但报告里写的是「没跑完」，不冒充门槛结论。
+- **must-outrank 用棘轮。** B 上通过、C 上失败的行算退步，门槛失败；两边都失败的行逐条列在报告里，不卡。`--must-outrank-strict` 是方案字面的「全部通过」。这改了方案 4.3 一道硬门槛的写法，不在维护者已采纳的第 6 节决定里，**需要维护者确认**；夹具全部转绿后在 workflow 里加上 `--must-outrank-strict`。
 - **粗俗曝光两边用同一张词表。** 引擎内嵌的表，加 B 和 C 两份 `msime-pinyin.db` 的 `sentence_excluded` 表的并集。C 新加进 `curation/offensive-words.txt` 的词也拿来量 B，C ≤ B 才可比。
 - **基线 B 是运行时最新的 dict-v 发布。** 那就是用户此刻自动更新到的版本，按发布自带的 `msime-SHA256SUMS.txt` 下载并校验。
 - **构建器和评测脚本取同一个 msime 提交。** 来自候选提交自己的 `builder.lock.json`：升级构建器的 PR，评测的就是新构建器构建、新门槛判定的结果。固定提交里还没有 `dict_eval_gate.py` 时检查失败并说明要先升锁。手动运行可以用 `msime_ref` 换一个分支或提交试跑，报告里注明「不是固定的提交」。
-- **作业总是运行，范围在作业里判定。** 没有改动 `sources/`、`custom/`、`curation/`、`builder.lock.json` 和 workflow 自己的 PR，作业判定范围后以成功结束，不用 `on.pull_request.paths` 过滤：被过滤掉的 PR 不会出现这个检查，设为 required 后会一直等待。
-- **候选清单与发布 workflow 同样核对。** 授权构建、构建器不脏、`source.commit` 等于检出的 msime 提交、`custom_dictionary_commit` 等于本次检出的词库提交；构建器调用与 `release-built-dictionaries.yml` 的主构建相同（评测只读主产物，不构建 languages）。
+- **作业总是运行，范围在作业里判定。** 没有改动 `sources/`、`custom/`、`curation/`、`upstream.lock.json`、`builder.lock.json`、`release-built-dictionaries.yml` 和 workflow 自己的 PR，作业判定范围后以成功结束，不用 `on.pull_request.paths` 过滤：被过滤掉的 PR 不会出现这个检查，设为 required 后会一直等待。
+- **候选清单与发布 workflow 同样核对。** 授权构建、构建器不脏、`source.commit` 等于检出的 msime 提交、`custom_dictionary_commit` 等于本次检出的词库提交；构建器调用与 `release-built-dictionaries.yml` 相同，主构建和 languages 都跑、分两个目录放（评测只读主产物，languages 构建是为了让粤拼、注音、笔画的构建错误在合入前暴露）。
+- **upstream.lock.json 和发布 workflow 也算发布输入。** 构建器逐项核对 `upstream.lock.json`（版本、提交、引用对不上就构建失败），它也算进 manifest 的 `source.dirty`；发布 workflow 决定发布用什么命令构建。只改它们的 PR 原来会跳过门禁，构建错误要到合入后的发布才暴露。
+- **方案 4.3 的参考项和第 5 节的附件在同一个作业里，只报告。** 入口另跑 sentences-v1、九键长句、particles（三种键盘）、neutral 在每一臂上的配对比较，并列出方案点名的粗俗目标码在 B、C 首屏上的冒犯词，针对性清洗批次靠它确认清零；这些不进退出码。workflow 再用 `dict_artifact_diff.py` 把 C 与 B 的两组产物逐表逐行比较（JSON 里每张表每类差异最多 200000 行，就是逐词的删除、降权清单），用 `dictionary_topn_diff.py` 列五笔和英文的 top-N 差异，摘要附在报告后面；候选产物整组上传为 artifact `dictionary-candidate`，保留 7 天。
 - **评论另起一个作业。** 只有 `pull-requests: write`，不运行 PR 的任何代码，按 HTML 标记找自己的评论更新（同一个 bot 还发 check-words 的评论）；fork 来的 PR 只有作业摘要和 artifact。
 
 ### 时间
@@ -37,7 +39,7 @@ msime 侧是 `scripts/dict_eval_gate.py`，测试是 `scripts/test-dict-eval-gat
 - **收益**：词库 PR 合入之前第一次有了配对、可检验显著性的排序评测；粗俗曝光和有出处的次序问题有了不会退步的保证；报告直接写在 PR 上，维护者不用自己跑工具。
 - **代价**：每个改动发布输入的 PR 多一个约 16 分钟的作业。评测脚本跟构建器一起固定，`dict_eval_gate.py` 或评测集的改进要等升 `builder.lock.json` 才在 PR 上生效；在那之前（包括这个门禁本身的第一次启用）检查会因固定提交里没有入口脚本而失败，必须先在 msime 合入、再在词库仓库升锁。
 - **维护者操作**：把 `Eval gate` 设为 main 的 required check 要在 GitHub 的分支保护里手动设置，workflow 不改仓库设置。
-- **已知上限**：B 和 C 用同一个 `convert_eval`（固定提交编出来的），所以量到的只是数据和构建器的差别；客户端引擎的改动不在这里评。曝光输入集和 v2 的参照词库冻结在 dict-v2.0.41，参照换了要发新版本。ctx-v1、typing_sim、五笔和英文的差异清单仍是参考项，不在这个作业里跑。
+- **已知上限**：B 和 C 用同一个 `convert_eval`（固定提交编出来的），所以量到的只是数据和构建器的差别；客户端引擎的改动不在这里评。曝光输入集和 v2 的参照词库冻结在 dict-v2.0.41，参照换了要发新版本。ctx-v1（dump 约 680 MB，只能在 Studio 上跑）和 typing_sim 不在这个作业里，大规模改权重的批次（方案第 5 节 4.1 阶段的万象重加权）要另外在 Studio 上跑它们。评论作业只在 `pull_request` 事件上运行，分支推送的试跑走不到它，第一次真实运行是在加这个 workflow 的词库 PR 上。
 
 ## Verification
 
