@@ -36,6 +36,7 @@ pub mod logging;
 pub mod multilingual;
 mod nine_key;
 mod nine_key_shuangpin;
+mod offensive_placement;
 #[doc(hidden)]
 pub mod ordering;
 mod paths;

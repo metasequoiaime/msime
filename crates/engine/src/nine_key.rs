@@ -11,7 +11,9 @@ use std::sync::OnceLock;
 
 use crate::assets;
 use crate::diagnostics;
-use crate::dictionary::english::{append_keypad_ranked, EnglishDictionary, KeypadRow};
+use crate::dictionary::english::{
+    append_keypad_ranked, takes_priority_slot_or_own, EnglishDictionary, KeypadRow,
+};
 use crate::error::EngineError;
 use crate::ime::queries::{
     insert_expressive_rows, keep_expressive_rows_off_the_lead, MIXED_EXPRESSIVE_MINIMUM_INPUT,
@@ -27,6 +29,7 @@ use crate::local::date_time::{inline_date_time_keyword, insert_inline_date_time}
 use crate::local::emoji::{query_emoji_readings, query_kaomoji_readings, ExpressiveRow};
 use crate::local::symbol_candidates::{query_symbol_readings, SymbolRow, MIXED_SYMBOL_LIMIT};
 use crate::nine_key_shuangpin::NineKeyShuangpin;
+use crate::offensive_placement::{grid_demotion, keep_off_first_page};
 use crate::paths::RuntimePaths;
 use crate::pinyin::segment::{is_complete_pinyin_input, split_segments};
 use crate::pinyin::syllables::intact_pinyin_list;
@@ -40,6 +43,7 @@ use crate::types::{
     MixedExpressiveOptions, PersonalDictionaryKind, SchemeType, SentenceAssociationOptions,
     SharedString, WordItem,
 };
+use crate::user_dictionary::journal::has_english_upsert;
 use crate::user_dictionary::positions;
 use crate::user_dictionary::ranking::{self, RankingRequest};
 use crate::user_dictionary::removal;
@@ -1428,6 +1432,11 @@ impl NineKeySession {
             self.spellings.clear();
             // No syllables to offer and no pinyin to look up: the digits stand for letters only.
             self.candidates = self.english_candidates(false);
+            keep_off_first_page(
+                &mut self.candidates,
+                self.first_page_rows.get(),
+                grid_demotion,
+            );
             return;
         }
         // 每个锁定都有一条撤销记录，哪怕是作废的。
@@ -1723,6 +1732,8 @@ impl NineKeySession {
             grid,
         );
         self.rerank_sentences(&mut candidates);
+        // 粗俗词和轻度粗口不进歧义码的首屏（`offensive_placement`）。在插入英文、表情和固定位置之前挪：英文行坐的是首选之后的位置，挪动不能把它推上首选；用户固定的位置照旧生效。
+        keep_off_first_page(&mut candidates, self.first_page_rows.get(), grid_demotion);
         let mut seeds = std::mem::take(&mut self.seed_buffer);
         next_seeds(
             grid,
@@ -1748,22 +1759,37 @@ impl NineKeySession {
             self.english_candidates(unanswered)
         };
         if !english.is_empty() {
-            // 有权重的英文保留第二位，零权重词仍接在拼音末尾；额外英文只占首页剩余空间。
-            let first = english.remove(0);
-            let slot = if first.weight > 0 {
-                candidates.len().min(1)
+            // 常见、不粗俗的英文（`english::takes_priority_slot`）才坐第二位和首页剩余空间，按原来的先后排在前面；其余的接在拼音末尾。用户自己加过或选过的词把拼写打全时也坐（`takes_priority_slot_or_own`）：只有拼写打全的那几行要查日志，一键查不了几次。没有拼音读法时列表只有英文，照原来的先后给，只把粗俗词挪出首屏。
+            let seated = if candidates.is_empty() {
+                keep_off_first_page(&mut english, self.first_page_rows.get(), grid_demotion);
+                english.len()
             } else {
-                candidates.len()
+                let journal = self.paths.user(assets::USER_JOURNAL);
+                let typed = self.digits.len();
+                let (mut seated, rest): (Vec<WordItem>, Vec<WordItem>) =
+                    english.into_iter().partition(|word| {
+                        takes_priority_slot_or_own(word, |word| {
+                            word.pinyin.len() == typed && has_english_upsert(&journal, &word.pinyin)
+                        })
+                    });
+                let count = seated.len();
+                seated.extend(rest);
+                english = seated;
+                count
             };
-            candidates.insert(slot, first);
-            let extra = self
-                .english_options
-                .first_page_count
-                .saturating_sub(1)
-                .min(self.first_page_rows.get().saturating_sub(slot + 1))
-                .min(english.len());
-            if extra > 0 {
-                candidates.splice(slot + 1..slot + 1, english.drain(..extra));
+            if seated > 0 {
+                let first = english.remove(0);
+                let slot = candidates.len().min(1);
+                candidates.insert(slot, first);
+                let extra = self
+                    .english_options
+                    .first_page_count
+                    .saturating_sub(1)
+                    .min(self.first_page_rows.get().saturating_sub(slot + 1))
+                    .min(seated - 1);
+                if extra > 0 {
+                    candidates.splice(slot + 1..slot + 1, english.drain(..extra));
+                }
             }
             candidates.extend(english);
         }
@@ -7169,7 +7195,8 @@ mod tests {
         let fixture = fixture();
         Connection::open(fixture.paths.dictionary(assets::ENGLISH_DICTIONARY))
             .unwrap()
-            .execute_batch("INSERT INTO english_words VALUES('night','night',900),('nights','nights',800),('nightly','nightly',700);")
+            // 权重取自 dict-v2.0.41，都常见到能坐优先位置（`english::takes_priority_slot`）。
+            .execute_batch("INSERT INTO english_words VALUES('night','night',130531484),('nights','nights',21258662),('nightly','nightly',4115392);")
             .unwrap();
         for (count, page_rows, expected) in [
             (
@@ -7750,13 +7777,13 @@ INSERT INTO tbl_1_b VALUES('ba','b','巴',16099);",
         }
     }
 
-    /// 有权重的英文坐第二位，折算只在它周围的拼音行之间调序：被折算的补全仍在首页，首页里的行与不折算时相同。
+    /// 常见的英文坐第二位，折算只在它周围的拼音行之间调序：被折算的补全仍在首页，首页里的行与不折算时相同。权重取自 dict-v2.0.41。
     #[test]
     fn a_mixed_english_row_does_not_push_a_discounted_completion_off_the_first_page() {
         let fixture = fixture_with("CREATE TABLE tbl_2_c(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_c VALUES('chi''fan','cf','吃饭',1100);INSERT INTO tbl_2_c VALUES('ci''ge','cg','次格',700);CREATE TABLE tbl_2_a(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_a VALUES('ai''ge','ag','挨个',1000);INSERT INTO tbl_2_a VALUES('ai''he','ah','爱河',900);CREATE TABLE tbl_2_b(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_b VALUES('bi''he','bh','碧荷',800);INSERT INTO tbl_2_b VALUES('bi''ge','bg','笔格',600);");
         Connection::open(fixture.directory.path().join(assets::ENGLISH_DICTIONARY))
             .and_then(|db| {
-                db.execute_batch("INSERT INTO english_words VALUES('chief','chief',1000);")
+                db.execute_batch("INSERT INTO english_words VALUES('chief','chief',45699591);")
             })
             .expect("english row");
         let mut session = open(&fixture.paths, false, mixed());
@@ -8723,12 +8750,12 @@ CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl
         Connection::open(fixture.paths.dictionary(assets::ENGLISH_DICTIONARY))
             .unwrap()
             .execute(
-                "INSERT INTO english_words(word, display, weight) VALUES ('mei', 'Mei', 700)",
+                "INSERT INTO english_words(word, display, weight) VALUES ('mei', 'Mei', 5000000)",
                 [],
             )
             .unwrap();
         let mut session = open_expressive(&fixture, mixed(), BOTH_EXPRESSIVE);
-        // 九宫格的英文首行有权重时占首选之后的位置；关键词里有这个英文词的 emoji 接在它后面，接不上的排在末尾。
+        // 九宫格的英文首行常见到能坐优先位置时（`english::takes_priority_slot`）占首选之后的位置；关键词里有这个英文词的 emoji 接在它后面，接不上的排在末尾。
         type_digits(&mut session, "634");
         let listed = words(&session);
         assert_eq!(listed[..3], ["美", "Mei", "🌸"]);

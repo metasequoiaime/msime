@@ -12,6 +12,7 @@ use crate::ime::queries::{
 use crate::ime::MixedJapaneseConversion;
 use crate::local::date_time::{inline_date_time_keyword, insert_inline_date_time, LocalDateTime};
 use crate::local::jianpin::jianpin_ranking_context;
+use crate::offensive_placement::{keep_off_first_page, spells_whole_input, typed_demotion};
 use crate::pinyin::segment::{cut_pinyin_by_mode, join_segments, CutMode};
 use crate::text::{count_utf8_chars, is_han_phrase};
 use crate::types::{
@@ -718,9 +719,28 @@ impl InputSession {
     /// 对一份解码结果混排并应用固定位置。
     fn mixed_from(
         &mut self,
-        decoded: Vec<WordItem>,
+        mut decoded: Vec<WordItem>,
         japanese: Option<&MixedJapaneseConversion>,
     ) -> Vec<WordItem> {
+        // 粗俗词不当首选，前缀、部分候选和简拼查出来的不进首屏（`offensive_placement`）。在混入英文、日文和固定位置之前挪：混入的行坐的是首选之后的位置，挪动不能把它们推上首选；用户固定的位置照旧生效。英文粗俗词由 `CandidateQueries::mixed` 接在末尾。
+        let scheme = self.scheme();
+        if scheme.is_pinyin() && self.local_mode == LocalInputMode::None {
+            let input = if self.prefix_active {
+                self.prefix_query_input.as_str()
+            } else {
+                self.engine.request().raw_input.as_str()
+            };
+            let profile = self.profile;
+            keep_off_first_page(
+                &mut decoded,
+                self.engine.request().first_page_rows.get(),
+                |item| {
+                    typed_demotion(item, |item| {
+                        spells_whole_input(item, input, scheme, profile)
+                    })
+                },
+            );
+        }
         let japanese = japanese.map(|conversion| self.mixed_japanese_row(&decoded, conversion));
         // 拼音拆不开时完全匹配的英文可以占首位，但有两种情况不行：光标前缀解码时选英文会扔掉光标后的输入（`commit_selection` 整段结束组字）；辅助码激活时大写的辅助码被转成小写拼进了查英文的输入，那串字母不是用户要的英文词。
         let english_may_lead = !self.prefix_active && !self.has_active_helpcode();
@@ -733,7 +753,6 @@ impl InputSession {
         } else {
             self.engine.request().raw_input.as_str()
         };
-        let scheme = self.scheme();
         let mut mixed = self.queries.mixed(
             decoded,
             association_input,
