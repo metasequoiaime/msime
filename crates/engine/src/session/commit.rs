@@ -1,5 +1,6 @@
 //! Selection and commit (core-session.md §5.7).
 
+use super::cantonese_learning::{is_cantonese_row, CantonesePick};
 use super::chain::Pick;
 use super::input::InputSession;
 use crate::diagnostics;
@@ -114,6 +115,9 @@ impl InputSession {
 
     /// Commit segment by segment until nothing is composing. An open Korean Hanja list is closed first, so finishing (punctuation, leaving the client, a host's finish key) commits the Hangul: only an explicit choice commits a Hanja.
     pub(super) fn finish_composition(&mut self, first_index: usize) -> KeyResult {
+        if self.glide_selection_pending && self.has_composition() {
+            return KeyResult::handled();
+        }
         // 上屏/结束组字同样结束大写串：宿主结束键（`Action::Finish`、失焦、macOS 的 Cmd+A）与字面标点路由都从这里过，不经过 `handle_command`（#7616）。
         self.end_uppercase_run();
         self.close_korean_hanja();
@@ -174,6 +178,24 @@ impl InputSession {
 
     /// 选中第 `index` 条并上屏或推进组字。光标后编辑生效时先交给它（`commit_caret_edit`）。
     pub(super) fn commit(&mut self, index: usize) -> KeyResult {
+        if let Some((_, rows)) = &self.glide_candidates {
+            let Some(row) = rows.get(index) else {
+                // 结束组字允许无效索引回落原文，不能让 finish 的循环停在同一笔上。
+                let text = self.raw_with_cases().to_owned();
+                self.reset_composition();
+                self.chain.reset();
+                return KeyResult::committed(text);
+            };
+            let mut text = row.word.clone();
+            let english = text.as_bytes().last().is_some_and(u8::is_ascii_alphabetic);
+            self.glide_prefers_english = Some(english);
+            if english {
+                text.push(' ');
+            }
+            self.reset_composition();
+            self.chain.reset();
+            return KeyResult::committed(text);
+        }
         if self.caret_edit.active && self.conversion.is_none() && self.date_time_menu_page.is_none()
         {
             if let Some(result) = self.commit_caret_edit(index) {
@@ -240,14 +262,28 @@ impl InputSession {
                 return KeyResult::committed(text);
             };
             let text = candidate.word.clone();
+            let key = candidate.canonical_pinyin.clone();
+            let cantonese_row = is_cantonese_row(candidate);
             let end = candidate.pinyin.len();
-            if self.engine.select_cantonese_end(end) {
+            // 组句标记和调频都在拿走这一段之前取：拿走后候选换成剩下那段的。
+            let pick = CantonesePick {
+                key: &key,
+                word: &text,
+                cantonese_row,
+                composed: cantonese_row && self.engine.cantonese_row_is_composed(&key, &text),
+            };
+            let mut diagnostic = self.learn_cantonese_frequency(index, &pick);
+            let composing = self.engine.select_cantonese_end(end);
+            if let Some(phrase_diagnostic) = self.note_cantonese_piece(&pick, composing) {
+                diagnostic.get_or_insert(phrase_diagnostic);
+            }
+            if composing {
                 self.update_mixed_candidates();
             } else {
                 self.reset_composition();
             }
             self.chain.reset();
-            return KeyResult::committed(text);
+            return committed(Some(text.to_string()), diagnostic);
         }
         if self.korean_rules_apply() || self.vietnamese_rules_apply() || self.tibetan_rules_apply()
         {

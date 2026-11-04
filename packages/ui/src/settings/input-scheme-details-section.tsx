@@ -28,6 +28,7 @@ import { SelectRow } from "./select-row";
 import { SwitchRow } from "./switch-row";
 import { SegmentedRow } from "./segmented-row";
 import { PreeditStyleRow } from "./preedit-style-row";
+import type { ShuangpinPreeditStyle } from "./preedit-preferences";
 
 export type InputSchemeDetailsScheme = InputScheme;
 export type ShuangpinProfile =
@@ -83,15 +84,15 @@ export interface InputSchemeDetailsSectionProps {
   shuangpinKeymapHint?: boolean;
   /** Linux 宿主：键位图只画给报根窗口坐标光标的 X11 客户端（`platforms/linux/src/overlay/ShuangpinKeymapX11Surface.h`），描述照实说明在哪里不显示。 */
   linux?: boolean;
-  /** 「双拼预编辑」的当前样式（保留原始按键或显示拼音分词）；宿主不画双拼预编辑（`HostCapabilities.shuangpin_preedit` 为假）或在触屏宿主上时不传，这一行不出现。 */
-  shuangpinPreedit?: "raw" | "pinyin";
+  /** 「双拼预编辑」的当前样式（保留原始按键、双拼分隔或显示拼音分词）；宿主不画双拼预编辑（`HostCapabilities.shuangpin_preedit` 为假）或在触屏宿主上时不传，这一行不出现。 */
+  shuangpinPreedit?: ShuangpinPreeditStyle;
   onShuangpinProfileChange: (profile: ShuangpinProfile) => void;
   /** 宿主能校验自定义双拼表时传入，打开自定义双拼的编辑页。有它时方案里多一项「自定义双拼」：选它先打开编辑页，在那里保存一张能用的表才切过去，与 MCP 不让选一张不能用的表相同；已经是自定义双拼时下面多一行「编辑自定义键位」。 */
   onEditCustomShuangpin?: () => void;
   onWubiProfileChange?: (profile: WubiProfile) => void;
   onShuangpinKeymapHintChange?: (enabled: boolean) => void;
-  /** 选了双拼预编辑的样式：`true` 为保留原始按键，写进共享偏好 `shuangpin_preedit_uses_raw`。 */
-  onShuangpinPreeditChange?: (usesRaw: boolean) => void;
+  /** 选了双拼预编辑的样式，由调用方经 `shuangpinPreeditPatch` 写进共享偏好 `shuangpin_preedit_uses_raw` 与 `shuangpin_preedit_separated`。 */
+  onShuangpinPreeditChange?: (style: ShuangpinPreeditStyle) => void;
   /** The document's Vietnamese options; absent means the defaults, Telex with modern tone placement. */
   vietnamese?: VietnamesePreferences;
   onVietnameseChange?: (vietnamese: VietnamesePreferences) => void;
@@ -205,10 +206,10 @@ export function InputSchemeDetailsSection({
       {shuangpinPreedit !== undefined && !hideShuangpinRows && (
         <PreeditStyleRow
           title="双拼预编辑"
-          description="保留原始双拼按键，或显示展开后的拼音分词。"
+          description="保留原始双拼按键、在原始按键之间按音节加分隔符，或显示展开后的拼音分词。"
           mode="shuangpin"
           value={shuangpinPreedit}
-          onChange={(value) => onShuangpinPreeditChange?.(value === "raw")}
+          onChange={(value) => onShuangpinPreeditChange?.(value as ShuangpinPreeditStyle)}
         />
       )}
       {/* 五笔方案在 86、98 和新世纪码表之间切换，个人词条和学习记录按版本分开存；触屏宿主没有方案选择器，启用了五笔键盘时也在这里选。偏好里不认识的值按 86 显示。 */}

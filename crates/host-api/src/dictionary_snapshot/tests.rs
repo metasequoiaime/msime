@@ -436,6 +436,7 @@ fn discard_does_not_require_maintenance_lock_for_live_paths() {
         shuangpin_profile: 0,
         shuangpin_custom_profile: None,
         shuangpin_preedit_uses_raw: true,
+        shuangpin_preedit_separated: false,
         force_cantonese_shuangpin: false,
         single_character_only: false,
         caret_edit_suffix: false,
@@ -577,6 +578,7 @@ fn activation_case(
         shuangpin_profile: 0,
         shuangpin_custom_profile: None,
         shuangpin_preedit_uses_raw: true,
+        shuangpin_preedit_separated: false,
         force_cantonese_shuangpin: false,
         single_character_only: false,
         caret_edit_suffix: false,
@@ -894,6 +896,7 @@ fn activation_reopens_the_personal_context_store_on_the_restored_journal() {
         shuangpin_profile: 0,
         shuangpin_custom_profile: None,
         shuangpin_preedit_uses_raw: true,
+        shuangpin_preedit_separated: false,
         force_cantonese_shuangpin: false,
         single_character_only: false,
         caret_edit_suffix: false,
@@ -1417,6 +1420,28 @@ fn a_learning_export_carries_the_journal_and_restages_to_the_same_revision() {
             .unwrap()["count"],
         4
     );
+}
+
+/// 粤语学到的东西（打字造的词、调频写下的权重、带 `cantonese:` 前缀的选词计数）不进本地备份的快照，也就不会经快照上传（#10544）：快照格式不收粤语。
+#[test]
+fn a_learning_export_leaves_out_cantonese_learning() {
+    let device = LearningDevice::with_learning();
+    device.sql(
+        "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,display,user_inserted) VALUES('cantonese','nei hou','你號','upsert',10000,'',1),('cantonese','nei hou','妳好','upsert',901,'',0);
+         INSERT INTO candidate_selection_state(context_key,entry_key,value,selection_count) VALUES('cantonese:nei hou','nei hou','妳好',1);",
+    );
+    let destination = device.root.path().join("learning.ndjson");
+    let exported = device
+        .request(serde_json::json!({"operation": "export_snapshot", "destination": destination, "include_learning": true}))
+        .unwrap();
+    assert_eq!(exported["entries"], 1, "{exported}");
+    assert_eq!(exported["selections"], 1, "{exported}");
+    assert_eq!(exported["learning"], 4, "{exported}");
+    assert_eq!(exported["learning_skipped"], 2, "{exported}");
+    let text = std::fs::read_to_string(&destination).unwrap();
+    assert!(!text.contains("cantonese"), "{text}");
+    assert!(!text.contains("你號") && !text.contains("妳好"), "{text}");
+    super::inspect_snapshot(&destination).unwrap();
 }
 
 /// 键盘空闲时反复问的预览版本（`msime_client_snapshot_version`、队列的 `state`）与不缓存的 `version` 一致，日志改过之后也跟着变。命中缓存时不重读日志由引擎的 `cached_dictionary_state_revision` 用例覆盖。
@@ -2258,10 +2283,26 @@ fn a_snapshot_activation_keeps_the_personal_cantonese_words() {
             "cantonese-nei-hou",
         )
         .unwrap();
+        // 粤语调频学到的权重和选词计数（#10544）。
+        device.sql(
+            "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,display,user_inserted) VALUES('cantonese','hou','號','upsert',4001,'',0);
+             INSERT INTO candidate_selection_state(context_key,entry_key,value,selection_count) VALUES('cantonese:hou','hou','毫',1);",
+        );
         download_into(&device, from_cloud_sync);
         assert_eq!(
             device.number("SELECT count(*) FROM user_dictionary_operations WHERE dictionary='cantonese' AND key='nei hou' AND value='你好' AND operation='upsert' AND user_inserted=1 AND weight=100000"),
             Some(1),
+            "from_cloud_sync = {from_cloud_sync}"
+        );
+        // 学到的权重照样带过来，仍不算用户的词；粤语的选词计数不带。
+        assert_eq!(
+            device.number("SELECT weight FROM user_dictionary_operations WHERE dictionary='cantonese' AND key='hou' AND value='號' AND operation='upsert' AND user_inserted=0"),
+            Some(4001),
+            "from_cloud_sync = {from_cloud_sync}"
+        );
+        assert_eq!(
+            device.number("SELECT count(*) FROM candidate_selection_state WHERE context_key LIKE 'cantonese:%'"),
+            Some(0),
             "from_cloud_sync = {from_cloud_sync}"
         );
         let page = msime_engine::host::dictionary_entries_for_kind(

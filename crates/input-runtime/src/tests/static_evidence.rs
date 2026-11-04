@@ -64,9 +64,9 @@ fn incomplete_evidence_falls_back_to_the_existing_model() {
     }
 }
 
+/// 全拼整句一个字一个音节，字数不同就是同一串字母的另一种切法（`yaoshangxian` 的「要上线」和切成 xi'an 的「要上西安」）。模型只在和首选同样多字的读法之间换，哪怕它更喜欢另一种切法。
 #[test]
-fn static_means_compare_complete_readings_of_different_lengths() {
-    // 模型同样喜欢每个字；总分会选短读法，逐字平均必须让长读法胜出。
+fn readings_of_another_length_are_not_compared() {
     let rows = [row("乙"), row("乙乙")];
     let scores = [evidence(-5000, 1), evidence(-6000, 2)];
     assert_eq!(
@@ -77,16 +77,56 @@ fn static_means_compare_complete_readings_of_different_lengths() {
             false,
             &ScoredOrderRows::new(&rows, &scores)
         ),
-        Some(1)
+        None
     );
-    let tied = [evidence(-3000, 1), evidence(-6000, 2)];
+}
+
+/// 同样字数的读法照常按词网格逐字平均和模型分的混合比较：词网格分相同时听模型的，词网格分差得足够多时不换。
+#[test]
+fn readings_of_the_same_length_mix_static_means_with_the_model() {
+    let rows = [row("甲甲"), row("乙乙")];
+    let even = [evidence(-6000, 2), evidence(-6000, 2)];
     assert_eq!(
         rerank_pick(
             &mut model(),
             "",
             0,
             false,
-            &ScoredOrderRows::new(&rows, &tied)
+            &ScoredOrderRows::new(&rows, &even)
+        ),
+        Some(1)
+    );
+    let apart = [evidence(-1000, 2), evidence(-60000, 2)];
+    assert_eq!(
+        rerank_pick(
+            &mut model(),
+            "",
+            0,
+            false,
+            &ScoredOrderRows::new(&rows, &apart)
+        ),
+        None
+    );
+}
+
+/// 跳过字数不同的读法不扩大比较的窗口：窗口外排得更靠后的读法不会因此补进来。
+#[test]
+fn skipping_other_lengths_keeps_the_comparison_window() {
+    let mut texts = vec!["甲甲".to_owned()];
+    texts.extend((0..8).map(|_| "甲甲甲".to_owned()));
+    texts.push("乙乙".to_owned());
+    let rows: Vec<OrderRow<'_>> = texts.iter().map(|text| row(text)).collect();
+    let scores: Vec<_> = texts
+        .iter()
+        .map(|text| evidence(-3000 * text.chars().count() as i64, text.chars().count()))
+        .collect();
+    assert_eq!(
+        rerank_pick(
+            &mut model(),
+            "",
+            0,
+            false,
+            &ScoredOrderRows::new(&rows, &scores)
         ),
         None
     );
@@ -267,7 +307,11 @@ fn static_rerank_large_lists_do_not_allocate_a_full_text_projection() {
                 };
                 let baseline = run(prefix.len());
                 for count in [128, 129, 1024] {
-                    assert_eq!(run(count), baseline, "compared={compared} interleaved={interleaved} warmed={warmed} rows={count}");
+                    assert_eq!(
+                        run(count),
+                        baseline,
+                        "compared={compared} interleaved={interleaved} warmed={warmed} rows={count}"
+                    );
                 }
             }
         }
@@ -372,4 +416,43 @@ fn the_scorer_sets_how_much_the_lattice_score_weighs() {
     assert_eq!(pick(0.7), None);
     assert_eq!(pick(0.5), None);
     assert_eq!(pick(0.3), Some(1));
+}
+
+/// 模型略偏好「她」开头的读法、词网格按词频偏好「他说」的打分器（数字取自聊天集里「你记得跟她说谢谢」那一页）。
+struct PrefersHer;
+
+impl CandidateScorer for PrefersHer {
+    fn context_length(&self) -> usize {
+        64
+    }
+
+    fn log_probabilities(&mut self, _context: &str, candidates: &[&str]) -> Vec<f32> {
+        candidates
+            .iter()
+            .map(|text| {
+                if text.starts_with('她') {
+                    -3.04
+                } else {
+                    -3.07
+                }
+            })
+            .collect()
+    }
+
+    fn static_evidence_weight(&self) -> f64 {
+        0.3
+    }
+}
+
+/// 两条读法只差「他/她/它」时只看模型分：混合分里词网格（词频）那一份把「他说」顶在前面，模型偏好的「她说」照样上来；差别不止代词时仍按混合分。
+#[test]
+fn readings_that_differ_only_in_a_third_person_pronoun_follow_the_model() {
+    let rows = [row("他说"), row("她说")];
+    let scores = [evidence(-3463, 1), evidence(-3544, 1)];
+    let scored = ScoredOrderRows::new(&rows, &scores);
+    assert_eq!(rerank_pick(&mut PrefersHer, "", 0, false, &scored), Some(1));
+
+    let rows = [row("他说"), row("她讲")];
+    let scored = ScoredOrderRows::new(&rows, &scores);
+    assert_eq!(rerank_pick(&mut PrefersHer, "", 0, false, &scored), None);
 }

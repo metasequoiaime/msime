@@ -246,7 +246,7 @@ CREATE TABLE IF NOT EXISTS user_dictionary_operations(
 | `wubixsj` | 主库的 `wubixsj`（新世纪五笔） | 同上 |
 | `quick` | 主库的 `quick_parases` | 1 到 32 个字母或数字 |
 | `english` | 英文库的 `english_words`，`display` 列是展示形式 | 1 到 64 个字母 |
-| `cantonese` | 不回放，计为跳过：粤语方案查词时直接读日志里 `user_inserted=1` 的 upsert 行，并进 `msime-cantonese.db` 的候选（`cantonese::UserWords`）。词库快照不收这些行，整份换上快照时宿主从旧日志抄进新的一代（`add_cantonese_words`） | 不带声调的粤拼音节，单个空格分隔（与 [§13](#13-语言词库msime-cantonesedbmsime-zhuyindbmsime-strokedb) 的 `entries.key` 同一写法） |
+| `cantonese` | 不回放，计为跳过：粤语方案查词时直接读日志里的 upsert 行，并进 `msime-cantonese.db` 的候选（`cantonese::UserWords`），同一个词两边都有时取较大的权重。`user_inserted=1` 是用户加的词和打字造的词，`user_inserted=0` 是粤语调频写下的权重（`cantonese::learning`）。词库快照不收这些行，整份换上快照时宿主从旧日志抄进新的一代（`add_cantonese_words`，`user_inserted` 照原样） | 不带声调的粤拼音节，单个空格分隔（与 [§13](#13-语言词库msime-cantonesedbmsime-zhuyindbmsime-strokedb) 的 `entries.key` 同一写法） |
 
 `operation='delete'` 是墓碑，回放时删除对应行；`user_inserted=1` 表示用户自己加的词（删除后仍记着它曾是用户的）。权重低于 1 的 `pinyin` upsert 是旧版调频留下的，回放时跳过，`ensure_user_database` 会把它们删掉。代次里没有对应表的行（只读英文库的代次里的非英文行，还没有五笔表时的五笔行，词库还没有 `wubixsj` 表时的新世纪行；只看这一行自己的表）计为跳过，留在日志里。`wubixsj` 行只出自选着新世纪五笔的用户：新世纪方案下的调频、删词和手动加的词，以及选着新世纪时拼音造词派生的五笔词（`user_dictionary::wubi_learning`）；86/98 用户的日志里不会出现它。这一版不认识的 `dictionary` 值（更新的版本加的种类，降级后读到）同样计为跳过、留在日志里，回到认识它的版本时照常回放。**存不进去的 `key` 算失败行，任何一行失败整次回放回滚、代次准备被拒。** 跳过未知取值是从 2026-11 的版本开始的，更早发布的引擎仍把未知取值算失败行，所以新增取值时要说明降级到那些版本不受支持，或者等宽松读取的版本覆盖了足够多的用户再往日志里写。`cantonese` 加进来时还没有这条宽松读取：认得它之前的引擎（降级安装）遇到用户加过粤语词的日志会拒绝准备新代次。
 
@@ -308,7 +308,7 @@ CREATE TABLE IF NOT EXISTS quick_phrase_slots(
 | 表 | 内容 |
 | --- | --- |
 | `personal_dictionary_receipts` | 个人词典编辑请求的回执，按 `request_id` 去重 |
-| `candidate_selection_state` | 调频的选中计数 |
+| `candidate_selection_state` | 调频的选中计数。`context_key` 以 `cantonese:` 开头的是粤语的计数（后接粤拼键），词库快照不收 |
 | `fixed_candidate_positions` | 固定位置（1 到 5） |
 | `pick_transitions` | 连续选中的两个词，够多次就成词 |
 | `pinyin_typo_counts`、`pinyin_autocorrect_suppressions` | 全拼纠错的学习与按输入关闭纠错 |
@@ -517,7 +517,7 @@ Rime 上游的 octagram 语法模型格式（[lotem/librime-octagram](https://gi
 | `msime-cantonese.db`、`msime-zhuyin.db`、`msime-stroke.db` 及其许可证文本、`msime-language-dictionaries-SHA256SUMS` | `msime-dict-build languages`，同一个 `dict-v*` 发布，经 `resources/language-dictionaries.lock.json` 固定 |
 | 网页引擎的 `msime-pinyin.db`、`msime-wubi86.db`、小号 `msime-japanese.dat` | `msime-dict-build web`，从 `dict-v*` 发布的文件裁出；保留拼音库的 `metadata`，`msime-wubi.db` 的 `metadata` 不复制 |
 | `sentence-model.safetensors` | [metasequoiaime/chinese-ime-lm](https://github.com/metasequoiaime/chinese-ime-lm) 的 `model-v1` 发布，经 `desktop-dictionary.lock.json` 与 `resources/neural-model.lock.json` 固定 |
-| `rerank-model/`、`rerank-model-small/`（`lm_step.ort`、`model.json`、`vocab.json`，只在宿主打开 `onnx-rerank` 时读） | GitHub Release [`metasequoiaime/chinese-ime-lm` 的 `rerank-v1`](https://github.com/metasequoiaime/chinese-ime-lm/releases/tag/rerank-v1)（文件名带尺寸前缀，如 `rerank-8x448.ort`），同一批文件也在 Hugging Face：[`msime/pinyin-ime-keystroke-reranker-25M`](https://huggingface.co/msime/pinyin-ime-keystroke-reranker-25M)（8x448）和 [`msime/pinyin-ime-keystroke-reranker-8M`](https://huggingface.co/msime/pinyin-ime-keystroke-reranker-8M)（6x256），那里是原名（`lm_step.ort`、`model.json`、`vocab.json`）并附 `LICENSE` 与 `NOTICE`。锁文件是 `resources/rerank-model.lock.json`。iOS 键盘扩展随包带两档；Android 发布包不带，6x256 作为资源包 `rerank-model-small` 下载到 `resource-packs/rerank-model-small/`（目录名与这里相同，host-api 在随包资源目录旁边找不到时找它） |
+| `rerank-model/`、`rerank-model-small/`（`lm_step.ort`、`model.json`、`vocab.json`，只在宿主打开 `onnx-rerank` 时读） | GitHub Release [`metasequoiaime/chinese-ime-lm` 的 `rerank-v2`](https://github.com/metasequoiaime/chinese-ime-lm/releases/tag/rerank-v2)（文件名带尺寸前缀，如 `rerank-8x448.ort`）。锁文件是 `resources/rerank-model.lock.json`。iOS 键盘扩展随包带两档；Android 发布包不带，6x256 作为资源包 `rerank-model-small` 下载到 `resource-packs/rerank-model-small/`（目录名与这里相同，host-api 在随包资源目录旁边找不到时找它） |
 | octagram `.gram` | 上游发布：amzxyz/rime-wanxiang-data、lotem/rime-octagram-data、gaboolic/rime-frost，经 `resources/grammar-models.lock.json` 固定 |
 | `handwriting-zh_CN.model` | metasequoiaime/msime-engine `a9b9f09`，经 `resources/handwriting-model.lock.json` 固定 |
 | `helpcodes/*.txt` | 提交在本仓库 `resources/helpcodes/`；`wubi86_helpcode.txt` 由 `msime-dict-build wubi86-helpcode` 生成 |

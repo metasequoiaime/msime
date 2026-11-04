@@ -18,10 +18,6 @@ pub(crate) const PLATFORM: &str = if cfg!(target_os = "windows") {
     "windows"
 } else if cfg!(target_os = "macos") {
     "macos"
-} else if cfg!(target_os = "android") {
-    "android"
-} else if cfg!(target_os = "ios") {
-    "ios"
 } else {
     "linux"
 };

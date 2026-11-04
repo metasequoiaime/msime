@@ -55,11 +55,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *
  * <p>页面绑定打开时登录的账号编号：读登录状态要等 Rust 的会话锁，所以绑定和核对都在工作线程上做，界面线程不调 Rust。Rust 只在回答完整以后核对账号，生成中途退出登录时由 {@link SignIn#signOut} 取消这次对话（{@link RustAccount#cancelForSignOut}），回来的 account_cancelled 让页面回到刚打开的样子。
  *
- * <p>宿主通过设置导航栈打开本二级页，保留返回按钮；「试用键盘」还会请求输入框焦点。独立的 {@link KeyboardTryoutActivity} 继续承载共享设置发起的试用。
+ * <p>宿主通过设置导航栈打开本二级页，保留返回按钮；「试用键盘」还会请求输入框焦点。
  */
 public final class ChatFragment extends HomeTabFragment {
 
-    /** boolean：由 {@link KeyboardTryoutActivity} 单独承载，而不是作为底部 tab。 */
+    /** boolean：由独立的 Activity 单独承载（{@link #standalone()}），而不是作为底部 tab。 */
     static final String ARG_STANDALONE = "standalone";
     /** 和 Apple 试用页同一个草稿上限，两个平台按同样的边界截断。 */
     private static final int DRAFT_LIMIT = 2000;
@@ -96,7 +96,7 @@ public final class ChatFragment extends HomeTabFragment {
     @Nullable private LinearLayout chat;
     @Nullable private ScrollView scroll;
 
-    /** 给共享设置的独立试用 Activity 使用。 */
+    /** 单独承载本页时用。原来的调用方是给 Tauri 合包用的 KeyboardTryoutActivity，它已随合包删除，目前没有调用方。 */
     static ChatFragment standalone() {
         ChatFragment fragment = new ChatFragment();
         Bundle arguments = new Bundle();

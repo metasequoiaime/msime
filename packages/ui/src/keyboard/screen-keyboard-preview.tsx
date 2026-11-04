@@ -17,6 +17,7 @@ import {
   msimeFieldColor,
   msimeFramePath,
   msimeStrokePath,
+  msimeStrokeWidth,
   msimeViewBox,
 } from "../core/brand-logo";
 
@@ -108,9 +109,8 @@ function ThumbnailToolbar({ foreground }: { foreground: string }) {
           d={msimeStrokePath}
           fill="none"
           stroke="#FFFFFF"
-          strokeWidth="9"
+          strokeWidth={msimeStrokeWidth}
           strokeLinecap="round"
-          strokeLinejoin="round"
         />
       </svg>
       {thumbnailToolbarGlyphs.map((glyph, index) => (

@@ -15,23 +15,23 @@ Status: implemented
 - **WebDAV 检查点**：`ReplicaFile::into_replica` 遇到不认识的类别，整份检查点不认（`dictionary_sync_corrupt`）。事件里的操作本来就逐条跳过。
 - **云词库改动记录**：`GET /v1/users/me/dictionary/changes` 的一侧带着不认识的 `kind`，`AccountDictionaryChange` 反序列化失败，整页读不了。
 
-这些已经发布的版本救不了。能做的是先发一个不写任何新值、只把读取放宽的版本，让之后的版本遇到新世纪的数据时不出问题。
+这些已经发布的版本不能靠新代码修复。最初方案是先独立发布只放宽读取的兼容层；当前父 PR #10644 已合入引擎与宿主 #10647、Windows #10668 和 macOS #10693，因此最终交付同时包含新世纪五笔的本地读写能力，不能再把整个 PR 当作可独立发布的只读兼容版本。
 
 ## Decision
 
-这一步只放宽读取，不写任何新值，可以单独发布。每一处都是「只跳过不认识的那一项，其余照常」。
+本篇记录读取兼容层的边界：每一处只跳过不认识的那一项，其余照常。当前分支已经认识 `wubixsj`，允许用户主动选择并写入本地词条、调频和删除记录；具体写入、备份和同步保护见[引擎与宿主接入新世纪五笔](../feature/2026-11-02-wubixsj-engine-host.md)。出厂默认仍为五笔 86，没有调整默认值。
 
 ### 学习日志回放
 
-- `replay_with` 先判断行的种类在不在 `JournalRow::KNOWN_KINDS`（`pinyin`、`wubi`、`wubi98`、`quick`、`english`）里。不在就计入 `skipped`，行留在日志里不动，回到认识它的版本时照常回放。
+- `replay_with` 先判断行的种类在不在 `JournalRow::KNOWN_KINDS`（当前为 `pinyin`、`wubi`、`wubi98`、`wubixsj`、`quick`、`english`；粤语另走日志读取）里。不在就计入 `skipped`，行留在日志里不动，回到认识它的版本时照常回放。
 - 存不进去的键（例如不合规的拼音键）仍然算失败行，整次回放回滚。
 - `docs/data-formats.md` §6.2 同步写明：更早发布的引擎仍把未知取值算失败行。
 
 ### 偏好文档
 
 - 用已有的 `settle_newer_values_on_read`，与韩文布局、粤拼解释方式相同：读盘时 `wubi_profile` 是字符串、但 `WubiProfile::parse` 不认识的，就换成 `wubi86`。
-- 只放宽读盘：`load`、`load_for_runtime` 和 `salvaged_from` 都经过这个函数。经 FFI 或 Tauri 提交的设置（`Preferences::from_submission`）和直接的反序列化仍是严格的，提交 `wubixsj` 会被拒绝。
-- 本版本保存时写回 `wubi86`，不保留原值。
+- 只放宽读盘：`load`、`load_for_runtime` 和 `salvaged_from` 都经过这个函数。经 FFI 或 Tauri 提交的设置（`Preferences::from_submission`）和直接的反序列化仍是严格的，当前认识的 `wubixsj` 提交成功，尚未认识的版本名仍被拒绝。
+- 不认识的版本名保存时写回 `wubi86`，不保留原值；已认识的 `wubixsj` 正常保存。
 
 ### 账号设置
 
@@ -68,26 +68,26 @@ Status: implemented
 ## Consequences
 
 - **收益**：
-  - 这一版之后的客户端遇到新世纪五笔的偏好、账号设置、快照记录、检查点词条和云端改动，都只跳过那一项，读取不中断。日志里的新世纪行在回放时跳过，输入法照常可用。
-  - 但日志里只要有新世纪行，凡是要读出整份日志状态的功能在这一版里仍会失败，云同步和 WebDAV 同步因此停下，见「已知上限」。降级到这一版不会让输入法用不了，也不会丢数据，但同步要等升级回去才恢复。
-  - 计划里的 PR-4 可以开始写 `wubixsj`：降级到这一版时输入法照常可用，降级到这一版之前的版本才会让输入法用不了。
+  - 不认识的偏好枚举和词库种类按各自通道的规则跳过，不再让整份读取失败。
+  - 当前版本已认识新世纪，正常回放和导出其本地状态；没有对应码表时只保留日志，待码表补齐后再回放。云同步下载激活前保留本地新世纪日志，避免云端快照覆盖丢词。
+  - 更高版本的未知日志种类仍会阻止整份状态导出，保护后续整份同步不误删数据，见「已知上限」。
 - **代价**：
-  - 跳过的数据在本版本里看不到。偏好保存时写回 86；检查点压缩时去掉那些词条；快照恢复时那些词条不进本机日志。升级回来以后，新世纪的选择和词条要靠别的设备或重新选择补回。
+  - 未知种类的数据在本版本里看不到。未知偏好保存时写回 86；检查点压缩会去掉不认识的词条；未知种类的快照记录不进本机日志。当前已认识的新世纪不属于未知种类，本地备份携带它，账号设置、云词库和 WebDAV 暂不同步。
   - 回放不再用「未知取值算失败」来发现日志里的垃圾种类：日志被写坏、种类成了别的字符串时，现在也只是跳过。
   - 快照的种类校验从五个固定值放宽到名字的形状，iOS 两份 Swift 的旧用例 `"other"` 改成了不合形状的 `"Other-Kind"` 和空串。
 - **已知上限**：
-  - 已经发布的版本照旧整份拒绝，计划里的发布说明要写明：用过新世纪以后，降级到这一版之前的版本不受支持。
-  - `state.rs` 读出整份日志状态（`stream_dictionary_state`）时，遇到不认识的种类仍报 `invalid_state`，这次没有放宽。从写 `wubixsj` 的版本降级回这一版，日志里就会有这样的行，依赖它的功能都会失败，直到升级回去：
+  - 已经发布且没有宽松读取保护的版本照旧整份拒绝，发布说明应写明：用过新世纪以后，降级到不认识该种类且没有兼容保护的版本不受支持。尚未在真实设备验收降级。
+  - `state.rs` 读出整份日志状态（`stream_dictionary_state`）时，遇到不认识的种类仍报 `invalid_state`，这次没有放宽。这针对未来本版本仍不认识的种类；当前的 `wubixsj` 已认识，不触发此限制。降级后遇到未知行时，依赖它的功能都会失败，直到升级回去：
     - 词库状态修订号（`dictionary_state_revision`）算不出来。host-api 的快照版本（准备时的 `version`、激活时的 `version_without_access`、空闲时发布给队列的本机版本）都依赖它，所以云同步的上传和下载都停在准备或激活这一步，每一轮都失败。本机的一代原样不动，不丢东西。
     - WebDAV 同步读本机词库（`dictionary_webdav::EngineDictionary::read`）每一轮都报 `LocalError::Unavailable`。鸿蒙设置应用和输入法之间的词条互通（`user_words_mirror`）用的是同一个读法，也停下。
     - 本地备份导出照样写词，但不带输入记录（`learning_error`）；`learning_count` 报错。
     - 为什么不放宽：云同步上传是整份替换云端快照。放宽以后，降级的设备会上传一份少了这些行的快照；等新世纪的词进了云同步，这会把别的设备的新世纪词从云端删掉。明确失败只让这台设备的同步停下，不伤数据。WebDAV 是逐条同步的，单看它放宽是安全的，但它和快照用的是同一个读法，这次没有为降级场景单独开口子。
     - 这一条由 `state.rs` 的 `unknown_kinds_text_that_is_not_utf8_and_a_stopped_export_are_invalid` 固定。
-  - Tauri Android 合包（`apps/desktop/src-tauri/src/platform/android/android_account.rs`）有一份快照校验的副本没有改。这个包只用于开发验证、不发布，本机也编译不到它。
+  - 原来未修改的 Tauri Android 快照校验副本已随 develop 删除移动壳而删除；本次合入 develop 保持删除，没有恢复该副本。原生 Android 的本地备份恢复由现有 `DictionarySnapshotWords` 识别新世纪。
 
 ## Verification
 
-在 Mac Studio 上经 `rbuild` 运行。Studio 上 SSH 会话默认 `ulimit -n` 是 256，引擎的会话测试并行时会打不开 fixture 数据库，所以测试命令前加了 `ulimit -n 65536`。
+以下为兼容层初始实现时在 Mac Studio 上经 `rbuild` 运行的结果；其中以 `wubixsj` 代表未知值的历史用例，当前已改为真正未知的版本或种类。Studio 上 SSH 会话默认 `ulimit -n` 是 256，引擎的会话测试并行时会打不开 fixture 数据库，所以测试命令前加了 `ulimit -n 65536`。
 
 - `cargo test -p msime-engine`：全部通过，含 `rows_of_an_unknown_dictionary_kind_are_skipped_not_failed` 和改过的 `a_failed_row_rolls_the_whole_replay_back`。
 - `cargo test -p msime-client-core`：全部通过，含以下用例：
@@ -102,3 +102,8 @@ Status: implemented
 - `cargo test -p msime-host-api`：全部通过，含 `snapshot_records_of_an_unknown_kind_are_skipped_not_rejected`。
 - `cargo clippy -p msime-engine -p msime-client-core -p msime-client-services -p msime-host-api --all-targets -- -D warnings`：无告警。
 - `swift test --package-path shared/snapshot` 和 `swift test --package-path shared/backend --filter BackendSnapshotTests`：全部通过，含 `testRecordsOfAnUnknownKindStillValidate`。
+
+
+2026-11-04 合入 develop 后复核：引擎五笔 131 项、粤语 88 项、日志状态 18 项，host-api 五笔 20 项、快照 52 项，client-core 词库同步 80 项，client-services 五笔 9 项及改动前端文件 183 项全部通过（两组引擎测试各另有 1 项忽略）。当前仍缺真实码表、设备降级验收及界面改前改后截图，因此不能据此宣称完成设备验收。
+
+本轮在合入 develop 后重跑 Swift 快照测试：`shared/snapshot` 13 项、`shared/backend` 的 `BackendSnapshotTests` 9 项通过。

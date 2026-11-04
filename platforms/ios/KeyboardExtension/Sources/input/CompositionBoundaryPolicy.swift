@@ -14,7 +14,7 @@ enum CompositionBoundaryAction: Equatable {
   case none
   case commitRaw
   case finishComposition
-  /// MSIME_COMMIT_CANDIDATE: choose the leading Hanja of an open Korean Hanja list.
+  /// MSIME_COMMIT_CANDIDATE：选择高亮候选，包括混合滑行的确认和韩语汉字列表。
   case commitCandidate
 }
 
@@ -25,8 +25,11 @@ enum CompositionBoundaryAction: Equatable {
 /// 粤拼和笔画沿用上面的规则：回车和切换模式上屏键入的字母（笔画的原文上屏是字母 h s p n z x，见 msime_client.h），以其他方式离开组字则上屏高亮的字。
 enum CompositionBoundaryPolicy {
   static func action(composing: Bool, scheme: ChineseInputScheme, boundary: CompositionBoundary,
-                     koreanHanjaListOpen: Bool = false) -> CompositionBoundaryAction {
+                     koreanHanjaListOpen: Bool = false, requiresCandidateSelection: Bool = false,
+                     hasCandidates: Bool = false) -> CompositionBoundaryAction {
     guard composing else { return .none }
+    // 回车是用户明确确认；只有引擎要求选词且确有候选时才改路由，其余边界仍受共享门禁约束。
+    if boundary == .returnKey && requiresCandidateSelection && hasCandidates { return .commitCandidate }
     if scheme.isKorean {
       guard boundary == .returnKey else { return .finishComposition }
       return koreanHanjaListOpen ? .commitCandidate : .commitRaw

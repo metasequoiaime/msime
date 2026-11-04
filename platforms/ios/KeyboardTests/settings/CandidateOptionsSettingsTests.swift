@@ -104,6 +104,24 @@ final class CandidateOptionsSettingsTests: XCTestCase {
     XCTAssertEqual(spelling(bridge, "ui"), "shi")
   }
 
+  /// 「原始按键按音节分隔」（#10717）reaches the live session too: the raw keys stay, split by syllable.
+  func testReloadHandsSeparatedShuangpinPreeditToTheLiveSession() async {
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    _ = bridge.switch(toShuangpin: true)
+    XCTAssertEqual(spelling(bridge, "uiui"), "uiui", "raw keys ship unsplit")
+
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: state) {
+      $0["shuangpin_preedit_separated"] = true
+    })
+    let reloaded = expectation(description: "reload")
+    var accepted = false
+    bridge.reloadSharedPreferences { accepted = $0; reloaded.fulfill() }
+    await fulfillment(of: [reloaded], timeout: 15)
+    XCTAssertTrue(accepted, "the reload was refused")
+
+    XCTAssertEqual(spelling(bridge, "uiui"), "ui'ui")
+  }
+
   /// 「候选栏预编辑」 hides only what is being spelled: the chosen half of a phrase and a local mode's name stay on the strip.
   func testCandidatePreeditStyleKeepsThePhrasePrefixAndModeName() {
     XCTAssertEqual(CandidatePreeditStyle(in: nil), .pinyin)

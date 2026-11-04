@@ -369,7 +369,7 @@ pub fn carry_dictionary_rows(
     ))
 }
 
-/// 把用户加的粤语词写进一代的日志，已有同一个词的保留已有的，返回写进去的条数（规则见 `state::add_cantonese_words`）。激活整份快照前把旧的一代里的粤语词带进新的一代用它：快照装不下粤语词。调用方必须持有独占维护权。
+/// 把粤语行（用户加的和打字造的词、调频学到的权重）写进一代的日志，已有同一个词的保留已有的，返回写进去的条数（规则见 `state::add_cantonese_words`）。激活整份快照前把旧的一代里的粤语行带进新的一代用它：快照装不下粤语。调用方必须持有独占维护权。
 pub fn add_cantonese_words(
     options: &EngineOptions,
     words: &[DictionaryStateRecord],

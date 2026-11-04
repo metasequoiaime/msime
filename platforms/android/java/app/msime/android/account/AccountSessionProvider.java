@@ -15,13 +15,12 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
-import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
  * 向本应用的其他进程提供登录账号或「登录的优先、否则匿名」的 access token，代 `:ime` 上传语音贡献，以及主进程记着的账号绑定（`sync_state`）。
  *
- * <p>Declared in the main process and not exported, so only this uid can reach it. The `:ime` keyboard therefore never holds a refresh token and never refreshes, which is what keeps the rotating refresh token from being spent twice. Which session answers is {@link AccountSessionRoutingPolicy#source}: the native sign-in's own session（Rust 经 {@link AccountStore} 持有并刷新）, or else the combined package's Rust-owned session, read but never refreshed here. The token is returned in the reply and nowhere else: nothing here logs it. 回复里的 session_id 是账号编号（user.id）。
+ * <p>声明在主进程里且不导出，只有本 uid 能调到它。`:ime` 键盘因此从不持有 refresh token、也从不刷新，轮换的 refresh token 才不会被用两次。回答的是原生登录自己的会话（Rust 经 {@link AccountStore} 持有并刷新）；令牌只放在回复里，这里不记日志。回复里的 session_id 是账号编号（user.id）。
  */
 public final class AccountSessionProvider extends ContentProvider {
     @Override public boolean onCreate() { return true; }
@@ -74,27 +73,7 @@ public final class AccountSessionProvider extends ContentProvider {
 
     private static BackendAccount.SessionCredential currentToken(Context context, String rejectedToken) throws Exception {
         BackendAccount own = BackendAccount.owningSession(context);
-        boolean ownSession = own.hasSession();
-        JSONObject legacy = ownSession ? null : legacySession(context);
-        return switch (AccountSessionRoutingPolicy.source(ownSession, legacy != null)) {
-            case OWN -> own.currentSession(rejectedToken);
-            case LEGACY_READ_ONLY -> {
-                String token = AccountSessionRoutingPolicy.legacyToken(
-                    JsonPolicy.strictStringOrEmpty(
-                        legacy.getJSONObject("tokens").opt("access_token")),
-                    AccountTokenPolicy.strictLong(legacy.opt("expires_at_unix_ms"), 0), System.currentTimeMillis());
-                // Still signed in, but only the Rust client may refresh this session, and it does so when the app runs; say "not now" rather than "signed out".
-                if (token.isEmpty() || token.equals(rejectedToken)) {
-                    throw new IllegalStateException("account session needs the app");
-                }
-                // 与原生登录一样按账号编号绑定：Rust 刷新这份会话不会让键盘里进行中的请求作废。
-                JSONObject user = legacy.getJSONObject("tokens").optJSONObject("user");
-                String sessionId = user == null ? "" : JsonPolicy.strictStringOrEmpty(user.opt("id"));
-                if (sessionId.isEmpty()) throw new IllegalStateException("account session unavailable");
-                yield new BackendAccount.SessionCredential(token, sessionId);
-            }
-            case NONE -> new BackendAccount.SessionCredential("", "");
-        };
+        return own.hasSession() ? own.currentSession(rejectedToken) : new BackendAccount.SessionCredential("", "");
     }
 
     /**
@@ -166,18 +145,6 @@ public final class AccountSessionProvider extends ContentProvider {
         if (extras == null) return null;
         String token = extras.getString(AccountSessionRoutingPolicy.KEY_REJECTED_ACCESS_TOKEN);
         return AccountTokenPolicy.validToken(token) ? token : null;
-    }
-
-    /** The combined package's session as its Rust client saved it, or null when there is none; never refreshed here. */
-    private static JSONObject legacySession(Context context) throws Exception {
-        String saved = new AndroidAccountSessionStorage(context).load();
-        if (saved == null) return null;
-        try {
-            JSONObject session = new JSONObject(saved);
-            return session.optJSONObject("tokens") == null ? null : session;
-        } catch (JSONException malformed) {
-            return null;
-        }
     }
 
     @Override public Cursor query(Uri uri, String[] projection, String selection,

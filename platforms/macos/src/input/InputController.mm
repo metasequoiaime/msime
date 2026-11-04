@@ -7836,6 +7836,11 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     else if (voiceShortcut.action == MSIMEVoiceHoldShortcut::Action::Cancel) {
         [self cancelHTTPVoiceInput]; [self cancelDoubaoVoiceInput]; [self cancelLiveVoiceInput];
     }
+    // 按住右 Option 时按了组合键（#10580）：丢掉这次按住开始的录音，不上屏。代次变了说明那段录音已经结束、现在的录音不是它开始的，不动。
+    // 不 return，这个键接着往下走，带着 Option 交给应用。
+    else if (voiceShortcut.action == MSIMEVoiceHoldShortcut::Action::ChordCancel && _voiceHoldGeneration == _voiceGeneration) {
+        [self cancelHTTPVoiceInput]; [self cancelDoubaoVoiceInput]; [self cancelLiveVoiceInput];
+    }
     if (voiceShortcut.consumed) return YES;
     if ([self observeModifierTap:event client:sender]) {
         [self toggleInputModeFromModifierTap];
@@ -9530,7 +9535,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     const msime::candidate::CandidateRowLayout &row = geometry.rows[slot];
     NSString *display = geometry.displays[slot];
     NSString *title = [NSString stringWithFormat:@"%@  %@", number, geometry.texts[slot]];
-    MSIMECandidateButton *button = [MSIMECandidateButton buttonWithTitle:title target:self action:action];
+    MSIMECandidateButton *button = MSIMEMakeCandidateButton(MSIMECandidateButton.class, title, self, action);
     button.candidateID = candidate[@"id"];
     button.accessibilityLabel = number.length ? [NSString stringWithFormat:@"%@  %@", number, display] : display;
     // 读屏先读候选本身，再说明后面那段是插件写的，免得把插件的文字当成输入法的释义或辅助码。
@@ -9577,7 +9582,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
 // 原生主题的首行展开／收起按钮，标签 -3，模板符号图沿用既有外观。
 - (MSIMECandidateButton *)expandedCandidatesToggleButton:(BOOL)expanded frame:(NSRect)frame scale:(CGFloat)scale {
     NSString *label = expanded ? @"收起候选" : @"展开候选";
-    MSIMECandidateButton *button = [MSIMECandidateButton buttonWithTitle:@"" target:self action:@selector(toggleExpandedCandidates:)];
+    MSIMECandidateButton *button = MSIMEMakeCandidateButton(MSIMECandidateButton.class, @"", self, @selector(toggleExpandedCandidates:));
     NSImage *symbol = [NSImage imageWithSystemSymbolName:expanded ? @"chevron.up" : @"chevron.down" accessibilityDescription:label];
     NSImageSymbolConfiguration *configuration = [NSImageSymbolConfiguration configurationWithPointSize:11 * scale weight:NSFontWeightSemibold];
     button.image = [symbol imageWithSymbolConfiguration:configuration] ?: symbol;
@@ -9596,7 +9601,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
 // 共享卷轴使用来源线段和字号尺寸，仍走原来的控制器身份与命令检查。
 - (MSIMECandidateButton *)skinExpandedCandidatesToggleButton:(BOOL)expanded frame:(NSRect)frame
     metrics:(msime::mac::CandidateExpandToggleMetrics)metrics {
-    MSIMECandidateExpandToggleButton *button = [MSIMECandidateExpandToggleButton buttonWithTitle:@"" target:self action:@selector(toggleExpandedCandidates:)];
+    MSIMECandidateExpandToggleButton *button = MSIMEMakeCandidateButton(MSIMECandidateExpandToggleButton.class, @"", self, @selector(toggleExpandedCandidates:));
     button.toggleMetrics = metrics;
     button.expanded = expanded;
     button.frame = frame;
@@ -10497,7 +10502,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         const CGFloat left = vertical ? inset + pageGeometry.textLeft - (listPager.buttonWidth - listPager.glyphWidth()) / 2
                                      : width - inset - listPager.marginRight - 2 * listPager.buttonWidth - listPager.gap;
         for (NSUInteger direction = 0; direction < 2; ++direction) {
-            MSIMECandidatePagerButton *button = [MSIMECandidatePagerButton buttonWithTitle:@"" target:self action:@selector(changeCandidatePage:)];
+            MSIMECandidatePagerButton *button = MSIMEMakeCandidateButton(MSIMECandidatePagerButton.class, @"", self, @selector(changeCandidatePage:));
             button.frame = NSMakeRect(left + direction * (listPager.buttonWidth + listPager.gap), bottom,
                 listPager.buttonWidth, listPager.buttonHeight);
             button.pagerMetrics = listPager;
@@ -10535,7 +10540,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
             [content.candidateContentView addSubview:indicator];
         }
         for (NSUInteger direction = 0; direction < 2; ++direction) {
-            MSIMECandidateButton *button = [MSIMECandidateButton buttonWithTitle:direction == 0 ? @"‹" : @"›" target:self action:@selector(changeCandidatePage:)];
+            MSIMECandidateButton *button = MSIMEMakeCandidateButton(MSIMECandidateButton.class, direction == 0 ? @"‹" : @"›", self, @selector(changeCandidatePage:));
             button.frame = NSMakeRect(arrowsLeft + direction * headerArrowWidth, controlsBottom, headerArrowWidth, headerRow);
             button.font = [NSFont systemFontOfSize:NSFont.systemFontSize * scale];
             button.bordered = NO;
@@ -10620,7 +10625,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         }
         if (preview > 0) {
             // 和候选行里那一格是同一个候选：点它就选那一格，身份对不上当前视图时 selectCandidate: 不做任何事。
-            MSIMECandidateButton *button = [MSIMECandidateButton buttonWithTitle:previewText target:self action:@selector(selectCandidate:)];
+            MSIMECandidateButton *button = MSIMEMakeCandidateButton(MSIMECandidateButton.class, previewText, self, @selector(selectCandidate:));
             button.identifier = @"candidate-online-preview";
             button.tag = -4;
             button.bordered = NO;
