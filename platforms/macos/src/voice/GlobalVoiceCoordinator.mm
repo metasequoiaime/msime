@@ -1,4 +1,5 @@
 #import "GlobalVoiceCoordinator.h"
+#import "GlobalVoiceBackground.h"
 #import "GlobalVoiceState.h"
 #import "VoiceHoldShortcut.h"
 #import "VoiceWaveOverlay.h"
@@ -68,15 +69,6 @@ void OpenHost(void (^completion)(NSError *)) {
     [NSWorkspace.sharedWorkspace openApplicationAtURL:NSBundle.mainBundle.bundleURL configuration:configuration
         completionHandler:^(NSRunningApplication *application, NSError *error) { (void)application; completion(error); }];
 }
-BOOL ConfigureBackgroundService(SMAppService *service, BOOL enabled, NSError **error) {
-    const auto status = service.status;
-    // 首次安装也可能报告 NotFound，仍需调用注册取得真实结果；等待批准时不重复注册。
-    if (enabled && status != SMAppServiceStatusEnabled && status != SMAppServiceStatusRequiresApproval)
-        return [service registerAndReturnError:error];
-    if (!enabled && (status == SMAppServiceStatusEnabled || status == SMAppServiceStatusRequiresApproval))
-        return [service unregisterAndReturnError:error];
-    return YES;
-}
 BOOL SystemHotkeyConflict(UInt32 code, UInt32 modifiers) {
     CFArrayRef keys = nullptr;
     if (CopySymbolicHotKeys(&keys) != noErr || !keys) return YES;
@@ -115,7 +107,14 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
         SMAppService *service = [SMAppService agentServiceWithPlistName:AgentPlist];
         NSError *error = nil;
         BOOL enabled = !strcmp(argv[2], "enable");
-        if (!ConfigureBackgroundService(service, enabled, &error)) *exitCode = 1;
+        MSIMEGlobalVoiceBackground *registration = [MSIMEGlobalVoiceBackground new];
+        [registration configureService:service enabled:enabled revision:MSIMEGlobalVoiceBackgroundRevision(NSBundle.mainBundle)
+                              defaults:NSUserDefaults.standardUserDefaults changed:nil];
+        NSDate *registrationDeadline = [NSDate dateWithTimeIntervalSinceNow:10];
+        while (registration.busy && registrationDeadline.timeIntervalSinceNow > 0)
+            [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+        error = registration.error;
+        if (registration.busy || error) *exitCode = 1;
         if (!enabled) return YES;
     }
     // Launch Services 复用已经运行的 IMK 应用；引导进程不注册 IMK 连接、不监听键盘，也不录音。
@@ -171,6 +170,8 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
     NSString *_recoveryText;
     id _focusIdentity;
     BOOL _serviceErrorShown;
+    MSIMEGlobalVoiceBackground *_backgroundRegistration;
+    SMAppServiceStatus _backgroundStatus;
     BOOL _holdStartedSession;
     BOOL _requiresHold;
     BOOL _trusted;
@@ -267,12 +268,16 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
 }
 - (BOOL)accessibilityTrusted { return AXIsProcessTrustedWithOptions(nullptr); }
 - (BOOL)keyboardListenerAvailable { return _tap && CFMachPortIsValid(_tap); }
+- (NSUserDefaults *)backgroundDefaults { return NSUserDefaults.standardUserDefaults; }
+- (NSString *)backgroundRevision { return MSIMEGlobalVoiceBackgroundRevision(NSBundle.mainBundle); }
 - (SMAppService *)backgroundService { return [SMAppService agentServiceWithPlistName:AgentPlist]; }
 - (void)applySnapshot:(NSDictionary *)snapshot {
     const BOOL trusted = [self accessibilityTrusted];
     const BOOL trustChanged = _trusted != trusted;
     _trusted = trusted;
     if (!snapshot) {
+        // 配置文件暂不可读也不能忽略系统撤销批准或辅助功能的状态变化。
+        if (_enabled && (trustChanged || [self backgroundService].status != _backgroundStatus)) [self configure];
         if (!_snapshotErrorShown) os_log_error(OS_LOG_DEFAULT, "MSIME global voice: preferences unavailable");
         _snapshotErrorShown = YES;
         return;
@@ -280,8 +285,10 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
     _snapshotErrorShown = NO;
     if ([_revision isEqual:snapshot[@"revision"]]) {
         // 权限在设置页获准后可能仍有短暂的监听失败；偏好未变也要有界重试，不重复弹授权框。
-        if (_enabled && (trustChanged || (trusted && ![self keyboardListenerAvailable] &&
-            NSProcessInfo.processInfo.systemUptime >= _nextListenerRetry))) [self configure];
+        const BOOL retry = NSProcessInfo.processInfo.systemUptime >= _nextListenerRetry;
+        if ((_backgroundRegistration.error && retry) || (_enabled && (trustChanged ||
+            [self backgroundService].status != _backgroundStatus ||
+            (trusted && ![self keyboardListenerAvailable] && retry)))) [self configure];
         return;
     }
     _revision = snapshot[@"revision"];
@@ -319,11 +326,13 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
     NSDictionary *voice = _preferences[@"voice_input"];
     BOOL enabled = [voice[@"hotkey_global"] isEqual:@YES] && ![voice[@"enabled"] isEqual:@NO];
     const BOOL trusted = [self accessibilityTrusted];
+    SMAppService *service = [self backgroundService];
+    const BOOL approved = service.status == SMAppServiceStatusEnabled;
     os_log(OS_LOG_DEFAULT, "MSIME global voice: configure enabled=%{public}d accessibility=%{public}d", enabled, trusted);
     if (_state.phase != msime::mac::GlobalVoiceState::Phase::Idle) {
         // 识别中刷新偏好不能丢掉尚未到来的松手沿；这轮结束后再换注册与手势状态。
-        if (enabled && trusted) { _configurationPending = YES; return; }
-        if (!trusted) [self cancel];
+        if (enabled && trusted && approved) { _configurationPending = YES; return; }
+        if (!trusted || !approved) [self cancel];
         else [self stop];
     }
     _configurationPending = NO;
@@ -332,15 +341,30 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
     _layoutID = KeyboardLayoutID();
     _trusted = [self accessibilityTrusted];
     _nextListenerRetry = NSProcessInfo.processInfo.systemUptime + 5;
-    SMAppService *service = [self backgroundService];
-    NSError *serviceError = nil;
-    ConfigureBackgroundService(service, enabled, &serviceError);
+    if (!_backgroundRegistration) _backgroundRegistration = [MSIMEGlobalVoiceBackground new];
+    __weak MSIMEGlobalVoiceCoordinator *weakSelf = self;
+    [_backgroundRegistration configureService:service enabled:enabled revision:[self backgroundRevision] defaults:[self backgroundDefaults]
+        changed:^{
+            MSIMEGlobalVoiceCoordinator *self = weakSelf;
+            if (!self) return;
+            self->_backgroundStatus = [self backgroundService].status;
+            if (self->_backgroundRegistration.error) {
+                self->_nextListenerRetry = NSProcessInfo.processInfo.systemUptime + 5;
+                return;
+            }
+            [self configure];
+        }];
+    NSError *serviceError = _backgroundRegistration.error;
+    _backgroundStatus = service.status;
     os_log(OS_LOG_DEFAULT, "MSIME global voice: background status=%{public}ld error=%{public}ld", (long)service.status, (long)serviceError.code);
     if (enabled && !_serviceErrorShown && (serviceError || service.status != SMAppServiceStatusEnabled)) {
         _serviceErrorShown = YES;
         [self showFailure:@"后台语音尚未获准。请在系统设置的「通用 > 登录项与扩展」允许水杉后台运行。"];
     }
     if (!enabled) { _permissionAsked = NO; _serviceErrorShown = NO; _listenerErrorShown = NO; _keysDown = 0; return; }
+    // 注册失败、更新正在迁移或用户撤销后台批准时，全局入口都必须关闭；局部 IMK 快捷键继续可用。
+    if (_backgroundRegistration.busy || serviceError || service.status != SMAppServiceStatusEnabled) return;
+    _serviceErrorShown = NO;
     if (!_trusted) {
         if (!_permissionAsked) {
             _permissionAsked = YES;
@@ -349,6 +373,9 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
         }
         return;
     }
+    [self installKeyboardForVoice:voice];
+}
+- (void)installKeyboardForVoice:(NSDictionary *)voice {
     _tap = CGEventTapCreate(kCGSessionEventTap, kCGHeadInsertEventTap, kCGEventTapOptionDefault,
         CGEventMaskBit(kCGEventFlagsChanged) | CGEventMaskBit(kCGEventKeyDown) | CGEventMaskBit(kCGEventKeyUp),
         [](CGEventTapProxy proxy, CGEventType type, CGEventRef event, void *context) -> CGEventRef {
@@ -480,17 +507,24 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
         _escapeDown = YES; [self queueGestureAction:0]; return nullptr;
     }
     if (type == kCGEventKeyUp && code == 53 && _escapeDown) { _escapeDown = NO; return nullptr; }
+    NSDictionary *voice = _preferences[@"voice_input"];
+    MSIMEVoiceHoldShortcut::Options options = {![voice[@"hotkey_ralt"] isEqual:@NO], [voice[@"hotkey_ctrl_win"] isEqual:@YES] != NO, [voice[@"hotkey_rctrl_ralt"] isEqual:@YES] != NO, true};
     if (code == 49 && _holding && _owner && _state.phase == msime::mac::GlobalVoiceState::Phase::Active) {
-        if (type == kCGEventKeyDown) { _spaceDown = YES; _locked = YES; [_owner lockGlobalVoice]; return nullptr; }
+        if (type == kCGEventKeyDown) {
+            // 外层吞掉空格时，内部手势也必须收到锁定，才能保留真正的修饰键松手沿。
+            _gesture.observe(native, options, true, CGEventSourceFlagsState(kCGEventSourceStateHIDSystemState));
+            _spaceDown = YES; _locked = YES; [_owner lockGlobalVoice]; return nullptr;
+        }
     }
-    if (type == kCGEventKeyUp && code == 49 && _spaceDown) { _spaceDown = NO; return nullptr; }
+    if (type == kCGEventKeyUp && code == 49 && _spaceDown) {
+        _gesture.observe(native, options, _owner != nil, CGEventSourceFlagsState(kCGEventSourceStateHIDSystemState));
+        _spaceDown = NO; return nullptr;
+    }
     if (type == kCGEventKeyDown && _holding) {
         _armed = NO; ++_holdGeneration;
         if (!_locked) [self queueGestureAction:0];
         // 修饰键已按原样交给应用，此刻的普通组合键也原样交付。
     }
-    NSDictionary *voice = _preferences[@"voice_input"];
-    MSIMEVoiceHoldShortcut::Options options = {![voice[@"hotkey_ralt"] isEqual:@NO], [voice[@"hotkey_ctrl_win"] isEqual:@YES] != NO, [voice[@"hotkey_rctrl_ralt"] isEqual:@YES] != NO, true};
     auto result = _gesture.observe(native, options, _owner != nil, CGEventSourceFlagsState(kCGEventSourceStateHIDSystemState));
     if (result.action == MSIMEVoiceHoldShortcut::Action::Toggle && !result.onRelease) {
         _holding = YES;
@@ -507,6 +541,9 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
                 self->_armed = NO; [self begin:YES];
             }
         });
+    }
+    if (result.action == MSIMEVoiceHoldShortcut::Action::ChordCancel) {
+        _holding = NO; _armed = NO; _holdStartedSession = NO; ++_holdGeneration;
     }
     if (result.onRelease) {
         os_log(OS_LOG_DEFAULT, "MSIME global voice: hold released");
@@ -533,6 +570,10 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
     os_log(OS_LOG_DEFAULT, "MSIME global voice: begin requested phase=%{public}d", (int)_state.phase);
     if ([self shortcutRecorderFocused]) return;
     if (_starting || _state.phase != msime::mac::GlobalVoiceState::Phase::Idle) return;
+    if (_backgroundRegistration && (_backgroundRegistration.busy || _backgroundRegistration.error ||
+        [self backgroundService].status != SMAppServiceStatusEnabled)) return;
+    id<MSIMEGlobalVoiceTarget> local = _deliveryTarget();
+    if ([local respondsToSelector:@selector(toggleLocalVoiceIfBusy)] && [local toggleLocalVoiceIfBusy]) return;
     if (_recoveryText.length) { [_recovery orderFrontRegardless]; return; }
     NSRunningApplication *application = [self frontApplication];
     id focus = [self focusIdentity];

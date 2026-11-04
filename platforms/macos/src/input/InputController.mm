@@ -2656,6 +2656,11 @@ void MSIMERecordGlobalVoiceCommit(NSString *text) {
 - (BOOL)globalVoiceBusy {
     return _voicePermissionToken || _httpVoiceRequest || _doubaoVoiceRequest || _liveVoiceToken || _voiceService.active;
 }
+- (BOOL)toggleLocalVoiceIfBusy {
+    if (MSIMEGlobalVoiceHost().owner || ![self globalVoiceBusy]) return NO;
+    [self toggleVoiceInput:nil];
+    return YES;
+}
 - (BOOL)globalVoiceProcessing { return _httpVoiceProcessing || _doubaoVoiceProcessing || _liveVoiceProcessing; }
 - (BOOL)voiceOwnsClient:(id)client session:(MSIMEClientSession *)session {
     return (_activeClient == client && _session == session) ||

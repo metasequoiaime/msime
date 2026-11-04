@@ -142,7 +142,9 @@ mod inotify_tests {
 pub(crate) struct Monitor {
     revision: Option<u64>,
     #[cfg(target_os = "macos")]
-    global_voice: Option<bool>,
+    global_voice: super::global_voice_setup::GlobalVoiceSetup,
+    #[cfg(target_os = "macos")]
+    started: std::time::Instant,
     history: Option<Vec<ClipboardHistoryEntry>>,
 }
 
@@ -151,9 +153,16 @@ impl Monitor {
         Self {
             revision: store.load().ok().map(|snapshot| snapshot.revision),
             #[cfg(target_os = "macos")]
-            global_voice: None,
+            global_voice: super::global_voice_setup::GlobalVoiceSetup::new(false),
+            #[cfg(target_os = "macos")]
+            started: std::time::Instant::now(),
             history: None,
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn manage_installed_voice_host(&mut self, managed: bool) {
+        self.global_voice = super::global_voice_setup::GlobalVoiceSetup::new(managed);
     }
 
     pub(crate) fn poll<R: Runtime>(
@@ -167,16 +176,13 @@ impl Monitor {
         {
             let enabled = snapshot.preferences.voice_input.hotkey_global
                 && snapshot.preferences.voice_input.enabled;
-            if self.global_voice != Some(enabled) {
-                let previous = self.global_voice.replace(enabled);
-                if enabled || previous == Some(true) {
-                    // 监视器本身在后台线程，串行执行避免快速开关把注册顺序倒过来。
-                    if let Err(category) =
+            if let Err(category) =
+                self.global_voice
+                    .poll(enabled, self.started.elapsed(), |enabled| {
                         crate::platform::macos::macos_input_source::configure_global_voice(enabled)
-                    {
-                        eprintln!("MSIME global voice setup: {category}");
-                    }
-                }
+                    })
+            {
+                eprintln!("MSIME global voice setup: {category}");
             }
         }
 

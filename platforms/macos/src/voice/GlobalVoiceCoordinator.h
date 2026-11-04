@@ -19,6 +19,8 @@ typedef NS_ENUM(NSInteger, MSIMEGlobalVoiceStartResult) {
 - (void)lockGlobalVoice;
 - (void)detachGlobalVoice;
 @optional
+// 全局入口可以停止当前控制器由菜单或工具栏发起的局部录音，不接管其提交目标。
+- (BOOL)toggleLocalVoiceIfBusy;
 // 只允许当前真实 IMK 客户端在原字段接收这一轮的最终文本。
 - (BOOL)commitGlobalVoiceText:(NSString *)text pid:(pid_t)pid focus:(id)focus token:(id)token;
 @end
