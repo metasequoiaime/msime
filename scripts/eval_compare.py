@@ -72,13 +72,13 @@ def load_dump(path: Path) -> dict:
 
 
 def load_tags(path: Path) -> dict:
-    """评测集每条用例的标签（第 5 列，逗号分隔），格式同 `convert_eval` 的 `load`。"""
+    """评测集每条用例的输入、金标准和标签，先核对身份再使用分桶标签。"""
     tags = {}
     for line in path.read_text(encoding="utf-8").splitlines():
         if not line or line.startswith("#") or line.startswith("id\t"):
             continue
         fields = line.split("\t")
-        tags[fields[0]] = [tag for tag in (fields[4] if len(fields) > 4 else "").split(",") if tag]
+        tags[fields[0]] = {"input": fields[1], "gold": fields[2], "tags": [tag for tag in (fields[4] if len(fields) > 4 else "").split(",") if tag]}
     return tags
 
 
@@ -131,8 +131,12 @@ def compare_convert(before: dict, after: dict, tags: dict | None, grid: str, top
         missing = [p["id"] for p in pairs if p["id"] not in tags]
         if missing:
             raise SystemExit(f"{len(missing)} dumped id(s) are not in --set (e.g. {missing[:3]}); pass the set the dumps were run on")
-        same = [p for p in pairs if tag in tags[p["id"]]]
-        main = [p for p in pairs if tag not in tags[p["id"]]]
+        for case in pairs:
+            metadata = tags[case["id"]]
+            if (case["input"], case["gold"]) != (metadata["input"], metadata["gold"]):
+                raise SystemExit(f"{case['id']}: input or gold differs between --set and the dumps; pass the set the dumps were run on")
+        same = [p for p in pairs if tag in tags[p["id"]]["tags"]]
+        main = [p for p in pairs if tag not in tags[p["id"]]["tags"]]
     else:
         same, main = [], pairs
     return {

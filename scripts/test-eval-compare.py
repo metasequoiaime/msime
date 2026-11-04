@@ -65,6 +65,20 @@ with tempfile.TemporaryDirectory(prefix="msime-eval-compare-") as temporary:
     nine = eval_compare.compare_convert(eval_compare.load_dump(before), eval_compare.load_dump(after), eval_compare.load_tags(tsv), "nine", [1])
     assert [c["id"] for c in nine["main"]["top1"]["fixed_cases"]] == ["a", "c"]
     assert nine["same_code"]["top1"]["broken"] == 1
+    # 同 id 的其他集合不能提供分桶标签，否则退化用例可能被错误豁免。
+    for column, replacement in ((1, "other"), (2, "另一个金标准")):
+        wrong_set = root / "wrong.tsv"
+        lines = tsv.read_text(encoding="utf-8").splitlines()
+        fields = lines[2].split("\t")
+        fields[column] = replacement
+        lines[2] = "\t".join(fields)
+        wrong_set.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        try:
+            eval_compare.compare_convert(eval_compare.load_dump(before), eval_compare.load_dump(after), eval_compare.load_tags(wrong_set), "full", [1])
+            raise AssertionError("set metadata must match the dump")
+        except SystemExit as error:
+            assert "--set" in str(error) and "differs" in str(error)
+
     # 没给 --set 时全部进主桶。
     untagged = eval_compare.compare_convert(eval_compare.load_dump(before), eval_compare.load_dump(after), None, "full", [1])
     assert untagged["main"]["cases"] == 4 and untagged["same_code"] is None
