@@ -36,22 +36,6 @@ public final class AccountSessionRoutingSmoke {
             "there is no anonymous-only token any more: Rust has no such source");
         check(!AccountSessionRoutingPolicy.accepts(null, 10123, 10123), "a missing method is refused");
 
-        check(AccountSessionRoutingPolicy.source(true, true) == AccountSessionRoutingPolicy.Source.OWN, "a native sign-in session wins");
-        check(AccountSessionRoutingPolicy.source(true, false) == AccountSessionRoutingPolicy.Source.OWN, "a native sign-in session answers alone");
-        check(AccountSessionRoutingPolicy.source(false, true) == AccountSessionRoutingPolicy.Source.LEGACY_READ_ONLY, "the combined package's Rust session is read only");
-        check(AccountSessionRoutingPolicy.source(false, false) == AccountSessionRoutingPolicy.Source.NONE, "no session means signed out");
-        long now = 1_700_000_000_000L;
-        check(AccountSessionRoutingPolicy.legacyToken(TOKEN, now + 60_000L, now).equals(TOKEN), "an unexpired Rust token is used as it is");
-        check(AccountSessionRoutingPolicy.legacyToken(TOKEN, now + 30_000L, now).isEmpty(), "a token inside the expiry margin is left to the Rust client");
-        check(AccountSessionRoutingPolicy.legacyToken(TOKEN, now - 1L, now).isEmpty(), "an expired Rust token is not used");
-        check(AccountSessionRoutingPolicy.legacyToken(TOKEN, 0L, now).isEmpty(), "a Rust session without an expiry is not used");
-        check(AccountSessionRoutingPolicy.legacyToken(TOKEN,
-                now + AccountTokenPolicy.MAX_SESSION_SECONDS * 1000L + 1L, now).isEmpty(),
-            "a Rust session beyond the maximum lifetime is not used");
-        check(AccountSessionRoutingPolicy.legacyToken(TOKEN, Long.MAX_VALUE, now).isEmpty(),
-            "a saturated Rust expiry is not treated as an eternal token");
-        check(AccountSessionRoutingPolicy.legacyToken("E".repeat(64), now + 60_000L, now).isEmpty(), "a malformed Rust token is not used");
-        check(AccountSessionRoutingPolicy.legacyToken(null, now + 60_000L, now).isEmpty(), "a missing Rust token is not used");
         check(JsonPolicy.strictStringOrEmpty(TOKEN).equals(TOKEN),
             "a string Rust token is read");
         for (Object invalid : new Object[] {

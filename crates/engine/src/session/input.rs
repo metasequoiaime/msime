@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::candidates::clone_candidate_rows;
+use super::cantonese_learning::CantonesePhraseProgress;
 use super::caret_edit::CaretEdit;
 use super::chain::CommitChain;
 use super::clock::Clock;
@@ -71,6 +72,8 @@ pub(super) struct InputSession {
     pub profile: &'static ShuangpinProfile,
     pub caret: Option<usize>,
     pub phrase_progress: CreatingWordProgress,
+    /// 粤语组字里已经上屏的几段，组字结束时决定要不要造词（`cantonese_learning`）。
+    pub cantonese_progress: CantonesePhraseProgress,
     pub pending_sequence: Option<String>,
     pub pending_sequence_with_cases: Option<String>,
     pub autocorrect_types: u32,
@@ -81,6 +84,7 @@ pub(super) struct InputSession {
     pub helpcode_entry: Option<usize>,
     pub helpcode_keymap: Option<SharedKeymap>,
     pub helpcode_fallback_resources: Option<PathBuf>,
+    pub custom_helpcode_root: Option<PathBuf>,
     pub chinese_punctuation_enabled: bool,
     pub punctuation_lock: i32,
     pub learning_enabled: bool,
@@ -189,6 +193,7 @@ impl InputSession {
             profile,
             caret: None,
             phrase_progress: CreatingWordProgress::default(),
+            cantonese_progress: CantonesePhraseProgress::default(),
             pending_sequence: None,
             pending_sequence_with_cases: None,
             autocorrect_types: 0,
@@ -198,6 +203,7 @@ impl InputSession {
             helpcode_entry: None,
             helpcode_keymap: None,
             helpcode_fallback_resources: options.helpcode_fallback_resources.clone(),
+            custom_helpcode_root: options.custom_helpcode_root.clone(),
             chinese_punctuation_enabled: true,
             punctuation_lock: 0,
             learning_enabled: true,
@@ -1673,6 +1679,13 @@ impl InputSession {
         self.engine.set_rescoring_context(context);
     }
 
+    pub fn set_sentence_scorer(
+        &mut self,
+        scorer: Option<std::sync::Arc<dyn crate::ordering::SentenceScorer>>,
+    ) {
+        self.engine.set_sentence_scorer(scorer);
+    }
+
     pub fn set_sentence_pool(&mut self, paths: usize) {
         self.engine.set_sentence_pool(paths);
     }
@@ -1714,6 +1727,7 @@ impl InputSession {
         self.prefix_active = false;
         self.caret_edit = CaretEdit::default();
         self.phrase_progress = CreatingWordProgress::default();
+        self.cantonese_progress = CantonesePhraseProgress::default();
         self.pending_sequence = None;
         self.pending_sequence_with_cases = None;
         self.invalidate_online_requests();
@@ -2023,6 +2037,7 @@ impl InputSession {
             &self.paths.resources,
             schema,
             self.helpcode_fallback_resources.as_deref(),
+            self.custom_helpcode_root.as_deref(),
         )?);
         self.install_helpcode_table(keymap);
         Ok(())

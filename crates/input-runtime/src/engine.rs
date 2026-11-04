@@ -29,6 +29,12 @@ pub trait InputEngine {
     fn set_prediction_pool(&mut self, _enabled: bool) {}
     /// 整句读法至少解出几条留给逐键打分器比较（[`msime_engine::ordering::SENTENCE_POOL`]），0 是引擎的默认条数；时机同 [`Self::set_prediction_pool`]。没有整句的引擎忽略它。
     fn set_sentence_pool(&mut self, _paths: usize) {}
+    /// 拼整句时给前缀打分的模型（[`msime_engine::ordering::SentenceScorer`]），时机同 [`Self::set_sentence_pool`]。没有整句的引擎忽略它。
+    fn set_sentence_scorer(
+        &mut self,
+        _scorer: Option<std::sync::Arc<dyn msime_engine::ordering::SentenceScorer>>,
+    ) {
+    }
     /// 按模型给刚上屏之后的联想排序，`before` 是这次上屏之前的文字；每次上屏只排一次。返回显示的行变了没有，没有联想的引擎什么都不做。
     fn order_prediction(&mut self, _scorer: &mut dyn CandidateScorer, _before: &str) -> bool {
         false
@@ -192,6 +198,10 @@ pub trait InputEngine {
     fn wubi_pinyin_continues(&self, _value: u8, _shift: bool) -> bool {
         false
     }
+    /// 顶字关掉、混输开着时，让完整四码后的下一个字母并进混输串，而不是被四码上限挡掉。没有混输的引擎什么也不做。
+    fn allow_wubi_mixed_extension(&mut self) -> bool {
+        false
+    }
     /// 五笔拼音混输是否打开。顶字关掉时，混输关着就没有地方容纳第五个字母，仍要顶字上屏；混输开着才让它并进混输串。
     fn wubi_mixed_pinyin(&self) -> bool {
         false
@@ -298,6 +308,12 @@ impl InputEngine for Session {
     }
     fn set_sentence_pool(&mut self, paths: usize) {
         Session::set_sentence_pool(self, paths);
+    }
+    fn set_sentence_scorer(
+        &mut self,
+        scorer: Option<std::sync::Arc<dyn msime_engine::ordering::SentenceScorer>>,
+    ) {
+        Session::set_sentence_scorer(self, scorer);
     }
     fn order_prediction(&mut self, scorer: &mut dyn CandidateScorer, before: &str) -> bool {
         Session::order_prediction(self, scorer, before)
@@ -445,6 +461,9 @@ impl InputEngine for Session {
     }
     fn wubi_mixed_pinyin(&self) -> bool {
         Session::wubi_mixed_pinyin(self)
+    }
+    fn allow_wubi_mixed_extension(&mut self) -> bool {
+        Session::allow_wubi_mixed_extension(self)
     }
     fn grid_limit_pick_ready(&self, value: u8, grid_key: bool) -> bool {
         Session::grid_limit_pick_ready(self, value, grid_key)

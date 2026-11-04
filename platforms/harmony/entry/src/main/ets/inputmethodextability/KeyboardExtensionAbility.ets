@@ -1098,6 +1098,9 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
    */
   async onCreate(want: Want): Promise<void> {
     try {
+      // `inputStart` 可能在下面任意一次异步准备期间到达；先订阅才能由 `pending` 留住首个编辑框，等面板建好再接入。
+      engine.on('inputStart', this.started);
+      engine.on('inputStop', this.stopped);
       const files: string = this.context.filesDir;
       const resources: string = `${files}/engine`;
       const state: string = `${files}/state`;
@@ -1169,8 +1172,6 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         KeyboardLog.error('onCreate: no session, panel not created');
         return;
       }
-      engine.on('inputStart', this.started);
-      engine.on('inputStop', this.stopped);
       engine.on('keyboardShow', this.keyboardShown);
       engine.on('keyboardHide', this.keyboardHidden);
       inputMethodEngine.getKeyboardDelegate().on('selectionChange', this.selectionChanged);

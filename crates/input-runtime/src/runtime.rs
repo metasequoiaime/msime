@@ -3,8 +3,9 @@
 
 use super::*;
 use msime_engine::ordering::{
-    apply_order_with, ensure_engine_order, rerank_needs_model, rerank_pick, rerank_pick_within,
-    rotate_to_front, runner_up_order_with, CandidateScorer, ParallelOrderRows, StaticEvidence,
+    apply_order_with, ensure_engine_order, opening_particle_pick, rerank_needs_model, rerank_pick,
+    rerank_pick_within, rotate_to_front, runner_up_order_with, CandidateScorer, ParallelOrderRows,
+    StaticEvidence,
 };
 use msime_engine::touch::{KeyGeometry, KeyTouch};
 // 排序决策搬进了 `msime_engine::ordering`；`tests.rs` 仍按原来的 crate 内名字引用这几项，这里为它们重新导出。
@@ -1179,6 +1180,7 @@ impl<E: InputEngine> Runtime<E> {
         self.reranker = scorer;
         self.engine.set_prediction_pool(self.orders_prediction());
         self.engine.set_sentence_pool(self.sentence_pool());
+        self.engine.set_sentence_scorer(self.sentence_scorer());
     }
 
     /// Whether a per-keystroke reranker is attached, so a host can attach or drop it when the preference that governs it changes.
@@ -1312,6 +1314,11 @@ impl<E: InputEngine> Runtime<E> {
         // 重排必须推进候选代次，避免旧身份选到新座位；代次耗尽时不得重排。
         !self.settled_rerank_enabled
             || self.settled_reranker.is_none()
+            // 逐键打分器比落定模型强时，它排出的就是最终顺序，见 `CandidateScorer::supersedes_settled_rerank`。
+            || self
+                .reranker
+                .as_deref()
+                .is_some_and(CandidateScorer::supersedes_settled_rerank)
             || self.is_idle()
             || self.generation.checked_add(1).is_none()
             // 落定重排按座位挪行，插件插入的行没有引擎下标，会被当成引擎的候选挪走；有插入的行时不做。
@@ -2109,6 +2116,7 @@ impl<E: InputEngine> Runtime<E> {
         // 打分器挂在 runtime 上，新引擎同样要按它的速度决定多不多取联想的候选池。
         self.engine.set_prediction_pool(self.orders_prediction());
         self.engine.set_sentence_pool(self.sentence_pool());
+        self.engine.set_sentence_scorer(self.sentence_scorer());
         self.load_snapshot(cached);
         self.snapshot_valid = true;
         self.page_size = page_size.into();
@@ -2323,6 +2331,12 @@ impl<E: InputEngine> Runtime<E> {
             }
         }
         self.engine.set_rescoring_context(&self.ai_context);
+        // 下一次按键要按新的上文排序；后端趁用户还没按下一个键先编码好，见 `CandidateScorer::context_changed`。
+        if !self.ai_context.is_empty() {
+            if let Some(reranker) = self.reranker.as_mut() {
+                reranker.context_changed(&self.ai_context);
+            }
+        }
     }
 
     /// 回退暂存词段：普通退格在拼写末尾剩零或一个字符时恢复最近一次选词；
@@ -2865,7 +2879,8 @@ impl<E: InputEngine> Runtime<E> {
         if self.cached.prediction {
             return false;
         }
-        let mut moved = self.rerank(true);
+        let mut moved = self.lift_opening_particle();
+        moved |= self.rerank(true);
         moved |= self.demote_runner_up_readings();
         moved |= self.normalize_online_slots();
         moved
@@ -2919,6 +2934,32 @@ impl<E: InputEngine> Runtime<E> {
             return false;
         };
         self.promote_row(promote)
+    }
+
+    /// 一句话开头单打一个音节、首选是句尾语气词时把它让开，规则见 `msime_engine::ordering::opening_particle_pick`。
+    fn lift_opening_particle(&mut self) -> bool {
+        if !self.cached.conversion.is_empty() || self.cached.caret_edit_suffix {
+            return false;
+        }
+        let promote = {
+            let snapshot = &self.cached;
+            let count = snapshot.candidates.len();
+            if count < 2
+                || snapshot.candidate_sources.len() != count
+                || snapshot.candidate_codes.len() != count
+                || snapshot.candidate_answers_key.len() != count
+                || snapshot.candidate_corrected.len() != count
+            {
+                return false;
+            }
+            opening_particle_pick(
+                self.reranker.as_deref_mut(),
+                &self.ai_context,
+                snapshot.scheme,
+                &order_rows(snapshot),
+            )
+        };
+        promote.is_some_and(|promote| self.promote_row(promote))
     }
 
     /// 把 `promote` 旋到首位，并同步候选元数据和引擎座位映射。下标为 0 或越界时不动。
@@ -3049,6 +3090,15 @@ impl<E: InputEngine> Runtime<E> {
         self.reranker
             .as_deref()
             .is_some_and(CandidateScorer::scores_prediction_pool_within_keystroke_budget)
+    }
+
+    /// 交给引擎拼整句时给前缀打分的模型：挂着的逐键打分器给出的那一份（[`CandidateScorer::sentence_scorer`]），没挂或它不给时为 `None`。
+    fn sentence_scorer(
+        &self,
+    ) -> Option<std::sync::Arc<dyn msime_engine::ordering::SentenceScorer>> {
+        self.reranker
+            .as_deref()
+            .and_then(CandidateScorer::sentence_scorer)
     }
 
     /// 引擎每条切分至少解出的整句读法条数：挂着的逐键打分器报的 [`CandidateScorer::sentence_pool`]；没挂或它报 0 时引擎照默认条数，候选与不挂打分器的宿主逐行相同。
@@ -3582,9 +3632,9 @@ impl<E: InputEngine> Runtime<E> {
         // 四码已有五笔候选时，后续字母通常顶字上屏并开始下一组编码。混输拼音能继续当前候选的读音时，
         // 由引擎保留组字，避免把五字母拼音截成四码。判定本身是纯函数（`wubi_top_commit_on_next_key`），
         // 开关、混输、四码完整性与读音续输四项都在那里，方便单测覆盖。
-        let wubi_top_commit = match action {
+        let letter_request = match action {
             Action::Character { value, shift } if value.is_ascii_alphabetic() => {
-                wubi_top_commit_on_next_key(&WubiTopCommitRequest {
+                Some(WubiTopCommitRequest {
                     top_commit_enabled: self.wubi_fifth_code_top_commit,
                     mixed_pinyin: self.engine.wubi_mixed_pinyin(),
                     four_code_is_complete: self.snapshot_valid
@@ -3593,6 +3643,19 @@ impl<E: InputEngine> Runtime<E> {
                     pinyin_continues: self.engine.wubi_pinyin_continues(value, shift),
                 })
             }
+            _ => None,
+        };
+        // 顶字关掉、混输开着：这个小写字母并进混输串（#10696）。引擎平时只在码表答不出或读音能续写时放开四码上限，不先放开的话这一键会被挡掉。
+        if let (Action::Character { shift: false, .. }, Some(request)) = (&action, &letter_request)
+        {
+            if wubi_mixed_grows_on_next_key(request) {
+                self.engine.allow_wubi_mixed_extension();
+            }
+        }
+        let wubi_top_commit = match action {
+            Action::Character { .. } if letter_request.is_some() => letter_request
+                .as_ref()
+                .is_some_and(wubi_top_commit_on_next_key),
             // 五笔 14 键：组码不进混输拼音，四码之后的一键只能顶字，不看混输开关。
             Action::GridKey(_) => wubi_top_commit_on_next_key(&WubiTopCommitRequest {
                 top_commit_enabled: self.wubi_fifth_code_top_commit,
@@ -3895,6 +3958,14 @@ impl<E: InputEngine> Runtime<E> {
             }
             if raw_route {
                 self.facts.raw = result.has_commit;
+                // 没有组字时按的回车交给了应用：聊天里是发出一条消息，编辑器里是换行。记成上文里的换行，下一次打字就知道是一句话的开头（`msime_engine::lattice::decode::opens_sentence`），开头的「吗」「吧」不再排在「妈」「爸」前面。
+                if len == 0
+                    && self.phrase_prefix.is_empty()
+                    && !result.has_commit
+                    && !result.handled
+                {
+                    self.remember_commit("\n");
+                }
             }
             if top_tail > 0 {
                 self.facts.tail_chars = top_tail;
@@ -4090,6 +4161,15 @@ pub(crate) struct WubiTopCommitRequest {
 /// 的 `(top_commit_enabled || !mixed_pinyin_enabled)` 是同一个条件。`!pinyin_continues` 是水杉自己加的（#8619）：字母能继续混输拼音的读音时，无论开关如何都保留组字，否则 `guiyi` 这类首四码碰上五笔整码的拼音打不出来。
 pub(crate) fn wubi_top_commit_on_next_key(request: &WubiTopCommitRequest) -> bool {
     (request.top_commit_enabled || !request.mixed_pinyin)
+        && request.four_code_is_complete
+        && request.phrase_prefix_empty
+        && !request.pinyin_continues
+}
+
+/// 完整四码之后再敲一个字母、顶字开关关着时，这个字母是否并进混输串：混输开着、四码完整、没有暂存词段。读音能续写时引擎自己会放开长度，不必再问。
+pub(crate) fn wubi_mixed_grows_on_next_key(request: &WubiTopCommitRequest) -> bool {
+    !request.top_commit_enabled
+        && request.mixed_pinyin
         && request.four_code_is_complete
         && request.phrase_prefix_empty
         && !request.pinyin_continues

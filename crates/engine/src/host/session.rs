@@ -187,6 +187,14 @@ impl Session {
         self.inner.set_prediction_pool(enabled);
     }
 
+    /// 拼整句时给前缀打分的模型，同 [`crate::Session::set_sentence_scorer`]。
+    pub fn set_sentence_scorer(
+        &mut self,
+        scorer: Option<std::sync::Arc<dyn crate::ordering::SentenceScorer>>,
+    ) {
+        self.inner.set_sentence_scorer(scorer);
+    }
+
     /// 整句读法条数下限，同 [`crate::Session::set_sentence_pool`]。
     pub fn set_sentence_pool(&mut self, paths: usize) {
         self.inner.set_sentence_pool(paths);
@@ -500,6 +508,7 @@ impl Session {
                         .helpcode_fallback_resources
                         .as_deref()
                         .map(Path::new),
+                    self.options.custom_helpcode_root.as_deref().map(Path::new),
                 )
                 .unwrap_or_else(|error| {
                     crate::logging::warn(format_args!(
@@ -619,6 +628,11 @@ impl Session {
     /// 由引擎判断第五码是否继续混输拼音，宿主不复制读音规则。
     pub fn wubi_pinyin_continues(&self, value: u8, shift: bool) -> bool {
         self.inner.wubi_pinyin_continues(value, shift)
+    }
+
+    /// 第五码顶字关掉、混输开着时，让下一个字母并进混输串；见 `Session::allow_wubi_mixed_extension`。
+    pub fn allow_wubi_mixed_extension(&mut self) -> bool {
+        self.inner.allow_wubi_mixed_extension()
     }
 
     /// 五笔拼音混输开着时，顶字关掉才有地方容纳第五个字母。

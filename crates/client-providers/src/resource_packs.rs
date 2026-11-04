@@ -343,7 +343,7 @@ pub enum ResourcePack {
     /// 用户手动导入的 Android 离线 OCR 模块；尚未固定正式产物时不可用。
     #[serde(rename = "ocr-module-android")]
     AndroidOcrModule,
-    /// 整句联想「增强」逐键重排的手机档 ONNX 模型（chinese-ime-lm `rerank-v1` 的 6x256）：`lm_step.ort`、`model.json`、`vocab.json`，即 `resources/rerank-model.lock.json` 里 `rerank-model-small` 那一项。Android 发布包不带它，用户选「增强」时下载；id 与 host-api 找的目录名相同，装好后会话在 `resource-packs/` 下找到它，没装时退回随包的句子模型。
+    /// 整句联想「增强」逐键重排的手机档 ONNX 模型（chinese-ime-lm `rerank-v2` 的 6x256）：`lm_step.ort`、`model.json`、`vocab.json`，即 `resources/rerank-model.lock.json` 里 `rerank-model-small` 那一项。Android 发布包不带它，用户选「增强」时下载；id 与 host-api 找的目录名相同，装好后会话在 `resource-packs/` 下找到它，没装时退回随包的句子模型。
     RerankModelSmall,
 }
 
@@ -481,10 +481,10 @@ struct TargetPronunciationsLock {
     built: Vec<crate::resources::Artifact>,
 }
 
-/// `rerank-model.lock.json`：chinese-ime-lm `rerank-v1` 的两档逐键重排模型，每档一个目录、三个文件。`name` 是 Release 附件名，`file` 是装好后的文件名（host-api 读 `lm_step.ort`、`model.json`、`vocab.json`）；资源包按 `file` 平铺，附件名只在 URL 里。
+/// `rerank-model.lock.json`：chinese-ime-lm `rerank-v2` 的两档逐键重排模型，每档一个目录、三个文件。`name` 是 Release 附件名，`file` 是装好后的文件名（host-api 读 `lm_step.ort`、`model.json`、`vocab.json`）；资源包按 `file` 平铺，附件名只在 URL 里。
 #[derive(Deserialize)]
 struct RerankModelLock {
-    /// 导出这批模型的 chinese-ime-lm 提交，即 `rerank-v1` 标签指向的那一个。
+    /// 导出这批模型的 chinese-ime-lm 提交，即 `rerank-v2` 标签指向的那一个。
     source_commit: String,
     models: Vec<RerankModelEntry>,
 }
@@ -1683,7 +1683,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn remove_does_not_follow_pack_or_root_symlinks() {
-        use std::os::unix::fs::symlink;
+        use msime_path_trust::untrusted_symlink as symlink;
         let dir = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();
         let pack = ResourcePack::GrammarBaguwenCompact;
@@ -1928,7 +1928,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn executable_verification_rejects_file_and_parent_symlinks() {
-        use std::os::unix::fs::symlink;
+        use msime_path_trust::untrusted_symlink as symlink;
         let dir = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();
         let set = synthetic_executable_set();

@@ -264,9 +264,14 @@ HelpcodeSources helpcode_sources(const std::filesystem::path& directory) {
   const auto options = runtime_options();
   if (options.is_object() && options.contains("resources") && options.at("resources").is_string()) {
     const auto resources = options.at("resources").get<std::string>();
+    // 状态根下的 helpcodes/custom 是用户自己的表，升级不会动它；同一主干取那里的一份。
+    auto state_root = options.contains("preferences_directory") && options.at("preferences_directory").is_string()
+        ? options.at("preferences_directory").get<std::string>() : std::string{};
+    if (!state_root.empty() && !std::filesystem::u8path(state_root).is_absolute()) state_root.clear();
     if (std::filesystem::u8path(resources).is_absolute()) {
       auto owned = msime::host_api::own_string(msime_client_helpcode_schemas(
-          reinterpret_cast<const uint8_t*>(resources.data()), resources.size()));
+          reinterpret_cast<const uint8_t*>(resources.data()), resources.size(),
+          state_root.empty() ? nullptr : reinterpret_cast<const uint8_t*>(state_root.data()), state_root.size()));
       const auto response = owned ? Json::parse(owned.get(), nullptr, false) : Json();
       if (response.is_object() && response.value("ok", false) && response.contains("value") && response.at("value").is_array()) {
         for (const auto& schema : response.at("value")) {

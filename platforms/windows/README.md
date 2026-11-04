@@ -79,6 +79,19 @@ ctest --test-dir target/windows-full/x64/win7-panels -C RelWithDebInfo --output-
 
 核心必须由同一份源码运行 `Build-Windows7Core.ps1` 重新生成，包含 `msime_client_windows_handwriting`。32 位构建使用 x86 的依赖与核心、`-A Win32`、`target/windows-full/x86/win7-panels`。通过 vcpkg 工具链构建时，`VCPKG_MANIFEST_DIR` 指向 `platforms/windows/settings/win7`，复用其最小清单。两个原生兼容宿主都在程序目录生成当前 edition 的 `edition.json`。
 
+### 现代 Windows 包里的同一份面板宿主
+
+全部界面改为原生之后，Win10/11 的面板与 Win7 共用这一份宿主（见 `.agents/notes/proposed/architecture/2026-11-03-all-native-ui.md`）。现代构建已经把它编进安装包，但缺省不用：`Build-Client.ps1` 以 `-DMSIME_PANELS_MODERN_WINDOWS=ON` 配置 `panels/win7`，把中性名字的 `msime-client-panels.exe` 和它的 PDB 输出到 `target/windows-<edition>/x64/bin`，于是它随 Server 输出进入安装包、SignPath 签名清单和符号包，`Prepare-PackageFiles.ps1` 在现代包里缺了它就拒绝打包。托盘、悬浮工具栏和 WinUI 设置只在 `MSIME_WINDOWS_PANEL_HOST=native` 时把面板交给它，开关见「托盘菜单与共享界面」。
+
+这个变体与 Win7 包的 `msime-client-panels-win7.exe` 只差四处：版本号取 `version.txt`（或 `-TargetVersion`）；链接与 WinUI 设置相同的普通核心导入库，不是 full 的版本用按版本改名生成的那份；不链接 HarfBuzz、不带随包表情字体，因为 Win10/11 的 DirectWrite 自带字体回退，`common/Windows7EmojiFont.h` 在那里直接画系统字体；键盘、语音面板里跳到设置或别的面板时找 `msime-client-settings.exe` 和 `msime-client-panels.exe`（`settings/win7/SurfaceLauncher.h`）。窗口、控件、单进程行为和 DPI 都与 Win7 相同：进程声明系统 DPI 感知，外观是 Win32 原生控件，之后逐个面板改用 msimeui 的 Direct2D 绘制。Win7 构建的程序名、版本号和 HarfBuzz 整形不变。单独编现代变体：
+
+```powershell
+cmake -S platforms/windows/panels/win7 -B target/windows-full/x64/panels -A x64 -DMSIME_PANELS_MODERN_WINDOWS=ON "-DCMAKE_PREFIX_PATH=<x64 原生依赖前缀>" "-DMSIME_HOST_LIBRARY=$PWD/target/windows-rust/x64/msime_host_api.dll.lib"
+cmake --build target/windows-full/x64/panels --config RelWithDebInfo --target msime-client-panels
+```
+
+CI 的 `windows-settings` 作业（Windows native settings）在「Build and test Windows 7 handwriting host」一步里先按 Win7 变体、再按现代变体编译这份源码，各跑一遍面板 CTest。
+
 `windows7-handwriting-test.exe` 用实际窗口鼠标消息与真实识别器验证合成笔划，输入提交边界可注入测试回调。另在有中文识别器的交互桌面运行 `windows7-handwriting-test.exe --desktop`，验证合成候选进入它自己创建的编辑器、切换到另一个测试窗口时拒绝上屏，以及按手写来源只记一次；全部状态使用临时合成目录。测试通过不能替代 Win7 SP1 的实际组件、安装和输入法验收。
 
 本地剪贴板面板按每页 20 条显示历史，支持刷新、固定、删除、复制和输入原编辑器；输入和复制前重新读取历史，外部关闭后禁止使用旧列表。云剪贴板面板复用设置页的全部表单和账号／中继来源校验，复制和输入前重新读取列表与设备；来源变化、待批准或读取失败时拒绝旧条目，不回退账号。云面板允许编辑搜索、上传和配置，只有本面板仍在前台时才恢复原编辑器，第三个窗口在前台时拒绝输入。复制与失败输入不计统计，成功输入使用 TSF 面板标记避免重复计数。
@@ -174,7 +187,7 @@ Windows 原生界面验收入口是 `tests/tools/settings_ui.ps1`：通过真实
 
 ### `panels/` 是什么
 
-`EmojiPanel.h`、`HandwritingPanel.h` 和 `EmojiPanelIcons.{h,cpp}` 不在 `CMakeLists.txt` 里，也没有任何文件 include 它们——它们不参与构建。现代 Windows 产品里的表情/符号面板和手写识别板由共享桌面面板宿主（Tauri）提供；Win7 则使用 `panels/win7` 的原生宿主。现代入口托盘菜单通过 `--route` 拉起，见下文「托盘菜单与共享界面」。`msimeui/demos/` 下另有一份**在构建的** `EmojiPanel`，但那是 demo，比这里这份短（163 行对 210 行），且不接 `ClipboardHistory` 与 `NativeTextInput`。这里这份是原生面板的另一条实现路线，单独成目录保留，让它的状态一眼可见，而不是混在 `system/` 里。
+`EmojiPanel.h`、`HandwritingPanel.h` 和 `EmojiPanelIcons.{h,cpp}` 不在 `CMakeLists.txt` 里，也没有任何文件 include 它们——它们不参与构建。现代 Windows 产品里的表情/符号面板和手写识别板缺省由共享桌面面板宿主（Tauri）提供，打开 `MSIME_WINDOWS_PANEL_HOST=native` 后改由 `panels/win7` 编出的 `msime-client-panels.exe` 提供；Win7 使用同一份源码编出的 `msime-client-panels-win7.exe`。现代入口托盘菜单通过 `--route` 拉起，见下文「托盘菜单与共享界面」。`msimeui/demos/` 下另有一份**在构建的** `EmojiPanel`，但那是 demo，比这里这份短（163 行对 210 行），且不接 `ClipboardHistory` 与 `NativeTextInput`。这里这份是原生面板的另一条实现路线，单独成目录保留，让它的状态一眼可见，而不是混在 `system/` 里。
 
 本目录以 MSIME-Windows 的完整功能和既有 TSF DLL / Server 协议为基线：Rust/C++ 共享会话、管道、焦点和回复编排，以及 TSF 注册、Server/Host DLL、原生候选窗口、语音与安装打包都在这里落地。
 
@@ -572,7 +585,9 @@ key_bindings 可选对象示例：
 
 不点托盘也能在中文和日语之间来回：打开「快捷键 › Ctrl+Shift+J 在中文和日语之间切换」（`keybindings.toggle_japanese_ctrl_shift_j`，缺省关）后，TIP 报告中文、Engine 不在自己的英文模式时按 Ctrl+Shift+J，当前跑的是中文方案就切到日语，并把这个中文方案记进 `last_chinese_scheme`；跑的是日语、韩语、越南语或藏语就回到 `last_chinese_scheme`，它跑不起来时按 `effective_scheme` 的规则退回（`common/InputSchemeTraits.h` 的 `japanese_toggle_target`）。英文模式、开关关着、Server 没有协商到 `JapaneseToggleShortcut`（新 TIP 配旧 Server）或本版本不同时提供日语和中文方案（只有 full 同时提供）时，组合键照常交给应用；浏览器里它是开发者工具或下载页的快捷键，所以缺省关。键的分类和 Ctrl+Shift+F 一样：TIP 吃下后作为 `FUNCTION_TOGGLE_JAPANESE` 发给 Server，不读回复，自动重复不再排队，Server 不可用时直接结束。Server 的 `ReplyComposer::toggle_japanese` 回 NoReply、不碰组字，把写入交给单次工作线程；线程上 `toggle_japanese_scheme` 和托盘的 `store_input_scheme` 一样从存储读出偏好、带 revision 写回，并唤醒偏好监视器立即检查，再由监视器按原有版本顺序发布；host-api 等组字结束、运行时空闲后才换方案，所以组字中按下时正在组的字照常上屏后才换成日语。只注册了一个 zh-CN 配置，切到日语后只有语言栏图标变成「日」，系统输入指示器仍是中文，上屏文字的 `GUID_PROP_LANGID` 也仍是中文；需要系统层面的日语时另装水杉日语（ja-JP）。
 
-现代构建的设置外壳按 `MSIME_CLIENT_SETTINGS_COMMAND`（须为绝对路径且存在）、Server 同目录的 `msime-client-settings.exe` 查找；面板外壳使用同目录的 `MSIME.exe`。找不到时这些行保持可见但禁用，点击不会做任何事，也不会声称已打开；启动失败同样按未处理返回，菜单不会因为一个没发生的动作而关闭。两个外壳都用 `CreateProcessW` 启动并继承本进程令牌，因此打包时它们与 Server 的完整性级别一致。
+现代构建的设置外壳按 `MSIME_CLIENT_SETTINGS_COMMAND`（须为绝对路径且存在）、Server 同目录的 `msime-client-settings.exe` 查找；面板外壳缺省使用同目录的 `MSIME.exe`。找不到时这些行保持可见但禁用，点击不会做任何事，也不会声称已打开；启动失败同样按未处理返回，菜单不会因为一个没发生的动作而关闭。两个外壳都用 `CreateProcessW` 启动并继承本进程令牌，因此打包时它们与 Server 的完整性级别一致。
+
+面板宿主由环境变量 `MSIME_WINDOWS_PANEL_HOST` 选择：值为 `native`（不分大小写）时，表情、手写、屏幕键盘、语音、云剪贴板、云词库和背单词这 7 个面板改由同目录的原生面板宿主 `msime-client-panels.exe` 打开（见「现代 Windows 包里的同一份面板宿主」）；不设、为空或任何别的值都是缺省的 `MSIME.exe`，拼错不会让面板消失。选了 `native` 就只找 `msime-client-panels.exe`，不退回 `MSIME.exe`：它不在时手写、云剪贴板、云词库和背单词这些行显示为不可用，表情和屏幕键盘照旧退回系统自带的面板，设置窗口里的面板按钮给出打不开的提示。设置窗口不受这个开关影响。Server 启动时读一次，托盘、悬浮工具栏的可用性判断和实际启动用同一个选择，它拉起的设置窗口继承同一个环境；从开始菜单打开的设置窗口每次打开面板时读自己的环境。在测试机上打开：`setx MSIME_WINDOWS_PANEL_HOST native`，然后注销并重新登录，让按需拉起 Server 的应用、看门狗的登录任务和开始菜单都拿到新的环境；关闭：`reg delete HKCU\Environment /v MSIME_WINDOWS_PANEL_HOST /f`，同样注销重登。Win7 包只有原生面板，忽略这个变量。选择逻辑是 `src/system/ShellSurfaces.h` 的 `panel_host_from_setting` 和 `shell_executable_names`，`windows-shell-surfaces`、`windows7-shell-surfaces` 和 `windows-settings-navigation` 核对两种状态下每个面板路由落到哪个程序、原生宿主认不认这个路由（`panels/win7/PanelRoutes.h`）。
 
 隔离预览实例不注册 TSF，也不接管系统输入源：它挂上候选窗口、后台点击选词和悬浮工具条，走 configured_key 的同一套路径；未支持的路由会断开当前连接。生产模式复用同一份 Server 会话/窗口实现，只是换成安装器注册的生产管道名，TSF 注册和 DLL/Server 部署由安装器完成。Enter 缺少宿主实际本地提交观察时明确拒绝，不从 Engine 伪造观察。预览实例不连接旧产品管道，也不替代生产 KeyHandler。运行时检查包含此 EXE 的依赖，PowerShell 合成测试不启动常驻 Server 进程；CMake 另登记无副作用的 `windows-preview-help` --help 测试。
 
@@ -743,6 +758,8 @@ TSF 在收到 Server 回复之前就要决定一个键是组合输入还是选�
 内置音效包由安装器放在 DataDir 的 `sound-packs`（与提示音 `audios` 同级），Server 通过 `src/system/SoundPackRoot.h` 在会话选项里写入 `sound_packs`；开发运行的状态目录里没有它时不写，由共享库按 resources 旁边的默认位置查找。官方插件包（uuid 脚本插件、latex-symbols 短语表，`plugins/official-packs.json` 登记的那些）不放 DataDir，而由安装器从 `server_exe/plugin-packs` 装到 Program Files 下 Server 目录的 `plugin-packs`：那里只有管理员能写。Server 通过 `src/system/PluginPackRoot.h` 在会话选项里写入 `plugin_packs`，目录不在（开发运行）时也照样写上，免得共享库退回到可写的 DataDir 旁边去找；原生设置应用和 Tauri 设置壳都取自己所在目录的 `plugin-packs`。它们默认停用：脚本插件要在授权页授权，短语表要在插件页启用。
 
 内置辅助码表同样不在资源目录里：安装器把它们放在 DataDir 的 `helpcodes`，Server 的 `server\resources` 没有 `helpcodes\`，而共享库只从资源目录的 `helpcodes\` 读内置码表，缺表时才读 `helpcode_fallback_resources`。Server 和 TIP 都通过 `src/system/HelpcodeRoot.h` 在内存里的会话选项中把 DataDir 写成 `helpcode_fallback_resources`（TIP 在 `tsf/HostConfiguration.cpp` 读 `runtime-options.json` 时写），不写回文件；DataDir 下没有 `helpcodes` 目录（开发运行）或选项里已有这个键时不写。
+
+用户自己的辅助码表（`custom/<文件名>`）放在 DataDir 的 `helpcodes\custom`：Engine、设置窗口和 Win7 设置都先读状态根下的这一份，再读 `server\resources\helpcodes\custom`（以前的位置，`server` 目录每次安装都整个删掉）。安装器清理 DataDir 的安装包条目时留下 `helpcodes\custom`，删 `server` 目录之前把那里的 `*.txt` 搬进 DataDir（同名不覆盖，`AdoptCustomHelpcodes`），Server 每次准备宿主时 host-api 也会把资源目录里剩下的表搬过来（#10707）。
 
 ### 打字特效
 
