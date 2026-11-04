@@ -80,7 +80,8 @@ def main() -> int:
         return fail("the signing build step must run for every edition and every publish value")
     for name, value in SECRET_ENV.items():
         if f'          {name}: "{value}"' not in build:
-            return fail(f"build step must read {name} from {value}")
+            # The message names neither the variable nor the secret: CodeQL treats both as secrets and flags printing them as clear-text logging, even though they are only names.
+            return fail("build step must read the release keystore and its password from the repository secrets in SECRET_ENV, verbatim")
 
     script = build[build.index("        run: |\n"):]
     if 'if [[ "$PUBLISH" == true ]]' in script:
