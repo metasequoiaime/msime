@@ -1754,6 +1754,7 @@ struct KeyboardView {
         return;
       }
       const finger: number = event.changedTouches[0].id;
+      KeyboardSession.shared.keyUp(finger);
       if (this.glideActive) {
         // 该行的 `glideTouch` 接下来会收到这次抬起并发送轨迹。
         this.abandonLetterHint(finger);
@@ -2046,6 +2047,7 @@ struct KeyboardView {
     this.glideReset();
     if (request !== null) {
       // A stroke the Engine declines (handled false) is dropped: its keys are never typed in its place.
+      KeyboardSession.shared.keyUp(touch.id);
       KeyboardSession.shared.glide(request);
     }
   }
@@ -6314,6 +6316,7 @@ struct KeyboardView {
         const touch: TouchObject = event.changedTouches[0];
         if (this.nineKeySwipes.up(key.input, touch.id) === NineKeySwipe.DIGIT) {
           this.endNineKeySwipeFace(key.input);
+          KeyboardSession.shared.keyUp(touch.id);
           this.typeNineKeySwipeDigit(key);
         }
       }
@@ -6544,6 +6547,7 @@ struct KeyboardView {
         const touch: TouchObject = event.changedTouches[0];
         const letter: string = this.eighteenSwipes.up(key.letters, touch.id, touch.windowX, touch.windowY);
         this.endEighteenSwipeFace(key.letters);
+        KeyboardSession.shared.keyUp(touch.id);
         this.typeEighteenKeyLetter(key, letter);
       }
     } else if (event.type === TouchType.Cancel) {
@@ -6907,6 +6911,7 @@ struct KeyboardView {
         return;
       }
       if (this.commaSwipe.up(touch.windowX, touch.windowY, Date.now())) {
+        KeyboardSession.shared.keyUp(touch.id);
         KeyboardSession.shared.softKeyPress(KeyIdPolicy.character(','));
         KeyboardSession.shared.punctuation(0x2e);
       }
@@ -7409,6 +7414,9 @@ struct KeyboardView {
       if (event.type === TouchType.Down) {
         this.startBackspace();
       } else if (event.type === TouchType.Up) {
+        for (const touch of event.changedTouches) {
+          KeyboardSession.shared.keyUp(touch.id);
+        }
         this.finishBackspace();
       } else if (event.type === TouchType.Cancel) {
         this.cancelBackspace();
@@ -7529,6 +7537,9 @@ struct KeyboardView {
         if (outcome === SpaceGestureOutcome.VOICE_FINISH || outcome === SpaceGestureOutcome.VOICE_CANCEL) {
           this.endSpaceVoice(outcome === SpaceGestureOutcome.VOICE_FINISH);
         } else if (!this.dragged && event.type === TouchType.Up) {
+          for (const touch of event.changedTouches) {
+            KeyboardSession.shared.keyUp(touch.id);
+          }
           this.activateSpace();
         }
       }
@@ -9643,6 +9654,9 @@ struct KeyboardView {
         // One press of the cell per tap or flick, whichever direction it lands on; a direction with no label types nothing and counts nothing, as on iOS.
         if ($$.kana[direction].length > 0) {
           KeyboardSession.shared.softKeyPress(KeyIdPolicy.japaneseKana(keyIndex));
+        }
+        for (const touch of event.changedTouches) {
+          KeyboardSession.shared.keyUp(touch.id);
         }
         this.sendKana($$, direction);
         this.flickKeyIndex = -1;
