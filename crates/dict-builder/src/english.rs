@@ -593,7 +593,7 @@ struct ParsedTranslation {
     inflection_of: Option<String>,
 }
 
-/// Short Chinese headwords from an ECDICT translation, in reading order. 构建走 [`parse_translation`]（连同屈折说明一起拿），这个只给测试用。
+/// 按出现顺序提取 ECDICT 译文中的短中文词头。构建走 [`parse_translation`]（连同屈折说明一起拿），这个只给测试用。
 #[cfg(test)]
 pub fn extract_gloss_terms(translation: &str) -> Vec<GlossTerm> {
     parse_translation(translation).terms
@@ -662,7 +662,7 @@ fn rarity_weight(term: &str, weights: &HashMap<String, i64>) -> i64 {
         .map_or(own, |stem| own.max(*stem))
 }
 
-/// 英译中的义项顺序，义项位置为主：ECDICT 一行之内的义项按常用程度排，所以行内按位置；行与行之间是按词性分的（常把名词行放在最前，give 是「n. 弹性」、keep 是「n. 生计」），位置说明不了哪个词性常用，就按各行首项在拼音表里的权重排，第一条通用行占 [`FIRST_LINE_BIAS`] 倍的优势。领域行一律排在通用行后面；冷僻义项（[`RARE_TERM_WEIGHT`]、[`RARE_TERM_RATIO`]）按行的先后排在所有常用义项后面。「X的」在 X 也是义项时不要，同一个词只出现一次；第一项是通用义项时只留通用义项，不拿领域义项凑第二个（TV 不配「转移向量」）。
+/// 英译中的义项顺序，义项位置为主：ECDICT 一行之内的义项按常用程度排，所以行内按位置；行与行之间是按词性分的（常把名词行放在最前，give 是「n. 弹性」、keep 是「n. 生计」），位置说明不了哪个词性常用，就按各行首项在拼音表里的权重排，第一条通用行占 [`FIRST_LINE_BIAS`] 倍的优势。先把领域行排在通用行后面，再把冷僻义项（[`RARE_TERM_WEIGHT`]、[`RARE_TERM_RATIO`]）按行的先后全局移到所有常用义项后面，因此常用领域义项可能领先于冷僻通用义项。「X的」在 X 也是义项时不要，同一个词只出现一次；第一项是通用义项时只留通用义项，不拿领域义项凑第二个（TV 不配「转移向量」）。
 fn order_terms<'a>(terms: &[&'a GlossTerm], weights: &HashMap<String, i64>) -> Vec<&'a GlossTerm> {
     let weight = |term: &GlossTerm| weights.get(&term.text).copied().unwrap_or(0);
     let texts: HashSet<&str> = terms.iter().map(|term| term.text.as_str()).collect();
@@ -828,7 +828,7 @@ fn chinese_term_weights(msime: &Connection, terms: &HashSet<&str>) -> Result<Has
     Ok(weights)
 }
 
-/// Intersects ECDICT with the English candidates and derives both gloss directions. Only general senses of words with a corpus or core-vocabulary signal feed the Chinese-to-English index, and only for Chinese terms the pinyin tables can produce. Words in `reverse_excluded` get English-to-Chinese glosses but neither feed the Chinese-to-English index nor stand in for an inflection there: the build passes the words only SCOWL brings, so that index keeps choosing among the curated word lists (SCOWL's long tail would otherwise win terms such as 体现 → impersonate).
+/// 取 ECDICT 与英文候选的交集，派生两个方向的释义。中译英索引只收有语料或核心词汇信号的词的通用义项与获准的计算机领域义项，并要求中文词能由拼音表产出。`reverse_excluded` 中的词有英译中释义，但不进入中译英索引，也不代替其中的屈折形式；构建把只有 SCOWL 收录的词传入这里，使索引仍从人工整理的词表中选择（否则 SCOWL 长尾会胜出，例如 体现 → impersonate）。
 ///
 /// 两个方向都以义项位置为主（[`order_terms`]）：英译中取排好的前两项；只有屈折说明、没有通用义项的词（is 只有「be的现在式第三人称」和一行 `[计]`）用原形的义项。中译英给每个（中文义项，英文词）打分：英文词的常用度（[`vocabulary_quality`]）在行内每靠后一位乘 [`POSITION_DECAY`]，不在这个词的主行上再乘一次，所以 affect 的首项「影响」压过 win 第二行第三项的「影响」；取最高分，第二个英文词要有它的 [`SECOND_GLOSS_PERCENT`]%，最高分的义项位置太靠后（[`MAX_REVERSE_STEPS`]）时宁可不给。`vetoes` 里成对否决的义项两个方向都不用；有一对在 ECDICT 的候选词里匹配不到就失败。
 pub fn derive_glosses(
@@ -897,7 +897,7 @@ pub fn derive_glosses(
             continue;
         }
         let quality = vocabulary_quality(&row);
-        // A lemma listed in `exchange` as `0:<lemma>` stands in for its inflections in the reverse index. 只看小写词头：大写的专名（States 的「美国」）不是 state 的屈折形式。
+        // `exchange` 以 `0:<lemma>` 列出的原形在反向索引中代替其屈折形式。只看小写词头：大写的专名（States 的「美国」）不是 state 的屈折形式。
         let reverse_english = if headword == english {
             row.exchange
                 .split('/')
@@ -991,7 +991,7 @@ pub fn derive_glosses(
         }
     }
 
-    // Reverse candidates are built only after duplicate English rows are resolved, so a duplicated source row cannot distort the ranking.
+    // 先处理重复英文行，再构建反向候选，避免重复源行扭曲排序。
     let mut reverse: HashMap<&str, HashMap<&str, (i64, String, usize)>> = HashMap::new();
     for (english, entry) in &entries {
         if entry.quality <= 0 || reverse_excluded.contains(english) {
@@ -1125,7 +1125,7 @@ impl CustomTranslation {
 
 pub const CUSTOM_TRANSLATIONS: &str = "custom/translations.txt";
 
-/// `source<TAB>gloss`; a source containing a character from U+3400 up is Chinese-to-English, anything else English-to-Chinese. A later line for the same source wins. 译文是单独一个 `-`（[`DELETE_GLOSS`]）的行删掉这个源词的释义，后面的行可以再给它一个。
+/// 每行 `source<TAB>gloss`；源词含 U+3400 及以上字符时按中译英处理，其余按英译中处理。同一源词以后出现的行优先。译文是单独一个 `-`（[`DELETE_GLOSS`]）的行删掉这个源词的释义，后面的行可以再给它一个。
 pub fn parse_custom_translations(text: &str) -> Result<Vec<CustomTranslation>> {
     let mut entries = Vec::new();
     for (number, line) in text::splitlines(text::without_bom(text))

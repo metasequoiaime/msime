@@ -2,7 +2,7 @@
 //!
 //! The source has one `key:value:comment` line per reading, words and single syllables mixed. Only single syllables are kept: the key is one precomposed Hangul syllable (U+AC00..U+D7A3) and the value one unified ideograph of the Basic Multilingual Plane, that is one Hanja in the CJK Unified Ideographs block, Extension A, or one of the twelve unified ideographs the CJK Compatibility Ideographs block holds (U+FA0E 﨎, U+FA11 﨑 and so on, which NFC leaves alone). True compatibility ideographs are dropped because NFC rewrites them; the pinned source lists none of them as a single-syllable value. Characters outside the Basic Multilingual Plane are dropped because fonts are not guaranteed to cover them. A value of two characters (the source has a few place names such as 莘洞) is not a single Hanja and is dropped too.
 //!
-//! The output is `crates/engine/src/korean/hanja.tsv`, one `syllable<TAB>hanja<TAB>gloss` line per reading, which the engine embeds with `include_str!`. Syllables come in code point order. The gloss is the source's 훈음 comment (나라 이름 한), empty where the source has none. A Hanja the source lists twice under one syllable is kept at its first position.
+//! 输出到 `crates/engine/src/korean/hanja.tsv`，每个读音一行 `syllable<TAB>hanja<TAB>gloss`，引擎用 `include_str!` 内嵌。音节按码位排序；训音取源文件的 훈음 注释（나라 이름 한），源文件没有时留空。同一音节重复列出的汉字只保留第一次的位置。
 //!
 //! 每个音节里先列有训音的字、再列没有训音的字，两组内部各按源文件的次序（libhangul 大体按使用频率排，한 下是 韓、漢、寒）。源文件约四分之三的行没有训音，其中夹着不少简体字和冷僻字，排在有训音的常用字前面：팽 下第一个是没有训音的 庄，彭、膨 在后面；시 下第一个是 十。只是指向另一个字的注释（`啍과 同字`、`畫의 俗字` 这类，每一段都含汉字）不算训音，这样的行和没有注释的行排在一组：噋 只注了「啍과 同字」，如果算有训音，它就会排到 톤 下没有注释的常用字 噸 前面。按这条规则，固定提交里有 7 个音节的首字换了（팽 庄→彭、시 十→時、즙 輯→汁、즉 則→卽、획 畵→獲、흘 汽→訖、뉵 忸→衄），没有一个换成更冷僻的字。
 //!
@@ -40,7 +40,7 @@ pub fn is_kept_hanja(character: char) -> bool {
         || UNIFIED_IN_COMPATIBILITY_BLOCK.contains(&character)
 }
 
-/// The single-syllable readings of `source`, grouped by syllable in code point order with each group in source order. `simplified_only` 是只作简体字形的字（`simplified_only_forms`），没有训音时排到同音节没有训音的字后面。
+/// 提取 `source` 的单音节读音，按音节码位分组。每组先列有训音的字、再列无训音的非简体字形，最后列无训音且只作简体字形的字（`simplified_only_forms` 给出的 `simplified_only`），组内保留源文件的顺序。
 pub fn build(source: &str, simplified_only: &HashSet<char>) -> Result<Vec<Reading>> {
     let mut groups: BTreeMap<char, Vec<Reading>> = BTreeMap::new();
     let mut seen = HashSet::new();

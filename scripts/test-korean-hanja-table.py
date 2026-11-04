@@ -63,12 +63,12 @@ def ideograph(character: str) -> bool:
 
 
 def has_reading_gloss(gloss: str) -> bool:
-    """crates/dict-builder/src/hanja.rs `has_reading_gloss`, restated: some comma-separated part holds no Hanja, so the comment is not only a pointer to another character (歌와 同字)."""
+    """复述 `crates/dict-builder/src/hanja.rs` 的 `has_reading_gloss`：逗号分段中至少一段不含汉字，说明注释不只是指向另一个字（歌와 同字）。"""
     return any(part.strip() and not any(ideograph(character) for character in part.strip()) for part in gloss.split(","))
 
 
 def simplified_only_forms(simplified_to_traditional: str) -> set[str]:
-    """crates/dict-builder/src/hanja.rs `simplified_only_forms`, restated over OpenCC's STCharacters.txt: characters none of whose traditional forms is the character itself (双 → 雙)."""
+    """复述 `crates/dict-builder/src/hanja.rs` 的 `simplified_only_forms`：从 OpenCC 的 STCharacters.txt 取繁体字形中不含自身的字（双 → 雙）。"""
     forms = set()
     for line in simplified_to_traditional.split("\n"):
         line = line.removesuffix("\r")

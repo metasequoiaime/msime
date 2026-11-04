@@ -14,7 +14,7 @@ use crate::zhuyin;
 
 pub const SUMS: &str = "msime-language-dictionaries-SHA256SUMS";
 
-/// Builds every language dictionary into `out` with the licence texts from `licenses` (`resources/licenses/`), verifies each, and writes the checksums. Returns one summary line per dictionary, plus one listing the Cantonese essay words the build held down so a maintainer can review them.
+/// 把各语言词库及 `licenses`（`resources/licenses/`）中的许可文本写入 `out`，逐库验证并写出校验和。每个词库返回一行摘要，另列出构建压低的粤语 essay 补词，供维护者审查。
 pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<String>> {
     std::fs::create_dir_all(out).with_context(|| format!("creating {}", out.display()))?;
     let mut written = Vec::new();

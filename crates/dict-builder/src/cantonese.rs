@@ -61,7 +61,7 @@ pub const FLOORS: Floors = Floors {
     words: 90_000,
 };
 
-/// Keys whose first entries, as many as the third field, must include the text, as a check against gross ranking errors. 「逾」「慈」主要出现在词里，essay 单字分数只有 177，靠 `WORD_FLOOR_CEILING` 的词带字下限才排进前列，没有下限时分别落在 jyu 的第 204 位、ci 的第 171 位（#10448）。為、因為、濕、濕紙巾、啟 守住香港字形替换（#10420、#10697、#10725），搵 守住否决表：「搵」被换成「揾」时 wan 的第一位会变成「揾」。假期、收返 守住 essay 补词的佐证规则（`cantonese_curation::cap_uncorroborated`）：没有佐证的人名 嘉琪 要压到 假期 之下；收返 的键上只有兜底权重的 壽飯，不能被压到它下面。
+/// 每项指定键、应出现的词及候选数量上限，要求该词在前若干项内出现，防止严重排序错误。 「逾」「慈」主要出现在词里，essay 单字分数只有 177，靠 `WORD_FLOOR_CEILING` 的词带字下限才排进前列，没有下限时分别落在 jyu 的第 204 位、ci 的第 171 位（#10448）。為、因為、濕、濕紙巾、啟 守住香港字形替换（#10420、#10697、#10725），搵 守住否决表：「搵」被换成「揾」时 wan 的第一位会变成「揾」。假期、收返 守住 essay 补词的佐证规则（`cantonese_curation::cap_uncorroborated`）：没有佐证的人名 嘉琪 要压到 假期 之下；收返 的键上只有兜底权重的 壽飯，不能被压到它下面。
 pub const EXPECTED: [(&str, &str, usize); 12] = [
     ("nei hou", "你好", 3),
     ("gwong dung waa", "廣東話", 3),

@@ -86,7 +86,7 @@ fn keyword_lines(source: &str) -> Result<Vec<(usize, &str, &str)>> {
     Ok(lines)
 }
 
-/// `keyword<TAB>item` lines, grouped by item in first-appearance order, each keyword once per item.
+/// 读取 `keyword<TAB>item` 行，按条目首次出现的顺序分组，每个条目下的关键词去重。
 pub fn load_keyword_map(source: &str) -> Result<IndexMap<String, Vec<String>>> {
     let mut mapping: IndexMap<String, Vec<String>> = IndexMap::new();
     for (_, keyword, item) in keyword_lines(source)? {
@@ -372,7 +372,7 @@ pub fn build_kaomoji(
     Ok((rows, mapping.len()))
 }
 
-// ---- keyword vetoes ----
+// ---- 关键词拒绝表 ----
 
 /// 表情与颜文字关键词的拒绝表，在 `resources/dictionary-sources/` 下；格式与收词依据见文件头。
 pub const KEYWORD_VETOES: &str = "keyword-vetoes.txt";

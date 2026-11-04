@@ -1771,7 +1771,7 @@ impl Build {
                         .sources
                         .pinned("sources/english/rime-ice-en-supplement.txt")?,
                 )?)?;
-                // SCOWL's spelling dictionary decides which casing of a word leads (see english::leading_display).
+                // SCOWL 拼写词典决定一个词的哪种大小写形式排在前面，见 english::leading_display。
                 let attested = self.scowl_attested()?;
                 let lowercase_added = english::add_attested_lowercase(&mut supplement, &attested);
                 let supplement_added = english::merge_words(&mut base, supplement);

@@ -1,4 +1,4 @@
-# keyword<TAB>item<TAB>item...: the pypinyin 0.55 lazy_pinyin reading of each emoji, kaomoji or symbol keyword whose phrase reading differs from the pinyin crate's per-character one (see crates/dict-builder/src/pinyin.rs). Add a line when a new polyphone keyword needs its phrase reading. 文件末尾一节不是 pypinyin 的输出，是本项目对照拼音主库改正的读音，见那一节的说明。
+# keyword<TAB>item<TAB>item...：列出表情、颜文字或符号关键词的词组读音与 pinyin crate 逐字读音不同的条目，读音取自 pypinyin 0.55 的 lazy_pinyin（见 crates/dict-builder/src/pinyin.rs）。新关键词需要多音字的词组读音时追加一行。文件末尾一节不是 pypinyin 的输出，是本项目对照拼音主库改正的读音，见那一节的说明。
 宝藏	bao	zang
 长号	chang	hao
 铜管乐器	tong	guan	yue	qi
