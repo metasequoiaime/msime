@@ -43,6 +43,8 @@ Status: implemented
 
 这次没有做跨仓库的改动：它需要改词库格式、发一版词库，而这个缺陷当下就在发出去的首选里。迁过去时把这份表原样搬过去，引擎内嵌表留作缺表时的退路，或者删掉。
 
+首选方案已经落地，位置改成了 msime-dictionary 新的顶层目录 `curation/offensive-words.txt`（不放 `sources/pinyin/`：那里是上游数据和生成的补充表），由 `msime-dict-build` 的 `sentence-excluded` 阶段写进 `msime-pinyin.db` 的 `sentence_excluded(value, exempt)`；引擎读到这张表就用它，内嵌表留作缺表时的退路。见 [词库清洗走 curation/ 表](../../implemented/feature/2026-11-04-dictionary-curation-tables.md)。
+
 ## Alternatives considered
 
 - **给粗俗词扣分而不是不成边。** 最强的理由是用户确实想在句子里写这个词时整句还能给出来。不采用：一个词的分里光多字词奖励就有 20 × 音节数，扣多少才够要另外调，而且调出来的数只对某个权重区间成立；词网格的 n-gram 表也几乎没有这类词的上下文，给不出「这里确实想要它」的证据。错过一次有意的整句，代价是多选一次词；猜出一句没人打的粗俗话，代价是用户当众发出去、学习还把它记住。代价不对称，所以选可预期的「不成边」。
