@@ -39,7 +39,7 @@ fn cantonese_simplified_pieces_keep_the_dictionary_spelling_in_new_words() {
     let cantonese = cantonese_dictionary(fixture.path());
     Connection::open(&cantonese)
         .unwrap()
-        .execute_batch("UPDATE entries SET weight=1000 WHERE value='妳';")
+        .execute_batch("UPDATE entries SET weight=6000 WHERE text='妳';")
         .unwrap();
     let configure = cantonese_learning_options(&cantonese, FrequencyAdjustmentMode::Disabled);
     let mut session = fixture.session_with(|options| {
@@ -72,7 +72,7 @@ fn cantonese_simplified_composed_sentence_keeps_the_dictionary_spelling() {
     let cantonese = cantonese_dictionary(fixture.path());
     Connection::open(&cantonese)
         .unwrap()
-        .execute_batch("UPDATE entries SET weight=5000 WHERE value='號';")
+        .execute_batch("UPDATE entries SET weight=5000 WHERE text='號';")
         .unwrap();
     let configure = cantonese_learning_options(&cantonese, FrequencyAdjustmentMode::Pin);
     let mut session = fixture.session_with(|options| {

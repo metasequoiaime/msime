@@ -20,6 +20,8 @@ Status: implemented
 
 **生效时机**：它是 Engine 偏好，和「只出单字」一样经 host-api 在空闲时重建 Engine；组字中切换时这段组字照旧，结束后生效。
 
+**学习保留词库原文**：[粤语学习](2026-11-03-cantonese-learning.md)按词库原文回放调频和造词，不能把简体输出直接写成学习键。`ime/cantonese_output.rs` 为最近一次查询保存（规范读音、显示文字）到原文的映射，与转换去重一样保留先到的候选；调频比较行、分段造词和整句造词都取这份原文，候选与上屏仍取转换后的文字。每次查询先清空映射，包括无词库、无效输入和查询失败的路径。未开启转换时不建立映射，取原文只克隆现有 `SharedString`，保持首选上屏的分配上限；不扩展公共 `WordItem` 或宿主 ABI。
+
 **宿主**：iOS、Android、HarmonyOS 在粤拼（含粤语双拼，Engine 里同为方案 5）下把简繁按钮和功能菜单的「繁」变为可用，点按改写 `cantonese_simplified_output`，按钮按它显示简或繁。判定写在可单测的地方：Android `ChineseOutputPolicy.switchFollowsCantonese` / `showsTraditional` / `preferenceKey`，HarmonyOS `input/ChineseOutputPolicy.ts` 的同名函数；iOS 在 `KeyboardViewController` 的 `characterSetFollowsCantonese`，会话桥的 `setCantoneseSimplifiedOutput` 写会话和共享文档。HarmonyOS 的 2in1 工具栏和 Ctrl+Shift+F 走同一个 `toggleCharacterSet`。
 
 macOS、Windows、Linux 这次不接：三个桌面宿主的简繁开关各自存在宿主自己的外观状态里再合进文档，接法互不相同，需要各自的构建和验证，另开 PR，正文写 `Refs #10435`。在此之前桌面上粤拼照旧输出繁体，按钮行为不变。
@@ -30,14 +32,23 @@ macOS、Windows、Linux 这次不接：三个桌面宿主的简繁开关各自�
 - **在各宿主里做繁转简** — 和简转繁的现有做法一致，Engine 不用改。但六个宿主要各写一份调用；转换后出现的重复候选宿主去不掉，因为去重会打乱宿主与 Engine 之间的候选下标，移动端的隐藏行机制是空实现。放在 Engine 里一处做完，去重和上屏自然一致。
 - **把 OpenCC 数据或 client-base 依赖放进 Engine** — 省掉函数注入。但 Engine 会带上一份它自己用不到的转换表，发布到 crates.io 的 Engine 也不能依赖不发布的 client-base。注入只多一个字段。
 - **复用 `traditional_to_simplified_characters`** — 不用补数据。它逐字反查、没有词组表，「乾淨」会变成「乾净」，一对多的字取第一行，用于上屏会出错。
+- **学习时把简体反向转回繁体** — 不需要保存原文，学习入口也可以保持独立。但简繁转换不是一一对应，例如「妳」与「你」都会显示为「你」，反向转换不能确认去重时留下的是哪一条词库行，因此保存当次查询的真实原文。
 
 ## Consequences
 
 - 粤拼和粤语双拼可以输出简体，默认行为不变；全局简繁开关不受粤拼选择影响。
-- 打开时每次查询都对粤拼候选逐条转换，每行多一次字符串分配；关着时不经过任何新代码。
+- 打开时每次查询都对粤拼候选逐条转换，并为原文映射保留规范读音、显示文字和原文字串，增加查询期的分配与内存；关着时不建立映射、不复制原文字串。
 - 新键只在打开时写进文档；读不懂未知键的旧版本只在用户打开它之后读不了这份文档，与 `chinese_english_spacing` 等同类开关相同。
 - 这个偏好没有接账号同步和 MCP 偏好工具，各设备分别设置。
 - 字典 PR #113 已合入上游 `main`；本仓 OpenCC 锁已改为合并提交 `4fd95815adf5e93b7ad835f048348dd3fe341777`，逐份下载核对全部锁定文件的大小和 SHA-256 均一致，不再引用未合并的 PR 提交。
 - 保留名单目前只有嗰、喎，社区有更完整的粤语简体约定时改 `CANTONESE_KEPT`。
 - 注音和笔画同样是原生繁体方案，注入点可以复用，等有需求再接。
 - 验证缺口：三个移动端的按钮和上屏需要真机确认；iOS 的 XCTest 只交给 CI。
+
+## Verification
+
+- 三条新增行为回归先复现调频日志误写「号」、分段造词误写「你号」、整句造词误写「我号」，修正后均通过；同时验证切回繁体及新会话仍能按词库原文回放。
+- `cargo test -p msime-engine --lib cantonese`：92 项通过、1 项忽略，包含 `selecting_a_cantonese_candidate_does_not_clone_the_full_row` 的分配上限回归。
+- 原转换测试保留默认学习设置：分段选择后应学到「你號」，不传转换时断言该新词和原有词库行全部显示繁体。旧期望产生于粤语尚不学习时，不能用关闭学习来恢复旧列表。
+- OpenCC 锁定的 10 份文件已从上游合并提交逐份下载核对大小和 SHA-256；`python3 scripts/test-fetch-opencc.py` 的 9 项测试通过。
+- 完整本地 quick 待复用已缓存的工作树运行；设备及截图验收缺口保留在 PR 正文。

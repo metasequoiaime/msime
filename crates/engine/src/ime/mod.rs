@@ -1,5 +1,6 @@
 //! `ImeSession` (core-session.md §6): owns the active scheme and the providers, turns every key into a fresh request and candidate list, and runs the wubi mixed-pinyin fallback merge. Also the list-level helpers the input session builds on: local and mixed candidate queries, the online batch rule and the personal context rerank.
 
+mod cantonese_output;
 pub mod online_batch;
 pub mod personal_rerank;
 pub mod queries;
@@ -29,8 +30,8 @@ use crate::shuangpin::ShuangpinScheme;
 use crate::touch::{KeyGeometry, KeyTouch, TouchTuning};
 use crate::types::{
     autocorrect_type, CandidateSource, FirstPageRows, FuzzyPinyinOptions, QueryRequest, SchemeKey,
-    SchemeSet, SchemeType, SentenceAssociationOptions, ShuangpinProfileKind, TextConversion,
-    WordItem, WubiInputOptions,
+    SchemeSet, SchemeType, SentenceAssociationOptions, SharedString, ShuangpinProfileKind,
+    TextConversion, WordItem, WubiInputOptions,
 };
 use crate::user_dictionary::typo_profile::PersonalTypoProfile;
 use crate::vietnamese::{
@@ -298,6 +299,11 @@ impl ImeSession {
     /// 粤语候选里 `key` 下的 `text` 是不是组出来的整句，见 `ProviderRegistry::cantonese_row_is_composed`。
     pub fn cantonese_row_is_composed(&self, key: &str, text: &str) -> bool {
         self.registry.cantonese_row_is_composed(key, text)
+    }
+
+    /// 输出转换前的粤语词库原文；未启用转换时只克隆共享字符串，不分配文字。
+    pub(crate) fn cantonese_dictionary_word(&self, key: &str, text: &SharedString) -> SharedString {
+        self.registry.cantonese_dictionary_word(key, text)
     }
 
     /// 会话允许运行的方案。

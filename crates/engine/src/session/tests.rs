@@ -10956,13 +10956,13 @@ fn cantonese_output_conversion_rewrites_and_deduplicates_rows() {
     assert_eq!(session.select(1).commit.as_deref(), Some("号"));
     assert!(session.snapshot().preedit.is_empty());
 
-    // 不传转换时照词库原样输出。
+    // 默认学习留下的「你號」和原有词库行，在不传转换时都输出繁体原文。
     let mut plain = fixture.session_with(|options| {
         options.scheme = SchemeType::Cantonese;
         options.cantonese_dictionary = cantonese;
     });
     type_text(&mut plain, "neihou");
-    assert_eq!(words(&plain), ["你好", "妳好", "你", "妳"]);
+    assert_eq!(words(&plain), ["你號", "你好", "妳好", "你", "妳"]);
 }
 
 fn cantonese_learning_options(
