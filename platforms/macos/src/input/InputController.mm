@@ -1975,7 +1975,7 @@ static NSImage *MSIMECandidateLogoImage() {
     uint64_t _voiceHoldGeneration;
     BOOL _voiceHoldStarting;
     NSDictionary *_voiceThemePreferences;
-    // 共享文档里的语音标点方式（MSIMEVoicePunctuationMode），每次读到偏好时更新，三条识别路线在最终文本上屏前用它。
+    // 本次录音的语音标点快照，与 generation 一起捕获；停采集和等待润色期间的偏好重载只影响下一次录音。
     NSString *_voicePunctuationMode;
     NSDictionary *_menuThemePreferences;
     MSIMEDictionaryWindowController *_dictionaryWindow;
@@ -5725,6 +5725,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     _doubaoVoiceSession = _session;
     _doubaoVoiceClient = _activeClient;
     _doubaoVoiceGeneration = _voiceGeneration;
+    _voicePunctuationMode = MSIMEVoicePunctuationMode(_voiceThemePreferences[@"voice_input"]);
     _doubaoVoiceProcessing = NO;
     _doubaoVoiceMarked = NO;
     _doubaoVoiceCommit = MSIMECaptureVoiceCommit(options[@"commit_mode"], _activeClient);
@@ -5831,6 +5832,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     _httpVoiceClient = _activeClient;
     _httpVoiceCommit = MSIMECaptureVoiceCommit(options[@"commit_mode"], _activeClient);
     _httpVoiceGeneration = _voiceGeneration;
+    _voicePunctuationMode = MSIMEVoicePunctuationMode(_voiceThemePreferences[@"voice_input"]);
     _httpVoiceProcessing = NO;
     __weak MSIMEInputController *weakSelf = self;
     [self bindVoiceOverlayActions];
@@ -5935,6 +5937,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     [self apply:finished];
     _liveVoiceToken = [NSObject new]; _liveVoiceSession = _session; _liveVoiceClient = _activeClient;
     _liveVoiceGeneration = _voiceGeneration; _liveVoiceSocket = [socket copy];
+    _voicePunctuationMode = MSIMEVoicePunctuationMode(_voiceThemePreferences[@"voice_input"]);
     // External providers already own their optional polish stage. Snapshot local
     // settings at recording start through the shared native request adapter.
     _livePolishRequest = socket.length ? nil : [self makeLiveVoicePolishRequest:options];
@@ -7005,7 +7008,6 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
             CFGetTypeID((__bridge CFTypeRef)wubiCodeHint) == CFBooleanGetTypeID())
             _wubiCodeHintEnabled = [wubiCodeHint boolValue];
         _voiceThemePreferences = [preferences copy];
-        _voicePunctuationMode = MSIMEVoicePunctuationMode(preferences[@"voice_input"]);
         _menuThemePreferences = [preferences copy];
         if (_voiceOverlay) [_voiceOverlay applyThemePreferences:preferences];
     }

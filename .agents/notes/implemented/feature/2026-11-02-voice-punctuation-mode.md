@@ -54,7 +54,7 @@ iOS、鸿蒙暂不读这个字段，各自的接线见 #10595、#10596。macOS �
 Windows、macOS、Linux 都在最终文本（润色之后）交给会话上屏之前处理一次，中间结果不处理；`auto` 和空文本不进共享层，共享层调用失败时保留原文，处理后为空（原文非空、只剩标点）时与识别结果为空走同一条「没有识别到文字」提示，不会无声收起。与热词纠正不同，共享层返回的空串原样保留，这条提示才触发得了。`HostCapabilities.voice_punctuation` 对三端打开，共享设置页的「识别结果」组给出同一行四选一。issue 原文写的是「识别」组；这一行跟着鸿蒙接线放进「识别结果」，那里是「识别结果怎么用」的设置，Windows 原生设置页也是同一组。
 
 - **Windows**：`VoiceInputConfig.punctuation_mode` 由 Server 读偏好时填好，`VoiceInputSession` 在润色之后、繁体转换和三条上屏路线之前调用 `voice_punctuated`（`platforms/windows/src/voice/VoicePunctuation.h`）。面板的审阅录音也是最终文本，一并处理，与 Android 每个出口都处理一致。原生设置页的「识别结果」组加同一行，「自动添加标点」补上只对豆包生效的说明；Win7 设置页加同名下拉框和一句说明。`auto` 不写进文档，而 Win7 的 `PreferencesStore::save` 只给白名单里的缺省叶字段补路径、其余缺失路径一律按 `invalid_change` 拒绝，所以 `voice_input.punctuation_mode` 要和 `quote_style` 一样列进字符串叶字段，否则第一次从 `auto` 改成别的方式时保存被拒、偏好原样不变。
-- **macOS**：`InputController` 每次读到共享偏好时从 `voice_input.punctuation_mode` 取方式（`platforms/macos/src/voice/VoicePunctuation.h` 的 `MSIMEVoicePunctuationMode`），豆包、整句上传、本地与系统识别三条路线在 `applyVoiceText:` 之前、空文本判断之前调用 `MSIMEVoicePunctuated`。不像其他语音偏好那样搬进 `NSUserDefaults`：`SharedVoicePreferences.h` 的映射是「缺键保留本机旧值」，而 `auto` 是出厂默认、不写进文档，从别的方式改回 `auto` 后本机会一直留着旧值，原生设置窗口保存时还会把旧值写回共享文档。
+- **macOS**：`InputController` 每次读到共享偏好时保存完整文档，豆包、整句上传、本地与系统识别三条路线在开始录音、绑定本次 generation 时从 `voice_input.punctuation_mode` 取快照（`platforms/macos/src/voice/VoicePunctuation.h` 的 `MSIMEVoicePunctuationMode`），在 `applyVoiceText:` 之前、空文本判断之前调用 `MSIMEVoicePunctuated`。为兑现设置页「下一次识别起作用」的说明，录音中、停止采集后等待最终结果、等待润色时重载偏好都只改变下一次录音；停止采集不清快照，直到本次结果处理完仍使用它。三条路线由同一语音入口串行启动，沿用已有请求、客户端、会话与 generation 守卫拒绝旧回调，因此共用一个当前录音快照即可。不像其他语音偏好那样搬进 `NSUserDefaults`：`SharedVoicePreferences.h` 的映射是「缺键保留本机旧值」，而 `auto` 是出厂默认、不写进文档，从别的方式改回 `auto` 后本机会一直留着旧值，原生设置窗口保存时还会把旧值写回共享文档。
 - **Linux**：IBus 和 Fcitx5 两个宿主在开始录音时取下方式，在 `msime_voice_result_or_transcript` 之后、交给会话之前调用 `voice_punctuated`（`platforms/linux/src/voice/VoicePunctuation.h`）。不放在 Python 语音服务里：服务交回空结果时宿主会退回中间转写，只在服务里处理的话，只剩标点的结果会以带标点的中间转写上屏；源码检出时服务也加载不到 host 库。
 - **语音面板（Linux、macOS）**：面板不走上面的宿主语音路线：Tauri 的 `recognize_voice` 直接从语音服务的 socket 拿最终文本，用户再点提交经 `send_voice_text` 投给编辑器（Linux 走 `send_panel_voice_text`，macOS 走 `macos_panel_session::submit`），途中不经过 IBus、Fcitx5 或 `InputController` 的处理点。Linux 从 IBus、Fcitx5 菜单的「语音面板…」打开它，macOS 在找得到语音服务 socket 时由菜单和悬浮工具栏的语音按钮打开它，所以面板在 `recognize_voice` 交回最终文本前按本次录音前刷新过的偏好处理一次（`panel_voice_punctuated`，Rust 宿主直接调用 `voice::punctuation::apply`，`auto` 不调用）。处理在识别结束时做，而不是在提交时做：面板显示的就是会上屏的文字，用户在面板里改过的文本原样提交。
 
@@ -68,6 +68,8 @@ Windows、macOS、Linux 都在最终文本（润色之后）交给会话上屏�
 - **存在 Android 本机设置（`AndroidLocalSettings`），像停顿时长那样** — 不碰共享偏好，其他平台不会出现「字段在、不起作用」的空窗。但规则和取值本来就要放共享层让三端复用，存成共享偏好后 iOS、鸿蒙读同一个文档就能接上；空窗期用跟进 issue 和 macOS 覆盖清单记下。维护者选了共享偏好。
 - **把「自动添加标点」并进四选一** — 一个设置更好懂。但 `doubao_enable_punc` 是桌面三端共用的字段，并进去要同时改 Windows、macOS、Linux 的设置页和豆包请求；而且「请求时不要标点」和「上屏前去掉标点」对豆包的效果并不完全一样（前者连润色输入都不带标点）。这次保留开关，只改说明。
 - **在偏好层校验取值、非法值归回 `auto`** — 能保证文档里只有四个值。但现有字符串字段（`polish_thinking`、`language`）都不校验，校验失败在这里会让整份偏好读不了；更新版本加新选项时旧版本也会读不了。改成消费方按 `auto` 处理。
+
+- **macOS 在最终结果到达时读最新标点方式** — 偏好一改就作用于尚未上屏的文字，不必保留录音快照。但这会让同一段录音因最终回调或润色的快慢而换用不同方式，违背「下一次识别起作用」的约定，因此在开始时取快照。
 
 ## Consequences
 
@@ -88,3 +90,5 @@ Windows、macOS、Linux 都在最终文本（润色之后）交给会话上屏�
 - macOS `doubao-voice-controller`（本地模型和豆包共用的流式路线）与 `live-voice-controller`（系统识别路线）：行内预编辑开着、`omit_all` 时，带标点的中间结果原样显示，最终结果去掉标点后替换它上屏；整段只有标点时提示没听到、清掉预编辑、停掉录音并放开请求，下一次录音照常上屏。
 - 2026-11-03 macOS 真机验收（本地模型、扬声器放音进内置麦克风）：`auto`、`omit_trailing` 正确；`omit_all` 第一句两次没有上屏，另有一次按住右 Option 录音松开后不停。对照代码，这两件事都不在本 PR 的改动里：本 PR 在 macOS 只改最终文本交给 `applyVoiceText:` 之前的一步和读取偏好，按键、录音开始与结束、Esc 取消的代码与 develop 逐字相同；处理只在录音已经结束、最终结果到达之后发生，碰不到录音是否停止；「天啊，他是谁？」在 `omit_all` 下得到「天啊他是谁」，不会走空结果路线（上面两条控制器测试即此路径）。同一轮验收里 `auto` 和 `omit_trailing` 下也出现过松开后 25 秒浮层不收（结果表 18:27:44、18:29:26、18:34:26 三条 `stopped=0`），其中 `auto` 的 18:27:44 那次和随后的重试都没有上屏，与 `omit_all` 第一句一模一样，那时 `MSIMEVoicePunctuated` 在 `auto` 下原样返回、行为与 develop 一致。录音不停期间文档里出现的带标点句子是行内预编辑的中间结果（按设计不处理），杀掉输入法进程后留在了编辑器里。录音松开不停作为既有问题另行跟进；`omit_all` 和 `space` 的真机上屏需在安静环境（BlackHole 回环）重测。
 - `platforms/android/check-host.sh`：`VoicePunctuationSmoke`（取值、标签、`auto` 不进共享层、调用失败保留原文），设置搜索收录「语音标点」，`client_jni.cpp` 对共享头编译。
+
+- 2026-11-05 macOS 控制器回归：`doubao-voice-controller`、`http-voice-controller`、`live-voice-controller` 通过真实 `applySharedToolbarPreferences:` 在录音中和停止采集后把 `omit_all` 改回缺字段的 `auto`，验证本次仍去标点、下次保留标点；豆包与系统识别另覆盖等待润色时改档及旧润色回调，整句上传另覆盖取消后的旧 generation 回调。三条新增回归在修复前均失败。修复后 `bash scripts/verify-local.sh --quick` 通过；门禁从当前源码重建 Host API 静态库和 macOS 原生宿主，随后正式 CTest 的 `voice-punctuation`、三条控制器路线与 `live-voice-socket-route` 共 5 项全部通过。这些合成回调测试不替代真实麦克风验收。
