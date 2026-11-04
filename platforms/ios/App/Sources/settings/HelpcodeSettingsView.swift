@@ -77,18 +77,14 @@ struct HelpcodeSettingsView: View {
           Toggle("在候选栏中显示\(scheme.label)辅助码", isOn: stored(scheme.key, "show_in_candidate_window", $shown, scheme.defaultShown))
             .disabled(!on)
             .accessibilityIdentifier("\(scheme.key).shown")
-          Toggle(isOn: stored(scheme.key, "strict_filter", $strict, false)) {
-            SettingsOptionLabel(title: "\(scheme.label)一码严格筛选", info: Self.strictFilterInfo)
-          }
-            .disabled(!on)
-            .accessibilityIdentifier("\(scheme.key).strictFilter")
+          helpcodeToggle(title: "\(scheme.label)一码严格筛选", info: Self.strictFilterInfo,
+                         enabled: on, isOn: stored(scheme.key, "strict_filter", $strict, false),
+                         identifier: "\(scheme.key).strictFilter")
           if scheme.key == Self.shuangpin.key {
             ForEach(Self.modes, id: \.field) { mode in
-              Toggle(isOn: modeBinding(mode)) {
-                SettingsOptionLabel(title: mode.title, info: mode.info)
-              }
-                .disabled(!Self.modeEnabled(mode, helpcodeOn: on, stored: storedModes))
-                .accessibilityIdentifier("\(scheme.key).modes.\(mode.field)")
+              helpcodeToggle(title: mode.title, info: mode.info,
+                             enabled: Self.modeEnabled(mode, helpcodeOn: on, stored: storedModes),
+                             isOn: modeBinding(mode), identifier: "\(scheme.key).modes.\(mode.field)")
             }
           }
         } header: {
@@ -125,6 +121,29 @@ struct HelpcodeSettingsView: View {
       Button("好", role: .cancel) {}
     } message: {
       Text(notice ?? "")
+    }
+  }
+
+  /// 依赖开关关着时只禁用开关，说明仍可打开；可用时保留点标题切换的原生行为。
+  @ViewBuilder
+  private func helpcodeToggle(title: String, info: String, enabled: Bool,
+                              isOn: Binding<Bool>, identifier: String) -> some View {
+    if enabled {
+      Toggle(isOn: isOn) {
+        SettingsOptionLabel(title: title, info: info)
+      }
+      .accessibilityIdentifier(identifier)
+    } else {
+      HStack {
+        SettingsOptionLabel(title: title, info: info)
+        Spacer()
+        Toggle(title, isOn: isOn)
+          .labelsHidden()
+          .disabled(true)
+          .accessibilityIdentifier(identifier)
+      }
+      .opacity(0.5)
+      .accessibilityElement(children: .contain)
     }
   }
 

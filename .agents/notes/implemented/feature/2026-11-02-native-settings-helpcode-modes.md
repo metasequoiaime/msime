@@ -15,6 +15,7 @@ Status: implemented
 - **各端共用同一张表**：字段、顺序、标题和「?」里的说明与共享页 `modesRows` 逐字相同。每端的表放在一处，并由该端的测试核对：Windows 是 `platforms/windows/settings/HelpcodeModesModel.h`（WinUI 和 Win7 共用，`tests/ui/helpcode_modes_model.cpp`），Android 是 `HelpcodeModesPolicy`（`HelpcodeModesPolicySmoke`），iOS 是 `HelpcodeSettingsView` 的扩展（`KeyboardTests/settings/HelpcodeModesTests.swift`）。
 - **缺值读法**：每一行缺字段时的值等于 `ShuangpinHelpcodeModes::default()`：`direct`、`trigger_semicolon`、`mid_sentence_backtick`、`direct_helpcode_slash` 为开，其余为关。这一段等于出厂值时 client-core 不写进文档，所以老文档里通常根本没有 `modes`。`strict_filter` 缺字段时为关。三端的测试都把这几个值钉住。
 - **置灰规则与共享页相同**：双拼辅助码关着时，触发方式全部置灰（Android 在辅助码关着时整组不画）。句中的三枚触发键还要「句中间接辅助码」开着，两种结束方式还要「逐音节直接辅助码」开着。「一码严格筛选」随这一族的辅助码开关置灰。
+- **iOS 禁用时保留说明入口**：严格筛选和触发方式依赖前置开关时，只禁用 `Toggle` 本身，标题旁的「?」与开关同级，说明里的外接键盘限制仍能阅读。可用时继续用原生 `Toggle` 标签，保留点标题切换的行为。不能把 `.disabled` 放在含说明的整行上，因为 SwiftUI 会把禁用状态传给标签中的说明按钮。
 - **互斥只在 client-core**：句中间接开着时同一枚触发键归句中，句中间接和逐音节直接不同时开。这两条由 client-core 在写入端归一。原生页面不复制这条规则，改动后整页重读并显示归一后的值：WinUI 的 `bool_row` 传 `redraw=true`，Win7 在保存完成后刷新表单，Android 的 `savePreferences` 会重读，iOS 的绑定在保存后调用 `reload()`。
 - **写入只改一个字段**：`modes` 里的其他键原样保留，包括从 macOS 同步来的 `manual_tab`。WinUI 和 Android 写到 `shuangpin_helpcode.modes.<字段>`，缺的中间层由各自的写入工具补上。Win7 的 `PreferencesStore` 不会补造中间对象，所以 Win7 在读到的 `modes` 对象上改好这一项，再把整段写回；这条路径和两族的 `strict_filter` 都登记在它的可选路径白名单里。iOS 经 `merge` 写回 `modes` 对象。
 - **布局**：WinUI 照共享页的桌面形态，只在当前方案是双拼时把触发方式画在主流程里，「更多选项」里的另一族不带这几行。「一码严格筛选」两族都有。Win7 的两族平铺，触发方式接在双拼一族后面。Win7 的控件 ID 仍从 `helpcode_first`（980）起：原来的六个不变，后面是两族的严格筛选，再后面是十一种触发方式，共 19 个，用 `static_assert` 保证不越过 1000。Android 只画当前方案那一族，双拼时接在严格筛选之后。iOS 的两族各占一个分区，触发方式在双拼分区里。
@@ -52,6 +53,8 @@ HarmonyOS 手机用共享页，`mobile` 分支已经在「更多选项」里画�
 - Win7 `HelpcodeForm.h`、`AdvancedInputForm.h`、`PreferencesStore.h` 和 `tests/ui/windows7_settings.cpp` 用 MinGW 做语法检查通过。`windows7-settings` 只在 CI 的 Windows runner 上运行，新增的断言覆盖缺字段时的显示、只写一项，以及打开句中间接后末尾反引号被归一清掉。
 - Android：`HelpcodeModesPolicySmoke` 在策略类存在之前编译失败，之后通过；`SettingsSearchIndexSmoke` 按策略表核对设置搜索的关键词。
 - iOS：`HelpcodeModesTests` 覆盖表、缺值读法、置灰、`merge` 保留其他键，以及经 client-core 保存后读回归一后的值。
+
+- 本轮审查复用 #10802 已提交的 `test-ios-disabled-row-info-tip.py` 扫描器检查本页：修改前准确报告严格筛选、触发方式两处禁用祖先，修改后这两处均不再违规。该静态检查不能代替 iPhone 上点开说明的验收。
 
 ## Existing notes
 
