@@ -624,6 +624,15 @@ pub fn rerank_pick_within<'a, R: OrderRowSource<'a> + ?Sized>(
                         best = index;
                     }
                 }
+                // Readings that differ from the pick only in 他/她/它 are decided by the model alone; see differs_only_in_third_person.
+                let leader = subset[best];
+                for index in 0..count {
+                    if neural[index] > neural[best]
+                        && differs_only_in_third_person(subset[index], leader)
+                    {
+                        best = index;
+                    }
+                }
                 return (best != 0).then(|| considered[best]);
             }
         }
@@ -637,9 +646,27 @@ pub fn rerank_pick_within<'a, R: OrderRowSource<'a> + ?Sized>(
     })
 }
 
+/// 两条读法是否只在第三人称代词「他」「她」「它」上不同（字数相同，其余逐字相同，至少有一处不同）。
+///
+/// 这几个字同音，词网格分不出来，只能按词频排，而词频说的是语料里哪个更常见，不是这句话指的是谁；该用哪一个只有上文知道。整句池里两条读法只差代词时，混合分里那 0.3 的词网格分只会把模型的判断往高频的「他」那边拉：2026-11-04 的聊天集里，「你记得跟她说谢谢」「她说上次你修好的那个灯」模型都选对了，混合后分别以 0.002 和 0.004 输给了「他」。所以这种情况下只看模型分。在 366 段带上文、含代词的聊天句（合成聊天开发集加单人聊天集）上，6x256 从 203 到 216（改对 20、改错 7，p = 0.019），8x448 从 226 到 235（改对 13、改错 4，p = 0.049）；整套单人聊天集（330 段）6x256 改对 2、改错 0，8x448 改对 0、改错 1；sentences 四套 1,580 句两个模型都一句没变。
+pub fn differs_only_in_third_person(a: &str, b: &str) -> bool {
+    let pronoun = |c: char| matches!(c, '他' | '她' | '它');
+    let mut differs = false;
+    let mut left = a.chars();
+    let mut right = b.chars();
+    loop {
+        match (left.next(), right.next()) {
+            (None, None) => return differs,
+            (Some(x), Some(y)) if x == y => {}
+            (Some(x), Some(y)) if pronoun(x) && pronoun(y) => differs = true,
+            _ => return false,
+        }
+    }
+}
+
 /// 一句话开头单打一个音节、首选却是句尾语气词（`ma` 的「吗」、`ba` 的「吧」）时，该提到首位的那一行；不是这种情形时为 `None`。
 ///
-/// 「吗」的词频是「妈」的 51 倍、「吧」比「爸」高两成，可这些词频几乎全来自句尾，句首单打 `ma` 想要的不会是「吗」。聊天记录（typing-chat-v1）里每段会话开头的「妈」52 次全被打成「吗」，而逐键模型碰不到它：词典首选是可信的，[`rerank_needs_model`] 不交给模型比较。这里只在 `lattice::decode::opens_sentence` 为真时动，首选让给第一页里第一个不是语气词、同样回答按键的单字词典行；挂着打分器时由它在这些单字里挑。句中照常（「好 | 吧」先上屏「好」再打 `ba`，要的就是「吧」）。
+/// 「吗」的词频是「妈」的 51 倍、「吧」比「爸」高两成，可这些词频几乎全来自句尾，句首单打 `ma` 想要的不会是「吗」。聊天记录（typing-chat-v1）里每段会话开头的「妈」52 次全被打成「吗」，而逐键模型碰不到它：词典首选是可信的，[`rerank_needs_model`] 不交给模型比较。这里只在 `lattice::decode::opens_sentence` 为真时动，首选让给第一页里第一个不是语气词、同样回答按键的单字词典行；挂着打分器时由它在这些单字里挑，每个字后面接上 [`OPENING_PAUSE`] 再比。句中照常（「好 | 吧」先上屏「好」再打 `ba`，要的就是「吧」）。
 pub fn opening_particle_pick<'a, R: OrderRowSource<'a> + ?Sized>(
     reranker: Option<&mut (dyn CandidateScorer + '_)>,
     context: &str,
@@ -685,8 +712,26 @@ pub fn opening_particle_pick<'a, R: OrderRowSource<'a> + ?Sized>(
     let Some(reranker) = reranker else {
         return Some(considered[0]);
     };
-    let context = rerank_context(context, reranker.context_length(), 1);
-    let scores = reranker.log_probabilities(context, &texts[..count]);
+    // Each character is scored followed by a pause (OPENING_PAUSE), as the word it is about to stand for; see OPENING_PAUSE for why.
+    let mut buffers = [[0u8; 8]; COMPARED_LIMIT];
+    let mut lengths = [0usize; COMPARED_LIMIT];
+    for slot in 0..count {
+        let text = texts[slot];
+        buffers[slot][..text.len()].copy_from_slice(text.as_bytes());
+        buffers[slot][text.len()..text.len() + OPENING_PAUSE.len()]
+            .copy_from_slice(OPENING_PAUSE.as_bytes());
+        lengths[slot] = text.len() + OPENING_PAUSE.len();
+    }
+    let mut paused = [""; COMPARED_LIMIT];
+    for slot in 0..count {
+        paused[slot] = std::str::from_utf8(&buffers[slot][..lengths[slot]]).unwrap_or(texts[slot]);
+    }
+    let context = rerank_context(
+        context,
+        reranker.context_length(),
+        1 + OPENING_PAUSE.chars().count(),
+    );
+    let scores = reranker.log_probabilities(context, &paused[..count]);
     if scores.len() != count {
         return Some(considered[0]);
     }
@@ -699,6 +744,11 @@ pub fn opening_particle_pick<'a, R: OrderRowSource<'a> + ?Sized>(
     });
     Some(considered[best])
 }
+
+/// 句首单字交给逐键模型比较时，接在每个字后面的停顿。
+///
+/// 逐键模型给一个字的分是「下一个字是它」的概率，这个字作为更长的词开头的情形也算在里面：消息开头「马上……」「麻烦你……」很常见，「马」「麻」就沾了这些词的光，可用户单打 `ma` 再按空格，要的是一个单独成词的字。字后面接一个逗号再比，比的就是「这个字单独说完、停一下」的概率，「妈，」远比「麻，」常见。2026-11-04 换上聊天上文训练的 6x256（chinese-ime-lm rerank-v2）后，Mac 自动打字验收里会话开头的「妈」7 次有 3 次成了「麻」或「马」（模型只差 0.09 到 0.44）；离线用同样的上文重放，接上逗号再比，新旧 6x256 都是 7 次全对。只比单字不加停顿时，旧模型也只是险胜（领先 0.12 到 2.01）。
+pub const OPENING_PAUSE: &str = "，";
 
 /// 一次窄裁决最多比较几行：首页放得下的行数。
 const CONTEST_LIMIT: usize = 9;
@@ -958,6 +1008,21 @@ pub fn runner_up_order_with<'a, R: OrderRowSource<'a> + ?Sized>(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_third_person_pronouns_may_differ() {
+        assert!(super::differs_only_in_third_person(
+            "你记得跟她说谢谢",
+            "你记得跟他说谢谢"
+        ));
+        assert!(super::differs_only_in_third_person("它不让碰", "她不让碰"));
+        // 同一条读法不算「只差代词」。
+        assert!(!super::differs_only_in_third_person("他说", "他说"));
+        // 别的字不同、字数不同都不算。
+        assert!(!super::differs_only_in_third_person("他说谢谢", "她说射射"));
+        assert!(!super::differs_only_in_third_person("他说", "他说了"));
+        assert!(!super::differs_only_in_third_person("他们", "你们"));
+    }
+
     use super::*;
 
     fn row(text: &str, source: u8) -> OrderRow<'_> {

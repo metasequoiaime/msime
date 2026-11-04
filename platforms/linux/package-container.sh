@@ -134,7 +134,7 @@ docker run --rm --init \
     mkdir -p /build/cargo
     printf "%s\n" "$ort_library_sha" > "$ort_stamp"
     cargo build --release --locked -p msime-mcp-server --bin msime-mcp
-    # 两档逐键重排模型（chinese-ime-lm 的 rerank-v1：8x448 与 6x256），按 resources/rerank-model.lock.json 下载核对；CMake 再按同一份锁核对一遍，装在资源目录旁边的 rerank-model/ 与 rerank-model-small/。只有带键盘模型的版本（版本表 features.neural_keyboard）装它们。
+    # 两档逐键重排模型（chinese-ime-lm 的 rerank-v2：8x448 与 6x256），按 resources/rerank-model.lock.json 下载核对；CMake 再按同一份锁核对一遍，装在资源目录旁边的 rerank-model/ 与 rerank-model-small/。只有带键盘模型的版本（版本表 features.neural_keyboard）装它们。
     python3 scripts/fetch_rerank_model.py --out /build/rerank-model >/dev/null
     desktop_args=()
     crate_roots=(msime-host-api:onnx-rerank msime-mcp-server)

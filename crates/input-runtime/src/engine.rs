@@ -180,6 +180,23 @@ pub trait InputEngine {
             "Nine-key candidate filters are unsupported".into(),
         ))
     }
+    /// 引擎持有的明确选词门禁；默认适配器沿用普通确认规则。
+    fn requires_candidate_selection(&self) -> bool {
+        false
+    }
+
+    /// 可选的中英混合滑行；未实现的适配器保持不处理。
+    fn bilingual_glide(
+        &mut self,
+        _keyboard: &GlideKeyboard,
+        _points: &[GlidePoint],
+    ) -> Result<EngineResult, RuntimeError> {
+        Ok(EngineResult {
+            handled: false,
+            ..EngineResult::default()
+        })
+    }
+
     /// 滑行的一笔；没有滑行输入的引擎不处理。
     fn glide(
         &mut self,
@@ -449,6 +466,18 @@ impl InputEngine for Session {
         points: &[GlidePoint],
     ) -> Result<EngineResult, RuntimeError> {
         Session::glide(self, keyboard, points).map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
+
+    fn bilingual_glide(
+        &mut self,
+        keyboard: &GlideKeyboard,
+        points: &[GlidePoint],
+    ) -> Result<EngineResult, RuntimeError> {
+        Session::bilingual_glide(self, keyboard, points)
+            .map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
+    fn requires_candidate_selection(&self) -> bool {
+        Session::requires_candidate_selection(self)
     }
     fn punctuation(&mut self, value: u8) -> Result<EngineResult, RuntimeError> {
         Session::punctuation(self, value).map_err(|error| RuntimeError::Engine(error.to_string()))
