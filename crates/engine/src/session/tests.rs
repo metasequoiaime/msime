@@ -2,6 +2,7 @@
 
 mod bilingual_glide;
 mod bilingual_glide_quality;
+mod sentence_excluded;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};

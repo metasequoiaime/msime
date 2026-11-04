@@ -262,7 +262,8 @@ impl QuanpinDictionary {
         let database = PinyinDatabase::open(&paths.dictionary(MAIN_DICTIONARY));
         database.warm_up();
         // 构造时预热并保留表；共享缓存淘汰不能让按键查询重新映射和检查整张表。
-        let sentence_tables = SentenceNgramTables::load(paths);
+        let mut sentence_tables = SentenceNgramTables::load(paths);
+        sentence_tables.set_offensive_words(database.offensive_words());
         let journal = paths.user(USER_JOURNAL);
         let personal = PersonalNgramStore::for_journal(&journal);
         drop(personal.model());
