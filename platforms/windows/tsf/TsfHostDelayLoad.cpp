@@ -2,6 +2,7 @@
 #define NOMINMAX
 
 #include "TsfHostDelayLoad.h"
+#include "ModulePath.h"
 
 #include <windows.h>
 #include <delayimp.h>
@@ -18,18 +19,9 @@
 namespace {
 
 std::wstring module_path(HMODULE module) noexcept {
-  std::wstring path(256, L'\0');
-  for (;;) {
-    const DWORD length = GetModuleFileNameW(module, path.data(),
-                                             static_cast<DWORD>(path.size()));
-    if (length == 0) return {};
-    if (length + 1 < path.size()) {
-      path.resize(length);
-      return path;
-    }
-    if (path.size() > 32768) return {};
-    path.resize(path.size() * 2);
-  }
+  return msime::tsf::ReadModulePath([module](wchar_t *buffer, unsigned capacity) {
+    return GetModuleFileNameW(module, buffer, capacity);
+  });
 }
 
 HMODULE load_host_library() noexcept {
@@ -46,7 +38,7 @@ HMODULE load_host_library() noexcept {
   return LoadLibraryExW(path.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
 }
 
-}  // namespace
+}  // 匿名命名空间
 
 // 沉浸式系统进程不会把 TSF 所在目录加入普通 DLL 搜索路径；宿主库必须
 // 从与 TSF 相同的安装目录加载，不能退回当前目录或 PATH。
@@ -74,5 +66,9 @@ extern "C" FARPROC WINAPI msime_tsf_host_delay_notify(
 }
 
 extern "C" {
+#ifdef _MSC_VER
+extern const PfnDliHook __pfnDliNotifyHook2 = msime_tsf_host_delay_notify;
+#else
 PfnDliHook __pfnDliNotifyHook2 = msime_tsf_host_delay_notify;
+#endif
 }

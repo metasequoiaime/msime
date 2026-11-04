@@ -8,7 +8,7 @@ Windows 11 26H2 的开始菜单、搜索和设置进程能够加载 `Metasequoia
 
 ## Decision
 
-把 TSF 对版本宿主库的导入改为 MSVC 延迟加载，并在延迟加载通知中用当前 TSF 模块的绝对路径拼出同目录宿主库路径，再以 `LOAD_WITH_ALTERED_SEARCH_PATH` 加载。版本表提供宿主库文件名，所有版本和 ARM64X 原生半边沿用各自的名称；没有路径时不回退到当前目录或 `PATH`。路径拼接单独提供可测试函数。
+把 TSF 对版本宿主库的导入改为 MSVC 延迟加载，并在延迟加载通知中用当前 TSF 模块的绝对路径拼出同目录宿主库路径，再以 `LOAD_WITH_ALTERED_SEARCH_PATH` 加载。版本表提供宿主库文件名，所有版本和 ARM64X 原生半边沿用各自的名称；没有路径时不回退到当前目录或 `PATH`。路径拼接单独提供可测试函数，空路径和相对路径直接失败；模块路径读取复用有长度上限的 `ReadModulePath`。MSVC 通知钩子匹配 `delayimp.h` 的常量声明，ARM64EC 最终链接从原生响应文件保留 `/DELAYLOAD`，同时覆盖两种宿主名称。
 
 ## Alternatives considered
 
@@ -18,4 +18,4 @@ Windows 11 26H2 的开始菜单、搜索和设置进程能够加载 `Metasequoia
 
 ## Consequences
 
-沉浸式进程可从 TSF 安装目录解析宿主库，默认搜索路径不再决定产品行为。新增路径策略测试；Windows 11 26H2 开始菜单、搜索和设置的真机验收仍需在 PR 上由 Windows 环境完成。
+沉浸式进程可从 TSF 安装目录解析宿主库，默认搜索路径不再决定产品行为。新增路径策略和 ARM64X 响应文件行为测试；Windows 11 26H2 开始菜单、搜索和设置的真机验收仍需在 PR 上由 Windows 环境完成。AppContainer 读取权限与开始菜单提交异常不在本修复范围；整目录 ACL 授权已[否决](../../rejected/bug-fix/2026-11-04-windows-immersive-data-acl.md)。

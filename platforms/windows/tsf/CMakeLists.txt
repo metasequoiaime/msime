@@ -93,6 +93,10 @@ add_test(NAME msime-tsf-host-library-config COMMAND "${CMAKE_COMMAND}"
   "-DSOURCE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}"
   "-DTEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/host-library-config-test"
   -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/host_library_config.cmake")
+add_test(NAME msime-tsf-arm64x-delay-load COMMAND "${CMAKE_COMMAND}"
+  "-DSOURCE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}"
+  "-DTEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/arm64x-delay-load-test"
+  -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/arm64x_delay_load.cmake")
 add_executable(msime-tsf-quick-phrase-cursor-edit-test tests/input/quick_phrase_cursor_edit.cpp)
 add_executable(msime-tsf-quick-phrase-cursor-reply-test tests/input/quick_phrase_cursor_reply.cpp)
 foreach(cursor_test IN ITEMS edit reply)
@@ -465,7 +469,10 @@ if(MSIME_TSF_ARM64X)
     target_sources(msime-tsf PRIVATE ${msime_arm64_objects})
     # CMake puts /machine:ARM64EC into the default linker flags for this platform, after the target's own options, where it would win and produce an ARM64EC image (x64 machine type, no ARM64 view) instead.
     string(REGEX REPLACE "/[Mm][Aa][Cc][Hh][Ii][Nn][Ee]:[Aa][Rr][Mm]64[Ee][Cc]" "" CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS}")
-    target_link_options(msime-tsf PRIVATE /MACHINE:ARM64X "${msime_arm64_definition}" ${msime_arm64_libraries})
+    include("${CMAKE_CURRENT_SOURCE_DIR}/Arm64XDelayLoad.cmake")
+    msime_arm64x_delay_load_options("${MSIME_TSF_ARM64X_RESPONSE}" msime_arm64_delay_options)
+    target_link_options(msime-tsf PRIVATE /MACHINE:ARM64X "${msime_arm64_definition}"
+      ${msime_arm64_libraries} ${msime_arm64_delay_options})
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${MSIME_TSF_ARM64X_RESPONSE}")
   else()
     message(FATAL_ERROR "MSIME_TSF_ARM64X must be empty, ARM64 or ARM64EC, not ${MSIME_TSF_ARM64X}")
