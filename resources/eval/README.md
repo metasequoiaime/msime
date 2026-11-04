@@ -386,6 +386,18 @@ python3 scripts/dictionary_topn_diff.py --before <A 目录> --after <B 目录> -
 
 五笔和英文没有独立的金标准，这份清单只作审阅附件，不设通过线。它直接读两份数据库按引擎的排序取前 N 个：五笔每个码打全时的字词、一码二码的补全；英文 1 到 3 个字母前缀的补全（照 `english.rs` 的 `PREFIX_SQL`）、权重最高的 5,000 个词的英译中释义、全部中译英释义（按拼音词库权重排）。只列变了的行，`summary.json` 给出每份清单比较了多少、首选变了多少。量不到个人学习、五笔四码唯一自动上屏和九键英文的数字前缀，这些要在宿主上看。
 
+### `scripts/dict_eval_gate.py`：词库 PR 的硬门槛，一次跑完
+
+```sh
+python3 scripts/dict_eval_gate.py run --baseline <B 的发布附件目录> --candidate <C 的构建产物目录> \
+  --model <sentence-model.safetensors> --work target/dict-eval-gate --markdown report.md --json report.json \
+  [--jobs 8] [--arms model,engine] [--limit N] [--must-outrank-strict]
+```
+
+msime-dictionary 的 `eval-gate.yml`（检查名 `Eval gate`）在每个改动发布输入的 PR 上调用它：用 `builder.lock.json` 固定的 msime 提交构建候选 C，下载最新的 `dict-v` 作为基线 B，用同一个提交里的这个脚本判定。它把上面几个脚本按同一份资源、同一套参数（`--mixed-english`、每页 6 个）跑完，只编排和判定，不改口径。五道门槛：评测集的金标准（词, 读音）对在 B 里有的 C 里不能少；must-outrank 在 B 上通过的行 C 上不能失败（棘轮，`--must-outrank-strict` 要求全部通过）；粗俗首屏曝光三项计数 C ≤ B，两边用同一张词表（引擎内嵌表加 B、C 两份 `sentence_excluded` 的并集）；quanpin-words-v2 在全拼、九键、14 键上配对比较（`eval_compare.py --gate` 的规则）；C 是授权构建且全拼行数不低于 `product::verify` 的下限。退出码 0 是全部通过，1 是有门槛失败，2 是没跑完（输入不全、`convert_eval` 失败），2 不能当成通过或失败。`--arms model,engine` 再加一臂不挂模型、只跑 quanpin-words-v2；`--limit N` 把 quanpin-words-v2 换成等距子集，其余门槛总是全量。
+
+2026-11-04 在 Depot 8 核 runner 上全量跑一次（两臂、v2 全量，B 是 dict-v2.0.56）门槛本身 12 分钟，整个作业约 16 分钟。为什么用棘轮、为什么基线是最新发布、为什么评测脚本跟构建器一起固定，见[评测门禁笔记](../../.agents/notes/implemented/process/2026-11-04-dictionary-pr-eval-gate.md)。
+
 ## 往整句集里加用例
 
 手写不是唯一来源。真实行文自己就是金标准：把句子用 Engine 自己的拼音表转成拼音，再把拼音打回去，首选不是原句的就是一个带已知正确答案、并且带着真实上文的失败用例。三步，最后一步是人。
