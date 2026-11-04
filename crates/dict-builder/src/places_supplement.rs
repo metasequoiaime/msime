@@ -6,9 +6,11 @@
 //!
 //! The reading of a name is the `places` key (`READINGS` plus per-character pinyin), and a short name takes the first syllables of its full name's key. The per-character reading is a guess wherever a character has more than one reading, so a name is kept only when the guess is confirmed: every character that `sources/pinyin/single-chars.txt` lists with several readings, or does not list at all, has to sit inside a span of at least two characters of the name that the comparison set (`sources/pinyin/rime-ice.txt` and `sources/pinyin/rime-ice-supplement.txt`) contains with the same syllables, as a word of its own or inside a longer word, or belong to a full name's administrative suffix read the fixed way (区 qu, 县 xian, 市 shi). A syllable `single-chars.txt` does not list for its character rejects the name outright. A name the comparison set already has under a different reading is left out as well, whether it also has ours or not: either the per-character reading is wrong for the place (中牟, 召陵) or the name is also an ordinary word read another way (民乐), and in both cases raising it would put a place reading ahead of the word people mean. The one exception is a name whose reading, apart from a full name's administrative suffix, comes entirely from `READINGS` entries of two or more characters (六合 lu'he, 宕昌 tan'chang), when the comparison set has the name under that reading too: such a reading was checked for the place, and raising its row changes nothing under the other key. Names in `UNSOURCED_NAMES` are left out although the comparison set confirms them, because the place's reading is disputed and no dictionary or 民政部 source settles it.
 //!
-//! Weights are floors computed from the shipped data, not chosen: for provinces and prefectures, the median weight of the names of the same level and form (full or short) that the comparison set has at a weight above 10; for county-level names, the median weight of all `sources/pinyin/rime-ice.txt` rows. A name used at several levels takes the highest floor. Only the names the comparison set lacks or holds at the unranked weight of `RANKED_WEIGHT` or below are written, each at its floor: a name the comparison set already ranks above that keeps its weight even below the floor, since that weight is rime-ice's frequency signal and raising it would push ordinary words of the same reading down (伊犁 over 屹立, 山西 and 陕西 flattened to one weight).
+//! 权重下限从发布数据计算：省级、地级取比较集合中同级同形式（全称或简称）且权重高于 `RANKED_WEIGHT` 的名称的权重中位数；县级取 `sources/pinyin/rime-ice.txt` 全部行的权重中位数。同名跨级时取最高下限。只写比较集合中缺失、或权重不超过 `RANKED_WEIGHT` 的未排名名称，并赋予相应下限；已经高于该阈值的名称即使低于下限也保留原权重，因为这是 rime-ice 的词频信号，抬高会挤掉同音普通词（伊犁压过屹立，山西和陕西被抬到相同权重）；只有下面的万象下限会抬升它们。
 //!
 //! A floor must not take the first candidate of a key away from a common word either. The common weight is the 90th percentile (lower nearest rank) of the `sources/pinyin/rime-ice.txt` weights, computed from the data like the floors. When another word of the comparison set has the same full pinyin at a weight above it, the name's weight is capped one below that word's (盐城 under 严惩, 辽阳 under 疗养, 崇左 under 重做); a name whose capped weight is not above the weight it already has is not written. Words of the same key at or below the common weight do not cap the floor, since a rarer word should not keep a place name off the first position. Nor does a word whose weight is a placeholder: among the `sources/pinyin/rime-ice.txt` rows above the common weight, a single weight value held by more than `PLACEHOLDER_PERCENT`% of them is a fill-in value rather than a frequency (9999 holds thousands of such rows: 紧皱, 爆闪, 吃粥 ...), detected from the data like the common weight. Such a word is skipped and the highest other word of the key with a real weight decides the cap (锦州 is not held under 紧皱, while 盐城 stays under 严惩).
+//!
+//! 万象下限：checkout 登记了万象（`sources/pinyin/wanxiang/`，见 [`crate::reweight`]）时，生成器在万象提供权重的 15 份词库（`reweight::IMPORTED`，与 `reweight` 阶段第一步读的相同）里查每个通过读音确认的名称的「词＋全拼」，查到就取 `round(万象最高权重 × 9.2)` 作为下限。9.2 是 `rime-ice.txt` 的对齐系数，对照集合里与万象共有的行就是这样换算的，所以这个下限和同键竞争词的权重在同一个尺度上。它只升不降：比按分层下限和常用线封顶算出的权重高、也比对照集合里已有的权重高时才用它，否则不变；它不受常用线封顶限制，已排名（权重大于 `RANKED_WEIGHT`）的名称也按它抬升。rime-ice 没收、万象词频高于同音词的地级市（湖州 1228 对 胡诌 662，锦州 1163 对 禁咒 796）因此排回同音词前面；万象词频低于同音常用词的（固原 436 对 雇员 2672）仍在后面。checkout 没有登记万象时不做这一步。
 //!
 //! The build merges the file before `custom/words.txt` with the same raise-only rule (`msime::apply_custom_words`): a missing row is inserted, a lower one raised, a higher one left alone.
 
@@ -17,7 +19,9 @@ use std::fmt::Write as _;
 
 use anyhow::{bail, Context, Result};
 
+use crate::curation::PinyinCuration;
 use crate::places::{self, GROUPING_CITIES};
+use crate::reweight;
 use crate::text;
 
 pub const OUTPUT: &str = "sources/pinyin/places.txt";
@@ -141,8 +145,8 @@ const COMMON_PERCENTILE: usize = 90;
 /// Among the `sources/pinyin/rime-ice.txt` rows weighted above the common weight, a weight value more than this percentage of them share is a placeholder, not a frequency, and does not cap a place name.
 const PLACEHOLDER_PERCENT: usize = 1;
 
-/// A weight above this counts as a real ranking when the level floors are measured; rows at 1–10 are the unranked tail the supplement exists to lift.
-const RANKED_WEIGHT: i64 = 10;
+/// 权重高于这个值才算真正排过名，量级下限也只拿这些行算；不超过它的是补充表要抬起来的未排名尾部。msime-dictionary #84 把与万象共有的行按万象词频乘 9.2 改写，万象的底值 10 成了 92，原来 1–10 的尾部（耿马 1、京山市 9）变成 28–92（耿马 83、京山市 64），所以这条线跟着换算成 10 × 9.2 = 92。仍按 10 算的话，这些县名会被当成已排名、不再写进补充表，五笔生成器只收 rime-ice 权重不低于 100 或补充表里有的词，它们就从三套五笔码表里掉出去。没被 #84 改写的 rime-ice 原有行在 11–92 的也一并算作尾部，最多被抬到县级下限（rime-ice 全部行的中位数），越不过同键上权重高于这个下限的词。
+const RANKED_WEIGHT: i64 = 92;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Level {
@@ -222,8 +226,23 @@ pub struct Capped {
     pub competitor_weight: i64,
     /// The weight the comparison set has, `None` when the row is new.
     pub existing: Option<i64>,
-    /// False when the capped weight is not above `existing`, so the name is not written.
+    /// False when the capped weight is not above `existing`; the name is then written only if its Wanxiang floor raises it (see [`Raised`]).
     pub written: bool,
+}
+
+/// 按万象下限定权的名称：`round(wanxiang × 9.2)` 高于分层下限和封顶给出的权重，也高于对照集合里已有的权重。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Raised {
+    pub word: String,
+    pub key: String,
+    /// 万象提供权重的词库给这个「词＋全拼」写的最高原始权重。
+    pub wanxiang: i64,
+    /// `round(wanxiang × 9.2)`，写出的权重。
+    pub weight: i64,
+    /// 分层下限和封顶给出的权重；名称已排名、或封顶后不高于已有权重而不写时为 `None`。
+    pub tiered: Option<i64>,
+    /// The weight the comparison set has, `None` when the row is new.
+    pub existing: Option<i64>,
 }
 
 #[derive(Debug)]
@@ -235,8 +254,10 @@ pub struct Supplement {
     /// Placeholder weights, ascending: a word at one of these does not cap a name.
     pub placeholders: Vec<i64>,
     pub capped: Vec<Capped>,
+    /// 按万象下限定权的名称，按词和全拼排序。
+    pub raised: Vec<Raised>,
     pub exclusions: Exclusions,
-    /// Accepted names the comparison set already ranks above `RANKED_WEIGHT` or holds at or above their floor, so not written.
+    /// Accepted names the comparison set already ranks above `RANKED_WEIGHT` or holds at or above their floor, and whose Wanxiang floor does not raise them either, so not written.
     pub already_ranked: usize,
 }
 
@@ -248,6 +269,10 @@ pub struct Inputs<'a> {
     pub single_chars: &'a str,
     pub base: &'a str,
     pub rime_ice_supplement: &'a str,
+    /// msime-dictionary `curation/` 的拼音否决表和权重覆盖表：对照集合、单字读音和权重分布都按施加之后的样子读（[`PinyinCuration::rows`]），被否决的行不确认读音、不压低地名，覆盖后的权重决定上限和已有排名。
+    pub curation: &'a PinyinCuration,
+    /// 万象词库的名字和内容（[`reweight::load`]），给名称定万象下限；checkout 没有登记万象时为空，不定这个下限。
+    pub wanxiang: &'a [(&'a str, &'a str)],
 }
 
 /// `value<TAB>key<TAB>weight` rows as the quanpin stage reads them: `#` lines skipped, the line stripped, rows without three fields ignored.
@@ -265,10 +290,10 @@ pub(crate) fn weighted_rows(source: &str) -> impl Iterator<Item = (&str, &str, i
 /// word → key → highest weight.
 type Shipped<'a> = HashMap<&'a str, HashMap<&'a str, i64>>;
 
-fn shipped<'a>(sources: &[&'a str]) -> Shipped<'a> {
+fn shipped<'a>(sources: &[&'a str], curation: &'a PinyinCuration) -> Shipped<'a> {
     let mut words: Shipped = HashMap::new();
     for source in sources {
-        for (value, key, weight) in weighted_rows(source) {
+        for (value, key, weight) in curation.rows(source) {
             let slot = words.entry(value).or_default().entry(key).or_insert(weight);
             *slot = (*slot).max(weight);
         }
@@ -601,13 +626,13 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
     let candidates = candidates(inputs, &mut exclusions)?;
 
     let mut readings: HashMap<char, HashSet<&str>> = HashMap::new();
-    for (value, key, _) in weighted_rows(inputs.single_chars) {
+    for (value, key, _) in inputs.curation.rows(inputs.single_chars) {
         let mut characters = value.chars();
         if let (Some(character), None) = (characters.next(), characters.next()) {
             readings.entry(character).or_default().insert(key);
         }
     }
-    let shipped = shipped(&[inputs.base, inputs.rime_ice_supplement]);
+    let shipped = shipped(&[inputs.base, inputs.rime_ice_supplement], inputs.curation);
 
     let mut distinct: Vec<(String, String)> = candidates
         .iter()
@@ -706,7 +731,9 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
         .filter(|candidate| !rejected.contains(&(candidate.word.clone(), candidate.key.clone())))
         .collect();
 
-    let base_weights: Vec<i64> = weighted_rows(inputs.base)
+    let base_weights: Vec<i64> = inputs
+        .curation
+        .rows(inputs.base)
         .map(|(_, _, weight)| weight)
         .collect();
     let base_median =
@@ -749,42 +776,72 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
             .or_insert(floor);
         *slot = (*slot).max(floor);
     }
+    // 万象下限按 rime-ice.txt 的对齐系数换算：对照集合里与万象共有的行就是这样换算的。
+    let wanxiang_scale = reweight::file_scale(BASE)
+        .with_context(|| format!("{BASE} has no Wanxiang alignment factor"))?;
+    let target_words: HashSet<&str> = targets.keys().map(|(word, _)| word.as_str()).collect();
+    let wanxiang = reweight::imported_weights(inputs.wanxiang, |word, key| {
+        target_words.contains(word) && targets.contains_key(&(word.to_owned(), key.to_owned()))
+    });
     let mut entries = Vec::new();
     let mut capped = Vec::new();
+    let mut raised = Vec::new();
     let mut already_ranked = 0;
     for ((word, key), floor) in targets {
         let existing = shipped
             .get(word.as_str())
             .and_then(|keys| keys.get(key.as_str()))
             .copied();
-        if existing.is_some_and(|existing| existing > RANKED_WEIGHT || existing >= floor) {
-            already_ranked += 1;
-            continue;
-        }
-        let competitor = leaders
-            .get(key.as_str())
-            .and_then(|words| words.iter().find(|(other, _)| *other != word))
-            .copied();
-        let mut weight = floor;
-        if let Some((competitor, competitor_weight)) = competitor {
-            if competitor_weight > common && competitor_weight - 1 < floor {
-                weight = competitor_weight - 1;
-                let written = existing.is_none_or(|existing| weight > existing);
-                capped.push(Capped {
-                    word: word.clone(),
-                    key: key.clone(),
-                    floor,
-                    weight,
-                    competitor: competitor.to_owned(),
-                    competitor_weight,
-                    existing,
-                    written,
-                });
-                if !written {
-                    continue;
+        let ranked = existing.is_some_and(|existing| existing > RANKED_WEIGHT || existing >= floor);
+        let mut tiered = None;
+        if !ranked {
+            let competitor = leaders
+                .get(key.as_str())
+                .and_then(|words| words.iter().find(|(other, _)| *other != word))
+                .copied();
+            let mut weight = floor;
+            let mut written = true;
+            if let Some((competitor, competitor_weight)) = competitor {
+                if competitor_weight > common && competitor_weight - 1 < floor {
+                    weight = competitor_weight - 1;
+                    written = existing.is_none_or(|existing| weight > existing);
+                    capped.push(Capped {
+                        word: word.clone(),
+                        key: key.clone(),
+                        floor,
+                        weight,
+                        competitor: competitor.to_owned(),
+                        competitor_weight,
+                        existing,
+                        written,
+                    });
                 }
             }
+            tiered = written.then_some(weight);
         }
+        let mut weight = tiered;
+        if let Some(&raw) = wanxiang.get(&(word.clone(), key.clone())) {
+            let floor = reweight::round_scaled(raw * 100, wanxiang_scale);
+            if existing.is_none_or(|existing| floor > existing)
+                && tiered.is_none_or(|tiered| floor > tiered)
+            {
+                weight = Some(floor);
+                raised.push(Raised {
+                    word: word.clone(),
+                    key: key.clone(),
+                    wanxiang: raw,
+                    weight: floor,
+                    tiered,
+                    existing,
+                });
+            }
+        }
+        let Some(weight) = weight else {
+            if ranked {
+                already_ranked += 1;
+            }
+            continue;
+        };
         entries.push(Entry {
             word,
             key,
@@ -801,6 +858,7 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
         common,
         placeholders,
         capped,
+        raised,
         exclusions,
         already_ranked,
     })
@@ -816,6 +874,8 @@ pub struct Provenance<'a> {
     pub single_chars: (&'a str, &'a str),
     /// 运行生成器的 msime 提交；构建器有未提交改动时带 `-dirty` 后缀。
     pub generator_commit: &'a str,
+    /// 万象下限读的 rime-wanxiang 提交；checkout 没有登记万象、没有定这个下限时为 `None`。
+    pub wanxiang_commit: Option<&'a str>,
 }
 
 pub fn render(supplement: &Supplement, provenance: &Provenance) -> String {
@@ -839,7 +899,18 @@ pub fn render(supplement: &Supplement, provenance: &Provenance) -> String {
     let _ = writeln!(out, "# 上游：https://github.com/modood/Administrative-divisions-of-China 提交 {} 的 dist/provinces.csv、dist/cities.csv、dist/areas.csv（WTFPL）。", provenance.upstream_commit);
     let _ = writeln!(out, "# 收录：省级、地级、县级区划的全称，以及去掉行政后缀（省、自治区、市、自治州、地区、盟、区、县、旗、自治县、自治旗、特区、林区（只用于神农架林区）、矿区）和民族名后至少两个汉字的简称；名称以左、右、前、后、中、合、左翼、右翼结尾的旗与自治县不取简称。排除区划代码末两位为 71–79 的功能区，名称含 {} 的单位（其中含 新区 的正式区划如 浦东新区 也一并排除；{} 是 清新+区，保留），泛名 {}，以及读音有争议、找不到权威出处的 {}。", EXCLUDED_FRAGMENTS.join("、"), FRAGMENT_EXCEPTIONS.join("、"), GENERIC_NAMES.join("、"), UNSOURCED_NAMES.join("、"));
     let _ = writeln!(out, "# 读音：msime places.rs 的 READINGS 加逐字拼音，简称取全称读音的前几个音节。在 sources/pinyin/single-chars.txt 里有多个读音或没有收录的字，必须落在对照集合里同音的至少两字片段中，或是按固定读音（区 qu、县 xian、市 shi 等）读出的全称行政后缀，否则整词不收；音节不在该字读音之列的不收；对照集合里已有同词异音的不收（不论是否也有同音行），例外是除全称行政后缀外整词读音都来自 READINGS 里两字及以上的条目、且对照集合也有这个读音的词（六合 lu'he、宕昌 tan'chang）。");
-    let _ = writeln!(out, "# 去重与权重：对照集合是 {compared}；字音表是 {single_chars}（SHA-256 {single_chars_sha256}）。权重下限由生成器从对照集合算出：省级、地级取同层同形（全称或简称）在对照集合里权重大于 {RANKED_WEIGHT} 的已有词的权重中位数，县级取 sources/pinyin/rime-ice.txt 全部行权重的中位数；本次为 {floors}。一个词出现在多个层级时取最高的下限。只写出对照集合里没有、或权重不超过 {RANKED_WEIGHT} 且低于下限的词，权重写下限；对照集合里权重已大于 {RANKED_WEIGHT} 的词保留原权重，不抬升。下限不抢常用词的首位：常用线取 sources/pinyin/rime-ice.txt 全部行权重的第 {COMMON_PERCENTILE} 百分位（本次为 {common}），对照集合里同一全拼的其他词最高权重超过常用线时，权重降到比它低 1（不超过下限），降后不高于已有权重的词不写出；比较时跳过权重为占位值的词，占位值是 rime-ice.txt 里权重超过常用线的行中被超过 {PLACEHOLDER_PERCENT}% 的行共用的单个权重值（本次为 {placeholders}），这类词不触发封顶，由同一全拼下其余非占位权重的最高者决定；构建的 places-supplement 阶段在 custom/words.txt 之前按只升不降并入：没有的插入，更低的调高到这里的权重，更高的不变。");
+    let _ = writeln!(out, "# 去重与权重：对照集合是 {compared}；字音表是 {single_chars}（SHA-256 {single_chars_sha256}）。权重下限由生成器从对照集合算出：省级、地级取同层同形（全称或简称）在对照集合里权重大于 {RANKED_WEIGHT} 的已有词的权重中位数，县级取 sources/pinyin/rime-ice.txt 全部行权重的中位数；本次为 {floors}。一个词出现在多个层级时取最高的下限。只写出对照集合里没有、或权重不超过 {RANKED_WEIGHT} 且低于下限的词，权重写下限；对照集合里权重已大于 {RANKED_WEIGHT} 的词保留原权重，不按下限抬升（万象下限除外，见下一行）。下限不抢常用词的首位：常用线取 sources/pinyin/rime-ice.txt 全部行权重的第 {COMMON_PERCENTILE} 百分位（本次为 {common}），对照集合里同一全拼的其他词最高权重超过常用线时，权重降到比它低 1（不超过下限），降后不高于已有权重的词不写出；比较时跳过权重为占位值的词，占位值是 rime-ice.txt 里权重超过常用线的行中被超过 {PLACEHOLDER_PERCENT}% 的行共用的单个权重值（本次为 {placeholders}），这类词不触发封顶，由同一全拼下其余非占位权重的最高者决定；构建的 places-supplement 阶段在 custom/words.txt 之前按只升不降并入：没有的插入，更低的调高到这里的权重，更高的不变。");
+    match provenance.wanxiang_commit {
+        Some(commit) => {
+            let _ = writeln!(out, "# 万象下限：在 msime-dictionary 的 sources/pinyin/wanxiang/（rime-wanxiang 提交 {commit}，按 upstream.lock.json 校验字节）里提供权重的 15 份词库（{}，与构建的 reweight 阶段第一步相同）中，查通过读音确认的名称同词同全拼的最高权重，取 round(万象权重 × 9.2)（rime-ice.txt 的对齐系数，对照集合里与万象共有的行就是这样换算的）作为下限，只升不降：它高于上面按分层下限和常用线封顶得出的权重、也高于对照集合里已有的权重时写这个值，否则不变；它与同键竞争词在同一尺度上，所以不受常用线封顶限制，对照集合里已排名的词也按它抬升。本次按它定权的有 {} 行。", reweight::IMPORTED.join("、"), supplement.raised.len());
+        }
+        None => {
+            let _ = writeln!(
+                out,
+                "# 万象下限：msime-dictionary checkout 没有登记 rime-wanxiang，本次不用万象下限。"
+            );
+        }
+    }
     for entry in &supplement.entries {
         let _ = writeln!(out, "{}\t{}\t{}", entry.word, entry.key, entry.weight);
     }
@@ -903,6 +974,31 @@ pub fn report(supplement: &Supplement) -> Vec<String> {
                     .map(|existing| format!(", has {existing}"))
                     .unwrap_or_default(),
                 if capped.written { "" } else { ", not written" }
+            ))
+            .collect::<Vec<_>>()
+            .join(" ")
+    ));
+    lines.push(format!(
+        "raised to the Wanxiang floor round(wanxiang x 9.2), {}: {}",
+        supplement.raised.len(),
+        supplement
+            .raised
+            .iter()
+            .map(|raised| format!(
+                "{}({}; wanxiang {} -> {}, {}{})",
+                raised.word,
+                raised.key,
+                raised.wanxiang,
+                raised.weight,
+                raised
+                    .tiered
+                    .map_or("tiers give none".to_owned(), |tiered| format!(
+                        "tiers give {tiered}"
+                    )),
+                raised
+                    .existing
+                    .map(|existing| format!(", has {existing}"))
+                    .unwrap_or_default()
             ))
             .collect::<Vec<_>>()
             .join(" ")
@@ -1008,6 +1104,8 @@ mod tests {
             single_chars: SINGLE_CHARS,
             base: BASE_DICT,
             rime_ice_supplement: "# s\n",
+            curation: &PinyinCuration::default(),
+            wanxiang: &[],
         })
         .unwrap()
     }
@@ -1026,6 +1124,28 @@ mod tests {
 
     fn entry<'a>(supplement: &'a Supplement, word: &str) -> Option<&'a Entry> {
         supplement.entries.iter().find(|entry| entry.word == word)
+    }
+
+    /// 生成器按施加了 `curation/` 两张表之后的对照集合判断：宁波 被覆盖到未排名的权重，就按下限补进来；湖州 hu'zhou 被否决，就当作对照集合里没有它。
+    #[test]
+    fn the_comparison_set_is_read_after_the_curation_tables() {
+        let areas = areas();
+        let curation = PinyinCuration::parse("湖州\thu'zhou\n", "宁波\tning'bo\t5\n").unwrap();
+        let supplement = build(&Inputs {
+            provinces: PROVINCES,
+            cities: CITIES,
+            areas: &areas,
+            single_chars: SINGLE_CHARS,
+            base: BASE_DICT,
+            rime_ice_supplement: "# s\n",
+            curation: &curation,
+            wanxiang: &[],
+        })
+        .unwrap();
+        let ningbo = entry(&supplement, "宁波").unwrap();
+        assert_eq!(ningbo.existing, Some(5));
+        let huzhou = entry(&supplement, "湖州").unwrap();
+        assert_eq!((huzhou.weight, huzhou.existing), (50000, None));
     }
 
     #[test]
@@ -1104,6 +1224,29 @@ mod tests {
         assert!(entry(&supplement, "宁波").is_none());
     }
 
+    /// #84 之后未排名尾部是 1–92：权重 83 的县名（万象 9 × 9.2）照样按下限写出，93 的算已排名，保留原权重。
+    #[test]
+    fn the_aligned_unranked_tail_up_to_92_is_lifted() {
+        let base = format!("{BASE_DICT}婺城区\twu'cheng'qu\t83\r\n金东区\tjin'dong'qu\t93\r\n");
+        let areas = areas();
+        let supplement = build(&Inputs {
+            provinces: PROVINCES,
+            cities: CITIES,
+            areas: &areas,
+            single_chars: SINGLE_CHARS,
+            base: &base,
+            rime_ice_supplement: "# s\n",
+            curation: &PinyinCuration::default(),
+            wanxiang: &[],
+        })
+        .unwrap();
+        let floor = supplement.floors[&(Level::County, Form::Full)];
+        assert!(floor > 93, "{floor}");
+        let wuchengqu = entry(&supplement, "婺城区").unwrap();
+        assert_eq!((wuchengqu.weight, wuchengqu.existing), (floor, Some(83)));
+        assert!(entry(&supplement, "金东区").is_none());
+    }
+
     #[test]
     fn a_common_word_of_the_same_key_caps_the_floor() {
         let mut base = padded_base();
@@ -1117,6 +1260,8 @@ mod tests {
             single_chars: SINGLE_CHARS,
             base: &base,
             rime_ice_supplement: "# s\n",
+            curation: &PinyinCuration::default(),
+            wanxiang: &[],
         })
         .unwrap();
         assert_eq!(supplement.common, 5);
@@ -1163,6 +1308,8 @@ mod tests {
             single_chars: SINGLE_CHARS,
             base: &base,
             rime_ice_supplement,
+            curation: &PinyinCuration::default(),
+            wanxiang: &[],
         })
         .unwrap();
         assert_eq!(supplement.common, 5);
@@ -1221,6 +1368,8 @@ mod tests {
             single_chars: SINGLE_CHARS,
             base: &base,
             rime_ice_supplement: "# s\n",
+            curation: &PinyinCuration::default(),
+            wanxiang: &[],
         })
         .unwrap();
         assert_eq!(supplement.common, 5);
@@ -1331,10 +1480,111 @@ mod tests {
             single_chars: SINGLE_CHARS,
             base: BASE_DICT,
             rime_ice_supplement: "",
+            curation: &PinyinCuration::default(),
+            wanxiang: &[],
         })
         .unwrap_err()
         .to_string();
         assert!(error.contains("generic names no place uses"), "{error}");
+    }
+
+    const WANXIANG_HEADER: &str = "# Rime dictionary\n---\nname: test\n...\n";
+
+    /// 万象下限 round(万象 × 9.2) 只升不降：压过常用线封顶（湖州）、抬升已排名的词（宁波），低于已有权重或分层下限时不变（杭州、金华）；cuoyin 不提供权重（温州）。
+    #[test]
+    fn the_wanxiang_floor_raises_capped_and_ranked_names_and_never_lowers() {
+        let mut base = padded_base();
+        base.push_str("胡诌\thu'zhou\t30000\r\n");
+        let jichu = format!("{WANXIANG_HEADER}湖州\thú zhōu\t5000\n宁波\tníng bō\t5000\n杭州\tháng zhōu\t100\n金华\tjīn huá\t10\n胡诌\thú zhōu\t3261\n");
+        let cuoyin = format!("{WANXIANG_HEADER}温州\twēn zhōu\t9000\n");
+        let wanxiang = [("jichu", jichu.as_str()), ("cuoyin", cuoyin.as_str())];
+        let areas = areas();
+        let supplement = build(&Inputs {
+            provinces: PROVINCES,
+            cities: CITIES,
+            areas: &areas,
+            single_chars: SINGLE_CHARS,
+            base: &base,
+            rime_ice_supplement: "# s\n",
+            curation: &PinyinCuration::default(),
+            wanxiang: &wanxiang,
+        })
+        .unwrap();
+        assert_eq!(supplement.floors[&(Level::Prefecture, Form::Short)], 50000);
+        // 封顶给 29999，万象 5000 × 9.2 = 46000 更高：湖州 排到 胡诌 前面。
+        let huzhou = entry(&supplement, "湖州").unwrap();
+        assert_eq!((huzhou.weight, huzhou.existing), (46000, Some(3)));
+        assert!(supplement
+            .capped
+            .iter()
+            .any(|capped| capped.word == "湖州" && capped.weight == 29999));
+        // 已排名 40000，分层下限不抬，万象下限 46000 抬。
+        let ningbo = entry(&supplement, "宁波").unwrap();
+        assert_eq!((ningbo.weight, ningbo.existing), (46000, Some(40000)));
+        // 万象下限 920 低于已有的 50000：不写。
+        assert!(entry(&supplement, "杭州").is_none());
+        // 万象下限 92 低于分层下限 50000：分层下限不变。
+        assert_eq!(entry(&supplement, "金华").unwrap().weight, 50000);
+        // cuoyin 不提供权重。
+        assert!(entry(&supplement, "温州").is_none());
+        let raised = |word: &str, key: &str, tiered: Option<i64>, existing: Option<i64>| Raised {
+            word: word.to_owned(),
+            key: key.to_owned(),
+            wanxiang: 5000,
+            weight: 46000,
+            tiered,
+            existing,
+        };
+        assert_eq!(
+            supplement.raised,
+            [
+                raised("宁波", "ning'bo", None, Some(40000)),
+                raised("湖州", "hu'zhou", Some(29999), Some(3)),
+            ]
+        );
+        assert!(report(&supplement).iter().any(|line| line
+            .starts_with("raised to the Wanxiang floor")
+            && line.contains("湖州(hu'zhou; wanxiang 5000 -> 46000, tiers give 29999, has 3)")));
+        let text = render(
+            &supplement,
+            &Provenance {
+                upstream_commit: "c49d495b",
+                compared: &[(super::BASE, "00")],
+                single_chars: (super::SINGLE_CHARS, "11"),
+                generator_commit: "0123456789abcdef0123456789abcdef01234567",
+                wanxiang_commit: Some("7ab73ee0c7f80190004233e70f954833df64c80e"),
+            },
+        );
+        let line = text
+            .lines()
+            .find(|line| line.starts_with("# 万象下限"))
+            .unwrap();
+        assert!(
+            line.contains("rime-wanxiang 提交 7ab73ee0c7f80190004233e70f954833df64c80e"),
+            "{line}"
+        );
+        assert!(line.contains("本次按它定权的有 2 行"), "{line}");
+        assert!(text.contains("宁波\tning'bo\t46000\n"));
+    }
+
+    /// 没有万象词库时不定万象下限，表头写明。
+    #[test]
+    fn without_wanxiang_the_header_says_no_wanxiang_floor() {
+        let supplement = supplement();
+        assert!(supplement.raised.is_empty());
+        let text = render(
+            &supplement,
+            &Provenance {
+                upstream_commit: "c49d495b",
+                compared: &[(super::BASE, "00")],
+                single_chars: (super::SINGLE_CHARS, "11"),
+                generator_commit: "0123456789abcdef0123456789abcdef01234567",
+                wanxiang_commit: None,
+            },
+        );
+        assert!(text.contains(
+            "# 万象下限：msime-dictionary checkout 没有登记 rime-wanxiang，本次不用万象下限。\n"
+        ));
     }
 
     #[test]
@@ -1347,6 +1597,7 @@ mod tests {
                 compared: &[(super::BASE, "00")],
                 single_chars: (super::SINGLE_CHARS, "11"),
                 generator_commit: "0123456789abcdef0123456789abcdef01234567",
+                wanxiang_commit: None,
             },
         );
         let lines: Vec<&str> = text.lines().collect();
