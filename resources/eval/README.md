@@ -398,7 +398,7 @@ msime-dictionary 的 `eval-gate.yml`（检查名 `Eval gate`）在每个改动�
 
 报告后半是方案 4.3 的参考项，只报告、不影响退出码：`sentences-v1`（全拼）、`sentences-nine-key-v1`（九键）、`sentences-particles-v1`（三种键盘）、`sentences-neutral-v1`（全拼）在每一臂上的配对比较和 top-1 变了的用例，以及方案点名的粗俗目标码（2435422、435422、74224、63476，内容、尴尬、试图 打全的码）在 B、C 首屏上的冒犯词，针对性清洗批次用它确认目标码已经清零。ctx-v1 和 typing_sim 只能在 Studio 上跑，不在这里；五笔、英文的 top-N 差异清单（`dictionary_topn_diff.py`）和逐表逐行的产物差异（`dict_artifact_diff.py`，即逐词的删除、降权清单）由 `eval-gate.yml` 在同一个作业里另外生成，附在报告后面和 artifact 里。
 
-2026-11-04 在 Depot 8 核 runner 上全量跑一次（两臂、v2 全量，B 是 dict-v2.0.56）门槛本身 12 分钟，整个作业约 16 分钟。为什么用棘轮、为什么基线是最新发布、为什么评测脚本跟构建器一起固定，见[评测门禁笔记](../../.agents/notes/implemented/process/2026-11-04-dictionary-pr-eval-gate.md)。
+2026-11-04 在 Depot 8 核 runner 上全量跑（两臂、v2 全量加四份整句参考集，B 是 dict-v2.0.56）门槛和参考项 12 到 14 分钟，连同构建、languages 和产物差异整个作业 16 到 18 分钟。为什么用棘轮、为什么基线是最新发布、为什么评测脚本跟构建器一起固定，见[评测门禁笔记](../../.agents/notes/implemented/process/2026-11-04-dictionary-pr-eval-gate.md)。
 
 ## 往整句集里加用例
 

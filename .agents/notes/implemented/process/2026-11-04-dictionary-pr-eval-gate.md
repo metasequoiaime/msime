@@ -24,7 +24,7 @@ msime 侧是 `scripts/dict_eval_gate.py`，测试是 `scripts/test-dict-eval-gat
 
 ### 时间
 
-2026-11-04 在词库分支上试跑（msime `cleanse/eval-gate-ci`，Depot 8 核 runner，构建器命中 sccache）：两臂、quanpin-words-v2 全量，门槛 12 分钟，整个作业约 16 分钟。离 120 分钟上限很远，所以 PR 上默认全量、两臂都跑；构建器缓存全部失效时编译会多出十几分钟。作业逼近上限时把 workflow 的 `QUANPIN_V2_LIMIT` 设成等距子集的大小，B、C 用同一批用例，其余门槛仍然全量。
+2026-11-04 在词库分支上试跑（msime `cleanse/eval-gate-ci`，Depot 8 核 runner，构建器命中 sccache）：两臂、quanpin-words-v2 全量，门槛 12 分钟，整个作业约 16 分钟；加上参考项、languages 和产物差异之后约 16 到 18 分钟。离 120 分钟上限很远，所以 PR 上默认全量、两臂都跑；构建器缓存全部失效时编译会多出十几分钟。作业逼近上限时把 workflow 的 `QUANPIN_V2_LIMIT` 设成等距子集的大小，B、C 用同一批用例，其余门槛仍然全量。
 
 ## Alternatives considered
 
@@ -45,3 +45,4 @@ msime 侧是 `scripts/dict_eval_gate.py`，测试是 `scripts/test-dict-eval-gat
 
 - `python3 scripts/test-dict-eval-gate.py`：五道门槛各自的判定、全拼表名和行数下限与 `format.rs`、`product.rs` 一致、评测集都已归类，并用假的 `convert_eval` 端到端跑通过、门槛失败、跑不完三种退出码。
 - 词库分支 `cleanse-data/eval-gate-ci` 上用分支推送临时触发（workflow 还不在 main 上，`workflow_dispatch` 不能用），msime 指向 `cleanse/eval-gate-ci`：https://github.com/metasequoiaime/msime-dictionary/actions/runs/41830735038 （msime `c0ef194171`）和 rebase 到 main 之后的 https://github.com/metasequoiaime/msime-dictionary/actions/runs/41833821442 （msime `51b40d84e8`，同时核对了候选清单的 `source.commit` 和 `custom_dictionary_commit`）都全部通过，作业分别 15 分 50 秒和 16 分 4 秒；基线 dict-v2.0.56，金标准对 B、C 各 24851 对，must-outrank 6 行里 5 行两边都失败，全拼粗俗首屏 6 → 6、九键 0 → 0，v2 六组 fixed/broken 全是 0，全拼 953736 行。
+- 补上参考项、languages 构建和产物差异之后，又在同一分支上用临时推送触发、并临时加上 `--must-outrank-strict` 跑了两次，专门走一遍真实数据上的门槛失败路径：https://github.com/metasequoiaime/msime-dictionary/actions/runs/41839691028 （msime `ca200b9c4a`，作业 17 分 42 秒）和 https://github.com/metasequoiaime/msime-dictionary/actions/runs/41842679421 （候选目录改为只放校验和清单列出的文件之后，作业 15 分 54 秒）。两次都按预期以「a hard gate failed」失败，报告的结论是「有门槛失败」，must-outrank 一行标为失败（严格模式下 5 行两边都失败），其余四道门槛通过；参考项 12 组整句比较全部 0/0，10 个粗俗目标码在 B、C 首屏上都没有冒犯词；产物差异如实报出构建器漂移（C 的构建器带上了内置的英文蔑称否决，english_words 删了 tranny、nigger、beyatch 三行）。第一次运行还暴露出构建目录里有不发布的五笔补充码表中间文件（约 37 MB）被报成新增，第二次运行确认已经去掉。评论作业仍未运行过，见上面的「已知上限」。
