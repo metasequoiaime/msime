@@ -14249,7 +14249,7 @@ static GlobalVoiceGestureProbe *GlobalGestureProbe() {
 }
 // 同字段的 IMK／AX 查询也可能重入；这里只注入合成 apply，不依赖真实系统重入时机。
 static void TestGlobalVoiceDeliveryReentry() {
-    for (NSUInteger scenario = 0; scenario < 12; ++scenario) {
+    for (NSUInteger scenario = 0; scenario < 13; ++scenario) {
         NSString *suite = [@"msime.synthetic.voice-delivery-reentry." stringByAppendingString:NSUUID.UUID.UUIDString];
         NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
         MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
@@ -14268,6 +14268,10 @@ static void TestGlobalVoiceDeliveryReentry() {
         GlobalVoiceTargetProbe *owner = [GlobalVoiceTargetProbe new]; owner.busy = YES;
         MSIMEGlobalVoiceHost().owner = owner; MSIMEGlobalVoiceHost().sessionToken = [NSObject new];
         id token = MSIMEGlobalVoiceHost().sessionToken;
+        GlobalVoiceCompositionController *nextController = [GlobalVoiceCompositionController alloc];
+        [nextController setValue:appearance forKey:@"appearance"];
+        [nextController setValue:client forKey:@"activeClient"];
+        [nextController setValue:[ShortcutSession new] forKey:@"session"];
         // 英文透传且无在线候选时，真实控制器可以合法地没有核心会话。
         if (scenario >= 10) { appearance.englishMode = YES; [controller setValue:nil forKey:@"session"]; }
         auto typeNew = ^(GlobalVoiceCompositionController *current) {
@@ -14290,11 +14294,16 @@ static void TestGlobalVoiceDeliveryReentry() {
             if (scenario == 4) [current setValue:[ShortcutClient new] forKey:@"activeClient"];
             if (scenario == 5) MSIMEGlobalVoiceHost().sessionToken = [NSObject new];
             if (scenario == 6) [current setValue:@([[current valueForKey:@"spacingInputSequence"] unsignedLongLongValue] + 1) forKey:@"spacingInputSequence"];
+            if (scenario == 12) {
+                // 新控制器先接管同一字段，旧控制器尚未收到失焦，也没有自己的计数变化。
+                MSIMEFocusedController = nextController;
+                typeNew(nextController);
+            }
         };
         const auto result = [controller commitGlobalVoiceText:@"voice" pid:controller.targetPID focus:controller.destination token:token];
         const BOOL changed = scenario > 0 && scenario != 10;
         assert(result == (changed ? MSIMEGlobalVoiceDeliveryChanged : MSIMEGlobalVoiceDeliveryAccepted));
-        const BOOL newComposition = scenario == 1 || scenario == 2 || (scenario >= 7 && scenario < 10);
+        const BOOL newComposition = scenario == 1 || scenario == 2 || (scenario >= 7 && scenario < 10) || scenario == 12;
         NSString *expected = !changed ? @"prefix voice" : newComposition ?
             (scenario == 9 ? @"prefix oldpreeditnewpreedit" : @"prefix newpreedit") : @"prefix ";
         assert([client.editor.string isEqual:expected]);

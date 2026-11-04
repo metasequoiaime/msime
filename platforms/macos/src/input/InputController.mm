@@ -2643,11 +2643,12 @@ void MSIMERecordGlobalVoiceCommit(NSString *text) {
     // 英文透传允许没有核心会话；仍记录这个空状态，查询中补建或更换会话也算变化。
     if (!client) return MSIMEGlobalVoiceDeliveryRetry;
     id owner = MSIMEGlobalVoiceHost().owner;
+    MSIMEInputController *focused = MSIMEFocusedController;
     const uint64_t inputSequence = _spacingInputSequence;
     uint64_t applySequence = _applySequence;
     auto unchanged = [&] {
         return _activeClient == client && _session == session && _spacingInputSequence == inputSequence &&
-            MSIMEGlobalVoiceHost().owner == owner && MSIMEGlobalVoiceHost().sessionToken == token;
+            MSIMEFocusedController == focused && MSIMEGlobalVoiceHost().owner == owner && MSIMEGlobalVoiceHost().sessionToken == token;
     };
     auto validate = [&] {
         const BOOL current = [self globalVoiceDestinationCurrent:client pid:pid focus:original token:token];
