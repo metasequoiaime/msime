@@ -4177,8 +4177,12 @@ std::string candidate_aux_text(IBusEngine *engine, const Json &view) {
       if (!paging.empty()) paging += "  · ";
       const auto editing_text = view.value("editing_text", std::string{});
       const auto caret = view.value("caret_position", editing_text.size());
+      const auto preedit_caret = view.find("preedit_caret");
       paging += msime::linux_host::candidate_preedit_with_caret(
-          candidate_preedit, editing_text, caret);
+          candidate_preedit, editing_text, caret,
+          preedit_caret != view.end() && preedit_caret->is_number_unsigned()
+              ? std::optional<std::size_t>(preedit_caret->get<std::size_t>())
+              : std::nullopt);
     }
   }
   const auto mode = view.at("local_mode").get<std::string>();

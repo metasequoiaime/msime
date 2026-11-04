@@ -3336,7 +3336,7 @@ test("dictionary manager queries, edits and removes Engine entries", async () =>
   // filtering a page it had already fetched.
   expect(list).toHaveBeenCalledWith(0, 100, "quick_phrase", "");
   fireEvent.click(screen.getByRole("button", { name: "编辑" }));
-  fireEvent.change(screen.getByLabelText(/^短语 /), { target: { value: "updated" } });
+  fireEvent.change(screen.getByLabelText(/^短语/), { target: { value: "updated" } });
   // The entry editor has its own 保存; 保存设置 in the footer writes the preferences document and
   // never touches the dictionary. A rename of the footer button swept this one up with it.
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
@@ -3451,7 +3451,7 @@ test("a refused pinyin entry says why instead of asking for a retry", async () =
   fireEvent.click(screen.getByRole("button", { name: /^(词库|词库管理)$/ }));
   fireEvent.change(await screen.findByLabelText("本地词库类型"), { target: { value: "pinyin" } });
   fireEvent.click(await screen.findByRole("button", { name: "新增词条" }));
-  fireEvent.change(screen.getByRole("textbox", { name: /^编码 / }), {
+  fireEvent.change(screen.getByRole("textbox", { name: "编码" }), {
     target: { value: "nhao" },
   });
   fireEvent.change(screen.getByRole("textbox", { name: "词条" }), {
@@ -3479,10 +3479,10 @@ test("dictionary manager creates entries with the Windows settings default weigh
   fireEvent.click(screen.getByRole("button", { name: /^(词库|词库管理)$/ }));
   fireEvent.click(await screen.findByRole("button", { name: "新增词条" }));
   expect(screen.getByRole("spinbutton", { name: "权重" })).toHaveProperty("value", "10");
-  fireEvent.change(screen.getByRole("textbox", { name: /^编码 / }), {
+  fireEvent.change(screen.getByRole("textbox", { name: "编码" }), {
     target: { value: "fixture-code" },
   });
-  fireEvent.change(screen.getByRole("textbox", { name: /^短语 / }), {
+  fireEvent.change(screen.getByRole("textbox", { name: /^短语/ }), {
     target: { value: "synthetic phrase" },
   });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));

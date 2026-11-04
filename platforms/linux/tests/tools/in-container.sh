@@ -38,16 +38,15 @@ if [[ ${MSIME_TEST_FCITX5:-0} == 1 ]]; then
 fi
 cmake -S platforms/linux -B /build/ibus -G Ninja \
   -DMSIME_HOST_LIBRARY=/build/cargo/debug/libmsime_host_api.so \
-  -DMSIME_LINUX_VOICE=ON -DMSIME_ENGINE_RESOURCES=/resources \
-  -DMSIME_RESOURCE_SMOKE_ONLY="${MSIME_RESOURCE_SMOKE_ONLY:-0}"
+  -DMSIME_LINUX_VOICE=ON -DMSIME_ENGINE_RESOURCES=/resources
 cmake --build /build/ibus
 if [[ ${MSIME_RESOURCE_SMOKE_ONLY:-0} == 1 ]]; then
-  ctest --test-dir /build/ibus -R '^ibus-custom-voice-hotkey$' --output-on-failure --no-tests=error
-  echo "IBus voice smoke acceptance passed"
+  # CI 的资源宿主门禁：只跑 IBus 宿主用例（ibus-engine-smoke 的默认分支 ibus-native-context 和各参数分支），不进下面需要完整用户会话的安装后桌面验收。不带词库的其余用例由编译门禁 build-container.sh 跑。
+  ctest --test-dir /build/ibus -R '^ibus-' --output-on-failure --no-tests=error
+  echo "IBus resource host acceptance passed"
   exit 0
-else
-  ctest --test-dir /build/ibus --output-on-failure --no-tests=error
 fi
+ctest --test-dir /build/ibus --output-on-failure --no-tests=error
 rm -rf /build/stage
 DESTDIR=/build/stage cmake --install /build/ibus
 if [[ -x /build/stage/usr/local/bin/msime-linux-clipboard-watch-x11 ]]; then
@@ -111,10 +110,8 @@ echo "Linux clipboard remove-index acceptance passed"
 [[ ! -e "$clipboard_fixture/history.json" ]]
 echo "Linux clipboard clear acceptance passed"
 /build/ibus/ibus-engine-smoke /resources --voice-hotkey
-if [[ ${MSIME_RESOURCE_SMOKE_ONLY:-0} != 1 ]]; then
-  /build/ibus/ibus-engine-smoke /resources
-  /build/ibus/ibus-engine-smoke /resources --helpcode-trigger
-fi
+# 默认分支已作为 ibus-native-context 在上面的 ctest 里跑过。
+/build/ibus/ibus-engine-smoke /resources --helpcode-trigger
 installed_host=/build/stage/usr/local/bin/msime-linux-ibus
 python3 - "$installed_host" <<'PYTHON'
 import re
