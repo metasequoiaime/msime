@@ -361,7 +361,7 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/MPL-2.0.txt
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../shared/voice/third_party/sherpa-onnx/LICENSE" "${MSIME_LEGAL_DIRECTORY}/sherpa-onnx-Apache-2.0.txt" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../linux/data/licenses/onnxruntime-MIT.txt" "${MSIME_LEGAL_DIRECTORY}/onnxruntime-MIT.txt" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../linux/data/licenses/onnxruntime-ThirdPartyNotices.txt" "${MSIME_LEGAL_DIRECTORY}/onnxruntime-ThirdPartyNotices.txt" COPYONLY)
-# 整句联想「增强」逐键重排的两档模型（chinese-ime-lm 的 rerank-v1，放在输入法 bundle 的 Contents/rerank-model 与 Contents/rerank-model-small）是 Apache-2.0：第 4(a)、4(d) 条要求随副本附上许可证全文和上游 NOTICE，训练语料（C4 与 FineWeb-2 中文部分为 ODC-BY，LCCC 为 MIT）要求署名随权重传播。resources/licenses 里这份各平台共用的文件三样都有；不带模型的版本也留着它。
+# 整句联想「增强」逐键重排的两档模型（chinese-ime-lm 的 rerank-v2，放在输入法 bundle 的 Contents/rerank-model 与 Contents/rerank-model-small）是 Apache-2.0：第 4(a)、4(d) 条要求随副本附上许可证全文和上游 NOTICE，训练语料（C4 与 FineWeb-2 中文部分为 ODC-BY，LCCC 为 MIT）要求署名随权重传播。resources/licenses 里这份各平台共用的文件三样都有；不带模型的版本也留着它。
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rerank-model-Apache-2.0.txt" "${MSIME_LEGAL_DIRECTORY}/rerank-model-Apache-2.0.txt" COPYONLY)
 # cppcodec 编进输入法（shared/voice 的百炼请求用它做 Base64），MIT 要求随副本附带版权与许可声明。
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../shared/voice/third_party/cppcodec/LICENSE" "${MSIME_LEGAL_DIRECTORY}/cppcodec-MIT.txt" COPYONLY)
@@ -486,7 +486,7 @@ else()
   add_custom_command(TARGET MSIMEClientInputMethod POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E rm -f "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks/libsherpa-onnx-c-api.dylib")
 endif()
-# 整句联想「增强」逐键重排的两档 ONNX 模型（chinese-ime-lm 的 rerank-v1：8x448 与 6x256），给开着 onnx-rerank 编的 host 库用（见 .agents/notes/implemented/architecture/2026-11-01-onnx-rerank-backend.md）。host-api 在随包资源目录的上一级找 rerank-model/ 与 rerank-model-small/，而输入法把自己 bundle 的 Contents/Resources 作为随包资源目录交给会话（InputController.mm 的 MSIMESessionOptions，helpcode_fallback_resources），所以模型放在 Contents/rerank-model 与 Contents/rerank-model-small。它们跟着输入法 bundle 走，不放进设置应用：Sparkle 单独更新输入法时，模型与链进去的 ONNX Runtime 版本、算子清单始终是同一次构建的。scripts/fetch_rerank_model.py 按 resources/rerank-model.lock.json 下载核对一次，之后复用；锁或脚本变了才重跑。没有这两个目录、或 host 库没开 onnx-rerank 时，「增强」退回随包的 sentence-model.safetensors。
+# 整句联想「增强」逐键重排的两档 ONNX 模型（chinese-ime-lm 的 rerank-v2：8x448 与 6x256），给开着 onnx-rerank 编的 host 库用（见 .agents/notes/implemented/architecture/2026-11-01-onnx-rerank-backend.md）。host-api 在随包资源目录的上一级找 rerank-model/ 与 rerank-model-small/，而输入法把自己 bundle 的 Contents/Resources 作为随包资源目录交给会话（InputController.mm 的 MSIMESessionOptions，helpcode_fallback_resources），所以模型放在 Contents/rerank-model 与 Contents/rerank-model-small。它们跟着输入法 bundle 走，不放进设置应用：Sparkle 单独更新输入法时，模型与链进去的 ONNX Runtime 版本、算子清单始终是同一次构建的。scripts/fetch_rerank_model.py 按 resources/rerank-model.lock.json 下载核对一次，之后复用；锁或脚本变了才重跑。没有这两个目录、或 host 库没开 onnx-rerank 时，「增强」退回随包的 sentence-model.safetensors。
 option(MSIME_BUNDLE_RERANK_MODELS "Stage the two ONNX keystroke rerank models into Contents/rerank-model and Contents/rerank-model-small" ON)
 set(MSIME_RERANK_MODEL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../target/rerank-model" CACHE PATH "Where scripts/fetch_rerank_model.py puts rerank-model/ and rerank-model-small/")
 set(MSIME_RERANK_MODEL_DIRECTORIES rerank-model rerank-model-small)
