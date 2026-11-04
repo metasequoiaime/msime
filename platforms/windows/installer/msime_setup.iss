@@ -1120,10 +1120,10 @@ begin
     ewWaitUntilTerminated,
     ResultCode
   );
-  { 开始菜单与搜索等 AppContainer 进程读取 runtime-options.json 时，数据目录不能只继承桌面用户的 ACL；普通和受限应用包都需要目录及其文件的读取、执行权限。 }
+  { 用户数据不能向全部应用包开放；移除旧预览包可能留下的递归授权，桌面用户权限和完整性标签保持原有规则。 }
   Exec(
     ExpandConstant('{sys}\icacls.exe'),
-    '"' + AppDataPath + '" /grant *S-1-15-2-1:(OI)(CI)RX /T /C /Q',
+    '"' + AppDataPath + '" /remove:g *S-1-15-2-1 /T /C /Q',
     '',
     SW_HIDE,
     ewWaitUntilTerminated,
@@ -1131,7 +1131,7 @@ begin
   );
   Exec(
     ExpandConstant('{sys}\icacls.exe'),
-    '"' + AppDataPath + '" /grant *S-1-15-2-2:(OI)(CI)RX /T /C /Q',
+    '"' + AppDataPath + '" /remove:g *S-1-15-2-2 /T /C /Q',
     '',
     SW_HIDE,
     ewWaitUntilTerminated,
