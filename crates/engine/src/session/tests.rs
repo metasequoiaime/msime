@@ -1,5 +1,8 @@
 //! Session-level tests: the caret-prefix rules of upstream bc46f27, wubi mixed routing (overlays.md §3.3, no C++ oracle), the personal-learning windows through `set_clock`, and ports of the `test_input_session.cpp`, `test_temporary_input_session.cpp` and `test_runtime_isolation.cpp` cases the goldens do not pin down. Every fixture is built inline, as the reference ctests did.
 
+mod bilingual_glide;
+mod bilingual_glide_quality;
+
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -10870,14 +10873,15 @@ fn cantonese_double_pinyin_routes_semicolon_as_a_final_key() {
     assert_eq!(words(&session)[0], "名");
 }
 
+/// 「学习」关着（隐私会话里宿主也这样建会话）时粤语什么也不学，调频方式开着也一样；粤语行也不能置顶、删除、固定位置。
 #[test]
-fn cantonese_rows_are_never_learned_or_edited() {
+fn cantonese_rows_are_not_edited_and_learn_nothing_with_learning_off() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let cantonese = cantonese_dictionary(fixture.path());
     let configure = |options: &mut SessionOptions| {
         options.scheme = SchemeType::Cantonese;
         options.cantonese_dictionary = cantonese.clone();
-        options.learning = true;
+        options.learning = false;
         options.personal_context = true;
         options.frequency = FrequencyAdjustmentOptions {
             mode: FrequencyAdjustmentMode::Promote,
@@ -10924,6 +10928,215 @@ fn cantonese_rows_are_never_learned_or_edited() {
     let mut session = fixture.session_with(configure);
     type_text(&mut session, "neihou");
     assert_eq!(words(&session), ["你好", "妳好", "你", "妳"]);
+}
+
+fn cantonese_learning_options(
+    cantonese: &Path,
+    mode: FrequencyAdjustmentMode,
+) -> impl Fn(&mut SessionOptions) + '_ {
+    move |options: &mut SessionOptions| {
+        options.scheme = SchemeType::Cantonese;
+        options.cantonese_dictionary = cantonese.to_path_buf();
+        options.learning = true;
+        options.frequency = FrequencyAdjustmentOptions {
+            mode,
+            trigger_count: 1,
+            linear_step: 1,
+        };
+    }
+}
+
+fn cantonese_journal_rows(fixture: &Fixture) -> Vec<(String, String, i64, bool)> {
+    let connection = Connection::open(fixture.journal()).expect("journal");
+    connection
+        .prepare(
+            "SELECT key,value,weight,user_inserted FROM user_dictionary_operations WHERE dictionary='cantonese' AND operation='upsert' ORDER BY key,value",
+        )
+        .and_then(|mut statement| {
+            statement
+                .query_map([], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get::<_, i64>(3)? != 0))
+                })
+                .and_then(|rows| rows.collect())
+        })
+        .expect("cantonese rows")
+}
+
+/// 「学习」开着、调频方式不是「关闭」时，一再选同一个非首选的粤语候选，它一步步往前挪，新会话里也是这个顺序；权重只写进日志（`user_inserted=0`，不进「我的词条」），主词库不动。
+#[test]
+fn a_cantonese_candidate_picked_again_and_again_rises() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let cantonese = cantonese_dictionary(fixture.path());
+    Connection::open(&cantonese)
+        .unwrap()
+        .execute_batch("INSERT INTO entries VALUES ('hou','豪',300),('hou','毫',200);")
+        .unwrap();
+    let configure = cantonese_learning_options(&cantonese, FrequencyAdjustmentMode::Promote);
+    let main = table_counts(&fixture.main_db());
+    let mut session = fixture.session_with(&configure);
+
+    type_text(&mut session, "hou");
+    assert_eq!(words(&session), ["好", "號", "豪", "毫"]);
+    let result = session.select(3);
+    assert_eq!(result.commit.as_deref(), Some("毫"));
+    assert_eq!(result.diagnostic, None);
+    type_text(&mut session, "hou");
+    assert_eq!(words(&session), ["好", "號", "毫", "豪"]);
+    session.select(2);
+    type_text(&mut session, "hou");
+    assert_eq!(words(&session), ["好", "毫", "號", "豪"]);
+    session.select(1);
+    type_text(&mut session, "hou");
+    assert_eq!(words(&session), ["毫", "好", "號", "豪"]);
+    // 首选是默认的选择，选它不写什么。
+    session.select(0);
+    drop(session);
+    crate::flush_personal_learning();
+
+    assert_eq!(
+        cantonese_journal_rows(&fixture),
+        [("hou".to_owned(), "毫".to_owned(), 4001, false)]
+    );
+    assert_eq!(table_counts(&fixture.main_db()), main);
+    let mut session = fixture.session_with(&configure);
+    type_text(&mut session, "hou");
+    assert_eq!(words(&session), ["毫", "好", "號", "豪"]);
+
+    // 一段只覆盖前几个音节的行只和同一段的行比：选「妳」越过的是「你」，不是整段的「你好」。
+    session.command(Command::Cancel);
+    type_text(&mut session, "neihou");
+    assert_eq!(words(&session), ["你好", "妳好", "你", "妳"]);
+    session.select(3);
+    session.command(Command::Cancel);
+    type_text(&mut session, "neihou");
+    assert_eq!(words(&session), ["你好", "妳好", "妳", "你"]);
+}
+
+/// 用户在「我的词条」里删掉的粤语词若发布的词库里也有，候选里照样有这一行；再选它（非首选）调频，学到的权重照常生效，但它不回到「我的词条」。
+#[test]
+fn a_deleted_cantonese_word_stays_deleted_when_it_is_picked_again() {
+    use crate::types::{PersonalDictionaryEntry, PersonalDictionaryKind};
+    use crate::user_dictionary::personal::{
+        edit_personal_dictionary_with, personal_dictionary_entries_for_kind,
+    };
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let cantonese = cantonese_dictionary(fixture.path());
+    let configure = cantonese_learning_options(&cantonese, FrequencyAdjustmentMode::Pin);
+    let word = PersonalDictionaryEntry {
+        kind: PersonalDictionaryKind::Cantonese,
+        key: "nei hou".to_owned(),
+        value: "妳好".to_owned(),
+        weight: 30,
+    };
+    edit_personal_dictionary_with(&fixture.paths(), true, None, Some(&word), "").unwrap();
+    edit_personal_dictionary_with(&fixture.paths(), true, Some(&word), None, "").unwrap();
+    let listed = || {
+        personal_dictionary_entries_for_kind(
+            &fixture.paths(),
+            true,
+            PersonalDictionaryKind::Cantonese,
+            0,
+            10,
+        )
+        .unwrap()
+        .entries
+    };
+    assert!(listed().is_empty());
+
+    let mut session = fixture.session_with(&configure);
+    type_text(&mut session, "neihou");
+    assert_eq!(words(&session), ["你好", "妳好", "你", "妳"]);
+    assert_eq!(session.select(1).commit.as_deref(), Some("妳好"));
+    type_text(&mut session, "neihou");
+    assert_eq!(words(&session), ["妳好", "你好", "你", "妳"]);
+    drop(session);
+    crate::flush_personal_learning();
+
+    assert!(listed().is_empty());
+    assert_eq!(
+        cantonese_journal_rows(&fixture),
+        [("nei hou".to_owned(), "妳好".to_owned(), 901, false)]
+    );
+}
+
+/// 一次组字分几次选完时，整段记成一个词（`user_inserted=1`，和拼音造的词一样进「我的词条」），下次打同一读音就在候选里；这和调频方式无关，调频关着也造词，但不调频。
+#[test]
+fn cantonese_pieces_picked_in_one_composition_become_a_word() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let cantonese = cantonese_dictionary(fixture.path());
+    let configure = cantonese_learning_options(&cantonese, FrequencyAdjustmentMode::Disabled);
+    let mut session = fixture.session_with(&configure);
+
+    type_text(&mut session, "neihou");
+    assert_eq!(session.select(2).commit.as_deref(), Some("你"));
+    assert_eq!(words(&session), ["好", "號"]);
+    let result = session.select(1);
+    assert_eq!(result.commit.as_deref(), Some("號"));
+    assert_eq!(result.diagnostic, None);
+    assert!(session.snapshot().preedit.is_empty());
+    assert_eq!(
+        cantonese_journal_rows(&fixture),
+        [(
+            "nei hou".to_owned(),
+            "你號".to_owned(),
+            crate::cantonese::learning::LEARNED_WORD_WEIGHT,
+            true
+        )]
+    );
+
+    // 活着的会话下一次查询就看得到，再分几段选同一个词不会重写它。
+    type_text(&mut session, "neihou");
+    assert_eq!(words(&session), ["你號", "你好", "妳好", "你", "妳"]);
+    session.select(3);
+    session.select(1);
+    // 半路取消的组字不造词。
+    type_text(&mut session, "neihou");
+    assert_eq!(session.select(4).commit.as_deref(), Some("妳"));
+    session.command(Command::Cancel);
+    type_text(&mut session, "hou");
+    session.select(0);
+    assert_eq!(cantonese_journal_rows(&fixture).len(), 1);
+    assert_eq!(
+        crate::user_dictionary::journal::test_support::count(
+            &fixture.journal(),
+            "SELECT count(*) FROM candidate_selection_state"
+        ),
+        0
+    );
+}
+
+/// 选中组出来的整句（词库里没有这一行）时把它记成一个词，下次它就是词库里的一行，不再是组句；「学习」关着时不记。
+#[test]
+fn a_composed_cantonese_sentence_is_learned_as_a_word() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let cantonese = cantonese_dictionary(fixture.path());
+    let configure = cantonese_learning_options(&cantonese, FrequencyAdjustmentMode::Promote);
+
+    let mut off = fixture.session_with(|options| {
+        configure(options);
+        options.learning = false;
+    });
+    type_text(&mut off, "ngo'oi");
+    assert_eq!(words(&off)[0], "我愛");
+    assert_eq!(off.select(0).commit.as_deref(), Some("我愛"));
+    drop(off);
+    assert!(table_counts(&fixture.journal())
+        .iter()
+        .all(|(_, rows)| *rows == 0));
+
+    let mut session = fixture.session_with(&configure);
+    type_text(&mut session, "ngo'oi");
+    assert_eq!(words(&session)[0], "我愛");
+    assert_eq!(session.select(0).commit.as_deref(), Some("我愛"));
+    assert_eq!(
+        cantonese_journal_rows(&fixture),
+        [(
+            "ngo oi".to_owned(),
+            "我愛".to_owned(),
+            crate::cantonese::learning::LEARNED_WORD_WEIGHT,
+            true
+        )]
+    );
 }
 
 #[test]

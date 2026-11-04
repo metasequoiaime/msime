@@ -14,30 +14,32 @@ import android.view.View;
  * <p>The mark is the same on every platform: a #252525 rounded square with a #A8DF8E edge and the white stroke on it (packages/ui/src/assets/msime.svg). It is the only container - nothing draws a disc, ring or plate around it - and its colours are fixed, not the skin's. The shortcut bar's {@link KeyboardBrandButton} draws it through {@link #draw}; this view leads the candidate header the way the macOS candidate window leads its top row, so it neither takes touches nor speaks to accessibility services — the header's own text already names the input method.
  */
 public final class KeyboardBrandMark extends View {
-    /** 画布：折线沿用设计稿 116×132 的坐标，圆角正方形外框围着它居中，所以画布向左右各扩 8，是从 x = -8 起的 132×132。 */
+    /** 画布：从 x = -8 起的 132×132，与 packages/ui 的 brand-logo 取景相同；外框和折线都是 msime.svg（110×110）放大 1.2 倍后放进这块画布，外框边长 100 → 120。 */
     private static final float LEFT = -8f;
     private static final float SIDE = 132f;
-    /** 外框：-2.15686, 5.8335 起边长 120 的正方形，圆角半径 26.4 即边长的 22%，与 packages/ui 的 msimeFramePath 相同。 */
+    /** 外框：-2.15686, 5.8335 起边长 120 的正方形，圆角半径 26.4 即边长的 22%（msime.svg 的 rx 22 × 1.2），与 packages/ui 的 msimeFramePath 相同。 */
     private static final float FRAME_LEFT = -2.15686f;
     private static final float FRAME_TOP = 5.8335f;
     private static final float FRAME_RIGHT = 117.843f;
     private static final float FRAME_BOTTOM = 125.833f;
     private static final float FRAME_CORNER = 26.4f;
-    /** 固定配色：深色底、绿边（画布单位，边长 120 的 5%，压在外框路径上居中）、白色折线，与 packages/ui/src/assets/msime.svg 相同。 */
+    /** 固定配色：深色底、绿边（画布单位，边长 120 的 5%，压在外框路径上居中）、白色折线，与 packages/ui/src/assets/msime.svg 相同；折线宽 9.6 即 msime.svg 的 8 × 1.2。 */
     private static final int FIELD = 0xFF252525;
     private static final int EDGE = 0xFFA8DF8E;
     private static final float EDGE_WIDTH = 6f;
-    private static final float STROKE_WIDTH = 9f;
+    private static final float STROKE_WIDTH = 9.6f;
+    /** msime.svg 的折线不写 linejoin，按 SVG 默认是尖角连接、miter limit 4，三个折角（约 35–42°）都画成尖角；Paint 默认 miter 也是 4，这里写明以免被改。 */
+    private static final float STROKE_MITER = 4f;
 
-    /** 官方笔画（设计稿的笔画以外框中心为原点缩到 80%、线宽不变，四周留出边距），与 packages/ui 的 msimeStrokePath 相同：M75.8838 28.2335 L39.0447 42.3579 L75.8838 52.9512 L39.0447 70.6066 C73.8717 76.4918 106.609 81.3177 37.0431 103.637。 */
+    /** 官方笔画：packages/ui/src/assets/msime.svg 的折线以外框中心为原点放大 1.2 倍放进这块画布，与 packages/ui 的 msimeStrokePath 相同：M76.7775 26.4735 L38.7872 41.0393 L76.7775 51.9637 L38.7872 70.1708 C74.7026 76.2399 108.462 81.2165 36.7231 104.2335。 */
     private static final Path STROKE = new Path();
 
     static {
-        STROKE.moveTo(75.8838f, 28.2335f);
-        STROKE.lineTo(39.0447f, 42.3579f);
-        STROKE.lineTo(75.8838f, 52.9512f);
-        STROKE.lineTo(39.0447f, 70.6066f);
-        STROKE.cubicTo(73.8717f, 76.4918f, 106.609f, 81.3177f, 37.0431f, 103.637f);
+        STROKE.moveTo(76.7775f, 26.4735f);
+        STROKE.lineTo(38.7872f, 41.0393f);
+        STROKE.lineTo(76.7775f, 51.9637f);
+        STROKE.lineTo(38.7872f, 70.1708f);
+        STROKE.cubicTo(74.7026f, 76.2399f, 108.462f, 81.2165f, 36.7231f, 104.2335f);
     }
 
     /** The two paints {@link #draw} uses; each drawing view keeps its own pair. */
@@ -51,7 +53,8 @@ public final class KeyboardBrandMark extends View {
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeCap(Paint.Cap.ROUND);
-        paint.setStrokeJoin(Paint.Join.ROUND);
+        paint.setStrokeJoin(Paint.Join.MITER);
+        paint.setStrokeMiter(STROKE_MITER);
         return paint;
     }
 

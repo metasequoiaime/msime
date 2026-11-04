@@ -28,6 +28,8 @@ pub struct CantoneseCandidate {
     pub syllables: usize,
     /// The byte length of the typed input it covers, apostrophes inside it included.
     pub end: usize,
+    /// 组出来的整句（`compose_sentence`），不是词库里的一行。粤语学习据此不给它调频，选中它时把它记成一个词。
+    pub composed: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -545,6 +547,7 @@ impl CantoneseScheme {
                             key: buffer.key.clone(),
                             syllables,
                             end,
+                            composed: false,
                         });
                     }
                     continue;
@@ -564,6 +567,7 @@ impl CantoneseScheme {
                             key: entry_key.clone(),
                             syllables,
                             end,
+                            composed: false,
                         });
                     }
                 }
@@ -796,6 +800,7 @@ fn push_candidate(
         candidate.weight = weight;
         candidate.syllables = syllables;
         candidate.end = end;
+        candidate.composed = false;
     } else {
         candidates.push(CantoneseCandidate {
             text: text.to_owned(),
@@ -803,6 +808,7 @@ fn push_candidate(
             key: key.to_owned(),
             syllables,
             end,
+            composed: false,
         });
     }
     *length += 1;
@@ -888,6 +894,7 @@ fn compose_sentence(
         key: String::new(),
         syllables: count,
         end: positions[count - 1].end,
+        composed: true,
     };
     for span in &spans {
         sentence.text.push_str(&span.text);
@@ -1105,6 +1112,7 @@ mod tests {
             key: "nei".to_owned(),
             syllables,
             end: 3,
+            composed: false,
         }
     }
 
@@ -1765,7 +1773,7 @@ mod tests {
         assert_eq!(scheme.as_cantonese().unwrap().input(), "neih");
     }
 
-    /// 用户的粤语词按发布词的规则排进各段：同一个键下的同一个词合成一行、取较大的权重，补全末音节时也列出；删除留下的墓碑、学到的行和别的种类都不算。日志被别的连接改过以后，下一次刷新就读到。
+    /// 用户的粤语词按发布词的规则排进各段：同一个键下的同一个词合成一行、取较大的权重，补全末音节时也列出；调频学到的权重（`user_inserted=0`）同样合进来；删除留下的墓碑和别的种类都不算。日志被别的连接改过以后，下一次刷新就读到。
     #[test]
     fn user_words_rank_with_the_dictionary_rows_and_follow_the_journal() {
         use crate::cantonese::{CantoneseLexicon, UserWords};
@@ -1804,18 +1812,18 @@ mod tests {
                  ('cantonese','nei hou','你好','upsert',10,1),
                  ('cantonese','nei hoeng','你響','upsert',2000,1),
                  ('cantonese','nei hou','刪除','delete',0,1),
-                 ('cantonese','nei hou','學到','upsert',99999,0),
+                 ('cantonese','nei hou','妳好','upsert',950,0),
                  ('pinyin','nei''hou','拼音','upsert',99999,1);",
             )
             .unwrap();
         words.refresh();
         assert_eq!(
             texts(&typed("neihou"), &words),
-            ["禮好/2", "你好/2", "妳好/2", "你/1", "妳/1"]
+            ["禮好/2", "妳好/2", "你好/2", "你/1", "妳/1"]
         );
         assert_eq!(
             texts(&typed("neih"), &words),
-            ["禮好/2", "你響/2", "你好/2", "妳好/2", "你向/2", "你/1", "妳/1"]
+            ["禮好/2", "你響/2", "妳好/2", "你好/2", "你向/2", "你/1", "妳/1"]
         );
 
         writer
@@ -1827,7 +1835,7 @@ mod tests {
         words.refresh();
         assert_eq!(
             texts(&typed("neihou"), &words),
-            ["你好/2", "妳好/2", "你/1", "妳/1"]
+            ["妳好/2", "你好/2", "你/1", "妳/1"]
         );
     }
 

@@ -50,7 +50,7 @@ enum GlideTyping {
   }
 
   /// `msime_client_glide` 的请求 JSON：`keys` 是 a..z 各键的中心，`key_width`/`key_height` 是一个字母键的大小（取二十六个键里最小的宽和高），`points` 是至多 `pointLimit` 个 `[x, y, ms]`。坐标保留一位小数、时间取整毫秒，请求因此远小于 `requestByteLimit`。键不全、采样不足两个或有非有限值时为 nil。
-  static func request(frames: [CGRect], samples: [Sample]) -> Data? {
+  static func request(frames: [CGRect], samples: [Sample], bilingual: Bool = false) -> Data? {
     guard frames.count == letters.count, samples.count >= 2,
           frames.allSatisfy({ !$0.isEmpty && $0.minX.isFinite && $0.minY.isFinite && $0.width.isFinite && $0.height.isFinite }),
           samples.allSatisfy({ $0.x.isFinite && $0.y.isFinite && $0.milliseconds.isFinite }),
@@ -61,7 +61,8 @@ enum GlideTyping {
       "[\(number(sample.x)),\(number(sample.y)),\(milliseconds(sample.milliseconds))]"
     }.joined(separator: ",")
     let json = "{\"keys\":[\(keys)],\"key_width\":\(number(width)),\"key_height\":\(number(height)),\"points\":[\(points)]}"
-    let data = Data(json.utf8)
+    let payload = bilingual ? String(json.dropLast()) + ",\"bilingual\":true}" : json
+    let data = Data(payload.utf8)
     return data.count <= requestByteLimit ? data : nil
   }
 

@@ -209,7 +209,7 @@ fn session_hotwords_page_the_users_pinyin_words_heaviest_first() {
     );
 }
 
-#[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
+#[cfg(unix)]
 #[test]
 fn desktop_local_sessions_forward_the_model_path_and_hotwords_that_fit() {
     let document = json!({

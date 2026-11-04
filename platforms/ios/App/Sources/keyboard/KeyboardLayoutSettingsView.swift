@@ -23,6 +23,7 @@ struct KeyboardLayoutSettingsView: View {
   /// 「大屏单手时侧边显示数字键盘」（共享偏好 `touch_one_handed_side_panel`），取自共享文档。
   @State private var oneHandSidePad = TouchOneHandedSidePanelPreference.load() == .numberPad
   @State private var glideTyping = KeyboardLayoutPreference.glideTyping
+  @State private var bilingualGlide = KeyboardLayoutPreference.bilingualGlide
   @State private var cursorSwipe = KeyboardLayoutPreference.cursorSwipe
   @State private var swipeSymbols = KeyboardLayoutPreference.swipeSymbols
   @State private var swipeSymbolsDirection = KeyboardLayoutPreference.swipeSymbolsDirection
@@ -404,6 +405,14 @@ struct KeyboardLayoutSettingsView: View {
                       }))
       .accessibilityIdentifier("appGlideTypingSwitch")
       DesignDivider()
+      DesignToggleRow(title: "中英混合滑行", info: "在全拼 26 键上滑行，同时提供中文和英文候选，无需切换中英文。中英文均可连续多笔组字，点击候选、空格或回车选择当前候选；下一笔和语言边界不会自动确认。",
+                      isOn: Binding(get: { bilingualGlide }, set: { enabled in
+                        bilingualGlide = enabled
+                        KeyboardLayoutPreference.bilingualGlide = enabled
+                      }))
+        .disabled(!glideTyping)
+        .accessibilityIdentifier("appBilingualGlideSwitch")
+      DesignDivider()
       DesignToggleRow(title: "横滑键盘移动光标", info: "无组字时从字符键左右滑动；开启滑行输入时，字母键优先输入拼音",
                       isOn: Binding(get: { cursorSwipe }, set: { enabled in
                         cursorSwipe = enabled
@@ -666,6 +675,7 @@ struct KeyboardLayoutSettingsView: View {
     tabletSplit = KeyboardLayoutPreference.tabletSplit
     phoneSplit = KeyboardLayoutPreference.phoneLandscapeSplit
     glideTyping = KeyboardLayoutPreference.glideTyping
+    bilingualGlide = KeyboardLayoutPreference.bilingualGlide
     cursorSwipe = KeyboardLayoutPreference.cursorSwipe
     swipeSymbols = KeyboardLayoutPreference.swipeSymbols
     swipeSymbolsDirection = KeyboardLayoutPreference.swipeSymbolsDirection

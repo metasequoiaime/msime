@@ -187,6 +187,14 @@ impl Session {
         self.inner.set_prediction_pool(enabled);
     }
 
+    /// 拼整句时给前缀打分的模型，同 [`crate::Session::set_sentence_scorer`]。
+    pub fn set_sentence_scorer(
+        &mut self,
+        scorer: Option<std::sync::Arc<dyn crate::ordering::SentenceScorer>>,
+    ) {
+        self.inner.set_sentence_scorer(scorer);
+    }
+
     /// 整句读法条数下限，同 [`crate::Session::set_sentence_pool`]。
     pub fn set_sentence_pool(&mut self, paths: usize) {
         self.inner.set_sentence_pool(paths);
@@ -679,6 +687,20 @@ impl Session {
         points: &[GlidePoint],
     ) -> Result<EngineResult> {
         Ok(result_for(self.inner.glide(keyboard, points)))
+    }
+
+    /// 可选的中英混合滑行；共享内核持有候选与选词状态。
+    pub fn bilingual_glide(
+        &mut self,
+        keyboard: &GlideKeyboard,
+        points: &[GlidePoint],
+    ) -> Result<EngineResult> {
+        Ok(result_for(self.inner.bilingual_glide(keyboard, points)))
+    }
+
+    /// 宿主编排不能替混合滑行选择默认候选。
+    pub fn requires_candidate_selection(&self) -> bool {
+        self.inner.requires_candidate_selection()
     }
 
     /// Out of range is unhandled.

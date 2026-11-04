@@ -10,6 +10,10 @@ pub mod prefix;
 mod scorer;
 #[cfg(feature = "runtime")]
 pub use scorer::{LoadError, OnnxScorer};
+#[cfg(feature = "runtime")]
+mod shared;
+#[cfg(feature = "runtime")]
+pub use shared::SharedOnnxScorer;
 
 use serde::Deserialize;
 
@@ -57,6 +61,11 @@ impl Vocabulary {
         let mut chars: Vec<(u32, char)> = self.ids.iter().map(|(&c, &id)| (id, c)).collect();
         chars.sort_unstable();
         chars.into_iter().map(|(_, c)| c)
+    }
+
+    /// `text` 里有几个字不在字表里（按未知字编码）。
+    pub fn unknown(&self, text: &str) -> usize {
+        text.chars().filter(|c| !self.ids.contains_key(c)).count()
     }
 
     pub fn encode(&self, text: &str) -> Vec<u32> {

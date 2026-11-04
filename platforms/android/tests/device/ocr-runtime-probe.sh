@@ -12,7 +12,7 @@ abi=$("$adb" -s "$serial" shell getprop ro.product.cpu.abi | tr -d '\r')
 [[ "$abi" == x86_64 || "$abi" == arm64-v8a ]] || {
   echo "This isolation probe requires an arm64-v8a or x86_64 test AVD, not $abi" >&2; exit 1;
 }
-gradlew=apps/desktop/src-tauri/gen/android/gradlew
+gradlew=platforms/android/gradle-app/gradlew
 gradle_project=platforms/android/gradle-app
 mkdir -p target/android/ocr-probe-assets
 "$gradlew" --project-dir "$gradle_project" --console=plain -PmsimeOcrProbe=true \

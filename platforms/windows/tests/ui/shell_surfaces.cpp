@@ -1,5 +1,6 @@
 #include "ShellSurfaces.h"
 #include "SecureFieldPolicy.h"
+#include "../../panels/win7/PanelRoutes.h"
 #include <chrono>
 #include <cstdio>
 #include <fstream>
@@ -7,12 +8,15 @@
 #include <string>
 
 using namespace msime::windows;
+// panels_file 是开关缺省（PanelHost::Shared）时承载面板的程序，native_panels_file 是 MSIME_WINDOWS_PANEL_HOST=native 时的。Win7 包只有原生面板，两种开关状态都是 -win7 程序。
 #if defined(MSIME_WINDOWS7_CLIENT) && MSIME_WINDOWS7_CLIENT
 constexpr wchar_t settings_file[] = L"msime-client-settings-win7.exe";
 constexpr wchar_t panels_file[] = L"msime-client-panels-win7.exe";
+constexpr wchar_t native_panels_file[] = L"msime-client-panels-win7.exe";
 #else
 constexpr wchar_t settings_file[] = L"msime-client-settings.exe";
 constexpr wchar_t panels_file[] = L"MSIME.exe";
+constexpr wchar_t native_panels_file[] = L"msime-client-panels.exe";
 #endif
 void require_at(bool value, int line) {
   if (!value)
@@ -48,8 +52,8 @@ int main() {
                 ->panel == "handwriting");
     require(shell_surface_request(TrayMenuCommand::OpenKeyboardPanel)->panel ==
             "keyboard");
-    require(shell_surface_request(TrayMenuCommand::ToggleVoiceInput)->panel ==
-            "voice");
+    // The tray's 语音 row toggles the Server's own voice input, so it is not a shell surface.
+    require(!shell_surface_request(TrayMenuCommand::ToggleVoiceInput));
     const auto settings = shell_surface_request(TrayMenuCommand::OpenSettings);
     require(settings && settings->panel.empty() && settings->page.empty());
     const auto about = shell_surface_request(TrayMenuCommand::OpenAbout);
@@ -68,7 +72,7 @@ int main() {
     require(cloud && cloud->panel == "cloud-clipboard" && cloud->page.empty());
     require(shell_surface_route(*cloud) == "cloud-clipboard");
     require(shell_route_argument(*cloud) == L"cloud-clipboard");
-    require(shell_executable_names(*cloud) == std::vector<std::wstring>{panels_file});
+    require(shell_executable_names(*cloud, PanelHost::Shared) == std::vector<std::wstring>{panels_file});
     require(entries(shell_environment_block(L"\0", *cloud))[0] ==
             L"MSIME_CLIENT_ROUTE=cloud-clipboard");
     // 「云词库…」按 cloud-dictionary 路由打开共享应用的云词库面板，与 macOS 输入菜单的同名一行相同。
@@ -76,14 +80,40 @@ int main() {
     require(cloud_dictionary && cloud_dictionary->panel == "cloud-dictionary" &&
             cloud_dictionary->page.empty());
     require(shell_route_argument(*cloud_dictionary) == L"cloud-dictionary");
-    require(shell_executable_names(*cloud_dictionary) == std::vector<std::wstring>{panels_file});
+    require(shell_executable_names(*cloud_dictionary, PanelHost::Shared) == std::vector<std::wstring>{panels_file});
     require(entries(shell_environment_block(L"\0", *cloud_dictionary))[0] ==
             L"MSIME_CLIENT_ROUTE=cloud-dictionary");
     // 「背单词（今日待复习 N）…」按 vocabulary 路由打开共享应用的背单词面板，与 macOS 输入菜单的同一行相同。
     const auto vocabulary = shell_surface_request(TrayMenuCommand::OpenVocabulary);
     require(vocabulary && vocabulary->panel == "vocabulary" && vocabulary->page.empty());
     require(shell_route_argument(*vocabulary) == L"vocabulary");
-    require(shell_executable_names(*vocabulary) == std::vector<std::wstring>{panels_file});
+    require(shell_executable_names(*vocabulary, PanelHost::Shared) == std::vector<std::wstring>{panels_file});
+    // 面板宿主开关：只有 native（不分大小写）选原生宿主，没设、为空、拼错或别的值都留在缺省的共享应用上。
+    require(panel_host_from_setting(L"native") == PanelHost::Native);
+    require(panel_host_from_setting(L"Native") == PanelHost::Native);
+    require(panel_host_from_setting(L"NATIVE") == PanelHost::Native);
+    for (const wchar_t *value : {L"", L"shared", L"nativ", L"natives", L" native", L"native ", L"1", L"tauri"})
+      require(panel_host_from_setting(value) == PanelHost::Shared);
+    require(std::wstring_view(panel_host_variable) == L"MSIME_WINDOWS_PANEL_HOST");
+    // 托盘、悬浮工具栏和设置窗口发出的每个面板路由，两种开关状态各自落到对应的程序；原生宿主必须认这个路由，否则开关打开后那一行会打开一个立即退出的进程。设置和关于不受开关影响。
+    for (auto command :
+         {TrayMenuCommand::OpenEmojiPanel, TrayMenuCommand::OpenHandwritingPanel,
+          TrayMenuCommand::OpenKeyboardPanel, TrayMenuCommand::OpenCloudClipboard,
+          TrayMenuCommand::OpenCloudDictionary, TrayMenuCommand::OpenVocabulary}) {
+      const auto request = shell_surface_request(command);
+      require(request && !request->panel.empty() && request->page.empty());
+      require(shell_executable_names(*request, PanelHost::Shared) ==
+              std::vector<std::wstring>{panels_file});
+      require(shell_executable_names(*request, PanelHost::Native) ==
+              std::vector<std::wstring>{native_panels_file});
+      require(msime::windows::win7::panel_route(shell_surface_route(*request)));
+    }
+    for (auto command : {TrayMenuCommand::OpenSettings, TrayMenuCommand::OpenAbout,
+                         TrayMenuCommand::OpenTheme, TrayMenuCommand::OpenDictionary}) {
+      const auto request = shell_surface_request(command);
+      for (auto host : {PanelHost::Shared, PanelHost::Native})
+        require(shell_executable_names(*request, host) == std::vector<std::wstring>{settings_file});
+    }
     // 卡片自己的翻页、主题行、繁体输出和英文候选模式都不经过外壳。
     for (auto command :
          {TrayMenuCommand::ShowSchemes, TrayMenuCommand::ShowThemes,
@@ -167,27 +197,36 @@ int main() {
         ("msime-shell-fixture-" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(root);
-    require(!shell_executable(root, {}, *settings));
-    require(!shell_executable("relative", {}, *settings));
+    require(!shell_executable(root, {}, *settings, PanelHost::Shared));
+    require(!shell_executable("relative", {}, *settings, PanelHost::Shared));
     std::ofstream(root / panels_file) << "fixture";
-    require(!shell_executable(root, {}, *settings));
+    require(!shell_executable(root, {}, *settings, PanelHost::Shared));
     std::ofstream(root / settings_file) << "fixture";
     require(shell_executable(
-                root, {}, *shell_surface_request(TrayMenuCommand::OpenSettings)) ==
-            root / settings_file);
+                root, {}, *shell_surface_request(TrayMenuCommand::OpenSettings),
+                PanelHost::Shared) == root / settings_file);
     require(shell_executable(
-                root, {}, *shell_surface_request(TrayMenuCommand::OpenEmojiPanel)) ==
-            root / panels_file);
+                root, {}, *shell_surface_request(TrayMenuCommand::OpenEmojiPanel),
+                PanelHost::Shared) == root / panels_file);
     const auto configured_shell = root / "configured-settings.exe";
     std::ofstream(configured_shell) << "fixture";
-    require(shell_executable(root, configured_shell.wstring(), *settings) ==
-            configured_shell);
+    require(shell_executable(root, configured_shell.wstring(), *settings,
+                             PanelHost::Shared) == configured_shell);
     require(shell_executable(root, configured_shell.wstring(),
-                             *shell_surface_request(TrayMenuCommand::OpenEmojiPanel)) ==
-            root / panels_file);
+                             *shell_surface_request(TrayMenuCommand::OpenEmojiPanel),
+                             PanelHost::Shared) == root / panels_file);
     const auto configured = root / "elsewhere.exe";
-    require(!shell_executable(root, configured.wstring(), *settings));
-    require(!shell_executable(root, settings_file, *settings));
+    require(!shell_executable(root, configured.wstring(), *settings, PanelHost::Shared));
+    require(!shell_executable(root, settings_file, *settings, PanelHost::Shared));
+    // 开关打开时只找原生面板宿主，不悄悄退回共享应用：它不在时 Server 把依赖它的面板行显示为不可用。设置窗口的查找与开关无关。Win7 包两种状态是同一个文件。
+    const auto emoji = *shell_surface_request(TrayMenuCommand::OpenEmojiPanel);
+    require(shell_executable(root, {}, emoji, PanelHost::Native).has_value() ==
+            (std::wstring_view(native_panels_file) == panels_file));
+    std::ofstream(root / native_panels_file) << "fixture";
+    require(shell_executable(root, {}, emoji, PanelHost::Native) == root / native_panels_file);
+    require(shell_executable(root, {}, emoji, PanelHost::Shared) == root / panels_file);
+    require(shell_executable(root, configured_shell.wstring(), *settings, PanelHost::Native) ==
+            configured_shell);
 
     // Every surface also travels as the cross-platform route the shell parses.
     // A settings section becomes "settings:<category>": the bare section name is
