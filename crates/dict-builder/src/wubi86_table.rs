@@ -2,12 +2,13 @@
 //!
 //! 新布局是两个文件：[`JIDIAN`] 是 KyleBing/rime-wubi86-jidian 的码表，`upstream.lock.json` 把它记在 [`JIDIAN_REFERENCE`] 下；[`RIME_WUBI`] 是 msime-dictionary #36 从 rime/rime-wubi 补进来、极点表没有的行，记在 [`RIME_WUBI_REFERENCE`] 下。两个文件首尾相接，就是拆分之前那个 `wubi86-jidian.txt` 的全部字节。旧布局只有那一个合并的文件，锁里也没有它。构建器只看 [`RIME_WUBI`] 在不在来决定按哪种布局读，所以拆分之前的提交（包括已经发布的 `dict-v*`）照常能构建。
 //!
-//! 极点表的权重是同码名次（10、20、30……；构建会写入的行里只有 蔻 `apfc`、个位数 `wwov` 两行是 5），rime-wubi 的权重是词频，从 0 到四亿多。原样并在一起，这些行会排到同码的极点首选前面（284 个编码），一码、二码的补全前列也会被它们占满。新布局下这些行按 [`tail`] 换算：一般记为 [`RIME_WUBI_WEIGHT`]，与极点表名次的最低一档相同，同权重按 rowid 排，所以它们排在同码的极点行之后，同码之间按上游词频的先后；又高于补充表占用的 0–9，所以仍排在生成的补充词之前。两边的权重不能直接比，比的是拼音库上游四张表（[`FREQUENCY_TABLES`]）里的词频（[`Frequencies`]）：rime-wubi 的行在那里的词频不低于 [`LIFT_MINIMUM`]、又是同码某几行极点行的 [`LIFT_RATIO`] 倍以上时，排到这几行之前，所以极点表没收的常用词（的话 `rqyt`）不会落到极点表的冷僻词、冷僻字（魅族、塏）之后。上游给 0 的部首、部件保持 0，排在最后；极点表已经收了的词组不再收 rime-wubi 给的另一个编码。最后，不含汉字的行（假名、符号、拉丁字母）按 [`demote_symbols`] 降到同码下一行的权重，同码次序不变，只是不再靠同码名次挤进一码、二码的前缀补全前列。旧布局分不出哪些行来自 rime-wubi，按原样读。
+//! 极点表的权重是同码名次（10、20、30……；构建会写入的行里只有 蔻 `apfc`、个位数 `wwov` 两行是 5），rime-wubi 的权重是词频，从 0 到四亿多。原样并在一起，这些行会排到同码的极点首选前面（284 个编码），一码、二码的补全前列也会被它们占满。新布局下这些行按 [`tail`] 换算：一般记为 [`RIME_WUBI_WEIGHT`]，与极点表名次的最低一档相同，同权重按 rowid 排，所以它们排在同码的极点行之后，同码之间按上游词频的先后；又高于补充表占用的 0–9，所以仍排在生成的补充词之前。两边的权重不能直接比，比的是拼音库上游四张表（[`FREQUENCY_TABLES`]）里的词频（[`Frequencies`]，按五笔补充表生成器同样的方式施加 `curation/` 的拼音否决表和第四列写了 `wubi` 的频率修正）：rime-wubi 的行在那里的词频不低于 [`LIFT_MINIMUM`]、又是同码某几行极点行的 [`LIFT_RATIO`] 倍以上时，排到这几行之前，所以极点表没收的常用词（的话 `rqyt`）不会落到极点表的冷僻词、冷僻字（魅族、塏）之后。上游给 0 的部首、部件保持 0，排在最后；极点表已经收了的词组不再收 rime-wubi 给的另一个编码。最后，不含汉字的行（假名、符号、拉丁字母）按 [`demote_symbols`] 降到同码下一行的权重，同码次序不变，只是不再靠同码名次挤进一码、二码的前缀补全前列。旧布局分不出哪些行来自 rime-wubi，按原样读。
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 
+use crate::curation::PinyinCuration;
 use crate::msime;
 use crate::sources::{Sources, UPSTREAM_LOCK};
 use crate::text;
@@ -51,14 +52,23 @@ pub struct Files {
 impl Files {
     /// 在 checkout 里找 86 原表。有 [`RIME_WUBI`] 就是新布局，两个文件都按 checkout 的 `upstream.lock.json` 校验，还要读 [`FREQUENCY_TABLES`]；没有就是旧布局，[`JIDIAN`] 不经记录读取。记录已经列出 [`JIDIAN`]、却没有 [`RIME_WUBI`] 的 checkout 是拆分之后又丢了文件，报错而不是按旧布局读出一张少了 rime-wubi 行的表。
     pub fn locate(sources: &Sources) -> Result<Self> {
+        let mut files = Self::locate_codes(sources)?;
+        if files.rime_wubi.is_some() {
+            files.frequency_tables = FREQUENCY_TABLES
+                .into_iter()
+                .map(|path| Ok((path, sources.pinned(path)?)))
+                .collect::<Result<_>>()?;
+        }
+        Ok(files)
+    }
+
+    /// 同 [`Files::locate`]，但不找 [`FREQUENCY_TABLES`]：只看编码、不看权重的 `wubi86-helpcode` 用它，读到的行与构建相同，表头也只记两个 86 文件，拼音表变了不会改它的字节。
+    pub fn locate_codes(sources: &Sources) -> Result<Self> {
         if sources.optional(RIME_WUBI)?.is_some() {
             return Ok(Self {
                 jidian: sources.pinned(JIDIAN)?,
                 rime_wubi: Some(sources.pinned(RIME_WUBI)?),
-                frequency_tables: FREQUENCY_TABLES
-                    .into_iter()
-                    .map(|path| Ok((path, sources.pinned(path)?)))
-                    .collect::<Result<_>>()?,
+                frequency_tables: Vec::new(),
             });
         }
         if sources.records(JIDIAN) {
@@ -107,7 +117,8 @@ impl Files {
             .collect()
     }
 
-    pub fn read(&self) -> Result<Texts> {
+    /// `curation` 是 checkout 的拼音否决表和权重覆盖表，[`Frequencies::parse`] 按它读 [`FREQUENCY_TABLES`]；没有词频表（旧布局、[`Files::locate_codes`]）时不用。
+    pub fn read(&self, curation: &PinyinCuration) -> Result<Texts> {
         let frequency_tables = self
             .frequency_tables
             .iter()
@@ -116,7 +127,7 @@ impl Files {
         Ok(Texts {
             jidian: text::read(&self.jidian)?,
             rime_wubi: self.rime_wubi.as_deref().map(text::read).transpose()?,
-            frequencies: Frequencies::parse(frequency_tables.iter().map(String::as_str)),
+            frequencies: Frequencies::parse(frequency_tables.iter().map(String::as_str), curation),
         })
     }
 }
@@ -139,12 +150,15 @@ impl Texts {
 pub struct Frequencies(HashMap<String, i64>);
 
 impl Frequencies {
-    /// `sources` 是 `词<TAB>拼音<TAB>权重` 格式的表的文本，`#` 开头的是注释。
-    pub(crate) fn parse<'a>(sources: impl IntoIterator<Item = &'a str>) -> Self {
+    /// `sources` 是 `词<TAB>拼音<TAB>权重` 格式的表的文本，`#` 开头的是注释。行按 `curation` 读，取的是 [`PinyinCuration::wubi_rows`] 的同码排序权重，与五笔补充表生成器给补充词排序用的词频一样：否决的读音不算；第四列写了 `wubi` 的频率修正（本地损坏的权重恢复成上游值，斯基 `si'ji` 在 rime-ice 里是 77245、修正为 2）换成修正后的值；没写 `wubi` 的覆盖是相对全拼同键的降权，这里不理。
+    pub(crate) fn parse<'a>(
+        sources: impl IntoIterator<Item = &'a str>,
+        curation: &PinyinCuration,
+    ) -> Self {
         let mut words: HashMap<String, i64> = HashMap::new();
         for (value, _, weight) in sources
             .into_iter()
-            .flat_map(crate::places_supplement::weighted_rows)
+            .flat_map(|source| curation.wubi_rows(source))
         {
             let slot = words.entry(value.to_owned()).or_insert(weight);
             *slot = (*slot).max(weight);
@@ -296,7 +310,9 @@ fn demote_symbols(rows: &mut [Row]) {
 pub(crate) fn described(inputs: &[(&str, &str)]) -> String {
     if inputs.iter().any(|(path, _)| *path == RIME_WUBI) {
         let tables = FREQUENCY_TABLES.join("、");
-        format!("{JIDIAN} 与 {RIME_WUBI}（后者的行按权重 {RIME_WUBI_WEIGHT} 算、排在同码极点行之后，但在 {tables} 里的最高词频不低于 {LIFT_MINIMUM}、又是同码最后几行极点行词频 {LIFT_RATIO} 倍以上的排到这几行之前；上游权重为 0 的保持 0，{JIDIAN} 已有的词组不收；不含汉字的行降到同码下一行的权重，同码次序不变）")
+        let overrides = crate::curation::PINYIN_WEIGHT_OVERRIDES;
+        let scope = crate::curation::WUBI_SCOPE;
+        format!("{JIDIAN} 与 {RIME_WUBI}（后者的行按权重 {RIME_WUBI_WEIGHT} 算、排在同码极点行之后，但在 {tables} 里（施加拼音否决表和 {overrides} 第四列为 {scope} 的频率修正）的最高词频不低于 {LIFT_MINIMUM}、又是同码最后几行极点行词频 {LIFT_RATIO} 倍以上的排到这几行之前；上游权重为 0 的保持 0，{JIDIAN} 已有的词组不收；不含汉字的行降到同码下一行的权重，同码次序不变）")
     } else {
         JIDIAN.to_owned()
     }
@@ -362,7 +378,7 @@ mod tests {
         let merged: Vec<_> = rows(
             "工\ta\t20\n咪\tko\t61900000\r\n",
             None,
-            &Frequencies::parse(["咪\tmi\t5000\n"]),
+            &Frequencies::parse(["咪\tmi\t5000\n"], &PinyinCuration::default()),
         )
         .collect();
         assert_eq!(merged[1], Some(("ko".into(), "咪", 61900000)));
@@ -390,10 +406,13 @@ mod tests {
     /// 在拼音库的词频上差距悬殊时，rime-wubi 的行越过同码排在最后的那几行极点行：的话 是 魅族 的一百多倍，排到首位（魅族 的权重 20 加 1）；式 只是 葚 的 6.6 倍，只越过 匞（权重 10 加 1）；考量 只是 老师 的 1.24 倍，一行也不越；词频不到 100 的不越，哪怕极点行没有词频；上游 0 权重的不越。
     #[test]
     fn rime_wubi_rows_pass_jidian_rows_far_rarer_in_the_pinyin_tables() {
-        let frequencies = Frequencies::parse([
-            "的话\tde'hua\t6317143\n魅族\tmei'zu\t47398\n鬼话\tgui'hua\t30000\n",
-            "式\tshi\t66000\n葚\tshen\t10000\n葚\tren\t1\n考量\tkao'liang\t124\n老师\tlao'shi\t100\n教师\tjiao'shi\t100\n冷字\tleng'zi\t99\n部首\tbu'shou\t100000\n",
-        ]);
+        let frequencies = Frequencies::parse(
+            [
+                "的话\tde'hua\t6317143\n魅族\tmei'zu\t47398\n鬼话\tgui'hua\t30000\n",
+                "式\tshi\t66000\n葚\tshen\t10000\n葚\tren\t1\n考量\tkao'liang\t124\n老师\tlao'shi\t100\n教师\tjiao'shi\t100\n冷字\tleng'zi\t99\n部首\tbu'shou\t100000\n",
+            ],
+            &PinyinCuration::default(),
+        );
         let jidian = "魅族\trqyt\t20\n鬼话\trqyt\t10\n葚\taad\t20\n匞\taad\t10\n老师\tftjg\t20\n教师\tftjg\t10\n甲\tabcd\t10\n";
         let rime_wubi = "的话\trqyt\t197000000\r\n式\taad\t5000000\r\n考量\tftjg\t300000\r\n冷字\tabcd\t9000000\r\n部首\tabcd\t0\r\n";
         let tail: Vec<_> = rows(jidian, Some(rime_wubi), &frequencies)
@@ -414,7 +433,10 @@ mod tests {
     /// 越过的几行之前那一行与它们同权重时，权重分不出两行，就少越过一行；越过的位置看的是引擎的次序，不是文件里的先后。
     #[test]
     fn a_lifted_row_stops_at_a_tie() {
-        let frequencies = Frequencies::parse(["常用\tchang'yong\t100000\n甲\tjia\t100000\n"]);
+        let frequencies = Frequencies::parse(
+            ["常用\tchang'yong\t100000\n甲\tjia\t100000\n"],
+            &PinyinCuration::default(),
+        );
         let lift = |jidian: &[(i64, &str)]| lifted(jidian, 100000, &frequencies);
         assert_eq!(lift(&[(30, "甲"), (20, "乙"), (10, "丙")]), Some(21));
         assert_eq!(lift(&[(30, "乙"), (20, "丙")]), Some(31));
@@ -429,6 +451,40 @@ mod tests {
         .skip(2)
         .collect();
         assert_eq!(tail, [Some(("abcd".into(), "常用", 11))]);
+    }
+
+    /// 词频按 curation 读，与五笔补充表生成器排序用的一样：第四列写了 `wubi` 的频率修正换成修正后的值（斯基 在 rime-ice 里是 77245，本地损坏，修正为 2，于是不再越过 苦苦），否决的读音不算（鬼话 只剩 gui'hua 的 100，的话 照样越过它）；没写 `wubi` 的覆盖是相对全拼同键的降权，不理（的话 压到 1 也照样越过 魅族）。
+    #[test]
+    fn frequencies_follow_the_wubi_view_of_the_curation_tables() {
+        let source = "斯基\tsi'ji\t77245\n苦苦\tku'ku\t5400\n的话\tde'hua\t6317143\n魅族\tmei'zu\t47398\n鬼话\tgui'hua\t100\n鬼话\tgui'huo\t9000000\n";
+        let jidian = "苦苦\tadad\t10\n魅族\trqyt\t20\n鬼话\trqyt\t10\n";
+        let rime_wubi = "斯基\tadad\t7840000\r\n的话\trqyt\t197000000\r\n";
+        let tail = |curation: &PinyinCuration| -> Vec<_> {
+            rows(
+                jidian,
+                Some(rime_wubi),
+                &Frequencies::parse([source], curation),
+            )
+            .skip(3)
+            .collect()
+        };
+        assert_eq!(
+            tail(&PinyinCuration::default()),
+            [
+                Some(("adad".into(), "斯基", 11)),
+                Some(("rqyt".into(), "的话", RIME_WUBI_WEIGHT)),
+            ]
+        );
+        let curation =
+            PinyinCuration::parse("鬼话\tgui'huo\n", "斯基\tsi'ji\t2\twubi\n的话\tde'hua\t1\n")
+                .unwrap();
+        assert_eq!(
+            tail(&curation),
+            [
+                Some(("adad".into(), "斯基", RIME_WUBI_WEIGHT)),
+                Some(("rqyt".into(), "的话", 21)),
+            ]
+        );
     }
 
     /// 不含汉字的行降到同码下一行的权重：片假名整组从 30、20、10 落到 10，按 rowid 保持原来的先后；夹在汉字行之间的符号（♩ 在 音符 与 童稚 之间）只降到下一行的权重，同码次序不变；首位的符号（Apple）也一样；含汉字的行（T恤）不算符号；0 权重的部首和旧布局都不动。
@@ -579,7 +635,7 @@ mod tests {
             files.inputs(),
             [(JIDIAN, before.path().join(JIDIAN).as_path())]
         );
-        let texts = files.read().unwrap();
+        let texts = files.read(&PinyinCuration::default()).unwrap();
         assert_eq!(
             texts.rows().flatten().map(|row| row.2).collect::<Vec<_>>(),
             [20, 61900000]
@@ -599,7 +655,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             [&[JIDIAN, RIME_WUBI][..], &FREQUENCY_TABLES].concat()
         );
-        let texts = files.read().unwrap();
+        let texts = files.read(&PinyinCuration::default()).unwrap();
         assert_eq!(
             texts.rows().flatten().map(|row| row.2).collect::<Vec<_>>(),
             [20, RIME_WUBI_WEIGHT]

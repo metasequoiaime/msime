@@ -10,7 +10,7 @@ use msime_engine::format::{
 };
 use rusqlite::{params, Connection, OptionalExtension};
 
-use crate::curation::PinyinVetoes;
+use crate::curation::{PinyinCuration, PinyinVetoes};
 use crate::sqlite;
 use crate::text;
 use crate::wubi86_table;
@@ -497,14 +497,14 @@ fn write_code_table<'a>(
 /// msime-dictionary 手工维护的 86 五笔词条（`value<TAB>code<TAB>weight`，只追加），例如挂在 一…十 的五笔码上的 ①…⑩。构建时接在极点表和生成补充表之后，没有这个文件的 checkout 按空表构建。
 pub const CUSTOM_WUBI86: &str = "custom/wubi86.txt";
 
-/// 按 86 原表（[`wubi86_table::Files`]：极点表，新布局下再加 rime-wubi 的行，权重按 [`wubi86_table::rows`] 换算）、`later`（生成补充表、手工词条 [`CUSTOM_WUBI86`]，有的话）、原表里权重为 0 的行的顺序构建 `wubi86`；provider 对同权重候选按 rowid 排序，因此后面来源中同码同权重的行排在前面来源之后。基本区以外的字符、Unicode 私用区字符和兼容汉字不写入词库，`vetoes` 整词否决的词也不写入。返回导入、跳过（空行、注释或无效行）、过滤和否决的行数。
+/// 按 86 原表（[`wubi86_table::Files`]：极点表，新布局下再加 rime-wubi 的行，权重按 [`wubi86_table::rows`] 换算，比的词频按 `curation` 读）、`later`（生成补充表、手工词条 [`CUSTOM_WUBI86`]，有的话）、原表里权重为 0 的行的顺序构建 `wubi86`；provider 对同权重候选按 rowid 排序，因此后面来源中同码同权重的行排在前面来源之后。基本区以外的字符、Unicode 私用区字符和兼容汉字不写入词库，`curation` 拼音否决表里整词否决的词也不写入。返回导入、跳过（空行、注释或无效行）、过滤和否决的行数。
 pub fn build_wubi(
     connection: &mut Connection,
     table: &wubi86_table::Files,
     later: &[&Path],
-    vetoes: &PinyinVetoes,
+    curation: &PinyinCuration,
 ) -> Result<(usize, usize, usize, usize)> {
-    let table = table.read()?;
+    let table = table.read(curation)?;
     let later = later
         .iter()
         .map(|path| text::read(path))
@@ -528,7 +528,8 @@ pub fn build_wubi(
             }
             row => Some(row),
         });
-    let (imported, skipped, vetoed) = write_code_table(connection, &WUBI86, rows, vetoes)?;
+    let (imported, skipped, vetoed) =
+        write_code_table(connection, &WUBI86, rows, &curation.vetoes)?;
     Ok((imported, skipped, filtered, vetoed))
 }
 
@@ -1385,7 +1386,7 @@ mod tests {
                 &mut connection,
                 &merged(wubi),
                 &[],
-                &PinyinVetoes::default()
+                &PinyinCuration::default()
             )
             .unwrap(),
             (2, 0, 5, 0)
@@ -1404,7 +1405,8 @@ mod tests {
     #[test]
     fn wubi_tables_leave_out_whole_word_vetoes() {
         let dir = tempfile::tempdir().unwrap();
-        let vetoes = PinyinVetoes::parse("傻逼\n").unwrap();
+        let curation = PinyinCuration::parse("傻逼\n", "").unwrap();
+        let vetoes = &curation.vetoes;
         let wubi = write(
             dir.path(),
             "wubi.txt",
@@ -1412,7 +1414,7 @@ mod tests {
         );
         let mut connection = Connection::open_in_memory().unwrap();
         assert_eq!(
-            build_wubi(&mut connection, &merged(wubi), &[], &vetoes).unwrap(),
+            build_wubi(&mut connection, &merged(wubi), &[], &curation).unwrap(),
             (2, 0, 0, 1)
         );
         let mut bytes = vec![0xff, 0xfe];
@@ -1425,7 +1427,7 @@ mod tests {
         std::fs::write(&primary, bytes).unwrap();
         let generated = write(dir.path(), "wubi98-supplement.txt", "傻逼\twtgm\t1\n");
         assert_eq!(
-            build_wubi98_sources(&mut connection, &primary, &[], &[&generated], &vetoes).unwrap(),
+            build_wubi98_sources(&mut connection, &primary, &[], &[&generated], vetoes).unwrap(),
             (1, 0, 2)
         );
         for table in ["wubi86", "wubi98"] {
@@ -1460,7 +1462,7 @@ mod tests {
                 frequency_tables: Vec::new(),
             },
             &[&supplement],
-            &PinyinVetoes::default(),
+            &PinyinCuration::default(),
         )
         .unwrap();
         let order: Vec<(String, i64)> = connection
@@ -1520,7 +1522,7 @@ mod tests {
                 &mut connection,
                 &split,
                 &[&supplement],
-                &PinyinVetoes::default()
+                &PinyinCuration::default()
             )
             .unwrap(),
             (5, 0, 2, 0)
@@ -1558,7 +1560,7 @@ mod tests {
             &mut connection,
             &merged(whole),
             &[],
-            &PinyinVetoes::default(),
+            &PinyinCuration::default(),
         )
         .unwrap();
         assert_eq!(order(&connection)[0], ("咪".to_owned(), 61900000));
@@ -1578,7 +1580,7 @@ mod tests {
                 &mut connection,
                 &merged(wubi),
                 &[],
-                &PinyinVetoes::default()
+                &PinyinCuration::default()
             )
             .unwrap(),
             (3, 4, 0, 0)

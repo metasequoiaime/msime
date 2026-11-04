@@ -681,7 +681,7 @@ fn build_wubi86_supplement(arguments: &Wubi86Supplement) -> Result<()> {
     let wubi98 = msime::decode_utf16le(&crate::sources::read_private(&wubi98_path)?)
         .with_context(|| format!("decoding {}", wubi98_path.display()))?;
     let wubi86 = wubi86_table::Files::locate(&sources)?;
-    let table = wubi86.read()?;
+    let table = wubi86.read(&curation)?;
     let (wubi98_fcitx, base) = (
         read(wubi86_supplement::WUBI98_FCITX)?,
         read(wubi86_supplement::BASE)?,
@@ -776,13 +776,10 @@ fn build_wubi86_helpcode(arguments: &Wubi86Helpcode) -> Result<()> {
         offline: true,
         dictionary: Some(dictionary),
     };
-    let wubi86 = wubi86_table::Files::locate(&sources)?;
-    let table = wubi86.read()?;
-    let helpcode = wubi86_helpcode::build(
-        &table.jidian,
-        table.rime_wubi.as_deref(),
-        &table.frequencies,
-    )?;
+    // 只看编码、不看权重，所以不找拼音的词频表，表头只记两个 86 文件。
+    let wubi86 = wubi86_table::Files::locate_codes(&sources)?;
+    let table = wubi86.read(&curation::PinyinCuration::default())?;
+    let helpcode = wubi86_helpcode::build(&table.jidian, table.rime_wubi.as_deref())?;
     // 表头里的 SHA-256 按实际读到的字节计算。
     let digests = wubi86.digests()?;
     let inputs: Vec<(&str, &str)> = digests
@@ -839,7 +836,7 @@ fn build_wubi98_supplement(arguments: &Wubi98Supplement) -> Result<()> {
     let wubi98 = msime::decode_utf16le(&crate::sources::read_private(&wubi98_path)?)
         .with_context(|| format!("decoding {}", wubi98_path.display()))?;
     let wubi86 = wubi86_table::Files::locate(&sources)?;
-    let table = wubi86.read()?;
+    let table = wubi86.read(&curation)?;
     let (wubi98_fcitx, base) = (
         read(wubi98_supplement::WUBI98_FCITX)?,
         read(wubi98_supplement::BASE)?,
@@ -944,7 +941,7 @@ fn build_wubixsj_supplement(arguments: &WubiXsjSupplement) -> Result<()> {
     let wubi98 = msime::decode_utf16le(&crate::sources::read_private(&wubi98_path)?)
         .with_context(|| format!("decoding {}", wubi98_path.display()))?;
     let wubi86 = wubi86_table::Files::locate(&sources)?;
-    let table = wubi86.read()?;
+    let table = wubi86.read(&curation)?;
     let (wubixsj, wubi98_fcitx, base) = (
         read(wubixsj_supplement::WUBIXSJ)?,
         read(wubixsj_supplement::WUBI98_FCITX)?,
@@ -1726,15 +1723,15 @@ impl Build {
                 let custom = self.sources.optional(msime::CUSTOM_WUBI86)?;
                 let mut later = vec![supplement.as_path()];
                 later.extend(custom.as_deref());
-                let vetoes = curation::PinyinCuration::load(&self.sources)?.vetoes;
+                let curation = curation::PinyinCuration::load(&self.sources)?;
                 let mut connection = self.database("msime-pinyin.db")?;
                 let (imported, skipped, filtered, vetoed) =
-                    msime::build_wubi(&mut connection, &table, &later, &vetoes)?;
+                    msime::build_wubi(&mut connection, &table, &later, &curation)?;
                 let offensive = self.place_offensive_last_in_wubi(&mut connection, "wubi86")?;
                 Ok(format!(
                     "{imported} rows imported, {skipped} skipped, {filtered} unsupported Wubi values left out, {vetoed} vetoed{offensive}; {}{}",
                     if table.rime_wubi.is_some() {
-                        format!("{} at weight {} unless over {} times as frequent in {} as the last jidian rows of the code, which it then passes (rows upstream weighs 0 stay at 0, after the supplement; phrases {} already codes left out); rows without a Han character lowered to the next row of their code", wubi86_table::RIME_WUBI, wubi86_table::RIME_WUBI_WEIGHT, wubi86_table::LIFT_RATIO, wubi86_table::FREQUENCY_TABLES.join(", "), wubi86_table::JIDIAN)
+                        format!("{} at weight {} unless over {} times as frequent in {} (read with {} and the {:?}-scoped rows of {}) as the last jidian rows of the code, which it then passes (rows upstream weighs 0 stay at 0, after the supplement; phrases {} already codes left out); rows without a Han character lowered to the next row of their code", wubi86_table::RIME_WUBI, wubi86_table::RIME_WUBI_WEIGHT, wubi86_table::LIFT_RATIO, wubi86_table::FREQUENCY_TABLES.join(", "), curation::PINYIN_VETOES, curation::WUBI_SCOPE, curation::PINYIN_WEIGHT_OVERRIDES, wubi86_table::JIDIAN)
                     } else {
                         format!("no {} in the checkout, so {} is read as one table", wubi86_table::RIME_WUBI, wubi86_table::JIDIAN)
                     },
@@ -2664,7 +2661,7 @@ mod tests {
         assert_eq!(rows, [("甲".to_owned(), 100), ("①".to_owned(), 1)]);
     }
 
-    /// 拆分之后的 checkout：86 原表是极点表加 `wubi86-rime-wubi.txt`，两者都按 `upstream.lock.json` 校验；rime-wubi 的行（乙乙乙 带着五百万的词频）按 10 写入，排在同码极点行之后、补充行之前，整词否决、三张表的补充词照常。拼音库词频（地名表里 5000）是同码极点行 甲（rime-ice 里 100）十倍以上的 甲甲 排到它之前，新世纪表的第一层带着同样的权重。记录列了极点表而 rime-wubi 文件丢了时，Wubi 阶段报错。
+    /// 拆分之后的 checkout：86 原表是极点表加 `wubi86-rime-wubi.txt`，两者都按 `upstream.lock.json` 校验；rime-wubi 的行（乙乙乙 带着五百万的词频）按 10 写入，排在同码极点行之后、补充行之前，整词否决、三张表的补充词照常。拼音库词频（地名表里 5000）是同码极点行 甲（rime-ice 里 100）十倍以上的 甲甲 排到它之前；新世纪表的第一层不带这个越过之后的权重，甲甲 的新世纪码 `qrqr` 上没有单字可越过，取不比词频的 10。记录列了极点表而 rime-wubi 文件丢了时，Wubi 阶段报错。
     #[test]
     fn the_split_86_layout_ranks_rime_wubi_rows_below_jidian_rows() {
         let (temporary, dictionary, out, _) = wubi_fixture(XsjCheckout::Published);
@@ -2768,8 +2765,8 @@ mod tests {
             .map(Result::unwrap)
             .collect();
         assert_eq!(rows, [("乙".to_owned(), 100), ("乙乙乙".to_owned(), 10)]);
-        // 新世纪表的第一层沿用换算后的权重；甲乙 照常由补充表给出 86 词组码。
-        for (word, weight) in [("甲甲", 101), ("乙乙乙", 10)] {
+        // 新世纪表的第一层取不比词频的换算权重，86 表里越过 甲 的 101 不带过来；甲乙 照常由补充表给出 86 词组码。
+        for (word, weight) in [("甲甲", 10), ("乙乙乙", 10)] {
             assert_eq!(
                 db.query_row(
                     "SELECT max(weight) FROM wubixsj WHERE value=?1",
