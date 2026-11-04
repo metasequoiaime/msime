@@ -1164,6 +1164,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       KeyboardSession.shared.useVoiceContext(this.context);
       // 在该上下文的目录中读取内置音效包并写入变调音符。
       KeyboardSession.shared.useSoundContext(this.context);
+      // 随包的逐键重排模型解压在 resourceDir/rerank-model-small，会话从那里加载，不复制。
+      KeyboardSession.shared.useRerankModels(this.context.resourceDir);
       // 随包的水杉娘表情包也解压在 resourceDir 下。
       KeyboardSession.shared.mascotStickers.use(this.context.resourceDir);
       const started: boolean = KeyboardSession.shared.start(resources, state, systemDark);

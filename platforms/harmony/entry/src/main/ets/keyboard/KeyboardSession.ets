@@ -1237,6 +1237,8 @@ interface PreparedOptions {
    * 是一个决定，只做一半就等于把用户已经选中的字藏起来。
    */
   phrase_preedit?: boolean;
+  /** 放逐键重排 ONNX 模型（`rerank-model-small/`）的目录，见 `useRerankModels`。 */
+  rerank_models?: string;
 }
 
 interface TypingEffectSettingsResponse {
@@ -1484,6 +1486,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   private stateDirectory: string = '';
   /** 扩展上下文的 `tempDir`，见 `useVoiceContext`。 */
   private voiceScratchDirectory: string = '';
+  /** 扩展上下文的 `resourceDir`，HAP 的 resfile 解压在那里，见 `useRerankModels`。 */
+  private rerankModelsDirectory: string = '';
   // 共享沙箱里与设置应用交换状态的镜像，没有共享目录时为 null；`sharedFullMode` 报告键盘此刻是否处于完整体验模式，只有那时键盘才能写共享目录。
   private sharedMirror: SharedStateMirror | null = null;
   private sharedFullMode: () => boolean = (): boolean => false;
@@ -2129,6 +2133,9 @@ export class KeyboardSession implements HardwareKeyTarget {
       }
       const requested: PreparedOptions = prepared.value;
       requested.phrase_preedit = true;
+      if (this.rerankModelsDirectory.length > 0) {
+        requested.rerank_models = this.rerankModelsDirectory;
+      }
       // 隐私模式下以关闭学习的方式构建会话，与 Android 的 `restartSessionForPrivacy` 相同：只改会话的副本，存储的文档保留用户自己的开关。
       if (this.feedbackCurrent.incognito) {
         requested.preferences.learning = false;
@@ -8010,6 +8017,13 @@ export class KeyboardSession implements HardwareKeyTarget {
   useVoiceContext(context: common.Context): void {
     this.voiceBehaviour.use(context);
     this.voiceScratchDirectory = context.tempDir;
+  }
+
+  /**
+   * 整句联想「增强」逐键重排的 ONNX 模型随 HAP 带在 resfile/rerank-model-small，安装时解压到扩展上下文的 `resourceDir`。host-api 默认在随包资源目录的上一级找模型，而这里的资源目录是复制到 `filesDir/engine` 的那份（SQLite 打不开只读的安装目录），上一级是 `filesDir`，找不到；所以建会话时在 HostOptions 的 `rerank_models` 里写明 `resourceDir`，与 Windows 的 Server 写自己的安装目录相同。只改会话的副本，不写回准备好的选项文件。
+   */
+  useRerankModels(directory: string): void {
+    this.rerankModelsDirectory = directory;
   }
 
   /** The extension's context, which says where the built-in sound packs are and where rendered notes may go. */

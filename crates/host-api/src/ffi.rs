@@ -210,7 +210,7 @@ pub(crate) fn sentence_model_path(resources: &str, configured: Option<&str>) -> 
 ///
 /// 这个开关默认开（见 `.agents/notes/implemented/feature/2026-11-02-keystroke-reranker-default-on.md`），所以挂不挂由这台设备跑不跑得进逐键预算决定，而不是由开关决定：模型跑在每一次 `character` 调用里、就在宿主打字的线程上，跑不进预算时快打会落后、丢键（2026-10 安卓上的事故）。挂上之前先用 [`KEYSTROKE_RERANK_LIMIT_MS`] 量它打一页重负载，超过就不挂，诊断写 `keyboard reranker over budget`，这台设备上「增强」与「标准」相同。开关关着时模型根本不加载。
 ///
-/// 编译时打开了 `onnx-rerank`、随包资源目录旁边又有 [`RERANK_MODEL_DIRECTORY`] 时用那个模型（ONNX Runtime 后端，大小两档按自测速度选，见 [`OnnxRerankers::attach`]）；ONNX 模型在但连小的也超过上限时不再退到随包的句子模型——它在同一台设备上只会更慢（Pixel 3 XL 上 6x256 一页约 10 ms，随包 `model-v1` 约 60 ms）。ONNX 模型一个都读不了、或者本来就没有时（HarmonyOS、32 位安卓、Win7 这些没有 ONNX Runtime 产物的构建），用随包的句子模型，同样先量（[`bundled_keyboard_reranker`]）。`bundle` 是随包资源目录（`EngineOptions::helpcode_fallback_resources`）：`resources` 换成下载的词库代次时，ONNX 模型仍在安装包里，按它去找；为 `None` 时 `resources` 本身就是随包的那个。`sound_packs` 是会话的内置音效包目录（[`crate::key_sound::PluginRoots::builtin_sounds`]），资源目录旁边没有模型时按它找安装目录，见 [`rerank_models_root`]。`models` 是宿主指明的模型目录（HostOptions 的 `rerank_models`），给了就只在那里找，不再按资源目录推。安装包没带模型时（Android）再看 `state_root` 下有没有装好的 `rerank-model-small` 资源包，见 [`rerank_models_root`]。
+/// 编译时打开了 `onnx-rerank`、随包资源目录旁边又有 [`RERANK_MODEL_DIRECTORY`] 时用那个模型（ONNX Runtime 后端，大小两档按自测速度选，见 [`OnnxRerankers::attach`]）；ONNX 模型在但连小的也超过上限时不再退到随包的句子模型——它在同一台设备上只会更慢（Pixel 3 XL 上 6x256 一页约 10 ms，随包 `model-v1` 约 60 ms）。ONNX 模型一个都读不了、或者本来就没有时（32 位的安卓与鸿蒙、Win7 这些没有 ONNX Runtime 产物的构建），用随包的句子模型，同样先量（[`bundled_keyboard_reranker`]）。`bundle` 是随包资源目录（`EngineOptions::helpcode_fallback_resources`）：`resources` 换成下载的词库代次时，ONNX 模型仍在安装包里，按它去找；为 `None` 时 `resources` 本身就是随包的那个。`sound_packs` 是会话的内置音效包目录（[`crate::key_sound::PluginRoots::builtin_sounds`]），资源目录旁边没有模型时按它找安装目录，见 [`rerank_models_root`]。`models` 是宿主指明的模型目录（HostOptions 的 `rerank_models`，Windows 的 Server 和鸿蒙的键盘写它），给了就只在那里找，不再按资源目录推。安装包没带模型时（Android）再看 `state_root` 下有没有装好的 `rerank-model-small` 资源包，见 [`rerank_models_root`]。
 ///
 /// 开关打开时写一行诊断，说挂上的是哪一个、或者为什么没挂（见 [`report_keyboard_reranker`]）。
 pub(crate) fn keyboard_reranker(
@@ -309,7 +309,7 @@ fn bundled_calibration(path: &Path, model: &Arc<SentenceModel>) -> f64 {
         .or_insert_with(|| calibrate_bundled(model))
 }
 
-/// 随包句子模型（`model-v1`，纯 Rust 参考实现）当逐键重排器：先量这台设备上它打一页重负载要多久，不超过 `limit_ms` 才挂。没有 ONNX Runtime 的构建（HarmonyOS、32 位安卓、Win7）和还没带上 ONNX 模型的宿主走这里；Mac 上一页约 6 ms，挂；Pixel 3 XL 上约 60 ms，不挂。
+/// 随包句子模型（`model-v1`，纯 Rust 参考实现）当逐键重排器：先量这台设备上它打一页重负载要多久，不超过 `limit_ms` 才挂。没有 ONNX Runtime 的构建（32 位的安卓与鸿蒙、Win7）和还没带上 ONNX 模型的宿主走这里；Mac 上一页约 6 ms，挂；Pixel 3 XL 上约 60 ms，不挂。
 pub(crate) fn bundled_keyboard_reranker(
     resources: &str,
     configured: Option<&str>,
