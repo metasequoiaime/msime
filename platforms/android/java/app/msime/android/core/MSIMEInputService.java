@@ -7786,6 +7786,8 @@ public final class MSIMEInputService extends InputMethodService {
                 && modeSkinLibrary.stream().noneMatch(item -> libraryId.equals(item.id()))) {
             java.util.List<CustomSkinLibrary.Item> library = new java.util.ArrayList<>(modeSkinLibrary);
             library.add(new CustomSkinLibrary.Item(libraryId, libraryId, design));
+            // 让还没返回的设计库读取作废：它的回调会用不含这一项的磁盘结果和保存前的 preferencesSnapshot 重算四块面板，在保存往返期间把它们一起退回旧皮肤。
+            ++modeSkinLibraryGeneration;
             modeSkinLibrary = java.util.List.copyOf(library);
         }
         emojiSkin = surfaceSkin(preferences, "emoji_theme");
@@ -7871,6 +7873,8 @@ public final class MSIMEInputService extends InputMethodService {
             emojiSkin = surfaceSkin(accepted, "emoji_theme");
             handwritingSkin = surfaceSkin(accepted, "handwriting_theme");
             candidateAppearance = candidateAppearanceFor(accepted);
+            // 保存时作废过还没返回的设计库读取，失败后按已接受的偏好重读一次，读完回调会再按库重算四块面板。
+            if (accepted != null) refreshModeSkinLibrary(accepted);
             showKeyboardSkinStatus("皮肤切换失败，已恢复原皮肤");
         }
         imeStyler.applySkin();
