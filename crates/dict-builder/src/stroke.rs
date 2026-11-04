@@ -58,8 +58,8 @@ pub const CEILINGS: Ceilings = Ceilings {
     characters: 29_500,
 };
 
-/// 这些前缀的前 `within` 个补全里必须有对应的繁体字，`within` 不超过引擎读的 `COMPLETION_LIMIT`，守住繁体字从简体字继承的权重：不继承时 時 在 szhh 下排第 595、國 在 szhs 下排第 190，都在引擎读的范围之外。
-pub const EXPECTED_COMPLETIONS: [Expected; 4] = [
+/// 这些前缀的前 `within` 个补全里必须有对应的繁体字，`within` 不超过引擎读的 `COMPLETION_LIMIT`，守住繁体字从简体字继承的权重：不继承时 時 在 szhh 下排第 595、國 在 szhs 下排第 190，都在引擎读的范围之外。著 守住「简体字本身就是 OpenCC 繁体字形、只有台湾写法不同」的继承（着 → 著）：只按 `STCharacters.txt` 继承时 著 只有自身的 32697 分，在 hsshs 下被继承了权重的 難、藍、葉 挤到第 8 位，继承 着 的四分之一后排第 3。
+pub const EXPECTED_COMPLETIONS: [Expected; 5] = [
     Expected {
         key: "szhh",
         texts: &["時"],
@@ -79,6 +79,11 @@ pub const EXPECTED_COMPLETIONS: [Expected; 4] = [
         key: "nhsz",
         texts: &["裏"],
         within: 10,
+    },
+    Expected {
+        key: "hsshs",
+        texts: &["著"],
+        within: 5,
     },
 ];
 
