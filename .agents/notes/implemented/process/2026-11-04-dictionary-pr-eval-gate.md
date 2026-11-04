@@ -42,4 +42,4 @@ msime 侧是 `scripts/dict_eval_gate.py`，测试是 `scripts/test-dict-eval-gat
 ## Verification
 
 - `python3 scripts/test-dict-eval-gate.py`：五道门槛各自的判定、全拼表名和行数下限与 `format.rs`、`product.rs` 一致、评测集都已归类，并用假的 `convert_eval` 端到端跑通过、门槛失败、跑不完三种退出码。
-- 词库分支 `cleanse-data/eval-gate-ci` 上用分支推送临时触发（workflow 还不在 main 上，`workflow_dispatch` 不能用），msime 指向 `cleanse/eval-gate-ci`：https://github.com/metasequoiaime/msime-dictionary/actions/runs/41830735038 全部通过；基线 dict-v2.0.56，金标准对 B、C 各 24851 对，must-outrank 6 行里 5 行两边都失败，全拼粗俗首屏 6 → 6、九键 0 → 0，v2 六组 fixed/broken 全是 0，全拼 953736 行。
+- 词库分支 `cleanse-data/eval-gate-ci` 上用分支推送临时触发（workflow 还不在 main 上，`workflow_dispatch` 不能用），msime 指向 `cleanse/eval-gate-ci`：https://github.com/metasequoiaime/msime-dictionary/actions/runs/41830735038 （msime `c0ef194171`）和 rebase 到 main 之后的 https://github.com/metasequoiaime/msime-dictionary/actions/runs/41833821442 （msime `51b40d84e8`，同时核对了候选清单的 `source.commit` 和 `custom_dictionary_commit`）都全部通过，作业分别 15 分 50 秒和 16 分 4 秒；基线 dict-v2.0.56，金标准对 B、C 各 24851 对，must-outrank 6 行里 5 行两边都失败，全拼粗俗首屏 6 → 6、九键 0 → 0，v2 六组 fixed/broken 全是 0，全拼 953736 行。
