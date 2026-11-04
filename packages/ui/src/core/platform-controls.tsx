@@ -644,7 +644,7 @@ export function PickerRow({
     >
       {disabled && description ? (
         // 变灰的行点不开选项面板，说明就只剩「?」这一处能看到，而它往往正好在讲这一项为什么现在不能用。所以这时整行不做成按钮（按钮里不能再嵌按钮，被禁用的按钮也点不到里面的东西），「?」和 `Row` 一样放在标题旁。
-        <div className={style.pickerRowDisabled} aria-disabled="true">
+        <div className={style.pickerRowDisabled}>
           <span className={style.rowText}>
             <span className={style.rowTitleLine}>
               <span id={titleId} className={style.rowTitle} data-row-title="">

@@ -315,7 +315,7 @@ test("on the HarmonyOS phone a disabled select or segmented row still opens its 
     ["联想栏按键", "先打开上屏后联想", "显示"],
   ]) {
     // 行变灰时不再是能点开选项面板的按钮，标题和当前值照常显示。
-    const row = screen.getByText(title).closest("[aria-disabled='true']") as HTMLElement;
+    const row = screen.getByText(title).closest("div") as HTMLElement;
     expect(row).toBeTruthy();
     expect(row.querySelector("[aria-haspopup]")).toBeNull();
     expect(within(row).getByText(value)).toBeTruthy();
@@ -324,6 +324,7 @@ test("on the HarmonyOS phone a disabled select or segmented row still opens its 
     // 「?」不在被禁用的元素里，点开后说明出现在气泡里。
     const tip = within(row).getByRole("button", { name: `${title}的说明：${description}` });
     expect((tip as HTMLButtonElement).disabled).toBe(false);
+    expect(tip.closest('[aria-disabled="true"]')).toBeNull();
     expect(screen.getAllByText(description)).toHaveLength(1);
     fireEvent.click(tip);
     expect(tip.getAttribute("aria-expanded")).toBe("true");
