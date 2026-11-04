@@ -497,7 +497,7 @@ fn write_code_table<'a>(
 /// msime-dictionary 手工维护的 86 五笔词条（`value<TAB>code<TAB>weight`，只追加），例如挂在 一…十 的五笔码上的 ①…⑩。构建时接在极点表和生成补充表之后，没有这个文件的 checkout 按空表构建。
 pub const CUSTOM_WUBI86: &str = "custom/wubi86.txt";
 
-/// 按 86 原表（[`wubi86_table::Files`]：极点表，新布局下再加 rime-wubi 的行，权重按 [`wubi86_table::rows`] 换算）、`later`（生成补充表、手工词条 [`CUSTOM_WUBI86`]，有的话）的顺序构建 `wubi86`；provider 对同权重候选按 rowid 排序，因此后面来源中同码同权重的行排在前面来源之后。基本区以外的字符、Unicode 私用区字符和兼容汉字不写入词库，`vetoes` 整词否决的词也不写入。返回导入、跳过（空行、注释或无效行）、过滤和否决的行数。
+/// 按 86 原表（[`wubi86_table::Files`]：极点表，新布局下再加 rime-wubi 的行，权重按 [`wubi86_table::rows`] 换算）、`later`（生成补充表、手工词条 [`CUSTOM_WUBI86`]，有的话）、原表里权重为 0 的行的顺序构建 `wubi86`；provider 对同权重候选按 rowid 排序，因此后面来源中同码同权重的行排在前面来源之后。基本区以外的字符、Unicode 私用区字符和兼容汉字不写入词库，`vetoes` 整词否决的词也不写入。返回导入、跳过（空行、注释或无效行）、过滤和否决的行数。
 pub fn build_wubi(
     connection: &mut Connection,
     table: &wubi86_table::Files,
@@ -510,13 +510,17 @@ pub fn build_wubi(
         .map(|path| text::read(path))
         .collect::<Result<Vec<_>>>()?;
     let mut filtered = 0;
-    let rows = table
-        .rows()
+    // 原表里权重为 0 的行没有名次（会写入的只有 rime-wubi 给 12 个部首、部件的 0），挪到 `later` 之后写：同码、同权重时按 rowid 排，它们就排在同样是 0 的补充词之后。
+    let (unranked, ranked): (Vec<_>, Vec<_>) =
+        table.rows().partition(|row| matches!(row, Some((_, _, 0))));
+    let rows = ranked
+        .into_iter()
         .chain(later.iter().flat_map(|source| {
             text::universal_lines(text::without_bom(source))
                 .into_iter()
                 .map(|line| parse_code_line(line, false))
         }))
+        .chain(unranked)
         .filter_map(|row| match row {
             Some((_, value, _)) if unsupported_wubi_value(value) => {
                 filtered += 1;
@@ -1433,6 +1437,48 @@ mod tests {
                 .unwrap();
             assert_eq!(vetoed, 0, "{table}");
         }
+    }
+
+    /// 原表里权重为 0 的行（rime-wubi 给部首、部件的 0）写在补充表之后：同码时排在所有补充词之后，补充词同为 0 时也一样。
+    #[test]
+    fn wubi86_writes_zero_weight_rows_after_the_supplement() {
+        let dir = tempfile::tempdir().unwrap();
+        let jidian = write(dir.path(), "jidian.txt", "王\tgggg\t40\n");
+        let rime_wubi = write(dir.path(), "rime-wubi.txt", "龶\tgggg\t0\r\n");
+        let supplement = write(
+            dir.path(),
+            "supplement.txt",
+            "一一\tgggg\t9\n不一一\tgggg\t0\n",
+        );
+        let mut connection = Connection::open_in_memory().unwrap();
+        build_wubi(
+            &mut connection,
+            &wubi86_table::Files {
+                jidian,
+                rime_wubi: Some(rime_wubi),
+            },
+            &[&supplement],
+            &PinyinVetoes::default(),
+        )
+        .unwrap();
+        let order: Vec<(String, i64)> = connection
+            .prepare(
+                "select value, weight from wubi86 where key = 'gggg' order by weight desc, rowid",
+            )
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(
+            order,
+            [
+                ("王".to_owned(), 40),
+                ("一一".to_owned(), 9),
+                ("不一一".to_owned(), 0),
+                ("龶".to_owned(), 0),
+            ]
+        );
     }
 
     /// 新布局下 rime-wubi 的行按 10 写入，排在同码极点行之后、补充行之前；兼容汉字（U+FA0C、U+FA11）不论来自哪个文件都不写入。旧布局读同样的字节时 rime-wubi 的行保留原来的权重，排到极点首选之前。

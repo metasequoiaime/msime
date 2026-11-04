@@ -697,7 +697,10 @@ fn build_wubi86_supplement(arguments: &Wubi86Supplement) -> Result<()> {
         &wubi86_supplement::Provenance {
             inputs: &inputs,
             generator_commit: &generator_commit,
-            upstreams: &wubi_supplement::upstreams(&sources.lock, &wubi_supplement::UPSTREAMS),
+            upstreams: &wubi_supplement::upstreams(
+                &sources.lock,
+                &[wubi86.references(), &wubi_supplement::UPSTREAMS].concat(),
+            ),
         },
     );
     std::fs::write(&arguments.out, rendered)
@@ -845,7 +848,10 @@ fn build_wubi98_supplement(arguments: &Wubi98Supplement) -> Result<()> {
         &wubi98_supplement::Provenance {
             inputs: &inputs,
             generator_commit: &generator_commit,
-            upstreams: &wubi_supplement::upstreams(&sources.lock, &wubi_supplement::UPSTREAMS),
+            upstreams: &wubi_supplement::upstreams(
+                &sources.lock,
+                &[wubi86.references(), &wubi_supplement::UPSTREAMS].concat(),
+            ),
         },
     );
     std::fs::write(&arguments.out, rendered)
@@ -949,7 +955,10 @@ fn build_wubixsj_supplement(arguments: &WubiXsjSupplement) -> Result<()> {
         &wubixsj_supplement::Provenance {
             inputs: &inputs,
             generator_commit: &generator_commit,
-            upstreams: &wubi_supplement::upstreams(&sources.lock, &wubixsj_supplement::UPSTREAMS),
+            upstreams: &wubi_supplement::upstreams(
+                &sources.lock,
+                &[wubi86.references(), &wubixsj_supplement::UPSTREAMS].concat(),
+            ),
         },
     );
     std::fs::write(&arguments.out, rendered)
@@ -1582,7 +1591,7 @@ impl Build {
                 Ok(format!(
                     "{imported} rows imported, {skipped} skipped, {filtered} unsupported Wubi values left out, {vetoed} vetoed{offensive}; {}{}",
                     if table.rime_wubi.is_some() {
-                        format!("{} at weight {}", wubi86_table::RIME_WUBI, wubi86_table::RIME_WUBI_WEIGHT)
+                        format!("{} at weight {} (rows upstream weighs 0 stay at 0, after the supplement; phrases {} already codes left out)", wubi86_table::RIME_WUBI, wubi86_table::RIME_WUBI_WEIGHT, wubi86_table::JIDIAN)
                     } else {
                         format!("no {} in the checkout, so {} is read as one table", wubi86_table::RIME_WUBI, wubi86_table::JIDIAN)
                     },
@@ -2444,6 +2453,31 @@ mod tests {
         );
         for stage in [Stage::Wubi98, Stage::WubiXsj] {
             build.run(stage).unwrap();
+        }
+        // 三份生成表的表头「上游」一行都列出两个 86 原表的上游提交。
+        for output in [
+            wubi86_supplement::OUTPUT,
+            wubi98_supplement::OUTPUT,
+            wubixsj_supplement::OUTPUT,
+        ] {
+            let rendered =
+                std::fs::read_to_string(out.join(Path::new(output).file_name().unwrap())).unwrap();
+            let upstreams = rendered
+                .lines()
+                .find(|line| line.starts_with("# 上游："))
+                .unwrap();
+            for name in [
+                wubi86_table::JIDIAN_REFERENCE,
+                wubi86_table::RIME_WUBI_REFERENCE,
+            ] {
+                assert!(
+                    upstreams.contains(&format!(
+                        "https://example.invalid/{name} 提交 {}",
+                        "a".repeat(40)
+                    )),
+                    "{output}: {upstreams}"
+                );
+            }
         }
         let db = rusqlite::Connection::open(out.join("msime-pinyin.db")).unwrap();
         let rows: Vec<(String, i64)> = db

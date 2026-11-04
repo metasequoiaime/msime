@@ -4,7 +4,7 @@
 //!
 //! 编码按 86 版词组规则，取每个字的全码，即极点码表里该字单独出现时最长的编码：二字词各取前两码；三字词取前两字的首码和第三字的前两码；更长的词取第一、二、三字和末字的首码。码表没有单独编码的字，或几个全码在词所需码位上不一致的字（部首和几百个生僻字），含它的词不收。在极点码表自己的词上，这套规则还原了 63,127 个编码中的 63,095 个；其余是码表自己的简码和拆法（占比 hxx、蹂躏 kcka）。
 //!
-//! 补充表从不移动极点码表的行。补充词在其编码下的权重低于该编码在极点码表里构建会写入的行的最低权重（扩展区、私用区和兼容汉字的行不算），并且不高于 `SUPPLEMENT_CEILING`，也就低于极点码表所有有排名的词（它们的最低权重是 10），所以在前缀列表里也排在它们之后。同一编码下的几个补充词按 rime-ice 权重从高到低、再按词排序，从这个上限起依次减 1，最低为 0；构建把本文件并在极点码表之后，所以同权重时极点码表的行在前，同一编码内保持本文件的顺序。原本四码只有一个极点词、输入法会自动上屏的编码，一旦有补充词共用就不再自动上屏；报告会统计这类编码。
+//! 补充表从不移动极点码表的行。补充词在其编码下的权重低于该编码在极点码表里构建会写入、且有名次的行的最低权重（扩展区、私用区和兼容汉字的行不写入，权重为 0 的行没有名次，都不算），并且不高于 `SUPPLEMENT_CEILING`；极点码表构建会写入的行除 蔻 `apfc`、个位数 `wwov` 两行是 5 以外都不低于 10，所以补充词在前缀列表里也排在它们之后。拆分之后 rime-wubi 的行按 `wubi86_table::rows` 换算，上游给 0 权重的部首、部件保持 0，排在同码补充词之后。同一编码下的几个补充词按 rime-ice 权重从高到低、再按词排序，从这个上限起依次减 1，最低为 0；构建把本文件并在极点码表之后，所以同权重时极点码表的行在前，同一编码内保持本文件的顺序。原本四码只有一个极点词、输入法会自动上屏的编码，一旦有补充词共用就不再自动上屏；报告会统计这类编码。
 
 use std::collections::{BTreeSet, HashSet};
 use std::fmt::Write as _;
@@ -30,7 +30,7 @@ pub const CUSTOM: &str = "custom/words.txt";
 /// 包含上游人工整理时使用的 100 权重词条；低权重的语料碎片不自动收录。
 pub const MIN_PINYIN_WEIGHT: i64 = 100;
 
-/// 补充行的最高权重：比极点码表有排名的词的最低权重低 1。
+/// 补充行的最高权重：比极点码表名次的最低一档 10 低 1。
 pub(crate) const SUPPLEMENT_CEILING: i64 = 9;
 
 /// 每行报告列出的示例个数。
@@ -79,6 +79,8 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
     }
     // 构建不把整词否决的词写进 wubi86，同码最低权重和全码也就不算它们。
     rows.retain(|(_, value, _)| !inputs.curation.vetoes_word(value));
+    // 权重为 0 的行没有名次（会写入的只有 rime-wubi 给 12 个部首、部件的 0，如 ⺻ vhgd），同码补充词应排在它们前面，所以同码最低权重不算它们；它们都是单字，不进对照的词集合，也不会成为哪个候选词所需的全码。
+    rows.retain(|(_, _, weight)| *weight > 0);
     let jidian_words: HashSet<&str> = rows
         .iter()
         .filter(|(_, value, _)| value.chars().count() >= 2)
@@ -231,7 +233,7 @@ pub fn report(supplement: &Supplement) -> Vec<String> {
 mod tests {
     use super::*;
 
-    const JIDIAN_FIXTURE: &str = "\u{feff}部\tukbh\t10\r\n门\tuyhn\t10\r\n冲\tukh\t10\r\n冲\tukhh\t10\r\n凉\tuyiy\t10\r\n冻\tuyaa\t10\r\n部门\tukuy\t10\r\n工\ta\t20\r\n工\taaaa\t20\r\n人\tw\t10\r\n人\twwww\t10\r\n民\tnav\t10\r\n民\tnavn\t10\r\n人民\twwna\t20\r\n艹\taghh\t0\r\n艹\tghgh\t0\r\n日\tjjjj\t10\r\n";
+    const JIDIAN_FIXTURE: &str = "\u{feff}部\tukbh\t10\r\n门\tuyhn\t10\r\n冲\tukh\t10\r\n冲\tukhh\t10\r\n凉\tuyiy\t10\r\n冻\tuyaa\t10\r\n部门\tukuy\t10\r\n工\ta\t20\r\n工\taaaa\t20\r\n人\tw\t10\r\n人\twwww\t10\r\n民\tnav\t10\r\n民\tnavn\t10\r\n人民\twwna\t20\r\n艹\taghh\t10\r\n艹\tghgh\t10\r\n日\tjjjj\t10\r\n";
 
     fn build_with(jidian: &str, wubi98: &str, fcitx: &str, base: &str) -> Supplement {
         build(&Inputs {
@@ -370,11 +372,20 @@ mod tests {
         );
     }
 
+    /// 同码有名次的最低权重是 1 时，补充词的上限是 0，不会更低。
     #[test]
-    fn a_code_whose_lowest_jidian_row_weighs_zero_gives_zero() {
-        let jidian = format!("{JIDIAN_FIXTURE}丁\taajj\t0\r\n");
+    fn a_code_whose_lowest_jidian_row_weighs_one_gives_zero() {
+        let jidian = format!("{JIDIAN_FIXTURE}丁\taajj\t1\r\n");
         let supplement = build_with(&jidian, "工日\tx\r\n", "", "");
         assert_eq!(rows(&supplement), [("工日", "aajj", 0)]);
+    }
+
+    /// 权重为 0 的行没有名次，不定同码上限：补充词照样从 9 起，排在它前面。
+    #[test]
+    fn a_zero_weight_row_does_not_set_the_ceiling() {
+        let jidian = format!("{JIDIAN_FIXTURE}丁\taajj\t0\r\n");
+        let supplement = build_with(&jidian, "工日\tx\r\n", "", "");
+        assert_eq!(rows(&supplement), [("工日", "aajj", 9)]);
     }
 
     /// 构建不写入的行（这里是扩展 B 区的 𠂇 和兼容汉字 U+FA0C）不算同码最低权重：它们是 0 权重，但补充词照样从 9 起。
@@ -385,7 +396,7 @@ mod tests {
         assert_eq!(rows(&supplement), [("工日", "aajj", 9)]);
     }
 
-    /// 新布局下 rime-wubi 的行按 10 算：0 权重的行不再把同码补充词压成 0，rime-wubi 收的词照样不再收进补充表。旧布局读合并的文件时这一行仍是 0。
+    /// 新布局下 rime-wubi 的行按换算后的权重算：上游的 0 仍是 0，不定同码上限；有词频的行记为 10，`ukuy` 上的补充词就排在它之后，rime-wubi 收的词照样不再收进补充表。旧布局读合并的文件时 `ukuy` 那一行是上亿的原权重，结果相同。
     #[test]
     fn rime_wubi_rows_count_at_their_mapped_weight() {
         let rime_wubi = "丁\taajj\t0\r\n冲凉\tukuy\t61900000\r\n";
@@ -413,7 +424,7 @@ mod tests {
         assert_eq!(split, [("工日".to_owned(), "aajj".to_owned(), 9)]);
         let merged = format!("{JIDIAN_FIXTURE}{rime_wubi}");
         let merged: Vec<_> = build_from(&merged, None).iter().map(row).collect();
-        assert_eq!(merged, [("工日".to_owned(), "aajj".to_owned(), 0)]);
+        assert_eq!(merged, [("工日".to_owned(), "aajj".to_owned(), 9)]);
     }
 
     #[test]
