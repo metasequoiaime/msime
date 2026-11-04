@@ -453,6 +453,8 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
   let enumerationCommaSlash: Bool
   /// View 的 `prediction`：上屏后的空闲联想（`next_word_prediction`），这时没有组字，`preedit`、`reading` 和 `editingText` 都为空。联想和普通候选一样选：点选、数字键选本页对应的一条、空格选高亮的一条；回车和标点照常输入，关闭键送取消；普通状态没有这个字段，按 false 读。
   let isPrediction: Bool
+  /// 引擎持有的混合滑行确认状态；旧运行时缺字段时按 false 读。
+  let requiresCandidateSelection: Bool
 
   var isInLocalMode: Bool { !localMode.isEmpty && localMode != "none" }
 
@@ -477,7 +479,7 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
        nineKeyStrokes: String = "", editingText: String = "", caretPosition: Int = 0,
        cornerQuotes: Bool = false, hollowBrackets: Bool = false,
        enumerationCommaBackslash: Bool = true, enumerationCommaSlash: Bool = false,
-       isPrediction: Bool = false) {
+       isPrediction: Bool = false, requiresCandidateSelection: Bool = false) {
     self.isHandled = isHandled
     self.commitText = commitText
     self.commitCursorSuffix = commitCursorSuffix
@@ -510,6 +512,7 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
     self.enumerationCommaBackslash = enumerationCommaBackslash
     self.enumerationCommaSlash = enumerationCommaSlash
     self.isPrediction = isPrediction
+    self.requiresCandidateSelection = requiresCandidateSelection
   }
 }
 
@@ -769,6 +772,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     "paired_punctuation", "punctuation_lock",
     // 「双拼显示原始按键」 on the candidate page: the session rebuilds its Engine with it once idle, like the punctuation fields.
     "shuangpin_preedit_uses_raw",
+    // 同一组的「原始按键按音节分隔」（#10717）。
+    "shuangpin_preedit_separated",
     // 输入页的「只出单字」：同样在会话空闲时重建 Engine。
     "single_character_only",
     // 标点页的「中英文之间加空格」：会话在上屏时读最新请求的偏好，交给活着的会话后下一次上屏就生效。
@@ -2368,7 +2373,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       hollowBrackets: marks["brackets"] as? String == "hollow",
       enumerationCommaBackslash: marks["enumeration_comma_backslash"] as? Bool ?? true,
       enumerationCommaSlash: marks["enumeration_comma_slash"] as? Bool ?? false,
-      isPrediction: try strictBool(view["prediction"], fallback: false))
+      isPrediction: try strictBool(view["prediction"], fallback: false),
+      requiresCandidateSelection: try strictBool(view["requires_candidate_selection"], fallback: false))
   }
 
   private static func strictInt(_ value: Any?, fallback: Int, range: ClosedRange<Int>) throws -> Int {

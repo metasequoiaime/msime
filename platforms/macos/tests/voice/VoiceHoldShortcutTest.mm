@@ -1,8 +1,8 @@
 #import "../../src/voice/VoiceHoldShortcut.h"
 #include <cassert>
 
-static NSEvent *Event(unsigned short key, NSEventModifierFlags flags, NSEventType type = NSEventTypeFlagsChanged) {
-    return [NSEvent keyEventWithType:type location:NSZeroPoint modifierFlags:flags timestamp:1 windowNumber:0 context:nil characters:@"" charactersIgnoringModifiers:@"" isARepeat:NO keyCode:key];
+static NSEvent *Event(unsigned short key, NSEventModifierFlags flags, NSEventType type = NSEventTypeFlagsChanged, bool repeat = false) {
+    return [NSEvent keyEventWithType:type location:NSZeroPoint modifierFlags:flags timestamp:1 windowNumber:0 context:nil characters:@"" charactersIgnoringModifiers:@"" isARepeat:repeat keyCode:key];
 }
 int main() {
     @autoreleasepool {
@@ -97,5 +97,61 @@ int main() {
         // 原生事件已有侧别位时，以事件快照为准，不让较晚的实体状态覆盖它。
         physicalStep(61, ro, 0, false, Action::Toggle, true);
         physicalStep(61, lo, ro, true, Action::Toggle, true, true);
+
+        // 按住右 Option 时再按别的键是组合键（#10580）：按住就此结束，这次按住开始的录音取消，按键本身照常交给应用。
+        all = {true, true, true, true};
+        auto keyStep = [&](unsigned short key, NSEventModifierFlags flags, bool recording, Action action, bool consumed, bool repeat = false) {
+            const auto result = shortcut.observe(Event(key, flags, NSEventTypeKeyDown, repeat), all, recording);
+            assert(result.action == action && result.consumed == consumed);
+        };
+        const unsigned short f10 = 109, letterF = 3;
+        shortcut.reset();
+        step(61, ro, false, Action::Toggle, true);
+        keyStep(f10, ro, true, Action::ChordCancel, false);
+        keyStep(letterF, ro, true, Action::None, false); // 按住已经结束，后面的键不再算组合键。
+        step(61, 0, true, Action::None, true); // 应用没收到过右 Option 的按下，松开也一并吞掉，且不再结束录音。
+        step(61, 0, true, Action::None, false);
+        shortcut.reset();
+        // 右 Control+右 Option 的按住同样适用。
+        step(62, rc, false, Action::None, false);
+        step(61, rc | ro, false, Action::Toggle, true);
+        keyStep(letterF, rc | ro, true, Action::ChordCancel, false);
+        step(61, rc, true, Action::None, true);
+        step(62, 0, true, Action::None, false);
+        shortcut.reset();
+        // 自动重复不是新按下的键，不算组合键；之后的松开照常结束录音。
+        step(61, ro, false, Action::Toggle, true);
+        keyStep(letterF, ro, true, Action::None, false, true);
+        step(61, 0, true, Action::Toggle, true);
+        shortcut.reset();
+        // 空格锁定之后是用户要留下的听写，组合键不取消它。
+        step(61, ro, false, Action::Toggle, true);
+        step(49, ro, true, Action::None, true, NSEventTypeKeyDown);
+        keyStep(f10, ro, true, Action::None, false);
+        step(61, 0, true, Action::None, true);
+        shortcut.reset();
+        // 按住之前就在录音（比如 Ctrl+F9 开的听写），按住开始时已停掉它，组合键不再有录音可取消。
+        step(61, ro, true, Action::Toggle, true);
+        keyStep(f10, ro, false, Action::None, false);
+        step(61, 0, false, Action::None, true);
+        shortcut.reset();
+        // 按住开始了却没有录音（启动失败），组合键照样结束按住，不报取消。
+        step(61, ro, false, Action::Toggle, true);
+        keyStep(f10, ro, false, Action::None, false);
+        step(61, 0, false, Action::None, true);
+        shortcut.reset();
+        // Esc 仍是取消，不算组合键。
+        step(61, ro, false, Action::Toggle, true);
+        keyStep(53, ro, true, Action::Cancel, true);
+        shortcut.reset();
+        // Control+Command 按住吞的是 Command，不在范围内，和 Windows 的 Ctrl+Win 一致。
+        step(59, lc, false, Action::None, false);
+        step(55, lc | cmd, false, Action::Toggle, true);
+        keyStep(f10, lc | cmd, true, Action::None, false);
+        step(59, cmd, true, Action::Toggle, false);
+        shortcut.reset();
+        // 只按左 Option 不是按住说话，组合键与语音无关。
+        step(58, lo, false, Action::None, false);
+        keyStep(f10, lo, false, Action::None, false);
     }
 }

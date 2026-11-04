@@ -8,6 +8,15 @@ if [[ ! -x "$tsc" ]]; then
   echo "TypeScript compiler not found at $tsc; run pnpm install at the repository root" >&2
   exit 1
 fi
+# 强制停止后的首次焦点可能在资源暂存或建面板的 await 期间到达；inputStart 必须先订阅，才能由 pending 留住编辑框而不让键盘首帧失去输入客户端。
+ability="$repo_root/platforms/harmony/entry/src/main/ets/inputmethodextability/KeyboardExtensionAbility.ets"
+on_create_body=$(sed -n '/^  async onCreate(want: Want): Promise<void> {$/,/^  onDestroy(): void {$/p' "$ability")
+input_start_line=$(grep -nF "engine.on('inputStart', this.started);" <<< "$on_create_body" | head -n 1 | cut -d: -f1)
+first_await_line=$(grep -nE '\bawait\b' <<< "$on_create_body" | head -n 1 | cut -d: -f1)
+if [[ -z "$input_start_line" || -z "$first_await_line" || "$input_start_line" -ge "$first_await_line" ]]; then
+  echo "KeyboardExtensionAbility must subscribe to inputStart before its first asynchronous cold-start step" >&2
+  exit 1
+fi
 # grep rather than rg: the HarmonyOS CI job installs no ripgrep, and a missing rg made this guard report a regression that was not there.
 if ! grep -qF 'StagedResources.removeDirectory(this.cacheRoot)' \
     "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeySoundPlayer.ets"; then

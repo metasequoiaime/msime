@@ -16,6 +16,7 @@ fn import_engine_options() -> msime_engine::host::EngineOptions {
         shuangpin_profile: 0,
         shuangpin_custom_profile: None,
         shuangpin_preedit_uses_raw: true,
+        shuangpin_preedit_separated: false,
         force_cantonese_shuangpin: false,
         single_character_only: false,
         caret_edit_suffix: false,
@@ -78,6 +79,7 @@ fn import_engine_options() -> msime_engine::host::EngineOptions {
         quick_phrase_frequency: true,
         helpcode_table: None,
         helpcode_fallback_resources: None,
+        custom_helpcode_root: None,
         sentence_association: msime_engine::SentenceAssociationOptions {
             word_lattice: true,
             neural_keyboard: false,

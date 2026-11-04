@@ -46,8 +46,8 @@ pub(crate) fn clamp_managed_weight(weight: i64) -> i64 {
     weight.clamp(MANAGED_WEIGHT_FLOOR, MANAGED_WEIGHT_CEILING)
 }
 
-const COUNT_SELECTION_SQL: &str = "INSERT INTO candidate_selection_state(context_key,entry_key,value,selection_count) VALUES(?1,?2,?3,1) ON CONFLICT(context_key,entry_key,value) DO UPDATE SET selection_count=selection_count+1 RETURNING selection_count";
-const RESET_SELECTION_SQL: &str =
+pub(crate) const COUNT_SELECTION_SQL: &str = "INSERT INTO candidate_selection_state(context_key,entry_key,value,selection_count) VALUES(?1,?2,?3,1) ON CONFLICT(context_key,entry_key,value) DO UPDATE SET selection_count=selection_count+1 RETURNING selection_count";
+pub(crate) const RESET_SELECTION_SQL: &str =
     "DELETE FROM candidate_selection_state WHERE context_key=?1 AND entry_key=?2 AND value=?3";
 
 /// Shared opening of both writers: the argument checks, the fixed-row refusal, the disabled no-op, and the journal transaction with the selection counter. `None` means nothing more to do; otherwise the counter reached the trigger (or the pick is forced) and the caller ranks.

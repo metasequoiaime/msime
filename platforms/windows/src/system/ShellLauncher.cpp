@@ -75,4 +75,12 @@ bool launch_shell_surface(const std::filesystem::path &executable,
                           const ShellLaunchContext &context) {
   return launch_shell_surface_impl(executable, request, &context);
 }
+
+PanelHost configured_panel_host() {
+  wchar_t value[16]{};
+  const DWORD length = GetEnvironmentVariableW(panel_host_variable, value, 16);
+  if (!length || length >= 16)
+    return PanelHost::Shared;
+  return panel_host_from_setting(std::wstring_view(value, length));
+}
 } // namespace msime::windows

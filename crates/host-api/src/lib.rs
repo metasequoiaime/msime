@@ -362,6 +362,8 @@ struct HostSession {
     settled_model: Option<PathBuf>,
     /// runtime 上是否真挂着落定重排模型：`settled_model` 有路径而文件读不了或不是可用的模型时为 `false`。只用于诊断，不看 runtime 自己的槽，因为后台评分进行中模型被评分任务借走，槽是空的。
     settled_model_attached: bool,
+    /// 逐键重排器在后台线程里挂（[`load_keyboard_reranker`]）：第一次挂要加载 ONNX 模型、自测打一页的耗时，大小两个都装着时各一遍，Mac 上一秒多，忙时更久，放在输入线程上会把这段时间里的按键全堵住，超过 IMK 的等待时限后应用把键当作没处理，原样插进文字（#10743）。挂好前照常打字、不排序；槽有值后，下一次输入空闲的 `apply_pending` 换上并清掉这一项。为 `None` 时没有在挂的。
+    keyboard_reranker_loading: Option<KeyboardRerankerSlot>,
     /// 聚焦时发现落定重排模型的文件变了（资源包刚装好或被移除），`settled_model` 已经更新，新模型在后台线程加载到这个槽里；槽有值后，下一次输入空闲的 `apply_pending` 把它换上并清掉这一项。为 `None` 时没有待换的模型。
     settled_model_loading: Option<SettledModelSlot>,
     /// 生命周期核心的状态，只由 `msime_client_set_lifecycle` 设上。为 `None` 时（移动端宿主从不调用它）不推导任何事件，transition JSON 逐字节不变。
@@ -832,6 +834,16 @@ impl HostSession {
                     .map_err(|e| e.to_string())?;
             }
             // 落定重排模型不属于 Engine，换模型不用重建 Engine。约 25 MB 的权重由 `refresh_resource_packs` 起的后台线程加载，这里只在加载完之后、输入空闲时换上，不在输入线程上读文件；还没加载完就留到下一次。
+            // 后台挂好的逐键重排器同样在输入空闲时换上：组字中途换了打分器，整句池跟着变，正在看的候选会忽然重排。
+            let attached = self.keyboard_reranker_loading.as_ref().and_then(|slot| {
+                slot.lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .take()
+            });
+            if let Some(scorer) = attached {
+                self.keyboard_reranker_loading = None;
+                self.runtime.set_candidate_scorer(scorer);
+            }
             if let Some(model) = self
                 .settled_model_loading
                 .as_ref()
@@ -874,6 +886,7 @@ impl HostSession {
         let fallback =
             scheme_fallback.or(profile_fallback.filter(|_| scheme == InputScheme::Shuangpin));
         options.shuangpin_preedit_uses_raw = preferences.shuangpin_preedit_uses_raw;
+        options.shuangpin_preedit_separated = preferences.shuangpin_preedit_separated;
         options.force_cantonese_shuangpin = force_cantonese_shuangpin(scheme, &preferences);
         options.single_character_only = preferences.single_character_only;
         options.caret_edit_suffix = caret_edit_suffix_applies(&preferences);
@@ -1045,16 +1058,28 @@ impl HostSession {
         // The keyboard model follows its switch the same way, but is dropped rather than idled while off: it is the one that runs inside every keystroke.
         let keyboard = self.keyboard_reranker_allowed
             && keyboard_reranker_enabled(&preferences.sentence_association, self.edition);
-        if keyboard != self.runtime.has_reranker() {
-            self.runtime.set_candidate_scorer(ffi::keyboard_reranker(
-                keyboard,
-                &options.resources,
-                options.helpcode_fallback_resources.as_deref(),
-                self.recorded_rerank_models.as_deref(),
-                self.plugin_roots.builtin_sounds.as_deref(),
-                self.state_root.as_deref(),
-                self.recorded_sentence_model.as_deref(),
-            ));
+        if keyboard != (self.runtime.has_reranker() || self.keyboard_reranker_loading.is_some()) {
+            if keyboard {
+                self.keyboard_reranker_loading = Some(load_keyboard_reranker(
+                    &options.resources,
+                    options.helpcode_fallback_resources.as_deref(),
+                    self.recorded_rerank_models.as_deref(),
+                    self.plugin_roots.builtin_sounds.as_deref(),
+                    self.state_root.as_deref(),
+                    self.recorded_sentence_model.as_deref(),
+                ));
+            } else {
+                self.keyboard_reranker_loading = None;
+                self.runtime.set_candidate_scorer(ffi::keyboard_reranker(
+                    false,
+                    &options.resources,
+                    options.helpcode_fallback_resources.as_deref(),
+                    self.recorded_rerank_models.as_deref(),
+                    self.plugin_roots.builtin_sounds.as_deref(),
+                    self.state_root.as_deref(),
+                    self.recorded_sentence_model.as_deref(),
+                ));
+            }
             self.keyboard_reranker_source = ffi::onnx_rerank_source(
                 &options.resources,
                 options.helpcode_fallback_resources.as_deref(),
@@ -1164,8 +1189,8 @@ impl HostSession {
                 state_root,
             );
             if source != self.keyboard_reranker_source {
-                self.runtime.set_candidate_scorer(ffi::keyboard_reranker(
-                    true,
+                // 新模型挂好之前沿用旧的，见 `keyboard_reranker_loading`。
+                self.keyboard_reranker_loading = Some(load_keyboard_reranker(
                     &self.options.resources,
                     self.options.helpcode_fallback_resources.as_deref(),
                     self.recorded_rerank_models.as_deref(),
@@ -2444,6 +2469,7 @@ impl HostOptions {
             shuangpin_profile: profile_code(self.preferences.shuangpin_profile),
             shuangpin_custom_profile: None,
             shuangpin_preedit_uses_raw: self.preferences.shuangpin_preedit_uses_raw,
+            shuangpin_preedit_separated: self.preferences.shuangpin_preedit_separated,
             force_cantonese_shuangpin: force_cantonese_shuangpin(scheme, &self.preferences),
             single_character_only: self.preferences.single_character_only,
             caret_edit_suffix: caret_edit_suffix_applies(&self.preferences),
@@ -2501,6 +2527,11 @@ impl HostOptions {
             quick_phrase_frequency: self.preferences.mixed_input.quick_phrase_frequency,
             helpcode_table: None,
             helpcode_fallback_resources,
+            // 用户自己的辅助码表放在状态根下（`msime_client_core::helpcode::user_helpcode_root`），`resources` 是安装包或词库代次，升级会换掉它。
+            custom_helpcode_root: state_root
+                .as_deref()
+                .and_then(Path::to_str)
+                .map(str::to_owned),
             sentence_association: engine_sentence_association(
                 &self.preferences.sentence_association,
                 absolute_state_root(self.preferences_directory.as_deref()).as_deref(),
@@ -2567,6 +2598,51 @@ fn settled_model_beside(resources: &std::path::Path) -> Option<String> {
 
 /// 后台加载落定重排模型的结果槽：加载完之前是空的，加载完是模型，模型不能用（文件坏了或版本不符）或没有模型时是 `None`。
 type SettledModelSlot = Arc<OnceLock<Option<Arc<SentenceModel>>>>;
+
+/// 后台挂好的逐键重排器：外层 `None` 是还在挂，`Some(None)` 是挂完了但这台设备上没有可挂的（没装模型、超出按键预算、线程起不来）。打分器只是 `Send`，所以用锁而不是 `OnceLock`。
+type KeyboardRerankerSlot =
+    Arc<Mutex<Option<Option<Box<dyn msime_input_runtime::CandidateScorer>>>>>;
+
+/// 在后台线程里挂逐键重排器（[`ffi::keyboard_reranker`]，开关开着），立即返回结果槽。挂上之后还在同一个进程里再挂时共用已加载的那一份，只是第一次慢，见 `keyboard_reranker_loading`。线程起不来时槽里直接是 `Some(None)`，会话照常输入，只是不排序。
+fn load_keyboard_reranker(
+    resources: &str,
+    bundle: Option<&str>,
+    models: Option<&str>,
+    sound_packs: Option<&Path>,
+    state_root: Option<&Path>,
+    configured: Option<&str>,
+) -> KeyboardRerankerSlot {
+    let slot: KeyboardRerankerSlot = Arc::new(Mutex::new(None));
+    let resources = resources.to_owned();
+    let bundle = bundle.map(str::to_owned);
+    let models = models.map(str::to_owned);
+    let sound_packs = sound_packs.map(Path::to_path_buf);
+    let state_root = state_root.map(Path::to_path_buf);
+    let configured = configured.map(str::to_owned);
+    let loading = Arc::clone(&slot);
+    let spawned = std::thread::Builder::new()
+        .name("msime-keyboard-reranker".into())
+        .spawn(move || {
+            let scorer = ffi::keyboard_reranker(
+                true,
+                &resources,
+                bundle.as_deref(),
+                models.as_deref(),
+                sound_packs.as_deref(),
+                state_root.as_deref(),
+                configured.as_deref(),
+            );
+            *loading
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(scorer);
+        });
+    if spawned.is_err() {
+        *slot
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(None);
+    }
+    slot
+}
 
 /// 在后台线程里加载落定重排模型，立即返回结果槽。约 25 MB 的权重不能在输入线程上读：聚焦和按键都在那个线程上。`path` 为 `None`（模型被移除）时槽里直接是 `None`。线程起不来时同样放 `None`，会话照常输入，只是没有落定重排。
 fn load_settled_model(resources: &str, path: Option<PathBuf>) -> SettledModelSlot {
@@ -2960,6 +3036,20 @@ pub fn prepare_host_configuration_for_edition(
     prepare_host_with_updates(resources, state_root, edition, &specification)
 }
 
+/// 把还留在资源目录里的自定义辅助码表（`helpcodes/custom`）复制到状态根下的同名目录，Engine 和设置页都先读那里（`msime_engine::load_helpcode_keymap_in`）。资源目录是安装包或词库代次，升级和在线词库更新会换掉或删掉它；准备和刷新运行时配置时各搬一次，表还在就不会跟着旧目录一起丢。只复制，不删源文件，状态根里已有同一主干的表不覆盖。
+fn adopt_custom_helpcodes(state_root: &Path, sources: &[&Path]) {
+    let Ok(state_root) = std::path::absolute(state_root) else {
+        return;
+    };
+    let adopted = msime_client_core::helpcode::adopt_custom_helpcodes(&state_root, sources);
+    if adopted > 0 {
+        crate::diagnostics::report(
+            "custom helpcode tables adopted",
+            &format!("copied {adopted} table(s) from the resource directory into the state root"),
+        );
+    }
+}
+
 /// 安装选择与随包基线共用准备流程，测试用小型真实词库验证代次切换与日志回放。
 fn prepare_host_with_updates(
     resources: &Path,
@@ -2967,9 +3057,18 @@ fn prepare_host_with_updates(
     edition: &'static Edition,
     specification: &ResourceSet,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    if let Some((updated, selected)) =
-        dictionary_updates::selected_resources(state_root, specification)
-    {
+    let selected_update = dictionary_updates::selected_resources(state_root, specification);
+    let recorded_bundle =
+        msime_client_providers::dictionary_updates::bundled_resources(state_root, specification);
+    let mut sources = vec![resources];
+    sources.extend(recorded_bundle.as_deref());
+    sources.extend(
+        selected_update
+            .as_ref()
+            .map(|(updated, _)| updated.as_path()),
+    );
+    adopt_custom_helpcodes(state_root, &sources);
+    if let Some((updated, selected)) = selected_update {
         if verify_resources_once(&updated, &selected, state_root, &[]).is_ok() {
             let mut document: Value = serde_json::from_str(&prepare_shipped_host_configuration(
                 &updated,
@@ -3239,6 +3338,18 @@ fn refresh_options_file(
             }
         })?;
     let document: Value = serde_json::from_slice(&bytes)?;
+    // 刷新可能把 `resources` 换成别的目录（新代次、应用包里的那份），换之前先把旧目录里的自定义辅助码表搬到状态根下。
+    if let Some(state) = document["preferences_directory"]
+        .as_str()
+        .map(Path::new)
+        .filter(|state| state.is_absolute())
+    {
+        let sources: Vec<&Path> = ["resources", "helpcode_fallback_resources"]
+            .into_iter()
+            .filter_map(|key| document[key].as_str().map(Path::new))
+            .collect();
+        adopt_custom_helpcodes(state, &sources);
+    }
     // 文档记录的版本，缺省是 full。新代次按同一个版本准备；`refreshed_layout` 只替换 `resources` 和 `dictionaries`，`edition` 键原样保留。
     let edition =
         Edition::of_host_options(&document).ok_or("runtime options name an unknown edition")?;
@@ -3725,22 +3836,22 @@ pub fn local_symbol_catalog(resources: &str) -> Result<Vec<LocalSymbolCatalogGro
     Ok(result)
 }
 
-/// Discover the optional helper-code tables installed below a verified resource directory.
+/// 列出设置页可选的自定义辅助码表：状态根 `state_root` 下的 `helpcodes/custom`（用户自己的表放在这里，升级不会动它）和资源目录里的 `helpcodes/custom`（以前的位置），同一主干取状态根那份，与 Engine 读表的顺序一致。
 ///
-/// The table files are Engine-owned assets, but their display metadata belongs to the shared
-/// settings surface. Keep the path check at this host boundary so neither a native caller nor the
-/// Tauri shell can ask the client core to inspect an arbitrary relative location. An absent or
-/// unreadable `helpcodes/custom` directory is a valid empty catalog.
+/// 码表文件归 Engine 解析，显示名属于设置界面。路径检查留在宿主边界上，原生调用方和 Tauri 外壳都不能让 client-core 去看一个相对路径。目录不在或读不了时是空列表。`state_root` 为 `None` 时只看资源目录。
 pub fn list_custom_helpcode_schemas(
     resources: &str,
+    state_root: Option<&str>,
 ) -> Result<Vec<msime_client_core::helpcode::CustomHelpcodeSchema>, &'static str> {
     let path = std::path::Path::new(resources);
     if !path.is_absolute() {
         return Err("resources path must be absolute");
     }
-    Ok(msime_client_core::helpcode::list_custom_helpcode_schemas(
-        path,
-    ))
+    let state_root = state_root.map(std::path::Path::new);
+    if state_root.is_some_and(|state_root| !state_root.is_absolute()) {
+        return Err("state root must be absolute");
+    }
+    Ok(msime_client_core::helpcode::list_custom_helpcode_schemas_in(path, state_root))
 }
 
 fn response(operation: impl FnOnce() -> Result<Value, String>) -> *mut c_char {

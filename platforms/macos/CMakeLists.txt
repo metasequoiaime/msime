@@ -245,6 +245,7 @@ set(MSIME_EDITION "full" CACHE STRING "Edition id from shared/contracts/editions
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_test(NAME macos-crash-symbols
   COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/test-macos-crash-symbols.py" --require-tools)
+set_tests_properties(macos-crash-symbols PROPERTIES TIMEOUT 60)
 set(MSIME_EDITION_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/scripts/edition_bundle.py")
 # Sparkle 只在发布包里打开：package-release.sh 拿得到签更新的私钥时传入 appcast 所在的目录，这里拼出本版本的 SUFeedURL（appcast-<版本 id>.xml，edition_bundle.py 把 full 的改成别的版本的；它始终是稳定版的 feed，用户在设置页选了测试版或每日构建时，UpdateController 由它推出同目录下的 appcast-<通道>-<版本 id>.xml，见 src/core/UpdateChannelFeed.h），写入 sparkle-public-key.txt 里的公钥，并打开每天一次的后台检查与静默更新。开发构建不带这些键：带了的话，本机编的输入法会被正式版覆盖。没有 feed 时 UpdateController 走官网下载页（MSIMEUpdateRouteForHost）。
 set(MSIME_SPARKLE_APPCAST_BASE_URL "" CACHE STRING "URL prefix of the appcast-<edition>.xml feeds; empty leaves Sparkle off")
@@ -361,7 +362,7 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/MPL-2.0.txt
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../shared/voice/third_party/sherpa-onnx/LICENSE" "${MSIME_LEGAL_DIRECTORY}/sherpa-onnx-Apache-2.0.txt" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../linux/data/licenses/onnxruntime-MIT.txt" "${MSIME_LEGAL_DIRECTORY}/onnxruntime-MIT.txt" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../linux/data/licenses/onnxruntime-ThirdPartyNotices.txt" "${MSIME_LEGAL_DIRECTORY}/onnxruntime-ThirdPartyNotices.txt" COPYONLY)
-# 整句联想「增强」逐键重排的两档模型（chinese-ime-lm 的 rerank-v1，放在输入法 bundle 的 Contents/rerank-model 与 Contents/rerank-model-small）是 Apache-2.0：第 4(a)、4(d) 条要求随副本附上许可证全文和上游 NOTICE，训练语料（C4 与 FineWeb-2 中文部分为 ODC-BY，LCCC 为 MIT）要求署名随权重传播。resources/licenses 里这份各平台共用的文件三样都有；不带模型的版本也留着它。
+# 整句联想「增强」逐键重排的两档模型（chinese-ime-lm 的 rerank-v2，放在输入法 bundle 的 Contents/rerank-model 与 Contents/rerank-model-small）是 Apache-2.0：第 4(a)、4(d) 条要求随副本附上许可证全文和上游 NOTICE，训练语料（C4 与 FineWeb-2 中文部分为 ODC-BY，LCCC 为 MIT）要求署名随权重传播。resources/licenses 里这份各平台共用的文件三样都有；不带模型的版本也留着它。
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rerank-model-Apache-2.0.txt" "${MSIME_LEGAL_DIRECTORY}/rerank-model-Apache-2.0.txt" COPYONLY)
 # cppcodec 编进输入法（shared/voice 的百炼请求用它做 Base64），MIT 要求随副本附带版权与许可声明。
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../shared/voice/third_party/cppcodec/LICENSE" "${MSIME_LEGAL_DIRECTORY}/cppcodec-MIT.txt" COPYONLY)
@@ -486,7 +487,7 @@ else()
   add_custom_command(TARGET MSIMEClientInputMethod POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E rm -f "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks/libsherpa-onnx-c-api.dylib")
 endif()
-# 整句联想「增强」逐键重排的两档 ONNX 模型（chinese-ime-lm 的 rerank-v1：8x448 与 6x256），给开着 onnx-rerank 编的 host 库用（见 .agents/notes/implemented/architecture/2026-11-01-onnx-rerank-backend.md）。host-api 在随包资源目录的上一级找 rerank-model/ 与 rerank-model-small/，而输入法把自己 bundle 的 Contents/Resources 作为随包资源目录交给会话（InputController.mm 的 MSIMESessionOptions，helpcode_fallback_resources），所以模型放在 Contents/rerank-model 与 Contents/rerank-model-small。它们跟着输入法 bundle 走，不放进设置应用：Sparkle 单独更新输入法时，模型与链进去的 ONNX Runtime 版本、算子清单始终是同一次构建的。scripts/fetch_rerank_model.py 按 resources/rerank-model.lock.json 下载核对一次，之后复用；锁或脚本变了才重跑。没有这两个目录、或 host 库没开 onnx-rerank 时，「增强」退回随包的 sentence-model.safetensors。
+# 整句联想「增强」逐键重排的两档 ONNX 模型（chinese-ime-lm 的 rerank-v2：8x448 与 6x256），给开着 onnx-rerank 编的 host 库用（见 .agents/notes/implemented/architecture/2026-11-01-onnx-rerank-backend.md）。host-api 在随包资源目录的上一级找 rerank-model/ 与 rerank-model-small/，而输入法把自己 bundle 的 Contents/Resources 作为随包资源目录交给会话（InputController.mm 的 MSIMESessionOptions，helpcode_fallback_resources），所以模型放在 Contents/rerank-model 与 Contents/rerank-model-small。它们跟着输入法 bundle 走，不放进设置应用：Sparkle 单独更新输入法时，模型与链进去的 ONNX Runtime 版本、算子清单始终是同一次构建的。scripts/fetch_rerank_model.py 按 resources/rerank-model.lock.json 下载核对一次，之后复用；锁或脚本变了才重跑。没有这两个目录、或 host 库没开 onnx-rerank 时，「增强」退回随包的 sentence-model.safetensors。
 option(MSIME_BUNDLE_RERANK_MODELS "Stage the two ONNX keystroke rerank models into Contents/rerank-model and Contents/rerank-model-small" ON)
 set(MSIME_RERANK_MODEL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../target/rerank-model" CACHE PATH "Where scripts/fetch_rerank_model.py puts rerank-model/ and rerank-model-small/")
 set(MSIME_RERANK_MODEL_DIRECTORIES rerank-model rerank-model-small)
@@ -1123,6 +1124,8 @@ set_tests_properties(shortcut-helpcode-trigger PROPERTIES ENVIRONMENT "CFFIXED_U
 # 300 s ctest ceiling, so a genuinely stuck run is still this test's failure rather than the job's.
 set_tests_properties(shortcut PROPERTIES TIMEOUT 240 ENVIRONMENT "CFFIXED_USER_HOME=${MSIME_SHORTCUT_TEST_HOME}")
 set_tests_properties(shortcut-expanded-scroll PROPERTIES TIMEOUT 60 ENVIRONMENT "CFFIXED_USER_HOME=${MSIME_SHORTCUT_TEST_HOME}")
+add_test(NAME shortcut-startup-voice COMMAND shortcut-test --startup-voice)
+set_tests_properties(shortcut-startup-voice PROPERTIES ENVIRONMENT "CFFIXED_USER_HOME=${MSIME_SHORTCUT_TEST_HOME}")
 add_test(NAME shortcut-translations COMMAND shortcut-test --translations)
 set_tests_properties(shortcut-translations PROPERTIES ENVIRONMENT "CFFIXED_USER_HOME=${MSIME_SHORTCUT_TEST_HOME}")
 add_test(NAME shortcut-translation-font-size COMMAND shortcut-test --translation-font-size)
@@ -1326,6 +1329,11 @@ add_executable(candidate-hover-test tests/candidate/CandidateHoverTest.mm src/ca
 target_compile_options(candidate-hover-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(candidate-hover-test PRIVATE "-framework AppKit" "-framework QuartzCore" "-framework ImageIO")
 add_test(NAME candidate-hover COMMAND candidate-hover-test)
+# 候选窗按钮不经 +buttonWithTitle:target:action: 建（那里的 sizeToFit 每键都白算），工厂建出的按钮要和它逐项一致。
+add_executable(candidate-button-factory-test tests/candidate/CandidateButtonFactoryTest.mm src/candidate/CandidateCanvas.mm)
+target_compile_options(candidate-button-factory-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(candidate-button-factory-test PRIVATE "-framework AppKit" "-framework QuartzCore" "-framework ImageIO")
+add_test(NAME candidate-button-factory COMMAND candidate-button-factory-test)
 
 add_executable(settings-glass-test tests/settings/SettingsGlassTest.mm)
 target_compile_options(settings-glass-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
@@ -1636,3 +1644,14 @@ add_executable(typing-effect-panel-test tests/input/TypingEffectPanelTest.mm src
 target_compile_options(typing-effect-panel-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(typing-effect-panel-test PRIVATE "-framework AppKit" "-framework QuartzCore")
 add_test(NAME typing-effect-panel COMMAND typing-effect-panel-test)
+
+# 其余测试也换一个主目录（#10728）。控制器经 runtime-options.json 找到偏好目录，语音静音的恢复日志、资源包这些也都按 Application Support 定位；不换的话，在装着输入法的开发机上跑测试，会把测试进程里的设置（连同它们放进 NSArgumentDomain 的临时值）写进这台机器正在用的 preferences.json。CFFIXED_USER_HOME 只换 NSHomeDirectory 和 Application Support，NSUserDefaults 仍在真实的 ~/Library/Preferences。上面已经给了自己主目录的测试保持不变。
+set(MSIME_TEST_HOME "${CMAKE_CURRENT_BINARY_DIR}/test-home")
+file(MAKE_DIRECTORY "${MSIME_TEST_HOME}")
+get_property(msime_tests DIRECTORY PROPERTY TESTS)
+foreach(msime_test IN LISTS msime_tests)
+  get_test_property(${msime_test} ENVIRONMENT msime_test_environment)
+  if(NOT msime_test_environment MATCHES "CFFIXED_USER_HOME=")
+    set_property(TEST ${msime_test} APPEND PROPERTY ENVIRONMENT "CFFIXED_USER_HOME=${MSIME_TEST_HOME}")
+  endif()
+endforeach()

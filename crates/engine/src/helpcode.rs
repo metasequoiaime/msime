@@ -152,11 +152,28 @@ pub fn load_helpcode_keymap(resources: &Path, schema: &str) -> Result<HelpcodeKe
     Ok(HelpcodeKeymap::from_codes(parse_helpcode_table(&bytes)))
 }
 
-/// 主资源确实缺少内置表时，读取宿主指定的随包副本；已有表和自定义表不回退。
+/// 按 `schema` 读表，`custom/<stem>` 先在用户目录 `user_root` 下找：`user_root/helpcodes/custom` 里有这张表（扩展名大小写规则同 `helpcode_path`）就读它，没有时再读资源目录里的那份。宿主把状态根交给 `user_root`：资源目录是安装包或词库代次，升级和在线词库更新都会换掉它，用户自己放的表只有在状态根下才跟得过去。内置方案只读 `resources`，`user_root` 不是绝对路径时当作没有。
+pub fn load_helpcode_keymap_in(
+    resources: &Path,
+    schema: &str,
+    user_root: Option<&Path>,
+) -> Result<HelpcodeKeymap> {
+    if custom_schema_stem(schema).is_some() {
+        if let Some(user_root) = user_root.filter(|path| path.is_absolute()) {
+            if let Ok(keymap) = load_helpcode_keymap(user_root, schema) {
+                return Ok(keymap);
+            }
+        }
+    }
+    load_helpcode_keymap(resources, schema)
+}
+
+/// 主资源确实缺少内置表时，读取宿主指定的随包副本；已有表和自定义表不回退。自定义表先读用户目录，见 [`load_helpcode_keymap_in`]。
 pub(crate) fn load_helpcode_keymap_with_fallback(
     resources: &Path,
     schema: &str,
     fallback_resources: Option<&Path>,
+    user_root: Option<&Path>,
 ) -> Result<HelpcodeKeymap> {
     if built_in_helpcode_file(schema).is_some() {
         let path = helpcode_path(resources, schema)?;
@@ -168,7 +185,7 @@ pub(crate) fn load_helpcode_keymap_with_fallback(
             }
         }
     }
-    load_helpcode_keymap(resources, schema)
+    load_helpcode_keymap_in(resources, schema, user_root)
 }
 
 fn read_helpcode_file(file: File) -> Option<Vec<u8>> {
@@ -552,7 +569,7 @@ mod tests {
         )
         .unwrap();
         let load = |schema| {
-            load_helpcode_keymap_with_fallback(resources.path(), schema, Some(bundle.path()))
+            load_helpcode_keymap_with_fallback(resources.path(), schema, Some(bundle.path()), None)
         };
         assert_eq!(load("xiaohe").unwrap().code("合"), Some("ab"));
         assert!(load("custom/synthetic").is_err());
@@ -560,7 +577,8 @@ mod tests {
         assert!(load_helpcode_keymap_with_fallback(
             resources.path(),
             "xiaohe",
-            Some(Path::new("relative"))
+            Some(Path::new("relative")),
+            None
         )
         .unwrap()
         .is_empty());
@@ -583,6 +601,51 @@ mod tests {
             .unwrap();
             assert!(load("xiaohe").unwrap().is_empty());
         }
+    }
+
+    /// 自定义表先读状态根下的那份：资源目录换成新安装包或新词库代次、里面没有这张表时，用户的表照样读得到；两边都有时用户目录优先；内置方案不读用户目录；相对路径的用户目录不算数。
+    #[test]
+    fn custom_tables_are_read_from_the_user_root_first() {
+        let resources = tempfile::tempdir().unwrap();
+        let state = tempfile::tempdir().unwrap();
+        let user = state.path().join("helpcodes/custom");
+        std::fs::create_dir_all(&user).unwrap();
+        std::fs::write(user.join("synthetic.TXT"), "你=ab\n").unwrap();
+        std::fs::write(
+            state.path().join("helpcodes/xiaohe_helpcode.txt"),
+            "你=zz\n",
+        )
+        .unwrap();
+        let load = |schema| load_helpcode_keymap_in(resources.path(), schema, Some(state.path()));
+        assert_eq!(load("custom/synthetic").unwrap().code("你"), Some("ab"));
+        assert!(load("xiaohe").unwrap().is_empty());
+        assert_eq!(
+            load("custom/missing").unwrap_err().to_string(),
+            UNKNOWN_HELPCODE_SCHEMA
+        );
+        let legacy = resources.path().join("helpcodes/custom");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::write(legacy.join("synthetic.txt"), "你=cd\n").unwrap();
+        std::fs::write(legacy.join("legacy.txt"), "你=ef\n").unwrap();
+        assert_eq!(load("custom/synthetic").unwrap().code("你"), Some("ab"));
+        assert_eq!(load("custom/legacy").unwrap().code("你"), Some("ef"));
+        assert_eq!(
+            load_helpcode_keymap_with_fallback(
+                resources.path(),
+                "custom/synthetic",
+                None,
+                Some(state.path())
+            )
+            .unwrap()
+            .code("你"),
+            Some("ab")
+        );
+        assert_eq!(
+            load_helpcode_keymap_in(resources.path(), "custom/synthetic", Some(Path::new("rel")))
+                .unwrap()
+                .code("你"),
+            Some("cd")
+        );
     }
 
     #[test]
