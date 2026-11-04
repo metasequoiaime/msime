@@ -4731,13 +4731,27 @@ mod tests {
 
     #[test]
     fn shipped_syllable_frequency_covers_every_spelling_and_names_its_source() {
-        // 第一行记着取自哪份 msime-pinyin.db，和那一版词库发布锁里的 sha256 对得上；换词库重新生成时一起换。
+        // 第一行是生成器写下的来源 `msime-dict-build syllable-frequency --pinyin <db>` 的 sha256，必须等于桌面词库锁固定的那份 msime-pinyin.db：换锁时没有重新生成这张表，或者表取自别的词库，这里就失败。表的内容是否真由那份词库算出，由 dict-builder 的 `shipped_table_is_rebuilt_from_the_locked_dictionary`（要 `MSIME_EVAL_RESOURCES`）逐字节核对。
         let source = SYLLABLE_FREQUENCY
             .lines()
             .next()
             .and_then(|line| line.strip_prefix("# msime-pinyin.db sha256="))
             .expect("source line");
-        assert!(source.len() == 64 && source.bytes().all(|byte| byte.is_ascii_hexdigit()));
+        let lock: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../resources/desktop-dictionary.lock.json"
+        ))
+        .expect("desktop dictionary lock parses");
+        let locked = lock["artifacts"]
+            .as_array()
+            .expect("lock artifacts")
+            .iter()
+            .find(|artifact| artifact["name"] == "msime-pinyin.db")
+            .and_then(|artifact| artifact["sha256"].as_str())
+            .expect("the lock pins msime-pinyin.db");
+        assert_eq!(
+            source, locked,
+            "syllable_frequency.tsv was generated from another msime-pinyin.db than resources/desktop-dictionary.lock.json pins; rerun `msime-dict-build syllable-frequency --pinyin <the locked msime-pinyin.db>`"
+        );
         // 只缺 jv、lue 这类别写：词库行记在 ju、lve 这些正写下，原先现查单字时别写同样查不到、按 1 算。
         let weights = shipped_syllable_frequency();
         let mut missing: Vec<&str> = KeyGrid::NineKey
