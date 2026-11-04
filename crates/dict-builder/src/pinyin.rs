@@ -94,6 +94,15 @@ mod tests {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../resources/dictionary-sources")
             .join(OVERRIDES);
-        Pinyin::with_overrides(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let pinyin = Pinyin::with_overrides(&std::fs::read_to_string(path).unwrap()).unwrap();
+        // 2026-11-04 对照拼音主库改正的几例：逐字读音会拼成 zhangqun、dafu、fudejiao、nipoer。
+        for (keyword, reading) in [
+            ("长裙", ["chang", "qun"].as_slice()),
+            ("男大夫", &["nan", "dai", "fu"]),
+            ("佛得角", &["fo", "de", "jiao"]),
+            ("尼泊尔", &["ni", "bo", "er"]),
+        ] {
+            assert_eq!(pinyin.lazy(keyword), reading, "{keyword}");
+        }
     }
 }
