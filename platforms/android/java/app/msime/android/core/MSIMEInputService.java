@@ -7781,13 +7781,13 @@ public final class MSIMEInputService extends InputMethodService {
         skin = design == null ? keyboardSkin(preferences) : KeyboardSkin.custom(design,
             KeyboardSkin.resolveDark(InputViewValuePolicy.textOr(preferences, "screen_keyboard_theme", "follow"),
                 InputViewValuePolicy.textOr(preferences, "theme", "system"), systemDark()));
-        // 候选条、表情和手写经 surfaceSkin 按设计库解析 `design:` 槽位。原槽位是内置主题时库是空的，刚从社区装进来的设计也还不在库里；不先补上，保存往返期间键盘已是新设计，候选条却回退到旧主题（#10749）。写入成功后 applyPreferencesSnapshot 会重读设计库，替换掉这份临时副本；写入失败时槽位回到原值，多出的这一项没人引用。
+        // 让还没返回的设计库读取作废：它的回调按保存前的 preferencesSnapshot 重算四块面板，不论这次换的是库里已有的设计、内置主题还是刚装的设计，都会在保存往返期间把它们一起退回旧皮肤（#10749）。写入成功后 applyPreferencesSnapshot 会重读设计库；写入失败时 finishKeyboardSkinSave 按已接受的偏好重读。
+        ++modeSkinLibraryGeneration;
+        // 候选条、表情和手写经 surfaceSkin 按设计库解析 `design:` 槽位。原槽位是内置主题时库是空的，刚从社区装进来的设计也还不在库里；不先补上，保存往返期间键盘已是新设计，候选条却回退到旧主题（#10749）。写入成功后重读的设计库会替换掉这份临时副本；写入失败时槽位回到原值，多出的这一项没人引用。
         if (design != null && libraryId != null
                 && modeSkinLibrary.stream().noneMatch(item -> libraryId.equals(item.id()))) {
             java.util.List<CustomSkinLibrary.Item> library = new java.util.ArrayList<>(modeSkinLibrary);
             library.add(new CustomSkinLibrary.Item(libraryId, libraryId, design));
-            // 让还没返回的设计库读取作废：它的回调会用不含这一项的磁盘结果和保存前的 preferencesSnapshot 重算四块面板，在保存往返期间把它们一起退回旧皮肤。
-            ++modeSkinLibraryGeneration;
             modeSkinLibrary = java.util.List.copyOf(library);
         }
         emojiSkin = surfaceSkin(preferences, "emoji_theme");
