@@ -2711,6 +2711,39 @@ fn shuangpin_keymap_hint_stays_out_of_the_document_until_chosen() {
     );
 }
 
+// #10717：「双拼分隔」是 `shuangpin_preedit_uses_raw` 之外单独的一个键，布尔的旧键不变，读旧键的各端和 macOS 账号同步都不受影响。
+#[test]
+fn shuangpin_preedit_separated_is_a_separate_key_left_out_until_chosen() {
+    let defaults = Preferences::default();
+    assert!(defaults.shuangpin_preedit_uses_raw);
+    assert!(!defaults.shuangpin_preedit_separated);
+    let serialized = serde_json::to_value(&defaults).unwrap();
+    assert!(serialized.get("shuangpin_preedit_separated").is_none());
+    assert_eq!(serialized["shuangpin_preedit_uses_raw"], true);
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    store
+        .save(
+            0,
+            Preferences {
+                shuangpin_preedit_separated: true,
+                ..defaults
+            },
+        )
+        .unwrap();
+    let loaded = store.load().unwrap().preferences;
+    assert!(loaded.shuangpin_preedit_uses_raw);
+    assert!(loaded.shuangpin_preedit_separated);
+    let document: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(dir.path().join("preferences.json")).unwrap(),
+    )
+    .unwrap();
+    // 旧键仍是布尔：没有新键的版本读这份文档得到的是「保留原始按键」。
+    assert_eq!(document["preferences"]["shuangpin_preedit_uses_raw"], true);
+    assert_eq!(document["preferences"]["shuangpin_preedit_separated"], true);
+}
+
 #[test]
 fn cloud_candidates_start_off_but_an_upgraded_document_keeps_them() {
     let defaults = Preferences::default();

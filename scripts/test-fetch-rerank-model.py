@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""`scripts/fetch_rerank_model.py` and its lock: the lock names the two directories host-api reads with the three files each loads, all from chinese-ime-lm's `rerank-v1` release; an install lays them out under those names, leaves matching files alone and removes files the lock does not name."""
+"""`scripts/fetch_rerank_model.py` and its lock: the lock names the two directories host-api reads with the three files each loads, all from chinese-ime-lm's `rerank-v2` release; an install lays them out under those names, leaves matching files alone and removes files the lock does not name."""
 
 import hashlib
 import json
@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import fetch_rerank_model  # noqa: E402
 
-RELEASE = "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/rerank-v1/"
+RELEASE = "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/rerank-v2/"
 
 
 def check_lock(failures):
@@ -21,12 +21,12 @@ def check_lock(failures):
         fetch_rerank_model.check_lock(lock)
     except SystemExit as error:
         failures.append(f"the committed lock fails its own check: {error}")
-    if lock["release_tag"] != "rerank-v1" or lock["license"] != "Apache-2.0":
-        failures.append("the lock should pin chinese-ime-lm's rerank-v1 release, Apache-2.0")
+    if lock["release_tag"] != "rerank-v2" or lock["license"] != "Apache-2.0":
+        failures.append("the lock should pin chinese-ime-lm's rerank-v2 release, Apache-2.0")
     for model in lock["models"]:
         for artifact in model["artifacts"]:
             if artifact["url"] != RELEASE + artifact["name"]:
-                failures.append(f"{artifact['name']} is not downloaded from the rerank-v1 release under its own name")
+                failures.append(f"{artifact['name']} is not downloaded from the rerank-v2 release under its own name")
             if not artifact["name"].startswith(f"rerank-{model['shape']}."):
                 failures.append(f"{artifact['name']} does not belong to the {model['shape']} model")
             if len(artifact["sha256"]) != 64 or artifact["size"] <= 0:

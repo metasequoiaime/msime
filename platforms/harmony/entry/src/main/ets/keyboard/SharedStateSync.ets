@@ -21,6 +21,7 @@ import {
   StatisticsSwitch,
 } from './SharedStateMirrorPolicy';
 import { TypingStatisticsPolicy } from './TypingStatisticsPolicy';
+import { SharedStateSyncPolicy } from './input/SharedStateSyncPolicy';
 import {
   KEYBOARD_PERSONAL_WORDBOOK_DRAINED_PATH,
   KEYBOARD_PERSONAL_WORDBOOK_PATH,
@@ -102,13 +103,9 @@ export class SharedStateSync {
   }
 
   /**
-   * 键盘一侧：完整体验模式下先发布键盘自己的改动（附上它已导入到设置应用的哪一版），再导入设置应用发布的改动。键盘获得焦点、在已有偏好修订号比较之前调用，导入的偏好由随后的比较发现并重建会话。
+   * 键盘一侧：先导入设置应用发布的改动，再发布键盘当前的改动（附上它已导入到设置应用的哪一版）。先导入能避免键盘进程里上次会话的旧偏好以较新的镜像时间覆盖设置应用刚保存的值；双方都改过时仍由导入前的双方清单按变化时间决定哪边保留。键盘获得焦点、在已有偏好修订号比较之前调用，导入的偏好由随后的比较发现并重建会话。
    */
   static keyboardSync(mirror: SharedStateMirror, stateDirectory: string, fullMode: boolean): string[] {
-    if (fullMode) {
-      SharedStateSync.keyboardDrainPersonalWordbook(mirror, stateDirectory);
-      SharedStateSync.keyboardPublish(mirror);
-    }
     const handlers: MirrorImportHandlers = {
       preferences: (text: string): boolean => SharedStateSync.importPreferences(stateDirectory, text),
       beforeFile: (name: string, text: string | null): ImportDecision => {
@@ -122,7 +119,20 @@ export class SharedStateSync {
         return SharedStateSync.accountFileDecision(name);
       },
     };
-    const imported: string[] = mirror.importFrom('settings', SETTINGS_ENTRIES, fullMode, handlers);
+    let imported: string[] = [];
+    for (const action of SharedStateSyncPolicy.keyboardActions(fullMode)) {
+      switch (action) {
+        case 'import':
+          imported = mirror.importFrom('settings', SETTINGS_ENTRIES, fullMode, handlers);
+          break;
+        case 'drain':
+          SharedStateSync.keyboardDrainPersonalWordbook(mirror, stateDirectory);
+          break;
+        case 'publish':
+          SharedStateSync.keyboardPublish(mirror);
+          break;
+      }
+    }
     if (imported.length > 0) {
       KeyboardLog.info(`shared state imported from settings: ${imported.join(', ')}`);
     }

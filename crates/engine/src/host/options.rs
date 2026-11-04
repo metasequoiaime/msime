@@ -66,6 +66,8 @@ pub struct EngineOptions {
     /// `shuangpin_profile` 为 4 时的键位表（`SessionOptions::shuangpin_custom_profile`）。双拼在 `enabled_schemes` 里时缺表或表不合法，建会话失败（`INVALID_CUSTOM_SHUANGPIN_PROFILE`）；宿主应先用 `validate_shuangpin_custom_profile` 校验，不合法就不要传 4。
     pub shuangpin_custom_profile: Option<ShuangpinCustomTable>,
     pub shuangpin_preedit_uses_raw: bool,
+    /// `SessionOptions::shuangpin_preedit_separated`：原始按键按音节插 `'`。
+    pub shuangpin_preedit_separated: bool,
     /// 独立粤语双拼入口强制解释同形两键码；其余入口为 false。
     pub force_cantonese_shuangpin: bool,
     /// 粤拼候选的输出转换（`SessionOptions::cantonese_output_conversion`）；`None` 输出繁体。
@@ -232,6 +234,7 @@ pub fn prepare_options_for(
         shuangpin_profile: ShuangpinProfileKind::Xiaohe as u8,
         shuangpin_custom_profile: None,
         shuangpin_preedit_uses_raw: true,
+        shuangpin_preedit_separated: false,
         force_cantonese_shuangpin: false,
         cantonese_output_conversion: None,
         single_character_only: false,
@@ -356,6 +359,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
         shuangpin_profile,
         shuangpin_custom_profile: options.shuangpin_custom_profile.clone(),
         shuangpin_preedit_uses_raw: options.shuangpin_preedit_uses_raw,
+        shuangpin_preedit_separated: options.shuangpin_preedit_separated,
         vietnamese_input_method,
         vietnamese_tone_style,
         korean_layout,

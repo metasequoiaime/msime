@@ -348,6 +348,9 @@ if(BUILD_TESTING)
     MSIME_ZHUYIN_DICTIONARY_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime/zhuyin_dictionary.py"
     MSIME_STROKE_DICTIONARY_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime/stroke_dictionary.py")
   if(MSIME_ENGINE_RESOURCES)
+    add_test(NAME ibus-native-context
+      COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}")
+    set_tests_properties(ibus-native-context PROPERTIES TIMEOUT 120)
     add_test(NAME ibus-custom-voice-hotkey
       COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --voice-hotkey)
     set_tests_properties(ibus-custom-voice-hotkey PROPERTIES TIMEOUT 60)
@@ -360,9 +363,11 @@ if(BUILD_TESTING)
     add_test(NAME ibus-empty-translation
       COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --empty-translation)
     set_tests_properties(ibus-empty-translation PROPERTIES TIMEOUT 60)
+    if(NOT MSIME_RESOURCE_SMOKE_ONLY)
     add_test(NAME ibus-translation-scope
       COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --translation-scope)
     set_tests_properties(ibus-translation-scope PROPERTIES TIMEOUT 60)
+    endif()
     add_test(NAME ibus-caps-lock-tap
       COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --caps-lock)
     set_tests_properties(ibus-caps-lock-tap PROPERTIES TIMEOUT 60)
@@ -372,9 +377,11 @@ if(BUILD_TESTING)
     add_test(NAME ibus-japanese-toggle
       COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --japanese-toggle)
     set_tests_properties(ibus-japanese-toggle PROPERTIES TIMEOUT 60)
+    if(NOT MSIME_RESOURCE_SMOKE_ONLY)
     add_test(NAME ibus-chaizi
       COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --chaizi)
     set_tests_properties(ibus-chaizi PROPERTIES TIMEOUT 60)
+    endif()
     add_test(NAME ibus-stale-candidate-click
       COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --stale-candidate-click)
     set_tests_properties(ibus-stale-candidate-click PROPERTIES TIMEOUT 60)
@@ -590,6 +597,11 @@ if(BUILD_TESTING)
   target_include_directories(linux-voice-provider-options-test PRIVATE src)
   target_link_libraries(linux-voice-provider-options-test PRIVATE nlohmann_json::nlohmann_json)
   add_test(NAME linux-voice-provider-options COMMAND linux-voice-provider-options-test)
+  add_executable(linux-voice-hold-chord-test tests/voice/voice_hold_chord.cpp)
+  target_compile_options(linux-voice-hold-chord-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+  target_include_directories(linux-voice-hold-chord-test PRIVATE src)
+  target_link_libraries(linux-voice-hold-chord-test PRIVATE PkgConfig::IBUS)
+  add_test(NAME linux-voice-hold-chord COMMAND linux-voice-hold-chord-test)
   add_executable(linux-prepare-paths-test tests/core/prepare_paths.cpp)
   target_compile_options(linux-prepare-paths-test PRIVATE -Wall -Wextra -Werror)
   target_include_directories(linux-prepare-paths-test PRIVATE src)
@@ -1010,7 +1022,7 @@ if(MSIME_SETTLED_MODEL)
   install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/neural-model.lock.json"
           DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}")
 endif()
-# 整句联想「增强」逐键重排的两档 ONNX 模型（chinese-ime-lm 的 rerank-v1：8x448 在 rerank-model/，6x256 在 rerank-model-small/，各是 lm_step.ort、model.json、vocab.json），由 `scripts/fetch_rerank_model.py` 按 resources/rerank-model.lock.json 下载核对、改回原名，这里再按同一份锁逐个核对。装在资源目录旁边而不是里面，理由与上面的落定重排模型相同：资源目录要与词库锁逐项相符。host-api 要打开 `onnx-rerank` 编译才读它们（package-container.sh 这样编），两份都在时先自测大的、一页超过 10 ms 换小的，都没有时退回资源目录里随包的 sentence-model.safetensors。可选：发行版仓库的源码构建链接不了预编译的 ONNX Runtime，不传它，照旧用随包模型。只有带键盘模型的版本（版本表 features.neural_keyboard）装。
+# 整句联想「增强」逐键重排的两档 ONNX 模型（chinese-ime-lm 的 rerank-v2：8x448 在 rerank-model/，6x256 在 rerank-model-small/，各是 lm_step.ort、model.json、vocab.json），由 `scripts/fetch_rerank_model.py` 按 resources/rerank-model.lock.json 下载核对、改回原名，这里再按同一份锁逐个核对。装在资源目录旁边而不是里面，理由与上面的落定重排模型相同：资源目录要与词库锁逐项相符。host-api 要打开 `onnx-rerank` 编译才读它们（package-container.sh 这样编），两份都在时先自测大的、一页超过 10 ms 换小的，都没有时退回资源目录里随包的 sentence-model.safetensors。可选：发行版仓库的源码构建链接不了预编译的 ONNX Runtime，不传它，照旧用随包模型。只有带键盘模型的版本（版本表 features.neural_keyboard）装。
 set(MSIME_RERANK_MODELS "" CACHE PATH "Directory holding rerank-model/ and rerank-model-small/ from scripts/fetch_rerank_model.py, e.g. target/rerank-model")
 if(MSIME_RERANK_MODELS AND NOT MSIME_EDITION_NEURAL_KEYBOARD)
   message(STATUS "Edition ${MSIME_EDITION} has no keyboard model; not installing the keystroke rerank models in ${MSIME_RERANK_MODELS}")

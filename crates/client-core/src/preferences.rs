@@ -2015,8 +2015,12 @@ pub struct Preferences {
     /// `nine_key_shuangpin_profile` 为 `custom` 时用的表，形状与 `shuangpin_custom_profile` 相同，键是数字：`initials` 放 23 个声母，`finals` 放 33 个韵母，各一个数字；`zero_initials` 放 12 个零声母音节，各两位数字。这里只限制大小，合不合法由 Engine 判定（`msime_engine::validate_nine_key_shuangpin_table`）；表缺失或不合法时宿主按默认的内置方案运行。选别的方案时保留，空表不写进文件。
     #[serde(default, skip_serializing_if = "ShuangpinCustomProfile::is_empty")]
     pub nine_key_shuangpin_custom_profile: ShuangpinCustomProfile,
+    /// 「双拼预编辑」：真时预编辑画原始按键，假时画展开的全拼分词（自然码 `nimf` 画成 `ni'men`）。
     #[serde(default = "enabled_by_default")]
     pub shuangpin_preedit_uses_raw: bool,
+    /// 「双拼预编辑」的第三档「双拼分隔」：`shuangpin_preedit_uses_raw` 为真时按音节在原始按键之间插 `'`（`nimf` 画成 `ni'mf`）；为假（拼音分词）时不读。单独成一个键而不是把上面那个布尔改成三选一：已经发出去的各端都按布尔读 `shuangpin_preedit_uses_raw`（macOS 账号同步的校验还要求它是布尔、键数固定），没有这个键的旧版本照样读得了新文档，读到的就是保留原始按键。等于默认值（关）时不写进文档。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub shuangpin_preedit_separated: bool,
     /// 「输入时显示双拼键位提示」：双拼组字时在候选窗旁显示当前方案的键位图，高亮刚按下的键，上屏后隐藏。macOS 和 Windows 画它。
     ///
     /// 没写过时为 `None`，不写进文档：这个开关以前只存在 macOS 本机的 defaults 里（`MSIMEClientShuangpinKeymap`），macOS 在文档从没带过这一项时仍读那里的旧选择，再由下一次保存写进文档；文档带着这一项载入过一次之后 macOS 删掉那个旧键，此后缺这一项在所有宿主上都是关。
@@ -4387,6 +4391,7 @@ impl Default for Preferences {
             nine_key_shuangpin_profile: NineKeyShuangpinProfile::default(),
             nine_key_shuangpin_custom_profile: ShuangpinCustomProfile::default(),
             shuangpin_preedit_uses_raw: true,
+            shuangpin_preedit_separated: false,
             shuangpin_keymap_hint: None,
             vietnamese: VietnamesePreferences::default(),
             korean: KoreanPreferences::default(),

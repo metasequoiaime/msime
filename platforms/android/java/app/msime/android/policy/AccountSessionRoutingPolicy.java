@@ -44,13 +44,6 @@ public final class AccountSessionRoutingPolicy {
     /** The owner could not tell right now, typically a refresh that failed on the network; the caller should offer a retry rather than a sign-in. */
     public static final String STATE_UNAVAILABLE = "unavailable";
 
-    /**
-     * Which session the owning process answers from.
-     *
-     * <p>Two packages share this code and sign in through different paths. The native APK signs in through {@link BackendAccount}（会话由 Rust 存在 v2 存储里、在这个进程里刷新）. The Tauri combined package signs in through the shared Rust client, which keeps its session in the v1 store ({@code AccountPlugin}) and refreshes it itself. A v2 session wins when there is one; otherwise a v1 session is only ever read, never refreshed from Java, because a Java refresh would rotate the refresh token behind the Rust client's back and the service would revoke the session the next time Rust used its copy.
-     */
-    public enum Source { OWN, LEGACY_READ_ONLY, NONE }
-
     /** Margin before expiry under which an access token is not handed out, matching the native client's refresh threshold. */
     public static final long EXPIRY_MARGIN_MILLIS = 30_000L;
 
@@ -69,18 +62,6 @@ public final class AccountSessionRoutingPolicy {
     public static String authority(String packageName) {
         if (packageName == null || packageName.isEmpty()) throw new IllegalArgumentException("No package name");
         return packageName + AUTHORITY_SUFFIX;
-    }
-
-    public static Source source(boolean ownSession, boolean legacySession) {
-        if (ownSession) return Source.OWN;
-        return legacySession ? Source.LEGACY_READ_ONLY : Source.NONE;
-    }
-
-    /** The v1 access token if it can be used as it is, or an empty string; an expiring one is left to the Rust client to refresh. */
-    public static String legacyToken(String accessToken, long expiresAtUnixMillis, long nowUnixMillis) {
-        if (!AccountTokenPolicy.validToken(accessToken)) return "";
-        return AccountTokenPolicy.validExpiry(expiresAtUnixMillis, nowUnixMillis)
-            ? accessToken : "";
     }
 
     /** The state the provider reports for one answer from the owning process. */
