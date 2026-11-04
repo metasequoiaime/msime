@@ -24,6 +24,7 @@ msime-dictionary 的大清洗（碎片词压过常用词、上游权重被改坏
 
 - **文件不在就是空表。** 没有 `curation/` 的检出构建出的 `msime-pinyin.db`、`msime-wubi.db` 和各生成文件与之前逐字节相同（三个新阶段在表为空时不打开数据库，`sentence-excluded` 只在 `--out` 里有上一次留下的表时删掉它；空的 `PinyinCuration` 交给生成器的行与不经它时相同），所以这部分可以先于数据合入，不会让下一次发布失败。`msime-english.db` 不在此列：内置的英文蔑称不靠 `curation/` 生效，按 `dict-v2.0.41` 的内容，`english_words` 少 nigger、tranny、beyatch 3 行，`en_zh_glosses` 少 2 行，`zh_en_glosses` 里 深棕色 不再译成 nigger。这属于计划 §5 第 1.2 行「会改变产物」的那一半，任务要求随 1.1 一起做；词库的发布 workflow 还没有固定 `msime_ref`（R-1），这个提交合入 develop 后的下一次发布就会带上它。
 - **每一条都必须匹配到东西。** 否决删不到任何行（整词否决还要在五笔原表里也找不到）、覆盖找不到行、粗俗词不是全拼表里的词或豁免写法不在任何词里、英文否决在所有来源里都没有，构建都失败、表不动，照 `apply_reading_corrections` 的做法，表不会在输入变了之后悄悄过期。
+- **例外：msime 仓库里的表情、颜文字拒绝表 `resources/dictionary-sources/keyword-vetoes.txt`。** 它不是 `curation/` 表，也不对锁定的上游数据施加改动：三份关键词表是本仓自己整理的文本，粗口直接从源表删掉，拒绝表只在构建时守门，任何一行命中就失败。干净状态下它本来一条也不命中，所以「每一条都必须匹配到东西」对它不成立；成对的条目（`关键词<TAB>表情`）仍检查表情是否还在三份表里，只写关键词的条目不查过期。见 [emoji-kaomoji-keyword-cleanse](../bug-fix/2026-11-04-emoji-kaomoji-keyword-cleanse.md)。
 
 ## Alternatives considered
 
