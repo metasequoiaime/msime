@@ -2915,6 +2915,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
 
 [[package]]
+name = "matrixmultiply"
+version = "0.3.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f607c237553f086e7043417a51df26b2eb899d3caff94e6a67592ff992fedc7"
+dependencies = [
+ "autocfg",
+ "rawpointer",
+]
+
+[[package]]
 name = "md-5"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3162,9 +3172,7 @@ dependencies = [
  "msime-host-macos",
  "msime-host-windows",
  "msime-input-runtime",
- "msime-ios-native-ffi",
  "msime-path-trust",
- "msime-tauri-mobile-platform",
  "reqwest 0.12.28",
  "rustix",
  "serde",
@@ -3177,7 +3185,6 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tempfile",
  "time",
- "uuid",
 ]
 
 [[package]]
@@ -3272,6 +3279,7 @@ dependencies = [
  "msime-engine",
  "msime-host-windows",
  "msime-input-runtime",
+ "msime-onnx-rerank",
  "msime-path-trust",
  "msime-script-runtime",
  "rubato",
@@ -3317,6 +3325,7 @@ dependencies = [
  "chinese-ime-lm",
  "msime-client-core",
  "msime-engine",
+ "msime-onnx-rerank",
  "msime-path-trust",
  "rand 0.10.3",
  "rand_pcg",
@@ -3327,10 +3336,6 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
 ]
-
-[[package]]
-name = "msime-ios-native-ffi"
-version = "0.1.0"
 
 [[package]]
 name = "msime-mcp-server"
@@ -3351,6 +3356,17 @@ dependencies = [
  "tempfile",
  "time",
  "tokio",
+]
+
+[[package]]
+name = "msime-onnx-rerank"
+version = "0.1.0"
+dependencies = [
+ "msime-engine",
+ "ort",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -3387,18 +3403,6 @@ name = "msime-script-sdk"
 version = "0.1.0"
 
 [[package]]
-name = "msime-tauri-mobile-platform"
-version = "0.1.0"
-dependencies = [
- "msime-client-core",
- "msime-client-providers",
- "serde",
- "serde_json",
- "tauri",
- "tauri-plugin",
-]
-
-[[package]]
 name = "muda"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3417,6 +3421,21 @@ dependencies = [
  "serde",
  "thiserror 2.0.21",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "ndarray"
+version = "0.17.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "520080814a7a6b4a6e9070823bb24b4531daac8c4627e08ba5de8c5ef2f2752d"
+dependencies = [
+ "matrixmultiply",
+ "num-complex",
+ "num-integer",
+ "num-traits",
+ "portable-atomic",
+ "portable-atomic-util",
+ "rawpointer",
 ]
 
 [[package]]
@@ -3872,6 +3891,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "ort"
+version = "2.0.0-rc.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "37c87aa7a90b7ff3e0fe36cccd475df8d67f15f07f4d6c370c4b38464232813c"
+dependencies = [
+ "ndarray",
+ "ort-sys",
+ "smallvec",
+ "tracing",
+]
+
+[[package]]
+name = "ort-sys"
+version = "2.0.0-rc.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8d22b0417f1838db5a3ac0b3f98dfe39f6fb73624aa0a27c6bbb5040b9c7db2b"
+
+[[package]]
 name = "pango"
 version = "0.18.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4233,9 +4270,9 @@ dependencies = [
 
 [[package]]
 name = "pulldown-cmark"
-version = "0.13.5"
+version = "0.13.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "278e9268c93b9e498a2da46c34d90ba93a3255eb99009646398f34bc73ab36eb"
+checksum = "3db2be46835f013dd3f4fa7f5f7402c537787b54ebb6fe2b94bbdd7e2669bb7b"
 dependencies = [
  "bitflags 2.13.1",
  "memchr",
@@ -4393,6 +4430,12 @@ name = "raw-window-handle"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20675572f6f24e9e76ef639bc5552774ed45f1c30e2951e1e99c59888861c539"
+
+[[package]]
+name = "rawpointer"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60a357793950651c4ed0f3f52338f53b2f809f32d83a07f72909fa13e4c6c1e3"
 
 [[package]]
 name = "realfft"
@@ -7486,9 +7529,9 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "9.1.3"
+version = "9.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1156b39d142a34b999c2310a50455e0cb3760bf7efad0122f796d813bee26ccb"
+checksum = "3f5b58784007ff6e5f280ec82c8596686a3b9b5dd5836c63288d4479f84728b9"
 dependencies = [
  "crc32fast",
  "flate2",

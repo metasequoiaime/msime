@@ -99,6 +99,11 @@ public final class HomeActivity extends AppCompatActivity {
     /** 回到前台时读共享偏好、解析应用主题用的工作线程。 */
     private final ExecutorService themeWorker = Executors.newSingleThreadExecutor(
         ThreadPolicy.namedDaemonFactory("msime-home-theme"));
+    /** 本进程已经替用户处理过「增强」的逐键重排模型（排了后台下载，按流量计费时也问过了），之后回到前台不再列一遍资源包。 */
+    private static final java.util.concurrent.atomic.AtomicBoolean RERANK_MODEL_CHECKED =
+        new java.util.concurrent.atomic.AtomicBoolean();
+    /** 按流量计费的网络上问过一次要不要下载「增强」的模型：存在宿主自己的 msime_home_v1 里，不同步，问过就不再问（连上 Wi-Fi 时后台任务会自己下）。 */
+    private static final String RERANK_MODEL_ASKED = "rerank_model_metered_asked";
     /** 这个进程里是否已经替用户请求过五笔码表（{@link #requestWubiTableIfWanted}）：用户在计费网络的确认框里点了取消、或当时没联网，到下次启动应用再问，不在每次回到前台时都打扰。 */
     private static final java.util.concurrent.atomic.AtomicBoolean WUBI_TABLE_REQUESTED =
         new java.util.concurrent.atomic.AtomicBoolean();
@@ -212,6 +217,7 @@ public final class HomeActivity extends AppCompatActivity {
         if (state == FirstRunPreparation.State.READY && !themeWorker.isShutdown()) {
             themeWorker.execute(() -> DictionaryUpdates.request(getApplicationContext(), "automatic", null));
             requestWubiTableIfWanted();
+            requestRerankModelIfWanted();
         }
     };
 
@@ -226,6 +232,7 @@ public final class HomeActivity extends AppCompatActivity {
             installNoticeShowing = InstallNotice.showIfNeeded(this, () -> {
                 installNoticeShowing = false;
                 requestWubiTableIfWanted();
+                requestRerankModelIfWanted();
             });
         }
         themeWorker.execute(() -> {
@@ -242,6 +249,44 @@ public final class HomeActivity extends AppCompatActivity {
         TypingUpload.onResume(this);
         themeWorker.execute(() -> DictionaryUpdates.request(getApplicationContext(), "automatic", null));
         requestWubiTableIfWanted();
+        requestRerankModelIfWanted();
+    }
+
+    /**
+     * 整句候选「增强」开着、逐键重排模型（{@link ResourcePacks#RERANK_MODEL}）没装时：排后台下载任务（{@link app.msime.android.RerankModelDownload}，只在不按流量计费的网络上跑）；当前网络按流量计费时再弹窗问一次（{@link ResourcePackService#requestOnBehalf}），问过就记下，以后不再问。「增强」多半是缺省或从别的设备同步来的，用户没在设置页里选过，不这样做模型永远不会下载。时机和五笔码表的询问一样：准备完成之后、首启引导和升级说明都不在前面时。
+     */
+    private void requestRerankModelIfWanted() {
+        if (FirstRunPreparation.state() != FirstRunPreparation.State.READY || RERANK_MODEL_CHECKED.get()
+                || themeWorker.isShutdown()) return;
+        themeWorker.execute(() -> {
+            JSONObject snapshot = HostStore.prepared(this) ? HostStore.loadPreferences(this) : null;
+            JSONObject preferences = snapshot == null ? null : snapshot.optJSONObject("preferences");
+            if (!app.msime.android.RerankModelDownload.wanted(preferences)) return;
+            ResourcePacks.Pack pack = ResourcePacks.pack(getFilesDir(), ResourcePacks.RERANK_MODEL);
+            if (pack == null) return;
+            java.util.Set<String> installed = pack.installed() ? java.util.Set.of(pack.id()) : java.util.Set.of();
+            app.msime.android.RerankModelDownload.scheduleIfWanted(this, preferences, installed);
+            android.content.SharedPreferences store = getSharedPreferences("msime_home_v1", MODE_PRIVATE);
+            android.net.ConnectivityManager connectivity = getSystemService(android.net.ConnectivityManager.class);
+            boolean metered = connectivity != null && connectivity.getActiveNetwork() != null
+                && connectivity.isActiveNetworkMetered();
+            if (pack.installed() || !metered || store.getBoolean(RERANK_MODEL_ASKED, false)) {
+                RERANK_MODEL_CHECKED.set(true);
+                return;
+            }
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed() || !getLifecycle().getCurrentState().isAtLeast(
+                        androidx.lifecycle.Lifecycle.State.RESUMED)) return;
+                if (ViewPolicy.isVisible(findViewById(R.id.home_intro)) || !OnboardingActivity.seen(this)
+                        || installNoticeShowing) return;
+                ResourcePackService.Status status = ResourcePackService.status(ResourcePacks.RERANK_MODEL);
+                if (status != null && status.running()) return;
+                if (!RERANK_MODEL_CHECKED.compareAndSet(false, true)) return;
+                store.edit().putBoolean(RERANK_MODEL_ASKED, true).apply();
+                ResourcePackService.requestOnBehalf(this, ResourcePacks.RERANK_MODEL, pack.size(),
+                    "整句候选「增强」用它给候选排序，比应用自带的模型更准、更快。不下载也能打字，连上 Wi-Fi 时会自动下载。");
+            });
+        });
     }
 
     /**

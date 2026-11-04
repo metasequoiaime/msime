@@ -78,7 +78,7 @@ public final class AppIconSheet {
             action.run();
         });
 
-        ImageView icon = ImageViewPolicy.decorative(context, iconResource(style));
+        ImageView icon = ImageViewPolicy.decorative(context, AppIcons.resource(context, style));
         icon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
         cell.addView(icon, LayoutPolicy.squareFrameParamsPx(
             DimensionPolicy.pixels(context, ICON_SIZE), Gravity.CENTER));
@@ -105,9 +105,5 @@ public final class AppIconSheet {
         });
         cell.setContentDescription(description);
         return cell;
-    }
-
-    private static int iconResource(AppIconStyle style) {
-        return AppIcons.resource(style);
     }
 }

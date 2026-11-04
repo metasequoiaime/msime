@@ -11,14 +11,15 @@ function Get-Block([string]$Begin, [string]$End) {
 }
 
 # ---- processes stopped before files are replaced or removed ----
-# 两种构建的安装器与 Server 必须选择相同的设置和面板入口；分别核对编译分支。
+# 两种构建的安装器与 Server 必须选择相同的设置和面板入口；分别核对编译分支。现代分支另有 MSIME_WINDOWS_PANEL_HOST=native 时的原生面板宿主，它和缺省的 MSIME.exe 都随包安装；Win7 分支只有自己的原生面板。
 $shell = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../src/system/ShellSurfaces.h') -Raw -Encoding UTF8
 $branches = [regex]::Match($shell, '(?s)#if defined\(MSIME_WINDOWS7_CLIENT\) && MSIME_WINDOWS7_CLIENT\s*(.*?)#else\s*(.*?)#endif')
 if (-not $branches.Success) { throw 'Missing explicit Win7/modern shell branches' }
-foreach ($variant in @(@(1, 'msime-client-settings-win7.exe', 'msime-client-panels-win7.exe'), @(2, 'msime-client-settings.exe', 'MSIME.exe'))) {
+foreach ($variant in @(@(1, 'msime-client-settings-win7.exe', 'msime-client-panels-win7.exe', ''), @(2, 'msime-client-settings.exe', 'MSIME.exe', 'msime-client-panels.exe'))) {
     $body = $branches.Groups[$variant[0]].Value
-    $names = [regex]::Match($body, 'if \(request\.panel\.empty\(\)\)\s*return\s*\{L"([^"]+)"\};\s*return\s*\{L"([^"]+)"\};')
-    if (-not $names.Success -or $names.Groups[1].Value -cne $variant[1] -or $names.Groups[2].Value -cne $variant[2] -or
+    $names = [regex]::Match($body, 'if \(request\.panel\.empty\(\)\)\s*return\s*\{L"([^"]+)"\};\s*(?:if \(panel_host == PanelHost::Native\)\s*return\s*\{L"([^"]+)"\};\s*)?return\s*\{L"([^"]+)"\};')
+    if (-not $names.Success -or $names.Groups[1].Value -cne $variant[1] -or $names.Groups[3].Value -cne $variant[2] -or
+        $names.Groups[2].Value -cne $variant[3] -or
         -not $script.Contains(('#define MySettingsExeName "' + $variant[1] + '"'))) {
         throw "Installer/Server entry mismatch: $($variant[1])"
     }
@@ -163,6 +164,23 @@ if (-not $validation.Contains('Overlap := OtherEditionDataDirWithin(Directory);'
 $preserved = Get-Block 'function IsPreservedAppDataItem' 'function InitializeUninstall'
 if (-not $preserved.Contains('(CompareText(FileName, DataDirMarkerName) = 0)')) {
     throw 'Upgrade cleanup deletes the data-directory ownership marker'
+}
+
+# 用户自己的辅助码表放在 DataDir\helpcodes\custom（#10707）：升级清掉安装包的内置码表时留下它；删 server 目录、清安装包条目之前，先把以前放在 server\resources\helpcodes\custom 的表搬过来。
+$helpcodes = Get-Block 'procedure CleanPackageHelpcodes' 'procedure CleanAppDataExceptUserFiles;'
+if (-not $helpcodes.Contains("(CompareText(FindRec.Name, 'custom') <> 0)")) {
+    throw 'Upgrade cleanup deletes the user helpcode tables in DataDir\helpcodes\custom'
+}
+$clean = Get-Block 'procedure CleanAppDataExceptUserFiles;' 'procedure TryDeleteSystemVersionDirs'
+if (-not $clean.Contains('CleanPackageHelpcodes(ItemPath)')) {
+    throw 'Upgrade cleanup removes DataDir\helpcodes as a whole'
+}
+$adopt = $prepare.IndexOf("AdoptCustomHelpcodes(ExpandConstant('{autopf}\{#MyEditionInstallDir}\server\resources\helpcodes\custom'));")
+$serverMatch = [regex]::Match($prepare, "TryDeleteTree\(ExpandConstant\(\s*'\{autopf\}\\\{#MyEditionInstallDir\}\\server'\)\);")
+$serverGone = if ($serverMatch.Success) { $serverMatch.Index } else { -1 }
+$packageGone = $prepare.IndexOf('CleanAppDataExceptUserFiles;')
+if ($adopt -lt 0 -or $serverGone -lt 0 -or $packageGone -lt 0 -or $adopt -gt $serverGone -or $adopt -gt $packageGone) {
+    throw 'The custom helpcode tables under server\resources are not kept before the server directory is deleted'
 }
 
 # ---- the medium-integrity Server and settings window can write the data directory ----

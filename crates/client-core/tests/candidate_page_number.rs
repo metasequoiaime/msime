@@ -22,8 +22,9 @@ fn legacy_preferences_show_page_numbers_and_the_toggle_roundtrips() {
     assert!(store.load().unwrap().preferences.show_candidate_page_number);
 }
 
+/// 画页码并按 `show_candidate_page_number` 隐藏它的宿主都要声明能力，设置页才有开关；Windows 候选窗早就读这个偏好却没声明，Windows 和 Android 用户都关不掉页码（#10709）。
 #[test]
-fn linux_and_macos_expose_the_page_number_control() {
+fn hosts_that_draw_page_numbers_expose_the_page_number_control() {
     for platform in [
         HostPlatform::Linux,
         HostPlatform::Windows,
@@ -34,7 +35,14 @@ fn linux_and_macos_expose_the_page_number_control() {
     ] {
         assert_eq!(
             HostCapabilities::for_platform(platform).candidate_page_number,
-            matches!(platform, HostPlatform::Linux | HostPlatform::Macos)
+            matches!(
+                platform,
+                HostPlatform::Linux
+                    | HostPlatform::Macos
+                    | HostPlatform::Windows
+                    | HostPlatform::Android
+            ),
+            "{platform:?}"
         );
     }
 }

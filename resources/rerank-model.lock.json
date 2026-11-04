@@ -1,0 +1,62 @@
+{
+  "source": "https://github.com/metasequoiaime/chinese-ime-lm/releases/tag/rerank-v2",
+  "release_tag": "rerank-v2",
+  "source_commit": "5b82758eaf3419dff9555f41bbda2744a56e45c4",
+  "license": "Apache-2.0",
+  "models": [
+    {
+      "directory": "rerank-model",
+      "shape": "8x448",
+      "artifacts": [
+        {
+          "name": "rerank-8x448.ort",
+          "file": "lm_step.ort",
+          "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/rerank-v2/rerank-8x448.ort",
+          "sha256": "827d9ecae4fdfb8ac06d15fbcef827705a55f72ea5e39c96f805f2f1350ee58f",
+          "size": 30834960
+        },
+        {
+          "name": "rerank-8x448.model.json",
+          "file": "model.json",
+          "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/rerank-v2/rerank-8x448.model.json",
+          "sha256": "fdeb4f150fd6a9f937b130ccef4f3248436a9b783202e125fd0a2d1fe3661283",
+          "size": 954
+        },
+        {
+          "name": "rerank-8x448.vocab.json",
+          "file": "vocab.json",
+          "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/rerank-v2/rerank-8x448.vocab.json",
+          "sha256": "d7fb2e70de9f0c2c65b822a8fbf604655bfef6d0dcd8f1975d73f1cd5ea7f038",
+          "size": 85613
+        }
+      ]
+    },
+    {
+      "directory": "rerank-model-small",
+      "shape": "6x256",
+      "artifacts": [
+        {
+          "name": "rerank-6x256.ort",
+          "file": "lm_step.ort",
+          "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/rerank-v2/rerank-6x256.ort",
+          "sha256": "e036febfb8f7bdf941f1637be127ff539ea95b937a4c2a27f4c6ab897138fc6c",
+          "size": 8220336
+        },
+        {
+          "name": "rerank-6x256.model.json",
+          "file": "model.json",
+          "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/rerank-v2/rerank-6x256.model.json",
+          "sha256": "33e2b903a0d576730488864a007e67d518d8c7123572e6f4f77a80487fb5eda5",
+          "size": 951
+        },
+        {
+          "name": "rerank-6x256.vocab.json",
+          "file": "vocab.json",
+          "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/rerank-v2/rerank-6x256.vocab.json",
+          "sha256": "d7fb2e70de9f0c2c65b822a8fbf604655bfef6d0dcd8f1975d73f1cd5ea7f038",
+          "size": 85613
+        }
+      ]
+    }
+  ]
+}

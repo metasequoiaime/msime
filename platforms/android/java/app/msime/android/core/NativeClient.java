@@ -132,6 +132,9 @@ public final class NativeClient {
     public static String typingStatistics(String request) {
         return TextPolicy.utf8(typingStatisticsRaw(request.getBytes(StandardCharsets.UTF_8)));
     }
+
+    /** 写出当前进程攒着的选词计数、打字统计和个人上下文学习；只能在工作线程调用。 */
+    public static String flushAll() { return TextPolicy.utf8(flushAllRaw()); }
     /**
      * Whether aggregate statistics are switched on in the store under {@code directory}. A missing or unreadable document reads as off, so a capture gate built on this never records by default. Takes the shared file lock: call on a worker, on activation, never per key.
      */
@@ -1125,6 +1128,7 @@ public final class NativeClient {
     private static native byte[] noticesRaw(byte[] request);
     private static native byte[] noticeDismissRaw(byte[] request);
     private static native byte[] typingStatisticsRaw(byte[] request);
+    private static native byte[] flushAllRaw();
     private static native int typingStatisticsEnabledRaw(byte[] directory);
     private static native byte[] themeCatalogRaw();
     private static native byte[] resolveThemeRaw(byte[] request);

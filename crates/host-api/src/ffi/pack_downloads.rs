@@ -102,7 +102,7 @@ pub type ResourcePackProgress =
 ///
 /// 请求为 `{"state_root": "<absolute dir>"}`，响应值为 `[{"id","state":"missing"|"installed"|"outdated","size","schemes":[...],"import_files":[{"name","url","size"}]}]`。
 /// 响应数组中每个可用包对应一项，`import_files` 列出该包离线安装（安装请求中的 `files`）所需文件。
-/// 包 ID 为 `japanese`、`language-dictionaries`、`handwriting`、`settled-model`、`grammar-model-wanxiang`、`grammar-model-baguwen`、`grammar-model-baguwen-compact`、`offline-glosses`、`voice-runtime`、`wubi`，以及锁文件固定重签运行库后才提供的 `voice-runtime-macos`。
+/// 包 ID 为 `japanese`、`language-dictionaries`、`handwriting`、`settled-model`、`grammar-model-wanxiang`、`grammar-model-baguwen`、`grammar-model-baguwen-compact`、`offline-glosses`、`voice-runtime`、`wubi`、`rerank-model-small`，以及锁文件固定重签运行库后才提供的 `voice-runtime-macos`。
 /// `size` 是下载大小（字节）。已安装的包位于 `<state_root>/resource-packs/<id>/`；查询只读取少量文件属性。
 ///
 /// # Safety
@@ -445,6 +445,7 @@ mod tests {
         if ResourcePack::AndroidOcrModule.pinned() {
             expected.push("ocr-module-android");
         }
+        expected.push("rerank-model-small");
         assert_eq!(ids, expected);
         for pack in listed["value"].as_array().unwrap() {
             assert_eq!(pack["state"], "missing");

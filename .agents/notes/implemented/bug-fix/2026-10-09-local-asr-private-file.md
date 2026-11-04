@@ -10,6 +10,8 @@ Status: implemented
 
 清单在打开后的句柄上要求普通文件且只有一个硬链接；Windows 句柄同时检查 `NumberOfLinks`。模型清单的路径检查和每个清单引用的模型文件也要求普通单硬链接文件。POSIX 词表读取再做一次同样的句柄检查，形成分层边界。
 
+Fun-ASR-Nano 的 `tokenizer` 条目是 `Qwen3-0.6B` 目录，不能当作普通文件检查，否则完整安装也会报缺模型。它走专用的 `tokenizer_directory()`：目录必须位于模型内且所有祖先都满足既有真实目录规则；其中的 `vocab.json`、`merges.txt`、`tokenizer.json` 分别满足普通单硬链接文件规则。ONNX、VAD 和其他模型文件继续使用原来的 `file()`，不扩大它的接受范围。
+
 ## Alternatives considered
 
 - 只检查 `O_NOFOLLOW` 或 `symlink_status`：硬链接不是符号链接，仍会把外部 inode 当作模型文件。
@@ -25,3 +27,4 @@ Status: implemented
 - `shared/voice/tests/local_asr.cpp` 覆盖清单硬链接被拒绝；旧实现上的断言按预期失败，修复后通过。
 - `scripts/test-local-asr-file-readers.py` 检查 POSIX/Windows 读取器及模型文件边界。
 - `shared-voice-local-asr` CTest 通过。
+- `shared-voice-local-helper-tokenizer` 使用真实 Fun-ASR-Nano 建会话并取消，全程不采集或发送音频；合成夹具检查错误类型、空目录、越界目录、符号链接、硬链接和 FIFO。该专项需要显式提供运行库和已安装的 Fun-ASR-Nano，其他模型返回跳过。

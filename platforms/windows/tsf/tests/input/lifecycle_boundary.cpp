@@ -116,5 +116,13 @@ int main(int argc, char **argv) {
     expect_order(ime, "case WM_IpcReconnect: {", "pIME->_NoteFieldTraitsForServer();",
                  "EnsureNamedpipeFocusSessionActivated()",
                  "the field traits are noted before a reconnect activates the focus session");
+    // 反向端点重连后必须重开 Main：Server 注册反向端点时会先清掉它记住的 Main，旧句柄已经
+    // 没有对端在收，继续写 ClientActivated 只会石沉大海。这两条的语义由 PipeRecoveryPolicy.h
+    // 的纯函数决定（行为测试在 msime-tsf-pipe-recovery-policy-test），这里只确认 IPC 真的
+    // 调用了它们，免得有人改回内联判断而测试仍然全绿。
+    expect(ipc, "if (msime::windows::tsf::ReopenMainAfterPipeOpen(pipeRole))", true,
+           "reopening a reverse endpoint must also reopen Main");
+    expect(ipc, "msime::windows::tsf::FocusEchoOutcomeFor(acknowledged, false)", true,
+           "a missing focus echo is a transport failure, not a ready session");
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

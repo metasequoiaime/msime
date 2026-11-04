@@ -74,7 +74,7 @@
         // states its own.
         // 分层图标：桌面按自己的遮罩裁圆角，背景层是标志的绿边色 #A8DF8E，前景层是撑满画布的标志；单张透明底的 app_icon 在桌面上会透出壁纸。
         "icon": "$media:app_icon_layered",
-        // 启动屏图标是网页开屏的第一帧：浅色圆盘上一个还没描笔画的标志方块（start_window_icon.png，585×621，顶上留 36px 透明），启动窗、原生盖板和开屏因此是同一个画面，见 .agents/notes/implemented/feature/2026-10-11-harmony-launch-one-picture.md 和 scripts/test-harmony-launch-continuity.py。
+        // 启动屏图标是网页开屏的第一帧：完整的水杉标志，外面不套圆盘（start_window_icon.png，透明底，585×585 的方块顶上再加 36px 透明成 585×621；由 launch_logo.svg 按 488px 渲染、放在 +48+84，标志方块落在 467×467+58+94），启动窗、原生盖板和开屏因此是同一个画面，见 .agents/notes/implemented/feature/2026-10-11-harmony-launch-one-picture.md 和 scripts/test-harmony-launch-continuity.py。
         "startWindowIcon": "$media:start_window_icon",
         "startWindowBackground": "$color:start_window_background",
         "exported": true,

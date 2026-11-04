@@ -8,6 +8,7 @@ import { candidateTranslationScope } from "../candidate-translation-options-sect
 import { EnglishSuggestionsSection } from "../english-suggestions-section";
 import { PhonePunctuationSection, PunctuationSection } from "../punctuation-section";
 import { SentenceAssociationLevelRow } from "../sentence-association-section";
+import { NextWordPredictionSection } from "../next-word-prediction-section";
 import { TranslationSettingsContent } from "../translation-settings-content";
 import { useSettingsTabs } from "../use-settings-tabs";
 import { TranslationProviderSettingsSection } from "../translation-provider-settings-section";
@@ -177,6 +178,14 @@ export function ExpressionSettingsPage() {
             neuralKeyboard={host?.edition?.neural_keyboard ?? true}
             onChange={(sentence_association) => onPreferencesChange({ sentence_association })}
           />
+          {host?.next_word_prediction && (
+            <NextWordPredictionSection
+              value={draft.next_word_prediction}
+              buttons={draft.next_word_prediction_buttons}
+              showButtons
+              onChange={onPreferencesChange}
+            />
+          )}
           {showEnglishSuggestions && (
             <EnglishSuggestionsSection
               title="英文联想"

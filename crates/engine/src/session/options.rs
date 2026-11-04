@@ -26,6 +26,8 @@ pub struct SessionOptions {
     pub shuangpin_custom_profile: Option<ShuangpinCustomTable>,
     /// Shuangpin preedit shows the typed keys rather than the decoded quanpin.
     pub shuangpin_preedit_uses_raw: bool,
+    /// 双拼预编辑显示原始按键（`shuangpin_preedit_uses_raw` 为真）时，按音节在按键之间插 `'`（自然码 `nimf` 显示为 `ni'mf`），不展开成全拼。`shuangpin_preedit_uses_raw` 为假时不读它。
+    pub shuangpin_preedit_separated: bool,
     /// How the Vietnamese scheme spells marks: Telex letters or VNI digits.
     pub vietnamese_input_method: VietnameseInputMethod,
     /// Where the Vietnamese scheme puts the tone on `oa`, `oe` and `uy`.
@@ -49,6 +51,8 @@ pub struct SessionOptions {
     pub helpcode_table: Option<SharedKeymap>,
     /// 内置辅助码表缺失时使用的随包资源根目录。
     pub helpcode_fallback_resources: Option<PathBuf>,
+    /// 用户自己的辅助码表所在的根目录（宿主的状态根）：`custom/<stem>` 先读这里的 `helpcodes/custom`，没有时再读资源目录里的。只认绝对路径。
+    pub custom_helpcode_root: Option<PathBuf>,
     /// `autocorrect_type` bits; 0 keeps the user's spelling. Either of transposition and neighbor also enables missing and extra letters, and on inputs of three or more complete syllables offers a sentence that reads one syllable as a typo. Committing the raw letters while a correction is offered turns correction off for that exact input.
     pub autocorrect_types: u32,
     pub helpcode: bool,
@@ -122,6 +126,7 @@ impl SessionOptions {
             shuangpin_profile: ShuangpinProfileKind::Xiaohe,
             shuangpin_custom_profile: None,
             shuangpin_preedit_uses_raw: true,
+            shuangpin_preedit_separated: false,
             vietnamese_input_method: VietnameseInputMethod::Telex,
             vietnamese_tone_style: VietnameseToneStyle::Modern,
             korean_layout: crate::KoreanLayout::Dubeolsik,
@@ -134,6 +139,7 @@ impl SessionOptions {
             helpcode_trigger_key: None,
             helpcode_table: None,
             helpcode_fallback_resources: None,
+            custom_helpcode_root: None,
             autocorrect_types: 0,
             helpcode: false,
             strict_quanpin_helpcode: false,

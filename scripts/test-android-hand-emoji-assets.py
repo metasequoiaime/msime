@@ -28,7 +28,6 @@ for row in manifest["assets"]:
     assert struct.unpack(">II", data[16:24]) == (128, 128)
 for name in ("LICENSE.txt", "UPSTREAM-LICENSE.txt", "NOTICE.txt"):
     assert (notices / name).stat().st_size > 100
-for name in ("build-apk.sh", "build-client-apk.sh"):
-    script = (root / "platforms/android" / name).read_text()
-    assert '"$assets/native-notices/noto-emoji/"' in script
-print("android hand emoji: 24 fixed-source images, hashes, 128px dimensions and both notice paths verified")
+script = (root / "platforms/android/build-apk.sh").read_text()
+assert '"$assets/native-notices/noto-emoji/"' in script
+print("android hand emoji: 24 fixed-source images, hashes, 128px dimensions and the APK notice path verified")

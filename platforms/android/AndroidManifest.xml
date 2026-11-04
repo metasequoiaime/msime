@@ -22,12 +22,11 @@
     <queries><intent><action android:name="android.speech.action.RECOGNIZE_SPEECH" /></intent><intent><action android:name="android.speech.RecognitionService" /></intent><intent><action android:name="android.intent.action.TTS_SERVICE" /></intent><intent><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.BROWSABLE" /><data android:scheme="https" /></intent></queries>
     <!-- 明文 http 只给 AI 辅助的本机、局域网接口用，原因和边界见 res/xml/network_security_config.xml。 -->
     <!-- application 上显式关掉预测式返回：targetSdk 36 起不写就默认打开，而 :ime 进程里的输入法服务靠 KEYCODE_BACK 收起面板。 -->
-    <application android:theme="@style/Theme.MSIME" android:label="@string/app_name" android:icon="@drawable/app_icon_classic" android:allowBackup="false" android:supportsRtl="true" android:networkSecurityConfig="@xml/network_security_config" android:enableOnBackInvokedCallback="false">
+    <application android:theme="@style/Theme.MSIME" android:label="@string/app_name" android:icon="@drawable/app_icon_classic" android:roundIcon="@drawable/app_icon_classic_round" android:allowBackup="false" android:supportsRtl="true" android:networkSecurityConfig="@xml/network_security_config" android:enableOnBackInvokedCallback="false">
         <!-- 返回手势走 OnBackPressedDispatcher 的预测式返回，只在宿主的 HomeActivity 上打开，覆盖 application 上的关闭。adjustResize 写明而不留给系统猜：「对话」tab 的输入栏和各页的搜索框都按键盘的 inset 让位，平移窗口会把它们顶出屏幕；不带 stateVisible，键盘只在「试用键盘」切到对话 tab 时由页面自己弹出。 -->
         <activity android:name="app.msime.android.home.HomeActivity" android:exported="true" android:enableOnBackInvokedCallback="true" android:windowSoftInputMode="adjustResize">
         </activity>
         <activity android:name="app.msime.android.home.OnboardingActivity" android:exported="false" />
-        <activity android:name="app.msime.android.home.KeyboardTryoutActivity" android:exported="false" android:windowSoftInputMode="adjustResize|stateVisible" />
         <!-- Apple 网页登录的回调：浏览器授权后跳回 `${applicationId}://auth/apple`。它不显示界面，只接受本应用刚发起、尚未完成、未过期的那次登录。 -->
         <activity android:name="app.msime.android.home.AuthRedirectActivity" android:exported="true" android:theme="@android:style/Theme.NoDisplay">
             <intent-filter>
@@ -38,11 +37,11 @@
             </intent-filter>
         </activity>
         <!-- 图标只切换别名，真实宿主始终启用；禁用真实 Activity 会让系统稍后把经别名打开的页面也关闭。 -->
-        <activity-alias android:name=".MainActivityClassic" android:targetActivity="app.msime.android.home.HomeActivity" android:icon="@drawable/app_icon_classic" android:enabled="true" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
-        <activity-alias android:name=".MainActivityForest" android:targetActivity="app.msime.android.home.HomeActivity" android:icon="@drawable/app_icon_forest" android:enabled="false" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
-        <activity-alias android:name=".MainActivitySky" android:targetActivity="app.msime.android.home.HomeActivity" android:icon="@drawable/app_icon_sky" android:enabled="false" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
-        <activity-alias android:name=".MainActivityDusk" android:targetActivity="app.msime.android.home.HomeActivity" android:icon="@drawable/app_icon_dusk" android:enabled="false" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
-        <activity-alias android:name=".MainActivityVermilion" android:targetActivity="app.msime.android.home.HomeActivity" android:icon="@drawable/app_icon_vermilion" android:enabled="false" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
+        <activity-alias android:name=".MainActivityClassic" android:targetActivity="app.msime.android.home.HomeActivity" android:icon="@drawable/app_icon_classic" android:roundIcon="@drawable/app_icon_classic_round" android:enabled="true" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
+        <activity-alias android:name=".MainActivityForest" android:targetActivity="app.msime.android.home.HomeActivity" android:icon="@drawable/app_icon_forest" android:roundIcon="@drawable/app_icon_forest_round" android:enabled="false" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
+        <activity-alias android:name=".MainActivitySky" android:targetActivity="app.msime.android.home.HomeActivity" android:icon="@drawable/app_icon_sky" android:roundIcon="@drawable/app_icon_sky_round" android:enabled="false" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
+        <activity-alias android:name=".MainActivityDusk" android:targetActivity="app.msime.android.home.HomeActivity" android:icon="@drawable/app_icon_dusk" android:roundIcon="@drawable/app_icon_dusk_round" android:enabled="false" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
+        <activity-alias android:name=".MainActivityVermilion" android:targetActivity="app.msime.android.home.HomeActivity" android:icon="@drawable/app_icon_vermilion" android:roundIcon="@drawable/app_icon_vermilion_round" android:enabled="false" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
         <activity android:name="app.msime.android.OcrCaptureActivity" android:process=":ime" android:exported="false" android:excludeFromRecents="true" android:taskAffinity="" android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|uiMode|density|keyboard|keyboardHidden|navigation" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
         <activity android:name="app.msime.android.OcrSetupActivity" android:exported="false" android:label="拍照识字设置" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
         <activity android:name="app.msime.android.VoiceRecognitionActivity" android:exported="false" android:excludeFromRecents="true" android:theme="@android:style/Theme.Material.Light.Dialog.NoActionBar" />
@@ -56,6 +55,8 @@
         </activity>
         <!-- 自动更新：每天一次检查、下载并核对更新，只在用户打开「自动更新」后排程。 -->
         <service android:name="app.msime.android.home.UpdateJobService" android:exported="false" android:permission="android.permission.BIND_JOB_SERVICE" />
+        <!-- 「增强」开着、逐键重排模型没装时，在不按流量计费的网络上替用户在后台下载（rerank-model-small 资源包）。跑在主进程：输入法进程只排任务，从不联网。 -->
+        <service android:name="app.msime.android.home.RerankModelJobService" android:exported="false" android:permission="android.permission.BIND_JOB_SERVICE" />
         <!-- 按需资源包下载：只由用户操作启动，跑在主进程（不设 android:process），:ime 进程从不安装资源包。 -->
         <service android:name="app.msime.android.ResourcePackService" android:exported="false" android:foregroundServiceType="dataSync" />
         <service android:name="app.msime.android.MSIMEInputService" android:process=":ime" android:exported="true" android:permission="android.permission.BIND_INPUT_METHOD">

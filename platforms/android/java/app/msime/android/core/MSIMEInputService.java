@@ -182,6 +182,8 @@ public final class MSIMEInputService extends InputMethodService {
     ScrollView expandedCandidateScroll;
     TextView preedit;
     TextView candidatePage;
+    /** 共享偏好 `show_candidate_page_number`（#10709）；只跟实时偏好，偏好读到之前按开。 */
+    private boolean candidatePageNumberShown = true;
     KeyboardBrandMark candidateBrandMark;
     Button exitLocalModeButton;
     /** 漢 in the candidate header: converts the composing Korean syllable to Hanja, or closes its list. */
@@ -1166,6 +1168,8 @@ public final class MSIMEInputService extends InputMethodService {
         if (localModes == null) localModes = new JSONObject();
         // 候选条的配色和字号与皮肤同理：按副本重算，候选条会先铺一层出厂薄荷底、字号回到出厂的 18/15，实时偏好到了才换回来（#5933）。副本这条路径保留当前外观，也就是上次真正读到的偏好或 onCreate 按皮肤片段算好的那一份。
         if (live) applyCandidateAppearance(preferences);
+        if (live) candidatePageNumberShown = preferences == null
+            || CandidatePageLabelPolicy.shown(preferences.opt(CandidatePageLabelPolicy.PREFERENCE));
         // 键距、行距、语音快捷键、数字键顺序和双拼键位提示同理：副本里是出厂值，onStartInput 紧接着就按它重建键行，调过键距的用户每换一个输入框，键盘都先按出厂间距排一帧，实时偏好到了才跳回来。副本这条路径保留当前几何，也就是上次真正读到的偏好或 onCreate 按皮肤片段算好的那一份。键高例外：本地设置里有键高时那份是实时的，照旧跟着刷新；没有时 heightAdjustmentFrom 会退回副本里的出厂值，所以要先判断。
         if (live) applyTouchGeometry(preferences);
         else if (localSettings.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT))
@@ -2615,6 +2619,7 @@ public final class MSIMEInputService extends InputMethodService {
             catch (Exception | LinkageError ignored) { /* Never log editor text or native responses. */ }
             try { NativeClient.destroy(session); } catch (LinkageError ignored) { }
             session = 0;
+            schedulePersonalLearningFlush();
             imeDebugOverlay.recordPerf(DiagnosticEventKind.ENGINE_SESSION_DESTROY,
                 SystemClock.uptimeMillis() - destroyStartedAt);
         }
@@ -2645,6 +2650,18 @@ public final class MSIMEInputService extends InputMethodService {
             if (!keepTextEdit) imeTextEditPanel.close();
         } else {
             closeToolbarPanels();
+        }
+    }
+
+    /** Android 的会话销毁不能在输入线程上冲刷所有个人上下文模型；把全局收尾排到统计工作线程。 */
+    private void schedulePersonalLearningFlush() {
+        try {
+            typingStatisticsWorker.execute(() -> {
+                try { NativeClient.flushAll(); }
+                catch (RuntimeException | LinkageError ignored) { }
+            });
+        } catch (RuntimeException ignored) {
+            // 服务正在销毁时由 onDestroy 的最后一次 flush 兜底。
         }
     }
 
@@ -3654,6 +3671,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean previousCandidateGloss = candidateEnglishGloss;
         boolean previousCandidatePronunciation = candidatePronunciationEnabled;
         String previousSpellingPosition = spellingPosition;
+        boolean previousCandidatePageNumber = candidatePageNumberShown;
         boolean previousCandidateTranslations = candidateTranslationsEnabled;
         boolean previousCandidateTranslationAccount = candidateTranslationAccount;
         CandidateTranslationRoute previousCandidateTranslationRoute = candidateTranslationRoute;
@@ -3691,6 +3709,7 @@ public final class MSIMEInputService extends InputMethodService {
                 || previousCandidateGloss != candidateEnglishGloss
                 || previousCandidatePronunciation != candidatePronunciationEnabled
                 || !previousSpellingPosition.equals(spellingPosition)
+                || previousCandidatePageNumber != candidatePageNumberShown
                 || previousCandidateTranslations != candidateTranslationsEnabled
                 || previousCandidateTranslationAccount != candidateTranslationAccount
                 || !previousCandidateTranslationRoute.equals(candidateTranslationRoute)
@@ -3869,6 +3888,7 @@ public final class MSIMEInputService extends InputMethodService {
         candidateFontSize = nextFontSize;
         candidatePreeditFontSize = nextPreeditFontSize;
         candidateScalePercent = nextScalePercent;
+        candidatePageNumberShown = CandidatePageLabelPolicy.shown(preferences.opt(CandidatePageLabelPolicy.PREFERENCE));
         spellingPosition = nextSpellingPosition;
         touchKeySpacingTenths = nextKeySpacing;
         touchRowSpacingTenths = nextRowSpacing;
@@ -3970,6 +3990,8 @@ public final class MSIMEInputService extends InputMethodService {
         selectedScheme = nextSchemeConfiguration.selected();
         rememberChineseScheme();
         preferencesSnapshot = accepted;
+        // 「增强」开着而逐键重排模型没装（多半是缺省或同步来的「增强」，用户从没在设置里选过）：排一个只在不按流量计费的网络上跑的后台下载，由主进程去下；每个进程只排一次，这里不联网。
+        RerankModelDownload.scheduleIfWanted(this, preferences, installedResourcePackIds);
         refreshModeSkinLibrary(preferences);
         imeTextEditPanel.applyPreferences(preferences);
         if (!clipboardHistoryEnabled && clipboardHistory != null) {
@@ -12222,10 +12244,9 @@ public final class MSIMEInputService extends InputMethodService {
         }
         String page = "";
         if (view != null && strictCandidatePage(view, "page_count") > 0) {
-            int currentPage = strictCandidatePage(view, "page");
-            int pageCount = strictCandidatePage(view, "page_count");
-            if (currentPage >= 0 && pageCount > 0)
-                page = " · " + (currentPage + 1) + "/" + pageCount;
+            String label = CandidatePageLabelPolicy.label(strictCandidatePage(view, "page"),
+                strictCandidatePage(view, "page_count"), candidatePageNumberShown);
+            if (!label.isEmpty()) page = " · " + label;
         }
         String localMode = "";
         if (view != null) {

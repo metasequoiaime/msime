@@ -362,6 +362,11 @@ HideCandidateDisposition InputState::hide_candidate(const FocusLease &lease) {
   return owner ? owner->hide_candidate(lease)
                : HideCandidateDisposition::Rejected;
 }
+void InputState::show_candidate(const FocusLease &lease) {
+  check_thread();
+  if (auto *owner = session(lease.transport))
+    owner->show_candidate(lease);
+}
 std::optional<nlohmann::json>
 InputState::rerank_settled(const FocusLease &lease) {
   check_thread();

@@ -1472,23 +1472,31 @@ std::optional<std::vector<std::wstring>> read_font_catalog() {
 
 // ---- 辅助码方案的来源 ----
 
-// 资源目录 helpcodes/custom 下的自定义辅助码表，与 Tauri 的 list_helpcode_schemas 相同：资源目录是输入法宿主选项（runtime-options.json）的 resources。还没有宿主选项时是失败的响应，页面当作没有自定义码表。读目录，只在 UI 线程之外调用。
+// 自定义辅助码表，与 Tauri 的 list_helpcode_schemas 相同：输入法宿主选项（runtime-options.json）里状态根 preferences_directory（即 DataDir）和资源目录 resources 下的 helpcodes/custom，同一主干取状态根那份。还没有宿主选项时是失败的响应，页面当作没有自定义码表。读目录，只在 UI 线程之外调用。
 Response helpcode_schemas_call() {
   const auto options = runtime_options_document();
   std::wstring resources;
+  std::wstring state_root;
   if (options) {
     try {
-      resources = JsonObject::Parse(text(*options)).GetNamedString(L"resources", L"").c_str();
+      const auto document = JsonObject::Parse(text(*options));
+      resources = document.GetNamedString(L"resources", L"").c_str();
+      state_root = document.GetNamedString(L"preferences_directory", L"").c_str();
     } catch (...) {
       resources.clear();
+      state_root.clear();
     }
   }
   // 与 Tauri 一样只接受绝对路径。
   if (resources.empty() || !std::filesystem::path(resources).is_absolute())
     return {"{\"ok\":false,\"error\":\"no host options\"}", false};
+  if (!state_root.empty() && !std::filesystem::path(state_root).is_absolute())
+    state_root.clear();
   const auto path = utf8(hstring(resources));
+  const auto state = utf8(hstring(state_root));
   return take_response(msime_client_helpcode_schemas(
-      reinterpret_cast<const uint8_t *>(path.data()), path.size()));
+      reinterpret_cast<const uint8_t *>(path.data()), path.size(),
+      state.empty() ? nullptr : reinterpret_cast<const uint8_t *>(state.data()), state.size()));
 }
 
 // 本安装随包带的内置声音包：Server 状态目录下的 sound-packs，与 Tauri 的 builtin_sound_packs 在 Windows 上取的 `server_state_directory()/sound-packs` 相同（StateDirectory.h 的 resolve_state_directory 是同一顺序的 C++ 版本）。目录不在时为空，只列已安装的包。会查文件系统，只在 UI 线程之外调用。
@@ -6018,7 +6026,7 @@ private:
 
   // ---- Launching ----
 
-  // The shared desktop app (MSIME.exe) is installed beside this executable.
+  // 本程序自己的路径。面板宿主（MSIME.exe 或 msime-client-panels.exe）和随包资源都装在它旁边。
   static std::filesystem::path shell_executable() {
     std::wstring buffer(MAX_PATH, L'\0');
     for (;;) {
@@ -6051,22 +6059,24 @@ private:
     auto queue = DispatcherQueue();
     const msime::windows::ShellSurfaceRequest request{
         std::string(target.panel), std::string(target.page)};
-    const auto executable = shell_executable();
+    const auto panel_host = msime::windows::configured_panel_host();
+    const auto directory = shell_executable().parent_path();
+    const auto file = msime::windows::shell_executable_names(request, panel_host).front();
     const auto context = launch_context();
     co_await resume_background();
-    std::error_code error;
+    const auto executable =
+        msime::windows::shell_executable(directory, {}, request, panel_host);
     const bool started =
-        !executable.empty() &&
-        std::filesystem::is_regular_file(executable, error) &&
-        (context ? msime::windows::launch_shell_surface(executable, request,
+        executable &&
+        (context ? msime::windows::launch_shell_surface(*executable, request,
                                                         *context)
-                 : msime::windows::launch_shell_surface(executable, request));
+                 : msime::windows::launch_shell_surface(*executable, request));
     if (started)
       co_return;
-    queue.TryEnqueue([weak] {
+    queue.TryEnqueue([weak, file] {
       if (auto self = weak.get())
         self->show_notice(
-            L"无法打开水杉输入法应用（MSIME.exe）。请重新安装输入法后再试。");
+            L"无法打开水杉输入法应用（" + file + L"）。请重新安装输入法后再试。");
     });
   }
 
@@ -12819,7 +12829,7 @@ private:
 
   // ---- 候选窗口 ----
 
-  // 共享设置「候选窗口」页的桌面版（appearance-page.tsx）：页首引导下面是四个页内标签（`candidateTabs`：布局、字体与大小、窗口样式、预编辑，page_tab_bar），标签条与标签内容之间是一张无标题卡片里的预览，每个标签里只有一组，组名与标签同名。展开候选、页码和内边距在 Windows 上没有（能力位为假），不画。「游戏」组管游戏里候选窗能不能出现，是 Windows 独有的功能开关而不是外观，不属于哪个标签，画在标签内容下面、一直显示。
+  // 共享设置「候选窗口」页的桌面版（appearance-page.tsx）：页首引导下面是四个页内标签（`candidateTabs`：布局、字体与大小、窗口样式、预编辑，page_tab_bar），标签条与标签内容之间是一张无标题卡片里的预览，每个标签里只有一组，组名与标签同名。展开候选和内边距在 Windows 上没有（能力位为假），不画；页码开关在「布局」里，排在每页候选数之后，与共享页相同。「游戏」组管游戏里候选窗能不能出现，是 Windows 独有的功能开关而不是外观，不属于哪个标签，画在标签内容下面、一直显示。
   void build_candidate_page(StackPanel const &page) {
     const auto tab = page_tab_bar(page, L"候选窗口设置",
                                   {{L"layout", L"布局"},
@@ -12844,6 +12854,10 @@ private:
                   {{L"horizontal", L"横向"}, {L"vertical", L"纵向"}},
                   L"vertical");
       candidate_page_size_row(layout);
+      // 与共享设置「候选窗口」页的同名开关相同（`HostCapabilities::candidate_page_number`，`candidate-page-number-section.tsx`）：候选窗首行的「1 / 3」和 ‹ › 一起隐藏（`CandidateLayoutSettings.h`），缺值读成开（#10709）。预览只画一页样例，没有页码，不用重画。
+      bool_row(layout, 0xE8A9, L"显示页码和翻页按钮",
+               L"关闭后候选窗不再显示「1 / 3」和 ‹ ›，仍可用键盘翻页；鼠标滚轮翻页默认关闭，需要时在「输入 › 选词与翻页」里打开。",
+               L"show_candidate_page_number", true);
       // 与共享设置「候选窗口」页的同名开关相同（`HostCapabilities::app_logo`）：新装默认关，缺值读成关。
       bool_row(layout, 0xE790, L"显示水杉 logo",
                L"在候选窗和悬浮工具栏左端显示水杉图标。", L"show_app_logo",
@@ -13791,20 +13805,32 @@ private:
       bool_row(group, 0xE765, L"输入时显示双拼键位提示",
                L"双拼输入时显示当前方案的键位图，完成上屏后自动隐藏。",
                L"shuangpin_keymap_hint", false);
-      // 与共享设置「输入 › 方案」双拼详情里的「双拼预编辑」相同，只在双拼方案下出现：偏好是布尔值 shuangpin_preedit_uses_raw，这里按原始按键 / 拼音分词两项给出，缺省是原始按键。
+      // 与共享设置「输入 › 方案」双拼详情里的「双拼预编辑」相同，只在双拼方案下出现：原始按键 / 双拼分隔 / 拼音分词三档，存成 shuangpin_preedit_uses_raw 和 shuangpin_preedit_separated 两个布尔（InputSettingsModel.h），缺省是原始按键。
+      std::vector<Option> preedit_options;
+      std::wstring preedit_value;
+      auto const stored_preedit =
+          ism::shuangpin_preedit(document_.Boolean(L"shuangpin_preedit_uses_raw", true),
+                                   document_.Boolean(L"shuangpin_preedit_separated", false));
+      for (auto const &option : ism::shuangpin_preedit_options) {
+        preedit_options.push_back({std::wstring(option.value), std::wstring(option.label)});
+        if (option.style == stored_preedit)
+          preedit_value = option.value;
+      }
       add_row(
           group, 0xE8AB, L"双拼预编辑",
-          L"保留原始双拼按键，或显示展开后的拼音分词。",
-          select_control(L"双拼预编辑",
-                         {{L"raw", L"原始按键"}, {L"pinyin", L"拼音分词"}},
-                         document_.Boolean(L"shuangpin_preedit_uses_raw", true)
-                             ? L"raw"
-                             : L"pinyin",
+          L"保留原始双拼按键、在原始按键之间按音节加分隔符，或显示展开后的拼音分词。",
+          select_control(L"双拼预编辑", std::move(preedit_options), preedit_value,
                          [this](std::wstring const &value) {
+                           auto style = ism::ShuangpinPreedit::raw;
+                           for (auto const &option : ism::shuangpin_preedit_options)
+                             if (option.value == value)
+                               style = option.style;
                            change(
                                [&](PreferencesDocument &doc) {
                                  doc.SetBoolean(L"shuangpin_preedit_uses_raw",
-                                                value == L"raw");
+                                                ism::shuangpin_preedit_uses_raw(style));
+                                 doc.SetBoolean(L"shuangpin_preedit_separated",
+                                                ism::shuangpin_preedit_separated(style));
                                },
                                false);
                          }));
@@ -13819,6 +13845,13 @@ private:
                L"在候选后面标出还要再打哪几个字母才能单独打出它。已经打完整码的候选不标。",
                L"wubi_code_hint", true);
       build_wubi_candidate_selection(group);
+      // 下面两项与共享设置页 WubiSection 的同名开关相同，缺省值取 Rust `Preferences::default`（z 通配关、顶字开）。
+      bool_row(group, 0xE8CB, L"z 键通配",
+               L"开启后 z 可匹配码表中该位置的任意字母（含首位），常用于首码不确定时起头；同时停用 z 引导的临时拼音反查。",
+               L"wubi_z_wildcard", false);
+      bool_row(group, 0xE8CB, L"第五码将首选上屏",
+               L"完整四码后再敲字母时上屏首选，并把该字母留作下一组开头；关闭只在拼音混输开启时生效，这个字母并入混输串。混输关闭时仍按顶字上屏，不会丢字。",
+               L"wubi_fifth_code_top_commit", true);
       bool_row(group, 0xE8CB, L"五笔四码唯一候选自动上屏",
                L"五笔输入达到四码且只有一个候选时，自动提交该候选。关闭后这个词留在候选列表里，用空格或数字键选它。",
                L"wubi_auto_commit_unique", true);
@@ -14223,6 +14256,23 @@ private:
     }
   }
 
+  // 「整句联想」的「标准 / 增强」，与手机宿主的同名选择写同一个 `sentence_association.neural_keyboard`：增强在每次按键时用键盘模型重排整句，默认开（缺键按开读）；host-api 只在这台电脑跑得进逐键预算时才挂上模型，跑不进时与标准相同。手机上的「关闭」在这里是「更多选项」里的「本地整句联想」；逐键重排不看词网格开没开（host-api `keyboard_reranker_enabled`），所以那一项关着时这一行照样可选，与共享设置页相同。不带键盘模型的版本没有增强可选，不列这一行。
+  void build_sentence_level_settings(StackPanel const &group) {
+    if constexpr (MSIME_EDITION_NEURAL_KEYBOARD != 0) {
+      const bool enhanced = document_.Boolean(L"sentence_association.neural_keyboard", true);
+      auto selector = select_control(
+          L"整句联想", {{L"standard", L"标准"}, {L"enhanced", L"增强"}},
+          enhanced ? L"enhanced" : L"standard",
+          [this](std::wstring const &value) {
+            change([&](PreferencesDocument &doc) {
+              doc.SetBoolean(L"sentence_association.neural_keyboard", value == L"enhanced");
+            }, false);
+          });
+      A11y::SetAutomationId(selector, L"sentence-association-level");
+      add_row(group, 0xE8C1, L"整句联想", L"更准确，但更耗电", selector);
+    }
+  }
+
   // 安装包不带落定重排模型（Prepare-PackageFiles.ps1），与共享页一样在「桌面神经联想」打开时给出它的下载行，否则开关打开了也没有模型可用。
   void build_neural_desktop_settings(StackPanel const &group) {
     bool_row(group, 0xE8C1, L"桌面神经联想",
@@ -14544,6 +14594,10 @@ private:
       // 学习选词习惯决定「高级选项」里「拼音方案调频」组画不画，改它时重画这一页。
       bool_row(candidates, 0xE82D, L"学习选词习惯", L"根据选词调整候选顺序", L"learning",
                true, true);
+      // 后加的可选键，默认关，共享序列化关着时不写它，回退值必须是 false（client-core 的 `next_word_prediction`）。位置和共享页桌面一样，紧跟学习开关。
+      bool_row(candidates, 0xE8BD, L"上屏后联想",
+               L"选词上屏后推荐后续文字，点选、按数字键或空格上屏，继续输入其他内容时消失；使用现有词库，开启学习时也参考个人词序，隐私输入不显示",
+               L"next_word_prediction", false);
       // 与共享页一样，少有人改的混输开关收在组末的「更多选项」里。
       auto candidates_more = add_more_options(
           candidates, candidates_more_open_,
@@ -14575,6 +14629,7 @@ private:
       bool_row(candidates_more, 0xE8C1, L"本地整句联想",
                L"把词库组合出的整句加入候选；关闭后仍保留单词候选",
                L"sentence_association.word_lattice", true);
+      build_sentence_level_settings(candidates);
       build_neural_desktop_settings(candidates);
       bool_row(candidates, 0xE8C1, L"去重后补充次选",
                L"某个模型的首选与已有候选重复时，显示该模型排名最高的下一条不同结果",

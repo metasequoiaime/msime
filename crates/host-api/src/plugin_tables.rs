@@ -12,7 +12,7 @@ use msime_client_services::plugins::{
 use msime_engine::host::EngineOptions;
 use msime_engine::SchemeType;
 use msime_engine::{
-    load_helpcode_keymap, CommandTableEntry, HelpcodeKeymap, MentionEntry, QuickPhraseEntry,
+    load_helpcode_keymap_in, CommandTableEntry, HelpcodeKeymap, MentionEntry, QuickPhraseEntry,
     SharedKeymap,
 };
 use std::path::{Path, PathBuf};
@@ -220,7 +220,11 @@ impl PluginTables {
             "helpcode pack unavailable, falling back to the scheme's schema",
             &format!("{id} -> {schema}: {error}"),
         );
-        match load_helpcode_keymap(Path::new(&options.resources), schema) {
+        match load_helpcode_keymap_in(
+            Path::new(&options.resources),
+            schema,
+            options.custom_helpcode_root.as_deref().map(Path::new),
+        ) {
             Ok(_) => None,
             Err(error) => {
                 crate::diagnostics::report(

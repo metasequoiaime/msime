@@ -172,4 +172,34 @@ inline bool paging_keys_on(PagingKeys const &keys, bool stored) {
   return keys.id == L"tab" || keys.id == L"page_up_down" || stored;
 }
 
+// 「双拼预编辑」的三档，顺序和文字与共享页 `preedit-style-options.ts` 的 shuangpin 一组相同。共享偏好里是两个布尔：`shuangpin_preedit_uses_raw`（假为拼音分词）和只在它为真时才读的 `shuangpin_preedit_separated`（双拼分隔，缺省为假），换算与共享页 `preedit-preferences.ts` 的 shuangpinPreeditStyle / shuangpinPreeditPatch 相同。
+enum class ShuangpinPreedit { raw, separated, pinyin };
+
+struct ShuangpinPreeditOption {
+  ShuangpinPreedit style;
+  std::wstring_view value;
+  std::wstring_view label;
+};
+
+inline constexpr std::array<ShuangpinPreeditOption, 3> shuangpin_preedit_options{{
+    {ShuangpinPreedit::raw, L"raw", L"原始按键"},
+    {ShuangpinPreedit::separated, L"separated", L"双拼分隔"},
+    {ShuangpinPreedit::pinyin, L"pinyin", L"拼音分词"},
+}};
+
+inline ShuangpinPreedit shuangpin_preedit(bool uses_raw, bool separated) {
+  if (!uses_raw)
+    return ShuangpinPreedit::pinyin;
+  return separated ? ShuangpinPreedit::separated : ShuangpinPreedit::raw;
+}
+
+// 选了一档时写回的两个键：拼音分词时一并清掉分隔，免得以后改回原始按键时它又悄悄生效。
+inline bool shuangpin_preedit_uses_raw(ShuangpinPreedit style) {
+  return style != ShuangpinPreedit::pinyin;
+}
+
+inline bool shuangpin_preedit_separated(ShuangpinPreedit style) {
+  return style == ShuangpinPreedit::separated;
+}
+
 } // namespace msime::settings::input

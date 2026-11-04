@@ -204,6 +204,12 @@ final class ImeLetterRows {
         if (keyPreviewOwner == key && keyPreview != null) keyPreview.setLabel(label);
     }
 
+    /** 这次触摸的长按和滑动是否按普通点按处理，见 {@link SwipeHintPolicy#tapsOnly}：组字中候选栏可见时是，上屏后联想时不是。 */
+    private boolean candidateTapsOnly() {
+        return SwipeHintPolicy.tapsOnly(!s.dedicatedEnglish && !s.letterCaseSchemeActive()
+            && ViewPolicy.isVisible(s.candidateViewport), s.view != null && s.view.optBoolean("prediction", false));
+    }
+
     /**
      * 字母键按压按「按键弹出」显示气泡。长按英文键提供大小写、上下标和声调，中文键提供小写、大写与角标，长按不受滑动开关影响。滑动输入符号启用时，沿设置方向滑过 14 dp 松手输入角标；中文反方向滑动打开选项并可继续拖选。关闭开关停用两种滑动，未触发手势时照常交给按钮点击。
      *
@@ -219,9 +225,8 @@ final class ImeLetterRows {
         final boolean[] candidateTouch = new boolean[1];
         Runnable hold = () -> {
             if (triggered[0] || !key.isPressed()) return;
-            // 候选栏出现时，长按也交给普通按键点击，避免误打开字母选项。
-            if (!s.dedicatedEnglish && !s.letterCaseSchemeActive()
-                    && ViewPolicy.isVisible(s.candidateViewport)) return;
+            // 组字中候选栏出现时，长按也交给普通按键点击，避免误打开字母选项；上屏后联想不算组字。
+            if (candidateTapsOnly()) return;
             triggered[0] = true;
             optionsShown[0] = true;
             // 长按不看「按键弹出」：这是手势已触发的唯一提示。
@@ -243,8 +248,7 @@ final class ImeLetterRows {
                     downY[0] = DimensionPolicy.fromPixels(s, event.getY());
                     triggered[0] = false;
                     optionsShown[0] = false;
-                    candidateTouch[0] = !s.dedicatedEnglish && !s.letterCaseSchemeActive()
-                        && ViewPolicy.isVisible(s.candidateViewport);
+                    candidateTouch[0] = candidateTapsOnly();
                     s.imeLayoutRows.dismissNineKeyHoldOptions();
                     // 气泡读按下这一刻的键面：大小写变化是就地改键面（refreshLetterCase），建键时的键面可能已经过时。
                     if (touchPreference(AndroidLocalSettings.KEY_POPUP)) showKeyPreview(key, key.getText().toString());
@@ -258,9 +262,7 @@ final class ImeLetterRows {
                     if (optionsShown[0]) {
                         s.imeLayoutRows.moveLetterOptions(key, event);
                     } else if (hint != null && !triggered[0]) {
-                        boolean candidateVisible = candidateTouch[0]
-                            || (!s.dedicatedEnglish && !s.letterCaseSchemeActive()
-                                && ViewPolicy.isVisible(s.candidateViewport));
+                        boolean candidateVisible = candidateTouch[0] || candidateTapsOnly();
                         if (candidateVisible) return false;
                         if (!SwipeHintPolicy.enabled(
                                 touchPreference(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS), false))
@@ -290,9 +292,7 @@ final class ImeLetterRows {
                     hideKeyPreview(key);
                     if (!triggered[0]) {
                         // 候选态的长按或滑动必须等价于一次普通点按，即使位移让 Button 自己取消了点击。
-                        boolean candidateVisible = candidateTouch[0]
-                            || (!s.dedicatedEnglish && !s.letterCaseSchemeActive()
-                                && ViewPolicy.isVisible(s.candidateViewport));
+                        boolean candidateVisible = candidateTouch[0] || candidateTapsOnly();
                         if (candidateVisible) {
                             // 抬起时离键太远、Button 自己不会点击，这里补的那次点击不带按下点。
                             if (!TouchPointPolicy.releasedOnKey(event.getX(), event.getY(), key.getWidth(),

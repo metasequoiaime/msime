@@ -7,9 +7,8 @@ variant=${2:-simulator}
 # testflight 的准备步骤与 device 相同，最后一步改为签名归档并上传 App Store Connect（upload-testflight.sh）。
 native_variant=$variant
 case "$variant" in
-  device) tauri_target=aarch64 ;;
-  simulator) tauri_target=aarch64-sim ;;
-  testflight) tauri_target=aarch64; native_variant=device ;;
+  device | simulator) ;;
+  testflight) native_variant=device ;;
   *) echo "Unsupported iOS variant: $variant" >&2; exit 2 ;;
 esac
 
@@ -20,18 +19,7 @@ fi
 bash "$repo_root/platforms/ios/stage-resources.sh" "$resource_dir"
 bash "$repo_root/platforms/ios/build-native.sh" "$native_variant"
 
-# iOS 的产品本体是 platforms/ios 下的原生宿主 MSIMEApp：装机、启动、被系统识别为输入法的都是它，所以它是这个脚本的默认产物。MSIMEApp 的设置是原生 SwiftUI，App 和键盘扩展里没有 WebView，不承载 Tauri/React；Tauri/React 只是单独构建的公共组件，不是 iOS 的产品本体，也不随产品分发。只在需要单独构建那部分时用 MSIME_IOS_TAURI_COMPONENT=1 显式选择，不拿它作为 iOS 的产品去启动或验收。
-if [ "${MSIME_IOS_TAURI_COMPONENT:-0}" = 1 ]; then
-  if [ "$variant" = device ]; then
-    command -v pod >/dev/null || { echo "CocoaPods is required for the device handwriting build" >&2; exit 1; }
-    (cd "$repo_root/apps/desktop/src-tauri/gen/apple" && pod install --deployment)
-  fi
-  # MSIME_PLATFORM_BUILD=1 passes apps/desktop/scripts/require-platform-build.mjs, which refuses a Tauri build no platform script asked for.
-  (cd "$repo_root" && MSIME_PLATFORM_BUILD=1 pnpm --filter @msime/desktop tauri ios build \
-    --target "$tauri_target" --no-sign --ci)
-  exit 0
-fi
-
+# iOS 的产品本体是 platforms/ios 下的原生宿主 MSIMEApp：装机、启动、被系统识别为输入法的都是它，这个脚本只构建它。MSIMEApp 的设置是原生 SwiftUI，App 和键盘扩展里没有 WebView，不承载 Tauri/React。
 sdk=$([ "$native_variant" = device ] && echo iphoneos || echo iphonesimulator)
 # MSIMEApp 嵌入的 sherpa-onnx 运行时（本地语音识别）：按 resources/voice-runtime.lock.json 下载并校验到 target/voice-runtime/ios，已有时直接复用。
 python3 "$repo_root/scripts/fetch_voice_runtime.py" --platform ios
@@ -59,6 +47,14 @@ for pair in msime-cantonese.db:msime-rime_cantonese_LICENSE.txt msime-zhuyin.db:
     echo "$keyboard_languages lacks ${pair%%:*} or ${pair#*:} although both were staged" >&2
     exit 1
   fi
+done
+
+# 两档逐键重排模型要和打开了 onnx-rerank 的 host 库一起进键盘扩展；project.yml 把它们标成 optional，缺了 xcodegen 不报错，这里补上这道检查。
+keyboard_bundle="$repo_root/target/ios/derived-$variant/Build/Products/Release-$sdk/MSIMEApp.app/PlugIns/MSIMEKeyboardExtension.appex"
+for directory in rerank-model rerank-model-small; do
+  for name in lm_step.ort model.json vocab.json; do
+    [ -s "$keyboard_bundle/$directory/$name" ] || { echo "$keyboard_bundle lacks $directory/$name" >&2; exit 1; }
+  done
 done
 
 # 验收最终内嵌扩展，防止旧构建资源残留让瘦包继续带附加词库。

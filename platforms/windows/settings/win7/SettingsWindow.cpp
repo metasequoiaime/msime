@@ -149,7 +149,7 @@ struct CandidateCheck {
   const wchar_t* description;
   bool fallback;
 };
-constexpr std::array<CandidateCheck, 11> candidate_checks{{
+constexpr std::array<CandidateCheck, 12> candidate_checks{{
     {cloud_candidates, "", "cloud_candidates", L"云候选", L"仅将当前正在组的拼写发送给所选云候选服务，不发送已上屏内容、词库或历史。", false},
     {mixed_enabled, "mixed_input", "enabled", L"候选混输", L"关闭后保留各项设置，再开启时恢复。", true},
     {mixed_english, "mixed_input", "english", L"中英混输", L"中文输入时在候选项中补充英文单词。", true},
@@ -158,6 +158,7 @@ constexpr std::array<CandidateCheck, 11> candidate_checks{{
     {mixed_kaomoji, "mixed_input", "kaomoji", L"颜文字混输", L"在对应中文词后补充匹配的颜文字，排在同一个词的 emoji 之后。", false},
     {mixed_japanese, "mixed_input", "japanese", L"日文混输（实验）", L"全拼、双拼里完整输入日文罗马字时补充日文候选；词典不在时不生效。", false},
     {learn_candidates, "", "learning", L"学习选词习惯", L"根据选词调整候选顺序。", true},
+    {next_word_prediction, "", "next_word_prediction", L"上屏后联想", L"选词上屏后推荐后续文字，点选、按数字键或空格上屏，继续输入其他内容时消失；使用现有词库，开启学习时也参考个人词序，隐私输入不显示。", false},
     {single_character_only, "", "single_character_only", L"只出单字", L"候选只列单个汉字，不出词组和整句；选一个字后接着拼下一个字。", false},
     {caret_edit_suffix, "", "caret_edit_suffix", L"移动光标后编辑光标后的部分", L"组字光标移到拼音中间时，光标前的部分固定为当前转换，候选改为编辑光标后的部分；首选是整句。", false},
     {word_lattice, "sentence_association", "word_lattice", L"本地整句联想", L"把词库组合出的整句加入候选；关闭后仍保留单词候选。", true},
@@ -263,9 +264,14 @@ HelpcodeSources helpcode_sources(const std::filesystem::path& directory) {
   const auto options = runtime_options();
   if (options.is_object() && options.contains("resources") && options.at("resources").is_string()) {
     const auto resources = options.at("resources").get<std::string>();
+    // 状态根下的 helpcodes/custom 是用户自己的表，升级不会动它；同一主干取那里的一份。
+    auto state_root = options.contains("preferences_directory") && options.at("preferences_directory").is_string()
+        ? options.at("preferences_directory").get<std::string>() : std::string{};
+    if (!state_root.empty() && !std::filesystem::u8path(state_root).is_absolute()) state_root.clear();
     if (std::filesystem::u8path(resources).is_absolute()) {
       auto owned = msime::host_api::own_string(msime_client_helpcode_schemas(
-          reinterpret_cast<const uint8_t*>(resources.data()), resources.size()));
+          reinterpret_cast<const uint8_t*>(resources.data()), resources.size(),
+          state_root.empty() ? nullptr : reinterpret_cast<const uint8_t*>(state_root.data()), state_root.size()));
       const auto response = owned ? Json::parse(owned.get(), nullptr, false) : Json();
       if (response.is_object() && response.value("ok", false) && response.contains("value") && response.at("value").is_array()) {
         for (const auto& schema : response.at("value")) {
@@ -1635,6 +1641,16 @@ struct SettingsWindow::State {
           SendMessageW(count, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(title));
         top += 120;
       }
+      // 「整句联想」的「标准 / 增强」紧跟「本地整句联想」，写共享的 `sentence_association.neural_keyboard`，与现代设置窗口和手机宿主的同名选择一致；不带键盘模型的版本不列。
+      if (field.id == word_lattice && MSIME_EDITION_NEURAL_KEYBOARD != 0) {
+        item(L"STATIC", L"整句联想", SS_LEFT, -1, top, 24);
+        item(L"STATIC", L"更准确，但更耗电。", SS_LEFT, -1, top + 32, 28);
+        const auto level = item(WC_COMBOBOXW, L"整句联想", WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
+            sentence_association_level, top + 70, 160);
+        for (const auto* title : {L"标准", L"增强"})
+          SendMessageW(level, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(title));
+        top += 120;
+      }
     }
     if (SchemeForm::offers("quanpin")) {
       item(L"BUTTON", L"连续多语言输入（实验）", WS_TABSTOP | BS_AUTOCHECKBOX | BS_NOTIFY,
@@ -1683,6 +1699,10 @@ struct SettingsWindow::State {
             candidate_group(preferences, field).value(field.field, field.fallback) ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(GetDlgItem(body, mixed_first_page_count), CB_SETCURSEL,
         preferences.at("mixed_input").value("first_page_count", 1) - 1, 0);
+    // 缺键按默认的「增强」读。
+    if (const auto level = GetDlgItem(body, sentence_association_level))
+      SendMessageW(level, CB_SETCURSEL,
+          preferences.at("sentence_association").value("neural_keyboard", true) ? 1 : 0, 0);
     const auto multilingual = multilingual_document(preferences);
     SendMessageW(GetDlgItem(body, multilingual_enabled), BM_SETCHECK,
         multilingual.at("enabled").get<bool>() ? BST_CHECKED : BST_UNCHECKED, 0);
@@ -1716,6 +1736,9 @@ struct SettingsWindow::State {
         EnableWindow(control, enabled && (field.id == mixed_enabled || std::string_view(field.group) != "mixed_input" || mixed));
     EnableWindow(GetDlgItem(body, mixed_first_page_count), enabled && mixed && snapshot &&
         snapshot->preferences().at("mixed_input").at("english").get<bool>());
+    // 逐键重排不看词网格开没开（host-api `keyboard_reranker_enabled`），「本地整句联想」关着时「标准 / 增强」照样可选，与共享设置页、现代设置窗口相同。
+    if (const auto level = GetDlgItem(body, sentence_association_level))
+      EnableWindow(level, enabled && snapshot);
     EnableWindow(GetDlgItem(body, multilingual_enabled), enabled);
     const bool multilingual = snapshot && multilingual_document(snapshot->preferences()).at("enabled").get<bool>();
     for (const auto& option : multilingual_options)
@@ -1976,15 +1999,18 @@ struct SettingsWindow::State {
       if (!preferences.contains(group) || !preferences.at(group).is_object()) return false;
     for (const auto& field : candidate_checks) {
       const auto& group = candidate_group(preferences, field);
-      // `caret_edit_suffix` 关着时共享序列化不写它，缺键读作关。
+      // `caret_edit_suffix`、`next_word_prediction` 关着时共享序列化不写它们，缺键读作关。
       const bool optional = field.id == mixed_enabled || field.id == mixed_symbols || field.id == mixed_japanese ||
-          field.id == caret_edit_suffix;
+          field.id == caret_edit_suffix || field.id == next_word_prediction;
       if (!group.contains(field.field)) {
         if (optional) continue;
         return false;
       }
       if (!group.at(field.field).is_boolean()) return false;
     }
+    // 「整句联想」的「标准 / 增强」：缺键按默认的开读，有就必须是布尔值。
+    const auto& association = preferences.at("sentence_association");
+    if (association.contains("neural_keyboard") && !association.at("neural_keyboard").is_boolean()) return false;
     const auto& mixed = preferences.at("mixed_input");
     if (mixed.contains("first_page_count") && !mixed.at("first_page_count").is_number_integer()) return false;
     if (mixed.value("first_page_count", 1) < 1 || mixed.value("first_page_count", 1) > 3) return false;
@@ -2948,6 +2974,12 @@ struct SettingsWindow::State {
       const auto selected = SendMessageW(GetDlgItem(body, id), CB_GETCURSEL, 0, 0);
       if (selected < 0 || selected > 2) return;
       job.changes.push_back({{"mixed_input", "first_page_count"}, selected + 1});
+    } else if (id == sentence_association_level && HIWORD(command) == CBN_SELCHANGE) {
+      const auto control = GetDlgItem(body, id);
+      if (!control || !IsWindowEnabled(control)) return;
+      const auto selected = SendMessageW(control, CB_GETCURSEL, 0, 0);
+      if (selected < 0 || selected > 1) return;
+      job.changes.push_back({{"sentence_association", "neural_keyboard"}, selected == 1});
     } else if (id >= multilingual_enabled && id <= multilingual_japanese && HIWORD(command) == BN_CLICKED) {
       const auto control = GetDlgItem(body, id);
       if (!snapshot || !control || !IsWindowEnabled(control)) return;
