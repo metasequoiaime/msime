@@ -8400,6 +8400,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     diagnosticLabel.isHidden = visibleDiagnostic == nil
     candidateScrollView.isHidden = visibleCandidates.isEmpty || visibleDiagnostic != nil
     candidateEmptySpacer.isHidden = !visibleCandidates.isEmpty || visibleDiagnostic != nil
+    if candidateCanvasSkin != nil { updateCandidateCanvasMetrics() }
   }
 
   /// 漢 shows while a Korean syllable composes, its list open or not, so a lone jamo is left to the Engine, which declines it, and the keyboard needs no jamo table. The tinted face says the list is open.
@@ -10219,8 +10220,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func updateCandidateCanvasMetrics() {
     let readingHeight = Self.readingRowHeight(preeditScale: preeditFontScale, barScale: candidateBarScale)
-    // 皮肤只占原行高里可让出的 10pt；放大字号与多行释义的高度全部留给文字。下限是词块的最小高度：低于它时词块和首选高亮会伸出面板。两者都按「候选栏大小」缩放。
-    let textHeight = max(Self.candidateChipMinimumSize.height * candidateBarScale,
+    // 皮肤只占原行高里可让出的 10pt；内容区同时保留缩放后的触控下限和可见按钮的实际行高，避免双行文字或字体回退撑出首选高亮。
+    let textHeight = max(candidateStrip.naturalContentHeight, Self.candidateChipMinimumSize.height * candidateBarScale,
       Self.candidateRowHeight(candidateScale: candidateFontScale, glossed: glossLineCount > 0, barScale: candidateBarScale)
       + Self.glossHeight(lines: glossLineCount - 1, barScale: candidateBarScale) - 10 * candidateBarScale)
     let gap = separateReadingRow ? min(candidateCanvasSkin?.lineGap ?? 0, max(0, shownTopRowHeight - readingHeight - textHeight)) : 0

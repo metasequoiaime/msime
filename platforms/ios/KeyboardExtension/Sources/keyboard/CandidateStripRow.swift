@@ -7,6 +7,11 @@ final class CandidateStripRow {
   private(set) var buttons: [KeyboardKeyButton] = []
   private var trailingConstraints: [NSLayoutConstraint] = []
 
+  /// 画布的装饰留白让位于实际文字行高，避免手算字体回退和多行排版。
+  var naturalContentHeight: CGFloat {
+    buttons.lazy.filter { !$0.isHidden }.map { $0.intrinsicContentSize.height }.max() ?? 0
+  }
+
   func add(_ button: KeyboardKeyButton) {
     let container = UIView()
     container.translatesAutoresizingMaskIntoConstraints = false
