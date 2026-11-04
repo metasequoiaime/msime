@@ -1,6 +1,6 @@
 //! `reweight` 阶段：按万象拼音（rime-wanxiang）在构建期重算全拼表里与万象共有的行的权重，插在 `quanpin` 之后、`places-supplement` 之前。
 //!
-//! 万象的 17 份 `dicts/*.dict.yaml` 由 msime-dictionary 逐字节收在 `sources/pinyin/wanxiang/`，登记在它的 `upstream.lock.json`（上游名 [`REFERENCE`]），提交等于 msime 锁文件的同名 reference。checkout 的记录里没有这个上游时（登记之前的 msime-dictionary 提交，包括 `dict-v2.0.55` 及更早的版本）阶段什么也不做，产物与没有这个阶段时逐字节相同。
+//! 万象的 17 份 `dicts/*.dict.yaml` 由 msime-dictionary 逐字节收在 `sources/pinyin/wanxiang/`，登记在它的 `upstream.lock.json`（上游名 [`REFERENCE`]），提交等于 msime 锁文件的同名 reference。checkout 的记录里没有这个上游时（登记之前的 msime-dictionary 提交，包括 `dict-v2.0.56` 及更早的版本）阶段什么也不做，产物与没有这个阶段时逐字节相同。
 //!
 //! 第一步总是做：复现 msime-dictionary#84 当时一次性写进源文件的换算。参与对照的是万象 `wanxiang.dict.yaml` 导入的 15 份词库（[`IMPORTED`]；错音表 `cuoyin` 和 `mixed` 只登记、不参与）。万象的读音去掉声调、ü 写成 v、音节之间用 `'`（[`normalize_reading`]）；只认显式写了非负整数权重的行，同一个「词＋全拼」出现多次时取最高的权重。源文件里一行的「词＋全拼」在万象里有权重时，新权重是 `round(万象权重 × 文件系数)`，四舍五入、用整数算（[`FILE_SCALES`]：`single-chars.txt` 9.42，`rime-ice.txt` 9.2，`rime-ice-supplement.txt` 9.28，就是 #84 用的系数）；其余行不动。源文件现在的权重正是这样算出来的（三份文件里与万象共有的 597343 行全部吻合），所以第一步不改变任何一行；它的用处是以后在原路径重新生成补充表、或者换新的上游提交时，对齐结果不会被冲掉。
 //!
