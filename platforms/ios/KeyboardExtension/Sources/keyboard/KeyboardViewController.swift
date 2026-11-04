@@ -3214,7 +3214,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
-  /// Digits 1–0 for the full-size iPad keyboard. They go through the same path as the symbol layer's digits, so with a composition open 1–9 pick candidates as on the desktop.
+  /// Digits 1–0: the full-size iPad keyboard's number row, and the phone's 顶部数字行 (`touch_number_row`). They go through the same path as the symbol layer's digits, so with a composition open 1–9 pick candidates as on the desktop.
   private func makeNumberRow() -> UIStackView {
     let row = makeRow()
     for digit in "1234567890" {
@@ -3224,6 +3224,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         self?.handleSymbol(text)
       }
       key.accessibilityIdentifier = "numberRowKey\(text)"
+      // A phone key in a row of ten is about 33pt wide; the plain configuration's default side insets left a dynamic-type digit less room than it needs, and `.byClipping` cut its right half off. No insets and the fixed 20pt Android's number row uses, like the symbol layer's first row.
+      key.configuration?.contentInsets = .zero
+      applySymbolLayerFont(to: key, size: 20)
       row.addArrangedSubview(key)
     }
     row.accessibilityIdentifier = "numberRow"
@@ -3622,6 +3625,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
       key.accessibilityIdentifier = "symbolExtraKey\(column)"
       (key as? KeyboardKeyButton)?.showsPressPreview = true
+      // Same ten-key width as the number row it stands in for, so the same zero insets (see `makeNumberRow`).
+      key.configuration?.contentInsets = .zero
       applySymbolLayerFont(to: key, size: 18)
       symbolExtraRowKeys.append(key)
       row.addArrangedSubview(key)
