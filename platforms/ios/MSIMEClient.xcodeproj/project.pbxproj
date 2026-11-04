@@ -2299,6 +2299,7 @@
 				1E03EB48F31CAB4266A11C60 /* LanguageSchemesTests.swift */,
 				252FD97AF6F8C9E6CFCAA2D3 /* LetterCornerHintTests.swift */,
 				AA9AEEAB03B1005888107217 /* MLKitStatsOptOutTests.swift */,
+				7F39134CB30EC12FDBF7908E /* NextWordPredictionTests.swift */,
 				CFB65ECFC97C3DB5B0DE0A82 /* NineKeyShuangpinTests.swift */,
 				EB2FB215B2D5062E9E93D429 /* OnlineCandidateTests.swift */,
 				CD2C7C5382BE9875C3EFAD96 /* OwnEditEchoWindowTests.swift */,
@@ -2311,7 +2312,6 @@
 			);
 			path = input;
 			sourceTree = "<group>";
-				7F39134CB30EC12FDBF7908E /* NextWordPredictionTests.swift */,
 		};
 		67CB1EE6F4FD062F9A7A500A /* clipboard */ = {
 			isa = PBXGroup;
@@ -2757,6 +2757,7 @@
 				AD52A986DB3B501E1E7974D2 /* InputSchemePreference.swift */,
 				9BFF7F69104E516219FFBA2B /* KeyboardLayoutPreference.swift */,
 				FBE00EFC3A5D853020887969 /* KeyboardPrivacyPreference.swift */,
+				4F7C0482B7864B9928A36F47 /* NextWordPredictionPreference.swift */,
 				C2A015A7C186EE5829EE62B4 /* NineKeyShuangpinLayout.swift */,
 				82618C844A1985076A84B3CF /* NineKeySidebarPreference.swift */,
 				FCFFA6968C2114DD29D1B4C1 /* OnboardingChoices.swift */,
@@ -2770,7 +2771,6 @@
 			path = preferences;
 			sourceTree = "<group>";
 		};
-				4F7C0482B7864B9928A36F47 /* NextWordPredictionPreference.swift */,
 		D55ABD0C783059587D822287 /* dictionary */ = {
 			isa = PBXGroup;
 			children = (

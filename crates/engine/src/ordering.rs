@@ -639,7 +639,7 @@ pub fn rerank_pick_within<'a, R: OrderRowSource<'a> + ?Sized>(
 
 /// 一句话开头单打一个音节、首选却是句尾语气词（`ma` 的「吗」、`ba` 的「吧」）时，该提到首位的那一行；不是这种情形时为 `None`。
 ///
-/// 「吗」的词频是「妈」的 51 倍、「吧」比「爸」高两成，可这些词频几乎全来自句尾，句首单打 `ma` 想要的不会是「吗」。聊天记录（typing-chat-v1）里每段会话开头的「妈」52 次全被打成「吗」，而逐键模型碰不到它：词典首选是可信的，[`rerank_needs_model`] 不交给模型比较。这里只在 `lattice::decode::opens_sentence` 为真时动，首选让给第一页里第一个不是语气词、同样回答按键的单字词典行；挂着打分器时由它在这些单字里挑。句中照常（「好 | 吧」先上屏「好」再打 `ba`，要的就是「吧」）。
+/// 「吗」的词频是「妈」的 51 倍、「吧」比「爸」高两成，可这些词频几乎全来自句尾，句首单打 `ma` 想要的不会是「吗」。聊天记录（typing-chat-v1）里每段会话开头的「妈」52 次全被打成「吗」，而逐键模型碰不到它：词典首选是可信的，[`rerank_needs_model`] 不交给模型比较。这里只在 `lattice::decode::opens_sentence` 为真时动，首选让给第一页里第一个不是语气词、同样回答按键的单字词典行；挂着打分器时由它在这些单字里挑，每个字后面接上 [`OPENING_PAUSE`] 再比。句中照常（「好 | 吧」先上屏「好」再打 `ba`，要的就是「吧」）。
 pub fn opening_particle_pick<'a, R: OrderRowSource<'a> + ?Sized>(
     reranker: Option<&mut (dyn CandidateScorer + '_)>,
     context: &str,
@@ -685,8 +685,26 @@ pub fn opening_particle_pick<'a, R: OrderRowSource<'a> + ?Sized>(
     let Some(reranker) = reranker else {
         return Some(considered[0]);
     };
-    let context = rerank_context(context, reranker.context_length(), 1);
-    let scores = reranker.log_probabilities(context, &texts[..count]);
+    // Each character is scored followed by a pause (OPENING_PAUSE), as the word it is about to stand for; see OPENING_PAUSE for why.
+    let mut buffers = [[0u8; 8]; COMPARED_LIMIT];
+    let mut lengths = [0usize; COMPARED_LIMIT];
+    for slot in 0..count {
+        let text = texts[slot];
+        buffers[slot][..text.len()].copy_from_slice(text.as_bytes());
+        buffers[slot][text.len()..text.len() + OPENING_PAUSE.len()]
+            .copy_from_slice(OPENING_PAUSE.as_bytes());
+        lengths[slot] = text.len() + OPENING_PAUSE.len();
+    }
+    let mut paused = [""; COMPARED_LIMIT];
+    for slot in 0..count {
+        paused[slot] = std::str::from_utf8(&buffers[slot][..lengths[slot]]).unwrap_or(texts[slot]);
+    }
+    let context = rerank_context(
+        context,
+        reranker.context_length(),
+        1 + OPENING_PAUSE.chars().count(),
+    );
+    let scores = reranker.log_probabilities(context, &paused[..count]);
     if scores.len() != count {
         return Some(considered[0]);
     }
@@ -699,6 +717,11 @@ pub fn opening_particle_pick<'a, R: OrderRowSource<'a> + ?Sized>(
     });
     Some(considered[best])
 }
+
+/// 句首单字交给逐键模型比较时，接在每个字后面的停顿。
+///
+/// 逐键模型给一个字的分是「下一个字是它」的概率，这个字作为更长的词开头的情形也算在里面：消息开头「马上……」「麻烦你……」很常见，「马」「麻」就沾了这些词的光，可用户单打 `ma` 再按空格，要的是一个单独成词的字。字后面接一个逗号再比，比的就是「这个字单独说完、停一下」的概率，「妈，」远比「麻，」常见。2026-11-04 换上聊天上文训练的 6x256（chinese-ime-lm rerank-v2）后，Mac 自动打字验收里会话开头的「妈」7 次有 3 次成了「麻」或「马」（模型只差 0.09 到 0.44）；离线用同样的上文重放，接上逗号再比，新旧 6x256 都是 7 次全对。只比单字不加停顿时，旧模型也只是险胜（领先 0.12 到 2.01）。
+pub const OPENING_PAUSE: &str = "，";
 
 /// 一次窄裁决最多比较几行：首页放得下的行数。
 const CONTEST_LIMIT: usize = 9;

@@ -80,7 +80,8 @@ def main() -> int:
         return fail("the signing build step must run for every edition and every publish value")
     for name, value in SECRET_ENV.items():
         if f'          {name}: "{value}"' not in build:
-            return fail(f"build step must read {name} from {value}")
+            # The message names neither the variable nor the secret: CodeQL treats both as secrets and flags printing them as clear-text logging, even though they are only names.
+            return fail("build step must read the release keystore and its password from the repository secrets in SECRET_ENV, verbatim")
 
     script = build[build.index("        run: |\n"):]
     if 'if [[ "$PUBLISH" == true ]]' in script:
@@ -99,7 +100,8 @@ def main() -> int:
     ]
     positions = [script.find(fragment) for fragment in ordered]
     if -1 in positions:
-        return fail(f"build step is missing: {ordered[positions.index(-1)]}")
+        # Reported by position, not text: several fragments name the keystore secrets, which CodeQL flags when printed.
+        return fail(f"build step is missing fragment {positions.index(-1) + 1} of the {len(ordered)} in `ordered`")
     if positions != sorted(positions):
         return fail("build step must generate resources first, then check the secret, decode it into $RUNNER_TEMP with a cleanup trap, then build")
 
