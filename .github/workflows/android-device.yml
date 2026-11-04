@@ -136,6 +136,7 @@ jobs:
             target/android/crash.txt
             target/android/device-crash-smoke.log
             target/android/device-smoke.log
+            target/android/device-test/window.xml
           if-no-files-found: ignore
       - name: Stop the AVD
         if: always() && env.SERIAL != ''
