@@ -18,3 +18,5 @@ Status: rejected — 整目录授权超过运行时选项所需边界
 ## Consequences
 
 撤回安装器和测试中的递归应用包授权。[宿主库加载修复](../../implemented/bug-fix/2026-11-04-windows-immersive-host-delay-load.md)只处理 DLL 查找；AppContainer 读取权限与开始菜单提交异常继续保留为未解决问题。
+
+已安装预览包的显式授权不会随删除安装器命令而消失；后续[权限清理](../../implemented/bug-fix/2026-11-04-windows-data-appcontainer-boundary.md)在重装时递归移除两组允许项，并验证根目录与合成子文件。
