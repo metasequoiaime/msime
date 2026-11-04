@@ -64,10 +64,10 @@ test("names the language each missing entry sits under in the add dialog", async
   );
 
   expect(await missingGroups()).toEqual([
-    ["粤语", ["水杉输入法 · 粤"]],
-    ["繁体中文", ["水杉输入法 · 注"]],
-    ["藏语", ["水杉输入法 · 藏"]],
-    ["简体中文", ["水杉输入法 · 笔"]],
+    ["粤语", ["水杉粤语"]],
+    ["繁体中文", ["水杉注音"]],
+    ["藏语", ["水杉藏语"]],
+    ["简体中文", ["水杉笔画"]],
   ]);
   expect(screen.getByText(/还有 4 个入口没加进输入法菜单/)).toBeTruthy();
   expect(screen.queryByText(/菜单栏里还没有/)).toBeNull();
@@ -109,12 +109,12 @@ test("leads with the current scheme's entry when it is missing", async () => {
   );
 
   const text = (await screen.findByText(/菜单栏里还没有/)).textContent ?? "";
-  expect(text.startsWith("菜单栏里还没有「水杉输入法 · 粤」，到「粤语」下添加")).toBe(true);
+  expect(text.startsWith("菜单栏里还没有「水杉粤语」，到「粤语」下添加")).toBe(true);
   expect(text).not.toContain("重新登录");
   // 简体中文下的几个入口排在同一行，不再各写一遍语言。
   expect((await missingGroups())[0]).toEqual([
     "简体中文",
-    ["水杉输入法 · 双", "水杉输入法 · 五", "水杉输入法 · 笔", "水杉输入法 · 英"],
+    ["水杉双拼", "水杉五笔", "水杉笔画", "水杉英文"],
   ]);
 });
 
@@ -129,7 +129,7 @@ test("leads with the Stroke entry when Stroke is the current scheme", async () =
   );
 
   const text = (await screen.findByText(/菜单栏里还没有/)).textContent ?? "";
-  expect(text.startsWith("菜单栏里还没有「水杉输入法 · 笔」")).toBe(true);
+  expect(text.startsWith("菜单栏里还没有「水杉笔画」")).toBe(true);
 });
 
 test("leaves out the entries of schemes the host does not offer", async () => {
@@ -181,7 +181,7 @@ test("reads the list again while the user is in System Settings", async () => {
     await vi.advanceTimersByTimeAsync(3000);
   });
   await vi.waitFor(() => expect(screen.queryByText(/菜单栏里还没有/)).toBeNull());
-  expect(await missingGroups()).toEqual([["简体中文", ["水杉输入法 · 英"]]]);
+  expect(await missingGroups()).toEqual([["简体中文", ["水杉英文"]]]);
 });
 
 test("reports a failure when opening keyboard settings fails", async () => {
@@ -220,10 +220,10 @@ const wubiEdition: EditionInfo = {
 
 test("full keeps the table and each edition lists only its own entries under its own name", () => {
   expect(macosInputModeEntriesFor()).toBe(macosInputModeEntries);
-  // 五笔版的主模式就是「五」：bundle 只声明 Hans（用五笔的字）和 Roman，见 edition_bundle.py。
+  // 五笔版的主模式就是五笔：bundle 只声明 Hans（用五笔模式的名字）和 Roman，见 edition_bundle.py。模式名是方案名，不带版本名。
   expect(macosInputModeEntriesFor(wubiEdition).map(({ mode, name }) => [mode, name])).toEqual([
-    ["Hans", "水杉五笔 · 五"],
-    ["Roman", "水杉五笔 · 英"],
+    ["Hans", "水杉五笔"],
+    ["Roman", "水杉英文"],
   ]);
   expect(
     macosInputModeEntriesFor({
@@ -234,15 +234,15 @@ test("full keeps the table and each edition lists only its own entries under its
       default_scheme: "quanpin",
     }).map(({ mode, name }) => [mode, name]),
   ).toEqual([
-    ["Hans", "水杉拼音 · 中"],
-    ["Shuangpin", "水杉拼音 · 双"],
-    ["Roman", "水杉拼音 · 英"],
+    ["Hans", "水杉全拼"],
+    ["Shuangpin", "水杉双拼"],
+    ["Roman", "水杉英文"],
   ]);
-  // 日文、越南文、藏文版的主模式是本版本方案的字，主模式和「英」都登记在这个方案的语言下；五笔版仍在「简体中文」下。
-  for (const [id, display_name, mark, language] of [
-    ["japanese", "水杉日语", "日", "日语"],
-    ["vietnamese", "水杉越南语", "越", "越南语"],
-    ["tibetan", "水杉藏文", "藏", "藏语"],
+  // 日文、越南文、藏文版的主模式用本版本方案的名字，主模式和「英」都登记在这个方案的语言下；五笔版仍在「简体中文」下。
+  for (const [id, display_name, modeName, language] of [
+    ["japanese", "水杉日语", "水杉日语", "日语"],
+    ["vietnamese", "水杉越南语", "水杉越南语", "越南语"],
+    ["tibetan", "水杉藏文", "水杉藏语", "藏语"],
   ] as const) {
     expect(
       macosInputModeEntriesFor({
@@ -256,8 +256,8 @@ test("full keeps the table and each edition lists only its own entries under its
         wubi_mixed_pinyin_default: false,
       }).map((entry) => [entry.mode, entry.name, entry.language]),
     ).toEqual([
-      ["Hans", `${display_name} · ${mark}`, language],
-      ["Roman", `${display_name} · 英`, language],
+      ["Hans", modeName, language],
+      ["Roman", "水杉英文", language],
     ]);
   }
   expect(macosInputModeEntriesFor(wubiEdition).map(({ language }) => language)).toEqual([
@@ -289,7 +289,7 @@ test("an edition names its missing entry by the edition's name", async () => {
       onError={vi.fn()}
     />,
   );
-  expect(await missingGroups()).toEqual([["简体中文", ["水杉五笔 · 五"]]]);
+  expect(await missingGroups()).toEqual([["简体中文", ["水杉五笔"]]]);
   expect(screen.queryByText(/水杉输入法/)).toBeNull();
 });
 

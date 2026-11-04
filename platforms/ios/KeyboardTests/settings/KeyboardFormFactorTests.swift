@@ -91,13 +91,15 @@ final class KeyboardFormFactorTests: XCTestCase {
     }
     let phone = try layout(tablet: false, width: 393)
     XCTAssertEqual(phone.height, KeyboardViewController.defaultKeyboardHeight)
-    XCTAssertEqual(phone.space.minY - phone.key.maxY, 11, accuracy: 0.5)
+    // 排间距：存储的 7pt，加 26 键的 4pt 和收紧键帽省下的 4pt。
+    XCTAssertEqual(phone.space.minY - phone.key.maxY, 15, accuracy: 0.5)
     XCTAssertEqual(phone.key.height, 44, accuracy: 0.5)
     XCTAssertEqual(phone.space.height, 44, accuracy: 0.5)
     XCTAssertEqual(phone.strip.minY, 2, accuracy: 0.5)
     XCTAssertEqual(phone.strip.minX, 3, accuracy: 0.5)
     XCTAssertEqual(phone.strip.maxX, 393 - 3, accuracy: 0.5)
-    XCTAssertEqual(phone.space.maxY, phone.height - 14, accuracy: 0.5)
+    // 下边距 4pt，再加 26 键收紧键帽省下的 4pt。
+    XCTAssertEqual(phone.space.maxY, phone.height - 8, accuracy: 0.5)
     let withRow = try layout(tablet: true, width: 820)
     XCTAssertEqual(withRow.key.height, 54, accuracy: 0.5)
     XCTAssertEqual(withRow.strip.minX, 8, accuracy: 0.5)
