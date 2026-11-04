@@ -1066,7 +1066,7 @@ char *msime_client_cloud_clipboard_provider_request(const uint8_t *request,
                                                     const uint8_t *socket_path,
                                                     size_t socket_length);
 #endif
-/* 云剪贴板端到端加密的 sans-IO 驱动，所有平台都有。输入 {start,keystore,device_name} 开始一个操作，或 {resume,response} 交回上一步请求的响应；value 是 {request,state,keystore}、{done,keystore} 或 {error,keystore}。宿主发请求并保存 keystore，驱动不访问会话、不联网。协议见 docs/cloud-clipboard-e2e.md。请求最大 2 MiB。 */
+/* 云剪贴板端到端加密的 sans-IO 驱动，所有平台都有。输入 {start,keystore,device_name} 开始一个操作，或 {resume,response} 交回上一步请求的响应；value 是 {request,state,keystore}、{done,keystore} 或 {error,keystore}。宿主发请求并保存 keystore，驱动不访问会话、不联网。协议见 docs/cloud-clipboard-e2e.md。顶层可以带 domain：缺省或 "clipboard" 是云剪贴板；"learning" 是输入习惯同步的密钥与设备管理，keystore 是单独的 learning-keystore，操作和结果见 docs/learning-sync.md 的「客户端驱动」；其他值是错误。请求最大 2 MiB。 */
 char *msime_client_cloud_clipboard_e2e(const uint8_t *request, size_t request_length);
 /* Persist {target_language,translations:[{text,translation}]} in an existing
  * absolute user-data directory. Only short changed English-target glosses are
