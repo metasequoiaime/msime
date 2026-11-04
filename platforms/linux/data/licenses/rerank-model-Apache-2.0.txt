@@ -1,4 +1,4 @@
-Keystroke rerank models rerank-v2 of chinese-ime-lm (https://github.com/metasequoiaime/chinese-ime-lm/releases/tag/rerank-v2), installed unmodified in share/msime-client/rerank-model (8x448) and share/msime-client/rerank-model-small (6x256) as lm_step.ort, model.json and vocab.json, pinned by rerank-model.lock.json beside them — Apache License 2.0. The attribution the training corpora require is in the attribution metadata of each lm_step.ort and in each model.json and must be kept with them. The upstream NOTICE and the license text follow.
+Keystroke rerank models rerank-v2 of chinese-ime-lm (https://github.com/metasequoiaime/chinese-ime-lm/releases/tag/rerank-v2, also published as https://huggingface.co/msime/pinyin-ime-keystroke-reranker-25M for 8x448 and https://huggingface.co/msime/pinyin-ime-keystroke-reranker-8M for 6x256), installed unmodified in share/msime-client/rerank-model (8x448) and share/msime-client/rerank-model-small (6x256) as lm_step.ort, model.json and vocab.json, pinned by rerank-model.lock.json beside them — Apache License 2.0. The attribution the training corpora require is in the attribution metadata of each lm_step.ort and in each model.json and must be kept with them. The upstream NOTICE and the license text follow.
 
 -------------------------------- NOTICE --------------------------------
 
@@ -27,6 +27,9 @@ Copyright 2026 chinese-ime-lm contributors
 按键重排模型（`rerank-v1` 起，ORT 格式的 `lm_step.ort`）不是 safetensors，署名写在 ONNX 图的
 元数据 `attribution` 字段里（ORT 格式保留它），同一句话也写在随模型发布的 `model.json` 中。
 再分发时两处都必须保留。
+
+按键重排模型从 `rerank-v2` 起另用了合成数据：DeepSeek deepseek-v4-pro 为本项目生成的单人连发聊天（neural/teacher/gen_chat.py）。DeepSeek 使用条款把生成内容归用户，并允许用来训练其他模型，没有相同方式共享的义务。这部分在署名里标明是合成的。
+  https://cdn.deepseek.com/policies/en-US/deepseek-terms-of-use.html
 
 ————————————————————————————————————————
 
