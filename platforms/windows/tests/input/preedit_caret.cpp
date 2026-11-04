@@ -1,5 +1,6 @@
 #include "CandidatePresentation.h"
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string>
 
@@ -213,6 +214,30 @@ int main() {
       require(delivered(lease, engine_view("ni", "ni", 2, 3)).preedit_caret == std::string::npos);
       require(candidate_presentation_from_view(lease, engine_view("ni", "ni", 2, 3), 0, 0, "")
                   .preedit_caret == std::string::npos);
+    }
+
+    // 只有缺字段才兼容旧协议；明确给出的非法位置不能猜成原始按键的光标。
+    {
+      const nlohmann::json invalid_positions[] = {
+          nullptr, false, true, 1.5, 1.0, "1", -1,
+          nlohmann::json::array(), nlohmann::json::object(),
+          uint64_t{1} << 32, uint64_t{1} << 63,
+          std::numeric_limits<uint64_t>::max()};
+      for (const auto &position : invalid_positions) {
+        auto value = view("ni", "ni", 1);
+        value["preedit_caret"] = position;
+        require(delivered(lease, value).preedit_caret == std::string::npos);
+        require(candidate_presentation_from_view(lease, value, 0, 0, "").preedit_caret ==
+                std::string::npos);
+      }
+      // 合法无符号位置继续按 Unicode 标量转换，不能与非法大整数一起拒绝。
+      for (uint64_t position = 0; position <= 2; ++position) {
+        auto value = view("ni", "ni", 1);
+        value["preedit_caret"] = position;
+        require(delivered(lease, value).preedit_caret == position);
+        require(candidate_presentation_from_view(lease, value, 0, 0, "").preedit_caret ==
+                position);
+      }
     }
 
     std::cout << "Preedit caret: placed only where the offset really means it\n";

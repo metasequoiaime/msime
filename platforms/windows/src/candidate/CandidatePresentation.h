@@ -413,12 +413,19 @@ inline void candidate_presentation_page(CandidatePresentation &output,
 // 候选窗拼音行里组字光标在 view 的 preedit 里的字节位置（不含宿主加在前面的已选词段），没有可画的位置时为 npos。引擎在 View.preedit_caret 里给出光标在 preedit 里的位置（Unicode 标量，见 msime_client.h）：全拼分词的 ni'hao、双拼分隔的 ni'mf、双拼「拼音分词」展开的全拼 shi'shi 都按它放，音节边界上落在隔音符前面；两段文字没有可靠对应（韩文音节、假名、笔画字形）时它在末尾，和 macOS 候选窗一样画在末尾。视图里没有这一项时退回 preedit_display_caret，按按键原文的字母数换。位置越过 preedit 说明两边对不上，不猜。按键送达和异步刷新两条投影都用它，候选窗打字、左右移光标时插入点都跟着。
 inline size_t candidate_view_preedit_caret(const nlohmann::json &view, std::string_view preedit) {
   const auto engine = view.find("preedit_caret");
-  if (engine == view.end() || !engine->is_number_integer() || engine->get<int64_t>() < 0) {
+  if (engine == view.end()) {
     const auto editing = view.at("editing_text").get<std::string>();
     return preedit_display_caret(editing, preedit, view.value("caret_position", editing.size()));
   }
+  if (!engine->is_number_integer() ||
+      (!engine->is_number_unsigned() && engine->get<int64_t>() < 0))
+    return std::string::npos;
+  const auto position = engine->get<uint64_t>();
+  // 标量数不会超过字节数，先检查再收窄，避免 32 位宿主把大整数截成有效位置。
+  if (position > preedit.size())
+    return std::string::npos;
   size_t bytes = 0;
-  for (auto scalars = engine->get<size_t>(); scalars; --scalars) {
+  for (auto scalars = static_cast<size_t>(position); scalars; --scalars) {
     if (bytes >= preedit.size())
       return std::string::npos;
     ++bytes;
