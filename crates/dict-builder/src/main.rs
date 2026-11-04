@@ -431,6 +431,30 @@ fn build_places_supplement(arguments: &PlacesSupplement) -> Result<()> {
         read(places_supplement::BASE)?,
         read(places_supplement::RIME_ICE_SUPPLEMENT)?,
     );
+    // 万象下限读的词库：checkout 没有登记 rime-wanxiang 时为空，不定这个下限。
+    let wanxiang = reweight::load(&sources)?.unwrap_or_default();
+    let wanxiang: Vec<(&str, &str)> = wanxiang
+        .iter()
+        .map(|(name, text)| (*name, text.as_str()))
+        .collect();
+    let wanxiang_commit = if wanxiang.is_empty() {
+        None
+    } else {
+        Some(
+            sources
+                .lock
+                .references
+                .get(reweight::REFERENCE)
+                .with_context(|| {
+                    format!(
+                        "resources/dictionary-sources.lock.json has no {} reference",
+                        reweight::REFERENCE
+                    )
+                })?
+                .commit
+                .as_str(),
+        )
+    };
     let supplement = places_supplement::build(&places_supplement::Inputs {
         provinces: &provinces,
         cities: &cities,
@@ -439,6 +463,7 @@ fn build_places_supplement(arguments: &PlacesSupplement) -> Result<()> {
         base: &base,
         rime_ice_supplement: &rime_ice_supplement,
         curation: &curation,
+        wanxiang: &wanxiang,
     })?;
     let pinned = |path: &str| {
         sources
@@ -483,6 +508,7 @@ fn build_places_supplement(arguments: &PlacesSupplement) -> Result<()> {
                 single_chars_sha256.as_str(),
             ),
             generator_commit: &generator_commit,
+            wanxiang_commit,
         },
     );
     std::fs::write(&arguments.out, rendered)
@@ -496,9 +522,10 @@ fn build_places_supplement(arguments: &PlacesSupplement) -> Result<()> {
         .filter(|entry| entry.existing.is_none())
         .count();
     eprintln!(
-        "[done] {} entries ({inserted} new, {} raised; {} already ranked or at their floor) -> {}",
+        "[done] {} entries ({inserted} new, {} raised; {} weighted by the Wanxiang floor; {} already ranked or at their floor) -> {}",
         supplement.entries.len(),
         supplement.entries.len() - inserted,
+        supplement.raised.len(),
         supplement.already_ranked,
         arguments.out.display()
     );

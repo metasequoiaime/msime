@@ -333,6 +333,30 @@ fn wanxiang_rows(text: &str) -> impl Iterator<Item = (&str, String, Option<i64>)
     })
 }
 
+/// 提供权重的万象词库（[`IMPORTED`]）给每个「词＋全拼」显式写的最高原始权重，只收 `wanted` 认的「词＋全拼」；取权重的规则与第一步相同（读音按 [`normalize_reading`] 换算，只认非负整数权重，同一个「词＋全拼」取最高），不乘缩放比例和文件系数。`wanxiang` 是 [`load`] 读出的名字和内容，[`RECORDED_ONLY`] 的两份跳过。区划补充表的生成器用它给地名定万象下限。
+pub fn imported_weights(
+    wanxiang: &[(&str, &str)],
+    wanted: impl Fn(&str, &str) -> bool,
+) -> HashMap<(String, String), i64> {
+    let mut weights: HashMap<(String, String), i64> = HashMap::new();
+    for (name, text) in wanxiang {
+        if !IMPORTED.contains(name) {
+            continue;
+        }
+        for (word, key, weight) in wanxiang_rows(text) {
+            let Some(weight) = weight else {
+                continue;
+            };
+            if !wanted(word, &key) {
+                continue;
+            }
+            let slot = weights.entry((word.to_owned(), key)).or_insert(weight);
+            *slot = (*slot).max(weight);
+        }
+    }
+    weights
+}
+
 /// 一份全拼输入：路径（报错和查文件系数用）、内容，以及只对单字表生效的白名单。
 pub struct Input<'a> {
     pub path: &'a str,
