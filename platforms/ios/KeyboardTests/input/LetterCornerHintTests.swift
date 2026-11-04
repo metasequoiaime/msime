@@ -105,6 +105,7 @@ final class LetterCornerHintTests: XCTestCase {
 
   func testCornerSymbolFinishesTheCompositionInsteadOfJoiningIt() throws {
     let controller = makeController(.quanpin)
+    controller.viewWillAppear(false)
     for label in ["字母 N", "字母 I"] {
       try key(labelled: label, in: controller).sendActions(for: .primaryActionTriggered)
     }

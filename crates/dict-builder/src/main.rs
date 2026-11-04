@@ -1292,12 +1292,18 @@ impl Build {
             Stage::Wubi => {
                 let jidian = self.sources.pinned(wubi86_supplement::JIDIAN)?;
                 let supplement = self.fresh_wubi_supplement(WubiTable::Wubi86)?;
-                let (imported, skipped, filtered) = msime::build_wubi(
-                    &mut self.database("msime-pinyin.db")?,
-                    &[jidian.as_path(), supplement.as_path()],
-                )?;
+                let custom = self.sources.optional(msime::CUSTOM_WUBI86)?;
+                let mut paths = vec![jidian.as_path(), supplement.as_path()];
+                paths.extend(custom.as_deref());
+                let (imported, skipped, filtered) =
+                    msime::build_wubi(&mut self.database("msime-pinyin.db")?, &paths)?;
                 Ok(format!(
-                    "{imported} rows imported, {skipped} skipped, {filtered} unsupported Wubi values left out"
+                    "{imported} rows imported, {skipped} skipped, {filtered} unsupported Wubi values left out{}",
+                    if custom.is_some() {
+                        ""
+                    } else {
+                        "; no custom/wubi86.txt in the checkout"
+                    }
                 ))
             }
             Stage::Wubi98 => {
@@ -1923,6 +1929,31 @@ mod tests {
                 expected
             );
         }
+    }
+
+    /// checkout 里有 `custom/wubi86.txt` 时，它的行接在极点表和补充表之后写进 `wubi86`：同码的原有候选在前（甲 之后才是 ①）。没有这个文件的 checkout 照常构建，见上一个测试。
+    #[test]
+    fn the_custom_wubi86_table_is_appended_after_the_upstream_rows() {
+        let (_temporary, dictionary, out, build) = wubi_fixture(XsjCheckout::Published);
+        std::fs::write(
+            dictionary.join(msime::CUSTOM_WUBI86),
+            "# 带圈数字\n①\tabcd\t1\n",
+        )
+        .unwrap();
+        let summary = build.run(Stage::Wubi).unwrap();
+        assert!(!summary.contains("no custom/wubi86.txt"), "{summary}");
+        let db = rusqlite::Connection::open(out.join("msime-pinyin.db")).unwrap();
+        let mut rows = db
+            .prepare(
+                "SELECT value, weight FROM wubi86 WHERE key='abcd' ORDER BY weight DESC, rowid",
+            )
+            .unwrap();
+        let rows: Vec<(String, i64)> = rows
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(rows, [("甲".to_owned(), 100), ("①".to_owned(), 1)]);
     }
 
     /// 收快照之前的 checkout 都不发布新世纪表：只收了上游码表的（PR 合入顺序的中间状态，这时合入的日常词条也会触发发布），和连上游码表都没有、按旧 `upstream.lock.json` 打开的（重建 `dict-v2.0.41` 这类旧提交）。两者的 86、98 照常构建，新世纪阶段跳过而不是失败。

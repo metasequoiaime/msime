@@ -14,6 +14,7 @@ Mac 上自动打字验收（typing-chat-v1 的 test，220 段）到 81.4% 以后
 
 - 引擎新增 `ordering::SentenceScorer`：给定上文和一批文字，返回每条的逐字平均对数概率。`CandidateScorer::sentence_scorer` 默认没有，ONNX 后端（`msime_onnx_rerank::SharedOnnxScorer`）给出一个与逐键打分共用同一个模型和前缀缓存的实现。runtime 挂打分器时经 `Session::set_sentence_scorer` 一并交给引擎，`QueryRequest::sentence_scorer` 带进全拼词典。
 - `lattice::decode::BeamModel`：每一列按词网格的分剪到束宽之后，给留下的每个假设的整段文字打模型分，把这一步新增的模型分（逐字之和，乘 `BEAM_MODEL_WEIGHT` = 1）加进假设的分，随假设带到后面的列。最后一列的整句同样加上。末尾那条边是句尾语气词的整句不加这一步：模型不知道句子在这里结束，句尾的「呀」「吧」在它看来像句中，交给 `SENTENCE_FINAL_PARTICLE_BONUS`。
+- 系列候选的查询、单字母展开和在线写入使用同一条模型上下文规则：词库内重排器或 `SentenceScorer` 任一存在，缓存槽都带上文；空上文也保留分隔标记。查询若只检查词库内重排器，会在仅挂束搜索模型时读到不带上文的另一槽，AI / 云候选虽然答 `applied: true`，刷新却消失（#10846）。
 - 模型分只对一段上文成立。全拼词典里按文字存一份备忘（`beam_model_memo`），上文变了清空。每次按键整句都从头解，前面几列的假设和上一键一样，模型分从备忘里取，只有新的一列要跑模型。挂着模型时束搜索不接前缀存档（`BeamPrefixCache` 里没有模型分），整句解码缓存和候选缓存的键都带上文。
 - 只在主读法上用。同一串拼音的备选切分（`nian'gao` 之外的 `ni'an'ga'o`、`niang'a'o`）每个都要整句解一遍。一开始每个都让模型打分，一次按键跑五六遍模型，p99 8 ms、最慢一键 55 ms。改成只进这次查询主读法（纠错时是纠错后的读法）的束搜索，`QuanpinDictionary::beam_model_segments` 记着它，其余切分照旧只按词网格解。准确率没有变差（下表），延迟回到预算内。
 - 引擎拿到的打分器和逐键比较用的打分器共用一份分数备忘（`msime_onnx_rerank::SharedOnnxScorer`，按模型实际读的上文作键）。束搜索最后一列给整句打过的分，逐键比较整池时直接取。不共用时同一批整句每键要跑两遍模型，p99 3.9–4.0 ms 贴着预算；共用后回到 develop 的水平。
@@ -86,3 +87,7 @@ develop 一栏是几次交替测量的范围，max 受机器上别的进程影�
 - `crates/engine/src/lattice/decode.rs` 的 `the_beam_model_scores_prefixes_and_remembers_them`：词网格首选「下周死上线」，挂上只认「下周四上线」的打分器后首选变成它，交出去的分等于它在词网格里的分；同一段上文再解一遍不再调用打分器。
 - `crates/input-runtime/src/tests/sentence_pool.rs` 的 `a_scorer_that_lends_its_model_brings_a_pruned_reading_into_the_lattice` 和 `removing_the_scorer_takes_its_model_out_of_the_lattice`：runtime 把打分器给出的整句打分器交给引擎，摘掉时一并收回。
 - `cargo test -p msime-engine`、`-p msime-input-runtime --features onnx-rerank`、`-p msime-host-api --features onnx-rerank --lib`、`-p msime-onnx-rerank` 全部通过。
+
+## 在线候选回归验证
+
+`online_rows_survive_refresh_with_beam_scorer_and_stay_in_their_context` 用合成词库和确定性前缀评分器验证空上文、非空上文以及 AI / 云两种来源：在线写入后刷新仍可见，切换上文不串候选，切回原上文能读回。该测试在修复前失败，统一槽判据后通过；不依赖外部模型文件或自测速度。Android `AiCandidateSeatDeviceSmoke` 的自定义候选遍历沿用 `DeviceSmoke.find` 的旧系统规则：API 34 以下逐节点 `refresh` 后再读。API 28 原来屏幕已有候选、通用查找能找到按钮，自定义遍历却因缓存旧树读回空列表；只刷新节点即通过原 AI 用例，无需增加等待，不调整输入、模型开关、超时或座位断言。
