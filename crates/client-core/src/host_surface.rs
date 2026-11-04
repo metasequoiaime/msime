@@ -244,7 +244,7 @@ pub struct HostCapabilities {
     /// candidate size into the desktop panel's single font, but the composition itself is drawn by
     /// the focused application, so a separate preedit size would have nothing to change there.
     pub candidate_preedit_font: bool,
-    /// The host can hide the candidate panel's page indicator without changing pagination. On macOS and in the Linux Fcitx5 theme that also hides the ‹ › arrows sharing the card's top row.
+    /// 宿主能按 `show_candidate_page_number` 隐藏候选的页码而不改变翻页。macOS、Windows 和 Linux Fcitx5 主题里，首行的 ‹ › 箭头跟着一起隐藏。
     pub candidate_page_number: bool,
     /// 宿主按 `show_app_logo` 显示或隐藏候选窗和悬浮工具栏左端的水杉 logo。
     pub app_logo: bool,
@@ -690,8 +690,14 @@ impl HostCapabilities {
             // candidate size into the panel's font: the IBus panel settings or
             // the Fcitx5 classic UI.
             candidate_font_controls: true,
-            // macOS 候选窗首行的「1 / 3」和 ‹ › 一起隐藏，只留翻页箭头的话首行照样占高度，候选窗不会变紧凑（#7316）。Linux 去掉辅助文本里的「当前页/总页数」，Fcitx5 的经典界面主题和原生画布也一起不画 ‹ ›；IBus 面板的翻页箭头属于面板，管不到。键盘和滚轮翻页都不受影响。
-            candidate_page_number: matches!(platform, HostPlatform::Linux | HostPlatform::Macos),
+            // macOS 候选窗首行的「1 / 3」和 ‹ › 一起隐藏，只留翻页箭头的话首行照样占高度，候选窗不会变紧凑（#7316）。Windows 候选窗首行同样一起隐藏页码和 ‹ ›（`CandidateLayoutSettings.h`）。Linux 去掉辅助文本里的「当前页/总页数」，Fcitx5 的经典界面主题和原生画布也一起不画 ‹ ›；IBus 面板的翻页箭头属于面板，管不到。Android 候选栏读音行右侧的「1/3」跟着隐藏，候选栏本来没有翻页箭头（#10709）。键盘和滚轮翻页都不受影响。iOS 候选栏不画页码；鸿蒙 2in1 候选窗画页码和 ‹ › 但还不读这个偏好（`CandidatePagerPolicy.ts`），两者都不声明。
+            candidate_page_number: matches!(
+                platform,
+                HostPlatform::Linux
+                    | HostPlatform::Macos
+                    | HostPlatform::Windows
+                    | HostPlatform::Android
+            ),
             // macOS、Windows 和 Linux 按这个开关画 logo（Linux 是 Fcitx5 经典界面主题里的那个，IBus 面板本来就画不了 logo，见 `CandidatePanelLimit::IbusPanel`）；鸿蒙的候选窗照常显示 logo，不提供这个开关。
             app_logo: matches!(
                 platform,

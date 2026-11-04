@@ -470,11 +470,8 @@ char *msime_client_personal_wordbook_merge(const uint8_t *request, size_t length
 char *msime_client_personal_wordbook_drain(const uint8_t *request, size_t length);
 /* Scan an absolute UTF-8 skin root and return the catalog the settings page sees: {packages:[...],issues:[...]}. Reads the directory: use a worker. An unreadable root is an empty catalog; an invalid package becomes an issue and is never returned as renderable. Presenters must still check that a package supports the layout and theme before adopting its colors. Keys are camelCase, the same document the settings page consumes. Besides the colours (drawn through msime_client_resolve_theme, where a palette's translation becomes secondary) a package carries what a presenter draws itself: minWidthDip; cornerRadiusDip (0-32, null keeps the host radius); decorationTopDip, decorationWidthDip and decorationImage (package-relative, null unless decorated) placed by decorationAlign ("left"|"center"|"right"), with decorationMotion ("none"|"float"|"sway"|"breathe"|"bounce", an idle motion of the whole image while the window is on screen), decorationMotionPeriodMs (1200-8000) and decorationFrames (0 without a decoration image, 1 for a still image, the animation frame count of an APNG, GIF or WebP otherwise; a host that cannot play frames draws the first); background null or {image,fit:"cover"|"contain"|"stretch",opacity:0-1}, drawn over the surface and under the candidates, clipped to the card outline; toolbar {cornerRadiusDip|null, light, dark} where each mode is {background,border,handle,divider,icon,hover}, each #RRGGBB, #RRGGBBAA or null for the host's own. A package may also carry notices, non-fatal strings about manifest keys it parsed but does not apply here (canvas-only keys on a non-canvas base, or a canvas package's nine-slice panel and widgets, which no msime host draws); the key is absent when there are none and the package stays usable. Image paths are already confined to the package and are images; read them with msime_client_skin_resource. */
 char *msime_client_skin_catalog(const uint8_t *directory, size_t length);
-/* Scan an absolute Engine resource directory for optional custom helper-code tables. The
- * response value is an array of {schema,file_stem,name,name_en}; missing or unreadable
- * helpcodes/custom is an empty array. Display metadata comes from leading # name: and
- * # name_en: comments, while the Engine remains the owner of table parsing. */
-char *msime_client_helpcode_schemas(const uint8_t *resources, size_t length);
+/* 列出自定义辅助码表。resources 是绝对的 Engine 资源目录；state_root 是绝对的状态根（HostOptions 的 preferences_directory），没有时传 NULL 和 0。两处的 helpcodes/custom 合起来按主干排序，同一主干取状态根那份（用户自己的表放在状态根下，升级不会动它；资源目录是安装包或词库代次，是以前的位置），与 Engine 读表的顺序一致。value 是 {schema,file_stem,name,name_en} 的数组，目录不在或读不了时是空数组。显示名取开头的 # name: 和 # name_en: 注释，码表本身仍由 Engine 解析。 */
+char *msime_client_helpcode_schemas(const uint8_t *resources, size_t length, const uint8_t *state_root, size_t state_root_length);
 /* JSON {directory:absolute skin root,id:package folder}. Validates that one package with the same loader as msime_client_skin_catalog and returns one of its camelCase packages entries; an invalid, built-in, symlinked or missing package is {ok:false,error} with the loader's reason. Reads the package: resolve on a skin or appearance change, never while drawing. */
 char *msime_client_skin_package(const uint8_t *request, size_t length);
 
@@ -984,6 +981,9 @@ char *msime_client_choose_nine_key_spelling(uint64_t session, uint64_t generatio
 char *msime_client_set_nine_key_filter(uint64_t session, bool single_character,
                                        const uint8_t *strokes, size_t length);
 /* 滑行输入：手指一笔滑过字母键，由引擎解码成最可能拼出的全拼字母，像打字一样写到组字的光标处（与已有字母之间用 ' 隔开）。request 是 length 字节的 UTF-8 JSON（<=65536，拒绝未知键）：{"keys":[[x,y] x 26],"key_width":w,"key_height":h,"points":[[x,y] 或 [x,y,ms]，2..1024 个]}，keys 是 a..z 各键中心（按此次序），key_width/key_height 是一个字母键的尺寸，全部在宿主自选的同一个坐标系里；ms 是距笔画开始的毫秒数，有了它，手指在键上停一下就能确认那个键。返回与 msime_client_character 相同的输入响应。方案不是全拼、在本地模式或专用英文里、九键数字正在组字，或者没有音节跟得上这一笔时 handled=false：宿主丢掉这一笔，不得把它经过的键当作按键输入。在会话线程上、手指抬起时调用；一次触摸是滑行还是点按只由宿主判断。 */
+/* 请求可选 bilingual 布尔值（缺省 false）：开启时同笔提供全拼和英文完整词候选。
+ * View.requires_candidate_selection 为 true 时，组字等待用户明确选词；缺省 false。
+ * 宿主确认键可发送 MSIME_COMMIT_CANDIDATE 选择高亮项，不能发送原文提交或结束组字代替选词。 */
 char *msime_client_glide(uint64_t session, const uint8_t *request, size_t length);
 enum MsimeCandidateEdge { MSIME_FIRST_HAN = 0, MSIME_LAST_HAN = 1 };
 /* Engine selects one Han character and clears composition on success.

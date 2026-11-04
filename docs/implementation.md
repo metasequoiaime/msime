@@ -8,13 +8,13 @@
 
 范围内的是「宿主编排」：会话生命周期、焦点、候选分页与身份、偏好的持久化与应用时机、账号与云服务、资源分代安装、面板与工具栏的展示状态。范围外的是「输入算法」：拼音切分、词格仲裁、候选排序、学习与调频、日文转换表，这些全部由 Engine 提供，客户端只传配置、取快照、按身份回选。简繁转换是共享层 `crates/client-base/src/chinese_conversion.rs` 按 OpenCC s2t 实现的词级转换，由宿主在显示与上屏边界调用。
 
-一条贯穿全仓库的规则：**Tauri 是公共组件，不是任何平台的产品本体**。最终安装、启动、被系统识别为输入法的，始终是 `platforms/<os>` 下的原生宿主；Tauri/React 只在用到它的平台上由它承载，iOS App 与 Android 发布 APK 都不承载（`platforms/ios/build-app.sh` 顶部的注释写明了 iOS 这一点：产品 App 里没有 WebView，只有 `MSIME_IOS_TAURI_COMPONENT=1` 才单独构建那个组件）。
+一条贯穿全仓库的规则：**Tauri 是公共组件，不是任何平台的产品本体**。最终安装、启动、被系统识别为输入法的，始终是 `platforms/<os>` 下的原生宿主；Tauri/React 只在用到它的平台上由它承载，iOS App 与 Android APK 都不承载（`platforms/ios/build-app.sh` 顶部的注释写明了 iOS 这一点：产品 App 里没有 WebView）。
 
 ## 二、分层与目录
 
 ### Rust workspace
 
-工作区共二十个成员：十九个 `crates/*` 加 `apps/desktop/src-tauri`。`default-members` 刻意排除 `msime-desktop`——它需要已构建的前端和已打包的平台 bundle 才能跑 build script，所以裸 `cargo test` 只覆盖库。工具链钉在 `rust-toolchain.toml` 的 1.97.1；`[workspace.lints.rust] unsafe_code = "deny"` 用 `deny` 而非 `forbid`，因为四个 FFI crate 需要在 crate root 写 `#![allow(unsafe_code)]` 作为有据可查的豁免，`forbid` 下它们只能整体不继承 lint 表。
+工作区共二十一个成员：二十个 `crates/*` 加 `apps/desktop/src-tauri`。`default-members` 刻意排除 `msime-desktop`——它需要已构建的前端和已打包的平台 bundle 才能跑 build script，所以裸 `cargo test` 只覆盖库。工具链钉在 `rust-toolchain.toml` 的 1.97.1；`[workspace.lints.rust] unsafe_code = "deny"` 用 `deny` 而非 `forbid`，因为四个 FFI crate 需要在 crate root 写 `#![allow(unsafe_code)]` 作为有据可查的豁免，`forbid` 下它们只能整体不继承 lint 表。
 
 | crate | 职责 |
 | --- | --- |
@@ -27,14 +27,12 @@
 | `msime-host-api` | 版本化 C ABI（`msime_client_abi_version()` 返回 3），132 个 `msime_client_*` 导出（头文件另有 2 个 `static inline` 辅助函数），`crate-type = ["cdylib", "staticlib", "rlib"]`。`ffi/` 按 host/session/input/candidates/lifecycle/providers/translation/voice 分文件。 |
 | `msime-host-macos` | macOS 宿主的 Objective-C++ 平台能力：键盘注入、账户、剪贴板、词库、文件选择器、卸载器、录音设备枚举，以及 `panel_session`、`cloud_clipboard`、`cloud_dictionary`。 |
 | `msime-host-windows` | Windows 平台能力的安全封装：语音控制器与输出、粘贴策略、Windows Ink 手写。桌面 shell 禁 unsafe，所以 Win32 调用集中在这里。 |
-| `msime-tauri-mobile-platform` | Tauri shell 在 Android/iOS 上的平台能力注入插件。 |
-| `msime-ios-native-ffi` | 只包住 Swift `@_cdecl` 导出的那条 FFI 边界，使 Tauri 命令 crate 不必背 unsafe 豁免。 |
 
 ### 共享界面与 Tauri 承载层
 
 `packages/ui`（`@msime/ui`）是唯一一份 React 设置界面实现，导出 `SettingsPage`，21 个页面 id 覆盖首页、账号、AI 对话、社区、打字统计、外观、输入、辅助码、快捷键、词库、皮肤、语音、屏幕键盘、手写、实用功能、AI 辅助、悬浮工具栏、更多、帮助、关于、反馈。移动端另有一套底部 tab 映射和窄屏导航收敛：桌面才有的表面（快捷键、悬浮工具栏等）不会在没有对应宿主表面的移动端出现。
 
-`apps/desktop/src-tauri` 是所有平台共用的 Tauri 入口库，210 个 `#[tauri::command]` 按 `platform/{android,ios,linux,macos,windows,desktop}`、`shared/`、`tests/` 分层。目录名沿用 `desktop`，但它同时是 Android、iOS 上那份合包的 Rust 入口。`apps/harmony` 只有 `main.tsx` 一个胶水文件，把同一份 `@msime/ui` 打成 HarmonyOS 能加载的单文件设置页。
+`apps/desktop/src-tauri` 是 macOS、Linux 和 Windows 共用的 Tauri 入口库，217 个 `#[tauri::command]` 按 `platform/{linux,macos,windows,desktop}`、`shared/`、`tests/` 分层。Android 和 iOS 的 Tauri 工程从没发布过，已经删掉。`apps/harmony` 只有 `main.tsx` 一个胶水文件，把同一份 `@msime/ui` 打成 HarmonyOS 能加载的单文件设置页。
 
 ### 平台目录
 
@@ -64,7 +62,7 @@
 
 `ResourceStore` 读取受信任的产品锁，通过宿主注入的传输流安装平面文件集合，严格校验长度与摘要，用独立文件锁和临时目录发布防止半安装，不覆盖旧资源代次。词库升级按代次进行：宿主建会话前比对编译进库的词库锁代次，原子替换运行配置里的 `resources`/`dictionaries` 两项。
 
-`client-core::helpcode` 负责读取资源目录里的用户辅助码元数据。`helpcodes/custom/*.txt` 的文件名形成 `custom/<stem>` 标识，扫描结果按 stem 排序；可选的 `# name:`、`# name_en:` 头部只用于设置界面显示，路径校验拒绝目录穿越和平台文件名分隔符。实际码表解析与候选筛选仍由 Engine 负责，Rust 不复制输入算法。
+`client-core::helpcode` 负责读取用户辅助码元数据：状态根和资源目录两处的 `helpcodes/custom/*.txt`，同一主干取状态根那份（`list_custom_helpcode_schemas_in`），资源目录里以前放的表由 `adopt_custom_helpcodes` 复制到状态根下。文件名形成 `custom/<stem>` 标识，扫描结果按 stem 排序；可选的 `# name:`、`# name_en:` 头部只用于设置界面显示，路径校验拒绝目录穿越和平台文件名分隔符。实际码表解析与候选筛选仍由 Engine 负责，Rust 不复制输入算法。
 
 ### 账号、云与社区
 
@@ -117,13 +115,13 @@ InputMethodKit 宿主，产物 bundle 名为 `水杉输入法.app`，`CFBundleId
 
 ### Android
 
-原生 `InputMethodService` 宿主，applicationId 与 namespace 都是 `app.msime.android`，minSdk 28。服务跑在 `android:process=":ime"` 独立进程：Tauri 最后一个窗口关闭会退出进程，设置页与输入法必须分开，跨进程共享的只有那份带文件锁的偏好。ML Kit 的初始化 provider 也在同一进程。四个 `activity-alias` 实现应用图标切换。
+原生 `InputMethodService` 宿主，applicationId 与 namespace 都是 `app.msime.android`，minSdk 28。服务跑在 `android:process=":ime"` 独立进程，设置页与输入法分开，跨进程共享的只有那份带文件锁的偏好。ML Kit 的初始化 provider 也在同一进程。四个 `activity-alias` 实现应用图标切换。
 
 Java 侧按 `java/app/msime/android/<feature>/` 分层（core、home、keyboard、candidate、voice、account、dictionary、policy、handwriting、statistics、community、clipboard、settings），其中 `policy/` 是一批无 Android 依赖的纯模型类——键面大小写、硬件按键映射、候选导航、被拒标点、数字行选词、候选滚动、候选折行、智能标点上下文等规则都放在这里，因此可以用 JVM smoke 直接覆盖而不需要设备。`NativeClient.java` 是唯一的 JNI 声明处，对应 `native/client_jni.cpp`。
 
 能力覆盖软键盘 26 键与符号层、全拼九键（含数字层）、全拼 14 键、日语九键、四套双拼加微软双拼分词键、86 五笔、手写、AI 回复键盘；候选条与展开面板、候选长按管理、离线英文释义、在线候选翻译、云与 AI 联想、剪贴板历史与云剪贴板、表情浏览器、八种本地输入模式、AI 润色、语音、打字统计、内置与自定义皮肤、社区资源、账号、硬件键盘快捷键与数字行选词、大屏居中外框、无障碍键盘尺寸调整。
 
-有两个构建脚本产出同名同路径的 `target/android/msime-android.apk`：`build-apk.sh` 出的是本目录的原生 IME（Java 来自 `platforms/android/java`，无 WebView），`build-client-apk.sh` 出的是 Tauri + React 设置合包。两者包名相同、内容完全不同，README 为此专门写了一节。Gradle 工程 `gradle-app` 的 `srcDirs` 直接指向 `platforms/android/{AndroidManifest.xml,java,res}` 和 `target/android/{host-assets,jniLibs}`，不复制任何源码。
+`build-apk.sh` 产出 `target/android/msime-android.apk`，即本目录的原生 IME（Java 来自 `platforms/android/java`，无 WebView）。Gradle 工程 `gradle-app` 自带 Gradle wrapper，`srcDirs` 直接指向 `platforms/android/{AndroidManifest.xml,java,res}` 和 `target/android/{host-assets,jniLibs}`，不复制任何源码。
 
 ### Linux
 
@@ -201,7 +199,7 @@ AI 生成类功能（AI 对话、AI 润色与高情商回复、AI 联想、AI �
 
 测试跟着边界走：能在宿主机上跑的就别要求设备，需要设备才成立的就明确标成设备套件，两者不互相冒充。
 
-**共享 Rust。** 裸 `cargo test` 覆盖十五个 `default-members`（`path-trust`、`client-base`、`client-core`、`client-providers`、`client-services`、`engine`、`engine-wasm`、`input-runtime`、`host-api`、`host-windows`、`host-macos`、`tauri-mobile-platform`、`ios-native-ffi`、`mcp-server`、`script-runtime`）；`verify-local.sh` 另外把 `msime-desktop` 一并跑上，并单独检测「编译失败」而不是把它误读成「零个失败测试名」。真实词库不是单测的前提：`crates/engine/examples/` 下是一批探针，接收一个已备齐的资源目录后在临时用户目录里验证具体行为（九键候选顺序、调频五种模式、混输优先级、辅助码五种方案、双拼四套键位、首尾字抽取），原资源不被改写。`crates/input-runtime/examples/` 另有 `convert_eval` 与 `rerank_latency`，前者跑 `resources/eval/` 的四套数据集比对基线，后者量重排的逐键延迟。两者在准备会话之前用编译时嵌入的资源锁校验锁内各文件的长度和 SHA-256；比较自定义模型或资源子集时，用 `--resource-lock <file.json>` 显式提供对应清单，仍逐项校验。校验位于计时之外，标准错误输出包含资源来源提交与清单代次，避免旧库或缺失 n 元表的目录冒充当前产品。
+**共享 Rust。** 裸 `cargo test` 覆盖十五个 `default-members`（`path-trust`、`client-base`、`client-core`、`client-providers`、`client-services`、`engine`、`engine-capi`、`engine-wasm`、`input-runtime`、`onnx-rerank`、`host-api`、`host-windows`、`host-macos`、`mcp-server`、`script-runtime`）；`verify-local.sh` 另外把 `msime-desktop` 一并跑上，并单独检测「编译失败」而不是把它误读成「零个失败测试名」。真实词库不是单测的前提：`crates/engine/examples/` 下是一批探针，接收一个已备齐的资源目录后在临时用户目录里验证具体行为（九键候选顺序、调频五种模式、混输优先级、辅助码五种方案、双拼四套键位、首尾字抽取），原资源不被改写。`crates/input-runtime/examples/` 另有 `convert_eval` 与 `rerank_latency`，前者跑 `resources/eval/` 的四套数据集比对基线，后者量重排的逐键延迟。两者在准备会话之前用编译时嵌入的资源锁校验锁内各文件的长度和 SHA-256；比较自定义模型或资源子集时，用 `--resource-lock <file.json>` 显式提供对应清单，仍逐项校验。校验位于计时之外，标准错误输出包含资源来源提交与清单代次，避免旧库或缺失 n 元表的目录冒充当前产品。
 
 **共享界面。** `apps/desktop/tests/` 下 99 个 Vitest 文件按 account / candidate / chat / community / core / dictionary / emoji / input / settings / skin / support / voice 十二个域组织。写这些用例有一条必须遵守的时序：`render(<SettingsPage …>)` 之后要先等初始加载落定再去点侧栏，页面此时还在解析快照，加载完成后自己做的选择会覆盖掉提前点下的分类——不等就会得到一个随机失败、看起来像产品回归的用例。
 

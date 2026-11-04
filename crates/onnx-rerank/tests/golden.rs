@@ -152,6 +152,40 @@ fn going_back_to_an_earlier_context_starts_over() {
     );
 }
 
+/// 上屏后先编码好上文（宿主在后台线程里做），接着打字的分数与按键时才编码的一样：两种做法都是先单独跑一次上文、再跑按键。
+#[test]
+fn priming_the_context_scores_like_encoding_it_on_the_keystroke() {
+    let mut scorer = scorer();
+    for (context, keystrokes) in &cases() {
+        scorer.prime_context(context);
+        for (i, k) in keystrokes.iter().enumerate() {
+            assert_within(
+                &scorer.log_probabilities(context, &texts(k)),
+                &k.scores,
+                TOLERANCE,
+                &format!("primed {context:?} keystroke {i}"),
+            );
+        }
+    }
+}
+
+/// 编码好的上文与按键时交来的不同（用户在编码完之前又上屏了，或者长候选让上文截短了），按键照旧从它自己的上文重来。
+#[test]
+fn a_keystroke_after_priming_another_context_starts_over() {
+    let mut scorer = scorer();
+    let cases = cases();
+    let (first, first_keys) = &cases[0];
+    let (second, _) = &cases[2];
+    scorer.prime_context(second);
+    let last = first_keys.last().unwrap();
+    assert_within(
+        &scorer.log_probabilities(first, &texts(last)),
+        &last.scores,
+        REBATCHED,
+        "primed another context",
+    );
+}
+
 #[test]
 fn nothing_to_score_declines() {
     let mut scorer = scorer();
@@ -188,4 +222,23 @@ fn only_a_model_within_the_keystroke_budget_orders_prediction() {
 
 fn crate_fresh_scores(context: &str, keystroke: &Keystroke) -> Vec<f32> {
     scorer().log_probabilities(context, &texts(keystroke))
+}
+
+/// 字表外的字按未知字编码，模型给的是「随便哪个生僻字」的总概率；每个未知字再扣 ln(未知字这一类的大小)，摊回到一个字上。两个不同的未知字分数相同，都比把那份总概率直接当成一个字的分低这么多；字表里的字不受影响（上面几条与参考运行时逐位对照的测试守着）。
+#[test]
+fn an_unknown_character_pays_for_standing_in_for_a_whole_class() {
+    let mut scorer = scorer();
+    let (context, _) = &cases()[0];
+    let unknown = scorer.log_probabilities(context, &["\u{2B50D}", "\u{7653}"]);
+    assert_eq!(unknown.len(), 2);
+    assert!((unknown[0] - unknown[1]).abs() < 1e-4, "{unknown:?}");
+    // 一个未知字跟着一个字表里的字：两个字平均，每个未知字扣的分摊一半。
+    let known = fixture("chars.txt")
+        .chars()
+        .find(|c| !c.is_whitespace())
+        .unwrap();
+    let pair = format!("\u{2B50D}{known}");
+    let mixed = scorer.log_probabilities(context, &[pair.as_str()]);
+    assert_eq!(mixed.len(), 1);
+    assert!(mixed[0].is_finite());
 }

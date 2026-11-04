@@ -8,11 +8,7 @@
 #include <string>
 
 namespace msime::windows {
-// Candidate colors ported from the shipped presenter. Skin manifests carry CSS
-// strings because the settings page renders them in a WebView, so a native
-// presenter parses the same subset and keeps its own value for anything it
-// cannot represent. Channels are straight alpha in [0,1]; the renderer
-// converts to its own color type, leaving this header free of Direct2D.
+// Candidate colors ported from the shipped presenter. Skin manifests carry CSS strings because the same packs are shared with platforms that preview them in web settings and with the web engine, so a native presenter parses the same subset and keeps its own value for anything it cannot represent. Channels are straight alpha in [0,1]; the renderer converts to its own color type, leaving this header free of Direct2D.
 struct CandidateColor {
   float r = 0.0f, g = 0.0f, b = 0.0f, a = 1.0f;
   friend bool operator==(const CandidateColor &left,

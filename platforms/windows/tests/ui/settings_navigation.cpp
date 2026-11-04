@@ -2,12 +2,14 @@
 #include "../../settings/SettingsNavIcons.h"
 #include "../../settings/SettingsNavigation.h"
 #include "ShellSurfaces.h"
+#include "../../panels/win7/PanelRoutes.h"
 #include <array>
 #include <cstdio>
 #include <set>
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
 
 using namespace msime::settings;
 using msime::windows::ShellSurfaceRequest;
@@ -94,6 +96,15 @@ int main() {
     for (const auto &target : shell_links::all) {
       require(launchable(target));
       require(target.page.empty() && !target.panel.empty());
+    }
+    // 这些面板在开关缺省时由共享应用 MSIME.exe 打开，MSIME_WINDOWS_PANEL_HOST=native 时由原生面板宿主 msime-client-panels.exe 打开（main.cpp 的 open_shell 按 shell_executable_names 找程序）；原生宿主必须认每一个路由。
+    for (const auto &target : shell_links::all) {
+      const auto request = request_for(target);
+      require(msime::windows::shell_executable_names(request, msime::windows::PanelHost::Shared) ==
+              std::vector<std::wstring>{L"MSIME.exe"});
+      require(msime::windows::shell_executable_names(request, msime::windows::PanelHost::Native) ==
+              std::vector<std::wstring>{L"msime-client-panels.exe"});
+      require(msime::windows::win7::panel_route(target.panel));
     }
     // 剪贴板页在本窗口里原生绘制，只有云剪贴板面板仍由共享应用打开。
     require(msime::windows::shell_route_argument(

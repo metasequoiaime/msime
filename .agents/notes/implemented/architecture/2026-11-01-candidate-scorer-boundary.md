@@ -14,6 +14,7 @@ Status: implemented
 
 - `context_length()`：模型一次能读的字数，`rerank_context` 按它截上文。
 - `log_probabilities(context, candidates)`：逐字平均自然对数概率。
+- `context_changed(context)`：上屏或宿主送来上文之后由 runtime 调，默认什么都不做；按上文缓存模型状态的后端借它在按键之前把新上文编码好，见 [上屏后的新上文在后台编码](../bug-fix/2026-11-03-rerank-context-off-keystroke.md)。
 - `best_where(context, texts, facts)`：带默认实现，规则与 `Reranker::best_where` 相同（首行可信或不回答按键时不动，只比较前 `COMPARED_LIMIT` 即 9 条回答按键的候选，少于两条不动）。
 
 `Reranker` 实现这个接口，三个方法都转给它自己的实现，行为与引入接口之前逐字相同。`rerank_pick` 与 `pick_contest` 取 `&mut dyn CandidateScorer`，原来传 `&mut Reranker` 的调用处（`input-runtime` 的测试、`engine-wasm`）靠自动转换不必改。`Runtime` 的两个字段是 `Option<Box<dyn CandidateScorer>>`；`set_reranker` 与 `set_settled_reranker` 签名不变，另加 `set_candidate_scorer` 与 `set_settled_candidate_scorer` 挂任意实现。接口要求 `Send`，因为停顿评分把模型移到后台线程。

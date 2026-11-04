@@ -52,7 +52,7 @@ namespace shell_links {
 inline constexpr ShellTarget cloud_dictionary{"cloud-dictionary", ""};
 // The cloud clipboard is a panel of the shared app as well, opened from the 剪贴板 page.
 inline constexpr ShellTarget cloud_clipboard{"cloud-clipboard", ""};
-// The voice panel (the tray's 语音输入 entry opens the same route), from the 语音输入 page's 语音面板 group.
+// The voice panel, from the 语音输入 page's 语音面板 group. The tray's 语音 row does not open it: the Server toggles its own native voice input instead.
 inline constexpr ShellTarget voice_panel{"voice", ""};
 inline constexpr ShellTarget keyboard_panel{"keyboard", ""};
 inline constexpr ShellTarget handwriting_panel{"handwriting", ""};

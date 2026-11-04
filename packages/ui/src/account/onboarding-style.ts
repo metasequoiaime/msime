@@ -110,7 +110,7 @@ export const splashGlow =
 export const splashLogo = "relative size-[124px] animate-splash-pop motion-reduce:animate-none";
 export const splashFrame = "fill-[#252525] stroke-[#A8DF8E] [stroke-width:6]";
 export const splashStroke =
-  "fill-none stroke-white [stroke-dasharray:1] [stroke-linecap:round] [stroke-width:9] animate-splash-draw motion-reduce:animate-none";
+  "fill-none stroke-white [stroke-dasharray:1] [stroke-linecap:round] [stroke-width:9.6] animate-splash-draw motion-reduce:animate-none";
 export const splashName =
   "relative text-2xl font-bold tracking-[0.06em] animate-splash-name motion-reduce:animate-none";
 export const splashTagline =
@@ -252,8 +252,7 @@ export const hSplashTagline = `${splashTagline} light-theme:text-black/55`;
 export const hSplashCaption =
   "absolute inset-x-0 top-[calc(50%+93px)] flex flex-col items-center gap-[18px]";
 /** 笔画一开始就画好：系统启动窗和盖板上的标志已经带着它，开屏再从零描一遍就是先擦掉再画。 */
-export const hSplashStroke =
-  "fill-none stroke-white [stroke-linecap:round] [stroke-linejoin:round] [stroke-width:9]";
+export const hSplashStroke = "fill-none stroke-white [stroke-linecap:round] [stroke-width:9.6]";
 /** 加载条：距两侧和底部 48 的 3px 轨道，在启动页停留的时间内逐渐填满（dc.html `msLoad`）。 */
 export const hSplashTrack =
   "absolute right-12 bottom-12 left-12 h-[3px] overflow-hidden rounded-[2px] bg-white/8 light-theme:bg-black/8";

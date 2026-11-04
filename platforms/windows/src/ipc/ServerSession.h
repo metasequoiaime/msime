@@ -147,6 +147,8 @@ private:
                              bool any);
   // 取消结果让组字仍然打开时（韩文、注音的列表关闭，越南文、藏文的原文重新显示，全拼、双拼退出整句改字），再发一次同一个取消命令（MSIME_CANCEL 或 MSIME_CANCEL_AFTER_HOST_COMMIT）丢弃它，真正结束组字的那次派发仍按这个命令归类；其他结果不变。
   nlohmann::json cancel_again(nlohmann::json result, uint32_t command);
+  // 移动高亮的命令之后调用：高亮落在候选窗不画的占位席位上时，按 `common/CandidateSources.h` 的 leave_hidden_seat 让过去，`result` 的 view 换成让过之后的。`before` 是这次命令之前的视图。
+  nlohmann::json leave_hidden_seat(nlohmann::json result, const nlohmann::json &before);
   // cancel_composition 和 cancel_after_host_commit 的共同实现：发 `command`，必要时再发一次，确认组字已经没了。
   void discard_composition(uint64_t epoch, uint32_t command);
   const std::thread::id thread_ = std::this_thread::get_id();

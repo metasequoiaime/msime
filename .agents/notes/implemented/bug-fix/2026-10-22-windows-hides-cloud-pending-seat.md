@@ -23,6 +23,8 @@ bushang                     1 / 23
 
 这条规则**必须**只有一份实现。两个入口原来各写一遍同样的循环，于是只有数字键那一半被改到：`ReplyComposer` 的注释写着「和数字键一样」，代码却仍是 `page.at(*slot)`，云占位在第 2 格时 `;` 选中的正是那个选不中的席位——与修复前按 2 的现象相同，只是换了个键。改一个入口时**never** 只搜自己改的那个符号，要搜这一页还有谁按位置取候选。
 
+**高亮也不停在席位上。** 方向键、横排的左右键（runtime 的 `caret_edge_candidate_shortcut` 把它们换成移动候选）和 End 在引擎里按原始下标移动高亮，席位在第二格，从首选按一次下就落上去。候选窗不收这一行，于是一个高亮行也没有：`candidate_presentation` 拒绝「可见行里高亮数不是 1」的视图，它在输入队列的送达回调里抛出，`InputQueue` 停机，`SessionController` 以 `session controller failed (input queue)` 停掉整个 Server——用户看到候选框消失，之后打不出中文（#10665，云候选开着、云端回包没替换席位时必现）。所以移动高亮的命令之后由 `common/CandidateSources.h` 的 `leave_hidden_seat` 把高亮让过去：朝刚才移动的方向再走一步，走到列表末尾走不动时掉头。Server 在 `ServerSession::navigate` 和 `ServerSession::key` 的命令分支上调用它；TIP 照 Server 的导航回复在自己的宿主会话里走同一步时（`tsf/HostCandidateNavigation.h`，[导航回复同步到宿主会话](2026-10-26-windows-candidate-navigation-reply.md)）也调用它，两份会话的高亮在两边都有席位时停在同一格。和数字键一样，这条规则只有一份实现，两侧共用。
+
 可见性判定落在 `common/CandidateSources.h` 的 `candidate_source_is_visible`，与移动端 `CandidatePresentationPolicy.isVisible` 同义：只排除云占位席位；AI 占位行（12）照旧显示，仍画成次要色。
 
 ## Alternatives considered
@@ -37,6 +39,7 @@ bushang                     1 / 23
 - **收益**：第 2 个数字键恢复可用，所有编号与看到的行一一对应；界面上不再有一个永远选不中的格子。
 - **代价**：云请求进行中时，这一页看得见的候选比引擎的 `page_size` 少一个（席位仍占引擎的位置，只是不显示）。这是移动端早就接受的同一笔代价。
 - **同是按位置取候选但不受影响**：韩文汉字列表的选择（`ReplyComposer` 里 `KoreanHanjaKeyKind::Select`）仍按原始下标取，韩文输入不产生云席位；`candidate_ui_action_matches` 和 UI-less 的回复编码按候选身份或整页遍历，不按位置。再扫这一页的位置映射时，这三处可以排除。
+- **TIP 的高亮不是权威**：Server 的云回包替换了席位、TIP 宿主会话还留着席位时，两边在第二格上一个是云候选、一个是席位，Server 停在第二格而 TIP 让到第三格。上屏照 Server 的回复按文字选（`tsf/HostServerSelection.h`），所以这不改变上屏结果；横排左右键与 End 在 TIP 一侧仍只发一条命令，同样只影响 TIP 的高亮。
 - **未覆盖**：macOS、Linux 和 Web 仍把这行画出来——它们同样缺少隐藏与重映射。本篇只改 Windows，那三个宿主各有自己的候选渲染与选择路径，应各自跟进。
 - **重访信号**：共享内核若改为不再产出 `CloudPending`，或移动端的 `CandidatePresentationPolicy` 调整了可见性规则，这里要跟着对齐。
 
@@ -47,3 +50,5 @@ Windows 11、Windows App SDK 1.7.250606001，装机后在记事本逐格对照�
 二三候选键那一半（`visible_page_candidate`）由 `windows-second-third-candidate` 回归测试钉住，并做了变异检验：去掉循环里的跳过，测试报 `The hidden cloud seat ate the second position` 并以 1 退出；装回后打印 `second and third candidate keys: ok` 并以 0 退出。该测试目标用 ctest 直接跑会在 30 秒超时，原因是运行时 DLL 不在 `PATH` 上（缺 DLL 的模态框挡住进程），把构建输出的 `bin` 加进 `PATH` 后通过——与本修复无关。装机确认装上的 Server 与 TSF DLL 和签名包逐字节相同，因此机器上跑的是这份改动；**未覆盖**：没有在真实编辑器里按 `;` 做「修复前必现、修复后不现」的对照——云占位席位要靠云端回包才会出现，无法在夹具里凭空造出那一页，所以这一条的证据强度低于数字键那次。
 
 该次 VS 2022 验证中，`experiments/tsf-edit-control` 与几个候选测试目标有 17 个既有编译错误（min/max 宏一类），暂存改动重编确认数量一致，与本修复无关。受控 TSF 编辑器的宏冲突和未使用参数警告在后续 [Win7 DPI 适配](../feature/2026-10-23-windows-optional-dpi-and-composition.md) 中修复，并在保留 `/W4 /WX` 的 MSVC x64 构建下通过；该结果不代表当时其余候选测试目标的错误全部修复。
+
+#10665 的高亮让位由 `windows-cloud-seat-navigation` 钉住：合成词库、云候选打开、不联网（席位一直留着），在真实 Server 会话上经 `ReplyComposer::configured_key` 按下、上、横排右、左，每次都做 `candidate_presentation` 投影，并让 TIP 宿主会话照回复走，核对两边停在同一格；另用合成列表覆盖往回走、席位在末尾掉头、整页只剩席位和命令失败。变异检验：去掉 `navigate` 里的让位，测试以 `Invalid candidate highlight` 中止（正是报告者日志里让 Server 停下的那一下）；TIP 一侧只发一条命令时报 `the TIP host session stops on the same row as the Server`。

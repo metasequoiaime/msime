@@ -31,6 +31,7 @@ struct CandidateOptionsSettingsView: View {
   @State private var englishFamily: String?
   @State private var fontFamilies: [String] = []
   @State private var shuangpinRaw = true
+  @State private var shuangpinSeparated = false
   @State private var saveFailed = false
   @State private var cloudRecipient = "Google input-tools（inputtools.google.com）"
   /// A docked iPad keyboard has room for larger candidates than a phone strip; the keyboard applies the same limits when it draws.
@@ -90,6 +91,12 @@ struct CandidateOptionsSettingsView: View {
           DesignToggleRow(title: "双拼显示原始按键", info: "关闭后显示按键对应的完整拼音或粤拼",
                           isOn: storedTop("shuangpin_preedit_uses_raw", $shuangpinRaw))
             .accessibilityIdentifier("shuangpinPreeditUsesRaw")
+          // 「双拼分隔」（#10717）：共享设置页「双拼预编辑」的第三档，只在显示原始按键时起作用，所以关掉上一项时不列出。
+          if shuangpinRaw {
+            DesignToggleRow(title: "原始按键按音节分隔", info: "在原始按键之间按音节加分隔符，例如自然码 nimf 显示为 ni'mf",
+                            isOn: storedTop("shuangpin_preedit_separated", $shuangpinSeparated))
+              .accessibilityIdentifier("shuangpinPreeditSeparated")
+          }
         }
 
         if MSIMEAppEdition.offers("quanpin") {
@@ -298,6 +305,7 @@ struct CandidateOptionsSettingsView: View {
     englishFamily = (preferences[CandidateFontPreference.englishFamilyKey] as? String).flatMap { $0.isEmpty ? nil : $0 }
     fontFamilies = CandidateFontPreference.families(in: preferences)
     shuangpinRaw = preferences["shuangpin_preedit_uses_raw"] as? Bool ?? true
+    shuangpinSeparated = preferences["shuangpin_preedit_separated"] as? Bool ?? false
     wordCharacter = (preferences["word_character"] as? [String: Any])?["enabled"] as? Bool ?? wordCharacter
   }
 

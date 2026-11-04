@@ -791,7 +791,10 @@ fn learning_records(
                 value,
                 count,
             } => {
-                if !fits_context(context, key, value) {
+                // 粤语的选词计数：快照格式不收粤语，计数也不带（#10544）。
+                if context.starts_with(msime_engine::cantonese::learning::SELECTION_CONTEXT_PREFIX)
+                    || !fits_context(context, key, value)
+                {
                     learning.skipped += 1;
                     return true;
                 }
@@ -1683,7 +1686,7 @@ fn carry_local_learning(
     Ok(())
 }
 
-/// 整份换上快照时把即将换下来的这一代里用户加的粤语词抄进新的一代（#10544）。粤语词只记在日志里，快照格式不收它们：云同步从不上传，本地备份也不带，新的一代里本来就没有，不抄过去就会随旧的一代一起被删掉，而且哪里都取不回来。与 [`carry_local_learning`] 不同，这一步不看 `keep_local_learning`，本地备份恢复同样要做。
+/// 整份换上快照时把即将换下来的这一代里的粤语行抄进新的一代（#10544）：用户加的和打字造的粤语词，以及粤语调频学到的权重（`user_inserted` 照原样）。粤语只记在日志里，快照格式不收它们：云同步从不上传，本地备份也不带，新的一代里本来就没有，不抄过去就会随旧的一代一起被删掉，而且哪里都取不回来。粤语的选词计数（`msime_engine::cantonese::learning::SELECTION_CONTEXT_PREFIX`）不抄，计数从头再来。与 [`carry_local_learning`] 不同，这一步不看 `keep_local_learning`，本地备份恢复同样要做。
 ///
 /// 调用方的前提与 [`carry_local_learning`] 相同。旧的一代的日志读不出来时不抄，与那里对读不出来的那一类的处理相同；往新的一代里写失败时报错，激活不做，旧的一代原样留着。
 fn carry_cantonese_words(
@@ -1698,7 +1701,6 @@ fn carry_cantonese_words(
             record,
             DictionaryStateRecord::Entry {
                 kind: DictionaryKind::Cantonese,
-                user_inserted: true,
                 deleted: false,
                 ..
             }

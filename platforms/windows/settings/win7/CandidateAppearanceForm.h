@@ -43,6 +43,9 @@ public:
     }
     note(L"每页候选项数量", 24);
     control(appearance_page_size, WC_COMBOBOXW, L"每页候选项数量", WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, 180);
+    // 共享偏好 `show_candidate_page_number`：候选窗首行的「1 / 3」和 ‹ › 一起隐藏，缺值读成开（#10709）。
+    control(appearance_page_number, L"BUTTON", L"显示页码和翻页按钮", WS_TABSTOP | BS_AUTOCHECKBOX);
+    note(L"关闭后仍可用键盘翻页；鼠标滚轮翻页默认关闭，需要时在「输入 › 选词与翻页」的翻页方式中打开。");
     control(appearance_logo, L"BUTTON", L"显示水杉 logo（候选窗与悬浮工具栏）", WS_TABSTOP | BS_AUTOCHECKBOX);
     control(appearance_follow, L"BUTTON", L"候选窗口跟随光标", WS_TABSTOP | BS_AUTOCHECKBOX);
     note(L"关闭跟随光标后，保持首次出现的位置，直到候选窗口消失。");
@@ -95,6 +98,12 @@ public:
     return top;
   }
 
+  // 缺值或 null 按开，与候选窗的 `CandidateLayoutSettings::show_page_number` 相同。
+  static bool page_number_shown(const Json& preferences) {
+    const auto found = preferences.find("show_candidate_page_number");
+    return found == preferences.end() || !found->is_boolean() || found->get<bool>();
+  }
+
   static bool valid(const Json& preferences) {
     for (const auto& field : enum_fields) {
       if (!preferences.contains(field.key) || !preferences.at(field.key).is_string()) return false;
@@ -108,6 +117,8 @@ public:
     }
     for (const auto* key : {"show_app_logo", "candidate_follow_cursor"})
       if (!preferences.contains(key) || !preferences.at(key).is_boolean()) return false;
+    if (preferences.contains("show_candidate_page_number") && !preferences.at("show_candidate_page_number").is_boolean() &&
+        !preferences.at("show_candidate_page_number").is_null()) return false;
     if (!preferences.contains("candidate_page_size") || !preferences.at("candidate_page_size").is_number_integer()) return false;
     if (!preferences.contains("candidate_font_family") || !preferences.at("candidate_font_family").is_string()) return false;
     if (preferences.contains("candidate_english_font") && !preferences.at("candidate_english_font").is_string()) return false;
@@ -136,6 +147,7 @@ public:
       numbers(field.id, field.low, field.high, field.step, preferences.value(field.key, -1), field.optional);
     for (const auto& field : std::array<std::pair<int, const char*>, 2>{{{appearance_logo, "show_app_logo"}, {appearance_follow, "candidate_follow_cursor"}}})
       SendMessageW(get(field.first), BM_SETCHECK, preferences.at(field.second).get<bool>() ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(get(appearance_page_number), BM_SETCHECK, page_number_shown(preferences) ? BST_CHECKED : BST_UNCHECKED, 0);
     const auto configuration = Json::array({preferences.at("candidate_font_family"), preferences.at("candidate_fallback_fonts"),
         preferences.value("candidate_english_font", "Segoe UI")});
     if (font_configuration_ != configuration) {
@@ -226,6 +238,8 @@ public:
         }
       } else if (id == appearance_logo || id == appearance_follow)
         result.changes.push_back({{id == appearance_logo ? "show_app_logo" : "candidate_follow_cursor"}, SendMessageW(get(id), BM_GETCHECK, 0, 0) == BST_CHECKED});
+      else if (id == appearance_page_number)
+        result.changes.push_back({{"show_candidate_page_number"}, SendMessageW(get(id), BM_GETCHECK, 0, 0) == BST_CHECKED});
       else if (id == appearance_game_overlay) {
         auto games = game_preferences();
         games["candidate_overlay"] = SendMessageW(get(id), BM_GETCHECK, 0, 0) == BST_CHECKED;
