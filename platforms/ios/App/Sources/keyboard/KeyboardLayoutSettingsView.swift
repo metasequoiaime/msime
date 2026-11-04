@@ -409,8 +409,7 @@ struct KeyboardLayoutSettingsView: View {
                       isOn: Binding(get: { bilingualGlide }, set: { enabled in
                         bilingualGlide = enabled
                         KeyboardLayoutPreference.bilingualGlide = enabled
-                      }))
-        .disabled(!glideTyping)
+                      }), enabled: glideTyping)
         .accessibilityIdentifier("appBilingualGlideSwitch")
       DesignDivider()
       DesignToggleRow(title: "横滑键盘移动光标", info: "无组字时从字符键左右滑动；开启滑行输入时，字母键优先输入拼音",
