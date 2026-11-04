@@ -58,7 +58,7 @@
 睡着呼噜声	shui	zhao	hu	lu	sheng
 我错了我投降	wo	cuo	le	wo	tou	xiang
 音乐符号	yin	yue	fu	hao
-# 以下是本项目按拼音主库读音改正的关键词（2026-11-04，dict-v2.0.55 的 msime-others.db 对照同版 msime-pinyin.db）：逐字读音拼出的键在主库里没有这个词的这个读音（八爪鱼 是有但权重不到最高读音的 1%：bazhaoyu 55，bazhuayu 10653），主库最高权重的读音才是对的（长裙 zhangqun → changqun，男大夫 da → dai，地名音译的 勒 le、佛 fo、都 du、泊 bo）。长胡子的女人 保留 zhang（长胡子 是动宾，主库也只有 zhang'hu'zi）。
+# 以下是本项目按拼音主库读音改正的关键词（2026-11-04，dict-v2.0.55 的 msime-others.db 对照同版 msime-pinyin.db）：逐字读音拼出的键在主库里没有这个词的这个读音（八爪鱼 是有但权重不到最高读音的 1%：bazhaoyu 55，bazhuayu 10653；大夫 也有，da'fu 10957 只有 dai'fu 109857 的十分之一，而且 大夫 挂的是医生表情 👨‍⚕️ 👩‍⚕️，读 dai），主库最高权重的读音才是对的（长裙 zhangqun → changqun，大夫、男大夫 da → dai，地名音译的 勒 le、佛 fo、都 du、泊 bo）。长胡子的女人 保留 zhang（长胡子 是动宾，主库也只有 zhang'hu'zi）。
 弹出	tan	chu
 弹出按钮	tan	chu	an	niu
 调高	tiao	gao
@@ -73,6 +73,7 @@
 长面包	chang	mian	bao
 长棍面包	chang	gun	mian	bao
 法式长棍面包	fa	shi	chang	gun	mian	bao
+大夫	dai	fu
 男大夫	nan	dai	fu
 女大夫	nv	dai	fu
 八爪鱼	ba	zhua	yu
