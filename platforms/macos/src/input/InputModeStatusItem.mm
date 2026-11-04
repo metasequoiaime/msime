@@ -12,11 +12,14 @@ static const CGFloat MSIMEInputModeStatusItemFrameWidth = 1.25;
 static const CGFloat MSIMEInputModeStatusItemFrameRadius = 4;
 
 NSImage *MSIMEInputModeStatusItemImage(NSDictionary *info, NSString *modeID, NSBundle *bundle) {
-    // 与系统输入法菜单取同一张字形；本版本没有声明这个模式时（五笔版把五笔放在 .Hans 上）取主模式的。
-    NSImage *glyph = [bundle imageForResource:MSIMEInputModeMenuIconFileIn(info, modeID)];
+    // 系统输入法菜单里每个模式都是水杉标志，状态项是唯一按模式显示的地方，所以按模式标识取它自己的大字，不看 plist 的菜单图标。
+    NSString *glyphFile = MSIMEInputModeGlyphFile(modeID);
+    NSImage *glyph = glyphFile ? [bundle imageForResource:glyphFile] : nil;
     if (!glyph) {
-        // 模式图标缺失时退回产品 logo，不加框；复制一份再标成模板图，不改动 bundle 缓存里的那张。
-        NSImage *logo = [[bundle imageForResource:@"MSIMEClientInputMethodMenuIcon.tiff"] copy];
+        // 模式图标缺失时退回产品 logo（输入法本身声明的图标），不加框；复制一份再标成模板图，不改动 bundle 缓存里的那张。
+        id declared = info[@"tsInputMethodIconFileKey"];
+        NSString *logoFile = [declared isKindOfClass:NSString.class] && [declared length] ? declared : @"MSIMEClientInputMethodMenuIcon.tiff";
+        NSImage *logo = [[bundle imageForResource:logoFile] ?: [bundle imageForResource:@"MSIMEClientInputMethodMenuIcon.tiff"] copy];
         [logo setTemplate:YES];
         return logo;
     }

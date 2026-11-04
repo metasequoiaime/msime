@@ -6656,7 +6656,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     guard appliedLayout != layout else { return }
     appliedLayout = layout
     keyboardRoot?.spacing = layout.rowSpacing
-    keyColumn.spacing = keyRowSpacing
+    keyColumn.spacing = keyColumnSpacing
     nineGrid?.spacing = layout.rowSpacing
     nineControls?.spacing = layout.rowSpacing
     numberPadSidebar.spacing = layout.rowSpacing
@@ -6931,7 +6931,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let symbolLayer = Self.drawsSymbolLayer(symbols: showsSymbols, numberPad: numberPad, dachen: dachen)
     let letterRowsShown = !(showsSymbols || nineKeyFrame || writes || kana || dachen || fourteenKey)
     letterRowViews.forEach { $0.isHidden = !letterRowsShown }
-    keyColumn.spacing = keyRowSpacing
+    keyColumn.spacing = keyColumnSpacing
     oneHandSidePadStack.spacing = keyRowSpacing
     applyTabletLetterKeys()
     let fullKeys = keyFaceFormFactor.canShowFullKeys && KeyboardLayoutPreference.tabletFullKeys
@@ -6946,7 +6946,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let extraRowShown = showsSymbols && !nineKey && !sourceHandwriting && !kanaFace && !dachen && !strokes
       && (fourteenKey ? touchNumberRow : fullKeyNumberRow || touchNumberRow)
     if symbolExtraRowView?.isHidden == extraRowShown { symbolExtraRowView?.isHidden = !extraRowShown }
-    // 上下留白按排数算，要等数字行和补充行这一趟的显隐定下来再算，否则数字行刚出现或刚收起时会沿用上一趟的排数。
+    // 26 键的上下留白和多出的排间距看字母行是否显示，等这一趟各行的显隐都定下来再设。
     applyPhoneLetterVerticalPadding()
     tabKey?.isHidden = !fullKeys
     let rowPunctuation = keyFaceFormFactor.showsLetterRowPunctuation
@@ -9393,8 +9393,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return CGFloat(KeyboardLayoutPreference.rowSpacing) + letterPadding
   }
 
-  /// 26 键收紧键帽后，把省下的高度放到键区上下，保持九键和英文键盘的外框一致。
+  /// 按键列实际的排间距：`keyRowSpacing`，26 键手机竖屏再加上收紧键帽省下的 `KeyboardFormFactor.phoneLetterSpareRowPadding`（见 `phoneLetterVerticalInset`）。
+  private var keyColumnSpacing: CGFloat {
+    keyRowSpacing + (phoneLetterVerticalInset > 0 ? KeyboardFormFactor.phoneLetterSpareRowPadding : 0)
+  }
+
+  /// 26 键收紧键帽后，把省下的高度平分到每个键的上下：键区上下各留 `phoneLetterVerticalInset`，排间距用 `keyColumnSpacing`，保持九键和英文键盘的外框一致。
   private func applyPhoneLetterVerticalPadding() {
+    let spacing = keyColumnSpacing
+    if keyColumn.spacing != spacing { keyColumn.spacing = spacing }
     let inset = phoneLetterVerticalInset
     let margins = UIEdgeInsets(top: inset, left: 0, bottom: inset, right: 0)
     if keyColumn.layoutMargins != margins || keyColumn.isLayoutMarginsRelativeArrangement != (inset > 0) {
@@ -9550,14 +9557,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     UIAccessibility.post(notification: .layoutChanged, argument: panel)
   }
 
-  /// 26 键收紧键帽后，键区面板也要停在实际按键的底边，不能盖住补偿留白。留白按此刻的排数算（`KeyboardFormFactor.phoneLetterVerticalPadding(rows:)`），顶部数字行打开时多一排。
+  /// 26 键收紧键帽后键区上下的留白（`KeyboardFormFactor.phoneLetterVerticalPadding`）。键区面板也要停在实际按键的底边，不能盖住它。
   ///
-  /// 九键一族（拼音九键、九键双拼、笔画，`TouchKeyLayoutOffering.nineKeySchemes`）切到英文或本地模式时不留白：字母行和底行一样由按键列均分，默认行距下键帽从 44pt 长到 49pt，排距仍是紧凑的 11pt，字母区上下边界与九宫格重合，切换时按键区不缩一截。其他方案的 26 键保持 44pt 键帽和上下留白。
+  /// 九键一族（拼音九键、九键双拼、笔画，`TouchKeyLayoutOffering.nineKeySchemes`）切到英文或本地模式时不留白：字母行和底行一样由按键列均分，默认行距下键帽从 44pt 长到 49pt，排距仍是紧凑的 11pt，字母区上下边界与九宫格重合，切换时按键区不缩一截。其他方案的 26 键保持 44pt 键帽，省下的高度分到每排上下。
   private var phoneLetterVerticalInset: CGFloat {
     guard showsPhoneLetterRows && !isLandscape,
           !TouchKeyLayoutOffering.nineKeySchemes.contains(inputScheme) else { return 0 }
-    return KeyboardFormFactor.phoneLetterVerticalPadding(
-      rows: formFactor.keyRows(numberRow: false, phoneNumberRow: showsPhoneNumberRow))
+    return KeyboardFormFactor.phoneLetterVerticalPadding
   }
 
   /// 隐藏或恢复顶栏下面的所有行，以及它们旁边的单手模式侧栏和 iPad 单手的侧边数字键盘。这些行保留布局，键盘高度不变；它们只是不再绘制、不再接收触摸。
