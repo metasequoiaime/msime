@@ -20,7 +20,7 @@ Status: implemented
 | 位置 | 新值 |
 |---|---|
 | `WubiProfileKind` | `WubiXsj = 2` |
-| `PersonalDictionaryKind` | `WubiXsj = 5` |
+| `PersonalDictionaryKind` | `WubiXsj = 6` |
 | client-core | `WubiProfile::WubiXsj`、`cloud::dictionary::DictionaryKind::Wubixsj`、`dictionary_sync::WordKind::WubiXsj` |
 | client-services | `PersonalWordKind::WubiXsj`、`ImportKind::Wubixsj` |
 | host-api | `Kind::Wubixsj`、`WordKind::WubiXsj` |

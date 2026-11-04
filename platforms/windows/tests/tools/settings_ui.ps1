@@ -1262,7 +1262,7 @@ function Assert-DictionarySyncSettings {
     if (Find-ById $window 'dictionary-sync-saved') { throw 'Removed dictionary sync drive still shows as saved' }
     Write-Host 'Dictionary sync masking, draft, failing probe blocking save, reload and saved status passed'
 }
-# 「五笔方案」下拉框：combo 没有自动化 ID，按读屏名和控件类型找。
+# 「五笔方案」下拉框：按读屏名和控件类型找。
 function Find-WubiProfileCombo($window) {
     $nameCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, '五笔方案')
     $typeCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::ComboBox)
@@ -2088,7 +2088,7 @@ try {
     do {
         Start-Sleep -Milliseconds 200
         $profiles = @($combo.FindAll([System.Windows.Automation.TreeScope]::Descendants, $itemCondition) | ForEach-Object { $_.Current.Name })
-    } while ($profiles.Count -lt 2 -and [DateTime]::UtcNow -lt $deadline)
+    } while ($profiles.Count -lt 3 -and [DateTime]::UtcNow -lt $deadline)
     Start-Sleep -Milliseconds 300
     Save-Window $window 'wubi-profile-options.png'
     $combo.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Collapse()

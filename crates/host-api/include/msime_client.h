@@ -264,7 +264,7 @@ char *msime_client_create(const uint8_t *options, size_t length);
  * {options: <same HostOptions as create>, action: {operation:"list",offset:0,limit:100}}
  * List 的 kind 与 query 可选：ASCII 查询匹配编码前缀，含非 ASCII 字符时匹配词条字面内容。无查询时列个人词条；指定 kind 与非空查询时包含内置行，quick_phrase 空查询也包含内置行。个人行优先；user_only:true 始终只列个人词条，在整库筛选后分页。
  * or action:{operation:"edit",previous:null|Entry,replacement:null|Entry,request_id:"..."}.
- * Batch import: action:{operation:"import",kind:"pinyin"|"wubi"|"wubi98"|"wubixsj"|"quick_phrase"|"english"|"cantonese",
+ * 批量导入：action:{operation:"import",kind:"pinyin"|"wubi"|"wubi98"|"wubixsj"|"quick_phrase"|"english"|"cantonese",
  * format:"standard"|"windows"|"rime"|"hans",text:"word<TAB>code<TAB>weight\\n",request_id:"..."}.
  * Standard rows are word, code, weight; Windows rows are code, word, weight. Rime rows are
  * word, code, optional weight and may include YAML front matter between --- and ...; Rime's
@@ -275,7 +275,7 @@ char *msime_client_create(const uint8_t *options, size_t length);
  * with deterministic receipt IDs derived from request_id so retries are safe.
  * Export: action:{operation:"export",kind,format:"standard"|"windows",offset,limit} returns
  * {text,has_more}; use pages of at most 1000 rows. Standard output is word, code, weight.
- * Entry:{kind:"pinyin"|"wubi"|"wubi98"|"wubixsj"|"quick_phrase"|"english"|"cantonese",key,value,weight,source?:"user"|"bundled"}. wubixsj is 新世纪五笔.
+ * 词条结构：{kind:"pinyin"|"wubi"|"wubi98"|"wubixsj"|"quick_phrase"|"english"|"cantonese",key,value,weight,source?:"user"|"bundled"}。`wubixsj` 是新世纪五笔。
  * 粤语（cantonese）只有用户自己的词：key 是粤拼音节，空格或 ' 分隔、可带声调数字 1–6，Engine 去掉声调、收成单个空格分隔后存进日志，粤语方案查词时并进候选。list、count、export、edit、import 都认它；browse 的 kind:"cantonese" 仍指发布的粤语词库（只读）。云词库和词库快照不收粤语词。
  * List returns {entries,has_more} and sets source on every entry; edit returns {applied:true}. Errors are redacted.
  * A bundled entry passed back as previous can only be re-weighted (replacement with the same kind, key and value) or deleted (replacement null); anything else fails with "bundled dictionary entry is read-only". Export of pinyin also carries the weights set or learned for bundled words and omits single characters; the other kinds export user words only.

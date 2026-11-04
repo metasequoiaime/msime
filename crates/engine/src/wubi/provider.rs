@@ -1,4 +1,4 @@
-//! 五笔码表的 provider（`R/providers/wubi_candidate_provider.cpp`，含 wubi_prefix_learning overlay）：按 `WubiProfileKind` 读 `wubi86`、`wubi98` 或 `wubixsj`。Exact code first, then weight, no value dedup, at most 50 rows. The provider only reads: learning and removal of a wubi row go through `session`, which journals them with the wubi kind and then resets this cache.
+//! 五笔码表的 provider（`R/providers/wubi_candidate_provider.cpp`，含 `wubi_prefix_learning` 叠加层）：按 `WubiProfileKind` 读 `wubi86`、`wubi98` 或 `wubixsj`。完整编码优先，再按权重排序，不按词去重，最多返回 50 行。这里只读：学习和删词由 `session` 按对应五笔种类记入日志，再重置这里的缓存。
 
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};

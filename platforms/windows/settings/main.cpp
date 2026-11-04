@@ -13547,7 +13547,7 @@ private:
 
   // ---- 输入 ----
 
-  // One text's codes in each table, in the order of `ism::wubi_profiles` (86, 98, 新世纪), as `wubi_codes` answers them, short codes first.
+  // 一段文字在各码表里的编码，顺序同 `ism::wubi_profiles`（86、98、新世纪），由 `wubi_codes` 回答，短码在前。
   struct WubiTextCodes {
     std::wstring text;
     std::array<std::vector<std::wstring>, ism::wubi_profiles.size()> codes;
@@ -13559,7 +13559,7 @@ private:
     bool truncated = false;
   };
 
-  // 五笔查码, as the shared page's WubiCodeLookupSection (packages/ui/src/settings/wubi-code-lookup-section.tsx): the text goes to the dictionary request `wubi_codes`, read-only, and every distinct character (and the whole text as one word) is listed with its 86, 98 and 新世纪 codes, short codes first.
+  // 五笔查码与共享页的 `WubiCodeLookupSection`（`packages/ui/src/settings/wubi-code-lookup-section.tsx`）一致：文字交给只读的 `wubi_codes` 请求，列出每个不同的字和整段词在 86、98、新世纪表里的编码，短码在前。
   void build_wubi_code_lookup(StackPanel const &page) {
     auto group = add_group(page, L"五笔查码");
     TextBox input;
@@ -13614,7 +13614,7 @@ private:
             nullptr, below);
   }
 
-  // The result table: 文字, then one column per table in `ism::wubi_profiles` order, always all three, the chosen table marked （当前） (an unknown stored value marks 86, as the engine reads it); a table without the text's codes shows —.
+  // 结果表先列文字，再按 `ism::wubi_profiles` 顺序始终列出三个码表；选用的表标「（当前）」，存储值未知时与引擎一样标 86，没有编码的表显示「—」。
   FrameworkElement wubi_code_table(std::vector<WubiTextCodes> const &rows) {
     Grid table;
     table.ColumnSpacing(16);
@@ -13696,7 +13696,7 @@ private:
             if (!response.ok)
               throw std::runtime_error("wubi_codes refused");
             const auto value = JsonObject::Parse(text(response.text)).GetNamedObject(L"value");
-            // A host that predates a table has no key for it (GetNamedArray would throw): that column stays empty and shows —.
+            // 较早的宿主没有新增码表的键，直接 `GetNamedArray` 会抛异常；缺少的那一列保持为空并显示「—」。
             const auto read = [](JsonObject const &object) {
               WubiTextCodes codes{named_string(object, L"text"), {}};
               for (std::size_t i = 0; i < ism::wubi_profiles.size(); ++i) {
