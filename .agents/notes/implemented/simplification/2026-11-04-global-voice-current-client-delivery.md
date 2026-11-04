@@ -12,6 +12,10 @@ Status: implemented
 
 移除 Copy 窗口、恢复文本槽与它对后续录音的拦截。没有 IMK 客户端时仍有界等待，最终失败使用既有错误浮层并释放本轮；不增加历史、最近结果或剪贴板后备。保留权限、后台批准、手势及录音代次、socket 租约、取消、显式模拟输入策略和统计。当前客户端调用仍核对会话令牌及控制器是否仍活动，不追认原字段许可。
 
+## 后续交付回退
+
+缺少 IMK 客户端时仅报错的边界由[缺少 IMK 时回退系统按键](../bug-fix/2026-11-04-global-voice-missing-imk-fallback.md)取代；本篇的当前客户端语义及移除目的地／Copy 决定继续适用。
+
 ## 旧笔记审计
 
 [录音与交付许可分开](../../implemented/architecture/2026-11-03-global-voice-optional-destination.md)和[先录音后 IMK 交付](../../implemented/architecture/2026-11-03-global-voice-capture-before-imk-delivery.md)部分重叠：保留不等 IMK 开始录音与提供商生命周期，翻转原应用／AX 绑定和显式复制的决定。[全局语音快捷键](../../implemented/feature/2026-11-02-macos-global-voice.md)的键位、系统许可与来源恢复继续适用。其他普通输入法组字或会话恢复笔记不属于本次删除范围。

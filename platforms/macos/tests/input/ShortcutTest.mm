@@ -14175,6 +14175,8 @@ static void TestCrossCommitSpacing() {
 @property(nonatomic, copy) NSString *postedMode;
 @property(nonatomic) NSUInteger postAttempts;
 @property(nonatomic) BOOL routeUnavailable;
+@property(nonatomic) BOOL missingSource;
+@property(nonatomic) BOOL refuseSelection;
 @end
 @implementation GlobalVoiceSessionProbe
 - (void)reload {}
@@ -14183,8 +14185,8 @@ static void TestCrossCommitSpacing() {
 - (NSTimeInterval)monotonicTime { return _clock; }
 - (NSString *)currentSourceIdentifier { return _source; }
 - (BOOL)isOwnSourceIdentifier:(NSString *)identifier { return [identifier hasPrefix:@"synthetic.msime."]; }
-- (NSString *)enabledSourceIdentifier { return [self isOwnSourceIdentifier:_source] ? _source : @"synthetic.msime.Hans"; }
-- (BOOL)selectSourceIdentifier:(NSString *)identifier { _selected = identifier; return YES; }
+- (NSString *)enabledSourceIdentifier { return _missingSource ? nil : [self isOwnSourceIdentifier:_source] ? _source : @"synthetic.msime.Hans"; }
+- (BOOL)selectSourceIdentifier:(NSString *)identifier { _selected = identifier; return !_refuseSelection; }
 - (id)focusIdentity { return _focus; }
 - (id)destinationIdentity { ++_destinationQueries; return _focus; }
 - (NSRunningApplication *)frontApplication { return (id)_application; }
@@ -14318,6 +14320,7 @@ static void TestGlobalVoiceCurrentClientDelivery() {
     {
         GlobalVoiceTargetProbe *capture = [GlobalVoiceTargetProbe new];
         GlobalVoiceSessionProbe *probe = CurrentClientProbe(capture, ^{ return (id<MSIMEGlobalVoiceTarget>)nil; });
+        probe.routeUnavailable = YES;
         [probe begin:NO]; __block BOOL completed = NO;
         MSIMEGlobalVoiceHost().deliver(@"synthetic result", @"tsf", ^{ completed = YES; });
         probe.source = @"synthetic.msime.Hans"; probe.clock = 4.1; [probe advance];
@@ -14436,6 +14439,61 @@ static void TestGlobalVoiceSuspendSource() {
             assert(!capture.busy && [probe valueForKey:@"pendingText"] == nil);
             assert([probe.selected isEqual:manual.boolValue ? @"synthetic.msime.Hans" : @"com.apple.keylayout.ABC"]);
         }
+    }
+}
+
+static void TestGlobalVoiceIMKFallback() {
+    for (NSUInteger scenario = 0; scenario < 8; ++scenario) {
+        GlobalVoiceTargetProbe *capture = [GlobalVoiceTargetProbe new];
+        __block GlobalVoiceTargetProbe *delivery = nil;
+        GlobalVoiceSessionProbe *probe = CurrentClientProbe(capture, ^{ return (id<MSIMEGlobalVoiceTarget>)delivery; });
+        probe.routeUnavailable = scenario == 1 || scenario >= 6;
+        NSString *mode = scenario == 6 ? @"ctrl_v" : scenario == 7 ? @"sendinput" : @"tsf";
+        __block NSUInteger recorded = 0;
+        if (scenario == 0) {
+            [probe setValue:@{@"traditional_chinese_output":@YES} forKey:@"preferences"];
+            MSIMEGlobalVoiceHost().didCommit = ^(NSString *text) { assert([text isEqual:@"發展"]); ++recorded; };
+        }
+        [probe begin:NO]; __block NSUInteger completions = 0;
+        MSIMEGlobalVoiceHost().deliver(scenario == 0 ? @"发展" : @"synthetic fallback result", mode, ^{ ++completions; });
+        assert(capture.busy && completions == 0);
+        probe.source = @"synthetic.msime.Hans"; [probe sourceChanged:nil];
+        if (scenario == 2 || scenario == 3) {
+            delivery = [GlobalVoiceTargetProbe new]; delivery.pid = 42; delivery.acceptsText = scenario == 2;
+        }
+        if (scenario == 4) { probe.source = @"synthetic.other"; [probe sourceChanged:nil]; }
+        if (scenario == 5) [probe cancel];
+        if (scenario == 2) {
+            probe.clock += 0.1; [probe advance];
+            assert(delivery.commits == 1 && probe.postAttempts == 0 && completions == 1 && probe.failures == 0);
+        } else {
+            if (scenario == 0) probe.application.processIdentifier = 84;
+            probe.clock += 3.1; [probe advance];
+            if (scenario == 0) {
+                assert(probe.postAttempts == 1 && [probe.postedMode isEqual:@"sendinput"] && probe.postedPID == 84);
+                assert([probe.posted isEqual:@"發展"] && recorded == 1);
+                assert(probe.failures == 0 && completions == 1 && [probe.selected isEqual:@"com.apple.keylayout.ABC"]);
+            } else if (scenario == 1) {
+                assert(probe.postAttempts == 1 && probe.failures == 1 && completions == 1);
+            } else if (scenario >= 6) {
+                // 用户明确选择的发键方式不可用后，不再次换一种模拟方式。
+                assert(probe.postAttempts == 1 && probe.failures == 1 && completions == 1);
+            } else {
+                assert(probe.postAttempts == 0 && (scenario == 5 || probe.failures == 1));
+                if (scenario == 4) assert([probe.source isEqual:@"synthetic.other"]);
+            }
+        }
+        NSUInteger attempts = probe.postAttempts; [probe advance]; assert(probe.postAttempts == attempts);
+        assert(!capture.busy && [probe valueForKey:@"pendingText"] == nil);
+        MSIMEGlobalVoiceHost().didCommit = nil;
+    }
+    for (BOOL missing : {NO, YES}) {
+        GlobalVoiceTargetProbe *capture = [GlobalVoiceTargetProbe new];
+        GlobalVoiceSessionProbe *probe = CurrentClientProbe(capture, ^{ return (id<MSIMEGlobalVoiceTarget>)nil; });
+        probe.missingSource = missing; probe.refuseSelection = !missing;
+        [probe begin:NO]; MSIMEGlobalVoiceHost().deliver(@"synthetic unavailable source", @"tsf", ^{});
+        assert(probe.postAttempts == 1 && [probe.postedMode isEqual:@"sendinput"] && !capture.busy && probe.failures == 0);
+        assert([probe.source isEqual:@"com.apple.keylayout.ABC"]);
     }
 }
 
@@ -14844,6 +14902,7 @@ int main(int argc, char **argv) {
     assert(MSIMEShouldRegisterInputSource(2, registerArguments));
     @autoreleasepool {
         [NSApplication sharedApplication];
+        if (argc == 2 && std::string(argv[1]) == "--global-voice-imk-fallback") { TestGlobalVoiceIMKFallback(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--global-voice-current-client-reentry") { TestGlobalVoiceCurrentClientReentry(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--global-voice-suspend-source") { TestGlobalVoiceSuspendSource(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--global-voice") { TestGlobalVoiceBoundaries(); return 0; }

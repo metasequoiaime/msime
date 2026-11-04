@@ -627,10 +627,40 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
     _pendingText = nil; _commitMode = nil; _deliveryEnd = nil; _deliveryStarted = NO; _deliveryIMKStarted = NO; _deliveryDeadline = 0;
     if (completion) completion();
     [self complete];
-    if (!delivered) [self showFailure:@"未能插入语音结果，请在输入框内重试。"];
+    if (!delivered) [self showFailure:@"未能插入语音结果，请重试。"];
 }
 - (MSIMEVoiceCommitOutcome)postGlobalVoiceText:(NSString *)text route:(const MSIMEVoiceCommitRoute &)route {
     return route.deliver(text);
+}
+- (MSIMEVoiceCommitOutcome)postPendingVoiceUsingMode:(NSString *)mode token:(id)token {
+    const auto generation = _state.generation;
+    NSRunningApplication *application = [self frontApplication];
+    MSIMEVoiceCommitRoute route;
+    route.mode = mode; route.pid = application.processIdentifier;
+    route.current = [self, token, generation, application] {
+        return MSIMEGlobalVoiceHost().sessionToken == token && _state.generation == generation &&
+            _owner && [_owner globalVoiceBusy] && !application.terminated && application.processIdentifier > 0 &&
+            [self frontApplication].processIdentifier == application.processIdentifier;
+    };
+    id setting = _preferences[@"traditional_chinese_output"];
+    const BOOL valid = [setting isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)setting) == CFBooleanGetTypeID();
+    const BOOL traditional = valid ? [setting boolValue] : [NSUserDefaults.standardUserDefaults boolForKey:@"MSIMEClientTraditionalOutput"];
+    NSString *text = traditional ? MSIMEChineseOutputString(_pendingText, YES) : _pendingText;
+    const auto outcome = [self postGlobalVoiceText:text route:route];
+    if (_state.generation == generation && MSIMEGlobalVoiceHost().sessionToken == token && _pendingText &&
+        outcome == MSIMEVoiceCommitOutcome::posted && MSIMEGlobalVoiceHost().didCommit)
+        MSIMEGlobalVoiceHost().didCommit(text);
+    return outcome;
+}
+- (void)finishUnavailableIMK {
+    // 只为默认全局会话补上没有 IMK 客户端的通道；不越过现有组字或用户明确选择的策略。
+    if (_state.manual || ![_commitMode isEqual:@"tsf"] || _deliveryTarget()) { [self finishDelivery:NO]; return; }
+    const auto generation = _state.generation;
+    id token = MSIMEGlobalVoiceHost().sessionToken;
+    const auto outcome = [self postPendingVoiceUsingMode:@"sendinput" token:token];
+    if (_state.generation != generation || MSIMEGlobalVoiceHost().sessionToken != token || !_pendingText) return;
+    os_log(OS_LOG_DEFAULT, "MSIME global voice: missing IMK client fallback outcome=%{public}d", (int)outcome);
+    [self finishDelivery:outcome == MSIMEVoiceCommitOutcome::posted];
 }
 - (void)advanceDelivery {
     if (!_pendingText || _deliveryAttempting) return;
@@ -665,31 +695,19 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
                 if ([self monotonicTime] >= _deliveryDeadline) [self finishDelivery:NO];
                 return;
             }
-            NSRunningApplication *application = [self frontApplication];
-            MSIMEVoiceCommitRoute route;
-            route.mode = _commitMode; route.pid = application.processIdentifier;
-            route.current = [self, token, application] {
-                return MSIMEGlobalVoiceHost().sessionToken == token && !application.terminated &&
-                    application.processIdentifier > 0 && [self frontApplication].processIdentifier == application.processIdentifier;
-            };
-            id setting = _preferences[@"traditional_chinese_output"];
-            const BOOL valid = [setting isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)setting) == CFBooleanGetTypeID();
-            const BOOL traditional = valid ? [setting boolValue] : [NSUserDefaults.standardUserDefaults boolForKey:@"MSIMEClientTraditionalOutput"];
-            NSString *text = traditional ? MSIMEChineseOutputString(_pendingText, YES) : _pendingText;
-            const auto outcome = [self postGlobalVoiceText:text route:route];
+            const auto outcome = [self postPendingVoiceUsingMode:_commitMode token:token];
             if (_state.generation != generation || MSIMEGlobalVoiceHost().sessionToken != token || !_pendingText) return;
-            if (outcome == MSIMEVoiceCommitOutcome::posted && MSIMEGlobalVoiceHost().didCommit) MSIMEGlobalVoiceHost().didCommit(text);
             if (outcome != MSIMEVoiceCommitOutcome::unavailable) { [self finishDelivery:outcome == MSIMEVoiceCommitOutcome::posted]; return; }
         }
         _deliveryIMKStarted = YES;
         NSString *selected = [self enabledSourceIdentifier];
-        if (!selected) { [self finishDelivery:NO]; return; }
+        if (!selected) { [self finishUnavailableIMK]; return; }
         MSIMEGlobalVoiceHost().delivering = true;
         _state.hostSelectedSource(selected.UTF8String);
         _deliveryRestore = ![source isEqual:selected];
         if (_deliveryRestore) {
             os_log(OS_LOG_DEFAULT, "MSIME global voice: delivery source requested");
-            if (![self selectSourceIdentifier:selected]) { [self finishDelivery:NO]; return; }
+            if (![self selectSourceIdentifier:selected]) { [self finishUnavailableIMK]; return; }
         }
         if (_state.generation != generation || MSIMEGlobalVoiceHost().sessionToken != token || !_pendingText) return;
     }
@@ -703,7 +721,7 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
     if (result == MSIMEGlobalVoiceDeliveryAccepted) [self finishDelivery:YES];
     else if ([self monotonicTime] >= _deliveryDeadline) {
         os_log(OS_LOG_DEFAULT, "MSIME global voice: delivery target unavailable");
-        [self finishDelivery:NO];
+        [self finishUnavailableIMK];
     } else [self waitingFor:!arrived ? 1 : !target ? 2 : 5];
 }
 - (void)stop {
