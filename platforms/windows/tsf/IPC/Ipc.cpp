@@ -1,5 +1,6 @@
 #include "Ipc.h"
 #include "ReplyWaitPolicy.h"
+#include "PipeRecoveryPolicy.h"
 #include "quick_phrase_cursor_pipe.h"
 #include "AuxNamedpipeSender.h"
 #include "../../../../shared/contracts/ipc_negotiation.h"
@@ -677,6 +678,10 @@ bool TryOpenClientPipe(HANDLE &hPipeHandle, const wchar_t *pipeName, UINT pipeRo
         // registration ACK only proves that the endpoint exists; it does not
         // authorize commits from the preceding endpoint/focus generation.
         RequireNamedpipeFocusActivation();
+    }
+    if (msime::windows::tsf::ReopenMainAfterPipeOpen(pipeRole))
+    {
+        ClosePipeHandleIfValid(hPipe);
     }
     return true;
 }
@@ -1754,12 +1759,18 @@ bool EnsureNamedpipeFocusSessionActivated()
         }
     }
 
-    // ClientActivated is not complete until the worker channel echoes the
-    // exact focus token. This closes the first-key window and rejects stale
-    // markers that were buffered before OnKill.
+    // ClientActivated 不算完成，要等 worker 通道把 focus token 原样回执回来。这个回执是
+    // 「这次会话可以发普通包」的唯一凭据，也挡住 OnKill 之前缓存的旧标记。
+    //
+    // 这里的 `boundWorkerCommitReady` 是**指针**，判的是这次激活有没有绑定 worker 通道，
+    // 不是它指向的值——`RequireNamedpipeFocusActivation` 只 store(false)，指针仍然非空。
+    // 所以绑定之后这段一定会等；等不到就是传输失败（FocusEchoOutcomeFor），要换一代激活
+    // 令牌、关掉反向下行管道，交给重连定时器重建，而不是把「没确认」当成「已就绪」。
+    // 等待预算和按键回包共用同一个现场值。
     if (boundWorkerCommitReady)
     {
-        const ULONGLONG deadline = GetTickCount64() + 150;
+        const ULONGLONG deadline = GetTickCount64() + msime::windows::tsf::kServerReplyWaitTimeoutMs;
+        bool acknowledged = false;
         while (GetTickCount64() < deadline)
         {
             if (IsLocalSessionResetPending())
@@ -1768,13 +1779,18 @@ bool EnsureNamedpipeFocusSessionActivated()
             }
             if (IsExpectedWorkerFocusAcknowledged())
             {
-                return true;
+                acknowledged = true;
+                break;
             }
             Sleep(1);
         }
-        MarkNamedpipeSessionDirty();
+        if (msime::windows::tsf::FocusEchoOutcomeFor(acknowledged, false) ==
+            msime::windows::tsf::FocusEchoOutcome::ResetTransport)
+        {
+            MarkNamedpipeSessionDirty();
+        }
     }
-    return !boundWorkerCommitReady;
+    return IsExpectedWorkerFocusAcknowledged();
 }
 
 /**

@@ -4,8 +4,6 @@
 //! The store is only ever consulted when the user has the feature switched on,
 //! so a disabled history never touches the clipboard at all.
 
-#[cfg(target_os = "android")]
-use crate::platform::android::android_account;
 #[cfg(target_os = "linux")]
 use crate::platform::linux::{linux_clipboard, linux_process};
 use crate::{
@@ -15,8 +13,6 @@ use msime_client_core::clipboard::ClipboardHistoryEntry;
 #[cfg(target_os = "linux")]
 use msime_client_core::clipboard::ClipboardHistoryStore;
 use msime_client_core::preferences::PreferencesStore;
-#[cfg(target_os = "ios")]
-use msime_tauri_mobile_platform::MobilePlatform;
 use std::sync::Arc;
 #[cfg(target_os = "linux")]
 use std::sync::Mutex;
@@ -490,8 +486,6 @@ pub(crate) async fn copy_text_impl(
     text: String,
     state: tauri::State<'_, ClipboardHistoryState>,
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
-    #[cfg(target_os = "android")] account: tauri::State<'_, android_account::AccountState>,
-    #[cfg(target_os = "ios")] platform: tauri::State<'_, MobilePlatform<tauri::Wry>>,
 ) -> Result<(), HostActionError> {
     // Clipboard writes are shared by Emoji, handwriting and voice panels. Keep
     // the same bounded text contract as paste/submit so a panel cannot make an
@@ -503,90 +497,11 @@ pub(crate) async fn copy_text_impl(
     }
     let state = state.inner().clone();
     let store = store.inner().clone();
-    #[cfg(target_os = "android")]
-    {
-        if text.is_empty()
-            || !msime_client_core::is_bounded_utf16(&text, 4000)
-            || text.contains('\0')
-        {
-            return Err(HostActionError {
-                code: "invalid_text",
-            });
-        }
-        let plugin = account.platform.clone();
-        let clipboard_text = text.clone();
-        tauri::async_runtime::spawn_blocking(move || {
-            plugin
-                .run_mobile_plugin::<()>("copyText", serde_json::json!({ "text": clipboard_text }))
-                .map_err(|_| HostActionError {
-                    code: "unavailable",
-                })
-        })
+    tauri::async_runtime::spawn_blocking(move || copy_text_blocking(text, &state, &store))
         .await
         .map_err(|_| HostActionError {
             code: "unavailable",
-        })??;
-        if clipboard_enabled(&store)? {
-            store
-                .capture_clipboard_text(text)
-                .map_err(|_| HostActionError {
-                    code: "unavailable",
-                })?;
-            state
-                .0
-                .lock()
-                .map_err(|_| HostActionError {
-                    code: "unavailable",
-                })?
-                .load()
-                .map_err(|_| HostActionError {
-                    code: "unavailable",
-                })?;
-        }
-        Ok(())
-    }
-    #[cfg(target_os = "ios")]
-    {
-        let platform = platform.inner().clone();
-        let clipboard_text = text.clone();
-        tauri::async_runtime::spawn_blocking(move || {
-            platform
-                .copy_text(&clipboard_text)
-                .map_err(|_| HostActionError {
-                    code: "unavailable",
-                })
-        })
-        .await
-        .map_err(|_| HostActionError {
-            code: "unavailable",
-        })??;
-        if clipboard_enabled(&store)? {
-            store
-                .capture_clipboard_text(text)
-                .map_err(|_| HostActionError {
-                    code: "unavailable",
-                })?;
-            state
-                .0
-                .lock()
-                .map_err(|_| HostActionError {
-                    code: "unavailable",
-                })?
-                .load()
-                .map_err(|_| HostActionError {
-                    code: "unavailable",
-                })?;
-        }
-        Ok(())
-    }
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    {
-        tauri::async_runtime::spawn_blocking(move || copy_text_blocking(text, &state, &store))
-            .await
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?
-    }
+        })?
 }
 
 pub(crate) fn clipboard_text_is_valid(text: &str) -> bool {
@@ -595,29 +510,6 @@ pub(crate) fn clipboard_text_is_valid(text: &str) -> bool {
         && !text.contains('\0')
 }
 
-#[cfg(target_os = "android")]
-#[tauri::command]
-pub(crate) async fn copy_text(
-    text: String,
-    state: tauri::State<'_, ClipboardHistoryState>,
-    store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
-    account: tauri::State<'_, android_account::AccountState>,
-) -> Result<(), HostActionError> {
-    copy_text_impl(text, state, store, account).await
-}
-
-#[cfg(target_os = "ios")]
-#[tauri::command]
-pub(crate) async fn copy_text(
-    text: String,
-    state: tauri::State<'_, ClipboardHistoryState>,
-    store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
-    platform: tauri::State<'_, MobilePlatform<tauri::Wry>>,
-) -> Result<(), HostActionError> {
-    copy_text_impl(text, state, store, platform).await
-}
-
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub(crate) async fn copy_text(
     text: String,
@@ -627,7 +519,6 @@ pub(crate) async fn copy_text(
     copy_text_impl(text, state, store).await
 }
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) fn copy_text_blocking(
     text: String,
     state: &ClipboardHistoryState,

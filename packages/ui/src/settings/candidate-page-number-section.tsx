@@ -4,7 +4,7 @@ import { SwitchRow } from "./switch-row";
 
 export interface CandidatePageNumberSectionProps {
   value?: boolean;
-  /** macOS 和 Linux（Fcitx5 的候选窗）的开关连同 ‹ › 一起隐藏，标题和说明要讲清这一点；其他宿主只藏页码文字。Linux 不说滚轮默认关闭：Fcitx5 经典界面的滚轮翻页沿用 Fcitx5 自己的设置（上游默认开启），见 `linuxWheelPagingNote`。 */
+  /** macOS、Windows 和 Linux（Fcitx5 的候选窗）的开关连同 ‹ › 一起隐藏，标题和说明要讲清这一点；其他宿主（Android 候选栏）只藏页码文字。Linux 不说滚轮默认关闭：Fcitx5 经典界面的滚轮翻页沿用 Fcitx5 自己的设置（上游默认开启），见 `linuxWheelPagingNote`。 */
   platform?: HostPlatform;
   onChange: (value: boolean) => void;
 }
@@ -15,7 +15,7 @@ export function CandidatePageNumberSection({
   platform,
   onChange,
 }: CandidatePageNumberSectionProps) {
-  const withArrows = platform === "macos" || platform === "linux";
+  const withArrows = platform === "macos" || platform === "windows" || platform === "linux";
   return (
     <SwitchRow
       title={withArrows ? "显示页码和翻页按钮" : "显示页码"}

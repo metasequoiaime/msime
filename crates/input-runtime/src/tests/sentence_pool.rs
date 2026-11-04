@@ -1,4 +1,4 @@
-//! 整句读法池：挂着报了 `sentence_pool` 的逐键打分器时，引擎每条切分解满一次比较的条数，排在默认 6 条之后的读法也能被模型挑上首位；不报的打分器（随包模型）和不挂打分器时，候选与以前逐行相同。
+//! 整句读法池：挂着报了 `sentence_pool` 的逐键打分器时，引擎每条切分解满一次比较的条数，排在默认 6 条之后的读法也能被模型挑上首位；不报的打分器（随包模型）和不挂打分器时，候选与以前逐行相同。打分器给出整句打分器（`sentence_scorer`）时，引擎在束搜索里用它，被词频剪掉的读法也能进来。
 
 use super::*;
 
@@ -105,4 +105,55 @@ fn removing_the_scorer_shrinks_the_pool_again() {
     runtime.set_candidate_scorer(None);
     let sentences = sentences_after_typing(&mut runtime);
     assert_eq!(sentences.len(), 6, "{sentences:?}");
+}
+
+/// 只给 `NINTH` 和它的前缀高分的整句打分器，交给引擎在束搜索里用。
+struct FavouringPrefixes;
+
+impl msime_engine::ordering::SentenceScorer for FavouringPrefixes {
+    fn log_probabilities(&self, _context: &str, candidates: &[&str]) -> Vec<f32> {
+        candidates
+            .iter()
+            .map(|text| if NINTH.starts_with(text) { 0.0 } else { -5.0 })
+            .collect()
+    }
+}
+
+/// 不报整句池、但给出整句打分器的逐键打分器：引擎照默认只解六条，模型在束搜索里把第九条读法提进来。
+struct LendsItsModel(std::sync::Arc<FavouringPrefixes>);
+
+impl CandidateScorer for LendsItsModel {
+    fn context_length(&self) -> usize {
+        64
+    }
+
+    fn log_probabilities(&mut self, _context: &str, candidates: &[&str]) -> Vec<f32> {
+        vec![-5.0; candidates.len()]
+    }
+
+    fn sentence_scorer(
+        &self,
+    ) -> Option<std::sync::Arc<dyn msime_engine::ordering::SentenceScorer>> {
+        Some(self.0.clone())
+    }
+}
+
+#[test]
+fn a_scorer_that_lends_its_model_brings_a_pruned_reading_into_the_lattice() {
+    let (_directory, mut runtime) = runtime(Some(Box::new(LendsItsModel(std::sync::Arc::new(
+        FavouringPrefixes,
+    )))));
+    let sentences = sentences_after_typing(&mut runtime);
+    assert_eq!(sentences.len(), 6, "{sentences:?}");
+    assert_eq!(sentences[0], NINTH, "{sentences:?}");
+}
+
+#[test]
+fn removing_the_scorer_takes_its_model_out_of_the_lattice() {
+    let (_directory, mut runtime) = runtime(Some(Box::new(LendsItsModel(std::sync::Arc::new(
+        FavouringPrefixes,
+    )))));
+    runtime.set_candidate_scorer(None);
+    let sentences = sentences_after_typing(&mut runtime);
+    assert!(!sentences.iter().any(|text| text == NINTH), "{sentences:?}");
 }

@@ -2,6 +2,7 @@ import type { EditionInfo } from "../core/host-capabilities";
 import type { InputScheme } from "../core/input-scheme";
 import type { Preferences } from "../core/preferences-model";
 import { GroupList, MoreOptions } from "../core/platform-controls";
+import { shuangpinPreeditPatch, type ShuangpinPreeditStyle } from "./preedit-preferences";
 import { InputModeSection } from "./input-mode-section";
 import { MacosInputModeEntriesSection } from "./macos-input-mode-entries-section";
 import type { MacosInputModesClient } from "./macos-input-modes";
@@ -49,8 +50,8 @@ export interface InputSchemeSettingsContentProps {
   shuangpinKeymapHint?: boolean;
   /** Linux 宿主；见 `InputSchemeDetailsSection` 的同名属性。 */
   linux?: boolean;
-  /** 「双拼预编辑」的当前样式，宿主不画双拼预编辑或在触屏宿主上时不传；改动写进共享偏好 `shuangpin_preedit_uses_raw`。 */
-  shuangpinPreedit?: "raw" | "pinyin";
+  /** 「双拼预编辑」的当前样式，宿主不画双拼预编辑或在触屏宿主上时不传；改动写进共享偏好 `shuangpin_preedit_uses_raw` 与 `shuangpin_preedit_separated`。 */
+  shuangpinPreedit?: ShuangpinPreeditStyle;
   /** macOS 的输入法列表；有它时在方案组末尾显示「菜单栏入口」。 */
   macosInputModes?: MacosInputModesClient;
   onError?: (message: string) => void;
@@ -251,9 +252,7 @@ export function InputSchemeSettingsContent({
           onShuangpinKeymapHintChange={(shuangpin_keymap_hint) =>
             onPreferencesChange({ shuangpin_keymap_hint })
           }
-          onShuangpinPreeditChange={(shuangpin_preedit_uses_raw) =>
-            onPreferencesChange({ shuangpin_preedit_uses_raw })
-          }
+          onShuangpinPreeditChange={(style) => onPreferencesChange(shuangpinPreeditPatch(style))}
           vietnamese={preferences.vietnamese}
           koreanRomaja={koreanRomaja}
           korean={preferences.korean}

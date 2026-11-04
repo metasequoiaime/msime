@@ -848,13 +848,6 @@ if ! rg -q 'AtomicBoolean REGISTERING' "$identity_source" \
   echo "Android anonymous account registration must be single-flight" >&2
   exit 1
 fi
-# 语音插件销毁时 executor 可能已经拒绝轮询任务；提交失败必须回滚活动请求并取消识别页。
-voice_plugin="$repo_root/platforms/android/java/app/msime/android/voice/VoicePlugin.kt"
-if ! rg -qU 'try \{\s*worker\.execute \{ pollResult\(job\) \}\s*\} catch \(_: RuntimeException\)' "$voice_plugin" \
-    || ! rg -q 'VoiceRecognitionActivity\.clearRequest\(args\.requestId\)' "$voice_plugin"; then
-  echo "Android voice plugin must roll back a rejected result poll" >&2
-  exit 1
-fi
 # Reject an oversized response before JNI obtains a native view of the Java byte array. The shared
 # decoder has the same one-megabyte wire bound, but checking after GetByteArrayElements can briefly
 # duplicate an untrusted oversized WebSocket message.
@@ -1654,15 +1647,11 @@ if ! sed -n '/void closeToolbarPanels()/,/^    }$/p' "$account_service" | rg_q_s
   echo "Android text edit panel must close and count like the other toolbar panels" >&2
   exit 1
 fi
-# SpeechRecognizer 绑定的是 RecognitionService；Android 11 起只声明 RECOGNIZE_SPEECH 的话，识别服务与识别界面分属两个包的设备上会判为没有系统识别服务。原生宿主与 Tauri 壳共用同一个识别窗口，两份清单都要声明。
-for manifest in \
-    "$repo_root/platforms/android/AndroidManifest.xml" \
-    "$repo_root/apps/desktop/src-tauri/gen/android/app/src/main/AndroidManifest.xml"; do
-  if ! rg -q '<action android:name="android\.speech\.RecognitionService" />' "$manifest"; then
-    echo "Android manifests must query android.speech.RecognitionService for SpeechRecognizer: $manifest" >&2
-    exit 1
-  fi
-done
+# SpeechRecognizer 绑定的是 RecognitionService；Android 11 起只声明 RECOGNIZE_SPEECH 的话，识别服务与识别界面分属两个包的设备上会判为没有系统识别服务。
+if ! rg -q '<action android:name="android\.speech\.RecognitionService" />' "$repo_root/platforms/android/AndroidManifest.xml"; then
+  echo "Android manifest must query android.speech.RecognitionService for SpeechRecognizer" >&2
+  exit 1
+fi
 # 「朗读」靠 queryIntentServices(TTS_SERVICE) 判断装没装语音引擎；Android 11 起清单不声明这个查询就永远看不见引擎，菜单和背单词卡片上都不会出现这一项。
 if ! rg -q '<action android:name="android\.intent\.action\.TTS_SERVICE" />' "$repo_root/platforms/android/AndroidManifest.xml"; then
   echo "Android manifest must query android.intent.action.TTS_SERVICE for read aloud" >&2

@@ -247,7 +247,7 @@ class ProjectConfigurationTests(unittest.TestCase):
             self.assertIn(f'LicenseNotice(file: "{licence.removesuffix(".txt")}"', about)
 
     def test_app_ships_the_licence_and_attribution_of_the_keystroke_rerank_models(self):
-        # 键盘扩展随包带着逐键重排的两档模型（chinese-ime-lm 的 rerank-v1，Apache-2.0）。Apache-2.0 第 4(a)、4(d) 条要求随副本附上许可证全文和上游 NOTICE，训练语料要求署名随权重传播；共用的 rerank-model-Apache-2.0.txt 三样都有。键盘扩展只随 App 一起安装，所以它作为 App 的资源分发，关于页列出；键盘扩展不带第二份。
+        # 键盘扩展随包带着逐键重排的两档模型（chinese-ime-lm 的 rerank-v2，Apache-2.0）。Apache-2.0 第 4(a)、4(d) 条要求随副本附上许可证全文和上游 NOTICE，训练语料要求署名随权重传播；共用的 rerank-model-Apache-2.0.txt 三样都有。键盘扩展只随 App 一起安装，所以它作为 App 的资源分发，关于页列出；键盘扩展不带第二份。
         project = (IOS_ROOT / "project.yml").read_text()
         targets = dict(target_blocks(project))
         generated = (IOS_ROOT / "MSIMEClient.xcodeproj/project.pbxproj").read_text()
@@ -258,7 +258,7 @@ class ProjectConfigurationTests(unittest.TestCase):
         self.assertEqual(len(blocks), 1)
         self.assertIn("buildPhase: resources", blocks[0])
         text = (IOS_ROOT / path).read_text()
-        for phrase in ("releases/tag/rerank-v1", "Copyright 2026 chinese-ime-lm contributors", "FineWeb-2 (cmn_Hani) (ODC-BY", "Version 2.0, January 2004", "END OF TERMS AND CONDITIONS"):
+        for phrase in ("releases/tag/rerank-v2", "Copyright 2026 chinese-ime-lm contributors", "FineWeb-2 (cmn_Hani) (ODC-BY", "Version 2.0, January 2004", "END OF TERMS AND CONDITIONS"):
             self.assertIn(phrase, text)
         self.assertEqual(generated.count(f"{licence} in Resources"), 2)
         self.assertIn(f'LicenseNotice(file: "{licence.removesuffix(".txt")}"', about)
@@ -516,18 +516,11 @@ class ProjectConfigurationTests(unittest.TestCase):
 
     def test_shipping_build_uses_the_native_ios_host(self):
         script = (IOS_ROOT / "build-app.sh").read_text()
-        self.assertIn('tauri_target=aarch64-sim', script)
-        self.assertIn('tauri_target=aarch64', script)
-        guard = 'if [ "${MSIME_IOS_TAURI_COMPONENT:-0}" = 1 ]; then'
-        self.assertIn(guard, script)
-        component, shipping = script.split(guard, 1)[1].split("\nfi\n", 1)
-        # The Tauri iOS build is the shared component, reachable only behind the explicit opt-in.
-        self.assertIn('pnpm --filter @msime/desktop tauri ios build \\', component)
-        self.assertIn('--target "$tauri_target" --no-sign --ci', component)
-        self.assertNotIn('tauri ios build', shipping)
-        # The default product is the native host under platforms/ios.
-        self.assertIn('xcodegen generate', shipping)
-        self.assertIn('-scheme MSIMEApp', shipping)
+        # 产品只有 platforms/ios 下的原生宿主；Tauri 的 iOS 工程已经删掉，脚本里不能再有构建它的路径。
+        self.assertNotIn('tauri ios build', script)
+        self.assertNotIn('MSIME_IOS_TAURI_COMPONENT', script)
+        self.assertIn('xcodegen generate', script)
+        self.assertIn('-scheme MSIMEApp', script)
         self.assertNotIn('MSIME_IOS_LEGACY_APP', script)
 
     def test_on_device_speech_runtime_is_fetched_and_embedded_only_in_the_app(self):

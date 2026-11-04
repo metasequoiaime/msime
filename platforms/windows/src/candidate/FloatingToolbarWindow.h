@@ -91,7 +91,7 @@ public:
   void set_character_set_reader(std::function<std::optional<bool>()> reader) {
     character_set_reader_ = std::move(reader);
   }
-  // 设置窗口和共享应用（MSIME.exe）各自在不在 Server 旁边。设置按钮要前者，手写按钮要后者；缺了的按钮画成不可用，与托盘对应的行一样，不接受一次什么都不做的点击。表情和屏幕键盘没有共享应用时打开系统自带的面板，所以不受这两个开关影响。
+  // 设置窗口和面板宿主（缺省是共享应用 MSIME.exe，MSIME_WINDOWS_PANEL_HOST=native 时是 msime-client-panels.exe，见 ShellSurfaces.h）各自在不在 Server 旁边。设置按钮要前者，手写按钮要后者；缺了的按钮画成不可用，与托盘对应的行一样，不接受一次什么都不做的点击。表情和屏幕键盘没有面板宿主时打开系统自带的面板，所以不受这两个开关影响。
   void set_shell_available(bool settings, bool panels) {
     if (settings_available_ == settings && panels_available_ == panels)
       return;

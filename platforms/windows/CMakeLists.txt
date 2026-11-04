@@ -358,6 +358,14 @@ else()
   target_compile_options(windows-input-key-policy PRIVATE -Wall -Wextra -Werror)
 endif()
 add_test(NAME windows-input-key-policy COMMAND windows-input-key-policy)
+add_executable(windows-modifier-hotkey-policy tests/input/modifier_hotkey_policy.cpp)
+target_include_directories(windows-modifier-hotkey-policy PRIVATE src)
+if(MSVC)
+  target_compile_options(windows-modifier-hotkey-policy PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(windows-modifier-hotkey-policy PRIVATE -Wall -Wextra -Werror)
+endif()
+add_test(NAME windows-modifier-hotkey-policy COMMAND windows-modifier-hotkey-policy)
 # This one existed for a while with nothing compiling it: no CMakeLists named
 # the source, so it was absent from every build and every count, the same way
 # msimeui-tests was. It passes as written.

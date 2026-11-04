@@ -2,8 +2,5 @@
 
 #[cfg(any(target_os = "linux", target_os = "windows", test))]
 pub(crate) mod voice_output;
-#[cfg(any(
-    all(unix, not(any(target_os = "ios", target_os = "android"))),
-    target_os = "windows"
-))]
+#[cfg(any(unix, target_os = "windows"))]
 pub(crate) mod voice_sessions;

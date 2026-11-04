@@ -1025,8 +1025,13 @@ int main() {
     assert(store.load().snapshot->preferences().at("shuangpin_profile") == "ziranma");
     click(scheme_shuangpin_hint);
     assert(store.load().snapshot->preferences().at("shuangpin_keymap_hint") == true);
+    // #10717：第二档「双拼分隔」写两个键，第三档「拼音分词」时清掉分隔。
     select_value(scheme_shuangpin_preedit, 1);
+    assert(store.load().snapshot->preferences().at("shuangpin_preedit_uses_raw") == true);
+    assert(store.load().snapshot->preferences().at("shuangpin_preedit_separated") == true);
+    select_value(scheme_shuangpin_preedit, 2);
     assert(store.load().snapshot->preferences().at("shuangpin_preedit_uses_raw") == false);
+    assert(store.load().snapshot->preferences().value("shuangpin_preedit_separated", false) == false);
     // 已有自定义表只读展示；选择内置方案保留自定义表本身。
     saved = store.load();
     auto custom_profile = store.save(*saved.snapshot, {{{"shuangpin_profile"}, "custom"}});
@@ -1054,6 +1059,13 @@ int main() {
     const bool hint_before = store.load().snapshot->preferences().at("wubi_code_hint").get<bool>();
     click(scheme_wubi_hint);
     assert(store.load().snapshot->preferences().at("wubi_code_hint").get<bool>() != hint_before);
+    // #10696：顶字和 z 通配以前只在共享设置页里有开关，Windows 7 设置也要能改。
+    const bool wildcard_before = store.load().snapshot->preferences().value("wubi_z_wildcard", false);
+    click(scheme_wubi_wildcard);
+    assert(store.load().snapshot->preferences().at("wubi_z_wildcard").get<bool>() != wildcard_before);
+    const bool top_before = store.load().snapshot->preferences().value("wubi_fifth_code_top_commit", true);
+    click(scheme_wubi_top);
+    assert(store.load().snapshot->preferences().at("wubi_fifth_code_top_commit").get<bool>() != top_before);
     const bool unique_before = store.load().snapshot->preferences().at("wubi_auto_commit_unique").get<bool>();
     click(scheme_wubi_unique);
     assert(store.load().snapshot->preferences().at("wubi_auto_commit_unique").get<bool>() != unique_before);
@@ -1329,6 +1341,12 @@ int main() {
   const bool previous_logo = store.load().snapshot->preferences().at("show_app_logo").get<bool>();
   click(appearance_logo);
   assert(store.load().snapshot->preferences().at("show_app_logo").get<bool>() != previous_logo);
+  // 页码开关缺值按开显示为勾选，点掉写 false、再点写回 true（#10709）。
+  assert(SendMessageW(GetDlgItem(body, appearance_page_number), BM_GETCHECK, 0, 0) == BST_CHECKED);
+  click(appearance_page_number);
+  assert(store.load().snapshot->preferences().at("show_candidate_page_number") == false);
+  click(appearance_page_number);
+  assert(store.load().snapshot->preferences().at("show_candidate_page_number") == true);
   const auto before_fonts = store.load().snapshot->revision();
   select_value(appearance_font_preset, 1);
   saved = store.load();

@@ -68,7 +68,7 @@ zhoumo   →  周末   weekend   →  weekend
 
 | 平台 | 入口目錄 | 宿主形態與整合方式 |
 | --- | --- | --- |
-| [Android](../../platforms/android/README.md) | `platforms/android/` | 輸入法服務 `app.msime.android.MSIMEInputService` 跑在 `:ime` 獨立行程，Java 宿主經 `platforms/android/native/client_jni.cpp` 呼叫 host-api；發布的 APK（`build-apk.sh`）用原生 Java 設定介面，不含 Tauri/React；帶 React 設定的 Tauri 合併打包（`build-client-apk.sh`）與輸入法同一套件、不同行程、共用私有 files/bootstrap/state，只用於開發驗證，不發布；手寫走 ML Kit Digital Ink |
+| [Android](../../platforms/android/README.md) | `platforms/android/` | 輸入法服務 `app.msime.android.MSIMEInputService` 跑在 `:ime` 獨立行程，Java 宿主經 `platforms/android/native/client_jni.cpp` 呼叫 host-api；發布的 APK（`build-apk.sh`）用原生 Java 設定介面，不含 Tauri/React；手寫走 ML Kit Digital Ink |
 | [iOS](../../platforms/ios/README.md) | `platforms/ios/` | XcodeGen 從 `project.yml` 產生的原生 App 內嵌鍵盤延伸功能 `MSIMEKeyboardExtension`，兩者透過 App Group `group.app.msime.ios` 共用狀態；Swift 鍵盤直接呼叫 host-api，手寫走 ML Kit Digital Ink |
 | [macOS](../../platforms/macos/README.md) | `platforms/macos/` | InputMethodKit bundle（產物名稱 `水杉输入法.app`，bundle id `app.msime.inputmethod.MetasequoiaIME`），Swift 後端編成 `MSIMEBackend.dylib` 隨 bundle 散布，Sparkle 負責自動更新 |
 | [Linux](../../platforms/linux/README.md) | `platforms/linux/` | IBus 與 Fcitx5 是兩個並列的系統入口，連結同一份 host-api ABI；線上聯想、語音、剪貼簿等能力由獨立的 provider 行程加 systemd 使用者單元承載；CPack 產出 TGZ 與 DEB |
@@ -111,7 +111,7 @@ pnpm build
 
 桌面設定的應用程式識別碼和預設應用程式資料目錄按平台命名：macOS 是 `app.msime.macos`，Windows 是 `app.msime.windows`，Linux 是 `app.msime.linux`。偏好設定儲存在其中的 `preferences.json`。也可用絕對路徑環境變數 `MSIME_CLIENT_STATE_DIR` 指向隔離的開發目錄。macOS 原生宿主讀取同一份設定，並在目前組詞結束後套用更新；多個設定視窗同時儲存時透過 revision 偵測衝突，使用者須明確重新讀取後再決定是否覆寫。
 
-Android 合併打包的建置和裝置測試見 [Android 宿主](../../platforms/android/README.md#tauri--react-共享设置合包)。合併打包只用於開發驗證，發布的 APK 是不含 Tauri 的原生套件；合併打包裡 Tauri 設定與原生 `:ime` 服務同一套件、不同行程，共用私有 files/bootstrap/state，關閉設定視窗不會結束輸入法行程。iOS 的產品宿主是 `platforms/ios` 的原生 App，設定介面是 SwiftUI 原生頁面，它內嵌原生鍵盤延伸功能並透過 App Group 共用狀態；App 裡沒有 WebView，Tauri iOS 專案只在單獨建置公用元件時產出，不作為 App 發布或啟動。簽章與裝置安裝步驟見 [iOS 宿主](../../platforms/ios/README.md)。
+Android 的建置和裝置測試見 [Android 宿主](../../platforms/android/README.md)，發布的 APK 是不含 Tauri 的原生套件。iOS 的產品宿主是 `platforms/ios` 的原生 App，設定介面是 SwiftUI 原生頁面，它內嵌原生鍵盤延伸功能並透過 App Group 共用狀態；App 裡沒有 WebView。簽章與裝置安裝步驟見 [iOS 宿主](../../platforms/ios/README.md)。
 
 共用設定支援 shuangpin_profile：xiaohe（小鶴）、ziranma（自然碼）、shoudao（首道）、microsoft（微軟），以及 custom（自訂雙拼，鍵位表存在 shuangpin_custom_profile）。未設定時按小鶴讀取，未知值拒絕；設定頁在非雙拼方案下停用此選項，但保留已選的值。macOS 和 Linux 的設定頁可以從內建方案起步編輯自訂鍵位、匯入匯出 JSON，鍵位表要通過 Engine 的檢查才能儲存；鍵位表不能用時輸入法按小鶴執行。方案變更沿用組詞結束後再替換 Engine 的規則。
 
