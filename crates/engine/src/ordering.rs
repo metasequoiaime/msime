@@ -624,6 +624,15 @@ pub fn rerank_pick_within<'a, R: OrderRowSource<'a> + ?Sized>(
                         best = index;
                     }
                 }
+                // Readings that differ from the pick only in 他/她/它 are decided by the model alone; see differs_only_in_third_person.
+                let leader = subset[best];
+                for index in 0..count {
+                    if neural[index] > neural[best]
+                        && differs_only_in_third_person(subset[index], leader)
+                    {
+                        best = index;
+                    }
+                }
                 return (best != 0).then(|| considered[best]);
             }
         }
@@ -635,6 +644,24 @@ pub fn rerank_pick_within<'a, R: OrderRowSource<'a> + ?Sized>(
                 && !corrected_key,
         })
     })
+}
+
+/// 两条读法是否只在第三人称代词「他」「她」「它」上不同（字数相同，其余逐字相同，至少有一处不同）。
+///
+/// 这几个字同音，词网格分不出来，只能按词频排，而词频说的是语料里哪个更常见，不是这句话指的是谁；该用哪一个只有上文知道。整句池里两条读法只差代词时，混合分里那 0.3 的词网格分只会把模型的判断往高频的「他」那边拉：2026-11-04 的聊天集里，「你记得跟她说谢谢」「她说上次你修好的那个灯」模型都选对了，混合后分别以 0.002 和 0.004 输给了「他」。所以这种情况下只看模型分。在 366 段带上文、含代词的聊天句（合成聊天开发集加单人聊天集）上，6x256 从 203 到 216（改对 20、改错 7，p = 0.019），8x448 从 226 到 235（改对 13、改错 4，p = 0.049）；整套单人聊天集（330 段）6x256 改对 2、改错 0，8x448 改对 0、改错 1；sentences 四套 1,580 句两个模型都一句没变。
+pub fn differs_only_in_third_person(a: &str, b: &str) -> bool {
+    let pronoun = |c: char| matches!(c, '他' | '她' | '它');
+    let mut differs = false;
+    let mut left = a.chars();
+    let mut right = b.chars();
+    loop {
+        match (left.next(), right.next()) {
+            (None, None) => return differs,
+            (Some(x), Some(y)) if x == y => {}
+            (Some(x), Some(y)) if pronoun(x) && pronoun(y) => differs = true,
+            _ => return false,
+        }
+    }
 }
 
 /// 一句话开头单打一个音节、首选却是句尾语气词（`ma` 的「吗」、`ba` 的「吧」）时，该提到首位的那一行；不是这种情形时为 `None`。
@@ -981,6 +1008,21 @@ pub fn runner_up_order_with<'a, R: OrderRowSource<'a> + ?Sized>(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_third_person_pronouns_may_differ() {
+        assert!(super::differs_only_in_third_person(
+            "你记得跟她说谢谢",
+            "你记得跟他说谢谢"
+        ));
+        assert!(super::differs_only_in_third_person("它不让碰", "她不让碰"));
+        // 同一条读法不算「只差代词」。
+        assert!(!super::differs_only_in_third_person("他说", "他说"));
+        // 别的字不同、字数不同都不算。
+        assert!(!super::differs_only_in_third_person("他说谢谢", "她说射射"));
+        assert!(!super::differs_only_in_third_person("他说", "他说了"));
+        assert!(!super::differs_only_in_third_person("他们", "你们"));
+    }
+
     use super::*;
 
     fn row(text: &str, source: u8) -> OrderRow<'_> {
