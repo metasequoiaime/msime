@@ -5,6 +5,7 @@
 #include "InputSchemeTraits.h"
 #include "KeySoundPolicy.h"
 #include "LifecyclePolicy.h"
+#include "PredictionPolicy.h"
 #include "TypingEffectPolicy.h"
 #include "TypingEffectSignal.h"
 #include <ctime>
@@ -143,7 +144,7 @@ FocusedSession::set_dedicated_english(const FocusLease &lease, bool enabled) {
     const auto current = session_.view();
     // 托盘点击不经过 TIP：组字时切换会让 Engine 丢掉组字，而 TIP 手里的组字还留在编辑器里，两边从此对不上。所以只在没有组字、没有候选时切换，组字中的点击什么也不做。
     if (!current.at("editing_text").get<std::string>().empty() ||
-        !current.at("candidates").empty())
+        (!current.at("candidates").empty() && !idle_prediction_view(current)))
       return;
     const bool changed = current.at("dedicated_english").get<bool>() != enabled;
     result = session_.set_dedicated_english(lease.epoch, enabled);
@@ -473,16 +474,34 @@ FocusedSession::hide_candidate(const FocusLease &lease) {
   gate_.with_active(lease, [&] {
     if (composer_->has_pending())
       throw std::logic_error("Composition hidden before reply delivery");
+    const auto current = session_.view();
     if (continuation_hide_.consume(ContinuationHide::Clock::now()) &&
-        !session_.view().at("editing_text").get<std::string>().empty()) {
+        !current.at("editing_text").get<std::string>().empty()) {
       disposition = HideCandidateDisposition::Suppressed;
       return;
     }
+    // 上屏后联想没有组字。上屏那一下 TIP 结束组字时总会发一个隐藏，它比 TIP 在光标处显示联想的 Show 先到；这时取消会把刚出来的联想清掉。TIP 为这一代发过 Show 之后的隐藏才是关闭联想。
+    if (idle_prediction_view(current) &&
+        current.at("generation").get<uint64_t>() != shown_prediction_generation_) {
+      disposition = HideCandidateDisposition::PredictionKept;
+      return;
+    }
+    shown_prediction_generation_ = 0;
     session_.cancel_composition(lease.epoch);
     composer_->cancel();
     disposition = HideCandidateDisposition::Cancelled;
   });
   return disposition;
+}
+void FocusedSession::show_candidate(const FocusLease &lease) {
+  check_thread();
+  if (!prepared(lease))
+    return;
+  gate_.with_active(lease, [&] {
+    const auto current = session_.view();
+    if (idle_prediction_view(current))
+      shown_prediction_generation_ = current.at("generation").get<uint64_t>();
+  });
 }
 bool FocusedSession::reset_cache() {
   check_thread();

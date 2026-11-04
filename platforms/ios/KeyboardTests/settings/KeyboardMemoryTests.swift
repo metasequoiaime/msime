@@ -1,7 +1,7 @@
 import UIKit
 import XCTest
 
-/// 键盘在内存上的两件事（#6685）：诊断日志各行带上的内存读数，以及内存警告不能让候选条和引擎的候选列表对不上、又要在组字结束后补清引擎缓存。
+/// 键盘在内存上的几件事：诊断日志各行带上的内存读数，内存警告不能让候选条和引擎的候选列表对不上、又要在组字结束后补清引擎缓存（#6685），以及重新加载键盘时旧的那一套视图要释放。
 @MainActor
 final class KeyboardMemoryTests: XCTestCase {
   private var savedScheme: ChineseInputScheme?
@@ -236,5 +236,96 @@ final class KeyboardMemoryTests: XCTestCase {
     // 2026-10-10 在 iOS 27.0 的 13 英寸 iPad Pro 模拟器上冷进程实测从 `base` 到 `keyboard_shown` 约 20 MiB；上限取它的三倍，只拦突然翻倍的那种回归。
     XCTAssertLessThan(afterShow - min(afterShow, base), 60,
       "the keyboard's launch grew past the regression budget; see the per-stage numbers above")
+  }
+
+  // MARK: - 重新加载
+
+  /// 未进入窗口的键盘也会在布局偏好和方案切换后销毁，不能把整套约束迁移成非法的布局引擎。
+  func testUnpresentedKeyboardsReleaseViewsAfterCompositionAndLayoutChanges() throws {
+    enableAllInputSchemes()
+    let previousSpacing = KeyboardLayoutPreference.keySpacing
+    defer { KeyboardLayoutPreference.keySpacing = previousSpacing }
+    for iteration in 0..<12 {
+      for scheme in [ChineseInputScheme.quanpin, .nineKey] {
+        InputSchemePreference.scheme = scheme
+        weak var released: KeyboardViewController?
+        var keyboardViews: [WeakView] = []
+        try autoreleasepool {
+          let controller = KeyboardViewController()
+          released = controller
+          controller.loadViewIfNeeded()
+          if scheme == .quanpin {
+            try press("字母 N", in: controller)
+          } else {
+            let key = try XCTUnwrap(descendants(controller.view).first {
+              $0.accessibilityIdentifier == "nineKey6"
+            } as? UIButton)
+            key.sendActions(for: .primaryActionTriggered)
+          }
+          KeyboardLayoutPreference.keySpacing = iteration.isMultiple(of: 2) ? 4 : 7
+          controller.viewWillAppear(false)
+          keyboardViews = controller.view.subviews
+            .filter { !String(describing: type(of: $0)).hasPrefix("_UIInputViewContent") }
+            .flatMap { descendants($0) }
+            .map(WeakView.init)
+        }
+        XCTAssertNil(released, "第 \(iteration) 轮的 \(scheme) 控制器未释放")
+        XCTAssertFalse(keyboardViews.isEmpty)
+        XCTAssertTrue(keyboardViews.allSatisfy { $0.view == nil }, "第 \(iteration) 轮的 \(scheme) 键盘视图未释放")
+      }
+    }
+  }
+
+  /// 系统每换一个宿主应用就新建一个 `KeyboardViewController`，旧的那个连同整套键盘视图要真的释放。iOS 27 的 `UIInputView` 自己释放不掉，挂在它下面的视图跟着留下：2026-11-02 在 iPhone 17 上同一个键盘进程里每重新加载一次键盘，`keyboard_loaded` 的 `base=` 就涨 10 MB 左右，五六次后碰到 176 MB 的上限被系统结束（见 `KeyboardViewController` 的 `deinit`）。
+  func testADismissedKeyboardControllerReleasesItsViews() {
+    weak var released: KeyboardViewController?
+    var keyboardViews: [WeakView] = []
+    autoreleasepool {
+      let controller = presentAndDismiss()
+      released = controller
+      // UIKit 自己挂在输入视图上的 `_UIInputViewContent` 与输入视图互相持有，摘下来也一样留着，不归这里管。
+      keyboardViews = controller.view.subviews
+        .filter { !String(describing: type(of: $0)).hasPrefix("_UIInputViewContent") }
+        .flatMap { descendants($0) }
+        .map(WeakView.init)
+    }
+    // 主线程上排着的回调都是弱引用，跑一轮让它们结束。
+    RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+    XCTAssertNil(released, "the keyboard controller outlived its dismissal")
+    XCTAssertFalse(keyboardViews.isEmpty)
+    let alive = keyboardViews.compactMap(\.view).map { String(describing: type(of: $0)) }
+    XCTAssertEqual(alive, [], "keyboard views outlived their controller")
+  }
+
+  /// 连续十次加载再收起键盘，占用不随次数上涨。修复前模拟器上每次涨 7 到 8 MiB（十次 38 → 109 MiB），修复后 26 → 28 MiB。第一次加载会建进程级的缓存（词库映射、字体、皮肤），从第二次起比较；阈值远小于泄漏一个控制器的量。
+  func testReloadingTheKeyboardTenTimesDoesNotAccumulateMemory() {
+    var samples: [UInt64] = []
+    for _ in 0..<10 {
+      autoreleasepool { _ = presentAndDismiss() }
+      RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+      samples.append(DiagnosticLog.MemorySample.current().footprint)
+    }
+    let mebibytes = samples.map(DiagnosticLog.MemorySample.mebibytes)
+    print("keyboard reload footprint MiB: \(mebibytes)")
+    let growth = Int64(samples[9]) - Int64(samples[1])
+    XCTAssertLessThan(growth, 8 << 20, "footprint grew \(growth >> 20) MiB over eight reloads: \(mebibytes)")
+  }
+
+  private struct WeakView {
+    weak var view: UIView?
+    init(_ view: UIView) { self.view = view }
+  }
+
+  /// 照系统的顺序走一遍：建控制器、加载视图、出现、收起。
+  private func presentAndDismiss() -> KeyboardViewController {
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.viewWillAppear(false)
+    controller.view.layoutIfNeeded()
+    controller.viewDidAppear(false)
+    controller.viewWillDisappear(false)
+    controller.viewDidDisappear(false)
+    return controller
   }
 }

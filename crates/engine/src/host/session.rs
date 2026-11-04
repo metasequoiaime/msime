@@ -182,6 +182,33 @@ impl Session {
         self.inner.set_prediction_allowed(allowed);
     }
 
+    /// 联想的词库续写多取一池留给模型排序，同 [`crate::Session::set_prediction_pool`]。
+    pub fn set_prediction_pool(&mut self, enabled: bool) {
+        self.inner.set_prediction_pool(enabled);
+    }
+
+    /// 拼整句时给前缀打分的模型，同 [`crate::Session::set_sentence_scorer`]。
+    pub fn set_sentence_scorer(
+        &mut self,
+        scorer: Option<std::sync::Arc<dyn crate::ordering::SentenceScorer>>,
+    ) {
+        self.inner.set_sentence_scorer(scorer);
+    }
+
+    /// 整句读法条数下限，同 [`crate::Session::set_sentence_pool`]。
+    pub fn set_sentence_pool(&mut self, paths: usize) {
+        self.inner.set_sentence_pool(paths);
+    }
+
+    /// 按模型给刚上屏之后的联想排序，同 [`crate::Session::order_prediction`]。
+    pub fn order_prediction(
+        &mut self,
+        scorer: &mut dyn crate::ordering::CandidateScorer,
+        before: &str,
+    ) -> bool {
+        self.inner.order_prediction(scorer, before)
+    }
+
     /// 换掉会话读的单调时钟和本地墙钟，同 [`crate::Session::set_clock`]。只给评测和测试用，宿主不调：`typing_sim` 按模拟的打字节奏推进时钟，个人学习的 3 s / 8 s / 10 s 窗口和行内日期时间行才不随机器快慢、负载高低和运行的日子变化。
     pub fn set_clock(&mut self, clock: crate::Clock) {
         self.inner.set_clock(clock);
@@ -481,6 +508,7 @@ impl Session {
                         .helpcode_fallback_resources
                         .as_deref()
                         .map(Path::new),
+                    self.options.custom_helpcode_root.as_deref().map(Path::new),
                 )
                 .unwrap_or_else(|error| {
                     crate::logging::warn(format_args!(
@@ -602,6 +630,11 @@ impl Session {
         self.inner.wubi_pinyin_continues(value, shift)
     }
 
+    /// 第五码顶字关掉、混输开着时，让下一个字母并进混输串；见 `Session::allow_wubi_mixed_extension`。
+    pub fn allow_wubi_mixed_extension(&mut self) -> bool {
+        self.inner.allow_wubi_mixed_extension()
+    }
+
     /// 五笔拼音混输开着时，顶字关掉才有地方容纳第五个字母。
     pub fn wubi_mixed_pinyin(&self) -> bool {
         self.inner.wubi_mixed_pinyin()
@@ -654,6 +687,20 @@ impl Session {
         points: &[GlidePoint],
     ) -> Result<EngineResult> {
         Ok(result_for(self.inner.glide(keyboard, points)))
+    }
+
+    /// 可选的中英混合滑行；共享内核持有候选与选词状态。
+    pub fn bilingual_glide(
+        &mut self,
+        keyboard: &GlideKeyboard,
+        points: &[GlidePoint],
+    ) -> Result<EngineResult> {
+        Ok(result_for(self.inner.bilingual_glide(keyboard, points)))
+    }
+
+    /// 宿主编排不能替混合滑行选择默认候选。
+    pub fn requires_candidate_selection(&self) -> bool {
+        self.inner.requires_candidate_selection()
     }
 
     /// Out of range is unhandled.

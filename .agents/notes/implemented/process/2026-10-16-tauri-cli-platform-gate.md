@@ -13,9 +13,9 @@ Tauri CLI 在编译任何 crate 之前先执行 `tauri.conf.json` 的 `beforeBui
 合法驱动 Tauri CLI 的平台脚本只在那一条命令上设置 `MSIME_PLATFORM_BUILD=1`：
 
 - `platforms/windows/Build-RustOutputs.ps1`：x64 的 `tauri build --no-bundle`。变量和脚本借用的其他环境变量一样，在 `finally` 里恢复成调用前的值。
-- `platforms/android/build-client-apk.sh`：`tauri android build`。
-- `platforms/ios/build-app.sh`：`MSIME_IOS_TAURI_COMPONENT=1` 分支里的 `tauri ios build`。
 - `platforms/macos/package-release.sh`：`tauri bundle`。它是否执行 `beforeBuildCommand` 没有在 macOS 上核实过，这里设上变量是防它执行时被拦。
+
+原来还有 `platforms/android/build-client-apk.sh` 的 `tauri android build` 和 `platforms/ios/build-app.sh` 里 `MSIME_IOS_TAURI_COMPONENT=1` 分支的 `tauri ios build`，两者随 Tauri 的 iOS、Android 工程一起删掉了，见[删除从未发布的 Tauri 移动壳](../simplification/2026-11-03-remove-tauri-mobile-shells.md)。
 
 门禁只在 Tauri CLI 这一层。`cargo build/check/test/clippy -p msime-desktop` 不经过它：Linux 打包（`platforms/linux/package-container.sh`）、macOS 打包里的 `cargo_universal`、CI 的 `msime-desktop` clippy 与单元测试、`verify-local.sh` 的容器 `cargo check` 都直接用 cargo，它们是合法用途。README 与 `docs/readme/` 的四种译本删掉 `pnpm tauri dev`，并把 `pnpm tauri build --debug --no-bundle` 那句改成说明它会被拒绝、入口在 `platforms/<os>`。
 

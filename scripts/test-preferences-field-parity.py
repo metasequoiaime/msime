@@ -27,6 +27,8 @@ RUST_ONLY: dict[str, set[str]] = {
         "smart_punctuation_migrated",
         # AI 辅助翻译统一成显式选择时的一次性迁移标记，不是设置：读入时由 client-core 设上，保存时只增不减，设置页不显示也不写它。
         "translation_ai_migrated",
+        # 整句联想默认「增强」的一次性迁移标记，不是设置：读入时由 client-core 设上，保存时只增不减，设置页不显示也不写它。
+        "keyboard_reranker_migrated",
         # 快捷符号当前只有 iOS 原生设置页提供编辑，其他宿主保留共享字段，不在 React 设置页重复增加入口。
         "touch_quick_punctuation_symbols",
         # 日语九键连点切换只在 Android 原生输入设置页提供，其他宿主保留共享字段，React 设置页不显示。
@@ -38,10 +40,6 @@ RUST_ONLY: dict[str, set[str]] = {
         "android_keyboard_skin_dark",
         # 组字时保留 Shift 只由 Android 与 iOS 的原生键盘设置页提供，其他宿主没有触屏全拼 26 键，React 设置页不显示。
         "touch_quanpin_shift",
-        # 上屏后联想先在 Android 原生键盘验收，其他宿主保留字段，尚无共享设置入口。
-        "next_word_prediction",
-        # 上屏后联想候选栏右端的按键样式（#10078）随联想开关一起只在 Android 原生设置页提供。
-        "next_word_prediction_buttons",
         # 词库 WebDAV 同步（#9880）的核心先合入，各平台的设置界面随之后的平台 PR 接入。
         "dictionary_sync_webdav",
         # 崩溃上报授权代次是共享基础的本机内部状态；平台设置入口留给后续各宿主 PR，不在共享 React 页提前暴露。

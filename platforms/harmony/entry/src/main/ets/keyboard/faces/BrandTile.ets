@@ -7,7 +7,7 @@ const MARK_HEIGHT_VP: number = KeyboardIconPaths.TOOLBAR_SIZE_VP - 2;
 /**
  * 工具栏的「功能」键：官方标志本身，外面不再垫圆盘，移植自 Android 的 `KeyboardBrandButton`。
  *
- * 40x40、圆角 12 的图块，平时透明，`active` 时（功能面板、选择器或其他工具界面打开）用 `toggleBackground` 填充。其中是 21vp 的标志：`BRAND_FIELD` 填充、`BRAND_EDGE` 描边的圆角正方形，加一道宽 9、圆头的白色描边；标志自己就是一块圆角方形，配色固定，与各平台图标一致，不随皮肤变化，外面不再套圆盘。两条路径字符串都来自 kb-core 的 `KeyboardIconPaths`（`BRAND_FRAME`、`BRAND_STROKE`），viewBox 为 132x132（正方形外框，见 `KeyboardIconPaths` 的说明）。
+ * 40x40、圆角 12 的图块，平时透明，`active` 时（功能面板、选择器或其他工具界面打开）用 `toggleBackground` 填充。其中是 21vp 的标志：`BRAND_FIELD` 填充、`BRAND_EDGE` 描边的圆角正方形，加一道白色折线：msime.svg 的那一笔放大 1.2 倍映射进 120 的外框，宽 9.6（msime.svg 的 8 乘 1.2）、圆头、尖角连接（miter limit 4，与 SVG 默认相同）；标志自己就是一块圆角方形，配色固定，与各平台图标一致，不随皮肤变化，外面不再套圆盘。两条路径字符串都来自 kb-core 的 `KeyboardIconPaths`（`BRAND_FRAME`、`BRAND_STROKE`），viewBox 为 132x132（正方形外框，见 `KeyboardIconPaths` 的说明）。
  *
  * ArkUI 的 `Path` 以 px 解释命令，所以 viewport 和描边宽度也用 px，由 `Shape` 的 viewport 变换把整幅图缩放到标志尺寸。哪些行为需要在真机上确认，见 `KeyboardLineIcon`。
  */
@@ -42,7 +42,8 @@ export struct BrandTile {
           .stroke(KeyboardIconPaths.BRAND_STROKE_COLOR)
           .strokeWidth(`${KeyboardIconPaths.BRAND_STROKE_WIDTH}px`)
           .strokeLineCap(LineCapStyle.Round)
-          .strokeLineJoin(LineJoinStyle.Round)
+          .strokeLineJoin(LineJoinStyle.Miter)
+          .strokeMiterLimit(KeyboardIconPaths.BRAND_STROKE_MITER_LIMIT)
       }
       .viewPort({ x: 0, y: 0, width: `${KeyboardIconPaths.BRAND_VIEW_WIDTH}px`, height: `${KeyboardIconPaths.BRAND_VIEW_HEIGHT}px` })
       // 用 viewBox 自身的宽高比，使标志按工具图标的尺寸等比居中，也不依赖 viewport 变换如何居中另一种比例的框。

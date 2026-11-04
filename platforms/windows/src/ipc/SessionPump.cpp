@@ -160,7 +160,13 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
                   return;
                 if (disposition == HideCandidateDisposition::Suppressed)
                   delivered_packet.modifiers_down |= internal_continuation_hide;
+                if (disposition == HideCandidateDisposition::PredictionKept)
+                  delivered_packet.modifiers_down |= internal_prediction_hide;
               }
+              if (route.route &&
+                  packet.event_type == FanyImePipeEventType::ShowCandidateWnd &&
+                  (packet.modifiers_down & FanyImePipeFlags::UiLess) == 0)
+                state.show_candidate(*route.route);
               if (route.route &&
                   (packet.event_type == FanyImePipeEventType::IMESwitch ||
                    packet.event_type == FanyImePipeEventType::PuncSwitch ||

@@ -551,13 +551,13 @@ impl<'de> Deserialize<'de> for TouchNineKeySwipeDigits {
     }
 }
 
-/// 上屏后联想显示时候选栏右端放哪些按键（#10078）。只在 `next_word_prediction` 开着时有意义；普通组字的候选栏不受它影响。目前只有 Android 原生键盘读它，其他宿主原样保留。
+/// 上屏后联想显示时候选栏右端放哪些按键（#10078）。只在 `next_word_prediction` 开着时有意义；普通组字的候选栏不受它影响。只有触屏宿主读它（候选栏右端有按键可放），桌面宿主的候选窗没有这两个键，原样保留。
 ///
 /// 读文档时不认识的值按默认读，不是字符串照样报错，与 [`TouchTwentySixKeyStyle`] 一致。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum NextWordPredictionButtons {
-    /// 现有样式：只有展开键（联想多于一页时才出现），关闭联想靠空格或继续输入。
+    /// 现有样式：只有展开键（联想多于一页时才出现），关闭联想靠继续输入。
     #[default]
     ExpandOnly,
     /// 关闭键 × 加展开键；展开面板打开时 × 仍在 ∧ 左边。
@@ -1554,7 +1554,7 @@ pub enum GrammarModel {
     Baishuang,
 }
 
-/// Candidate sentence-association sources. The dictionary lattice keeps its historical default; neural rerankers are opt-in because they add model work while typing or settling.
+/// 整句联想的候选来源与模型重排。词网格一直默认开；逐键重排（`neural_keyboard`，整句联想「增强」）默认开，挂不挂、挂哪一档由 host-api 在每台设备上按自测速度决定（见 `.agents/notes/implemented/feature/2026-11-02-keystroke-reranker-default-on.md`）；桌面的停顿重排（`neural_desktop`）仍要自己打开，它要另下一个模型。
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SentenceAssociationPreferences {
@@ -1563,8 +1563,8 @@ pub struct SentenceAssociationPreferences {
     /// Runs the desktop sentence model as the input runtime's settled reranker once typing pauses, when a host has installed it; the Engine never loads that model.
     #[serde(default)]
     pub neural_desktop: bool,
-    /// 整句联想「增强」: mounts the keyboard sentence model as the input runtime's per-keystroke reranker when the edition ships the model. The Engine's own keyboard-model rerank does not follow it.
-    #[serde(default)]
+    /// 整句联想「增强」：把逐键重排器挂到 input runtime 上（版本带模型时）；引擎自己那层键盘模型不跟它走。默认开，缺键时按开读；host-api 只在这台设备跑得进逐键预算时才真的挂（`ffi::keyboard_reranker`），跑不进时与「标准」相同。默认改成开之前写下的文档里存着当时默认的 `false`，由 [`Preferences::settle_keyboard_reranker_default`] 在读入时一次性改过来。
+    #[serde(default = "enabled_by_default")]
     pub neural_keyboard: bool,
     #[serde(default)]
     pub show_next_on_duplicate: bool,
@@ -1624,7 +1624,7 @@ impl Default for SentenceAssociationPreferences {
         Self {
             word_lattice: true,
             neural_desktop: false,
-            neural_keyboard: false,
+            neural_keyboard: true,
             show_next_on_duplicate: false,
             grammar_model: GrammarModel::None,
             sentence_collocation_weight: SENTENCE_COLLOCATION_WEIGHT_DEFAULT,
@@ -1770,7 +1770,7 @@ pub struct Preferences {
     /// its model is installed.
     #[serde(default)]
     pub sentence_association: SentenceAssociationPreferences,
-    /// 上屏后推荐下一词；Android 原生键盘提供入口，独立于整句候选，默认关闭。
+    /// 上屏后推荐下一词，独立于整句候选，默认关闭；只有声明了 `HostCapabilities::next_word_prediction` 的宿主读它（Android 原生键盘、Windows 原生设置都有入口）。
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub next_word_prediction: bool,
     /// 上屏后联想时候选栏右端的按键，见 [`NextWordPredictionButtons`]；默认即现有的只有展开键，不写进文档。
@@ -2015,8 +2015,12 @@ pub struct Preferences {
     /// `nine_key_shuangpin_profile` 为 `custom` 时用的表，形状与 `shuangpin_custom_profile` 相同，键是数字：`initials` 放 23 个声母，`finals` 放 33 个韵母，各一个数字；`zero_initials` 放 12 个零声母音节，各两位数字。这里只限制大小，合不合法由 Engine 判定（`msime_engine::validate_nine_key_shuangpin_table`）；表缺失或不合法时宿主按默认的内置方案运行。选别的方案时保留，空表不写进文件。
     #[serde(default, skip_serializing_if = "ShuangpinCustomProfile::is_empty")]
     pub nine_key_shuangpin_custom_profile: ShuangpinCustomProfile,
+    /// 「双拼预编辑」：真时预编辑画原始按键，假时画展开的全拼分词（自然码 `nimf` 画成 `ni'men`）。
     #[serde(default = "enabled_by_default")]
     pub shuangpin_preedit_uses_raw: bool,
+    /// 「双拼预编辑」的第三档「双拼分隔」：`shuangpin_preedit_uses_raw` 为真时按音节在原始按键之间插 `'`（`nimf` 画成 `ni'mf`）；为假（拼音分词）时不读。单独成一个键而不是把上面那个布尔改成三选一：已经发出去的各端都按布尔读 `shuangpin_preedit_uses_raw`（macOS 账号同步的校验还要求它是布尔、键数固定），没有这个键的旧版本照样读得了新文档，读到的就是保留原始按键。等于默认值（关）时不写进文档。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub shuangpin_preedit_separated: bool,
     /// 「输入时显示双拼键位提示」：双拼组字时在候选窗旁显示当前方案的键位图，高亮刚按下的键，上屏后隐藏。macOS 和 Windows 画它。
     ///
     /// 没写过时为 `None`，不写进文档：这个开关以前只存在 macOS 本机的 defaults 里（`MSIMEClientShuangpinKeymap`），macOS 在文档从没带过这一项时仍读那里的旧选择，再由下一次保存写进文档；文档带着这一项载入过一次之后 macOS 删掉那个旧键，此后缺这一项在所有宿主上都是关。
@@ -2304,6 +2308,9 @@ pub struct Preferences {
     /// 内部标记，不是设置：这份文档已经按「AI 辅助翻译要显式选择」定过一次。Android 和 iOS 以前不读 `translation_ai`，AI 联想开着、又没选别的翻译服务时就用 AI 翻译候选；现在各端都只认 `translation_ai`，所以读到没有这个标记的文档时，在这两个平台上把当时实际在用 AI 翻译的情形一次性写成显式选择，再标上它（`Preferences::settle_translation_ai_selection`）；之后用户改选别的服务也不会再被改回来。新文档从一开始就带着它（`Default` 为真），缺键时按假读。保存时只会从假变真（`PreferencesStore::save`），恢复默认设置和导入设置文件都不会把它清掉。不在任何设置页上显示。
     #[serde(default, skip_serializing_if = "is_false")]
     pub translation_ai_migrated: bool,
+    /// 内部标记，不是设置：这份文档已经按「整句联想默认『增强』」定过一次。`sentence_association.neural_keyboard` 以前默认关，每个字段都序列化，旧文档里的 `false` 分不出「从没动过」和「自己选了『标准』」，所以读到没有这个标记的文档时，词网格开着就把它一次性打开，再标上它（`Preferences::settle_keyboard_reranker_default`）；词网格关着是用户选了「关闭」，不动。之后用户选回「标准」就一直是「标准」。新文档从一开始就带着它（`Default` 为真），缺键时按假读。保存时只会从假变真（`PreferencesStore::save`），恢复默认设置和导入设置文件都不会把它清掉。不在任何设置页上显示。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub keyboard_reranker_migrated: bool,
     /// 向 `https://api.msime.app/v1/telemetry/events` 发送匿名使用报告（每日活跃、会话结束、崩溃摘要；见 `telemetry` 和 PRIVACY.md）。默认开启；关闭后停止全部上报并清空本地队列。读取方把缺失的键当作开启。
     #[serde(default = "enabled_by_default")]
     pub usage_reporting: bool,
@@ -4034,6 +4041,19 @@ impl Preferences {
     }
 }
 
+impl Preferences {
+    /// 读入偏好文档时调用一次：文档还没有 `keyboard_reranker_migrated` 标记，就是整句联想默认改成「增强」之前写下的，那时 `sentence_association.neural_keyboard` 默认关、而且总被写进文档。词网格开着（「标准」或「增强」）时把它打开；词网格关着是用户在三档里选了「关闭」，那是明确不要整句联想，不动。不论哪种都标上标记，之后再读不会重来，用户之后选回「标准」的值原样保留。在默认改变之前有意从「增强」退回「标准」的人分不出来，会被打开一次，与智能标点默认开的迁移同样取舍。只改内存里读到的这份，文件等下一次真正的保存才带上新值和标记，在那之前每次读都得到同样的结果。
+    fn settle_keyboard_reranker_default(&mut self) {
+        if self.keyboard_reranker_migrated {
+            return;
+        }
+        if self.sentence_association.word_lattice {
+            self.sentence_association.neural_keyboard = true;
+        }
+        self.keyboard_reranker_migrated = true;
+    }
+}
+
 /// Three voice switches the source ships on and the shared document had off: muting other audio while recording, Doubao's semantic smoothing (DDC), and polishing the recognized text.
 ///
 /// `platforms/windows/installer/config.default.toml` has all three `true`, matching the source's factory configuration, but like smart punctuation that file is only the installed template - the running host reads this document - so the effective first-run value on Windows was `false`. macOS is the port of that desktop product and follows it. None of the three depends on the platform: muting uses CoreAudio on macOS, DDC is a Doubao request flag, and polishing still needs a polish token before anything is sent.
@@ -4368,6 +4388,7 @@ impl Default for Preferences {
             nine_key_shuangpin_profile: NineKeyShuangpinProfile::default(),
             nine_key_shuangpin_custom_profile: ShuangpinCustomProfile::default(),
             shuangpin_preedit_uses_raw: true,
+            shuangpin_preedit_separated: false,
             shuangpin_keymap_hint: None,
             vietnamese: VietnamesePreferences::default(),
             korean: KoreanPreferences::default(),
@@ -4456,6 +4477,7 @@ impl Default for Preferences {
             translation_account: false,
             translation_ai: false,
             translation_ai_migrated: true,
+            keyboard_reranker_migrated: true,
             usage_reporting: true,
             usage_reporting_consent: None,
             update_channel: UpdateChannel::Stable,
@@ -5808,6 +5830,7 @@ impl PreferencesStore {
         snapshot
             .preferences
             .settle_translation_ai_selection(TRANSLATION_AI_WAS_IMPLICIT);
+        snapshot.preferences.settle_keyboard_reranker_default();
         // 读到哪份文档就按哪份文档的代理设置发请求：设置窗口和输入宿主都可能建 HTTP 客户端，
         // 每个进程自己那份 `network::current` 由它读到的最近一版偏好决定（见 `crate::network`）。
         crate::network::install(&snapshot.preferences.network);
@@ -6188,6 +6211,10 @@ impl PreferencesStore {
         // AI 辅助翻译的迁移标记同理：不带上它，下一次读会把用户刚改选的服务又改回 AI 辅助。
         if current.preferences.translation_ai_migrated {
             preferences.translation_ai_migrated = true;
+        }
+        // 整句联想默认「增强」的迁移标记同理：不带上它，下一次读会把用户刚选回的「标准」又改成「增强」。
+        if current.preferences.keyboard_reranker_migrated {
+            preferences.keyboard_reranker_migrated = true;
         }
         // 切换热键在文档里只有规范形一种写法：别名写法在写入处归一，与出厂值等价的写法按出厂值不落盘。
         preferences.keybindings.normalize_toggle_hotkeys();
@@ -6752,6 +6779,10 @@ fn salvage_preferences(
     if !source.contains_key("translation_ai_migrated") {
         salvaged.remove("translation_ai_migrated");
     }
+    // 整句联想默认「增强」的迁移标记也一样：没有它的损坏文档出自默认改变之前，读回来照旧文档那样迁移一次。
+    if !source.contains_key("keyboard_reranker_migrated") {
+        salvaged.remove("keyboard_reranker_migrated");
+    }
     let mut kept = false;
     let mut not_kept = BTreeSet::new();
     for (key, value) in &source {
@@ -6792,6 +6823,7 @@ fn salvage_preferences(
     unknown.extend(newer_list_values(&serde_json::Value::Object(source)));
     preferences.settle_smart_punctuation_default(SMART_PUNCTUATION_WAS_OFF_BY_DEFAULT);
     preferences.settle_translation_ai_selection(TRANSLATION_AI_WAS_IMPLICIT);
+    preferences.settle_keyboard_reranker_default();
     Ok(Salvage {
         preferences,
         kept,

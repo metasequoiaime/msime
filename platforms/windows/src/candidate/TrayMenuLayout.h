@@ -65,7 +65,7 @@ struct TrayMenuCapabilities {
   scheme::OfferedSchemes schemes = scheme::edition_schemes();
   // 卡片标题和「关于」行里的产品名（UTF-8），按版本取；full 是「水杉输入法」。
   std::string product_name = MSIME_EDITION_DISPLAY_NAME_UTF8;
-  // 共享应用 MSIME.exe 在场时「云剪贴板…」「云词库…」才打得开，否则这两行显示为不可用。
+  // 面板宿主（缺省是共享应用 MSIME.exe，MSIME_WINDOWS_PANEL_HOST=native 时是 msime-client-panels.exe）在场时「云剪贴板…」「云词库…」才打得开，否则这两行显示为不可用。
   bool cloud_clipboard = false;
   bool cloud_dictionary = false;
   // 背单词面板同样在共享应用里，它不在时「背单词」一行不列出。

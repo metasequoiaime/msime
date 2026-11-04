@@ -249,6 +249,17 @@ impl Sources {
             .map(|dictionary| dictionary.root.join(path))
     }
 
+    /// msime-dictionary 里可以没有的手工文件：checkout 里还没有它（加入它之前的提交，或者构建器的固定提交先于词库仓库加上它）时为 `None`，构建按空表进行；文件存在时与其他 checkout 文件一样经 [`Self::pinned`] 检查路径。
+    pub fn optional(&self, path: &str) -> Result<Option<PathBuf>> {
+        let Some(resolved) = self.checkout_file(path) else {
+            return Ok(None);
+        };
+        match std::fs::symlink_metadata(&resolved) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            _ => self.pinned(path).map(Some),
+        }
+    }
+
     /// 解析一个输入：msime-dictionary 的路径只从 `--dictionary` checkout 读，其中的上游数据按 checkout 的 `upstream.lock.json` 校验；其他路径按锁文件校验并缓存，必要时下载。
     pub fn pinned(&self, path: &str) -> Result<PathBuf> {
         // 这个分支在查锁文件之前：即使锁文件里重新出现 `sources/` 或 `custom/` 的条目，也不会被读到。

@@ -341,7 +341,7 @@ public final class AccountFragment extends HomeTabFragment {
             StatisticsAuthenticationPreference.enabled(context),
             enabled -> StatisticsAuthenticationPreference.save(context, enabled)).help("开启后使用系统认证，5 分钟内再次进入不用重新验证；未配置锁屏凭据时直接进入");
         AppIconStyle icon = AppIcons.selected(context);
-        group.addView(KeyboardSheets.iconNavRow(context, context.getDrawable(AppIcons.resource(icon)),
+        group.addView(KeyboardSheets.iconNavRow(context, context.getDrawable(AppIcons.resource(context, icon)),
             "App 图标", null, icon.title(), this::showIcons));
     }
 

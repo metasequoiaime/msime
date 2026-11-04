@@ -17,9 +17,12 @@ final class SentenceAssociationSettingsTests: XCTestCase {
   }
 
   func testLevelsReadTheDocumentAsAndroidDoes() {
-    XCTAssertEqual(SentenceAssociationPreference.level(in: nil), .standard, "a missing object is the default 标准")
-    XCTAssertEqual(SentenceAssociationPreference.level(in: ["sentence_association": [String: Any]()]), .standard)
+    XCTAssertEqual(SentenceAssociationPreference.level(in: nil), .enhanced, "a missing object is the default 增强")
+    XCTAssertEqual(SentenceAssociationPreference.level(in: ["sentence_association": [String: Any]()]), .enhanced)
     XCTAssertEqual(SentenceAssociationPreference.level(in: ["sentence_association": ["neural_keyboard": true]]), .enhanced)
+    XCTAssertEqual(
+      SentenceAssociationPreference.level(in: ["sentence_association": ["neural_keyboard": false]]), .standard,
+      "an explicit 标准 stays 标准")
     XCTAssertEqual(
       SentenceAssociationPreference.level(in: ["sentence_association": ["word_lattice": false, "neural_keyboard": true]]),
       .off, "the lattice switch off is 关闭 whatever the model switch says")

@@ -28,6 +28,7 @@
 #include "../QuickPhraseCursorEdit.h"
 #include "../HostComposition.h"
 #include "../HostKoreanKey.h"
+#include "../HostCandidateNavigation.h"
 #include "../KeyboardCancellation.h"
 #include "../../../../shared/input/CompositionDisplay.h"
 #include <limits>
@@ -786,7 +787,8 @@ HRESULT CMetasequoiaIME::_HandleHostCandidateNavigation(TfEditCookie ec, ITfCont
     auto *host = _pCompositionProcessorEngine ? _pCompositionProcessorEngine->GetHostEngineAdapter() : nullptr;
     if (!host || !host->valid() || !_IsComposing()) return S_FALSE;
     std::string raw, error;
-    if (command && !host->command(command, &raw, &error)) return E_FAIL;
+    // 和 Server 一样让过候选窗不画的占位席位（HostCandidateNavigation.h），两份会话的高亮才停在同一格。
+    if (!msime::tsf::NavigateHostCandidates(*host, command, &raw, &error)) return E_FAIL;
     return _HandleCompositionInputWorker(_pCompositionProcessorEngine, ec, context, FANY_IME_NO_REQUEST_ID);
 }
 
@@ -1272,8 +1274,7 @@ HRESULT CMetasequoiaIME::_ApplyHostCompositionResult(TfEditCookie ec, ITfContext
         bool refresh = false;
         const HRESULT written = _CommitTextWithCursor(ec, pContext, text, suffix.size(), &refresh);
         if (written != S_OK) return written;
-        const bool composing = !result.view.phrase_prefix.empty() || !result.view.preedit.empty() ||
-                               !result.view.editing_text.empty() || !result.view.candidates.empty();
+        const bool composing = msime::tsf::HostViewComposes(result.view);
         if (refresh && composing && !_IsComposing()) {
             const uint64_t serial = _editorOperationSerial;
             const uint64_t focusGeneration = _deferredKeyFocusGeneration;

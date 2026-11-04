@@ -62,7 +62,10 @@ public:
            change.path == std::vector<std::string>{"backspace_reverts_selection"} ||
            change.path == std::vector<std::string>{"chinese_english_spacing"} ||
            change.path == std::vector<std::string>{"caret_edit_suffix"} ||
+           change.path == std::vector<std::string>{"next_word_prediction"} ||
            change.path == std::vector<std::string>{"shuangpin_keymap_hint"} ||
+           // 「双拼分隔」（#10717）等于缺省（关）时共享格式不写，第一次选它时要能补出这一项。
+           change.path == std::vector<std::string>{"shuangpin_preedit_separated"} ||
            change.path == std::vector<std::string>{"mixed_input", "enabled"} ||
            change.path == std::vector<std::string>{"mixed_input", "symbols"} ||
            change.path == std::vector<std::string>{"mixed_input", "japanese"} ||

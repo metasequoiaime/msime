@@ -9,6 +9,7 @@ $originalDebug = $env:CARGO_PROFILE_RELEASE_DEBUG
 $originalArm64Flags = $env:CARGO_TARGET_AARCH64_PC_WINDOWS_MSVC_RUSTFLAGS
 $originalVersion = $env:MSIME_VERSION
 $originalPlatformBuild = $env:MSIME_PLATFORM_BUILD
+$originalOrtLocation = $env:ORT_LIB_LOCATION
 . (Join-Path $PSScriptRoot 'pe_fixture.ps1')
 try {
     $desktopSymbols = Join-Path $fixture 'target/x86_64-pc-windows-msvc/release/msime_desktop.pdb'
@@ -28,7 +29,7 @@ try {
     Write-PEFixture (Join-Path $fixture 'target/windows-full/arm64/bin/MetasequoiaImeCrashWer.dll') arm64x dll
     Write-PEFixture (Join-Path $fixture 'target/windows-full/arm64/bin/msime_host_api_arm64.dll') arm64 dll
     foreach ($exe in @('MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe', 'msime-client-prepare.exe',
-        'msime-mcp.exe', 'msime-client-settings.exe', 'MSIME.exe')) {
+        'msime-mcp.exe', 'msime-client-settings.exe', 'MSIME.exe', 'msime-client-panels.exe')) {
         Write-PEFixture (Join-Path $fixture "target/windows-full/x64/bin/$exe") x64 exe
     }
     $voiceRuntimeLibraries = @('sherpa-onnx-c-api.dll', 'onnxruntime.dll', 'onnxruntime_providers_shared.dll')
@@ -43,6 +44,14 @@ try {
         New-Item -ItemType Directory -Force (Split-Path $path) | Out-Null
         [IO.File]::WriteAllText($path, 'synthetic')
     }
+    # Build-RustOutputs.ps1 reads the locked digest of the x64 ONNX Runtime library and stamps it beside the x64 release directory; with the stamp already at the locked digest, ort-sys is not cleaned and the call sequence is the same on every run.
+    $ortLock = Join-Path $fixture 'resources/onnxruntime-minimal.lock.json'
+    New-Item -ItemType Directory -Force (Split-Path $ortLock) | Out-Null
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../../../../resources/onnxruntime-minimal.lock.json') -Destination $ortLock
+    $ortDigest = [string](Get-Content -LiteralPath $ortLock -Raw -Encoding UTF8 | ConvertFrom-Json).targets.'x86_64-pc-windows-msvc'.library_sha256
+    $ortStamp = Join-Path $fixture 'target/x86_64-pc-windows-msvc/onnxruntime-library.sha256'
+    [IO.File]::WriteAllText($ortStamp, "$ortDigest`n")
+    $global:ClientBuildOrtLocation = Join-Path $fixture 'target/onnxruntime/x86_64-pc-windows-msvc'
     # Build-Client.ps1 按版本表找本次构建的版本，fixture 用仓库里的那一份。
     $editionTable = Join-Path $fixture 'shared/contracts/editions.json'
     New-Item -ItemType Directory -Force (Split-Path $editionTable) | Out-Null
@@ -54,13 +63,17 @@ try {
     Write-PEFixture (Join-Path $x86 'bin/synthetic-runtime.dll') x86 dll
     function global:Invoke-ClientCommandProbe {
         param([string]$Name, [object[]]$Values)
-        $global:ClientBuildCalls.Add(@{ Name = $Name; Values = $Values; Prefix = $env:CMAKE_PREFIX_PATH; PlatformBuild = $env:MSIME_PLATFORM_BUILD })
+        $global:ClientBuildCalls.Add(@{ Name = $Name; Values = $Values; Prefix = $env:CMAKE_PREFIX_PATH; PlatformBuild = $env:MSIME_PLATFORM_BUILD; OrtLocation = $env:ORT_LIB_LOCATION })
         $global:LASTEXITCODE = if ($global:ClientBuildCalls.Count -eq $global:ClientBuildFailAt) { 19 } else { 0 }
     }
     function global:cargo { Invoke-ClientCommandProbe cargo $args }
     function global:cmake { Invoke-ClientCommandProbe cmake $args }
     function global:pnpm { Invoke-ClientCommandProbe pnpm $args }
-    function global:python { Invoke-ClientCommandProbe python $args }
+    # fetch_onnxruntime.py prints the directory ORT_LIB_LOCATION names, which Build-RustOutputs.ps1 reads from its output.
+    function global:python {
+        Invoke-ClientCommandProbe python $args
+        if ($global:LASTEXITCODE -eq 0 -and "$($args[0])" -like '*fetch_onnxruntime.py') { $global:ClientBuildOrtLocation }
+    }
     function global:msbuild { Invoke-ClientCommandProbe msbuild $args }
     function global:lib { Invoke-ClientCommandProbe lib $args }
     $entry = Join-Path $PSScriptRoot '../../Build-Client.ps1'
@@ -80,11 +93,23 @@ try {
         & (Join-Path $PSScriptRoot '../../Test-PortableExecutable.ps1') `
             -LiteralPath (Join-Path $fixture "target/windows-full/$arch/bin/synthetic-runtime.dll") -Architecture $arch -Kind dll
     }
-    # Build-RustOutputs.ps1 first (0-13): x64 host, MCP and Tauri shell, then the x86 and ARM64 hosts, each copied into target/windows-rust/<arch> under the names Build-Client.ps1 stages. Then the x64 (14-19) and x86 (20-23) native builds, the voice runtime (24-25) and the Arm64X TIP (26-33).
-    if ($count -ne 34) { throw "Unexpected build stage count: $count" }
+    # Build-RustOutputs.ps1 first (0-14): the minimal ONNX Runtime fetch, x64 host, MCP and Tauri shell, then the x86 and ARM64 hosts, each copied into target/windows-rust/<arch> under the names Build-Client.ps1 stages. Then the x64 (15-22, the native panel host last) and x86 (23-26) native builds, the voice runtime (27-28) and the Arm64X TIP (29-36).
+    if ($count -ne 37) { throw "Unexpected build stage count: $count" }
     $calls = $global:ClientBuildCalls
     $rust = Join-Path $fixture 'target/windows-rust'
-    foreach ($rustStep in @(@(0, 'x86_64-pc-windows-msvc', 'x64'), @(10, 'i686-pc-windows-msvc', 'x86'), @(12, 'aarch64-pc-windows-msvc', 'arm64'))) {
+    # The x64 host links the minimal ONNX Runtime for the keystroke reranker: the locked library is fetched first, and the host is built with onnx-rerank. x86 and arm64 are only loaded by the TIP, whose sessions never mount the reranker, so they are built without it.
+    $ortFetch = $calls[0]
+    if ($ortFetch.Name -ne 'python' -or $ortFetch.Values[0] -ne (Join-Path $fixture 'scripts/fetch_onnxruntime.py') -or
+        [Array]::IndexOf($ortFetch.Values, 'x86_64-pc-windows-msvc') -ne ([Array]::IndexOf($ortFetch.Values, '--target') + 1)) {
+        throw 'ONNX Runtime fetch mismatch'
+    }
+    if ([Array]::IndexOf($calls[1].Values, 'onnx-rerank') -ne ([Array]::IndexOf($calls[1].Values, '--features') + 1) -or
+        $calls[1].OrtLocation -ne $global:ClientBuildOrtLocation -or
+        @($calls[11].Values + $calls[13].Values) -contains 'onnx-rerank') {
+        throw 'Only the x64 host is built with the ONNX rerank backend'
+    }
+    if (@($calls | Where-Object { $_.Name -eq 'cargo' -and $_.Values -contains 'clean' }).Count -ne 0) { throw 'ort-sys was cleaned although the stamped library is the locked one' }
+    foreach ($rustStep in @(@(1, 'x86_64-pc-windows-msvc', 'x64'), @(11, 'i686-pc-windows-msvc', 'x86'), @(13, 'aarch64-pc-windows-msvc', 'arm64'))) {
         $index, $triple, $arch = $rustStep
         if ($calls[$index].Name -ne 'cargo' -or $calls[$index].Values -notcontains $triple -or $calls[$index].Values -notcontains 'msime-host-api' -or
             $calls[$index + 1].Name -ne 'cmake' -or $calls[$index + 1].Values[-1] -ne (Join-Path $rust $arch) -or
@@ -96,14 +121,14 @@ try {
             throw "Host import library collection mismatch for $arch"
         }
     }
-    if ($calls[2].Values -notcontains 'msime-mcp' -or $calls[4].Values[-1] -ne (Join-Path $rust 'x64/msime-mcp.pdb') -or
-        $calls[4].Values -notcontains (Join-Path $fixture 'target/x86_64-pc-windows-msvc/release/msime_mcp.pdb') -or
-        $calls[7].Values -notcontains '--no-bundle' -or $calls[8].Values[-1] -ne (Join-Path $rust 'x64/MSIME.exe') -or
-        $calls[9].Values[-1] -ne (Join-Path $rust 'x64/MSIME.pdb')) {
+    if ($calls[3].Values -notcontains 'msime-mcp' -or $calls[5].Values[-1] -ne (Join-Path $rust 'x64/msime-mcp.pdb') -or
+        $calls[5].Values -notcontains (Join-Path $fixture 'target/x86_64-pc-windows-msvc/release/msime_mcp.pdb') -or
+        $calls[8].Values -notcontains '--no-bundle' -or $calls[9].Values[-1] -ne (Join-Path $rust 'x64/MSIME.exe') -or
+        $calls[10].Values[-1] -ne (Join-Path $rust 'x64/MSIME.pdb')) {
         throw 'Rust MCP or desktop build mismatch'
     }
     foreach ($arch in @('x64', 'x86')) {
-        $first = if ($arch -eq 'x64') { 14 } else { 20 }
+        $first = if ($arch -eq 'x64') { 15 } else { 23 }
         if ($calls[$first + 2].Values[-2] -ne (Join-Path $rust "$arch/msime_host_api.dll") -or
             $calls[$first + 2].Values[-1] -ne (Join-Path $fixture "target/windows-full/$arch/bin/msime_host_api.dll") -or
             $calls[$first + 3].Values[-1] -ne (Join-Path $fixture "target/windows-full/$arch/bin/msime_host_api.pdb") -or
@@ -111,21 +136,21 @@ try {
             throw "Host staging mismatch for $arch"
         }
     }
-    $rustStage = $calls[18].Values
+    $rustStage = $calls[19].Values
     foreach ($name in @('msime-mcp.exe', 'msime-mcp.pdb', 'MSIME.exe', 'MSIME.pdb')) {
         if ($rustStage -notcontains (Join-Path $rust "x64/$name")) { throw "Rust output not staged: $name" }
     }
     if ($rustStage[-1] -ne (Join-Path $fixture 'target/windows-full/x64/bin')) { throw 'Rust outputs staged outside the x64 bin directory' }
     # The on-device speech runtime is fetched for x64 only and staged beside the Server.
     $voiceRuntime = Join-Path $fixture 'target/voice-runtime/windows-x64'
-    $fetch = $calls[24]
+    $fetch = $calls[27]
     if ($fetch.Name -ne 'python' -or $fetch.Values[0] -ne (Join-Path $fixture 'scripts/fetch_voice_runtime.py') -or
         [Array]::IndexOf($fetch.Values, 'windows-x64') -ne ([Array]::IndexOf($fetch.Values, '--platform') + 1) -or
         [Array]::IndexOf($fetch.Values, $voiceRuntime) -ne ([Array]::IndexOf($fetch.Values, '--out') + 1)) {
         throw 'Voice runtime fetch mismatch'
     }
-    $stage = $calls[25].Values
-    if ($calls[25].Name -ne 'cmake' -or $stage[0] -ne '-E' -or $stage[1] -ne 'copy_if_different' -or
+    $stage = $calls[28].Values
+    if ($calls[28].Name -ne 'cmake' -or $stage[0] -ne '-E' -or $stage[1] -ne 'copy_if_different' -or
         $stage[-1] -ne (Join-Path $fixture 'target/windows-full/x64/bin') -or $stage.Count -ne 6) {
         throw 'Voice runtime staging mismatch'
     }
@@ -141,44 +166,61 @@ try {
     $arm64Library = Join-Path $arm64 'msime_host_api_arm64.dll.lib'
     $x64Library = Join-Path $rust 'x64/msime_host_api.dll.lib'
     $response = "-DMSIME_TSF_ARM64X_RESPONSE=$(Join-Path $arm64 'msime-tsf-arm64.rsp')"
-    if ($calls[26].Name -ne 'python' -or $calls[26].Values -notcontains 'host-def' -or $calls[26].Values -notcontains '--arm64' -or
-        $calls[26].Values -notcontains (Join-Path $rust 'arm64/msime_host_api.dll') -or
-        $calls[27].Name -ne 'lib' -or $calls[27].Values -notcontains "/OUT:$arm64Library" -or $calls[27].Values -notcontains '/MACHINE:ARM64' -or
-        $calls[28].Values -notcontains 'ARM64' -or $calls[28].Values -notcontains '-DMSIME_TSF_ARM64X=ARM64' -or
-        $calls[28].Values -notcontains "-DMSIME_HOST_LIBRARY=$arm64Library" -or $calls[28].Values -notcontains $response -or
-        $calls[29].Values -notcontains (Join-Path $arm64 'arm64') -or $calls[29].Values -notcontains 'msime-tsf' -or
-        $calls[30].Values -notcontains 'ARM64EC' -or $calls[30].Values -notcontains '-DMSIME_TSF_ARM64X=ARM64EC' -or
-        $calls[30].Values -notcontains "-DMSIME_HOST_LIBRARY=$x64Library" -or $calls[30].Values -notcontains $response -or
-        $calls[30].Values -notcontains "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO=$(Join-Path $arm64 'bin')" -or
-        $calls[30].Values -notcontains '-DMSIME_WINDOWS_VERSION=2026.9.1' -or
-        $calls[31].Values -notcontains (Join-Path $arm64 'arm64ec') -or
-        $calls[32].Values[-1] -ne (Join-Path $arm64 'bin/msime_host_api_arm64.dll') -or
-        $calls[32].Values -notcontains (Join-Path $rust 'arm64/msime_host_api.dll') -or
-        $calls[33].Values[-1] -ne (Join-Path $arm64 'bin/msime_host_api.pdb')) {
+    if ($calls[29].Name -ne 'python' -or $calls[29].Values -notcontains 'host-def' -or $calls[29].Values -notcontains '--arm64' -or
+        $calls[29].Values -notcontains (Join-Path $rust 'arm64/msime_host_api.dll') -or
+        $calls[30].Name -ne 'lib' -or $calls[30].Values -notcontains "/OUT:$arm64Library" -or $calls[30].Values -notcontains '/MACHINE:ARM64' -or
+        $calls[31].Values -notcontains 'ARM64' -or $calls[31].Values -notcontains '-DMSIME_TSF_ARM64X=ARM64' -or
+        $calls[31].Values -notcontains "-DMSIME_HOST_LIBRARY=$arm64Library" -or $calls[31].Values -notcontains $response -or
+        $calls[32].Values -notcontains (Join-Path $arm64 'arm64') -or $calls[32].Values -notcontains 'msime-tsf' -or
+        $calls[33].Values -notcontains 'ARM64EC' -or $calls[33].Values -notcontains '-DMSIME_TSF_ARM64X=ARM64EC' -or
+        $calls[33].Values -notcontains "-DMSIME_HOST_LIBRARY=$x64Library" -or $calls[33].Values -notcontains $response -or
+        $calls[33].Values -notcontains "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO=$(Join-Path $arm64 'bin')" -or
+        $calls[33].Values -notcontains '-DMSIME_WINDOWS_VERSION=2026.9.1' -or
+        $calls[34].Values -notcontains (Join-Path $arm64 'arm64ec') -or
+        $calls[35].Values[-1] -ne (Join-Path $arm64 'bin/msime_host_api_arm64.dll') -or
+        $calls[35].Values -notcontains (Join-Path $rust 'arm64/msime_host_api.dll') -or
+        $calls[36].Values[-1] -ne (Join-Path $arm64 'bin/msime_host_api.pdb')) {
         throw 'Arm64X TIP build mismatch'
     }
-    foreach ($index in 0..13) {
+    foreach ($index in 0..14) {
         if ($calls[$index].Prefix -ne $originalPrefix) { throw 'Rust build ran with a native dependency prefix' }
     }
-    foreach ($index in @(14, 15, 16, 17, 18, 19) + (24..33)) {
+    foreach ($index in @(15..22) + (27..36)) {
         if ($calls[$index].Prefix -ne $x64) { throw 'Incorrect x64 dependency scope' }
     }
-    foreach ($index in 20..23) {
+    foreach ($index in 23..26) {
         if ($calls[$index].Prefix -ne $x86) { throw 'Incorrect x86 dependency scope' }
     }
-    if ($calls[14].Values -notcontains 'x64' -or
-        $calls[14].Values -notcontains '-DMSIME_SERVER_UIACCESS=OFF' -or
-        $calls[20].Values -contains '-DMSIME_SERVER_UIACCESS=ON' -or
-        $calls[20].Values -notcontains 'Win32' -or
-        $calls[21].Values -notcontains 'msime-tsf' -or
-        $calls[19].Name -ne 'msbuild' -or
-        $calls[19].Values -notcontains '-restore' -or
-        $calls[19].Values -notcontains '/p:TargetName=msime-client-settings' -or
-        $calls[15].Values -notcontains 'RelWithDebInfo') { throw 'Build target mismatch' }
+    if ($calls[15].Values -notcontains 'x64' -or
+        $calls[15].Values -notcontains '-DMSIME_SERVER_UIACCESS=OFF' -or
+        $calls[23].Values -contains '-DMSIME_SERVER_UIACCESS=ON' -or
+        $calls[23].Values -notcontains 'Win32' -or
+        $calls[24].Values -notcontains 'msime-tsf' -or
+        $calls[20].Name -ne 'msbuild' -or
+        $calls[20].Values -notcontains '-restore' -or
+        $calls[20].Values -notcontains '/p:TargetName=msime-client-settings' -or
+        $calls[16].Values -notcontains 'RelWithDebInfo') { throw 'Build target mismatch' }
     # 设置窗口显示这个版本号，并以它为准检查更新。
-    if ($calls[19].Values -notcontains '/p:MsimeVersion=2026.9.1') { throw 'Settings window built without the target version' }
-    if ($calls[19].Values -notcontains "/p:NativeDependenciesInclude=$(Join-Path $x64 'include')") {
+    if ($calls[20].Values -notcontains '/p:MsimeVersion=2026.9.1') { throw 'Settings window built without the target version' }
+    if ($calls[20].Values -notcontains "/p:NativeDependenciesInclude=$(Join-Path $x64 'include')") {
         throw 'Settings window built without the shared native dependency prefix'
+    }
+    # 原生面板宿主：panels/win7 的源码以现代 Windows 变体编成 msime-client-panels.exe，进 x64 bin，链接与设置窗口相同的宿主导入库，带上目标版本，不编测试。
+    $panelConfigure = $calls[21].Values
+    if ($calls[21].Name -ne 'cmake' -or
+        [Array]::IndexOf($panelConfigure, (Join-Path $fixture 'platforms/windows/panels/win7')) -ne ([Array]::IndexOf($panelConfigure, '-S') + 1) -or
+        [Array]::IndexOf($panelConfigure, (Join-Path $fixture 'target/windows-full/x64/panels')) -ne ([Array]::IndexOf($panelConfigure, '-B') + 1) -or
+        $panelConfigure -notcontains '-DMSIME_PANELS_MODERN_WINDOWS=ON' -or $panelConfigure -notcontains '-DBUILD_TESTING=OFF' -or
+        $panelConfigure -notcontains ('-DMSIME_HOST_LIBRARY=' + (Join-Path $rust 'x64/msime_host_api.dll.lib')) -or
+        $panelConfigure -notcontains '-DMSIME_EDITION=full' -or $panelConfigure -notcontains 'x64' -or
+        $panelConfigure -notcontains "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO=$(Join-Path $fixture 'target/windows-full/x64/bin')" -or
+        $panelConfigure -notcontains '-DMSIME_WINDOWS_VERSION=2026.9.1' -or
+        @($panelConfigure | Where-Object { $_ -match 'MSIME_SERVER_UIACCESS' }).Count -ne 0) {
+        throw 'Native panel host configuration mismatch'
+    }
+    if ($calls[22].Name -ne 'cmake' -or $calls[22].Values -notcontains (Join-Path $fixture 'target/windows-full/x64/panels') -or
+        $calls[22].Values[-1] -ne 'msime-client-panels' -or $calls[22].Values -notcontains 'RelWithDebInfo') {
+        throw 'Native panel host build mismatch'
     }
     # With -RustOutputs, as each release edition runs, nothing is compiled by cargo or pnpm and every Rust input comes from that directory.
     $prebuilt = Join-Path $fixture 'prebuilt rust'
@@ -186,14 +228,15 @@ try {
     $global:ClientBuildCalls.Clear()
     & $entry -RepoRoot $fixture -X64Dependencies $x64 -X86Dependencies $x86 -TargetVersion '2026.9.1' -RustOutputs $prebuilt
     $calls = @($global:ClientBuildCalls)
-    if ($calls.Count -ne 20 -or @($calls | Where-Object { $_.Name -in 'cargo', 'pnpm' }).Count -ne 0) { throw 'Build compiled Rust although -RustOutputs was given' }
+    if ($calls.Count -ne 22 -or @($calls | Where-Object { $_.Name -in 'cargo', 'pnpm' }).Count -ne 0) { throw 'Build compiled Rust although -RustOutputs was given' }
     if ($calls[0].Values -notcontains '-DMSIME_SERVER_UIACCESS=OFF') { throw 'Prebuilt unsigned package requested UIAccess' }
     if ($calls[0].Values -notcontains ('-DMSIME_HOST_LIBRARY=' + (Join-Path $prebuilt 'x64/msime_host_api.dll.lib')) -or
         $calls[2].Values -notcontains (Join-Path $prebuilt 'x64/msime_host_api.dll') -or
         $calls[4].Values -notcontains (Join-Path $prebuilt 'x64/MSIME.exe') -or
-        $calls[6].Values -notcontains ('-DMSIME_HOST_LIBRARY=' + (Join-Path $prebuilt 'x86/msime_host_api.dll.lib')) -or
-        $calls[12].Values -notcontains (Join-Path $prebuilt 'arm64/msime_host_api.dll') -or
-        $calls[16].Values -notcontains ('-DMSIME_HOST_LIBRARY=' + (Join-Path $prebuilt 'x64/msime_host_api.dll.lib'))) {
+        $calls[6].Values -notcontains ('-DMSIME_HOST_LIBRARY=' + (Join-Path $prebuilt 'x64/msime_host_api.dll.lib')) -or
+        $calls[8].Values -notcontains ('-DMSIME_HOST_LIBRARY=' + (Join-Path $prebuilt 'x86/msime_host_api.dll.lib')) -or
+        $calls[14].Values -notcontains (Join-Path $prebuilt 'arm64/msime_host_api.dll') -or
+        $calls[18].Values -notcontains ('-DMSIME_HOST_LIBRARY=' + (Join-Path $prebuilt 'x64/msime_host_api.dll.lib'))) {
         throw 'Build did not take its Rust inputs from -RustOutputs'
     }
     # 同一输出目录从可信签名构建切回普通构建时，OFF 必须显式覆盖旧缓存。
@@ -225,7 +268,7 @@ try {
             $env:CARGO_TARGET_DIR -ne $originalTarget -or
             $env:CARGO_PROFILE_RELEASE_DEBUG -ne $originalDebug -or
             $env:CARGO_TARGET_AARCH64_PC_WINDOWS_MSVC_RUSTFLAGS -ne $originalArm64Flags -or $env:MSIME_VERSION -ne $originalVersion -or
-            $env:MSIME_PLATFORM_BUILD -ne $originalPlatformBuild) { throw 'Build leaked caller environment' }
+            $env:MSIME_PLATFORM_BUILD -ne $originalPlatformBuild -or $env:ORT_LIB_LOCATION -ne $originalOrtLocation) { throw 'Build leaked caller environment' }
     }
     $global:ClientBuildCalls.Clear()
     $global:ClientBuildFailAt = 0
@@ -236,10 +279,11 @@ try {
         if (-not $rejected -or $global:ClientBuildCalls.Count -ne 0) { throw 'Invalid version reached build tools' }
     }
     & $entry -RepoRoot $fixture -X64Dependencies $x64 -X86Dependencies $x86
-    # 不传 TargetVersion 时，桌面构建（第 7 条，pnpm tauri build）不带版本覆盖。
-    if ($global:ClientBuildCalls[7].Values -notcontains 'tauri' -or $global:ClientBuildCalls[7].Values -contains '--config') { throw 'Development version was overridden' }
-    # 设置窗口同样不带版本覆盖，由工程读取 version.txt。
+    # 不传 TargetVersion 时，桌面构建（第 8 条，pnpm tauri build）不带版本覆盖。
+    if ($global:ClientBuildCalls[8].Values -notcontains 'tauri' -or $global:ClientBuildCalls[8].Values -contains '--config') { throw 'Development version was overridden' }
+    # 设置窗口同样不带版本覆盖，由工程读取 version.txt；原生面板宿主的 CMake 也读 version.txt。
     if (@($global:ClientBuildCalls | Where-Object { $_.Name -eq 'msbuild' -and @($_.Values | Where-Object { $_ -like '/p:MsimeVersion=*' }).Count -ne 0 }).Count -ne 0) { throw 'Development settings version was overridden' }
+    if (@($global:ClientBuildCalls | Where-Object { $_.Name -eq 'cmake' -and $_.Values -contains '-DMSIME_PANELS_MODERN_WINDOWS=ON' -and @($_.Values | Where-Object { $_ -like '-DMSIME_WINDOWS_VERSION=*' }).Count -ne 0 }).Count -ne 0) { throw 'Development panel host version was overridden' }
     $global:ClientBuildCalls.Clear()
     Remove-Item -LiteralPath $desktopSymbols
     $rejected = $false
@@ -264,7 +308,7 @@ try {
     Write-PEFixture (Join-Path $fixture 'target/windows-wubi/arm64/bin/MetasequoiaImeCrashWer.dll') arm64x dll
     Write-PEFixture (Join-Path $fixture 'target/windows-wubi/arm64/bin/msime_host_api_wubi_arm64.dll') arm64 dll
     foreach ($exe in @('MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe', 'msime-client-prepare.exe',
-        'msime-mcp.exe', 'msime-client-settings.exe', 'MSIME.exe')) {
+        'msime-mcp.exe', 'msime-client-settings.exe', 'MSIME.exe', 'msime-client-panels.exe')) {
         Write-PEFixture (Join-Path $fixture "target/windows-wubi/x64/bin/$exe") x64 exe
     }
     foreach ($dll in $voiceRuntimeLibraries) {
@@ -298,6 +342,13 @@ try {
     if ($settings.Count -ne 1 -or $settings[0].Values -notcontains '/p:MsimeEdition=wubi' -or
         $settings[0].Values -notcontains ('/p:HostApiLibrary=' + (Join-Path $fixture 'target/windows-wubi/x64/msime_host_api_wubi.dll.lib'))) {
         throw 'Edition settings build mismatch'
+    }
+    # 原生面板宿主和设置窗口一样链接按版本改名的导入库，否则它会去找 full 的 msime_host_api.dll。
+    $panels = @($calls | Where-Object { $_.Name -eq 'cmake' -and $_.Values -contains '-DMSIME_PANELS_MODERN_WINDOWS=ON' })
+    if ($panels.Count -ne 1 -or $panels[0].Values -notcontains '-DMSIME_EDITION=wubi' -or
+        $panels[0].Values -notcontains ('-DMSIME_HOST_LIBRARY=' + (Join-Path $fixture 'target/windows-wubi/x64/msime_host_api_wubi.dll.lib')) -or
+        $panels[0].Values -notcontains "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO=$(Join-Path $fixture 'target/windows-wubi/x64/bin')") {
+        throw 'Edition native panel host build mismatch'
     }
     if (@($calls | Where-Object { $_.Name -eq 'cmake' -and $_.Values[-1] -eq (Join-Path $fixture 'target/windows-wubi/x64/bin') -and $_.Values -contains (Join-Path $fixture 'target/windows-rust/x64/MSIME.exe') }).Count -ne 1) {
         throw 'Edition desktop shell was not staged in the edition output'
@@ -347,9 +398,20 @@ try {
         $env:CARGO_TARGET_AARCH64_PC_WINDOWS_MSVC_RUSTFLAGS -ne $originalArm64Flags -or $env:MSIME_VERSION -ne $originalVersion) {
         throw 'PE verification failure leaked caller environment'
     }
+    # ort-sys copies the ONNX Runtime library into its own build directory once; when the stamped digest is not the locked one, the x64 build cleans ort-sys before building the host and stamps the locked digest afterwards.
+    [IO.File]::WriteAllText($ortStamp, "stale`n")
+    $global:ClientBuildCalls.Clear()
+    & (Join-Path $PSScriptRoot '../../Build-RustOutputs.ps1') -Architecture x64 -OutputDirectory (Join-Path $fixture 'target/windows-rust') -RepoRoot $fixture
+    $calls = @($global:ClientBuildCalls)
+    if ($calls[1].Name -ne 'cargo' -or $calls[1].Values -notcontains 'clean' -or $calls[1].Values -notcontains 'ort-sys' -or
+        $calls[1].Values -notcontains 'x86_64-pc-windows-msvc' -or $calls[2].Values -notcontains 'build' -or
+        (Get-Content -LiteralPath $ortStamp -Raw).Trim() -ne $ortDigest) {
+        throw 'A stale ONNX Runtime stamp did not clean ort-sys before the host build'
+    }
+    if ($env:ORT_LIB_LOCATION -ne $originalOrtLocation) { throw 'Build-RustOutputs.ps1 leaked ORT_LIB_LOCATION' }
     Write-Output 'Client build orchestration: targets, dependency scopes, failure stages and PE gate passed'
 } finally {
     Remove-Item Function:/cargo, Function:/cmake, Function:/pnpm, Function:/msbuild, Function:/python, Function:/lib, Function:/Invoke-ClientCommandProbe -ErrorAction SilentlyContinue
-    Remove-Variable ClientBuildCalls, ClientBuildFailAt -Scope Global -ErrorAction SilentlyContinue
+    Remove-Variable ClientBuildCalls, ClientBuildFailAt, ClientBuildOrtLocation -Scope Global -ErrorAction SilentlyContinue
     if (Test-Path $fixture) { Remove-Item -LiteralPath $fixture -Recurse -Force }
 }

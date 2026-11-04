@@ -111,12 +111,83 @@ pub fn list_custom_helpcode_schemas(resources: &Path) -> Vec<CustomHelpcodeSchem
         .collect()
 }
 
+/// 宿主列给设置页的自定义表：用户目录（状态根下的 `helpcodes/custom`）和资源目录两处合起来，按主干排序；同一主干两边都有时取用户目录那份，与 Engine 读表的顺序（`msime_engine::load_helpcode_keymap_in`）一致。`user_root` 不是绝对路径时只看资源目录。
+pub fn list_custom_helpcode_schemas_in(
+    resources: &Path,
+    user_root: Option<&Path>,
+) -> Vec<CustomHelpcodeSchema> {
+    let mut schemas = user_root
+        .filter(|path| path.is_absolute())
+        .map(list_custom_helpcode_schemas)
+        .unwrap_or_default();
+    for schema in list_custom_helpcode_schemas(resources) {
+        if !schemas
+            .iter()
+            .any(|listed| listed.file_stem == schema.file_stem)
+        {
+            schemas.push(schema);
+        }
+    }
+    schemas.sort_by(|left, right| left.file_stem.cmp(&right.file_stem));
+    schemas
+}
+
+/// 把资源目录里的自定义表复制进用户目录 `user_root/helpcodes/custom`，返回复制了几张。
+///
+/// 资源目录是安装包或词库代次：Windows 升级时删掉整个 `server` 目录，macOS 换掉整个应用包，在线词库更新把 `resources` 换成新代次，放在旧目录里的表就再也找不到了，偏好里的 `custom/<stem>` 只剩一张空表。宿主准备或刷新运行时配置时用它把还在的表搬到状态根下，之后 Engine 先读那里。用户目录里已有同一主干的表时不动它，源文件也不删；只复制按设置页同样规则列得出来、不超过 1 MiB 的普通文件，写成小写 `.txt`。经临时文件发布、不替换已有文件，几个进程同时搬也只有一份落地。任何一张读写失败都只是少复制一张，不影响准备流程。
+pub fn adopt_custom_helpcodes(user_root: &Path, sources: &[&Path]) -> usize {
+    if !user_root.is_absolute() {
+        return 0;
+    }
+    let destination = custom_helpcode_directory(user_root);
+    let mut adopted = 0;
+    for source in sources {
+        if !source.is_absolute() || *source == user_root {
+            continue;
+        }
+        for schema in list_custom_helpcode_schemas(source) {
+            if custom_helpcode_path(user_root, &schema.schema).is_some() {
+                continue;
+            }
+            let Some(path) = custom_helpcode_path(source, &schema.schema) else {
+                continue;
+            };
+            let Some(bytes) = read_table(&path) else {
+                continue;
+            };
+            if copy_table(&destination, &schema.file_stem, &bytes).is_ok() {
+                adopted += 1;
+            }
+        }
+    }
+    adopted
+}
+
+fn copy_table(directory: &Path, stem: &str, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    if !crate::storage::create_directory_and_check(directory)? {
+        return Err(std::io::ErrorKind::InvalidInput.into());
+    }
+    let mut staged = tempfile::Builder::new()
+        .prefix(".adopt-")
+        .tempfile_in(directory)?;
+    staged.write_all(bytes)?;
+    staged.as_file().sync_all()?;
+    staged
+        .persist_noclobber(directory.join(format!("{stem}.txt")))
+        .map_err(|error| error.error)?;
+    Ok(())
+}
+
+const MAX_HELPCODE_BYTES: u64 = 1024 * 1024;
+
+fn read_table(path: &Path) -> Option<Vec<u8>> {
+    let file = crate::storage::open_private_file_in(path).ok()?;
+    crate::bounded_io::read_bounded(file, MAX_HELPCODE_BYTES).ok()
+}
+
 fn read_display_names(path: &Path) -> (String, String) {
-    const MAX_HELPCODE_BYTES: u64 = 1024 * 1024;
-    let Ok(file) = crate::storage::open_private_file_in(path) else {
-        return (String::new(), String::new());
-    };
-    let Ok(bytes) = crate::bounded_io::read_bounded(file, MAX_HELPCODE_BYTES) else {
+    let Some(bytes) = read_table(path) else {
         return (String::new(), String::new());
     };
     let Ok(text) = std::str::from_utf8(&bytes) else {
@@ -346,5 +417,79 @@ mod tests {
         symlink(outside.path(), &directory).unwrap();
 
         assert!(list_custom_helpcode_schemas(resources.path()).is_empty());
+    }
+
+    /// 用户目录和资源目录合起来列出；同一主干取用户目录那份。
+    #[test]
+    fn lists_user_tables_before_resource_tables_of_the_same_stem() {
+        let resources = tempfile::tempdir().unwrap();
+        let state = tempfile::tempdir().unwrap();
+        let legacy = custom_helpcode_directory(resources.path());
+        let user = custom_helpcode_directory(state.path());
+        fs::create_dir_all(&legacy).unwrap();
+        fs::create_dir_all(&user).unwrap();
+        fs::write(legacy.join("both.txt"), "# name: 旧\n你=ab\n").unwrap();
+        fs::write(legacy.join("legacy.txt"), "你=ab\n").unwrap();
+        fs::write(user.join("both.txt"), "# name: 新\n你=ab\n").unwrap();
+        fs::write(user.join("mine.txt"), "你=ab\n").unwrap();
+
+        let schemas = list_custom_helpcode_schemas_in(resources.path(), Some(state.path()));
+        let listed: Vec<_> = schemas
+            .iter()
+            .map(|schema| (schema.schema.as_str(), schema.name.as_str()))
+            .collect();
+        assert_eq!(
+            listed,
+            [
+                ("custom/both", "新"),
+                ("custom/legacy", ""),
+                ("custom/mine", ""),
+            ]
+        );
+        assert_eq!(
+            list_custom_helpcode_schemas_in(resources.path(), Some(Path::new("relative"))),
+            list_custom_helpcode_schemas(resources.path())
+        );
+    }
+
+    /// 资源目录里的表复制进状态根：已有的不覆盖、源文件留着、超过 1 MiB 的不搬、再搬一次什么也不做；源就是状态根时跳过。
+    #[test]
+    fn adopts_resource_tables_into_the_user_root_once() {
+        let resources = tempfile::tempdir().unwrap();
+        let state = tempfile::tempdir().unwrap();
+        let legacy = custom_helpcode_directory(resources.path());
+        fs::create_dir_all(&legacy).unwrap();
+        fs::write(legacy.join("mine.TXT"), "# name: 我的\n你=ab\n").unwrap();
+        fs::write(legacy.join("kept.txt"), "你=cd\n").unwrap();
+        fs::write(legacy.join("huge.txt"), vec![b'x'; 1024 * 1024 + 1]).unwrap();
+        let user = custom_helpcode_directory(state.path());
+        fs::create_dir_all(&user).unwrap();
+        fs::write(user.join("kept.txt"), "你=ef\n").unwrap();
+
+        assert_eq!(
+            adopt_custom_helpcodes(state.path(), &[resources.path(), state.path()]),
+            1
+        );
+        assert_eq!(
+            fs::read_to_string(user.join("mine.txt")).unwrap(),
+            "# name: 我的\n你=ab\n"
+        );
+        assert_eq!(
+            fs::read_to_string(user.join("kept.txt")).unwrap(),
+            "你=ef\n"
+        );
+        assert!(!user.join("huge.txt").exists());
+        assert!(legacy.join("mine.TXT").is_file());
+        assert_eq!(adopt_custom_helpcodes(state.path(), &[resources.path()]), 0);
+        assert_eq!(
+            adopt_custom_helpcodes(Path::new("relative"), &[resources.path()]),
+            0
+        );
+        let leftovers: Vec<_> = fs::read_dir(&user)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .filter(|name| name.starts_with('.'))
+            .collect();
+        assert!(leftovers.is_empty(), "{leftovers:?}");
     }
 }

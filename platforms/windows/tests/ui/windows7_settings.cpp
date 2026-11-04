@@ -140,6 +140,9 @@ int main() {
   // 共享序列化省略的 `caret_edit_suffix` 只能补布尔值。
   assert(!restored.snapshot->preferences().contains("caret_edit_suffix"));
   assert(store.save(*restored.snapshot, {{{"caret_edit_suffix"}, "invalid"}}).outcome == Outcome::invalid_change);
+  // `next_word_prediction` 同样关着时不写，也只能补布尔值。
+  assert(!restored.snapshot->preferences().contains("next_word_prediction"));
+  assert(store.save(*restored.snapshot, {{{"next_word_prediction"}, "invalid"}}).outcome == Outcome::invalid_change);
   auto rejected = store.save(*restored.snapshot, {{{"keybindings", "switch_language_caps_lock"}, "invalid"}});
   assert(rejected.outcome == Outcome::storage);
   assert(store.load().snapshot->revision() == restored.snapshot->revision());
@@ -664,6 +667,44 @@ int main() {
   click(caret_edit_suffix);
   assert(!store.load().snapshot->preferences().contains("caret_edit_suffix"));
   assert(SendMessageW(GetDlgItem(body, caret_edit_suffix), BM_GETCHECK, 0, 0) == BST_UNCHECKED);
+#if MSIME_EDITION_NEURAL_KEYBOARD
+  // 「整句联想」两档写共享的 `neural_keyboard`：选「标准」写 false、选「增强」写 true，下拉框跟着文档走；「本地整句联想」关着时照样可选（逐键重排不看词网格），开关它不改存着的档位。
+  {
+    const HWND level = GetDlgItem(body, sentence_association_level);
+    assert(level);
+    const auto association = [&] { return store.load().snapshot->preferences().at("sentence_association"); };
+    assert(association().value("word_lattice", true));
+    assert(SendMessageW(level, CB_GETCURSEL, 0, 0) == (association().value("neural_keyboard", true) ? 1 : 0));
+    select_value(sentence_association_level, 0);
+    assert(association().at("neural_keyboard") == false);
+    assert(SendMessageW(level, CB_GETCURSEL, 0, 0) == 0);
+    select_value(sentence_association_level, 1);
+    assert(association().at("neural_keyboard") == true);
+    assert(SendMessageW(level, CB_GETCURSEL, 0, 0) == 1);
+    click(word_lattice);
+    assert(association().at("word_lattice") == false);
+    assert(IsWindowEnabled(level));
+    assert(association().at("neural_keyboard") == true);
+    click(word_lattice);
+    assert(association().at("word_lattice") == true);
+    assert(IsWindowEnabled(level));
+    assert(association().at("neural_keyboard") == true);
+  }
+#else
+  assert(!GetDlgItem(body, sentence_association_level));
+#endif
+  // 「上屏后联想」与 Android、共享页同一个标题，缺省为关、关着时不写键；打开写 true，再关掉键又消失。
+  assert(GetDlgItem(body, next_word_prediction));
+  assert(caption(GetDlgItem(body, next_word_prediction)) == L"上屏后联想");
+  assert(!store.load().snapshot->preferences().contains("next_word_prediction"));
+  assert(SendMessageW(GetDlgItem(body, next_word_prediction), BM_GETCHECK, 0, 0) == BST_UNCHECKED);
+  assert(IsWindowEnabled(GetDlgItem(body, next_word_prediction)));
+  click(next_word_prediction);
+  assert(store.load().snapshot->preferences().at("next_word_prediction") == true);
+  assert(SendMessageW(GetDlgItem(body, next_word_prediction), BM_GETCHECK, 0, 0) == BST_CHECKED);
+  click(next_word_prediction);
+  assert(!store.load().snapshot->preferences().contains("next_word_prediction"));
+  assert(SendMessageW(GetDlgItem(body, next_word_prediction), BM_GETCHECK, 0, 0) == BST_UNCHECKED);
   // 选择来源和编辑文本只改草稿；失败后无关偏好保存也不能把草稿抹掉。
   saved = store.load();
   const auto before_draft = saved.snapshot->revision();
@@ -955,8 +996,13 @@ int main() {
     assert(store.load().snapshot->preferences().at("shuangpin_profile") == "ziranma");
     click(scheme_shuangpin_hint);
     assert(store.load().snapshot->preferences().at("shuangpin_keymap_hint") == true);
+    // #10717：第二档「双拼分隔」写两个键，第三档「拼音分词」时清掉分隔。
     select_value(scheme_shuangpin_preedit, 1);
+    assert(store.load().snapshot->preferences().at("shuangpin_preedit_uses_raw") == true);
+    assert(store.load().snapshot->preferences().at("shuangpin_preedit_separated") == true);
+    select_value(scheme_shuangpin_preedit, 2);
     assert(store.load().snapshot->preferences().at("shuangpin_preedit_uses_raw") == false);
+    assert(store.load().snapshot->preferences().value("shuangpin_preedit_separated", false) == false);
     // 已有自定义表只读展示；选择内置方案保留自定义表本身。
     saved = store.load();
     auto custom_profile = store.save(*saved.snapshot, {{{"shuangpin_profile"}, "custom"}});
@@ -984,6 +1030,13 @@ int main() {
     const bool hint_before = store.load().snapshot->preferences().at("wubi_code_hint").get<bool>();
     click(scheme_wubi_hint);
     assert(store.load().snapshot->preferences().at("wubi_code_hint").get<bool>() != hint_before);
+    // #10696：顶字和 z 通配以前只在共享设置页里有开关，Windows 7 设置也要能改。
+    const bool wildcard_before = store.load().snapshot->preferences().value("wubi_z_wildcard", false);
+    click(scheme_wubi_wildcard);
+    assert(store.load().snapshot->preferences().at("wubi_z_wildcard").get<bool>() != wildcard_before);
+    const bool top_before = store.load().snapshot->preferences().value("wubi_fifth_code_top_commit", true);
+    click(scheme_wubi_top);
+    assert(store.load().snapshot->preferences().at("wubi_fifth_code_top_commit").get<bool>() != top_before);
     const bool unique_before = store.load().snapshot->preferences().at("wubi_auto_commit_unique").get<bool>();
     click(scheme_wubi_unique);
     assert(store.load().snapshot->preferences().at("wubi_auto_commit_unique").get<bool>() != unique_before);
@@ -1259,6 +1312,12 @@ int main() {
   const bool previous_logo = store.load().snapshot->preferences().at("show_app_logo").get<bool>();
   click(appearance_logo);
   assert(store.load().snapshot->preferences().at("show_app_logo").get<bool>() != previous_logo);
+  // 页码开关缺值按开显示为勾选，点掉写 false、再点写回 true（#10709）。
+  assert(SendMessageW(GetDlgItem(body, appearance_page_number), BM_GETCHECK, 0, 0) == BST_CHECKED);
+  click(appearance_page_number);
+  assert(store.load().snapshot->preferences().at("show_candidate_page_number") == false);
+  click(appearance_page_number);
+  assert(store.load().snapshot->preferences().at("show_candidate_page_number") == true);
   const auto before_fonts = store.load().snapshot->revision();
   select_value(appearance_font_preset, 1);
   saved = store.load();

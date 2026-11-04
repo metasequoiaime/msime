@@ -3,7 +3,7 @@ set -euo pipefail
 repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$repo_root"
 abi=${1:-arm64-v8a}
-# 第二个参数 --omit-voice-runtime 由 build-apk.sh 在 MSIME_ANDROID_OMIT_ON_DEMAND=1 时传入：本地语音运行库（libsherpa-onnx-c-api.so 与 libonnxruntime.so）不进 jniLibs，由应用在用户打开离线识别时作为资源包 voice-runtime 下载（固定在 resources/voice-runtime-android.lock.json）。不带这个参数时照旧取出这两个库，build-client-apk.sh 的 Tauri 合包靠的就是这条默认路径。
+# 第二个参数 --omit-voice-runtime 由 build-apk.sh 在 MSIME_ANDROID_OMIT_ON_DEMAND=1 时传入：本地语音运行库（libsherpa-onnx-c-api.so 与 libonnxruntime.so）不进 jniLibs，由应用在用户打开离线识别时作为资源包 voice-runtime 下载（固定在 resources/voice-runtime-android.lock.json）。不带这个参数时照旧取出这两个库。
 include_voice_runtime=1
 case "${2:-}" in
   '') ;;
@@ -43,12 +43,23 @@ deps="$repo_root/target/android-deps/$abi"
 ANDROID_NDK_HOME="$ndk" VCPKG_DISABLE_METRICS=1 "$vcpkg_root/vcpkg" install \
   --x-manifest-root="$repo_root/platforms/android" --x-install-root="$deps" \
   --overlay-triplets="$repo_root/platforms/android/triplets" --triplet="$triplet"
+# 整句联想「增强」的逐键重排跑在 ONNX Runtime 上（host-api 的 `onnx-rerank` 特性，见 .agents/notes/implemented/architecture/2026-11-01-onnx-rerank-backend.md）：精简构建的静态库按 resources/onnxruntime-minimal.lock.json 下载核对，链进 libmsime_host_api.so（链接 libc++_shared.so，下面照旧随包）。两个 ABI 在锁里都有；32 位不在锁里，这个脚本也不编 32 位。模型不进 APK：瘦包已贴着体积上限，手机档模型是资源包 rerank-model-small，用户选「增强」时下载，没装时退回随包的 sentence-model.safetensors。
+ort_location=$(python3 scripts/fetch_onnxruntime.py --target "$rust_target")
+# ort-sys 把静态库复制进自己的输出目录，库换了也不会重新复制；按锁里库的 SHA-256 记一个戳，变了就让它重新复制。
+ort_stamp="$repo_root/target/android-cargo/onnxruntime-$rust_target.sha256"
+ort_library_sha=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["targets"][sys.argv[2]]["library_sha256"])' resources/onnxruntime-minimal.lock.json "$rust_target")
+if [ -d "$repo_root/target/android-cargo/$rust_target" ] && [ "$(cat "$ort_stamp" 2>/dev/null)" != "$ort_library_sha" ]; then
+  CARGO_TARGET_DIR="$repo_root/target/android-cargo" cargo clean -p ort-sys --target "$rust_target" --release
+fi
 env "CC_${rust_target//-/_}=$compiler" "CXX_${rust_target//-/_}=$compiler++" \
   "AR_${rust_target//-/_}=$toolchain/bin/llvm-ar" "$cargo_linker=$compiler" \
   CARGO_TARGET_DIR="$repo_root/target/android-cargo" \
   CARGO_PROFILE_RELEASE_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_STRIP=none \
   RUSTFLAGS="-C link-arg=-Wl,-z,max-page-size=16384 -C link-arg=-Wl,--build-id=sha1" \
-  cargo build -p msime-host-api --target "$rust_target" --release --locked
+  ORT_LIB_LOCATION="$ort_location" \
+  cargo build -p msime-host-api --features onnx-rerank --target "$rust_target" --release --locked
+mkdir -p "$repo_root/target/android-cargo"
+printf '%s\n' "$ort_library_sha" > "$ort_stamp"
 cp "$repo_root/target/android-cargo/$rust_target/release/libmsime_host_api.so" "$output/"
 cp "$toolchain/sysroot/usr/lib/$compiler_target/libc++_shared.so" "$output/"
 # On-device speech recognition: the sherpa-onnx C API and ONNX Runtime come prebuilt from the pinned release in resources/voice-runtime.lock.json (fetched and hash-checked, never committed). Only the two native libraries are taken from the .aar; LocalAsr loads the C API with dlopen, so a missing runtime disables local recognition instead of the keyboard.
@@ -65,7 +76,7 @@ fi
   -Wl,--no-undefined -Wl,-z,max-page-size=16384 -Wl,-soname,libmsime_android.so \
   platforms/android/native/client_jni.cpp platforms/android/native/JniCallbacks.cpp platforms/common/CrashRecorder.cpp shared/voice/LocalAsr.cpp \
   -Icrates/host-api/include -Ishared -Ishared/voice/third_party -I"$deps/$triplet/include" \
-  -L"$output" -lmsime_host_api -ldl -o "$output/libmsime_android.so"
+  -L"$output" -lmsime_host_api -ldl -llog -o "$output/libmsime_android.so"
 bash platforms/android/verify-native.sh "$toolchain/bin/llvm-readelf" "$output" "$abi"
 notices="$repo_root/target/android/notices/$abi"
 mkdir -p "$notices"
@@ -74,10 +85,12 @@ for copyright_file in "$deps/$triplet"/share/*/copyright; do
   cp "$copyright_file" "$notices/$package.txt"
 done
 cp "$toolchain/NOTICE" "$notices/ndk-toolchain.txt"
-# 省略语音运行库时这三份声明照样随包：下载的资源包是同一份上游库，加载它的仍是这个应用。
+# 省略语音运行库时这三份声明照样随包：下载的资源包是同一份上游库，加载它的仍是这个应用。libmsime_host_api.so 静态链接的精简 ONNX Runtime（逐键重排）也是同一个项目的 MIT 代码，同样由这两份声明覆盖。
 cp shared/voice/third_party/sherpa-onnx/LICENSE "$notices/sherpa-onnx.txt"
 cp platforms/linux/data/licenses/onnxruntime-MIT.txt "$notices/onnxruntime.txt"
 cp platforms/linux/data/licenses/onnxruntime-ThirdPartyNotices.txt "$notices/onnxruntime-third-party.txt"
+# 整句候选「增强」的逐键重排模型（chinese-ime-lm rerank-v2 的 6x256，Apache-2.0）不在 APK 里，由应用下载成资源包 rerank-model-small（resources/rerank-model.lock.json），加载它的仍是这个应用；许可证、上游 NOTICE 与语料署名随原生库的声明一起分发，关于页列出它。
+cp resources/licenses/rerank-model-Apache-2.0.txt "$notices/rerank-model-Apache-2.0.txt"
 cp "$toolchain/sysroot/NOTICE" "$notices/ndk-sysroot.txt"
 # The input engine in libmsime_host_api.so embeds the Korean Hanja table from libhangul's data/hanja/hanja.txt, which is BSD-3-Clause: clause 2 requires its notice in every binary distribution, so it travels with the library's other notices into assets/native-notices.
 cp resources/licenses/libhangul-hanja-BSD-3-Clause.txt "$notices/libhangul-hanja.txt"
@@ -89,7 +102,7 @@ cp resources/licenses/libcxx-Apache-2.0-WITH-LLVM-exception.txt "$notices/libcxx
 cp resources/licenses/latex-symbols-MIT.txt "$notices/latex-symbols-MIT.txt"
 # 输入引擎本身（crates/engine、crates/path-trust，源码在本仓库）和它链接的 rink-core（单位换算，源码在 crates.io）是 MPL-2.0，二进制分发要附上许可证全文。
 cp resources/licenses/MPL-2.0.txt "$notices/MPL-2.0.txt"
-# The engine's Cantonese and Zhuyin schemes take their Jyutping and bopomofo syllables and words from data derived from rime-cantonese (CC BY 4.0, which requires attribution) and libchewing-data (LGPL-2.1-or-later, which requires the licence text and a source pointer). build-apk.sh and build-client-apk.sh package the dictionaries themselves, each beside its own licence text, when target/language-dictionaries (or MSIME_LANGUAGE_DICTIONARIES) holds them; the notices travel with every engine build either way so that one notice list covers every platform.
+# 引擎的粤拼和注音方案用到的音节和词来自 rime-cantonese（CC BY 4.0，要求署名）和 libchewing-data（LGPL-2.1-or-later，要求附许可证全文和源码出处）的派生数据。target/language-dictionaries（或 MSIME_LANGUAGE_DICTIONARIES）里有词库时，build-apk.sh 把词库连同各自的许可证一起打包；不论有没有词库，这些声明都随每份引擎构建分发，这样一份声明清单就覆盖所有平台。
 cp resources/licenses/rime-cantonese-CC-BY-4.0.txt "$notices/rime-cantonese.txt"
 cp resources/licenses/libchewing-data-LGPL-2.1.txt "$notices/libchewing-data.txt"
 # The Stroke scheme's stroke orders come from rime-stroke (LGPL-3.0, whose main table also carries the CNS11643 attribution); its notice travels the same way.

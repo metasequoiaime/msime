@@ -350,12 +350,20 @@ struct HostSession {
     resources_pending: bool,
     /// HostOptions 记录的键盘模型路径（`sentence_model`），为 `None` 时用资源目录里的那份；`neural_keyboard` 在会话中途打开时按它加载逐键重排，见 [`ffi::keyboard_reranker`]。
     recorded_sentence_model: Option<String>,
+    /// 上一次挂逐键重排时 ONNX 模型的来源目录（[`ffi::onnx_rerank_source`]），没有 ONNX 模型或没开特性时为 `None`。聚焦时与此刻的来源比较：设置应用刚装好（或移除了）`rerank-model-small` 资源包时重新挂。
+    keyboard_reranker_source: Option<PathBuf>,
+    /// 宿主在会话选项里写了 `keyboard_reranker: false`（镜像会话）时为 `false`：「增强」打开也不挂逐键重排。
+    keyboard_reranker_allowed: bool,
+    /// HostOptions 记录的 ONNX 重排模型目录（`rerank_models`），为 `None` 时在随包资源目录旁边找，见 [`ffi::keyboard_reranker`]。
+    recorded_rerank_models: Option<String>,
     /// HostOptions 记录的落定重排模型路径（`settled_model`）：随包的模型优先于下载的资源包，见 [`settled_model_file`]。
     recorded_settled_model: Option<String>,
     /// 当前挂在 runtime 上的落定重排模型文件，没有模型时为 `None`。
     settled_model: Option<PathBuf>,
     /// runtime 上是否真挂着落定重排模型：`settled_model` 有路径而文件读不了或不是可用的模型时为 `false`。只用于诊断，不看 runtime 自己的槽，因为后台评分进行中模型被评分任务借走，槽是空的。
     settled_model_attached: bool,
+    /// 逐键重排器在后台线程里挂（[`load_keyboard_reranker`]）：第一次挂要加载 ONNX 模型、自测打一页的耗时，大小两个都装着时各一遍，Mac 上一秒多，忙时更久，放在输入线程上会把这段时间里的按键全堵住，超过 IMK 的等待时限后应用把键当作没处理，原样插进文字（#10743）。挂好前照常打字、不排序；槽有值后，下一次输入空闲的 `apply_pending` 换上并清掉这一项。为 `None` 时没有在挂的。
+    keyboard_reranker_loading: Option<KeyboardRerankerSlot>,
     /// 聚焦时发现落定重排模型的文件变了（资源包刚装好或被移除），`settled_model` 已经更新，新模型在后台线程加载到这个槽里；槽有值后，下一次输入空闲的 `apply_pending` 把它换上并清掉这一项。为 `None` 时没有待换的模型。
     settled_model_loading: Option<SettledModelSlot>,
     /// 生命周期核心的状态，只由 `msime_client_set_lifecycle` 设上。为 `None` 时（移动端宿主从不调用它）不推导任何事件，transition JSON 逐字节不变。
@@ -395,6 +403,21 @@ const CARET_EDIT_SUFFIX_HOST: bool = cfg!(any(
 
 fn caret_edit_suffix_applies(preferences: &Preferences) -> bool {
     CARET_EDIT_SUFFIX_HOST && preferences.caret_edit_suffix
+}
+
+/// 请求的偏好与会话已应用的是否不同到需要重建 Engine。持续上报授权的历史（`usage_reporting_consent`）不算：它只属于本机，由上报观察线程自己从偏好文件读（`ffi/reporting.rs`），Engine 和会话都不用；宿主交来的选项文档多半不带它，算进去会让每个新会话第一次读偏好时白白排上一次重建，这次重建落在第一次上屏之后，把刚出来的上屏后联想清掉（Linux IBus 上实测）。
+fn session_preferences_differ(requested: &Preferences, applied: &Preferences) -> bool {
+    if requested.usage_reporting_consent == applied.usage_reporting_consent {
+        return requested != applied;
+    }
+    let mut requested = requested.clone();
+    requested.usage_reporting_consent = applied.usage_reporting_consent;
+    requested != *applied
+}
+
+/// 上屏后联想只在接好了显示和按键的宿主上交给 Engine（`HostPlatform::shows_next_word_prediction`）：别的宿主收到联想会把它当成组字，数字、空格或回车可能把用户没选的词上屏。偏好随同步到达这些宿主时一律按关。
+fn next_word_prediction_applies(preferences: &Preferences) -> bool {
+    ffi::host::compiled_platform().shows_next_word_prediction() && preferences.next_word_prediction
 }
 
 fn multilingual_languages_for(
@@ -811,6 +834,16 @@ impl HostSession {
                     .map_err(|e| e.to_string())?;
             }
             // 落定重排模型不属于 Engine，换模型不用重建 Engine。约 25 MB 的权重由 `refresh_resource_packs` 起的后台线程加载，这里只在加载完之后、输入空闲时换上，不在输入线程上读文件；还没加载完就留到下一次。
+            // 后台挂好的逐键重排器同样在输入空闲时换上：组字中途换了打分器，整句池跟着变，正在看的候选会忽然重排。
+            let attached = self.keyboard_reranker_loading.as_ref().and_then(|slot| {
+                slot.lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .take()
+            });
+            if let Some(scorer) = attached {
+                self.keyboard_reranker_loading = None;
+                self.runtime.set_candidate_scorer(scorer);
+            }
             if let Some(model) = self
                 .settled_model_loading
                 .as_ref()
@@ -822,7 +855,11 @@ impl HostSession {
                 self.report_settled_model();
             }
         }
-        if !(self.preferences_pending || self.resources_pending) || !self.runtime.is_idle() {
+        // 上屏后联想也算空闲，但重建 Engine 会清掉它：等联想结束（下一个按键或选中之外的任何操作）再重建。
+        if !(self.preferences_pending || self.resources_pending)
+            || !self.runtime.is_idle()
+            || self.runtime.shows_prediction()
+        {
             return Ok(None);
         }
         // 只因资源包变化而重建时，没有新请求的偏好，按已应用的那份重建。
@@ -849,12 +886,12 @@ impl HostSession {
         let fallback =
             scheme_fallback.or(profile_fallback.filter(|_| scheme == InputScheme::Shuangpin));
         options.shuangpin_preedit_uses_raw = preferences.shuangpin_preedit_uses_raw;
+        options.shuangpin_preedit_separated = preferences.shuangpin_preedit_separated;
         options.force_cantonese_shuangpin = force_cantonese_shuangpin(scheme, &preferences);
         options.single_character_only = preferences.single_character_only;
         options.caret_edit_suffix = caret_edit_suffix_applies(&preferences);
         options.learning = preferences.learning;
-        options.next_word_prediction =
-            preferences.next_word_prediction && cfg!(target_os = "android");
+        options.next_word_prediction = next_word_prediction_applies(&preferences);
         options.learn_english_on_enter = preferences.enter_learns_english_word;
         options.autocorrect_transposition = preferences.quanpin.autocorrect_transposition;
         options.autocorrect_neighbor = preferences.quanpin.autocorrect_neighbor;
@@ -1019,13 +1056,37 @@ impl HostSession {
                 &preferences,
             ));
         // The keyboard model follows its switch the same way, but is dropped rather than idled while off: it is the one that runs inside every keystroke.
-        let keyboard = keyboard_reranker_enabled(&preferences.sentence_association, self.edition);
-        if keyboard != self.runtime.has_reranker() {
-            self.runtime.set_reranker(ffi::keyboard_reranker(
-                keyboard,
+        let keyboard = self.keyboard_reranker_allowed
+            && keyboard_reranker_enabled(&preferences.sentence_association, self.edition);
+        if keyboard != (self.runtime.has_reranker() || self.keyboard_reranker_loading.is_some()) {
+            if keyboard {
+                self.keyboard_reranker_loading = Some(load_keyboard_reranker(
+                    &options.resources,
+                    options.helpcode_fallback_resources.as_deref(),
+                    self.recorded_rerank_models.as_deref(),
+                    self.plugin_roots.builtin_sounds.as_deref(),
+                    self.state_root.as_deref(),
+                    self.recorded_sentence_model.as_deref(),
+                ));
+            } else {
+                self.keyboard_reranker_loading = None;
+                self.runtime.set_candidate_scorer(ffi::keyboard_reranker(
+                    false,
+                    &options.resources,
+                    options.helpcode_fallback_resources.as_deref(),
+                    self.recorded_rerank_models.as_deref(),
+                    self.plugin_roots.builtin_sounds.as_deref(),
+                    self.state_root.as_deref(),
+                    self.recorded_sentence_model.as_deref(),
+                ));
+            }
+            self.keyboard_reranker_source = ffi::onnx_rerank_source(
                 &options.resources,
-                self.recorded_sentence_model.as_deref(),
-            ));
+                options.helpcode_fallback_resources.as_deref(),
+                self.recorded_rerank_models.as_deref(),
+                self.plugin_roots.builtin_sounds.as_deref(),
+                self.state_root.as_deref(),
+            );
         }
         self.options = options;
         self.plugin_tables = plugin_tables;
@@ -1115,6 +1176,30 @@ impl HostSession {
                 &self.options.resources,
                 self.settled_model.clone(),
             ));
+        }
+        // 「增强」开着时，设置应用可能刚装好（或移除了）逐键重排模型的资源包（Android 的 `rerank-model-small`）：来源变了就重新挂，随包的句子模型换成 ONNX 模型，或反过来。
+        if self.keyboard_reranker_allowed
+            && keyboard_reranker_enabled(&self.applied.sentence_association, self.edition)
+        {
+            let source = ffi::onnx_rerank_source(
+                &self.options.resources,
+                self.options.helpcode_fallback_resources.as_deref(),
+                self.recorded_rerank_models.as_deref(),
+                self.plugin_roots.builtin_sounds.as_deref(),
+                state_root,
+            );
+            if source != self.keyboard_reranker_source {
+                // 新模型挂好之前沿用旧的，见 `keyboard_reranker_loading`。
+                self.keyboard_reranker_loading = Some(load_keyboard_reranker(
+                    &self.options.resources,
+                    self.options.helpcode_fallback_resources.as_deref(),
+                    self.recorded_rerank_models.as_deref(),
+                    self.plugin_roots.builtin_sounds.as_deref(),
+                    state_root,
+                    self.recorded_sentence_model.as_deref(),
+                ));
+                self.keyboard_reranker_source = source;
+            }
         }
         let downloaded = state_root.map(DownloadedDictionaries::new);
         let dictionaries = LanguageDictionaries::resolve(
@@ -1312,7 +1397,7 @@ impl HostSession {
                 .clear_online_candidates(1)
                 .map_err(|e| e.to_string())?;
         }
-        self.preferences_pending = snapshot.preferences != self.applied;
+        self.preferences_pending = session_preferences_differ(&snapshot.preferences, &self.applied);
         self.requested = Some(snapshot);
         self.requested_settled = false;
         let requested_preferences = self
@@ -1392,7 +1477,7 @@ impl HostSession {
     /// `update` 的回复：宿主都会读其中的 `view`。
     fn preferences_response(&self, fallback: Option<String>) -> Value {
         let snapshot = self.requested.as_ref().expect("requested snapshot exists");
-        let mut response = json!({ "revision": snapshot.revision, "deferred": snapshot.preferences != self.applied, "view": self.runtime.view(), "floating_toolbar": { "enabled": snapshot.preferences.floating_toolbar.enabled, "english_mode": snapshot.preferences.floating_toolbar.english_mode, "scale_percent": snapshot.preferences.floating_toolbar.scale_percent, "font_size": snapshot.preferences.floating_toolbar.font_size, "fullwidth": snapshot.preferences.floating_toolbar.fullwidth, "punctuation": snapshot.preferences.floating_toolbar.punctuation, "character_set": snapshot.preferences.floating_toolbar.character_set, "emoji": snapshot.preferences.floating_toolbar.emoji, "screen_keyboard": snapshot.preferences.floating_toolbar.screen_keyboard, "settings": snapshot.preferences.floating_toolbar.settings } });
+        let mut response = json!({ "revision": snapshot.revision, "deferred": session_preferences_differ(&snapshot.preferences, &self.applied), "view": self.runtime.view(), "floating_toolbar": { "enabled": snapshot.preferences.floating_toolbar.enabled, "english_mode": snapshot.preferences.floating_toolbar.english_mode, "scale_percent": snapshot.preferences.floating_toolbar.scale_percent, "font_size": snapshot.preferences.floating_toolbar.font_size, "fullwidth": snapshot.preferences.floating_toolbar.fullwidth, "punctuation": snapshot.preferences.floating_toolbar.punctuation, "character_set": snapshot.preferences.floating_toolbar.character_set, "emoji": snapshot.preferences.floating_toolbar.emoji, "screen_keyboard": snapshot.preferences.floating_toolbar.screen_keyboard, "settings": snapshot.preferences.floating_toolbar.settings } });
         // Applied at once, so no transition will carry the reason the preferred scheme was replaced; a deferred change reports it from `complete_transition` instead.
         if let Some(fallback) = fallback {
             response["diagnostic"] = fallback.into();
@@ -2171,6 +2256,12 @@ struct HostOptions {
     /// `false`：这个会话不记选词位置和上屏效率。给与另一个会话处理同一次选词的镜像会话用：Windows TIP 在应用进程里的宿主会话跟着 Server 选同一个词，两边都记就会算两遍，由 Server 的会话记。缺省照常记。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     selection_statistics: Option<bool>,
+    /// `false`：这个会话不挂逐键重排（整句联想「增强」的模型），开关打开也不挂。给只跟着另一个会话选词的镜像会话用：Windows TIP 在每个打字的应用进程里各有一个宿主会话，候选窗是 Server 画的、顺序是 Server 的会话排的，TIP 按文字选中同一个词（`tsf/HostServerSelection.h`），自己再排一遍用不上，却要在每个进程里各加载一份模型（ONNX 大模型 31 MB）。缺省照常挂。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    keyboard_reranker: Option<bool>,
+    /// 放两档 ONNX 逐键重排模型（`rerank-model/`、`rerank-model-small/`）的目录。缺省时在随包资源目录旁边找（[`ffi::rerank_models_root`]）。Windows 的 Server 在内存里写它：它的随包资源目录在 Program Files 的 `server\resources`，模型装在旁边，但 `helpcode_fallback_resources` 是 DataDir（辅助码表在那里），装了在线词库更新后 `resources` 又换成 DataDir 下的代次，两条都找不到安装包里的模型。不写进准备好的 runtime-options.json。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    rerank_models: Option<String>,
     /// macOS 和 Linux 的两个宿主把普通组字里的快捷短语也作为候选显示；缺省关闭以保持其他宿主和旧文档的入口契约。建会话时写进 `EngineOptions`，偏好变更重建 Engine 时沿用同一份选项。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     quick_phrase_candidates: Option<bool>,
@@ -2378,13 +2469,13 @@ impl HostOptions {
             shuangpin_profile: profile_code(self.preferences.shuangpin_profile),
             shuangpin_custom_profile: None,
             shuangpin_preedit_uses_raw: self.preferences.shuangpin_preedit_uses_raw,
+            shuangpin_preedit_separated: self.preferences.shuangpin_preedit_separated,
             force_cantonese_shuangpin: force_cantonese_shuangpin(scheme, &self.preferences),
             single_character_only: self.preferences.single_character_only,
             caret_edit_suffix: caret_edit_suffix_applies(&self.preferences),
             learning: self.preferences.learning,
             learn_english_on_enter: self.preferences.enter_learns_english_word,
-            next_word_prediction: self.preferences.next_word_prediction
-                && cfg!(target_os = "android"),
+            next_word_prediction: next_word_prediction_applies(&self.preferences),
             autocorrect_transposition: self.preferences.quanpin.autocorrect_transposition,
             autocorrect_neighbor: self.preferences.quanpin.autocorrect_neighbor,
             fuzzy_pinyin_rules: self.preferences.fuzzy_pinyin.active_rules(),
@@ -2436,6 +2527,11 @@ impl HostOptions {
             quick_phrase_frequency: self.preferences.mixed_input.quick_phrase_frequency,
             helpcode_table: None,
             helpcode_fallback_resources,
+            // 用户自己的辅助码表放在状态根下（`msime_client_core::helpcode::user_helpcode_root`），`resources` 是安装包或词库代次，升级会换掉它。
+            custom_helpcode_root: state_root
+                .as_deref()
+                .and_then(Path::to_str)
+                .map(str::to_owned),
             sentence_association: engine_sentence_association(
                 &self.preferences.sentence_association,
                 absolute_state_root(self.preferences_directory.as_deref()).as_deref(),
@@ -2502,6 +2598,51 @@ fn settled_model_beside(resources: &std::path::Path) -> Option<String> {
 
 /// 后台加载落定重排模型的结果槽：加载完之前是空的，加载完是模型，模型不能用（文件坏了或版本不符）或没有模型时是 `None`。
 type SettledModelSlot = Arc<OnceLock<Option<Arc<SentenceModel>>>>;
+
+/// 后台挂好的逐键重排器：外层 `None` 是还在挂，`Some(None)` 是挂完了但这台设备上没有可挂的（没装模型、超出按键预算、线程起不来）。打分器只是 `Send`，所以用锁而不是 `OnceLock`。
+type KeyboardRerankerSlot =
+    Arc<Mutex<Option<Option<Box<dyn msime_input_runtime::CandidateScorer>>>>>;
+
+/// 在后台线程里挂逐键重排器（[`ffi::keyboard_reranker`]，开关开着），立即返回结果槽。挂上之后还在同一个进程里再挂时共用已加载的那一份，只是第一次慢，见 `keyboard_reranker_loading`。线程起不来时槽里直接是 `Some(None)`，会话照常输入，只是不排序。
+fn load_keyboard_reranker(
+    resources: &str,
+    bundle: Option<&str>,
+    models: Option<&str>,
+    sound_packs: Option<&Path>,
+    state_root: Option<&Path>,
+    configured: Option<&str>,
+) -> KeyboardRerankerSlot {
+    let slot: KeyboardRerankerSlot = Arc::new(Mutex::new(None));
+    let resources = resources.to_owned();
+    let bundle = bundle.map(str::to_owned);
+    let models = models.map(str::to_owned);
+    let sound_packs = sound_packs.map(Path::to_path_buf);
+    let state_root = state_root.map(Path::to_path_buf);
+    let configured = configured.map(str::to_owned);
+    let loading = Arc::clone(&slot);
+    let spawned = std::thread::Builder::new()
+        .name("msime-keyboard-reranker".into())
+        .spawn(move || {
+            let scorer = ffi::keyboard_reranker(
+                true,
+                &resources,
+                bundle.as_deref(),
+                models.as_deref(),
+                sound_packs.as_deref(),
+                state_root.as_deref(),
+                configured.as_deref(),
+            );
+            *loading
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(scorer);
+        });
+    if spawned.is_err() {
+        *slot
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(None);
+    }
+    slot
+}
 
 /// 在后台线程里加载落定重排模型，立即返回结果槽。约 25 MB 的权重不能在输入线程上读：聚焦和按键都在那个线程上。`path` 为 `None`（模型被移除）时槽里直接是 `None`。线程起不来时同样放 `None`，会话照常输入，只是没有落定重排。
 fn load_settled_model(resources: &str, path: Option<PathBuf>) -> SettledModelSlot {
@@ -2895,6 +3036,20 @@ pub fn prepare_host_configuration_for_edition(
     prepare_host_with_updates(resources, state_root, edition, &specification)
 }
 
+/// 把还留在资源目录里的自定义辅助码表（`helpcodes/custom`）复制到状态根下的同名目录，Engine 和设置页都先读那里（`msime_engine::load_helpcode_keymap_in`）。资源目录是安装包或词库代次，升级和在线词库更新会换掉或删掉它；准备和刷新运行时配置时各搬一次，表还在就不会跟着旧目录一起丢。只复制，不删源文件，状态根里已有同一主干的表不覆盖。
+fn adopt_custom_helpcodes(state_root: &Path, sources: &[&Path]) {
+    let Ok(state_root) = std::path::absolute(state_root) else {
+        return;
+    };
+    let adopted = msime_client_core::helpcode::adopt_custom_helpcodes(&state_root, sources);
+    if adopted > 0 {
+        crate::diagnostics::report(
+            "custom helpcode tables adopted",
+            &format!("copied {adopted} table(s) from the resource directory into the state root"),
+        );
+    }
+}
+
 /// 安装选择与随包基线共用准备流程，测试用小型真实词库验证代次切换与日志回放。
 fn prepare_host_with_updates(
     resources: &Path,
@@ -2902,9 +3057,18 @@ fn prepare_host_with_updates(
     edition: &'static Edition,
     specification: &ResourceSet,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    if let Some((updated, selected)) =
-        dictionary_updates::selected_resources(state_root, specification)
-    {
+    let selected_update = dictionary_updates::selected_resources(state_root, specification);
+    let recorded_bundle =
+        msime_client_providers::dictionary_updates::bundled_resources(state_root, specification);
+    let mut sources = vec![resources];
+    sources.extend(recorded_bundle.as_deref());
+    sources.extend(
+        selected_update
+            .as_ref()
+            .map(|(updated, _)| updated.as_path()),
+    );
+    adopt_custom_helpcodes(state_root, &sources);
+    if let Some((updated, selected)) = selected_update {
         if verify_resources_once(&updated, &selected, state_root, &[]).is_ok() {
             let mut document: Value = serde_json::from_str(&prepare_shipped_host_configuration(
                 &updated,
@@ -3039,6 +3203,8 @@ fn prepare_shipped_host_configuration(
         ),
         phrase_preedit: None,
         selection_statistics: None,
+        keyboard_reranker: None,
+        rerank_models: None,
         quick_phrase_candidates: None,
         korean_romaja: None,
         clipboard_history_path: None,
@@ -3172,6 +3338,18 @@ fn refresh_options_file(
             }
         })?;
     let document: Value = serde_json::from_slice(&bytes)?;
+    // 刷新可能把 `resources` 换成别的目录（新代次、应用包里的那份），换之前先把旧目录里的自定义辅助码表搬到状态根下。
+    if let Some(state) = document["preferences_directory"]
+        .as_str()
+        .map(Path::new)
+        .filter(|state| state.is_absolute())
+    {
+        let sources: Vec<&Path> = ["resources", "helpcode_fallback_resources"]
+            .into_iter()
+            .filter_map(|key| document[key].as_str().map(Path::new))
+            .collect();
+        adopt_custom_helpcodes(state, &sources);
+    }
     // 文档记录的版本，缺省是 full。新代次按同一个版本准备；`refreshed_layout` 只替换 `resources` 和 `dictionaries`，`edition` 键原样保留。
     let edition =
         Edition::of_host_options(&document).ok_or("runtime options name an unknown edition")?;
@@ -3658,22 +3836,22 @@ pub fn local_symbol_catalog(resources: &str) -> Result<Vec<LocalSymbolCatalogGro
     Ok(result)
 }
 
-/// Discover the optional helper-code tables installed below a verified resource directory.
+/// 列出设置页可选的自定义辅助码表：状态根 `state_root` 下的 `helpcodes/custom`（用户自己的表放在这里，升级不会动它）和资源目录里的 `helpcodes/custom`（以前的位置），同一主干取状态根那份，与 Engine 读表的顺序一致。
 ///
-/// The table files are Engine-owned assets, but their display metadata belongs to the shared
-/// settings surface. Keep the path check at this host boundary so neither a native caller nor the
-/// Tauri shell can ask the client core to inspect an arbitrary relative location. An absent or
-/// unreadable `helpcodes/custom` directory is a valid empty catalog.
+/// 码表文件归 Engine 解析，显示名属于设置界面。路径检查留在宿主边界上，原生调用方和 Tauri 外壳都不能让 client-core 去看一个相对路径。目录不在或读不了时是空列表。`state_root` 为 `None` 时只看资源目录。
 pub fn list_custom_helpcode_schemas(
     resources: &str,
+    state_root: Option<&str>,
 ) -> Result<Vec<msime_client_core::helpcode::CustomHelpcodeSchema>, &'static str> {
     let path = std::path::Path::new(resources);
     if !path.is_absolute() {
         return Err("resources path must be absolute");
     }
-    Ok(msime_client_core::helpcode::list_custom_helpcode_schemas(
-        path,
-    ))
+    let state_root = state_root.map(std::path::Path::new);
+    if state_root.is_some_and(|state_root| !state_root.is_absolute()) {
+        return Err("state root must be absolute");
+    }
+    Ok(msime_client_core::helpcode::list_custom_helpcode_schemas_in(path, state_root))
 }
 
 fn response(operation: impl FnOnce() -> Result<Value, String>) -> *mut c_char {

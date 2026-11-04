@@ -1,5 +1,6 @@
 import {
   grammarModelPack,
+  keyboardRerankLevel,
   sentenceAssociationControlState,
   sentenceAssociationLevel,
   sentenceAssociationWithLevel,
@@ -30,7 +31,7 @@ export interface SentenceAssociationSectionProps {
   value: SentenceAssociationPreferences | undefined;
   /** 触屏宿主写 `neural_keyboard`，桌面宿主写 `neural_desktop`，行名也随之改为「键盘」或「桌面」。 */
   mobile: boolean;
-  /** 本版本带键盘神经联想的模型（`HostCapabilities.edition.neural_keyboard`）；为 false 时触屏宿主不列出神经联想开关。缺省为 true。 */
+  /** 本版本带逐键重排的模型（`HostCapabilities.edition.neural_keyboard`）；为 false 时触屏宿主不列出神经联想开关，桌面宿主不列出「整句联想」。缺省为 true。 */
   neuralKeyboard?: boolean;
   /** 桌面宿主的资源包下载服务。桌面神经联想的模型（`settled-model`）不随包时由它下载：打开开关时开始下载，开关下面显示下载进度或失败原因。 */
   resourcePacks?: ResourcePacks;
@@ -56,7 +57,7 @@ export function SentenceWordLatticeRow({ value, onChange }: SentenceWordLatticeR
   );
 }
 
-/** 神经联想开关（桌面还带模型下载行）：输入页「候选与联想」组里的一行；「本地整句联想」见 `SentenceWordLatticeRow`。 */
+/** 神经联想开关（桌面还带「整句联想」级别和模型下载行）：输入页「候选与联想」组里的几行；「本地整句联想」见 `SentenceWordLatticeRow`。 */
 export function SentenceAssociationSection({
   value,
   mobile,
@@ -75,6 +76,7 @@ export function SentenceAssociationSection({
       : "使用神经模型重排整句候选；没有模型时保持现有候选。";
   return (
     <>
+      {!mobile && neuralKeyboard && <KeyboardRerankRow value={value} onChange={onChange} />}
       {state.neuralVisible && (
         <SwitchRow
           title={mobile ? "键盘神经联想" : "桌面神经联想"}
@@ -189,6 +191,32 @@ function GrammarModelRow({
         />
       )}
     </>
+  );
+}
+
+/** 桌面输入页的「整句联想」：与手机同名、同文案，只列标准和增强，写 `neural_keyboard`（逐键重排）。默认增强；这台电脑跑不进逐键预算时 host-api 不挂模型，增强与标准相同。词网格的开关是「更多选项」里的「本地整句联想」，所以这里没有「关闭」。 */
+function KeyboardRerankRow({
+  value,
+  onChange,
+}: {
+  value: SentenceAssociationPreferences | undefined;
+  onChange: (value: SentenceAssociationPreferences) => void;
+}) {
+  return (
+    <SelectRow
+      title="整句联想"
+      description="更准确，但更耗电"
+      value={String(keyboardRerankLevel(value))}
+      onChange={(event) => onChange({ ...value, neural_keyboard: event.target.value === "2" })}
+    >
+      {sentenceAssociationLevelLabels
+        .filter(([option]) => option > 0)
+        .map(([option, label]) => (
+          <option key={option} value={String(option)}>
+            {label}
+          </option>
+        ))}
+    </SelectRow>
   );
 }
 

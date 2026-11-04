@@ -59,7 +59,7 @@ def identity(edition_id: str) -> dict[str, str]:
 
 
 def english_mode_label(edition_id: str) -> str:
-    """英文系统的输入法菜单里本版本第一个模式的名字，例如 full 的 "Metasequoia · ZH"。英文系统上 Finder、Dock 和「输入法」列表显示的仍是中文名（两份 en.lproj/InfoPlist.strings 都这样写），只有菜单里的模式名是英文，英文页面要按用户实际看到的名字称呼。"""
+    """英文系统的输入法菜单里本版本第一个模式的名字，例如 full 的 "Metasequoia Pinyin"。英文系统上 Finder、Dock 和「输入法」列表显示的仍是中文名（两份 en.lproj/InfoPlist.strings 都这样写），只有菜单里的模式名是英文，英文页面要按用户实际看到的名字称呼。"""
     entry = edition_bundle.edition_entry(edition_id)
     source = (ROOT / "platforms/macos/resources/en.lproj/InfoPlist.strings").read_text(encoding="utf-8")
     prefix = entry["platforms"]["macos"]["input_method_bundle_id"] + "."

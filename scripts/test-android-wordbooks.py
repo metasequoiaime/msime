@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Android 两条 APK 打包路径都带背单词内置词书，发版和设备验收都要求它们在包里。
+"""Android 的 APK 带背单词内置词书，发版和设备验收都要求它们在包里。
 
-词书曾经从上线起就没进过任何安装包：生成脚本存在，却没有工作流运行它，打包脚本在没有词书时照样成功，设置页的词书列表在每个安装上都是空的。这里钉住 Android 这一侧的四处接线：两个打包脚本暂存 `assets/wordbooks` 并在 `MSIME_REQUIRE_WORDBOOKS=1` 时按锁文件核对、打包后核对每个暂存的文件都进了 APK；Bootstrap 把它们解到 `bootstrap/wordbooks`；Release Android 和 Android device 两个工作流生成词书并设 `MSIME_REQUIRE_WORDBOOKS`；关于页列出 ECDICT 的许可声明。
+词书曾经从上线起就没进过任何安装包：生成脚本存在，却没有工作流运行它，打包脚本在没有词书时照样成功，设置页的词书列表在每个安装上都是空的。这里钉住 Android 这一侧的四处接线：打包脚本暂存 `assets/wordbooks` 并在 `MSIME_REQUIRE_WORDBOOKS=1` 时按锁文件核对、打包后核对每个暂存的文件都进了 APK；Bootstrap 把它们解到 `bootstrap/wordbooks`；Release Android 和 Android device 两个工作流生成词书并设 `MSIME_REQUIRE_WORDBOOKS`；关于页列出 ECDICT 的许可声明。
 """
 from pathlib import Path
 import sys
@@ -22,7 +22,7 @@ def live_lines(path: Path) -> list[str]:
 
 def main() -> int:
     errors = []
-    for name in ("build-apk.sh", "build-client-apk.sh"):
+    for name in ("build-apk.sh",):
         path = ANDROID / name
         script = "\n".join(live_lines(path))
         for snippet in (

@@ -20,9 +20,17 @@ for layout in horizontal vertical; do
     "fcitx5-wayland-canvas-$layout-png"
     "fcitx5-wayland-canvas-$layout-gif" "fcitx5-wayland-canvas-$layout-webp")
 done
+if [[ ${MSIME_RESOURCE_SMOKE_ONLY:-0} == 1 ]]; then
+  # CI 的资源宿主门禁只跑要词库的宿主用例：默认分支 fcitx5-native-context（含按住说话、组合键取消、迟到结果）和自定义语音快捷键；真实窗口、画布这些不靠词库的用例由完整容器验收跑。
+  names=(fcitx5-native-context fcitx5-custom-voice-hotkey)
+fi
 pattern="^($(IFS='|'; echo "${names[*]}"))\$"
 ctest --test-dir /build/fcitx5 -R "$pattern" \
   --output-on-failure --output-junit /build/fcitx5-acceptance.xml
+if [[ ${MSIME_RESOURCE_SMOKE_ONLY:-0} == 1 ]]; then
+  echo "Fcitx5 resource host acceptance passed"
+  exit 0
+fi
 # 专用镜像提供全部依赖；X11 与 Wayland 的二十四项真实窗口用例不能靠跳过得到验收通过。
 python3 - /build/fcitx5-acceptance.xml <<'PY'
 import sys

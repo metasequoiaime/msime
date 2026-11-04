@@ -56,6 +56,8 @@ public:
   bool delivered(const FocusLease &lease, uint64_t request);
   bool cancel_composition(const FocusLease &lease);
   HideCandidateDisposition hide_candidate(const FocusLease &lease);
+  // TIP 的 ShowCandidateWnd，见 FocusedSession::show_candidate。
+  void show_candidate(const FocusLease &lease);
   std::optional<nlohmann::json> dedicated_english(const FocusLease &lease,
                                                   bool exit);
   std::optional<nlohmann::json> set_dedicated_english(const FocusLease &lease,

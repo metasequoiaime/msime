@@ -6,7 +6,7 @@
 // Windows written chord order (Control first), adapting Win to Command.
 class MSIMEVoiceHoldShortcut {
 public:
-    enum class Action { None, Toggle, Cancel };
+    enum class Action { None, Toggle, Cancel, ChordCancel };
     struct Result { bool consumed = false; Action action = Action::None; bool onRelease = false; };
     struct Options { bool rightOption; bool controlCommand; bool rightControlOption; bool spaceLock; };
     void reset() { *this = MSIMEVoiceHoldShortcut{}; }
@@ -27,6 +27,16 @@ public:
                 space_ = true; if (recording) locked_ = true; return {true};
             }
             if (type == NSEventTypeKeyUp && space_) { space_ = false; return {true}; }
+        }
+        // 按住右 Option 时又新按下一个键，用户按的是组合键而不是要说话（#10580，对齐 Windows #10581）：按住就此结束，只有这次按住自己开始、还没锁定的录音报 ChordCancel。
+        // 按键本身不吞，它的 modifierFlags 里本来就带着 Option，应用照常收到组合键，不必像 Windows 那样补发修饰键。
+        // suppressed_ 留着，右 Option 的松开仍被吞掉：应用从没收到过它的按下。空格锁定开着时空格在上面已经处理，Esc 保持取消的含义，自动重复不是新按下的键。
+        // Control+Command 吞的是 Command，和 Windows 的 Ctrl+Win 一样不在此列。
+        if (type == NSEventTypeKeyDown && !event.isARepeat && key != 53 && !locked_ &&
+            (hold_ == Hold::RightOption || hold_ == Hold::RightControlOption)) {
+            const bool started = recording && finishOnRelease_;
+            hold_ = Hold::None;
+            return {false, started ? Action::ChordCancel : Action::None};
         }
         if (type != NSEventTypeFlagsChanged) return {};
         const auto previous = flags_;
