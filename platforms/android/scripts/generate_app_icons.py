@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Render the launcher icons from the brand artwork (brew install librsvg).
 
-The icon is the standalone mark, `packages/ui/src/assets/msime.svg` - a dark rounded square whose green edge is its border, with the white stroke on it - the same picture Windows, macOS, Linux, iOS and HarmonyOS show. The launcher cuts the icon to a shape of its own choosing, so the tile is scaled until its edge meets the 72dp the mask shows and the background layer is the edge colour: on a rounded-square launcher the mask lands on the green edge and the home screen shows the same rounded square as the PC icon, the ground only filling in where the mask's corners are rounder than the tile's. This is what iOS does with its own mask. On a circular mask (Pixel) the tile's corners are cut off and the edge shows at the four sides only; that is the price of the launcher showing the same picture as every other platform.
+The icon is the standalone mark, `packages/ui/src/assets/msime.svg` - a dark rounded square whose green edge is its border, with the white stroke on it - the same picture Windows, macOS, Linux, iOS and HarmonyOS show. The launcher cuts the icon to a shape of its own choosing, so the tile is scaled until its edge meets the 72dp the mask shows and the background layer is the edge colour: on a rounded-square launcher the mask lands on the green edge and the home screen shows the same rounded square as the PC icon, the ground only filling in where the mask's corners are rounder than the tile's. This is what iOS does with its own mask.
+
+A circular mask cannot show that tile: its corners are cut off and the edge shows only in four crescents at the sides. No single adaptive icon can draw an edge that follows whichever shape the launcher cuts, so each style also has a round icon, `app_icon_<style>_round`, which the manifest names as `android:roundIcon`. The framework uses it in place of `android:icon` when the system sets `config_useRoundIcon` - Pixel's configuration overlay does, together with its circular mask, as do the icon-shape overlays that pick a circle - so the choice is made when the package is parsed, not by the app at runtime. The round icon is the same picture drawn for a circle: a dark disc whose edge is a ring in the style's edge colour, as wide relative to the circle as the tile's edge is relative to the tile, with the white stroke a little smaller than on the tile (see ROUND_MARK).
 
 The themes differ from the default by exactly one value, the colour of the tile's edge (and so of the ground), with the same theme table as platforms/ios/scripts/generate_app_icons.py.
 """
@@ -25,6 +27,12 @@ TILE_EXTENT = 105
 FOREGROUND_DENSITIES = {"mdpi": 108, "hdpi": 162, "xhdpi": 216,
                         "xxhdpi": 324, "xxxhdpi": 432}
 TILE_BODY = re.compile(r"<svg[^>]*>(.*)</svg>", re.S)
+MARK = re.compile(r'<path d="M[^"]*" stroke="#FFFFFF"[^>]*/>')
+FIELD = "#252525"
+# The tile's green edge is 5 of its 105 outer units; the round icon's ring takes the same share of the circle's diameter.
+EDGE_SHARE = 5 / TILE_EXTENT
+# On the tile the stroke's two ends point into the corners, where the field reaches furthest; a disc has no corners, and at the tile's size the ends would come within 15% of the radius of the ring. At 88% the stroke's farthest point (40.5 of the tile's 110 units from the centre) sits at three quarters of the disc's radius.
+ROUND_MARK = 0.88
 
 
 def tile(edge: str) -> str:
@@ -58,6 +66,27 @@ def plain(edge: str) -> str:
     return scaled(edge, 110 / TILE_EXTENT)
 
 
+def mark() -> str:
+    found = MARK.search(TILE.read_text())
+    if not found:
+        raise SystemExit(f"{TILE} no longer has the white stroke this script draws")
+    return found.group(0)
+
+
+def round_icon(edge: str, diameter: float) -> str:
+    """The round icon on a transparent 110-unit canvas: a circle `diameter` units across in the edge colour, the dark disc inside its ring, and the stroke at ROUND_MARK of the size it has on a tile spanning the same `diameter`."""
+    ring = diameter * EDGE_SHARE
+    scale = diameter / TILE_EXTENT * ROUND_MARK
+    return (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="110" height="110" viewBox="0 0 110 110"'
+        ' fill="none">\n'
+        f'<circle cx="55" cy="55" r="{diameter / 2:.4f}" fill="{edge}"/>'
+        f'<circle cx="55" cy="55" r="{diameter / 2 - ring:.4f}" fill="{FIELD}"/>'
+        f'<g transform="translate({55 - 55 * scale:.4f} {55 - 55 * scale:.4f}) scale({scale:.6f})">'
+        f"{mark()}</g>\n</svg>\n"
+    )
+
+
 def render(source: Path, pixels: int, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(
@@ -81,6 +110,16 @@ def main() -> None:
             for density, pixels in FOREGROUND_DENSITIES.items():
                 render(layer, pixels,
                        ROOT / f"res/drawable-{density}/app_icon_{name}_foreground.png")
+            # The round icon: the plain bitmap is the circle filling the bitmap; the adaptive foreground is the circle on the border of the 72dp the mask shows, over the same edge-coloured background, so a circular mask lands exactly on the ring.
+            source = Path(directory) / f"{name}-round.svg"
+            source.write_text(round_icon(edge, 110))
+            for density, pixels in DENSITIES.items():
+                render(source, pixels, ROOT / f"res/drawable-{density}/app_icon_{name}_round.png")
+            layer = Path(directory) / f"{name}-round-foreground.svg"
+            layer.write_text(round_icon(edge, 110 * VISIBLE))
+            for density, pixels in FOREGROUND_DENSITIES.items():
+                render(layer, pixels,
+                       ROOT / f"res/drawable-{density}/app_icon_{name}_round_foreground.png")
 
 
 if __name__ == "__main__":
