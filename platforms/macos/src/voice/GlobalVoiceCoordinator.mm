@@ -242,10 +242,15 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
     _recoveryText = [text copy];
     if (!_recovery) {
         _recovery = [[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 440, 180)
-            styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
+            styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskNonactivatingPanel
+            backing:NSBackingStoreBuffered defer:NO];
         _recovery.title = @"语音结果尚未插入";
         _recovery.releasedWhenClosed = NO;
         _recovery.delegate = self;
+        // 输入法是后台应用；复制面板不能依赖应用激活，也不能在原编辑器活动时自行隐藏。
+        _recovery.hidesOnDeactivate = NO;
+        _recovery.floatingPanel = YES;
+        _recovery.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary;
         _recovery.level = NSFloatingWindowLevel;
         NSTextField *message = [NSTextField wrappingLabelWithString:@"无法确认原输入位置。复制后可自行粘贴，关闭会丢弃此结果。"];
         message.frame = NSMakeRect(20, 128, 400, 32); [_recovery.contentView addSubview:message];
@@ -585,7 +590,10 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
         [self backgroundService].status != SMAppServiceStatusEnabled)) return;
     id<MSIMEGlobalVoiceTarget> local = _deliveryTarget();
     if ([local respondsToSelector:@selector(toggleLocalVoiceIfBusy)] && [local toggleLocalVoiceIfBusy]) return;
-    if (_recoveryText.length) { [_recovery orderFrontRegardless]; return; }
+    if (_recoveryText.length) {
+        os_log(OS_LOG_DEFAULT, "MSIME global voice: recovery pending, showing panel");
+        [_recovery orderFrontRegardless]; return;
+    }
     NSRunningApplication *application = [self frontApplication];
     // 焦点只授予本轮自动交付许可，不是开麦克风的前提；以后出现的字段不能补授许可。
     id focus = [self destinationIdentity];

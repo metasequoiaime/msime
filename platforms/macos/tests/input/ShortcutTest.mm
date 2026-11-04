@@ -14170,6 +14170,7 @@ static void TestCrossCommitSpacing() {
 @property(nonatomic) id focus;
 @property(nonatomic) GlobalVoiceApplicationProbe *application;
 @property(nonatomic, copy) NSString *recovered;
+@property(nonatomic) BOOL presentsRecovery;
 @property(nonatomic, copy) NSString *posted;
 @end
 @implementation GlobalVoiceSessionProbe
@@ -14185,7 +14186,7 @@ static void TestCrossCommitSpacing() {
 - (id)destinationIdentity { return _focus; }
 - (NSRunningApplication *)frontApplication { return (id)_application; }
 - (void)showFailure:(NSString *)detail { (void)detail; }
-- (void)recover:(NSString *)text { _recovered = text; }
+- (void)recover:(NSString *)text { if (_presentsRecovery) [super recover:text]; else _recovered = text; }
 - (MSIMEVoiceCommitOutcome)postGlobalVoiceText:(NSString *)text route:(const MSIMEVoiceCommitRoute &)route {
     assert(route.current && route.current()); _posted = text; return MSIMEVoiceCommitOutcome::posted;
 }
@@ -14322,7 +14323,31 @@ static void TestGlobalVoiceDeliveryReentry() {
     }
 }
 
+static void TestGlobalVoiceRecoveryPresentation() {
+    GlobalVoiceTargetProbe *target = [GlobalVoiceTargetProbe new]; target.pid = 42;
+    GlobalVoiceSessionProbe *probe = [[GlobalVoiceSessionProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)target; }];
+    probe.presentsRecovery = YES;
+    probe.application = [GlobalVoiceApplicationProbe new]; probe.application.processIdentifier = 42;
+    probe.clock = 1; probe.source = @"synthetic.msime.Hans";
+    [probe recover:@"合成语音结果"];
+    NSPanel *panel = [probe valueForKey:@"recovery"];
+    // 后台输入法没有前台激活；待复制结果必须在原编辑器仍活动时保持可见。
+    assert((panel.styleMask & NSWindowStyleMaskNonactivatingPanel) && !panel.hidesOnDeactivate);
+    assert(panel.collectionBehavior & NSWindowCollectionBehaviorCanJoinAllSpaces);
+    assert(panel.collectionBehavior & NSWindowCollectionBehaviorFullScreenAuxiliary);
+    [panel orderOut:nil];
+    [probe begin:YES];
+    assert(panel.visible && target.starts == 0);
+    assert([[probe valueForKey:@"recoveryText"] isEqual:@"合成语音结果"]);
+    [panel performClose:nil];
+    assert([probe valueForKey:@"recoveryText"] == nil);
+    [probe begin:YES];
+    assert(target.starts == 1 && target.busy);
+    [probe cancel];
+}
+
 static void TestGlobalVoiceBoundaries() {
+    TestGlobalVoiceRecoveryPresentation();
     TestGlobalVoiceDeliveryReentry();
     {
         // Changed 与暂未取得 IMK 客户端不同：立即复制恢复，后续轮询不能再尝试插入。
@@ -14889,6 +14914,28 @@ int main(int argc, char **argv) {
             }
             [panel orderOut:nil];
             return 0;
+        }
+        // 以 LSBackgroundOnly 宿主启动此入口，验证真实恢复面板，不加载安装配置或音频设备。
+        if (argc == 3 && std::string(argv[1]) == "--global-voice-recovery-host-probe") {
+            [NSApp finishLaunching];
+            const pid_t front = NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier;
+            GlobalVoiceSessionProbe *probe = [[GlobalVoiceSessionProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)nil; }];
+            probe.presentsRecovery = YES;
+            [probe recover:@"合成语音结果，仅用于窗口显示验证。"];
+            NSPanel *panel = [probe valueForKey:@"recovery"];
+            [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.3]];
+            NSArray *windows = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionAll, kCGNullWindowID));
+            BOOL onscreen = NO;
+            for (NSDictionary *window in windows)
+                if ([window[(id)kCGWindowNumber] integerValue] == panel.windowNumber)
+                    onscreen = [window[(id)kCGWindowIsOnscreen] boolValue];
+            NSDictionary *result = @{@"activation_policy":@(NSApp.activationPolicy), @"onscreen":@(onscreen),
+                @"editor_still_active":@(front == NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier),
+                @"hides_on_deactivate":@(panel.hidesOnDeactivate)};
+            NSData *data = [NSJSONSerialization dataWithJSONObject:result options:NSJSONWritingPrettyPrinted error:nil];
+            assert([data writeToFile:[NSString stringWithUTF8String:argv[2]] atomically:YES]);
+            [panel performClose:nil];
+            return onscreen ? 0 : 1;
         }
         if (argc == 2 && std::string(argv[1]) == "--global-voice") { TestGlobalVoiceBoundaries(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--quick-phrase-cursor") {
