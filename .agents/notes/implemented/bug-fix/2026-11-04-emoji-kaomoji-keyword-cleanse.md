@@ -34,7 +34,7 @@ Status: implemented
 
 ## Consequences
 
-- `msime-others.db` 会变：emoji 少 11 个关键词，方块关键词改了，26 个关键词的键改了，#️⃣ 的 `sort_order` 从 1935 变为 1558，并多了 `#` 关键词；目录外排在 #️⃣ 后面的 Symbols 行序号各减 1。`symbol_catalog` 的项目清单多了 #️⃣，它后面的符号 `sort_order` 各加 1。颜文字少 2 个，后面的颜文字 `sort_order` 各减 2。其他附件不变。
+- `msime-others.db` 会变：emoji 少 11 个关键词，方块关键词改了，26 个关键词的键改了，#️⃣ 的 `sort_order` 从 1935 变为 1558，并多了 `#` 关键词，它原来就排在最后，其他表情的 `sort_order` 不变（dict-v2.0.56 对照试跑产物核实）。`symbol_catalog` 的项目清单多了 #️⃣，它后面的符号 `sort_order` 各加 1。`kaomoji_catalog` 少了 ( *・ω・)✄╰ひ╯ 的 2 行（两个关键词各一行），排在它们后面的行 `sort_order` 减 1 或减 2；颜文字的 长鼻子 从 zhangbizi 改为 changbizi。其他附件不变。
 - 以后照上游重新整理 emoji 或颜文字表时，被删的行一回来构建就失败，要逐行删掉；新出现的粗口不在表里的拦不住，仍要人工看 diff。
 - `pinyin-overrides.txt` 末尾一节不再是 pypinyin 的输出，`docs/third-party.md` 里对它的说明同步改了。
 - 引擎这次只多了测试，不改行为：msime 的锁还在 1af243c，副本里本来就没有这两行。MSIME-Windows 的本地构建器不经锁直接读 `symbol-names.tsv`，词库仓合入后那边打 `yinwei` 也不再出 ∵。
