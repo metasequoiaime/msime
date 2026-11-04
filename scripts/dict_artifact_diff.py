@@ -22,6 +22,7 @@ import difflib
 import hashlib
 import json
 from pathlib import Path
+import re
 import sqlite3
 import sys
 
@@ -46,10 +47,20 @@ TEXT_DIFF_LINES = 40
 # 两边都不超过这么多行才算 unified diff。
 TEXT_DIFF_MAX_INPUT = 20000
 VALUE_LIMIT = 80
+# 引号内的字符串、标识符和注释整段保留，只折叠它们之外的排版空白。
+SQL_PARTS = re.compile(r"""'(?:[^']|'')*'|"(?:[^"]|"")*"|`(?:[^`]|``)*`|\[[^\]]*\]|--[^\n]*(?:\n|$)|/\*[\s\S]*?\*/|\s+""")
+# 这三份生成文本的首行记录构建器提交；仅这个来源字段不属于词库内容。
+SUPPLEMENT_PROFILES = {"wubi86", "wubi98", "wubixsj"}
 
 
 def quote(name):
     return '"' + name.replace('"', '""') + '"'
+
+
+def normalize_schema_sql(sql):
+    if sql is None:
+        return None
+    return SQL_PARTS.sub(lambda match: " " if match[0].isspace() else match[0], sql).strip()
 
 
 def sha256(path):
@@ -311,7 +322,7 @@ def compare_sqlite(base, head, samples):
 
         def master(schema):
             return {
-                (row[0], row[1]): " ".join(row[2].split()) if row[2] else None
+                (row[0], row[1]): normalize_schema_sql(row[2])
                 for row in con.execute(f"SELECT type, name, sql FROM {schema}.sqlite_master")
             }
 
@@ -390,6 +401,15 @@ def compare_text(base, head):
         return {"kind": "text", "bytes_identical": True, "changed": False}
     left = base.read_text(encoding="utf-8").splitlines()
     right = head.read_text(encoding="utf-8").splitlines()
+    profile = base.name.removesuffix("-supplement.txt")
+    if profile in SUPPLEMENT_PROFILES and base.name == f"{profile}-supplement.txt" and left and right:
+        header = re.compile(r"^# .*，由 msime 仓库提交 (?P<commit>[0-9a-f]{40}) 的 crates/dict-builder/src/" + re.escape(profile) + r"_supplement\.rs ")
+        matches = [header.match(lines[0]) for lines in (left, right)]
+        if all(matches):
+            for lines, match in zip((left, right), matches):
+                lines[0] = lines[0][:match.start("commit")] + "<构建器提交>" + lines[0][match.end("commit"):]
+            if left == right:
+                return {"kind": "text", "bytes_identical": False, "ignored_differences": ["generator_commit"], "changed": False}
     lc, rc = Counter(left), Counter(right)
     added, removed = rc - lc, lc - rc
     # difflib 在最坏情况下是平方复杂度，大文件（五笔补充表这类几十万行的中间文件）只按多重集合列出增删的行。
