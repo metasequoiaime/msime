@@ -28,7 +28,7 @@ Status: implemented
 
 ## 本地验证记录
 
-新增缺客户端回退回归在旧实现失败，修补后通过；19 项其他聚焦套件首次均通过。完整 `shortcut` 套件首轮在未改动的 `InputController` 偏好读取回调释放路径触发 AppKit 的非主线程关窗断言（`MSIMEInputSessionRecoveryPanel`，与已移除的全局 Copy 面板不同），单次确认重跑通过；保留首轮日志与崩溃栈，不据此豁免任何托管失败。测试前后真实偏好文件哈希相同。
+新增缺客户端回退回归在旧实现失败，修补后通过。20 项聚焦套件首轮 19 项通过；完整 `shortcut` 套件首轮在未改动的 `InputController` 偏好读取回调释放路径触发 AppKit 的非主线程关窗断言（`MSIMEInputSessionRecoveryPanel`，与已移除的全局 Copy 面板不同），单次确认重跑通过；保留首轮日志与崩溃栈，不据此豁免任何托管失败。测试前后真实偏好文件哈希相同。
 
 ## Consequences
 
