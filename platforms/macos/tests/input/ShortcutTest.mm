@@ -14136,6 +14136,8 @@ static void TestCrossCommitSpacing() {
 @property(nonatomic) BOOL acceptsText;
 @property(nonatomic) NSUInteger commits;
 @property(nonatomic) NSUInteger preparations;
+@property(nonatomic) NSUInteger preparationRetries;
+@property(nonatomic, copy) void (^duringPreparation)(void);
 @property(nonatomic) NSUInteger deliveryAttempts;
 @end
 @implementation GlobalVoiceTargetProbe
@@ -14149,7 +14151,10 @@ static void TestCrossCommitSpacing() {
 - (void)lockGlobalVoice {}
 - (void)detachGlobalVoice { ++_detachments; _busy = NO; }
 - (BOOL)prepareGlobalVoiceTextForCommit:(id)token {
-    assert(token == MSIMEGlobalVoiceHost().sessionToken); ++_preparations; return _acceptsText;
+    assert(token == MSIMEGlobalVoiceHost().sessionToken); ++_preparations;
+    if (_duringPreparation) { void (^callback)(void) = _duringPreparation; _duringPreparation = nil; callback(); }
+    if (_preparationRetries) { --_preparationRetries; return NO; }
+    return _acceptsText;
 }
 - (MSIMEGlobalVoiceDeliveryResult)commitGlobalVoiceText:(NSString *)text token:(id)token {
     assert(text.length && token == MSIMEGlobalVoiceHost().sessionToken); ++_deliveryAttempts;
@@ -14167,6 +14172,9 @@ static void TestCrossCommitSpacing() {
 @property(nonatomic) NSUInteger destinationQueries;
 @property(nonatomic) pid_t postedPID;
 @property(nonatomic, copy) NSString *posted;
+@property(nonatomic, copy) NSString *postedMode;
+@property(nonatomic) NSUInteger postAttempts;
+@property(nonatomic) BOOL routeUnavailable;
 @end
 @implementation GlobalVoiceSessionProbe
 - (void)reload {}
@@ -14182,7 +14190,9 @@ static void TestCrossCommitSpacing() {
 - (NSRunningApplication *)frontApplication { return (id)_application; }
 - (void)showFailure:(NSString *)detail { (void)detail; ++_failures; }
 - (MSIMEVoiceCommitOutcome)postGlobalVoiceText:(NSString *)text route:(const MSIMEVoiceCommitRoute &)route {
-    assert(route.current && route.current()); _posted = text; _postedPID = route.pid; return MSIMEVoiceCommitOutcome::posted;
+    assert(route.current && route.current()); ++_postAttempts;
+    if (_routeUnavailable) return MSIMEVoiceCommitOutcome::unavailable;
+    _posted = text; _postedPID = route.pid; _postedMode = route.mode; return MSIMEVoiceCommitOutcome::posted;
 }
 @end
 
@@ -14248,6 +14258,30 @@ static GlobalVoiceSessionProbe *CurrentClientProbe(GlobalVoiceTargetProbe *captu
     return probe;
 }
 static void TestGlobalVoiceCurrentClientDelivery() {
+    for (NSString *mode in @[@"sendinput", @"ctrl_v"]) {
+        for (NSUInteger scenario = 0; scenario < 3; ++scenario) {
+            GlobalVoiceTargetProbe *capture = [GlobalVoiceTargetProbe new];
+            GlobalVoiceTargetProbe *delivery = [GlobalVoiceTargetProbe new]; delivery.acceptsText = scenario != 1;
+            delivery.preparationRetries = scenario == 0 ? 1 : 0;
+            GlobalVoiceSessionProbe *probe = CurrentClientProbe(capture, ^{ return (id<MSIMEGlobalVoiceTarget>)delivery; });
+            probe.source = @"synthetic.msime.Hans"; probe.routeUnavailable = scenario == 2;
+            [probe begin:NO]; MSIMEGlobalVoiceHost().deliver(@"synthetic route result", mode, ^{});
+            if (scenario == 2) {
+                // 仅实际发键不可用时沿既有 IMK 回退，不能重复发键。
+                assert(probe.postAttempts == 1 && delivery.commits == 1 && !capture.busy);
+            } else {
+                assert(capture.busy && delivery.commits == 0 && probe.postAttempts == 0);
+                if (scenario == 0) {
+                    delivery.duringPreparation = ^{ [probe advance]; };
+                    [probe advance];
+                    assert([probe.postedMode isEqual:mode] && probe.postAttempts == 1 && delivery.commits == 0 && !capture.busy);
+                } else {
+                    probe.clock += 3.1; [probe advance];
+                    assert(probe.failures == 1 && !capture.busy && probe.postAttempts == 0 && delivery.commits == 0);
+                }
+            }
+        }
+    }
     for (NSString *mode in @[@"sendinput", @"ctrl_v"]) {
         GlobalVoiceTargetProbe *capture = [GlobalVoiceTargetProbe new]; capture.pid = 42;
         GlobalVoiceSessionProbe *probe = CurrentClientProbe(capture);
