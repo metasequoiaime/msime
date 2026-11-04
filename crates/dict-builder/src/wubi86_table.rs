@@ -152,7 +152,7 @@ impl Frequencies {
         Self(words)
     }
 
-    fn get(&self, word: &str) -> i64 {
+    pub(crate) fn get(&self, word: &str) -> i64 {
         self.0.get(word).copied().unwrap_or(0)
     }
 }
@@ -236,7 +236,11 @@ fn tail<'a>(head: &[Row<'a>], source: &'a str, frequencies: &Frequencies) -> Vec
 /// 词频为 `frequency` 的 rime-wubi 行在同码极点行 `jidian`（按引擎的次序）之前该取的权重；不该排到任何极点行之前时为 `None`。
 ///
 /// 它只越过排在最后、连续的那几行：这几行每一行的词频乘 [`LIFT_RATIO`] 都低于 `frequency`，再往前一行就不是了。越不过的行一行也不越，所以极点表的人工次序只在差距悬殊时让位，越过的那几行之间也保持原来的先后。权重取越过的第一行的权重加 1：极点表同码名次相差 10，这个权重落在它和前一行之间；前一行与它同权重时，权重分不出它们，就少越过这一行。
-fn lifted(jidian: &[(i64, &str)], frequency: i64, frequencies: &Frequencies) -> Option<i64> {
+pub(crate) fn lifted(
+    jidian: &[(i64, &str)],
+    frequency: i64,
+    frequencies: &Frequencies,
+) -> Option<i64> {
     if frequency < LIFT_MINIMUM {
         return None;
     }
