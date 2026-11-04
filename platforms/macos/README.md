@@ -262,7 +262,7 @@ AI 候选与候选释义相互独立：与来源的 `ai_eligible` / `UpdateAiInp
 
 录音提示音是产品自己的 `start.mp3` / `end.mp3`，CMake 直接从 `platforms/windows/installer/assets/audios/` 放进 bundle 的 `Resources/audios/`，仓库里不另存一份。`VoiceCuePlayer.mm` 启动时一次性解码为 `NSSound`，每次播放先 `stop` 再 `play`，与来源 `cue_player.cpp` 一样从头重播。某一个文件缺失或解码失败时该侧回落到系统的 Glass / Pop 并写一行日志，而来源此时不出声：这里宁可保留一个能听见的开始 / 结束反馈。`voice-cue-player` 与 `bundle-contents` 覆盖这两点。
 
-macOS 的 `voice_input.hotkey_global` 控制语音快捷键是否跨输入法生效；缺字段或 `false` 时仍只在水杉输入法中生效。已有启用配置继续使用同一组按住录音键、`Control+F9` 和自定义语音组合键从其他输入法触发。设置入口遵循[原生迁移约束](../../.agents/notes/proposed/architecture/2026-11-03-all-native-ui.md)，React 设置页不新增范围控件。后台项使用 macOS 13 起的 `SMAppService`，需要在系统设置「通用 > 登录项与扩展」允许水杉后台运行；全局键盘监听需要辅助功能权限，系统拒绝监听时还会提示检查输入监控。麦克风、系统识别与各服务商的授权继续使用原有语音流程。
+macOS 的 `voice_input.hotkey_global` 控制语音快捷键是否跨输入法生效；缺字段或 `false` 时仍只在水杉输入法中生效。已有启用配置继续使用同一组按住录音键、`Control+F9` 和自定义语音组合键从其他输入法触发。选择水杉输入法后，从系统输入法菜单的「语音快捷键范围」选择「仅水杉输入法」或「任意输入法」；勾选态直接读取共享偏好。原有快捷键编辑仍在设置页，范围入口不扩展 React 或已冻结的 AppKit 回退设置窗口。此菜单作为本 PR 提议的[窄范围原生入口](../../.agents/notes/implemented/architecture/2026-11-04-global-voice-native-menu.md)，仍需维护者接受迁移期例外。后台项使用 macOS 13 起的 `SMAppService`，需要在系统设置「通用 > 登录项与扩展」允许水杉后台运行；全局键盘监听需要辅助功能权限，系统拒绝监听时还会提示检查输入监控。麦克风、系统识别与各服务商的授权继续使用原有语音流程。
 
 跨输入法按住说话等待 250 毫秒，期间组合成普通修饰键快捷键或松手就不开始录音。录音直接复用原生语音服务，不等待输入源切换或 IMK 激活，也不要求开始前存在输入框。开始时若能验证原应用和可编辑字段，则记录其身份；没有身份时照常录音，最终只提供显式复制，不把后来出现的输入框追认为原目标。录音期间 AX 暂时无响应不会截断采集，已知字段或应用改变时停止采集并保留结果，睡眠和锁屏继续取消本轮。
 

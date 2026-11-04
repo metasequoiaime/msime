@@ -136,7 +136,7 @@ static inline NSDictionary *MSIMEVoicePreferencesFromDefaults(NSUserDefaults *de
         @"doubao_enable_ddc": @"MSIMEClientVoiceDoubaoEnableDDC",
         @"hotkey_ctrl_f9": @"MSIMEClientVoiceHotkeyCtrlF9",
         @"hotkey_ralt": @"MSIMEClientVoiceHotkeyRightAlt",
-        @"hotkey_global": @"MSIMEClientVoiceHotkeyGlobal",
+        // 原生范围菜单直接修改共享字段；旧提供商窗口不拥有这个值，不能用迟到的缓存覆盖它。
         @"hotkey_rctrl_ralt": @"MSIMEClientVoiceHotkeyCtrlOption",
         @"hotkey_ctrl_win": @"MSIMEClientVoiceHotkeyCtrlCommand"
     };

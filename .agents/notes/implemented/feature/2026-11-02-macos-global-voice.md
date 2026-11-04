@@ -10,7 +10,7 @@ Status: implemented
 
 其中「等 IMK 激活后才开始录音」的时序由[先录音、后交付](../architecture/2026-11-03-global-voice-capture-before-imk-delivery.md)部分取代；[录音与目的地许可分开](../architecture/2026-11-03-global-voice-optional-destination.md)进一步允许没有初始输入框时录音。本篇保留原决定的理由、手势、权限及目标安全边界；新的录音与交付实现以该篇为准。
 
-macOS 使用 `voice_input.hotkey_global` 增加「快捷键生效范围」：默认「仅水杉输入法」，可选「任意输入法」。继续使用现有按住说话、空格锁定、`Control+F9` 与自定义切换组合键，不新增手势或修改其他平台默认值。
+macOS 使用 `voice_input.hotkey_global` 增加「快捷键生效范围」：默认「仅水杉输入法」，可选「任意输入法」。入口由[原生输入法菜单](../architecture/2026-11-04-global-voice-native-menu.md)提供；React 设置页不新增控件，旧 AppKit 回退窗口不扩展。继续使用现有按住说话、空格锁定、`Control+F9` 与自定义切换组合键，不新增手势或修改其他平台默认值。
 
 全局事件入口属于原生输入法宿主的单一协调器，不在设置 WebView 中监听。后台启动只通过用户同意的 `SMAppService`；引导程序经 Launch Services 打开同一输入法应用，不另建录音服务和未鉴权的跨进程录音命令。
 

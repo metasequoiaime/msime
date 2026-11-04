@@ -33,6 +33,7 @@
 #import "../voice/HTTPVoiceRequest.h"
 #import "../voice/VoiceHoldShortcut.h"
 #import "../voice/GlobalVoiceCoordinator.h"
+#import "../voice/GlobalVoiceScopeMenu.h"
 #import "../voice/DoubaoVoiceRequest.h"
 #import "../voice/LocalVoiceRequest.h"
 #import "../voice/VoiceFailureMessages.h"
@@ -1834,6 +1835,7 @@ static NSImage *MSIMECandidateLogoImage() {
     NSString *_preferencesDirectory;
     NSTimer *_preferencesTimer;
     MSIMEPreferenceLoadState _preferenceLoadState;
+    uint64_t _voiceScopePreferenceLoadEpoch;
     // 只记宿主设置是否已应用，不保留跨激活回放的文档。
     BOOL _hostPreferencesApplied;
     MSIMEAppearancePreferences *_appearance;
@@ -4641,6 +4643,7 @@ static __weak MSIMEInputController *MSIMEQueuedPreferenceSaver;
     // 走载入路径，这样 revision 会记为已应用，仍在进行的读取会被丢弃，而不是覆盖到它上面。
     _preferenceLoadState.reset();
     if (!_preferenceLoadState.begin()) return;
+    _voiceScopePreferenceLoadEpoch = MSIMEGlobalVoiceScopeReadEpoch(_preferencesDirectory);
     [self completePreferenceLoad:saved error:nil generation:_preferenceLoadState.generation session:_session client:_activeClient];
 }
 - (void)persistVoicePreferences {
@@ -5135,6 +5138,8 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     NSMenuItem *voice = [[NSMenuItem alloc] initWithTitle:@"开始/结束语音输入" action:@selector(showVoicePanel) keyEquivalent:@""];
     voice.target = self;
     [menu addItem:voice];
+    [menu addItem:MSIMEGlobalVoiceScopeMenuForDirectory(_preferencesDirectory ?: [self runtimeOptions][@"preferences_directory"],
+        self, @selector(selectGlobalVoiceScope:))];
     // 背单词今日待复习：有卡在等、而且没在组字时才列出这一行，点下去打开现有的背单词面板。计数在用户点开菜单时现读，组字时连读都不读。
     const BOOL composing = [_view[@"editing_text"] length] ||
         MSIMEViewHasCompositionCandidates(_view);
@@ -5153,6 +5158,12 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     about.target = self;
     [menu addItem:about];
     return menu;
+}
+- (void)selectGlobalVoiceScope:(id)sender {
+    __weak MSIMEInputController *weakSelf = self;
+    MSIMESelectGlobalVoiceScope(sender, ^{ [weakSelf reloadPreferences]; }, ^{
+        [weakSelf presentHUDText:@"无法保存语音快捷键范围，请重试" announcement:@"无法保存语音快捷键范围，请重试"];
+    });
 }
 - (void)showAccount:(id)sender {
     (void)sender;
@@ -7086,6 +7097,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     // is always applied.
     uint64_t revision = 0;
     if (snapshot[@"revision"] && !MSIMEStrictUnsignedInteger(snapshot[@"revision"], &revision)) { msime_macos_diagnostic_write("preferences_load_failed"); return; }
+    MSIMERecordGlobalVoiceScopeSnapshot(_preferencesDirectory, snapshot, _voiceScopePreferenceLoadEpoch);
     if (!_preferenceLoadState.needsApply(revision)) return;
     NSDictionary *preferences = snapshot[@"preferences"];
     // 更新通道与会话无关，读到新的偏好就交给 Sparkle：下一次检查按它取 appcast，通道变了时重排检查周期（UpdateController.mm）。没有 feed 的构建不创建更新控制器。
@@ -7146,6 +7158,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
 - (void)reloadPreferences {
     if (!_activeClient || !_preferencesDirectory || MSIMESharedPreferenceSaveState.saving || !_preferenceLoadState.begin()) return;
     const uint64_t generation = _preferenceLoadState.generation;
+    _voiceScopePreferenceLoadEpoch = MSIMEGlobalVoiceScopeReadEpoch(_preferencesDirectory);
     MSIMEClientSession *session = _session;
     id client = _activeClient;
     NSString *directory = [_preferencesDirectory copy];

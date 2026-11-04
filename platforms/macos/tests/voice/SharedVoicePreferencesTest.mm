@@ -42,6 +42,7 @@ int main() {
         assert([defaults boolForKey:@"MSIMEClientVoiceHotkeyCtrlCommand"]);
         assert(![defaults boolForKey:@"MSIMEClientVoiceSoundEnabled"]);
         NSDictionary *captured = MSIMEVoicePreferencesFromDefaults(defaults);
+        assert(!captured[@"hotkey_global"]);
         assert([captured[@"asr_provider"] isEqual:@"openai"]);
         assert([captured[@"capture_backend"] isEqual:@"macos"]);
         assert([captured[@"asr_model_path"] isEqual:voice[@"asr_model_path"]]);
