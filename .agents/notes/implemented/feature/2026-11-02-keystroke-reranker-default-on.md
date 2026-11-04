@@ -49,6 +49,8 @@ host-api 的 `ffi::keyboard_reranker` 在开关打开时决定挂哪一个、挂
 - 三个桌面实现都不随「本地整句联想」变灰：host-api 的 `keyboard_reranker_enabled` 不看词网格，词网格关着时重排器照样给单词候选排序，变灰却仍然生效的控件会误导。
 - 手机端（iOS、Android、HarmonyOS）本来就有三档选择，只改缺省显示。
 
+- **停顿时重解的宿主上，跑不进逐键预算不等于不挂。** 宿主在 HostOptions 写了 `pause_rerank`（鸿蒙的键盘）时，ONNX 模型一页超过 4 ms 就延后到停顿、分片重解，加载上限放宽到 60 ms，诊断写 `keyboard reranker at pause`；其他宿主照本篇的规则。见[跑不进逐键预算的鸿蒙设备，把模型延后到停顿](2026-11-04-harmony-pause-rerank.md)。
+
 ## Alternatives considered
 
 - **`Option<bool>`，`None` 跟随产品默认**（`chaizi: Option<bool>` 的做法）。最强的理由是三态能区分「没动过」和「选了标准」，以后再翻默认值也不用迁移。没有采用：旧文档里已经写着 `false`，`Option` 解决不了这些文档，迁移标记照样要加；改成 `Option` 还要动所有读这个字段的原生代码、TS 类型和测试，换来的只是以后的方便。

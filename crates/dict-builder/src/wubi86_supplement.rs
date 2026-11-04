@@ -1,16 +1,17 @@
-//! `wubi86-supplement`：生成 msime-dictionary 的 `sources/wubi/wubi86-supplement.txt`，即 86 五笔码表（`sources/wubi/wubi86-jidian.txt`）缺少的多字词，编码按 86 版词组规则由该表自己的单字编码推出。
+//! `wubi86-supplement`：生成 msime-dictionary 的 `sources/wubi/wubi86-supplement.txt`，即 86 五笔码表（`sources/wubi/wubi86-jidian.txt`，拆分之后连同 `sources/wubi/wubi86-rime-wubi.txt`，读法见 `wubi86_table.rs`）缺少的多字词，编码按 86 版词组规则由该表自己的单字编码推出。
 //!
 //! 极点码表在任何编码下都没有的基本区汉字词，来自 98 码表、权重不低于 `MIN_PINYIN_WEIGHT` 的 rime-ice 主表和补充表，或人工维护的 custom/words.txt、区划补充表。拼音来源不再限制为二字词，100 的门槛保留上游按该权重整理的现代词语，同时排除更低权重的语料碎片；人工词条与区划名称不设权重门槛。
 //!
 //! 编码按 86 版词组规则，取每个字的全码，即极点码表里该字单独出现时最长的编码：二字词各取前两码；三字词取前两字的首码和第三字的前两码；更长的词取第一、二、三字和末字的首码。码表没有单独编码的字，或几个全码在词所需码位上不一致的字（部首和几百个生僻字），含它的词不收。在极点码表自己的词上，这套规则还原了 63,127 个编码中的 63,095 个；其余是码表自己的简码和拆法（占比 hxx、蹂躏 kcka）。
 //!
-//! 补充表从不移动极点码表的行。补充词在其编码下的权重低于该编码在极点码表里的最低权重，并且不高于 `SUPPLEMENT_CEILING`，也就低于极点码表所有有排名的词（它们的最低权重是 10），所以在前缀列表里也排在它们之后。同一编码下的几个补充词按 rime-ice 权重从高到低、再按词排序，从这个上限起依次减 1，最低为 0；构建把本文件并在极点码表之后，所以同权重时极点码表的行在前，同一编码内保持本文件的顺序。原本四码只有一个极点词、输入法会自动上屏的编码，一旦有补充词共用就不再自动上屏；报告会统计这类编码。
+//! 补充表从不移动极点码表的行。补充词在其编码下的权重低于该编码在极点码表里构建会写入、且有名次的行的最低权重（扩展区、私用区和兼容汉字的行不写入，权重为 0 的行没有名次，都不算），并且不高于 `SUPPLEMENT_CEILING`；极点码表构建会写入的行除 蔻 `apfc`、个位数 `wwov` 两行是 5 以外都不低于 10，所以补充词在前缀列表里也排在它们之后。拆分之后 rime-wubi 的行按 `wubi86_table::rows` 换算，上游给 0 权重的部首、部件保持 0，排在同码补充词之后。同一编码下的几个补充词按 rime-ice 权重从高到低、再按词排序，从这个上限起依次减 1，最低为 0；构建把本文件并在极点码表之后，所以同权重时极点码表的行在前，同一编码内保持本文件的顺序。原本四码只有一个极点词、输入法会自动上屏的编码，一旦有补充词共用就不再自动上屏；报告会统计这类编码。
 
 use std::collections::{BTreeSet, HashSet};
 use std::fmt::Write as _;
 
 use anyhow::{bail, Result};
 
+use crate::curation::PinyinCuration;
 use crate::msime;
 use crate::text;
 use crate::wubi_supplement::{frequencies, is_word, pinyin_words, rank};
@@ -18,7 +19,7 @@ use crate::wubi_supplement::{frequencies, is_word, pinyin_words, rank};
 pub(crate) use crate::wubi_supplement::{full_codes, prefix};
 
 pub const OUTPUT: &str = "sources/wubi/wubi86-supplement.txt";
-pub const JIDIAN: &str = "sources/wubi/wubi86-jidian.txt";
+pub const JIDIAN: &str = crate::wubi86_table::JIDIAN;
 pub const WUBI98: &str = "sources/wubi/wubi98.txt";
 pub const WUBI98_FCITX: &str = "sources/wubi/wubi98-fcitx.txt";
 pub const BASE: &str = "sources/pinyin/rime-ice.txt";
@@ -29,7 +30,7 @@ pub const CUSTOM: &str = "custom/words.txt";
 /// 包含上游人工整理时使用的 100 权重词条；低权重的语料碎片不自动收录。
 pub const MIN_PINYIN_WEIGHT: i64 = 100;
 
-/// 补充行的最高权重：比极点码表有排名的词的最低权重低 1。
+/// 补充行的最高权重：比极点码表名次的最低一档 10 低 1。
 pub(crate) const SUPPLEMENT_CEILING: i64 = 9;
 
 /// 每行报告列出的示例个数。
@@ -37,6 +38,10 @@ pub(crate) const REPORT_EXAMPLES: usize = 20;
 
 pub struct Inputs<'a> {
     pub jidian: &'a str,
+    /// 新布局下 rime-wubi 补进来的行（[`crate::wubi86_table::RIME_WUBI`]），旧布局为 `None`；权重按 [`crate::wubi86_table::rows`] 换算。
+    pub rime_wubi: Option<&'a str>,
+    /// 换算 rime-wubi 的行时比的词频（[`crate::wubi86_table::Frequencies`]），旧布局不用。
+    pub frequencies: &'a crate::wubi86_table::Frequencies,
     /// `sources/wubi/wubi98.txt`，已从 UTF-16LE 解码。
     pub wubi98: &'a str,
     pub wubi98_fcitx: &'a str,
@@ -44,6 +49,8 @@ pub struct Inputs<'a> {
     pub pinyin_supplement: &'a str,
     pub places: &'a str,
     pub custom: &'a str,
+    /// msime-dictionary `curation/` 的拼音否决表和权重覆盖表：整词否决的词不收，权重覆盖只取第四列写了 `wubi` 的频率修正，见 [`PinyinCuration::wubi_rows`]。
+    pub curation: &'a PinyinCuration,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,30 +71,32 @@ pub struct Supplement {
     pub unique_codes_shared: usize,
 }
 
-/// 极点码表的行：`(code, value, weight)`。
-fn jidian_rows(source: &str) -> Vec<(String, &str, i64)> {
-    text::universal_lines(text::without_bom(source))
-        .into_iter()
-        .filter_map(|line| msime::parse_code_line(line, false))
-        .collect()
-}
-
 pub fn build(inputs: &Inputs) -> Result<Supplement> {
-    let rows = jidian_rows(inputs.jidian);
+    let mut rows: Vec<(String, &str, i64)> =
+        crate::wubi86_table::rows(inputs.jidian, inputs.rime_wubi, inputs.frequencies)
+            .flatten()
+            .collect();
     if rows.is_empty() {
         bail!("{JIDIAN} has no rows");
     }
+    // 构建不把整词否决的词写进 wubi86，同码最低权重和全码也就不算它们。
+    rows.retain(|(_, value, _)| !inputs.curation.vetoes_word(value));
+    // 权重为 0 的行没有名次（会写入的只有 rime-wubi 给 12 个部首、部件的 0，如 ⺻ vhgd），同码补充词应排在它们前面，所以同码最低权重不算它们；它们都是单字，不进对照的词集合，也不会成为哪个候选词所需的全码。
+    rows.retain(|(_, _, weight)| *weight > 0);
     let jidian_words: HashSet<&str> = rows
         .iter()
         .filter(|(_, value, _)| value.chars().count() >= 2)
         .map(|(_, value, _)| *value)
         .collect();
-    let frequency = frequencies([
-        inputs.base,
-        inputs.pinyin_supplement,
-        inputs.places,
-        inputs.custom,
-    ]);
+    let frequency = frequencies(
+        [
+            inputs.base,
+            inputs.pinyin_supplement,
+            inputs.places,
+            inputs.custom,
+        ],
+        inputs.curation,
+    );
 
     let mut wubi98: BTreeSet<String> = BTreeSet::new();
     for line in text::universal_lines(text::without_bom(inputs.wubi98)) {
@@ -104,9 +113,10 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
         bail!("{WUBI98} and {WUBI98_FCITX} have no rows");
     }
     let pinyin = pinyin_words(
-        &frequency,
+        &frequency.threshold,
         MIN_PINYIN_WEIGHT,
         &[inputs.places, inputs.custom],
+        inputs.curation,
     );
 
     let candidates: BTreeSet<&str> = wubi98
@@ -114,11 +124,14 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
         .map(String::as_str)
         .chain(pinyin.iter().copied())
         .filter(|word| {
-            is_word(word) && !msime::outside_basic_cjk(word) && !jidian_words.contains(word)
+            is_word(word)
+                && !msime::unsupported_wubi_value(word)
+                && !jidian_words.contains(word)
+                && !inputs.curation.vetoes_word(word)
         })
         .collect();
 
-    let ranked = rank(&rows, candidates, &frequency, SUPPLEMENT_CEILING);
+    let ranked = rank(&rows, candidates, &frequency.order, SUPPLEMENT_CEILING);
     let entries = ranked
         .entries
         .into_iter()
@@ -154,6 +167,7 @@ pub fn render(supplement: &Supplement, provenance: &Provenance) -> String {
         .map(|(path, sha256)| format!("{path}（SHA-256 {sha256}）"))
         .collect::<Vec<_>>()
         .join("、");
+    let table = crate::wubi86_table::described(provenance.inputs);
     let mut out = String::new();
     let _ = writeln!(out, "# 86 五笔词组补充表，由 msime 仓库提交 {} 的 crates/dict-builder/src/wubi86_supplement.rs 以 `msime-dict-build wubi86-supplement --dictionary <msime-dictionary checkout> --cache <dir> --out sources/wubi/wubi86-supplement.txt` 生成；不要手工编辑。", provenance.generator_commit);
     let _ = writeln!(out, "# 输入：{inputs}。");
@@ -162,9 +176,9 @@ pub fn render(supplement: &Supplement, provenance: &Provenance) -> String {
         "# 上游：{}；jidian 与区划表的来源、提交和许可另见 NOTICE.md 及输入文件头。",
         provenance.upstreams
     );
-    let _ = writeln!(out, "# 收录：{JIDIAN} 在任何编码下都没有、且全部由基本区汉字组成（不含 CJK 扩展 A 和 BMP 以外的字）的词，满足其一即收：在 98 五笔的 {WUBI98} 或 {WUBI98_FCITX} 里是两字及以上的词；或在 {BASE} 里是权重不低于 {MIN_PINYIN_WEIGHT} 的两字及以上词，或 {PINYIN_SUPPLEMENT} 里达到同一门槛的词，或 {PLACES}、{CUSTOM} 的人工维护词（后两者不设权重门槛；9999 这类人工填写的权重不与词频区分）。");
-    let _ = writeln!(out, "# 编码：按 86 版词组规则，取 {JIDIAN} 里单字的全码（该字单独出现时最长的编码）：二字词各取前两码；三字词取前两字的首码和第三字的前两码；四字及以上取第一、二、三字和末字的首码。单字表里没有、或几个全码在所需码位上不一致的字，含它的词不收。");
-    let _ = writeln!(out, "# 去重与权重：对照集合是 {JIDIAN} 的全部两字及以上词条，已有的词不论编码一律不收。同一编码下补充词排在 {JIDIAN} 原有词条之后：最高权重取 {SUPPLEMENT_CEILING} 与该编码原有最低权重减 1 中较小者，几个补充词按 {BASE}、{PINYIN_SUPPLEMENT}、{PLACES}、{CUSTOM} 中同词最大权重从高到低（没有的排最后，再按词）依次减 1，最低为 0；构建的 wubi 阶段在 {JIDIAN} 之后并入本文件，同权重时原有词条在前。");
+    let _ = writeln!(out, "# 收录：{table} 在任何编码下都没有、且全部由基本区汉字组成（不含 CJK 扩展 A 和 BMP 以外的字）的词，满足其一即收：在 98 五笔的 {WUBI98} 或 {WUBI98_FCITX} 里是两字及以上的词；或在 {BASE} 里是权重不低于 {MIN_PINYIN_WEIGHT} 的两字及以上词，或 {PINYIN_SUPPLEMENT} 里达到同一门槛的词，或 {PLACES}、{CUSTOM} 的人工维护词（后两者不设权重门槛；9999 这类人工填写的权重不与词频区分）。");
+    let _ = writeln!(out, "# 编码：按 86 版词组规则，取 {table} 里单字的全码（该字单独出现时最长的编码）：二字词各取前两码；三字词取前两字的首码和第三字的前两码；四字及以上取第一、二、三字和末字的首码。单字表里没有、或几个全码在所需码位上不一致的字，含它的词不收。");
+    let _ = writeln!(out, "# 去重与权重：对照集合是 {table} 的全部两字及以上词条，已有的词不论编码一律不收。同一编码下补充词排在 {table} 原有词条之后：最高权重取 {SUPPLEMENT_CEILING} 与该编码原有最低权重减 1 中较小者，几个补充词按 {BASE}、{PINYIN_SUPPLEMENT}、{PLACES}、{CUSTOM} 中同词最大权重从高到低（没有的排最后，再按词）依次减 1，最低为 0；构建的 wubi 阶段在 {table} 之后并入本文件，同权重时原有词条在前。");
     for entry in &supplement.entries {
         let _ = writeln!(out, "{}\t{}\t{}", entry.word, entry.code, entry.weight);
     }
@@ -221,17 +235,20 @@ pub fn report(supplement: &Supplement) -> Vec<String> {
 mod tests {
     use super::*;
 
-    const JIDIAN_FIXTURE: &str = "\u{feff}部\tukbh\t10\r\n门\tuyhn\t10\r\n冲\tukh\t10\r\n冲\tukhh\t10\r\n凉\tuyiy\t10\r\n冻\tuyaa\t10\r\n部门\tukuy\t10\r\n工\ta\t20\r\n工\taaaa\t20\r\n人\tw\t10\r\n人\twwww\t10\r\n民\tnav\t10\r\n民\tnavn\t10\r\n人民\twwna\t20\r\n艹\taghh\t0\r\n艹\tghgh\t0\r\n日\tjjjj\t10\r\n";
+    const JIDIAN_FIXTURE: &str = "\u{feff}部\tukbh\t10\r\n门\tuyhn\t10\r\n冲\tukh\t10\r\n冲\tukhh\t10\r\n凉\tuyiy\t10\r\n冻\tuyaa\t10\r\n部门\tukuy\t10\r\n工\ta\t20\r\n工\taaaa\t20\r\n人\tw\t10\r\n人\twwww\t10\r\n民\tnav\t10\r\n民\tnavn\t10\r\n人民\twwna\t20\r\n艹\taghh\t10\r\n艹\tghgh\t10\r\n日\tjjjj\t10\r\n";
 
     fn build_with(jidian: &str, wubi98: &str, fcitx: &str, base: &str) -> Supplement {
         build(&Inputs {
             jidian,
+            rime_wubi: None,
+            frequencies: &crate::wubi86_table::Frequencies::default(),
             wubi98,
             wubi98_fcitx: fcitx,
             base,
             pinyin_supplement: "",
             places: "",
             custom: "",
+            curation: &PinyinCuration::default(),
         })
         .unwrap()
     }
@@ -297,12 +314,15 @@ mod tests {
     fn supplementary_and_manual_inputs_reach_the_version_specific_generator() {
         let supplement = build(&Inputs {
             jidian: JIDIAN_FIXTURE,
+            rime_wubi: None,
+            frequencies: &crate::wubi86_table::Frequencies::default(),
             wubi98: "日日\tx\n",
             wubi98_fcitx: "",
             base: "",
             pinyin_supplement: "工人\tgong'ren\t100\n",
             places: "工人日\tgong'ren'ri\t1\n",
             custom: "工人民\tgong'ren'min\t1\n工人\tgong'ren\t100\n",
+            curation: &PinyinCuration::default(),
         })
         .unwrap();
         assert_eq!(
@@ -313,6 +333,33 @@ mod tests {
                 ("工人民", "awna", 9),
                 ("日日", "jjjj", 9)
             ]
+        );
+    }
+
+    /// 整词否决的词不进补充表，也不再占同码的名次；极点表里被否决的词不再算同码原有的行；读音否决改的是拼音那边的门槛，写了 `wubi` 的权重覆盖（人民日 升到 100）也算进门槛。
+    #[test]
+    fn curation_tables_reach_the_generator() {
+        let curation = PinyinCuration::parse(
+            "工人日\n部门\n工人\tgong'ren\n",
+            "人民日\tren'min'ri\t100\twubi\n",
+        )
+        .unwrap();
+        let supplement = build(&Inputs {
+            jidian: JIDIAN_FIXTURE,
+            rime_wubi: None,
+            frequencies: &crate::wubi86_table::Frequencies::default(),
+            wubi98: "部门\tx\n",
+            wubi98_fcitx: "",
+            base: "人民日\tren'min'ri\t1\n",
+            pinyin_supplement: "工人\tgong'ren\t100\n",
+            places: "工人日\tgong'ren'ri\t1\n",
+            custom: "工人民\tgong'ren'min\t1\n",
+            curation: &curation,
+        })
+        .unwrap();
+        assert_eq!(
+            rows(&supplement),
+            [("工人民", "awna", 9), ("人民日", "wnjj", 9)]
         );
     }
 
@@ -330,11 +377,60 @@ mod tests {
         );
     }
 
+    /// 同码有名次的最低权重是 1 时，补充词的上限是 0，不会更低。
     #[test]
-    fn a_code_whose_lowest_jidian_row_weighs_zero_gives_zero() {
-        let jidian = format!("{JIDIAN_FIXTURE}𠂇\taajj\t0\r\n");
+    fn a_code_whose_lowest_jidian_row_weighs_one_gives_zero() {
+        let jidian = format!("{JIDIAN_FIXTURE}丁\taajj\t1\r\n");
         let supplement = build_with(&jidian, "工日\tx\r\n", "", "");
         assert_eq!(rows(&supplement), [("工日", "aajj", 0)]);
+    }
+
+    /// 权重为 0 的行没有名次，不定同码上限：补充词照样从 9 起，排在它前面。
+    #[test]
+    fn a_zero_weight_row_does_not_set_the_ceiling() {
+        let jidian = format!("{JIDIAN_FIXTURE}丁\taajj\t0\r\n");
+        let supplement = build_with(&jidian, "工日\tx\r\n", "", "");
+        assert_eq!(rows(&supplement), [("工日", "aajj", 9)]);
+    }
+
+    /// 构建不写入的行（这里是扩展 B 区的 𠂇 和兼容汉字 U+FA0C）不算同码最低权重：它们是 0 权重，但补充词照样从 9 起。
+    #[test]
+    fn rows_the_build_leaves_out_do_not_lower_the_ceiling() {
+        let jidian = format!("{JIDIAN_FIXTURE}𠂇\taajj\t0\r\n\u{FA0C}\taajj\t0\r\n");
+        let supplement = build_with(&jidian, "工日\tx\r\n", "", "");
+        assert_eq!(rows(&supplement), [("工日", "aajj", 9)]);
+    }
+
+    /// 新布局下 rime-wubi 的行按换算后的权重算：上游的 0 仍是 0，不定同码上限；有词频的行记为 10，`ukuy` 上的补充词就排在它之后，rime-wubi 收的词照样不再收进补充表。旧布局读合并的文件时 `ukuy` 那一行是上亿的原权重，结果相同。
+    #[test]
+    fn rime_wubi_rows_count_at_their_mapped_weight() {
+        let rime_wubi = "丁\taajj\t0\r\n冲凉\tukuy\t61900000\r\n";
+        let curation = PinyinCuration::default();
+        let build_from = |jidian: &str, rime_wubi: Option<&str>| {
+            build(&Inputs {
+                jidian,
+                rime_wubi,
+                frequencies: &crate::wubi86_table::Frequencies::default(),
+                wubi98: "工日\tx\r\n冲凉\tx\r\n",
+                wubi98_fcitx: "",
+                base: "",
+                pinyin_supplement: "",
+                places: "",
+                custom: "",
+                curation: &curation,
+            })
+            .unwrap()
+            .entries
+        };
+        let row = |entry: &Entry| (entry.word.clone(), entry.code.clone(), entry.weight);
+        let split: Vec<_> = build_from(JIDIAN_FIXTURE, Some(rime_wubi))
+            .iter()
+            .map(row)
+            .collect();
+        assert_eq!(split, [("工日".to_owned(), "aajj".to_owned(), 9)]);
+        let merged = format!("{JIDIAN_FIXTURE}{rime_wubi}");
+        let merged: Vec<_> = build_from(&merged, None).iter().map(row).collect();
+        assert_eq!(merged, [("工日".to_owned(), "aajj".to_owned(), 9)]);
     }
 
     #[test]

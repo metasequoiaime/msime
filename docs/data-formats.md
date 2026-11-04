@@ -110,7 +110,7 @@ user_data/
 
 ## 4. `msime-pinyin.db`
 
-主词库：全拼各表、快捷短语表 `quick_parases`（拼写如此，是冻结的表名）和文件内版本表。全拼、双拼、九键和五笔的 14 键排序都读它；准备代次时五笔码表并进它的工作副本（[§9](#9-msime-wubidb)）。发布的文件是回滚日志模式（`journal_mode=DELETE`）、没有空闲页、只带 `sqlite_stat1` 统计表的独立数据库。
+主词库：全拼各表、快捷短语表 `quick_parases`（拼写如此，是冻结的表名）、文件内版本表，以及可选的不拼整句表 `sentence_excluded`（[§4.5](#45-sentence_excluded)）。全拼、双拼、九键和五笔的 14 键排序都读它；准备代次时五笔码表并进它的工作副本（[§9](#9-msime-wubidb)）。发布的文件是回滚日志模式（`journal_mode=DELETE`）、没有空闲页、只带 `sqlite_stat1` 统计表的独立数据库。
 
 ### 4.1 拼音表
 
@@ -183,6 +183,24 @@ INSERT OR REPLACE INTO metadata(name, value) VALUES('format_version', '1');
 
 `metadata` 随 backup 原样进副本，引擎不改它。
 
+### 4.5 `sentence_excluded`
+
+可选的表：引擎拼整句、换纠错整句和上屏后联想时不用的粗俗词（`lattice::offensive`），以及放行其中一部分的豁免写法。dict-builder 的 `sentence-excluded` 阶段从 msime-dictionary 的 `curation/offensive-words.txt` 写入；这个文件不存在时不建这张表。
+
+```sql
+CREATE TABLE sentence_excluded(value TEXT NOT NULL PRIMARY KEY, exempt INTEGER NOT NULL CHECK (exempt IN (0, 1))) WITHOUT ROWID;
+```
+
+- `value`：两个及以上汉字。`exempt = 0` 是词，`exempt = 1` 是豁免写法（文件里写成 `!` 开头的行）。
+- 写入时检查：每个词都是全拼表里某一行的词，每条豁免写法都出现在全拼表某一行的词里，并且含一个表里的词；做不到就构建失败，不写这张表。
+- 建表语句是 `format::SENTENCE_EXCLUDED_SCHEMA`，表名是 `format::SENTENCE_EXCLUDED_TABLE`。
+
+读端规则（`OffensiveWords::from_database`）：词库有这张表、能读出 `value` 和 `exempt` 两列、至少有一个 `exempt = 0` 的词时，引擎用它整个取代编进引擎的 `offensive_words.txt`；没有这张表（`dict-v2.0.x` 早期的发布）、列不对、读的时候出错、或者一个词都没有时，用编进引擎的表。查法两边相同：词本身或其中任何一段在表里就算命中，除非这一段被一条豁免写法整个盖住。
+
+这是只追加的新表，按 [§4.3](#43-文件内版本) 的规矩不改 `FORMAT_VERSION`：旧引擎按名字查表、不枚举不认识的表，带这张表的词库对它来说照常可用，只是还用内嵌表；新引擎配旧词库退回内嵌表。表随 backup 进代次的工作副本，引擎从副本读；全拼、双拼词典和联想在打开词库时各读一次。网页词库（`msime-dict-build web`）原样保留这张表。
+
+构建器一侧不是这样：加入这张表之前的 `msime-dict-build web` 枚举输入词库的表，遇到不认识的表就失败（`unexpected table sentence_excluded in the input dictionary`）。所以裁剪带这张表的 `dict-v*` 要用包含这次改动的构建器；`scripts/build-web-engine.sh` 和 `release-web-engine.yml` 用的是检出提交里的构建器，`resources/desktop-dictionary.lock.json` 换到带这张表的发布，只能在已经有这次改动的分支上做。
+
 ## 5. `msime-english.db`
 
 英文词表和中英互译释义。方案集合含全拼、双拼或五笔时每个代次都复制一份，资源目录必须有它；只用日文、韩语、越南语、藏文、粤语、注音、笔画的集合不要求它，带了才复制进代次，供专用英文用（见 [§20](#20-每个方案的最小数据集)）。
@@ -207,7 +225,7 @@ PRAGMA user_version=3;
 ```
 
 - `english_words.word` 是小写查找键，`display` 是展示的大小写形式（`china` 与 `China` 各一行），`weight` 可能超过 `i32`，引擎按 `i64` 读。同一个词的几种大小写里，领头的那种带词频，其余比它低 1。
-- 释义表的值可以有多个义项，宿主门面在候选旁显示时只取前两个。
+- 释义表的值可以有多个义项，宿主门面在候选旁显示时只取前两个。`en_zh_glosses.english` 是小写查找键；`zh_en_glosses.english_gloss` 里的英文词按展示写法，专名保留大写（`中国` → `China`）。
 - `source_notices` 保存来源要求随数据保留的声明（目前是 SCOWL 的版权声明），引擎不读。
 - `user_version=3` 由构建和 `ensure_english_schema` 写入，读端不检查；`ensure_english_schema` 会把没有 `weight` 列或只以 `word` 为键的旧表就地改建成上面的形状。
 

@@ -49,10 +49,10 @@ impl Lock {
     }
 }
 
-/// 构建器读取的 msime-dictionary 顶层目录；其下的路径只从 `--dictionary` checkout 读取，锁文件不固定其中任何文件。
-const DICTIONARY_DIRECTORIES: [&str; 2] = ["sources/", "custom/"];
+/// 构建器读取的 msime-dictionary 顶层目录；其下的路径只从 `--dictionary` checkout 读取，锁文件不固定其中任何文件。`curation/` 是维护者审定的否决表、权重覆盖表和粗俗词表（`curation.rs`），不接受投稿，也不是 msime-web、msime-cloud 读写的 `custom/`。
+const DICTIONARY_DIRECTORIES: [&str; 3] = ["sources/", "custom/", "curation/"];
 /// msime 认定为上游数据的 msime-dictionary 文件：原样复制自某个上游、或由 msime 的生成器从某个上游生成（`hkcancor-counts` 来自 HKCanCor，`english-supplement` 来自 SCOWL），写成精确路径或目录前缀，并配上上游名。manifest 的 references 和 `mozc_revision`、语言词库的 `source_commit` 以及随包许可证都写着这些上游的提交，所以 checkout 的 `upstream.lock.json` 必须用同一个上游名列出这些路径，并固定它们的大小和 SHA-256；记录里每个上游的提交必须等于锁文件的同名 reference（`mozc` 对应 `lock.mozc`）。要换成新版上游，先在 msime 改 reference 和 `resources/licenses`，再改 `upstream.lock.json`。
-const UPSTREAM_FILES: [(&str, &str); 17] = [
+const UPSTREAM_FILES: [(&str, &str); 20] = [
     ("sources/pinyin/rime-ice.txt", "rime-ice"),
     (
         "sources/pinyin/rime-ice-supplement.txt",
@@ -80,6 +80,17 @@ const UPSTREAM_FILES: [(&str, &str); 17] = [
     ("sources/wubi/wubi98-fcitx.txt", "fcitx5-table-extra"),
     // 新世纪五笔单字表：上游 `dicts/wubi06.dict.yaml` 的原样副本，许可与来源存疑之处见 msime-engine-dictionary-NOTICE.md。
     ("sources/wubi/wubixsj-byujiang.txt", "wubi06-rime"),
+    // 86 五笔原表拆成两个文件之后的布局（`wubi86_table.rs`）：极点表与 rime-wubi 补进来的行分别记在各自的上游名下。拆分之前的提交两者合在 `wubi86-jidian.txt` 里、锁里也没有它，那种布局由 `wubi86_table::Files::locate` 不经记录读取。
+    (
+        crate::wubi86_table::JIDIAN,
+        crate::wubi86_table::JIDIAN_REFERENCE,
+    ),
+    (
+        crate::wubi86_table::RIME_WUBI,
+        crate::wubi86_table::RIME_WUBI_REFERENCE,
+    ),
+    // 万象拼音 `dicts/` 下 17 份词库的原样副本，`reweight` 阶段按它重算全拼权重。
+    (crate::reweight::DIRECTORY, crate::reweight::REFERENCE),
 ];
 
 /// The upstream reference `path` is a copy of or is generated from at a recorded commit, if any. The first matching entry of `UPSTREAM_FILES` wins, so an exact path listed before its directory's prefix (HKCanCor's counts beside rime-cantonese's files) names its own upstream.
@@ -212,6 +223,11 @@ impl Dictionary {
     fn file(&self, path: &str) -> Option<&UpstreamFile> {
         self.upstream.files.iter().find(|file| file.path == path)
     }
+
+    /// `upstream.lock.json` 是否记录了这个上游。登记一个新上游之前的 checkout 没有它，读它的阶段据此跳过（`reweight` 对 `rime-wanxiang`）。
+    pub fn records_upstream(&self, name: &str) -> bool {
+        self.upstream.upstreams.contains_key(name)
+    }
 }
 
 /// `path` 是否属于 msime-dictionary（在 `DICTIONARY_DIRECTORIES` 之下）。
@@ -241,6 +257,13 @@ impl Sources {
         Ok(resolved)
     }
 
+    /// checkout 的 `upstream.lock.json` 是否记录了 `path`；没有 checkout 时为 `false`。
+    pub fn records(&self, path: &str) -> bool {
+        self.dictionary
+            .as_ref()
+            .is_some_and(|dictionary| dictionary.file(path).is_some())
+    }
+
     /// `path` 在 `--dictionary` checkout 里的位置；没有 checkout，或 `path` 不属于 msime-dictionary 时为 `None`。
     pub fn checkout_file(&self, path: &str) -> Option<PathBuf> {
         self.dictionary
@@ -249,14 +272,20 @@ impl Sources {
             .map(|dictionary| dictionary.root.join(path))
     }
 
-    /// msime-dictionary 里可以没有的手工文件：checkout 里还没有它（加入它之前的提交，或者构建器的固定提交先于词库仓库加上它）时为 `None`，构建按空表进行；文件存在时与其他 checkout 文件一样经 [`Self::pinned`] 检查路径。
+    /// msime-dictionary 里可以不存在的输入（`curation/` 下的表、`custom/wubi86.txt`）：在 checkout 里就返回它的位置，不在时为 `None`。路径不属于 msime-dictionary、没有 checkout、路径里有符号链接、或者那个位置不是普通文件时报错。
     pub fn optional(&self, path: &str) -> Result<Option<PathBuf>> {
-        let Some(resolved) = self.checkout_file(path) else {
-            return Ok(None);
+        if !is_dictionary_path(path) {
+            bail!("{path} is not msime-dictionary data");
+        }
+        let Some(dictionary) = self.dictionary.as_ref() else {
+            bail!("{path} is msime-dictionary data; pass --dictionary <msime-dictionary checkout>");
         };
+        let resolved = dictionary_checkout_path(&dictionary.root, path)?;
         match std::fs::symlink_metadata(&resolved) {
+            Ok(metadata) if metadata.is_file() => Ok(Some(resolved)),
+            Ok(_) => bail!("{} is not a regular file", resolved.display()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            _ => self.pinned(path).map(Some),
+            Err(error) => Err(error.into()),
         }
     }
 
@@ -534,6 +563,55 @@ mod tests {
 
     fn dictionary_at(checkout: &tempfile::TempDir, lock: &Lock) -> Dictionary {
         Dictionary::open(checkout.path().into(), lock).unwrap()
+    }
+
+    /// `curation/` 下的表可以不存在：不在时为 `None`，在时从 checkout 读；不是普通文件、经过符号链接、或不属于 msime-dictionary 的路径都报错。
+    #[cfg(unix)]
+    #[test]
+    fn optional_curation_tables_may_be_missing() {
+        use std::os::unix::fs::symlink;
+
+        let checkout = checkout(
+            &[("curation/pinyin-vetoes.txt", "别鸡巴\n".as_bytes())],
+            json!({"version": 1, "upstreams": {}, "files": []}),
+        );
+        std::fs::create_dir_all(checkout.path().join("curation/english-vetoes.txt")).unwrap();
+        symlink(
+            checkout.path().join("curation/pinyin-vetoes.txt"),
+            checkout.path().join("curation/offensive-words.txt"),
+        )
+        .unwrap();
+        let lock = lock_with_references(&[], ("", String::new()));
+        let sources = Sources {
+            dictionary: Some(dictionary_at(&checkout, &lock)),
+            lock,
+            repository_inputs: checkout.path().into(),
+            cache: checkout.path().into(),
+            offline: true,
+        };
+        assert_eq!(
+            sources.optional("curation/pinyin-vetoes.txt").unwrap(),
+            Some(checkout.path().join("curation/pinyin-vetoes.txt"))
+        );
+        assert_eq!(
+            sources
+                .optional("curation/pinyin-weight-overrides.txt")
+                .unwrap(),
+            None
+        );
+        assert!(sources.optional("curation/english-vetoes.txt").is_err());
+        assert!(sources.optional("curation/offensive-words.txt").is_err());
+        assert!(sources.optional("resources/whatever.txt").is_err());
+        let without_checkout = Sources {
+            dictionary: None,
+            lock: lock_with_references(&[], ("", String::new())),
+            repository_inputs: checkout.path().into(),
+            cache: checkout.path().into(),
+            offline: true,
+        };
+        assert!(without_checkout
+            .optional("curation/pinyin-vetoes.txt")
+            .is_err());
     }
 
     #[cfg(unix)]

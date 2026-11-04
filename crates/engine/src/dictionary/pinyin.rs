@@ -64,6 +64,14 @@ impl PinyinDatabase {
         self.connection.is_some()
     }
 
+    /// 这个词库的粗俗词表：带 `sentence_excluded` 表时用它，否则（没打开、旧词库没有这张表、表读不出来）用编进引擎的表，见 `lattice::offensive`。
+    pub(crate) fn offensive_words(&self) -> crate::lattice::offensive::OffensiveWords {
+        self.connection
+            .as_ref()
+            .map(crate::lattice::offensive::OffensiveWords::from_database)
+            .unwrap_or_default()
+    }
+
     /// Whether `PRAGMA data_version` moved since the last call, meaning another connection wrote the file and cached answers are stale (QD:1409-1432). The first call records the version and answers false.
     pub fn database_changed(&mut self) -> bool {
         let Some(connection) = &self.connection else {

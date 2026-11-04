@@ -267,6 +267,21 @@ impl ProviderRegistry {
         }
     }
 
+    /// `scheme` 用的词库的粗俗词表（复制只是复制一个 `Arc`）：双拼取双拼词典的，其余取全拼词典的；会话还没有对应的 provider 时是内嵌表。
+    pub(crate) fn offensive_words(
+        &self,
+        scheme: crate::types::SchemeType,
+    ) -> crate::lattice::offensive::OffensiveWords {
+        let table = if scheme == crate::types::SchemeType::Shuangpin {
+            self.shuangpin
+                .as_ref()
+                .map(ShuangpinEngine::offensive_words)
+        } else {
+            self.quanpin.as_ref().map(QuanpinEngine::offensive_words)
+        };
+        table.cloned().unwrap_or_default()
+    }
+
     /// 全拼词典里每个键最好那一行的权重，供滑行输入使用；会话没有全拼 provider 时为空。
     pub fn quanpin_best_weights(&self, keys: &[String]) -> HashMap<String, i64> {
         self.quanpin
