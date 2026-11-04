@@ -32,7 +32,7 @@ Status: implemented
 
 收益：打字和用 Shift/Ctrl+左右移光标时，候选窗拼音行一直有插入点，位置和 TSF 行内、macOS 候选窗用的是同一个引擎位置；双拼「拼音分词」也能画。代价：插入点现在每次按键都画，拼音行宽度相应多算一段让位（`candidate_preedit_caret_slot`，约 2.95 DIP），卡片可能比以前宽这么一点；韩文、日文、笔画的拼音行末尾多一条竖线。
 
-验证：`platforms/windows/tests/input/preedit_caret.cpp` 补了按键路径（原样、末尾、已选词段前缀）、引擎位置（双拼分隔 `ni'mf` 的四个位置在两条投影上一致、拼音分词 `shi'shi`、韩文按字节换算、越界不画）的用例。改代码前在 Mac Studio 上用 clang 编译运行，按键路径第一条断言失败；改后通过，`preedit_display_caret.cpp`、`prediction_presentation.cpp` 等候选窗投影测试也通过，`scripts/test-windows-native-run.py` 全部通过。`preedit_caret.cpp` 要链接繁体换算，这次本地运行用了一个只回原文的替身，CI 的 Windows 交叉编译只编译它不运行。没有在 Windows 真机上看插入点，留给设备验收。
+验证：`platforms/windows/tests/input/preedit_caret.cpp` 补了按键路径（原样、末尾、已选词段前缀）、引擎位置（双拼分隔 `ni'mf` 的四个位置在两条投影上一致、拼音分词 `shi'shi`、韩文按字节换算、越界不画）的用例。改代码前在 Mac Studio 上用 clang 编译运行，按键路径第一条断言失败；改后通过，`preedit_display_caret.cpp`、`prediction_presentation.cpp` 等候选窗投影测试也通过，`scripts/test-windows-native-run.py` 全部通过。`preedit_caret.cpp` 要链接繁体换算，`scripts/test-windows-native-run.py` 链接真实 `msime-host-api` 静态库运行它（见下一段），不用恒等转换替身。没有在 Windows 真机上看插入点，留给设备验收。
 
 本轮审查补齐非法字段边界：合成 `ni` / 原始按键光标 1，明确给 `preedit_caret` 空值、布尔、浮点、字符串、负数、容器或超大无符号数，两条投影都必须不画；合法无符号 0、1、2 仍按原位置画。旧实现先在空值断言失败（第 229 行），修复后使用真实 `msime-host-api` 静态库运行 `preedit_caret.cpp` 与 `candidate_initialization.cpp`，两项全部通过、无跳过，不再用恒等转换替身。同步到 `776b4703c7` 后本地 quick 通过：原生 runner 215 通过、2 项宿主差异排除、84 项需 Windows 构建；Rust workspace、共享 Apple bridge 及 x86_64/i686 pipe 构建通过，其他平台按实际 PR 差异跳过。正常 Rust 生产者输出 `usize`，这项是协议字段的防御边界，不声称普通输入能产生负数或空值。
 
