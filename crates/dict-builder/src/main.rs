@@ -1466,6 +1466,22 @@ impl Build {
         pinyin::Pinyin::with_overrides(&text::read(&self.sources.repository(pinyin::OVERRIDES)?)?)
     }
 
+    /// 表情与颜文字的三份关键词表过一遍拒绝表（`others::check_keyword_vetoes`），命中就让构建失败。
+    fn check_keyword_vetoes(&self) -> Result<()> {
+        let mut files = Vec::new();
+        for path in others::KEYWORD_FILES {
+            files.push((path, text::read(&self.sources.repository(path)?)?));
+        }
+        let files: Vec<(&str, &str)> = files
+            .iter()
+            .map(|(path, source)| (*path, source.as_str()))
+            .collect();
+        others::check_keyword_vetoes(
+            &text::read(&self.sources.repository(others::KEYWORD_VETOES)?)?,
+            &files,
+        )
+    }
+
     /// The OALDPE headwords the English stage adds, empty unless the build includes unlicensed inputs.
     fn oaldpe_words(&self) -> Result<std::collections::BTreeSet<String>> {
         if !self.complete {
@@ -1855,6 +1871,7 @@ impl Build {
                 ))
             }
             Stage::Emoji => {
+                self.check_keyword_vetoes()?;
                 let catalog = others::read_emoji_catalog(&text::read(
                     &self.sources.repository("emoji/emoji_catalog.txt")?,
                 )?)?;
@@ -1870,6 +1887,7 @@ impl Build {
                 Ok(format!("{} emoji, {pinyin_rows} search keys", rows.len()))
             }
             Stage::Kaomoji => {
+                self.check_keyword_vetoes()?;
                 let mapping = others::load_keyword_map(&text::read(
                     &self.sources.repository("kaomoji/kaomoji.txt")?,
                 )?)?;
