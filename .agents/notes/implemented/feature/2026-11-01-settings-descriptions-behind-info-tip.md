@@ -50,7 +50,7 @@ HarmonyOS 手机原本不是。共享设置页在那里把 `SelectRow` 和 `Segm
 
 iOS 不一样：SwiftUI 的 `.disabled` 沿视图树往下传，加在整行（或包着几行的 `Section`）上时，标签里的「?」一起被禁用。真机验收在 iPhone XR 上点不开「自动添加标点」的「?」，同样的写法还有候选页「候选混输」关着时的中英混输、两个步进器、符号 / emoji / 颜文字混输，表达页的「联想栏按键」，翻译组的「候选词翻译」「翻译范围」，以及标点页包着四条智能标点细则的整个分区。现在 `DesignToggleRow` 和 `DesignSelectRow` 有 `enabled` 参数：为 false 时整行半透明，开关单独禁用、选择行不再包在按钮里，「?」不在任何被禁用的视图里；候选页的步进器行和标点页的细则行用同样的写法。`scripts/test-ios-disabled-row-info-tip.py` 扫描 App 源码，`.disabled(...)` 修饰的视图表达式里出现非 nil 的 `info:` 就失败；导出、同步、录音这类忙碌时整页或整块短暂禁用的地方，以及禁用时 `info` 本来就是 nil 的「我的」同步行，在它的白名单里各写了原因。
 
-同一轮验收还发现 iOS 的说明气泡会把长说明裁掉：`frame(maxWidth: 280)` 在 popover 不给宽度、按理想尺寸量的时候让 Text 按一行量高度，长说明实际折成多行，气泡却只有三行高，上下被裁掉。`DesignInfoBubble` 先按文字量出宽度并固定下来，Text 在这个宽度下自己算高度；`KeyboardTests/settings/DesignInfoBubbleTests.swift` 用 `ImageRenderer` 量同一个理想尺寸。这一段和 `DesignToggleRow` 的 `enabled` 与 #10708 的改动逐字相同，两个 PR 谁先合都不会冲突。
+同一轮验收还发现 iOS 的说明气泡会把长说明裁掉：`frame(maxWidth: 280)` 在 popover 不给宽度、按理想尺寸量的时候让 Text 按一行量高度，长说明实际折成多行，气泡却只有三行高，上下被裁掉。`DesignInfoBubble` 先按文字量出宽度并固定下来，Text 在这个宽度下自己算高度；`KeyboardTests/settings/DesignInfoBubbleTests.swift` 用 `ImageRenderer` 量同一个理想尺寸。字体排版后的最长一行可能略短于 280pt，CI 实测为 279pt，所以测试检查正宽度与最大宽度上界，并保留长说明的换行高度、短说明的一行尺寸断言，不要求长说明的文字测量值恰好等于上界。中英混合滑行同样通过 `enabled: glideTyping` 只禁用开关本身。
 
 ## Alternatives considered
 
