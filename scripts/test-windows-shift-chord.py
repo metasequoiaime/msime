@@ -16,6 +16,7 @@ HARNESS = r'''
 #include <initializer_list>
 #include <iostream>
 #include <stdexcept>
+#include "input/ModifierHotkeyPolicy.h"
 
 #define CALLBACK
 #ifndef _Out_
@@ -59,6 +60,7 @@ struct CMetasequoiaIME {
   HHOOK _bareShiftHook = reinterpret_cast<HHOOK>(1);
   BYTE _bareShiftDownMask = 0;
   bool _bareShiftArmed = false, _shiftHotkeyArmed = false, _ctrlHotkeyArmed = false;
+  std::uint32_t _staleModifierMaskAfterFocusLoss = 0;
   UINT _bareShiftSequence = 0, _bareShiftFocusGeneration = 0, _deferredKeyFocusGeneration = 1;
   ULONGLONG _bareShiftExpireTick = 0;
   void *_msgWndHandle = reinterpret_cast<void *>(1);
@@ -200,7 +202,9 @@ def main() -> int:
         return 0
     source = (ROOT / "platforms/windows/tsf/Key/KeyEventSink.cpp").read_text(encoding="utf-8")
     signatures = ["bool IsShiftVk(", "bool IsControlVk(", "bool IsAltVk(",
-                  "bool IsWinVk(", "bool IsOtherKeyboardKeyDown(",
+                  "bool IsWinVk(", "std::uint32_t ModifierHotkeyBit(",
+                  "std::uint32_t CaptureModifierHotkeyPhysicalState(",
+                  "bool IsOtherKeyboardKeyDown(",
                   "bool IsOnlyModifierPhysicallyDown(",
                   "LRESULT CALLBACK CMetasequoiaIME::_BareShiftKeyboardHookProc(",
                   "void CMetasequoiaIME::_TrackModifierHotkeyArming(",
@@ -211,7 +215,7 @@ def main() -> int:
         cpp, binary = directory / "shift.cpp", directory / "shift"
         cpp.write_text(harness, encoding="utf-8")
         built = subprocess.run([compiler, "-std=c++17", "-Wall", "-Wextra", "-Werror",
-                                str(cpp), "-o", str(binary)], check=False)
+                                "-I", str(ROOT / "platforms/windows/src"), str(cpp), "-o", str(binary)], check=False)
         if built.returncode:
             return built.returncode
         return subprocess.run([str(binary)], check=False, timeout=30).returncode

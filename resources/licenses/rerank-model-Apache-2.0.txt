@@ -1,6 +1,6 @@
-Keystroke rerank models rerank-v1 of chinese-ime-lm (https://github.com/metasequoiaime/chinese-ime-lm/releases/tag/rerank-v1, also published as https://huggingface.co/msime/pinyin-ime-keystroke-reranker-25M for 8x448 and https://huggingface.co/msime/pinyin-ime-keystroke-reranker-8M for 6x256), redistributed unmodified as lm_step.ort, model.json and vocab.json in a rerank-model directory (8x448) and a rerank-model-small directory (6x256) beside the input engine's resources, pinned by resources/rerank-model.lock.json in this project's source tree (SHA-256 of lm_step.ort: 8x448 ad729f94fc10cae0326269e2f089d7747ee8efae3dd2affe365c2740c59a4a93, 6x256 ceeb3a8def8ed00277063146121fe1ce152eba34006c23844a1c0c0ed188bad4) — Apache License 2.0.
+Keystroke rerank models rerank-v2 of chinese-ime-lm (https://github.com/metasequoiaime/chinese-ime-lm/releases/tag/rerank-v2, also published as https://huggingface.co/msime/pinyin-ime-keystroke-reranker-25M for 8x448 and https://huggingface.co/msime/pinyin-ime-keystroke-reranker-8M for 6x256), redistributed unmodified as lm_step.ort, model.json and vocab.json in a rerank-model directory (8x448) and a rerank-model-small directory (6x256) beside the input engine's resources, pinned by resources/rerank-model.lock.json in this project's source tree (SHA-256 of lm_step.ort: 8x448 827d9ecae4fdfb8ac06d15fbcef827705a55f72ea5e39c96f805f2f1350ee58f, 6x256 e036febfb8f7bdf941f1637be127ff539ea95b937a4c2a27f4c6ab897138fc6c) — Apache License 2.0.
 
-The licenses of the training corpora require attribution to travel with the weights. It is written in the attribution metadata of each lm_step.ort and in each model.json, which are kept with the models, and reads: Trained on the Chinese portion of C4 (ODC-BY, https://huggingface.co/datasets/allenai/c4), FineWeb-2 (cmn_Hani) (ODC-BY, https://huggingface.co/datasets/HuggingFaceFW/fineweb-2) and LCCC (MIT, https://github.com/thu-coai/CDial-GPT).
+The licenses of the training corpora require attribution to travel with the weights. It is written in the attribution metadata of each lm_step.ort and in each model.json, which are kept with the models, and reads: Trained on the Chinese portion of C4 (ODC-BY, https://huggingface.co/datasets/allenai/c4), FineWeb-2 (cmn_Hani) (ODC-BY, https://huggingface.co/datasets/HuggingFaceFW/fineweb-2), LCCC (MIT, https://github.com/thu-coai/CDial-GPT) and synthetic one-sided chat messages written by DeepSeek deepseek-v4-pro for this project (neural/teacher/gen_chat.py) (DeepSeek Terms of Use, outputs assigned to the user and usable to train other models, https://cdn.deepseek.com/policies/en-US/deepseek-terms-of-use.html).
 
 The upstream NOTICE and the license text follow.
 
@@ -31,6 +31,9 @@ Copyright 2026 chinese-ime-lm contributors
 按键重排模型（`rerank-v1` 起，ORT 格式的 `lm_step.ort`）不是 safetensors，署名写在 ONNX 图的
 元数据 `attribution` 字段里（ORT 格式保留它），同一句话也写在随模型发布的 `model.json` 中。
 再分发时两处都必须保留。
+
+按键重排模型从 `rerank-v2` 起另用了合成数据：DeepSeek deepseek-v4-pro 为本项目生成的单人连发聊天（neural/teacher/gen_chat.py）。DeepSeek 使用条款把生成内容归用户，并允许用来训练其他模型，没有相同方式共享的义务。这部分在署名里标明是合成的。
+  https://cdn.deepseek.com/policies/en-US/deepseek-terms-of-use.html
 
 ————————————————————————————————————————
 

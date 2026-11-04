@@ -54,6 +54,7 @@ pub enum Action {
     Glide {
         keyboard: Box<GlideKeyboard>,
         points: Vec<GlidePoint>,
+        bilingual: bool,
     },
     SelectHighlighted,
     Finish,
@@ -1180,6 +1181,7 @@ impl<E: InputEngine> Runtime<E> {
         self.reranker = scorer;
         self.engine.set_prediction_pool(self.orders_prediction());
         self.engine.set_sentence_pool(self.sentence_pool());
+        self.engine.set_sentence_scorer(self.sentence_scorer());
     }
 
     /// Whether a per-keystroke reranker is attached, so a host can attach or drop it when the preference that governs it changes.
@@ -1547,6 +1549,7 @@ impl<E: InputEngine> Runtime<E> {
                 .map(|(index, text)| self.candidate_row(index, text, reserve_translation)),
         );
         View {
+            requires_candidate_selection: self.engine.requires_candidate_selection(),
             prediction: self.cached.prediction,
             scheme: self.cached.scheme,
             chinese_text: scheme_type(self.cached.scheme).is_some_and(SchemeType::is_chinese),
@@ -2115,6 +2118,7 @@ impl<E: InputEngine> Runtime<E> {
         // 打分器挂在 runtime 上，新引擎同样要按它的速度决定多不多取联想的候选池。
         self.engine.set_prediction_pool(self.orders_prediction());
         self.engine.set_sentence_pool(self.sentence_pool());
+        self.engine.set_sentence_scorer(self.sentence_scorer());
         self.load_snapshot(cached);
         self.snapshot_valid = true;
         self.page_size = page_size.into();
@@ -3090,6 +3094,15 @@ impl<E: InputEngine> Runtime<E> {
             .is_some_and(CandidateScorer::scores_prediction_pool_within_keystroke_budget)
     }
 
+    /// 交给引擎拼整句时给前缀打分的模型：挂着的逐键打分器给出的那一份（[`CandidateScorer::sentence_scorer`]），没挂或它不给时为 `None`。
+    fn sentence_scorer(
+        &self,
+    ) -> Option<std::sync::Arc<dyn msime_engine::ordering::SentenceScorer>> {
+        self.reranker
+            .as_deref()
+            .and_then(CandidateScorer::sentence_scorer)
+    }
+
     /// 引擎每条切分至少解出的整句读法条数：挂着的逐键打分器报的 [`CandidateScorer::sentence_pool`]；没挂或它报 0 时引擎照默认条数，候选与不挂打分器的宿主逐行相同。
     fn sentence_pool(&self) -> usize {
         self.reranker
@@ -3475,6 +3488,11 @@ impl<E: InputEngine> Runtime<E> {
         // has no focus. Ordinary input must still pass through unchanged.
         if !self.focused && !matches!(&action, Action::ResetCache) {
             return Ok(self.transition(empty_result(false)));
+        }
+        if self.engine.requires_candidate_selection()
+            && crate::glide_selection::is_implicit_commit(&action)
+        {
+            return Ok(self.transition(empty_result(true)));
         }
         // 空闲联想没有可编辑的组字；导航键清掉建议后交还编辑器，不能沿用普通候选的高亮导航。
         if self.cached.prediction
@@ -3918,7 +3936,14 @@ impl<E: InputEngine> Runtime<E> {
             Action::Glide {
                 ref keyboard,
                 ref points,
-            } => self.engine.glide(keyboard, points),
+                bilingual,
+            } => {
+                if bilingual {
+                    self.engine.bilingual_glide(keyboard, points)
+                } else {
+                    self.engine.glide(keyboard, points)
+                }
+            }
             // A scheme that spells with Space lists it among its spelling symbols (Zhuyin's first tone, or opening its list with no syllable pending), and then the Space command is that key rather than a pick of the highlighted row.
             Action::SelectHighlighted
                 if self.cached.spelling_symbols.as_bytes().contains(&b' ') =>

@@ -1,6 +1,6 @@
 import UIKit
 
-/// 振动强度的唯一一份映射：键盘、App 的「试一下振动」都从这里取样式和力度。Tauri 插件（`crates/tauri-mobile-platform/ios`）是另一个 Swift 包，引用不到这里，`previewKeyboardHaptics` 里抄了同样的数值，改这里要一起改。
+/// 振动强度的唯一一份映射：键盘、App 的「试一下振动」都从这里取样式和力度。
 ///
 /// 原先中、强两档的力度都是 1.0，只差在样式 `.medium` 和 `.heavy`，单次轻敲几乎分不出来；现在三档的样式和力度都拉开。
 enum KeyboardHapticStrength: String, CaseIterable {

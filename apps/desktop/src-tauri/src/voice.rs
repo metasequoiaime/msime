@@ -20,16 +20,7 @@ pub(crate) struct VoiceRecognitionResult {
     pub(crate) text: String,
 }
 
-// Resolved in the shared layer so the Android keyboard, which never goes through this shell,
-// reads the same answer through the C ABI rather than growing a second implementation.
-// 润色配置只有 Android 的语音面板读；iOS 和测试构建只用到提供方配置。
-#[cfg(any(target_os = "ios", target_os = "android", test))]
-#[cfg_attr(not(target_os = "android"), allow(unused_imports))]
-pub(crate) use msime_client_providers::voice::provider::{
-    mobile_voice_polish_configuration, mobile_voice_provider_configuration,
-};
-
-#[cfg(all(any(unix, windows), not(mobile)))]
+#[cfg(any(unix, windows))]
 #[derive(serde::Serialize, Clone)]
 pub(crate) struct VoiceRecognitionUpdate {
     pub(crate) text: String,
@@ -42,7 +33,7 @@ pub(crate) struct VoiceRecognitionUpdate {
     pub(crate) level: Option<f32>,
 }
 
-#[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
+#[cfg(unix)]
 pub(crate) fn utf8_prefix(value: &str, max_bytes: usize) -> &str {
     let mut end = value.len().min(max_bytes);
     while !value.is_char_boundary(end) {
@@ -51,7 +42,7 @@ pub(crate) fn utf8_prefix(value: &str, max_bytes: usize) -> &str {
     &value[..end]
 }
 
-#[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
+#[cfg(unix)]
 pub(crate) fn voice_provider_options(document: &Value) -> Result<Value, HostActionError> {
     let Some(voice) = document
         .get("preferences")
@@ -142,7 +133,7 @@ pub(crate) fn voice_provider_options(document: &Value) -> Result<Value, HostActi
 
 // Resolve on each request so services started after the panel remain discoverable.
 
-#[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
+#[cfg(unix)]
 pub(crate) fn resolve_voice_provider_socket(
     document: &serde_json::Value,
 ) -> Option<std::path::PathBuf> {
@@ -160,26 +151,8 @@ pub(crate) fn resolve_voice_provider_socket(
 }
 
 /// The most the provider options may serialise to. The provider socket refuses a request over 16 KiB, and the envelope around the options (version, kind, language, generation, events) stays well under the remaining 512 bytes.
-#[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
+#[cfg(unix)]
 pub(crate) const PROVIDER_OPTIONS_BUDGET: usize = 16_384 - 512;
-
-/// The user's dictionary words for a mobile `local` session; none for a network provider, whose request may not carry them.
-#[cfg(any(target_os = "ios", target_os = "android"))]
-fn mobile_session_hotwords(
-    configuration: &msime_client_providers::voice::provider::MobileVoiceProviderConfiguration,
-    dictionary: &DictionaryHostOptions,
-) -> Vec<msime_tauri_mobile_platform::MobileVoiceHotword> {
-    if configuration.provider != "local" {
-        return Vec::new();
-    }
-    local_models::session_hotwords(dictionary)
-        .into_iter()
-        .map(|hotword| msime_tauri_mobile_platform::MobileVoiceHotword {
-            text: hotword.text,
-            pinyin: hotword.pinyin,
-        })
-        .collect()
-}
 
 #[cfg(any(target_os = "linux", target_os = "macos", test))]
 pub(crate) fn refresh_voice_preferences(
@@ -206,10 +179,6 @@ pub(crate) async fn recognize_voice(
 ) -> Result<VoiceRecognitionResult, HostActionError> {
     #[cfg(windows)]
     let _ = (&runtime, &store, &dictionary);
-    #[cfg(target_os = "ios")]
-    let _ = &runtime;
-    #[cfg(target_os = "android")]
-    let _ = (&runtime, &store);
     #[cfg(not(any(unix, windows)))]
     let _ = (&app, &runtime, &store, &dictionary);
     if !msime_client_providers::voice::is_valid_request_id(&request.request_id)
@@ -225,75 +194,7 @@ pub(crate) async fn recognize_voice(
     {
         windows_voice::recognize(app, request).await
     }
-    #[cfg(target_os = "android")]
-    {
-        let platform = app.state::<AndroidVoicePlatform<tauri::Wry>>().inner();
-        // A configured transcription provider is used when there is one, and its absence is not an
-        // error: this host has a platform recognizer that works with no account at all, and that
-        // stays the default. `unsupported_voice` is what an unset or unknown provider produces, and
-        // a provider whose credentials do not validate is dropped the same way.
-        let store = store.inner().clone();
-        let provider_store = store.clone();
-        let dictionary = dictionary.inner().clone();
-        let provider = tauri::async_runtime::spawn_blocking(move || {
-            let snapshot = provider_store.load().ok()?;
-            let configuration = mobile_voice_provider_configuration(&snapshot.preferences)?;
-            let hotwords = mobile_session_hotwords(&configuration, &dictionary);
-            Some((configuration, hotwords))
-        })
-        .await
-        .ok()
-        .flatten()
-        .map(
-            |(configuration, hotwords)| MobileVoiceTranscriptionRequest {
-                request_id: request.request_id.clone(),
-                provider: configuration.provider,
-                request_format: configuration.request_format,
-                endpoint: configuration.endpoint,
-                model: configuration.model,
-                token: configuration.token,
-                headers: configuration
-                    .headers
-                    .into_iter()
-                    .map(|header| MobileVoiceRequestHeader {
-                        name: header.name,
-                        value: header.value,
-                    })
-                    .collect(),
-                enable_itn: configuration.enable_itn,
-                enable_punctuation: configuration.enable_punctuation,
-                enable_ddc: configuration.enable_ddc,
-                boosting_table_id: configuration.boosting_table_id,
-                model_path: configuration.model_path,
-                hotwords,
-            },
-        );
-        let polish_store = store.clone();
-        let polish = tauri::async_runtime::spawn_blocking(move || {
-            let snapshot = polish_store.load().ok()?;
-            mobile_voice_polish_configuration(&snapshot.preferences)
-        })
-        .await
-        .ok()
-        .flatten()
-        .map(|configuration| AndroidVoicePolishRequest {
-            endpoint: configuration.endpoint,
-            model: configuration.model,
-            token: configuration.token,
-            prompt_id: configuration.prompt_id,
-            prompt_custom_1: configuration.prompt_custom_1,
-            prompt_custom_2: configuration.prompt_custom_2,
-            prompt_custom_3: configuration.prompt_custom_3,
-        });
-        let text = platform
-            .recognize_voice(&request.request_id, &request.language, provider, polish)
-            .await
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?;
-        Ok(VoiceRecognitionResult { text })
-    }
-    #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
+    #[cfg(unix)]
     {
         let runtime = runtime.inner().clone();
         let store = store.inner().clone();
@@ -404,78 +305,6 @@ pub(crate) async fn recognize_voice(
             })?;
         Ok(VoiceRecognitionResult { text })
     }
-    #[cfg(target_os = "ios")]
-    {
-        let store = store.inner().clone();
-        let dictionary = dictionary.inner().clone();
-        let (configuration, hotwords) = tauri::async_runtime::spawn_blocking(move || {
-            let snapshot = store.load().map_err(|_| HostActionError {
-                code: "unavailable",
-            })?;
-            // `None` is "no usable provider configured", which on this host is a failure: the iOS
-            // keyboard extension has no platform recogniser to fall back to.
-            let configuration = mobile_voice_provider_configuration(&snapshot.preferences).ok_or(
-                HostActionError {
-                    code: "unsupported_voice",
-                },
-            )?;
-            // The iOS plugin only uploads to a provider; it has no on-device recogniser yet, so a
-            // local model is unsupported here rather than a generic plugin rejection.
-            if configuration.provider == "local" {
-                return Err(HostActionError {
-                    code: "unsupported_voice",
-                });
-            }
-            let hotwords = mobile_session_hotwords(&configuration, &dictionary);
-            Ok::<_, HostActionError>((configuration, hotwords))
-        })
-        .await
-        .map_err(|_| HostActionError {
-            code: "unavailable",
-        })??;
-        let request_id = request.request_id;
-        let _ = app.emit(
-            "voice-update",
-            VoiceRecognitionUpdate {
-                text: String::new(),
-                request_id: request_id.clone(),
-                final_result: false,
-                phase: Some("recording".into()),
-                level: None,
-            },
-        );
-        let platform = app.state::<MobilePlatform<tauri::Wry>>().inner().clone();
-        let response = platform
-            .recognize_voice(MobileVoiceTranscriptionRequest {
-                request_id,
-                provider: configuration.provider,
-                request_format: configuration.request_format,
-                endpoint: configuration.endpoint,
-                model: configuration.model,
-                token: configuration.token,
-                headers: configuration
-                    .headers
-                    .into_iter()
-                    .map(|header| MobileVoiceRequestHeader {
-                        name: header.name,
-                        value: header.value,
-                    })
-                    .collect(),
-                enable_itn: configuration.enable_itn,
-                enable_punctuation: configuration.enable_punctuation,
-                enable_ddc: configuration.enable_ddc,
-                boosting_table_id: configuration.boosting_table_id,
-                model_path: configuration.model_path,
-                hotwords,
-            })
-            .await
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?;
-        Ok(VoiceRecognitionResult {
-            text: response.text,
-        })
-    }
     #[cfg(not(any(unix, windows)))]
     {
         let _ = (request, runtime);
@@ -487,34 +316,7 @@ pub(crate) async fn recognize_voice(
 
 #[tauri::command]
 pub(crate) fn stop_voice(app: tauri::AppHandle, request_id: String) -> Result<(), HostActionError> {
-    #[cfg(target_os = "ios")]
-    {
-        app.state::<MobilePlatform<tauri::Wry>>()
-            .stop_voice(&request_id)
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?;
-        let _ = app.emit(
-            "voice-update",
-            VoiceRecognitionUpdate {
-                text: String::new(),
-                request_id,
-                final_result: false,
-                phase: Some("recognizing".into()),
-                level: None,
-            },
-        );
-        Ok(())
-    }
-    #[cfg(target_os = "android")]
-    {
-        app.state::<AndroidVoicePlatform<tauri::Wry>>()
-            .stop_voice(&request_id)
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })
-    }
-    #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
+    #[cfg(unix)]
     {
         let sessions = app.state::<voice_sessions::VoiceSessions>();
         // Keep the session alive for the provider's final transcription, but
@@ -545,23 +347,7 @@ pub(crate) fn cancel_voice(
     app: tauri::AppHandle,
     request_id: Option<String>,
 ) -> Result<(), HostActionError> {
-    #[cfg(target_os = "ios")]
-    {
-        app.state::<MobilePlatform<tauri::Wry>>()
-            .cancel_voice(request_id.as_deref())
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })
-    }
-    #[cfg(target_os = "android")]
-    {
-        app.state::<AndroidVoicePlatform<tauri::Wry>>()
-            .cancel_voice(request_id.as_deref())
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })
-    }
-    #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
+    #[cfg(unix)]
     {
         let sessions = app.state::<voice_sessions::VoiceSessions>();
         let Some(session) = sessions.cancel(request_id.as_deref()) else {

@@ -149,6 +149,20 @@ impl LanguageDictionary {
         Ok(())
     }
 
+    /// `key` 下有没有 `text` 这一行。用 `lookup_into` 那条已经缓存的语句逐行比文字，不复制行：粤语选词上屏时调用，那条路有分配上限（`selecting_a_cantonese_candidate_does_not_clone_the_full_row`）。
+    pub fn contains(&self, key: &str, text: &str) -> Result<bool> {
+        let mut statement = self.connection.prepare_cached(
+            "SELECT text, weight FROM entries WHERE key = ?1 ORDER BY weight DESC, text ASC LIMIT ?2",
+        )?;
+        let mut rows = statement.query((key, i64::MAX))?;
+        while let Some(row) = rows.next()? {
+            if row.get_ref(0)?.as_str().is_ok_and(|stored| stored == text) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     /// Whether `syllable` is in the scheme's syllable inventory.
     pub fn has_syllable(&self, syllable: &str) -> Result<bool> {
         Ok(self

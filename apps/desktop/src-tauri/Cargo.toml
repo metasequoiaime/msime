@@ -1,20 +1,15 @@
 [package]
 name = "msime-desktop"
-description = "Tauri entry library and commands shared by the desktop, Android and iOS settings shells."
+description = "Tauri entry library and commands for the macOS, Linux and Windows settings shells."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
-# No `name`: it defaults to the package name, which is what the other eight
-# crates rely on. Setting it made this the one crate whose library and package
-# disagreed - `cargo -p msime-desktop` and `use msime_app` naming the same
-# thing. The mobile targets never depended on it: the Xcode project links a
-# fixed libapp.a that the Tauri CLI copies the staticlib into, and the Gradle
-# plugin reads the manifest at build time.
+# 不写 `name`：库名默认取包名，其他八个 crate 都靠这一点。写了它，这个 crate 就成了唯一一个库名与包名不一致的：`cargo -p msime-desktop` 和 `use msime_app` 指的是同一个东西。staticlib 和 cdylib 只给 Tauri 的 iOS、Android 工程用，那两个工程已经删掉，桌面外壳只链接 rlib。
 [lib]
-crate-type = ["staticlib", "cdylib", "rlib"]
+crate-type = ["rlib"]
 
 [features]
 telemetry-loopback = ["msime-client-services/telemetry-loopback", "msime-host-api/telemetry-loopback"]
@@ -39,15 +34,6 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 sha2.workspace = true
 time = { workspace = true, features = ["local-offset"] }
 
-[target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
-uuid.workspace = true
-msime-tauri-mobile-platform = { path = "../../../crates/tauri-mobile-platform" }
-# The shared locator reader uses rustix's no-follow open on every Unix target, including mobile.
-rustix = { workspace = true, features = ["fs"] }
-
-[target.'cfg(target_os = "ios")'.dependencies]
-msime-ios-native-ffi = { path = "../../../crates/ios-native-ffi" }
-
 [target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
 rustix = { workspace = true, features = ["fs", "process"] }
 
@@ -67,7 +53,6 @@ msime-host-windows = { path = "../../../crates/host-windows" }
 
 [dev-dependencies]
 tauri = { workspace = true, features = ["test"] }
-msime-tauri-mobile-platform = { path = "../../../crates/tauri-mobile-platform" }
 msime-path-trust = { path = "../../../crates/path-trust", features = ["test-support"] }
 
 [lints]

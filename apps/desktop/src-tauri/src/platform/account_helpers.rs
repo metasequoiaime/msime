@@ -1,24 +1,11 @@
 use msime_client_services::account::AccountError;
 use std::sync::Arc;
 
-/// 预览表的发布与清理、快照临时文件的建目录、读写、删除和清理都在 host-api（#8201 的决定 3），与 Windows 设置应用和 `msime_client_cloud_dictionary` 共用同一套：打开时不跟随符号链接，路径上每一级都必须是真实目录，读最多 512 MiB。
-#[cfg(any(target_os = "ios", target_os = "android"))]
-pub(crate) use msime_host_api::cloud_dictionary::snapshot_files::{
-    cleanup_stale_snapshot_previews, prepare_snapshot_directory, publish_snapshot_preview,
-    read_snapshot_file, remove_snapshot_file, take_invalid_snapshot_previews, write_snapshot_file,
-};
-
-/// Keep restore requests from copying data that the native snapshot inspectors will reject.
-#[cfg(any(target_os = "ios", target_os = "android", test))]
-pub(crate) fn snapshot_text_within_limit(bytes: usize) -> bool {
-    bytes <= 512 * 1024 * 1024
-}
-
 pub(crate) fn account_command_error(error: AccountError) -> crate::CommandError {
     crate::CommandError { code: error.code() }
 }
 
-/// Maps an account error from a community service to the `community_*` codes the community pages translate. It is the mapping `mobile_community` uses, so a page reads the same code on every host.
+/// 把社区服务的账号错误映射成社区页面会翻译的 `community_*` 错误码，每个宿主上页面读到的都是同一个码。
 pub(crate) fn community_error(error: AccountError) -> crate::CommandError {
     crate::CommandError {
         code: error.community_code(),

@@ -451,6 +451,20 @@ static CGPathRef MSIMECreateCandidateCornerPath(NSRect rect, std::array<double, 
 }
 @end
 
+// 候选窗里的按钮（候选行、翻页、展开开关、在线预览）都从这里建，不用 +buttonWithTitle:target:action:。后者建好时按标题 sizeToFit 一次，macOS 27 上这一步走 SwiftUI 的尺寸计算，每个按钮约半毫秒，而调用方随后总会直接赋排版算出的 frame，算出的尺寸从没被读过；候选窗每键整页重建，这笔开销按候选数乘上去（#10727）。
+// initWithFrame: 建出的按钮只在四项上和 buttonWithTitle 不同：默认标题是 "Button"、换行方式是按词换行、图片缩放是不缩放，以及边框样式。buttonWithTitle 给重写了 -drawRect: 的子类（这里的候选按钮全是）设成 push 样式，给没重写的保持 automatic；initWithFrame: 一律是 automatic。这里把四项都改回 buttonWithTitle 对候选按钮给的值，标题哪怕是空串也照写；其余默认值两者本来一致，CandidateButtonFactoryTest 按每个候选按钮类逐项对比守着这一点。
+static inline __kindof NSButton *MSIMEMakeCandidateButton(Class buttonClass, NSString *title, id target, SEL action)
+{
+    NSButton *button = [[buttonClass alloc] initWithFrame:NSZeroRect];
+    button.bezelStyle = NSBezelStyleRounded;
+    button.title = title;
+    button.lineBreakMode = NSLineBreakByTruncatingTail;
+    button.imageScaling = NSImageScaleProportionallyDown;
+    button.target = target;
+    button.action = action;
+    return button;
+}
+
 @interface MSIMECandidateChromeView : NSView <MSIMECandidateWindowShadowHost>
 @property(nonatomic, weak) id appearanceTarget;
 @property(nonatomic) SEL appearanceAction;

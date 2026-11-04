@@ -305,6 +305,13 @@ impl msime_input_runtime::CandidateScorer for PoolOverride {
         self.pool
     }
 
+    // 不转发就落到默认的 `None`，引擎拼整句时就不让模型打分，量出来的不是宿主上的耗时。
+    fn sentence_scorer(
+        &self,
+    ) -> Option<std::sync::Arc<dyn msime_engine::ordering::SentenceScorer>> {
+        self.inner.sentence_scorer()
+    }
+
     fn best_where(
         &mut self,
         context: &str,
@@ -322,13 +329,16 @@ fn onnx_scorer(
 ) -> Result<Box<dyn msime_input_runtime::CandidateScorer>, Box<dyn std::error::Error>> {
     let read = |name: &str| std::fs::read_to_string(directory.join(name));
     let model = std::fs::read(directory.join("lm_step.ort"))?;
-    Ok(Box::new(msime_onnx_rerank::OnnxScorer::load(
-        &model,
-        &read("model.json")?,
-        &read("vocab.json")?,
-        threads,
-        true,
-    )?))
+    // 与宿主（host-api）挂的同一种共用包装，引擎拼整句时给前缀打分的耗时也算在每键里。
+    Ok(Box::new(msime_onnx_rerank::SharedOnnxScorer::new(
+        std::sync::Arc::new(std::sync::Mutex::new(msime_onnx_rerank::OnnxScorer::load(
+            &model,
+            &read("model.json")?,
+            &read("vocab.json")?,
+            threads,
+            true,
+        )?)),
+    )))
 }
 
 #[cfg(not(feature = "onnx-rerank"))]

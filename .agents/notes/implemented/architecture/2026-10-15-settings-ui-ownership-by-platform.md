@@ -21,7 +21,7 @@ Status: implemented
 | HarmonyOS | 共享 React 设置页 | 不经过 Tauri：`stage-settings.sh` 把 `apps/harmony` 构建成 `rawfile/settings/index.html`，`pages/Settings.ets` 用 ArkWeb 加载，ArkTS 一侧只做原生桥，经 NAPI 调 Rust |
 | Windows | 原生 WinUI 3 | `msime-client-settings.exe` 绘制全部 17 页；托盘、开始菜单和不带面板的请求都打开它（`platforms/windows/src/system/ShellSurfaces.h`） |
 | iOS | 原生 SwiftUI | `platforms/ios/App/Sources/`，App 里没有 WebView |
-| Android | 原生 Java | 发布 APK 的 `home/`，另有 `settings/`、`account/`、`community/`、`statistics/`；React 只在不发布的 Tauri 合包里 |
+| Android | 原生 Java | 发布 APK 的 `home/`，另有 `settings/`、`account/`、`community/`、`statistics/`；原来只有不发布的 Tauri 合包里有 React，合包已删除（[删除从未发布的 Tauri 移动壳](../simplification/2026-11-03-remove-tauri-mobile-shells.md)） |
 
 Tauri 在三个桌面平台上还承载共享面板：表情与符号、手写、屏幕键盘、语音、云词库、云剪贴板，Linux 另有本地剪贴板面板（`SurfaceRoute::Clipboard`，`msime-linux-settings --panel clipboard`）。Windows 原生设置窗口里语音、屏幕键盘、手写、云词库和云剪贴板这 5 个面板的入口拉起 Tauri 的 `MSIME.exe`（`SettingsNavigation.h` 的 `shell_links::all`）；表情与符号面板由 Server 的托盘菜单和浮动工具栏拉起（`ShellSurfaces.h` 的 `shell_surface_request`），不经过设置窗口。
 
@@ -30,6 +30,8 @@ Tauri 在三个桌面平台上还承载共享面板：表情与符号、手写�
 macOS 的 AppKit 设置窗口冻结为最小回退。`platforms/macos/src/settings/` 的 11 页原生设置窗口，以及 `AISettingsWindow.mm`、`TranslationSettingsWindow.mm`、`VoiceProviderSettings.mm`、`SupportWindowController.mm`、`DictionaryWindowController.mm`、SwiftUI 账号窗口等独立窗口，只在设置应用找不到、启动失败或 options 路径不是绝对路径时由 `DesktopSettingsLauncher.h` 的回退分支打开，另有以 `--preferences` 启动输入法 bundle 的独立设置窗口（`platforms/macos/src/input/input_method_main.mm`）。这些窗口不加新功能；macOS 上的新设置只进共享 React 设置页。冻结之前已经加进回退窗口的功能保留，不为冻结删除。
 
 归属表和这两条规则的现行表述在 `docs/ARCHITECTURE.md` 的「设置界面按平台归属」一节，根 README、各语言 README、parity 文档和平台 README 都指向那里。
+
+2026-11-03 起方向改为所有平台的全部界面原生化、不再使用 WebView，见[全部界面改为原生](../../proposed/architecture/2026-11-03-all-native-ui.md)。本篇的归属表仍是迁移完成前的现状；「每平台只写界面、规则下沉到 Rust」继续有效；「macOS 上的新设置只进共享 React 设置页」被那篇的迁移期规则取代：`packages/ui` 只修缺陷，新设置先进共享 Rust，再进已有原生设置的平台。
 
 ### iOS 昵称
 
