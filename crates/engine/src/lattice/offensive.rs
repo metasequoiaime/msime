@@ -416,7 +416,7 @@ impl OffensiveWords {
         self.loaded.is_none()
     }
 
-    /// `word` 是否含这张表里的粗俗词，规则见 [`matches_within`]。
+    /// `word` 是否含这张表里的粗俗词，规则同编进引擎的表（`matches_within`）。
     pub fn is_offensive(&self, word: &str) -> bool {
         match &self.loaded {
             None => is_offensive(word),
