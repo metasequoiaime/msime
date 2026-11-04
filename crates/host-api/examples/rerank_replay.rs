@@ -33,7 +33,7 @@ fn quantiles(label: &str, mut samples: Vec<f64>) {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
     let options_path = args.next().ok_or(
-        "usage: rerank_replay <runtime-options.json> <cases.json> <models-root> <on|off> [rounds]",
+        "usage: rerank_replay <runtime-options.json> <cases.json> <models-root> <on|off|pause> [rounds]",
     )?;
     let cases_path = args.next().ok_or("cases")?;
     let models = args.next().ok_or("models")?;
@@ -62,10 +62,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         options[key] = json!(directory);
     }
     options["rerank_models"] = json!(models);
+    // `pause`: the host settles at pauses (HostOptions `pause_rerank`), as the HarmonyOS keyboard does; a device too slow for the keystroke budget then runs the model only there.
+    options["pause_rerank"] = json!(arm == "pause");
     let preferences = &mut options["preferences"];
     preferences["scheme"] = json!("quanpin");
     preferences["learning"] = json!(false);
-    preferences["sentence_association"]["neural_keyboard"] = json!(arm == "on");
+    preferences["sentence_association"]["neural_keyboard"] = json!(arm != "off");
     preferences["keyboard_reranker_migrated"] = json!(true);
     let options = options.to_string();
     let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
@@ -75,6 +77,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cases: Value = serde_json::from_slice(&std::fs::read(cases_path)?)?;
     let mut character = Vec::new();
     let mut view = Vec::new();
+    // `pause` only: the settle call after each segment, and the first key typed after one (the engine's sentence caches were cleared when the model was mounted and taken off again).
+    let mut settle = Vec::new();
+    let mut after_settle = Vec::new();
+    // The settle calls one pause took, and their average length: what a key arriving mid-pause waits for at most.
+    let mut slices = Vec::new();
+    let mut slice = Vec::new();
     let mut by_length: Vec<Vec<f64>> = vec![Vec::new(); 8];
     let (mut segments, mut correct) = (0, 0);
     for _ in 0..rounds {
@@ -87,10 +95,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     read(msime_client_character(handle, byte, false));
                     let ms = started.elapsed().as_secs_f64() * 1000.0;
                     character.push(ms);
+                    if index == 0 && !settle.is_empty() {
+                        after_settle.push(ms);
+                    }
                     by_length[(index / 6).min(7)].push(ms);
                     let started = Instant::now();
                     current = read(msime_client_view(handle));
                     view.push(started.elapsed().as_secs_f64() * 1000.0);
+                }
+                if arm == "pause" {
+                    // The host's pause: the settle call, polled to completion the way a host does when the work went to a thread.
+                    let started = Instant::now();
+                    let mut reply = read(settled::msime_client_start_settled_rerank(handle));
+                    let mut calls = 1;
+                    loop {
+                        if reply["status"] == "pending" {
+                            std::thread::sleep(std::time::Duration::from_micros(200));
+                            let token = reply["token"].as_u64().unwrap();
+                            reply = read(settled::msime_client_poll_settled_rerank(
+                                handle, token, true,
+                            ));
+                        } else if reply["status"] == "continue" {
+                            // A deferred model ran out of its slice; a host lets queued input through here, the replay has none.
+                            reply = read(settled::msime_client_start_settled_rerank(handle));
+                            calls += 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    slice.push(started.elapsed().as_secs_f64() * 1000.0 / f64::from(calls));
+                    slices.push(f64::from(calls));
+                    settle.push(started.elapsed().as_secs_f64() * 1000.0);
+                    current = read(msime_client_view(handle));
                 }
                 segments += 1;
                 let first = current["candidates"][0]["text"]
@@ -124,6 +160,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     quantiles("character", character);
     quantiles("view", view);
     quantiles("character+view", total);
+    if !settle.is_empty() {
+        quantiles("settle (pause)", settle);
+        quantiles("settle slice", slice);
+        let mut counts = slices;
+        counts.sort_by(f64::total_cmp);
+        println!(
+            "{:<28} p50={} p95={} max={}",
+            "slices per pause",
+            counts[counts.len() / 2],
+            counts[((counts.len() - 1) as f64 * 0.95).round() as usize],
+            counts[counts.len() - 1]
+        );
+        quantiles("first key after settle", after_settle);
+    }
     for (index, samples) in by_length.into_iter().enumerate() {
         if samples.len() > 20 {
             quantiles(

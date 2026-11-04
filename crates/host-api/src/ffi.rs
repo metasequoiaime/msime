@@ -222,9 +222,80 @@ pub(crate) fn keyboard_reranker(
     state_root: Option<&Path>,
     configured: Option<&str>,
 ) -> Option<Box<dyn msime_input_runtime::CandidateScorer>> {
+    let mount = if enabled {
+        RerankerMount::Keystroke
+    } else {
+        RerankerMount::Off
+    };
+    keyboard_reranker_for(
+        mount,
+        resources,
+        bundle,
+        models,
+        sound_packs,
+        state_root,
+        configured,
+    )
+    .map(MountedReranker::into_scorer)
+}
+
+/// 宿主要的逐键重排挂法。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RerankerMount {
+    /// 「增强」关着，或者宿主不要（镜像会话）：不挂，已加载的放开。
+    Off,
+    /// 只挂在按键上，跑不进 [`KEYSTROKE_RERANK_LIMIT_MS`] 就不挂。
+    Keystroke,
+    /// 宿主停顿时会调 `msime_client_start_settled_rerank`（HostOptions 的 `pause_rerank`）：跑得进逐键预算（一页不超过 [`PAUSE_HOST_KEYSTROKE_PAGE_MS`]）挂在按键上，跑不进就延后到停顿，一页超过 [`PAUSE_RERANK_LIMIT_MS`] 才不挂。
+    KeystrokeOrPause,
+}
+
+/// 挂上的逐键重排器，挂在哪里：按键上（`Runtime::set_candidate_scorer`），还是延后到宿主停顿时（`Runtime::set_deferred_scorer`）。
+pub(crate) enum MountedReranker {
+    Keystroke(Box<dyn msime_input_runtime::CandidateScorer>),
+    // Only an ONNX model is ever deferred; builds without ONNX Runtime never make one.
+    #[cfg_attr(not(feature = "onnx-rerank"), allow(dead_code))]
+    Pause(Box<dyn msime_input_runtime::CandidateScorer>),
+}
+
+impl MountedReranker {
+    /// 挂到 `runtime` 上；`None` 拿掉按键上和延后的两个。
+    pub(crate) fn mount(mounted: Option<Self>, runtime: &mut Runtime) {
+        match mounted {
+            Some(Self::Pause(scorer)) => runtime.set_deferred_scorer(Some(scorer)),
+            Some(Self::Keystroke(scorer)) => runtime.set_candidate_scorer(Some(scorer)),
+            None => runtime.set_candidate_scorer(None),
+        }
+    }
+
+    fn into_scorer(self) -> Box<dyn msime_input_runtime::CandidateScorer> {
+        match self {
+            Self::Keystroke(scorer) | Self::Pause(scorer) => scorer,
+        }
+    }
+}
+
+/// 一页要 `page_ms` 的模型在 `mount` 这样的宿主上是不是延后到停顿：只有停顿时重解的宿主、而且一页超过 [`PAUSE_HOST_KEYSTROKE_PAGE_MS`]。
+#[cfg(feature = "onnx-rerank")]
+pub(crate) fn defers_to_pause(mount: RerankerMount, page_ms: f64) -> bool {
+    mount == RerankerMount::KeystrokeOrPause && page_ms > PAUSE_HOST_KEYSTROKE_PAGE_MS
+}
+
+/// 同 [`keyboard_reranker`]，按 `mount` 决定挂在按键上还是延后到停顿。
+///
+/// 停顿时重解的宿主（[`RerankerMount::KeystrokeOrPause`]）上，ONNX 模型一页超过 [`PAUSE_HOST_KEYSTROKE_PAGE_MS`] 时延后：按键上不挂，引擎照没有模型时那样解码，宿主停顿时 runtime 才带着它重解一遍（`Runtime::settle_deferred_scorer`），诊断写 `keyboard reranker at pause`，细节是原来那一档的类别和细节。随包的句子模型不延后：它只在按键上挂，照旧按 [`KEYSTROKE_RERANK_LIMIT_MS`] 决定挂不挂。
+pub(crate) fn keyboard_reranker_for(
+    mount: RerankerMount,
+    resources: &str,
+    bundle: Option<&str>,
+    models: Option<&str>,
+    sound_packs: Option<&Path>,
+    state_root: Option<&Path>,
+    configured: Option<&str>,
+) -> Option<MountedReranker> {
     #[cfg(feature = "onnx-rerank")]
     let root = onnx_rerank_source(resources, bundle, models, sound_packs, state_root);
-    if !enabled {
+    if mount == RerankerMount::Off {
         #[cfg(feature = "onnx-rerank")]
         if let Some(root) = root.as_deref() {
             onnx_rerankers().release(root);
@@ -233,10 +304,25 @@ pub(crate) fn keyboard_reranker(
     }
     #[cfg(feature = "onnx-rerank")]
     if let Some(root) = root.as_deref() {
-        match onnx_reranker(root) {
+        let pause = mount == RerankerMount::KeystrokeOrPause;
+        let limit = if pause {
+            PAUSE_RERANK_LIMIT_MS
+        } else {
+            KEYSTROKE_RERANK_LIMIT_MS
+        };
+        match onnx_reranker(root, limit) {
             OnnxAttach::Attached(attached) => {
+                let scorer: Box<dyn msime_input_runtime::CandidateScorer> =
+                    Box::new(SharedOnnxScorer::new(attached.scorer));
+                if defers_to_pause(mount, attached.page_ms) {
+                    report_keyboard_reranker(
+                        KEYBOARD_RERANKER_AT_PAUSE,
+                        &format!("{}: {}", attached.category, attached.detail),
+                    );
+                    return Some(MountedReranker::Pause(scorer));
+                }
                 report_keyboard_reranker(attached.category, &attached.detail);
-                return Some(Box::new(SharedOnnxScorer::new(attached.scorer)));
+                return Some(MountedReranker::Keystroke(scorer));
             }
             OnnxAttach::OverLimit(detail) => {
                 report_keyboard_reranker(KEYBOARD_RERANKER_OVER_BUDGET, &detail);
@@ -248,10 +334,15 @@ pub(crate) fn keyboard_reranker(
     #[cfg(not(feature = "onnx-rerank"))]
     let _ = (bundle, models, sound_packs, state_root);
     bundled_keyboard_reranker(resources, configured, KEYSTROKE_RERANK_LIMIT_MS)
+        .map(MountedReranker::Keystroke)
 }
 
 /// 诊断类别：这台设备上模型打一页重负载超过 [`KEYSTROKE_RERANK_LIMIT_MS`]，没挂逐键重排。
 pub(crate) const KEYBOARD_RERANKER_OVER_BUDGET: &str = "keyboard reranker over budget";
+
+/// 诊断类别：模型挂上了，但这台设备跑不进逐键预算，延后到宿主停顿时才用（[`RerankerMount::KeystrokeOrPause`]）。细节是原来那一档的类别和细节。
+#[cfg(feature = "onnx-rerank")]
+pub(crate) const KEYBOARD_RERANKER_AT_PAUSE: &str = "keyboard reranker at pause";
 
 /// 默认挂上的逐键重排模型打一页重负载（32 字上文、9 个 6 字候选、37 个新前缀，与 `msime_onnx_rerank::OnnxScorer::calibrate` 同一页）最多花这么多毫秒，超过就不挂。
 ///
@@ -259,6 +350,16 @@ pub(crate) const KEYBOARD_RERANKER_OVER_BUDGET: &str = "keyboard reranker over b
 ///
 /// 量出来：Mac 和 iPhone 17 的 8x448、iPhone XR 与 Pixel 3 XL 的 6x256、Mac 的 `model-v1` 都挂；Pixel 3 XL 这类老安卓手机上的 `model-v1` 不挂。与 [`LARGE_RERANK_MODEL_BUDGET_MS`]（大小两档之间换档的线，量的是同一页）是两件事：那条线决定用哪一档，这条线决定挂不挂。
 pub(crate) const KEYSTROKE_RERANK_LIMIT_MS: f64 = 15.0;
+
+/// 停顿时重解的宿主上（[`RerankerMount::KeystrokeOrPause`]），ONNX 模型一页超过这么多毫秒就不挂在按键上，延后到停顿。
+///
+/// 整句打字时真实的逐键开销比这一页重：2026-11-04 在华为畅享 90 Plus（Kirin 8000，鸿蒙，两线程）上用触摸屏注入打 typing-chat-v1 的整句（59 条、1698 键），6x256 一页自测 5–11.5 ms，整键 p95 19.5 ms，不挂模型 6.5 ms，模型的开销 p95 约是一页的 1.6 倍，而 [`SENTENCE_POOL_COST`] 的手机系数（Pixel 3 XL、分段打）是 0.72。手机按键预算 10 ms、引擎自己的尾部 3.5 ms，留给模型 6.5 ms，按 1.6 倍算一页要在 4 ms 之内。
+#[cfg(feature = "onnx-rerank")]
+pub(crate) const PAUSE_HOST_KEYSTROKE_PAGE_MS: f64 = 4.0;
+
+/// 停顿时重解的宿主上，ONNX 模型一页超过这么多毫秒就连停顿也不挂。停顿时的重解在宿主的会话线程上跑，从头解码、带着模型给整句打分，大约是几页的量；同一台畅享 90 Plus 刚装完应用时自测一页量到过 26.5 ms，平常 5–11 ms，这条线让它在忙的那一刻也照样挂上，比它慢四五倍的设备才不挂。
+#[cfg(feature = "onnx-rerank")]
+pub(crate) const PAUSE_RERANK_LIMIT_MS: f64 = 60.0;
 
 /// 量一页时用的 64 个字：常用汉字，随包 `model-v1` 的字表里都有。前 32 个当上文，其余拼候选。模型不认识的字按未知字编码，算的量一样。
 const CALIBRATION_CHARACTERS: &str =
@@ -333,7 +434,7 @@ pub(crate) fn bundled_keyboard_reranker(
     Some(Box::new(Reranker::new(model)))
 }
 
-/// 「增强」开着时逐键重排挂的是哪一个，写一行诊断。类别本身就说明了档位（`keyboard reranker onnx large`、`keyboard reranker onnx small`、可用内存不够加载大的时的 `keyboard reranker onnx small (low memory)`、`keyboard reranker bundled model`、`keyboard reranker missing`，以及这台设备跑不进逐键预算、没挂的 `keyboard reranker over budget`），只留类别的宿主（macOS、iOS）也看得出来；细节是模型目录、大模型的自测毫秒数、挂上的那一档打一页的毫秒数和上限（`page … ms, limit … ms`）、给它的整句池（`sentence pool …`）、可用内存，以及是不是与之前的会话共用（`(shared)`）。只在会话建立和开关打开时写，不在按键路径上写。
+/// 「增强」开着时逐键重排挂的是哪一个，写一行诊断。类别本身就说明了档位（`keyboard reranker onnx large`、`keyboard reranker onnx small`、可用内存不够加载大的时的 `keyboard reranker onnx small (low memory)`、`keyboard reranker bundled model`、`keyboard reranker missing`，以及这台设备跑不进逐键预算、没挂的 `keyboard reranker over budget`，和跑不进逐键预算、延后到宿主停顿时才用的 `keyboard reranker at pause`），只留类别的宿主（macOS、iOS）也看得出来；细节是模型目录、大模型的自测毫秒数、挂上的那一档打一页的毫秒数和上限（`page … ms, limit … ms`）、给它的整句池（`sentence pool …`）、可用内存，以及是不是与之前的会话共用（`(shared)`）。只在会话建立和开关打开时写，不在按键路径上写。
 fn report_keyboard_reranker(category: &'static str, detail: &str) {
     crate::diagnostics::report(category, detail);
 }
@@ -492,6 +593,8 @@ pub(crate) struct AttachedOnnxReranker {
     pub(crate) scorer: Arc<Mutex<msime_onnx_rerank::OnnxScorer>>,
     pub(crate) category: &'static str,
     pub(crate) detail: String,
+    /// 这个模型在这台设备上打一页重负载的毫秒数（`OnnxScorer::calibrate`），宿主按它决定挂在按键上还是延后到停顿，见 [`keyboard_reranker_for`]。
+    pub(crate) page_ms: f64,
 }
 
 /// 模型文件 `lm_step.ort` 的长度与修改时间，用来认出缓存里的重排器和自测结果是不是还对应磁盘上的文件；文件不在时是 `None`。
@@ -512,6 +615,7 @@ struct LoadedOnnxReranker {
     scorer: Arc<Mutex<msime_onnx_rerank::OnnxScorer>>,
     category: &'static str,
     detail: String,
+    page_ms: f64,
 }
 
 /// 进程里的 ONNX 重排器：同一时刻只加载一个模型，各会话共用；大模型的自测在进程里只做一次。
@@ -561,13 +665,13 @@ fn onnx_rerankers() -> std::sync::MutexGuard<'static, OnnxRerankers> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-/// 装了两个 ONNX 模型时按自测速度和可用内存在两者之间选，只装了一个就用那一个；挂上的那一档打一页超过 [`KEYSTROKE_RERANK_LIMIT_MS`] 时不挂，见 [`OnnxRerankers::attach`]。`root` 是放两个模型目录的地方（[`rerank_models_root`]）。
+/// 装了两个 ONNX 模型时按自测速度和可用内存在两者之间选，只装了一个就用那一个；挂上的那一档打一页超过 `limit_ms`（[`KEYSTROKE_RERANK_LIMIT_MS`]，停顿时重解的宿主是 [`PAUSE_RERANK_LIMIT_MS`]）时不挂，见 [`OnnxRerankers::attach`]。`root` 是放两个模型目录的地方（[`rerank_models_root`]）。
 #[cfg(feature = "onnx-rerank")]
-fn onnx_reranker(root: &Path) -> OnnxAttach {
+fn onnx_reranker(root: &Path, limit_ms: f64) -> OnnxAttach {
     onnx_rerankers().attach(
         root,
         LARGE_RERANK_MODEL_BUDGET_MS,
-        KEYSTROKE_RERANK_LIMIT_MS,
+        limit_ms,
         available_memory(),
     )
 }
@@ -626,6 +730,7 @@ impl OnnxRerankers {
                 scorer: Arc::clone(&loaded.scorer),
                 category: loaded.category,
                 detail: format!("{} (shared)", loaded.detail),
+                page_ms: loaded.page_ms,
             });
         }
         if large_stamp.is_none() || small_stamp.is_none() {
@@ -868,11 +973,13 @@ impl OnnxRerankers {
             scorer: Arc::clone(&scorer),
             category,
             detail: detail.clone(),
+            page_ms,
         });
         AttachedOnnxReranker {
             scorer,
             category,
             detail,
+            page_ms,
         }
     }
 }

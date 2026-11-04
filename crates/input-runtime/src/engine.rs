@@ -99,6 +99,12 @@ pub trait InputEngine {
             "Engine cache reset is unsupported".into(),
         ))
     }
+    /// 按现在的整句池和整句打分器重解当前组字，见 [`crate::Runtime::settle_deferred_scorer`]。
+    fn recompute_candidates(&mut self) -> Result<(), RuntimeError> {
+        Err(RuntimeError::Engine(
+            "Engine candidate recompute is unsupported".into(),
+        ))
+    }
     /// Remove cached rows for one online provider (host source 0 = cloud, 1 = AI).
     fn clear_online_candidates(&mut self, _source: u8) -> Result<(), RuntimeError> {
         Err(RuntimeError::Engine(
@@ -391,6 +397,10 @@ impl InputEngine for Session {
     }
     fn reset_cache(&mut self) -> Result<(), RuntimeError> {
         Session::reset_cache(self);
+        Ok(())
+    }
+    fn recompute_candidates(&mut self) -> Result<(), RuntimeError> {
+        Session::recompute_candidates(self);
         Ok(())
     }
     fn clear_online_candidates(&mut self, source: u8) -> Result<(), RuntimeError> {

@@ -949,11 +949,7 @@ char *msime_client_command(uint64_t session, uint32_t command);
  * window alone without serializing a view it will discard. Inert, and immediately false, when no
  * settled model is installed. */
 char *msime_client_rerank_settled(uint64_t session);
-/* 宿主等待输入停顿后，在后台启动模型评分。
- * 无需改动或只做呈现整理时返回 {"status":"done","moved":false,"current":true}；
- * 呈现整理改变顺序时返回 {"status":"done","moved":true,"current":true,"view":...}。
- * 后台评分返回 {"status":"pending","token":N}，经 msime_client_poll_settled_rerank 轮询。
- * 每会话只运行一个任务，重复启动返回相同令牌；评分期间可以继续处理按键。 */
+/* 宿主等待输入停顿后，在后台启动模型评分。无需改动或只做呈现整理时返回 {"status":"done","moved":false,"current":true}；呈现整理改变顺序时返回 {"status":"done","moved":true,"current":true,"view":...}。后台评分返回 {"status":"pending","token":N}，经 msime_client_poll_settled_rerank 轮询；每会话只运行一个任务，重复启动返回相同令牌，评分期间可以继续处理按键。宿主在会话选项里写了 "pause_rerank": true、而这台设备跑不进逐键预算时，整句联想「增强」的模型延后到这里：当场在会话线程上带着它重解当前组字的一片（约 8 ms 的模型时间），解完返回 "done"，没解完返回 {"status":"continue","moved":false,"current":true}，宿主先处理排队的输入，没有新按键就再调一次；moved 为真时同样附带 view。 */
 char *msime_client_start_settled_rerank(uint64_t session);
 /* token 来自启动接口；评分未完成时返回 {"status":"pending","token":N}，
  * 完成后返回 {"status":"done","moved":...,"current":...}。

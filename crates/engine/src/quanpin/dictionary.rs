@@ -235,8 +235,10 @@ pub struct QuanpinDictionary {
     rerankers: Vec<NeuralReranker>,
     /// 拼整句时给前缀打分的模型（`QueryRequest::sentence_scorer`），见 `lattice::decode::BeamModel`。换了就清掉整句缓存。
     sentence_scorer: crate::ordering::SentenceScorerHandle,
-    /// 束搜索里模型分的备忘：文字 → 逐字平均对数概率，只对 `rescoring_context` 这一段上文成立，上文或模型一变就清空。同一句话每次按键都重解一遍，前面几列的假设和上一键一样，备忘里都有，只有新的一列要跑模型。
+    /// 束搜索里模型分的备忘：文字 → 逐字平均对数概率，只对 `rescoring_context` 这一段上文和 `beam_model_owner` 这个模型成立，上文变了或换成另一个模型就清空。同一句话每次按键都重解一遍，前面几列的假设和上一键一样，备忘里都有，只有新的一列要跑模型。
     beam_model_memo: RefCell<HashMap<String, f32>>,
+    /// 备忘里的分是哪个模型打的。拿掉打分器（换成 `None`）时备忘留着：跑不进逐键预算的设备上，模型只在停顿时挂上来重解（runtime 的 `settle_deferred_scorer`），一次停顿可能分几片才解完，每一片和下一次停顿都要接着用前面打过的分。只用来认出是不是同一个模型，所以是弱引用：「增强」关掉后模型照样放开，而弱引用还在时那块分配不会被新的模型占用，认不错。
+    beam_model_owner: Option<std::sync::Weak<dyn crate::ordering::SentenceScorer>>,
     /// 这次查询的主读法的音节。整句打分器只进它的束搜索：同一串拼音的备选切分（`nian'gao` 之外的 `ni'an'ga'o`）每个都要整句解一遍，都让模型打分，一次按键要跑五六遍模型。
     beam_model_segments: Vec<String>,
     /// octagram `.gram` 语法模型；路径由 `set_sentence_association` 给定、经
@@ -296,6 +298,7 @@ impl QuanpinDictionary {
             rerankers: Vec::new(),
             sentence_scorer: Default::default(),
             beam_model_memo: RefCell::default(),
+            beam_model_owner: None,
             beam_model_segments: Vec::new(),
             collocation_db: None,
             sentence_alternatives: false,
@@ -805,7 +808,7 @@ impl QuanpinDictionary {
         }
     }
 
-    /// 拼整句时给前缀打分的模型，见 [`crate::ordering::SentenceScorer`]。换了（按指针比较）就清掉按旧模型解出的整句和模型分备忘。
+    /// 拼整句时给前缀打分的模型，见 [`crate::ordering::SentenceScorer`]。换了（按指针比较）就清掉按旧模型解出的整句；模型分备忘只在换成另一个模型时清掉，拿掉模型时留着，见 `beam_model_owner`。
     pub fn set_sentence_scorer(&mut self, scorer: &crate::ordering::SentenceScorerHandle) {
         if self.sentence_scorer == *scorer {
             return;
@@ -814,7 +817,17 @@ impl QuanpinDictionary {
         self.series_cache.clear();
         self.sentence_decode_cache.clear();
         self.beam_prefixes.clear();
-        self.beam_model_memo.borrow_mut().clear();
+        if let Some(model) = &scorer.0 {
+            let model = Arc::downgrade(model);
+            if !self
+                .beam_model_owner
+                .as_ref()
+                .is_some_and(|owner| owner.ptr_eq(&model))
+            {
+                self.beam_model_owner = Some(model);
+                self.beam_model_memo.borrow_mut().clear();
+            }
+        }
     }
 
     /// The series cache slot of a resolution's key (overlays.md §1.6.2). The association switches decide which sentence rows a list carries, so they are always part of the slot. The reference bypassed the cache while a neural model ran, because its scores came from an asynchronous worker; scoring here is synchronous, so a reranked list is cached under the trimmed context it was scored with and a commit moves the next query to a fresh slot instead of clearing every list.

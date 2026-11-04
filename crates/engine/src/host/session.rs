@@ -429,6 +429,11 @@ impl Session {
         self.inner.reset_cache();
     }
 
+    /// 按现在的整句池和整句打分器重解当前组字，同 [`crate::Session::recompute_candidates`]。
+    pub fn recompute_candidates(&mut self) {
+        self.inner.recompute_candidates();
+    }
+
     /// Remove cached rows for one online provider (host source 0 = cloud, 1 = AI).
     pub fn clear_online_candidates(&mut self, source: u8) -> Result<()> {
         let source = match source {

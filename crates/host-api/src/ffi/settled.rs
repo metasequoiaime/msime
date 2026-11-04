@@ -165,6 +165,34 @@ fn spawn_score(
     Ok(token)
 }
 
+/// 停顿重解每一片最多花的模型时间，见 [`deferred_on_session`]。按键最多等一片：畅享 90 Plus 上逐键模式的整键 p95 是 19.5 ms，一片连同前后两次不带模型的解码不超过它。
+const PAUSE_SLICE: std::time::Duration = std::time::Duration::from_millis(8);
+
+/// 跑不进逐键预算、延后到停顿的逐键模型（`Runtime::set_deferred_scorer`）：在会话线程上带着它重解当前组字，一次一片（[`PAUSE_SLICE`]）。
+///
+/// - 解完了：回 `status: done`，与落定重排一样，候选变了附带 `moved: true` 和 `view`。
+/// - 这一片没解完：回 `status: continue`，宿主让排队的输入先走（鸿蒙用 `setTimeout(0)`），没有新按键就再调 `msime_client_start_settled_rerank`；有新按键就不再调，按键照常处理，下次停顿接着用已经打过的分。候选变了（通常不变）同样附带 `moved: true` 和 `view`。
+///
+/// 没有延后的模型时是 `None`，照常走落定重排。不放到工作线程：重解要用引擎，会话只在它自己的线程上。
+fn deferred_on_session(session: &mut HostSession) -> Option<Result<Value, String>> {
+    if !session.runtime.has_deferred_scorer() {
+        return None;
+    }
+    let pending = session.lifecycle_begin(lifecycle::Call::SideChannel);
+    let (status, moved) = match session.runtime.settle_deferred_scorer(PAUSE_SLICE) {
+        Ok(msime_input_runtime::DeferredSettle::Done { moved }) => ("done", moved),
+        Ok(msime_input_runtime::DeferredSettle::Continue { moved }) => ("continue", moved),
+        Err(error) => return Some(Err(error.to_string())),
+    };
+    Some(if moved {
+        let view = session.runtime.view();
+        session.lifecycle_view(pending, &view);
+        Ok(json!({"status": status, "moved": true, "current": true, "view": view}))
+    } else {
+        Ok(json!({"status": status, "moved": false, "current": true}))
+    })
+}
+
 fn settled_on_session(session: &mut HostSession) -> Result<Value, String> {
     let pending = session.lifecycle_begin(lifecycle::Call::SideChannel);
     let moved = session.runtime.rerank_settled();
@@ -177,13 +205,16 @@ fn settled_on_session(session: &mut HostSession) -> Result<Value, String> {
     }
 }
 
-/// 在后台启动停顿重排。无需模型或只做呈现整理时返回 `status: done` 和 `current: true`，
+/// 在后台启动停顿重排。挂着延后到停顿的逐键模型时，当场带着它重解当前组字的一片，没解完回 `status: continue`（见 `deferred_on_session`）。无需模型或只做呈现整理时返回 `status: done` 和 `current: true`，
 /// 顺序变化时附带 `moved: true` 与 `view`；后台评分返回 `status: pending` 和 `token`。
 /// 每会话只允许一个任务，重复启动返回相同的令牌。
 #[no_mangle]
 pub extern "C" fn msime_client_start_settled_rerank(handle: u64) -> *mut c_char {
     response(|| {
         with_session(handle, |session| {
+            if let Some(settled) = deferred_on_session(session) {
+                return settled;
+            }
             if let Some(token) = open_token(handle) {
                 return Ok(json!({"status": "pending", "token": token}));
             }
@@ -254,6 +285,13 @@ pub extern "C" fn msime_client_poll_settled_rerank(
 
 /// 当场跑一次停顿重排，等它评完再返回，结果与 `msime_client_start_settled_rerank` 加上随后的 `msime_client_poll_settled_rerank(accept = true)` 相同。宿主在停顿 150 ms 后才这样做，`candidate_preview` 代表的是「打完这串键停下来」，所以直接在会话线程上评分，不起工作线程。
 pub(crate) fn settle_now(session: &mut HostSession) -> Result<Value, String> {
+    // 每一片都至少跑一次模型、记下它的分，所以一片片做下去一定会解完。
+    while let Some(settled) = deferred_on_session(session) {
+        match settled {
+            Ok(value) if value["status"] == "continue" => {}
+            settled => return settled,
+        }
+    }
     match session.runtime.begin_settled_rerank() {
         Some(request) => publish(session, msime_input_runtime::score_settled_rerank(request)),
         None => settled_on_session(session),

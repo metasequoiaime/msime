@@ -8917,6 +8917,21 @@ fn the_session_scorer_primes_the_context_off_the_keystroke() {
     }
 }
 
+/// 跑不进逐键预算的 ONNX 模型只在停顿时重解的宿主（鸿蒙，HostOptions 的 `pause_rerank`）上延后到停顿；只挂按键的宿主照旧，超过逐键上限就不挂。
+#[cfg(feature = "onnx-rerank")]
+#[test]
+fn only_a_pausing_host_defers_a_model_too_slow_for_keys() {
+    use ffi::{defers_to_pause, RerankerMount};
+    let slow = ffi::PAUSE_HOST_KEYSTROKE_PAGE_MS + 1.0;
+    let fast = ffi::PAUSE_HOST_KEYSTROKE_PAGE_MS;
+    assert!(defers_to_pause(RerankerMount::KeystrokeOrPause, slow));
+    assert!(!defers_to_pause(RerankerMount::KeystrokeOrPause, fast));
+    assert!(!defers_to_pause(RerankerMount::Keystroke, slow));
+    assert!(!defers_to_pause(RerankerMount::Off, slow));
+    // 停顿时重解的宿主对加载放得更宽：设备刚装完应用、忙的那一刻自测会超过逐键上限。
+    const { assert!(ffi::PAUSE_RERANK_LIMIT_MS > ffi::KEYSTROKE_RERANK_LIMIT_MS) };
+}
+
 /// 随包资源目录旁边有 `rerank-model/` 时，「增强」的逐键重排用它（ONNX Runtime 后端）；再装了 `rerank-model-small/` 时按自测速度在两者之间选；ONNX 模型都读不了就退回随包的句子模型。用 `crates/onnx-rerank` 测试用的小模型，两个目录里放同一份图，只把小模型 `model.json` 的 `context_chars` 改成 48，好从 `context_length`（上文字数加 16）看出挂的是哪一个：大的是 80，小的是 64。
 ///
 /// 模型放在资源目录的兄弟目录里而不是资源目录里：资源目录要与词库锁逐项相符，多一个目录校验就失败（最后一段断言这一点）。`resources` 换成下载的词库代次时按 `bundle`（随包资源目录）找模型。
