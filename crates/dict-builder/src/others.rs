@@ -579,6 +579,11 @@ const PARENT_TABS: &[(&str, &[(&str, &str)])] = &[
     ),
 ];
 
+/// 符号表的注释行：单独一个 `#`，或 `# ` 加说明。符号表一行一个符号、没有制表符，不能套用关键词表的 `is_comment`；以前 `#` 开头一律当注释，项目清单分类里的 `#️⃣` 因此被丢掉，同一分类的 `*️⃣` 却在。
+fn is_piliapp_comment(line: &str) -> bool {
+    line == "#" || line.starts_with("# ")
+}
+
 /// slug -> (Chinese title, symbols). HTML entities such as `&dollar;` are decoded; a symbol repeated within a category is kept once.
 pub fn parse_piliapp(source: &str) -> IndexMap<String, (String, Vec<String>)> {
     let mut categories: IndexMap<String, (String, Vec<String>)> = IndexMap::new();
@@ -600,7 +605,7 @@ pub fn parse_piliapp(source: &str) -> IndexMap<String, (String, Vec<String>)> {
             current = Some((slug, title, Vec::new(), HashSet::new()));
             continue;
         }
-        if line.starts_with('#') {
+        if is_piliapp_comment(line) {
             continue;
         }
         let Some((_, _, symbols, seen)) = current.as_mut() else {
@@ -915,5 +920,17 @@ mod tests {
 
         let unmapped = parse_piliapp("# [piliapp/symbol/new-slug/] 新\nx\n");
         assert!(symbol_rows(&pinyin(), &unmapped).is_err());
+    }
+
+    /// 符号表里 `#` 开头的符号（项目清单的 `#️⃣`）照常收，`#` 和 `# 说明` 才是注释。
+    #[test]
+    fn piliapp_keeps_hash_led_symbols() {
+        let categories = parse_piliapp(
+            "# 特殊符号表\n#\n# [piliapp/symbol/bullet-point/] 项目清单\n#\u{fe0f}\u{20e3}\n# 说明\n#\n*\u{fe0f}\u{20e3}\n",
+        );
+        assert_eq!(
+            categories["bullet-point"].1,
+            ["#\u{fe0f}\u{20e3}", "*\u{fe0f}\u{20e3}"]
+        );
     }
 }
