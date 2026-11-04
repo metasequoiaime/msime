@@ -531,6 +531,33 @@ final class KeyLayoutStyleTests: XCTestCase {
     controller.viewDidDisappear(false)
   }
 
+  /// 手机一排十个键，每键约 33pt 宽：数字行和数字页补充行的键面要整个画得下，不能被按键的内边距挤得只剩半个字（数字行原先沿用 plain 按钮的默认左右内边距，3、5、0 只画出左半边）。
+  func testNumberRowFacesAreNotClippedOnPhones() throws {
+    XCTAssertTrue(write(TouchKeyLayoutStyle(numberRow: true)))
+    select(.quanpin)
+    let controller = keyboard()
+    func assertWhole(_ prefix: String, _ label: String) throws {
+      for column in 0..<10 {
+        let identifier = prefix == "numberRowKey" ? "numberRowKey\((column + 1) % 10)" : "\(prefix)\(column)"
+        let key = try button(identifier, in: controller)
+        let title = try XCTUnwrap(key.titleLabel, identifier)
+        XCTAssertGreaterThanOrEqual(title.bounds.width + 0.5, title.intrinsicContentSize.width,
+                                    "\(label) \(identifier) \(key.configuration?.title ?? "")")
+        XCTAssertGreaterThanOrEqual(title.bounds.height + 0.5, title.intrinsicContentSize.height,
+                                    "\(label) \(identifier) \(key.configuration?.title ?? "")")
+      }
+    }
+    try assertWhole("numberRowKey", "letter layer")
+    attach(controller, "26 键 数字行 键面")
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    try layoutAtRequestedHeight(controller)
+    try assertWhole("symbolExtraKey", "number layer")
+    try button("numberPadMoreSymbols", in: controller).sendActions(for: .primaryActionTriggered)
+    try layoutAtRequestedHeight(controller)
+    try assertWhole("symbolExtraKey", "more symbols")
+    controller.viewDidDisappear(false)
+  }
+
   /// 键盘开着时在设置里改样式，下次重载文档当场换上，正在组的字不受影响。
   func testStyleChangesApplyLiveWithoutDroppingTheComposition() async throws {
     select(.quanpin)
