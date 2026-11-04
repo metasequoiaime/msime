@@ -12293,9 +12293,10 @@ group("the icon paths are arc-free absolute commands inside their view box", () 
     "the chevrons are 1.8 at 21 and 20vp",
   );
   check(
-    KeyboardIconPaths.BRAND_STROKE_WIDTH === 9 &&
+    KeyboardIconPaths.BRAND_STROKE_WIDTH === 9.6 &&
+      KeyboardIconPaths.BRAND_STROKE_MITER_LIMIT === 4 &&
       KeyboardIconPaths.BRAND_STROKE_COLOR === "#FFFFFF",
-    "the brand stroke is white at 9",
+    "the brand stroke is msime.svg's, white at 9.6 (8 x 1.2) with SVG's miter limit 4",
   );
 });
 
