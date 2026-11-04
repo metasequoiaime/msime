@@ -1,7 +1,7 @@
 {
   "version": 1,
   "repository": "https://github.com/metasequoiaime/msime-dictionary",
-  "commit": "f04a4d592a1efedc87206f21be7a2ff4eed73379",
+  "commit": "4fd95815adf5e93b7ad835f048348dd3fe341777",
   "upstream": {
     "repository": "https://github.com/BYVoid/OpenCC.git",
     "commit": "26753884f1984add422f3b0249ccee8613deaff6"
