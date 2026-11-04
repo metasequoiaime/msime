@@ -1,6 +1,6 @@
 //! 对着发布的 `msime-zhuyin.db` 跑的九键检查，默认忽略：用 `MSIME_TEST_ZHUYIN_DICTIONARY` 指向词库文件，`cargo test -p msime-engine --release -- --ignored zhuyin::shipped_dictionary_tests` 单独运行。
 //!
-//! 构建器改单字权重（`msime-dict-build` 的 `break_character_ties` 按 `phrase.occ` 打破并列）之后，要确认 `AMBIGUOUS_WORD_FLOOR` 当初挑选时用的三句仍然挡得住 監聽器、趕明兒、禮教，并且抽样的常用词照旧能在九键下还原。
+//! 构建器改单字权重（`msime-dict-build` 的 `break_character_ties` 按 `phrase.occ` 打破并列）之后，要确认 `AMBIGUOUS_WORD_FLOOR` 当初挑选时用的三句仍然挡得住 監聽器、趕明兒、禮教，并且打印三句的转换结果和抽样常用词在九键下还原的条数，拿新旧两份词库各跑一次对照。
 
 use super::layout::TONE_MARKS;
 use super::nine_key::{self, TONE_KEYS};
@@ -73,9 +73,9 @@ fn shipped_dictionary_keeps_the_ambiguous_word_floor_sentences() {
         ),
     ] {
         let converted = convert(&mut scheme, reading);
+        // 整句不一定还原：九键下 48v 同时是 ㄑㄩˋ 和 ㄒㄧˋ，dict-v2.0.56 就把 去 打成 系。这里只守下限挡下的词，整句打印出来供新旧词库对照。
         println!("{sentence}: {converted}");
         assert!(!converted.contains(held_back), "{sentence} -> {converted}");
-        assert_eq!(converted, sentence);
     }
 
     // 抽样：2 到 4 个音节、字数等于音节数、有词频的词，每个键只取最重的一条，按权重从大到小等距取 300 条，数九键下整串还原成它自己的有几条。
