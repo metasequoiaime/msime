@@ -27,7 +27,7 @@ def main():
 
     if run("emu", "avd", "name").splitlines()[0] != expected[serial]:
         raise RuntimeError("requires repository-owned AVD")
-    run("root")
+    subprocess.run([adb, "-s", serial, "root"], check=True, timeout=60)
     run("wait-for-device")
     base = "/data/user/0/app.msime.android/files"
     fixture = base + "/synthetic-telemetry-watch"
