@@ -542,6 +542,55 @@ mod tests {
         Dictionary::open(checkout.path().into(), lock).unwrap()
     }
 
+    /// `curation/` 下的表可以不存在：不在时为 `None`，在时从 checkout 读；不是普通文件、经过符号链接、或不属于 msime-dictionary 的路径都报错。
+    #[cfg(unix)]
+    #[test]
+    fn optional_curation_tables_may_be_missing() {
+        use std::os::unix::fs::symlink;
+
+        let checkout = checkout(
+            &[("curation/pinyin-vetoes.txt", "别鸡巴\n".as_bytes())],
+            json!({"version": 1, "upstreams": {}, "files": []}),
+        );
+        std::fs::create_dir_all(checkout.path().join("curation/english-vetoes.txt")).unwrap();
+        symlink(
+            checkout.path().join("curation/pinyin-vetoes.txt"),
+            checkout.path().join("curation/offensive-words.txt"),
+        )
+        .unwrap();
+        let lock = lock_with_references(&[], ("", String::new()));
+        let sources = Sources {
+            dictionary: Some(dictionary_at(&checkout, &lock)),
+            lock,
+            repository_inputs: checkout.path().into(),
+            cache: checkout.path().into(),
+            offline: true,
+        };
+        assert_eq!(
+            sources.optional("curation/pinyin-vetoes.txt").unwrap(),
+            Some(checkout.path().join("curation/pinyin-vetoes.txt"))
+        );
+        assert_eq!(
+            sources
+                .optional("curation/pinyin-weight-overrides.txt")
+                .unwrap(),
+            None
+        );
+        assert!(sources.optional("curation/english-vetoes.txt").is_err());
+        assert!(sources.optional("curation/offensive-words.txt").is_err());
+        assert!(sources.optional("resources/whatever.txt").is_err());
+        let without_checkout = Sources {
+            dictionary: None,
+            lock: lock_with_references(&[], ("", String::new())),
+            repository_inputs: checkout.path().into(),
+            cache: checkout.path().into(),
+            offline: true,
+        };
+        assert!(without_checkout
+            .optional("curation/pinyin-vetoes.txt")
+            .is_err());
+    }
+
     #[cfg(unix)]
     #[test]
     fn a_checkout_parent_link_cannot_escape_the_checkout() {
