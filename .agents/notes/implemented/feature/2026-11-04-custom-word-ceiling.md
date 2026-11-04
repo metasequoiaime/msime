@@ -39,4 +39,5 @@ Status: implemented
 ## Verification
 
 - `crates/dict-builder`：`custom_ceiling::tests`（同全拼与同九键码封顶到最高常用词减 1、低于常用线不封顶、音节数不同的单字不算、已有行照旧只升不降、被否决或纠正的行不算、覆盖后的权重决定竞争、同一个词的另一个读音不算自己的竞争者、`curated_weight` 对三张表的处理），`main::tests` 的构建夹具补上纠错表后照常通过。
-- 词库数据分支上用 `release-built-dictionaries.yml` 的 `workflow_dispatch`（`publish=false`，`msime_ref` 指向本分支）试跑，用 `scripts/dict_artifact_diff.py` 和当前最新的 dict-v 逐表比较。
+- 词库数据分支 `cleanse-data/places-custom`（重新生成的 `places.txt`）上用 `release-built-dictionaries.yml` 的 `workflow_dispatch`（`publish=false`，`msime_ref` 为本分支的 `e37ab8582a`）试跑成功（run 41829149270）。构建日志列出 15 个被封顶的词，全部是同全拼封顶（挽昼 3333 -> 2455 压在 万州 2456 之下，张雯 3855 -> 2400，白冰 3855 -> 2446），与按 dict-v2.0.55 估算的结果一致；九键码这条在当前数据上没有单独起作用。用 `scripts/dict_artifact_diff.py` 和 dict-v2.0.55 逐表比较：`msime-pinyin.db` 行数不变，879 行改权重（793 个县级地名 100 -> 230，47 个地级简称从 31460 降到对齐后的量级，15 个 custom 词封顶）；经地名表改动后排第 1 并压过 1000 以上同音词的地名从 36 例降到 5 例，剩下的都低于地名生成器的常用线 7204。
+- 被封顶的词里有几条值得维护者复核：兜帽 压在 都冇（粤语）之下、吸猫 压在 细毛 之下。规则按权重判断常用词，不判断词义，要保住这类投稿词，在覆盖表里给它设权重即可（custom 新插入的行可以覆盖）。
