@@ -210,3 +210,115 @@ fn nothing_is_settled_without_a_composition() {
     );
     assert!(model.scored.lock().unwrap().is_empty());
 }
+
+#[test]
+fn an_expired_slice_still_scores_once_and_eventually_finishes() {
+    let (_directory, mut runtime, model) = runtime(Duration::ZERO);
+    type_tashuo(&mut runtime);
+    for _ in 0..100 {
+        if matches!(
+            runtime.settle_deferred_scorer(Duration::ZERO).unwrap(),
+            DeferredSettle::Done { .. }
+        ) {
+            assert!(!model.scored.lock().unwrap().is_empty());
+            assert_eq!(first(&mut runtime), NINTH);
+            return;
+        }
+    }
+    panic!("片内模型预算已过期时仍须推进，不能永久继续");
+}
+
+/// 先给若干次有效评分，之后模拟模型运行失败；恢复开关用于核对空分没有被当成有效分记住。
+struct EmptyAfter {
+    recording: Arc<Recording>,
+    valid_calls: usize,
+    calls: std::sync::atomic::AtomicUsize,
+    recovered: std::sync::atomic::AtomicBool,
+}
+
+impl msime_engine::ordering::SentenceScorer for EmptyAfter {
+    fn log_probabilities(&self, context: &str, candidates: &[&str]) -> Vec<f32> {
+        let call = self
+            .calls
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if call < self.valid_calls || self.recovered.load(std::sync::atomic::Ordering::Relaxed) {
+            self.recording.log_probabilities(context, candidates)
+        } else {
+            Vec::new()
+        }
+    }
+}
+
+struct LendsEmpty(Arc<EmptyAfter>);
+
+impl CandidateScorer for LendsEmpty {
+    fn context_length(&self) -> usize {
+        64
+    }
+
+    fn log_probabilities(&mut self, _context: &str, candidates: &[&str]) -> Vec<f32> {
+        vec![-5.0; candidates.len()]
+    }
+
+    fn sentence_scorer(&self) -> Option<Arc<dyn msime_engine::ordering::SentenceScorer>> {
+        Some(self.0.clone())
+    }
+}
+
+fn empty_scorer(recording: Arc<Recording>, valid_calls: usize) -> Arc<EmptyAfter> {
+    Arc::new(EmptyAfter {
+        recording,
+        valid_calls,
+        calls: std::sync::atomic::AtomicUsize::new(0),
+        recovered: std::sync::atomic::AtomicBool::new(false),
+    })
+}
+
+#[test]
+fn empty_scores_finish_the_pause_without_publishing_partial_candidates() {
+    for valid_calls in [0, 1] {
+        for slice in [Duration::ZERO, Duration::from_secs(60)] {
+            let (_directory, mut runtime, recording) = runtime(Duration::ZERO);
+            let model = empty_scorer(recording, valid_calls);
+            runtime.set_deferred_scorer(Some(Box::new(LendsEmpty(model.clone()))));
+            type_tashuo(&mut runtime);
+            let shown = texts(&mut runtime);
+            let mut done = false;
+            for _ in 0..8 {
+                let result = runtime.settle_deferred_scorer(slice).unwrap();
+                assert_eq!(texts(&mut runtime), shown, "失败评分不能发布半份模型候选");
+                if let DeferredSettle::Done { moved } = result {
+                    assert!(!moved);
+                    done = true;
+                    break;
+                }
+            }
+            assert!(done, "模型返回空分时不能永久继续：{valid_calls}, {slice:?}");
+            assert!(model.calls.load(std::sync::atomic::Ordering::Relaxed) > valid_calls);
+        }
+    }
+}
+
+#[test]
+fn a_later_pause_retries_scores_that_previously_failed() {
+    let (_directory, mut runtime, recording) = runtime(Duration::ZERO);
+    let model = empty_scorer(recording.clone(), 0);
+    runtime.set_deferred_scorer(Some(Box::new(LendsEmpty(model.clone()))));
+    type_tashuo(&mut runtime);
+    assert_eq!(
+        runtime.settle_deferred_scorer(Duration::ZERO).unwrap(),
+        DeferredSettle::Done { moved: false }
+    );
+    assert!(recording.scored.lock().unwrap().is_empty());
+    model
+        .recovered
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    assert_eq!(
+        runtime
+            .settle_deferred_scorer(Duration::from_secs(60))
+            .unwrap(),
+        DeferredSettle::Done { moved: true }
+    );
+    assert_eq!(first(&mut runtime), NINTH);
+    assert!(!recording.scored.lock().unwrap().is_empty());
+}

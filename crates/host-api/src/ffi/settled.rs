@@ -170,8 +170,8 @@ const PAUSE_SLICE: std::time::Duration = std::time::Duration::from_millis(8);
 
 /// 跑不进逐键预算、延后到停顿的逐键模型（`Runtime::set_deferred_scorer`）：在会话线程上带着它重解当前组字，一次一片（[`PAUSE_SLICE`]）。
 ///
-/// - 解完了：回 `status: done`，与落定重排一样，候选变了附带 `moved: true` 和 `view`。
-/// - 这一片没解完：回 `status: continue`，宿主让排队的输入先走（鸿蒙用 `setTimeout(0)`），没有新按键就再调 `msime_client_start_settled_rerank`；有新按键就不再调，按键照常处理，下次停顿接着用已经打过的分。候选变了（通常不变）同样附带 `moved: true` 和 `view`。
+/// - 解完了：回 `status: done`，`moved` 表示候选内容是否改变；代次前进时附带新 `view`，文字不变也要更新候选身份。
+/// - 这一片没解完：回 `status: continue`，宿主让排队的输入先走（鸿蒙用 `setTimeout(0)`），没有新按键就再调 `msime_client_start_settled_rerank`；有新按键就不再调，按键照常处理，下次停顿接着用已经打过的分。代次前进时同样附带 `view`。
 ///
 /// 没有延后的模型时是 `None`，照常走落定重排。不放到工作线程：重解要用引擎，会话只在它自己的线程上。
 fn deferred_on_session(session: &mut HostSession) -> Option<Result<Value, String>> {
@@ -179,15 +179,17 @@ fn deferred_on_session(session: &mut HostSession) -> Option<Result<Value, String
         return None;
     }
     let pending = session.lifecycle_begin(lifecycle::Call::SideChannel);
+    let generation = session.runtime.generation();
     let (status, moved) = match session.runtime.settle_deferred_scorer(PAUSE_SLICE) {
         Ok(msime_input_runtime::DeferredSettle::Done { moved }) => ("done", moved),
         Ok(msime_input_runtime::DeferredSettle::Continue { moved }) => ("continue", moved),
         Err(error) => return Some(Err(error.to_string())),
     };
-    Some(if moved {
+    // 重解会使旧候选身份过期；文字没换位置时也要把新代次交回宿主。
+    Some(if session.runtime.generation() != generation {
         let view = session.runtime.view();
         session.lifecycle_view(pending, &view);
-        Ok(json!({"status": status, "moved": true, "current": true, "view": view}))
+        Ok(json!({"status": status, "moved": moved, "current": true, "view": view}))
     } else {
         Ok(json!({"status": status, "moved": false, "current": true}))
     })

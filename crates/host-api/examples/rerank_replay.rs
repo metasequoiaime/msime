@@ -62,7 +62,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         options[key] = json!(directory);
     }
     options["rerank_models"] = json!(models);
-    // `pause`: the host settles at pauses (HostOptions `pause_rerank`), as the HarmonyOS keyboard does; a device too slow for the keystroke budget then runs the model only there.
+    // `pause` 与鸿蒙键盘一样在停顿时重解（HostOptions 的 `pause_rerank`）；设备跑不进逐键预算时，只在停顿中运行模型。
     options["pause_rerank"] = json!(arm == "pause");
     let preferences = &mut options["preferences"];
     preferences["scheme"] = json!("quanpin");
@@ -77,10 +77,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cases: Value = serde_json::from_slice(&std::fs::read(cases_path)?)?;
     let mut character = Vec::new();
     let mut view = Vec::new();
-    // `pause` only: the settle call after each segment, and the first key typed after one (the engine's sentence caches were cleared when the model was mounted and taken off again).
+    // 仅 `pause`：每段之后的重解调用及随后的首键耗时；模型挂上再摘下时，引擎的整句缓存已清空。
     let mut settle = Vec::new();
     let mut after_settle = Vec::new();
-    // The settle calls one pause took, and their average length: what a key arriving mid-pause waits for at most.
+    // 一次停顿的调用次数及平均时长；停顿期间到达的按键最多等当前这一片。
     let mut slices = Vec::new();
     let mut slice = Vec::new();
     let mut by_length: Vec<Vec<f64>> = vec![Vec::new(); 8];
@@ -104,7 +104,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     view.push(started.elapsed().as_secs_f64() * 1000.0);
                 }
                 if arm == "pause" {
-                    // The host's pause: the settle call, polled to completion the way a host does when the work went to a thread.
+                    // 模拟宿主停顿；工作已转到后台时，像真实宿主一样轮询到完成。
                     let started = Instant::now();
                     let mut reply = read(settled::msime_client_start_settled_rerank(handle));
                     let mut calls = 1;
@@ -116,7 +116,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 handle, token, true,
                             ));
                         } else if reply["status"] == "continue" {
-                            // A deferred model ran out of its slice; a host lets queued input through here, the replay has none.
+                            // 延后模型耗尽本片预算；真实宿主在这里处理排队输入，回放中没有待处理输入。
                             reply = read(settled::msime_client_start_settled_rerank(handle));
                             calls += 1;
                         } else {

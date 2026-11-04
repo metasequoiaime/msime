@@ -338,6 +338,8 @@ impl DeferredScorer {
                 inner,
                 deadline: std::sync::Mutex::new(None),
                 exhausted: std::sync::atomic::AtomicBool::new(false),
+                scored_once: std::sync::atomic::AtomicBool::new(false),
+                failed: std::sync::atomic::AtomicBool::new(false),
             })
         });
         Self { scorer, budgeted }
@@ -349,6 +351,8 @@ pub(crate) struct BudgetedSentenceScorer {
     inner: Arc<dyn SentenceScorer>,
     deadline: std::sync::Mutex<Option<std::time::Instant>>,
     exhausted: std::sync::atomic::AtomicBool,
+    scored_once: std::sync::atomic::AtomicBool,
+    failed: std::sync::atomic::AtomicBool,
 }
 
 impl BudgetedSentenceScorer {
@@ -360,25 +364,45 @@ impl BudgetedSentenceScorer {
             std::time::Instant::now().checked_add(slice);
         self.exhausted
             .store(false, std::sync::atomic::Ordering::Relaxed);
+        self.scored_once
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+        self.failed
+            .store(false, std::sync::atomic::Ordering::Relaxed);
     }
 
     fn exhausted(&self) -> bool {
         self.exhausted.load(std::sync::atomic::Ordering::Relaxed)
     }
+
+    fn failed(&self) -> bool {
+        self.failed.load(std::sync::atomic::Ordering::Relaxed)
+    }
 }
 
 impl SentenceScorer for BudgetedSentenceScorer {
     fn log_probabilities(&self, context: &str, candidates: &[&str]) -> Vec<f32> {
+        if self.failed() {
+            return Vec::new();
+        }
         let deadline = *self
             .deadline
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if deadline.is_some_and(|deadline| std::time::Instant::now() >= deadline) {
+        // 解码前半段也占用墙钟；即使走到首个模型调用时已经超时，每片仍须至少算一次才能推进。
+        let scored_once = self
+            .scored_once
+            .swap(true, std::sync::atomic::Ordering::Relaxed);
+        if scored_once && deadline.is_some_and(|deadline| std::time::Instant::now() >= deadline) {
             self.exhausted
                 .store(true, std::sync::atomic::Ordering::Relaxed);
             return Vec::new();
         }
-        self.inner.log_probabilities(context, candidates)
+        let scores = self.inner.log_probabilities(context, candidates);
+        if scores.len() != candidates.len() {
+            self.failed
+                .store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        scores
     }
 }
 
@@ -1260,7 +1284,7 @@ impl<E: InputEngine> Runtime<E> {
         self.engine.set_sentence_scorer(self.sentence_scorer());
     }
 
-    /// Whether a per-keystroke reranker is attached, so a host can attach or drop it when the preference that governs it changes. A deferred one ([`Self::set_deferred_scorer`]) counts: it is the same model, run at pauses instead of on every key.
+    /// 是否挂着逐键重排器，宿主据此在开关变化时挂上或移除。延后到停顿的模型（[`Self::set_deferred_scorer`]）也算：模型相同，只是改在停顿时运行。
     pub fn has_reranker(&self) -> bool {
         self.reranker.is_some() || self.deferred_scorer.is_some()
     }
@@ -1284,6 +1308,7 @@ impl<E: InputEngine> Runtime<E> {
     ///
     /// - 解完了：候选换成模型排出的样子，在下一个按键之前一直如此，返回 [`DeferredSettle::Done`]。
     /// - 模型时间用完还没解完：这次解出的候选不完整，不用；不带模型再解一遍，候选与停顿前相同，返回 [`DeferredSettle::Continue`]，宿主让排队的输入先走，没有新按键就再调一次。已经打过分的前缀记在引擎的备忘里（同一个包了预算的打分器，见 [`DeferredScorer`]），下一片不再算，每一片都往前推进，停顿之后再停顿也接着用。
+    /// - 模型打不了分：同样丢弃未完成的结果，不带模型重解并返回 [`DeferredSettle::Done`]，结束本次停顿；下次停顿可以重试，空分不写入备忘。
     ///
     /// 整段组字的模型计算都挤到停顿时做：Mac（M1 Max）上 typing-chat-v1 整句一次解完 p50 24 ms，畅享 90 Plus 要慢五倍以上，一次做完会让停顿后紧接着的按键等上一两百毫秒。分片之后按键最多等一片。
     ///
@@ -1316,9 +1341,11 @@ impl<E: InputEngine> Runtime<E> {
                 .map(|budgeted| budgeted as Arc<dyn SentenceScorer>),
         );
         let decoded = self.engine.recompute_candidates();
-        let complete = budgeted
-            .as_ref()
-            .is_none_or(|budgeted| !budgeted.exhausted());
+        let failed = budgeted.as_ref().is_some_and(|budgeted| budgeted.failed());
+        let complete = !failed
+            && budgeted
+                .as_ref()
+                .is_none_or(|budgeted| !budgeted.exhausted());
         let shown = match &decoded {
             Ok(()) if complete => self.advance().and_then(|()| self.refresh()),
             _ => Ok(()),
@@ -1333,8 +1360,11 @@ impl<E: InputEngine> Runtime<E> {
             self.engine.recompute_candidates()?;
             self.advance()?;
             self.refresh()?;
-            return Ok(DeferredSettle::Continue {
-                moved: self.cached.candidates != before,
+            let moved = self.cached.candidates != before;
+            return Ok(if failed {
+                DeferredSettle::Done { moved }
+            } else {
+                DeferredSettle::Continue { moved }
             });
         }
         shown?;
