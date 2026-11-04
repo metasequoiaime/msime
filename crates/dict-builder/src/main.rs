@@ -22,6 +22,7 @@
 //! ```
 
 mod cantonese;
+mod cantonese_curation;
 mod check_words;
 mod cleanse_report;
 mod curation;

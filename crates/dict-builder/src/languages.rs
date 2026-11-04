@@ -5,6 +5,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 
 use crate::cantonese;
+use crate::cantonese_curation;
 use crate::hkcancor;
 use crate::sources::{sha256_file, Sources};
 use crate::stroke;
@@ -44,6 +45,7 @@ pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<Strin
         &cantonese::candidate_variants(&tw_variants, &hk_variants, &vetoes)?,
         &corpus,
     );
+    let curation = cantonese_curation_inputs(sources)?;
     let dictionary = cantonese::build(
         &characters,
         &cantonese::parse_words(&words)?,
@@ -51,7 +53,8 @@ pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<Strin
         &corpus,
         &custom_words,
         &forms,
-    );
+        &curation,
+    )?;
     let database = out.join(cantonese::DATABASE);
     cantonese::write(&dictionary, &database, commit)?;
     let counts = cantonese::verify(&database, cantonese::FLOORS)?;
@@ -78,15 +81,18 @@ pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<Strin
         .join(", ");
     let vetoes_summary = vetoes.iter().collect::<String>();
     summaries.push(format!(
-        "{}: {} syllables, {} character and {} word entries ({} of them from the essay; {} words weighed by the HKCanCor counts at {} each, {} of them held below an essay word of their key; {custom_summary}; {} character entries raised toward {} by the words they are written in; {} OpenCC forms spelled the Hong Kong way, with their HKCanCor counts: {forms_summary}; kept by {}: {vetoes_summary})",
+        "{}: {} syllables, {} character and {} word entries ({} of them from the essay, {} of those held below the words-file words of their key for want of HKCanCor, reviewed or pinyin corroboration; {} words weighed by the HKCanCor counts at {} each, {} of them held below an essay word of their key; {custom_summary}; {} entries removed by {}; {} character entries raised toward {} by the words they are written in; {} OpenCC forms spelled the Hong Kong way, with their HKCanCor counts: {forms_summary}; kept by {}: {vetoes_summary})",
         cantonese::DATABASE,
         counts.syllables,
         counts.characters,
         counts.words,
         dictionary.essay_words,
+        dictionary.essay_capped,
         dictionary.corpus_words,
         dictionary.corpus_scale,
         dictionary.corpus_capped,
+        dictionary.vetoed,
+        cantonese_curation::WORD_VETOES,
         dictionary.characters_raised,
         cantonese::WORD_FLOOR_CEILING,
         forms.len(),
@@ -114,38 +120,53 @@ pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<Strin
     copy_license(licenses, zhuyin::LICENSE_SOURCE, out, zhuyin::LICENSE_NAME)?;
     written.extend([zhuyin::DATABASE, zhuyin::LICENSE_NAME]);
     summaries.push(format!(
-        "{}: {} syllables, {} character and {} phrase entries ({} phrases weighed by phrase.occ at {} each, {} of them capped below a counted entry)",
+        "{}: {} syllables, {} character and {} phrase entries ({} phrases weighed by phrase.occ at {} each, {} of them capped below a counted entry; {} keys whose tied single-reading characters phrase.occ reordered)",
         zhuyin::DATABASE,
         counts.syllables,
         counts.characters,
         counts.phrases,
         dictionary.filled,
         dictionary.occurrence_scale,
-        dictionary.capped
+        dictionary.capped,
+        dictionary.reordered
     ));
 
     match stroke::source(sources)? {
         Some(source) => {
             let source = text::read(&source)?;
             let frequencies = text::read(&sources.pinned(stroke::FREQUENCIES)?)?;
+            let frequencies = stroke::parse_frequencies(&frequencies)?;
+            let simplified_to_traditional =
+                text::read(&sources.pinned(stroke::SIMPLIFIED_TO_TRADITIONAL)?)?;
+            let inherited = stroke::traditional_weights(
+                &frequencies,
+                &cantonese::parse_variants(
+                    stroke::SIMPLIFIED_TO_TRADITIONAL,
+                    &simplified_to_traditional,
+                )?,
+                &cantonese::parse_variants(cantonese::TW_VARIANTS, &tw_variants)?,
+                &cantonese::parse_variants(cantonese::HK_VARIANTS, &hk_variants)?,
+            );
+            let dictionary = stroke::build(&stroke::parse(&source)?, &frequencies, &inherited);
             let database = out.join(stroke::DATABASE);
-            stroke::write(
-                &stroke::build(
-                    &stroke::parse(&source)?,
-                    &stroke::parse_frequencies(&frequencies)?,
-                ),
+            stroke::write(&dictionary, &database, stroke::source_commit(sources))?;
+            let counts = stroke::verify(
                 &database,
-                stroke::source_commit(sources),
+                stroke::FLOORS,
+                stroke::CEILINGS,
+                &stroke::EXPECTED,
+                &stroke::EXPECTED_COMPLETIONS,
             )?;
-            let counts = stroke::verify(&database, stroke::FLOORS, &stroke::EXPECTED)?;
             copy_license(licenses, stroke::LICENSE_SOURCE, out, stroke::LICENSE_NAME)?;
             written.extend([stroke::DATABASE, stroke::LICENSE_NAME]);
             summaries.push(format!(
-                "{}: {} entries of {} characters, {} of them with a frequency",
+                "{}: {} entries of {} characters, {} of them with a frequency; {} traditional characters raised toward 1/{} of their simplified form's frequency",
                 stroke::DATABASE,
                 counts.entries,
                 counts.characters,
-                counts.weighted
+                counts.weighted,
+                dictionary.inherited,
+                stroke::TRADITIONAL_DIVISOR
             ));
         }
         // 没有 `--dictionary` checkout、缓存里也没有笔画源文件：只跳过笔画词库，不让粤拼与注音的发布跟着失败。
@@ -158,6 +179,34 @@ pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<Strin
 
     write_sums(out, &written)?;
     Ok(summaries)
+}
+
+/// 粤拼库的清洗输入：拼音库四份词表（去掉 `curation/pinyin-vetoes.txt` 整词否决的词）、繁转简字表，以及 `curation/cantonese-word-vetoes.txt`；两张 `curation/` 表不在时按空表。
+fn cantonese_curation_inputs(sources: &Sources) -> Result<cantonese_curation::Curation> {
+    let mut tables = Vec::with_capacity(cantonese_curation::PINYIN_TABLES.len());
+    for path in cantonese_curation::PINYIN_TABLES {
+        tables.push(text::read(&sources.pinned(path)?)?);
+    }
+    let pinyin_vetoes = crate::curation::PinyinVetoes::parse(
+        &crate::curation::read_optional(sources, crate::curation::PINYIN_VETOES)?
+            .unwrap_or_default(),
+    )?;
+    let traditional_to_simplified = cantonese::parse_variants(
+        cantonese_curation::TRADITIONAL_TO_SIMPLIFIED,
+        &text::read(&sources.pinned(cantonese_curation::TRADITIONAL_TO_SIMPLIFIED)?)?,
+    )?;
+    let vetoes = cantonese_curation::WordVetoes::parse(
+        &crate::curation::read_optional(sources, cantonese_curation::WORD_VETOES)?
+            .unwrap_or_default(),
+    )?;
+    Ok(cantonese_curation::Curation {
+        pinyin: cantonese_curation::PinyinWords::new(
+            &tables.iter().map(String::as_str).collect::<Vec<_>>(),
+            &traditional_to_simplified,
+            &pinyin_vetoes,
+        ),
+        vetoes,
+    })
 }
 
 /// The commit the sources lock pins `reference` at, recorded as a database's `source_commit`.

@@ -8,6 +8,8 @@
 //!
 //! The words file lacks some of the commonest words because Rime composes them from characters at typing time (你好 is one), and the engine does not compose sentences. So an essay word the words file does not list becomes an entry too when the essay counts it at least `ESSAY_WORD_MIN_COUNT` times and each of its characters has exactly one toneless reading in the characters file, which makes its key certain.
 //!
+//! essay 补词还要有佐证（HKCanCor 数到过、人工审校过，或者换成简体后是拼音库的词），没有佐证的压到同键词表收录的词之下；维护者的否决表 `curation/cantonese-word-vetoes.txt` 在所有来源写入之后删词。两条规则都在 `cantonese_curation` 里。
+//!
 //! 上面两条规则都不会收进 essay 分数不到门槛、或含多音字的词（周杰倫只有 711 分）。这类词由 msime-dictionary 的 `custom/cantonese.txt` 逐词收录：每行 `词<TAB>带声调粤拼`，一个汉字一个音节，逐行人工审校。构建要求每个字在这一行里的读音（去声调后）是字表给这个字的读音之一，否则整个构建失败：这拦得住笔误和字根本没有的读音（把「倫」写成 `lun4`），拦不住在多音字的几个读音里选错（「銀行」写成 `ngan4 haang4` 能通过，因为「行」确有 `haang4`），后者只能靠人工审校。收录的词按 essay 分数加权，essay 没有列它时取 `ESSAY_WORD_MIN_COUNT`；已有条目只升不降，不删除任何条目。checkout 里没有这个文件（加入它之前的 msime-dictionary 提交）时按空表构建。
 //!
 //! The syllable inventory is every toneless syllable some key uses, so every entry stays typable; the words file uses a few colloquial syllables (`fi`, `za`, `gwek`) that no character row has.
@@ -19,6 +21,8 @@ use std::path::Path;
 use anyhow::{bail, Context, Result};
 use msime_engine::cantonese::scheme::SPAN_LIMIT;
 use rusqlite::OptionalExtension;
+
+use crate::cantonese_curation::{self, Curation};
 
 pub const CHARACTERS: &str = "sources/cantonese/jyut6ping3.chars.dict.yaml";
 pub const WORDS: &str = "sources/cantonese/jyut6ping3.words.dict.yaml";
@@ -106,6 +110,10 @@ pub struct Dictionary {
     pub custom_words: usize,
     /// 按 `WORD_FLOOR_CEILING` 的「词带字」下限抬高了权重的单字条目数。
     pub characters_raised: usize,
+    /// 没有佐证、压到同键词表收录的词之下的 essay 补词数（`cantonese_curation::cap_uncorroborated`）。
+    pub essay_capped: usize,
+    /// `curation/cantonese-word-vetoes.txt` 删掉的条目数。
+    pub vetoed: usize,
 }
 
 /// `custom/cantonese.txt` 的一行。
@@ -519,7 +527,7 @@ fn corpus_scale(essay: &HashMap<Cow<str>, i64>, corpus: &HashMap<&str, i64>) -> 
         .max(1)
 }
 
-/// 四份输入与 `custom/cantonese.txt` 的人工审校词（读音已由 `parse_custom` 核对）构成的词库，写入的字面按 `forms` 换成香港字形。
+/// 四份输入与 `custom/cantonese.txt` 的人工审校词（读音已由 `parse_custom` 核对）构成的词库，写入的字面按 `forms` 换成香港字形；`curation` 给 essay 补词佐证的拼音库和维护者的否决表（`cantonese_curation`）。否决表有一条删不到任何条目、或者否决了人工审校词时报错。
 pub fn build(
     characters: &[Row],
     words: &[Row],
@@ -527,7 +535,8 @@ pub fn build(
     corpus: &HashMap<&str, i64>,
     custom: &[CustomWord],
     forms: &HongKongForms,
-) -> Dictionary {
+    curation: &Curation,
+) -> Result<Dictionary> {
     // 词、essay 补词与人工词表都按香港字形查 essay；字仍按原字面查，见下。
     let essay_hk = essay_by_hong_kong_form(essay, forms);
     let essay_count = |text: &str| essay_hk.get(text).copied();
@@ -566,6 +575,8 @@ pub fn build(
     // The lightest essay-listed word on each key, and the thinly attested corpus words with their fallback weights, which are held below it once the essay words below are added too.
     let mut lightest_essay: HashMap<String, i64> = HashMap::new();
     let mut thin = Vec::new();
+    // 词表收录的 `(键, 字面)`，essay 补词没有佐证时压到其中最轻的之下。
+    let mut listed_entries: HashSet<(String, String)> = HashSet::new();
     for row in words {
         let key = row.syllables.join(" ");
         let text = hong_kong_text(row.text, forms);
@@ -585,6 +596,7 @@ pub fn build(
             }
             (None, None) => unlisted_word_weight(row.text, essay),
         };
+        listed_entries.insert((key.clone(), text.to_string()));
         dictionary.insert(key, &text, weight);
         listed.insert(text);
     }
@@ -620,9 +632,11 @@ pub fn build(
             *slot = (*slot).max(count);
         }
     }
+    let mut essay_added = Vec::with_capacity(essay_words.len());
     for ((key, text), count) in essay_words {
         let lightest = lightest_essay.entry(key.clone()).or_insert(count);
         *lightest = (*lightest).min(count);
+        essay_added.push((key.clone(), text.to_string()));
         dictionary.insert(key, &text, count);
     }
     dictionary.essay_words = dictionary.entries.len() - dictionary.characters - dictionary.words;
@@ -650,6 +664,22 @@ pub fn build(
         }
     }
 
+    // essay 补词要有 HKCanCor、人工审校或拼音库的佐证，否则压到同键词表收录的词之下。
+    let custom_texts: HashSet<Cow<str>> = custom
+        .iter()
+        .map(|word| hong_kong_text(word.text, forms))
+        .collect();
+    dictionary.essay_capped = cantonese_curation::cap_uncorroborated(
+        &mut dictionary.entries,
+        &essay_added,
+        &listed_entries,
+        |text| {
+            corpus.get(text).is_some_and(|count| *count > 0)
+                || custom_texts.contains(text)
+                || curation.pinyin.contains(text)
+        },
+    );
+
     // 人工审校的词放在最后，只新增或抬高，不压低前面任何来源给的权重。
     for word in custom {
         let text = hong_kong_text(word.text, forms);
@@ -663,6 +693,15 @@ pub fn build(
             dictionary.custom_words += 1;
         }
     }
+
+    // 维护者的否决表在所有来源都写入之后施加，被删的词也不再给字带出下限。
+    let custom_entries: Vec<(String, String)> = custom
+        .iter()
+        .map(|word| (word.key(), hong_kong_text(word.text, forms).into_owned()))
+        .collect();
+    dictionary.vetoed = curation
+        .vetoes
+        .apply(&mut dictionary.entries, &custom_entries)?;
 
     // 词带字：所有来源的词都已写入，按位置把每个词的 essay 分数记到「这个音节上的这个字」。字数与音节数不同的词（含「兡」这类两音节字）对不上位置，不计；essay 没列的词不计，语料与回退权重不带字。
     let mut in_words: HashMap<(String, char), i64> = HashMap::new();
@@ -705,7 +744,7 @@ pub fn build(
         .flat_map(|(key, _)| key.split(' '))
         .map(str::to_owned)
         .collect();
-    dictionary
+    Ok(dictionary)
 }
 
 /// Writes `dictionary` to `path` in the engine's language dictionary schema, replacing any earlier file, and freezes it so the same inputs give the same bytes.
@@ -815,7 +854,9 @@ mod tests {
             &HashMap::new(),
             &[],
             &sample_forms(),
+            &Curation::default(),
         )
+        .unwrap()
     }
 
     /// 把「爲」换成「為」、「溼」换成「濕」、「啓」换成「啟」，让样例库满足 `EXPECTED` 里的 ("wai", "為")、("jan wai", "因為")、("sap", "濕")、("sap zi gan", "濕紙巾") 与 ("kai", "啟")；「搵」不换（真实构建里由否决表挡下），满足 ("wan", "搵")；字表里的「逾」「慈」满足 jyu 与 ci 两项。
@@ -920,7 +961,9 @@ mod tests {
             &HashMap::new(),
             &[],
             &HongKongForms::new(),
-        );
+            &Curation::default(),
+        )
+        .unwrap();
         // 食 (2^19..2^20) is commoner than 識 (2^18..2^19), so 食咗 outweighs 識咗 although the essay lists neither word.
         assert_eq!(
             dictionary.entries[&("sik zo".to_owned(), "食咗".to_owned())],
@@ -948,7 +991,9 @@ mod tests {
             &corpus,
             &[],
             &HongKongForms::new(),
-        );
+            &Curation::default(),
+        )
+        .unwrap();
         assert_eq!(dictionary.corpus_scale, 1100);
         let weight = |key: &str, text: &str| dictionary.entries[&(key.to_owned(), text.to_owned())];
         // The essay lists 我地 and 點解, so their essay counts stand.
@@ -983,16 +1028,19 @@ mod tests {
             &corpus,
             &[],
             &HongKongForms::new(),
-        );
+            &Curation::default(),
+        )
+        .unwrap();
         assert_eq!(dictionary.corpus_scale, 845);
         let weight = |key: &str, text: &str| dictionary.entries[&(key.to_owned(), text.to_owned())];
         // Two tokens would weigh 1690, ahead of 物證; they are held one below it.
         assert_eq!(weight("mat zing", "物証"), 717);
         // jan zing has 人證 (580) and 印證 (889); a thin word stays below both.
         assert_eq!(weight("jan zing", "人証"), 579);
-        // Three tokens reach the threshold and keep the corpus weight, which passes 唔知 but not 唔只, the essay word added under the same key.
+        // 三个语料计数达到门槛，保留语料权重，排过 唔知。同键的 essay 补词 唔只 本来排在两者前面，但这里没有任何佐证（HKCanCor 没有、没有人工审校、拼音库为空），压到这个键上词表最轻的 唔知 之下一位；语料薄词的上限照旧按它的 essay 分数算。
         assert_eq!(weight("m zi", "唔止"), 2535);
-        assert_eq!(weight("m zi", "唔只"), 5606);
+        assert_eq!(weight("m zi", "唔只"), 1517);
+        assert_eq!(dictionary.essay_capped, 1);
         assert_eq!((dictionary.corpus_words, dictionary.corpus_capped), (3, 2));
     }
 
@@ -1011,7 +1059,9 @@ mod tests {
             &corpus,
             &[],
             &HongKongForms::new(),
-        );
+            &Curation::default(),
+        )
+        .unwrap();
         assert_eq!(
             dictionary.entries[&("gam gaai".to_owned(), "噉解".to_owned())],
             11
@@ -1037,7 +1087,9 @@ mod tests {
             &HashMap::new(),
             &[],
             &HongKongForms::new(),
-        );
+            &Curation::default(),
+        )
+        .unwrap();
         assert_eq!(
             entries(&dictionary),
             [
@@ -1058,7 +1110,9 @@ mod tests {
             &HashMap::new(),
             &[],
             &HongKongForms::new(),
-        );
+            &Curation::default(),
+        )
+        .unwrap();
         assert_eq!(dictionary.essay_words, 0);
     }
 
@@ -1086,7 +1140,9 @@ mod tests {
             &HashMap::new(),
             &custom,
             &HongKongForms::new(),
-        );
+            &Curation::default(),
+        )
+        .unwrap();
         let weight = |key: &str, text: &str| {
             dictionary
                 .entries
@@ -1120,7 +1176,9 @@ mod tests {
             &corpus,
             &custom,
             &HongKongForms::new(),
-        );
+            &Curation::default(),
+        )
+        .unwrap();
         assert_eq!(dictionary.corpus_scale, 845);
         let weight = |text: &str| dictionary.entries[&("zau git leon".to_owned(), text.to_owned())];
         assert_eq!(weight("周杰倫"), 711);
@@ -1354,7 +1412,9 @@ mod tests {
             &corpus,
             &[],
             &forms,
-        );
+            &Curation::default(),
+        )
+        .unwrap();
         let weight = |key: &str, text: &str| {
             dictionary
                 .entries
@@ -1391,7 +1451,9 @@ mod tests {
             &corpus,
             &[],
             &forms,
-        );
+            &Curation::default(),
+        )
+        .unwrap();
         let weight = |key: &str, text: &str| {
             dictionary
                 .entries
@@ -1435,7 +1497,9 @@ mod tests {
             &corpus,
             &[],
             &forms,
-        );
+            &Curation::default(),
+        )
+        .unwrap();
         let weight = |text: &str| {
             dictionary
                 .entries
@@ -1664,14 +1728,18 @@ mod tests {
         // Without the essay, 你好 is missing from nei hou.
         let characters = characters_source();
         let words = words_source();
-        let (_dir, path) = written(&build(
-            &parse_characters(&characters).unwrap(),
-            &parse_words(&words).unwrap(),
-            &HashMap::new(),
-            &HashMap::new(),
-            &[],
-            &HongKongForms::new(),
-        ));
+        let (_dir, path) = written(
+            &build(
+                &parse_characters(&characters).unwrap(),
+                &parse_words(&words).unwrap(),
+                &HashMap::new(),
+                &HashMap::new(),
+                &[],
+                &HongKongForms::new(),
+                &Curation::default(),
+            )
+            .unwrap(),
+        );
         let error = verify(
             &path,
             Floors {
@@ -1693,14 +1761,18 @@ mod tests {
                 corpus_count: 34,
             },
         );
-        let (_dir, path) = written(&build(
-            &parse_characters(&characters).unwrap(),
-            &parse_words(&words).unwrap(),
-            &parse_essay(ESSAY_TEXT).unwrap(),
-            &HashMap::new(),
-            &[],
-            &forms,
-        ));
+        let (_dir, path) = written(
+            &build(
+                &parse_characters(&characters).unwrap(),
+                &parse_words(&words).unwrap(),
+                &parse_essay(ESSAY_TEXT).unwrap(),
+                &HashMap::new(),
+                &[],
+                &forms,
+                &Curation::default(),
+            )
+            .unwrap(),
+        );
         let error = verify(&path, floors).unwrap_err().to_string();
         assert!(error.contains("without 搵 in its first 1"), "{error}");
     }
@@ -1724,7 +1796,9 @@ mod tests {
             &HashMap::new(),
             &[],
             &HongKongForms::new(),
-        );
+            &Curation::default(),
+        )
+        .unwrap();
         let weight = |key: &str, text: &str| dictionary.entries[&(key.to_owned(), text.to_owned())];
         // 逾期与逾越合计 2029 分：2029 × 2000 / 4029 = 1007，「逾」从 177 升到 1007，仍在单独常用的「於」之下。
         assert_eq!(weight("jyu", "逾"), 1007);

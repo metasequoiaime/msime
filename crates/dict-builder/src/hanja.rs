@@ -2,7 +2,9 @@
 //!
 //! The source has one `key:value:comment` line per reading, words and single syllables mixed. Only single syllables are kept: the key is one precomposed Hangul syllable (U+AC00..U+D7A3) and the value one unified ideograph of the Basic Multilingual Plane, that is one Hanja in the CJK Unified Ideographs block, Extension A, or one of the twelve unified ideographs the CJK Compatibility Ideographs block holds (U+FA0E 﨎, U+FA11 﨑 and so on, which NFC leaves alone). True compatibility ideographs are dropped because NFC rewrites them; the pinned source lists none of them as a single-syllable value. Characters outside the Basic Multilingual Plane are dropped because fonts are not guaranteed to cover them. A value of two characters (the source has a few place names such as 莘洞) is not a single Hanja and is dropped too.
 //!
-//! The output is `crates/engine/src/korean/hanja.tsv`, one `syllable<TAB>hanja<TAB>gloss` line per reading, which the engine embeds with `include_str!`. Syllables come in code point order and each syllable's Hanja in the source's order, which libhangul keeps by frequency of use (韓, 漢, 寒 for 한). The gloss is the source's 훈음 comment (나라 이름 한), empty where the source has none. A Hanja the source lists twice under one syllable is kept at its first position.
+//! The output is `crates/engine/src/korean/hanja.tsv`, one `syllable<TAB>hanja<TAB>gloss` line per reading, which the engine embeds with `include_str!`. Syllables come in code point order. The gloss is the source's 훈음 comment (나라 이름 한), empty where the source has none. A Hanja the source lists twice under one syllable is kept at its first position.
+//!
+//! 每个音节里先列有训音的字、再列没有训音的字，两组内部各按源文件的次序（libhangul 大体按使用频率排，한 下是 韓、漢、寒）。源文件约四分之三的行没有训音，其中夹着不少简体字和冷僻字，排在有训音的常用字前面：팽 下第一个是没有训音的 庄，彭、膨 在后面；시 下第一个是 十。只是指向另一个字的注释（`啍과 同字`、`畫의 俗字` 这类，每一段都含汉字）不算训音，这样的行和没有注释的行排在一组：噋 只注了「啍과 同字」，如果算有训音，它就会排到 톤 下没有注释的常用字 噸 前面。按这条规则，固定提交里有 7 个音节的首字换了（팽 庄→彭、시 十→時、즙 輯→汁、즉 則→卽、획 畵→獲、흘 汽→訖、뉵 忸→衄），没有一个换成更冷僻的字。
 
 use std::collections::{BTreeMap, HashSet};
 use std::fmt::Write as _;
@@ -82,7 +84,20 @@ pub fn build(source: &str) -> Result<Vec<Reading>> {
     if groups.is_empty() {
         bail!("{SOURCE}: no single-syllable reading");
     }
+    for readings in groups.values_mut() {
+        // 稳定排序：有训音的在前，组内保留源文件的次序。
+        readings.sort_by_key(|reading| !has_reading_gloss(&reading.gloss));
+    }
     Ok(groups.into_values().flatten().collect())
+}
+
+/// 注释里有没有训音：逗号分开的各段里至少有一段不含汉字（`집 가`）。整条注释只是指向别的字（`歌와 同字`、`畫의 俗字`）或为空时没有。
+fn has_reading_gloss(gloss: &str) -> bool {
+    let ideograph = |character: char| matches!(character, '\u{3400}'..='\u{4dbf}' | '\u{4e00}'..='\u{9fff}' | '\u{f900}'..='\u{faff}' | '\u{20000}'..='\u{3ffff}');
+    gloss
+        .split(',')
+        .map(str::trim)
+        .any(|part| !part.is_empty() && !part.chars().any(ideograph))
 }
 
 pub fn tsv(readings: &[Reading]) -> String {
@@ -125,6 +140,31 @@ mod tests {
     }
 
     #[test]
+    fn glossed_readings_come_before_unglossed_ones_in_source_order() {
+        let readings = build(
+            "팽:庄:
+팽:彭:성씨 팽
+팽:硼:
+팽:膨:배 불룩할 팽
+",
+        )
+        .unwrap();
+        assert_eq!(glyphs(&readings), ["팽彭", "팽膨", "팽庄", "팽硼"]);
+    }
+
+    #[test]
+    fn a_comment_that_only_points_to_another_hanja_is_not_a_gloss() {
+        // 噋 只注了指向 啍 的异体说明，和没有注释的 噸 同组、按源文件次序排在 噸 后面；鑒 的注释除了指向 鑑 还有训音，算有训音；注释原样写进第三列。
+        let readings = build("톤:噸:\n톤:噋:啍과 同字\n톤:鑒:鑑과 同字, 거울 감\n").unwrap();
+        assert_eq!(glyphs(&readings), ["톤鑒", "톤噸", "톤噋"]);
+        assert_eq!(readings[2].gloss, "啍과 同字");
+        assert!(has_reading_gloss("집 가"));
+        assert!(has_reading_gloss("鑑과 同字, 거울 감"));
+        assert!(!has_reading_gloss("畫의 俗字"));
+        assert!(!has_reading_gloss(""));
+    }
+
+    #[test]
     fn unified_ideographs_in_the_compatibility_block_are_kept() {
         // U+FA11 (﨑) and U+FA0E (﨎) sit in the compatibility block but are unified ideographs that NFC leaves alone, unlike U+F900 and U+FA0D, which NFC rewrites.
         let readings = build("기:\u{fa11}:\n쌍:\u{fa0e}:\n가:\u{f900}:\n가:\u{fa0d}:\n").unwrap();
@@ -149,8 +189,10 @@ mod tests {
 
     #[test]
     fn a_repeated_hanja_keeps_its_first_position_and_gloss() {
-        let readings = build("가:家:집 가\n가:佳:\n가:家:다른 뜻\n").unwrap();
+        let readings = build("가:佳:\n가:家:집 가\n가:佳:다른 뜻\n").unwrap();
+        // 第二次出现的 佳 带着训音也不算，佳 仍是没有训音的行，排在 家 后面。
         assert_eq!(glyphs(&readings), ["가家", "가佳"]);
+        assert_eq!(readings[1].gloss, "");
         assert_eq!(readings[0].gloss, "집 가");
     }
 

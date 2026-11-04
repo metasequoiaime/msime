@@ -4,6 +4,8 @@
 //!
 //! About a third of the phrases still weigh 0 that way: the whole supplement and the `tsi.csv` rows chewing never counted. McBopomofo's `phrase.occ` (MIT, its own corpus counts, one `phrase count` per line, msime-dictionary keeps it verbatim in `sources/zhuyin/`) fills them in. A phrase of two or more characters that weighs 0 and that no row counts under any reading takes its `phrase.occ` count times `occurrence_scale`, the median ratio between the chewing count and the `phrase.occ` count of the phrases both count, which puts the counts on chewing's scale. A text some row counts is left alone, since its other readings at 0 are ones chewing chose not to count, and single characters too, since `phrase.occ` counts a character across all its readings. The filled weight never takes a key's first place from an entry chewing counts: on a key that has one, it is capped one below the largest counted weight there, because `phrase.occ` counts substrings of running text, which inflates fragments such as 小的 against the words of the same reading (曉得).
 //!
+//! 单字的权重是 chewing 手调的，同一个键上常常并列或只差 1（ㄒㄧㄢˋ 下 獻 限 陷 都是 15437，現 線 縣 都是 15436；ㄓㄨˇ 下 煮 5413、主 5412），并列时按字的码位排，于是 獻 排在 現 前面，凍 排在 動 前面。`break_character_ties` 用 `phrase.occ` 打破这种并列：一个键上从最重的单字起，权重不比它轻 1 以上的单字算一组，组里只有一个读音的字（整个库里只在这一个键上有单字条目）按 `phrase.occ` 的次数重排，多音字留在原来的位置，因为 `phrase.occ` 把一个字所有读音的次数算在一起。重排过的组从组里最重的权重起逐个减 1 重新给权重，不低于组外下一个单字的权重加 1，所以组和组之间的先后、每个键最重的单字权重（九键注音的 `AMBIGUOUS_WORD_FLOOR` 拿它比）都不变。
+//!
 //! The syllable inventory is every syllable some key uses. A syllable must be at most one initial, one medial and one rime in that order, then an optional tone mark, because that is all the Dachen editor can compose; anything else fails the build. The only rows left out are the four tone marks listed as their own text and reading, which have no letters to type.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -32,8 +34,8 @@ pub const FLOORS: Floors = Floors {
     phrases: 120_000,
 };
 
-/// Keys whose first `within` entries must include one of the texts, as a check against gross ranking errors.
-pub const EXPECTED: [Expected; 2] = [
+/// 这些键的前 `within` 条里必须有对应的词，用来发现排序上的大错；后三条守住 `break_character_ties`：chewing 手调的并列和差 1 让 獻、凍、煮 排在这三个键的首位。
+pub const EXPECTED: [Expected; 5] = [
     Expected {
         key: "ㄋㄧˇ ㄏㄠˇ",
         texts: &["你好"],
@@ -43,6 +45,21 @@ pub const EXPECTED: [Expected; 2] = [
         key: "ㄊㄞˊ ㄨㄢ",
         texts: &["臺灣", "台灣"],
         within: 2,
+    },
+    Expected {
+        key: "ㄒㄧㄢˋ",
+        texts: &["現"],
+        within: 1,
+    },
+    Expected {
+        key: "ㄉㄨㄥˋ",
+        texts: &["動"],
+        within: 1,
+    },
+    Expected {
+        key: "ㄓㄨˇ",
+        texts: &["主"],
+        within: 1,
     },
 ];
 
@@ -78,6 +95,8 @@ pub struct Dictionary {
     pub filled: usize,
     pub capped: usize,
     pub occurrence_scale: i64,
+    /// `break_character_ties` 重排了单字次序的键数。
+    pub reordered: usize,
 }
 
 /// Where a symbol sits in a syllable: initial, then medial, then rime.
@@ -236,7 +255,73 @@ pub fn build(rows: &[Row], occurrences: &HashMap<&str, i64>) -> Dictionary {
         dictionary.filled += 1;
         dictionary.capped += usize::from(capped);
     }
+    dictionary.reordered = break_character_ties(&mut dictionary.entries, occurrences);
     dictionary
+}
+
+/// 按 `phrase.occ` 打破单字在同一个键上的并列和差 1，规则见模块文档。返回重排了次序的键数。
+fn break_character_ties(
+    entries: &mut BTreeMap<(String, String), i64>,
+    occurrences: &HashMap<&str, i64>,
+) -> usize {
+    let mut readings: HashMap<&str, usize> = HashMap::new();
+    let mut by_key: BTreeMap<&str, Vec<(&str, i64)>> = BTreeMap::new();
+    for ((key, text), weight) in entries.iter() {
+        if text.chars().nth(1).is_none() {
+            *readings.entry(text.as_str()).or_insert(0) += 1;
+            by_key
+                .entry(key.as_str())
+                .or_default()
+                .push((text.as_str(), *weight));
+        }
+    }
+    let count = |text: &str| occurrences.get(text).copied().unwrap_or(0);
+    let mut updates: Vec<((String, String), i64)> = Vec::new();
+    let mut reordered = 0;
+    for (key, mut characters) in by_key {
+        // 引擎的顺序：权重从大到小，同权重按字排。
+        characters.sort_by(|(left, left_weight), (right, right_weight)| {
+            right_weight.cmp(left_weight).then(left.cmp(right))
+        });
+        let mut changed = false;
+        let mut start = 0;
+        while start < characters.len() {
+            let top = characters[start].1;
+            let end = start
+                + characters[start..]
+                    .iter()
+                    .take_while(|(_, weight)| *weight >= top - 1)
+                    .count();
+            let group = &characters[start..end];
+            let movable: Vec<usize> = (0..group.len())
+                .filter(|&index| readings[group[index].0] == 1 && count(group[index].0) > 0)
+                .collect();
+            let mut sorted = movable.clone();
+            sorted.sort_by_key(|&index| std::cmp::Reverse(count(group[index].0)));
+            if sorted != movable {
+                let mut order: Vec<usize> = (0..group.len()).collect();
+                for (slot, index) in movable.iter().zip(&sorted) {
+                    order[*slot] = *index;
+                }
+                let floor = characters.get(end).map_or(0, |(_, weight)| weight + 1);
+                for (position, index) in order.into_iter().enumerate() {
+                    let position = i64::try_from(position).expect("a key holds few characters");
+                    let (text, _) = group[index];
+                    updates.push((
+                        (key.to_owned(), text.to_owned()),
+                        (top - position).max(floor),
+                    ));
+                }
+                changed = true;
+            }
+            start = end;
+        }
+        reordered += usize::from(changed);
+    }
+    for (entry, weight) in updates {
+        entries.insert(entry, weight);
+    }
+    reordered
 }
 
 /// Writes `dictionary` to `path` in the engine's language dictionary schema, replacing any earlier file, and freezes it so the same inputs give the same bytes.
@@ -403,6 +488,73 @@ mod tests {
         assert_eq!(weight("ㄏㄠˋ", "好"), 0);
         assert_eq!(weight("ㄌㄥˇ ㄆㄧˋ ㄘˊ", "冷僻詞"), 0);
         assert_eq!((dictionary.filled, dictionary.capped), (3, 2));
+    }
+
+    #[test]
+    fn phrase_occ_breaks_ties_between_single_reading_characters() {
+        let mut rows = parse(
+            PHRASES,
+            &format!("{HEADER}獻,15437,ㄒㄧㄢˋ\n限,15437,ㄒㄧㄢˋ\n現,15436,ㄒㄧㄢˋ\n線,15436,ㄒㄧㄢˋ\n憲,15000,ㄒㄧㄢˋ\n型,34993,ㄒㄧㄥˊ\n行,34993,ㄒㄧㄥˊ\n刑,34992,ㄒㄧㄥˊ\n形,34992,ㄒㄧㄥˊ\n主,5413,ㄓㄨˇ\n煮,5412,ㄓㄨˇ\n拄,5412,ㄓㄨˇ\n"),
+        )
+        .unwrap();
+        rows.extend(parse(CHARACTERS, &format!("{HEADER}行,0,ㄏㄤˊ\n")).unwrap());
+        let occurrences = parse_occurrences(
+            "現 40718\n限 6209\n線 8770\n獻 2141\n憲 3000\n型 8593\n形 10460\n刑 1631\n行 43589\n主 35453\n煮 607\n",
+        )
+        .unwrap();
+        let dictionary = build(&rows, &occurrences);
+        let order = |key: &str| {
+            let mut found: Vec<(&str, i64)> = dictionary
+                .entries
+                .iter()
+                .filter(|((entry_key, _), _)| entry_key == key)
+                .map(|((_, text), weight)| (text.as_str(), *weight))
+                .collect();
+            found.sort_by(|left, right| right.1.cmp(&left.1).then(left.0.cmp(right.0)));
+            found
+        };
+        // 四个字都只有一个读音，按 phrase.occ 重排后从 15437 起逐个减 1；憲 比组里最重的轻 1 以上，不在组里，也不被挤到。
+        assert_eq!(
+            order("ㄒㄧㄢˋ"),
+            [
+                ("現", 15437),
+                ("線", 15436),
+                ("限", 15435),
+                ("獻", 15434),
+                ("憲", 15000)
+            ]
+        );
+        // 行 还读 ㄏㄤˊ，留在原来的第二位；型 刑 形 在剩下的位置上按 phrase.occ 排。
+        assert_eq!(
+            order("ㄒㄧㄥˊ"),
+            [("形", 34993), ("行", 34992), ("型", 34991), ("刑", 34990)]
+        );
+        // 主 已经在 煮 前面；拄 没有 phrase.occ 的次数，不参与重排，这一组不动。
+        assert_eq!(order("ㄓㄨˇ"), [("主", 5413), ("拄", 5412), ("煮", 5412)]);
+        assert_eq!(dictionary.reordered, 2);
+    }
+
+    #[test]
+    fn a_reordered_group_stays_above_the_next_character() {
+        let rows = parse(
+            PHRASES,
+            &format!("{HEADER}甲,101,ㄐㄧㄚˇ\n乙,101,ㄐㄧㄚˇ\n丙,100,ㄐㄧㄚˇ\n丁,100,ㄐㄧㄚˇ\n戊,99,ㄐㄧㄚˇ\n"),
+        )
+        .unwrap();
+        // 甲 乙 丙 丁 一组，戊 99 不在组里但贴着组底：逐个减 1 到 100 就停，后两个并列。
+        let occurrences = parse_occurrences("丁 40\n丙 30\n乙 20\n甲 10\n戊 99999\n").unwrap();
+        let dictionary = build(&rows, &occurrences);
+        let weight = |text: &str| dictionary.entries[&("ㄐㄧㄚˇ".to_owned(), text.to_owned())];
+        assert_eq!(
+            [
+                weight("丁"),
+                weight("丙"),
+                weight("乙"),
+                weight("甲"),
+                weight("戊")
+            ],
+            [101, 100, 100, 100, 99]
+        );
     }
 
     #[test]
@@ -605,13 +757,15 @@ mod tests {
     #[test]
     fn verify_enforces_the_floors_and_the_expected_entries() {
         let (_dir, path) = written(&sample());
+        // 合成的样例只有前两条要检查的词，后三条单字检查对着真实的库。
+        let sample_expected = &EXPECTED[..2];
         let floors = Floors {
             syllables: 12,
             characters: 8,
             phrases: 5,
         };
         assert_eq!(
-            verify(&path, floors, &EXPECTED).unwrap(),
+            verify(&path, floors, sample_expected).unwrap(),
             Counts {
                 syllables: 12,
                 characters: 8,
@@ -641,10 +795,14 @@ mod tests {
                 "5 phrase entries, below the floor of 6",
             ),
         ] {
-            let error = verify(&path, below, &EXPECTED).unwrap_err().to_string();
+            let error = verify(&path, below, sample_expected)
+                .unwrap_err()
+                .to_string();
             assert!(error.contains(what), "{error}");
         }
-        let error = verify(&path, FLOORS, &EXPECTED).unwrap_err().to_string();
+        let error = verify(&path, FLOORS, sample_expected)
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("below the floor"), "{error}");
 
         // 妳好 outranking 你好 fails the first-place check.
@@ -660,9 +818,11 @@ mod tests {
             characters: 0,
             phrases: 0,
         };
-        let error = verify(&path, none, &EXPECTED).unwrap_err().to_string();
+        let error = verify(&path, none, sample_expected)
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("[\"妳好\"] first, without 你好"), "{error}");
         // Either spelling of Taiwan within the first two passes.
-        assert!(verify(&path, none, &EXPECTED[1..]).is_ok());
+        assert!(verify(&path, none, &EXPECTED[1..2]).is_ok());
     }
 }

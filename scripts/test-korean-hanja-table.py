@@ -55,6 +55,16 @@ def kept_hanja(character: str) -> bool:
     return 0x4E00 <= point <= 0x9FFF or 0x3400 <= point <= 0x4DBF or point in UNIFIED_IN_COMPATIBILITY_BLOCK
 
 
+def ideograph(character: str) -> bool:
+    point = ord(character)
+    return 0x3400 <= point <= 0x4DBF or 0x4E00 <= point <= 0x9FFF or 0xF900 <= point <= 0xFAFF or 0x20000 <= point <= 0x3FFFF
+
+
+def has_reading_gloss(gloss: str) -> bool:
+    """crates/dict-builder/src/hanja.rs `has_reading_gloss`, restated: some comma-separated part holds no Hanja, so the comment is not only a pointer to another character (歌와 同字)."""
+    return any(part.strip() and not any(ideograph(character) for character in part.strip()) for part in gloss.split(","))
+
+
 def generate(source: str) -> str:
     """crates/dict-builder/src/hanja.rs `build` then `tsv`, restated."""
     groups: dict[str, list[tuple[str, str]]] = {}
@@ -69,7 +79,8 @@ def generate(source: str) -> str:
             continue
         seen.add((key, value))
         groups.setdefault(key, []).append((value, comment.strip()))
-    return "".join(f"{key}\t{value}\t{gloss}\n" for key in sorted(groups) for value, gloss in groups[key])
+    # 每个音节先列有训音的字，组内保留源文件次序（sorted 是稳定排序）。
+    return "".join(f"{key}\t{value}\t{gloss}\n" for key in sorted(groups) for value, gloss in sorted(groups[key], key=lambda row: not has_reading_gloss(row[1])))
 
 
 def main() -> int:
@@ -97,10 +108,21 @@ def main() -> int:
             check(key not in order, f"line {number}: the readings of {key} are not contiguous")
             order.append(key)
     check(order == sorted(order), "syllables are not in code point order")
+    glossless_seen = set()
+    for number, line in enumerate(table.splitlines(), 1):
+        key, _, gloss = (line.split("\t") + ["", "", ""])[:3]
+        if not has_reading_gloss(gloss):
+            glossless_seen.add(key)
+        else:
+            check(key not in glossless_seen, f"line {number}: {key} lists a reading with a gloss after one without")
     rows = table.splitlines()
     check(rows[:2] == ["가\t可\t옳을 가", "가\t家\t집 가"], "the table no longer starts with the source's first readings of 가")
     han = [row for row in rows if row.startswith("한\t")]
     check(han[:2] == ["한\t韓\t나라 이름 한, 한나라 한", "한\t漢\t한수 한"], "한 no longer starts with 韓 and 漢 in source order")
+    paeng = [row for row in rows if row.startswith("팽\t")]
+    check(paeng[:1] == ["팽\t彭\t성씨 팽, 땅이름 팽, 방패 팽, 총소리 팽, 북소리 팽"], "팽 no longer starts with 彭: the readings without a gloss (庄) must follow the glossed ones")
+    ton = [row for row in rows if row.startswith("톤\t")]
+    check(ton[:1] == ["톤\t噸\t"], "톤 no longer starts with 噸: a comment that only points to another Hanja (噋 啍과 同字) is not a gloss")
 
     lock = json.loads(LOCK.read_text(encoding="utf-8"))
     check(lock["references"].get("libhangul", {}).get("commit") == COMMIT, f"the sources lock's libhangul reference is not {COMMIT}; update COMMIT, SOURCE_SIZE and SOURCE_SHA256 together with the table")

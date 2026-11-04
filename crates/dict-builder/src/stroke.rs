@@ -2,7 +2,9 @@
 //!
 //! `stroke.dict.yaml` 是 Rime 码表：YAML 头以 `...` 一行结束，之后每行 `字<TAB>笔顺码`，`#` 行是注释。码只用 h 横、s 竖、p 撇、n 点（捺）、z 折五个字母，与方案的按键一一对应，所以原样作为 `entries.key`，不加空格。一个字常有几个笔顺码（大陆规范与台湾 CNS11643 的笔顺并列收录，如「小」zpn 与 spn），每个码各成一条。上游没有权重列，Rime 用自己的八股文字频排序；这里改用 `single-chars.txt`：一个字在其中所有读音的权重之和就是它每个笔顺码的权重，表里没有的字权重为 0。
 //!
-//! 只收基本区（U+4E00–9FFF）和扩展 A 区（U+3400–4DBF）的汉字，其余区段只收在字频表里出现过的字。上游还收了扩展 B 区及以后的七万多个字、西夏文部件、部首与笔画符号，几乎都没有字频；macOS 自带字体不覆盖扩展 B 区及以后，它们在候选窗里是方块，而笔数恰好打满时它们作为精确匹配排在常用字的补全前面。
+//! 繁体字另从对应的简体字继承权重（`traditional_weights`）。`single-chars.txt` 是简体拼音的字频，繁体字只有万象对齐给的底分或零星的几千分（們 9、時 1592，而 时 849307），笔画方案又不做简繁转换、繁体用户直接打繁体字的笔顺，于是常用繁体字在前缀补全里排到 `COMPLETION_LIMIT` 之外，只有打满全部笔画才出得来（時 在 szhh 下排第 595）。繁简对照取 msime-dictionary 原样收录的 OpenCC `STCharacters.txt`（每个简体字取第一个繁体字形，即 OpenCC 默认的转换结果），再经 `TWVariants.txt`、`HKVariants.txt` 补上台湾、香港的写法（爲 之外的 為、裏 之外的 裡）；这些字形的权重取自身权重与简体字频除以 `TRADITIONAL_DIVISOR` 中较大的一个。OpenCC 的表只决定哪个字继承哪个字的权重，库里不写入它的任何内容，所以 `LICENSE` 不加 OpenCC 的 Apache-2.0，与粤拼库用同两张异体表挑字形的做法相同。
+//!
+//! 基本区（U+4E00–9FFF）和扩展 A 区（U+3400–4DBF）的汉字都收，其余区段（扩展 B 区及以后、兼容汉字、部首、笔画符号、西夏文部件）只收权重达到 `EXTENSION_MIN_WEIGHT` 的字。上游收了扩展 B 区及以后的七万多个字，macOS 自带字体不覆盖扩展 B 区及以后，它们在候选窗里是方块，而笔数恰好打满时它们作为精确匹配排在常用字的补全前面。引擎把权重不大于 0 的字排到最后，这条判断不改：基本区有 4192 个字（們、與、裏）也只有底分 9，统一抬高门槛会把它们一起压下去，所以门槛只在构建时对基本区和扩展 A 区以外的字生效。
 //!
 //! `syllables` 表固定是五个笔画字母，引擎只拿它确认词典非空。上游有三个笔顺码超过引擎的 64 笔上限（最长 84 笔），它们照常写入，只能经前缀补全找到。
 //!
@@ -12,6 +14,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
+use msime_engine::stroke::scheme::COMPLETION_LIMIT;
 
 use crate::sources::{sha256_file, Sources};
 use crate::text;
@@ -19,6 +22,12 @@ use crate::text;
 pub const SOURCE: &str = "sources/stroke/stroke.dict.yaml";
 /// 字频来源，quanpin 阶段也读同一份文件（来自 `--dictionary` checkout，没有记录固定它的摘要）。
 pub const FREQUENCIES: &str = "sources/pinyin/single-chars.txt";
+/// OpenCC 的简转繁字表（msime-dictionary 原样收录、`upstream.lock.json` 固定），只用来决定繁体字继承哪个简体字的权重；台湾、香港的写法再按 `cantonese::TW_VARIANTS`、`cantonese::HK_VARIANTS` 补上。
+pub const SIMPLIFIED_TO_TRADITIONAL: &str = "sources/opencc/STCharacters.txt";
+/// 基本区和扩展 A 区以外的字收进库所需的最低权重。`single-chars.txt` 里这些字绝大多数只有万象对齐给的底分：每个读音 9 分，几个读音相加最多 38；真正有字频的（𰻝 3580、𬭤 2251 这类《通用规范汉字表》的字）最少也有 301，100 落在两者之间的空档里。
+pub const EXTENSION_MIN_WEIGHT: i64 = 100;
+/// 繁体字继承的权重是简体字频的几分之一。除数越小，繁体用户打得越少，简体用户的补全里挤进的繁体字也越多；按 `single-chars.txt` 字频最高的 4000 个简体字（以及它们经 OpenCC 换成的台湾、香港字形）模拟引擎的排序、每页 9 个候选，除数取 1 时简体用户平均每字要多打 0.08 笔，取 4 时只多 0.015 笔，而台湾用户每字少打 0.42 笔，是除数取 1 时能省下的 0.52 笔的八成；取 16 时又只省得下 0.36 笔。
+pub const TRADITIONAL_DIVISOR: i64 = 4;
 /// 锁文件里的上游引用名，它的提交就是 `source_commit`。
 pub const REFERENCE: &str = "rime-stroke";
 pub const REPOSITORY: &str = "https://github.com/rime/rime-stroke";
@@ -42,6 +51,36 @@ pub const FLOORS: Floors = Floors {
     characters: 27_000,
     weighted: 7_000,
 };
+
+/// 发布构建时 `verify` 要求的上限，防的是扩展 B 区以后的生僻字又被放进来：`dict-v2.0.55` 的 `single-chars.txt` 给扩展 B 区以后 14736 个字都记了底分 9，`kept` 只看权重是否大于 0 时库里有 72800 条、42321 个字，按 `EXTENSION_MIN_WEIGHT` 过滤后是 47314 条、27765 个字。
+pub const CEILINGS: Ceilings = Ceilings {
+    entries: 50_000,
+    characters: 29_500,
+};
+
+/// 这些前缀的前 `within` 个补全里必须有对应的繁体字，`within` 不超过引擎读的 `COMPLETION_LIMIT`，守住繁体字从简体字继承的权重：不继承时 時 在 szhh 下排第 595、國 在 szhs 下排第 190，都在引擎读的范围之外。
+pub const EXPECTED_COMPLETIONS: [Expected; 4] = [
+    Expected {
+        key: "szhh",
+        texts: &["時"],
+        within: COMPLETION_LIMIT,
+    },
+    Expected {
+        key: "szhs",
+        texts: &["國"],
+        within: COMPLETION_LIMIT,
+    },
+    Expected {
+        key: "pssz",
+        texts: &["們"],
+        within: 10,
+    },
+    Expected {
+        key: "nhsz",
+        texts: &["裏"],
+        within: 10,
+    },
+];
 
 /// 这些码的前 `within` 条里必须有对应的字，用来发现排序上的大错。
 pub const EXPECTED: [Expected; 8] = [
@@ -102,6 +141,12 @@ pub struct Floors {
     pub weighted: usize,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct Ceilings {
+    pub entries: usize,
+    pub characters: usize,
+}
+
 /// `stroke.dict.yaml` 的一行。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Row<'a> {
@@ -114,6 +159,8 @@ pub struct Row<'a> {
 pub struct Dictionary {
     /// `(key, text)` 到权重。
     pub entries: BTreeMap<(String, String), i64>,
+    /// 权重因为从简体字继承而变大的字数。
+    pub inherited: usize,
 }
 
 /// 构建读取的 `stroke.dict.yaml`：有 `--dictionary` checkout 时按 `Sources::pinned` 读（按 checkout 的 `upstream.lock.json` 校验），文件缺失或不符都报错。`languages` 必须传 `--dictionary`，所以命令行构建总是走这一支；后面的缓存兜底（只接受 `--cache` 下大小与 SHA-256 等于 `SOURCE_SIZE`、`SOURCE_SHA256` 的文件，都没有时返回 `None`）只有不带 checkout 的 `Sources` 才会走到，目前只有单元测试这样构造。
@@ -213,27 +260,85 @@ pub fn parse_frequencies(source: &str) -> Result<HashMap<&str, i64>> {
     Ok(weights)
 }
 
-/// 每个 `(笔顺码, 字)` 一条，权重是该字的字频之和；同一行重复出现只留一条。`kept` 不收的字跳过。
-pub fn build(rows: &[Row], frequencies: &HashMap<&str, i64>) -> Dictionary {
+/// 繁体字形从简体字继承的权重：`simplified_to_traditional`（`STCharacters.txt`）每行的简体字取第一个繁体字形，再加上这个字形在 `tw_variants`、`hk_variants` 里的第一个异体，每个与简体字不同的字形都记简体字频的 `TRADITIONAL_DIVISOR` 分之一；几个简体字落到同一个字形时取最大的。简体字本身不在结果里，字频为 0 的简体字不带出任何字形。
+pub fn traditional_weights(
+    frequencies: &HashMap<&str, i64>,
+    simplified_to_traditional: &[(char, Vec<char>)],
+    tw_variants: &[(char, Vec<char>)],
+    hk_variants: &[(char, Vec<char>)],
+) -> HashMap<char, i64> {
+    let first = |pairs: &[(char, Vec<char>)]| -> HashMap<char, char> {
+        pairs
+            .iter()
+            .filter_map(|(key, values)| Some((*key, *values.first()?)))
+            .collect()
+    };
+    let (tw, hk) = (first(tw_variants), first(hk_variants));
+    let mut inherited: HashMap<char, i64> = HashMap::new();
+    for (simplified, traditional) in simplified_to_traditional {
+        let Some(&traditional) = traditional.first() else {
+            continue;
+        };
+        let mut buffer = [0; 4];
+        let weight = frequencies
+            .get(&*simplified.encode_utf8(&mut buffer))
+            .copied()
+            .unwrap_or(0)
+            / TRADITIONAL_DIVISOR;
+        if traditional == *simplified || weight <= 0 {
+            continue;
+        }
+        let forms = [
+            traditional,
+            tw.get(&traditional).copied().unwrap_or(traditional),
+            hk.get(&traditional).copied().unwrap_or(traditional),
+        ];
+        for form in forms {
+            if form != *simplified {
+                let slot = inherited.entry(form).or_insert(0);
+                *slot = (*slot).max(weight);
+            }
+        }
+    }
+    inherited
+}
+
+/// 每个 `(笔顺码, 字)` 一条，权重是该字的字频之和与 `inherited`（`traditional_weights`）给它的权重中较大的一个；同一行重复出现只留一条。`kept` 不收的字跳过。
+pub fn build(
+    rows: &[Row],
+    frequencies: &HashMap<&str, i64>,
+    inherited: &HashMap<char, i64>,
+) -> Dictionary {
     let mut dictionary = Dictionary::default();
+    let mut raised = BTreeSet::new();
     for row in rows {
-        let weight = frequencies.get(row.text).copied().unwrap_or(0);
+        let own = frequencies.get(row.text).copied().unwrap_or(0);
+        let weight = row
+            .text
+            .chars()
+            .next()
+            .and_then(|character| inherited.get(&character))
+            .map_or(own, |inherited| own.max(*inherited));
         if !kept(row.text, weight) {
             continue;
+        }
+        if weight > own {
+            raised.insert(row.text);
         }
         dictionary
             .entries
             .insert((row.code.to_owned(), row.text.to_owned()), weight);
     }
+    dictionary.inherited = raised.len();
     dictionary
 }
 
-/// 基本区和扩展 A 区的汉字都收；其他字符（扩展 B 区及以后、兼容汉字、部首、笔画符号、西夏文部件）只在有字频时收。
+/// 基本区和扩展 A 区的汉字都收；其他字符（扩展 B 区及以后、兼容汉字、部首、笔画符号、西夏文部件）只在权重达到 `EXTENSION_MIN_WEIGHT` 时收。
 fn kept(text: &str, weight: i64) -> bool {
     let common = text.chars().next().is_some_and(
         |character| matches!(character, '\u{4E00}'..='\u{9FFF}' | '\u{3400}'..='\u{4DBF}'),
     );
-    common || weight > 0
+    common || weight >= EXTENSION_MIN_WEIGHT
 }
 
 /// 按引擎的语言词典结构把 `dictionary` 写到 `path`（先删掉旧文件），最后 freeze，同样的输入得到同样的字节。
@@ -258,8 +363,14 @@ pub struct Counts {
     pub weighted: usize,
 }
 
-/// 像引擎那样打开写好的数据库；`syllables` 不是五个笔画、数量低于 `floors`，或 `expected` 的码前几条里没有对应的字时失败。
-pub fn verify(path: &Path, floors: Floors, expected: &[Expected]) -> Result<Counts> {
+/// 像引擎那样打开写好的数据库；`syllables` 不是五个笔画、数量低于 `floors` 或高于 `ceilings`、`expected` 的码前几条里没有对应的字，或 `completions` 的前缀前几个补全里没有对应的字时失败。
+pub fn verify(
+    path: &Path,
+    floors: Floors,
+    ceilings: Ceilings,
+    expected: &[Expected],
+    completions: &[Expected],
+) -> Result<Counts> {
     let (dictionary, connection) = crate::language_verify::open(path)?;
     let count = |sql| crate::language_verify::count(&connection, sql);
     let counts = Counts {
@@ -293,6 +404,34 @@ pub fn verify(path: &Path, floors: Floors, expected: &[Expected]) -> Result<Coun
             ("weighted characters", counts.weighted, floors.weighted),
         ],
     )?;
+    for (what, found, ceiling) in [
+        ("entries", counts.entries, ceilings.entries),
+        ("characters", counts.characters, ceilings.characters),
+    ] {
+        if found > ceiling {
+            bail!(
+                "{}: {found} {what}, above the ceiling of {ceiling}",
+                path.display()
+            );
+        }
+    }
+    for check in completions {
+        let top = dictionary
+            .lookup_completions(check.key, check.within)
+            .map_err(|error| anyhow::anyhow!("{}: {error}", path.display()))?;
+        if !top
+            .iter()
+            .any(|(_, entry)| check.texts.contains(&entry.text.as_str()))
+        {
+            bail!(
+                "{}: the first {} completions of {:?} lack {}",
+                path.display(),
+                check.within,
+                check.key,
+                check.texts.join(" or ")
+            );
+        }
+    }
     for check in expected {
         let top = dictionary
             .lookup(check.key, check.within)
@@ -335,6 +474,7 @@ mod tests {
         build(
             &parse(&source).unwrap(),
             &parse_frequencies(FREQUENCIES_SOURCE).unwrap(),
+            &HashMap::new(),
         )
     }
 
@@ -381,7 +521,7 @@ mod tests {
         // 基本区与扩展 A 区：没有字频也收。
         assert!(kept("口", 0));
         assert!(kept("\u{3AD1}", 0));
-        // 扩展 B 区及以后、西夏文部件、部首、笔画符号、兼容汉字：没有字频就不收。
+        // 扩展 B 区及以后、西夏文部件、部首、笔画符号、兼容汉字：没有字频，或者只有万象对齐给的底分（每个读音 9 分），都不收。
         for text in [
             "\u{20BB9}",
             "\u{31480}",
@@ -390,10 +530,13 @@ mod tests {
             "\u{31C0}",
             "\u{F900}",
         ] {
-            assert!(!kept(text, 0), "{text}");
+            for weight in [0, 9, 18, 38, EXTENSION_MIN_WEIGHT - 1] {
+                assert!(!kept(text, weight), "{text} {weight}");
+            }
         }
-        // 有字频的字照收，不论区段。
-        assert!(kept("\u{20BB9}", 1));
+        // 达到门槛的字照收，不论区段；基本区的底分字（們 9）照收。
+        assert!(kept("\u{20BB9}", EXTENSION_MIN_WEIGHT));
+        assert!(kept("們", 9));
         let rows = [
             Row {
                 text: "口",
@@ -408,7 +551,7 @@ mod tests {
                 code: "szhhzp",
             },
         ];
-        let dictionary = build(&rows, &HashMap::new());
+        let dictionary = build(&rows, &HashMap::new(), &HashMap::new());
         let texts: Vec<&str> = dictionary
             .entries
             .keys()
@@ -433,6 +576,89 @@ mod tests {
                 ("zpn", "戊", 100),
             ]
         );
+    }
+
+    /// 合成的繁简对照：么 的第一个繁体字形是它自己，不继承；为 → 爲，台湾写 為；里 → 裏，台湾写 裡、香港仍写 裏；发 的两个繁体字形只有第一个 發 继承；云 的字频为 0，什么也不带出；后 和（合成的）夂 都落到 後 上，取较大的。
+    fn traditional_sample() -> HashMap<char, i64> {
+        let frequencies = parse_frequencies(
+            "么\tme\t4000\r\n为\twei\t9000\r\n里\tli\t801\r\n发\tfa\t40\r\n云\tyun\t0\r\n后\thou\t400\r\n夂\tzhi\t40\r\n",
+        )
+        .unwrap();
+        let pairs = |name, source| crate::cantonese::parse_variants(name, source).unwrap();
+        traditional_weights(
+            &frequencies,
+            &pairs(
+                SIMPLIFIED_TO_TRADITIONAL,
+                "么\t么 麼\n为\t爲\n里\t裏 里\n发\t發 髮\n云\t雲\n后\t後 后\n夂\t後\n",
+            ),
+            &pairs(crate::cantonese::TW_VARIANTS, "爲\t為\n裏\t裡\n"),
+            &pairs(crate::cantonese::HK_VARIANTS, "爲\t為\n"),
+        )
+    }
+
+    #[test]
+    fn traditional_forms_inherit_a_share_of_their_simplified_weight() {
+        let inherited = traditional_sample();
+        let mut found: Vec<(char, i64)> = inherited.into_iter().collect();
+        found.sort_unstable();
+        // 9000 / 4 = 2250，801 / 4 = 200（整除），40 / 4 = 10，400 / 4 = 100。
+        let mut expected = vec![
+            ('爲', 2250),
+            ('為', 2250),
+            ('裏', 200),
+            ('裡', 200),
+            ('發', 10),
+            ('後', 100),
+        ];
+        expected.sort_unstable();
+        assert_eq!(found, expected);
+    }
+
+    #[test]
+    fn build_keeps_the_larger_of_the_own_and_the_inherited_weight() {
+        let inherited = traditional_sample();
+        let rows = [
+            Row {
+                text: "爲",
+                code: "pnnppzzznnnn",
+            },
+            Row {
+                text: "為",
+                code: "npzzznnnn",
+            },
+            Row {
+                text: "後",
+                code: "ppszznzpn",
+            },
+            Row {
+                text: "为",
+                code: "nnzn",
+            },
+        ];
+        // 後 自身有 200 分，比继承的 100 大，留自身的；為 自身 47 分，继承 2250。
+        let frequencies =
+            parse_frequencies("後\thou\t200\r\n為\twei\t47\r\n为\twei\t9000\r\n").unwrap();
+        let dictionary = build(&rows, &frequencies, &inherited);
+        assert_eq!(
+            entries(&dictionary),
+            [
+                ("nnzn", "为", 9000),
+                ("npzzznnnn", "為", 2250),
+                ("pnnppzzznnnn", "爲", 2250),
+                ("ppszznzpn", "後", 200),
+            ]
+        );
+        assert_eq!(dictionary.inherited, 2);
+        // 扩展 B 区以后的字继承到门槛以上的权重也照收：门槛看的是最终权重。
+        let rare = [Row {
+            text: "\u{2B7A9}",
+            code: "zh",
+        }];
+        let inherited = HashMap::from([('\u{2B7A9}', EXTENSION_MIN_WEIGHT)]);
+        assert_eq!(build(&rare, &HashMap::new(), &inherited).entries.len(), 1);
+        assert!(build(&rare, &HashMap::new(), &HashMap::new())
+            .entries
+            .is_empty());
     }
 
     #[test]
@@ -624,6 +850,16 @@ mod tests {
             characters: 7,
             weighted: 5,
         };
+        let ceilings = Ceilings {
+            entries: 8,
+            characters: 7,
+        };
+        // h 的补全按权重是 乙 70、甲 50、丙 9、丁 0。
+        let completions = [Expected {
+            key: "h",
+            texts: &["丙"],
+            within: 3,
+        }];
         let expected = [
             Expected {
                 key: "h",
@@ -637,7 +873,7 @@ mod tests {
             },
         ];
         assert_eq!(
-            verify(&path, floors, &expected).unwrap(),
+            verify(&path, floors, ceilings, &expected, &completions).unwrap(),
             Counts {
                 syllables: 5,
                 entries: 8,
@@ -668,11 +904,48 @@ mod tests {
                 "5 weighted characters, below the floor of 6",
             ),
         ] {
-            let error = verify(&path, below, &expected).unwrap_err().to_string();
+            let error = verify(&path, below, ceilings, &expected, &completions)
+                .unwrap_err()
+                .to_string();
             assert!(error.contains(what), "{error}");
         }
-        let error = verify(&path, FLOORS, &expected).unwrap_err().to_string();
+        let error = verify(&path, FLOORS, ceilings, &expected, &completions)
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("below the floor"), "{error}");
+        for (above, what) in [
+            (
+                Ceilings {
+                    entries: 7,
+                    ..ceilings
+                },
+                "8 entries, above the ceiling of 7",
+            ),
+            (
+                Ceilings {
+                    characters: 6,
+                    ..ceilings
+                },
+                "7 characters, above the ceiling of 6",
+            ),
+        ] {
+            let error = verify(&path, floors, above, &expected, &completions)
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains(what), "{error}");
+        }
+        // 丙 是 h 的第 3 个补全，只看前 2 个时补全检查失败。
+        let narrow = [Expected {
+            within: 2,
+            ..completions[0]
+        }];
+        let error = verify(&path, floors, ceilings, &expected, &narrow)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("the first 2 completions of \"h\" lack 丙"),
+            "{error}"
+        );
 
         // 甲 不是 h 的首选，首位检查失败。
         let check = [Expected {
@@ -680,7 +953,9 @@ mod tests {
             texts: &["甲"],
             within: 1,
         }];
-        let error = verify(&path, floors, &check).unwrap_err().to_string();
+        let error = verify(&path, floors, ceilings, &check, &completions)
+            .unwrap_err()
+            .to_string();
         assert!(
             error.contains("\"h\" offers [\"乙\"] first, without 甲"),
             "{error}"
