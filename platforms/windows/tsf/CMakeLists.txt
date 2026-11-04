@@ -69,6 +69,15 @@ foreach(path_standard IN ITEMS 17 20)
   endif()
   add_test(NAME msime-tsf-host-path-${path_standard} COMMAND msime-tsf-host-path-${path_standard}-test)
 endforeach()
+add_executable(msime-tsf-host-delay-path-test tests/runtime/host_delay_path.cpp)
+target_compile_features(msime-tsf-host-delay-path-test PRIVATE cxx_std_17)
+target_include_directories(msime-tsf-host-delay-path-test PRIVATE .)
+if(MSVC)
+  target_compile_options(msime-tsf-host-delay-path-test PRIVATE /UNDEBUG /W4 /WX /utf-8)
+else()
+  target_compile_options(msime-tsf-host-delay-path-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+endif()
+add_test(NAME msime-tsf-host-delay-path COMMAND msime-tsf-host-delay-path-test)
 add_test(NAME msime-tsf-host-library-config COMMAND "${CMAKE_COMMAND}"
   "-DSOURCE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}"
   "-DTEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/host-library-config-test"
@@ -325,6 +334,14 @@ endif()
 add_test(NAME msime-tsf-candidate-overlay-policy COMMAND msime-tsf-candidate-overlay-policy-test)
 set(MSIME_HOST_LIBRARY "" CACHE FILEPATH "Cargo-built host library or import library matching the TSF architecture")
 include("${CMAKE_CURRENT_SOURCE_DIR}/RequireHostLibrary.cmake")
+get_filename_component(msime_tsf_host_library_name "${MSIME_HOST_LIBRARY}" NAME)
+if(msime_tsf_host_library_name MATCHES "^lib(.+\\.dll)\\.a$")
+  set(MSIME_TSF_HOST_DLL_NAME "${CMAKE_MATCH_1}")
+elseif(msime_tsf_host_library_name MATCHES "^(.+\\.dll)\\.lib$")
+  set(MSIME_TSF_HOST_DLL_NAME "${CMAKE_MATCH_1}")
+else()
+  message(FATAL_ERROR "Cannot derive the TSF host DLL name from MSIME_HOST_LIBRARY=${MSIME_HOST_LIBRARY}")
+endif()
 enable_language(RC)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/TelemetryWer.cmake")
@@ -360,6 +377,7 @@ add_library(msime-tsf SHARED
   TsfCrashCapture.h TsfCrashCapture.cpp
   IME/MetasequoiaIME.rc
   IME/MetasequoiaIME.def
+  TsfHostDelayLoad.cpp
 )
 add_dependencies(msime-tsf msime-tsf-crash-wer)
 add_dependencies(msime-tsf-class-factory-test msime-tsf)
@@ -385,6 +403,12 @@ if(MINGW)
 endif()
 target_link_libraries(msime-tsf PRIVATE "${MSIME_HOST_LIBRARY}")
 set_target_properties(msime-tsf PROPERTIES OUTPUT_NAME MetasequoiaImeTsf)
+target_compile_definitions(msime-tsf PRIVATE
+  MSIME_TSF_HOST_DLL_NAME=L\"${MSIME_TSF_HOST_DLL_NAME}\")
+if(MSVC)
+  target_link_options(msime-tsf PRIVATE "/DELAYLOAD:${MSIME_TSF_HOST_DLL_NAME}")
+  target_link_libraries(msime-tsf PRIVATE delayimp)
+endif()
 install(TARGETS msime-tsf
   RUNTIME DESTINATION bin
   LIBRARY DESTINATION lib
