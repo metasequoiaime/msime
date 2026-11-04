@@ -87,7 +87,7 @@ struct VocabularyReviewSettingsView: View {
               .frame(maxWidth: .infinity)
               .accessibilityIdentifier("vocabularyUnknownButton")
             Button("认识") { answer(known: true) }
-              .buttonStyle(.borderedProminent)
+              .buttonStyle(.borderedProminent).foregroundStyle(MetasequoiaTheme.onAccent)
               .frame(maxWidth: .infinity)
               .accessibilityIdentifier("vocabularyKnownButton")
           }

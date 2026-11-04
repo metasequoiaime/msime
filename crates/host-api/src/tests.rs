@@ -6061,9 +6061,9 @@ fn app_theme_catalog_and_resolution_have_the_documented_shape() {
     assert_eq!(
         autumn["value"],
         json!({
-            "id": "siji", "season": "autumn", "accent": "#F0975F", "accent_soft": "#F0975F40",
-            "on_accent": "#3C2618", "background": "#21150F", "card": "#2E1E15", "hair": "#2A2F2A",
-            "candidate_accent": "#F0975F"
+            "id": "siji", "season": "autumn", "accent": "#F3C14F", "accent_soft": "#F3C14F40",
+            "on_accent": "#3D3014", "background": "#1C1910", "card": "#28241A", "hair": "#2A2F2A",
+            "candidate_accent": "#F3C14F"
         })
     );
     let fixed = call(json!({"app_theme": "chunya", "month": 10, "dark": false}));
