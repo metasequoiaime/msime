@@ -28,6 +28,8 @@ NOTICE_CHANNELS = {
     "platforms/harmony/stage-resources.sh": "HarmonyOS: the licences staged into the HAP",
 }
 SOURCE = "sources/korean/hanja.txt"
+# OpenCC 简转繁字表，msime-dict-build hanja 从同一个 checkout 读，决定哪些字只作简体字形。
+SIMPLIFIED_TO_TRADITIONAL = "sources/opencc/STCharacters.txt"
 COMMIT = "717409ce61524bb3d8426060a384822f21354c62"
 # `COMMIT` 处 libhangul `data/hanja/hanja.txt` 原样文件的大小与 SHA-256，msime-dictionary 的 `sources/korean/hanja.txt` 必须是这份文件。
 SOURCE_SIZE = 6452537
@@ -65,7 +67,20 @@ def has_reading_gloss(gloss: str) -> bool:
     return any(part.strip() and not any(ideograph(character) for character in part.strip()) for part in gloss.split(","))
 
 
-def generate(source: str) -> str:
+def simplified_only_forms(simplified_to_traditional: str) -> set[str]:
+    """crates/dict-builder/src/hanja.rs `simplified_only_forms`, restated over OpenCC's STCharacters.txt: characters none of whose traditional forms is the character itself (双 → 雙)."""
+    forms = set()
+    for line in simplified_to_traditional.split("\n"):
+        line = line.removesuffix("\r")
+        if not line or line.startswith("#"):
+            continue
+        simplified, traditional = line.split("\t", 1)
+        if simplified not in traditional.split(" "):
+            forms.add(simplified)
+    return forms
+
+
+def generate(source: str, simplified_only: set[str]) -> str:
     """crates/dict-builder/src/hanja.rs `build` then `tsv`, restated."""
     groups: dict[str, list[tuple[str, str]]] = {}
     seen = set()
@@ -79,8 +94,13 @@ def generate(source: str) -> str:
             continue
         seen.add((key, value))
         groups.setdefault(key, []).append((value, comment.strip()))
-    # 每个音节先列有训音的字，组内保留源文件次序（sorted 是稳定排序）。
-    return "".join(f"{key}\t{value}\t{gloss}\n" for key in sorted(groups) for value, gloss in sorted(groups[key], key=lambda row: not has_reading_gloss(row[1])))
+    # 每个音节先列有训音的字，再列没有训音的字，最后是没有训音的简体字形，组内保留源文件次序（sorted 是稳定排序）。
+    def rank(row: tuple[str, str]) -> int:
+        if has_reading_gloss(row[1]):
+            return 0
+        return 2 if row[0] in simplified_only else 1
+
+    return "".join(f"{key}\t{value}\t{gloss}\n" for key in sorted(groups) for value, gloss in sorted(groups[key], key=rank))
 
 
 def main() -> int:
@@ -123,6 +143,10 @@ def main() -> int:
     check(paeng[:1] == ["팽\t彭\t성씨 팽, 땅이름 팽, 방패 팽, 총소리 팽, 북소리 팽"], "팽 no longer starts with 彭: the readings without a gloss (庄) must follow the glossed ones")
     ton = [row for row in rows if row.startswith("톤\t")]
     check(ton[:1] == ["톤\t噸\t"], "톤 no longer starts with 噸: a comment that only points to another Hanja (噋 啍과 同字) is not a gloss")
+    # 只作简体字形、又没有训音的字排在同音节没有训音的字后面：쌍 下 雙 之后不是 双，흥 下 興 之后不是 兴。
+    for key, simplified in (("쌍", "双"), ("흥", "兴")):
+        values = [row.split("\t")[1] for row in rows if row.startswith(key + "\t")]
+        check(len(values) > 2 and values[1] != simplified and simplified in values[2:], f"{key} lists {simplified} second or not at all: simplified-only forms without a gloss must follow the other unglossed readings")
 
     lock = json.loads(LOCK.read_text(encoding="utf-8"))
     check(lock["references"].get("libhangul", {}).get("commit") == COMMIT, f"the sources lock's libhangul reference is not {COMMIT}; update COMMIT, SOURCE_SIZE and SOURCE_SHA256 together with the table")
@@ -139,10 +163,14 @@ def main() -> int:
         print(f"skipped: regeneration, {source} does not exist (MSIME_DICTIONARY must be a msime-dictionary checkout)")
     else:
         data = source.read_bytes()
+        opencc = Path(dictionary) / SIMPLIFIED_TO_TRADITIONAL
         if len(data) != SOURCE_SIZE or hashlib.sha256(data).hexdigest() != SOURCE_SHA256:
             check(False, f"{source} is not libhangul {COMMIT}; update COMMIT, SOURCE_SIZE and SOURCE_SHA256 with the table")
+        elif not opencc.is_file():
+            check(False, f"{opencc} does not exist; msime-dict-build hanja reads it from the same checkout")
         else:
-            check(generate(data.decode("utf-8")) == table, "the committed table differs from what the libhangul source generates; rerun msime-dict-build hanja")
+            simplified_only = simplified_only_forms(opencc.read_text(encoding="utf-8"))
+            check(generate(data.decode("utf-8"), simplified_only) == table, "the committed table differs from what the libhangul source generates; rerun msime-dict-build hanja")
 
     if failures:
         for failure in failures:

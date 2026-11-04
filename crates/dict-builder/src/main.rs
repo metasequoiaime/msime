@@ -201,7 +201,7 @@ enum Command {
     WubiXsjSupplement(WubiXsjSupplement),
     /// 写出 msime 的 resources/helpcodes/wubi86_helpcode.txt：辅助码方案 wubi86 的码表，每个基本区汉字取它在 msime-dictionary 的 86 码表（sources/wubi/wubi86-jidian.txt）里全码的前两码（见 wubi86_helpcode.rs）。
     Wubi86Helpcode(Wubi86Helpcode),
-    /// 从 --dictionary checkout 的 libhangul `sources/korean/hanja.txt` 生成韩文 Hanja 表（crates/engine/src/korean/hanja.tsv）。
+    /// 从 --dictionary checkout 的 libhangul `sources/korean/hanja.txt` 生成韩文 Hanja 表（crates/engine/src/korean/hanja.tsv），同一 checkout 的 OpenCC `sources/opencc/STCharacters.txt` 决定哪些字只作简体字形。
     Hanja(Hanja),
     /// Write msime-dictionary's sources/cantonese/hkcancor-word-counts.txt: how often each word of two or more Han characters occurs in the HKCanCor transcriptions pinned under hkcancor/ in the sources lock.
     HkcancorCounts(HkcancorCounts),
@@ -1010,7 +1010,14 @@ fn build_hanja(arguments: &Hanja) -> Result<()> {
         offline: arguments.offline,
         dictionary: Some(dictionary),
     };
-    let readings = hanja::build(&text::read(&sources.pinned(hanja::SOURCE)?)?)?;
+    let simplified_to_traditional = cantonese::parse_variants(
+        stroke::SIMPLIFIED_TO_TRADITIONAL,
+        &text::read(&sources.pinned(stroke::SIMPLIFIED_TO_TRADITIONAL)?)?,
+    )?;
+    let readings = hanja::build(
+        &text::read(&sources.pinned(hanja::SOURCE)?)?,
+        &hanja::simplified_only_forms(&simplified_to_traditional),
+    )?;
     hanja::write(&readings, &arguments.out)?;
     let syllables = readings
         .iter()

@@ -484,6 +484,7 @@ mod tests {
             &parse(&source).unwrap(),
             &parse_frequencies(FREQUENCIES_SOURCE).unwrap(),
             &HashMap::new(),
+            &HashSet::new(),
         )
     }
 

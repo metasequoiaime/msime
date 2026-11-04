@@ -5,6 +5,8 @@
 //! The output is `crates/engine/src/korean/hanja.tsv`, one `syllable<TAB>hanja<TAB>gloss` line per reading, which the engine embeds with `include_str!`. Syllables come in code point order. The gloss is the source's 훈음 comment (나라 이름 한), empty where the source has none. A Hanja the source lists twice under one syllable is kept at its first position.
 //!
 //! 每个音节里先列有训音的字、再列没有训音的字，两组内部各按源文件的次序（libhangul 大体按使用频率排，한 下是 韓、漢、寒）。源文件约四分之三的行没有训音，其中夹着不少简体字和冷僻字，排在有训音的常用字前面：팽 下第一个是没有训音的 庄，彭、膨 在后面；시 下第一个是 十。只是指向另一个字的注释（`啍과 同字`、`畫의 俗字` 这类，每一段都含汉字）不算训音，这样的行和没有注释的行排在一组：噋 只注了「啍과 同字」，如果算有训音，它就会排到 톤 下没有注释的常用字 噸 前面。按这条规则，固定提交里有 7 个音节的首字换了（팽 庄→彭、시 十→時、즙 輯→汁、즉 則→卽、획 畵→獲、흘 汽→訖、뉵 忸→衄），没有一个换成更冷僻的字。
+//!
+//! 没有训音的字里，只作简体字形的字（OpenCC `STCharacters.txt` 里繁体字形不含它自己的字，如 双、兴、层，由 `simplified_only_forms` 挑出，表从同一个 `--dictionary` checkout 的 `sources/opencc/STCharacters.txt` 读，只用来排序，不写进表里）再排到最后：韩文里用的是 雙、興、層，按「有没有训音」分组之后，这些简体字形还排在只有一个有训音的字之后的第二、三位（쌍 雙 双、흥 興 兴）。有训音的简体字形（脚、强 这类韩文也用的略字）不动。固定提交里这条规则重排了 397 个音节，没有一个音节的首字变；前三位里有简体字形的音节从 24 个降到 17 个，剩下的是有训音的略字和总共只有两三个字的音节。
 
 use std::collections::{BTreeMap, HashSet};
 use std::fmt::Write as _;
@@ -38,8 +40,8 @@ pub fn is_kept_hanja(character: char) -> bool {
         || UNIFIED_IN_COMPATIBILITY_BLOCK.contains(&character)
 }
 
-/// The single-syllable readings of `source`, grouped by syllable in code point order with each group in source order.
-pub fn build(source: &str) -> Result<Vec<Reading>> {
+/// The single-syllable readings of `source`, grouped by syllable in code point order with each group in source order. `simplified_only` 是只作简体字形的字（`simplified_only_forms`），没有训音时排到同音节没有训音的字后面。
+pub fn build(source: &str, simplified_only: &HashSet<char>) -> Result<Vec<Reading>> {
     let mut groups: BTreeMap<char, Vec<Reading>> = BTreeMap::new();
     let mut seen = HashSet::new();
     for (index, line) in source.lines().enumerate() {
@@ -85,8 +87,16 @@ pub fn build(source: &str) -> Result<Vec<Reading>> {
         bail!("{SOURCE}: no single-syllable reading");
     }
     for readings in groups.values_mut() {
-        // 稳定排序：有训音的在前，组内保留源文件的次序。
-        readings.sort_by_key(|reading| !has_reading_gloss(&reading.gloss));
+        // 稳定排序：有训音的在前，再是没有训音的，最后是没有训音的简体字形，组内保留源文件的次序。
+        readings.sort_by_key(|reading| {
+            if has_reading_gloss(&reading.gloss) {
+                0
+            } else if simplified_only.contains(&reading.hanja) {
+                2
+            } else {
+                1
+            }
+        });
     }
     Ok(groups.into_values().flatten().collect())
 }
@@ -98,6 +108,15 @@ fn has_reading_gloss(gloss: &str) -> bool {
         .split(',')
         .map(str::trim)
         .any(|part| !part.is_empty() && !part.chars().any(ideograph))
+}
+
+/// OpenCC 简转繁字表（`STCharacters.txt`，`cantonese::parse_variants` 读出的行）里只作简体字形的字：繁体字形不含它自己（双 → 雙、兴 → 興）。台 → 臺 檯 颱 台 这类繁体字形里也有它自己的字不算。
+pub fn simplified_only_forms(simplified_to_traditional: &[(char, Vec<char>)]) -> HashSet<char> {
+    simplified_to_traditional
+        .iter()
+        .filter(|(simplified, traditional)| !traditional.contains(simplified))
+        .map(|(simplified, _)| *simplified)
+        .collect()
 }
 
 pub fn tsv(readings: &[Reading]) -> String {
@@ -122,6 +141,10 @@ mod tests {
 
     const SOURCE_TEXT: &str = "# Copyright (c) 2005,2006 Choe Hwanjin\n#\n\nㄱ자집:ㄱ字집:\n가:家:집 가\n가:佳:아름다울 가\n가结:家結:\n가:䄷:\n가:\u{f900}:\n가:\u{2f800}:\n가:𠀋:\n가:家:집 가\n신:莘洞:지명\n한:韓:나라 이름 한, 한나라 한\n한:漢:한수 한\n한:犴:\n각:角:뿔 각\nkey:value:\n";
 
+    fn built(source: &str) -> Result<Vec<Reading>> {
+        build(source, &HashSet::new())
+    }
+
     fn glyphs(readings: &[Reading]) -> Vec<String> {
         readings
             .iter()
@@ -131,7 +154,7 @@ mod tests {
 
     #[test]
     fn only_single_syllables_with_one_kept_hanja_remain() {
-        let readings = build(SOURCE_TEXT).unwrap();
+        let readings = built(SOURCE_TEXT).unwrap();
         // U+F900 and U+2F800 are compatibility ideographs, 𠀋 lies outside the BMP, 莘洞 is two characters, and the word, jamo and ASCII keys are not syllables.
         assert_eq!(
             glyphs(&readings),
@@ -141,7 +164,7 @@ mod tests {
 
     #[test]
     fn glossed_readings_come_before_unglossed_ones_in_source_order() {
-        let readings = build(
+        let readings = built(
             "팽:庄:
 팽:彭:성씨 팽
 팽:硼:
@@ -153,9 +176,29 @@ mod tests {
     }
 
     #[test]
+    fn simplified_only_forms_without_a_gloss_come_last() {
+        let simplified_only = simplified_only_forms(&[
+            ('双', vec!['雙']),
+            ('台', vec!['臺', '檯', '颱', '台']),
+            ('脚', vec!['腳']),
+        ]);
+        assert_eq!(simplified_only, HashSet::from(['双', '脚']));
+        // 双 没有训音、只作简体字形，排到没有训音的 䨇 后面；台 的繁体字形里有它自己，不算简体字形；脚 有训音，留在有训音的一组里。
+        let readings = build(
+            "쌍:雙:쌍 쌍\n쌍:双:\n쌍:䨇:\n대:台:\n대:臺:\n각:各:각각 각\n각:脚:다리 각\n각:角:뿔 각\n",
+            &simplified_only,
+        )
+        .unwrap();
+        assert_eq!(
+            glyphs(&readings),
+            ["각各", "각脚", "각角", "대台", "대臺", "쌍雙", "쌍䨇", "쌍双"]
+        );
+    }
+
+    #[test]
     fn a_comment_that_only_points_to_another_hanja_is_not_a_gloss() {
         // 噋 只注了指向 啍 的异体说明，和没有注释的 噸 同组、按源文件次序排在 噸 后面；鑒 的注释除了指向 鑑 还有训音，算有训音；注释原样写进第三列。
-        let readings = build("톤:噸:\n톤:噋:啍과 同字\n톤:鑒:鑑과 同字, 거울 감\n").unwrap();
+        let readings = built("톤:噸:\n톤:噋:啍과 同字\n톤:鑒:鑑과 同字, 거울 감\n").unwrap();
         assert_eq!(glyphs(&readings), ["톤鑒", "톤噸", "톤噋"]);
         assert_eq!(readings[2].gloss, "啍과 同字");
         assert!(has_reading_gloss("집 가"));
@@ -167,7 +210,7 @@ mod tests {
     #[test]
     fn unified_ideographs_in_the_compatibility_block_are_kept() {
         // U+FA11 (﨑) and U+FA0E (﨎) sit in the compatibility block but are unified ideographs that NFC leaves alone, unlike U+F900 and U+FA0D, which NFC rewrites.
-        let readings = build("기:\u{fa11}:\n쌍:\u{fa0e}:\n가:\u{f900}:\n가:\u{fa0d}:\n").unwrap();
+        let readings = built("기:\u{fa11}:\n쌍:\u{fa0e}:\n가:\u{f900}:\n가:\u{fa0d}:\n").unwrap();
         assert_eq!(glyphs(&readings), ["기\u{fa11}", "쌍\u{fa0e}"]);
         let unified: Vec<char> = ('\u{f900}'..='\u{faff}')
             .filter(|&character| is_kept_hanja(character))
@@ -183,13 +226,13 @@ mod tests {
 
     #[test]
     fn syllables_sort_by_code_point_and_keep_their_source_order() {
-        let readings = build("한:韓:\n가:佳:\n한:漢:\n가:家:\n").unwrap();
+        let readings = built("한:韓:\n가:佳:\n한:漢:\n가:家:\n").unwrap();
         assert_eq!(glyphs(&readings), ["가佳", "가家", "한韓", "한漢"]);
     }
 
     #[test]
     fn a_repeated_hanja_keeps_its_first_position_and_gloss() {
-        let readings = build("가:佳:\n가:家:집 가\n가:佳:다른 뜻\n").unwrap();
+        let readings = built("가:佳:\n가:家:집 가\n가:佳:다른 뜻\n").unwrap();
         // 第二次出现的 佳 带着训音也不算，佳 仍是没有训音的行，排在 家 后面。
         assert_eq!(glyphs(&readings), ["가家", "가佳"]);
         assert_eq!(readings[1].gloss, "");
@@ -198,20 +241,20 @@ mod tests {
 
     #[test]
     fn the_table_is_one_line_per_reading_with_the_gloss_last() {
-        let readings = build(SOURCE_TEXT).unwrap();
+        let readings = built(SOURCE_TEXT).unwrap();
         let table = tsv(&readings);
         assert!(table.starts_with("가\t家\t집 가\n가\t佳\t아름다울 가\n가\t䄷\t\n"));
         assert!(table.contains("한\t韓\t나라 이름 한, 한나라 한\n"));
         assert_eq!(table.lines().count(), readings.len());
         // The same input writes the same bytes.
-        assert_eq!(tsv(&build(SOURCE_TEXT).unwrap()), table);
+        assert_eq!(tsv(&built(SOURCE_TEXT).unwrap()), table);
     }
 
     #[test]
     fn a_malformed_line_or_an_empty_result_fails() {
-        let error = build("가:家\n").unwrap_err().to_string();
+        let error = built("가:家\n").unwrap_err().to_string();
         assert!(error.contains("line 1"), "{error}");
-        let error = build("# only a header\n").unwrap_err().to_string();
+        let error = built("# only a header\n").unwrap_err().to_string();
         assert!(error.contains("no single-syllable reading"), "{error}");
     }
 }
