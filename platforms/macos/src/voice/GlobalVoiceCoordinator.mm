@@ -558,7 +558,7 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
     _sessionPoll = [NSTimer scheduledTimerWithTimeInterval:0.05 repeats:YES block:^(NSTimer *timer) { (void)timer; [weakSelf advance]; }];
     [self advance];
 }
-// 1 切源、2 控制器、3 焦点、4 客户端、5 忙、6 等原焦点恢复；不记录元素身份或输入。
+// 1 切源、2 控制器、5 忙；不记录元素身份或输入。
 - (void)waitingFor:(NSInteger)reason {
     if (_waitReason == reason) return;
     _waitReason = reason;
@@ -720,7 +720,7 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
         dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf configure]; });
     }
 }
-- (void)suspended:(NSNotification *)notification { (void)notification; _state.manual = true; [self cancel]; }
+- (void)suspended:(NSNotification *)notification { (void)notification; [self cancel]; }
 - (void)dealloc {
     [_poll invalidate]; [_sessionPoll invalidate]; [self removeKeyboard];
     [NSWorkspace.sharedWorkspace.notificationCenter removeObserver:self];

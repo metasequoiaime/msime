@@ -1683,6 +1683,8 @@ target_compile_options(global-voice-state-test PRIVATE -UNDEBUG -Wall -Wextra -W
 add_test(NAME global-voice-state COMMAND global-voice-state-test)
 
 add_test(NAME global-voice-boundaries COMMAND shortcut-test --global-voice)
+add_test(NAME global-voice-current-client-reentry COMMAND shortcut-test --global-voice-current-client-reentry)
+add_test(NAME global-voice-suspend-source COMMAND shortcut-test --global-voice-suspend-source)
 
 # 其余测试也换一个主目录（#10728）。控制器经 runtime-options.json 找到偏好目录，语音静音的恢复日志、资源包这些也都按 Application Support 定位；不换的话，在装着输入法的开发机上跑测试，会把测试进程里的设置（连同它们放进 NSArgumentDomain 的临时值）写进这台机器正在用的 preferences.json。CFFIXED_USER_HOME 只换 NSHomeDirectory 和 Application Support，NSUserDefaults 仍在真实的 ~/Library/Preferences。上面已经给了自己主目录的测试保持不变。
 set(MSIME_TEST_HOME "${CMAKE_CURRENT_BINARY_DIR}/test-home")

@@ -14042,6 +14042,7 @@ static void TestCrossCommitSpacing() {
 - (void)replayKey:(UInt32)identifier down:(BOOL)down;
 - (void)advance;
 - (void)sourceChanged:(NSNotification *)notification;
+- (void)suspended:(NSNotification *)notification;
 - (NSTimeInterval)monotonicTime;
 - (BOOL)isOwnSourceIdentifier:(NSString *)identifier;
 - (NSString *)currentSourceIdentifier;
@@ -14356,6 +14357,51 @@ static void TestGlobalVoiceCurrentClientDelivery() {
         assert([client.editor.string isEqual:@"prefix synthetic preeditsynthetic voice"] && !client.editor.hasMarkedText);
         MSIMEFocusedController = nil; MSIMEGlobalVoiceHost().owner = nil; MSIMEGlobalVoiceHost().sessionToken = nil;
         MSIMERemoveTestPreferenceSuite(defaults, suite);
+    }
+}
+
+static void TestGlobalVoiceCurrentClientReentry() {
+    NSString *suite = [@"msime.synthetic.current-voice-reentry." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    appearance.traditionalOutput = NO;
+    GlobalVoiceCurrentClientController *controller = [GlobalVoiceCurrentClientController alloc]; controller.currentPID = 42;
+    CursorEditorClient *client = [CursorEditorClient new]; client.editor = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, 300, 80)];
+    client.editor.string = @"prefix "; client.editor.selectedRange = NSMakeRange(7, 0);
+    ShortcutSession *session = [ShortcutSession new];
+    session.finishTransition = @{@"commit":@"oldpreedit", @"view":@{@"editing_text":@"", @"candidates":@[]}};
+    [controller setValue:appearance forKey:@"appearance"]; [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:session forKey:@"session"]; MSIMEFocusedController = controller;
+    [controller apply:@{@"view":@{@"editing_text":@"oldpreedit", @"preedit":@"oldpreedit", @"caret_position":@10, @"candidates":@[]}}];
+    GlobalVoiceTargetProbe *owner = [GlobalVoiceTargetProbe new]; owner.busy = YES;
+    MSIMEGlobalVoiceHost().owner = owner; MSIMEGlobalVoiceHost().sessionToken = [NSObject new];
+    controller.duringClientQuery = ^(GlobalVoiceCurrentClientController *current) {
+        current.duringClientQuery = ^(GlobalVoiceCurrentClientController *same) {
+            // 最后一次同步查询产生新组字；本次重试必须保留它，不能被语音替换。
+            [same apply:@{@"view":@{@"editing_text":@"newpreedit", @"preedit":@"newpreedit", @"caret_position":@10, @"candidates":@[]}}];
+            session.finishTransition = @{@"commit":@"newpreedit", @"view":@{@"editing_text":@"", @"candidates":@[]}};
+        };
+    };
+    assert([controller commitGlobalVoiceText:@"VOICE" token:MSIMEGlobalVoiceHost().sessionToken] == MSIMEGlobalVoiceDeliveryRetry);
+    assert([client.editor.string isEqual:@"prefix oldpreeditnewpreedit"] && client.editor.hasMarkedText);
+    assert([controller commitGlobalVoiceText:@"VOICE" token:MSIMEGlobalVoiceHost().sessionToken] == MSIMEGlobalVoiceDeliveryAccepted);
+    assert([client.editor.string isEqual:@"prefix oldpreeditnewpreeditVOICE"] && !client.editor.hasMarkedText);
+    assert(session.commandCalls == 2);
+    MSIMEFocusedController = nil; MSIMEGlobalVoiceHost().owner = nil; MSIMEGlobalVoiceHost().sessionToken = nil;
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+static void TestGlobalVoiceSuspendSource() {
+    for (NSString *name in @[NSWorkspaceWillSleepNotification, NSWorkspaceSessionDidResignActiveNotification, @"com.apple.screenIsLocked"]) {
+        for (NSNumber *manual in @[@NO, @YES]) {
+            GlobalVoiceTargetProbe *capture = [GlobalVoiceTargetProbe new];
+            GlobalVoiceSessionProbe *probe = CurrentClientProbe(capture, ^{ return (id<MSIMEGlobalVoiceTarget>)nil; });
+            [probe begin:NO]; MSIMEGlobalVoiceHost().deliver(@"synthetic result", @"tsf", ^{});
+            probe.source = @"synthetic.msime.Hans"; [probe sourceChanged:nil];
+            if (manual.boolValue) { probe.source = @"synthetic.other"; [probe sourceChanged:nil]; }
+            [probe suspended:[NSNotification notificationWithName:name object:nil]];
+            assert(!capture.busy && [probe valueForKey:@"pendingText"] == nil);
+            assert([probe.selected isEqual:manual.boolValue ? @"synthetic.msime.Hans" : @"com.apple.keylayout.ABC"]);
+        }
     }
 }
 
@@ -14764,6 +14810,8 @@ int main(int argc, char **argv) {
     assert(MSIMEShouldRegisterInputSource(2, registerArguments));
     @autoreleasepool {
         [NSApplication sharedApplication];
+        if (argc == 2 && std::string(argv[1]) == "--global-voice-current-client-reentry") { TestGlobalVoiceCurrentClientReentry(); return 0; }
+        if (argc == 2 && std::string(argv[1]) == "--global-voice-suspend-source") { TestGlobalVoiceSuspendSource(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--global-voice") { TestGlobalVoiceBoundaries(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--quick-phrase-cursor") {
             TestQuickPhraseCursorInEditors();

@@ -2642,7 +2642,9 @@ void MSIMERecordGlobalVoiceCommit(NSString *text) {
         if (!_session) return NO;
         [self commitComposition:client];
     }
-    return [self canCommitGlobalVoiceToClient:client token:token];
+    const BOOL current = [self canCommitGlobalVoiceToClient:client token:token];
+    // 同步 IMK 查询可能重入并开始新组字，留给下一轮按普通路径结束，不能直接替换。
+    return current && ![_view[@"editing_text"] length];
 }
 - (MSIMEGlobalVoiceDeliveryResult)commitGlobalVoiceText:(NSString *)text token:(id)token {
     if (!text.length || text.length > 65536 || ![self prepareGlobalVoiceTextForCommit:token]) return MSIMEGlobalVoiceDeliveryRetry;
