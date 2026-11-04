@@ -100,7 +100,8 @@ def main() -> int:
     ]
     positions = [script.find(fragment) for fragment in ordered]
     if -1 in positions:
-        return fail(f"build step is missing: {ordered[positions.index(-1)]}")
+        # Reported by position, not text: several fragments name the keystore secrets, which CodeQL flags when printed.
+        return fail(f"build step is missing fragment {positions.index(-1) + 1} of the {len(ordered)} in `ordered`")
     if positions != sorted(positions):
         return fail("build step must generate resources first, then check the secret, decode it into $RUNNER_TEMP with a cleanup trap, then build")
 
