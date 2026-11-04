@@ -10,6 +10,7 @@ use msime_engine::format::{
 };
 use rusqlite::{params, Connection, OptionalExtension};
 
+use crate::curation::PinyinVetoes;
 use crate::sqlite;
 use crate::text;
 
@@ -304,7 +305,8 @@ pub fn parse_reading_corrections(text: &str) -> Result<Vec<ReadingCorrection>> {
     Ok(entries)
 }
 
-fn is_quanpin(key: &str) -> bool {
+/// `'` 分隔的小写全拼，而且能落进某张全拼表。
+pub(crate) fn is_quanpin(key: &str) -> bool {
     key.split('\'')
         .all(|syllable| !syllable.is_empty() && syllable.bytes().all(|b| b.is_ascii_lowercase()))
         && pinyin_table(key).is_some()
@@ -452,22 +454,25 @@ fn build_code_table(
     let rows = text::universal_lines(text::without_bom(&source))
         .into_iter()
         .map(|line| parse_code_line(line, table.code_first));
-    write_code_table(connection, table, rows)
+    let (imported, skipped, _) =
+        write_code_table(connection, table, rows, &PinyinVetoes::default())?;
+    Ok((imported, skipped))
 }
 
-/// Recreates `table` and inserts the parsed rows; `None` marks a skipped line. Returns the imported and skipped counts.
+/// Recreates `table` and inserts the parsed rows; `None` marks a skipped line. 整词否决（msime-dictionary 的 `curation/pinyin-vetoes.txt`）的词不写入：五笔原表里的粗俗词组和拼音表里一样删掉。Returns the imported, skipped and vetoed counts.
 fn write_code_table<'a>(
     connection: &mut Connection,
     table: &CodeTable,
     rows: impl Iterator<Item = Option<(String, &'a str, i64)>>,
-) -> Result<(usize, usize)> {
+    vetoes: &PinyinVetoes,
+) -> Result<(usize, usize, usize)> {
     let transaction = connection.transaction()?;
     transaction.execute_batch(&format!("DROP TABLE IF EXISTS {}", table.name))?;
     transaction.execute_batch(table.create)?;
     for index in table.indexes {
         transaction.execute_batch(index)?;
     }
-    let (mut imported, mut skipped) = (0, 0);
+    let (mut imported, mut skipped, mut vetoed) = (0, 0, 0);
     {
         let mut insert = transaction.prepare(&format!(
             "\nINSERT INTO {0} (\"key\", \"value\", \"weight\")\nVALUES (?, ?, ?)\nON CONFLICT(\"key\", \"value\") DO UPDATE SET\n    \"weight\" = MAX(\"weight\", excluded.\"weight\")\n",
@@ -475,6 +480,7 @@ fn write_code_table<'a>(
         ))?;
         for row in rows {
             match row {
+                Some((_, value, _)) if vetoes.vetoes_word(value) => vetoed += 1,
                 Some((key, value, weight)) => {
                     insert.execute(params![key, value, weight])?;
                     imported += 1;
@@ -484,11 +490,15 @@ fn write_code_table<'a>(
         }
     }
     transaction.commit()?;
-    Ok((imported, skipped))
+    Ok((imported, skipped, vetoed))
 }
 
-/// 按极点表、生成补充表的顺序构建 `wubi86`；provider 对同权重候选按 rowid 排序，因此补充表中同码同权重的行排在极点表之后。基本区以外的字符和 Unicode 私用区字符不写入词库。返回导入、跳过（空行、注释或无效行）和过滤行数。
-pub fn build_wubi(connection: &mut Connection, paths: &[&Path]) -> Result<(usize, usize, usize)> {
+/// 按极点表、生成补充表的顺序构建 `wubi86`；provider 对同权重候选按 rowid 排序，因此补充表中同码同权重的行排在极点表之后。基本区以外的字符和 Unicode 私用区字符不写入词库，`vetoes` 整词否决的词也不写入。返回导入、跳过（空行、注释或无效行）、过滤和否决的行数。
+pub fn build_wubi(
+    connection: &mut Connection,
+    paths: &[&Path],
+    vetoes: &PinyinVetoes,
+) -> Result<(usize, usize, usize, usize)> {
     let sources = paths
         .iter()
         .map(|path| text::read(path))
@@ -508,8 +518,8 @@ pub fn build_wubi(connection: &mut Connection, paths: &[&Path]) -> Result<(usize
             }
             row => Some(row),
         });
-    let (imported, skipped) = write_code_table(connection, &WUBI86, rows)?;
-    Ok((imported, skipped, filtered))
+    let (imported, skipped, vetoed) = write_code_table(connection, &WUBI86, rows, vetoes)?;
+    Ok((imported, skipped, filtered, vetoed))
 }
 
 /// The jidian table ends with its large character set: about 49 000 rows, nearly all at weight 0, of CJK Extension A (U+3400-U+4DBF) and of the extensions beyond the Basic Multilingual Plane. They became candidates when dict-v2.0.6 switched 86 Wubi to this table: 25 000 codes, `dui` among them, then offered such a character first, the candidate window's fonts drew it as a missing-glyph box, and with mixed pinyin it pushed the pinyin rows of the same letters (对 for `dui`) off the first page. The table before had none of them, so they are left out again.
@@ -531,13 +541,14 @@ pub(crate) fn unsupported_wubi_value(value: &str) -> bool {
 }
 
 /// Builds `wubi98` from the 98 wubi group's table as upstream ships it: UTF-16LE with a byte-order mark, `value<TAB>code` lines, no weights. Candidates of one code are listed best first, so each gets [`WUBI98_WEIGHT_STEP`] times the number of candidates after it plus one: the last of a code weighs one step, as the 86 table's lowest rank does.
-/// 从主 UTF-16 表和完整的补充表构建 98 五笔。补充表作为独立来源保留，不写成手工特例；重复的“编码、词语”去重，主表保持原有权重和顺序。`generated` 是生成的补充表（`wubi98_supplement`，`value<TAB>code<TAB>weight` 行），按顺序插在两张 98 表之后：provider 同权重时按 rowid 排序，所以补充行排在同权重的原有行之后。
+/// 从主 UTF-16 表和完整的补充表构建 98 五笔。补充表作为独立来源保留，不写成手工特例；重复的“编码、词语”去重，主表保持原有权重和顺序。`generated` 是生成的补充表（`wubi98_supplement`，`value<TAB>code<TAB>weight` 行），按顺序插在两张 98 表之后：provider 同权重时按 rowid 排序，所以补充行排在同权重的原有行之后。`vetoes` 整词否决的词不写入。返回导入、跳过和否决的行数。
 pub fn build_wubi98_sources(
     connection: &mut Connection,
     path: &Path,
     supplements: &[&Path],
     generated: &[&Path],
-) -> Result<(usize, usize)> {
+    vetoes: &PinyinVetoes,
+) -> Result<(usize, usize, usize)> {
     let bytes = crate::sources::read_private(path)
         .with_context(|| format!("reading {}", path.display()))?;
     let source = decode_utf16le(&bytes).with_context(|| format!("decoding {}", path.display()))?;
@@ -568,9 +579,10 @@ pub fn build_wubi98_sources(
                     row => row,
                 })
         }));
-    let (imported, generated_skipped) = write_code_table(connection, &WUBI98, rows)?;
+    let (imported, generated_skipped, vetoed) =
+        write_code_table(connection, &WUBI98, rows, vetoes)?;
     skipped += generated_skipped;
-    Ok((imported, skipped))
+    Ok((imported, skipped, vetoed))
 }
 
 /// 两张 98 表按构建的规则得到的行 `(code, value, weight)`，以及跳过的行数：主表 `primary`（已从 UTF-16LE 解码）按编码内的先后给 [`WUBI98_WEIGHT_STEP`] 的倍数，补充表（Fcitx 格式）里主表没有的“编码、词语”一律给 1，重复的去掉。构建和 `wubi98_supplement` 都用它，生成器看到的权重就是构建写进表里的权重。
@@ -703,13 +715,16 @@ pub struct WubiXsjCounts {
     pub skipped: usize,
     pub filtered: usize,
     pub phrases: usize,
+    /// 整词否决的词组行（`curation/pinyin-vetoes.txt`）。
+    pub vetoed: usize,
 }
 
-/// 构建 `wubixsj`：先是 [`wubixsj_rows`] 的单字行，再按顺序并入 `generated`（`wubixsj_supplement` 生成的 `value<TAB>code<TAB>weight` 词组行）。provider 同权重时按 rowid 排序，所以同权重的单字排在词组之前。词组行里的基本区外字符和私用区字符同样不写入。
+/// 构建 `wubixsj`：先是 [`wubixsj_rows`] 的单字行，再按顺序并入 `generated`（`wubixsj_supplement` 生成的 `value<TAB>code<TAB>weight` 词组行）。provider 同权重时按 rowid 排序，所以同权重的单字排在词组之前。词组行里的基本区外字符和私用区字符同样不写入，`vetoes` 整词否决的词也不写入。
 pub fn build_wubixsj(
     connection: &mut Connection,
     path: &Path,
     generated: &[&Path],
+    vetoes: &PinyinVetoes,
 ) -> Result<WubiXsjCounts> {
     let source = text::read(path)?;
     let singles = wubixsj_rows(&source).with_context(|| format!("parsing {}", path.display()))?;
@@ -729,12 +744,14 @@ pub fn build_wubixsj(
                     row => row,
                 })
         }));
-    let (imported, generated_skipped) = write_code_table(connection, &WUBIXSJ, rows)?;
+    let (imported, generated_skipped, vetoed) =
+        write_code_table(connection, &WUBIXSJ, rows, vetoes)?;
     Ok(WubiXsjCounts {
         imported,
         skipped: singles.skipped + generated_skipped,
         filtered: singles.filtered,
         phrases: singles.phrases,
+        vetoed,
     })
 }
 
@@ -1091,8 +1108,9 @@ mod tests {
         std::fs::write(&path, bytes).unwrap();
         let mut connection = Connection::open_in_memory().unwrap();
         assert_eq!(
-            build_wubi98_sources(&mut connection, &path, &[], &[]).unwrap(),
-            (6, 5)
+            build_wubi98_sources(&mut connection, &path, &[], &[], &PinyinVetoes::default())
+                .unwrap(),
+            (6, 5, 0)
         );
         let rows: Vec<(String, String, i64)> = connection
             .prepare("select key, value, weight from wubi98 order by key, weight desc")
@@ -1127,7 +1145,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = write(dir.path(), "wubi98.txt", "工\ta\r\n");
         let mut connection = Connection::open_in_memory().unwrap();
-        assert!(build_wubi98_sources(&mut connection, &path, &[], &[]).is_err());
+        assert!(
+            build_wubi98_sources(&mut connection, &path, &[], &[], &PinyinVetoes::default())
+                .is_err()
+        );
     }
 
     #[cfg(unix)]
@@ -1150,8 +1171,17 @@ mod tests {
         let worker_path = path.clone();
         let worker = std::thread::spawn(move || {
             let mut connection = Connection::open_in_memory().unwrap();
-            done.send(build_wubi98_sources(&mut connection, &worker_path, &[], &[]).is_err())
-                .unwrap();
+            done.send(
+                build_wubi98_sources(
+                    &mut connection,
+                    &worker_path,
+                    &[],
+                    &[],
+                    &PinyinVetoes::default(),
+                )
+                .is_err(),
+            )
+            .unwrap();
         });
         let rejected = match result.recv_timeout(Duration::from_millis(100)) {
             Ok(rejected) => rejected,
@@ -1188,8 +1218,15 @@ mod tests {
         );
         let mut connection = Connection::open_in_memory().unwrap();
         assert_eq!(
-            build_wubi98_sources(&mut connection, &primary, &[&supplement], &[]).unwrap(),
-            (2, 2)
+            build_wubi98_sources(
+                &mut connection,
+                &primary,
+                &[&supplement],
+                &[],
+                &PinyinVetoes::default()
+            )
+            .unwrap(),
+            (2, 2, 0)
         );
         let rows: Vec<(String, String, i64)> = connection
             .prepare("select key, value, weight from wubi98 order by weight desc")
@@ -1223,8 +1260,15 @@ mod tests {
         let generated = write(dir.path(), "wubi98-generated.txt", "\u{E821}\tukuy\t1\n");
         let mut connection = Connection::open_in_memory().unwrap();
         assert_eq!(
-            build_wubi98_sources(&mut connection, &primary, &[&supplement], &[&generated]).unwrap(),
-            (2, 4)
+            build_wubi98_sources(
+                &mut connection,
+                &primary,
+                &[&supplement],
+                &[&generated],
+                &PinyinVetoes::default()
+            )
+            .unwrap(),
+            (2, 4, 0)
         );
         let rows: Vec<(String, String, i64)> = connection
             .prepare("select key, value, weight from wubi98 order by key, weight desc")
@@ -1255,12 +1299,19 @@ mod tests {
         );
         let mut connection = Connection::open_in_memory().unwrap();
         assert_eq!(
-            build_wubixsj(&mut connection, &path, &[&generated]).unwrap(),
+            build_wubixsj(
+                &mut connection,
+                &path,
+                &[&generated],
+                &PinyinVetoes::default()
+            )
+            .unwrap(),
             WubiXsjCounts {
                 imported: 9,
                 skipped: 5,
                 filtered: 6,
-                phrases: 1
+                phrases: 1,
+                vetoed: 0
             }
         );
         let rows: Vec<(String, String, i64)> = connection
@@ -1310,7 +1361,10 @@ mod tests {
             "𡗜\tdui\t0\n磁浮\tduie\t10\n𥒜\tduiy\t0\n䔍\tacu\t0\n\u{E820}\tkunt\t20\n一\tg\t100\n𡗜子\tdubb\t5\n",
         );
         let mut connection = Connection::open_in_memory().unwrap();
-        assert_eq!(build_wubi(&mut connection, &[&wubi]).unwrap(), (2, 0, 5));
+        assert_eq!(
+            build_wubi(&mut connection, &[&wubi], &PinyinVetoes::default()).unwrap(),
+            (2, 0, 5, 0)
+        );
         let values: Vec<String> = connection
             .prepare("select value from wubi86 order by key")
             .unwrap()
@@ -1319,6 +1373,46 @@ mod tests {
             .map(Result::unwrap)
             .collect();
         assert_eq!(values, ["磁浮", "一"]);
+    }
+
+    /// 整词否决的词不进三张五笔表：原表里的、生成的补充行里的都一样；同一个字组成的别的词和单字照常写入。
+    #[test]
+    fn wubi_tables_leave_out_whole_word_vetoes() {
+        let dir = tempfile::tempdir().unwrap();
+        let vetoes = PinyinVetoes::parse("傻逼\n").unwrap();
+        let wubi = write(
+            dir.path(),
+            "wubi.txt",
+            "傻\twtl\t100\n傻逼\twtgm\t50\n傻瓜\twtrc\t40\n",
+        );
+        let mut connection = Connection::open_in_memory().unwrap();
+        assert_eq!(
+            build_wubi(&mut connection, &[&wubi], &vetoes).unwrap(),
+            (2, 0, 0, 1)
+        );
+        let mut bytes = vec![0xff, 0xfe];
+        bytes.extend(
+            "傻\twtl\r\n傻逼\twtgm\r\n"
+                .encode_utf16()
+                .flat_map(u16::to_le_bytes),
+        );
+        let primary = dir.path().join("wubi98.txt");
+        std::fs::write(&primary, bytes).unwrap();
+        let generated = write(dir.path(), "wubi98-supplement.txt", "傻逼\twtgm\t1\n");
+        assert_eq!(
+            build_wubi98_sources(&mut connection, &primary, &[], &[&generated], &vetoes).unwrap(),
+            (1, 0, 2)
+        );
+        for table in ["wubi86", "wubi98"] {
+            let vetoed: i64 = connection
+                .query_row(
+                    &format!("select count(*) from {table} where value = '傻逼'"),
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(vetoed, 0, "{table}");
+        }
     }
 
     #[test]
@@ -1330,7 +1424,10 @@ mod tests {
             "\u{feff}工\ta\t20\r\n工\tA\t30\r\n戈\ta\t10\n# c\nx\t1a\t1\n戒\taa\n戒\taa\t-1\n",
         );
         let mut connection = Connection::open_in_memory().unwrap();
-        assert_eq!(build_wubi(&mut connection, &[&wubi]).unwrap(), (3, 4, 0));
+        assert_eq!(
+            build_wubi(&mut connection, &[&wubi], &PinyinVetoes::default()).unwrap(),
+            (3, 4, 0, 0)
+        );
         let wubi_rows: Vec<(String, String, i64)> = connection
             .prepare("select key, value, weight from wubi86 order by weight")
             .unwrap()

@@ -11,6 +11,7 @@ use std::fmt::Write as _;
 
 use anyhow::{bail, Result};
 
+use crate::curation::PinyinCuration;
 use crate::msime;
 use crate::text;
 use crate::wubi_supplement::{frequencies, is_word, pinyin_words, rank};
@@ -44,6 +45,8 @@ pub struct Inputs<'a> {
     pub pinyin_supplement: &'a str,
     pub places: &'a str,
     pub custom: &'a str,
+    /// msime-dictionary `curation/` 的拼音否决表和权重覆盖表：整词否决的词不收，拼音权重按覆盖后的算。
+    pub curation: &'a PinyinCuration,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,21 +76,26 @@ fn jidian_rows(source: &str) -> Vec<(String, &str, i64)> {
 }
 
 pub fn build(inputs: &Inputs) -> Result<Supplement> {
-    let rows = jidian_rows(inputs.jidian);
+    let mut rows = jidian_rows(inputs.jidian);
     if rows.is_empty() {
         bail!("{JIDIAN} has no rows");
     }
+    // 构建不把整词否决的词写进 wubi86，同码最低权重和全码也就不算它们。
+    rows.retain(|(_, value, _)| !inputs.curation.vetoes_word(value));
     let jidian_words: HashSet<&str> = rows
         .iter()
         .filter(|(_, value, _)| value.chars().count() >= 2)
         .map(|(_, value, _)| *value)
         .collect();
-    let frequency = frequencies([
-        inputs.base,
-        inputs.pinyin_supplement,
-        inputs.places,
-        inputs.custom,
-    ]);
+    let frequency = frequencies(
+        [
+            inputs.base,
+            inputs.pinyin_supplement,
+            inputs.places,
+            inputs.custom,
+        ],
+        inputs.curation,
+    );
 
     let mut wubi98: BTreeSet<String> = BTreeSet::new();
     for line in text::universal_lines(text::without_bom(inputs.wubi98)) {
@@ -107,6 +115,7 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
         &frequency,
         MIN_PINYIN_WEIGHT,
         &[inputs.places, inputs.custom],
+        inputs.curation,
     );
 
     let candidates: BTreeSet<&str> = wubi98
@@ -114,7 +123,10 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
         .map(String::as_str)
         .chain(pinyin.iter().copied())
         .filter(|word| {
-            is_word(word) && !msime::outside_basic_cjk(word) && !jidian_words.contains(word)
+            is_word(word)
+                && !msime::outside_basic_cjk(word)
+                && !jidian_words.contains(word)
+                && !inputs.curation.vetoes_word(word)
         })
         .collect();
 
@@ -232,6 +244,7 @@ mod tests {
             pinyin_supplement: "",
             places: "",
             custom: "",
+            curation: &PinyinCuration::default(),
         })
         .unwrap()
     }
@@ -303,6 +316,7 @@ mod tests {
             pinyin_supplement: "工人\tgong'ren\t100\n",
             places: "工人日\tgong'ren'ri\t1\n",
             custom: "工人民\tgong'ren'min\t1\n工人\tgong'ren\t100\n",
+            curation: &PinyinCuration::default(),
         })
         .unwrap();
         assert_eq!(
@@ -313,6 +327,31 @@ mod tests {
                 ("工人民", "awna", 9),
                 ("日日", "jjjj", 9)
             ]
+        );
+    }
+
+    /// 整词否决的词不进补充表，也不再占同码的名次；极点表里被否决的词不再算同码原有的行；读音否决和权重覆盖改的是拼音那边的门槛。
+    #[test]
+    fn curation_tables_reach_the_generator() {
+        let curation = PinyinCuration::parse(
+            "工人日\n部门\n工人\tgong'ren\n",
+            "人民日\tren'min'ri\t100\n",
+        )
+        .unwrap();
+        let supplement = build(&Inputs {
+            jidian: JIDIAN_FIXTURE,
+            wubi98: "部门\tx\n",
+            wubi98_fcitx: "",
+            base: "人民日\tren'min'ri\t1\n",
+            pinyin_supplement: "工人\tgong'ren\t100\n",
+            places: "工人日\tgong'ren'ri\t1\n",
+            custom: "工人民\tgong'ren'min\t1\n",
+            curation: &curation,
+        })
+        .unwrap();
+        assert_eq!(
+            rows(&supplement),
+            [("工人民", "awna", 9), ("人民日", "wnjj", 9)]
         );
     }
 
