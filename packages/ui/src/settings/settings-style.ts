@@ -211,8 +211,13 @@ export const importPreview =
   "flex max-h-70 flex-col gap-[7px] overflow-y-auto rounded-lg border border-edge bg-raised px-3 py-2.5 [&>span]:text-xs [&>span]:text-muted [&>div]:flex [&>div]:flex-col [&>div]:gap-0.5 [&>div]:border-t [&>div]:border-[var(--divider-color)] [&>div]:pt-[7px] [&>div_span]:wrap-anywhere [&_code]:text-[11px] [&_code]:text-muted";
 
 export const field = compactFieldLabel;
-export const fieldInput =
-  "settings-field-input min-w-25 rounded-md border border-edge bg-[var(--dropdown-bg)] px-2 py-1.5 text-body";
+const fieldInputBox =
+  "settings-field-input rounded-md border border-edge bg-[var(--dropdown-bg)] px-2 py-1.5 text-body";
+export const fieldInput = `${fieldInputBox} min-w-25`;
+/** 数字框只装几位数，固定窄宽。不在 fieldInput 上叠宽度：它的 min-w-25 比这里的宽度还大，会把框重新撑开。 */
+export const fieldNumberInput = `${fieldInputBox} w-21`;
+/** 字段标题和它旁边的「?」同处一行，压在输入框上面，不另起一行。 */
+export const fieldTitleRow = "flex items-center gap-1";
 export const fieldSelect = `${fieldInput} min-w-[150px]`;
 export const dictionaryKindSelect = "min-w-44";
 export const dictionaryFooter =
@@ -220,7 +225,10 @@ export const dictionaryFooter =
 /** A prompt edited in place, the full width of its group. */
 export const promptInput = `${fieldInput} min-h-32 w-full resize-y leading-relaxed`;
 export const phraseForm = "mt-3.5 flex flex-wrap items-end gap-2.5";
-export const keyHint = "text-[11px] text-muted";
+/** 词条编辑行末尾的编码提示：独占整行，不参与按底边对齐，免得把「编码」那一栏撑高。 */
+export const keyHint = "mt-0 basis-full text-[11px] text-muted";
+/** 词条编辑行的保存、取消：去掉 secondary 自带的上边距，两个按钮同高。 */
+export const phraseFormActions = "flex gap-2 [&_button]:mt-0 [&_button]:h-8 [&_button]:py-0";
 export const bundledBadge =
   "rounded border border-edge px-1 py-px text-[11px] leading-none text-muted";
 const listRow =

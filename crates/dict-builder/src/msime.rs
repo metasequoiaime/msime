@@ -487,7 +487,10 @@ fn write_code_table<'a>(
     Ok((imported, skipped))
 }
 
-/// 按极点表、生成补充表的顺序构建 `wubi86`；provider 对同权重候选按 rowid 排序，因此补充表中同码同权重的行排在极点表之后。基本区以外的字符和 Unicode 私用区字符不写入词库。返回导入、跳过（空行、注释或无效行）和过滤行数。
+/// msime-dictionary 手工维护的 86 五笔词条（`value<TAB>code<TAB>weight`，只追加），例如挂在 一…十 的五笔码上的 ①…⑩。构建时接在极点表和生成补充表之后，没有这个文件的 checkout 按空表构建。
+pub const CUSTOM_WUBI86: &str = "custom/wubi86.txt";
+
+/// 按极点表、生成补充表、手工词条（[`CUSTOM_WUBI86`]，有的话）的顺序构建 `wubi86`；provider 对同权重候选按 rowid 排序，因此后面来源中同码同权重的行排在前面来源之后。基本区以外的字符和 Unicode 私用区字符不写入词库。返回导入、跳过（空行、注释或无效行）和过滤行数。
 pub fn build_wubi(connection: &mut Connection, paths: &[&Path]) -> Result<(usize, usize, usize)> {
     let sources = paths
         .iter()
