@@ -67,6 +67,10 @@ class GitHub:
         return json.loads(self._gh("issue", "list", "--repo", self.repository, "--label", label, "--state", "open",
                                    "--limit", "100", "--json", "number,title,body"))
 
+    def closed_issues(self, label):
+        return json.loads(self._gh("issue", "list", "--repo", self.repository, "--label", label, "--state", "closed",
+                                   "--limit", "100", "--json", "number,title,body"))
+
     def comments(self, number):
         pages = self._api(f"issues/{number}/comments?per_page=100", paginate=True)
         return [comment["body"] for page in pages for comment in page]
@@ -120,7 +124,7 @@ def run_link(run):
     return f"[#{run['run_number']}]({run['html_url']})"
 
 
-def red_streak(api, runs, preserve_unknown=True):
+def red_streak(api, runs):
     """只用实际成功的同名作业与失败步骤消除红灯，范围跳过不打断连续失败。"""
     ordered = sorted({(run["id"], run["run_attempt"]): run for run in runs}.values(),
                      key=lambda run: (run["run_number"], run["run_attempt"]))
@@ -128,6 +132,7 @@ def red_streak(api, runs, preserve_unknown=True):
     pending = {}
     unknown = False
     green = None
+    recoveries = []
     for run in ordered:
         if run["conclusion"] in RED:
             failed = [job for job in api.jobs(run["id"], run["run_attempt"]) if job.get("conclusion") in RED]
@@ -142,20 +147,20 @@ def red_streak(api, runs, preserve_unknown=True):
             continue
         if run["conclusion"] != "success":
             continue
-        # 没有开着的单时，未知失败可能已经由维护者手动关闭，不因成功运行重开它。
-        unknown &= preserve_unknown
         if pending:
             for job in api.jobs(run["id"], run["run_attempt"]):
                 if job.get("conclusion") != "success" or job["name"] not in pending:
                     continue
                 passed = {step["name"] for step in job.get("steps", []) if step.get("conclusion") == "success"}
+                if pending[job["name"]] & passed:
+                    recoveries.append(run)
                 pending[job["name"]].difference_update(passed)
                 if not pending[job["name"]]:
                     del pending[job["name"]]
         if not pending and not unknown:
             streak = []
             green = run
-    return list(reversed(streak)), green
+    return list(reversed(streak)), green, {(run["id"], run["run_attempt"]): run for run in recoveries}.values()
 
 
 def reported_runs(api, issue, workflow_path):
@@ -175,8 +180,8 @@ def job_lines(jobs):
     return [f"- [{job['name']}]({job['html_url']})（{labels[job['conclusion']]}）" for job in failed]
 
 
-def track_red_build(api, run_id, server="https://github.com"):
-    run = api.run(run_id)
+def track_red_build(api, run_id, server="https://github.com", run_attempt=None):
+    run = api.run_attempt(run_id, run_attempt) if run_attempt is not None else api.run(run_id)
     name, conclusion = run["name"], run["conclusion"]
     if run["head_branch"] != BRANCH or run["event"] not in TRACKED_EVENTS:
         print(f"{name} #{run['run_number']}: {run['event']} on {run['head_branch']} is not tracked")
@@ -187,8 +192,9 @@ def track_red_build(api, run_id, server="https://github.com"):
     runs = [other for other in api.workflow_runs(run["workflow_id"])
             if other["event"] in TRACKED_EVENTS and other["head_branch"] == BRANCH and other["conclusion"] in DECISIVE]
     # 事件可能乱序到达，旧运行也可能被重跑：只让最新一次有结论的运行决定开单还是关单，否则旧的失败会重开已经转绿的单，旧的成功会关掉仍然红着的单。触发这次的是更旧的运行时改按最新那次判定，而不是跳过：最新那次自己的跟踪运行可能在并发组里排队时被这次顶掉了，跳过就没人替它开单或关单。重复处理同一次运行由下面的运行标记挡住。
-    latest = max([run, *runs], key=lambda other: other["run_number"])
-    if latest["id"] != run["id"]:
+    trigger_run = run
+    latest = max([run, *runs], key=lambda other: (other["run_number"], other["run_attempt"]))
+    if (latest["id"], latest["run_attempt"]) != (run["id"], run["run_attempt"]):
         print(f"{name} #{run['run_number']}: newer run #{latest['run_number']} concluded {latest['conclusion']}; deciding from it")
         run, conclusion = latest, latest["conclusion"]
 
@@ -198,14 +204,21 @@ def track_red_build(api, run_id, server="https://github.com"):
     # 先确保标签存在：之后按它列出开着的单，新开的单也要带它。
     api.ensure_label(RED_LABEL)
     issue = find_issue(api.open_issues(RED_LABEL[0]), marker)
-    history = [*runs, run]
+    history = [*runs, trigger_run, run]
+    if issue is None:
+        closed = [other for other in api.closed_issues(RED_LABEL[0]) if has_marker(other.get("body"), marker)]
+        if closed:
+            recorded = reported_runs(api, max(closed, key=lambda other: other["number"]), run["path"])
+            if recorded:
+                boundary = max((other["run_number"], other["run_attempt"]) for other in recorded)
+                history = [other for other in history if (other["run_number"], other["run_attempt"]) > boundary]
     if issue is not None:
         recorded = reported_runs(api, issue, run["path"])
         if recorded:
-            first_number = min(other["run_number"] for other in recorded)
-            history = [other for other in history if other["run_number"] >= first_number]
+            first_order = min((other["run_number"], other["run_attempt"]) for other in recorded)
+            history = [other for other in history if (other["run_number"], other["run_attempt"]) >= first_order]
         history.extend(recorded)
-    streak, green = red_streak(api, history, preserve_unknown=issue is not None)
+    streak, green, recoveries = red_streak(api, history)
 
     if not streak:
         if issue is None:
@@ -229,12 +242,28 @@ def track_red_build(api, run_id, server="https://github.com"):
         jobs = job_lines(api.jobs(run["id"], run["run_attempt"]))
     attempt = f"（第 {run['run_attempt']} 次尝试）" if run["run_attempt"] > 1 else ""
     if issue is not None:
-        if already_reported(api, issue["number"], issue["body"], run_marker):
+        texts = [issue["body"], *api.comments(issue["number"])]
+        # 分平台恢复也要跨查询窗口保留；只有实际消除了失败步骤的成功运行才写入正文，不制造评论。
+        recovery_markers = [f"<!-- ci-red-tracker run={other['id']} attempt={other['run_attempt']} -->"
+                            for other in recoveries
+                            if not any(has_marker(text, f"<!-- ci-red-tracker run={other['id']} attempt={other['run_attempt']} -->")
+                                       for text in texts)]
+        if recovery_markers:
+            issue["body"] += "\n" + "\n".join(recovery_markers)
+            api.edit_body(issue["number"], issue["body"])
+            texts[0] = issue["body"]
+        # 乱序事件可能一次处理多个失败，已有单也必须保存全部未恢复运行，不能只留下最新的标记。
+        missing = [f"<!-- ci-red-tracker run={other['id']} attempt={other['run_attempt']} -->"
+                   for other in streak
+                   if not any(has_marker(text, f"<!-- ci-red-tracker run={other['id']} attempt={other['run_attempt']} -->")
+                              for text in texts)]
+        if not missing:
             print(f"{name} #{run['run_number']} is already reported on #{issue['number']}")
             return
+        heading = "又失败一次" if run_marker in missing else "补充尚未恢复的失败记录"
         api.comment(issue["number"], "\n".join([
-            run_marker,
-            f"又失败一次：{run_link(run)}{attempt}，{run['event']}，提交 {commit_line(server, repository, run)}。",
+            *missing,
+            f"{heading}：{run_link(run)}{attempt}，{run['event']}，提交 {commit_line(server, repository, run)}。",
             "",
             "失败的 job：",
             *jobs,
@@ -253,7 +282,7 @@ def track_red_build(api, run_id, server="https://github.com"):
     body = "\n".join([
         marker,
         run_marker,
-        *[f"<!-- ci-red-tracker run={other['id']} attempt={other['run_attempt']} -->" for other in streak[1:]],
+        *[f"<!-- ci-red-tracker run={other['id']} attempt={other['run_attempt']} -->" for other in [*streak[1:], *recoveries]],
         f"`{name}` 在 `{BRANCH}` 上失败了。这张单跟踪它直到实际恢复：之后每次失败追加评论，失败作业及步骤在之后的成功运行中全部通过才自动关闭。范围跳过不算恢复；无法识别失败步骤时需维护者确认关闭。",
         "",
         f"- 运行：{run_link(run)}{attempt}，{run['event']}，{run['created_at']}",
@@ -366,6 +395,7 @@ def main(argv=None):
     commands = parser.add_subparsers(dest="command", required=True)
     red = commands.add_parser("red-build", help="open, update or close the tracking issue of one completed workflow run")
     red.add_argument("--run-id", required=True)
+    red.add_argument("--run-attempt", type=int, help="workflow_run 事件对应的 attempt，避免被后续重跑覆盖")
     size = commands.add_parser("apk-size", help="open, update or close the APK size tracking issue from the size reports")
     size.add_argument("--reports", required=True, help="directory holding the build-apk.sh size reports (*.json)")
     size.add_argument("--editions", required=True, help="comma-separated editions the run was expected to measure")
@@ -377,7 +407,7 @@ def main(argv=None):
         parser.error("GITHUB_REPOSITORY must name the repository (owner/name)")
     api = GitHub(repository)
     if args.command == "red-build":
-        track_red_build(api, args.run_id, os.environ.get("GITHUB_SERVER_URL", "https://github.com"))
+        track_red_build(api, args.run_id, os.environ.get("GITHUB_SERVER_URL", "https://github.com"), args.run_attempt)
     else:
         track_apk_size(api, args.reports, [edition for edition in args.editions.split(",") if edition], args.run_url, args.sha)
     return 0

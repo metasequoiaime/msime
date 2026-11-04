@@ -77,6 +77,10 @@ class FakeGitHub:
         return [{"number": number, "title": issue["title"], "body": issue["body"]}
                 for number, issue in self.issues.items() if issue["state"] == "open" and label in issue["labels"]]
 
+    def closed_issues(self, label):
+        return [{"number": number, "title": issue["title"], "body": issue["body"]}
+                for number, issue in self.issues.items() if issue["state"] == "closed" and label in issue["labels"]]
+
     def comments(self, number):
         return list(self.issues[number]["comments"])
 
@@ -385,6 +389,87 @@ class RedBuild(unittest.TestCase):
         self.api.workflow_runs = lambda workflow: [self.api.runs[13]]
         self.track(13)
         self.assertEqual(self.api.issues[1]["state"], "open", "最早未恢复的 Android 作业也必须保留证据")
+
+    def test_coalesced_failures_on_an_open_issue_survive_the_history_window(self):
+        self.api.add_run(11, 21, "failure")
+        self.api.jobs_by_run[11] = [self.api.jobs_by_run[11][0]]
+        self.track(11)
+        self.api.add_run(12, 22, "failure")
+        self.api.jobs_by_run[12] = [self.api.jobs_by_run[12][2]]
+        self.api.add_run(13, 23, "failure")
+        self.api.jobs_by_run[13] = [self.api.jobs_by_run[13][0]]
+        self.track(13)
+        self.api.add_run(14, 24, "success")
+        self.api.jobs_by_run[14] = [self.api.jobs_by_run[14][0]]
+        self.api.workflow_runs = lambda workflow: [self.api.runs[14]]
+        self.track(14)
+        self.assertEqual(self.api.issues[1]["state"], "open", "乱序合并处理不能丢掉中间未恢复的 Linux 失败")
+        comments = list(self.api.issues[1]["comments"])
+        self.track(14)
+        self.assertEqual(self.api.issues[1]["comments"], comments, "保存全部失败后重复事件仍不追加评论")
+        self.api.add_run(15, 25, "success")
+        self.api.jobs_by_run[15] = [self.api.jobs_by_run[15][2]]
+        self.api.workflow_runs = lambda workflow: [self.api.runs[15]]
+        self.track(15)
+        self.assertEqual(self.api.issues[1]["state"], "closed")
+
+    def test_delayed_failure_outside_history_window_is_not_lost_to_latest_success(self):
+        self.api.add_run(11, 21, "failure")
+        self.api.jobs_by_run[11] = [self.api.jobs_by_run[11][0]]
+        self.track(11)
+        self.api.add_run(12, 22, "failure")
+        self.api.jobs_by_run[12] = [self.api.jobs_by_run[12][2]]
+        self.api.add_run(200, 200, "success")
+        self.api.jobs_by_run[200] = [self.api.jobs_by_run[200][0]]
+        self.api.workflow_runs = lambda workflow: [self.api.runs[200]]
+        self.track(12)
+        self.assertEqual(self.api.issues[1]["state"], "open", "迟到事件本身的失败也必须参与恢复判定")
+
+    def test_known_failure_on_manually_closed_issue_does_not_pollute_new_issue(self):
+        self.api.add_run(11, 21, "failure")
+        self.api.jobs_by_run[11] = [self.api.jobs_by_run[11][0]]
+        self.track(11)
+        self.api.issues[1]["state"] = "closed"
+        self.api.add_run(12, 22, "failure")
+        self.api.jobs_by_run[12] = [self.api.jobs_by_run[12][2]]
+        self.track(12)
+        self.assertNotIn("run=11 attempt=1", self.api.issues[2]["body"])
+        self.api.add_run(13, 23, "success")
+        self.api.jobs_by_run[13] = [self.api.jobs_by_run[13][2]]
+        self.track(13)
+        self.assertEqual(self.api.issues[2]["state"], "closed")
+
+    def test_unreported_event_attempt_is_preserved_after_a_rerun(self):
+        self.api.add_run(11, 21, "failure")
+        self.api.jobs_by_run[11] = [self.api.jobs_by_run[11][2]]
+        self.api.jobs(11, 1)
+        self.api.add_run(11, 21, "success", attempt=2)
+        self.api.jobs_by_run[11] = [self.api.jobs_by_run[11][0]]
+        quiet(TRACKER.track_red_build, self.api, 11, run_attempt=1)
+        self.assertEqual(self.api.issues[1]["state"], "open", "尚未上报的旧 attempt 不能被重跑成功覆盖")
+        self.assertIn("run=11 attempt=1", self.api.issues[1]["body"])
+
+    def test_unreported_unknown_failure_is_not_cleared_by_a_scope_only_success(self):
+        self.api.add_run(11, 21, "startup_failure")
+        self.api.jobs_by_run[11] = []
+        self.api.add_run(12, 22, "success")
+        self.api.jobs_by_run[12] = []
+        self.track(12)
+        self.assertEqual(self.api.issues[1]["state"], "open")
+
+    def test_old_attempt_from_closed_issue_cannot_pollute_open_rerun_issue(self):
+        self.api.add_run(11, 21, "failure")
+        self.api.jobs_by_run[11] = [self.api.jobs_by_run[11][0]]
+        self.track(11)
+        self.api.issues[1]["state"] = "closed"
+        self.api.add_run(11, 21, "failure", attempt=2)
+        self.api.jobs_by_run[11] = [self.api.jobs_by_run[11][2]]
+        self.track(11)
+        quiet(TRACKER.track_red_build, self.api, 11, run_attempt=1)
+        self.api.add_run(11, 21, "success", attempt=3)
+        self.api.jobs_by_run[11] = [self.api.jobs_by_run[11][2]]
+        self.track(11)
+        self.assertEqual(self.api.issues[2]["state"], "closed")
 
     def test_workflow_filter_and_concurrency(self):
         text = WORKFLOW.read_text(encoding="utf-8")
