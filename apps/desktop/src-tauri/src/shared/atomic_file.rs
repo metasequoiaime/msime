@@ -243,13 +243,13 @@ pub(crate) fn open_private_directory(parent: &Path) -> io::Result<OwnedFd> {
         | rustix::fs::OFlags::NOFOLLOW
         | rustix::fs::OFlags::CLOEXEC
         | rustix::fs::OFlags::NONBLOCK;
-    // 沿途的祖先目录只需要搜索权限（`x`）。Android 只给应用 `/data` 和 `/data/user` 的 `x`、不给 `r`，按 `RDONLY` 逐级打开会在走到应用自己的目录之前就 EACCES。Linux 和 Android 用 `O_PATH` 只凭搜索权限打开祖先，`NOFOLLOW` 照样拒绝符号链接；走完后再用 `flags` 重新打开目录本身，调用方拿到的描述符和以前一样。
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    // 沿途的祖先目录只需要搜索权限（`x`）。Android 只给应用 `/data` 和 `/data/user` 的 `x`、不给 `r`，按 `RDONLY` 逐级打开会在走到应用自己的目录之前就 EACCES。Linux 用 `O_PATH` 只凭搜索权限打开祖先，`NOFOLLOW` 照样拒绝符号链接；走完后再用 `flags` 重新打开目录本身，调用方拿到的描述符和以前一样。
+    #[cfg(target_os = "linux")]
     let search = rustix::fs::OFlags::PATH
         | rustix::fs::OFlags::DIRECTORY
         | rustix::fs::OFlags::NOFOLLOW
         | rustix::fs::OFlags::CLOEXEC;
-    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    #[cfg(not(target_os = "linux"))]
     let search = flags;
     let absolute = parent.is_absolute();
     let mut directory = rustix::fs::open(
@@ -420,7 +420,7 @@ mod private_open_tests {
     }
 
     // 模拟 Android 的 `/data` 和 iOS 沙盒里 App Group 容器的祖先：祖先目录只有搜索权限、没有读权限，它下面的应用私有目录照样要能打开。以 root 运行时权限检查不生效，这条测试只在普通用户下有区分度。
-    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
     #[test]
     fn private_directory_opens_below_a_search_only_ancestor() {
         use super::{open_private_directory, open_private_fd};

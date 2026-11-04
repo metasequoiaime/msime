@@ -67,10 +67,7 @@ fi
 for abi in "${abis[@]}"; do bash platforms/android/build-native.sh "$abi" ${native_flags[@]+"${native_flags[@]}"}; done
 abi_list=$(IFS=,; echo "${abis[*]}")
 
-# The host is a Gradle build now: it uses AndroidX and Material, and those ship as AARs whose
-# resources have to be merged and whose R classes have to be generated per package. The previous
-# aapt2/d8 pipeline had no dependency resolution at all, so every one of those steps would have been
-# hand-rolled here. Gradle and AGP are pinned to the versions the Tauri bundle already resolves.
+# 宿主用 Gradle 构建：AndroidX 和 Material 以 AAR 发布，资源要合并，R 类要按包生成。以前的 aapt2/d8 流程完全没有依赖解析，这些步骤都得在这里手写。Gradle 用 gradle-app 自带的 wrapper（8.14.3），AGP 版本固定在 gradle-app/build.gradle.kts。
 assets="$repo_root/target/android/host-assets"
 rm -rf "$assets"
 mkdir -p "$assets/dictionary"
@@ -207,13 +204,13 @@ if [ "${MSIME_REQUIRE_WORDBOOKS:-0}" = 1 ]; then
 fi
 
 gradle_dir="$repo_root/platforms/android/gradle-app"
-tauri_gradlew="$repo_root/apps/desktop/src-tauri/gen/android/gradlew"
-[[ -x "$tauri_gradlew" ]] || { echo "Gradle wrapper required; run the Tauri Android init once" >&2; exit 1; }
+gradlew="$gradle_dir/gradlew"
+[[ -x "$gradlew" ]] || { echo "Gradle wrapper required at $gradlew" >&2; exit 1; }
 # The APK's versionName comes from version.txt; MSIME_ANDROID_VERSION (the release workflow's version input) overrides it.
 version_args=()
 [[ -n "${MSIME_ANDROID_VERSION:-}" ]] && version_args+=("-PmsimeVersion=$MSIME_ANDROID_VERSION")
 if [ "$distribution" = play ]; then gradle_task="bundle${flavor}Release"; else gradle_task="assemble${flavor}Release"; fi
-ANDROID_HOME="$android_sdk" "$tauri_gradlew" --project-dir "$gradle_dir" --console=plain "-PmsimeAbis=$abi_list" "-PmsimeDistribution=$distribution" ${version_args[@]+"${version_args[@]}"} "$gradle_task"
+ANDROID_HOME="$android_sdk" "$gradlew" --project-dir "$gradle_dir" --console=plain "-PmsimeAbis=$abi_list" "-PmsimeDistribution=$distribution" ${version_args[@]+"${version_args[@]}"} "$gradle_task"
 
 # 签名密钥的选择（发布、beta、本地构建都用同一把发布密钥）见 scripts/signing.sh。
 source "$repo_root/platforms/android/scripts/signing.sh"

@@ -221,7 +221,7 @@ scope_classify() {
     platforms/windows/* | scripts/test-windows-*.py) echo windows; echo named ;;
     crates/host-windows/*) echo windows desktop ;;
     crates/host-macos/*) echo macos desktop ;;
-    apps/desktop/* | crates/tauri-mobile-platform/* | crates/ios-native-ffi/*) echo desktop ;;
+    apps/desktop/*) echo desktop ;;
     packages/ui/*) echo desktop harmony ;;
     platforms/harmony/* | apps/harmony/* | scripts/test-harmony-*.py) echo harmony; echo named ;;
     platforms/android/* | scripts/test-android-*.py) echo android; echo named ;;
@@ -469,43 +469,6 @@ else
   [ "${PIPESTATUS[0]}" -eq 0 ] || fail "cargo check"
 fi
 
-note "compile: android target"
-# cargo check --workspace above only ever sees the host target, so every
-# `#[cfg(target_os = "android")]` branch in msime-desktop is invisible to it.
-# Ten compile errors accumulated behind that and only surfaced when someone
-# tried to build the APK: a duplicated block, a moved value, a missing match
-# arm, three private types the generated command handler could not name, and
-# imports gated for the wrong targets. Checking the target here is what makes
-# the next one fail in a minute instead of at packaging time.
-#
-# Skipped rather than required: it needs the pinned NDK and the Rust Android target, the same way the native phases below skip when unconfigured.
-# The SDK's default location counts as configuration too. Neither ANDROID_SDK_ROOT nor ANDROID_HOME is set by the Android Studio installer on macOS, so a machine with the pinned NDK and the Rust target still skipped this phase - which reads as "not available here" when everything it needs is sitting in the standard directory.
-android_sdk=${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}
-if [ -z "$android_sdk" ] && [ -d "$HOME/Library/Android/sdk" ]; then
-  android_sdk="$HOME/Library/Android/sdk"
-fi
-android_ndk=${MSIME_ANDROID_NDK:-$android_sdk/ndk/28.2.13676358}
-case $(uname -s) in
-  Darwin) android_host_tag=darwin-x86_64 ;;
-  Linux) android_host_tag=linux-x86_64 ;;
-  *) android_host_tag="" ;;
-esac
-android_clang="$android_ndk/toolchains/llvm/prebuilt/$android_host_tag/bin/aarch64-linux-android28-clang"
-if ! scoped desktop android; then
-  :
-elif [ -n "$android_host_tag" ] && [ -x "$android_clang" ] \
-  && grep -q '^aarch64-linux-android$' <<< "$(rustup target list --installed 2>/dev/null)"; then
-  env "CC_aarch64_linux_android=$android_clang" \
-    "CXX_aarch64_linux_android=${android_clang}++" \
-    "AR_aarch64_linux_android=$android_ndk/toolchains/llvm/prebuilt/$android_host_tag/bin/llvm-ar" \
-    "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$android_clang" \
-    "ANDROID_NDK_HOME=$android_ndk" "MSIME_ANDROID_NDK=$android_ndk" \
-    cargo check -p msime-desktop --target aarch64-linux-android --lib --locked 2>&1 | tail -3
-  [ "${PIPESTATUS[0]}" -eq 0 ] || fail "cargo check --target aarch64-linux-android"
-else
-  echo "skipped: pinned NDK or aarch64-linux-android target not present"
-fi
-
 note "compile: wasm target"
 # 网页内置输入法的引擎（msime-engine-wasm）只在 wasm32-unknown-unknown 上编译 `bindings.rs`，上面主机目标的 `cargo check --workspace` 看不到它，clippy 也只有在这里才会检查到它。和 android 一样，缺目标或缺工具链时跳过而不是失败：需要 Rust 的 wasm32-unknown-unknown 目标，以及能编 wasm 的 LLVM clang 和 llvm-ar（SQLite 是 C 代码；Apple 的 ar 会产出空的 libwsqlite3.a，Apple clang 不认 wasm32）。
 wasm_cc="${CC_wasm32_unknown_unknown:-}"
@@ -541,6 +504,11 @@ fi
 # panels and two dozen policy classes with their own smoke tests. check-host.sh compiles all of it
 # against the SDK's android.jar and runs those tests, and it needs no device.
 note "android host java"
+# 不设 ANDROID_SDK_ROOT 或 ANDROID_HOME 时也认 SDK 的默认位置：macOS 上 Android Studio 的安装器不设这两个变量，SDK 明明就在标准目录里，这一阶段却会跳过，读起来像「这台机器上没有」。
+android_sdk=${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}
+if [ -z "$android_sdk" ] && [ -d "$HOME/Library/Android/sdk" ]; then
+  android_sdk="$HOME/Library/Android/sdk"
+fi
 if ! scoped android; then
   :
 elif [ -n "$android_sdk" ] && [ -d "$android_sdk/platforms" ]; then
@@ -1029,16 +997,12 @@ if python3 scripts/fetch_neural_model.py --out "$root/target/neural-model" > "$c
 else
   echo "neural model tests: skipped ($(tail -1 "$collected.neural-model"))"
 fi
-# msime-host-macos and msime-desktop were missing from this list, and a crate nobody tests is not the
-# worst of it: cargo's exit status is not the verdict here (known failures make it non-zero), so a crate that does not build at
-# all collects no failing names and is reported as being at baseline. msime-desktop did not link on macOS
-# for that reason, and its 86 tests had never run. msime-engine and msime-tauri-mobile-platform
-# were missing too, and nothing else runs their tests on the host target.
+# msime-host-macos 和 msime-desktop 曾经不在这个列表里，而没人测还不是最糟的：这里不以 cargo 的退出码为准（已知失败会让它非零），一个根本编不过的 crate 收集不到任何失败的测试名，会被报告成处于基线。msime-desktop 在 macOS 上就这样链接不了，它的 86 个测试从没跑过。msime-engine 当时也不在，主机 target 上没有别的地方跑它的测试。
 # msime-clipboard-relay 也不在 default-members 里，其他地方都不跑它的测试；它的端到端测试在 127.0.0.1 上起参考中继，用真正的客户端驱动连它。
 # msime-pack-tool 的 run、sdk、validate 各有集成测试；构建插件工具不能代替执行它们。
 # 词库构建器不在 `default-members` 中，工作区编译也不能替代它的词库生成与校验测试。
 for package in msime-path-trust msime-client-base msime-client-core msime-client-providers msime-client-services msime-engine msime-engine-wasm msime-host-api msime-input-runtime msime-host-windows \
-  msime-host-macos msime-mcp-server msime-tauri-mobile-platform msime-clipboard-relay msime-script-runtime msime-pack-tool msime-dict-builder msime-desktop; do
+  msime-host-macos msime-mcp-server msime-clipboard-relay msime-script-runtime msime-pack-tool msime-dict-builder msime-desktop; do
   # A package that does not build produces no failing test names, which reads as "at baseline" - which is
   # how msime-desktop went unbuildable on macOS without anything noticing. Say so instead.
   status=0 build_failed=0
@@ -1090,7 +1054,7 @@ note "clippy: first-party crates"
 # "frontend not built" indistinguishable on a developer machine.
 clippy_failed=""
 for crate in msime-path-trust msime-client-base msime-client-core msime-client-providers msime-client-services msime-engine msime-engine-wasm msime-host-api msime-host-macos \
-             msime-host-windows msime-input-runtime msime-mcp-server msime-tauri-mobile-platform msime-script-runtime msime-script-sdk msime-pack-tool msime-dict-builder msime-clipboard-relay; do
+             msime-host-windows msime-input-runtime msime-mcp-server msime-script-runtime msime-script-sdk msime-pack-tool msime-dict-builder msime-clipboard-relay; do
   cargo clippy -p "$crate" --all-targets -- -D warnings >/dev/null 2>&1 ||
     clippy_failed="$clippy_failed  $crate"$'\n'
 done

@@ -529,6 +529,7 @@ CMetasequoiaIME::CMetasequoiaIME()
     _passthroughStatsMessageTime = 0;
     _shiftHotkeyArmed = false;
     _ctrlHotkeyArmed = false;
+    _staleModifierMaskAfterFocusLoss = 0;
     _modifierHotkeyExpire = {};
     _bareShiftHook = nullptr;
     _bareShiftDownMask = 0;

@@ -3,6 +3,7 @@
 //! The setters the product only sets at construction (`switch_scheme`, `set_helpcode_schema`, `set_helpcode_enabled`, `set_wubi_mixed_pinyin`, `set_personal_context_enabled`) and `candidate_key` stay public because the golden scenarios drive them. Learning undo (`set_learning_undo_enabled`, `forget_recent_commits`) is dropped.
 
 mod candidates;
+mod cantonese_learning;
 mod caret_edit;
 mod chain;
 mod clock;
@@ -160,6 +161,9 @@ impl Session {
         self.candidates_may_change();
         self.prediction.clear();
         let touch = self.input.pending_touch.take();
+        if let Some(result) = self.input.edit_pending_glide(value) {
+            return result;
+        }
         // English is a mode rather than a scheme, so the grid stays available in it: the same digits spell words instead of syllables. A local mode still takes the keys, and the scheme underneath must be quanpin: 拼音九宫格只认得全拼音节，注音九键走注音编辑器。九键双拼没有英文九键，专用英文里数字照常是数字。
         let grid_digit = match self.key_grid {
             Some(KeyGrid::NineKey) => (b'2'..=b'9').contains(&value),
@@ -214,6 +218,26 @@ impl Session {
             return KeyResult::unhandled();
         }
         self.input.glide(keyboard, points)
+    }
+
+    /// 一笔同时提供全拼与英文的完整候选；只在全拼字母层使用，不改变会话模式。
+    pub fn bilingual_glide(
+        &mut self,
+        keyboard: &GlideKeyboard,
+        points: &[GlidePoint],
+    ) -> KeyResult {
+        self.candidates_may_change();
+        self.prediction.clear();
+        self.input.pending_touch = None;
+        if self.key_grid.is_some() {
+            return KeyResult::unhandled();
+        }
+        self.input.bilingual_glide(keyboard, points)
+    }
+
+    /// 混合滑行的未确认组字只接受明确选词，不由宿主边界隐式上屏。
+    pub fn requires_candidate_selection(&self) -> bool {
+        self.input.glide_selection_pending && self.input.has_composition()
     }
 
     /// 上一次 [`Session::set_key_grid`]（或 [`Session::set_nine_key_enabled`]）设下的组码网格，`None` 是不用网格；新会话是 `None`。网格开着时硬件键盘的字母照样走 26 键，要知道这次组字是不是在网格里打的，看 [`Session::grid_composing`]。
@@ -330,6 +354,15 @@ impl Session {
 
     /// 一条编辑命令。`CommitRaw` 原样上屏，专用英文里打的词学进英文词库（`SessionOptions::learn_english_on_enter`），`learn_typed_spellings_on_enter` 打开时还学临时模式与拼不成音节的拼音；`CommitRawWithoutLearning` 原样上屏、不学英文词。规则见 `session/raw_commit.rs`。
     pub fn command(&mut self, command: Command) -> KeyResult {
+        if self.requires_candidate_selection()
+            && matches!(
+                command,
+                Command::CommitRaw | Command::CommitRawWithoutLearning | Command::CommitReading
+            )
+        {
+            self.input.pending_touch = None;
+            return KeyResult::handled();
+        }
         match command {
             Command::CommitRawWithoutLearning => self.commit_raw_without_learning(),
             Command::CommitRaw if self.learn_typed_spellings_on_enter => {
@@ -399,6 +432,13 @@ impl Session {
 
     /// Finishes the composition and appends the Chinese mark; unhandled when Chinese punctuation is off or locked to ASCII, or the key has no mark.
     pub fn punctuation(&mut self, value: u8) -> KeyResult {
+        if self.requires_candidate_selection() {
+            self.input.pending_touch = None;
+            return self
+                .input
+                .edit_pending_glide(value)
+                .unwrap_or_else(KeyResult::handled);
+        }
         self.candidates_may_change();
         self.prediction.clear();
         self.input.pending_touch = None;

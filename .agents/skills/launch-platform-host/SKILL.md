@@ -110,7 +110,7 @@ bash platforms/android/verify-native.sh "$READELF" target/android/jniLibs/arm64-
 ```
 
 - vcpkg 树跨 worktree 共享，并发构建会撞 `Failed to take the filesystem lock / Resource busy`，等一会儿重试。
-- 两个 APK 同包名同输出路径：`build-apk.sh` 是无 WebView 的原生壳，`build-client-apk.sh` 是 Tauri 合包。哪一个都不是「那个 Android 应用」。
+- APK 只有 `build-apk.sh` 一个入口，产物是无 WebView 的原生宿主；Tauri 合包（`build-client-apk.sh`）从没发布过，已经删掉。
 - 不需要 NDK 的纯 Java 门禁：`ANDROID_SDK_ROOT=… bash platforms/android/check-host.sh`。它同一次运行里还会用 NDK 对 `client_jni.cpp` 做 `-fsyntax-only`——那是唯一能抓出 Java `native` 声明与 C++ 导出不匹配的地方，没有 NDK 时它跳过并打印提示。
 
 ## HarmonyOS

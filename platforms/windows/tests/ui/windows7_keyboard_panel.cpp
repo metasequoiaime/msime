@@ -1,5 +1,6 @@
 #include "../../panels/win7/KeyboardWindow.h"
 #include "../../settings/win7/PreferencesStore.h"
+#include "../../settings/win7/SurfaceLauncher.h"
 #include <cassert>
 #include <cstdio>
 #include <fstream>
@@ -30,6 +31,14 @@ void pump(const std::function<bool()>& condition) {
 }
 }
 int main() {
+  // 键盘面板的「语音」「设置」按钮经 launch_surface 打开别的程序：Win7 包里是两个 -win7 程序，现代包里是旁边的 WinUI 设置和原生面板宿主自己。
+#if defined(MSIME_PANELS_MODERN_WINDOWS) && MSIME_PANELS_MODERN_WINDOWS
+  assert(std::wstring_view(surface_executable_name("settings:screen-keyboard")) == L"msime-client-settings.exe");
+  assert(std::wstring_view(surface_executable_name("voice")) == L"msime-client-panels.exe");
+#else
+  assert(std::wstring_view(surface_executable_name("settings:screen-keyboard")) == L"msime-client-settings-win7.exe");
+  assert(std::wstring_view(surface_executable_name("voice")) == L"msime-client-panels-win7.exe");
+#endif
   TemporaryState temporary;
   Environment state(L"MSIME_CLIENT_STATE_DIR",temporary.path), options(L"MSIME_CLIENT_HOST_OPTIONS",temporary.path / L"runtime-options.json");
   PreferencesStore store(temporary.path.u8string()); auto initial = store.load(); assert(initial.snapshot);

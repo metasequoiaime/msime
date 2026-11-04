@@ -689,6 +689,20 @@ impl Session {
         Ok(result_for(self.inner.glide(keyboard, points)))
     }
 
+    /// 可选的中英混合滑行；共享内核持有候选与选词状态。
+    pub fn bilingual_glide(
+        &mut self,
+        keyboard: &GlideKeyboard,
+        points: &[GlidePoint],
+    ) -> Result<EngineResult> {
+        Ok(result_for(self.inner.bilingual_glide(keyboard, points)))
+    }
+
+    /// 宿主编排不能替混合滑行选择默认候选。
+    pub fn requires_candidate_selection(&self) -> bool {
+        self.inner.requires_candidate_selection()
+    }
+
     /// Out of range is unhandled.
     pub fn choose_nine_key_spelling(&mut self, index: usize) -> Result<EngineResult> {
         Ok(result_for(self.inner.choose_nine_key_spelling(index)))
