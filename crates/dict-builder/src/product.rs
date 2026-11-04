@@ -93,7 +93,7 @@ struct FileEntry {
     size: u64,
 }
 
-fn git(repository: &Path, arguments: &[&str]) -> Result<String> {
+pub(crate) fn git(repository: &Path, arguments: &[&str]) -> Result<String> {
     let output = Command::new("git")
         .arg("-C")
         .arg(repository)
@@ -110,7 +110,7 @@ fn git(repository: &Path, arguments: &[&str]) -> Result<String> {
     Ok(String::from_utf8(output.stdout)?.trim().to_owned())
 }
 
-/// 构建所在的 msime 提交，以及构建器或其输入是否有未提交改动：检查 msime checkout，有 `--dictionary` 时还检查 msime-dictionary checkout 的 `sources/`、`custom/` 和 `upstream.lock.json`。
+/// 构建所在的 msime 提交，以及构建器或其输入是否有未提交改动：检查 msime checkout，有 `--dictionary` 时还检查 msime-dictionary checkout 的 `sources/`、`custom/`、`curation/` 和 `upstream.lock.json`。
 fn provenance(repository: &Path, dictionary: Option<&Path>) -> Result<Provenance> {
     let commit = git(repository, &["rev-parse", "HEAD"])?;
     let changes = git(
@@ -135,6 +135,7 @@ fn provenance(repository: &Path, dictionary: Option<&Path>) -> Result<Provenance
                 "--",
                 "sources",
                 "custom",
+                "curation",
                 crate::sources::UPSTREAM_LOCK,
             ],
         )?;

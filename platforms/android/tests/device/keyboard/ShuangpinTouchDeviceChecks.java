@@ -126,28 +126,38 @@ final class ShuangpinTouchDeviceChecks {
             if (plainMarked) throw new AssertionError("没有按下点时不该有候选带「已纠正」标记");
 
             // 冻结词级评测中的误触：小鹤 ai vg（癌症）按成 ai vv，最后一键落在 v 的上缘。
-            t.stage = "shuangpin touch: a short correction consumes all four pressed keys";
+            t.stage = "shuangpin touch: short correction plain key clicks";
             for (String key : new String[] {"a", "i", "v", "v"}) t.tap(t.key(key));
+            t.stage = "shuangpin touch: short correction plain raw input";
             awaitField("aivv");
             Predicate<AccessibilityNodeInfo> first = node -> node.isClickable()
                 && node.getContentDescription() != null
                 && node.getContentDescription().toString().startsWith("候选 1：");
             // 产品可能没有评测用的小模型，保留这次设备自己的字面首选。
+            t.stage = "shuangpin touch: short correction plain first candidate";
             String plainFirst = t.await(first).getContentDescription().toString();
+            t.stage = "shuangpin touch: short correction absent without touch-downs";
             boolean plainShortShows = visible(candidate("癌症"));
+            t.stage = "shuangpin touch: short correction clear plain input";
             clear(4);
             if (plainShortShows) throw new AssertionError("没有按下点时不该补入短词纠错");
             String[] shortKeys = {"a", "i", "v", "v"};
             int[][] offsets = {{-3, 0}, {1, -4}, {7, -1}, {0, -9}};
+            t.stage = "shuangpin touch: short correction touched key input";
             for (int index = 0; index < shortKeys.length; index++) {
                 Rect key = bounds(shortKeys[index]);
                 touch(key.exactCenterX() + offsets[index][0] * key.width() / 20f,
                     key.exactCenterY() + offsets[index][1] * key.height() / 20f);
             }
+            t.stage = "shuangpin touch: short correction touched raw input";
             awaitField("aivv");
+            t.stage = "shuangpin touch: short correction unchanged first candidate";
             t.await(first.and(node -> plainFirst.equals(node.getContentDescription().toString())));
+            t.stage = "shuangpin touch: short correction candidate click";
             t.tap(candidate("癌症").and(node -> node.getContentDescription().toString().contains("，提示：aivv")));
+            t.stage = "shuangpin touch: short correction commits all four pressed keys";
             awaitField("癌症");
+            t.stage = "shuangpin touch: short correction clear committed text";
             clear(2);
 
             t.stage = "shuangpin touch: Microsoft double-pinyin registers its ; key";

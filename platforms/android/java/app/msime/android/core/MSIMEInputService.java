@@ -2609,6 +2609,7 @@ public final class MSIMEInputService extends InputMethodService {
         clearSmartPunctuationSnapshots();
         deactivateHandwriting();
         invalidateOnlineProviders();
+        cancelPauseRerank();
         invalidateCandidateGlosses();
         if (!keepSession) stopSessionState();
         else clearEnglishSuggestions();
@@ -2838,6 +2839,8 @@ public final class MSIMEInputService extends InputMethodService {
             // 会把它画在组字与候选条的读音前面，两件事必须一起做：请求了却不画，用户已经选中的字
             // 既不在文档里也不在屏幕上（scripts/test-phrase-preedit-hosts.py 守的就是这一半状态）。
             options.put("phrase_preedit", true);
+            // 这个宿主在停顿时调 startSettledRerank（schedulePauseRerank）：跑不进逐键预算的设备上，host-api 把整句联想「增强」的模型延后到停顿时用。
+            options.put("pause_rerank", true);
             // 没读到实时偏好时（读取失败、建会话的回退路径、没有偏好目录），选项里的偏好是出厂默认的全拼 26 键副本，九键用户的键盘会先跳回 26 键（#10389）。按上次确认的键面把副本换成九键：引擎从九键网格起来，键面照旧只按引擎视图画，画的九键和引擎一致，网格键能打字。实时偏好随后到达时照常换成用户的真实设置。
             JSONObject startupPreferences = livePreferences == null ? options.optJSONObject("preferences") : null;
             boolean hintedPreferences = false;
@@ -4882,6 +4885,38 @@ public final class MSIMEInputService extends InputMethodService {
         };
         main.postDelayed(onlineTask, OnlineCandidatePolicy.QUIET_INTERVAL_MILLIS);
     }
+
+    private final PauseRerankController<JSONObject> pauseRerank = new PauseRerankController<>(
+        new PauseRerankController.Scheduler() {
+            @Override public void post(Runnable task, long delay) { main.postDelayed(task, delay); }
+            @Override public void remove(Runnable task) { main.removeCallbacks(task); }
+        }, new PauseRerankController.Bridge<>() {
+            @Override public PauseRerankController.Reply<JSONObject> start(long handle) throws JSONException {
+                return pauseRerankReply(NativeClient.startSettledRerank(handle));
+            }
+            @Override public PauseRerankController.Reply<JSONObject> poll(long handle, long token,
+                    boolean accept) throws JSONException {
+                return pauseRerankReply(NativeClient.pollSettledRerank(handle, token, accept));
+            }
+        }, () -> session, next -> {
+            view = next;
+            if (!renderingSuppressed) render();
+        }, () -> android.util.Log.w("MSIMEHost", "Pause rerank failed"));
+
+    private PauseRerankController.Reply<JSONObject> pauseRerankReply(String response) throws JSONException {
+        JSONObject result = value(response);
+        return new PauseRerankController.Reply<>(InputViewValuePolicy.text(result, "status"),
+            NumberPolicy.strictLong(result.opt("token"), 0),
+            InputViewValuePolicy.booleanValue(result, "moved", false), result.optJSONObject("view"));
+    }
+
+    private void schedulePauseRerank() {
+        JSONArray rows = view == null ? null : view.optJSONArray("candidates");
+        pauseRerank.schedule(view != null && !InputViewValuePolicy.editingText(view).isEmpty()
+            && rows != null && rows.length() >= 2);
+    }
+
+    private void cancelPauseRerank() { pauseRerank.cancel(); }
 
     /** 在线 worker 执行网络请求；失败时释放仍属于本请求的签名。 */
     private void fetchOnlineCandidates(long targetSession, String document, long epoch,
@@ -12669,6 +12704,7 @@ public final class MSIMEInputService extends InputMethodService {
         scheduleCandidateTranslations();
         scheduleUserCandidateTranslations();
         scheduleOnlineProviders();
+        schedulePauseRerank();
         if (candidates == null) {
             imeStyler.applySkin();
             imeToolbar.styleTopRow();

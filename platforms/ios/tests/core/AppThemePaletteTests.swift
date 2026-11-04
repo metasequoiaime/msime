@@ -17,7 +17,7 @@ final class AppThemePaletteTests: XCTestCase {
     super.tearDown()
   }
 
-  // 期望值取自设计稿的 token 表，与 Android 的 `AppThemePaletteSmoke` 检查的是同一组（秋季的键盘背景、按键和功能键、启动页背景）。
+  // 期望值取自设计稿的 token 表，用的是改色之前的秋杉种子（`#B5562B`、`#F6E9DC`）：它混出的按键色有一个通道恰好落在 249.5，现在的种子没有，所以用它钉住取整（键盘背景、按键和功能键、启动页背景）。
   func testMixMatchesTheDesignTokens() throws {
     let accent = try color("#B5562B"), background = try color("#F6E9DC")
     XCTAssertEqual(hex(AppThemePalette.mix(accent, 12, background)), "#EED7C7FF")
@@ -47,12 +47,13 @@ final class AppThemePaletteTests: XCTestCase {
     let dark = try XCTUnwrap(AppThemePalette.resolved(dark: true))
     XCTAssertEqual(light.id, "siji")
     XCTAssertEqual(light.season, "autumn")
-    XCTAssertEqual(hex(light.accent), "#B5562BFF")
-    XCTAssertEqual(hex(light.background), "#F6E9DCFF")
-    XCTAssertEqual(hex(light.card), "#FFFBF6FF")
-    XCTAssertEqual(hex(dark.accent), "#F0975FFF")
-    XCTAssertEqual(hex(dark.background), "#21150FFF")
-    XCTAssertEqual(hex(dark.card), "#2E1E15FF")
+    XCTAssertEqual(hex(light.accent), "#B07800FF")
+    XCTAssertEqual(hex(light.background), "#FAF5E8FF")
+    XCTAssertEqual(hex(light.card), "#FFFDF6FF")
+    XCTAssertEqual(hex(light.onAccent), "#1A1200FF")
+    XCTAssertEqual(hex(dark.accent), "#F3C14FFF")
+    XCTAssertEqual(hex(dark.background), "#1C1910FF")
+    XCTAssertEqual(hex(dark.card), "#28241AFF")
   }
 
   func testChangingTheSeasonBumpsTheVersionAndPosts() {

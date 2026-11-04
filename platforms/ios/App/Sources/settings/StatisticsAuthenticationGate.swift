@@ -22,7 +22,7 @@ struct StatisticsAuthenticationGate<Content: View>: View {
             ProgressView("正在验证…")
           } else {
             Button("验证身份") { authentication.authenticate(enabled: enabled) }
-              .buttonStyle(.borderedProminent)
+              .buttonStyle(.borderedProminent).foregroundStyle(MetasequoiaTheme.onAccent)
           }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

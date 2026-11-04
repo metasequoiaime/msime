@@ -104,7 +104,7 @@ struct VoiceSessionView: View {
       Button { Task { await service.activate() } } label: {
         Text("重试").font(.system(size: 16, weight: .semibold)).frame(minWidth: 120).padding(.vertical, 4)
       }
-      .buttonStyle(.borderedProminent)
+      .buttonStyle(.borderedProminent).foregroundStyle(MetasequoiaTheme.onAccent)
       .tint(MetasequoiaTheme.accent)
       Button("打开系统设置") {
         guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
@@ -116,7 +116,7 @@ struct VoiceSessionView: View {
       Button { Task { await service.activate() } } label: {
         Text("重新开启").font(.system(size: 16, weight: .semibold)).frame(minWidth: 120).padding(.vertical, 4)
       }
-      .buttonStyle(.borderedProminent)
+      .buttonStyle(.borderedProminent).foregroundStyle(MetasequoiaTheme.onAccent)
       .tint(MetasequoiaTheme.accent)
     case .starting, .ready:
       EmptyView()
