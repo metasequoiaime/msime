@@ -68,7 +68,8 @@ public:
       const int start = top;
       profile_ = choice(scheme_shuangpin_profile, L"双拼方案", profiles());
       hint_ = check(scheme_shuangpin_hint, L"输入时显示双拼键位提示");
-      preedit_ = choice(scheme_shuangpin_preedit, L"双拼预编辑", {{"raw", L"原始按键"}, {"pinyin", L"拼音分词"}});
+      // 三档的顺序与 input::shuangpin_preedit_options 相同，下标就是 input::ShuangpinPreedit 的值。
+      preedit_ = choice(scheme_shuangpin_preedit, L"双拼预编辑", {{"raw", L"原始按键"}, {"separated", L"双拼分隔"}, {"pinyin", L"拼音分词"}});
       heights_[static_cast<size_t>(section)] = top - start;
     }
     if (offers("wubi")) {
@@ -77,6 +78,8 @@ public:
       wubi_profile_ = choice(scheme_wubi_profile, L"五笔方案", {{"wubi86", L"86 五笔"}, {"wubi98", L"98 五笔"}});
       mixed_ = check(scheme_wubi_mixed, L"五笔拼音混输");
       code_hint_ = check(scheme_wubi_hint, L"候选显示剩余编码");
+      wildcard_ = check(scheme_wubi_wildcard, L"z 键通配");
+      top_ = check(scheme_wubi_top, L"第五码将首选上屏");
       unique_ = check(scheme_wubi_unique, L"五笔四码唯一候选自动上屏");
       selection_ = check(scheme_wubi_selection, L"五笔快捷选词");
       add(L"STATIC", L"组字时用两个不同的英文标点选当前页第 2、3 候选；候选不足时仍输入标点。两个键编辑后一起保存。", SS_LEFT, -1, top, 60);
@@ -144,6 +147,7 @@ public:
       if (!preferences.contains(key) || !preferences.at(key).is_boolean()) return false;
     if (preferences.contains("last_chinese_scheme") && !preferences.at("last_chinese_scheme").is_string()) return false;
     if (preferences.contains("shuangpin_keymap_hint") && !preferences.at("shuangpin_keymap_hint").is_boolean()) return false;
+    if (preferences.contains("shuangpin_preedit_separated") && !preferences.at("shuangpin_preedit_separated").is_boolean()) return false;
     if (preferences.contains("wubi_candidate_selection")) {
       const auto& group = preferences.at("wubi_candidate_selection");
       if (!group.is_object() || !group.contains("enabled") || !group.at("enabled").is_boolean()) return false;
@@ -175,13 +179,18 @@ public:
       fill(profile_, options);
       select(profile_, options, preferences.at("shuangpin_profile").get<std::string>());
       SendMessageW(hint_, BM_SETCHECK, preferences.value("shuangpin_keymap_hint", false) ? BST_CHECKED : BST_UNCHECKED, 0);
-      SendMessageW(preedit_, CB_SETCURSEL, preferences.at("shuangpin_preedit_uses_raw").get<bool>() ? 0 : 1, 0);
+      const auto preedit = input::shuangpin_preedit(preferences.at("shuangpin_preedit_uses_raw").get<bool>(),
+                                                    preferences.value("shuangpin_preedit_separated", false));
+      SendMessageW(preedit_, CB_SETCURSEL, static_cast<WPARAM>(preedit), 0);
     }
     if (wubi_profile_) {
       SendMessageW(wubi_profile_, CB_SETCURSEL, preferences.at("wubi_profile") == "wubi98" ? 1 : 0, 0);
       for (const auto& field : std::vector<std::pair<HWND, const char*>>{{mixed_, "wubi_mixed_pinyin"},
           {code_hint_, "wubi_code_hint"}, {unique_, "wubi_auto_commit_unique"}})
         SendMessageW(field.first, BM_SETCHECK, preferences.at(field.second).get<bool>() ? BST_CHECKED : BST_UNCHECKED, 0);
+      // 这两项不在 valid() 的必有字段里，缺字段时按 Rust `Preferences::default` 显示：z 通配关、顶字开。
+      SendMessageW(wildcard_, BM_SETCHECK, preferences.value("wubi_z_wildcard", false) ? BST_CHECKED : BST_UNCHECKED, 0);
+      SendMessageW(top_, BM_SETCHECK, preferences.value("wubi_fifth_code_top_commit", true) ? BST_CHECKED : BST_UNCHECKED, 0);
       const auto keys = preferences.value("wubi_candidate_selection", default_keys());
       SendMessageW(selection_, BM_SETCHECK, keys.at("enabled").get<bool>() ? BST_CHECKED : BST_UNCHECKED, 0);
       // 无关设置刷新不能抹掉尚未保存的按键草稿。
@@ -204,7 +213,7 @@ public:
     EnableWindow(language_, enabled && languages_.size() > 1);
     EnableWindow(chinese_control_, enabled && chinese(scheme) && chinese_.size() > 1);
     for (const auto control : {profile_, hint_, preedit_}) if (control) EnableWindow(control, enabled && scheme == "shuangpin");
-    for (const auto control : {wubi_profile_, mixed_, code_hint_, unique_, selection_, lookup_, lookup_button_, lookup_result_})
+    for (const auto control : {wubi_profile_, mixed_, code_hint_, wildcard_, top_, unique_, selection_, lookup_, lookup_button_, lookup_result_})
       if (control) EnableWindow(control, enabled && scheme == "wubi");
     const bool keys = enabled && scheme == "wubi" && preferences_.value("wubi_candidate_selection", default_keys()).at("enabled").get<bool>();
     for (const auto control : {second_, third_}) if (control) EnableWindow(control, keys);
@@ -249,7 +258,11 @@ public:
           result.changes.push_back({{"shuangpin_profile"}, profiles()[static_cast<size_t>(selected)].value});
       } else if (id == scheme_shuangpin_preedit && IsWindowEnabled(preedit_)) {
         const auto selected = SendMessageW(preedit_, CB_GETCURSEL, 0, 0);
-        if (selected == 0 || selected == 1) result.changes.push_back({{"shuangpin_preedit_uses_raw"}, selected == 0});
+        if (selected >= 0 && static_cast<size_t>(selected) < input::shuangpin_preedit_options.size()) {
+          const auto style = input::shuangpin_preedit_options[static_cast<size_t>(selected)].style;
+          result.changes.push_back({{"shuangpin_preedit_uses_raw"}, input::shuangpin_preedit_uses_raw(style)});
+          result.changes.push_back({{"shuangpin_preedit_separated"}, input::shuangpin_preedit_separated(style)});
+        }
       } else if (id == scheme_wubi_profile && IsWindowEnabled(wubi_profile_)) {
         const auto selected = SendMessageW(wubi_profile_, CB_GETCURSEL, 0, 0);
         if (selected == 0 || selected == 1) result.changes.push_back({{"wubi_profile"}, selected == 0 ? "wubi86" : "wubi98"});
@@ -269,7 +282,8 @@ public:
     } else if (notification == BN_CLICKED) {
       for (const auto& field : std::vector<std::tuple<int, HWND, const char*>>{
           {scheme_shuangpin_hint, hint_, "shuangpin_keymap_hint"}, {scheme_wubi_mixed, mixed_, "wubi_mixed_pinyin"},
-          {scheme_wubi_hint, code_hint_, "wubi_code_hint"}, {scheme_wubi_unique, unique_, "wubi_auto_commit_unique"}})
+          {scheme_wubi_hint, code_hint_, "wubi_code_hint"}, {scheme_wubi_wildcard, wildcard_, "wubi_z_wildcard"},
+          {scheme_wubi_top, top_, "wubi_fifth_code_top_commit"}, {scheme_wubi_unique, unique_, "wubi_auto_commit_unique"}})
         if (id == std::get<0>(field) && IsWindowEnabled(std::get<1>(field)))
           result.changes.push_back({{std::get<2>(field)}, SendMessageW(std::get<1>(field), BM_GETCHECK, 0, 0) == BST_CHECKED});
       if (id == scheme_wubi_selection && IsWindowEnabled(selection_)) {
@@ -369,7 +383,7 @@ private:
   }
   HWND language_ = nullptr, chinese_control_ = nullptr, chinese_notice_ = nullptr, description_ = nullptr;
   HWND profile_ = nullptr, hint_ = nullptr, preedit_ = nullptr;
-  HWND wubi_profile_ = nullptr, mixed_ = nullptr, code_hint_ = nullptr, unique_ = nullptr;
+  HWND wubi_profile_ = nullptr, mixed_ = nullptr, code_hint_ = nullptr, wildcard_ = nullptr, top_ = nullptr, unique_ = nullptr;
   HWND selection_ = nullptr, second_ = nullptr, third_ = nullptr, keys_save_ = nullptr, keys_description_ = nullptr;
   HWND lookup_ = nullptr, lookup_button_ = nullptr, lookup_result_ = nullptr;
   HWND vietnamese_method_ = nullptr, vietnamese_tone_ = nullptr;

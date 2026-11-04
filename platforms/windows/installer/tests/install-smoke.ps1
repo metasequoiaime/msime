@@ -56,7 +56,7 @@ Check ($marker.Contains("(edition $Edition)")) 'DataDir ownership marker names t
 $declared = if (Test-Path -LiteralPath $declaration) { (Get-Content -LiteralPath $declaration -Raw -Encoding UTF8 | ConvertFrom-Json).edition } else { $null }
 Check ($declared -eq $Edition) "server\edition.json declares $Edition"
 # The three voice runtime libraries are what the Server loads for on-device speech recognition; Build-Client.ps1 stages them for every release package.
-foreach ($name in 'MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe', 'msime-client-settings.exe', 'MSIME.exe', 'msime-mcp.exe',
+foreach ($name in 'MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe', 'msime-client-settings.exe', 'MSIME.exe', 'msime-client-panels.exe', 'msime-mcp.exe',
     'sherpa-onnx-c-api.dll', 'onnxruntime.dll', 'onnxruntime_providers_shared.dll') {
     Check (Test-Path -LiteralPath (Join-Path $pf64 "server\$name") -PathType Leaf) "server\$name installed"
 }
@@ -135,6 +135,14 @@ $usersModify = @($rules | Where-Object {
     $_.AccessControlType -eq 'Allow' -and $_.IdentityReference.Value -eq 'S-1-5-32-545' -and
     ($_.FileSystemRights -band [Security.AccessControl.FileSystemRights]::Modify) -eq [Security.AccessControl.FileSystemRights]::Modify })
 Check ($usersModify.Count -gt 0) 'DataDir grants Users modify'
+$readExecute = [Security.AccessControl.FileSystemRights]::ReadAndExecute
+foreach ($packageSid in 'S-1-15-2-1', 'S-1-15-2-2') {
+    $packageRead = @($rules | Where-Object {
+        $_.AccessControlType -eq 'Allow' -and $_.IdentityReference.Value -eq $packageSid -and
+        ($_.FileSystemRights -band $readExecute) -eq $readExecute
+    })
+    Check ($packageRead.Count -gt 0) "DataDir grants $packageSid read and execute"
+}
 $label = (& icacls $app.DataDir) -join "`n"
 Check ($label.Contains('Mandatory Label\Medium Mandatory Level')) 'DataDir carries a medium integrity label'
 

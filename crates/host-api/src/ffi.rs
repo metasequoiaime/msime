@@ -236,7 +236,7 @@ pub(crate) fn keyboard_reranker(
         match onnx_reranker(root) {
             OnnxAttach::Attached(attached) => {
                 report_keyboard_reranker(attached.category, &attached.detail);
-                return Some(Box::new(SharedOnnxScorer(attached.scorer)));
+                return Some(Box::new(SharedOnnxScorer::new(attached.scorer)));
             }
             OnnxAttach::OverLimit(detail) => {
                 report_keyboard_reranker(KEYBOARD_RERANKER_OVER_BUDGET, &detail);
@@ -572,48 +572,9 @@ fn onnx_reranker(root: &Path) -> OnnxAttach {
     )
 }
 
-/// 共用重排器在一个会话里的那一份：每次打分时加锁。同一时刻通常只有一个会话在打字，锁几乎不会等。
+/// 共用重排器在一个会话里的那一份，连同交给引擎拼整句的那一份，见 [`msime_onnx_rerank::SharedOnnxScorer`]。
 #[cfg(feature = "onnx-rerank")]
-struct SharedOnnxScorer(Arc<Mutex<msime_onnx_rerank::OnnxScorer>>);
-
-#[cfg(feature = "onnx-rerank")]
-impl msime_input_runtime::CandidateScorer for SharedOnnxScorer {
-    fn context_length(&self) -> usize {
-        self.0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .context_length()
-    }
-
-    fn scores_prediction_pool_within_keystroke_budget(&self) -> bool {
-        self.0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .scores_prediction_pool_within_keystroke_budget()
-    }
-
-    fn log_probabilities(&mut self, context: &str, candidates: &[&str]) -> Vec<f32> {
-        self.0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .log_probabilities(context, candidates)
-    }
-
-    // 不转发就落到默认的 0，宿主挂上的 ONNX 后端从来用不上整句池，而直接挂 `OnnxScorer` 的评测示例照常用得上，看不出来。
-    fn sentence_pool(&self) -> usize {
-        self.0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .sentence_pool()
-    }
-
-    fn static_evidence_weight(&self) -> f64 {
-        self.0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .static_evidence_weight()
-    }
-}
+pub(crate) use msime_onnx_rerank::SharedOnnxScorer;
 
 #[cfg(feature = "onnx-rerank")]
 impl OnnxRerankers {
@@ -637,7 +598,7 @@ impl OnnxRerankers {
 
     /// 给一个新会话挂重排器。已经为 `root` 加载过、两个模型文件都没换时直接共用（细节标 `(shared)`）；否则定档位并加载：
     ///
-    /// - 两个都装了：`available`（字节）少于 [`LARGE_RERANK_MODEL_MIN_AVAILABLE`] 时直接用小的，不先加载大的去自测；否则加载大的、量它打一页重负载要多久，超过 `budget_ms` 就换小的。按量出来的速度选，不按机型名单选。
+    /// - 两个都装了：`available`（字节）少于 [`LARGE_RERANK_MODEL_MIN_AVAILABLE`] 时直接用小的，不先加载大的去自测；否则加载大的、量它打一页重负载要多久，超过 `budget_ms` 就换小的。没超过、但它在按键预算里只比较得了九条而小模型比较得了整池时，也换小的（[`Self::small_for_pool`]，桌面的情形）。按量出来的速度选，不按机型名单选。
     /// - 只装了一个就用那一个；大的读不了就用小的。
     /// - 挂上的那一档还要过 `limit_ms`：过了 `budget_ms` 留用的大模型自然在内；小模型和只装了一个的那一个各量一次同一页（`OnnxScorer::calibrate`，不改它排不排上屏后联想），超过就不挂，返回 [`OnnxAttach::OverLimit`]，也不退到随包的句子模型——那个在同一台设备上只会更慢。换下来的大模型超过换档线、却没有小的可换时，同样按 `limit_ms` 决定还挂不挂它。
     ///
@@ -707,6 +668,12 @@ impl OnnxRerankers {
             if let Some(decided) = over_budget(self, measured) {
                 return decided;
             }
+            let pool = self.pool_for(measured);
+            if let Some(decided) =
+                self.small_for_pool((measured, pool), &small, stamps, budget_ms, limit_ms)
+            {
+                return decided;
+            }
             // 新加载的这一份带上之前量出的结论：过了预算的同时也排上屏后联想。
             return match self.load_calibrated(
                 &large,
@@ -736,7 +703,68 @@ impl OnnxRerankers {
                 .load_calibrated(&large, stamps, LARGE, note(measured), (measured, budget_ms))
                 .map_or(OnnxAttach::Unavailable, OnnxAttach::Attached);
         }
+        let pool = self.pool_for(measured);
+        if pool <= msime_engine::ordering::SENTENCE_POOL {
+            // 小模型可能放得下整池；先放开大的，换档时不必两个都占着，换不了再加载一次大的。
+            drop(scorer);
+            if let Some(decided) =
+                self.small_for_pool((measured, pool), &small, stamps, budget_ms, limit_ms)
+            {
+                return decided;
+            }
+            return self
+                .load_calibrated(&large, stamps, LARGE, note(measured), (measured, budget_ms))
+                .map_or(OnnxAttach::Unavailable, OnnxAttach::Attached);
+        }
         OnnxAttach::Attached(self.keep(&large, stamps, scorer, LARGE, note(measured), measured))
+    }
+
+    /// 大模型在按键预算里只比较得了最少的九条（[`msime_engine::ordering::SENTENCE_POOL`]），而小模型比较得了整池（[`msime_engine::ordering::MAX_SENTENCE_POOL`]）时，挂小模型配整池；否则 `None`，照旧挂大模型。
+    ///
+    /// 池越大，正确的整句越可能在里面：交给模型比较的九条整句常常前半句都一样，开头一错（`fangan` 选成「反感」）九条全错，模型救不回来。typing-chat-v1 上 8x448 配 9 条有 36/58 个错句段的正确答案根本不在候选里。2026-11-03 在 Mac 上量：首选 dev 62.7% → 68.2%、test 73.6% → 79.5%（6x256 配 32 条）；8x448 配 32 条只有 66.4% / 77.7%，而且桌面整键 p99 远超 4 ms，6x256 配 32 条 p99 约 3.0 ms，比 8x448 配 9 条（3.7–4.1 ms）还低。只在大模型降到九条时才换：iPhone 17 这类手机上大模型能比较 24 条，照旧用它。见 `.agents/notes/implemented/feature/2026-11-03-desktop-small-model-full-pool.md`。
+    ///
+    /// 小模型的自测结论按大模型同样的预算记下（`accept_calibration`），在预算之内时同样排上屏后联想。小模型读不了、超过上限或放不下整池时返回 `None`。
+    ///
+    /// `large` 是大模型打一页的毫秒数和它在这台机器上的池。
+    fn small_for_pool(
+        &mut self,
+        (large_ms, large_pool): (f64, usize),
+        small: &Path,
+        stamps: [ModelStamp; 2],
+        budget_ms: f64,
+        limit_ms: f64,
+    ) -> Option<OnnxAttach> {
+        const SMALL: &str = "keyboard reranker onnx small";
+        if large_pool > msime_engine::ordering::SENTENCE_POOL {
+            return None;
+        }
+        let stamp = model_stamp(small)?;
+        let known = self.measured(small, Some(stamp));
+        let fits = |this: &mut Self, measured: f64| {
+            measured <= limit_ms
+                && this.pool_for(measured) >= msime_engine::ordering::MAX_SENTENCE_POOL
+        };
+        if known.is_some_and(|measured| !fits(self, measured)) {
+            return None;
+        }
+        self.loaded = None;
+        let mut scorer = load_onnx_reranker(small)?;
+        let measured = known.unwrap_or_else(|| {
+            let measured = scorer.calibrate();
+            self.remember(small, Some(stamp), measured);
+            measured
+        });
+        if !fits(self, measured) {
+            return None;
+        }
+        scorer.accept_calibration(measured, budget_ms);
+        let note = format!(
+            " (large {large_ms:.1} ms compares {large_pool}, small {measured:.1} ms compares {})",
+            msime_engine::ordering::MAX_SENTENCE_POOL
+        );
+        Some(OnnxAttach::Attached(
+            self.keep(small, stamps, scorer, SMALL, note, measured),
+        ))
     }
 
     /// 这个进程里之前对 `directory` 这个模型文件量出的毫秒数；文件换了（文件戳不同）就当没量过。
@@ -820,7 +848,7 @@ impl OnnxRerankers {
         Some(self.keep(directory, stamps, scorer, category, note, measured_ms))
     }
 
-    /// 留下挂上的这一份，并按它在这台机器上打一页的 `page_ms` 定整句池（[`sentence_pool_for`]）：档位已经定了，池只在这个模型上定，不为池大一些换模型（`.agents/notes/implemented/feature/2026-11-02-sentence-pool-by-device-speed.md`）。
+    /// 留下挂上的这一份，并按它在这台机器上打一页的 `page_ms` 定整句池（[`sentence_pool_for`]）：档位已经定了，池只在这个模型上定（`.agents/notes/implemented/feature/2026-11-02-sentence-pool-by-device-speed.md`）。为池换模型只有一种情形，在定档时就决定了：大模型只比较得了九条、小模型比较得了整池（[`Self::small_for_pool`]）。
     fn keep(
         &mut self,
         directory: &Path,

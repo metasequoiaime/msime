@@ -29,6 +29,7 @@ fn options(root: &Path) -> EngineOptions {
         shuangpin_profile: 0,
         shuangpin_custom_profile: None,
         shuangpin_preedit_uses_raw: true,
+        shuangpin_preedit_separated: false,
         force_cantonese_shuangpin: false,
         cantonese_output_conversion: None,
         single_character_only: false,
@@ -1227,6 +1228,71 @@ fn expanded_shuangpin_preedit_carries_the_caret_by_syllable() {
     let snapshot = session.snapshot().unwrap();
     assert_eq!(snapshot.preedit, "uiui");
     assert_eq!(snapshot.preedit_caret, snapshot.caret_position);
+}
+
+/// #10717：「双拼分隔」画按音节切开的原始按键（自然码 `nimf` → `ni'mf`），按键原文和提交仍是 `nimf`；光标按字母数越过插入的隔音符，落在音节边界时停在隔音符前面。
+#[test]
+fn separated_shuangpin_preedit_keeps_the_keys_and_carries_the_caret() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut options = options(dir.path());
+    options.scheme = SchemeType::Shuangpin as u8;
+    options.shuangpin_profile = 1;
+    options.shuangpin_preedit_uses_raw = true;
+    options.shuangpin_preedit_separated = true;
+    let mut session = Session::new(&options).unwrap();
+    type_text(&mut session, b"nimf");
+    let snapshot = session.snapshot().unwrap();
+    assert_eq!(snapshot.preedit, "ni'mf");
+    assert_eq!(snapshot.editing_text, "nimf");
+    assert_eq!(snapshot.caret_position, 4);
+    assert_eq!(snapshot.preedit_caret, 5);
+    // 左移进第二个音节中间：三个字母之后，越过插入的隔音符。
+    session.command(Command::MoveLeft).unwrap();
+    let snapshot = session.snapshot().unwrap();
+    assert_eq!(snapshot.caret_position, 3);
+    assert_eq!(snapshot.preedit_caret, 4);
+    // 音节边界：停在隔音符前面。
+    session.command(Command::MoveLeft).unwrap();
+    let snapshot = session.snapshot().unwrap();
+    assert_eq!(snapshot.caret_position, 2);
+    assert_eq!(snapshot.preedit_caret, 2);
+    session.command(Command::MoveHome).unwrap();
+    assert_eq!(session.snapshot().unwrap().preedit_caret, 0);
+    drop(session);
+
+    // 打到一半的音节和用户自己打的隔音符都照原样留着；字面输入（句中大写）与拼音分词一样画按键原文，不切。
+    for (typed, expected) in [
+        (&b"wom"[..], "wo'm"),
+        (b"woMf", "woMf"),
+        (b"wo'mf", "wo'mf"),
+        (b"womf'", "wo'mf'"),
+    ] {
+        let mut session = Session::new(&options).unwrap();
+        for byte in typed {
+            session.character(*byte, byte.is_ascii_uppercase()).unwrap();
+        }
+        let snapshot = session.snapshot().unwrap();
+        assert_eq!(
+            snapshot.preedit,
+            expected,
+            "{}",
+            String::from_utf8_lossy(typed)
+        );
+        assert_eq!(snapshot.preedit_caret, expected.chars().count());
+    }
+
+    // 拼音分词时不读这一项：仍画展开的全拼。
+    options.shuangpin_preedit_uses_raw = false;
+    let mut session = Session::new(&options).unwrap();
+    type_text(&mut session, b"nimf");
+    assert_eq!(session.snapshot().unwrap().preedit, "ni'men");
+
+    // 缺省（不分隔）仍是原始按键。
+    options.shuangpin_preedit_uses_raw = true;
+    options.shuangpin_preedit_separated = false;
+    let mut session = Session::new(&options).unwrap();
+    type_text(&mut session, b"nimf");
+    assert_eq!(session.snapshot().unwrap().preedit, "nimf");
 }
 
 #[test]

@@ -46,7 +46,7 @@ Issue #10518：在 PowerPoint 里用五笔，按 Alt+F10 的效果和只按 F10 
 
 收益：语音开着时，右 Alt+F10、右 Alt+F4 这类应用快捷键恢复正常，不再留下一段误录的语音。
 
-代价与未验证的部分：`VoiceHotkey.cpp` 依赖 Win32 低级钩子，只有策略函数能在非 Windows 机器上跑。下面这些要 Windows 实机确认：PowerPoint 里右 Alt+F10 能开关选择窗格且不开始录音；单按右 Alt 说话、空格锁定、Esc 取消不回归；按住右 Alt 时 Ctrl+Shift+右 Alt+R 能重启 Server（依赖补发的右 Alt 按下在补发的 R 到达维护钩子之前已经反映到 `GetAsyncKeyState`）；按住右 Alt 做组合键期间改语音设置后，继续按着右 Alt 不会开始录音、松开后应用里的 Alt 正常抬起；德语布局下 AltGr+Q 能打出 @（系统为 AltGr 合成的左 Ctrl 在物理按下时已放行，补发的右 Alt 是否会再合成一次左 Ctrl 没有实测）。macOS 右 Option、Linux IBus 右 Alt 的同类行为另开 issue 跟进。
+代价与未验证的部分：`VoiceHotkey.cpp` 依赖 Win32 低级钩子，只有策略函数能在非 Windows 机器上跑。下面这些要 Windows 实机确认：PowerPoint 里右 Alt+F10 能开关选择窗格且不开始录音；单按右 Alt 说话、空格锁定、Esc 取消不回归；按住右 Alt 时 Ctrl+Shift+右 Alt+R 能重启 Server（依赖补发的右 Alt 按下在补发的 R 到达维护钩子之前已经反映到 `GetAsyncKeyState`）；按住右 Alt 做组合键期间改语音设置后，继续按着右 Alt 不会开始录音、松开后应用里的 Alt 正常抬起；德语布局下 AltGr+Q 能打出 @（系统为 AltGr 合成的左 Ctrl 在物理按下时已放行，补发的右 Alt 是否会再合成一次左 Ctrl 没有实测）。macOS 右 Option、Linux IBus 与 Fcitx5 右 Alt 的同类行为由 #10580 跟进，见 [macOS 与 Linux 的按住组合键](2026-11-02-macos-linux-voice-hold-chord.md)。
 
 ## Testing
 

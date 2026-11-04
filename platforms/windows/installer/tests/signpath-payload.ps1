@@ -23,7 +23,7 @@ function Assert-Throws {
 try {
     $package = Join-Path $root 'installer'
     # 本项目的 EXE 都带 PDB；RestartAgent 是 Windows App SDK 自带的，没有 PDB。
-    foreach ($exe in @('MetasequoiaImeServer', 'MetasequoiaImeWatchdog', 'msime-mcp', 'msime-client-settings', 'msime-client-prepare', 'MSIME')) {
+    foreach ($exe in @('MetasequoiaImeServer', 'MetasequoiaImeWatchdog', 'msime-mcp', 'msime-client-settings', 'msime-client-prepare', 'MSIME', 'msime-client-panels')) {
         New-File (Join-Path $package "server_exe/$exe.exe")
         New-File (Join-Path $package "server_exe/$exe.pdb")
     }
@@ -43,6 +43,7 @@ try {
     $expected = @(
         'server_exe/MetasequoiaImeServer.exe', 'server_exe/MetasequoiaImeWatchdog.exe', 'server_exe/msime-mcp.exe',
         'server_exe/msime-client-settings.exe', 'server_exe/msime-client-prepare.exe', 'server_exe/MSIME.exe',
+        'server_exe/msime-client-panels.exe',
         'tsf_dll/32/MetasequoiaImeTsf.dll', 'tsf_dll/32/msime_host_api_wubi.dll',
         'tsf_dll/64/MetasequoiaImeTsf.dll', 'tsf_dll/64/msime_host_api_wubi.dll',
         'tsf_dll/32/MetasequoiaImeCrashWer.dll', 'tsf_dll/64/MetasequoiaImeCrashWer.dll',

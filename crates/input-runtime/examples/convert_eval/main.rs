@@ -435,7 +435,8 @@ fn load(path: &Path) -> Result<Vec<Case>, Box<dyn std::error::Error>> {
             input: fields[1].to_string(),
             gold: fields[2].to_string(),
             syllables: fields[3].parse()?,
-            context: fields.get(5).unwrap_or(&"").to_string(),
+            // 上文里的换行写成 `\n`（一行一条用例，字段里放不下真的换行）：聊天集里消息之间的回车就是这样记的。
+            context: fields.get(5).unwrap_or(&"").replace("\\n", "\n"),
             full_input: None,
             tags: fields
                 .get(4)
@@ -583,7 +584,10 @@ fn onnx_scorer(
     if let Some(paths) = settings.sentence_pool {
         scorer.set_sentence_pool(paths);
     }
-    Ok(Box::new(scorer))
+    // 与宿主（host-api）挂的同一种共用包装：逐键重排、拼整句时给前缀打分、上屏后在后台编码上文，三处共用一个模型。
+    Ok(Box::new(msime_onnx_rerank::SharedOnnxScorer::new(
+        std::sync::Arc::new(std::sync::Mutex::new(scorer)),
+    )))
 }
 
 #[cfg(not(feature = "onnx-rerank"))]

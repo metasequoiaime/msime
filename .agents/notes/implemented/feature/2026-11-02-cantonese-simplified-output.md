@@ -16,7 +16,7 @@ Status: implemented
 
 **转换函数**：`chinese_conversion::traditional_to_simplified` 按 `t2s.json` 去掉 `TSCharactersExt`：规范化兼容汉字后，对 `TSPhrases`、`TSCharacters` 组成的短路组做一遍最大正向匹配（乾淨→干净，乾隆不变）。`cantonese_to_simplified` 在字表之前保留 `CANTONESE_KEPT` 里的嗰、喎：字表会把它们转成扩展区的 𠮶、㖞，常见字体缺字，粤语简体写法也通常保留原字。嘅、咗、冇、喺、嚟、啲、佢、嘢等字表本来就没有条目，原样通过。
 
-**在 Engine 里转换**：Engine 不依赖 client-base，也要能单独发布，所以转换以 `TextConversion(fn(&str) -> String)` 注入：`EngineOptions` 与 `SessionOptions` 的 `cantonese_output_conversion`，host-api 在偏好打开时传入 `cantonese_to_simplified`。`ProviderRegistry` 的 `fill_cantonese_candidates` 是粤拼候选文字写进 `WordItem.word` 的唯一地方，它在这里把每条候选转换后再按（字面，覆盖音节数）去重，發、髮都成了「发」时只留排在前面的那条。候选、整段上屏和分段选词上屏都取这里的文字，所以都是简体；预编辑是粤拼字母，不受影响。视图的 `script_conversion` 对粤拼仍为 false，宿主不会再转一次。`TextConversion` 按函数地址比较相等，`EngineOptions` 照旧能判断有没有变。
+**在 Engine 里转换**：Engine 不依赖 client-base，也要能单独发布，所以转换以 `TextConversion(fn(&str) -> String)` 注入：`EngineOptions` 与 `SessionOptions` 的 `cantonese_output_conversion`，host-api 在偏好打开时传入 `cantonese_to_simplified`。`ProviderRegistry` 的 `fill_cantonese_candidates` 是粤拼候选文字写进 `WordItem.word` 的唯一地方，它保留 provider 候选的原始词库文字，只在写入显示行时转换，再按（字面，覆盖音节数）去重，發、髮都成了「发」时只留排在前面的那条。候选、整段上屏和分段选词上屏都取这里的文字，所以都是简体；预编辑是粤拼字母，不受影响。粤语学习继续以原始词库文字调频和造词：显示去重保留第一条，学习按同一读音和显示文字找回这条原文，组句标记也按原文判断，避免简体行混入繁体词库。视图的 `script_conversion` 对粤拼仍为 false，宿主不会再转一次。`TextConversion` 按函数地址比较相等，`EngineOptions` 照旧能判断有没有变。
 
 **生效时机**：它是 Engine 偏好，和「只出单字」一样经 host-api 在空闲时重建 Engine；组字中切换时这段组字照旧，结束后生效。
 
@@ -41,4 +41,5 @@ macOS、Windows、Linux 这次不接：三个桌面宿主的简繁开关各自�
 - 保留名单目前只有嗰、喎，社区有更完整的粤语简体约定时改 `CANTONESE_KEPT`。
 - 注音和笔画同样是原生繁体方案，注入点可以复用，等有需求再接。
 - Android 的原有粤语双拼键面、会话空窗记忆、特殊韵母键读屏名称和重排模型后台准备保持现有接线；简繁输出不能以撤回这些已落地能力为代价。宿主键面回归直接抽取真实方法编译执行，覆盖粤语双拼、普通粤拼、会话空窗、普通话双拼与关闭提示开关。
+- 与最新 develop 的粤语学习合并时，行为回归先证实简体「号」被写入调频日志；修复后覆盖调频、分段「你號」及整句「我愛」的日志原文与关闭转换后的候选，并保留默认路径的分配门禁。
 - 验证缺口：三个移动端的按钮和上屏需要真机确认；iOS 的 XCTest 只交给 CI。

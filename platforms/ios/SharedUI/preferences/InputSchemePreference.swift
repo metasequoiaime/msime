@@ -5,7 +5,7 @@ enum ChineseInputScheme: String, CaseIterable {
   // 新方案按 client-core 的 `TouchKeyboardScheme::ALL` 只往后追加，九键双拼排在全拼 14 键后，启用列表也按这个顺序写回文档。
   case quanpin, nineKey, shuangpin, ziranma, microsoft, shoudao, wubi, japaneseNineKey, japanese, korean, handwriting, cantonese, zhuyin, vietnamese, tibetan, stroke, fourteenKey, nineKeyShuangpin, eighteenKey, cantoneseShuangpin
 
-  /// 全新安装默认不打开、要用户自己启用的方案，与设置宿主一致（MobilePlatformPlugin 里的 `optInSchemes`）。全拼 14 键、18 键和九键双拼也不默认打开，与 client-core 的 `DEFAULT_ENABLED` 一致。
+  /// 全新安装默认不打开、要用户自己启用的方案。全拼 14 键、18 键和九键双拼也不默认打开，与 client-core 的 `DEFAULT_ENABLED` 一致。
   static let optInSchemes: [ChineseInputScheme] = [.cantonese, .zhuyin, .vietnamese, .tibetan, .stroke, .fourteenKey, .nineKeyShuangpin, .eighteenKey, .cantoneseShuangpin]
 
   /// 两种普通话九宫格共用候选列与布局，组码规则分别由引擎的网格决定。
@@ -16,7 +16,7 @@ enum ChineseInputScheme: String, CaseIterable {
   /// Korean Hangul on the Dubeolsik layout: the Engine composes one syllable at a time and offers no candidates.
   var isKorean: Bool { self == .korean }
 
-  /// Cantonese Jyutping on the 26 letter keys: Traditional candidates from the Cantonese dictionary, with nothing learned.
+  /// Cantonese Jyutping on the 26 letter keys: Traditional candidates from the Cantonese dictionary, learned under the same learning switches as pinyin.
   var isCantonese: Bool { self == .cantonese || self == .cantoneseShuangpin }
 
   /// 26 键字母层第二排 L 右边是否有 `;` 键。微软双拼把 ing 放在 `;` 上，粤语双拼把 ing 和 ik 放在 `;` 上（引擎 `cantonese::shuangpin`），少了这个键这些音节就打不出来，所以选了方案就一直显示，不设开关（#10099）。其他方案不加这个键：全拼、小鹤等方案的 `;` 不是编码键；普通粤拼在一个声母后按 `;` 引擎也会当双拼韵母（`CantoneseScheme::accepts_semicolon`），但普通粤拼用户把 ing、ik 完整拼出来，用不上这个键。

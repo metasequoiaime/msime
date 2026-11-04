@@ -14,6 +14,9 @@ use std::sync::OnceLock;
 
 use super::syllables::{intact_pinyin_list, is_intact, MAX_SYLLABLE_LENGTH};
 
+mod lexicon;
+pub(crate) use lexicon::GlideMatcher;
+
 /// 一笔最多重采样成多少个点；更长的笔画改为更稀的采样。
 const MAX_SAMPLES: usize = 128;
 /// 重采样的步长，以键为单位。
