@@ -4,7 +4,7 @@
 //!
 //! About a third of the phrases still weigh 0 that way: the whole supplement and the `tsi.csv` rows chewing never counted. McBopomofo's `phrase.occ` (MIT, its own corpus counts, one `phrase count` per line, msime-dictionary keeps it verbatim in `sources/zhuyin/`) fills them in. A phrase of two or more characters that weighs 0 and that no row counts under any reading takes its `phrase.occ` count times `occurrence_scale`, the median ratio between the chewing count and the `phrase.occ` count of the phrases both count, which puts the counts on chewing's scale. A text some row counts is left alone, since its other readings at 0 are ones chewing chose not to count, and single characters too, since `phrase.occ` counts a character across all its readings. The filled weight never takes a key's first place from an entry chewing counts: on a key that has one, it is capped one below the largest counted weight there, because `phrase.occ` counts substrings of running text, which inflates fragments such as 小的 against the words of the same reading (曉得).
 //!
-//! 单字的权重是 chewing 手调的，同一个键上常常并列或只差 1（ㄒㄧㄢˋ 下 獻 限 陷 都是 15437，現 線 縣 都是 15436；ㄓㄨˇ 下 煮 5413、主 5412），并列时按字的码位排，于是 獻 排在 現 前面，凍 排在 動 前面。`break_character_ties` 用 `phrase.occ` 打破这种并列：一个键上从最重的单字起，权重不比它轻 1 以上的单字算一组，组里只有一个读音的字（整个库里只在这一个键上有单字条目）按 `phrase.occ` 的次数重排，多音字留在原来的位置，因为 `phrase.occ` 把一个字所有读音的次数算在一起。重排过的组从组里最重的权重起逐个减 1 重新给权重，不低于组外下一个单字的权重加 1，所以组和组之间的先后、每个键最重的单字权重（九键注音的 `AMBIGUOUS_WORD_FLOOR` 拿它比）都不变。
+//! 单字的权重是 chewing 手调的，同一个键上常常并列或只差 1（ㄒㄧㄢˋ 下 獻 限 陷 都是 15437，現 線 縣 都是 15436；ㄓㄨˇ 下 煮 5413、主 5412），并列时按字的码位排，于是 獻 排在 現 前面，凍 排在 動 前面。`break_character_ties` 用 `phrase.occ` 打破这种并列：一个键上从最重的单字起，权重不比它轻 1 以上的单字算一组，组里只有一个读音的字（整个库里只在这一个键上有单字条目）按 `phrase.occ` 的次数重排，多音字留在原来的位置，因为 `phrase.occ` 把一个字所有读音的次数算在一起。重排之后整个键上的单字按新次序重新给权重（`renumber`）：第一位保持这个键原来最重的单字权重（九键注音的 `AMBIGUOUS_WORD_FLOOR` 拿它比），之后每一位不超过这一位原来的权重，也不超过上一位的新权重，引擎按码位排并列会把次序排反时再减 1。早先的做法是组内逐个减 1、到组外下一个字的权重加 1 为止，组里的字多于空出来的权重时，底下几个字就并列在一起，引擎按码位排它们，`phrase.occ` 的次序被打乱（ㄒㄧㄥˊ 下 型 34993、行 34993、刑 34992、形 34992、邢 34990，型 被排到 刑 后面）。按新次序往下推时，紧贴在下面的字会跟着挪 1 到 2；单字权重密集的冷僻字一端可能被推到 0 以下，这时从最下面的组起放弃重排，直到没有负权重（`dict-v2.0.56` 的输入上有 3 个这样的组，组里最重的字都不到 10 分）。
 //!
 //! The syllable inventory is every syllable some key uses. A syllable must be at most one initial, one medial and one rime in that order, then an optional tone mark, because that is all the Dachen editor can compose; anything else fails the build. The only rows left out are the four tone marks listed as their own text and reading, which have no letters to type.
 
@@ -34,8 +34,8 @@ pub const FLOORS: Floors = Floors {
     phrases: 120_000,
 };
 
-/// 这些键的前 `within` 条里必须有对应的词，用来发现排序上的大错；后三条守住 `break_character_ties`：chewing 手调的并列和差 1 让 獻、凍、煮 排在这三个键的首位。
-pub const EXPECTED: [Expected; 5] = [
+/// 这些键的前 `within` 条里必须有对应的词，用来发现排序上的大错；后四条守住 `break_character_ties`：chewing 手调的并列和差 1 让 獻、凍、煮 排在前三个键的首位；ㄒㄧㄥˊ 下 型 要排在第三（形、多音字 行 之后），重新给权重时如果让 型 和 刑 并列，引擎按码位会把 型 排到第四。
+pub const EXPECTED: [Expected; 6] = [
     Expected {
         key: "ㄋㄧˇ ㄏㄠˇ",
         texts: &["你好"],
@@ -60,6 +60,11 @@ pub const EXPECTED: [Expected; 5] = [
         key: "ㄓㄨˇ",
         texts: &["主"],
         within: 1,
+    },
+    Expected {
+        key: "ㄒㄧㄥˊ",
+        texts: &["型"],
+        within: 3,
     },
 ];
 
@@ -283,7 +288,8 @@ fn break_character_ties(
         characters.sort_by(|(left, left_weight), (right, right_weight)| {
             right_weight.cmp(left_weight).then(left.cmp(right))
         });
-        let mut changed = false;
+        // 每个要重排的组：组在 `characters` 里的起止和重排后的字。
+        let mut groups: Vec<(usize, usize, Vec<&str>)> = Vec::new();
         let mut start = 0;
         while start < characters.len() {
             let top = characters[start].1;
@@ -299,29 +305,59 @@ fn break_character_ties(
             let mut sorted = movable.clone();
             sorted.sort_by_key(|&index| std::cmp::Reverse(count(group[index].0)));
             if sorted != movable {
-                let mut order: Vec<usize> = (0..group.len()).collect();
+                let mut order: Vec<&str> = group.iter().map(|(text, _)| *text).collect();
                 for (slot, index) in movable.iter().zip(&sorted) {
-                    order[*slot] = *index;
+                    order[*slot] = group[*index].0;
                 }
-                let floor = characters.get(end).map_or(0, |(_, weight)| weight + 1);
-                for (position, index) in order.into_iter().enumerate() {
-                    let position = i64::try_from(position).expect("a key holds few characters");
-                    let (text, _) = group[index];
-                    updates.push((
-                        (key.to_owned(), text.to_owned()),
-                        (top - position).max(floor),
-                    ));
-                }
-                changed = true;
+                groups.push((start, end, order));
             }
             start = end;
         }
-        reordered += usize::from(changed);
+        // 重新给权重会把下面的字往下推；推到 0 以下时，从最下面的组起放弃重排，直到不再出现负权重。
+        while let Some(weights) = renumber(&characters, &groups) {
+            if weights.iter().all(|(_, weight)| *weight >= 0) {
+                for (text, weight) in weights {
+                    if characters.iter().any(|(original, original_weight)| {
+                        *original == text && *original_weight != weight
+                    }) {
+                        updates.push(((key.to_owned(), text.to_owned()), weight));
+                    }
+                }
+                reordered += 1;
+                break;
+            }
+            groups.pop();
+        }
     }
     for (entry, weight) in updates {
         entries.insert(entry, weight);
     }
     reordered
+}
+
+/// 按 `groups` 重排之后的次序给一个键上的单字重新定权重，`characters` 是按引擎顺序排好的原始单字和权重；没有要重排的组时返回 `None`。第一位保持原来最重的权重，之后每一位取「这一位原来的权重」和「上一位的新权重」中较小的一个，引擎按码位排并列时会把上一位排到后面的话再减 1。这样重排过的字不会并列在码位决定的次序上，下面的字只在必须让位时才往下挪。
+fn renumber<'a>(
+    characters: &[(&'a str, i64)],
+    groups: &[(usize, usize, Vec<&'a str>)],
+) -> Option<Vec<(&'a str, i64)>> {
+    if groups.is_empty() {
+        return None;
+    }
+    let mut order: Vec<&str> = characters.iter().map(|(text, _)| *text).collect();
+    for (start, end, texts) in groups {
+        order[*start..*end].copy_from_slice(texts);
+    }
+    let mut weights: Vec<(&str, i64)> = Vec::with_capacity(order.len());
+    for (position, text) in order.into_iter().enumerate() {
+        let slot = characters[position].1;
+        let weight = match weights.last() {
+            None => slot,
+            Some((previous, previous_weight)) if *previous < text => slot.min(*previous_weight),
+            Some((_, previous_weight)) => slot.min(previous_weight - 1),
+        };
+        weights.push((text, weight));
+    }
+    Some(weights)
 }
 
 /// Writes `dictionary` to `path` in the engine's language dictionary schema, replacing any earlier file, and freezes it so the same inputs give the same bytes.
@@ -494,12 +530,12 @@ mod tests {
     fn phrase_occ_breaks_ties_between_single_reading_characters() {
         let mut rows = parse(
             PHRASES,
-            &format!("{HEADER}獻,15437,ㄒㄧㄢˋ\n限,15437,ㄒㄧㄢˋ\n現,15436,ㄒㄧㄢˋ\n線,15436,ㄒㄧㄢˋ\n憲,15000,ㄒㄧㄢˋ\n型,34993,ㄒㄧㄥˊ\n行,34993,ㄒㄧㄥˊ\n刑,34992,ㄒㄧㄥˊ\n形,34992,ㄒㄧㄥˊ\n主,5413,ㄓㄨˇ\n煮,5412,ㄓㄨˇ\n拄,5412,ㄓㄨˇ\n"),
+            &format!("{HEADER}獻,15437,ㄒㄧㄢˋ\n限,15437,ㄒㄧㄢˋ\n現,15436,ㄒㄧㄢˋ\n線,15436,ㄒㄧㄢˋ\n憲,15000,ㄒㄧㄢˋ\n型,34993,ㄒㄧㄥˊ\n行,34993,ㄒㄧㄥˊ\n刑,34992,ㄒㄧㄥˊ\n形,34992,ㄒㄧㄥˊ\n邢,34990,ㄒㄧㄥˊ\n主,5413,ㄓㄨˇ\n煮,5412,ㄓㄨˇ\n拄,5412,ㄓㄨˇ\n"),
         )
         .unwrap();
         rows.extend(parse(CHARACTERS, &format!("{HEADER}行,0,ㄏㄤˊ\n")).unwrap());
         let occurrences = parse_occurrences(
-            "現 40718\n限 6209\n線 8770\n獻 2141\n憲 3000\n型 8593\n形 10460\n刑 1631\n行 43589\n主 35453\n煮 607\n",
+            "現 40718\n限 6209\n線 8770\n獻 2141\n憲 3000\n型 8593\n形 10460\n刑 1631\n邢 300\n行 43589\n主 35453\n煮 607\n",
         )
         .unwrap();
         let dictionary = build(&rows, &occurrences);
@@ -513,21 +549,27 @@ mod tests {
             found.sort_by(|left, right| right.1.cmp(&left.1).then(left.0.cmp(right.0)));
             found
         };
-        // 四个字都只有一个读音，按 phrase.occ 重排后从 15437 起逐个减 1；憲 比组里最重的轻 1 以上，不在组里，也不被挤到。
+        // 四个字都只有一个读音，按 phrase.occ 重排：現 保持 15437；線 的码位在 現 之后，并列也排在它后面，可以同为 15437；限 取它这一位原来的 15436；獻 的码位在 限 之前，并列会排到 限 前面，所以再减 1。憲 不在组里，不动。
         assert_eq!(
             order("ㄒㄧㄢˋ"),
             [
                 ("現", 15437),
-                ("線", 15436),
-                ("限", 15435),
-                ("獻", 15434),
+                ("線", 15437),
+                ("限", 15436),
+                ("獻", 15435),
                 ("憲", 15000)
             ]
         );
-        // 行 还读 ㄏㄤˊ，留在原来的第二位；型 刑 形 在剩下的位置上按 phrase.occ 排。
+        // 行 还读 ㄏㄤˊ，留在原来的第二位；型 刑 形 在剩下的位置上按 phrase.occ 排。这是 dict-v2.0.56 的真实权重：组下面紧贴着 邢 34990，原来的做法到 34991 就停，型 和 刑 并列，按码位 刑 排到了 型 前面。现在 型 34992、刑 34991，邢 仍是 34990。
         assert_eq!(
             order("ㄒㄧㄥˊ"),
-            [("形", 34993), ("行", 34992), ("型", 34991), ("刑", 34990)]
+            [
+                ("形", 34993),
+                ("行", 34993),
+                ("型", 34992),
+                ("刑", 34991),
+                ("邢", 34990)
+            ]
         );
         // 主 已经在 煮 前面；拄 没有 phrase.occ 的次数，不参与重排，这一组不动。
         assert_eq!(order("ㄓㄨˇ"), [("主", 5413), ("拄", 5412), ("煮", 5412)]);
@@ -535,26 +577,36 @@ mod tests {
     }
 
     #[test]
-    fn a_reordered_group_stays_above_the_next_character() {
+    fn a_reordered_group_pushes_the_characters_below_it_instead_of_tying() {
         let rows = parse(
             PHRASES,
-            &format!("{HEADER}甲,101,ㄐㄧㄚˇ\n乙,101,ㄐㄧㄚˇ\n丙,100,ㄐㄧㄚˇ\n丁,100,ㄐㄧㄚˇ\n戊,99,ㄐㄧㄚˇ\n"),
+            &format!("{HEADER}甲,101,ㄐㄧㄚˇ\n乙,101,ㄐㄧㄚˇ\n丙,100,ㄐㄧㄚˇ\n丁,100,ㄐㄧㄚˇ\n戊,99,ㄐㄧㄚˇ\n己,90,ㄐㄧㄚˇ\n"),
         )
         .unwrap();
-        // 甲 乙 丙 丁 一组，戊 99 不在组里但贴着组底：逐个减 1 到 100 就停，后两个并列。
-        let occurrences = parse_occurrences("丁 40\n丙 30\n乙 20\n甲 10\n戊 99999\n").unwrap();
+        // 甲 乙 丙 丁 一组，要排成码位从大到小的次序，并列时引擎会把它们排反，所以每一位都比上一位轻 1；戊 99 不在组里，被推到 98，与 丁 并列时码位在后，次序仍对；己 不用让位。
+        let occurrences = parse_occurrences("甲 40\n乙 30\n丙 20\n丁 10\n戊 99999\n").unwrap();
         let dictionary = build(&rows, &occurrences);
         let weight = |text: &str| dictionary.entries[&("ㄐㄧㄚˇ".to_owned(), text.to_owned())];
         assert_eq!(
-            [
-                weight("丁"),
-                weight("丙"),
-                weight("乙"),
-                weight("甲"),
-                weight("戊")
-            ],
-            [101, 100, 100, 100, 99]
+            ["甲", "乙", "丙", "丁", "戊", "己"].map(weight),
+            [101, 100, 99, 98, 98, 90]
         );
+        assert_eq!(dictionary.reordered, 1);
+    }
+
+    #[test]
+    fn a_reorder_that_would_push_a_weight_below_zero_is_left_alone() {
+        let rows = parse(
+            PHRASES,
+            &format!("{HEADER}甲,1,ㄐㄧㄚˇ\n乙,1,ㄐㄧㄚˇ\n丙,0,ㄐㄧㄚˇ\n"),
+        )
+        .unwrap();
+        // 甲 要排到 乙 前面：乙 只能降到 0，丙 的码位在 乙 之前，就得降到 -1，所以这一组不重排。
+        let occurrences = parse_occurrences("甲 20\n乙 10\n").unwrap();
+        let dictionary = build(&rows, &occurrences);
+        let weight = |text: &str| dictionary.entries[&("ㄐㄧㄚˇ".to_owned(), text.to_owned())];
+        assert_eq!(["甲", "乙", "丙"].map(weight), [1, 1, 0]);
+        assert_eq!(dictionary.reordered, 0);
     }
 
     #[test]
