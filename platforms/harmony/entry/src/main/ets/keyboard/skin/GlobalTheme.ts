@@ -59,6 +59,8 @@ export interface ResolvedTheme {
   /** The external package whose colours were drawn. The single signal for its decoration and minimum width. */
   readonly candidate_skin: string | null;
   readonly candidate_layout?: CandidateResolvedLayout | null;
+  /** 共享层计算的触屏首选文字色，缺字段时保持键盘配色。 */
+  readonly touch_selected_text?: string | null;
 }
 
 export interface CustomCandidateColors {
@@ -260,22 +262,6 @@ export class GlobalTheme {
     return light.appearance;
   }
 
-  /** 触屏候选条首选候选的字色（#10740）：只有全局主题是自定义、且设了候选选中文字色时才是它（ArkUI 颜色），否则为 `null`，候选条照旧用键盘配色。候选条不画其余候选取色器，与 Android 候选条同一规则；2in1 候选窗经解析器取它。 */
-  static touchSelectedText(
-    globalTheme: string,
-    custom: CustomThemeDocument | undefined | null,
-  ): string | null {
-    if (globalTheme !== "custom" || custom === undefined || custom === null) {
-      return null;
-    }
-    const colors: CustomCandidateColors | undefined | null = custom.candidate_colors;
-    const picked: string | null | undefined =
-      colors === undefined || colors === null ? null : colors.selected_text;
-    return picked !== null && picked !== undefined && /^#[0-9A-Fa-f]{6}$/.test(picked)
-      ? picked.toUpperCase()
-      : null;
-  }
-
   /** 交给解析器的自定义主题：去掉存下的编号色和边框色。HarmonyOS 的编号色和边框色跟随主题和皮肤（`HostCapabilities` 的 `candidate_number_color`、`candidate_border_color` 为假），选了文字颜色时编号色由它推出，边框取主题的发丝线；其余槽位原样带上。只给解析请求用，不改偏好文档。 */
   static hostDrawnCustomTheme(
     custom: CustomThemeDocument | undefined,
@@ -442,6 +428,7 @@ export class GlobalTheme {
       keyboard: GlobalTheme.keyboardPalette(field(value, "keyboard")),
       candidate_skin: text(value, "candidate_skin"),
       candidate_layout: CandidateLayoutPolicy.parse(field(value, "candidate_layout")),
+      touch_selected_text: GlobalTheme.arkColor(text(value, "touch_selected_text")),
     };
   }
 

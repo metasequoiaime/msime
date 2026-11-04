@@ -1188,7 +1188,7 @@ export interface KeyboardPreferences {
   readonly candidateFallbackFonts: string[];
   /** The 2in1 candidate window's colours in its mode, from the resolved theme with the native tokens behind it. */
   readonly candidateColors: CandidateColors;
-  /** 触屏候选条首选候选的字色：自定义主题设了候选选中文字色时是它，否则为 null（用键盘配色），见 `GlobalTheme.touchSelectedText`。 */
+  /** 触屏候选条首选候选的字色：自定义主题设了候选选中文字色时是它，否则为 null（用键盘配色），来自共享 `resolve_theme.touch_selected_text`。 */
   readonly candidateTouchSelectedText: string | null;
   readonly keySpacingTenths: number;
   readonly rowSpacingTenths: number;
@@ -2010,7 +2010,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       candidateFallbackFonts: preferences.candidate_fallback_fonts.filter(
         (font: string): boolean => font.trim().length > 0),
       candidateColors: candidateColors,
-      candidateTouchSelectedText: GlobalTheme.touchSelectedText(preferences.global_theme, preferences.custom_theme),
+      candidateTouchSelectedText: candidateTheme?.touch_selected_text ?? null,
       // Clamped rather than trusted: the store validates, but an older document or a host that
       // never learned the bounds would otherwise draw a keyboard nobody can hit.
       keySpacingTenths: KeyboardGeometry.keySpacing(preferences.touch_key_spacing_tenths),

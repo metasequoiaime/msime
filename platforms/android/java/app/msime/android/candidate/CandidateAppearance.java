@@ -35,11 +35,7 @@ public final class CandidateAppearance {
             : JsonPolicy.strictStringOrEmpty(preferences.opt("candidate_english_font"));
         JSONArray fallback = preferences == null ? null
             : preferences.optJSONArray("candidate_fallback_fonts");
-        JSONObject custom = preferences == null ? null : preferences.optJSONObject("custom_theme");
-        JSONObject colors = custom == null ? null : custom.optJSONObject("candidate_colors");
-        Integer picked = CandidateSelectedTextPolicy.stripColour(
-            preferences == null ? null : JsonPolicy.strictString(preferences.opt("global_theme")),
-            colors == null ? null : JsonPolicy.strictString(colors.opt(CandidateSelectedTextPolicy.SLOT)));
+        Integer picked = strip.touchSelectedText();
         return fromSkin(strip, fontFamily, englishFont, fallbackFonts(fallback), picked);
     }
 
@@ -53,7 +49,7 @@ public final class CandidateAppearance {
         return fromSkin(strip, fontFamily, englishFont, fallbackFonts, null);
     }
 
-    /** `pickedSelectedText` 是 {@link CandidateSelectedTextPolicy#stripColour} 给出的候选选中文字色（#10740）；不为 null 时首选候选的字用它，其余仍按键盘配色。 */
+    /** `pickedSelectedText` 是共享主题解析结果给出的候选选中文字色（#10740）；不为 null 时首选候选的字用它，其余仍按键盘配色。 */
     public static Palette fromSkin(KeyboardSkin strip, String fontFamily, String englishFont,
                                    List<String> fallbackFonts, Integer pickedSelectedText) {
         int text = ColorPolicy.parseHex(strip.keyForeground(), 0xff000000);

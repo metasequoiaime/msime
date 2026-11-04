@@ -236,6 +236,9 @@ pub struct ResolvedTheme {
     pub candidate: Option<CandidateThemePalette>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub candidate_details: Option<CandidateDetails>,
+    /// 触屏候选条只读取显式选中文字取色器，其余颜色继续跟随键盘。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub touch_selected_text: Option<String>,
     /// `system` 和 `native` 为 `None`：画平台键盘。
     pub keyboard: Option<KeyboardThemePalette>,
     /// The external package drawn on this surface: the custom theme names it, it was found, and its manifest declares both `layout` and the mode drawn. Hosts draw the package's decoration and minimum width only when this is set.
@@ -275,6 +278,7 @@ pub fn resolve(
             keyboard: Some(builtin.keyboard()),
             candidate_skin: None,
             candidate_details: None,
+            touch_selected_text: None,
             candidate_layout: None,
         };
     }
@@ -288,6 +292,7 @@ pub fn resolve(
             keyboard: None,
             candidate_skin: None,
             candidate_details: None,
+            touch_selected_text: None,
             candidate_layout: None,
         };
     }
@@ -427,6 +432,12 @@ pub fn resolve(
             .or_else(|| base.map(BuiltinTheme::keyboard)),
         candidate_skin: drawn.map(|(package, _)| package.id.clone()),
         candidate_details,
+        touch_selected_text: custom
+            .candidate_colors
+            .selected_text
+            .as_deref()
+            .filter(|value| value.len() == 7)
+            .and_then(normalized_color),
         candidate_layout,
     }
 }
@@ -575,3 +586,6 @@ pub fn normalized_color(value: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod touch_selected_text_tests;

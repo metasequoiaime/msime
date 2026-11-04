@@ -5309,29 +5309,31 @@ group("the resolve request drops the number and border colours the host does not
   );
 });
 
-// #10740：手机和平板的触屏候选条照旧用键盘配色，只有选了自定义主题、设了候选选中文字色时，首选候选的字换成它。
-group("the touch strip takes the picked selected text only under the custom theme", () => {
-  const custom = { base: "paper", candidate_colors: { selected_text: "#7b3fbf" } };
+// #10740：主题是否启用取色器由共享层决定，宿主只读取可选响应并转换平台颜色。
+group("the touch strip consumes the shared selected text response", () => {
+  const parse = (value: Object) => GlobalTheme.parseResolved(JSON.stringify({ ok: true, value }));
   check(
-    GlobalTheme.touchSelectedText("custom", custom) === "#7B3FBF",
-    "the picked colour reaches the strip",
+    parse({ id: "custom", source: "custom", touch_selected_text: "#7b3fbf" })
+      ?.touch_selected_text === "#7B3FBF",
+    "the picked shared colour reaches the strip",
   );
   check(
-    GlobalTheme.touchSelectedText("paper", custom) === null,
-    "another global theme keeps the keyboard colour",
+    parse({ id: "paper", source: "builtin" })?.touch_selected_text === null,
+    "a builtin response without a picker keeps the keyboard colour",
   );
   check(
-    GlobalTheme.touchSelectedText("custom", { base: "paper" }) === null,
-    "no picker keeps the keyboard colour",
+    parse({ id: "custom", source: "custom" })?.touch_selected_text === null,
+    "a custom response without a picker keeps the keyboard colour",
   );
   check(
-    GlobalTheme.touchSelectedText("custom", undefined) === null,
-    "no custom theme keeps the keyboard colour",
-  );
-  check(
-    GlobalTheme.touchSelectedText("custom", { candidate_colors: { selected_text: "purple" } }) ===
+    parse({ id: "custom", source: "custom", touch_selected_text: null })?.touch_selected_text ===
       null,
-    "a value that is not #RRGGBB is not drawn",
+    "an explicitly absent picker keeps the keyboard colour",
+  );
+  check(
+    parse({ id: "custom", source: "custom", touch_selected_text: "purple" })
+      ?.touch_selected_text === null,
+    "an unreadable shared colour is not drawn",
   );
 });
 

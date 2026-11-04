@@ -9,7 +9,7 @@ import org.json.JSONObject;
 /**
  * 「候选选中文字色」一行（#10740）：共享偏好 `custom_theme.candidate_colors.selected_text`，与 Windows、iOS、macOS 和共享设置页的同名取色器是同一个字段。
  *
- * <p>Android 没有系统取色器，这里给跟随主题、几种常用颜色和「自定义…」输入 `#RRGGBB`。选了颜色就选上自定义主题，规则在 {@link CandidateSelectedTextPolicy#change}；值由共享 Rust 的偏好校验把关，非法值保存失败。
+ * <p>Android 没有系统取色器，这里给跟随主题、几种常用颜色和「自定义…」输入 `#RRGGBB`。选了颜色就选上自定义主题，规则和补丁由共享 Rust 计算；值由共享偏好校验把关，非法值保存失败。
  */
 final class CandidateSelectedTextRow {
     private static final String TITLE = "候选选中文字色";
@@ -52,21 +52,8 @@ final class CandidateSelectedTextRow {
         dialog.show();
     }
 
-    /** 写这一项，连同 {@link CandidateSelectedTextPolicy#change} 给出的其余改动；`value` 为 null 表示交还给主题。 */
+    /** 在最新文档上请求并应用共享补丁，桥接失败时沿用原保存失败流程。 */
     private static void save(Fragment page, String value, Runnable reload) {
-        KeyboardSheets.save(page, preferences -> {
-            CandidateSelectedTextPolicy.Change change = CandidateSelectedTextPolicy.change(
-                JsonPolicy.strictString(preferences.opt("global_theme")), value == null);
-            JSONObject custom = KeyboardSheets.child(preferences, "custom_theme");
-            JSONObject colors = KeyboardSheets.child(custom, "candidate_colors");
-            if (value == null) colors.remove(CandidateSelectedTextPolicy.SLOT);
-            else colors.put(CandidateSelectedTextPolicy.SLOT, value);
-            if (change.selectCustom()) preferences.put("global_theme", "custom");
-            if (change.resetSkins()) {
-                custom.put("base", change.base());
-                custom.remove("candidate_skin");
-                custom.remove("candidate_skin_dark");
-            }
-        }, reload, reload);
+        KeyboardSheets.save(page, preferences -> CandidateSelectedTextUpdate.apply(preferences, value), reload, reload);
     }
 }
