@@ -240,6 +240,42 @@ final class KeyboardMemoryTests: XCTestCase {
 
   // MARK: - 重新加载
 
+  /// 未进入窗口的键盘也会在布局偏好和方案切换后销毁，不能把整套约束迁移成非法的布局引擎。
+  func testUnpresentedKeyboardsReleaseViewsAfterCompositionAndLayoutChanges() throws {
+    enableAllInputSchemes()
+    let previousSpacing = KeyboardLayoutPreference.keySpacing
+    defer { KeyboardLayoutPreference.keySpacing = previousSpacing }
+    for iteration in 0..<12 {
+      for scheme in [ChineseInputScheme.quanpin, .nineKey] {
+        InputSchemePreference.scheme = scheme
+        weak var released: KeyboardViewController?
+        var keyboardViews: [WeakView] = []
+        try autoreleasepool {
+          let controller = KeyboardViewController()
+          released = controller
+          controller.loadViewIfNeeded()
+          if scheme == .quanpin {
+            try press("字母 N", in: controller)
+          } else {
+            let key = try XCTUnwrap(descendants(controller.view).first {
+              $0.accessibilityIdentifier == "nineKey6"
+            } as? UIButton)
+            key.sendActions(for: .primaryActionTriggered)
+          }
+          KeyboardLayoutPreference.keySpacing = iteration.isMultiple(of: 2) ? 4 : 7
+          controller.viewWillAppear(false)
+          keyboardViews = controller.view.subviews
+            .filter { !String(describing: type(of: $0)).hasPrefix("_UIInputViewContent") }
+            .flatMap { descendants($0) }
+            .map(WeakView.init)
+        }
+        XCTAssertNil(released, "第 \(iteration) 轮的 \(scheme) 控制器未释放")
+        XCTAssertFalse(keyboardViews.isEmpty)
+        XCTAssertTrue(keyboardViews.allSatisfy { $0.view == nil }, "第 \(iteration) 轮的 \(scheme) 键盘视图未释放")
+      }
+    }
+  }
+
   /// 系统每换一个宿主应用就新建一个 `KeyboardViewController`，旧的那个连同整套键盘视图要真的释放。iOS 27 的 `UIInputView` 自己释放不掉，挂在它下面的视图跟着留下：2026-11-02 在 iPhone 17 上同一个键盘进程里每重新加载一次键盘，`keyboard_loaded` 的 `base=` 就涨 10 MB 左右，五六次后碰到 176 MB 的上限被系统结束（见 `KeyboardViewController` 的 `deinit`）。
   func testADismissedKeyboardControllerReleasesItsViews() {
     weak var released: KeyboardViewController?
@@ -250,6 +286,7 @@ final class KeyboardMemoryTests: XCTestCase {
       // UIKit 自己挂在输入视图上的 `_UIInputViewContent` 与输入视图互相持有，摘下来也一样留着，不归这里管。
       keyboardViews = controller.view.subviews
         .filter { !String(describing: type(of: $0)).hasPrefix("_UIInputViewContent") }
+        .flatMap { descendants($0) }
         .map(WeakView.init)
     }
     // 主线程上排着的回调都是弱引用，跑一轮让它们结束。
