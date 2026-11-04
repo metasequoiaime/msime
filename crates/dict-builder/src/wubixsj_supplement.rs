@@ -4,7 +4,7 @@
 //!
 //! 权重分两层，因为新世纪表本身没有词组：如果所有词组都压在 `SUPPLEMENT_CEILING` 以下，常用词会全部排在同码的生僻单字之后。
 //!
-//! - 第一层是 86 极点码表里有的词：按新世纪码重新编码，权重沿用它在极点表里的权重（同一个词在极点表里有几行时取最大的），所以和 86 一样，常用词组可以排在同码的生僻单字之前。86 原表拆分之后，rime-wubi 那部分的词不带 86 表里比出来的权重：它在 86 表里越过的是 86 的同码行，到了新世纪编码上邻居换成了同码单字。所以它按同一条规则（`wubi86_table::lifted`）只和同码单字比一次，词频悬殊时越过排在最后的那几个冷僻单字，否则取 `wubi86_table::rows` 不比词频时给它的权重（一般是 10），同权重时排在单字之后。单字的权重按编码内名次给 10 的倍数（`msime::wubixsj_rows`），与极点表单字和词组的 10、20、30 这一档相当。
+//! - 第一层是 86 极点码表里有的词：按新世纪码重新编码，权重沿用它在极点表里的权重（同一个词在极点表里有几行时取最大的），所以和 86 一样，常用词组可以排在同码的生僻单字之前。86 原表拆分之后，rime-wubi 那部分的词不带 86 表里比出来的权重：它在 86 表里越过的是 86 的同码行，到了新世纪编码上邻居换成了同码单字。所以它按同一条规则（`wubi86_table::lifted`）在新世纪编码上重新比一次，比的是同码单字和第一层的极点表词，词频悬殊时越过排在最后的那几行，否则取 `wubi86_table::rows` 不比词频时给它的权重（一般是 10），同权重时排在单字之后。单字的权重按编码内名次给 10 的倍数（`msime::wubixsj_rows`），与极点表单字和词组的 10、20、30 这一档相当。
 //! - 第二层是其余候选词：与 86、98 补充表的规则相同，上限取 `SUPPLEMENT_CEILING` 与该编码下单字和第一层最低权重减 1 中较小者，同一编码下按 rime-ice 权重从高到低、再按词排序，从上限起依次减 1，最低为 0。所以第二层低于所有单字（最低是 10）；对第一层，只要该编码第一层的最低权重大于 0，第二层就严格更低，等于 0 时（极点表里权重为 0 的词）第二层与它同为 0，靠下面的行序排在它后面。
 //!
 //! 构建把本文件并在单字之后，同一编码内保持本文件的顺序（第一层在前）；引擎在同一编码下按权重从高到低、同权重按 rowid 排，所以同权重时单字在前、第一层在第二层前。第二层在候选里永远不会排到同码任何单字或第一层词之前，但「权重严格更低」只对单字成立。原本四码只有一个单字、输入法会自动上屏的编码，一旦有词组共用就不再自动上屏；报告会统计这类编码。
@@ -44,7 +44,7 @@ pub struct Inputs<'a> {
     pub jidian: &'a str,
     /// 新布局下 rime-wubi 补进来的 86 行（[`crate::wubi86_table::RIME_WUBI`]），旧布局为 `None`；第一层沿用的权重按 [`crate::wubi86_table::rows`] 换算，所以 rime-wubi 的词不会带着上亿的词频排到同码单字前面。
     pub rime_wubi: Option<&'a str>,
-    /// rime-wubi 的词和同码单字比的词频（[`crate::wubi86_table::Frequencies`]），旧布局不用；86 表里比出来的权重不带到新世纪表。
+    /// rime-wubi 的词在新世纪编码上和同码已有的行比的词频（[`crate::wubi86_table::Frequencies`]），旧布局不用；86 表里比出来的权重不带到新世纪表。
     pub frequencies: &'a crate::wubi86_table::Frequencies,
     /// `sources/wubi/wubi98.txt`，已从 UTF-16LE 解码。
     pub wubi98: &'a str,
@@ -103,7 +103,7 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
     );
 
     let mut jidian: BTreeMap<&str, i64> = BTreeMap::new();
-    // 只在 rime-wubi 那部分出现、极点表本身没有的词：它们在 86 表里越过同码行得到的权重只说明它和 86 同码行的先后，所以这里按不比词频的权重读（极点表自己的行不受词频影响），到了新世纪表只和同码单字比一次词频。
+    // 只在 rime-wubi 那部分出现、极点表本身没有的词：它们在 86 表里越过同码行得到的权重只说明它和 86 同码行的先后，所以这里按不比词频的权重读（极点表自己的行不受词频影响），到了新世纪表和同码已有的行（单字、第一层的极点表词）重新比一次词频。
     let mut rime_wubi_only: HashSet<&str> = HashSet::new();
     let unlifted = crate::wubi86_table::Frequencies::default();
     let jidian_rows = crate::wubi86_table::rows(inputs.jidian, None, &unlifted).count();
@@ -174,6 +174,8 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
 
     // 第一层：极点表的词，权重沿用极点表；同码几个词按极点权重、rime-ice 权重、词排序。
     let mut first: BTreeMap<String, Vec<(&str, i64)>> = BTreeMap::new();
+    // 只来自 rime-wubi 的词，等极点表的词都排好之后再和同码已有的行比。
+    let mut rime_wubi_words: Vec<(String, &str)> = Vec::new();
     let mut underivable = Vec::new();
     for word in candidates
         .iter()
@@ -181,33 +183,48 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
         .filter(|word| jidian.contains_key(word))
     {
         match word_code(&codes, word) {
-            Ok(code) => {
-                // rime-wubi 的词按 86 表同样的规则（`wubi86_table::lifted`）和同码单字比：词频悬殊时越过排在最后的那几个冷僻单字（取件 `bcwt` 越过 陖）；越不过时用不比词频的权重，不拿 86 表里越过的权重越过它比不过的单字（宿迁 `pwtf` 不越过 窄）。
-                let lifted = rime_wubi_only
-                    .contains(word)
-                    .then(|| {
-                        crate::wubi86_table::lifted(
-                            singles_by_code
-                                .get(code.as_str())
-                                .map_or(&[][..], Vec::as_slice),
-                            inputs.frequencies.get(word),
-                            inputs.frequencies,
-                        )
-                    })
-                    .flatten();
-                let weight = lifted.unwrap_or(jidian[word]);
-                first.entry(code).or_default().push((word, weight));
-            }
+            Ok(code) if rime_wubi_only.contains(word) => rime_wubi_words.push((code, word)),
+            Ok(code) => first.entry(code).or_default().push((word, jidian[word])),
             Err(c) => underivable.push((word.to_owned(), c)),
         }
     }
-    for words in first.values_mut() {
-        words.sort_by(|a, b| {
-            b.1.cmp(&a.1)
-                .then(frequency.order.get(b.0).cmp(&frequency.order.get(a.0)))
-                .then(a.0.cmp(b.0))
-        });
+    let sort_first = |first: &mut BTreeMap<String, Vec<(&str, i64)>>| {
+        for words in first.values_mut() {
+            words.sort_by(|a, b| {
+                b.1.cmp(&a.1)
+                    .then(frequency.order.get(b.0).cmp(&frequency.order.get(a.0)))
+                    .then(a.0.cmp(b.0))
+            });
+        }
+    };
+    sort_first(&mut first);
+    // rime-wubi 的词按 86 表同样的规则（`wubi86_table::lifted`）和新世纪编码上已有的行比：同码单字和第一层的极点表词，按引擎的次序（权重从高到低，同权重时单字在前）。词频悬殊时越过排在最后的那几行（取件 `bcwt` 越过 陖，的话 `rqyt` 越过 魅族、鬼话）；越不过时用不比词频的权重，不拿 86 表里越过的权重越过它比不过的行（宿迁 `pwtf` 不越过 窄）。
+    let mut lifted_words = Vec::with_capacity(rime_wubi_words.len());
+    for (code, word) in rime_wubi_words {
+        let mut existing: Vec<(i64, &str)> = singles_by_code
+            .get(code.as_str())
+            .cloned()
+            .unwrap_or_default();
+        existing.extend(
+            first
+                .get(&code)
+                .into_iter()
+                .flatten()
+                .map(|&(value, weight)| (weight, value)),
+        );
+        existing.sort_by_key(|(weight, _)| std::cmp::Reverse(*weight));
+        let weight = crate::wubi86_table::lifted(
+            &existing,
+            inputs.frequencies.get(word),
+            inputs.frequencies,
+        )
+        .unwrap_or(jidian[word]);
+        lifted_words.push((code, word, weight));
     }
+    for (code, word, weight) in lifted_words {
+        first.entry(code).or_default().push((word, weight));
+    }
+    sort_first(&mut first);
 
     // 第二层排在单字和第一层之后：把它们一起当作「原有行」交给共用的排名规则。
     let mut existing: Vec<(String, &str, i64)> = singles
@@ -430,7 +447,7 @@ mod tests {
         assert_eq!(supplement.unique_codes_shared, 1);
     }
 
-    /// 新布局下 rime-wubi 补进来的词在第一层按换算后的 10 算：「部门」在 rime-wubi 里的词频上亿，换算后与同码单字「冰」同为 10，同权重时单字在前；旧布局读合并的文件时它带着原来的权重领先。它在新世纪编码上按同一条规则和同码单字比：是 冰 的十倍以上就越过它（冰 的 10 加 1），冰 足够常用时不越；在 86 表里越过同码极点词「冲凉」得到的权重不带过来，所以越不过 冰 时仍是 10。
+    /// 新布局下 rime-wubi 补进来的词在第一层按换算后的 10 算：「部门」在 rime-wubi 里的词频上亿，换算后与同码单字「冰」同为 10，同权重时单字在前；旧布局读合并的文件时它带着原来的权重领先。它在新世纪编码上按同一条规则和同码已有的行比，单字和第一层的极点表词都算：是 冰 的十倍以上就越过它（冰 的 10 加 1），冰 足够常用时不越；极点表词「冲凉」在新世纪编码上也在同码，词频悬殊时一并越过（冲凉 的 20 加 1）；在 86 表里越过 冲凉 得到的权重不带过来，所以越不过 冰 时仍是 10。
     #[test]
     fn rime_wubi_words_keep_the_mapped_weight() {
         let curation = PinyinCuration::default();
@@ -478,6 +495,11 @@ mod tests {
         assert_eq!(
             build_from(jidian, Some(rime_wubi), &common_single),
             (Some(10), 0)
+        );
+        // 新世纪编码上同码的极点表词也算：冲凉（20）和 冰 都冷僻得多，两行都越过，取 冲凉 的 20 加 1。
+        assert_eq!(
+            build_from("冲凉\tukuy\t20\r\n", Some(rime_wubi), &frequent),
+            (Some(21), 1)
         );
         // 在 86 表里越过了 冲凉，到了新世纪编码上越不过 冰：取不比词频的 10，排在 冰 之后，不带着 86 的 11 排到它前面。
         let common_single_after_lift =
