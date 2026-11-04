@@ -1,6 +1,6 @@
 import UIKit
 
-/// 装饰性的双拼底部提示由按键直接排版，不加入整棵键盘的约束图。
+/// 装饰性的双拼底部提示由按键直接排版，不显式安装与按键相连的三条边约束。
 final class KeyboardBottomHintLabel: UILabel {
   init() {
     super.init(frame: .zero)
