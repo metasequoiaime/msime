@@ -99,13 +99,24 @@ pub(crate) fn request(
 
 /// 回收再也用不上的工作词库代次（#10735）。宿主为每个词库版本在 `<state>/user/dictionaries/<代次>` 准备一份工作词库（主词库、英文词库和 n-gram 表的副本，回放过用户日志，一份几十到上百 MB），代次就是那一版资源集合的 `generation()`：随包词库是本安装包的词库锁，在线更新的是下载版本的桌面代次。以前这里只建不删，每装一个新版本、每升级一次换了词库锁，就多留一份。
 ///
-/// 留下：本安装包词库锁的代次，宿主配置记着的那一代（`configured`，即发来请求的 HostOptions 的 `dictionaries`），和下载版本还留着的那些（[`updates::retained_generations`]：当前、可回退的上一个、输入法最近载入的、有会话占用而没删的）。宿主配置那一代不能只靠锁保护：Linux 上自己下载的词库在升级换锁后刷新报 `dictionary_outdated`，宿主按设计继续用 `runtime-options.json` 记着的旧锁代次，而 Fcitx5 每次失焦都销毁会话、建会话时不重新准备代次，没有焦点的那一刻谁也不持锁，删了它之后每次建会话都失败，重启宿主也准备不回来。Linux 和 Android 的设置应用每次请求都现读 `runtime-options.json`，这里拿到的就是输入法此刻在用的那份。其余 64 位十六进制名字的目录逐个先取这一个目录上的独占词库访问锁：每个会话都以共享方式持着它所用代次的这把锁（`DictionaryAccess::try_session`），设置里改词这类维护也持着它，取不到就说明还有人在用，跳过，下次再试。升级后还没重启的旧版输入法进程用的就是上一个词库锁的代次，它的会话活着时也因此不会被删。取到锁之后再问一次哪些版本还留着，避开在这期间刚发布的新版本，然后改名成 `<代次>.<随机串>.removing` 认领再删，删到一半留下的目录由引擎准备代次时清理暂存目录的那一步收尾（`.removing` 后缀与它约定一致）。Windows 上目录里有打开的文件时改名失败：先放掉锁再试一次，还是失败就留到下次。
+/// 留下：本安装包词库锁的代次，宿主配置记着的那一代（`configured`，即发来请求的 HostOptions 的 `dictionaries`），和下载版本还留着的那些（[`updates::retained_generations`]：当前、可回退的上一个、输入法最近载入的、有会话占用而没删的）。宿主配置那一代不能只靠锁保护：Linux 上自己下载的词库在升级换锁后刷新报 `dictionary_outdated`，宿主按设计继续用 `runtime-options.json` 记着的旧锁代次，而 Fcitx5 每次失焦都销毁会话、建会话时不重新准备代次，没有焦点的那一刻谁也不持锁，删了它之后每次建会话都失败，重启宿主也准备不回来。Linux 和 Android 的设置应用每次请求都现读 `runtime-options.json`，这里拿到的就是输入法此刻在用的那份。其余 64 位十六进制名字的目录逐个先取这一个目录上的独占词库访问锁：每个会话都以共享方式持着它所用代次的这把锁（`DictionaryAccess::try_session`），设置里改词这类维护也持着它，取不到就说明还有人在用，跳过，下次再试。升级后还没重启的旧版输入法进程用的就是上一个词库锁的代次，它的会话活着时也因此不会被删。取到锁之后再问一次哪些版本还留着，避开在这期间刚发布的新版本，然后改名成 `<代次>.<随机串>.removing` 认领再删，删到一半留下的目录由引擎准备代次时清理暂存目录的那一步收尾（`.removing` 后缀与它约定一致）。Windows 上目录里有打开的文件时改名可能失败，任何平台改名失败都保留原目录，留到下次持锁再试，不能释放租约后无锁重试。
 ///
-/// 代次里的内容都能从资源和用户日志重新准备出来，删错的代价是下次用到它时重新复制、回放一遍，不丢用户数据。出什么错都只是少删。
+/// 代次里的内容都能从资源和用户日志重新准备出来，但仍在使用的目录必须受租约保护。回收失败时只多留一份，不能绕过锁继续删除。
 pub(crate) fn remove_unused_working_generations(
     state: &Path,
     baseline: &ResourceSet,
     configured: Option<&str>,
+) {
+    remove_unused_working_generations_using(state, baseline, configured, |source, target| {
+        std::fs::rename(source, target)
+    });
+}
+
+fn remove_unused_working_generations_using(
+    state: &Path,
+    baseline: &ResourceSet,
+    configured: Option<&str>,
+    mut rename: impl FnMut(&Path, &Path) -> std::io::Result<()>,
 ) {
     let Ok(current) = baseline.generation() else {
         return;
@@ -142,11 +153,8 @@ pub(crate) fn remove_unused_working_generations(
             continue;
         }
         let claimed = parent.join(format!("{name}.{}.removing", attempt()));
-        let mut moved = std::fs::rename(&path, &claimed).is_ok();
+        let moved = rename(&path, &claimed).is_ok();
         drop(access);
-        if !moved {
-            moved = std::fs::rename(&path, &claimed).is_ok();
-        }
         if moved {
             let _ = std::fs::remove_dir_all(&claimed);
         }
@@ -595,6 +603,44 @@ mod tests {
         std::fs::write(state.join("dictionary-updates/installed.json"), b"{").unwrap();
         remove_unused_working_generations(&state, &baseline, None);
         assert!(unknown.is_dir());
+    }
+
+    #[test]
+    fn failed_generation_claim_keeps_the_lease_until_rename_returns() {
+        let root = tempfile::tempdir().unwrap();
+        let resources = root.path().join("resources");
+        let state = root.path().join("state");
+        let mut baseline = crate::tests::synthetic_desktop_lock(&resources);
+        hash_files(&resources, &mut baseline, "dict-v2.0.9");
+        let obsolete = state.join("user/dictionaries").join("a".repeat(64));
+        std::fs::create_dir_all(&obsolete).unwrap();
+        std::fs::write(obsolete.join("synthetic.db"), b"synthetic generation").unwrap();
+        let mut attempts = 0;
+
+        remove_unused_working_generations_using(&state, &baseline, None, |source, _| {
+            attempts += 1;
+            assert_eq!(source, obsolete);
+            // 模拟系统拒绝改名，同时用真实访问锁检查任何一次尝试都有独占租约保护。
+            assert!(
+                crate::DictionaryAccess::try_session(source, source)
+                    .unwrap()
+                    .is_none(),
+                "改名期间不能有新会话取得共享租约"
+            );
+            Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied))
+        });
+
+        assert_eq!(attempts, 1, "失败后留到下次检查，不能释放租约后重试");
+        assert_eq!(
+            std::fs::read(obsolete.join("synthetic.db")).unwrap(),
+            b"synthetic generation"
+        );
+        let session = crate::DictionaryAccess::try_session(&obsolete, &obsolete)
+            .unwrap()
+            .expect("失败后旧代次仍能建立会话");
+        drop(session);
+        remove_unused_working_generations(&state, &baseline, None);
+        assert!(!obsolete.exists(), "下次持锁认领成功后仍可回收");
     }
 
     /// #10735：Linux 上自己下载的词库在升级换锁后刷新报 `dictionary_outdated`，宿主继续用 runtime-options.json 记着的旧锁代次。Fcitx5 失焦就销毁会话，此刻没有任何会话持锁，这一代也既不是新的随包代次、也不是下载版本；只有宿主配置记着它，删了输入法就再也建不了会话。
