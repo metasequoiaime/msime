@@ -11,6 +11,13 @@ enum SettingsSearchAnchor {
     return keywords.first { $0.localizedCaseInsensitiveContains(query) }
   }
 
+  /// 搜索结果打开页面时带的目标：查询命中了页面标题（例如搜「插件」）时为 nil，用户找的是这一页，页面和从首页那一行进来一样打开；否则是 `anchor`。
+  static func target(title: String, keywords: [String], query: String) -> String? {
+    let trimmed = query.trimmingCharacters(in: .whitespaces)
+    guard !trimmed.isEmpty, !title.localizedCaseInsensitiveContains(trimmed) else { return nil }
+    return anchor(keywords: keywords, query: trimmed)
+  }
+
   /// 目标就是页面的某个分段标题时返回这一段的标题，否则为 nil。
   static func section(_ sections: [String], anchor: String?) -> String? {
     guard let anchor = anchor?.trimmingCharacters(in: .whitespaces), !anchor.isEmpty else { return nil }

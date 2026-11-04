@@ -92,9 +92,9 @@ enum SettingsPage: String, CaseIterable, Identifiable {
     }
   }
 
-  /// 搜索 `query` 时这一页结果要带给页面的目标：第一个命中的关键词，只命中标题时为 nil（`SettingsSearchAnchor.anchor`）。
+  /// 搜索 `query` 时这一页结果要带给页面的目标：查询命中页面标题时为 nil，否则是第一个命中的关键词（`SettingsSearchAnchor.target`）。
   func searchAnchor(for query: String) -> String? {
-    SettingsSearchAnchor.anchor(keywords: keywords, query: query)
+    SettingsSearchAnchor.target(title: title, keywords: keywords, query: query)
   }
 
   /// 这一页的视图；`searchAnchor` 来自搜索结果时，带分段的页面从命中的那一段开始（目前是插件页的「社区插件」）。

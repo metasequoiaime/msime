@@ -27,6 +27,8 @@ struct SettingsView: View {
       return
     }
     router.settingsPage = nil
+    // 深链打开的页面不是搜索结果：清掉搜索框里残留的查询，否则推入时按它算出目标（搜过「社区」时插件页会停在「社区插件」），与 iPad 侧栏的 `show(_:)` 一致。
+    query = ""
     selectedPage = page
   }
 

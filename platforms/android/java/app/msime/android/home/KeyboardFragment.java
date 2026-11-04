@@ -251,7 +251,7 @@ public final class KeyboardFragment extends HomeTabFragment {
         SettingsNavigator.open(requireContext(), page, null);
     }
 
-    /** 打开一条搜索结果：命中了关键词时把它作为目标交给页面（{@link HostDeepLink#ARG_ROW}），页面切到它所在的分类并滚过去；只命中标题时和首页那一行一样打开。 */
+    /** 打开一条搜索结果：命中了关键词时把它作为目标交给页面（{@link HostDeepLink#ARG_ROW}），页面切到它所在的分类并滚过去；查询命中结果标题时（{@link SettingsSearchAnchorPolicy#target}）和首页那一行一样打开。 */
     private void openResult(PageId page, @Nullable String anchor) {
         if (anchor == null) {
             open(page);
@@ -334,8 +334,9 @@ public final class KeyboardFragment extends HomeTabFragment {
                 if (!text.contains(query) && !entry.page().matches(query)) continue;
                 if (group == null) group = HomeNavGroup.add(results);
                 PageId page = entry.page();
-                String anchor = SettingsSearchAnchorPolicy.anchor(page.keywords(), query);
-                group.add(entry.icon(), entry.title(), anchor != null ? anchor : value, () -> openResult(page, anchor));
+                String keyword = SettingsSearchAnchorPolicy.anchor(page.keywords(), query);
+                String target = SettingsSearchAnchorPolicy.target(entry.title(), page.keywords(), query);
+                group.add(entry.icon(), entry.title(), keyword != null ? keyword : value, () -> openResult(page, target));
                 listed.add(page);
                 shown++;
             }
@@ -345,8 +346,9 @@ public final class KeyboardFragment extends HomeTabFragment {
                 if (listed.contains(page) || !page.searchable() || !page.matches(query)) continue;
                 if (page == PageId.KEY_LAYOUT_STYLES && !keyLayoutOffered) continue;
                 if (group == null) group = HomeNavGroup.add(results);
-                String anchor = SettingsSearchAnchorPolicy.anchor(page.keywords(), query);
-                group.add(R.drawable.ic_search, page.title(), anchor, () -> openResult(page, anchor));
+                String target = SettingsSearchAnchorPolicy.target(page.title(), page.keywords(), query);
+                group.add(R.drawable.ic_search, page.title(), SettingsSearchAnchorPolicy.anchor(page.keywords(), query),
+                    () -> openResult(page, target));
                 shown++;
             }
         }

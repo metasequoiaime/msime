@@ -5,13 +5,14 @@ import java.util.List;
 /**
  * 设置首页搜索结果要带着命中的设置项打开详情页：以前结果和首页普通入口一样只给页面，带分类标签的页面总是停在第一个分类，搜「显示页码」打开「键盘」停在「布局」，这一行在「工具栏」。
  *
- * <p>这里钉住不碰 Android 视图的那一半：结果带哪个关键词作为目标、这个关键词什么时候直接就是一个分类、页面上的哪段文字算命中、参数怎么写进 Bundle 的键。在视图树里找这一行、切分类和滚动由 SettingsSearchAnchorDeviceChecks 点击真实搜索结果验证；短暂高亮的观感仍需设备验收。
+ * <p>这里钉住不碰 Android 视图的那一半：结果带哪个关键词作为目标、查询命中页面标题时不带目标、这个关键词什么时候直接就是一个分类、页面上的哪段文字算命中、参数怎么写进 Bundle 的键。在视图树里找这一行、切分类和滚动由 SettingsSearchAnchorDeviceChecks 点击真实搜索结果验证；短暂高亮的观感仍需设备验收。
  */
 public final class SettingsSearchAnchorPolicySmoke {
     private static final List<String> KEYBOARD_SECTIONS = List.of("布局", "反馈", "手势", "工具栏");
 
     public static void main(String[] arguments) {
         anchor();
+        target();
         sections();
         labels();
         argument();
@@ -29,6 +30,18 @@ public final class SettingsSearchAnchorPolicySmoke {
         check(SettingsSearchAnchorPolicy.anchor(keywords, "   ") == null, "a blank query has no anchor");
         check("组字时保留 Shift".equals(SettingsSearchAnchorPolicy.anchor(List.of("组字时保留 Shift", "Shift"), "SHIFT")),
             "matching ignores case like PageId#matches and returns the keyword in its own spelling");
+    }
+
+    private static void target() {
+        List<String> keywords = List.of("布局", "英文自动大写", "中文键盘", "显示页码");
+        check(SettingsSearchAnchorPolicy.target("键盘", keywords, "键盘") == null,
+            "a query naming the page has no target even though the 中文键盘 row contains it");
+        check(SettingsSearchAnchorPolicy.target("键盘", keywords, " 键盘 ") == null, "the title check trims the query like PageId#matches");
+        check("显示页码".equals(SettingsSearchAnchorPolicy.target("键盘", keywords, "页码")), "a keyword-only hit is the target");
+        check(SettingsSearchAnchorPolicy.target("键盘", keywords, "") == null, "an empty query has no target");
+        check("社区插件".equals(SettingsSearchAnchorPolicy.target("插件", List.of("短语表", "社区插件"), "社区插件")),
+            "a query longer than the title still targets the keyword");
+        check(SettingsSearchAnchorPolicy.target("插件", List.of("短语表", "社区插件"), "插件") == null, "searching 插件 opens the plugins page as from its row");
     }
 
     private static void sections() {

@@ -17,6 +17,14 @@ final class SettingsSearchAnchorTests: XCTestCase {
     XCTAssertNil(SettingsSearchAnchor.anchor(keywords: pluginKeywords, query: "   "))
   }
 
+  func testAQueryNamingThePageHasNoTarget() {
+    XCTAssertNil(SettingsSearchAnchor.target(title: "插件", keywords: pluginKeywords, query: "插件"))
+    XCTAssertNil(SettingsSearchAnchor.target(title: "插件", keywords: pluginKeywords, query: " 插件 "))
+    XCTAssertNil(SettingsSearchAnchor.target(title: "插件", keywords: pluginKeywords, query: ""))
+    XCTAssertEqual(SettingsSearchAnchor.target(title: "插件", keywords: pluginKeywords, query: "社区插件"), "社区插件")
+    XCTAssertEqual(SettingsSearchAnchor.target(title: "插件", keywords: pluginKeywords, query: "社区"), "社区插件")
+  }
+
   func testAnAnchorNamingASegmentOpensThatSegment() {
     let segments = ["我的插件", "社区插件"]
     XCTAssertEqual(SettingsSearchAnchor.section(segments, anchor: "社区插件"), "社区插件")
