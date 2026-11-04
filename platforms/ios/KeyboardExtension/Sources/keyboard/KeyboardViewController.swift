@@ -890,7 +890,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// UIKit 总在主线程上释放视图控制器，所以这里可以按主线程执行。
   deinit {
     MainActor.assumeIsolated {
-      viewIfLoaded?.subviews.forEach { $0.removeFromSuperview() }
+      KeyboardViewTeardown.detachSubviews(from: viewIfLoaded)
     }
   }
 
