@@ -206,8 +206,10 @@ export const releaseGlossCaches: () => void;
 export const englishCompletions: (request: string, resources: string) => string;
 /** Clear the session's Engine candidate cache and refresh its view. */
 export const resetCache: (handle: number) => string;
-/** 停顿重排（`msime_client_start_settled_rerank`）：会话选项写了 `pause_rerank` 且这台设备跑不进逐键预算时，带着整句联想「增强」的模型重解当前组字的一片。回 `{status:'done'|'continue', moved, current, view?}`；`continue` 时先让排队的输入走，没有新按键再调。必须在会话线程（UI 线程）调用。 */
+/** 停顿重排（`msime_client_start_settled_rerank`）：会话选项写了 `pause_rerank` 且这台设备跑不进逐键预算时，带着整句联想「增强」的模型重解当前组字的一片。回 `{status:'done'|'continue'|'pending', token?, moved?, current?, view?}`；`continue` 时先让排队的输入走，没有新按键再调。收到 `view` 就更新候选身份，即使 `moved` 为假。必须在会话线程（UI 线程）调用。 */
 export const startSettledRerank: (handle: number) => string;
+/** 轮询后台评分；新按键或失焦后以 `accept=false` 轮询到结束，只归还模型、不发布旧候选。句柄销毁后不再轮询。 */
+export const pollSettledRerank: (handle: number, token: number, accept: boolean) => string;
 export const translationGlossSave: (request: string, userData: string) => string;
 export const translationPlan: (request: string) => string;
 /** Google 登录的回环判定（`msime_client_google_loopback`）：operation 为 target、plan 或 reply，请求与返回值见头文件。设置应用自己监听 127.0.0.1、打开浏览器、经系统 HTTPS 栈申请 challenge 和提交授权码。 */

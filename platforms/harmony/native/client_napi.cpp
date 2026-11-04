@@ -1242,6 +1242,18 @@ static napi_value ResolveOnlineCandidates(napi_env env, napi_callback_info info)
         return response(env, call(handle));                                                         \
     }
 
+static napi_value PollSettledRerank(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    uint64_t handle = 0;
+    uint64_t token = 0;
+    bool accept = false;
+    if (!arguments(env, info, 3, argv) || !argumentHandle(env, argv[0], handle)
+            || !argumentHandle(env, argv[1], token) || !argumentFlag(env, argv[2], accept)) {
+        return invalid(env, "Expected a session handle, a rerank token and a boolean");
+    }
+    return response(env, msime_client_poll_settled_rerank(handle, token, accept));
+}
+
 HANDLE_ENTRY(SnapshotDiscard, msime_client_snapshot_discard)
 HANDLE_ENTRY(View, msime_client_view)
 HANDLE_ENTRY(ResetCache, msime_client_reset_cache)
@@ -1846,6 +1858,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("englishCompletions", EnglishCompletions),
         ENTRY("resetCache", ResetCache),
         ENTRY("startSettledRerank", StartSettledRerank),
+        ENTRY("pollSettledRerank", PollSettledRerank),
         ENTRY("translationGlossSave", TranslationGlossSave),
         ENTRY("translationPlan", TranslationPlan),
         ENTRY("googleLoopback", GoogleLoopback),

@@ -5,6 +5,7 @@ import { DecorationCandidateStyle } from './candidate/DecorationCandidatePolicy'
 import { CandidateLayoutPolicy, CandidateResolvedLayout } from './candidate/CandidateSkinPolicy';
 import { CandidateCanvasScene, CandidateCanvasResource, CandidateCanvasPolicy } from './candidate/CandidateCanvasPolicy';
 import { NativeCleanup } from './NativeCleanup';
+import { PauseRerankDiscard } from './PauseRerankDiscard';
 import inputMethodEngine from '@ohos.inputMethodEngine';
 import fs from '@ohos.file.fs';
 import util from '@ohos.util';
@@ -1243,9 +1244,10 @@ interface PreparedOptions {
   pause_rerank?: boolean;
 }
 
-/** `startSettledRerank` 的回答：`continue` 是这一片的模型时间用完了，`moved` 时附带新的视图。 */
+/** 停顿重排的回答：`continue` 要续跑切片，`pending` 要携令牌轮询；收到 `view` 就更新候选身份。 */
 interface PauseRerankValue {
   status: string;
+  token?: number;
   moved?: boolean;
   view?: EngineView;
 }
@@ -4170,6 +4172,12 @@ export class KeyboardSession implements HardwareKeyTarget {
   private static readonly PAUSE_RERANK_MS: number = 300;
   private pauseRerankTimer: number = -1;
   private pauseRerankEpoch: number = 0;
+  private pauseRerankToken: number = 0;
+  private readonly discardedPauseRerank: PauseRerankDiscard = new PauseRerankDiscard(
+    (handle: number, token: number): string => client.pollSettledRerank(handle, token, false),
+    (): number => this.handle,
+    (callback: () => void, delay: number): number => setTimeout(callback, delay),
+    (timer: number): void => clearTimeout(timer));
   /** 正在画停顿重解给的视图：`render` 照常安排在线候选和翻译，但不再安排下一次停顿重解，否则解完会再解一遍。 */
   private renderingPauseRerank: boolean = false;
 
@@ -4191,22 +4199,43 @@ export class KeyboardSession implements HardwareKeyTarget {
       clearTimeout(this.pauseRerankTimer);
       this.pauseRerankTimer = -1;
     }
+    const token: number = this.pauseRerankToken;
+    this.pauseRerankToken = 0;
+    if (token !== 0) this.discardedPauseRerank.discard(this.handle, token);
   }
 
   /** 跑一片停顿重解。`continue` 时用 `setTimeout(0)` 排下一片：两片之间排队的触摸先走，按键最多等一片。翻译页开着时不跑，那里画的不是引擎的候选。 */
   private runPauseRerank(handle: number, epoch: number): void {
+    if (epoch !== this.pauseRerankEpoch || handle !== this.handle || handle === 0) return;
     this.pauseRerankTimer = -1;
-    if (epoch !== this.pauseRerankEpoch || handle !== this.handle || this.translationPage !== null) return;
+    if (this.translationPage !== null) {
+      this.cancelPauseRerank();
+      return;
+    }
+    // 旧任务只接受丢弃；归还前不能把同一令牌重新认领为这次停顿的结果。
+    if (this.discardedPauseRerank.waiting(handle)) {
+      this.pauseRerankTimer = setTimeout((): void => {
+        this.runPauseRerank(handle, epoch);
+      }, PauseRerankDiscard.POLL_MS);
+      return;
+    }
     let value: PauseRerankValue | null;
     try {
       value = NativeReplyPolicy.successfulValue<PauseRerankValue>(
-        JSON.parse(client.startSettledRerank(handle)) as NativeReply<PauseRerankValue>);
+        JSON.parse(this.pauseRerankToken === 0 ? client.startSettledRerank(handle)
+          : client.pollSettledRerank(handle, this.pauseRerankToken, true)) as NativeReply<PauseRerankValue>);
     } catch (error) {
+      this.cancelPauseRerank();
       KeyboardLog.error(`unreadable pause rerank reply: ${describeError(error)}`);
       return;
     }
-    if (value === null) return;
-    if (value.moved === true && value.view !== undefined) {
+    if (value === null || (value.status === 'pending'
+      && (value.token === undefined || !Number.isSafeInteger(value.token) || value.token <= 0))) {
+      this.cancelPauseRerank();
+      return;
+    }
+    this.pauseRerankToken = value.status === 'pending' ? value.token as number : 0;
+    if (value.view !== undefined) {
       this.renderingPauseRerank = true;
       try {
         this.render(value.view);
@@ -4214,10 +4243,11 @@ export class KeyboardSession implements HardwareKeyTarget {
         this.renderingPauseRerank = false;
       }
     }
-    if (value.status === 'continue' && epoch === this.pauseRerankEpoch) {
+    if ((value.status === 'continue' || value.status === 'pending')
+      && epoch === this.pauseRerankEpoch && handle === this.handle) {
       this.pauseRerankTimer = setTimeout((): void => {
         this.runPauseRerank(handle, epoch);
-      }, 0);
+      }, value.status === 'pending' ? PauseRerankDiscard.POLL_MS : 0);
     }
   }
 
