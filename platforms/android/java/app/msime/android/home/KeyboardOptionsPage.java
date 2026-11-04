@@ -154,18 +154,9 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             spellingPositionLabel(spellingPosition),
             () -> pickSpellingPosition(spellingPosition)).help("全拼、双拼、五笔和粤拼可以把正在输入的拼音放在输入框或候选栏");
         // 写进输入框的拼写是 Engine 的 `preedit`（CandidatePreeditStylePolicy.inlineSpelling）：关掉这一项后，双拼写展开的拼音，粤语双拼写展开的粤拼（#10557）。共享偏好 `shuangpin_preedit_uses_raw`，缺省为开，与 client-core 一致；标题与 iOS 候选栏页相同。候选栏画的是读音，不受这一项影响，所以说明只讲输入框。本版本两种双拼都没有时不列。
-        boolean shuangpinRaw = preferences.optBoolean("shuangpin_preedit_uses_raw", true);
-        if (KeyboardScheme.XIAOHE.offeredBy(edition) || KeyboardScheme.CANTONESE.offeredBy(edition)) {
-            layout.toggle("双拼显示原始按键", null,
-                shuangpinRaw,
-                checked -> savePreference("shuangpin_preedit_uses_raw", checked)).help("关闭后输入框里显示按键对应的完整拼音或粤拼");
-        }
-        // 「双拼分隔」（#10717）：共享偏好 `shuangpin_preedit_separated`，缺省为关，只在显示原始按键时起作用，所以上一项关着时不列；保存后整页重画，这一行随之出现或消失。标题和说明与 iOS 候选栏页相同。引擎的粤语双拼不读它，所以只看本版本有没有普通话双拼。
-        if (KeyboardScheme.XIAOHE.offeredBy(edition) && shuangpinRaw) {
-            layout.toggle("原始按键按音节分隔", null,
-                preferences.optBoolean("shuangpin_preedit_separated", false),
-                checked -> savePreference("shuangpin_preedit_separated", checked)).help("在原始按键之间按音节加分隔符，例如自然码 nimf 显示为 ni'mf");
-        }
+        app.msime.android.ShuangpinPreeditSettings.addRows(edition,
+            (key, fallback) -> preferences.optBoolean(key, fallback), this::savePreference,
+            (title, checked, changed, help) -> layout.toggle(title, null, checked, changed).help(help));
         // 本版本没有任何其他语言键盘（五笔版、拼音版）时不列这一项。
         if (offersOtherLanguage(edition)) {
             layout.toggle("中英键轮换其他语言", null,

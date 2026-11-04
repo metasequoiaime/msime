@@ -76,8 +76,8 @@ Status: implemented
 
 - 收益：库里已有的词能拼成整句放在首位，「我打你」「周杰倫」这类整段不在库里的输入一次上屏（#10369 原先要分两次选）。粤语双拼可以显示展开后的粤拼，宿主的显示代码不用改；六个平台在用粤语双拼时都能在设置里找到这一项（见「设置入口」）。
 - 代价：整句不对时，原先排第一的开头单字或短词退到第二位，空格会上屏错的整句。这会改变普通粤拼和粤语双拼用户的首位候选，属于默认行为变化，已经维护者批准。每次按键多约 0.25 ms（p50）。
-- 验证缺口：没有母语者开发集和独立盲测集，评估笔记建议的「至少 200 个由母语者固定读音与可接受候选的样例」仍未建立。真机上的首候选延迟和内存没有测，标记文本显示粤拼后在第三方 App 里的删除、移动光标和回车也没有在真机上验证。Android 键盘页两个新开关、Windows 两种设置窗口的新行都没有在设备上点过，只有源码守卫和 Windows 7 设置的 UI 测试（要在 Windows 上跑；本机只用 MinGW 做了语法检查）。
-- 测试：`cantonese::scheme` 单元测试覆盖双拼与普通粤拼组句、排序、兜底、上限、多读音下限和展开文字；`session::tests::cantonese_shuangpin_sentence_commits_whole_and_preedit_follows_the_raw_key_preference` 覆盖整句一次上屏，以及两种偏好下的显示快照、编辑文字和原始快照。设置入口由 `input-scheme-details-section.test.tsx`、`preedit-settings-section.test.tsx`、`settings.test.tsx`（macOS 粤语双拼保存时连同分隔一起写、鸿蒙手机候选栏页）、`host_surface::tests`（六个宿主都有 `shuangpin_preedit`）、`windows7_settings.cpp`（含存着双拼分隔时粤语双拼这一行的读写）、Android `check-host.sh` 的源码守卫和 `SettingsSearchIndexSmoke` 覆盖。`user_words_take_part_in_the_composed_sentence` 覆盖用户的多音节词拼进整句、单字词与发布的同字取较大权重；`sentence_cache_follows_user_word_changes` 用同一个会话缓冲覆盖加词、删光词后缓存作废，以及别的种类改词时缓存保留（去掉版本比较时这条测试失败）。
+- 验证缺口：没有母语者开发集和独立盲测集，评估笔记建议的「至少 200 个由母语者固定读音与可接受候选的样例」仍未建立。真机上的首候选延迟和内存没有测，标记文本显示粤拼后在第三方 App 里的删除、移动光标和回车也没有在真机上验证。Android 键盘页两个新开关、Windows 两种设置窗口的新行都没有在设备上点过，只有 JVM 设置行行为冒烟和 Windows 7 设置的 UI 测试（要在 Windows 上跑；本机只用 MinGW 做了语法检查）。
+- 测试：`cantonese::scheme` 单元测试覆盖双拼与普通粤拼组句、排序、兜底、上限、多读音下限和展开文字；`session::tests::cantonese_shuangpin_sentence_commits_whole_and_preedit_follows_the_raw_key_preference` 覆盖整句一次上屏，以及两种偏好下的显示快照、编辑文字和原始快照。设置入口由 `input-scheme-details-section.test.tsx`、`preedit-settings-section.test.tsx`、`settings.test.tsx`（macOS 粤语双拼保存时连同分隔一起写、鸿蒙手机候选栏页）、`host_surface::tests`（六个宿主都有 `shuangpin_preedit`）、`windows7_settings.cpp`（含存着双拼分隔时粤语双拼这一行的读写）、Android `ShuangpinPreeditSettingsSmoke` 与 `SettingsSearchIndexSmoke` 覆盖；键盘页把这两行交给可在 JVM 上运行的 `ShuangpinPreeditSettings.addRows`，冒烟直接执行行构建和保存回调，验证版本可达性、缺字段默认值、关闭原始按键后隐藏分隔行及重开后保留分隔选择，不再新增源码 grep 守卫。`user_words_take_part_in_the_composed_sentence` 覆盖用户的多音节词拼进整句、单字词与发布的同字取较大权重；`sentence_cache_follows_user_word_changes` 用同一个会话缓冲覆盖加词、删光词后缓存作废，以及别的种类改词时缓存保留（去掉版本比较时这条测试失败）。
 
 ## Related notes audit
 

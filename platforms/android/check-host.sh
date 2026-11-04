@@ -585,24 +585,6 @@ if ! rg -q 'CandidatePreeditStylePolicy\.composedText' \
   echo "Android spelling position must gate the spelling, never the phrase prefix, and must read touch_spelling_position rather than candidate_preedit_style" >&2
   exit 1
 fi
-# 写进输入框的拼写是 Engine 的 `preedit`，双拼和粤语双拼关掉原始按键后它是展开的拼音或粤拼。键盘页要有与 iOS 同名的「双拼显示原始按键」开关，读写共享偏好 `shuangpin_preedit_uses_raw`，缺省按开（原始按键），与 client-core 的出厂值一致；本版本有双拼或粤语双拼时才列出（#10557）。
-shuangpin_preedit_body=$(rg -B 2 -A 3 'layout\.toggle\("双拼显示原始按键"' \
-  "$repo_root/platforms/android/java/app/msime/android/home/KeyboardOptionsPage.java" || true)
-if ! rg -q 'KeyboardScheme\.XIAOHE\.offeredBy\(edition\) \|\| KeyboardScheme\.CANTONESE\.offeredBy\(edition\)' <<< "$shuangpin_preedit_body" \
-  || ! rg -q 'preferences\.optBoolean\("shuangpin_preedit_uses_raw", true\)' <<< "$shuangpin_preedit_body" \
-  || ! rg -q 'savePreference\("shuangpin_preedit_uses_raw", checked\)' <<< "$shuangpin_preedit_body"; then
-  echo "Android keyboard settings must offer 双拼显示原始按键, reading shuangpin_preedit_uses_raw with default true and writing it back (#10557)" >&2
-  exit 1
-fi
-# 与 iOS 同组的「原始按键按音节分隔」：共享偏好 `shuangpin_preedit_separated` 缺省为关，只在显示原始按键、本版本有普通话双拼时列出（#10717 的第三档，粤语双拼不读它）。
-separated_preedit_body=$(rg -B 1 -A 3 'layout\.toggle\("原始按键按音节分隔"' \
-  "$repo_root/platforms/android/java/app/msime/android/home/KeyboardOptionsPage.java" || true)
-if ! rg -q 'KeyboardScheme\.XIAOHE\.offeredBy\(edition\) && shuangpinRaw' <<< "$separated_preedit_body" \
-  || ! rg -q 'preferences\.optBoolean\("shuangpin_preedit_separated", false\)' <<< "$separated_preedit_body" \
-  || ! rg -q 'savePreference\("shuangpin_preedit_separated", checked\)' <<< "$separated_preedit_body"; then
-  echo "Android keyboard settings must offer 原始按键按音节分隔 under 双拼显示原始按键, reading shuangpin_preedit_separated with default false (#10717)" >&2
-  exit 1
-fi
 # The polish presets carry their own prompt-injection wording and already exist in four places in
 # this repository. This host reads the shared table through JNI rather than adding a fifth copy,
 # and the transcript travels inside the tags that wording refers to.

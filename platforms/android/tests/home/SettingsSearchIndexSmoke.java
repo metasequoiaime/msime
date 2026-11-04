@@ -121,6 +121,11 @@ public final class SettingsSearchIndexSmoke {
 
     /** 行标题来自代码里其他表的设置行：InputFeatureToggle 的标题、输入页的语言表、键盘页的工具栏按钮表。 */
     private static void computedRows(Map<String, Page> pages, List<String> missing) {
+        // 双拼设置行由同一个构建器交给原生页，索引也按它实际给出的标题核对。
+        app.msime.android.ShuangpinPreeditSettings.addRows(app.msime.android.AppEdition.FULL,
+            (key, fallback) -> fallback, (key, value) -> {}, (title, checked, changed, help) -> {
+                if (!pages.get("KEYBOARD_OPTIONS").matches(title)) missing.add("KEYBOARD_OPTIONS: " + title);
+            });
         String[][] rows = {
             {"TYPING", "只出单字"}, {"TYPING", "云候选"},
             {"TYPING", "退格键回退已选候选词"},
