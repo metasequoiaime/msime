@@ -259,11 +259,8 @@ int main() {
             [defaults setObject:@"doubao" forKey:@"MSIMEClientVoiceASRProvider"];
             CaptureSession *s = Make();
             assert([s startGlobalVoiceHolding:YES] == MSIMEGlobalVoiceStartAccepted);
-            __block BOOL recovered = NO;
-            MSIMEGlobalVoiceHost().recover = ^(NSString *text) { recovered = [text isEqual:@"synthetic result"]; };
             [s detachGlobalVoice]; s.request.reply(@"synthetic result", YES, nil);
-            assert(recovered && deliveries == 5 && ![s globalVoiceBusy]);
-            MSIMEGlobalVoiceHost().recover = nil;
+            assert(deliveries == 6 && ![s globalVoiceBusy]);
         }
         {
             CaptureSession *s = Make();
@@ -290,7 +287,7 @@ int main() {
             for (NSDictionary *timer in timers) ((void (^)(void))timer[@"action"])();
             assert([s globalVoiceBusy] && [s globalVoiceProcessing]);
             s.http.reply(@"synthetic result", nil);
-            assert(![s globalVoiceBusy] && deliveries == 6);
+            assert(![s globalVoiceBusy] && deliveries == 7);
         }
         MSIMEGlobalVoiceHost().owner = nil; MSIMEGlobalVoiceHost().sessionToken = nil;
         MSIMEGlobalVoiceHost().deliver = nil;

@@ -1756,8 +1756,6 @@ static NSImage *MSIMECandidateLogoImage() {
 @implementation MSIMEInputController {
     id _globalVoiceClient;
     MSIMEClientSession *_globalVoiceSession;
-    BOOL _globalVoiceDetached;
-    pid_t _globalVoicePID;
     MSIMEClientSession *_session;
     uint64_t _dictionarySessionLastUse;
     // Stands in for TISEnableInputSource when set, so a test can see which opt-in mode a scheme change enables.
@@ -2628,56 +2626,26 @@ void MSIMERecordGlobalVoiceCommit(NSString *text) {
     MSIMEReloadTypingStatisticsEnabled(directory);
     MSIMERecordTypingStatistics(directory, text, msime::mac::TypingSource::Voice);
 }
-- (id)globalVoiceDestinationIdentity { return MSIMEGlobalVoiceFocusIdentity(YES); }
-- (BOOL)globalVoiceDestinationCurrent:(id)client pid:(pid_t)pid focus:(id)original token:(id)token {
-    if (!client || !original || !token || _activeClient != client || MSIMEFocusedController != self ||
+- (BOOL)canCommitGlobalVoiceToClient:(id)client token:(id)token {
+    if (!client || !token || _activeClient != client || MSIMEFocusedController != self ||
         MSIMEGlobalVoiceHost().sessionToken != token || !MSIMEGlobalVoiceHost().owner ||
-        MSIMEGlobalVoiceHost().owner == self || [self globalVoiceBusy] || [self globalVoiceTargetPID] != pid) return NO;
-    id focus = [self globalVoiceDestinationIdentity];
-    // IMK 和 AX 查询都可能重入；返回后再次确认当前客户端、令牌和前台进程。
-    return _activeClient == client && MSIMEFocusedController == self && ![self globalVoiceBusy] &&
-        MSIMEGlobalVoiceHost().sessionToken == token && focus && CFEqual((__bridge CFTypeRef)focus, (__bridge CFTypeRef)original) &&
-        NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier == pid;
+        MSIMEGlobalVoiceHost().owner == self || [self globalVoiceBusy]) return NO;
+    const BOOL current = [self globalVoiceTargetPID] > 0;
+    return current && _activeClient == client && MSIMEFocusedController == self &&
+        MSIMEGlobalVoiceHost().sessionToken == token;
 }
-- (MSIMEGlobalVoiceDeliveryResult)prepareGlobalVoiceDestinationForPID:(pid_t)pid focus:(id)original token:(id)token {
+- (BOOL)prepareGlobalVoiceTextForCommit:(id)token {
     id client = _activeClient;
-    MSIMEClientSession *session = _session;
-    // 英文透传允许没有核心会话；仍记录这个空状态，查询中补建或更换会话也算变化。
-    if (!client) return MSIMEGlobalVoiceDeliveryRetry;
-    id owner = MSIMEGlobalVoiceHost().owner;
-    MSIMEInputController *focused = MSIMEFocusedController;
-    const uint64_t inputSequence = _spacingInputSequence;
-    uint64_t applySequence = _applySequence;
-    auto unchanged = [&] {
-        return _activeClient == client && _session == session && _spacingInputSequence == inputSequence &&
-            MSIMEFocusedController == focused && MSIMEGlobalVoiceHost().owner == owner && MSIMEGlobalVoiceHost().sessionToken == token;
-    };
-    auto validate = [&] {
-        const BOOL current = [self globalVoiceDestinationCurrent:client pid:pid focus:original token:token];
-        // 同字段、同令牌也可能在同步查询中产生新组字；查询返回后才检查输入及 apply 序列。
-        if (!unchanged() || _applySequence != applySequence) return MSIMEGlobalVoiceDeliveryChanged;
-        return current ? MSIMEGlobalVoiceDeliveryAccepted : MSIMEGlobalVoiceDeliveryRetry;
-    };
-    auto result = validate();
-    if (result != MSIMEGlobalVoiceDeliveryAccepted) return result;
+    if (![self canCommitGlobalVoiceToClient:client token:token]) return NO;
+    // 使用普通输入法结束当前组字的路径，不保存录音开始时的字段或输入序列。
     if ([_view[@"editing_text"] length]) {
-        NSDictionary *finished = [session command:MSIME_FINISH_COMPOSITION error:nil];
-        if (!unchanged() || _applySequence != applySequence) return MSIMEGlobalVoiceDeliveryChanged;
-        if (!finished) return MSIMEGlobalVoiceDeliveryRetry;
-        result = validate();
-        if (result != MSIMEGlobalVoiceDeliveryAccepted) return result;
-        [self apply:finished];
-        ++applySequence;
-        if (!unchanged() || _applySequence != applySequence) return MSIMEGlobalVoiceDeliveryChanged;
+        if (!_session) return NO;
+        [self commitComposition:client];
     }
-    result = validate();
-    if (result != MSIMEGlobalVoiceDeliveryAccepted) return result;
-    return [self hasUnfinishedInput] ? MSIMEGlobalVoiceDeliveryChanged : MSIMEGlobalVoiceDeliveryAccepted;
+    return [self canCommitGlobalVoiceToClient:client token:token];
 }
-- (MSIMEGlobalVoiceDeliveryResult)commitGlobalVoiceText:(NSString *)text pid:(pid_t)pid focus:(id)original token:(id)token {
-    if (!text.length || text.length > 65536) return MSIMEGlobalVoiceDeliveryRetry;
-    const auto result = [self prepareGlobalVoiceDestinationForPID:pid focus:original token:token];
-    if (result != MSIMEGlobalVoiceDeliveryAccepted) return result;
+- (MSIMEGlobalVoiceDeliveryResult)commitGlobalVoiceText:(NSString *)text token:(id)token {
+    if (!text.length || text.length > 65536 || ![self prepareGlobalVoiceTextForCommit:token]) return MSIMEGlobalVoiceDeliveryRetry;
     id client = _activeClient;
     NSString *commit = _appearance.traditionalOutput ? MSIMEChineseOutputString(text, YES) : text;
     [(id<MSIMETextClient>)client insertText:commit replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
@@ -2690,9 +2658,7 @@ void MSIMERecordGlobalVoiceCommit(NSString *text) {
     NSRunningApplication *application = NSWorkspace.sharedWorkspace.frontmostApplication;
     if (MSIMEFocusedController != self || !_activeClient ||
         ![application.bundleIdentifier isEqual:[_activeClient bundleIdentifier]]) return 0;
-    NSRect caret = NSZeroRect;
-    [(id<IMKTextInput>)_activeClient attributesForCharacterIndex:0 lineHeightRectangle:&caret];
-    return MSIMEValidCaret(caret) ? application.processIdentifier : 0;
+    return application.processIdentifier;
 }
 - (BOOL)globalVoiceBusy {
     return _voicePermissionToken || _httpVoiceRequest || _doubaoVoiceRequest || _liveVoiceToken || _voiceService.active;
@@ -2706,16 +2672,6 @@ void MSIMERecordGlobalVoiceCommit(NSString *text) {
 - (BOOL)voiceOwnsClient:(id)client session:(MSIMEClientSession *)session {
     return (_activeClient == client && _session == session) ||
         (_globalVoiceClient == client && _globalVoiceSession == session && MSIMEGlobalVoiceHost().owner == self);
-}
-- (BOOL)retainDetachedGlobalVoiceText:(NSString *)text {
-    if (!_globalVoiceClient || MSIMEGlobalVoiceHost().owner != self) return NO;
-    id focus = MSIMEGlobalVoiceFocusIdentity();
-    id original = MSIMEGlobalVoiceHost().focusIdentity;
-    if (!_globalVoiceDetached && _activeClient == _globalVoiceClient && MSIMEFocusedController == self &&
-        [self globalVoiceTargetPID] == _globalVoicePID && focus && original &&
-        CFEqual((__bridge CFTypeRef)focus, (__bridge CFTypeRef)original)) return NO;
-    if (text.length && MSIMEGlobalVoiceHost().recover) MSIMEGlobalVoiceHost().recover(text);
-    return YES;
 }
 - (MSIMEGlobalVoiceStartResult)startGlobalVoiceHolding:(BOOL)holding {
     id token = MSIMEGlobalVoiceHost().sessionToken;
@@ -2731,7 +2687,7 @@ void MSIMERecordGlobalVoiceCommit(NSString *text) {
     if (!pid || !client || _activeClient != client || _session != session ||
         MSIMEGlobalVoiceHost().owner != self || MSIMEGlobalVoiceHost().sessionToken != token)
         return MSIMEGlobalVoiceStartRetry;
-    _globalVoiceClient = client; _globalVoiceSession = session; _globalVoiceDetached = NO; _globalVoicePID = pid;
+    _globalVoiceClient = client; _globalVoiceSession = session;
     _voiceHoldStarting = holding;
     [self toggleVoiceInput:nil];
     _voiceHoldStarting = NO;
@@ -2753,11 +2709,10 @@ void MSIMERecordGlobalVoiceCommit(NSString *text) {
     [_voiceAudioMuter restore]; [self voiceCaptureDidEnd];
     [_voiceOverlay setListening:NO];
 }
-- (void)endGlobalVoice { _globalVoiceClient = nil; _globalVoiceSession = nil; _globalVoiceDetached = NO; _globalVoicePID = 0; }
+- (void)endGlobalVoice { _globalVoiceClient = nil; _globalVoiceSession = nil; }
 - (void)lockGlobalVoice { [_voiceOverlay setRecordingLocked:YES]; }
 - (void)detachGlobalVoice {
     if (!_globalVoiceClient || MSIMEGlobalVoiceHost().owner != self) return;
-    _globalVoiceDetached = YES;
     [self stopGlobalVoice];
 }
 
@@ -5800,7 +5755,6 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
 }
 - (void)applyDoubaoFinalText:(NSString *)text request:(id<MSIMEStreamingVoiceRequest>)request {
     if (_doubaoVoiceRequest != request) return;
-    if ([self retainDetachedGlobalVoiceText:text]) { [self cancelDoubaoVoiceInput]; return; }
     if ([self ownsDoubaoVoiceFocus]) {
         if (!text.length) { [self reportVoiceFailure:MSIMEVoiceFailureNoSpeech]; return; }
         NSDictionary *result = text.length ? [_doubaoVoiceSession applyVoiceText:text generation:_doubaoVoiceGeneration error:nil] : nil;
@@ -6089,7 +6043,6 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         if (![controller voiceOwnsClient:client session:session] ||
             controller->_voiceGeneration != generation || !controller->_voiceService.active) { [controller cancelHTTPVoiceInput]; return; }
         if (failure || !text.length) { [controller reportVoiceFailure:failure ? MSIMEVoiceFailureProvider : MSIMEVoiceFailureNoSpeech detail:MSIMEVoiceFailureDetail(failure)]; return; }
-        if ([controller retainDetachedGlobalVoiceText:text]) { [controller cancelHTTPVoiceInput]; return; }
         if (!failure && text.length && [controller voiceOwnsClient:client session:session] && controller->_voiceGeneration == generation && controller->_voiceService.active) {
             // Native host session methods are main-thread-only. Recheck the
             // departing focus identity before the runtime's own generation check.
@@ -6171,7 +6124,6 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
 }
 - (void)applyLiveVoiceFinalText:(NSString *)text token:(id)token {
     if (!token || token != _liveVoiceToken) return;
-    if ([self retainDetachedGlobalVoiceText:text]) { [self cancelLiveVoiceInput]; return; }
     if ([self ownsLiveVoiceToken:token]) {
         if (!text.length) { [self reportVoiceFailure:MSIMEVoiceFailureNoSpeech]; return; }
         NSDictionary *result = text.length ? [_liveVoiceSession applyVoiceText:text generation:_liveVoiceGeneration error:nil] : nil;
@@ -8789,7 +8741,6 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
 
 - (void)applyVoiceResult:(NSDictionary *)transition route:(const MSIMEVoiceCommitRoute &)route {
     NSString *text = transition[@"commit"];
-    if ([self retainDetachedGlobalVoiceText:text]) return;
     if ([route.mode isEqual:@"tsf"] || ![text isKindOfClass:NSString.class] || !text.length) {
         _typingSourceOverride = @(static_cast<NSInteger>(msime::mac::TypingSource::Voice));
         [self apply:transition];

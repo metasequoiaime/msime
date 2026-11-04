@@ -34,7 +34,6 @@
     BOOL _processing;
     BOOL _final;
     BOOL _ready;
-    BOOL _detached;
     BOOL _locked;
 }
 // 这些边界只在测试中替换；替身不读取安装配置、不打开设备、不发送真实请求。
@@ -103,7 +102,7 @@
     _hostToken = MSIMEGlobalVoiceHost().sessionToken;
     _token = [NSObject new];
     if (![self owns:_token]) { _token = nil; return MSIMEGlobalVoiceStartRetry; }
-    _detached = NO; _processing = NO; _final = NO; _ready = NO; _locked = NO;
+    _processing = NO; _final = NO; _ready = NO; _locked = NO;
     _service = [self makeService]; _overlay = [self makeOverlay]; _cue = [self makeCue]; _muter = [self makeMuter];
     _options = MSIMEVoiceQuery([self voiceDefaults], 0, NO);
     _socket = [self providerSocket];
@@ -265,10 +264,7 @@
     NSDictionary *result = [_session applyVoiceText:text generation:_generation error:nil];
     NSString *commit = result[@"commit"];
     if (!commit.length) { [self fail:MSIMEVoiceFailureSession error:nil]; return; }
-    if (_detached || !MSIMEGlobalVoiceHost().deliver) {
-        if (MSIMEGlobalVoiceHost().recover) MSIMEGlobalVoiceHost().recover(commit);
-        [self cancelGlobalVoice]; return;
-    }
+    if (!MSIMEGlobalVoiceHost().deliver) { [self fail:MSIMEVoiceFailureSession error:nil]; return; }
     __weak MSIMEGlobalVoiceSession *weakSelf = self;
     MSIMEGlobalVoiceHost().deliver(commit, _options[@"commit_mode"], ^{
         MSIMEGlobalVoiceSession *self = weakSelf;
@@ -319,5 +315,5 @@
 - (void)endGlobalVoice { [self cancelGlobalVoice]; }
 - (void)dealloc { [self cancelGlobalVoice]; [_session closeWithError:nil]; }
 - (void)lockGlobalVoice { _locked = YES; [_overlay setRecordingLocked:YES]; }
-- (void)detachGlobalVoice { _detached = YES; [self stopGlobalVoice]; }
+- (void)detachGlobalVoice { [self stopGlobalVoice]; }
 @end
