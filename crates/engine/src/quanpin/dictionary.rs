@@ -918,7 +918,7 @@ impl QuanpinDictionary {
         let mut segments = None;
         let segmentation_cache = &mut self.segmentation_cache;
         let association = self.sentence_association.clone();
-        let has_rerankers = !self.rerankers.is_empty();
+        let has_rerankers = !self.rerankers.is_empty() || self.sentence_scorer.0.is_some();
         let context = &self.rescoring_context;
         let pinyin_segmentation = &mut self.pinyin_segmentation;
         let (resolution_hash, (resolution, marking_alternatives, slot)) =
@@ -2373,3 +2373,7 @@ mod evicted_page_tests;
 
 #[cfg(test)]
 mod online_cache_update_tests;
+
+#[cfg(test)]
+#[path = "dictionary/online_beam_context_tests.rs"]
+mod online_beam_context_tests;

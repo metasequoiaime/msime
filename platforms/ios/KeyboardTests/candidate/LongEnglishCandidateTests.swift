@@ -25,6 +25,15 @@ final class LongEnglishCandidateTests: XCTestCase {
     super.tearDown()
   }
 
+  private func ancestor<T: UIView>(_ type: T.Type, of view: UIView?) -> T? {
+    var current = view?.superview
+    while let node = current {
+      if let match = node as? T { return match }
+      current = node.superview
+    }
+    return nil
+  }
+
   private func nodes(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap(nodes) }
 
   private func keyboard(width: CGFloat) -> KeyboardViewController {
@@ -62,7 +71,7 @@ final class LongEnglishCandidateTests: XCTestCase {
       show(words, in: controller)
       let first = try chip(1, in: controller)
       let second = try chip(2, in: controller)
-      let scroll = try XCTUnwrap(first.superview?.superview as? UIScrollView)
+      let scroll = try XCTUnwrap(ancestor(UIScrollView.self, of: first))
       XCTAssertGreaterThan(scroll.bounds.width, 0)
       let firstFrame = first.convert(first.bounds, to: scroll)
       let secondFrame = second.convert(second.bounds, to: scroll)
@@ -99,7 +108,7 @@ final class LongEnglishCandidateTests: XCTestCase {
       show(words, in: controller)
       let first = try chip(1, in: controller)
       let second = try chip(2, in: controller)
-      let scroll = try XCTUnwrap(first.superview?.superview as? UIScrollView)
+      let scroll = try XCTUnwrap(ancestor(UIScrollView.self, of: first))
       XCTAssertLessThanOrEqual(second.convert(second.bounds, to: scroll).maxX, scroll.bounds.maxX + 0.5)
       XCTAssertTrue(first.accessibilityLabel?.contains(words[0]) == true)
     }
@@ -110,7 +119,7 @@ final class LongEnglishCandidateTests: XCTestCase {
     let controller = keyboard(width: 320)
     show(["internationalization", "internationalism"], in: controller)
     let first = try chip(1, in: controller)
-    let scroll = try XCTUnwrap(first.superview?.superview as? UIScrollView)
+    let scroll = try XCTUnwrap(ancestor(UIScrollView.self, of: first))
     XCTAssertGreaterThan(first.bounds.width, scroll.bounds.width / 2)
   }
 }

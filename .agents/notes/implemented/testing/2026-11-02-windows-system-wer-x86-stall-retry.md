@@ -34,6 +34,8 @@ Status: implemented
 
 ## Consequences
 
+- 连续重试仍超时的后续调查见[不加载产品模块的系统对照](2026-11-04-windows-system-wer-baseline.md)。基线用于取得因果证据，不替代根因修复或放宽这里的失败条件。
+
 - 单个用例偶发停顿不再挡 PR；同一用例连续两次停顿，或出现任何不符合上述形态的超时，仍然失败。代价是：一个只是偶发让目标卡住的真实回归，可能被这一次重跑放过。不过这种回归也得表现成「挂起、单线程等待、记录合规」，B 形还要求卡住的是目标自己拉起的 `WerFault`，才会被重跑；每次重跑都会在日志留 warning，诊断也随 artifact 保留。
 - B 形的根因还没定论。`timeout.json` 现在带 `WerFault` 的线程等待原因，下一次 B 形停顿可以据此区分 `WerFault` 在等 WerSvc（WOW64 / 系统侧）还是在等别的；若重跑后同一形态再次停住，先看这份诊断再决定下一步。
 - 重跑分支依赖 pwsh 7 的 `Process.Kill()` 在进程已退出时不抛异常：结束 `WerFault` 后目标可能先自行退出。CI 这一步固定用 `shell: pwsh`；Windows PowerShell 5.1 下这个竞态会抛 `MethodInvocationException`。
