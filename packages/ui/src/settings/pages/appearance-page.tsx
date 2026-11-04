@@ -462,7 +462,12 @@ function HarmonyPhoneCandidateGroups() {
         <CandidateColorRow
           title="候选选中文字色"
           slot="selected_text"
-          value={draft.custom_theme?.candidate_colors?.selected_text}
+          value={
+            // 只有选着自定义主题时这一项才作用（共享 `resolve_theme` 在其余主题下不给 `touch_selected_text`），否则按跟随主题显示，存着的值留在文档里。
+            draft.global_theme === "custom"
+              ? draft.custom_theme?.candidate_colors?.selected_text
+              : null
+          }
           fallback={keyboardPreviewTheme === "dark" ? "#8ab4f8" : "#1a73e8"}
           onChange={onCandidateColorChange}
           resetLabel="候选选中文字色跟随主题"

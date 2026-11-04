@@ -24,8 +24,10 @@ final class CandidateSelectedTextRow {
             .help("首选候选文字的颜色，选了颜色会切到自定义主题；跟随主题时候选栏照旧用键盘皮肤的颜色");
     }
 
+    /** 当前生效的值：只有选着自定义主题时取色器才作用（共享 `resolve_theme` 在其余主题下不给 `touch_selected_text`），否则显示「跟随主题」、选单不预选，存着的值留在文档里，切回自定义主题时照旧生效。 */
     private static String picked(JSONObject preferences) {
-        JSONObject custom = preferences == null ? null : preferences.optJSONObject("custom_theme");
+        if (preferences == null || !"custom".equals(preferences.optString("global_theme"))) return null;
+        JSONObject custom = preferences.optJSONObject("custom_theme");
         JSONObject colors = custom == null ? null : custom.optJSONObject("candidate_colors");
         return CandidateSelectedTextPolicy.normalized(
             colors == null ? null : JsonPolicy.strictString(colors.opt(CandidateSelectedTextPolicy.SLOT)));
@@ -33,7 +35,10 @@ final class CandidateSelectedTextRow {
 
     private static void pick(Fragment page, String current, Runnable reload) {
         OptionSheet sheet = new OptionSheet(page.requireContext(), TITLE, null);
-        sheet.option("跟随主题", current == null, () -> save(page, null, reload));
+        // 已经在跟随主题时不保存：非自定义主题下存着的值要留着，不能被这一下清掉。
+        sheet.option("跟随主题", current == null, () -> {
+            if (current != null) save(page, null, reload);
+        });
         boolean preset = false;
         for (CandidateSelectedTextPolicy.Preset option : CandidateSelectedTextPolicy.PRESETS) {
             boolean selected = option.value().equals(current);
