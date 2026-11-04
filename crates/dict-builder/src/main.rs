@@ -188,7 +188,7 @@ enum Command {
     CheckWords(Box<CheckWords>),
     /// Write the `@` mode place table (crates/engine/src/local/places.tsv) from the administrative divisions pinned under places/ in the sources lock.
     Places(Places),
-    /// 写出 msime-dictionary 的 sources/pinyin/places.txt：msime-dictionary 的拼音词库没有、或排名低于所在层级下限的行政区划地名（全称和简称），区划数据取自锁文件在 places/ 下固定的文件。
+    /// 写出 msime-dictionary 的 sources/pinyin/places.txt：msime-dictionary 的拼音词库没有、或排名低于所在层级下限或万象下限的行政区划地名（全称和简称），区划数据取自锁文件在 places/ 下固定的文件。
     PlacesSupplement(PlacesSupplement),
     /// 写出 msime-dictionary 的 sources/english/scowl-words.txt：SCOWL 60 级 Aspell 词典（美式拼写加英式 -ise 拼写，固定在 scowl/ 下）里 msime-dictionary 的 rime-ice 英文词表（含被注释掉的条目）和 custom/english.txt 都没有的词，去掉蔑称、只有大写形式且拼出某个全拼的名字，以及没有 Google 词频的词（见 english_supplement.rs）。
     EnglishSupplement(EnglishSupplement),

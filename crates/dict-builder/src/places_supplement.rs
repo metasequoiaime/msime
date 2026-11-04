@@ -1527,24 +1527,19 @@ mod tests {
         assert_eq!(entry(&supplement, "金华").unwrap().weight, 50000);
         // cuoyin 不提供权重。
         assert!(entry(&supplement, "温州").is_none());
-        let raised: Vec<(&str, i64, i64, Option<i64>, Option<i64>)> = supplement
-            .raised
-            .iter()
-            .map(|raised| {
-                (
-                    raised.word.as_str(),
-                    raised.wanxiang,
-                    raised.weight,
-                    raised.tiered,
-                    raised.existing,
-                )
-            })
-            .collect();
+        let raised = |word: &str, key: &str, tiered: Option<i64>, existing: Option<i64>| Raised {
+            word: word.to_owned(),
+            key: key.to_owned(),
+            wanxiang: 5000,
+            weight: 46000,
+            tiered,
+            existing,
+        };
         assert_eq!(
-            raised,
+            supplement.raised,
             [
-                ("宁波", 5000, 46000, None, Some(40000)),
-                ("湖州", 5000, 46000, Some(29999), Some(3)),
+                raised("宁波", "ning'bo", None, Some(40000)),
+                raised("湖州", "hu'zhou", Some(29999), Some(3)),
             ]
         );
         assert!(report(&supplement).iter().any(|line| line
