@@ -1,7 +1,8 @@
-//! `custom-words` 阶段给 `custom/words.txt` 新插入的词封顶（清洗方案 H11）：一个词在全拼表里原本没有这一行、由 custom 插入时，它的权重不超过同一全拼键、以及同一九键码上最高的常用词减 1。投稿权重是按音节数统一给的（2 音节 3855、3333），高于发布库 2 音节词的中位数，原样插入会让 挽昼 压过 万州、白冰 压过 百病。
+//! `custom-words` 阶段给 `custom/words.txt` 新插入的词封顶（清洗方案 H11）：一个词在全拼表里原本没有这一行、由 custom 插入时，它的权重既不超过同一全拼键上最高的常用词减 1，也不超过同一九键码上最高的常用词减 1。投稿权重是按音节数统一给的（2 音节 3855、3333），高于发布库 2 音节词的中位数，原样插入会让 挽昼 压过 万州、白冰 压过 百病。
 //!
 //! - 常用词是全拼表里权重不低于 [`COMMON_WEIGHT`] 的行，与清洗方案 §2.1 统计「custom 越位」时用的线一致。低于这条线的词不封顶 custom：投稿的新词本来就应该排在冷僻词前面。
-//! - 九键码相同、音节数也相同的行互相竞争（`fang'an` 方案 与 `fan'gan` 反感、`wan'zhou` 与 `yan'zhou`）。同一全拼键的行音节数和九键码必然相同，所以九键这一条已经包含全拼这一条。音节数不同的行（`xian` 与 `xi'an`）不算：单字的权重与词不在一个量级，拿来封顶词会把词压得过低。
+//! - 两条上限各管一种键盘，取较低的一条。同一全拼键上有常用词时，全拼这条总是较低（九键码相同的行包含同一全拼键的行），挽昼 压在 万州 之下，即使同九键码的 眼周 yan'zhou 权重高得多；同一全拼键上没有常用词时，九键这条起作用，邢菲 xing'fei 压在 鹰飞 ying'fei 之下。
+//! - 九键这条只比九键码相同、音节数也相同的行（`fang'an` 方案 与 `fan'gan` 反感、`wan'zhou` 与 `yan'zhou`）。音节数不同的行（`xian` 与 `xi'an`）不算：单字的权重与词不在一个量级，拿来封顶词会把词压得过低。
 //! - 竞争者按构建做完 `reading-corrections`、`word-vetoes`、`weight-overrides` 之后的样子算（调用方给的 `effective_weight`）：被纠正的错误读音和被否决的行不算，被覆盖的行按覆盖后的权重算。否则一个之后会被降权的碎片词（门的）会先把 custom 词压下去。
 //! - 只管新插入的词。custom 从已有的行提权、或已有的行不低于 custom 权重时，仍按 [`msime::apply_custom_words`] 只升不降；那些行的越位由维护者在 `curation/pinyin-weight-overrides.txt` 里处理（H2）。覆盖表在本阶段之后施加，也能把封过顶的词设成别的权重。
 //! - 只改并入全拼表的权重，不改 `custom/words.txt`（只追加），也不影响五笔派生读到的投稿权重。
@@ -46,6 +47,7 @@ pub struct CappedWord {
     pub requested: i64,
     /// 并入全拼表的权重：`competitor_weight - 1`。
     pub weight: i64,
+    /// 决定上限的词：同一全拼键上有常用词时是其中最高的，否则是同一九键码上最高的。
     pub competitor: String,
     pub competitor_key: String,
     pub competitor_weight: i64,
@@ -79,24 +81,41 @@ fn slot(key: &str) -> Slot {
     (key.split('\'').count(), KeyGrid::NineKey.encode(key))
 }
 
-/// 一个九键码上权重最高的两个不同的词（词、全拼、权重），高的在前；两个是为了在最高的就是这个 custom 词本身（另一个读音）时还有下一个可比。
-type Leaders = HashMap<Slot, Vec<(String, String, i64)>>;
+/// 一个范围（一个全拼键，或一个音节数加九键码）上权重最高的两个不同的词（词、全拼、权重），高的在前；两个是为了在最高的就是这个 custom 词本身（另一个读音）时还有下一个可比。
+type Leaders<K> = HashMap<K, Vec<(String, String, i64)>>;
 
-/// 按 `slot` 的音节数只扫可能放着这些行的全拼表；超过 7 个音节的行在同一张溢出表里，按全拼重新数音节。`effective_weight` 返回 `None` 的行不算。
+fn push_leader(leaders: &mut Vec<(String, String, i64)>, value: &str, key: &str, weight: i64) {
+    match leaders.iter_mut().find(|(other, _, _)| other == value) {
+        Some(existing) if existing.2 >= weight => return,
+        Some(existing) => *existing = (value.to_owned(), key.to_owned(), weight),
+        None => leaders.push((value.to_owned(), key.to_owned(), weight)),
+    }
+    // 权重相同时按词、全拼排，报告里点名的竞争者不随表的顺序变。
+    leaders.sort_by(|a, b| {
+        b.2.cmp(&a.2)
+            .then_with(|| a.0.cmp(&b.0))
+            .then_with(|| a.1.cmp(&b.1))
+    });
+    leaders.truncate(2);
+}
+
+/// 新插入的词所在的全拼键和九键码上的常用词。按音节数只扫可能放着这些行的全拼表；超过 7 个音节的行在同一张溢出表里，按全拼重新数音节。`effective_weight` 返回 `None` 的行不算。
 fn leaders(
     connection: &Connection,
-    wanted: &BTreeSet<Slot>,
+    keys: &HashSet<&str>,
+    slots: &BTreeSet<Slot>,
     effective_weight: &dyn Fn(&str, &str, i64) -> Option<i64>,
-) -> Result<Leaders> {
+) -> Result<(Leaders<String>, Leaders<Slot>)> {
     let mut tables = BTreeSet::new();
-    for (syllables, _) in wanted {
+    for (syllables, _) in slots {
         for initial in SHIPPED_INITIALS.bytes() {
             tables.insert(
                 quanpin_table(*syllables, initial).context("a custom word maps to no table")?,
             );
         }
     }
-    let mut leaders: Leaders = HashMap::new();
+    let mut by_key: Leaders<String> = HashMap::new();
+    let mut by_slot: Leaders<Slot> = HashMap::new();
     for table in tables {
         let mut statement =
             connection.prepare(&format!("select key, value, weight from {table}"))?;
@@ -111,25 +130,16 @@ fn leaders(
                 continue;
             }
             let slot = slot(&key);
-            if !wanted.contains(&slot) {
+            if !slots.contains(&slot) {
                 continue;
             }
-            let entry = leaders.entry(slot).or_default();
-            match entry.iter_mut().find(|(other, _, _)| *other == value) {
-                Some(existing) if existing.2 >= weight => continue,
-                Some(existing) => *existing = (value, key, weight),
-                None => entry.push((value, key, weight)),
+            if keys.contains(key.as_str()) {
+                push_leader(by_key.entry(key.clone()).or_default(), &value, &key, weight);
             }
-            // 权重相同时按词、全拼排，报告里点名的竞争者不随表的顺序变。
-            entry.sort_by(|a, b| {
-                b.2.cmp(&a.2)
-                    .then_with(|| a.0.cmp(&b.0))
-                    .then_with(|| a.1.cmp(&b.1))
-            });
-            entry.truncate(2);
+            push_leader(by_slot.entry(slot).or_default(), &value, &key, weight);
         }
     }
-    Ok(leaders)
+    Ok((by_key, by_slot))
 }
 
 /// 按模块说明给新插入的词封顶后，交给 [`msime::apply_custom_words`] 并入全拼表。返回它的计数和被封顶的词（按 `entries` 的顺序）。
@@ -150,16 +160,21 @@ pub fn apply_custom_words_with_ceiling(
             .optional()?
             .is_none();
     }
-    let wanted: BTreeSet<Slot> = entries
+    let inserted: Vec<&CustomWord> = entries
         .iter()
         .zip(&new)
         .filter(|(_, new)| **new)
-        .map(|(entry, _)| slot(&entry.key))
+        .map(|(entry, _)| entry)
         .collect();
-    let leaders = if wanted.is_empty() {
-        Leaders::new()
+    let (by_key, by_slot) = if inserted.is_empty() {
+        Default::default()
     } else {
-        leaders(connection, &wanted, effective_weight)?
+        leaders(
+            connection,
+            &inserted.iter().map(|entry| entry.key.as_str()).collect(),
+            &inserted.iter().map(|entry| slot(&entry.key)).collect(),
+            effective_weight,
+        )?
     };
     let mut capped = Vec::new();
     let mut adjusted = entries.to_vec();
@@ -167,9 +182,17 @@ pub fn apply_custom_words_with_ceiling(
         if !*new {
             continue;
         }
-        let Some((competitor, competitor_key, competitor_weight)) = leaders
-            .get(&slot(&entry.key))
-            .and_then(|words| words.iter().find(|(word, _, _)| *word != entry.value))
+        let other = |words: &Vec<(String, String, i64)>| {
+            words
+                .iter()
+                .find(|(word, _, _)| *word != entry.value)
+                .cloned()
+        };
+        // 同一全拼键上的常用词总不高于同一九键码上的，有它时它的上限更低。
+        let Some((competitor, competitor_key, competitor_weight)) = by_key
+            .get(&entry.key)
+            .and_then(other)
+            .or_else(|| by_slot.get(&slot(&entry.key)).and_then(other))
         else {
             continue;
         };
@@ -182,9 +205,9 @@ pub fn apply_custom_words_with_ceiling(
             key: entry.key.clone(),
             requested: entry.weight,
             weight: ceiling,
-            competitor: competitor.clone(),
-            competitor_key: competitor_key.clone(),
-            competitor_weight: *competitor_weight,
+            competitor,
+            competitor_key,
+            competitor_weight,
         });
         entry.weight = ceiling;
     }
@@ -235,7 +258,7 @@ mod tests {
     }
 
     #[test]
-    fn new_words_stay_below_common_words_of_the_same_key_or_nine_key_code() {
+    fn new_words_below_the_common_words_are_left_alone() {
         let mut connection = database(&[
             ("万州", "wan'zhou", 3000),
             ("兖州", "yan'zhou", 5000),
@@ -244,16 +267,15 @@ mod tests {
             ("先", "xian", 500000),
         ]);
         let words = parse_custom_words(
-            "挽昼\twan'zhou\t3333\n白冰\tbai'bing\t1200\n张雯\tzhang'wen\t3855\n嘻安\txi'an\t3855\n鲜鲜\txian'xian\t3855\n",
+            "挽昼\twan'zhou\t2000\n白冰\tbai'bing\t1200\n张雯\tzhang'wen\t3855\n嘻安\txi'an\t3855\n鲜鲜\txian'xian\t3855\n",
         )
         .unwrap();
         let (counts, capped) =
             apply_custom_words_with_ceiling(&mut connection, &words, &unchanged).unwrap();
         assert_eq!(counts.inserted, 5);
-        // 挽昼 同全拼只有 万州 3000，但同九键码 9269468 上还有 兖州 5000：按最高的常用词封顶，3333 不超过 4999，不动。
-        assert_eq!(weight(&connection, "挽昼", "wan'zhou"), Some(3333));
-        // 白冰 1200 本来就在 百病 1500 之下。掌纹 900 不是常用词，张雯 不封顶。
+        assert_eq!(weight(&connection, "挽昼", "wan'zhou"), Some(2000));
         assert_eq!(weight(&connection, "白冰", "bai'bing"), Some(1200));
+        // 掌纹 900 不是常用词，张雯 不封顶。
         assert_eq!(weight(&connection, "张雯", "zhang'wen"), Some(3855));
         // 单字 先 xian 与 嘻安 xi'an 九键码相同但音节数不同，不算竞争者。
         assert_eq!(weight(&connection, "嘻安", "xi'an"), Some(3855));
@@ -262,18 +284,19 @@ mod tests {
     }
 
     #[test]
-    fn a_new_word_above_the_common_word_is_capped_one_below_it() {
+    fn a_new_word_is_capped_below_the_same_key_first_and_the_nine_key_code_otherwise() {
         let mut connection = database(&[
             ("万州", "wan'zhou", 3000),
-            ("兖州", "yan'zhou", 2000),
+            ("眼周", "yan'zhou", 18708),
             ("百病", "bai'bing", 1500),
             ("方案", "fang'an", 2500),
             ("反感", "fan'gan", 1800),
+            ("鹰飞", "ying'fei", 1702),
             ("门的", "men'de", 435135),
             ("闷的", "men'de", 3000),
         ]);
         let words = parse_custom_words(
-            "挽昼\twan'zhou\t3333\n白冰\tbai'bing\t3855\n凡甘\tfan'gan\t3855\n们得\tmen'de\t3855\n",
+            "挽昼\twan'zhou\t3333\n白冰\tbai'bing\t3855\n凡甘\tfan'gan\t3855\n邢菲\txing'fei\t3855\n们得\tmen'de\t3855\n",
         )
         .unwrap();
         // 覆盖表把 门的 降到 100：它不再是常用词，们得 只压在 闷的 下面。
@@ -286,18 +309,22 @@ mod tests {
         };
         let (counts, capped) =
             apply_custom_words_with_ceiling(&mut connection, &words, &curated).unwrap();
-        assert_eq!(counts.inserted, 4);
+        assert_eq!(counts.inserted, 5);
+        // 同九键码 9269468 的 眼周 高得多，但全拼用户看到的是 万州 被压，按同全拼封顶。
         assert_eq!(weight(&connection, "挽昼", "wan'zhou"), Some(2999));
         assert_eq!(weight(&connection, "白冰", "bai'bing"), Some(1499));
-        // 凡甘 fan'gan 同全拼的 反感 只有 1800，同九键码 326426 的 方案 fang'an 2500 更高。
-        assert_eq!(weight(&connection, "凡甘", "fan'gan"), Some(2499));
+        // 凡甘 fan'gan 同全拼的 反感 1800 决定上限，同九键码 326426 更高的 方案 不放宽它。
+        assert_eq!(weight(&connection, "凡甘", "fan'gan"), Some(1799));
+        // 邢菲 xing'fei 同全拼没有常用词，压在同九键码 9464334 的 鹰飞 ying'fei 之下。
+        assert_eq!(weight(&connection, "邢菲", "xing'fei"), Some(1701));
         assert_eq!(weight(&connection, "们得", "men'de"), Some(2999));
         assert_eq!(
             capped.iter().map(CappedWord::describe).collect::<Vec<_>>(),
             [
                 "挽昼 wan'zhou 3333 -> 2999（同全拼 万州 wan'zhou 3000）",
                 "白冰 bai'bing 3855 -> 1499（同全拼 百病 bai'bing 1500）",
-                "凡甘 fan'gan 3855 -> 2499（同九键码 方案 fang'an 2500）",
+                "凡甘 fan'gan 3855 -> 1799（同全拼 反感 fan'gan 1800）",
+                "邢菲 xing'fei 3855 -> 1701（同九键码 鹰飞 ying'fei 1702）",
                 "们得 men'de 3855 -> 2999（同全拼 闷的 men'de 3000）",
             ]
         );
@@ -338,15 +365,15 @@ mod tests {
 
     #[test]
     fn the_word_itself_under_another_reading_is_not_its_own_competitor() {
-        // 方案 已有 fang'an，custom 再加 fan'gan 这个读音：两者九键码相同，但 方案 不和自己比，比的是同码的下一个词 反感。
-        let mut connection = database(&[("方案", "fang'an", 2500), ("反感", "fan'gan", 1800)]);
+        // 方案 已有 fang'an，custom 再加 fan'gan 这个读音：同全拼没有常用词，同九键码 326426 上最高的是 方案 自己，比的是下一个 防暗。
+        let mut connection = database(&[("方案", "fang'an", 2500), ("防暗", "fang'an", 1800)]);
         let words = parse_custom_words("方案\tfan'gan\t3000\n").unwrap();
         let (_, capped) =
             apply_custom_words_with_ceiling(&mut connection, &words, &unchanged).unwrap();
         assert_eq!(weight(&connection, "方案", "fan'gan"), Some(1799));
         assert_eq!(
             capped.iter().map(CappedWord::describe).collect::<Vec<_>>(),
-            ["方案 fan'gan 3000 -> 1799（同全拼 反感 fan'gan 1800）"]
+            ["方案 fan'gan 3000 -> 1799（同九键码 防暗 fang'an 1800）"]
         );
     }
 
