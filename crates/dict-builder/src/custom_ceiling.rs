@@ -330,6 +330,34 @@ mod tests {
         );
     }
 
+    /// 常用线含 1000 本身：同全拼的词恰好 1000 时封顶，999 时不封顶，同九键码这条也一样。
+    #[test]
+    fn the_common_line_includes_exactly_1000() {
+        let mut connection = database(&[
+            ("万州", "wan'zhou", 1000),
+            ("百病", "bai'bing", 999),
+            ("鹰飞", "ying'fei", 1000),
+            ("掌纹", "zhang'wen", 999),
+        ]);
+        let words = parse_custom_words(
+            "挽昼\twan'zhou\t3333\n白冰\tbai'bing\t3855\n邢菲\txing'fei\t3855\n张雯\tzhang'wen\t3855\n",
+        )
+        .unwrap();
+        let (_, capped) =
+            apply_custom_words_with_ceiling(&mut connection, &words, &unchanged).unwrap();
+        assert_eq!(weight(&connection, "挽昼", "wan'zhou"), Some(999));
+        assert_eq!(weight(&connection, "白冰", "bai'bing"), Some(3855));
+        assert_eq!(weight(&connection, "邢菲", "xing'fei"), Some(999));
+        assert_eq!(weight(&connection, "张雯", "zhang'wen"), Some(3855));
+        assert_eq!(
+            capped.iter().map(CappedWord::describe).collect::<Vec<_>>(),
+            [
+                "挽昼 wan'zhou 3333 -> 999（同全拼 万州 wan'zhou 1000）",
+                "邢菲 xing'fei 3855 -> 999（同九键码 鹰飞 ying'fei 1000）",
+            ]
+        );
+    }
+
     #[test]
     fn existing_rows_keep_the_raise_only_rule_and_removed_rows_do_not_cap() {
         let mut connection = database(&[

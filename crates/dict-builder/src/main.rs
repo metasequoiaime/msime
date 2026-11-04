@@ -2414,6 +2414,67 @@ mod tests {
         ));
     }
 
+    /// custom-words 阶段接上 H11 封顶：custom 新插入的词压在同全拼的常用词之下，竞争者来自前面阶段建好的全拼表（这里由 places.txt 并入），按 curation/ 的覆盖表、否决表和仓库纠错表施加之后的权重算。
+    #[test]
+    fn custom_words_are_capped_below_curated_competitors() {
+        let (_temporary, dictionary, out, build) = wubi_fixture(XsjCheckout::Published);
+        let write = |path: &str, text: &str| {
+            let file = dictionary.join(path);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, text).unwrap();
+        };
+        write(
+            "sources/pinyin/single-chars.txt",
+            "甲\tjia\t1000\n乙\tyi\t1000\n",
+        );
+        write(
+            places_supplement::OUTPUT,
+            "万州\twan'zhou\t3000\n门的\tmen'de\t435135\n闷的\tmen'de\t2000\n车间\tche'jian\t9000\n车检\tche'jian\t5000\n血型\txie'xing\t8000\n歇性\txie'xing\t1500\n",
+        );
+        write(
+            wubi86_supplement::CUSTOM,
+            "挽昼\twan'zhou\t3333\n们得\tmen'de\t3855\n车坚\tche'jian\t6000\n斜星\txie'xing\t3855\n",
+        );
+        // 门的 被覆盖到 100，不再是常用词；车间 被否决；血型 xie'xing 是之后要纠正掉的错误读音。
+        write(
+            "curation/pinyin-weight-overrides.txt",
+            "门的\tmen'de\t100\n",
+        );
+        write("curation/pinyin-vetoes.txt", "车间\tche'jian\n");
+        std::fs::write(
+            build
+                .sources
+                .repository_inputs
+                .join(msime::READING_CORRECTIONS),
+            "血型\txie'xing\txue'xing\n",
+        )
+        .unwrap();
+        for stage in [Stage::Quanpin, Stage::PlacesSupplement] {
+            build.run(stage).unwrap();
+        }
+        let summary = build.run(Stage::CustomWords).unwrap();
+        assert!(
+            summary.contains("4 inserted (4 capped below a common word)"),
+            "{summary}"
+        );
+        let db = rusqlite::Connection::open(out.join("msime-pinyin.db")).unwrap();
+        let weight = |value: &str, key: &str| -> i64 {
+            db.query_row(
+                &format!(
+                    "SELECT weight FROM {} WHERE key = ?1 AND value = ?2",
+                    msime::pinyin_table(key).unwrap()
+                ),
+                [key, value],
+                |row| row.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(weight("挽昼", "wan'zhou"), 2999);
+        assert_eq!(weight("们得", "men'de"), 1999);
+        assert_eq!(weight("车坚", "che'jian"), 4999);
+        assert_eq!(weight("斜星", "xie'xing"), 1499);
+    }
+
     #[test]
     fn wubi_stages_derive_current_custom_words_instead_of_reading_snapshot_files() {
         let (_temporary, dictionary, out, build) = wubi_fixture(XsjCheckout::Published);

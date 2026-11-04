@@ -6,7 +6,7 @@
 //!
 //! The reading of a name is the `places` key (`READINGS` plus per-character pinyin), and a short name takes the first syllables of its full name's key. The per-character reading is a guess wherever a character has more than one reading, so a name is kept only when the guess is confirmed: every character that `sources/pinyin/single-chars.txt` lists with several readings, or does not list at all, has to sit inside a span of at least two characters of the name that the comparison set (`sources/pinyin/rime-ice.txt` and `sources/pinyin/rime-ice-supplement.txt`) contains with the same syllables, as a word of its own or inside a longer word, or belong to a full name's administrative suffix read the fixed way (区 qu, 县 xian, 市 shi). A syllable `single-chars.txt` does not list for its character rejects the name outright. A name the comparison set already has under a different reading is left out as well, whether it also has ours or not: either the per-character reading is wrong for the place (中牟, 召陵) or the name is also an ordinary word read another way (民乐), and in both cases raising it would put a place reading ahead of the word people mean. The one exception is a name whose reading, apart from a full name's administrative suffix, comes entirely from `READINGS` entries of two or more characters (六合 lu'he, 宕昌 tan'chang), when the comparison set has the name under that reading too: such a reading was checked for the place, and raising its row changes nothing under the other key. Names in `UNSOURCED_NAMES` are left out although the comparison set confirms them, because the place's reading is disputed and no dictionary or 民政部 source settles it.
 //!
-//! Weights are floors computed from the shipped data, not chosen: for provinces and prefectures, the median weight of the names of the same level and form (full or short) that the comparison set has at a weight above 10; for county-level names, the median weight of all `sources/pinyin/rime-ice.txt` rows. A name used at several levels takes the highest floor. Only the names the comparison set lacks or holds at the unranked weight of `RANKED_WEIGHT` or below are written, each at its floor: a name the comparison set already ranks above that keeps its weight even below the floor, since that weight is rime-ice's frequency signal and raising it would push ordinary words of the same reading down (伊犁 over 屹立, 山西 and 陕西 flattened to one weight).
+//! Weights are floors computed from the shipped data, not chosen: for provinces and prefectures, the median weight of the names of the same level and form (full or short) that the comparison set has at a weight above `RANKED_WEIGHT`; for county-level names, the median weight of all `sources/pinyin/rime-ice.txt` rows. A name used at several levels takes the highest floor. Only the names the comparison set lacks or holds at the unranked weight of `RANKED_WEIGHT` or below are written, each at its floor: a name the comparison set already ranks above that keeps its weight even below the floor, since that weight is rime-ice's frequency signal and raising it would push ordinary words of the same reading down (伊犁 over 屹立, 山西 and 陕西 flattened to one weight).
 //!
 //! A floor must not take the first candidate of a key away from a common word either. The common weight is the 90th percentile (lower nearest rank) of the `sources/pinyin/rime-ice.txt` weights, computed from the data like the floors. When another word of the comparison set has the same full pinyin at a weight above it, the name's weight is capped one below that word's (盐城 under 严惩, 辽阳 under 疗养, 崇左 under 重做); a name whose capped weight is not above the weight it already has is not written. Words of the same key at or below the common weight do not cap the floor, since a rarer word should not keep a place name off the first position. Nor does a word whose weight is a placeholder: among the `sources/pinyin/rime-ice.txt` rows above the common weight, a single weight value held by more than `PLACEHOLDER_PERCENT`% of them is a fill-in value rather than a frequency (9999 holds thousands of such rows: 紧皱, 爆闪, 吃粥 ...), detected from the data like the common weight. Such a word is skipped and the highest other word of the key with a real weight decides the cap (锦州 is not held under 紧皱, while 盐城 stays under 严惩).
 //!
@@ -142,8 +142,8 @@ const COMMON_PERCENTILE: usize = 90;
 /// Among the `sources/pinyin/rime-ice.txt` rows weighted above the common weight, a weight value more than this percentage of them share is a placeholder, not a frequency, and does not cap a place name.
 const PLACEHOLDER_PERCENT: usize = 1;
 
-/// A weight above this counts as a real ranking when the level floors are measured; rows at 1–10 are the unranked tail the supplement exists to lift.
-const RANKED_WEIGHT: i64 = 10;
+/// 权重高于这个值才算真正排过名，量级下限也只拿这些行算；不超过它的是补充表要抬起来的未排名尾部。msime-dictionary #84 把与万象共有的行按万象词频乘 9.2 改写，万象的底值 10 成了 92，原来 1–10 的尾部（耿马 1、京山市 9）变成 28–92（耿马 83、京山市 64），所以这条线跟着换算成 10 × 9.2 = 92。仍按 10 算的话，这些县名会被当成已排名、不再写进补充表，五笔生成器只收 rime-ice 权重不低于 100 或补充表里有的词，它们就从三套五笔码表里掉出去。没被 #84 改写的 rime-ice 原有行在 11–92 的也一并算作尾部，最多被抬到县级下限（rime-ice 全部行的中位数），越不过同键上权重高于这个下限的词。
+const RANKED_WEIGHT: i64 = 92;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Level {
@@ -1129,6 +1129,28 @@ mod tests {
         assert!(entry(&supplement, "金华市").is_none());
         // Ranked above RANKED_WEIGHT though below the floor: rime-ice's weight stands.
         assert!(entry(&supplement, "宁波").is_none());
+    }
+
+    /// #84 之后未排名尾部是 1–92：权重 83 的县名（万象 9 × 9.2）照样按下限写出，93 的算已排名，保留原权重。
+    #[test]
+    fn the_aligned_unranked_tail_up_to_92_is_lifted() {
+        let base = format!("{BASE_DICT}婺城区\twu'cheng'qu\t83\r\n金东区\tjin'dong'qu\t93\r\n");
+        let areas = areas();
+        let supplement = build(&Inputs {
+            provinces: PROVINCES,
+            cities: CITIES,
+            areas: &areas,
+            single_chars: SINGLE_CHARS,
+            base: &base,
+            rime_ice_supplement: "# s\n",
+            curation: &PinyinCuration::default(),
+        })
+        .unwrap();
+        let floor = supplement.floors[&(Level::County, Form::Full)];
+        assert!(floor > 93, "{floor}");
+        let wuchengqu = entry(&supplement, "婺城区").unwrap();
+        assert_eq!((wuchengqu.weight, wuchengqu.existing), (floor, Some(83)));
+        assert!(entry(&supplement, "金东区").is_none());
     }
 
     #[test]
