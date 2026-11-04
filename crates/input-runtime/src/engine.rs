@@ -105,6 +105,8 @@ pub trait InputEngine {
             "Engine candidate recompute is unsupported".into(),
         ))
     }
+    /// 把在线行（来源码，同 `EngineSnapshot::candidate_sources`）照原样放回当前组字的候选，见 [`crate::Runtime::settle_deferred_scorer`]。
+    fn restore_online_rows(&mut self, _rows: &[(String, u8)]) {}
     /// Remove cached rows for one online provider (host source 0 = cloud, 1 = AI).
     fn clear_online_candidates(&mut self, _source: u8) -> Result<(), RuntimeError> {
         Err(RuntimeError::Engine(
@@ -402,6 +404,9 @@ impl InputEngine for Session {
     fn recompute_candidates(&mut self) -> Result<(), RuntimeError> {
         Session::recompute_candidates(self);
         Ok(())
+    }
+    fn restore_online_rows(&mut self, rows: &[(String, u8)]) {
+        Session::restore_online_rows(self, rows);
     }
     fn clear_online_candidates(&mut self, source: u8) -> Result<(), RuntimeError> {
         Session::clear_online_candidates(self, source)

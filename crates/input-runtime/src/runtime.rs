@@ -185,6 +185,8 @@ pub struct Runtime<E: InputEngine = Session> {
     pub(crate) settled_reranker: Option<Box<dyn CandidateScorer>>,
     /// 跑不进逐键预算的设备上，逐键打分器不挂在按键上，停在这里，等宿主停顿时由 [`Runtime::settle_deferred_scorer`] 拿去重解。与 `reranker` 不会同时有。
     pub(crate) deferred_scorer: Option<DeferredScorer>,
+    /// 停顿重解解完以后，延后的打分器留在按键的位置上（`reranker`），直到下一次 [`Runtime::dispatch`] 才放回 `deferred_scorer`，见 [`Runtime::settle_deferred_scorer`]。这时它的包装（每片的时间预算）也放在这里。
+    deferred_mounted: Option<Option<Arc<BudgetedSentenceScorer>>>,
     /// Whether [`Runtime::rerank_settled`] runs the settled model: the product's desktop sentence model switch. On unless a host turns it off, so a caller that attaches a model and says nothing else gets it.
     pub(crate) settled_rerank_enabled: bool,
     // 开关和模型分别拥有不复用的身份，防止在途评分跨配置发布或恢复旧模型。
@@ -368,6 +370,14 @@ impl BudgetedSentenceScorer {
             .store(false, std::sync::atomic::Ordering::Relaxed);
         self.failed
             .store(false, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// 去掉时限：解完后打分器留在按键位置上时用。
+    fn unlimit(&self) {
+        *self
+            .deadline
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
     }
 
     fn exhausted(&self) -> bool {
@@ -1192,6 +1202,7 @@ impl<E: InputEngine> Runtime<E> {
             reranker: None,
             settled_reranker: None,
             deferred_scorer: None,
+            deferred_mounted: None,
             settled_rerank_enabled: true,
             settled_settings_epoch: Arc::new(()),
             settled_model_epoch: Arc::new(()),
@@ -1274,6 +1285,7 @@ impl<E: InputEngine> Runtime<E> {
     /// 同时拿掉延后的打分器（[`Self::set_deferred_scorer`]）：宿主关掉「增强」时调它传 `None`，停顿时也不能再跑模型。
     pub fn set_candidate_scorer(&mut self, scorer: Option<Box<dyn CandidateScorer>>) {
         self.deferred_scorer = None;
+        self.deferred_mounted = None;
         self.mount_keystroke_scorer(scorer);
     }
 
@@ -1296,18 +1308,30 @@ impl<E: InputEngine> Runtime<E> {
         if self.reranker.is_some() {
             self.mount_keystroke_scorer(None);
         }
+        self.deferred_mounted = None;
         self.deferred_scorer = scorer.map(DeferredScorer::new);
     }
 
     /// 是否挂着延后到停顿的打分器（[`Self::set_deferred_scorer`]），宿主的停顿调用据此走 [`Self::settle_deferred_scorer`]。
     pub fn has_deferred_scorer(&self) -> bool {
-        self.deferred_scorer.is_some()
+        self.deferred_scorer.is_some() || self.deferred_mounted.is_some()
     }
 
-    /// 停顿时把延后的打分器（[`Self::set_deferred_scorer`]）挂上，带着它重解当前组字、照逐键时那样排好，再摘下来。一次只花大约 `slice` 的模型时间：
+    /// 停顿重解解完后留在按键位置上的打分器放回延后的位置：下一次派发之前调，按键照旧不带模型。换打分器会清掉引擎的整句缓存，这时组字马上要变，本来也要重查。
+    fn unmount_deferred_scorer(&mut self) {
+        let Some(budgeted) = self.deferred_mounted.take() else {
+            return;
+        };
+        if let Some(scorer) = self.reranker.take() {
+            self.deferred_scorer = Some(DeferredScorer { scorer, budgeted });
+        }
+        self.mount_keystroke_scorer(None);
+    }
+
+    /// 停顿时把延后的打分器（[`Self::set_deferred_scorer`]）挂上，带着它重解当前组字、照逐键时那样排好。一次只花大约 `slice` 的模型时间：
     ///
-    /// - 解完了：候选换成模型排出的样子，在下一个按键之前一直如此，返回 [`DeferredSettle::Done`]。
-    /// - 模型时间用完还没解完：这次解出的候选不完整，不用；不带模型再解一遍，候选与停顿前相同，返回 [`DeferredSettle::Continue`]，宿主让排队的输入先走，没有新按键就再调一次。已经打过分的前缀记在引擎的备忘里（同一个包了预算的打分器，见 [`DeferredScorer`]），下一片不再算，每一片都往前推进，停顿之后再停顿也接着用。
+    /// - 解完了：候选换成模型排出的样子，返回 [`DeferredSettle::Done`]。打分器留在按键的位置上，到下一次 [`Self::dispatch`] 才放回去：现在摘下会清掉引擎里这个组字的整句缓存，之后才到的云、AI 候选就插不进完整的列表。
+    /// - 模型时间用完还没解完：这次解出的候选不完整，不用；摘下打分器、不带模型再解一遍，候选与停顿前相同，返回 [`DeferredSettle::Continue`]，宿主让排队的输入先走，没有新按键就再调一次。已经打过分的前缀记在引擎的备忘里（同一个包了预算的打分器，见 [`DeferredScorer`]），下一片不再算，每一片都往前推进，停顿之后再停顿也接着用。
     /// - 模型打不了分：同样丢弃未完成的结果，不带模型重解并返回 [`DeferredSettle::Done`]，结束本次停顿；下次停顿可以重试，空分不写入备忘。
     ///
     /// 整段组字的模型计算都挤到停顿时做：Mac（M1 Max）上 typing-chat-v1 整句一次解完 p50 24 ms，畅享 90 Plus 要慢五倍以上，一次做完会让停顿后紧接着的按键等上一两百毫秒。分片之后按键最多等一片。
@@ -1320,6 +1344,7 @@ impl<E: InputEngine> Runtime<E> {
         if self.reranker.is_some()
             || self.is_idle()
             || self.cached.prediction
+            || self.cached.dedicated_english
             || !self.cached.conversion.is_empty()
             || self.cached.caret_edit_suffix
             || self.highlighted != 0
@@ -1330,6 +1355,18 @@ impl<E: InputEngine> Runtime<E> {
             return Ok(DeferredSettle::Done { moved: false });
         };
         let before = self.cached.candidates.clone();
+        // 换整句打分器时引擎清掉了缓存里的在线行（云、AI），宿主又不会为同一个查询再取一次：先从视图里记下，重解之后放回。
+        let online: Vec<(String, u8)> = self
+            .cached
+            .candidates
+            .iter()
+            .zip(&self.cached.candidate_sources)
+            .filter(|(_, &source)| {
+                msime_engine::CandidateSource::from_u8(source)
+                    .is_some_and(msime_engine::CandidateSource::is_online)
+            })
+            .map(|(text, &source)| (text.clone(), source))
+            .collect();
         if let Some(budgeted) = &budgeted {
             budgeted.start(slice);
         }
@@ -1346,30 +1383,34 @@ impl<E: InputEngine> Runtime<E> {
             && budgeted
                 .as_ref()
                 .is_none_or(|budgeted| !budgeted.exhausted());
-        let shown = match &decoded {
-            Ok(()) if complete => self.advance().and_then(|()| self.refresh()),
-            _ => Ok(()),
-        };
+        if decoded.is_ok() && complete {
+            // 解完了：打分器留在按键的位置上，直到下一次派发（`unmount_deferred_scorer`）。现在摘下会清掉引擎里这个组字的整句缓存，之后才到的在线行就插不进完整的列表，自成一张只有在线行的表；留着时它插进模型排好的这一张，刷新也照模型的顺序。预算放开，这时再解码（在线行到了要刷新）不该半途停下。
+            self.engine.restore_online_rows(&online);
+            if let Some(budgeted) = &budgeted {
+                budgeted.unlimit();
+            }
+            self.deferred_mounted = Some(budgeted);
+            self.advance()?;
+            self.refresh()?;
+            return Ok(DeferredSettle::Done {
+                moved: self.cached.candidates != before,
+            });
+        }
         if let Some(scorer) = self.reranker.take() {
             self.deferred_scorer = Some(DeferredScorer { scorer, budgeted });
         }
         self.mount_keystroke_scorer(None);
         decoded?;
-        if !complete {
-            // 引擎里现在是解了一半的候选，屏幕上还是停顿前的：不带模型再解一遍，让两边一致。
-            self.engine.recompute_candidates()?;
-            self.advance()?;
-            self.refresh()?;
-            let moved = self.cached.candidates != before;
-            return Ok(if failed {
-                DeferredSettle::Done { moved }
-            } else {
-                DeferredSettle::Continue { moved }
-            });
-        }
-        shown?;
-        Ok(DeferredSettle::Done {
-            moved: self.cached.candidates != before,
+        // 引擎里现在是解了一半的候选，屏幕上还是停顿前的：不带模型再解一遍，让两边一致。
+        self.engine.recompute_candidates()?;
+        self.engine.restore_online_rows(&online);
+        self.advance()?;
+        self.refresh()?;
+        let moved = self.cached.candidates != before;
+        Ok(if failed {
+            DeferredSettle::Done { moved }
+        } else {
+            DeferredSettle::Continue { moved }
         })
     }
 
@@ -3640,6 +3681,8 @@ impl<E: InputEngine> Runtime<E> {
     }
 
     pub fn dispatch(&mut self, action: Action) -> Result<Transition, RuntimeError> {
+        // 停顿重解解完后留在按键位置上的模型，在下一次派发前放回去：按键照旧不带模型。
+        self.unmount_deferred_scorer();
         // 桌面上只有派发类调用运行脚本插件的候选变换，旁路调用只重放，见 `transform` 模块。
         #[cfg(any(
             target_os = "macos",
