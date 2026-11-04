@@ -297,6 +297,8 @@ final class MorePanelFoldTests: XCTestCase {
   /// Windows 上的 Ctrl+Shift+Alt+C 组合键在 iOS 上没有键可按，所以菜单把它放在最后一页；点这个图块会关闭菜单并提示已生效。
   func testTheClearCacheCardClearsAndSaysSo() throws {
     let controller = makeController(width: 390)
+    // 清缓存要问会话，会话在键盘出现时才建（#10634）。
+    controller.viewWillAppear(false)
     let panel = try openMenu(in: controller)
     let scroll = try XCTUnwrap(descendants(panel).compactMap { $0 as? UIScrollView }.first)
     let card = try tile("moreCard-清除候选缓存", in: controller)

@@ -23,9 +23,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// first shared-preferences sync; starting at zero discarded the user's height on every load.
   private var sharedKeyboardHeightAdjustment =
     CGFloat(KeyboardLayoutPreference.heightAdjustment)
-  /// 建引擎会话之前的内存读数。存储属性按声明顺序初始化，所以它紧挨在 `session` 上面：前面几个属性（皮肤背景视图、读 App Group 的键盘高度）算进它自己，`keyboard_loaded` 把它记成 `base=`，与 `session=` 之差只有引擎会话。
+  /// 准备引擎选项之前的内存读数。存储属性按声明顺序初始化，所以它紧挨在 `session` 上面：前面几个属性（皮肤背景视图、读 App Group 的键盘高度）算进它自己，`keyboard_loaded` 把它记成 `base=`，与 `session=` 之差是准备选项（读文档、校验资源）的开销。
   private let launchMemory = DiagnosticLog.MemorySample.current()
-  private let session = MetasequoiaInputSessionBridge()
+  /// 这里只准备选项、不建会话：会话一建就在 App Group 里持着词库租约和下载代次的锁，控制器创建时键盘还没出现，也可能永远不出现，进程那时被挂起，iOS 以 0xdead10cc 结束扩展（#10634）。会话在 `viewWillAppear` 里建，在 `viewWillDisappear` 里销毁，锁的持有期不超过键盘的可见期。
+  private let session = MetasequoiaInputSessionBridge(startsSuspended: true)
   private var englishCorrectionRejectedPrefix = ""
   private var englishCorrectionRejectedDocument: UUID?
   /// 候选条内容每换一次加一，在途的英文建议回来时拿它判断自己是否已过时。
@@ -35,7 +36,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var englishSuggestionDocument: UUID?
   /// 候选栏当前的英文建议第二行是否为纠错；只有补全时点原文不算拒绝纠错。
   private var englishSuggestionCorrected = false
-  /// 引擎会话刚建好时的内存读数，紧跟在 `session` 后面声明，`keyboard_loaded` 记成 `session=`。
+  /// 引擎选项准备好时的内存读数，紧跟在 `session` 后面声明，`keyboard_loaded` 记成 `session=`。会话本身在第一次出现时才建，它的内存算进 `keyboard_shown`。
   private let sessionMemory = DiagnosticLog.MemorySample.current()
   /// 「全角输入」 for the running keyboard: starts from the shared `character_width`, then the 全角 card switches it.
   private var fullWidthInput = false
@@ -585,6 +586,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// Whether the top row shows candidates (or the reading, a diagnostic or the local mode) rather than the toolbar; set by `renderCandidateStrip`, read by `currentStripBackground`.
   private var stripShowsCandidates = false
   private var candidateCanvasActive = true
+  /// 从 `viewWillAppear` 到 `viewWillDisappear` 之间为 true，即引擎会话应当存在的那段时间。UIKit 的外观回调可能乱序（收起之后才到的 `viewDidAppear`），词库维护和 `viewDidDisappear` 里的第二次释放都按它判断键盘是否还在屏幕上：维护会取 App Group 里的锁，键盘收起后再开始一轮，锁就可能跨过挂起（#10634）。
+  private var isPresented = false
   /// 上一次给整棵按键树换装（`applyKeyboardSkin` 里的 `recolor`）时的皮肤和 trait。`viewWillAppear` 和 `viewIsAppearing` 拿它和现在的比，都没变就不再重新换装。
   private var appliedKeySkin: KeyboardTheme?
   private var appliedKeySkinTraits: UITraitCollection?
@@ -891,6 +894,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   deinit {
     MainActor.assumeIsolated {
       KeyboardViewTeardown.detachSubviews(from: viewIfLoaded)
+      // 会话随桥一起销毁；释放时还持着会话，说明它跳过了 `viewWillDisappear`，在那之前锁一直在手上（#10634）。
+      if session.holdsSession { DiagnosticLog.shared.write("controller_released session_held=1") }
     }
   }
 
@@ -973,6 +978,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 切到别的应用也是离开键盘调整的一种方式，与收起键盘一样按确认保存。
     NotificationCenter.default.addObserver(
       self, selector: #selector(saveKeyboardAdjustOnResign), name: .NSExtensionHostWillResignActive, object: nil)
+    // 宿主进了后台、扩展随时会被挂起，这时还持着会话就会带着 App Group 里的锁被挂起（#10634）。只记一行，真机验收时据此判断还有没有这条路径。
+    NotificationCenter.default.addObserver(
+      self, selector: #selector(noteSessionInBackground), name: .NSExtensionHostDidEnterBackground, object: nil)
     DiagnosticLog.shared.write("keyboard_built \(DiagnosticLog.MemorySample.current().fields)")
   }
 
@@ -999,6 +1007,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     synchronizeInputContext()
     prepareKeyFeedback()
+    // 收起之后才到的 `viewDidAppear` 不再开始维护：`viewWillDisappear` 已经停了定时器、放了锁，这里再开一轮会把锁重新取回来，而键盘已经不在屏幕上。
+    guard isPresented else { return }
     // 出现时先跑一轮词库维护，不必等两秒的定时器：两份队列文件在后台读，个人词库只在有待应用的编辑、设置页要求刷新或上次列出已超过 15 分钟（`PersonalDictionaryStore.listingLifetime`）时才同步，快照版本照常按 `DictionarySnapshotWorker.idleVersionPollInterval`（已有版本、没有活动请求时一分钟）节流。以前这里每次出现都在主线程上强制同步一次个人词库、强制重算一次词库版本，没有任何变化时也要读写共享文件、查询引擎。
     startIdleMaintenance()
     personalDictionaryTimer?.invalidate()
@@ -1009,7 +1019,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 异步首键尚未渲染时也在输入；词间的短暂停顿不触发同步权限和词库维护。
   private var idleForMaintenance: Bool {
-    !hasComposition && !isInLocalMode && !session.hasPendingCharacters
+    isPresented && !hasComposition && !isInLocalMode && !session.hasPendingCharacters
       && ProcessInfo.processInfo.systemUptime - lastKeyTouchTime >= 0.3
   }
 
@@ -1037,6 +1047,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   override func viewWillAppear(_ animated: Bool) {
     super.viewWillAppear(animated)
     candidateCanvasActive = true
+    isPresented = true
     // 不清候选皮肤的请求键：键里已有皮肤 id、明暗、主题和清单的修改时间与大小，皮肤真的换了照样重新加载。以前这里每次出现都清掉它，跟随桌面候选皮肤的用户每次出现都要丢掉快照、在后台把整包图片重新读一遍解一遍，候选条先退回配色再换回皮肤。
     InputSchemePreference.refreshResourceAvailability()
     // 进程可能跨过换季或应用主题的改动；在下面任何地方解析皮肤之前先刷新。变了就重新解析主题，让末尾的 `applyKeyboardSkin` 给按键换上新的颜色实例：按键进窗口时已按旧季节解析过同一批动态色，同一个实例再设一次 UIButton 不会重新解析。
@@ -1062,7 +1073,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let resumeStart = ProcessInfo.processInfo.systemUptime
     do {
       try session.resumeDictionarySession()
-      if rebuildsSession { DiagnosticLog.shared.write("dictionary_resumed ms=\(Self.elapsedMilliseconds(since: resumeStart))") }
+      if rebuildsSession {
+        DiagnosticLog.shared.write("dictionary_resumed ms=\(Self.elapsedMilliseconds(since: resumeStart))")
+        // 第一次出现之前会话还不在（#10634），`viewDidLoad` 里取到的键面提示表是空的；会话建好了再取一次。以后每次出现重建的会话方案不变，表相同，不重画。
+        refreshShuangpinKeyHints()
+        updateLetterCaseControls()
+      }
     }
     catch {
       DiagnosticLog.shared.write("dictionary_resume_failed")
@@ -1308,6 +1324,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     super.viewWillDisappear(animated)
     readAloudSpeaker.stop()
     candidateCanvasActive = false
+    isPresented = false
     compositionContainer?.canvasVisible = false
     candidatePanel?.canvasVisible = false
     session.flushPendingCharacters()
@@ -1344,12 +1361,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // prepareForDeactivation: for the same reason: the user typed those letters and never asked to
     // throw them away.
     render(session.finishComposition())
-    let releasesSession = !session.dictionarySessionSuspended
-    let suspendStart = ProcessInfo.processInfo.systemUptime
-    // 销毁会话时引擎同步写完选词计数和个人上下文，也在主线程上。
-    if session.suspendDictionarySession() && releasesSession {
-      DiagnosticLog.shared.write("dictionary_suspended ms=\(Self.elapsedMilliseconds(since: suspendStart))")
-    }
+    releaseDictionarySession()
     ownEditEcho.reset()
     cancelBackspacePress()
     diagnosticDismissTimer?.invalidate()
@@ -1359,6 +1371,33 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     flushStatistics()
     // A reused controller must not count presses on its next appearance until that appearance's isEnabled() answer arrives.
     countsKeyPresses = false
+  }
+
+  /// 第二道保险：`viewWillDisappear` 里没能放掉的会话在这里再放一次（已经放掉时什么也不做）。在这之前又来了 `viewWillAppear` 的话键盘还在屏幕上，会话不能动。
+  override func viewDidDisappear(_ animated: Bool) {
+    super.viewDidDisappear(animated)
+    guard !isPresented else { return }
+    releaseDictionarySession()
+  }
+
+  /// 销毁引擎会话，放掉它在 App Group 里持着的锁（词库访问租约和下载代次的共享锁）。键盘被系统挂起时还持着这些锁，iOS 以 0xdead10cc 结束扩展（#10634），所以放不掉时不能就此作罢。
+  ///
+  /// 调用方已经用 `finishComposition` 把组字上屏；还留着组字（个别本地模式和方案的组字不随它结束）时会话拒绝销毁，这时取消剩下的组字再试一次。用户写下的内容已经上屏，取消的只是没上屏的那一截，比扩展连同整个会话被系统结束要好。仍然失败就记一行诊断，真机上据此判断是哪条路径。
+  private func releaseDictionarySession() {
+    guard !session.dictionarySessionSuspended else { return }
+    let suspendStart = ProcessInfo.processInfo.systemUptime
+    // 销毁会话时引擎同步写完选词计数和个人上下文，也在主线程上。
+    var released = session.suspendDictionarySession()
+    if !released {
+      DiagnosticLog.shared.write("dictionary_suspend_retry composing=\(hasComposition ? 1 : 0)")
+      render(session.cancel())
+      released = session.suspendDictionarySession()
+    }
+    if released {
+      DiagnosticLog.shared.write("dictionary_suspended ms=\(Self.elapsedMilliseconds(since: suspendStart))")
+    } else {
+      DiagnosticLog.shared.write("dictionary_suspend_failed")
+    }
   }
 
   private func installKeyboard() {
@@ -3542,27 +3581,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
-  // A key is about 36pt wide and the longest Xiaohe mapping is nine characters, so the hint has to
-  // be one line that shrinks rather than a subtitle that wraps: wrapping pushed the letter itself
-  // out of the top of the key.
+  // 双拼提示保持单行缩字，由按键按最终尺寸排版，避免隐藏标签参与约束引擎迁移。
   private func attachHintLabel(to button: UIButton) -> UILabel {
-    let label = UILabel()
-    label.font = .systemFont(ofSize: 9, weight: .regular)
-    label.textColor = KeyboardTheme.current.accent.withAlphaComponent(0.8)
-    label.textAlignment = .center
-    label.numberOfLines = 1
-    label.adjustsFontSizeToFitWidth = true
-    label.minimumScaleFactor = 0.6
-    label.isHidden = true
-    label.isAccessibilityElement = false
-    label.translatesAutoresizingMaskIntoConstraints = false
+    let label = KeyboardBottomHintLabel()
     button.addSubview(label)
-
-    NSLayoutConstraint.activate([
-      label.leadingAnchor.constraint(equalTo: button.leadingAnchor, constant: 2),
-      label.trailingAnchor.constraint(equalTo: button.trailingAnchor, constant: -2),
-      label.bottomAnchor.constraint(equalTo: button.bottomAnchor, constant: -2),
-    ])
+    (button as? KeyboardKeyButton)?.bottomHintLabel = label
     return label
   }
 
@@ -4897,7 +4920,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // insert its remaining preedit into the new field while changing the keyboard's presentation.
     // The marked text belonged to the old field too, so there is nothing here to clear.
     inlineMarkedText = ""
-    render(discardComposition())
+    // 会话挂起时（键盘出现之前，或已经收起）没有组字可丢，也没有会话可问；问了只会拿回「尚未准备完成」的诊断画在键盘上。
+    if !session.dictionarySessionSuspended { render(discardComposition()) }
     isChineseMode = chinese
     showsSymbols = false
     letterCaseState = .lowercase
@@ -6586,12 +6610,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return ChineseTextConversion.outputString(text, traditional: usesTraditionalOutput)
   }
 
-  private func updateSchemeButton() {
-    // The hints come from the engine's own profile for the scheme the session is running, so they
-    // are refreshed wherever the scheme is, and cannot drift from what the keys actually produce.
-    // 粤语双拼与普通粤拼是同一个引擎方案，只有键盘知道选的是哪一个；普通粤拼完整拼写，不画提示。
-    shuangpinKeyHints = inputScheme == .cantoneseShuangpin
+  /// 重取双拼键面提示表。提示表不在 `LetterCaseInputs` 里，只换表的话下一次 `updateLetterCaseControls` 会当作没变而不重画，所以表变了就作废上次的输入；重画留给调用方。
+  ///
+  /// The hints come from the engine's own profile for the scheme the session is running, so they are refreshed wherever the scheme is, and cannot drift from what the keys actually produce. 粤语双拼与普通粤拼是同一个引擎方案，只有键盘知道选的是哪一个；普通粤拼完整拼写，不画提示。
+  private func refreshShuangpinKeyHints() {
+    let hints = inputScheme == .cantoneseShuangpin
       ? session.cantoneseShuangpinKeyHints() : session.shuangpinKeyHints()
+    guard hints != shuangpinKeyHints else { return }
+    shuangpinKeyHints = hints
+    appliedLetterCaseInputs = nil
+  }
+
+  private func updateSchemeButton() {
+    refreshShuangpinKeyHints()
     nineKeyShuangpinLayout = inputScheme == .nineKeyShuangpin ? try? .current(in: session.sharedPreferences) : nil
     updateLetterCaseControls()
 
@@ -9758,6 +9789,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     closeCandidatePanel()
     render(session.currentSnapshot())
     updateShortcutButtons()
+  }
+
+  @objc private func noteSessionInBackground() {
+    DiagnosticLog.shared.write("host_background session_held=\(session.holdsSession ? 1 : 0) presented=\(isPresented ? 1 : 0)")
   }
 
   private func selectTraditionalOutput(_ traditional: Bool) {
