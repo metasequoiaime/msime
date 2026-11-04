@@ -1,10 +1,10 @@
 # App icon sources
 
-The launcher icon is the standalone mark, `packages/ui/src/assets/msime.svg`: a dark rounded square whose green edge is its border, with the white stroke on it - the same picture Windows, macOS, Linux, iOS and HarmonyOS show. The launcher cuts the icon to a shape of its own choosing, so the tile is scaled until its edge meets the border of what the mask shows and the background is the edge colour: on a rounded-square launcher the mask lands on the green edge and the home screen shows the PC icon's rounded square, the ground filling in only where the mask's corners are rounder than the tile's. On a circular mask (Pixel) the tile's corners are cut off and the edge shows at the four sides only. `platforms/android/scripts/generate_app_icons.py` renders every icon; nothing here is hand-edited.
+Everywhere else the brand mark is the standalone tile, `packages/ui/src/assets/msime.svg`: a dark rounded square whose green edge is its border, with the white stroke from `apps/desktop/app-icon.svg` on it. A launcher icon cannot carry that edge: the launcher cuts the icon to a shape of its own choosing - a circle on Pixel, a rounded square on most others - and a border drawn into the icon fights whichever shape it did not anticipate. So on Android the mask itself is the container: a field fills the icon and the white stroke sits on it at the size it has inside the tile, with nothing drawn around it. `platforms/android/scripts/generate_app_icons.py` renders every icon; nothing here is hand-edited.
 
-`app_icon_classic` has the tile's own green edge, `#A8DF8E`. `app_icon_forest`, `app_icon_sky`, `app_icon_dusk` and `app_icon_vermilion` differ from it by exactly one value - the colour of the edge and the ground - and stay the alternate styles the 我的 tab offers. The theme table is the one the iOS alternate icons use, so each style looks the same on both.
+`app_icon_classic` has the tile's own dark field, `#252525`. `app_icon_forest`, `app_icon_sky`, `app_icon_dusk` and `app_icon_vermilion` differ from it by exactly one value - the field colour, the theme's colour darkened (45% of it into `#1A1A1A`) so the white stroke stays legible - and stay the alternate styles the 我的 tab offers. The same theme table drives the iOS alternate icons, where it colours the tile's edge instead.
 
-The plain bitmaps are the tile filling the bitmap with transparent corners, as a rounded-square launcher shows it. With `minSdk` 28 no device draws them; they are what someone browsing the repository sees:
+The plain bitmaps are the icon as a rounded-square launcher shows it: the field as the tile's rounded square, the stroke at its size inside the tile, transparent corners. With `minSdk` 28 no device draws them; they are what someone browsing the repository sees:
 
 | Density | Size |
 | --- | --- |
@@ -18,7 +18,7 @@ The plain bitmaps are the tile filling the bitmap with transparent corners, as a
 
 Each style also ships an `<adaptive-icon>` in `drawable-anydpi-v26`, because a plain bitmap gets the launcher's legacy treatment: shrunk and set on a grey plate the design never asked for. With `minSdk` 28 these are what the launcher and the 我的 tab actually draw.
 
-The background layer is the style's edge colour (`@color/app_icon_ground_<style>`) and the foreground is the whole tile, its outer edge on the border of the 72dp the mask shows.
+The background layer is the style's field colour (`@color/app_icon_field_<style>`) and the foreground is the white stroke alone, scaled as it would be if the tile filled the 72dp the mask shows. Whatever shape the launcher cuts, the icon is that shape in the field colour with the stroke on it.
 
 | Density | Foreground size |
 | --- | --- |
