@@ -13,7 +13,7 @@ Status: implemented
 
 另外两处会让手势在屏障里更容易丢：`_NoteKeyForSmartPunctuation` 在任何一个中间按键上发现 `_CanConvertSmartPunctuationSpace()` 为假就清掉武装，而那个条件含 Server 会话说「就绪」，焦点会话协商期间会短暂为假并自己恢复。
 
-**没能证明的部分**：手上只有 `1` `.` 空格 的日志，而 `1` `.` 出 ASCII 时本来就不会武装空格转换，那三行也是非屏障路径（`keydown-classified`）。所以「QQ 里那一次到底是不是屏障」没有证据；#10678 修的焦点令牌反复更换同样会清掉武装，也是候选来源之一，它已合并。这里的改动是把两处**代码上成立**的缺口补齐，QQ 里是否因此不再偶发要等复测。
+**没能证明的部分**：手上只有 `1` `.` 空格 的日志，而 `1` `.` 出 ASCII 时本来就不会武装空格转换，那三行也是非屏障路径（`keydown-classified`）。所以「QQ 里那一次到底是不是屏障」没有证据；#10678 修的焦点令牌反复更换同样会清掉武装，也是候选来源之一，它已合并。这里的改动是把两处**代码上成立**的缺口补齐；QQ 里的复测已由维护者在本机手动完成并通过。
 
 ## Decision
 
@@ -48,4 +48,4 @@ Status: implemented
 - `python scripts/test-windows-application-key-replay.py` 204 项全过。
 - `python scripts/test-windows-native-run.py`：146 项通过，2 项按宿主差异排除，0 失败。
 - `pnpm run verify-notes`、`git diff --check` 通过。
-- **没有在 QQ 里复测。** 本机 QQ 未登录、桌面同时被另一个会话占用。确认手段是打开 `diagnostic_log.tsf`，在 QQ 里打 `1.2`、以及「中文标点 + 空格」，看 `logs\server.log` 里 `[msime][smart-punctuation]` 的次数与 `shadow=yes` 是否稳定；同时观察屏障事件（`keydown-deferred-queued`）附近是否仍有 `result=chinese`。
+- **已在本机手动验证通过**（维护者验收）：数字后的 `.` `,` `:` 直出与「中文标点 + 空格」转换都正常。复验手段保留：打开 `diagnostic_log.tsf`，在 QQ 里打 `1.2`、以及「中文标点 + 空格」，看 `logs\server.log` 里 `[msime][smart-punctuation]` 是否稳定为 `shadow=yes result=ascii`，以及屏障事件（`keydown-deferred-queued`）附近是否还有 `result=chinese`。
