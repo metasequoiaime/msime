@@ -28,7 +28,7 @@ Status: implemented
 
 ### 触发路径
 
-`crates/dict-builder/**`、`resources/dictionary-sources/**`、`resources/dictionary-sources.lock.json`、构建器复制进产物的四份许可证（libchewing-data、rime-cantonese、rime-stroke、SCOWL）、构建器直接用到的引擎文件（`assets.rs` 的日语模型文件名、`cantonese/scheme.rs` 的 `SPAN_LIMIT`、`format.rs`、`language_dictionary.rs`、`wubi/code.rs`、决定注音库收哪些音节的 `zhuyin/layout.rs`）、工作区的 `Cargo.lock`、`Cargo.toml`、`rust-toolchain.toml`，以及 workflow 和比较脚本本身。`resources/licenses/**` 整个目录两个月里改了 68 次，绝大多数与词库无关，所以只列构建器真正读的那几份。
+`crates/dict-builder/**`、`resources/dictionary-sources/**`、`resources/dictionary-sources.lock.json`、构建器复制进产物的四份许可证（libchewing-data、rime-cantonese、rime-stroke、SCOWL）、构建器直接用到的引擎文件（`assets.rs` 的日语模型文件名、`cantonese/scheme.rs` 的 `SPAN_LIMIT`、`format.rs`、`language_dictionary.rs`、粗俗词表的解析与内嵌后备表 `lattice/offensive.rs` 和 `lattice/offensive_words.txt`、`wubi/code.rs`、决定注音库收哪些音节的 `zhuyin/layout.rs`）、工作区的 `Cargo.lock`、`Cargo.toml`、`rust-toolchain.toml`，以及 workflow 和比较脚本本身。`resources/licenses/**` 整个目录两个月里改了 68 次，绝大多数与词库无关，所以只列构建器真正读的那几份。
 
 - 清单不能靠人记：`scripts/test-dict-artifact-diff.py` 找出 `crates/dict-builder/src` 里每处 `msime_engine::…`（经 `lib.rs` 的 `pub use` 解析 crate 根上的导出），解析到 `crates/engine/src` 下的文件，不在清单里就失败；同时检查 pull_request 和 push 两份清单相同、每条路径都存在。只用于 `rime-ice-supplement` 子命令的 `rime_ice_supplement.rs` 不在发布构建里，列为例外。这些引擎文件自己再引用的引擎代码不追：构建器用到的都是常量、表名和读写格式，传递依赖改了还没改到这些，产物不会变。
 - `Cargo.lock` 一个月改八十多次（依赖机器人每月的 cargo 批量升级、别的 crate 加依赖），每次都编两遍、构建两遍不划算。所以只有它落在这份清单里时，作业先在两边跑 `cargo tree -p msime-dict-builder`（包、版本、特性，去掉检出路径）比较，相同就不编译不构建、报告写明原因，声明不改产物也照样通过；不同才走完整流程。根 `Cargo.toml` 和工具链改动不走这条捷径：profile 和编译器变了，依赖树看不出来。
