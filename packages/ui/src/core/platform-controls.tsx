@@ -655,6 +655,8 @@ export function PickerRow({
             {detail && <span className={style.rowDescription}>{detail}</span>}
           </span>
           {value}
+          {/* 整行不再是 `disabled` 的按钮，读屏不会自己报出「不可用」，这里补上；只写在当前值后面，不给外层加禁用语义，免得「?」也被当成不可用。 */}
+          <span className="sr-only">不可用</span>
         </div>
       ) : (
         // 按内容（标题、描述、当前值）命名，而不是用 `aria-labelledby`：标题已经是隐藏控件的标签，同一个标签命名两个控件会让标签查找指向哪个控件变得含糊。

@@ -603,6 +603,8 @@ struct DesignSelectRow<Value: Hashable>: View {
     DesignRowLayout(title: title, subtitle: subtitle, info: info) {
       HStack(spacing: 8) {
         Text(valueTitle).font(.system(size: 16)).foregroundStyle(MetasequoiaTheme.sub).lineLimit(1)
+          // 不可用时整行不再是被禁用的按钮，读屏不会自己报出「不可用」，补在当前值上；不给整行加禁用特征，免得「?」也被当成不可用。
+          .accessibilityLabel(enabled ? valueTitle : "\(valueTitle)，不可用")
         DesignChevron()
       }
     }
