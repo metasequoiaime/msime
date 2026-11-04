@@ -279,6 +279,35 @@ impl PinyinCuration {
     }
 }
 
+/// 五笔原表（86 极点表、两张 98 表）的每一行：`(文件, 编码, 词)`，按文件和行的先后，按构建读它们的方式解析。整词否决在这些表里也生效：`word-vetoes` 判断只在五笔里出现的整词否决是否过期、`cleanse-report` 找五笔原表里的粗俗碎片，读的都是它。新世纪表只收单字，整词否决不收单字，所以不读它。
+pub fn wubi_source_rows(sources: &Sources) -> Result<Vec<(&'static str, String, String)>> {
+    use crate::{
+        wubi86_supplement::JIDIAN, wubi98_supplement::WUBI98, wubi98_supplement::WUBI98_FCITX,
+    };
+    let mut rows = Vec::new();
+    let jidian = text::read(&sources.pinned(JIDIAN)?)?;
+    for line in text::universal_lines(text::without_bom(&jidian)) {
+        if let Some((code, value, _)) = msime::parse_code_line(line, false) {
+            rows.push((JIDIAN, code, value.to_owned()));
+        }
+    }
+    let wubi98_path = sources.pinned(WUBI98)?;
+    let wubi98 = msime::decode_utf16le(&crate::sources::read_private(&wubi98_path)?)
+        .with_context(|| format!("decoding {}", wubi98_path.display()))?;
+    for line in text::universal_lines(text::without_bom(&wubi98)) {
+        if let Some((code, value)) = msime::parse_wubi98_line(line) {
+            rows.push((WUBI98, code, value.to_owned()));
+        }
+    }
+    let fcitx = text::read(&sources.pinned(WUBI98_FCITX)?)?;
+    for line in text::universal_lines(&fcitx) {
+        if let Some((code, value)) = msime::parse_fcitx_wubi98_line(line) {
+            rows.push((WUBI98_FCITX, code.to_owned(), value));
+        }
+    }
+    Ok(rows)
+}
+
 /// `word-vetoes` 阶段的结果。
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct VetoCounts {

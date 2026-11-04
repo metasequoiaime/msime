@@ -18,7 +18,7 @@
 //! msime-dict-build syllable-frequency --pinyin <msime-pinyin.db> [--out <syllable_frequency.tsv>]
 //! msime-dict-build web --pinyin <msime-pinyin.db> --wubi <msime-wubi.db> --out-dir <dir> [--keep-multi 200000]
 //! msime-dict-build check-words [--base <words.txt> --head <words.txt>] [--translations-base <translations.txt> --translations-head <translations.txt>] [--english-base <english.txt> --english-head <english.txt>] [--cantonese-base <cantonese.txt> --cantonese-head <cantonese.txt> --cantonese-characters <jyut6ping3.chars.dict.yaml>] [--msime-db <msime-pinyin.db>] [--english-db <msime-english.db>] [--cantonese-db <msime-cantonese.db>] [--pinyin-vetoes <curation/pinyin-vetoes.txt>] [--english-vetoes <curation/english-vetoes.txt>] [--json <report.json>] [--markdown <summary.md>]
-//! msime-dict-build cleanse-report --dictionary <msime-dictionary checkout> --out <dir> [--upstream <rime-ice checkout>] [--ratio 5] [--reference <file>...] [--reference-min 100] [--reference-scale <factor>]
+//! msime-dict-build cleanse-report --dictionary <msime-dictionary checkout> --out <dir> [--upstream <rime-ice checkout>] [--ratio 5] [--reference <file>...] [--reference-min 100] [--reference-scale <factor>] [--nonstandard-min 1000]
 //! ```
 
 mod cantonese;
@@ -202,7 +202,7 @@ enum Command {
     Languages(Languages),
     /// 从词库 release 的 msime-pinyin.db 和 msime-wubi.db 裁出网页内置输入法用的 msime-pinyin.db（全部单字加按权重排名前 N 的多字词，不含五笔）和 msime-wubi86.db（只含 86 五笔），给了 --japanese 时再从 msime-japanese.dat 裁出成本最低的 N 条词，都逐字节可复现。
     Web(WebArgs),
-    /// 给 msime-dictionary 的清洗出候选清单（本地权重与上游 rime-ice 相差过大的行、占位权重、压过同键常用词的碎片词、含粗俗词的长词条），每类一个 TSV，不改任何库和源文件；维护者审定后再写进 curation/ 的否决表和权重覆盖表（见 cleanse_report.rs）。
+    /// 给 msime-dictionary 的清洗出候选清单（本地权重与上游 rime-ice 相差过大的行、占位权重、压过同键常用词的碎片词、压过同键规范读音的非规范读音、含粗俗词的长词条和五笔原表里的同类词、来源对不上上游的行），每类一个 TSV，不改任何库和源文件；维护者审定后再写进 curation/ 的否决表和权重覆盖表（见 cleanse_report.rs）。
     CleanseReport(CleanseReport),
     /// 从词库 release 的 msime-pinyin.db 写出九宫格切分用的音节频度表（crates/engine/src/nine_key/syllable_frequency.tsv）：单字行的权重，加上音节在多字词里每出现一次计一次的词的权重。
     SyllableFrequency(SyllableFrequency),
@@ -231,6 +231,9 @@ struct CleanseReport {
     /// weight-disagreement.tsv 里，权重恰好等于参照权重乘这个系数（四舍五入）的行算作有意按参照表改写过的，不列出。
     #[arg(long)]
     reference_scale: Option<f64>,
+    /// nonstandard-readings.tsv 里，读音是参照表收了的、本地权重不低于这个值的词才算被压过的规范读音。
+    #[arg(long, default_value_t = 1000)]
+    nonstandard_min: i64,
     /// 读取来源锁文件的 msime checkout；表头记下它的提交。
     #[arg(long, default_value_os_t = repository_root())]
     repository: PathBuf,
@@ -258,6 +261,7 @@ fn build_cleanse_report(arguments: &CleanseReport) -> Result<()> {
             references: &arguments.reference,
             reference_min: arguments.reference_min,
             reference_scale: arguments.reference_scale,
+            nonstandard_min: arguments.nonstandard_min,
         },
         &sources,
     )?;
@@ -1372,30 +1376,12 @@ impl Build {
         Ok(curation::custom_promotions(listed, &earlier))
     }
 
-    /// 五笔原表（86 极点表、两张 98 表）里的全部词，`word-vetoes` 判断只在五笔里出现的整词否决是否过期时用。新世纪表只收单字，整词否决不收单字，所以不读它。
+    /// 五笔原表（86 极点表、两张 98 表）里的全部词，`word-vetoes` 判断只在五笔里出现的整词否决是否过期时用，见 [`curation::wubi_source_rows`]。
     fn wubi_source_words(&self) -> Result<HashSet<String>> {
-        let mut words = HashSet::new();
-        let jidian = text::read(&self.sources.pinned(wubi86_supplement::JIDIAN)?)?;
-        for line in text::universal_lines(text::without_bom(&jidian)) {
-            if let Some((_, value, _)) = msime::parse_code_line(line, false) {
-                words.insert(value.to_owned());
-            }
-        }
-        let wubi98_path = self.sources.pinned(wubi98_supplement::WUBI98)?;
-        let wubi98 = msime::decode_utf16le(&crate::sources::read_private(&wubi98_path)?)
-            .with_context(|| format!("decoding {}", wubi98_path.display()))?;
-        for line in text::universal_lines(text::without_bom(&wubi98)) {
-            if let Some((_, value)) = msime::parse_wubi98_line(line) {
-                words.insert(value.to_owned());
-            }
-        }
-        let fcitx = text::read(&self.sources.pinned(wubi98_supplement::WUBI98_FCITX)?)?;
-        for line in text::universal_lines(&fcitx) {
-            if let Some((_, value)) = msime::parse_fcitx_wubi98_line(line) {
-                words.insert(value);
-            }
-        }
-        Ok(words)
+        Ok(curation::wubi_source_rows(&self.sources)?
+            .into_iter()
+            .map(|(_, _, value)| value)
+            .collect())
     }
 
     fn pinyin(&self) -> Result<pinyin::Pinyin> {

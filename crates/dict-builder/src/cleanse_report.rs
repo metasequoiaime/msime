@@ -5,7 +5,10 @@
 //! - `weight-disagreement.tsv`（给了 `--upstream`）：`rime-ice.txt` 和 `rime-ice-supplement.txt` 里与上游 rime-ice 检出的 `cn_dicts/base.dict.yaml`、`cn_dicts/ext.dict.yaml` 同词同音、权重相差 `--ratio` 倍以上的行，建议恢复上游的权重。先按四份发布来源取同词同音的最高权重，不列已被区划或人工提权覆盖的旧上游行。给了 `--reference-scale` 时，权重恰好等于参照表权重乘这个系数（四舍五入）的行算作有意按参照表改写过的，不列出。
 //! - `placeholder-weights.tsv`：多字词的权重是占位值：不小于 1000 且每一位数字都相同（9999、1111、33333），或是 [`MEME_WEIGHTS`] 里的梗数字。给了参照表时，参照表收了这个词（任何读音）的不列出。
 //! - `fragment-over-common.tsv`（给了 `--reference`）：参照表任何读音都不收的多字词，在同一个全拼键上排在一个参照权重不低于 `--reference-min` 的词前面，建议降到它压过的那些词最低的权重之下。`custom/words.txt` 的行不列：覆盖表不能改人工词条的权重。
+//! - `nonstandard-readings.tsv`（给了 `--reference`）：参照表收了这个多字词、却不收这个读音的行，在自己的全拼键上排在一个读音是参照表收了的、本地权重不低于 `--nonstandard-min` 的词前面，建议降到它压过的那些词最低的权重之下。参照表只收一种读音不等于另一种读错了（剥皮 bao'pi、调到 diao'dao 都对），所以这一类只能逐条审。`custom/words.txt` 的行不列。
 //! - `vulgar-fragments.tsv`：含粗俗词、而本身不是表里的词、也没有被豁免写法盖住的词（引擎拼整句时拦的同一种），建议整词否决。粗俗词表用 `curation/offensive-words.txt`，没有这个文件时用引擎内嵌的表。
+//! - `wubi-vulgar-fragments.tsv`：同样的词出现在五笔原表（86 极点表、两张 98 表，见 [`curation::wubi_source_rows`]）里的。整词否决让三张五笔表都不写入这个词，五笔派生的补充行也就跟着没了；拼音表里也有的词在 `vulgar-fragments.tsv` 里已经列过，这里标出来，只在五笔里有的要单独审。
+//! - `unknown-provenance.tsv`（给了 `--upstream`）：`rime-ice.txt` 里来源对不上上游的行，只供审阅、不给建议行，按上面各类处理，不整块删除。两种标记：上游检出 `cn_dicts/` 的六张表（[`UPSTREAM_ALL_TABLES`]）都没有这个词；上游 `base`、`ext` 两张有权重的表没有这个词，而且参照表也不收这个词和读音（上游删了、#84 的万象对齐也没碰到的孤儿行）。
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write as _;
@@ -31,6 +34,16 @@ const UPSTREAM_COMPARED: [&str; 2] = [SOURCES[0], SOURCES[1]];
 
 /// 上游 rime-ice 检出里有权重的两张表。
 pub const UPSTREAM_TABLES: [&str; 2] = ["cn_dicts/base.dict.yaml", "cn_dicts/ext.dict.yaml"];
+
+/// 上游 rime-ice 检出 `cn_dicts/` 下的全部词表，判断一个词在上游有没有出处时看它们。`tencent.dict.yaml` 一行是 `词<TAB>权重`、没有读音，`41448`、`others` 两张没有权重，所以只按词比，不比读音和权重。
+pub const UPSTREAM_ALL_TABLES: [&str; 6] = [
+    "cn_dicts/8105.dict.yaml",
+    "cn_dicts/41448.dict.yaml",
+    "cn_dicts/base.dict.yaml",
+    "cn_dicts/ext.dict.yaml",
+    "cn_dicts/tencent.dict.yaml",
+    "cn_dicts/others.dict.yaml",
+];
 
 /// 不是词频、是梗的权重值。
 pub const MEME_WEIGHTS: [i64; 2] = [19_260_817, 12_345_678];
@@ -119,6 +132,30 @@ pub fn parse_weights(text: &str, weights: &mut Weights) {
             .entry(key)
             .or_insert(weight);
         *slot = (*slot).max(weight);
+    }
+}
+
+/// Rime 词表正文每一行的第一列（词），文件头的规则同 [`parse_weights`]；不看读音和权重，所以 `tencent.dict.yaml` 那种没有读音的表也能读。
+pub fn parse_words(text: &str, words: &mut HashSet<String>) {
+    let lines = text::universal_lines(text::without_bom(text));
+    let body = match lines.iter().position(|line| *line == "...") {
+        Some(end)
+            if lines
+                .first()
+                .is_some_and(|line| line.starts_with('#') || *line == "---") =>
+        {
+            &lines[end + 1..]
+        }
+        _ => &lines[..],
+    };
+    for line in body {
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let word = text::strip(line.split('\t').next().unwrap_or_default());
+        if !word.is_empty() {
+            words.insert(word.to_owned());
+        }
     }
 }
 
@@ -342,6 +379,181 @@ pub fn fragments_over_common<'a>(
     found
 }
 
+/// 参照表收了这个词、却不收这个读音的一行，压过了同键一个读音规范的常用词。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NonstandardReading<'a> {
+    pub key: &'a str,
+    pub word: &'a str,
+    pub weight: i64,
+    pub source: &'a str,
+    /// 参照表给这个词的读音，按字母序。
+    pub readings: Vec<&'a str>,
+    /// 它压过的读音规范的词（参照表收了这个词和读音、本地权重不低于门槛、比它低）有几个。
+    pub outranked: usize,
+    /// 其中本地权重最高的那个：词、本地权重。
+    pub strongest: (&'a str, i64),
+    /// 降到被压过的词里最低的本地权重减 1（不低于 0）。
+    pub suggested: i64,
+}
+
+pub fn nonstandard_readings<'a>(
+    sources: &[(&'a str, &'a str)],
+    curation: &'a PinyinCuration,
+    reference: &'a Weights,
+    minimum: i64,
+) -> Vec<NonstandardReading<'a>> {
+    let mut found = Vec::new();
+    for (key, words) in merged(sources, curation) {
+        let standard: Vec<(&str, i64)> = words
+            .iter()
+            .filter(|(word, (weight, _))| {
+                *weight >= minimum
+                    && reference
+                        .get(**word)
+                        .is_some_and(|readings| readings.contains_key(key))
+            })
+            .map(|(word, (weight, _))| (*word, *weight))
+            .collect();
+        if standard.is_empty() {
+            continue;
+        }
+        for (&word, &(weight, source)) in &words {
+            let Some(readings) = reference.get(word) else {
+                continue;
+            };
+            if !is_multi_character(word)
+                || readings.contains_key(key)
+                || source == SOURCES[3]
+                || curation.overrides.get(word, key).is_some()
+            {
+                continue;
+            }
+            let outranked: Vec<&(&str, i64)> = standard
+                .iter()
+                .filter(|(other, other_weight)| *other != word && *other_weight < weight)
+                .collect();
+            let Some(strongest) = outranked
+                .iter()
+                .max_by(|a, b| a.1.cmp(&b.1).then(b.0.cmp(a.0)))
+            else {
+                continue;
+            };
+            let lowest = outranked
+                .iter()
+                .map(|(_, weight)| *weight)
+                .min()
+                .unwrap_or(0);
+            let mut readings: Vec<&str> = readings.keys().map(String::as_str).collect();
+            readings.sort_unstable();
+            found.push(NonstandardReading {
+                key,
+                word,
+                weight,
+                source,
+                readings,
+                outranked: outranked.len(),
+                strongest: **strongest,
+                suggested: (lowest - 1).max(0),
+            });
+        }
+    }
+    found.sort_by(|a, b| {
+        b.weight
+            .cmp(&a.weight)
+            .then(a.key.cmp(b.key))
+            .then(a.word.cmp(b.word))
+    });
+    found
+}
+
+/// `rime-ice.txt` 里来源对不上上游的一行，见模块文档。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnknownProvenance<'a> {
+    pub row: Row<'a>,
+    /// 上游 `cn_dicts/` 的六张表都没有这个词。
+    pub not_upstream: bool,
+    /// 上游 `base`、`ext` 没有这个词，参照表也不收这个词和读音。
+    pub orphan: bool,
+}
+
+pub fn unknown_provenance<'a>(
+    rows: &[Row<'a>],
+    upstream_words: &HashSet<String>,
+    upstream: &Weights,
+    reference: &Weights,
+) -> Vec<UnknownProvenance<'a>> {
+    let mut found: Vec<UnknownProvenance> = rows
+        .iter()
+        .filter(|row| row.source == SOURCES[0])
+        .filter_map(|row| {
+            let not_upstream = !upstream_words.contains(row.word);
+            let orphan = !upstream.contains_key(row.word)
+                && !reference
+                    .get(row.word)
+                    .is_some_and(|readings| readings.contains_key(row.key));
+            (not_upstream || orphan).then(|| UnknownProvenance {
+                row: row.clone(),
+                not_upstream,
+                orphan,
+            })
+        })
+        .collect();
+    found.sort_by(|a, b| {
+        b.row
+            .weight
+            .cmp(&a.row.weight)
+            .then(a.row.word.cmp(b.row.word))
+            .then(a.row.key.cmp(b.row.key))
+    });
+    found
+}
+
+/// 五笔原表里的一个粗俗碎片词，连同它的编码和所在的表。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WubiVulgarFragment<'a> {
+    pub word: &'a str,
+    pub codes: Vec<&'a str>,
+    pub sources: Vec<&'static str>,
+    /// 被检查的拼音行里也有这个词（`vulgar-fragments.tsv` 已经列过）。
+    pub in_pinyin: bool,
+}
+
+pub fn wubi_vulgar_fragments<'a>(
+    wubi: &'a [(&'static str, String, String)],
+    table: &msime_engine::OffensiveWords,
+    listed: &HashSet<String>,
+    curation: &PinyinCuration,
+    pinyin_words: &HashSet<&str>,
+) -> Vec<WubiVulgarFragment<'a>> {
+    let mut by_word: BTreeMap<&str, WubiVulgarFragment> = BTreeMap::new();
+    for (source, code, word) in wubi {
+        if !is_multi_character(word)
+            || listed.contains(word.as_str())
+            || curation.vetoes_word(word)
+            || !table.is_offensive(word)
+        {
+            continue;
+        }
+        let entry = by_word
+            .entry(word.as_str())
+            .or_insert_with(|| WubiVulgarFragment {
+                word: word.as_str(),
+                codes: Vec::new(),
+                sources: Vec::new(),
+                in_pinyin: pinyin_words.contains(word.as_str()),
+            });
+        if !entry.codes.contains(&code.as_str()) {
+            entry.codes.push(code.as_str());
+        }
+        if !entry.sources.contains(source) {
+            entry.sources.push(source);
+        }
+    }
+    let mut found: Vec<WubiVulgarFragment> = by_word.into_values().collect();
+    found.sort_by(|a, b| a.in_pinyin.cmp(&b.in_pinyin).then(a.word.cmp(b.word)));
+    found
+}
+
 /// 含粗俗词的一个词，连同它在被检查的行里的全部读音。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VulgarFragment<'a> {
@@ -390,6 +602,7 @@ pub struct Options<'a> {
     pub references: &'a [PathBuf],
     pub reference_min: i64,
     pub reference_scale: Option<f64>,
+    pub nonstandard_min: i64,
 }
 
 /// 写进每个文件表头的事实。
@@ -519,6 +732,45 @@ pub fn run(options: &Options, sources: &crate::sources::Sources) -> Result<Vec<(
             );
         }
         write("weight-disagreement.tsv", out, found.len())?;
+
+        let mut upstream_words = HashSet::new();
+        let mut all_digests = Vec::new();
+        for table in UPSTREAM_ALL_TABLES {
+            let path = upstream.join(table);
+            parse_words(&text::read(&path)?, &mut upstream_words);
+            all_digests.push((table.to_owned(), sha256_file(&path)?));
+        }
+        let found = unknown_provenance(&rows, &upstream_words, &weights, &reference);
+        let mut out = header.render(
+            &format!(
+                "{} 里来源对不上上游的行，只供审阅：按其他几类的清单处理，不整块删除。",
+                SOURCES[0]
+            ),
+            "词、全拼、本地权重、上游六张表都没有这个词（是/否）、上游 base 和 ext 没有这个词且参照表不收这个词和读音（是/否）",
+        );
+        let _ = writeln!(
+            out,
+            "# 上游：提交 {commit} 的 {}。{}",
+            digest_list(&all_digests),
+            if options.references.is_empty() {
+                "没有给参照表，第二种标记只看上游 base 和 ext。"
+            } else {
+                ""
+            }
+        );
+        let yes = |flag: bool| if flag { "是" } else { "否" };
+        for item in &found {
+            let _ = writeln!(
+                out,
+                "{}\t{}\t{}\t{}\t{}",
+                item.row.word,
+                item.row.key,
+                item.row.weight,
+                yes(item.not_upstream),
+                yes(item.orphan)
+            );
+        }
+        write("unknown-provenance.tsv", out, found.len())?;
     }
 
     let placeholders = placeholder_weights(
@@ -573,6 +825,33 @@ pub fn run(options: &Options, sources: &crate::sources::Sources) -> Result<Vec<(
             );
         }
         write("fragment-over-common.tsv", out, found.len())?;
+
+        let found = nonstandard_readings(&views, &curation, &reference, options.nonstandard_min);
+        let mut out = header.render(
+            &format!(
+                "参照表收了这个多字词、却不收这个读音的行，在自己的全拼键上压过一个读音是参照表收了的、本地权重不低于 {} 的词。参照表只收一种读音不等于另一种读错了，逐条审。custom/words.txt 的行不列。",
+                options.nonstandard_min
+            ),
+            "全拼、词、本地权重、来源、参照表给这个词的读音、压过的词个数、其中本地权重最高的词、它的本地权重、建议写进 curation/pinyin-weight-overrides.txt 的行（降到被压过的词最低的权重之下）",
+        );
+        for item in &found {
+            let _ = writeln!(
+                out,
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\\t{}\\t{}",
+                item.key,
+                item.word,
+                item.weight,
+                item.source,
+                item.readings.join(","),
+                item.outranked,
+                item.strongest.0,
+                item.strongest.1,
+                item.word,
+                item.key,
+                item.suggested
+            );
+        }
+        write("nonstandard-readings.tsv", out, found.len())?;
     }
 
     let (offensive_text, offensive_source) =
@@ -615,6 +894,39 @@ pub fn run(options: &Options, sources: &crate::sources::Sources) -> Result<Vec<(
         );
     }
     write("vulgar-fragments.tsv", out, found.len())?;
+
+    let wubi = curation::wubi_source_rows(sources)?;
+    let mut wubi_digests = Vec::new();
+    for path in [
+        crate::wubi86_supplement::JIDIAN,
+        crate::wubi86_supplement::WUBI98,
+        crate::wubi86_supplement::WUBI98_FCITX,
+    ] {
+        wubi_digests.push((path.to_owned(), sha256_file(&sources.pinned(path)?)?));
+    }
+    let pinyin_words: HashSet<&str> = rows.iter().map(|row| row.word).collect();
+    let found = wubi_vulgar_fragments(&wubi, &table, &listed, &curation, &pinyin_words);
+    let mut out = header.render(
+        "五笔原表里含粗俗词、本身不是表里的词、也没有被豁免写法盖住的多字词。整词否决让三张五笔表都不写入它。",
+        "词、编码、所在的表、被检查的拼音行里也有这个词（是/否，是的话 vulgar-fragments.tsv 已经列过）、建议写进 curation/pinyin-vetoes.txt 的行（整词否决）",
+    );
+    let _ = writeln!(
+        out,
+        "# 五笔原表：{}；粗俗词表：{offensive_source}。",
+        digest_list(&wubi_digests)
+    );
+    for item in &found {
+        let _ = writeln!(
+            out,
+            "{}\t{}\t{}\t{}\t{}",
+            item.word,
+            item.codes.join(","),
+            item.sources.join(","),
+            if item.in_pinyin { "是" } else { "否" },
+            item.word
+        );
+    }
+    write("wubi-vulgar-fragments.tsv", out, found.len())?;
     Ok(written)
 }
 
@@ -795,6 +1107,131 @@ mod tests {
             found.iter().map(|item| item.word).collect::<Vec<_>>(),
             ["门的", "中去"]
         );
+    }
+
+    /// 参照表收了这个词、不收这个读音，又压过同键一个读音规范的常用词时才列；参照表收的读音、压不过常用词的、custom 的行和门槛以下的常用词都不算。
+    #[test]
+    fn nonstandard_readings_outranking_a_standard_word_of_the_key_are_listed() {
+        let mut reference = Weights::new();
+        parse_weights(
+            "上调\tshàng tiáo\t900\n上吊\tshàng diào\t300\n剥皮\tbāo pí\t50\n报批\tbào pī\t80\n血条\txuè tiáo\t20\n鞋条\txié tiáo\t1\n调到\ttiáo dào\t70\n吊到\tdiào dào\t3\n",
+            &mut reference,
+        );
+        let rime_ice = "上调\tshang'diao\t96310\n上调\tshang'tiao\t500000\n上吊\tshang'diao\t2000\n剥皮\tbao'pi\t6546\n报批\tbao'pi\t4526\n血条\txie'tiao\t132287\n鞋条\txie'tiao\t500\n调到\tdiao'dao\t300\n吊到\tdiao'dao\t1200\n";
+        let custom = "上调\tshang'diao\t200000\n";
+        let curation = PinyinCuration::default();
+        let found = nonstandard_readings(&views(rime_ice, ""), &curation, &reference, 1000);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(
+            found[0],
+            NonstandardReading {
+                key: "shang'diao",
+                word: "上调",
+                weight: 96310,
+                source: SOURCES[0],
+                readings: vec!["shang'tiao"],
+                outranked: 1,
+                strongest: ("上吊", 2000),
+                suggested: 1999,
+            }
+        );
+        // 门槛是 1000 时 鞋条（500）不算被压过的常用词，血条 也就不列；门槛降到 500 才列。
+        let found = nonstandard_readings(&views(rime_ice, ""), &curation, &reference, 500);
+        assert_eq!(
+            found.iter().map(|item| item.word).collect::<Vec<_>>(),
+            ["血条", "上调"]
+        );
+        // custom 把 上调 shang'diao 提得最高时，这一行来自 custom，覆盖表改不了，不列。
+        let found = nonstandard_readings(&views(rime_ice, custom), &curation, &reference, 1000);
+        assert!(found.is_empty(), "{found:?}");
+        // 已经覆盖过的不再列出。
+        let curation = PinyinCuration::parse("", "上调\tshang'diao\t1999\n").unwrap();
+        assert!(nonstandard_readings(&views(rime_ice, ""), &curation, &reference, 1000).is_empty());
+    }
+
+    #[test]
+    fn rows_without_an_upstream_origin_are_flagged() {
+        let mut words = HashSet::new();
+        parse_words(
+            "# Rime dictionary\n---\nname: tencent\n...\n门的\t100\n腾讯词\t100\n",
+            &mut words,
+        );
+        parse_words("门的\tmen de\t4351\n", &mut words);
+        assert_eq!(
+            words,
+            HashSet::from(["门的".to_owned(), "腾讯词".to_owned()])
+        );
+        let mut upstream = Weights::new();
+        parse_weights("门的\tmen de\t4351\n", &mut upstream);
+        let mut reference = Weights::new();
+        parse_weights("腾讯词\tteng xun ci\t5\n", &mut reference);
+        let rime_ice = "门的\tmen'de\t435135\n别鸡巴\tbie'ji'ba\t100\n腾讯词\tteng'xun'ci\t300\n腾讯词\tteng'xu'ci\t200\n";
+        let rows = examined_rows(
+            &[
+                (SOURCES[0], rime_ice),
+                (SOURCES[1], "补充词\tbu'chong'ci\t5\n"),
+                (SOURCES[2], ""),
+                (SOURCES[3], ""),
+            ],
+            &PinyinCuration::default(),
+        );
+        let found = unknown_provenance(&rows, &words, &upstream, &reference);
+        assert_eq!(
+            found
+                .iter()
+                .map(|item| (item.row.word, item.row.key, item.not_upstream, item.orphan))
+                .collect::<Vec<_>>(),
+            [
+                ("腾讯词", "teng'xu'ci", false, true),
+                ("别鸡巴", "bie'ji'ba", true, true),
+            ]
+        );
+    }
+
+    #[test]
+    fn vulgar_fragments_of_the_wubi_tables_are_listed_once_per_word() {
+        let entries =
+            curation::parse_offensive_words(msime_engine::EMBEDDED_OFFENSIVE_WORDS).unwrap();
+        let listed: HashSet<String> = entries
+            .iter()
+            .filter(|entry| !entry.exempt)
+            .map(|entry| entry.text.clone())
+            .collect();
+        let table = msime_engine::OffensiveWords::from_entries(entries).unwrap();
+        let jidian = crate::wubi86_supplement::JIDIAN;
+        let wubi98 = crate::wubi86_supplement::WUBI98;
+        let row = |source, code: &str, word: &str| (source, code.to_owned(), word.to_owned());
+        let wubi = vec![
+            row(jidian, "kccn", "个鸡巴"),
+            row(wubi98, "wkcc", "个鸡巴"),
+            row(jidian, "cqcc", "鸡巴"),
+            row(jidian, "iebp", "水乳交融"),
+            row(jidian, "kccb", "别鸡巴"),
+            row(jidian, "qtjj", "狗日的粮"),
+        ];
+        let pinyin = HashSet::from(["别鸡巴"]);
+        let found =
+            wubi_vulgar_fragments(&wubi, &table, &listed, &PinyinCuration::default(), &pinyin);
+        assert_eq!(
+            found
+                .iter()
+                .map(|item| (
+                    item.word,
+                    item.codes.clone(),
+                    item.sources.clone(),
+                    item.in_pinyin
+                ))
+                .collect::<Vec<_>>(),
+            [
+                ("个鸡巴", vec!["kccn", "wkcc"], vec![jidian, wubi98], false),
+                ("狗日的粮", vec!["qtjj"], vec![jidian], false),
+                ("别鸡巴", vec!["kccb"], vec![jidian], true),
+            ]
+        );
+        // 整词否决过的不再列出。
+        let curation = PinyinCuration::parse("个鸡巴\n", "").unwrap();
+        let found = wubi_vulgar_fragments(&wubi, &table, &listed, &curation, &pinyin);
+        assert!(found.iter().all(|item| item.word != "个鸡巴"));
     }
 
     #[test]

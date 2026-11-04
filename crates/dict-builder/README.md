@@ -70,7 +70,8 @@ msime-dictionary 的顶层目录 `curation/` 放维护者审定的表（不接�
 ```sh
 msime-dict-build cleanse-report --dictionary <msime-dictionary checkout> --out <dir> \
   [--upstream <rime-ice checkout>] [--ratio 5] \
-  [--reference <参照频率表>...] [--reference-min 100] [--reference-scale <系数>]
+  [--reference <参照频率表>...] [--reference-min 100] [--reference-scale <系数>] \
+  [--nonstandard-min 1000]
 ```
 
 只写候选清单，不改任何库和源文件；维护者逐条审定后再抄进上面的表。被检查的是进发布的四份拼音输入（`rime-ice.txt`、`rime-ice-supplement.txt`、`places.txt`、`custom/words.txt`），已经被 `curation/` 否决或覆盖过的行不再列出。每类一个 TSV，表头写 msime 提交、msime-dictionary 提交和每个对照文件的 SHA-256，最后一列是可以直接抄进表的行（列里的 `\t` 换成 TAB）：
@@ -78,7 +79,10 @@ msime-dict-build cleanse-report --dictionary <msime-dictionary checkout> --out <
 - `weight-disagreement.tsv`（给了 `--upstream`）：`rime-ice.txt`、`rime-ice-supplement.txt` 里与上游检出 `cn_dicts/base.dict.yaml`、`cn_dicts/ext.dict.yaml` 同词同音、权重相差 `--ratio` 倍以上的行，建议恢复上游权重。先按四份发布来源取同词同音的最高权重，区划或人工词条已提权覆盖的旧上游行不列出。给了 `--reference-scale` 时，权重恰好等于参照权重乘这个系数（四舍五入）的行算作有意按参照表改写，不列出（万象对齐用 9.2）。
 - `placeholder-weights.tsv`：多字词的权重不小于 1000 且每位数字相同，或是梗数字 19260817、12345678；给了参照表时参照表收了的词不列出。
 - `fragment-over-common.tsv`（给了 `--reference`）：参照表任何读音都不收的多字词，在同一个全拼键上压过参照权重不低于 `--reference-min` 的词，建议降到被压过的词最低的权重之下；`custom/words.txt` 的行不列。
+- `nonstandard-readings.tsv`（给了 `--reference`）：参照表收了这个多字词、却不收这个读音的行，在自己的全拼键上压过一个读音是参照表收了的、本地权重不低于 `--nonstandard-min` 的词，建议降到被压过的词最低的权重之下；`custom/words.txt` 的行不列。参照表只收一种读音不等于另一种读错了（剥皮 bao'pi、调到 diao'dao、顺利地 shun'li'de 都对），这一类按 2026-11-04 的逐条审查九成是误伤，只能逐条挑。
 - `vulgar-fragments.tsv`：含粗俗词、本身不是表里的词、也没有被豁免写法盖住的词（引擎拼整句时拦的同一种），建议整词否决。粗俗词表用 `curation/offensive-words.txt`，没有时用引擎内嵌的表。
+- `wubi-vulgar-fragments.tsv`：同样的词在五笔原表（86 极点表、两张 98 表）里的，带编码和所在的表，并标出拼音行里是否也有（有的话上一份已经列过）。整词否决让三张五笔表都不写入这个词。
+- `unknown-provenance.tsv`（给了 `--upstream`）：`rime-ice.txt` 里来源对不上上游的行，只供审阅、不给建议行，按上面各类处理，不整块删除。两种标记：上游检出 `cn_dicts/` 的六张表都没有这个词；上游 `base`、`ext` 没有这个词而且参照表也不收这个词和读音（上游删了、万象对齐也没碰到的孤儿行）。
 
 参照表和上游表可以是 Rime 的 `.dict.yaml`（读音带声调、空格分隔也行，统一成 `ni'hao` 再比），也可以是没有文件头的 `词<TAB>读音[<TAB>权重]`；`--reference` 可以给多份，同词同音取最大权重。
 
