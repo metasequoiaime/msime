@@ -1,6 +1,6 @@
 //! 从明确检出的 rime-ice 提交生成中英文补充表，供固定版本重建和上游更新预览。
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt::Write as _;
 use std::path::Path;
 use std::process::Command;
@@ -10,7 +10,7 @@ use msime_engine::{
     validate_personal_dictionary_entry, PersonalDictionaryEntry, PersonalDictionaryKind,
 };
 
-use crate::{product, sources, text};
+use crate::{english, product, sources, text};
 
 const CHINESE: &[&str] = &[
     "cn_dicts/base.dict.yaml",
@@ -107,20 +107,31 @@ fn chinese(sources: &[String], compare: &[String]) -> Result<Chinese> {
     Ok(result)
 }
 
-/// 上游英文词表里对照集合没有的纯 ASCII 词。对照集合除了各文件的条目，还有 rime-ice 注释掉的条目（`# na na`、`# ci ci`）：那是 rime-ice 有意去掉的拼音音节、缩写和错拼，补充表不能把它们加回来，与 `english_supplement` 生成 SCOWL 补充表时的规则相同。
-fn english(sources: &[String], compare: &[String]) -> Result<BTreeSet<String>> {
-    let mut existing = BTreeSet::new();
-    for source in compare {
-        for line in source
-            .lines()
-            .filter(|line| !line.trim_start().starts_with('#'))
-        {
-            if let Some(word) = line.split_whitespace().next() {
-                existing.insert(word.to_ascii_lowercase());
-            }
-        }
-        existing.extend(crate::english_supplement::commented_base_dict_words(source));
-    }
+/// 英文对照集合：`COMPARE_ENGLISH` 三个文件（按这个顺序）里 `english` 阶段会读到的小写词，用构建的同一套解析器取，多词短语（`Generative Pre-trained Transformer GPT`）不算成它的第一个词。rime-ice 注释掉的条目（`# na na`、`# ci ci`）也算：那是 rime-ice 有意去掉的拼音音节、缩写和错拼，补充表不能把它们加回来，与 `english_supplement` 生成 SCOWL 补充表时的规则相同。
+fn english_compared(compare: &[String]) -> Result<HashSet<String>> {
+    let [rime_ice_en, scowl, custom] = compare else {
+        bail!(
+            "expected the {} English comparison files",
+            COMPARE_ENGLISH.len()
+        );
+    };
+    let mut existing: HashSet<String> = english::parse_base_dict_words(rime_ice_en)?
+        .into_keys()
+        .collect();
+    existing.extend(crate::english_supplement::commented_base_dict_words(
+        rime_ice_en,
+    ));
+    existing.extend(english::parse_word_list(scowl, COMPARE_ENGLISH[1])?.into_keys());
+    existing.extend(
+        english::parse_custom_english(custom)?
+            .into_iter()
+            .map(|entry| entry.word),
+    );
+    Ok(existing)
+}
+
+/// 上游英文词表里对照集合（[`english_compared`]）没有的纯 ASCII 词。
+fn english(sources: &[String], existing: &HashSet<String>) -> Result<BTreeSet<String>> {
     let mut words = BTreeSet::new();
     for source in sources {
         for line in body(source)?
@@ -171,7 +182,7 @@ pub fn build(upstream: &Path, dictionary: &Path, out: &Path, repository: &Path) 
     )?;
     let english = english(
         &load(upstream, ENGLISH)?,
-        &load(dictionary, COMPARE_ENGLISH)?,
+        &english_compared(&load(dictionary, COMPARE_ENGLISH)?)?,
     )?;
     let generator = product::builder_commit(repository)?;
     let header = |title: &str, inputs: &[&str], compare: &[&str]| -> Result<String> {
@@ -258,20 +269,30 @@ mod tests {
                 "...\nFixture\tFixture\nfixture\tfixture\nKnown\tKnown\nfile.txt\tfile.txt\n"
                     .into(),
             ],
-            &["known known\n".into()],
+            &HashSet::from(["known".to_owned()]),
         )
         .unwrap();
         assert_eq!(rows.into_iter().collect::<Vec<_>>(), ["Fixture", "fixture"]);
     }
 
-    /// rime-ice 注释掉的英文条目（`# na na`）也在对照集合里，补充表不把它们加回来；不是条目形状的注释行（标题、说明）不算。
+    /// 对照集合按构建的解析器取：rime-ice 注释掉的英文条目（`# na na`）算，不是条目形状的注释行（标题、说明）不算，多词短语也不把它的第一个词算进去；SCOWL 补充表和 custom/english.txt 的词都算。
     #[test]
-    fn english_leaves_out_entries_the_compared_files_comment_out() {
+    fn english_compares_with_what_the_build_reads() {
+        let existing = english_compared(&[
+            "# rime-ice\n# na na\n#ci ci 12\n# Notes on spelling\nknown known\nGenerative Pre-trained Transformer GPT\n".into(),
+            "# SCOWL header\nscowled\n".into(),
+            "figma\tFigma\t1\n".into(),
+        ])
+        .unwrap();
         let rows = english(
-            &["...\nna\tna\nci\tci\nCi\tCi\nnew\tnew\nNotes\tNotes\n".into()],
-            &["# rime-ice\n# na na\n#ci ci 12\n# Notes on spelling\nknown known\n".into()],
+            &["...\nna\tna\nci\tci\nCi\tCi\nnew\tnew\nNotes\tNotes\ngenerative\tgenerative\nscowled\tscowled\nFigma\tFigma\n".into()],
+            &existing,
         )
         .unwrap();
-        assert_eq!(rows.into_iter().collect::<Vec<_>>(), ["Notes", "new"]);
+        assert_eq!(
+            rows.into_iter().collect::<Vec<_>>(),
+            ["Notes", "generative", "new"]
+        );
+        assert!(english_compared(&["known known\n".into()]).is_err());
     }
 }
