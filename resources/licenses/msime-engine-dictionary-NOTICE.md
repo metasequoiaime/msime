@@ -254,3 +254,12 @@ Aspell 词典包里的 `Copyright` 文件另含 Benjamin Titze 的澳大利亚�
 专利与商标的核查（2026-11-02，公开来源，未经国家知识产权局官方系统复核，不构成法律意见）：新世纪版对应的专利是王永民的 CN1117311C（ZL99109798.X，《25键形码汉字电脑输入法》，1999-07-19 申请，2003-08-06 授权），发明专利保护期自申请日起 20 年，最晚 2019-07-19 已经届满；86 版的 CN1003326B 与 98 版的 CN1204080A 也早已失效；2006 年以后王永民名下的申请（如 CN101408805A 数字键盘方案）不涉及 25 键的新世纪版。没有查到“新世纪五笔”“五笔字型”在第 9、42 类的注册情况，唯一查到的“王码”第 853925 号（第 41 类）已于 2017 年注销。苹果 macOS 自带输入法以及搜狗、百度五笔都以“新世纪”称呼这一版本。本项目只在描述编码方案时使用“新世纪五笔”一词，与王码公司及其产品没有关联。界面上称“新世纪五笔”“五笔 新世纪”，不使用“王码”“五笔字型”等商标。
 
 GPL-3.0 全文就是本项目根目录的 `LICENSE`，已随每个平台分发。
+
+### 构建时对 rime-ice 数据的删改
+
+从包含 msime `crates/dict-builder/src/curation.rs` 的构建器构建的第一次 `dict-v*` 发布起，构建器在读入之后对 rime-ice（GPL-3.0）的数据做下面的修改，源文件本身不改：
+
+- 英文：`english` 阶段从全部英文来源（`sources/english/rime-ice-en.txt`、`sources/english/rime-ice-en-supplement.txt`、`sources/english/scowl-words.txt`、OALDPE 词头和 `custom/english.txt`）删掉构建器内置的蔑称（`english_supplement::OFFENSIVE` 与 `curation::BUILT_IN_VETOES`，后者是 rime-ice 英文词表自己收的 nigger、tranny、beyatch）和 msime-dictionary `curation/english-vetoes.txt` 列出的词，任何大小写都不写入 `msime-english.db`，它们的释义随之不出现；`custom/translations.txt` 里英文一侧含这些词的条目也不写。
+- 拼音：msime-dictionary 有 `curation/pinyin-vetoes.txt`、`curation/pinyin-weight-overrides.txt` 时，`word-vetoes`、`weight-overrides` 阶段在全部拼音输入并入之后从全拼表删掉列出的词或读音、把列出的读音改成给定的权重；整词否决的词也不进五笔码表和五笔补充表。
+
+词库锁换到这样的发布、上面的副本按那次发布的 `NOTICE.md` 重新同步之后，删掉本节。
