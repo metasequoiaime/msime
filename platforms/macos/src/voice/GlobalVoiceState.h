@@ -9,13 +9,13 @@ class GlobalVoiceState {
 public:
     enum class Phase { Idle, Waiting, Active, Finishing };
     bool begin(std::string source, int pid, double now) {
-        if (phase != Phase::Idle || source.empty() || pid <= 0) return false;
+        if (phase != Phase::Idle || pid < 0) return false;
         original = std::move(source); targetPID = pid; deadline = now + 3;
         selected.clear(); selectedObserved = false; manual = false; phase = Phase::Waiting; ++generation;
         return true;
     }
     bool activate(int pid, std::string source) {
-        if (phase != Phase::Waiting || pid != targetPID || source.empty()) return false;
+        if (phase != Phase::Waiting || pid != targetPID) return false;
         selected = std::move(source); phase = Phase::Active; return true;
     }
     // TIS 接受请求不代表选择已完成；第一次到达之前仍看到原输入源属于正常等待。
@@ -33,7 +33,7 @@ public:
     }
     bool timedOut(double now) const { return phase == Phase::Waiting && now >= deadline; }
     bool canRestore(const std::string &current) const {
-        return phase != Phase::Idle && !manual && !selected.empty() && original != selected && (current == selected ||
+        return phase != Phase::Idle && !manual && !original.empty() && !selected.empty() && original != selected && (current == selected ||
             (!selectedObserved && current == original));
     }
     void clear() { phase = Phase::Idle; original.clear(); selected.clear(); targetPID = 0; selectedObserved = false; }

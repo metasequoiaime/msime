@@ -1,4 +1,5 @@
 #import "GlobalVoiceBackground.h"
+#import "../settings/RuntimeOptions.h"
 
 namespace {
 NSString *const RevisionKey = @"MSIMEClientGlobalVoiceRegisteredRevision";
@@ -61,3 +62,19 @@ NSString *MSIMEGlobalVoiceBackgroundRevision(NSBundle *bundle) {
     }
 }
 @end
+
+BOOL MSIMEGlobalVoiceInstalledHostAtPaths(NSString *bundle, NSString *userInputMethods, NSString *options,
+                                       NSString *defaultOptions, BOOL overridden) {
+    if (overridden || !bundle.isAbsolutePath || !options.isAbsolutePath || !defaultOptions.isAbsolutePath ||
+        ![options.stringByResolvingSymlinksInPath isEqual:defaultOptions.stringByResolvingSymlinksInPath]) return NO;
+    NSString *parent = bundle.stringByResolvingSymlinksInPath.stringByDeletingLastPathComponent;
+    return [bundle.pathExtension isEqual:@"app"] &&
+        ([parent isEqual:userInputMethods.stringByResolvingSymlinksInPath] || [parent isEqual:@"/Library/Input Methods"]);
+}
+BOOL MSIMEGlobalVoiceInstalledHost(NSBundle *bundle) {
+    NSDictionary *environment = NSProcessInfo.processInfo.environment;
+    BOOL overridden = environment[@"MSIME_CLIENT_HOST_OPTIONS"] || environment[@"MSIME_IBUS_OPTIONS"] || environment[@"MSIME_CLIENT_STATE_DIR"];
+    NSString *options = [bundle pathForResource:@"runtime-options" ofType:@"json"] ?: MSIMEDefaultRuntimeOptionsPath(NSFileManager.defaultManager);
+    return MSIMEGlobalVoiceInstalledHostAtPaths(bundle.bundlePath, [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Input Methods"],
+        options, MSIMEDefaultRuntimeOptionsPath(NSFileManager.defaultManager), overridden);
+}

@@ -29,6 +29,7 @@
     id _token;
     id _hostToken;
     uint64_t _generation;
+    uint64_t _socketLease;
     BOOL _permission;
     BOOL _processing;
     BOOL _final;
@@ -59,22 +60,9 @@
     if (!([options[@"polish_enabled"] boolValue] || [options[@"polish_text"] boolValue]) || ![options[@"polish_token"] length]) return nil;
     return [[MSIMEHTTPVoiceRequest alloc] initWithPolishOptions:options error:nil];
 }
-- (pid_t)globalVoiceTargetPID {
-    id focus = MSIMEGlobalVoiceFocusIdentity();
-    if (!focus) return 0;
-    CFTypeRef role = nullptr;
-    AXUIElementCopyAttributeValue((__bridge AXUIElementRef)focus, kAXRoleAttribute, &role);
-    BOOL editable = role && (CFEqual(role, kAXTextAreaRole) || CFEqual(role, kAXTextFieldRole) || CFEqual(role, kAXComboBoxRole));
-    if (role) CFRelease(role);
-    return editable ? NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier : 0;
-}
+- (pid_t)globalVoiceTargetPID { return NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier; }
 - (BOOL)globalVoiceBusy { return _token != nil; }
 - (BOOL)globalVoiceProcessing { return _processing; }
-- (BOOL)captureTargetCurrent {
-    id original = MSIMEGlobalVoiceHost().focusIdentity;
-    id focus = MSIMEGlobalVoiceFocusIdentity();
-    return original && focus && CFEqual((__bridge CFTypeRef)original, (__bridge CFTypeRef)focus);
-}
 - (BOOL)owns:(id)token {
     return token && _hostToken && _token == token && MSIMEGlobalVoiceHost().owner == self && MSIMEGlobalVoiceHost().sessionToken == _hostToken;
 }
@@ -133,7 +121,7 @@
     NSDictionary *preferences = [directory isKindOfClass:NSString.class] && directory.isAbsolutePath
         ? [MSIMEClientSession loadPreferencesInDirectory:directory error:nil][@"preferences"] : @{};
     [_overlay applyThemePreferences:preferences ?: @{}];
-    if (![self captureTargetCurrent] || ![self owns:_token]) { [self cancelGlobalVoice]; return MSIMEGlobalVoiceStartFailed; }
+    if (![self owns:_token]) { [self cancelGlobalVoice]; return MSIMEGlobalVoiceStartFailed; }
     id token = _token;
     __weak MSIMEGlobalVoiceSession *weakSelf = self;
     _overlay.actionHandler = ^(BOOL cancel) {
@@ -168,10 +156,12 @@
     if (![_service startWithSession:_session generation:&_generation error:nil]) {
         [self fail:MSIMEVoiceFailureSession error:nil]; return MSIMEGlobalVoiceStartFailed;
     }
-    if (![self owns:token] || ![self captureTargetCurrent] || ![self owns:token]) {
+    if (![self owns:token]) {
         [self cancelGlobalVoice]; return MSIMEGlobalVoiceStartFailed;
     }
-    _options = MSIMEVoiceQuery([self voiceDefaults], _generation, NO);
+    _socketLease = _socket.length ? MSIMENextVoiceSocketLease() : 0;
+    if (_socket.length && !_socketLease) { [self fail:MSIMEVoiceFailureSession error:nil]; return MSIMEGlobalVoiceStartFailed; }
+    _options = MSIMEVoiceQuery([self voiceDefaults], _socket.length ? _socketLease : _generation, NO);
     [self startProvider:token];
     [self scheduleAfter:2 action:^{ [weakSelf verifyCapture:token]; }];
     return _token ? MSIMEGlobalVoiceStartAccepted : MSIMEGlobalVoiceStartFailed;
@@ -306,7 +296,7 @@
         if (!pcm || error || (pcm.length && ![_stream appendPCM:pcm error:&error]) || ![_stream finishWithError:&error])
             [self fail:MSIMEVoiceFailureProvider error:error];
     } else if (_socket.length) {
-        MSIMEClientSession *session = _session; NSString *socket = _socket; uint64_t generation = _generation;
+        MSIMEClientSession *session = _session; NSString *socket = _socket; uint64_t generation = _socketLease;
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{ [session voiceProviderStopSocket:socket generation:generation error:nil]; });
     }
 }
@@ -317,14 +307,14 @@
     _token = nil; _hostToken = nil; _permission = NO;
     [_http cancel]; [_stream cancel]; [_polisher cancel];
     _http = nil; _stream = nil; _polisher = nil;
-    if (_socket.length && _generation) {
-        MSIMEClientSession *session = _session; NSString *socket = _socket; uint64_t generation = _generation;
+    if (_socket.length && _socketLease) {
+        MSIMEClientSession *session = _session; NSString *socket = _socket; uint64_t generation = _socketLease;
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{ [session voiceProviderCancelSocket:socket generation:generation error:nil]; });
     }
     [_service cancelWithError:nil]; [self captureEnded];
     [_overlay setListening:NO]; _overlay.actionHandler = nil;
 
-    _socket = nil; _options = nil; _processing = NO; _generation = 0;
+    _socket = nil; _options = nil; _processing = NO; _generation = 0; _socketLease = 0;
 }
 - (void)endGlobalVoice { [self cancelGlobalVoice]; }
 - (void)dealloc { [self cancelGlobalVoice]; [_session closeWithError:nil]; }

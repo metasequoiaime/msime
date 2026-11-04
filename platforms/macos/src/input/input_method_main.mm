@@ -16,6 +16,7 @@
 #import "../voice/VoiceAudioMuter.h"
 #import "../voice/GlobalVoiceCoordinator.h"
 #import "../voice/GlobalVoiceSession.h"
+#import "../voice/GlobalVoiceBackground.h"
 #include "../core/DiagnosticLog.h"
 #include "msime_client.h"
 #include "MSIMERustClient.h"
@@ -171,8 +172,8 @@ int main(int argc, const char *argv[]) {
         __attribute__((objc_precise_lifetime)) MSIMEGlobalVoiceSession *globalSession = [MSIMEGlobalVoiceSession new];
         MSIMEGlobalVoiceHost().didCommit = ^(NSString *text) { MSIMERecordGlobalVoiceCommit(text); };
         __attribute__((objc_precise_lifetime)) MSIMEGlobalVoiceCoordinator *globalVoice =
-            [[MSIMEGlobalVoiceCoordinator alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)globalSession; }
-                deliveryTarget:^{ return MSIMEFocusedGlobalVoiceTarget(); }];
+            MSIMEGlobalVoiceInstalledHost(NSBundle.mainBundle) ? [[MSIMEGlobalVoiceCoordinator alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)globalSession; }
+                deliveryTarget:^{ return MSIMEFocusedGlobalVoiceTarget(); }] : nil;
         (void)globalVoice;
         // 记录本版本的模式，不自动启用或关闭输入源，保留用户在系统设置中的选择。
         NSString *const offeredModesKey = @"MSIMEOfferedInputModes";

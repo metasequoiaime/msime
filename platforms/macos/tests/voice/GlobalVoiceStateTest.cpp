@@ -20,8 +20,11 @@ int main() {
     assert(!state.observeWaitingSource("Japanese", false) && state.manual);
     state.clear();
 
-    assert(!state.begin("", 10, 0));
-    assert(!state.begin("ABC", 0, 0));
+    assert(state.begin("", 0, 0));
+    assert(state.activate(0, ""));
+    assert(!state.canRestore("MSIME"));
+    state.clear();
+    assert(!state.begin("ABC", -1, 0));
     assert(state.begin("ABC", 10, 0));
     assert(!state.begin("Japanese", 20, 1));
     assert(!state.activate(20, "MSIME"));

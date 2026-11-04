@@ -1795,6 +1795,7 @@ static NSImage *MSIMECandidateLogoImage() {
     id _liveVoiceClient;
     NSString *_liveVoiceSocket;
     uint64_t _liveVoiceGeneration;
+    uint64_t _liveVoiceSocketLease;
     BOOL _liveVoiceInline;
     BOOL _liveVoiceMarked;
     BOOL _liveVoiceProcessing;
@@ -2625,20 +2626,34 @@ void MSIMERecordGlobalVoiceCommit(NSString *text) {
     MSIMEReloadTypingStatisticsEnabled(directory);
     MSIMERecordTypingStatistics(directory, text, msime::mac::TypingSource::Voice);
 }
-- (BOOL)commitGlobalVoiceText:(NSString *)text pid:(pid_t)pid focus:(id)original token:(id)token {
-    if (!text.length || text.length > 65536 || !original || !token ||
+- (id)globalVoiceDestinationIdentity { return MSIMEGlobalVoiceFocusIdentity(YES); }
+- (BOOL)globalVoiceDestinationCurrent:(id)client pid:(pid_t)pid focus:(id)original token:(id)token {
+    if (!client || !original || !token || _activeClient != client || MSIMEFocusedController != self ||
         MSIMEGlobalVoiceHost().sessionToken != token || !MSIMEGlobalVoiceHost().owner ||
-        MSIMEGlobalVoiceHost().owner == self || [self hasUnfinishedInput]) return NO;
+        MSIMEGlobalVoiceHost().owner == self || [self globalVoiceBusy] || [self globalVoiceTargetPID] != pid) return NO;
+    id focus = [self globalVoiceDestinationIdentity];
+    // IMK 和 AX 查询都可能重入；返回后再次确认当前客户端、令牌和前台进程。
+    return _activeClient == client && MSIMEFocusedController == self && ![self globalVoiceBusy] &&
+        MSIMEGlobalVoiceHost().sessionToken == token && focus && CFEqual((__bridge CFTypeRef)focus, (__bridge CFTypeRef)original) &&
+        NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier == pid;
+}
+- (BOOL)prepareGlobalVoiceDestinationForPID:(pid_t)pid focus:(id)original token:(id)token {
     id client = _activeClient;
-    if (!client || [self globalVoiceTargetPID] != pid) return NO;
-    id focus = MSIMEGlobalVoiceFocusIdentity();
-    // 光标查询经过 IMK IPC，返回后重新核对客户端、焦点和令牌，不沿用重入前的授权。
-    if (_activeClient != client || MSIMEFocusedController != self || [self hasUnfinishedInput] ||
-        MSIMEGlobalVoiceHost().sessionToken != token || !focus ||
-        !CFEqual((__bridge CFTypeRef)focus, (__bridge CFTypeRef)original) ||
-        NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier != pid) return NO;
+    if (![self globalVoiceDestinationCurrent:client pid:pid focus:original token:token]) return NO;
+    MSIMEClientSession *session = _session;
+    if ([_view[@"editing_text"] length]) {
+        // 先保留原字段的组字，再追加语音；完成组字造成的重入不能把插入许可带到新字段。
+        NSDictionary *finished = [session command:MSIME_FINISH_COMPOSITION error:nil];
+        if (!finished || _session != session || ![self globalVoiceDestinationCurrent:client pid:pid focus:original token:token]) return NO;
+        [self apply:finished];
+    }
+    return _session == session && ![self hasUnfinishedInput] &&
+        [self globalVoiceDestinationCurrent:client pid:pid focus:original token:token];
+}
+- (BOOL)commitGlobalVoiceText:(NSString *)text pid:(pid_t)pid focus:(id)original token:(id)token {
+    if (!text.length || text.length > 65536 || ![self prepareGlobalVoiceDestinationForPID:pid focus:original token:token]) return NO;
+    id client = _activeClient;
     NSString *commit = _appearance.traditionalOutput ? MSIMEChineseOutputString(text, YES) : text;
-    if (_activeClient != client || MSIMEFocusedController != self || MSIMEGlobalVoiceHost().sessionToken != token) return NO;
     [(id<MSIMETextClient>)client insertText:commit replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
     [self invalidateSmartPunctuationShadow];
     MSIMERecordTypingStatistics(_preferencesDirectory ?: MSIMEStatisticsHostOptions(_session)[@"preferences_directory"],
@@ -5202,6 +5217,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     [self showSharedTextTool:@"emoji" options:options bridge:shared];
 }
 - (void)showVoicePanel {
+    if (MSIMEGlobalVoiceHost().toggleCurrent && MSIMEGlobalVoiceHost().toggleCurrent()) return;
     NSString *providerSocket = MSIMEVoiceProviderSocket();
     if (![providerSocket isKindOfClass:NSString.class] || !providerSocket.isAbsolutePath ||
         ![[NSFileManager defaultManager] fileExistsAtPath:providerSocket]) {
@@ -6056,9 +6072,9 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     [_livePolishRequest cancel]; _livePolishRequest = nil;
     if (_liveVoiceMarked && [self ownsLiveVoiceToken:_liveVoiceToken])
         [(id<MSIMETextClient>)_liveVoiceClient setMarkedText:@"" selectionRange:NSMakeRange(0, 0) replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
-    MSIMEDeactivateVoice(_voiceService, _liveVoiceSession, _voiceAudioMuter, _voiceOverlay, _liveVoiceSocket, _liveVoiceGeneration);
+    MSIMEDeactivateVoice(_voiceService, _liveVoiceSession, _voiceAudioMuter, _voiceOverlay, _liveVoiceSocket, _liveVoiceSocketLease);
     [self voiceCaptureDidEnd];
-    _liveVoiceToken = nil; _liveVoiceSession = nil; _liveVoiceClient = nil; _liveVoiceSocket = nil;
+    _liveVoiceToken = nil; _liveVoiceSession = nil; _liveVoiceClient = nil; _liveVoiceSocket = nil; _liveVoiceSocketLease = 0;
     _liveVoiceMarked = NO; _liveVoiceProcessing = NO; _liveVoiceFinalReceived = NO;
 }
 - (MSIMEHTTPVoiceRequest *)makeLiveVoicePolishRequest:(NSDictionary *)options {
@@ -6072,13 +6088,14 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
 - (id)beginLiveVoiceWithOptions:(NSDictionary *)options socket:(NSString *)socket {
     NSDictionary *finished = _session && _activeClient ? [_session command:MSIME_FINISH_COMPOSITION error:nil] : nil;
     if (!finished) {
-        MSIMEDeactivateVoice(_voiceService, _session, _voiceAudioMuter, _voiceOverlay, socket, _voiceGeneration);
+        MSIMEDeactivateVoice(_voiceService, _session, _voiceAudioMuter, _voiceOverlay, socket, [options[@"generation"] unsignedLongLongValue]);
         [self reportVoiceFailure:MSIMEVoiceFailureSession];
         return nil;
     }
     [self apply:finished];
     _liveVoiceToken = [NSObject new]; _liveVoiceSession = _session; _liveVoiceClient = _activeClient;
     _liveVoiceGeneration = _voiceGeneration; _liveVoiceSocket = [socket copy];
+    _liveVoiceSocketLease = socket.length ? [options[@"generation"] unsignedLongLongValue] : 0;
     // External providers already own their optional polish stage. Snapshot local
     // settings at recording start through the shared native request adapter.
     _livePolishRequest = socket.length ? nil : [self makeLiveVoicePolishRequest:options];
@@ -6180,7 +6197,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     [self voiceCaptureDidEnd];
     if (_liveVoiceSocket.length) {
         NSString *socket = _liveVoiceSocket; MSIMEClientSession *session = _liveVoiceSession;
-        uint64_t generation = _liveVoiceGeneration;
+        uint64_t generation = _liveVoiceSocketLease;
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{ [session voiceProviderStopSocket:socket generation:generation error:nil]; });
     }
     id token = _liveVoiceToken;
@@ -6225,7 +6242,10 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
 - (void)toggleVoiceInput:(id)sender {
     (void)sender;
     if (MSIMEGlobalVoiceHost().owner && MSIMEGlobalVoiceHost().owner != self &&
-        [MSIMEGlobalVoiceHost().owner globalVoiceBusy]) return;
+        [MSIMEGlobalVoiceHost().owner globalVoiceBusy]) {
+        if (MSIMEGlobalVoiceHost().toggleCurrent) MSIMEGlobalVoiceHost().toggleCurrent();
+        return;
+    }
     if (_voicePermissionToken) { _voicePermissionToken = nil; return; }
     // All menu, toolbar, local/global shortcut and permission callbacks converge
     // here. Recheck after asynchronous permission delivery, before any capture.
@@ -6279,7 +6299,9 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         }
         NSString *language = [[NSUserDefaults standardUserDefaults] stringForKey:@"MSIMEClientVoiceLanguage"] ?: @"zh-CN";
         NSString *socket = MSIMEVoiceProviderSocket();
-        NSDictionary *query = MSIMEVoiceQuery(defaults, controller->_voiceGeneration, !controller->_globalVoiceClient);
+        const uint64_t lease = socket.length ? MSIMENextVoiceSocketLease() : controller->_voiceGeneration;
+        if (!lease) { [controller reportVoiceFailure:MSIMEVoiceFailureSession]; return; }
+        NSDictionary *query = MSIMEVoiceQuery(defaults, lease, !controller->_globalVoiceClient);
         if (socket.length) {
             id token = [controller beginLiveVoiceWithOptions:query socket:socket];
             if (!token) return;
@@ -6459,7 +6481,7 @@ static constexpr NSUInteger MSIMEIdleDictionarySessionLimit = 4;
     [self cancelDoubaoVoiceInput];
     [self cancelHTTPVoiceInput];
     MSIMEDeactivateVoice(_voiceService, _session, _voiceAudioMuter, _voiceOverlay,
-        MSIMEVoiceProviderSocket(), _voiceGeneration);
+        nil, 0);
     [self cancelCandidateTranslations];
     [self cancelCloudCandidates];
     [self resetModifierTap];
@@ -7343,7 +7365,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         [self cancelDoubaoVoiceInput];
         [self cancelHTTPVoiceInput];
         MSIMEDeactivateVoice(_voiceService, _session, _voiceAudioMuter, _voiceOverlay,
-            MSIMEVoiceProviderSocket(), _voiceGeneration);
+            nil, 0);
     }
     [self cancelCandidateTranslations];
     [self cancelCloudCandidates];

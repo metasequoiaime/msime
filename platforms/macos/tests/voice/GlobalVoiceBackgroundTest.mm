@@ -19,6 +19,15 @@
 @end
 static void Pump() { [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]]; }
 int main() { @autoreleasepool {
+    NSString *installed = @"/synthetic-user/Library/Input Methods/水杉输入法.app";
+    NSString *directory = @"/synthetic-user/Library/Input Methods";
+    NSString *options = @"/synthetic-user/state/runtime-options.json";
+    assert(MSIMEGlobalVoiceInstalledHostAtPaths(installed, directory, options, options, NO));
+    assert(MSIMEGlobalVoiceInstalledHostAtPaths(@"/Library/Input Methods/水杉输入法.app", directory, options, options, NO));
+    assert(!MSIMEGlobalVoiceInstalledHostAtPaths(@"/synthetic-build/水杉输入法.app", directory, options, options, NO));
+    assert(!MSIMEGlobalVoiceInstalledHostAtPaths(installed, directory, @"/synthetic/isolated.json", options, NO));
+    assert(!MSIMEGlobalVoiceInstalledHostAtPaths(installed, directory, options, options, YES));
+
     NSString *suite = [@"msime.synthetic.background." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
     MSIMEGlobalVoiceBackground *registration = [MSIMEGlobalVoiceBackground new];

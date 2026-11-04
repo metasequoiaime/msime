@@ -4,6 +4,7 @@
 #import "../../src/voice/DoubaoVoiceRequest.h"
 #import "../../src/voice/HTTPVoiceRequest.h"
 #include <cassert>
+#import "../../src/voice/VoiceProviderSocket.h"
 #import "../settings/TestPreferenceSuite.h"
 
 @interface MSIMEGlobalVoiceSession (Test)
@@ -89,14 +90,16 @@
 - (void)cancel {}
 @end
 @interface SocketSession : MSIMEClientSession
+@property(atomic, copy) NSDictionary *lastQuery;
+@property(atomic) uint64_t lastCancellation;
 @end
 @implementation SocketSession
 - (BOOL)voiceProviderStream:(NSDictionary *)query socket:(NSString *)socket update:(MSIMEVoiceProviderUpdate)update
                      phase:(MSIMEVoiceProviderPhase)phase error:(NSError **)error {
-    (void)query; (void)socket; (void)error; phase(0); update(@"synthetic result", YES); return YES;
+    (void)socket; (void)error; self.lastQuery = query; phase(0); update(@"synthetic result", YES); return YES;
 }
 - (BOOL)voiceProviderCancelSocket:(NSString *)socket generation:(uint64_t)generation error:(NSError **)error {
-    (void)socket; (void)generation; (void)error; return YES;
+    (void)socket; (void)error; self.lastCancellation = generation; return YES;
 }
 @end
 @interface CaptureSession : MSIMEGlobalVoiceSession
@@ -118,7 +121,6 @@
 }
 - (NSUserDefaults *)voiceDefaults { return _defaults; }
 - (NSDictionary *)runtimeOptions { return _configuration; }
-- (BOOL)captureTargetCurrent { return _targetCurrent; }
 - (NSString *)providerSocket { return _socket; }
 - (MSIMEClientSession *)makeSession {
     return [[(_socket ? SocketSession.class : MSIMEClientSession.class) alloc] initWithOptions:_configuration error:nil];
@@ -195,8 +197,9 @@ int main() {
             CaptureSession *s = Make();
             __weak CaptureSession *weak = s;
             s.capture.onStart = ^{ weak.targetCurrent = NO; };
-            assert([s startGlobalVoiceHolding:YES] == MSIMEGlobalVoiceStartFailed);
-            assert(s.capture.opens == 0 && ![s globalVoiceBusy]);
+            assert([s startGlobalVoiceHolding:YES] == MSIMEGlobalVoiceStartAccepted);
+            assert(s.capture.opens == 1 && [s globalVoiceBusy]);
+            [s cancelGlobalVoice];
         }
         {
             CaptureSession *s = Make(); s.capture.microphone = AVAuthorizationStatusNotDetermined;
@@ -219,9 +222,15 @@ int main() {
         }
         {
             CaptureSession *s = Make(); s.socket = @"/synthetic/provider.sock";
+            const uint64_t otherEntryLease = MSIMENextVoiceSocketLease();
             assert([s startGlobalVoiceHolding:YES] == MSIMEGlobalVoiceStartAccepted);
+            const uint64_t lease = [[s valueForKey:@"socketLease"] unsignedLongLongValue];
+            assert(lease > otherEntryLease);
+            SocketSession *transport = (id)[s valueForKey:@"session"];
             for (NSUInteger attempt = 0; attempt < 50 && [s globalVoiceBusy]; ++attempt) Pump();
             assert(![s globalVoiceBusy] && s.capture.opens == 0 && s.display.starts == 1 && deliveries == 5);
+            for (NSUInteger attempt = 0; attempt < 50 && !transport.lastCancellation; ++attempt) Pump();
+            assert([transport.lastQuery[@"generation"] unsignedLongLongValue] == lease && transport.lastCancellation == lease);
         }
         {
             CaptureSession *s = Make(); s.polisher = [CaptureHTTP new];
