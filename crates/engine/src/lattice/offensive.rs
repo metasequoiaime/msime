@@ -1,6 +1,6 @@
-//! 不拿来拼整句的粗俗词。词表、豁免写法、收词标准和为什么只管拼句见 `offensive_words.txt` 的文件头。
+//! 不拿来拼整句的粗俗词，以及候选排位用的轻度粗口表和英文粗俗词表。词表、豁免写法和收词标准见各词表文件的文件头，排位规则见 `offensive_placement`。
 //!
-//! 词网格给多字词每个音节 `PHRASE_LENGTH_BONUS` 的奖励，一个只有几千权重的两字词也能压过同码的两个常用单字，所以一个罕见的粗俗词会被拼进用户本来想打的句子当首选（九键 我们走路去 解成「我们有巨乳」）。含粗俗词的长词条也一样（个鸡巴、吃屎了、是傻逼），所以按子串查：词里任何一段在表里就算命中，除非这一段被一条豁免写法整个盖住（水乳交融 里的 乳交、口交换机 里的 口交）。整句是猜出来的，用户没打这个词；命中的词因此不进词网格（整段输入恰好是这个词时除外，那时它就是这串输入对应的词库行），也不进纠错整句（纠错边的词来自另一串读音，盖住整段也不用）和上屏后的联想。词库行不受影响。
+//! 词网格给多字词每个音节 `PHRASE_LENGTH_BONUS` 的奖励，一个只有几千权重的两字词也能压过同码的两个常用单字，所以一个罕见的粗俗词会被拼进用户本来想打的句子当首选（九键 我们走路去 解成「我们有巨乳」）。含粗俗词的长词条也一样（个鸡巴、吃屎了、是傻逼），所以按子串查：词里任何一段在表里就算命中，除非这一段被一条豁免写法整个盖住（水乳交融 里的 乳交、口交换机 里的 口交）。整句是猜出来的，用户没打这个词；命中的词因此不进词网格（整段输入恰好是这个词时除外，那时它就是这串输入对应的词库行），也不进纠错整句（纠错边的词来自另一串读音，盖住整段也不用）和上屏后的联想。词库行照样在候选里，只是排位另由 `offensive_placement` 管。
 //!
 //! 表有两个来源。词库仓库 msime-dictionary 维护 `curation/offensive-words.txt`，dict-builder 把它写进 `msime-pinyin.db` 的 `sentence_excluded` 表（`format::SENTENCE_EXCLUDED_TABLE`，见 `docs/data-formats.md` §4.5）；词库带着这张表时，引擎打开词库就用它（[`OffensiveWords::from_database`]），换表随词库发版，不用发引擎。旧词库没有这张表，或者表读不出来、一个词都没有时，退回编进引擎的 `offensive_words.txt`。两个来源的格式和查法完全相同，内嵌表在编译期解析成静态数组，读进来的表在打开词库时排好序放进 `Arc`，按键路径上两者都只做二分查找，不分配内存。
 
@@ -12,6 +12,8 @@ use rusqlite::Connection;
 use crate::format::SENTENCE_EXCLUDED_TABLE;
 
 const WORDS: &str = include_str!("offensive_words.txt");
+const MILD_WORDS: &str = include_str!("mild_slang_words.txt");
+const ENGLISH_WORDS: &str = include_str!("offensive_english_words.txt");
 
 /// 编进引擎的词表文件原文：`msime-pinyin.db` 没有 `sentence_excluded` 表时用它。dict-builder 生成报告时也拿它当默认表，和引擎读同一份。
 pub const EMBEDDED_OFFENSIVE_WORDS: &str = WORDS;
@@ -19,15 +21,139 @@ pub const EMBEDDED_OFFENSIVE_WORDS: &str = WORDS;
 /// 豁免写法在词表文件里以这个字符开头。
 const EXEMPT_MARK: u8 = b'!';
 
-const LISTED_COUNT: usize = count_entries(false);
-const EXEMPT_COUNT: usize = count_entries(true);
+/// 编译期从一份词表文件解析出来的表：表里的词和豁免写法（去掉开头的 `!`）各按字节序排好，查表用二分查找。运行时不建表、不分配内存，第一次按键不付初始化的开销，数分配次数的测试也不受先后顺序影响。
+struct WordTable<const LISTED: usize, const EXEMPT: usize> {
+    listed: [&'static str; LISTED],
+    exempt: [&'static str; EXEMPT],
+    /// 表里最长的词有几个字，按子串查时每个起点最多看这么长。
+    longest: usize,
+}
 
-/// 表里的词，按字节序排好，查表用二分查找。和豁免写法一样在编译期从 `offensive_words.txt` 解析出来：运行时不建表、不分配内存，第一次按键不付初始化的开销，数分配次数的测试也不受先后顺序影响。
-static LISTED: [&str; LISTED_COUNT] = parse_entries(false);
-/// 豁免写法，去掉了开头的 `!`。
-static EXEMPT: [&str; EXEMPT_COUNT] = parse_entries(true);
-/// 表里最长的词有几个字，按子串查时每个起点最多看这么长。
-const LONGEST: usize = longest(&parse_entries::<LISTED_COUNT>(false));
+impl<const LISTED: usize, const EXEMPT: usize> WordTable<LISTED, EXEMPT> {
+    const fn parse(source: &'static str) -> Self {
+        let listed = parse_entries::<LISTED>(source, false);
+        Self {
+            longest: longest(&listed),
+            listed,
+            exempt: parse_entries::<EXEMPT>(source, true),
+        }
+    }
+
+    /// `word` 本身或其中任何一段在表里，见 [`matches_within`]。
+    fn matches_within(&self, word: &str) -> bool {
+        matches_within(&self.listed, &self.exempt, self.longest, word)
+    }
+
+    /// 整句里是否含表里的词，见 [`matches_in_sentence`]。
+    fn matches_in_sentence(&self, words: &[String], sentence: &str) -> bool {
+        matches_in_sentence(&self.listed, &self.exempt, self.longest, words, sentence)
+    }
+
+    /// 整个 `word` 不分大小写恰好是表里的词。英文表的词全是小写 ASCII。
+    fn matches_whole_ignoring_ascii_case(&self, word: &str) -> bool {
+        self.listed
+            .binary_search_by(|probe| {
+                probe
+                    .bytes()
+                    .cmp(word.bytes().map(|byte| byte.to_ascii_lowercase()))
+            })
+            .is_ok()
+    }
+}
+
+/// `word` 本身或其中任何一段在 `listed` 里，而且这一段没有被 `exempt` 里的豁免写法盖住。`listed` 按字节序排好，`longest` 是其中最长的词有几个字。表里只有两字以上的词，单字（UTF-8 不超过 4 字节）不查表，词网格里大多数边是单字。编进引擎的表和从词库读进来的表都用它。
+fn matches_within<S: AsRef<str>>(listed: &[S], exempt: &[S], longest: usize, word: &str) -> bool {
+    if word.len() <= 4 {
+        return false;
+    }
+    for (start, _) in word.char_indices() {
+        let rest = &word[start..];
+        for (count, (offset, ch)) in rest.char_indices().enumerate() {
+            if count >= longest {
+                break;
+            }
+            let end = offset + ch.len_utf8();
+            if count >= 1
+                && listed
+                    .binary_search_by(|probe| probe.as_ref().cmp(&rest[..end]))
+                    .is_ok()
+                && !exempted(exempt, word, start, start + end)
+            {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// 整句 `sentence` 由 `words` 依次拼成时，句子里是否含表里的词：某个词本身含（规则同 [`matches_within`]），或者连续几个词拼起来恰好是表里的词（别 + 鸡 + 巴）。只盖住某个词一部分的跨边界命中不算：微信群 + 交流 里的 群交、我 + 操作 里的 我操 是两个无关的词碰在一起，词网格按边查也不拦它们。`words` 拼不回 `sentence` 时退回按整串子串查。
+fn matches_in_sentence<S: AsRef<str>>(
+    listed: &[S],
+    exempt: &[S],
+    longest: usize,
+    words: &[String],
+    sentence: &str,
+) -> bool {
+    let mut rest = sentence;
+    for word in words {
+        match rest.strip_prefix(word.as_str()) {
+            Some(tail) => rest = tail,
+            None => return matches_within(listed, exempt, longest, sentence),
+        }
+    }
+    if !rest.is_empty() {
+        return matches_within(listed, exempt, longest, sentence);
+    }
+    if words
+        .iter()
+        .any(|word| matches_within(listed, exempt, longest, word))
+    {
+        return true;
+    }
+    let mut start = 0;
+    for (index, first) in words.iter().enumerate() {
+        let mut end = start;
+        let mut chars = 0;
+        for (count, word) in words[index..].iter().enumerate() {
+            end += word.len();
+            chars += word.chars().count();
+            if chars > longest {
+                break;
+            }
+            if count >= 1
+                && listed
+                    .binary_search_by(|probe| probe.as_ref().cmp(&sentence[start..end]))
+                    .is_ok()
+                && !exempted(exempt, sentence, start, end)
+            {
+                return true;
+            }
+        }
+        start += first.len();
+    }
+    false
+}
+
+/// `word[start..end]` 这一段命中了词表时，有没有一条豁免写法在 `word` 里出现并整个盖住这一段。
+fn exempted<S: AsRef<str>>(exempt: &[S], word: &str, start: usize, end: usize) -> bool {
+    exempt.iter().any(|pattern| {
+        let pattern = pattern.as_ref();
+        word.match_indices(pattern)
+            .any(|(at, _)| at <= start && end <= at + pattern.len())
+    })
+}
+
+/// 不拿来拼整句、也不进首屏的粗俗词（`offensive_words.txt`）。
+static VULGAR: WordTable<{ count_entries(WORDS, false) }, { count_entries(WORDS, true) }> =
+    WordTable::parse(WORDS);
+/// 流行的轻度粗口（`mild_slang_words.txt`）：照样拼句、照样当 26 键的首选，只是不进九键、14 键歧义码的首屏。
+static MILD: WordTable<{ count_entries(MILD_WORDS, false) }, { count_entries(MILD_WORDS, true) }> =
+    WordTable::parse(MILD_WORDS);
+/// 英文粗俗词和蔑称（`offensive_english_words.txt`），整词比较，不分大小写。
+static ENGLISH: WordTable<
+    { count_entries(ENGLISH_WORDS, false) },
+    { count_entries(ENGLISH_WORDS, true) },
+> = WordTable::parse(ENGLISH_WORDS);
 
 /// 从 `rest` 开头取下一个条目：跳过空行和 `#` 开头的行，去掉首尾空白。返回这个条目和它之后剩下的部分。
 const fn next_entry(mut rest: &'static [u8]) -> Option<(&'static [u8], &'static [u8])> {
@@ -50,10 +176,10 @@ const fn next_entry(mut rest: &'static [u8]) -> Option<(&'static [u8], &'static 
     None
 }
 
-/// 词表文件里有几个词（`exempt` 为假）或几条豁免写法（`exempt` 为真）。
-const fn count_entries(exempt: bool) -> usize {
+/// 词表文件 `source` 里有几个词（`exempt` 为假）或几条豁免写法（`exempt` 为真）。
+const fn count_entries(source: &'static str, exempt: bool) -> usize {
     let mut count = 0;
-    let mut rest = WORDS.as_bytes();
+    let mut rest = source.as_bytes();
     while let Some((entry, tail)) = next_entry(rest) {
         rest = tail;
         if (entry[0] == EXEMPT_MARK) == exempt {
@@ -85,11 +211,11 @@ const fn compare(a: &[u8], b: &[u8]) -> Ordering {
     }
 }
 
-/// 取出全部词或全部豁免写法，按字节序插入排序。重复的条目和不是 UTF-8 的条目让编译失败。
-const fn parse_entries<const N: usize>(exempt: bool) -> [&'static str; N] {
+/// 取出 `source` 里的全部词或全部豁免写法，按字节序插入排序。重复的条目和不是 UTF-8 的条目让编译失败。
+const fn parse_entries<const N: usize>(source: &'static str, exempt: bool) -> [&'static str; N] {
     let mut out = [""; N];
     let mut len = 0;
-    let mut rest = WORDS.as_bytes();
+    let mut rest = source.as_bytes();
     while let Some((entry, tail)) = next_entry(rest) {
         rest = tail;
         if (entry[0] == EXEMPT_MARK) != exempt {
@@ -97,13 +223,13 @@ const fn parse_entries<const N: usize>(exempt: bool) -> [&'static str; N] {
         }
         let text = if exempt { entry.split_at(1).1 } else { entry };
         let Ok(text) = std::str::from_utf8(text) else {
-            panic!("offensive_words.txt 里有不是 UTF-8 的条目");
+            panic!("粗俗词表里有不是 UTF-8 的条目");
         };
         let mut at = len;
         while at > 0 {
             match compare(out[at - 1].as_bytes(), text.as_bytes()) {
                 Ordering::Less => break,
-                Ordering::Equal => panic!("offensive_words.txt 里有重复的条目"),
+                Ordering::Equal => panic!("粗俗词表里有重复的条目"),
                 Ordering::Greater => {
                     out[at] = out[at - 1];
                     at -= 1;
@@ -138,43 +264,29 @@ const fn longest(entries: &[&str]) -> usize {
     longest
 }
 
-/// `word` 是否含内嵌表里的粗俗词，见 [`matches`]。
+/// `word` 是否含粗俗词：它本身或其中任何一段在 `offensive_words.txt` 里，而且这一段没有被豁免写法盖住。
 pub(crate) fn is_offensive(word: &str) -> bool {
-    matches(&LISTED, &EXEMPT, LONGEST, word)
+    VULGAR.matches_within(word)
 }
 
-/// `word` 是否含 `listed` 里的词：它本身或其中任何一段在表里，而且这一段没有被 `exempt` 里的豁免写法盖住。`listed` 按字节序排好，`longest` 是其中最长的词有几个字。表里只有两字以上的词，单字（UTF-8 不超过 4 字节）不查表，词网格里大多数边是单字。
-fn matches<S: AsRef<str>>(listed: &[S], exempt: &[S], longest: usize, word: &str) -> bool {
-    if word.len() <= 4 {
-        return false;
-    }
-    for (start, _) in word.char_indices() {
-        let rest = &word[start..];
-        for (count, (offset, ch)) in rest.char_indices().enumerate() {
-            if count >= longest {
-                break;
-            }
-            let end = offset + ch.len_utf8();
-            if count >= 1
-                && listed
-                    .binary_search_by(|probe| probe.as_ref().cmp(&rest[..end]))
-                    .is_ok()
-                && !exempted(exempt, word, start, start + end)
-            {
-                return true;
-            }
-        }
-    }
-    false
+/// `word` 是否含 `mild_slang_words.txt` 里的轻度粗口，按子串查，规则与 [`is_offensive`] 相同。
+pub(crate) fn is_mild_slang(word: &str) -> bool {
+    MILD.matches_within(word)
 }
 
-/// `word[start..end]` 这一段命中了词表时，有没有一条豁免写法在 `word` 里出现并整个盖住这一段。
-fn exempted<S: AsRef<str>>(exempt: &[S], word: &str, start: usize, end: usize) -> bool {
-    exempt.iter().any(|pattern| {
-        let pattern = pattern.as_ref();
-        word.match_indices(pattern)
-            .any(|(at, _)| at <= start && end <= at + pattern.len())
-    })
+/// 词网格整句 `sentence`（由 `words` 依次拼成）是否含粗俗词，跨词边界的命中只在恰好由整词拼成时算，见 `WordTable::matches_in_sentence`。
+pub(crate) fn is_offensive_sentence(words: &[String], sentence: &str) -> bool {
+    VULGAR.matches_in_sentence(words, sentence)
+}
+
+/// 词网格整句是否含轻度粗口，规则与 [`is_offensive_sentence`] 相同。
+pub(crate) fn is_mild_slang_sentence(words: &[String], sentence: &str) -> bool {
+    MILD.matches_in_sentence(words, sentence)
+}
+
+/// 英文词 `word`（显示形式或小写的词都行）是否是 `offensive_english_words.txt` 里的粗俗词或蔑称。整词比较：英文按子串查会误伤 cocktail、Scunthorpe 这类词。
+pub(crate) fn is_offensive_english(word: &str) -> bool {
+    ENGLISH.matches_whole_ignoring_ascii_case(word)
 }
 
 /// 词网格里 `start..end` 这条词库行的边可不可以用 `word`：含粗俗词的词只在独占整段输入（`0..len`）时成边，这时整句就是这个词本身，与它的词库行相同。纠错边不用它，见 `decode_typo_on_graph_with_policy`。
@@ -304,11 +416,11 @@ impl OffensiveWords {
         self.loaded.is_none()
     }
 
-    /// `word` 是否含这张表里的粗俗词，规则见 [`matches`]。
+    /// `word` 是否含这张表里的粗俗词，规则见 [`matches_within`]。
     pub fn is_offensive(&self, word: &str) -> bool {
         match &self.loaded {
             None => is_offensive(word),
-            Some(table) => matches(&table.listed, &table.exempt, table.longest, word),
+            Some(table) => matches_within(&table.listed, &table.exempt, table.longest, word),
         }
     }
 
@@ -325,53 +437,75 @@ mod tests {
     use super::*;
 
     /// 用标准库逐行解析词表文件，与编译期的 `parse_entries` 互相核对。
-    fn entries() -> impl Iterator<Item = &'static str> {
-        WORDS
+    fn entries(source: &'static str) -> impl Iterator<Item = &'static str> {
+        source
             .lines()
             .map(str::trim)
             .filter(|line| !line.is_empty() && !line.starts_with('#'))
     }
 
-    #[test]
-    fn list_holds_only_multi_character_han_words_once_each() {
-        let mut seen = HashSet::new();
-        for entry in entries() {
-            let text = entry.strip_prefix(char::from(EXEMPT_MARK)).unwrap_or(entry);
-            assert!(text.chars().count() >= 2, "{entry} 不到两个字");
-            assert!(crate::text::is_all_han(text), "{entry} 不全是汉字");
-            assert!(seen.insert(entry), "{entry} 重复");
-        }
-        assert_eq!(seen.len(), LISTED.len() + EXEMPT.len());
-    }
-
-    #[test]
-    fn compile_time_tables_match_the_file_and_are_sorted() {
-        let mut listed: Vec<&str> = entries()
+    /// 编译期的表与逐行解析的结果相同、排好了序，豁免写法都盖住表里的某个词而自己不在表里。
+    fn check_table<const L: usize, const E: usize>(table: &WordTable<L, E>, source: &'static str) {
+        let mut listed: Vec<&str> = entries(source)
             .filter(|entry| !entry.starts_with(char::from(EXEMPT_MARK)))
             .collect();
         listed.sort_unstable();
-        assert_eq!(LISTED.as_slice(), listed.as_slice());
-        let mut exempt: Vec<&str> = entries()
+        assert_eq!(table.listed.as_slice(), listed.as_slice());
+        let mut exempt: Vec<&str> = entries(source)
             .filter_map(|entry| entry.strip_prefix(char::from(EXEMPT_MARK)))
             .collect();
         exempt.sort_unstable();
-        assert_eq!(EXEMPT.as_slice(), exempt.as_slice());
+        assert_eq!(table.exempt.as_slice(), exempt.as_slice());
         let longest = listed.iter().map(|word| word.chars().count()).max();
-        assert_eq!(Some(LONGEST), longest);
-    }
-
-    #[test]
-    fn every_exempt_pattern_covers_a_listed_word_and_is_not_one() {
-        for pattern in &EXEMPT {
+        assert_eq!(Some(table.longest), longest);
+        for pattern in &table.exempt {
             assert!(
-                LISTED.binary_search(pattern).is_err(),
+                table.listed.binary_search(pattern).is_err(),
                 "{pattern} 既在表里又是豁免写法"
             );
             assert!(
-                LISTED.iter().any(|word| pattern.contains(word)),
+                table.listed.iter().any(|word| pattern.contains(word)),
                 "{pattern} 不含表里的词，豁免它没有意义"
             );
         }
+    }
+
+    #[test]
+    fn chinese_lists_hold_only_multi_character_han_words_once_each() {
+        let mut seen = HashSet::new();
+        for source in [WORDS, MILD_WORDS] {
+            for entry in entries(source) {
+                let text = entry.strip_prefix(char::from(EXEMPT_MARK)).unwrap_or(entry);
+                assert!(text.chars().count() >= 2, "{entry} 不到两个字");
+                assert!(crate::text::is_all_han(text), "{entry} 不全是汉字");
+                // 同一个词不能同时在两张表里：一个词只按一档处理。
+                assert!(seen.insert(entry), "{entry} 重复");
+            }
+        }
+        assert_eq!(
+            seen.len(),
+            VULGAR.listed.len() + VULGAR.exempt.len() + MILD.listed.len() + MILD.exempt.len()
+        );
+    }
+
+    #[test]
+    fn the_english_list_holds_lowercase_ascii_words_once_each() {
+        let mut seen = HashSet::new();
+        for entry in entries(ENGLISH_WORDS) {
+            assert!(
+                entry.len() >= 2 && entry.bytes().all(|byte| byte.is_ascii_lowercase()),
+                "{entry} 不是两个字母以上的小写 ASCII 词"
+            );
+            assert!(seen.insert(entry), "{entry} 重复");
+        }
+        assert!(ENGLISH.exempt.is_empty(), "英文表整词比较，用不着豁免写法");
+    }
+
+    #[test]
+    fn compile_time_tables_match_the_files_and_are_sorted() {
+        check_table(&VULGAR, WORDS);
+        check_table(&MILD, MILD_WORDS);
+        check_table(&ENGLISH, ENGLISH_WORDS);
     }
 
     #[test]
@@ -434,6 +568,82 @@ mod tests {
         assert!(is_offensive("口交换机口交"));
     }
 
+    #[test]
+    fn mild_slang_is_its_own_tier() {
+        for word in ["牛逼", "真牛逼", "卧槽", "屌丝"] {
+            assert!(is_mild_slang(word), "{word}");
+            assert!(!is_offensive(word), "{word}");
+        }
+        for word in ["牛排", "尼玛", "笨蛋", "傻逼"] {
+            assert!(!is_mild_slang(word), "{word}");
+        }
+    }
+
+    fn split(words: &[&str]) -> (Vec<String>, String) {
+        (
+            words.iter().map(|word| (*word).to_owned()).collect(),
+            words.concat(),
+        )
+    }
+
+    #[test]
+    fn a_sentence_is_offensive_only_through_whole_words() {
+        for words in [
+            &["别", "鸡", "巴"][..],
+            &["别", "鸡巴"],
+            &["是", "傻逼"],
+            &["我们", "有", "巨乳"],
+            &["个鸡巴", "啊"],
+        ] {
+            let (words, sentence) = split(words);
+            assert!(is_offensive_sentence(&words, &sentence), "{sentence}");
+        }
+        for words in [
+            &["微信群", "交流"][..],
+            &["加", "群", "交流"],
+            &["水", "乳", "交融"],
+            &["他", "妈妈", "的"],
+        ] {
+            let (words, sentence) = split(words);
+            assert!(!is_offensive_sentence(&words, &sentence), "{sentence}");
+        }
+        // 拼不回整句时按整串查。
+        assert!(is_offensive_sentence(&["别".to_owned()], "别鸡巴"));
+        assert!(is_offensive_sentence(&[], "别鸡巴"));
+    }
+
+    #[test]
+    fn mild_slang_in_a_sentence_follows_the_same_rule() {
+        let (words, sentence) = split(&["我", "操作"]);
+        assert!(!is_mild_slang_sentence(&words, &sentence));
+        let (words, sentence) = split(&["不必", "为", "我", "操心"]);
+        assert!(!is_mild_slang_sentence(&words, &sentence));
+        let (words, sentence) = split(&["真", "牛", "逼"]);
+        assert!(is_mild_slang_sentence(&words, &sentence));
+        assert!(!is_mild_slang("不必为我操心"));
+    }
+
+    #[test]
+    fn english_words_match_whole_and_ignore_case() {
+        for word in [
+            "Negro", "negro", "NEGRO", "cumshot", "gangbang", "shitty", "shitting", "nigger",
+        ] {
+            assert!(is_offensive_english(word), "{word}");
+        }
+        for word in [
+            "negroni",
+            "cocktail",
+            "Scunthorpe",
+            "assess",
+            "semen",
+            "dick",
+            "",
+            "s",
+        ] {
+            assert!(!is_offensive_english(word), "{word}");
+        }
+    }
+
     /// 运行时的解析和编译期的解析对内嵌文件给出同样的词和豁免写法，dict-builder 用前者读词库仓库里的同格式文件。
     #[test]
     fn the_runtime_parser_reads_the_embedded_file_as_the_compile_time_tables() {
@@ -444,14 +654,14 @@ mod tests {
             .map(|entry| entry.text.as_str())
             .collect();
         listed.sort_unstable();
-        assert_eq!(LISTED.as_slice(), listed.as_slice());
+        assert_eq!(VULGAR.listed.as_slice(), listed.as_slice());
         let mut exempt: Vec<&str> = entries
             .iter()
             .filter(|entry| entry.exempt)
             .map(|entry| entry.text.as_str())
             .collect();
         exempt.sort_unstable();
-        assert_eq!(EXEMPT.as_slice(), exempt.as_slice());
+        assert_eq!(VULGAR.exempt.as_slice(), exempt.as_slice());
     }
 
     #[test]

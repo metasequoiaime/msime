@@ -3,7 +3,10 @@
 use std::borrow::Cow;
 
 use crate::assets;
-use crate::dictionary::english::EnglishDictionary;
+use crate::dictionary::english::{
+    takes_priority_slot, takes_priority_slot_or_own, EnglishDictionary,
+};
+use crate::lattice::offensive::is_offensive_english;
 use crate::local::chaizi::query_chaizi;
 use crate::local::command::{
     command_title, plugin_command_source, query_command, translation_source, usable_command_table,
@@ -29,6 +32,7 @@ use crate::types::{
     CandidateSource, CommandTableEntry, EnglishInputOptions, LocalInputMode, MentionEntry,
     MixedExpressiveOptions, PluginCommand, QuickPhraseEntry, SchemeType, WordItem,
 };
+use crate::user_dictionary::journal::has_english_upsert;
 
 pub const MIXED_ENGLISH_LIMIT: usize = 5;
 pub const MODE_ENGLISH_LIMIT: usize = 1_000;
@@ -397,7 +401,7 @@ impl CandidateQueries {
             return candidates;
         }
 
-        let english_rows =
+        let mut english_rows =
             if english.mixed_candidates && prefix.bytes().all(|byte| byte.is_ascii_lowercase()) {
                 if prefix.len() >= english.minimum_prefix {
                     self.english_dictionary()
@@ -413,6 +417,37 @@ impl CandidateQueries {
             } else {
                 Vec::new()
             };
+        // 英文粗俗词和蔑称不领先（`offensive_placement`），只在把拼写打全时坐优先位置，与中文粗俗词打全拼写时只让出首选一致。2 到 4 个字母、又能整段切成完整音节的输入（na、ai、bole），英文词和中文争的是同一串字母，查出来的第一行英文不论权重都会坐到首选之后，所以这时还要常见（`english::takes_priority_slot`），用户自己加过或选过、拼写打全了的词除外（`takes_priority_slot_or_own`，只有这一行要查日志）。坐不上的照原来的先后接在列表末尾。
+        let short_pinyin = (2..=4).contains(&prefix.len())
+            && !english_rows.is_empty()
+            && spells_whole_syllables(prefix, scheme, self.profile);
+        let seats_without_journal = |row: &WordItem| {
+            if short_pinyin {
+                takes_priority_slot(row)
+            } else {
+                row.pinyin == prefix || !is_offensive_english(&row.word)
+            }
+        };
+        // 都坐得上（最常见的情况）时不分配、不查日志。
+        let english_tail = if english_rows.iter().all(seats_without_journal) {
+            Vec::new()
+        } else {
+            let journal = self.paths.user(assets::USER_JOURNAL);
+            let (seated, tail) = std::mem::take(&mut english_rows)
+                .into_iter()
+                .partition(|row| {
+                    seats_without_journal(row)
+                        || (short_pinyin
+                            && takes_priority_slot_or_own(row, |row| {
+                                row.pinyin == prefix && has_english_upsert(&journal, &row.pinyin)
+                            }))
+                });
+            english_rows = seated;
+            tail
+        };
+        let offensive_first = english_rows
+            .first()
+            .is_some_and(|row| is_offensive_english(&row.word));
         let shuangpin = self.profile;
         let long_enough = prefix.len() >= MIXED_EXPRESSIVE_MINIMUM_INPUT;
         let (emoji_rows, kaomoji_rows) =
@@ -441,9 +476,11 @@ impl CandidateQueries {
         let english_lead = (english_may_lead
             && prefix.len() >= english.minimum_prefix
             && !english_rows.is_empty()
+            && !short_pinyin
+            && !offensive_first
             && !spells_whole_syllables(prefix, scheme, self.profile))
         .then_some(prefix);
-        insert_mixed_rows_with_japanese(
+        let mut candidates = insert_mixed_rows_with_japanese(
             candidates,
             english_rows,
             emoji_rows,
@@ -453,7 +490,13 @@ impl CandidateQueries {
             japanese,
             english.first_page_count,
             first_page_rows,
-        )
+        );
+        for row in english_tail {
+            if !candidates.iter().any(|item| item.word == row.word) {
+                candidates.push(row);
+            }
+        }
+        candidates
     }
 }
 
