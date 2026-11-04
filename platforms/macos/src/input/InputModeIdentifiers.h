@@ -150,7 +150,7 @@ static inline NSString *MSIMEInputModeIDForSchemeIn(NSDictionary *info, NSString
     return MSIMEInputModeDeclaredIn(info, mode) ? mode : MSIMEChineseInputModeID;
 }
 
-// 系统输入法菜单里这个模式使用的图标文件名：取 bundle 里该模式的 tsInputModeMenuIconFileKey，取值路径与 MSIMEInputModeDeclaredIn 相同。本版本没有声明这个模式时（五笔版把五笔的图标放在 .Hans 上）取主模式 .Hans 的，再没有时取输入法本身的 tsInputMethodIconFileKey，最后是 MSIMEClientInputMethodMenuIcon.tiff。菜单栏状态项（InputModeStatusItem.mm）也经它取字形，再在外面套一圈圆角框。
+// 系统输入法菜单里这个模式使用的图标文件名：取 bundle 里该模式的 tsInputModeMenuIconFileKey，取值路径与 MSIMEInputModeDeclaredIn 相同。本版本没有声明这个模式时取主模式 .Hans 的，再没有时取输入法本身的 tsInputMethodIconFileKey，最后是 MSIMEClientInputMethodMenuIcon.tiff。各模式在 Info.plist.in 里都声明水杉标志，所以这里通常就是标志；菜单栏状态项不经它取图，见 MSIMEInputModeGlyphFile。
 static inline NSString *MSIMEInputModeMenuIconFileIn(NSDictionary *info, NSString *identifier) {
     id component = info[@"ComponentInputModeDict"];
     id modes = [component isKindOfClass:NSDictionary.class] ? component[@"tsInputModeListKey"] : nil;
@@ -163,6 +163,17 @@ static inline NSString *MSIMEInputModeMenuIconFileIn(NSDictionary *info, NSStrin
     return [file isKindOfClass:NSString.class] && [file length] ? file : @"MSIMEClientInputMethodMenuIcon.tiff";
 }
 
+// 菜单栏状态项（InputModeStatusItem.mm）为这个模式画的大字图标：中、双、五、粤、注、日、한、越、ཀ、笔、英各一张，由 scripts/render_menu_icon.swift 生成。系统输入法菜单里所有模式都显示水杉标志，分不出模式，状态项按模式标识的后缀直接取对应的字，不看 plist；单方案版本（五笔版只声明 .Hans）里控制器报的仍是方案自己的模式（.Wubi），照样画「五」。不认识的标识返回 nil。
+static inline NSString *MSIMEInputModeGlyphFile(NSString *identifier) {
+    NSDictionary<NSString *, NSString *> *names = @{
+        @"Hans": @"Chinese", @"Shuangpin": @"Shuangpin", @"Wubi": @"Wubi", @"Cantonese": @"Cantonese",
+        @"Zhuyin": @"Zhuyin", @"Japanese": @"Japanese", @"Korean": @"Korean", @"Vietnamese": @"Vietnamese",
+        @"Tibetan": @"Tibetan", @"Stroke": @"Stroke", @"Roman": @"English",
+    };
+    NSString *name = identifier ? names[identifier.pathExtension] : nil;
+    return name ? [NSString stringWithFormat:@"MSIMEClientInputMethodMenuIcon%@.tiff", name] : nil;
+}
+
 // 一个模式在输入法菜单里的名字（与 InfoPlist.strings 一致），以及系统设置「添加」对话框把它归在哪个语言下（对应 Info.plist.in 的 TISIntendedLanguage）。macOS 27 不允许进程启用键盘输入模式，设置窗口靠这两项告诉用户去哪里自己添加；共享设置页 `macos-input-mode-entries-section.tsx` 里有同一张表。不是 full 的版本名字随版本而变，直接读 bundle 里 zh-Hans 的 InfoPlist.strings。
 static inline NSString *MSIMEInputModeMenuName(NSString *identifier) {
     if (!MSIMEEditionIsFull()) {
@@ -172,12 +183,12 @@ static inline NSString *MSIMEInputModeMenuName(NSString *identifier) {
         return [name isKindOfClass:NSString.class] ? name : nil;
     }
     NSDictionary<NSString *, NSString *> *names = @{
-        MSIMEChineseInputModeID: @"水杉输入法 · 中", MSIMEShuangpinInputModeID: @"水杉输入法 · 双",
-        MSIMEWubiInputModeID: @"水杉输入法 · 五", MSIMECantoneseInputModeID: @"水杉输入法 · 粤",
-        MSIMEZhuyinInputModeID: @"水杉输入法 · 注", MSIMEJapaneseInputModeID: @"水杉输入法 · 日",
-        MSIMEKoreanInputModeID: @"水杉输入法 · 韩", MSIMEVietnameseInputModeID: @"水杉输入法 · 越",
-        MSIMETibetanInputModeID: @"水杉输入法 · 藏", MSIMEStrokeInputModeID: @"水杉输入法 · 笔",
-        MSIMEEnglishInputModeID: @"水杉输入法 · 英",
+        MSIMEChineseInputModeID: @"水杉全拼", MSIMEShuangpinInputModeID: @"水杉双拼",
+        MSIMEWubiInputModeID: @"水杉五笔", MSIMECantoneseInputModeID: @"水杉粤语",
+        MSIMEZhuyinInputModeID: @"水杉注音", MSIMEJapaneseInputModeID: @"水杉日语",
+        MSIMEKoreanInputModeID: @"水杉韩语", MSIMEVietnameseInputModeID: @"水杉越南语",
+        MSIMETibetanInputModeID: @"水杉藏语", MSIMEStrokeInputModeID: @"水杉笔画",
+        MSIMEEnglishInputModeID: @"水杉英文",
     };
     return identifier ? names[identifier] : nil;
 }
