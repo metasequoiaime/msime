@@ -42,6 +42,7 @@ mod places;
 mod places_supplement;
 mod private_file;
 mod product;
+mod reweight;
 mod rime_ice_supplement;
 mod sources;
 mod sqlite;
@@ -70,6 +71,8 @@ use crate::sources::{sha256_file, Dictionary, Lock, Sources};
 enum Stage {
     /// Quanpin tables in msime-pinyin.db (tbl_{1..7,others}_{initial})
     Quanpin,
+    /// 按 --dictionary checkout 登记的万象词库（sources/pinyin/wanxiang/）重算全拼表里与万象共有的行的权重；curation/pinyin-reweight.txt 打开第二步。checkout 没有登记 rime-wanxiang 时什么也不做。
+    Reweight,
     /// 从 --dictionary checkout 读取的 sources/pinyin/places.txt 并入全拼表，只升不降
     PlacesSupplement,
     /// 从 --dictionary checkout 读取的 custom/words.txt 并入全拼表
@@ -110,8 +113,9 @@ enum Stage {
 }
 
 /// Build order: later stages read what earlier ones wrote (glosses are weighted by the quanpin tables, the n-gram vocabulary is the finished quanpin tables).
-const STAGES: [Stage; 19] = [
+const STAGES: [Stage; 20] = [
     Stage::Quanpin,
+    Stage::Reweight,
     Stage::PlacesSupplement,
     Stage::CustomWords,
     Stage::ReadingCorrections,
@@ -1284,6 +1288,13 @@ fn check_words(arguments: &CheckWords) -> Result<bool> {
     Ok(report.accepted)
 }
 
+/// [`Build::quanpin_inputs`] 的结果：单字表、白名单、带路径的词组表。
+type QuanpinFiles = (
+    PathBuf,
+    Option<HashSet<String>>,
+    Vec<(&'static str, PathBuf)>,
+);
+
 struct Build {
     sources: Sources,
     out: PathBuf,
@@ -1361,9 +1372,9 @@ impl Build {
         sqlite::open(&self.out.join(name))
     }
 
-    /// 全拼阶段的输入：单字表、许可记录允许时使用的单字白名单，以及按加载次序排列的词组表。
-    fn quanpin_inputs(&self) -> Result<(PathBuf, Option<HashSet<String>>, Vec<PathBuf>)> {
-        let single_chars = self.sources.pinned("sources/pinyin/single-chars.txt")?;
+    /// 全拼阶段的输入：单字表、许可记录允许时使用的单字白名单，以及按加载次序排列的词组表（带它们在 msime-dictionary 或锁文件里的路径，`reweight` 按它找文件系数）。
+    fn quanpin_inputs(&self) -> Result<QuanpinFiles> {
+        let single_chars = self.sources.pinned(reweight::SINGLE_CHARS)?;
         let (mut phrases, whitelist) = if self.complete {
             let mut whitelist = msime::parse_whitelist(&text::read(
                 &self.sources.pinned(licensing::SINGLE_CHAR_WHITELIST)?,
@@ -1373,22 +1384,28 @@ impl Build {
             )?));
             (
                 vec![
-                    self.sources.pinned(licensing::BASE_DICT_PART1)?,
-                    self.sources.pinned(licensing::BASE_DICT_PART2)?,
+                    (
+                        licensing::BASE_DICT_PART1,
+                        self.sources.pinned(licensing::BASE_DICT_PART1)?,
+                    ),
+                    (
+                        licensing::BASE_DICT_PART2,
+                        self.sources.pinned(licensing::BASE_DICT_PART2)?,
+                    ),
                 ],
                 Some(whitelist),
             )
         } else {
             // 没有来源记录时不能应用白名单，接受许可来源里的全部单字。
             (
-                vec![self.sources.pinned("sources/pinyin/rime-ice.txt")?],
+                vec![(reweight::RIME_ICE, self.sources.pinned(reweight::RIME_ICE)?)],
                 None,
             )
         };
-        phrases.push(
-            self.sources
-                .pinned("sources/pinyin/rime-ice-supplement.txt")?,
-        );
+        phrases.push((
+            reweight::RIME_ICE_SUPPLEMENT,
+            self.sources.pinned(reweight::RIME_ICE_SUPPLEMENT)?,
+        ));
         Ok((single_chars, whitelist, phrases))
     }
 
@@ -1401,6 +1418,7 @@ impl Build {
         let mut texts = vec![(text::read(&single_chars)?, whitelist.as_ref())];
         for path in phrases
             .iter()
+            .map(|(_, path)| path)
             .chain([&self.sources.pinned(places_supplement::OUTPUT)?])
         {
             texts.push((text::read(path)?, None));
@@ -1461,10 +1479,52 @@ impl Build {
                 let inputs = msime::QuanpinInputs {
                     single_chars: &single_chars,
                     whitelist,
-                    phrases: phrases.iter().map(PathBuf::as_path).collect(),
+                    phrases: phrases.iter().map(|(_, path)| path.as_path()).collect(),
                 };
                 let rows = msime::build_quanpin(&mut self.database("msime-pinyin.db")?, &inputs)?;
                 Ok(format!("{rows} rows"))
+            }
+            Stage::Reweight => {
+                let Some(wanxiang) = reweight::load(&self.sources)? else {
+                    return Ok(format!(
+                        "left out: the checkout's upstream.lock.json records no {}",
+                        reweight::REFERENCE
+                    ));
+                };
+                let settings = reweight::Settings::load(&self.sources)?;
+                let (single_chars, whitelist, phrases) = self.quanpin_inputs()?;
+                let mut texts = vec![(reweight::SINGLE_CHARS, text::read(&single_chars)?)];
+                for (label, path) in &phrases {
+                    texts.push((*label, text::read(path)?));
+                }
+                let inputs: Vec<reweight::Input> = texts
+                    .iter()
+                    .enumerate()
+                    .map(|(index, (path, text))| reweight::Input {
+                        path,
+                        text: text.as_str(),
+                        accepted: if index == 0 { whitelist.as_ref() } else { None },
+                    })
+                    .collect();
+                let wanxiang: Vec<(&str, &str)> = wanxiang
+                    .iter()
+                    .map(|(name, text)| (*name, text.as_str()))
+                    .collect();
+                let counts = reweight::apply(
+                    &mut self.database("msime-pinyin.db")?,
+                    &inputs,
+                    &wanxiang,
+                    &settings,
+                )?;
+                Ok(format!(
+                    "{}: {} rows shared with {}, {} realigned, {} rescaled, {} capped",
+                    settings.describe(),
+                    counts.shared,
+                    reweight::REFERENCE,
+                    counts.aligned,
+                    counts.scaled,
+                    counts.capped
+                ))
             }
             Stage::PlacesSupplement => {
                 let words = msime::parse_word_list(
@@ -2595,3 +2655,7 @@ mod tests {
         assert!(parses(&["--base", "b", "--head", "h"]));
     }
 }
+
+#[cfg(test)]
+#[path = "reweight_stage_tests.rs"]
+mod reweight_stage_tests;

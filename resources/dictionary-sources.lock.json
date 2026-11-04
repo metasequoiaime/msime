@@ -63,6 +63,10 @@
     "OpenCC": {
       "repository": "https://github.com/BYVoid/OpenCC.git",
       "commit": "26753884f1984add422f3b0249ccee8613deaff6"
+    },
+    "rime-wanxiang": {
+      "repository": "https://github.com/amzxyz/rime-wanxiang.git",
+      "commit": "7ab73ee0c7f80190004233e70f954833df64c80e"
     }
   },
   "mozc": {
