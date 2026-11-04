@@ -98,7 +98,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let closePredictionButton = UIButton()
   /// 候选词块与展开箭头之间那条 1×22 的细线。
   private let expandDivider = UIView()
-  private let candidateStack = UIStackView()
+  private let candidateStrip = CandidateStripRow()
+  private var candidateStack: UIStackView { candidateStrip.stack }
   private let candidateEmptySpacer = UIView()
   private struct CandidateButtonInputs: Equatable {
     let candidate: String
@@ -8332,24 +8333,24 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 邮箱后缀不分页：二十个全排在候选条上横向滚动，与 Android 一样。
     refreshDecorationWords()
     let page = visibleEmailSuffixes.isEmpty ? Array(visibleCandidates.prefix(candidatePageSize)) : visibleEmailSuffixes
-    while candidateStack.arrangedSubviews.count < page.count {
-      let index = candidateStack.arrangedSubviews.count
-      candidateStack.addArrangedSubview(makeCandidateButton(index: index))
+    while candidateStrip.buttons.count < page.count {
+      let index = candidateStrip.buttons.count
+      candidateStrip.add(makeCandidateButton(index: index))
       candidateButtonInputs.append(nil)
     }
-    while candidateButtonInputs.count < candidateStack.arrangedSubviews.count { candidateButtonInputs.append(nil) }
+    while candidateButtonInputs.count < candidateStrip.buttons.count { candidateButtonInputs.append(nil) }
     var missingPronunciations: [String] = []
     defer { if !missingPronunciations.isEmpty { requestCandidatePronunciations(missingPronunciations) } }
-    for (offset, view) in candidateStack.arrangedSubviews.enumerated() {
-      guard let chip = view as? KeyboardKeyButton else { continue }
-      chip.isHidden = offset >= page.count
+    for (offset, chip) in candidateStrip.buttons.enumerated() {
+      candidateStrip.setHidden(offset >= page.count, at: offset)
       guard offset < page.count else {
         candidateButtonInputs[offset] = nil
         continue
       }
       defer {
         CandidateStripSizing.apply(to: chip, word: page[offset], viewport: candidateScrollView,
-                                   enabled: bilingualGlideEnabled && glideTypingArmed, hasAlternatives: page.count > 1)
+                                   enabled: bilingualGlideEnabled && glideTypingArmed, hasAlternatives: page.count > 1,
+                                   spacing: candidateStack.spacing)
       }
       if !visibleEmailSuffixes.isEmpty {
         // 样式与英文建议的词块相同，只是读作邮箱后缀。
@@ -8866,7 +8867,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     button.pressFeedback = .opacity(0.6)
     button.setContentCompressionResistancePriority(.required, for: .horizontal)
     let minimumWidth = button.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.candidateChipMinimumSize.width)
-    // 隐藏的栈内词块由 UIStackView 强制设为零宽，词块自己的宽度下限必须让步。
+    // 保留可让步的触控下限；隐藏时由 CandidateStripRow 断开右边界，栈只把容器设为零宽。
     minimumWidth.priority = .init(999)
     // 高度下限随「候选栏大小」缩放（#10137）：它和候选内容贴住面板底边的约束同为 999，下限不缩放时，矮于 34pt 的候选栏里两者冲突，Auto Layout 可能撑高候选内容、压到按键上。宽度是触控下限，不缩放。
     let minimumHeight = button.heightAnchor.constraint(
