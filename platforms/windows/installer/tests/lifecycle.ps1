@@ -188,7 +188,7 @@ if ($script -notmatch '(?m)^Name: "\{code:GetDataDir\}"; Permissions: users-modi
     throw 'The data directory is not created with Users modify permission'
 }
 $ensure = Get-Block 'procedure EnsureImeUserDataDir;' 'procedure CreateWatchdogLogonTask;'
-foreach ($needle in @("AppDataPath := GetDataDir('')", '/grant *S-1-5-32-545:(OI)(CI)M /T /C /Q', '/setintegritylevel (OI)(CI)M /T /C /Q')) {
+foreach ($needle in @("AppDataPath := GetDataDir('')", '/grant *S-1-5-32-545:(OI)(CI)M /T /C /Q', '/remove:g *S-1-15-2-1 /T /C /Q', '/remove:g *S-1-15-2-2 /T /C /Q', '/setintegritylevel (OI)(CI)M /T /C /Q')) {
     if (-not $ensure.Contains($needle)) { throw "EnsureImeUserDataDir is missing $needle" }
 }
 $postInstall = Get-Block 'if CurStep = ssPostInstall then' 'procedure CurUninstallStepChanged'
