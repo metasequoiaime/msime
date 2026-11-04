@@ -225,7 +225,7 @@ PRAGMA user_version=3;
 ```
 
 - `english_words.word` 是小写查找键，`display` 是展示的大小写形式（`china` 与 `China` 各一行），`weight` 可能超过 `i32`，引擎按 `i64` 读。同一个词的几种大小写里，领头的那种带词频，其余比它低 1。
-- 释义表的值可以有多个义项，宿主门面在候选旁显示时只取前两个。
+- 释义表的值可以有多个义项，宿主门面在候选旁显示时只取前两个。`en_zh_glosses.english` 是小写查找键；`zh_en_glosses.english_gloss` 里的英文词按展示写法，专名保留大写（`中国` → `China`）。
 - `source_notices` 保存来源要求随数据保留的声明（目前是 SCOWL 的版权声明），引擎不读。
 - `user_version=3` 由构建和 `ensure_english_schema` 写入，读端不检查；`ensure_english_schema` 会把没有 `weight` 列或只以 `word` 为键的旧表就地改建成上面的形状。
 

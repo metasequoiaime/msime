@@ -50,7 +50,7 @@ Inputs without a redistribution grant (`src/licensing.rs`) are left out unless `
 
 ## Curation tables
 
-msime-dictionary 的顶层目录 `curation/` 放维护者审定的表（不接受投稿；`custom/` 由 msime-web、msime-cloud 直接读写，不放这里）。上游文件逐字节锁定、`custom/` 只追加，删词和改权重只能写成这些独立的表，由构建器在读入之后施加（`src/curation.rs`）。下表前四张是逐条的表，共同规则如下；最后两行是 `reweight` 阶段第二步的开关、参数和豁免表（`src/reweight.rs`），它们的校验写在各自那一行：
+msime-dictionary 的顶层目录 `curation/` 放维护者审定的表（不接受投稿；`custom/` 由 msime-web、msime-cloud 直接读写，不放这里）。上游文件逐字节锁定、`custom/` 只追加，删词和改权重只能写成这些独立的表，由构建器在读入之后施加（`src/curation.rs`）。下表前五张是逐条的表，共同规则如下；最后两行是 `reweight` 阶段第二步的开关、参数和豁免表（`src/reweight.rs`），它们的校验写在各自那一行：
 
 - **文件不在就是空表。** 没有 `curation/` 的 checkout（包括 `dict-v2.0.41` 这类旧提交）构建出的 `msime-pinyin.db`、`msime-wubi.db` 和各生成文件与没有这套机制时逐字节相同，所以构建器可以先于数据合入。`msime-english.db` 例外：构建器内置的英文蔑称（见下表 `english-vetoes.txt` 一行）不靠 `curation/` 也总是生效，换上这个构建器后的第一次发布就会少掉 rime-ice 英文词表里的 nigger、tranny、beyatch 和它们的释义（按 `dict-v2.0.41` 的内容是 `english_words` 3 行、`en_zh_glosses` 2 行，`zh_en_glosses` 里 深棕色 不再译成 nigger）。
 - **每一条都必须匹配到东西。** 一条在本次输入里什么也没匹配到，构建失败、表不动，照 `pinyin-reading-corrections.txt` 的做法：输入变了，条目就该删掉，不让表悄悄过期。
@@ -62,10 +62,20 @@ msime-dictionary 的顶层目录 `curation/` 放维护者审定的表（不接�
 | `curation/pinyin-weight-overrides.txt` | `词<TAB>全拼<TAB>权重`（不小于 0 的整数），可以再加第四列 `wubi` | `weight-overrides` 阶段（紧接 `word-vetoes`）把这个读音的权重设成这个值，可降可升。第四列 `wubi` 标出与全拼键无关的频率修正（本地损坏恢复上游值、占位权重），五笔补充词组的同码排序也用这个值；不写的是相对同一全拼键的降权（碎片、非标准读音、人工词条越位），只改拼音。全拼表没有这一行，或者这一行是 `custom/words.txt` 从已有的行提了权的（custom-words 之前并入的输入，即单字表、词组输入和 `places.txt`，已经有这个词和读音，而且权重低于 custom 写的）时构建失败：人工词条的提权只升不降，覆盖表不把它改回去。custom 新插入的词（之前的输入都没有这一行）可以覆盖，越位的投稿词条（例如压过同音常用词的品牌名）就靠这里降权；custom 列了但没有提权的行也可以。一个读音不能既被否决又被覆盖。 |
 | `curation/offensive-words.txt` | 一个词，或 `!` 开头的豁免写法，格式与引擎内嵌的 `crates/engine/src/lattice/offensive_words.txt` 相同 | `sentence-excluded` 阶段（紧接 `weight-overrides`）用引擎的同一个解析器（`msime_engine::parse_offensive_words`）读它，写进 `msime-pinyin.db` 的 `sentence_excluded(value, exempt)`（[docs/data-formats.md](../../docs/data-formats.md) §4.5）。每个词必须是全拼表里某一行的词，每条豁免写法必须出现在全拼表某一行的词里并含一个表里的词。文件不在时不建这张表（`--out` 里上一次留下的会被删掉），引擎用内嵌表。`wubi`、`wubi98`、`wubixsj` 阶段还按它把五笔表里含粗俗词的行（豁免写法盖住的不算）挪到同码其余行之后：粗俗词本身保留、不当首选，引擎的首选排位不管五笔；同码只有它一行的不动。文件不在时五笔表不动。 |
 | `curation/english-vetoes.txt` | 一个小写 ASCII 词 | `english` 阶段对全部英文来源（rime-ice 的两张词表、`sources/english/scowl-words.txt`、OALDPE 词头和 `custom/english.txt`）统一否决这个词的所有大小写，释义也就跟着没有了。构建器还内置一组蔑称：`english_supplement::OFFENSIVE` 加上 rime-ice 词表自己收了的 nigger、tranny、beyatch（`curation::BUILT_IN_VETOES`），这组总是生效，文件不在时也一样；`custom/translations.txt` 里英译中的源词、中译英的译文里的词被否决时，`custom-translations` 阶段也不写那一条；文件里再写内置的词算错。文件里的词在任何英文来源里都没有时构建失败。 |
+| `curation/gloss-vetoes.txt` | `中文<TAB>英文`（中文全是汉字，英文是小写 ASCII 词） | `english-glosses` 阶段从 ECDICT 这个英文词（屈折形式代表原形进中译英时也按原形算）的义项里拿掉这个中文义项，两个方向都不用：英译中不选它，中译英也不拿这个英文词译这个中文词。一对在 ECDICT 的英文候选词里匹配不到时构建失败。`custom/translations.txt` 的人工译文不受它管。 |
 | `curation/pinyin-reweight.txt` | `名字<TAB>值`：`unattested-cap<TAB>on` 或 `off`；`cap-leader-minimum<TAB>整数`（正整数，默认 100，只能和 `unattested-cap on` 一起写）；`renming<TAB>比例`、`duoyin<TAB>比例`（正数，最多两位小数，不大于 10，默认 1） | 打开 `reweight` 阶段（`quanpin` 之后、`places-supplement` 之前）的第二步。`renming`（万象正则抽出、未经筛选的人名表）和 `duoyin`（多字词的兼容读音）两份万象词库的权重先乘这个比例，再与其他词库取最高、乘文件系数；同一个「词＋全拼」在别的词库里有更高的权重时用那个，比例不起作用。`unattested-cap on` 按 dict-cleanse 方案 2.1「碎片、虚词组合」的口径压碎片：万象全套 17 份词库（含只校验、不提供权重的 `cuoyin`、`mixed`）在任何读音下都不收的多字词，权重不低于同一全拼键上「万象原始权重不小于 `cap-leader-minimum`」的词里换算后最高的那个时，压到它下面；同键被压的几行按原来的次序依次减 1、减 2……（最低到 1），原来相同的仍然相同；上限不到 2 的键不压。万象收了这个词、只是读音不同的行不压（方案 3.2「非标准读音」，逐条审）；单字不动。只改权重，不增删行。写了没有列出的名字、同一个名字写两次、值写错时构建失败；每一项都等于默认值时也失败（那样的文件什么也不改）。checkout 没有登记 `rime-wanxiang` 时整个阶段不做，这张表也不读。 |
 | `curation/pinyin-reweight-exempt.txt` | `词<TAB>全拼` | 第二步不碰这一行：权重停在第一步的结果，不乘 `renming`、`duoyin` 的比例，也不被 `unattested-cap` 压。用来救第二步误伤的正当词（人名 李四、林克，碎片规则误判的 顾盼 这类）。每一条都必须是全拼表里的一行，而且是第二步本来要改的那一行，否则构建失败；同一行写两次也失败。只能和打开第二步的 `pinyin-reweight.txt` 一起存在：回滚第二步要把两份一起删，只删一份时构建失败。 |
 
 拼音的两张表还交给五笔和区划的生成器（`wubi86-supplement`、`wubi98-supplement`、`wubixsj-supplement`、`places-supplement`，构建时 `wubi`、`wubi98`、`wubixsj` 阶段重新派生的补充数据也一样）。区划的生成器按施加了否决和覆盖之后的拼音行判断读音确认、已有权重和上限（`PinyinCuration::rows`）。五笔的生成器只认否决和第四列写了 `wubi` 的覆盖（`PinyinCuration::wubi_rows`）：整词否决的词不做五笔词组候选；写了 `wubi` 的覆盖改同码排序，100 的门槛取覆盖前后较大的权重，所以覆盖表不会把一个词从五笔里删掉；其余覆盖是按全拼键上的竞争定的，五笔编码上没有这层竞争，五笔不理。表存在时，生成文件的表头把它们和 SHA-256 一起列进输入。
+
+### 释义怎么选
+
+`english-glosses` 阶段从 ECDICT 推两张释义表（`src/english.rs` 的 `derive_glosses`），两个方向都以义项位置为主：
+
+- 拆义项：每行去掉行首的领域标签、词性和词性后面的标签（`[计] vt.`、`n. [俚]`），带标签的行算领域义项；只有计算机标签的行还能进中译英，`[网络]` 行不进。同一个词在不同的行里各算一次。行首写着「X的…」（`be的现在式第三人称`）的记下原形 X。
+- 英译中：一行之内按义项顺序；行与行之间按各行首项在拼音表里的权重排，第一条通用行占 10 倍优势（ECDICT 常把名词行放在最前，give 的第一行是「n. 弹性」）；领域行排在通用行后面，行内拼音表权重低于 1000 的词排到本行后面；取前两项，第一项是通用义项时不拿领域义项凑数。没有通用义项、只有屈折说明的词（is、are、was）用原形的义项。
+- 中译英：每个（中文义项，英文词）的分数是英文词的常用度，在行内每靠后一位乘 7/10，不在这个英文词主行（英译中选中的那一行）上再乘 7/10；取最高分，第二个英文词要有它的 60%。最高分的义项位置超过 3 步（行内第五项以后）时这个中文词不给译文。屈折形式的领域义项不记到原形名下。显示时专名保留 ECDICT 词头的大写（China、Monday），小写写法也在 `english_words` 里时只有首个义项和以它开头的义项用大写（China 的「中国」「中国的」，china 的「瓷器」）。
+- `custom-translations` 阶段按文件顺序写人工译文，译文是单独一个 `-` 的行删掉这个源词的释义（ECDICT 生成的和更早的人工行都删）。
 
 英文的生成器 `english-supplement` 不读 `curation/english-vetoes.txt`：那张表的否决在 `english` 阶段施加，生成的 `scowl-words.txt` 里照常有这些词，否决才总能匹配到。
 
@@ -125,7 +135,7 @@ The same divisions also feed the pinyin dictionary. `msime-dict-build places-sup
 msime-dict-build rime-ice-supplement --upstream <干净的 rime-ice 检出> --dictionary <msime-dictionary 检出> --out <候选目录>
 ```
 
-此命令写出中英文补充表、上游许可证、`upstream-update.json`、不支持读音的 `unsupported-readings.txt` 与未注音行的 `unannotated-words.txt`。表头记录完整上游提交、生成器提交、全部输入摘要与去重集合。中文读取 `base`、`ext`、`8105`、`others` 四份带读音表，按同词同音排除主拼音表、单字表、区划与人工词条；重复词音取最大权重。引擎暂不支持或不符合逐字校验的读音单列供审核，不猜读音。未注音的 `tencent.dict.yaml` 不导入。英文读取 `en`、`en_ext`，排除基础英文、SCOWL 与人工英文已含的小写词形，保留纯 ASCII 字母显示词。
+此命令写出中英文补充表、上游许可证、`upstream-update.json`、不支持读音的 `unsupported-readings.txt` 与未注音行的 `unannotated-words.txt`。表头记录完整上游提交、生成器提交、全部输入摘要与去重集合。中文读取 `base`、`ext`、`8105`、`others` 四份带读音表，按同词同音排除主拼音表、单字表、区划与人工词条；重复词音取最大权重。引擎暂不支持或不符合逐字校验的读音单列供审核，不猜读音。未注音的 `tencent.dict.yaml` 不导入。英文读取 `en`、`en_ext`，排除基础英文、SCOWL 与人工英文已含的小写词形（用 `english` 阶段的同一套解析器取，多词短语不算成它的第一个词；基础英文表里被 rime-ice 注释掉的 `# 词 编码` 条目也算，不把 rime-ice 有意去掉的词加回来），保留纯 ASCII 字母显示词和上游的大小写。表头第 1 行写生成器所在的 msime 提交，有未提交改动时带 `-dirty`，词库仓的 `check_upstream.py` 拒绝这种表头。
 
 词库仓每周生成审核 artifact，仍需按跨仓流程审核词频、读音和许可，并同步上游引用、许可证、源数据与锁文件后试跑完整发布构建。此命令不修改锁或自动发布；历史补充表的权重曾另经万象对齐，本次候选的权重变化也必须审核。
 
@@ -170,7 +180,7 @@ msime-dict-build check-words \
 For every file a change may only append lines, and each appended entry goes through the parser the build uses and must not repeat another appended line or an entry already in that file. Per file:
 
 - `words.txt`: word, `'`-separated quanpin that maps to a table, integer weight. The weight must lie within the range the existing entries use; with `--msime-db`, a row with the same word and pinyin in the shipped quanpin tables is rejected; with `--pinyin-vetoes <curation/pinyin-vetoes.txt>`, a word that table vetoes as a whole word, or under this reading, is rejected, since the build would delete it. A vetoes file given but missing (msime-dictionary before it added the table) counts as empty, as in the build.
-- `translations.txt`: `source<TAB>gloss`. A new gloss for an existing source is accepted (the build's last line wins), but the same source and gloss again is a duplicate.
+- `translations.txt`: `source<TAB>gloss`. A new gloss for an existing source is accepted (the build's last line wins), but the same source and gloss again is a duplicate. A gloss of a single `-` deletes the source's gloss in the build (the ECDICT one and any earlier custom line).
 - `english.txt`: lowercase ASCII word, non-empty display, integer weight of at least 1. An entry is its word and display; the weight must lie within the range the existing entries use; with `--english-db`, a word and display already in the shipped `english_words` is rejected. A word the English stage vetoes is rejected: the builder's built-in slurs always, and with `--english-vetoes <curation/english-vetoes.txt>` the words of that table too.
 - `cantonese.txt`: word of at least two characters, toned Jyutping with one syllable per character, each character read as `--cantonese-characters` (the checkout's `sources/cantonese/jyut6ping3.chars.dict.yaml`, required with this pair) reads it, the same checks the build runs. An entry is its word and toneless Jyutping, so a row that differs from another only in tone is a duplicate; with `--cantonese-db`, a word already in the shipped `entries` under the same toneless Jyutping is rejected.
 
