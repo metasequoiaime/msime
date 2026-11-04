@@ -565,9 +565,11 @@ final class KeyboardKeyButton: UIButton {
 
   private var appliedShadowBounds: CGRect?
   private var appliedShadowRadius: CGFloat?
+  var bottomHintLabel: KeyboardBottomHintLabel?
 
   override func layoutSubviews() {
     super.layoutSubviews()
+    bottomHintLabel?.layout(in: bounds)
     // 按钮自己的布局才能看到最终尺寸。控制器不再遍历整棵视图树重复更新阴影；
     // 按钮尺寸和圆角不变时，候选更新引发的布局也不必重建路径。
     if layer.shadowOpacity > 0 {
