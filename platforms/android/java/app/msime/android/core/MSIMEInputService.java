@@ -7035,8 +7035,9 @@ public final class MSIMEInputService extends InputMethodService {
             pendingLanguageTap);
     }
 
-    /** 按键区里按下 `key` 时给不给按键音和振动（#10757，{@link ImeKeyFeedback#pressed}）：点按会被忽略的「中/英」不给，免得按上去有声有振动却什么也没发生；其余键都给。 */
+    /** 按键区里按下 `key` 时给不给按键音和振动（#10757，{@link ImeKeyFeedback#pressed}）：点按会被忽略的「中/英」不给，免得按上去有声有振动却什么也没发生；九键左列的拼写列表也不给，它是能滚动的列表，每次滚动的按下都振会很吵，点选拼写的反馈仍在点击时给；其余键都给。 */
     boolean pressGivesFeedback(View key) {
+        if (nineKeySpellingButtons.contains(key)) return false;
         return key != languageButton || languageTap() != ToolbarReadinessPolicy.LanguageTap.IGNORE;
     }
 

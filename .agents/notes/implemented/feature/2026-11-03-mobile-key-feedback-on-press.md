@@ -33,7 +33,7 @@ Android 和鸿蒙在同一个改动里，把按键区里按键的反馈挪到手
 ## 两端不一致的地方
 
 - 鸿蒙只挪了振动。触屏按键音由各键的点击经 `softKeyPress(id)` 按键位 id 选样本，按下时在容器上拿不到是哪个键，所以按键音仍在抬手时出声。Android 的按键音跟着振动一起挪到按下。
-- 鸿蒙的容器接住整块按键区，落在分离式键盘中缝、单手侧栏这类非按键位置的按下也会振一下；Android 的 `KeyboardKeyArea.route()` 只对命中键或键距的按下回调，这两类位置不振。九键左列的拼写列表是例外：它是可以滚动的列表，每次滚动的按下都振会很吵，而 Android 的拼写列表不在按键区里、也不振。列表自己的 `onTouch` 在按下时置上 `keyPressOutsideKeys`，冒泡到容器时 `keyPressTouch` 读掉并跳过这次按下；不调 `stopPropagation`，键盘根上清理按键气泡的 `pruneKeyPreview` 仍看得到这次按下。左列在不拼写时放的标点和数字层的符号是键，按下时照常振，与 Android 九键标点列在按键区里一致。
+- 鸿蒙的容器接住整块按键区，落在分离式键盘中缝、单手侧栏这类非按键位置的按下也会振一下；Android 的 `KeyboardKeyArea.route()` 只对命中键或键距的按下回调，这两类位置不振。九键左列的拼写列表是例外：它是可以滚动的列表，每次滚动的按下都振会很吵。Android 的拼写列表挂在九键侧栏里、属于按键区，`KeyboardKeyArea` 会命中其中的拼写按钮，所以 `MSIMEInputService.pressGivesFeedback` 对 `nineKeySpellingButtons` 返回 false，按下和滚动都不出声振动；点选拼写仍和改动前一样在点击时给一次反馈，这一点与鸿蒙点选也不振不同。列表自己的 `onTouch` 在按下时置上 `keyPressOutsideKeys`，冒泡到容器时 `keyPressTouch` 读掉并跳过这次按下；不调 `stopPropagation`，键盘根上清理按键气泡的 `pruneKeyPreview` 仍看得到这次按下。左列在不拼写时放的标点和数字层的符号是键，按下时照常振，与 Android 九键标点列在按键区里一致。
 - 鸿蒙的上屏只认本次松手的序号，不认按键；这次松手后的宽限期里，别的没有按下的上屏仍可能消耗这个序号、少振一次。仍按着的其他手指不参与消耗。
 
 ## Alternatives considered
