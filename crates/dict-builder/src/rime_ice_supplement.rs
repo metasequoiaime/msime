@@ -107,6 +107,7 @@ fn chinese(sources: &[String], compare: &[String]) -> Result<Chinese> {
     Ok(result)
 }
 
+/// 上游英文词表里对照集合没有的纯 ASCII 词。对照集合除了各文件的条目，还有 rime-ice 注释掉的条目（`# na na`、`# ci ci`）：那是 rime-ice 有意去掉的拼音音节、缩写和错拼，补充表不能把它们加回来，与 `english_supplement` 生成 SCOWL 补充表时的规则相同。
 fn english(sources: &[String], compare: &[String]) -> Result<BTreeSet<String>> {
     let mut existing = BTreeSet::new();
     for source in compare {
@@ -118,6 +119,7 @@ fn english(sources: &[String], compare: &[String]) -> Result<BTreeSet<String>> {
                 existing.insert(word.to_ascii_lowercase());
             }
         }
+        existing.extend(crate::english_supplement::commented_base_dict_words(source));
     }
     let mut words = BTreeSet::new();
     for source in sources {
@@ -172,8 +174,8 @@ pub fn build(upstream: &Path, dictionary: &Path, out: &Path, repository: &Path) 
         &load(dictionary, COMPARE_ENGLISH)?,
     )?;
     let generator = product::builder_commit(repository)?;
-    let header = |inputs: &[&str], compare: &[&str]| -> Result<String> {
-        let mut result = format!("# 由 msime 提交 {generator} 的 crates/dict-builder/src/rime_ice_supplement.rs 生成。\n# 上游：https://github.com/iDvel/rime-ice 提交 {commit}；许可 GPL-3.0。\n# 命令：msime-dict-build rime-ice-supplement --upstream <该提交的干净检出> --dictionary <msime-dictionary> --out <输出目录>。\n# 去重对照：{}；中文按同词同音排除、重复取最大权重，英文按小写词形排除、保留纯 ASCII 显示词。\n", compare.join("、"));
+    let header = |title: &str, inputs: &[&str], compare: &[&str]| -> Result<String> {
+        let mut result = format!("# {title}，由 msime 仓库提交 {generator} 的 crates/dict-builder/src/rime_ice_supplement.rs 以 `msime-dict-build rime-ice-supplement --upstream <rime-ice 该提交的干净检出> --dictionary <msime-dictionary checkout> --out <输出目录>` 生成；不要手工编辑。\n# 上游：https://github.com/iDvel/rime-ice 提交 {commit}；许可 GPL-3.0。\n# 去重对照：{}；中文按同词同音排除、重复取最大权重，英文按小写词形排除（对照文件里注释掉的 `# 词 编码` 条目也算）、保留纯 ASCII 显示词。\n", compare.join("、"));
         for (root, paths) in [(upstream, inputs), (dictionary, compare)] {
             for path in paths {
                 writeln!(
@@ -185,7 +187,7 @@ pub fn build(upstream: &Path, dictionary: &Path, out: &Path, repository: &Path) 
         }
         Ok(result)
     };
-    let mut cn = header(CHINESE, COMPARE_CHINESE)?;
+    let mut cn = header("rime-ice 中文补充词条", CHINESE, COMPARE_CHINESE)?;
     for ((word, key), weight) in &chinese.words {
         writeln!(cn, "{word}\t{key}\t{weight}")?;
     }
@@ -208,7 +210,7 @@ pub fn build(upstream: &Path, dictionary: &Path, out: &Path, repository: &Path) 
         "# 排除的未注音词条：{}；详见 unannotated-words.txt。",
         chinese.unannotated_words.len()
     )?;
-    let mut en = header(ENGLISH, COMPARE_ENGLISH)?;
+    let mut en = header("rime-ice 英文补充词条", ENGLISH, COMPARE_ENGLISH)?;
     for word in &english {
         writeln!(en, "{word}\t{}", word.to_ascii_lowercase())?;
     }
@@ -260,5 +262,16 @@ mod tests {
         )
         .unwrap();
         assert_eq!(rows.into_iter().collect::<Vec<_>>(), ["Fixture", "fixture"]);
+    }
+
+    /// rime-ice 注释掉的英文条目（`# na na`）也在对照集合里，补充表不把它们加回来；不是条目形状的注释行（标题、说明）不算。
+    #[test]
+    fn english_leaves_out_entries_the_compared_files_comment_out() {
+        let rows = english(
+            &["...\nna\tna\nci\tci\nCi\tCi\nnew\tnew\nNotes\tNotes\n".into()],
+            &["# rime-ice\n# na na\n#ci ci 12\n# Notes on spelling\nknown known\n".into()],
+        )
+        .unwrap();
+        assert_eq!(rows.into_iter().collect::<Vec<_>>(), ["Notes", "new"]);
     }
 }

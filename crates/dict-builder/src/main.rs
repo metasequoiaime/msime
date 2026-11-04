@@ -1800,18 +1800,21 @@ impl Build {
                     .into_keys()
                     .filter(|word| !oaldpe.contains(word))
                     .collect();
+                let vetoes = curation::GlossVetoes::load(&self.sources)?;
                 let mut english_db = self.database("msime-english.db")?;
                 let glosses = english::derive_glosses(
                     &self.sources.pinned("ecdict/ecdict.csv")?,
                     &english_db,
                     &sqlite::open(&msime_path)?,
                     &reverse_excluded,
+                    &vetoes,
                 )?;
                 english::write_glosses(&mut english_db, &glosses)?;
                 Ok(format!(
-                    "{} English-to-Chinese, {} Chinese-to-English",
+                    "{} English-to-Chinese, {} Chinese-to-English, {} sense pairs vetoed",
                     glosses.en_zh.len(),
-                    glosses.zh_en.len()
+                    glosses.zh_en.len(),
+                    vetoes.pairs.len()
                 ))
             }
             Stage::CustomTranslations => {
@@ -1824,10 +1827,14 @@ impl Build {
                         .vetoed_translation(&entry.source, &entry.gloss)
                         .is_some()
                 });
-                english::apply_custom_translations(&mut self.database("msime-english.db")?, &kept)?;
+                let deleted = english::apply_custom_translations(
+                    &mut self.database("msime-english.db")?,
+                    &kept,
+                )?;
                 Ok(format!(
-                    "{} overrides, {} left out for a vetoed English word",
+                    "{} overrides ({} deletion lines removing {deleted} glosses), {} left out for a vetoed English word",
                     kept.len(),
+                    kept.iter().filter(|entry| entry.deletes()).count(),
                     vetoed.len()
                 ))
             }

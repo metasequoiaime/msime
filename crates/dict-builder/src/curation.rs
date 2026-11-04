@@ -20,6 +20,8 @@ pub const PINYIN_WEIGHT_OVERRIDES: &str = "curation/pinyin-weight-overrides.txt"
 pub const OFFENSIVE_WORDS: &str = "curation/offensive-words.txt";
 /// 英文否决表：这些词不进 `english_words`，任何来源、任何大小写都不进。
 pub const ENGLISH_VETOES: &str = "curation/english-vetoes.txt";
+/// 释义成对否决表：ECDICT 里这个英文词的这个中文义项不拿来做两个方向的释义。
+pub const GLOSS_VETOES: &str = "curation/gloss-vetoes.txt";
 
 /// 读 checkout 里的一张表；文件不在时为 `None`。
 pub fn read_optional(sources: &Sources, path: &str) -> Result<Option<String>> {
@@ -817,6 +819,60 @@ impl EnglishVetoes {
         } else {
             "the builder's built-in slur list"
         })
+    }
+}
+
+/// 释义的成对否决（`curation/gloss-vetoes.txt`，一行 `中文<TAB>英文`）：ECDICT 给这个英文词（小写；屈折形式代表原形进中译英时也按原形算）列的这个中文义项，英译中不选它，中译英也不拿这个英文词去译它。管的是普通的词配上冒犯或误导的释义（深棕色 译成蔑称、一点 译成 damn、natural 译成「白痴」），粗俗词本身的正确释义不在这里。人工译文（`custom/translations.txt`）不受它管。
+#[derive(Debug, Default)]
+pub struct GlossVetoes {
+    /// 每一对和它的行号。
+    pub pairs: Vec<(String, String, usize)>,
+    set: HashSet<(String, String)>,
+}
+
+impl GlossVetoes {
+    /// 中文一侧须全是汉字，英文一侧须是小写 ASCII 词；同一对写两次算错。
+    pub fn parse(text: &str) -> Result<Self> {
+        let mut vetoes = Self::default();
+        for (line, entry) in entries(text) {
+            let at = || location(GLOSS_VETOES, line);
+            let fields: Vec<&str> = entry.split('\t').map(text::strip).collect();
+            let [chinese, english] = fields[..] else {
+                bail!("{}: expected 中文<TAB>英文, got {entry:?}", at());
+            };
+            if chinese.is_empty() || !chinese.chars().all(crate::places_supplement::is_han) {
+                bail!("{}: {chinese:?} is not a Chinese term", at());
+            }
+            if english.is_empty() || !english.bytes().all(|byte| byte.is_ascii_lowercase()) {
+                bail!("{}: {english:?} is not a lowercase ASCII word", at());
+            }
+            if !vetoes.set.insert((chinese.to_owned(), english.to_owned())) {
+                bail!("{}: {chinese}\t{english} is listed twice", at());
+            }
+            vetoes
+                .pairs
+                .push((chinese.to_owned(), english.to_owned(), line));
+        }
+        Ok(vetoes)
+    }
+
+    /// 从 `--dictionary` checkout 读，不在的按空表。
+    pub fn load(sources: &Sources) -> Result<Self> {
+        Self::parse(&read_optional(sources, GLOSS_VETOES)?.unwrap_or_default())
+    }
+
+    /// 这个中文义项是否不拿来和这个英文词（小写）互译。
+    pub fn vetoes(&self, chinese: &str, english: &str) -> bool {
+        !self.set.is_empty() && self.set.contains(&(chinese.to_owned(), english.to_owned()))
+    }
+
+    /// 没有匹配到任何 ECDICT 义项的条目（`matched` 是实际否决掉的那些对），报错用。
+    pub fn stale(&self, matched: &HashSet<(String, String)>) -> Vec<String> {
+        self.pairs
+            .iter()
+            .filter(|(chinese, english, _)| !matched.contains(&(chinese.clone(), english.clone())))
+            .map(|(chinese, english, line)| format!("{chinese}\t{english} (line {line})"))
+            .collect()
     }
 }
 
