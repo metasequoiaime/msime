@@ -906,6 +906,14 @@ public final class NativeClient {
     public static String resetCache(long session) {
         return TextPolicy.utf8(resetCacheRaw(session));
     }
+    /** 停顿重排（`msime_client_start_settled_rerank`）：会话选项写了 `pause_rerank`、而这台设备跑不进逐键预算时，带着整句联想「增强」的模型重解当前组字的一片。回 `{status: done|continue, moved, current, view?}`；`continue` 时先让排队的输入走，没有新按键再调。只在会话线程（主线程）调用。 */
+    public static String startSettledRerank(long session) {
+        return TextPolicy.utf8(startSettledRerankRaw(session));
+    }
+    /** 收停顿重排的后台评分（`msime_client_poll_settled_rerank`）：`token` 来自 {@link #startSettledRerank} 回的 `pending`；还在算时回 `pending`，算完回 `done`。离开了原组字时传 `accept = false`，只把模型还给会话，不重排候选。只在会话线程（主线程）调用。 */
+    public static String pollSettledRerank(long session, long token, boolean accept) {
+        return TextPolicy.utf8(pollSettledRerankRaw(session, token, accept));
+    }
     /** Release process-level model caches after Android reports memory pressure. */
     public static void releaseProcessCache() { releaseProcessCacheRaw(); }
     /**
@@ -1203,6 +1211,8 @@ public final class NativeClient {
     private static native byte[] voiceProviderUpdateRaw(byte[] request);
     private static native byte[] simplifiedToTraditionalRaw(byte[] text);
     private static native byte[] resetCacheRaw(long session);
+    private static native byte[] startSettledRerankRaw(long session);
+    private static native byte[] pollSettledRerankRaw(long session, long token, boolean accept);
     private static native void releaseProcessCacheRaw();
     private static native byte[] setChinesePunctuationRaw(long session, boolean enabled);
     private static native byte[] setCharacterWidthRaw(long session, boolean fullwidth);

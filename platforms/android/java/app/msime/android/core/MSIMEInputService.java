@@ -2609,6 +2609,7 @@ public final class MSIMEInputService extends InputMethodService {
         clearSmartPunctuationSnapshots();
         deactivateHandwriting();
         invalidateOnlineProviders();
+        cancelPauseRerank();
         invalidateCandidateGlosses();
         if (!keepSession) stopSessionState();
         else clearEnglishSuggestions();
@@ -2838,6 +2839,8 @@ public final class MSIMEInputService extends InputMethodService {
             // 会把它画在组字与候选条的读音前面，两件事必须一起做：请求了却不画，用户已经选中的字
             // 既不在文档里也不在屏幕上（scripts/test-phrase-preedit-hosts.py 守的就是这一半状态）。
             options.put("phrase_preedit", true);
+            // 这个宿主在停顿时调 startSettledRerank（schedulePauseRerank）：跑不进逐键预算的设备上，host-api 把整句联想「增强」的模型延后到停顿时用。
+            options.put("pause_rerank", true);
             // 没读到实时偏好时（读取失败、建会话的回退路径、没有偏好目录），选项里的偏好是出厂默认的全拼 26 键副本，九键用户的键盘会先跳回 26 键（#10389）。按上次确认的键面把副本换成九键：引擎从九键网格起来，键面照旧只按引擎视图画，画的九键和引擎一致，网格键能打字。实时偏好随后到达时照常换成用户的真实设置。
             JSONObject startupPreferences = livePreferences == null ? options.optJSONObject("preferences") : null;
             boolean hintedPreferences = false;
@@ -4881,6 +4884,109 @@ public final class MSIMEInputService extends InputMethodService {
             }
         };
         main.postDelayed(onlineTask, OnlineCandidatePolicy.QUIET_INTERVAL_MILLIS);
+    }
+
+    /**
+     * 停顿多久才调 {@link NativeClient#startSettledRerank}。跑不进逐键预算的设备上，整句联想「增强」的模型只在这时带着把组字重解一遍（host-api 的 {@code pause_rerank}），一片约 8 ms 的模型时间，没解完就一片接一片。打字时按键间隔常有 150 ms 上下，停顿的线定得太短，接着打的下一个键就常碰上正在跑的那一片；300 ms 是读候选的停顿。与鸿蒙的键盘相同。
+     */
+    private static final long PAUSE_RERANK_DELAY_MILLIS = 300;
+    private Runnable pauseRerankTask;
+    private long pauseRerankEpoch;
+    /** 停顿重排回了 `pending`（会话挂着后台的落定模型）时的令牌，下一片带着它轮询；0 是没有。 */
+    private long pauseRerankToken;
+    /** 取消掉的后台评分轮询到结束才把模型还给会话，见 {@link PauseRerankDiscard}。 */
+    private final PauseRerankDiscard discardedPauseRerank = new PauseRerankDiscard(
+        (target, token) -> pauseRerankStatus(NativeClient.pollSettledRerank(target, token, false)),
+        () -> session,
+        new PauseRerankDiscard.Clock() {
+            @Override public Object schedule(Runnable task, long delayMillis) {
+                main.postDelayed(task, delayMillis);
+                return task;
+            }
+
+            @Override public void cancel(Object handle) {
+                main.removeCallbacks((Runnable) handle);
+            }
+        });
+    /** 正在画停顿重解给的视图：render 照常安排在线候选和翻译，但不再安排下一次停顿重解，否则解完会再解一遍。 */
+    private boolean renderingPauseRerank;
+
+    /** 每次画完组字都重新计时；有新按键时这次画会作废之前的计时和还没跑的那一片。 */
+    private void schedulePauseRerank() {
+        if (renderingPauseRerank) return;
+        cancelPauseRerank();
+        if (session == 0 || view == null || view.optString("editing_text", "").isEmpty()) return;
+        JSONArray rows = view.optJSONArray("candidates");
+        if (rows == null || rows.length() < 2) return;
+        postPauseRerank(pauseRerankEpoch, session, PAUSE_RERANK_DELAY_MILLIS);
+    }
+
+    private void cancelPauseRerank() {
+        pauseRerankEpoch++;
+        if (pauseRerankTask != null) {
+            main.removeCallbacks(pauseRerankTask);
+            pauseRerankTask = null;
+        }
+        long token = pauseRerankToken;
+        pauseRerankToken = 0;
+        if (token != 0) discardedPauseRerank.discard(session, token);
+    }
+
+    /** 丢弃轮询的回答里的 `status`；读不懂时 null、没有时空串，两者都不是 `done`，{@link PauseRerankDiscard} 照旧接着轮询。 */
+    private String pauseRerankStatus(String response) {
+        try {
+            return value(response).optString("status", "");
+        } catch (JSONException | RuntimeException error) {
+            return null;
+        }
+    }
+
+    private void postPauseRerank(long epoch, long targetSession, long delay) {
+        pauseRerankTask = () -> {
+            pauseRerankTask = null;
+            runPauseRerank(epoch, targetSession);
+        };
+        main.postDelayed(pauseRerankTask, delay);
+    }
+
+    /** 跑一片停顿重解。continue 时排下一片，两片之间排队的触摸先走，按键最多等一片；pending 时带着令牌轮询。回答里只要有 view 就重画：每一片都推进候选代次，文字没换位置也要换上新的候选身份，不然停顿后点候选会被当成过期的选择拒掉。与鸿蒙的 KeyboardSession.runPauseRerank 相同。 */
+    private void runPauseRerank(long epoch, long targetSession) {
+        if (epoch != pauseRerankEpoch || targetSession != session || targetSession == 0) return;
+        pauseRerankTask = null;
+        // 旧任务只接受丢弃；归还前不能把同一令牌重新认领为这次停顿的结果。
+        if (discardedPauseRerank.waiting(targetSession)) {
+            postPauseRerank(epoch, targetSession, PauseRerankDiscard.POLL_MILLIS);
+            return;
+        }
+        JSONObject result;
+        try {
+            result = value(pauseRerankToken == 0 ? NativeClient.startSettledRerank(targetSession)
+                : NativeClient.pollSettledRerank(targetSession, pauseRerankToken, true));
+        } catch (JSONException | RuntimeException | LinkageError error) {
+            cancelPauseRerank();
+            android.util.Log.w("MSIMEHost", "Pause rerank failed", error);
+            return;
+        }
+        String status = result.optString("status", "");
+        boolean pending = "pending".equals(status);
+        long token = result.optLong("token", 0);
+        if (pending && token <= 0) {
+            cancelPauseRerank();
+            return;
+        }
+        pauseRerankToken = pending ? token : 0;
+        JSONObject next = result.optJSONObject("view");
+        if (next != null) {
+            view = next;
+            renderingPauseRerank = true;
+            try {
+                if (!renderingSuppressed) render();
+            } finally {
+                renderingPauseRerank = false;
+            }
+        }
+        if (("continue".equals(status) || pending) && epoch == pauseRerankEpoch && targetSession == session)
+            postPauseRerank(epoch, targetSession, pending ? PauseRerankDiscard.POLL_MILLIS : 0);
     }
 
     /** 在线 worker 执行网络请求；失败时释放仍属于本请求的签名。 */
@@ -12669,6 +12775,7 @@ public final class MSIMEInputService extends InputMethodService {
         scheduleCandidateTranslations();
         scheduleUserCandidateTranslations();
         scheduleOnlineProviders();
+        schedulePauseRerank();
         if (candidates == null) {
             imeStyler.applySkin();
             imeToolbar.styleTopRow();
