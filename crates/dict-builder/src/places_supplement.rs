@@ -17,6 +17,7 @@ use std::fmt::Write as _;
 
 use anyhow::{bail, Context, Result};
 
+use crate::curation::PinyinCuration;
 use crate::places::{self, GROUPING_CITIES};
 use crate::text;
 
@@ -248,6 +249,8 @@ pub struct Inputs<'a> {
     pub single_chars: &'a str,
     pub base: &'a str,
     pub rime_ice_supplement: &'a str,
+    /// msime-dictionary `curation/` 的拼音否决表和权重覆盖表：对照集合、单字读音和权重分布都按施加之后的样子读（[`PinyinCuration::rows`]），被否决的行不确认读音、不压低地名，覆盖后的权重决定上限和已有排名。
+    pub curation: &'a PinyinCuration,
 }
 
 /// `value<TAB>key<TAB>weight` rows as the quanpin stage reads them: `#` lines skipped, the line stripped, rows without three fields ignored.
@@ -265,10 +268,10 @@ pub(crate) fn weighted_rows(source: &str) -> impl Iterator<Item = (&str, &str, i
 /// word → key → highest weight.
 type Shipped<'a> = HashMap<&'a str, HashMap<&'a str, i64>>;
 
-fn shipped<'a>(sources: &[&'a str]) -> Shipped<'a> {
+fn shipped<'a>(sources: &[&'a str], curation: &'a PinyinCuration) -> Shipped<'a> {
     let mut words: Shipped = HashMap::new();
     for source in sources {
-        for (value, key, weight) in weighted_rows(source) {
+        for (value, key, weight) in curation.rows(source) {
             let slot = words.entry(value).or_default().entry(key).or_insert(weight);
             *slot = (*slot).max(weight);
         }
@@ -601,13 +604,13 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
     let candidates = candidates(inputs, &mut exclusions)?;
 
     let mut readings: HashMap<char, HashSet<&str>> = HashMap::new();
-    for (value, key, _) in weighted_rows(inputs.single_chars) {
+    for (value, key, _) in inputs.curation.rows(inputs.single_chars) {
         let mut characters = value.chars();
         if let (Some(character), None) = (characters.next(), characters.next()) {
             readings.entry(character).or_default().insert(key);
         }
     }
-    let shipped = shipped(&[inputs.base, inputs.rime_ice_supplement]);
+    let shipped = shipped(&[inputs.base, inputs.rime_ice_supplement], inputs.curation);
 
     let mut distinct: Vec<(String, String)> = candidates
         .iter()
@@ -706,7 +709,9 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
         .filter(|candidate| !rejected.contains(&(candidate.word.clone(), candidate.key.clone())))
         .collect();
 
-    let base_weights: Vec<i64> = weighted_rows(inputs.base)
+    let base_weights: Vec<i64> = inputs
+        .curation
+        .rows(inputs.base)
         .map(|(_, _, weight)| weight)
         .collect();
     let base_median =
@@ -1008,6 +1013,7 @@ mod tests {
             single_chars: SINGLE_CHARS,
             base: BASE_DICT,
             rime_ice_supplement: "# s\n",
+            curation: &PinyinCuration::default(),
         })
         .unwrap()
     }
@@ -1026,6 +1032,27 @@ mod tests {
 
     fn entry<'a>(supplement: &'a Supplement, word: &str) -> Option<&'a Entry> {
         supplement.entries.iter().find(|entry| entry.word == word)
+    }
+
+    /// 生成器按施加了 `curation/` 两张表之后的对照集合判断：宁波 被覆盖到未排名的权重，就按下限补进来；湖州 hu'zhou 被否决，就当作对照集合里没有它。
+    #[test]
+    fn the_comparison_set_is_read_after_the_curation_tables() {
+        let areas = areas();
+        let curation = PinyinCuration::parse("湖州\thu'zhou\n", "宁波\tning'bo\t5\n").unwrap();
+        let supplement = build(&Inputs {
+            provinces: PROVINCES,
+            cities: CITIES,
+            areas: &areas,
+            single_chars: SINGLE_CHARS,
+            base: BASE_DICT,
+            rime_ice_supplement: "# s\n",
+            curation: &curation,
+        })
+        .unwrap();
+        let ningbo = entry(&supplement, "宁波").unwrap();
+        assert_eq!(ningbo.existing, Some(5));
+        let huzhou = entry(&supplement, "湖州").unwrap();
+        assert_eq!((huzhou.weight, huzhou.existing), (50000, None));
     }
 
     #[test]
@@ -1117,6 +1144,7 @@ mod tests {
             single_chars: SINGLE_CHARS,
             base: &base,
             rime_ice_supplement: "# s\n",
+            curation: &PinyinCuration::default(),
         })
         .unwrap();
         assert_eq!(supplement.common, 5);
@@ -1163,6 +1191,7 @@ mod tests {
             single_chars: SINGLE_CHARS,
             base: &base,
             rime_ice_supplement,
+            curation: &PinyinCuration::default(),
         })
         .unwrap();
         assert_eq!(supplement.common, 5);
@@ -1221,6 +1250,7 @@ mod tests {
             single_chars: SINGLE_CHARS,
             base: &base,
             rime_ice_supplement: "# s\n",
+            curation: &PinyinCuration::default(),
         })
         .unwrap();
         assert_eq!(supplement.common, 5);
@@ -1331,6 +1361,7 @@ mod tests {
             single_chars: SINGLE_CHARS,
             base: BASE_DICT,
             rime_ice_supplement: "",
+            curation: &PinyinCuration::default(),
         })
         .unwrap_err()
         .to_string();

@@ -14,6 +14,7 @@ use std::fmt::Write as _;
 
 use anyhow::{bail, Result};
 
+use crate::curation::PinyinCuration;
 use crate::msime;
 use crate::text;
 use crate::wubi86_supplement::{MIN_PINYIN_WEIGHT, REPORT_EXAMPLES, SUPPLEMENT_CEILING};
@@ -48,6 +49,8 @@ pub struct Inputs<'a> {
     pub pinyin_supplement: &'a str,
     pub places: &'a str,
     pub custom: &'a str,
+    /// msime-dictionary `curation/` 的拼音否决表和权重覆盖表：整词否决的词不收，拼音权重按覆盖后的算。
+    pub curation: &'a PinyinCuration,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -85,12 +88,15 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
             .map(|(code, value, weight)| (code.clone(), value.as_str(), *weight))
             .collect::<Vec<_>>(),
     );
-    let frequency = frequencies([
-        inputs.base,
-        inputs.pinyin_supplement,
-        inputs.places,
-        inputs.custom,
-    ]);
+    let frequency = frequencies(
+        [
+            inputs.base,
+            inputs.pinyin_supplement,
+            inputs.places,
+            inputs.custom,
+        ],
+        inputs.curation,
+    );
 
     let mut jidian: BTreeMap<&str, i64> = BTreeMap::new();
     for (_, value, weight) in text::universal_lines(text::without_bom(inputs.jidian))
@@ -123,6 +129,7 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
         &frequency,
         MIN_PINYIN_WEIGHT,
         &[inputs.places, inputs.custom],
+        inputs.curation,
     );
 
     let mut outside_basic_cjk = 0;
@@ -131,7 +138,7 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
         .copied()
         .chain(wubi98.iter().map(String::as_str))
         .chain(pinyin.iter().copied())
-        .filter(|word| is_word(word))
+        .filter(|word| is_word(word) && !inputs.curation.vetoes_word(word))
         .filter(|word| {
             let outside = msime::outside_basic_cjk(word);
             outside_basic_cjk += usize::from(outside);
@@ -341,6 +348,7 @@ mod tests {
             pinyin_supplement: "",
             places: "",
             custom,
+            curation: &PinyinCuration::default(),
         })
         .unwrap()
     }
@@ -379,6 +387,15 @@ mod tests {
 
     /// 渲染本表、与单字表一起建出 `wubixsj`，再按引擎的排序（权重从高到低，同权重按 rowid）列出一个编码的候选。
     fn merged(supplement: &Supplement, code: &str) -> Vec<(String, i64)> {
+        merged_with(supplement, code, &crate::curation::PinyinVetoes::default())
+    }
+
+    /// 同 [`merged`]，建表时施加 `vetoes` 的整词否决。
+    fn merged_with(
+        supplement: &Supplement,
+        code: &str,
+        vetoes: &crate::curation::PinyinVetoes,
+    ) -> Vec<(String, i64)> {
         let rendered = render(
             supplement,
             &Provenance {
@@ -393,7 +410,7 @@ mod tests {
         let generated = dir.path().join("wubixsj-supplement.txt");
         std::fs::write(&generated, rendered).unwrap();
         let mut connection = rusqlite::Connection::open_in_memory().unwrap();
-        msime::build_wubixsj(&mut connection, &source, &[&generated]).unwrap();
+        msime::build_wubixsj(&mut connection, &source, &[&generated], vetoes).unwrap();
         let rows = connection
             .prepare("SELECT value, weight FROM wubixsj WHERE key = ?1 ORDER BY weight DESC, rowid")
             .unwrap()
@@ -402,6 +419,41 @@ mod tests {
             .map(Result::unwrap)
             .collect();
         rows
+    }
+
+    /// 整词否决的词不进补充表（极点表的词也一样），读音否决和权重覆盖改的是拼音那边的 100 门槛；建表时整词否决的词也不写进 `wubixsj`。
+    #[test]
+    fn curation_tables_reach_the_generator_and_the_table() {
+        let curation =
+            PinyinCuration::parse("部门\n冻冲\tdong'chong\n", "冲冻\tchong'dong\t50\n").unwrap();
+        let supplement = build(&Inputs {
+            wubixsj: WUBIXSJ_FIXTURE,
+            jidian: "部门\tukuy\t30\r\n冲凉\tukuy\t10\r\n冲凉\tuk\t20\r\n工\taaaa\t20\r\n",
+            wubi98: WUBI98_FIXTURE,
+            wubi98_fcitx: "",
+            base: "冻冲\tdong'chong\t500\n冲冻\tchong'dong\t100\n",
+            pinyin_supplement: "",
+            places: "",
+            custom: "",
+            curation: &curation,
+        })
+        .unwrap();
+        assert_eq!(
+            rows(&supplement),
+            [("冲凉", "ukuy", 20), ("人民", "wwna", 9)]
+        );
+        assert_eq!(
+            merged(&supplement, "ukuy"),
+            [("冲凉".to_owned(), 20), ("冰".to_owned(), 10)]
+        );
+        assert_eq!(
+            merged_with(
+                &supplement,
+                "ukuy",
+                &crate::curation::PinyinVetoes::parse("冲凉\n").unwrap()
+            ),
+            [("冰".to_owned(), 10)]
+        );
     }
 
     /// 第二层的上限是同码最低权重减 1、最低为 0：极点表里权重为 0 的第一层词没有更低的权重可给，第二层与它同为 0。这时排序靠行序，第一层仍在第二层前面。

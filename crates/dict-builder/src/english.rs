@@ -8,6 +8,7 @@ use anyhow::{bail, Context, Result};
 use regex::Regex;
 use rusqlite::{params, Connection};
 
+use crate::curation::EnglishVetoes;
 use crate::sqlite;
 use crate::text;
 
@@ -171,6 +172,8 @@ pub struct EnglishWordCounts {
     pub custom_added: usize,
     /// Custom pairs that replaced a base row with the same word and display.
     pub custom_replaced: usize,
+    /// 被否决（[`EnglishVetoes`]）而不写入的小写词和 custom 行。
+    pub vetoed: usize,
 }
 
 /// The weight a custom row is stored with. Base rows are weighted by the word's Google unigram count, 0 when Google never counted it, and the Engine orders a prefix's completions by that weight after the exact word. A custom row takes the same count when there is one, so a custom word sits where its real frequency puts it and never above a word people type more often. A word Google never counted takes its file weight capped just below the smallest count (`ceiling`), which places it after every counted word and ahead of the uncounted base words at 0: reachable from a prefix once the common words are out of the way, always first on its own full spelling, and unable to outrank a common word whatever weight the file gives it. The file weight is therefore only an ordering among uncounted custom words. Never lower than the base row it replaces, since that row already carries the count.
@@ -178,6 +181,7 @@ fn custom_english_weight(entry: &CustomEnglishWord, count: i64, ceiling: i64) ->
     count.max(entry.weight.min(ceiling))
 }
 
+/// `vetoes` 对全部来源一视同仁：OALDPE 词头、`base`（rime-ice 两张词表和 SCOWL 补充表合并后的结果）和 `custom` 里被否决的小写词，任何大小写都不写入。`curation/english-vetoes.txt` 的词在这些来源里一个也没有时失败：表过期了。
 pub fn build_english_words(
     connection: &mut Connection,
     oaldpe: &BTreeSet<String>,
@@ -185,12 +189,38 @@ pub fn build_english_words(
     counts: &HashMap<String, i64>,
     attested: &HashSet<String>,
     custom: &[CustomEnglishWord],
+    vetoes: &EnglishVetoes,
 ) -> Result<EnglishWordCounts> {
-    let words: BTreeSet<&String> = oaldpe.iter().chain(base.keys()).collect();
+    let present: HashSet<&str> = oaldpe
+        .iter()
+        .chain(base.keys())
+        .map(String::as_str)
+        .chain(custom.iter().map(|entry| entry.word.as_str()))
+        .collect();
+    let stale = vetoes.stale(&present);
+    if !stale.is_empty() {
+        bail!(
+            "{}: {} match no English word of any source (drop the entries)",
+            crate::curation::ENGLISH_VETOES,
+            stale.join(", ")
+        );
+    }
+    let all: BTreeSet<&String> = oaldpe.iter().chain(base.keys()).collect();
+    let words: BTreeSet<&String> = all
+        .iter()
+        .copied()
+        .filter(|word| !vetoes.vetoes(word))
+        .collect();
+    let kept_custom: Vec<&CustomEnglishWord> = custom
+        .iter()
+        .filter(|entry| !vetoes.vetoes(&entry.word))
+        .collect();
     let mut result = EnglishWordCounts {
         base: words.len(),
+        vetoed: all.len() - words.len() + custom.len() - kept_custom.len(),
         ..EnglishWordCounts::default()
     };
+    let custom = kept_custom;
     let transaction = connection.transaction()?;
     transaction.execute_batch("DROP TABLE IF EXISTS english_words")?;
     transaction.execute_batch(CREATE_ENGLISH_WORDS)?;
@@ -848,6 +878,11 @@ pub fn parse_custom_translations(text: &str) -> Result<Vec<CustomTranslation>> {
 }
 
 /// One line of custom/translations.txt: `None` for a blank or `#` comment line, an error naming the problem (without its location) for a malformed one. Fields after the gloss are ignored. `check-words` validates contributed lines with this same function.
+/// Whether a custom translation's source is Chinese (a character from U+3400 up), which makes the line Chinese-to-English.
+pub fn is_chinese_source(source: &str) -> bool {
+    source.chars().any(|c| c >= '\u{3400}')
+}
+
 pub fn parse_custom_translation(line: &str) -> Result<Option<CustomTranslation>> {
     let stripped = text::strip(line);
     if stripped.is_empty() || stripped.starts_with('#') {
@@ -862,7 +897,7 @@ pub fn parse_custom_translation(line: &str) -> Result<Option<CustomTranslation>>
         bail!("empty source or gloss");
     }
     Ok(Some(CustomTranslation {
-        chinese_to_english: source.chars().any(|c| c >= '\u{3400}'),
+        chinese_to_english: is_chinese_source(source),
         source: source.to_owned(),
         gloss: gloss.to_owned(),
     }))
@@ -934,7 +969,16 @@ mod tests {
 
         let mut connection = Connection::open_in_memory().unwrap();
         assert_eq!(
-            build_english_words(&mut connection, &oaldpe, &base, &counts, &attested, &[]).unwrap(),
+            build_english_words(
+                &mut connection,
+                &oaldpe,
+                &base,
+                &counts,
+                &attested,
+                &[],
+                &EnglishVetoes::default()
+            )
+            .unwrap(),
             EnglishWordCounts {
                 base: 10,
                 base_rows: 14,
@@ -1058,6 +1102,7 @@ mod tests {
             &counts,
             &HashSet::new(),
             &custom,
+            &EnglishVetoes::default(),
         )
         .unwrap();
         assert_eq!(
@@ -1066,7 +1111,8 @@ mod tests {
                 base: 5,
                 base_rows: 5,
                 custom_added: 5,
-                custom_replaced: 1
+                custom_replaced: 1,
+                vetoed: 0
             }
         );
         let rows = |prefix: &str| -> Vec<(String, i64)> {
@@ -1228,5 +1274,53 @@ mod tests {
             .unwrap();
         assert!(sql.starts_with("CREATE TABLE \"zh_en_glosses\" ("), "{sql}");
         assert!(parse_custom_translations("only-one-field\n").is_err());
+    }
+
+    /// 一个否决集合管全部英文来源：rime-ice 词表（base）、OALDPE 词头和 custom/english.txt 里的蔑称都不写入，任何大小写都不写；curation 文件里的词一个来源也没有时构建失败。
+    #[test]
+    fn english_vetoes_apply_to_every_source() {
+        let base = parse_base_dict_words(
+            "tranny tranny\nTranny Tranny\nnigger nigger\nhello hello\nasdfgh asdfgh\n",
+        )
+        .unwrap();
+        let oaldpe = parse_oaldpe_words("beyatch\nzebra\n").unwrap();
+        let custom = parse_custom_english("chinks\tChinks\t1\nfigma\tFigma\t1\n").unwrap();
+        let counts = parse_google_counts("hello\t100\ntranny\t50\n");
+        let vetoes = EnglishVetoes::parse("asdfgh\n").unwrap();
+        let mut connection = Connection::open_in_memory().unwrap();
+        let written = build_english_words(
+            &mut connection,
+            &oaldpe,
+            &base,
+            &counts,
+            &HashSet::new(),
+            &custom,
+            &vetoes,
+        )
+        .unwrap();
+        assert_eq!(written.vetoed, 5);
+        let mut displays: Vec<String> = connection
+            .prepare("SELECT display FROM english_words ORDER BY display")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        displays.sort();
+        assert_eq!(displays, ["Figma", "hello", "zebra"]);
+
+        let stale = EnglishVetoes::parse("qwertyu\n").unwrap();
+        let error = build_english_words(
+            &mut Connection::open_in_memory().unwrap(),
+            &oaldpe,
+            &base,
+            &counts,
+            &HashSet::new(),
+            &custom,
+            &stale,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("qwertyu"), "{error}");
     }
 }

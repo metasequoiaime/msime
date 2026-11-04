@@ -17,11 +17,14 @@
 //! msime-dict-build languages --dictionary <msime-dictionary checkout> --cache <dir> [--out <dir>] [--offline]
 //! msime-dict-build syllable-frequency --pinyin <msime-pinyin.db> [--out <syllable_frequency.tsv>]
 //! msime-dict-build web --pinyin <msime-pinyin.db> --wubi <msime-wubi.db> --out-dir <dir> [--keep-multi 200000]
-//! msime-dict-build check-words [--base <words.txt> --head <words.txt>] [--translations-base <translations.txt> --translations-head <translations.txt>] [--english-base <english.txt> --english-head <english.txt>] [--cantonese-base <cantonese.txt> --cantonese-head <cantonese.txt> --cantonese-characters <jyut6ping3.chars.dict.yaml>] [--msime-db <msime-pinyin.db>] [--english-db <msime-english.db>] [--cantonese-db <msime-cantonese.db>] [--json <report.json>] [--markdown <summary.md>]
+//! msime-dict-build check-words [--base <words.txt> --head <words.txt>] [--translations-base <translations.txt> --translations-head <translations.txt>] [--english-base <english.txt> --english-head <english.txt>] [--cantonese-base <cantonese.txt> --cantonese-head <cantonese.txt> --cantonese-characters <jyut6ping3.chars.dict.yaml>] [--msime-db <msime-pinyin.db>] [--english-db <msime-english.db>] [--cantonese-db <msime-cantonese.db>] [--pinyin-vetoes <curation/pinyin-vetoes.txt>] [--english-vetoes <curation/english-vetoes.txt>] [--json <report.json>] [--markdown <summary.md>]
+//! msime-dict-build cleanse-report --dictionary <msime-dictionary checkout> --out <dir> [--upstream <rime-ice checkout>] [--ratio 5] [--reference <file>...] [--reference-min 100] [--reference-scale <factor>]
 //! ```
 
 mod cantonese;
 mod check_words;
+mod cleanse_report;
+mod curation;
 mod english;
 mod english_supplement;
 mod hanja;
@@ -53,7 +56,7 @@ mod wubi_supplement;
 mod wubixsj_supplement;
 mod zhuyin;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -72,6 +75,12 @@ enum Stage {
     CustomWords,
     /// Wrong readings listed in resources/dictionary-sources/pinyin-reading-corrections.txt removed from the quanpin tables
     ReadingCorrections,
+    /// 从全拼表删掉 --dictionary checkout 的 curation/pinyin-vetoes.txt 否决的词（整词）或读音（词+全拼）；没有这个文件时什么也不做。
+    WordVetoes,
+    /// 把 --dictionary checkout 的 curation/pinyin-weight-overrides.txt 里每个读音的权重设成给定的值，可降可升，不能改 custom/words.txt 定的权重；没有这个文件时什么也不做。
+    WeightOverrides,
+    /// 把 --dictionary checkout 的 curation/offensive-words.txt 写进 msime-pinyin.db 的 sentence_excluded 表，引擎拼整句时按它拦粗俗词；没有这个文件时不建这张表，引擎用内嵌表。
+    SentenceExcluded,
     /// 86 五笔表：读取固定原表，再从本次 --dictionary 的拼音、人工词条与另一版原表派生补充数据。
     Wubi,
     /// 98 五笔表：读取两张固定原表，再从本次 --dictionary 的拼音、人工词条与 86 原表派生补充数据。
@@ -100,11 +109,14 @@ enum Stage {
 }
 
 /// Build order: later stages read what earlier ones wrote (glosses are weighted by the quanpin tables, the n-gram vocabulary is the finished quanpin tables).
-const STAGES: [Stage; 16] = [
+const STAGES: [Stage; 19] = [
     Stage::Quanpin,
     Stage::PlacesSupplement,
     Stage::CustomWords,
     Stage::ReadingCorrections,
+    Stage::WordVetoes,
+    Stage::WeightOverrides,
+    Stage::SentenceExcluded,
     Stage::Wubi,
     Stage::Wubi98,
     Stage::WubiXsj,
@@ -190,8 +202,69 @@ enum Command {
     Languages(Languages),
     /// 从词库 release 的 msime-pinyin.db 和 msime-wubi.db 裁出网页内置输入法用的 msime-pinyin.db（全部单字加按权重排名前 N 的多字词，不含五笔）和 msime-wubi86.db（只含 86 五笔），给了 --japanese 时再从 msime-japanese.dat 裁出成本最低的 N 条词，都逐字节可复现。
     Web(WebArgs),
+    /// 给 msime-dictionary 的清洗出候选清单（本地权重与上游 rime-ice 相差过大的行、占位权重、压过同键常用词的碎片词、含粗俗词的长词条），每类一个 TSV，不改任何库和源文件；维护者审定后再写进 curation/ 的否决表和权重覆盖表（见 cleanse_report.rs）。
+    CleanseReport(CleanseReport),
     /// 从词库 release 的 msime-pinyin.db 写出九宫格切分用的音节频度表（crates/engine/src/nine_key/syllable_frequency.tsv）：单字行的权重，加上音节在多字词里每出现一次计一次的词的权重。
     SyllableFrequency(SyllableFrequency),
+}
+
+#[derive(Args)]
+struct CleanseReport {
+    /// 读取 `sources/`、`custom/` 和 `curation/` 的 msime-dictionary checkout（按其 `upstream.lock.json` 校验）。
+    #[arg(long, value_name = "PATH")]
+    dictionary: PathBuf,
+    /// 写候选清单的目录。
+    #[arg(long)]
+    out: PathBuf,
+    /// 上游 rime-ice 检出：给了才出 weight-disagreement.tsv，比的是它的 cn_dicts/base.dict.yaml 和 cn_dicts/ext.dict.yaml。
+    #[arg(long, value_name = "PATH")]
+    upstream: Option<PathBuf>,
+    /// 本地权重与上游相差几倍以上才列出。
+    #[arg(long, default_value_t = 5.0)]
+    ratio: f64,
+    /// 参照频率表（Rime 的 .dict.yaml，或 `词<TAB>读音[<TAB>权重]`），可以给多份，同词同音取最大权重。给了才出 fragment-over-common.tsv，占位权重也按它排除参照表收了的词。
+    #[arg(long, value_name = "PATH")]
+    reference: Vec<PathBuf>,
+    /// 参照权重不低于这个值的词算常用词。
+    #[arg(long, default_value_t = 100)]
+    reference_min: i64,
+    /// weight-disagreement.tsv 里，权重恰好等于参照权重乘这个系数（四舍五入）的行算作有意按参照表改写过的，不列出。
+    #[arg(long)]
+    reference_scale: Option<f64>,
+    /// 读取来源锁文件的 msime checkout；表头记下它的提交。
+    #[arg(long, default_value_os_t = repository_root())]
+    repository: PathBuf,
+}
+
+fn build_cleanse_report(arguments: &CleanseReport) -> Result<()> {
+    let root = &arguments.repository;
+    let lock = Lock::load(&root.join("resources/dictionary-sources.lock.json"))?;
+    let dictionary = Dictionary::open(arguments.dictionary.clone(), &lock)?;
+    // 只读 msime-dictionary 里的文件，不经过下载缓存。
+    let sources = Sources {
+        lock,
+        repository_inputs: root.join("resources/dictionary-sources"),
+        cache: PathBuf::new(),
+        offline: true,
+        dictionary: Some(dictionary),
+    };
+    let written = cleanse_report::run(
+        &cleanse_report::Options {
+            repository: root,
+            dictionary: &arguments.dictionary,
+            out: &arguments.out,
+            upstream: arguments.upstream.as_deref(),
+            ratio: arguments.ratio,
+            references: &arguments.reference,
+            reference_min: arguments.reference_min,
+            reference_scale: arguments.reference_scale,
+        },
+        &sources,
+    )?;
+    for (path, count) in written {
+        eprintln!("[done] {count} candidates -> {}", path.display());
+    }
+    Ok(())
 }
 
 #[derive(Args)]
@@ -336,6 +409,7 @@ fn build_places_supplement(arguments: &PlacesSupplement) -> Result<()> {
         dictionary: Some(dictionary),
     };
     let read = |path: &str| -> Result<String> { text::read(&sources.pinned(path)?) };
+    let curation = curation::PinyinCuration::load(&sources)?;
     let (provinces, cities, areas) = (
         read(places::PROVINCES)?,
         read(places::CITIES)?,
@@ -353,6 +427,7 @@ fn build_places_supplement(arguments: &PlacesSupplement) -> Result<()> {
         single_chars: &single_chars,
         base: &base,
         rime_ice_supplement: &rime_ice_supplement,
+        curation: &curation,
     })?;
     let pinned = |path: &str| {
         sources
@@ -373,13 +448,19 @@ fn build_places_supplement(arguments: &PlacesSupplement) -> Result<()> {
     let base_sha256 = digest(places_supplement::BASE)?;
     let rime_ice_supplement_sha256 = digest(places_supplement::RIME_ICE_SUPPLEMENT)?;
     let single_chars_sha256 = digest(places_supplement::SINGLE_CHARS)?;
-    let compared = [
+    let curation_digests = curation::present_digests(&sources, &curation::PINYIN_TABLES)?;
+    let mut compared = vec![
         (places_supplement::BASE, base_sha256.as_str()),
         (
             places_supplement::RIME_ICE_SUPPLEMENT,
             rime_ice_supplement_sha256.as_str(),
         ),
     ];
+    compared.extend(
+        curation_digests
+            .iter()
+            .map(|(path, sha256)| (*path, sha256.as_str())),
+    );
     let generator_commit = product::builder_commit(root)?;
     let rendered = places_supplement::render(
         &supplement,
@@ -557,6 +638,7 @@ fn build_wubi86_supplement(arguments: &Wubi86Supplement) -> Result<()> {
         dictionary: Some(dictionary),
     };
     let read = |path: &str| -> Result<String> { text::read(&sources.pinned(path)?) };
+    let curation = curation::PinyinCuration::load(&sources)?;
     let wubi98_path = sources.pinned(wubi86_supplement::WUBI98)?;
     let wubi98 = msime::decode_utf16le(&crate::sources::read_private(&wubi98_path)?)
         .with_context(|| format!("decoding {}", wubi98_path.display()))?;
@@ -573,6 +655,7 @@ fn build_wubi86_supplement(arguments: &Wubi86Supplement) -> Result<()> {
         pinyin_supplement: &read(wubi86_supplement::PINYIN_SUPPLEMENT)?,
         places: &read(wubi86_supplement::PLACES)?,
         custom: &read(wubi86_supplement::CUSTOM)?,
+        curation: &curation,
     })?;
     // 表头里的 SHA-256 按实际读到的字节计算。
     let digests = [
@@ -586,6 +669,11 @@ fn build_wubi86_supplement(arguments: &Wubi86Supplement) -> Result<()> {
     ]
     .into_iter()
     .map(|path| Ok((path, sha256_file(&sources.pinned(path)?)?)))
+    .chain(
+        curation::present_digests(&sources, &curation::PINYIN_TABLES)?
+            .into_iter()
+            .map(Ok),
+    )
     .collect::<Result<Vec<_>>>()?;
     let inputs: Vec<(&str, &str)> = digests
         .iter()
@@ -686,6 +774,7 @@ fn build_wubi98_supplement(arguments: &Wubi98Supplement) -> Result<()> {
         dictionary: Some(dictionary),
     };
     let read = |path: &str| -> Result<String> { text::read(&sources.pinned(path)?) };
+    let curation = curation::PinyinCuration::load(&sources)?;
     let wubi98_path = sources.pinned(wubi98_supplement::WUBI98)?;
     let wubi98 = msime::decode_utf16le(&crate::sources::read_private(&wubi98_path)?)
         .with_context(|| format!("decoding {}", wubi98_path.display()))?;
@@ -702,6 +791,7 @@ fn build_wubi98_supplement(arguments: &Wubi98Supplement) -> Result<()> {
         pinyin_supplement: &read(wubi98_supplement::PINYIN_SUPPLEMENT)?,
         places: &read(wubi98_supplement::PLACES)?,
         custom: &read(wubi98_supplement::CUSTOM)?,
+        curation: &curation,
     })?;
     // 表头里的 SHA-256 按实际读到的字节计算。
     let digests = [
@@ -715,6 +805,11 @@ fn build_wubi98_supplement(arguments: &Wubi98Supplement) -> Result<()> {
     ]
     .into_iter()
     .map(|path| Ok((path, sha256_file(&sources.pinned(path)?)?)))
+    .chain(
+        curation::present_digests(&sources, &curation::PINYIN_TABLES)?
+            .into_iter()
+            .map(Ok),
+    )
     .collect::<Result<Vec<_>>>()?;
     let inputs: Vec<(&str, &str)> = digests
         .iter()
@@ -773,6 +868,7 @@ fn build_wubixsj_supplement(arguments: &WubiXsjSupplement) -> Result<()> {
         dictionary: Some(dictionary),
     };
     let read = |path: &str| -> Result<String> { text::read(&sources.pinned(path)?) };
+    let curation = curation::PinyinCuration::load(&sources)?;
     let wubi98_path = sources.pinned(wubixsj_supplement::WUBI98)?;
     let wubi98 = msime::decode_utf16le(&crate::sources::read_private(&wubi98_path)?)
         .with_context(|| format!("decoding {}", wubi98_path.display()))?;
@@ -791,6 +887,7 @@ fn build_wubixsj_supplement(arguments: &WubiXsjSupplement) -> Result<()> {
         pinyin_supplement: &read(wubixsj_supplement::PINYIN_SUPPLEMENT)?,
         places: &read(wubixsj_supplement::PLACES)?,
         custom: &read(wubixsj_supplement::CUSTOM)?,
+        curation: &curation,
     })?;
     // 表头里的 SHA-256 按实际读到的字节计算。
     let digests = [
@@ -805,6 +902,11 @@ fn build_wubixsj_supplement(arguments: &WubiXsjSupplement) -> Result<()> {
     ]
     .into_iter()
     .map(|path| Ok((path, sha256_file(&sources.pinned(path)?)?)))
+    .chain(
+        curation::present_digests(&sources, &curation::PINYIN_TABLES)?
+            .into_iter()
+            .map(Ok),
+    )
     .collect::<Result<Vec<_>>>()?;
     let inputs: Vec<(&str, &str)> = digests
         .iter()
@@ -1035,6 +1137,12 @@ struct CheckWords {
     /// 已发布的 msime-cantonese.db：同一去声调粤拼下已有同一个词的新行被拒绝。
     #[arg(long)]
     cantonese_db: Option<PathBuf>,
+    /// msime-dictionary 的 curation/pinyin-vetoes.txt：custom/words.txt 新加的词被整词否决或按读音否决时拒绝。文件不在时按空表。
+    #[arg(long)]
+    pinyin_vetoes: Option<PathBuf>,
+    /// msime-dictionary 的 curation/english-vetoes.txt：custom/english.txt 新加的词在其中时拒绝；文件不在时按空表。构建器内置的蔑称不给这个参数也拒绝。
+    #[arg(long)]
+    english_vetoes: Option<PathBuf>,
     /// Where the JSON report is written.
     #[arg(long)]
     json: Option<PathBuf>,
@@ -1065,6 +1173,24 @@ fn check_words(arguments: &CheckWords) -> Result<bool> {
         .map(cantonese::parse_characters)
         .transpose()?;
     let readings = characters.as_deref().map(cantonese::character_readings);
+    // 否决表和构建一样，文件不在就是空表：check-words.yml 传 head 检出里的路径，词库仓库还没有这张表时照常检查。
+    let optional = |path: &Path| -> Result<String> {
+        if path.exists() {
+            text::read(path)
+        } else {
+            Ok(String::new())
+        }
+    };
+    let pinyin_vetoes = arguments
+        .pinyin_vetoes
+        .as_deref()
+        .map(|path| curation::PinyinVetoes::parse(&optional(path)?))
+        .transpose()?;
+    let english_vetoes = arguments
+        .english_vetoes
+        .as_deref()
+        .map(|path| curation::EnglishVetoes::parse(&optional(path)?))
+        .transpose()?;
     let mut contents = Vec::new();
     for (kind, base, head) in [
         (check_words::Kind::Words, &arguments.base, &arguments.head),
@@ -1101,6 +1227,8 @@ fn check_words(arguments: &CheckWords) -> Result<bool> {
         english: english.as_ref(),
         cantonese: cantonese.as_ref(),
         cantonese_readings: readings.as_ref(),
+        pinyin_vetoes: pinyin_vetoes.as_ref(),
+        english_vetoes: english_vetoes.as_ref(),
     };
     let report = check_words::check(&inputs, shipped)?;
     if let Some(path) = &arguments.json {
@@ -1193,6 +1321,83 @@ impl Build {
         sqlite::open(&self.out.join(name))
     }
 
+    /// 五笔原表（86 极点表、两张 98 表）里的全部词，`word-vetoes` 判断只在五笔里出现的整词否决是否过期时用。新世纪表只收单字，整词否决不收单字，所以不读它。
+    /// The quanpin stage's inputs: the single-character table, the whitelist it is filtered by (only with the licensing record), and the phrase inputs in load order.
+    fn quanpin_inputs(&self) -> Result<(PathBuf, Option<HashSet<String>>, Vec<PathBuf>)> {
+        let single_chars = self.sources.pinned("sources/pinyin/single-chars.txt")?;
+        let (mut phrases, whitelist) = if self.complete {
+            let mut whitelist = msime::parse_whitelist(&text::read(
+                &self.sources.pinned(licensing::SINGLE_CHAR_WHITELIST)?,
+            )?);
+            whitelist.extend(msime::parse_whitelist(&text::read(
+                &self.sources.repository(msime::WHITELIST_ADDITIONS)?,
+            )?));
+            (
+                vec![
+                    self.sources.pinned(licensing::BASE_DICT_PART1)?,
+                    self.sources.pinned(licensing::BASE_DICT_PART2)?,
+                ],
+                Some(whitelist),
+            )
+        } else {
+            // Without a provenance record the whitelist cannot be applied, so every single character of the licensed source is accepted.
+            (
+                vec![self.sources.pinned("sources/pinyin/rime-ice.txt")?],
+                None,
+            )
+        };
+        phrases.push(
+            self.sources
+                .pinned("sources/pinyin/rime-ice-supplement.txt")?,
+        );
+        Ok((single_chars, whitelist, phrases))
+    }
+
+    /// 覆盖表也列了的 custom 词里，哪些是 custom-words 阶段从已有的行提了权的（[`curation::custom_promotions`]）：按 `quanpin` 和 `places-supplement` 两个阶段读的输入重新取 custom 之前的权重。
+    fn custom_promotions<'a>(
+        &self,
+        listed: impl IntoIterator<Item = &'a msime::CustomWord>,
+    ) -> Result<HashMap<(String, String), (i64, i64)>> {
+        let (single_chars, whitelist, phrases) = self.quanpin_inputs()?;
+        let mut texts = vec![(text::read(&single_chars)?, whitelist.as_ref())];
+        for path in phrases
+            .iter()
+            .chain([&self.sources.pinned(places_supplement::OUTPUT)?])
+        {
+            texts.push((text::read(path)?, None));
+        }
+        let earlier: Vec<(&str, Option<&HashSet<String>>)> = texts
+            .iter()
+            .map(|(text, accepted)| (text.as_str(), *accepted))
+            .collect();
+        Ok(curation::custom_promotions(listed, &earlier))
+    }
+
+    fn wubi_source_words(&self) -> Result<HashSet<String>> {
+        let mut words = HashSet::new();
+        let jidian = text::read(&self.sources.pinned(wubi86_supplement::JIDIAN)?)?;
+        for line in text::universal_lines(text::without_bom(&jidian)) {
+            if let Some((_, value, _)) = msime::parse_code_line(line, false) {
+                words.insert(value.to_owned());
+            }
+        }
+        let wubi98_path = self.sources.pinned(wubi98_supplement::WUBI98)?;
+        let wubi98 = msime::decode_utf16le(&crate::sources::read_private(&wubi98_path)?)
+            .with_context(|| format!("decoding {}", wubi98_path.display()))?;
+        for line in text::universal_lines(text::without_bom(&wubi98)) {
+            if let Some((_, value)) = msime::parse_wubi98_line(line) {
+                words.insert(value.to_owned());
+            }
+        }
+        let fcitx = text::read(&self.sources.pinned(wubi98_supplement::WUBI98_FCITX)?)?;
+        for line in text::universal_lines(&fcitx) {
+            if let Some((_, value)) = msime::parse_fcitx_wubi98_line(line) {
+                words.insert(value);
+            }
+        }
+        Ok(words)
+    }
+
     fn pinyin(&self) -> Result<pinyin::Pinyin> {
         pinyin::Pinyin::with_overrides(&text::read(&self.sources.repository(pinyin::OVERRIDES)?)?)
     }
@@ -1215,33 +1420,7 @@ impl Build {
     fn run(&self, stage: Stage) -> Result<String> {
         match stage {
             Stage::Quanpin => {
-                let single_chars = self.sources.pinned("sources/pinyin/single-chars.txt")?;
-                let (phrases, whitelist) = if self.complete {
-                    let mut whitelist = msime::parse_whitelist(&text::read(
-                        &self.sources.pinned(licensing::SINGLE_CHAR_WHITELIST)?,
-                    )?);
-                    whitelist.extend(msime::parse_whitelist(&text::read(
-                        &self.sources.repository(msime::WHITELIST_ADDITIONS)?,
-                    )?));
-                    (
-                        vec![
-                            self.sources.pinned(licensing::BASE_DICT_PART1)?,
-                            self.sources.pinned(licensing::BASE_DICT_PART2)?,
-                        ],
-                        Some(whitelist),
-                    )
-                } else {
-                    // Without a provenance record the whitelist cannot be applied, so every single character of the licensed source is accepted.
-                    (
-                        vec![self.sources.pinned("sources/pinyin/rime-ice.txt")?],
-                        None,
-                    )
-                };
-                let supplement = self
-                    .sources
-                    .pinned("sources/pinyin/rime-ice-supplement.txt")?;
-                let mut phrases = phrases;
-                phrases.push(supplement);
+                let (single_chars, whitelist, phrases) = self.quanpin_inputs()?;
                 let inputs = msime::QuanpinInputs {
                     single_chars: &single_chars,
                     whitelist,
@@ -1289,16 +1468,89 @@ impl Build {
                 )?;
                 Ok(format!("{} entries: {removed} rows removed", entries.len()))
             }
+            Stage::WordVetoes => {
+                let vetoes = curation::PinyinCuration::load(&self.sources)?.vetoes;
+                if vetoes.is_empty() {
+                    return Ok(format!("no entries in {}", curation::PINYIN_VETOES));
+                }
+                let counts = curation::apply_word_vetoes(
+                    &mut self.database("msime-pinyin.db")?,
+                    &vetoes,
+                    || self.wubi_source_words(),
+                )?;
+                Ok(format!(
+                    "{} entries: {} rows removed, {} whole-word entries only in the Wubi tables",
+                    vetoes.entries.len(),
+                    counts.removed,
+                    counts.wubi_only
+                ))
+            }
+            Stage::WeightOverrides => {
+                let overrides = curation::PinyinCuration::load(&self.sources)?.overrides;
+                if overrides.is_empty() {
+                    return Ok(format!(
+                        "no entries in {}",
+                        curation::PINYIN_WEIGHT_OVERRIDES
+                    ));
+                }
+                let custom = msime::parse_custom_words(&text::read(
+                    &self.sources.pinned("custom/words.txt")?,
+                )?)?;
+                let listed: Vec<&msime::CustomWord> = custom
+                    .iter()
+                    .filter(|entry| overrides.get(&entry.value, &entry.key).is_some())
+                    .collect();
+                let promoted = if listed.is_empty() {
+                    HashMap::new()
+                } else {
+                    self.custom_promotions(listed)?
+                };
+                let counts = curation::apply_weight_overrides(
+                    &mut self.database("msime-pinyin.db")?,
+                    &overrides,
+                    &promoted,
+                )?;
+                Ok(format!(
+                    "{} entries: {} rows changed, {} already at their weight",
+                    overrides.entries.len(),
+                    counts.changed,
+                    counts.unchanged
+                ))
+            }
+            Stage::SentenceExcluded => {
+                let Some(text) = curation::read_optional(&self.sources, curation::OFFENSIVE_WORDS)?
+                else {
+                    let path = self.out.join("msime-pinyin.db");
+                    let dropped =
+                        path.is_file() && curation::drop_sentence_excluded(&sqlite::open(&path)?)?;
+                    return Ok(format!(
+                        "left out: no {}, so the engine uses its embedded list{}",
+                        curation::OFFENSIVE_WORDS,
+                        if dropped {
+                            " (dropped the table an earlier build left in --out)"
+                        } else {
+                            ""
+                        }
+                    ));
+                };
+                let entries = curation::parse_offensive_words(&text)?;
+                let (listed, exempt) = curation::write_sentence_excluded(
+                    &mut self.database("msime-pinyin.db")?,
+                    &entries,
+                )?;
+                Ok(format!("{listed} words and {exempt} exempt patterns"))
+            }
             Stage::Wubi => {
                 let jidian = self.sources.pinned(wubi86_supplement::JIDIAN)?;
                 let supplement = self.fresh_wubi_supplement(WubiTable::Wubi86)?;
                 let custom = self.sources.optional(msime::CUSTOM_WUBI86)?;
                 let mut paths = vec![jidian.as_path(), supplement.as_path()];
                 paths.extend(custom.as_deref());
-                let (imported, skipped, filtered) =
-                    msime::build_wubi(&mut self.database("msime-pinyin.db")?, &paths)?;
+                let vetoes = curation::PinyinCuration::load(&self.sources)?.vetoes;
+                let (imported, skipped, filtered, vetoed) =
+                    msime::build_wubi(&mut self.database("msime-pinyin.db")?, &paths, &vetoes)?;
                 Ok(format!(
-                    "{imported} rows imported, {skipped} skipped, {filtered} unsupported Wubi values left out{}",
+                    "{imported} rows imported, {skipped} skipped, {filtered} unsupported Wubi values left out, {vetoed} vetoed{}",
                     if custom.is_some() {
                         ""
                     } else {
@@ -1309,13 +1561,17 @@ impl Build {
             Stage::Wubi98 => {
                 let supplement = self.sources.pinned(wubi98_supplement::WUBI98_FCITX)?;
                 let generated = self.fresh_wubi_supplement(WubiTable::Wubi98)?;
-                let (imported, skipped) = msime::build_wubi98_sources(
+                let vetoes = curation::PinyinCuration::load(&self.sources)?.vetoes;
+                let (imported, skipped, vetoed) = msime::build_wubi98_sources(
                     &mut self.database("msime-pinyin.db")?,
                     &self.sources.pinned(wubi98_supplement::WUBI98)?,
                     &[supplement.as_path()],
                     &[generated.as_path()],
+                    &vetoes,
                 )?;
-                Ok(format!("{imported} rows imported, {skipped} skipped"))
+                Ok(format!(
+                    "{imported} rows imported, {skipped} skipped, {vetoed} vetoed"
+                ))
             }
             Stage::WubiXsj => {
                 let dictionary = &self
@@ -1331,14 +1587,16 @@ impl Build {
                     ));
                 }
                 let generated = self.fresh_wubi_supplement(WubiTable::WubiXsj)?;
+                let vetoes = curation::PinyinCuration::load(&self.sources)?.vetoes;
                 let counts = msime::build_wubixsj(
                     &mut self.database("msime-pinyin.db")?,
                     &self.sources.pinned(wubixsj_supplement::WUBIXSJ)?,
                     &[generated.as_path()],
+                    &vetoes,
                 )?;
                 Ok(format!(
-                    "{} rows imported, {} skipped, {} single-character rows outside the basic CJK block or with an invalid code left out, {} upstream words left out",
-                    counts.imported, counts.skipped, counts.filtered, counts.phrases
+                    "{} rows imported, {} skipped, {} single-character rows outside the basic CJK block or with an invalid code left out, {} upstream words left out, {} vetoed",
+                    counts.imported, counts.skipped, counts.filtered, counts.phrases, counts.vetoed
                 ))
             }
             Stage::QuickPhrases => {
@@ -1376,6 +1634,7 @@ impl Build {
                     &self.sources.pinned(english::CUSTOM_ENGLISH)?,
                 )?)?;
                 let mut database = self.database("msime-english.db")?;
+                let vetoes = curation::EnglishVetoes::load(&self.sources)?;
                 let rows = english::build_english_words(
                     &mut database,
                     &oaldpe,
@@ -1383,6 +1642,7 @@ impl Build {
                     &counts,
                     &attested,
                     &custom,
+                    &vetoes,
                 )?;
                 english::write_notices(
                     &mut database,
@@ -1396,14 +1656,15 @@ impl Build {
                     english_supplement::COPYRIGHT,
                 )?;
                 Ok(format!(
-                    "{} words in {} rows ({} from rime-ice supplement, {} from SCOWL), {} custom rows: {} added, {} replacing a base row",
+                    "{} words in {} rows ({} from rime-ice supplement, {} from SCOWL), {} custom rows: {} added, {} replacing a base row; {} words and custom rows vetoed",
                     rows.base,
                     rows.base_rows,
                     supplement_added,
                     scowl_added,
                     custom.len(),
                     rows.custom_added,
-                    rows.custom_replaced
+                    rows.custom_replaced,
+                    rows.vetoed
                 ))
             }
             Stage::EnglishGlosses => {
@@ -1436,11 +1697,18 @@ impl Build {
                 let entries = english::parse_custom_translations(&text::read(
                     &self.sources.pinned(english::CUSTOM_TRANSLATIONS)?,
                 )?)?;
-                english::apply_custom_translations(
-                    &mut self.database("msime-english.db")?,
-                    &entries,
-                )?;
-                Ok(format!("{} overrides", entries.len()))
+                let vetoes = curation::EnglishVetoes::load(&self.sources)?;
+                let (vetoed, kept): (Vec<_>, Vec<_>) = entries.into_iter().partition(|entry| {
+                    vetoes
+                        .vetoed_translation(&entry.source, &entry.gloss)
+                        .is_some()
+                });
+                english::apply_custom_translations(&mut self.database("msime-english.db")?, &kept)?;
+                Ok(format!(
+                    "{} overrides, {} left out for a vetoed English word",
+                    kept.len(),
+                    vetoed.len()
+                ))
             }
             Stage::Emoji => {
                 let catalog = others::read_emoji_catalog(&text::read(
@@ -1606,6 +1874,9 @@ fn main() -> Result<()> {
     }
     if let Some(Command::SyllableFrequency(frequency)) = &arguments.command {
         return build_syllable_frequency(frequency);
+    }
+    if let Some(Command::CleanseReport(report)) = &arguments.command {
+        return build_cleanse_report(report);
     }
     if let Some(Command::CheckWords(check)) = &arguments.command {
         match check_words(check) {
@@ -1886,6 +2157,129 @@ mod tests {
             |row| row.get(0),
         )
         .unwrap()
+    }
+
+    /// 没有 `curation/` 的 checkout：三个新阶段什么也不做，`msime-pinyin.db` 逐字节不变，也不建 `sentence_excluded`。有表时按表删行、改权重、写粗俗词表；整词否决只在五笔原表里出现也算匹配到，什么也匹配不到时失败；覆盖表能改 custom 新插入的词，不能改 custom 提过权的行；整词否决的词不进五笔表。
+    #[test]
+    fn curation_stages_are_no_ops_without_tables_and_apply_them_when_present() {
+        let (_temporary, dictionary, out, build) = wubi_fixture(XsjCheckout::Published);
+        std::fs::write(
+            dictionary.join("sources/pinyin/single-chars.txt"),
+            "甲\tjia\t1000\n乙\tyi\t1000\n",
+        )
+        .unwrap();
+        for stage in [Stage::Quanpin, Stage::CustomWords] {
+            build.run(stage).unwrap();
+        }
+        let path = out.join("msime-pinyin.db");
+        let before = sha256_file(&path).unwrap();
+        for stage in [
+            Stage::WordVetoes,
+            Stage::WeightOverrides,
+            Stage::SentenceExcluded,
+        ] {
+            build.run(stage).unwrap();
+        }
+        assert_eq!(sha256_file(&path).unwrap(), before);
+        assert!(!has_table(
+            &rusqlite::Connection::open(&path).unwrap(),
+            "sentence_excluded"
+        ));
+
+        let curation = |name: &str, text: &str| {
+            std::fs::create_dir_all(dictionary.join("curation")).unwrap();
+            std::fs::write(dictionary.join("curation").join(name), text).unwrap();
+        };
+        curation("pinyin-vetoes.txt", "乙\tyi\n乙乙\n");
+        curation("pinyin-weight-overrides.txt", "甲\tjia\t50\n");
+        curation("offensive-words.txt", "甲乙\n");
+        let summary = build.run(Stage::WordVetoes).unwrap();
+        assert!(
+            summary.contains("1 whole-word entries only in the Wubi tables"),
+            "{summary}"
+        );
+        build.run(Stage::WeightOverrides).unwrap();
+        build.run(Stage::SentenceExcluded).unwrap();
+        let db = rusqlite::Connection::open(&path).unwrap();
+        let weight = |value: &str| -> Option<i64> {
+            db.query_row(
+                "SELECT max(weight) FROM tbl_1_j WHERE value = ?1",
+                [value],
+                |row| row.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(weight("甲"), Some(50));
+        assert_eq!(
+            db.query_row(
+                "SELECT count(*) FROM tbl_1_y WHERE value = '乙'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            db.query_row("SELECT value FROM sentence_excluded", [], |row| row
+                .get::<_, String>(0))
+                .unwrap(),
+            "甲乙"
+        );
+        drop(db);
+        build.run(Stage::Wubi).unwrap();
+        let db = rusqlite::Connection::open(&path).unwrap();
+        assert_eq!(
+            db.query_row(
+                "SELECT count(*) FROM wubi86 WHERE value = '乙乙'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            0
+        );
+        drop(db);
+
+        curation("pinyin-vetoes.txt", "丙丙\n");
+        let error = format!("{:#}", build.run(Stage::WordVetoes).unwrap_err());
+        assert!(error.contains("丙丙 (line 1)"), "{error}");
+        // custom 新插入的 甲乙 可以覆盖；custom 把 甲 从单字表的 1000 提到 5000 之后，覆盖 甲 失败。
+        curation("pinyin-vetoes.txt", "");
+        curation("pinyin-weight-overrides.txt", "甲乙\tjia'yi\t5\n");
+        build.run(Stage::WeightOverrides).unwrap();
+        let db = rusqlite::Connection::open(&path).unwrap();
+        assert_eq!(
+            db.query_row(
+                "SELECT weight FROM tbl_2_j WHERE value = '甲乙'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            5
+        );
+        drop(db);
+        std::fs::write(
+            dictionary.join(wubi86_supplement::CUSTOM),
+            "甲乙\tjia'yi\t1\n甲\tjia\t5000\n",
+        )
+        .unwrap();
+        for stage in [Stage::Quanpin, Stage::CustomWords] {
+            build.run(stage).unwrap();
+        }
+        curation("pinyin-weight-overrides.txt", "甲\tjia\t50\n");
+        let error = format!("{:#}", build.run(Stage::WeightOverrides).unwrap_err());
+        assert!(
+            error.contains("甲 jia (line 1, raised from 1000 to 5000 by custom/words.txt)"),
+            "{error}"
+        );
+
+        // 表删掉以后，--out 里上一次留下的 sentence_excluded 也删掉，引擎退回内嵌表。
+        std::fs::remove_file(dictionary.join("curation/offensive-words.txt")).unwrap();
+        let summary = build.run(Stage::SentenceExcluded).unwrap();
+        assert!(summary.contains("dropped"), "{summary}");
+        assert!(!has_table(
+            &rusqlite::Connection::open(&path).unwrap(),
+            "sentence_excluded"
+        ));
     }
 
     #[test]

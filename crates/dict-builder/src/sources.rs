@@ -49,8 +49,8 @@ impl Lock {
     }
 }
 
-/// 构建器读取的 msime-dictionary 顶层目录；其下的路径只从 `--dictionary` checkout 读取，锁文件不固定其中任何文件。
-const DICTIONARY_DIRECTORIES: [&str; 2] = ["sources/", "custom/"];
+/// 构建器读取的 msime-dictionary 顶层目录；其下的路径只从 `--dictionary` checkout 读取，锁文件不固定其中任何文件。`curation/` 是维护者审定的否决表、权重覆盖表和粗俗词表（`curation.rs`），不接受投稿，也不是 msime-web、msime-cloud 读写的 `custom/`。
+const DICTIONARY_DIRECTORIES: [&str; 3] = ["sources/", "custom/", "curation/"];
 /// msime 认定为上游数据的 msime-dictionary 文件：原样复制自某个上游、或由 msime 的生成器从某个上游生成（`hkcancor-counts` 来自 HKCanCor，`english-supplement` 来自 SCOWL），写成精确路径或目录前缀，并配上上游名。manifest 的 references 和 `mozc_revision`、语言词库的 `source_commit` 以及随包许可证都写着这些上游的提交，所以 checkout 的 `upstream.lock.json` 必须用同一个上游名列出这些路径，并固定它们的大小和 SHA-256；记录里每个上游的提交必须等于锁文件的同名 reference（`mozc` 对应 `lock.mozc`）。要换成新版上游，先在 msime 改 reference 和 `resources/licenses`，再改 `upstream.lock.json`。
 const UPSTREAM_FILES: [(&str, &str); 17] = [
     ("sources/pinyin/rime-ice.txt", "rime-ice"),
@@ -249,14 +249,20 @@ impl Sources {
             .map(|dictionary| dictionary.root.join(path))
     }
 
-    /// msime-dictionary 里可以没有的手工文件：checkout 里还没有它（加入它之前的提交，或者构建器的固定提交先于词库仓库加上它）时为 `None`，构建按空表进行；文件存在时与其他 checkout 文件一样经 [`Self::pinned`] 检查路径。
+    /// msime-dictionary 里可以不存在的输入（`curation/` 下的表、`custom/wubi86.txt`）：在 checkout 里就返回它的位置，不在时为 `None`。路径不属于 msime-dictionary、没有 checkout、路径里有符号链接、或者那个位置不是普通文件时报错。
     pub fn optional(&self, path: &str) -> Result<Option<PathBuf>> {
-        let Some(resolved) = self.checkout_file(path) else {
-            return Ok(None);
+        if !is_dictionary_path(path) {
+            bail!("{path} is not msime-dictionary data");
+        }
+        let Some(dictionary) = self.dictionary.as_ref() else {
+            bail!("{path} is msime-dictionary data; pass --dictionary <msime-dictionary checkout>");
         };
+        let resolved = dictionary_checkout_path(&dictionary.root, path)?;
         match std::fs::symlink_metadata(&resolved) {
+            Ok(metadata) if metadata.is_file() => Ok(Some(resolved)),
+            Ok(_) => bail!("{} is not a regular file", resolved.display()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            _ => self.pinned(path).map(Some),
+            Err(error) => Err(error.into()),
         }
     }
 

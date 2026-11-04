@@ -11,6 +11,7 @@ use std::fmt::Write as _;
 
 use anyhow::{bail, Result};
 
+use crate::curation::PinyinCuration;
 use crate::msime;
 use crate::wubi86_supplement::{MIN_PINYIN_WEIGHT, REPORT_EXAMPLES, SUPPLEMENT_CEILING};
 use crate::wubi_supplement::{frequencies, is_word, pinyin_words, rank};
@@ -34,6 +35,8 @@ pub struct Inputs<'a> {
     pub pinyin_supplement: &'a str,
     pub places: &'a str,
     pub custom: &'a str,
+    /// msime-dictionary `curation/` 的拼音否决表和权重覆盖表：整词否决的词不收，拼音权重按覆盖后的算。
+    pub curation: &'a PinyinCuration,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,8 +64,10 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
     if weighted.is_empty() {
         bail!("{WUBI98} and {WUBI98_FCITX} have no rows");
     }
+    // 构建不把整词否决的词写进 wubi98，同码最低权重和全码也就不算它们。
     let rows: Vec<(String, &str, i64)> = weighted
         .iter()
+        .filter(|(_, value, _)| !inputs.curation.vetoes_word(value))
         .map(|(code, value, weight)| (code.clone(), value.as_str(), *weight))
         .collect();
     let wubi98_words: HashSet<&str> = rows
@@ -70,12 +75,15 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
         .filter(|(_, value, _)| value.chars().count() >= 2)
         .map(|(_, value, _)| *value)
         .collect();
-    let frequency = frequencies([
-        inputs.base,
-        inputs.pinyin_supplement,
-        inputs.places,
-        inputs.custom,
-    ]);
+    let frequency = frequencies(
+        [
+            inputs.base,
+            inputs.pinyin_supplement,
+            inputs.places,
+            inputs.custom,
+        ],
+        inputs.curation,
+    );
 
     let jidian: BTreeSet<&str> = text::universal_lines(text::without_bom(inputs.jidian))
         .into_iter()
@@ -90,6 +98,7 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
         &frequency,
         MIN_PINYIN_WEIGHT,
         &[inputs.places, inputs.custom],
+        inputs.curation,
     );
 
     let mut outside_basic_cjk = 0;
@@ -97,7 +106,9 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
         .iter()
         .chain(pinyin.iter())
         .copied()
-        .filter(|word| is_word(word) && !wubi98_words.contains(word))
+        .filter(|word| {
+            is_word(word) && !wubi98_words.contains(word) && !inputs.curation.vetoes_word(word)
+        })
         .filter(|word| {
             let outside = msime::outside_basic_cjk(word);
             outside_basic_cjk += usize::from(outside);
@@ -220,6 +231,7 @@ mod tests {
             pinyin_supplement: "",
             places: "",
             custom: "",
+            curation: &PinyinCuration::default(),
         })
         .unwrap()
     }
@@ -297,6 +309,7 @@ mod tests {
             pinyin_supplement: "工人\tgong'ren\t100\n",
             places: "工人日\tgong'ren'ri\t1\n",
             custom: "工人民\tgong'ren'min\t1\n工人\tgong'ren\t100\n",
+            curation: &PinyinCuration::default(),
         })
         .unwrap();
         assert_eq!(
@@ -307,6 +320,31 @@ mod tests {
                 ("工人民", "awna", 9),
                 ("日日", "jjjj", 9)
             ]
+        );
+    }
+
+    /// 整词否决的词不进补充表（极点表和区划表的词也一样），读音否决和权重覆盖改的是拼音那边的 100 门槛；98 主表里被整词否决的词不再算 98 表已有。
+    #[test]
+    fn curation_tables_reach_the_generator() {
+        let curation = PinyinCuration::parse(
+            "日日\n工人日\n人民\n工人\tgong'ren\n",
+            "日工\tri'gong\t100\n",
+        )
+        .unwrap();
+        let supplement = build(&Inputs {
+            wubi98: WUBI98_FIXTURE,
+            wubi98_fcitx: "",
+            jidian: "日日\tjjjj\t10\n人民\twwna\t20\n",
+            base: "日工\tri'gong\t99\n",
+            pinyin_supplement: "工人\tgong'ren\t100\n",
+            places: "工人日\tgong'ren'ri\t1\n",
+            custom: "工人民\tgong'ren'min\t1\n工人\tgong'ren\t100\n",
+            curation: &curation,
+        })
+        .unwrap();
+        assert_eq!(
+            rows(&supplement),
+            [("工人民", "awna", 9), ("日工", "jjaa", 9)]
         );
     }
 
@@ -357,7 +395,14 @@ mod tests {
         let generated = dir.path().join("wubi98-supplement.txt");
         std::fs::write(&generated, rendered).unwrap();
         let mut connection = rusqlite::Connection::open_in_memory().unwrap();
-        msime::build_wubi98_sources(&mut connection, &primary_path, &[], &[&generated]).unwrap();
+        msime::build_wubi98_sources(
+            &mut connection,
+            &primary_path,
+            &[],
+            &[&generated],
+            &crate::curation::PinyinVetoes::default(),
+        )
+        .unwrap();
         let ukuy: Vec<(String, i64)> = connection
             .prepare(
                 "SELECT value, weight FROM wubi98 WHERE key = 'ukuy' ORDER BY weight DESC, rowid",
