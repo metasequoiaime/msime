@@ -2640,7 +2640,8 @@ void MSIMERecordGlobalVoiceCommit(NSString *text) {
 - (MSIMEGlobalVoiceDeliveryResult)prepareGlobalVoiceDestinationForPID:(pid_t)pid focus:(id)original token:(id)token {
     id client = _activeClient;
     MSIMEClientSession *session = _session;
-    if (!client || !session) return MSIMEGlobalVoiceDeliveryRetry;
+    // 英文透传允许没有核心会话；仍记录这个空状态，查询中补建或更换会话也算变化。
+    if (!client) return MSIMEGlobalVoiceDeliveryRetry;
     id owner = MSIMEGlobalVoiceHost().owner;
     const uint64_t inputSequence = _spacingInputSequence;
     uint64_t applySequence = _applySequence;
