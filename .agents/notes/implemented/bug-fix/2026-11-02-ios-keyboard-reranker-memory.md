@@ -13,11 +13,13 @@ iOS 键盘扩展有硬上限，2026-11-02 的 iPhone 17（iOS 27.2）上是 176 
 
 第一件不在重排器里：iOS 27 的 `UIInputView` 自己释放不掉。它和 UIKit 挂在它下面的 `_UIInputViewContent` 互相强引用（`_leftContentView` ↔ `_inputView`），一个刚建好、从没进过窗口的 `UIInputView` 也是这样；控制器释放了，输入视图和挂在它下面的整套键盘（按键、候选条、皮肤图片）都留下。模拟器上在测试宿主里连续建、显示、收起、释放十次控制器，占用 38 → 109 MiB。
 
+2026-11-04 复查多个 PR 的 iOS CI 后发现，直接摘下整个键盘会在销毁时引入另一种故障。[失败运行的 xcresult](https://github.com/metasequoiaime/msime/actions/runs/41805436283) 保留的符号栈是 `KeyboardViewController.deinit` → `removeFromSuperview` → 递归 `_switchToLayoutEngine` → `NSISEngine.removeConstraintWithMarker` → `_engineVar_rawRemove`，最终报 `Not possible to remove variable`；同批还出现布局系数倒数溢出和精度重建失败。报错用例虽然分散在布局、滑行和短语定位中，异常实际在它们结束、控制器释放时发生。在最新 `develop` 上，不把键盘放进窗口、交替全拼与九键、组字并改键距后反复释放，也能在 iOS 26.5 和 27.0 复现相同断言。已展示键盘的内存回归不足以覆盖这条销毁路径。
+
 第二件主要是 ONNX Runtime 的 CPU 内存池：它按一次运行用到的最大量留着内存、只增不减，而上文和候选前缀的缓存每次按键长度不同。
 
 ## Decision
 
-- **控制器释放时把键盘视图从输入视图上摘下来。** `KeyboardViewController` 的 `deinit` 在主线程上（UIKit 总在主线程释放视图控制器，所以用 `MainActor.assumeIsolated`）把 `view` 的子视图逐个 `removeFromSuperview`。输入视图本身和 `_UIInputViewContent` 照旧留下，约 2 KB；挂在下面的全部释放。模拟器上同样十次是 26 → 28 MiB。
+- **控制器释放时把键盘视图从输入视图上摘下来。** `KeyboardViewController` 的 `deinit` 在主线程上（UIKit 总在主线程释放视图控制器，所以用 `MainActor.assumeIsolated`）调用 `KeyboardViewTeardown`：先收集待销毁视图树的约束，用公开的 `NSLayoutConstraint.deactivate` 一次停用，再摘下输入视图的子视图，避免逐项迁移包含约四千个变量的完整约束图。不逐层改动排列关系，也不拆控件内部视图。清理只发生在控制器销毁时，正常布局与输入路径不变。输入视图本身和 `_UIInputViewContent` 照旧留下，约 2 KB；挂在下面的全部释放。原模拟器上同样十次是 26 → 28 MiB，清理顺序改变后仍由原内存预算回归检查，不靠撤销释放来规避布局崩溃。
 - **重排器进程里只加载一份，自测只做一次。** `ffi::OnnxRerankers`（host-api）是进程级缓存，各平台的宿主都经它挂重排器：同一时刻只加载一个模型，各会话经 `Arc<Mutex<OnnxScorer>>` 共用；档位在第一次挂上时定下，之后的会话沿用，不因为某一刻的内存多少在大小模型之间来回换；大模型的自测结果按根目录和 `lm_step.ort` 的长度、修改时间记下，放开再挂不重测，重新加载的那一份经 `OnnxScorer::accept_calibration` 带上之前的结论（过了预算的大模型同时排上屏后联想）。「增强」关掉时放开，模型文件换了重新定。要换模型时先放开缓存里旧的那个再加载新的。
 - **可用内存不够时不加载大模型。** iOS 上 `os_proc_available_memory()` 少于 `LARGE_RERANK_MODEL_MIN_AVAILABLE`（120 MiB）且两档都装着时，直接用小的，不先加载大的去自测；类别写成 `keyboard reranker onnx small (low memory)`。门槛是大模型的加载峰值 74 MiB 再留 46 MiB：会话建立之后键盘界面才画出来，iPhone 17 上那一段是 20 MB 左右，打字时词库页面和候选缓存还会涨。拿不到余量（模拟器、其他平台，函数返回 0）时不按内存挑。
 - **iOS 上关掉 ONNX Runtime 的 CPU 内存池。** `OnnxScorer::load` / `load_file` 多一个 `memory_arena` 参数，host-api 的 `RERANK_MEMORY_ARENA` 只在 `target_os = "ios"` 时为假。其他平台没有扩展这样的硬上限，留着内存池省下每次运行重新向系统要内存的时间。
@@ -46,6 +48,8 @@ iOS 键盘扩展有硬上限，2026-11-02 的 iPhone 17（iOS 27.2）上是 176 
 - **关掉内存图样（memory pattern）** — 输入长度每次不同时它本来就该关，但实测只省 10 MiB，与关内存池重叠，单开它不够。
 - **内存警告时放开缓存里的重排器** — 挂着它的会话还在用，放开也省不下内存；会话结束后下一个会话又要加载一遍，加载峰值反而更高。
 - **用私有接口拆开 `UIInputView` 与 `_UIInputViewContent` 的互相引用，或者不用 `UIInputView` 当键盘的根视图** — 前者碰私有字段，审核和下一版系统都可能出问题；后者 `UIInputViewController.inputView` 声明的类型就是 `UIInputView`，系统按它取键盘外观和音效，换成普通视图要在真机上逐项验证。摘子视图只用公开接口，漏掉的只有 UIKit 自己那个空壳。
+- **只在 iOS 27 执行摘除** — 原泄漏只在 iOS 27 上量过，而 CI 的约束异常出现在 iOS 26.5；按版本限定兼容处理本来能减少对旧系统的影响。但未展示键盘的反复销毁回归在 iOS 27 同样触发 `_engineVar_rawRemove`，版本判断不能解决根因，因此保留释放并改变拆除顺序。
+- **从叶端逐个拆开 `UIStackView.arrangedSubviews` 后再摘根视图** — 每次迁移的视图较少，而且可以跳过按钮内部的 UIKit 层次；iOS 26.5 的 155 项相关测试通过。但 iOS 27 的既有临时英文切换回归仍在 `removeArrangedSubview` 时触发同一断言，因此不能只缩小每次拆除的范围，改为先批量停用约束。
 - **按机型名单决定 iOS 用大模型还是小模型** — 上限因机型和系统版本而异，名单跟不上；自测加可用内存是在每台机器上量要决定的那件事。
 
 ## Consequences
@@ -57,6 +61,10 @@ iOS 键盘扩展有硬上限，2026-11-02 的 iPhone 17（iOS 27.2）上是 176 
 ## Verification
 
 - `MSIMEKeyboardTests/KeyboardMemoryTests`：`testADismissedKeyboardControllerReleasesItsViews`（控制器和它挂在输入视图下的子视图都释放）、`testReloadingTheKeyboardTenTimesDoesNotAccumulateMemory`（十次重新加载后占用涨不到 8 MiB）。去掉 `deinit` 里那一行，两条都失败（留下 `KeyboardSkinBackgroundView`、`KeyAreaStackView`；38 → 108 MiB），加回去通过（29 → 31 MiB）。
+- 2026-11-04 新增 `testUnpresentedKeyboardsReleaseViewsAfterCompositionAndLayoutChanges`：不进入窗口，交替全拼与九键共 24 次，在真实按键组字和偏好重载后释放控制器，并检查整棵键盘视图的弱引用。生产代码不改时，iOS 26.5 在 8.6 秒内报原 `deinit` 行的 `_engineVar_rawRemove` 异常；iOS 27.0 也触发同一断言。
+- 批量停约束版本的第一轮 iOS 27 内存专项中，十次重载的读数为 `[33, 34, 34, 34, 35, 38, 41, 41, 42, 43]` MiB，第 2 到第 10 次增长约 9 MiB，超过原 8 MiB 门槛；保留失败样本，不修改门槛或前置条件。同一生产代码下单独复跑该测试为 `[27, 27, 27, 27, 29, 29, 30, 30, 30, 30]` MiB，通过。把新回归加强为检查所有后代视图的弱引用后，iOS 26.5 完整相关类共 155 项、1 项缺笔画词库跳过、0 失败，重载读数 `[57, 57, 58, 58, 58, 58, 58, 59, 59, 59]` MiB；iOS 27 同轮内存组也通过，读数 `[51, 51, 51, 51, 52, 52, 52, 52, 52, 52]` MiB。这些读数不是性能承诺，单次超限不能用后一次通过抹掉。
+- 同一批量停约束版本的首轮 iOS 27 完整相关类中，`testCommitReplacesSelectionOrCompositionAndImmediatelyContinuesBeforeUnicodeSuffix` 在两轮短语提交后编辑器仍是原文，共有 10 条断言失败；当时控制器还活着，没有布局引擎异常。同一模拟器上，该用例单独复跑通过；恢复原生产销毁逻辑并重新编译后，完整短语类 5 项也通过，尚未确认这次丢提交与销毁改动的因果关系，保留失败日志，不改输入、等待或前置条件。
+- 最终代码进一步让已展示键盘的既有释放测试也检查所有后代视图。在 iOS 27.0 上重新运行 `NineKeyKeyboardTests`、`QuickPhraseCursorKeyboardTests`、`GlideTypingTests`、`KeyboardMemoryTests`，共 155 项、1 项缺笔画词库跳过、0 失败；短语类完整 5 项通过，十次重载读数 `[43, 43, 44, 44, 44, 44, 45, 45, 45, 45]` MiB。两版系统均沿用仓库 `run_ui_tests.sh` 对 `testKeyLayoutsKeepNineKeyHeight` 的既有排除，不新增跳过。最终日志为 `target/ios27-final-related.log`，之前的失败和对照保留在 `target/ios27-batched-related.log`、`target/ios27-batched-quickphrase-isolated.log`、`target/ios27-original-teardown-quickphrase-control.log`。
 - `crates/host-api/src/tests.rs` 的 `keyboard_reranker_prefers_the_onnx_model_when_one_is_installed`：同一个模型连挂十一次都是同一份、细节标 `(shared)`，放开后重新加载，别的根目录挂不上也不放开已加载的；自测只做一次（放开后换预算再挂，沿用那次的毫秒数，换成小的、是另一份；再按原预算挂回大的，仍不重测、照样排上屏后联想）；可用内存少于门槛时用小的且不自测，定下后内存再多也沿用，刚好够时用大的。
 - `crates/onnx-rerank/tests/golden.rs` 的 `reading_the_file_without_a_memory_arena_scores_the_same`：运行时读文件、关内存池时分数与参考运行时一致。
 - 量内存：`ORT_LIB_LOCATION=$(python3 scripts/fetch_onnxruntime.py --target aarch64-apple-ios-sim) CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER=$(xcrun --sdk iphonesimulator --find clang) cargo build --release -p msime-onnx-rerank --features runtime --example footprint --target aarch64-apple-ios-sim`，再 `xcrun simctl spawn <设备> target/aarch64-apple-ios-sim/release/examples/footprint <模型目录> [arena|no-arena] [file|bytes]`。
