@@ -1468,11 +1468,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       self?.handleSpace()
     }
     japaneseSpace.accessibilityIdentifier = "japaneseSpace"
+    (japaneseSpace as? KeyboardKeyButton)?.pressSoundClass = .space
     let japaneseReturn = makeKey(title: "改行", accessibilityLabel: "改行", emphasized: true) { [weak self] in
       self?.countKeyPress(TypingKeyID.enter)
       self?.handleReturn()
     }
     japaneseReturn.accessibilityIdentifier = "japaneseReturn"
+    (japaneseReturn as? KeyboardKeyButton)?.pressSoundClass = .enter
     japaneseSpaceButton = japaneseSpace
     japaneseReturnButton = japaneseReturn
     japaneseKeys = JapaneseNineKeyView(makeKey: { [unowned self] title, label, action in
@@ -2306,6 +2308,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       self?.handleReturn()
     }
     enter.accessibilityIdentifier = "tallReturnKey"
+    (enter as? KeyboardKeyButton)?.pressSoundClass = .enter
     enter.titleLabel?.adjustsFontSizeToFitWidth = true
     enter.titleLabel?.minimumScaleFactor = 0.65
     enter.isHidden = true
@@ -3410,12 +3413,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     case .ended:
       button.configuration?.title = key.face
       guard let letter = gesture.selected else { return }
-      countKeyPress(key.keyID)
-      playInputClick()
-      guard isChineseMode else { return }
-      synchronizeInputSchemePreference()
-      guard typesEighteenKeyShuangpin else { return }
-      render(session.gridKey(String(letter)))
+      // 横滑接管的是这个键的那次按下，按下时已经反馈过，松手上屏不再响第二下。
+      KeyboardKeyButton.releasing(button) {
+        countKeyPress(key.keyID)
+        playInputClick()
+        guard isChineseMode else { return }
+        synchronizeInputSchemePreference()
+        guard typesEighteenKeyShuangpin else { return }
+        render(session.gridKey(String(letter)))
+      }
     default:
       button.configuration?.title = key.face
     }
@@ -3546,6 +3552,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         self?.handleReturn()
       }
       enter.accessibilityIdentifier = "tabletReturnKey"
+      (enter as? KeyboardKeyButton)?.pressSoundClass = .enter
       enter.titleLabel?.adjustsFontSizeToFitWidth = true
       enter.titleLabel?.minimumScaleFactor = 0.65
       enter.isHidden = true
@@ -4114,6 +4121,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       self?.handleReturn()
     }
     enter.accessibilityIdentifier = "returnKey"
+    (enter as? KeyboardKeyButton)?.pressSoundClass = .enter
     enter.titleLabel?.adjustsFontSizeToFitWidth = true
     enter.titleLabel?.minimumScaleFactor = 0.65
     enterButton = enter
@@ -4301,6 +4309,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       self?.countKeyPress(TypingKeyID.space)
       self?.handleSpace()
     }
+    (space as? KeyboardKeyButton)?.pressSoundClass = .space
     space.accessibilityHint = Self.spaceAccessibilityHint(voice: spaceVoiceEnabled)
     space.accessibilityCustomActions = spaceAccessibilityActions()
     let pan = UIPanGestureRecognizer(target: self, action: #selector(handleSpacePan(_:)))
@@ -4365,6 +4374,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func makeDeleteKey() -> UIButton {
     let delete = makeIconKey(Self.backspaceIcon, accessibilityLabel: "删除")
+    // 按下就响退格声（`keyPressFeedback`），松手删一个字时不再响；按住连删时每删一下仍各响一下（`repeatBackspace`）。
+    (delete as? KeyboardKeyButton)?.pressSoundClass = .backspace
     delete.addTarget(self, action: #selector(beginBackspacePress), for: .touchDown)
     delete.addTarget(self, action: #selector(finishBackspacePress), for: .touchUpInside)
     delete.addTarget(
@@ -9309,6 +9320,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     button.accessibilityLabel = accessibilityLabel
     decorateKey(button)
+    button.addTarget(self, action: #selector(keyPressFeedback(_:)), for: .touchDown)
     return button
   }
 
@@ -9344,6 +9356,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     button.isFunctionKey = function
     button.accessibilityLabel = accessibilityLabel
     decorateKey(button)
+    // 只挂在造按键的这两处，不放进 `decorateKey`：换皮肤时 `applyKeyboardSkin` 会对所有带底色的按钮再调一次 `decorateKey`，候选词块、面板按钮也在其中，它们不该按下就振。
+    button.addTarget(self, action: #selector(keyPressFeedback(_:)), for: .touchDown)
     return button
   }
 
@@ -10263,8 +10277,20 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if hapticsEnabled { keyFeedback.prepare() }
   }
 
-  /// 按键音按 `KeySoundPackPolicy.playback` 出声：有完全访问、选中的包已经加载好时播包里这一类按键的样本，密码框里一律播普通键的；否则退回系统按键声。
+  /// 键盘按键（`makeKey`、`makeIconKey` 造的键）按下的那一刻就出按键音、振动，与系统键盘一样（#10768）；原来要等松手时的动作才发，开着振动打字会觉得按下去有延迟。按键记下这次已经反馈过，松手时动作里的 `playInputClick` 就不再重复。在滚得动的容器里的键按下可能是在开始滚动，仍由松手时的动作反馈。`prepareKeyFeedback` 不改：候选词块和候选栏的几个按钮也挂着它，它们按下时只预热，候选栏一滑就振不对。
+  @objc private func keyPressFeedback(_ sender: UIButton) {
+    guard let key = sender as? KeyboardKeyButton, key.beginPressFeedback() else { return }
+    emitKeyFeedback(key.pressSoundClass)
+  }
+
+  /// 动作里的按键反馈。这一下所属的按下已经反馈过（`KeyboardKeyButton.releasing`）时不出声，没有经过按下的激活（候选、面板、`sendActions`、读屏）照常出声。
   private func playInputClick(_ keyClass: KeySoundClass = .standard) {
+    guard !KeyboardKeyButton.releasingPressThatFedBack else { return }
+    emitKeyFeedback(keyClass)
+  }
+
+  /// 按键音按 `KeySoundPackPolicy.playback` 出声：有完全访问、选中的包已经加载好时播包里这一类按键的样本，密码框里一律播普通键的；否则退回系统按键声。开着振动时同时振一下。
+  private func emitKeyFeedback(_ keyClass: KeySoundClass) {
     // 普通键在密码框里外都播同一个样本，只有空格、回车和退格才需要问一下输入框。
     let playback = KeySoundPackPolicy.playback(
       soundEnabled: KeyboardFeedbackPreference.soundEnabled, wanted: wantedKeySoundPack, loaded: keySounds.loaded,
