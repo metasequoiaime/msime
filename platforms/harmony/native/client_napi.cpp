@@ -1245,6 +1245,7 @@ static napi_value ResolveOnlineCandidates(napi_env env, napi_callback_info info)
 HANDLE_ENTRY(SnapshotDiscard, msime_client_snapshot_discard)
 HANDLE_ENTRY(View, msime_client_view)
 HANDLE_ENTRY(ResetCache, msime_client_reset_cache)
+HANDLE_ENTRY(StartSettledRerank, msime_client_start_settled_rerank)
 HANDLE_ENTRY(AllCandidates, msime_client_all_candidates)
 HANDLE_ENTRY(TranslationQuery, msime_client_translation_query)
 HANDLE_ENTRY(Destroy, msime_client_destroy)
@@ -1844,6 +1845,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("releaseGlossCaches", ReleaseGlossCaches),
         ENTRY("englishCompletions", EnglishCompletions),
         ENTRY("resetCache", ResetCache),
+        ENTRY("startSettledRerank", StartSettledRerank),
         ENTRY("translationGlossSave", TranslationGlossSave),
         ENTRY("translationPlan", TranslationPlan),
         ENTRY("googleLoopback", GoogleLoopback),

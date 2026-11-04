@@ -1239,6 +1239,15 @@ interface PreparedOptions {
   phrase_preedit?: boolean;
   /** 放逐键重排 ONNX 模型（`rerank-model-small/`）的目录，见 `useRerankModels`。 */
   rerank_models?: string;
+  /** 这个键盘在停顿时调 `startSettledRerank`（`schedulePauseRerank`）：跑不进逐键预算的设备上，host-api 把整句联想「增强」的模型延后到停顿时用。 */
+  pause_rerank?: boolean;
+}
+
+/** `startSettledRerank` 的回答：`continue` 是这一片的模型时间用完了，`moved` 时附带新的视图。 */
+interface PauseRerankValue {
+  status: string;
+  moved?: boolean;
+  view?: EngineView;
 }
 
 interface TypingEffectSettingsResponse {
@@ -2136,6 +2145,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       if (this.rerankModelsDirectory.length > 0) {
         requested.rerank_models = this.rerankModelsDirectory;
       }
+      requested.pause_rerank = true;
       // 隐私模式下以关闭学习的方式构建会话，与 Android 的 `restartSessionForPrivacy` 相同：只改会话的副本，存储的文档保留用户自己的开关。
       if (this.feedbackCurrent.incognito) {
         requested.preferences.learning = false;
@@ -4151,6 +4161,64 @@ export class KeyboardSession implements HardwareKeyTarget {
   private cancelOnlineProviders(): void {
     this.invalidateOnlineProviders();
     this.invalidateTranslationProviders();
+    this.cancelPauseRerank();
+  }
+
+  /**
+   * 停顿多久才调 `startSettledRerank`。跑不进逐键预算的设备上，整句联想「增强」的模型只在这时带着把组字重解一遍（host-api 的 `pause_rerank`），一片约 8 ms 的模型时间，没解完就一片接一片。打字时按键间隔常有 150 ms 上下，停顿的线定得太短，接着打的下一个键就常碰上正在跑的那一片；300 ms 是读候选的停顿，不是按键之间的。
+   */
+  private static readonly PAUSE_RERANK_MS: number = 300;
+  private pauseRerankTimer: number = -1;
+  private pauseRerankEpoch: number = 0;
+  /** 正在画停顿重解给的视图：`render` 照常安排在线候选和翻译，但不再安排下一次停顿重解，否则解完会再解一遍。 */
+  private renderingPauseRerank: boolean = false;
+
+  /** 每次画完组字都重新计时；有新按键时这次画会作废之前的计时和还没跑的那一片。 */
+  private schedulePauseRerank(view: EngineView): void {
+    if (this.renderingPauseRerank) return;
+    this.cancelPauseRerank();
+    if (this.handle === 0 || view.editing_text.length === 0 || view.candidates.length < 2) return;
+    const handle: number = this.handle;
+    const epoch: number = this.pauseRerankEpoch;
+    this.pauseRerankTimer = setTimeout((): void => {
+      this.runPauseRerank(handle, epoch);
+    }, KeyboardSession.PAUSE_RERANK_MS);
+  }
+
+  private cancelPauseRerank(): void {
+    this.pauseRerankEpoch++;
+    if (this.pauseRerankTimer >= 0) {
+      clearTimeout(this.pauseRerankTimer);
+      this.pauseRerankTimer = -1;
+    }
+  }
+
+  /** 跑一片停顿重解。`continue` 时用 `setTimeout(0)` 排下一片：两片之间排队的触摸先走，按键最多等一片。翻译页开着时不跑，那里画的不是引擎的候选。 */
+  private runPauseRerank(handle: number, epoch: number): void {
+    this.pauseRerankTimer = -1;
+    if (epoch !== this.pauseRerankEpoch || handle !== this.handle || this.translationPage !== null) return;
+    let value: PauseRerankValue | null;
+    try {
+      value = NativeReplyPolicy.successfulValue<PauseRerankValue>(
+        JSON.parse(client.startSettledRerank(handle)) as NativeReply<PauseRerankValue>);
+    } catch (error) {
+      KeyboardLog.error(`unreadable pause rerank reply: ${describeError(error)}`);
+      return;
+    }
+    if (value === null) return;
+    if (value.moved === true && value.view !== undefined) {
+      this.renderingPauseRerank = true;
+      try {
+        this.render(value.view);
+      } finally {
+        this.renderingPauseRerank = false;
+      }
+    }
+    if (value.status === 'continue' && epoch === this.pauseRerankEpoch) {
+      this.pauseRerankTimer = setTimeout((): void => {
+        this.runPauseRerank(handle, epoch);
+      }, 0);
+    }
   }
 
   private invalidateOnlineProviders(): void {
@@ -5506,6 +5574,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     // view is published, and native result application rechecks the exact generation.
     this.scheduleOnlineProviders();
     this.scheduleTranslations();
+    this.schedulePauseRerank(view);
     // Every typed letter and every backspace arrives here, which is the one place that sees the editor change in direct English as well as in a composition.
     // 组字开始时收起后缀（候选栏归引擎），结束时按上屏后的上文重新匹配。
     this.refreshCaretSuggestions();
