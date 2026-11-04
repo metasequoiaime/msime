@@ -51,4 +51,5 @@ macOS、Windows、Linux 这次不接：三个桌面宿主的简繁开关各自�
 - `cargo test -p msime-engine --lib cantonese`：92 项通过、1 项忽略，包含 `selecting_a_cantonese_candidate_does_not_clone_the_full_row` 的分配上限回归。
 - 原转换测试保留默认学习设置：分段选择后应学到「你號」，不传转换时断言该新词和原有词库行全部显示繁体。旧期望产生于粤语尚不学习时，不能用关闭学习来恢复旧列表。
 - OpenCC 锁定的 10 份文件已从上游合并提交逐份下载核对大小和 SHA-256；`python3 scripts/test-fetch-opencc.py` 的 9 项测试通过。
-- 完整本地 quick 待复用已缓存的工作树运行；设备及截图验收缺口保留在 PR 正文。
+- `cargo clippy -p msime-engine --all-targets -- -D warnings`、修改文件的 rustfmt、笔记和差异检查通过；`client-base` 转换表测试 15 项、Host API 转换注入测试 1 项、引擎 golden 31 项均通过。
+- 同步 develop `a0dfe261eb` 后完整本地 `bash scripts/verify-local.sh --quick` 通过：Windows 原生行为检查 214 项、Linux 原生测试 122 项、Rust/wasm、Android 宿主检查、macOS 和 Apple 桥接编译、两架构 pipe-only 编译。缺少依赖的完整 Windows 原生工程及 HarmonyOS ArkTS 构建按脚本提示跳过；设备及截图验收缺口保留在 PR 正文。
