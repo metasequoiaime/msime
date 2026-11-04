@@ -54,6 +54,7 @@ pub enum Action {
     Glide {
         keyboard: Box<GlideKeyboard>,
         points: Vec<GlidePoint>,
+        bilingual: bool,
     },
     SelectHighlighted,
     Finish,
@@ -1548,6 +1549,7 @@ impl<E: InputEngine> Runtime<E> {
                 .map(|(index, text)| self.candidate_row(index, text, reserve_translation)),
         );
         View {
+            requires_candidate_selection: self.engine.requires_candidate_selection(),
             prediction: self.cached.prediction,
             scheme: self.cached.scheme,
             chinese_text: scheme_type(self.cached.scheme).is_some_and(SchemeType::is_chinese),
@@ -3487,6 +3489,11 @@ impl<E: InputEngine> Runtime<E> {
         if !self.focused && !matches!(&action, Action::ResetCache) {
             return Ok(self.transition(empty_result(false)));
         }
+        if self.engine.requires_candidate_selection()
+            && crate::glide_selection::is_implicit_commit(&action)
+        {
+            return Ok(self.transition(empty_result(true)));
+        }
         // 空闲联想没有可编辑的组字；导航键清掉建议后交还编辑器，不能沿用普通候选的高亮导航。
         if self.cached.prediction
             && matches!(
@@ -3929,7 +3936,14 @@ impl<E: InputEngine> Runtime<E> {
             Action::Glide {
                 ref keyboard,
                 ref points,
-            } => self.engine.glide(keyboard, points),
+                bilingual,
+            } => {
+                if bilingual {
+                    self.engine.bilingual_glide(keyboard, points)
+                } else {
+                    self.engine.glide(keyboard, points)
+                }
+            }
             // A scheme that spells with Space lists it among its spelling symbols (Zhuyin's first tone, or opening its list with no syllable pending), and then the Space command is that key rather than a pick of the highlighted row.
             Action::SelectHighlighted
                 if self.cached.spelling_symbols.as_bytes().contains(&b' ') =>
