@@ -15,15 +15,17 @@ Status: implemented
 
 ## Decision
 
-- **宿主声明会在停顿时重解（HostOptions 的 `pause_rerank`）时，跑不进逐键预算的 ONNX 模型延后到停顿。** host-api 的 `keyboard_reranker_for` 按 `RerankerMount` 挂：`KeystrokeOrPause` 的宿主上，一页超过 `PAUSE_HOST_KEYSTROKE_PAGE_MS`（4 ms）就挂成延后（`MountedReranker::Pause` → `Runtime::set_deferred_scorer`），诊断写 `keyboard reranker at pause`，细节是原来那一档的类别和细节；加载上限放宽到 `PAUSE_RERANK_LIMIT_MS`（60 ms），刚装完应用、忙的那一刻自测偏慢的进程也照样挂上。4 ms 由手机按键预算 10 ms、引擎尾部 3.5 ms 和上面量出的 1.6 倍定。没写 `pause_rerank` 的宿主（Android、iOS、桌面）走 `Keystroke`，与以前逐字节相同。只有鸿蒙的键盘写它。
+- **宿主声明会在停顿时重解（HostOptions 的 `pause_rerank`）时，跑不进逐键预算的 ONNX 模型延后到停顿。** host-api 的 `keyboard_reranker_for` 按 `RerankerMount` 挂：`KeystrokeOrPause` 的宿主上，一页超过 `PAUSE_HOST_KEYSTROKE_PAGE_MS`（4 ms）就挂成延后（`MountedReranker::Pause` → `Runtime::set_deferred_scorer`），诊断写 `keyboard reranker at pause`，细节是原来那一档的类别和细节；加载上限放宽到 `PAUSE_RERANK_LIMIT_MS`（60 ms），刚装完应用、忙的那一刻自测偏慢的进程也照样挂上。4 ms 由手机按键预算 10 ms、引擎尾部 3.5 ms 和上面量出的 1.6 倍定。已经加载的共享模型也必须逐会话检查当前上限：不能把停顿宿主按 60 ms 接纳的模型，直接交给只有 15 ms 上限的普通宿主。拒绝超线复用时保留原缓存和其他会话，不卸载或重选模型。没写 `pause_rerank` 的宿主（Android、iOS、桌面）走 `Keystroke`，与以前逐字节相同。只有鸿蒙的键盘写它。
 - **按键上不挂模型。** 延后的打分器停在 `Runtime::deferred_scorer`，引擎照没有模型时那样解码，整键开销与「标准」相同。`has_reranker` 把它算进去；`set_candidate_scorer(None)`（关掉「增强」）同时拿掉它。
 - **停顿时挂上模型重解，不是只给候选换序。** `Runtime::settle_deferred_scorer` 把它当逐键打分器挂上（整句池、束搜索里的整句打分器、最后的逐键重排都在），经 `InputSession::recompute_candidates`（`SchemeKey::Requery`）不改组字重解，照逐键时那样排好，再摘下来；候选在下一个按键之前一直是模型排的。M1 Max 上 typing-chat-v1 整句首选与逐键相同（85.2%）。只给已经解出的候选换序不够：模型参与束搜索（[整句解码里的模型](2026-11-03-model-in-lattice-beam.md)）把首选从 58.3% 提到 80.0%，没有它正确的整句常常根本没解出来；走落定重排那条路（`rerank(false)`）还不越过可信的词典首选，只有 77.4%。
-- **分片，按键最多等一片。** 整段组字的模型计算挤到停顿时一次做完，M1 Max 上 p50 24 ms，手机要慢五倍以上，停顿后紧接着的按键会等上一两百毫秒。束搜索的打分器包一层预算（`BudgetedSentenceScorer`，一片约 8 ms 的模型时间，host-api 的 `PAUSE_SLICE`）：到时限就回空表，束搜索见分数个数不对就不给这一列加模型分、也不记备忘，所以这一片作废，打过的分留着。这一片没解完时不带模型再解一遍，屏幕上的候选不变，回 `DeferredSettle::Continue`；下一片接着备忘往前走，每片至少跑一次模型，一定会解完。包装在挂上时只建一次，引擎按指针认它。
+- **分片，按键最多等一片。** 整段组字的模型计算挤到停顿时一次做完，M1 Max 上 p50 24 ms，手机要慢五倍以上，停顿后紧接着的按键会等上一两百毫秒。束搜索的打分器包一层预算（`BudgetedSentenceScorer`，一片约 8 ms 的模型时间，host-api 的 `PAUSE_SLICE`）：到时限就回空表，束搜索见分数个数不对就不给这一列加模型分、也不记备忘，所以这一片作废，打过的分留着。这一片没解完时不带模型再解一遍，屏幕上的候选不变，回 `DeferredSettle::Continue`；下一片接着备忘往前走，模型返回空分或数量不符时，丢弃本片模型结果、按无模型重解并结束当前停顿，下次停顿可以重试；失败结果不进备忘，不能反复 `continue`。每片的首个模型调用始终执行，即使解码前半段已耗尽墙钟预算；否则某一列永远得不到分，每片都会再次回 `continue`，同步预览也会陷入循环。后续调用才检查期限，每片至少跑一次模型，一定会解完。包装在挂上时只建一次，引擎按指针认它。
 - **模型分备忘跨片、跨停顿保留。** 全拼词典的 `set_sentence_scorer` 换打分器时照旧清掉整句缓存，但 `beam_model_memo` 只在换成另一个模型时清（`beam_model_owner`，弱引用，不拉住已关掉的模型），换成 `None` 时留着；上文变了照旧清。第二次停顿只算新出现的前缀。
-- **接口沿用 `msime_client_start_settled_rerank`。** 挂着延后的模型时，它在会话线程上当场跑一片：解完回 `status: done`，没解完回 `status: continue`，候选变了附带 `moved: true` 和 `view`。会话是线程局部的（`SESSIONS.with`），引擎去不了工作线程，所以只能分片。候选预览（`settle_now`）一片片做到解完。
-- **鸿蒙的键盘每次画完组字重新计时，停顿 300 ms 后调 `startSettledRerank`。** `continue` 时用 `setTimeout(0)` 排下一片，两片之间排队的触摸先走；新按键画完会作废计时和还没跑的那一片；翻译页开着时不跑；失焦与会话结束时与在线候选一起取消。300 ms 是读候选的停顿：打字时按键间隔常在 150 ms 上下，线太短会让下一个键常碰上正在跑的那一片。
+- **接口沿用 `msime_client_start_settled_rerank`。** 挂着延后的模型时，它在会话线程上当场跑一片：解完回 `status: done`，没解完回 `status: continue`，`moved` 只表示候选内容变化；每片推进代次后都附带新 `view`，即使文字没变，宿主也必须接收新的候选身份。否则旧代次被运行时拒绝，停顿后点击候选会失效。会话是线程局部的（`SESSIONS.with`），引擎去不了工作线程，所以只能分片。候选预览（`settle_now`）一片片做到解完。
+- **鸿蒙的键盘每次画完组字重新计时，停顿 300 ms 后调 `startSettledRerank`。** `continue` 时用 `setTimeout(0)` 排下一片，两片之间排队的触摸先走；新按键画完会作废计时和还没跑的那一片；翻译页开着时不跑；失焦与会话结束时与在线候选一起取消。接口还可能走原有后台落定模型并返回 `pending/token`；鸿蒙以 16 ms 间隔轮询并发布完成视图。新按键、失焦或翻译页取消时，只以 `accept=false` 轮询到结束归还模型，不发布旧结果；旧令牌归还前不能重新认领为新停顿，销毁后的旧句柄不再轮询。清理逻辑放在 `PauseRerankDiscard.ts`，过期回调先检查句柄与代次再动定时器。300 ms 是读候选的停顿：打字时按键间隔常在 150 ms 上下，线太短会让下一个键常碰上正在跑的那一片。
 
 ## Alternatives considered
+
+- **文字没有变化时不发视图**：能省一次绘制，但重解已经推进候选代次，文字相同的行也有了新身份；省略视图会让用户点到的候选全部过期。因此保留 `moved` 的文字语义，同时按代次变化发布视图。
 
 - **只在停顿时给候选换序（复用落定重排，模型在工作线程上评分）。** 现成的异步机制，按键一点不等。量下来 76.5%（引擎默认整句池）到 77.4%（引擎照样解 9 条），比逐键少 8 个点，低于无上文 80% 的底线；差的是束搜索里的模型和 `trusted_leader` 豁免。
 - **新训更小的模型（4x256、2x128 一类）放在 6x256 下面。** 选型阶段（`choice/p0`）在 Mac 上量过：4x256 每键只快三分之一，嵌入与全字表的输出占大头，减层省不多；这台手机要快四倍才进 10 ms，得小到 2x128 那一档，6x256 无上文才 82.8%，再小多半过不了 80%。
@@ -44,3 +46,9 @@ Status: implemented
 - `crates/host-api/src/tests.rs` 的 `only_a_pausing_host_defers_a_model_too_slow_for_keys`：只有 `KeystrokeOrPause` 的宿主、一页超过 4 ms 时延后。
 - 真机（2026-11-04，华为畅享 90 Plus，用 `uinput -T` 注入触摸打 typing-chat-v1 test 的 115 条整句、3163 键，每条打完等 2.5 s 再读候选，不选词不上屏）：诊断 `keyboard reranker at pause`（刚装完应用自测 17.5 ms，以前会判超线不挂）；首选 94/115、前三 102/115，与逐键模式逐条相同；整键 p50 2.6 ms、p95 5.0 ms、p99 9.3 ms，超过 10 ms 的 28 键（逐键模式 p95 21.1 ms、四成超过 10 ms）；一片 p50 13.3 ms、p95 18.5 ms、最长 29.4 ms，一次停顿 p50 6 片、最多 13 片、合计 p50 73 ms，137 次停顿都解完了。停顿时接着按键要等多久没有量：NAPI 的探针只量调用本身，排在一片后面的等待在 UI 线程的队列里。
 - `rerank_replay <options> <cases> <models> pause`：宿主选项写 `pause_rerank`，每段打完调停顿重解直到解完，报整键、停顿总耗时、每片平均、每次停顿几片和停顿后第一个键。M1 Max（强制延后、整句池 9）上 typing-chat-v1 test 115 条整句：首选 85.2%（与 `on` 相同），整键 p95 3.40 ms（`on` 7.26 ms），停顿 p50 36.8 ms、每次 p50 4 片，停顿后第一个键 p95 3.19 ms。
+
+- 候选身份回归经真实 Host API 的创建、输入、停顿和选词验证：相同候选文字换代后返回新视图，新身份可正常上屏；鸿蒙测试执行真实 `runPauseRerank` 方法体，确认 `moved: false` 也接收视图且过期回调不发布。预算回归用零时限确定性覆盖首次调用前已超时，仍须有限片数内完成。
+
+- 共享模型预算回归用仓库 tiny ONNX 图和合成 20 ms 校准值验证：60 ms 宿主允许、15 ms 宿主拒绝，再回 60 ms 仍复用同一模型；不依赖实际机器速度。鸿蒙真实方法体测试覆盖 `pending` 连续轮询完成、新按键取消尚未完成的任务、旧回调与新令牌和重建句柄隔离，以及 `continue` 切片之间让出输入队列。
+
+- 评分失败回归覆盖首次即空分、先有一次有效分再失败、零时限与充分时限：有限片内回无模型候选 `Done`，不发布半份结果；后续评分恢复时再次停顿能得到模型首选。原有六项切片回归与首次调用进度回归保持原条件。
