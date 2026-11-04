@@ -114,6 +114,18 @@ pub fn parse_word_list(text: &str, name: &str) -> Result<EnglishWords> {
     Ok(words)
 }
 
+/// rime-ice 英文补充表按上游写法收词（PuTTY、Playwright、Musk），其中有些小写词形本身是普通英文词（putty 油灰、playwright 剧作家、musk 麝香）。SCOWL 补充表按小写词形对照补充表，不会再收这些词，于是表里只剩大写写法，打 putty 只能上屏 PuTTY。这里给只有非小写写法、而 SCOWL 拼写词典（`attested`）收了小写词形的词补上小写写法，返回补了几个词。小写写法排在前面由 [`leading_display`] 决定，与 China、china 并存时相同。
+pub fn add_attested_lowercase(words: &mut EnglishWords, attested: &HashSet<String>) -> usize {
+    let mut added = 0;
+    for (word, displays) in words.iter_mut() {
+        if !displays.iter().any(|display| display == word) && attested.contains(word) {
+            displays.push(word.clone());
+            added += 1;
+        }
+    }
+    added
+}
+
 /// Adds the displays of `other` to `words`; returns how many lowercase words were new.
 pub fn merge_words(words: &mut EnglishWords, other: EnglishWords) -> usize {
     let mut added = 0;
@@ -469,8 +481,10 @@ static INFLECTION_NOTE: LazyLock<Regex> =
 
 /// 英译中选第一个义项时，第一条通用义项行（ECDICT 常把名词行排在动词行前面：give 的第一行是「n. 弹性」）的首项权重按这个倍数算：别的行的首项要常用到它的这么多倍才排到前面（give 的「给」，look 的「看」）。
 const FIRST_LINE_BIAS: i64 = 10;
-/// 拼音表权重低于这个值的词在同一行里排到后面（`may` 的「愿能」810），整行按首项选定后不影响行的先后。
+/// 英译中的冷僻义项：权重（[`rarity_weight`]）低于这个值、或不到这个词最常用的通用义项的 1/[`RARE_TERM_RATIO`] 的义项，排在所有行的常用义项后面，不影响行的先后（may 的「愿能」810；post 的「柱」「杆」「准星」不到「岗位」的 1/50，排在「邮件」「职位」后面；school 的「鱼群」）。
 const RARE_TERM_WEIGHT: i64 = 1_000;
+/// 见 [`RARE_TERM_WEIGHT`]。用相对值而不是一个更高的绝对门槛：冷僻英文词的中文义项大多不常用，绝对门槛（比较过 2 万、5 万）会把这些词的首义换成后面某一行碰巧常用的词（generous 成了「大量的」），2026-11-04 比较英文候选词前 1500 个和随机抽样时 50 倍改动最少、错得也最少。
+const RARE_TERM_RATIO: i64 = 50;
 /// 中译英的打分：义项在行内每靠后一位乘 7/10，不在这个英文词主行（[`order_terms`] 排出的第一项所在的行）上再乘 7/10。
 const POSITION_DECAY: (i64, i64) = (7, 10);
 /// 中译英的第二个英文词至少要有第一名的这个百分比。
@@ -639,7 +653,16 @@ fn parse_translation(translation: &str) -> ParsedTranslation {
     }
 }
 
-/// 英译中的义项顺序，义项位置为主：ECDICT 一行之内的义项按常用程度排，所以行内按位置；行与行之间是按词性分的（常把名词行放在最前，give 是「n. 弹性」、keep 是「n. 生计」），位置说明不了哪个词性常用，就按各行首项在拼音表里的权重排，第一条通用行占 [`FIRST_LINE_BIAS`] 倍的优势。领域行一律排在通用行后面；行内权重低于 [`RARE_TERM_WEIGHT`] 的词排到本行后面。「X的」在 X 也是义项时不要，同一个词只出现一次；第一项是通用义项时只留通用义项，不拿领域义项凑第二个（TV 不配「转移向量」）。
+/// 判断义项冷僻与否用的权重：拼音表里这个词的权重；「X的」再看 X 的权重，取较高的。
+fn rarity_weight(term: &str, weights: &HashMap<String, i64>) -> i64 {
+    let own = weights.get(term).copied().unwrap_or(0);
+    term.strip_suffix('的')
+        .filter(|stem| !stem.is_empty())
+        .and_then(|stem| weights.get(stem))
+        .map_or(own, |stem| own.max(*stem))
+}
+
+/// 英译中的义项顺序，义项位置为主：ECDICT 一行之内的义项按常用程度排，所以行内按位置；行与行之间是按词性分的（常把名词行放在最前，give 是「n. 弹性」、keep 是「n. 生计」），位置说明不了哪个词性常用，就按各行首项在拼音表里的权重排，第一条通用行占 [`FIRST_LINE_BIAS`] 倍的优势。领域行一律排在通用行后面；冷僻义项（[`RARE_TERM_WEIGHT`]、[`RARE_TERM_RATIO`]）按行的先后排在所有常用义项后面。「X的」在 X 也是义项时不要，同一个词只出现一次；第一项是通用义项时只留通用义项，不拿领域义项凑第二个（TV 不配「转移向量」）。
 fn order_terms<'a>(terms: &[&'a GlossTerm], weights: &HashMap<String, i64>) -> Vec<&'a GlossTerm> {
     let weight = |term: &GlossTerm| weights.get(&term.text).copied().unwrap_or(0);
     let texts: HashSet<&str> = terms.iter().map(|term| term.text.as_str()).collect();
@@ -672,18 +695,23 @@ fn order_terms<'a>(terms: &[&'a GlossTerm], weights: &HashMap<String, i64>) -> V
             lead.line_index,
         )
     });
+    let strongest = lines
+        .iter()
+        .flatten()
+        .filter(|term| !term.domain_specific)
+        .map(|term| rarity_weight(&term.text, weights))
+        .max()
+        .unwrap_or(0);
+    let threshold = RARE_TERM_WEIGHT.max(strongest / RARE_TERM_RATIO);
+    let (common, rare): (Vec<&'a GlossTerm>, Vec<&'a GlossTerm>) = order
+        .iter()
+        .flat_map(|&index| lines[index].iter().copied())
+        .partition(|term| rarity_weight(&term.text, weights) >= threshold);
     let mut emitted = HashSet::new();
     let mut ordered = Vec::new();
-    for index in order {
-        let line = &lines[index];
-        let (common, rare): (Vec<&'a GlossTerm>, Vec<&'a GlossTerm>) = line
-            .iter()
-            .copied()
-            .partition(|term| weight(term) >= RARE_TERM_WEIGHT);
-        for term in common.into_iter().chain(rare) {
-            if emitted.insert(term.text.as_str()) {
-                ordered.push(term);
-            }
+    for term in common.into_iter().chain(rare) {
+        if emitted.insert(term.text.as_str()) {
+            ordered.push(term);
         }
     }
     if ordered.first().is_some_and(|term| !term.domain_specific) {
@@ -737,23 +765,38 @@ fn english_candidates(connection: &Connection) -> Result<HashMap<String, BTreeSe
     Ok(candidates)
 }
 
-/// 中译英里一个英文词显示成什么样。ECDICT 词头不是小写（China、Monday、NASA、States）时，专名保留词头的大写：`english_words` 没有小写写法时一律用词头；有小写写法时（china 是「瓷器」）只有词头的第一个义项和以它开头的义项用大写（「中国」「中国的」，不是「瓷器」）。其余用小写写法，表里没有小写写法时用表里的第一种写法。释义只用来显示，不会作为英文候选上屏，所以词头的写法不必在 `english_words` 里。
+/// 中译英里一个英文词显示成什么样，大小写只从 ECDICT 词头来，不借 `english_words` 的写法（putty 在表里只有 PuTTY，ram 只有 RAM，「淡灰色」「公羊」仍要显示 putty、ram）：
+///
+/// - 词头是小写：一律小写。
+/// - 词头有大写：SCOWL 拼写词典（`attested`）只收小写词形时用小写（ECDICT 把 core、fax、maxim 的词头写成 CORE、FAX、Maxim）；只收词头的写法时用词头（Africa、Monday、English，`english_words` 里可能只有 africa）；两种都收时（China 和 china）只有词头的第一个义项和以它开头的义项用大写（「中国」「中国的」，不是「瓷器」）。
+/// - SCOWL 两种都不收时（缩写、品牌），`english_words` 没有小写写法或这是词头的第一个义项时用词头，否则小写。
+///
+/// 释义只用来显示，不会作为英文候选上屏，所以词头的写法不必在 `english_words` 里。
 fn display_for(
     candidates: &HashMap<String, BTreeSet<String>>,
+    attested: &HashSet<String>,
     headword: &str,
     english: &str,
     proper_sense: bool,
 ) -> String {
-    let displays = candidates.get(english);
-    let has_lowercase = displays.is_some_and(|displays| displays.contains(english));
-    if headword != english && (proper_sense || !has_lowercase) {
+    if headword == english {
+        return english.to_owned();
+    }
+    let capitalised = match (attested.contains(headword), attested.contains(english)) {
+        (true, true) => proper_sense,
+        (true, false) => true,
+        (false, true) => false,
+        (false, false) => {
+            proper_sense
+                || !candidates
+                    .get(english)
+                    .is_some_and(|displays| displays.contains(english))
+        }
+    };
+    if capitalised {
         headword.to_owned()
-    } else if has_lowercase {
-        english.to_owned()
     } else {
-        displays
-            .and_then(|displays| displays.iter().next().cloned())
-            .unwrap_or_else(|| english.to_owned())
+        english.to_owned()
     }
 }
 
@@ -793,6 +836,7 @@ pub fn derive_glosses(
     english: &Connection,
     msime: &Connection,
     reverse_excluded: &HashSet<String>,
+    attested: &HashSet<String>,
     vetoes: &GlossVetoes,
 ) -> Result<Glosses> {
     let candidates = english_candidates(english)?;
@@ -913,9 +957,17 @@ pub fn derive_glosses(
         );
     }
 
+    // 「X的」的 X 也要权重，[`rarity_weight`] 用。
     let all_terms: HashSet<&str> = entries
         .values()
         .flat_map(|entry| entry.terms.iter().map(|term| term.text.as_str()))
+        .flat_map(|text| {
+            [
+                Some(text),
+                text.strip_suffix('的').filter(|stem| !stem.is_empty()),
+            ]
+        })
+        .flatten()
         .collect();
     let weights = chinese_term_weights(msime, &all_terms)?;
     let has_general = |terms: &[&GlossTerm]| terms.iter().any(|term| !term.domain_specific);
@@ -962,10 +1014,17 @@ pub fn derive_glosses(
             score -= entry.reverse_english.chars().count() as i64 * 10;
             let proper_sense = term.text.starts_with(entry.terms[0].text.as_str());
             let shown = if entry.reverse_english == *english {
-                display_for(&candidates, &entry.headword, english, proper_sense)
+                display_for(
+                    &candidates,
+                    attested,
+                    &entry.headword,
+                    english,
+                    proper_sense,
+                )
             } else {
                 display_for(
                     &candidates,
+                    attested,
                     &entry.reverse_english,
                     &entry.reverse_english,
                     proper_sense,
@@ -1445,7 +1504,7 @@ mod tests {
     #[test]
     fn the_chinese_gloss_follows_sense_position() {
         let terms = extract_gloss_terms("n. 未来的, 未来, 前途, 期货");
-        let weights = HashMap::from([("前途".to_owned(), 90_000), ("未来".to_owned(), 5_000)]);
+        let weights = HashMap::from([("前途".to_owned(), 900_000), ("未来".to_owned(), 500_000)]);
         assert_eq!(
             choose_chinese_gloss(&terms.iter().collect::<Vec<_>>(), &weights),
             "未来；前途"
@@ -1458,9 +1517,22 @@ mod tests {
             ("可以".to_owned(), 13_378_152),
             ("愿意".to_owned(), 770_758),
         ]);
+        // 五月 不到 可以 的 1/50，算冷僻义项，排在 aux. 行的常用义项后面。
         assert_eq!(
             choose_chinese_gloss(&may.iter().collect::<Vec<_>>(), &weights),
-            "五月；可以"
+            "可以；愿意"
+        );
+
+        // 「X的」不在拼音表里时看 X：自然的 自己的权重不到 物质的 的 1/50，按 自然 算就不是冷僻义项。
+        let natural = extract_gloss_terms("a. 自然的, 物质的");
+        let weights = HashMap::from([
+            ("自然的".to_owned(), 28_446),
+            ("自然".to_owned(), 1_712_884),
+            ("物质的".to_owned(), 2_000_000),
+        ]);
+        assert_eq!(
+            choose_chinese_gloss(&natural.iter().collect::<Vec<_>>(), &weights),
+            "自然的；物质的"
         );
 
         let keep = extract_gloss_terms("n. 生计, 维持, 保持\\nvt. 保持, 保存");
@@ -1486,22 +1558,66 @@ mod tests {
         );
     }
 
-    /// 专名保留 ECDICT 词头的大写；小写写法也在表里时只有首个义项和以它开头的义项用大写。
+    /// 大小写只看 ECDICT 词头和 SCOWL：小写词头一律小写，不借 `english_words` 的品牌写法（putty 只有 PuTTY）；大写词头由 SCOWL 定，SCOWL 两种都不收时才看 `english_words` 有没有小写写法。
     #[test]
     fn chinese_to_english_keeps_proper_names_capitalised() {
+        let set = |words: &[&str]| -> BTreeSet<String> {
+            words.iter().map(|word| (*word).to_owned()).collect()
+        };
         let candidates = HashMap::from([
-            (
-                "china".to_owned(),
-                BTreeSet::from(["China".to_owned(), "china".to_owned()]),
-            ),
-            ("irish".to_owned(), BTreeSet::from(["Irish".to_owned()])),
-            ("negro".to_owned(), BTreeSet::from(["Negro".to_owned()])),
+            ("china".to_owned(), set(&["China", "china"])),
+            ("irish".to_owned(), set(&["Irish"])),
+            ("putty".to_owned(), set(&["PuTTY"])),
+            ("core".to_owned(), set(&["core"])),
+            ("africa".to_owned(), set(&["africa"])),
+            ("nasa".to_owned(), set(&["NASA"])),
+            ("admin".to_owned(), set(&["Admin", "admin"])),
         ]);
-        assert_eq!(display_for(&candidates, "China", "china", true), "China");
-        assert_eq!(display_for(&candidates, "China", "china", false), "china");
-        assert_eq!(display_for(&candidates, "Irish", "irish", false), "Irish");
-        assert_eq!(display_for(&candidates, "negro", "negro", false), "Negro");
-        assert_eq!(display_for(&candidates, "apple", "apple", true), "apple");
+        let attested: HashSet<String> = ["China", "china", "Irish", "putty", "core", "Africa"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let shown = |headword: &str, proper_sense: bool| {
+            display_for(
+                &candidates,
+                &attested,
+                headword,
+                &headword.to_lowercase(),
+                proper_sense,
+            )
+        };
+        assert_eq!(shown("China", true), "China");
+        assert_eq!(shown("China", false), "china");
+        assert_eq!(shown("Irish", false), "Irish");
+        assert_eq!(shown("putty", true), "putty");
+        assert_eq!(shown("CORE", true), "core");
+        assert_eq!(shown("Africa", false), "Africa");
+        assert_eq!(shown("NASA", false), "NASA");
+        assert_eq!(shown("ADMIN", true), "ADMIN");
+        assert_eq!(shown("ADMIN", false), "admin");
+    }
+
+    /// 补充表里只有大写写法、SCOWL 收了小写词形的词补上小写写法；SCOWL 不收小写的品牌名和已有小写写法的词不动。
+    #[test]
+    fn supplement_words_get_the_lowercase_scowl_attests() {
+        let mut words = parse_base_dict_words(
+            "PuTTY putty
+AdGuard adguard
+China china
+china china
+",
+        )
+        .unwrap();
+        let attested: HashSet<String> = ["putty", "China", "china"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        assert_eq!(add_attested_lowercase(&mut words, &attested), 1);
+        assert_eq!(displays(&words, "putty"), ["PuTTY", "putty"]);
+        assert_eq!(displays(&words, "adguard"), ["AdGuard"]);
+        assert_eq!(displays(&words, "china"), ["China", "china"]);
+        let leading = leading_display("putty", &words["putty"], &attested);
+        assert_eq!(leading, Some("putty"));
     }
 
     #[test]
@@ -1547,6 +1663,7 @@ mod tests {
             &english,
             &msime,
             &HashSet::new(),
+            &HashSet::new(),
             &GlossVetoes::default(),
         )
         .unwrap();
@@ -1565,6 +1682,7 @@ mod tests {
             &english,
             &msime,
             &HashSet::from(["bank".to_owned()]),
+            &HashSet::new(),
             &GlossVetoes::default(),
         )
         .unwrap();

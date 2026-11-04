@@ -1466,6 +1466,15 @@ impl Build {
         english::parse_oaldpe_words(&text::read(&self.sources.pinned(licensing::OALDPE_WORDS)?)?)
     }
 
+    /// SCOWL 拼写词典（固定的 Aspell 包）里全由字母组成的词形，英文阶段和释义阶段都靠它定大小写。
+    fn scowl_attested(&self) -> Result<HashSet<String>> {
+        Ok(english_supplement::letter_forms(
+            &english_supplement::read_package(&crate::sources::read_private(
+                &self.sources.pinned(english_supplement::ARCHIVE)?,
+            )?)?,
+        ))
+    }
+
     fn scowl_words(&self) -> Result<english::EnglishWords> {
         english::parse_word_list(
             &text::read(&self.sources.pinned(english_supplement::OUTPUT)?)?,
@@ -1733,19 +1742,16 @@ impl Build {
                 let mut base = english::parse_base_dict_words(&text::read(
                     &self.sources.pinned("sources/english/rime-ice-en.txt")?,
                 )?)?;
-                let supplement = english::parse_base_dict_words(&text::read(
+                let mut supplement = english::parse_base_dict_words(&text::read(
                     &self
                         .sources
                         .pinned("sources/english/rime-ice-en-supplement.txt")?,
                 )?)?;
+                // SCOWL's spelling dictionary decides which casing of a word leads (see english::leading_display).
+                let attested = self.scowl_attested()?;
+                let lowercase_added = english::add_attested_lowercase(&mut supplement, &attested);
                 let supplement_added = english::merge_words(&mut base, supplement);
                 let scowl_added = english::merge_words(&mut base, self.scowl_words()?);
-                // SCOWL's spelling dictionary decides which casing of a word leads (see english::leading_display).
-                let attested = english_supplement::letter_forms(&english_supplement::read_package(
-                    &crate::sources::read_private(
-                        &self.sources.pinned(english_supplement::ARCHIVE)?,
-                    )?,
-                )?);
                 let counts = english::parse_google_counts(&text::read(
                     &self
                         .sources
@@ -1777,10 +1783,11 @@ impl Build {
                     english_supplement::COPYRIGHT,
                 )?;
                 Ok(format!(
-                    "{} words in {} rows ({} from rime-ice supplement, {} from SCOWL), {} custom rows: {} added, {} replacing a base row; {} words and custom rows vetoed",
+                    "{} words in {} rows ({} from rime-ice supplement, {} of them given a lowercase display SCOWL attests; {} from SCOWL), {} custom rows: {} added, {} replacing a base row; {} words and custom rows vetoed",
                     rows.base,
                     rows.base_rows,
                     supplement_added,
+                    lowercase_added,
                     scowl_added,
                     custom.len(),
                     rows.custom_added,
@@ -1807,6 +1814,7 @@ impl Build {
                     &english_db,
                     &sqlite::open(&msime_path)?,
                     &reverse_excluded,
+                    &self.scowl_attested()?,
                     &vetoes,
                 )?;
                 english::write_glosses(&mut english_db, &glosses)?;
