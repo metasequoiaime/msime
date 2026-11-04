@@ -128,7 +128,7 @@ function Test-SystemWerStall {
 try {
   New-Item -ItemType Directory -Path $output | Out-Null
   $key.SetValue($helper, 0, [Microsoft.Win32.RegistryValueKind]::DWord)
-  foreach ($case in @('tip', 'host', 'external', 'withdrawn', 'reopened', 'released', 'caught')) {
+  foreach ($case in @('baseline', 'tip', 'host', 'external', 'withdrawn', 'reopened', 'released', 'caught')) {
     # 系统侧停顿时整例换新目录重跑一次，重跑仍须由系统退出并通过全部断言；首次的诊断留在原目录随 artifact 上传。
     for ($attempt = 1; ; $attempt++) {
       $caseDirectory = if ($attempt -eq 1) { Join-Path $output $case } else { Join-Path $output "$case-retry" }
