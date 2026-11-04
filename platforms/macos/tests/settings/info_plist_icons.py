@@ -5,7 +5,7 @@
 
 另一半是文件缺失：plist 里这些键是字符串，资源改名之后不会报错，菜单直接回落到一个通用图标。
 
-每个输入模式的菜单图标和面板图标是同一张，而且各模式之间互不相同：几条都用 bundle 自己的标志时，菜单栏和系统的 Ctrl+空格 切换条上几个模式一模一样，分不清当前是哪个。模式图标由 scripts/render_menu_icon.swift 生成，每张只有一个铺满图块的大字：中 / 双 / 五 / 粤 / 注 / 日 / 한 / 越 / ཀ / 笔 / 英。
+每个输入模式的菜单图标和面板图标都是 bundle 自己的水杉标志，与其他输入法一样在输入菜单里显示品牌；系统菜单栏和 Ctrl+空格 切换条因此分不出模式，模式由输入法自己的菜单栏状态项显示。状态项画的是每个模式各一张的大字（中 / 双 / 五 / 粤 / 注 / 日 / 한 / 越 / ཀ / 笔 / 英，scripts/render_menu_icon.swift 生成），plist 不引用它们，所以这里另外检查声明的每个模式都有自己的那张、带齐两页。
 """
 
 import plistlib
@@ -20,6 +20,13 @@ ICON_KEYS = (
     "tsInputModeMenuIconFileKey",
     "tsInputModePaletteIconFileKey",
 )
+PRODUCT_LOGO = "MSIMEClientInputMethodMenuIcon.tiff"
+# 模式标识后缀 → 状态项大字文件名里的那一段（MSIMEClientInputMethodMenuIcon<名>.tiff）。
+GLYPH_NAMES = {
+    "Hans": "Chinese", "Shuangpin": "Shuangpin", "Wubi": "Wubi", "Cantonese": "Cantonese", "Zhuyin": "Zhuyin",
+    "Japanese": "Japanese", "Korean": "Korean", "Vietnamese": "Vietnamese", "Tibetan": "Tibetan", "Stroke": "Stroke",
+    "Roman": "English",
+}
 # The menu slot is 16 points; these are the pixel sizes that cover it at 1x and 2x.
 REQUIRED_MENU_PAGES = {(16, 16), (32, 32)}
 
@@ -96,27 +103,27 @@ def main() -> int:
 
     with plist_path.open("rb") as handle:
         modes = (plistlib.load(handle).get("ComponentInputModeDict", {}).get("tsInputModeListKey", {}) or {})
-    mode_icons: dict[str, str] = {}
     for mode, body in sorted(modes.items()):
         menu, palette = body.get("tsInputModeMenuIconFileKey"), body.get("tsInputModePaletteIconFileKey")
-        if not menu:
-            failures.append(f"input mode {mode} names no menu icon; its entry would fall back to a generic icon")
+        if menu != PRODUCT_LOGO or palette != PRODUCT_LOGO:
+            failures.append(f"input mode {mode} names {menu} / {palette}; every mode shows the product logo {PRODUCT_LOGO}")
+        # 状态项按模式标识的后缀取大字，与 InputModeIdentifiers.h 的 MSIMEInputModeGlyphFile 同一张表。
+        suffix = mode.rsplit(".", 1)[-1]
+        glyph_name = GLYPH_NAMES.get(suffix)
+        if glyph_name is None:
+            failures.append(f"input mode {mode} has no status item glyph; add it to MSIMEInputModeGlyphFile and here")
             continue
-        if palette != menu:
-            failures.append(f"input mode {mode} names {menu} for the menu but {palette} for the palette")
-        mode_icons[mode] = menu
-    shared: dict[str, list[str]] = {}
-    for mode, icon in sorted(mode_icons.items()):
-        shared.setdefault(icon, []).append(mode)
-    for icon, owners in sorted(shared.items()):
-        if len(owners) > 1:
-            failures.append(f"input modes {', '.join(owners)} all name {icon}; the menu bar and the switcher could not tell them apart")
+        glyph = resources / f"MSIMEClientInputMethodMenuIcon{glyph_name}.tiff"
+        if not glyph.is_file():
+            failures.append(f"{glyph.name} is missing; the menu bar status item draws it for {mode}")
+        elif not REQUIRED_MENU_PAGES <= set(tiff_pages(glyph)):
+            failures.append(f"{glyph.name} lacks the 16x16 and 32x32 pages the status item draws from")
 
     if failures:
         for failure in failures:
             print(failure, file=sys.stderr)
         return 1
-    print(f"{sum(len(v) for v in named.values())} icon references resolve; the menu icons carry both pages and each of the {len(mode_icons)} input modes has its own.")
+    print(f"{sum(len(v) for v in named.values())} icon references resolve; the menu icons carry both pages, all {len(modes)} input modes show the logo and each has its status item glyph.")
     return 0
 
 
