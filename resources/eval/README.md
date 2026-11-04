@@ -45,6 +45,8 @@ cargo run --release -p msime-input-runtime --example rerank_latency -- \
 
 **不要用 `msime-pinyin.db` 自身出题。** 它就是解码器查的那张表，等于让系统考自己；而 1–2 音节的排序实现就是 `ORDER BY weight DESC`，拿 weight 当金标准是在考 SQLite。
 
+**v1 有三类杂质，比较词库时用 `quanpin-words-v2.tsv`。** 按 dict-v2.0.41 的 `msime-pinyin.db` 核对，1,694 条是 12 字符截断后碰巧还能切成那么多音节的（`aizengfenmin` 爱憎分明），44 条读音与词库的任何读音都对不上（`aiban` 呆板、`geiyu` 给予），86 条的词库里没有（`bihua` 比划）。v2 去掉这 1,824 条，留下 23,295 条，并给同码用例打标签，见下文「评测把关工具」。v2 只用词库剔除杂质，金标准仍是 v1 的，不是从词库出题。v1 不动，现有基线照旧对着它。
+
 #### `--nine-key`：同一个词级集在九键上打
 
 `convert_eval --nine-key` 打开 Runtime 的九键模式，把每条用例的字母换成键盘上印在旁边的数字（a–c 是 2，w–z 是 9）再逐键输入，金标准不变。全键盘上 xi'an 和 yi'an 是两个输入，九键上是同一串 9426，所以权重口径不一致的词在这里才暴露出来（一按 压过 西安）；全拼的数字测不到这一层。
@@ -279,6 +281,110 @@ test 部分，三成简拼，单元格是 `cfa`（括号里是宽口径 `cfa_len
 九键缺口的构成（dev，全键盘第一位就是整块而九键不是的那些块，按字数占全部 dev 字数）：同一串数字的另一个同长的词排第一 5.5%，整块不在候选栏里（整句解码出错，`西班牙语` 成了 `一般杂物`）4.7%，简拼 4.0%，整块排在更短或更长的整句行后面 2.3%，单字同码 0.8%。
 
 #10110 加 #10111（`origin/feat/nine-key-completion-discount` 6804e76535）上同样 32 臂九键和 14 键：每一臂的 `cfa` 变化都在 ±1.2 个点以内，方向不一（九键主配置 Tatoeba 0.605 → 0.601，聊天 0.603 → 0.608），`cca` 在 32 臂里 27 臂变高、4 臂变低，九键最多高 1.5 个点；全键盘逐字节不变。单臂的区间半宽有两个点左右，这些变化都在区间里。
+
+## 评测把关工具
+
+上面的门禁都是整份报告与提交的基线逐字节比较，只能说明「变没变」，说明不了「好还是坏」；`typing_sim` 的基线还记着资源的 `generation` 和 `source_commit`，换一份词库必然不一致。下面这几个脚本给词库清洗（dict-cleanse 方案第 4 节）用：同一批用例在两份资源上各跑一遍，逐例配对比较，再加上整份集合量不到的几项检查。它们都只读 `convert_eval --dump` 或数据库，不改评测二进制的口径；需要跑评测的子命令默认用 `target/release/examples/convert_eval`（`cargo build --release -p msime-input-runtime --example convert_eval`），`--binary` 可以换。脚本的单元测试是同名的 `scripts/test-*.py`，随 `scripts/run-checks.sh` 运行，不需要词库。
+
+### 一份候选词库怎么跑
+
+1. 词库仓库对候选分支 workflow_dispatch `release-built-dictionaries.yml`（publish 关掉），下载 artifact 解压。
+2. 生成临时资源锁并建资源目录，挂模型和不挂模型各一份：
+
+   ```sh
+   python3 scripts/resource_lock_from_sums.py --artifact <artifact 目录> --out target/lock-c.json \
+     --stage target/res-c --model <现有资源目录>/sentence-model.safetensors
+   python3 scripts/resource_lock_from_sums.py --artifact <artifact 目录> --out target/lock-c-nomodel.json \
+     --without-model --stage target/res-c-nomodel
+   ```
+
+   锁以 `resources/desktop-dictionary.lock.json` 为模板，文件清单和顺序不变，换上 artifact 的 SHA-256 和长度，`source_commit` 取 artifact 里 manifest 的 `source.commit`。URL 写成 `https://dry-run.invalid/<文件名>`：资源校验只要求 https、不下载核对，`.invalid` 保证这份锁不会被拿去下载。artifact 目录本身多出粤拼、注音等语言词库，不能直接当资源目录，`--stage` 建一个只含锁里文件的目录（硬链接）。
+3. 两份资源在同一份集合上各跑一遍 `convert_eval --dump`（`--resources target/res-c --resource-lock target/lock-c.json`），再配对比较（下一节）。
+4. `scripts/must_outrank.py run`、`scripts/vulgar_exposure.py run --baseline <上一份报告>` 和 `scripts/dictionary_topn_diff.py` 各跑一遍。
+
+### `scripts/eval_compare.py`：逐例配对比较
+
+```sh
+python3 scripts/eval_compare.py convert B.jsonl C.jsonl --set resources/eval/quanpin-words-v2.tsv --grid nine [--gate]
+python3 scripts/eval_compare.py typing B.json C.json [--dumps B.jsonl C.jsonl]
+```
+
+`convert` 按用例 id 配对两份 `convert_eval --dump`，对 top-1 和 top-5 各列出修好的（fixed）和弄坏的（broken）用例，给出精确 McNemar p 值（只看两边判定不同的用例，二项分布 p=0.5 的双侧检验）。两份 dump 的 id 集合、输入或金标准不一致时报错：那不是同一份集合。`--set` 给了时按 `--grid` 选的同码标签（`same-code-full|nine|fourteen`）把同码用例分进单独的桶，只报告。`--gate` 是方案 4.3 的硬门槛：非同码桶里任何一个 k，broken 多于 fixed 而且 p < 0.05（`--alpha`）就以退出码 1 结束。`--gate` 必须同时给 `--set` 和 `--grid`，否则直接报错：没有同码标签时所有用例都会落进被卡的桶，同码用例的重排也会卡住。不要再用「top-5 下降不超过 0.5 个点」这种不配对的半宽：两次独立运行的差值里，同一批用例上的变化和抽样噪声混在一起。
+
+`typing` 比较两份 `typing_sim` 报告，忽略 `config.resources.generation` 和 `source_commit`，其余字段完全相同时退出码 0，否则列出不同的字段和 dev、test 主要指标的前后值。`--dumps` 再按块配对（行号加这一行里的第几块；同一组参数下切块只由种子决定），对整块首选 `top1_exact` 做 McNemar，并比较严口径首选字数。
+
+### `quanpin-words-v2.tsv` — 23,295 条，v1 去掉杂质
+
+由 `scripts/build-quanpin-words-v2.py --pinyin-db <dict-v2.0.41 的 msime-pinyin.db>` 从 v1 派生，文件头记着参照词库（dict-v2.0.41，`5973347e…`）、派生命令和各类计数。参照词库写死在 `scripts/eval_keys.py` 的 `REFERENCE_RELEASE`、`REFERENCE_PINYIN_SHA256`，脚本先核对给的词库就是这一份；不读当前的资源锁，锁升级以后照样能逐字节重新生成。去掉的三类：
+
+- 截断 1,694 条：词库里有这个词，没有一个读音等于输入，而输入是某个读音的真前缀（截断落在 `lue` 中间的 `fazhanzhanlu` 发展战略 也算）。
+- 读音不符 44 条：词库里有这个词，但任何读音都既不等于输入、也不以输入开头。
+- 缺词 86 条：词库里没有这个词。
+
+`lue`、`nue` 当作 `lve`、`nve` 比较（引擎把用户打的 `lue` 规整成词库里的 `lve`），所以 `celue` 策略、`zhanlue` 战略 这类 37 条留着；方案文档按字面比较时把它们算进了读音不符（83 条）。
+
+同码标签：留下的用例里，同一串码对应不止一个金标准的，在全拼上打 `same-code-full`（5,118 条），九键上 `same-code-nine`（10,477 条），14 键上 `same-code-fourteen`（8,560 条）。这些用例里至多一条能排第一，top-1 的上限因此是全拼 0.874、九键 0.703、14 键 0.761（写在文件头）。`convert_eval` 的报告也会按这些标签分桶（`by_tag`）。换参照词库或改判据要发 v3，v2 不动。
+
+现在的数（dict-v2.0.41 加 `sentence-model.safetensors`，完整 23,295 条，top-1 / top-5）：
+
+| 键盘 | 整份 | 非同码桶 | 同码桶 |
+|---|---|---|---|
+| 全拼 | 0.776 / 0.956 | 0.889 / 0.981（18,177 条） | 0.374 / 0.868（5,118 条） |
+| 九键 | 0.556 / 0.843 | 0.800 / 0.952（12,818 条） | 0.259 / 0.710（10,477 条） |
+| 14 键 | 0.633 / 0.911 | 0.835 / 0.984（14,735 条） | 0.284 / 0.787（8,560 条） |
+
+同一批用例换到 dict-v2.0.51（用 `resource_lock_from_sums.py` 给发布附件生成临时锁），三种键盘的 top-1、top-5 一条都没变，全拼的 dump 逐字节相同。九键有 5 条候选表变了：`qifeng` 的两条（启封、奇峰，同码 743364）首屏第 3 位多了新加的 custom 词 司凤，奇峰 从第 6 退到第 7，其余 3 条的差别在第 20 名以后；14 键有 2 条，在第 13 名和第 20 名以后。两版之间拼音数据只多了 7 个 custom 词，主库的字节差别来自构建器换版本，这一次没有改到前 5 名。
+
+### `must-outrank.tsv`：成对偏好夹具
+
+```sh
+python3 scripts/must_outrank.py run --resources <资源目录> [--resource-lock <锁>]
+python3 scripts/must_outrank.py check --dump full=<dump> --dump nine=<dump>
+```
+
+每行断言同一串输入下的相对次序，不断言绝对名次，并且必须写来源（用户反馈、issue、复核过的样例）。两种行：`outrank` 要应靠前的词出现、并且排在应靠后的词前面（后者不出现也算过）；`not-on-first-page` 要那个词不出现在首屏（出厂每页 6 个，`--first-page-rows` 可改），锚定词不是 `-` 时还要它在首屏里，防止输入写错、候选整个变了时空过。`keyboard` 列是 `full`、`nine`（输入写数字）或 `fourteen`（输入写组码）；含汉字的词逐字比较，纯 ASCII 的英文词不分大小写。
+
+执行器按键盘把夹具写成 `convert_eval` 的用例集（九键的数字换成一串编码相同的字母，`--grid nine` 自己再换回来），加 `--mixed-english` 跑 `--dump`：混输英文是产品出厂设置，九键 63476 第 2 位的 Negro 只在它开着时出现。`convert_eval` 的其他配置照旧（关学习、每例清空上文），所以这里不需要只存在于某个 worktree 里的探针程序。任何一行失败退出码 1，逐行列出两个词的名次和首屏。
+
+现在的数（dict-v2.0.41 加 `sentence-model.safetensors`）：第一批 6 行全部失败，都是方案里已知要修的问题，修好一条才算一条。
+
+| id | 键盘 | 输入 | 断言 | 实际 |
+|---|---|---|---|---|
+| mo-0001 | 全拼 | chejian | 车检 > 车件 | 车件 第 2，车检 第 6 |
+| mo-0002 | 九键 | 2435426 | 车检 > 车件 | 车件 第 3，车检 第 7（首屏外） |
+| mo-0003 | 九键 | 63633 | 闷的 > 门的 | 门的 第 1，闷的 第 3 |
+| mo-0004 | 全拼 | huo'zai | 火灾 > 或在 | 或在 第 1，火灾 第 2 |
+| mo-0005 | 九键 | 9269468 | 万州 > 挽昼 | 挽昼 第 5，万州 第 6 |
+| mo-0006 | 九键 | 63476 | Negro 不在首屏（内容 在） | 内容 第 1，Negro 第 2 |
+
+所以它现在不进 `verify-local.sh`：一个必然红的门禁只会被跳过。等方案 3.1 的权重覆盖和 E-2 的英文门槛合进来、夹具转绿之后，再接进词库仓库的 PR 评测（方案 R-3）。
+
+### `scripts/vulgar_exposure.py`：粗俗词和英文的首屏曝光
+
+```sh
+python3 scripts/vulgar_exposure.py run --resources <资源目录> [--resource-lock <锁>] [--baseline <上一份报告.json>] [--json <报告.json>]
+```
+
+粗俗词常常不是在用户打它自己的读音时冒出来，而是在用户打别的词打到一半时（九键 243542 是 别叫 的前缀），或者九键一串数字对应好几种读法时。现有评测集每条只打全一次读音，一条都量不到。输入集 `exposure-quanpin-v1.tsv`（15,614 串）和 `exposure-nine-key-v1.tsv`（10,811 串）由 `vulgar_exposure.py inputs --pinyin-db <dict-v2.0.41 的 msime-pinyin.db>` 生成并提交（参照词库与 v2 同一份，同样写死在 `eval_keys.py`），换词库前后打同一批输入：权重最高的 5,000 个 2 到 4 字词，每个读音打全的输入、每一个更短的字母前缀、前 k 个音节的首字母，按键盘去重（九键按数字串），再加方案点名的目标码（2435422、435422、74224、63476，以及 内容、尴尬、试图 打全的码）。第 5 列记这串码由哪几类输入生成。
+
+判定用引擎自己的粗俗词表 `crates/engine/src/lattice/offensive_words.txt`，规则与 `lattice::offensive::is_offensive` 相同（按子串，豁免写法盖住的不算）；英文用 `crates/dict-builder/src/english_supplement.rs` 的 `OFFENSIVE`（55 个蔑称，不分大小写）。`--extra-words` 再加一份同格式的表（词库仓库 curation/ 的粗俗词表、只在九键歧义码上避开的流行口语）。英文脏话（shitty、gangbang、Negro）不在任何一张表里，只能从报告的第 2 位英文清单和目标码的首屏人工看。粗俗词本身的读音恰好就是这串输入时记 `exact`：方案的政策是这些词不当首选，也不出现在前缀、简拼和九键、14 键歧义码的首屏，只有全键盘打它自己的读音时可以留在首屏。所以「违反政策」一列在全键盘上去掉只有 `exact` 命中的输入，在九键上不豁免：九键一串数字几乎都对应好几种读法，`exact` 只逐行标出供审阅。`--baseline` 逐项比较粗俗首屏输入数、粗俗首选输入数和英文冒犯词首屏输入数，任何一项增加退出码 1（方案 4.3 的「C ≤ B」）。
+
+现在的数（dict-v2.0.41 加 `sentence-model.safetensors`，混输英文开，每页 6 个）：
+
+| | 输入 | 首屏有粗俗词 | 其中违反政策 | 粗俗词当首选 | 第 2 位是英文 | 打全的码第 2 位是英文 |
+|---|---|---|---|---|---|---|
+| 全拼 | 15,614 | 10（13 行） | 9 | 0 | 508 | 80 / 4,780 |
+| 九键 | 10,811 | 9 | 9 | 1（435422 个鸡巴） | 1,383 | 583 / 4,368 |
+
+全拼上的多是前缀：jiba（击败）首屏有 鸡巴玩意、鸡巴脸、鸡巴，zuisha（最少）有 最傻逼，quni（去年）有 去你妈的。九键的目标码：2435422 首屏第 2 位 别鸡巴，435422 首选 个鸡巴，74224 第 3 位 傻逼，63476 第 2 位 Negro，42642（尴尬）第 2 位 gangbang，74488（试图）第 2 位 shitty。九键第 2 位最常见的英文是 Xiaohongshu、Pinduoduo 和 SCOWL 的冷僻词（ionising、whiling、rhizome、wanking）。全拼 dump 带整张候选表，单字母前缀的表很长，一份约 240 MB，跑在 Studio 上，不要在本机跑。
+
+### `scripts/dictionary_topn_diff.py`：五笔和英文的 top-N 差异清单
+
+```sh
+python3 scripts/dictionary_topn_diff.py --before <A 目录> --after <B 目录> --out <清单目录> [--top 5]
+```
+
+五笔和英文没有独立的金标准，这份清单只作审阅附件，不设通过线。它直接读两份数据库按引擎的排序取前 N 个：五笔每个码打全时的字词、一码二码的补全；英文 1 到 3 个字母前缀的补全（照 `english.rs` 的 `PREFIX_SQL`）、权重最高的 5,000 个词的英译中释义、全部中译英释义（按拼音词库权重排）。只列变了的行，`summary.json` 给出每份清单比较了多少、首选变了多少。量不到个人学习、五笔四码唯一自动上屏和九键英文的数字前缀，这些要在宿主上看。
 
 ## 往整句集里加用例
 
