@@ -44,7 +44,7 @@ bool caught(void (*crash)()) {
   return false;
 }
 void run(const std::string &mode, const std::filesystem::path &root) {
-  require(mode == "tip" || mode == "host" || mode == "external" || mode == "withdrawn" ||
+  require(mode == "baseline" || mode == "tip" || mode == "host" || mode == "external" || mode == "withdrawn" ||
           mode == "reopened" || mode == "released" || mode == "caught", "unknown system WER case");
   require(root.is_absolute() && std::filesystem::is_directory(root), "synthetic output directory missing");
   require(SetEnvironmentVariableW(L"LOCALAPPDATA", root.c_str()) &&
@@ -57,10 +57,26 @@ void run(const std::string &mode, const std::filesystem::path &root) {
   // 关闭弹窗用 WER 自己的标志，不能用 SEM_NOGPFAULTERRORBOX 把整个系统投递路径也关掉。
   // 负向样本不需要排队关键报告；x86 WER 在不归属本 helper 的异常上排队时可能把
   // 合成进程挂在 LPC 回复上，导致测试把系统的异步处置误判成 helper 失败。
-  const auto wer_flags = (mode == "external" || mode == "withdrawn" || mode == "released" || mode == "caught")
+  const auto wer_flags = (mode == "baseline" || mode == "external" || mode == "withdrawn" || mode == "released" || mode == "caught")
       ? WER_FAULT_REPORTING_FLAG_NOHEAP | WER_FAULT_REPORTING_NO_UI
       : WER_FAULT_REPORTING_FLAG_QUEUE | WER_FAULT_REPORTING_FLAG_NOHEAP | WER_FAULT_REPORTING_NO_UI;
   require(SUCCEEDED(WerSetFlags(wer_flags)), "WER flags failed");
+  if (mode == "baseline") {
+    // 在加载任何产品模块、创建采集线程或登记 helper 之前走同一条系统故障路径。
+    // 基线超时能证明没有产品采集器也会停住；基线通过本身不能排除产品影响。
+    require(GetModuleHandleW(MSIME_EDITION_HOST_DLL) == nullptr &&
+            GetModuleHandleW(L"MetasequoiaImeTsfLeaseTest.dll") == nullptr &&
+            GetModuleHandleW(L"MetasequoiaImeCrashWer.dll") == nullptr,
+            "baseline unexpectedly loaded a capture module");
+    const nlohmann::json expected{{"mode", mode}, {"record_expected", false},
+      {"inherited_error_mode", inherited_error_mode}, {"effective_error_mode", GetErrorMode()}};
+    std::ofstream stream(root / "expected.json", std::ios::binary);
+    stream << expected.dump(2);
+    stream.close();
+    require(!stream.fail(), "baseline snapshot could not be saved");
+    external_crash();
+    throw std::runtime_error("baseline fatal fault unexpectedly returned");
+  }
   wchar_t buffer[32768]{};
   const auto length = GetModuleFileNameW(nullptr, buffer, 32768);
   require(length && length < 32768, "test executable path unavailable");

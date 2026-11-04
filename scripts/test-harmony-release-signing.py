@@ -123,12 +123,16 @@ class ReleaseSigning(unittest.TestCase):
             "resources/resfile/handwriting/handwriting-zh_CN.model": "synthetic",
             "resources/resfile/handwriting/HandwritingModel-LICENSE.txt": "synthetic",
             "resources/resfile/handwriting/Zinnia-LICENSE.txt": "synthetic",
+            "resources/resfile/rerank-model-small/lm_step.ort": "synthetic",
+            "resources/resfile/rerank-model-small/model.json": "synthetic",
+            "resources/resfile/rerank-model-small/vocab.json": "synthetic",
+            "resources/resfile/licenses/rerank-model-Apache-2.0.txt": "synthetic",
             "resources/resfile/engine/synthetic.dat": "synthetic", "resources/resfile/licenses/synthetic.txt": "synthetic",
             "resources/resfile/wordbooks/synthetic.json": "synthetic",
         }
         with zipfile.ZipFile(path, "w") as package:
             for name, content in entries.items():
-                if name != omitted:
+                if name not in ((omitted,) if isinstance(omitted, str) else (omitted or ())):
                     package.writestr(name, content)
         return path
 
@@ -154,8 +158,10 @@ class ReleaseSigning(unittest.TestCase):
             SIGNING.validate_hap(debug_path, "0.2.0")
 
     def test_incomplete_resources_rejected(self):
-        for omitted in ["libs/arm64-v8a/libmsime_host_api.so", "resources/resfile/licenses/synthetic.txt",
-                        "resources/resfile/wordbooks/synthetic.json", "resources/resfile/handwriting/Zinnia-LICENSE.txt"]:
+        for omitted in ["libs/arm64-v8a/libmsime_host_api.so",
+                        ("resources/resfile/licenses/synthetic.txt", "resources/resfile/licenses/rerank-model-Apache-2.0.txt"),
+                        "resources/resfile/wordbooks/synthetic.json", "resources/resfile/handwriting/Zinnia-LICENSE.txt",
+                        "resources/resfile/rerank-model-small/lm_step.ort", "resources/resfile/licenses/rerank-model-Apache-2.0.txt"]:
             with self.subTest(omitted=omitted), self.assertRaises(ValueError):
                 SIGNING.validate_hap(self.hap(omitted=omitted), "0.2.0")
 

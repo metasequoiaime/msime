@@ -254,3 +254,33 @@ Aspell 词典包里的 `Copyright` 文件另含 Benjamin Titze 的澳大利亚�
 专利与商标的核查（2026-11-02，公开来源，未经国家知识产权局官方系统复核，不构成法律意见）：新世纪版对应的专利是王永民的 CN1117311C（ZL99109798.X，《25键形码汉字电脑输入法》，1999-07-19 申请，2003-08-06 授权），发明专利保护期自申请日起 20 年，最晚 2019-07-19 已经届满；86 版的 CN1003326B 与 98 版的 CN1204080A 也早已失效；2006 年以后王永民名下的申请（如 CN101408805A 数字键盘方案）不涉及 25 键的新世纪版。没有查到“新世纪五笔”“五笔字型”在第 9、42 类的注册情况，唯一查到的“王码”第 853925 号（第 41 类）已于 2017 年注销。苹果 macOS 自带输入法以及搜狗、百度五笔都以“新世纪”称呼这一版本。本项目只在描述编码方案时使用“新世纪五笔”一词，与王码公司及其产品没有关联。界面上称“新世纪五笔”“五笔 新世纪”，不使用“王码”“五笔字型”等商标。
 
 GPL-3.0 全文就是本项目根目录的 `LICENSE`，已随每个平台分发。
+
+### 86 五笔原表拆成极点表与 rime-wubi 两个文件
+
+| 文件 | 上游 | 上游许可 |
+| --- | --- | --- |
+| `sources/wubi/wubi86-jidian.txt`（msime-dictionary） | [KyleBing/rime-wubi86-jidian](https://github.com/KyleBing/rime-wubi86-jidian)，提交 `28f19e3affdabb37d11d38f457c7a08a4694b226` 的 `wubi86_jidian.dict.yaml` 数据区，另有 msime-dictionary 的 6 处改动 | Apache-2.0（取用时上游的条款） |
+| `sources/wubi/wubi86-rime-wubi.txt`（msime-dictionary） | [rime/rime-wubi](https://github.com/rime/rime-wubi)，提交 `152a0d3f3efe40cae216d1e3b338242446848d07` 的 `wubi86.dict.yaml` 里极点表没有的行 | LGPL-3.0 |
+
+上面副本里的 `sources/wubi/wubi86-jidian.txt` 是极点表加上 msime-dictionary #36 接在末尾的 rime-wubi 行。msime-dictionary 把两段按原样拆开，两个文件首尾相接仍是拆分前那个文件的全部字节，由它的 `upstream.lock.json` 分别记在 `rime-wubi86-jidian` 和 `rime-wubi` 下，构建器按同名的 reference 核对提交。极点表那一份与上游数据区不完全一致：msime-dictionary 的提交 `923ca17` 删掉了编码 `cokg` 下词为空、第 4 列写着「全角空格」的一行，给上游没有权重的 5 行补了权重 10，#36 给末行补了换行；逐条改动写在 msime-dictionary 的 `NOTICE.md`。上游 2026-10-29 把许可改成 MIT，这张表取自那之前的提交，那时的 `LICENSE` 与随包的 `rime-wubi86-jidian-Apache-2.0.txt`（提交 `063377a0e3ae7d4084a45f03e4269f62f874f7dc` 的 `LICENSE`）逐字节相同。
+
+从拆分后的布局起，构建器在读入之后对这两份数据做下面的修改，源文件本身不改：rime-wubi 那一份里，极点表已经收了的词组不写入它给的另一个编码，实际是 2 行，「版权所有」的 `bqsy`（拼音首字母，正确的 `tsrd` 由极点表提供）和「T恤」的 `ttnt`（极点表是 `tntl`）；上游权重为 0 的 12 个部首、部件（如 ⺻ `vhgd`）按 0 写入，排在同码的补充词之后；其余的行按 10 写入（同码极点行有更低的名次时取那个名次），上游的词频（最高 444000000）不进表，只用来排同码几行的先后，所以这些行排在同码的极点行之后；两份里的 CJK 兼容汉字（U+F900–U+FAFF）与扩展区字一样不写入。词库锁换到收录这次拆分的 `dict-v*` 后，上面的副本会带上对应条目，到那时删掉本节。
+
+### 万象词库 `7ab73ee` 全套与构建期重算
+
+| 文件 | 上游 | 上游许可 |
+| --- | --- | --- |
+| `sources/pinyin/wanxiang/` 下 17 份 `.dict.yaml`（msime-dictionary） | [amzxyz/rime-wanxiang](https://github.com/amzxyz/rime-wanxiang) 标签 `v18.0.16`（提交 `7ab73ee0c7f80190004233e70f954833df64c80e`）的 `dicts/` 目录，除 `abbrev.dict.yaml`、`t9_abbrev.dict.yaml`、`en.dict.yaml` 以外的全部词库：`cuoyin`、`diming`、`duoyin`、`fangyan`、`huaxue`、`jichu`、`lianxiang`、`mingren`、`mixed`、`renming`、`shici`、`taifeng`、`wuzhong`、`yaopin`、`yiren`、`yixue`、`zi` | CC BY 4.0（上游仓库 `LICENSE`），作者 amzxyz，词库数据源自同一作者的 [amzxyz/RIME-LMDG](https://github.com/amzxyz/RIME-LMDG) |
+
+上面副本里「万象词库原始文件」记的是 `aa9947f` 的 15 份；msime-dictionary 把它们换成了 `7ab73ee` 的这 17 份（逐字节，Git blob 与上游相同），由 `upstream.lock.json` 以上游名 `rime-wanxiang` 固定大小和 SHA-256，msime 的锁文件和 `UPSTREAM_FILES` 登记同一个提交。上面「拼音权重与万象对齐」用的就是这一份数据。
+
+构建器的 `reweight` 阶段（`crates/dict-builder/src/reweight.rs`，在 `quanpin` 之后、`places-supplement` 之前）每次构建都按这 17 份文件重算全拼表里与万象共有的行的权重，规则与「拼音权重与万象对齐」相同：`wanxiang.dict.yaml` 导入的 16 份词库里除 `cuoyin` 以外的 15 份（与 #84 相同；`cuoyin` 和不在导入之列的 `mixed` 不提供权重），去掉声调、ü 写作 v、取最高权重，乘 `single-chars.txt` 9.42、`rime-ice.txt` 9.2、`rime-ice-supplement.txt` 9.28，四舍五入；只认写了非负整数权重的万象行。三份文件现在的权重就是这样算出来的（共有的 597343 行逐行吻合），所以这一步不改变产物。msime-dictionary 有 `curation/pinyin-reweight.txt` 时另做第二步：`renming`、`duoyin` 两份词库的权重先乘表里给的比例；打开 `unattested-cap` 时，万象全套 17 份词库在任何读音下都不收的多字词，排在同一全拼键上万象原始权重不小于门槛（默认 100）的词前面的，压到这些词里换算后最高的那个下面；`curation/pinyin-reweight-exempt.txt` 列出的行不做第二步。两步改的都只是权重，用的只是万象的权重和收录与否，不加入任何万象词条。再分发由此构建的 `msime-pinyin.db` 时，须保留对万象拼音（rime-wanxiang）与作者 amzxyz 的署名、来源链接、[CC BY 4.0 许可链接](https://creativecommons.org/licenses/by/4.0/)和这里的改动说明；许可全文见 `resources/licenses/rime-wanxiang-CC-BY-4.0.txt`。
+
+### 构建时对 rime-ice 数据的删改
+
+从包含 msime `crates/dict-builder/src/curation.rs` 的构建器构建的第一次 `dict-v*` 发布起，构建器在读入之后对 rime-ice（GPL-3.0）的数据做下面的修改，源文件本身不改：
+
+- 英文：`english` 阶段从全部英文来源（`sources/english/rime-ice-en.txt`、`sources/english/rime-ice-en-supplement.txt`、`sources/english/scowl-words.txt`、OALDPE 词头和 `custom/english.txt`）删掉构建器内置的蔑称（`english_supplement::OFFENSIVE` 与 `curation::BUILT_IN_VETOES`，后者是 rime-ice 英文词表自己收的 nigger、tranny、beyatch）和 msime-dictionary `curation/english-vetoes.txt` 列出的词，任何大小写都不写入 `msime-english.db`，它们的释义随之不出现；`custom/translations.txt` 里英文一侧含这些词的条目也不写。
+- 拼音：msime-dictionary 有 `curation/pinyin-vetoes.txt`、`curation/pinyin-weight-overrides.txt` 时，`word-vetoes`、`weight-overrides` 阶段在全部拼音输入并入之后从全拼表删掉列出的词或读音、把列出的读音改成给定的权重；整词否决的词也不进五笔码表和五笔补充表。
+
+词库锁换到这样的发布、上面的副本按那次发布的 `NOTICE.md` 重新同步之后，删掉本节。

@@ -9,6 +9,15 @@ final class SymbolCandidateChipTests: XCTestCase {
     enableAllInputSchemes()
   }
 
+  private func ancestor<T: UIView>(_ type: T.Type, of view: UIView?) -> T? {
+    var current = view?.superview
+    while let node = current {
+      if let match = node as? T { return match }
+      current = node.superview
+    }
+    return nil
+  }
+
   private func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap(descendants) }
 
   private func button(_ identifier: String, in controller: KeyboardViewController) throws -> UIButton {
@@ -36,7 +45,7 @@ final class SymbolCandidateChipTests: XCTestCase {
       }
       XCTAssertNotNil(try chip(word).constraints.first { $0.identifier == "candidateChipWidth" && $0.isActive },
                       "释义开着时词按释义行取宽")
-      let strip = try XCTUnwrap(chips.first?.superview?.superview)
+      let strip = try XCTUnwrap(ancestor(UIScrollView.self, of: chips.first))
       for symbol in symbols {
         let symbolChip = try chip(symbol)
         XCTAssertNil(symbolChip.constraints.first { $0.identifier == "candidateChipWidth" && $0.isActive },
@@ -100,7 +109,7 @@ final class SymbolCandidateChipTests: XCTestCase {
     controller.view.layoutIfNeeded()
     let chips = descendants(controller.view).compactMap { $0 as? KeyboardKeyButton }
       .filter { ($0.accessibilityIdentifier ?? "").hasPrefix("candidate-") && !$0.isHidden }
-    let stack = try XCTUnwrap(chips.first?.superview as? UIStackView)
+    let stack = try XCTUnwrap(ancestor(UIStackView.self, of: chips.first))
     XCTAssertEqual(stack.spacing, 10, accuracy: 0.5, "皮肤版式确实生效：间距是 0.15em 加 6")
     func width(_ text: String) throws -> CGFloat {
       try XCTUnwrap(chips.first { $0.accessibilityLabel?.hasSuffix("：\(text)") == true }, "候选条上没有 \(text)").bounds.width
