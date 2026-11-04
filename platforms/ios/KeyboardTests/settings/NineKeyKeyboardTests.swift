@@ -1564,6 +1564,15 @@ final class NineKeyKeyboardTests: XCTestCase {
 
   /// 两侧分词键通过实际按键事件切分组合，切回英文时复用控件并恢复大小写。
   func testQuanpinSeparatorKeepsChineseAndSplitsCurrentComposition() throws {
+    try checkQuanpinSeparatorKeepsChineseAndSplitsCurrentComposition()
+  }
+
+  func testQuanpinSeparatorWithGlossKeepsChineseAndSplitsCurrentComposition() throws {
+    setCandidateGloss(true)
+    try checkQuanpinSeparatorKeepsChineseAndSplitsCurrentComposition()
+  }
+
+  private func checkQuanpinSeparatorKeepsChineseAndSplitsCurrentComposition() throws {
     let previous = InputSchemePreference.scheme
     let previousShift = KeyboardLayoutPreference.quanpinShift
     defer {
@@ -1600,8 +1609,9 @@ final class NineKeyKeyboardTests: XCTestCase {
       separator.sendActions(for: .primaryActionTriggered)
       try type("an")
       XCTAssertEqual(try preedit(in: controller), "xi'an")
+      // 释义会另占标题下面的行，候选文字仍是首行；不能要求完整标题只有词条。
       let candidate = try XCTUnwrap(descendants(controller.view).first {
-        ($0 as? UIButton)?.configuration?.title == "西安"
+        ($0 as? UIButton)?.configuration?.title?.split(separator: "\n").first == "西安"
       } as? UIButton)
       candidate.sendActions(for: .primaryActionTriggered)
     }
