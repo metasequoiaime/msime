@@ -189,3 +189,21 @@ fn a_missing_recorded_only_file_fails_the_stage() {
     let error = format!("{:#}", build.run(Stage::Reweight).unwrap_err());
     assert!(error.contains("cuoyin.dict.yaml"), "{error}");
 }
+
+#[test]
+fn the_exempt_table_goes_with_the_second_step() {
+    let (_temporary, dictionary, out, build) = fixture(true);
+    std::fs::create_dir_all(dictionary.join("curation")).unwrap();
+    std::fs::write(dictionary.join(reweight::EXEMPT), "门的\tmen'de\n").unwrap();
+    build.run(Stage::Quanpin).unwrap();
+    // 只删了 pinyin-reweight.txt、留下豁免表：失败，两份要一起删。
+    let error = format!("{:#}", build.run(Stage::Reweight).unwrap_err());
+    assert!(error.contains("delete the two files together"), "{error}");
+    // 第二步打开时，豁免的 门的 不被压。
+    std::fs::write(dictionary.join(reweight::SETTINGS), "unattested-cap\ton\n").unwrap();
+    build.run(Stage::Quanpin).unwrap();
+    let summary = build.run(Stage::Reweight).unwrap();
+    assert!(summary.contains(", 1 exempt:"), "{summary}");
+    assert!(summary.ends_with(" 0 capped"), "{summary}");
+    assert_eq!(weight(&out, "门的", "men'de"), 435135);
+}
