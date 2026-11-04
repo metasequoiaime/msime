@@ -73,7 +73,7 @@ pub(crate) fn keep_off_first_page(
     list.append(&mut off_page);
 }
 
-/// 固定位置和云、AI 行在 [`keep_off_first_page`] 之后才放回各自的位置，放的时候会把首屏的行挪走、后面的行依次前移，挪出首屏的行可能因此又落回首屏的最后几位。这里在那之后补一遍：首屏里还有要挪的行时，和首屏之后第一个可以上首屏的行（不挪、没有固定位置、不是云或 AI 行）对调，其余每一行都留在原位，用户固定的位置和云、AI 的席位不受影响。用户固定了位置的行本身也不挪。首屏里没有要挪的行时只做判断，不分配内存。
+/// 固定位置和云、AI 行在 [`keep_off_first_page`] 之后才放回各自的位置，放的时候会把首屏的行挪走、后面的行依次前移，挪出首屏的行可能因此又落回首屏的最后几位。这里在那之后补一遍：首屏里还有要挪的行时，和首屏之后第一个可以上首屏的行（不挪、没有固定位置、不是云或 AI 行）对调，其余每一行都留在原位，用户固定的位置和云、AI 的席位不受影响。首选替补还排除表情、颜文字和混输日文；中文首选不拿混输英文补位，原首选是英文时仍可用普通英文替补。用户固定了位置的行本身也不挪。首屏里没有要挪的行时只做判断，不分配内存。
 pub(crate) fn evict_after_positions(
     list: &mut [WordItem],
     page: usize,
@@ -97,6 +97,13 @@ pub(crate) fn evict_after_positions(
         let replacement = tail.iter().position(|other| {
             other.fixed_position == 0
                 && !other.source.takes_online_seat()
+                // 中文首选的替补仍需遵守混输约束；纯英文首选可以用另一行英文补位。
+                && (index > 0
+                    || (!matches!(
+                        other.source,
+                        CandidateSource::Emoji | CandidateSource::Kaomoji | CandidateSource::MixedJapanese
+                    ) && (other.source != CandidateSource::EnglishDictionary
+                        || item.source == CandidateSource::EnglishDictionary)))
                 && demotion(other) == Demotion::Keep
         });
         if let Some(offset) = replacement {
@@ -419,5 +426,101 @@ mod tests {
         ];
         evict_after_positions(&mut lead, 3, |item| typed(item, |_| true));
         assert_eq!(words(&lead), ["沙壁", "傻逼", "啥比"]);
+    }
+
+    /// 二次降位仍按混输的首选约束找替补，不能把表情、英文或日文抬到首位。
+    #[test]
+    fn evicting_the_lead_keeps_mixed_rows_in_their_seats() {
+        for source in [
+            CandidateSource::Emoji,
+            CandidateSource::Kaomoji,
+            CandidateSource::EnglishDictionary,
+            CandidateSource::MixedJapanese,
+        ] {
+            let mut list = vec![
+                row("傻逼", CandidateSource::Database),
+                row("混入行", source),
+                row("沙币", CandidateSource::Database),
+            ];
+            evict_after_positions(&mut list, 3, |item| typed(item, |_| true));
+            assert_eq!(words(&list), ["沙币", "混入行", "傻逼"], "{source:?}");
+        }
+    }
+
+    /// 固定行和在线席位保持原位，首屏尾部的表达式行也不能成为新的首选。
+    #[test]
+    fn evicting_the_first_page_keeps_mixed_rows_off_the_lead() {
+        for source in [
+            CandidateSource::Emoji,
+            CandidateSource::Kaomoji,
+            CandidateSource::EnglishDictionary,
+            CandidateSource::MixedJapanese,
+        ] {
+            let mut list = vec![
+                row("别鸡巴", CandidateSource::Database),
+                row("固定二", CandidateSource::Database),
+                row("固定三", CandidateSource::Database),
+                row("固定四", CandidateSource::Database),
+                row("混入行", source),
+                row("别急吧", CandidateSource::Database),
+            ];
+            for (index, item) in list.iter_mut().enumerate().take(4).skip(1) {
+                item.fixed_position = (index + 1) as i32;
+            }
+            evict_after_positions(&mut list, 3, grid);
+            assert_eq!(
+                words(&list),
+                ["别急吧", "固定二", "固定三", "固定四", "混入行", "别鸡巴"],
+                "{source:?}"
+            );
+            assert_eq!(list[1].fixed_position, 2);
+            assert_eq!(list[2].fixed_position, 3);
+            assert_eq!(list[3].fixed_position, 4);
+        }
+    }
+
+    /// 只有英文行的列表照常拿普通英文替换粗俗英文首选。
+    #[test]
+    fn evicting_an_english_lead_can_use_another_english_word() {
+        let mut list = vec![
+            row("fuck", CandidateSource::EnglishDictionary),
+            row("word", CandidateSource::EnglishDictionary),
+        ];
+        evict_after_positions(&mut list, 1, grid);
+        assert_eq!(words(&list), ["word", "fuck"]);
+    }
+
+    /// 按九键真实顺序降位、混入、固定和兜底后，二次降位不能重新把表情抬到首位。
+    #[test]
+    fn evicting_after_fixed_positions_does_not_restore_expressive_lead() {
+        use crate::ime::queries::keep_expressive_rows_off_the_lead;
+        use crate::user_dictionary::journal::test_support::Dir;
+        use crate::user_dictionary::positions::{apply_fixed_positions, set_fixed_position};
+
+        for source in [CandidateSource::Emoji, CandidateSource::Kaomoji] {
+            let directory = Dir::new();
+            let journal = directory.journal();
+            let mut list: Vec<_> = ["别鸡巴", "固定四", "固定二", "固定三", "别急吧"]
+                .iter()
+                .map(|word| row(word, CandidateSource::Database))
+                .collect();
+            keep_off_first_page(&mut list, 3, grid);
+            list.insert(1, row("混入行", source));
+            for (word, position) in [("固定二", 2), ("固定三", 3), ("固定四", 4)] {
+                set_fixed_position(&journal, "synthetic", "synthetic", word, position).unwrap();
+            }
+            apply_fixed_positions(&journal, "synthetic", &mut list, false, None, false);
+            keep_expressive_rows_off_the_lead(&mut list);
+            assert_eq!(
+                words(&list),
+                ["别鸡巴", "固定二", "固定三", "固定四", "混入行", "别急吧"]
+            );
+            evict_after_positions(&mut list, 3, grid);
+            assert_eq!(
+                words(&list),
+                ["别急吧", "固定二", "固定三", "固定四", "混入行", "别鸡巴"],
+                "{source:?}"
+            );
+        }
     }
 }

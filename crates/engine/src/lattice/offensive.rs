@@ -63,6 +63,18 @@ impl<const LISTED: usize, const EXEMPT: usize> WordTable<LISTED, EXEMPT> {
 
 /// `word` 本身或其中任何一段在 `listed` 里，而且这一段没有被 `exempt` 里的豁免写法盖住。`listed` 按字节序排好，`longest` 是其中最长的词有几个字。表里只有两字以上的词，单字（UTF-8 不超过 4 字节）不查表，词网格里大多数边是单字。编进引擎的表和从词库读进来的表都用它。
 fn matches_within<S: AsRef<str>>(listed: &[S], exempt: &[S], longest: usize, word: &str) -> bool {
+    matches_within_context(listed, exempt, longest, word, word, 0)
+}
+
+/// 只在当前词里查命中，按整句中的绝对位置判断豁免，允许豁免写法跨过当前词的边界。
+fn matches_within_context<S: AsRef<str>>(
+    listed: &[S],
+    exempt: &[S],
+    longest: usize,
+    word: &str,
+    sentence: &str,
+    word_start: usize,
+) -> bool {
     if word.len() <= 4 {
         return false;
     }
@@ -77,7 +89,12 @@ fn matches_within<S: AsRef<str>>(listed: &[S], exempt: &[S], longest: usize, wor
                 && listed
                     .binary_search_by(|probe| probe.as_ref().cmp(&rest[..end]))
                     .is_ok()
-                && !exempted(exempt, word, start, start + end)
+                && !exempted(
+                    exempt,
+                    sentence,
+                    word_start + start,
+                    word_start + start + end,
+                )
             {
                 return true;
             }
@@ -104,14 +121,11 @@ fn matches_in_sentence<S: AsRef<str>>(
     if !rest.is_empty() {
         return matches_within(listed, exempt, longest, sentence);
     }
-    if words
-        .iter()
-        .any(|word| matches_within(listed, exempt, longest, word))
-    {
-        return true;
-    }
     let mut start = 0;
     for (index, first) in words.iter().enumerate() {
+        if matches_within_context(listed, exempt, longest, first, sentence, start) {
+            return true;
+        }
         let mut end = start;
         let mut chars = 0;
         for (count, word) in words[index..].iter().enumerate() {
@@ -631,6 +645,27 @@ mod tests {
         let (words, sentence) = split(&["真", "牛", "逼"]);
         assert!(is_mild_slang_sentence(&words, &sentence));
         assert!(!is_mild_slang("不必为我操心"));
+    }
+
+    #[test]
+    fn sentence_exemptions_cover_matches_inside_a_word_across_its_boundaries() {
+        for parts in [
+            &["我操", "心"][..],
+            &["不必", "为", "我操", "心"],
+            &["马跳", "卧槽"],
+        ] {
+            let (words, sentence) = split(parts);
+            assert!(!is_mild_slang_sentence(&words, &sentence), "{sentence}");
+        }
+        for parts in [&["口交", "换机"][..], &["水", "乳交", "融"]] {
+            let (words, sentence) = split(parts);
+            assert!(!is_offensive_sentence(&words, &sentence), "{sentence}");
+        }
+        // 前面的豁免不能盖住后面另一次命中。
+        let (words, sentence) = split(&["我操", "心", "我操"]);
+        assert!(is_mild_slang_sentence(&words, &sentence));
+        let (words, sentence) = split(&["口交", "换机", "口交"]);
+        assert!(is_offensive_sentence(&words, &sentence));
     }
 
     #[test]
