@@ -138,11 +138,18 @@ export function createDesktopCommunityResources(invoke: Invoke): CommunityResour
 /**
  * 设置同步卡片的四个命令，与移动端同名。Windows、Linux 和 macOS 上传、应用各平台共有的输入设置（方案、繁简、双拼和五笔版本、学习、调频和标点），Linux 和 macOS 再加共享设置页能改的几项（client-services 的 `DesktopHost`）。
  */
-export function createDesktopSettingsSync(invoke: Invoke): SettingsSyncClient {
+export function createDesktopSettingsSync(
+  invoke: Invoke,
+  platform: "windows" | "macos" | "linux",
+): SettingsSyncClient {
+  // 说明文字要和 client-services `export_desktop_settings_for` 实际上传、应用的键一致：Linux 和 macOS 多出共享设置页的几项，点「应用」时这些也会被云端值覆盖。
+  const items =
+    platform === "windows"
+      ? "输入方案、繁体输出、双拼和五笔版本、词库学习、调频、标点和语法模型"
+      : "输入方案、繁体输出、双拼和五笔版本、词库学习、调频、标点和语法模型，以及快捷短语混输、符号模式、日期菜单、第二三候选和 AI 候选翻译";
   return {
     ...createSettingsSyncClient(invoke),
-    description:
-      "同步输入方案、繁体输出、双拼和五笔版本、词库学习、调频和标点。凭据、联网授权及输入内容不会随设置上传。",
+    description: `同步${items}。凭据、联网授权及输入内容不会随设置上传。`,
     // 设置存进共享偏好后 Windows 的 Server、Linux 的 IBus 和 Fcitx5 宿主、macOS 输入法都和设置页保存时一样读到，没有要重新打开的键盘。
     appliedMessage: "已应用云端设置。",
   };

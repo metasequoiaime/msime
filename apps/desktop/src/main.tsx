@@ -945,7 +945,7 @@ function DesktopSettings() {
                     removeAvatar: () => invoke<AccountProfile>("account_remove_avatar"),
                     qqLinks,
                     // 设置同步接在三个桌面宿主的账号会话上。macOS 的账号入口走这个共享页，原生账号窗口只是设置应用起不来时的回退（#10747）。
-                    settingsSync: createDesktopSettingsSync(invoke),
+                    settingsSync: createDesktopSettingsSync(invoke, host.platform),
                   } satisfies AccountClient,
                   communityCandidateSkins: createDesktopCandidateSkinCommunity(invoke),
                   communityPlugins: createDesktopPluginCommunity(invoke),

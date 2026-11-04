@@ -15,7 +15,7 @@ client-services 的 `DesktopHost` 只有 Windows 和 Linux 两种，`CURRENT` �
 - `DesktopHost` 加 `MacOS`，`CURRENT` 在 macOS 上取它。导出和应用的键逐项核对过：各平台共有的 `input.*`，加上语法模型、快捷短语混输（两键）、符号模式、日期菜单、第二三候选（两键）和 `translation.ai`，与 Linux 相同。依据是 macOS 的共享设置页对这几项都有控件（快捷短语混输要 `HostCapabilities::quick_phrase_candidates`，macOS 声明了；符号模式、日期菜单在快捷模式列表里；第二三候选在「选词与翻页」组；语法模型在 `SentenceAssociationSection`；AI 候选翻译在翻译服务里，`ai_generation` 在 macOS 上为真），输入法运行时也都读（`platforms/macos/tests/settings/preference_coverage.py` 要求每个共享偏好要么被 macOS 读、要么登记为不适用，这几项都不在不适用表里）。共享层的宿主判断收进 `DesktopHost::shared_settings_page`，Linux 和 macOS 为真。
 - 两个思考强度（`ai_assistant.thinking`、`voice_input.polish_thinking`）和三个切换热键（`keybindings.toggle_*`）macOS 能改也会读，这次仍不同步，见下面的备选。
 - `platform.macos.*` 不读也不写。这是原生回退窗口的快照（`MacSettingsAccess`），旧版本上传的这一份留在账号文档里，由合并上传原样保留；候选窗口、主题皮肤、翻页快捷键这些设置仍不随共享页的设置同步。
-- Tauri 在 macOS 上编译 `desktop_settings_sync` 并注册四个 `account_preferences_*` 命令；`main.tsx` 对三个桌面宿主都挂 `settingsSync`。卡片的说明和「已应用云端设置。」沿用桌面的写法：应用走与设置页保存相同的 `save_preferences_impl`，macOS 输入法像读设置页的保存一样读到新设置，没有要重新打开的键盘。
+- Tauri 在 macOS 上编译 `desktop_settings_sync` 并注册四个 `account_preferences_*` 命令；`main.tsx` 对三个桌面宿主都挂 `settingsSync`。卡片说明按宿主列出实际同步的项：Windows 只列各平台共有的几项和语法模型，Linux 和 macOS 再列快捷短语混输、符号模式、日期菜单、第二三候选和 AI 候选翻译，因为点「应用」时这些也会被云端值覆盖，说明不能比实际少（原先三个宿主共用一句只列共有项的说明，Linux 早就少写了这几项）。「已应用云端设置。」沿用桌面的写法：应用走与设置页保存相同的 `save_preferences_impl`，macOS 输入法像读设置页的保存一样读到新设置，没有要重新打开的键盘。
 - 出厂默认值不变；Windows 和 Linux 的导出、应用分支不变。
 - `docs/ARCHITECTURE.md` 里「macOS 上的新设置只进共享 React 设置页」与 11-03 的迁移约定冲突，改成按迁移约定：规则先进共享 Rust，界面随 macOS 原生设置迁移实现，迁移前共享页只修缺陷。B 部分按此归入迁移。
 
