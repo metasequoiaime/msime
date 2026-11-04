@@ -8,6 +8,13 @@ typedef NS_ENUM(NSInteger, MSIMEGlobalVoiceStartResult) {
     MSIMEGlobalVoiceStartFailed,
 };
 
+// 暂未取得客户端可以继续等待；校验期间输入改变则本轮只允许复制，不再重试插入。
+typedef NS_ENUM(NSInteger, MSIMEGlobalVoiceDeliveryResult) {
+    MSIMEGlobalVoiceDeliveryRetry,
+    MSIMEGlobalVoiceDeliveryAccepted,
+    MSIMEGlobalVoiceDeliveryChanged,
+};
+
 @protocol MSIMEGlobalVoiceTarget <NSObject>
 - (pid_t)globalVoiceTargetPID;
 - (BOOL)globalVoiceBusy;
@@ -22,9 +29,9 @@ typedef NS_ENUM(NSInteger, MSIMEGlobalVoiceStartResult) {
 // 全局入口可以停止当前控制器由菜单或工具栏发起的局部录音，不接管其提交目标。
 - (BOOL)toggleLocalVoiceIfBusy;
 // 外部提交前先保留原字段的组字，并重新验证客户端与插入许可。
-- (BOOL)prepareGlobalVoiceDestinationForPID:(pid_t)pid focus:(id)focus token:(id)token;
+- (MSIMEGlobalVoiceDeliveryResult)prepareGlobalVoiceDestinationForPID:(pid_t)pid focus:(id)focus token:(id)token;
 // 只允许当前真实 IMK 客户端在原字段接收这一轮的最终文本。
-- (BOOL)commitGlobalVoiceText:(NSString *)text pid:(pid_t)pid focus:(id)focus token:(id)token;
+- (MSIMEGlobalVoiceDeliveryResult)commitGlobalVoiceText:(NSString *)text pid:(pid_t)pid focus:(id)focus token:(id)token;
 @end
 
 // 单进程桥接只在主线程访问，不接受外部录音命令。测试可替换回调而不用加载事件 tap。

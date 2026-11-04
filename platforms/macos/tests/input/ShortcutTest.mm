@@ -14128,6 +14128,8 @@ static void TestCrossCommitSpacing() {
 @property(nonatomic) BOOL acceptsText;
 @property(nonatomic) NSUInteger commits;
 @property(nonatomic) NSUInteger preparations;
+@property(nonatomic) NSUInteger deliveryAttempts;
+@property(nonatomic) BOOL changesDuringDelivery;
 @end
 @implementation GlobalVoiceTargetProbe
 - (pid_t)globalVoiceTargetPID { return _pid; }
@@ -14139,14 +14141,18 @@ static void TestCrossCommitSpacing() {
 - (void)endGlobalVoice { _busy = NO; }
 - (void)lockGlobalVoice {}
 - (void)detachGlobalVoice { ++_detachments; _busy = NO; }
-- (BOOL)prepareGlobalVoiceDestinationForPID:(pid_t)pid focus:(id)focus token:(id)token {
+- (MSIMEGlobalVoiceDeliveryResult)prepareGlobalVoiceDestinationForPID:(pid_t)pid focus:(id)focus token:(id)token {
     assert(pid == _pid && focus && token == MSIMEGlobalVoiceHost().sessionToken);
-    ++_preparations; return _acceptsText;
+    ++_preparations;
+    if (_changesDuringDelivery) return MSIMEGlobalVoiceDeliveryChanged;
+    return _acceptsText ? MSIMEGlobalVoiceDeliveryAccepted : MSIMEGlobalVoiceDeliveryRetry;
 }
-- (BOOL)commitGlobalVoiceText:(NSString *)text pid:(pid_t)pid focus:(id)focus token:(id)token {
+- (MSIMEGlobalVoiceDeliveryResult)commitGlobalVoiceText:(NSString *)text pid:(pid_t)pid focus:(id)focus token:(id)token {
     assert(text.length && pid == _pid && focus && token == MSIMEGlobalVoiceHost().sessionToken);
-    if (!_acceptsText) return NO;
-    ++_commits; return YES;
+    ++_deliveryAttempts;
+    if (_changesDuringDelivery) return MSIMEGlobalVoiceDeliveryChanged;
+    if (!_acceptsText) return MSIMEGlobalVoiceDeliveryRetry;
+    ++_commits; return MSIMEGlobalVoiceDeliveryAccepted;
 }
 @end
 @interface GlobalVoiceSessionProbe : MSIMEGlobalVoiceCoordinator
@@ -14192,11 +14198,32 @@ static void TestCrossCommitSpacing() {
 @interface GlobalVoiceCompositionController : ModeController
 @property(nonatomic) id destination;
 @property(nonatomic) pid_t targetPID;
+@property(nonatomic) NSUInteger destinationQueries;
+@property(nonatomic, copy) void (^duringDestinationQuery)(GlobalVoiceCompositionController *);
 @end
 @implementation GlobalVoiceCompositionController
-- (id)globalVoiceDestinationIdentity { return _destination; }
+- (NSDictionary *)runtimeOptions { return @{}; }
+- (id)globalVoiceDestinationIdentity {
+    ++_destinationQueries;
+    if (_duringDestinationQuery) _duringDestinationQuery(self);
+    return _destination;
+}
 - (pid_t)globalVoiceTargetPID { return _targetPID; }
 - (void)renderCandidates {}
+@end
+
+@interface GlobalVoiceDeliverySession : ShortcutSession
+@property(nonatomic, copy) void (^duringFinish)(void);
+@end
+@implementation GlobalVoiceDeliverySession
+- (NSDictionary *)command:(uint32_t)command error:(NSError **)error {
+    NSDictionary *result = [super command:command error:error];
+    if (command == MSIME_FINISH_COMPOSITION) {
+        void (^callback)(void) = _duringFinish; _duringFinish = nil;
+        if (callback) callback();
+    }
+    return result;
+}
 @end
 
 static CGEventRef GlobalGestureEvent(CGEventType type, CGKeyCode code, CGEventFlags flags) {
@@ -14220,7 +14247,81 @@ static GlobalVoiceGestureProbe *GlobalGestureProbe() {
     [probe setValue:@{@"voice_input":@{@"hotkey_ralt":@YES}} forKey:@"preferences"];
     return probe;
 }
+// 同字段的 IMK／AX 查询也可能重入；这里只注入合成 apply，不依赖真实系统重入时机。
+static void TestGlobalVoiceDeliveryReentry() {
+    for (NSUInteger scenario = 0; scenario < 10; ++scenario) {
+        NSString *suite = [@"msime.synthetic.voice-delivery-reentry." stringByAppendingString:NSUUID.UUID.UUIDString];
+        NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+        MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+        appearance.traditionalOutput = NO;
+        GlobalVoiceCompositionController *controller = [GlobalVoiceCompositionController alloc];
+        CursorEditorClient *client = [CursorEditorClient new];
+        client.editor = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, 300, 80)];
+        client.editor.string = @"prefix "; client.editor.selectedRange = NSMakeRange(7, 0);
+        GlobalVoiceDeliverySession *session = [GlobalVoiceDeliverySession new];
+        session.finishTransition = @{@"commit":@"oldpreedit", @"view":@{@"editing_text":@"", @"candidates":@[]}};
+        [controller setValue:appearance forKey:@"appearance"];
+        [controller setValue:client forKey:@"activeClient"]; [controller setValue:session forKey:@"session"];
+        [controller setValue:@{@"editing_text":@"", @"candidates":@[]} forKey:@"view"];
+        controller.destination = [NSObject new]; controller.targetPID = NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier;
+        MSIMEFocusedController = controller;
+        GlobalVoiceTargetProbe *owner = [GlobalVoiceTargetProbe new]; owner.busy = YES;
+        MSIMEGlobalVoiceHost().owner = owner; MSIMEGlobalVoiceHost().sessionToken = [NSObject new];
+        id token = MSIMEGlobalVoiceHost().sessionToken;
+        auto typeNew = ^(GlobalVoiceCompositionController *current) {
+            [current apply:@{@"view":@{@"editing_text":@"newpreedit", @"preedit":@"newpreedit", @"caret_position":@10, @"candidates":@[]}}];
+            assert(client.editor.hasMarkedText);
+        };
+        if (scenario >= 7) {
+            [controller apply:@{@"view":@{@"editing_text":@"oldpreedit", @"preedit":@"oldpreedit", @"caret_position":@10, @"candidates":@[]}}];
+            if (scenario == 7) {
+                __weak GlobalVoiceCompositionController *weak = controller;
+                session.duringFinish = ^{ typeNew(weak); };
+            }
+        }
+        controller.duringDestinationQuery = ^(GlobalVoiceCompositionController *current) {
+            const NSUInteger query = current.destinationQueries;
+            if ((scenario == 1 && query == 1) || (scenario == 2 && query == 2) ||
+                (scenario == 8 && query == 2) || (scenario == 9 && query == 3)) typeNew(current);
+            if (query != 2) return;
+            if (scenario == 3) [current setValue:[ShortcutSession new] forKey:@"session"];
+            if (scenario == 4) [current setValue:[ShortcutClient new] forKey:@"activeClient"];
+            if (scenario == 5) MSIMEGlobalVoiceHost().sessionToken = [NSObject new];
+            if (scenario == 6) [current setValue:@([[current valueForKey:@"spacingInputSequence"] unsignedLongLongValue] + 1) forKey:@"spacingInputSequence"];
+        };
+        const auto result = [controller commitGlobalVoiceText:@"voice" pid:controller.targetPID focus:controller.destination token:token];
+        assert(result == (scenario ? MSIMEGlobalVoiceDeliveryChanged : MSIMEGlobalVoiceDeliveryAccepted));
+        const BOOL newComposition = scenario == 1 || scenario == 2 || scenario >= 7;
+        NSString *expected = !scenario ? @"prefix voice" : newComposition ?
+            (scenario == 9 ? @"prefix oldpreeditnewpreedit" : @"prefix newpreedit") : @"prefix ";
+        assert([client.editor.string isEqual:expected]);
+        assert(client.editor.hasMarkedText == newComposition);
+        controller.duringDestinationQuery = nil; session.duringFinish = nil;
+        MSIMEFocusedController = nil; MSIMEGlobalVoiceHost().owner = nil; MSIMEGlobalVoiceHost().sessionToken = nil;
+        MSIMERemoveTestPreferenceSuite(defaults, suite);
+    }
+}
+
 static void TestGlobalVoiceBoundaries() {
+    TestGlobalVoiceDeliveryReentry();
+    {
+        // Changed 与暂未取得 IMK 客户端不同：立即复制恢复，后续轮询不能再尝试插入。
+        for (NSString *mode in @[@"tsf", @"sendinput"]) {
+            GlobalVoiceTargetProbe *capture = [GlobalVoiceTargetProbe new]; capture.pid = 42;
+            GlobalVoiceTargetProbe *delivery = [GlobalVoiceTargetProbe new]; delivery.pid = 42; delivery.changesDuringDelivery = YES;
+            GlobalVoiceSessionProbe *probe = [[GlobalVoiceSessionProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)capture; }
+                deliveryTarget:^{ return (id<MSIMEGlobalVoiceTarget>)delivery; }];
+            probe.application = [GlobalVoiceApplicationProbe new]; probe.application.processIdentifier = 42;
+            probe.clock = 1; probe.focus = [NSObject new]; probe.source = @"synthetic.msime.Hans";
+            [probe begin:NO];
+            __block BOOL completed = NO;
+            MSIMEGlobalVoiceHost().deliver(@"synthetic result", mode, ^{ completed = YES; });
+            assert(completed && !capture.busy && [probe.recovered isEqual:@"synthetic result"] && probe.posted == nil);
+            assert([mode isEqual:@"tsf"] ? delivery.deliveryAttempts == 1 : delivery.preparations == 1);
+            const auto attempts = delivery.deliveryAttempts;
+            [probe advance]; assert(delivery.deliveryAttempts == attempts);
+        }
+    }
     {
         GlobalVoiceTargetProbe *target = [GlobalVoiceTargetProbe new]; target.pid = 42;
         GlobalVoiceSessionProbe *probe = [[GlobalVoiceSessionProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)target; }];
@@ -14250,10 +14351,10 @@ static void TestGlobalVoiceBoundaries() {
         MSIMEFocusedController = controller;
         GlobalVoiceTargetProbe *owner = [GlobalVoiceTargetProbe new]; owner.busy = YES;
         MSIMEGlobalVoiceHost().owner = owner; MSIMEGlobalVoiceHost().sessionToken = [NSObject new];
-        assert([controller commitGlobalVoiceText:@"synthetic voice" pid:controller.targetPID focus:controller.destination token:MSIMEGlobalVoiceHost().sessionToken]);
+        assert([controller commitGlobalVoiceText:@"synthetic voice" pid:controller.targetPID focus:controller.destination token:MSIMEGlobalVoiceHost().sessionToken] == MSIMEGlobalVoiceDeliveryAccepted);
         assert((session.lastCommand == MSIME_FINISH_COMPOSITION && [client.insertions isEqual:@[@"synthetic preedit", @"synthetic voice"]]));
         NSUInteger count = client.insertions.count;
-        assert(![controller commitGlobalVoiceText:@"synthetic stale" pid:controller.targetPID focus:[NSObject new] token:MSIMEGlobalVoiceHost().sessionToken]);
+        assert([controller commitGlobalVoiceText:@"synthetic stale" pid:controller.targetPID focus:[NSObject new] token:MSIMEGlobalVoiceHost().sessionToken] == MSIMEGlobalVoiceDeliveryRetry);
         assert(client.insertions.count == count);
         MSIMEFocusedController = nil; MSIMEGlobalVoiceHost().owner = nil; MSIMEGlobalVoiceHost().sessionToken = nil;
         MSIMERemoveTestPreferenceSuite(defaults, suite);

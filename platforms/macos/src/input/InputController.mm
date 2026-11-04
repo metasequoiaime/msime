@@ -2637,28 +2637,50 @@ void MSIMERecordGlobalVoiceCommit(NSString *text) {
         MSIMEGlobalVoiceHost().sessionToken == token && focus && CFEqual((__bridge CFTypeRef)focus, (__bridge CFTypeRef)original) &&
         NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier == pid;
 }
-- (BOOL)prepareGlobalVoiceDestinationForPID:(pid_t)pid focus:(id)original token:(id)token {
+- (MSIMEGlobalVoiceDeliveryResult)prepareGlobalVoiceDestinationForPID:(pid_t)pid focus:(id)original token:(id)token {
     id client = _activeClient;
-    if (![self globalVoiceDestinationCurrent:client pid:pid focus:original token:token]) return NO;
     MSIMEClientSession *session = _session;
+    if (!client || !session) return MSIMEGlobalVoiceDeliveryRetry;
+    id owner = MSIMEGlobalVoiceHost().owner;
+    const uint64_t inputSequence = _spacingInputSequence;
+    uint64_t applySequence = _applySequence;
+    auto unchanged = [&] {
+        return _activeClient == client && _session == session && _spacingInputSequence == inputSequence &&
+            MSIMEGlobalVoiceHost().owner == owner && MSIMEGlobalVoiceHost().sessionToken == token;
+    };
+    auto validate = [&] {
+        const BOOL current = [self globalVoiceDestinationCurrent:client pid:pid focus:original token:token];
+        // 同字段、同令牌也可能在同步查询中产生新组字；查询返回后才检查输入及 apply 序列。
+        if (!unchanged() || _applySequence != applySequence) return MSIMEGlobalVoiceDeliveryChanged;
+        return current ? MSIMEGlobalVoiceDeliveryAccepted : MSIMEGlobalVoiceDeliveryRetry;
+    };
+    auto result = validate();
+    if (result != MSIMEGlobalVoiceDeliveryAccepted) return result;
     if ([_view[@"editing_text"] length]) {
-        // 先保留原字段的组字，再追加语音；完成组字造成的重入不能把插入许可带到新字段。
         NSDictionary *finished = [session command:MSIME_FINISH_COMPOSITION error:nil];
-        if (!finished || _session != session || ![self globalVoiceDestinationCurrent:client pid:pid focus:original token:token]) return NO;
+        if (!unchanged() || _applySequence != applySequence) return MSIMEGlobalVoiceDeliveryChanged;
+        if (!finished) return MSIMEGlobalVoiceDeliveryRetry;
+        result = validate();
+        if (result != MSIMEGlobalVoiceDeliveryAccepted) return result;
         [self apply:finished];
+        ++applySequence;
+        if (!unchanged() || _applySequence != applySequence) return MSIMEGlobalVoiceDeliveryChanged;
     }
-    return _session == session && ![self hasUnfinishedInput] &&
-        [self globalVoiceDestinationCurrent:client pid:pid focus:original token:token];
+    result = validate();
+    if (result != MSIMEGlobalVoiceDeliveryAccepted) return result;
+    return [self hasUnfinishedInput] ? MSIMEGlobalVoiceDeliveryChanged : MSIMEGlobalVoiceDeliveryAccepted;
 }
-- (BOOL)commitGlobalVoiceText:(NSString *)text pid:(pid_t)pid focus:(id)original token:(id)token {
-    if (!text.length || text.length > 65536 || ![self prepareGlobalVoiceDestinationForPID:pid focus:original token:token]) return NO;
+- (MSIMEGlobalVoiceDeliveryResult)commitGlobalVoiceText:(NSString *)text pid:(pid_t)pid focus:(id)original token:(id)token {
+    if (!text.length || text.length > 65536) return MSIMEGlobalVoiceDeliveryRetry;
+    const auto result = [self prepareGlobalVoiceDestinationForPID:pid focus:original token:token];
+    if (result != MSIMEGlobalVoiceDeliveryAccepted) return result;
     id client = _activeClient;
     NSString *commit = _appearance.traditionalOutput ? MSIMEChineseOutputString(text, YES) : text;
     [(id<MSIMETextClient>)client insertText:commit replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
     [self invalidateSmartPunctuationShadow];
     MSIMERecordTypingStatistics(_preferencesDirectory ?: MSIMEStatisticsHostOptions(_session)[@"preferences_directory"],
         commit, msime::mac::TypingSource::Voice);
-    return YES;
+    return MSIMEGlobalVoiceDeliveryAccepted;
 }
 - (pid_t)globalVoiceTargetPID {
     NSRunningApplication *application = NSWorkspace.sharedWorkspace.frontmostApplication;

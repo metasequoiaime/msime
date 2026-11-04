@@ -710,10 +710,11 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
         if (![_commitMode isEqual:@"tsf"]) {
             if ([self isOwnSourceIdentifier:[self currentSourceIdentifier]]) {
                 id<MSIMEGlobalVoiceTarget> target = _deliveryTarget();
-                BOOL prepared = [target respondsToSelector:@selector(prepareGlobalVoiceDestinationForPID:focus:token:)] &&
-                    [target prepareGlobalVoiceDestinationForPID:_state.targetPID focus:_focusIdentity token:token];
+                const auto prepared = [target respondsToSelector:@selector(prepareGlobalVoiceDestinationForPID:focus:token:)]
+                    ? [target prepareGlobalVoiceDestinationForPID:_state.targetPID focus:_focusIdentity token:token]
+                    : MSIMEGlobalVoiceDeliveryRetry;
                 if (_state.generation != generation || MSIMEGlobalVoiceHost().sessionToken != token || !_pendingText) return;
-                if (!prepared) { [self finishDelivery:NO]; return; }
+                if (prepared != MSIMEGlobalVoiceDeliveryAccepted) { [self finishDelivery:NO]; return; }
             }
             MSIMEVoiceCommitRoute route;
             route.mode = _commitMode; route.pid = _state.targetPID;
@@ -745,9 +746,15 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
     const BOOL arrived = [self isOwnSourceIdentifier:source];
     if (arrived) _state.selectedObserved = true;
     id<MSIMEGlobalVoiceTarget> target = arrived ? _deliveryTarget() : nil;
-    if ([target respondsToSelector:@selector(commitGlobalVoiceText:pid:focus:token:)] &&
-        [target commitGlobalVoiceText:_pendingText pid:_state.targetPID focus:_focusIdentity token:token]) {
-        if (_state.generation == generation && MSIMEGlobalVoiceHost().sessionToken == token) [self finishDelivery:YES];
+    const auto result = [target respondsToSelector:@selector(commitGlobalVoiceText:pid:focus:token:)]
+        ? [target commitGlobalVoiceText:_pendingText pid:_state.targetPID focus:_focusIdentity token:token]
+        : MSIMEGlobalVoiceDeliveryRetry;
+    if (_state.generation != generation || MSIMEGlobalVoiceHost().sessionToken != token || !_pendingText) return;
+    if (result == MSIMEGlobalVoiceDeliveryAccepted) {
+        [self finishDelivery:YES];
+    } else if (result == MSIMEGlobalVoiceDeliveryChanged) {
+        // 输入已经改变时立即保留结果；不能在下一次轮询重新结束用户的新组字。
+        [self finishDelivery:NO];
     } else if ([self monotonicTime] >= _deliveryDeadline) {
         os_log(OS_LOG_DEFAULT, "MSIME global voice: delivery target unavailable");
         [self finishDelivery:NO];
