@@ -8790,7 +8790,7 @@ struct KeyboardView {
     this.voiceDone = punctuated;
     this.voiceDoneTimer = setTimeout((): void => {
       this.voiceDoneTimer = -1;
-      if (this.voiceDone !== accepted) {
+      if (this.voiceDone !== punctuated) {
         return;
       }
       this.voiceDone = '';
