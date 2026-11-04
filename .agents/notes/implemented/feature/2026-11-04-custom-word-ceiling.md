@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-- 新文件 `crates/dict-builder/src/custom_ceiling.rs` 的 `apply_custom_words_with_ceiling` 取代 `custom-words` 阶段原来对 `apply_custom_words` 的直接调用：先找出全拼表里还没有这个词和读音的投稿行（新插入的词），把它的权重限制在同一全拼键上最高的常用词减 1，同时也不超过同一九键码上最高的常用词减 1，再交给 `apply_custom_words` 并入。九键码相同的行包含同一全拼键的行，所以同一全拼键上有常用词时总是它说了算（挽昼 压在 万州 2456 之下，尽管同九键码的 眼周 yan'zhou 是 18708）；没有时才轮到九键码（邢菲 xing'fei 压在 鹰飞 ying'fei 之下）。`apply_custom_words` 本身不改，因为 `places-supplement` 阶段也调用它。
+- 新文件 `crates/dict-builder/src/custom_ceiling.rs` 的 `apply_custom_words_with_ceiling` 取代 `custom-words` 阶段原来对 `apply_custom_words` 的直接调用：先找出全拼表里还没有这个词和读音的投稿行（新插入的词），把它的权重限制在同一全拼键上最高的常用词减 1，同时也不超过同一九键码上最高的常用词减 1，再交给 `apply_custom_words` 并入。九键码相同的行包含同一全拼键的行，所以同一全拼键上有常用词时总是它说了算（挽昼 压在 万州 2456 之下，尽管同九键码的 眼周 yan'zhou 是 18708）；没有时才轮到九键码（比如 xing'fei 上只有冷僻词时，新词压在同九键码的 鹰飞 ying'fei 之下；真实数据里 邢菲 有同全拼的 兴废，按它封顶）。`apply_custom_words` 本身不改，因为 `places-supplement` 阶段也调用它。
 - 常用词是权重不低于 `COMMON_WEIGHT`（1000）的行，与清洗方案 §2.1 统计「custom 越位」的线一致。低于这条线的词不封顶 custom：投稿的新词本来就应该排在冷僻词前面。
 - 九键这条只比九键码相同、音节数也相同的行（`fang'an` 方案 与 `fan'gan` 反感、`wan'zhou` 与 `yan'zhou`）。同一个词的另一个读音不算它自己的竞争者。
 - 竞争者按构建做完后面三个阶段之后的样子算：`reading-corrections` 要删的错误读音、`word-vetoes` 否决的词和读音不算，`weight-overrides` 覆盖过的行按覆盖后的权重算（`custom_ceiling::curated_weight`）。
@@ -39,5 +39,8 @@ Status: implemented
 ## Verification
 
 - `crates/dict-builder`：`custom_ceiling::tests`（同全拼与同九键码封顶到最高常用词减 1、低于常用线不封顶、音节数不同的单字不算、已有行照旧只升不降、被否决或纠正的行不算、覆盖后的权重决定竞争、同一个词的另一个读音不算自己的竞争者、`curated_weight` 对三张表的处理），`main::tests` 的构建夹具补上纠错表后照常通过。
-- 词库数据分支 `cleanse-data/places-custom`（重新生成的 `places.txt`）上用 `release-built-dictionaries.yml` 的 `workflow_dispatch`（`publish=false`，`msime_ref` 为本分支的 `e37ab8582a`）试跑成功（run 41829149270）。构建日志列出 15 个被封顶的词，全部是同全拼封顶（挽昼 3333 -> 2455 压在 万州 2456 之下，张雯 3855 -> 2400，白冰 3855 -> 2446），与按 dict-v2.0.55 估算的结果一致；九键码这条在当前数据上没有单独起作用。用 `scripts/dict_artifact_diff.py` 和 dict-v2.0.55 逐表比较：`msime-pinyin.db` 行数不变，879 行改权重（793 个县级地名 100 -> 230，47 个地级简称从 31460 降到对齐后的量级，15 个 custom 词封顶）；经地名表改动后排第 1 并压过 1000 以上同音词的地名从 36 例降到 5 例，剩下的都低于地名生成器的常用线 7204。
+- 词库数据分支 `cleanse-data/places-custom`（rebase 到 dict-v2.0.56 的 main）：`places.txt` 用自己的构建目录分别以本分支的生成器和 develop 上的 `95c758b6c5`（main 的 `builder.lock.json` 现在指向的提交）各生成一次，除表头外逐字节相同（没有 `curation/` 表时 `places-supplement` 的结果不受本轮改动影响），提交的是后者，表头记的提交在功能分支 squash 合并后仍可达。
+- 在该分支上用 `release-built-dictionaries.yml` 的 `workflow_dispatch`（`publish=false`，`msime_ref` 为本分支的 `48ffbb4851`）试跑成功（run 41832258886）。构建日志列出 15 个被封顶的词，全部是同全拼封顶（挽昼 3333 -> 2455 压在 万州 2456 之下，张雯 3855 -> 2400，白冰 3855 -> 2446，邢菲 3855 -> 1121 压在 兴废 1122 之下）；九键码这条在当前数据上没有单独起作用。
+- 用 `scripts/dict_artifact_diff.py` 和 dict-v2.0.56 逐表比较：`msime-pinyin.db` 行数不变，879 行改权重（15 个 custom 词封顶，其余是地名表重新生成：县级下限 100 -> 230，地级简称从 31460 降到对齐后的量级）。在两份构建出的库上数「排同全拼键第 1、并压过权重不低于 1000 的组外词」：地名从 53 例降到 28 例，其中由 `places.txt` 抬上去的只剩 5 个地级简称（丽水、晋中、辽源、迪庆、阜新，都在下限 4848、低于常用线 7204），其余 23 例是 rime-ice 与万象自己的权重；custom 词从 16 例降到 1 例（合入 是 custom 从已有行提权，不在本规则内）。
+- 五笔的连带变化：`msime-wubi.db` 三张码表各删 12 行、增 1 行，86、98、新世纪分别有 585、641、769 行改权重（地名下限变了，同码次序随之变）。删的是 耿马、潮安、景宁畲族自治县、宾川、达孜区、丰南、船营、柞水、枞阳、尉犁、曾都、京山市：它们在对齐后的 rime-ice 里有 0 到 100 之间的已有排名（如 耿马 83），旧地名表按对齐前的量级把它们抬到 100，新表按「已有排名不抬升」不再写出；而五笔三个生成器只收 rime-ice 权重不低于 100 的词和 `places.txt` 里的词，于是这 12 个县名离开了五笔。增的是 宁强（rime-ice 里是 0，新表写 230）。拼音一侧它们只是回到 rime-ice 的权重。要保住这些县名的五笔词组，应在五笔生成器里直接取区划名单，而不是靠地名表是否写出这一行，这属于五笔清洗的范围，本轮不改。
 - 被封顶的词里有几条值得维护者复核：兜帽 压在 都冇（粤语）之下、吸猫 压在 细毛 之下。规则按权重判断常用词，不判断词义，要保住这类投稿词，在覆盖表里给它设权重即可（custom 新插入的行可以覆盖）。

@@ -1,7 +1,7 @@
 //! `custom-words` 阶段给 `custom/words.txt` 新插入的词封顶（清洗方案 H11）：一个词在全拼表里原本没有这一行、由 custom 插入时，它的权重既不超过同一全拼键上最高的常用词减 1，也不超过同一九键码上最高的常用词减 1。投稿权重是按音节数统一给的（2 音节 3855、3333），高于发布库 2 音节词的中位数，原样插入会让 挽昼 压过 万州、白冰 压过 百病。
 //!
 //! - 常用词是全拼表里权重不低于 [`COMMON_WEIGHT`] 的行，与清洗方案 §2.1 统计「custom 越位」时用的线一致。低于这条线的词不封顶 custom：投稿的新词本来就应该排在冷僻词前面。
-//! - 两条上限各管一种键盘，取较低的一条。同一全拼键上有常用词时，全拼这条总是较低（九键码相同的行包含同一全拼键的行），挽昼 压在 万州 之下，即使同九键码的 眼周 yan'zhou 权重高得多；同一全拼键上没有常用词时，九键这条起作用，邢菲 xing'fei 压在 鹰飞 ying'fei 之下。
+//! - 两条上限各管一种键盘，取较低的一条。同一全拼键上有常用词时，全拼这条总是较低（九键码相同的行包含同一全拼键的行），挽昼 压在 万州 之下，即使同九键码的 眼周 yan'zhou 权重高得多；同一全拼键上没有常用词时，九键这条起作用：比如 xing'fei 上只有冷僻词时，新词压在同九键码的常用词 鹰飞 ying'fei 之下。
 //! - 九键这条只比九键码相同、音节数也相同的行（`fang'an` 方案 与 `fan'gan` 反感、`wan'zhou` 与 `yan'zhou`）。音节数不同的行（`xian` 与 `xi'an`）不算：单字的权重与词不在一个量级，拿来封顶词会把词压得过低。
 //! - 竞争者按构建做完 `reading-corrections`、`word-vetoes`、`weight-overrides` 之后的样子算（调用方给的 `effective_weight`）：被纠正的错误读音和被否决的行不算，被覆盖的行按覆盖后的权重算。否则一个之后会被降权的碎片词（门的）会先把 custom 词压下去。
 //! - 只管新插入的词。custom 从已有的行提权、或已有的行不低于 custom 权重时，仍按 [`msime::apply_custom_words`] 只升不降；那些行的越位由维护者在 `curation/pinyin-weight-overrides.txt` 里处理（H2）。覆盖表在本阶段之后施加，也能把封过顶的词设成别的权重。
@@ -315,7 +315,7 @@ mod tests {
         assert_eq!(weight(&connection, "白冰", "bai'bing"), Some(1499));
         // 凡甘 fan'gan 同全拼的 反感 1800 决定上限，同九键码 326426 更高的 方案 不放宽它。
         assert_eq!(weight(&connection, "凡甘", "fan'gan"), Some(1799));
-        // 邢菲 xing'fei 同全拼没有常用词，压在同九键码 9464334 的 鹰飞 ying'fei 之下。
+        // 夹具里 邢菲 xing'fei 同全拼没有常用词（真实数据里有 兴废），压在同九键码 9464334 的 鹰飞 ying'fei 之下。
         assert_eq!(weight(&connection, "邢菲", "xing'fei"), Some(1701));
         assert_eq!(weight(&connection, "们得", "men'de"), Some(2999));
         assert_eq!(
