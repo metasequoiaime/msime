@@ -49,7 +49,7 @@ pub struct Inputs<'a> {
     pub pinyin_supplement: &'a str,
     pub places: &'a str,
     pub custom: &'a str,
-    /// msime-dictionary `curation/` 的拼音否决表和权重覆盖表：整词否决的词不收，拼音权重按覆盖后的算。
+    /// msime-dictionary `curation/` 的拼音否决表和权重覆盖表：整词否决的词不收，权重覆盖只取第四列写了 `wubi` 的频率修正，见 [`PinyinCuration::wubi_rows`]。
     pub curation: &'a PinyinCuration,
 }
 
@@ -126,7 +126,7 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
         bail!("{WUBI98} and {WUBI98_FCITX} have no rows");
     }
     let pinyin = pinyin_words(
-        &frequency,
+        &frequency.threshold,
         MIN_PINYIN_WEIGHT,
         &[inputs.places, inputs.custom],
         inputs.curation,
@@ -162,7 +162,7 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
     for words in first.values_mut() {
         words.sort_by(|a, b| {
             b.1.cmp(&a.1)
-                .then(frequency.get(b.0).cmp(&frequency.get(a.0)))
+                .then(frequency.order.get(b.0).cmp(&frequency.order.get(a.0)))
                 .then(a.0.cmp(b.0))
         });
     }
@@ -185,7 +185,7 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
             .iter()
             .copied()
             .filter(|word| !jidian.contains_key(word)),
-        &frequency,
+        &frequency.order,
         SUPPLEMENT_CEILING,
     );
     underivable.extend(second.underivable);
@@ -421,17 +421,17 @@ mod tests {
         rows
     }
 
-    /// 整词否决的词不进补充表（极点表的词也一样），读音否决和权重覆盖改的是拼音那边的 100 门槛；建表时整词否决的词也不写进 `wubixsj`。
+    /// 整词否决的词不进补充表（极点表的词也一样），读音否决改的是拼音那边的 100 门槛，没写 `wubi` 的权重覆盖（冲冻 升到 120）只改拼音、五笔不理；建表时整词否决的词也不写进 `wubixsj`。
     #[test]
     fn curation_tables_reach_the_generator_and_the_table() {
         let curation =
-            PinyinCuration::parse("部门\n冻冲\tdong'chong\n", "冲冻\tchong'dong\t50\n").unwrap();
+            PinyinCuration::parse("部门\n冻冲\tdong'chong\n", "冲冻\tchong'dong\t120\n").unwrap();
         let supplement = build(&Inputs {
             wubixsj: WUBIXSJ_FIXTURE,
             jidian: "部门\tukuy\t30\r\n冲凉\tukuy\t10\r\n冲凉\tuk\t20\r\n工\taaaa\t20\r\n",
             wubi98: WUBI98_FIXTURE,
             wubi98_fcitx: "",
-            base: "冻冲\tdong'chong\t500\n冲冻\tchong'dong\t100\n",
+            base: "冻冲\tdong'chong\t500\n冲冻\tchong'dong\t99\n",
             pinyin_supplement: "",
             places: "",
             custom: "",

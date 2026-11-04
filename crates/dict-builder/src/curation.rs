@@ -163,25 +163,41 @@ pub struct WeightOverride {
     pub word: String,
     pub key: String,
     pub weight: i64,
+    /// 第四列写了 [`WUBI_SCOPE`]：这是与全拼键无关的频率修正（本地损坏恢复上游值、占位权重），五笔补充词组的同码排序也用这个值。不写的是相对同一个全拼键的降权（碎片、非标准读音、custom 越位），只改拼音，五笔看不到。
+    pub wubi: bool,
     pub line: usize,
 }
 
-/// `curation/pinyin-weight-overrides.txt`：一行 `词<TAB>全拼<TAB>权重`。
+/// 覆盖表第四列的唯一取值，见 [`WeightOverride::wubi`]。
+pub const WUBI_SCOPE: &str = "wubi";
+
+/// `curation/pinyin-weight-overrides.txt`：一行 `词<TAB>全拼<TAB>权重`，或者再加第四列 `wubi`。
 #[derive(Debug, Default)]
 pub struct WeightOverrides {
     pub entries: Vec<WeightOverride>,
     weights: HashMap<(String, String), i64>,
+    /// 第四列写了 `wubi` 的条目。
+    wubi: HashSet<(String, String)>,
 }
 
 impl WeightOverrides {
-    /// 权重是不小于 0 的整数；同一个词和读音写两遍算错。
+    /// 权重是不小于 0 的整数，第四列只能是 `wubi`；同一个词和读音写两遍算错。
     pub fn parse(text: &str) -> Result<Self> {
         let mut overrides = Self::default();
         for (line, stripped) in entries(text) {
             let at = || location(PINYIN_WEIGHT_OVERRIDES, line);
             let fields: Vec<&str> = stripped.split('\t').map(text::strip).collect();
-            let [word, key, weight] = fields[..] else {
-                bail!("{}: expected word, pinyin and weight: {stripped:?}", at());
+            let (word, key, weight, wubi) = match fields[..] {
+                [word, key, weight] => (word, key, weight, false),
+                [word, key, weight, scope] if scope == WUBI_SCOPE => (word, key, weight, true),
+                [_, _, _, scope] => bail!(
+                    "{}: the fourth field can only be {WUBI_SCOPE:?}, not {scope:?}",
+                    at()
+                ),
+                _ => bail!(
+                    "{}: expected word, pinyin and weight, optionally followed by {WUBI_SCOPE:?}: {stripped:?}",
+                    at()
+                ),
             };
             if word.is_empty() {
                 bail!("{}: the word is empty", at());
@@ -202,10 +218,14 @@ impl WeightOverrides {
             {
                 bail!("{}: {word} {key} is listed twice", at());
             }
+            if wubi {
+                overrides.wubi.insert((word.to_owned(), key.to_owned()));
+            }
             overrides.entries.push(WeightOverride {
                 word: word.to_owned(),
                 key: key.to_owned(),
                 weight,
+                wubi,
                 line,
             });
         }
@@ -220,6 +240,16 @@ impl WeightOverrides {
         self.weights
             .get(&(word.to_owned(), key.to_owned()))
             .copied()
+    }
+
+    /// 只有第四列写了 `wubi` 的条目才返回，见 [`WeightOverride::wubi`]。
+    pub fn get_wubi(&self, word: &str, key: &str) -> Option<i64> {
+        let pair = (word.to_owned(), key.to_owned());
+        if self.wubi.contains(&pair) {
+            self.weights.get(&pair).copied()
+        } else {
+            None
+        }
     }
 }
 
@@ -261,7 +291,7 @@ impl PinyinCuration {
         )
     }
 
-    /// 像 [`weighted_rows`] 那样读 `value<TAB>key<TAB>weight` 行，去掉被否决的行，覆盖表里有的读音换成覆盖后的权重。生成器看到的就是构建在 `word-vetoes`、`weight-overrides` 之后的样子。
+    /// 像 [`weighted_rows`] 那样读 `value<TAB>key<TAB>weight` 行，去掉被否决的行，覆盖表里有的读音换成覆盖后的权重。区划补充表的生成器看到的就是构建在 `word-vetoes`、`weight-overrides` 之后的样子；五笔的生成器读 [`Self::wubi_rows`]。
     pub fn rows<'a>(
         &'a self,
         source: &'a str,
@@ -271,6 +301,21 @@ impl PinyinCuration {
             .map(|(value, key, weight)| {
                 (value, key, self.overrides.get(value, key).unwrap_or(weight))
             })
+    }
+
+    /// 五笔补充词组的生成器读的行：`(词, 过门槛用的权重, 同码排序用的权重)`。否决的行照样去掉。权重覆盖分两种：没写 `wubi` 的是相对全拼键的降权，五笔不理，两个权重都是覆盖前的；写了 `wubi` 的是频率修正，排序用覆盖后的值，门槛取覆盖前后较大的那个。所以覆盖表永远不会把一个词从五笔里删掉：方案定了五笔只做否决表那样的定点清洗，不做大删，五笔编码上也没有拼音同键的那层竞争。
+    pub fn wubi_rows<'a>(
+        &'a self,
+        source: &'a str,
+    ) -> impl Iterator<Item = (&'a str, i64, i64)> + 'a {
+        weighted_rows(source)
+            .filter(|(value, key, _)| !self.vetoes.vetoes(value, key))
+            .map(
+                |(value, key, weight)| match self.overrides.get_wubi(value, key) {
+                    Some(corrected) => (value, weight.max(corrected), corrected),
+                    None => (value, weight, weight),
+                },
+            )
     }
 
     /// 整词否决的词，见 [`PinyinVetoes::vetoes_word`]。
@@ -598,6 +643,80 @@ pub fn drop_sentence_excluded(connection: &Connection) -> Result<bool> {
     Ok(present)
 }
 
+/// 读 `curation/offensive-words.txt` 建成的粗俗词表，五笔三张表排位用；文件不在时为 `None`，五笔表不动，与没有这套机制时逐字节相同。
+pub fn load_offensive_words(sources: &Sources) -> Result<Option<msime_engine::OffensiveWords>> {
+    let Some(text) = read_optional(sources, OFFENSIVE_WORDS)? else {
+        return Ok(None);
+    };
+    msime_engine::OffensiveWords::from_entries(parse_offensive_words(&text)?)
+        .map(Some)
+        .with_context(|| format!("{OFFENSIVE_WORDS} lists no word"))
+}
+
+/// 粗俗内容政策的第二档（词本身保留、不当首选）在五笔上的落实：五笔码表（`wubi86`、`wubi98`、`wubixsj`）里含 `offensive` 粗俗词的行（规则与引擎拼整句时相同，豁免写法盖住的不算）挪到同码其余行之后。权重改成同码其余行最低的权重减 1（最低为 0），删掉再插回去，这样同权重时按 rowid 也排在最后；几行粗俗词之间保持原来的先后。同码只有粗俗词的不动，它照样是那个码唯一的候选。引擎的首选排位（`session::offensive_placement`）只管拼音、九键和英文，五笔的整码是确定的输入，原表里的 kkuq 口交、cqcn 鸡巴 就一直是首选。返回挪动的行数。
+pub fn place_offensive_last_in_wubi(
+    connection: &mut Connection,
+    table: &str,
+    offensive: &msime_engine::OffensiveWords,
+) -> Result<usize> {
+    let transaction = connection.transaction()?;
+    let mut by_code: HashMap<String, Vec<(i64, String, i64, bool)>> = HashMap::new();
+    {
+        let mut statement = transaction.prepare(&format!(
+            "SELECT rowid, \"key\", \"value\", \"weight\" FROM {table} ORDER BY \"key\", \"weight\" DESC, rowid"
+        ))?;
+        let rows = statement.query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)?,
+            ))
+        })?;
+        for row in rows {
+            let (rowid, key, value, weight) = row?;
+            let flagged = offensive.is_offensive(&value);
+            by_code
+                .entry(key)
+                .or_default()
+                .push((rowid, value, weight, flagged));
+        }
+    }
+    let mut keys: Vec<&String> = by_code.keys().collect();
+    keys.sort();
+    let mut moved = 0;
+    {
+        let mut delete = transaction.prepare(&format!("DELETE FROM {table} WHERE rowid = ?1"))?;
+        let mut insert = transaction.prepare(&format!(
+            "INSERT INTO {table} (\"key\", \"value\", \"weight\") VALUES (?1, ?2, ?3)"
+        ))?;
+        for key in keys {
+            let rows = &by_code[key];
+            // rows 已按引擎的次序（权重从高到低、同权重按 rowid）排好；最后一行干净的行之前有粗俗词，才需要挪。
+            let Some(last_clean) = rows.iter().rposition(|row| !row.3) else {
+                continue;
+            };
+            if !rows[..last_clean].iter().any(|row| row.3) {
+                continue;
+            }
+            let lowest = rows
+                .iter()
+                .filter(|row| !row.3)
+                .map(|row| row.2)
+                .min()
+                .context("a code with a clean row has a lowest clean weight")?;
+            let weight = (lowest - 1).max(0);
+            for (rowid, value, _, _) in rows.iter().filter(|row| row.3) {
+                delete.execute([rowid])?;
+                insert.execute(params![key, value, weight])?;
+                moved += 1;
+            }
+        }
+    }
+    transaction.commit()?;
+    Ok(moved)
+}
+
 /// 英文的否决集合：构建器内置的蔑称（`english_supplement::OFFENSIVE` 加上 [`BUILT_IN_VETOES`]），再加 `curation/english-vetoes.txt`。对全部英文来源一视同仁：rime-ice 的两张词表、SCOWL 补充表、OALDPE 词头和 `custom/english.txt`，按小写词否决，所有大小写都不进；`custom/translations.txt` 里英文一侧含这些词的条目也不写（[`EnglishVetoes::vetoed_translation`]）。内置的一组不靠 `curation/` 也生效，所以换上这个构建器之后 `msime-english.db` 就会变。
 #[derive(Debug, Default)]
 pub struct EnglishVetoes {
@@ -762,8 +881,16 @@ mod tests {
         let overrides = WeightOverrides::parse("车件\tche'jian\t100\n").unwrap();
         assert_eq!(overrides.get("车件", "che'jian"), Some(100));
         assert_eq!(overrides.get("车件", "che'jia"), None);
+        let scoped =
+            WeightOverrides::parse("车件\tche'jian\t100\twubi\n车检\tche'jian\t90\n").unwrap();
+        assert_eq!(scoped.get_wubi("车件", "che'jian"), Some(100));
+        assert_eq!(scoped.get("车检", "che'jian"), Some(90));
+        assert_eq!(scoped.get_wubi("车检", "che'jian"), None);
+        assert!(scoped.entries[0].wubi && !scoped.entries[1].wubi);
         for (text, problem) in [
             ("车件\tche'jian\n", "expected word"),
+            ("车件\tche'jian\t100\tWubi\n", "fourth field"),
+            ("车件\tche'jian\t100\twubi\tx\n", "expected word"),
             ("车件\tche'jian\t-1\n", "below 0"),
             ("车件\tche'jian\tmany\n", "not an integer"),
             ("车件\tche'jian\t1\n车件\tche'jian\t2\n", "twice"),
@@ -796,6 +923,26 @@ mod tests {
         assert_eq!(
             empty.rows(source).collect::<Vec<_>>(),
             weighted_rows(source).collect::<Vec<_>>()
+        );
+    }
+
+    /// 五笔看到的行：否决照样去掉；没写 `wubi` 的覆盖（车件 让 车检）五笔不理；写了 `wubi` 的（晏驾 恢复上游的 61）排序用覆盖值，门槛仍按覆盖前的 610，升权（雅驯 升到 150）门槛也跟着升。
+    #[test]
+    fn wubi_rows_take_only_scoped_overrides_and_never_lower_the_threshold() {
+        let curation = PinyinCuration::parse(
+            "别鸡巴\n",
+            "车件\tche'jian\t3999\n晏驾\tyan'jia\t61\twubi\n雅驯\tya'xun\t150\twubi\n",
+        )
+        .unwrap();
+        let source = "别鸡巴\tbie'ji'ba\t100\n车件\tche'jian\t5000\n车检\tche'jian\t4000\n晏驾\tyan'jia\t610\n雅驯\tya'xun\t38\n";
+        assert_eq!(
+            curation.wubi_rows(source).collect::<Vec<_>>(),
+            [
+                ("车件", 5000, 5000),
+                ("车检", 4000, 4000),
+                ("晏驾", 610, 61),
+                ("雅驯", 150, 150)
+            ]
         );
     }
 
@@ -940,6 +1087,64 @@ mod tests {
         assert_eq!(counts.changed, 2);
         assert_eq!(weight(&connection, "小红书", "xiao'hong'shu"), Some(100));
         assert_eq!(weight(&connection, "车件", "che'jian"), Some(100));
+    }
+
+    /// 五笔表里的粗俗词挪到同码最后：口交、鸡巴 让出首选；同权重 0 的 傻逼 靠重新插入排到 刹闭 之后；豁免写法盖住的 鸡巴结 不动；已经在最后的、同码只有它的都不动。
+    #[test]
+    fn offensive_wubi_rows_move_after_the_other_rows_of_their_code() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE wubi86 (\"key\" TEXT NOT NULL, \"value\" TEXT NOT NULL, \"weight\" INTEGER NOT NULL DEFAULT 0, UNIQUE(\"key\", \"value\"));
+                 INSERT INTO wubi86 (\"key\", \"value\", \"weight\") VALUES
+                   ('kkuq', '口交', 10), ('kkuq', '咖喱酱', 9),
+                   ('cqcn', '鸡巴', 10), ('cqcn', '鸡巴结', 10), ('cqcn', '又狠又快', 9),
+                   ('wtsx', '傻逼', 0), ('wtsx', '刹闭', 0),
+                   ('vbfg', '好人', 5), ('vbfg', '傻逼', 3),
+                   ('wtss', '傻逼', 7);",
+            )
+            .unwrap();
+        let offensive = msime_engine::OffensiveWords::from_entries(
+            [
+                ("傻逼", false),
+                ("口交", false),
+                ("鸡巴", false),
+                ("鸡巴结", true),
+            ]
+            .map(|(text, exempt)| msime_engine::OffensiveEntry {
+                text: text.to_owned(),
+                exempt,
+            }),
+        )
+        .unwrap();
+        assert_eq!(
+            place_offensive_last_in_wubi(&mut connection, "wubi86", &offensive).unwrap(),
+            3
+        );
+        let code = |key: &str| -> Vec<(String, i64)> {
+            connection
+                .prepare(
+                    "SELECT value, weight FROM wubi86 WHERE key = ?1 ORDER BY weight DESC, rowid",
+                )
+                .unwrap()
+                .query_map([key], |row| Ok((row.get(0)?, row.get(1)?)))
+                .unwrap()
+                .map(Result::unwrap)
+                .collect()
+        };
+        let owned = |rows: &[(&str, i64)]| -> Vec<(String, i64)> {
+            rows.iter()
+                .map(|(value, weight)| ((*value).to_owned(), *weight))
+                .collect()
+        };
+        assert_eq!(code("kkuq"), owned(&[("咖喱酱", 9), ("口交", 8)]));
+        assert_eq!(
+            code("cqcn"),
+            owned(&[("鸡巴结", 10), ("又狠又快", 9), ("鸡巴", 8)])
+        );
+        assert_eq!(code("wtsx"), owned(&[("刹闭", 0), ("傻逼", 0)]));
+        assert_eq!(code("vbfg"), owned(&[("好人", 5), ("傻逼", 3)]));
+        assert_eq!(code("wtss"), owned(&[("傻逼", 7)]));
     }
 
     #[test]

@@ -57,11 +57,11 @@ msime-dictionary 的顶层目录 `curation/` 放维护者审定的表（不接�
 | 文件 | 每行 | 阶段与效果 |
 | --- | --- | --- |
 | `curation/pinyin-vetoes.txt` | `词`（整词否决，至少两个字）或 `词<TAB>全拼`（只否决这个读音） | `word-vetoes` 阶段（在 `reading-corrections` 之后、`wubi` 之前）从全拼表删掉这个词的所有读音或这一个读音。整词否决还让三张五笔表（`wubi86`、`wubi98`、`wubixsj`，原表的行和生成的补充行都算）不写入这个词。一条否决在全拼表里一行都没删到、整词否决在五笔原表里也没有时构建失败。同一个词既整词否决又按读音否决算错。 |
-| `curation/pinyin-weight-overrides.txt` | `词<TAB>全拼<TAB>权重`（不小于 0 的整数） | `weight-overrides` 阶段（紧接 `word-vetoes`）把这个读音的权重设成这个值，可降可升。全拼表没有这一行，或者这一行是 `custom/words.txt` 从已有的行提了权的（custom-words 之前并入的输入，即单字表、词组输入和 `places.txt`，已经有这个词和读音，而且权重低于 custom 写的）时构建失败：人工词条的提权只升不降，覆盖表不把它改回去。custom 新插入的词（之前的输入都没有这一行）可以覆盖，越位的投稿词条（例如压过同音常用词的品牌名）就靠这里降权；custom 列了但没有提权的行也可以。一个读音不能既被否决又被覆盖。 |
-| `curation/offensive-words.txt` | 一个词，或 `!` 开头的豁免写法，格式与引擎内嵌的 `crates/engine/src/lattice/offensive_words.txt` 相同 | `sentence-excluded` 阶段（紧接 `weight-overrides`）用引擎的同一个解析器（`msime_engine::parse_offensive_words`）读它，写进 `msime-pinyin.db` 的 `sentence_excluded(value, exempt)`（[docs/data-formats.md](../../docs/data-formats.md) §4.5）。每个词必须是全拼表里某一行的词，每条豁免写法必须出现在全拼表某一行的词里并含一个表里的词。文件不在时不建这张表（`--out` 里上一次留下的会被删掉），引擎用内嵌表。 |
+| `curation/pinyin-weight-overrides.txt` | `词<TAB>全拼<TAB>权重`（不小于 0 的整数），可以再加第四列 `wubi` | `weight-overrides` 阶段（紧接 `word-vetoes`）把这个读音的权重设成这个值，可降可升。第四列 `wubi` 标出与全拼键无关的频率修正（本地损坏恢复上游值、占位权重），五笔补充词组的同码排序也用这个值；不写的是相对同一全拼键的降权（碎片、非标准读音、人工词条越位），只改拼音。全拼表没有这一行，或者这一行是 `custom/words.txt` 从已有的行提了权的（custom-words 之前并入的输入，即单字表、词组输入和 `places.txt`，已经有这个词和读音，而且权重低于 custom 写的）时构建失败：人工词条的提权只升不降，覆盖表不把它改回去。custom 新插入的词（之前的输入都没有这一行）可以覆盖，越位的投稿词条（例如压过同音常用词的品牌名）就靠这里降权；custom 列了但没有提权的行也可以。一个读音不能既被否决又被覆盖。 |
+| `curation/offensive-words.txt` | 一个词，或 `!` 开头的豁免写法，格式与引擎内嵌的 `crates/engine/src/lattice/offensive_words.txt` 相同 | `sentence-excluded` 阶段（紧接 `weight-overrides`）用引擎的同一个解析器（`msime_engine::parse_offensive_words`）读它，写进 `msime-pinyin.db` 的 `sentence_excluded(value, exempt)`（[docs/data-formats.md](../../docs/data-formats.md) §4.5）。每个词必须是全拼表里某一行的词，每条豁免写法必须出现在全拼表某一行的词里并含一个表里的词。文件不在时不建这张表（`--out` 里上一次留下的会被删掉），引擎用内嵌表。`wubi`、`wubi98`、`wubixsj` 阶段还按它把五笔表里含粗俗词的行（豁免写法盖住的不算）挪到同码其余行之后：粗俗词本身保留、不当首选，引擎的首选排位不管五笔；同码只有它一行的不动。文件不在时五笔表不动。 |
 | `curation/english-vetoes.txt` | 一个小写 ASCII 词 | `english` 阶段对全部英文来源（rime-ice 的两张词表、`sources/english/scowl-words.txt`、OALDPE 词头和 `custom/english.txt`）统一否决这个词的所有大小写，释义也就跟着没有了。构建器还内置一组蔑称：`english_supplement::OFFENSIVE` 加上 rime-ice 词表自己收了的 nigger、tranny、beyatch（`curation::BUILT_IN_VETOES`），这组总是生效，文件不在时也一样；`custom/translations.txt` 里英译中的源词、中译英的译文里的词被否决时，`custom-translations` 阶段也不写那一条；文件里再写内置的词算错。文件里的词在任何英文来源里都没有时构建失败。 |
 
-拼音的两张表还交给五笔和区划的生成器（`wubi86-supplement`、`wubi98-supplement`、`wubixsj-supplement`、`places-supplement`，构建时 `wubi`、`wubi98`、`wubixsj` 阶段重新派生的补充数据也一样）：它们按施加了否决和覆盖之后的拼音行判断 100 的门槛、同码排序、读音确认、已有权重和上限（`PinyinCuration::rows`），整词否决的词不做五笔词组候选；表存在时，生成文件的表头把它们和 SHA-256 一起列进输入。
+拼音的两张表还交给五笔和区划的生成器（`wubi86-supplement`、`wubi98-supplement`、`wubixsj-supplement`、`places-supplement`，构建时 `wubi`、`wubi98`、`wubixsj` 阶段重新派生的补充数据也一样）。区划的生成器按施加了否决和覆盖之后的拼音行判断读音确认、已有权重和上限（`PinyinCuration::rows`）。五笔的生成器只认否决和第四列写了 `wubi` 的覆盖（`PinyinCuration::wubi_rows`）：整词否决的词不做五笔词组候选；写了 `wubi` 的覆盖改同码排序，100 的门槛取覆盖前后较大的权重，所以覆盖表不会把一个词从五笔里删掉；其余覆盖是按全拼键上的竞争定的，五笔编码上没有这层竞争，五笔不理。表存在时，生成文件的表头把它们和 SHA-256 一起列进输入。
 
 英文的生成器 `english-supplement` 不读 `curation/english-vetoes.txt`：那张表的否决在 `english` 阶段施加，生成的 `scowl-words.txt` 里照常有这些词，否决才总能匹配到。
 
@@ -82,6 +82,7 @@ msime-dict-build cleanse-report --dictionary <msime-dictionary checkout> --out <
 - `nonstandard-readings.tsv`（给了 `--reference`）：参照表收了这个多字词、却不收这个读音的行，在自己的全拼键上压过一个读音是参照表收了的、本地权重不低于 `--nonstandard-min` 的词，建议降到被压过的词最低的权重之下；`custom/words.txt` 的行不列。参照表只收一种读音不等于另一种读错了（剥皮 bao'pi、调到 diao'dao、顺利地 shun'li'de 都对），这一类按 2026-11-04 的逐条审查九成是误伤，只能逐条挑。
 - `vulgar-fragments.tsv`：含粗俗词、本身不是表里的词、也没有被豁免写法盖住的词（引擎拼整句时拦的同一种），建议整词否决。粗俗词表用 `curation/offensive-words.txt`，没有时用引擎内嵌的表。
 - `wubi-vulgar-fragments.tsv`：同样的词在五笔原表（86 极点表、两张 98 表）里的，带编码和所在的表，并标出拼音行里是否也有（有的话上一份已经列过）。整词否决让三张五笔表都不写入这个词。
+- `custom-outranking.tsv`：`custom/words.txt` 的行在自己的全拼键上权重最高，压过同键一个本地权重不低于 1000 的词（人工词条越位），建议降到同键权重最高的另一个词之下。custom 从已有的行提了权的只标出 custom 之前的权重、不给建议行（覆盖表不能改它）。只看全拼键，不看九键码。
 - `unknown-provenance.tsv`（给了 `--upstream`）：`rime-ice.txt` 里来源对不上上游的行，只供审阅、不给建议行，按上面各类处理，不整块删除。两种标记：上游检出 `cn_dicts/` 的六张表都没有这个词；上游 `base`、`ext` 没有这个词而且参照表也不收这个词和读音（上游删了、万象对齐也没碰到的孤儿行）。
 
 参照表和上游表可以是 Rime 的 `.dict.yaml`（读音带声调、空格分隔也行，统一成 `ni'hao` 再比），也可以是没有文件头的 `词<TAB>读音[<TAB>权重]`；`--reference` 可以给多份，同词同音取最大权重。

@@ -202,7 +202,7 @@ enum Command {
     Languages(Languages),
     /// 从词库 release 的 msime-pinyin.db 和 msime-wubi.db 裁出网页内置输入法用的 msime-pinyin.db（全部单字加按权重排名前 N 的多字词，不含五笔）和 msime-wubi86.db（只含 86 五笔），给了 --japanese 时再从 msime-japanese.dat 裁出成本最低的 N 条词，都逐字节可复现。
     Web(WebArgs),
-    /// 给 msime-dictionary 的清洗出候选清单（本地权重与上游 rime-ice 相差过大的行、占位权重、压过同键常用词的碎片词、压过同键规范读音的非规范读音、含粗俗词的长词条和五笔原表里的同类词、来源对不上上游的行），每类一个 TSV，不改任何库和源文件；维护者审定后再写进 curation/ 的否决表和权重覆盖表（见 cleanse_report.rs）。
+    /// 给 msime-dictionary 的清洗出候选清单（本地权重与上游 rime-ice 相差过大的行、占位权重、压过同键常用词的碎片词、压过同键规范读音的非规范读音、含粗俗词的长词条和五笔原表里的同类词、压过同键常用词的人工词条、来源对不上上游的行），每类一个 TSV，不改任何库和源文件；维护者审定后再写进 curation/ 的否决表和权重覆盖表（见 cleanse_report.rs）。
     CleanseReport(CleanseReport),
     /// 从词库 release 的 msime-pinyin.db 写出九宫格切分用的音节频度表（crates/engine/src/nine_key/syllable_frequency.tsv）：单字行的权重，加上音节在多字词里每出现一次计一次的词的权重。
     SyllableFrequency(SyllableFrequency),
@@ -1376,6 +1376,21 @@ impl Build {
         Ok(curation::custom_promotions(listed, &earlier))
     }
 
+    /// 有 `curation/offensive-words.txt` 时把五笔表 `table` 里的粗俗词挪到同码最后（[`curation::place_offensive_last_in_wubi`]），返回接在阶段摘要后面的说明；没有这个文件时什么也不做，返回空串。
+    fn place_offensive_last_in_wubi(
+        &self,
+        connection: &mut rusqlite::Connection,
+        table: &str,
+    ) -> Result<String> {
+        let Some(offensive) = curation::load_offensive_words(&self.sources)? else {
+            return Ok(String::new());
+        };
+        let moved = curation::place_offensive_last_in_wubi(connection, table, &offensive)?;
+        Ok(format!(
+            ", {moved} offensive rows moved after the other rows of their code"
+        ))
+    }
+
     /// 五笔原表（86 极点表、两张 98 表）里的全部词，`word-vetoes` 判断只在五笔里出现的整词否决是否过期时用，见 [`curation::wubi_source_rows`]。
     fn wubi_source_words(&self) -> Result<HashSet<String>> {
         Ok(curation::wubi_source_rows(&self.sources)?
@@ -1533,10 +1548,12 @@ impl Build {
                 let mut paths = vec![jidian.as_path(), supplement.as_path()];
                 paths.extend(custom.as_deref());
                 let vetoes = curation::PinyinCuration::load(&self.sources)?.vetoes;
+                let mut connection = self.database("msime-pinyin.db")?;
                 let (imported, skipped, filtered, vetoed) =
-                    msime::build_wubi(&mut self.database("msime-pinyin.db")?, &paths, &vetoes)?;
+                    msime::build_wubi(&mut connection, &paths, &vetoes)?;
+                let offensive = self.place_offensive_last_in_wubi(&mut connection, "wubi86")?;
                 Ok(format!(
-                    "{imported} rows imported, {skipped} skipped, {filtered} unsupported Wubi values left out, {vetoed} vetoed{}",
+                    "{imported} rows imported, {skipped} skipped, {filtered} unsupported Wubi values left out, {vetoed} vetoed{offensive}{}",
                     if custom.is_some() {
                         ""
                     } else {
@@ -1548,15 +1565,17 @@ impl Build {
                 let supplement = self.sources.pinned(wubi98_supplement::WUBI98_FCITX)?;
                 let generated = self.fresh_wubi_supplement(WubiTable::Wubi98)?;
                 let vetoes = curation::PinyinCuration::load(&self.sources)?.vetoes;
+                let mut connection = self.database("msime-pinyin.db")?;
                 let (imported, skipped, vetoed) = msime::build_wubi98_sources(
-                    &mut self.database("msime-pinyin.db")?,
+                    &mut connection,
                     &self.sources.pinned(wubi98_supplement::WUBI98)?,
                     &[supplement.as_path()],
                     &[generated.as_path()],
                     &vetoes,
                 )?;
+                let offensive = self.place_offensive_last_in_wubi(&mut connection, "wubi98")?;
                 Ok(format!(
-                    "{imported} rows imported, {skipped} skipped, {vetoed} vetoed"
+                    "{imported} rows imported, {skipped} skipped, {vetoed} vetoed{offensive}"
                 ))
             }
             Stage::WubiXsj => {
@@ -1574,14 +1593,16 @@ impl Build {
                 }
                 let generated = self.fresh_wubi_supplement(WubiTable::WubiXsj)?;
                 let vetoes = curation::PinyinCuration::load(&self.sources)?.vetoes;
+                let mut connection = self.database("msime-pinyin.db")?;
                 let counts = msime::build_wubixsj(
-                    &mut self.database("msime-pinyin.db")?,
+                    &mut connection,
                     &self.sources.pinned(wubixsj_supplement::WUBIXSJ)?,
                     &[generated.as_path()],
                     &vetoes,
                 )?;
+                let offensive = self.place_offensive_last_in_wubi(&mut connection, "wubixsj")?;
                 Ok(format!(
-                    "{} rows imported, {} skipped, {} single-character rows outside the basic CJK block or with an invalid code left out, {} upstream words left out, {} vetoed",
+                    "{} rows imported, {} skipped, {} single-character rows outside the basic CJK block or with an invalid code left out, {} upstream words left out, {} vetoed{offensive}",
                     counts.imported, counts.skipped, counts.filtered, counts.phrases, counts.vetoed
                 ))
             }
@@ -2145,7 +2166,7 @@ mod tests {
         .unwrap()
     }
 
-    /// 没有 `curation/` 的 checkout：三个新阶段什么也不做，`msime-pinyin.db` 逐字节不变，也不建 `sentence_excluded`。有表时按表删行、改权重、写粗俗词表；整词否决只在五笔原表里出现也算匹配到，什么也匹配不到时失败；覆盖表能改 custom 新插入的词，不能改 custom 提过权的行；整词否决的词不进五笔表。
+    /// 没有 `curation/` 的 checkout：三个新阶段什么也不做，`msime-pinyin.db` 逐字节不变，也不建 `sentence_excluded`。有表时按表删行、改权重、写粗俗词表，五笔阶段按粗俗词表给五笔表排位；整词否决只在五笔原表里出现也算匹配到，什么也匹配不到时失败；覆盖表能改 custom 新插入的词，不能改 custom 提过权的行；整词否决的词不进五笔表。
     #[test]
     fn curation_stages_are_no_ops_without_tables_and_apply_them_when_present() {
         let (_temporary, dictionary, out, build) = wubi_fixture(XsjCheckout::Published);
@@ -2212,7 +2233,11 @@ mod tests {
             "甲乙"
         );
         drop(db);
-        build.run(Stage::Wubi).unwrap();
+        let summary = build.run(Stage::Wubi).unwrap();
+        assert!(
+            summary.contains("offensive rows moved after the other rows of their code"),
+            "{summary}"
+        );
         let db = rusqlite::Connection::open(&path).unwrap();
         assert_eq!(
             db.query_row(

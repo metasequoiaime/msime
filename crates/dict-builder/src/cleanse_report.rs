@@ -8,6 +8,7 @@
 //! - `nonstandard-readings.tsv`（给了 `--reference`）：参照表收了这个多字词、却不收这个读音的行，在自己的全拼键上排在一个读音是参照表收了的、本地权重不低于 `--nonstandard-min` 的词前面，建议降到它压过的那些词最低的权重之下。参照表只收一种读音不等于另一种读错了（剥皮 bao'pi、调到 diao'dao 都对），所以这一类只能逐条审。`custom/words.txt` 的行不列。
 //! - `vulgar-fragments.tsv`：含粗俗词、而本身不是表里的词、也没有被豁免写法盖住的词（引擎拼整句时拦的同一种），建议整词否决。粗俗词表用 `curation/offensive-words.txt`，没有这个文件时用引擎内嵌的表。
 //! - `wubi-vulgar-fragments.tsv`：同样的词出现在五笔原表（86 极点表、两张 98 表，见 [`curation::wubi_source_rows`]）里的。整词否决让三张五笔表都不写入这个词，五笔派生的补充行也就跟着没了；拼音表里也有的词在 `vulgar-fragments.tsv` 里已经列过，这里标出来，只在五笔里有的要单独审。
+//! - `custom-outranking.tsv`：`custom/words.txt` 的行在自己的全拼键上权重最高，压过同键一个本地权重不低于 [`CUSTOM_OUTRANKED_MINIMUM`] 的词（方案 §2.1 的「人工词条越位」），建议降到同键权重最高的另一个词之下。custom 新插入的词（之前的输入没有这个词和读音）给建议行；custom 从已有的行提了权的标出来、不给建议行，覆盖表不能改它们（`curation::apply_weight_overrides`）。不看九键码。
 //! - `unknown-provenance.tsv`（给了 `--upstream`）：`rime-ice.txt` 里来源对不上上游的行，只供审阅、不给建议行，按上面各类处理，不整块删除。两种标记：上游检出 `cn_dicts/` 的六张表（[`UPSTREAM_ALL_TABLES`]）都没有这个词；上游 `base`、`ext` 两张有权重的表没有这个词，而且参照表也不收这个词和读音（上游删了、#84 的万象对齐也没碰到的孤儿行）。
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -44,6 +45,9 @@ pub const UPSTREAM_ALL_TABLES: [&str; 6] = [
     "cn_dicts/tencent.dict.yaml",
     "cn_dicts/others.dict.yaml",
 ];
+
+/// 人工词条越位：被压的词本地权重至少这么高才算常用词，方案 §2.1 的门槛。
+pub const CUSTOM_OUTRANKED_MINIMUM: i64 = 1000;
 
 /// 不是词频、是梗的权重值。
 pub const MEME_WEIGHTS: [i64; 2] = [19_260_817, 12_345_678];
@@ -466,6 +470,85 @@ pub fn nonstandard_readings<'a>(
     found
 }
 
+/// 在自己的全拼键上压过常用词的一行人工词条，见模块文档。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CustomOutranking<'a> {
+    pub key: &'a str,
+    pub word: &'a str,
+    pub weight: i64,
+    /// custom 之前的输入里这个词和读音的最高权重；`None` 是 custom 新插入的。
+    pub earlier: Option<i64>,
+    /// 它压过的本地权重不低于门槛的词有几个。
+    pub outranked: usize,
+    /// 同键权重最高的另一个词：词、权重（`curation` 施加之后）。
+    pub runner_up: (&'a str, i64),
+}
+
+impl CustomOutranking<'_> {
+    /// 降到同键权重最高的另一个词之下（不低于 0）；custom 提过权的没有建议，覆盖表不能改它。
+    pub fn suggested(&self) -> Option<i64> {
+        self.earlier
+            .is_none()
+            .then(|| (self.runner_up.1 - 1).max(0))
+    }
+}
+
+pub fn custom_outranking<'a>(
+    sources: &[(&'a str, &'a str)],
+    curation: &'a PinyinCuration,
+    minimum: i64,
+) -> Vec<CustomOutranking<'a>> {
+    let mut earlier: HashMap<(&str, &str), i64> = HashMap::new();
+    for &(source, text) in sources {
+        if source == SOURCES[3] {
+            continue;
+        }
+        for (word, key, weight) in weighted_rows(text) {
+            let slot = earlier.entry((word, key)).or_insert(weight);
+            *slot = (*slot).max(weight);
+        }
+    }
+    let mut found = Vec::new();
+    for (key, words) in merged(sources, curation) {
+        for (&word, &(weight, source)) in &words {
+            if source != SOURCES[3] || curation.overrides.get(word, key).is_some() {
+                continue;
+            }
+            let others = words.iter().filter(|(other, _)| **other != word);
+            let Some((runner_up, (runner_up_weight, _))) = others
+                .clone()
+                .max_by(|a, b| a.1 .0.cmp(&b.1 .0).then(b.0.cmp(a.0)))
+            else {
+                continue;
+            };
+            if *runner_up_weight >= weight {
+                continue;
+            }
+            let outranked = others
+                .filter(|(_, (other_weight, _))| *other_weight >= minimum && *other_weight < weight)
+                .count();
+            if outranked == 0 {
+                continue;
+            }
+            found.push(CustomOutranking {
+                key,
+                word,
+                weight,
+                earlier: earlier.get(&(word, key)).copied(),
+                outranked,
+                runner_up: (runner_up, *runner_up_weight),
+            });
+        }
+    }
+    found.sort_by(|a, b| {
+        b.weight
+            .cmp(&a.weight)
+            .then(a.key.cmp(b.key))
+            .then(a.word.cmp(b.word))
+    });
+    found
+}
+
 /// `rime-ice.txt` 里来源对不上上游的一行，见模块文档。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnknownProvenance<'a> {
@@ -854,6 +937,34 @@ pub fn run(options: &Options, sources: &crate::sources::Sources) -> Result<Vec<(
         write("nonstandard-readings.tsv", out, found.len())?;
     }
 
+    let found = custom_outranking(&views, &curation, CUSTOM_OUTRANKED_MINIMUM);
+    let mut out = header.render(
+        &format!(
+            "{} 的行在自己的全拼键上权重最高，压过同键一个本地权重不低于 {CUSTOM_OUTRANKED_MINIMUM} 的词。custom 提过权的行只标出来、不给建议行：覆盖表不能改人工词条的提权。",
+            SOURCES[3]
+        ),
+        "全拼、词、custom 权重、custom 之前的权重（空的是 custom 新插入的）、压过的常用词个数、同键权重最高的另一个词、它的权重、建议写进 curation/pinyin-weight-overrides.txt 的行（降到那个词之下；提过权的为空）",
+    );
+    for item in &found {
+        let _ = writeln!(
+            out,
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            item.key,
+            item.word,
+            item.weight,
+            item.earlier
+                .map(|weight| weight.to_string())
+                .unwrap_or_default(),
+            item.outranked,
+            item.runner_up.0,
+            item.runner_up.1,
+            item.suggested()
+                .map(|weight| format!("{}\\t{}\\t{weight}", item.word, item.key))
+                .unwrap_or_default()
+        );
+    }
+    write("custom-outranking.tsv", out, found.len())?;
+
     let (offensive_text, offensive_source) =
         match curation::read_optional(sources, curation::OFFENSIVE_WORDS)? {
             Some(text) => {
@@ -1147,6 +1258,31 @@ mod tests {
         // 已经覆盖过的不再列出。
         let curation = PinyinCuration::parse("", "上调\tshang'diao\t1999\n").unwrap();
         assert!(nonstandard_readings(&views(rime_ice, ""), &curation, &reference, 1000).is_empty());
+    }
+
+    /// 挽昼 是 custom 新插入的，压过 万州，建议降到 万州 之下；小红书 是 custom 从 300 提的权，只标出来；没压过 1000 以上的词的（吸吸）、不是同键最高的（门的 键上的 闷的）、已经在覆盖表里的（赵晴）都不列。
+    #[test]
+    fn custom_rows_outranking_a_common_word_of_the_key_are_listed() {
+        let rime_ice = "万州\twan'zhou\t3000\n晚舟\twan'zhou\t800\n小红书\txiao'hong'shu\t300\n小红薯\txiao'hong'shu\t2000\n吸吸\txi'xi\t900\n门的\tmen'de\t435135\n赵青\tzhao'qing\t2000\n";
+        let custom = "挽昼\twan'zhou\t9000\n小红书\txiao'hong'shu\t50000\n吸吸啊\txi'xi\t5000\n闷的\tmen'de\t300000\n赵晴\tzhao'qing\t3855\n";
+        let curation = PinyinCuration::parse("", "赵晴\tzhao'qing\t1999\n").unwrap();
+        let found = custom_outranking(&views(rime_ice, custom), &curation, 1000);
+        assert_eq!(
+            found
+                .iter()
+                .map(|item| (
+                    item.word,
+                    item.earlier,
+                    item.outranked,
+                    item.runner_up,
+                    item.suggested()
+                ))
+                .collect::<Vec<_>>(),
+            [
+                ("小红书", Some(300), 1, ("小红薯", 2000), None),
+                ("挽昼", None, 1, ("万州", 3000), Some(2999)),
+            ]
+        );
     }
 
     #[test]

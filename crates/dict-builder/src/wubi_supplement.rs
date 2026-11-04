@@ -63,17 +63,33 @@ pub(crate) struct Ranked<'a> {
     pub unique_codes_shared: usize,
 }
 
-/// 语料里同一词可能出现多次；取最大权重。行按 `curation` 读：否决的行不算，覆盖表里的读音按覆盖后的权重算（[`PinyinCuration::rows`]），所以 100 的门槛和同码排序看到的是构建之后的权重。
+/// 拼音来源里每个词的两种权重，各取同词所有读音的最大值。
+pub(crate) struct Frequencies<'a> {
+    /// 判 100 门槛用（[`pinyin_words`]）。
+    pub threshold: HashMap<&'a str, i64>,
+    /// 同码排序用（[`rank`]）。
+    pub order: HashMap<&'a str, i64>,
+}
+
+/// 语料里同一词可能出现多次；取最大权重。行按 `curation` 读（[`PinyinCuration::wubi_rows`]）：否决的行不算；权重覆盖只有第四列写了 `wubi` 的频率修正才改同码排序，而且不会让一个词掉到门槛以下，相对全拼键的降权（碎片、非标准读音、custom 越位）五笔不理。
 pub(crate) fn frequencies<'a>(
     sources: impl IntoIterator<Item = &'a str>,
     curation: &'a PinyinCuration,
-) -> HashMap<&'a str, i64> {
-    let mut frequency = HashMap::new();
-    for (value, _, weight) in sources.into_iter().flat_map(|source| curation.rows(source)) {
-        let slot = frequency.entry(value).or_insert(weight);
-        *slot = (*slot).max(weight);
+) -> Frequencies<'a> {
+    let mut frequencies = Frequencies {
+        threshold: HashMap::new(),
+        order: HashMap::new(),
+    };
+    for (value, threshold, order) in sources
+        .into_iter()
+        .flat_map(|source| curation.wubi_rows(source))
+    {
+        let slot = frequencies.threshold.entry(value).or_insert(threshold);
+        *slot = (*slot).max(threshold);
+        let slot = frequencies.order.entry(value).or_insert(order);
+        *slot = (*slot).max(order);
     }
-    frequency
+    frequencies
 }
 
 /// 拼音来源里能做五笔词组的词：`frequency` 里权重不低于 `minimum` 的，加上 `manual`（区划表、人工词条）里不设门槛的。`curation` 整词否决的词一个也不收，`manual` 里被否决的读音也不算。
@@ -180,28 +196,32 @@ mod tests {
         let places = "工人日民\tgong'ren'ri'min\t1\n";
         let curation = PinyinCuration::default();
         let frequency = frequencies([base, supplement, places, custom], &curation);
-        assert_eq!(frequency["工人"], 150);
-        let words = pinyin_words(&frequency, 100, &[places, custom], &curation);
+        assert_eq!(frequency.threshold["工人"], 150);
+        assert_eq!(frequency.order["工人"], 150);
+        let words = pinyin_words(&frequency.threshold, 100, &[places, custom], &curation);
         assert_eq!(
             words.into_iter().collect::<Vec<_>>(),
             ["工人", "工人日", "工人日民", "工人民", "日工"]
         );
     }
 
-    /// 否决的词和读音不进候选，覆盖表的权重决定门槛：工人日 降到 100 以下就不再是候选，人民 升到 100 就是候选；人工词条里被否决的 工人民 也不收。
+    /// 否决的词和读音不进候选；人工词条里被否决的 工人民 也不收。权重覆盖不会让词掉出门槛：工人日 写了 `wubi` 降到 99，仍是候选，只是排序按 99；人民 写了 `wubi` 升到 100 就是候选；没写 `wubi` 的 民工 升到 100 只改拼音，五笔仍按 99 算。
     #[test]
     fn candidates_follow_the_curation_tables() {
-        let base = "日工\tri'gong\t100\n工人\tgong'ren\t150\n工人\tgong'reng\t10\n工人日\tgong'ren'ri\t100\n人民\tren'min\t99\n";
+        let base = "日工\tri'gong\t100\n工人\tgong'ren\t150\n工人\tgong'reng\t10\n工人日\tgong'ren'ri\t100\n人民\tren'min\t99\n民工\tmin'gong\t99\n";
         let custom = "工人民\tgong'ren'min\t1\n";
         let curation = PinyinCuration::parse(
             "日工\n工人民\n工人\tgong'ren\n",
-            "工人日\tgong'ren'ri\t99\n人民\tren'min\t100\n",
+            "工人日\tgong'ren'ri\t99\twubi\n人民\tren'min\t100\twubi\n民工\tmin'gong\t100\n",
         )
         .unwrap();
         let frequency = frequencies([base, custom], &curation);
-        assert_eq!(frequency["工人"], 10);
-        assert!(!frequency.contains_key("日工"));
-        let words = pinyin_words(&frequency, 100, &[custom], &curation);
-        assert_eq!(words.into_iter().collect::<Vec<_>>(), ["人民"]);
+        assert_eq!(frequency.threshold["工人"], 10);
+        assert!(!frequency.threshold.contains_key("日工"));
+        assert_eq!(frequency.threshold["工人日"], 100);
+        assert_eq!(frequency.order["工人日"], 99);
+        assert_eq!(frequency.order["民工"], 99);
+        let words = pinyin_words(&frequency.threshold, 100, &[custom], &curation);
+        assert_eq!(words.into_iter().collect::<Vec<_>>(), ["人民", "工人日"]);
     }
 }

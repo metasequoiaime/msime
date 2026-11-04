@@ -45,7 +45,7 @@ pub struct Inputs<'a> {
     pub pinyin_supplement: &'a str,
     pub places: &'a str,
     pub custom: &'a str,
-    /// msime-dictionary `curation/` 的拼音否决表和权重覆盖表：整词否决的词不收，拼音权重按覆盖后的算。
+    /// msime-dictionary `curation/` 的拼音否决表和权重覆盖表：整词否决的词不收，权重覆盖只取第四列写了 `wubi` 的频率修正，见 [`PinyinCuration::wubi_rows`]。
     pub curation: &'a PinyinCuration,
 }
 
@@ -112,7 +112,7 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
         bail!("{WUBI98} and {WUBI98_FCITX} have no rows");
     }
     let pinyin = pinyin_words(
-        &frequency,
+        &frequency.threshold,
         MIN_PINYIN_WEIGHT,
         &[inputs.places, inputs.custom],
         inputs.curation,
@@ -130,7 +130,7 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
         })
         .collect();
 
-    let ranked = rank(&rows, candidates, &frequency, SUPPLEMENT_CEILING);
+    let ranked = rank(&rows, candidates, &frequency.order, SUPPLEMENT_CEILING);
     let entries = ranked
         .entries
         .into_iter()
@@ -330,12 +330,12 @@ mod tests {
         );
     }
 
-    /// 整词否决的词不进补充表，也不再占同码的名次；极点表里被否决的词不再算同码原有的行；读音否决和权重覆盖改的是拼音那边的门槛。
+    /// 整词否决的词不进补充表，也不再占同码的名次；极点表里被否决的词不再算同码原有的行；读音否决改的是拼音那边的门槛，写了 `wubi` 的权重覆盖（人民日 升到 100）也算进门槛。
     #[test]
     fn curation_tables_reach_the_generator() {
         let curation = PinyinCuration::parse(
             "工人日\n部门\n工人\tgong'ren\n",
-            "人民日\tren'min'ri\t100\n",
+            "人民日\tren'min'ri\t100\twubi\n",
         )
         .unwrap();
         let supplement = build(&Inputs {
