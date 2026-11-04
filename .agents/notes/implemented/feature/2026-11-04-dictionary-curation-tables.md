@@ -17,6 +17,7 @@ msime-dictionary 的大清洗（碎片词压过常用词、上游权重被改坏
 - `curation/english-vetoes.txt`：一行一个小写词。`english` 阶段对全部英文来源（rime-ice 两张词表、SCOWL 补充表、OALDPE 词头、`custom/english.txt`）统一否决，任何大小写都不写入；`custom-translations` 阶段也不写英文一侧（英译中的源词、中译英的译文）含被否决词的人工译文。内置的一组（`english_supplement::OFFENSIVE` 加 `curation::BUILT_IN_VETOES` 的 nigger、tranny、beyatch）总是生效，没有 `curation/` 也一样。
 - `check-words` 拒绝构建会删掉的新词：`--pinyin-vetoes` 给的表否决的词或读音，英文否决集合里的词（内置的总是算），以及英文一侧含这些词的新译文。
 - `msime-dict-build cleanse-report` 只写候选清单（上游权重相差过大、占位权重、压过同键常用词的碎片词、含粗俗词的长词条），每类一个 TSV，表头记 msime 提交、msime-dictionary 提交和对照文件的 SHA-256，已被 `curation/` 处理过的行不再列出。
+- 上游权重比较先在四份发布来源中按同词同音取最高权重，再比较仍来自 rime-ice 的行。区划或人工词条已提权时，较低的 rime-ice 行不再生效；只在两份 rime-ice 文件之间去重，会生成指向旧行的覆盖建议，人工提权的读音还会被 `weight-overrides` 拒绝。同权重的人工行没有提权，仍允许比较原上游行。
 
 ### 每张表的两条硬规矩
 
@@ -31,6 +32,7 @@ msime-dictionary 的大清洗（碎片词压过常用词、上游权重被改坏
 - **英文否决只扩充 `english_supplement::OFFENSIVE`。** 最强的理由是改动最小。不采用：那张表只在生成 SCOWL 补充表时用，而且要求每个词都是 SCOWL 的词形（防止过期），rime-ice 词表里的 beyatch 不满足；在 `english` 阶段统一否决才能管住全部来源。英文生成器也不读 `curation/english-vetoes.txt`，否则补充表里不再有那些词，否决就匹配不到、构建失败。
 - **覆盖表不许碰 custom 列过的任何一行（包括 custom 新插入的词）。** 最强的理由是规则简单，只看 `custom/words.txt` 本身，不用重读 custom 之前的输入；人工词条的权重也就只有投稿流程能改。不采用：计划把已有的 13 条越位交给 H2 降权，custom 新插入的词的权重就是投稿时定的，没有「被提权」可言，一概拒绝会让那批覆盖建不出来。只拒绝 custom 从已有的行提了权的读音，守住的是「只升不降」本来的意思：投稿把一个已有的词提上去，覆盖表不把它压回来。
 - **覆盖表对 custom 的行也一律放行。** 最强的理由是维护者审定的覆盖本来就比投稿更可信。不采用：custom 提权的行被覆盖压回去，等于另开一个绕过投稿流程的入口，而计划 H2 明确不许作用于「已提权的行」。
+- **报告继续比较被后续来源覆盖的 rime-ice 原始行。** 最强的理由是还能看见源文件里历史遗留的异常权重。不采用：报告最后一列要能抄进覆盖表，过时行的建议会改到另一来源当前生效的权重，人工提权时更会直接构建失败；源文件本身又已逐字节锁定，不能拿这条建议去直接改源文件。
 
 ## Consequences
 
@@ -43,6 +45,8 @@ msime-dictionary 的大清洗（碎片词压过常用词、上游权重被改坏
 
 ## Verification
 
+- 报告回归 `upstream_comparisons_leave_out_rows_superseded_by_later_sources` 在原实现上断言失败，修复后通过：区划或人工来源用 200 覆盖 rime-ice 的 100 时不再建议覆盖旧行；人工行同为 100 时仍保留上游候选。
+- R-2 实际产物对比：固定 msime-dictionary `dict-v2.0.51`（`64b18d44e2f5a07c8f616e80af8669616f9b2d2e`）的同一批输入，上游文件核对锁中的大小与 SHA-256，分别用基线 `e2a4e95a11` 和本 PR 的构建器实跑全拼、区划、人工词条、读音更正、英文和译文阶段，新构建器还跑三个 curation 阶段。没有 `curation/` 时，`msime-pinyin.db` 逐字节相同（SHA-256 `4fca3acb5c9ad9a87551bd38d6a2c821dfffd72c92a111391e0ec53cd926a951`）；英文各表结构相同，`english_words` 74158→74155（只删三条内置否决），`en_zh_glosses` 66818→66816，`zh_en_glosses` 19682→19681，`source_notices` 不变，无新增行或其他值变化。没有重建其余发布产物，也没有生成或发布 manifest。
 - `crates/dict-builder`：`curation::tests`（两张拼音表的解析与冲突、`rows` 对否决和覆盖的施加、`apply_word_vetoes` 的整词和读音删除与过期失败、`apply_weight_overrides` 的升降、放行 custom 新插入的词、拒绝 custom 提过权的行（`custom_promotions` 认单字白名单）、`write_sentence_excluded` 的写入与过期失败、英文否决和译文英文一侧的否决），`main::tests::curation_stages_are_no_ops_without_tables_and_apply_them_when_present`（没有表时 `msime-pinyin.db` 逐字节不变、有表时三个阶段生效、整词否决不进 `wubi86`），`wubi_supplement`、`wubi86_supplement`、`wubi98_supplement`、`wubixsj_supplement`（连同 `build_wubixsj` 施加整词否决）、`places_supplement` 的 curation 用例，`cleanse_report` 同词同音只列一条，`msime::tests::wubi_tables_leave_out_whole_word_vetoes`，`english::tests::english_vetoes_apply_to_every_source`，`check_words::tests::vetoed_additions_are_rejected`（含译文），`cleanse_report::tests`，`tests/web.rs::the_sentence_excluded_table_is_kept`。
 - 旧引擎配新词库实跑过一次：在基线 `a0dfe261eb` 的引擎上临时加两个测试（不提交），用新构建器的 `SENTENCE_EXCLUDED_SCHEMA` 建表，`rbuild cargo test -p msime-engine --lib -- session::tests::old_engine_new_db` 两个都过：旧引擎照内嵌表拦 巨乳、不理会表里的 巨人，带表的发布照常准备代次和查询。
 - `crates/engine`：`lattice::offensive::tests`（运行时解析与编译期表一致、读进来的表取代内嵌表、空表退回内嵌表、`from_database` 的四种情形），`lattice::decode::offensive_tests::the_options_table_replaces_the_embedded_one`，`session::tests::sentence_excluded`（新引擎配旧词库、新引擎配新词库、带表的发布准备代次后照常查询并用表）。

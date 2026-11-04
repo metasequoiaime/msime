@@ -2,7 +2,7 @@
 //!
 //! 被检查的行是 msime-dictionary 进发布的拼音输入：`sources/pinyin/rime-ice.txt`、`sources/pinyin/rime-ice-supplement.txt`、`sources/pinyin/places.txt` 和 `custom/words.txt`，按构建读它们的方式读（[`weighted_rows`]）。已经被 `curation/` 否决或覆盖过的行不再列出，所以审过一批、写进表里之后再跑一次，剩下的就是还没处理的。每一类单独写一个 TSV，文件头记下 msime 提交、msime-dictionary 提交和每个对照文件的 SHA-256。
 //!
-//! - `weight-disagreement.tsv`（给了 `--upstream`）：`rime-ice.txt` 和 `rime-ice-supplement.txt` 里与上游 rime-ice 检出的 `cn_dicts/base.dict.yaml`、`cn_dicts/ext.dict.yaml` 同词同音、权重相差 `--ratio` 倍以上的行，建议恢复上游的权重。给了 `--reference-scale` 时，权重恰好等于参照表权重乘这个系数（四舍五入）的行算作有意按参照表改写过的，不列出。
+//! - `weight-disagreement.tsv`（给了 `--upstream`）：`rime-ice.txt` 和 `rime-ice-supplement.txt` 里与上游 rime-ice 检出的 `cn_dicts/base.dict.yaml`、`cn_dicts/ext.dict.yaml` 同词同音、权重相差 `--ratio` 倍以上的行，建议恢复上游的权重。先按四份发布来源取同词同音的最高权重，不列已被区划或人工提权覆盖的旧上游行。给了 `--reference-scale` 时，权重恰好等于参照表权重乘这个系数（四舍五入）的行算作有意按参照表改写过的，不列出。
 //! - `placeholder-weights.tsv`：多字词的权重是占位值：不小于 1000 且每一位数字都相同（9999、1111、33333），或是 [`MEME_WEIGHTS`] 里的梗数字。给了参照表时，参照表收了这个词（任何读音）的不列出。
 //! - `fragment-over-common.tsv`（给了 `--reference`）：参照表任何读音都不收的多字词，在同一个全拼键上排在一个参照权重不低于 `--reference-min` 的词前面，建议降到它压过的那些词最低的权重之下。`custom/words.txt` 的行不列：覆盖表不能改人工词条的权重。
 //! - `vulgar-fragments.tsv`：含粗俗词、而本身不是表里的词、也没有被豁免写法盖住的词（引擎拼整句时拦的同一种），建议整词否决。粗俗词表用 `curation/offensive-words.txt`，没有这个文件时用引擎内嵌的表。
@@ -192,12 +192,9 @@ pub fn weight_disagreements<'a>(
     ratio: f64,
     rewrite: Option<(&Weights, f64)>,
 ) -> Vec<Disagreement<'a>> {
-    // 同一个词和读音在两份对照文件里都有时，构建留下权重高的那一行（`build_quanpin` 的去重），覆盖表也只能写一条，所以只比较那一行。
+    // 同词同音先按全部发布来源取最高权重（`build_quanpin` 和人工提权的规则），再比较仍来自 rime-ice 的行；被区划或人工提权覆盖的旧行不能生成可施加的覆盖建议。
     let mut kept: HashMap<(&str, &str), &Row> = HashMap::new();
-    for row in rows
-        .iter()
-        .filter(|row| UPSTREAM_COMPARED.contains(&row.source))
-    {
+    for row in rows {
         let slot = kept.entry((row.word, row.key)).or_insert(row);
         if row.weight > slot.weight {
             *slot = row;
@@ -205,6 +202,7 @@ pub fn weight_disagreements<'a>(
     }
     let mut found: Vec<Disagreement> = kept
         .into_values()
+        .filter(|row| UPSTREAM_COMPARED.contains(&row.source))
         .filter_map(|row| {
             let upstream = *upstream.get(row.word)?.get(row.key)?;
             if upstream <= 0 || row.weight <= 0 {
@@ -712,6 +710,36 @@ mod tests {
         assert!(weight_disagreements(&rows, &upstream, 5.0, None)
             .iter()
             .all(|item| item.row.word != "门的"));
+    }
+
+    /// 后续区划或人工词条已用更高权重覆盖读音时，上游行不再是构建留下的行；尤其不能建议覆盖人工提权，因为 `weight-overrides` 会拒绝它。
+    #[test]
+    fn upstream_comparisons_leave_out_rows_superseded_by_later_sources() {
+        let curation = PinyinCuration::default();
+        let mut upstream = Weights::new();
+        parse_weights("甲乙\tjia yi\t1000\n", &mut upstream);
+        for later in [SOURCES[2], SOURCES[3]] {
+            let rows = examined_rows(
+                &[
+                    (SOURCES[0], "甲乙\tjia'yi\t100\n"),
+                    (later, "甲乙\tjia'yi\t200\n"),
+                ],
+                &curation,
+            );
+            assert!(
+                weight_disagreements(&rows, &upstream, 5.0, None).is_empty(),
+                "{later} 已覆盖上游行，不应再建议改它的权重"
+            );
+        }
+
+        // 人工词条没有提权时，上游行仍是构建的有效权重，照常给出候选。
+        let rows = examined_rows(
+            &views("甲乙\tjia'yi\t100\n", "甲乙\tjia'yi\t100\n"),
+            &curation,
+        );
+        let found = weight_disagreements(&rows, &upstream, 5.0, None);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].row.source, SOURCES[0]);
     }
 
     #[test]
