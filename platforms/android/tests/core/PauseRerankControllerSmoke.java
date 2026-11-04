@@ -175,6 +175,52 @@ public final class PauseRerankControllerSmoke {
             "取消回复不可读不等于已归还");
         check(host.views.isEmpty(), "取消回包的视图不能发布");
     }
+    private static void repeatedCancelDoesNotDuplicatePolling() {
+        Host host = new Host();
+        host.reply("pending", 77, false, null);
+        host.controller.schedule(true);
+        host.queue.next();
+        host.reply("pending", 77, false, null);
+        host.controller.cancel();
+        host.controller.cancel();
+        check(host.calls.equals(List.of("start:11", "poll:11:77:false")), "重复取消同令牌不能重复启动轮询");
+        host.reply("pending", 77, false, null);
+        host.queue.next();
+        check(host.queue.tasks.size() == 1, "第二次pending仍只有一个归还回调");
+        host.reply("done", 0, false, null);
+        host.queue.drain();
+        check(host.calls.equals(List.of("start:11", "poll:11:77:false", "poll:11:77:false", "poll:11:77:false")),
+            "所有归还轮询仍属于原令牌");
+    }
+    private static void oldDiscardCannotClearNewJob() {
+        Host host = new Host();
+        host.reply("pending", 77, false, null);
+        host.controller.schedule(true);
+        host.queue.next();
+        host.reply("pending", 77, false, null);
+        host.controller.cancel();
+        Runnable stale = host.queue.tasks.get(0).task();
+        host.reply("done", 0, false, null);
+        host.queue.drain();
+        host.reply("pending", 88, false, null);
+        host.controller.schedule(true);
+        host.queue.next();
+        host.reply("pending", 88, false, null);
+        host.controller.cancel();
+        stale.run();
+        check(host.queue.tasks.size() == 1, "旧归还回调不能清掉新令牌的计时器");
+        host.reply("done", 0, false, null);
+        host.queue.drain();
+        check(host.calls.equals(List.of("start:11", "poll:11:77:false", "poll:11:77:false",
+            "start:11", "poll:11:88:false", "poll:11:88:false")), "旧令牌结束后只轮询新令牌");
+    }
+    private static void absentSessionStartsNothing() {
+        Host host = new Host();
+        host.session = 0;
+        host.controller.schedule(true);
+        host.controller.cancel();
+        check(host.queue.tasks.isEmpty() && host.calls.isEmpty(), "零句柄不启动原生评分或计时器");
+    }
     public static void main(String[] args) {
         Runnable[] tests = {PauseRerankControllerSmoke::unchangedTextStillPublishesIdentity,
             PauseRerankControllerSmoke::continuationYieldsBetweenSlices,
@@ -185,7 +231,10 @@ public final class PauseRerankControllerSmoke {
             PauseRerankControllerSmoke::destroyedSessionIsNeverPolled,
             PauseRerankControllerSmoke::malformedPendingDoesNotLoop,
             PauseRerankControllerSmoke::failedAcceptStillReturnsModel,
-            PauseRerankControllerSmoke::unreadableDiscardKeepsPolling};
+            PauseRerankControllerSmoke::unreadableDiscardKeepsPolling,
+            PauseRerankControllerSmoke::repeatedCancelDoesNotDuplicatePolling,
+            PauseRerankControllerSmoke::oldDiscardCannotClearNewJob,
+            PauseRerankControllerSmoke::absentSessionStartsNothing};
         int failed = 0;
         for (int i = 0; i < tests.length; i++) {
             try { tests[i].run(); }

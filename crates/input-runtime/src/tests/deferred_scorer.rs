@@ -322,3 +322,40 @@ fn a_later_pause_retries_scores_that_previously_failed() {
     assert_eq!(first(&mut runtime), NINTH);
     assert!(!recording.scored.lock().unwrap().is_empty());
 }
+
+/// 引擎换整句打分器时清掉了缓存里的在线行，宿主又不会为同一个查询再取一次：停顿前已经显示的云候选，重解之后还在。
+#[test]
+fn a_cloud_row_shown_before_the_pause_is_still_there_after_it() {
+    let (_directory, mut runtime, _model) = runtime(Duration::ZERO);
+    type_tashuo(&mut runtime);
+    let query = runtime.online_query().unwrap().unwrap();
+    assert!(runtime.apply_online_candidate(&query, "云行", 0).unwrap());
+    assert!(texts(&mut runtime).iter().any(|text| text == "云行"));
+    assert_eq!(
+        runtime
+            .settle_deferred_scorer(Duration::from_secs(60))
+            .unwrap(),
+        DeferredSettle::Done { moved: true }
+    );
+    let shown = texts(&mut runtime);
+    assert!(shown.iter().any(|text| text == "云行"), "{shown:?}");
+    assert!(shown.iter().any(|text| text == NINTH), "{shown:?}");
+}
+
+/// 停顿之后才到的云候选插进词典给的完整列表：重解摘下打分器时清掉了这个请求的缓存，插入不能自成一张只有在线行的表。
+#[test]
+fn a_cloud_row_arriving_after_the_pause_joins_the_full_list() {
+    let (_directory, mut runtime, _model) = runtime(Duration::ZERO);
+    type_tashuo(&mut runtime);
+    let words = texts(&mut runtime).len();
+    runtime
+        .settle_deferred_scorer(Duration::from_secs(60))
+        .unwrap();
+    let query = runtime.online_query().unwrap().unwrap();
+    assert!(runtime.apply_online_candidate(&query, "云行", 0).unwrap());
+    let shown = texts(&mut runtime);
+    assert!(shown.iter().any(|text| text == "云行"), "{shown:?}");
+    assert!(shown.len() > words, "{shown:?}");
+    // 打分器留在按键的位置上直到下一次派发，刷新照模型的顺序。
+    assert_eq!(shown[0], NINTH, "{shown:?}");
+}
