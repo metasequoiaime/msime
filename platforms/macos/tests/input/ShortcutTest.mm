@@ -3298,7 +3298,7 @@ static void TestOptInSchemeModes() {
     NSView *hint = hintRow(settings);
     assert(hint && !hint.hidden);
     NSTextField *hintText = (NSTextField *)MSIMEFindPreferenceViewOfClass(hint, NSTextField.class);
-    assert([hintText.stringValue containsString:@"「水杉输入法 · 粤」"] && [hintText.stringValue containsString:@"「粤语」"]);
+    assert([hintText.stringValue containsString:@"「水杉粤语」"] && [hintText.stringValue containsString:@"「粤语」"]);
     assert(MSIMEFindPreferenceControl(hint, @selector(openInputSourceSettings:)));
     cantoneseAdded = YES;
     [NSNotificationCenter.defaultCenter postNotificationName:NSWindowDidBecomeKeyNotification object:settings.window];

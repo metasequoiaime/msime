@@ -360,6 +360,7 @@ jobs:
           python3 -c 'import json, sys; hello = json.loads(sys.argv[1]); sys.exit(0 if hello.get("type") == "hello" and hello.get("available") is True else 1)' "$hello"
           plist="$staged/Contents/Info.plist"
           plutil -lint "$plist"
+          python3 platforms/macos/tests/settings/info_plist_icons.py "$plist" "$staged/Contents/Resources"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = "app.msime.inputmethod.MetasequoiaIME"
           test "$(/usr/libexec/PlistBuddy -c 'Print :InputMethodServerControllerClass' "$plist")" = "MSIMEInputController"
           test "$(/usr/libexec/PlistBuddy -c 'Print :ComponentInputModeDict:tsInputModeListKey:app.msime.inputmethod.MetasequoiaIME.Hans:TISInputSourceID' "$plist")" = "app.msime.inputmethod.MetasequoiaIME.Hans"
@@ -373,10 +374,10 @@ jobs:
           python3 platforms/macos/tests/settings/bundle_contents.py "$wubi" --languages zh-Hans,en
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$wubi/Contents/Info.plist")" = "app.msime.inputmethod.wubi"
           test "$(/usr/libexec/PlistBuddy -c 'Print :InputMethodConnectionName' "$wubi/Contents/Info.plist")" = "app.msime.inputmethod.wubi_Connection"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :ComponentInputModeDict:tsInputModeListKey:app.msime.inputmethod.wubi.Hans:tsInputModeMenuIconFileKey' "$wubi/Contents/Info.plist")" = "MSIMEClientInputMethodMenuIconWubi.tiff"
-          # 日文、越南文、藏文版只有一个语言方案：主模式 .Hans 用这个方案的图标，主模式和「英」都登记在这个语言下（ja、vi、bo），系统设置的「添加」对话框才会把它列在这个语言下。
-          for pair in japanese:ja:Japanese vietnamese:vi:Vietnamese tibetan:bo:Tibetan; do
-            IFS=: read -r edition language icon <<< "$pair"
+          python3 platforms/macos/tests/settings/info_plist_icons.py "$wubi/Contents/Info.plist" "$wubi/Contents/Resources"
+          # 每个模式都显示产品标志；日文、越南文、藏文版的主模式和「英」仍登记在各自语言下（ja、vi、bo）。
+          for pair in japanese:ja vietnamese:vi tibetan:bo; do
+            IFS=: read -r edition language <<< "$pair"
             bundle="$RUNNER_TEMP/verify/$(python3 platforms/macos/scripts/edition_bundle.py field --edition "$edition" bundle_name)"
             ditto build/水杉输入法.app "$bundle"
             python3 platforms/macos/scripts/edition_bundle.py apply --edition "$edition" "$bundle"
@@ -386,7 +387,7 @@ jobs:
             plist="$bundle/Contents/Info.plist"
             test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = "app.msime.inputmethod.$edition"
             test "$(/usr/libexec/PlistBuddy -c 'Print :InputMethodConnectionName' "$plist")" = "app.msime.inputmethod.${edition}_Connection"
-            test "$(/usr/libexec/PlistBuddy -c "Print :ComponentInputModeDict:tsInputModeListKey:app.msime.inputmethod.$edition.Hans:tsInputModeMenuIconFileKey" "$plist")" = "MSIMEClientInputMethodMenuIcon$icon.tiff"
+            python3 platforms/macos/tests/settings/info_plist_icons.py "$plist" "$bundle/Contents/Resources"
             for mode in Hans Roman; do
               test "$(/usr/libexec/PlistBuddy -c "Print :ComponentInputModeDict:tsInputModeListKey:app.msime.inputmethod.$edition.$mode:TISIntendedLanguage" "$plist")" = "$language"
             done
