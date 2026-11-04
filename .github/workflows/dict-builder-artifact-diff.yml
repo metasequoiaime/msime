@@ -17,6 +17,7 @@ on:
       - crates/engine/src/language_dictionary.rs
       - crates/engine/src/lattice/offensive.rs
       - crates/engine/src/lattice/offensive_words.txt
+      - crates/engine/src/text.rs
       - crates/engine/src/wubi/code.rs
       - crates/engine/src/zhuyin/layout.rs
       - Cargo.lock
@@ -42,6 +43,7 @@ on:
       - crates/engine/src/language_dictionary.rs
       - crates/engine/src/lattice/offensive.rs
       - crates/engine/src/lattice/offensive_words.txt
+      - crates/engine/src/text.rs
       - crates/engine/src/wubi/code.rs
       - crates/engine/src/zhuyin/layout.rs
       - Cargo.lock
@@ -139,6 +141,7 @@ jobs:
             crates/engine/src/language_dictionary.rs
             crates/engine/src/lattice/offensive.rs
             crates/engine/src/lattice/offensive_words.txt
+            crates/engine/src/text.rs
             crates/engine/src/wubi/code.rs
             crates/engine/src/zhuyin/layout.rs
             Cargo.lock

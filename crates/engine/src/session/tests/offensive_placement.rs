@@ -253,6 +253,26 @@ fn typed_pinyin_keeps_vulgar_words_off_the_lead_and_partial_inputs_off_the_page(
     assert_eq!(words(&session)[0], "牛逼");
 }
 
+/// 超级简拼（`J` 模式）查出来的也是共享词库的行：粗俗词不进首屏，往后翻照样有。
+#[test]
+fn super_jianpin_keeps_vulgar_words_off_the_first_page() {
+    let fixture = fixture();
+    let mut session = fixture.session_with(|options| {
+        options.helpcode = false;
+        options.first_page_rows = PAGE;
+    });
+    session.character(b'J', true);
+    type_text(&mut session, "sb");
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::SuperJianpin);
+    let page = first_page(&session);
+    assert!(!page.iter().any(|word| word == "傻逼"), "{page:?}");
+    assert!(
+        words(&session).iter().any(|word| word == "傻逼"),
+        "{:?}",
+        words(&session)
+    );
+}
+
 /// 26 键上两到四个字母的拼音，只有常见的英文坐首选之后的位置（na），冷僻的（bole）接在列表末尾；拼不成音节、整段就是一个英文粗俗词时，它不领先。
 #[test]
 fn short_typed_pinyin_seats_only_common_english_words() {

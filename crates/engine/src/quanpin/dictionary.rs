@@ -257,6 +257,11 @@ pub struct QuanpinDictionary {
 }
 
 impl QuanpinDictionary {
+    /// 这份词库的粗俗词表（词库带 `sentence_excluded` 时是那张表，否则是内嵌表），拼整句和候选排位读同一张。
+    pub(crate) fn offensive_words(&self) -> &crate::lattice::offensive::OffensiveWords {
+        self.sentence_tables.offensive_words()
+    }
+
     /// Opens the generation's `msime-pinyin.db`, loads the n-gram tables, the personal context store and the typo profile off the keystroke path, and warms the statement cache (QD:231-268).
     pub fn new(paths: &RuntimePaths) -> Self {
         let database = PinyinDatabase::open(&paths.dictionary(MAIN_DICTIONARY));

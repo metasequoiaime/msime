@@ -3,7 +3,9 @@
 mod correction;
 mod priority_slot;
 
-pub(crate) use priority_slot::{takes_priority_slot, takes_priority_slot_or_own};
+pub(crate) use priority_slot::{
+    seat_nine_key_english, takes_priority_slot, takes_priority_slot_or_own,
+};
 
 use std::borrow::Cow;
 use std::cell::RefCell;

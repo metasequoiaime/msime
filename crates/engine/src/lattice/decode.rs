@@ -202,6 +202,11 @@ impl SentenceNgramTables {
         self.offensive = offensive;
     }
 
+    /// 这份词典拼整句用的粗俗词表，候选排位也读它。
+    pub(crate) fn offensive_words(&self) -> &OffensiveWords {
+        &self.offensive
+    }
+
     pub(crate) fn options<'a>(&self, sentence_alternatives: bool) -> LatticeOptions<'a> {
         LatticeOptions {
             nbest: SENTENCE_PATHS,

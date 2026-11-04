@@ -4,8 +4,12 @@
 //!
 //! `msime-english.db` 的 `english_words` 只有 `word`、`display`、`weight` 三列，不记来源和排名。但构建器（`crates/dict-builder/src/english.rs` 的 `build_english_words`）写的权重就是这个词在 `google-word-counts.txt` 里的计数（大小写不同的几种写法依次少 1），没有计数的词库行是 0，没有计数的贡献词封顶在最小计数之下（`custom_english_weight`，最大 12710），所以「排名 2 万以内」就是「权重不低于第 2 万名的计数」，后两类词的权重都低于这个数，同一个门槛一起挡住。SCOWL 独有的词里排名在 2 万以内的只有 19 个（its、mrs、lets 和月份、星期的缩写），门槛对它们不起作用也无妨。要按来源精确区分，构建器得在库里另记一列，见 `.agents/notes/implemented/bug-fix/2026-11-04-vulgar-first-page-and-english-second-slot.md`。
 
-use crate::lattice::offensive::is_offensive_english;
+use std::path::Path;
+
+use crate::lattice::offensive::{is_offensive_english, OffensiveWords};
+use crate::offensive_placement::{grid_demotion, keep_off_first_page};
 use crate::types::WordItem;
+use crate::user_dictionary::journal::has_english_upsert;
 
 /// `google-word-counts.txt`（msime-dictionary `sources/english/`，SHA-256 `c71de38c5a4e97e08192fb1c74fc3395d68782bbc2d6dea190c6c90542b06c1f`）第 20000 行的计数。换了这份文件就要按同样的口径重取。
 pub(crate) const COMMON_ENGLISH_MIN_WEIGHT: i64 = 1_602_219;
@@ -21,6 +25,49 @@ pub(crate) fn takes_priority_slot_or_own(
     own: impl FnOnce(&WordItem) -> bool,
 ) -> bool {
     !is_offensive_english(&item.word) && (item.weight >= COMMON_ENGLISH_MIN_WEIGHT || own(item))
+}
+
+/// 九键把查到的英文行 `english`（已按原来的先后排好）并进拼音候选 `candidates`。常见、不粗俗的英文（[`takes_priority_slot`]）坐第 2 位和首页剩余空间（`first_page_count` 行，不超出 `first_page_rows`），按原来的先后排在前面；其余的接在拼音末尾。用户自己加过或选过的词把拼写打全时也坐（[`takes_priority_slot_or_own`]）：只有字母数等于已打数字数 `typed` 的行要查日志 `journal`，一键查不了几次。没有拼音读法时（`candidates` 是空的）列表只有英文，照原来的先后给，只把英文粗俗词挪出首屏。
+pub(crate) fn seat_nine_key_english(
+    candidates: &mut Vec<WordItem>,
+    mut english: Vec<WordItem>,
+    typed: usize,
+    journal: &Path,
+    first_page_count: usize,
+    first_page_rows: usize,
+) {
+    let seated = if candidates.is_empty() {
+        // 全是英文行，只看英文粗俗词表，中文那张用不上。
+        let vulgar = OffensiveWords::default();
+        keep_off_first_page(&mut english, first_page_rows, |item| {
+            grid_demotion(item, &vulgar)
+        });
+        english.len()
+    } else {
+        let (mut seated, rest): (Vec<WordItem>, Vec<WordItem>) =
+            english.into_iter().partition(|word| {
+                takes_priority_slot_or_own(word, |word| {
+                    word.pinyin.len() == typed && has_english_upsert(journal, &word.pinyin)
+                })
+            });
+        let count = seated.len();
+        seated.extend(rest);
+        english = seated;
+        count
+    };
+    if seated > 0 {
+        let first = english.remove(0);
+        let slot = candidates.len().min(1);
+        candidates.insert(slot, first);
+        let extra = first_page_count
+            .saturating_sub(1)
+            .min(first_page_rows.saturating_sub(slot + 1))
+            .min(seated - 1);
+        if extra > 0 {
+            candidates.splice(slot + 1..slot + 1, english.drain(..extra));
+        }
+    }
+    candidates.extend(english);
 }
 
 #[cfg(test)]

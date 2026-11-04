@@ -424,6 +424,16 @@ impl OffensiveWords {
         }
     }
 
+    /// 词网格整句 `sentence`（由 `words` 依次拼成）是否含这张表里的粗俗词，跨词边界的命中只在恰好由整词拼成时算，规则同编进引擎的表（`matches_in_sentence`）。候选排位（`offensive_placement`）用它，和拼整句读同一张表。
+    pub(crate) fn is_offensive_sentence(&self, words: &[String], sentence: &str) -> bool {
+        match &self.loaded {
+            None => is_offensive_sentence(words, sentence),
+            Some(table) => {
+                matches_in_sentence(&table.listed, &table.exempt, table.longest, words, sentence)
+            }
+        }
+    }
+
     /// 词网格里 `start..end` 这条词库行的边可不可以用 `word`：含粗俗词的词只在独占整段输入（`0..len`）时成边，这时整句就是这个词本身，与它的词库行相同。纠错边不用它，见 `decode_typo_on_graph_with_policy`。
     pub(crate) fn admits_edge(&self, word: &str, start: usize, end: usize, len: usize) -> bool {
         (start == 0 && end == len) || !self.is_offensive(word)
@@ -696,6 +706,9 @@ mod tests {
         assert!(table.is_offensive("去走路"));
         assert!(!table.is_offensive("我们走路"));
         assert!(table.is_offensive("我们走路走路"));
+        let words = ["去".to_owned(), "走".to_owned(), "路".to_owned()];
+        assert!(table.is_offensive_sentence(&words, "去走路"));
+        assert!(!table.is_offensive_sentence(&["巨乳".to_owned()], "巨乳"));
         assert!(!table.admits_edge("走路", 1, 3, 4));
         assert!(table.admits_edge("走路", 0, 2, 2));
         let embedded = OffensiveWords::default();

@@ -12,7 +12,7 @@ use std::sync::OnceLock;
 use crate::assets;
 use crate::diagnostics;
 use crate::dictionary::english::{
-    append_keypad_ranked, takes_priority_slot_or_own, EnglishDictionary, KeypadRow,
+    append_keypad_ranked, seat_nine_key_english, EnglishDictionary, KeypadRow,
 };
 use crate::error::EngineError;
 use crate::ime::queries::{
@@ -23,13 +23,14 @@ use crate::lattice::decode::PHRASE_LENGTH_BONUS;
 use crate::lattice::neural::{
     shared_sentence_model, NeuralReranker, CONTEXT_CHARACTERS, MAX_RERANK_PATHS,
 };
+use crate::lattice::offensive::OffensiveWords;
 use crate::lattice::personal::PersonalTransition;
 use crate::lattice::SentencePath;
 use crate::local::date_time::{inline_date_time_keyword, insert_inline_date_time};
 use crate::local::emoji::{query_emoji_readings, query_kaomoji_readings, ExpressiveRow};
 use crate::local::symbol_candidates::{query_symbol_readings, SymbolRow, MIXED_SYMBOL_LIMIT};
 use crate::nine_key_shuangpin::NineKeyShuangpin;
-use crate::offensive_placement::{grid_demotion, keep_off_first_page};
+use crate::offensive_placement::{evict_after_positions, grid_demotion, keep_off_first_page};
 use crate::paths::RuntimePaths;
 use crate::pinyin::segment::{is_complete_pinyin_input, split_segments};
 use crate::pinyin::syllables::intact_pinyin_list;
@@ -43,7 +44,6 @@ use crate::types::{
     MixedExpressiveOptions, PersonalDictionaryKind, SchemeType, SentenceAssociationOptions,
     SharedString, WordItem,
 };
-use crate::user_dictionary::journal::has_english_upsert;
 use crate::user_dictionary::positions;
 use crate::user_dictionary::ranking::{self, RankingRequest};
 use crate::user_dictionary::removal;
@@ -1432,11 +1432,10 @@ impl NineKeySession {
             self.spellings.clear();
             // No syllables to offer and no pinyin to look up: the digits stand for letters only.
             self.candidates = self.english_candidates(false);
-            keep_off_first_page(
-                &mut self.candidates,
-                self.first_page_rows.get(),
-                grid_demotion,
-            );
+            let vulgar = self.offensive_words();
+            keep_off_first_page(&mut self.candidates, self.first_page_rows.get(), |item| {
+                grid_demotion(item, &vulgar)
+            });
             return;
         }
         // 每个锁定都有一条撤销记录，哪怕是作废的。
@@ -1733,7 +1732,10 @@ impl NineKeySession {
         );
         self.rerank_sentences(&mut candidates);
         // 粗俗词和轻度粗口不进歧义码的首屏（`offensive_placement`）。在插入英文、表情和固定位置之前挪：英文行坐的是首选之后的位置，挪动不能把它推上首选；用户固定的位置照旧生效。
-        keep_off_first_page(&mut candidates, self.first_page_rows.get(), grid_demotion);
+        let vulgar = self.offensive_words();
+        keep_off_first_page(&mut candidates, self.first_page_rows.get(), |item| {
+            grid_demotion(item, &vulgar)
+        });
         let mut seeds = std::mem::take(&mut self.seed_buffer);
         next_seeds(
             grid,
@@ -1753,45 +1755,21 @@ impl NineKeySession {
         // 没有任何拼音读法时（77 拼不出音节），列表本来是空的，混输开关和最短前缀保护的「拼音列表的可读性」无从谈起；这时照样给英文九键词，否则 QQ 这类词只能切到全键盘去打。
         let unanswered = candidates.is_empty();
         // 首字母和筛选都只针对拼音读法，英文词一概不列。
-        let mut english = if initial.is_some() || filtering {
+        let english = if initial.is_some() || filtering {
             Vec::new()
         } else {
             self.english_candidates(unanswered)
         };
         if !english.is_empty() {
-            // 常见、不粗俗的英文（`english::takes_priority_slot`）才坐第二位和首页剩余空间，按原来的先后排在前面；其余的接在拼音末尾。用户自己加过或选过的词把拼写打全时也坐（`takes_priority_slot_or_own`）：只有拼写打全的那几行要查日志，一键查不了几次。没有拼音读法时列表只有英文，照原来的先后给，只把粗俗词挪出首屏。
-            let seated = if candidates.is_empty() {
-                keep_off_first_page(&mut english, self.first_page_rows.get(), grid_demotion);
-                english.len()
-            } else {
-                let journal = self.paths.user(assets::USER_JOURNAL);
-                let typed = self.digits.len();
-                let (mut seated, rest): (Vec<WordItem>, Vec<WordItem>) =
-                    english.into_iter().partition(|word| {
-                        takes_priority_slot_or_own(word, |word| {
-                            word.pinyin.len() == typed && has_english_upsert(&journal, &word.pinyin)
-                        })
-                    });
-                let count = seated.len();
-                seated.extend(rest);
-                english = seated;
-                count
-            };
-            if seated > 0 {
-                let first = english.remove(0);
-                let slot = candidates.len().min(1);
-                candidates.insert(slot, first);
-                let extra = self
-                    .english_options
-                    .first_page_count
-                    .saturating_sub(1)
-                    .min(self.first_page_rows.get().saturating_sub(slot + 1))
-                    .min(seated - 1);
-                if extra > 0 {
-                    candidates.splice(slot + 1..slot + 1, english.drain(..extra));
-                }
-            }
-            candidates.extend(english);
+            let journal = self.paths.user(assets::USER_JOURNAL);
+            seat_nine_key_english(
+                &mut candidates,
+                english,
+                self.digits.len(),
+                &journal,
+                self.english_options.first_page_count,
+                self.first_page_rows.get(),
+            );
         }
         let mut candidates = insert_expressive_rows(candidates, emoji, kaomoji, symbols);
         // 选了首字母或在筛选时用户是在逐字拼，不加日期时间行。
@@ -1819,6 +1797,9 @@ impl NineKeySession {
             false,
         );
         keep_expressive_rows_off_the_lead(&mut candidates);
+        evict_after_positions(&mut candidates, self.first_page_rows.get(), |item| {
+            grid_demotion(item, &vulgar)
+        });
         // 混入行、固定位置都排好之后才折算，只在首页的拼音词典行之间调序：英文、固定位置这些行坐着原来的位置，首页由哪些行组成与不折算时相同。句子种子和 emoji 查读法用的也是折算前的顺序。
         self.completions_discounted = !prefer_exact
             && discount_completions_on_first_page(
@@ -2327,6 +2308,14 @@ impl NineKeySession {
             reading.push_str(syllable);
         }
         true
+    }
+
+    /// 全拼词库的粗俗词表（复制一个 `Arc`），候选排位用，和拼整句同一张；词典还没打开时是内嵌表。
+    fn offensive_words(&self) -> OffensiveWords {
+        self.dictionary
+            .as_ref()
+            .map(|dictionary| dictionary.offensive_words().clone())
+            .unwrap_or_default()
     }
 
     /// `unanswered`：拼音一行候选都没有，英文词就是整个答案，和英文模式一样不受混输开关和最短前缀限制；锁定了拼音时仍不给。

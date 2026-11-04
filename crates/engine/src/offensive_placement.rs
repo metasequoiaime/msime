@@ -5,8 +5,7 @@
 //! 这里只挪位置，不删行：往后翻页照样选得到，26 键上把一个粗俗词的完整拼写打全时它仍在首屏（只是不在第一位）。挪到首屏之后的行保持原来的先后，首屏空出来的位置由后面的行依次补上。用户固定了位置的行不受影响：调用方在应用固定位置之前调用这里，固定位置照旧生效。
 
 use crate::lattice::offensive::{
-    is_mild_slang, is_mild_slang_sentence, is_offensive, is_offensive_english,
-    is_offensive_sentence,
+    is_mild_slang, is_mild_slang_sentence, is_offensive_english, OffensiveWords,
 };
 use crate::shuangpin::utils::encode_pinyin;
 use crate::shuangpin::ShuangpinProfile;
@@ -74,6 +73,38 @@ pub(crate) fn keep_off_first_page(
     list.append(&mut off_page);
 }
 
+/// 固定位置和云、AI 行在 [`keep_off_first_page`] 之后才放回各自的位置，放的时候会把首屏的行挪走、后面的行依次前移，挪出首屏的行可能因此又落回首屏的最后几位。这里在那之后补一遍：首屏里还有要挪的行时，和首屏之后第一个可以上首屏的行（不挪、没有固定位置、不是云或 AI 行）对调，其余每一行都留在原位，用户固定的位置和云、AI 的席位不受影响。用户固定了位置的行本身也不挪。首屏里没有要挪的行时只做判断，不分配内存。
+pub(crate) fn evict_after_positions(
+    list: &mut [WordItem],
+    page: usize,
+    mut demotion: impl FnMut(&WordItem) -> Demotion,
+) {
+    let page = page.max(1);
+    for index in 0..page.min(list.len()) {
+        let item = &list[index];
+        if item.fixed_position > 0 {
+            continue;
+        }
+        let from = match demotion(item) {
+            Demotion::Keep => continue,
+            Demotion::OffLead if index > 0 => continue,
+            Demotion::OffLead => 1,
+            Demotion::OffPage => page,
+        };
+        let Some(tail) = list.get(from..) else {
+            continue;
+        };
+        let replacement = tail.iter().position(|other| {
+            other.fixed_position == 0
+                && !other.source.takes_online_seat()
+                && demotion(other) == Demotion::Keep
+        });
+        if let Some(offset) = replacement {
+            list.swap(index, from + offset);
+        }
+    }
+}
+
 /// 词库给的中文行和词网格整句：用户自己的词（`UserDatabase`）、快捷短语、联系人、云和 AI 候选这些都不是共享词库给的，不管。
 fn is_dictionary_text(source: CandidateSource) -> bool {
     matches!(
@@ -86,12 +117,12 @@ fn is_dictionary_text(source: CandidateSource) -> bool {
     )
 }
 
-/// 这一行含粗俗词。词网格拼出的整句按它的词查（`sentence_words`）：跨词边界的命中只在恰好由整词拼成时算，微信群 + 交流 不因 群交 被挪走；词库行按整个词按子串查，规则同词网格的边。
-fn has_vulgar(item: &WordItem) -> bool {
+/// 这一行含 `vulgar` 表里的粗俗词（活动词库的 `sentence_excluded` 表，没有时是内嵌表，与拼整句同一张）。词网格拼出的整句按它的词查（`sentence_words`）：跨词边界的命中只在恰好由整词拼成时算，微信群 + 交流 不因 群交 被挪走；词库行按整个词按子串查，规则同词网格的边。
+fn has_vulgar(item: &WordItem, vulgar: &OffensiveWords) -> bool {
     if item.sentence_words.is_empty() {
-        is_offensive(&item.word)
+        vulgar.is_offensive(&item.word)
     } else {
-        is_offensive_sentence(&item.sentence_words, &item.word)
+        vulgar.is_offensive_sentence(&item.sentence_words, &item.word)
     }
 }
 
@@ -105,10 +136,10 @@ fn has_mild_slang(item: &WordItem) -> bool {
 }
 
 /// 九键、14 键这类一个键几个字母的键盘：同一串码有许多种读法，粗俗词即使整段命中也不一定是用户要的词，所以粗俗词、轻度粗口和英文粗俗词一律挪出首屏。中文状态下的英文行在这一步之后才插进来，坐不坐第二位由 `english::takes_priority_slot` 管，这里的英文判断只对专用英文九键起作用。
-pub(crate) fn grid_demotion(item: &WordItem) -> Demotion {
+pub(crate) fn grid_demotion(item: &WordItem, vulgar: &OffensiveWords) -> Demotion {
     let flagged = match item.source {
         CandidateSource::EnglishDictionary => is_offensive_english(&item.word),
-        source if is_dictionary_text(source) => has_vulgar(item) || has_mild_slang(item),
+        source if is_dictionary_text(source) => has_vulgar(item, vulgar) || has_mild_slang(item),
         _ => false,
     };
     if flagged {
@@ -119,8 +150,12 @@ pub(crate) fn grid_demotion(item: &WordItem) -> Demotion {
 }
 
 /// 26 键全拼、双拼：粗俗词（不含轻度粗口）是整段输入的完整拼写时（`exact`）只让出首选，其余情况（前缀补全、只盖住一部分输入的词、简拼、模糊音和纠错查出来的行）挪出首屏。混输的英文行不经过这里：英文粗俗词在 `CandidateQueries::mixed` 里就不坐优先位置，接在列表末尾。
-pub(crate) fn typed_demotion(item: &WordItem, exact: impl Fn(&WordItem) -> bool) -> Demotion {
-    if !is_dictionary_text(item.source) || !has_vulgar(item) {
+pub(crate) fn typed_demotion(
+    item: &WordItem,
+    vulgar: &OffensiveWords,
+    exact: impl Fn(&WordItem) -> bool,
+) -> Demotion {
+    if !is_dictionary_text(item.source) || !has_vulgar(item, vulgar) {
         Demotion::Keep
     } else if exact(item) {
         Demotion::OffLead
@@ -161,6 +196,15 @@ pub(crate) fn same_spelling(left: &str, right: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lattice::offensive::OffensiveEntry;
+
+    fn grid(item: &WordItem) -> Demotion {
+        grid_demotion(item, &OffensiveWords::default())
+    }
+
+    fn typed(item: &WordItem, exact: impl Fn(&WordItem) -> bool) -> Demotion {
+        typed_demotion(item, &OffensiveWords::default(), exact)
+    }
 
     fn row(word: &str, source: CandidateSource) -> WordItem {
         WordItem::new("", word, 0, source, "")
@@ -243,11 +287,7 @@ mod tests {
             ("Negro", CandidateSource::EnglishDictionary),
             ("cumshot", CandidateSource::EnglishDictionary),
         ] {
-            assert_eq!(
-                grid_demotion(&row(word, source)),
-                Demotion::OffPage,
-                "{word}"
-            );
+            assert_eq!(grid(&row(word, source)), Demotion::OffPage, "{word}");
         }
         for (word, source) in [
             ("内容", CandidateSource::Database),
@@ -256,7 +296,7 @@ mod tests {
             ("negroni", CandidateSource::EnglishDictionary),
             ("cocktail", CandidateSource::EnglishDictionary),
         ] {
-            assert_eq!(grid_demotion(&row(word, source)), Demotion::Keep, "{word}");
+            assert_eq!(grid(&row(word, source)), Demotion::Keep, "{word}");
         }
     }
 
@@ -274,26 +314,16 @@ mod tests {
             &["不必", "为", "我", "操心"],
         ] {
             let item = sentence(words, CandidateSource::Generated);
-            assert_eq!(grid_demotion(&item), Demotion::Keep, "{}", item.word);
-            assert_eq!(
-                typed_demotion(&item, |_| true),
-                Demotion::Keep,
-                "{}",
-                item.word
-            );
+            assert_eq!(grid(&item), Demotion::Keep, "{}", item.word);
+            assert_eq!(typed(&item, |_| true), Demotion::Keep, "{}", item.word);
         }
         for words in [&["别", "鸡", "巴"][..], &["是", "傻逼"]] {
             let item = sentence(words, CandidateSource::Generated);
-            assert_eq!(grid_demotion(&item), Demotion::OffPage, "{}", item.word);
-            assert_eq!(
-                typed_demotion(&item, |_| true),
-                Demotion::OffLead,
-                "{}",
-                item.word
-            );
+            assert_eq!(grid(&item), Demotion::OffPage, "{}", item.word);
+            assert_eq!(typed(&item, |_| true), Demotion::OffLead, "{}", item.word);
         }
         assert_eq!(
-            grid_demotion(&sentence(&["真", "牛逼"], CandidateSource::Generated)),
+            grid(&sentence(&["真", "牛逼"], CandidateSource::Generated)),
             Demotion::OffPage
         );
     }
@@ -302,16 +332,16 @@ mod tests {
     fn typing_the_full_spelling_only_gives_up_the_lead() {
         let exact = |item: &WordItem| item.word.as_str() == "傻逼";
         assert_eq!(
-            typed_demotion(&row("傻逼", CandidateSource::Database), exact),
+            typed(&row("傻逼", CandidateSource::Database), exact),
             Demotion::OffLead
         );
         assert_eq!(
-            typed_demotion(&row("是傻逼", CandidateSource::Database), exact),
+            typed(&row("是傻逼", CandidateSource::Database), exact),
             Demotion::OffPage
         );
         // 轻度粗口在 26 键上不动。
         assert_eq!(
-            typed_demotion(&row("牛逼", CandidateSource::Database), |_| false),
+            typed(&row("牛逼", CandidateSource::Database), |_| false),
             Demotion::Keep
         );
     }
@@ -321,5 +351,73 @@ mod tests {
         assert!(same_spelling("sha'bi", "shabi"));
         assert!(same_spelling("Negro", "negro"));
         assert!(!same_spelling("sha'bi", "shab"));
+    }
+
+    /// 词库带着自己的表时排位读它：表里没有的 傻逼 照常当首选，表里的 走路 不进歧义码的首屏。
+    #[test]
+    fn placement_reads_the_dictionary_table() {
+        let table = OffensiveWords::from_entries([OffensiveEntry {
+            text: "走路".to_owned(),
+            exempt: false,
+        }])
+        .unwrap();
+        let shabi = row("傻逼", CandidateSource::Database);
+        assert_eq!(grid_demotion(&shabi, &table), Demotion::Keep);
+        assert_eq!(typed_demotion(&shabi, &table, |_| true), Demotion::Keep);
+        assert_eq!(
+            grid_demotion(&row("走路", CandidateSource::Database), &table),
+            Demotion::OffPage
+        );
+        assert_eq!(
+            grid_demotion(
+                &sentence(&["去", "走", "路"], CandidateSource::Generated),
+                &table
+            ),
+            Demotion::OffPage
+        );
+    }
+
+    /// 固定位置把首屏的一行挪走后，挪出首屏的粗俗词落回了首屏最后一位：和首屏之后第一个可以上首屏的行对调，其余行不动。
+    #[test]
+    fn rows_that_slid_back_onto_the_first_page_are_swapped_out() {
+        let mut list: Vec<WordItem> = ["别急吧", "扯家常", "别鸡巴", "车家村", "别家"]
+            .iter()
+            .map(|word| row(word, CandidateSource::Database))
+            .collect();
+        evict_after_positions(&mut list, 3, grid);
+        assert_eq!(
+            words(&list),
+            ["别急吧", "扯家常", "车家村", "别鸡巴", "别家"]
+        );
+
+        // 用户固定的行不挪，也不拿来补位；云和 AI 行也不拿来补位。
+        let mut list: Vec<WordItem> = ["别急吧", "别鸡巴", "扯家常", "车家村", "别家"]
+            .iter()
+            .map(|word| row(word, CandidateSource::Database))
+            .collect();
+        list[2].fixed_position = 3;
+        list[3].source = CandidateSource::AiSuggestion;
+        evict_after_positions(&mut list, 3, grid);
+        assert_eq!(
+            words(&list),
+            ["别急吧", "别家", "扯家常", "车家村", "别鸡巴"]
+        );
+
+        let mut pinned = vec![
+            row("别鸡巴", CandidateSource::Database),
+            row("别急吧", CandidateSource::Database),
+        ];
+        pinned[0].fixed_position = 1;
+        evict_after_positions(&mut pinned, 1, grid);
+        assert_eq!(words(&pinned), ["别鸡巴", "别急吧"]);
+
+        // 26 键打全拼写的粗俗词只让出首选。
+        let mut lead = vec![
+            row("傻逼", CandidateSource::Database),
+            row("沙壁", CandidateSource::Database),
+            row("啥比", CandidateSource::Database),
+        ];
+        evict_after_positions(&mut lead, 3, |item| typed(item, |_| true));
+        assert_eq!(words(&lead), ["沙壁", "傻逼", "啥比"]);
     }
 }

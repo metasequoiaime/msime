@@ -1321,7 +1321,6 @@ impl Build {
         sqlite::open(&self.out.join(name))
     }
 
-    /// 五笔原表（86 极点表、两张 98 表）里的全部词，`word-vetoes` 判断只在五笔里出现的整词否决是否过期时用。新世纪表只收单字，整词否决不收单字，所以不读它。
     /// The quanpin stage's inputs: the single-character table, the whitelist it is filtered by (only with the licensing record), and the phrase inputs in load order.
     fn quanpin_inputs(&self) -> Result<(PathBuf, Option<HashSet<String>>, Vec<PathBuf>)> {
         let single_chars = self.sources.pinned("sources/pinyin/single-chars.txt")?;
@@ -1373,6 +1372,7 @@ impl Build {
         Ok(curation::custom_promotions(listed, &earlier))
     }
 
+    /// 五笔原表（86 极点表、两张 98 表）里的全部词，`word-vetoes` 判断只在五笔里出现的整词否决是否过期时用。新世纪表只收单字，整词否决不收单字，所以不读它。
     fn wubi_source_words(&self) -> Result<HashSet<String>> {
         let mut words = HashSet::new();
         let jidian = text::read(&self.sources.pinned(wubi86_supplement::JIDIAN)?)?;

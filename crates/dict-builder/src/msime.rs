@@ -459,7 +459,7 @@ fn build_code_table(
     Ok((imported, skipped))
 }
 
-/// Recreates `table` and inserts the parsed rows; `None` marks a skipped line. 整词否决（msime-dictionary 的 `curation/pinyin-vetoes.txt`）的词不写入：五笔原表里的粗俗词组和拼音表里一样删掉。Returns the imported, skipped and vetoed counts.
+/// 重建 `table` 并写入解析出的行，`None` 表示跳过的行。整词否决（msime-dictionary 的 `curation/pinyin-vetoes.txt`）的词不写入：五笔原表里的粗俗词组和拼音表里一样删掉。返回导入、跳过和否决的行数。
 fn write_code_table<'a>(
     connection: &mut Connection,
     table: &CodeTable,
