@@ -40,6 +40,8 @@ pub struct Inputs<'a> {
     pub jidian: &'a str,
     /// 新布局下 rime-wubi 补进来的行（[`crate::wubi86_table::RIME_WUBI`]），旧布局为 `None`；权重按 [`crate::wubi86_table::rows`] 换算。
     pub rime_wubi: Option<&'a str>,
+    /// 换算 rime-wubi 的行时比的词频（[`crate::wubi86_table::Frequencies`]），旧布局不用。
+    pub frequencies: &'a crate::wubi86_table::Frequencies,
     /// `sources/wubi/wubi98.txt`，已从 UTF-16LE 解码。
     pub wubi98: &'a str,
     pub wubi98_fcitx: &'a str,
@@ -71,7 +73,7 @@ pub struct Supplement {
 
 pub fn build(inputs: &Inputs) -> Result<Supplement> {
     let mut rows: Vec<(String, &str, i64)> =
-        crate::wubi86_table::rows(inputs.jidian, inputs.rime_wubi)
+        crate::wubi86_table::rows(inputs.jidian, inputs.rime_wubi, inputs.frequencies)
             .flatten()
             .collect();
     if rows.is_empty() {
@@ -239,6 +241,7 @@ mod tests {
         build(&Inputs {
             jidian,
             rime_wubi: None,
+            frequencies: &crate::wubi86_table::Frequencies::default(),
             wubi98,
             wubi98_fcitx: fcitx,
             base,
@@ -312,6 +315,7 @@ mod tests {
         let supplement = build(&Inputs {
             jidian: JIDIAN_FIXTURE,
             rime_wubi: None,
+            frequencies: &crate::wubi86_table::Frequencies::default(),
             wubi98: "日日\tx\n",
             wubi98_fcitx: "",
             base: "",
@@ -343,6 +347,7 @@ mod tests {
         let supplement = build(&Inputs {
             jidian: JIDIAN_FIXTURE,
             rime_wubi: None,
+            frequencies: &crate::wubi86_table::Frequencies::default(),
             wubi98: "部门\tx\n",
             wubi98_fcitx: "",
             base: "人民日\tren'min'ri\t1\n",
@@ -405,6 +410,7 @@ mod tests {
             build(&Inputs {
                 jidian,
                 rime_wubi,
+                frequencies: &crate::wubi86_table::Frequencies::default(),
                 wubi98: "工日\tx\r\n冲凉\tx\r\n",
                 wubi98_fcitx: "",
                 base: "",

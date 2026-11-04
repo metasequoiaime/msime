@@ -44,6 +44,8 @@ pub struct Inputs<'a> {
     pub jidian: &'a str,
     /// 新布局下 rime-wubi 补进来的 86 行（[`crate::wubi86_table::RIME_WUBI`]），旧布局为 `None`；第一层沿用的权重按 [`crate::wubi86_table::rows`] 换算，所以 rime-wubi 的词不会带着上亿的词频排到同码单字前面。
     pub rime_wubi: Option<&'a str>,
+    /// 换算 rime-wubi 的行时比的词频（[`crate::wubi86_table::Frequencies`]），旧布局不用；86 表里越过同码极点行的词，在新世纪表第一层也带着越过之后的权重。
+    pub frequencies: &'a crate::wubi86_table::Frequencies,
     /// `sources/wubi/wubi98.txt`，已从 UTF-16LE 解码。
     pub wubi98: &'a str,
     pub wubi98_fcitx: &'a str,
@@ -101,7 +103,9 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
     );
 
     let mut jidian: BTreeMap<&str, i64> = BTreeMap::new();
-    for (_, value, weight) in crate::wubi86_table::rows(inputs.jidian, inputs.rime_wubi).flatten() {
+    for (_, value, weight) in
+        crate::wubi86_table::rows(inputs.jidian, inputs.rime_wubi, inputs.frequencies).flatten()
+    {
         if value.chars().count() >= 2 {
             let slot = jidian.entry(value).or_insert(weight);
             *slot = (*slot).max(weight);
@@ -343,6 +347,7 @@ mod tests {
             wubixsj: WUBIXSJ_FIXTURE,
             jidian,
             rime_wubi: None,
+            frequencies: &crate::wubi86_table::Frequencies::default(),
             wubi98: WUBI98_FIXTURE,
             wubi98_fcitx: "",
             base,
@@ -386,15 +391,18 @@ mod tests {
         assert_eq!(supplement.unique_codes_shared, 1);
     }
 
-    /// 新布局下 rime-wubi 补进来的词在第一层按换算后的 10 算：「部门」在 rime-wubi 里的词频上亿，换算后与同码单字「冰」同为 10，同权重时单字在前；旧布局读合并的文件时它带着原来的权重领先。
+    /// 新布局下 rime-wubi 补进来的词在第一层按换算后的 10 算：「部门」在 rime-wubi 里的词频上亿，换算后与同码单字「冰」同为 10，同权重时单字在前；旧布局读合并的文件时它带着原来的权重领先。拼音库词频悬殊、在 86 表里越过同码极点词「冲凉」的，第一层带着越过之后的权重（冲凉 的 10 加 1），在新世纪表里同样排在单字「冰」之前。
     #[test]
     fn rime_wubi_words_keep_the_mapped_weight() {
         let curation = PinyinCuration::default();
-        let build_from = |jidian: &str, rime_wubi: Option<&str>| {
+        let build_from = |jidian: &str,
+                          rime_wubi: Option<&str>,
+                          frequencies: &crate::wubi86_table::Frequencies| {
             let supplement = build(&Inputs {
                 wubixsj: WUBIXSJ_FIXTURE,
                 jidian,
                 rime_wubi,
+                frequencies,
                 wubi98: WUBI98_FIXTURE,
                 wubi98_fcitx: "",
                 base: "",
@@ -410,11 +418,19 @@ mod tests {
                 supplement.codes_led_by_words,
             )
         };
+        let none = crate::wubi86_table::Frequencies::default();
         let jidian = "工\taaaa\t20\r\n";
         let rime_wubi = "部门\tukuy\t444000000\r\n";
-        assert_eq!(build_from(jidian, Some(rime_wubi)), (Some(10), 0));
+        assert_eq!(build_from(jidian, Some(rime_wubi), &none), (Some(10), 0));
         let merged = format!("{jidian}{rime_wubi}");
-        assert_eq!(build_from(&merged, None), (Some(444000000), 1));
+        assert_eq!(build_from(&merged, None, &none), (Some(444000000), 1));
+        let frequent = crate::wubi86_table::Frequencies::parse([
+            "部门\tbu'men\t50000\n冲凉\tchong'liang\t400\n",
+        ]);
+        assert_eq!(
+            build_from("冲凉\tukuy\t10\r\n", Some(rime_wubi), &frequent),
+            (Some(11), 1)
+        );
     }
 
     /// 渲染本表、与单字表一起建出 `wubixsj`，再按引擎的排序（权重从高到低，同权重按 rowid）列出一个编码的候选。
@@ -462,6 +478,7 @@ mod tests {
             wubixsj: WUBIXSJ_FIXTURE,
             jidian: "部门\tukuy\t30\r\n冲凉\tukuy\t10\r\n冲凉\tuk\t20\r\n工\taaaa\t20\r\n",
             rime_wubi: None,
+            frequencies: &crate::wubi86_table::Frequencies::default(),
             wubi98: WUBI98_FIXTURE,
             wubi98_fcitx: "",
             base: "冻冲\tdong'chong\t500\n冲冻\tchong'dong\t99\n",

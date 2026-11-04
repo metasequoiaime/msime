@@ -33,6 +33,8 @@ pub struct Inputs<'a> {
     pub jidian: &'a str,
     /// 新布局下 rime-wubi 补进来的 86 行（[`crate::wubi86_table::RIME_WUBI`]），旧布局为 `None`。
     pub rime_wubi: Option<&'a str>,
+    /// 读 86 原表时比的词频（[`crate::wubi86_table::Frequencies`]）；这里只取 86 原表的词，不看权重，传进来是为了和构建读到同一组行。
+    pub frequencies: &'a crate::wubi86_table::Frequencies,
     pub base: &'a str,
     pub pinyin_supplement: &'a str,
     pub places: &'a str,
@@ -87,11 +89,12 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
         inputs.curation,
     );
 
-    let jidian: BTreeSet<&str> = crate::wubi86_table::rows(inputs.jidian, inputs.rime_wubi)
-        .flatten()
-        .map(|(_, value, _)| value)
-        .filter(|value| value.chars().count() >= 2)
-        .collect();
+    let jidian: BTreeSet<&str> =
+        crate::wubi86_table::rows(inputs.jidian, inputs.rime_wubi, inputs.frequencies)
+            .flatten()
+            .map(|(_, value, _)| value)
+            .filter(|value| value.chars().count() >= 2)
+            .collect();
     if jidian.is_empty() {
         bail!("{JIDIAN} has no words");
     }
@@ -230,6 +233,7 @@ mod tests {
             wubi98_fcitx: fcitx,
             jidian,
             rime_wubi: None,
+            frequencies: &crate::wubi86_table::Frequencies::default(),
             base,
             pinyin_supplement: "",
             places: "",
@@ -309,6 +313,7 @@ mod tests {
             wubi98_fcitx: "",
             jidian: "日日\tjjjj\t10\n",
             rime_wubi: None,
+            frequencies: &crate::wubi86_table::Frequencies::default(),
             base: "",
             pinyin_supplement: "工人\tgong'ren\t100\n",
             places: "工人日\tgong'ren'ri\t1\n",
@@ -340,6 +345,7 @@ mod tests {
             wubi98_fcitx: "",
             jidian: "日日\tjjjj\t10\n人民\twwna\t20\n",
             rime_wubi: None,
+            frequencies: &crate::wubi86_table::Frequencies::default(),
             base: "日工\tri'gong\t99\n",
             pinyin_supplement: "工人\tgong'ren\t100\n",
             places: "工人日\tgong'ren'ri\t1\n",

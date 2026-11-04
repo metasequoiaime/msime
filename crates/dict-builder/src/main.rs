@@ -662,6 +662,7 @@ fn build_wubi86_supplement(arguments: &Wubi86Supplement) -> Result<()> {
     let supplement = wubi86_supplement::build(&wubi86_supplement::Inputs {
         jidian: &table.jidian,
         rime_wubi: table.rime_wubi.as_deref(),
+        frequencies: &table.frequencies,
         wubi98: &wubi98,
         wubi98_fcitx: &wubi98_fcitx,
         base: &base,
@@ -685,6 +686,7 @@ fn build_wubi86_supplement(arguments: &Wubi86Supplement) -> Result<()> {
                 wubi86_supplement::CUSTOM,
             ]
             .into_iter()
+            .filter(|path| !wubi86.reads(path))
             .map(|path| Ok((path, sha256_file(&sources.pinned(path)?)?))),
         )
         .chain(
@@ -749,7 +751,11 @@ fn build_wubi86_helpcode(arguments: &Wubi86Helpcode) -> Result<()> {
     };
     let wubi86 = wubi86_table::Files::locate(&sources)?;
     let table = wubi86.read()?;
-    let helpcode = wubi86_helpcode::build(&table.jidian, table.rime_wubi.as_deref())?;
+    let helpcode = wubi86_helpcode::build(
+        &table.jidian,
+        table.rime_wubi.as_deref(),
+        &table.frequencies,
+    )?;
     // 表头里的 SHA-256 按实际读到的字节计算。
     let digests = wubi86.digests()?;
     let inputs: Vec<(&str, &str)> = digests
@@ -816,6 +822,7 @@ fn build_wubi98_supplement(arguments: &Wubi98Supplement) -> Result<()> {
         wubi98_fcitx: &wubi98_fcitx,
         jidian: &table.jidian,
         rime_wubi: table.rime_wubi.as_deref(),
+        frequencies: &table.frequencies,
         base: &base,
         pinyin_supplement: &read(wubi98_supplement::PINYIN_SUPPLEMENT)?,
         places: &read(wubi98_supplement::PLACES)?,
@@ -836,6 +843,7 @@ fn build_wubi98_supplement(arguments: &Wubi98Supplement) -> Result<()> {
                 wubi98_supplement::CUSTOM,
             ]
             .into_iter()
+            .filter(|path| !wubi86.reads(path))
             .map(pinned_digest),
         )
         .chain(
@@ -919,6 +927,7 @@ fn build_wubixsj_supplement(arguments: &WubiXsjSupplement) -> Result<()> {
         wubixsj: &wubixsj,
         jidian: &table.jidian,
         rime_wubi: table.rime_wubi.as_deref(),
+        frequencies: &table.frequencies,
         wubi98: &wubi98,
         wubi98_fcitx: &wubi98_fcitx,
         base: &base,
@@ -943,6 +952,7 @@ fn build_wubixsj_supplement(arguments: &WubiXsjSupplement) -> Result<()> {
                 wubixsj_supplement::CUSTOM,
             ]
             .into_iter()
+            .filter(|path| !wubi86.reads(path))
             .map(pinned_digest),
         )
         .chain(
@@ -1697,7 +1707,7 @@ impl Build {
                 Ok(format!(
                     "{imported} rows imported, {skipped} skipped, {filtered} unsupported Wubi values left out, {vetoed} vetoed{offensive}; {}{}",
                     if table.rime_wubi.is_some() {
-                        format!("{} at weight {} (rows upstream weighs 0 stay at 0, after the supplement; phrases {} already codes left out)", wubi86_table::RIME_WUBI, wubi86_table::RIME_WUBI_WEIGHT, wubi86_table::JIDIAN)
+                        format!("{} at weight {} unless over {} times as frequent in {} as the last jidian rows of the code, which it then passes (rows upstream weighs 0 stay at 0, after the supplement; phrases {} already codes left out); rows without a Han character lowered to the next row of their code", wubi86_table::RIME_WUBI, wubi86_table::RIME_WUBI_WEIGHT, wubi86_table::LIFT_RATIO, wubi86_table::FREQUENCY_TABLES.join(", "), wubi86_table::JIDIAN)
                     } else {
                         format!("no {} in the checkout, so {} is read as one table", wubi86_table::RIME_WUBI, wubi86_table::JIDIAN)
                     },
@@ -2627,7 +2637,7 @@ mod tests {
         assert_eq!(rows, [("甲".to_owned(), 100), ("①".to_owned(), 1)]);
     }
 
-    /// 拆分之后的 checkout：86 原表是极点表加 `wubi86-rime-wubi.txt`，两者都按 `upstream.lock.json` 校验；rime-wubi 的行（甲甲 带着五百万的词频）按 10 写入，排在同码极点行之后、补充行之前，整词否决、三张表的补充词照常。记录列了极点表而 rime-wubi 文件丢了时，Wubi 阶段报错。
+    /// 拆分之后的 checkout：86 原表是极点表加 `wubi86-rime-wubi.txt`，两者都按 `upstream.lock.json` 校验；rime-wubi 的行（乙乙乙 带着五百万的词频）按 10 写入，排在同码极点行之后、补充行之前，整词否决、三张表的补充词照常。拼音库词频（地名表里 5000）是同码极点行 甲（rime-ice 里 100）十倍以上的 甲甲 排到它之前，新世纪表的第一层带着同样的权重。记录列了极点表而 rime-wubi 文件丢了时，Wubi 阶段报错。
     #[test]
     fn the_split_86_layout_ranks_rime_wubi_rows_below_jidian_rows() {
         let (temporary, dictionary, out, _) = wubi_fixture(XsjCheckout::Published);
@@ -2639,7 +2649,13 @@ mod tests {
         .unwrap();
         std::fs::write(
             dictionary.join(wubi86_table::RIME_WUBI),
-            "乙乙\tefef\t10\r\n甲甲\tabcd\t5000000\r\n",
+            "乙乙\tefef\t10\r\n甲甲\tabcd\t400\r\n乙乙乙\tefgh\t5000000\r\n",
+        )
+        .unwrap();
+        std::fs::write(dictionary.join(reweight::SINGLE_CHARS), "甲\tjia\t10\n").unwrap();
+        std::fs::write(
+            dictionary.join(wubi86_supplement::PLACES),
+            "甲甲\tjia'jia\t5000\n",
         )
         .unwrap();
         let read_json = |path: &Path| -> serde_json::Value {
@@ -2714,17 +2730,30 @@ mod tests {
             .unwrap()
             .map(Result::unwrap)
             .collect();
-        assert_eq!(rows, [("甲".to_owned(), 100), ("甲甲".to_owned(), 10)]);
-        // 新世纪表的第一层沿用换算后的权重；甲乙 照常由补充表给出 86 词组码。
-        assert_eq!(
-            db.query_row(
-                "SELECT max(weight) FROM wubixsj WHERE value='甲甲'",
-                [],
-                |row| row.get::<_, i64>(0)
+        assert_eq!(rows, [("甲甲".to_owned(), 101), ("甲".to_owned(), 100)]);
+        let rows: Vec<(String, i64)> = db
+            .prepare(
+                "SELECT value, weight FROM wubi86 WHERE key='efgh' ORDER BY weight DESC, rowid",
             )
-            .unwrap(),
-            10
-        );
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(rows, [("乙".to_owned(), 100), ("乙乙乙".to_owned(), 10)]);
+        // 新世纪表的第一层沿用换算后的权重；甲乙 照常由补充表给出 86 词组码。
+        for (word, weight) in [("甲甲", 101), ("乙乙乙", 10)] {
+            assert_eq!(
+                db.query_row(
+                    "SELECT max(weight) FROM wubixsj WHERE value=?1",
+                    [word],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+                weight,
+                "{word}"
+            );
+        }
         assert_eq!(
             db.query_row("SELECT key FROM wubi86 WHERE value='甲乙'", [], |row| row
                 .get::<_, String>(0))

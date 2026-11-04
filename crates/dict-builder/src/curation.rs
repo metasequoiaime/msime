@@ -336,7 +336,7 @@ pub fn wubi_source_rows(sources: &Sources) -> Result<Vec<(&'static str, String, 
     let mut rows = Vec::new();
     let table = crate::wubi86_table::Files::locate(sources)?.read()?;
     // `wubi86_table::rows` 先逐行给出极点表（每行一项，无效行为 `None`），之后才是 rime-wubi 留下的行，所以按项数就能分出所在的文件。
-    let jidian_rows = crate::wubi86_table::rows(&table.jidian, None).count();
+    let jidian_rows = crate::wubi86_table::rows(&table.jidian, None, &table.frequencies).count();
     for (index, row) in table.rows().enumerate() {
         if let Some((code, value, _)) = row {
             let file = if index < jidian_rows {

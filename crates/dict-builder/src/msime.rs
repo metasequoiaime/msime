@@ -838,6 +838,7 @@ mod tests {
         wubi86_table::Files {
             jidian,
             rime_wubi: None,
+            frequency_tables: Vec::new(),
         }
     }
 
@@ -1456,6 +1457,7 @@ mod tests {
             &wubi86_table::Files {
                 jidian,
                 rime_wubi: Some(rime_wubi),
+                frequency_tables: Vec::new(),
             },
             &[&supplement],
             &PinyinVetoes::default(),
@@ -1511,6 +1513,7 @@ mod tests {
         let split = wubi86_table::Files {
             jidian: jidian.clone(),
             rime_wubi: Some(rime_wubi.clone()),
+            frequency_tables: Vec::new(),
         };
         assert_eq!(
             build_wubi(

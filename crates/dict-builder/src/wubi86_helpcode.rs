@@ -30,9 +30,13 @@ pub struct Helpcode {
     pub outside: usize,
 }
 
-/// `rime_wubi` 是新布局下 rime-wubi 补进来的行，旧布局为 `None`；两种布局读同样的字节得到同一张表，因为这里只看编码、不看权重。
-pub fn build(jidian: &str, rime_wubi: Option<&str>) -> Result<Helpcode> {
-    let rows: Vec<(String, &str, i64)> = crate::wubi86_table::rows(jidian, rime_wubi)
+/// `rime_wubi` 是新布局下 rime-wubi 补进来的行，旧布局为 `None`；`frequencies` 是换算它们时比的词频。两种布局读同样的字节得到同一张表，词频也不改变结果，因为这里只看编码、不看权重；照样经 [`crate::wubi86_table::rows`] 读，和构建读到同一组行。
+pub fn build(
+    jidian: &str,
+    rime_wubi: Option<&str>,
+    frequencies: &crate::wubi86_table::Frequencies,
+) -> Result<Helpcode> {
+    let rows: Vec<(String, &str, i64)> = crate::wubi86_table::rows(jidian, rime_wubi, frequencies)
         .flatten()
         .collect();
     if rows.is_empty() {
@@ -116,7 +120,7 @@ mod tests {
 
     #[test]
     fn each_character_takes_the_first_two_letters_of_its_full_code() {
-        let helpcode = build(FIXTURE, None).unwrap();
+        let helpcode = build(FIXTURE, None, &crate::wubi86_table::Frequencies::default()).unwrap();
         let codes: Vec<(char, &str)> = helpcode
             .codes
             .iter()
@@ -130,20 +134,30 @@ mod tests {
 
     #[test]
     fn several_full_codes_that_agree_on_two_letters_are_kept() {
-        let helpcode = build("码\tdcgh\t10\n码\tdcgg\t10\n", None).unwrap();
+        let helpcode = build(
+            "码\tdcgh\t10\n码\tdcgg\t10\n",
+            None,
+            &crate::wubi86_table::Frequencies::default(),
+        )
+        .unwrap();
         assert_eq!(helpcode.codes.get(&'码').map(String::as_str), Some("dc"));
         assert!(helpcode.conflicting.is_empty());
     }
 
     #[test]
     fn a_table_without_rows_or_codes_is_refused() {
-        assert!(build("", None).is_err());
-        assert!(build("了\tb\t10\n", None).is_err());
+        assert!(build("", None, &crate::wubi86_table::Frequencies::default()).is_err());
+        assert!(build(
+            "了\tb\t10\n",
+            None,
+            &crate::wubi86_table::Frequencies::default()
+        )
+        .is_err());
     }
 
     #[test]
     fn rendered_rows_parse_the_way_the_engine_reads_them() {
-        let helpcode = build(FIXTURE, None).unwrap();
+        let helpcode = build(FIXTURE, None, &crate::wubi86_table::Frequencies::default()).unwrap();
         let rendered = render(&helpcode, &[(JIDIAN, "0")]);
         let header: Vec<&str> = rendered
             .lines()
@@ -167,8 +181,13 @@ mod tests {
     #[test]
     fn the_split_layout_gives_the_same_table() {
         let (jidian, rime_wubi) = FIXTURE.split_at(FIXTURE.find("艹").unwrap());
-        let split = build(jidian, Some(rime_wubi)).unwrap();
-        let merged = build(FIXTURE, None).unwrap();
+        let split = build(
+            jidian,
+            Some(rime_wubi),
+            &crate::wubi86_table::Frequencies::default(),
+        )
+        .unwrap();
+        let merged = build(FIXTURE, None, &crate::wubi86_table::Frequencies::default()).unwrap();
         assert_eq!(split.codes, merged.codes);
         assert_eq!(split.conflicting, merged.conflicting);
         let rendered = render(
