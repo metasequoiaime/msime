@@ -25,6 +25,7 @@ mod cantonese;
 mod check_words;
 mod cleanse_report;
 mod curation;
+mod custom_ceiling;
 mod english;
 mod english_supplement;
 mod hanja;
@@ -75,7 +76,7 @@ enum Stage {
     Reweight,
     /// 从 --dictionary checkout 读取的 sources/pinyin/places.txt 并入全拼表，只升不降
     PlacesSupplement,
-    /// 从 --dictionary checkout 读取的 custom/words.txt 并入全拼表
+    /// 从 --dictionary checkout 读取的 custom/words.txt 并入全拼表；新插入的词不超过同全拼、同九键码上权重不低于 1000 的常用词减 1
     CustomWords,
     /// Wrong readings listed in resources/dictionary-sources/pinyin-reading-corrections.txt removed from the quanpin tables
     ReadingCorrections,
@@ -1545,12 +1546,24 @@ impl Build {
                 let words = msime::parse_custom_words(&text::read(
                     &self.sources.pinned("custom/words.txt")?,
                 )?)?;
-                let counts =
-                    msime::apply_custom_words(&mut self.database("msime-pinyin.db")?, &words)?;
+                // 新插入的词不压过同全拼、同九键码的常用词（H11），竞争者按之后的纠错、否决、覆盖算。
+                let curation = curation::PinyinCuration::load(&self.sources)?;
+                let corrections = msime::parse_reading_corrections(&text::read(
+                    &self.sources.repository(msime::READING_CORRECTIONS)?,
+                )?)?;
+                let (counts, capped) = custom_ceiling::apply_custom_words_with_ceiling(
+                    &mut self.database("msime-pinyin.db")?,
+                    &words,
+                    &custom_ceiling::curated_weight(&curation, &corrections),
+                )?;
+                for word in &capped {
+                    eprintln!("[custom-words] capped {}", word.describe());
+                }
                 Ok(format!(
-                    "{} entries: {} inserted, {} promoted, {} already at or above their weight",
+                    "{} entries: {} inserted ({} capped below a common word), {} promoted, {} already at or above their weight",
                     words.len(),
                     counts.inserted,
+                    capped.len(),
                     counts.promoted,
                     counts.unchanged
                 ))
@@ -2145,6 +2158,13 @@ mod tests {
         let dictionary = temporary.path().join("dictionary");
         let out = temporary.path().join("out");
         std::fs::create_dir_all(root.join("resources/dictionary-sources")).unwrap();
+        // custom-words 阶段读纠错表来判断哪些行之后会被删掉（H11 封顶），真实仓库总有这个文件。
+        std::fs::write(
+            root.join("resources/dictionary-sources")
+                .join(msime::READING_CORRECTIONS),
+            "# empty\n",
+        )
+        .unwrap();
         std::fs::create_dir_all(&out).unwrap();
         let write = |path: &str, bytes: &[u8]| {
             let file = dictionary.join(path);
