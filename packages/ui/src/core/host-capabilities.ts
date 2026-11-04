@@ -117,8 +117,6 @@ export interface HostCapabilities {
   toggle_hotkey_chords?: boolean;
   /** 宿主运行配置的转写服务，因此相关设置会生效。 */
   voice_provider_settings: boolean;
-  /** 宿主在最终语音结果上屏前按 `voice_input.punctuation_mode` 处理标点；原生移动设置页自行提供这一项。 */
-  voice_punctuation: boolean;
   /** 宿主绘制临时识别文字，因此流式预编辑开关会生效。 */
   voice_stream_preedit: boolean;
   /** 宿主读 `voice_input.hotkey_hold_space_lock`，所以给出空格锁定开关。macOS、Windows、Linux、HarmonyOS 固定为开，报 false；只有 Android、iOS 报 true；缺省按 true。 */

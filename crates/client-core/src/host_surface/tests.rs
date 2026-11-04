@@ -699,18 +699,6 @@ fn harmony_groups_with_mobile_hosts_and_claims_nothing_unwritten() {
     ] {
         assert!(HostCapabilities::for_platform(platform).voice_stream_preedit);
     }
-    // 鸿蒙和桌面三端在最终结果上屏前处理语音标点；Android 用自己的原生设置页，iOS 见 #10595。
-    for platform in [
-        HostPlatform::Windows,
-        HostPlatform::Macos,
-        HostPlatform::Linux,
-    ] {
-        assert!(HostCapabilities::for_platform(platform).voice_punctuation);
-    }
-    for platform in [HostPlatform::Android, HostPlatform::Ios] {
-        assert!(!HostCapabilities::for_platform(platform).voice_punctuation);
-    }
-    assert!(!HostCapabilities::for_platform(HostPlatform::Harmony).voice_punctuation);
     // Drawn from the input method's status-bar panel, which scales itself by the shared
     // scale and font size, hides the buttons the user turned off, and opens the emoji panel
     // and the screen keyboard in the window its candidates otherwise occupy.

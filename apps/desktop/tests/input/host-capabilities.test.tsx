@@ -71,7 +71,6 @@ function capabilities(overrides: Partial<HostCapabilities> = {}): HostCapabiliti
     fullwidth_chord: platform === "macos",
     voice_provider_settings: platform !== "android",
     voice_stream_preedit: platform !== "android",
-    voice_punctuation: platform === "windows" || platform === "macos" || platform === "linux",
     character_width: !mobile,
     ai_provider_credentials: platform === "linux",
     key_sound: false,

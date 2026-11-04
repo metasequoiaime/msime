@@ -23,7 +23,6 @@ import { SwitchRow } from "./switch-row";
 import { VoiceLocalModelSettingsSection } from "./voice-local-model-settings-section";
 import { VoiceAsrProviderSettingsSection } from "./voice-asr-provider-settings-section";
 import { VoiceRecognitionResultSection } from "./voice-recognition-result-section";
-import type { VoicePunctuationMode } from "./voice-punctuation-section";
 import {
   VoiceCaptureDevicesSection,
   type VoiceCaptureBackendOption,
@@ -132,7 +131,6 @@ export interface VoiceSettingsContentProps extends VoiceCredentialBindings {
   showVoiceProviderSettings: boolean;
   showVoiceStreamPreedit: boolean;
   showVoiceCommitMode: boolean;
-  showVoicePunctuation: boolean;
   showVoiceCaptureDevices: boolean;
   /** 宿主读空格锁定（`voice_space_lock_switch`）。 */
   showVoiceSpaceLockSwitch: boolean;
@@ -189,7 +187,6 @@ export function VoiceSettingsContent({
   showVoiceProviderSettings,
   showVoiceStreamPreedit,
   showVoiceCommitMode,
-  showVoicePunctuation,
   showVoiceCaptureDevices,
   showVoiceSpaceLockSwitch,
   showVoiceCueSwitches,
@@ -381,18 +378,13 @@ export function VoiceSettingsContent({
     <VoiceRecognitionResultSection
       showStreamPreedit={showStreamPreedit}
       showCommitMode={showVoiceCommitMode}
-      showPunctuation={showVoicePunctuation}
       macos={macosPlatform}
       streamInlinePreedit={voiceInput.stream_inline_preedit === true}
       commitMode={voiceInput.commit_mode ?? "tsf"}
-      punctuationMode={voiceInput.punctuation_mode ?? "auto"}
       onStreamInlinePreeditChange={(stream_inline_preedit) =>
         updateVoice({ stream_inline_preedit })
       }
       onCommitModeChange={(commit_mode) => updateVoice({ commit_mode })}
-      onPunctuationChange={(punctuation_mode: VoicePunctuationMode) =>
-        updateVoice({ punctuation_mode })
-      }
     />
   );
   const captureDevices = (active: boolean) =>
@@ -522,7 +514,7 @@ export function VoiceSettingsContent({
         <SwitchRow
           title="自动添加标点"
           detail={
-            punctuationSupported ? undefined : "只对豆包生效；其他识别服务的标点用「语音标点」"
+            punctuationSupported ? undefined : "当前识别服务不支持，仅豆包语音识别可以自动加标点"
           }
           disabled={!punctuationSupported}
           checked={voiceInput.doubao_enable_punc !== false}

@@ -396,7 +396,7 @@ test("automatic punctuation is Doubao's and is greyed out with the reason elsewh
     name: "自动添加标点",
   }) as HTMLInputElement;
   expect(other.disabled).toBe(true);
-  expect(screen.getByText("只对豆包生效；其他识别服务的标点用「语音标点」")).toBeTruthy();
+  expect(screen.getByText("当前识别服务不支持，仅豆包语音识别可以自动加标点")).toBeTruthy();
 });
 
 test("the polish scheme sheet keeps the custom slots and shows the stored one", async () => {

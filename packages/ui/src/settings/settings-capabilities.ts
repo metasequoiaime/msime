@@ -60,7 +60,6 @@ export function settingsCapabilities({
   // 社区投稿类功能的总闸（`HostCapabilities.community_contribution`）：宿主明确报 false（HarmonyOS）时社区页不画发布、改分类、发布新版本、评分和举报；没有宿主或宿主没报时照旧给出。
   const showCommunityContribution = host?.community_contribution !== false;
   const showVoiceCommitMode = host ? host.voice_commit_mode : true;
-  const showVoicePunctuation = host ? host.voice_punctuation : true;
   const showVoiceProviderSettings = host ? host.voice_provider_settings : true;
   const showVoiceStreamPreedit = host ? host.voice_stream_preedit : true;
   // 宿主没有报这三项时（旧宿主、网页预览）照旧给出控件；只有明确报 false 的宿主把值固定下来（见 `HostCapabilities` 各字段说明）。
@@ -148,7 +147,6 @@ export function settingsCapabilities({
     showAiGeneration,
     showCommunityContribution,
     showVoiceCommitMode,
-    showVoicePunctuation,
     showVoiceProviderSettings,
     showVoiceStreamPreedit,
     showVoiceSpaceLockSwitch,
