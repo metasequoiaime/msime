@@ -394,7 +394,9 @@ python3 scripts/dict_eval_gate.py run --baseline <B 的发布附件目录> --can
   [--jobs 8] [--arms model,engine] [--limit N] [--must-outrank-strict]
 ```
 
-msime-dictionary 的 `eval-gate.yml`（检查名 `Eval gate`）在每个改动发布输入的 PR 上调用它：用 `builder.lock.json` 固定的 msime 提交构建候选 C，下载最新的 `dict-v` 作为基线 B，用同一个提交里的这个脚本判定。它把上面几个脚本按同一份资源、同一套参数（`--mixed-english`、每页 6 个）跑完，只编排和判定，不改口径。五道门槛：评测集的金标准（词, 读音）对在 B 里有的 C 里不能少；must-outrank 在 B 上通过的行 C 上不能失败（棘轮，`--must-outrank-strict` 要求全部通过）；粗俗首屏曝光三项计数 C ≤ B，两边用同一张词表（引擎内嵌表加 B、C 两份 `sentence_excluded` 的并集）；quanpin-words-v2 在全拼、九键、14 键上配对比较（`eval_compare.py --gate` 的规则）；C 是授权构建且全拼行数不低于 `product::verify` 的下限。退出码 0 是全部通过，1 是有门槛失败，2 是没跑完（输入不全、`convert_eval` 失败），2 不能当成通过或失败。`--arms model,engine` 再加一臂不挂模型、只跑 quanpin-words-v2；`--limit N` 把 quanpin-words-v2 换成等距子集，其余门槛总是全量。
+msime-dictionary 的 `eval-gate.yml`（检查名 `Eval gate`）在每个改动发布输入的 PR 上调用它：用 `builder.lock.json` 固定的 msime 提交构建候选 C，下载最新的 `dict-v` 作为基线 B，用同一个提交里的这个脚本判定。它把上面几个脚本按同一份资源、同一套参数（`--mixed-english`、每页 6 个）跑完，只编排和判定，不改口径。五道门槛：评测集的金标准（词, 读音）对在 B 里有的 C 里不能少；must-outrank 在 B 上通过的行 C 上不能失败（棘轮，`--must-outrank-strict` 要求全部通过）；粗俗首屏曝光三项计数 C ≤ B，两边用同一张词表（引擎内嵌表加 B、C 两份 `sentence_excluded` 的并集）；quanpin-words-v2 在全拼、九键、14 键上配对比较（`eval_compare.py --gate` 的规则）；C 是授权构建且全拼行数不低于 `product::verify` 的下限。退出码 0 是全部通过，1 是五道门槛都算出了结果且有一道失败，2 是没跑完（输入不全、`convert_eval` 失败、库打不开、脚本自己出错），2 不能当成通过或失败。`--arms model,engine` 再加一臂不挂模型、只跑 quanpin-words-v2；`--limit N` 把 quanpin-words-v2 换成等距子集，其余门槛总是全量。
+
+报告后半是方案 4.3 的参考项，只报告、不影响退出码：`sentences-v1`（全拼）、`sentences-nine-key-v1`（九键）、`sentences-particles-v1`（三种键盘）、`sentences-neutral-v1`（全拼）在每一臂上的配对比较和 top-1 变了的用例，以及方案点名的粗俗目标码（2435422、435422、74224、63476，内容、尴尬、试图 打全的码）在 B、C 首屏上的冒犯词，针对性清洗批次用它确认目标码已经清零。ctx-v1 和 typing_sim 只能在 Studio 上跑，不在这里；五笔、英文的 top-N 差异清单（`dictionary_topn_diff.py`）和逐表逐行的产物差异（`dict_artifact_diff.py`，即逐词的删除、降权清单）由 `eval-gate.yml` 在同一个作业里另外生成，附在报告后面和 artifact 里。
 
 2026-11-04 在 Depot 8 核 runner 上全量跑一次（两臂、v2 全量，B 是 dict-v2.0.56）门槛本身 12 分钟，整个作业约 16 分钟。为什么用棘轮、为什么基线是最新发布、为什么评测脚本跟构建器一起固定，见[评测门禁笔记](../../.agents/notes/implemented/process/2026-11-04-dictionary-pr-eval-gate.md)。
 

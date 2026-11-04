@@ -11,6 +11,8 @@
 4. quanpin-words-v2 配对比较（`quanpin-words-v2`）：全拼、九键、14 键三臂，`eval_compare.py` 的 `--gate` 规则（非同码桶里 top-1 或 top-5 的 broken > fixed 且 McNemar p < 0.05 即失败）。
 5. 全拼行数下限（`row-floor`）：C 是授权构建（manifest 的 `licensing.includes_unlicensed_inputs` 为 false），全拼表总行数不低于构建器 `product::verify` 的下限（从 `crates/dict-builder/src/product.rs` 读，改下限要在构建器 PR 里说明理由）。
 
+参考项（方案 4.3「只报告」的那几项，不影响退出码）：sentences-v1、九键长句、particles（三种键盘）、neutral 四份整句集在每一臂上的配对比较，以及方案点名的粗俗目标码（2435422、435422、74224、63476，内容、尴尬、试图 打全的码）在 B、C 首屏上的粗俗词，针对性清洗批次要靠它确认目标码已经清零。ctx-v1 和 typing_sim 只能在 Studio 上跑，不在这里；五笔、英文的 top-N 差异清单和逐表逐行的产物差异由 workflow 另外调用 `dictionary_topn_diff.py`、`dict_artifact_diff.py` 生成。
+
 所有 `convert_eval` 都加 `--mixed-english`（产品出厂设置，九键第 2 位的英文只在它开着时出现）和出厂每页 6 个。挂模型的一臂（`model`，产品默认：模型在桌面锁里）跑全部门槛；`--arms model,engine` 再加一臂不挂模型，只跑 quanpin-words-v2，量词库权重本身。`--limit N` 把 quanpin-words-v2 换成 `convert_eval --limit` 的等距子集（B、C 同一批用例），用于时间不够时；其余门槛总是全量。
 
 为什么 must-outrank 是棘轮：方案 4.3 写的是「全部通过」，但第一批 6 行在当前发布上全部失败（都是排了修复阶段的已知问题）。照字面卡，每个与之无关的投稿 PR 都会红，门禁只会被跳过。棘轮保证已经修好的不再坏，还没修的逐条列在报告里；全部转绿后它就等于「全部通过」。
@@ -22,7 +24,7 @@
         [--binary target/release/examples/convert_eval] [--jobs 8] [--limit N] [--arms model,engine] \\
         [--preamble <开头.md>] [--extra-words <表>] [--must-outrank-strict] [--row-floor N]
 
-两个目录都要有 `msime-SHA256SUMS.txt` 和它列出的文件（B 用 `gh release download` 下全部主附件，C 是构建器的 `--out`）。退出码：0 全部通过，1 有门槛失败，2 没能跑完（输入不全、评测二进制失败）。
+两个目录都要有 `msime-SHA256SUMS.txt` 和它列出的文件（B 用 `gh release download` 下全部主附件，C 是构建器的 `--out`）。退出码：0 全部通过，1 有门槛失败，2 没能跑完（输入不全、评测二进制失败、库打不开或脚本自己出错）。1 只在全部门槛都算出结果、且有一道失败时出现。
 """
 from __future__ import annotations
 
@@ -33,6 +35,7 @@ import re
 import sqlite3
 import sys
 import time
+import traceback
 from pathlib import Path
 
 import eval_compare
@@ -66,6 +69,15 @@ GOLD_CASE_SETS = (
 GOLD_TYPING_SETS = ("typing-chat-v1.tsv", "typing-tatoeba-v1.tsv")
 # 不取金标准对的 .tsv：曝光输入集的第 3 列只是生成这串码的参照词，读音审核表没有金标准；must-outrank 单独处理。
 NOT_GOLD_SETS = ("exposure-quanpin-v1.tsv", "exposure-nine-key-v1.tsv", "typing-readings-reviewed.tsv", "must-outrank.tsv")
+# 方案 4.3 的参考项：（整句集, 键盘），每一臂都跑，只报告。键盘按各集合自己的用途：九键长句只在九键上，particles 三种键盘都打（与 `verify-local.sh` 的 particles、particles-nine-key、particles-fourteen-key 一致）。
+REFERENCE_RUNS = (
+    ("sentences-v1.tsv", "full"),
+    ("sentences-nine-key-v1.tsv", "nine"),
+    ("sentences-particles-v1.tsv", "full"),
+    ("sentences-particles-v1.tsv", "nine"),
+    ("sentences-particles-v1.tsv", "fourteen"),
+    ("sentences-neutral-v1.tsv", "full"),
+)
 
 
 class GateError(Exception):
@@ -326,6 +338,40 @@ def v2_gate(results: dict, alpha: float) -> dict:
     return {"name": "quanpin-words-v2", "passed": not failures, "problems": failures, "alpha": alpha, "results": {f"{arm}/{grid}": result for (arm, grid), result in results.items()}}
 
 
+# ---- 参考项（只报告） ----
+
+
+def reference_dump(arm: str, set_name: str, keyboard: str) -> str:
+    return f"reference-{arm}-{Path(set_name).stem}-{keyboard}.jsonl"
+
+
+def exposure_targets(before: dict, after: dict) -> list:
+    """方案点名的目标码在 B、C 首屏上的粗俗词和英文冒犯词。只报告：不是每个 PR 都是针对性清洗批次，C ≤ B 已经由曝光门槛保证。"""
+
+    def offensive_at(values: dict) -> dict:
+        found = {}
+        for hit in [*values["vulgar"], *values["english_offensive"]]:
+            found.setdefault(hit["input"], []).append(hit["word"])
+        return found
+
+    rows = []
+    for keyboard, values in after["keyboards"].items():
+        previous = before["keyboards"][keyboard]
+        was = {target["input"]: target for target in previous["targets"]}
+        old_hits, new_hits = offensive_at(previous), offensive_at(values)
+        for target in values["targets"]:
+            rows.append({
+                "keyboard": keyboard,
+                "code": target["code"],
+                "for": target["for"],
+                "before_offensive": old_hits.get(target["input"], []),
+                "after_offensive": new_hits.get(target["input"], []),
+                "before_first_page": was.get(target["input"], {}).get("first_page", []),
+                "after_first_page": target["first_page"],
+            })
+    return rows
+
+
 # ---- 编排 ----
 
 
@@ -374,6 +420,12 @@ def run(args: argparse.Namespace) -> dict:
                 case_set = out / f"must-outrank-{keyboard}.tsv"
                 must_outrank.write_case_set(subset, case_set)
                 jobs.append(Job(f"{side} must-outrank {keyboard}", resources, lock, case_set, keyboard, out / f"must-outrank-{keyboard}.jsonl", COMMON_ARGUMENTS))
+    # 参考项排在最后：都是几十到一千来条的小集合，不拖慢门槛那几组最长的。
+    for side in ("B", "C"):
+        for arm in arms:
+            arm_resources, arm_lock = staged[(side, arm)]
+            for set_name, keyboard in REFERENCE_RUNS:
+                jobs.append(Job(f"{side} reference {arm} {Path(set_name).stem} {keyboard}", arm_resources, arm_lock, EVAL / set_name, keyboard, work / side / reference_dump(arm, set_name, keyboard), COMMON_ARGUMENTS))
     run_jobs(jobs, args.binary, args.jobs)
 
     outrank_results = {}
@@ -400,6 +452,13 @@ def run(args: argparse.Namespace) -> dict:
             comparisons[(arm, grid)] = eval_compare.compare_convert(before, after, tags, grid, [1, 5])
     gates.append(v2_gate(comparisons, args.alpha))
 
+    references = []
+    for arm in arms:
+        for set_name, keyboard in REFERENCE_RUNS:
+            before = eval_compare.load_dump(work / "B" / reference_dump(arm, set_name, keyboard))
+            after = eval_compare.load_dump(work / "C" / reference_dump(arm, set_name, keyboard))
+            references.append({"set": set_name, "keyboard": keyboard, "arm": arm, "result": eval_compare.compare_convert(before, after, None, keyboard, [1, 5])})
+
     order = ("gold-pairs", "must-outrank", "vulgar-exposure", "quanpin-words-v2", "row-floor")
     gates.sort(key=lambda gate: order.index(gate["name"]))
     return {
@@ -409,6 +468,7 @@ def run(args: argparse.Namespace) -> dict:
         "baseline": manifest_identity(args.baseline),
         "candidate": manifest_identity(args.candidate),
         "gates": gates,
+        "reference": {"sets": references, "targets": exposure_targets(exposure["B"], exposure["C"])},
         "timings": {job.label: round(job.seconds) for job in jobs},
         "seconds": round(time.monotonic() - started),
     }
@@ -531,7 +591,36 @@ def render_markdown(result: dict, preamble: str, listed: int = 30) -> str:
             lines += details("quanpin-words-v2 明细（同码桶只报告，不进门槛）", body)
         elif name == "row-floor" and gate["problems"]:
             lines += details("行数下限的问题", [f"- {cell(problem)}" for problem in gate["problems"]])
+    lines += render_reference(result["reference"], listed)
     return "\n".join(lines) + "\n"
+
+
+def render_reference(reference: dict, listed: int) -> list:
+    """方案 4.3 的参考项：整句集的配对比较和粗俗目标码，只报告，不影响结论。"""
+    lines = ["", "### 参考（只报告，不进门槛）", "", "| 集合 | 臂 | 键盘 | 用例 | top-1 B → C | fixed / broken | p | top-5 B → C | fixed / broken | p |", "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+    for item in reference["sets"]:
+        main = item["result"]["main"]
+        top1, top5 = main["top1"], main["top5"]
+        lines.append(f"| {Path(item['set']).stem} | {item['arm']} | {KEYBOARD_NAMES[item['keyboard']]} | {main['cases']} | {top1['before']:.4f} → {top1['after']:.4f} | {top1['fixed']} / {top1['broken']} | {top1['mcnemar_p']:.3g} | {top5['before']:.4f} → {top5['after']:.4f} | {top5['fixed']} / {top5['broken']} | {top5['mcnemar_p']:.3g} |")
+    changed = []
+    for item in reference["sets"]:
+        top1 = item["result"]["main"]["top1"]
+        for kind, cases in (("broken", top1["broken_cases"]), ("fixed", top1["fixed_cases"])):
+            if cases:
+                shown = [f"| `{case['input']}` | {cell(case['gold'])} | {format_rank(case['before'])} → {format_rank(case['after'])} |" for case in cases[:listed]]
+                changed += ["", f"{Path(item['set']).stem} {item['arm']} {KEYBOARD_NAMES[item['keyboard']]} top-1 {kind}（{len(cases)}，列前 {min(len(cases), listed)}）：", "", "| 输入 | 金标准 | 名次 |", "| --- | --- | --- |", *shown]
+    if changed:
+        lines += details("整句集 top-1 变了的用例", changed)
+    targets = reference["targets"]
+    if targets:
+        cleared = sum(not row["after_offensive"] for row in targets)
+        body = ["| 键盘 | 码 | 对应的词 | B 首屏的冒犯词 | C 首屏的冒犯词 | C 首屏 |", "| --- | --- | --- | --- | --- | --- |"]
+        for row in targets:
+            body.append(f"| {KEYBOARD_NAMES[row['keyboard']]} | `{row['code']}` | {cell(row['for'])} | {cell(' '.join(row['before_offensive']) or '无')} | {cell(' '.join(row['after_offensive']) or '无')} | {cell(' '.join(row['after_first_page']))} |")
+        lines += ["", f"粗俗目标码（方案 4.3，针对性清洗批次要清零）：{len(targets)} 个里 C 首屏没有冒犯词的 {cleared} 个。"]
+        lines += details("粗俗目标码的首屏", body)
+    lines += ["", "ctx-v1 和 typing_sim 只能在 Studio 上跑，不在这个作业里。"]
+    return lines
 
 
 def main(argv: list | None = None) -> int:
@@ -558,19 +647,24 @@ def main(argv: list | None = None) -> int:
     if args.limit < 0:
         parser.error("--limit must be 0 or more")
 
-    # 被调用的评测脚本遇到不可比的输入（dump 跑错集合、产物缺文件）时 `raise SystemExit(说明)`，退出码会是 1，和「门槛失败」混在一起；这里统一换成 2。
+    # 退出码 1 只留给「门槛算出了结果且有一道失败」。被调用的评测脚本遇到不可比的输入（dump 跑错集合、产物缺文件）时 `raise SystemExit(说明)`，退出码会是 1；库文件损坏（`sqlite3.DatabaseError`）、文件缺失、脚本自己的错误默认也以 1 结束。这些都不是门槛结论，统一换成 2，写报告的步骤也算在内。
     try:
         result = run(args)
+        preamble = args.preamble.read_text(encoding="utf-8") if args.preamble else ""
+        markdown = render_markdown(result, preamble)
+        report = json.dumps(result, ensure_ascii=False, indent=1) + "\n"
+        if args.markdown:
+            args.markdown.write_text(markdown, encoding="utf-8")
+        if args.json:
+            args.json.write_text(report, encoding="utf-8")
     except (GateError, SystemExit) as error:
         print(f"dict_eval_gate: could not run the gates: {error}", file=sys.stderr)
         return 2
-    preamble = args.preamble.read_text(encoding="utf-8") if args.preamble else ""
-    markdown = render_markdown(result, preamble)
+    except Exception:
+        traceback.print_exc()
+        print("dict_eval_gate: could not run the gates: unexpected error above", file=sys.stderr)
+        return 2
     print(markdown)
-    if args.markdown:
-        args.markdown.write_text(markdown, encoding="utf-8")
-    if args.json:
-        args.json.write_text(json.dumps(result, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     for gate in result["gates"]:
         if not gate["passed"]:
             print(f"gate failed: {gate['name']}", file=sys.stderr)
