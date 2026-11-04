@@ -12,6 +12,8 @@ Status: implemented
 
 主动检查更新（`check_grammar_updates`）不退回：它的结果是告诉用户「有新版本」，拿锁文件去比会把比已安装版本更旧的锁当成更新。
 
+已经装着别的版本时安装也不退回：只有这个模型还没装（读不到 `msime-model.json` 里的摘要），或装着的正是锁文件里那份字节时才退回，否则照旧返回目录错误。Windows 的「下载更新」按钮和首次下载调的是同一个 `install_sentence_pack(pack, false)`，在线目录随 develop 前进而锁文件随版本固定，用户可能已经从在线目录装了比锁文件新的版本；摘要看不出先后，退回会把它悄悄换回锁文件里的旧版本还报「完成」。
+
 ## Alternatives considered
 
 - 目录也经镜像读取（用户镜像、`dl.msime.app`）：目录在可变的 develop 分支上，项目镜像只缓存内容不再变化的地址，需要改服务端放行和缓存规则，不在本仓库；用户镜像能看到并改写目录内容，而目录正是决定下载哪份字节的那一层。留给另开的国内镜像 issue 跟进。
@@ -20,9 +22,10 @@ Status: implemented
 
 ## Consequences
 
-连不上 raw.githubusercontent.com 但能经镜像（或直连）下载 GitHub Release 的用户可以装上语法模型。测试版和每日构建通道在目录读不到时装的是锁文件里的稳定版。万象 LTS 的锁文件过期时，退回路径会下载完整文件后因摘要不符失败，不会安装未审过的字节。`PRIVACY.md` 写明了退回行为。没有新增偏好、ABI 或网络请求，宿主不用改。
+连不上 raw.githubusercontent.com 但能经镜像（或直连）下载 GitHub Release 的用户可以装上还没装过的语法模型；已装着其他版本的模型要更新仍须读到在线目录，读不到时和以前一样报网络错误、保留旧模型。测试版和每日构建通道在目录读不到时装的是锁文件里的稳定版。万象 LTS 的锁文件过期时，退回路径会下载完整文件后因摘要不符失败，不会安装未审过的字节。`PRIVACY.md` 写明了退回行为。没有新增偏好、ABI 或网络请求，宿主不用改。
 
 ## Verification
 
 - 先写的 `grammar_install_falls_back_to_lock_when_catalog_unavailable` 在实现前编译失败；实现后三个通道下退回的目录都通过 `validate_grammar_catalog`，三个可下载模型的地址、长度、摘要和上游提交与锁文件一致，目录读得到时照用在线目录。
+- `grammar_install_lock_fallback_never_replaces_a_different_installed_version`：三个模型在装着与锁文件摘要不同的版本时都返回原来的目录错误，装着锁文件那份字节时（摘要大小写不同也算）放行。
 - `cargo test -p msime-client-providers --lib resource_packs::tests::` 全部通过。

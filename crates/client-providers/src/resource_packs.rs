@@ -223,11 +223,36 @@ fn locked_grammar_catalog() -> GrammarCatalog {
     GrammarCatalog { version: 1, models }
 }
 
+/// 已安装语法模型 `msime-model.json` 里记录的文件摘要；没装或标记文件读不出来时为 `None`。
+fn installed_grammar_sha256(state_root: &Path, pack: ResourcePack) -> Option<String> {
+    local_models::installed_manifest(&root(state_root), pack.id()).and_then(|manifest| {
+        manifest
+            .get("artifacts")?
+            .as_array()?
+            .first()?
+            .get("sha256")?
+            .as_str()
+            .map(str::to_owned)
+    })
+}
+
 /// 安装用的模型目录。在线目录直连 raw.githubusercontent.com，国内网络常常读不到，而模型文件本身可以走用户镜像和项目镜像；目录读不到或被整份作废时，改用编译进来的锁文件，不让目录这一步挡住整次安装（#10761）。只用于用户发起的安装，主动检查更新仍要求读到在线目录，否则会把锁文件里的旧版本当成更新。
 ///
+/// 只有这个模型还没装（`installed_sha256` 为 `None`），或者装着的正是锁文件里那份字节时才退回；装着别的版本时照旧返回目录错误。「下载更新」和首次下载走的是同一个安装入口，在线目录会随 develop 前进，而锁文件随版本固定，装着的可能比锁文件新，摘要又看不出先后，退回会悄悄把它换成锁文件里的旧版本还报成功。
+///
 /// 锁文件里万象 LTS 的摘要可能已经落后于上游原地替换的文件，这时下载完会按摘要不符失败，和没有目录时一样不会装上未审过的字节。
-fn grammar_catalog_for_install(fetched: Result<GrammarCatalog, LocalModelError>) -> GrammarCatalog {
-    fetched.unwrap_or_else(|_| locked_grammar_catalog())
+fn grammar_catalog_for_install(
+    fetched: Result<GrammarCatalog, LocalModelError>,
+    pack: ResourcePack,
+    installed_sha256: Option<&str>,
+) -> Result<GrammarCatalog, LocalModelError> {
+    fetched.or_else(|error| {
+        let locked = &pack.set().artifacts[0].sha256;
+        if installed_sha256.is_some_and(|sha| !sha.eq_ignore_ascii_case(locked)) {
+            return Err(error);
+        }
+        Ok(locked_grammar_catalog())
+    })
 }
 
 /// 联网获取当前模型目录并比较已安装模型的本地快照；不下载、不替换任何文件。
@@ -242,16 +267,7 @@ pub fn check_grammar_updates(
         let Some(pack) = ResourcePack::from_id(&pack_id) else {
             continue;
         };
-        let current =
-            local_models::installed_manifest(&root(state_root), pack.id()).and_then(|manifest| {
-                manifest
-                    .get("artifacts")?
-                    .as_array()?
-                    .first()?
-                    .get("sha256")?
-                    .as_str()
-                    .map(str::to_owned)
-            });
+        let current = installed_grammar_sha256(state_root, pack);
         if current.as_deref() != Some(model.artifact.sha256.as_str()) {
             updates.push(GrammarModelUpdate {
                 pack: pack.id(),
@@ -1293,7 +1309,11 @@ pub fn install_for_channel(
         local_models::check_root(&root(state_root))?;
         crate::storage::create_directory_and_check(&root(state_root))
             .map_err(LocalModelError::from)?;
-        let catalog = grammar_catalog_for_install(fetch_grammar_catalog());
+        let catalog = grammar_catalog_for_install(
+            fetch_grammar_catalog(),
+            pack,
+            installed_grammar_sha256(state_root, pack).as_deref(),
+        )?;
         let model_id = match pack {
             ResourcePack::GrammarWanxiang => "wanxiang",
             ResourcePack::GrammarBaguwen => "baguwen",
@@ -1684,26 +1704,30 @@ mod tests {
         assert!(validate_grammar_catalog(&invalid).is_err());
     }
 
-    /// 国内网络常常连不上 raw.githubusercontent.com。读不到在线目录时，安装改用编译进来的锁文件，三个可下载的语法模型都要能从中找到，地址、长度、摘要和上游提交与锁文件一致；读得到时照用在线目录。
+    /// 国内网络常常连不上 raw.githubusercontent.com。读不到在线目录时，没装过的模型改用编译进来的锁文件安装，三个可下载的语法模型都要能从中找到，地址、长度、摘要和上游提交与锁文件一致；读得到时照用在线目录。
     #[test]
     fn grammar_install_falls_back_to_lock_when_catalog_unavailable() {
         use msime_client_core::preferences::UpdateChannel;
+        let packs = [
+            ResourcePack::GrammarWanxiang,
+            ResourcePack::GrammarBaguwen,
+            ResourcePack::GrammarBaguwenCompact,
+        ];
         for channel in [
             UpdateChannel::Stable,
             UpdateChannel::Beta,
             UpdateChannel::Nightly,
         ] {
-            let catalog = grammar_catalog_for_install(Err(LocalModelError::Network(
-                "connection refused".into(),
-            )));
+            let catalog = grammar_catalog_for_install(
+                Err(LocalModelError::Network("connection refused".into())),
+                ResourcePack::GrammarWanxiang,
+                None,
+            )
+            .unwrap();
             validate_grammar_catalog(&catalog).unwrap();
             let selected = select_grammar_models(&catalog, channel);
             assert_eq!(selected.len(), 3);
-            for pack in [
-                ResourcePack::GrammarWanxiang,
-                ResourcePack::GrammarBaguwen,
-                ResourcePack::GrammarBaguwenCompact,
-            ] {
+            for pack in packs {
                 let model = selected
                     .iter()
                     .find(|model| format!("grammar-model-{}", model.id) == pack.id())
@@ -1719,8 +1743,38 @@ mod tests {
 
         let mut fetched: GrammarCatalog = serde_json::from_str(EMBEDDED_GRAMMAR_CATALOG).unwrap();
         fetched.models[0].source_commit = "b".repeat(40);
-        let catalog = grammar_catalog_for_install(Ok(fetched));
+        let catalog = grammar_catalog_for_install(
+            Ok(fetched),
+            ResourcePack::GrammarWanxiang,
+            Some(&"c".repeat(64)),
+        )
+        .unwrap();
         assert_eq!(catalog.models[0].source_commit, "b".repeat(40));
+    }
+
+    /// 「下载更新」和首次下载走同一个安装入口。已经装着和锁文件不同的版本（例如从更新过的在线目录装的）时，读不到目录不能退回锁文件，否则会悄悄换回锁文件里的旧版本还报成功；装着的正是锁文件那份字节时退回只是原样重装，可以放行。
+    #[test]
+    fn grammar_install_lock_fallback_never_replaces_a_different_installed_version() {
+        for pack in [
+            ResourcePack::GrammarWanxiang,
+            ResourcePack::GrammarBaguwen,
+            ResourcePack::GrammarBaguwenCompact,
+        ] {
+            let locked = pack.set().artifacts[0].sha256.clone();
+            let error = grammar_catalog_for_install(
+                Err(LocalModelError::Network("connection refused".into())),
+                pack,
+                Some(&"c".repeat(64)),
+            )
+            .unwrap_err();
+            assert!(matches!(error, LocalModelError::Network(_)), "{error:?}");
+            grammar_catalog_for_install(
+                Err(LocalModelError::Network("connection refused".into())),
+                pack,
+                Some(&locked.to_ascii_uppercase()),
+            )
+            .unwrap();
+        }
     }
 
     /// 伪造一个已发布的资源包目录：所有文件加上当前的 `msime-model.json`。
