@@ -50,8 +50,9 @@ macOS、Windows、Linux 这次不接：三个桌面宿主的简繁开关各自�
 ## Verification
 
 - 三条新增行为回归先复现调频日志误写「号」、分段造词误写「你号」、整句造词误写「我号」，修正后均通过；同时验证切回繁体及新会话仍能按词库原文回放。
-- `cargo test -p msime-engine --lib cantonese`：92 项通过、1 项忽略，包含 `selecting_a_cantonese_candidate_does_not_clone_the_full_row` 的分配上限回归。
+- `cargo test -p msime-engine --lib cantonese`：94 项通过、1 项忽略，包含 `selecting_a_cantonese_candidate_does_not_clone_the_full_row` 的分配上限回归。
+- `python3 scripts/test-android-shuangpin-host-hints.py` 抽取真实宿主方法执行，6 组通过；远端原文学习回归与本地三条回归在同一个独立测试模块中保留，生产实现收敛为一份内部原文映射。
 - 原转换测试保留默认学习设置：分段选择后应学到「你號」，不传转换时断言该新词和原有词库行全部显示繁体。旧期望产生于粤语尚不学习时，不能用关闭学习来恢复旧列表。
 - OpenCC 锁定的 10 份文件已从上游合并提交逐份下载核对大小和 SHA-256；`python3 scripts/test-fetch-opencc.py` 的 9 项测试通过。
 - `cargo clippy -p msime-engine --all-targets -- -D warnings`、修改文件的 rustfmt、笔记和差异检查通过；`client-base` 转换表测试 15 项、Host API 转换注入测试 1 项、引擎 golden 31 项均通过。
-- 同步 develop `a0dfe261eb` 后完整本地 `bash scripts/verify-local.sh --quick` 通过：Windows 原生行为检查 214 项、Linux 原生测试 122 项、Rust/wasm、Android 宿主检查、macOS 和 Apple 桥接编译、两架构 pipe-only 编译。缺少依赖的完整 Windows 原生工程及 HarmonyOS ArkTS 构建按脚本提示跳过；设备及截图验收缺口保留在 PR 正文。
+- 同步 develop `a0dfe261eb` 并整合远端并行修复 `8f445c861e` 后，完整本地 `bash scripts/verify-local.sh --quick` 通过：Windows 原生行为检查 214 项、Linux 原生测试 122 项、Rust/wasm、Android 宿主检查、macOS 和 Apple 桥接编译、两架构 pipe-only 编译。缺少依赖的完整 Windows 原生工程及 HarmonyOS ArkTS 构建按脚本提示跳过；设备及截图验收缺口保留在 PR 正文。
