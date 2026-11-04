@@ -29,6 +29,7 @@ Status: implemented
 - 安装器权限命令审计：原实现触发授权范围断言失败，修正后通过；保留桌面用户修改权限和完整性命令。
 - `pwsh -NoLogo -NoProfile -File platforms/windows/installer/tests/lifecycle.ps1` 通过。
 - PowerShell 解析器检查 `install-smoke.ps1` 通过，`git diff --check` 和笔记校验通过。
-- Windows 安装冒烟需要实际 Windows 安装包，本机没有执行；新增用例覆盖初装、旧预览授权的重装清理，以及迁移后的目录与子文件。完整本地 quick 待复用现有缓存后运行。
+- 完整本地 `bash scripts/verify-local.sh --quick` 通过，包含 Windows 原生行为检查、122 项 Linux 原生测试、Rust/wasm、Android 宿主检查、macOS 与 Apple 桥接编译、两架构 pipe-only 编译。HarmonyOS 完整 ArkTS 构建因缺少分发依赖跳过，Windows 完整原生工程未在本机配置。
+- Windows 安装冒烟需要实际 Windows 安装包，本机没有执行；新增用例覆盖初装、旧预览授权的重装清理，以及迁移后的目录与子文件。CI 的脚本契约检查不能代替这个安装烟测。
 
 官方命令语义见 [Microsoft icacls 文档](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/icacls)：`/remove:g` 移除指定 SID 的允许项，`/T` 递归处理目录内容；不使用重置整份 ACL 的 `/reset`。
