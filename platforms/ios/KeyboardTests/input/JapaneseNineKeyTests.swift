@@ -28,6 +28,7 @@ final class JapaneseNineKeyTests: XCTestCase {
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
     controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.viewWillAppear(false)
     controller.view.layoutIfNeeded()
     let panel = try XCTUnwrap(nodes(controller.view).compactMap { $0 as? JapaneseNineKeyView }.first)
     XCTAssertFalse(panel.isHidden)
@@ -83,6 +84,7 @@ final class JapaneseNineKeyTests: XCTestCase {
     controller.loadViewIfNeeded()
     controller.view.frame = CGRect(x: 0, y: 0, width: 414,
                                    height: KeyboardViewController.defaultKeyboardHeight)
+    controller.viewWillAppear(false)
     controller.view.layoutIfNeeded()
     let panel = try XCTUnwrap(nodes(controller.view).compactMap { $0 as? JapaneseNineKeyView }.first)
     let space = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "japaneseSpace" } as? UIButton)
