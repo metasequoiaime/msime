@@ -82,4 +82,30 @@ with tempfile.TemporaryDirectory(prefix="msime-topn-diff-") as temporary:
     same = topn_diff.run(before, before, root / "same", 3, 10)
     assert all(values["changed"] == 0 for values in same["lists"].values()), same
 
+    # 从引擎常量取真实查询，对照等权记录的插入次序与精确码优先行为。
+    provider = (ROOT / "crates/engine/src/wubi/provider.rs").read_text(encoding="utf-8")
+    def engine_sql(name):
+        line = next(line for line in provider.splitlines() if line.startswith(f"const {name}:"))
+        return json.loads(line.split(" = ", 1)[1].removesuffix(";"))
+
+    ordered, reversed_order = root / "ordered", root / "reversed"
+    tied = [("g", "甲", 1), ("g", "乙", 1)]
+    make(ordered, tied + [("gg", "合成补全", 999)], [], {}, {}, [])
+    make(reversed_order, list(reversed(tied)) + [("gg", "合成补全", 999)], [], {}, {}, [])
+    for table in topn_diff.WUBI_TABLES:
+        profile = table.removeprefix("wubi")
+        with sqlite3.connect(ordered / "msime-wubi.db") as first, sqlite3.connect(reversed_order / "msime-wubi.db") as second:
+            expected_first = [row[1] for row in first.execute(engine_sql(f"GRID_EXACT_SQL_{profile}"), ("g", 3))]
+            expected_second = [row[1] for row in second.execute(engine_sql(f"GRID_EXACT_SQL_{profile}"), ("g", 3))]
+            assert expected_first == ["甲", "乙"] and expected_second == ["乙", "甲"]
+            assert topn_diff.wubi_exact(first, table, 3)["g"][1] == expected_first
+            assert topn_diff.wubi_exact(second, table, 3)["g"][1] == expected_second
+            expected_completion = [f"{value}({key})" for key, value, _ in first.execute(engine_sql(f"QUERY_SQL_{profile}"), ("g", "g\x7f", 3))]
+            assert expected_completion == ["甲(g)", "乙(g)", "合成补全(gg)"]
+            assert topn_diff.wubi_completion(first, table, 3, ["g"])["g"] == expected_completion
+    insertion = topn_diff.run(ordered, reversed_order, root / "insertion", 3, 10)
+    for table in topn_diff.WUBI_TABLES:
+        for kind in ("exact", "completion"):
+            assert insertion["lists"][f"{table}-{kind}"]["top1_changed"] == 1, "插入次序改变造成的首选变化必须进入报告"
+
 print("dictionary top-N diff: ok")

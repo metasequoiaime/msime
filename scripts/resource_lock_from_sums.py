@@ -91,7 +91,7 @@ def build_lock(artifact: Path, base: dict, url_base: str, without_model: bool, s
 
 
 def stage(lock: dict, artifact: Path, model: Path | None, directory: Path) -> None:
-    """建一个只含锁里文件的资源目录：硬链接，跨盘或文件系统不支持时复制。目录必须不存在或为空。"""
+    """建一个只含锁里文件的资源目录：硬链接保持源权限，跨盘或文件系统不支持时复制并收紧副本权限。目录必须不存在或为空。"""
     if directory.exists() and any(directory.iterdir()):
         raise SystemExit(f"{directory} is not empty")
     directory.mkdir(parents=True, exist_ok=True)
@@ -109,7 +109,7 @@ def stage(lock: dict, artifact: Path, model: Path | None, directory: Path) -> No
             os.link(source, target)
         except OSError:
             shutil.copyfile(source, target)
-        os.chmod(target, 0o600)
+            os.chmod(target, 0o600)
 
 
 def main(argv: list | None = None) -> int:

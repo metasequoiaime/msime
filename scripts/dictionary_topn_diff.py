@@ -3,7 +3,7 @@
 
 为什么只报告：五笔和英文都没有独立的金标准。五笔的码表本身就是答案，没有一份外部的「这个码该出哪个字」可以拿来打分；英文的补全和释义也没有评测集。能做的是把换词库前后用户第一眼看到的东西并排列出来，由人判断变好还是变坏。
 
-为什么是数据层：五笔和英文的候选顺序几乎就是 SQL 的排序（五笔 `weight DESC` 再按码和字，英文补全照 `crates/engine/src/dictionary/english.rs` 的 `PREFIX_SQL`：完全相同的词在前，再按权重、长度），所以这里直接读两份数据库按同样的排序取前 N 个，不经引擎。量不到的有：个人学习和调频、五笔四码唯一自动上屏、九键英文的数字前缀（`KEYPAD_PREFIX_SQL`），这些要在真实宿主上看。
+为什么是数据层：五笔和英文的候选顺序几乎就是 SQL 的排序（五笔精确命中优先，再按权重、码和 `rowid`；英文补全照 `crates/engine/src/dictionary/english.rs` 的 `PREFIX_SQL`：完全相同的词在前，再按权重、长度），所以这里直接读两份数据库按同样的排序取前 N 个，不经引擎。量不到的有：个人学习和调频、五笔四码唯一自动上屏、九键英文的数字前缀（`KEYPAD_PREFIX_SQL`），这些要在真实宿主上看。
 
 清单（写在 `--out` 下，制表符分隔，只列有变化的行）：
 
@@ -46,7 +46,7 @@ def table_names(connection: sqlite3.Connection) -> set:
 def wubi_exact(connection: sqlite3.Connection, table: str, top: int) -> dict:
     """每个码打全时的前 `top` 个字词，以及首选的权重（排序用）。"""
     rows: dict = {}
-    for key, value, weight in connection.execute(f'SELECT key, value, weight FROM "{table}" ORDER BY key, weight DESC, value'):
+    for key, value, weight in connection.execute(f'SELECT key, value, weight FROM "{table}" ORDER BY key, weight DESC, rowid ASC'):
         entry = rows.setdefault(key, [weight, []])
         if len(entry[1]) < top:
             entry[1].append(value)
@@ -58,7 +58,7 @@ def wubi_completion(connection: sqlite3.Connection, table: str, top: int, prefix
     result = {}
     for prefix in prefixes:
         rows = connection.execute(
-            f'SELECT key, value FROM "{table}" WHERE key >= ? AND key < ? ORDER BY weight DESC, key, value LIMIT ?',
+            f'SELECT key, value FROM "{table}" WHERE key >= ?1 AND key < ?2 ORDER BY (key = ?1) DESC, weight DESC, key ASC, rowid ASC LIMIT ?3',
             (prefix, prefix + "\x7f", top),
         ).fetchall()
         if rows:
