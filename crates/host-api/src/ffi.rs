@@ -153,6 +153,52 @@ pub(crate) fn sentence_model(
 mod tests {
     use super::*;
 
+    #[cfg(feature = "onnx-rerank")]
+    #[test]
+    fn a_cached_pause_model_must_fit_each_new_hosts_limit() {
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../onnx-rerank/tests/fixtures");
+        let bundle = tempfile::tempdir().unwrap();
+        let directory = bundle.path().join(SMALL_RERANK_MODEL_DIRECTORY);
+        std::fs::create_dir(&directory).unwrap();
+        for name in ["lm_step.ort", "model.json", "vocab.json"] {
+            std::fs::copy(fixtures.join(name), directory.join(name)).unwrap();
+        }
+        // 只加载仓库内的小型合成模型，不量机器速度；20 ms 是前一个停顿宿主留下的自测记录。
+        let scorer = Arc::new(Mutex::new(load_onnx_reranker(&directory).unwrap()));
+        let mut cache = OnnxRerankers {
+            loaded: Some(LoadedOnnxReranker {
+                directory: directory.clone(),
+                stamps: [None, model_stamp(&directory)],
+                scorer: scorer.clone(),
+                category: "keyboard reranker onnx small",
+                detail: "synthetic calibration (page 20.0 ms, limit 60.0 ms)".into(),
+                page_ms: 20.0,
+            }),
+            ..OnnxRerankers::default()
+        };
+        let pause = cache
+            .attach(bundle.path(), 15.0, PAUSE_RERANK_LIMIT_MS, None)
+            .attached()
+            .unwrap();
+        assert!(Arc::ptr_eq(&pause.scorer, &scorer));
+        match cache.attach(bundle.path(), 15.0, KEYSTROKE_RERANK_LIMIT_MS, None) {
+            OnnxAttach::OverLimit(detail) => {
+                assert!(detail.contains("page 20.0 ms"), "{detail}");
+                assert!(detail.contains("limit 15.0 ms"), "{detail}");
+            }
+            _ => panic!("普通宿主不能复用超过自己逐键上限的缓存模型"),
+        }
+        // 拒绝较严的宿主不卸载或重选模型；原停顿宿主和恰好达到上限的宿主仍复用同一份。
+        for limit in [PAUSE_RERANK_LIMIT_MS, 20.0] {
+            let attached = cache
+                .attach(bundle.path(), 15.0, limit, None)
+                .attached()
+                .unwrap();
+            assert!(Arc::ptr_eq(&attached.scorer, &scorer));
+            assert_eq!(attached.page_ms, 20.0);
+        }
+    }
+
     #[test]
     fn the_sentence_model_cache_is_bounded_across_paths() {
         let mut directories = Vec::new();
@@ -253,7 +299,7 @@ pub(crate) enum RerankerMount {
 /// 挂上的逐键重排器，挂在哪里：按键上（`Runtime::set_candidate_scorer`），还是延后到宿主停顿时（`Runtime::set_deferred_scorer`）。
 pub(crate) enum MountedReranker {
     Keystroke(Box<dyn msime_input_runtime::CandidateScorer>),
-    // Only an ONNX model is ever deferred; builds without ONNX Runtime never make one.
+    // 只有 ONNX 模型会延后；未编入 ONNX Runtime 的构建不会创建这一项。
     #[cfg_attr(not(feature = "onnx-rerank"), allow(dead_code))]
     Pause(Box<dyn msime_input_runtime::CandidateScorer>),
 }
@@ -726,6 +772,13 @@ impl OnnxRerankers {
             .as_ref()
             .filter(|loaded| loaded.directory.parent() == Some(root) && loaded.stamps == stamps)
         {
+            if loaded.page_ms > limit_ms {
+                return OnnxAttach::OverLimit(format!(
+                    "{} (page {:.1} ms, limit {limit_ms:.1} ms)",
+                    loaded.directory.display(),
+                    loaded.page_ms
+                ));
+            }
             return OnnxAttach::Attached(AttachedOnnxReranker {
                 scorer: Arc::clone(&loaded.scorer),
                 category: loaded.category,
