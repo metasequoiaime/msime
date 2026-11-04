@@ -187,6 +187,25 @@ class DiffTest(unittest.TestCase):
         self.assertIn("新表 1", markdown)
         self.assertIn("整表删除（1）", markdown)
 
+    def test_schema_preserves_spaces_inside_quoted_values(self):
+        for before, after in (("'two  words'", "'two words'"), ("'can''t  stop'", "'can''t stop'")):
+            with self.subTest(before=before):
+                for root, default in ((self.base, before), (self.head, after)):
+                    with sqlite3.connect(root / "msime-pinyin.db") as con:
+                        con.execute("DROP TABLE IF EXISTS review_terms")
+                        con.execute(f"CREATE TABLE review_terms (value TEXT DEFAULT {default})")
+                status, report, _ = self.run_diff("--expect-no-change")
+                self.assertEqual(status, 1, "不同的默认字符串不能报告为相同定义")
+                self.assertIn("table review_terms", report["files"]["msime-pinyin.db"]["schema"]["changed"])
+
+    def test_schema_ignores_formatting_outside_quoted_values(self):
+        for root, whitespace in ((self.base, " "), (self.head, "\n  ")):
+            with sqlite3.connect(root / "msime-pinyin.db") as con:
+                con.execute(f"CREATE TABLE review_terms (value{whitespace}TEXT DEFAULT 'two  words')")
+        status, report, _ = self.run_diff("--expect-no-change")
+        self.assertEqual(status, 0)
+        self.assertFalse(report["changed"])
+
     def test_same_content_and_order_with_different_bytes_is_not_a_change(self):
         # 建一张表再删掉：多出空闲页，文件字节不同，行的内容和次序都不变。
         self.rewrite_head_db(extra=("CREATE TABLE scratch (x TEXT)", "INSERT INTO scratch VALUES ('x')", "DROP TABLE scratch"))
@@ -261,6 +280,27 @@ class DiffTest(unittest.TestCase):
         self.assertEqual(status, 1)
         self.assertEqual(report["files"]["msime-dictionary-manifest.json"]["samples"], [{"path": "features[2]", "base": None, "head": '"english"'}])
         self.assertIn("| `features[2]` | （无） | `\"english\"` |", markdown)
+
+    def test_supplement_headers_ignore_only_the_builder_commit(self):
+        for profile, label in (("wubi86", "86 五笔词组补充表"), ("wubi98", "98 五笔词组补充表"), ("wubixsj", "新世纪五笔词组表")):
+            name = f"{profile}-supplement.txt"
+            for root, commit in ((self.base, "1" * 40), (self.head, "2" * 40)):
+                header = f"# {label}，由 msime 仓库提交 {commit} 的 crates/dict-builder/src/{profile}_supplement.rs 以固定命令生成。\n"
+                (root / name).write_text(header + "合成词\taa\t5\n", encoding="utf-8")
+        status, report, _ = self.run_diff("--expect-no-change")
+        self.assertEqual(status, 0, "构建器提交号必然不同，不能让严格模式总是失败")
+        self.assertFalse(report["changed"])
+        path = self.head / "wubi86-supplement.txt"
+        original = path.read_text(encoding="utf-8")
+        for changed in (original.replace("\taa\t5", "\taa\t6"), original.replace("固定命令", "另一命令")):
+            path.write_text(changed, encoding="utf-8")
+            status, report, _ = self.run_diff("--expect-no-change")
+            self.assertEqual(status, 1)
+            self.assertTrue(report["files"][path.name]["changed"])
+        path.write_text(original, encoding="utf-8")
+        for root in (self.base, self.head):
+            shutil.copy(root / path.name, root / "unrelated.txt")
+        self.assertEqual(self.run_diff("--expect-no-change")[0], 1, "其他文本里的提交号不适用这条例外")
 
     def test_text_binary_and_missing_files(self):
         (self.head / "msime-scowl_Copyright.txt").write_text("line one\nline 2\nline three\n", encoding="utf-8")

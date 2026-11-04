@@ -300,7 +300,7 @@ jobs:
               *) echo "**编译失败**" ;;
             esac
           }
-          # The single-quoted printf formats hold Markdown code spans; their backticks are literal on purpose.
+          # printf 的格式串用单引号包住，Markdown 代码片段里的反引号保持字面含义。
           # shellcheck disable=SC2016
           {
             printf -- '- 新构建器：[`%s`](%s/%s/commit/%s)，%s\n' "${HEAD_SHA:0:10}" "$server" "$GITHUB_REPOSITORY" "$HEAD_SHA" "$(status "$COMPILE_HEAD" "$BUILD_HEAD")"
