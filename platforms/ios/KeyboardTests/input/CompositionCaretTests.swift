@@ -101,6 +101,7 @@ final class CompositionCaretTests: XCTestCase {
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
     controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.viewWillAppear(false)
     controller.view.layoutIfNeeded()
     let preedit = try XCTUnwrap(descendants(controller.view).first {
       $0.accessibilityIdentifier == "preeditButton"
