@@ -92,3 +92,56 @@ fn cantonese_simplified_composed_sentence_keeps_the_dictionary_spelling() {
         ("ngo hou", "我號", true)
     );
 }
+
+/// 简体仅影响显示和上屏；调频与分段造词仍写词库的原始文字，关闭转换后不混入简体行。
+#[test]
+fn cantonese_output_conversion_keeps_learning_in_dictionary_script() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let cantonese = cantonese_dictionary(fixture.path());
+    let configure = cantonese_learning_options(&cantonese, FrequencyAdjustmentMode::Promote);
+    let mut session = fixture.session_with(|options| {
+        configure(options);
+        options.cantonese_output_conversion =
+            Some(crate::TextConversion(synthetic_cantonese_simplification));
+    });
+    type_text(&mut session, "hou");
+    assert_eq!(words(&session), ["好", "号"]);
+    assert_eq!(session.select(1).commit.as_deref(), Some("号"));
+    drop(session);
+    crate::flush_personal_learning();
+    assert_eq!(cantonese_journal_rows(&fixture)[0].1, "號");
+    let mut plain = fixture.session_with(&configure);
+    type_text(&mut plain, "hou");
+    assert_eq!(words(&plain), ["號", "好"]);
+}
+
+/// 分段造词和整句造词都保存原文，重新关闭简体后恢复原词库字形。
+#[test]
+fn cantonese_output_conversion_keeps_created_words_in_dictionary_script() {
+    for (input, picks, committed, canonical) in [
+        ("neihou", vec![1, 1], vec!["你", "号"], "你號"),
+        ("ngo'oi", vec![0], vec!["我爱"], "我愛"),
+    ] {
+        let fixture = Fixture::new(QUANPIN_FIXTURE);
+        let cantonese = cantonese_dictionary(fixture.path());
+        let configure = cantonese_learning_options(&cantonese, FrequencyAdjustmentMode::Disabled);
+        let mut session = fixture.session_with(|options| {
+            configure(options);
+            options.cantonese_output_conversion =
+                Some(crate::TextConversion(synthetic_cantonese_simplification));
+        });
+        type_text(&mut session, input);
+        for (index, expected) in picks.into_iter().zip(committed) {
+            assert_eq!(session.select(index).commit.as_deref(), Some(expected));
+        }
+        drop(session);
+        crate::flush_personal_learning();
+        let rows = cantonese_journal_rows(&fixture);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].1, canonical);
+        assert!(rows[0].3);
+        let mut plain = fixture.session_with(&configure);
+        type_text(&mut plain, input);
+        assert_eq!(words(&plain)[0], canonical);
+    }
+}

@@ -10930,9 +10930,11 @@ fn cantonese_rows_are_not_edited_and_learn_nothing_with_learning_off() {
     assert_eq!(words(&session), ["你好", "妳好", "你", "妳"]);
 }
 
-/// 测试用的输出转换：只认夹具里的两个繁体字，代替宿主的繁转简。
+/// 测试用的输出转换：只认夹具里的繁体字，代替宿主的繁转简。
 fn synthetic_cantonese_simplification(text: &str) -> String {
-    text.replace('妳', "你").replace('號', "号")
+    text.replace('妳', "你")
+        .replace('號', "号")
+        .replace('愛', "爱")
 }
 
 #[test]

@@ -3996,6 +3996,7 @@ public final class MSIMEInputService extends InputMethodService {
         selectedScheme = nextSchemeConfiguration.selected();
         rememberChineseScheme();
         preferencesSnapshot = accepted;
+        RerankModelDownload.scheduleIfWanted(this, preferences, installedResourcePackIds);
         refreshModeSkinLibrary(preferences);
         imeTextEditPanel.applyPreferences(preferences);
         if (!clipboardHistoryEnabled && clipboardHistory != null) {
@@ -6149,11 +6150,14 @@ public final class MSIMEInputService extends InputMethodService {
             scheme = InputViewValuePolicy.scheme(view, -1);
             profile = InputViewValuePolicy.textOr(view, "shuangpin_profile", "");
             localMode = InputViewValuePolicy.textOr(view, "local_mode", "none");
-            rememberShuangpinProfile(ShuangpinKeyHintPolicy.rememberedProfile(scheme, profile));
+            profile = ShuangpinKeyHintPolicy.rememberedProfile(
+                scheme, profile, selectedScheme.preferenceId());
+            rememberShuangpinProfile(profile);
+            scheme = ShuangpinKeyHintPolicy.hintScheme(scheme, profile);
         } else {
             // view 还没到时按上次的双拼方案画，和 touchLayoutHint 同理；会话到达后方案不同由这次之后的 render 改正。
             profile = ShuangpinKeyHintPolicy.profileWithoutView(
-                session != 0 || engineStartupPending(), shuangpinProfileHint());
+                session != 0 || engineStartupPending(), shuangpinProfileHint(), selectedScheme.preferenceId());
             scheme = profile.isEmpty() ? -1 : 1;
             localMode = "none";
         }
@@ -12560,7 +12564,7 @@ public final class MSIMEInputService extends InputMethodService {
                 dedicatedEnglish, selectedScheme, currentLocalMode);
             ViewPolicy.setVisible(microsoftFinalKey, visible);
             ViewPolicy.setEnabled(microsoftFinalKey, visible && session != 0);
-            microsoftFinalKey.setContentDescription("微软双拼 ing");
+            microsoftFinalKey.setContentDescription(MicrosoftShuangpinKeyPolicy.accessibilityLabel(selectedScheme));
         }
         if (layerButton != null) {
             boolean symbols = keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
