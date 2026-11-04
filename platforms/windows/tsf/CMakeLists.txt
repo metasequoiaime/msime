@@ -327,6 +327,17 @@ set(MSIME_HOST_LIBRARY "" CACHE FILEPATH "Cargo-built host library or import lib
 include("${CMAKE_CURRENT_SOURCE_DIR}/RequireHostLibrary.cmake")
 enable_language(RC)
 
+# Windows 11 26H2 的系统进程不再把 TSF 所在目录当作普通导入 DLL 的搜索目录。宿主库改成延迟导入，由钩子按 TSF 自身的完整路径加载；ARM64X 的两个半边各自编译钩子，分别匹配 ARM64 和 x64 宿主。
+set(msime_tsf_host_dll "${msime_edition_host_dll}")
+set(msime_tsf_delay_dlls "${msime_tsf_host_dll}")
+if(MSIME_TSF_ARM64X STREQUAL "ARM64")
+  string(REGEX REPLACE "\\.dll$" "_arm64.dll" msime_tsf_host_dll "${msime_edition_host_dll}")
+  set(msime_tsf_delay_dlls "${msime_tsf_host_dll}")
+elseif(MSIME_TSF_ARM64X STREQUAL "ARM64EC")
+  string(REGEX REPLACE "\\.dll$" "_arm64.dll" msime_tsf_arm64_host_dll "${msime_edition_host_dll}")
+  list(APPEND msime_tsf_delay_dlls "${msime_tsf_arm64_host_dll}")
+endif()
+
 include("${CMAKE_CURRENT_SOURCE_DIR}/TelemetryWer.cmake")
 add_subdirectory(tests/capture_lifecycle)
 
@@ -361,6 +372,9 @@ add_library(msime-tsf SHARED
   IME/MetasequoiaIME.rc
   IME/MetasequoiaIME.def
 )
+if(MSVC)
+  target_sources(msime-tsf PRIVATE HostLibraryDelayLoad.cpp)
+endif()
 add_dependencies(msime-tsf msime-tsf-crash-wer)
 add_dependencies(msime-tsf-class-factory-test msime-tsf)
 
@@ -384,6 +398,12 @@ if(MINGW)
   target_sources(msime-tsf PRIVATE Global/TsfPropertyGuids.cpp)
 endif()
 target_link_libraries(msime-tsf PRIVATE "${MSIME_HOST_LIBRARY}")
+if(MSVC)
+  target_link_libraries(msime-tsf PRIVATE delayimp)
+  foreach(msime_tsf_delay_dll IN LISTS msime_tsf_delay_dlls)
+    target_link_options(msime-tsf PRIVATE "/DELAYLOAD:${msime_tsf_delay_dll}")
+  endforeach()
+endif()
 set_target_properties(msime-tsf PROPERTIES OUTPUT_NAME MetasequoiaImeTsf)
 install(TARGETS msime-tsf
   RUNTIME DESTINATION bin
