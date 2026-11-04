@@ -106,8 +106,8 @@
     if ([self owns:token] && !_processing && !_ready)
         [self fail:MSIMEVoiceFailureCapture error:nil];
 }
-- (void)expire:(id)token {
-    if ([self owns:token]) [self fail:MSIMEVoiceFailureTimeout error:nil];
+- (void)scheduleAfter:(NSTimeInterval)delay action:(void (^)(void))action {
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), action);
 }
 - (MSIMEGlobalVoiceStartResult)startGlobalVoiceHolding:(BOOL)holding {
     if (_token) return MSIMEGlobalVoiceStartRetry;
@@ -126,7 +126,8 @@
         MSIMELocalVoiceModelDirectory(_options[@"asr_model_path"]))) {
         [self fail:MSIMEVoiceFailureMissingLocalModel error:nil]; return MSIMEGlobalVoiceStartFailed;
     }
-    _session = [self makeSession];
+    // 核心会话跨录音保留，socket 协议的代次随真实 voice start 单调递增。
+    if (!_session) _session = [self makeSession];
     if (!_session) { [self fail:MSIMEVoiceFailureSession error:nil]; return MSIMEGlobalVoiceStartFailed; }
     NSString *directory = [self runtimeOptions][@"preferences_directory"];
     NSDictionary *preferences = [directory isKindOfClass:NSString.class] && directory.isAbsolutePath
@@ -172,8 +173,7 @@
     }
     _options = MSIMEVoiceQuery([self voiceDefaults], _generation, NO);
     [self startProvider:token];
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ [weakSelf verifyCapture:token]; });
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 100 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ [weakSelf expire:token]; });
+    [self scheduleAfter:2 action:^{ [weakSelf verifyCapture:token]; }];
     return _token ? MSIMEGlobalVoiceStartAccepted : MSIMEGlobalVoiceStartFailed;
 }
 - (void)startProvider:(id)token {
@@ -309,9 +309,10 @@
         MSIMEClientSession *session = _session; NSString *socket = _socket; uint64_t generation = _generation;
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{ [session voiceProviderStopSocket:socket generation:generation error:nil]; });
     }
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ [weakSelf expire:token]; });
 }
 - (void)cancelGlobalVoice {
+    // fail 已完成回收后，协调器的第二次结束不能顺带隐藏仍需阅读的错误。
+    if (!_token) return;
     // 先撤销令牌，停止设备与请求引发的迟到回调无法作用于本轮或下一轮。
     _token = nil; _hostToken = nil; _permission = NO;
     [_http cancel]; [_stream cancel]; [_polisher cancel];
@@ -322,10 +323,11 @@
     }
     [_service cancelWithError:nil]; [self captureEnded];
     [_overlay setListening:NO]; _overlay.actionHandler = nil;
-    [_session closeWithError:nil]; _session = nil;
+
     _socket = nil; _options = nil; _processing = NO; _generation = 0;
 }
 - (void)endGlobalVoice { [self cancelGlobalVoice]; }
+- (void)dealloc { [self cancelGlobalVoice]; [_session closeWithError:nil]; }
 - (void)lockGlobalVoice { _locked = YES; [_overlay setRecordingLocked:YES]; }
 - (void)detachGlobalVoice { _detached = YES; [self stopGlobalVoice]; }
 @end

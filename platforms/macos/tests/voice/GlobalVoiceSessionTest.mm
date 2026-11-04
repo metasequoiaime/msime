@@ -4,6 +4,7 @@
 #import "../../src/voice/DoubaoVoiceRequest.h"
 #import "../../src/voice/HTTPVoiceRequest.h"
 #include <cassert>
+#import "../settings/TestPreferenceSuite.h"
 
 @interface MSIMEGlobalVoiceSession (Test)
 - (void)verifyCapture:(id)token;
@@ -50,15 +51,16 @@
 @property(nonatomic) BOOL locked;
 @property(nonatomic) NSUInteger failures;
 @property(nonatomic) NSUInteger starts;
+@property(nonatomic) BOOL failureVisible;
 @end
 @implementation CaptureOverlay
-- (void)setListening:(BOOL)value { _listening = value; if (value) ++_starts; }
+- (void)setListening:(BOOL)value { _failureVisible = NO; _listening = value; if (value) ++_starts; }
 - (void)setRecordingLocked:(BOOL)value { _locked = value; }
 - (void)setInputLevel:(float)value { (void)value; }
 - (void)setProcessing:(BOOL)value { (void)value; }
 - (void)setTranscript:(NSString *)value { (void)value; }
 - (void)applyThemePreferences:(NSDictionary *)value { (void)value; }
-- (void)showFailure:(MSIMEVoiceFailure)failure detail:(NSString *)detail { (void)failure; (void)detail; ++_failures; }
+- (void)showFailure:(MSIMEVoiceFailure)failure detail:(NSString *)detail { (void)failure; (void)detail; ++_failures; _failureVisible = YES; }
 - (void)dismissProcessing {}
 @end
 @interface CaptureStream : NSObject <MSIMEStreamingVoiceRequest>
@@ -107,8 +109,13 @@
 @property(nonatomic) CaptureHTTP *polisher;
 @property(nonatomic) NSString *socket;
 @property(nonatomic) BOOL targetCurrent;
+@property(nonatomic) NSMutableArray<NSDictionary *> *scheduled;
 @end
 @implementation CaptureSession
+- (void)scheduleAfter:(NSTimeInterval)delay action:(void (^)(void))action {
+    if (!_scheduled) _scheduled = [NSMutableArray new];
+    [_scheduled addObject:@{@"delay":@(delay), @"action":[action copy]}];
+}
 - (NSUserDefaults *)voiceDefaults { return _defaults; }
 - (NSDictionary *)runtimeOptions { return _configuration; }
 - (BOOL)captureTargetCurrent { return _targetCurrent; }
@@ -202,8 +209,10 @@ int main() {
             CaptureSession *s = Make();
             assert([s startGlobalVoiceHolding:YES] == MSIMEGlobalVoiceStartAccepted);
             MSIMEDoubaoResult late = s.request.reply;
+            uint64_t firstGeneration = [[s valueForKey:@"generation"] unsignedLongLongValue];
             [s cancelGlobalVoice]; Bind(s);
             assert([s startGlobalVoiceHolding:YES] == MSIMEGlobalVoiceStartAccepted);
+            assert([[s valueForKey:@"generation"] unsignedLongLongValue] > firstGeneration);
             late(@"synthetic result", YES, nil);
             assert(deliveries == 4 && [s globalVoiceBusy]);
             [s cancelGlobalVoice];
@@ -252,13 +261,31 @@ int main() {
             assert([s startGlobalVoiceHolding:YES] == MSIMEGlobalVoiceStartAccepted);
             id token = [s valueForKey:@"token"];
             [s verifyCapture:token]; assert(s.display.failures == 1 && ![s globalVoiceBusy]);
+            [s endGlobalVoice]; [s endGlobalVoice];
+            assert(s.display.failureVisible);
             Bind(s); assert([s startGlobalVoiceHolding:YES] == MSIMEGlobalVoiceStartAccepted);
             [s verifyCapture:token]; assert(s.display.failures == 1 && [s globalVoiceBusy]);
             [s cancelGlobalVoice];
         }
+        {
+            // 提供商仍可处理有效的长录音和慢响应，协调层不另设更短的整场期限。
+            [defaults setObject:@"openai" forKey:@"MSIMEClientVoiceASRProvider"];
+            CaptureSession *s = Make();
+            assert([s startGlobalVoiceHolding:YES] == MSIMEGlobalVoiceStartAccepted);
+            [s setValue:@YES forKey:@"ready"];
+            NSArray *timers = [s.scheduled copy]; [s.scheduled removeAllObjects];
+            for (NSDictionary *timer in timers) ((void (^)(void))timer[@"action"])();
+            assert([s globalVoiceBusy]);
+            [s stopGlobalVoice];
+            timers = [s.scheduled copy]; [s.scheduled removeAllObjects];
+            for (NSDictionary *timer in timers) ((void (^)(void))timer[@"action"])();
+            assert([s globalVoiceBusy] && [s globalVoiceProcessing]);
+            s.http.reply(@"synthetic result", nil);
+            assert(![s globalVoiceBusy] && deliveries == 6);
+        }
         MSIMEGlobalVoiceHost().owner = nil; MSIMEGlobalVoiceHost().sessionToken = nil;
         MSIMEGlobalVoiceHost().deliver = nil;
-        [defaults removePersistentDomainForName:suite];
+        MSIMERemoveTestPreferenceSuite(defaults, suite);
         assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
     }
 }
