@@ -14,8 +14,8 @@ Status: implemented
 - `resources/eval/quanpin-words-v2.tsv` 由 `scripts/build-quanpin-words-v2.py` 从 v1 派生，参照词库写死为 dict-v2.0.41 的 `msime-pinyin.db`（`eval_keys.py` 的 `REFERENCE_PINYIN_SHA256`，脚本先核对；不读当前资源锁，锁升级后照样能重新生成），去掉截断 1,694、读音不符 44、缺词 86 条，留下 23,295 条；同码用例打 `same-code-full|nine|fourteen` 标签。`lue`/`nue` 当作 `lve`/`nve` 比较，因为引擎把用户打的 `lue` 规整成词库里的 `lve`。v1 不动。
 - `resources/eval/must-outrank.tsv` 只断言相对次序，每行必须有来源；两种行：`outrank` 和 `not-on-first-page`（锚定词不是 `-` 时必须在首屏，防止空过）。`scripts/must_outrank.py` 按键盘把夹具写成 `convert_eval` 的用例集，九键的数字换成一串编码相同的字母，加 `--mixed-english` 跑 dump 再判定。
 - `scripts/vulgar_exposure.py` 的输入集冻结在 `resources/eval/exposure-quanpin-v1.tsv` 和 `exposure-nine-key-v1.tsv`：参照词库权重最高的 5,000 个 2 到 4 字词，每个读音打全、每一个字母前缀、前 k 个音节的首字母，按键盘去重，加方案点名的目标码。粗俗词判定照抄引擎 `lattice::offensive::is_offensive` 的规则、读引擎自己的 `offensive_words.txt`；英文冒犯词读 `english_supplement.rs` 的 `OFFENSIVE`。`--baseline` 比较三项计数，任何一项增加就失败。读音恰好是粗俗词自己的读音（`exact`）只在全键盘上豁免，九键的码几乎都有歧义，不豁免。
-- `scripts/resource_lock_from_sums.py` 以桌面锁为模板，把 dry-run artifact 的 `msime-SHA256SUMS.txt` 换进去，URL 写成 `https://dry-run.invalid/<文件名>`，`--without-model` 去掉模型，`--stage` 建一个恰好只含锁里文件的资源目录。
-- `scripts/dictionary_topn_diff.py` 读两份数据库按引擎的 SQL 排序列出五笔和英文的 top-N 差异，只作审阅附件。
+- `scripts/resource_lock_from_sums.py` 以桌面锁为模板，把 dry-run artifact 的 `msime-SHA256SUMS.txt` 换进去，URL 写成 `https://dry-run.invalid/<文件名>`，`--without-model` 去掉模型，`--stage` 建一个恰好只含锁里文件的资源目录。同盘硬链接保持源权限，不能对共享 inode 调 `chmod`，否则会改动原词库或模型；跨盘回退只对新副本设 `0600`。
+- `scripts/dictionary_topn_diff.py` 读两份数据库按引擎的 SQL 排序列出五笔和英文的 top-N 差异，只作审阅附件。五笔补全先排精确码，再按权重、码、`rowid`；同码同权重保留插入次序，不能按字面排序，否则仅插入次序变化造成的首选变化会被漏报。
 - 码表（九键 `KEYPAD`、14 键 `FOURTEEN_KEYPAD`）在 `scripts/eval_keys.py`，`scripts/test-build-quanpin-words-v2.py` 核对它与 `crates/engine/src/nine_key.rs` 逐字相同；`scripts/test-dictionary-topn-diff.py` 核对英文补全的排序与 `english.rs` 的 `PREFIX_SQL` 相同。
 
 ### 为什么 must-outrank 现在不进 `verify-local.sh`
@@ -38,4 +38,5 @@ Status: implemented
 ## Verification
 
 - `python3 scripts/test-eval-compare.py`、`test-build-quanpin-words-v2.py`、`test-must-outrank.py`、`test-vulgar-exposure.py`、`test-resource-lock-from-sums.py`、`test-dictionary-topn-diff.py` 随 `scripts/run-checks.sh` 运行，不需要词库。
+- 资源暂存用合成词库与模型检查源权限不变，并模拟跨盘错误验证副本内容和 `0600` 权限。五笔用合成 SQLite 数据与引擎的真实查询常量对照：两个方案都保留同权重插入次序、低权重精确码领先高权重补全，报告计入插入次序改变造成的首选变化；这三类断言分别在修复前失败、修复后通过。
 - 在 Studio 上用 dict-v2.0.41 加 `sentence-model.safetensors`：`must_outrank.py run` 6 行全部失败（README 的表）；`vulgar_exposure.py run` 全拼 10 串、九键 9 串首屏有粗俗词。用 `resource_lock_from_sums.py` 给 dict-v2.0.51 的发布附件生成临时锁并 stage，`convert_eval` 校验通过；`eval_compare.py convert` 在 v2 的三种键盘上配对比较 A→B（构建器漂移），top-1、top-5 的 fixed 和 broken 都是 0，`vulgar_exposure.py run --baseline` 对 A 的报告通过，`must_outrank.py` 在 B 上同样 6 行失败。

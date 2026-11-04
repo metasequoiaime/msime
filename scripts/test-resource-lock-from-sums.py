@@ -3,11 +3,15 @@
 
 用合成的 artifact，不需要真实词库。
 """
+import errno
 import hashlib
 import importlib.util
 import json
+import os
+import stat
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("lock_from_sums", ROOT / "scripts/resource_lock_from_sums.py")
@@ -75,11 +79,26 @@ with tempfile.TemporaryDirectory(prefix="msime-lock-from-sums-") as temporary:
 
     # staged 目录恰好只含锁里的文件，模型从 --model 取并核对。
     staged = root / "staged"
+    sources = [artifact / entry["name"] if entry["name"] != lock_from_sums.MODEL else model for entry in lock["artifacts"]]
+    for source in sources:
+        source.chmod(0o644)
+    source_modes = {source: stat.S_IMODE(source.stat().st_mode) for source in sources}
     lock_from_sums.stage(lock, artifact, model, staged)
+    assert all(stat.S_IMODE(source.stat().st_mode) == source_modes[source] for source in sources), "硬链接暂存不得改变词库或模型源文件的权限"
     assert sorted(path.name for path in staged.iterdir()) == sorted(entry["name"] for entry in lock["artifacts"])
     for entry in lock["artifacts"]:
         data = (staged / entry["name"]).read_bytes()
         assert digest(data) == entry["sha256"] and len(data) == entry["size"]
+    # 跨盘回退仍复制真实内容，只收紧副本的权限。
+    copied = root / "copied"
+    with patch.object(lock_from_sums.os, "link", side_effect=OSError(errno.EXDEV, "合成跨盘错误")):
+        lock_from_sums.stage(lock, artifact, model, copied)
+    for entry, source in zip(lock["artifacts"], sources):
+        target = copied / entry["name"]
+        assert target.read_bytes() == source.read_bytes()
+        if os.name != "nt":
+            assert stat.S_IMODE(target.stat().st_mode) == 0o600
+        assert stat.S_IMODE(source.stat().st_mode) == source_modes[source]
     expect_exit(lambda: lock_from_sums.stage(lock, artifact, model, staged), "not empty")
     expect_exit(lambda: lock_from_sums.stage(lock, artifact, None, root / "staged-no-model"), "--model")
     wrong_model = root / "wrong.safetensors"
