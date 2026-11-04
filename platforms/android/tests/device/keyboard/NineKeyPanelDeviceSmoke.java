@@ -26,7 +26,7 @@ public final class NineKeyPanelDeviceSmoke extends DeviceSmoke {
 
     @Override protected String successDescription() {
         return partialSelection ? "九键展开后连续逐字选词，面板留着并换上剩余组字的候选，选完整句上屏后收起"
-            : recentOnly ? "nine-key spelling picks lead the next unlocked composition across input restarts"
+            : recentOnly ? "nine-key spelling picks remain recorded and visible across input restarts with default model decisions"
             : "nine-key panel locks, backspace, filters and recent spelling selections";
     }
 
@@ -75,7 +75,7 @@ public final class NineKeyPanelDeviceSmoke extends DeviceSmoke {
             }
 
             if (recentOnly) {
-                verifyRecentSpellingSelection();
+                verifyRecentSpellingSelection(options);
                 return;
             }
 
@@ -170,7 +170,7 @@ public final class NineKeyPanelDeviceSmoke extends DeviceSmoke {
             clear.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "");
             if (!await(field("msime-test-plain")).performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, clear))
                 throw new AssertionError("Cannot clear synthetic editor before recent selections");
-            verifyRecentSpellingSelection();
+            verifyRecentSpellingSelection(options);
 
         } finally {
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
@@ -250,8 +250,8 @@ public final class NineKeyPanelDeviceSmoke extends DeviceSmoke {
         shellDiscard("input tap " + bounds.centerX() + " " + bounds.centerY());
     }
 
-    /** 用合成输入交替选择竞争读法，确认锁定首候选会被新会话的未锁定输入读到。 */
-    private void verifyRecentSpellingSelection() throws Exception {
+    /** 用合成输入交替选择竞争读法，确认新会话仍读得到最近记录；默认增强可以裁决本次首位。 */
+    private void verifyRecentSpellingSelection(JSONObject options) throws Exception {
         for (String spelling : new String[] {"mi", "ni", "mi"}) {
             stage = "lock synthetic spelling " + spelling;
             tap(key("MNO"));
@@ -263,7 +263,7 @@ public final class NineKeyPanelDeviceSmoke extends DeviceSmoke {
             tap(describedPrefix("候选 1："));
             await(field("msime-test-plain").and(node -> equalsText(word, node.getText())));
 
-            stage = "new input connection remembers unlocked pick " + spelling;
+            stage = "new input connection retains unlocked recent record " + spelling;
             restartIme();
             openEditor();
             AccessibilityNodeInfo editor = await(field("msime-test-plain"));
@@ -274,7 +274,9 @@ public final class NineKeyPanelDeviceSmoke extends DeviceSmoke {
             tap(field("msime-test-plain"));
             tap(key("MNO"));
             tap(key("GHI"));
-            await(describedPrefix("候选 1：").and(node -> equalsText(word, node.getText())));
+            // 最近记录的固定槽与这一次模型挑出的显示首位不同：既验候选仍展示，也经产品导出核对记录。
+            await(describedPrefix("候选 ").and(node -> equalsText(word, node.getText())));
+            NineKeyRecentSelectionDeviceChecks.assertRecorded(getTargetContext(), options, spelling, word);
             tap(key("重输"));
             awaitGone(describedPrefix("选择拼音 "));
         }
