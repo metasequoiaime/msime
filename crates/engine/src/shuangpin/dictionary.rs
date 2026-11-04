@@ -147,6 +147,7 @@ impl ShuangpinDictionary {
             database.warm_up();
             // 在构造时加载并保留表，避免共享淘汰后在按键路径重新读表。
             sentence_tables = SentenceNgramTables::load(paths);
+            sentence_tables.set_offensive_words(database.offensive_words());
             // Records the data version so the first cache hit has something to compare with.
             database.database_changed();
         }
