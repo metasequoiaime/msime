@@ -14,7 +14,7 @@ use crate::zhuyin;
 
 pub const SUMS: &str = "msime-language-dictionaries-SHA256SUMS";
 
-/// Builds every language dictionary into `out` with the licence texts from `licenses` (`resources/licenses/`), verifies each, and writes the checksums. Returns one summary line per dictionary.
+/// Builds every language dictionary into `out` with the licence texts from `licenses` (`resources/licenses/`), verifies each, and writes the checksums. Returns one summary line per dictionary, plus one listing the Cantonese essay words the build held down so a maintainer can review them.
 pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<String>> {
     std::fs::create_dir_all(out).with_context(|| format!("creating {}", out.display()))?;
     let mut written = Vec::new();
@@ -46,9 +46,10 @@ pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<Strin
         &corpus,
     );
     let curation = cantonese_curation_inputs(sources)?;
+    let word_rows = cantonese::parse_words(&words)?;
     let dictionary = cantonese::build(
         &characters,
-        &cantonese::parse_words(&words)?,
+        &word_rows,
         &cantonese::parse_essay(&essay)?,
         &corpus,
         &custom_words,
@@ -81,13 +82,15 @@ pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<Strin
         .join(", ");
     let vetoes_summary = vetoes.iter().collect::<String>();
     summaries.push(format!(
-        "{}: {} syllables, {} character and {} word entries ({} of them from the essay, {} of those held below the words-file words of their key for want of HKCanCor, reviewed or pinyin corroboration; {} words weighed by the HKCanCor counts at {} each, {} of them held below an essay word of their key; {custom_summary}; {} entries removed by {}; {} character entries raised toward {} by the words they are written in; {} OpenCC forms spelled the Hong Kong way, with their HKCanCor counts: {forms_summary}; kept by {}: {vetoes_summary})",
+        "{}: {} syllables, {} character and {} word entries ({} of them from the essay, {} of those held below the evidenced words-file words of their key for want of HKCanCor, reviewed or pinyin corroboration and {} kept by {}; {} words weighed by the HKCanCor counts at {} each, {} of them held below an essay word of their key; {custom_summary}; {} entries removed by {}; {} character entries raised toward {} by the words they are written in; {} OpenCC forms spelled the Hong Kong way, with their HKCanCor counts: {forms_summary}; kept by {}: {vetoes_summary})",
         cantonese::DATABASE,
         counts.syllables,
         counts.characters,
         counts.words,
         dictionary.essay_words,
-        dictionary.essay_capped,
+        dictionary.essay_capped.len(),
+        dictionary.essay_kept,
+        cantonese_curation::ESSAY_KEEPS,
         dictionary.corpus_words,
         dictionary.corpus_scale,
         dictionary.corpus_capped,
@@ -97,6 +100,17 @@ pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<Strin
         cantonese::WORD_FLOOR_CEILING,
         forms.len(),
         cantonese::VARIANT_VETOES
+    ));
+    // 压低的 essay 补词逐条列出，维护者审过之后把该留的写进豁免表。
+    summaries.push(format!(
+        "{}: essay words held below the evidenced words-file words of their key (key text old→new): {}",
+        cantonese::DATABASE,
+        dictionary
+            .essay_capped
+            .iter()
+            .map(|capped| format!("{} {} {}→{}", capped.key, capped.text, capped.from, capped.to))
+            .collect::<Vec<_>>()
+            .join(", ")
     ));
 
     let commit = reference_commit(sources, zhuyin::REFERENCE)?;
@@ -147,7 +161,12 @@ pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<Strin
                 &cantonese::parse_variants(cantonese::TW_VARIANTS, &tw_variants)?,
                 &cantonese::parse_variants(cantonese::HK_VARIANTS, &hk_variants)?,
             );
-            let dictionary = stroke::build(&stroke::parse(&source)?, &frequencies, &inherited);
+            let dictionary = stroke::build(
+                &stroke::parse(&source)?,
+                &frequencies,
+                &inherited,
+                &stroke::cantonese_characters(&word_rows),
+            );
             let database = out.join(stroke::DATABASE);
             stroke::write(&dictionary, &database, stroke::source_commit(sources))?;
             let counts = stroke::verify(
@@ -181,19 +200,20 @@ pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<Strin
     Ok(summaries)
 }
 
-/// 粤拼库的清洗输入：拼音库四份词表（去掉 `curation/pinyin-vetoes.txt` 整词否决的词）、繁转简字表，以及 `curation/cantonese-word-vetoes.txt`；两张 `curation/` 表不在时按空表。
+/// 粤拼库的清洗输入：拼音库三张上游词表（按 `curation/pinyin-vetoes.txt`、`curation/pinyin-weight-overrides.txt` 去掉否决和压低了的读音）、繁转简字表，以及 `curation/cantonese-essay-keep.txt`、`curation/cantonese-word-vetoes.txt`；`curation/` 的表不在时按空表。
 fn cantonese_curation_inputs(sources: &Sources) -> Result<cantonese_curation::Curation> {
     let mut tables = Vec::with_capacity(cantonese_curation::PINYIN_TABLES.len());
     for path in cantonese_curation::PINYIN_TABLES {
         tables.push(text::read(&sources.pinned(path)?)?);
     }
-    let pinyin_vetoes = crate::curation::PinyinVetoes::parse(
-        &crate::curation::read_optional(sources, crate::curation::PINYIN_VETOES)?
-            .unwrap_or_default(),
-    )?;
+    let pinyin_curation = crate::curation::PinyinCuration::load(sources)?;
     let traditional_to_simplified = cantonese::parse_variants(
         cantonese_curation::TRADITIONAL_TO_SIMPLIFIED,
         &text::read(&sources.pinned(cantonese_curation::TRADITIONAL_TO_SIMPLIFIED)?)?,
+    )?;
+    let keeps = cantonese_curation::EssayKeeps::parse(
+        &crate::curation::read_optional(sources, cantonese_curation::ESSAY_KEEPS)?
+            .unwrap_or_default(),
     )?;
     let vetoes = cantonese_curation::WordVetoes::parse(
         &crate::curation::read_optional(sources, cantonese_curation::WORD_VETOES)?
@@ -203,8 +223,9 @@ fn cantonese_curation_inputs(sources: &Sources) -> Result<cantonese_curation::Cu
         pinyin: cantonese_curation::PinyinWords::new(
             &tables.iter().map(String::as_str).collect::<Vec<_>>(),
             &traditional_to_simplified,
-            &pinyin_vetoes,
+            &pinyin_curation,
         ),
+        keeps,
         vetoes,
     })
 }
@@ -277,7 +298,7 @@ mod tests {
         };
         let out = tempfile::tempdir().unwrap();
         let summaries = build(&sources, &root.join("resources/licenses"), out.path()).unwrap();
-        assert_eq!(summaries.len(), 3, "{summaries:?}");
+        assert_eq!(summaries.len(), 4, "{summaries:?}");
         let sums = std::fs::read_to_string(out.path().join(SUMS)).unwrap();
         let names: Vec<&str> = sums
             .lines()

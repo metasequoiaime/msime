@@ -2,7 +2,7 @@
 //!
 //! `stroke.dict.yaml` 是 Rime 码表：YAML 头以 `...` 一行结束，之后每行 `字<TAB>笔顺码`，`#` 行是注释。码只用 h 横、s 竖、p 撇、n 点（捺）、z 折五个字母，与方案的按键一一对应，所以原样作为 `entries.key`，不加空格。一个字常有几个笔顺码（大陆规范与台湾 CNS11643 的笔顺并列收录，如「小」zpn 与 spn），每个码各成一条。上游没有权重列，Rime 用自己的八股文字频排序；这里改用 `single-chars.txt`：一个字在其中所有读音的权重之和就是它每个笔顺码的权重，表里没有的字权重为 0。
 //!
-//! 繁体字另从对应的简体字继承权重（`traditional_weights`）。`single-chars.txt` 是简体拼音的字频，繁体字只有万象对齐给的底分或零星的几千分（們 9、時 1592，而 时 849307），笔画方案又不做简繁转换、繁体用户直接打繁体字的笔顺，于是常用繁体字在前缀补全里排到 `COMPLETION_LIMIT` 之外，只有打满全部笔画才出得来（時 在 szhh 下排第 595）。繁简对照取 msime-dictionary 原样收录的 OpenCC `STCharacters.txt`（每个简体字取第一个繁体字形，即 OpenCC 默认的转换结果），再经 `TWVariants.txt`、`HKVariants.txt` 补上台湾、香港的写法（爲 之外的 為、裏 之外的 裡）；这些字形的权重取自身权重与简体字频除以 `TRADITIONAL_DIVISOR` 中较大的一个。OpenCC 的表只决定哪个字继承哪个字的权重，库里不写入它的任何内容，所以 `LICENSE` 不加 OpenCC 的 Apache-2.0，与粤拼库用同两张异体表挑字形的做法相同。
+//! 繁体字另从对应的简体字继承权重（`traditional_weights`）。`single-chars.txt` 是简体拼音的字频，繁体字只有万象对齐给的底分或零星的几千分（們 9、時 1592，而 时 849307），笔画方案又不做简繁转换、繁体用户直接打繁体字的笔顺，于是常用繁体字在前缀补全里排到 `COMPLETION_LIMIT` 之外，只有打满全部笔画才出得来（時 在 szhh 下排第 595）。繁简对照取 msime-dictionary 原样收录的 OpenCC `STCharacters.txt`（每个简体字取第一个繁体字形，即 OpenCC 默认的转换结果；不在表里的字取它自己），再经 `TWVariants.txt`、`HKVariants.txt` 补上台湾、香港的写法（爲 之外的 為、裏 之外的 裡，以及 着 → 著、污 → 汙 这类简体字本身就是 OpenCC 繁体字形、只有台湾写法不同的字）；这些字形的权重取自身权重与简体字频除以 `TRADITIONAL_DIVISOR` 中较大的一个。`STCharacters.txt` 第一个以外的字形不继承（鐘、複、髮、乾、曆），所以它们仍要多打几笔：OpenCC 只说明它们也是这个简体字的繁体，不给用法的比例；拿注音库的 `phrase.occ`（台湾语料）去分配也不可靠，它把 臺 记成 0 次、台 记成 53731 次，按它分会让 臺 什么也继承不到；给一个固定的折扣又没有数据依据。OpenCC 的表只决定哪个字继承哪个字的权重，库里不写入它的任何内容，所以 `LICENSE` 不加 OpenCC 的 Apache-2.0，与粤拼库用同两张异体表挑字形的做法相同。
 //!
 //! 基本区（U+4E00–9FFF）和扩展 A 区（U+3400–4DBF）的汉字都收，其余区段（扩展 B 区及以后、兼容汉字、部首、笔画符号、西夏文部件）只收权重达到 `EXTENSION_MIN_WEIGHT` 的字。上游收了扩展 B 区及以后的七万多个字，macOS 自带字体不覆盖扩展 B 区及以后，它们在候选窗里是方块，而笔数恰好打满时它们作为精确匹配排在常用字的补全前面。引擎把权重不大于 0 的字排到最后，这条判断不改：基本区有 4192 个字（們、與、裏）也只有底分 9，统一抬高门槛会把它们一起压下去，所以门槛只在构建时对基本区和扩展 A 区以外的字生效。
 //!
@@ -10,7 +10,7 @@
 //!
 //! `msime-stroke.db` 从 `--dictionary` checkout 读取 `sources/stroke/stroke.dict.yaml`，并按它的 `upstream.lock.json` 校验。`languages` 必须传 `--dictionary`，所以 `source` 里按常量校验 `--cache` 文件的兜底分支在命令行上已经走不到，只为不删代码而保留。
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
@@ -260,7 +260,7 @@ pub fn parse_frequencies(source: &str) -> Result<HashMap<&str, i64>> {
     Ok(weights)
 }
 
-/// 繁体字形从简体字继承的权重：`simplified_to_traditional`（`STCharacters.txt`）每行的简体字取第一个繁体字形，再加上这个字形在 `tw_variants`、`hk_variants` 里的第一个异体，每个与简体字不同的字形都记简体字频的 `TRADITIONAL_DIVISOR` 分之一；几个简体字落到同一个字形时取最大的。简体字本身不在结果里，字频为 0 的简体字不带出任何字形。
+/// 繁体字形从简体字继承的权重：`frequencies` 里每个有字频的字，取它在 `simplified_to_traditional`（`STCharacters.txt`）里的第一个繁体字形（不在表里、或第一个字形就是它自己时取它自己），再加上这个字形在 `tw_variants`、`hk_variants` 里的第一个异体，每个与这个字不同的字形都记它字频的 `TRADITIONAL_DIVISOR` 分之一；几个字落到同一个字形时取最大的。所以 着 这类不在 `STCharacters.txt` 里、台湾写法却不同的字（着 → 著）也带出台湾字形。字本身不在结果里，字频为 0 的字不带出任何字形。`STCharacters.txt` 第一个以外的字形（钟 → 鍾 鐘 的 鐘、复 → 復 複 覆 的 複）不继承：OpenCC 只给出它们是哪个字的繁体，不给用法的比例，见模块文档。
 pub fn traditional_weights(
     frequencies: &HashMap<&str, i64>,
     simplified_to_traditional: &[(char, Vec<char>)],
@@ -273,28 +273,29 @@ pub fn traditional_weights(
             .filter_map(|(key, values)| Some((*key, *values.first()?)))
             .collect()
     };
-    let (tw, hk) = (first(tw_variants), first(hk_variants));
+    let (traditional, tw, hk) = (
+        first(simplified_to_traditional),
+        first(tw_variants),
+        first(hk_variants),
+    );
     let mut inherited: HashMap<char, i64> = HashMap::new();
-    for (simplified, traditional) in simplified_to_traditional {
-        let Some(&traditional) = traditional.first() else {
+    for (text, frequency) in frequencies {
+        let mut characters = text.chars();
+        let (Some(character), None) = (characters.next(), characters.next()) else {
             continue;
         };
-        let mut buffer = [0; 4];
-        let weight = frequencies
-            .get(&*simplified.encode_utf8(&mut buffer))
-            .copied()
-            .unwrap_or(0)
-            / TRADITIONAL_DIVISOR;
-        if traditional == *simplified || weight <= 0 {
+        let weight = frequency / TRADITIONAL_DIVISOR;
+        if weight <= 0 {
             continue;
         }
+        let form = traditional.get(&character).copied().unwrap_or(character);
         let forms = [
-            traditional,
-            tw.get(&traditional).copied().unwrap_or(traditional),
-            hk.get(&traditional).copied().unwrap_or(traditional),
+            form,
+            tw.get(&form).copied().unwrap_or(form),
+            hk.get(&form).copied().unwrap_or(form),
         ];
         for form in forms {
-            if form != *simplified {
+            if form != character {
                 let slot = inherited.entry(form).or_insert(0);
                 *slot = (*slot).max(weight);
             }
@@ -303,11 +304,12 @@ pub fn traditional_weights(
     inherited
 }
 
-/// 每个 `(笔顺码, 字)` 一条，权重是该字的字频之和与 `inherited`（`traditional_weights`）给它的权重中较大的一个；同一行重复出现只留一条。`kept` 不收的字跳过。
+/// 每个 `(笔顺码, 字)` 一条，权重是该字的字频之和与 `inherited`（`traditional_weights`）给它的权重中较大的一个；同一行重复出现只留一条。`kept` 不收的字跳过，`cantonese` 是粤拼词表用到的字，扩展区里的这些字不受门槛限制。
 pub fn build(
     rows: &[Row],
     frequencies: &HashMap<&str, i64>,
     inherited: &HashMap<char, i64>,
+    cantonese: &HashSet<char>,
 ) -> Dictionary {
     let mut dictionary = Dictionary::default();
     let mut raised = BTreeSet::new();
@@ -319,7 +321,7 @@ pub fn build(
             .next()
             .and_then(|character| inherited.get(&character))
             .map_or(own, |inherited| own.max(*inherited));
-        if !kept(row.text, weight) {
+        if !kept(row.text, weight, cantonese) {
             continue;
         }
         if weight > own {
@@ -333,12 +335,19 @@ pub fn build(
     dictionary
 }
 
-/// 基本区和扩展 A 区的汉字都收；其他字符（扩展 B 区及以后、兼容汉字、部首、笔画符号、西夏文部件）只在权重达到 `EXTENSION_MIN_WEIGHT` 时收。
-fn kept(text: &str, weight: i64) -> bool {
-    let common = text.chars().next().is_some_and(
-        |character| matches!(character, '\u{4E00}'..='\u{9FFF}' | '\u{3400}'..='\u{4DBF}'),
-    );
-    common || weight >= EXTENSION_MIN_WEIGHT
+/// 基本区和扩展 A 区的汉字都收；其他字符（扩展 B 区及以后、兼容汉字、部首、笔画符号、西夏文部件）只在权重达到 `EXTENSION_MIN_WEIGHT`、或者粤拼词表用到这个字（`cantonese`）时收。
+fn kept(text: &str, weight: i64, cantonese: &HashSet<char>) -> bool {
+    let Some(character) = text.chars().next() else {
+        return false;
+    };
+    matches!(character, '\u{4E00}'..='\u{9FFF}' | '\u{3400}'..='\u{4DBF}')
+        || weight >= EXTENSION_MIN_WEIGHT
+        || cantonese.contains(&character)
+}
+
+/// 粤拼词表（`cantonese::WORDS`）的词用到的字，给 `build` 豁免扩展区门槛：香港粤语用字很多在扩展 B 区及以后（𠺝、𢳂、𧨾），字频表只给它们底分，按门槛会被删掉，香港的笔画用户就打不出粤拼库里有的字。只取词表，不取字表：字表收了约两千个扩展区字，大半不在任何词里。
+pub fn cantonese_characters(words: &[crate::cantonese::Row]) -> HashSet<char> {
+    words.iter().flat_map(|row| row.text.chars()).collect()
 }
 
 /// 按引擎的语言词典结构把 `dictionary` 写到 `path`（先删掉旧文件），最后 freeze，同样的输入得到同样的字节。
@@ -518,9 +527,10 @@ mod tests {
 
     #[test]
     fn only_common_blocks_and_characters_with_a_frequency_are_kept() {
+        let none = HashSet::new();
         // 基本区与扩展 A 区：没有字频也收。
-        assert!(kept("口", 0));
-        assert!(kept("\u{3AD1}", 0));
+        assert!(kept("口", 0, &none));
+        assert!(kept("\u{3AD1}", 0, &none));
         // 扩展 B 区及以后、西夏文部件、部首、笔画符号、兼容汉字：没有字频，或者只有万象对齐给的底分（每个读音 9 分），都不收。
         for text in [
             "\u{20BB9}",
@@ -531,12 +541,18 @@ mod tests {
             "\u{F900}",
         ] {
             for weight in [0, 9, 18, 38, EXTENSION_MIN_WEIGHT - 1] {
-                assert!(!kept(text, weight), "{text} {weight}");
+                assert!(!kept(text, weight, &none), "{text} {weight}");
             }
         }
         // 达到门槛的字照收，不论区段；基本区的底分字（們 9）照收。
-        assert!(kept("\u{20BB9}", EXTENSION_MIN_WEIGHT));
-        assert!(kept("們", 9));
+        assert!(kept("\u{20BB9}", EXTENSION_MIN_WEIGHT, &none));
+        assert!(kept("們", 9, &none));
+        // 粤拼词表用到的扩展区字（𠺝）只有底分也收。
+        let words = format!("{}𠺝\tlaa3\n", "---\nname: jyut6ping3.words\n...\n");
+        let words = crate::cantonese::parse_words(&words).unwrap();
+        let cantonese = cantonese_characters(&words);
+        assert!(kept("\u{20E9D}", 9, &cantonese));
+        assert!(!kept("\u{20BB9}", 9, &cantonese));
         let rows = [
             Row {
                 text: "口",
@@ -551,7 +567,7 @@ mod tests {
                 code: "szhhzp",
             },
         ];
-        let dictionary = build(&rows, &HashMap::new(), &HashMap::new());
+        let dictionary = build(&rows, &HashMap::new(), &HashMap::new(), &none);
         let texts: Vec<&str> = dictionary
             .entries
             .keys()
@@ -578,10 +594,10 @@ mod tests {
         );
     }
 
-    /// 合成的繁简对照：么 的第一个繁体字形是它自己，不继承；为 → 爲，台湾写 為；里 → 裏，台湾写 裡、香港仍写 裏；发 的两个繁体字形只有第一个 發 继承；云 的字频为 0，什么也不带出；后 和（合成的）夂 都落到 後 上，取较大的。
+    /// 合成的繁简对照：么 的第一个繁体字形是它自己，也没有台湾、香港写法，不继承；为 → 爲，台湾写 為；里 → 裏，台湾写 裡、香港仍写 裏；发 的两个繁体字形只有第一个 發 继承；云 的字频为 0，什么也不带出；后 和（合成的）夂 都落到 後 上，取较大的；污 的第一个繁体字形是它自己，台湾写 汙；着 不在简转繁表里，台湾写 著。
     fn traditional_sample() -> HashMap<char, i64> {
         let frequencies = parse_frequencies(
-            "么\tme\t4000\r\n为\twei\t9000\r\n里\tli\t801\r\n发\tfa\t40\r\n云\tyun\t0\r\n后\thou\t400\r\n夂\tzhi\t40\r\n",
+            "么\tme\t4000\r\n为\twei\t9000\r\n里\tli\t801\r\n发\tfa\t40\r\n云\tyun\t0\r\n后\thou\t400\r\n夂\tzhi\t40\r\n污\twu\t120\r\n着\tzhe\t800\r\n",
         )
         .unwrap();
         let pairs = |name, source| crate::cantonese::parse_variants(name, source).unwrap();
@@ -589,9 +605,12 @@ mod tests {
             &frequencies,
             &pairs(
                 SIMPLIFIED_TO_TRADITIONAL,
-                "么\t么 麼\n为\t爲\n里\t裏 里\n发\t發 髮\n云\t雲\n后\t後 后\n夂\t後\n",
+                "么\t么 麼\n为\t爲\n里\t裏 里\n发\t發 髮\n云\t雲\n后\t後 后\n夂\t後\n污\t污\n",
             ),
-            &pairs(crate::cantonese::TW_VARIANTS, "爲\t為\n裏\t裡\n"),
+            &pairs(
+                crate::cantonese::TW_VARIANTS,
+                "爲\t為\n裏\t裡\n污\t汙\n着\t著\n",
+            ),
             &pairs(crate::cantonese::HK_VARIANTS, "爲\t為\n"),
         )
     }
@@ -601,7 +620,7 @@ mod tests {
         let inherited = traditional_sample();
         let mut found: Vec<(char, i64)> = inherited.into_iter().collect();
         found.sort_unstable();
-        // 9000 / 4 = 2250，801 / 4 = 200（整除），40 / 4 = 10，400 / 4 = 100。
+        // 9000 / 4 = 2250，801 / 4 = 200（整除），40 / 4 = 10，400 / 4 = 100，120 / 4 = 30，800 / 4 = 200。
         let mut expected = vec![
             ('爲', 2250),
             ('為', 2250),
@@ -609,6 +628,8 @@ mod tests {
             ('裡', 200),
             ('發', 10),
             ('後', 100),
+            ('汙', 30),
+            ('著', 200),
         ];
         expected.sort_unstable();
         assert_eq!(found, expected);
@@ -638,7 +659,7 @@ mod tests {
         // 後 自身有 200 分，比继承的 100 大，留自身的；為 自身 47 分，继承 2250。
         let frequencies =
             parse_frequencies("後\thou\t200\r\n為\twei\t47\r\n为\twei\t9000\r\n").unwrap();
-        let dictionary = build(&rows, &frequencies, &inherited);
+        let dictionary = build(&rows, &frequencies, &inherited, &HashSet::new());
         assert_eq!(
             entries(&dictionary),
             [
@@ -655,10 +676,17 @@ mod tests {
             code: "zh",
         }];
         let inherited = HashMap::from([('\u{2B7A9}', EXTENSION_MIN_WEIGHT)]);
-        assert_eq!(build(&rare, &HashMap::new(), &inherited).entries.len(), 1);
-        assert!(build(&rare, &HashMap::new(), &HashMap::new())
-            .entries
-            .is_empty());
+        assert_eq!(
+            build(&rare, &HashMap::new(), &inherited, &HashSet::new())
+                .entries
+                .len(),
+            1
+        );
+        assert!(
+            build(&rare, &HashMap::new(), &HashMap::new(), &HashSet::new())
+                .entries
+                .is_empty()
+        );
     }
 
     #[test]
