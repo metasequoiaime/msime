@@ -4,12 +4,11 @@ import UIKit
 @MainActor
 enum CandidateStripSizing {
   static func apply(to button: KeyboardKeyButton, word: String, viewport: UIScrollView,
-                    enabled: Bool, hasAlternatives: Bool) {
+                    enabled: Bool, hasAlternatives: Bool, spacing: CGFloat = 6) {
     let english = word.utf8.contains {
       (65...90).contains($0) || (97...122).contains($0)
     }
     let limited = enabled && hasAlternatives && english
-    let spacing = (button.superview as? UIStackView)?.spacing ?? 6
     let identifier = "candidateEnglishMaximumWidth"
     let maximum = button.constraints.first { $0.identifier == identifier }
       ?? viewport.constraints.first { $0.identifier == identifier && $0.firstItem === button }
