@@ -4280,14 +4280,16 @@ int main(int argc, char **argv) {
             revision, reinterpret_cast<const uint8_t *>(document.data()), document.size()));
         require(saved.value("revision", uint64_t{}) > revision, "punctuation styles saved");
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-        const auto marks = [&] { return state->view_.value("punctuation_marks", Json::object()); };
-        const auto expected = Json{{"quotes", quote}, {"brackets", bracket}};
-        while (marks() != expected &&
-               std::chrono::steady_clock::now() < deadline) {
+        // View.punctuation_marks 自契约第 4 版（#9241）起还带两个顿号字段，这里只核对本段改的引号和括号样式，整对象相等永远不成立。
+        const auto applied = [&] {
+          const auto marks = state->view_.value("punctuation_marks", Json::object());
+          return marks.value("quotes", Json()) == quote && marks.value("brackets", Json()) == bracket;
+        };
+        while (!applied() && std::chrono::steady_clock::now() < deadline) {
           state->refreshPreferences();
           std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
-        return marks() == expected;
+        return applied();
       };
       require(saveStyles("corner", "hollow"), "the view reports corner quotes and hollow brackets");
       const auto beforeCorner = ic.committed;
@@ -4898,7 +4900,8 @@ int main(int argc, char **argv) {
         reply.set_value(Json{{"query", query.dump()},
                              {"translations", Json::array()},
                              {"continue_online", false},
-                             {"pronunciations", Json{{"love", "/l\xCA\x8Cv/"}}},
+                             // 自 #10507 起读音按 pronunciation_key（「语言\n原文」）记，裸词键不再认。
+                             {"pronunciations", Json{{msime::linux_host::pronunciation_key("en", "love"), "/l\xCA\x8Cv/"}}},
                              {"_socket", state->translation_socket_}});
         state->refreshTranslations();
       };
@@ -5485,11 +5488,16 @@ int main(int argc, char **argv) {
                 "a Hanja carries its 훈음 as the annotation");
         {
           const auto *list = ic.inputPanel().candidateList().get();
-          require(list && list->size() > 0 && list->candidate(0).text().toString() == "韓  나라 이름 한, 한나라 한" &&
-                      list->candidate(0).text().size() == 2 &&
+          // 训音是汉字后面的第二段。自 #9854 起候选词翻译默认「仅当前高亮」，韩文汉字行和中文一样要译（SchemeType::shows_glosses），高亮的这一行在后面再留一段译文占位行，所以只核对前两段。
+          require(list && list->size() > 0 && list->candidate(0).text().size() >= 2 &&
+                      list->candidate(0).text().stringAt(0) == "韓" &&
+                      list->candidate(0).text().stringAt(1) == "  나라 이름 한, 한나라 한" &&
                       list->candidate(0).text().formatAt(1) ==
                           fcitx::TextFormatFlags{fcitx::TextFormatFlag::Italic, fcitx::TextFormatFlag::DontCommit},
-                  "the panel draws the 훈음 as the Hanja row's italic gloss");
+                  ("the panel draws the 훈음 as the Hanja row's italic gloss: [" +
+                   (list && list->size() > 0 ? list->candidate(0).text().toString() : std::string()) + "] parts=" +
+                   std::to_string(list && list->size() > 0 ? list->candidate(0).text().size() : 0))
+                      .c_str());
         }
         require(press(FcitxKey_F9) && candidates().empty() && preedit() == "한", "the trigger again closes the list");
         require(press(FcitxKey_F9) && first() == "韓", "a bare F9 opens it too");
