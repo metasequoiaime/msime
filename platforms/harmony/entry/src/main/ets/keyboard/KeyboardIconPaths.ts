@@ -132,18 +132,20 @@ export class KeyboardIconPaths {
   static readonly TOOLBAR_SCHEME: string =
     "M4.5 5.5L19.5 5.5C20.6046 5.5 21.5 6.3954 21.5 7.5L21.5 16.5C21.5 17.6046 20.6046 18.5 19.5 18.5L4.5 18.5C3.3954 18.5 2.5 17.6046 2.5 16.5L2.5 7.5C2.5 6.3954 3.3954 5.5 4.5 5.5ZM6.5 9.5L6.51 9.5M9.5 9.5L9.51 9.5M12.5 9.5L12.51 9.5M15.5 9.5L15.51 9.5M17.5 12.5L17.51 12.5M6.5 12.5L6.51 12.5M8.5 15L15.5 15";
 
-  // ---- 品牌标志（`assets/msime_frame.svg` 及设计稿叠在其上的描边），view box 为 `BRAND_VIEW_WIDTH` x `BRAND_VIEW_HEIGHT` ----
+  // ---- 品牌标志（packages/ui/src/assets/msime.svg 的外框和叠在其上的折线），view box 为 `BRAND_VIEW_WIDTH` x `BRAND_VIEW_HEIGHT` ----
 
-  // 设计稿的折线画在 116 x 132 里；外框是围着折线居中的 120 x 120 圆角正方形（圆角半径为边长的 22%，用三次曲线画，与 packages/ui 的 msimeFramePath 相同），所以画布左右各扩 8 成为 132 x 132。viewPort 不用负原点，两条路径都比 packages/ui 的坐标整体右移 8。
+  // 画布 132 x 132，外框是其中居中的 120 x 120 圆角正方形（圆角半径为边长的 22%，用三次曲线画，与 packages/ui 的 msimeFramePath 相同），即 packages/ui/src/assets/msime.svg 的 100 x 100 外框放大 1.2 倍；折线也是 msime.svg 的那一笔，按同一个 1.2 倍映射进这个外框。packages/ui 的 viewBox 为 -8 0 132 132，这里 viewPort 不用负原点，两条路径都比 packages/ui 的坐标整体右移 8。
   static readonly BRAND_VIEW_WIDTH: number = 132;
   static readonly BRAND_VIEW_HEIGHT: number = 132;
   /** 外框（packages/ui 的 msimeFramePath 右移 8），用 `BRAND_FIELD` 填充、`BRAND_EDGE` 描边。 */
   static readonly BRAND_FRAME: string =
     "M32.2431 5.8335L99.4431 5.8335C114.023 5.8335 125.843 17.6532 125.843 32.2335L125.843 99.4335C125.843 114.014 114.023 125.834 99.4431 125.834L32.2431 125.834C17.6628 125.834 5.8431 114.014 5.8431 99.4335L5.8431 32.2335C5.8431 17.6532 17.6628 5.8335 32.2431 5.8335Z";
-  /** 叠在外框上的描边：白色，宽 `BRAND_STROKE_WIDTH`，圆头。即 packages/ui 的 msimeStrokePath（设计稿的笔画以外框中心为原点缩到 80%、线宽不变，四周留出边距）右移 8。 */
+  /** 叠在外框上的描边：白色，宽 `BRAND_STROKE_WIDTH`，圆头、尖角连接（miter，miter limit 4，与 SVG 默认相同，三个折角都画成尖角）。即 msime.svg 的白色折线（线宽 8）放大 1.2 倍映射进 120 的外框，与 packages/ui 的 msimeStrokePath 相同、右移 8。 */
   static readonly BRAND_STROKE: string =
-    "M83.8838 28.2335L47.0447 42.3579L83.8838 52.9512L47.0447 70.6066C81.8717 76.4918 114.609 81.3177 45.0431 103.637";
-  static readonly BRAND_STROKE_WIDTH: number = 9;
+    "M84.7775 26.4735L46.7872 41.0393L84.7775 51.9637L46.7872 70.1708C82.7026 76.2399 116.462 81.2165 44.7231 104.2335";
+  static readonly BRAND_STROKE_WIDTH: number = 9.6;
+  /** 描边折角的 miter limit，与 SVG 默认值 4 相同。 */
+  static readonly BRAND_STROKE_MITER_LIMIT: number = 4;
   static readonly BRAND_STROKE_COLOR: string = "#FFFFFF";
   /** 标志的固定配色，与 packages/ui 的 msimeFieldColor、msimeEdgeColor 和各平台图标相同，不随皮肤变化：深色底，绿边宽 `BRAND_EDGE_WIDTH`（view box 单位，压在外框路径上居中）。 */
   static readonly BRAND_FIELD: string = "#252525";

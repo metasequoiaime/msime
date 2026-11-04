@@ -140,10 +140,10 @@
     <color name="attention">@color/ms_warn</color>
     <color name="splash_field">@color/ms_splash_bg</color>
     <color name="splash_glow">@color/ms_splash_glow</color>
-    <!-- 自适应图标的背景层：各套图标的底色（scripts/generate_app_icons.py 的 field() 算出并打印），启动器用什么形状的遮罩，图标就是什么形状的这块底，上面只有白色折线，不再画任何边框。经典是标志本身的深色，其余是主题色压暗。它们属于 App 图标，不是设计令牌，深浅相同。 -->
-    <color name="app_icon_field_classic">#252525</color>
-    <color name="app_icon_field_forest">#20463A</color>
-    <color name="app_icon_field_sky">#41717A</color>
-    <color name="app_icon_field_dusk">#5A527A</color>
-    <color name="app_icon_field_vermilion">#612C25</color>
+    <!-- 自适应图标的背景层：各套图标的绿边色（scripts/generate_app_icons.py 的 VARIANTS，与 iOS 同一张表）。前景层是撑满遮罩可见区的标志方块，遮罩的圆角比方块更圆时露出这层，与边同色，看上去就是 PC 上那块圆角方形。它们属于 App 图标，不是设计令牌，深浅相同。 -->
+    <color name="app_icon_ground_classic">#A8DF8E</color>
+    <color name="app_icon_ground_forest">#287B61</color>
+    <color name="app_icon_ground_sky">#70DCF0</color>
+    <color name="app_icon_ground_dusk">#A896EF</color>
+    <color name="app_icon_ground_vermilion">#B74332</color>
 </resources>
