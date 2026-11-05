@@ -1,3 +1,4 @@
+import ObjectiveC
 import XCTest
 import UIKit
 import UIKit.UIGestureRecognizerSubclass
@@ -643,6 +644,80 @@ final class FourteenKeyKeyboardTests: XCTestCase {
     controller.viewDidDisappear(false)
   }
 
+  /// 14 键、18 键组字中拖空格：与 Android 一样先结束组字、上屏首选，再移动输入框光标，空格写「移动光标」。引擎光标不进组码，读音行不会从 `ni'hao` 变成 `bug|ao` 这样的组码。走生产入口 `handleSpacePan:`。
+  func testDraggingSpaceFinishesTheGridComposition() throws {
+    let document = Document()
+    try attach(document)
+    for (scheme, prefix, faces) in [(ChineseInputScheme.fourteenKey, "fourteenKey", ["BN", "UI", "GH", "AS", "OP"]),
+                                    (.eighteenKey, "eighteenKey", ["BN", "IO", "H", "A", "IO"])] {
+      InputSchemePreference.scheme = scheme
+      document.insertions = []
+      document.offsets = []
+      let controller = makeController(width: 390)
+      defer { controller.viewDidDisappear(false) }
+      for face in faces { try button("\(prefix)\(face)", in: controller).sendActions(for: .primaryActionTriggered) }
+      controller.view.layoutIfNeeded()
+      let separator = try button("\(prefix)Separator", in: controller)
+      XCTAssertEqual(separator.configuration?.title, "分词", "\(scheme) is composing")
+      XCTAssertTrue(["ni'hao", "bu'hao"].contains(preedit(in: controller)), "\(scheme): \(preedit(in: controller))")
+
+      let space = try button("spaceKey", in: controller)
+      let pan = SpacePan()
+      space.addGestureRecognizer(pan)
+      defer { space.removeGestureRecognizer(pan) }
+      func drag(_ state: UIGestureRecognizer.State, to x: CGFloat) {
+        pan.phase = state
+        pan.x = x
+        controller.perform(NSSelectorFromString("handleSpacePan:"), with: pan)
+        controller.view.layoutIfNeeded()
+      }
+      drag(.began, to: 0)
+      XCTAssertEqual(space.configuration?.title, "移动光标", "\(scheme): the drag moves the document caret, not the spelling caret")
+      XCTAssertEqual(separator.configuration?.title, "符", "\(scheme): the drag finished the composition")
+      XCTAssertTrue(document.insertions.joined().contains("好"), "\(scheme): the top candidate was committed: \(document.insertions)")
+      drag(.changed, to: -24)
+      XCTAssertEqual(document.offsets, [-2], "\(scheme)")
+      XCTAssertEqual(separator.configuration?.title, "符", "\(scheme)")
+      let reading = preedit(in: controller)
+      XCTAssertFalse(reading.contains("|"), "\(scheme): no caret in the group codes: \(reading)")
+      XCTAssertFalse(reading.hasPrefix("bug"), "\(scheme): the reading row shows no group codes: \(reading)")
+      drag(.ended, to: -24)
+      XCTAssertNotEqual(space.configuration?.title, "移动光标", "\(scheme)")
+    }
+  }
+
+  /// 长按 QW 选 w 跟着全角开关走：打开全角时写全角ｗ（U+FF57），与 Android、鸿蒙相同；关着时写半角 w。
+  func testHeldLettersFollowTheFullWidthSwitch() throws {
+    let document = Document()
+    try attach(document)
+    let controller = makeController(width: 390)
+    defer { controller.viewDidDisappear(false) }
+    func holdQWAndChooseW(_ round: String) throws {
+      let qws = descendants(controller.view).filter { $0.accessibilityIdentifier == "fourteenKeyQW" }
+      let qw = try XCTUnwrap(qws.first { shown($0) } as? UIButton, "\(round): \(qws.count) QW keys, none shown")
+      // 每一轮用一个新的长按手势：同一个手势第二次设成 `.began` 会变成 `.changed`。
+      let hold = UILongPressGestureRecognizer()
+      qw.addGestureRecognizer(hold)
+      defer { qw.removeGestureRecognizer(hold) }
+      hold.state = .began
+      controller.perform(NSSelectorFromString("handleFourteenKeyHold:"), with: hold)
+      let w = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "nineKeyHoldOption-w" } as? UIButton,
+                            "\(round): no hold menu, state \(hold.state.rawValue)")
+      w.sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+    }
+    try holdQWAndChooseW("half-width")
+    XCTAssertEqual(document.insertions.last, "w")
+    try button("moreShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+    let fullWidth = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "moreCard-全角" } as? UIControl)
+    fullWidth.sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(fullWidth.accessibilityValue, "已开启")
+    try button("moreShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    try holdQWAndChooseW("full-width")
+    XCTAssertEqual(document.insertions.last, "\u{FF57}")
+  }
+
   /// 分词键在组码之间定一个音节分界：ZX UI 分词 AS BN 得到「西安」。
   func testTheSeparatorKeySplitsXian() throws {
     let controller = makeController(width: 390)
@@ -849,6 +924,48 @@ final class FourteenKeyKeyboardTests: XCTestCase {
     descendants(controller.view).compactMap { $0 as? UIButton }
       .filter { ($0.accessibilityIdentifier ?? "").hasPrefix("candidate-") && !$0.isHidden }
       .compactMap { $0.configuration?.attributedTitle.map { String($0.characters) } ?? $0.configuration?.title }
+  }
+
+  /// 记下键盘写进输入框的文字和光标位移；文档身份固定，空格拖动才认它是同一个输入框。
+  private final class Document: NSObject, UITextDocumentProxy {
+    var documentIdentifier = UUID()
+    var offsets: [Int] = []
+    var insertions: [String] = []
+    var documentContextBeforeInput: String? { "abcd" }
+    var documentContextAfterInput: String? { "ef" }
+    var selectedText: String? { nil }
+    var documentInputMode: UITextInputMode? { nil }
+    var hasText: Bool { true }
+    func insertText(_ text: String) { insertions.append(text) }
+    func deleteBackward() {}
+    func adjustTextPosition(byCharacterOffset offset: Int) { offsets.append(offset) }
+    func setMarkedText(_ text: String, selectedRange: NSRange) {}
+    func unmarkText() {}
+  }
+
+  /// 空格的拖动手势：状态和横向位移由用例给出。
+  private final class SpacePan: UIPanGestureRecognizer {
+    var phase: UIGestureRecognizer.State = .possible
+    var x: CGFloat = 0
+    override var state: UIGestureRecognizer.State { get { phase } set { phase = newValue } }
+    override func translation(in view: UIView?) -> CGPoint { CGPoint(x: x, y: 0) }
+    override func velocity(in view: UIView?) -> CGPoint { CGPoint(x: -100, y: 0) }
+  }
+
+  /// 把键盘的 `textDocumentProxy` 换成 `document`，用例结束时恢复 UIKit 的实现（与 SpaceVoicePanelTests 相同的注入方式）。
+  private func attach(_ document: Document) throws {
+    let selector = #selector(getter: UIInputViewController.textDocumentProxy)
+    let inherited = try XCTUnwrap(class_getInstanceMethod(UIInputViewController.self, selector))
+    let original = method_getImplementation(inherited)
+    let block: @convention(block) (AnyObject) -> AnyObject = { _ in document }
+    let replacement = imp_implementationWithBlock(block)
+    if !class_addMethod(KeyboardViewController.self, selector, replacement, method_getTypeEncoding(inherited)) {
+      method_setImplementation(try XCTUnwrap(class_getInstanceMethod(KeyboardViewController.self, selector)), replacement)
+    }
+    addTeardownBlock {
+      if let own = class_getInstanceMethod(KeyboardViewController.self, selector) { method_setImplementation(own, original) }
+      imp_removeBlock(replacement)
+    }
   }
 
   private func descendants(_ view: UIView) -> [UIView] {

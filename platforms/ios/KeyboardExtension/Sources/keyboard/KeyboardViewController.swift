@@ -80,6 +80,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let replyModel = ReplyKeyboardModel()
   private var personalDictionaryTimer: Timer?
   private let idleMaintenance = IdleMaintenancePoll()
+  /// 键盘持着 App Group 里的锁（会话的词库租约与代次锁、快照工作者的 `worker.lock`）期间开着的 expiring activity：宿主被结束时扩展收不到任何回调、几十毫秒后就被挂起，只有它能让系统先通知、等放完锁再挂起（#10910）。`viewWillAppear` 建会话之前开，收起时会话放掉之后关。
+  private let appGroupLockActivity = AppGroupLockActivity(reason: "MSIME keyboard releases App Group locks before suspension")
   /// 「我的词条」在键盘里变了之后让词库同步记下来（`local_change`），见 `KeyboardDictionarySync`。
   private let dictionarySync = KeyboardDictionarySync()
   private var lastKeyTouchTime: TimeInterval = -.infinity
@@ -1090,6 +1092,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     KeyboardUsageReporting.presented(fullAccess: hasFullAccess)
     // 收起时销毁的会话在这里同步重建，挡在这次出现的第一帧前面；记下耗时，在设备上看它有多重。
     let rebuildsSession = session.dictionarySessionSuspended
+    appGroupLockActivity.begin { [weak self] in self?.releaseLocksBeforeSuspension() }
     let resumeStart = ProcessInfo.processInfo.systemUptime
     do {
       try session.resumeDictionarySession()
@@ -1384,6 +1387,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // throw them away.
     render(session.finishComposition())
     releaseDictionarySession()
+    endLockActivityIfReleased()
     ownEditEcho.reset()
     cancelBackspacePress()
     diagnosticDismissTimer?.invalidate()
@@ -1400,6 +1404,28 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     super.viewDidDisappear(animated)
     guard !isPresented else { return }
     releaseDictionarySession()
+    endLockActivityIfReleased()
+  }
+
+  /// 会话放掉了才结束 expiring activity：放不掉（`dictionary_suspend_failed`）时让它开着，系统要挂起之前还会经 `releaseLocksBeforeSuspension` 再放一次。
+  private func endLockActivityIfReleased() {
+    guard !session.holdsSession else { return }
+    appGroupLockActivity.end()
+  }
+
+  /// expiring activity 到期，系统马上要挂起扩展（#10910）。在主线程上同步执行，返回之前放掉 App Group 里的全部锁。还显示着就按收起走 `viewWillDisappear`、`viewDidDisappear` 的全套。iPhone XR 上量到：宿主在时活动不计时；宿主被结束后活动让扩展继续跑，通常由 `maintenanceTick` 在两秒内发现视图不在窗口里、放锁并结束活动；定时器没赶上（主线程被占着、定时器还没起）时，约 25 秒后系统发出到期，走这里。
+  private func releaseLocksBeforeSuspension() {
+    let start = ProcessInfo.processInfo.systemUptime
+    DiagnosticLog.shared.write("suspension_imminent presented=\(isPresented ? 1 : 0) window=\(viewIfLoaded?.window != nil ? 1 : 0) session_held=\(session.holdsSession ? 1 : 0)")
+    if isPresented {
+      viewWillDisappear(false)
+      viewDidDisappear(false)
+    } else {
+      snapshotWorker.stop()
+      idleMaintenance.cancel()
+      releaseDictionarySession()
+    }
+    DiagnosticLog.shared.write("suspension_released ms=\(Self.elapsedMilliseconds(since: start)) session_held=\(session.holdsSession ? 1 : 0)")
   }
 
   /// 销毁引擎会话，放掉它在 App Group 里持着的锁（词库访问租约和下载代次的共享锁）。键盘被系统挂起时还持着这些锁，iOS 以 0xdead10cc 结束扩展（#10634），所以放不掉时不能就此作罢。
@@ -2484,7 +2510,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return nineKeySwipeDigits
   }
 
-  /// 九键滑动的结果（#10229）。沿设定方向松手：记一次这个键（与点按同一个统计 id），按长按菜单里选数字的同一条路径上屏（先结束组字再原样上屏，按键反馈也在那里出）。反方向滑过：与长按一样记一次这个键，弹出同样的数字和字母，之后从菜单里选的不再记。
+  /// 九键滑动的结果（#10229）。沿设定方向松手：记一次这个键（与点按同一个统计 id），按长按菜单里选数字的同一条路径上屏（先结束组字再上屏、跟随全角开关，按键反馈也在那里出）。反方向滑过：与长按一样记一次这个键，弹出同样的数字和字母，之后从菜单里选的不再记。
   private func handleNineKeySwipe(_ gesture: NineKeySwipePolicy.Gesture, from key: UIButton, digit: Int) {
     switch gesture {
     case .digit:
@@ -2503,7 +2529,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return [String(digit)] + (nineKeyLetters[digit] ?? "").lowercased().map(String.init)
   }
 
-  /// 长按菜单：九键 1 弹出数字，2–9 弹出数字和字母，14 键弹出这一键的字母。选中的一项先结束组字再原样上屏（`commitNineKeyHoldOption`）。
+  /// 长按菜单：九键 1 弹出数字，2–9 弹出数字和字母，14 键弹出这一键的字母。选中的一项先结束组字再上屏，全角开关打开时写全角（`commitNineKeyHoldOption`）。
   private func showKeyHoldOptions(from key: UIButton, options optionTexts: [String]) {
     dismissNineKeyHoldOptions()
     playInputClick()
@@ -2557,10 +2583,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     UIAccessibility.post(notification: .layoutChanged, argument: options)
   }
 
+  /// 上屏的数字和字母跟着全角开关走（`insertDirectText`），与 Android、HarmonyOS 相同。
   private func commitNineKeyHoldOption(_ text: String) {
     playInputClick()
     render(session.finishComposition())
-    insertOwnText(text)
+    insertDirectText(text)
     dismissNineKeyHoldOptions()
   }
 
@@ -7833,8 +7860,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       cursorMovement.begin(at: position, document: document)
       // While spelling, the drag edits the spelling: the caret walks through the pinyin as ← / → do in the Windows composition, and typing or backspace then acts there. A Japanese reading keeps ending the composition, because its conversion owns the space key.
       // A Korean syllable, a Zhuyin conversion and a Vietnamese word have no caret inside them either, so the drag finishes them and moves the document caret.
-      // 五笔 14 键的组码字母不显示（`typesWubiGrid`），光标在里面走用户看不见，所以同样结束组字、移动文档光标。
-      spaceDragEditsComposition = hasComposition && inputScheme.hasSpellingCaret && !typesWubiGrid
+      // 14 键、18 键（全拼、双拼、五笔）的拼写是各组的组码字母（`editing_text`），读音行显示的是引擎给的读音，光标走进组码会把读音换成 `bug|ao` 这样的组码，所以与 Android 一样先结束组字（上屏首选），再移动文档光标。
+      spaceDragEditsComposition = hasComposition && inputScheme.hasSpellingCaret && !typesLetterGrid
       if hasComposition && !spaceDragEditsComposition { render(session.finishComposition()) }
       // 分离式键盘有两个空格，只给正在拖的那个换标题；结束时 updateSpaceKeyTitle 把两个都还原。
       // 拖动时的标签单独显示、不带麦克风，与 Android 的临时空格标签一致。
@@ -7849,7 +7876,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       if spaceDragEditsComposition && hasComposition {
         moveCompositionCaret(
           by: steps,
-          bySegment: inputScheme.editsBySyllable && !typesLetterGrid && SpaceCursorMovement.movesBySegment(velocity: velocity))
+          bySegment: inputScheme.editsBySyllable && SpaceCursorMovement.movesBySegment(velocity: velocity))
       } else {
         moveCursor(by: steps)
       }

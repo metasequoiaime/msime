@@ -277,6 +277,8 @@ constexpr std::uint32_t ProtocolMismatch = 13;
 // Local-only result. It is never sent over the pipe and must never be
 // interpreted as candidate text to commit.
 constexpr std::uint32_t TransportUnavailable = static_cast<std::uint32_t>(-1);
+// 同样只在 TIP 本地使用、从不上管道：软等待没等到这个请求的回包，管道仍然可用。不是候选文字，也不是 Server 的决定（不能当成 Normal 或 NavigationIgnored）。
+constexpr std::uint32_t ReplyMissed = static_cast<std::uint32_t>(-2);
 } // namespace FanyImeReplyType
 
 namespace FanyImeWorkerReplyType
