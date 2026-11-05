@@ -165,7 +165,7 @@ cargo run --release -p msime-input-runtime --example convert_eval -- \
 
 词级那一份把四个 `--set` 换成 `--set resources/eval/quanpin-words-v1.tsv --max-syllables 2 --limit 3000`，对照 `baseline-shuangpin-touch-words.json`。两份基线各跑一次完整的组合（5 个方案 × 4 种模式 × 4 个 σ × 2 个偏置，none 模式不分 σ 和偏置），送落点、用引擎默认的计价参数。送落点时每条用例的触点各不相同，记忆表帮不上忙，所以加 `--jobs 5` 让五个方案各开一个线程同时跑（输出与一个一个跑逐字节相同），再加 `--assert-top1-unchanged`。在同时跑着 CI 的 Mac Studio 上整句那份要几个小时（看负载）、词级那份十分钟上下，没有放进 `verify-local.sh`。引擎收到触点之前的平面表数字用同样的命令加 `--no-touch-points` 复现。
 
-**整句那份基线落后于词库锁。** `baseline-shuangpin-touch-sentences.json` 最后一次重录是 `c0e22eb15e`（2026-10-29，`dict-v2.0.39`），换到 `dict-v2.0.41` 和 `dict-v2.1.0` 时都没有重跑（完整一组要几个小时），之后的引擎改动也没有进它；词级那份 `baseline-shuangpin-touch-words.json` 已在 `dict-v2.1.0` 上重录。在当前锁上跑整句那份，与基线的差别里混着词库清洗（全拼上被清洗弄坏首选的 h-0415、h-1084 就在它读的 `sentences-neutral-v1.tsv` 里；同样被弄坏的 h-0488 我们再也下不去了 在 `dict-v2.1.2` 由 msime-dictionary #130 修好）和 10-29 以来的引擎改动，不全是自己的改动带来的；要比较一处改动，先用改动前的提交在同一份资源上重录一份当对照。
+**整句那份基线落后于词库锁。** `baseline-shuangpin-touch-sentences.json` 最后一次重录是 `c0e22eb15e`（2026-10-29，`dict-v2.0.39`），换到 `dict-v2.0.41`、`dict-v2.1.0` 和 `dict-v2.1.2` 时都没有重跑（完整一组要几个小时），之后的引擎改动也没有进它；词级那份 `baseline-shuangpin-touch-words.json` 已在 `dict-v2.1.2` 上重录（与在 `dict-v2.1.0` 上录的逐字节相同）。在当前锁上跑整句那份，与基线的差别里混着词库清洗（全拼上被清洗弄坏首选的 h-0415、h-1084 就在它读的 `sentences-neutral-v1.tsv` 里；同样被弄坏的 h-0488 我们再也下不去了 在 `dict-v2.1.2` 由 msime-dictionary #130 修好）和 10-29 以来的引擎改动，不全是自己的改动带来的；要比较一处改动，先用改动前的提交在同一份资源上重录一份当对照。
 
 `--assert-top1-unchanged` 逐条比较 clean 与原样输入的实际首选文本，候选表从空到非空也算变化。报告里的 `top1_changed` 保留平面表基线的定义，只计原本排第一的金标准降位；它为 0 不代表所有实际首选都相同。纠错整句按首选规则坐首选（[首选规则笔记](../../.agents/notes/implemented/feature/2026-10-29-shuangpin-touch-first-seat.md)）的参数下，clean 集的首选按设计可能变，这时改用 `--assert-first-seat-gate`：σ=0 的 clean 组有一条首选变了、所有 clean 组合起来变了超过 0.1%、或某个方案超过 0.2%，就以非零退出。引擎默认的 m_sp 是无穷大，首选规则不起作用，基线照旧用 `--assert-top1-unchanged`。
 
@@ -327,7 +327,7 @@ python3 scripts/eval_compare.py typing B.json C.json [--dumps B.jsonl C.jsonl]
 
 同码标签：留下的用例里，同一串码对应不止一个金标准的，在全拼上打 `same-code-full`（5,118 条），九键上 `same-code-nine`（10,477 条），14 键上 `same-code-fourteen`（8,560 条）。这些用例里至多一条能排第一，top-1 的上限因此是全拼 0.874、九键 0.703、14 键 0.761（写在文件头）。`convert_eval` 的报告也会按这些标签分桶（`by_tag`）。换参照词库或改判据要发 v3，v2 不动。
 
-现在的数（dict-v2.1.0 加 `sentence-model.safetensors`，混输英文开，每页 6 个，完整 23,295 条，top-1 / top-5；括号里是同一个二进制在 dict-v2.0.41 上的数）：
+现在的数（dict-v2.1.2 加 `sentence-model.safetensors`，混输英文开，每页 6 个，完整 23,295 条，top-1 / top-5；括号里是同一个二进制在 dict-v2.0.41 上的数；dict-v2.1.0 上的数与 dict-v2.1.2 到第三位小数都相同）：
 
 | 键盘 | 整份 | 非同码桶 | 同码桶 |
 |---|---|---|---|
@@ -335,7 +335,7 @@ python3 scripts/eval_compare.py typing B.json C.json [--dumps B.jsonl C.jsonl]
 | 九键 | 0.557 / 0.841（0.556 / 0.840） | 0.800 / 0.951（0.799 / 0.951，12,818 条） | 0.259 / 0.707（0.258 / 0.706，10,477 条） |
 | 14 键 | 0.633 / 0.911（0.633 / 0.911） | 0.836 / 0.984（0.835 / 0.983，14,735 条） | 0.284 / 0.787（0.284 / 0.786，8,560 条） |
 
-非同码桶的配对比较（`dict_eval_gate.py`，dict-v2.0.41 → dict-v2.1.0）：全拼 top-1 修好 48、弄坏 5（p = 7e-10），九键 14 / 7，14 键 21 / 8。弄坏的多是地名重新定权的结果（锦州 让给 金州，铜川、株洲、甘孜、黄南 回到 rime-ice 与万象对齐后的权重，福安、德城、惠东、宝兴、定远 按万象下限抬到同码常用词前面），另有九键 火把、制动 让给权重更低的 过吧、只懂：不挂模型时它们仍排第一，是逐键模型在与首选同长的读法之间换了首选（碎片 过把、之东 被压低后，第二位换成了模型更偏向的词），见[换锁笔记](../../.agents/notes/implemented/bug-fix/2026-10-27-dictionary-lock-latest.md)。
+非同码桶的配对比较（`dict_eval_gate.py`，dict-v2.0.41 → dict-v2.1.2，计数与 → dict-v2.1.0 那次相同）：全拼 top-1 修好 48、弄坏 5（p = 7e-10），九键 14 / 7，14 键 21 / 8。弄坏的多是地名重新定权的结果（锦州 让给 金州，铜川、株洲、甘孜、黄南 回到 rime-ice 与万象对齐后的权重，福安、德城、惠东、宝兴、定远 按万象下限抬到同码常用词前面），另有九键 火把、制动 让给权重更低的 过吧、只懂：不挂模型时它们仍排第一，是逐键模型在与首选同长的读法之间换了首选（碎片 过把、之东 被压低后，第二位换成了模型更偏向的词），见[换锁笔记](../../.agents/notes/implemented/bug-fix/2026-10-27-dictionary-lock-latest.md)。
 
 同一批用例换到 dict-v2.0.51（用 `resource_lock_from_sums.py` 给发布附件生成临时锁），三种键盘的 top-1、top-5 一条都没变，全拼的 dump 逐字节相同。九键有 5 条候选表变了：`qifeng` 的两条（启封、奇峰，同码 743364）首屏第 3 位多了新加的 custom 词 司凤，奇峰 从第 6 退到第 7，其余 3 条的差别在第 20 名以后；14 键有 2 条，在第 13 名和第 20 名以后。两版之间拼音数据只多了 7 个 custom 词，主库的字节差别来自构建器换版本，这一次没有改到前 5 名。
 
@@ -350,7 +350,7 @@ python3 scripts/must_outrank.py check --dump full=<dump> --dump nine=<dump>
 
 执行器按键盘把夹具写成 `convert_eval` 的用例集（九键的数字换成一串编码相同的字母，`--grid nine` 自己再换回来），加 `--mixed-english` 跑 `--dump`：混输英文是产品出厂设置，九键 63476 第 2 位的 Negro 只在它开着时出现。`convert_eval` 的其他配置照旧（关学习、每例清空上文），所以这里不需要只存在于某个 worktree 里的探针程序。任何一行失败退出码 1，逐行列出两个词的名次和首屏。
 
-dict-v2.1.0（词库大清洗第一轮）上第一批 6 行全部通过：车件、门的 由权重覆盖压到 车检、闷的 之后，火灾 排第一，万州 排到 挽昼 之前，Negro 不再出现在 63476 的候选里。下表是 dict-v2.0.41 上的名次，那时 6 行全部失败，都是方案里已知要修的问题。
+dict-v2.1.0（词库大清洗第一轮）起第一批 6 行全部通过（dict-v2.1.2 上名次与 dict-v2.1.0 相同）：车件、门的 由权重覆盖压到 车检、闷的 之后，火灾 排第一，万州 排到 挽昼 之前，Negro 不再出现在 63476 的候选里。下表是 dict-v2.0.41 上的名次，那时 6 行全部失败，都是方案里已知要修的问题。
 
 | id | 键盘 | 输入 | 断言 | 实际 |
 |---|---|---|---|---|
@@ -373,7 +373,7 @@ python3 scripts/vulgar_exposure.py run --resources <资源目录> [--resource-lo
 
 判定用引擎自己的粗俗词表 `crates/engine/src/lattice/offensive_words.txt`，规则与 `lattice::offensive::is_offensive` 相同（按子串，豁免写法盖住的不算）；英文用 `crates/dict-builder/src/english_supplement.rs` 的 `OFFENSIVE`（55 个蔑称，不分大小写）。`--extra-words` 再加一份同格式的表（词库仓库 curation/ 的粗俗词表、只在九键歧义码上避开的流行口语）。英文同时读取引擎的 `offensive_english_words.txt`，覆盖 shitty、gangbang、Negro 等词；九键另读取引擎的 `mild_slang_words.txt`，轻度粗口在全键盘上不计入。粗俗词本身的读音恰好就是这串输入时记 `exact`：方案的政策是这些词不当首选，也不出现在前缀、简拼和九键、14 键歧义码的首屏，只有全键盘打它自己的读音时可以留在首屏。所以「违反政策」一列在全键盘上去掉只有 `exact` 命中的输入，在九键上不豁免：九键一串数字几乎都对应好几种读法，`exact` 只逐行标出供审阅。`--baseline` 逐项比较粗俗首屏输入数、粗俗首选输入数和英文冒犯词首屏输入数，任何一项增加退出码 1（方案 4.3 的「C ≤ B」）。比较前要求首屏行数相同；dump 不允许重复 id，每个 id 的输入和金标准必须与冻结集一致。词表更新后，两臂都应按同一版工具重新出报告。
 
-下表是 dict-v2.0.41 加 `sentence-model.safetensors`（混输英文开，每页 6 个）上的数。dict-v2.1.0 上 `dict_eval_gate.py` 的三项计数（同一份词表，取两版 `sentence_excluded` 的并集）：全拼首屏有粗俗词的输入 6 → 2，粗俗词当首选 0 → 0，英文冒犯词在首屏 1 → 1；九键三项都是 0 → 0；方案点名的 10 个目标码首屏都没有冒犯词。
+下表是 dict-v2.0.41 加 `sentence-model.safetensors`（混输英文开，每页 6 个）上的数。dict-v2.1.0 和 dict-v2.1.2 上 `dict_eval_gate.py` 的三项计数相同（同一份词表，取两版 `sentence_excluded` 的并集）：全拼首屏有粗俗词的输入 6 → 2，粗俗词当首选 0 → 0，英文冒犯词在首屏 1 → 1；九键三项都是 0 → 0；方案点名的 10 个目标码首屏都没有冒犯词。
 
 | | 输入 | 首屏有粗俗词 | 其中违反政策 | 粗俗词当首选 | 第 2 位是英文 | 打全的码第 2 位是英文 |
 |---|---|---|---|---|---|---|
@@ -481,4 +481,4 @@ TYPESAFE_API_KEY=... scripts/review-harvested-cases.py target/harvest.jsonl targ
 
 词表覆盖（词级集的金标准 99.94% 本来就在词典里）、语言模型困惑度（没有语料）。用户学习与调频在 `convert_eval` 里强制关闭（否则前一条会污染后一条），由 `typing_sim` 的打字流量。九宫格由 `--nine-key` 的两份集合覆盖，14 键由 `--grid fourteen` 的两份覆盖，停在末音节声母上的输入由 `--cut-last-syllable` 覆盖（只支持全拼及其网格），26 键双拼和触屏误触由 `--scheme shuangpin` 覆盖，见上文。
 
-共享词网格前移每词插入代价的配置、同一资源前后对照及局限见[评分决策笔记](../../.agents/notes/implemented/bug-fix/2026-10-14-lattice-phrase-insertion-cost.md)。现在的基线覆盖 `dict-v2.1.0`。换锁之前，同一个二进制配 `dict-v2.0.41` 的十三份报告和打字流、双拼触点词级报告已经都与提交的基线对不上（基线停在 10-29，之后合入的引擎改动没有重录），所以这次的基线一并记下了那段代码漂移；词库本身带来的差别用同一个二进制在两份词库上的配对比较单独量，引擎漂移带来的差别用 `b94ece1cf7` 与本次的二进制在 `dict-v2.0.41` 上的配对比较单独量，两边弄坏的用例都在换锁笔记里逐例列出（词库一侧：neutral 的 下不、是黄、头的、打私 四句和九键 火把、制动，其中 下不、打私 两句是碎片降权的误伤，msime-dictionary #130 把 下不 改成 下部 的权重减 1、撤掉 打私 那一行，`dict-v2.1.2` 上 h-0488 回到第 1、h-0097 回到第 3；引擎一侧：sentences 的 s-048、九键长句的 nk-051、nk-055，以及 words 里 11 条 12 字符截断用例从第 1 退到第 4）。换锁时没有修改评测用例，前后数字见[换锁笔记](../../.agents/notes/implemented/bug-fix/2026-10-27-dictionary-lock-latest.md)。
+共享词网格前移每词插入代价的配置、同一资源前后对照及局限见[评分决策笔记](../../.agents/notes/implemented/bug-fix/2026-10-14-lattice-phrase-insertion-cost.md)。现在的基线覆盖 `dict-v2.1.2`。换到 `dict-v2.1.0` 之前，同一个二进制配 `dict-v2.0.41` 的十三份报告和打字流、双拼触点词级报告已经都与提交的基线对不上（基线停在 10-29，之后合入的引擎改动没有重录），所以那次的基线一并记下了那段代码漂移；词库本身带来的差别用同一个二进制在两份词库上的配对比较单独量，引擎漂移带来的差别用 `b94ece1cf7` 与本次的二进制在 `dict-v2.0.41` 上的配对比较单独量，两边弄坏的用例都在换锁笔记里逐例列出（词库一侧：neutral 的 下不、是黄、头的、打私 四句和九键 火把、制动，其中 下不、打私 两句是碎片降权的误伤，msime-dictionary #130 把 下不 改成 下部 的权重减 1、撤掉 打私 那一行，`dict-v2.1.2` 上 h-0488 回到第 1、h-0097 回到第 3；引擎一侧：sentences 的 s-048、九键长句的 nk-051、nk-055，以及 words 里 11 条 12 字符截断用例从第 1 退到第 4）。再换到 `dict-v2.1.2` 时，同一个二进制在 `dict-v2.1.0` 上十三份报告、打字流和双拼触点词级都与提交的基线相同，换成 `dict-v2.1.2` 后十三份里只有 neutral 的数变了（就是上面 h-0488、h-0097 两句，没有坏的），打字流只有记下的资源代次和 `source_commit` 变了，双拼触点词级的报告没变；九键、九键前缀和 14 键前缀另有 15 例的候选表有变化，都是 打私 回到 19999 后，含 打私 的候选在第 11 名以后插进来或往前挪，金标准的名次没变。换锁时没有修改评测用例，前后数字见[换锁笔记](../../.agents/notes/implemented/bug-fix/2026-10-27-dictionary-lock-latest.md)。

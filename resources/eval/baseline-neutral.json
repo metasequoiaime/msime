@@ -65,12 +65,12 @@
     },
     "6": {
       "cases": 217,
-      "found": 0.899,
-      "mrr": 0.755,
+      "found": 0.903,
+      "mrr": 0.756,
       "top1": 0.682,
       "top1_char_prefix": 0.819,
-      "top5": 0.843,
-      "top9": 0.843
+      "top5": 0.848,
+      "top9": 0.848
     },
     "7": {
       "cases": 178,
@@ -83,12 +83,12 @@
     },
     "8": {
       "cases": 184,
-      "found": 0.924,
-      "mrr": 0.736,
-      "top1": 0.63,
-      "top1_char_prefix": 0.774,
-      "top5": 0.864,
-      "top9": 0.864
+      "found": 0.929,
+      "mrr": 0.741,
+      "top1": 0.636,
+      "top1_char_prefix": 0.779,
+      "top5": 0.87,
+      "top9": 0.87
     },
     "9": {
       "cases": 153,
@@ -103,27 +103,27 @@
   "by_tag": {
     "harvested": {
       "cases": 1105,
-      "found": 0.878,
-      "mrr": 0.729,
-      "top1": 0.648,
+      "found": 0.88,
+      "mrr": 0.73,
+      "top1": 0.649,
       "top1_char_prefix": 0.795,
-      "top5": 0.824,
-      "top9": 0.824
+      "top5": 0.826,
+      "top9": 0.826
     }
   },
   "cases": 1105,
   "gold_source": {
     "database": 1,
-    "generated": 969
+    "generated": 971
   },
   "overall": {
     "cases": 1105,
-    "found": 0.878,
-    "mrr": 0.729,
-    "top1": 0.648,
+    "found": 0.88,
+    "mrr": 0.73,
+    "top1": 0.649,
     "top1_char_prefix": 0.795,
-    "top5": 0.824,
-    "top9": 0.824
+    "top5": 0.826,
+    "top9": 0.826
   },
   "sample_failures": [
     {
@@ -354,7 +354,7 @@
       "gold": "巩固打私成果",
       "id": "h-0097",
       "input": "gonggudasichengguo",
-      "rank": null,
+      "rank": 3,
       "top1": "巩固大四成果"
     },
     {
