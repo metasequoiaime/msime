@@ -4,28 +4,28 @@
       "cases": 1860,
       "found": 0.995,
       "mrr": 0.567,
-      "top1": 0.394,
-      "top1_char_prefix": 0.432,
-      "top5": 0.797,
+      "top1": 0.392,
+      "top1_char_prefix": 0.43,
+      "top5": 0.799,
       "top9": 0.883
     },
     "3": {
       "cases": 365,
       "found": 0.995,
-      "mrr": 0.943,
-      "top1": 0.907,
-      "top1_char_prefix": 0.926,
+      "mrr": 0.94,
+      "top1": 0.901,
+      "top1_char_prefix": 0.919,
       "top5": 0.984,
       "top9": 0.986
     },
     "4": {
       "cases": 556,
-      "found": 0.876,
-      "mrr": 0.869,
-      "top1": 0.862,
+      "found": 0.874,
+      "mrr": 0.867,
+      "top1": 0.86,
       "top1_char_prefix": 0.886,
-      "top5": 0.876,
-      "top9": 0.876
+      "top5": 0.874,
+      "top9": 0.874
     },
     "5": {
       "cases": 10,
@@ -40,16 +40,16 @@
   "by_tag": {},
   "cases": 2791,
   "gold_source": {
-    "database": 2698,
+    "database": 2697,
     "generated": 4
   },
   "overall": {
     "cases": 2791,
     "found": 0.968,
-    "mrr": 0.675,
-    "top1": 0.553,
-    "top1_char_prefix": 0.588,
-    "top5": 0.835,
+    "mrr": 0.674,
+    "top1": 0.551,
+    "top1_char_prefix": 0.585,
+    "top5": 0.836,
     "top9": 0.892
   },
   "sample_failures": [
@@ -57,7 +57,7 @@
       "gold": "阿爸",
       "id": "w-00001",
       "input": "aba",
-      "rank": 42,
+      "rank": 39,
       "top1": "爸爸"
     },
     {
@@ -89,25 +89,11 @@
       "top1": "奥地利"
     },
     {
-      "gold": "昂扬",
-      "id": "w-00082",
-      "input": "angyang",
-      "rank": 2,
-      "top1": "肮脏"
-    },
-    {
       "gold": "按理",
       "id": "w-00100",
       "input": "anli",
       "rank": 9,
       "top1": "案例"
-    },
-    {
-      "gold": "岸上",
-      "id": "w-00145",
-      "input": "anshang",
-      "rank": 3,
-      "top1": "按上"
     },
     {
       "gold": "安息",
@@ -306,13 +292,6 @@
       "top1": "本校"
     },
     {
-      "gold": "本着",
-      "id": "w-00757",
-      "input": "benzhe",
-      "rank": 2,
-      "top1": "奔着"
-    },
-    {
       "gold": "彼岸",
       "id": "w-00766",
       "input": "bian",
@@ -327,15 +306,36 @@
       "top1": "长按"
     },
     {
+      "gold": "编写",
+      "id": "w-00838",
+      "input": "bianxie",
+      "rank": 2,
+      "top1": "朝着"
+    },
+    {
       "gold": "贬义",
       "id": "w-00847",
       "input": "bianyi",
       "rank": 10,
       "top1": "抄袭"
+    },
+    {
+      "gold": "编著",
+      "id": "w-00865",
+      "input": "bianzhu",
+      "rank": 2,
+      "top1": "标注"
+    },
+    {
+      "gold": "标语",
+      "id": "w-00910",
+      "input": "biaoyu",
+      "rank": 4,
+      "top1": "产物"
     }
   ],
   "top1_source": {
-    "database": 2734,
-    "generated": 57
+    "database": 2733,
+    "generated": 58
   }
 }
