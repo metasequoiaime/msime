@@ -13,6 +13,7 @@
 #import "../settings/RuntimeOptions.h"
 #include "../../../../shared/voice/CaptureDuration.h"
 #import "VoiceInputLevel.h"
+#include "../../../common/DictionaryQuiesceLease.h"
 #import <os/log.h>
 
 @implementation MSIMEGlobalVoiceSession {
@@ -35,6 +36,30 @@
     BOOL _final;
     BOOL _ready;
     BOOL _locked;
+    NSTimer *_maintenancePoll;
+}
+- (instancetype)init {
+    if (!(self = [super init])) return nil;
+    NSString *name = MSIMEEditionNotificationName(@"MSIMEDictionaryMaintenanceWillBeginNotification");
+    [NSDistributedNotificationCenter.defaultCenter addObserver:self selector:@selector(dictionaryMaintenanceWillBegin:)
+        name:name object:nil suspensionBehavior:NSNotificationSuspensionBehaviorDeliverImmediately];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(dictionaryMaintenanceWillBegin:) name:name object:nil];
+    return self;
+}
+- (BOOL)dictionaryQuiesced {
+    id user = [self runtimeOptions][@"user_data"];
+    return [user isKindOfClass:NSString.class] && [user isAbsolutePath] &&
+        msime::dictionary_lease::dictionary_quiesced(std::string([user fileSystemRepresentation]));
+}
+- (void)releaseDictionarySessionIfQuiesced {
+    if (_session && [self dictionaryQuiesced]) [self cancelGlobalVoice];
+}
+- (void)dictionaryMaintenanceWillBegin:(NSNotification *)notification {
+    (void)notification;
+    if (!NSThread.isMainThread) {
+        __weak MSIMEGlobalVoiceSession *weakSelf = self;
+        dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf releaseDictionarySessionIfQuiesced]; });
+    } else [self releaseDictionarySessionIfQuiesced];
 }
 // 这些边界只在测试中替换；替身不读取安装配置、不打开设备、不发送真实请求。
 - (NSUserDefaults *)voiceDefaults { return NSUserDefaults.standardUserDefaults; }
@@ -99,6 +124,7 @@
 - (MSIMEGlobalVoiceStartResult)startGlobalVoiceHolding:(BOOL)holding {
     if (_token) return MSIMEGlobalVoiceStartRetry;
     if (!MSIMEVoiceInputEnabled([self voiceDefaults])) return MSIMEGlobalVoiceStartFailed;
+    if ([self dictionaryQuiesced]) return MSIMEGlobalVoiceStartRetry;
     _hostToken = MSIMEGlobalVoiceHost().sessionToken;
     _token = [NSObject new];
     if (![self owns:_token]) { _token = nil; return MSIMEGlobalVoiceStartRetry; }
@@ -113,9 +139,14 @@
         MSIMELocalVoiceModelDirectory(_options[@"asr_model_path"]))) {
         [self fail:MSIMEVoiceFailureMissingLocalModel error:nil]; return MSIMEGlobalVoiceStartFailed;
     }
-    // 核心会话跨录音保留，socket 协议的代次随真实 voice start 单调递增。
+    // 核心句柄只属于本轮，socket 的跨轮身份由独立传输租约保证。
     if (!_session) _session = [self makeSession];
     if (!_session) { [self fail:MSIMEVoiceFailureSession error:nil]; return MSIMEGlobalVoiceStartFailed; }
+    if ([self dictionaryQuiesced]) { [self cancelGlobalVoice]; return MSIMEGlobalVoiceStartRetry; }
+    __weak MSIMEGlobalVoiceSession *maintenanceSelf = self;
+    _maintenancePoll = [NSTimer scheduledTimerWithTimeInterval:1 repeats:YES block:^(NSTimer *timer) {
+        (void)timer; [maintenanceSelf releaseDictionarySessionIfQuiesced];
+    }];
     NSString *directory = [self runtimeOptions][@"preferences_directory"];
     NSDictionary *preferences = [directory isKindOfClass:NSString.class] && directory.isAbsolutePath
         ? [MSIMEClientSession loadPreferencesInDirectory:directory error:nil][@"preferences"] : @{};
@@ -301,6 +332,7 @@
     if (!_token) return;
     // 先撤销令牌，停止设备与请求引发的迟到回调无法作用于本轮或下一轮。
     _token = nil; _hostToken = nil; _permission = NO;
+    [_maintenancePoll invalidate]; _maintenancePoll = nil;
     [_http cancel]; [_stream cancel]; [_polisher cancel];
     _http = nil; _stream = nil; _polisher = nil;
     if (_socket.length && _socketLease) {
@@ -310,10 +342,16 @@
     [_service cancelWithError:nil]; [self captureEnded];
     [_overlay setListening:NO]; _overlay.actionHandler = nil;
 
+    [_session closeWithError:nil]; _session = nil;
     _socket = nil; _options = nil; _processing = NO; _generation = 0; _socketLease = 0;
 }
 - (void)endGlobalVoice { [self cancelGlobalVoice]; }
-- (void)dealloc { [self cancelGlobalVoice]; [_session closeWithError:nil]; }
+- (void)dealloc {
+    [NSDistributedNotificationCenter.defaultCenter removeObserver:self];
+    [NSNotificationCenter.defaultCenter removeObserver:self];
+    [_maintenancePoll invalidate];
+    [self cancelGlobalVoice]; [_session closeWithError:nil];
+}
 - (void)lockGlobalVoice { _locked = YES; [_overlay setRecordingLocked:YES]; }
 - (void)detachGlobalVoice { [self stopGlobalVoice]; }
 @end

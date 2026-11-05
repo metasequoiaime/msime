@@ -4,6 +4,9 @@
 #import "../../src/voice/DoubaoVoiceRequest.h"
 #import "../../src/voice/HTTPVoiceRequest.h"
 #include <cassert>
+#include <fcntl.h>
+#include <sys/file.h>
+#include <unistd.h>
 #import "../../src/voice/VoiceProviderSocket.h"
 #import "../settings/TestPreferenceSuite.h"
 
@@ -168,6 +171,15 @@ int main() {
             s.display = [CaptureOverlay new]; s.request = [CaptureStream new]; s.http = [CaptureHTTP new];
             Bind(s); return s;
         };
+        auto CanMaintain = [&] {
+            NSString *path = [options[@"user_data"] stringByAppendingPathComponent:@".msime-dictionary-access.lock"];
+            const int descriptor = ::open(path.fileSystemRepresentation, O_RDWR | O_CLOEXEC);
+            assert(descriptor >= 0);
+            const BOOL acquired = ::flock(descriptor, LOCK_EX | LOCK_NB) == 0;
+            if (acquired) assert(::flock(descriptor, LOCK_UN) == 0);
+            ::close(descriptor);
+            return acquired;
+        };
         __block NSUInteger deliveries = 0;
         MSIMEGlobalVoiceHost().deliver = ^(NSString *text, NSString *mode, void (^done)(void)) {
             assert([text isEqual:@"synthetic result"] && [mode isEqual:@"tsf"]); ++deliveries; done();
@@ -178,6 +190,7 @@ int main() {
             CaptureSession *s = Make();
             assert([s startGlobalVoiceHolding:YES] == MSIMEGlobalVoiceStartAccepted);
             assert(s.capture.opens == 1 && !s.display.listening);
+            assert(!CanMaintain());
             AVAudioFormat *format = [[AVAudioFormat alloc] initStandardFormatWithSampleRate:16000 channels:1];
             AVAudioPCMBuffer *buffer = [[AVAudioPCMBuffer alloc] initWithPCMFormat:format frameCapacity:16]; buffer.frameLength = 16;
             if (s.capture.pcm) s.capture.pcm([NSMutableData dataWithLength:64], nil);
@@ -189,6 +202,8 @@ int main() {
             else if ([provider isEqual:@"system"]) s.capture.transcription(@"synthetic result", YES);
             else s.request.reply(@"synthetic result", YES, nil);
             assert(![s globalVoiceBusy] && !s.display.listening);
+            // 录音完成后词库维护立即可以取得独占租约，不必退出输入法。
+            assert(CanMaintain());
             [s endGlobalVoice];
         }
         assert(deliveries == 4);
@@ -212,10 +227,10 @@ int main() {
             CaptureSession *s = Make();
             assert([s startGlobalVoiceHolding:YES] == MSIMEGlobalVoiceStartAccepted);
             MSIMEDoubaoResult late = s.request.reply;
-            uint64_t firstGeneration = [[s valueForKey:@"generation"] unsignedLongLongValue];
+            MSIMEClientSession *firstSession = [s valueForKey:@"session"];
             [s cancelGlobalVoice]; Bind(s);
             assert([s startGlobalVoiceHolding:YES] == MSIMEGlobalVoiceStartAccepted);
-            assert([[s valueForKey:@"generation"] unsignedLongLongValue] > firstGeneration);
+            assert([s valueForKey:@"session"] != firstSession);
             late(@"synthetic result", YES, nil);
             assert(deliveries == 4 && [s globalVoiceBusy]);
             [s cancelGlobalVoice];
@@ -266,7 +281,7 @@ int main() {
             CaptureSession *s = Make();
             assert([s startGlobalVoiceHolding:YES] == MSIMEGlobalVoiceStartAccepted);
             id token = [s valueForKey:@"token"];
-            [s verifyCapture:token]; assert(s.display.failures == 1 && ![s globalVoiceBusy]);
+            [s verifyCapture:token]; assert(s.display.failures == 1 && ![s globalVoiceBusy] && CanMaintain());
             [s endGlobalVoice]; [s endGlobalVoice];
             assert(s.display.failureVisible);
             Bind(s); assert([s startGlobalVoiceHolding:YES] == MSIMEGlobalVoiceStartAccepted);
@@ -288,6 +303,71 @@ int main() {
             assert([s globalVoiceBusy] && [s globalVoiceProcessing]);
             s.http.reply(@"synthetic result", nil);
             assert(![s globalVoiceBusy] && deliveries == 7);
+        }
+        {
+            // 维护期间不创建核心会话；活动录音收到真实维护通知后立即让出共享锁。
+            NSString *lease = [options[@"user_data"] stringByAppendingPathComponent:@".msime-dictionary-quiesce"];
+            auto Publish = [&] {
+                NSString *value = [NSString stringWithFormat:@"%lld\nsynthetic-owner\n",
+                    (long long)(NSDate.date.timeIntervalSince1970 * 1000) + 30000];
+                assert([value writeToFile:lease atomically:YES encoding:NSUTF8StringEncoding error:nil]);
+            };
+            CaptureSession *s = Make();
+            Publish();
+            assert([s startGlobalVoiceHolding:YES] == MSIMEGlobalVoiceStartRetry);
+            assert(s.capture.opens == 0 && ![s valueForKey:@"session"]);
+            assert([NSFileManager.defaultManager removeItemAtPath:lease error:nil]);
+            assert([s startGlobalVoiceHolding:YES] == MSIMEGlobalVoiceStartAccepted);
+            assert(!CanMaintain());
+            Publish();
+            [NSNotificationCenter.defaultCenter postNotificationName:
+                MSIMEEditionNotificationName(@"MSIMEDictionaryMaintenanceWillBeginNotification") object:nil];
+            assert(![s globalVoiceBusy] && ![s valueForKey:@"session"] && CanMaintain());
+            assert([NSFileManager.defaultManager removeItemAtPath:lease error:nil]);
+            Bind(s);
+            assert([s startGlobalVoiceHolding:YES] == MSIMEGlobalVoiceStartAccepted);
+            Publish();
+            NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2];
+            while ([s globalVoiceBusy] && deadline.timeIntervalSinceNow > 0) Pump();
+            assert(![s globalVoiceBusy] && CanMaintain());
+            assert([NSFileManager.defaultManager removeItemAtPath:lease error:nil]);
+        }
+        {
+            // 最终文字尚在交付时保留本轮；完成回调才释放核心句柄。
+            [defaults setObject:@"doubao" forKey:@"MSIMEClientVoiceASRProvider"];
+            auto original = MSIMEGlobalVoiceHost().deliver;
+            __block void (^finish)(void) = nil;
+            MSIMEGlobalVoiceHost().deliver = ^(NSString *text, NSString *mode, void (^done)(void)) {
+                (void)text; (void)mode; finish = done;
+            };
+            CaptureSession *s = Make();
+            assert([s startGlobalVoiceHolding:YES] == MSIMEGlobalVoiceStartAccepted);
+            s.request.reply(@"synthetic result", YES, nil);
+            assert(finish && [s globalVoiceBusy] && !CanMaintain());
+            finish();
+            assert(![s globalVoiceBusy] && CanMaintain());
+            MSIMEGlobalVoiceHost().deliver = original;
+        }
+        {
+            // 重建核心句柄后，连续 socket 录音仍使用不同传输租约。
+            auto original = MSIMEGlobalVoiceHost().deliver;
+            MSIMEGlobalVoiceHost().deliver = ^(NSString *text, NSString *mode, void (^done)(void)) {
+                (void)text; (void)mode; done();
+            };
+            CaptureSession *s = Make(); s.socket = @"/synthetic/provider.sock";
+            uint64_t previous = 0;
+            for (NSUInteger round = 0; round < 2; ++round) {
+                Bind(s);
+                assert([s startGlobalVoiceHolding:YES] == MSIMEGlobalVoiceStartAccepted);
+                SocketSession *transport = (id)[s valueForKey:@"session"];
+                const uint64_t lease = [[s valueForKey:@"socketLease"] unsignedLongLongValue];
+                assert(lease > previous); previous = lease;
+                for (NSUInteger attempt = 0; attempt < 50 && [s globalVoiceBusy]; ++attempt) Pump();
+                for (NSUInteger attempt = 0; attempt < 50 && !transport.lastCancellation; ++attempt) Pump();
+                assert(![s globalVoiceBusy] && CanMaintain());
+                assert([transport.lastQuery[@"generation"] unsignedLongLongValue] == lease && transport.lastCancellation == lease);
+            }
+            MSIMEGlobalVoiceHost().deliver = original;
         }
         MSIMEGlobalVoiceHost().owner = nil; MSIMEGlobalVoiceHost().sessionToken = nil;
         MSIMEGlobalVoiceHost().deliver = nil;
