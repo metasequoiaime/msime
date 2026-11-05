@@ -47,15 +47,16 @@ final class ImeCompositionEditor {
         if (container != null) ViewPolicy.hide(container);
     }
 
-    void render(String display, String editing, int caret, boolean keyGrid) {
+    /** @param keypad 这次组字所在键盘的组码表（{@link CompositionCaretPolicy#keypad}），读音的字母按它对上按键 */
+    void render(String display, String editing, String keypad, int caret, boolean keyGrid) {
         if (!s.compositionEditable()) close();
         if (container == null) return;
         ViewPolicy.setVisible(container, open);
         if (!open) return;
         container.setBackgroundColor(Color.parseColor(s.skin.background()));
         // 读音无法与原始按键对齐时，显示可编辑的按键，不猜测位置。
-        if (CompositionCaretPolicy.displayOffset(display, editing, caret, keyGrid) < 0) display = editing;
-        spelling.update(display, editing, caret, keyGrid, Color.parseColor(s.skin.keyForeground()),
+        if (CompositionCaretPolicy.displayOffset(display, editing, keypad, caret, keyGrid) < 0) display = editing;
+        spelling.update(display, editing, keypad, caret, keyGrid, Color.parseColor(s.skin.keyForeground()),
             Color.parseColor(s.skin.accent()));
     }
 }
