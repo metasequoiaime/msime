@@ -47,13 +47,15 @@ updates:
     commit-message:
       prefix: build
     labels: [dependencies, platform/android]
-    # AGP 的大版本要求更新的 Gradle，而本工程借用 Tauri 生成工程的 Gradle wrapper（见 platforms/android/build-apk.sh），两边只能一起升。
+    # AGP 和本工程自带的 Gradle wrapper 只能一起升：AGP 9.x 要求 Gradle 9.6 以上，AGP 8.x 又用了 Gradle 9.6 删掉的内部 API，在 9.6 以上构建不了（#10769 的 9.8.2）。升 AGP 9 时连同下面的 gradle-wrapper 规则一起去掉。
     # androidx.core 1.19 起要求 AGP 9.1，同理不能单独升。#639 已经因此退回过一次，没有这条规则 Dependabot 又把两者升了上去（2026-10-01）。
     ignore:
       - dependency-name: com.android.application
         update-types: [version-update:semver-major]
       - dependency-name: androidx.core:core
         versions: [">= 1.19.0"]
+      - dependency-name: gradle-wrapper
+        versions: [">= 9.6.0"]
     groups:
       gradle-minor:
         update-types: [minor, patch]
