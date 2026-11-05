@@ -1179,6 +1179,10 @@ int wmain(int argc, wchar_t **argv) {
     // a newly connected client may dispatch its first key immediately.
     startup_stage = "workers";
     InputStateHudFeedback hud_feedback;
+    // 提示由别的线程发布或改变，界面线程绘制，而界面线程在消息循环里最多等 50 毫秒才看一轮。给界面线程投一条空消息把这一轮叫醒，提示不必等满这一拍才出现。两处要叫醒：信箱里发布了提示（切简繁、日语、清缓存这些工作线程），以及管道上的模式事件落地（单按 Shift 切中英文走的是这条，界面线程靠读模式才知道要出提示，见下面的 pump_presentation.mode_event）。
+    const DWORD ui_thread = GetCurrentThreadId();
+    const auto wake_ui_thread = [ui_thread] { PostThreadMessageW(ui_thread, WM_NULL, 0, 0); };
+    hud_feedback.set_wake(wake_ui_thread);
     InputStateHudModeTracker hud_mode_tracker;
     CharacterSetClickWorker character_set_clicks(
         [traditional_output, &hud_feedback, directory = config.state_root](
@@ -1445,6 +1449,8 @@ int wmain(int argc, wchar_t **argv) {
       if (reply.dedicated_english_change)
         hud_feedback.publish(dedicated_english_hud(*reply.dedicated_english_change), lease);
     };
+    // 模式事件落地、焦点锁放开之后叫醒界面线程，它这一轮就能读到新模式并出中英切换提示。
+    pump_presentation.mode_event = [wake_ui_thread](const FocusLease &) { wake_ui_thread(); };
     // 单个按键被拒（RequestRejected）只断开那一个客户端，原因写进 Server 日志；不然日志里只剩随后的重连，看不出是哪一项校验没过。
     pump_presentation.rejected = [&diagnostic_log](const std::string &line) {
       diagnostic_log.server(line);
