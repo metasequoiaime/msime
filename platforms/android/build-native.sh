@@ -51,11 +51,12 @@ ort_library_sha=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]
 if [ -d "$repo_root/target/android-cargo/$rust_target" ] && [ "$(cat "$ort_stamp" 2>/dev/null)" != "$ort_library_sha" ]; then
   CARGO_TARGET_DIR="$repo_root/target/android-cargo" cargo clean -p ort-sys --target "$rust_target" --release
 fi
+# 相对重定位压成 RELR（--pack-dyn-relocs=relr）：libmsime_host_api.so 有五万多条 R_*_RELATIVE，按 RELA 每条 24 字节占了约 1.27 MB，压成位图后只剩几十 KB，加载时由系统链接器照样逐条重定位，行为不变（GitHub 瘦包贴着体积上限，见 #10810）。必须带 --use-android-relr-tags：标准的 DT_RELR 要 API 30 的链接器才认，minSdk 28 的 Android 9、10 只认 API 28 起支持的 DT_ANDROID_RELR，用标准标签的库在那两个版本上加载失败；verify-native.sh 核对的就是这一点。
 env "CC_${rust_target//-/_}=$compiler" "CXX_${rust_target//-/_}=$compiler++" \
   "AR_${rust_target//-/_}=$toolchain/bin/llvm-ar" "$cargo_linker=$compiler" \
   CARGO_TARGET_DIR="$repo_root/target/android-cargo" \
   CARGO_PROFILE_RELEASE_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_STRIP=none \
-  RUSTFLAGS="-C link-arg=-Wl,-z,max-page-size=16384 -C link-arg=-Wl,--build-id=sha1" \
+  RUSTFLAGS="-C link-arg=-Wl,-z,max-page-size=16384 -C link-arg=-Wl,--build-id=sha1 -C link-arg=-Wl,--pack-dyn-relocs=relr -C link-arg=-Wl,--use-android-relr-tags" \
   ORT_LIB_LOCATION="$ort_location" \
   cargo build -p msime-host-api --features onnx-rerank --target "$rust_target" --release --locked
 mkdir -p "$repo_root/target/android-cargo"
