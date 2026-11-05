@@ -14199,13 +14199,9 @@ static void TestCrossCommitSpacing() {
 @end
 
 @interface GlobalVoiceBoundaryController : MSIMEInputController
-@property(nonatomic) NSUInteger finishes;
-@property(nonatomic) NSUInteger cancellations;
 @property(nonatomic) NSUInteger toggles;
 @end
 @implementation GlobalVoiceBoundaryController
-- (void)finishHTTPVoiceInput { ++_finishes; [self setValue:@YES forKey:@"httpVoiceProcessing"]; }
-- (void)cancelHTTPVoiceInput { ++_cancellations; [self setValue:nil forKey:@"httpVoiceRequest"]; }
 - (BOOL)matchesVoiceToggleHotkey:(NSEvent *)event { (void)event; return YES; }
 - (void)toggleVoiceInput:(id)sender { (void)sender; ++_toggles; }
 @end
@@ -14255,7 +14251,7 @@ static GlobalVoiceGestureProbe *GlobalGestureProbe() {
 static GlobalVoiceSessionProbe *CurrentClientProbe(GlobalVoiceTargetProbe *capture,
                                                      id<MSIMEGlobalVoiceTarget> (^delivery)(void) = nil) {
     GlobalVoiceSessionProbe *probe = [[GlobalVoiceSessionProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)capture; }
-        deliveryTarget:delivery ?: ^{ return (id<MSIMEGlobalVoiceTarget>)capture; }];
+        deliveryTarget:^{ return (id<MSIMEGlobalVoiceDeliveryTarget>)(delivery ? delivery() : capture); }];
     probe.application = [GlobalVoiceApplicationProbe new]; probe.application.processIdentifier = 42;
     probe.clock = 1; probe.source = @"com.apple.keylayout.ABC";
     return probe;
@@ -14660,7 +14656,7 @@ static void TestGlobalVoiceBoundaries() {
         [local setValue:[NSObject new] forKey:@"httpVoiceRequest"];
         GlobalVoiceTargetProbe *capture = [GlobalVoiceTargetProbe new];
         GlobalVoiceSessionProbe *probe = [[GlobalVoiceSessionProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)capture; }
-            deliveryTarget:^{ return (id<MSIMEGlobalVoiceTarget>)local; }];
+            deliveryTarget:^{ return (id<MSIMEGlobalVoiceDeliveryTarget>)local; }];
         [probe setValue:@YES forKey:@"enabled"];
         [probe toggle];
         assert(local.toggles == 1 && capture.starts == 0 && MSIMEGlobalVoiceHost().owner == nil);
@@ -14756,7 +14752,7 @@ static void TestGlobalVoiceBoundaries() {
         GlobalVoiceTargetProbe *capture = [GlobalVoiceTargetProbe new]; capture.pid = 42;
         GlobalVoiceTargetProbe *delivery = [GlobalVoiceTargetProbe new]; delivery.pid = 42; delivery.acceptsText = YES;
         GlobalVoiceSessionProbe *probe = [[GlobalVoiceSessionProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)capture; }
-            deliveryTarget:^{ return (id<MSIMEGlobalVoiceTarget>)delivery; }];
+            deliveryTarget:^{ return (id<MSIMEGlobalVoiceDeliveryTarget>)delivery; }];
         probe.application = [GlobalVoiceApplicationProbe new]; probe.application.processIdentifier = 42;
         probe.clock = 1; probe.focus = [NSObject new]; probe.source = @"com.apple.keylayout.ABC";
         [probe begin:YES];
@@ -14919,7 +14915,7 @@ static void TestGlobalVoiceBoundaries() {
     }
     {
         GlobalVoiceGestureProbe *probe = GlobalGestureProbe();
-        [probe setValue:[GlobalVoiceBoundaryController alloc] forKey:@"owner"];
+        [probe setValue:[GlobalVoiceTargetProbe new] forKey:@"owner"];
         GlobalGestureSend(probe, kCGEventFlagsChanged, 61, rightOption);
         GlobalGestureWait();
         assert(probe.toggles == 1 && probe.begins == 0);
@@ -14940,29 +14936,11 @@ static void TestGlobalVoiceBoundaries() {
         assert(probe.begins == 1);
     }
     GlobalVoiceBoundaryController *controller = [GlobalVoiceBoundaryController alloc];
-    NSObject *client = [NSObject new];
-    ShortcutSession *session = [ShortcutSession new];
-    [controller setValue:client forKey:@"activeClient"];
-    [controller setValue:client forKey:@"globalVoiceClient"];
-    [controller setValue:session forKey:@"session"];
-    [controller setValue:session forKey:@"globalVoiceSession"];
-    [controller setValue:[NSObject new] forKey:@"httpVoiceRequest"];
-    [controller setValue:[NSObject new] forKey:@"voicePermissionToken"];
-    MSIMEGlobalVoiceHost().owner = controller;
-    assert(MSIMEInputControllerHasUnfinishedInput());
-    assert([controller voiceOwnsClient:client session:(MSIMEClientSession *)(id)session]);
-    [controller stopGlobalVoice];
-    assert(controller.finishes == 1 && [controller valueForKey:@"voicePermissionToken"] == nil);
-    [controller stopGlobalVoice];
-    assert(controller.finishes == 1 && controller.cancellations == 0); // 已停麦后仍等最终识别。
-    [controller detachGlobalVoice];
-    [controller setValue:[NSObject new] forKey:@"activeClient"];
-    [controller setValue:[ShortcutSession new] forKey:@"session"];
-    assert([controller voiceOwnsClient:client session:(MSIMEClientSession *)(id)session]);
-    [controller cancelHTTPVoiceInput];
-    MSIMEGlobalVoiceHost().owner = nil;
-    [controller endGlobalVoice];
-    assert(![controller voiceOwnsClient:client session:(MSIMEClientSession *)(id)session]);
+    assert([controller conformsToProtocol:@protocol(MSIMEGlobalVoiceDeliveryTarget)]);
+    assert(![controller conformsToProtocol:@protocol(MSIMEGlobalVoiceTarget)]);
+    assert(![controller respondsToSelector:@selector(startGlobalVoiceHolding:)]);
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    MSIMEGlobalVoiceHost().owner = nil; MSIMEGlobalVoiceHost().sessionToken = nil;
     MSIMEGlobalVoiceHost().toggleHandled = nil;
     MSIMEGlobalVoiceHost().keyboard = true;
     [controller globalVoiceHotkeyHandler](ModeKey(101, NSEventModifierFlagControl, NO));

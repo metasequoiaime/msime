@@ -135,7 +135,7 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
 
 @implementation MSIMEGlobalVoiceCoordinator {
     id<MSIMEGlobalVoiceTarget> (^_target)(void);
-    id<MSIMEGlobalVoiceTarget> (^_deliveryTarget)(void);
+    id<MSIMEGlobalVoiceDeliveryTarget> (^_deliveryTarget)(void);
     id<MSIMEGlobalVoiceTarget> _owner;
     NSTimer *_poll;
     NSTimer *_sessionPoll;
@@ -189,10 +189,10 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
     BOOL _deliveryRestore;
 }
 - (instancetype)initWithTarget:(id<MSIMEGlobalVoiceTarget> (^)(void))target {
-    return [self initWithTarget:target deliveryTarget:target];
+    return [self initWithTarget:target deliveryTarget:^{ return (id<MSIMEGlobalVoiceDeliveryTarget>)target(); }];
 }
 - (instancetype)initWithTarget:(id<MSIMEGlobalVoiceTarget> (^)(void))target
-                deliveryTarget:(id<MSIMEGlobalVoiceTarget> (^)(void))deliveryTarget {
+                deliveryTarget:(id<MSIMEGlobalVoiceDeliveryTarget> (^)(void))deliveryTarget {
     if (!(self = [super init])) return nil;
     _target = [target copy];
     _deliveryTarget = [deliveryTarget copy];
@@ -546,7 +546,7 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
     if (_starting || _state.phase != msime::mac::GlobalVoiceState::Phase::Idle) return;
     if (_backgroundRegistration && (_backgroundRegistration.busy || _backgroundRegistration.error ||
         [self backgroundService].status != SMAppServiceStatusEnabled)) return;
-    id<MSIMEGlobalVoiceTarget> local = _deliveryTarget();
+    id<MSIMEGlobalVoiceDeliveryTarget> local = _deliveryTarget();
     if ([local respondsToSelector:@selector(toggleLocalVoiceIfBusy)] && [local toggleLocalVoiceIfBusy]) return;
     NSString *source = [self currentSourceIdentifier] ?: @"";
     id<MSIMEGlobalVoiceTarget> target = _target();
@@ -686,7 +686,7 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
     if (!_deliveryIMKStarted) {
         NSString *source = [self currentSourceIdentifier] ?: @"";
         if (![_commitMode isEqual:@"tsf"]) {
-            id<MSIMEGlobalVoiceTarget> target = _deliveryTarget();
+            id<MSIMEGlobalVoiceDeliveryTarget> target = _deliveryTarget();
             const BOOL prepared = ![self isOwnSourceIdentifier:source] ||
                 ([target respondsToSelector:@selector(prepareGlobalVoiceTextForCommit:)] && [target prepareGlobalVoiceTextForCommit:token]);
             if (_state.generation != generation || MSIMEGlobalVoiceHost().sessionToken != token || !_pendingText) return;
@@ -714,7 +714,7 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
     NSString *source = [self currentSourceIdentifier];
     const BOOL arrived = [self isOwnSourceIdentifier:source];
     if (arrived) _state.selectedObserved = true;
-    id<MSIMEGlobalVoiceTarget> target = arrived ? _deliveryTarget() : nil;
+    id<MSIMEGlobalVoiceDeliveryTarget> target = arrived ? _deliveryTarget() : nil;
     const auto result = [target respondsToSelector:@selector(commitGlobalVoiceText:token:)]
         ? [target commitGlobalVoiceText:_pendingText token:token] : MSIMEGlobalVoiceDeliveryRetry;
     if (_state.generation != generation || MSIMEGlobalVoiceHost().sessionToken != token || !_pendingText) return;

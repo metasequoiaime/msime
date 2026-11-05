@@ -14,9 +14,17 @@ typedef NS_ENUM(NSInteger, MSIMEGlobalVoiceDeliveryResult) {
     MSIMEGlobalVoiceDeliveryAccepted,
 };
 
-@protocol MSIMEGlobalVoiceTarget <NSObject>
+@protocol MSIMEGlobalVoiceDeliveryTarget <NSObject>
 - (pid_t)globalVoiceTargetPID;
 - (BOOL)globalVoiceBusy;
+@optional
+// 全局入口可以停止菜单或工具栏发起的局部录音，不接管其提交目标。
+- (BOOL)toggleLocalVoiceIfBusy;
+- (BOOL)prepareGlobalVoiceTextForCommit:(id)token;
+- (MSIMEGlobalVoiceDeliveryResult)commitGlobalVoiceText:(NSString *)text token:(id)token;
+@end
+
+@protocol MSIMEGlobalVoiceTarget <MSIMEGlobalVoiceDeliveryTarget>
 - (BOOL)globalVoiceProcessing;
 - (MSIMEGlobalVoiceStartResult)startGlobalVoiceHolding:(BOOL)holding;
 - (void)stopGlobalVoice;
@@ -24,12 +32,6 @@ typedef NS_ENUM(NSInteger, MSIMEGlobalVoiceDeliveryResult) {
 - (void)endGlobalVoice;
 - (void)lockGlobalVoice;
 - (void)detachGlobalVoice;
-@optional
-// 全局入口可以停止当前控制器由菜单或工具栏发起的局部录音，不接管其提交目标。
-- (BOOL)toggleLocalVoiceIfBusy;
-// 提交前按普通输入法路径结束当前组字，不跨录音保存字段身份。
-- (BOOL)prepareGlobalVoiceTextForCommit:(id)token;
-- (MSIMEGlobalVoiceDeliveryResult)commitGlobalVoiceText:(NSString *)text token:(id)token;
 @end
 
 // 单进程桥接只在主线程访问，不接受外部录音命令。测试可替换回调而不用加载事件 tap。
@@ -57,7 +59,7 @@ inline BOOL MSIMEGlobalVoiceOwnsToggle(NSEvent *event) {
 @interface MSIMEGlobalVoiceCoordinator : NSObject
 - (instancetype)initWithTarget:(id<MSIMEGlobalVoiceTarget> (^)(void))target;
 - (instancetype)initWithTarget:(id<MSIMEGlobalVoiceTarget> (^)(void))target
-                deliveryTarget:(id<MSIMEGlobalVoiceTarget> (^)(void))deliveryTarget;
+                deliveryTarget:(id<MSIMEGlobalVoiceDeliveryTarget> (^)(void))deliveryTarget;
 @end
 
 // 只处理明确的引导参数，其余参数继续走 IMK 的正常启动路径。

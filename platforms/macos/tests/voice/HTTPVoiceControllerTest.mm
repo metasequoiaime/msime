@@ -149,43 +149,6 @@ int main() {
         NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
         NSDictionary *oldArguments = [defaults volatileDomainForName:NSArgumentDomain];
         [defaults setVolatileDomain:@{@"MSIMEClientVoiceSoundEnabled": @YES, @"MSIMEClientVoiceStartSound": @YES, @"MSIMEClientVoiceEndSound": @YES} forName:NSArgumentDomain];
-        {
-            HTTPControllerFixture *global = [HTTPControllerFixture alloc];
-            HTTPOverlayFixture *presentation = [HTTPOverlayFixture new];
-            HTTPCaptureFixture *input = [HTTPCaptureFixture new];
-            NSObject *target = [MSIMEVoiceClientFixture new];
-            HTTPHostFixture *host = [HTTPHostFixture new];
-            [global setValue:presentation forKey:@"voiceOverlay"];
-            [global setValue:input forKey:@"voiceService"];
-            [global setValue:host forKey:@"session"];
-            [global setValue:target forKey:@"activeClient"];
-            [global setValue:target forKey:@"globalVoiceClient"];
-            [global setValue:host forKey:@"globalVoiceSession"];
-            [global setValue:@42 forKey:@"voiceGeneration"];
-            MSIMEGlobalVoiceHost().owner = global;
-            assert([global startHTTPVoiceInputWithOptions:@{}]);
-            assert(presentation.phase == 0); // 引擎返回成功但尚无音频时不显示录音波形。
-            const NSUInteger staleEpoch = [[global valueForKey:@"voiceCaptureEpoch"] unsignedIntegerValue];
-            [global verifyGlobalVoiceCapture:(id)input generation:42 epoch:staleEpoch];
-            assert(presentation.failure == MSIMEVoiceFailureCapture && !input.active);
-            [presentation setListening:NO];
-            assert([global startHTTPVoiceInputWithOptions:@{}]);
-            const NSUInteger epoch = [[global valueForKey:@"voiceCaptureEpoch"] unsignedIntegerValue];
-            [global verifyGlobalVoiceCapture:(id)input generation:42 epoch:staleEpoch];
-            assert(input.active && presentation.phase == 0); // 旧超时不能取消后续录音。
-            input.capturedSeconds = 0.1;
-            input.bufferHandler(MSIMEVoiceMeterFixtureBuffer()); MSIMEVoiceMeterFixturePump();
-            assert(presentation.phase == 1 && presentation.levelUpdates == 1);
-            [global verifyGlobalVoiceCapture:(id)input generation:42 epoch:epoch];
-            assert(input.active && presentation.failure == 0);
-            [global setValue:@YES forKey:@"httpVoiceProcessing"];
-            input.capturedSeconds = 0;
-            [global verifyGlobalVoiceCapture:(id)input generation:42 epoch:epoch];
-            assert(input.active); // 识别阶段不再要求麦克风继续送帧。
-            [global cancelHTTPVoiceInput];
-            [global endGlobalVoice];
-            MSIMEGlobalVoiceHost().owner = nil;
-        }
         HTTPCaptureFixture *capture = [HTTPCaptureFixture new];
         capture.capturedSeconds = 0.25;
         HTTPHostFixture *session = [HTTPHostFixture new];
