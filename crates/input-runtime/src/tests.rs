@@ -5466,6 +5466,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         shuangpin_preedit_uses_raw: true,
         shuangpin_preedit_separated: false,
         force_cantonese_shuangpin: false,
+        cantonese_output_conversion: None,
         single_character_only: false,
         caret_edit_suffix: false,
         learning: false,
@@ -5476,6 +5477,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         fuzzy_pinyin_rules: 0,
         wubi_mixed_pinyin: false,
         wubi_z_wildcard: false,
+        wubi_reverse_code: true,
         wubi_profile: 0,
         helpcode: false,
         strict_quanpin_helpcode: false,
@@ -7190,7 +7192,7 @@ fn wubi_literal_marks_do_not_open_table_modes() {
 
 #[test]
 fn a_wubi_wildcard_four_code_never_tops_on_the_fifth_key() {
-    for profile in [0, 1] {
+    for profile in [0, 1, 2] {
         for mixed in [false, true] {
             let directory = tempfile::tempdir().unwrap();
             let mut options = real_engine_options(directory.path());
@@ -7208,7 +7210,9 @@ fn a_wubi_wildcard_four_code_never_tops_on_the_fifth_key() {
                 "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
                  INSERT INTO wubi86 VALUES('wqty','合成甲',100),('wqry','合成乙',90);
                  CREATE TABLE wubi98(key TEXT,value TEXT,weight INTEGER);
-                 INSERT INTO wubi98 SELECT * FROM wubi86;",
+                 INSERT INTO wubi98 SELECT * FROM wubi86;
+                 CREATE TABLE wubixsj(key TEXT,value TEXT,weight INTEGER);
+                 INSERT INTO wubixsj SELECT * FROM wubi86;",
             )
             .unwrap();
             let mut runtime =
@@ -7229,7 +7233,7 @@ fn a_wubi_wildcard_four_code_never_tops_on_the_fifth_key() {
 
 #[test]
 fn mixed_wubi_continues_a_pinyin_reading_past_a_native_four_code() {
-    for profile in [0, 1] {
+    for profile in [0, 1, 2] {
         for mixed in [false, true] {
             for (next, shift, continues) in [
                 (b'i', false, true),
@@ -7252,6 +7256,8 @@ fn mixed_wubi_continues_a_pinyin_reading_past_a_native_four_code() {
                         INSERT INTO wubi86 VALUES('guiy','合成甲',100),('guiy','合成乙',90);
                         CREATE TABLE wubi98(key TEXT,value TEXT,weight INTEGER);
                         INSERT INTO wubi98 SELECT * FROM wubi86;
+                        CREATE TABLE wubixsj(key TEXT,value TEXT,weight INTEGER);
+                        INSERT INTO wubixsj SELECT * FROM wubi86;
                         CREATE TABLE tbl_2_g(key TEXT,jp TEXT,value TEXT,weight INTEGER);
                         INSERT INTO tbl_2_g VALUES('gui''yi','gy','合成',1000);",
                 )
@@ -10866,6 +10872,7 @@ mod candidate_scorer;
 
 mod prediction_rerank;
 
+mod deferred_scorer;
 mod sentence_pool;
 mod sentence_start;
 

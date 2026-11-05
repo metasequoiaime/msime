@@ -106,11 +106,11 @@ user_data/
 
 **工作副本**是用户可写的持久数据，不是缓存：学习、删词、个人词典编辑直接写它，日志同时记一份；换代次时由日志回放补齐。工作副本保持回滚日志模式（不切 WAL），因为重置学习数据把它们挪作备份时不带旁路文件。
 
-**五笔反查索引**：`CREATE INDEX IF NOT EXISTS idx_wubi86_value ON wubi86("value")` 和 `idx_wubi98_value`，只在代次副本里补建；失败只记日志，反查照常正确，只是慢。
+**五笔反查索引**：`CREATE INDEX IF NOT EXISTS idx_wubi86_value ON wubi86("value")`、`idx_wubi98_value` 和 `idx_wubixsj_value`，表在才建，只在代次副本里补建；失败只记日志，反查照常正确，只是慢。
 
 ## 4. `msime-pinyin.db`
 
-主词库：全拼各表、快捷短语表 `quick_parases`（拼写如此，是冻结的表名）和文件内版本表。全拼、双拼、九键和五笔的 14 键排序都读它；准备代次时五笔码表并进它的工作副本（[§9](#9-msime-wubidb)）。发布的文件是回滚日志模式（`journal_mode=DELETE`）、没有空闲页、只带 `sqlite_stat1` 统计表的独立数据库。
+主词库：全拼各表、快捷短语表 `quick_parases`（拼写如此，是冻结的表名）、文件内版本表，以及可选的不拼整句表 `sentence_excluded`（[§4.5](#45-sentence_excluded)）。全拼、双拼、九键和五笔的 14 键排序都读它；准备代次时五笔码表并进它的工作副本（[§9](#9-msime-wubidb)）。发布的文件是回滚日志模式（`journal_mode=DELETE`）、没有空闲页、只带 `sqlite_stat1` 统计表的独立数据库。
 
 ### 4.1 拼音表
 
@@ -183,6 +183,24 @@ INSERT OR REPLACE INTO metadata(name, value) VALUES('format_version', '1');
 
 `metadata` 随 backup 原样进副本，引擎不改它。
 
+### 4.5 `sentence_excluded`
+
+可选的表：引擎拼整句、换纠错整句和上屏后联想时不用的粗俗词（`lattice::offensive`），以及放行其中一部分的豁免写法。dict-builder 的 `sentence-excluded` 阶段从 msime-dictionary 的 `curation/offensive-words.txt` 写入；这个文件不存在时不建这张表。
+
+```sql
+CREATE TABLE sentence_excluded(value TEXT NOT NULL PRIMARY KEY, exempt INTEGER NOT NULL CHECK (exempt IN (0, 1))) WITHOUT ROWID;
+```
+
+- `value`：两个及以上汉字。`exempt = 0` 是词，`exempt = 1` 是豁免写法（文件里写成 `!` 开头的行）。
+- 写入时检查：每个词都是全拼表里某一行的词，每条豁免写法都出现在全拼表某一行的词里，并且含一个表里的词；做不到就构建失败，不写这张表。
+- 建表语句是 `format::SENTENCE_EXCLUDED_SCHEMA`，表名是 `format::SENTENCE_EXCLUDED_TABLE`。
+
+读端规则（`OffensiveWords::from_database`）：词库有这张表、能读出 `value` 和 `exempt` 两列、至少有一个 `exempt = 0` 的词时，引擎用它整个取代编进引擎的 `offensive_words.txt`；没有这张表（`dict-v2.0.x` 的发布）、列不对、读的时候出错、或者一个词都没有时，用编进引擎的表。查法两边相同：词本身或其中任何一段在表里就算命中，除非这一段被一条豁免写法整个盖住。
+
+这是只追加的新表，按 [§4.3](#43-文件内版本) 的规矩不改 `FORMAT_VERSION`：旧引擎按名字查表、不枚举不认识的表，带这张表的词库对它来说照常可用，只是还用内嵌表；新引擎配旧词库退回内嵌表。表随 backup 进代次的工作副本，引擎从副本读；全拼、双拼词典和联想在打开词库时各读一次。网页词库（`msime-dict-build web`）原样保留这张表。
+
+构建器一侧不是这样：加入这张表之前的 `msime-dict-build web` 枚举输入词库的表，遇到不认识的表就失败（`unexpected table sentence_excluded in the input dictionary`）。所以裁剪带这张表的 `dict-v*` 要用包含这次改动的构建器；`scripts/build-web-engine.sh` 和 `release-web-engine.yml` 用的是检出提交里的构建器，`resources/desktop-dictionary.lock.json` 换到带这张表的发布，只能在已经有这次改动的分支上做。第一个带这张表的发布是 `dict-v2.1.0`（67 个词、19 条豁免写法，共 86 行），桌面词库锁从它起固定的就是带表的库。
+
 ## 5. `msime-english.db`
 
 英文词表和中英互译释义。方案集合含全拼、双拼或五笔时每个代次都复制一份，资源目录必须有它；只用日文、韩语、越南语、藏文、粤语、注音、笔画的集合不要求它，带了才复制进代次，供专用英文用（见 [§20](#20-每个方案的最小数据集)）。
@@ -207,7 +225,7 @@ PRAGMA user_version=3;
 ```
 
 - `english_words.word` 是小写查找键，`display` 是展示的大小写形式（`china` 与 `China` 各一行），`weight` 可能超过 `i32`，引擎按 `i64` 读。同一个词的几种大小写里，领头的那种带词频，其余比它低 1。
-- 释义表的值可以有多个义项，宿主门面在候选旁显示时只取前两个。
+- 释义表的值可以有多个义项，宿主门面在候选旁显示时只取前两个。`en_zh_glosses.english` 是小写查找键；`zh_en_glosses.english_gloss` 里的英文词按展示写法，专名保留大写（`中国` → `China`）。
 - `source_notices` 保存来源要求随数据保留的声明（目前是 SCOWL 的版权声明），引擎不读。
 - `user_version=3` 由构建和 `ensure_english_schema` 写入，读端不检查；`ensure_english_schema` 会把没有 `weight` 列或只以 `word` 为键的旧表就地改建成上面的形状。
 
@@ -243,11 +261,12 @@ CREATE TABLE IF NOT EXISTS user_dictionary_operations(
 | `pinyin` | 主库的全拼表（按 [§4.1](#41-拼音表) 的规则选表，同时写 `jp`） | `'` 分隔的全拼 |
 | `wubi` | 主库的 `wubi86` | 1 到 4 个 `a`-`y` |
 | `wubi98` | 主库的 `wubi98` | 同上 |
+| `wubixsj` | 主库的 `wubixsj`（新世纪五笔） | 同上 |
 | `quick` | 主库的 `quick_parases` | 1 到 32 个字母或数字 |
 | `english` | 英文库的 `english_words`，`display` 列是展示形式 | 1 到 64 个字母 |
 | `cantonese` | 不回放，计为跳过：粤语方案查词时直接读日志里的 upsert 行，并进 `msime-cantonese.db` 的候选（`cantonese::UserWords`），同一个词两边都有时取较大的权重。`user_inserted=1` 是用户加的词和打字造的词，`user_inserted=0` 是粤语调频写下的权重（`cantonese::learning`）。词库快照不收这些行，整份换上快照时宿主从旧日志抄进新的一代（`add_cantonese_words`，`user_inserted` 照原样） | 不带声调的粤拼音节，单个空格分隔（与 [§13](#13-语言词库msime-cantonesedbmsime-zhuyindbmsime-strokedb) 的 `entries.key` 同一写法） |
 
-`operation='delete'` 是墓碑，回放时删除对应行；`user_inserted=1` 表示用户自己加的词（删除后仍记着它曾是用户的）。权重低于 1 的 `pinyin` upsert 是旧版调频留下的，回放时跳过，`ensure_user_database` 会把它们删掉。代次里没有对应表的行（只读英文库的代次里的非英文行，还没有五笔表时的五笔行）计为跳过，留在日志里。**未知的 `dictionary` 值和存不进去的 `key` 算失败行，任何一行失败整次回放回滚、代次准备被拒**，所以新增取值必须先让引擎认得它，再往日志里写。`cantonese` 是这样加进来的最近一个取值：认得它之前的引擎（降级安装）遇到用户加过粤语词的日志会拒绝准备新代次。
+`operation='delete'` 是墓碑，回放时删除对应行；`user_inserted=1` 表示用户自己加的词（删除后仍记着它曾是用户的）。权重低于 1 的 `pinyin` upsert 是旧版调频留下的，回放时跳过，`ensure_user_database` 会把它们删掉。代次里没有对应表的行（只读英文库的代次里的非英文行，还没有五笔表时的五笔行，词库还没有 `wubixsj` 表时的新世纪行；只看这一行自己的表）计为跳过，留在日志里。`wubixsj` 行只出自选着新世纪五笔的用户：新世纪方案下的调频、删词和手动加的词，以及选着新世纪时拼音造词派生的五笔词（`user_dictionary::wubi_learning`）；86/98 用户的日志里不会出现它。这一版不认识的 `dictionary` 值（更新的版本加的种类，降级后读到）同样计为跳过、留在日志里，回到认识它的版本时照常回放。**存不进去的 `key` 算失败行，任何一行失败整次回放回滚、代次准备被拒。** 跳过未知取值是从 2026-11 的版本开始的，更早发布的引擎仍把未知取值算失败行，所以新增取值时要说明降级到那些版本不受支持，或者等宽松读取的版本覆盖了足够多的用户再往日志里写。`cantonese` 加进来时还没有这条宽松读取：认得它之前的引擎（降级安装）遇到用户加过粤语词的日志会拒绝准备新代次。
 
 ### 6.3 其余表
 
@@ -546,13 +565,13 @@ dict-builder 的其他子命令（`places`、`hanja`、`syllable-frequency`）�
 
 | 文件 | 数据许可证 |
 | --- | --- |
-| `msime-pinyin.db` | GPL-3.0（rime-ice 及其补充）；与万象共有词条的权重和字频为 CC-BY-4.0（rime-wanxiang）；单字读音按 MIT 的 pinyin-data 校正；行政区划地名为 WTFPL |
+| `msime-pinyin.db` | GPL-3.0（rime-ice 及其补充）；与万象共有词条的权重和字频为 CC-BY-4.0（rime-wanxiang）；单字读音按 MIT 的 pinyin-data 校正；行政区划地名为 WTFPL，`dict-v2.1.0` 起其中一部分地名的权重以万象权重为下限（CC-BY-4.0）。`dict-v2.1.0` 起按 msime-dictionary `curation/` 的否决表和覆盖表删词、改权重，是 rime-ice 数据的修改版本，`sentence_excluded`（[§4.5](#45-sentence_excluded)）的词表是 msime-dictionary 自写的 `curation/offensive-words.txt`，均为 GPL-3.0 |
 | `msime-wubi.db` | Apache-2.0（极点 86）、LGPL-3.0（rime-wubi 补入的词条）、GPL-3.0-or-later（fcitx 98）、Unlicense（98 五笔小组）；本项目生成的 86、98 补充表为 GPL-3.0，词条依据 GPL-3.0 的 rime-ice、人工词条与 WTFPL 的区划名称。带 `wubixsj` 的发布另有：新世纪单字码为 GPL-3.0（byujiang/wubi06_rime，许可由转载者给出，来源没有记录、很可能派生自商业码表，见 `resources/licenses/msime-engine-dictionary-NOTICE.md`）；新世纪词组为本项目生成，GPL-3.0，词条来源同上，极点表里有的词沿用极点表（Apache-2.0）的权重 |
-| `msime-english.db` | GPL-3.0（rime-ice-en 及补充）；含 SCOWL 的词，分发时必须附 `msime-scowl_Copyright.txt`；Google 词频以来源页面说明为准 |
+| `msime-english.db` | GPL-3.0（rime-ice-en 及补充）；含 SCOWL 的词，分发时必须附 `msime-scowl_Copyright.txt`；Google 词频以来源页面说明为准。`dict-v2.1.0` 起按构建器内置的蔑称和 msime-dictionary 的 `curation/english-vetoes.txt` 删词、按 `curation/gloss-vetoes.txt` 不用部分 ECDICT 释义，是 rime-ice 英文词表的修改版本 |
 | `msime-bigram.bin`、`msime-trigram.bin` | 计数来自中文维基百科（CC-BY-SA-4.0），词表是 GPL-3.0 的 `msime-pinyin.db` |
 | `msime-others.db` | emoji 数据与颜文字（`resources/dictionary-sources/kaomoji/kaomoji.txt`）的来源都未记录，PiliApp 符号未声明许可，再分发前需另行确认 |
 | `msime-japanese.dat` | Mozc 开源词库：Google 三条款 BSD 加词典目录的 IPAdic、ICOT、冲绳辞書条款；分发时必须附 `msime-mozc_dictionary_oss_README.txt` 与 `msime-mozc_LICENSE.txt` |
-| `msime-cantonese.db` | CC-BY-4.0（rime-cantonese、HKCanCor，以及 msime-dictionary 的人工词表 `custom/cantonese.txt`，本项目以 CC BY 4.0 提供） |
+| `msime-cantonese.db` | CC-BY-4.0（rime-cantonese、HKCanCor，以及 msime-dictionary 的人工词表 `custom/cantonese.txt`）；含 `sources/hong-kong/` 地名时另遵循香港政府 CSDI 使用条款，`license` 为 `CC-BY-4.0 AND LicenseRef-HK-CSDI` |
 | `msime-zhuyin.db` | LGPL-2.1-or-later（libchewing-data）；补充词表（McBopomofo 的 `BPMFMappings.txt`）源自 libtabe 的 `tsi.src`，为 BSD-3-Clause，McBopomofo 的改动与词频 `phrase.occ` 为 MIT（文件内记为 `LGPL-2.1-or-later AND BSD-3-Clause AND MIT`，`dict-v2.0.40` 及以前的发布只记了 `LGPL-2.1-or-later`） |
 | `msime-stroke.db` | LGPL-3.0（rime-stroke），权重取自 GPL-3.0 的 rime-ice 字频，其中与万象共有读音的字频为 CC-BY-4.0（rime-wanxiang；文件内记为 `LGPL-3.0-only AND GPL-3.0-only AND CC-BY-4.0`，`dict-v2.0.40` 及以前的发布只记了 `LGPL-3.0-only AND GPL-3.0-only`） |
 | `sentence-model.safetensors` | Apache-2.0（权重）；训练语料 C4 中文部分 ODC-BY、LCCC MIT，署名在 `__metadata__` 里 |

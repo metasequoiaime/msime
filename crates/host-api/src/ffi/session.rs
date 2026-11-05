@@ -61,6 +61,7 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
     let statistics_recorded_elsewhere = options.selection_statistics == Some(false);
     let keyboard_reranker_allowed = options.keyboard_reranker != Some(false);
     let recorded_rerank_models = options.rerank_models.clone();
+    let pause_rerank = options.pause_rerank == Some(true);
     // 聚焦时据此重新查找按需下载的资源包，见 `HostSession::refresh_resource_packs`。
     let state_root = absolute_state_root(options.preferences_directory.as_deref());
     let recorded_language_dictionaries = options
@@ -170,6 +171,7 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
             plugin_roots.builtin_sounds.as_deref(),
             state_root.as_deref(),
             sentence_model_path.as_deref(),
+            pause_rerank,
         ))
     } else {
         runtime.set_candidate_scorer(keyboard_reranker(
@@ -260,6 +262,7 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
                 keyboard_reranker_source,
                 keyboard_reranker_loading,
                 keyboard_reranker_allowed,
+                pause_rerank,
                 recorded_rerank_models,
                 recorded_settled_model,
                 settled_model,

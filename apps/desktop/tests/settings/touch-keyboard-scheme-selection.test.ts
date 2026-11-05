@@ -385,6 +385,21 @@ test("the single Wubi touch scheme is titled by the Wubi profile and keeps it wh
   expect(
     touchKeyboardSchemeTitle({ ...wubi98, scheme: "wubi", touch_keyboard_schemes: undefined }),
   ).toBe("98 五笔");
+  const wubixsj = selectHomeTouchKeyboardScheme(
+    { ...preferences, wubi_profile: "wubixsj" },
+    "wubi",
+  );
+  expect(wubixsj.wubi_profile).toBe("wubixsj");
+  expect(touchKeyboardSchemeTitle(wubixsj)).toBe("新世纪五笔");
+  // 更新的宿主写来的、这一版不认识的值按 86 显示。
+  expect(
+    touchKeyboardSchemeTitle({
+      ...preferences,
+      wubi_profile: "wubi2030" as never,
+      scheme: "wubi",
+      touch_keyboard_schemes: undefined,
+    }),
+  ).toBe("86 五笔");
 });
 
 test("handwriting writes the edition's default scheme, so the wubi edition keeps it", () => {

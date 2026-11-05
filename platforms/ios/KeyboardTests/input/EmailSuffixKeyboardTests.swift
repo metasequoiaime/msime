@@ -79,6 +79,9 @@ final class EmailSuffixKeyboardTests: XCTestCase {
     controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
     controller.view.layoutIfNeeded()
     try attach(document)
+    // 会话在键盘出现时才建（#10634），出现时读到的已经是这份文档。
+    controller.viewWillAppear(false)
+    controller.view.layoutIfNeeded()
     return controller
   }
 

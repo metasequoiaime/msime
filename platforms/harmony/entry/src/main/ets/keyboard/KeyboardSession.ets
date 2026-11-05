@@ -5,6 +5,7 @@ import { DecorationCandidateStyle } from './candidate/DecorationCandidatePolicy'
 import { CandidateLayoutPolicy, CandidateResolvedLayout } from './candidate/CandidateSkinPolicy';
 import { CandidateCanvasScene, CandidateCanvasResource, CandidateCanvasPolicy } from './candidate/CandidateCanvasPolicy';
 import { NativeCleanup } from './NativeCleanup';
+import { PauseRerankDiscard } from './PauseRerankDiscard';
 import inputMethodEngine from '@ohos.inputMethodEngine';
 import fs from '@ohos.file.fs';
 import util from '@ohos.util';
@@ -127,7 +128,9 @@ import {
   TranslationProviderConfig, TencentTranslationConfig, NiuTransTranslationConfig, AiTranslationConfig, TranslationCandidate
 } from './candidate/TranslationPolicy';
 import { TranslationSensePolicy } from './candidate/TranslationSensePolicy';
+import { CandidateGlossCardPolicy, GlossCardAnswer, GlossCardLookup } from './candidate/CandidateGlossCardPolicy';
 import pasteboard from '@ohos.pasteboard';
+import { BusinessError } from '@ohos.base';
 import abilityAccessCtrl from '@ohos.abilityAccessCtrl';
 import bundleManager from '@ohos.bundle.bundleManager';
 import http from '@ohos.net.http';
@@ -515,6 +518,8 @@ export interface ExpandedCandidate {
   readonly hunEum: string;
   /** 同 CandidateEntry.confidentCorrection。 */
   readonly confidentCorrection: boolean;
+  /** 释义卡片拿去查译文的 Engine 原文和来源（显示的 `text` 可能已转成繁体）。只用于查译文，不是管理操作的序号。 */
+  readonly subject: TranslationCandidate;
 }
 
 interface CandidateSnapshot {
@@ -932,7 +937,7 @@ interface PreparedPreferences {
   touch_wubi_layout?: string;
   nine_key_shuangpin_profile?: string;
   nine_key_shuangpin_custom_profile?: Object;
-  /** `wubi86` 或 `wubi98`；旧文档里没有这个键，按 86 版。引擎自己从转交的整份文档里读它选表，这里只用来给五笔方案起名。 */
+  /** `wubi86`、`wubi98` 或 `wubixsj`（新世纪五笔）；旧文档里没有这个键、或者是不认识的值，按 86 版。引擎自己从转交的整份文档里读它选表，这里只用来给五笔方案起名。 */
   wubi_profile?: string;
   touch_keyboard_layout: string;
   /** The shared global theme id; the ids and their palettes come from the theme catalog. */
@@ -976,6 +981,8 @@ interface PreparedPreferences {
   menu_theme?: string;
   theme: string;
   traditional_chinese_output: boolean;
+  /** 粤拼和粤语双拼输出简体，繁转简在 Engine 里做；关着时文档里没有这个键。 */
+  cantonese_simplified_output?: boolean;
   chinese_punctuation: boolean;
   smart_punctuation: boolean;
   smart_punctuation_repeat: boolean;
@@ -1159,9 +1166,9 @@ export interface KeyboardPreferences {
   readonly shuangpinProfile: string;
   /** `touch_shuangpin_layout`：双拼手机键盘的 26 / 14 / 18 键布局。 */
   readonly shuangpinLayout: string;
-  /** `touch_wubi_layout`：五笔手机键盘的 26 / 14 键布局，切换 86 / 98 版后保留。 */
+  /** `touch_wubi_layout`：五笔手机键盘的 26 / 14 键布局，切换五笔版本后保留。 */
   readonly wubiLayout: string;
-  /** 归一后的五笔版本，决定五笔方案显示「86 五笔」还是「98 五笔」。 */
+  /** 归一后的五笔版本，决定五笔方案显示「86 五笔」「98 五笔」还是「新世纪五笔」。 */
   readonly wubiProfile: string;
   readonly layout: string;
   /** Shared touch-scheme ids enabled in the native picker, in shared declaration order. */
@@ -1237,6 +1244,18 @@ interface PreparedOptions {
    * 是一个决定，只做一半就等于把用户已经选中的字藏起来。
    */
   phrase_preedit?: boolean;
+  /** 放逐键重排 ONNX 模型（`rerank-model-small/`）的目录，见 `useRerankModels`。 */
+  rerank_models?: string;
+  /** 这个键盘在停顿时调 `startSettledRerank`（`schedulePauseRerank`）：跑不进逐键预算的设备上，host-api 把整句联想「增强」的模型延后到停顿时用。 */
+  pause_rerank?: boolean;
+}
+
+/** 停顿重排的回答：`continue` 要续跑切片，`pending` 要携令牌轮询；收到 `view` 就更新候选身份。 */
+interface PauseRerankValue {
+  status: string;
+  token?: number;
+  moved?: boolean;
+  view?: EngineView;
 }
 
 interface TypingEffectSettingsResponse {
@@ -1484,6 +1503,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   private stateDirectory: string = '';
   /** 扩展上下文的 `tempDir`，见 `useVoiceContext`。 */
   private voiceScratchDirectory: string = '';
+  /** 扩展上下文的 `resourceDir`，HAP 的 resfile 解压在那里，见 `useRerankModels`。 */
+  private rerankModelsDirectory: string = '';
   // 共享沙箱里与设置应用交换状态的镜像，没有共享目录时为 null；`sharedFullMode` 报告键盘此刻是否处于完整体验模式，只有那时键盘才能写共享目录。
   private sharedMirror: SharedStateMirror | null = null;
   private sharedFullMode: () => boolean = (): boolean => false;
@@ -2129,6 +2150,10 @@ export class KeyboardSession implements HardwareKeyTarget {
       }
       const requested: PreparedOptions = prepared.value;
       requested.phrase_preedit = true;
+      if (this.rerankModelsDirectory.length > 0) {
+        requested.rerank_models = this.rerankModelsDirectory;
+      }
+      requested.pause_rerank = true;
       // 隐私模式下以关闭学习的方式构建会话，与 Android 的 `restartSessionForPrivacy` 相同：只改会话的副本，存储的文档保留用户自己的开关。
       if (this.feedbackCurrent.incognito) {
         requested.preferences.learning = false;
@@ -2176,6 +2201,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.schemeName = preferences.scheme;
       this.profileName = preferences.shuangpin_profile;
       this.traditional = preferences.traditional_chinese_output;
+      this.cantoneseSimplified = preferences.cantonese_simplified_output === true;
       this.chinesePunctuation = preferences.chinese_punctuation;
       this.smartPunctuation = preferences.smart_punctuation !== false;
       this.smartPunctuationRepeat = preferences.smart_punctuation_repeat !== false;
@@ -2519,6 +2545,17 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** Whether the Engine's output is being converted to traditional. */
   usesTraditional(): boolean {
     return this.traditional;
+  }
+
+  /** 简繁按钮和功能面板「繁」显示的字形：粤拼下看粤拼自己的选择（默认繁体），其余方案看全局开关。 */
+  showsTraditional(): boolean {
+    return ChineseOutputPolicy.showsTraditional(this.characterSetFollowsCantonese(), this.traditional,
+      this.cantoneseSimplified);
+  }
+
+  /** 见 `ChineseOutputPolicy.switchFollowsCantonese`。 */
+  private characterSetFollowsCantonese(): boolean {
+    return ChineseOutputPolicy.switchFollowsCantonese(this.schemeName, this.englishMode);
   }
 
   /** What the user chose for the keyboard's appearance and scheme. */
@@ -3327,7 +3364,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       capsLock: this.capsLock,
       // Korean and Vietnamese write ASCII punctuation whatever the switch says (`uses_chinese_punctuation`), and the face reports what is written. 固定标点锁定时按锁定值显示（usesChinesePunctuation）。
       chinesePunctuation: this.usesChinesePunctuation() && !this.writesAsciiPunctuation(),
-      fullWidth: this.fullWidth, traditional: this.traditional
+      fullWidth: this.fullWidth, traditional: this.showsTraditional()
     };
   }
 
@@ -3438,6 +3475,12 @@ export class KeyboardSession implements HardwareKeyTarget {
    * The switch moves only once the store has taken the write: the reload that follows skips this session's own revision, so a refused write that still flipped the flag would convert output the settings page says is off. Returns the state now in effect.
    */
   toggleCharacterSet(): boolean {
+    if (this.characterSetFollowsCantonese()) {
+      // 繁转简在 Engine 里做：偏好交给会话后 Engine 在空闲时重建，组字中切换时等这段组字结束才生效。
+      this.cantoneseSimplified = ChineseOutputPolicy.toggledCantoneseSimplified(this.cantoneseSimplified,
+        (key: string, value: boolean): boolean => this.writePreference(key, value));
+      return this.showsTraditional();
+    }
     if (!this.writePreference('traditional_chinese_output', !this.traditional)) {
       return this.traditional;
     }
@@ -4144,6 +4187,92 @@ export class KeyboardSession implements HardwareKeyTarget {
   private cancelOnlineProviders(): void {
     this.invalidateOnlineProviders();
     this.invalidateTranslationProviders();
+    this.cancelPauseRerank();
+  }
+
+  /**
+   * 停顿多久才调 `startSettledRerank`。跑不进逐键预算的设备上，整句联想「增强」的模型只在这时带着把组字重解一遍（host-api 的 `pause_rerank`），一片约 8 ms 的模型时间，没解完就一片接一片。打字时按键间隔常有 150 ms 上下，停顿的线定得太短，接着打的下一个键就常碰上正在跑的那一片；300 ms 是读候选的停顿，不是按键之间的。
+   */
+  private static readonly PAUSE_RERANK_MS: number = 300;
+  private pauseRerankTimer: number = -1;
+  private pauseRerankEpoch: number = 0;
+  private pauseRerankToken: number = 0;
+  private readonly discardedPauseRerank: PauseRerankDiscard = new PauseRerankDiscard(
+    (handle: number, token: number): string => client.pollSettledRerank(handle, token, false),
+    (): number => this.handle,
+    (callback: () => void, delay: number): number => setTimeout(callback, delay),
+    (timer: number): void => clearTimeout(timer));
+  /** 正在画停顿重解给的视图：`render` 照常安排在线候选和翻译，但不再安排下一次停顿重解，否则解完会再解一遍。 */
+  private renderingPauseRerank: boolean = false;
+
+  /** 每次画完组字都重新计时；有新按键时这次画会作废之前的计时和还没跑的那一片。 */
+  private schedulePauseRerank(view: EngineView): void {
+    if (this.renderingPauseRerank) return;
+    this.cancelPauseRerank();
+    if (this.handle === 0 || view.editing_text.length === 0 || view.candidates.length < 2) return;
+    const handle: number = this.handle;
+    const epoch: number = this.pauseRerankEpoch;
+    this.pauseRerankTimer = setTimeout((): void => {
+      this.runPauseRerank(handle, epoch);
+    }, KeyboardSession.PAUSE_RERANK_MS);
+  }
+
+  private cancelPauseRerank(): void {
+    this.pauseRerankEpoch++;
+    if (this.pauseRerankTimer >= 0) {
+      clearTimeout(this.pauseRerankTimer);
+      this.pauseRerankTimer = -1;
+    }
+    const token: number = this.pauseRerankToken;
+    this.pauseRerankToken = 0;
+    if (token !== 0) this.discardedPauseRerank.discard(this.handle, token);
+  }
+
+  /** 跑一片停顿重解。`continue` 时用 `setTimeout(0)` 排下一片：两片之间排队的触摸先走，按键最多等一片。翻译页开着时不跑，那里画的不是引擎的候选。 */
+  private runPauseRerank(handle: number, epoch: number): void {
+    if (epoch !== this.pauseRerankEpoch || handle !== this.handle || handle === 0) return;
+    this.pauseRerankTimer = -1;
+    if (this.translationPage !== null) {
+      this.cancelPauseRerank();
+      return;
+    }
+    // 旧任务只接受丢弃；归还前不能把同一令牌重新认领为这次停顿的结果。
+    if (this.discardedPauseRerank.waiting(handle)) {
+      this.pauseRerankTimer = setTimeout((): void => {
+        this.runPauseRerank(handle, epoch);
+      }, PauseRerankDiscard.POLL_MS);
+      return;
+    }
+    let value: PauseRerankValue | null;
+    try {
+      value = NativeReplyPolicy.successfulValue<PauseRerankValue>(
+        JSON.parse(this.pauseRerankToken === 0 ? client.startSettledRerank(handle)
+          : client.pollSettledRerank(handle, this.pauseRerankToken, true)) as NativeReply<PauseRerankValue>);
+    } catch (error) {
+      this.cancelPauseRerank();
+      KeyboardLog.error(`unreadable pause rerank reply: ${describeError(error)}`);
+      return;
+    }
+    if (value === null || (value.status === 'pending'
+      && (value.token === undefined || !Number.isSafeInteger(value.token) || value.token <= 0))) {
+      this.cancelPauseRerank();
+      return;
+    }
+    this.pauseRerankToken = value.status === 'pending' ? value.token as number : 0;
+    if (value.view !== undefined) {
+      this.renderingPauseRerank = true;
+      try {
+        this.render(value.view);
+      } finally {
+        this.renderingPauseRerank = false;
+      }
+    }
+    if ((value.status === 'continue' || value.status === 'pending')
+      && epoch === this.pauseRerankEpoch && handle === this.handle) {
+      this.pauseRerankTimer = setTimeout((): void => {
+        this.runPauseRerank(handle, epoch);
+      }, value.status === 'pending' ? PauseRerankDiscard.POLL_MS : 0);
+    }
   }
 
   private invalidateOnlineProviders(): void {
@@ -5324,6 +5453,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** 上一下按键振动还没交给振动服务。这时再按一下就不振了：排队的振动会在手指离开后才一串串地振。 */
   private vibrationPending: boolean = false;
   private traditional: boolean = false;
+  /** 共享偏好 `cantonese_simplified_output`，见 `characterSetFollowsCantonese`。 */
+  private cantoneseSimplified: boolean = false;
   private chinesePunctuation: boolean = true;
   private smartPunctuation: boolean = true;
   private smartPunctuationRepeat: boolean = true;
@@ -5499,6 +5630,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     // view is published, and native result application rechecks the exact generation.
     this.scheduleOnlineProviders();
     this.scheduleTranslations();
+    this.schedulePauseRerank(view);
     // Every typed letter and every backspace arrives here, which is the one place that sees the editor change in direct English as well as in a composition.
     // 组字开始时收起后缀（候选栏归引擎），结束时按上屏后的上文重新匹配。
     this.refreshCaretSuggestions();
@@ -6112,6 +6244,123 @@ export class KeyboardSession implements HardwareKeyTarget {
       }
     }
     return result;
+  }
+
+  /** 候选栏这一页第 `index` 个候选交给翻译通路的样子（Engine 原文和来源），释义卡片按它查；序号不在这一页时为 null。 */
+  pageTranslationCandidate(index: number): TranslationCandidate | null {
+    const engineIndex: number = this.engineCandidateIndex(index);
+    if (engineIndex < 0 || engineIndex >= this.currentCandidates.length) return null;
+    const candidate: Candidate = this.currentCandidates[engineIndex];
+    return { text: candidate.text, source: candidate.source };
+  }
+
+  /**
+   * 释义卡片（#10915）：长按的这一个候选在各目标语言下本机已经有的答案，不联网。
+   *
+   * 离线英文释义和各语言的离线释义词典现查；在线服务只看候选栏此前答过、还在缓存里的译文，没答过也不在失败冷却期里的记成还要问（`wanted`），由 `glossCardFetch` 去问。候选翻译和离线释义都没开（共享层不给查询）时为 null。
+   */
+  glossCardLookup(subject: TranslationCandidate): GlossCardLookup | null {
+    const query: TranslationQuery | null = this.glossCardQuery(subject);
+    if (query === null) return null;
+    const english: TranslationEntry[] = [];
+    if (query.english_gloss && typeof query.resources === 'string' && query.resources.length > 0) {
+      this.appendOfflineGloss(query, english);
+    }
+    const offline: Map<string, TranslationEntry[]> = this.offlineTargetGlosses(query);
+    const provider: string = TranslationPolicy.provider(query);
+    const answers: GlossCardAnswer[] = [];
+    for (const target of TranslationPolicy.targets(query)) {
+      const englishGloss: string | null = target === 'en'
+        ? CandidateGlossCardPolicy.translationOf(english, subject.text) : null;
+      let online: string | null = null;
+      let wanted: boolean = false;
+      if (CandidateGlossCardPolicy.asksProvider(provider, target, query.english_gloss, englishGloss)) {
+        for (const item of this.glossCardPlan(query, target)) {
+          const key: string = TranslationPolicy.cacheKey(query, target, item);
+          const cached: string | undefined = this.translationCache.get(key);
+          if (cached !== undefined) {
+            online = cached;
+            continue;
+          }
+          const negativeUntil: number | undefined = this.translationNegativeCache.get(key);
+          if (negativeUntil === undefined || negativeUntil <= Date.now()) wanted = true;
+        }
+      }
+      answers.push({
+        target: target,
+        english: englishGloss,
+        offline: CandidateGlossCardPolicy.translationOf(offline.get(target) ?? [], subject.text),
+        online: online,
+        wanted: wanted && online === null
+      });
+    }
+    return { provider: provider, answers: answers };
+  }
+
+  /**
+   * 释义卡片：为 `lookup` 里还要问的那几种语言各请求一次在线服务，只问这一个候选。
+   *
+   * 走候选栏同一条 `fetchTargetTranslations`：同一份翻译计划、缓存和失败冷却，同样先问隐私政策授权，答到的写进缓存，候选栏之后直接用。候选栏换了一页、键盘换了会话或服务换了时作废，答 null。
+   */
+  async glossCardFetch(subject: TranslationCandidate, lookup: GlossCardLookup): Promise<GlossCardLookup | null> {
+    const query: TranslationQuery | null = this.glossCardQuery(subject);
+    if (query === null || TranslationPolicy.provider(query) !== lookup.provider) return null;
+    const epoch: number = this.translationEpoch;
+    const handle: number = this.handle;
+    const deadline: number = Date.now() + 6000;
+    const answers: GlossCardAnswer[] = [];
+    for (const answer of lookup.answers) {
+      if (!answer.wanted) {
+        answers.push(answer);
+        continue;
+      }
+      const covered: TranslationEntry[] = answer.english === null ? []
+        : [{ text: subject.text, translation: answer.english }];
+      const answered: TranslationEntry[] = [];
+      const result: TranslationFetchResult = await this.fetchTargetTranslations(query, answer.target,
+        lookup.provider, covered, answered, epoch, handle, deadline);
+      if (!result.current) return null;
+      answers.push(CandidateGlossCardPolicy.answered(answer,
+        CandidateGlossCardPolicy.translationOf(answered, subject.text)));
+    }
+    return { provider: lookup.provider, answers: answers };
+  }
+
+  /** 把一段文字写进系统剪贴板；成功时答 null，失败时答剪贴板服务的错误码（没有码时为 undefined）。 */
+  async copyText(text: string): Promise<number | undefined | null> {
+    try {
+      await pasteboard.getSystemPasteboard().setData(pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text));
+      return null;
+    } catch (error) {
+      KeyboardLog.error(`clipboard write failed: ${describeError(error)}`);
+      return (error as BusinessError).code;
+    }
+  }
+
+  /** 释义卡片的查询文档：共享层此刻的翻译查询，换成只问这一个候选（`CandidateGlossCardPolicy.cardQuery`）。 */
+  private glossCardQuery(subject: TranslationCandidate): TranslationQuery | null {
+    if (this.handle === 0) return null;
+    try {
+      const reply: NativeReply<TranslationQuery | null> =
+        JSON.parse(client.translationQuery(this.handle)) as NativeReply<TranslationQuery | null>;
+      const query: TranslationQuery | null = NativeReplyPolicy.successfulValue<TranslationQuery>(reply);
+      return query === null ? null : CandidateGlossCardPolicy.cardQuery(query, subject);
+    } catch (error) {
+      KeyboardLog.error(`gloss card query unavailable: ${describeError(error)}`);
+      return null;
+    }
+  }
+
+  /** 这一个候选在 `target` 下的翻译计划，与候选栏问服务前算的是同一份。 */
+  private glossCardPlan(query: TranslationQuery, target: string): TranslationPlanItem[] {
+    try {
+      const reply: NativeReply<TranslationPlanItem[]> = JSON.parse(
+        client.translationPlan(TranslationPolicy.planRequest(target, query.candidates))) as NativeReply<TranslationPlanItem[]>;
+      return reply.ok === true && Array.isArray(reply.value) ? reply.value : [];
+    } catch (error) {
+      KeyboardLog.error(`gloss card plan unavailable: ${describeError(error)}`);
+      return [];
+    }
   }
 
   /** 只传当前笔画到原生工作线程；不截图、不联网、不保留文字或笔画日志。 */
@@ -8012,6 +8261,13 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.voiceScratchDirectory = context.tempDir;
   }
 
+  /**
+   * 整句联想「增强」逐键重排的 ONNX 模型随 HAP 带在 resfile/rerank-model-small，安装时解压到扩展上下文的 `resourceDir`。host-api 默认在随包资源目录的上一级找模型，而这里的资源目录是复制到 `filesDir/engine` 的那份（SQLite 打不开只读的安装目录），上一级是 `filesDir`，找不到；所以建会话时在 HostOptions 的 `rerank_models` 里写明 `resourceDir`，与 Windows 的 Server 写自己的安装目录相同。只改会话的副本，不写回准备好的选项文件。
+   */
+  useRerankModels(directory: string): void {
+    this.rerankModelsDirectory = directory;
+  }
+
   /** The extension's context, which says where the built-in sound packs are and where rendered notes may go. */
   useSoundContext(context: common.Context): void {
     this.soundPlayer.use(context);
@@ -8331,7 +8587,8 @@ export class KeyboardSession implements HardwareKeyTarget {
             TranslationPolicy.sourceGetsNoGloss(candidate.source) ? null : candidate.translation ?? null,
             this.candidateGlossEnabled),
           hunEum: CandidateGlossPolicy.hunEum(hanja, candidate.annotation),
-          confidentCorrection: CorrectionMarkPolicy.confident(candidate.confident_correction)
+          confidentCorrection: CorrectionMarkPolicy.confident(candidate.confident_correction),
+          subject: { text: candidate.text, source: candidate.source }
         });
       }
       return entries;

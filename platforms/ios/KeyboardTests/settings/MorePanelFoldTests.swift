@@ -1,3 +1,4 @@
+import ObjectiveC
 import UIKit
 import XCTest
 
@@ -297,6 +298,8 @@ final class MorePanelFoldTests: XCTestCase {
   /// Windows 上的 Ctrl+Shift+Alt+C 组合键在 iOS 上没有键可按，所以菜单把它放在最后一页；点这个图块会关闭菜单并提示已生效。
   func testTheClearCacheCardClearsAndSaysSo() throws {
     let controller = makeController(width: 390)
+    // 清缓存要问会话，会话在键盘出现时才建（#10634）。
+    controller.viewWillAppear(false)
     let panel = try openMenu(in: controller)
     let scroll = try XCTUnwrap(descendants(panel).compactMap { $0 as? UIScrollView }.first)
     let card = try tile("moreCard-清除候选缓存", in: controller)
@@ -417,6 +420,8 @@ final class MorePanelFoldTests: XCTestCase {
     XCTAssertEqual(try view("keyboardAdjustReset", in: overlay).accessibilityLabel, "重置")
     XCTAssertEqual(try view("keyboardAdjustMove", in: overlay).accessibilityLabel, "移动")
     XCTAssertEqual(try view("keyboardAdjustConfirm", in: overlay).accessibilityLabel, "确认")
+    XCTAssertEqual(accessibilityOrder(overlay), ["keyboardAdjustTop", "keyboardAdjustLeft", "keyboardAdjustReset", "keyboardAdjustMove",
+                                                 "keyboardAdjustConfirm", "keyboardAdjustRight", "keyboardAdjustBottom"])
 
     // 读屏的增大对应 5% 的步长；只预览，不保存。
     let keyBlock = KeyboardViewController.keyBlockHeight(
@@ -513,6 +518,8 @@ final class MorePanelFoldTests: XCTestCase {
     for identifier in ["keyboardAdjustBottom", "keyboardAdjustLeft", "keyboardAdjustRight", "keyboardAdjustMove"] {
       XCTAssertTrue(try view(identifier, in: overlay).isHidden, identifier)
     }
+    XCTAssertEqual(accessibilityOrder(overlay), ["keyboardAdjustTop", "keyboardAdjustReset", "keyboardAdjustConfirm"],
+                   "VoiceOver reaches only what is shown")
     XCTAssertEqual(overlay.keyboardFrame, controller.view.bounds, "the stored lift and width are not drawn")
     try control("keyboardAdjustConfirm", in: overlay).sendActions(for: .primaryActionTriggered)
     XCTAssertEqual(KeyboardLayoutPreference.placement, KeyboardPlacement(bottomLift: 40, widthPercent: 80, positionX: 0),
@@ -543,6 +550,8 @@ final class MorePanelFoldTests: XCTestCase {
     let move = try view("keyboardAdjustMove", in: overlay)
     XCTAssertFalse(move.isHidden)
     XCTAssertNil(move.accessibilityCustomActions, "no sideways actions while the width does not apply")
+    XCTAssertEqual(accessibilityOrder(overlay), ["keyboardAdjustTop", "keyboardAdjustReset", "keyboardAdjustMove",
+                                                 "keyboardAdjustConfirm", "keyboardAdjustBottom"])
     move.accessibilityIncrement()
     XCTAssertEqual(move.accessibilityValue, "抬高 4 点")
     try control("keyboardAdjustConfirm", in: overlay).sendActions(for: .primaryActionTriggered)
@@ -592,6 +601,75 @@ final class MorePanelFoldTests: XCTestCase {
     XCTAssertTrue(overlay.hitTest(CGPoint(x: right.frame.midX, y: right.frame.midY), with: nil) === right, "and so does the right")
   }
 
+  /// 没打过字就打开「键盘调整」，再换到另一个输入框：遮罩关掉并按确认保存。验收时只有之前异步打过字母（记下了 `asynchronousInputDocument`）才会关。同一个输入框里的 `textDidChange`（宿主改了文字、移了光标）不关。
+  func testSwitchingFieldsWithoutTypingClosesAndSavesTheAdjust() throws {
+    let field = FieldProxy()
+    try attach(field)
+    let controller = makeController(width: 390)
+    let overlay = try openAdjust(in: controller)
+    try view("keyboardAdjustBottom", in: overlay).accessibilityIncrement()
+    controller.textDidChange(nil)
+    XCTAssertTrue(descendants(controller.view).contains { $0 is KeyboardAdjustOverlay }, "the same field keeps the overlay")
+    XCTAssertEqual(KeyboardLayoutPreference.placement, .standard)
+
+    field.documentIdentifier = UUID()
+    controller.textDidChange(nil)
+    XCTAssertFalse(descendants(controller.view).contains { $0 is KeyboardAdjustOverlay }, "another field closes it")
+    XCTAssertEqual(KeyboardLayoutPreference.placement.bottomLift, 4, "and saves, as 确认 does")
+    XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, -4)
+  }
+
+  /// 柄和「移动」在按下时就开始拖动，起点是按下的位置：`UIPanGestureRecognizer` 要先移动约 10 pt 才开始，边会一直落后手指这么多，更短的拖动不起作用。
+  func testHandlesStartDraggingWhereTheFingerWentDown() throws {
+    let controller = makeController(width: 390)
+    let overlay = try openAdjust(in: controller)
+    for identifier in ["keyboardAdjustTop", "keyboardAdjustBottom", "keyboardAdjustLeft", "keyboardAdjustRight", "keyboardAdjustMove"] {
+      let recognizers = try view(identifier, in: overlay).gestureRecognizers ?? []
+      XCTAssertFalse(recognizers.contains { $0 is UIPanGestureRecognizer }, identifier)
+      let drags = recognizers.compactMap { $0 as? KeyboardAdjustOverlay.PartDrag }
+      XCTAssertEqual(drags.count, 1, identifier)
+      XCTAssertEqual(drags.first?.minimumPressDuration, 0, "\(identifier) begins on touch-down")
+      XCTAssertEqual(drags.first?.allowableMovement, .greatestFiniteMagnitude, "\(identifier) is never cancelled by moving")
+    }
+  }
+
+  /// 上沿把手的三道横线画在外框上沿与工具栏图标之间那一条里，与 Android 相同；收窄到最窄、图标挤到正中时也不压住图标。触摸区仍是上沿正中那一块。
+  func testTheTopGripSitsAboveTheToolbarIcons() throws {
+    let controller = makeController(width: 390)
+    let overlay = try openAdjust(in: controller)
+    let top = try view("keyboardAdjustTop", in: overlay)
+    let right = try view("keyboardAdjustRight", in: overlay)
+    for narrowed in [false, true] {
+      if narrowed {
+        for _ in 0..<10 { right.accessibilityDecrement() }
+        try layoutAtRequestedHeight(controller)
+      }
+      overlay.layoutIfNeeded()
+      top.layoutIfNeeded()
+      let box = overlay.keyboardFrame
+      XCTAssertEqual(top.frame.minY, box.minY, accuracy: 0.5)
+      XCTAssertGreaterThanOrEqual(top.frame.height, 32, "the grip keeps its touch area")
+      let lines = top.subviews.map { $0.convert($0.bounds, to: controller.view) }
+      XCTAssertEqual(lines.count, 3)
+      let bar = try view("keyboardShortcutBar", in: controller)
+      let icons = bar.subviews.filter { !$0.isHidden && $0.bounds.width > 0 }.map { button -> CGRect in
+        let design = button is KeyboardBrandMarkButton ? KeyboardBrandMarkButton.discSide : KeyboardToolbarButton.iconSide
+        let side = design * KeyboardToolbarButton.contentScale(rowHeight: button.bounds.height)
+        let frame = button.convert(button.bounds, to: controller.view)
+        return CGRect(x: frame.midX - side / 2, y: frame.midY - side / 2, width: side, height: side)
+      }
+      // 收窄后图标挤到正中，横线正下方就有图标，正是原来压住图标的情形。
+      let below = icons.filter { icon in lines.contains { $0.minX < icon.maxX && icon.minX < $0.maxX } }
+      if narrowed { XCTAssertFalse(below.isEmpty, "an icon sits under the grip once narrowed") }
+      for line in lines {
+        XCTAssertGreaterThanOrEqual(line.minY, box.minY, "narrowed \(narrowed): inside the frame")
+        for icon in below {
+          XCTAssertLessThanOrEqual(line.maxY, icon.minY, "narrowed \(narrowed): the grip stays above \(icon)")
+        }
+      }
+    }
+  }
+
   func testHeightPercentRoundTripsThroughPoints() {
     let keyBlock = KeyboardViewController.keyBlockHeight(keyHeight: 52, rows: 4, rowSpacing: 7)
     XCTAssertEqual(keyBlock, 229, "四排 52pt 手机按键与三个 7pt 行间距")
@@ -605,6 +683,46 @@ final class MorePanelFoldTests: XCTestCase {
     // 无论调节条要求多少，点数都限制在共享字段的范围内。
     XCTAssertEqual(KeyboardViewController.heightAdjustment(percent: 200, keyBlock: keyBlock), 48)
     XCTAssertEqual(KeyboardViewController.heightAdjustment(percent: 50, keyBlock: keyBlock), -12)
+  }
+
+  /// 读屏按顺序能走到的控件。
+  private func accessibilityOrder(_ overlay: KeyboardAdjustOverlay) -> [String?] {
+    (overlay.accessibilityElements ?? []).map { ($0 as? UIView)?.accessibilityIdentifier }
+  }
+
+  /// 只换 `documentIdentifier` 的输入框：测试宿主的 `textDocumentProxy` 没有文档，换它的标识就是宿主换了输入框（与 `EmailSuffixKeyboardTests` 的做法相同）。
+  @MainActor
+  private final class FieldProxy: NSObject, UITextDocumentProxy {
+    var documentIdentifier = UUID()
+    var documentContextBeforeInput: String? { "" }
+    var documentContextAfterInput: String? { "" }
+    var selectedText: String? { nil }
+    var documentInputMode: UITextInputMode? { nil }
+    var hasText: Bool { false }
+    func insertText(_ text: String) {}
+    func deleteBackward() {}
+    func adjustTextPosition(byCharacterOffset offset: Int) {}
+    func setMarkedText(_ markedText: String, selectedRange: NSRange) {}
+    func unmarkText() {}
+  }
+
+  private static let proxySelector = #selector(getter: UIInputViewController.textDocumentProxy)
+
+  /// 让 `KeyboardViewController` 的 `textDocumentProxy` 返回 `field`，用例结束时换回父类的实现。
+  private func attach(_ field: FieldProxy) throws {
+    let inherited = try XCTUnwrap(class_getInstanceMethod(UIInputViewController.self, Self.proxySelector))
+    let original = method_getImplementation(inherited)
+    let block: @convention(block) (AnyObject) -> AnyObject = { _ in field }
+    let replacement = imp_implementationWithBlock(block)
+    if !class_addMethod(KeyboardViewController.self, Self.proxySelector, replacement, method_getTypeEncoding(inherited)) {
+      method_setImplementation(try XCTUnwrap(class_getInstanceMethod(KeyboardViewController.self, Self.proxySelector)), replacement)
+    }
+    addTeardownBlock {
+      if let own = class_getInstanceMethod(KeyboardViewController.self, Self.proxySelector) {
+        method_setImplementation(own, original)
+      }
+      imp_removeBlock(replacement)
+    }
   }
 
   private func makeController(width: CGFloat) -> KeyboardViewController {

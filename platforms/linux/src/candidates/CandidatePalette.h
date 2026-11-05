@@ -58,18 +58,35 @@ struct FloatingSurfaceColors {
   std::optional<std::uint32_t> border;
 };
 
-// IBus auxiliary text has no native caret geometry. When the displayed
-// candidate preedit is the Engine's ASCII editing text, a plain-text marker is
-// the least surprising Linux equivalent of the Windows candidate caret. Do
-// not guess when the host has transformed the displayed text or the offset is
-// invalid.
+// 候选窗拼音行里组字光标的字节位置，没有可画的位置时为空。显示的就是按键原文（editing_text）时按 caret_position 放。显示的是分词或展开过的拼写（全拼的 ni'hao、双拼拼音分词展开的全拼）时按引擎给的 View.preedit_caret（Unicode 标量，见 msime_client.h）放，只在光标停在拼写中间时画：引擎在两段文字没有可靠对应（假名、韩文、笔画字形等）时把它放在末尾，那里画一个光标不带任何信息，这些方案的拼音行也就照旧不画。偏移越界一律不画。
+inline std::optional<std::size_t> candidate_preedit_caret_bytes(std::string_view preedit,
+                                                                std::string_view editing,
+                                                                std::size_t caret,
+                                                                std::optional<std::size_t> preedit_caret) {
+  if (preedit.empty()) return std::nullopt;
+  if (preedit == editing) {
+    if (caret > preedit.size()) return std::nullopt;
+    return caret;
+  }
+  if (!preedit_caret) return std::nullopt;
+  std::size_t bytes = 0;
+  for (std::size_t counted = 0; counted < *preedit_caret; ++counted) {
+    if (bytes >= preedit.size()) return std::nullopt;
+    ++bytes;
+    while (bytes < preedit.size() && (static_cast<unsigned char>(preedit[bytes]) & 0xC0u) == 0x80u) ++bytes;
+  }
+  if (bytes >= preedit.size()) return std::nullopt;
+  return bytes;
+}
+
+// IBus 的辅助行没有光标几何，光标画成一个纯文本的「|」，是 Windows 候选窗光标在 Linux 上最不意外的对应；位置由 candidate_preedit_caret_bytes 决定，它没有位置时不画。
 inline std::string candidate_preedit_with_caret(std::string_view preedit,
                                                 std::string_view editing,
-                                                std::size_t caret) {
+                                                std::size_t caret,
+                                                std::optional<std::size_t> preedit_caret) {
   std::string result(preedit);
-  if (preedit.empty() || preedit != editing || caret > preedit.size())
-    return result;
-  result.insert(caret, "|");
+  if (const auto bytes = candidate_preedit_caret_bytes(preedit, editing, caret, preedit_caret))
+    result.insert(*bytes, "|");
   return result;
 }
 
