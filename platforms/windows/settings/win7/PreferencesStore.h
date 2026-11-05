@@ -71,6 +71,7 @@ public:
            change.path == std::vector<std::string>{"mixed_input", "japanese"} ||
            change.path == std::vector<std::string>{"local_modes", "chaizi"} ||
            change.path == std::vector<std::string>{"local_modes", "symbol"} ||
+           change.path == std::vector<std::string>{"local_modes", "super_jianpin_slash"} ||
            change.path == std::vector<std::string>{"fuzzy_pinyin", "seeded"});
       const bool optional_style = change.value.is_string() &&
           (change.path == std::vector<std::string>{"quote_style"} ||

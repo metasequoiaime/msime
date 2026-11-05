@@ -11,6 +11,8 @@ struct LocalModeSettingsView: View {
     ("emoji", "表情", "输入关键词查找 emoji"),
     ("kaomoji", "颜文字", "输入关键词查找颜文字"),
     ("super_jianpin", "超级简拼", "按每个字的首字母查词"),
+    // 后置超级简拼（#10860）：双拼组字末尾按 /，把已经打的字母改成超级简拼。它管的是符号面板和外接键盘上的 /，依附超级简拼，超级简拼关着时置灰。
+    ("super_jianpin_slash", "组字后按 / 转超级简拼", "双拼打了三个以上字母后按 /，把这串字母改成超级简拼查词；一两个字母时 / 照常上屏。转换后马上退格回到原来的输入，再按一次 / 上屏首选并输出 /。双拼辅助码用 / 结束四码或作前导键、或 / 输出顿号时，/ 归它们"),
     ("temporary_english", "英文补全", "临时输入英文单词，不离开中文键盘"),
     ("temporary_japanese", "临时日语", "临时用罗马音输入日语"),
     ("chaizi", "拆字", "输入部件拼音找不会读的字，如 huohuohuo 得 焱"),
@@ -23,6 +25,11 @@ struct LocalModeSettingsView: View {
 
   private static func defaultValue(_ key: String) -> Bool { !offByDefault.contains(key) }
 
+  /// 依附别的模式的开关在那个模式关着时置灰，值保留：「组字后按 / 转超级简拼」跟着超级简拼。
+  private static func available(_ key: String, in enabled: [String: Bool]) -> Bool {
+    key != "super_jianpin_slash" || (enabled["super_jianpin"] ?? defaultValue("super_jianpin"))
+  }
+
   @State private var enabled: [String: Bool] = [:]
   @State private var saveFailed = false
 
@@ -32,7 +39,9 @@ struct LocalModeSettingsView: View {
         ForEach(Self.modes, id: \.0) { key, title, detail in
           Toggle(isOn: stored(key)) {
             SettingsOptionLabel(title: title, info: detail)
-          }.accessibilityIdentifier("localMode.\(key)")
+          }
+          .disabled(!Self.available(key, in: enabled))
+          .accessibilityIdentifier("localMode.\(key)")
         }
       } footer: {
         if saveFailed {
