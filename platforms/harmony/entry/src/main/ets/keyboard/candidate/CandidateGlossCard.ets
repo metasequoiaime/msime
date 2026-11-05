@@ -4,16 +4,16 @@ import {
 } from './CandidateGlossCardPolicy';
 import { ManagementAction } from './CandidateManagementAction';
 
-const CARD_PADDING_VP: number = 12;
+const CARD_PADDING_VP: number = 10;
 const CARD_RADIUS_VP: number = 10;
-const TITLE_FONT_SIZE: number = 13;
-const CLOSE_FONT_SIZE: number = 15;
-const CANDIDATE_FONT_SIZE: number = 26;
-const SENSE_FONT_SIZE: number = 16;
+const TITLE_FONT_SIZE: number = 12;
+const CLOSE_FONT_SIZE: number = 14;
+const CANDIDATE_FONT_SIZE: number = 22;
+const SENSE_FONT_SIZE: number = 15;
 const SOURCE_FONT_SIZE: number = 12;
-const ACTION_FONT_SIZE: number = 14;
-const BUTTON_HEIGHT_VP: number = 40;
-const BUTTON_FONT_SIZE: number = 15;
+const ACTION_FONT_SIZE: number = 13;
+const BUTTON_HEIGHT_VP: number = 36;
+const BUTTON_FONT_SIZE: number = 14;
 const DISABLED_OPACITY: number = 0.4;
 
 /**
@@ -80,7 +80,7 @@ export struct CandidateGlossCard {
   }
 
   build() {
-    Column({ space: 8 }) {
+    Column({ space: 6 }) {
       Row() {
         Text(GLOSS_CARD_TITLE)
           .fontSize(TITLE_FONT_SIZE)
@@ -89,7 +89,7 @@ export struct CandidateGlossCard {
         Text(GLOSS_CARD_CLOSE)
           .fontSize(CLOSE_FONT_SIZE)
           .fontColor(this.accent)
-          .padding({ left: 12, top: 4, bottom: 4 })
+          .padding({ left: 12, top: 2, bottom: 2 })
           .accessibilityText(CandidateGlossCardPolicy.closeLabel())
           .onClick(() => this.onClose())
       }
@@ -98,21 +98,25 @@ export struct CandidateGlossCard {
         .fontSize(CANDIDATE_FONT_SIZE)
         .fontWeight(FontWeight.Medium)
         .fontColor(this.foreground)
-        .maxLines(2)
+        .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
         .width('100%')
         .accessibilityText(CandidateGlossCardPolicy.candidateLabel(this.card.candidate))
       Scroll() {
-        Column({ space: 12 }) {
+        Column({ space: 8 }) {
           if (this.card.sections.length === 0) {
-            Text(CandidateGlossCardPolicy.emptyText(this.card))
-              .fontSize(SENSE_FONT_SIZE)
-              .fontColor(this.secondary)
-            if (CandidateGlossCardPolicy.showsHint(this.card)) {
-              Text(GLOSS_CARD_EMPTY_HINT)
-                .fontSize(SOURCE_FONT_SIZE)
+            // 按键区不高，「暂无译文」和设置提示挨着放，两行都看得见。
+            Column({ space: 2 }) {
+              Text(CandidateGlossCardPolicy.emptyText(this.card))
+                .fontSize(SENSE_FONT_SIZE)
                 .fontColor(this.secondary)
+              if (CandidateGlossCardPolicy.showsHint(this.card)) {
+                Text(GLOSS_CARD_EMPTY_HINT)
+                  .fontSize(SOURCE_FONT_SIZE)
+                  .fontColor(this.secondary)
+              }
             }
+            .alignItems(HorizontalAlign.Start)
           } else {
             ForEach(this.card.sections, (section: GlossCardSection) => {
               this.section(section)
@@ -142,7 +146,7 @@ export struct CandidateGlossCard {
                 .fontSize(ACTION_FONT_SIZE)
                 .fontColor(action.available === false || action.checked === true ? this.foreground : this.accent)
                 .opacity(action.available === false ? DISABLED_OPACITY : 1)
-                .padding({ top: 6, bottom: 6, right: 16 })
+                .padding({ top: 4, bottom: 4, right: 16 })
                 .onClick(() => this.onAction(action))
             }, (action: ManagementAction): string => `${action.id}:${action.menuItemId}:${action.title}`)
           }
