@@ -80,6 +80,10 @@ class Helper:
             except FileNotFoundError:
                 # 队列可在存在检查之后被清理；下一拍重新确认两类记录都已消失。
                 pass
+            except PermissionError as error:
+                # Windows 上打开正在被删除（delete pending）或正被替换的队列文件得到 ERROR_ACCESS_DENIED（5）或 ERROR_SHARING_VIOLATION（32），与上面的 FileNotFoundError 是同一种清理进行中的过渡状态；其他权限错误照常抛出。
+                if getattr(error, "winerror", None) not in (5, 32):
+                    raise
             time.sleep(0.05)
         raise AssertionError("explicit off did not clear pending events and records")
 
