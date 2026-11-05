@@ -82,7 +82,7 @@ pub struct EngineOptions {
     pub wubi_mixed_pinyin: bool,
     /// 五笔 `z` 通配（`WubiInputOptions::z_wildcard`）。
     pub wubi_z_wildcard: bool,
-    /// 0 是 86 五笔，1 是 98 五笔（`WubiProfileKind`）。
+    /// 0 是 86 五笔，1 是 98 五笔，2 是新世纪五笔（`WubiProfileKind`）。
     pub wubi_profile: u8,
     pub helpcode: bool,
     /// 一码辅助码严格筛选；关闭时仍按原来的规则重排候选。

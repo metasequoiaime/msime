@@ -2339,6 +2339,16 @@ fn wubi_profile_reaches_engine_options() {
         assert_eq!(session.options.wubi_profile, 1);
         assert_eq!(session.applied.wubi_profile, WubiProfile::Wubi98);
     });
+    let preferences = Preferences {
+        wubi_profile: WubiProfile::WubiXsj,
+        ..preferences
+    };
+    update(handle, 2, &preferences);
+    SESSIONS.with(|sessions| {
+        let session = &sessions.borrow()[&handle];
+        assert_eq!(session.options.wubi_profile, 2);
+        assert_eq!(session.applied.wubi_profile, WubiProfile::WubiXsj);
+    });
     read(msime_client_destroy(handle));
 }
 

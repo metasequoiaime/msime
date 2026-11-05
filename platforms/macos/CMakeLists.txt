@@ -328,6 +328,7 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/ECDICT-MIT.
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime_kaomoji_dict-MIT.txt" "${MSIME_LEGAL_DIRECTORY}/rime_kaomoji_dict-MIT.txt" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/python-pinyin-MIT.txt" "${MSIME_LEGAL_DIRECTORY}/python-pinyin-MIT.txt" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-wubi86-jidian-Apache-2.0.txt" "${MSIME_LEGAL_DIRECTORY}/rime-wubi86-jidian-Apache-2.0.txt" COPYONLY)
+# msime-wubi.db 里新世纪五笔表的单字码取自 byujiang/wubi06_rime（GPL-3.0，许可由转载者给出），与输入法本身同一许可，由上面的 GPL-3.0.txt 覆盖，不另带许可证文件；来源说明在 THIRD_PARTY_NOTICES.txt 和词库 NOTICE。
 # msime-pinyin.db 与语言词库资源包的 msime-stroke.db 里与 rime-wanxiang 共有的词条和单字，权重改编自 amzxyz/rime-wanxiang（CC BY 4.0）；CC BY 4.0 第 3(a) 条要求署名、改动说明和许可证随副本分发，这份文件三者都有。
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-wanxiang-CC-BY-4.0.txt" "${MSIME_LEGAL_DIRECTORY}/rime-wanxiang-CC-BY-4.0.txt" COPYONLY)
 # The place names `@` mode offers, compiled into the engine from modood/Administrative-divisions-of-China (WTFPL).

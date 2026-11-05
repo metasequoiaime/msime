@@ -933,7 +933,7 @@ interface PreparedPreferences {
   touch_wubi_layout?: string;
   nine_key_shuangpin_profile?: string;
   nine_key_shuangpin_custom_profile?: Object;
-  /** `wubi86` 或 `wubi98`；旧文档里没有这个键，按 86 版。引擎自己从转交的整份文档里读它选表，这里只用来给五笔方案起名。 */
+  /** `wubi86`、`wubi98` 或 `wubixsj`（新世纪五笔）；旧文档里没有这个键、或者是不认识的值，按 86 版。引擎自己从转交的整份文档里读它选表，这里只用来给五笔方案起名。 */
   wubi_profile?: string;
   touch_keyboard_layout: string;
   /** The shared global theme id; the ids and their palettes come from the theme catalog. */
@@ -1160,9 +1160,9 @@ export interface KeyboardPreferences {
   readonly shuangpinProfile: string;
   /** `touch_shuangpin_layout`：双拼手机键盘的 26 / 14 / 18 键布局。 */
   readonly shuangpinLayout: string;
-  /** `touch_wubi_layout`：五笔手机键盘的 26 / 14 键布局，切换 86 / 98 版后保留。 */
+  /** `touch_wubi_layout`：五笔手机键盘的 26 / 14 键布局，切换五笔版本后保留。 */
   readonly wubiLayout: string;
-  /** 归一后的五笔版本，决定五笔方案显示「86 五笔」还是「98 五笔」。 */
+  /** 归一后的五笔版本，决定五笔方案显示「86 五笔」「98 五笔」还是「新世纪五笔」。 */
   readonly wubiProfile: string;
   readonly layout: string;
   /** Shared touch-scheme ids enabled in the native picker, in shared declaration order. */

@@ -66,7 +66,7 @@ cp resources/licenses/rime-wanxiang-CC-BY-4.0.txt "$licenses_staged/"
 cp resources/licenses/msime-engine-dictionary-NOTICE.md "$licenses_staged/"
 # 资源目录里的整句重排模型 sentence-model.safetensors 是 chinese-ime-lm 的 model-v1（Apache-2.0）：许可证全文、上游 NOTICE 与训练语料要求的署名都在这份各平台共用的文件里。
 cp resources/licenses/sentence-model-Apache-2.0.txt "$licenses_staged/"
-# 水杉输入法本身以 GPL-3.0-only 发布，resfile/engine 里的 msime-pinyin.db 含 rime-ice 的 GPL-3.0 数据；GPL-3.0 第 4、6 条要求随目标代码附上许可证全文，所以仓库根目录的 LICENSE 以 GPL-3.0.txt 随 HAP 分发，与 macOS 包和引擎 C 库数据包里的名字相同。
+# 水杉输入法本身以 GPL-3.0-only 发布，resfile/engine 里的 msime-pinyin.db 含 rime-ice 的 GPL-3.0 数据，msime-wubi.db 的新世纪五笔单字码取自 byujiang/wubi06_rime（GPL-3.0，来源与许可的情况写在上面那份 NOTICE 里）；GPL-3.0 第 4、6 条要求随目标代码附上许可证全文，所以仓库根目录的 LICENSE 以 GPL-3.0.txt 随 HAP 分发，与 macOS 包和引擎 C 库数据包里的名字相同。
 cp LICENSE "$licenses_staged/GPL-3.0.txt"
 echo "Licences staged for the HAP: $licenses_staged"
 

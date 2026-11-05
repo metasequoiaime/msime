@@ -51,6 +51,7 @@
 #import "../candidate/CandidateTextMetrics.h"
 #include "../candidate/CandidateSkin.h"
 #include "../settings/ShuangpinProfileNames.h"
+#include "../settings/WubiProfileNames.h"
 #include "../../../../shared/candidate/CandidateWheelRouting.h"
 #include "../candidate/CandidatePageSize.h"
 #include "../../../../shared/candidate/CandidateExpandedGrid.h"
@@ -4413,7 +4414,7 @@ static const NSTimeInterval kSettledRerankPoll = 1.0 / 60.0;
     NSDictionary<NSString *, NSString *> *schemeTitles = @{
         @"quanpin": @"全拼",
         @"shuangpin": @(msime::mac::ShuangpinSchemaTitle(profile.UTF8String ?: "")),
-        @"wubi": [_appearance.wubiProfile isEqual:@"wubi98"] ? @"五笔 98" : @"五笔 86",
+        @"wubi": @(msime::mac::WubiSchemeTitle(_appearance.wubiProfile.UTF8String ?: "")),
         @"japanese": @"日语",
         @"korean": @"韩语",
         @"cantonese": @"粤拼",
@@ -4864,7 +4865,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     NSString *profile = [NSString stringWithUTF8String:msime::mac::ShuangpinSchemaTitle(_appearance.shuangpinProfile.UTF8String ?: "")];
     if ([profile hasSuffix:@"双拼"] && profile.length > 2) profile = [profile substringToIndex:profile.length - 2];
     NSArray<NSString *> *schemes = MSIMEInputSchemeNames();
-    NSArray<NSString *> *schemeTitles = @[@"全拼", [NSString stringWithFormat:@"双拼（%@）", profile], [_appearance.wubiProfile isEqual:@"wubi98"] ? @"五笔 98" : @"五笔 86", @"日语", @"韩语", @"粤拼", @"注音", @"越南语", @"藏文", @"笔画"];
+    NSArray<NSString *> *schemeTitles = @[@"全拼", [NSString stringWithFormat:@"双拼（%@）", profile], @(msime::mac::WubiSchemeTitle(_appearance.wubiProfile.UTF8String ?: "")), @"日语", @"韩语", @"粤拼", @"注音", @"越南语", @"藏文", @"笔画"];
     NSMenu *schemeMenu = [[NSMenu alloc] initWithTitle:@"输入方案"];
     schemeMenu.autoenablesItems = NO;
     // A scheme that cannot run here (Cantonese, Zhuyin or Stroke without its dictionary) is not offered, and the check is on the scheme actually running, so a preference naming one shows the scheme it fell back to.

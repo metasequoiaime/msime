@@ -241,6 +241,18 @@ fn typed_quick_phrase_edits_find_rows_by_code_and_text_and_list_only_user_phrase
 
 /// A data root holding the smallest dictionary the Engine opens, with `bundled` statements run on the working dictionary.
 fn word_fixture(directory: &Path, bundled: &str) -> DictionaryOptions {
+    word_fixture_with(
+        directory,
+        bundled,
+        msime_client_core::preferences::Preferences::default(),
+    )
+}
+
+fn word_fixture_with(
+    directory: &Path,
+    bundled: &str,
+    preferences: msime_client_core::preferences::Preferences,
+) -> DictionaryOptions {
     let root = directory.to_str().unwrap();
     std::fs::create_dir(directory.join("user")).unwrap();
     // Pinyin rows live in one table per syllable count and initial; these are the ones the tests type.
@@ -263,7 +275,7 @@ fn word_fixture(directory: &Path, bundled: &str) -> DictionaryOptions {
         "user_data": format!("{root}/user"),
         "cache": format!("{root}/cache"),
         "dictionaries": format!("{root}/dictionaries"),
-        "preferences": msime_client_core::preferences::Preferences::default(),
+        "preferences": preferences,
         "preferences_directory": root,
     }))
     .unwrap()
@@ -579,6 +591,86 @@ fn a_lookup_keeps_the_users_japanese_mixing() {
         .unwrap()
         .iter()
         .all(|candidate| candidate.origin != CandidateOrigin::Japanese));
+}
+
+/// 偏好选着新世纪五笔时，查询读 `wubixsj` 表（力是 `ent`，不是 86 的 `lt`），用户加的新世纪词按自己的种类存取、找到来源。
+#[test]
+#[cfg(not(target_os = "android"))]
+fn a_new_century_lookup_reads_its_own_table_and_user_words() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = word_fixture_with(
+        directory.path(),
+        "INSERT INTO wubi86 VALUES('lt','力',500);
+         CREATE TABLE wubixsj(key TEXT,value TEXT,weight INTEGER);
+         INSERT INTO wubixsj VALUES('ent','力',500);",
+        msime_client_core::preferences::Preferences {
+            wubi_profile: msime_client_core::preferences::WubiProfile::WubiXsj,
+            ..Default::default()
+        },
+    );
+    assert_eq!(options.0.wubi_profile, 2);
+    edit_dictionary_word(
+        &options,
+        &WordEdit::Add(
+            WordKind::WubiXsj,
+            NewWord {
+                code: Some("ENT".into()),
+                word: "合成力".into(),
+                weight: Some(900),
+            },
+        ),
+        "xsj-1",
+    )
+    .unwrap();
+    let listed = dictionary_words(&options, WordKind::WubiXsj, "", false, 0, 10).unwrap();
+    assert_eq!(
+        listed
+            .words
+            .iter()
+            .map(|word| (word.code.as_str(), word.word.as_str()))
+            .collect::<Vec<_>>(),
+        [("ent", "合成力")]
+    );
+    assert!(dictionary_words(&options, WordKind::Wubi, "", false, 0, 10)
+        .unwrap()
+        .words
+        .is_empty());
+    let candidates = lookup_candidates(&options, Some(LookupScheme::Wubi), "ent", 10).unwrap();
+    let find = |text: &str| {
+        candidates
+            .iter()
+            .find(|candidate| candidate.text == text)
+            .map(|candidate| (candidate.origin, candidate.weight))
+            .unwrap_or_else(|| panic!("{text} missing from {candidates:?}"))
+    };
+    assert_eq!(find("合成力"), (CandidateOrigin::UserWord, Some(900)));
+    assert_eq!(find("力"), (CandidateOrigin::Dictionary, Some(500)));
+    assert!(
+        lookup_candidates(&options, Some(LookupScheme::Wubi), "lt", 10)
+            .unwrap()
+            .is_empty()
+    );
+}
+
+/// Engine 的每个个人词库种类都能在宿主的种类之间来回换，不会落到 `personal_kind` 的 `unreachable!`。
+#[test]
+fn every_engine_dictionary_kind_maps_to_a_host_kind_and_back() {
+    use msime_engine::host::DictionaryKind as Engine;
+    for kind in [
+        Engine::Pinyin,
+        Engine::Wubi,
+        Engine::QuickPhrase,
+        Engine::English,
+        Engine::Wubi98,
+        Engine::WubiXsj,
+    ] {
+        let host = super::personal_to_kind(super::personal_kind(kind));
+        assert!(Engine::from(host) == kind, "{kind:?}");
+    }
+    assert_eq!(
+        serde_json::to_value(super::Kind::Wubixsj).unwrap(),
+        "wubixsj"
+    );
 }
 
 /// 五笔四码唯一的词在第四键就自动上屏了，查询仍要把它报告成这串编码的唯一候选，而不是空列表。
@@ -1185,7 +1277,9 @@ fn wubi_codes_request(directory: &Path, text: &str) -> Vec<u8> {
                 "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
                  INSERT INTO wubi86 VALUES('wq','你',200),('wqiy','你',100),('vbg','好',100),('wqvb','你好',300);
                  CREATE TABLE wubi98(key TEXT,value TEXT,weight INTEGER);
-                 INSERT INTO wubi98 VALUES('wqiy','你',100),('vbg','好',100);",
+                 INSERT INTO wubi98 VALUES('wqiy','你',100),('vbg','好',100);
+                 CREATE TABLE wubixsj(key TEXT,value TEXT,weight INTEGER);
+                 INSERT INTO wubixsj VALUES('wq','你',100),('vbg','好',100);",
             )
             .unwrap();
     }
@@ -1210,10 +1304,10 @@ fn wubi_codes_list_each_character_in_both_profiles_and_the_whole_word() {
     let request = wubi_codes_request(directory.path(), "你好");
     let before = tree(&directory.path().join("user"));
     let expected = json!({
-        "phrase": { "text": "你好", "wubi86": ["wqvb"], "wubi98": [] },
+        "phrase": { "text": "你好", "wubi86": ["wqvb"], "wubi98": [], "wubixsj": [] },
         "characters": [
-            { "text": "你", "wubi86": ["wq", "wqiy"], "wubi98": ["wqiy"] },
-            { "text": "好", "wubi86": ["vbg"], "wubi98": ["vbg"] },
+            { "text": "你", "wubi86": ["wq", "wqiy"], "wubi98": ["wqiy"], "wubixsj": ["wq"] },
+            { "text": "好", "wubi86": ["vbg"], "wubi98": ["vbg"], "wubixsj": ["vbg"] },
         ],
         "truncated": false,
     });

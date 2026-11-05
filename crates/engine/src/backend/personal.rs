@@ -37,8 +37,8 @@ const UPSERT_ENTRY: &str = "INSERT INTO user_dictionary_operations(dictionary,ke
 const INSERT_POSITION: &str = "INSERT INTO fixed_candidate_positions(context_key,entry_key,value,position) VALUES(?1,?2,?3,?4)";
 const INSERT_SELECTION: &str = "INSERT INTO candidate_selection_state(context_key,entry_key,value,selection_count) VALUES(?1,?2,?3,?4)";
 
-/// 服务端存储的词条可能的种类，与服务端数据库 `user_dictionary_entries.kind` 的约束一致。
-const STORED_KINDS: [&str; 5] = ["pinyin", "wubi", "wubi98", "english", "quick"];
+/// 服务端存储的词条可能的种类，与服务端数据库 `user_dictionary_entries.kind` 的约束一致；`wubixsj` 要等服务端放开约束才会出现。
+const STORED_KINDS: [&str; 6] = ["pinyin", "wubi", "wubi98", "wubixsj", "english", "quick"];
 
 fn require_roots(roots: Roots) -> Result<(), BackendError> {
     let absolute = |path: &Path| !path.as_os_str().is_empty() && path.is_absolute();

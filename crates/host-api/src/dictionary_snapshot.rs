@@ -201,11 +201,12 @@ fn inspect_snapshot_record(
             {
                 return Err("invalid snapshot document");
             }
+            // 更新的版本加的词库种类（[`record::is_foreign_kind`]）照常核对格式和配对，计入 `engine_records`，读成 Engine 记录时跳过（[`SnapshotLine`]）。
             let dictionary_kind = data
                 .get("kind")
                 .and_then(Value::as_str)
                 .filter(|value| {
-                    matches!(*value, "pinyin" | "wubi" | "wubi98" | "english" | "quick")
+                    record::KNOWN_KINDS.contains(value) || record::is_foreign_kind(value)
                 })
                 .ok_or("invalid snapshot document")?
                 .to_owned();
@@ -485,9 +486,15 @@ fn inspect_snapshot_reader(reader: impl io::Read) -> Result<SnapshotMetadata, &'
     })
 }
 
+/// 云同步还不收、云端快照里因此没有的个人词库种类（新世纪五笔，计划第 8 节）。云同步上传的快照（[`export_local_snapshot`] 不带 `include_learning`）不写它们，云同步「下载」整份换上云端快照时从旧的一代原样带过去（[`carry_local_learning`]），两处读的都是这一张表。打开新世纪的云同步时从这里去掉。
+const LOCAL_ONLY_KINDS: [msime_engine::host::DictionaryKind; 1] =
+    [msime_engine::host::DictionaryKind::WubiXsj];
+
 /// 把本机用户词库写成与 `GET /v1/users/me/dictionary/snapshot` 相同的 NDJSON（`msime-dictionary-snapshot` 第 1 版：header、每个词一条 `entry` 和一条同权重的 `overlay`、footer 带正文 SHA-256），写完再用 [`inspect_snapshot`] 按云端格式校验一遍，返回同样的元数据。
 ///
 /// 这是离线导出：不需要登录，修订号固定为 1。调用方已经持有词库的会话访问权。
+///
+/// 新世纪五笔（`wubixsj`，[`LOCAL_ONLY_KINDS`]）的词只在 `include_learning` 为真（本地备份）时写进去：云同步上传用的是为假的那份，服务端还不收这个种类。云同步「下载」时它们靠 [`carry_local_learning`] 留在本机。
 ///
 /// `include_learning` 为真时（本地备份用，云同步不用）在用户的词之后再写输入记录：Engine 日志里的学习调权和删除记录写成 `overlay`（学习调权 `user_inserted:false`，删除记录 `deleted:true`），固定位置写成 `position`，选词计数写成 `selection`，都是这个格式第 1 版本来就有的记录，旧版本恢复时照样认得。快照格式装不下的行（编码或词含换行、制表符，位置不在 1 到 5，总记录数超出上限）跳过并计入 `learning_skipped`，选词计数截到 0 到 10。返回值多出 `learning`（写进去的输入记录条数）和 `learning_skipped`。日志整体读不出来时只导出词，`learning` 为 0，原因在 `learning_error`。为假时输出与加这个参数之前逐字节相同。
 pub(crate) fn export_local_snapshot(
@@ -516,12 +523,18 @@ pub(crate) fn export_local_snapshot(
             .map_err(|_| "dictionary read rejected")?;
         let count = page.entries.len();
         for entry in page.entries {
+            // 新世纪五笔的词只进本地备份（`include_learning`），不进云同步上传的快照：服务端还不收这个种类，已经发布的客户端读到它会拒绝整份快照。
+            if !include_learning && LOCAL_ONLY_KINDS.contains(&entry.kind) {
+                continue;
+            }
             let kind = match entry.kind {
                 DictionaryKind::Pinyin => "pinyin",
                 DictionaryKind::Wubi => "wubi",
                 DictionaryKind::Wubi98 => "wubi98",
+                DictionaryKind::WubiXsj => "wubixsj",
                 DictionaryKind::QuickPhrase => "quick",
                 DictionaryKind::English => "english",
+                // `DictionaryKind` 是 Engine 的 `non_exhaustive` 枚举：以后加的种类在这里补上之前，快照格式没有它的名字。
                 _ => continue,
             };
             if !snapshot_safe(&entry.key) || !snapshot_safe(&entry.value) {
@@ -737,6 +750,7 @@ fn learning_records(
                     DictionaryKind::Pinyin => "pinyin",
                     DictionaryKind::Wubi => "wubi",
                     DictionaryKind::Wubi98 => "wubi98",
+                    DictionaryKind::WubiXsj => "wubixsj",
                     DictionaryKind::QuickPhrase => "quick",
                     DictionaryKind::English => "english",
                     // 快照格式只认上面这几种，Engine 以后加的种类装不下。
@@ -1187,8 +1201,7 @@ fn prepare(
     request: PrepareRequest,
     specification: &ResourceSet,
     on_demand: &[&[&str]],
-    stream: impl Iterator<Item = Result<msime_engine::DictionaryStateRecord, SnapshotReadError>>
-        + 'static,
+    stream: impl Iterator<Item = SnapshotLine> + 'static,
 ) -> Result<Prepared, &'static str> {
     if request.records > 500_000 || request.expected_version.len() != 64 {
         return Err("invalid snapshot bounds");
@@ -1242,14 +1255,19 @@ fn prepare(
     let mut count = 0;
     let expected = request.records;
     let mut source = stream;
-    let checked = std::iter::from_fn(move || match source.next() {
-        Some(Ok(record)) if count < expected => {
-            count += 1;
-            Some(Ok(record))
+    // 条数按快照里的输入记录行数核对，不认识的词库种类的那行也算一条，只是不交给 Engine。
+    let checked = std::iter::from_fn(move || loop {
+        match source.next() {
+            Some(Ok(record)) if count < expected => {
+                count += 1;
+                if let Some(record) = record {
+                    return Some(Ok(record));
+                }
+            }
+            Some(_) => return Some(Err(SnapshotReadError)),
+            None if count == expected => return None,
+            None => return Some(Err(SnapshotReadError)),
         }
-        Some(_) => Some(Err(SnapshotReadError)),
-        None if count == expected => None,
-        None => Some(Err(SnapshotReadError)),
     });
     let staged = stage_dictionary_state(
         &options,
@@ -1616,6 +1634,8 @@ where
 ///
 /// 调用方持有独占维护权，已经调过 `close_cached_databases`（排着的整句联想已经写进旧日志），新的一代还没换入。合并规则与本地备份恢复相同（`merge_dictionary_state`、`merge_learning_habits`）：新的一代里已有的保留新的一代，所以快照里的用户词以云端为准；选词计数和输入习惯的计数取大。中间文件写在这次准备的私有暂存目录 `scratch` 里，随它一起删掉。
 ///
+/// 云同步还不收的种类（[`LOCAL_ONLY_KINDS`]，新世纪五笔）云端快照里一条也没有，用户自己的词也不在快照里，所以先把它们在旧的一代日志里的全部行（用户的词、学习调权、删除记录）原样并进新的一代（`carry_dictionary_rows`），不然每一次下载都会删掉本机的新世纪词。之后的输入记录合并看到这些行已在，保留它们。
+///
 /// 旧的一代里读不出来的那一类（日志有不是 UTF-8 的行等）不并，与加这一步之前一样整份换掉，不让一份坏日志挡住以后每一次下载。往新的一代里写失败（磁盘满、I/O 失败）时报错：激活不做，旧的一代原样留着，请求留在队列里下次再试。
 fn carry_local_learning(
     active: &EngineOptions,
@@ -1624,6 +1644,8 @@ fn carry_local_learning(
 ) -> Result<(), &'static str> {
     const FAILED: &str = "snapshot learning merge failed";
     const REVISION: i64 = 1;
+    msime_engine::host::carry_dictionary_rows(active, staged, &LOCAL_ONLY_KINDS)
+        .map_err(|_| FAILED)?;
     if let Ok(learning) = learning_records(
         active,
         REVISION,
@@ -1843,10 +1865,16 @@ impl SnapshotFileRecords {
     }
 }
 
-impl Iterator for SnapshotFileRecords {
-    type Item = Result<msime_engine::DictionaryStateRecord, SnapshotReadError>;
+/// 快照里的一条输入记录（overlay、position 或 selection 行）读成的结果：`Ok(None)` 是词库种类这一版不认识的 overlay（[`record::is_foreign_kind`]），它照样占 `engine_records` 里的一个名额，只是没有对应的 Engine 记录。
+type SnapshotLine = Result<Option<msime_engine::DictionaryStateRecord>, SnapshotReadError>;
 
-    fn next(&mut self) -> Option<Self::Item> {
+impl SnapshotFileRecords {
+    /// 逐行读，每条输入记录一项，不认识的词库种类的那行也算一项（`Ok(None)`）。[`prepare`] 用它核对条数与 `engine_records` 相同。
+    fn into_lines(mut self) -> impl Iterator<Item = SnapshotLine> {
+        std::iter::from_fn(move || self.next_line())
+    }
+
+    fn next_line(&mut self) -> Option<SnapshotLine> {
         if self.failed {
             return None;
         }
@@ -1870,14 +1898,25 @@ impl Iterator for SnapshotFileRecords {
                 }
             };
             match kind.as_str() {
-                "overlay" | "position" | "selection" => {
-                    return Some(record::decode(&self.line));
-                }
+                "overlay" | "position" | "selection" => return Some(record::decode(&self.line)),
                 "header" | "entry" | "footer" => continue,
                 _ => {
                     self.failed = true;
                     return Some(Err(SnapshotReadError));
                 }
+            }
+        }
+    }
+}
+
+/// 只出能交给 Engine 的记录：不认识的词库种类的那行跳过。合并输入记录（`merge_dictionary_state`）只给条数上限，用它。
+impl Iterator for SnapshotFileRecords {
+    type Item = Result<msime_engine::DictionaryStateRecord, SnapshotReadError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some(record) = self.next_line()?.transpose() {
+                return Some(record);
             }
         }
     }
@@ -1998,7 +2037,9 @@ fn snapshot_queue_process_with(
     let raw_expected = local_version_digest(&request.expected_local_version)
         .map_err(snapshot_queue_error)?
         .to_owned();
-    let stream = SnapshotFileRecords::open(&path).map_err(str::to_owned)?;
+    let stream = SnapshotFileRecords::open(&path)
+        .map_err(str::to_owned)?
+        .into_lines();
     let specification = specification(&options)?;
     let prepared = prepare(
         PrepareRequest {
@@ -2253,6 +2294,7 @@ pub unsafe extern "C" fn msime_client_snapshot_prepare(
         let specification = crate::dictionary_updates::specification_for_options(&request.options)
             .map_err(|_| "snapshot resources rejected")?;
         let mut buffer = vec![0; BUFFER_LIMIT];
+        // 宿主逐行交来记录；这一版不认识的词库种类的那行读成 `Ok(None)`，照样计入 `records`，与 `SnapshotFileRecords::into_lines` 相同。
         let stream = std::iter::from_fn(move || {
             let length = unsafe { next(context, buffer.as_mut_ptr(), buffer.len()) };
             if length == 0 {

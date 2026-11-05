@@ -1868,6 +1868,7 @@ fn wubi_profile_code(profile: WubiProfile) -> u8 {
     match profile {
         WubiProfile::Wubi86 => 0,
         WubiProfile::Wubi98 => 1,
+        WubiProfile::WubiXsj => 2,
     }
 }
 
