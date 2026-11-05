@@ -31,7 +31,7 @@ pub enum Failure {
     Connection,
     /// 超过五秒没握手成功，或者十五秒内没等到最终结果。
     Timeout,
-    /// 收到的不是豆包协议的帧，或者帧数、字节数超过上限。
+    /// 结果帧里不是 JSON 对象，或者到帧数、字节数上限、连接结束都没等到能解开的最终结果（中途收到过解不开的消息）。
     InvalidResponse,
 }
 
@@ -128,20 +128,29 @@ async fn exchange<S: AsyncRead + AsyncWrite + Unpin>(
         }
     }
     let mut received = 0usize;
+    // 解不开的消息照语音识别本身的做法跳过（各端宿主都经 `decode_json_frame` 解帧，解不开的不结束识别）：测试比识别更严，就会出现能正常录音、测试却报「响应无法识别」。跳过过消息的话，没等到最终结果时仍报响应无法识别，而不是连接问题。
+    let mut skipped = false;
+    let ended = |skipped: bool| {
+        if skipped {
+            Failure::InvalidResponse
+        } else {
+            Failure::Connection
+        }
+    };
     for _ in 0..MAX_MESSAGES {
         let Some(Ok(message)) = socket.next().await else {
-            return Err(Failure::Connection);
+            return Err(ended(skipped));
         };
         received = received.saturating_add(message.len());
         if received > MAX_BYTES {
             return Err(Failure::InvalidResponse);
         }
         match message {
-            Message::Binary(frame) => {
-                if response_state(&frame)? {
-                    return Ok(());
-                }
-            }
+            Message::Binary(frame) => match response_state(&frame)? {
+                Some(true) => return Ok(()),
+                Some(false) => {}
+                None => skipped = true,
+            },
             Message::Ping(_) => {
                 // Tungstenite queued the matching pong while reading.
                 if socket.flush().await.is_err() {
@@ -149,27 +158,26 @@ async fn exchange<S: AsyncRead + AsyncWrite + Unpin>(
                 }
             }
             Message::Pong(_) => {}
-            Message::Close(_) => return Err(Failure::Connection),
-            _ => return Err(Failure::InvalidResponse),
+            Message::Close(_) => return Err(ended(skipped)),
+            _ => skipped = true,
         }
     }
     Err(Failure::InvalidResponse)
 }
 
-/// `Ok(true)` 是最终结果，`Ok(false)` 是中间结果。
-fn response_state(frame: &[u8]) -> Result<bool, Failure> {
-    // Error frames and unsupported flags are failures regardless of their
-    // message text. Only the numeric code of an error frame reaches the UI.
+/// `Some(true)` 是最终结果，`Some(false)` 是中间结果，`None` 是解不开、要跳过的帧。
+fn response_state(frame: &[u8]) -> Result<Option<bool>, Failure> {
+    // Error frames are failures regardless of their message text. Only the
+    // numeric code of an error frame reaches the UI.
     if frame.len() >= 2 && frame[1] >> 4 == 0x0f {
         return Err(Failure::Service(
             doubao_frame::decode_error_code(frame).map(i64::from),
         ));
     }
-    if frame.len() < 4 || frame[1] & 0x0f > 3 || frame[3] != 0 {
-        return Err(Failure::InvalidResponse);
-    }
-    let (last, _, payload) =
-        doubao_frame::decode_json_frame(frame).ok_or(Failure::InvalidResponse)?;
+    // 帧头只由共享解码器判断，与识别时同一套规则：它认带事件号的标志位（0b0100），也不看保留字节。
+    let Some((last, _, payload)) = doubao_frame::decode_json_frame(frame) else {
+        return Ok(None);
+    };
     let body: Value = serde_json::from_slice(&payload).map_err(|_| Failure::InvalidResponse)?;
     if !body.is_object() {
         return Err(Failure::InvalidResponse);
@@ -186,7 +194,7 @@ fn response_state(frame: &[u8]) -> Result<bool, Failure> {
             }
         }
     }
-    Ok(last)
+    Ok(Some(last))
 }
 
 /// 设置页上的一句话：说出是哪一步没通过、该去改什么。
@@ -366,7 +374,7 @@ mod tests {
             br#"{"result":[]}"#,
         ] {
             let frame = doubao_frame::encode_json_frame(9, 3, -2, body);
-            assert_eq!(response_state(&frame), Ok(true));
+            assert_eq!(response_state(&frame), Ok(Some(true)));
         }
         for (body, failure) in [
             (b"null".as_slice(), Failure::InvalidResponse),
@@ -397,8 +405,20 @@ mod tests {
         assert_eq!(response_state(&[0x11, 0xf0]), Err(Failure::Service(None)));
         assert_eq!(
             response_state(&doubao_frame::encode_json_frame(9, 1, 1, b"{}")),
-            Ok(false)
+            Ok(Some(false))
         );
+        // 带事件号的结果帧（标志位 0b0100）识别时能解开，测试也要认；保留字节不为 0 同样不影响。
+        let mut event = vec![0x11, 0x97, 0x11, 0x5a];
+        let plain = doubao_frame::encode_json_frame(9, 3, -2, b"{}");
+        event.extend_from_slice(&plain[4..8]);
+        event.extend_from_slice(&7_i32.to_be_bytes());
+        event.extend_from_slice(&plain[8..]);
+        assert_eq!(response_state(&event), Ok(Some(true)));
+        // 别的消息类型（这里是 0b1011）与截断的帧跳过，不算失败。
+        let mut other = plain.clone();
+        other[1] = 0xb3;
+        assert_eq!(response_state(&other), Ok(None));
+        assert_eq!(response_state(&plain[..6]), Ok(None));
     }
 
     // Actual WebSocket framing over an in-memory duplex: no external service,
@@ -478,6 +498,22 @@ mod tests {
                 );
                 assert_eq!(
                     fixture(vec![Message::Text("synthetic-diagnostic".into())]).await,
+                    Err(Failure::InvalidResponse)
+                );
+                // 解不开的消息跳过，后面的最终结果照样算数，与识别时一致。
+                let mut other = doubao_frame::encode_json_frame(9, 1, 1, b"{}");
+                other[1] = 0xb1;
+                assert_eq!(
+                    fixture(vec![
+                        Message::Binary(other.clone().into()),
+                        Message::Text("synthetic-diagnostic".into()),
+                        response(3, b"{}")
+                    ])
+                    .await,
+                    Ok(())
+                );
+                assert_eq!(
+                    fixture(vec![Message::Binary(other.into())]).await,
                     Err(Failure::InvalidResponse)
                 );
                 assert_eq!(
