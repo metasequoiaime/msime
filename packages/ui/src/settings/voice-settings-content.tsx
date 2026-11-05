@@ -519,7 +519,11 @@ export function VoiceSettingsContent({
         />
         <SwitchRow
           title="自动添加标点"
-          description="只对豆包生效；其他识别服务的标点用下面的「语音标点」"
+          description={
+            showVoicePunctuation
+              ? "只对豆包生效；其他识别服务的标点用下面的「语音标点」"
+              : undefined
+          }
           disabled={!punctuationSupported}
           checked={voiceInput.doubao_enable_punc !== false}
           onChange={(doubao_enable_punc) => updateVoice({ doubao_enable_punc })}
@@ -645,7 +649,11 @@ export function VoiceSettingsContent({
           <SwitchRow
             title="自动添加标点"
             aria-label="自动添加标点"
-            description="只对豆包生效；其他识别服务的标点用「语音标点」处理"
+            description={
+              showVoicePunctuation
+                ? "只对豆包生效；其他识别服务的标点用「语音标点」处理"
+                : undefined
+            }
             checked={voiceInput.doubao_enable_punc !== false}
             onChange={(doubao_enable_punc) => updateVoice({ doubao_enable_punc })}
           />

@@ -534,6 +534,17 @@ interface NativeReply<T> {
   error: string;
 }
 
+/** `voicePunctuation` 的请求：最终识别文本和共享标点处理方式。 */
+interface VoicePunctuationRequest {
+  text: string;
+  mode: string;
+}
+
+/** `voicePunctuation` 的返回：处理后的文本。 */
+interface VoicePunctuationResult {
+  text: string;
+}
+
 /** What the shared ABI is asked to turn into a provider request. */
 interface AiHttpRequestInput {
   segmented_pinyin: string[];
@@ -8115,9 +8126,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     const mode: string = this.voiceInput.punctuation_mode ?? 'auto';
     if (mode !== 'omit_trailing' && mode !== 'omit_all' && mode !== 'space') return text;
     try {
-      const request: string = JSON.stringify({ text: text, mode: mode });
-      const response: NativeReply<{ text: string }> =
-        JSON.parse(client.voicePunctuation(request)) as NativeReply<{ text: string }>;
+      const request: VoicePunctuationRequest = { text: text, mode: mode };
+      const response: NativeReply<VoicePunctuationResult> =
+        JSON.parse(client.voicePunctuation(JSON.stringify(request))) as NativeReply<VoicePunctuationResult>;
       return response.ok === true && typeof response.value?.text === 'string'
         ? response.value.text : text;
     } catch (error) {

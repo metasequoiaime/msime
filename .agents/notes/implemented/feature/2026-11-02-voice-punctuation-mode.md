@@ -47,7 +47,7 @@ Java 侧 `VoicePunctuation`（`platforms/android/java/app/msime/android/voice/Vo
 
 ### 鸿蒙接线
 
-鸿蒙 NAPI 导出 `voicePunctuation`，键盘在手机最终结果的直接上屏和显式提交两条路径调用一次；中间结果不处理，处理后为空的结果按没有识别到文字提示。成功提示和收尾定时器都以处理后的文本判断当前结果；拿识别原文比较会让去标点后的提示永久留着、语音面板不再自动收起，过期回调仍不能清掉后来的结果。设置页经 `HostCapabilities.voice_punctuation` 只在宿主声明支持时显示同一行四选一，豆包「自动添加标点」的说明明确它只影响豆包请求。
+鸿蒙 NAPI 导出 `voicePunctuation`，键盘在最终结果分流之前（`deliverVoice`）处理一次，直接上屏、二合一审阅面板和输入位置变化后保留的文字都用处理后的文本，用户在审阅面板里确认的就是上屏的内容；显式提交只给出错后留下、没经过这一步的中间结果补一次。中间结果不处理，处理后为空的结果按没有识别到文字提示。成功提示和收尾定时器都以处理后的文本判断当前结果；拿识别原文比较会让去标点后的提示永久留着、语音面板不再自动收起，过期回调仍不能清掉后来的结果。设置页经 `HostCapabilities.voice_punctuation` 只在宿主声明支持时显示同一行四选一，豆包「自动添加标点」的说明明确它只影响豆包请求，这段说明同样只在宿主声明支持时出现，macOS、Linux 上不指向一个不存在的设置。
 
 iOS、桌面三端暂不读这个字段，各自的接线见 #10595、#10597。macOS 偏好覆盖清单（`platforms/macos/tests/settings/preference_coverage.py`）把它列为暂未接上，接上后删掉那一条。
 
@@ -74,4 +74,4 @@ iOS、桌面三端暂不读这个字段，各自的接线见 #10595、#10597。m
 - `cargo test -p msime-client-core --lib voice_punctuation_mode`：缺键读成 `auto` 且不写进文档，选过的值和不认识的值都能读写。
 - `cargo test -p msime-host-api --lib voice_punctuation mobile_voice_configuration_reports`：FFI 的四种方式、未知方式、只剩标点、缺字段、超长、空指针；共享解析给出归一后的 `punctuationMode`。
 - `platforms/android/check-host.sh`：`VoicePunctuationSmoke`（取值、标签、`auto` 不进共享层、调用失败保留原文），设置搜索收录「语音标点」，`client_jni.cpp` 对共享头编译。
-- `platforms/harmony/tests/voice-result-lifecycle.test.ts`：执行真实 `deliverVoice` 方法，以合成会话和可推进的时钟覆盖原文不变、去掉标点、标点替为空格、过期回调及仅标点的空结果；修复前文本变化用例在提示未清除处失败。
+- `platforms/harmony/tests/voice-result-lifecycle.test.ts`：执行真实 `deliverVoice` 方法，以合成会话和可推进的时钟覆盖原文不变、去掉标点、标点替为空格、过期回调及仅标点的空结果；修复前文本变化用例在提示未清除处失败；二合一审阅路径断言面板显示处理后的文本且不直接上屏，在先显示原文的实现上失败。

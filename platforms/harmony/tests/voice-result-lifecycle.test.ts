@@ -5,6 +5,7 @@ declare function require(name: "module"): { stripTypeScriptTypes(source: string)
 
 interface VoiceView {
   voiceText: string;
+  voiceTextPunctuated: boolean;
   voiceNotice: string;
   voiceDone: string;
   voiceDoneTimer: number;
@@ -30,7 +31,10 @@ const compiled = require("module").stripTypeScriptTypes(
   `class VoiceView {${source.slice(start, end)}\n}`,
 );
 
-function fixture(output: string): {
+function fixture(
+  output: string,
+  skipsReview = true,
+): {
   view: VoiceView;
   inserted: string[];
   timers: (() => void)[];
@@ -56,7 +60,7 @@ function fixture(output: string): {
         },
       },
     },
-    { skipsReview: (): boolean => true },
+    { skipsReview: (): boolean => skipsReview },
     1,
     0,
     1000,
@@ -106,6 +110,13 @@ check(
   "仅标点的结果不上屏、不安排成功收尾",
 );
 check(empty.view.voiceNotice === "没有识别到文字。", "仅标点的结果给出空内容提示");
+
+// 二合一审阅面板显示的就是提交时上屏的文本，不能先显示原文、提交后才去标点。
+const review = fixture("合成识别文本", false);
+review.view.deliverVoice("合成识别文本。");
+check(review.inserted.length === 0 && review.timers.length === 0, "审阅路径不直接上屏");
+check(review.view.voiceText === "合成识别文本", "审阅面板显示处理后的文本");
+check(review.view.voiceTextPunctuated, "审阅文本标记为已处理，提交时不再处理第二次");
 console.log(
   "voice result lifecycle: changed punctuation closes the panel, stale results stay intact",
 );

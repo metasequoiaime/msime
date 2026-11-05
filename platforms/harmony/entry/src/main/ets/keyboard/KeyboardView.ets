@@ -715,6 +715,8 @@ struct KeyboardView {
   @State handwritingNotice: string = '';
   @State handwritingBusy: boolean = false;
   @State voiceText: string = '';
+  // voiceText 是否已经过 deliverVoice 的标点处理；识别器写入新文本时清除，用户在面板里编辑不改变它。
+  private voiceTextPunctuated: boolean = false;
   @State voiceNotice: string = '';
   @State voiceBusy: boolean = false;
   @State voiceFinishing: boolean = false;
@@ -8697,6 +8699,7 @@ struct KeyboardView {
     voiceConfiguration.local_stop_sensitivity =
       VoiceRecordingBehaviourPolicy.stopSensitivity(voiceConfiguration, this.voicePauseEnds && !fromHotkey);
     this.voiceText = '';
+    this.voiceTextPunctuated = false;
     this.voiceHeard = '';
     this.voiceLevel = 0;
     this.voiceNotice = '正在聆听…';
@@ -8711,6 +8714,7 @@ struct KeyboardView {
       if (text.length > 0
           && (final || VoiceRecordingBehaviourPolicy.showsInterimResults(voiceConfiguration))) {
         this.voiceText = VoiceRecognitionPolicy.result(text);
+        this.voiceTextPunctuated = false;
         if (!final && this.touchDesign()) {
           this.voiceHeard = this.voiceText;
         }
@@ -8770,17 +8774,20 @@ struct KeyboardView {
         (this.voiceText.length > 0 ? '已忽略过期的语音结果。' : '没有识别到语音。');
       return;
     }
+    // 最终结果在分流前处理一次标点：审阅面板和保留待插入的文字都显示处理后的文本，用户确认的就是上屏的内容。
+    const punctuated: string = KeyboardSession.shared.voicePunctuation(accepted);
+    this.voiceText = punctuated;
+    this.voiceTextPunctuated = true;
+    if (punctuated.length === 0) {
+      this.voiceNotice = '没有识别到文字。';
+      return;
+    }
     if (!VoiceRecognitionPolicy.skipsReview(this.touchDesign(), this.surface === SURFACE_VOICE)) {
       this.voiceNotice = '识别完成，可提交结果。';
       return;
     }
     if (!KeyboardSession.shared.voiceTargetMatches()) {
       this.voiceNotice = '输入位置已变化，结果已保留，可点插入文字。';
-      return;
-    }
-    const punctuated: string = KeyboardSession.shared.voicePunctuation(accepted);
-    if (punctuated.length === 0) {
-      this.voiceNotice = '没有识别到文字。';
       return;
     }
     KeyboardSession.shared.markVoicePunctuationApplied();
@@ -8876,6 +8883,7 @@ struct KeyboardView {
     // Cancelled rather than finished: nothing was recognised, so there is nothing to announce.
     KeyboardSession.shared.setVoiceRecording(false, true);
     this.voiceText = '';
+    this.voiceTextPunctuated = false;
     this.voiceNotice = '已取消语音识别';
     KeyboardSession.shared.voiceCancel();
     this.voiceGeneration = 0;
@@ -8886,7 +8894,9 @@ struct KeyboardView {
     if (text.length === 0 || this.voiceBusy) {
       return;
     }
-    const punctuated: string = KeyboardSession.shared.voicePunctuation(text);
+    // deliverVoice 已处理过的最终结果（含用户在面板里改过的）原样上屏；只有出错后留下的中间结果在这里补一次处理。
+    const punctuated: string = this.voiceTextPunctuated
+      ? text : KeyboardSession.shared.voicePunctuation(text);
     if (punctuated.length === 0) {
       this.voiceNotice = '没有识别到文字。';
       return;
@@ -8894,6 +8904,7 @@ struct KeyboardView {
     KeyboardSession.shared.markVoicePunctuationApplied();
     KeyboardSession.shared.insertVoiceResult(punctuated);
     this.voiceText = '';
+    this.voiceTextPunctuated = false;
     this.voiceNotice = '已提交';
   }
 
