@@ -127,7 +127,7 @@ assert "msime-wubi-auto-commit-unique" in source
 assert "wubi_auto_commit_unique" in source
 assert "msime-shuangpin-profile" in source
 assert "cycleShuangpinProfile" in source
-# 五笔在输入方案子菜单和「输入方案（…）」一行里都按共享偏好 `wubi_profile` 标出 86 或 98：两处都经 schemeMenuTitle 取 MenuLabels.h 的 scheme_menu_title，它对五笔调 wubi_scheme_label。
+# 五笔在输入方案子菜单和「输入方案（…）」一行里都按共享偏好 `wubi_profile` 标出 86、98 或新世纪：两处都经 schemeMenuTitle 取 MenuLabels.h 的 scheme_menu_title，它对五笔调 wubi_scheme_label。
 menu_labels = (root / "src/core/MenuLabels.h").read_text()
 assert source.count("schemeMenuTitle(") >= 3
 assert 'value("wubi_profile", std::string("wubi86"))' in source

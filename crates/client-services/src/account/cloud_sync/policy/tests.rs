@@ -600,3 +600,18 @@ fn the_merge_backoff_doubles_up_to_its_cap() {
     assert_eq!(stall_ms(8), MAX_STALL_MS);
     assert_eq!(stall_ms(u32::MAX), MAX_STALL_MS);
 }
+
+/// 新世纪五笔的词暂不经云词库同步：快照里的 `wubixsj` 词跳过，与不认识的种类一样；另两版五笔照常。
+#[test]
+fn new_century_wubi_words_are_not_synced_through_the_cloud_yet() {
+    assert_eq!(personal_kind("wubi98"), Some("wubi98"));
+    assert_eq!(personal_kind("wubixsj"), None);
+    let word = |kind: &str| Word {
+        kind: kind.to_owned(),
+        key: "ent".to_owned(),
+        value: "力".to_owned(),
+        weight: 10,
+    };
+    let batches = batches(vec![word("wubixsj"), word("wubi")], 10);
+    assert_eq!(batches, vec![vec![word("wubi")]]);
+}

@@ -2,6 +2,7 @@
 #import "VoiceCueFixture.h"
 #import "VoiceClientFixture.h"
 #import "VoiceMeterFixture.h"
+#import "VoiceRuntimeIsolationFixture.h"
 #include <cassert>
 #include <cstring>
 #include <sys/socket.h>
@@ -104,6 +105,8 @@
 @property NSUInteger externalCommits;
 @end
 @implementation LiveControllerFixture
+// 合成控制器不读取已安装应用的定位器，偏好轮询与保存都不能落到用户目录。
+- (NSDictionary *)runtimeOptions { return @{}; }
 - (MSIMEVoiceCommitOutcome)postVoiceText:(NSString *)text route:(const MSIMEVoiceCommitRoute &)route {
     assert([text isEqual:@"synthetic routed"] && ![route.mode isEqual:@"tsf"]);
     ++self.externalCommits; return MSIMEVoiceCommitOutcome::posted;
@@ -140,6 +143,9 @@ static int MSIMEBindSyntheticVoiceSocket(NSString *path)
 
 @interface LiveHostFixture : MSIMEClientSession
 @property(atomic) NSUInteger providerStops;
+@property(atomic) uint64_t providerLease;
+@property(atomic) uint64_t stoppedLease;
+@property(atomic) uint64_t cancelledLease;
 @property(atomic) NSUInteger providerCancels;
 @property(atomic) BOOL providerStarted;
 @property(atomic, copy) MSIMEVoiceProviderUpdate providerUpdate;
@@ -150,6 +156,7 @@ static int MSIMEBindSyntheticVoiceSocket(NSString *path)
 - (BOOL)voiceProviderStream:(NSDictionary *)query socket:(NSString *)socket update:(MSIMEVoiceProviderUpdate)update phase:(MSIMEVoiceProviderPhase)phase error:(NSError **)error {
     (void)error;
     assert([socket isEqual:MSIMESyntheticVoiceSocket()] && [query[@"generation"] unsignedLongLongValue]);
+    self.providerLease = [query[@"generation"] unsignedLongLongValue];
     self.providerUpdate = update; self.providerPhase = phase;
     phase(0); phase(0); // Duplicate recording notifications must not replay cues.
     self.providerStarted = YES;
@@ -157,10 +164,10 @@ static int MSIMEBindSyntheticVoiceSocket(NSString *path)
     return YES;
 }
 - (BOOL)voiceProviderStopSocket:(NSString *)socket generation:(uint64_t)generation error:(NSError **)error {
-    (void)error; assert([socket isEqual:MSIMESyntheticVoiceSocket()] && generation); self.providerStops += 1; return YES;
+    (void)error; assert([socket isEqual:MSIMESyntheticVoiceSocket()] && generation); self.stoppedLease = generation; self.providerStops += 1; return YES;
 }
 - (BOOL)voiceProviderCancelSocket:(NSString *)socket generation:(uint64_t)generation error:(NSError **)error {
-    (void)error; assert([socket isEqual:MSIMESyntheticVoiceSocket()] && generation); self.providerCancels += 1;
+    (void)error; assert([socket isEqual:MSIMESyntheticVoiceSocket()] && generation); self.cancelledLease = generation; self.providerCancels += 1;
     if (self.providerDone) dispatch_semaphore_signal(self.providerDone);
     return YES;
 }
@@ -179,6 +186,7 @@ static void ApplyPunctuationPreferences(MSIMEInputController *controller, NSStri
 
 int main(int argc, char **) {
     @autoreleasepool {
+        MSIMEAssertVoiceRuntimeIsolation(LiveControllerFixture.class);
         NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
         NSMutableDictionary *options = [@{@"api_version": @1, @"preferences": @{@"scheme": @"quanpin", @"learning": @NO, @"candidate_page_size": @5, @"chinese_punctuation": @YES}} mutableCopy];
         for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries"]) {
@@ -210,11 +218,13 @@ int main(int argc, char **) {
             int socketDescriptor = MSIMEBindSyntheticVoiceSocket(socketPath);
             controller.usePolishFixture = YES;
             session.providerDone = dispatch_semaphore_create(0);
+            const uint64_t otherEntryLease = MSIMENextVoiceSocketLease();
             [controller toggleVoiceInput:nil];
             NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:3];
             while (!session.providerStarted && deadline.timeIntervalSinceNow > 0)
                 [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
             assert(session.providerStarted && !capture.transcript);
+            assert(session.providerLease > otherEntryLease);
             assert(!controller.polishFixture); // External provider owns its polish stage.
             session.providerUpdate(@"socket partial", NO);
             [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.03]];
@@ -230,6 +240,8 @@ int main(int argc, char **) {
             while ((capture.active || !session.providerStops || !session.providerCancels) && deadline.timeIntervalSinceNow > 0)
                 [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
             assert(!capture.active && session.providerStops == 1 && session.providerCancels == 1);
+            assert(session.stoppedLease == session.providerLease && session.cancelledLease == session.providerLease);
+            const uint64_t oldLease = session.providerLease;
             session.providerPhase(2);
             [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.03]];
             assert(presentation.phase == 0); // Late progress cannot reopen a completed session.
@@ -244,6 +256,7 @@ int main(int argc, char **) {
             while (!session.providerStarted && deadline.timeIntervalSinceNow > 0)
                 [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
             assert(session.providerStarted && capture.active);
+            assert(session.providerLease > oldLease);
             session.providerUpdate(@"synthetic socket preview", NO);
             [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.03]];
             assert([presentation.preview isEqual:@"synthetic socket preview"] && !client.marked.length);
@@ -308,7 +321,7 @@ int main(int argc, char **) {
         uint64_t generation = 0;
         assert([capture startWithSession:session generation:&generation error:nil]);
         [controller setValue:@(generation) forKey:@"voiceGeneration"];
-        id token = [controller beginLiveVoiceWithOptions:@{@"stream": @NO} socket:MSIMESyntheticVoiceSocket()];
+        id token = [controller beginLiveVoiceWithOptions:@{@"stream": @NO, @"generation":@(MSIMENextVoiceSocketLease())} socket:MSIMESyntheticVoiceSocket()];
         [controller applyLiveVoiceText:@"hidden partial" final:NO token:token]; assert(!client.marked.length);
         assert([presentation.preview isEqual:@"hidden partial"]);
         [controller applyLiveVoiceText:[@"x" stringByPaddingToLength:65537 withString:@"x" startingAtIndex:0] final:NO token:token];

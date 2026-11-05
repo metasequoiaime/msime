@@ -113,7 +113,7 @@ impl WubiScheme {
         request.normalized_segmentation.clone_from(&self.raw);
         request.segmentation.clone_from(&self.raw);
         // 通配只在码里真有 `z` 时改走模式匹配；混输单独打开时永远走前缀范围扫描。14 键组码不含 `z`。
-        request.wubi_z_wildcard = self.z_wildcard && self.raw.contains('z');
+        request.wubi_z_wildcard = self.wildcard_query();
         request.wubi_grid = self.grid_composing();
         request.valid = !self.raw.is_empty();
     }
@@ -178,6 +178,11 @@ impl WubiScheme {
     /// 当前组字是临时拼音反查：反查允许且组字以 `z` 开头。
     pub fn in_pinyin_lookup(&self) -> bool {
         self.pinyin_lookup_allowed && self.raw.as_bytes().first() == Some(&PINYIN_LOOKUP_PREFIX)
+    }
+
+    /// 当前组字是 `z` 通配查询：通配打开且码里确实有 `z`。
+    pub fn wildcard_query(&self) -> bool {
+        self.z_wildcard && self.raw.contains('z')
     }
 
     pub fn set_extended_length_allowed(&mut self, allowed: bool) {

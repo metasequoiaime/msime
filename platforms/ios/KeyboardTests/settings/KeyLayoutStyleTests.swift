@@ -2281,10 +2281,11 @@ final class KeyLayoutStyleTests: XCTestCase {
       .sorted { $0.frame.minY < $1.frame.minY }
   }
 
-  /// 内存里的一份文档：测试宿主里的 `textDocumentProxy` 没有文档，上屏看不到（见 `EmailSuffixKeyboardTests`）。光标总在末尾，`adjustTextPosition` 只记下挪了几格。
+  /// 内存里的一份文档：测试宿主里的 `textDocumentProxy` 没有文档，上屏看不到（见 `EmailSuffixKeyboardTests`）。光标总在末尾，`adjustTextPosition` 只记下挪了几格。`text` 只放已上屏的文字，标记文本另记在 `marked`，取消标记时并进 `text`，插入时被替换掉，与系统文本框相同。
   @MainActor
   private final class SidebarDocument: NSObject, UITextDocumentProxy {
     var text = ""
+    var marked = ""
     var caretMoves: [Int] = []
     var documentContextBeforeInput: String? { text }
     var documentContextAfterInput: String? { nil }
@@ -2292,11 +2293,14 @@ final class KeyLayoutStyleTests: XCTestCase {
     var documentInputMode: UITextInputMode? { nil }
     var documentIdentifier = UUID()
     var hasText: Bool { !text.isEmpty }
-    func insertText(_ inserted: String) { text += inserted }
+    func insertText(_ inserted: String) { marked = ""; text += inserted }
     func deleteBackward() { if !text.isEmpty { text.removeLast() } }
     func adjustTextPosition(byCharacterOffset offset: Int) { caretMoves.append(offset) }
-    func setMarkedText(_ markedText: String, selectedRange: NSRange) {}
-    func unmarkText() {}
+    func setMarkedText(_ markedText: String, selectedRange: NSRange) { marked = markedText }
+    func unmarkText() {
+      text += marked
+      marked = ""
+    }
   }
 
   private static let proxySelector = #selector(getter: UIInputViewController.textDocumentProxy)

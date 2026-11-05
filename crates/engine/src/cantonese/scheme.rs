@@ -1,5 +1,8 @@
 //! The Jyutping composition: typed letters and `'` boundaries, read as syllables against the inventory, and the candidates `msime-cantonese.db` has for them. A candidate may cover only the leading syllables; selecting it takes those letters out of the composition and leaves the rest composing, with nothing held back as phrase progress.
 
+#[path = "alternative_readings.rs"]
+mod alternative_readings;
+
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -55,6 +58,7 @@ struct ShuangpinExpansion {
 /// 会话查询复用的字典行和跨度键；不属于方案的组字状态。
 #[derive(Default)]
 pub(crate) struct CantoneseQueryBuffer {
+    alternatives: alternative_readings::Alternatives,
     entries: Vec<LanguageEntry>,
     completions: Vec<(String, LanguageEntry)>,
     key: String,
@@ -383,6 +387,9 @@ impl CantoneseScheme {
             self.shuangpin_candidates_into(dictionary, buffer, &expansion, candidates)?;
         } else {
             self.candidates_into_jyutping(dictionary, buffer, candidates, true)?;
+            buffer
+                .alternatives
+                .append(&self.input, &self.inventory, dictionary, candidates)?;
         }
         self.insert_sentence(dictionary, buffer, expanded, candidates)
     }
@@ -461,7 +468,10 @@ impl CantoneseScheme {
                 .count()
         };
         if !(2..=SENTENCE_MAX_SYLLABLES).contains(&count)
-            || candidates.iter().any(|row| row.syllables == count)
+            || candidates.iter().any(|row| {
+                row.syllables == count
+                    || (!shuangpin && alternative_readings::covers_complete_input(row, &self.input))
+            })
         {
             return Ok(());
         }
@@ -962,7 +972,7 @@ fn describe(positions: &[&[String]], description: &mut String) {
     }
 }
 
-fn deduplicate_candidates(candidates: &mut Vec<CantoneseCandidate>) {
+pub(crate) fn deduplicate_candidates(candidates: &mut Vec<CantoneseCandidate>) {
     if candidates.len() <= SMALL_CANDIDATE_DEDUP {
         let mut write = 0;
         for read in 0..candidates.len() {
