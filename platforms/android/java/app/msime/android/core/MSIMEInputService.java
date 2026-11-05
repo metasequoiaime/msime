@@ -6481,6 +6481,10 @@ public final class MSIMEInputService extends InputMethodService {
             if (japaneseConversionIndex != null && command(1)) return;
             if (command(11)) return;
         }
+        // 网格辅助码筛空时回车和空格、标点一样留着组字；引擎这时的原样上屏会丢掉组字。
+        JSONArray gridCandidates = view == null ? null : view.optJSONArray("candidates");
+        if (GridHelpcodePolicy.holdsEnter(gridHelpcodeDisplay(),
+                gridCandidates == null ? 0 : gridCandidates.length())) return;
         if (command(2)) return;
         EditorInfo info = getCurrentInputEditorInfo();
         int action = info == null ? EditorInfo.IME_ACTION_NONE : info.imeOptions & EditorInfo.IME_MASK_ACTION;

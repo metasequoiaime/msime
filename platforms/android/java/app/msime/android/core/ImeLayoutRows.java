@@ -1428,15 +1428,8 @@ final class ImeLayoutRows {
     void commitNineKeyHoldOption(String text) {
         dismissNineKeyHoldOptions();
         if (s.connection == null) return;
-        s.command(literalPrecommit());
+        s.command(2);
         s.commitText(s.fullWidthOutput(text));
-    }
-
-    /** 明确选了一个字面之前怎样结束组字：网格辅助码筛空时取消组字，否则原样上屏（{@link GridHelpcodePolicy#literalPrecommitCommand}）。 */
-    private int literalPrecommit() {
-        JSONArray candidates = s.view == null ? null : s.view.optJSONArray("candidates");
-        return GridHelpcodePolicy.literalPrecommitCommand(s.gridHelpcodeDisplay(),
-            candidates == null ? 0 : candidates.length());
     }
 
     void dismissNineKeyHoldOptions() {
@@ -1842,7 +1835,7 @@ final class ImeLayoutRows {
             s.commitEnglishLiteral(text.charAt(0));
             return;
         }
-        s.command(literalPrecommit());
+        s.command(2);
         s.commitLiteralText(s.fullWidthOutput(text));
     }
 

@@ -20,10 +20,11 @@ public final class GridHelpcodePolicySmoke {
         check(!GridHelpcodePolicy.entrySwipe(Float.NaN, -40)
             && !GridHelpcodePolicy.entrySwipe(0, Float.NEGATIVE_INFINITY), "无效坐标不进入");
 
-        check(GridHelpcodePolicy.literalPrecommitCommand("", 0) == 2, "没有分隔符照旧原样上屏");
-        check(GridHelpcodePolicy.literalPrecommitCommand("|AE", 3) == 2, "有候选时按首选结束");
-        check(GridHelpcodePolicy.literalPrecommitCommand("|AE", 0) == 3, "筛空时先取消，不把组码留在字面前面");
-        check(GridHelpcodePolicy.literalPrecommitCommand("|", 0) == 3, "只有分隔符而没有候选时同样取消");
+        check(!GridHelpcodePolicy.holdsEnter("", 0), "没有分隔符时回车照旧");
+        check(!GridHelpcodePolicy.holdsEnter("|AE", 3), "有候选时回车照旧按首选结束");
+        check(GridHelpcodePolicy.holdsEnter("|AE", 0), "筛空时回车留着组字");
+        check(GridHelpcodePolicy.holdsEnter("|", 0), "只有分隔符而没有候选时回车同样留着组字");
+        check(!GridHelpcodePolicy.holdsEnter(null, 0), "缺视图时照旧");
 
         check(GridHelpcodePolicy.backClears("|A", true, false), "第一次返回清辅助码");
         check(!GridHelpcodePolicy.backClears("", true, false), "没有分隔符时照旧收起键盘");

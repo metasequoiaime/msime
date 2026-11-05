@@ -32,9 +32,9 @@ public final class GridHelpcodePolicy {
         return -dy > ENTRY_THRESHOLD_DP && Math.abs(dy) > 1.5f * Math.abs(dx);
     }
 
-    /** 明确选了一个字面（长按字母、快捷符号）之前怎样结束组字：有分隔符而没有候选时取消（命令 3），否则照旧原样上屏（命令 2，14／18 键有候选时就是按首选结束）。否则原样上屏会把组码字母留在字面前面。 */
-    public static int literalPrecommitCommand(String display, int candidates) {
-        return display != null && !display.isEmpty() && candidates == 0 ? 3 : 2;
+    /** 回车留着组字、什么也不做：放下了分隔符而没有候选。回车和空格、标点一样是用户结束一个词的键；引擎此时的原样上屏会丢掉组字（给插入别的内容之前结束组字用），回车不该丢。 */
+    public static boolean holdsEnter(String display, int candidates) {
+        return display != null && !display.isEmpty() && candidates == 0;
     }
 
     /** 系统返回键先清辅助码：放下了分隔符、键盘显示着、没有面板盖着；下一次返回再照旧收起键盘。 */
