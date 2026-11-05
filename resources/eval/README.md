@@ -165,6 +165,8 @@ cargo run --release -p msime-input-runtime --example convert_eval -- \
 
 词级那一份把四个 `--set` 换成 `--set resources/eval/quanpin-words-v1.tsv --max-syllables 2 --limit 3000`，对照 `baseline-shuangpin-touch-words.json`。两份基线各跑一次完整的组合（5 个方案 × 4 种模式 × 4 个 σ × 2 个偏置，none 模式不分 σ 和偏置），送落点、用引擎默认的计价参数。送落点时每条用例的触点各不相同，记忆表帮不上忙，所以加 `--jobs 5` 让五个方案各开一个线程同时跑（输出与一个一个跑逐字节相同），再加 `--assert-top1-unchanged`。在同时跑着 CI 的 Mac Studio 上整句那份要几个小时（看负载）、词级那份十分钟上下，没有放进 `verify-local.sh`。引擎收到触点之前的平面表数字用同样的命令加 `--no-touch-points` 复现。
 
+**整句那份基线落后于词库锁。** `baseline-shuangpin-touch-sentences.json` 最后一次重录是 `c0e22eb15e`（2026-10-29，`dict-v2.0.39`），换到 `dict-v2.0.41` 和 `dict-v2.1.0` 时都没有重跑（完整一组要几个小时），之后的引擎改动也没有进它；词级那份 `baseline-shuangpin-touch-words.json` 已在 `dict-v2.1.0` 上重录。在当前锁上跑整句那份，与基线的差别里混着词库清洗（全拼上被清洗弄坏首选的 h-0415、h-0488、h-1084 就在它读的 `sentences-neutral-v1.tsv` 里）和 10-29 以来的引擎改动，不全是自己的改动带来的；要比较一处改动，先用改动前的提交在同一份资源上重录一份当对照。
+
 `--assert-top1-unchanged` 逐条比较 clean 与原样输入的实际首选文本，候选表从空到非空也算变化。报告里的 `top1_changed` 保留平面表基线的定义，只计原本排第一的金标准降位；它为 0 不代表所有实际首选都相同。纠错整句按首选规则坐首选（[首选规则笔记](../../.agents/notes/implemented/feature/2026-10-29-shuangpin-touch-first-seat.md)）的参数下，clean 集的首选按设计可能变，这时改用 `--assert-first-seat-gate`：σ=0 的 clean 组有一条首选变了、所有 clean 组合起来变了超过 0.1%、或某个方案超过 0.2%，就以非零退出。引擎默认的 m_sp 是无穷大，首选规则不起作用，基线照旧用 `--assert-top1-unchanged`。
 
 **基线只用 `desktop-dictionary.lock.json` 那一组文件加 `sentence-model.safetensors` 生成，资源目录里不放 settled 模型 `sentence-model-desktop.safetensors`。** 那个文件由另一份锁 `settled-model.lock.json` 发布，`convert_eval` 见到它就挂上 settled 重排，排序会变，两份双拼基线就对不上了，并不是产品改了。跑的时候 stderr 必须打出 `no settled model at ...`；打出 `settling with ...` 时先把那个文件挪出资源目录。
@@ -333,7 +335,7 @@ python3 scripts/eval_compare.py typing B.json C.json [--dumps B.jsonl C.jsonl]
 | 九键 | 0.557 / 0.841（0.556 / 0.840） | 0.800 / 0.951（0.799 / 0.951，12,818 条） | 0.259 / 0.707（0.258 / 0.706，10,477 条） |
 | 14 键 | 0.633 / 0.911（0.633 / 0.911） | 0.836 / 0.984（0.835 / 0.983，14,735 条） | 0.284 / 0.787（0.284 / 0.786，8,560 条） |
 
-非同码桶的配对比较（`dict_eval_gate.py`，dict-v2.0.41 → dict-v2.1.0）：全拼 top-1 修好 48、弄坏 5（p = 7e-10），九键 14 / 7，14 键 21 / 8。弄坏的多是地名重新定权的结果（锦州 让给 金州，铜川、株洲、甘孜、黄南 回到 rime-ice 与万象对齐后的权重，福安、德城、惠东、宝兴、定远 按万象下限抬到同码常用词前面），另有九键 火把、制动 让给权重更低的 过吧、只懂，见[换锁笔记](../../.agents/notes/implemented/bug-fix/2026-10-27-dictionary-lock-latest.md)。
+非同码桶的配对比较（`dict_eval_gate.py`，dict-v2.0.41 → dict-v2.1.0）：全拼 top-1 修好 48、弄坏 5（p = 7e-10），九键 14 / 7，14 键 21 / 8。弄坏的多是地名重新定权的结果（锦州 让给 金州，铜川、株洲、甘孜、黄南 回到 rime-ice 与万象对齐后的权重，福安、德城、惠东、宝兴、定远 按万象下限抬到同码常用词前面），另有九键 火把、制动 让给权重更低的 过吧、只懂：不挂模型时它们仍排第一，是逐键模型在与首选同长的读法之间换了首选（碎片 过把、之东 被压低后，第二位换成了模型更偏向的词），见[换锁笔记](../../.agents/notes/implemented/bug-fix/2026-10-27-dictionary-lock-latest.md)。
 
 同一批用例换到 dict-v2.0.51（用 `resource_lock_from_sums.py` 给发布附件生成临时锁），三种键盘的 top-1、top-5 一条都没变，全拼的 dump 逐字节相同。九键有 5 条候选表变了：`qifeng` 的两条（启封、奇峰，同码 743364）首屏第 3 位多了新加的 custom 词 司凤，奇峰 从第 6 退到第 7，其余 3 条的差别在第 20 名以后；14 键有 2 条，在第 13 名和第 20 名以后。两版之间拼音数据只多了 7 个 custom 词，主库的字节差别来自构建器换版本，这一次没有改到前 5 名。
 
@@ -479,4 +481,4 @@ TYPESAFE_API_KEY=... scripts/review-harvested-cases.py target/harvest.jsonl targ
 
 词表覆盖（词级集的金标准 99.94% 本来就在词典里）、语言模型困惑度（没有语料）。用户学习与调频在 `convert_eval` 里强制关闭（否则前一条会污染后一条），由 `typing_sim` 的打字流量。九宫格由 `--nine-key` 的两份集合覆盖，14 键由 `--grid fourteen` 的两份覆盖，停在末音节声母上的输入由 `--cut-last-syllable` 覆盖（只支持全拼及其网格），26 键双拼和触屏误触由 `--scheme shuangpin` 覆盖，见上文。
 
-共享词网格前移每词插入代价的配置、同一资源前后对照及局限见[评分决策笔记](../../.agents/notes/implemented/bug-fix/2026-10-14-lattice-phrase-insertion-cost.md)。现在的基线覆盖 `dict-v2.1.0`。换锁之前，同一个二进制配 `dict-v2.0.41` 的十三份报告和打字流、双拼触点词级报告已经都与提交的基线对不上（基线停在 10-29，之后合入的引擎改动没有重录），所以这次的基线一并记下了那段代码漂移；词库本身带来的差别用同一个二进制在两份词库上的配对比较单独量。换锁时没有修改评测用例，前后数字见[换锁笔记](../../.agents/notes/implemented/bug-fix/2026-10-27-dictionary-lock-latest.md)。
+共享词网格前移每词插入代价的配置、同一资源前后对照及局限见[评分决策笔记](../../.agents/notes/implemented/bug-fix/2026-10-14-lattice-phrase-insertion-cost.md)。现在的基线覆盖 `dict-v2.1.0`。换锁之前，同一个二进制配 `dict-v2.0.41` 的十三份报告和打字流、双拼触点词级报告已经都与提交的基线对不上（基线停在 10-29，之后合入的引擎改动没有重录），所以这次的基线一并记下了那段代码漂移；词库本身带来的差别用同一个二进制在两份词库上的配对比较单独量，引擎漂移带来的差别用 `b94ece1cf7` 与本次的二进制在 `dict-v2.0.41` 上的配对比较单独量，两边弄坏的用例都在换锁笔记里逐例列出（词库一侧：neutral 的 下不、是黄、头的、打私 四句和九键 火把、制动；引擎一侧：sentences 的 s-048、九键长句的 nk-051、nk-055，以及 words 里 11 条 12 字符截断用例从第 1 退到第 4）。换锁时没有修改评测用例，前后数字见[换锁笔记](../../.agents/notes/implemented/bug-fix/2026-10-27-dictionary-lock-latest.md)。
