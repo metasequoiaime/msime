@@ -139,6 +139,11 @@ pub struct ShuangpinDictionary {
 }
 
 impl ShuangpinDictionary {
+    /// 这份词库的粗俗词表，见 `QuanpinDictionary::offensive_words`。
+    pub(crate) fn offensive_words(&self) -> &crate::lattice::offensive::OffensiveWords {
+        self.sentence_tables.offensive_words()
+    }
+
     pub fn new(profile: &'static ShuangpinProfile, paths: &RuntimePaths) -> Self {
         // READWRITE without CREATE: a missing dictionary stays missing and every query answers empty (SD:54-70).
         let mut database = PinyinDatabase::open(&paths.dictionary(assets::MAIN_DICTIONARY));
@@ -147,6 +152,7 @@ impl ShuangpinDictionary {
             database.warm_up();
             // 在构造时加载并保留表，避免共享淘汰后在按键路径重新读表。
             sentence_tables = SentenceNgramTables::load(paths);
+            sentence_tables.set_offensive_words(database.offensive_words());
             // Records the data version so the first cache hit has something to compare with.
             database.database_changed();
         }

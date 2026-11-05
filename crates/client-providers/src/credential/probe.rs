@@ -28,6 +28,9 @@ pub(crate) fn rejected_status_message(status: u16, other: &str) -> String {
     }
 }
 
+/// 对话接口测试回 404 时的一句话。OpenAI 兼容服务对「地址只填到 /v1、/api/v3 这类基础路径」和「模型名不存在或未开通」都回 404（火山方舟对展示名、未开通的模型同样如此，#10876），通用的「检查接口地址和模型配置」说不出两处各该填什么。转写测试的 404 不走这里：它的接口不是 /chat/completions。
+const CHAT_NOT_FOUND_MESSAGE: &str = "服务找不到所填的接口地址或模型（HTTP 404）。接口地址要填完整的对话接口，通常以 /chat/completions 结尾；模型要填服务商控制台列出的模型 ID，并确认账号已开通该模型。";
+
 /// 探测仅保留固定错误类别，不向设置页返回服务端文字或凭据。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProbeFailure {
@@ -179,6 +182,7 @@ pub fn test_chat(service: &str, config: &Value, transport: &impl ProbeTransport)
     match transport.post(endpoint, token, &body) {
         Ok(200..=299) if !uses_token => result(true, "连接成功，模型配置有效。"),
         Ok(200..=299) => result(true, "连接成功，API Key 和模型配置有效。"),
+        Ok(404) => result(false, CHAT_NOT_FOUND_MESSAGE),
         Ok(status) => ProbeResult {
             ok: false,
             message: rejected_status_message(status, "服务拒绝请求，请检查接口地址和模型配置"),
@@ -355,7 +359,7 @@ mod tests {
             (429, "服务限流或额度不足（HTTP 429）"),
             (500, "服务暂时不可用（HTTP 500）"),
             (503, "服务暂时不可用（HTTP 503）"),
-            (404, "服务拒绝请求，请检查接口地址和模型配置（HTTP 404）"),
+            (404, "服务找不到所填的接口地址或模型（HTTP 404）"),
             (422, "服务拒绝请求，请检查接口地址和模型配置（HTTP 422）"),
         ] {
             let fake = Fake {
@@ -369,6 +373,12 @@ mod tests {
                 "{status}: {}",
                 result.message
             );
+            // #10876：只填到 /api/v3 的基础地址、或把展示名当模型名，服务都回 404；提示要说清两处各该填什么。
+            if status == 404 {
+                assert!(result.message.contains("/chat/completions"));
+                assert!(result.message.contains("模型 ID"));
+                assert!(result.message.len() < 256);
+            }
             if matches!(status, 402 | 500..=599) {
                 assert!(!result.message.contains("接口地址"), "{status}");
             }
