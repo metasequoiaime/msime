@@ -50,6 +50,11 @@ impl DictionaryAccess {
         Self::acquire(user, dictionaries, true)
     }
 
+    /// [`Self::try_session`]，但只打开已经在的锁文件、只读打开，不建也不写：给对两个根目录都没有写权限的会话用（iOS 键盘没有完全访问时，App Group 只读）。flock 不要求描述符可写，这样取到的共享锁和别的进程读写打开取的是同一把，维护照样被它挡住。锁文件不在是 `NotFound`，没有写权限的一方建不出它，调用方据此改走别的布局。
+    pub fn try_session_read_only(user: &Path, dictionaries: &Path) -> io::Result<Option<Self>> {
+        Self::acquire_with(user, dictionaries, false, LockFileAccess::ExistingReadOnly)
+    }
+
     /// 取租约时打开的那个根目录的句柄（复制一份）。之后这个路径被换成别的目录，句柄仍指向取锁时的那个。`path` 不是租约的根目录时报 `NotFound`。
     #[cfg(unix)]
     pub fn directory(&self, path: &Path) -> io::Result<File> {
@@ -71,6 +76,20 @@ impl DictionaryAccess {
     }
 
     fn acquire(user: &Path, dictionaries: &Path, exclusive: bool) -> io::Result<Option<Self>> {
+        Self::acquire_with(
+            user,
+            dictionaries,
+            exclusive,
+            LockFileAccess::CreateReadWrite,
+        )
+    }
+
+    fn acquire_with(
+        user: &Path,
+        dictionaries: &Path,
+        exclusive: bool,
+        lock_file: LockFileAccess,
+    ) -> io::Result<Option<Self>> {
         if !user.is_absolute() || !dictionaries.is_absolute() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -88,7 +107,14 @@ impl DictionaryAccess {
         };
         for path in roots {
             let directory = open_root(&path)?;
-            let file = open_lock_file(&directory, OsStr::new(LOCK_FILE))?;
+            let file = match lock_file {
+                LockFileAccess::CreateReadWrite => {
+                    open_lock_file(&directory, OsStr::new(LOCK_FILE))?
+                }
+                LockFileAccess::ExistingReadOnly => {
+                    open_existing_lock_file_read_only(&directory, OsStr::new(LOCK_FILE))?
+                }
+            };
             let acquired = if exclusive {
                 try_exclusive(&file)?
             } else {
@@ -107,6 +133,15 @@ impl DictionaryAccess {
         }
         Ok(Some(access))
     }
+}
+
+/// 锁文件怎么打开。
+#[derive(Clone, Copy)]
+enum LockFileAccess {
+    /// 没有就建，读写打开：所有能写根目录的会话和维护都这样取。
+    CreateReadWrite,
+    /// 只打开已有的，只读：见 [`DictionaryAccess::try_session_read_only`]。
+    ExistingReadOnly,
 }
 
 /// 引擎层维护接口取独占租约：取不到是 `Busy`（`DICTIONARY_MAINTENANCE_BUSY`），打不开目录或锁文件是存储错误。
@@ -240,6 +275,37 @@ fn open_lock_file(directory: &File, name: &OsStr) -> io::Result<File> {
     #[cfg(not(target_vendor = "apple"))]
     let descriptor = open()?;
     ensure_regular(descriptor.into())
+}
+
+/// 只读打开根目录里已有的锁文件：经目录句柄、不跟随符号链接、不建；同样要求是只有一个硬链接的普通文件。
+#[cfg(unix)]
+fn open_existing_lock_file_read_only(directory: &File, name: &OsStr) -> io::Result<File> {
+    let descriptor = rustix::fs::openat(
+        directory,
+        name,
+        rustix::fs::OFlags::RDONLY
+            | rustix::fs::OFlags::NOFOLLOW
+            | rustix::fs::OFlags::CLOEXEC
+            | rustix::fs::OFlags::NONBLOCK,
+        rustix::fs::Mode::empty(),
+    )?;
+    ensure_regular(descriptor.into())
+}
+
+/// 非 Unix 平台只读按路径打开已有的锁文件，先拒绝路径上的符号链接。
+#[cfg(not(unix))]
+fn open_existing_lock_file_read_only(directory: &Path, name: &OsStr) -> io::Result<File> {
+    let path = directory.join(name);
+    msime_path_trust::reject_symlinked_components(&path)?;
+    let mut options = File::options();
+    options.read(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    ensure_regular(options.open(path)?)
 }
 
 /// 非 Unix 平台按路径打开锁文件，先拒绝路径上的符号链接；Windows 上不跟随重解析点。
@@ -497,6 +563,79 @@ mod tests {
         assert!(DictionaryAccess::try_maintenance(&first, &first)
             .unwrap()
             .is_some());
+    }
+
+    /// 没有写权限的会话只读打开已有的锁文件取共享锁：照样挡住维护、也被维护挡住，不建锁文件。
+    #[test]
+    fn a_read_only_session_shares_the_lock_without_creating_it() {
+        let user = tempfile::tempdir().unwrap();
+        let dictionaries = tempfile::tempdir().unwrap();
+        let missing =
+            DictionaryAccess::try_session_read_only(user.path(), dictionaries.path()).err();
+        assert_eq!(
+            missing.map(|error| error.kind()),
+            Some(io::ErrorKind::NotFound)
+        );
+        assert!(!user.path().join(LOCK_FILE).exists());
+        assert!(!dictionaries.path().join(LOCK_FILE).exists());
+
+        // 能写的一方（App）先建好锁文件。
+        drop(DictionaryAccess::try_session(user.path(), dictionaries.path()).unwrap());
+        let reader = DictionaryAccess::try_session_read_only(user.path(), dictionaries.path())
+            .unwrap()
+            .unwrap();
+        assert!(
+            DictionaryAccess::try_maintenance(user.path(), dictionaries.path())
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            DictionaryAccess::try_session(user.path(), dictionaries.path())
+                .unwrap()
+                .is_some()
+        );
+        drop(reader);
+        let writer = DictionaryAccess::try_maintenance(user.path(), dictionaries.path())
+            .unwrap()
+            .unwrap();
+        assert!(
+            DictionaryAccess::try_session_read_only(user.path(), dictionaries.path())
+                .unwrap()
+                .is_none()
+        );
+        drop(writer);
+    }
+
+    /// 两个根目录和锁文件都不可写时（iOS 键盘没有完全访问时的 App Group）只读租约照样取得到。
+    #[cfg(unix)]
+    #[test]
+    fn a_read_only_session_works_in_directories_it_cannot_write() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let user = root.path().join("user");
+        let dictionaries = user.join("dictionaries").join("generation");
+        std::fs::create_dir_all(&dictionaries).unwrap();
+        drop(DictionaryAccess::try_session(&user, &dictionaries).unwrap());
+        let set = |path: &Path, mode| {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap()
+        };
+        for directory in [&user, &dictionaries] {
+            set(&directory.join(LOCK_FILE), 0o444);
+            set(directory, 0o555);
+        }
+        // 以 root 跑时权限位挡不住写，这条用例测不到什么。
+        let enforced = std::fs::File::create(user.join("probe")).is_err();
+        let reader = DictionaryAccess::try_session_read_only(&user, &dictionaries);
+        let writable = DictionaryAccess::try_session(&user, &dictionaries);
+        for directory in [&user, &dictionaries] {
+            set(directory, 0o755);
+            set(&directory.join(LOCK_FILE), 0o600);
+        }
+        assert!(reader.unwrap().is_some());
+        if enforced {
+            // 读写打开锁文件的会话租约在这里失败。
+            assert!(writable.is_err());
+        }
     }
 
     #[test]

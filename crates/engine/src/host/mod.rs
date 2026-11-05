@@ -48,7 +48,10 @@ pub use glosses::{
     english_correction_display, english_corrections, english_phonetics, phonetics,
     release_gloss_caches, save_candidate_gloss, PHONETIC_LANGUAGES,
 };
-pub use options::{prepare_options, prepare_options_for, EngineOptions};
+pub use options::{
+    open_prepared_options_for, prepare_options, prepare_options_for, read_only_layout_options_for,
+    EngineOptions,
+};
 pub use session::{
     local_mode_counts_as_typing, Command, EngineResult, EngineSnapshot, OnlineQuerySnapshot,
     Session,
