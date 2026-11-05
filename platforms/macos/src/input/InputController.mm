@@ -2630,9 +2630,8 @@ void MSIMERecordGlobalVoiceCommit(NSString *text) {
     if (!client || !token || _activeClient != client || MSIMEFocusedController != self ||
         MSIMEGlobalVoiceHost().sessionToken != token || !MSIMEGlobalVoiceHost().owner ||
         MSIMEGlobalVoiceHost().owner == self || [self globalVoiceBusy]) return NO;
-    const BOOL current = [self globalVoiceTargetPID] > 0;
-    return current && _activeClient == client && MSIMEFocusedController == self &&
-        MSIMEGlobalVoiceHost().sessionToken == token;
+    // IMK 客户端可能属于不激活前台应用的面板；只有模拟发键通道依赖前台 PID。
+    return YES;
 }
 - (BOOL)prepareGlobalVoiceTextForCommit:(id)token {
     id client = _activeClient;

@@ -14211,14 +14211,15 @@ static void TestCrossCommitSpacing() {
 @end
 
 @interface GlobalVoiceCurrentClientController : MSIMEInputController
-@property(nonatomic) pid_t currentPID;
-@property(nonatomic, copy) void (^duringClientQuery)(GlobalVoiceCurrentClientController *);
+@property(nonatomic, copy) void (^afterComposition)(GlobalVoiceCurrentClientController *);
 @end
 @implementation GlobalVoiceCurrentClientController
 - (NSDictionary *)runtimeOptions { return @{}; }
-- (pid_t)globalVoiceTargetPID {
-    if (_duringClientQuery) { void (^callback)(GlobalVoiceCurrentClientController *) = _duringClientQuery; _duringClientQuery = nil; callback(self); }
-    return _currentPID;
+- (void)commitComposition:(id)sender {
+    [super commitComposition:sender];
+    void (^callback)(GlobalVoiceCurrentClientController *) = _afterComposition;
+    _afterComposition = nil;
+    if (callback) callback(self);
 }
 - (void)renderCandidates {}
 @end
@@ -14346,26 +14347,27 @@ static void TestGlobalVoiceCurrentClientDelivery() {
         NSString *suite = [@"msime.synthetic.current-voice-client." stringByAppendingString:NSUUID.UUID.UUIDString];
         NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
         MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
-        GlobalVoiceCurrentClientController *controller = [GlobalVoiceCurrentClientController alloc]; controller.currentPID = 42;
+        GlobalVoiceCurrentClientController *controller = [GlobalVoiceCurrentClientController alloc];
         ShortcutClient *client = [ShortcutClient new]; ShortcutSession *session = [ShortcutSession new];
         session.finishTransition = @{@"commit":@"synthetic preedit", @"view":@{@"editing_text":@"", @"candidates":@[]}};
         [controller setValue:appearance forKey:@"appearance"]; [controller setValue:client forKey:@"activeClient"];
         [controller setValue:scenario == 1 ? nil : session forKey:@"session"];
-        [controller setValue:@{@"editing_text":scenario == 0 ? @"synthetic preedit" : @"", @"candidates":@[]} forKey:@"view"];
+        [controller setValue:@{@"editing_text":(scenario == 0 || scenario == 3) ? @"synthetic preedit" : @"", @"candidates":@[]} forKey:@"view"];
         MSIMEFocusedController = controller;
         GlobalVoiceTargetProbe *owner = [GlobalVoiceTargetProbe new]; owner.busy = YES;
         MSIMEGlobalVoiceHost().owner = owner; MSIMEGlobalVoiceHost().sessionToken = [NSObject new];
         id token = MSIMEGlobalVoiceHost().sessionToken;
         if (scenario == 2) token = [NSObject new];
         ShortcutClient *next = [ShortcutClient new];
-        if (scenario == 3) controller.duringClientQuery = ^(GlobalVoiceCurrentClientController *current) {
+        if (scenario == 3) controller.afterComposition = ^(GlobalVoiceCurrentClientController *current) {
             [current setValue:next forKey:@"activeClient"];
         };
         const auto result = [controller commitGlobalVoiceText:@"synthetic voice" token:token];
         assert(result == (scenario >= 2 ? MSIMEGlobalVoiceDeliveryRetry : MSIMEGlobalVoiceDeliveryAccepted));
         if (scenario == 0) assert(([client.insertions isEqual:@[@"synthetic preedit", @"synthetic voice"]]));
         if (scenario == 1) assert(([client.insertions isEqual:@[@"synthetic voice"]]));
-        if (scenario >= 2) assert(client.insertions.count == 0 && next.insertions.count == 0);
+        if (scenario == 2) assert(client.insertions.count == 0 && next.insertions.count == 0);
+        if (scenario == 3) assert(([client.insertions isEqual:@[@"synthetic preedit"]]) && next.insertions.count == 0);
         if (scenario == 3) {
             assert([controller commitGlobalVoiceText:@"synthetic voice" token:MSIMEGlobalVoiceHost().sessionToken] == MSIMEGlobalVoiceDeliveryAccepted);
             assert(([next.insertions isEqual:@[@"synthetic voice"]]));
@@ -14379,7 +14381,7 @@ static void TestGlobalVoiceCurrentClientDelivery() {
         NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
         MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
         appearance.traditionalOutput = NO;
-        GlobalVoiceCurrentClientController *controller = [GlobalVoiceCurrentClientController alloc]; controller.currentPID = 42;
+        GlobalVoiceCurrentClientController *controller = [GlobalVoiceCurrentClientController alloc];
         CursorEditorClient *client = [CursorEditorClient new]; client.editor = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, 300, 80)];
         client.editor.string = @"prefix "; client.editor.selectedRange = NSMakeRange(7, 0);
         ShortcutSession *session = [ShortcutSession new];
@@ -14397,12 +14399,39 @@ static void TestGlobalVoiceCurrentClientDelivery() {
     }
 }
 
+@interface GlobalVoicePanelController : GlobalVoiceCurrentClientController
+@end
+@implementation GlobalVoicePanelController
+- (pid_t)globalVoiceTargetPID { return 0; }
+@end
+static void TestGlobalVoicePanelClient() {
+    NSString *suite = [@"msime.synthetic.panel-voice." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    appearance.traditionalOutput = NO;
+    GlobalVoicePanelController *controller = [GlobalVoicePanelController alloc];
+    ShortcutClient *client = [ShortcutClient new];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:client forKey:@"activeClient"];
+    MSIMEFocusedController = controller;
+    GlobalVoiceTargetProbe *owner = [GlobalVoiceTargetProbe new]; owner.busy = YES;
+    MSIMEGlobalVoiceHost().owner = owner; MSIMEGlobalVoiceHost().sessionToken = [NSObject new];
+    // 不激活前台应用的面板仍有有效 IMK 客户端；前台发键 PID 不决定 insertText 资格。
+    assert([controller globalVoiceTargetPID] == 0);
+    assert([controller commitGlobalVoiceText:@"synthetic panel result" token:MSIMEGlobalVoiceHost().sessionToken] == MSIMEGlobalVoiceDeliveryAccepted);
+    assert(([client.insertions isEqual:@[@"synthetic panel result"]]));
+    MSIMEFocusedController = nil;
+    assert([controller commitGlobalVoiceText:@"stale result" token:MSIMEGlobalVoiceHost().sessionToken] == MSIMEGlobalVoiceDeliveryRetry);
+    assert(client.insertions.count == 1);
+    MSIMEGlobalVoiceHost().owner = nil; MSIMEGlobalVoiceHost().sessionToken = nil;
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
 static void TestGlobalVoiceCurrentClientReentry() {
     NSString *suite = [@"msime.synthetic.current-voice-reentry." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
     MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
     appearance.traditionalOutput = NO;
-    GlobalVoiceCurrentClientController *controller = [GlobalVoiceCurrentClientController alloc]; controller.currentPID = 42;
+    GlobalVoiceCurrentClientController *controller = [GlobalVoiceCurrentClientController alloc];
     CursorEditorClient *client = [CursorEditorClient new]; client.editor = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, 300, 80)];
     client.editor.string = @"prefix "; client.editor.selectedRange = NSMakeRange(7, 0);
     ShortcutSession *session = [ShortcutSession new];
@@ -14412,12 +14441,10 @@ static void TestGlobalVoiceCurrentClientReentry() {
     [controller apply:@{@"view":@{@"editing_text":@"oldpreedit", @"preedit":@"oldpreedit", @"caret_position":@10, @"candidates":@[]}}];
     GlobalVoiceTargetProbe *owner = [GlobalVoiceTargetProbe new]; owner.busy = YES;
     MSIMEGlobalVoiceHost().owner = owner; MSIMEGlobalVoiceHost().sessionToken = [NSObject new];
-    controller.duringClientQuery = ^(GlobalVoiceCurrentClientController *current) {
-        current.duringClientQuery = ^(GlobalVoiceCurrentClientController *same) {
-            // 最后一次同步查询产生新组字；本次重试必须保留它，不能被语音替换。
-            [same apply:@{@"view":@{@"editing_text":@"newpreedit", @"preedit":@"newpreedit", @"caret_position":@10, @"candidates":@[]}}];
-            session.finishTransition = @{@"commit":@"newpreedit", @"view":@{@"editing_text":@"", @"candidates":@[]}};
-        };
+    controller.afterComposition = ^(GlobalVoiceCurrentClientController *current) {
+        // 结束旧组字时的同步客户端调用可能重入并产生新组字，必须留待下一轮处理。
+        [current apply:@{@"view":@{@"editing_text":@"newpreedit", @"preedit":@"newpreedit", @"caret_position":@10, @"candidates":@[]}}];
+        session.finishTransition = @{@"commit":@"newpreedit", @"view":@{@"editing_text":@"", @"candidates":@[]}};
     };
     assert([controller commitGlobalVoiceText:@"VOICE" token:MSIMEGlobalVoiceHost().sessionToken] == MSIMEGlobalVoiceDeliveryRetry);
     assert([client.editor.string isEqual:@"prefix oldpreeditnewpreedit"] && client.editor.hasMarkedText);
@@ -14902,6 +14929,7 @@ int main(int argc, char **argv) {
     assert(MSIMEShouldRegisterInputSource(2, registerArguments));
     @autoreleasepool {
         [NSApplication sharedApplication];
+        if (argc == 2 && std::string(argv[1]) == "--global-voice-panel") { TestGlobalVoicePanelClient(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--global-voice-imk-fallback") { TestGlobalVoiceIMKFallback(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--global-voice-current-client-reentry") { TestGlobalVoiceCurrentClientReentry(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--global-voice-suspend-source") { TestGlobalVoiceSuspendSource(); return 0; }
