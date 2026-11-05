@@ -2992,6 +2992,88 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(locks.allSatisfy(exclusiveLockAvailable), "a late viewDidAppear took the lease back")
   }
 
+  /// 宿主应用被结束时控制器收不到任何外观回调，键盘视图只是不在窗口里了（#10910，模拟器的系统键盘里量到的）：两秒一轮的定时器发现之后按收起处理，放掉租约、停掉维护，否则扩展带着 App Group 的锁留在后台。进程内把视图移出窗口时 UIKit 会自己发外观回调，这里把键盘放进一个不转发外观回调的容器，移走容器来模拟。之后再出现，第一个键照常组字。
+  func testKeyboardReleasesTheLeaseWhenItsWindowGoesAwayWithoutDisappearing() throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    InputSchemePreference.scheme = .quanpin
+    let locks = try dictionaryLockFiles(stateRoot: nil)
+    let deadline = Date().addingTimeInterval(15)
+    while !locks.allSatisfy(exclusiveLockAvailable) && Date() < deadline {
+      RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+    }
+    XCTAssertTrue(locks.allSatisfy(exclusiveLockAvailable), "precondition: another session still holds the shared lease")
+    func typeN(_ controller: KeyboardViewController) throws -> String {
+      try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 N" } as? UIButton)
+        .sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      return try XCTUnwrap(button("candidate-1", in: controller).configuration?.title)
+    }
+    func tick(_ controller: KeyboardViewController) {
+      let timer = Mirror(reflecting: controller).children.first { $0.label == "personalDictionaryTimer" }?.value as? Timer
+      timer?.fire()
+    }
+
+    let frame = CGRect(x: 0, y: 0, width: 414, height: KeyboardViewController.defaultKeyboardHeight)
+    let window = UIWindow(frame: frame)
+    let host = SilentAppearanceContainer()
+    host.view.frame = frame
+    window.addSubview(host.view)
+    let controller = KeyboardViewController()
+    host.addChild(controller)
+    controller.view.frame = frame
+    host.view.addSubview(controller.view)
+    controller.didMove(toParent: host)
+    controller.applyInputContext(keyboardType: .default, documentIdentifier: UUID())
+    controller.viewWillAppear(false)
+    controller.viewDidAppear(false)
+    controller.view.layoutIfNeeded()
+    XCTAssertNotNil(controller.view.window)
+    XCTAssertFalse(try typeN(controller).isEmpty, "the shown keyboard composes")
+    XCTAssertFalse(locks.allSatisfy(exclusiveLockAvailable), "a shown keyboard has a session")
+    tick(controller)
+    XCTAssertTrue(maintenanceTimerRunning(controller), "a keyboard in its window keeps maintaining")
+    XCTAssertFalse(locks.allSatisfy(exclusiveLockAvailable), "a keyboard in its window keeps its session")
+
+    // 宿主没了：键盘不在窗口里，没有任何外观回调，下一轮定时器发现。
+    host.view.removeFromSuperview()
+    XCTAssertNil(controller.view.window)
+    XCTAssertFalse(locks.allSatisfy(exclusiveLockAvailable), "nothing told the keyboard yet")
+    tick(controller)
+    XCTAssertTrue(locks.allSatisfy(exclusiveLockAvailable), "the keyboard kept the lease after its window went away")
+    XCTAssertFalse(maintenanceTimerRunning(controller), "dictionary maintenance kept running without a window")
+
+    // 再出现：第一个键照常组字。
+    window.addSubview(host.view)
+    controller.viewWillAppear(false)
+    controller.viewDidAppear(false)
+    controller.view.layoutIfNeeded()
+    XCTAssertFalse(locks.allSatisfy(exclusiveLockAvailable), "the keyboard shown again has a session")
+    XCTAssertFalse(try typeN(controller).isEmpty, "the first key after coming back did not compose")
+    controller.viewWillDisappear(false)
+    controller.viewDidDisappear(false)
+    XCTAssertTrue(locks.allSatisfy(exclusiveLockAvailable))
+    host.view.removeFromSuperview()
+  }
+
+  /// 从不进窗口的键盘（进程内构造的控制器）不会被定时器当成「宿主没了」收起。
+  func testKeyboardThatNeverEnteredAWindowKeepsItsSessionOnTheTimer() throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    InputSchemePreference.scheme = .quanpin
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.viewWillAppear(false)
+    controller.viewDidAppear(false)
+    let timer = try XCTUnwrap(Mirror(reflecting: controller).children.first { $0.label == "personalDictionaryTimer" }?.value as? Timer)
+    timer.fire()
+    XCTAssertTrue(maintenanceTimerRunning(controller))
+    XCTAssertEqual(Mirror(reflecting: controller).children.first { $0.label == "isPresented" }?.value as? Bool, true)
+    controller.viewWillDisappear(false)
+    controller.viewDidDisappear(false)
+  }
+
   /// 会话持着的锁不止词库访问租约：资源是下载的词库代次时，建会话还会在 `dictionary-updates/generations/<代次>.lock` 上取一把共享锁（client-providers 的 `dictionary_updates::lease`），同样在 App Group 里、同样随会话销毁才放。挂起起步的桥在 resume 之前不持它，挂起之后放掉它。
   func testABridgeThatStartsSuspendedHoldsNoGenerationLeaseUntilResumed() throws {
     let state = FileManager.default.temporaryDirectory
@@ -5003,4 +5085,9 @@ final class NineKeySwipeDigitsTests: XCTestCase {
     XCTAssertNil(descendants(controller.view).first { $0.accessibilityIdentifier == "nineKeyHoldOptions" })
     controller.viewDidDisappear(false)
   }
+}
+
+/// 不把外观回调转发给子控制器的容器：移走它时子控制器收不到 `viewWillDisappear`，与系统键盘里宿主被结束时一样（#10910）。
+private final class SilentAppearanceContainer: UIViewController {
+  override var shouldAutomaticallyForwardAppearanceMethods: Bool { false }
 }

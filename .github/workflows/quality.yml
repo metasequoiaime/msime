@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-go@b2a9ab24f04885adb52faf6bdccb0bb7dfb3c187 # v7 发布后的固定依赖修复提交
+      - uses: actions/setup-go@7d2730e317c8366225b42fced34583b26440a9cc # v7 发布后的固定依赖修复提交
         with:
           go-version: '1.26'
           cache: false
