@@ -51,7 +51,7 @@ provider 的 `query_grid_rows` 把组码展开成全部编码（`wubi::grid::exp
 
 ### 各宿主
 
-- **iOS**：`TouchWubiLayoutPreference`（共享文档 `touch_wubi_layout`，App Group 镜像 `wubiKeyboardLayout`），`LetterKeyGrid.of` 增加 `wubiLayout`；桥接层 `switchToFourteenKeyWubi()` 切到五笔后设网格 2，记进 `keyGrid` 供重建会话时重放。键盘控制器保存已应用的五笔布局，热加载与双拼布局同一条路径，组字中收到的布局留到上屏后再应用。`typesWubiGrid` 下关掉拼写光标、拼写菜单和空格拖动在组码里移光标；编码提示用 `FourteenKeyLayout.typedPrefix(of:keys:)`。
+- **iOS**：`TouchWubiLayoutPreference`（共享文档 `touch_wubi_layout`，App Group 镜像 `wubiKeyboardLayout`），`LetterKeyGrid.of` 增加 `wubiLayout`；桥接层 `switchToFourteenKeyWubi()` 切到五笔后设网格 2，记进 `keyGrid` 供重建会话时重放。键盘控制器保存已应用的五笔布局，热加载与双拼布局同一条路径，组字中收到的布局留到上屏后再应用。`typesWubiGrid` 下关掉拼写光标、拼写菜单和空格拖动在组码里移光标（空格拖动先结束组字后来推广到全部字母网格，条件是 `typesLetterGrid`，见[iOS 14/18 键对齐 Android](../bug-fix/2026-11-05-ios-letter-grid-android-parity.md)）；编码提示用 `FourteenKeyLayout.typedPrefix(of:keys:)`。
 - **Android**：键盘页「布局」在五笔下给出「五笔键盘」，搜索索引收录。`FourteenKeyLayout.separatesSyllables(composing, scheme)` 决定左端键，`NineKeyPanelPolicy.threeColumn` 多看方案，五笔不开三栏；编码提示在 `WubiCodeHintPolicy.typed`。宿主不调 `setKeyGrid`，由 host-api 按偏好开网格。14 键组字时读音不可点、不能打开放大编辑条（`CompositionCaretPolicy.editable` 看 `grid_composing`），与 iOS 的 `typesWubiGrid` 一致，见[Android 五笔 14 键组字不再能点读音行编辑拼写](../bug-fix/2026-11-02-android-wubi-grid-spelling-edit.md)。
 - **HarmonyOS**：`KeyboardScheme.keyGrid` 多一个 `wubiLayout` 参数，五笔 14 键在手机和平板上开网格 2，2in1、手写不开；`letterLayout`、`fourteenKeySeparates`、`acceptedKeyGrid`（五笔只放行网格 2）。会话在创建、获得焦点和重建时重发网格。`SchemeCompositionPolicy` 让五笔 14 键的读音行画 `nine_key_reading`、编码留在读音行。设置是共享 React 页的 `HarmonyChineseKeyboardRow`，只在鸿蒙手机形态出现，macOS、Linux 和 2in1 不显示；编码提示在 `WubiCodeHintPolicy.typed`。
 
