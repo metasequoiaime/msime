@@ -36,6 +36,7 @@ pub mod logging;
 pub mod multilingual;
 mod nine_key;
 mod nine_key_shuangpin;
+mod offensive_placement;
 #[doc(hidden)]
 pub mod ordering;
 mod paths;
@@ -68,6 +69,10 @@ pub use logging::{set_log_sink, LogSink};
 // 按需下载的 `.gram` 语法模型由宿主侧资源包管理，删除包时需要释放
 // `GramDb::shared` 缓存的内存映射，经这个窄出口暴露给 host-api。
 pub use lattice::octagram;
+// 不拿来拼整句的粗俗词表：dict-builder 用同一个解析器读 msime-dictionary 的 `curation/offensive-words.txt`，用同一套查法出清洗报告。
+pub use lattice::offensive::{
+    parse_offensive_words, OffensiveEntry, OffensiveWords, EMBEDDED_OFFENSIVE_WORDS,
+};
 pub use nine_key::KeyGrid;
 pub use paths::RuntimePaths;
 pub use pinyin::glide::{GlideKeyboard, GlidePoint};
