@@ -20,6 +20,7 @@
 #include "quick_phrase_cursor_pipe.h"
 #include "fmt/xchar.h"
 #include "../Utils/PerfTimer.h"
+#include "../IPC/ReplyWaitPolicy.h"
 
 //////////////////////////////////////////////////////////////////////
 //
@@ -434,8 +435,9 @@ HRESULT CMetasequoiaIME::_HandleCandidateWorker(TfEditCookie ec, _In_ ITfContext
         // 数字在预选的释义列（Tab）或 Ctrl+Enter 的释义页上是上屏释义：Server 已经取消了自己的组字，回 CommitExactText。宿主会话不知道这两种状态，所以先读这个键的回复；读不到（不中断管道，和 _HandleConversionKey 一样）或是别的回复时，照旧向宿主会话选词。以前这里不读回复，上屏的是宿主会话的候选而不是释义，Server 记下的上屏文字也和文档不一致。
         if (requestId != FANY_IME_NO_REQUEST_ID)
         {
+            // Server 一定会回这个键，回复又决定上屏哪个词，只等第一级的 100ms 不够：CPU 被占满时回复晚到，读不到就什么也不上屏，Server 那边却已经选过了（#10826）。等到第二级上限，仍不拆管道。
             const FanyImeNamedpipeDataToTsf *reply =
-                TryReadDataFromServerPipeWithTimeout(requestId, /*abortTransportOnTimeout=*/false);
+                TryReadDataFromServerPipeWithTimeout(requestId, /*abortTransportOnTimeout=*/false, msime::windows::tsf::kServerReplyStallBudgetMs);
             if (const auto suffix = FanyImeQuickPhraseCursorPipe::SuffixUnits(reply->msg_type, false))
                 return _CommitServerExactText(ec, pContext, reply->candidate_string, suffix);
             if (reply->msg_type == Global::DataFromServerMsgType::CommitExactText)

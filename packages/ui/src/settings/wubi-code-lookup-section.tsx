@@ -24,7 +24,7 @@ export interface WubiCodeLookupSectionProps {
   profile?: WubiProfile;
 }
 
-/** 五笔查码：输入或粘贴汉字，列出每个字（以及整段词）的 86 和 98 五笔编码。没有字根拆分：仓库里没有授权清楚的拆分数据。 */
+/** 五笔查码：输入或粘贴汉字，列出每个字（以及整段词）的 86、98 和新世纪五笔编码。没有字根拆分：仓库里没有授权清楚的拆分数据。 */
 export function WubiCodeLookupSection({ lookup, profile }: WubiCodeLookupSectionProps) {
   const { text, result, error, canSearch, edit, search } = useWubiCodeLookup({ lookup });
 
@@ -33,7 +33,7 @@ export function WubiCodeLookupSection({ lookup, profile }: WubiCodeLookupSection
       <SettingsManagerBlock>
         <SettingsTextareaField
           label="查汉字的五笔编码"
-          description="输入或粘贴汉字，列出每个字的 86 和 98 五笔编码，简码在前、全码在后。打字时也能查：五笔拼音混输关闭时先按 z 再打拼音，候选后面标着它的五笔编码。"
+          description="输入或粘贴汉字，列出每个字的 86、98 和新世纪五笔编码，简码在前、全码在后。打字时也能查：五笔拼音混输关闭时先按 z 再打拼音，候选后面标着它的五笔编码。"
           ariaLabel="要查五笔编码的文字"
           placeholder="例如：水杉输入法"
           maxLength={WUBI_CODE_LOOKUP_MAX_LENGTH}

@@ -104,7 +104,7 @@ export async function readScelFile(
 }
 
 export type PersonalDictionaryImportEntry = {
-  kind: "pinyin" | "wubi" | "wubi98" | "quickPhrase" | "english" | "cantonese";
+  kind: "pinyin" | "wubi" | "wubi98" | "wubixsj" | "quickPhrase" | "english" | "cantonese";
   key: string;
   value: string;
   weight: number;
@@ -114,6 +114,7 @@ const personalDictionaryKinds = new Set<PersonalDictionaryImportEntry["kind"]>([
   "pinyin",
   "wubi",
   "wubi98",
+  "wubixsj",
   "quickPhrase",
   "english",
   "cantonese",
@@ -180,7 +181,7 @@ export function parsePersonalDictionaryImport(text: string): PersonalDictionaryI
     const keyValid =
       entry.kind === "pinyin"
         ? normalizedKey.length > 0 && keyBytes <= 512 && /^[a-z']+$/.test(normalizedKey)
-        : entry.kind === "wubi" || entry.kind === "wubi98"
+        : entry.kind === "wubi" || entry.kind === "wubi98" || entry.kind === "wubixsj"
           ? normalizedKey.length > 0 && keyBytes <= 4 && /^[a-z]+$/.test(normalizedKey)
           : entry.kind === "quickPhrase"
             ? normalizedKey.length > 0 && keyBytes <= 32 && /^[a-z]+$/.test(normalizedKey)
@@ -229,6 +230,7 @@ export type LocalDictionaryKind =
   | "pinyin"
   | "wubi"
   | "wubi98"
+  | "wubixsj"
   | "quick_phrase"
   | "english"
   | "cantonese";
