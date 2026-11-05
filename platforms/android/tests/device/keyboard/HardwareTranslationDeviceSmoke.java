@@ -160,7 +160,7 @@ public final class HardwareTranslationDeviceSmoke extends DeviceSmoke {
             node.getContentDescription().toString().contains("英文释义："));
     }
 
-    /** 候选读屏描述里的英文释义：`，英文释义：` 之后，到下一个全角分号（如「；长按管理」）为止。 */
+    /** 候选读屏描述里的英文释义：`，英文释义：` 之后，到下一个全角分号（如「；长按查看释义」）为止。 */
     private static String glossOf(AccessibilityNodeInfo candidate) {
         String description = candidate.getContentDescription().toString();
         String gloss = description.substring(description.indexOf("英文释义：") + "英文释义：".length());

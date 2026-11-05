@@ -148,6 +148,7 @@ public final class MSIMEInputService extends InputMethodService {
     ImeEmailSuffixes imeEmailSuffixes;
     ImeNineKeyQuickPunctuation imeNineKeyQuickPunctuation;
     ImeTranslationSenses imeTranslationSenses;
+    ImeGlossCard imeGlossCard;
     ImeStylusHandwriting imeStylusHandwriting;
     ImeStickers imeStickers;
     /** 「我的词条」经 WebDAV 网盘同步在键盘进程里的触发（改词后记录、按 Rust 给的间隔定时），见 {@link ImeDictionarySync}。 */
@@ -249,7 +250,7 @@ public final class MSIMEInputService extends InputMethodService {
     String cloudClipboardSessionId = "";
     // Bumped whenever the field or the open panel changes; a cloud answer started under an older value is dropped rather than drawn into a field it was not fetched for.
     long cloudClipboardGeneration;
-    private boolean candidateEnglishGloss;
+    boolean candidateEnglishGloss;
     private boolean candidatePronunciationEnabled;
     private boolean candidatePronunciationAvailable;
     private boolean candidatePronunciationPackInstalled;
@@ -267,18 +268,18 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean candidateTranslationAccount;
     private boolean englishSuggestionsEnabled = true;
     private String englishCorrectionRejectedPrefix = "";
-    private java.util.List<String> candidateTranslationTargets = java.util.List.of("en");
+    java.util.List<String> candidateTranslationTargets = java.util.List.of("en");
     // 候选词翻译的范围（`candidate_translation_scope`）。生效时（见 candidateTranslationScopeLimited）账号、用户自己的服务和 AI 只为视图里高亮的那个候选请求，离线释义照旧整页。
     private CandidateTranslationPolicy.Scope candidateTranslationScope = CandidateTranslationPolicy.Scope.HIGHLIGHTED;
-    private CandidateTranslationStore candidateTranslationStore;
+    CandidateTranslationStore candidateTranslationStore;
     private long candidateTranslationBindingEpoch;
     private long candidateTranslationVerifiedGeneration = -1L;
     private long candidateTranslationAppliedGeneration = -1L;
     // 候选翻译这一次走哪个服务（含凭据），由 CandidateTranslationPolicy.route 从偏好算出；选的是用户自己的服务（小牛、自定义、腾讯）时，译文由 userTranslationStore 取，它与账号的 candidateTranslationStore 并行、互不复用。路由不可变，变了就整个换掉 userTranslationStore。
-    private CandidateTranslationRoute candidateTranslationRoute = CandidateTranslationRoute.NONE;
+    CandidateTranslationRoute candidateTranslationRoute = CandidateTranslationRoute.NONE;
     /** 用户自己的服务一次最多翻译的候选数，与共享层的每页候选上限（`MAX_CANDIDATE_PAGE_SIZE`）相同。 */
     private static final int USER_TRANSLATION_PAGE = 10;
-    private CandidateTranslationStore userTranslationStore;
+    CandidateTranslationStore userTranslationStore;
     // 用户服务的客户端连同它记下的回答和退避（UserTranslationMemory），只在偏好算出另一条路由时才换掉；输入会话结束时 stop() 只把路由暂置为 NONE，下一次会话算出同一路由就接着用它，换输入框、收起再弹出键盘都不会把问过的词重新发一遍。
     private UserTranslationClient userTranslationClient;
     private long userTranslationAppliedGeneration = -1L;
@@ -286,9 +287,9 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean wubiMixedPinyin;
     // 五笔版本只决定方案卡片和工具栏上的「86」「98」字样；选表由引擎按同一份偏好里的 `wubi_profile` 决定。
     String wubiProfile = KeyboardScheme.WUBI_86;
-    private String candidateGlossResources = "";
+    String candidateGlossResources = "";
     // 会话的 `preferences_directory`（state_root）：随包没有的非英文离线释义从它下面下载的 offline-glosses 资源包里读。
-    private String candidateGlossStateRoot = "";
+    String candidateGlossStateRoot = "";
     private String onlineSignature = "";
     /**
      * 问过 AI 却没有结果的那次请求的签名：同一组字不再向 AI 发请求（#6888）。
@@ -2126,6 +2127,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeEmailSuffixes = new ImeEmailSuffixes(this);
         imeNineKeyQuickPunctuation = new ImeNineKeyQuickPunctuation(this);
         imeTranslationSenses = new ImeTranslationSenses(this);
+        imeGlossCard = new ImeGlossCard(this);
         imeStylusHandwriting = new ImeStylusHandwriting(this, HANDWRITING_DEBOUNCE_MILLIS);
         imeStickers = new ImeStickers(this);
         // 必须在 super.onCreate() 之前：InputMethodService 在那里按这个主题建输入法窗口，之后再设会抛异常。按名字查是因为 core/ 要能脱离 Gradle 生成的 R 编译（check-host.sh 的 JVM 冒烟）；res/values/themes.xml 说明了这个主题为什么存在。
@@ -2464,6 +2466,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeStylusHandwriting.shutdown();
         imeKeyFeedback.shutdown();
         imeTextEditPanel.shutdown();
+        imeGlossCard.shutdown();
         imeLayoutRows.shutdown();
         imeDebugOverlay.shutdown();
         cloudClipboardWorker.shutdownNow();
@@ -3567,7 +3570,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    private static String candidateTranslationBindingKey(SyncSwitch.Binding binding) {
+    static String candidateTranslationBindingKey(SyncSwitch.Binding binding) {
         if (binding == null || binding.accountId() == null) return null;
         return binding.generation() + ":" + binding.accountId();
     }
@@ -4538,7 +4541,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     /** 粤拼、注音、越南语、藏文和笔画的候选不带任何释义（`shows_glosses`）。它们之前的方案沿用本宿主原有的规则，日语候选仍附英文释义。 */
-    private static boolean schemeShowsGlosses(int scheme) {
+    static boolean schemeShowsGlosses(int scheme) {
         return scheme != InputSchemeTraits.CANTONESE && scheme != InputSchemeTraits.ZHUYIN
             && scheme != InputSchemeTraits.VIETNAMESE && scheme != InputSchemeTraits.TIBETAN
             && scheme != InputSchemeTraits.STROKE;
@@ -6551,6 +6554,10 @@ public final class MSIMEInputService extends InputMethodService {
         if (event.getRepeatCount() == 0 && physicalKeyboardEvent(event)) noteHardwareTyping();
         if (keyCode == KeyEvent.KEYCODE_BACK && emojiPickerVisible()) {
             closeEmojiPicker();
+            return true;
+        }
+        if (keyCode == KeyEvent.KEYCODE_BACK && imeGlossCard.visible()) {
+            imeGlossCard.close();
             return true;
         }
         if (event.getRepeatCount() == 0
@@ -9664,25 +9671,6 @@ public final class MSIMEInputService extends InputMethodService {
         if (session != 0) command(3);
     }
 
-    void insertExpandedCandidateGloss(JSONObject candidate, JSONObject id,
-                                              String text, String gloss) {
-        if (!expandedCandidateIsCurrent(candidate, id, text) || connection == null) return;
-        if (!commitText(gloss, TypingSource.LOCAL)) return;
-        if (session != 0) command(3);
-    }
-
-    /** 完整横向候选的译文回调保留取数时的身份，不能插入旧组字的译文。 */
-    void insertStripCandidateGloss(JSONObject snapshot, JSONObject candidate, JSONObject id,
-                                  String text, String gloss) {
-        if (!sameCandidateVersion(snapshot, view) || !candidateVersionIsCurrent(id)
-                || candidate == null || !sameCandidateIdentity(candidate.optJSONObject("id"), id)
-                || !text.equals(chineseCandidateOutput(InputViewValuePolicy.textOr(candidate, "text", ""), view,
-                    InputViewValuePolicy.integer(candidate, "source", -1)))
-                || connection == null) return;
-        if (!commitText(gloss, TypingSource.LOCAL)) return;
-        if (session != 0) command(3);
-    }
-
     /** 高亮候选和它能插入的译文义项（#7079、#6792）。`eligible` 是组字中、候选非空、方案允许插入译文；释义显示关着时义项为空。 */
     private record TranslationTarget(boolean eligible, int slot, JSONObject candidate,
                                      java.util.List<String> senses) {}
@@ -9782,27 +9770,13 @@ public final class MSIMEInputService extends InputMethodService {
         });
     }
 
-    /** 义项页上屏一个义项：和长按菜单的 {@link #insertCandidateGloss} 一样，按本地输入上屏后用命令 3 结束组字。页面是否还属于当前组字由 {@link ImeTranslationSenses#commit} 先核对。 */
+    /** 义项页和释义卡片上屏一个义项：和 {@link #insertCandidateGloss} 一样，按本地输入上屏后用命令 3 结束组字。页面是否还属于当前组字由 {@link ImeTranslationSenses#commit} 先核对。 */
     void commitTranslationSense(String sense) {
         if (connection == null || session == 0 || !commitText(sense, TypingSource.LOCAL)) {
             render();
             return;
         }
         command(3);
-    }
-
-    private boolean expandedCandidateIsCurrent(JSONObject candidate, JSONObject id, String text) {
-        if (!candidatePanelOpen || candidatePanelSnapshot == null || view == null || candidate == null
-                || id == null
-                || CandidateGlossPolicy.strictOr(candidatePanelSnapshot.opt("session"), Long.MIN_VALUE)
-                    != session
-                || !sameCandidateVersion(candidatePanelSnapshot, view))
-            return false;
-        JSONObject candidateId = candidate.optJSONObject("id");
-        return candidateId != null
-            && sameCandidateIdentity(candidateId, id)
-            && text.equals(chineseCandidateOutput(InputViewValuePolicy.textOr(candidate, "text", ""), view,
-                InputViewValuePolicy.integer(candidate, "source", -1)));
     }
 
     /** 释义（以及韩语汉字的 훈음）总是从候选下面另起一行，和 iOS 候选条一致；放在同一行会把候选撑宽，一屏只剩一两个候选。 */
@@ -10101,9 +10075,10 @@ public final class MSIMEInputService extends InputMethodService {
             candidateAccessibilitySuffix(candidate, typed) + candidatePronunciationAccessibilitySuffix(candidate)
                 + CandidateCorrectionMarkPolicy.accessibilitySuffix(corrected));
         JSONObject id = candidate.optJSONObject("id");
-        button.setContentDescription(id != null && candidateManagementEnabled()
+        button.setContentDescription(id != null
+                && (candidateManagementEnabled() || candidateGlossInsertionEnabled())
                 && AiPendingCandidatePolicy.offersMenu(source)
-            ? description + "；长按管理" : description);
+            ? description + CandidateGlossCardModel.LONG_PRESS_HINT : description);
         // 按钮会复用：占位行不可长按，读屏也就不提示长按；换回真候选时恢复。
         button.setLongClickable(AiPendingCandidatePolicy.offersMenu(source));
         if (Build.VERSION.SDK_INT >= 30)
@@ -11297,6 +11272,8 @@ public final class MSIMEInputService extends InputMethodService {
         keyboardSurface.addView(textEditPanel, LayoutPolicy.frameMatchParentParams());
         imePanels.buildEmojiPanel();
         imePanels.buildSymbolPanel();
+        // 释义卡片最后加，盖在所有面板上面，包括展开的候选面板（#10915）。
+        imeGlossCard.build(keyboardSurface);
         renderLayoutSettingsState();
         render();
         synchronizeReplyKeyboard();
@@ -11318,6 +11295,7 @@ public final class MSIMEInputService extends InputMethodService {
             params.topMargin = top;
             overlay.post(() -> overlay.setLayoutParams(params));
         }
+        imeGlossCard.alignBelow(top);
     }
 
     /** 是否有从工具栏打开的面板（功能面板、表情、常用语、剪贴板、皮肤、方案、符号、AI、语音结果、旧的键盘设置）开着；开着时品牌键垫 accentSoft、收起键变为「返回键盘」。 */
@@ -11347,6 +11325,7 @@ public final class MSIMEInputService extends InputMethodService {
         closeLayoutSettings();
         closeReplyKeyboard();
         imeTextEditPanel.close();
+        imeGlossCard.close();
     }
 
     void closeCommonPhrases() {
@@ -12241,6 +12220,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void renderViews() {
         renderedEchoExpectations = selectionEcho.expectations();
+        imeGlossCard.sync();
         // 完整列表展开可能换代，先同步再绘制，避免候选文字与选词身份来自两代。
         if (candidatePanelOpen && imeNineKeyPanel.eligible()) imeNineKeyPanel.refreshSnapshot();
         scheduleCandidateGlosses();

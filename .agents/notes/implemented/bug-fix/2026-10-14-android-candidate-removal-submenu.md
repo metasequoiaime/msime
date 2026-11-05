@@ -15,6 +15,8 @@ Status: implemented
 - 单字候选不提供删除（引擎侧保护），与 iOS 的 `candidate.unicodeScalars.count != 1` 一致。
 - `check-host.sh` 守住两条：`MSIMEInputService.java` 里不出现 `new AlertDialog`；`ImeCandidates.java` 用 `addSubMenu(Menu.NONE, Menu.NONE, action.ordinal(), action.title())` 建删除确认，文字来自 `CandidateManagementAction.confirmationTitle()`。
 
+后来 #10915 把长按菜单换成了释义卡片，删除确认改成在卡片里就地换出「确认删除此词条」按钮，同样不开任何窗口，见 [Android 长按候选打开释义卡片](../feature/2026-11-05-android-candidate-gloss-card.md)。
+
 ## Alternatives considered
 
 - **退出菜单再长按一次的两步确认**（这个分支上先做过的实现）：第一次选「删除词条…」只记下候选并在诊断行提示再选一次，第二次选到同一个候选才真正删除。不新开窗口，实现也只是一个小状态机；但菜单在第一次选择后就关掉了，提示说「再次选择以确认」而候选条上没有可点的确认项，用户实际只能退出去重新长按——实测「交互有点奇怪，没有地方再次选择」。iOS 是同一个菜单里当场展开确认项，两者差得远，所以换掉。

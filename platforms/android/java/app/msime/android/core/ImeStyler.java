@@ -573,6 +573,8 @@ final class ImeStyler {
             applySkinBackground(s.replyKeyboard);
         if (s.textEditPanel != null)
             applySkinBackground(s.textEditPanel);
+        if (s.imeGlossCard != null && s.imeGlossCard.root() != null)
+            applySkinBackground(s.imeGlossCard.root());
         if (s.handwritingCanvas != null) s.handwritingCanvas.applySkin(s.handwritingSkin);
         observeRoot();
         skippedHidden.clear();
