@@ -31,6 +31,11 @@ impl QuanpinEngine {
         }
     }
 
+    /// 全拼词库的粗俗词表，见 `QuanpinDictionary::offensive_words`。
+    pub(crate) fn offensive_words(&self) -> &crate::lattice::offensive::OffensiveWords {
+        self.dictionary.offensive_words()
+    }
+
     /// Double helpcode: query the base and keep matches; single: query the base and reorder; otherwise query the raw input with its segmentation, mask and fuzzy options (QE:39-81). Empty for an invalid request.
     ///
     /// Without a keymap every helpcode matches nothing: a double helpcode leaves no rows and a single one leaves the order alone. The reference fell back to a process-wide default table here, which the port does not keep; the session always passes the keymap it loaded.

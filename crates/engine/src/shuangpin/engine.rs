@@ -334,6 +334,11 @@ impl ShuangpinEngine {
         }
     }
 
+    /// 双拼词库的粗俗词表，见 `QuanpinDictionary::offensive_words`。
+    pub(crate) fn offensive_words(&self) -> &crate::lattice::offensive::OffensiveWords {
+        self.dictionary.offensive_words()
+    }
+
     /// :122-167.
     pub fn query(
         &mut self,

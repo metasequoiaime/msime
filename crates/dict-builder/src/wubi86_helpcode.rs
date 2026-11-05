@@ -1,6 +1,6 @@
-//! `wubi86-helpcode`：从 msime-dictionary 的 86 五笔码表（`sources/wubi/wubi86-jidian.txt`）生成辅助码方案 `wubi86` 的码表 `resources/helpcodes/wubi86_helpcode.txt`，每行 `字=前两码`。
+//! `wubi86-helpcode`：从 msime-dictionary 的 86 五笔码表（`sources/wubi/wubi86-jidian.txt`，拆分之后连同 `sources/wubi/wubi86-rime-wubi.txt`，见 `wubi86_table.rs`）生成辅助码方案 `wubi86` 的码表 `resources/helpcodes/wubi86_helpcode.txt`，每行 `字=前两码`。
 //!
-//! 每个字的码取它的全码的前两码。全码与 `wubi86-supplement` 用的是同一个定义（[`full_codes`]）：码表里该字单独出现时最长的编码；一个字有几个最长编码时，只有它们的前两码一致才收，否则跳过，不替用户猜哪一种拆法。只收基本区汉字：扩展 A 区和基本多文种平面以外的字在 `msime-wubi.db` 的 wubi86 表里同样被去掉（[`msime::outside_basic_cjk`]），候选里出不来，收进来只会让码表变大。标点和其他非汉字的行不收。
+//! 每个字的码取它的全码的前两码。全码与 `wubi86-supplement` 用的是同一个定义（[`full_codes`]）：码表里该字单独出现时最长的编码；一个字有几个最长编码时，只有它们的前两码一致才收，否则跳过，不替用户猜哪一种拆法。只收基本区汉字：扩展 A 区和基本多文种平面以外的字在 `msime-wubi.db` 的 wubi86 表里同样被去掉（[`msime::outside_basic_cjk`]），候选里出不来，收进来只会让码表变大。CJK 兼容汉字区（U+F900–U+FAFF）的字 wubi86 表也不写入（[`msime::unsupported_wubi_value`]），这里仍按原样收：其中有几个只来自 rime-wubi 的行，去掉它们要连同各平台许可说明里「只来自 rime-wubi 的字数」一起改，留给重新生成这张表的那次改动。标点和其他非汉字的行不收。
 //!
 //! 输出按码点排序，表头只记输入文件的 SHA-256 和规则，不记任何提交，所以同一份输入在任何提交上都生成逐字节相同的文件。引擎读码表时跳过 `#` 开头的行，每行只取 `=` 后的前两个小写字母（`crates/engine/src/helpcode.rs`）。
 
@@ -11,7 +11,6 @@ use anyhow::{bail, Result};
 
 use crate::msime;
 use crate::places_supplement::is_han;
-use crate::text;
 use crate::wubi86_supplement::{full_codes, prefix, JIDIAN, REPORT_EXAMPLES};
 
 /// 码表在 msime 仓库里的位置。
@@ -31,11 +30,15 @@ pub struct Helpcode {
     pub outside: usize,
 }
 
-pub fn build(jidian: &str) -> Result<Helpcode> {
-    let rows: Vec<(String, &str, i64)> = text::universal_lines(text::without_bom(jidian))
-        .into_iter()
-        .filter_map(|line| msime::parse_code_line(line, false))
-        .collect();
+/// `rime_wubi` 是新布局下 rime-wubi 补进来的行，旧布局为 `None`；两种布局读同样的字节得到同一张表，因为这里只看编码、不看权重。行照样经 [`crate::wubi86_table::rows`] 读，和构建读到同一组行；权重不用，所以不比词频（空的 [`crate::wubi86_table::Frequencies`]），也不读拼音的词频表。
+pub fn build(jidian: &str, rime_wubi: Option<&str>) -> Result<Helpcode> {
+    let rows: Vec<(String, &str, i64)> = crate::wubi86_table::rows(
+        jidian,
+        rime_wubi,
+        &crate::wubi86_table::Frequencies::default(),
+    )
+    .flatten()
+    .collect();
     if rows.is_empty() {
         bail!("{JIDIAN} has no rows");
     }
@@ -68,9 +71,15 @@ pub fn build(jidian: &str) -> Result<Helpcode> {
     Ok(helpcode)
 }
 
-pub fn render(helpcode: &Helpcode, jidian_sha256: &str) -> String {
+/// `inputs` 是读到的 86 原表文件及其 SHA-256（`(path, sha256)`），按读的先后。
+pub fn render(helpcode: &Helpcode, inputs: &[(&str, &str)]) -> String {
+    let inputs = inputs
+        .iter()
+        .map(|(path, sha256)| format!("{path}（SHA-256 {sha256}）"))
+        .collect::<Vec<_>>()
+        .join("、");
     let mut out = String::new();
-    let _ = writeln!(out, "# 五笔 86 辅助码表（方案 wubi86），由 msime 的 crates/dict-builder/src/wubi86_helpcode.rs 以 `msime-dict-build wubi86-helpcode --dictionary <msime-dictionary checkout> --out {OUTPUT}` 从 msime-dictionary 的 {JIDIAN}（SHA-256 {jidian_sha256}）生成；不要手工编辑。");
+    let _ = writeln!(out, "# 五笔 86 辅助码表（方案 wubi86），由 msime 的 crates/dict-builder/src/wubi86_helpcode.rs 以 `msime-dict-build wubi86-helpcode --dictionary <msime-dictionary checkout> --out {OUTPUT}` 从 msime-dictionary 的 {inputs} 生成；不要手工编辑。");
     let _ = writeln!(out, "# 规则：每个字取它在该表里单独出现时最长的编码（全码）的前两码；几个全码的前两码不一致、或全码不足两码的字不收；只收基本区汉字，不含扩展 A 区和基本多文种平面以外的字。");
     let _ = writeln!(out, "# 本文件是对上述码表的修改（只保留单字并截成两码），来源与许可见同目录的 NOTICE-wubi86.md。");
     for (c, code) in &helpcode.codes {
@@ -111,7 +120,7 @@ mod tests {
 
     #[test]
     fn each_character_takes_the_first_two_letters_of_its_full_code() {
-        let helpcode = build(FIXTURE).unwrap();
+        let helpcode = build(FIXTURE, None).unwrap();
         let codes: Vec<(char, &str)> = helpcode
             .codes
             .iter()
@@ -125,21 +134,21 @@ mod tests {
 
     #[test]
     fn several_full_codes_that_agree_on_two_letters_are_kept() {
-        let helpcode = build("码\tdcgh\t10\n码\tdcgg\t10\n").unwrap();
+        let helpcode = build("码\tdcgh\t10\n码\tdcgg\t10\n", None).unwrap();
         assert_eq!(helpcode.codes.get(&'码').map(String::as_str), Some("dc"));
         assert!(helpcode.conflicting.is_empty());
     }
 
     #[test]
     fn a_table_without_rows_or_codes_is_refused() {
-        assert!(build("").is_err());
-        assert!(build("了\tb\t10\n").is_err());
+        assert!(build("", None).is_err());
+        assert!(build("了\tb\t10\n", None).is_err());
     }
 
     #[test]
     fn rendered_rows_parse_the_way_the_engine_reads_them() {
-        let helpcode = build(FIXTURE).unwrap();
-        let rendered = render(&helpcode, "0");
+        let helpcode = build(FIXTURE, None).unwrap();
+        let rendered = render(&helpcode, &[(JIDIAN, "0")]);
         let header: Vec<&str> = rendered
             .lines()
             .take_while(|line| line.starts_with('#'))
@@ -156,5 +165,27 @@ mod tests {
             .collect();
         assert_eq!(rows, ["一=gg", "工=aa", "码=dc"]);
         assert!(rendered.ends_with('\n'));
+    }
+
+    /// 拆成两个文件读和读合并的文件得到同一张表；表头按读的先后记下两个文件的 SHA-256。
+    #[test]
+    fn the_split_layout_gives_the_same_table() {
+        let (jidian, rime_wubi) = FIXTURE.split_at(FIXTURE.find("艹").unwrap());
+        let split = build(jidian, Some(rime_wubi)).unwrap();
+        let merged = build(FIXTURE, None).unwrap();
+        assert_eq!(split.codes, merged.codes);
+        assert_eq!(split.conflicting, merged.conflicting);
+        let rendered = render(
+            &split,
+            &[(JIDIAN, "0"), (crate::wubi86_table::RIME_WUBI, "1")],
+        );
+        let first = rendered.lines().next().unwrap();
+        assert!(
+            first.contains(&format!(
+                "{JIDIAN}（SHA-256 0）、{}（SHA-256 1）",
+                crate::wubi86_table::RIME_WUBI
+            )),
+            "{first}"
+        );
     }
 }

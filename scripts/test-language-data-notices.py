@@ -59,9 +59,9 @@ NOTICE_CHANNELS = {
 }
 # The overviews say what each text covers, so they also have to name the pinned commit.
 OVERVIEWS = ("platforms/macos/resources/Licenses/THIRD_PARTY_NOTICES.txt", "platforms/linux/data/THIRD_PARTY_NOTICES.txt", "platforms/windows/Collect-Notices.ps1", "docs/third-party.md")
-# 主词库的上游说明：这五个 reference 的提交必须写在里面，换了提交却忘了改说明会在这里失败。新世纪五笔单字表（wubi06-rime）在词库锁换到收录它的发布之前，写在说明末尾「已登记、尚未随当前词库发布的来源」一节。
+# 主词库的上游说明：这些 reference 的提交必须写在里面，换了提交却忘了改说明会在这里失败。新世纪五笔单字表（wubi06-rime）和拆开后的 86 极点表（rime-wubi86-jidian）在词库锁换到收录它们的发布之前，写在说明末尾「已登记、尚未随当前词库发布的来源」一节。
 ENGINE_NOTICE = "resources/licenses/msime-engine-dictionary-NOTICE.md"
-ENGINE_NOTICE_REFERENCES = ("rime-ice-supplement", "SCOWL", "98wubi-tables", "fcitx5-table-extra", "wubi06-rime")
+ENGINE_NOTICE_REFERENCES = ("rime-ice-supplement", "SCOWL", "98wubi-tables", "fcitx5-table-extra", "wubi06-rime", "rime-wubi86-jidian", "rime-wubi")
 # The vi crate behind Vietnamese mode is MIT. The macOS bundle and the Windows package, where Vietnamese ships and notices are listed by hand, carry its text explicitly.
 VI_LICENCE = "resources/licenses/vi-MIT.txt"
 VI_CHANNELS = ("platforms/macos/CMakeLists.txt", "platforms/macos/resources/Licenses/THIRD_PARTY_NOTICES.txt", "platforms/macos/tests/settings/bundle_contents.py", "platforms/windows/Collect-Notices.ps1", "platforms/windows/tests/tools/collect_notices.ps1")
@@ -224,6 +224,9 @@ def main() -> int:
     # ECDICT 的文件由锁文件固定，两份总览写的是它的提交，换了提交却忘了改声明会在这里失败。
     ecdict = lock["references"]["ECDICT"]["commit"]
     check(any(entry["path"] == "ecdict/ecdict.csv" and f"/{ecdict}/" in entry["url"] for entry in lock["files"]), f"the sources lock does not download ecdict.csv at the ECDICT reference {ecdict}")
+    # 万象词库由 msime-dictionary 原样收在 sources/pinyin/wanxiang/，构建器 reweight 阶段读它，要求 checkout 记录的提交等于锁文件的 rime-wanxiang 引用；署名文件写的提交必须是同一个。
+    wanxiang = lock["references"].get("rime-wanxiang", {}).get("commit")
+    check(wanxiang == WANXIANG_COMMIT, f"resources/dictionary-sources.lock.json's rime-wanxiang reference is {wanxiang}, not {WANXIANG_COMMIT}, the commit {WANXIANG_LICENCE} covers")
     for overview in OVERVIEWS:
         check(ecdict in (ROOT / overview).read_text(encoding="utf-8"), f"{overview} does not name ECDICT commit {ecdict}")
         check(WANXIANG_COMMIT in (ROOT / overview).read_text(encoding="utf-8"), f"{overview} does not name rime-wanxiang commit {WANXIANG_COMMIT}, the commit {WANXIANG_LICENCE} covers")

@@ -112,6 +112,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut jobs = 1usize;
     let mut learn_replay: Option<i64> = None;
     let mut fuzzy_all = false;
+    let mut mixed_english = false;
     let mut onnx_model: Option<PathBuf> = None;
     let mut onnx_threads = 2usize;
     let mut sentence_pool: Option<usize> = None;
@@ -171,6 +172,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--autocorrect" => autocorrect = true,
             // 打开全部 11 条模糊音规则（#10457 报告者的设置），给模糊音路径的改动比对候选用；默认关，与产品出厂一致。只支持全拼。
             "--fuzzy-all" => fuzzy_all = true,
+            // 打开中英混输（产品出厂开着）：九键第 2 位和全拼候选里的英文词只在它开着时出现。默认关，现有基线逐字节不变；`scripts/must_outrank.py` 和 `scripts/vulgar_exposure.py` 量用户实际看到的首屏时加它。只支持全拼。
+            "--mixed-english" => mixed_english = true,
             "--onnx-model" => onnx_model = Some(PathBuf::from(take(&mut index)?)),
             "--onnx-threads" => onnx_threads = take(&mut index)?.parse()?,
             "--sentence-pool" => sentence_pool = Some(take(&mut index)?.parse()?),
@@ -212,6 +215,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let shuangpin = if scheme == SchemeType::Shuangpin {
         if fuzzy_all {
             return Err("--fuzzy-all is only supported for --scheme quanpin".into());
+        }
+        if mixed_english {
+            return Err("--mixed-english is only supported for --scheme quanpin".into());
         }
         if cut.is_some() {
             return Err("--cut-last-syllable is only supported for --scheme quanpin".into());
@@ -366,6 +372,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 keyboard_neural,
                 autocorrect,
                 fuzzy_all,
+                mixed_english,
                 first_page_rows,
                 &verified.source_commit,
             )?;
@@ -796,6 +803,7 @@ fn run(
     keyboard_neural: bool,
     autocorrect: bool,
     fuzzy_all: bool,
+    mixed_english: bool,
     first_page_rows: Option<usize>,
     source_commit: &str,
 ) -> Result<Report, Box<dyn std::error::Error>> {
@@ -814,6 +822,7 @@ fn run(
             if fuzzy_all {
                 options.fuzzy_pinyin_rules = msime_engine::fuzzy_rule::ALL;
             }
+            options.mixed_english = mixed_english;
         },
     )?;
     // `--grid` 在触屏网格上打每条用例：字母换成它所在键的组码（九键是旁边印的数字，14 键是这一组的首字母），同一个金标准要从组码串里打出来，而 西安 和 一按 在九键上是同一串输入。
