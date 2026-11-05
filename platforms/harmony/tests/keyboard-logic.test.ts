@@ -7180,6 +7180,32 @@ group("diagnostics are trimmed, bounded and elided", () => {
   check(InputDiagnosticPolicy.visible("   ") === false, "an empty one does not");
 });
 
+group("粤拼下的简繁开关只切粤拼自己的字形", () => {
+  check(ChineseOutputPolicy.switchFollowsCantonese("cantonese", false), "粤拼跟随粤拼开关");
+  check(!ChineseOutputPolicy.switchFollowsCantonese("cantonese", true), "英文模式照旧看全局开关");
+  check(!ChineseOutputPolicy.switchFollowsCantonese("quanpin", false), "全拼看全局开关");
+  check(ChineseOutputPolicy.showsTraditional(true, false, false), "粤拼默认显示繁体");
+  check(!ChineseOutputPolicy.showsTraditional(true, true, true), "粤拼选了简体就显示简体，不看全局");
+  check(ChineseOutputPolicy.showsTraditional(false, true, true), "其他方案看全局开关");
+});
+
+group("粤拼下按简繁开关只写粤拼字形，存储接受了才翻转", () => {
+  const writes: string[] = [];
+  const store = (accepts: boolean) => (key: string, value: boolean): boolean => {
+    writes.push(`${key}=${value}`);
+    return accepts;
+  };
+  check(ChineseOutputPolicy.toggledCantoneseSimplified(false, store(true)) === true, "存储接受后切到简体");
+  check(ChineseOutputPolicy.toggledCantoneseSimplified(true, store(true)) === false, "再按一次切回繁体");
+  check(ChineseOutputPolicy.toggledCantoneseSimplified(false, store(false)) === false, "存储拒绝时保持繁体");
+  check(ChineseOutputPolicy.toggledCantoneseSimplified(true, store(false)) === true, "存储拒绝时保持简体");
+  check(
+    writes.join(",") ===
+      "cantonese_simplified_output=true,cantonese_simplified_output=false,cantonese_simplified_output=true,cantonese_simplified_output=false",
+    `只写粤拼自己的偏好，全局简繁不动：${writes.join(",")}`,
+  );
+});
+
 group("traditional output never loses text when conversion fails", () => {
   const upper = (text: string): string => text.toUpperCase();
   check(

@@ -11019,6 +11019,43 @@ fn cantonese_rows_are_not_edited_and_learn_nothing_with_learning_off() {
     assert_eq!(words(&session), ["你好", "妳好", "你", "妳"]);
 }
 
+/// 测试用的输出转换：只认夹具里的繁体字，代替宿主的繁转简。
+fn synthetic_cantonese_simplification(text: &str) -> String {
+    text.replace('妳', "你")
+        .replace('號', "号")
+        .replace('愛', "爱")
+}
+
+#[test]
+fn cantonese_output_conversion_rewrites_and_deduplicates_rows() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let cantonese = cantonese_dictionary(fixture.path());
+    let conversion = crate::TextConversion(synthetic_cantonese_simplification);
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Cantonese;
+        options.cantonese_dictionary = cantonese.clone();
+        options.cantonese_output_conversion = Some(conversion);
+    });
+
+    // 妳好、妳转换后与你好、你相同，同一读音段只留排在前面的那条。
+    type_text(&mut session, "neihou");
+    assert_eq!(words(&session), ["你好", "你"]);
+    let result = session.select(1);
+    assert_eq!(result.commit.as_deref(), Some("你"));
+    assert_eq!(session.snapshot().editing_text, "hou");
+    assert_eq!(words(&session), ["好", "号"]);
+    assert_eq!(session.select(1).commit.as_deref(), Some("号"));
+    assert!(session.snapshot().preedit.is_empty());
+
+    // 默认学习留下的「你號」和原有词库行，在不传转换时都输出繁体原文。
+    let mut plain = fixture.session_with(|options| {
+        options.scheme = SchemeType::Cantonese;
+        options.cantonese_dictionary = cantonese;
+    });
+    type_text(&mut plain, "neihou");
+    assert_eq!(words(&plain), ["你號", "你好", "妳好", "你", "妳"]);
+}
+
 fn cantonese_learning_options(
     cantonese: &Path,
     mode: FrequencyAdjustmentMode,
@@ -15132,3 +15169,5 @@ mod lifecycle;
 mod offensive_placement;
 mod prediction_pool;
 mod raw_commit;
+
+mod cantonese_output;

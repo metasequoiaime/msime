@@ -1108,6 +1108,8 @@ struct KeyboardView {
       this.enumerationCommaBackslash = state.enumerationCommaBackslash;
       this.enumerationCommaSlash = state.enumerationCommaSlash;
       this.engineScheme = state.scheme;
+      // 切到粤拼时简繁磁贴改看粤拼自己的字形（`cantonese_simplified_output`），切回来再看全局开关。
+      this.traditional = KeyboardSession.shared.showsTraditional();
       this.candidateListOpen = state.candidateListOpen;
       this.prediction = state.prediction;
       this.japanese = state.scheme === JAPANESE_SCHEME && !state.english
@@ -3512,7 +3514,7 @@ struct KeyboardView {
       // 键盘调整开着时保留正在预览的四项：设置页中途保存引起的重载不能把预览盖回旧值，离开时按确认存下（与 Android 相同）。
       this.readAdjustValues();
     }
-    this.traditional = KeyboardSession.shared.usesTraditional();
+    this.traditional = KeyboardSession.shared.showsTraditional();
     this.chinesePunctuation = KeyboardSession.shared.usesChinesePunctuation();
     this.punctuationLocked = !KeyboardSession.shared.punctuationToggles();
     this.fullWidth = KeyboardSession.shared.isFullWidth();
