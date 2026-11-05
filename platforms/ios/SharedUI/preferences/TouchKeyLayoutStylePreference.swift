@@ -504,8 +504,6 @@ struct KeyboardPreviewFace: Equatable {
   let nineKey: Bool
   /// 14 键或 18 键的字母格；九键和 26 键为 nil。
   let letterGrid: LetterKeyGrid?
-  /// 字母格第三排左端画「分词」：五笔 14 键没有音节可分，画「符」。
-  let gridSplitsSyllables: Bool
   /// 九键双拼字母层空格后面的 0。
   let nineKeyZero: Bool
 
@@ -515,7 +513,6 @@ struct KeyboardPreviewFace: Equatable {
     styled = kind != nil
     nineKey = kind == .nineKey
     letterGrid = LetterKeyGrid.of(scheme, shuangpinLayout: shuangpinLayout, wubiLayout: wubiLayout)
-    gridSplitsSyllables = scheme != .wubi
     nineKeyZero = scheme == .nineKeyShuangpin
   }
 

@@ -1376,6 +1376,48 @@ final class OnboardingUITests: XCTestCase {
     app.buttons["inputScheme_quanpin"].tap()
   }
 
+  /// 「输入」页全拼一行列出全拼 18 键（#9653 漏掉过）：选了它，全拼一行标「默认」、面板里它打勾；移除全拼时它一起停用，键盘回落到剩下的双拼，双拼一行成为默认。结束时加回全拼、选回 26 键并恢复方案列表。
+  @MainActor
+  func testQuanpinRowOffersEighteenKeyAndRemovesIt() throws {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES", "--reset-input-schemes-for-ui-tests"]
+    app.launch()
+    defer { restoreSchemeVisibility(in: app) }
+    reachSettingsLink("inputSettingsLink", in: app)
+    settingsEntry("inputSettingsLink", in: app).tap()
+    XCTAssertTrue(openSchemeSheet(.quanpin, in: app))
+    let eighteen = app.buttons["inputScheme_eighteenKey"]
+    XCTAssertTrue(eighteen.waitForExistence(timeout: 5), "全拼 18 键 is not offered: \(visible(app))")
+    eighteen.tap()
+
+    let quanpin = app.buttons["inputLanguage_\(InputLanguageRow.quanpin.rawValue)"]
+    XCTAssertTrue(wait(quanpin, until: "label == '全拼，默认'"), "the 全拼 row reads \(quanpin.label)")
+    XCTAssertTrue(openSchemeSheet(.quanpin, in: app))
+    XCTAssertTrue(app.buttons["inputScheme_eighteenKey"].isSelected, "the panel ticks 全拼 18 键")
+    XCTAssertFalse(app.buttons["inputScheme_quanpin"].isSelected)
+    let ticked = XCTAttachment(screenshot: app.screenshot())
+    ticked.name = "全拼面板 18 键"
+    ticked.lifetime = .keepAlways
+    add(ticked)
+
+    app.buttons["removeInputLanguage_quanpin"].tap()
+    XCTAssertTrue(quanpin.waitForNonExistence(timeout: 5), "the 全拼 row is still there")
+    let shuangpin = app.buttons["inputLanguage_\(InputLanguageRow.shuangpin.rawValue)"]
+    XCTAssertTrue(wait(shuangpin, until: "label == '双拼，默认'"),
+                  "removing 全拼 left the keyboard on 18 keys: the 双拼 row reads \(shuangpin.label)")
+
+    // 加回全拼并选回 26 键，后面的用例不受这里选的方案影响。
+    let add = app.buttons["addInputLanguageButton"]
+    reveal(add, in: app)
+    add.tap()
+    let addQuanpin = app.buttons["addInputLanguage_quanpin"]
+    XCTAssertTrue(addQuanpin.waitForExistence(timeout: 5))
+    addQuanpin.tap()
+    XCTAssertTrue(openSchemeSheet(.quanpin, in: app))
+    app.buttons["inputScheme_quanpin"].tap()
+    XCTAssertTrue(wait(quanpin, until: "label == '全拼，默认'"))
+  }
+
   /// 输入 页 语言与方案卡片里的各行，以其无障碍标识符的后缀表示。
   private enum InputLanguageRow: String {
     case quanpin = "mandarin", shuangpin, wubi, japanese
