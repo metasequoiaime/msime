@@ -31,9 +31,10 @@ public:
         L"自定义 DeepLX 兼容服务", L"水杉账号（候选词发送到 api.msime.app）"})
       SendMessageW(selector_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label));
     add(0, L"STATIC", L"不使用在线服务时只显示离线词库查得到的释义。选择在线服务后，当前候选词会发送到该服务。修改凭据后点击保存；测试配置会向服务发送一条合成请求。", SS_LEFT, -1, 86, 96);
+    local_ = add(0, L"BUTTON", L"本地模型翻译…", WS_TABSTOP | BS_PUSHBUTTON, translation_local_model, 190, 32);
     for (size_t index = 0; index < groups_.size(); ++index) {
       auto& group = groups_[index];
-      int top = 204;
+      int top = 244;
       const auto definition = definitions[index];
       for (size_t field = 0; field < definition.fields.size(); ++field) {
         const auto& option = definition.fields[field];
@@ -94,6 +95,7 @@ public:
 
   void enable(bool enabled) {
     enabled_ = enabled;
+    EnableWindow(local_, enabled);
     EnableWindow(selector_, enabled && available_);
     for (size_t index = 0; index < groups_.size(); ++index) {
       auto& group = groups_[index];
@@ -110,7 +112,7 @@ public:
       if (row.control == control) return row.group == 0 || row.group == selected_ ? std::optional<int>(row.top) : std::nullopt;
     return std::nullopt;
   }
-  int height() const { return selected_ >= 1 && selected_ <= groups_.size() ? groups_[selected_ - 1].height : 198; }
+  int height() const { return selected_ >= 1 && selected_ <= groups_.size() ? groups_[selected_ - 1].height : 238; }
 
   Command command(WPARAM event) {
     const int id = LOWORD(event), notification = HIWORD(event);
@@ -121,7 +123,7 @@ public:
       const auto selected = SendMessageW(selector_, CB_GETCURSEL, 0, 0);
       if (selected < 0 || selected > 4) return result;
       tencent_chosen_ = selected == 1;
-      result.changes = {{{"tencent_tmt", "enabled"}, selected == 1}, {{"niutrans", "enabled"}, selected == 2},
+      result.changes = {{{"local_translation", "enabled"}, false}, {{"tencent_tmt", "enabled"}, selected == 1}, {{"niutrans", "enabled"}, selected == 2},
           {{"custom_translation", "enabled"}, selected == 3}, {{"translation_account"}, selected == 4}};
       return result;
     }
@@ -226,6 +228,7 @@ private:
     SetWindowTextW(group.result, group.test_config && config && *group.test_config == *config ? group.test_message.c_str() : L"");
   }
 
+  HWND local_ = nullptr;
   HWND selector_ = nullptr;
   std::array<Group, 3> groups_{};
   std::vector<Row> rows_;

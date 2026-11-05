@@ -49,7 +49,7 @@ enum ControlId {
   scheme_wubi_lookup_text, scheme_wubi_lookup, scheme_wubi_result, scheme_cantonese_method,
   gloss_english = 1100, gloss_translations, gloss_pronunciation, gloss_target, gloss_secondary,
   gloss_scope,
-  translation_provider_control = 1200, translation_tencent_first = 1210,
+  translation_provider_control = 1200, translation_local_model, translation_tencent_first = 1210,
   translation_niutrans_first = 1230, translation_custom_first = 1250,
   appearance_layout = 1300, appearance_page_size, appearance_logo, appearance_follow,
   appearance_font_preset, appearance_font_family, appearance_english_font, appearance_fonts_save,

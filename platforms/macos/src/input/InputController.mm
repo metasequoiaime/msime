@@ -9,6 +9,8 @@
 #import "../../../../shared/apple/TextClient.h"
 #include "msime_client.h"
 #include "../../../common/HostApiString.h"
+#import "../cloud/EmbeddedTranslationBatch.h"
+#import "../translation/LocalTranslationWindow.h"
 #import "../candidate/CandidatePlacement.h"
 #import "../candidate/CandidateWindowLevel.h"
 #import "../candidate/CandidateGlossSenses.h"
@@ -2044,6 +2046,7 @@ static NSImage *MSIMECandidateLogoImage() {
     // Bumped only when custom work is cancelled outright (the provider or its switch changed, or the controller went away); a reply from before that must not reach the cache, since the cache identity carries no credentials.
     uint64_t _customHardEpoch;
     NSTimer *_customTimer;
+    MSIMEEmbeddedTranslationBatch *_embeddedTranslationBatch;
     NSDictionary *_customQuery;
     NSDictionary *_customTranslationConfig;
     NSDictionary *_tencentTranslationConfig;
@@ -2440,6 +2443,7 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
 }
 
 - (void)cancelCustomTranslations {
+    [_embeddedTranslationBatch cancel]; _embeddedTranslationBatch = nil;
     ++_customEpoch;
     ++_customHardEpoch;
     [_customTimer invalidate];
@@ -2456,6 +2460,7 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
 }
 // The page moved on: nothing more is sent for it, but a request already paid for is left to land in the cache instead of being thrown away.
 - (void)detachCustomTranslations {
+    [_embeddedTranslationBatch cancel]; _embeddedTranslationBatch = nil;
     ++_customEpoch;
     [_customTimer invalidate];
     _customTimer = nil;
@@ -3250,6 +3255,8 @@ void MSIMERecordGlobalVoiceCommit(NSString *text) {
     NSDictionary *query = [self serviceSnapshotQuery];
     const BOOL command = MSIMEStrictBoolean(query[@"sentence"]);
     if (!candidateTranslations && !command) return nil;
+    if ([query[@"provider"] isEqual:@"local"])
+        return MSIMEEmbeddedTranslationIdentity(query, [self serviceSnapshotView]);
     NSDictionary *config = query[@"niutrans"];
     BOOL niuTrans = [config isKindOfClass:NSDictionary.class] && MSIMEStrictBoolean(config[@"enabled"]);
     if (!niuTrans) config = query[@"custom_translation"];
@@ -3668,6 +3675,7 @@ void MSIMERecordGlobalVoiceCommit(NSString *text) {
     if (!_activeClient || !_session || _focusPending || _appearance.englishMode || !_appearance.candidateTranslations ||
         (_glossEnabled && !_glossEnabled.boolValue)) return nil;
     NSDictionary *query = [self serviceSnapshotQuery];
+    if ([query[@"provider"] isEqual:@"local"]) return nil;
     if (![query isKindOfClass:NSDictionary.class] || !query[@"generation"] || MSIMEStrictBoolean(query[@"translation_account"])) return nil;
     for (NSString *service in @[@"niutrans", @"custom_translation", @"tencent_tmt"]) {
         NSDictionary *config = query[service];
@@ -3804,6 +3812,23 @@ void MSIMERecordGlobalVoiceCommit(NSString *text) {
     [self stopAccountGloss];
     if ([_customQuery isEqual:query]) return;
     [self detachCustomTranslations];
+    if ([query[@"provider"] isEqual:@"local"]) {
+        _customQuery = query;
+        const uint64_t epoch = _customEpoch;
+        MSIMEClientSession *session = _session;
+        id client = _activeClient;
+        __weak MSIMEInputController *weakSelf = self;
+        _embeddedTranslationBatch = [[MSIMEEmbeddedTranslationBatch alloc] initWithQuery:query completion:^(NSArray<NSDictionary *> *results) {
+            MSIMEInputController *owner = weakSelf;
+            if (!owner || owner->_customEpoch != epoch || owner->_session != session || owner->_activeClient != client ||
+                ![[owner currentCustomTranslationRequest] isEqual:query]) return;
+            owner->_customResults = results;
+            [owner applyCandidateTranslationResults];
+            owner->_embeddedTranslationBatch = nil;
+        }];
+        [_embeddedTranslationBatch start];
+        return;
+    }
     // `/fy` translates one English sentence into the query's own target, Chinese, which the candidate target list does not name and the candidate plan refuses; it is its own plan item and is neither read from nor written to the gloss cache.
     const BOOL command = MSIMEStrictBoolean(query[@"command"]);
     NSArray<NSString *> *targets = command ? query[@"target_languages"] : MSIMETranslationTargets(query);
@@ -5677,6 +5702,10 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     MSIMEOpenDesktopUpdateSettings(NSWorkspace.sharedWorkspace, ^{
         [[MSIMEUpdateController sharedController] checkForUpdates:nil];
     });
+}
+- (void)showLocalTranslationSettings:(id)sender {
+    (void)sender;
+    [MSIMELocalTranslationWindow showForDirectory:_preferencesDirectory ?: [self runtimeOptions][@"preferences_directory"]];
 }
 - (void)showVoiceSettings:(id)sender {
     (void)sender;

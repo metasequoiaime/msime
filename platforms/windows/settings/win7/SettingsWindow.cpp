@@ -14,6 +14,7 @@
 #include "SchemeForm.h"
 #include "GlossForm.h"
 #include "TranslationForm.h"
+#include "../LocalTranslationWindow.h"
 #include "CandidateAppearanceForm.h"
 #include "AiForm.h"
 #include "AccountForm.h"
@@ -2862,6 +2863,11 @@ struct SettingsWindow::State {
         job.credential = std::move(account_change.request);
         submit(std::move(job));
       }
+      return;
+    }
+    if (LOWORD(command) == translation_local_model && HIWORD(command) == BN_CLICKED) {
+      msime::settings::show_local_translation(window, preferences_directory());
+      submit(Job{});
       return;
     }
     auto translation_change = translation_form.command(command);

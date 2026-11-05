@@ -49,12 +49,12 @@ override_dh_auto_configure:
 	# msime-desktop 编译时把前端嵌进去。tauri/custom-protocol 是 `tauri build` 打开的特性，没有它就是加载 devUrl 的开发构建；TAURI_CONFIG 设定应用报告的版本。
 	rm -rf apps/desktop/dist
 	cp -a $(VENDOR)/frontend/dist apps/desktop/dist
-	cargo build --release --locked --offline -p msime-host-api
+	cargo build --release --locked --offline -p msime-host-api --features local-translation
 	cargo build --release --locked --offline -p msime-mcp-server --bin msime-mcp
 	TAURI_CONFIG='{"version":"$(DEB_VERSION_UPSTREAM)"}' \
 	  cargo build --release --locked --offline -p msime-desktop --bin msime-desktop --features tauri/custom-protocol
 	python3 platforms/linux/collect-notices.py cargo debian/notices/rust-crates-NOTICES.txt \
-	  msime-host-api msime-mcp-server msime-desktop:tauri/custom-protocol
+	  msime-host-api:local-translation msime-mcp-server msime-desktop:tauri/custom-protocol
 	# Release 与发布页的 .deb 一致：测试目标自带 -UNDEBUG，产品代码的 assert 不进发布构建。
 	dh_auto_configure -- \
 	  -DCMAKE_BUILD_TYPE=Release \

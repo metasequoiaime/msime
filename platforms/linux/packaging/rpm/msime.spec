@@ -67,6 +67,8 @@ BuildRequires:  pkgconfig(webkit2gtk-4.1)
 BuildRequires:  pkgconfig(javascriptcoregtk-4.1)
 BuildRequires:  pkgconfig(libsoup-3.0)
 BuildRequires:  pkgconfig(gtk+-3.0)
+BuildRequires:  pkgconfig(gtk4) >= 4.8
+BuildRequires:  clang-devel
 BuildRequires:  pkgconfig(openssl)
 # %%check：setup_update 测试经 pgrep 确认宿主进程，linux-ibus-startup-telemetry 要起 dbus-daemon，与门禁镜像装 procps 和 dbus 的理由相同。两边包名不同；不写成文件依赖，是因为 zypper 解析不到 /usr/bin/pgrep。
 %if 0%{?suse_version}
@@ -139,12 +141,12 @@ python3 scripts/fetch_language_dictionaries.py --out vendor/language-dictionarie
 # msime-desktop 编译时把前端嵌进去。tauri/custom-protocol 是 `tauri build` 打开的特性，没有它就是加载 devUrl 的开发构建；TAURI_CONFIG 设定应用报告的版本。
 rm -rf apps/desktop/dist
 cp -a vendor/frontend/dist apps/desktop/dist
-cargo build --release --locked --offline -p msime-host-api
+cargo build --release --locked --offline -p msime-host-api --features local-translation
 cargo build --release --locked --offline -p msime-mcp-server --bin msime-mcp
 TAURI_CONFIG='{"version":"%{version}"}' \
   cargo build --release --locked --offline -p msime-desktop --bin msime-desktop --features tauri/custom-protocol
 python3 platforms/linux/collect-notices.py cargo build/rust-crates-NOTICES.txt \
-  msime-host-api msime-mcp-server msime-desktop:tauri/custom-protocol
+  msime-host-api:local-translation msime-mcp-server msime-desktop:tauri/custom-protocol
 
 # 不用发行版的 %%cmake：Fedora 与 openSUSE 的宏传的参数不同，openSUSE 默认还会 CMAKE_SKIP_RPATH，而插件和各入口正是按 $ORIGIN 的 RUNPATH 找包内的 Host API。
 cmake -S platforms/linux -B build/cmake \

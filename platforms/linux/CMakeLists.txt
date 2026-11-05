@@ -1283,6 +1283,7 @@ endif()
 install(FILES "${MSIME_HOST_LIBRARY}" DESTINATION "${CMAKE_INSTALL_LIBDIR}/${MSIME_CLIENT_DIRECTORY}")
 file(RELATIVE_PATH MSIME_HOST_LIBRARY_RELATIVE_DIR
   "${CMAKE_INSTALL_FULL_BINDIR}" "${CMAKE_INSTALL_FULL_LIBDIR}/${MSIME_CLIENT_DIRECTORY}")
+include(cmake/LocalTranslation.cmake)
 set_target_properties(msime-linux-ibus msime-linux-dictionary msime-linux-cloud-dictionary msime-linux-cloud-clipboard msime-linux-online msime-linux-translation msime-linux-handwriting
                       msime-linux-voice msime-linux-emoji msime-linux-clipboard msime-linux-clipboard-capture msime-linux-prepare PROPERTIES
   INSTALL_RPATH "$ORIGIN/${MSIME_HOST_LIBRARY_RELATIVE_DIR}")
@@ -1419,6 +1420,9 @@ endif()
 # 带新世纪表的 msime-wubi.db 从 byujiang/wubi06_rime 取单字编码，其 GPL-3.0 与整包一致，由 copyright 覆盖，不往下面的独立许可证列表再加一项。拼音与笔画库改编自 amzxyz/rime-wanxiang 的排序权重附署名、改动说明与 CC BY 4.0 全文。
 # 词库来源总声明从 msime-engine 原样带入，固定副本为 resources/licenses/msime-engine-dictionary-NOTICE.md，所有平台都分发；辅助码来源声明包括引擎带来的五种（ENGINE-NOTICE.md）和 jiajia（NOTICE.md）。
 set(MSIME_NOTICE_SOURCES
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/llama-cpp-MIT.txt"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/llama-cpp-rs-Apache-2.0.txt"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/hy-mt2-Apache-2.0.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../LICENSE"
   "${CMAKE_CURRENT_SOURCE_DIR}/data/THIRD_PARTY_NOTICES.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/msime-engine-dictionary-NOTICE.md"
@@ -1449,6 +1453,9 @@ set(MSIME_NOTICE_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-wanxiang-CC-BY-4.0.txt")
 # `copyright` is the name Debian policy requires for the package license.
 set(MSIME_NOTICE_NAMES
+  llama-cpp-MIT.txt
+  llama-cpp-rs-Apache-2.0.txt
+  hy-mt2-Apache-2.0.txt
   copyright
   THIRD_PARTY_NOTICES.txt
   msime-engine-dictionary-NOTICE.md
@@ -1584,3 +1591,7 @@ foreach(msime_linux_target IN LISTS msime_linux_targets)
     target_compile_options(${msime_linux_target} PRIVATE -UNDEBUG)
   endif()
 endforeach()
+
+if(BUILD_TESTING)
+  include(../common/tests/embedded_translation.cmake)
+endif()

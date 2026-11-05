@@ -37,6 +37,7 @@ COMMON_DEPEND="
 	x11-libs/cairo
 	x11-libs/gdk-pixbuf:2
 	x11-libs/gtk+:3
+	gui-libs/gtk:4
 	x11-libs/libX11
 	x11-libs/libXext
 	x11-libs/libXfixes
@@ -58,6 +59,7 @@ DEPEND="
 "
 # 测试里 msime-linux-setup 的用例要 pgrep，IBus 遥测与翻页用例要起 dbus-daemon。
 BDEPEND="
+	llvm-core/clang
 	${PYTHON_DEPS}
 	dev-util/wayland-scanner
 	net-libs/nodejs[npm]
@@ -118,7 +120,7 @@ src_configure() {
 }
 
 src_compile() {
-	cargo_src_compile -p msime-host-api
+	cargo_src_compile -p msime-host-api --features local-translation
 	cargo_src_compile -p msime-mcp-server --bin msime-mcp
 
 	# 桌面二进制在编译时嵌入前端。tauri/custom-protocol 是 `tauri build` 打开的特性，缺了它会得到加载 devUrl 的开发版；TAURI_CONFIG 设定应用报告的版本。
@@ -134,7 +136,7 @@ src_compile() {
 	mkdir -p "${WORKDIR}/notices" || die
 	"${EPYTHON}" platforms/linux/collect-notices.py npm "${WORKDIR}/notices/frontend-npm-NOTICES.txt" apps/desktop || die
 	cargo_env "${EPYTHON}" platforms/linux/collect-notices.py cargo "${WORKDIR}/notices/rust-crates-NOTICES.txt" \
-		msime-host-api msime-mcp-server msime-desktop:tauri/custom-protocol || die
+		msime-host-api:local-translation msime-mcp-server msime-desktop:tauri/custom-protocol || die
 
 	local target="${S}/$(cargo_target_dir)"
 	# MSIME_ENABLE_PACKAGING 打开与发布包相同的校验（前缀必须是 /usr、第三方声明齐全），不跑 CPack。

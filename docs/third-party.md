@@ -451,9 +451,9 @@ MDBG 每天用新导出覆盖同一个地址（`https://www.mdbg.net/chinese/exp
 
 ## 桌面本地翻译
 
-`crates/local-translation` 的 `runtime` 特性通过 `llama-cpp-2` / `llama-cpp-sys-2` 0.1.161 嵌入 llama.cpp，不需要用户运行外部服务。Rust 绑定为 MIT OR Apache-2.0，来源提交 `e7af607ebd5ec2932709ef918c17cca2f9b0fce4`；随 crate 发布的 llama.cpp 子模块固定在 `d81235049384534c167caea52b85a694f6103d14`，MIT 许可证全文在 `resources/licenses/llama-cpp-MIT.txt`。关闭默认的 OpenMP 和服务工具特性；绑定自身仍启用底层 `common` 特性，发布链须检查它带入的原生依赖。当前实现处于接入阶段，尚未进入任何发布宿主。
+`crates/local-translation` 的 `runtime` 特性通过 `llama-cpp-2` / `llama-cpp-sys-2` 0.1.161 嵌入 llama.cpp，不需要用户运行外部服务。Rust 绑定为 MIT OR Apache-2.0，来源提交 `e7af607ebd5ec2932709ef918c17cca2f9b0fce4`；随 crate 发布的 llama.cpp 子模块固定在 `d81235049384534c167caea52b85a694f6103d14`，MIT 许可证全文在 `resources/licenses/llama-cpp-MIT.txt`。关闭默认的 OpenMP 和服务工具特性；绑定自身仍启用底层 `common` 特性，发布链须检查它带入的原生依赖。macOS、现代 Windows x64 Server 和当前 Linux 发行构建启用 `host-api/local-translation`；Win7 和 Linux legacy 仍不启用。Rust 绑定的 Apache-2.0 全文在 `resources/licenses/llama-cpp-rs-Apache-2.0.txt`。
 
-[腾讯 Hy-MT2 1.8B Q4_K_M](https://huggingface.co/tencent/HY-MT2-1.8B-GGUF/tree/a0c709d9fac510f2c807aa3af52872340dc37a4a) 的文件来源、大小和摘要由 `resources/local-translation-model.lock.json` 固定，模型不提交进仓库、不随安装包捆绑。该固定提交的模型许可证是 Apache-2.0，全文在 `resources/licenses/hy-mt2-Apache-2.0.txt`；保留腾讯的著作权声明，不能套用 HY-MT1.5 的社区许可证。模型使用时须在原生模型管理和各桌面第三方声明中保留名称、来源及许可证，宿主打包接线尚未完成。
+[腾讯 Hy-MT2 1.8B Q4_K_M](https://huggingface.co/tencent/HY-MT2-1.8B-GGUF/tree/a0c709d9fac510f2c807aa3af52872340dc37a4a) 的文件来源、大小和摘要由 `resources/local-translation-model.lock.json` 固定，模型不提交进仓库、不随安装包捆绑。该固定提交的模型许可证是 Apache-2.0，全文在 `resources/licenses/hy-mt2-Apache-2.0.txt`；保留腾讯的著作权声明，不能套用 HY-MT1.5 的社区许可证。模型使用时须在原生模型管理和各桌面第三方声明中保留名称、来源及许可证，macOS 复制到 `Contents/Resources/Licenses`，Linux 安装到 `share/doc/<client>`，Windows 收进安装目录的 `THIRD_PARTY_NOTICES.txt`。
 
 ## 本地语音识别
 

@@ -41,6 +41,7 @@ depends=(
   'glib2'
   'glibc'
   'gtk3'
+  'gtk4'
   'hicolor-icon-theme'
   'libgcc'
   'libibus'
@@ -68,6 +69,7 @@ optdepends=(
 )
 makedepends=(
   'cmake'
+  'clang'
   'curl'
   'fcitx5'
   'git'
@@ -130,7 +132,7 @@ prepare() {
 build() {
   cd "$(_srcdir)"
   export CARGO_NET_OFFLINE=true
-  cargo build --release --locked -p msime-host-api
+  cargo build --release --locked -p msime-host-api --features local-translation
   cargo build --release --locked -p msime-mcp-server --bin msime-mcp
   # 桌面二进制在编译时嵌入前端，先构建前端。tauri/custom-protocol 是 `tauri build` 打开的特性，缺了它会得到加载 devUrl 的开发版；TAURI_CONFIG 设定应用报告的版本，与 package-container.sh 相同。
   pnpm --filter @msime/desktop build
@@ -141,7 +143,7 @@ build() {
   mkdir -p "$srcdir/notices"
   python platforms/linux/collect-notices.py npm "$srcdir/notices/frontend-npm-NOTICES.txt" apps/desktop
   python platforms/linux/collect-notices.py cargo "$srcdir/notices/rust-crates-NOTICES.txt" \
-    msime-host-api msime-mcp-server msime-desktop:tauri/custom-protocol
+    msime-host-api:local-translation msime-mcp-server msime-desktop:tauri/custom-protocol
 
   # MSIME_ENABLE_PACKAGING 打开与发布包相同的校验（前缀必须是 /usr、第三方声明齐全）；只用它的安装规则，不跑 CPack。
   cmake -S platforms/linux -B "$srcdir/build" -G Ninja \

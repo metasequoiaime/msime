@@ -10,6 +10,7 @@
 
 #include "msime_client.h"
 #include "../../../common/HostApiString.h"
+#include "../../../common/EmbeddedTranslation.h"
 
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
@@ -815,6 +816,17 @@ TranslationWorker::translate(const FocusLease &lease, const std::string &query_b
   try {
     const auto &query = *document;
     const auto generation = query.at("generation").get<uint64_t>();
+    if (query.value("provider", std::string{}) == "local" && !query.contains("gloss_query")) {
+      auto request = query;
+      const auto id = msime::translation::next_request_id();
+      request["request_id"] = id;
+      auto raw = msime::translation::embedded(request.dump(), id, cancelled);
+      if (!raw) return std::nullopt;
+      const auto result = nlohmann::json::parse(raw.get());
+      if (!result.value("ok", false)) return std::nullopt;
+      return Result{lease, generation, result.at("value").at("translations").dump()};
+    }
+
 
     // `/fy` (command mode): one English sentence for the service the user selected, into the query's own target language, whatever the gloss switches say (command_translation_item in CandidateTranslationPolicy.h). The selected service alone is asked, in the same precedence as below, with no packaged gloss and no gloss cache, and its answer goes back through apply_translations, which makes it the command's first row.
     if (query.value("sentence", false)) {

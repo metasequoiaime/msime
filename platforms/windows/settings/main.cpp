@@ -12,6 +12,7 @@
 #include "../common/DictionarySyncDirectory.h"
 #include "../common/SurfaceRouteArgument.h"
 #include "SettingsInstance.h"
+#include "LocalTranslationWindow.h"
 #undef GetCurrentTime
 #undef GetObject
 
@@ -15062,6 +15063,13 @@ private:
   }
 
   void build_translation_service_group(StackPanel const &page) {
+    auto local = add_group(page, L"本地模型翻译");
+    add_row(local, 0xE774, L"本地模型翻译", L"", button_control(L"管理模型与语言…", [this] {
+      flush_pending();
+      HWND owner = nullptr;
+      check_hresult(get_strong().as<Window>().as<::IWindowNative>()->get_WindowHandle(&owner));
+      msime::settings::show_local_translation(owner, state_directory());
+    }));
     const bool translations = document_.Boolean(L"candidate_translations", false);
     // 翻译服务：共享页「翻译服务」一组（`translation-settings-content.tsx` 的 serviceInOwnGroup，选择器是 `translation-service-selector-section.tsx`），候选词翻译关着时不可选。Windows 的 Server 会问水杉账号，所以和共享页一样列出它。选了腾讯云、小牛翻译或自定义服务时，下面多一组只属于它的设置；规则在 TranslationServiceSettings.h。
     // `none` 不叫「关闭」：Windows 没有系统翻译，但 host-api 仍把装好的离线词库语言放进查询，TranslationWorker 照样从离线词库填出释义，所以与共享页 offlineFallback 的 dictionary 一支同名同说明。
@@ -15105,6 +15113,7 @@ private:
     // 腾讯云默认就是 enabled，选它不改文档；记下这次选择，没有可用密钥时也显示腾讯云和它的凭据框。
     tencent_chosen_ = provider == L"tencent";
     change([&](PreferencesDocument &doc) {
+      if (doc.Boolean(L"local_translation.enabled", false)) doc.SetBoolean(L"local_translation.enabled", false);
       doc.SetBoolean(L"custom_translation.enabled", provider == L"custom");
       doc.SetBoolean(L"tencent_tmt.enabled", provider == L"tencent");
       doc.SetBoolean(L"niutrans.enabled", provider == L"niutrans");
