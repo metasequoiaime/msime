@@ -128,7 +128,9 @@ import {
   TranslationProviderConfig, TencentTranslationConfig, NiuTransTranslationConfig, AiTranslationConfig, TranslationCandidate
 } from './candidate/TranslationPolicy';
 import { TranslationSensePolicy } from './candidate/TranslationSensePolicy';
+import { CandidateGlossCardPolicy, GlossCardAnswer, GlossCardLookup } from './candidate/CandidateGlossCardPolicy';
 import pasteboard from '@ohos.pasteboard';
+import { BusinessError } from '@ohos.base';
 import abilityAccessCtrl from '@ohos.abilityAccessCtrl';
 import bundleManager from '@ohos.bundle.bundleManager';
 import http from '@ohos.net.http';
@@ -516,6 +518,8 @@ export interface ExpandedCandidate {
   readonly hunEum: string;
   /** 同 CandidateEntry.confidentCorrection。 */
   readonly confidentCorrection: boolean;
+  /** 释义卡片拿去查译文的 Engine 原文和来源（显示的 `text` 可能已转成繁体）。只用于查译文，不是管理操作的序号。 */
+  readonly subject: TranslationCandidate;
 }
 
 interface CandidateSnapshot {
@@ -6242,6 +6246,123 @@ export class KeyboardSession implements HardwareKeyTarget {
     return result;
   }
 
+  /** 候选栏这一页第 `index` 个候选交给翻译通路的样子（Engine 原文和来源），释义卡片按它查；序号不在这一页时为 null。 */
+  pageTranslationCandidate(index: number): TranslationCandidate | null {
+    const engineIndex: number = this.engineCandidateIndex(index);
+    if (engineIndex < 0 || engineIndex >= this.currentCandidates.length) return null;
+    const candidate: Candidate = this.currentCandidates[engineIndex];
+    return { text: candidate.text, source: candidate.source };
+  }
+
+  /**
+   * 释义卡片（#10915）：长按的这一个候选在各目标语言下本机已经有的答案，不联网。
+   *
+   * 离线英文释义和各语言的离线释义词典现查；在线服务只看候选栏此前答过、还在缓存里的译文，没答过也不在失败冷却期里的记成还要问（`wanted`），由 `glossCardFetch` 去问。候选翻译和离线释义都没开（共享层不给查询）时为 null。
+   */
+  glossCardLookup(subject: TranslationCandidate): GlossCardLookup | null {
+    const query: TranslationQuery | null = this.glossCardQuery(subject);
+    if (query === null) return null;
+    const english: TranslationEntry[] = [];
+    if (query.english_gloss && typeof query.resources === 'string' && query.resources.length > 0) {
+      this.appendOfflineGloss(query, english);
+    }
+    const offline: Map<string, TranslationEntry[]> = this.offlineTargetGlosses(query);
+    const provider: string = TranslationPolicy.provider(query);
+    const answers: GlossCardAnswer[] = [];
+    for (const target of TranslationPolicy.targets(query)) {
+      const englishGloss: string | null = target === 'en'
+        ? CandidateGlossCardPolicy.translationOf(english, subject.text) : null;
+      let online: string | null = null;
+      let wanted: boolean = false;
+      if (CandidateGlossCardPolicy.asksProvider(provider, target, query.english_gloss, englishGloss)) {
+        for (const item of this.glossCardPlan(query, target)) {
+          const key: string = TranslationPolicy.cacheKey(query, target, item);
+          const cached: string | undefined = this.translationCache.get(key);
+          if (cached !== undefined) {
+            online = cached;
+            continue;
+          }
+          const negativeUntil: number | undefined = this.translationNegativeCache.get(key);
+          if (negativeUntil === undefined || negativeUntil <= Date.now()) wanted = true;
+        }
+      }
+      answers.push({
+        target: target,
+        english: englishGloss,
+        offline: CandidateGlossCardPolicy.translationOf(offline.get(target) ?? [], subject.text),
+        online: online,
+        wanted: wanted && online === null
+      });
+    }
+    return { provider: provider, answers: answers };
+  }
+
+  /**
+   * 释义卡片：为 `lookup` 里还要问的那几种语言各请求一次在线服务，只问这一个候选。
+   *
+   * 走候选栏同一条 `fetchTargetTranslations`：同一份翻译计划、缓存和失败冷却，同样先问隐私政策授权，答到的写进缓存，候选栏之后直接用。候选栏换了一页、键盘换了会话或服务换了时作废，答 null。
+   */
+  async glossCardFetch(subject: TranslationCandidate, lookup: GlossCardLookup): Promise<GlossCardLookup | null> {
+    const query: TranslationQuery | null = this.glossCardQuery(subject);
+    if (query === null || TranslationPolicy.provider(query) !== lookup.provider) return null;
+    const epoch: number = this.translationEpoch;
+    const handle: number = this.handle;
+    const deadline: number = Date.now() + 6000;
+    const answers: GlossCardAnswer[] = [];
+    for (const answer of lookup.answers) {
+      if (!answer.wanted) {
+        answers.push(answer);
+        continue;
+      }
+      const covered: TranslationEntry[] = answer.english === null ? []
+        : [{ text: subject.text, translation: answer.english }];
+      const answered: TranslationEntry[] = [];
+      const result: TranslationFetchResult = await this.fetchTargetTranslations(query, answer.target,
+        lookup.provider, covered, answered, epoch, handle, deadline);
+      if (!result.current) return null;
+      answers.push(CandidateGlossCardPolicy.answered(answer,
+        CandidateGlossCardPolicy.translationOf(answered, subject.text)));
+    }
+    return { provider: lookup.provider, answers: answers };
+  }
+
+  /** 把一段文字写进系统剪贴板；成功时答 null，失败时答剪贴板服务的错误码（没有码时为 undefined）。 */
+  async copyText(text: string): Promise<number | undefined | null> {
+    try {
+      await pasteboard.getSystemPasteboard().setData(pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text));
+      return null;
+    } catch (error) {
+      KeyboardLog.error(`clipboard write failed: ${describeError(error)}`);
+      return (error as BusinessError).code;
+    }
+  }
+
+  /** 释义卡片的查询文档：共享层此刻的翻译查询，换成只问这一个候选（`CandidateGlossCardPolicy.cardQuery`）。 */
+  private glossCardQuery(subject: TranslationCandidate): TranslationQuery | null {
+    if (this.handle === 0) return null;
+    try {
+      const reply: NativeReply<TranslationQuery | null> =
+        JSON.parse(client.translationQuery(this.handle)) as NativeReply<TranslationQuery | null>;
+      const query: TranslationQuery | null = NativeReplyPolicy.successfulValue<TranslationQuery>(reply);
+      return query === null ? null : CandidateGlossCardPolicy.cardQuery(query, subject);
+    } catch (error) {
+      KeyboardLog.error(`gloss card query unavailable: ${describeError(error)}`);
+      return null;
+    }
+  }
+
+  /** 这一个候选在 `target` 下的翻译计划，与候选栏问服务前算的是同一份。 */
+  private glossCardPlan(query: TranslationQuery, target: string): TranslationPlanItem[] {
+    try {
+      const reply: NativeReply<TranslationPlanItem[]> = JSON.parse(
+        client.translationPlan(TranslationPolicy.planRequest(target, query.candidates))) as NativeReply<TranslationPlanItem[]>;
+      return reply.ok === true && Array.isArray(reply.value) ? reply.value : [];
+    } catch (error) {
+      KeyboardLog.error(`gloss card plan unavailable: ${describeError(error)}`);
+      return [];
+    }
+  }
+
   /** 只传当前笔画到原生工作线程；不截图、不联网、不保留文字或笔画日志。 */
   async recognizeHandwriting(strokes: HandwritingStroke[], canvasWidth: number,
     canvasHeight: number): Promise<string[]> {
@@ -8466,7 +8587,8 @@ export class KeyboardSession implements HardwareKeyTarget {
             TranslationPolicy.sourceGetsNoGloss(candidate.source) ? null : candidate.translation ?? null,
             this.candidateGlossEnabled),
           hunEum: CandidateGlossPolicy.hunEum(hanja, candidate.annotation),
-          confidentCorrection: CorrectionMarkPolicy.confident(candidate.confident_correction)
+          confidentCorrection: CorrectionMarkPolicy.confident(candidate.confident_correction),
+          subject: { text: candidate.text, source: candidate.source }
         });
       }
       return entries;
