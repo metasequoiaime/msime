@@ -591,6 +591,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var candidateCanvasActive = true
   /// 从 `viewWillAppear` 到 `viewWillDisappear` 之间为 true，即引擎会话应当存在的那段时间。UIKit 的外观回调可能乱序（收起之后才到的 `viewDidAppear`），词库维护和 `viewDidDisappear` 里的第二次释放都按它判断键盘是否还在屏幕上：维护会取 App Group 里的锁，键盘收起后再开始一轮，锁就可能跨过挂起（#10634）。
   private var isPresented = false
+  /// 这一次显示时键盘视图在窗口里（`viewDidAppear` 那一刻）。只有进过窗口的键盘，后来不在窗口里才说明宿主把它带走了（`maintenanceTick`，#10910）；进程内构造、从不进窗口的控制器（测试）不受影响。
+  private var appearedInWindow = false
   /// 上一次给整棵按键树换装（`applyKeyboardSkin` 里的 `recolor`）时的皮肤和 trait。`viewWillAppear` 和 `viewIsAppearing` 拿它和现在的比，都没变就不再重新换装。
   private var appliedKeySkin: KeyboardTheme?
   private var appliedKeySkinTraits: UITraitCollection?
@@ -989,6 +991,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func viewDidAppear(_ animated: Bool) {
     super.viewDidAppear(animated)
+    appearedInWindow = view.window != nil
     // 到这里键盘已经画出第一帧，视图的位图缓冲和皮肤图片都已分配；`keyboard_built` 之前的几行量不到这部分。
     DiagnosticLog.shared.write("keyboard_shown \(DiagnosticLog.MemorySample.current().fields)")
     // UIKit may publish the document identifier and keyboard type one run-loop turn after the
@@ -1016,8 +1019,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     startIdleMaintenance()
     personalDictionaryTimer?.invalidate()
     personalDictionaryTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-      MainActor.assumeIsolated { self?.startIdleMaintenance() }
+      MainActor.assumeIsolated { self?.maintenanceTick() }
     }
+  }
+
+  /// 两秒一轮的定时器。先看键盘还在不在窗口里：宿主应用被结束时扩展进程留着，控制器收不到 `viewWillDisappear`、`viewDidDisappear`，也收不到 `NSExtensionHostDidEnterBackground`，键盘视图的 `didMoveToWindow` 也不来，只是视图已经不在任何窗口里（#10910，模拟器的系统键盘里量到的）。不处理的话会话和这个定时器一直在，App Group 里的锁带进挂起（#10634 的同一条路径），所以这时按收起处理，走 `viewWillDisappear` 的全套，定时器随之停掉。宿主再拉起键盘时系统新建控制器，会话照常在 `viewWillAppear` 里重建。
+  private func maintenanceTick() {
+    if isPresented && appearedInWindow && view.window == nil {
+      DiagnosticLog.shared.write("keyboard_window_lost")
+      viewWillDisappear(false)
+      viewDidDisappear(false)
+      return
+    }
+    startIdleMaintenance()
   }
 
   /// 异步首键尚未渲染时也在输入；词间的短暂停顿不触发同步权限和词库维护。
