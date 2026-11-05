@@ -74,6 +74,10 @@ if [[ "$mode" == hold ]]; then
   result=$("$adb" -s "$serial" shell am instrument -w -e voice-hold true \
     app.msime.android.test/app.msime.android.test.VoiceProviderCatalogDeviceSmoke)
   printf '%s\n' "$result"
+  # 锁定后的面板截图（VoiceHoldDeviceChecks.captureKeyboard）拉回 target/android，CI 作为产物上传，改动长按面板的 PR 用它做改后对比图（#10966）。断言失败时也拉，截图在断言之前保存。
+  mkdir -p target/android
+  "$adb" -s "$serial" pull /sdcard/Android/data/app.msime.android/files/voice-hold-panel.png \
+    "target/android/voice-hold-panel-api$api.png" >/dev/null 2>&1 || true
   [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]]
   exit
 fi
