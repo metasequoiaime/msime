@@ -345,7 +345,7 @@ enum WubiProfilePreference {
       }
     }
 
-    /// 引导页五笔卡片的副标题，写明正在用哪一版码表，与共享引导页和 Android 相同。
+    /// 引导页五笔卡片的副标题，写明正在用哪一版码表，与共享引导页相同。Android 引导页目前只分 98 和 86 两档，存着新世纪时会显示成 86，不要以它为准。
     var onboardingDetail: String {
       switch self {
       case .wubi86: "形码 · 默认 86 版"
