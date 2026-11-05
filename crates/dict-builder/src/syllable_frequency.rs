@@ -101,4 +101,19 @@ mod tests {
             "# msime-pinyin.db sha256=ab12\nchi\t100\nfan\t146\n"
         );
     }
+
+    /// 引擎内嵌的表逐字节就是从 `MSIME_EVAL_RESOURCES` 里那份 msime-pinyin.db 重新生成的结果。生成结果的第一行是这份词库的 sha256，引擎的 `shipped_syllable_frequency_covers_every_spelling_and_names_its_source` 又要求内嵌表的第一行等于桌面词库锁里的 sha256，所以这里通过就说明表由锁定的词库算出、没有手改。没设资源目录时跳过。
+    #[test]
+    fn shipped_table_is_rebuilt_from_the_locked_dictionary() {
+        let Some(resources) = std::env::var_os("MSIME_EVAL_RESOURCES") else {
+            eprintln!("skipped: MSIME_EVAL_RESOURCES is not set to a resource directory");
+            return;
+        };
+        let rebuilt = build(&Path::new(&resources).join("msime-pinyin.db")).unwrap();
+        assert!(
+            rebuilt == include_str!("../../engine/src/nine_key/syllable_frequency.tsv"),
+            "crates/engine/src/nine_key/syllable_frequency.tsv differs from the table rebuilt from {}; rerun `msime-dict-build syllable-frequency --pinyin <the locked msime-pinyin.db>`",
+            Path::new(&resources).display()
+        );
+    }
 }

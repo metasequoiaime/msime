@@ -177,47 +177,47 @@ test("only the HarmonyOS phone draws its own press fill and the inset half-pixel
 const autumnDark: ResolvedAppTheme = {
   id: "siji",
   season: "autumn",
-  accent: "#F0975F",
-  accent_soft: "#F0975F40",
-  on_accent: "#3C2618",
-  background: "#21150F",
-  card: "#2E1E15",
+  accent: "#F3C14F",
+  accent_soft: "#F3C14F40",
+  on_accent: "#3D3014",
+  background: "#1C1910",
+  card: "#28241A",
   hair: "#2A2F2A",
-  candidate_accent: "#F0975F",
+  candidate_accent: "#F3C14F",
 };
 
 const autumnLight: ResolvedAppTheme = {
   id: "qiushan",
   season: "autumn",
-  accent: "#B5562B",
-  accent_soft: "#B5562B22",
-  on_accent: "#FFFFFF",
-  background: "#F6E9DC",
-  card: "#FFFBF6",
-  hair: "#B5562B33",
-  candidate_accent: "#9F4214",
+  accent: "#B07800",
+  accent_soft: "#B0780022",
+  on_accent: "#1A1200",
+  background: "#FAF5E8",
+  card: "#FFFDF6",
+  hair: "#B0780033",
+  candidate_accent: "#905A00",
 };
 
 test("an app theme recolours the HarmonyOS phone's accent, page, cards and light hairlines", () => {
   const light = appThemeStyle(autumnLight, false, "harmony") as Record<string, string>;
   expect(light).toMatchObject({
-    "--accent-color": "#B5562B",
-    "--accent-strong": "#B5562B",
-    "--accent-soft": "#B5562B22",
-    "--p-accent-text": "#B5562B",
-    "--p-on-accent": "#FFFFFF",
-    "--p-sw-on": "#B5562B",
-    "--p-btn-fg": "#B5562B",
-    "--p-seg-on-fg": "#B5562B",
-    "--p-bg": "#F6E9DC",
-    "--p-chrome": "#F6E9DC",
-    "--p-group-bg": "#FFFBF6",
-    "--p-hair": "#B5562B33",
-    "--p-row-divider": "#B5562B33",
+    "--accent-color": "#B07800",
+    "--accent-strong": "#B07800",
+    "--accent-soft": "#B0780022",
+    "--p-accent-text": "#B07800",
+    "--p-on-accent": "#1A1200",
+    "--p-sw-on": "#B07800",
+    "--p-btn-fg": "#B07800",
+    "--p-seg-on-fg": "#B07800",
+    "--p-bg": "#FAF5E8",
+    "--p-chrome": "#FAF5E8",
+    "--p-group-bg": "#FFFDF6",
+    "--p-hair": "#B0780033",
+    "--p-row-divider": "#B0780033",
   });
   const dark = appThemeStyle(autumnDark, true, "harmony") as Record<string, string>;
-  expect(dark["--p-on-accent"]).toBe("#3C2618");
-  expect(dark["--p-group-bg"]).toBe("#2E1E15");
+  expect(dark["--p-on-accent"]).toBe("#3D3014");
+  expect(dark["--p-group-bg"]).toBe("#28241A");
   // 深色细线沿用令牌表的值。
   expect(dark).not.toHaveProperty("--p-hair");
   expect(dark).not.toHaveProperty("--p-row-divider");
@@ -228,8 +228,8 @@ test("an app theme recolours the HarmonyOS phone's accent, page, cards and light
 
 test("the 2-in-1 takes only the theme's accent and keeps its own surfaces", () => {
   const style = appThemeStyle(autumnLight, false, "hm2") as Record<string, string>;
-  expect(style["--accent-color"]).toBe("#B5562B");
-  expect(style["--p-on-accent"]).toBe("#FFFFFF");
+  expect(style["--accent-color"]).toBe("#B07800");
+  expect(style["--p-on-accent"]).toBe("#1A1200");
   for (const name of ["--p-bg", "--p-chrome", "--p-group-bg", "--p-hair", "--p-row-divider"]) {
     expect(style).not.toHaveProperty(name);
   }

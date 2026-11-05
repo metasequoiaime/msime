@@ -677,7 +677,7 @@ pub unsafe extern "C" fn msime_client_cloud_clipboard_provider_request(
     })
 }
 
-/// 云剪贴板端到端加密的 sans-IO 驱动：开始一个操作或交回上一步请求的响应，得到下一步要发的请求、结果或错误。格式见 `docs/cloud-clipboard-e2e.md` 的「客户端驱动」。不访问会话，也不打开任何连接；请求最大 2 MiB（交回的列表正文最多 50 条、每条约 16 KiB 密文）。
+/// 端到端加密的 sans-IO 驱动：开始一个操作或交回上一步请求的响应，得到下一步要发的请求、结果或错误。格式见 `docs/cloud-clipboard-e2e.md` 的「客户端驱动」。请求顶层的 `domain` 缺省为 `clipboard`（云剪贴板）；为 `learning` 时是输入习惯同步的驱动，操作和结果见 `docs/learning-sync.md` 的「客户端驱动」。不访问会话，也不打开任何连接；请求最大 2 MiB（交回的列表正文最多 50 条、每条约 16 KiB 密文）。
 ///
 /// # Safety
 /// `request` must point to a readable UTF-8 JSON buffer of `request_length` bytes. The buffer is
@@ -691,7 +691,7 @@ pub unsafe extern "C" fn msime_client_cloud_clipboard_e2e(
         if request.is_null() || request_length > CLOUD_CLIPBOARD_E2E_REQUEST_LIMIT {
             return Err("invalid cloud clipboard e2e buffer".into());
         }
-        msime_client_core::cloud::clipboard_e2e::drive_json(unsafe {
+        msime_client_core::cloud::e2e_drive_json(unsafe {
             std::slice::from_raw_parts(request, request_length)
         })
     })

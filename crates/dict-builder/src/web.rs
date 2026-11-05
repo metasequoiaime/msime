@@ -38,6 +38,8 @@ const WUBIXSJ_TABLE: &str = "wubixsj";
 const EMPTIED_TABLES: [&str; 3] = [WUBI98_TABLE, WUBIXSJ_TABLE, "quick_parases"];
 /// 文件内版本表（`msime_engine::format::METADATA_SCHEMA`）。两个输出库原样保留拼音库的这张表，`msime-wubi.db` 的同名表不再复制：裁出的库与拼音库同一个格式版本。
 const METADATA_TABLE: &str = "metadata";
+/// 不拼整句表（`msime_engine::format::SENTENCE_EXCLUDED_TABLE`，较新的发布才有）。两个输出库原样保留，网页引擎拼整句时和桌面一样按它拦粗俗词。
+const SENTENCE_EXCLUDED_TABLE: &str = msime_engine::format::SENTENCE_EXCLUDED_TABLE;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Flavour {
@@ -294,7 +296,7 @@ fn vacuum_into(connection: &Connection, path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// 按名字把表分成单字表和多字表；`wubi86`、`wubi98`、`wubixsj`、`quick_parases`、`metadata` 和 SQLite 自己的统计表之外，出现任何不认识的表都报错。
+/// 按名字把表分成单字表和多字表；`wubi86`、`wubi98`、`wubixsj`、`quick_parases`、`metadata`、`sentence_excluded` 和 SQLite 自己的统计表之外，出现任何不认识的表都报错。
 fn classify(connection: &Connection) -> Result<Tables> {
     let single_names: HashSet<String> = SHIPPED_INITIALS
         .bytes()
@@ -324,6 +326,7 @@ fn classify(connection: &Connection) -> Result<Tables> {
             wubixsj = true;
         } else if !EMPTIED_TABLES.contains(&name.as_str())
             && name != METADATA_TABLE
+            && name != SENTENCE_EXCLUDED_TABLE
             && !name.starts_with("sqlite_")
         {
             bail!("unexpected table {name} in the input dictionary");

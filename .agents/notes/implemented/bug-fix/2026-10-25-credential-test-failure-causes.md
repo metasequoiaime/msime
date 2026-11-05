@@ -38,3 +38,15 @@ Status: implemented
 - HarmonyOS：`tsc --project platforms/harmony/tests/tsconfig.json` 编译通过，`credential-status.test.js` 8 项断言通过；`Settings.ets` 未在本机做 ArkTS 构建，交给 CI。
 - iOS：`MSIMEDoubaoTransportTests` 新增 `testRejectedHandshakeReportsItsStatusWithoutTheBody`（本机 TCP 服务回 401、503 和 JSON 正文，传输层得到 `rejected(status:)`）；`MSIMEServiceTests` 新增按状态码给提示和豆包握手被拒、错误帧、超时的用例。
 - 用伪造密钥直连两家服务确认文档描述的形状：豆包握手回 HTTP 401、`{"error":"Invalid X-Api-Key"}`；DeepSeek 回 HTTP 401、`authentication_error`。没有真实密钥，余额不足和豆包资源未开通的真实响应没有验证。
+
+## 2026-11-05 补充：豆包测试与识别用同一套帧规则
+
+有用户在设置页用新版 API Key 加 `volc.seedasr.sauc.duration`（豆包流式识别 2.0）测试时得到「豆包的响应无法识别」。没有该用户的密钥，没能抓到实际回包；能确定的是测试比识别本身更严。识别时各端都经 `doubao_frame::decode_json_frame` 解帧，所以带事件号的标志位、保留字节非 0 这类帧识别本来就认；Windows 的 `DoubaoAsrClient.cpp` 还会跳过解不开的消息、不结束这次识别。`response_state` 却在解帧前另查一道帧头，标志位大于 3 或保留字节不为 0 就判失败，而共享解码器本来就认带事件号的标志位 0b0100，收到别的消息类型或一条文本消息也立刻判失败。豆包只要多回一条这类消息，录音能用，测试却报响应无法识别。
+
+现在帧头只交给 `decode_json_frame` 判断；它解不开的二进制帧和文本消息跳过，计入原有的帧数与字节上限。成功条件不变，仍然要一条能解开的最终结果帧、JSON 是对象、没有非零 `code` 或 `error`；错误帧照旧立刻报它的错误码。跳过过消息又在上限内或连接结束前没等到最终结果时仍报「响应无法识别」，没跳过过的照旧报连接中断。
+
+已知分歧：解不开的消息只有 Windows 识别时跳过。Android（`DoubaoStreamSession` 解不出就报服务错误）和 HarmonyOS（`HarmonyDoubaoRecognizer` 报无效响应）识别时会直接失败，iOS（`DoubaoHostFrameCodec.decodeFrame` 对解码失败的 envelope 返回 `(true, nil)`）会把这条帧当成空的最终结果、提前结束识别。豆包若真的多回一条解不开的帧，这三端的识别本身就会出问题；这次只让测试不比 Windows 识别更严，三端识别的统一另行处理。
+
+不采用的做法：把第一条解不开的帧的类型写进提示，方便下一次报告定位。帧类型对用户没有可操作的意义，提示本来只到该改哪一项的粒度；真要定位时在本机用测试密钥抓帧头更直接。
+
+验证：`cargo test -p msime-client-providers --lib doubao` 19 项通过，新增带事件号和保留字节非 0 的最终帧判为成功、别的消息类型与截断帧跳过、跳过之后的最终结果照样算数、只收到解不开的消息时报响应无法识别。旧实现的 `frame[1] & 0x0f > 3` 对这条标志位 0b0111 的帧直接判 `InvalidResponse`。真实服务上的回包形状仍未验证。
