@@ -360,6 +360,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         fuzzy_pinyin_rules: 0,
         wubi_mixed_pinyin: false,
         wubi_z_wildcard: false,
+        wubi_reverse_code: true,
         wubi_profile: 0,
         helpcode: false,
         strict_quanpin_helpcode: false,
@@ -2340,6 +2341,47 @@ fn wubi_profile_reaches_engine_options() {
         assert_eq!(session.applied.wubi_profile, WubiProfile::Wubi98);
     });
     read(msime_client_destroy(handle));
+}
+
+/// #10790：「候选显示剩余编码」决定引擎给不给五笔候选附完整码，建会话和改偏好两条路都要带上。
+#[test]
+fn wubi_code_hint_reaches_engine_options() {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host(dir.path());
+    SESSIONS.with(|sessions| {
+        assert!(sessions.borrow()[&handle].options.wubi_reverse_code);
+    });
+    let mut preferences = Preferences {
+        scheme: InputScheme::Wubi,
+        wubi_code_hint: false,
+        ..chinese_preferences()
+    };
+    update(handle, 1, &preferences);
+    SESSIONS.with(|sessions| {
+        let session = &sessions.borrow()[&handle];
+        assert!(!session.options.wubi_reverse_code);
+        assert!(!session.applied.wubi_code_hint);
+    });
+    preferences.wubi_code_hint = true;
+    update(handle, 2, &preferences);
+    SESSIONS.with(|sessions| {
+        assert!(sessions.borrow()[&handle].options.wubi_reverse_code);
+    });
+    read(msime_client_destroy(handle));
+
+    let created_dir = tempfile::tempdir().unwrap();
+    let created = test_host_preferences(
+        created_dir.path(),
+        Preferences {
+            scheme: InputScheme::Wubi,
+            wubi_code_hint: false,
+            ..chinese_preferences()
+        },
+    );
+    SESSIONS.with(|sessions| {
+        assert!(!sessions.borrow()[&created].options.wubi_reverse_code);
+    });
+    read(msime_client_destroy(created));
 }
 
 /// 小鹤的键位，只把 ing 从 k 挪到 `;`。

@@ -337,6 +337,12 @@ impl Session {
             caret_edit_suffix: value.caret_edit_suffix,
             caret_edit_prefix: value.caret_edit_prefix,
         };
+        // 五笔反查只服务五笔方案：混输拼音的候选虽然来自全拼，也一样附上五笔码；全拼和双拼方案本身不显示，那里的注释位留给辅助码和纠错提示。
+        // 用户关掉「候选显示剩余编码」（`wubi_reverse_code` 为 false）时不附：宿主在没有剩余编码时退回显示这条注释，附了就成了关掉开关后剩余编码换成完整编码（#10790）。`z` 临时拼音反查是用户主动要看编码，照旧附上。
+        let wubi_reverse_codes = value.local_mode == LocalInputMode::None
+            && !value.dedicated_english
+            && value.scheme == SchemeType::Wubi
+            && (self.options.wubi_reverse_code || self.inner.wubi_pinyin_lookup_active());
         let mut annotations = value.candidate_annotations.into_iter();
         for (index, candidate) in value.candidates.into_iter().enumerate() {
             let mut annotation = annotations
@@ -351,10 +357,7 @@ impl Session {
                     annotation = compute_helpcodes(&candidate.word, uppercase_all, keymap);
                 }
             }
-            // 五笔反查只服务五笔方案：混输拼音的候选虽然来自全拼，也一样附上五笔码；全拼和双拼方案本身不显示，那里的注释位留给辅助码和纠错提示。
-            if value.local_mode == LocalInputMode::None
-                && !value.dedicated_english
-                && value.scheme == SchemeType::Wubi
+            if wubi_reverse_codes
                 && matches!(
                     candidate.scheme,
                     SchemeType::Quanpin | SchemeType::Shuangpin | SchemeType::Wubi

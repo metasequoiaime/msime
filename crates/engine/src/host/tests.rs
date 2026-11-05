@@ -41,6 +41,7 @@ fn options(root: &Path) -> EngineOptions {
         fuzzy_pinyin_rules: 0,
         wubi_mixed_pinyin: false,
         wubi_z_wildcard: false,
+        wubi_reverse_code: true,
         wubi_profile: 0,
         helpcode: false,
         strict_quanpin_helpcode: false,
@@ -3048,6 +3049,57 @@ fn wubi_reverse_codes_are_shown_only_in_the_wubi_scheme() {
         .position(|word| word == "你好")
         .unwrap();
     assert!(view.candidate_annotations[index].contains("wqvb"));
+}
+
+/// #10790：「候选显示剩余编码」关掉后，宿主在没有剩余编码时退回显示引擎注释，引擎不能再往里附完整五笔码；候选的 `code` 字段不受影响。
+#[test]
+fn wubi_reverse_codes_are_left_out_when_the_code_hint_is_off() {
+    let extra = "INSERT INTO wubi86 VALUES('wqvb','你好',300);";
+
+    let native_root = tempfile::tempdir().unwrap();
+    let mut native = helpcode_fixture(native_root.path(), extra, "");
+    native.scheme = SchemeType::Wubi as u8;
+    native.wubi_reverse_code = false;
+    let mut session = Session::new(&native).unwrap();
+    type_text(&mut session, b"wq");
+    let view = session.snapshot().unwrap();
+    let index = view
+        .candidates
+        .iter()
+        .position(|word| word == "你好")
+        .unwrap();
+    assert!(
+        !view.candidate_annotations[index].contains("wqvb"),
+        "{:?}",
+        view.candidate_annotations
+    );
+    // 宿主打开开关时还要靠它算剩余编码。
+    assert_eq!(view.candidate_codes[index], "wqvb");
+
+    // 混输拼音的候选也不附。
+    let mixed_root = tempfile::tempdir().unwrap();
+    let mut mixed = helpcode_fixture(mixed_root.path(), extra, "");
+    mixed.scheme = SchemeType::Wubi as u8;
+    mixed.wubi_mixed_pinyin = true;
+    mixed.wubi_reverse_code = false;
+    let mut session = Session::new(&mixed).unwrap();
+    type_text(&mut session, b"nihao");
+    let view = session.snapshot().unwrap();
+    assert!(!annotation_of(&view, "你好").contains("wqvb"));
+}
+
+/// `z` 临时拼音反查是用户主动要看编码，「候选显示剩余编码」关掉也照旧附上。
+#[test]
+fn the_pinyin_lookup_keeps_wubi_codes_when_the_code_hint_is_off() {
+    let root = tempfile::tempdir().unwrap();
+    let mut options = pinyin_lookup_options(root.path());
+    options.wubi_reverse_code = false;
+    let mut session = Session::new(&options).unwrap();
+    type_text(&mut session, b"znihao");
+    let view = session.snapshot().unwrap();
+    assert!(view.answered_by_pinyin_fallback);
+    let annotation = annotation_of(&view, "你好");
+    assert!(annotation.contains("wqvb"), "{annotation}");
 }
 
 #[test]
