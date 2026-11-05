@@ -106,7 +106,7 @@ extension MetasequoiaInputSnapshot {
       answeredByPinyinFallback: answeredByPinyinFallback, diagnosticText: diagnosticText, localMode: localMode,
       nineKeySpellings: nineKeySpellings, nineKeyReading: nineKeyReading,
       nineKeySingleCharacter: nineKeySingleCharacter, nineKeyStrokes: nineKeyStrokes,
-      editingText: editingText, caretPosition: caretPosition,
+      editingText: editingText, caretPosition: caretPosition, gridComposing: gridComposing,
       cornerQuotes: cornerQuotes, hollowBrackets: hollowBrackets,
       enumerationCommaBackslash: enumerationCommaBackslash,
       enumerationCommaSlash: enumerationCommaSlash,

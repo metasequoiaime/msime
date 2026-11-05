@@ -43,9 +43,10 @@ enum InputLanguage: String, CaseIterable, Identifiable {
     }
   }
 
+  /// 这门语言的触屏方案，顺序与 Android `TypingPage.Language` 相同；每个触屏方案恰好属于一门语言，漏掉的方案在「输入」页上没有一行能显示、选择或移除它。
   var schemes: [ChineseInputScheme] {
     switch self {
-    case .quanpin: [.quanpin, .fourteenKey, .nineKey]
+    case .quanpin: [.quanpin, .fourteenKey, .eighteenKey, .nineKey]
     case .shuangpin: [.shuangpin, .ziranma, .microsoft, .shoudao, .nineKeyShuangpin]
     case .wubi: [.wubi]
     case .zhuyin: [.zhuyin]

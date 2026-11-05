@@ -386,7 +386,7 @@ test("Tibetan describes its syllable keys and shows no Vietnamese rows", () => {
   expect(screen.queryByRole("radiogroup", { name: "声调位置" })).toBeNull();
 });
 
-test("changes the Wubi profile between 86 and 98 under Wubi", () => {
+test("changes the Wubi profile between 86, 98 and 新世纪 under Wubi", () => {
   const onWubiProfileChange = vi.fn();
   render(
     <InputSchemeDetailsSection
@@ -403,9 +403,27 @@ test("changes the Wubi profile between 86 and 98 under Wubi", () => {
   expect(Array.from(profile.options).map((option) => option.textContent)).toEqual([
     "86 五笔",
     "98 五笔",
+    "新世纪五笔",
   ]);
   fireEvent.change(profile, { target: { value: "wubi98" } });
   expect(onWubiProfileChange).toHaveBeenCalledWith("wubi98");
+  fireEvent.change(profile, { target: { value: "wubixsj" } });
+  expect(onWubiProfileChange).toHaveBeenLastCalledWith("wubixsj");
+});
+
+test("a Wubi profile this version does not know shows as 86", () => {
+  render(
+    <InputSchemeDetailsSection
+      scheme="wubi"
+      shuangpinProfile="xiaohe"
+      wubiProfile={"wubi2030" as never}
+      hasTouchKeyboardSchemes={false}
+      onShuangpinProfileChange={vi.fn()}
+    />,
+  );
+  expect((screen.getByRole("combobox", { name: "五笔方案" }) as HTMLSelectElement).value).toBe(
+    "wubi86",
+  );
 });
 
 test("touch hosts show the Wubi profile only while the Wubi keyboard is enabled", () => {
