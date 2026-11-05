@@ -20,14 +20,14 @@ Sandbox: MSIMEKeyboardExtension(53425) deny(1) file-write-data /private/var/mobi
 
 键盘按 `hasFullAccess` 选择准备方式；没有完全访问时只读地准备，共享目录一个字节也不写，打字照常，只是不学习。
 
-- **Swift**：`KeyboardViewController.session` 改成第一次用到时才建（`viewDidLoad` 一开始），按 `hasFullAccess` 传 `sharedStateWritable`。为 false 时 `MetasequoiaInputSessionBridge` 在 bootstrap 里加 `read_only_state: true` 和 `private_root`（扩展自己容器里的 `Application Support/MSIME-read-only`）。iOS 在用户切换完全访问时结束扩展进程，进程活着时这个值不变，所以不处理中途切换。
+- **Swift**：`KeyboardViewController.session` 改成第一次用到时才建（`viewDidLoad` 一开始），有完全访问时 `sharedStateWritable` 为真；没有时再在共享容器里独占地建一个临时文件再删掉（`MetasequoiaInputSessionBridge.sharedStateIsWritable`），建得出来仍为真。`hasFullAccess` 要连上键盘宿主才是真值，单元测试的宿主直接创建控制器、从不连上，它恒为 false，而那里的共享目录写得进；只看它时 CI 上约 270 个用真实控制器的单元测试全走了只读准备。真机没有完全访问时试写被沙盒拒绝，结果相同。`sharedStateWritable` 为 false 时 `MetasequoiaInputSessionBridge` 在 bootstrap 里加 `read_only_state: true` 和 `private_root`（扩展自己容器里的 `Application Support/MSIME-read-only`）。iOS 在用户切换完全访问时结束扩展进程，进程活着时这个值不变，所以不处理中途切换。
 - **`msime_client_prepare_host`**：`read_only_state` 时走 `host-api` 的 `read_only_state::prepare_read_only_host`，必须有绝对路径、不在 `state_root` 里的 `private_root`，不能同时给 `runtime_options`。
   - 偏好经 `PreferencesStore::load_for_runtime_without_writing` 从共享目录读：不取锁、不建目录和锁文件。写偏好的一方一律整份写进临时文件再改名（`atomic_write`），不持锁读到的也一定是某一次完整的写入。没有偏好文件时是本版本的默认值。
   - 资源校验标记（`verified-resources.json`）和缓存写进 `private_root`。
   - App 选中并装好的下载代次：只读租约（`dictionary_updates::lease_read_only`）取得到、校验通过才用，否则用扩展随包的资源。
   - 词库布局二选一。共享目录里有本版本的就绪代次（`msime_engine::host::open_prepared_options_for`：`.ready`、主库、英文库、已并入的五笔表、资源带着的 n-gram 表都在，格式不比引擎新），两把租约锁文件也只读取得到共享锁，就用它：`user_data` 是共享的 `MSIME/user`，用户词库和学到的东西都在。否则用只读布局（`read_only_layout_options_for`）：代次目录就是随包资源，`user_data` 和 `cache` 在 `private_root`，没有用户词库，但能打字；退回时经诊断出口报一行 `read-only runtime on the bundled dictionaries`。
   - 文档带 `read_only_state: true`（`HostOptions` 新的可选键，只在内存里交给宿主，不写进任何发布的 runtime-options.json）。
-- **会话**（`create_session`）：带 `read_only_state` 时 Engine 选项的 `learning` 为假，偏好变了重建 Engine（`apply_pending`）时也保持为假；不记选词统计（当作 `statistics_recorded_elsewhere`），不写 `dictionary-updates/loaded.json`。词库租约用 `DictionaryAccess::try_session_read_only`：只读打开已有的锁文件取共享 flock，不建。只读布局下读的是随包资源，没有谁会改它，不取租约（`_dictionary_access` 改为 `Option`）。下载代次的租约同理只读打开 `<代次>.lock`。
+- **会话**（`create_session`）：带 `read_only_state` 时 Engine 选项的 `learning` 和回车学英文词的 `learn_english_on_enter` 都为假，偏好变了重建 Engine（`apply_pending`）时也保持为假。后者是单独的开关，学的词写进代次里的 `msime-english.db`，只读布局下那就是随包资源：起初漏了它，iOS 模拟器上 App 包可写，回车学一次词随包资源就再也通不过校验（resource length or digest mismatch），单元测试整批失败。不记选词统计（当作 `statistics_recorded_elsewhere`），不写 `dictionary-updates/loaded.json`。词库租约用 `DictionaryAccess::try_session_read_only`：只读打开已有的锁文件取共享 flock，不建。只读布局下读的是随包资源，没有谁会改它，不取租约（`_dictionary_access` 改为 `Option`）。下载代次的租约同理只读打开 `<代次>.lock`。
 - **可写的准备现在就建好锁文件**：`prepare_shipped_host_configuration` 准备完代次后取一次再放 `DictionaryAccess::try_session`，`prepare_host_with_updates` 用下载代次时同样取一次再放 `dictionary_updates::lease`。App 的首页每次出现都准备一次运行时（`prepareOnboardingResources`），于是 App 准备过的代次总有锁文件，没有写权限的键盘才取得到租约。
 - **偏好的只读入口不再因为打不开锁失败**：`PreferencesStore::load`、`load_reusing`、`load_for_runtime` 打开锁文件遇到 `PermissionDenied`（`EPERM`、`EACCES`）或 `ReadOnlyFilesystem` 时不取锁照读，理由同上。保存仍然要锁，照旧失败。
 
@@ -42,7 +42,7 @@ Sandbox: MSIMEKeyboardExtension(53425) deny(1) file-write-data /private/var/mobi
 - **在扩展自己的容器里准备一整份私有代次**——最强的理由是引擎和会话一行都不用改：状态目录换成可写的私有目录，现有的准备、回放、租约、学习原样工作，用户词库也能从 App Group 复制一份日志进来回放。不用：一份代次约 245 MB（主库并入 142 MB 的五笔码表、英文库、两张 12 MB 的 n-gram 表），第一次出现要在扩展里复制、合并五笔表、回放日志、建反查索引，扩展有内存和启动时限，最慢的设备上这要几秒到几十秒；盘上多占一份；复制进来的日志是那一刻的快照，私有的学习在下次复制时被覆盖，开完全访问后也不会合回去。
 - **不取锁直接读共享代次**——最简单，只读打开数据库本身也不需要锁。不用：重置学习会把工作词库改名挪走再换成新的，删旧代次会整目录删掉，不持租约的读者可能读到一半被换掉的代次；锁文件只读打开就能取到同一把锁，没有理由放弃它。
 - **没有完全访问时一律用随包词库**——同样一个字节不写、也不需要任何锁，实现最小。不用作默认：没开完全访问的用户会丢掉「我的词条」和学到的东西，这正是用户打字时最在意的；只在拿不到共享代次时作为退路。
-- **Rust 自己试写一个文件来判断有没有写权限**——宿主不用传任何东西。不用：模拟器上的扩展写得进 App Group，这条只读路径在模拟器上永远走不到，系统界面用例测不到它；试写本身就是在共享目录里写；`hasFullAccess` 是系统给出的明确信号。
+- **Rust 自己试写一个文件来判断有没有写权限**——宿主不用传任何东西。不用：模拟器上的扩展写得进 App Group，这条只读路径在模拟器上永远走不到，系统界面用例测不到它；试写本身就是在共享目录里写；`hasFullAccess` 是系统给出的明确信号。Swift 只在 `hasFullAccess` 为 false 时试写一次，补的是它在没连上宿主时恒为 false 这一点，见 Decision 的 Swift 一条。
 
 ## Consequences
 
