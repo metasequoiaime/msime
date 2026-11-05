@@ -9,7 +9,7 @@ use msime_client_services::account::{
 };
 use serde_json::Value;
 
-/// 请求里的词库种类。前面的 [`super::validate_cloud_request`] 已经校验过，这里仍按不合法处理未知值。
+/// 请求里的词库种类。前面的 [`super::validate_cloud_request`] 已经校验过，这里仍按不合法处理未知值。新世纪五笔（`wubixsj`）暂不经云词库，也按不合法处理。
 pub fn dictionary_kind(value: &str) -> Result<DictionaryKind, &'static str> {
     match value {
         "pinyin" => Ok(DictionaryKind::Pinyin),

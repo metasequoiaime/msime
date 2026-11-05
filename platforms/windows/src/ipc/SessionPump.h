@@ -41,6 +41,8 @@ public:
     std::function<void(const FocusLease &, const FanyImeNamedpipeData &)> before_key;
     // 管道线程，按键任务回来之后、断开这个客户端之前。参数是一行诊断（请求种类、客户端、请求号、校验名和计数），不含输入内容。只用来写日志：不能重入输入队列，也不能碰焦点或管道。
     std::function<void(const std::string &)> rejected;
+    // 管道线程，当前焦点的模式事件（IMESwitch、PuncSwitch、DoubleSingleByteSwitch、StatusSnapshot、FocusRestored）在输入队列上落地、焦点锁已经放开之后。用来叫醒界面线程去读新模式：单按 Shift 切中英文就是一条 StatusSnapshot，界面线程靠读模式才知道要出提示。只能做不阻塞的通知（投一条线程消息），不能重入输入队列、焦点或管道。
+    std::function<void(const FocusLease &)> mode_event;
   };
   SessionPump(MainTransport &transport, InputQueue &input, FocusGate &focus,
               KeyHandler key, EventHandler event, Presentation presentation = {},
@@ -52,7 +54,9 @@ public:
   PumpResult run(const PipeTicket &ticket);
 
 private:
-  bool enqueue(InputQueue::Task task);
+  // 默认是后台任务；按键和按键直接引发的界面/焦点变化传 Foreground。
+  bool enqueue(InputQueue::Task task,
+               InputTaskPriority priority = InputTaskPriority::Background);
   void cleanup(const PipeTicket &ticket) noexcept;
   MainTransport &transport_;
   InputQueue &input_;

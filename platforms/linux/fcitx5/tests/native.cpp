@@ -4945,7 +4945,7 @@ int main(int argc, char **argv) {
             "消费缓存探测后，新组合必须实际分发网络请求");
     state->close();
     state->clearPanel();
-    // The helpcode annotation on a candidate row follows the scheme's show_in_candidate_window preference, the way the IBus host renders it. This host used to append it whatever the setting said. In / and @ the annotation is the command title or the place's province and city, so neither that preference nor the wubi code hint hides it; Wubi opens / and @ too, and with 五笔剩余编码 off its command rows used to lose their titles. The other local modes still carry helpcodes and stay behind the preference.
+    // The helpcode annotation on a candidate row follows the scheme's show_in_candidate_window preference, the way the IBus host renders it. This host used to append it whatever the setting said. In / and @ the annotation is the command title or the place's province and city, so that preference does not hide it; Wubi opens / and @ too, and with 五笔剩余编码 off its command rows used to lose their titles. The other local modes still carry helpcodes and stay behind the preference. Wubi annotations are no longer gated here at all: the engine decides which rows carry a code (#10790).
     {
       require(state->ensure(), "session for the annotation check");
       auto withHelpcode = options;
@@ -4970,8 +4970,8 @@ int main(int argc, char **argv) {
       state->view_["scheme"] = 2;
       state->view_["local_mode"] = "none";
       state->preferences_["wubi_code_hint"] = false;
-      require(!state->showCandidateAnnotations(),
-              "wubi code hint off hides the remaining-code annotation");
+      require(state->showCandidateAnnotations(),
+              "wubi annotations are left to the engine, which drops native wubi codes when the hint is off");
       state->view_["local_mode"] = "command";
       require(state->showCandidateAnnotations(),
               "a wubi command row keeps its title with the wubi code hint off");

@@ -105,6 +105,10 @@ struct FanyImeNamedpipeDataToTsf *TryReadDataFromServerPipeWithTimeout(uint64_t 
 // returns a non-TransportUnavailable empty frame for the caller to fall back.
 struct FanyImeNamedpipeDataToTsf *TryReadDataFromServerPipeWithTimeout(uint64_t expectedRequestId,
                                                                        bool abortTransportOnTimeout);
+// 显式给出等待预算（毫秒）。两参数版本按 ServerReplyWaitBudgetMs(abortTransportOnTimeout) 取预算；Server 一定会回、回包又决定上屏哪个词的软回包（宿主会话里的数字选词）用这个版本等到第二级上限，等不到仍不拆管道。
+struct FanyImeNamedpipeDataToTsf *TryReadDataFromServerPipeWithTimeout(uint64_t expectedRequestId,
+                                                                       bool abortTransportOnTimeout,
+                                                                       std::size_t waitBudgetMs);
 struct FanyImeNamedpipeDataToTsf *ReadDataFromServerViaNamedPipe(uint64_t expectedRequestId);
 
 //

@@ -29,6 +29,6 @@ HarmonyOS 手机的读音行（`KeyboardView.ets` 的 `candidateBar`）没有 `o
 
 - 短拼音也点得中：Android 读音左边整段加行底间距，iOS 单独一行时的整行、并入候选行时的整段高度，都能打开拼写编辑。
 - Android 长按打开本地输入模式菜单的范围同样变宽，只在 `offersLocalModes` 时生效。iOS 单独一行在空闲时若显示「水杉输入法」和本地输入菜单，点这一行的空白处也会打开它。
-- 测试：iOS `CompositionCaretTests.testTappingTheReadingOpensTheSpellingEditor` 断言读音并入候选行时这一段上中下都命中读音，`testTheGapBelowASeparateReadingRowOpensTheEditor` 断言行距归读音；`FourteenKeyKeyboardTests` 断言五笔 14 键（没有选择条）读音行最右端命中读音，全拼 14 键的拼音选择条里的触摸仍命中选择条。Android 的 `TouchDelegate` 区域没有 JVM 可测的纯逻辑，只经 `check-host.sh` 编译和静态检查，点按效果要在设备上看。
+- 测试：iOS `CompositionCaretTests.testTappingTheReadingOpensTheSpellingEditor` 断言读音并入候选行时这一段上中下都命中读音，`testTheGapBelowASeparateReadingRowOpensTheEditor` 断言行距归读音；`FourteenKeyKeyboardTests` 断言五笔 14 键（没有选择条）读音行最右端命中读音，全拼 14 键的拼音选择条里的触摸仍命中选择条。Android 的区域由纯函数 `ReadingRowPolicy.touchTarget` 算出，`ReadingRowPolicySmoke` 覆盖从左到右、从右到左和 18 键选择条三种排布（[Android 五笔 14 键组字不再能点读音行编辑拼写](2026-11-02-android-wubi-grid-spelling-edit.md)）；`TouchDelegate` 的接线只经 `check-host.sh` 编译，点按效果要在设备上看。
 - HarmonyOS 手机没有「点读音编辑」入口，三端在这一点上仍不一致，由后续 issue 补齐。
 - 点中之后打开什么：iOS 原来弹「编辑拼写」系统菜单，现在与 Android 一样打开放大拼写编辑条，26 键和九键的读音段在拼写写进输入框后画一支笔而不是收成零宽，见 [iOS 点读音改为打开放大拼写编辑条](../feature/2026-11-02-ios-spelling-editor-bar.md)。

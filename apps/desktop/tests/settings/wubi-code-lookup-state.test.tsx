@@ -9,7 +9,12 @@ afterEach(cleanup);
 const answer: WubiCodeLookup = {
   phrase: { text: "合成", wubi86: ["synthetic-phrase"], wubi98: [] },
   characters: [
-    { text: "合", wubi86: ["synthetic-short", "synthetic-full"], wubi98: ["synthetic-98"] },
+    {
+      text: "合",
+      wubi86: ["synthetic-short", "synthetic-full"],
+      wubi98: ["synthetic-98"],
+      wubixsj: ["synthetic-xsj"],
+    },
   ],
   truncated: false,
 };
@@ -110,9 +115,10 @@ test("公共结果组件独立展示词在前、当前码表、缺码与截断",
       .getAllByRole("row")
       .map((row) => row.textContent),
   ).toEqual([
-    "文字86 五笔98 五笔（当前）",
-    "合成synthetic-phrase—",
-    "合synthetic-short synthetic-fullsynthetic-98",
+    "文字86 五笔98 五笔（当前）新世纪五笔",
+    // 宿主没有回新世纪那一列（认识它之前的宿主）时显示为空，列照样在。
+    "合成synthetic-phrase——",
+    "合synthetic-short synthetic-fullsynthetic-98synthetic-xsj",
   ]);
   expect(screen.getByText("字太多，只列出了前 1 个不同的字。")).toBeTruthy();
   view.rerender(

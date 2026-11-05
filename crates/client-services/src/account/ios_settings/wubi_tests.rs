@@ -1,7 +1,7 @@
 //! `input.wubi_schema` 的应用：有就写进共享偏好，不管云端的方案是什么（#8201 的决定 10），与 Android、桌面和鸿蒙的映射相同。
 
 use super::IosPreferencePlan;
-use crate::account::{AccountError, AccountPreferenceValue, AccountPreferences};
+use crate::account::{AccountPreferenceValue, AccountPreferences};
 use msime_client_core::ios_keyboard::IosKeyboardPreferences;
 use msime_client_core::preferences::{Preferences, WubiProfile};
 use std::collections::BTreeMap;
@@ -102,13 +102,48 @@ fn a_document_without_the_wubi_profile_keeps_the_local_one() {
 }
 
 #[test]
-fn an_unknown_wubi_profile_rejects_the_document_whatever_the_scheme() {
-    // 现在总是读这个键，就和 iOS 读的其余键一样：不认识的取值拒绝整份文档，不只在方案是五笔时。
-    for schema in [Some("wubi"), Some("quanpin"), None] {
-        assert_eq!(
-            IosPreferencePlan::from_cloud(&document(schema, Some("wubi06"))),
-            Err(AccountError::Invalid),
-            "{schema:?}"
-        );
+fn an_unknown_wubi_profile_keeps_the_local_one_and_the_rest_still_applies() {
+    // 更新的版本加的码表版本（用不存在的 `wubi2030` 代表）这一版不认识：只跳过这个键，保留本机的五笔版本，文档其余的键照常应用。拒绝整份文档会让这台设备从此收不到任何设置。
+    let wubi98 = Preferences {
+        wubi_profile: WubiProfile::Wubi98,
+        ..Preferences::default()
+    };
+    for unknown in ["wubi2030", "wubi06"] {
+        for schema in [Some("wubi"), Some("quanpin"), None] {
+            let plan = IosPreferencePlan::from_cloud(&document(schema, Some(unknown)))
+                .unwrap_or_else(|error| panic!("{schema:?} {unknown}: {error:?}"));
+            assert_eq!(plan.wubi_profile, None, "{schema:?} {unknown}");
+            let applied = apply(&document(schema, Some(unknown)), "quanpin", &wubi98);
+            assert_eq!(
+                applied.wubi_profile,
+                WubiProfile::Wubi98,
+                "{schema:?} {unknown}"
+            );
+        }
     }
+}
+
+/// 新世纪五笔暂不跨设备同步：选着它时 iOS 不上传版本，账号里留着的旧版本也不盖掉本机的选择。别的设备写来的 `wubixsj` 照常读。
+#[test]
+fn the_new_century_wubi_profile_stays_on_the_device() {
+    let xsj = Preferences {
+        wubi_profile: WubiProfile::WubiXsj,
+        ..Preferences::default()
+    };
+    let settings = super::local_account_preferences(&native("wubi"), &xsj, None).unwrap();
+    assert_eq!(
+        settings["input.schema"],
+        AccountPreferenceValue::String("wubi".into())
+    );
+    assert!(!settings.contains_key("input.wubi_schema"));
+    for schema in [Some("wubi"), Some("quanpin"), None] {
+        let applied = apply(&document(schema, Some("wubi98")), "quanpin", &xsj);
+        assert_eq!(applied.wubi_profile, WubiProfile::WubiXsj, "{schema:?}");
+    }
+    let applied = apply(
+        &document(Some("quanpin"), Some("wubixsj")),
+        "quanpin",
+        &Preferences::default(),
+    );
+    assert_eq!(applied.wubi_profile, WubiProfile::WubiXsj);
 }
