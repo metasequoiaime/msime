@@ -269,7 +269,7 @@ impl NineKeySession {
         Some(true)
     }
 
-    /// 有分隔符时先处理的命令：退格先删槽、再去掉分隔符，这两次都不删组码；筛空时首选上屏吞掉；移光标和向后删除走进主码编辑，先去掉辅助码。返回 `None` 时照常处理。
+    /// 有分隔符时先处理的命令：退格先删槽、再去掉分隔符，这两次都不删组码；筛空时首选上屏吞掉，原样上屏（宿主在插入别的内容之前用它结束组字）丢掉这次组字、什么也不上屏，免得只剩组码字母的组码被当原文上屏；移光标和向后删除走进主码编辑，先去掉辅助码。返回 `None` 时照常处理。
     pub(super) fn grid_helpcode_command(&mut self, command: Command) -> Option<KeyResult> {
         let constrained = self.helpcode.as_ref()?.constrains();
         match command {
@@ -285,6 +285,9 @@ impl NineKeySession {
                 Some(KeyResult::handled())
             }
             Command::CommitCandidate if self.grid_helpcode_blocks() => Some(KeyResult::handled()),
+            Command::CommitRaw if self.grid_helpcode_blocks() => {
+                Some(self.command(Command::Cancel))
+            }
             Command::MoveLeft
             | Command::MoveRight
             | Command::MoveHome

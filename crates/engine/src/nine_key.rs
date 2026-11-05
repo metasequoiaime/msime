@@ -1081,9 +1081,7 @@ impl NineKeySession {
         if !self.active() {
             return KeyResult::unhandled();
         }
-        if self.grid_helpcode_blocks() {
-            return KeyResult::handled();
-        }
+        // 网格辅助码筛空时这里转给 `CommitRaw`，丢掉组字、什么也不上屏（`grid_helpcode_command`）。
         if first_index >= self.candidates.len() {
             return self.command(Command::CommitRaw);
         }

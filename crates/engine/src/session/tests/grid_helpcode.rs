@@ -413,7 +413,6 @@ fn an_empty_filter_holds_keys_that_would_end_the_composition() {
             session.punctuation(b','),
             session.character(b' ', false),
             session.character(b'1', false),
-            session.finish(0),
         ];
         for result in results {
             assert!(
@@ -424,6 +423,43 @@ fn an_empty_filter_holds_keys_that_would_end_the_composition() {
         let after = session.snapshot();
         assert_eq!(composition(&held), composition(&after), "{grid:?}");
         assert_eq!(held.grid_helpcode_display, after.grid_helpcode_display);
+    }
+}
+
+/// 筛空时宿主结束组字（原样上屏、结束组字）丢掉这次组字、什么也不上屏，组码字母不会被当原文上屏；有候选时原样上屏照旧按首选结束。
+#[test]
+fn host_ends_drop_an_empty_filtered_composition() {
+    for grid in layouts() {
+        for end in [
+            |session: &mut Session| session.command(Command::CommitRaw),
+            |session: &mut Session| session.finish(0),
+        ] {
+            let fixture = Fixture::new(SQL);
+            let mut session = typed(&fixture, grid, false);
+            apply(&mut session, Op::Begin);
+            apply(&mut session, Op::Exact(b'z'));
+            apply(&mut session, Op::Exact(b'z'));
+            assert!(session.snapshot().candidates.is_empty(), "{grid:?}");
+            let result = end(&mut session);
+            assert!(
+                result.handled && result.commit.is_none(),
+                "{grid:?}: {result:?}"
+            );
+            let after = session.snapshot();
+            assert!(
+                after.editing_text.is_empty() && after.candidates.is_empty(),
+                "{grid:?}"
+            );
+            assert!(after.grid_helpcode_display.is_empty(), "{grid:?}");
+        }
+        let fixture = Fixture::new(SQL);
+        let mut session = typed(&fixture, grid, false);
+        apply(&mut session, Op::Begin);
+        apply(&mut session, Op::Exact(b'e'));
+        let first = session.snapshot().candidates[0].word.to_string();
+        assert_eq!(first, "逆好", "{grid:?}");
+        let result = session.command(Command::CommitRaw);
+        assert_eq!(result.commit.as_deref(), Some("逆好"), "{grid:?}");
     }
 }
 
