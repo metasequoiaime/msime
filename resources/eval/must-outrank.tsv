@@ -1,0 +1,15 @@
+# 成对偏好夹具：只断言同一串输入下两个候选的相对次序，不断言绝对名次。执行器是 scripts/must_outrank.py，跑法、判定规则和为什么不用整份基线比较见 resources/eval/README.md「评测把关工具」。
+# 每条都要写来源：用户反馈、issue 或 PR，或者 dict-cleanse 方案里复核过的样例；没有来源的偏好不收，免得夹具变成某个人的口味。
+# 列：id、kind、keyboard、input、should_rank_higher、should_rank_lower、source。
+# kind=outrank：should_rank_higher 必须出现在候选表里，并且排在 should_rank_lower 前面；should_rank_lower 不出现也算通过。
+# kind=not-on-first-page：should_rank_lower 不得出现在首屏（前 first_page_rows 个，出厂 6 个）；should_rank_higher 不是 - 时必须在首屏里，防止输入写错、候选整个变了时空过。
+# keyboard=full 是全键盘全拼，input 写字母（可以带 '）；nine 是九键，input 写键上的数字；fourteen 是全拼 14 键，input 写组码。
+# 词的比较：含汉字的逐字相同；纯 ASCII 的英文词不分大小写（Negro、negro 都算）。
+# 第一批（2026-11-04）来自 dict-cleanse 方案第 4.1 节第 3 条，都是在 dict-v2.0.41 上复核过的样例。
+id	kind	keyboard	input	should_rank_higher	should_rank_lower	source
+mo-0001	outrank	full	chejian	车检	车件	维护者反馈的触发样例：车件 5895 > 车检 1500（上游 rime-ice 原值，#84 拉大了差距），dict-cleanse 方案 1.1
+mo-0002	outrank	nine	2435426	车检	车件	同 mo-0001，九键 che'jian
+mo-0003	outrank	nine	63633	闷的	门的	dict-cleanse 方案 1.1 碎片词压过常用词：门的 本地权重 435135（上游 4351）
+mo-0004	outrank	full	huo'zai	火灾	或在	dict-cleanse 方案 1.1 碎片词压过常用词：或在 > 火灾
+mo-0005	outrank	nine	9269468	万州	挽昼	dict-cleanse 方案 1.1 custom 抢首位：挽昼 3333 > 万州（bot 投稿权重）
+mo-0006	not-on-first-page	nine	63476	内容	Negro	dict-cleanse 方案 1.1 英文脏词：九键 63476 内容 后面第 2 位是 Negro

@@ -2,6 +2,8 @@ import groovy.json.JsonSlurper
 import java.io.ByteArrayOutputStream
 import java.time.LocalDate
 import java.util.Properties
+import javax.inject.Inject
+import org.gradle.process.ExecOperations
 
 plugins { id("com.android.application") }
 
@@ -88,6 +90,11 @@ val ndkHostTag = when {
     else -> error("Android native verification supports macOS and Linux hosts only")
 }
 val llvmReadelf = ndkRoot.resolve("toolchains/llvm/prebuilt/$ndkHostTag/bin/llvm-readelf")
+// Gradle 9 删除了 Project.exec，任务执行期运行外部命令要用注入的 ExecOperations；构建脚本里拿它的办法是让 ObjectFactory 实例化一个带 @Inject 属性的接口。
+interface InjectedExecOperations {
+    @get:Inject val execOperations: ExecOperations
+}
+val execOperations = objects.newInstance<InjectedExecOperations>().execOperations
 val verifyNativeArtifacts = tasks.register("verifyNativeArtifacts") {
     inputs.file(hostRoot.resolve("verify-native.sh"))
     inputs.dir(nativeLibraryRoot)
@@ -100,7 +107,7 @@ val verifyNativeArtifacts = tasks.register("verifyNativeArtifacts") {
             val libraryDir = nativeLibraryRoot.resolve(abi)
             val stdout = ByteArrayOutputStream()
             val stderr = ByteArrayOutputStream()
-            val result = project.exec {
+            val result = execOperations.exec {
                 commandLine("bash", hostRoot.resolve("verify-native.sh").absolutePath, llvmReadelf.absolutePath, libraryDir.absolutePath, abi)
                 standardOutput = stdout
                 errorOutput = stderr

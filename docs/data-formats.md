@@ -110,7 +110,7 @@ user_data/
 
 ## 4. `msime-pinyin.db`
 
-主词库：全拼各表、快捷短语表 `quick_parases`（拼写如此，是冻结的表名）和文件内版本表。全拼、双拼、九键和五笔的 14 键排序都读它；准备代次时五笔码表并进它的工作副本（[§9](#9-msime-wubidb)）。发布的文件是回滚日志模式（`journal_mode=DELETE`）、没有空闲页、只带 `sqlite_stat1` 统计表的独立数据库。
+主词库：全拼各表、快捷短语表 `quick_parases`（拼写如此，是冻结的表名）、文件内版本表，以及可选的不拼整句表 `sentence_excluded`（[§4.5](#45-sentence_excluded)）。全拼、双拼、九键和五笔的 14 键排序都读它；准备代次时五笔码表并进它的工作副本（[§9](#9-msime-wubidb)）。发布的文件是回滚日志模式（`journal_mode=DELETE`）、没有空闲页、只带 `sqlite_stat1` 统计表的独立数据库。
 
 ### 4.1 拼音表
 
@@ -183,6 +183,24 @@ INSERT OR REPLACE INTO metadata(name, value) VALUES('format_version', '1');
 
 `metadata` 随 backup 原样进副本，引擎不改它。
 
+### 4.5 `sentence_excluded`
+
+可选的表：引擎拼整句、换纠错整句和上屏后联想时不用的粗俗词（`lattice::offensive`），以及放行其中一部分的豁免写法。dict-builder 的 `sentence-excluded` 阶段从 msime-dictionary 的 `curation/offensive-words.txt` 写入；这个文件不存在时不建这张表。
+
+```sql
+CREATE TABLE sentence_excluded(value TEXT NOT NULL PRIMARY KEY, exempt INTEGER NOT NULL CHECK (exempt IN (0, 1))) WITHOUT ROWID;
+```
+
+- `value`：两个及以上汉字。`exempt = 0` 是词，`exempt = 1` 是豁免写法（文件里写成 `!` 开头的行）。
+- 写入时检查：每个词都是全拼表里某一行的词，每条豁免写法都出现在全拼表某一行的词里，并且含一个表里的词；做不到就构建失败，不写这张表。
+- 建表语句是 `format::SENTENCE_EXCLUDED_SCHEMA`，表名是 `format::SENTENCE_EXCLUDED_TABLE`。
+
+读端规则（`OffensiveWords::from_database`）：词库有这张表、能读出 `value` 和 `exempt` 两列、至少有一个 `exempt = 0` 的词时，引擎用它整个取代编进引擎的 `offensive_words.txt`；没有这张表（`dict-v2.0.x` 的发布）、列不对、读的时候出错、或者一个词都没有时，用编进引擎的表。查法两边相同：词本身或其中任何一段在表里就算命中，除非这一段被一条豁免写法整个盖住。
+
+这是只追加的新表，按 [§4.3](#43-文件内版本) 的规矩不改 `FORMAT_VERSION`：旧引擎按名字查表、不枚举不认识的表，带这张表的词库对它来说照常可用，只是还用内嵌表；新引擎配旧词库退回内嵌表。表随 backup 进代次的工作副本，引擎从副本读；全拼、双拼词典和联想在打开词库时各读一次。网页词库（`msime-dict-build web`）原样保留这张表。
+
+构建器一侧不是这样：加入这张表之前的 `msime-dict-build web` 枚举输入词库的表，遇到不认识的表就失败（`unexpected table sentence_excluded in the input dictionary`）。所以裁剪带这张表的 `dict-v*` 要用包含这次改动的构建器；`scripts/build-web-engine.sh` 和 `release-web-engine.yml` 用的是检出提交里的构建器，`resources/desktop-dictionary.lock.json` 换到带这张表的发布，只能在已经有这次改动的分支上做。第一个带这张表的发布是 `dict-v2.1.0`（67 个词、19 条豁免写法，共 86 行），桌面词库锁从它起固定的就是带表的库。
+
 ## 5. `msime-english.db`
 
 英文词表和中英互译释义。方案集合含全拼、双拼或五笔时每个代次都复制一份，资源目录必须有它；只用日文、韩语、越南语、藏文、粤语、注音、笔画的集合不要求它，带了才复制进代次，供专用英文用（见 [§20](#20-每个方案的最小数据集)）。
@@ -207,7 +225,7 @@ PRAGMA user_version=3;
 ```
 
 - `english_words.word` 是小写查找键，`display` 是展示的大小写形式（`china` 与 `China` 各一行），`weight` 可能超过 `i32`，引擎按 `i64` 读。同一个词的几种大小写里，领头的那种带词频，其余比它低 1。
-- 释义表的值可以有多个义项，宿主门面在候选旁显示时只取前两个。
+- 释义表的值可以有多个义项，宿主门面在候选旁显示时只取前两个。`en_zh_glosses.english` 是小写查找键；`zh_en_glosses.english_gloss` 里的英文词按展示写法，专名保留大写（`中国` → `China`）。
 - `source_notices` 保存来源要求随数据保留的声明（目前是 SCOWL 的版权声明），引擎不读。
 - `user_version=3` 由构建和 `ensure_english_schema` 写入，读端不检查；`ensure_english_schema` 会把没有 `weight` 列或只以 `word` 为键的旧表就地改建成上面的形状。
 
@@ -516,7 +534,7 @@ Rime 上游的 octagram 语法模型格式（[lotem/librime-octagram](https://gi
 | `msime-cantonese.db`、`msime-zhuyin.db`、`msime-stroke.db` 及其许可证文本、`msime-language-dictionaries-SHA256SUMS` | `msime-dict-build languages`，同一个 `dict-v*` 发布，经 `resources/language-dictionaries.lock.json` 固定 |
 | 网页引擎的 `msime-pinyin.db`、`msime-wubi86.db`、小号 `msime-japanese.dat` | `msime-dict-build web`，从 `dict-v*` 发布的文件裁出；保留拼音库的 `metadata`，`msime-wubi.db` 的 `metadata` 不复制 |
 | `sentence-model.safetensors` | [metasequoiaime/chinese-ime-lm](https://github.com/metasequoiaime/chinese-ime-lm) 的 `model-v1` 发布，经 `desktop-dictionary.lock.json` 与 `resources/neural-model.lock.json` 固定 |
-| `rerank-model/`、`rerank-model-small/`（`lm_step.ort`、`model.json`、`vocab.json`，只在宿主打开 `onnx-rerank` 时读） | GitHub Release [`metasequoiaime/chinese-ime-lm` 的 `rerank-v1`](https://github.com/metasequoiaime/chinese-ime-lm/releases/tag/rerank-v1)（文件名带尺寸前缀，如 `rerank-8x448.ort`），同一批文件也在 Hugging Face：[`msime/pinyin-ime-keystroke-reranker-25M`](https://huggingface.co/msime/pinyin-ime-keystroke-reranker-25M)（8x448）和 [`msime/pinyin-ime-keystroke-reranker-8M`](https://huggingface.co/msime/pinyin-ime-keystroke-reranker-8M)（6x256），那里是原名（`lm_step.ort`、`model.json`、`vocab.json`）并附 `LICENSE` 与 `NOTICE`。锁文件是 `resources/rerank-model.lock.json`。iOS 键盘扩展随包带两档；Android 发布包不带，6x256 作为资源包 `rerank-model-small` 下载到 `resource-packs/rerank-model-small/`（目录名与这里相同，host-api 在随包资源目录旁边找不到时找它） |
+| `rerank-model/`、`rerank-model-small/`（`lm_step.ort`、`model.json`、`vocab.json`，只在宿主打开 `onnx-rerank` 时读） | GitHub Release [`metasequoiaime/chinese-ime-lm` 的 `rerank-v2`](https://github.com/metasequoiaime/chinese-ime-lm/releases/tag/rerank-v2)（文件名带尺寸前缀，如 `rerank-8x448.ort`）。锁文件是 `resources/rerank-model.lock.json`。iOS 键盘扩展随包带两档；Android 发布包不带，6x256 作为资源包 `rerank-model-small` 下载到 `resource-packs/rerank-model-small/`（目录名与这里相同，host-api 在随包资源目录旁边找不到时找它） |
 | octagram `.gram` | 上游发布：amzxyz/rime-wanxiang-data、lotem/rime-octagram-data、gaboolic/rime-frost，经 `resources/grammar-models.lock.json` 固定 |
 | `handwriting-zh_CN.model` | metasequoiaime/msime-engine `a9b9f09`，经 `resources/handwriting-model.lock.json` 固定 |
 | `helpcodes/*.txt` | 提交在本仓库 `resources/helpcodes/`；`wubi86_helpcode.txt` 由 `msime-dict-build wubi86-helpcode` 生成 |
@@ -546,9 +564,9 @@ dict-builder 的其他子命令（`places`、`hanja`、`syllable-frequency`）�
 
 | 文件 | 数据许可证 |
 | --- | --- |
-| `msime-pinyin.db` | GPL-3.0（rime-ice 及其补充）；与万象共有词条的权重和字频为 CC-BY-4.0（rime-wanxiang）；单字读音按 MIT 的 pinyin-data 校正；行政区划地名为 WTFPL |
+| `msime-pinyin.db` | GPL-3.0（rime-ice 及其补充）；与万象共有词条的权重和字频为 CC-BY-4.0（rime-wanxiang）；单字读音按 MIT 的 pinyin-data 校正；行政区划地名为 WTFPL，`dict-v2.1.0` 起其中一部分地名的权重以万象权重为下限（CC-BY-4.0）。`dict-v2.1.0` 起按 msime-dictionary `curation/` 的否决表和覆盖表删词、改权重，是 rime-ice 数据的修改版本，`sentence_excluded`（[§4.5](#45-sentence_excluded)）的词表是 msime-dictionary 自写的 `curation/offensive-words.txt`，均为 GPL-3.0 |
 | `msime-wubi.db` | Apache-2.0（极点 86）、LGPL-3.0（rime-wubi 补入的词条）、GPL-3.0-or-later（fcitx 98）、Unlicense（98 五笔小组）；本项目生成的 86、98 补充表为 GPL-3.0，词条依据 GPL-3.0 的 rime-ice、人工词条与 WTFPL 的区划名称。带 `wubixsj` 的发布另有：新世纪单字码为 GPL-3.0（byujiang/wubi06_rime，许可由转载者给出，来源没有记录、很可能派生自商业码表，见 `resources/licenses/msime-engine-dictionary-NOTICE.md`）；新世纪词组为本项目生成，GPL-3.0，词条来源同上，极点表里有的词沿用极点表（Apache-2.0）的权重 |
-| `msime-english.db` | GPL-3.0（rime-ice-en 及补充）；含 SCOWL 的词，分发时必须附 `msime-scowl_Copyright.txt`；Google 词频以来源页面说明为准 |
+| `msime-english.db` | GPL-3.0（rime-ice-en 及补充）；含 SCOWL 的词，分发时必须附 `msime-scowl_Copyright.txt`；Google 词频以来源页面说明为准。`dict-v2.1.0` 起按构建器内置的蔑称和 msime-dictionary 的 `curation/english-vetoes.txt` 删词、按 `curation/gloss-vetoes.txt` 不用部分 ECDICT 释义，是 rime-ice 英文词表的修改版本 |
 | `msime-bigram.bin`、`msime-trigram.bin` | 计数来自中文维基百科（CC-BY-SA-4.0），词表是 GPL-3.0 的 `msime-pinyin.db` |
 | `msime-others.db` | emoji 数据与颜文字（`resources/dictionary-sources/kaomoji/kaomoji.txt`）的来源都未记录，PiliApp 符号未声明许可，再分发前需另行确认 |
 | `msime-japanese.dat` | Mozc 开源词库：Google 三条款 BSD 加词典目录的 IPAdic、ICOT、冲绳辞書条款；分发时必须附 `msime-mozc_dictionary_oss_README.txt` 与 `msime-mozc_LICENSE.txt` |

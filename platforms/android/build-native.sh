@@ -89,7 +89,7 @@ cp "$toolchain/NOTICE" "$notices/ndk-toolchain.txt"
 cp shared/voice/third_party/sherpa-onnx/LICENSE "$notices/sherpa-onnx.txt"
 cp platforms/linux/data/licenses/onnxruntime-MIT.txt "$notices/onnxruntime.txt"
 cp platforms/linux/data/licenses/onnxruntime-ThirdPartyNotices.txt "$notices/onnxruntime-third-party.txt"
-# 整句候选「增强」的逐键重排模型（chinese-ime-lm rerank-v1 的 6x256，Apache-2.0）不在 APK 里，由应用下载成资源包 rerank-model-small（resources/rerank-model.lock.json），加载它的仍是这个应用；许可证、上游 NOTICE 与语料署名随原生库的声明一起分发，关于页列出它。
+# 整句候选「增强」的逐键重排模型（chinese-ime-lm rerank-v2 的 6x256，Apache-2.0）不在 APK 里，由应用下载成资源包 rerank-model-small（resources/rerank-model.lock.json），加载它的仍是这个应用；许可证、上游 NOTICE 与语料署名随原生库的声明一起分发，关于页列出它。
 cp resources/licenses/rerank-model-Apache-2.0.txt "$notices/rerank-model-Apache-2.0.txt"
 cp "$toolchain/sysroot/NOTICE" "$notices/ndk-sysroot.txt"
 # The input engine in libmsime_host_api.so embeds the Korean Hanja table from libhangul's data/hanja/hanja.txt, which is BSD-3-Clause: clause 2 requires its notice in every binary distribution, so it travels with the library's other notices into assets/native-notices.

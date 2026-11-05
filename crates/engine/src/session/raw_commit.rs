@@ -35,7 +35,8 @@ impl Session {
         };
         // 计算、指令和名单模式里是算式、触发词或键，网址也不是英文单词，都不是用户拼出的词，不进英文词库。
         // 整句改字时回车上屏的是改好的汉字，不是拼出来的字母。
-        let should_learn = self.input.learn_english_on_enter
+        let should_learn = self.input.glide_candidates.is_none()
+            && self.input.learn_english_on_enter
             && before.conversion.is_empty()
             && !grid_composing
             && !before.local_mode.generates_text()

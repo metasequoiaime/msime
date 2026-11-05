@@ -20,7 +20,7 @@ Status: implemented
 
 Windows TSF 读 `preedit_caret`（`EngineView::preedit_caret`，`KeyCompositionStateFromView` 换算成 UTF-16）。`MapPreeditCaret` 多了一个重载：画出来的文字去掉已选词段后正好是引擎的 `preedit` 时，用引擎给的位置再加上词段的长度；画的是别的文字（全拼的原始按键、日文假名）或视图里没有这一项时，照旧按字母数换。绘制、纯光标移动（`_MoveCompositionCaretToHost`）和左右键三条路径都走这个重载。
 
-macOS、iOS、Linux 和 Windows 候选窗这次不改。它们打字时光标在末尾，位置不错；改成读 `preedit_caret` 能让左右移光标时光标跟着动，但这属于另一类行为改动，需要在各自平台上验收。
+macOS、iOS、Linux 和 Windows 候选窗这次不改。它们打字时光标在末尾，位置不错；改成读 `preedit_caret` 能让左右移光标时光标跟着动，但这属于另一类行为改动，需要在各自平台上验收。Linux 两个宿主的候选拼音行后来改读它，见 [Linux 候选拼音行的组字光标](2026-11-03-linux-candidate-preedit-caret.md)。
 
 ## Alternatives considered
 
