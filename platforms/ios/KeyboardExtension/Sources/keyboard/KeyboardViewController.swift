@@ -887,18 +887,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                                   punctuationLock: session.sharedPreferences?["punctuation_lock"] as? String)
   }
 
+  /// 根视图是普通视图，不是 `UIInputView`：后者释放不掉，会把整套键盘和它的布局引擎留在进程里，见 `KeyboardInputView`（#10944）。
   override func loadView() {
-    inputView = KeyboardInputView(frame: .zero, inputViewStyle: .keyboard)
+    view = KeyboardInputView()
   }
 
-  /// 把整棵键盘视图从输入视图上摘下来，控制器一走它们就跟着释放。
-  ///
-  /// iOS 27 上任何 `UIInputView` 都释放不掉：它和 UIKit 自己挂上的 `_UIInputViewContent` 互相强引用（`_leftContentView` 与 `_inputView`），连一个刚建好、从没进过窗口的 `UIInputView` 也是这样，控制器释放了它也还在。挂在它下面的按键、候选条、皮肤图片因此一起留下：系统每换一个宿主应用就新建一个控制器，同一个键盘进程里每重新加载一次键盘就多留一整套，2026-11-02 在 iPhone 17 上每次 10 MB 左右，五六次后键盘扩展碰到 176 MB 的上限被系统结束。子视图摘下后照常释放，留下的只有那个空壳，约 2 KB。
-  ///
-  /// UIKit 总在主线程上释放视图控制器，所以这里可以按主线程执行。
+  /// UIKit 总在主线程上释放视图控制器，所以这里可以按主线程执行。根视图和整棵键盘视图随控制器一起释放，不用在这里摘。
   deinit {
     MainActor.assumeIsolated {
-      KeyboardViewTeardown.detachSubviews(from: viewIfLoaded)
       // 会话随桥一起销毁；释放时还持着会话，说明它跳过了 `viewWillDisappear`，在那之前锁一直在手上（#10634）。
       if session.holdsSession { DiagnosticLog.shared.write("controller_released session_held=1") }
     }
