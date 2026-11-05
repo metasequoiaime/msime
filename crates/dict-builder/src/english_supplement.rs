@@ -318,7 +318,7 @@ impl Supplement {
 }
 
 /// The lowercase words of rime-ice entries commented out as `# display code [weight]`, where the display is one ASCII word and the code spells it (`# huang huang`, `# ASI ASI`). Other comment lines (section titles, notes, `# July Jul`) do not have that shape.
-fn commented_base_dict_words(text: &str) -> BTreeSet<String> {
+pub(crate) fn commented_base_dict_words(text: &str) -> BTreeSet<String> {
     let mut words = BTreeSet::new();
     for line in text::universal_lines(text) {
         let Some(body) = text::strip(line).strip_prefix('#') else {

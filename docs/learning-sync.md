@@ -2,7 +2,7 @@
 
 输入习惯同步把一台设备上学到的候选顺序（内置词的调频和阶梯降权、删除记录、置顶、固定位置）带到同一账号的其他设备上。内容在设备上压缩、补齐、加密后才上传，每台设备在服务端有自己的一份密文，服务端只保存不透明的字节，读不到内容。这份文档是服务端（msime-cloud）、Rust 驱动（client-core、engine、client-services、host-api）和各平台客户端共同的契约。设计取舍、分期和被否掉的方案见 [决策笔记](../.agents/notes/proposed/feature/2026-10-27-learning-sync-e2e.md)。
 
-服务端部分由 msime-cloud 实现，实现中定下的细节（设备与会话同寿命、按设备上限定的限流、传输名额）已写进下文。其余部分按决策笔记里的分期落地，落地时改动这份文档，不另起一份。
+服务端部分由 msime-cloud 实现，实现中定下的细节（设备与会话同寿命、按设备上限定的限流、传输名额）已写进下文。客户端的密钥串、封装与反向核对、MSL1 信封和管理设备的驱动在 `crates/client-core/src/cloud/learning_e2e.rs`，见「客户端驱动」。其余部分（Engine 的时间戳与合并、同步轮次、各平台接入）按决策笔记里的分期落地，落地时改动这份文档，不另起一份。
 
 ## 与其他同步的关系
 
@@ -82,7 +82,7 @@ learning 域只用下面这些标签，不沿用 `msime-clipboard-v1-*`。它们
 
 - A 点「允许」并上传封装后，显示反向核对码 `sas`：`HKDF(ikm=K_learn, salt=P_A ‖ P_D, info="msime-learning-v1-sas", 8)` 读成无符号整数，对 10¹⁶ 取余，左补零到 16 位，每 4 位一组。
 - D 解封后用自己解出的密钥和封装记录的批准者公钥算同一个值并显示，用户在 D 上点「一致」之后，`K_learn` 才生效（写进密钥串的「已确认」状态）。确认之前 D 不上传、不下载、不解密任何密文。
-- 用户点「不一致」时，D 丢掉这把密钥和封装，保留自己的设备身份，报 `learning_sas_mismatch`，提示用户检查设备列表、移除不认识的设备。
+- 用户点「不一致」时，D 丢掉这把密钥，保留自己的设备身份，报 `learning_sas_mismatch`，提示用户检查设备列表、移除不认识的设备。服务端没有删除封装的接口，D 在密钥串里只记下被拒绝的 `key_id` 和批准者：同一个批准者给同一把密钥的封装不再解开、不再弹核对；换了批准者（另一台设备重新允许）或账号换了密钥时照常解开、重新核对。
 - 核对码里带上 `K_learn`，是为了不给服务端留下用算力换胜算的路。只用两台设备公钥算的话，攻击和设备核对码一样是一次第二原像搜索：`P_D` 是 D 登记时才随机生成的，服务端只能在 D 登记之后、用户核对之前，搜一个让号码相同、并且自己知道私钥的假批准者公钥，16 位十进制约 2⁵³ 次运算，没法事先算好，强度与设备核对码相同（见「威胁模型」）。带上只有真设备持有的 `K_learn` 之后，服务端造的假批准者给 D 的是另一把密钥，两边显示的号码相互独立，不管用多少算力，碰上的概率都只有 10⁻¹⁶。
 
 ## 密文信封 MSL1
@@ -104,8 +104,9 @@ learning 域只用下面这些标签，不沿用 `msime-clipboard-v1-*`。它们
 - `gz`：明文流（见下一节）按 RFC 1952 压缩成单个 gzip 成员，头部 `MTIME` 为 0、不带文件名和注释，免得压缩头泄露时间。
 - `padded` = `u32 大端(len(gz)) ‖ gz ‖ 零字节`，总长 `padme(4 + len(gz))`。解密方校验长度字段不越界、补齐的字节全为零，否则按解不开处理。
 - `padme(L)`：`L < 2` 时为 `L`；否则 `E = ⌊log₂ L⌋`，`S = ⌊log₂ E⌋ + 1`，`m = 2^(E−S) − 1`，结果是 `(L + m) & ~m`。额外开销不超过 12%。不按 2 的幂分桶：那样 4.1 MiB 会补到 8 MiB，正好顶到上限。
+- 8 MiB 减去 84 字节（明文头和 tag）不是 `padme` 的不动点，不超过它的最大不动点是 63 × 2¹⁷ = 8,257,536，所以 `gz` 最多 8,257,532 字节，实际能写出的最大信封是 8,257,620 字节。
 - `generation` 就是这次上传的 `?revision=N`，见服务端接口。
-- 整个信封（明文头加密文）不超过 8 MiB（8,388,608 字节）。超过时客户端按「上限与额度」末尾的规则截断明文流再上传，提示 `learning_too_large`，不让整份同步失败；其他设备的照常下载合并。
+- 整个信封（明文头加密文）不超过 8 MiB（8,388,608 字节），解压后的明文流不超过 128 MiB（134,217,728 字节）。按调研时约 1/9 的压缩比，8 MiB 的信封约装 72 MiB 明文，128 MiB 留出了余量；解压出更多的只可能是压缩炸弹，解密方读到上限加一个字节就停，按解不开处理。任何一项超过时客户端按「上限与额度」末尾的规则截断明文流再上传，提示 `learning_too_large`，不让整份同步失败；其他设备的照常下载合并。
 
 ## 明文流 `msime-learning-sync` v1
 
@@ -219,6 +220,7 @@ Engine 里每一条在冲突分支里改写 `user_dictionary_operations`、`pinn
 | 一个账号全部密文合计 | 64 MiB，超出返回 413 `learning_quota` |
 | 一个账号的设备 | 20 台，满了返回 409 `learning_device_limit` |
 | 明文流记录数 | 500,000 条（不含 header 与 footer） |
+| 解压后的明文流 | 128 MiB |
 | `key` / `value` / `display` / `context` | 512 / 2048 / 2048 / 1024 字节 |
 | `weight` | 1 到 100,000,000 |
 | `position` | 1 到 5 |
@@ -229,10 +231,10 @@ Engine 里每一条在冲突分支里改写 `user_dictionary_operations`、`pinn
 | 不在线的设备 | 180 天没有请求的设备，服务端删掉它的设备行、封装和密文；设备也随它的会话过期删除，会话最长 30 天 |
 | 第二期整句联想 | 每台设备上传 5 万条，接收方远端合计 20 万行 |
 
-明文流超过记录上限、或补齐加密后的信封超过 8 MiB 时，客户端截断后照常上传，并提示 `learning_too_large`，不让整份同步失败：
+明文流超过记录上限或 128 MiB、或补齐加密后的信封超过 8 MiB 时，客户端截断后照常上传，并提示 `learning_too_large`，不让整份同步失败：
 
 - 只丢 `weight` 行，按 `(updated_at, dictionary, key, value)` 从小到大丢，也就是先丢最久没动过的调权。`delete`、`pin`、`position` 行从不丢：丢了删除记录，对端会把删掉的词又造回来。
-- 先按记录上限丢到不超过 500,000 条，再看信封大小，超过时继续按同样的顺序丢，直到放得下。截断只由学习数据本身决定，同样的学习数据总是截出同样的明文流，上传前比较的 SHA-256 是截断之后那份的。
+- 先按记录上限丢到不超过 500,000 条，再看明文流和信封大小，超过时继续按同样的顺序丢，直到放得下。截断只由学习数据本身决定，同样的学习数据总是截出同样的明文流，上传前比较的 SHA-256 是截断之后那份的。
 - 只剩 `delete`、`pin`、`position` 仍放不下时这一轮不上传，仍提示 `learning_too_large`，其他设备的照常下载合并。
 - 服务端返回 413 `learning_quota`（账号合计超额）时，本机暂停上传，其他设备的照常下载合并，不靠截断解决。
 
@@ -263,7 +265,7 @@ Engine 里每一条在冲突分支里改写 `user_dictionary_operations`、`pinn
 | `code` | 含义 |
 | --- | --- |
 | `learning_disabled_locally` | 本机关掉了学习（`input.learning`、`platform.ios.dictionary_learning`、`platform.macos.candidate_learning`），没有可同步的东西 |
-| `learning_waiting_approval` | 本机在等另一台设备允许，同时给出本机核对码 |
+| `learning_waiting_approval` | 本机在等另一台设备允许（包括已经解开封装、还没核对反向核对码），同时给出本机核对码 |
 | `learning_sas_mismatch` | 用户在反向核对时点了「不一致」，密钥已丢弃 |
 | `learning_key_rotated` | 账号换了密钥，本机要在其他设备上重新被允许 |
 | `learning_too_large` | 本机的输入习惯超过上限，已丢掉最久没动过的调权后上传；连删除记录、置顶和固定位置都放不下时这一轮没有上传 |
@@ -283,3 +285,42 @@ Engine 里每一条在冲突分支里改写 `user_dictionary_operations`、`pinn
 ## 本机的密钥串
 
 learning 域的密钥串与云剪贴板的分开存放，名字是 `learning-keystore`，放在与 `cloud-clipboard-keystore` 相同的位置（各平台的位置见 [云剪贴板协议的密钥串存放位置](cloud-clipboard-e2e.md#密钥串的存放位置)），里面另外记着 `K_learn` 是否已经过反向核对。同一台设备的输入法、设置应用和面板共用一份；读、比、写在同一把跨进程锁里做完，不替换另一个设备身份，规则与剪贴板相同。退出登录时与会话一起删除，重新登录要重新批准。HarmonyOS 的键盘不生成身份，用设置应用经共享沙箱镜像过来的那份。
+
+编码是 `v1.<b64(设备私钥)>`；有账号密钥时再接 `.<key_id>.<b64(K_learn)>.<b64(批准者公钥)>.<状态>`，状态是 `confirmed`（本机生成的，或者用户已核对一致）、`unconfirmed`（已解开封装、等用户核对）、`rejected`（用户点了「不一致」，密钥一栏写 `-`，只留编号和批准者）或 `rotated`（本机原来有核对过的密钥，账号换了钥、本机还没被重新允许；密钥一栏写 `-`，只留旧编号和旧批准者，作为回报 `learning_key_rotated` 的标记）。只有 `confirmed` 的密钥能加解密。开头那段私钥就是设备身份，`Keystore::same_identity` 只比这一段。
+
+## 客户端驱动
+
+设备登记、建钥、批准、拒绝、移除、重置、反向核对和关闭由 Rust 的 sans-IO 驱动（`msime_client_core::cloud::learning_e2e`）完成，形状与 [云剪贴板的客户端驱动](cloud-clipboard-e2e.md#客户端驱动) 相同。C ABI 仍是 `msime_client_cloud_clipboard_e2e`（Android 经 JNI、HarmonyOS 经 NAPI 调同一个函数），请求顶层加 `"domain": "learning"`，开始和继续一个操作都要带；不带 `domain` 或为 `"clipboard"` 时是云剪贴板，已有宿主不受影响。桌面端和 client-services 在 Rust 里直接调 `learning_e2e::run`，身份冲突时答 `learning_keystore_conflict`。
+
+上传和下载密文不经驱动：同步那一轮用 `Keystore::seal_blob(代次, 明文流)` 写出信封、`Keystore::open_blob(设备编号, 信封)` 解开并核对头部，代次与防回滚下限的比较、合并由调用方做。
+
+`op`：
+
+| `op` | 请求 | 作用 |
+| --- | --- | --- |
+| `status` | `GET`，需要时登记本机、账号没有密钥时建第一把 | 打开开关和刷新设备页都用它。封装的批准者是本机时直接采用，是别的设备时进入 `confirm` |
+| `approve`（带 `device_id`） | `PUT /wraps/{device_id}` | 本机须有 `confirmed` 的当前密钥，否则 `learning_waiting_approval`；结果的 `approved` 带对方的反向核对码 |
+| `reject`（带 `device_id`） | `DELETE /devices/{device_id}` | 拒绝一台待批准的设备 |
+| `remove`（带 `device_id`） | `POST /rekey`，`revoke` 是这台设备 | 换钥，新密钥只封装给本机；账号还没有密钥时只删登记 |
+| `reset` | `POST /rekey`（没有密钥时 `POST /key`） | 「重置输入习惯同步」 |
+| `confirm`（带 `key_id`、`approver_device_id`） | 只改本机，再 `GET` 回报 | 用户核对反向核对码一致，密钥改成 `confirmed` |
+| `deny`（带 `key_id`、`approver_device_id`） | 只改本机，再 `GET` 回报 | 用户点「不一致」，见「反向核对」 |
+| `disable` | `DELETE /devices/{本机}` | 先在本机丢掉密钥再注销；本机已不在服务端（404）也算关好 |
+
+`confirm` 和 `deny` 带的是界面显示号码时那份 `confirm` 里的 `key_id` 和 `approver_device_id`。密钥串由输入法、设置应用和面板共用，号码显示出来之后，另一个进程取状态可能已经把待核对的密钥换成了别的批准者给的另一把；两项与本机待核对的不符时以 `invalid_state` 失败、不改本机，宿主重新 `status`，让用户核对新的号码。
+
+建钥、换钥、批准遇到 409 `learning_key_conflict` 时重取状态再来一次，一次操作最多取 4 次状态，超过时以 `learning_key_conflict` 失败。
+
+结果：`disable` 是 `{"status": "disabled", "device_id", "code"}`；其余是
+
+```json
+{"status": "ready|confirm|pending", "notice": null, "device_id": "…", "code": "1234 5678 9012 3456",
+ "confirm": {"code": "…", "key_id": "…", "approver_device_id": "…", "approver_name": "…"},
+ "approved": {"device_id": "…", "code": "…", "name": "…"},
+ "devices": [{"device_id", "name", "created_at", "last_seen", "approved", "current", "code"}]}
+```
+
+- `status`：`ready` 能批准和同步，要求本机持有核对过的当前密钥、并且服务端有给本机的当前封装；`confirm` 要用户核对 `confirm.code`（其余时候 `confirm` 为 `null`）；`pending` 等待另一台设备允许，界面显示本机的 `code`。本机的登记被服务端删过（会话过期清理、180 天清理、任何会话的 `DELETE /devices`）又重新登记时，密钥编号没变但本机已没有封装，报 `pending`：本机留着核对过的那把密钥，另一台设备重新允许之后直接回到 `ready`，不用再核对。同步轮次只在 `ready` 时上传。
+- `notice`：`pending` 时的原因，`learning_sas_mismatch`（拒绝过当前这份封装）或 `learning_key_rotated`（本机原来有密钥，账号换了钥，要重新被允许），否则为 `null`。`learning_key_rotated` 一直回报到本机重新拿到密钥（解开新封装或本机建钥、换钥）或关闭为止：密钥串里留着 `rotated` 标记，共用密钥串的设置页、面板和后台同步看到的都一样，不会被先取状态的那个进程用掉。
+- `approved`：只在 `approve` 的结果里有，批准者把 `approved.code` 显示给用户，与新设备的 `confirm.code` 核对。
+- `devices`：公钥与编号对得上的设备，最多 20 台，`code` 是各自的设备核对码。

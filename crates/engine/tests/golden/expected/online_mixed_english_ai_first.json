@@ -54,7 +54,7 @@
       "canonical_pinyin": "",
       "source": 4,
       "scheme": "quanpin",
-      "weight": 100,
+      "weight": 100000000,
       "answers_key": true
      },
      {
@@ -118,7 +118,7 @@
       "canonical_pinyin": "",
       "source": 4,
       "scheme": "quanpin",
-      "weight": 100,
+      "weight": 100000000,
       "answers_key": true
      },
      {
@@ -200,7 +200,7 @@
       "canonical_pinyin": "",
       "source": 4,
       "scheme": "quanpin",
-      "weight": 100,
+      "weight": 100000000,
       "answers_key": true
      },
      {

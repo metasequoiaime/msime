@@ -27,7 +27,7 @@ struct AISkinGenerationView: View {
           Button { generate() } label: {
             Label(proposals.isEmpty ? "抽三张皮肤" : "再抽三张", systemImage: "sparkles")
               .font(.headline).frame(maxWidth: .infinity).padding(.vertical, 8)
-          }.buttonStyle(.borderedProminent).disabled(busy)
+          }.buttonStyle(.borderedProminent).foregroundStyle(MetasequoiaTheme.onAccent).disabled(busy)
             .accessibilityIdentifier("generateAISkins")
           Text("AI 随机搭配插画、键帽造型与材质。抽到的皮肤可以继续编辑、保存或分享。")
             .font(.caption).foregroundStyle(.secondary)

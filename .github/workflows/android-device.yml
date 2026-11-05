@@ -79,7 +79,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p target/android
-          nohup bash platforms/android/tests/device/start-emulator.sh ${{ matrix.api }} > target/android/emulator.log 2>&1 &
+          # 模拟器进程在后台跑完整个 job，它怎么退出原先无从得知：2026-11-04 #10881 的 API 35 在五笔查码阶段模拟器消失，emulator.log 停在一行例行的 ColorBuffer 错误上，没有任何退出记录（#10889）。这里把退出状态追加到日志末尾：137 是被 SIGKILL（多半是主机 OOM），134/139 是模拟器自己崩溃。
+          # shellcheck disable=SC2016 # $1 和 $? 要在内层 shell 里展开。
+          nohup bash -c 'bash platforms/android/tests/device/start-emulator.sh "$1"; echo "start-emulator.sh exited with status $?"' _ ${{ matrix.api }} > target/android/emulator.log 2>&1 &
           serial="emulator-$((5580 - 2 * (35 - ${{ matrix.api }})))"
           echo "SERIAL=$serial" >> "$GITHUB_ENV"
           adb="$ANDROID_SDK_ROOT/platform-tools/adb"
@@ -126,6 +128,10 @@ jobs:
           adb="$ANDROID_SDK_ROOT/platform-tools/adb"
           timeout 30 "$adb" -s "$SERIAL" logcat -d > target/android/logcat.txt 2>&1 || true
           timeout 30 "$adb" -s "$SERIAL" logcat -d -b crash > target/android/crash.txt 2>&1 || true
+          # 模拟器中途消失时 adb 什么也拿不到，只能从主机这边找原因：内核日志里的 OOM 记录、此刻的内存，以及模拟器自带崩溃检测写下的 crashpad 数据（emulator.log 开头的 Storing crashdata in 那个目录）。
+          { free -m; echo; sudo dmesg -T | tail -n 300; } > target/android/host.txt 2>&1 || true
+          mkdir -p target/android/emulator-crash
+          cp -R /tmp/android-runner/emu-crash-*.db target/android/emulator-crash/ 2>/dev/null || true
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure() || cancelled()
         with:
@@ -137,6 +143,8 @@ jobs:
             target/android/device-crash-smoke.log
             target/android/device-smoke.log
             target/android/device-test/window.xml
+            target/android/host.txt
+            target/android/emulator-crash
           if-no-files-found: ignore
       - name: Stop the AVD
         if: always() && env.SERIAL != ''
