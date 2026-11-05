@@ -2,19 +2,19 @@
   "by_syllables": {
     "2": {
       "cases": 1859,
-      "found": 0.902,
+      "found": 0.904,
       "mrr": 0.134,
       "top1": 0.041,
       "top1_char_prefix": 0.114,
-      "top5": 0.201,
-      "top9": 0.315
+      "top5": 0.202,
+      "top9": 0.316
     },
     "3": {
       "cases": 364,
       "found": 0.794,
       "mrr": 0.563,
       "top1": 0.448,
-      "top1_char_prefix": 0.57,
+      "top1_char_prefix": 0.569,
       "top5": 0.72,
       "top9": 0.777
     },
@@ -23,7 +23,7 @@
       "found": 0.576,
       "mrr": 0.559,
       "top1": 0.545,
-      "top1_char_prefix": 0.643,
+      "top1_char_prefix": 0.642,
       "top5": 0.576,
       "top9": 0.576
     },
@@ -40,23 +40,23 @@
   "by_tag": {},
   "cases": 2775,
   "gold_source": {
-    "database": 2279
+    "database": 2283
   },
   "overall": {
     "cases": 2775,
-    "found": 0.821,
+    "found": 0.823,
     "mrr": 0.273,
     "top1": 0.193,
     "top1_char_prefix": 0.278,
-    "top5": 0.342,
-    "top9": 0.426
+    "top5": 0.343,
+    "top9": 0.427
   },
   "sample_failures": [
     {
       "gold": "阿爸",
       "id": "w-00001",
       "input": "ab",
-      "rank": 84,
+      "rank": 83,
       "top1": "把"
     },
     {
@@ -84,7 +84,7 @@
       "gold": "爱惜",
       "id": "w-00037",
       "input": "aix",
-      "rank": 113,
+      "rank": 112,
       "top1": "必须"
     },
     {
@@ -92,7 +92,7 @@
       "id": "w-00046",
       "input": "aizib",
       "rank": null,
-      "top1": "笔下"
+      "top1": "陛下"
     },
     {
       "gold": "岸边",
@@ -126,7 +126,7 @@
       "gold": "按理",
       "id": "w-00100",
       "input": "anl",
-      "rank": 66,
+      "rank": 65,
       "top1": "案例"
     },
     {
@@ -154,7 +154,7 @@
       "gold": "岸上",
       "id": "w-00145",
       "input": "ansh",
-      "rank": 20,
+      "rank": 18,
       "top1": "博士"
     },
     {
@@ -196,7 +196,7 @@
       "gold": "摆渡",
       "id": "w-00217",
       "input": "baid",
-      "rank": 33,
+      "rank": 32,
       "top1": "八核"
     },
     {
@@ -294,7 +294,7 @@
       "gold": "半圆",
       "id": "w-00379",
       "input": "bany",
-      "rank": 118,
+      "rank": 119,
       "top1": "操作"
     },
     {
@@ -315,7 +315,7 @@
       "gold": "包产",
       "id": "w-00406",
       "input": "baoch",
-      "rank": 78,
+      "rank": 77,
       "top1": "保持"
     },
     {
