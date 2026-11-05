@@ -34,7 +34,7 @@ Status: implemented
 ## Consequences
 
 - 收益：整段上屏不再依赖宿主 `insertText` 替换标记文本，自绘输入框里选词后只剩汉字。
-- 代价：自绘输入框里的部分选词仍走 `insertText`，那里可能还会留下拼音；要改它得先在真实跨进程代理上弄清剩余组字为什么会盖掉已选汉字。
+- 代价：自绘输入框里凡是同一个快照「上屏一段、还剩组字」的仍走 `insertText`，那里可能还会留下标记文本。不只是部分选词：韩语每打完一个音节就上屏它、接着组下一个（`crates/engine/src/korean/scheme.rs` 的 `finished_syllables_leave_the_composition`，就地组字方案总是标记组字），五笔顶字（出厂开）在行内预编辑开着时也是上屏首选接着标记第五码，都走这条路。要改它得先在真实跨进程代理上弄清剩余组字为什么会盖掉已选汉字。
 - 代价：整段上屏多了一对 `textWillChange`/`textDidChange` 回声（`setMarkedText` 接 `unmarkText` 会回调，`insertText` 不会），由 `OwnEditEchoWindow` 的时间窗认出，与快捷短语光标路径相同。
 - 带光标后缀的部分选词（快捷短语后面接着组字）本来就走改标记加取消标记，这次不动。
 
