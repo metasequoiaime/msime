@@ -2,23 +2,23 @@
   "app_themes": [
     {
       "dark": {
-        "accent": "#F0975F",
-        "accent_soft": "#F0975F40",
-        "background": "#21150F",
-        "candidate_accent": "#F0975F",
-        "card": "#2E1E15",
+        "accent": "#F3C14F",
+        "accent_soft": "#F3C14F40",
+        "background": "#1C1910",
+        "candidate_accent": "#F3C14F",
+        "card": "#28241A",
         "hair": "#2A2F2A",
-        "on_accent": "#3C2618"
+        "on_accent": "#3D3014"
       },
       "id": "siji",
       "light": {
-        "accent": "#B5562B",
-        "accent_soft": "#B5562B22",
-        "background": "#F6E9DC",
-        "candidate_accent": "#9F4214",
-        "card": "#FFFBF6",
-        "hair": "#B5562B33",
-        "on_accent": "#FFFFFF"
+        "accent": "#B07800",
+        "accent_soft": "#B0780022",
+        "background": "#FAF5E8",
+        "candidate_accent": "#905A00",
+        "card": "#FFFDF6",
+        "hair": "#B0780033",
+        "on_accent": "#1A1200"
       },
       "season": null,
       "seasonal": true,
@@ -74,23 +74,23 @@
     },
     {
       "dark": {
-        "accent": "#F0975F",
-        "accent_soft": "#F0975F40",
-        "background": "#21150F",
-        "candidate_accent": "#F0975F",
-        "card": "#2E1E15",
+        "accent": "#F3C14F",
+        "accent_soft": "#F3C14F40",
+        "background": "#1C1910",
+        "candidate_accent": "#F3C14F",
+        "card": "#28241A",
         "hair": "#2A2F2A",
-        "on_accent": "#3C2618"
+        "on_accent": "#3D3014"
       },
       "id": "qiushan",
       "light": {
-        "accent": "#B5562B",
-        "accent_soft": "#B5562B22",
-        "background": "#F6E9DC",
-        "candidate_accent": "#9F4214",
-        "card": "#FFFBF6",
-        "hair": "#B5562B33",
-        "on_accent": "#FFFFFF"
+        "accent": "#B07800",
+        "accent_soft": "#B0780022",
+        "background": "#FAF5E8",
+        "candidate_accent": "#905A00",
+        "card": "#FFFDF6",
+        "hair": "#B0780033",
+        "on_accent": "#1A1200"
       },
       "season": "autumn",
       "seasonal": false,

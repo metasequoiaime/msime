@@ -2092,7 +2092,7 @@ fn commit_raw_applies_windows_english_learning_policy() {
     assert_eq!(learned, "hello");
 }
 
-// 随包的 msime-english.db 按 Google unigram 计数给权重，拼音词库用的是自己的尺度，英文权重说明不了中文权重的高低（#1040、#1063 两次按权重提英文都撤回了）。所以输入能切成完整音节时（这里的 `ni`），混输从不让英文领先拼音的首选：不凭随包权重，不因为上屏过，也不因为置顶过；置顶只在英文词之间调顺序。英文只在拼音拆不开、英文完全匹配整段输入，或者用户把它固定在第一位时才领先，那条规则不比较权重，见 `CandidateQueries::mixed`。
+// 随包的 msime-english.db 按 Google unigram 计数给权重（这里的两个词都常见到能坐首选之后的优先位置，见 `english::takes_priority_slot`），拼音词库用的是自己的尺度，英文权重说明不了中文权重的高低（#1040、#1063 两次按权重提英文都撤回了）。所以输入能切成完整音节时（这里的 `ni`），混输从不让英文领先拼音的首选：不凭随包权重，不因为上屏过，也不因为置顶过；置顶只在英文词之间调顺序。英文只在拼音拆不开、英文完全匹配整段输入，或者用户把它固定在第一位时才领先，那条规则不比较权重，见 `CandidateQueries::mixed`。
 #[test]
 fn mixed_english_never_outranks_chinese_on_complete_pinyin() {
     const ENGLISH: u8 = 4;
@@ -2116,8 +2116,8 @@ fn mixed_english_never_outranks_chinese_on_complete_pinyin() {
             .unwrap()
             .execute_batch(&format!(
                 "{ENGLISH_SCHEMA}
-                 INSERT INTO english_words VALUES('nimbus','Nimbus',50000);
-                 INSERT INTO english_words VALUES('ninja','Ninja',30000);"
+                 INSERT INTO english_words VALUES('nimbus','Nimbus',5000000);
+                 INSERT INTO english_words VALUES('ninja','Ninja',3000000);"
             ))
             .unwrap();
     }

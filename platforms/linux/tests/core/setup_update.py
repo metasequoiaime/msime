@@ -206,14 +206,17 @@ def check_setup(harness: Harness) -> None:
     state = harness.installed("state-download")
     resources = Path(options(state)["resources"])
     staged = harness.staged(resources)
+    matching = (resources / "a.db").stat().st_ino
     result = harness.run("--state", str(state), "--download")
     assert result.returncode == 0, result
     assert Artifacts.requested == ["/b.db"], Artifacts.requested
-    # The directory the previous generation reads is never written: it stays exactly as it was, for the sessions still on it and for rollback.
-    assert (resources / "b.db").read_bytes() == harness.previous_b
+    # 正在用的目录从不原地改写；切换成功后它就没人用了，在会话仍被请走时删掉（#10735），不再一次次升级都留下一份。
+    assert not resources.exists(), sorted(resources.iterdir())
+    assert "已删除换下的旧词库目录" in result.stdout, result.stdout
     assert (staged / "b.db").read_bytes() == harness.current["b.db"]
     assert (staged / "helpcodes/xiaohe_helpcode.txt").read_text() == "测=ab\n"
-    assert (staged / "a.db").stat().st_ino == (resources / "a.db").stat().st_ino, "an artifact that already matched is linked, not fetched"
+    assert (staged / "a.db").stat().st_ino == matching, "an artifact that already matched is linked, not fetched"
+    assert (staged / "a.db").read_bytes() == harness.current["a.db"], "removing the old directory keeps the linked file"
     calls = harness.prepare_calls()
     assert len(calls) == 1 and calls[0][0] == "--refresh", calls
     temporary = Path(calls[0][1])
@@ -292,7 +295,8 @@ def check_setup(harness: Harness) -> None:
     assert harness.refreshes() == [{"lease": True, "locked": True, "resources": str(staged)}], harness.refreshes()
     assert options(state) == dict(document, resources=str(staged)), options(state)
     assert (staged / "b.db").read_bytes() == harness.current["b.db"]
-    assert (resources / "b.db").read_bytes() == damaged
+    # 换下的坏目录同样删掉。
+    assert not resources.exists()
     assert leftovers(state) == [], leftovers(state)
     assert "已改用校验通过的词库目录" in result.stdout and "未改写" not in result.stdout, result.stdout
     # 再修一次时记录的目录已经完好：什么都不取回，配置不再改写。
@@ -376,7 +380,46 @@ def check_setup(harness: Harness) -> None:
     assert result.returncode == 0, result
     assert Artifacts.requested == ["/b.db"], Artifacts.requested
     assert sorted(path.name for path in harness.staged(resources).iterdir()) == ["a.db", "b.db", "helpcodes"]
-    assert (resources / "retired.db").is_file() and (resources / "b.db").read_bytes() == harness.previous_b
+    assert not resources.exists()
+
+    # 默认状态目录的配置还指着换下的目录（用 --state 另建过一份状态）时，那份不删，提示用户确认后自己删。
+    shared = harness.scratch / "state-shared-data/resources"
+    state = harness.installed("state-shared", shared)
+    default = harness.installed("config/msime-client", shared)
+    result = harness.run("--update", "--download", "--state", str(state))
+    assert result.returncode == 0, result
+    assert options(state)["resources"] == str(harness.staged(shared)), options(state)
+    assert (shared / "b.db").read_bytes() == harness.previous_b
+    assert options(default)["resources"] == str(shared), options(default)
+    assert "保留未动" in result.stdout, result.stdout
+    # 默认状态目录自己更新时，它就是这次换下目录的那份配置，照常删掉。
+    result = harness.run("--update", "--download", "--state", str(default))
+    assert result.returncode == 0, result
+    assert not shared.exists()
+
+    # 换下的目录是符号链接时不跟过去删。
+    real = harness.scratch / "state-linked-real/resources"
+    state = harness.installed("state-linked-resources", real)
+    linked = harness.scratch / "state-linked-data/resources"
+    linked.parent.mkdir(parents=True)
+    linked.symlink_to(real, target_is_directory=True)
+    (state / "runtime-options.json").write_text(json.dumps(dict(options(state), resources=str(linked))))
+    result = harness.run("--update", "--download", "--state", str(state))
+    assert result.returncode == 0, result
+    assert linked.is_symlink() and (real / "b.db").read_bytes() == harness.previous_b
+
+    # 换下的是在线词库更新的下载代次（在线版本生效时 resources 指着 dictionary-updates/generations/<代次>）：它有清单和代次锁，由宿主的检查任务回收，这里不删，也不叫用户手动删。
+    state = harness.scratch / "state-online"
+    downloaded = state / "dictionary-updates/generations" / ("ab" * 32)
+    manifest = downloaded.parent / f"{downloaded.name}.json"
+    harness.installed("state-online", downloaded)
+    manifest.write_text("{}")
+    result = harness.run("--update", "--download", "--state", str(state))
+    assert result.returncode == 0, result
+    assert options(state)["resources"] == str(harness.staged(downloaded)), options(state)
+    assert (downloaded / "b.db").read_bytes() == harness.previous_b
+    assert manifest.is_file()
+    assert "在线词库更新下载的版本" in result.stdout and "已删除" not in result.stdout, result.stdout
 
     # A refresh that fails leaves the options naming the previous directory, which was never written, and says where the new dictionaries wait.
     state = harness.installed("state-refresh-failed")
