@@ -193,6 +193,10 @@ final class ShuangpinTouchDeviceChecks {
                 .put("emoji", false).put("kaomoji", false))
             .put("touch_keyboard_schemes", new JSONObject()
                 .put("enabled", new JSONArray().put(profile)).put("selected", profile));
+        // 整句联想用「标准」：这里比较的是有无按下点两臂的字面排序，逐键重排模型不在被测范围内。#10838 起跑不进逐键预算的设备（CI 的 API 35 模拟器诊断写 `keyboard reranker over budget` 后是 `at pause`）在停顿 300 ms 后用模型重排候选，`aivv` 的首选会从字面的「哎追」换成模型的「爱追」；普通点击那一臂在重排前就读走了首选，触摸那一臂等到的已是重排后的，两臂比的不是同一种排序（#10903）。迁移标记一并写上，读入时不会把「标准」改回默认的「增强」。
+        JSONObject association = configured.optJSONObject("sentence_association");
+        configured.put("sentence_association", (association == null ? new JSONObject() : association)
+            .put("neural_keyboard", false)).put("keyboard_reranker_migrated", true);
         if (preferences.exists()) revision = Math.max(revision,
             new JSONObject(new String(Files.readAllBytes(preferences.toPath()), StandardCharsets.UTF_8)).getLong("revision"));
         t.publish(preferences, new JSONObject().put("format_version", 1).put("revision", ++revision)
