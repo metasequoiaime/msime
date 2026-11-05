@@ -118,6 +118,8 @@ pub struct Dictionary {
     pub essay_kept: usize,
     /// `curation/cantonese-word-vetoes.txt` 删掉的条目数。
     pub vetoed: usize,
+    /// 已并入香港官方地名时，随库元数据同时声明 CSDI 条款。
+    pub hong_kong_places: bool,
 }
 
 /// `custom/cantonese.txt` 的一行。
@@ -760,7 +762,11 @@ pub fn write(dictionary: &Dictionary, path: &Path, source_commit: &str) -> Resul
     crate::language_writer::write(
         path,
         source_commit,
-        LICENSE,
+        if dictionary.hong_kong_places {
+            crate::hong_kong_places::LICENSE
+        } else {
+            LICENSE
+        },
         dictionary.syllables.iter().map(String::as_str),
         &dictionary.entries,
     )
