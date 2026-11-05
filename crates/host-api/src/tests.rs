@@ -350,6 +350,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         shuangpin_preedit_uses_raw: true,
         shuangpin_preedit_separated: false,
         force_cantonese_shuangpin: false,
+        cantonese_output_conversion: None,
         single_character_only: false,
         caret_edit_suffix: false,
         learning: false,
@@ -2107,6 +2108,51 @@ fn caret_edit_suffix_reaches_the_engine_after_composition_and_the_view() {
     read(msime_client_destroy(handle));
 }
 
+/// 粤拼输出简体是 Engine 偏好：打开后 Engine 拿到繁转简，关掉后不再转换；默认关，粤拼照旧输出繁体。
+#[test]
+fn cantonese_simplified_output_hands_the_engine_a_conversion() {
+    let mut preferences = Preferences::default();
+    assert!(!preferences.cantonese_simplified_output);
+    assert!(cantonese_output_conversion(&preferences).is_none());
+    preferences.cantonese_simplified_output = true;
+    let conversion = cantonese_output_conversion(&preferences).expect("conversion");
+    assert_eq!(conversion.apply("佢係嗰個人喎"), "佢系嗰个人喎");
+
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host(dir.path());
+    read(msime_client_focus(handle, true));
+    SESSIONS.with(|sessions| {
+        assert!(sessions.borrow()[&handle]
+            .options
+            .cantonese_output_conversion
+            .is_none());
+    });
+    let mut preferences = Preferences {
+        cantonese_simplified_output: true,
+        ..Preferences::default()
+    };
+    assert_eq!(update(handle, 1, &preferences)["value"]["deferred"], false);
+    SESSIONS.with(|sessions| {
+        let session = &sessions.borrow()[&handle];
+        assert_eq!(
+            session.options.cantonese_output_conversion,
+            Some(TextConversion(
+                msime_client_core::chinese_conversion::cantonese_to_simplified
+            ))
+        );
+        assert!(session.applied.cantonese_simplified_output);
+    });
+    preferences.cantonese_simplified_output = false;
+    update(handle, 2, &preferences);
+    SESSIONS.with(|sessions| {
+        assert!(sessions.borrow()[&handle]
+            .options
+            .cantonese_output_conversion
+            .is_none());
+    });
+    read(msime_client_destroy(handle));
+}
+
 #[test]
 fn wubi_auto_commit_unique_reaches_the_runtime_without_waiting_for_the_engine() {
     let dir = tempfile::tempdir().unwrap();
@@ -2338,6 +2384,16 @@ fn wubi_profile_reaches_engine_options() {
         let session = &sessions.borrow()[&handle];
         assert_eq!(session.options.wubi_profile, 1);
         assert_eq!(session.applied.wubi_profile, WubiProfile::Wubi98);
+    });
+    let preferences = Preferences {
+        wubi_profile: WubiProfile::WubiXsj,
+        ..preferences
+    };
+    update(handle, 2, &preferences);
+    SESSIONS.with(|sessions| {
+        let session = &sessions.borrow()[&handle];
+        assert_eq!(session.options.wubi_profile, 2);
+        assert_eq!(session.applied.wubi_profile, WubiProfile::WubiXsj);
     });
     read(msime_client_destroy(handle));
 }
