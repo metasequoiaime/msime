@@ -206,9 +206,9 @@ pub fn open_prepared_runtime_paths_for(
             return Err(incomplete());
         }
         check_dictionary_format(&main_db, assets::MAIN_DICTIONARY)?;
-        if is_real_file(&resources.join(assets::WUBI_DICTIONARY))
-            && !has_split_wubi_tables(&main_db)?
-        {
+        let wubi = resources.join(assets::WUBI_DICTIONARY);
+        // 随包码表里有、工作主词库里还没并进来的五笔表（例如升级后新加的新世纪表）要等能写的一方准备代次时并入，只读的这边不能当它就绪。
+        if is_real_file(&wubi) && lacks_split_wubi_tables(&main_db, &wubi)? {
             return Err(incomplete());
         }
     }
