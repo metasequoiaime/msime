@@ -57,6 +57,24 @@ fn local_translation_selection_never_exposes_cloud_configuration() {
     let next = read(msime_client_translation_query(handle))["value"].clone();
     assert_eq!(next["target_language"], "ja");
     assert!(next["generation"].as_u64().unwrap() > generation);
+    // 离线释义仍可查询，但关闭候选翻译后不能继续推理，也不能回退到保留的云配置。
+    preferences.candidate_translations = false;
+    preferences.candidate_english_gloss = true;
+    let revision = update(handle, 2, &preferences);
+    assert_eq!(revision["ok"], true);
+    let gloss = read(msime_client_translation_query(handle))["value"].clone();
+    assert!(gloss.is_object());
+    assert_eq!(gloss["provider"], "none");
+    assert_eq!(gloss["english_gloss"], true);
+    assert_eq!(gloss["translation_account"], false);
+    for field in [
+        "tencent_tmt",
+        "niutrans",
+        "custom_translation",
+        "ai_assistant",
+    ] {
+        assert!(gloss[field].is_null(), "{field}");
+    }
     read(msime_client_destroy(handle));
 }
 
@@ -77,6 +95,31 @@ fn local_translation_settings_response_contains_no_credentials() {
     assert_eq!(saved["value"].as_object().unwrap().len(), 2);
     assert_eq!(saved["value"]["local_translation"]["target_language"], "bo");
     assert_eq!(call(update)["ok"], false);
+}
+
+#[cfg(any(
+    target_os = "macos",
+    target_os = "windows",
+    all(target_os = "linux", not(target_env = "ohos"))
+))]
+#[test]
+fn local_translation_command_remains_available_with_candidate_translation_off() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut preferences = chinese_preferences();
+    preferences.local_modes.command = true;
+    preferences.candidate_translations = false;
+    preferences.candidate_english_gloss = false;
+    preferences.local_translation.enabled = true;
+    let handle = plugin_host(dir.path(), preferences);
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    for key in b"/fyhello" {
+        read(msime_client_character(handle, *key, false));
+    }
+    let query = read(msime_client_translation_query(handle))["value"].clone();
+    assert_eq!(query["provider"], "local");
+    assert_eq!(query["sentence"], true);
+    assert_eq!(query["target_language"], "zh");
+    read(msime_client_destroy(handle));
 }
 
 #[cfg(unix)]

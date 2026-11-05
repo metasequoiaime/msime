@@ -204,7 +204,13 @@ fn selected_translation_services(
     )) && preferences.local_translation.enabled
     {
         return Ok(TranslationServices {
-            provider: TranslationService::Local,
+            // 普通候选受候选翻译开关控制；显式 /fy 调用会传 true。
+            // 关闭时仍返回独占的空服务，不能落到保留的云配置。
+            provider: if account_allowed {
+                TranslationService::Local
+            } else {
+                TranslationService::Off
+            },
             translation_account: false,
             custom_translation: None,
             tencent_tmt: None,
