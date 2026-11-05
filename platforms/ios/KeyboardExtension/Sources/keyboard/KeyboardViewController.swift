@@ -7900,21 +7900,24 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return TypingSource(rawValue: inputScheme.rawValue) ?? .unknown
   }
 
-  /// 运行时提交替换行内预编辑；显式定位在同一次临时标记里指定选区，再取消标记提交完整正文。
+  /// 运行时提交替换行内预编辑；显式定位在同一次临时标记里指定选区，再取消标记提交完整正文。`continuesComposition` 说明同一次快照上屏后还接着组字，写法见 `InlineCompositionPolicy.commit`。
   private func insertOwnText(_ text: String, source: TypingSource? = nil, replacingComposition: Bool = false,
-                             cursorSuffix: String? = nil) {
+                             cursorSuffix: String? = nil, continuesComposition: Bool = false) {
     let cursor = cursorSuffix.flatMap { suffix -> Int? in
       guard !suffix.isEmpty, text.utf16.suffix(suffix.utf16.count).elementsEqual(suffix.utf16) else { return nil }
       return text.utf16.count - suffix.utf16.count
     }
     if replacingComposition && (!inlineMarkedText.isEmpty || cursor != nil) {
       // 正文与 UTF-16 选区一起交给 UIKit，避免方向移动在 emoji、组合字符或双向文本里猜错单位。
+      let edit = InlineCompositionPolicy.commit(text, marked: inlineMarkedText, cursor: cursor,
+                                                continuesComposition: continuesComposition)
       inlineMarkedText = ""
-      if let cursor {
-        pairedPunctuation.clear()
-        textDocumentProxy.setMarkedText(text, selectedRange: NSRange(location: cursor, length: 0))
+      if cursor != nil { pairedPunctuation.clear() }
+      switch edit {
+      case .markThenUnmark(let caret):
+        textDocumentProxy.setMarkedText(text, selectedRange: NSRange(location: caret, length: 0))
         textDocumentProxy.unmarkText()
-      } else {
+      case .insert:
         textDocumentProxy.insertText(text)
       }
       noteOwnEdit()
@@ -8140,7 +8143,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
       // 原组字和数字作为同一次文档替换提交；先撤标记再插数字会读到尚未更新的选区，数字可能跑到拼音前面。
       insertOwnText(commit + (appendingLiteral ?? ""), source: source,
-                    replacingComposition: snapshot.commitText != nil, cursorSuffix: suffix)
+                    replacingComposition: snapshot.commitText != nil, cursorSuffix: suffix,
+                    continuesComposition: !snapshot.preedit.isEmpty)
     }
     let wasComposing = renderedComposition
     let wasKoreanHanjaListOpen = koreanHanjaListOpen

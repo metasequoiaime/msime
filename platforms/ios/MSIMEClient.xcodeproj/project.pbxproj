@@ -663,6 +663,7 @@
 		8EFCA1155DB84DD934A228F4 /* CloudClipboardTimePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96A045C67FE4D3D0EDE9F574 /* CloudClipboardTimePolicy.swift */; };
 		8F1FBAA931A65702C0CF189E /* SchemeDocumentSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 927C918D7BFAD1A07BA6622E /* SchemeDocumentSettingsTests.swift */; };
 		8F70D3D129D212B7D1A7352E /* LongEnglishCandidateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F982C925445372025F6E0BC2 /* LongEnglishCandidateTests.swift */; };
+		8FA2FCEBF86742DFC1B7BBA1 /* MarkedTextCommitHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4969CFCDB7777F7202F1243 /* MarkedTextCommitHostTests.swift */; };
 		901BB4A2F37A9913DC06A8D7 /* KeyboardPrivacyPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBE00EFC3A5D853020887969 /* KeyboardPrivacyPreference.swift */; };
 		9083CF22972F148E879F20F5 /* SharedNumber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90BC92FC1B37877C543213DF /* SharedNumber.swift */; };
 		9083E43C44A7CAEDFF126413 /* KeyboardClipboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09ADCCD7226D6D9037DF7D6F /* KeyboardClipboardView.swift */; };
@@ -1703,6 +1704,7 @@
 		D3AB2A5BF965499D6D662031 /* FrequencyAdjustmentPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrequencyAdjustmentPreference.swift; sourceTree = "<group>"; };
 		D3E3B76F0BBB8D6FA9A5F7B0 /* TypingStatisticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TypingStatisticsView.swift; sourceTree = "<group>"; };
 		D41C3E6D3FD0E3BBC7790D16 /* DeveloperOptionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeveloperOptionsView.swift; sourceTree = "<group>"; };
+		D4969CFCDB7777F7202F1243 /* MarkedTextCommitHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkedTextCommitHostTests.swift; sourceTree = "<group>"; };
 		D4E8C4583A1D77988CA29610 /* wordbooks */ = {isa = PBXFileReference; lastKnownFileType = folder; name = wordbooks; path = ../../target/ios/wordbooks; sourceTree = SOURCE_ROOT; };
 		D5166600D9389944E2EC2ACC /* rerank-model */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "rerank-model"; path = "../../target/ios/rerank-model"; sourceTree = SOURCE_ROOT; };
 		D57EB76800825345657C463C /* CloudSnapshotStagingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSnapshotStagingTests.swift; sourceTree = "<group>"; };
@@ -2345,6 +2347,7 @@
 				3B7C88992D4866617DCC4285 /* KoreanDubeolsikTests.swift */,
 				1E03EB48F31CAB4266A11C60 /* LanguageSchemesTests.swift */,
 				252FD97AF6F8C9E6CFCAA2D3 /* LetterCornerHintTests.swift */,
+				D4969CFCDB7777F7202F1243 /* MarkedTextCommitHostTests.swift */,
 				AA9AEEAB03B1005888107217 /* MLKitStatsOptOutTests.swift */,
 				7F39134CB30EC12FDBF7908E /* NextWordPredictionTests.swift */,
 				CFB65ECFC97C3DB5B0DE0A82 /* NineKeyShuangpinTests.swift */,
@@ -3603,6 +3606,7 @@
 				795DE58558905FF83E86FBD3 /* MLKitStatsOptOut.swift in Sources */,
 				6485CD16F8FFD10148A63A9A /* MLKitStatsOptOutTests.swift in Sources */,
 				14B842D20FCD4A43757314B8 /* MSIMELogoShape.swift in Sources */,
+				8FA2FCEBF86742DFC1B7BBA1 /* MarkedTextCommitHostTests.swift in Sources */,
 				3779D525B9020247AB817BDF /* MetasequoiaInputSessionBridge.swift in Sources */,
 				FF1818EC41EBBEF4FB50232F /* MetasequoiaTheme.swift in Sources */,
 				0197A005AD149E2B2AE79D9B /* MorePanelFoldTests.swift in Sources */,
