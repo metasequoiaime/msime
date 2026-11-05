@@ -2,6 +2,7 @@
 #import <AppKit/AppKit.h>
 #import <InputMethodKit/InputMethodKit.h>
 #import "MSIMEClientSession.h"
+#import "GlobalVoicePreferenceNotification.h"
 
 // 范围值来自共享 Rust 偏好；本层只画原生菜单，并通过 Host API 修改自己拥有的一个字段。
 static inline BOOL MSIMEVoiceScopeSnapshotValid(NSDictionary *snapshot) {
@@ -197,7 +198,7 @@ static inline void MSIMESelectGlobalVoiceScope(id sender, dispatch_block_t didSa
             if (success) state[@"epoch"] = @([state[@"epoch"] unsignedLongLongValue] + 1);
             MSIMEAcceptGlobalVoiceScopeResult(state, baseline, success ? saved : nil);
             MSIMEUpdateVoiceScopeMenus(state);
-            if (success) { if (didSave) didSave(); }
+            if (success) { MSIMENotifyGlobalVoicePreferencesChanged(); if (didSave) didSave(); }
             else if (failed) failed();
         });
     });

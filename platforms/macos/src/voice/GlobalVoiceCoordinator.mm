@@ -1,4 +1,5 @@
 #import "GlobalVoiceCoordinator.h"
+#import "GlobalVoicePreferenceNotification.h"
 #import "GlobalVoiceBackground.h"
 #import "GlobalVoiceState.h"
 #import "VoiceHoldShortcut.h"
@@ -145,6 +146,8 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
     std::vector<EventHotKeyRef> _hotkeys;
     NSUInteger _keysDown;
     NSUInteger _registeredMask;
+    NSMutableDictionary<NSNumber *, NSNumber *> *_hotkeyConflicts;
+    NSMutableSet<NSNumber *> *_attemptedHotkeys;
     UInt32 _pressedCodes[2];
     NSUInteger _replayedKeys;
     pid_t _replayPID;
@@ -155,6 +158,7 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
     NSDictionary *_preferences;
     id _revision;
     BOOL _loading;
+    BOOL _reloadPending;
     BOOL _enabled;
     BOOL _permissionAsked;
     BOOL _holding;
@@ -194,6 +198,7 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
 - (instancetype)initWithTarget:(id<MSIMEGlobalVoiceTarget> (^)(void))target
                 deliveryTarget:(id<MSIMEGlobalVoiceDeliveryTarget> (^)(void))deliveryTarget {
     if (!(self = [super init])) return nil;
+    _hotkeyConflicts = [NSMutableDictionary dictionary];
     _target = [target copy];
     _deliveryTarget = [deliveryTarget copy];
     __weak MSIMEGlobalVoiceCoordinator *weakSelf = self;
@@ -222,7 +227,9 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
         if (self && self->_owner && (self->_deliveryStarted || ![self->_owner globalVoiceBusy]))
             self->_state.hostSelectedSource(mode.UTF8String ?: "");
     };
-    _poll = [NSTimer scheduledTimerWithTimeInterval:1 repeats:YES block:^(NSTimer *timer) { (void)timer; [weakSelf reload]; }];
+    [self schedulePreferencePolling:30];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(preferencesChanged:)
+        name:MSIMEGlobalVoicePreferencesDidChangeNotification() object:nil];
     [self reload];
     NSNotificationCenter *workspace = NSWorkspace.sharedWorkspace.notificationCenter;
     [workspace addObserver:self selector:@selector(suspended:) name:NSWorkspaceWillSleepNotification object:nil];
@@ -241,8 +248,29 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
 - (NSString *)backgroundRevision { return MSIMEGlobalVoiceBackgroundRevision(NSBundle.mainBundle); }
 - (BOOL)ownsBackgroundHost { return MSIMEGlobalVoiceInstalledHost(NSBundle.mainBundle); }
 - (SMAppService *)backgroundService { return [SMAppService agentServiceWithPlistName:AgentPlist]; }
+- (void)schedulePreferencePolling:(NSTimeInterval)interval {
+    if (_poll.valid && _poll.timeInterval == interval) return;
+    [_poll invalidate];
+    __weak MSIMEGlobalVoiceCoordinator *weakSelf = self;
+    _poll = [NSTimer scheduledTimerWithTimeInterval:interval repeats:YES block:^(NSTimer *timer) { (void)timer; [weakSelf reload]; }];
+}
+- (void)preferencesChanged:(NSNotification *)notification {
+    (void)notification;
+    if (NSThread.isMainThread) {
+        if (_loading) _reloadPending = YES;
+        else [self reload];
+    }
+    else {
+        __weak MSIMEGlobalVoiceCoordinator *weakSelf = self;
+        dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf preferencesChanged:nil]; });
+    }
+}
 - (void)applySnapshot:(NSDictionary *)snapshot {
-    const BOOL trusted = [self accessibilityTrusted];
+    NSDictionary *voice = snapshot[@"preferences"][@"voice_input"];
+    const BOOL wanted = [voice[@"hotkey_global"] isEqual:@YES] && ![voice[@"enabled"] isEqual:@NO];
+    // 关闭时只保留外部写入的低频兜底；已启用时及时观察批准撤销与监听重试。
+    if (snapshot) [self schedulePreferencePolling:wanted ? 1 : 30];
+    const BOOL trusted = (_enabled || wanted) ? [self accessibilityTrusted] : _trusted;
     const BOOL trustChanged = _trusted != trusted;
     _trusted = trusted;
     if (!snapshot) {
@@ -267,6 +295,12 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
         MSIMEApplySharedVoicePreferences(_preferences[@"voice_input"], NSUserDefaults.standardUserDefaults);
     [self configure];
 }
+- (void)completePreferenceReload:(NSDictionary *)snapshot {
+    _loading = NO;
+    [self applySnapshot:snapshot];
+    // 保存可能发生在旧读取开始之后，保留一次追读，不能再等三十秒兜底。
+    if (_reloadPending) { _reloadPending = NO; [self reload]; }
+}
 - (void)reload {
     if (_loading) return;
     _loading = YES;
@@ -278,8 +312,7 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
         dispatch_async(dispatch_get_main_queue(), ^{
             MSIMEGlobalVoiceCoordinator *self = weakSelf;
             if (!self) return;
-            self->_loading = NO;
-            [self applySnapshot:snapshot];
+            [self completePreferenceReload:snapshot];
         });
     });
 }
@@ -335,7 +368,7 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
         _serviceErrorShown = YES;
         [self showFailure:@"后台语音尚未获准。请在系统设置的「通用 > 登录项与扩展」允许水杉后台运行。"];
     }
-    if (!enabled) { _permissionAsked = NO; _serviceErrorShown = NO; _listenerErrorShown = NO; _keysDown = 0; return; }
+    if (!enabled) { [_hotkeyConflicts removeAllObjects]; _permissionAsked = NO; _serviceErrorShown = NO; _listenerErrorShown = NO; _keysDown = 0; return; }
     // 注册失败、更新正在迁移或用户撤销后台批准时，全局入口都必须关闭；局部 IMK 快捷键继续可用。
     if (_backgroundRegistration.busy || serviceError || service.status != SMAppServiceStatusEnabled) return;
     _serviceErrorShown = NO;
@@ -377,6 +410,7 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
         return noErr;
     }, 2, types, (__bridge void *)self, &_hotkeyHandler);
     if (handlerStatus != noErr) { [self removeKeyboard]; [self showFailure:@"无法注册全局语音事件，请重启水杉输入法后重试。"]; return; }
+    [self beginHotkeyRegistration];
     if (![voice[@"hotkey_ctrl_f9"] isEqual:@NO]) [self registerCode:101 modifiers:controlKey identifier:0];
     NSData *body = [NSJSONSerialization dataWithJSONObject:@{@"keybindings": _preferences[@"keybindings"] ?: NSNull.null} options:0 error:nil];
     char *raw = body ? msime_client_toggle_hotkey_chords((const uint8_t *)body.bytes, body.length) : nullptr;
@@ -392,16 +426,36 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
         if (code >= 0 && !(code == 101 && modifiers == controlKey && ![voice[@"hotkey_ctrl_f9"] isEqual:@NO]))
             [self registerCode:code modifiers:modifiers identifier:1];
     }
+    [self finishHotkeyRegistration];
     MSIMEGlobalVoiceHost().keyboard = true;
+}
+- (void)beginHotkeyRegistration { _attemptedHotkeys = [NSMutableSet set]; }
+- (void)finishHotkeyRegistration {
+    for (NSNumber *identifier in _hotkeyConflicts.allKeys)
+        if (![_attemptedHotkeys containsObject:identifier]) [_hotkeyConflicts removeObjectForKey:identifier];
+    _attemptedHotkeys = nil;
+}
+- (BOOL)systemHotkeyConflictForCode:(UInt32)code modifiers:(UInt32)modifiers {
+    return SystemHotkeyConflict(code, modifiers);
+}
+- (OSStatus)registerSystemHotkeyCode:(UInt32)code modifiers:(UInt32)modifiers identifier:(UInt32)identifier key:(EventHotKeyRef *)key {
+    return RegisterEventHotKey(code, modifiers, {'MSVG', identifier}, GetApplicationEventTarget(), 0, key);
 }
 - (void)registerCode:(UInt32)code modifiers:(UInt32)modifiers identifier:(UInt32)identifier {
     EventHotKeyRef key = nullptr;
-    if (SystemHotkeyConflict(code, modifiers) || RegisterEventHotKey(code, modifiers, {'MSVG', identifier}, GetApplicationEventTarget(), 0, &key) != noErr) {
-        [self showFailure:@"语音组合键与系统或其他应用冲突。请在快捷键设置中更换现有语音绑定。"];
+    NSNumber *binding = @(((uint64_t)modifiers << 32) | code);
+    [_attemptedHotkeys addObject:@(identifier)];
+    if ([self systemHotkeyConflictForCode:code modifiers:modifiers] || [self registerSystemHotkeyCode:code modifiers:modifiers identifier:identifier key:&key] != noErr) {
+        // 偏好、布局或权限重配仍要重试注册，但同一冲突只提示一次。
+        if (![_hotkeyConflicts[@(identifier)] isEqual:binding])
+            [self showFailure:@"语音组合键与系统或其他应用冲突。请在快捷键设置中更换现有语音绑定。"];
+        _hotkeyConflicts[@(identifier)] = binding;
         return;
     }
+    [_hotkeyConflicts removeObjectForKey:@(identifier)];
     _hotkeyCodes[identifier] = code; _hotkeyModifiers[identifier] = modifiers;
-    _hotkeys.push_back(key); _registeredMask |= 1u << identifier;
+    if (key) _hotkeys.push_back(key);
+    _registeredMask |= 1u << identifier;
 }
 - (void)handleHotkey:(UInt32)identifier down:(BOOL)down {
     if (identifier > 1) return;
@@ -758,5 +812,6 @@ BOOL MSIMEHandleGlobalVoiceBootstrap(int argc, const char *argv[], int *exitCode
     [_poll invalidate]; [_sessionPoll invalidate]; [self removeKeyboard];
     [NSWorkspace.sharedWorkspace.notificationCenter removeObserver:self];
     [NSDistributedNotificationCenter.defaultCenter removeObserver:self];
+    [NSNotificationCenter.defaultCenter removeObserver:self];
 }
 @end

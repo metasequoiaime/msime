@@ -4599,6 +4599,7 @@ static __weak MSIMEInputController *MSIMEQueuedPreferenceSaver;
             MSIMEInputController *controller = weakSelf;
             if (!saved || saveError) msime_macos_diagnostic_write("preferences_save_failed");
             else {
+                MSIMENotifyGlobalVoicePreferencesChanged();
                 if (controller) [controller reloadPreferences];
                 // 从 한 切到 中 是一次方案切换，只能通过这份文档到达 Engine。如果等持有焦点的控制器每秒一次的轮询，期间敲的键仍按韩文组字，正在组的音节又会把新方案挡到它结束，于是菜单栏已经显示 中，用户打出来的却还是韩文。
                 MSIMEInputController *focused = MSIMEFocusedController;

@@ -214,9 +214,28 @@ static void TestResetRefreshRejectsPriorHostRead(void) {
     }
 }
 
+static void TestSaveNotification(void) {
+    __block NSUInteger notifications = 0;
+    id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEGlobalVoicePreferencesDidChangeNotification()
+        object:nil queue:nil usingBlock:^(NSNotification *notification) { (void)notification; assert(NSThread.isMainThread); ++notifications; }];
+    for (NSNumber *success in @[@NO, @YES]) {
+        NSString *directory = [@"/synthetic-notify/" stringByAppendingString:NSUUID.UUID.UUIDString];
+        MSIMERecordGlobalVoiceScopeSnapshot(directory, Snapshot(NO), MSIMEGlobalVoiceScopeReadEpoch(directory));
+        NSMenuItem *item = [MSIMEGlobalVoiceScopeMenuItem(Snapshot(NO), nil, @selector(choose:)).submenu itemAtIndex:1];
+        item.representedObject = directory;
+        __block BOOL done = NO;
+        MSIMESelectGlobalVoiceScope(item, ^{ assert(success.boolValue); done = YES; }, ^{ assert(!success.boolValue); done = YES; },
+            ^NSDictionary *(NSString *path) { (void)path; return Snapshot(NO); },
+            ^NSDictionary *(NSString *path, uint64_t revision, NSDictionary *snapshot) { (void)path; (void)revision; return success.boolValue ? snapshot : nil; });
+        WaitUntil(^{ return done; });
+        assert(notifications == (success.boolValue ? 1 : 0));
+    }
+    [NSNotificationCenter.defaultCenter removeObserver:observer];
+}
+
 int main(void) {
     @autoreleasepool {
         [NSApplication sharedApplication];
-        TestMenuStates(); TestConflictReload(); TestNativeActionPersists(); TestReadDoesNotBlockMenu(); TestWarmSnapshotAndLateRead(); TestSaveAfterDocumentReset(); TestLateSavePreservesNewerSnapshot(); TestResetRefreshRejectsPriorHostRead();
+        TestSaveNotification(); TestMenuStates(); TestConflictReload(); TestNativeActionPersists(); TestReadDoesNotBlockMenu(); TestWarmSnapshotAndLateRead(); TestSaveAfterDocumentReset(); TestLateSavePreservesNewerSnapshot(); TestResetRefreshRejectsPriorHostRead();
     }
 }

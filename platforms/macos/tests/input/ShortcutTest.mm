@@ -14050,12 +14050,52 @@ static void TestCrossCommitSpacing() {
 - (BOOL)selectSourceIdentifier:(NSString *)identifier;
 - (id)focusIdentity;
 - (NSRunningApplication *)frontApplication;
+- (void)beginHotkeyRegistration;
+- (void)finishHotkeyRegistration;
+- (void)registerCode:(UInt32)code modifiers:(UInt32)modifiers identifier:(UInt32)identifier;
+- (void)completePreferenceReload:(NSDictionary *)snapshot;
 - (void)applySnapshot:(NSDictionary *)snapshot;
 - (BOOL)accessibilityTrusted;
 - (BOOL)keyboardListenerAvailable;
 - (SMAppService *)backgroundService;
 - (void)showFailure:(NSString *)detail;
 @end
+@interface GlobalVoiceConflictProbe : MSIMEGlobalVoiceCoordinator
+@property(nonatomic) BOOL conflict;
+@property(nonatomic) OSStatus registrationStatus;
+@property(nonatomic) NSUInteger warnings;
+@end
+@implementation GlobalVoiceConflictProbe
+- (void)reload {}
+- (BOOL)systemHotkeyConflictForCode:(UInt32)code modifiers:(UInt32)modifiers { (void)code; (void)modifiers; return _conflict; }
+- (OSStatus)registerSystemHotkeyCode:(UInt32)code modifiers:(UInt32)modifiers identifier:(UInt32)identifier key:(EventHotKeyRef *)key {
+    (void)code; (void)modifiers; (void)identifier; *key = nullptr; return _registrationStatus;
+}
+- (void)showFailure:(NSString *)detail { assert(detail.length); ++_warnings; }
+@end
+static void TestGlobalVoiceConflicts() {
+    GlobalVoiceConflictProbe *probe = [[GlobalVoiceConflictProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)nil; }];
+    probe.conflict = YES;
+    [probe registerCode:101 modifiers:controlKey identifier:0];
+    [probe registerCode:101 modifiers:controlKey identifier:0];
+    assert(probe.warnings == 1);
+    [probe beginHotkeyRegistration];
+    [probe registerCode:101 modifiers:controlKey identifier:0];
+    [probe finishHotkeyRegistration];
+    assert(probe.warnings == 1);
+    [probe registerCode:100 modifiers:controlKey identifier:0];
+    assert(probe.warnings == 2); // 改绑后的另一冲突需要反馈。
+    probe.conflict = NO;
+    [probe registerCode:100 modifiers:controlKey identifier:0];
+    probe.registrationStatus = eventHotKeyExistsErr;
+    [probe registerCode:100 modifiers:controlKey identifier:0];
+    [probe registerCode:100 modifiers:controlKey identifier:0];
+    assert(probe.warnings == 3); // 成功后重新失败，Carbon 冲突也只提示一次。
+    [probe beginHotkeyRegistration]; [probe finishHotkeyRegistration];
+    [probe registerCode:100 modifiers:controlKey identifier:0];
+    assert(probe.warnings == 4); // 移除再添加属于新的用户尝试。
+}
+
 @interface GlobalVoiceServiceProbe : NSObject
 @property(nonatomic) SMAppServiceStatus status;
 @property(nonatomic) NSUInteger registrations;
@@ -14100,6 +14140,45 @@ static void TestCrossCommitSpacing() {
     [self setValue:@(NSProcessInfo.processInfo.systemUptime + 5) forKey:@"nextListenerRetry"];
 }
 @end
+@interface GlobalVoicePollingProbe : GlobalVoiceSnapshotProbe
+@property(nonatomic) NSUInteger reads;
+@property(nonatomic) NSUInteger permissionChecks;
+@end
+@implementation GlobalVoicePollingProbe
+- (void)reload { ++_reads; }
+- (BOOL)accessibilityTrusted { ++_permissionChecks; return [super accessibilityTrusted]; }
+@end
+static void TestGlobalVoicePolling() {
+    GlobalVoicePollingProbe *probe = [[GlobalVoicePollingProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)nil; }];
+    NSTimer *timer = [probe valueForKey:@"poll"];
+    assert(timer.valid && timer.timeInterval == 30);
+    [probe applySnapshot:@{@"revision":@1, @"preferences":@{@"voice_input":@{@"hotkey_global":@YES, @"enabled":@YES}}}];
+    assert(!timer.valid);
+    timer = [probe valueForKey:@"poll"];
+    assert(timer.valid && timer.timeInterval == 1);
+    [probe applySnapshot:@{@"revision":@2, @"preferences":@{@"voice_input":@{@"hotkey_global":@YES, @"enabled":@NO}}}];
+    assert(!timer.valid);
+    timer = [probe valueForKey:@"poll"];
+    assert(timer.valid && timer.timeInterval == 30);
+    const NSUInteger reads = probe.reads;
+    MSIMENotifyGlobalVoicePreferencesChanged();
+    assert(probe.reads == reads + 1); // 同进程保存不等低频兜底。
+    [timer fire];
+    assert(probe.reads == reads + 2); // 其他进程的修改仍有兜底。
+    const NSUInteger checks = probe.permissionChecks;
+    NSDictionary *disabled = @{@"revision":@2, @"preferences":@{@"voice_input":@{@"hotkey_global":@YES, @"enabled":@NO}}};
+    [probe applySnapshot:disabled];
+    assert(probe.permissionChecks == checks);
+    [probe setValue:@YES forKey:@"loading"];
+    MSIMENotifyGlobalVoicePreferencesChanged();
+    MSIMENotifyGlobalVoicePreferencesChanged();
+    assert(probe.reads == reads + 2);
+    [probe completePreferenceReload:disabled];
+    assert(probe.reads == reads + 3); // 多次通知合并追读，旧读取不能吞掉保存。
+    [probe completePreferenceReload:disabled];
+    assert(probe.reads == reads + 3);
+}
+
 @interface GlobalVoiceGestureProbe : MSIMEGlobalVoiceCoordinator
 @property(nonatomic) NSUInteger begins;
 @property(nonatomic) NSUInteger stops;
@@ -14533,6 +14612,9 @@ static void TestVoicePreferenceRestore() {
     NSMutableDictionary *previous = [NSMutableDictionary dictionary];
     for (NSString *key in defaults.dictionaryRepresentation)
         if ([key hasPrefix:@"MSIMEClientVoice"]) previous[key] = [defaults objectForKey:key];
+    __block NSUInteger notifications = 0;
+    id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEGlobalVoicePreferencesDidChangeNotification()
+        object:nil queue:nil usingBlock:^(NSNotification *notification) { (void)notification; ++notifications; }];
     NSArray *voiceKeys = @[@"MSIMEClientVoiceEnabled", @"MSIMEClientVoiceLanguage", @"MSIMEClientVoiceSoundEnabled",
         @"MSIMEClientVoiceMuteSystemAudio", @"MSIMEClientVoiceStreamInlinePreedit"];
     NSArray *hotkeyKeys = @[@"MSIMEClientVoiceHotkeyCtrlF9", @"MSIMEClientVoiceHotkeyRightAlt",
@@ -14560,11 +14642,12 @@ static void TestVoicePreferenceRestore() {
         do {
             [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
             latest = [MSIMEClientSession loadPreferencesInDirectory:root error:nil];
-        } while ([latest[@"revision"] unsignedLongLongValue] <= [saved[@"revision"] unsignedLongLongValue] && deadline.timeIntervalSinceNow > 0);
+        } while (([latest[@"revision"] unsignedLongLongValue] <= [saved[@"revision"] unsignedLongLongValue] || notifications <= scenario) && deadline.timeIntervalSinceNow > 0);
         NSDictionary *result = latest[@"preferences"][@"voice_input"];
         assert([result[@"enabled"] isEqual:scenario == 1 ? @NO : @YES]);
         assert([result[@"hotkey_ralt"] isEqual:scenario == 0 ? @NO : @YES]);
         assert([result[@"hotkey_global"] isEqual:@YES]);
+        assert(notifications == scenario + 1);
         MSIMEApplySharedVoicePreferences(result, defaults);
         assert(appearance.voiceInputEnabled == (scenario != 1));
         assert(appearance.voiceHotkeyRightAlt == (scenario != 0));
@@ -14575,6 +14658,7 @@ static void TestVoicePreferenceRestore() {
     for (NSString *key in defaults.dictionaryRepresentation)
         if ([key hasPrefix:@"MSIMEClientVoice"]) [defaults removeObjectForKey:key];
     for (NSString *key in previous) [defaults setObject:previous[key] forKey:key];
+    [NSNotificationCenter.defaultCenter removeObserver:observer];
 }
 static void TestGlobalVoiceBoundaries() {
     TestGlobalVoiceCurrentClientDelivery();
@@ -14964,6 +15048,8 @@ int main(int argc, char **argv) {
     @autoreleasepool {
         [NSApplication sharedApplication];
         if (argc == 2 && std::string(argv[1]) == "--voice-preference-restore") { TestVoicePreferenceRestore(); return 0; }
+        if (argc == 2 && std::string(argv[1]) == "--global-voice-conflicts") { TestGlobalVoiceConflicts(); return 0; }
+        if (argc == 2 && std::string(argv[1]) == "--global-voice-polling") { TestGlobalVoicePolling(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--global-voice-panel") { TestGlobalVoicePanelClient(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--global-voice-imk-fallback") { TestGlobalVoiceIMKFallback(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--global-voice-current-client-reentry") { TestGlobalVoiceCurrentClientReentry(); return 0; }
