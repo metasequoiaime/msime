@@ -111,7 +111,7 @@ final class ImeTextEditPanel {
         });
         TextTrackpadView currentTrackpad = trackpad;
         movement.addView(currentTrackpad, new FrameLayout.LayoutParams(1, 1));
-        // 触控板替代中央第二、三行；上排行首尾、两侧八键和底部首尾、换行保持可用。
+        // 触控板替代中央第二、三行，横向只占十个半格里的第 3–8 个；上排行首尾、左右两列侧键、底排的文档首尾、第八个侧键和换行都在它外面，保持可用。
         movement.addOnLayoutChangeListener((view, left, top, right, bottom,
                 oldLeft, oldTop, oldRight, oldBottom) -> {
             int width = right - left, height = bottom - top, margin = s.pixels(3);
