@@ -27,7 +27,7 @@ final class SourceSetupUITests: XCTestCase {
         let korean = settings.staticTexts.matching(identifier: "Korean").firstMatch
         XCTAssertTrue(korean.waitForExistence(timeout: 5), "没有找到韩语分类")
         korean.click()
-        let mode = settings.staticTexts.matching(identifier: "Metasequoia · KO").firstMatch
+        let mode = settings.staticTexts.matching(identifier: "Metasequoia Korean").firstMatch
         XCTAssertTrue(mode.waitForExistence(timeout: 5), "系统设置尚未列出本次安装的韩语模式")
         mode.click()
         let add = settings.buttons.matching(identifier: "Add").firstMatch

@@ -1317,6 +1317,20 @@ static void MSIMEStartCapsLockHIDTracking() {
     if (access != kIOHIDAccessTypeGranted) return;
     IOHIDManagerRef manager = IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone);
     if (!manager) return;
+    // 必须设置设备匹配：管理器从没调用过 IOHIDManagerSetDeviceMatching 时一个设备都不枚举（传 NULL 才是全部设备），只设输入值匹配的话设备回调和输入值回调都不会来，HID 状态永远未知。只匹配键盘类设备，输入值再筛到 Caps Lock 元素。
+    CFMutableDictionaryRef keyboard = CFDictionaryCreateMutable(kCFAllocatorDefault, 2,
+                                                                &kCFTypeDictionaryKeyCallBacks,
+                                                                &kCFTypeDictionaryValueCallBacks);
+    int32_t keyboardPage = kHIDPage_GenericDesktop;
+    int32_t keyboardUsage = kHIDUsage_GD_Keyboard;
+    CFNumberRef keyboardPageNumber = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &keyboardPage);
+    CFNumberRef keyboardUsageNumber = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &keyboardUsage);
+    CFDictionarySetValue(keyboard, CFSTR(kIOHIDDeviceUsagePageKey), keyboardPageNumber);
+    CFDictionarySetValue(keyboard, CFSTR(kIOHIDDeviceUsageKey), keyboardUsageNumber);
+    CFRelease(keyboardPageNumber);
+    CFRelease(keyboardUsageNumber);
+    IOHIDManagerSetDeviceMatching(manager, keyboard);
+    CFRelease(keyboard);
     CFMutableDictionaryRef capsLock = MSIMECapsLockHIDMatching(kHIDUsage_KeyboardCapsLock);
     CFMutableDictionaryRef lockingCapsLock = MSIMECapsLockHIDMatching(kHIDUsage_KeyboardLockingCapsLock);
     const void *matches[] = {capsLock, lockingCapsLock};

@@ -29,6 +29,7 @@
 #include "../../common/PipeMetadata.h"
 #include "../../common/SecondThirdCandidatePolicy.h"
 #include "../../common/WubiCandidateSelectionPolicy.h"
+#include "../../src/input/ModifierHotkeyPolicy.h"
 #include <atomic>
 #include <chrono>
 #include "../../../../shared/contracts/ipc_negotiation.h"
@@ -507,12 +508,43 @@ bool IsWinVk(UINT code)
     return code == VK_LWIN || code == VK_RWIN;
 }
 
-bool IsOtherKeyboardKeyDown()
+std::uint32_t ModifierHotkeyBit(UINT code)
+{
+    if (IsShiftVk(code))
+        return msime::windows::kModifierHotkeyShift;
+    if (IsControlVk(code))
+        return msime::windows::kModifierHotkeyControl;
+    if (IsAltVk(code))
+        return msime::windows::kModifierHotkeyAlt;
+    if (IsWinVk(code))
+        return msime::windows::kModifierHotkeyWin;
+    return 0;
+}
+
+std::uint32_t CaptureModifierHotkeyPhysicalState()
+{
+    std::uint32_t state = 0;
+    if ((GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0)
+        state |= msime::windows::kModifierHotkeyShift;
+    if ((GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0)
+        state |= msime::windows::kModifierHotkeyControl;
+    if ((GetAsyncKeyState(VK_MENU) & 0x8000) != 0)
+        state |= msime::windows::kModifierHotkeyAlt;
+    if ((GetAsyncKeyState(VK_LWIN) & 0x8000) != 0 ||
+        (GetAsyncKeyState(VK_RWIN) & 0x8000) != 0)
+        state |= msime::windows::kModifierHotkeyWin;
+    return state;
+}
+
+bool IsOtherKeyboardKeyDown(std::uint32_t staleModifierMask)
 {
     // Mouse buttons occupy the first virtual-key values.  Start at Backspace
     // so holding a mouse button does not turn a bare Shift into a chord.
     for (UINT code = VK_BACK; code <= 0xfe; ++code)
     {
+        const auto modifier = ModifierHotkeyBit(code);
+        if (modifier != 0 && (staleModifierMask & modifier) != 0)
+            continue;
         if (!IsShiftVk(code) && (GetAsyncKeyState(code) & 0x8000) != 0)
         {
             return true;
@@ -524,21 +556,11 @@ bool IsOtherKeyboardKeyDown()
 // GetKeyState() can lag behind the key message when a host calls TSF outside
 // its normal message dispatch. Read the physical modifier state while arming a
 // bare-key toggle so a stale thread snapshot cannot prevent the latch.
-bool IsOnlyModifierPhysicallyDown(UINT keptDownVk)
+bool IsOnlyModifierPhysicallyDown(UINT keptDownVk, std::uint32_t staleModifierMask)
 {
-    static const UINT modifiers[] = {VK_CONTROL, VK_MENU, VK_SHIFT, VK_LWIN, VK_RWIN};
-    for (const UINT modifier : modifiers)
-    {
-        if (modifier == keptDownVk)
-        {
-            continue;
-        }
-        if ((GetAsyncKeyState(modifier) & 0x8000) != 0)
-        {
-            return false;
-        }
-    }
-    return (GetAsyncKeyState(keptDownVk) & 0x8000) != 0;
+    return msime::windows::modifier_hotkey_allows_bare(
+        CaptureModifierHotkeyPhysicalState(), staleModifierMask,
+        ModifierHotkeyBit(keptDownVk));
 }
 
 // 除 Caps Lock 自己以外还有键按着：Caps Lock 是组合键的一部分，不算轻点。
@@ -663,7 +685,10 @@ LRESULT CALLBACK CMetasequoiaIME::_BareShiftKeyboardHookProc(int code, WPARAM wP
                 {
                     if (owner->_bareShiftDownMask == 0)
                     {
-                        owner->_bareShiftArmed = !IsOtherKeyboardKeyDown();
+                        owner->_staleModifierMaskAfterFocusLoss &=
+                            ~msime::windows::kModifierHotkeyShift;
+                        owner->_bareShiftArmed = !IsOtherKeyboardKeyDown(
+                            owner->_staleModifierMaskAfterFocusLoss);
                         ++owner->_bareShiftSequence;
                         if (owner->_bareShiftSequence == 0)
                         {
@@ -780,6 +805,10 @@ void CMetasequoiaIME::_TrackModifierHotkeyArming(WPARAM wParam, LPARAM lParam, b
         _bareShiftArmed = false;
     }
 
+    const auto modifier = ModifierHotkeyBit(code);
+    if (modifier != 0)
+        _staleModifierMaskAfterFocusLoss &= ~modifier;
+
     if (!isShift && !isCtrl && !isOtherModifier)
     {
         _shiftHotkeyArmed = false;
@@ -795,7 +824,9 @@ void CMetasequoiaIME::_TrackModifierHotkeyArming(WPARAM wParam, LPARAM lParam, b
 
     const auto now = std::chrono::steady_clock::now();
     // 钩子已经取消的这一轮不能被重复通知重新布防；先按着别的普通键也属于组合键。
-    if (isShift && IsOnlyModifierPhysicallyDown(VK_SHIFT) && !IsOtherKeyboardKeyDown() &&
+    if (isShift &&
+        IsOnlyModifierPhysicallyDown(VK_SHIFT, _staleModifierMaskAfterFocusLoss) &&
+        !IsOtherKeyboardKeyDown(_staleModifierMaskAfterFocusLoss) &&
         (_bareShiftHook == nullptr || _bareShiftDownMask == 0 || _bareShiftArmed))
     {
         _shiftHotkeyArmed = true;
@@ -803,7 +834,7 @@ void CMetasequoiaIME::_TrackModifierHotkeyArming(WPARAM wParam, LPARAM lParam, b
         _modifierHotkeyExpire = now + kModifierHotkeyToggleLimit;
         return;
     }
-    if (isCtrl && IsOnlyModifierPhysicallyDown(VK_CONTROL))
+    if (isCtrl && IsOnlyModifierPhysicallyDown(VK_CONTROL, _staleModifierMaskAfterFocusLoss))
     {
         _ctrlHotkeyArmed = true;
         _shiftHotkeyArmed = false;
@@ -1512,8 +1543,14 @@ Exit:
 
 STDAPI CMetasequoiaIME::OnSetFocus(BOOL fForeground)
 {
-    fForeground;
-
+    // 失焦时记录当下的物理修饰键，RDP 可能只把远端的释放事件带走；回焦后
+    // 这些旧位在本地重新看到按键之前不参与单按判定。
+    if (!fForeground)
+        _staleModifierMaskAfterFocusLoss = CaptureModifierHotkeyPhysicalState();
+    _shiftHotkeyArmed = false;
+    _ctrlHotkeyArmed = false;
+    _bareShiftArmed = false;
+    _bareShiftDownMask = 0;
     _backspaceHoldArmed = false;
 
     return S_OK;

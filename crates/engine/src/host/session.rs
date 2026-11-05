@@ -432,6 +432,26 @@ impl Session {
         self.inner.reset_cache();
     }
 
+    /// 按现在的整句池和整句打分器重解当前组字，同 [`crate::Session::recompute_candidates`]。
+    pub fn recompute_candidates(&mut self) {
+        self.inner.recompute_candidates();
+    }
+
+    /// 把在线行（宿主来源码 2 = 云候选、3 = AI 候选，同 `EngineSnapshot::candidate_sources`）照原样放回当前组字的候选，不再核对查询；别的来源忽略。runtime 的停顿重解换整句打分器时，引擎清掉了缓存里的在线行，而宿主不会为同一个查询再取一次，重解前从视图里记下、重解后用它放回。
+    pub fn restore_online_rows(&mut self, rows: &[(String, u8)]) {
+        let rows: Vec<(String, CandidateSource)> = rows
+            .iter()
+            .filter_map(|(word, source)| {
+                CandidateSource::from_u8(*source)
+                    .filter(|source| source.is_online())
+                    .map(|source| (word.clone(), source))
+            })
+            .collect();
+        if !rows.is_empty() {
+            self.inner.restore_online_rows(&rows);
+        }
+    }
+
     /// Remove cached rows for one online provider (host source 0 = cloud, 1 = AI).
     pub fn clear_online_candidates(&mut self, source: u8) -> Result<()> {
         let source = match source {
@@ -690,6 +710,20 @@ impl Session {
         points: &[GlidePoint],
     ) -> Result<EngineResult> {
         Ok(result_for(self.inner.glide(keyboard, points)))
+    }
+
+    /// 可选的中英混合滑行；共享内核持有候选与选词状态。
+    pub fn bilingual_glide(
+        &mut self,
+        keyboard: &GlideKeyboard,
+        points: &[GlidePoint],
+    ) -> Result<EngineResult> {
+        Ok(result_for(self.inner.bilingual_glide(keyboard, points)))
+    }
+
+    /// 宿主编排不能替混合滑行选择默认候选。
+    pub fn requires_candidate_selection(&self) -> bool {
+        self.inner.requires_candidate_selection()
     }
 
     /// Out of range is unhandled.

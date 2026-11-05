@@ -47,12 +47,13 @@ int main() {
     @autoreleasepool {
         NSBundle *resources = [NSBundle bundleWithPath:@MSIME_MACOS_RESOURCES_DIR];
         require(resources != nil, "resources directory is not readable as a bundle");
+        // 与 Info.plist.in 一样，每个模式在系统输入法菜单里都是水杉标志；状态项不看它，按模式取自己的大字。
         NSDictionary *full = @{
             @"tsInputMethodIconFileKey": @"MSIMEClientInputMethodMenuIcon.tiff",
             @"ComponentInputModeDict": @{@"tsInputModeListKey": @{
-                MSIMEChineseInputModeID: ModeEntry(@"MSIMEClientInputMethodMenuIconChinese.tiff"),
-                MSIMEShuangpinInputModeID: ModeEntry(@"MSIMEClientInputMethodMenuIconShuangpin.tiff"),
-                MSIMEEnglishInputModeID: ModeEntry(@"MSIMEClientInputMethodMenuIconEnglish.tiff"),
+                MSIMEChineseInputModeID: ModeEntry(@"MSIMEClientInputMethodMenuIcon.tiff"),
+                MSIMEShuangpinInputModeID: ModeEntry(@"MSIMEClientInputMethodMenuIcon.tiff"),
+                MSIMEEnglishInputModeID: ModeEntry(@"MSIMEClientInputMethodMenuIcon.tiff"),
             }},
         };
 
@@ -76,13 +77,19 @@ int main() {
         require(HasInkOnEdge(chineseAlpha, side) && HasInkOnEdge(englishAlpha, side), "status item image has no frame setting it apart from the input source glyph");
         require(!HasInkOnEdge(AlphaOf(bareGlyph), (NSInteger)(bareGlyph.size.width * 2)), "the bare mode glyph unexpectedly reaches its edge; the frame check proves nothing");
 
-        // 本版本没有声明的模式（五笔版把五笔放在 .Hans 上）与系统输入法菜单一致，画主模式的字形。
-        NSImage *wubi = MSIMEInputModeStatusItemImage(full, MSIMEWubiInputModeID, resources);
-        require(wubi && [AlphaOf(wubi) isEqualToData:chineseAlpha], "an undeclared mode should draw the main mode's glyph");
+        // 状态项画的不是 plist 里的标志：「中」的图像与直接把「中」的大字放进圆角框一样，与把标志放进去不一样。
+        NSDictionary *glyphOnHans = @{@"ComponentInputModeDict": @{@"tsInputModeListKey": @{
+            MSIMEChineseInputModeID: ModeEntry(@"MSIMEClientInputMethodMenuIconChinese.tiff")}}};
+        require([chineseAlpha isEqualToData:AlphaOf(MSIMEInputModeStatusItemImage(glyphOnHans, MSIMEChineseInputModeID, resources))],
+                "the status item no longer draws the mode glyph for 中");
 
-        // bundle 里找不到模式图标时退回产品 logo，状态项仍有图像可放。
-        NSDictionary *missing = @{@"ComponentInputModeDict": @{@"tsInputModeListKey": @{MSIMEEnglishInputModeID: ModeEntry(@"DoesNotExist.tiff")}}};
-        require(MSIMEInputModeStatusItemImage(missing, MSIMEEnglishInputModeID, resources) != nil, "a missing mode icon should fall back to the product logo");
+        // 本版本没有声明的模式（五笔版只有 .Hans 和 .Roman）照样画它自己的字：控制器报的是方案的模式 .Wubi，菜单栏上应当是「五」而不是「中」。
+        NSImage *wubi = MSIMEInputModeStatusItemImage(full, MSIMEWubiInputModeID, resources);
+        require(wubi && ![AlphaOf(wubi) isEqualToData:chineseAlpha], "an undeclared mode should draw its own glyph, not 中");
+
+        // 不认识的模式没有大字时退回产品 logo，状态项仍有图像可放。
+        require(MSIMEInputModeStatusItemImage(full, MSIMEInputModeIdentifier(@"Unknown"), resources) != nil, "a mode without a glyph should fall back to the product logo");
+        require(MSIMEInputModeStatusItemImage(@{}, MSIMEInputModeIdentifier(@"Unknown"), resources) != nil, "the logo fallback needs no plist");
     }
     std::puts("input-mode-status-item: ok");
     return 0;

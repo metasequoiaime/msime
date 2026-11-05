@@ -8273,8 +8273,11 @@ std::string FcitxState::candidateAux() const {
     if (!candidatePreedit.empty()) {
       const auto editing = view_.value("editing_text", std::string());
       const auto caret = std::min(editing.size(), msime::linux_host::strict_json_value(view_, "caret_position", editing.size()));
+      const auto preeditCaret = view_.find("preedit_caret");
       const auto displayed = msime::linux_host::candidate_preedit_with_caret(
-          candidatePreedit, editing, caret);
+          candidatePreedit, editing, caret,
+          preeditCaret == view_.end() ? std::nullopt
+                                      : msime::linux_host::strict_json_integer_optional<std::size_t>(*preeditCaret));
       if (!displayed.empty()) aux += (aux.empty() ? "" : " · ") + displayed;
     }
   }
@@ -8628,11 +8631,21 @@ bool FcitxState::renderNativeCanvas() {
   content.preedit = ic_.inputPanel().preedit().toString();
   if (!content.preedit.empty()) content.preedit_cursor = ic_.inputPanel().preedit().cursor();
   // 拼音行属于画布，客户端内嵌预编辑仍单独保留。
-  if (content.preedit.empty() && preferences_.value("candidate_preedit_style", std::string("pinyin")) == "pinyin")
+  const bool viewPreedit =
+      content.preedit.empty() && preferences_.value("candidate_preedit_style", std::string("pinyin")) == "pinyin";
+  if (viewPreedit)
     content.preedit = view_.value("preedit", std::string{});
-  if (!content.preedit.empty() && content.preedit == view_.value("editing_text", std::string{}))
+  if (!content.preedit.empty() && content.preedit == view_.value("editing_text", std::string{})) {
     content.preedit_cursor = static_cast<int>(std::min(content.preedit.size(),
         host::strict_json_value(view_, "caret_position", content.preedit.size())));
+  } else if (viewPreedit) {
+    // 分词或展开过的拼写（ni'hao）按引擎给的 preedit_caret 放光标，与辅助行（candidateAux）同一条规则。
+    const auto preeditCaret = view_.find("preedit_caret");
+    if (const auto bytes = host::candidate_preedit_caret_bytes(
+            content.preedit, view_.value("editing_text", std::string{}), 0,
+            preeditCaret == view_.end() ? std::nullopt : host::strict_json_integer_optional<std::size_t>(*preeditCaret)))
+      content.preedit_cursor = static_cast<int>(*bytes);
+  }
   if (!ic_.inputPanel().auxUp().empty()) {
     content.preedit = ic_.inputPanel().auxUp().toString() + (content.preedit.empty() ? "" : " · " + content.preedit);
     content.preedit_cursor = -1;

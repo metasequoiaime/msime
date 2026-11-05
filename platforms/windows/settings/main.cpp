@@ -14328,10 +14328,11 @@ private:
                          std::wstring const &title) {
     const auto status = sentence_pack_status(pack);
     const bool installing = sentence_pack_installing_.count(pack) > 0;
+    const bool importing = sentence_pack_importing_.count(pack) > 0;
     const bool removing = sentence_pack_removing_.count(pack) > 0;
     std::wstring subtitle;
     if (installing)
-      subtitle = L"正在下载和校验模型…";
+      subtitle = importing ? L"正在导入和校验模型…" : L"正在下载和校验模型…";
     else if (removing)
       subtitle = L"正在删除模型…";
     else if (status == L"installed")
@@ -14343,22 +14344,52 @@ private:
     StackPanel actions;
     actions.Orientation(Orientation::Horizontal);
     actions.Spacing(8);
+    // 没装或要更新时，除了联网下载，也可以先用浏览器下载列出的文件再「从文件导入」（与语音模型卡片的「不联网安装」相同）；导入走资源包安装的 `files`，按内容认文件，不联网。
+    StackPanel below;
+    below.Spacing(6);
     if (status != L"installed" && !installing && !removing) {
       auto download = button_control(status == L"outdated" ? L"更新" : L"下载",
-                                     [this, pack] { install_sentence_pack(pack); }, loaded_);
+                                     [this, pack] { install_sentence_pack(pack, false); }, loaded_);
       A11y::SetAutomationId(download, L"sentence-model-download-" + pack);
       actions.Children().Append(download);
+      auto import_button = button_control(L"从文件导入",
+                                          [this, pack] { install_sentence_pack(pack, true); }, loaded_);
+      A11y::SetAutomationId(import_button, L"sentence-model-import-" + pack);
+      actions.Children().Append(import_button);
+      for (auto const &entry : sentence_pack_statuses_) {
+        if (entry.id != pack || entry.import_files.empty())
+          continue;
+        auto offline = offline_install_text(entry.import_files);
+        A11y::SetAutomationId(offline, L"sentence-model-offline-" + pack);
+        below.Children().Append(offline);
+      }
     }
     if (status == L"installed" && grammar_updates_available_.count(pack) > 0 &&
         !installing && !removing)
       actions.Children().Append(
-          button_control(L"下载更新", [this, pack] { install_sentence_pack(pack); }, loaded_));
+          button_control(L"下载更新", [this, pack] { install_sentence_pack(pack, false); }, loaded_));
     if (status == L"installed" && !installing && !removing)
       actions.Children().Append(button_control(L"删除", [this, pack] { remove_sentence_pack(pack); },
                                                 loaded_));
     if (installing)
       actions.Children().Append(button_control(L"取消", [this, pack] { cancel_sentence_pack(pack); }, true));
-    inline_subtitle(add_row(group, 0xE8C1, title, subtitle, actions));
+    // 下载或导入失败的说明画在这一行里、紧挨着按钮：模型行在「候选与联想」页底部，页首的提示条滚出窗口外，失败后按钮变回原样，看上去像什么都没发生（与语音模型卡片 #10633 相同）。
+    if (const auto error = sentence_pack_errors_.find(pack);
+        error != sentence_pack_errors_.end() && !installing && !removing) {
+      InfoBar notice;
+      notice.IsOpen(true);
+      notice.IsClosable(false);
+      notice.Severity(InfoBarSeverity::Error);
+      notice.Message(hstring(error->second));
+      A11y::SetLiveSetting(notice, Automation::Peers::AutomationLiveSetting::Assertive);
+      below.Children().Append(notice);
+    }
+    FrameworkElement extra{nullptr};
+    if (below.Children().Size() > 0) {
+      below.Margin(Thickness{0, 6, 0, 0});
+      extra = below;
+    }
+    inline_subtitle(add_row(group, 0xE8C1, title, subtitle, actions, extra));
   }
 
   static std::wstring grammar_pack_for_model(std::wstring const &model) {
@@ -14370,8 +14401,8 @@ private:
 
   std::wstring sentence_pack_status(std::wstring const &id) const {
     for (auto const &status : sentence_pack_statuses_)
-      if (status.first == id)
-        return status.second;
+      if (status.id == id)
+        return status.state;
     return L"missing";
   }
 
@@ -14398,8 +14429,13 @@ private:
               const auto object = item.GetObject();
               const auto id = named_string(object, L"id");
               if (id == L"settled-model" || id == L"grammar-model-wanxiang" ||
-                  id == L"grammar-model-baguwen" || id == L"grammar-model-baguwen-compact")
-                sentence_pack_statuses_.push_back({id, named_string(object, L"state")});
+                  id == L"grammar-model-baguwen" || id == L"grammar-model-baguwen-compact") {
+                SentencePackStatus status{id, named_string(object, L"state"), {}};
+                for (auto const &file : named_objects(object, L"import_files"))
+                  status.import_files.push_back({named_string(file, L"name"), named_string(file, L"url"),
+                                                 named_number(file, L"size").value_or(0)});
+                sentence_pack_statuses_.push_back(std::move(status));
+              }
             }
             redraw_input();
           } catch (...) {
@@ -14462,10 +14498,28 @@ private:
   static void sentence_pack_progress(void *, const char *, uint64_t, uint64_t) noexcept {
   }
 
-  void install_sentence_pack(std::wstring const &id) {
+  // 「下载」「更新」「下载更新」联网安装，用已保存的下载镜像；「从文件导入」（`import`）先让用户在与语音模型相同的打开对话框里多选下载好的文件，关掉对话框不算失败，对话框打不开或给不出本机路径时说明原因，选中的路径以 `files` 交给资源包安装，不联网。两种都能用「取消」停下。`id` 按值传：打开对话框期间页面可能重画，按钮和它持有的 id 随之换掉。
+  void install_sentence_pack(std::wstring id, bool import) {
+    std::vector<std::wstring> files;
+    if (import) {
+      HRESULT failure = S_OK;
+      auto picked = pick_model_files(failure);
+      if (const auto message = vs::local_model_picker_error_message(
+              failure, picked.has_value() && picked->empty())) {
+        sentence_pack_errors_[id] = *message;
+        redraw_input();
+        return;
+      }
+      if (!picked)
+        return;
+      files = std::move(*picked);
+    }
     const auto root = state_directory();
     if (root.empty() || !root.is_absolute()) return;
+    sentence_pack_errors_.erase(id);
     sentence_pack_installing_.insert(id);
+    if (import)
+      sentence_pack_importing_.insert(id);
     redraw_input();
     JsonObject request;
     request.SetNamedValue(L"state_root", JsonValue::CreateStringValue(hstring(root.wstring())));
@@ -14474,8 +14528,13 @@ private:
         L"channel",
         JsonValue::CreateStringValue(
             hstring(current_update_channel())));
-    const auto mirror = document_.String(L"voice_input.asr_model_mirror", L"");
-    if (!mirror.empty()) {
+    if (import) {
+      JsonArray paths;
+      for (auto const &file : files)
+        paths.Append(JsonValue::CreateStringValue(hstring(file)));
+      request.SetNamedValue(L"files", paths);
+    } else if (const auto mirror = document_.String(L"voice_input.asr_model_mirror", L"");
+               !mirror.empty()) {
       JsonArray sources;
       sources.Append(JsonValue::CreateStringValue(hstring(mirror)));
       request.SetNamedValue(L"sources", sources);
@@ -14486,12 +14545,14 @@ private:
               reinterpret_cast<const uint8_t *>(body.data()), body.size(),
               &MainWindow::sentence_pack_progress, nullptr));
         },
-        [this, id](Response const &response) {
+        [this, id, import](Response const &response) {
           sentence_pack_installing_.erase(id);
+          sentence_pack_importing_.erase(id);
           if (!response.ok) {
-            if (const auto message = model_errors::error_message(
-                    model_errors::error_code(response_error(response))))
-              show_notice(*message, InfoBarSeverity::Error);
+            const auto code = model_errors::error_code(response_error(response));
+            if (const auto message = import ? vs::local_model_import_error_message(code)
+                                            : model_errors::error_message(code))
+              sentence_pack_errors_[id] = *message;
           } else {
             grammar_updates_available_.erase(id);
           }
@@ -14514,6 +14575,8 @@ private:
       co_return;
     const auto root = state_directory();
     if (root.empty() || !root.is_absolute()) co_return;
+    // 上次下载或导入（多半是「下载更新」）的失败说明属于删除前的状态，删除后行回到「下载」「从文件导入」，不能再挂着它。
+    sentence_pack_errors_.erase(id);
     sentence_pack_removing_.insert(id);
     redraw_input();
     JsonObject request;
@@ -24034,11 +24097,7 @@ private:
   // ---- 语音输入 ----
 
   // 本地识别模型目录里的一个模型（msime_client_voice_local_models 的一项）和「不联网安装」要的一个文件。
-  struct LocalModelFile {
-    std::wstring name;
-    std::wstring url;
-    double size = 0;
-  };
+  using LocalModelFile = vs::LocalModelFile;
   struct LocalModel {
     std::wstring id, title, description;
     std::vector<std::wstring> languages;
@@ -25120,6 +25179,18 @@ private:
     block.Inlines().Append(run);
   }
 
+  // 「不联网安装」一句，语音模型卡片和整句模型行共用；文字见 `vs::offline_install_spans`。
+  TextBlock offline_install_text(std::vector<LocalModelFile> const &files) {
+    auto offline = make_text(L"", 12, palette_.sub);
+    for (auto const &span : vs::offline_install_spans(files)) {
+      if (span.url.empty())
+        append_run(offline, span.text);
+      else
+        append_link(offline, span.text, span.url);
+    }
+    return offline;
+  }
+
   FrameworkElement local_model_card(LocalModel const &model, std::wstring const &model_path) {
     const bool in_use = vs::local_model_in_use(model.path, model_path);
     const bool running = local_model_installing_.count(model.id) > 0;
@@ -25163,18 +25234,8 @@ private:
     if (!model.license_terms.empty())
       append_run(license, L"（条款：" + model.license_terms + L"）");
     lines.Children().Append(license);
-    if (!model.installed && !model.import_files.empty()) {
-      auto offline = make_text(L"", 12, palette_.sub);
-      append_run(offline, L"不联网安装：先下载 ");
-      for (size_t index = 0; index < model.import_files.size(); ++index) {
-        auto const &file = model.import_files[index];
-        if (index > 0)
-          append_run(offline, L"、");
-        append_link(offline, file.name + L"（" + vs::format_model_bytes(file.size) + L"）", file.url);
-      }
-      append_run(offline, L"，再点“从文件导入”一起选中。文件改过名也能认出。");
-      lines.Children().Append(offline);
-    }
+    if (!model.installed && !model.import_files.empty())
+      lines.Children().Append(offline_install_text(model.import_files));
     if (running || (importing && progress != local_model_progress_.end())) {
       Grid row;
       row.ColumnSpacing(8);
@@ -27401,8 +27462,17 @@ private:
   bool helpcode_more_open_ = false;
   // Windows 原生设置页的神经联想与 octagram 语法模型资源包状态。
   bool sentence_packs_requested_ = false;
-  std::vector<std::pair<std::wstring, std::wstring>> sentence_pack_statuses_;
+  // msime_client_resource_packs 的一项：安装状态，和不联网安装时要用浏览器下载、再从文件导入的文件。
+  struct SentencePackStatus {
+    std::wstring id, state;
+    std::vector<LocalModelFile> import_files;
+  };
+  std::vector<SentencePackStatus> sentence_pack_statuses_;
   std::set<std::wstring> sentence_pack_installing_;
+  // 正在安装的资源包里，从文件导入（而不是联网下载）的那些；副标题据此说「导入」。
+  std::set<std::wstring> sentence_pack_importing_;
+  // 每个资源包最近一次下载或导入失败的说明，画在它那一行里；重新开始安装时清掉。取消不算失败，不留说明。
+  std::map<std::wstring, std::wstring> sentence_pack_errors_;
   std::set<std::wstring> sentence_pack_removing_;
   std::set<std::wstring> grammar_updates_available_;
   bool grammar_updates_checking_ = false;

@@ -354,6 +354,8 @@ struct HostSession {
     keyboard_reranker_source: Option<PathBuf>,
     /// 宿主在会话选项里写了 `keyboard_reranker: false`（镜像会话）时为 `false`：「增强」打开也不挂逐键重排。
     keyboard_reranker_allowed: bool,
+    /// 宿主在会话选项里写了 `pause_rerank: true`：跑不进逐键预算时把模型延后到停顿，见 [`ffi::RerankerMount::KeystrokeOrPause`]。
+    pause_rerank: bool,
     /// HostOptions 记录的 ONNX 重排模型目录（`rerank_models`），为 `None` 时在随包资源目录旁边找，见 [`ffi::keyboard_reranker`]。
     recorded_rerank_models: Option<String>,
     /// HostOptions 记录的落定重排模型路径（`settled_model`）：随包的模型优先于下载的资源包，见 [`settled_model_file`]。
@@ -840,9 +842,9 @@ impl HostSession {
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .take()
             });
-            if let Some(scorer) = attached {
+            if let Some(mounted) = attached {
                 self.keyboard_reranker_loading = None;
-                self.runtime.set_candidate_scorer(scorer);
+                ffi::MountedReranker::mount(mounted, &mut self.runtime);
             }
             if let Some(model) = self
                 .settled_model_loading
@@ -1067,6 +1069,7 @@ impl HostSession {
                     self.plugin_roots.builtin_sounds.as_deref(),
                     self.state_root.as_deref(),
                     self.recorded_sentence_model.as_deref(),
+                    self.pause_rerank,
                 ));
             } else {
                 self.keyboard_reranker_loading = None;
@@ -1197,6 +1200,7 @@ impl HostSession {
                     self.plugin_roots.builtin_sounds.as_deref(),
                     state_root,
                     self.recorded_sentence_model.as_deref(),
+                    self.pause_rerank,
                 ));
                 self.keyboard_reranker_source = source;
             }
@@ -2259,9 +2263,12 @@ struct HostOptions {
     /// `false`：这个会话不挂逐键重排（整句联想「增强」的模型），开关打开也不挂。给只跟着另一个会话选词的镜像会话用：Windows TIP 在每个打字的应用进程里各有一个宿主会话，候选窗是 Server 画的、顺序是 Server 的会话排的，TIP 按文字选中同一个词（`tsf/HostServerSelection.h`），自己再排一遍用不上，却要在每个进程里各加载一份模型（ONNX 大模型 31 MB）。缺省照常挂。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     keyboard_reranker: Option<bool>,
-    /// 放两档 ONNX 逐键重排模型（`rerank-model/`、`rerank-model-small/`）的目录。缺省时在随包资源目录旁边找（[`ffi::rerank_models_root`]）。Windows 的 Server 在内存里写它：它的随包资源目录在 Program Files 的 `server\resources`，模型装在旁边，但 `helpcode_fallback_resources` 是 DataDir（辅助码表在那里），装了在线词库更新后 `resources` 又换成 DataDir 下的代次，两条都找不到安装包里的模型。不写进准备好的 runtime-options.json。
+    /// 放两档 ONNX 逐键重排模型（`rerank-model/`、`rerank-model-small/`）的目录。缺省时在随包资源目录旁边找（[`ffi::rerank_models_root`]）。Windows 的 Server 在内存里写它：它的随包资源目录在 Program Files 的 `server\resources`，模型装在旁边，但 `helpcode_fallback_resources` 是 DataDir（辅助码表在那里），装了在线词库更新后 `resources` 又换成 DataDir 下的代次，两条都找不到安装包里的模型。鸿蒙的键盘同样在内存里写它：模型随 HAP 解压在扩展的 `resourceDir`，而资源目录是复制到 `filesDir/engine` 的那份（SQLite 打不开只读的安装目录），上一级找不到模型。不写进准备好的 runtime-options.json。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     rerank_models: Option<String>,
+    /// `true`：宿主在用户停顿时调 `msime_client_start_settled_rerank`（鸿蒙的键盘在停顿 150 ms 后调）。这样的宿主上，跑不进逐键预算的设备不再干脆不挂整句联想「增强」的模型，而是延后到停顿时用它把当前组字重解一遍，见 [`ffi::RerankerMount::KeystrokeOrPause`]。缺省是不调：模型跑不进预算就不挂，与以前相同。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pause_rerank: Option<bool>,
     /// macOS 和 Linux 的两个宿主把普通组字里的快捷短语也作为候选显示；缺省关闭以保持其他宿主和旧文档的入口契约。建会话时写进 `EngineOptions`，偏好变更重建 Engine 时沿用同一份选项。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     quick_phrase_candidates: Option<bool>,
@@ -2599,11 +2606,10 @@ fn settled_model_beside(resources: &std::path::Path) -> Option<String> {
 /// 后台加载落定重排模型的结果槽：加载完之前是空的，加载完是模型，模型不能用（文件坏了或版本不符）或没有模型时是 `None`。
 type SettledModelSlot = Arc<OnceLock<Option<Arc<SentenceModel>>>>;
 
-/// 后台挂好的逐键重排器：外层 `None` 是还在挂，`Some(None)` 是挂完了但这台设备上没有可挂的（没装模型、超出按键预算、线程起不来）。打分器只是 `Send`，所以用锁而不是 `OnceLock`。
-type KeyboardRerankerSlot =
-    Arc<Mutex<Option<Option<Box<dyn msime_input_runtime::CandidateScorer>>>>>;
+/// 后台挂好的逐键重排器：外层 `None` 是还在挂，`Some(None)` 是挂完了但这台设备上没有可挂的（没装模型、超出按键预算、线程起不来）。挂上的那个带着挂在哪里（按键上，或延后到停顿）。打分器只是 `Send`，所以用锁而不是 `OnceLock`。
+type KeyboardRerankerSlot = Arc<Mutex<Option<Option<ffi::MountedReranker>>>>;
 
-/// 在后台线程里挂逐键重排器（[`ffi::keyboard_reranker`]，开关开着），立即返回结果槽。挂上之后还在同一个进程里再挂时共用已加载的那一份，只是第一次慢，见 `keyboard_reranker_loading`。线程起不来时槽里直接是 `Some(None)`，会话照常输入，只是不排序。
+/// 在后台线程里挂逐键重排器（[`ffi::keyboard_reranker_for`]，开关开着；`pause` 是宿主会在停顿时重解，见 [`ffi::RerankerMount::KeystrokeOrPause`]），立即返回结果槽。挂上之后还在同一个进程里再挂时共用已加载的那一份，只是第一次慢，见 `keyboard_reranker_loading`。线程起不来时槽里直接是 `Some(None)`，会话照常输入，只是不排序。
 fn load_keyboard_reranker(
     resources: &str,
     bundle: Option<&str>,
@@ -2611,6 +2617,7 @@ fn load_keyboard_reranker(
     sound_packs: Option<&Path>,
     state_root: Option<&Path>,
     configured: Option<&str>,
+    pause: bool,
 ) -> KeyboardRerankerSlot {
     let slot: KeyboardRerankerSlot = Arc::new(Mutex::new(None));
     let resources = resources.to_owned();
@@ -2623,8 +2630,13 @@ fn load_keyboard_reranker(
     let spawned = std::thread::Builder::new()
         .name("msime-keyboard-reranker".into())
         .spawn(move || {
-            let scorer = ffi::keyboard_reranker(
-                true,
+            let mount = if pause {
+                ffi::RerankerMount::KeystrokeOrPause
+            } else {
+                ffi::RerankerMount::Keystroke
+            };
+            let scorer = ffi::keyboard_reranker_for(
+                mount,
                 &resources,
                 bundle.as_deref(),
                 models.as_deref(),
@@ -3205,6 +3217,7 @@ fn prepare_shipped_host_configuration(
         selection_statistics: None,
         keyboard_reranker: None,
         rerank_models: None,
+        pause_rerank: None,
         quick_phrase_candidates: None,
         korean_romaja: None,
         clipboard_history_path: None,

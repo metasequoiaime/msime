@@ -1,5 +1,9 @@
 //! Session-level tests: the caret-prefix rules of upstream bc46f27, wubi mixed routing (overlays.md §3.3, no C++ oracle), the personal-learning windows through `set_clock`, and ports of the `test_input_session.cpp`, `test_temporary_input_session.cpp` and `test_runtime_isolation.cpp` cases the goldens do not pin down. Every fixture is built inline, as the reference ctests did.
 
+mod bilingual_glide;
+mod bilingual_glide_quality;
+mod sentence_excluded;
+
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -2103,8 +2107,10 @@ fn candidate_sources(session: &Session) -> Vec<CandidateSource> {
 
 #[test]
 fn short_exact_mixed_english_keeps_chinese_first_and_commits_without_a_mode_switch() {
-    let fixture = Fixture::new(HELLO_FIXTURE)
-        .with_english("INSERT INTO english_words VALUES('he','HE',100),('hello','Hello',1000);");
+    // 权重取自 dict-v2.0.41 的 Google 计数：两到四个字母的输入能切成完整音节时，只有常见的英文坐首选之后的位置（`english::takes_priority_slot`）。
+    let fixture = Fixture::new(HELLO_FIXTURE).with_english(
+        "INSERT INTO english_words VALUES('he','HE',842847219),('hello','Hello',32960381);",
+    );
     for scheme in [SchemeType::Quanpin, SchemeType::Shuangpin] {
         let mut session = fixture.session_with(|options| {
             options.scheme = scheme;
@@ -2133,9 +2139,10 @@ fn short_exact_mixed_english_keeps_chinese_first_and_commits_without_a_mode_swit
 /// 拼音拆不开、英文完全匹配整段输入时英文占首位，空格上屏英文；结束组字的标点也整段上屏这个英文词。能切成完整音节的 `he` 照旧是中文首选。
 #[test]
 fn an_exact_english_word_leads_input_pinyin_cannot_spell() {
+    // 权重取自 dict-v2.0.41 的 Google 计数，见上一条。
     let fixture = Fixture::new(HELLO_FIXTURE).with_english(
-        "INSERT INTO english_words VALUES('hello','hello',100);\
-INSERT INTO english_words VALUES('he','he',500);",
+        "INSERT INTO english_words VALUES('hello','hello',32960381);\
+INSERT INTO english_words VALUES('he','he',842847219);",
     );
     let mut session = fixture.session_with(|options| options.english.mixed_candidates = true);
     type_text(&mut session, "hello");
@@ -15178,5 +15185,6 @@ INSERT INTO quick_parases VALUES('qq','腾讯',20);"
 
 mod caret_suffix;
 mod lifecycle;
+mod offensive_placement;
 mod prediction_pool;
 mod raw_commit;

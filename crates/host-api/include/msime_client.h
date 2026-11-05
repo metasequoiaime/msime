@@ -950,11 +950,7 @@ char *msime_client_command(uint64_t session, uint32_t command);
  * window alone without serializing a view it will discard. Inert, and immediately false, when no
  * settled model is installed. */
 char *msime_client_rerank_settled(uint64_t session);
-/* 宿主等待输入停顿后，在后台启动模型评分。
- * 无需改动或只做呈现整理时返回 {"status":"done","moved":false,"current":true}；
- * 呈现整理改变顺序时返回 {"status":"done","moved":true,"current":true,"view":...}。
- * 后台评分返回 {"status":"pending","token":N}，经 msime_client_poll_settled_rerank 轮询。
- * 每会话只运行一个任务，重复启动返回相同令牌；评分期间可以继续处理按键。 */
+/* 宿主等待输入停顿后，在后台启动模型评分。无需改动或只做呈现整理时返回 {"status":"done","moved":false,"current":true}；呈现整理改变顺序时返回 {"status":"done","moved":true,"current":true,"view":...}。后台评分返回 {"status":"pending","token":N}，经 msime_client_poll_settled_rerank 轮询；每会话只运行一个任务，重复启动返回相同令牌，评分期间可以继续处理按键。宿主在会话选项里写了 "pause_rerank": true、而这台设备跑不进逐键预算时，整句联想「增强」的模型延后到这里：当场在会话线程上带着它重解当前组字的一片（约 8 ms 的模型时间），解完返回 "done"，没解完返回 {"status":"continue","moved":false,"current":true}，宿主先处理排队的输入，没有新按键就再调一次；每片若推进了候选代次，就附带新的 view，即使 moved 为假；宿主收到 view 必须更新候选身份。 */
 char *msime_client_start_settled_rerank(uint64_t session);
 /* token 来自启动接口；评分未完成时返回 {"status":"pending","token":N}，
  * 完成后返回 {"status":"done","moved":...,"current":...}。
@@ -982,6 +978,9 @@ char *msime_client_choose_nine_key_spelling(uint64_t session, uint64_t generatio
 char *msime_client_set_nine_key_filter(uint64_t session, bool single_character,
                                        const uint8_t *strokes, size_t length);
 /* 滑行输入：手指一笔滑过字母键，由引擎解码成最可能拼出的全拼字母，像打字一样写到组字的光标处（与已有字母之间用 ' 隔开）。request 是 length 字节的 UTF-8 JSON（<=65536，拒绝未知键）：{"keys":[[x,y] x 26],"key_width":w,"key_height":h,"points":[[x,y] 或 [x,y,ms]，2..1024 个]}，keys 是 a..z 各键中心（按此次序），key_width/key_height 是一个字母键的尺寸，全部在宿主自选的同一个坐标系里；ms 是距笔画开始的毫秒数，有了它，手指在键上停一下就能确认那个键。返回与 msime_client_character 相同的输入响应。方案不是全拼、在本地模式或专用英文里、九键数字正在组字，或者没有音节跟得上这一笔时 handled=false：宿主丢掉这一笔，不得把它经过的键当作按键输入。在会话线程上、手指抬起时调用；一次触摸是滑行还是点按只由宿主判断。 */
+/* 请求可选 bilingual 布尔值（缺省 false）：开启时同笔提供全拼和英文完整词候选。
+ * View.requires_candidate_selection 为 true 时，组字等待用户明确选词；缺省 false。
+ * 宿主确认键可发送 MSIME_COMMIT_CANDIDATE 选择高亮项，不能发送原文提交或结束组字代替选词。 */
 char *msime_client_glide(uint64_t session, const uint8_t *request, size_t length);
 enum MsimeCandidateEdge { MSIME_FIRST_HAN = 0, MSIME_LAST_HAN = 1 };
 /* Engine selects one Han character and clears composition on success.
@@ -1064,7 +1063,7 @@ char *msime_client_cloud_clipboard_provider_request(const uint8_t *request,
                                                     const uint8_t *socket_path,
                                                     size_t socket_length);
 #endif
-/* 云剪贴板端到端加密的 sans-IO 驱动，所有平台都有。输入 {start,keystore,device_name} 开始一个操作，或 {resume,response} 交回上一步请求的响应；value 是 {request,state,keystore}、{done,keystore} 或 {error,keystore}。宿主发请求并保存 keystore，驱动不访问会话、不联网。协议见 docs/cloud-clipboard-e2e.md。请求最大 2 MiB。 */
+/* 云剪贴板端到端加密的 sans-IO 驱动，所有平台都有。输入 {start,keystore,device_name} 开始一个操作，或 {resume,response} 交回上一步请求的响应；value 是 {request,state,keystore}、{done,keystore} 或 {error,keystore}。宿主发请求并保存 keystore，驱动不访问会话、不联网。协议见 docs/cloud-clipboard-e2e.md。顶层可以带 domain：缺省或 "clipboard" 是云剪贴板；"learning" 是输入习惯同步的密钥与设备管理，keystore 是单独的 learning-keystore，操作和结果见 docs/learning-sync.md 的「客户端驱动」；其他值是错误。请求最大 2 MiB。 */
 char *msime_client_cloud_clipboard_e2e(const uint8_t *request, size_t request_length);
 /* Persist {target_language,translations:[{text,translation}]} in an existing
  * absolute user-data directory. Only short changed English-target glosses are

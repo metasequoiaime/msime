@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use crate::dictionary::pinyin::PinyinDatabase;
-use crate::lattice::offensive::is_offensive;
+use crate::lattice::offensive::OffensiveWords;
 use crate::ordering::{apply_order, prediction_order, CandidateScorer};
 use crate::text::is_all_han;
 use crate::types::{CandidateSource, WordItem};
@@ -29,6 +29,8 @@ pub(super) struct Prediction {
     pending: Option<String>,
     path: PathBuf,
     database: Option<PinyinDatabase>,
+    /// 联想不给的粗俗词：词库打开时从它的 `sentence_excluded` 表读，没有就是内嵌表，见 `lattice::offensive`。
+    offensive: OffensiveWords,
 }
 
 impl Prediction {
@@ -44,6 +46,7 @@ impl Prediction {
             pending: None,
             path,
             database: None,
+            offensive: OffensiveWords::default(),
         }
     }
 
@@ -90,6 +93,12 @@ impl Prediction {
         if !self.enabled || !self.allowed || !is_all_han(word) {
             return;
         }
+        // 词库在第一次联想时才打开，个人习惯行也要按词库的粗俗词表过滤，所以先打开它。
+        if self.database.is_none() {
+            let database = PinyinDatabase::open(&self.path);
+            self.offensive = database.offensive_words();
+            self.database = Some(database);
+        }
         if let Some(personal) = personal {
             for (next, count) in personal.next_words(previous, LIMIT) {
                 if !is_all_han(&next) {
@@ -108,9 +117,9 @@ impl Prediction {
         if pinyin.is_empty() {
             return;
         }
-        let database = self
-            .database
-            .get_or_insert_with(|| PinyinDatabase::open(&self.path));
+        let Some(database) = self.database.as_ref() else {
+            return;
+        };
         let limit = if self.pool { POOL } else { LIMIT };
         let rows = database.query_next_words(word, pinyin, limit);
         for row in rows {
@@ -180,7 +189,7 @@ impl Prediction {
             return;
         }
         // 联想是用户什么都没打时给的词，粗俗词不给，见 `lattice::offensive`。词库联想给的是词的后半截（上屏 巨 联想 乳），所以连同上屏的部分（`seed_word`）一起查。
-        if is_offensive(word) || is_offensive(&seed_word) {
+        if self.offensive.is_offensive(word) || self.offensive.is_offensive(&seed_word) {
             return;
         }
         let mut row = WordItem::new("", word, weight, CandidateSource::Generated, pinyin);

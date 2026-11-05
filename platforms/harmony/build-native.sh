@@ -25,17 +25,44 @@ fi
 MSIME_OHOS_NDK="$ndk" python3 scripts/test-harmony-crash-symbols.py --require-tools --target "$rust_target"
 cargo_linker="CARGO_TARGET_$(printf '%s' "$rust_target" | tr '[:lower:]-' '[:upper:]_')_LINKER"
 underscored=${rust_target//-/_}
+# 整句联想「增强」的逐键重排跑在 ONNX Runtime 上（host-api 的 `onnx-rerank` 特性，见 .agents/notes/implemented/architecture/2026-11-01-onnx-rerank-backend.md）：精简构建的静态库（tools/onnxruntime-minimal 的 ohos-arm64）按 resources/onnxruntime-minimal.lock.json 下载核对，链进 libmsime_host_api.so。只有 arm64：32 位不在锁里，x86_64（模拟器）的库编不出来（见 tools/onnxruntime-minimal/build.sh），这两个 ABI 照旧不开这个特性，退回随包的句子模型。ort-sys 不认识 ohos 目标，默认去链 libstdc++，鸿蒙没有它；ORT_CXX_STDLIB 换成 NDK 的 libc++_shared.so，也就是下面随 HAP 带的那一份。
+ort_env=()
+cargo_features=()
+if [[ "$abi" == arm64-v8a ]]; then
+  ort_location=$(python3 scripts/fetch_onnxruntime.py --target "$rust_target")
+  # ort-sys 把静态库复制进自己的输出目录，库换了也不会重新复制；按锁里库的 SHA-256 记一个戳，变了就让它重新复制。
+  ort_stamp="$repo_root/target/ohos-cargo/onnxruntime-$rust_target.sha256"
+  ort_library_sha=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["targets"][sys.argv[2]]["library_sha256"])' resources/onnxruntime-minimal.lock.json "$rust_target")
+  if [ -d "$repo_root/target/ohos-cargo/$rust_target" ] && [ "$(cat "$ort_stamp" 2>/dev/null)" != "$ort_library_sha" ]; then
+    CARGO_TARGET_DIR="$repo_root/target/ohos-cargo" cargo clean -p ort-sys --target "$rust_target" --release
+  fi
+  ort_env=(ORT_LIB_LOCATION="$ort_location" ORT_CXX_STDLIB=c++_shared)
+  cargo_features=(--features onnx-rerank)
+fi
 env "CC_${underscored}=$compiler" "CXX_${underscored}=${compiler}++" \
   "AR_${underscored}=$ndk/llvm/bin/llvm-ar" "$cargo_linker=$compiler" \
   CARGO_TARGET_DIR="$repo_root/target/ohos-cargo" \
   CARGO_PROFILE_RELEASE_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_STRIP=none \
-  cargo rustc -p msime-host-api --target "$rust_target" --release --locked -- \
+  ${ort_env[@]+"${ort_env[@]}"} \
+  cargo rustc -p msime-host-api ${cargo_features[@]+"${cargo_features[@]}"} --target "$rust_target" --release --locked -- \
     -C link-arg=-Wl,--build-id=sha1
+if [[ "$abi" == arm64-v8a ]]; then
+  mkdir -p "$repo_root/target/ohos-cargo"
+  printf '%s\n' "$ort_library_sha" > "$ort_stamp"
+fi
 output="$repo_root/target/ohos/libs/$abi"
 mkdir -p "$output"
 cp "$repo_root/target/ohos-cargo/$rust_target/release/libmsime_host_api.so" "$output/"
 # 不用 grep -q：它匹配到就提前退出，llvm-readobj 还在写时收到 EPIPE，pipefail 下整条管道判失败，而且时有时无（本机 2026-10-03 出现过 `write on a pipe with no reader`，脚本在编 NAPI 库之前就退出了）。
 "$ndk/llvm/bin/llvm-readobj" --file-headers "$output/libmsime_host_api.so" | grep "EM_AARCH64\|EM_ARM\|EM_X86_64" >/dev/null
+# 没链进 ONNX Runtime 时会话只能退回随包的句子模型，HAP 里的 rerank-model-small 永远用不上，而编译、打包和装机都不会报错。先把符号表读进变量再查，理由同上面的 llvm-readobj。
+if [[ "$abi" == arm64-v8a ]]; then
+  host_symbols=$("$ndk/llvm/bin/llvm-nm" --defined-only "$output/libmsime_host_api.so")
+  if ! grep 'OrtGetApiBase' <<< "$host_symbols" >/dev/null; then
+    echo "libmsime_host_api.so does not link ONNX Runtime; it must be built with --features onnx-rerank" >&2
+    exit 1
+  fi
+fi
 # miniaudio decodes and pitches the key-sound samples (native/key_sound_render.cpp). It is the single header the Windows host already pins, and like there its implementation is third-party code compiled at the toolchain's default warning level, outside the -Werror set below.
 miniaudio="platforms/windows/third_party/miniaudio"
 "${compiler}++" -std=c++17 -fPIC -O2 -c platforms/harmony/native/miniaudio.cpp -I"$miniaudio" \
@@ -46,7 +73,7 @@ miniaudio="platforms/windows/third_party/miniaudio"
   platforms/harmony/native/client_napi.cpp platforms/harmony/native/key_sound_render.cpp \
   platforms/common/CrashRecorder.cpp \
   "$output/miniaudio.o" -Icrates/host-api/include -I"$miniaudio" \
-  -L"$output" -lmsime_host_api -lace_napi.z -lz -lm -o "$output/libmsimeclient.so"
+  -L"$output" -lmsime_host_api -lace_napi.z -lhilog_ndk.z -lz -lm -o "$output/libmsimeclient.so"
 "$ndk/llvm/bin/llvm-nm" -D --defined-only "$output/libmsimeclient.so" | grep RegisterClientModule >/dev/null
 # The C++ runtime has to travel with the module. OpenHarmony does not expose a system libc++_shared.so to applications, so leaving it out makes the NAPI import fail on the device with "Error loading shared library libc++_shared.so" while the build itself stays perfectly green.
 runtime="$ndk/llvm/lib/$runtime_triple/libc++_shared.so"

@@ -113,7 +113,7 @@ struct ReplyKeyboardView: View {
             .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
         }.accessibilityIdentifier("replySource")
         Button("粘贴", action: paste).accessibilityIdentifier("replyPaste")
-          .padding(.horizontal, 10).foregroundStyle(.white).background(Color.accentColor, in: RoundedRectangle(cornerRadius: radius))
+          .padding(.horizontal, 10).foregroundStyle(Color(uiColor: skin.onAccent)).background(Color.accentColor, in: RoundedRectangle(cornerRadius: radius))
       }.frame(height: 38).padding(.horizontal, 10)
         .background(keySurface, in: RoundedRectangle(cornerRadius: radius))
       HStack(alignment: .top, spacing: keyGap) {
