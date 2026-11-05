@@ -12,6 +12,8 @@ pub enum DictionaryKind {
     English,
     /// 98 五笔，云端路径 `wubi98`。
     Wubi98,
+    /// 新世纪五笔，云端路径 `wubixsj`。服务端还不收这个种类，云词库暂不同步它（`account::cloud_sync::policy::personal_kind`）。
+    Wubixsj,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -44,9 +46,23 @@ pub fn kind_path(kind: DictionaryKind) -> &'static str {
         DictionaryKind::Pinyin => "pinyin",
         DictionaryKind::Wubi => "wubi",
         DictionaryKind::Wubi98 => "wubi98",
+        DictionaryKind::Wubixsj => "wubixsj",
         DictionaryKind::Quick => "quick",
         DictionaryKind::English => "english",
     }
+}
+
+/// [`kind_path`] 的反方向。不认识的值（更新的版本加的词库种类）为 `None`，调用方据此跳过而不是拒绝整份响应。
+pub fn kind_from_path(path: &str) -> Option<DictionaryKind> {
+    Some(match path {
+        "pinyin" => DictionaryKind::Pinyin,
+        "wubi" => DictionaryKind::Wubi,
+        "wubi98" => DictionaryKind::Wubi98,
+        "wubixsj" => DictionaryKind::Wubixsj,
+        "quick" => DictionaryKind::Quick,
+        "english" => DictionaryKind::English,
+        _ => return None,
+    })
 }
 
 pub fn dictionary_path(kind: DictionaryKind, offset: usize, search: &str) -> Option<String> {
@@ -140,6 +156,26 @@ pub fn valid_candidate_value(code: &str, word: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn kind_paths_round_trip_and_unknown_kinds_are_none() {
+        for kind in [
+            DictionaryKind::Pinyin,
+            DictionaryKind::Wubi,
+            DictionaryKind::Quick,
+            DictionaryKind::English,
+            DictionaryKind::Wubi98,
+            DictionaryKind::Wubixsj,
+        ] {
+            assert_eq!(kind_from_path(kind_path(kind)), Some(kind));
+            assert_eq!(
+                serde_json::to_value(kind).unwrap(),
+                serde_json::json!(kind_path(kind))
+            );
+        }
+        assert_eq!(kind_from_path("wubi2030"), None);
+        assert_eq!(kind_from_path(""), None);
+    }
 
     #[test]
     fn smart_abc_candidate_queries_are_valid_and_unknown_profiles_are_rejected() {

@@ -1112,14 +1112,12 @@ final class KeyLayoutStyleTests: XCTestCase {
       XCTAssertEqual(tall.nineKeyControls, ["⌫", "分词"], "\(scheme)")
     }
 
-    // 14/18 键画各自的字母格，五笔 14 键第三排左端是 符。
+    // 14/18 键画各自的字母格。第三排左端拼音和五笔一样画空闲时的「符」，`KeyboardPreviewFace` 因此不再区分两者。
     let quanpinEighteen = KeyboardPreviewFace(.eighteenKey, shuangpinLayout: .twentySixKey, wubiLayout: .twentySixKey)
     XCTAssertEqual(quanpinEighteen.letterGrid, .eighteenKey)
-    XCTAssertTrue(quanpinEighteen.gridSplitsSyllables)
     XCTAssertEqual(KeyboardPreviewFace(.shuangpin, shuangpinLayout: .fourteenKey, wubiLayout: .twentySixKey).letterGrid, .fourteenKey)
     let wubiFourteen = KeyboardPreviewFace(.wubi, shuangpinLayout: .eighteenKey, wubiLayout: .fourteenKey)
     XCTAssertEqual(wubiFourteen.letterGrid, .fourteenKey)
-    XCTAssertFalse(wubiFourteen.gridSplitsSyllables)
     XCTAssertFalse(wubiFourteen.nineKey)
   }
 
@@ -2281,10 +2279,11 @@ final class KeyLayoutStyleTests: XCTestCase {
       .sorted { $0.frame.minY < $1.frame.minY }
   }
 
-  /// 内存里的一份文档：测试宿主里的 `textDocumentProxy` 没有文档，上屏看不到（见 `EmailSuffixKeyboardTests`）。光标总在末尾，`adjustTextPosition` 只记下挪了几格。
+  /// 内存里的一份文档：测试宿主里的 `textDocumentProxy` 没有文档，上屏看不到（见 `EmailSuffixKeyboardTests`）。光标总在末尾，`adjustTextPosition` 只记下挪了几格。`text` 只放已上屏的文字，标记文本另记在 `marked`，取消标记时并进 `text`，插入时被替换掉，与系统文本框相同。
   @MainActor
   private final class SidebarDocument: NSObject, UITextDocumentProxy {
     var text = ""
+    var marked = ""
     var caretMoves: [Int] = []
     var documentContextBeforeInput: String? { text }
     var documentContextAfterInput: String? { nil }
@@ -2292,11 +2291,14 @@ final class KeyLayoutStyleTests: XCTestCase {
     var documentInputMode: UITextInputMode? { nil }
     var documentIdentifier = UUID()
     var hasText: Bool { !text.isEmpty }
-    func insertText(_ inserted: String) { text += inserted }
+    func insertText(_ inserted: String) { marked = ""; text += inserted }
     func deleteBackward() { if !text.isEmpty { text.removeLast() } }
     func adjustTextPosition(byCharacterOffset offset: Int) { caretMoves.append(offset) }
-    func setMarkedText(_ markedText: String, selectedRange: NSRange) {}
-    func unmarkText() {}
+    func setMarkedText(_ markedText: String, selectedRange: NSRange) { marked = markedText }
+    func unmarkText() {
+      text += marked
+      marked = ""
+    }
   }
 
   private static let proxySelector = #selector(getter: UIInputViewController.textDocumentProxy)

@@ -56,9 +56,10 @@ def main() -> int:
         "ChineseOutputPolicy.output(text, traditional, applies && source !== 18, converter)" in policy,
         "commit keeps runtime conversion boundary":
         "value.commit_context?.script_conversion === false ? commit : this.asTraditional(commit)" in session,
-        # The switch flips only once the store has taken the new value, then republishes at once, so a refused write leaves the output as it was.
+        # 开关在存储接受新值之后才翻转，随即重发候选，所以被拒绝的写入不改变输出。粤拼下开关走前面的粤拼分支并在这次写入之前返回，那一支的行为由 keyboard-logic.test.ts 的 `toggledCantoneseSimplified` 用例检查。
         "switch republishes the candidates": re.search(
             r"toggleCharacterSet\(\): boolean \{\s*"
+            r"(?:if \(this\.characterSetFollowsCantonese\(\)\) \{[^}]*\}\s*)?"
             r"if \(!this\.writePreference\('traditional_chinese_output', !this\.traditional\)\) \{\s*return this\.traditional;\s*\}\s*"
             r"this\.traditional = !this\.traditional;\s*"
             r"(?://[^\n]*\s*)?this\.publishCurrentCandidates\(\);",

@@ -10,7 +10,7 @@
 //!
 //! essay 补词还要有佐证（HKCanCor 数到过、人工审校过、换成简体后是拼音库的词，或者在维护者的豁免表 `curation/cantonese-essay-keep.txt` 里），没有佐证的压到同键有 essay 或 HKCanCor 证据的词表词之下；维护者的否决表 `curation/cantonese-word-vetoes.txt` 在所有来源写入之后删词。这些规则都在 `cantonese_curation` 里。
 //!
-//! 上面两条规则都不会收进 essay 分数不到门槛、或含多音字的词（周杰倫只有 711 分）。这类词由 msime-dictionary 的 `custom/cantonese.txt` 逐词收录：每行 `词<TAB>带声调粤拼`，一个汉字一个音节，逐行人工审校。构建要求每个字在这一行里的读音（去声调后）是字表给这个字的读音之一，否则整个构建失败：这拦得住笔误和字根本没有的读音（把「倫」写成 `lun4`），拦不住在多音字的几个读音里选错（「銀行」写成 `ngan4 haang4` 能通过，因为「行」确有 `haang4`），后者只能靠人工审校。收录的词按 essay 分数加权，essay 没有列它时取 `ESSAY_WORD_MIN_COUNT`；已有条目只升不降，不删除任何条目。checkout 里没有这个文件（加入它之前的 msime-dictionary 提交）时按空表构建。
+//! 上面两条规则都不会收进 essay 分数不到门槛、或含多音字的词（周杰倫只有 711 分）。这类词由 msime-dictionary 的 `custom/cantonese.txt` 逐词收录：每行 `词<TAB>带声调粤拼`，一个汉字一个音节，逐行人工审校。构建要求每个字在这一行里的读音（去声调后）是字表给这个字的读音之一，否则整个构建失败：这拦得住笔误和字根本没有的读音（把「倫」写成 `lun4`），拦不住在多音字的几个读音里选错（「銀行」写成 `ngan4 haang4` 能通过，因为「行」确有 `haang4`），后者只能靠人工审校。收录的词按 essay 分数加权，essay 没有列它时取语料次数乘以 `corpus_scale`，不到 `ESSAY_WORD_MIN_COUNT` 时取 `ESSAY_WORD_MIN_COUNT`；已有条目只升不降，不删除任何条目。checkout 里没有这个文件（加入它之前的 msime-dictionary 提交）时按空表构建。
 //!
 //! The syllable inventory is every toneless syllable some key uses, so every entry stays typable; the words file uses a few colloquial syllables (`fi`, `za`, `gwek`) that no character row has.
 
@@ -690,10 +690,16 @@ pub fn build(
         &curation.keeps,
     )?;
 
-    // 人工审校的词放在最后，只新增或抬高，不压低前面任何来源给的权重。
+    // 人工审校的词放在最后，只新增或抬高，不压低前面任何来源给的权重。essay 没列的词与词表词一样按语料次数换算，换算后不到 `ESSAY_WORD_MIN_COUNT` 时取门槛：做咗、借咗 这类「动词加咗」的口语词 essay 不收，HKCanCor 数到过（见 `hkcancor` 的助词拼合），按门槛值会排在同一双拼码上的 早在、這在 之后（#10909）。审校过的词不是切分偶然，语料次数少于 `CORPUS_MIN_COUNT` 时也照样换算。
     for word in custom {
         let text = hong_kong_text(word.text, forms);
-        let weight = essay_count(&text).unwrap_or(ESSAY_WORD_MIN_COUNT).max(1);
+        let weight = match essay_count(&text) {
+            Some(count) => count.max(1),
+            None => corpus
+                .get(&*text)
+                .map_or(0, |count| count.saturating_mul(dictionary.corpus_scale))
+                .max(ESSAY_WORD_MIN_COUNT),
+        };
         let slot = dictionary
             .entries
             .entry((word.key(), text.into_owned()))
@@ -1187,6 +1193,34 @@ mod tests {
         assert_eq!(weight("nei hou", "你好"), Some(21493));
         assert_eq!(dictionary.custom_words, 2);
         assert!(dictionary.syllables.contains("leon"));
+    }
+
+    #[test]
+    fn reviewed_words_the_essay_lacks_take_their_corpus_weight_above_the_threshold() {
+        let characters =
+            format!("{HEADER}早\tzou2\n做\tzou6\n在\tzoi6\n咗\tzo2\n點\tdim2\n解\tgaai2\n");
+        let characters = parse_characters(&characters).unwrap();
+        let readings = character_readings(&characters);
+        let custom = parse_custom("做咗\tzou6 zo2\n早咗\tzou2 zo2\n", &readings).unwrap();
+        // 點解 定下换算系数 845：做咗 语料 21 次换算成 17745，压过 essay 的 早在（2121）；早咗 只数到 1 次，换算后 845，不到门槛取门槛。
+        let essay = parse_essay("早在\t2121\n點解\t845000\n").unwrap();
+        let corpus = crate::hkcancor::parse("點解\t1000\n做咗\t21\n早咗\t1\n").unwrap();
+        let dictionary = build(
+            &characters,
+            &[],
+            &essay,
+            &corpus,
+            &custom,
+            &HongKongForms::new(),
+            &Curation::default(),
+        )
+        .unwrap();
+        assert_eq!(dictionary.corpus_scale, 845);
+        let weight = |key: &str, text: &str| dictionary.entries[&(key.to_owned(), text.to_owned())];
+        assert_eq!(weight("zou zo", "做咗"), 21 * 845);
+        assert_eq!(weight("zou zo", "早咗"), ESSAY_WORD_MIN_COUNT);
+        assert!(weight("zou zo", "做咗") > weight("zou zoi", "早在"));
+        assert_eq!(dictionary.custom_words, 2);
     }
 
     #[test]
