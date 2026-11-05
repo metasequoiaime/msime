@@ -19,14 +19,19 @@ test("本地词库控件明确显示中文拼音", () => {
 test("each dictionary kind exports under its own shipped name", () => {
   expect(dictionaryExportName("pinyin")).toBe("水杉IME-拼音用户词库.txt");
   expect(dictionaryExportName("wubi")).toBe("水杉IME-五笔用户词库.txt");
+  expect(dictionaryExportName("wubixsj")).toBe("水杉IME-新世纪五笔用户词库.txt");
   expect(dictionaryExportName("english")).toBe("水杉IME-英文用户词库.txt");
   expect(dictionaryExportName("quick_phrase")).toBe("水杉IME-快捷短语用户词库.txt");
   // The old single generic name said nothing about which book it held.
-  expect(
-    new Set(
-      ["pinyin", "wubi", "english", "quick_phrase"].map((k) => dictionaryExportName(k as never)),
-    ).size,
-  ).toBe(4);
+  expect(new Set(localDictionaryKinds.map(([kind]) => dictionaryExportName(kind))).size).toBe(
+    localDictionaryKinds.length,
+  );
+});
+
+test("新世纪五笔的个人词库有自己的名字，不会显示成 86", () => {
+  expect(localDictionaryKinds.find(([kind]) => kind === "wubixsj")?.[1]).toBe("中文 · 新世纪五笔");
+  expect(dictionaryKindLabel("wubixsj")).toBe("新世纪五笔");
+  expect(dictionaryKindKeyHint("wubixsj")).toBe("1–4 个字母");
 });
 
 test("the payload starts with a UTF-8 BOM", () => {
@@ -84,14 +89,15 @@ test("the complete personal dictionary export follows Apple's kind order and env
     { kind: "english" as const, key: "hello", value: "Hello", weight: 4 },
     { kind: "quick_phrase" as const, key: "greet", value: "你好", weight: 3 },
     { kind: "pinyin" as const, key: "ni'hao", value: "你好", weight: 2 },
+    { kind: "wubixsj" as const, key: "wq", value: "你", weight: 7 },
     { kind: "wubi98" as const, key: "wq", value: "你", weight: 5 },
     { kind: "wubi" as const, key: "wq", value: "你", weight: 1 },
     { kind: "cantonese" as const, key: "nei hou", value: "禮好", weight: 6 },
   ];
   expect(personalDictionaryExportName()).toBe("水杉用户词库.txt");
   expect(personalDictionaryExportPayload(entries)).toEqual({
-    rows: 6,
-    body: "# 类别\t编码\t词条\t权重\n拼音\tni'hao\t你好\t2\n86 五笔\twq\t你\t1\n98 五笔\twq\t你\t5\n快捷短语\tgreet\t你好\t3\n英文\thello\tHello\t4\n粤语\tnei hou\t禮好\t6\n",
+    rows: 7,
+    body: "# 类别\t编码\t词条\t权重\n拼音\tni'hao\t你好\t2\n86 五笔\twq\t你\t1\n98 五笔\twq\t你\t5\n新世纪五笔\twq\t你\t7\n快捷短语\tgreet\t你好\t3\n英文\thello\tHello\t4\n粤语\tnei hou\t禮好\t6\n",
   });
 });
 
@@ -115,6 +121,10 @@ test("complete personal dictionary reads every kind page with an empty query", a
       has_more: false,
     })
     .mockResolvedValueOnce({
+      entries: [{ kind: "wubixsj" as const, key: "wq", value: "你", weight: 7 }],
+      has_more: false,
+    })
+    .mockResolvedValueOnce({
       entries: [{ kind: "quick_phrase" as const, key: "q", value: "快捷", weight: 4 }],
       has_more: false,
     })
@@ -126,14 +136,15 @@ test("complete personal dictionary reads every kind page with an empty query", a
       entries: [{ kind: "cantonese" as const, key: "nei hou", value: "禮好", weight: 7 }],
       has_more: false,
     });
-  await expect(loadAllPersonalDictionaryEntries({ list })).resolves.toHaveLength(7);
+  await expect(loadAllPersonalDictionaryEntries({ list })).resolves.toHaveLength(8);
   expect(list).toHaveBeenNthCalledWith(1, 0, 100, "pinyin", "");
   expect(list).toHaveBeenNthCalledWith(2, 1, 100, "pinyin", "");
   expect(list).toHaveBeenNthCalledWith(3, 0, 100, "wubi", "");
   expect(list).toHaveBeenNthCalledWith(4, 0, 100, "wubi98", "");
-  expect(list).toHaveBeenNthCalledWith(5, 0, 100, "quick_phrase", "");
-  expect(list).toHaveBeenNthCalledWith(6, 0, 100, "english", "");
-  expect(list).toHaveBeenNthCalledWith(7, 0, 100, "cantonese", "");
+  expect(list).toHaveBeenNthCalledWith(5, 0, 100, "wubixsj", "");
+  expect(list).toHaveBeenNthCalledWith(6, 0, 100, "quick_phrase", "");
+  expect(list).toHaveBeenNthCalledWith(7, 0, 100, "english", "");
+  expect(list).toHaveBeenNthCalledWith(8, 0, 100, "cantonese", "");
 });
 
 test("complete personal dictionary leaves bundled rows out of the export", async () => {
@@ -147,6 +158,7 @@ test("complete personal dictionary leaves bundled rows out of the export", async
       entries: [{ kind: "wubi" as const, key: "wq", value: "你", weight: 3 }],
       has_more: false,
     })
+    .mockResolvedValueOnce({ entries: [], has_more: false })
     .mockResolvedValueOnce({ entries: [], has_more: false })
     .mockResolvedValueOnce({
       entries: [
@@ -189,8 +201,8 @@ test("complete personal dictionary leaves bundled rows out of the export", async
     { kind: "quick_phrase", key: "q", value: "快捷", weight: 4, source: "user" },
   ]);
   expect(entries).toHaveLength(4);
-  expect(list).toHaveBeenNthCalledWith(5, 2, 100, "quick_phrase", "");
-  expect(list).toHaveBeenNthCalledWith(6, 0, 100, "english", "");
+  expect(list).toHaveBeenNthCalledWith(6, 2, 100, "quick_phrase", "");
+  expect(list).toHaveBeenNthCalledWith(7, 0, 100, "english", "");
 });
 
 test("complete personal dictionary exports when a kind has no words", async () => {
@@ -204,11 +216,14 @@ test("complete personal dictionary exports when a kind has no words", async () =
     .mockResolvedValueOnce({ entries: [], has_more: false })
     .mockResolvedValueOnce({ entries: [], has_more: false })
     .mockResolvedValueOnce({ entries: [], has_more: false })
+    .mockResolvedValueOnce({ entries: [], has_more: false })
     .mockResolvedValueOnce({ entries: [], has_more: false });
   await expect(loadAllPersonalDictionaryEntries({ list })).resolves.toEqual([
     { kind: "pinyin", key: "a", value: "甲", weight: 1 },
   ]);
-  expect(list).toHaveBeenCalledTimes(6);
+  // 拼音、86、98、新世纪、快捷短语、英文、粤语各读一页。
+  expect(list).toHaveBeenCalledTimes(7);
+  expect(list).toHaveBeenLastCalledWith(0, 100, "cantonese", "");
 });
 
 test("complete personal dictionary reports an empty export without rows", () => {
