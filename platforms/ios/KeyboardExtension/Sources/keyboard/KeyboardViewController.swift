@@ -575,8 +575,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var visibleCaretSpelling: String?
   /// The spelling the caret can be moved through and where the caret sits in it, while one is being composed; nil for a Japanese reading, whose conversion owns the caret keys.
   private var editableSpelling: (text: String, caret: Int)?
-  /// 放大拼写编辑条要画的读音（不含已选的那段词）和这次组字是否在组码网格里打的（`grid_composing`），每次渲染时记下，换算光标位置用。
-  private var editorSpelling: (display: String, keyGrid: Bool) = ("", false)
+  /// 放大拼写编辑条要画的读音（不含已选的那段词）、这次组字是否在组码网格里打的（`grid_composing`），以及按键是不是全拼 14 键、18 键的组码（`letterGroups`），每次渲染时记下，换算光标位置用。
+  private var editorSpelling: (display: String, keyGrid: Bool, letterGroups: LetterKeyGrid?) = ("", false, nil)
   /// 放大拼写编辑条（#10591）：点读音或读音位置的笔打开，「完成」、组字结束或不再可编辑时关上；再点入口保持打开。
   private var spellingEditorOpen = false
   private var spellingEditorBar: CompositionEditorBar?
@@ -6636,7 +6636,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if spellingEditorOpen, let spelling = editableSpelling {
       let skin = KeyboardTheme.current
       bar.update(display: editorSpelling.display, editing: spelling.text, caret: spelling.caret,
-                 keyGrid: editorSpelling.keyGrid,
+                 keyGrid: editorSpelling.keyGrid, letterGroups: editorSpelling.letterGroups,
                  foreground: candidatePalette?.text ?? skin.keyForeground,
                  accent: candidatePalette?.accent ?? skin.accent)
     }
@@ -8233,8 +8233,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     editableSpelling = hasComposition && spellingCaret && !snapshot.isInLocalMode
       && !snapshot.editingText.isEmpty && snapshot.editingText.allSatisfy(\.isASCII)
       ? (snapshot.editingText, snapshot.caretPosition) : nil
-    // 编辑条画读音本身（九键是 `nine_key_reading` 的拼音），不含已选的那段词；对不上按键时编辑条退回画原始按键。
-    editorSpelling = (shownPreedit, snapshot.gridComposing)
+    // 编辑条画读音本身（九键、全拼 14 键和 18 键是 `nine_key_reading` 的拼音），不含已选的那段词；对不上按键时编辑条退回画原始按键。全拼 14 键、18 键的按键是组码（`ni'hao` 打的是 `bugao`），按正在打字的这张网格对位；双拼网格的按键是双拼码，不传网格，照旧退回原始按键。
+    let fullPinyinGrid = snapshot.gridComposing && typesLetterGrid && (inputScheme == .fourteenKey || inputScheme == .eighteenKey)
+    editorSpelling = (shownPreedit, snapshot.gridComposing, fullPinyinGrid ? letterGrid : nil)
     let japaneseReading = inputScheme.isJapanese && !snapshot.reading.isEmpty ? snapshot.reading : nil
     // 全拼 14 键的组字是组码字母（`buguo`），写进输入框对用户没有意义，与 Android 一样不在输入框里标记，只显示在读音行上。英文模式和本地输入模式画 26 键，组字照常标记。九键的 `preedit` 是数字串（`64426`），写进输入框的是和读音行同一个 `shownPreedit`，即 Engine 给的拼音读音（`ni'hao`）。
     showInlineComposition(hasComposition && !typesLetterGrid

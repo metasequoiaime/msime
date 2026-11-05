@@ -571,6 +571,43 @@ final class FourteenKeyKeyboardTests: XCTestCase {
     attachScreenshot(of: controller, named: "Fourteen-key nihao")
   }
 
+  /// 全拼 14 键点读音打开放大拼写编辑条：编辑条画的是读音（引擎首选的 `bu'hao` 或 `ni'hao`），不是组码 `bugao`（#10591）；点 h 前面，引擎的光标落在 GH 那一键前。在拼音选择条上选 ni 之后编辑条画 `ni'hao`。
+  func testTheSpellingEditorShowsTheReadingAndPlacesTheCaretOnTheKeys() throws {
+    let controller = makeController(width: 390)
+    try tap(["BN", "UI", "GH", "AS", "OP"], in: controller)
+    let reading = preedit(in: controller)
+    XCTAssertTrue(["ni'hao", "bu'hao"].contains(reading), "the reading row shows \(reading)")
+    let preeditButton = try button("preeditButton", in: controller)
+    XCTAssertEqual(preeditButton.accessibilityLabel, "编辑拼写")
+    preeditButton.sendActions(for: .primaryActionTriggered)
+    let bar = try XCTUnwrap(descendants(controller.view).first { $0 is CompositionEditorBar } as? CompositionEditorBar)
+    XCTAssertFalse(bar.isHidden)
+    XCTAssertEqual(bar.spelling.display, reading, "the editor draws the reading, not the group codes")
+    XCTAssertEqual(bar.spelling.offset, 6, "the caret starts at the end")
+
+    bar.spelling.requestCaret(atDisplayOffset: 3)
+    XCTAssertEqual(preedit(in: controller), "bu|gao", "the engine caret sits before GH")
+    XCTAssertEqual(bar.spelling.display, reading)
+    XCTAssertEqual(bar.spelling.offset, 3, "the editor caret is drawn after the split, before h")
+    bar.spelling.accessibilityDecrement()
+    XCTAssertEqual(preedit(in: controller), "b|ugao")
+    XCTAssertEqual(bar.spelling.offset, 1)
+    try button("compositionEditorDone", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertTrue(bar.isHidden)
+
+    // 在拼音选择条上选 ni：读音是 ni'hao，编辑条照样画读音，光标照样落在按键上。
+    try button("readingSpelling_ni", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertTrue(preedit(in: controller).hasPrefix("ni"), preedit(in: controller))
+    preeditButton.sendActions(for: .primaryActionTriggered)
+    XCTAssertFalse(bar.isHidden)
+    XCTAssertEqual(bar.spelling.display, "ni'hao")
+    bar.spelling.requestCaret(atDisplayOffset: 4)
+    XCTAssertEqual(bar.spelling.offset, 4, "ni'h|ao")
+    XCTAssertEqual(bar.spelling.display, "ni'hao")
+    controller.viewDidDisappear(false)
+  }
+
   /// 分词键在组码之间定一个音节分界：ZX UI 分词 AS BN 得到「西安」。
   func testTheSeparatorKeySplitsXian() throws {
     let controller = makeController(width: 390)

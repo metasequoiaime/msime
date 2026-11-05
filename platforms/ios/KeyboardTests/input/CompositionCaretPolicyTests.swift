@@ -64,6 +64,42 @@ final class CompositionCaretPolicyTests: XCTestCase {
     XCTAssertEqual(CompositionCaretPolicy.displayOffset(display: "NI'HAO", editing: "64426", caret: 0, keyGrid: true), 0, "letters match their key in either case")
   }
 
+  func testFullPinyinGridReadingAlignsLettersWithGroupCodes() {
+    // 全拼 14 键：nihao 打的是 BN UI GH AS OP，按键是每组的首字母 bugao，读音是 ni'hao。
+    XCTAssertNil(CompositionCaretPolicy.alignment("ni'hao", "bugao"), "without the grid the letters are not the keys")
+    XCTAssertEqual(CompositionCaretPolicy.alignment("ni'hao", "bugao", letterGroups: .fourteenKey), [0, 1, 2, 2, 3, 4, 5])
+    XCTAssertEqual(CompositionCaretPolicy.tapTarget(display: "ni'hao", editing: "bugao", tapped: 3, letterGroups: .fourteenKey), 2,
+                   "tap before h lands before its key GH")
+    XCTAssertEqual(CompositionCaretPolicy.tapTarget(display: "ni'hao", editing: "bugao", tapped: 5, letterGroups: .fourteenKey), 4)
+    XCTAssertEqual(CompositionCaretPolicy.markIndex(display: "ni'hao", editing: "bugao", caret: 2, keyGrid: true,
+                                                    letterGroups: .fourteenKey), 3, "a grid caret sits after the split")
+    XCTAssertEqual(CompositionCaretPolicy.displayOffset(display: "ni'hao", editing: "bugao", caret: 5, keyGrid: true,
+                                                        letterGroups: .fourteenKey), 6)
+    XCTAssertEqual(CompositionCaretPolicy.displayOffset(display: "NI'HAO", editing: "bugao", caret: 1, keyGrid: true,
+                                                        letterGroups: .fourteenKey), 1, "letters match their group in either case")
+    // 选过拼音后按键里有原字母，同一个字母照样对上。
+    XCTAssertEqual(CompositionCaretPolicy.alignment("ni'hao", "ni'gao", letterGroups: .fourteenKey), [0, 1, 2, 3, 4, 5, 6])
+    // 18 键的分组不同：O 和 I 同键（组码 i），E 归 WE（组码 w）。
+    XCTAssertEqual(CompositionCaretPolicy.alignment("ni'hao", "bihai", letterGroups: .eighteenKey), [0, 1, 2, 2, 3, 4, 5])
+    XCTAssertNil(CompositionCaretPolicy.alignment("ni'hao", "bugao", letterGroups: .eighteenKey), "UI is two keys on 18 keys")
+    XCTAssertTrue(CompositionCaretPolicy.sameKey("e", "w", letterGroups: .eighteenKey))
+    XCTAssertFalse(CompositionCaretPolicy.sameKey("e", "w", letterGroups: .fourteenKey))
+    // 组码之外的键不认：14 键上 n 只对 b。
+    XCTAssertNil(CompositionCaretPolicy.alignment("ni", "ne", letterGroups: .fourteenKey))
+    XCTAssertNil(CompositionCaretPolicy.alignment("ni", "ba", letterGroups: .fourteenKey))
+  }
+
+  func testTwentySixKeysAndShuangpinGridsKeepExactLetters() {
+    // 26 键不传网格：n 就是 n，不会因为 14 键上同组而对上 b。
+    XCTAssertFalse(CompositionCaretPolicy.sameKey("n", "b"))
+    XCTAssertTrue(CompositionCaretPolicy.sameKey("n", "b", letterGroups: .fourteenKey))
+    XCTAssertNil(CompositionCaretPolicy.alignment("nihao", "bugao"))
+    XCTAssertEqual(CompositionCaretPolicy.alignment("nihao", "nihao"), [0, 1, 2, 3, 4, 5])
+    // 14 键小鹤双拼 ni'hao 是 ni hc，按键 bugc；双拼网格不传网格，读音对不上，编辑条退回原始按键。
+    XCTAssertNil(CompositionCaretPolicy.alignment("ni'hao", "bugc"))
+    XCTAssertNil(CompositionCaretPolicy.displayOffset(display: "ni'hao", editing: "bugc", caret: 4, keyGrid: true))
+  }
+
   func testAReadingOfOtherKeysIsNotGuessed() {
     XCTAssertNil(CompositionCaretPolicy.tapTarget(display: "xi'an", editing: "9427", tapped: 3))
     XCTAssertNil(CompositionCaretPolicy.tapTarget(display: "xi", editing: "9426", tapped: 1), "a reading shorter than the keys")

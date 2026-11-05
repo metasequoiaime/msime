@@ -42,12 +42,14 @@ final class CompositionEditorBar: UIView {
   @available(*, unavailable)
   required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-  /// 按引擎这一刻的组字刷新。`display` 对不上 `editing` 时画原始按键，不猜位置（与 Android 相同）。
+  /// 按引擎这一刻的组字刷新。`display` 对不上 `editing` 时画原始按键，不猜位置（与 Android 相同）。`letterGroups` 是全拼 14 键、18 键的字母网格，读音的字母按它的组码对上按键（见 `CompositionCaretPolicy`）。
   /// 背景透明，透出键盘本身的底色或皮肤图，与 Android 编辑条用键盘底色是同一个样子。
-  func update(display: String, editing: String, caret: Int, keyGrid: Bool, foreground: UIColor, accent: UIColor) {
-    let aligned = CompositionCaretPolicy.displayOffset(display: display, editing: editing, caret: caret, keyGrid: keyGrid) != nil
+  func update(display: String, editing: String, caret: Int, keyGrid: Bool, letterGroups: LetterKeyGrid?,
+              foreground: UIColor, accent: UIColor) {
+    let aligned = CompositionCaretPolicy.displayOffset(
+      display: display, editing: editing, caret: caret, keyGrid: keyGrid, letterGroups: letterGroups) != nil
     spelling.update(display: aligned ? display : editing, editing: editing, caret: caret, keyGrid: keyGrid,
-                    foreground: foreground, accent: accent)
+                    letterGroups: aligned ? letterGroups : nil, foreground: foreground, accent: accent)
     doneButton.configuration?.baseForegroundColor = accent
   }
 }
@@ -65,6 +67,8 @@ final class CompositionSpellingView: UIView {
   private var foreground: UIColor = .label
   private(set) var display = ""
   private var editing = ""
+  /// 画出来的读音按这张全拼字母网格对上按键；画的就是按键本身或 26 键时为 nil。
+  private var letterGroups: LetterKeyGrid?
   /// 光标画在 `display` 的这个下标前。
   private(set) var offset = 0
   private var scroll: CGFloat = 0
@@ -97,13 +101,16 @@ final class CompositionSpellingView: UIView {
     CGSize(width: UIView.noIntrinsicMetric, height: max(44, ceil(font.lineHeight) + 10))
   }
 
-  func update(display: String, editing: String, caret: Int, keyGrid: Bool, foreground: UIColor, accent: UIColor) {
+  func update(display: String, editing: String, caret: Int, keyGrid: Bool, letterGroups: LetterKeyGrid?,
+              foreground: UIColor, accent: UIColor) {
     let textChanged = self.display != display
     let previousOffset = offset
     self.display = display
     self.editing = editing
+    self.letterGroups = letterGroups
     self.foreground = foreground
-    offset = max(0, CompositionCaretPolicy.displayOffset(display: display, editing: editing, caret: caret, keyGrid: keyGrid) ?? 0)
+    offset = max(0, CompositionCaretPolicy.displayOffset(
+      display: display, editing: editing, caret: caret, keyGrid: keyGrid, letterGroups: letterGroups) ?? 0)
     caretLayer.backgroundColor = accent.cgColor
     accessibilityValue = display
     place()
@@ -187,15 +194,18 @@ final class CompositionSpellingView: UIView {
   }
 
   private func requestStep(_ direction: Int) {
-    guard let current = CompositionCaretPolicy.tapTarget(display: display, editing: editing, tapped: offset) else { return }
+    guard let current = CompositionCaretPolicy.tapTarget(
+      display: display, editing: editing, tapped: offset, letterGroups: letterGroups) else { return }
     let next = max(0, min(editing.count, current + direction))
     if next != current { move(next) }
   }
 
   /// 把光标放到 `display` 的这个下标前：换成按键下标，和现在的位置不同时才发请求。点按和拖动都走这里。
   func requestCaret(atDisplayOffset shownOffset: Int) {
-    guard let target = CompositionCaretPolicy.tapTarget(display: display, editing: editing, tapped: shownOffset),
-          let current = CompositionCaretPolicy.tapTarget(display: display, editing: editing, tapped: offset),
+    guard let target = CompositionCaretPolicy.tapTarget(
+            display: display, editing: editing, tapped: shownOffset, letterGroups: letterGroups),
+          let current = CompositionCaretPolicy.tapTarget(
+            display: display, editing: editing, tapped: offset, letterGroups: letterGroups),
           target != current else { return }
     move(target)
   }
