@@ -1388,6 +1388,17 @@ else()
 endif()
 add_test(NAME windows-shuangpin-paged-selection COMMAND windows-shuangpin-paged-selection ${CMAKE_CURRENT_SOURCE_DIR}/tests/input/fixtures/msime-shuangpin-paging.db)
 set_tests_properties(windows-shuangpin-paged-selection PROPERTIES TIMEOUT 30)
+# TIP 新建的宿主会话立即套上用户当前的偏好快照，不停在 runtime-options.json 的版本默认方案（#10867）：同一份全拼宿主选项，只建不套是全拼、带上双拼快照是双拼。真实会话，合成词库。
+add_executable(windows-host-session-preferences tests/input/host_session_preferences.cpp
+               tsf/EngineSessionAdapter.cpp tsf/EngineResponse.cpp)
+target_link_libraries(windows-host-session-preferences PRIVATE msime-windows-composer)
+if(MSVC)
+  target_compile_options(windows-host-session-preferences PRIVATE /W4 /WX /UNDEBUG /utf-8)
+else()
+  target_compile_options(windows-host-session-preferences PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+endif()
+add_test(NAME windows-host-session-preferences COMMAND windows-host-session-preferences ${CMAKE_CURRENT_SOURCE_DIR}/tests/input/fixtures/msime-shuangpin-paging.db)
+set_tests_properties(windows-host-session-preferences PROPERTIES TIMEOUT 30)
 # TIP 续接时候选不在本会话的当前页上（Server 卷轴展开网格里的候选）：到完整候选列表里按文字找唯一的一个、按全局下标选。只模拟宿主边界，不链接共享库。
 add_executable(windows-host-candidate-continuation tests/input/host_candidate_continuation.cpp
                tsf/EngineResponse.cpp)

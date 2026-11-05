@@ -1826,6 +1826,8 @@ STDAPI CMetasequoiaIME::Deactivate()
         delete _pCompositionProcessorEngine;
         _pCompositionProcessorEngine = nullptr;
     }
+    // 宿主会话跟引擎一起没了，屏障不能再说「这个修订已经套过」：下次激活建的是新会话（PreferenceBarrier::forget_applied）。
+    _preferenceBarrier.forget_applied();
 
     _UninitFunctionProviderSink();
 
