@@ -129,12 +129,28 @@ Check ($app.DataDir -eq $dataDir) "DataDir recorded as the /DATADIR choice ($($a
 $action = if (TaskExists) { @((Get-ScheduledTask -TaskName $taskName).Actions)[0] } else { $null }
 $watchdog = Join-Path $pf64 'server\MetasequoiaImeWatchdog.exe'
 Check ($null -ne $action -and $action.Execute.Trim('"') -eq $watchdog -and [string]::IsNullOrEmpty($action.Arguments)) "watchdog task runs the full Watchdog path ($(if ($action) { "$($action.Execute) | $($action.Arguments)" }))"
+# 登录任务默认 Priority 7，会把看门狗和它拉起的 Server 一起降级；默认还有 72 小时执行时限。
+# 电池策略是单独的产品决定，这里不检查。
+$taskSettings = if (TaskExists) { (Get-ScheduledTask -TaskName $taskName).Settings } else { $null }
+Check ($null -ne $taskSettings -and $taskSettings.Priority -eq 4) "watchdog task keeps the normal priority ($(if ($taskSettings) { $taskSettings.Priority }))"
+Check ($null -ne $taskSettings -and $taskSettings.ExecutionTimeLimit -eq 'PT0S') "watchdog task has no execution time limit ($(if ($taskSettings) { $taskSettings.ExecutionTimeLimit }))"
 # The Server and settings window run at medium integrity and must be able to write what the elevated installer created.
 $rules = (Get-Acl -LiteralPath $app.DataDir).GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])
 $usersModify = @($rules | Where-Object {
     $_.AccessControlType -eq 'Allow' -and $_.IdentityReference.Value -eq 'S-1-5-32-545' -and
     ($_.FileSystemRights -band [Security.AccessControl.FileSystemRights]::Modify) -eq [Security.AccessControl.FileSystemRights]::Modify })
 Check ($usersModify.Count -gt 0) 'DataDir grants Users modify'
+# 用户数据目录与程序 DLL 的权限边界不同，不能向全部应用包开放。
+function CheckNoAppPackageAccess([string]$Path) {
+    $access = (Get-Acl -LiteralPath $Path).GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])
+    foreach ($packageSid in 'S-1-15-2-1', 'S-1-15-2-2') {
+        $allowed = @($access | Where-Object {
+            $_.AccessControlType -eq 'Allow' -and $_.IdentityReference.Value -eq $packageSid
+        })
+        Check ($allowed.Count -eq 0) "user data has no grant to $packageSid ($Path)"
+    }
+}
+CheckNoAppPackageAccess $app.DataDir
 $label = (& icacls $app.DataDir) -join "`n"
 Check ($label.Contains('Mandatory Label\Medium Mandatory Level')) 'DataDir carries a medium integrity label'
 
@@ -158,7 +174,14 @@ foreach ($item in $seeded.GetEnumerator()) {
     Set-Content -LiteralPath $path -Value $item.Value -NoNewline -Encoding utf8
 }
 Set-Content -LiteralPath (Join-Path $dataDir 'runtime-options.json') -Value 'smoke-stale-runtime-options' -NoNewline -Encoding utf8
+# 模拟安装过旧预览包的目录，重装必须清掉根目录和子文件上的已有授权。
+foreach ($packageSid in 'S-1-15-2-1', 'S-1-15-2-2') {
+    & icacls $dataDir /grant "*${packageSid}:(OI)(CI)RX" /T /C /Q | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "cannot seed legacy application-package ACL ($packageSid)" }
+}
 Install $dataDir 'upgrade.log'
+CheckNoAppPackageAccess $dataDir
+CheckNoAppPackageAccess (Join-Path $dataDir 'user\smoke-user.txt')
 foreach ($item in $seeded.GetEnumerator()) {
     $path = Join-Path $dataDir $item.Key
     Check ((Test-Path -LiteralPath $path -PathType Leaf) -and (Get-Content -LiteralPath $path -Raw -Encoding UTF8) -eq $item.Value) "reinstall keeps $($item.Key)"
@@ -167,6 +190,8 @@ $movedDir = Join-Path $dataDir 'moved'
 Install $movedDir 'move.log'
 $app = Get-ItemProperty -LiteralPath $appKey
 Check ($app.DataDir -eq $movedDir) "DataDir recorded as the new directory ($($app.DataDir))"
+CheckNoAppPackageAccess $movedDir
+CheckNoAppPackageAccess (Join-Path $movedDir 'user\smoke-user.txt')
 foreach ($item in $seeded.GetEnumerator()) {
     $path = Join-Path $movedDir $item.Key
     Check ((Test-Path -LiteralPath $path -PathType Leaf) -and (Get-Content -LiteralPath $path -Raw -Encoding UTF8) -eq $item.Value) "move carries $($item.Key)"

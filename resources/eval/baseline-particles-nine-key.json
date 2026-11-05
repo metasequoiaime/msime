@@ -3,22 +3,22 @@
     "3": {
       "cases": 103,
       "found": 0.99,
-      "mrr": 0.405,
-      "top1": 0.223,
-      "top1_char_prefix": 0.392,
+      "mrr": 0.425,
+      "top1": 0.243,
+      "top1_char_prefix": 0.411,
       "top5": 0.786,
-      "top9": 0.893
+      "top9": 0.913
     }
   },
   "by_tag": {
     "particle": {
       "cases": 103,
       "found": 0.99,
-      "mrr": 0.405,
-      "top1": 0.223,
-      "top1_char_prefix": 0.392,
+      "mrr": 0.425,
+      "top1": 0.243,
+      "top1_char_prefix": 0.411,
       "top5": 0.786,
-      "top9": 0.893
+      "top9": 0.913
     }
   },
   "cases": 103,
@@ -29,11 +29,11 @@
   "overall": {
     "cases": 103,
     "found": 0.99,
-    "mrr": 0.405,
-    "top1": 0.223,
-    "top1_char_prefix": 0.392,
+    "mrr": 0.425,
+    "top1": 0.243,
+    "top1_char_prefix": 0.411,
     "top5": 0.786,
-    "top9": 0.893
+    "top9": 0.913
   },
   "sample_failures": [
     {
@@ -125,7 +125,7 @@
       "id": "p014",
       "input": "qizhaba",
       "rank": 7,
-      "top1": "妻子吧啊"
+      "top1": "日子阿巴"
     },
     {
       "gold": "登录吗",
@@ -181,14 +181,14 @@
       "id": "p026",
       "input": "yongyouba",
       "rank": 4,
-      "top1": "我你有把"
+      "top1": "我你又把"
     },
     {
       "gold": "应用吗",
       "id": "p028",
       "input": "yingyongma",
-      "rank": 12,
-      "top1": "悉尼我你妈"
+      "rank": 8,
+      "top1": "以你用那"
     },
     {
       "gold": "招标啦",
@@ -243,8 +243,8 @@
       "gold": "面包吗",
       "id": "p040",
       "input": "mianbaoma",
-      "rank": 48,
-      "top1": "年宝马"
+      "rank": 6,
+      "top1": "尼庵宝马"
     },
     {
       "gold": "工程啦",

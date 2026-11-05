@@ -214,8 +214,8 @@ public final class AppThemePalette {
     public static final class Seed {
         /** 秋杉：没有缓存的季节时宿主与键盘的回退值，也是 `res/values*` 的基础主题。 */
         public static final Seed AUTUMN = new Seed("qiushan", "autumn",
-            new Mode(0xFFB5562B, 0xFFF6E9DC, 0xFFFFFBF6, 0x33B5562B, 0xFFFFFFFF, 0xFF9F4214),
-            new Mode(0xFFF0975F, 0xFF21150F, 0xFF2E1E15, HAIR_DARK, 0xFF3C2618));
+            new Mode(0xFFB07800, 0xFFFAF5E8, 0xFFFFFDF6, 0x33B07800, 0xFF1A1200, 0xFF905A00),
+            new Mode(0xFFF3C14F, 0xFF1C1910, 0xFF28241A, HAIR_DARK, 0xFF3D3014));
 
         /** 应用主题 id（`siji`、`chunya`、`xiayin`、`qiushan`、`dongxue`）。 */
         public final String id;

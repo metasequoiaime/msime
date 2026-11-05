@@ -1730,13 +1730,13 @@ public:
     msime_linux_diagnostic_configure(
         options_path_, diagnostic.is_object() && diagnostic.value("server", false));
   }
-  // "在候选窗中显示辅助码" and the wubi code hint both decide whether the annotation belongs on the candidate row. This host appended it unconditionally, so turning either off changed nothing here.
-  // In / and @ the annotation is the command title or the place's province and city, part of the row rather than a reading aid, so neither setting hides it; Wubi opens these modes too. The other local modes (super jianpin, quick phrase and the rest) still carry helpcodes there and follow both settings.
+  // "在候选窗中显示辅助码" decides whether the annotation belongs on the candidate row. This host appended it unconditionally, so turning it off changed nothing here.
+  // In / and @ the annotation is the command title or the place's province and city, part of the row rather than a reading aid, so the setting does not hide it. The other local modes (super jianpin, quick phrase and the rest) still carry helpcodes there and follow it.
+  // 五笔方案的注释由引擎决定：「五笔剩余编码」关掉时引擎不再给五笔原生候选附编码，拼音来的候选（混输拼音、`z` 反查）照旧附，与其他五个宿主相同（#10790），所以这里不再按这个开关整段隐藏，五笔方案和其他非拼音方案一样恒显示。
   bool showCandidateAnnotations() const {
     const auto local_mode = view_.value("local_mode", std::string("none"));
     if (local_mode == "command" || local_mode == "mention") return true;
     const auto scheme = msime::linux_host::strict_json_value(view_, "scheme", 0u);
-    if (scheme == 2) return preferences_.value("wubi_code_hint", true);
     if (scheme != 0 && scheme != 1) return true;
     const std::string section = scheme == 1 ? "shuangpin_helpcode" : "quanpin_helpcode";
     return preferences_.value(section, Json::object())
@@ -4860,7 +4860,7 @@ public:
       : factory_(factory), index_(index), label_(label) {
     setCheckable(true);
   }
-  // 名字与 macOS 子菜单相同：双拼带键位方案，五笔跟随存储的码表版本显示「五笔 86」或「五笔 98」。
+  // 名字与 macOS 子菜单相同：双拼带键位方案，五笔跟随存储的码表版本显示「五笔 86」「五笔 98」或「五笔 新世纪」。
   std::string shortText(fcitx::InputContext *ic) const override {
     if (ic) return ic->propertyFor(factory_)->schemeMenuTitle(FcitxState::kSchemes[index_]);
     return label_;
@@ -8272,8 +8272,11 @@ std::string FcitxState::candidateAux() const {
     if (!candidatePreedit.empty()) {
       const auto editing = view_.value("editing_text", std::string());
       const auto caret = std::min(editing.size(), msime::linux_host::strict_json_value(view_, "caret_position", editing.size()));
+      const auto preeditCaret = view_.find("preedit_caret");
       const auto displayed = msime::linux_host::candidate_preedit_with_caret(
-          candidatePreedit, editing, caret);
+          candidatePreedit, editing, caret,
+          preeditCaret == view_.end() ? std::nullopt
+                                      : msime::linux_host::strict_json_integer_optional<std::size_t>(*preeditCaret));
       if (!displayed.empty()) aux += (aux.empty() ? "" : " · ") + displayed;
     }
   }
@@ -8624,11 +8627,21 @@ bool FcitxState::renderNativeCanvas() {
   content.preedit = ic_.inputPanel().preedit().toString();
   if (!content.preedit.empty()) content.preedit_cursor = ic_.inputPanel().preedit().cursor();
   // 拼音行属于画布，客户端内嵌预编辑仍单独保留。
-  if (content.preedit.empty() && preferences_.value("candidate_preedit_style", std::string("pinyin")) == "pinyin")
+  const bool viewPreedit =
+      content.preedit.empty() && preferences_.value("candidate_preedit_style", std::string("pinyin")) == "pinyin";
+  if (viewPreedit)
     content.preedit = view_.value("preedit", std::string{});
-  if (!content.preedit.empty() && content.preedit == view_.value("editing_text", std::string{}))
+  if (!content.preedit.empty() && content.preedit == view_.value("editing_text", std::string{})) {
     content.preedit_cursor = static_cast<int>(std::min(content.preedit.size(),
         host::strict_json_value(view_, "caret_position", content.preedit.size())));
+  } else if (viewPreedit) {
+    // 分词或展开过的拼写（ni'hao）按引擎给的 preedit_caret 放光标，与辅助行（candidateAux）同一条规则。
+    const auto preeditCaret = view_.find("preedit_caret");
+    if (const auto bytes = host::candidate_preedit_caret_bytes(
+            content.preedit, view_.value("editing_text", std::string{}), 0,
+            preeditCaret == view_.end() ? std::nullopt : host::strict_json_integer_optional<std::size_t>(*preeditCaret)))
+      content.preedit_cursor = static_cast<int>(*bytes);
+  }
   if (!ic_.inputPanel().auxUp().empty()) {
     content.preedit = ic_.inputPanel().auxUp().toString() + (content.preedit.empty() ? "" : " · " + content.preedit);
     content.preedit_cursor = -1;

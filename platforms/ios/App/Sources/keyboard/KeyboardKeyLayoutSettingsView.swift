@@ -12,8 +12,6 @@ struct KeyboardKeyLayoutSettingsView: View {
   @State private var kindPicked = false
   /// 14/18 键的预览画哪种字母格：用户当前在用 18 键时画 18 键，否则画 14 键。
   @State private var letterGrid: LetterKeyGrid
-  /// 字母格第三排左端是「分词」还是「符」：五笔 14 键没有音节可分，键盘上这个键是「符」。
-  @State private var gridSplitsSyllables: Bool
   /// 用户隐藏了中/英键时预览也不画它，份额并进空格，与键盘一致。
   @State private var hidesLanguageKey = KeyboardLayoutPreference.hideLanguageKey
   /// 本版本提供哪几类键面，决定分段列哪几类和要不要数字行开关。
@@ -24,7 +22,6 @@ struct KeyboardKeyLayoutSettingsView: View {
     let current = Self.currentKeyboard(in: nil)
     _kind = State(initialValue: TouchKeyLayoutOffering.edition.initialKind(current: current.kind))
     _letterGrid = State(initialValue: current.grid)
-    _gridSplitsSyllables = State(initialValue: current.splitsSyllables)
   }
 
   var body: some View {
@@ -75,8 +72,7 @@ struct KeyboardKeyLayoutSettingsView: View {
   private func styleCard(_ kind: TouchKeyLayoutKind) -> some View {
     DesignCard {
       VStack(alignment: .leading, spacing: 14) {
-        KeyLayoutKeyboardPreview(kind: kind, style: style, letterGrid: letterGrid,
-                                 gridSplitsSyllables: gridSplitsSyllables, language: !hidesLanguageKey)
+        KeyLayoutKeyboardPreview(kind: kind, style: style, letterGrid: letterGrid, language: !hidesLanguageKey)
           .padding(.horizontal, 16)
         // 当前样式的说明收进胶囊行末的「?」，没有说明的样式不画。
         HStack(spacing: 0) {
@@ -191,18 +187,16 @@ struct KeyboardKeyLayoutSettingsView: View {
     hidesLanguageKey = KeyboardLayoutPreference.hideLanguageKey
     let current = Self.currentKeyboard(in: document)
     letterGrid = current.grid
-    gridSplitsSyllables = current.splitsSyllables
     if !kindPicked { kind = offering.initialKind(current: current.kind) }
   }
 
-  /// 用户当前的中文键盘：属于哪一类、14/18 键画哪种字母格、字母格第三排左端是不是分词键。取文档里的方案和双拼、五笔布局，读不到文档时用 App Group 镜像，与键盘页「中文键盘」一行同一个来源。
-  private static func currentKeyboard(in document: [String: Any]?) -> (kind: TouchKeyLayoutKind?, grid: LetterKeyGrid, splitsSyllables: Bool) {
+  /// 用户当前的中文键盘：属于哪一类、14/18 键画哪种字母格。取文档里的方案和双拼、五笔布局，读不到文档时用 App Group 镜像，与键盘页「中文键盘」一行同一个来源。
+  private static func currentKeyboard(in document: [String: Any]?) -> (kind: TouchKeyLayoutKind?, grid: LetterKeyGrid) {
     let scheme = InputSchemePreference.current(in: document).scheme
     let shuangpinLayout = document.map { TouchShuangpinLayoutPreference.layout(in: $0) } ?? TouchShuangpinLayoutPreference.layout
     let wubiLayout = document.map { TouchWubiLayoutPreference.layout(in: $0) } ?? TouchWubiLayoutPreference.layout
     return (TouchKeyLayoutKind.of(scheme, shuangpinLayout: shuangpinLayout, wubiLayout: wubiLayout),
-            LetterKeyGrid.of(scheme, shuangpinLayout: shuangpinLayout, wubiLayout: wubiLayout) ?? .fourteenKey,
-            scheme != .wubi)
+            LetterKeyGrid.of(scheme, shuangpinLayout: shuangpinLayout, wubiLayout: wubiLayout) ?? .fourteenKey)
   }
 }
 
@@ -213,7 +207,6 @@ private struct KeyLayoutKeyboardPreview: View {
   let kind: TouchKeyLayoutKind
   let style: TouchKeyLayoutStyle
   let letterGrid: LetterKeyGrid
-  let gridSplitsSyllables: Bool
   let language: Bool
 
   private static let canvasWidth: CGFloat = 390
@@ -223,7 +216,7 @@ private struct KeyLayoutKeyboardPreview: View {
   private static let rowGap: CGFloat = 6
   /// 九键的符号栏、九宫格和右列之间的间距，与键盘的 `nineKeyContainer.spacing` 相同。
   private static let nineKeyColumnGap: CGFloat = 6
-  /// 14 键第三排两端的分词键和 ⌫ 在手机上固定 44pt（键盘的 `phoneLetterEdgeWidth`）；画布与 390pt 宽的手机同宽，照抄这个宽度。
+  /// 14 键第三排两端的「符」和 ⌫ 在手机上固定 44pt（键盘的 `phoneLetterEdgeWidth`）；画布与 390pt 宽的手机同宽，照抄这个宽度。
   private static let letterGridEdgeWidth: CGFloat = 44
   private static let keyRadius: CGFloat = 6
   /// 键排得下的宽度和高度：画布减去四周的留边。
@@ -289,23 +282,23 @@ private struct KeyLayoutKeyboardPreview: View {
     }
   }
 
-  /// 14 键：每排等宽，第二排不缩进；第三排两端是分词键（五笔是 符）和 ⌫，各固定 44pt。
+  /// 14 键：每排等宽，第二排不缩进；第三排两端是 符 和 ⌫，各固定 44pt。预览画的是空闲时的键盘，全拼、双拼的这个键只在组字时才换成「分词」，五笔一直是 符，与 Android、鸿蒙的预览相同。
   private var fourteenKeyRows: [(caps: [Cap], inset: CGFloat)] {
     FourteenKeyLayout.rows.enumerated().map { index, keys in
       let letters = keys.map { Cap(face: .text($0.face)) }
       guard index == FourteenKeyLayout.rows.count - 1 else { return (letters, 0) }
-      return ([Cap(face: .text(gridSplitsSyllables ? "分词" : "符"), role: .function, fixed: Self.letterGridEdgeWidth)] + letters
+      return ([Cap(face: .text("符"), role: .function, fixed: Self.letterGridEdgeWidth)] + letters
         + [Cap(face: .symbol("delete.left"), role: .function, fixed: Self.letterGridEdgeWidth)], 0)
     }
   }
 
-  /// 18 键：三排从同一左右边界铺开，第二排六个键平分整行（与键盘相同，A 与 Q 左对齐、L 与 P 右对齐），第三排两端的分词键和 ⌫ 与字母键同宽。
+  /// 18 键：三排从同一左右边界铺开，第二排六个键平分整行（与键盘相同，A 与 Q 左对齐、L 与 P 右对齐），第三排两端的 符 和 ⌫ 与字母键同宽。
   private var eighteenKeyRows: [(caps: [Cap], inset: CGFloat)] {
     EighteenKeyLayout.rows.enumerated().map { index, keys in
       let letters = keys.map { Cap(face: .text($0.face)) }
       switch index {
       case EighteenKeyLayout.rows.count - 1:
-        return ([Cap(face: .text("分词"), role: .function)] + letters + [Cap(face: .symbol("delete.left"), role: .function)], 0)
+        return ([Cap(face: .text("符"), role: .function)] + letters + [Cap(face: .symbol("delete.left"), role: .function)], 0)
       default: return (letters, 0)
       }
     }

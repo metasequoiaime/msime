@@ -27,7 +27,7 @@ export interface VoiceHotkeysSectionProps {
   spaceLock?: boolean;
 }
 
-/** Platform-aware voice recording shortcut controls shared by desktop settings hosts. */
+/** 按宿主展示现有语音快捷键。 */
 export function VoiceHotkeysSection({
   platform,
   values,

@@ -26,6 +26,7 @@ RED_LABEL = ("ci-red", "B60205", "develop 或 nightly 的 CI 失败，先修红�
 SIZE_LABEL = ("apk-size", "FBCA04", "Android 瘦包体积越过预警线")
 SIZE_MARKER = "<!-- apk-size-tracker -->"
 SIZE_DATA = re.compile(r"<!-- apk-size-data (\{.*?\}) -->")
+RUN_MARKER = re.compile(r"^<!-- ci-red-tracker run=(\d+) attempt=(\d+) -->$", re.MULTILINE)
 
 
 class GitHub:
@@ -46,6 +47,9 @@ class GitHub:
     def run(self, run_id):
         return self._api(f"actions/runs/{run_id}")
 
+    def run_attempt(self, run_id, attempt):
+        return self._api(f"actions/runs/{run_id}/attempts/{attempt}")
+
     def workflow_runs(self, workflow_id):
         # 一页 100 次足够找到上一次成功；更长的连续失败在正文里写明超出了查询窗口。
         return self._api(f"actions/workflows/{workflow_id}/runs?branch={BRANCH}&status=completed&per_page=100")["workflow_runs"]
@@ -61,6 +65,10 @@ class GitHub:
 
     def open_issues(self, label):
         return json.loads(self._gh("issue", "list", "--repo", self.repository, "--label", label, "--state", "open",
+                                   "--limit", "100", "--json", "number,title,body"))
+
+    def closed_issues(self, label):
+        return json.loads(self._gh("issue", "list", "--repo", self.repository, "--label", label, "--state", "closed",
                                    "--limit", "100", "--json", "number,title,body"))
 
     def comments(self, number):
@@ -116,17 +124,52 @@ def run_link(run):
     return f"[#{run['run_number']}]({run['html_url']})"
 
 
-def red_streak(runs, current):
-    """从当前运行往前数连续失败的运行，返回（连续失败列表，上一次成功或 None）。"""
-    ordered = sorted({run["id"]: run for run in [*runs, current]}.values(), key=lambda run: run["run_number"], reverse=True)
+def red_streak(api, runs):
+    """只用实际成功的同名作业与失败步骤消除红灯，范围跳过不打断连续失败。"""
+    ordered = sorted({(run["id"], run["run_attempt"]): run for run in runs}.values(),
+                     key=lambda run: (run["run_number"], run["run_attempt"]))
     streak = []
+    pending = {}
+    unknown = False
+    green = None
+    recoveries = []
     for run in ordered:
-        if run["run_number"] > current["run_number"]:
+        if run["conclusion"] in RED:
+            failed = [job for job in api.jobs(run["id"], run["run_attempt"]) if job.get("conclusion") in RED]
+            # 没能启动、没有失败作业或没有失败步骤的旧记录，无法证明范围覆盖；保留单让维护者确认。
+            unknown |= not failed
+            for job in failed:
+                steps = {step["name"] for step in job.get("steps", [])
+                         if step.get("conclusion") in (*RED, "cancelled") or step.get("status") == "in_progress"}
+                unknown |= not steps
+                pending.setdefault(job["name"], set()).update(steps)
+            streak.append(run)
             continue
-        if run["conclusion"] == "success":
-            return streak, run
-        streak.append(run)
-    return streak, None
+        if run["conclusion"] != "success":
+            continue
+        if pending:
+            for job in api.jobs(run["id"], run["run_attempt"]):
+                if job.get("conclusion") != "success" or job["name"] not in pending:
+                    continue
+                passed = {step["name"] for step in job.get("steps", []) if step.get("conclusion") == "success"}
+                if pending[job["name"]] & passed:
+                    recoveries.append(run)
+                pending[job["name"]].difference_update(passed)
+                if not pending[job["name"]]:
+                    del pending[job["name"]]
+        if not pending and not unknown:
+            streak = []
+            green = run
+    return list(reversed(streak)), green, {(run["id"], run["run_attempt"]): run for run in recoveries}.values()
+
+
+def reported_runs(api, issue, workflow_path):
+    """窗口外和旧 attempt 的失败仍是恢复依据，不能被最新 attempt 的结论覆盖。"""
+    texts = [issue["body"], *api.comments(issue["number"])]
+    references = {tuple(map(int, match)) for text in texts for match in RUN_MARKER.findall(text)}
+    runs = [api.run_attempt(run_id, attempt) for run_id, attempt in sorted(references)]
+    return [run for run in runs if run["path"] == workflow_path and run["head_branch"] == BRANCH
+            and run["event"] in TRACKED_EVENTS and run["conclusion"] in DECISIVE]
 
 
 def job_lines(jobs):
@@ -137,8 +180,8 @@ def job_lines(jobs):
     return [f"- [{job['name']}]({job['html_url']})（{labels[job['conclusion']]}）" for job in failed]
 
 
-def track_red_build(api, run_id, server="https://github.com"):
-    run = api.run(run_id)
+def track_red_build(api, run_id, server="https://github.com", run_attempt=None):
+    run = api.run_attempt(run_id, run_attempt) if run_attempt is not None else api.run(run_id)
     name, conclusion = run["name"], run["conclusion"]
     if run["head_branch"] != BRANCH or run["event"] not in TRACKED_EVENTS:
         print(f"{name} #{run['run_number']}: {run['event']} on {run['head_branch']} is not tracked")
@@ -149,8 +192,9 @@ def track_red_build(api, run_id, server="https://github.com"):
     runs = [other for other in api.workflow_runs(run["workflow_id"])
             if other["event"] in TRACKED_EVENTS and other["head_branch"] == BRANCH and other["conclusion"] in DECISIVE]
     # 事件可能乱序到达，旧运行也可能被重跑：只让最新一次有结论的运行决定开单还是关单，否则旧的失败会重开已经转绿的单，旧的成功会关掉仍然红着的单。触发这次的是更旧的运行时改按最新那次判定，而不是跳过：最新那次自己的跟踪运行可能在并发组里排队时被这次顶掉了，跳过就没人替它开单或关单。重复处理同一次运行由下面的运行标记挡住。
-    latest = max([run, *runs], key=lambda other: other["run_number"])
-    if latest["id"] != run["id"]:
+    trigger_run = run
+    latest = max([run, *runs], key=lambda other: (other["run_number"], other["run_attempt"]))
+    if (latest["id"], latest["run_attempt"]) != (run["id"], run["run_attempt"]):
         print(f"{name} #{run['run_number']}: newer run #{latest['run_number']} concluded {latest['conclusion']}; deciding from it")
         run, conclusion = latest, latest["conclusion"]
 
@@ -160,8 +204,23 @@ def track_red_build(api, run_id, server="https://github.com"):
     # 先确保标签存在：之后按它列出开着的单，新开的单也要带它。
     api.ensure_label(RED_LABEL)
     issue = find_issue(api.open_issues(RED_LABEL[0]), marker)
+    history = [*runs, trigger_run, run]
+    if issue is None:
+        closed = [other for other in api.closed_issues(RED_LABEL[0]) if has_marker(other.get("body"), marker)]
+        if closed:
+            recorded = reported_runs(api, max(closed, key=lambda other: other["number"]), run["path"])
+            if recorded:
+                boundary = max((other["run_number"], other["run_attempt"]) for other in recorded)
+                history = [other for other in history if (other["run_number"], other["run_attempt"]) > boundary]
+    if issue is not None:
+        recorded = reported_runs(api, issue, run["path"])
+        if recorded:
+            first_order = min((other["run_number"], other["run_attempt"]) for other in recorded)
+            history = [other for other in history if (other["run_number"], other["run_attempt"]) >= first_order]
+        history.extend(recorded)
+    streak, green, recoveries = red_streak(api, history)
 
-    if conclusion == "success":
+    if not streak:
         if issue is None:
             print(f"{name} #{run['run_number']} is green and no tracking issue is open")
             return
@@ -172,6 +231,10 @@ def track_red_build(api, run_id, server="https://github.com"):
         print(f"closed #{issue['number']} for {name}")
         return
 
+    # 最新运行可能只跳过了失败范围；仍报告最近的真实失败，运行标记保证不会重复评论。
+    run = streak[0]
+    conclusion = run["conclusion"]
+    run_marker = f"<!-- ci-red-tracker run={run['id']} attempt={run['run_attempt']} -->"
     if conclusion == "startup_failure":
         # 没能启动的运行一个 job 都没有，原因只在运行页顶部的报错里。
         jobs = ["- 运行没能启动（startup_failure），通常是 workflow 文件写错、复用的 workflow 引用失效或权限配置不对，请看运行页顶部的报错。"]
@@ -179,12 +242,28 @@ def track_red_build(api, run_id, server="https://github.com"):
         jobs = job_lines(api.jobs(run["id"], run["run_attempt"]))
     attempt = f"（第 {run['run_attempt']} 次尝试）" if run["run_attempt"] > 1 else ""
     if issue is not None:
-        if already_reported(api, issue["number"], issue["body"], run_marker):
+        texts = [issue["body"], *api.comments(issue["number"])]
+        # 分平台恢复也要跨查询窗口保留；只有实际消除了失败步骤的成功运行才写入正文，不制造评论。
+        recovery_markers = [f"<!-- ci-red-tracker run={other['id']} attempt={other['run_attempt']} -->"
+                            for other in recoveries
+                            if not any(has_marker(text, f"<!-- ci-red-tracker run={other['id']} attempt={other['run_attempt']} -->")
+                                       for text in texts)]
+        if recovery_markers:
+            issue["body"] += "\n" + "\n".join(recovery_markers)
+            api.edit_body(issue["number"], issue["body"])
+            texts[0] = issue["body"]
+        # 乱序事件可能一次处理多个失败，已有单也必须保存全部未恢复运行，不能只留下最新的标记。
+        missing = [f"<!-- ci-red-tracker run={other['id']} attempt={other['run_attempt']} -->"
+                   for other in streak
+                   if not any(has_marker(text, f"<!-- ci-red-tracker run={other['id']} attempt={other['run_attempt']} -->")
+                              for text in texts)]
+        if not missing:
             print(f"{name} #{run['run_number']} is already reported on #{issue['number']}")
             return
+        heading = "又失败一次" if run_marker in missing else "补充尚未恢复的失败记录"
         api.comment(issue["number"], "\n".join([
-            run_marker,
-            f"又失败一次：{run_link(run)}{attempt}，{run['event']}，提交 {commit_line(server, repository, run)}。",
+            *missing,
+            f"{heading}：{run_link(run)}{attempt}，{run['event']}，提交 {commit_line(server, repository, run)}。",
             "",
             "失败的 job：",
             *jobs,
@@ -192,7 +271,6 @@ def track_red_build(api, run_id, server="https://github.com"):
         print(f"commented on #{issue['number']} for {name} #{run['run_number']}")
         return
 
-    streak, green = red_streak(runs, run)
     first = streak[-1]
     if green is None:
         history = f"最近 {len(runs)} 次有结论的运行里没有成功的，连续失败至少从 {run_link(first)}（提交 `{first['head_sha'][:10]}`）开始。"
@@ -204,7 +282,8 @@ def track_red_build(api, run_id, server="https://github.com"):
     body = "\n".join([
         marker,
         run_marker,
-        f"`{name}` 在 `{BRANCH}` 上失败了。这张单跟踪它直到转绿：之后每次失败追加一条评论，转绿时由 `ci-red-tracker.yml` 自动关闭。",
+        *[f"<!-- ci-red-tracker run={other['id']} attempt={other['run_attempt']} -->" for other in [*streak[1:], *recoveries]],
+        f"`{name}` 在 `{BRANCH}` 上失败了。这张单跟踪它直到实际恢复：之后每次失败追加评论，失败作业及步骤在之后的成功运行中全部通过才自动关闭。范围跳过不算恢复；无法识别失败步骤时需维护者确认关闭。",
         "",
         f"- 运行：{run_link(run)}{attempt}，{run['event']}，{run['created_at']}",
         f"- 提交：{commit_line(server, repository, run)}",
@@ -316,6 +395,7 @@ def main(argv=None):
     commands = parser.add_subparsers(dest="command", required=True)
     red = commands.add_parser("red-build", help="open, update or close the tracking issue of one completed workflow run")
     red.add_argument("--run-id", required=True)
+    red.add_argument("--run-attempt", type=int, help="workflow_run 事件对应的 attempt，避免被后续重跑覆盖")
     size = commands.add_parser("apk-size", help="open, update or close the APK size tracking issue from the size reports")
     size.add_argument("--reports", required=True, help="directory holding the build-apk.sh size reports (*.json)")
     size.add_argument("--editions", required=True, help="comma-separated editions the run was expected to measure")
@@ -327,7 +407,7 @@ def main(argv=None):
         parser.error("GITHUB_REPOSITORY must name the repository (owner/name)")
     api = GitHub(repository)
     if args.command == "red-build":
-        track_red_build(api, args.run_id, os.environ.get("GITHUB_SERVER_URL", "https://github.com"))
+        track_red_build(api, args.run_id, os.environ.get("GITHUB_SERVER_URL", "https://github.com"), args.run_attempt)
     else:
         track_apk_size(api, args.reports, [edition for edition in args.editions.split(",") if edition], args.run_url, args.sha)
     return 0

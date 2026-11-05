@@ -198,12 +198,11 @@ final class ImeToolbar {
     /** 读音行当前 TouchDelegate 的范围，用来判断重新布局后是否需要换新的。 */
     private Rect preeditTouchBounds;
 
-    /** 读音的可点区域：读音所在那一段的整个宽度，靠行首一侧延到行的边缘（含行的左内边距），上下占满整行（含行底和候选行之间的间距）。坐标是读音行自己的。 */
+    /** 读音的可点区域，范围由 {@link ReadingRowPolicy#touchTarget} 算。坐标是读音行自己的。 */
     private static Rect preeditTouchTarget(View header, View preeditFrame) {
-        boolean rtl = header.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL;
-        int left = rtl ? preeditFrame.getLeft() : 0;
-        int right = rtl ? header.getWidth() : preeditFrame.getRight();
-        return new Rect(left, 0, right, header.getHeight());
+        int[] target = ReadingRowPolicy.touchTarget(header.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL,
+            header.getWidth(), header.getHeight(), preeditFrame.getLeft(), preeditFrame.getRight());
+        return new Rect(target[0], target[1], target[2], target[3]);
     }
 
     /** 读音行（读音、提示、页码、漢、退出本地模式）与工具栏的滚动容器；读音行只在组词或有提示时显示。 */

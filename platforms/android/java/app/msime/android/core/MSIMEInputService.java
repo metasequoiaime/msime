@@ -680,6 +680,8 @@ public final class MSIMEInputService extends InputMethodService {
     /** 补上的后半个还在光标右边的那些对，见 {@link PairedPunctuationPolicy.Stack}。 */
     private final PairedPunctuationPolicy.Stack pairedPunctuationStack = new PairedPunctuationPolicy.Stack();
     boolean traditionalChineseOutput;
+    /** 共享偏好 `cantonese_simplified_output`：粤拼和粤语双拼输出简体，繁转简在 Engine 里做。粤拼下的简繁开关切换它，见 {@link ChineseOutputPolicy#switchFollowsCantonese}。 */
+    boolean cantoneseSimplifiedOutput;
     int editorInputType;
     private long currentDocumentIdentifier;
     private long nextDocumentIdentifier = 1;
@@ -2609,6 +2611,7 @@ public final class MSIMEInputService extends InputMethodService {
         clearSmartPunctuationSnapshots();
         deactivateHandwriting();
         invalidateOnlineProviders();
+        cancelPauseRerank();
         invalidateCandidateGlosses();
         if (!keepSession) stopSessionState();
         else clearEnglishSuggestions();
@@ -2838,6 +2841,8 @@ public final class MSIMEInputService extends InputMethodService {
             // 会把它画在组字与候选条的读音前面，两件事必须一起做：请求了却不画，用户已经选中的字
             // 既不在文档里也不在屏幕上（scripts/test-phrase-preedit-hosts.py 守的就是这一半状态）。
             options.put("phrase_preedit", true);
+            // 这个宿主在停顿时调 startSettledRerank（schedulePauseRerank）：跑不进逐键预算的设备上，host-api 把整句联想「增强」的模型延后到停顿时用。
+            options.put("pause_rerank", true);
             // 没读到实时偏好时（读取失败、建会话的回退路径、没有偏好目录），选项里的偏好是出厂默认的全拼 26 键副本，九键用户的键盘会先跳回 26 键（#10389）。按上次确认的键面把副本换成九键：引擎从九键网格起来，键面照旧只按引擎视图画，画的九键和引擎一致，网格键能打字。实时偏好随后到达时照常换成用户的真实设置。
             JSONObject startupPreferences = livePreferences == null ? options.optJSONObject("preferences") : null;
             boolean hintedPreferences = false;
@@ -3308,6 +3313,8 @@ public final class MSIMEInputService extends InputMethodService {
     private void applyChineseOutputPreference(JSONObject preferences) {
         traditionalChineseOutput = preferences != null
             && preferences.optBoolean("traditional_chinese_output", false);
+        cantoneseSimplifiedOutput = preferences != null
+            && preferences.optBoolean("cantonese_simplified_output", false);
     }
 
     private void applyCandidateGlossPreference(JSONObject preferences) {
@@ -3828,6 +3835,7 @@ public final class MSIMEInputService extends InputMethodService {
             : nextAiAssistant == null
                 || !previousAiAssistant.toString().equals(nextAiAssistant.toString());
         boolean nextTraditional = preferences.optBoolean("traditional_chinese_output", false);
+        boolean nextCantoneseSimplified = preferences.optBoolean("cantonese_simplified_output", false);
         boolean nextCandidateGloss = preferences.optBoolean("candidate_english_gloss", true);
         boolean nextCandidatePronunciation = preferences.optBoolean("candidate_pronunciation", false);
         String nextSpellingPosition = CandidatePreeditStylePolicy.normalize(
@@ -3926,6 +3934,7 @@ public final class MSIMEInputService extends InputMethodService {
         applyToolbarPreferences(preferences);
         boolean japaneseEmojiKeyChanged = previousJapaneseEmojiKey != japaneseSideEmojiKey();
         traditionalChineseOutput = nextTraditional;
+        cantoneseSimplifiedOutput = nextCantoneseSimplified;
         // 要在下面改掉当前值之前比较：放在赋值之后时前后两份永远相同，换服务、关翻译后候选下的旧译文要等下一次按键才消失。
         boolean translationDisplayChanged = CandidateTranslationPolicy.displayInvalidated(
             candidateEnglishGloss, nextCandidateGloss, candidateTranslationsEnabled,
@@ -4883,6 +4892,38 @@ public final class MSIMEInputService extends InputMethodService {
         main.postDelayed(onlineTask, OnlineCandidatePolicy.QUIET_INTERVAL_MILLIS);
     }
 
+    private final PauseRerankController<JSONObject> pauseRerank = new PauseRerankController<>(
+        new PauseRerankController.Scheduler() {
+            @Override public void post(Runnable task, long delay) { main.postDelayed(task, delay); }
+            @Override public void remove(Runnable task) { main.removeCallbacks(task); }
+        }, new PauseRerankController.Bridge<>() {
+            @Override public PauseRerankController.Reply<JSONObject> start(long handle) throws JSONException {
+                return pauseRerankReply(NativeClient.startSettledRerank(handle));
+            }
+            @Override public PauseRerankController.Reply<JSONObject> poll(long handle, long token,
+                    boolean accept) throws JSONException {
+                return pauseRerankReply(NativeClient.pollSettledRerank(handle, token, accept));
+            }
+        }, () -> session, next -> {
+            view = next;
+            if (!renderingSuppressed) render();
+        }, () -> android.util.Log.w("MSIMEHost", "Pause rerank failed"));
+
+    private PauseRerankController.Reply<JSONObject> pauseRerankReply(String response) throws JSONException {
+        JSONObject result = value(response);
+        return new PauseRerankController.Reply<>(InputViewValuePolicy.text(result, "status"),
+            NumberPolicy.strictLong(result.opt("token"), 0),
+            InputViewValuePolicy.booleanValue(result, "moved", false), result.optJSONObject("view"));
+    }
+
+    private void schedulePauseRerank() {
+        JSONArray rows = view == null ? null : view.optJSONArray("candidates");
+        pauseRerank.schedule(view != null && !InputViewValuePolicy.editingText(view).isEmpty()
+            && rows != null && rows.length() >= 2);
+    }
+
+    private void cancelPauseRerank() { pauseRerank.cancel(); }
+
     /** 在线 worker 执行网络请求；失败时释放仍属于本请求的签名。 */
     private void fetchOnlineCandidates(long targetSession, String document, long epoch,
             String requestSignature) {
@@ -5229,7 +5270,15 @@ public final class MSIMEInputService extends InputMethodService {
     boolean compositionEditable() {
         return session != 0 && view != null && CompositionCaretPolicy.editable(
             InputViewValuePolicy.scheme(view, -1), InputViewValuePolicy.textOr(view, "local_mode", "none"),
-            dedicatedEnglish, InputViewValuePolicy.editingText(view));
+            dedicatedEnglish, InputViewValuePolicy.editingText(view),
+            InputViewValuePolicy.booleanValue(view, "grid_composing", false));
+    }
+
+    /** 这次组字所在键盘的组码表：读音的字母按它对上按键（14 键的 `ni'hao` 对 `bugao`），见 CompositionCaretPolicy.keypad。 */
+    private static String compositionKeypad(JSONObject value) {
+        return CompositionCaretPolicy.keypad(InputViewValuePolicy.scheme(value, -1),
+            InputViewValuePolicy.textOr(value, "key_grid", "none"),
+            InputViewValuePolicy.booleanValue(value, "grid_composing", false));
     }
 
     /** 放大条与输入框点击都只移动引擎光标，不在宿主重建拼写。 */
@@ -5259,7 +5308,7 @@ public final class MSIMEInputService extends InputMethodService {
         String editing = InputViewValuePolicy.editingText(view);
         String composing = composingText(view, editing, true);
         int prefix = InputViewValuePolicy.textOr(view, "phrase_prefix", "").length();
-        int target = CompositionCaretPolicy.editorTapTarget(composing, editing, prefix,
+        int target = CompositionCaretPolicy.editorTapTarget(composing, editing, compositionKeypad(view), prefix,
             start, end, newStart, newEnd);
         if (target < 0) return false;
         int offset = newStart - start;
@@ -7925,7 +7974,10 @@ public final class MSIMEInputService extends InputMethodService {
             notice("简繁设置尚未就绪");
             return;
         }
-        final boolean targetTraditional = !traditionalChineseOutput;
+        // 粤拼下切换的是粤拼自己的输出字形，全局简繁开关不动。
+        final boolean cantonese = characterSetFollowsCantonese();
+        final String key = ChineseOutputPolicy.preferenceKey(cantonese);
+        final boolean targetValue = cantonese ? !cantoneseSimplifiedOutput : !traditionalChineseOutput;
         final long targetSession = session;
         final String targetDirectory = preferencesDirectory;
         final JSONObject pending;
@@ -7935,14 +7987,14 @@ public final class MSIMEInputService extends InputMethodService {
             expectedRevision = PreferencesRevisionPolicy.read(pending.opt("revision"), -1);
             if (expectedRevision < 0) throw new JSONException("Invalid preferences revision");
             if (expectedRevision < 0) throw new JSONException("Invalid preferences revision");
-            pending.getJSONObject("preferences")
-                .put("traditional_chinese_output", targetTraditional);
+            pending.getJSONObject("preferences").put(key, targetValue);
         } catch (JSONException error) {
             preferencesNotice = " · 简繁设置保存失败，保留原设置";
             render();
             return;
         }
-        traditionalChineseOutput = targetTraditional;
+        if (cantonese) cantoneseSimplifiedOutput = targetValue;
+        else traditionalChineseOutput = targetValue;
         traditionalOutputSaving = true;
         preferencesNotice = " · 正在保存简繁设置";
         final long operation = ++preferenceSaveGeneration;
@@ -7982,7 +8034,7 @@ public final class MSIMEInputService extends InputMethodService {
                 preferencesNotice = "";
             } else {
                 applyPreferencesSnapshot(saved);
-                preferencesNotice = traditionalChineseOutput
+                preferencesNotice = characterSetShowsTraditional()
                     ? " · 已切换为繁体输出" : " · 已切换为简体输出";
             }
         } catch (JSONException | LinkageError error) {
@@ -9425,10 +9477,38 @@ public final class MSIMEInputService extends InputMethodService {
 
     boolean traditionalOutputToolAvailable() {
         int scheme = view == null ? -1 : InputViewValuePolicy.scheme(view, -1);
-        // 粤拼和注音本来就写繁体字，笔画的候选就是字本身，越南语和藏文不是中文（`script_conversion_applies`）。
+        // 注音本来就写繁体字，笔画的候选就是字本身，越南语和藏文不是中文（`script_conversion_applies`）。粤拼的词库也是繁体，但它有自己的简体输出开关（`cantonese_simplified_output`），英文模式下则切换全局开关，所以两种模式下都可用。
         return scheme != 3 && scheme != KoreanInputPolicy.KOREAN_SCHEME
-            && (!InputSchemeTraits.known(scheme) || InputSchemeTraits.scriptConversionApplies(scheme))
+            && (!InputSchemeTraits.known(scheme) || InputSchemeTraits.scriptConversionApplies(scheme)
+                || scheme == InputSchemeTraits.CANTONESE)
             && canSaveChineseOutput();
+    }
+
+    /** 简繁开关显示的字形：粤拼下看粤拼自己的选择，其余方案和英文模式看全局开关。 */
+    boolean characterSetShowsTraditional() {
+        return ChineseOutputPolicy.showsTraditional(
+            characterSetFollowsCantonese(), traditionalChineseOutput, cantoneseSimplifiedOutput);
+    }
+
+    /** 见 {@link ChineseOutputPolicy#switchFollowsCantonese}。 */
+    private boolean characterSetFollowsCantonese() {
+        return ChineseOutputPolicy.switchFollowsCantonese(dedicatedEnglish, toolbarScheme());
+    }
+
+    /** 工具栏和功能面板按哪个方案决定简繁开关：有视图时读视图，会话还没给视图时按选中的键盘方案推断。 */
+    int toolbarScheme() {
+        return view == null
+            ? ((selectedScheme == KeyboardScheme.JAPANESE
+                || selectedScheme == KeyboardScheme.JAPANESE_NINE_KEY) ? 3
+                : selectedScheme == KeyboardScheme.KOREAN ? KoreanInputPolicy.KOREAN_SCHEME
+                : selectedScheme == KeyboardScheme.CANTONESE
+                    || selectedScheme == KeyboardScheme.CANTONESE_SHUANGPIN ? InputSchemeTraits.CANTONESE
+                : selectedScheme == KeyboardScheme.ZHUYIN
+                    || selectedScheme == KeyboardScheme.ZHUYIN_NINE_KEY ? InputSchemeTraits.ZHUYIN
+                : selectedScheme == KeyboardScheme.VIETNAMESE ? InputSchemeTraits.VIETNAMESE
+                : selectedScheme == KeyboardScheme.TIBETAN ? InputSchemeTraits.TIBETAN
+                : selectedScheme == KeyboardScheme.STROKE ? InputSchemeTraits.STROKE : -1)
+            : InputViewValuePolicy.scheme(view, -1);
     }
 
     /**
@@ -12332,23 +12412,25 @@ public final class MSIMEInputService extends InputMethodService {
             // 新设计去掉了空闲时的品牌药丸：空闲时读音行整行隐藏，品牌标在工具栏最左。
             brandPillVisible = false;
             String phrasePrefix = InputViewValuePolicy.textOr(view, "phrase_prefix", "");
+            // 隔着显示分隔时光标画在哪一侧，看这次组字是不是在组码网格里打的（九键、14 键、18 键的退格先删切分），不看按键是不是数字，也不看 key_grid：网格开着时硬件键盘的字母照样走 26 键，退格删的是分隔前的字母。五笔 14 键网格组字不能编辑也看它。
+            boolean caretKeyGrid = InputViewValuePolicy.booleanValue(view, "grid_composing", false);
             // 组字光标（#5613）：点读音行把光标移到点中的字母前；光标被移离末尾时画进读音行（「不显示」也画，下一个键就作用在那里）。读音对不上按键时退回画原始按键。
             boolean caretEditable = !idleTitle && view != null && CompositionCaretPolicy.editable(
-                InputViewValuePolicy.scheme(view, -1), localModeKey, dedicatedEnglish, editingText);
+                InputViewValuePolicy.scheme(view, -1), localModeKey, dedicatedEnglish, editingText, caretKeyGrid);
             int caret = caretEditable
                 ? InputViewValuePolicy.integer(view, "caret_position", editingText.length())
                 : editingText.length();
             String caretSpelling = spelling;
-            // 隔着显示分隔时光标画在哪一侧，看这次组字是不是在组码网格里打的（九键、14 键、18 键的退格先删切分），不看按键是不是数字，也不看 key_grid：网格开着时硬件键盘的字母照样走 26 键，退格删的是分隔前的字母。
-            boolean caretKeyGrid = InputViewValuePolicy.booleanValue(view, "grid_composing", false);
+            // 读音的字母按这次组字所在键盘的组码对上按键：九键是数字，14 键、18 键是组码字母（ni'hao 对 bugao）；26 键只认同一个字母。
+            String caretKeypad = compositionKeypad(view);
             int caretMark = caretEditable
-                ? CompositionCaretPolicy.markIndex(spelling, editingText, caret, caretKeyGrid) : -1;
+                ? CompositionCaretPolicy.markIndex(spelling, editingText, caretKeypad, caret, caretKeyGrid) : -1;
             if (caretEditable && caret < editingText.length() && caretMark < 0) {
                 caretSpelling = editingText;
-                caretMark = CompositionCaretPolicy.markIndex(editingText, editingText, caret, caretKeyGrid);
+                caretMark = CompositionCaretPolicy.markIndex(editingText, editingText, caretKeypad, caret, caretKeyGrid);
             }
             boolean spellingDrawn = caretMark >= 0 || spelling.equals(localModeTitle);
-            imeCompositionEditor.render(caretSpelling, editingText, caret, caretKeyGrid);
+            imeCompositionEditor.render(caretSpelling, editingText, caretKeypad, caret, caretKeyGrid);
             String displayText = idleTitle
                 ? (dedicatedEnglish ? "英文输入" : productName)
                 : PhrasePreeditPolicy.title(phrasePrefix, caretMark >= 0
@@ -12445,41 +12527,31 @@ public final class MSIMEInputService extends InputMethodService {
         updateCandidateViewportHeight();
         if (scriptShortcutButton != null) {
             ViewPolicy.hide(scriptShortcutButton);
-            scriptShortcutButton.setText(traditionalChineseOutput ? "繁" : "简");
-            ViewPolicy.setSelected(scriptShortcutButton, traditionalChineseOutput);
+            boolean showsTraditional = characterSetShowsTraditional();
+            scriptShortcutButton.setText(showsTraditional ? "繁" : "简");
+            ViewPolicy.setSelected(scriptShortcutButton, showsTraditional);
             imeStyler.styleButton(scriptShortcutButton, true);
-            int scheme = view == null
-                ? ((selectedScheme == KeyboardScheme.JAPANESE
-                    || selectedScheme == KeyboardScheme.JAPANESE_NINE_KEY) ? 3
-                    : selectedScheme == KeyboardScheme.KOREAN ? KoreanInputPolicy.KOREAN_SCHEME
-                    : selectedScheme == KeyboardScheme.CANTONESE
-                        || selectedScheme == KeyboardScheme.CANTONESE_SHUANGPIN ? InputSchemeTraits.CANTONESE
-                    : selectedScheme == KeyboardScheme.ZHUYIN
-                        || selectedScheme == KeyboardScheme.ZHUYIN_NINE_KEY ? InputSchemeTraits.ZHUYIN
-                    : selectedScheme == KeyboardScheme.VIETNAMESE ? InputSchemeTraits.VIETNAMESE
-                    : selectedScheme == KeyboardScheme.TIBETAN ? InputSchemeTraits.TIBETAN
-                    : selectedScheme == KeyboardScheme.STROKE ? InputSchemeTraits.STROKE : -1)
-                : InputViewValuePolicy.scheme(view, -1);
+            int scheme = toolbarScheme();
             boolean japanese = scheme == 3;
             boolean korean = scheme == KoreanInputPolicy.KOREAN_SCHEME;
-            boolean cantonese = scheme == InputSchemeTraits.CANTONESE;
             boolean zhuyin = scheme == InputSchemeTraits.ZHUYIN;
             boolean vietnamese = scheme == InputSchemeTraits.VIETNAMESE;
             boolean tibetan = scheme == InputSchemeTraits.TIBETAN;
             boolean stroke = scheme == InputSchemeTraits.STROKE;
+            // 粤拼的开关切换粤拼自己的输出字形（`cantonese_simplified_output`），英文模式下切换全局开关，所以它可用。
             ViewPolicy.setEnabled(scriptShortcutButton,
-                !japanese && !korean && !cantonese && !zhuyin
+                !japanese && !korean && !zhuyin
                     && !vietnamese && !tibetan && !stroke && canSaveChineseOutput());
-            String label = traditionalChineseOutput ? "切换到简体" : "切换到繁体";
+            String label = showsTraditional ? "切换到简体" : "切换到繁体";
             String outputState = japanese ? "日语不使用简繁转换"
                 : korean ? "韩语不使用简繁转换"
-                : cantonese ? "粤拼直接输出繁体"
                 : zhuyin ? "注音直接输出繁体"
                 : vietnamese ? "越南语不使用简繁转换"
                 : tibetan ? "藏文不使用简繁转换"
                 : stroke ? "笔画不使用简繁转换"
                 : traditionalOutputSaving ? "正在保存"
-                : traditionalChineseOutput ? "繁体" : "简体";
+                : characterSetFollowsCantonese() ? (showsTraditional ? "粤拼输出繁体" : "粤拼输出简体")
+                : showsTraditional ? "繁体" : "简体";
             scriptShortcutButton.setContentDescription(
                 Build.VERSION.SDK_INT >= 30 ? label : label + "，" + outputState);
             if (Build.VERSION.SDK_INT >= 30)
@@ -12669,6 +12741,7 @@ public final class MSIMEInputService extends InputMethodService {
         scheduleCandidateTranslations();
         scheduleUserCandidateTranslations();
         scheduleOnlineProviders();
+        schedulePauseRerank();
         if (candidates == null) {
             imeStyler.applySkin();
             imeToolbar.styleTopRow();

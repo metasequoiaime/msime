@@ -337,6 +337,11 @@ impl Session {
             caret_edit_suffix: value.caret_edit_suffix,
             caret_edit_prefix: value.caret_edit_prefix,
         };
+        // 五笔反查只服务五笔方案：混输拼音的候选虽然来自全拼，也一样附上五笔码；全拼和双拼方案本身不显示，那里的注释位留给辅助码和纠错提示。
+        let wubi_reverse_codes = value.local_mode == LocalInputMode::None
+            && !value.dedicated_english
+            && value.scheme == SchemeType::Wubi;
+        let wildcard_query = wubi_reverse_codes && self.inner.wubi_wildcard_query_active();
         let mut annotations = value.candidate_annotations.into_iter();
         for (index, candidate) in value.candidates.into_iter().enumerate() {
             let mut annotation = annotations
@@ -351,15 +356,13 @@ impl Session {
                     annotation = compute_helpcodes(&candidate.word, uppercase_all, keymap);
                 }
             }
-            // 五笔反查只服务五笔方案：混输拼音的候选虽然来自全拼，也一样附上五笔码；全拼和双拼方案本身不显示，那里的注释位留给辅助码和纠错提示。
-            if value.local_mode == LocalInputMode::None
-                && !value.dedicated_english
-                && value.scheme == SchemeType::Wubi
-                && matches!(
-                    candidate.scheme,
-                    SchemeType::Quanpin | SchemeType::Shuangpin | SchemeType::Wubi
-                )
-            {
+            // 用户关掉「候选显示剩余编码」（`wubi_reverse_code` 为 false）时，五笔原生候选不附：宿主在没有剩余编码时退回显示这条注释，附了就成了关掉开关后剩余编码换成完整编码（#10790）。拼音来的候选（混输拼音和 `z` 临时拼音反查）照旧附：那是用拼音查五笔码的反查，不是剩余编码，开关打开时宿主也从来不给它们算剩余编码，而混输打开时没有 `z` 反查，打字时只剩这一条查码路径。`z` 通配查出的五笔候选也照旧附：用户正是不知道 `z` 那一位是什么才用通配，完整码就是答案；键入的码不是它的前缀，开关打开时宿主同样算不出剩余编码；通配打开时 `z` 反查也停用了。
+            let reverse_code = match candidate.scheme {
+                SchemeType::Wubi => self.options.wubi_reverse_code || wildcard_query,
+                SchemeType::Quanpin | SchemeType::Shuangpin => true,
+                _ => false,
+            };
+            if wubi_reverse_codes && reverse_code {
                 let code = self.candidate_wubi_code_for_display_item(index, &candidate);
                 if let Some(code) = code {
                     if !annotation.contains(code) {
@@ -427,6 +430,26 @@ impl Session {
 
     pub fn reset_cache(&mut self) {
         self.inner.reset_cache();
+    }
+
+    /// 按现在的整句池和整句打分器重解当前组字，同 [`crate::Session::recompute_candidates`]。
+    pub fn recompute_candidates(&mut self) {
+        self.inner.recompute_candidates();
+    }
+
+    /// 把在线行（宿主来源码 2 = 云候选、3 = AI 候选，同 `EngineSnapshot::candidate_sources`）照原样放回当前组字的候选，不再核对查询；别的来源忽略。runtime 的停顿重解换整句打分器时，引擎清掉了缓存里的在线行，而宿主不会为同一个查询再取一次，重解前从视图里记下、重解后用它放回。
+    pub fn restore_online_rows(&mut self, rows: &[(String, u8)]) {
+        let rows: Vec<(String, CandidateSource)> = rows
+            .iter()
+            .filter_map(|(word, source)| {
+                CandidateSource::from_u8(*source)
+                    .filter(|source| source.is_online())
+                    .map(|source| (word.clone(), source))
+            })
+            .collect();
+        if !rows.is_empty() {
+            self.inner.restore_online_rows(&rows);
+        }
     }
 
     /// Remove cached rows for one online provider (host source 0 = cloud, 1 = AI).

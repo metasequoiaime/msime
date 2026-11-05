@@ -666,6 +666,23 @@ impl Session {
         self.input.engine.wubi_input_options().mixed_pinyin
     }
 
+    /// 当前组字是五笔 `z` 通配查询，见 `ImeSession::wubi_wildcard_query_active`。
+    pub(crate) fn wubi_wildcard_query_active(&self) -> bool {
+        self.input.engine.wubi_wildcard_query_active()
+    }
+
+    /// 把在线行（云候选、AI 候选）照原样放回当前组字的候选，不再核对查询，见 [`crate::host::Session::restore_online_rows`]。
+    pub fn restore_online_rows(&mut self, rows: &[(String, crate::types::CandidateSource)]) {
+        self.candidates_may_change();
+        self.input.restore_online_rows(rows);
+    }
+
+    /// 不改组字、按现在的整句池和整句打分器重新查一遍候选（`SchemeKey::Requery`），词库缓存不动，与 [`Self::reset_cache`] 不同。宿主停顿时才把逐键模型交给引擎、带着它重解一次时用，见 `msime_input_runtime::Runtime::settle_deferred_scorer`。
+    pub fn recompute_candidates(&mut self) {
+        self.candidates_may_change();
+        self.input.recompute_candidates();
+    }
+
     /// 宿主的清缓存动作（维护快捷键、iOS 键盘扩展的内存告警）：清掉本会话各方案的候选缓存，并放掉进程级缓存里的日文模型和没有会话在用的个人学习模型，让不再用它们的进程能交还内存；本会话若正持有模型，照常用到会话结束。
     pub fn reset_cache(&mut self) {
         self.candidates_may_change();

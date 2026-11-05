@@ -2830,7 +2830,13 @@ group("五笔只有一个方案，标题和角标跟随 wubi_profile", () => {
   check(KeyboardScheme.normalizedWubiProfile("wubi98") === "wubi98", "wubi98 保持原样");
   check(KeyboardScheme.normalizedWubiProfile("wubi86") === "wubi86", "wubi86 保持原样");
   check(KeyboardScheme.normalizedWubiProfile(undefined) === "wubi86", "缺省按 86 版");
+  check(KeyboardScheme.normalizedWubiProfile("wubixsj") === "wubixsj", "wubixsj 保持原样");
   check(KeyboardScheme.normalizedWubiProfile("WUBI98") === "wubi86", "未知值按 86 版");
+  check(
+    KeyboardScheme.normalizedWubiProfile("wubi06") === "wubi86" &&
+      KeyboardScheme.normalizedWubiProfile("WUBIXSJ") === "wubi86",
+    "像新世纪的未知值也按 86 版",
+  );
   check(
     KeyboardScheme.title(KeyboardScheme.WUBI, "wubi98") === "98 五笔" &&
       KeyboardScheme.badge(KeyboardScheme.WUBI, "wubi98") === "98",
@@ -2842,6 +2848,24 @@ group("五笔只有一个方案，标题和角标跟随 wubi_profile", () => {
     "86 版和缺省显示「86 五笔」和「86」",
   );
   check(
+    KeyboardScheme.title(KeyboardScheme.WUBI, "wubixsj") === "新世纪五笔" &&
+      KeyboardScheme.badge(KeyboardScheme.WUBI, "wubixsj") === "新",
+    "新世纪版显示「新世纪五笔」和「新」",
+  );
+  check(
+    KeyboardScheme.title(KeyboardScheme.WUBI, "wubi06") === "86 五笔" &&
+      KeyboardScheme.badge(KeyboardScheme.WUBI, "wubi06") === "86",
+    "不认识的版本显示成 86 版",
+  );
+  check(
+    KeyboardScheme.wubiSpaceLabel("wubi86") === "五笔 86" &&
+      KeyboardScheme.wubiSpaceLabel("wubi98") === "五笔 98" &&
+      KeyboardScheme.wubiSpaceLabel("wubixsj") === "五笔 新世纪" &&
+      KeyboardScheme.wubiSpaceLabel(undefined) === "五笔 86" &&
+      KeyboardScheme.wubiSpaceLabel("wubi06") === "五笔 86",
+    "空格键上写「五笔 86」「五笔 98」「五笔 新世纪」，未知值写 86",
+  );
+  check(
     KeyboardScheme.SCHEMES.filter((scheme) => scheme.engineScheme === "wubi").length === 1,
     "方案列表里仍只有一个五笔入口",
   );
@@ -2850,7 +2874,9 @@ group("五笔只有一个方案，标题和角标跟随 wubi_profile", () => {
       (scheme) =>
         scheme === KeyboardScheme.WUBI ||
         (KeyboardScheme.title(scheme, "wubi98") === scheme.title &&
-          KeyboardScheme.badge(scheme, "wubi98") === scheme.badge),
+          KeyboardScheme.badge(scheme, "wubi98") === scheme.badge &&
+          KeyboardScheme.title(scheme, "wubixsj") === scheme.title &&
+          KeyboardScheme.badge(scheme, "wubixsj") === scheme.badge),
     ),
     "其它方案不受五笔版本影响",
   );
@@ -7152,6 +7178,32 @@ group("diagnostics are trimmed, bounded and elided", () => {
   );
   check(InputDiagnosticPolicy.visible("hi") === true, "a real diagnostic shows");
   check(InputDiagnosticPolicy.visible("   ") === false, "an empty one does not");
+});
+
+group("粤拼下的简繁开关只切粤拼自己的字形", () => {
+  check(ChineseOutputPolicy.switchFollowsCantonese("cantonese", false), "粤拼跟随粤拼开关");
+  check(!ChineseOutputPolicy.switchFollowsCantonese("cantonese", true), "英文模式照旧看全局开关");
+  check(!ChineseOutputPolicy.switchFollowsCantonese("quanpin", false), "全拼看全局开关");
+  check(ChineseOutputPolicy.showsTraditional(true, false, false), "粤拼默认显示繁体");
+  check(!ChineseOutputPolicy.showsTraditional(true, true, true), "粤拼选了简体就显示简体，不看全局");
+  check(ChineseOutputPolicy.showsTraditional(false, true, true), "其他方案看全局开关");
+});
+
+group("粤拼下按简繁开关只写粤拼字形，存储接受了才翻转", () => {
+  const writes: string[] = [];
+  const store = (accepts: boolean) => (key: string, value: boolean): boolean => {
+    writes.push(`${key}=${value}`);
+    return accepts;
+  };
+  check(ChineseOutputPolicy.toggledCantoneseSimplified(false, store(true)) === true, "存储接受后切到简体");
+  check(ChineseOutputPolicy.toggledCantoneseSimplified(true, store(true)) === false, "再按一次切回繁体");
+  check(ChineseOutputPolicy.toggledCantoneseSimplified(false, store(false)) === false, "存储拒绝时保持繁体");
+  check(ChineseOutputPolicy.toggledCantoneseSimplified(true, store(false)) === true, "存储拒绝时保持简体");
+  check(
+    writes.join(",") ===
+      "cantonese_simplified_output=true,cantonese_simplified_output=false,cantonese_simplified_output=true,cantonese_simplified_output=false",
+    `只写粤拼自己的偏好，全局简繁不动：${writes.join(",")}`,
+  );
 });
 
 group("traditional output never loses text when conversion fails", () => {
@@ -11528,20 +11580,20 @@ group("resolve answers and the catalog are read defensively", () => {
 console.log("AppThemePalette");
 
 const AUTUMN_LIGHT: AppThemeSeed = {
-  accent: "#B5562B",
-  accent_soft: "#22B5562B",
-  on_accent: "#FFFFFF",
-  background: "#F6E9DC",
-  card: "#FFFBF6",
-  candidate_accent: "#9F4214",
+  accent: "#B07800",
+  accent_soft: "#22B07800",
+  on_accent: "#1A1200",
+  background: "#FAF5E8",
+  card: "#FFFDF6",
+  candidate_accent: "#905A00",
 };
 const AUTUMN_DARK: AppThemeSeed = {
-  accent: "#F0975F",
-  accent_soft: "#40F0975F",
-  on_accent: "#3C2618",
-  background: "#21150F",
-  card: "#2E1E15",
-  candidate_accent: "#F0975F",
+  accent: "#F3C14F",
+  accent_soft: "#40F3C14F",
+  on_accent: "#3D3014",
+  background: "#1C1910",
+  card: "#28241A",
+  candidate_accent: "#F3C14F",
 };
 
 group("color-mix matches the browser the design tokens were read from", () => {
@@ -11570,37 +11622,37 @@ group("color-mix matches the browser the design tokens were read from", () => {
 group("the system keyboard follows the season seed by the design's formulas", () => {
   // 十月「秋杉」的种子值；期望值就是 Android 的 `AppThemePaletteSmoke` 对同一公式锁定的值。
   const light = AppThemePalette.keyboard(AUTUMN_LIGHT, false);
-  check(light.background === "#EED7C7", "light bg = mix(accent 12%, season bg)");
-  check(light.key === "#FDF9F6", "light key = mix(season bg 25%, #FFF)");
-  check(light.function_key === "#E6C6B2", "light function = mix(accent 24%, season bg)");
+  check(light.background === "#F1E6CC", "light bg = mix(accent 12%, season bg)");
+  check(light.key === "#FEFCF9", "light key = mix(season bg 25%, #FFF)");
+  check(light.function_key === "#E8D7B0", "light function = mix(accent 24%, season bg)");
   check(
     light.text === "#182431" && light.secondary === "#5A6B5D",
     "light text and hints are the Harmony tokens",
   );
-  check(light.accent === "#B5562B" && light.on_accent === "#FFFFFF", "the accent is the season's");
+  check(light.accent === "#B07800" && light.on_accent === "#1A1200", "the accent is the season's");
   const dark = AppThemePalette.keyboard(AUTUMN_DARK, true);
-  check(dark.background === "#2C241D", "dark bg = mix(accent 10%, #161716)");
-  check(dark.key === "#4C453E", "dark key = mix(accent 10%, #3A3C3A)");
-  check(dark.function_key === "#42382E", "dark function = mix(accent 14%, #262826)");
+  check(dark.background === "#2C281C", "dark bg = mix(accent 10%, #161716)");
+  check(dark.key === "#4D493C", "dark key = mix(accent 10%, #3A3C3A)");
+  check(dark.function_key === "#433D2C", "dark function = mix(accent 14%, #262826)");
   check(dark.text === "#E5E5E5" && dark.secondary === "#93A596", "dark text and hints");
-  check(dark.on_accent === "#3C2618", "dark on-accent is the season's mix with black");
+  check(dark.on_accent === "#3D3014", "dark on-accent is the season's mix with black");
   check(
-    AppThemePalette.onAccent("#F0975F", true) === "#3C2618",
+    AppThemePalette.onAccent("#F3C14F", true) === "#3D3014",
     "onAccent matches the shared layer's dark on_accent for the same accent",
   );
   check(
     AppThemePalette.onAccent("#5FBF84", true) === "#183021",
     "and gives the platform accent its dark text",
   );
-  check(AppThemePalette.onAccent("#B5562B", false) === "#FFFFFF", "light mode is white");
-  check(AppThemePalette.logoBackground("#B5562B") === "#944723", "logoBg = mix(accent 82%, #000)");
-  check(AppThemePalette.logoBackground("#F0975F") === "#C57C4E", "in dark mode too");
+  check(AppThemePalette.onAccent("#B07800", false) === "#FFFFFF", "light mode is white");
+  check(AppThemePalette.logoBackground("#B07800") === "#906200", "logoBg = mix(accent 82%, #000)");
+  check(AppThemePalette.logoBackground("#F3C14F") === "#C79E41", "in dark mode too");
   check(
-    AppThemePalette.logoDisc("#B5562B", "#FFFBF6", false) === "#F5E4DA",
+    AppThemePalette.logoDisc("#B07800", "#FFFDF6", false) === "#F4EAD4",
     "logoCirc = mix(accent 14%, season card) in light mode",
   );
   check(
-    AppThemePalette.logoDisc("#F0975F", "#2E1E15", true) === "#593925",
+    AppThemePalette.logoDisc("#F3C14F", "#28241A", true) === "#554726",
     "and mix(accent 22%, season card) in dark mode",
   );
 });
@@ -11612,24 +11664,24 @@ group("a resolved app theme is read once, colours reordered for ArkUI", () => {
       value: {
         id: "qiushan",
         season: "autumn",
-        accent: "#B5562B",
-        accent_soft: "#B5562B22",
-        on_accent: "#FFFFFF",
-        background: "#F6E9DC",
-        card: "#FFFBF6",
-        hair: "#B5562B33",
-        candidate_accent: "#9F4214",
+        accent: "#B07800",
+        accent_soft: "#B0780022",
+        on_accent: "#1A1200",
+        background: "#FAF5E8",
+        card: "#FFFDF6",
+        hair: "#B0780033",
+        candidate_accent: "#905A00",
       },
     }),
   );
   check(seed !== null, "a complete reply is a seed");
-  check(seed !== null && seed.candidate_accent === "#9F4214", "the first-candidate colour is read");
-  check(seed !== null && seed.accent_soft === "#22B5562B", "the trailing alpha moves to the front");
+  check(seed !== null && seed.candidate_accent === "#905A00", "the first-candidate colour is read");
+  check(seed !== null && seed.accent_soft === "#22B07800", "the trailing alpha moves to the front");
   check(
     seed !== null &&
-      seed.accent === "#B5562B" &&
-      seed.card === "#FFFBF6" &&
-      seed.background === "#F6E9DC",
+      seed.accent === "#B07800" &&
+      seed.card === "#FFFDF6" &&
+      seed.background === "#FAF5E8",
     "the other colours cross unchanged",
   );
   check(
@@ -11643,10 +11695,10 @@ group("a resolved app theme is read once, colours reordered for ArkUI", () => {
       JSON.stringify({
         ok: true,
         value: {
-          accent: "#B5562B",
-          accent_soft: "#B5562B22",
-          on_accent: "#FFFFFF",
-          background: "#F6E9DC",
+          accent: "#B07800",
+          accent_soft: "#B0780022",
+          on_accent: "#1A1200",
+          background: "#FAF5E8",
         },
       }),
     ) === null,
@@ -11658,10 +11710,10 @@ group("a resolved app theme is read once, colours reordered for ArkUI", () => {
         ok: true,
         value: {
           accent: "orange",
-          accent_soft: "#B5562B22",
-          on_accent: "#FFFFFF",
-          background: "#F6E9DC",
-          card: "#FFFBF6",
+          accent_soft: "#B0780022",
+          on_accent: "#1A1200",
+          background: "#FAF5E8",
+          card: "#FFFDF6",
         },
       }),
     ) === null,
@@ -11672,27 +11724,27 @@ group("a resolved app theme is read once, colours reordered for ArkUI", () => {
 group("the season seed tints the system keyboard, the return key and the logo", () => {
   const light = KeyboardSkin.fromTheme("system", "跟随系统", null, false, AUTUMN_LIGHT);
   check(
-    light.background === "#EED7C7" &&
-      light.keyBackground === "#FDF9F6" &&
-      light.functionKeyBackground === "#E6C6B2",
+    light.background === "#F1E6CC" &&
+      light.keyBackground === "#FEFCF9" &&
+      light.functionKeyBackground === "#E8D7B0",
     "system draws the season palette",
   );
   check(
-    light.actionBackground === "#B5562B" && light.actionForeground === "#FFFFFF",
+    light.actionBackground === "#B07800" && light.actionForeground === "#1A1200",
     "the return key is the season accent with its on-accent text",
   );
   check(
-    light.toggleBackground === "#22B5562B" && light.toggleForeground === "#B5562B",
+    light.toggleBackground === "#22B07800" && light.toggleForeground === "#B07800",
     "a switched-on tile is the season accent_soft with the accent glyph",
   );
-  check(light.logoBg === "#944723" && light.logoCirc === "#E6C5B1", "品牌键使用当前键盘的季节色");
+  check(light.logoBg === "#906200" && light.logoCirc === "#E8D7AF", "品牌键使用当前键盘的季节色");
   check(light.hair === "#1F000000", "the light hairline");
   const dark = KeyboardSkin.fromTheme("system", "跟随系统", null, true, AUTUMN_DARK);
   check(
-    dark.background === "#2C241D" && dark.actionForeground === "#3C2618",
+    dark.background === "#2C281C" && dark.actionForeground === "#3D3014",
     "dark season keyboard and return text",
   );
-  check(dark.logoBg === "#C57C4E" && dark.logoCirc === "#573D2C", "深色品牌键使用键盘底色");
+  check(dark.logoBg === "#C79E41" && dark.logoCirc === "#584A27", "深色品牌键使用键盘底色");
   check(dark.hair === "#24FFFFFF", "the dark hairline");
   const plain = KeyboardSkin.fromTheme("system", "跟随系统", null, false);
   check(
@@ -11785,7 +11837,7 @@ group("浅色跟随系统键盘的首选字色对字母键底片和键盘底色�
   check(plain.accent === "#2C7A4B", "fallback: the platform accent is unchanged");
   check(
     KeyboardSkin.fromTheme("system", "跟随系统", null, true, AUTUMN_DARK).candidateAccent ===
-      "#F0975F" &&
+      "#F3C14F" &&
       KeyboardSkin.fromTheme("system", "跟随系统", null, true).candidateAccent === "#5FBF84",
     "dark keeps the accent",
   );
@@ -11803,7 +11855,7 @@ group("浅色跟随系统键盘的首选字色对字母键底片和键盘底色�
       "#4FD1C5",
     "a named theme keeps its own accent for the first candidate",
   );
-  const recoloured: AppThemeSeed = { ...AUTUMN_LIGHT, candidate_accent: "#B5562B" };
+  const recoloured: AppThemeSeed = { ...AUTUMN_LIGHT, candidate_accent: "#B07800" };
   check(
     KeyboardSkin.fromTheme("system", "跟随系统", null, false, AUTUMN_LIGHT).key() !==
       KeyboardSkin.fromTheme("system", "跟随系统", null, false, recoloured).key(),
@@ -11823,7 +11875,7 @@ group("具名皮肤的品牌键保留自身配色，回车键沿用季节色", (
   };
   const night = KeyboardSkin.fromTheme("night", "夜青", palette, false, AUTUMN_LIGHT);
   check(night.background === "#0F1B22" && night.keyBackground === "#1D3340", "its own palette");
-  check(night.actionBackground === "#B5562B", "the return key is the season accent");
+  check(night.actionBackground === "#B07800", "the return key is the season accent");
   check(night.logoBg === "#41ABA2" && night.logoCirc === "#183439", "品牌键使用夜青配色");
   const winter = KeyboardSkin.fromTheme("night", "夜青", palette, false, {
     ...AUTUMN_LIGHT,
@@ -11861,7 +11913,7 @@ group("the season tints a custom design's tiles but not its keys", () => {
     seeded.logoBg === unseeded.logoBg && seeded.logoCirc === unseeded.logoCirc,
     "自定义皮肤品牌键不受应用主题影响",
   );
-  check(seeded.toggleBackground === "#22B5562B", "the switched-on tiles take the season");
+  check(seeded.toggleBackground === "#22B07800", "the switched-on tiles take the season");
   check(
     seeded.actionBackground === "#245A43" &&
       seeded.actionForeground === "#FFFFFF" &&

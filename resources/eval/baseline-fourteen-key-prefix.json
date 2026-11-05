@@ -3,7 +3,7 @@
     "2": {
       "cases": 1859,
       "found": 0.977,
-      "mrr": 0.234,
+      "mrr": 0.235,
       "top1": 0.098,
       "top1_char_prefix": 0.179,
       "top5": 0.374,
@@ -40,15 +40,15 @@
   "by_tag": {},
   "cases": 2775,
   "gold_source": {
-    "database": 2665
+    "database": 2666
   },
   "overall": {
     "cases": 2775,
-    "found": 0.96,
+    "found": 0.961,
     "mrr": 0.436,
     "top1": 0.328,
-    "top1_char_prefix": 0.399,
-    "top5": 0.552,
+    "top1_char_prefix": 0.4,
+    "top5": 0.553,
     "top9": 0.649
   },
   "sample_failures": [
@@ -56,7 +56,7 @@
       "gold": "阿爸",
       "id": "w-00001",
       "input": "ab",
-      "rank": 92,
+      "rank": 90,
       "top1": "按"
     },
     {
@@ -85,7 +85,7 @@
       "id": "w-00046",
       "input": "aizib",
       "rank": 6,
-      "top1": "私信"
+      "top1": "死心"
     },
     {
       "gold": "岸边",
@@ -105,7 +105,7 @@
       "gold": "岸上",
       "id": "w-00145",
       "input": "ansh",
-      "rank": 10,
+      "rank": 8,
       "top1": "暗示"
     },
     {
@@ -147,7 +147,7 @@
       "gold": "败露",
       "id": "w-00244",
       "input": "bail",
-      "rank": 23,
+      "rank": 24,
       "top1": "奶酪"
     },
     {
@@ -203,7 +203,7 @@
       "gold": "半圆",
       "id": "w-00379",
       "input": "bany",
-      "rank": 36,
+      "rank": 35,
       "top1": "难以"
     },
     {
@@ -224,7 +224,7 @@
       "gold": "包产",
       "id": "w-00406",
       "input": "baoch",
-      "rank": 31,
+      "rank": 30,
       "top1": "保持"
     },
     {
@@ -238,7 +238,7 @@
       "gold": "胞弟",
       "id": "w-00424",
       "input": "baod",
-      "rank": 67,
+      "rank": 68,
       "top1": "报道"
     },
     {
@@ -259,7 +259,7 @@
       "gold": "褒奖",
       "id": "w-00469",
       "input": "baoj",
-      "rank": 33,
+      "rank": 34,
       "top1": "包括"
     },
     {
@@ -329,7 +329,7 @@
       "gold": "备查",
       "id": "w-00613",
       "input": "beich",
-      "rank": 24,
+      "rank": 23,
       "top1": "被炒"
     }
   ],

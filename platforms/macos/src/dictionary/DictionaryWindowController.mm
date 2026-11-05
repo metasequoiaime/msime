@@ -78,7 +78,7 @@ static NSDictionary *MSIMEQuiescedDictionaryRequest(NSDictionary *request, NSErr
 }
 - (void)loadWindow {
     _kind = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    for (NSArray<NSString *> *item in @[@[@"拼音词库", @"pinyin"], @[@"86 五笔词库", @"wubi"], @[@"98 五笔词库", @"wubi98"], @[@"快捷短语", @"quick_phrase"], @[@"英文词库", @"english"]]) {
+    for (NSArray<NSString *> *item in @[@[@"拼音词库", @"pinyin"], @[@"86 五笔词库", @"wubi"], @[@"98 五笔词库", @"wubi98"], @[@"新世纪五笔词库", @"wubixsj"], @[@"快捷短语", @"quick_phrase"], @[@"英文词库", @"english"]]) {
         [_kind addItemWithTitle:item[0]];
         _kind.lastItem.representedObject = item[1];
     }

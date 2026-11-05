@@ -8,11 +8,11 @@ IBus 的 `ibus-engine-smoke` 默认入口没有注册为资源测试，Fcitx5 �
 
 ## Decision
 
-CMake 在提供已校验资源目录时注册 `ibus-native-context`，并保留 Fcitx5 的 `fcitx5-native-context` 资源测试。资源验收在独立的 Linux CI job 中按 `resources/desktop-dictionary.lock.json` 下载词库，再分别调用现有 IBus 与 Fcitx5 容器脚本；编译门禁继续保持无资源的快速路径。IBus 合并断言改为要求离线命中与远端释义同时存在，不依赖候选排序；Fcitx5 标点样式断言等待完整的引号与括号视图，而不是只等待引号字段。Host API 导出检查按容器平台去掉 Windows 条件块后再逐个核对动态库符号；共享私有目录打开器在每个 Linux 路径分量上核对 `fstat` 类型，拒绝 `O_PATH` 打开的非目录分量，并在最终路径上用 `symlink_metadata` 拒绝非受信符号链接。
+CMake 在提供已校验资源目录时注册 `ibus-native-context`，并保留 Fcitx5 的 `fcitx5-native-context` 资源测试。资源验收在独立的 Linux CI job 中按 `resources/desktop-dictionary.lock.json` 下载词库，再分别调用现有 IBus 与 Fcitx5 容器脚本；编译门禁继续保持无资源的快速路径。IBus 合并断言改为要求离线命中与远端释义同时存在，不依赖候选排序；Fcitx5 标点样式断言等到引号和括号两个字段都换成新样式（视图里另有两个顿号字段，不比整个对象）。Host API 导出检查按容器平台去掉 Windows 条件块后再逐个核对动态库符号；共享私有目录打开器在每个 Linux 路径分量上核对 `fstat` 类型，拒绝 `O_PATH` 打开的非目录分量，并在最终路径上用 `symlink_metadata` 拒绝非受信符号链接。
 
 资源夹具关闭逐键神经重排，只验收宿主行为，避免模型耗时把候选时序断言变成 runner 性能门禁。
 资源容器复用 Core CI 的 Rust 单测结果，资源宿主 job 只编译 Host API 并运行容器与原生宿主验收，避免重复单测中的独立时序失败阻塞宿主门禁。
-资源宿主 job 以 smoke-only 模式运行 IBus/Fcitx5 的语音入口；默认上下文、翻译范围、拆字等非语音专用用例仍由完整资源 CTest 配置保留，但不再让语音门禁被它们的独立时序波动挡住。
+资源宿主 job 以 smoke-only 模式运行 IBus/Fcitx5 的语音入口；默认上下文、翻译范围、拆字等非语音专用用例仍由完整资源 CTest 配置保留，但不再让语音门禁被它们的独立时序波动挡住。这一条已被[资源宿主门禁跑默认分支](2026-11-03-linux-resource-gate-default-branches.md)部分取代：smoke-only 模式现在也跑两个宿主的默认分支和 IBus 的全部资源参数分支。
 smoke-only 的容器在语音 CTest 通过后立即结束，不进入需要完整用户会话和私有资源目录权限的安装后桌面验收；完整容器路径仍保留这些验收。
 
 ## Alternatives considered

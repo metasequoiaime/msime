@@ -195,7 +195,6 @@ struct SkinSettingsView: View {
   /// 一格里的键盘缩略图：带空闲状态的工具栏，键面是用户正在用的那一类键盘（`previewFace`），底行和数字行按用户的「按键布局」画。
   private func tilePreview(skin: KeyboardTheme) -> KeyboardSkinPreview {
     KeyboardSkinPreview(skin: skin, nineKey: previewFace.nineKey, letterGrid: previewFace.letterGrid,
-                        gridSplitsSyllables: previewFace.gridSplitsSyllables,
                         topStrip: .toolbar([.emoji, .phrases, .clipboard, .skin, .scheme]), letterHints: true,
                         nineKeyZero: previewFace.nineKeyZero)
   }
@@ -815,7 +814,7 @@ struct ServiceSettingsView: View {
         Button { save() } label: {
           Label("保存配置", systemImage: "checkmark.circle.fill").frame(maxWidth: .infinity)
         }
-          .buttonStyle(.borderedProminent)
+          .buttonStyle(.borderedProminent).foregroundStyle(MetasequoiaTheme.onAccent)
           .tint(MetasequoiaTheme.accent)
           .accessibilityIdentifier("saveServiceConfiguration")
         Button("删除此服务的密钥", role: .destructive) {

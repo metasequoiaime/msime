@@ -104,12 +104,17 @@ int main() {
         "truncated and swapped");
 
   // 词库种类：本机词库的下拉名字照 macOS 改成「中文 · 拼音」，提示里仍说「拼音」；资源词库只读，日语和韩语的第一列是读音。
-  check(local_kinds.size() == 6 && local_kinds[0].title == L"中文 · 拼音" &&
+  check(local_kinds.size() == 7 && local_kinds[0].title == L"中文 · 拼音" &&
             local_kinds[1].title == L"中文 · 86 五笔" && local_kinds[2].title == L"中文 · 98 五笔" &&
-            local_kinds[3].id == L"english" && local_kinds[4].id == L"quick_phrase" &&
-            local_kinds[5].id == L"cantonese" && local_kinds[5].title == L"中文 · 粤语",
+            local_kinds[3].id == L"wubixsj" && local_kinds[3].title == L"中文 · 新世纪五笔" &&
+            local_kinds[4].id == L"english" && local_kinds[5].id == L"quick_phrase" &&
+            local_kinds[6].id == L"cantonese" && local_kinds[6].title == L"中文 · 粤语",
         "local kinds in the shared order and words");
-  check(kind_label(L"pinyin") == L"拼音" && kind_label(L"wubi98") == L"98 五笔", "message labels");
+  check(kind_label(L"pinyin") == L"拼音" && kind_label(L"wubi98") == L"98 五笔" &&
+            kind_label(L"wubixsj") == L"新世纪五笔",
+        "message labels");
+  check(find_local_kind(L"wubixsj")->export_name == L"水杉IME-新世纪五笔用户词库.txt",
+        "new century export file name");
   check(kind_label(L"zhuyin") == L"中文 · 注音", "resource kinds are named by their title");
   // 粤语两边都有：提示里说个人词库的「粤语」，资源词库没装时说它自己的名字；下拉框里资源那一项带前缀。
   check(kind_label(L"cantonese") == L"粤语", "the personal Cantonese dictionary");
@@ -150,8 +155,10 @@ int main() {
   check(single.rows == 0 && single.body.empty(), "nothing left to export");
   check(export_page_rows("") == 0 && export_page_rows("a\t1\n") == 1 && export_page_rows("a\nb\n\n") == 2,
         "rows of an export page");
-  check(personal_export_kinds[3] == L"quick_phrase" && personal_export_kinds[4] == L"english",
-        "export all reads quick phrases before english");
+  check(personal_export_kinds.size() == 7 && personal_export_kinds[2] == L"wubi98" &&
+            personal_export_kinds[3] == L"wubixsj" && personal_export_kinds[4] == L"quick_phrase" &&
+            personal_export_kinds[5] == L"english" && personal_export_kinds[6] == L"cantonese",
+        "export all reads the wubi tables in order, then quick phrases before english");
   check(personal_export_row(L"wubi98", L"aaaa", L"工", 7) == L"98 五笔\taaaa\t工\t7", "export all row");
   check(personal_export_header == L"# 类别\t编码\t词条\t权重\n", "export all header");
   check(local_kinds[1].export_name == L"水杉IME-五笔用户词库.txt", "export file name");

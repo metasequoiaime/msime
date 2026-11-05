@@ -2,6 +2,7 @@
 #import "VoiceCueFixture.h"
 #import "VoiceClientFixture.h"
 #import "VoiceMeterFixture.h"
+#import "VoiceRuntimeIsolationFixture.h"
 #include <cassert>
 
 @interface DoubaoRequestFixture : NSObject
@@ -116,6 +117,8 @@
 @property NSUInteger externalCommits;
 @end
 @implementation DoubaoControllerFixture
+// 合成控制器不读取已安装应用的定位器，偏好轮询与保存都不能落到用户目录。
+- (NSDictionary *)runtimeOptions { return @{}; }
 - (MSIMEVoiceCommitOutcome)postVoiceText:(NSString *)text route:(const MSIMEVoiceCommitRoute &)route {
     assert([text isEqual:@"synthetic routed"] && ![route.mode isEqual:@"tsf"]);
     ++self.externalCommits; return MSIMEVoiceCommitOutcome::posted;
@@ -144,6 +147,7 @@ static void Pump(void) {
 
 int main() {
     @autoreleasepool {
+        MSIMEAssertVoiceRuntimeIsolation(DoubaoControllerFixture.class);
         NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
         // This fixture exercises finishing a Chinese composition before voice;
         // do not depend on the product's default (English) input mode.

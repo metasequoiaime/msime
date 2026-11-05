@@ -8,6 +8,7 @@ use anyhow::{bail, Context, Result};
 use regex::Regex;
 use rusqlite::{params, Connection};
 
+use crate::curation::{EnglishVetoes, GlossVetoes};
 use crate::sqlite;
 use crate::text;
 
@@ -113,6 +114,18 @@ pub fn parse_word_list(text: &str, name: &str) -> Result<EnglishWords> {
     Ok(words)
 }
 
+/// rime-ice 英文补充表按上游写法收词（PuTTY、Playwright、Musk），其中有些小写词形本身是普通英文词（putty 油灰、playwright 剧作家、musk 麝香）。SCOWL 补充表按小写词形对照补充表，不会再收这些词，于是表里只剩大写写法，打 putty 只能上屏 PuTTY。这里给只有非小写写法、而 SCOWL 拼写词典（`attested`）收了小写词形的词补上小写写法，返回补了几个词。小写写法排在前面由 [`leading_display`] 决定，与 China、china 并存时相同。
+pub fn add_attested_lowercase(words: &mut EnglishWords, attested: &HashSet<String>) -> usize {
+    let mut added = 0;
+    for (word, displays) in words.iter_mut() {
+        if !displays.iter().any(|display| display == word) && attested.contains(word) {
+            displays.push(word.clone());
+            added += 1;
+        }
+    }
+    added
+}
+
 /// Adds the displays of `other` to `words`; returns how many lowercase words were new.
 pub fn merge_words(words: &mut EnglishWords, other: EnglishWords) -> usize {
     let mut added = 0;
@@ -171,6 +184,8 @@ pub struct EnglishWordCounts {
     pub custom_added: usize,
     /// Custom pairs that replaced a base row with the same word and display.
     pub custom_replaced: usize,
+    /// 被否决（[`EnglishVetoes`]）而不写入的小写词和 custom 行。
+    pub vetoed: usize,
 }
 
 /// The weight a custom row is stored with. Base rows are weighted by the word's Google unigram count, 0 when Google never counted it, and the Engine orders a prefix's completions by that weight after the exact word. A custom row takes the same count when there is one, so a custom word sits where its real frequency puts it and never above a word people type more often. A word Google never counted takes its file weight capped just below the smallest count (`ceiling`), which places it after every counted word and ahead of the uncounted base words at 0: reachable from a prefix once the common words are out of the way, always first on its own full spelling, and unable to outrank a common word whatever weight the file gives it. The file weight is therefore only an ordering among uncounted custom words. Never lower than the base row it replaces, since that row already carries the count.
@@ -178,6 +193,7 @@ fn custom_english_weight(entry: &CustomEnglishWord, count: i64, ceiling: i64) ->
     count.max(entry.weight.min(ceiling))
 }
 
+/// `vetoes` 对全部来源一视同仁：OALDPE 词头、`base`（rime-ice 两张词表和 SCOWL 补充表合并后的结果）和 `custom` 里被否决的小写词，任何大小写都不写入。`curation/english-vetoes.txt` 的词在这些来源里一个也没有时失败：表过期了。
 pub fn build_english_words(
     connection: &mut Connection,
     oaldpe: &BTreeSet<String>,
@@ -185,12 +201,38 @@ pub fn build_english_words(
     counts: &HashMap<String, i64>,
     attested: &HashSet<String>,
     custom: &[CustomEnglishWord],
+    vetoes: &EnglishVetoes,
 ) -> Result<EnglishWordCounts> {
-    let words: BTreeSet<&String> = oaldpe.iter().chain(base.keys()).collect();
+    let present: HashSet<&str> = oaldpe
+        .iter()
+        .chain(base.keys())
+        .map(String::as_str)
+        .chain(custom.iter().map(|entry| entry.word.as_str()))
+        .collect();
+    let stale = vetoes.stale(&present);
+    if !stale.is_empty() {
+        bail!(
+            "{}: {} match no English word of any source (drop the entries)",
+            crate::curation::ENGLISH_VETOES,
+            stale.join(", ")
+        );
+    }
+    let all: BTreeSet<&String> = oaldpe.iter().chain(base.keys()).collect();
+    let words: BTreeSet<&String> = all
+        .iter()
+        .copied()
+        .filter(|word| !vetoes.vetoes(word))
+        .collect();
+    let kept_custom: Vec<&CustomEnglishWord> = custom
+        .iter()
+        .filter(|entry| !vetoes.vetoes(&entry.word))
+        .collect();
     let mut result = EnglishWordCounts {
         base: words.len(),
+        vetoed: all.len() - words.len() + custom.len() - kept_custom.len(),
         ..EnglishWordCounts::default()
     };
+    let custom = kept_custom;
     let transaction = connection.transaction()?;
     transaction.execute_batch("DROP TABLE IF EXISTS english_words")?;
     transaction.execute_batch(CREATE_ENGLISH_WORDS)?;
@@ -433,6 +475,23 @@ fn is_lowercase_ascii_word(text: &str) -> bool {
     !text.is_empty() && text.bytes().all(|b| b.is_ascii_lowercase())
 }
 
+/// 一行开头（标签、词性之后）写着「X的…」的屈折说明（`be的现在式第三人称`、`eat的过去式`），X 是原形。
+static INFLECTION_NOTE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\A([A-Za-z]+)的").expect("valid regex"));
+
+/// 英译中选第一个义项时，第一条通用义项行（ECDICT 常把名词行排在动词行前面：give 的第一行是「n. 弹性」）的首项权重按这个倍数算：别的行的首项要常用到它的这么多倍才排到前面（give 的「给」，look 的「看」）。
+const FIRST_LINE_BIAS: i64 = 10;
+/// 英译中的冷僻义项：权重（[`rarity_weight`]）低于这个值、或不到这个词最常用的通用义项的 1/[`RARE_TERM_RATIO`] 的义项，排在所有行的常用义项后面，不影响行的先后（may 的「愿能」810；post 的「柱」「杆」「准星」不到「岗位」的 1/50，排在「邮件」「职位」后面；school 的「鱼群」）。
+const RARE_TERM_WEIGHT: i64 = 1_000;
+/// 见 [`RARE_TERM_WEIGHT`]。用相对值而不是一个更高的绝对门槛：冷僻英文词的中文义项大多不常用，绝对门槛（比较过 2 万、5 万）会把这些词的首义换成后面某一行碰巧常用的词（generous 成了「大量的」），2026-11-04 比较英文候选词前 1500 个和随机抽样时 50 倍改动最少、错得也最少。
+const RARE_TERM_RATIO: i64 = 50;
+/// 中译英的打分：义项在行内每靠后一位乘 7/10，不在这个英文词主行（[`order_terms`] 排出的第一项所在的行）上再乘 7/10。
+const POSITION_DECAY: (i64, i64) = (7, 10);
+/// 中译英的第二个英文词至少要有第一名的这个百分比。
+const SECOND_GLOSS_PERCENT: i64 = 60;
+/// 中译英得分最高的英文词，这个中文义项在它那里的位置（行内序号，不在主行上再加 1）超过这个数时，这个中文词不给英文释义：排在第五位以后的义项多是成语或引申义的碎片（ghost 的「一点」来自 the ghost of a chance），按 2026-11-04 的抽样，这样留下来的释义约一半是错的。
+const MAX_REVERSE_STEPS: usize = 3;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GlossTerm {
     pub text: String,
@@ -514,30 +573,61 @@ fn strip_parenthetical_qualifiers(value: &str) -> Option<String> {
     (!INTERNAL_PAREN.is_match(&value)).then_some(value)
 }
 
-/// Short Chinese headwords from an ECDICT translation, in reading order.
+/// 去掉行首的领域标签（`[计]`、`[俚]`、`【建】`），带了标签的行算领域义项；只有计算机标签（含「计」字）的行还能进中译英。`[网络]` 是网上抓来的译名，多是专名的音译或干脆是错的（xxxvii 译成「炒杂碎」，pussy 的「小猫」），不进中译英。
+fn strip_domain_labels<'a>(
+    mut line: &'a str,
+    domain_specific: &mut bool,
+    reverse_allowed: &mut bool,
+) -> &'a str {
+    while let Some(found) = LEADING_DOMAIN.find(line) {
+        *domain_specific = true;
+        *reverse_allowed = *reverse_allowed || found.as_str().contains('计');
+        line = &line[found.end()..];
+    }
+    line
+}
+
+/// 一条 ECDICT 释义拆出来的东西：短的中文词条（阅读顺序）和屈折说明里的原形（[`INFLECTION_NOTE`]）。
+struct ParsedTranslation {
+    terms: Vec<GlossTerm>,
+    inflection_of: Option<String>,
+}
+
+/// 按出现顺序提取 ECDICT 译文中的短中文词头。构建走 [`parse_translation`]（连同屈折说明一起拿），这个只给测试用。
+#[cfg(test)]
 pub fn extract_gloss_terms(translation: &str) -> Vec<GlossTerm> {
+    parse_translation(translation).terms
+}
+
+/// 领域标签在词性前后都算（`[计] vt. 存款`、`n. [俚] 黑鬼`）。同一个词条在一行里只取一次，在不同的行里各算各的：keep 的「保持」在名词行和动词行都有，动词行不能因为名词行先出现就少了它。
+fn parse_translation(translation: &str) -> ParsedTranslation {
     let mut terms = Vec::new();
-    let mut seen = HashSet::new();
+    let mut inflection_of = None;
     // ECDICT stores many line breaks as the two characters `\n`.
     let translation = translation.replace("\\n", "\n");
     for (line_index, raw_line) in text::splitlines(&translation).into_iter().enumerate() {
-        let mut line = text::strip(raw_line);
+        let line = text::strip(raw_line);
         if line.is_empty() {
             continue;
         }
         let mut domain_specific = false;
         let mut reverse_domain_allowed = false;
-        while let Some(found) = LEADING_DOMAIN.find(line) {
-            domain_specific = true;
-            let label = found.as_str();
-            reverse_domain_allowed =
-                reverse_domain_allowed || label.contains('计') || label.contains("网络");
-            line = &line[found.end()..];
-        }
+        let line = strip_domain_labels(line, &mut domain_specific, &mut reverse_domain_allowed);
         let line = match LEADING_POS.find(line) {
             Some(found) => text::strip(&line[found.end()..]),
             None => text::strip(line),
         };
+        let line = text::strip(strip_domain_labels(
+            line,
+            &mut domain_specific,
+            &mut reverse_domain_allowed,
+        ));
+        if !domain_specific && inflection_of.is_none() {
+            inflection_of = INFLECTION_NOTE
+                .captures(line)
+                .map(|captures| captures[1].to_ascii_lowercase());
+        }
+        let mut seen = HashSet::new();
         for (item_index, raw_item) in SPLIT.split(line).enumerate() {
             let Some(item) =
                 strip_parenthetical_qualifiers(text::strip_chars(raw_item, TRIM_PUNCTUATION))
@@ -557,34 +647,82 @@ pub fn extract_gloss_terms(translation: &str) -> Vec<GlossTerm> {
             });
         }
     }
-    terms
+    ParsedTranslation {
+        terms,
+        inflection_of,
+    }
 }
 
-/// Up to two terms joined with `；`, general senses before domain senses, then by how common the term is as a Chinese candidate, then by position.
-pub fn choose_chinese_gloss(terms: &[GlossTerm], weights: &HashMap<String, i64>) -> String {
+/// 判断义项冷僻与否用的权重：拼音表里这个词的权重；「X的」再看 X 的权重，取较高的。
+fn rarity_weight(term: &str, weights: &HashMap<String, i64>) -> i64 {
+    let own = weights.get(term).copied().unwrap_or(0);
+    term.strip_suffix('的')
+        .filter(|stem| !stem.is_empty())
+        .and_then(|stem| weights.get(stem))
+        .map_or(own, |stem| own.max(*stem))
+}
+
+/// 英译中的义项顺序，义项位置为主：ECDICT 一行之内的义项按常用程度排，所以行内按位置；行与行之间是按词性分的（常把名词行放在最前，give 是「n. 弹性」、keep 是「n. 生计」），位置说明不了哪个词性常用，就按各行首项在拼音表里的权重排，第一条通用行占 [`FIRST_LINE_BIAS`] 倍的优势。先把领域行排在通用行后面，再把冷僻义项（[`RARE_TERM_WEIGHT`]、[`RARE_TERM_RATIO`]）按行的先后全局移到所有常用义项后面，因此常用领域义项可能领先于冷僻通用义项。「X的」在 X 也是义项时不要，同一个词只出现一次；第一项是通用义项时只留通用义项，不拿领域义项凑第二个（TV 不配「转移向量」）。
+fn order_terms<'a>(terms: &[&'a GlossTerm], weights: &HashMap<String, i64>) -> Vec<&'a GlossTerm> {
+    let weight = |term: &GlossTerm| weights.get(&term.text).copied().unwrap_or(0);
     let texts: HashSet<&str> = terms.iter().map(|term| term.text.as_str()).collect();
-    let mut ranked: Vec<&GlossTerm> = terms
-        .iter()
-        .filter(|term| {
-            !term
-                .text
-                .strip_suffix('的')
-                .is_some_and(|stem| texts.contains(stem))
-        })
-        .collect();
-    ranked.sort_by(|a, b| {
-        let key = |term: &GlossTerm| {
-            (
-                term.domain_specific,
-                -weights.get(&term.text).copied().unwrap_or(0),
-                term.line_index,
-                term.item_index,
-                term.text.chars().count(),
-            )
+    let mut lines: Vec<Vec<&'a GlossTerm>> = Vec::new();
+    for &term in terms {
+        if term
+            .text
+            .strip_suffix('的')
+            .is_some_and(|stem| texts.contains(stem))
+        {
+            continue;
+        }
+        match lines.last_mut() {
+            Some(line) if line[0].line_index == term.line_index => line.push(term),
+            _ => lines.push(vec![term]),
+        }
+    }
+    let first_general = lines.iter().position(|line| !line[0].domain_specific);
+    let mut order: Vec<usize> = (0..lines.len()).collect();
+    order.sort_by_key(|&index| {
+        let lead = lines[index][0];
+        let bias = if Some(index) == first_general {
+            FIRST_LINE_BIAS
+        } else {
+            1
         };
-        key(a).cmp(&key(b)).then_with(|| a.text.cmp(&b.text))
+        (
+            lead.domain_specific,
+            std::cmp::Reverse(weight(lead).saturating_mul(bias)),
+            lead.line_index,
+        )
     });
-    ranked
+    let strongest = lines
+        .iter()
+        .flatten()
+        .filter(|term| !term.domain_specific)
+        .map(|term| rarity_weight(&term.text, weights))
+        .max()
+        .unwrap_or(0);
+    let threshold = RARE_TERM_WEIGHT.max(strongest / RARE_TERM_RATIO);
+    let (common, rare): (Vec<&'a GlossTerm>, Vec<&'a GlossTerm>) = order
+        .iter()
+        .flat_map(|&index| lines[index].iter().copied())
+        .partition(|term| rarity_weight(&term.text, weights) >= threshold);
+    let mut emitted = HashSet::new();
+    let mut ordered = Vec::new();
+    for term in common.into_iter().chain(rare) {
+        if emitted.insert(term.text.as_str()) {
+            ordered.push(term);
+        }
+    }
+    if ordered.first().is_some_and(|term| !term.domain_specific) {
+        ordered.retain(|term| !term.domain_specific);
+    }
+    ordered
+}
+
+/// 英译中释义：[`order_terms`] 的前两项，用「；」连接。
+pub fn choose_chinese_gloss(terms: &[&GlossTerm], weights: &HashMap<String, i64>) -> String {
+    order_terms(terms, weights)
         .iter()
         .take(2)
         .map(|term| term.text.as_str())
@@ -593,29 +731,73 @@ pub fn choose_chinese_gloss(terms: &[GlossTerm], weights: &HashMap<String, i64>)
 }
 
 struct EnglishEntry {
+    /// ECDICT 的词头原样（去掉首尾空白），中译英显示专名的大写从这里来。
+    headword: String,
     reverse_english: String,
     quality: i64,
     terms: Vec<GlossTerm>,
+    /// 屈折说明（`be的现在式第三人称`）里的原形，它也是英文候选词时才记。
+    inflection_of: Option<String>,
 }
 
+#[derive(Debug)]
 pub struct Glosses {
     pub en_zh: BTreeMap<String, String>,
     pub zh_en: BTreeMap<String, String>,
 }
 
-fn english_candidates(connection: &Connection) -> Result<HashSet<String>> {
-    let mut candidates = HashSet::new();
-    let mut statement = connection.prepare("SELECT DISTINCT word FROM english_words")?;
+/// 英文候选词（`english_words.word` 的小写 ASCII 词）和它们在表里的全部写法（`display`）。
+fn english_candidates(connection: &Connection) -> Result<HashMap<String, BTreeSet<String>>> {
+    let mut candidates: HashMap<String, BTreeSet<String>> = HashMap::new();
+    let mut statement = connection.prepare("SELECT word, display FROM english_words")?;
     let mut rows = statement.query([])?;
     while let Some(row) = rows.next()? {
         if let Some(word) = row.get::<_, Option<String>>(0)? {
             let word = word.to_lowercase();
             if is_lowercase_ascii_word(&word) {
-                candidates.insert(word);
+                let displays = candidates.entry(word).or_default();
+                if let Some(display) = row.get::<_, Option<String>>(1)? {
+                    displays.insert(display);
+                }
             }
         }
     }
     Ok(candidates)
+}
+
+/// 中译英里一个英文词显示成什么样，大小写只从 ECDICT 词头来，不借 `english_words` 的写法（putty 在表里只有 PuTTY，ram 只有 RAM，「淡灰色」「公羊」仍要显示 putty、ram）：
+///
+/// - 词头是小写：一律小写。
+/// - 词头有大写：SCOWL 拼写词典（`attested`）只收小写词形时用小写（ECDICT 把 core、fax、maxim 的词头写成 CORE、FAX、Maxim）；只收词头的写法时用词头（Africa、Monday、English，`english_words` 里可能只有 africa）；两种都收时（China 和 china）只有词头的第一个义项和以它开头的义项用大写（「中国」「中国的」，不是「瓷器」）。
+/// - SCOWL 两种都不收时（缩写、品牌），`english_words` 没有小写写法或这是词头的第一个义项时用词头，否则小写。
+///
+/// 释义只用来显示，不会作为英文候选上屏，所以词头的写法不必在 `english_words` 里。
+fn display_for(
+    candidates: &HashMap<String, BTreeSet<String>>,
+    attested: &HashSet<String>,
+    headword: &str,
+    english: &str,
+    proper_sense: bool,
+) -> String {
+    if headword == english {
+        return english.to_owned();
+    }
+    let capitalised = match (attested.contains(headword), attested.contains(english)) {
+        (true, true) => proper_sense,
+        (true, false) => true,
+        (false, true) => false,
+        (false, false) => {
+            proper_sense
+                || !candidates
+                    .get(english)
+                    .is_some_and(|displays| displays.contains(english))
+        }
+    };
+    if capitalised {
+        headword.to_owned()
+    } else {
+        english.to_owned()
+    }
 }
 
 /// Every pinyin-table value in `terms`, with its best weight (floored at zero).
@@ -646,12 +828,16 @@ fn chinese_term_weights(msime: &Connection, terms: &HashSet<&str>) -> Result<Has
     Ok(weights)
 }
 
-/// Intersects ECDICT with the English candidates and derives both gloss directions. Only general senses of words with a corpus or core-vocabulary signal feed the Chinese-to-English index, and only for Chinese terms the pinyin tables can produce. Words in `reverse_excluded` get English-to-Chinese glosses but neither feed the Chinese-to-English index nor stand in for an inflection there: the build passes the words only SCOWL brings, so that index keeps choosing among the curated word lists (SCOWL's long tail would otherwise win terms such as 体现 → impersonate).
+/// 取 ECDICT 与英文候选的交集，派生两个方向的释义。中译英索引只收有语料或核心词汇信号的词的通用义项与获准的计算机领域义项，并要求中文词能由拼音表产出。`reverse_excluded` 中的词有英译中释义，但不进入中译英索引，也不代替其中的屈折形式；构建把只有 SCOWL 收录的词传入这里，使索引仍从人工整理的词表中选择（否则 SCOWL 长尾会胜出，例如 体现 → impersonate）。
+///
+/// 两个方向都以义项位置为主（[`order_terms`]）：英译中取排好的前两项；只有屈折说明、没有通用义项的词（is 只有「be的现在式第三人称」和一行 `[计]`）用原形的义项。中译英给每个（中文义项，英文词）打分：英文词的常用度（[`vocabulary_quality`]）在行内每靠后一位乘 [`POSITION_DECAY`]，不在这个词的主行上再乘一次，所以 affect 的首项「影响」压过 win 第二行第三项的「影响」；取最高分，第二个英文词要有它的 [`SECOND_GLOSS_PERCENT`]%，最高分的义项位置太靠后（[`MAX_REVERSE_STEPS`]）时宁可不给。`vetoes` 里成对否决的义项两个方向都不用；有一对在 ECDICT 的候选词里匹配不到就失败。
 pub fn derive_glosses(
     ecdict: &Path,
     english: &Connection,
     msime: &Connection,
     reverse_excluded: &HashSet<String>,
+    attested: &HashSet<String>,
+    vetoes: &GlossVetoes,
 ) -> Result<Glosses> {
     let candidates = english_candidates(english)?;
     let bytes = crate::sources::read_private(ecdict)
@@ -694,104 +880,202 @@ pub fn derive_glosses(
             frq: field(frq),
             exchange: exchange.map_or("", field),
         };
-        let english = text::strip(row.word).to_lowercase();
-        if !candidates.contains(&english) {
+        let headword = text::strip(row.word);
+        let english = headword.to_lowercase();
+        if !candidates.contains_key(&english) {
             continue;
         }
         let translation = text::strip(row.translation);
         if translation.is_empty() {
             continue;
         }
-        let terms = extract_gloss_terms(translation);
-        if terms.is_empty() {
+        let parsed = parse_translation(translation);
+        let inflection_of = parsed
+            .inflection_of
+            .filter(|lemma| *lemma != english && candidates.contains_key(lemma));
+        if parsed.terms.is_empty() && inflection_of.is_none() {
             continue;
         }
         let quality = vocabulary_quality(&row);
-        // A lemma listed in `exchange` as `0:<lemma>` stands in for its inflections in the reverse index.
-        let reverse_english = row
-            .exchange
-            .split('/')
-            .filter_map(|item| item.strip_prefix("0:"))
-            .map(|lemma| text::strip(lemma).to_lowercase())
-            .find(|lemma| {
-                candidates.contains(lemma)
-                    && !reverse_excluded.contains(lemma)
-                    && is_lowercase_ascii_word(lemma)
-            })
-            .unwrap_or_else(|| english.clone());
+        // `exchange` 以 `0:<lemma>` 列出的原形在反向索引中代替其屈折形式。只看小写词头：大写的专名（States 的「美国」）不是 state 的屈折形式。
+        let reverse_english = if headword == english {
+            row.exchange
+                .split('/')
+                .filter_map(|item| item.strip_prefix("0:"))
+                .map(|lemma| text::strip(lemma).to_lowercase())
+                .find(|lemma| {
+                    candidates.contains_key(lemma)
+                        && !reverse_excluded.contains(lemma)
+                        && is_lowercase_ascii_word(lemma)
+                })
+                .unwrap_or_else(|| english.clone())
+        } else {
+            english.clone()
+        };
         let replace = entries.get(&english).is_none_or(|previous| {
-            (quality, terms.len()) > (previous.quality, previous.terms.len())
+            (quality, parsed.terms.len()) > (previous.quality, previous.terms.len())
         });
         if replace {
             entries.insert(
                 english,
                 EnglishEntry {
+                    headword: headword.to_owned(),
                     reverse_english,
                     quality,
-                    terms,
+                    terms: parsed.terms,
+                    inflection_of,
                 },
             );
         }
     }
 
-    // Reverse candidates are built only after duplicate English rows are resolved, so a duplicated source row cannot distort the ranking.
-    let mut reverse: HashMap<String, HashMap<String, i64>> = HashMap::new();
+    // 成对否决：一个义项对这个英文词或它代表的原形被否决，就从这个词的义项里拿掉。
+    let mut matched: HashSet<(String, String)> = HashSet::new();
+    let mut kept: HashMap<&str, Vec<&GlossTerm>> = HashMap::new();
+    for (english, entry) in &entries {
+        let mut terms = Vec::new();
+        for term in &entry.terms {
+            let mut vetoed = false;
+            for listed in [english.as_str(), entry.reverse_english.as_str()] {
+                if vetoes.vetoes(&term.text, listed) {
+                    matched.insert((term.text.clone(), listed.to_owned()));
+                    vetoed = true;
+                }
+            }
+            if !vetoed {
+                terms.push(term);
+            }
+        }
+        kept.insert(english.as_str(), terms);
+    }
+    let stale = vetoes.stale(&matched);
+    if !stale.is_empty() {
+        bail!(
+            "{}: {} match no ECDICT sense of an English candidate (drop the entries)",
+            crate::curation::GLOSS_VETOES,
+            stale.join(", ")
+        );
+    }
+
+    // 「X的」的 X 也要权重，[`rarity_weight`] 用。
+    let all_terms: HashSet<&str> = entries
+        .values()
+        .flat_map(|entry| entry.terms.iter().map(|term| term.text.as_str()))
+        .flat_map(|text| {
+            [
+                Some(text),
+                text.strip_suffix('的').filter(|stem| !stem.is_empty()),
+            ]
+        })
+        .flatten()
+        .collect();
+    let weights = chinese_term_weights(msime, &all_terms)?;
+    let has_general = |terms: &[&GlossTerm]| terms.iter().any(|term| !term.domain_specific);
+
+    let mut en_zh = BTreeMap::new();
+    for (english, entry) in &entries {
+        let mut terms = &kept[english.as_str()];
+        if !has_general(terms) {
+            if let Some(lemma_terms) = entry
+                .inflection_of
+                .as_deref()
+                .and_then(|lemma| kept.get(lemma))
+                .filter(|lemma_terms| has_general(lemma_terms))
+            {
+                terms = lemma_terms;
+            }
+        }
+        let gloss = choose_chinese_gloss(terms, &weights);
+        if !gloss.is_empty() {
+            en_zh.insert(english.clone(), gloss);
+        }
+    }
+
+    // 先处理重复英文行，再构建反向候选，避免重复源行扭曲排序。
+    let mut reverse: HashMap<&str, HashMap<&str, (i64, String, usize)>> = HashMap::new();
     for (english, entry) in &entries {
         if entry.quality <= 0 || reverse_excluded.contains(english) {
             continue;
         }
-        for term in entry.terms.iter().filter(|term| term.reverse_eligible()) {
-            let position_bonus =
-                (30_000 - term.line_index as i64 * 2_000 - term.item_index as i64 * 500).max(0);
-            let score =
-                entry.quality + position_bonus - entry.reverse_english.chars().count() as i64 * 10;
-            let best = reverse
-                .entry(term.text.clone())
+        let terms = &kept[english.as_str()];
+        let primary = order_terms(terms, &weights)
+            .first()
+            .map(|term| term.line_index);
+        for term in terms.iter().filter(|term| term.reverse_eligible()) {
+            // 屈折形式的领域义项多是同形缩写（is 的 `[计]` 是 IS，信息系统），不能记到原形名下。
+            if term.domain_specific && entry.reverse_english != *english {
+                continue;
+            }
+            let steps = term.item_index + usize::from(Some(term.line_index) != primary);
+            let mut score = entry.quality;
+            for _ in 0..steps {
+                score = score * POSITION_DECAY.0 / POSITION_DECAY.1;
+            }
+            score -= entry.reverse_english.chars().count() as i64 * 10;
+            let proper_sense = term.text.starts_with(entry.terms[0].text.as_str());
+            let shown = if entry.reverse_english == *english {
+                display_for(
+                    &candidates,
+                    attested,
+                    &entry.headword,
+                    english,
+                    proper_sense,
+                )
+            } else {
+                display_for(
+                    &candidates,
+                    attested,
+                    &entry.reverse_english,
+                    &entry.reverse_english,
+                    proper_sense,
+                )
+            };
+            let slot = reverse
+                .entry(term.text.as_str())
                 .or_default()
-                .entry(entry.reverse_english.clone())
-                .or_insert(score);
-            *best = (*best).max(score);
+                .entry(entry.reverse_english.as_str());
+            match slot {
+                std::collections::hash_map::Entry::Occupied(mut best) => {
+                    if score > best.get().0 {
+                        best.insert((score, shown, steps));
+                    }
+                }
+                std::collections::hash_map::Entry::Vacant(vacant) => {
+                    vacant.insert((score, shown, steps));
+                }
+            }
         }
     }
-
-    let all_terms: HashSet<&str> = entries
-        .values()
-        .flat_map(|entry| entry.terms.iter().map(|term| term.text.as_str()))
-        .collect();
-    let weights = chinese_term_weights(msime, &all_terms)?;
-    let en_zh = entries
-        .iter()
-        .map(|(english, entry)| {
-            (
-                english.clone(),
-                choose_chinese_gloss(&entry.terms, &weights),
-            )
-        })
-        .collect();
     let zh_en = reverse
         .into_iter()
-        .filter(|(chinese, _)| weights.contains_key(chinese))
+        .filter(|(chinese, _)| weights.contains_key(*chinese))
         .filter_map(|(chinese, candidates)| {
-            finalize_reverse_gloss(candidates).map(|gloss| (chinese, gloss))
+            finalize_reverse_gloss(candidates).map(|gloss| (chinese.to_owned(), gloss))
         })
         .collect();
     Ok(Glosses { en_zh, zh_en })
 }
 
-/// The best English words for one Chinese term: at most two, each within 45% of the top score.
-fn finalize_reverse_gloss(candidates: HashMap<String, i64>) -> Option<String> {
-    let mut ranked: Vec<(String, i64)> = candidates.into_iter().collect();
+/// 一个中文词的英文释义：按分数从高到低（同分时短词、字母序在前），最多两个，第二个要有第一名的 [`SECOND_GLOSS_PERCENT`]%；最高分不到 1、或者第一名的位置超过 [`MAX_REVERSE_STEPS`] 时不给。
+fn finalize_reverse_gloss(candidates: HashMap<&str, (i64, String, usize)>) -> Option<String> {
+    let mut ranked: Vec<(&str, (i64, String, usize))> = candidates.into_iter().collect();
     ranked.sort_by(|a, b| {
-        b.1.cmp(&a.1)
+        b.1 .0
+            .cmp(&a.1 .0)
             .then(a.0.chars().count().cmp(&b.0.chars().count()))
-            .then_with(|| a.0.cmp(&b.0))
+            .then_with(|| a.0.cmp(b.0))
     });
-    let top = ranked.first()?.1;
+    let (top, top_steps) = ranked
+        .first()
+        .map(|(_, (score, _, steps))| (*score, *steps))?;
+    if top <= 0 || top_steps > MAX_REVERSE_STEPS {
+        return None;
+    }
     let selected: Vec<String> = ranked
         .into_iter()
-        .filter(|(_, score)| score * 100 >= top * 45)
+        .filter(|(_, (score, _, _))| score * 100 >= top * SECOND_GLOSS_PERCENT)
         .take(2)
-        .map(|(english, _)| english)
+        .map(|(_, (_, shown, _))| shown)
         .collect();
     Some(selected.join("; "))
 }
@@ -829,9 +1113,19 @@ pub struct CustomTranslation {
     pub gloss: String,
 }
 
+/// 人工译文写成这一个字符时表示删掉这个源词的释义（ECDICT 生成的和更早的人工行都删），不是把释义改成它。
+pub const DELETE_GLOSS: &str = "-";
+
+impl CustomTranslation {
+    /// 这一行是不是删除标记（[`DELETE_GLOSS`]）。
+    pub fn deletes(&self) -> bool {
+        self.gloss == DELETE_GLOSS
+    }
+}
+
 pub const CUSTOM_TRANSLATIONS: &str = "custom/translations.txt";
 
-/// `source<TAB>gloss`; a source containing a character from U+3400 up is Chinese-to-English, anything else English-to-Chinese. A later line for the same source wins.
+/// 每行 `source<TAB>gloss`；源词含 U+3400 及以上字符时按中译英处理，其余按英译中处理。同一源词以后出现的行优先。译文是单独一个 `-`（[`DELETE_GLOSS`]）的行删掉这个源词的释义，后面的行可以再给它一个。
 pub fn parse_custom_translations(text: &str) -> Result<Vec<CustomTranslation>> {
     let mut entries = Vec::new();
     for (number, line) in text::splitlines(text::without_bom(text))
@@ -847,7 +1141,12 @@ pub fn parse_custom_translations(text: &str) -> Result<Vec<CustomTranslation>> {
     Ok(entries)
 }
 
-/// One line of custom/translations.txt: `None` for a blank or `#` comment line, an error naming the problem (without its location) for a malformed one. Fields after the gloss are ignored. `check-words` validates contributed lines with this same function.
+/// 人工译文的源词是否含 U+3400 起的字符；含有时按中译英处理。
+pub fn is_chinese_source(source: &str) -> bool {
+    source.chars().any(|c| c >= '\u{3400}')
+}
+
+/// 解析 `custom/translations.txt` 的一行：空行或 `#` 注释返回 `None`，格式错误返回不带位置的问题说明，释义之后的字段忽略。`check-words` 用同一函数检查投稿行。
 pub fn parse_custom_translation(line: &str) -> Result<Option<CustomTranslation>> {
     let stripped = text::strip(line);
     if stripped.is_empty() || stripped.starts_with('#') {
@@ -862,18 +1161,29 @@ pub fn parse_custom_translation(line: &str) -> Result<Option<CustomTranslation>>
         bail!("empty source or gloss");
     }
     Ok(Some(CustomTranslation {
-        chinese_to_english: source.chars().any(|c| c >= '\u{3400}'),
+        chinese_to_english: is_chinese_source(source),
         source: source.to_owned(),
         gloss: gloss.to_owned(),
     }))
 }
 
+/// 按文件顺序写人工译文：删除标记删掉这个源词（原样，不改大小写）的那一行，其余的写入或替换。返回删除标记实际删掉的行数；源词本来就没有释义的删除标记不算错（ECDICT 换了版本时它可能已经没有这个释义，`custom/` 又只能追加）。
 pub fn apply_custom_translations(
     connection: &mut Connection,
     entries: &[CustomTranslation],
-) -> Result<()> {
+) -> Result<usize> {
     let transaction = connection.transaction()?;
+    let mut deleted = 0;
     for entry in entries {
+        if entry.deletes() {
+            let sql = if entry.chinese_to_english {
+                "DELETE FROM zh_en_glosses WHERE chinese=?1"
+            } else {
+                "DELETE FROM en_zh_glosses WHERE english=?1"
+            };
+            deleted += transaction.execute(sql, params![entry.source])?;
+            continue;
+        }
         let sql = if entry.chinese_to_english {
             "INSERT OR REPLACE INTO zh_en_glosses(chinese,english_gloss) VALUES(?1,?2)"
         } else {
@@ -882,8 +1192,11 @@ pub fn apply_custom_translations(
         transaction.execute(sql, params![entry.source, entry.gloss])?;
     }
     transaction.commit()?;
-    Ok(())
+    Ok(deleted)
 }
+
+#[cfg(test)]
+mod gloss_regression_tests;
 
 #[cfg(test)]
 mod tests {
@@ -934,7 +1247,16 @@ mod tests {
 
         let mut connection = Connection::open_in_memory().unwrap();
         assert_eq!(
-            build_english_words(&mut connection, &oaldpe, &base, &counts, &attested, &[]).unwrap(),
+            build_english_words(
+                &mut connection,
+                &oaldpe,
+                &base,
+                &counts,
+                &attested,
+                &[],
+                &EnglishVetoes::default()
+            )
+            .unwrap(),
             EnglishWordCounts {
                 base: 10,
                 base_rows: 14,
@@ -1058,6 +1380,7 @@ mod tests {
             &counts,
             &HashSet::new(),
             &custom,
+            &EnglishVetoes::default(),
         )
         .unwrap();
         assert_eq!(
@@ -1066,7 +1389,8 @@ mod tests {
                 base: 5,
                 base_rows: 5,
                 custom_added: 5,
-                custom_replaced: 1
+                custom_replaced: 1,
+                vetoed: 0
             }
         );
         let rows = |prefix: &str| -> Vec<(String, i64)> {
@@ -1138,11 +1462,162 @@ mod tests {
         assert!(extract_gloss_terms("a. 很长很长很长很长的词语").is_empty());
     }
 
+    /// 词性后面的标签也算领域标签（`n. [俚] 黑鬼` 不是通用义项）；`[网络]` 行是领域义项、不进中译英；同一个词在不同的行里各算一次；行首的「X的…」屈折说明记下原形。
     #[test]
-    fn the_chinese_gloss_prefers_common_general_terms() {
+    fn labels_after_the_part_of_speech_and_inflection_notes() {
+        let terms = extract_gloss_terms(
+            "n. 黑人, 黑色\\nn. [俚] 黑鬼\\n[网络] 深棕色\\nvt. [计] 页面, 黑色",
+        );
+        let texts: Vec<_> = terms
+            .iter()
+            .map(|term| {
+                (
+                    term.text.as_str(),
+                    term.line_index,
+                    term.domain_specific,
+                    term.reverse_eligible(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            texts,
+            [
+                ("黑人", 0, false, true),
+                ("黑色", 0, false, true),
+                ("黑鬼", 1, true, false),
+                ("深棕色", 2, true, false),
+                ("页面", 3, true, true),
+                ("黑色", 3, true, true)
+            ]
+        );
+        let parsed = parse_translation("be的现在式第三人称\\n[计] 信息系统");
+        assert_eq!(parsed.inflection_of.as_deref(), Some("be"));
+        assert_eq!(parsed.terms.len(), 1);
+        assert_eq!(
+            parse_translation("[计] eat的过去式\\nv. 吃").inflection_of,
+            None,
+            "a note on a domain line is not the word's inflection"
+        );
+    }
+
+    /// 英译中按位置：一行之内按义项顺序，权重低于门槛的词排到本行后面；第一条通用行占 10 倍优势，别的行首项更常用十倍以上才排到前面；第一项是通用义项时不拿领域义项凑数。
+    #[test]
+    fn the_chinese_gloss_follows_sense_position() {
         let terms = extract_gloss_terms("n. 未来的, 未来, 前途, 期货");
-        let weights = HashMap::from([("前途".to_owned(), 10), ("未来".to_owned(), 5)]);
-        assert_eq!(choose_chinese_gloss(&terms, &weights), "前途；未来");
+        let weights = HashMap::from([("前途".to_owned(), 900_000), ("未来".to_owned(), 500_000)]);
+        assert_eq!(
+            choose_chinese_gloss(&terms.iter().collect::<Vec<_>>(), &weights),
+            "未来；前途"
+        );
+
+        let may = extract_gloss_terms("n. 五月\\naux. 愿能, 可以, 愿意");
+        let weights = HashMap::from([
+            ("五月".to_owned(), 42_900),
+            ("愿能".to_owned(), 810),
+            ("可以".to_owned(), 13_378_152),
+            ("愿意".to_owned(), 770_758),
+        ]);
+        // 五月 不到 可以 的 1/50，算冷僻义项，排在 aux. 行的常用义项后面。
+        assert_eq!(
+            choose_chinese_gloss(&may.iter().collect::<Vec<_>>(), &weights),
+            "可以；愿意"
+        );
+
+        // 「X的」不在拼音表里时看 X：自然的 自己的权重不到 物质的 的 1/50，按 自然 算就不是冷僻义项。
+        let natural = extract_gloss_terms("a. 自然的, 物质的");
+        let weights = HashMap::from([
+            ("自然的".to_owned(), 28_446),
+            ("自然".to_owned(), 1_712_884),
+            ("物质的".to_owned(), 2_000_000),
+        ]);
+        assert_eq!(
+            choose_chinese_gloss(&natural.iter().collect::<Vec<_>>(), &weights),
+            "自然的；物质的"
+        );
+
+        let keep = extract_gloss_terms("n. 生计, 维持, 保持\\nvt. 保持, 保存");
+        let weights = HashMap::from([
+            ("生计".to_owned(), 22_411),
+            ("保持".to_owned(), 1_000_000),
+            ("保存".to_owned(), 300_000),
+        ]);
+        assert_eq!(
+            choose_chinese_gloss(&keep.iter().collect::<Vec<_>>(), &weights),
+            "保持；保存"
+        );
+
+        let tv = extract_gloss_terms("电视\\n[计] 电视, 转移向量");
+        assert_eq!(
+            choose_chinese_gloss(&tv.iter().collect::<Vec<_>>(), &HashMap::new()),
+            "电视"
+        );
+        let domain_only = extract_gloss_terms("[计] 存取管理程序, 寻址方式");
+        assert_eq!(
+            choose_chinese_gloss(&domain_only.iter().collect::<Vec<_>>(), &HashMap::new()),
+            "存取管理程序；寻址方式"
+        );
+    }
+
+    /// 大小写只看 ECDICT 词头和 SCOWL：小写词头一律小写，不借 `english_words` 的品牌写法（putty 只有 PuTTY）；大写词头由 SCOWL 定，SCOWL 两种都不收时才看 `english_words` 有没有小写写法。
+    #[test]
+    fn chinese_to_english_keeps_proper_names_capitalised() {
+        let set = |words: &[&str]| -> BTreeSet<String> {
+            words.iter().map(|word| (*word).to_owned()).collect()
+        };
+        let candidates = HashMap::from([
+            ("china".to_owned(), set(&["China", "china"])),
+            ("irish".to_owned(), set(&["Irish"])),
+            ("putty".to_owned(), set(&["PuTTY"])),
+            ("core".to_owned(), set(&["core"])),
+            ("africa".to_owned(), set(&["africa"])),
+            ("nasa".to_owned(), set(&["NASA"])),
+            ("admin".to_owned(), set(&["Admin", "admin"])),
+        ]);
+        let attested: HashSet<String> = ["China", "china", "Irish", "putty", "core", "Africa"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let shown = |headword: &str, proper_sense: bool| {
+            display_for(
+                &candidates,
+                &attested,
+                headword,
+                &headword.to_lowercase(),
+                proper_sense,
+            )
+        };
+        assert_eq!(shown("China", true), "China");
+        assert_eq!(shown("China", false), "china");
+        assert_eq!(shown("Irish", false), "Irish");
+        assert_eq!(shown("putty", true), "putty");
+        assert_eq!(shown("CORE", true), "core");
+        assert_eq!(shown("Africa", false), "Africa");
+        assert_eq!(shown("NASA", false), "NASA");
+        assert_eq!(shown("ADMIN", true), "ADMIN");
+        assert_eq!(shown("ADMIN", false), "admin");
+    }
+
+    /// 补充表里只有大写写法、SCOWL 收了小写词形的词补上小写写法；SCOWL 不收小写的品牌名和已有小写写法的词不动。
+    #[test]
+    fn supplement_words_get_the_lowercase_scowl_attests() {
+        let mut words = parse_base_dict_words(
+            "PuTTY putty
+AdGuard adguard
+China china
+china china
+",
+        )
+        .unwrap();
+        let attested: HashSet<String> = ["putty", "China", "china"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        assert_eq!(add_attested_lowercase(&mut words, &attested), 1);
+        assert_eq!(displays(&words, "putty"), ["PuTTY", "putty"]);
+        assert_eq!(displays(&words, "adguard"), ["AdGuard"]);
+        assert_eq!(displays(&words, "china"), ["China", "china"]);
+        let leading = leading_display("putty", &words["putty"], &attested);
+        assert_eq!(leading, Some("putty"));
     }
 
     #[test]
@@ -1183,7 +1658,15 @@ mod tests {
              absent,,,n. 缺席,,5,1,,1,1,,,\n",
         )
         .unwrap();
-        let glosses = derive_glosses(&csv, &english, &msime, &HashSet::new()).unwrap();
+        let glosses = derive_glosses(
+            &csv,
+            &english,
+            &msime,
+            &HashSet::new(),
+            &HashSet::new(),
+            &GlossVetoes::default(),
+        )
+        .unwrap();
         assert_eq!(
             glosses.en_zh.get("bank").map(String::as_str),
             Some("银行；堤")
@@ -1194,8 +1677,15 @@ mod tests {
         assert_eq!(glosses.zh_en.keys().collect::<Vec<_>>(), ["跑步", "银行"]);
         assert_eq!(glosses.zh_en.get("银行").map(String::as_str), Some("bank"));
         // An excluded word keeps its English-to-Chinese gloss but neither feeds the reverse index nor stands in for its inflections there.
-        let excluded =
-            derive_glosses(&csv, &english, &msime, &HashSet::from(["bank".to_owned()])).unwrap();
+        let excluded = derive_glosses(
+            &csv,
+            &english,
+            &msime,
+            &HashSet::from(["bank".to_owned()]),
+            &HashSet::new(),
+            &GlossVetoes::default(),
+        )
+        .unwrap();
         assert_eq!(excluded.en_zh, glosses.en_zh);
         assert_eq!(
             excluded.zh_en.get("银行").map(String::as_str),
@@ -1206,7 +1696,10 @@ mod tests {
         write_glosses(&mut english, &glosses).unwrap();
         let entries = parse_custom_translations("\u{feff}# c\n华科\tHUST\nbank\t河岸\n").unwrap();
         assert!(entries[0].chinese_to_english && !entries[1].chinese_to_english);
-        apply_custom_translations(&mut english, &entries).unwrap();
+        assert_eq!(
+            apply_custom_translations(&mut english, &entries).unwrap(),
+            0
+        );
         let bank: String = english
             .query_row(
                 "SELECT chinese_gloss FROM en_zh_glosses WHERE english='bank'",
@@ -1215,6 +1708,34 @@ mod tests {
             )
             .unwrap();
         assert_eq!(bank, "河岸");
+        // 删除标记删掉 ECDICT 生成的和更早的人工行，后面的行还能再写；源词本来没有释义的删除标记不算错。
+        let entries =
+            parse_custom_translations("银行\t-\nbank\t-\n华科\t-\n华科\tHUST\nabsent\t-\n")
+                .unwrap();
+        assert!(entries[0].deletes() && !entries[3].deletes());
+        assert_eq!(
+            apply_custom_translations(&mut english, &entries).unwrap(),
+            3
+        );
+        let glosses_of = |sql: &str| -> Vec<String> {
+            english
+                .prepare(sql)
+                .unwrap()
+                .query_map([], |row| row.get(0))
+                .unwrap()
+                .collect::<rusqlite::Result<_>>()
+                .unwrap()
+        };
+        assert!(
+            glosses_of("SELECT chinese_gloss FROM en_zh_glosses WHERE english='bank'").is_empty()
+        );
+        assert!(
+            glosses_of("SELECT english_gloss FROM zh_en_glosses WHERE chinese='银行'").is_empty()
+        );
+        assert_eq!(
+            glosses_of("SELECT english_gloss FROM zh_en_glosses WHERE chinese='华科'"),
+            ["HUST"]
+        );
         let version: i64 = english
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
@@ -1228,5 +1749,53 @@ mod tests {
             .unwrap();
         assert!(sql.starts_with("CREATE TABLE \"zh_en_glosses\" ("), "{sql}");
         assert!(parse_custom_translations("only-one-field\n").is_err());
+    }
+
+    /// 一个否决集合管全部英文来源：rime-ice 词表（base）、OALDPE 词头和 custom/english.txt 里的蔑称都不写入，任何大小写都不写；curation 文件里的词一个来源也没有时构建失败。
+    #[test]
+    fn english_vetoes_apply_to_every_source() {
+        let base = parse_base_dict_words(
+            "tranny tranny\nTranny Tranny\nnigger nigger\nhello hello\nasdfgh asdfgh\n",
+        )
+        .unwrap();
+        let oaldpe = parse_oaldpe_words("beyatch\nzebra\n").unwrap();
+        let custom = parse_custom_english("chinks\tChinks\t1\nfigma\tFigma\t1\n").unwrap();
+        let counts = parse_google_counts("hello\t100\ntranny\t50\n");
+        let vetoes = EnglishVetoes::parse("asdfgh\n").unwrap();
+        let mut connection = Connection::open_in_memory().unwrap();
+        let written = build_english_words(
+            &mut connection,
+            &oaldpe,
+            &base,
+            &counts,
+            &HashSet::new(),
+            &custom,
+            &vetoes,
+        )
+        .unwrap();
+        assert_eq!(written.vetoed, 5);
+        let mut displays: Vec<String> = connection
+            .prepare("SELECT display FROM english_words ORDER BY display")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        displays.sort();
+        assert_eq!(displays, ["Figma", "hello", "zebra"]);
+
+        let stale = EnglishVetoes::parse("qwertyu\n").unwrap();
+        let error = build_english_words(
+            &mut Connection::open_in_memory().unwrap(),
+            &oaldpe,
+            &base,
+            &counts,
+            &HashSet::new(),
+            &custom,
+            &stale,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("qwertyu"), "{error}");
     }
 }

@@ -23,10 +23,11 @@ int main() {
             @"polish_prompt_custom_2": @"two", @"polish_prompt_custom_3": @"three",
             @"sound_enabled": @NO, @"mute_system_audio": @YES, @"stream_inline_preedit": @NO,
             @"polish_enabled": @YES, @"polish_text": @YES, @"hotkey_ctrl_f9": @NO,
-            @"hotkey_ralt": @YES, @"hotkey_ctrl_win": @YES
+            @"hotkey_global": @YES, @"hotkey_ralt": @YES, @"hotkey_ctrl_win": @YES
         };
         assert(MSIMEApplySharedVoicePreferences(voice, defaults));
         assert(!MSIMEVoiceInputEnabled(defaults));
+        assert([defaults boolForKey:@"MSIMEClientVoiceHotkeyGlobal"]);
         assert([defaults boolForKey:@"MSIMEClientVoiceHotkeyCtrlOption"]);
         assert([[defaults stringForKey:@"MSIMEClientVoiceCaptureBackend"] isEqual:@"macos"]);
         assert(MSIMEVoiceCaptureBackendSupported([defaults objectForKey:@"MSIMEClientVoiceCaptureBackend"]));
@@ -41,6 +42,7 @@ int main() {
         assert([defaults boolForKey:@"MSIMEClientVoiceHotkeyCtrlCommand"]);
         assert(![defaults boolForKey:@"MSIMEClientVoiceSoundEnabled"]);
         NSDictionary *captured = MSIMEVoicePreferencesFromDefaults(defaults);
+        assert(!captured[@"hotkey_global"]);
         assert([captured[@"asr_provider"] isEqual:@"openai"]);
         assert([captured[@"capture_backend"] isEqual:@"macos"]);
         assert([captured[@"asr_model_path"] isEqual:voice[@"asr_model_path"]]);

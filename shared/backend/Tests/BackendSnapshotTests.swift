@@ -59,7 +59,8 @@ final class BackendSnapshotTests: XCTestCase {
       entry.replacingOccurrences(of: "\"weight\":10", with: "\"weight\":0"),
       entry.replacingOccurrences(of: "\"weight\":10", with: "\"weight\":true"),
       entry.replacingOccurrences(of: "\"revision\":1", with: "\"revision\":10001"),
-      entry.replacingOccurrences(of: "\"kind\":\"quick\"", with: "\"kind\":\"other\""),
+      entry.replacingOccurrences(of: "\"kind\":\"quick\"", with: "\"kind\":\"Other-Kind\""),
+      entry.replacingOccurrences(of: "\"kind\":\"quick\"", with: "\"kind\":\"\""),
       entry.replacingOccurrences(of: "\"id\":\"synthetic\"", with: "\"id\":null"),
       entry.replacingOccurrences(of: "\"weight\":10", with: "\"weight\":10,\"user_inserted\":false"),
       entry.replacingOccurrences(of: "\"weight\":10", with: "\"weight\":10,\"unexpected\":1"),
@@ -75,6 +76,15 @@ final class BackendSnapshotTests: XCTestCase {
     let tombstone = entry.replacingOccurrences(of: "\"type\":\"entry\"", with: "\"type\":\"overlay\",\"deleted\":true")
       .replacingOccurrences(of: "\"weight\":10", with: "\"weight\":0")
     XCTAssertEqual(try inspect(framed([header, tombstone])).overlays, 1)
+  }
+
+  /// 更新的版本加的词库种类（新世纪五笔 `wubixsj`）这一版不认识：快照照常通过校验并计入记录数，交给 Engine 时由 host-api 跳过。
+  func testRecordsOfAnUnknownKindStillValidate() throws {
+    let entry = #"{"type":"entry","data":{"id":"synthetic","kind":"wubixsj","code":"ent","word":"力","weight":10,"revision":1,"updated_at":"2026-09-08T00:00:00Z"}}"#
+    let result = try inspect(framed([header, entry, overlay(entry)]))
+    XCTAssertEqual(result.entries, 1)
+    XCTAssertEqual(result.overlays, 1)
+    XCTAssertEqual(result.records, 3)
   }
 
   private func overlay(_ entry: String) -> String {

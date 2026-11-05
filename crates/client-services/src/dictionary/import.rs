@@ -41,13 +41,15 @@ pub enum ImportKind {
     Wubi98,
     /// 粤语，编码是以空格或 `'` 分隔的粤拼音节，可带声调数字（Rime 的粤拼词库就带），Engine 存之前去掉声调。
     Cantonese,
+    /// 新世纪五笔。追加在末尾，已有的序号不变。
+    Wubixsj,
 }
 
 impl ImportKind {
     fn key_limit(self) -> usize {
         match self {
             ImportKind::Pinyin | ImportKind::Cantonese => 256,
-            ImportKind::Wubi | ImportKind::Wubi98 => 4,
+            ImportKind::Wubi | ImportKind::Wubi98 | ImportKind::Wubixsj => 4,
             ImportKind::QuickPhrase => 32,
             ImportKind::English => 64,
         }
@@ -58,7 +60,9 @@ impl ImportKind {
             ImportKind::Pinyin => {
                 super::pinyin_code_is_well_formed(key, format == ImportFormat::Rime)
             }
-            ImportKind::Wubi | ImportKind::Wubi98 => super::wubi_code_is_well_formed(key),
+            ImportKind::Wubi | ImportKind::Wubi98 | ImportKind::Wubixsj => {
+                super::wubi_code_is_well_formed(key)
+            }
             ImportKind::QuickPhrase => super::quick_phrase_code_is_well_formed(key),
             ImportKind::English => super::english_code_is_well_formed(key),
             ImportKind::Cantonese => super::cantonese_code_is_well_formed(key),
