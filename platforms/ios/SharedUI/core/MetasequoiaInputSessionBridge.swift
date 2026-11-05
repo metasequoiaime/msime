@@ -660,13 +660,20 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   private var appliedPreferences: [String: Any]?
 
   /// `startsSuspended` 为 true 时只准备选项、不建会话，桥一开始就处于挂起状态，到 `resumeDictionarySession` 才建。会话一建就在 App Group 里持着词库访问租约和下载代次的共享锁；键盘扩展的控制器创建时键盘还没出现（也可能永远不出现），那时就建会话的话，进程被挂起时锁还在手上，iOS 以 0xdead10cc 结束扩展（#10634）。挂起期间改的偏好、网格、全角、中文标点、AI 凭据和隐私标记都只记下，建会话时带上或重放。
-  init(resources: URL? = nil, stateRoot: URL? = nil, startsSuspended: Bool = false) {
+  ///
+  /// `sharedStateWritable` 为 false 时（键盘扩展没有「允许完全访问」，App Group 只读，#10945）只读地准备：偏好照常从共享目录读，用 App 准备好的代次（拿不到就用扩展随包的词库），校验标记和缓存放进扩展自己的容器，会话不学习。默认值 true 与以前相同。`privateRoot` 只给测试用。
+  init(resources: URL? = nil, stateRoot: URL? = nil, startsSuspended: Bool = false,
+       sharedStateWritable: Bool = true, privateRoot: URL? = nil) {
     options = [:]
     self.stateRoot = nil
     sharesStateRoot = stateRoot == nil
     self.appliedFuzzyPinyinRules = nil
     do {
-      let bootstrap = Self.bootstrapOptions(resources: resources, stateRoot: stateRoot)
+      var bootstrap = Self.bootstrapOptions(resources: resources, stateRoot: stateRoot)
+      if !sharedStateWritable {
+        bootstrap["read_only_state"] = true
+        bootstrap["private_root"] = (privateRoot ?? Self.readOnlyPrivateRoot).path
+      }
       options = try Self.callOptions(msimeClientPrepareHost,
                                      bootstrap)
       self.stateRoot = options["preferences_directory"] as? String
@@ -2290,6 +2297,11 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     // Cloud candidates are opt-in on iOS; see CloudCandidatePreference. Never persisted: the shared document keeps the desktop's value.
     preferences["cloud_candidates"] = CloudCandidatePreference.enabled
     return preferences
+  }
+
+  /// 只读准备时扩展自己能写的目录：资源校验标记、缓存和只读布局的用户目录。在扩展自己的容器里，不在 App Group 里，删掉了下次出现重建。
+  static var readOnlyPrivateRoot: URL {
+    IOSSharedPaths.applicationSupport.appendingPathComponent("MSIME-read-only", isDirectory: true)
   }
 
   private static func bootstrapOptions(resources resourceOverride: URL?, stateRoot stateOverride: URL?) -> [String: Any] {

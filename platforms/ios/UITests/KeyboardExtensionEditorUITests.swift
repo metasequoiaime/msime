@@ -127,12 +127,15 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
   /// Every step is optional: a run where the keyboard is already added skips straight through,
   /// and a Settings layout this does not recognise leaves the ring alone rather than failing here
   /// - the caller's skip then says the keyboard was never reachable, which is the honest report.
-  private func addKeyboardInSettingsIfNeeded() {
+  ///
+  /// `fullAccess` 是测试要的「允许完全访问」状态；返回开关最后是否就是这个状态（没走到开关时为假）。
+  @discardableResult
+  private func addKeyboardInSettingsIfNeeded(fullAccess wanted: Bool = true) -> Bool {
     let settings = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
     settings.launch()
     defer { settings.terminate() }
 
-    guard settings.wait(for: .runningForeground, timeout: 15) else { return }
+    guard settings.wait(for: .runningForeground, timeout: 15) else { return false }
 
     func row(_ label: String) -> XCUIElement {
       let cell = settings.cells.staticTexts[label].firstMatch
@@ -151,7 +154,7 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     // App-prefs deep link does not navigate on this runtime. Try where it is now, then where it
     // used to be, rather than pinning one layout.
     if !tapRow("键盘") {
-      guard tapRow("通用"), tapRow("键盘") else { return }
+      guard tapRow("通用"), tapRow("键盘") else { return false }
     }
     // 有些布局里面板和其中的列表标题相同。iOS 27 上列表行读作「键盘、<数量>」，按标签匹配不到，改用它的标识符 `KEYBOARDS`。
     let ring = settings.cells["KEYBOARDS"].firstMatch
@@ -161,29 +164,34 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
       // iOS 27 上这一行写作「添加新键盘」，没有省略号，而且是按钮不是文本；只按前缀找，哪种都认。原来写死「添加新键盘…」找不到它，于是键盘从未被添加，本套件在 iOS 27 上每次都整体跳过。
       let add = settings.descendants(matching: .any)
         .matching(NSPredicate(format: "label BEGINSWITH %@", "添加新键盘")).firstMatch
-      guard add.waitForExistence(timeout: 8) else { return }
+      guard add.waitForExistence(timeout: 8) else { return false }
       add.tap()
 
       let ours = settings.descendants(matching: .any)
         .matching(NSPredicate(format: "label BEGINSWITH %@", "水杉输入法")).firstMatch
       for _ in 0..<8 where !ours.exists { settings.swipeUp() }
-      guard ours.waitForExistence(timeout: 8) else { return }
+      guard ours.waitForExistence(timeout: 8) else { return false }
       ours.tap()
     }
 
     // Full access is a second, separate confirmation. The keyboard runs without it; only the
     // features that need a network or the shared container do.
     let entry = settings.staticTexts["水杉输入法"].firstMatch
-    if entry.waitForExistence(timeout: 5) {
-      entry.tap()
-      let fullAccess = settings.switches["允许完全访问"].firstMatch
-      if fullAccess.waitForExistence(timeout: 5), fullAccess.value as? String == "0" {
-        // iOS 27 上开关占满整行，点中心会落在标签上而不会切换，所以点行尾的开关圆钮。
-        fullAccess.coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5)).tap()
-        let allow = settings.alerts.buttons["允许"].firstMatch
-        if allow.waitForExistence(timeout: 5) { allow.tap() }
-      }
+    guard entry.waitForExistence(timeout: 5) else { return false }
+    entry.tap()
+    let fullAccess = settings.switches["允许完全访问"].firstMatch
+    guard fullAccess.waitForExistence(timeout: 5) else { return false }
+    let wantedValue = wanted ? "1" : "0"
+    if fullAccess.value as? String != wantedValue {
+      // iOS 27 上开关占满整行，点中心会落在标签上而不会切换，所以点行尾的开关圆钮。
+      fullAccess.coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5)).tap()
+      // 只有打开时系统才弹确认框，关掉不问。
+      let allow = settings.alerts.buttons["允许"].firstMatch
+      if wanted, allow.waitForExistence(timeout: 5) { allow.tap() }
     }
+    let settled = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "value == %@", wantedValue), object: fullAccess)
+    return XCTWaiter.wait(for: [settled], timeout: 5) == .completed
   }
 
   /// 聚焦原生编辑器，再通过系统键盘列表或地球键切换到水杉。
@@ -1046,6 +1054,57 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     XCTAssertFalse(value.isEmpty, "nothing reached the host editor")
     XCTAssertTrue(value.contains(candidate) || candidate.contains(value),
                   "the editor holds \(value) but the chip that was tapped said \(candidate)")
+  }
+
+  /// 没开「允许完全访问」时键盘也要能离线打字（#10945）：扩展写不了 App Group，以前准备运行时就以 EPERM 失败，键盘只显示「输入运行时准备失败」。
+  ///
+  /// 先打开一次 App（登记扩展，App 的首页准备共享目录），在系统设置里关掉完全访问，再在独立测试应用的普通输入框里打 nihao、选首选上屏；结束时把完全访问开回去，后面的用例照旧在有完全访问的扩展上跑。
+  func testTypingPinyinWithoutFullAccessCommitsIntoTheHostEditor() throws {
+    addTeardownBlock { @MainActor in
+      self.addKeyboardInSettingsIfNeeded(fullAccess: true)
+    }
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    XCTAssertTrue(app.tabBars.buttons["首页"].waitForExistence(timeout: 15))
+    app.terminate()
+    // 要关掉完全访问的用例必须真的关掉了，否则测到的还是有完全访问的那条路径。
+    guard addKeyboardInSettingsIfNeeded(fullAccess: false) else {
+      throw XCTSkip("「允许完全访问」没有关掉，无法验证没有完全访问时的键盘")
+    }
+    let editor = XCUIApplication(bundleIdentifier: "app.msime.ios.keyboard-test-host")
+    editor.launchArguments = ["--system-keyboard-editor"]
+    addTeardownBlock { @MainActor in editor.terminate() }
+    editor.launch()
+    let field = editor.textFields["systemKeyboardEditor"]
+    XCTAssertTrue(field.waitForExistence(timeout: 10))
+    _ = try activeSystemKeyboard(in: editor, field: field)
+
+    editor.buttons["schemeButton"].tap()
+    editor.buttons["schemeCard-quanpin"].tap()
+    let language = editor.buttons["bottomLanguageKey"]
+    if language.label == "切换到中文输入" { language.tap() }
+
+    for letter in ["N", "I", "H", "A", "O"] {
+      let key = editor.buttons["字母 \(letter)"]
+      XCTAssertTrue(key.waitForExistence(timeout: 5), "字母 \(letter) 不在键面上")
+      key.tap()
+    }
+
+    let leading = editor.buttons["candidate-1"]
+    let answered = leading.waitForExistence(timeout: 8)
+    keepScreenshot("无完全访问-nihao", in: editor)
+    let failure = editor.descendants(matching: .any)
+      .matching(NSPredicate(format: "label CONTAINS %@", "输入运行时")).firstMatch
+    XCTAssertFalse(failure.exists, "没有完全访问时键盘报运行时失败：\(failure.label)")
+    XCTAssertTrue(answered, "没有完全访问时 nihao 没有候选")
+    let candidate = leading.label
+    leading.tap()
+
+    let value = (field.value as? String) ?? ""
+    XCTAssertFalse(value.isEmpty, "没有完全访问时候选没有上屏")
+    XCTAssertTrue(value.contains(candidate) || candidate.contains(value),
+                  "编辑器里是 \(value)，点的候选是 \(candidate)")
   }
 
   /// 从原生设置保存方案，再由系统加载扩展，在真实编辑器里用九键双拼提交候选。

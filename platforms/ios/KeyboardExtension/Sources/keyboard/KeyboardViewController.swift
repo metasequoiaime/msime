@@ -23,10 +23,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// first shared-preferences sync; starting at zero discarded the user's height on every load.
   private var sharedKeyboardHeightAdjustment =
     CGFloat(KeyboardLayoutPreference.heightAdjustment)
-  /// 准备引擎选项之前的内存读数。存储属性按声明顺序初始化，所以它紧挨在 `session` 上面：前面几个属性（皮肤背景视图、读 App Group 的键盘高度）算进它自己，`keyboard_loaded` 把它记成 `base=`，与 `session=` 之差是准备选项（读文档、校验资源）的开销。
+  /// 准备引擎选项之前的内存读数。存储属性按声明顺序初始化：前面几个属性（皮肤背景视图、读 App Group 的键盘高度）算进它自己，`keyboard_loaded` 把它记成 `base=`。`session` 到 `viewDidLoad` 才准备，所以与 `session=` 之差除了准备选项（读文档、校验资源），还有其余存储属性和 `loadView` 的开销。
   private let launchMemory = DiagnosticLog.MemorySample.current()
   /// 这里只准备选项、不建会话：会话一建就在 App Group 里持着词库租约和下载代次的锁，控制器创建时键盘还没出现，也可能永远不出现，进程那时被挂起，iOS 以 0xdead10cc 结束扩展（#10634）。会话在 `viewWillAppear` 里建，在 `viewWillDisappear` 里销毁，锁的持有期不超过键盘的可见期。
-  private let session = MetasequoiaInputSessionBridge(startsSuspended: true)
+  ///
+  /// 第一次用到时才准备（`viewDidLoad` 一开始），那时 `hasFullAccess` 已经可信：没有完全访问时 App Group 只读，可写的准备第一步就以 EPERM 失败，键盘打不了字（#10945），所以按它选只读的准备。iOS 在用户切换完全访问时结束扩展进程，进程活着时这个值不变。
+  private lazy var session: MetasequoiaInputSessionBridge = {
+    self.sessionPrepared = true
+    return MetasequoiaInputSessionBridge(startsSuspended: true, sharedStateWritable: self.hasFullAccess)
+  }()
+  /// `session` 是否已经准备过；控制器在 `viewDidLoad` 之前就释放时 `deinit` 不能为了看一眼去准备它。
+  private var sessionPrepared = false
   private var englishCorrectionRejectedPrefix = ""
   private var englishCorrectionRejectedDocument: UUID?
   /// 候选条内容每换一次加一，在途的英文建议回来时拿它判断自己是否已过时。
@@ -36,8 +43,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var englishSuggestionDocument: UUID?
   /// 候选栏当前的英文建议第二行是否为纠错；只有补全时点原文不算拒绝纠错。
   private var englishSuggestionCorrected = false
-  /// 引擎选项准备好时的内存读数，紧跟在 `session` 后面声明，`keyboard_loaded` 记成 `session=`。会话本身在第一次出现时才建，它的内存算进 `keyboard_shown`。
-  private let sessionMemory = DiagnosticLog.MemorySample.current()
+  /// 引擎选项准备好时的内存读数，`keyboard_loaded` 记成 `session=`：先让 `session` 准备好再读数。会话本身在第一次出现时才建，它的内存算进 `keyboard_shown`。
+  private lazy var sessionMemory: DiagnosticLog.MemorySample = {
+    _ = self.session
+    return DiagnosticLog.MemorySample.current()
+  }()
   /// 「全角输入」 for the running keyboard: starts from the shared `character_width`, then the 全角 card switches it.
   private var fullWidthInput = false
   /// The document's `character_width` as last applied, so a reload replaces the card's switch only when that field changed.
@@ -898,7 +908,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     MainActor.assumeIsolated {
       KeyboardViewTeardown.detachSubviews(from: viewIfLoaded)
       // 会话随桥一起销毁；释放时还持着会话，说明它跳过了 `viewWillDisappear`，在那之前锁一直在手上（#10634）。
-      if session.holdsSession { DiagnosticLog.shared.write("controller_released session_held=1") }
+      if sessionPrepared, session.holdsSession { DiagnosticLog.shared.write("controller_released session_held=1") }
     }
   }
 
@@ -907,7 +917,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitHorizontalSizeClass.self]) {
       (controller: KeyboardViewController, previous: UITraitCollection) in controller.refreshTraits(previous)
     }
-    // 先读数再做别的：与 `sessionMemory` 之差是 `session` 之后声明的存储属性和 `loadView` 的开销，与下面 `keyboard_built` 之差是建键盘界面的开销。
+    // 先准备会话的选项（`sessionMemory` 随之读数），再读数做别的：与 `sessionMemory` 之差是 `loadView` 的开销，与下面 `keyboard_built` 之差是建键盘界面的开销。
+    _ = sessionMemory
     let loadedMemory = DiagnosticLog.MemorySample.current()
     translations.onArrival = { [weak self] in self?.renderCandidateStrip() }
     // 方案以共享文档为准。会话在本控制器创建时已经同步读过一次文档，先把其中记的方案抄进 App Group 镜像再按镜像行事，不额外读盘；否则在 `viewWillAppear` 的后台重载回来之前，键盘会先按镜像里的旧方案（比如双拼）画出来并开始接收按键。
