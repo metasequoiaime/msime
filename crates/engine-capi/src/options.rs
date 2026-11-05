@@ -128,6 +128,8 @@ struct Wubi {
 enum WubiProfile {
     Wubi86,
     Wubi98,
+    /// 新世纪五笔，码表 `wubixsj`。
+    Wubixsj,
 }
 
 #[derive(Deserialize)]
@@ -368,6 +370,7 @@ pub(crate) fn parse(json: &str) -> Outcome<SessionOptions> {
             options.wubi.profile = match profile {
                 WubiProfile::Wubi86 => WubiProfileKind::Wubi86,
                 WubiProfile::Wubi98 => WubiProfileKind::Wubi98,
+                WubiProfile::Wubixsj => WubiProfileKind::WubiXsj,
             };
         }
         if let Some(mixed) = wubi.mixed_pinyin {
