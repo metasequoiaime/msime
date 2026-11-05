@@ -6,7 +6,7 @@
 #include <string>
 #include <sys/wait.h>
 #include <thread>
-extern char **environ;
+extern "C" char **environ;
 
 namespace msime::linux_host {
 inline bool launch_local_translation(std::string directory) {
