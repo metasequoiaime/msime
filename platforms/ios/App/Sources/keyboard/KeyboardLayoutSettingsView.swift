@@ -114,7 +114,7 @@ struct KeyboardLayoutSettingsView: View {
     return VStack(spacing: 6) {
       grip
       KeyboardSkinPreview(
-        skin: skin, nineKey: face.nineKey, letterGrid: face.letterGrid, gridSplitsSyllables: face.gridSplitsSyllables,
+        skin: skin, nineKey: face.nineKey, letterGrid: face.letterGrid,
         layout: KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing, showsBottomLanguage: !hideLanguageKey),
         heightAdjustment: height, keyLayout: previewKeyLayout, nineKeyZero: face.nineKeyZero
       )

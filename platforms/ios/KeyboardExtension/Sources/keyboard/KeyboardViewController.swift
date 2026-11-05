@@ -2496,7 +2496,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return nineKeySwipeDigits
   }
 
-  /// 九键滑动的结果（#10229）。沿设定方向松手：记一次这个键（与点按同一个统计 id），按长按菜单里选数字的同一条路径上屏（先结束组字再原样上屏，按键反馈也在那里出）。反方向滑过：与长按一样记一次这个键，弹出同样的数字和字母，之后从菜单里选的不再记。
+  /// 九键滑动的结果（#10229）。沿设定方向松手：记一次这个键（与点按同一个统计 id），按长按菜单里选数字的同一条路径上屏（先结束组字再上屏、跟随全角开关，按键反馈也在那里出）。反方向滑过：与长按一样记一次这个键，弹出同样的数字和字母，之后从菜单里选的不再记。
   private func handleNineKeySwipe(_ gesture: NineKeySwipePolicy.Gesture, from key: UIButton, digit: Int) {
     switch gesture {
     case .digit:
@@ -2515,7 +2515,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return [String(digit)] + (nineKeyLetters[digit] ?? "").lowercased().map(String.init)
   }
 
-  /// 长按菜单：九键 1 弹出数字，2–9 弹出数字和字母，14 键弹出这一键的字母。选中的一项先结束组字再原样上屏（`commitNineKeyHoldOption`）。
+  /// 长按菜单：九键 1 弹出数字，2–9 弹出数字和字母，14 键弹出这一键的字母。选中的一项先结束组字再上屏，全角开关打开时写全角（`commitNineKeyHoldOption`）。
   private func showKeyHoldOptions(from key: UIButton, options optionTexts: [String]) {
     dismissNineKeyHoldOptions()
     playInputClick()
@@ -2569,10 +2569,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     UIAccessibility.post(notification: .layoutChanged, argument: options)
   }
 
+  /// 上屏的数字和字母跟着全角开关走（`insertDirectText`），与 Android、HarmonyOS 相同。
   private func commitNineKeyHoldOption(_ text: String) {
     playInputClick()
     render(session.finishComposition())
-    insertOwnText(text)
+    insertDirectText(text)
     dismissNineKeyHoldOptions()
   }
 
@@ -7802,8 +7803,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       cursorMovement.begin(at: position, document: document)
       // While spelling, the drag edits the spelling: the caret walks through the pinyin as ← / → do in the Windows composition, and typing or backspace then acts there. A Japanese reading keeps ending the composition, because its conversion owns the space key.
       // A Korean syllable, a Zhuyin conversion and a Vietnamese word have no caret inside them either, so the drag finishes them and moves the document caret.
-      // 五笔 14 键的组码字母不显示（`typesWubiGrid`），光标在里面走用户看不见，所以同样结束组字、移动文档光标。
-      spaceDragEditsComposition = hasComposition && inputScheme.hasSpellingCaret && !typesWubiGrid
+      // 14 键、18 键（全拼、双拼、五笔）的拼写是各组的组码字母（`editing_text`），读音行显示的是引擎给的读音，光标走进组码会把读音换成 `bug|ao` 这样的组码，所以与 Android 一样先结束组字（上屏首选），再移动文档光标。
+      spaceDragEditsComposition = hasComposition && inputScheme.hasSpellingCaret && !typesLetterGrid
       if hasComposition && !spaceDragEditsComposition { render(session.finishComposition()) }
       // 分离式键盘有两个空格，只给正在拖的那个换标题；结束时 updateSpaceKeyTitle 把两个都还原。
       // 拖动时的标签单独显示、不带麦克风，与 Android 的临时空格标签一致。
@@ -7818,7 +7819,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       if spaceDragEditsComposition && hasComposition {
         moveCompositionCaret(
           by: steps,
-          bySegment: inputScheme.editsBySyllable && !typesLetterGrid && SpaceCursorMovement.movesBySegment(velocity: velocity))
+          bySegment: inputScheme.editsBySyllable && SpaceCursorMovement.movesBySegment(velocity: velocity))
       } else {
         moveCursor(by: steps)
       }

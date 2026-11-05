@@ -5178,6 +5178,59 @@ final class NineKeySwipeDigitsTests: XCTestCase {
     XCTAssertNil(descendants(controller.view).first { $0.accessibilityIdentifier == "nineKeyHoldOptions" })
     controller.viewDidDisappear(false)
   }
+
+  /// 滑出的数字和长按菜单里选的字母跟着全角开关走：打开全角时 5 写成全角５（U+FF15）、e 写成全角ｅ（U+FF45），与 Android、鸿蒙相同；关着时是半角。
+  func testSwipedDigitsFollowTheFullWidthSwitch() throws {
+    let document = Document()
+    try attach(document)
+    let controller = try keyboard(.nineKey, swipe: .up)
+    defer { controller.viewDidDisappear(false) }
+    try XCTUnwrap(try key("nineKey5", in: controller).onNineKeySwipe)(.digit)
+    XCTAssertEqual(document.insertions.last, "5")
+    try control("moreShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+    let fullWidth = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "moreCard-全角" } as? UIControl)
+    fullWidth.sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(fullWidth.accessibilityValue, "已开启")
+    try control("moreShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    try XCTUnwrap(try key("nineKey5", in: controller).onNineKeySwipe)(.digit)
+    XCTAssertEqual(document.insertions.last, "\u{FF15}")
+    try XCTUnwrap(try key("nineKey3", in: controller).onNineKeySwipe)(.letters)
+    try control("nineKeyHoldOption-e", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(document.insertions.last, "\u{FF45}")
+  }
+
+  /// 记下键盘写进输入框的文字。
+  private final class Document: NSObject, UITextDocumentProxy {
+    var documentIdentifier = UUID()
+    var insertions: [String] = []
+    var documentContextBeforeInput: String? { "" }
+    var documentContextAfterInput: String? { "" }
+    var selectedText: String? { nil }
+    var documentInputMode: UITextInputMode? { nil }
+    var hasText: Bool { false }
+    func insertText(_ text: String) { insertions.append(text) }
+    func deleteBackward() {}
+    func adjustTextPosition(byCharacterOffset offset: Int) {}
+    func setMarkedText(_ text: String, selectedRange: NSRange) {}
+    func unmarkText() {}
+  }
+
+  /// 把键盘的 `textDocumentProxy` 换成 `document`，用例结束时恢复 UIKit 的实现（与 SpaceVoicePanelTests 相同的注入方式）。
+  private func attach(_ document: Document) throws {
+    let selector = #selector(getter: UIInputViewController.textDocumentProxy)
+    let inherited = try XCTUnwrap(class_getInstanceMethod(UIInputViewController.self, selector))
+    let original = method_getImplementation(inherited)
+    let block: @convention(block) (AnyObject) -> AnyObject = { _ in document }
+    let replacement = imp_implementationWithBlock(block)
+    if !class_addMethod(KeyboardViewController.self, selector, replacement, method_getTypeEncoding(inherited)) {
+      method_setImplementation(try XCTUnwrap(class_getInstanceMethod(KeyboardViewController.self, selector)), replacement)
+    }
+    addTeardownBlock {
+      if let own = class_getInstanceMethod(KeyboardViewController.self, selector) { method_setImplementation(own, original) }
+      imp_removeBlock(replacement)
+    }
+  }
 }
 
 /// 不把外观回调转发给子控制器的容器：移走它时子控制器收不到 `viewWillDisappear`，与系统键盘里宿主被结束时一样（#10910）。
