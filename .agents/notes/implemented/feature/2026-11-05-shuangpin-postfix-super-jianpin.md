@@ -13,7 +13,7 @@ Status: implemented
 - 触发键是 `/`，不带修饰键：双拼组字末尾按 `/`，把整段原文改成超级简拼，之后的状态与「Shift+J 再打这几个字母」相同（`local_mode = SuperJianpin`，预编辑是 `J` 加原文），查询、排序、固定位置、学习、粗俗词挪后都走 J 模式现有的路径，与 Shift+J 共用学习数据。`/` 在组字中今天的含义最弱：它不在中文标点表里，只在顿号选项（出厂关）里出现，平时只是先上屏首选再出一个半角 `/`；报告者要的也是 `/`。
 - 只在这些条件同时成立时触发（`crates/engine/src/session/jianpin_slash.rs` 的 `super_jianpin_slash_ready`，`spelling_symbols` 和 `dispatch_character` 共用这一个判断，发布的键就是接受的键）：方案是双拼；`super_jianpin` 和新开关 `super_jianpin_slash` 都开着；有普通组字（不在本地模式、专用英文、整句改字、辅助码前导键之后、已选词段、滑行候选里），光标在末尾；原文是 3 个以上纯小写字母（大写辅码、反引号和 `|` 标记、`'`、微软的 `;`、九键数字都排除）；中文标点开着且没锁成英文标点（与空组字时 `/` 进指令模式同一道门）；`/` 没被别的功能占用——万象式辅助码用 `/` 结束四码、辅助码前导键是 `/`、`/` 出顿号时都让位。
 - 最少 3 个字母：双拼两个字母正好是一个整音节，「和/或」「元/斤」「是/否」这类单字加 `/` 不能被抢。一两个字母的简拼照旧用 Shift+J。
-- 撤回：转出来之后简拼码还没改过时，退格回到按 `/` 之前的组字（触点数据不恢复）；第二个 `/`（`//`）在引擎里一次做完「恢复原组字、照常上屏首选并学习、接上 `/`」，结果正是今天单按 `/` 的结果。`//` 返回已处理，不交还 runtime 再走一遍标点，否则缓存的 `spelling_symbols` 过期时会再次触发或重复上屏。简拼码改过之后 `/` 不再发布，按 J 模式现有规则走（runtime 上屏高亮的简拼词再出标点）。
+- 撤回：转出来之后简拼码还没改过时，退格回到按 `/` 之前的组字（触点数据不恢复）。进 J 模式时像 Shift+J 一样清掉提交链，但转换前的那份记在 `InputSession::jianpin_slash_chain`，撤回时还回去：不然原组字丢了上一个上屏的词这个上下文，个人上下文重排出的首选会变，`//` 上屏的也就不是今天单按 `/` 的那个词；第二个 `/`（`//`）在引擎里一次做完「恢复原组字、照常上屏首选并学习、接上 `/`」，结果正是今天单按 `/` 的结果。`//` 返回已处理，不交还 runtime 再走一遍标点，否则缓存的 `spelling_symbols` 过期时会再次触发或重复上屏。简拼码改过之后 `/` 不再发布，按 J 模式现有规则走（runtime 上屏高亮的简拼词再出标点）。
 - 回车和无匹配时的兜底行都用 `local_raw_text()`：经 `/` 进入时去掉开头的 `J`，回车上屏 `nuu`，与组字中回车上屏原文一致；Shift+J 进入的 J 模式仍上屏带 `J` 的原文（#7616）。经 `/` 进入时那段原文记在 `InputSession::jianpin_slash_origin`（按内容比较，因为 J 模式能在光标处改字），`reset_composition` 清掉它。
 - 开关是 `local_modes.super_jianpin_slash`：依附 `super_jianpin`，不受 `shift_letter_entry` 管；出厂开，缺这个键的旧文档读作开，开着时不写进文档（与 `symbol`、`date_time_menu` 同一写法）。经 host-api 的 `EngineOptions::local_super_jianpin_slash` 进引擎的 `LocalModeOptions::super_jianpin_slash`；网页引擎写死关，与它关掉 `super_jianpin` 一致。`/` 被谁占用的规则另有偏好层的 `msime_client_core::jianpin_slash::super_jianpin_slash_conflict`，与引擎的让位条件一致。
 - 界面：Windows 原生设置（含 Win7 设置，共用 `InputSettingsModel.h` 的 `local_modes` 表）在「超级简拼(J 模式)」下加一行「组字后按 / 转超级简拼」，超级简拼关着时变灰；iOS 的快捷模式页加同名开关，同样跟着超级简拼置灰。说明都进「?」。
@@ -42,7 +42,7 @@ Status: implemented
 
 ## Verification
 
-- `cargo test -p msime-engine --lib`：`session::tests::super_jianpin_slash` 的 16 个用例覆盖触发、标点入口、按完整声母过滤、五种内置双拼、两个字母不触发、两个开关、三种让位、英文标点、不触发的原文、退格撤回、`//`、回车、兜底行、Esc 清掉记录和全拼不受影响；全拼的 `slash_after_a_composition_is_still_the_typed_character` 原样通过。
+- `cargo test -p msime-engine --lib`：`session::tests::super_jianpin_slash` 的 17 个用例覆盖触发、标点入口、按完整声母过滤、五种内置双拼、两个字母不触发、两个开关、三种让位、英文标点、不触发的原文、退格撤回、撤回后上一个上屏的词仍是上下文、`//`、回车、兜底行、Esc 清掉记录和全拼不受影响；全拼的 `slash_after_a_composition_is_still_the_typed_character` 原样通过。
 - `cargo test -p msime-input-runtime`：`tests::super_jianpin_slash` 覆盖经 runtime 的标点入口转换、`//` 一次上屏首选加 `/`，以及英文标点入口照旧。
 - `cargo test -p msime-client-core`：`jianpin_slash::tests` 覆盖缺键读作开、默认不写、关掉后往返、三种占用各自的原因。
 - Windows 设置表的 `platforms/windows/tests/ui/input_settings_model.cpp` 覆盖新行的默认值、依附超级简拼、不受 Shift+字母总开关管。

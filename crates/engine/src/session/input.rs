@@ -116,6 +116,8 @@ pub(super) struct InputSession {
     pub local_preedit: String,
     /// 双拼组字末尾按 `/` 转成超级简拼时那段组字原文（#10860）；Shift+J 进入的超级简拼为 `None`。按内容比较而不是只记一个标记，因为 J 模式里可以在光标处改字：预编辑去掉 `J` 之后仍等于它时，退格和第二个 `/` 才撤回这次转换。
     pub jianpin_slash_origin: Option<String>,
+    /// 按 `/` 转换之前的提交链：J 模式和 Shift+J 一样从没有上下文开始，撤回时还回去，原组字仍接着上一个上屏的词排序和学习。
+    pub jianpin_slash_chain: CommitChain,
     pub local_candidates: Vec<WordItem>,
     /// 上一枚按键是交给宿主的大写字母（没有组字时 Shift+字母就走这条路）。连续按住 Shift 打大写时它让这一串开了头：后面的字母不再进快捷模式，第一枚仍照旧（#7616）。
     pub uppercase_passthrough: bool,
@@ -247,6 +249,7 @@ impl InputSession {
             temporary_original_scheme: None,
             local_preedit: String::new(),
             jianpin_slash_origin: None,
+            jianpin_slash_chain: CommitChain::default(),
             local_candidates: Vec::new(),
             uppercase_passthrough: false,
             plugin_rows: None,
@@ -1772,6 +1775,7 @@ impl InputSession {
         self.local_mode = LocalInputMode::None;
         self.local_preedit.clear();
         self.jianpin_slash_origin = None;
+        self.jianpin_slash_chain = CommitChain::default();
         self.local_candidates.clear();
         self.plugin_rows = None;
         self.dedicated_english_preedit.clear();

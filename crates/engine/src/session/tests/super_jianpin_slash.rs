@@ -414,3 +414,39 @@ fn quanpin_keeps_the_slash_as_punctuation() {
     type_text(&mut session, "nihao");
     assert_slash_left_alone(&mut session, "nihao");
 }
+
+/// 上一个上屏的词是这段组字的上下文：转成简拼再撤回（退格或 `//`）时它还在，首选和 `//` 上屏的词与没按过 `/` 时相同。
+#[test]
+fn taking_the_conversion_back_keeps_the_previous_word_as_context() {
+    let fixture = Fixture::new(&dictionary(&[
+        ("hao", "子", 100),
+        ("ni'hao", "甲甲", 100),
+        ("ni'hao", "乙乙", 90),
+    ]));
+    let journal = crate::user_dictionary::journal::open_journal(&fixture.journal()).unwrap();
+    journal
+        .execute(
+            "INSERT INTO personal_bigram(previous,word,count) VALUES('子','乙乙',32)",
+            [],
+        )
+        .unwrap();
+    drop(journal);
+    let mut session = xiaohe(&fixture);
+    type_text(&mut session, "hc");
+    select_word(&mut session, "子");
+    type_text(&mut session, "nihc");
+    let before = words(&session);
+    assert_eq!(before[0], "乙乙", "{before:?}");
+
+    assert!(session.character(b'/', false).handled);
+    assert_converted(&session, "Jnihc");
+    assert!(session.command(Command::Backspace).handled);
+    assert_eq!(session.snapshot().editing_text, "nihc");
+    assert_eq!(words(&session), before);
+
+    assert!(session.character(b'/', false).handled);
+    assert_eq!(
+        session.character(b'/', false).commit.as_deref(),
+        Some("乙乙/")
+    );
+}

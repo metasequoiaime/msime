@@ -77,16 +77,19 @@ impl InputSession {
         self.local_preedit = format!("J{origin}");
         self.local_candidates.clear();
         self.plugin_rows = None;
+        self.jianpin_slash_chain = self.chain.clone();
         self.chain.reset();
         self.jianpin_slash_origin = Some(origin);
         self.invalidate_online_requests();
         KeyResult::handled().with_diagnostic(self.update_local_candidates())
     }
 
-    /// 退回按 `/` 之前的组字。原组字和候选恢复原样，触点数据不恢复。
+    /// 退回按 `/` 之前的组字。原组字、提交链（上一个上屏的词）和候选恢复原样，触点数据不恢复。
     pub(super) fn revert_super_jianpin_slash(&mut self) {
         let origin = self.jianpin_slash_origin.take().unwrap_or_default();
+        let chain = std::mem::take(&mut self.jianpin_slash_chain);
         self.reset_composition();
+        self.chain = chain;
         self.engine.replace_active_raw_input(&origin, &origin);
         self.invalidate_online_requests();
         self.update_mixed_candidates();
