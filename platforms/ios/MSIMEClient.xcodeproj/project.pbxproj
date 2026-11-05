@@ -404,6 +404,7 @@
 		546FB7272AA13FE3950B126D /* CandidatePageSizePreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = AECD77C4832DAF8BE7348717 /* CandidatePageSizePreference.swift */; };
 		54BA845413C0DB615BFE6979 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 095C484ED3DA6A52CA13FE71 /* Security.framework */; };
 		5508EEAF002666B3C61E8FB9 /* DeveloperOptionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D41C3E6D3FD0E3BBC7790D16 /* DeveloperOptionsView.swift */; };
+		550AFDEF8A2690A7FEFBFD6E /* cantonese-shuangpin-scheme-NOTICE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 88A092031A6FED19B25928B2 /* cantonese-shuangpin-scheme-NOTICE.txt */; };
 		5512EE07D099E4F8FA18E0B8 /* StrokeKeyLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C3F58458424417A20B08DD /* StrokeKeyLayout.swift */; };
 		5518B7EE407F689E6D13264B /* KeyboardAdjustOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1766E5D98BB601D58ADFCB02 /* KeyboardAdjustOverlay.swift */; };
 		552135B0583C1CC74A47EC91 /* KeyboardLayoutSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 172570D49F6C82AF6C33FFE9 /* KeyboardLayoutSettingsView.swift */; };
@@ -1540,6 +1541,7 @@
 		878CC48498E56BE0FF350C22 /* Unicode-License-V3.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Unicode-License-V3.txt"; sourceTree = "<group>"; };
 		87D8DD49A2A42BDEEFBF93A8 /* ClearLearningTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClearLearningTests.swift; sourceTree = "<group>"; };
 		8808E90622807023716EB81C /* CommunityReportSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommunityReportSheet.swift; sourceTree = "<group>"; };
+		88A092031A6FED19B25928B2 /* cantonese-shuangpin-scheme-NOTICE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "cantonese-shuangpin-scheme-NOTICE.txt"; sourceTree = "<group>"; };
 		88E0C60629DFF4968ADDFC91 /* ProjectConfigurationTests.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = ProjectConfigurationTests.py; sourceTree = "<group>"; };
 		89BF5F065B0EEBAD854E1AF5 /* VoiceTextHandoffTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceTextHandoffTests.swift; sourceTree = "<group>"; };
 		89FAEEA3C7B2D7B657583FAA /* KeyboardSkinCollection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardSkinCollection.swift; sourceTree = "<group>"; };
@@ -2200,6 +2202,7 @@
 		4F0AF611BB68015729427D50 /* licenses */ = {
 			isa = PBXGroup;
 			children = (
+				88A092031A6FED19B25928B2 /* cantonese-shuangpin-scheme-NOTICE.txt */,
 				7633362B34EF13E06937280E /* ECDICT-MIT.txt */,
 				38746D5530F03A00DD492FC6 /* ewts-MIT.txt */,
 				A2E1B5D96DB1F63D223B29ED /* kfcd-chaizi-CC-BY-3.0.txt */,
@@ -3291,6 +3294,7 @@
 				48F6B510E00DE89F55C998B4 /* PrivacyInfo.xcprivacy in Resources */,
 				14BCB5C318B84D6A1E406FC7 /* Unicode-License-V3.txt in Resources */,
 				D8AD3CD0BCBBD5862EE79B3A /* VoiceRuntime-NOTICES.txt in Resources */,
+				550AFDEF8A2690A7FEFBFD6E /* cantonese-shuangpin-scheme-NOTICE.txt in Resources */,
 				63E5399F38340FB5BC1D80E3 /* ewts-MIT.txt in Resources */,
 				7DDFFD711FA55B45823A5C33 /* kfcd-chaizi-CC-BY-3.0.txt in Resources */,
 				293C0B2096D5DE0C4ED9A063 /* latex-symbols-MIT.txt in Resources */,

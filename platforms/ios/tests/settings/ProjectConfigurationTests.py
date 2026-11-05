@@ -131,6 +131,24 @@ class ProjectConfigurationTests(unittest.TestCase):
             self.assertIn("buildPhase: resources", blocks[0])
             self.assertIn(holder, (IOS_ROOT / path).read_text())
 
+    def test_app_credits_the_cantonese_shuangpin_designer_in_the_licence_list(self):
+        # 粤语双拼的键位方案由陳澍鋒设计（#9799）。致谢放在关于页的「开源许可」里，不放在选方案的面板里：说明文件随 App 分发，列表里是「粤语双拼键位方案 · 陳澍鋒设计」，点开是设计者、来源和独立实现的说明。
+        project = (IOS_ROOT / "project.yml").read_text()
+        app = dict(target_blocks(project))["MSIMEApp"]
+        generated = (IOS_ROOT / "MSIMEClient.xcodeproj/project.pbxproj").read_text()
+        about = (IOS_ROOT / "App/Sources/settings/AboutAndDownloadViews.swift").read_text()
+        notice = "cantonese-shuangpin-scheme-NOTICE.txt"
+        path = f"../../resources/licenses/{notice}"
+        blocks = source_path_blocks(app, path)
+        self.assertEqual(len(blocks), 1)
+        self.assertIn("buildPhase: resources", blocks[0])
+        text = (IOS_ROOT / path).read_text()
+        for phrase in ("陳澍鋒", "https://github.com/swithinchan/rime-cantonese-shuangpin", "#9799", "独立编写"):
+            self.assertIn(phrase, text)
+        self.assertEqual(generated.count(f"{notice} in Resources"), 2)
+        self.assertIn('LicenseNotice(file: "cantonese-shuangpin-scheme-NOTICE", title: "粤语双拼键位方案", detail: "陳澍鋒设计")', about)
+        self.assertEqual(source_path_blocks(dict(target_blocks(project))["MSIMEKeyboardExtension"], path), [])
+
     def test_app_ships_the_licences_of_the_vietnamese_and_tibetan_crates(self):
         # 链接进 App 和键盘扩展的 Engine 编入了越南文方案的 vi crate 和藏文方案的 ewts crate，二者都按 MIT 使用。
         project = (IOS_ROOT / "project.yml").read_text()
