@@ -1,15 +1,15 @@
 {
-  "source_commit": "2f5de01dcde0e72ba6a2b931d13c8d8474715530",
+  "source_commit": "24852caa38e76f316cac69fd3fdba0d428d4d249",
   "artifacts": [
     {
       "name": "msime-bigram.bin",
-      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.1.0/msime-bigram.bin",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.1.2/msime-bigram.bin",
       "sha256": "53c1561cead0314a12c37e5ad2656b064b6e87891ce5e180b602b68b5a57f0d5",
       "size": 12000016
     },
     {
       "name": "msime-trigram.bin",
-      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.1.0/msime-trigram.bin",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.1.2/msime-trigram.bin",
       "sha256": "8b0a51720e3f836ff7576ea330e9b14e2912218f8edf52dfd80a703991e8b601",
       "size": 12000016
     }

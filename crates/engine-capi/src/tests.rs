@@ -318,7 +318,7 @@ fn readme_names_this_version() {
         }
     }
     assert!(packs > 0, "README no longer names the data pack");
-    // 两份 README 的快速上手和示例输出都写明是哪一版词库（`dict-v2.1.0`，代次 id 写成 `dict-v2_1_0`），也要跟着词库锁。
+    // 两份 README 的快速上手和示例输出都写明是哪一版词库（`dict-v2.1.2`，代次 id 写成 `dict-v2_1_2`），也要跟着词库锁。
     for (name, text) in [
         ("crates/engine-capi/README.md", readme),
         (

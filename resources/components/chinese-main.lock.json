@@ -1,15 +1,15 @@
 {
-  "source_commit": "2f5de01dcde0e72ba6a2b931d13c8d8474715530",
+  "source_commit": "24852caa38e76f316cac69fd3fdba0d428d4d249",
   "artifacts": [
     {
       "name": "msime-pinyin.db",
-      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.1.0/msime-pinyin.db",
-      "sha256": "dd8f9053afc24525607c5514f4c82ba1e43d8c0967a56150181916f70fb0885c",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.1.2/msime-pinyin.db",
+      "sha256": "69a09c58978b402399c241a5553ca2beff1b8cb756e3ec635184178ccb1c140d",
       "size": 73891840
     },
     {
       "name": "msime-wubi.db",
-      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.1.0/msime-wubi.db",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.1.2/msime-wubi.db",
       "sha256": "2e1ff8eaaa4a6dee7fc0947c17c4bf58f5bf5fc5c8a2f87c2ed7ccbf9926b146",
       "size": 142508032
     }

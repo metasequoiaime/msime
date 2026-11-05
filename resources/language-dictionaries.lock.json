@@ -1,39 +1,39 @@
 {
-  "source_commit": "2f5de01dcde0e72ba6a2b931d13c8d8474715530",
+  "source_commit": "24852caa38e76f316cac69fd3fdba0d428d4d249",
   "artifacts": [
     {
       "name": "msime-cantonese.db",
-      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.1.0/msime-cantonese.db",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.1.2/msime-cantonese.db",
       "sha256": "d7e0d494636a655f0caa41ca925e881362c34f9b9373d4d61841b1d35e0e59bf",
       "size": 7241728
     },
     {
       "name": "msime-zhuyin.db",
-      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.1.0/msime-zhuyin.db",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.1.2/msime-zhuyin.db",
       "sha256": "c0c9c9f9638d2d39d8fce69ba0dc718ace45681eed9fb889ad96fbdddb7d9a20",
       "size": 14331904
     },
     {
       "name": "msime-stroke.db",
-      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.1.0/msime-stroke.db",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.1.2/msime-stroke.db",
       "sha256": "bc8556e8a8cf67ac51fae9bee82d3517bf664358fbb0862eb7db1b03db1a6ce7",
       "size": 2441216
     },
     {
       "name": "msime-rime_cantonese_LICENSE.txt",
-      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.1.0/msime-rime_cantonese_LICENSE.txt",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.1.2/msime-rime_cantonese_LICENSE.txt",
       "sha256": "c5d074cb79bf58d8ff3b173abd05859e5050495a58fc95c5467837dda278a4e6",
       "size": 23329
     },
     {
       "name": "msime-libchewing_data_LICENSE.txt",
-      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.1.0/msime-libchewing_data_LICENSE.txt",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.1.2/msime-libchewing_data_LICENSE.txt",
       "sha256": "f57dfd7cd651abad20f751a5c0e6da9ecb2c2973ef5577de391a313cf5b80955",
       "size": 34151
     },
     {
       "name": "msime-rime_stroke_LICENSE.txt",
-      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.1.0/msime-rime_stroke_LICENSE.txt",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.1.2/msime-rime_stroke_LICENSE.txt",
       "sha256": "84de4d272dc1da760c1bc6640885613c1c9a829fd6be90f6f8714f8d1f7d8b51",
       "size": 12050
     }

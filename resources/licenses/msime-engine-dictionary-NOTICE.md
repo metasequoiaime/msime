@@ -1,4 +1,4 @@
-> 本文件是 msime 随词库分发的来源与授权说明。从下一行「来源与授权说明」起到「msime 构建时另加的输入」之前，逐字取自 [metasequoiaime/msime-dictionary](https://github.com/metasequoiaime/msime-dictionary) 提交 `a6b5ad63b8e7c75eaa08ebfb128dd32bffa479b4` 的 `NOTICE.md`，这个提交是 `resources/desktop-dictionary.lock.json` 与 `resources/language-dictionaries.lock.json` 所固定的 `dict-v2.1.0` 发布的源数据提交（发布说明与 `msime-dictionary-manifest.json` 都记着它）；其中的相对路径指那个仓库。「msime 构建时另加的输入」一节不在那份文件里，记的是由 msime 仓库一侧进入同一批词库的来源和构建器自己做的修改。词库锁换到新的 `dict-v*` 时，按那次发布的源数据提交重新同步本文件；构建器登记了新的上游、而锁定的发布还没有收录时，在末尾另起一节「已登记、尚未随当前词库发布的来源」写明，换到收录它的发布后删掉。
+> 本文件是 msime 随词库分发的来源与授权说明。从下一行「来源与授权说明」起到「msime 构建时另加的输入」之前，逐字取自 [metasequoiaime/msime-dictionary](https://github.com/metasequoiaime/msime-dictionary) 提交 `c239ba1a584511d15d33ff9c1c520897993f2013` 的 `NOTICE.md`，这个提交是 `resources/desktop-dictionary.lock.json` 与 `resources/language-dictionaries.lock.json` 所固定的 `dict-v2.1.2` 发布的源数据提交（发布说明与 `msime-dictionary-manifest.json` 都记着它）；其中的相对路径指那个仓库。「msime 构建时另加的输入」一节不在那份文件里，记的是由 msime 仓库一侧进入同一批词库的来源和构建器自己做的修改。词库锁换到新的 `dict-v*` 时，按那次发布的源数据提交重新同步本文件；构建器登记了新的上游、而锁定的发布还没有收录时，在末尾另起一节「已登记、尚未随当前词库发布的来源」写明，换到收录它的发布后删掉。
 
 # 来源与授权说明
 
@@ -95,7 +95,7 @@
 2026-11-04 的第一批（dict-cleanse 方案 2.1、3.1、3.2）：
 
 - 否决：564 个含粗俗词的碎片短语（个鸡巴、是傻逼、去他妈的），整词删除。粗俗词本身不删，五笔里排到同码最后。
-- 权重覆盖 2279 行，其中 779 行（本地损坏恢复上游值和占位权重）写了 `wubi`。其中 553 行（`rime-ice.txt` 里权重是上游 rime-ice `9e66b0729083b37d217312294f6d516c8d7234be` 的 `cn_dicts/base.dict.yaml`、`ext.dict.yaml` 同词同音权重 5 倍以上、万象对齐又没有改写过的行）恢复上游的权重，其中 7 行同时落进下面的规则、取了更低的值；其余的行降到同一全拼下被它压过的词的权重之下（取那个词在本仓的权重减 1），占位权重降到同一全拼下万象收录的词里本仓权重最高的那个之下。新的权重只来自 rime-ice 上游和本仓已有的权重，没有引入新的数据来源，也没有从万象抄权重。
+- 权重覆盖 2278 行，其中 779 行（本地损坏恢复上游值和占位权重）写了 `wubi`。其中 553 行（`rime-ice.txt` 里权重是上游 rime-ice `9e66b0729083b37d217312294f6d516c8d7234be` 的 `cn_dicts/base.dict.yaml`、`ext.dict.yaml` 同词同音权重 5 倍以上、万象对齐又没有改写过的行）恢复上游的权重，其中 7 行同时落进下面的规则、取了更低的值；其余的行降到同一全拼下被它压过的词的权重之下（取那个词在本仓的权重减 1），占位权重降到同一全拼下万象收录的词里本仓权重最高的那个之下。新的权重只来自 rime-ice 上游和本仓已有的权重，没有引入新的数据来源；但「降到某个词之下」取的那个词多是万象收录的词，它在本仓的权重是上面「拼音权重与万象对齐」改编出来的 round(万象权重 × 系数)，所以这些行（占位权重、碎片、非标准读音、custom 越位与 车件，共 1732 行）写的是由改编后的万象权重派生的值，随 `msime-pinyin.db` 按 CC BY 4.0 署名同上一节。
 - 选出这些行时用 rime-wanxiang `v18.0.16`（提交 `7ab73ee0c7f80190004233e70f954833df64c80e`）`dicts/` 下除 `abbrev`、`en`、`t9_abbrev` 以外的 17 份词库作参照：万象不收的词才算碎片、万象不收的读音才算非标准读音、万象收录的词才算被压过的常用词。署名同上一节。
 - `curation/offensive-words.txt` 是本项目自写的词表，从 msime 引擎内嵌的 `crates/engine/src/lattice/offensive_words.txt` 迁来（那一份以 MPL-2.0 随引擎分发），这里与 `curation/` 的其余两张表一样依据 GPL-3.0 提供。
 
@@ -233,8 +233,6 @@ msime 用 `msime-dict-build languages` 把它们构建成 `msime-cantonese.db`�
 五笔补充数据（含新世纪五笔的全部词组）在发布构建时从本次固定原表、拼音和人工词条重新派生；本仓三份补充表为审计快照，来源和许可与上表相同。每周 rime-ice 更新预览生成审核候选，不改变本表记录的已固定源提交；候选通过审核并更新源数据时再同步来源、许可证和锁。
 
 ## msime 构建时另加的输入
-
-上文「维护者清洗表」一节（逐字取自 msime-dictionary）说权重覆盖「没有从万象抄权重」，这一句不准确：覆盖表里除恢复上游权重的 546 行外，其余 1733 行写的是同一全拼下另一个词的权重减 1，那个词多是万象收录、权重改编自万象的词（例如 嗷呜 2971 是 傲物 round(323 × 9.2) = 2972 减 1），这些行的权重因此由改编后的万象权重派生。署名与改动说明以 `rime-wanxiang-CC-BY-4.0.txt` 为准，那份文件已写明这一点。
 
 下面几项不在 msime-dictionary 的 `NOTICE.md` 里：它们由 msime 仓库（`resources/dictionary-sources/`）或 msime 的 `resources/dictionary-sources.lock.json` 提供，构建器 `crates/dict-builder` 在同一次 `dict-v*` 构建里读入。
 
