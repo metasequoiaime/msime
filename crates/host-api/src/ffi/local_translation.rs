@@ -1,5 +1,10 @@
 //! 桌面离线翻译边界。所有推理在共享工作线程内完成，不构造网络请求。
 
+mod batch;
+mod settings;
+pub use batch::{msime_client_local_translation_batch, msime_client_local_translation_query};
+pub use settings::msime_client_local_translation_settings;
+
 use crate::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -204,6 +209,8 @@ pub extern "C" fn msime_client_local_translation_catalog() -> *mut c_char {
         let pack = ResourcePack::LocalTranslation;
         Ok(json!({
             "available": cfg!(all(feature = "local-translation", any(target_os = "macos", target_os = "windows", all(target_os = "linux", not(target_env = "ohos"))))),
+            "source": "https://huggingface.co/tencent/HY-MT2-1.8B-GGUF",
+            "license": "Apache-2.0",
             "pack": pack.id(), "model": "Hy-MT2 1.8B Q4_K_M", "size": pack.size(),
             "languages": msime_client_core::local_translation::LANGUAGES.iter().map(|(code, name)| json!({"code": code, "name": name})).collect::<Vec<_>>()
         }))
@@ -312,6 +319,23 @@ mod tests {
             .unwrap()
             .to_lowercase()
             .contains("translation"));
+        let batch = serde_json::to_vec(&json!({
+            "state_root": root.path(), "request_id": "synthetic-batch-test",
+            "candidates": ["离线翻译测试。", "今天是晴天。"], "target_language": "en", "timeout_ms": 120_000
+        })).unwrap();
+        let result = batch::translate(&batch).unwrap();
+        let translations = result["translations"].as_array().unwrap();
+        assert_eq!(translations.len(), 2);
+        assert!(translations[0]
+            .as_str()
+            .unwrap()
+            .to_lowercase()
+            .contains("translation"));
+        assert!(translations[1]
+            .as_str()
+            .unwrap()
+            .to_lowercase()
+            .contains("sunny"));
         // Unix 故意保留热模型，验证进程退出钩子先于 Metal 静态析构释放缓存。
         // Windows 的 Server 在 DLL 卸载前显式调用同一退出入口。
         #[cfg(windows)]

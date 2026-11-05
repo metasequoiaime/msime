@@ -6,6 +6,7 @@ use super::*;
 
 mod bilingual_glide_selection;
 mod deferred_candidate_identity;
+mod local_translation;
 
 #[test]
 fn telemetry_test_origin_rejects_before_storage_or_network() {

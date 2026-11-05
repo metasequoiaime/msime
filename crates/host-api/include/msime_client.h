@@ -722,6 +722,16 @@ char *msime_client_resource_packs(const uint8_t *request, size_t length);
  * 缺模型、未编译运行库或推理失败均报 local_translation_*，不回退联网。 */
 char *msime_client_local_translation_catalog(void);
 char *msime_client_local_translation(const uint8_t *request, size_t length);
+/* 批次请求用 candidates 字符串数组替代 text（1–10 项），共享一个 request_id 和截止时间。
+ * 返回 {translations:[...]}，与输入顺序一致。只能在后台线程调用。 */
+char *msime_client_local_translation_batch(const uint8_t *request, size_t length);
+/* translation_query 文档加 request_id，provider 必须是 local；返回 {translations:[{text,translation}]}。
+ * 宿主后台线程使用，与单条/批次接口共享取消与截止时间。 */
+char *msime_client_local_translation_query(const uint8_t *request, size_t length);
+/* {directory,update?:{expected_revision,enabled,target_language}}，directory 为偏好目录。
+ * 返回 {revision,local_translation}。显式开启时停用云翻译选择但保留凭据；关闭不恢复云服务。
+ * 保存使用修订号比较并交换；只在后台线程调用。 */
+char *msime_client_local_translation_settings(const uint8_t *request, size_t length);
 void msime_client_local_translation_cancel(const uint8_t *request_id, size_t length);
 /* 正常退出时等待推理线程释放权重；Windows 必须在宿主 DLL 卸载前调用，不能放在 DllMain。 */
 void msime_client_local_translation_shutdown(void);

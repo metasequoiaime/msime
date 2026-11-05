@@ -75,9 +75,105 @@ impl LocalTranslationPreferences {
     }
 }
 
+/// 原生设置只修改本地翻译字段。显式开启时选择独占服务，保留所有云凭据。
+pub fn apply_selection(
+    preferences: &mut crate::preferences::Preferences,
+    selection: LocalTranslationPreferences,
+) -> Result<(), crate::preferences::PreferencesError> {
+    if !selection.validate() {
+        return Err(crate::preferences::PreferencesError::InvalidLocalTranslation);
+    }
+    if selection.enabled {
+        preferences.candidate_translations = true;
+        preferences.translation_account = false;
+        preferences.tencent_tmt.enabled = false;
+        preferences.niutrans.enabled = false;
+        preferences.custom_translation.enabled = false;
+        preferences.translation_ai = false;
+    }
+    preferences.local_translation = selection;
+    Ok(())
+}
+
+/// 使用窗口读到的修订号保存，避免覆盖其他设置窗口的改动。
+pub fn save_selection(
+    store: &crate::preferences::PreferencesStore,
+    expected_revision: u64,
+    selection: LocalTranslationPreferences,
+) -> Result<crate::preferences::PreferencesSnapshot, crate::preferences::PreferencesError> {
+    let mut snapshot = store.load()?;
+    if snapshot.revision != expected_revision {
+        return Err(crate::preferences::PreferencesError::Conflict);
+    }
+    apply_selection(&mut snapshot.preferences, selection)?;
+    store.save(expected_revision, snapshot.preferences)
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::preferences::Preferences;
+    use super::*;
+    use crate::preferences::{Preferences, PreferencesStore};
+
+    #[test]
+    fn explicit_selection_preserves_credentials_and_never_restores_cloud() {
+        let mut preferences = Preferences::default();
+        preferences.tencent_tmt.secret_id = "synthetic-id".into();
+        preferences.translation_ai = true;
+        preferences.translation_account = true;
+        let original = preferences.clone();
+        apply_selection(
+            &mut preferences,
+            LocalTranslationPreferences {
+                enabled: true,
+                target_language: "ja".into(),
+            },
+        )
+        .unwrap();
+        assert!(preferences.candidate_translations);
+        assert!(!preferences.tencent_tmt.enabled);
+        assert!(!preferences.niutrans.enabled);
+        assert!(!preferences.custom_translation.enabled);
+        assert!(!preferences.translation_ai);
+        assert!(!preferences.translation_account);
+        assert_eq!(
+            preferences.tencent_tmt.secret_id,
+            original.tencent_tmt.secret_id
+        );
+        apply_selection(&mut preferences, LocalTranslationPreferences::default()).unwrap();
+        assert!(!preferences.tencent_tmt.enabled);
+        assert!(!preferences.translation_ai);
+        let unchanged = preferences.clone();
+        assert!(apply_selection(
+            &mut preferences,
+            LocalTranslationPreferences {
+                enabled: true,
+                target_language: "xx".into()
+            }
+        )
+        .is_err());
+        assert_eq!(preferences, unchanged);
+    }
+
+    #[test]
+    fn stale_window_cannot_overwrite_other_preferences() {
+        let root = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(root.path());
+        let snapshot = store.load().unwrap();
+        let selection = LocalTranslationPreferences {
+            enabled: true,
+            target_language: "fr".into(),
+        };
+        let saved = save_selection(&store, snapshot.revision, selection.clone()).unwrap();
+        assert!(save_selection(
+            &store,
+            snapshot.revision,
+            LocalTranslationPreferences::default()
+        )
+        .is_err());
+        let loaded = store.load().unwrap();
+        assert_eq!(loaded.revision, saved.revision);
+        assert_eq!(loaded.preferences.local_translation, selection);
+    }
 
     #[test]
     fn old_documents_remain_offline_translation_disabled() {
