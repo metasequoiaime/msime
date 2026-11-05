@@ -64,7 +64,7 @@ function lookup(provider: string, answers: GlossCardAnswer[]): GlossCardLookup {
 }
 
 function card(value: GlossCardLookup | null, actions: ManagementAction[] = []): GlossCard {
-  return CandidateGlossCardPolicy.card("strip", 0, "苹果", SUBJECT, value, actions, 1);
+  return CandidateGlossCardPolicy.card("strip", 0, "苹果", SUBJECT, value, actions, 1, "pingguo");
 }
 
 function baseQuery(): TranslationQuery {
@@ -85,25 +85,32 @@ function baseQuery(): TranslationQuery {
   };
 }
 
-group("the card asks about the long-pressed candidate alone, in every target language", () => {
-  const query: TranslationQuery = baseQuery();
-  const shaped: TranslationQuery | null = CandidateGlossCardPolicy.cardQuery(query, SUBJECT);
-  check(shaped !== null, "a candidate with a gloss source gets a query");
-  check(
-    shaped!.candidates.length === 1 && shaped!.candidates[0].text === "苹果",
-    "only the long-pressed candidate is asked about",
-  );
-  check(
-    JSON.stringify(shaped!.target_languages) === '["en","ja"]',
-    "the second target language stays: the phone strip drops it, the card lists both",
-  );
-  check(shaped!.tencent_tmt?.enabled === true, "the user's own service configuration is kept");
-  check(
-    shaped!.sentence === false && shaped!.gloss_query === null,
-    "never a /fy sentence or a nested query",
-  );
-  check(query.candidates.length === 2, "the shared query is not modified");
-});
+group(
+  "the card asks about the long-pressed candidate alone, in the primary target language only",
+  () => {
+    const query: TranslationQuery = baseQuery();
+    const shaped: TranslationQuery | null = CandidateGlossCardPolicy.cardQuery(query, SUBJECT);
+    check(shaped !== null, "a candidate with a gloss source gets a query");
+    check(
+      shaped!.candidates.length === 1 && shaped!.candidates[0].text === "苹果",
+      "only the long-pressed candidate is asked about",
+    );
+    check(
+      JSON.stringify(shaped!.target_languages) === '["en"]' && shaped!.target_language === "en",
+      "a phone keyboard shows one candidate translation (#8218): the second target language is dropped",
+    );
+    check(
+      shaped!.offline_gloss_languages === undefined,
+      "the second language's offline dictionary is not read either",
+    );
+    check(shaped!.tencent_tmt?.enabled === true, "the user's own service configuration is kept");
+    check(
+      shaped!.sentence === false && shaped!.gloss_query === null,
+      "never a /fy sentence or a nested query",
+    );
+    check(query.candidates.length === 2, "the shared query is not modified");
+  },
+);
 
 group("the highlighted-only scope's offline glosses are folded back in", () => {
   const query: TranslationQuery = baseQuery();
@@ -121,14 +128,20 @@ group("the highlighted-only scope's offline glosses are folded back in", () => {
   const shaped: TranslationQuery | null = CandidateGlossCardPolicy.cardQuery(query, SUBJECT);
   check(shaped !== null, "a query");
   check(
-    JSON.stringify(shaped!.target_languages) === '["en","fr"]',
-    "the gloss query's target joins",
+    JSON.stringify(shaped!.target_languages) === '["en"]',
+    "the gloss query's second language stays out",
   );
-  check(
-    JSON.stringify(shaped!.offline_gloss_languages) === '["fr"]',
-    "its offline dictionary joins",
-  );
+  check(shaped!.offline_gloss_languages === undefined, "so does its second-language dictionary");
   check(shaped!.english_gloss, "the offline English gloss switch joins");
+  query.target_language = "fr";
+  query.target_languages = ["fr"];
+  query.gloss_query!.target_language = "fr";
+  const french: TranslationQuery | null = CandidateGlossCardPolicy.cardQuery(query, SUBJECT);
+  check(
+    JSON.stringify(french!.offline_gloss_languages) === '["fr"]',
+    "the primary language's offline dictionary from the gloss query joins",
+  );
+  check(!french!.english_gloss, "English offline glosses are off when English is not the target");
 });
 
 group("candidates that never carry a gloss are not looked up", () => {
@@ -240,19 +253,14 @@ group("every source and language has its Chinese name", () => {
 });
 
 group("both buttons hand over the first target language's first translation", () => {
-  const both = card(
-    lookup("tencent", [
-      answer("en", { offline: "apple; apple tree" }),
-      answer("ja", { online: "りんご" }),
-    ]),
-  );
-  check(both.sections.length === 2, "both target languages are listed");
-  check(both.translation === "apple", "the first sense of the first target language");
-  const secondOnly = card(lookup("tencent", [answer("en"), answer("ja", { online: "りんご" })]));
-  check(secondOnly.sections.length === 1, "the second language is still shown");
+  const offline = card(lookup("tencent", [answer("en", { offline: "apple; apple tree" })]));
+  check(offline.sections.length === 1, "one section, the primary target language");
+  check(offline.translation === "apple", "the first sense, not the whole gloss");
+  const online = card(lookup("tencent", [answer("ja", { online: "りんご" })]));
+  check(online.translation === "りんご", "an online translation is one sense");
   check(
-    secondOnly.translation === null,
-    "the buttons stay off rather than hand over the second language's translation",
+    card(lookup("tencent", [answer("en")])).translation === null,
+    "no translation: buttons off",
   );
   check(card(null).translation === null, "no lookup, nothing to hand over");
 });
@@ -322,19 +330,42 @@ group("answers are read for the candidate and checked like any translation", () 
   );
 });
 
-group("the card closes once its candidate is gone", () => {
-  const opened = card(null);
-  check(CandidateGlossCardPolicy.stillShowing(opened, "strip", ["苹果", "平果"]), "still there");
-  check(
-    !CandidateGlossCardPolicy.stillShowing(opened, "strip", ["平果", "苹果"]),
-    "another candidate there",
-  );
-  check(
-    !CandidateGlossCardPolicy.stillShowing(opened, "strip", []),
-    "the strip emptied (committed)",
-  );
-  check(!CandidateGlossCardPolicy.stillShowing(opened, "expanded", ["苹果"]), "another list");
-});
+group(
+  "the card closes only when the composition changes, not when the candidates are re-ranked",
+  () => {
+    const opened = card(null);
+    check(
+      CandidateGlossCardPolicy.stillComposing(opened, "pingguo"),
+      "same composition: still open",
+    );
+    check(
+      !CandidateGlossCardPolicy.stillComposing(opened, "pinggu"),
+      "a backspace changes the composition",
+    );
+    check(
+      !CandidateGlossCardPolicy.stillComposing(opened, ""),
+      "committed: the composition is gone",
+    );
+    check(
+      CandidateGlossCardPolicy.currentIndex(opened, ["苹果", "平果"]) === 0,
+      "still in its cell",
+    );
+    check(
+      CandidateGlossCardPolicy.currentIndex(opened, ["平果", "苹果"]) === 1,
+      "a pause re-rank moved it: dictionary actions follow it by its text",
+    );
+    check(
+      CandidateGlossCardPolicy.currentIndex(opened, ["平果"]) === -1,
+      "no longer in the list: nothing to act on",
+    );
+    const moved = CandidateGlossCardPolicy.withActions(opened, [], 1);
+    check(moved.index === 1 && moved.serial === opened.serial, "the same card at its new index");
+    check(
+      CandidateGlossCardPolicy.withLookup(moved, null).composition === "pingguo",
+      "the composition survives an online answer",
+    );
+  },
+);
 
 group("the old long-press menu stays reachable from the card", () => {
   const actions: ManagementAction[] = CandidateManagementAction.managementActions(
@@ -365,7 +396,7 @@ group("the old long-press menu stays reachable from the card", () => {
       JSON.stringify(actions.map((action: ManagementAction): string => action.id)),
     "in the menu's own order",
   );
-  const refreshed = CandidateGlossCardPolicy.withActions(opened, actions.slice(1));
+  const refreshed = CandidateGlossCardPolicy.withActions(opened, actions.slice(1), 0);
   check(refreshed.actions.length === actions.length - 1, "the strip's redraw replaces them");
   check(refreshed.serial === opened.serial, "on the same card");
 });

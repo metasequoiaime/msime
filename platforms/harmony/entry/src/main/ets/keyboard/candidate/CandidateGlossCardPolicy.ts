@@ -103,6 +103,8 @@ export interface GlossCard {
   readonly actions: ManagementAction[];
   /** 每次打开加一，晚到的在线答案按它认是不是还是这一张。 */
   readonly serial: number;
+  /** 打开时的组字（候选栏上面那一行读音）。只有它变了卡片才关：同一段组字里候选会重排（停顿后的整句重解），那不算换了一件事。 */
+  readonly composition: string;
 }
 
 export class CandidateGlossCardPolicy {
@@ -117,7 +119,7 @@ export class CandidateGlossCardPolicy {
   /**
    * 只问这一个候选的查询文档；候选的来源本来就不配释义（`sourceGetsNoGloss`）或原文为空时为 null。
    *
-   * 「仅当前高亮」时共享层把整页的离线释义放在 `gloss_query` 里，主查询只带高亮那一个和翻译服务；卡片是用户对这一个候选的明确请求，所以两边的目标语言、离线词典和英文释义开关并在一起，服务配置取主查询的。手机候选栏只显示第一目标语言（`keepPrimaryOnly`），卡片不经过它，有第二目标语言时两种都查。返回副本，不改 `query`。
+   * 「仅当前高亮」时共享层把整页的离线释义放在 `gloss_query` 里，主查询只带高亮那一个和翻译服务；卡片是用户对这一个候选的明确请求，所以两边的离线词典和英文释义开关并在一起，服务配置取主查询的。手机键盘只显示一种候选翻译（#8218），卡片和候选栏一样经过 `keepPrimaryOnly`，只查第一目标语言，与 Android、iOS 的卡片相同。返回副本，不改 `query`。
    */
   static cardQuery(
     query: TranslationQuery,
@@ -147,9 +149,10 @@ export class CandidateGlossCardPolicy {
       sentence: false,
       gloss_query: null,
     };
-    if (offline.length > 0) {
-      card.offline_gloss_languages = offline;
-    } else {
+    card.offline_gloss_languages = offline;
+    TranslationPolicy.keepPrimaryOnly(card);
+    // 共享层没有离线词典要查时不带这个字段，这里照样。
+    if ((card.offline_gloss_languages ?? []).length === 0) {
       delete card.offline_gloss_languages;
     }
     return card;
@@ -253,7 +256,7 @@ export class CandidateGlossCardPolicy {
     );
   }
 
-  /** 两个按钮交出的文字：第一目标语言那一段的第一条。第一目标语言没有译文时为 null，不拿第二目标语言的顶上。 */
+  /** 两个按钮交出的文字：第一目标语言那一段的第一条，没有译文时为 null。 */
   static translation(lookup: GlossCardLookup | null, sections: GlossCardSection[]): string | null {
     if (lookup === null || lookup.answers.length === 0) return null;
     const primary: string = lookup.answers[0].target;
@@ -271,6 +274,7 @@ export class CandidateGlossCardPolicy {
     lookup: GlossCardLookup | null,
     actions: ManagementAction[],
     serial: number,
+    composition: string,
   ): GlossCard {
     const sections: GlossCardSection[] = CandidateGlossCardPolicy.sections(lookup);
     return {
@@ -284,12 +288,13 @@ export class CandidateGlossCardPolicy {
       translation: CandidateGlossCardPolicy.translation(lookup, sections),
       actions: actions,
       serial: serial,
+      composition: composition,
     };
   }
 
   /** 同一张卡片换上新的次要操作（候选栏重画、释义晚到时那一格的菜单会变）。 */
-  static withActions(card: GlossCard, actions: ManagementAction[]): GlossCard {
-    return { ...card, actions: actions };
+  static withActions(card: GlossCard, actions: ManagementAction[], index: number): GlossCard {
+    return { ...card, actions: actions, index: index };
   }
 
   /** 同一张卡片换上在线请求回来以后的答案。 */
@@ -302,6 +307,7 @@ export class CandidateGlossCardPolicy {
       lookup,
       card.actions,
       card.serial,
+      card.composition,
     );
   }
 
@@ -321,14 +327,17 @@ export class CandidateGlossCardPolicy {
     return section.senses.map((sense: string, index: number): string => `${index + 1}. ${sense}`);
   }
 
-  /** 卡片还对得上 `origin` 那一格此刻的候选：序号在范围内、原文没变。候选栏重建或展开列表换了以后不再对得上，卡片关掉。 */
-  static stillShowing(card: GlossCard, origin: GlossCardOrigin, texts: string[]): boolean {
-    return (
-      card.origin === origin &&
-      card.index >= 0 &&
-      card.index < texts.length &&
-      texts[card.index] === card.candidate
-    );
+  /** 卡片还开着吗：只看组字有没有变。上屏、继续打字、退格都会改组字，卡片关掉；停顿后的整句重解只给同一段组字换一代候选、重排顺序，卡片留着（Android 在设备上撞过：长按刚打开约 130 ms 重解就到了，卡片随即被关掉）。 */
+  static stillComposing(card: GlossCard, composition: string): boolean {
+    return card.composition === composition;
+  }
+
+  /** 卡片的候选此刻在 `texts`（候选栏这一页或展开列表）里的序号，按原文找：还在原来那一格就用原来的，换了位置用新位置，不在了为 -1。词库操作按这个序号做。 */
+  static currentIndex(card: GlossCard, texts: string[]): number {
+    if (card.index >= 0 && card.index < texts.length && texts[card.index] === card.candidate) {
+      return card.index;
+    }
+    return texts.indexOf(card.candidate);
   }
 
   /** 工具条和按键在读屏里藏不藏：键盘调整时（读屏只走遮罩上的柄和按钮）和释义卡片盖着时整块藏起来，读屏不会落到被盖住的键上。 */

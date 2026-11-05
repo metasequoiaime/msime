@@ -1105,8 +1105,8 @@ struct KeyboardView {
       // 这次回报的候选盖掉 1 键放进来的常用标点。
       this.nineKeyQuickMarks = [];
       this.candidates = state.candidates;
-      this.refreshGlossCard();
       this.editing = state.editing;
+      this.refreshGlossCard();
       this.editingCaret = state.editingCaret;
       this.candidatePage = state.page;
       this.candidatePageCount = state.pageCount;
@@ -8271,16 +8271,28 @@ struct KeyboardView {
     const lookup: GlossCardLookup | null = KeyboardSession.shared.glossCardLookup(subject);
     const serial: number = ++this.glossCardSerial;
     this.glossCard = CandidateGlossCardPolicy.card(origin, index, texts[index], subject, lookup,
-      this.glossCardActions(origin, index), serial);
-    if (lookup === null || !this.glossCard.pending) {
-      return;
+      this.glossCardActions(origin, index), serial, this.editing);
+    if (lookup !== null && this.glossCard.pending) {
+      this.fetchGlossCard(subject, lookup, serial, true);
     }
+  }
+
+  /** 为卡片问在线服务。候选栏换一代候选（停顿后的整句重解）会让进行中的请求作废，卡片还开着时按本机此刻的答案再问一次；再作废就按本机已有的画。 */
+  private fetchGlossCard(subject: TranslationCandidate, lookup: GlossCardLookup, serial: number, retry: boolean): void {
     KeyboardSession.shared.glossCardFetch(subject, lookup).then((fetched: GlossCardLookup | null): void => {
       const card: GlossCard | null = this.glossCard;
       if (card === null || card.serial !== serial) {
         return;
       }
-      // 请求作废（候选栏换了一页、换了会话）时不再等，按本机已有的画。
+      if (fetched === null && retry) {
+        const again: GlossCardLookup | null = KeyboardSession.shared.glossCardLookup(subject);
+        if (again !== null && CandidateGlossCardPolicy.pending(again)) {
+          this.fetchGlossCard(subject, again, serial, false);
+          return;
+        }
+        this.glossCard = CandidateGlossCardPolicy.withLookup(card, again);
+        return;
+      }
       this.glossCard = CandidateGlossCardPolicy.withLookup(card, fetched ?? CandidateGlossCardPolicy.settled(lookup));
     });
   }
@@ -8302,25 +8314,27 @@ struct KeyboardView {
     return origin === 'strip' ? this.managementActionsFor(index, false) : this.expandedGlossActionsFor(index);
   }
 
-  /** 候选栏重画或展开列表重取以后：那一格换了候选就关掉卡片，还是它就换上那一格此刻的菜单（释义晚到时会多出上屏释义）。 */
+  /** 候选栏重画或展开列表重取以后：组字变了就关掉卡片；没变（例如停顿后的整句重解只是换了一代、重排了顺序）就按原文找到这个候选现在的位置，换上那一格此刻的菜单（释义晚到时会多出上屏释义）。它不在这一页了，菜单先留着，点下去时再找。 */
   private refreshGlossCard(): void {
     const card: GlossCard | null = this.glossCard;
     if (card === null) {
       return;
     }
-    if (!CandidateGlossCardPolicy.stillShowing(card, card.origin, this.glossCardTexts(card.origin))) {
+    if (!CandidateGlossCardPolicy.stillComposing(card, this.editing)) {
       this.closeGlossCard();
       return;
     }
-    this.glossCard = CandidateGlossCardPolicy.withActions(card, this.glossCardActions(card.origin, card.index));
+    const index: number = CandidateGlossCardPolicy.currentIndex(card, this.glossCardTexts(card.origin));
+    if (index >= 0) {
+      this.glossCard = CandidateGlossCardPolicy.withActions(card, this.glossCardActions(card.origin, index), index);
+    }
   }
 
   /** 「上屏译文」：先上屏第一目标语言的译文，再结束组字，与上屏释义同一个顺序。 */
   private commitGlossCard(): void {
     const card: GlossCard | null = this.glossCard;
     this.closeGlossCard();
-    if (card === null || card.translation === null
-      || !CandidateGlossCardPolicy.stillShowing(card, card.origin, this.glossCardTexts(card.origin))) {
+    if (card === null || card.translation === null || !CandidateGlossCardPolicy.stillComposing(card, this.editing)) {
       return;
     }
     KeyboardSession.shared.insert(card.translation);
@@ -8350,13 +8364,19 @@ struct KeyboardView {
     if (card === null) {
       return;
     }
+    // 词库操作按序号做，序号按原文在这一代候选里重新找：卡片开着时候选可能已经重排。找不到就什么也不做，关掉卡片。
+    const index: number = CandidateGlossCardPolicy.currentIndex(card, this.glossCardTexts(card.origin));
+    if (index < 0) {
+      this.closeGlossCard();
+      return;
+    }
     if (card.origin === 'strip') {
       // 执行了就关掉卡片；「删除词条…」第一次只是待确认，卡片留着。
-      this.manageCandidate(action, card.index);
+      this.manageCandidate(action, index);
       return;
     }
     this.closeGlossCard();
-    this.expandedGloss = card.index;
+    this.expandedGloss = index;
     this.insertExpandedGloss();
   }
 
