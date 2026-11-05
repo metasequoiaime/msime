@@ -1,0 +1,394 @@
+//! 对共享状态目录没有写权限的宿主（iOS 键盘没有完全访问，#10945）：只读准备、只读租约、会话不写共享目录。
+//!
+//! 共享目录用权限位改成只读来模拟 App Group 的 `EPERM`（这里得到的是 `EACCES`，两者都是 `PermissionDenied`）。以 root 跑时权限位挡不住写，这几条用例什么也不测、直接返回。
+
+use super::*;
+use std::os::unix::fs::PermissionsExt;
+
+fn set_tree_writable(path: &Path, writable: bool) {
+    let metadata = std::fs::symlink_metadata(path).unwrap();
+    if metadata.file_type().is_symlink() {
+        return;
+    }
+    let mode = match (metadata.is_dir(), writable) {
+        (true, true) => 0o755,
+        (true, false) => 0o555,
+        (false, true) => 0o644,
+        (false, false) => 0o444,
+    };
+    if metadata.is_dir() && writable {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+    if metadata.is_dir() {
+        for entry in std::fs::read_dir(path).unwrap() {
+            set_tree_writable(&entry.unwrap().path(), writable);
+        }
+    }
+    if !(metadata.is_dir() && writable) {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+}
+
+/// 把 `state` 整棵改成只读，返回权限位是否真挡得住写（root 挡不住）。结束时由 [`ReadOnlyTree`] 改回来，好让临时目录删得掉。
+struct ReadOnlyTree<'a>(&'a Path);
+
+impl<'a> ReadOnlyTree<'a> {
+    fn new(state: &'a Path) -> (Self, bool) {
+        set_tree_writable(state, false);
+        let enforced = std::fs::File::create(state.join("probe")).is_err();
+        (Self(state), enforced)
+    }
+}
+
+impl Drop for ReadOnlyTree<'_> {
+    fn drop(&mut self) {
+        set_tree_writable(self.0, true);
+    }
+}
+
+/// 目录树里每个条目的路径、大小和修改时间，用来确认只读宿主一个字节也没写。
+fn tree_listing(root: &Path) -> Vec<(PathBuf, u64, Option<std::time::SystemTime>)> {
+    let mut entries = Vec::new();
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(path) = pending.pop() {
+        let metadata = std::fs::symlink_metadata(&path).unwrap();
+        if metadata.is_dir() {
+            for entry in std::fs::read_dir(&path).unwrap() {
+                pending.push(entry.unwrap().path());
+            }
+        }
+        entries.push((path, metadata.len(), metadata.modified().ok()));
+    }
+    entries.sort();
+    entries
+}
+
+/// 文档里的路径与期望的路径按真实位置比较：macOS 的临时目录在 `/var` 下，规范化后在 `/private/var` 下。
+fn canonical(path: &Value) -> PathBuf {
+    let path = Path::new(path.as_str().unwrap());
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+fn prepare_read_only(resources: &Path, state: &Path, private: &Path) -> Value {
+    let request = json!({
+        "resources": resources,
+        "state_root": state,
+        "read_only_state": true,
+        "private_root": private,
+    })
+    .to_string();
+    read(unsafe { msime_client_prepare_host(request.as_ptr(), request.len()) })
+}
+
+fn create(options: &Value) -> Value {
+    let text = options.to_string();
+    read(unsafe { msime_client_create(text.as_ptr(), text.len()) })
+}
+
+/// 共享目录里有 App 准备好的代次时，只读宿主用它：文档指向共享的用户目录和代次，缓存和校验标记在私有目录，会话持着只读租约挡住维护，整个过程共享目录一个字节也没变。
+#[test]
+fn a_read_only_host_runs_on_the_generation_the_app_prepared_and_writes_nothing() {
+    let root = tempfile::tempdir().unwrap();
+    let app = root.path().join("app/EngineResources");
+    let keyboard = root.path().join("keyboard/EngineResources");
+    let specification = synthetic_desktop_lock(&app);
+    synthetic_desktop_lock(&keyboard);
+    let state = root.path().join("group/MSIME");
+    let private = root.path().join("keyboard-container/MSIME");
+    prepare_shipped_host_configuration(&app, &state, &specification, &[], Edition::full()).unwrap();
+    let generation = state
+        .join("user")
+        .join("dictionaries")
+        .join(specification.generation().unwrap());
+    let before = tree_listing(&state);
+
+    let (guard, enforced) = ReadOnlyTree::new(&state);
+    if !enforced {
+        return;
+    }
+    // 改前的准备在这里就失败：偏好锁、第一份偏好和日志回放都要写共享目录。
+    assert!(prepare_host_configuration(&keyboard, &state).is_err());
+    let document = crate::read_only_state::prepare_on(
+        &keyboard,
+        &state,
+        &private,
+        &specification,
+        &[],
+        Edition::full(),
+    )
+    .unwrap();
+    assert_eq!(document["read_only_state"], true, "{document}");
+    assert_eq!(
+        canonical(&document["dictionaries"]),
+        canonical(&json!(generation))
+    );
+    assert_eq!(
+        canonical(&document["user_data"]),
+        canonical(&json!(state.join("user")))
+    );
+    assert!(canonical(&document["cache"]).starts_with(canonical(&json!(private))));
+    assert_eq!(
+        canonical(&document["preferences_directory"]),
+        canonical(&json!(state))
+    );
+    assert!(private.join("verified-resources.json").is_file());
+
+    let created = create(&document);
+    assert_eq!(created["ok"], true, "{created}");
+    let handle = created["value"]["session"].as_u64().unwrap();
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    for byte in b"nihao" {
+        let typed = read(msime_client_character(handle, *byte, false));
+        assert_eq!(typed["ok"], true, "{typed}");
+    }
+    // 只读打开的锁文件取到的是同一把共享锁：App 的维护（编辑个人词库、重置学习、删旧代次）取独占锁，被挡住。目录这时是只读的，维护本身打不开锁文件，这里直接对两把锁文件试独占 flock。
+    let maintenance_possible = || {
+        [state.join("user"), generation.clone()].iter().all(|root| {
+            let file = msime_client_core::file_lock::open_existing_lock_file_read_only(
+                root.join(msime_engine::access::LOCK_FILE),
+            )
+            .unwrap();
+            msime_client_core::file_lock::ScopedFileLock::try_exclusive(file)
+                .unwrap()
+                .is_some()
+        })
+    };
+    assert!(!maintenance_possible());
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+    assert!(maintenance_possible());
+    drop(guard);
+    assert_eq!(tree_listing(&state), before);
+}
+
+/// App 还没为这个版本准备过代次（或者共享目录根本不在）时，只读宿主退回只读布局：词库就是自己随包的资源，用户目录和缓存在私有目录，照样建得出会话，共享目录不变。
+#[test]
+fn a_read_only_host_without_a_prepared_generation_uses_its_bundled_dictionaries() {
+    let root = tempfile::tempdir().unwrap();
+    let keyboard = root.path().join("keyboard/EngineResources");
+    let specification = synthetic_desktop_lock(&keyboard);
+    let state = root.path().join("group/MSIME");
+    std::fs::create_dir_all(&state).unwrap();
+    // App 写过偏好，但没准备过代次。
+    let preferences = Preferences {
+        chinese_punctuation: false,
+        ..Preferences::default()
+    };
+    PreferencesStore::new(&state).save(0, preferences).unwrap();
+    let private = root.path().join("keyboard-container/MSIME");
+    let before = tree_listing(&state);
+    let (guard, enforced) = ReadOnlyTree::new(&state);
+    if !enforced {
+        return;
+    }
+    let document = crate::read_only_state::prepare_on(
+        &keyboard,
+        &state,
+        &private,
+        &specification,
+        &[],
+        Edition::full(),
+    )
+    .unwrap();
+    let bundled = canonical(&json!(keyboard));
+    assert_eq!(canonical(&document["dictionaries"]), bundled);
+    assert_eq!(canonical(&document["resources"]), bundled);
+    assert!(canonical(&document["user_data"]).starts_with(canonical(&json!(private))));
+    // 偏好照样读的是 App 写的那份。
+    assert_eq!(document["preferences"]["chinese_punctuation"], false);
+    let created = create(&document);
+    assert_eq!(created["ok"], true, "{created}");
+    let handle = created["value"]["session"].as_u64().unwrap();
+    assert_eq!(
+        read(msime_client_character(handle, b'n', false))["ok"],
+        true
+    );
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+    drop(guard);
+    assert_eq!(tree_listing(&state), before);
+
+    // 共享目录根本不在（App 从没运行过）也一样。
+    let absent = root.path().join("absent-group/MSIME");
+    let document = crate::read_only_state::prepare_on(
+        &keyboard,
+        &absent,
+        &private,
+        &specification,
+        &[],
+        Edition::full(),
+    )
+    .unwrap();
+    assert_eq!(canonical(&document["dictionaries"]), bundled);
+    assert!(!absent.exists());
+}
+
+/// 代次在，但锁文件是旧版本的 App 留下的那种从没建过的状态时，只读宿主拿不到租约，不能不持锁去读一个可能被换掉的代次，退回随包词库。
+#[test]
+fn a_read_only_host_does_not_read_a_shared_generation_it_cannot_lease() {
+    let root = tempfile::tempdir().unwrap();
+    let app = root.path().join("app/EngineResources");
+    let specification = synthetic_desktop_lock(&app);
+    let state = root.path().join("group/MSIME");
+    let private = root.path().join("keyboard-container/MSIME");
+    prepare_shipped_host_configuration(&app, &state, &specification, &[], Edition::full()).unwrap();
+    let generation = state
+        .join("user")
+        .join("dictionaries")
+        .join(specification.generation().unwrap());
+    // 可写的准备现在就建好两把锁文件。
+    assert!(state
+        .join("user")
+        .join(msime_engine::access::LOCK_FILE)
+        .is_file());
+    assert!(generation.join(msime_engine::access::LOCK_FILE).is_file());
+    std::fs::remove_file(generation.join(msime_engine::access::LOCK_FILE)).unwrap();
+    let (_guard, enforced) = ReadOnlyTree::new(&state);
+    if !enforced {
+        return;
+    }
+    let document = crate::read_only_state::prepare_on(
+        &app,
+        &state,
+        &private,
+        &specification,
+        &[],
+        Edition::full(),
+    )
+    .unwrap();
+    assert_eq!(canonical(&document["dictionaries"]), canonical(&json!(app)));
+}
+
+/// 只读的文档里学习开着也不学：会话的 Engine 选项、偏好变了之后重建的 Engine 都不打开学习。
+#[test]
+fn a_read_only_session_never_learns() {
+    let root = tempfile::tempdir().unwrap();
+    let keyboard = root.path().join("keyboard/EngineResources");
+    let specification = synthetic_desktop_lock(&keyboard);
+    let state = root.path().join("group/MSIME");
+    let private = root.path().join("keyboard-container/MSIME");
+    let mut document = crate::read_only_state::prepare_on(
+        &keyboard,
+        &state,
+        &private,
+        &specification,
+        &[],
+        Edition::full(),
+    )
+    .unwrap();
+    document["preferences"]["learning"] = json!(true);
+    let created = create(&document);
+    assert_eq!(created["ok"], true, "{created}");
+    let handle = created["value"]["session"].as_u64().unwrap();
+    let learning =
+        || SESSIONS.with(|sessions| sessions.borrow().get(&handle).unwrap().options.learning);
+    assert!(!learning());
+    let preferences = Preferences {
+        learning: true,
+        chinese_punctuation: !Preferences::default().chinese_punctuation,
+        ..Preferences::default()
+    };
+    let update =
+        json!({"format_version": 1, "revision": 1, "preferences": preferences}).to_string();
+    let updated =
+        read(unsafe { msime_client_update_preferences(handle, update.as_ptr(), update.len()) });
+    assert_eq!(updated["ok"], true, "{updated}");
+    assert!(!learning());
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
+/// 只读准备的请求：要有绝对路径的私有目录，不能同时发布 runtime-options.json；可写的准备不收私有目录。
+#[test]
+fn the_read_only_bootstrap_is_validated() {
+    let root = tempfile::tempdir().unwrap();
+    let resources = root.path().join("resources");
+    let state = root.path().join("state");
+    let call = |request: Value| {
+        let text = request.to_string();
+        read(unsafe { msime_client_prepare_host(text.as_ptr(), text.len()) })
+    };
+    for request in [
+        json!({"resources": resources, "state_root": state, "read_only_state": true}),
+        json!({"resources": resources, "state_root": state, "read_only_state": true, "private_root": "relative"}),
+        json!({"resources": resources, "state_root": state, "read_only_state": true, "private_root": root.path().join("private"), "runtime_options": root.path().join("runtime-options.json")}),
+        json!({"resources": resources, "state_root": state, "private_root": root.path().join("private")}),
+        json!({"resources": resources, "state_root": state, "read_only_state": true, "private_root": state.join("inside")}),
+    ] {
+        assert_eq!(call(request.clone())["ok"], false, "{request}");
+    }
+    assert!(!root.path().join("private").exists());
+}
+
+/// 真实词库（`MSIME_EVAL_RESOURCES` 指向暂存好的资源目录时才跑）：App 准备过、键盘扩展的共享目录只读时，键盘打 nihao 得到「你好」并上屏，共享目录一个字节也没变。
+#[test]
+fn a_read_only_keyboard_types_nihao_on_real_dictionaries() {
+    let Some(resources) = std::env::var_os("MSIME_EVAL_RESOURCES").map(PathBuf::from) else {
+        return;
+    };
+    let root = tempfile::tempdir().unwrap();
+    let app = root.path().join("app/EngineResources");
+    let keyboard = root.path().join("keyboard/EngineResources");
+    for target in [&app, &keyboard] {
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        let copied = std::process::Command::new("cp")
+            .arg("-R")
+            .arg(&resources)
+            .arg(target)
+            .status()
+            .unwrap();
+        assert!(copied.success());
+    }
+    let state = root.path().join("group/MSIME");
+    let private = root.path().join("keyboard-container/MSIME");
+    let request = json!({"resources": app, "state_root": state}).to_string();
+    let prepared = read(unsafe { msime_client_prepare_host(request.as_ptr(), request.len()) });
+    assert_eq!(prepared["ok"], true, "{prepared}");
+    let mut preferences = PreferencesStore::new(&state).load().unwrap();
+    preferences.preferences.learning = true;
+    PreferencesStore::new(&state)
+        .save(preferences.revision, preferences.preferences)
+        .unwrap();
+    let before = tree_listing(&state);
+    let (guard, enforced) = ReadOnlyTree::new(&state);
+    if !enforced {
+        return;
+    }
+    let document = prepare_read_only(&keyboard, &state, &private);
+    assert_eq!(document["ok"], true, "{document}");
+    let document = document["value"].clone();
+    assert!(document["dictionaries"]
+        .as_str()
+        .unwrap()
+        .contains("/group/MSIME/user/dictionaries/"));
+    let mut options = document.clone();
+    options["phrase_preedit"] = json!(true);
+    let created = create(&options);
+    assert_eq!(created["ok"], true, "{created}");
+    let handle = created["value"]["session"].as_u64().unwrap();
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    let mut view = Value::Null;
+    for byte in b"nihao" {
+        let typed = read(msime_client_character(handle, *byte, false));
+        assert_eq!(typed["ok"], true, "{typed}");
+        view = typed["value"]["view"].clone();
+    }
+    let texts: Vec<&str> = view["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|candidate| candidate["text"].as_str())
+        .collect();
+    let index = texts
+        .iter()
+        .position(|text| *text == "你好")
+        .unwrap_or_else(|| panic!("{texts:?}"));
+    let selected = read(msime_client_select(
+        handle,
+        view["generation"].as_u64().unwrap(),
+        index,
+    ));
+    assert_eq!(selected["ok"], true, "{selected}");
+    assert_eq!(selected["value"]["commit"], "你好", "{selected}");
+    assert_eq!(read(msime_client_focus(handle, false))["ok"], true);
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+    drop(guard);
+    assert_eq!(tree_listing(&state), before);
+}
