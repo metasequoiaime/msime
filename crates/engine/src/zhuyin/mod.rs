@@ -4,4 +4,6 @@ pub mod conversion;
 pub mod layout;
 pub mod nine_key;
 pub mod scheme;
+#[cfg(test)]
+mod shipped_dictionary_tests;
 pub mod syllable;

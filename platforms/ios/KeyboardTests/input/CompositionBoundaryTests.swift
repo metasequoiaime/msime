@@ -15,6 +15,21 @@ final class CompositionBoundaryTests: XCTestCase {
     super.tearDown()
   }
 
+  func testReturnSelectsAPendingGlideCandidateWithoutChangingOtherBoundaries() {
+    XCTAssertEqual(CompositionBoundaryPolicy.action(composing: true, scheme: .quanpin, boundary: .returnKey,
+      requiresCandidateSelection: true, hasCandidates: true), .commitCandidate)
+    for boundary in [CompositionBoundary.modeSwitch, .deactivate] {
+      XCTAssertEqual(CompositionBoundaryPolicy.action(composing: true, scheme: .quanpin, boundary: boundary,
+        requiresCandidateSelection: true, hasCandidates: true), boundary == .modeSwitch ? .commitRaw : .finishComposition)
+    }
+    XCTAssertEqual(CompositionBoundaryPolicy.action(composing: true, scheme: .quanpin, boundary: .returnKey,
+      requiresCandidateSelection: false, hasCandidates: true), .commitRaw, "普通打字仍提交原文")
+    XCTAssertEqual(CompositionBoundaryPolicy.action(composing: true, scheme: .quanpin, boundary: .returnKey,
+      requiresCandidateSelection: true, hasCandidates: false), .commitRaw, "没有候选时仍由共享门禁保护组字")
+    XCTAssertEqual(CompositionBoundaryPolicy.action(composing: false, scheme: .quanpin, boundary: .returnKey,
+      requiresCandidateSelection: true, hasCandidates: true), .none)
+  }
+
   func testPolicyCommitsRawLettersExceptWhereTheKeysAreNotLetters() {
     XCTAssertEqual(CompositionBoundaryPolicy.action(composing: false, scheme: .quanpin, boundary: .modeSwitch), .none)
     for boundary in [CompositionBoundary.modeSwitch, .returnKey] {

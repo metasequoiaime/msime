@@ -10,6 +10,8 @@ Status: implemented
 
 在 macOS 输入法进程中建立只读 `IOHIDManager` 监听，只匹配键盘页的 `Caps Lock`（`0x39`）和 locking Caps Lock（`0x82`）输入元素。输入值回调按设备记录当前按住状态，设备移除时清除记录；读取实体状态时优先使用 HID 结果，管理器无法打开或尚未得到结果时回退到 `NX_ALPHASHIFT_STATELESS_MASK`。监听只接入主运行循环，不抢占设备、不写入 HID 状态，也不把系统键码或逻辑锁定位当作实体松开证据。
 
+管理器先用 `IOHIDManagerSetDeviceMatching` 匹配通用桌面页的键盘设备（`kHIDPage_GenericDesktop` / `kHIDUsage_GD_Keyboard`），再用输入值匹配筛到上面两个元素。两层匹配缺一不可：输入值匹配只过滤已枚举设备送来的值，不决定枚举哪些设备；而从没调用过 `IOHIDManagerSetDeviceMatching` 的管理器一个设备都不枚举（头文件只说传 NULL 是「全部设备」，不调用不等于传 NULL）。#9495 合入的版本只设了输入值匹配，`IOHIDManagerOpen` 照样返回成功，但设备回调和输入值回调都不会来，HID 状态始终未知，不报实体按住位的键盘轻点一直只保留大写锁定（#10845）。
+
 监听不是一开始就建：只有某次按下 Caps Lock 时，事件和 `kCGEventSourceStateHIDSystemState` 都没报实体按住位、HID 也还没有结果，`observeCapsLockTap` 才调 `MSIMEStartCapsLockHIDTracking`。报这个位的键盘（Apple 内置键盘就是）在按下时走不到这一步，从不打开 HID 管理器。打开键盘的 HID 管理器要「输入监控」授权：`IOHIDCheckAccess(kIOHIDRequestTypeListenEvent)` 为未询问时，在后台队列调一次 `IOHIDRequestAccess` 请系统询问，授权前不调 `IOHIDManagerOpen`；拒绝时保持回退。没打开不记为最终结果，下一次同样的按键再检查，用户之后在系统设置里允许也不必重启输入法。这一次按键本身照常保留大写锁定，HID 结果出来之后的轻点才能切换。设置页的 Caps Lock 说明（共享页 `capsLockLanguageSwitchDescription` 与原生 `AppearancePreferences.mm`）写明这类键盘会请求授权。
 
 为保持单测不触碰真实键盘，抽出带 `known` 标记的 HID 状态函数指针和启动监听的 `MSIMECapsLockHIDStart` 函数指针；测试替换该边界并继续验证生产的 Caps Lock 轻点判定。管理器初始化失败、权限不足、设备没有匹配元素和回调丢失都安全回退为保留系统大写锁定。
@@ -26,6 +28,7 @@ Status: implemented
 
 - `InputController.mm` 与 `ShortcutTest.mm` 使用 Xcode 27 macOS SDK 通过 `clang++ -fsyntax-only`；`git diff --check` 通过。
 - 单测边界新增 HID 状态已知且分别为按下、松开，以及未知时回退 stateless 位；`shortcut-test --caps-lock` 还断言报实体按住位的按键从不启动 HID 监听、不报的那台设备只启动一次，HID 有结果之后同一台设备的轻点照常切换；既有 `shortcut-test --caps-lock` 用例继续替换原生查询边界，不初始化真实 HID 管理器。设备表的匹配、输入值更新和拔出清理由同一实现路径维护，未在没有 HID 设备的本机单独伪造回调。
+- 设备匹配缺失（#10845）用独立 C 探针在 macOS 27.2 上确认：同一进程、同一授权状态（探针的输入监控为拒绝）下，只设输入值匹配的管理器 `IOHIDManagerOpen` 返回 `kIOReturnSuccess`，`IOHIDManagerCopyDevices` 返回 NULL、设备匹配回调 0 次；加上 `IOHIDManagerSetDeviceMatching(NULL)` 后枚举到 5 个设备、回调 5 次。说明不调用设备匹配时什么都不枚举，与授权无关。授权为拒绝时键盘类设备被系统滤掉，所以探针看不到键盘匹配本身枚举出键盘，这一步要在有授权的进程里实机确认。
 - 授权询问框、拒绝后的回退和事后在系统设置里允许的路径没有实机验证：本机终端已有输入监控授权，测不出输入法进程未询问时的系统行为。
 - 本机没有可用于复现 #9094 的外接蓝牙键盘现场，尚未在报告人的 macOS 26.4.1 环境验证 `IOHIDManager` 回调；不能据此宣称所有外接设备均已修复。
 

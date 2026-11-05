@@ -82,6 +82,8 @@ pub struct AppThemeSeed {
     pub hair: &'static str,
     /// 触屏候选条（iOS、Android、HarmonyOS 的跟随系统键盘）首选的字色；`None` 时就是 `accent`。浅色四季的强调色画在键盘底色上不到 WCAG AA 的 4.5:1，这里给的是同一色相、只在 OKLCH 里降低明度到约 4.6:1 的值，强调色本身（回车键、开启态、拼写等）不变。
     pub candidate_accent: Option<&'static str>,
+    /// 强调色填充（回车键、主按钮、选中的色块）上的文字和图标；`None` 时浅色用 `LIGHT_ON_ACCENT` 的白色，深色用强调色与黑色按 `DARK_ON_ACCENT_ACCENT_PERCENT` 混合。强调色太亮、白字不到 WCAG AA 的 4.5:1 时在这里给深色。
+    pub on_accent: Option<&'static str>,
 }
 
 /// 一季的浅色与深色种子色。
@@ -105,6 +107,7 @@ pub const APP_THEME_SEEDS: [AppThemeSeason; 4] = [
             card: "#FAFDF6",
             hair: "#4E9A3A2E",
             candidate_accent: Some("#267308"),
+            on_accent: None,
         },
         dark: AppThemeSeed {
             accent: "#9AD983",
@@ -112,6 +115,7 @@ pub const APP_THEME_SEEDS: [AppThemeSeason; 4] = [
             card: "#202C18",
             hair: DARK_HAIR,
             candidate_accent: None,
+            on_accent: None,
         },
     },
     AppThemeSeason {
@@ -122,6 +126,7 @@ pub const APP_THEME_SEEDS: [AppThemeSeason; 4] = [
             card: "#F6FBF8",
             hair: "#17704A2E",
             candidate_accent: Some("#0F6B46"),
+            on_accent: None,
         },
         dark: AppThemeSeed {
             accent: "#5FD39A",
@@ -129,23 +134,27 @@ pub const APP_THEME_SEEDS: [AppThemeSeason; 4] = [
             card: "#14281D",
             hair: DARK_HAIR,
             candidate_accent: None,
+            on_accent: None,
         },
     },
     AppThemeSeason {
         season: Season::Autumn,
         light: AppThemeSeed {
-            accent: "#B5562B",
-            background: "#F6E9DC",
-            card: "#FFFBF6",
-            hair: "#B5562B33",
-            candidate_accent: Some("#9F4214"),
+            accent: "#B07800",
+            background: "#FAF5E8",
+            card: "#FFFDF6",
+            hair: "#B0780033",
+            candidate_accent: Some("#905A00"),
+            // 银杏金上的白字只有 3.8:1，这里用同色相的近黑色（4.9:1）。
+            on_accent: Some("#1A1200"),
         },
         dark: AppThemeSeed {
-            accent: "#F0975F",
-            background: "#21150F",
-            card: "#2E1E15",
+            accent: "#F3C14F",
+            background: "#1C1910",
+            card: "#28241A",
             hair: DARK_HAIR,
             candidate_accent: None,
+            on_accent: None,
         },
     },
     AppThemeSeason {
@@ -156,6 +165,7 @@ pub const APP_THEME_SEEDS: [AppThemeSeason; 4] = [
             card: "#FAFCFE",
             hair: "#3A6A8A2E",
             candidate_accent: Some("#346484"),
+            on_accent: None,
         },
         dark: AppThemeSeed {
             accent: "#93C7E6",
@@ -163,6 +173,7 @@ pub const APP_THEME_SEEDS: [AppThemeSeason; 4] = [
             card: "#18232D",
             hair: DARK_HAIR,
             candidate_accent: None,
+            on_accent: None,
         },
     },
 ];
@@ -170,7 +181,7 @@ pub const APP_THEME_SEEDS: [AppThemeSeason; 4] = [
 /// `accent_soft` 的透明度：浅色 `22`（约 13%），深色 `40`（25%），即设计的 `accent + '22'` / `accent + '40'`。
 pub const ACCENT_SOFT_LIGHT_ALPHA: &str = "22";
 pub const ACCENT_SOFT_DARK_ALPHA: &str = "40";
-/// 浅色模式强调色上的文字。
+/// 浅色模式强调色上的文字，种子没有给 `on_accent` 时用它。
 pub const LIGHT_ON_ACCENT: &str = "#FFFFFF";
 /// 深色模式强调色上的文字是强调色与黑色按 25% : 75% 混合（修正原型漏出的绿色 `#003920`）。
 pub const DARK_ON_ACCENT_ACCENT_PERCENT: u32 = 25;
@@ -220,7 +231,7 @@ pub fn resolve_app_theme(theme: AppTheme, season: Season, dark: bool) -> Resolve
 
 fn colors(seeds: &AppThemeSeason, dark: bool) -> AppThemeColors {
     let seed = if dark { &seeds.dark } else { &seeds.light };
-    let (soft_alpha, on_accent) = if dark {
+    let (soft_alpha, default_on_accent) = if dark {
         (
             ACCENT_SOFT_DARK_ALPHA,
             mix_with_black(seed.accent, DARK_ON_ACCENT_ACCENT_PERCENT),
@@ -228,6 +239,7 @@ fn colors(seeds: &AppThemeSeason, dark: bool) -> AppThemeColors {
     } else {
         (ACCENT_SOFT_LIGHT_ALPHA, LIGHT_ON_ACCENT.to_owned())
     };
+    let on_accent = seed.on_accent.map_or(default_on_accent, str::to_owned);
     AppThemeColors {
         accent: seed.accent.to_owned(),
         accent_soft: format!("{}{soft_alpha}", seed.accent),
@@ -345,7 +357,7 @@ mod tests {
         }
     }
 
-    /// 设计的种子色（design-tokens.md §1.2）与修正后的深色 `on_accent`（shared-contracts §2.4）。
+    /// 设计的种子色（design-tokens.md §1.2）、浅色 `on_accent`（秋杉的银杏金上是深色）与修正后的深色 `on_accent`（shared-contracts §2.4）。
     #[test]
     fn colours_copy_the_design_seeds() {
         let expected = [
@@ -358,6 +370,7 @@ mod tests {
                     "#4E9A3A2E",
                     "#4E9A3A22",
                     "#267308",
+                    "#FFFFFF",
                 ],
                 ["#9AD983", "#16200F", "#202C18", "#263621", "#9AD98340"],
             ),
@@ -370,20 +383,22 @@ mod tests {
                     "#17704A2E",
                     "#17704A22",
                     "#0F6B46",
+                    "#FFFFFF",
                 ],
                 ["#5FD39A", "#0C1C14", "#14281D", "#183526", "#5FD39A40"],
             ),
             (
                 Season::Autumn,
                 [
-                    "#B5562B",
-                    "#F6E9DC",
-                    "#FFFBF6",
-                    "#B5562B33",
-                    "#B5562B22",
-                    "#9F4214",
+                    "#B07800",
+                    "#FAF5E8",
+                    "#FFFDF6",
+                    "#B0780033",
+                    "#B0780022",
+                    "#905A00",
+                    "#1A1200",
                 ],
-                ["#F0975F", "#21150F", "#2E1E15", "#3C2618", "#F0975F40"],
+                ["#F3C14F", "#1C1910", "#28241A", "#3D3014", "#F3C14F40"],
             ),
             (
                 Season::Winter,
@@ -394,13 +409,14 @@ mod tests {
                     "#3A6A8A2E",
                     "#3A6A8A22",
                     "#346484",
+                    "#FFFFFF",
                 ],
                 ["#93C7E6", "#0F1820", "#18232D", "#25323A", "#93C7E640"],
             ),
         ];
         for (
             season,
-            [accent, background, card, hair, soft, candidate],
+            [accent, background, card, hair, soft, candidate, on],
             [d_accent, d_background, d_card, d_on, d_soft],
         ) in expected
         {
@@ -410,7 +426,7 @@ mod tests {
                 AppThemeColors {
                     accent: accent.into(),
                     accent_soft: soft.into(),
-                    on_accent: "#FFFFFF".into(),
+                    on_accent: on.into(),
                     background: background.into(),
                     card: card.into(),
                     hair: hair.into(),
@@ -496,9 +512,11 @@ mod tests {
             let dark = resolve_app_theme(AppTheme::Siji, season, true).colors;
             assert_eq!(dark.candidate_accent, dark.accent, "{season:?}");
         }
-        // 与宿主的取整一致：秋杉浅色键盘底色和字母键是 `#EED7C7`、`#FDF9F6`（249.5 进位）。
+        // 与宿主的取整一致：改色之前的秋杉种子（`#B5562B`、`#F6E9DC`）混出的字母键 `#FDF9F6` 有一个通道恰好落在 249.5、要进位，现在的种子没有这样的通道，所以用旧种子钉住取整。
         assert_eq!(host_mix("#B5562B", 12, "#F6E9DC"), rgb("#EED7C7"));
         assert_eq!(host_mix("#F6E9DC", 25, "#FFFFFF"), rgb("#FDF9F6"));
+        assert_eq!(host_mix("#B07800", 12, "#FAF5E8"), rgb("#F1E6CC"));
+        assert_eq!(host_mix("#FAF5E8", 25, "#FFFFFF"), rgb("#FEFCF9"));
         assert!((contrast(rgb("#FFFFFF"), rgb("#000000")) - 21.0).abs() < 1e-9);
     }
 
@@ -527,7 +545,7 @@ mod tests {
         let value = serde_json::to_value(&catalog[0]).unwrap();
         assert_eq!(value["id"], "siji");
         assert_eq!(value["season"], serde_json::Value::Null);
-        assert_eq!(value["light"]["accent"], "#B5562B");
+        assert_eq!(value["light"]["accent"], "#B07800");
     }
 
     #[test]

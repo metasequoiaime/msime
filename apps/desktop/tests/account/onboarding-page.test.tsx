@@ -423,21 +423,21 @@ test("a HarmonyOS phone takes the app theme's season on its root", () => {
       appTheme={{
         id: "qiushan",
         season: "autumn",
-        accent: "#B5562B",
-        accent_soft: "#B5562B22",
-        on_accent: "#FFFFFF",
-        background: "#F6E9DC",
-        card: "#FFFBF6",
+        accent: "#B07800",
+        accent_soft: "#B0780022",
+        on_accent: "#1A1200",
+        background: "#FAF5E8",
+        card: "#FFFDF6",
         hair: "#E8D6C4",
-        candidate_accent: "#9F4214",
+        candidate_accent: "#905A00",
       }}
     />,
   );
 
   const shell = screen.getByRole("main", { name: "首次设置" });
   expect(shell.getAttribute("data-season")).toBe("autumn");
-  expect(shell.style.getPropertyValue("--accent-color")).toBe("#B5562B");
-  expect(shell.style.getPropertyValue("--p-group-bg")).toBe("#FFFBF6");
+  expect(shell.style.getPropertyValue("--accent-color")).toBe("#B07800");
+  expect(shell.style.getPropertyValue("--p-group-bg")).toBe("#FFFDF6");
 });
 
 test("adapts the setup step for iOS keyboard settings", () => {
@@ -545,13 +545,13 @@ test("a HarmonyOS phone colours the system bars to the splash and then to the st
   const autumn = {
     id: "siji",
     season: "autumn",
-    accent: "#B5562B",
+    accent: "#B07800",
     accent_soft: "#F3E1D6",
-    on_accent: "#FFFFFF",
-    background: "#F6E9DC",
-    card: "#FFFBF6",
+    on_accent: "#1A1200",
+    background: "#FAF5E8",
+    card: "#FFFDF6",
     hair: "#EADBCB",
-    candidate_accent: "#9F4214",
+    candidate_accent: "#905A00",
   } as const;
   render(
     <WelcomeFlowPage
