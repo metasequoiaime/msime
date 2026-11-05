@@ -6,7 +6,7 @@ name: CI red tracker
 
 on:
   workflow_run:
-    workflows: [Nightly builds, Native Platform CI, Core CI, iOS CI, macOS CI, macOS package]
+    workflows: [Nightly builds, Native Platform CI, Core CI, iOS CI, macOS CI, macOS package, Dictionary builder artifact diff]
     types: [completed]
     branches: [develop]
 
@@ -38,4 +38,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.event.workflow_run.id }}
-        run: python3 scripts/ci_issue_tracker.py red-build --run-id "$RUN_ID"
+          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: python3 scripts/ci_issue_tracker.py red-build --run-id "$RUN_ID" --run-attempt "$RUN_ATTEMPT"

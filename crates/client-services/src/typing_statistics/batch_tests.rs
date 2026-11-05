@@ -2,6 +2,23 @@
 
 use super::*;
 
+/// 攒着的批次按目录放在整个进程共用的 [`PENDING_COMMITS`] 里，而 `cargo test` 在同一进程里并行跑本模块的用例。[`flush_pending_commits`] 和它的后台版本写出的是进程里每个目录的批次，会把并行用例还攒着、正要断言「还没写」的那批提前写进文件：负载高的机器上（Linux 资源容器）`records_are_held_in_memory_instead_of_rewriting_the_file_each_time` 和 `batched_commits_produce_the_same_document_as_writing_each_one` 因此失败。调这两个函数的用例拿写锁独占，其余用例拿读锁，彼此照常并行。
+static PROCESS_WIDE_FLUSH: std::sync::RwLock<()> = std::sync::RwLock::new(());
+
+/// 断言攒着的批次的用例在开头拿着它，期间不会有用例把整个进程的批次写出去。
+fn holding_batches() -> std::sync::RwLockReadGuard<'static, ()> {
+    PROCESS_WIDE_FLUSH
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// 调 [`flush_pending_commits`] 或 [`flush_pending_commits_in_background`] 的用例在开头拿着它，等别的用例都放下各自攒着的批次。
+fn flushing_every_directory() -> std::sync::RwLockWriteGuard<'static, ()> {
+    PROCESS_WIDE_FLUSH
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 fn enabled_store() -> (tempfile::TempDir, TypingStatisticsStore) {
     let directory = tempfile::tempdir().unwrap();
     let store = TypingStatisticsStore::new(directory.path());
@@ -39,6 +56,7 @@ const DAY: &str = "2026-10-27";
 
 #[test]
 fn records_are_held_in_memory_instead_of_rewriting_the_file_each_time() {
+    let _held = holding_batches();
     let (directory, store) = enabled_store();
     let before = fs::read(directory.path().join(STATISTICS_FILE)).unwrap();
     for (offset, text) in ["你好", "世界", "abc"].into_iter().enumerate() {
@@ -69,6 +87,7 @@ fn records_are_held_in_memory_instead_of_rewriting_the_file_each_time() {
 
 #[test]
 fn the_next_record_after_thirty_seconds_writes_the_batch() {
+    let _held = holding_batches();
     let (directory, store) = enabled_store();
     store
         .record_at("一", TypingSource::Quanpin, DAY, Some(9), 1_000)
@@ -115,6 +134,7 @@ fn the_next_record_after_thirty_seconds_writes_the_batch() {
 
 #[test]
 fn a_clock_set_backwards_writes_rather_than_waiting_for_it_to_catch_up() {
+    let _held = holding_batches();
     let (directory, store) = enabled_store();
     store
         .record_at("一", TypingSource::Quanpin, DAY, Some(9), 100_000)
@@ -133,6 +153,7 @@ fn a_clock_set_backwards_writes_rather_than_waiting_for_it_to_catch_up() {
 
 #[test]
 fn batched_commits_produce_the_same_document_as_writing_each_one() {
+    let _held = holding_batches();
     let commits: [(&str, &str, Option<u8>, u64); 6] = [
         ("你好", "2026-10-26", Some(23), 1_000),
         ("世界", "2026-10-26", Some(23), 3_000),
@@ -197,6 +218,7 @@ fn other_process_reset(store: &TypingStatisticsStore) {
 
 #[test]
 fn pending_commits_typed_before_another_process_reset_are_not_written_back() {
+    let _held = holding_batches();
     let (directory, store) = enabled_store();
     store
         .record_at("昨天", TypingSource::Quanpin, "2026-10-26", Some(9), 1_000)
@@ -229,6 +251,7 @@ fn pending_commits_typed_before_another_process_reset_are_not_written_back() {
 
 #[test]
 fn a_due_record_after_another_process_reset_drops_the_held_batch() {
+    let _held = holding_batches();
     let (directory, store) = enabled_store();
     store
         .record_at("你好", TypingSource::Quanpin, DAY, Some(9), 1_000)
@@ -254,6 +277,7 @@ fn a_due_record_after_another_process_reset_drops_the_held_batch() {
 
 #[test]
 fn a_retention_change_elsewhere_keeps_the_held_batch() {
+    let _held = holding_batches();
     let (directory, store) = enabled_store();
     store
         .record_at("你好", TypingSource::Quanpin, DAY, Some(9), 1_000)
@@ -269,6 +293,7 @@ fn a_retention_change_elsewhere_keeps_the_held_batch() {
 
 #[test]
 fn reset_changes_the_generation() {
+    let _held = holding_batches();
     let (directory, store) = enabled_store();
     let before = on_disk(&directory).generation;
     store
@@ -283,6 +308,7 @@ fn reset_changes_the_generation() {
 
 #[test]
 fn pending_commits_are_dropped_when_another_process_turned_statistics_off() {
+    let _held = holding_batches();
     let (directory, store) = enabled_store();
     store
         .record_at("你好", TypingSource::Quanpin, DAY, Some(9), 1_000)
@@ -299,6 +325,7 @@ fn pending_commits_are_dropped_when_another_process_turned_statistics_off() {
 
 #[test]
 fn the_record_that_finds_statistics_turned_off_counts_nothing() {
+    let _held = holding_batches();
     let (directory, store) = enabled_store();
     assert_eq!(
         store
@@ -337,6 +364,7 @@ fn the_record_that_finds_statistics_turned_off_counts_nothing() {
 
 #[test]
 fn a_switch_turned_on_elsewhere_is_read_again_after_the_interval() {
+    let _held = holding_batches();
     let directory = tempfile::tempdir().unwrap();
     let store = TypingStatisticsStore::new(directory.path());
     assert_eq!(
@@ -377,6 +405,7 @@ fn a_switch_turned_on_elsewhere_is_read_again_after_the_interval() {
 
 #[test]
 fn every_other_operation_in_the_process_sees_and_orders_after_pending_commits() {
+    let _held = holding_batches();
     let (directory, store) = enabled_store();
     store
         .record_at("你好", TypingSource::Quanpin, DAY, Some(9), 1_000)
@@ -416,6 +445,7 @@ fn every_other_operation_in_the_process_sees_and_orders_after_pending_commits() 
 
 #[test]
 fn flush_without_pending_commits_touches_nothing() {
+    let _held = holding_batches();
     let directory = tempfile::tempdir().unwrap();
     let missing = directory.path().join("never-created");
     TypingStatisticsStore::new(&missing).flush().unwrap();
@@ -439,6 +469,7 @@ fn flush_without_pending_commits_touches_nothing() {
 
 #[test]
 fn the_running_total_includes_what_the_process_still_holds() {
+    let _held = holding_batches();
     let (directory, store) = enabled_store();
     store
         .record_at("你好", TypingSource::Quanpin, DAY, Some(9), 1_000)
@@ -461,6 +492,7 @@ fn the_running_total_includes_what_the_process_still_holds() {
 
 #[test]
 fn the_background_flush_writes_what_the_process_holds() {
+    let _every_directory = flushing_every_directory();
     let (directory, store) = enabled_store();
     store
         .record_at("你好", TypingSource::Quanpin, DAY, Some(9), 1_000)
@@ -481,6 +513,7 @@ fn the_background_flush_writes_what_the_process_holds() {
 /// 输入线程交过来的选词只进本进程的批次，不取文件锁、不碰磁盘：目录根本建不出来时照样攒下。
 #[test]
 fn queueing_selections_never_touches_the_statistics_file() {
+    let _held = holding_batches();
     let directory = tempfile::tempdir().unwrap();
     let blocker = directory.path().join("not-a-directory");
     fs::write(&blocker, b"").unwrap();
@@ -526,6 +559,7 @@ fn queueing_selections_never_touches_the_statistics_file() {
 /// 读统计的地方（统计页、上传、另一个 store 实例）先把攒着的选词写进去，所以总看得到它们；满间隔的 `record` 也连同上屏一起写。
 #[test]
 fn readers_and_the_due_record_write_queued_selections() {
+    let _held = holding_batches();
     let (directory, store) = enabled_store();
     store.queue_selections(&[(1, 1)]).unwrap();
     let other = TypingStatisticsStore::new(directory.path());
@@ -555,6 +589,7 @@ fn readers_and_the_due_record_write_queued_selections() {
 /// 和攒着的上屏一样：写出时文件里的统计已被关掉，或已被清空过，攒着的选词整批丢掉；清空之后再攒的照常写。
 #[test]
 fn queued_selections_follow_the_switch_and_a_reset_elsewhere() {
+    let _held = holding_batches();
     let (directory, store) = enabled_store();
     store.queue_selections(&[(1, 5)]).unwrap();
     other_process(&store, |value| value.enabled = false);
@@ -586,6 +621,7 @@ fn queued_selections_follow_the_switch_and_a_reset_elsewhere() {
 /// 本进程清空统计时，清空之前交来、还没写出的选词随清空一起删掉，不在清空之后写回来。
 #[test]
 fn a_reset_in_this_process_clears_queued_selections() {
+    let _held = holding_batches();
     let (directory, store) = enabled_store();
     store.queue_selections(&[(1, 2)]).unwrap();
     assert_eq!(store.reset().unwrap().selections.total(), 0);
@@ -596,6 +632,7 @@ fn a_reset_in_this_process_clears_queued_selections() {
 /// 后台 flush 也写只攒着选词、没有上屏的目录。
 #[test]
 fn the_background_flush_writes_queued_selections() {
+    let _every_directory = flushing_every_directory();
     let (directory, store) = enabled_store();
     store.queue_selections(&[(1, 1)]).unwrap();
     flush_pending_commits_in_background();
@@ -612,6 +649,7 @@ fn the_background_flush_writes_queued_selections() {
 /// 统计文件还不存在时统计按默认关着：攒着的选词在写出时丢掉，不会建出一份关着却带着选词的新文件；Android 写效率时取锁带出攒着的选词，也是同一条路。之后打开统计，关着时攒的选词不补记。
 #[test]
 fn queued_selections_never_create_a_statistics_file_while_statistics_are_off_by_default() {
+    let _every_directory = flushing_every_directory();
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join(STATISTICS_FILE);
     let store = TypingStatisticsStore::new(directory.path());

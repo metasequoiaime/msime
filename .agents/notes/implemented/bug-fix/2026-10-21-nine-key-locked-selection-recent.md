@@ -31,7 +31,7 @@ Status: implemented
 
 合成词库回归在旧实现上确认锁定首候选选择无法进入下一次未锁定候选首位；修复后首位和非首位选择均通过。另覆盖连续替换、锁定上下文的已有首位记录、手动槽位、读法隔离、学习关闭、默认结束组字及分段选择。完整引擎测试、Clippy 和 quick 门禁已通过。Android API 28、35 均完整运行 client-base、client-core、client-providers、client-services 单测，并各通过 163 项九键引擎回归；硬链接用例沿设备 runner 的既有规则跳过。
 
-`NineKeyPanelDeviceSmoke` 的真实软键盘验收使用合成输入交替选择 `mi`、`ni`、`mi`，确认读法内的首候选上屏，重建输入连接后在未锁定候选条的第 1 位读到相同词。`-e recent-learning true` 只跑此路径，默认完整面板验收也包含它。调频设置为关闭，避免全局权重变化掩盖上下文记录缺失。
+`NineKeyPanelDeviceSmoke` 的真实软键盘验收使用合成输入交替选择 `mi`、`ni`、`mi`，确认读法内的首候选上屏，重建输入连接后未锁定候选条仍能展示相同词，并通过产品 `export_snapshot(include_learning: true)` 核对 `nine-key:64:` 的规范读音、词面及第 1 槽。`-e recent-learning true` 只跑此路径，默认完整面板验收也包含它。调频设置为关闭，避免全局权重变化掩盖上下文记录缺失。保留原 `mi → ni → mi` 输入与默认增强路径；[最近选择模型裁决](../feature/2026-10-29-nine-key-model-contests.md)允许模型在本次显示中让最近选择退后，[增强默认开启](../feature/2026-11-02-keystroke-reranker-default-on.md)后旧有「显示首位必须相同」断言不再成立（#10846）。设备检查不能只看候选仍存在，还必须读回持久化记录；手动置顶始终领先的边界由 `a_manual_pin_stays_first_when_the_keystroke_model_prefers_another_word` 的真引擎行为回归保留。
 
 ## Consequences
 

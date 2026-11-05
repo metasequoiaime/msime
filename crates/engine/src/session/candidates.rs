@@ -12,6 +12,9 @@ use crate::ime::queries::{
 use crate::ime::MixedJapaneseConversion;
 use crate::local::date_time::{inline_date_time_keyword, insert_inline_date_time, LocalDateTime};
 use crate::local::jianpin::jianpin_ranking_context;
+use crate::offensive_placement::{
+    evict_after_positions, keep_off_first_page, spells_whole_input, typed_demotion,
+};
 use crate::pinyin::segment::{cut_pinyin_by_mode, join_segments, CutMode};
 use crate::text::{count_utf8_chars, is_han_phrase};
 use crate::types::{
@@ -232,7 +235,21 @@ impl InputSession {
             self.engine.candidates(),
         );
         let mut candidates = result.candidates;
+        // 超级简拼查出来的是共享词库的行，和 26 键的简拼一样：粗俗词不进首屏（`offensive_placement`）。简拼不是完整拼写，所以没有「只让出首选」的情形。
+        let jianpin_vulgar = (self.local_mode == LocalInputMode::SuperJianpin)
+            .then(|| self.engine.offensive_words());
+        let page = self.engine.request().first_page_rows.get();
+        if let Some(vulgar) = &jianpin_vulgar {
+            keep_off_first_page(&mut candidates, page, |item| {
+                typed_demotion(item, vulgar, |_| false)
+            });
+        }
         self.apply_candidate_positions(&mut candidates);
+        if let Some(vulgar) = &jianpin_vulgar {
+            evict_after_positions(&mut candidates, page, |item| {
+                typed_demotion(item, vulgar, |_| false)
+            });
+        }
         self.local_candidates = candidates;
         self.insert_cached_plugin_rows();
         // After the positions, so the synthetic row is never moved.
@@ -715,12 +732,34 @@ impl InputSession {
         );
     }
 
+    /// 判断粗俗词是不是打全了拼写时对照的输入：光标前缀解码时是光标前那段，否则是整段组字。
+    fn placement_input(&self) -> &str {
+        if self.prefix_active {
+            self.prefix_query_input.as_str()
+        } else {
+            self.engine.request().raw_input.as_str()
+        }
+    }
+
     /// 对一份解码结果混排并应用固定位置。
     fn mixed_from(
         &mut self,
-        decoded: Vec<WordItem>,
+        mut decoded: Vec<WordItem>,
         japanese: Option<&MixedJapaneseConversion>,
     ) -> Vec<WordItem> {
+        // 粗俗词不当首选，前缀、部分候选和简拼查出来的不进首屏（`offensive_placement`）。在混入英文、日文和固定位置之前挪：混入的行坐的是首选之后的位置，挪动不能把它们推上首选；用户固定的位置照旧生效。英文粗俗词由 `CandidateQueries::mixed` 接在末尾。
+        let scheme = self.scheme();
+        let page = self.engine.request().first_page_rows.get();
+        let vulgar = (scheme.is_pinyin() && self.local_mode == LocalInputMode::None)
+            .then(|| self.engine.offensive_words());
+        if let Some(vulgar) = &vulgar {
+            let (input, profile) = (self.placement_input(), self.profile);
+            keep_off_first_page(&mut decoded, page, |item| {
+                typed_demotion(item, vulgar, |item| {
+                    spells_whole_input(item, input, scheme, profile)
+                })
+            });
+        }
         let japanese = japanese.map(|conversion| self.mixed_japanese_row(&decoded, conversion));
         // 拼音拆不开时完全匹配的英文可以占首位，但有两种情况不行：光标前缀解码时选英文会扔掉光标后的输入（`commit_selection` 整段结束组字）；辅助码激活时大写的辅助码被转成小写拼进了查英文的输入，那串字母不是用户要的英文词。
         let english_may_lead = !self.prefix_active && !self.has_active_helpcode();
@@ -733,7 +772,6 @@ impl InputSession {
         } else {
             self.engine.request().raw_input.as_str()
         };
-        let scheme = self.scheme();
         let mut mixed = self.queries.mixed(
             decoded,
             association_input,
@@ -750,6 +788,14 @@ impl InputSession {
         );
         self.insert_inline_date_time(&mut mixed);
         self.apply_candidate_positions(&mut mixed);
+        if let Some(vulgar) = &vulgar {
+            let (input, profile) = (self.placement_input(), self.profile);
+            evict_after_positions(&mut mixed, page, |item| {
+                typed_demotion(item, vulgar, |item| {
+                    spells_whole_input(item, input, scheme, profile)
+                })
+            });
+        }
         // 云候选异步到达；先在它的固定席位放一个云图标，回包时原位替换，避免本地候选整体后移。
         if self.cloud_candidates_enabled
             && self
