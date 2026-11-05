@@ -556,7 +556,7 @@ struct StatisticsKeyboardHeatmap: View {
     let id = cell.id
     let percent = heatmap.percent(id)
     let level = TypingKeyHeatmap.heatLevel(percent: percent, nineKey: nineKey)
-    let ink = level >= 4 ? Color.white : Color.primary
+    let ink = level >= 4 ? MetasequoiaTheme.onAccent : Color.primary
     // 与别的键记同一个 id 的键（九键的侧栏和 ！）同色，但都不印占比。
     let sharedFaces = TypingKeyHeatmap.sharedFaces(cell, nineKey: nineKey, style: style)
     let shared = !sharedFaces.isEmpty

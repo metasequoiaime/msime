@@ -4,7 +4,7 @@
 //!
 //! 权重分两层，因为新世纪表本身没有词组：如果所有词组都压在 `SUPPLEMENT_CEILING` 以下，常用词会全部排在同码的生僻单字之后。
 //!
-//! - 第一层是 86 极点码表里有的词：按新世纪码重新编码，权重沿用它在极点表里的权重（同一个词在极点表里有几行时取最大的），所以和 86 一样，常用词组可以排在同码的生僻单字之前。单字的权重按编码内名次给 10 的倍数（`msime::wubixsj_rows`），与极点表单字和词组的 10、20、30 这一档相当。
+//! - 第一层是 86 极点码表里有的词：按新世纪码重新编码，权重沿用它在极点表里的权重（同一个词在极点表里有几行时取最大的），所以和 86 一样，常用词组可以排在同码的生僻单字之前。86 原表拆分之后，rime-wubi 那部分的词不带 86 表里比出来的权重：它在 86 表里越过的是 86 的同码行，到了新世纪编码上邻居换成了同码单字。所以它按同一条规则（`wubi86_table::lifted`）在新世纪编码上重新比一次，比的是同码单字和第一层的极点表词，词频悬殊时越过排在最后的那几行，否则取 `wubi86_table::rows` 不比词频时给它的权重（一般是 10），同权重时排在单字之后。单字的权重按编码内名次给 10 的倍数（`msime::wubixsj_rows`），与极点表单字和词组的 10、20、30 这一档相当。
 //! - 第二层是其余候选词：与 86、98 补充表的规则相同，上限取 `SUPPLEMENT_CEILING` 与该编码下单字和第一层最低权重减 1 中较小者，同一编码下按 rime-ice 权重从高到低、再按词排序，从上限起依次减 1，最低为 0。所以第二层低于所有单字（最低是 10）；对第一层，只要该编码第一层的最低权重大于 0，第二层就严格更低，等于 0 时（极点表里权重为 0 的词）第二层与它同为 0，靠下面的行序排在它后面。
 //!
 //! 构建把本文件并在单字之后，同一编码内保持本文件的顺序（第一层在前）；引擎在同一编码下按权重从高到低、同权重按 rowid 排，所以同权重时单字在前、第一层在第二层前。第二层在候选里永远不会排到同码任何单字或第一层词之前，但「权重严格更低」只对单字成立。原本四码只有一个单字、输入法会自动上屏的编码，一旦有词组共用就不再自动上屏；报告会统计这类编码。
@@ -14,6 +14,7 @@ use std::fmt::Write as _;
 
 use anyhow::{bail, Result};
 
+use crate::curation::PinyinCuration;
 use crate::msime;
 use crate::text;
 use crate::wubi86_supplement::{MIN_PINYIN_WEIGHT, REPORT_EXAMPLES, SUPPLEMENT_CEILING};
@@ -41,6 +42,10 @@ pub(crate) const UPSTREAMS: [&str; 5] = [
 pub struct Inputs<'a> {
     pub wubixsj: &'a str,
     pub jidian: &'a str,
+    /// 新布局下 rime-wubi 补进来的 86 行（[`crate::wubi86_table::RIME_WUBI`]），旧布局为 `None`；第一层沿用的权重按 [`crate::wubi86_table::rows`] 换算，所以 rime-wubi 的词不会带着上亿的词频排到同码单字前面。
+    pub rime_wubi: Option<&'a str>,
+    /// rime-wubi 的词在新世纪编码上和同码已有的行比的词频（[`crate::wubi86_table::Frequencies`]），旧布局不用；86 表里比出来的权重不带到新世纪表。
+    pub frequencies: &'a crate::wubi86_table::Frequencies,
     /// `sources/wubi/wubi98.txt`，已从 UTF-16LE 解码。
     pub wubi98: &'a str,
     pub wubi98_fcitx: &'a str,
@@ -48,6 +53,8 @@ pub struct Inputs<'a> {
     pub pinyin_supplement: &'a str,
     pub places: &'a str,
     pub custom: &'a str,
+    /// msime-dictionary `curation/` 的拼音否决表和权重覆盖表：整词否决的词不收，权重覆盖只取第四列写了 `wubi` 的频率修正，见 [`PinyinCuration::wubi_rows`]。
+    pub curation: &'a PinyinCuration,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,7 +73,7 @@ pub struct Supplement {
     pub entries: Vec<Entry>,
     /// 推不出编码的候选词，以及导致失败的那个字。
     pub underivable: Vec<(String, char)>,
-    /// 含扩展区字而不收的候选词个数。
+    /// 含构建不写入的字（扩展区、私用区、兼容汉字，见 `msime::unsupported_wubi_value`）而不收的候选词个数。
     pub outside_basic_cjk: usize,
     /// 原本恰好只有一个单字、现在也有了词组的四码编码数。
     pub unique_codes_shared: usize,
@@ -85,22 +92,47 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
             .map(|(code, value, weight)| (code.clone(), value.as_str(), *weight))
             .collect::<Vec<_>>(),
     );
-    let frequency = frequencies([
-        inputs.base,
-        inputs.pinyin_supplement,
-        inputs.places,
-        inputs.custom,
-    ]);
+    let frequency = frequencies(
+        [
+            inputs.base,
+            inputs.pinyin_supplement,
+            inputs.places,
+            inputs.custom,
+        ],
+        inputs.curation,
+    );
 
     let mut jidian: BTreeMap<&str, i64> = BTreeMap::new();
-    for (_, value, weight) in text::universal_lines(text::without_bom(inputs.jidian))
-        .into_iter()
-        .filter_map(|line| msime::parse_code_line(line, false))
+    // 只在 rime-wubi 那部分出现、极点表本身没有的词：它们在 86 表里越过同码行得到的权重只说明它和 86 同码行的先后，所以这里按不比词频的权重读（极点表自己的行不受词频影响），到了新世纪表和同码已有的行（单字、第一层的极点表词）重新比一次词频。
+    let mut rime_wubi_only: HashSet<&str> = HashSet::new();
+    let unlifted = crate::wubi86_table::Frequencies::default();
+    let jidian_rows = crate::wubi86_table::rows(inputs.jidian, None, &unlifted).count();
+    for (index, row) in
+        crate::wubi86_table::rows(inputs.jidian, inputs.rime_wubi, &unlifted).enumerate()
     {
+        let Some((_, value, weight)) = row else {
+            continue;
+        };
         if value.chars().count() >= 2 {
             let slot = jidian.entry(value).or_insert(weight);
             *slot = (*slot).max(weight);
+            // 极点表已有的词组 `wubi86_table::tail` 不收，所以 rime-wubi 那部分的词组都不在极点表里。
+            if index >= jidian_rows {
+                rime_wubi_only.insert(value);
+            }
         }
+    }
+    let mut singles_by_code: HashMap<&str, Vec<(i64, &str)>> = HashMap::new();
+    for (code, value, weight) in &singles {
+        if *weight > 0 {
+            singles_by_code
+                .entry(code.as_str())
+                .or_default()
+                .push((*weight, value.as_str()));
+        }
+    }
+    for rows in singles_by_code.values_mut() {
+        rows.sort_by_key(|(weight, _)| std::cmp::Reverse(*weight));
     }
     if jidian.is_empty() {
         bail!("{JIDIAN} has no words");
@@ -120,9 +152,10 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
         bail!("{WUBI98} and {WUBI98_FCITX} have no rows");
     }
     let pinyin = pinyin_words(
-        &frequency,
+        &frequency.threshold,
         MIN_PINYIN_WEIGHT,
         &[inputs.places, inputs.custom],
+        inputs.curation,
     );
 
     let mut outside_basic_cjk = 0;
@@ -131,9 +164,9 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
         .copied()
         .chain(wubi98.iter().map(String::as_str))
         .chain(pinyin.iter().copied())
-        .filter(|word| is_word(word))
+        .filter(|word| is_word(word) && !inputs.curation.vetoes_word(word))
         .filter(|word| {
-            let outside = msime::outside_basic_cjk(word);
+            let outside = msime::unsupported_wubi_value(word);
             outside_basic_cjk += usize::from(outside);
             !outside
         })
@@ -141,6 +174,8 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
 
     // 第一层：极点表的词，权重沿用极点表；同码几个词按极点权重、rime-ice 权重、词排序。
     let mut first: BTreeMap<String, Vec<(&str, i64)>> = BTreeMap::new();
+    // 只来自 rime-wubi 的词，等极点表的词都排好之后再和同码已有的行比。
+    let mut rime_wubi_words: Vec<(String, &str)> = Vec::new();
     let mut underivable = Vec::new();
     for word in candidates
         .iter()
@@ -148,17 +183,48 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
         .filter(|word| jidian.contains_key(word))
     {
         match word_code(&codes, word) {
+            Ok(code) if rime_wubi_only.contains(word) => rime_wubi_words.push((code, word)),
             Ok(code) => first.entry(code).or_default().push((word, jidian[word])),
             Err(c) => underivable.push((word.to_owned(), c)),
         }
     }
-    for words in first.values_mut() {
-        words.sort_by(|a, b| {
-            b.1.cmp(&a.1)
-                .then(frequency.get(b.0).cmp(&frequency.get(a.0)))
-                .then(a.0.cmp(b.0))
-        });
+    let sort_first = |first: &mut BTreeMap<String, Vec<(&str, i64)>>| {
+        for words in first.values_mut() {
+            words.sort_by(|a, b| {
+                b.1.cmp(&a.1)
+                    .then(frequency.order.get(b.0).cmp(&frequency.order.get(a.0)))
+                    .then(a.0.cmp(b.0))
+            });
+        }
+    };
+    sort_first(&mut first);
+    // rime-wubi 的词按 86 表同样的规则（`wubi86_table::lifted`）和新世纪编码上已有的行比：同码单字和第一层的极点表词，按引擎的次序（权重从高到低，同权重时单字在前）。词频悬殊时越过排在最后的那几行（取件 `bcwt` 越过 陖，的话 `rqyt` 越过 魅族、鬼话）；越不过时用不比词频的权重，不拿 86 表里越过的权重越过它比不过的行（宿迁 `pwtf` 不越过 窄）。
+    let mut lifted_words = Vec::with_capacity(rime_wubi_words.len());
+    for (code, word) in rime_wubi_words {
+        let mut existing: Vec<(i64, &str)> = singles_by_code
+            .get(code.as_str())
+            .cloned()
+            .unwrap_or_default();
+        existing.extend(
+            first
+                .get(&code)
+                .into_iter()
+                .flatten()
+                .map(|&(value, weight)| (weight, value)),
+        );
+        existing.sort_by_key(|(weight, _)| std::cmp::Reverse(*weight));
+        let weight = crate::wubi86_table::lifted(
+            &existing,
+            inputs.frequencies.get(word),
+            inputs.frequencies,
+        )
+        .unwrap_or(jidian[word]);
+        lifted_words.push((code, word, weight));
     }
+    for (code, word, weight) in lifted_words {
+        first.entry(code).or_default().push((word, weight));
+    }
+    sort_first(&mut first);
 
     // 第二层排在单字和第一层之后：把它们一起当作「原有行」交给共用的排名规则。
     let mut existing: Vec<(String, &str, i64)> = singles
@@ -178,7 +244,7 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
             .iter()
             .copied()
             .filter(|word| !jidian.contains_key(word)),
-        &frequency,
+        &frequency.order,
         SUPPLEMENT_CEILING,
     );
     underivable.extend(second.underivable);
@@ -256,6 +322,7 @@ pub fn render(supplement: &Supplement, provenance: &Provenance) -> String {
         .map(|(path, sha256)| format!("{path}（SHA-256 {sha256}）"))
         .collect::<Vec<_>>()
         .join("、");
+    let table = crate::wubi86_table::described(provenance.inputs);
     let mut out = String::new();
     let _ = writeln!(out, "# 新世纪五笔词组表，由 msime 仓库提交 {} 的 crates/dict-builder/src/wubixsj_supplement.rs 以 `msime-dict-build wubixsj-supplement --dictionary <msime-dictionary checkout> --cache <dir> --out sources/wubi/wubixsj-supplement.txt` 生成；不要手工编辑。", provenance.generator_commit);
     let _ = writeln!(out, "# 输入：{inputs}。");
@@ -264,9 +331,9 @@ pub fn render(supplement: &Supplement, provenance: &Provenance) -> String {
         "# 上游：{}；jidian 与区划表的来源、提交和许可另见 NOTICE.md 及输入文件头。",
         provenance.upstreams
     );
-    let _ = writeln!(out, "# 收录：全部由基本区汉字组成（不含 CJK 扩展 A 和 BMP 以外的字）的两字及以上词，满足其一即收：在 {JIDIAN}、{WUBI98} 或 {WUBI98_FCITX} 里；或在 {BASE} 里权重不低于 {MIN_PINYIN_WEIGHT}，或 {PINYIN_SUPPLEMENT} 里达到同一门槛；或在 {PLACES}、{CUSTOM} 里（不设权重门槛；9999 这类人工填写的权重不与词频区分）。{WUBIXSJ} 自己的词组和权重一律不用。");
+    let _ = writeln!(out, "# 收录：全部由基本区汉字组成（不含 CJK 扩展 A 和 BMP 以外的字）的两字及以上词，满足其一即收：在 {table}、{WUBI98} 或 {WUBI98_FCITX} 里；或在 {BASE} 里权重不低于 {MIN_PINYIN_WEIGHT}，或 {PINYIN_SUPPLEMENT} 里达到同一门槛；或在 {PLACES}、{CUSTOM} 里（不设权重门槛；9999 这类人工填写的权重不与词频区分）。{WUBIXSJ} 自己的词组和权重一律不用。");
     let _ = writeln!(out, "# 编码：按与 86、98 相同的词组规则，取 {WUBIXSJ} 里基本区单字的全码（该字单独出现时最长的编码）：二字词各取前两码；三字词取前两字的首码和第三字的前两码；四字及以上取第一、二、三字和末字的首码。单字表里没有、或几个全码在所需码位上不一致的字，含它的词不收。");
-    let _ = writeln!(out, "# 权重：单字按 {WUBIXSJ} 里同一编码内上游权重的名次给 10 的倍数（上游权重只用来定先后、数值不进表；构建时算出，不在本文件里）。{JIDIAN} 里有的词沿用它在该表里的最大权重；其余的词排在同一编码下单字和这些词之后：最高权重取 {SUPPLEMENT_CEILING} 与该编码已有最低权重减 1 中较小者，几个词按 {BASE}、{PINYIN_SUPPLEMENT}、{PLACES}、{CUSTOM} 中同词最大权重从高到低（没有的排最后，再按词）依次减 1，最低为 0。构建的 wubixsj 阶段在单字之后并入本文件，同权重时单字在前。");
+    let _ = writeln!(out, "# 权重：单字按 {WUBIXSJ} 里同一编码内上游权重的名次给 10 的倍数（上游权重只用来定先后、数值不进表；构建时算出，不在本文件里）。{table} 里有的词沿用它在该表里的最大权重；其余的词排在同一编码下单字和这些词之后：最高权重取 {SUPPLEMENT_CEILING} 与该编码已有最低权重减 1 中较小者，几个词按 {BASE}、{PINYIN_SUPPLEMENT}、{PLACES}、{CUSTOM} 中同词最大权重从高到低（没有的排最后，再按词）依次减 1，最低为 0。构建的 wubixsj 阶段在单字之后并入本文件，同权重时单字在前。");
     for entry in &supplement.entries {
         let _ = writeln!(out, "{}\t{}\t{}", entry.word, entry.code, entry.weight);
     }
@@ -313,7 +380,7 @@ pub fn report(supplement: &Supplement) -> Vec<String> {
             supplement.unique_codes_shared
         ),
         format!(
-            "{} candidates left out for a character outside the basic CJK block",
+            "{} candidates left out for a character the build does not write (outside the basic CJK block, private use or a compatibility ideograph)",
             supplement.outside_basic_cjk
         ),
         format!(
@@ -335,12 +402,15 @@ mod tests {
         build(&Inputs {
             wubixsj: WUBIXSJ_FIXTURE,
             jidian,
+            rime_wubi: None,
+            frequencies: &crate::wubi86_table::Frequencies::default(),
             wubi98: WUBI98_FIXTURE,
             wubi98_fcitx: "",
             base,
             pinyin_supplement: "",
             places: "",
             custom,
+            curation: &PinyinCuration::default(),
         })
         .unwrap()
     }
@@ -377,8 +447,102 @@ mod tests {
         assert_eq!(supplement.unique_codes_shared, 1);
     }
 
+    /// 新布局下 rime-wubi 补进来的词在第一层按换算后的 10 算：「部门」在 rime-wubi 里的词频上亿，换算后与同码单字「冰」同为 10，同权重时单字在前；旧布局读合并的文件时它带着原来的权重领先。它在新世纪编码上按同一条规则和同码已有的行比，单字和第一层的极点表词都算：是 冰 的十倍以上就越过它（冰 的 10 加 1），冰 足够常用时不越；极点表词「冲凉」在新世纪编码上也在同码，词频悬殊时一并越过（冲凉 的 20 加 1）；在 86 表里越过 冲凉 得到的权重不带过来，所以越不过 冰 时仍是 10。
+    #[test]
+    fn rime_wubi_words_keep_the_mapped_weight() {
+        let curation = PinyinCuration::default();
+        let build_from = |jidian: &str,
+                          rime_wubi: Option<&str>,
+                          frequencies: &crate::wubi86_table::Frequencies| {
+            let supplement = build(&Inputs {
+                wubixsj: WUBIXSJ_FIXTURE,
+                jidian,
+                rime_wubi,
+                frequencies,
+                wubi98: WUBI98_FIXTURE,
+                wubi98_fcitx: "",
+                base: "",
+                pinyin_supplement: "",
+                places: "",
+                custom: "",
+                curation: &curation,
+            })
+            .unwrap();
+            let first = supplement.entries.iter().find(|entry| entry.word == "部门");
+            (
+                first.map(|entry| entry.weight),
+                supplement.codes_led_by_words,
+            )
+        };
+        let none = crate::wubi86_table::Frequencies::default();
+        let jidian = "工\taaaa\t20\r\n";
+        let rime_wubi = "部门\tukuy\t444000000\r\n";
+        assert_eq!(build_from(jidian, Some(rime_wubi), &none), (Some(10), 0));
+        let merged = format!("{jidian}{rime_wubi}");
+        assert_eq!(build_from(&merged, None, &none), (Some(444000000), 1));
+        let parse = |source: &str| crate::wubi86_table::Frequencies::parse([source], &curation);
+        let frequent = parse("部门\tbu'men\t50000\n冲凉\tchong'liang\t400\n");
+        assert_eq!(
+            build_from("冲凉\tukuy\t10\r\n", Some(rime_wubi), &frequent),
+            (Some(11), 1)
+        );
+        // 86 同码没有极点行时也一样：部门 是 冰 的十倍以上就越过它；冰 足够常用时不越。
+        assert_eq!(
+            build_from(jidian, Some(rime_wubi), &frequent),
+            (Some(11), 1)
+        );
+        let common_single = parse("部门\tbu'men\t50000\n冰\tbing\t9000\n");
+        assert_eq!(
+            build_from(jidian, Some(rime_wubi), &common_single),
+            (Some(10), 0)
+        );
+        // 新世纪编码上同码的极点表词也算：冲凉（20）和 冰 都冷僻得多，两行都越过，取 冲凉 的 20 加 1。
+        assert_eq!(
+            build_from("冲凉\tukuy\t20\r\n", Some(rime_wubi), &frequent),
+            (Some(21), 1)
+        );
+        // 在 86 表里越过了 冲凉，到了新世纪编码上越不过 冰：取不比词频的 10，排在 冰 之后，不带着 86 的 11 排到它前面。
+        let common_single_after_lift =
+            parse("部门\tbu'men\t50000\n冲凉\tchong'liang\t400\n冰\tbing\t9000\n");
+        assert_eq!(
+            build_from(
+                "冲凉\tukuy\t10\r\n",
+                Some(rime_wubi),
+                &common_single_after_lift
+            ),
+            (Some(10), 0)
+        );
+        // 极点表自己的词不比：冲凉 在极点表里是 10，词频再高也还是 10。
+        let frequent_jidian = parse("冲凉\tchong'liang\t900000\n");
+        let supplement = build(&Inputs {
+            wubixsj: WUBIXSJ_FIXTURE,
+            jidian: "冲凉\tukuy\t10\r\n",
+            rime_wubi: Some(""),
+            frequencies: &frequent_jidian,
+            wubi98: WUBI98_FIXTURE,
+            wubi98_fcitx: "",
+            base: "",
+            pinyin_supplement: "",
+            places: "",
+            custom: "",
+            curation: &curation,
+        })
+        .unwrap();
+        let chongliang = supplement.entries.iter().find(|entry| entry.word == "冲凉");
+        assert_eq!(chongliang.map(|entry| entry.weight), Some(10));
+    }
+
     /// 渲染本表、与单字表一起建出 `wubixsj`，再按引擎的排序（权重从高到低，同权重按 rowid）列出一个编码的候选。
     fn merged(supplement: &Supplement, code: &str) -> Vec<(String, i64)> {
+        merged_with(supplement, code, &crate::curation::PinyinVetoes::default())
+    }
+
+    /// 同 [`merged`]，建表时施加 `vetoes` 的整词否决。
+    fn merged_with(
+        supplement: &Supplement,
+        code: &str,
+        vetoes: &crate::curation::PinyinVetoes,
+    ) -> Vec<(String, i64)> {
         let rendered = render(
             supplement,
             &Provenance {
@@ -393,7 +557,7 @@ mod tests {
         let generated = dir.path().join("wubixsj-supplement.txt");
         std::fs::write(&generated, rendered).unwrap();
         let mut connection = rusqlite::Connection::open_in_memory().unwrap();
-        msime::build_wubixsj(&mut connection, &source, &[&generated]).unwrap();
+        msime::build_wubixsj(&mut connection, &source, &[&generated], vetoes).unwrap();
         let rows = connection
             .prepare("SELECT value, weight FROM wubixsj WHERE key = ?1 ORDER BY weight DESC, rowid")
             .unwrap()
@@ -402,6 +566,43 @@ mod tests {
             .map(Result::unwrap)
             .collect();
         rows
+    }
+
+    /// 整词否决的词不进补充表（极点表的词也一样），读音否决改的是拼音那边的 100 门槛，没写 `wubi` 的权重覆盖（冲冻 升到 120）只改拼音、五笔不理；建表时整词否决的词也不写进 `wubixsj`。
+    #[test]
+    fn curation_tables_reach_the_generator_and_the_table() {
+        let curation =
+            PinyinCuration::parse("部门\n冻冲\tdong'chong\n", "冲冻\tchong'dong\t120\n").unwrap();
+        let supplement = build(&Inputs {
+            wubixsj: WUBIXSJ_FIXTURE,
+            jidian: "部门\tukuy\t30\r\n冲凉\tukuy\t10\r\n冲凉\tuk\t20\r\n工\taaaa\t20\r\n",
+            rime_wubi: None,
+            frequencies: &crate::wubi86_table::Frequencies::default(),
+            wubi98: WUBI98_FIXTURE,
+            wubi98_fcitx: "",
+            base: "冻冲\tdong'chong\t500\n冲冻\tchong'dong\t99\n",
+            pinyin_supplement: "",
+            places: "",
+            custom: "",
+            curation: &curation,
+        })
+        .unwrap();
+        assert_eq!(
+            rows(&supplement),
+            [("冲凉", "ukuy", 20), ("人民", "wwna", 9)]
+        );
+        assert_eq!(
+            merged(&supplement, "ukuy"),
+            [("冲凉".to_owned(), 20), ("冰".to_owned(), 10)]
+        );
+        assert_eq!(
+            merged_with(
+                &supplement,
+                "ukuy",
+                &crate::curation::PinyinVetoes::parse("冲凉\n").unwrap()
+            ),
+            [("冰".to_owned(), 10)]
+        );
     }
 
     /// 第二层的上限是同码最低权重减 1、最低为 0：极点表里权重为 0 的第一层词没有更低的权重可给，第二层与它同为 0。这时排序靠行序，第一层仍在第二层前面。

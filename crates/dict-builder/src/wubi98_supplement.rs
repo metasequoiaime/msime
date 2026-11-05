@@ -11,10 +11,11 @@ use std::fmt::Write as _;
 
 use anyhow::{bail, Result};
 
+use crate::curation::PinyinCuration;
 use crate::msime;
+use crate::wubi86_supplement;
 use crate::wubi86_supplement::{MIN_PINYIN_WEIGHT, REPORT_EXAMPLES, SUPPLEMENT_CEILING};
 use crate::wubi_supplement::{frequencies, is_word, pinyin_words, rank};
-use crate::{text, wubi86_supplement};
 
 pub const OUTPUT: &str = "sources/wubi/wubi98-supplement.txt";
 pub const WUBI98: &str = wubi86_supplement::WUBI98;
@@ -30,10 +31,16 @@ pub struct Inputs<'a> {
     pub wubi98: &'a str,
     pub wubi98_fcitx: &'a str,
     pub jidian: &'a str,
+    /// 新布局下 rime-wubi 补进来的 86 行（[`crate::wubi86_table::RIME_WUBI`]），旧布局为 `None`。
+    pub rime_wubi: Option<&'a str>,
+    /// 读 86 原表时比的词频（[`crate::wubi86_table::Frequencies`]）；这里只取 86 原表的词，不看权重，传进来是为了和构建读到同一组行。
+    pub frequencies: &'a crate::wubi86_table::Frequencies,
     pub base: &'a str,
     pub pinyin_supplement: &'a str,
     pub places: &'a str,
     pub custom: &'a str,
+    /// msime-dictionary `curation/` 的拼音否决表和权重覆盖表：整词否决的词不收，权重覆盖只取第四列写了 `wubi` 的频率修正，见 [`PinyinCuration::wubi_rows`]。
+    pub curation: &'a PinyinCuration,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,7 +57,7 @@ pub struct Supplement {
     pub entries: Vec<Entry>,
     /// 推不出编码的候选词，以及导致失败的那个字。
     pub underivable: Vec<(String, char)>,
-    /// 含扩展区字而不收的候选词个数。
+    /// 含构建不写入的字（扩展区、私用区、兼容汉字，见 `msime::unsupported_wubi_value`）而不收的候选词个数。
     pub outside_basic_cjk: usize,
     /// 原本恰好只有一行、现在也有了补充行的四码编码数。
     pub unique_codes_shared: usize,
@@ -61,8 +68,10 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
     if weighted.is_empty() {
         bail!("{WUBI98} and {WUBI98_FCITX} have no rows");
     }
+    // 构建不把整词否决的词写进 wubi98，同码最低权重和全码也就不算它们。
     let rows: Vec<(String, &str, i64)> = weighted
         .iter()
+        .filter(|(_, value, _)| !inputs.curation.vetoes_word(value))
         .map(|(code, value, weight)| (code.clone(), value.as_str(), *weight))
         .collect();
     let wubi98_words: HashSet<&str> = rows
@@ -70,26 +79,30 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
         .filter(|(_, value, _)| value.chars().count() >= 2)
         .map(|(_, value, _)| *value)
         .collect();
-    let frequency = frequencies([
-        inputs.base,
-        inputs.pinyin_supplement,
-        inputs.places,
-        inputs.custom,
-    ]);
+    let frequency = frequencies(
+        [
+            inputs.base,
+            inputs.pinyin_supplement,
+            inputs.places,
+            inputs.custom,
+        ],
+        inputs.curation,
+    );
 
-    let jidian: BTreeSet<&str> = text::universal_lines(text::without_bom(inputs.jidian))
-        .into_iter()
-        .filter_map(|line| msime::parse_code_line(line, false))
-        .map(|(_, value, _)| value)
-        .filter(|value| value.chars().count() >= 2)
-        .collect();
+    let jidian: BTreeSet<&str> =
+        crate::wubi86_table::rows(inputs.jidian, inputs.rime_wubi, inputs.frequencies)
+            .flatten()
+            .map(|(_, value, _)| value)
+            .filter(|value| value.chars().count() >= 2)
+            .collect();
     if jidian.is_empty() {
         bail!("{JIDIAN} has no words");
     }
     let pinyin = pinyin_words(
-        &frequency,
+        &frequency.threshold,
         MIN_PINYIN_WEIGHT,
         &[inputs.places, inputs.custom],
+        inputs.curation,
     );
 
     let mut outside_basic_cjk = 0;
@@ -97,15 +110,17 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
         .iter()
         .chain(pinyin.iter())
         .copied()
-        .filter(|word| is_word(word) && !wubi98_words.contains(word))
         .filter(|word| {
-            let outside = msime::outside_basic_cjk(word);
+            is_word(word) && !wubi98_words.contains(word) && !inputs.curation.vetoes_word(word)
+        })
+        .filter(|word| {
+            let outside = msime::unsupported_wubi_value(word);
             outside_basic_cjk += usize::from(outside);
             !outside
         })
         .collect();
 
-    let ranked = rank(&rows, candidates, &frequency, SUPPLEMENT_CEILING);
+    let ranked = rank(&rows, candidates, &frequency.order, SUPPLEMENT_CEILING);
     let entries = ranked
         .entries
         .into_iter()
@@ -142,6 +157,7 @@ pub fn render(supplement: &Supplement, provenance: &Provenance) -> String {
         .map(|(path, sha256)| format!("{path}（SHA-256 {sha256}）"))
         .collect::<Vec<_>>()
         .join("、");
+    let table = crate::wubi86_table::described(provenance.inputs);
     let mut out = String::new();
     let _ = writeln!(out, "# 98 五笔词组补充表，由 msime 仓库提交 {} 的 crates/dict-builder/src/wubi98_supplement.rs 以 `msime-dict-build wubi98-supplement --dictionary <msime-dictionary checkout> --cache <dir> --out sources/wubi/wubi98-supplement.txt` 生成；不要手工编辑。", provenance.generator_commit);
     let _ = writeln!(out, "# 输入：{inputs}。");
@@ -150,7 +166,7 @@ pub fn render(supplement: &Supplement, provenance: &Provenance) -> String {
         "# 上游：{}；jidian 与区划表的来源、提交和许可另见 NOTICE.md 及输入文件头。",
         provenance.upstreams
     );
-    let _ = writeln!(out, "# 收录：{WUBI98} 和 {WUBI98_FCITX} 在任何编码下都没有、且全部由基本区汉字组成（不含 CJK 扩展 A 和 BMP 以外的字）的词，满足其一即收：在 86 五笔的 {JIDIAN} 里是两字及以上的词；或在 {BASE} 里是权重不低于 {MIN_PINYIN_WEIGHT} 的两字及以上词，或 {PINYIN_SUPPLEMENT} 里达到同一门槛的词，或 {PLACES}、{CUSTOM} 的人工维护词（后两者不设权重门槛；9999 这类人工填写的权重不与词频区分）。");
+    let _ = writeln!(out, "# 收录：{WUBI98} 和 {WUBI98_FCITX} 在任何编码下都没有、且全部由基本区汉字组成（不含 CJK 扩展 A 和 BMP 以外的字）的词，满足其一即收：在 86 五笔的 {table} 里是两字及以上的词；或在 {BASE} 里是权重不低于 {MIN_PINYIN_WEIGHT} 的两字及以上词，或 {PINYIN_SUPPLEMENT} 里达到同一门槛的词，或 {PLACES}、{CUSTOM} 的人工维护词（后两者不设权重门槛；9999 这类人工填写的权重不与词频区分）。");
     let _ = writeln!(out, "# 编码：按 98 版词组规则，取 {WUBI98} 和 {WUBI98_FCITX} 里单字的全码（该字单独出现时最长的编码）：二字词各取前两码；三字词取前两字的首码和第三字的前两码；四字及以上取第一、二、三字和末字的首码。单字表里没有、或几个全码在所需码位上不一致的字，含它的词不收。");
     let _ = writeln!(out, "# 去重与权重：对照集合是 {WUBI98} 和 {WUBI98_FCITX} 的全部两字及以上词条，已有的词不论编码一律不收。原有行的权重按构建的规则算出（主表按编码内先后给 10 的倍数，{WUBI98_FCITX} 的行给 1）。同一编码下补充词排在原有行之后：最高权重取 {SUPPLEMENT_CEILING} 与该编码原有最低权重减 1 中较小者，几个补充词按 {BASE}、{PINYIN_SUPPLEMENT}、{PLACES}、{CUSTOM} 中同词最大权重从高到低（没有的排最后，再按词）依次减 1，最低为 0；构建的 wubi98 阶段在两张 98 表之后并入本文件，同权重时原有行在前。");
     for entry in &supplement.entries {
@@ -194,7 +210,7 @@ pub fn report(supplement: &Supplement) -> Vec<String> {
             supplement.unique_codes_shared
         ),
         format!(
-            "{} candidates left out for a character outside the basic CJK block",
+            "{} candidates left out for a character the build does not write (outside the basic CJK block, private use or a compatibility ideograph)",
             supplement.outside_basic_cjk
         ),
         format!(
@@ -216,10 +232,13 @@ mod tests {
             wubi98,
             wubi98_fcitx: fcitx,
             jidian,
+            rime_wubi: None,
+            frequencies: &crate::wubi86_table::Frequencies::default(),
             base,
             pinyin_supplement: "",
             places: "",
             custom: "",
+            curation: &PinyinCuration::default(),
         })
         .unwrap()
     }
@@ -293,10 +312,13 @@ mod tests {
             wubi98: WUBI98_FIXTURE,
             wubi98_fcitx: "",
             jidian: "日日\tjjjj\t10\n",
+            rime_wubi: None,
+            frequencies: &crate::wubi86_table::Frequencies::default(),
             base: "",
             pinyin_supplement: "工人\tgong'ren\t100\n",
             places: "工人日\tgong'ren'ri\t1\n",
             custom: "工人民\tgong'ren'min\t1\n工人\tgong'ren\t100\n",
+            curation: &PinyinCuration::default(),
         })
         .unwrap();
         assert_eq!(
@@ -307,6 +329,33 @@ mod tests {
                 ("工人民", "awna", 9),
                 ("日日", "jjjj", 9)
             ]
+        );
+    }
+
+    /// 整词否决的词不进补充表（极点表和区划表的词也一样），读音否决改的是拼音那边的 100 门槛，写了 `wubi` 的权重覆盖（日工 升到 100）也算进门槛；98 主表里被整词否决的词不再算 98 表已有。
+    #[test]
+    fn curation_tables_reach_the_generator() {
+        let curation = PinyinCuration::parse(
+            "日日\n工人日\n人民\n工人\tgong'ren\n",
+            "日工\tri'gong\t100\twubi\n",
+        )
+        .unwrap();
+        let supplement = build(&Inputs {
+            wubi98: WUBI98_FIXTURE,
+            wubi98_fcitx: "",
+            jidian: "日日\tjjjj\t10\n人民\twwna\t20\n",
+            rime_wubi: None,
+            frequencies: &crate::wubi86_table::Frequencies::default(),
+            base: "日工\tri'gong\t99\n",
+            pinyin_supplement: "工人\tgong'ren\t100\n",
+            places: "工人日\tgong'ren'ri\t1\n",
+            custom: "工人民\tgong'ren'min\t1\n工人\tgong'ren\t100\n",
+            curation: &curation,
+        })
+        .unwrap();
+        assert_eq!(
+            rows(&supplement),
+            [("工人民", "awna", 9), ("日工", "jjaa", 9)]
         );
     }
 
@@ -357,7 +406,14 @@ mod tests {
         let generated = dir.path().join("wubi98-supplement.txt");
         std::fs::write(&generated, rendered).unwrap();
         let mut connection = rusqlite::Connection::open_in_memory().unwrap();
-        msime::build_wubi98_sources(&mut connection, &primary_path, &[], &[&generated]).unwrap();
+        msime::build_wubi98_sources(
+            &mut connection,
+            &primary_path,
+            &[],
+            &[&generated],
+            &crate::curation::PinyinVetoes::default(),
+        )
+        .unwrap();
         let ukuy: Vec<(String, i64)> = connection
             .prepare(
                 "SELECT value, weight FROM wubi98 WHERE key = 'ukuy' ORDER BY weight DESC, rowid",

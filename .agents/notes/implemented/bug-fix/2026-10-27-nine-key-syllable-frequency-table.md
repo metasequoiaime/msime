@@ -33,7 +33,7 @@ Status: implemented
 - `SyllablePrior` 的频度改从内嵌表 `crates/engine/src/nine_key/syllable_frequency.tsv` 读，不再从运行时的词库现算。`SyllablePrior::shipped` 取代原来的 `from_dictionary`；原来只给它用的 `QuanpinDictionary::top_weight_sums` 没有别的调用方了，一并删掉。
 - 表里每个音节的值是它在词库里出现的总权重：读音就是这个音节的单字行，权重照计；多字词的读音里这个音节每出现一次，计一次这个词的权重。取对数、前缀取以它开头的音节里最高的那个，这两条照旧。
 - 表由 `msime-dict-build syllable-frequency --pinyin <msime-pinyin.db>` 生成，默认写回引擎内嵌的那份。第一行 `# msime-pinyin.db sha256=…` 记下取自哪份词库，和那一版词库发布锁里同名文件的 sha256 对得上；现在这份取自 dict-v2.0.39（`e8d7a7bc…`），与换锁后 `resources/desktop-dictionary.lock.json` 里的 `msime-pinyin.db` 相同。研究时用的 dict-v2.0.39 目录与新锁装出的资源目录（代次 `576494c4…`）逐文件 sha256 相同，表不用重新生成。
-- 引擎解析时跳过 `#` 行，其余每行必须是 `音节<TAB>权重`，否则直接 panic。单测 `shipped_syllable_frequency_covers_every_spelling_and_names_its_source` 核对来源行，并要求九宫格的全部音节都有正权重，只缺 jv、jve、qv、qve、xv、xve、yv、yve、lue、nue 这 10 个别写（词库行记在正写下，原先现查单字时它们同样按 1 算）。重新生成坏了会在测试里失败，不会悄悄退化成全部按 1 算的均匀频度。
+- 引擎解析时跳过 `#` 行，其余每行必须是 `音节<TAB>权重`，否则直接 panic。单测 `shipped_syllable_frequency_covers_every_spelling_and_names_its_source` 核对来源行（2026-11-05 起要求它等于 `resources/desktop-dictionary.lock.json` 里 `msime-pinyin.db` 的 sha256：此前只查格式，表和锁可以悄悄错开；dict-builder 的 `shipped_table_is_rebuilt_from_the_locked_dictionary` 在设了 `MSIME_EVAL_RESOURCES` 时再从那份词库重新生成、逐字节比较（CI 的 Rust engine 作业按锁下载 `msime-pinyin.db` 跑这一条），见[换锁笔记](2026-10-27-dictionary-lock-latest.md)「换到 dict-v2.1.0」），并要求九宫格的全部音节都有正权重，只缺 jv、jve、qv、qve、xv、xve、yv、yve、lue、nue 这 10 个别写（词库行记在正写下，原先现查单字时它们同样按 1 算）。重新生成坏了会在测试里失败，不会悄悄退化成全部按 1 算的均匀频度。
 - 左列同样码长的音节也按这张表排（[九键左列音节的先后](2026-10-10-nine-key-spelling-column-order.md)）。
 
 ### 种子保住整个拼出的末音节

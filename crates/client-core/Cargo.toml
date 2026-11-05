@@ -23,6 +23,8 @@ chacha20poly1305 = { version = "0.11", default-features = false, features = ["al
 x25519-dalek = { version = "3", default-features = false, features = ["static_secrets", "zeroize"] }
 hkdf = "0.13"
 getrandom = "0.4"
+# 输入习惯同步的 MSL1 信封（`cloud::learning_e2e`）先把明文流压成单个 gzip 成员再补齐加密。与 msime-client-services、msime-client-providers 用的是同一份 flate2，锁文件里不多出新的 crate。
+flate2 = "1"
 hex = "0.4"
 md-5 = "0.11"
 base64 = "0.23"
