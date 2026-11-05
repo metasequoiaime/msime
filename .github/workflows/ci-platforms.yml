@@ -401,6 +401,10 @@ jobs:
       - name: Unit tests for msime-input-runtime
         if: ${{ needs.changes.outputs.engine == 'true' }}
         run: cargo test --locked -p msime-input-runtime
+      # msime-client-core 的偏好单测此前只在 Android 设备作业（build-core-test.sh）里整套运行，只改桌面或 macOS 的 PR 不触发它。2026-11-05 #10809 给 VoiceInput 加了 hotkey_global，没登记进 NOT_CREDENTIALS，every_credential_like_preference_field_is_listed 在它的 PR 上没跑，合入后每个跑设备验收的 PR 都红在这一条。偏好测试只读写临时目录，不依赖设备，所以跟着共享路径在这里跑一遍。
+      - name: Preference unit tests for msime-client-core
+        if: ${{ needs.changes.outputs.engine == 'true' }}
+        run: cargo test --locked -p msime-client-core --lib 'preferences::'
       # msime 自己经 path 依赖用引擎的源码，crates.io 上的采用方拿到的是按 include 白名单打出来的包；新加的数据文件漏进白名单、或者 README 里的路径在包里不存在，我们这边照常编过，只有下载包的人编不过。所以每个改了引擎的 PR 都把三个发布的 crate 按发布时的方式打包，并在打包后的源码上各编一遍。用 cargo package 不用 cargo publish --dry-run：后者遇到 crates.io 上已有的版本会失败，而版本号只在发版时才改。
       - name: Published crates build from their packages
         if: ${{ needs.changes.outputs.engine == 'true' }}
