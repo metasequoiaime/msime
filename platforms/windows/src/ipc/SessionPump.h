@@ -41,6 +41,8 @@ public:
     std::function<void(const FocusLease &, const FanyImeNamedpipeData &)> before_key;
     // 管道线程，按键任务回来之后、断开这个客户端之前。参数是一行诊断（请求种类、客户端、请求号、校验名和计数），不含输入内容。只用来写日志：不能重入输入队列，也不能碰焦点或管道。
     std::function<void(const std::string &)> rejected;
+    // 管道线程，一个带焦点路由的非按键事件（模式快照、中英切换等）被事件处理器接住、离开输入队列和焦点闸门之后。只用来叫醒界面线程：界面线程读模式用不等待的 try_with_active，在闸门里叫醒它会正好撞上闸门而读空，只能再等下一轮。不能重入输入队列、焦点或管道。
+    std::function<void(const FocusLease &, const FanyImeNamedpipeData &)> event_settled;
   };
   SessionPump(MainTransport &transport, InputQueue &input, FocusGate &focus,
               KeyHandler key, EventHandler event, Presentation presentation = {},

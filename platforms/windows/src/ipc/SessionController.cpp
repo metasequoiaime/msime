@@ -172,6 +172,10 @@ SessionController::SessionController(
            [this](const std::string &line) {
              if (presentation_.rejected)
                presentation_.rejected(line);
+           },
+           [this](const FocusLease &lease, const FanyImeNamedpipeData &packet) {
+             if (presentation_.event_settled)
+               presentation_.event_settled(lease, packet);
            }},
           transactions_) {
   if (!event_ || !healthy_ || !stop_service_ || interval.count() < 1 ||

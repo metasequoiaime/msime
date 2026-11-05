@@ -77,6 +77,29 @@ int main() {
     feedback.publish(character_set_hud(false), {}, 100, now);
     require(feedback.take({}, 100, now)->text == L"简");
 
+    // 发布一次就叫醒界面线程一次，取走不叫醒；单按 Shift 的模式快照不经信箱，单独 wake 也叫醒（#10782）。
+    InputStateHudFeedback waking;
+    int wakes = 0;
+    waking.set_wake([&wakes] { ++wakes; });
+    waking.publish(character_set_hud(true), {}, 100, now);
+    require(wakes == 1);
+    require(waking.take({}, 100, now)->text == L"繁");
+    require(wakes == 1);
+    waking.wake();
+    require(wakes == 2);
+    require(!waking.take({}, 100, now));
+    // 叫醒回调在锁外调用：回调里能再碰信箱，不会自锁。
+    InputStateHudFeedback reentrant;
+    std::optional<InputStateHudText> seen;
+    reentrant.set_wake([&] { seen = reentrant.take({}, 100, now); });
+    reentrant.publish(character_set_hud(false), {}, 100, now);
+    require(seen && seen->text == L"简");
+    // 没有登记叫醒时照旧收发。
+    InputStateHudFeedback quiet;
+    quiet.wake();
+    quiet.publish(character_set_hud(true), {}, 100, now);
+    require(quiet.take({}, 100, now)->text == L"繁");
+
   }
     // macOS 的紧凑尺寸：18 号字、高 32、logo 16、两侧各 8、logo 和字之间 4、圆角 8、描边 1。
     const auto metrics = input_mode_hud_metrics(true);

@@ -1166,6 +1166,10 @@ int wmain(int argc, wchar_t **argv) {
     // a newly connected client may dispatch its first key immediately.
     startup_stage = "workers";
     InputStateHudFeedback hud_feedback;
+    // 这里就是界面线程（下面的消息循环在 wmain 里跑）。提示和模式报告都在工作线程上到达，给界面线程投一条空消息，它就从 MsgWaitForMultipleObjectsEx 里返回、马上跑一轮，不必等满 50 毫秒；DispatchMessageW 对没有窗口的 WM_NULL 什么也不做。
+    hud_feedback.set_wake([ui_thread = GetCurrentThreadId()] {
+      PostThreadMessageW(ui_thread, WM_NULL, 0, 0);
+    });
     InputStateHudModeTracker hud_mode_tracker;
     CharacterSetClickWorker character_set_clicks(
         [traditional_output, &hud_feedback, directory = config.state_root](
@@ -1431,6 +1435,19 @@ int wmain(int argc, wchar_t **argv) {
                                      const FanyImeNamedpipeData &) {
       if (reply.dedicated_english_change)
         hud_feedback.publish(dedicated_english_hud(*reply.dedicated_english_change), lease);
+    };
+    // 模式报告离开焦点闸门之后叫醒界面线程。单按 Shift 切中英文时客户端只报一帧模式快照，ModeMailbox 已经记下新模式，「中」「英」提示由界面线程下一轮的 mode_authority_step 判出来；全半角和标点的提示在事件处理器里发布，闸门里的那次叫醒可能读空，这一次保证界面线程在闸门放开之后再跑一轮。
+    pump_presentation.event_settled = [&hud_feedback](const FocusLease &,
+                                                      const FanyImeNamedpipeData &packet) {
+      switch (packet.event_type) {
+      case FanyImePipeEventType::StatusSnapshot:
+      case FanyImePipeEventType::FocusRestored:
+      case FanyImePipeEventType::IMESwitch:
+      case FanyImePipeEventType::PuncSwitch:
+      case FanyImePipeEventType::DoubleSingleByteSwitch:
+        hud_feedback.wake();
+        break;
+      }
     };
     // 单个按键被拒（RequestRejected）只断开那一个客户端，原因写进 Server 日志；不然日志里只剩随后的重连，看不出是哪一项校验没过。
     pump_presentation.rejected = [&diagnostic_log](const std::string &line) {

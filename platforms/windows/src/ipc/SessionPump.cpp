@@ -199,6 +199,8 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
           continue;
         if (!handled)
           return PumpResult::DispatchFailed;
+        if (route.route && presentation_.event_settled)
+          presentation_.event_settled(*route.route, *packet);
         continue;
       }
       if (!route.route)

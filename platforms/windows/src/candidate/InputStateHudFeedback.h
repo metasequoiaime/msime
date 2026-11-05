@@ -2,6 +2,7 @@
 #include "InputModeHudLayout.h"
 #include "../system/FocusLease.h"
 #include <chrono>
+#include <functional>
 #include <mutex>
 #include <utility>
 
@@ -15,10 +16,28 @@ inline bool input_hud_same_focus(const FocusLease &a, const FocusLease &b) {
 class InputStateHudFeedback final {
 public:
   using Clock = std::chrono::steady_clock;
+  // 界面线程无事可做时在 MsgWaitForMultipleObjectsEx 里最多等 50 毫秒才看一次信箱，管道和输入队列都在别的线程上，没有事件会叫醒它。Server 在这里登记一个叫醒界面线程的回调（PostThreadMessageW 一条 WM_NULL），没有登记时 publish 和 wake 什么也不叫醒。
+  void set_wake(std::function<void()> wake) {
+    std::lock_guard lock(mutex_);
+    wake_ = std::move(wake);
+  }
   void publish(InputStateHudText text, std::optional<FocusLease> lease = {},
                uintptr_t foreground = 0, Clock::time_point now = Clock::now()) {
-    std::lock_guard lock(mutex_);
-    latest_ = Notice{std::move(text), lease, foreground, now};
+    {
+      std::lock_guard lock(mutex_);
+      latest_ = Notice{std::move(text), lease, foreground, now};
+    }
+    wake();
+  }
+  // 不经信箱的提示也要叫醒界面线程：单按 Shift 切中英文时客户端只报一次模式快照，「中」「英」是界面线程自己从 mode_view 和 mode_authority_step 算出来的，这里只让它这一轮就去看。
+  void wake() {
+    std::function<void()> wake;
+    {
+      std::lock_guard lock(mutex_);
+      wake = wake_;
+    }
+    if (wake)
+      wake();
   }
   std::optional<InputStateHudText> take(const std::optional<FocusLease> &lease,
                                       uintptr_t foreground,
@@ -40,6 +59,8 @@ private:
   };
   std::mutex mutex_;
   std::optional<Notice> latest_;
+  // 回调在锁外调用：它是跨线程投递消息，不该拖着信箱的锁。
+  std::function<void()> wake_;
 };
 
 // 只在输入队列使用。快照建立基线，只有 TIP 确认的显式切换事件产生提示。

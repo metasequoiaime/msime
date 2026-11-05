@@ -1177,6 +1177,14 @@ void session_pump_tests(const std::string &options) {
                              original.end());
     size_t keys = 0;
     size_t notifications = 0;
+    size_t settled = 0;
+    // 模式报告离开焦点闸门之后才通知，界面线程这时用不等待的 try_with_active 读得到模式（#10782）。
+    SessionPump::Presentation presentation;
+    presentation.event_settled = [&](const FocusLease &lease, const FanyImeNamedpipeData &packet) {
+      require(gate.try_with_active(lease, [] {}));
+      if (packet.event_type == event)
+        ++settled;
+    };
     SessionPump pump(
         transport, queue, gate,
         [&](InputState &state, const FocusLease &focus,
@@ -1202,9 +1210,10 @@ void session_pump_tests(const std::string &options) {
           if (packet.event_type == event)
             ++notifications;
           return true;
-        });
+        },
+        std::move(presentation));
     require(pump.run(transport.ticket) == PumpResult::Disconnected);
-    require(keys == 13 && notifications == 3);
+    require(keys == 13 && notifications == 3 && settled == 3);
     queue.stop();
   }
   for (int mode = 0; mode < 6; ++mode) {

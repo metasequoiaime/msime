@@ -189,10 +189,13 @@ void InputModeHudWindow::show(InputStateHudText text, std::optional<HudRect> car
     if (!GetMonitorInfoW(monitor, &info))
       throw std::runtime_error("Input mode HUD monitor unavailable");
     // 先挪到目标显示器上，窗口的 DPI 才是那块显示器的，尺寸按它算。已经在这块显示器上时不挪：连续切换时徽标正显示着，先挪到工作区左上角会在那里闪一下。
-    if (MonitorFromWindow(window_, MONITOR_DEFAULTTONULL) != monitor &&
-        !SetWindowPos(window_, nullptr, info.rcWork.left, info.rcWork.top, 0, 0,
-                      SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE))
-      throw std::runtime_error("Input mode HUD move failed");
+    if (MonitorFromWindow(window_, MONITOR_DEFAULTTONULL) != monitor) {
+      // 换显示器时上一枚可能还显示着或正在淡出，显示着挪过去就会先出现在工作区左上角再跳到光标旁；两块显示器缩放不同时，这一挪触发的 WM_DPICHANGED 也会在显示着的时候丢掉合成表面。先收起，量 DPI 的这一挪就看不见，WM_DPICHANGED 收到的也是已经隐藏的窗口；下面那次 SetWindowPos 落在同一块显示器的工作区里，不会再换 DPI。
+      hide();
+      if (!SetWindowPos(window_, nullptr, info.rcWork.left, info.rcWork.top, 0, 0,
+                        SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE))
+        throw std::runtime_error("Input mode HUD move failed");
+    }
     // 只按显示器 DPI 换算成像素，不乘工具栏的缩放。
     const double unit = toolbar_pixel_unit(msime::windows::compat::window_dpi(window_), 1.0);
     const auto metrics = input_mode_hud_metrics(show_logo_ && logo_available_, text_width_);
