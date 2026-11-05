@@ -888,57 +888,67 @@ mod tests {
         assert!(adjust_candidate_ranking(&request).is_err());
     }
 
+    /// 98 与新世纪各写自己的表、记在自己的种类下，86 不受影响。
     #[test]
-    fn wubi98_writes_to_wubi98_under_its_own_kind() {
-        let dir = Dir::new();
-        dir.wubi(&[("aaaa", "工", 100)]);
-        let main_db = dir.main_db();
-        Sqlite::open(&main_db)
-            .unwrap()
-            .execute_batch(
-                "CREATE TABLE wubi98(key TEXT,value TEXT,weight INTEGER);\
-                 INSERT INTO wubi98 VALUES('aaaa','工',100);\
-                 INSERT INTO wubi98 VALUES('aaaa','式',50);",
-            )
-            .unwrap();
-        let mut ordered = vec![item("aaaa", "工", 100), item("aaaa", "式", 50)];
-        for row in &mut ordered {
-            row.canonical_pinyin.clear();
+    fn wubi98_and_wubixsj_write_to_their_own_table_under_their_own_kind() {
+        for kind in [
+            PersonalDictionaryKind::Wubi98,
+            PersonalDictionaryKind::WubiXsj,
+        ] {
+            let table = kind.wubi_table().unwrap();
+            let dir = Dir::new();
+            dir.wubi(&[("aaaa", "工", 100)]);
+            let main_db = dir.main_db();
+            Sqlite::open(&main_db)
+                .unwrap()
+                .execute_batch(&format!(
+                    "CREATE TABLE {table}(key TEXT,value TEXT,weight INTEGER);\
+                     INSERT INTO {table} VALUES('aaaa','工',100);\
+                     INSERT INTO {table} VALUES('aaaa','式',50);"
+                ))
+                .unwrap();
+            let mut ordered = vec![item("aaaa", "工", 100), item("aaaa", "式", 50)];
+            for row in &mut ordered {
+                row.canonical_pinyin.clear();
+            }
+            let user_db = dir.journal();
+            let request = RankingRequest {
+                main_db: &main_db,
+                user_db: &user_db,
+                context_key: "aaaa",
+                ordered: &ordered,
+                entry_key: "aaaa",
+                value: "式",
+                mode: FrequencyAdjustmentMode::Pin,
+                linear_step: 1,
+                trigger_count: 1,
+                force_top: true,
+                kind,
+            };
+            assert!(adjust_candidate_ranking(&request).unwrap());
+            assert_eq!(
+                query_i64(
+                    &main_db,
+                    &format!("SELECT weight FROM {table} WHERE value='式'")
+                ),
+                Some(600)
+            );
+            assert_eq!(
+                query_i64(&main_db, "SELECT weight FROM wubi86 WHERE value='工'"),
+                Some(100)
+            );
+            assert_eq!(
+                count(&user_db, &format!("SELECT count(*) FROM user_dictionary_operations WHERE dictionary='{}' AND key='aaaa' AND value='式' AND weight=600", kind.journal_name())),
+                1
+            );
+            assert_eq!(
+                count(
+                    &user_db,
+                    "SELECT count(*) FROM user_dictionary_operations WHERE dictionary='wubi'"
+                ),
+                0
+            );
         }
-        let user_db = dir.journal();
-        let request = RankingRequest {
-            main_db: &main_db,
-            user_db: &user_db,
-            context_key: "aaaa",
-            ordered: &ordered,
-            entry_key: "aaaa",
-            value: "式",
-            mode: FrequencyAdjustmentMode::Pin,
-            linear_step: 1,
-            trigger_count: 1,
-            force_top: true,
-            kind: PersonalDictionaryKind::Wubi98,
-        };
-        assert!(adjust_candidate_ranking(&request).unwrap());
-        assert_eq!(
-            query_i64(&main_db, "SELECT weight FROM wubi98 WHERE value='式'"),
-            Some(600)
-        );
-        assert_eq!(
-            query_i64(&main_db, "SELECT weight FROM wubi86 WHERE value='工'"),
-            Some(100)
-        );
-        assert_eq!(
-            count(&user_db, "SELECT count(*) FROM user_dictionary_operations WHERE dictionary='wubi98' AND key='aaaa' AND value='式' AND weight=600"),
-            1
-        );
-        assert_eq!(
-            count(
-                &user_db,
-                "SELECT count(*) FROM user_dictionary_operations WHERE dictionary='wubi'"
-            ),
-            0
-        );
     }
 
     fn plan(weights: &[i64], owned: &[bool], target: usize) -> WeightPlan {

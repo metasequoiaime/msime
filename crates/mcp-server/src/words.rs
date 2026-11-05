@@ -22,6 +22,8 @@ pub enum Dictionary {
     English,
     /// 98 五笔码表。
     Wubi98,
+    /// 新世纪五笔码表。
+    Wubixsj,
 }
 
 impl From<Dictionary> for WordKind {
@@ -30,6 +32,7 @@ impl From<Dictionary> for WordKind {
             Dictionary::Pinyin => Self::Pinyin,
             Dictionary::Wubi => Self::Wubi,
             Dictionary::Wubi98 => Self::Wubi98,
+            Dictionary::Wubixsj => Self::WubiXsj,
             Dictionary::English => Self::English,
         }
     }
@@ -317,6 +320,21 @@ pub struct LookupView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 词库名与宿主接口的种类名一致，新世纪五笔叫 `wubixsj`。
+    #[test]
+    fn dictionaries_are_named_like_the_host_kinds() {
+        for (dictionary, name, kind) in [
+            (Dictionary::Pinyin, "pinyin", WordKind::Pinyin),
+            (Dictionary::Wubi, "wubi", WordKind::Wubi),
+            (Dictionary::English, "english", WordKind::English),
+            (Dictionary::Wubi98, "wubi98", WordKind::Wubi98),
+            (Dictionary::Wubixsj, "wubixsj", WordKind::WubiXsj),
+        ] {
+            assert_eq!(serde_json::to_value(dictionary).unwrap(), name);
+            assert_eq!(WordKind::from(dictionary), kind);
+        }
+    }
 
     /// 日文混输行在查询结果里叫 `japanese`，没有词条权重。
     #[test]

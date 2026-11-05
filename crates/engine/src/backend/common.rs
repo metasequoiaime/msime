@@ -48,21 +48,23 @@ impl Roots<'_> {
     }
 }
 
-/// `scheme`：`pinyin`（缺省）、`shuangpin`、`wubi` 或 `wubi98`。两种五笔都是 `SchemeType::Wubi`，读哪一版码表由 [`wubi_profile`] 决定。
+/// `scheme`：`pinyin`（缺省）、`shuangpin`、`wubi`、`wubi98` 或 `wubixsj`。三种五笔都是 `SchemeType::Wubi`，读哪一版码表由 [`wubi_profile`] 决定。
 pub(super) fn scheme(request: &Request) -> Result<SchemeType, BackendError> {
     match request.string_or("scheme", "pinyin")? {
         "pinyin" => Ok(SchemeType::Quanpin),
         "shuangpin" => Ok(SchemeType::Shuangpin),
-        "wubi" | "wubi98" => Ok(SchemeType::Wubi),
+        "wubi" | "wubi98" | "wubixsj" => Ok(SchemeType::Wubi),
         _ => Err(BackendError::InvalidRequest),
     }
 }
 
-/// 五笔码表版本：`scheme` 为 `wubi98` 时是 98 版，其余（含 `wubi`）是 86 版。服务端沿用 `wubi` 指 86 版，所以 98 版另起方案名，而不是复用表示双拼方案的 `profile`。
+/// 五笔码表版本：`scheme` 为 `wubi98` 时是 98 版，`wubixsj` 时是新世纪版，`wubi` 是 86 版。服务端沿用 `wubi` 指 86 版，所以 98 版和新世纪版另起方案名，而不是复用表示双拼方案的 `profile`。不是五笔的方案（`pinyin`、`shuangpin`）用不到码表版本，按 86 版。
 pub(super) fn wubi_profile(request: &Request) -> Result<WubiProfileKind, BackendError> {
     Ok(match request.string_or("scheme", "pinyin")? {
         "wubi98" => WubiProfileKind::Wubi98,
-        _ => WubiProfileKind::Wubi86,
+        "wubixsj" => WubiProfileKind::WubiXsj,
+        "wubi" | "pinyin" | "shuangpin" => WubiProfileKind::Wubi86,
+        _ => return Err(BackendError::InvalidRequest),
     })
 }
 

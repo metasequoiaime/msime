@@ -273,7 +273,9 @@ test("on the HarmonyOS phone the shared option lists fill the sheet", () => {
   expect(screen.getByRole("button", { name: /^五笔方案/ }).textContent).toContain("98 五笔");
   expect(screen.getByRole("button", { name: /^类型/ }).textContent).toContain("功能建议");
   expect(screen.getByRole("button", { name: /^文件格式/ }).textContent).toContain("Rime");
-  expect(sheetChoices("五笔方案")).toEqual(expect.arrayContaining(["86 五笔", "98 五笔"]));
+  expect(sheetChoices("五笔方案")).toEqual(
+    expect.arrayContaining(["86 五笔", "98 五笔", "新世纪五笔"]),
+  );
   expect(sheetChoices("类型")).toEqual(
     expect.arrayContaining(["功能异常", "候选词不对", "功能建议", "其他"]),
   );
