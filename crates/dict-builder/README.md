@@ -190,3 +190,23 @@ For every file a change may only append lines, and each appended entry goes thro
 - `cantonese.txt`: word of at least two characters, toned Jyutping with one syllable per character, each character read as `--cantonese-characters` (the checkout's `sources/cantonese/jyut6ping3.chars.dict.yaml`, required with this pair) reads it, the same checks the build runs. An entry is its word and toneless Jyutping, so a row that differs from another only in tone is a duplicate; with `--cantonese-db`, a word already in the shipped `entries` under the same toneless Jyutping is rejected.
 
 Appended blank and `#` lines are skipped. The JSON report lists `added` and `rejected` lines, each with its `file` (for example `custom/english.txt`) and 1-based line number; added lines carry the parsed fields, rejected ones the text and reason. It also has `accepted`, a `files` array with each checked file's line counts and `weight_range`, and, at the top level as before, `words.txt`'s line counts and `weight_range` (null when `words.txt` was not checked). The Markdown summary is the same in table form, with an Added table per file, and is also printed to stderr. The exit status is 0 when nothing is rejected, 1 when anything is (the reports are still written), and 2 when the check cannot run: an unreadable file, a base file the build itself would reject, or a database without the expected table.
+
+## 香港街道与地方名称
+
+`hong_kong_places.py` 从词库仓 `sources/hong-kong/` 的地政总署 CSDI 快照生成 `landsd-readings.tsv`。快照、使用条款和逐文件 SHA-256 在 `sources.json`；补充表每行四列：香港繁体名称、简体名称、空格分隔的去声调粤拼、单引号分隔的普通话全拼。两种方案共用同一组名称。
+
+```sh
+python3 crates/dict-builder/hong_kong_places.py --dictionary <checkout> --audit <audit.json> --write
+python3 crates/dict-builder/hong_kong_places.py --dictionary <checkout> --audit <audit.json> --check
+python3 scripts/test-hong-kong-places.py
+# 实际建库后，验证两种方案输入和选词（目录内需有 pinyin/ 与 languages/）。
+MSIME_HONG_KONG_TEST_DATA=<数据库目录> cargo test -p msime-dict-builder --test hong_kong -- --ignored
+```
+
+生成器先核对快照摘要，再用固定字词表和 `curation/hong-kong-readings.tsv` 的审校规则确认读音。规则的三列是 `yue`/`cmn`、字词、空格分隔的去声调音节；缺字的单字补音必须另附第四列字音来源 URL，不能覆盖字表已有的合法读音范围。专名规则优先于通用词；单字规则仅在没有整词可用时消歧。没有唯一读音或明确规则时写入待审清单，`--write` 拒绝出表。`curation/hong-kong-forms.tsv` 保存不能按单字简繁转换的专名（例如乾秀里）。更新字词表后须重新生成、审核差异，不能依赖旧表头假装已经同步。
+
+原始记录去重但不改原始文件；用于词条的名称清理首尾空白、路段分隔横线与方向括号，将巷号的全角数字一至五转为汉字，审计报告保留原名和规范化后的名称。含字母的锦绣花园分段街名及私用区字保留在不支持清单中，不删字符拼成另一个地址。报告把每个原始中文名称归入可导入、待审或不支持，三者数量相加必须等于来源去重数量。
+
+发布主构建的 `hong-kong-places` 阶段位于 `custom-words` 之后、`reading-corrections` 之前，`languages` 则在粤拼原有来源构建后并入。二者均只插入不存在的同键同词，不改已有行；新行最多 10 分，并低于导入前同键最轻的一条已有行（最低 0）。粤拼补词仍遵守维护者否决表。官方繁体名称原样写入粤拼，不走通用词的香港字形替换。旧 checkout 没有整个 `sources/hong-kong/` 时保持兼容；已有目录但缺表、表摘要不符或格式不合法时失败。
+
+名称适用 CSDI 使用条款；随库原有的 `msime-rime_cantonese_LICENSE.txt` 和项目的数据来源通知均附完整条款、政府与地政总署署名及改动说明。含地名时粤拼库的 `license` 为 `CC-BY-4.0 AND LicenseRef-HK-CSDI`。词库仓的 `builder.lock.json` 必须在构建器合入后更新到包含本功能的已合入提交，才可合入数据并发布；旧构建器不会读取这张表。
