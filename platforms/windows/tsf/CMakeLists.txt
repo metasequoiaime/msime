@@ -187,7 +187,7 @@ target_compile_features(msime-tsf-candidate-selection-slot-test PRIVATE cxx_std_
 add_test(NAME msime-tsf-candidate-selection-slot COMMAND msime-tsf-candidate-selection-slot-test)
 add_executable(msime-tsf-reply-wait-policy-test tests/input/reply_wait_policy.cpp)
 target_compile_features(msime-tsf-reply-wait-policy-test PRIVATE cxx_std_17)
-add_test(NAME msime-tsf-reply-wait-policy COMMAND msime-tsf-reply-wait-policy-test)
+add_test(NAME msime-tsf-reply-wait-policy COMMAND msime-tsf-reply-wait-policy-test ${CMAKE_CURRENT_SOURCE_DIR})
 # 反向端点重连要连带重开 Main，焦点回执等不到就是传输失败：这两条决定了重连循环会不会停。
 add_executable(msime-tsf-pipe-recovery-policy-test tests/input/pipe_recovery_policy.cpp)
 target_compile_features(msime-tsf-pipe-recovery-policy-test PRIVATE cxx_std_17)

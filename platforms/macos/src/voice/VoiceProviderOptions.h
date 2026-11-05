@@ -1,5 +1,6 @@
 #pragma once
 #import <Foundation/Foundation.h>
+#import "../core/SharedVoicePreferences.h"
 
 // 按持久化的 provider id 决定进程内用哪条识别通道。保持纯函数，免得设置页和控制器悄悄走偏：所有 HTTPS 整句预设（multipart，以及阿里云百炼的 chat_audio）都走整句请求路径，豆包和系统语音各有专用通道。有外部 provider socket 时，provider 路由全部交给它。
 // `local` never takes this path: an installed on-device model directory runs in the helper (MSIMEVoiceUsesLocalModelHelper), and anything else the preference holds for it, such as a Whisper model file from before the model catalog, is refused before recording (MSIMEVoiceLocalModelMissing).
@@ -53,4 +54,33 @@ static inline NSDictionary *MSIMEVoiceProviderOptions(NSDictionary *query, NSUse
         result[option[0]] = valid ? value : option[2];
     }
     return [result copy];
+}
+
+// 全局与 IMK 入口共用同一份偏好映射，避免提供商凭据、润色和默认值分叉。
+static inline NSDictionary *MSIMEVoiceQuery(NSUserDefaults *defaults, uint64_t generation, BOOL inlinePreedit) {
+    NSString *language = [defaults stringForKey:@"MSIMEClientVoiceLanguage"] ?: @"zh-CN";
+    NSDictionary *query = @{
+        @"language": language.lowercaseString,
+        @"generation": @(generation),
+        @"stream": @(inlinePreedit && ([defaults objectForKey:@"MSIMEClientVoiceStreamInlinePreedit"] == nil || [defaults boolForKey:@"MSIMEClientVoiceStreamInlinePreedit"])),
+        @"asr_provider": [defaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"local",
+        @"asr_endpoint": [defaults stringForKey:@"MSIMEClientVoiceASREndpoint"] ?: @"",
+        @"asr_model": [defaults stringForKey:@"MSIMEClientVoiceASRModel"] ?: @"",
+        @"asr_model_path": [defaults stringForKey:@"MSIMEClientVoiceASRModelPath"] ?: @"",
+        @"asr_token": [defaults stringForKey:@"MSIMEClientVoiceASRToken"] ?: @"",
+        @"doubao_boosting_table_id": [defaults stringForKey:@"MSIMEClientVoiceDoubaoBoostingTableID"] ?: @"",
+        @"asr_app_key": [defaults stringForKey:@"MSIMEClientVoiceDoubaoAppKey"] ?: @"",
+        @"asr_resource_id": [defaults stringForKey:@"MSIMEClientVoiceDoubaoResourceID"] ?: @"",
+        @"polish_enabled": @([defaults boolForKey:@"MSIMEClientVoicePolish"]),
+        @"polish_prompt_id": [defaults stringForKey:@"MSIMEClientVoicePolishPromptID"] ?: @"cleanup",
+        @"polish_provider": [defaults stringForKey:@"MSIMEClientVoicePolishProvider"] ?: MSIMEVoicePolishDefaultProvider,
+        @"polish_model": [defaults stringForKey:@"MSIMEClientVoicePolishModel"] ?: @"",
+        @"polish_endpoint": [defaults stringForKey:@"MSIMEClientVoicePolishEndpoint"] ?: @"",
+        @"polish_token": [defaults stringForKey:@"MSIMEClientVoicePolishToken"] ?: @"",
+        @"polish_thinking": [defaults stringForKey:@"MSIMEClientVoicePolishThinking"] ?: @"",
+        @"polish_prompt_custom_1": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom1"] ?: @"",
+        @"polish_prompt_custom_2": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom2"] ?: @"",
+        @"polish_prompt_custom_3": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom3"] ?: @""
+    };
+    return MSIMEVoiceProviderOptions(query, defaults);
 }

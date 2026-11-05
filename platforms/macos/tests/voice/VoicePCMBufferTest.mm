@@ -13,8 +13,28 @@ static AVAudioPCMBuffer *Fixture(double rate, AVAudioChannelCount channels, AVAu
         for (AVAudioFrameCount frame = 0; frame < frames; ++frame) buffer.floatChannelData[channel][frame] = 0.25f;
     return buffer;
 }
+// 有界输入重采样后仍可能越过满幅；这是正常滤波瞬态，不能取消整段录音。
+static void TestResamplingPeaksRemainRecordable(void) {
+    for (double rate : {16000., 44100., 48000., 96000.}) {
+        for (BOOL stepped : {NO, YES}) {
+            AVAudioPCMBuffer *input = Fixture(rate, 1, 4096);
+            for (AVAudioFrameCount frame = 0; frame < input.frameLength; ++frame)
+                input.floatChannelData[0][frame] = stepped && (frame / 100) % 2 ? -0.99f : 0.99f;
+            MSIMEVoicePCMBuffer *recording = [MSIMEVoicePCMBuffer new];
+            for (int chunk = 0; chunk < 3; ++chunk) assert([recording append:input error:nil]);
+            NSData *pcm = [recording finishWithError:nil];
+            assert(pcm.length && [[recording finishWithError:nil] isEqual:pcm]);
+            const float *samples = static_cast<const float *>(pcm.bytes);
+            for (NSUInteger frame = 0; frame < pcm.length / sizeof(float); ++frame)
+                assert(std::isfinite(samples[frame]) && std::fabs(samples[frame]) <= 1.f);
+            assert(std::abs((long)(pcm.length / sizeof(float)) - (long)std::llround(3 * input.frameLength * 16000. / rate)) <= 1);
+        }
+    }
+}
+
 int main() {
     @autoreleasepool {
+        TestResamplingPeaksRemainRecordable();
         for (NSNumber *rate in @[@16000, @44100, @48000]) {
             MSIMEVoicePCMBuffer *recording = [MSIMEVoicePCMBuffer new];
             AVAudioPCMBuffer *chunk = Fixture(rate.doubleValue, 2, rate.unsignedIntValue / 100);
@@ -55,10 +75,13 @@ int main() {
         assert([recording append:second error:nil]);
         assert(![recording append:Fixture(48000, 1, 480) error:nil]);
         assert(![recording finishWithError:nil]);
-        recording = [MSIMEVoicePCMBuffer new];
-        second.floatChannelData[0][100] = std::numeric_limits<float>::quiet_NaN();
-        assert(![recording append:second error:nil]);
-        assert(![recording finishWithError:nil]);
+        for (float invalid : {std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity(),
+                              -std::numeric_limits<float>::infinity()}) {
+            recording = [MSIMEVoicePCMBuffer new];
+            second.floatChannelData[0][100] = invalid;
+            assert(![recording append:second error:nil]);
+            assert(![recording finishWithError:nil]);
+        }
         assert([[MSIMEVoicePCMBuffer new] finishWithError:nil].length == 0);
     }
 }

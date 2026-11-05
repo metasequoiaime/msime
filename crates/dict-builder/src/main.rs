@@ -31,6 +31,7 @@ mod english;
 mod english_supplement;
 mod hanja;
 mod hkcancor;
+mod hong_kong_places;
 mod japanese;
 mod language_verify;
 mod language_writer;
@@ -77,6 +78,8 @@ enum Stage {
     Reweight,
     /// 从 --dictionary checkout 读取的 sources/pinyin/places.txt 并入全拼表，只升不降
     PlacesSupplement,
+    /// 香港官方街道、地方名称；只补缺失行，不改已有词频
+    HongKongPlaces,
     /// 从 --dictionary checkout 读取的 custom/words.txt 并入全拼表；新插入的词不超过同全拼、同九键码上权重不低于 1000 的常用词减 1
     CustomWords,
     /// Wrong readings listed in resources/dictionary-sources/pinyin-reading-corrections.txt removed from the quanpin tables
@@ -115,11 +118,12 @@ enum Stage {
 }
 
 /// Build order: later stages read what earlier ones wrote (glosses are weighted by the quanpin tables, the n-gram vocabulary is the finished quanpin tables).
-const STAGES: [Stage; 20] = [
+const STAGES: [Stage; 21] = [
     Stage::Quanpin,
     Stage::Reweight,
     Stage::PlacesSupplement,
     Stage::CustomWords,
+    Stage::HongKongPlaces,
     Stage::ReadingCorrections,
     Stage::WordVetoes,
     Stage::WeightOverrides,
@@ -1607,6 +1611,15 @@ impl Build {
                     counts.inserted,
                     counts.promoted,
                     counts.unchanged
+                ))
+            }
+            Stage::HongKongPlaces => {
+                let entries = hong_kong_places::load(&self.sources)?;
+                let added =
+                    hong_kong_places::add_pinyin(&mut self.database("msime-pinyin.db")?, &entries)?;
+                Ok(format!(
+                    "{} Hong Kong names: {added} inserted, existing rows unchanged",
+                    entries.len()
                 ))
             }
             Stage::CustomWords => {

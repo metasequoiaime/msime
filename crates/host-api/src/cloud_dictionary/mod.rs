@@ -135,12 +135,13 @@ pub struct CloudDictionaryValue {
 }
 
 pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'static str> {
+    // 新世纪五笔（`wubixsj`）暂不经云词库，服务端还不收这个种类；下面按种类分的编码规则已经写上它，打开时只改这里。
     let valid_kind =
         |kind: &str| matches!(kind, "pinyin" | "wubi" | "wubi98" | "quick" | "english");
     let valid_token = |token: &str| msime_client_core::is_bounded_ascii_identifier(token, 96);
     let valid_value = |kind: &str, code: &str, word: &str, weight: i64| {
         let max_code_bytes = match kind {
-            "wubi" | "wubi98" => 4,
+            "wubi" | "wubi98" | "wubixsj" => 4,
             "quick" => 32,
             "english" => 64,
             _ => 256,
@@ -149,7 +150,9 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
             "quick" => {
                 msime_client_services::dictionary::quick_phrase_transport_code_is_well_formed(code)
             }
-            "wubi" | "wubi98" => msime_client_services::dictionary::wubi_code_is_well_formed(code),
+            "wubi" | "wubi98" | "wubixsj" => {
+                msime_client_services::dictionary::wubi_code_is_well_formed(code)
+            }
             "english" => msime_client_core::is_ascii_alphabetic(code),
             _ => msime_client_services::dictionary::pinyin_code_is_well_formed(code, true),
         };

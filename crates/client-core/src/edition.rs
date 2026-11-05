@@ -372,7 +372,9 @@ impl Edition {
         };
         let mut text = String::new();
         file.take(STATE_RECORD_LIMIT).read_to_string(&mut text)?;
-        let marker: Marker = serde_json::from_str(&text)
+        // 开头的 UTF-8 BOM 不算内容：Windows 上的工具常写出它，serde_json 不认（#10816）。只去掉一个，其余照常按 JSON 校验。
+        let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
+        let marker: Marker = serde_json::from_str(text)
             .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
         Self::by_id(&marker.edition)
             .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "unknown edition"))
@@ -1257,6 +1259,24 @@ mod tests {
             std::fs::write(&marker, bad).unwrap();
             assert!(Edition::declared_by_package(&marker).is_err());
         }
+    }
+
+    /// #10816：Windows 打包脚本一度用带 BOM 的 UTF-8 写 Server 目录的 edition.json，serde_json 遇到开头的 U+FEFF 直接报错，MSIME.exe 启动检查不过就退出，托盘里的「云剪贴板…」「云词库…」点了没反应。Windows 上的工具（PowerShell 5 的 `-Encoding utf8` 等）很容易写出 BOM，声明内容本身没错时不该因为它被当成坏声明。
+    #[test]
+    fn a_package_marker_with_a_utf8_bom_is_still_read() {
+        let directory = tempfile::tempdir().unwrap();
+        let marker = directory.path().join(Edition::PACKAGE_MARKER_FILE);
+        std::fs::write(&marker, b"\xEF\xBB\xBF{\"edition\": \"wubi\"}\n").unwrap();
+        assert_eq!(Edition::declared_by_package(&marker).unwrap().id, "wubi");
+        // BOM 只在开头才跳过；内容本身坏了仍然是错误。
+        std::fs::write(&marker, b"\xEF\xBB\xBF{\"edition\": \"klingon\"}\n").unwrap();
+        assert!(Edition::declared_by_package(&marker).is_err());
+        std::fs::write(
+            &marker,
+            b"\xEF\xBB\xBF\xEF\xBB\xBF{\"edition\": \"wubi\"}\n",
+        )
+        .unwrap();
+        assert!(Edition::declared_by_package(&marker).is_err());
     }
 
     #[cfg(unix)]
