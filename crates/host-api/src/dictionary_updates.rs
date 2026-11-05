@@ -189,7 +189,7 @@ fn claim_then_remove(
 
 /// Windows 上的回收。租约的锁文件就在代次目录里，持锁时它的句柄开着，NTFS 不允许改名还有打开文件的目录，Unix 那种持锁改名认领在这里每次都失败。改成持锁时就地清空：先删 `.ready`，这一代从此在引擎看来不再就绪，再删锁文件以外的所有内容；放锁之后才删锁文件和已经空了的目录。
 ///
-/// 锁文件原则上不能删（换了文件，两个进程会各自锁住不同的文件）。这里删的时候代次里已经没有任何数据，锁不再保护什么：放锁后谁再取到这把锁，看到的也只是一个不就绪的空壳，用不了。删不掉（放锁后又有进程打开了锁文件）就留下空壳，下一轮检查再收；空壳挡住引擎重新准备同名代次，所以下一轮即使这一代又成了本安装包或宿主配置的代次也照样收掉。删 `.ready` 失败时什么也不动，这一代保持完整。
+/// 锁文件原则上不能删（换了文件，两个进程会各自锁住不同的文件）。引擎打开锁文件时没有设 `share_mode`，std 在 Windows 上默认带 `FILE_SHARE_DELETE`，所以即使放锁后别的进程已经打开并锁住了它，这里的删除照样成功：NTFS 的 POSIX 删除语义下（Windows 10 1903 起）名字立即消失、目录随之删掉，那个进程锁着的是一个已经脱离目录的文件；旧删除语义下（Windows 7）文件只进入待删除状态，它关掉句柄之前同一路径上新的取锁会被拒绝，目录删不掉，之后留下的是一个空目录。这两种情况都安全，因为删锁文件时代次里已经没有任何数据：锁住脱离的文件或待删除的文件，保护的都只是一个不就绪的空壳，用它建会话也会失败。没删完的空壳（空目录、还在待删除的锁文件、或进程在放锁和删锁文件之间退出留下的锁文件）下一轮检查再收；空壳挡住引擎重新准备同名代次，所以下一轮即使这一代又成了本安装包或宿主配置的代次也照样收掉。删 `.ready` 失败时什么也不动，这一代保持完整。
 #[cfg(any(windows, test))]
 fn empty_then_remove(parent: &Path, name: &str, access: crate::DictionaryAccess) {
     use msime_engine::access::LOCK_FILE;
@@ -703,7 +703,7 @@ mod tests {
         assert!(!obsolete.exists(), "下次持锁认领成功后仍可回收");
     }
 
-    /// Windows 的回收不改名：持锁时先删 `.ready` 和锁文件以外的内容，放锁后再删锁文件和空目录。上次放锁后没删完的空壳（只剩锁文件、没有 `.ready`）即使名字是本安装包的代次也收掉，否则引擎再也准备不出这一代；就绪的宿主配置代次照旧留下。
+    /// Windows 的回收不改名：持锁时先删 `.ready` 和锁文件以外的内容，放锁后再删锁文件和空目录。上次没删完的空壳即使名字是本安装包或宿主配置的代次也收掉，否则引擎再也准备不出这一代：只剩锁文件的（进程在放锁和删锁文件之间退出）和空目录（旧删除语义下锁文件待删除、别的进程关掉句柄后留下的）都算；就绪的宿主配置代次照旧留下。
     #[test]
     fn emptying_reclaim_removes_the_generation_and_leftover_shells() {
         use msime_engine::access::LOCK_FILE;
@@ -727,6 +727,8 @@ mod tests {
         let shell = dictionaries.join(baseline.generation().unwrap());
         std::fs::create_dir_all(&shell).unwrap();
         std::fs::write(shell.join(LOCK_FILE), b"").unwrap();
+        let empty = dictionaries.join("c".repeat(64));
+        std::fs::create_dir_all(&empty).unwrap();
 
         remove_unused_working_generations_using(
             &state,
@@ -736,7 +738,8 @@ mod tests {
         );
 
         assert!(!obsolete.exists(), "就绪的旧代次被清空并删掉");
-        assert!(!shell.exists(), "本安装包代次名下的空壳被收掉");
+        assert!(!shell.exists(), "本安装包代次名下只剩锁文件的空壳被收掉");
+        assert!(!empty.exists(), "空目录的空壳被收掉");
         assert!(kept.join("msime-pinyin.db").is_file());
         assert!(kept.join(GENERATION_READY).is_file());
     }
