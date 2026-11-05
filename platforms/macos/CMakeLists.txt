@@ -1307,6 +1307,8 @@ add_test(NAME candidate-host-appearance COMMAND candidate-row-layout-test --host
 add_test(NAME candidate-adaptive-layout COMMAND candidate-row-layout-test --adaptive)
 # 光标后编辑：视图字段、首行右侧的提示和首选开头画淡。
 add_test(NAME candidate-caret-edit-suffix COMMAND candidate-row-layout-test --caret-edit-suffix)
+# 首行页码、展开面板行号、输入状态和光标后编辑提示的标签宽度要容下 NSTextField 的 cell 内边距（#10852）。
+add_test(NAME candidate-header-label-width COMMAND candidate-row-layout-test --header-label-width)
 # 计时动效独立启动事件循环，不承接大排版矩阵的窗口与图层回调。
 add_test(NAME candidate-declared-motion COMMAND candidate-row-layout-test --declared-motion)
 # 大皮肤矩阵各自运行，保留 CI 的单项时限和全部排版断言。
