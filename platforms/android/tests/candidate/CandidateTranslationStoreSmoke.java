@@ -321,6 +321,61 @@ public final class CandidateTranslationStoreSmoke {
             releaseFirstHighlight.countDown();
             highlightWorker.shutdownNow();
         }
+        // 释义卡片的单独请求（#10915）：不经防抖、不取消排着的整页请求，回答进同一份缓存；缓存清空后才到的回答丢掉。
+        FakeScheduler cardScheduler = new FakeScheduler();
+        ExecutorService cardWorker = Executors.newSingleThreadExecutor();
+        java.util.List<String> cardRequests = new java.util.concurrent.CopyOnWriteArrayList<>();
+        CountDownLatch cardGate = new CountDownLatch(1);
+        CandidateTranslationStore cardStore = new CandidateTranslationStore(
+            (texts, target) -> {
+                cardRequests.add(target + ":" + String.join(",", texts));
+                cardGate.await(2, TimeUnit.SECONDS);
+                return List.of(" " + texts.get(0) + " " + target + " ");
+            }, cardWorker, cardScheduler, generation -> { });
+        ExecutorService cardExecutor = Executors.newSingleThreadExecutor();
+        try {
+            cardStore.refresh(List.of("世界"), List.of("en"), 1);
+            java.util.concurrent.atomic.AtomicReference<Boolean> arrived = new java.util.concurrent.atomic.AtomicReference<>();
+            check(cardStore.request("水杉", List.of("en", "ja"), cardExecutor, arrived::set),
+                "a word without translations is requested");
+            cardGate.countDown();
+            cardExecutor.shutdown();
+            check(cardExecutor.awaitTermination(2, TimeUnit.SECONDS), "card request finished");
+            cardScheduler.runPosted();
+            check(Boolean.TRUE.equals(arrived.get()), "the card is told a translation arrived");
+            check("水杉 en".equals(cardStore.gloss("水杉", "en")) && "水杉 ja".equals(cardStore.gloss("水杉", "ja")),
+                "answers are trimmed into the shared cache");
+            check(cardRequests.equals(List.of("en:水杉", "ja:水杉")), "only the long-pressed word is sent, once per language");
+            cardScheduler.runDelayed();
+            cardWorker.shutdown();
+            check(cardWorker.awaitTermination(2, TimeUnit.SECONDS), "page request still ran");
+            cardScheduler.runPosted();
+            check("世界 en".equals(cardStore.gloss("世界", "en")), "the pending page request was not cancelled");
+            check(!cardStore.request("水杉", List.of("en"), Runnable::run, value -> { }),
+                "a cached language is not requested again");
+            check(!cardStore.request("hello", List.of("en"), Runnable::run, value -> { }),
+                "non-Chinese text is not requested");
+            check(!cardStore.request("", List.of("en"), Runnable::run, value -> { }), "empty text is not requested");
+        } finally {
+            cardGate.countDown();
+            cardExecutor.shutdownNow();
+            cardWorker.shutdownNow();
+        }
+        FakeScheduler clearedScheduler = new FakeScheduler();
+        java.util.concurrent.atomic.AtomicInteger clearedCalls = new java.util.concurrent.atomic.AtomicInteger();
+        ExecutorService clearedWorker = Executors.newSingleThreadExecutor();
+        CandidateTranslationStore clearedStore = new CandidateTranslationStore(
+            (texts, target) -> List.of("old account"), clearedWorker, clearedScheduler, generation -> { });
+        clearedWorker.shutdown();
+        check(clearedStore.request("水杉", List.of("en"), Runnable::run, value -> clearedCalls.incrementAndGet()),
+            "request is sent");
+        clearedStore.clear();
+        clearedScheduler.runPosted();
+        check(clearedStore.gloss("水杉", "en") == null && clearedCalls.get() == 0,
+            "an answer arriving after the cache was cleared is dropped");
+        check(!clearedStore.boundTo(null) && !clearedStore.boundTo("1:a"), "an unbound store belongs to no account");
+        clearedStore.bindTo("1:a");
+        check(clearedStore.boundTo("1:a") && !clearedStore.boundTo("2:a"), "boundTo only reads the binding");
         System.out.println("Android candidate translation store: stale request fencing passed");
     }
 
