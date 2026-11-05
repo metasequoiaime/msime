@@ -5510,6 +5510,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         local_emoji: true,
         local_kaomoji: true,
         local_super_jianpin: true,
+        local_super_jianpin_slash: true,
         local_temporary_english: true,
         local_temporary_japanese: true,
         local_expression: false,
@@ -10814,6 +10815,7 @@ fn the_reranker_leaves_mixed_japanese_rows_alone() {
 
 mod caret_edit;
 mod facts;
+mod super_jianpin_slash;
 
 /// View 报告宿主设下的标点样式，缺省是弯引号、实心括号；换样式不动组字和候选。
 #[test]

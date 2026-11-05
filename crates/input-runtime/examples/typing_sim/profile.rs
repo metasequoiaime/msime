@@ -88,6 +88,7 @@ fn product_mobile(options: &mut EngineOptions) {
     options.local_emoji = local.emoji;
     options.local_kaomoji = local.kaomoji;
     options.local_super_jianpin = local.super_jianpin;
+    options.local_super_jianpin_slash = local.super_jianpin_slash;
     options.local_temporary_english = local.temporary_english;
     options.local_temporary_japanese = local.temporary_japanese;
     options.local_expression = local.expression;
@@ -202,6 +203,7 @@ pub fn describe(options: &EngineOptions) -> serde_json::Value {
             "emoji": options.local_emoji,
             "kaomoji": options.local_kaomoji,
             "super_jianpin": options.local_super_jianpin,
+            "super_jianpin_slash": options.local_super_jianpin_slash,
             "temporary_english": options.local_temporary_english,
             "temporary_japanese": options.local_temporary_japanese,
             "chaizi": options.local_chaizi,

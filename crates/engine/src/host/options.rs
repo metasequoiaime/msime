@@ -139,6 +139,8 @@ pub struct EngineOptions {
     pub local_emoji: bool,
     pub local_kaomoji: bool,
     pub local_super_jianpin: bool,
+    /// 双拼组字末尾按 `/` 转超级简拼（`LocalModeOptions::super_jianpin_slash`），依附 `local_super_jianpin`。
+    pub local_super_jianpin_slash: bool,
     pub local_temporary_english: bool,
     pub local_temporary_japanese: bool,
     /// `V`: calculator, Chinese numerals and dates.
@@ -281,6 +283,7 @@ pub fn prepare_options_for(
         local_emoji: true,
         local_kaomoji: true,
         local_super_jianpin: true,
+        local_super_jianpin_slash: true,
         local_temporary_english: true,
         local_temporary_japanese: true,
         local_expression: false,
@@ -419,6 +422,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
             emoji: options.local_emoji,
             kaomoji: options.local_kaomoji,
             super_jianpin: options.local_super_jianpin,
+            super_jianpin_slash: options.local_super_jianpin_slash,
             temporary_english: options.local_temporary_english,
             temporary_japanese: options.local_temporary_japanese,
             expression: options.local_expression,

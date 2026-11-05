@@ -14,6 +14,7 @@ mod editing;
 mod glide;
 mod helpcode_entry;
 mod input;
+mod jianpin_slash;
 mod learning;
 mod literal;
 mod online;

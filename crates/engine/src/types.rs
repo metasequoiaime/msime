@@ -1403,6 +1403,8 @@ pub struct LocalModeOptions {
     pub emoji: bool,
     pub kaomoji: bool,
     pub super_jianpin: bool,
+    /// 双拼组字末尾按 `/` 把整段原文改成超级简拼（#10860）。依附 `super_jianpin`，不受 `shift_letter_entry` 管；`/` 已经是万象式辅助码结束键、辅助码前导键或顿号键时让位。
+    pub super_jianpin_slash: bool,
     pub temporary_english: bool,
     pub temporary_japanese: bool,
     pub expression: bool,
@@ -1427,6 +1429,7 @@ impl Default for LocalModeOptions {
             emoji: true,
             kaomoji: true,
             super_jianpin: true,
+            super_jianpin_slash: true,
             temporary_english: true,
             temporary_japanese: true,
             expression: false,

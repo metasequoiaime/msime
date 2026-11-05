@@ -394,6 +394,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         local_emoji: true,
         local_kaomoji: true,
         local_super_jianpin: true,
+        local_super_jianpin_slash: true,
         local_temporary_english: true,
         local_temporary_japanese: true,
         local_expression: false,

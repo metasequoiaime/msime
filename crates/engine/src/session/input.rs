@@ -114,6 +114,8 @@ pub(super) struct InputSession {
     /// The scheme to return to after temporary Japanese.
     pub temporary_original_scheme: Option<SchemeType>,
     pub local_preedit: String,
+    /// 双拼组字末尾按 `/` 转成超级简拼时那段组字原文（#10860）；Shift+J 进入的超级简拼为 `None`。按内容比较而不是只记一个标记，因为 J 模式里可以在光标处改字：预编辑去掉 `J` 之后仍等于它时，退格和第二个 `/` 才撤回这次转换。
+    pub jianpin_slash_origin: Option<String>,
     pub local_candidates: Vec<WordItem>,
     /// 上一枚按键是交给宿主的大写字母（没有组字时 Shift+字母就走这条路）。连续按住 Shift 打大写时它让这一串开了头：后面的字母不再进快捷模式，第一枚仍照旧（#7616）。
     pub uppercase_passthrough: bool,
@@ -244,6 +246,7 @@ impl InputSession {
             local_mode: LocalInputMode::None,
             temporary_original_scheme: None,
             local_preedit: String::new(),
+            jianpin_slash_origin: None,
             local_candidates: Vec::new(),
             uppercase_passthrough: false,
             plugin_rows: None,
@@ -399,6 +402,10 @@ impl InputSession {
             }
             return KeyResult::handled();
         }
+        // `/` 转出来的超级简拼还没改过码时，第二个 `/` 撤回转换、照旧上屏首选再出 `/`（`jianpin_slash.rs`）。
+        if value == b'/' && self.super_jianpin_slash_escape_ready() {
+            return self.escape_super_jianpin_slash();
+        }
         if self.local_mode != LocalInputMode::None {
             return self.handle_local_character(value);
         }
@@ -433,6 +440,10 @@ impl InputSession {
         if let Some(text) = self.url_entry(value) {
             self.enter_url_mode(text);
             return KeyResult::handled();
+        }
+        // 双拼组字末尾的 `/` 把整段原文改成超级简拼（#10860）。万象式的 `/` 结束键、`/` 前导键和 `/` 顿号都让位，条件见 `super_jianpin_slash_ready`。
+        if value == b'/' && self.super_jianpin_slash_ready() {
+            return self.enter_super_jianpin_slash();
         }
 
         let scheme = self.scheme();
@@ -1240,6 +1251,12 @@ impl InputSession {
         if self.url_entry(value).is_some() {
             return self.handle_character(value, false);
         }
+        // 双拼组字末尾转超级简拼的 `/`、以及转出来之后撤回用的第二个 `/` 同理：直接调用方（golden、单测）也走字符入口。
+        if value == b'/'
+            && (self.super_jianpin_slash_ready() || self.super_jianpin_slash_escape_ready())
+        {
+            return self.handle_character(value, false);
+        }
         // A Zhuyin phonetic key (`,` `.` `/` `;` `-`) spells, and a Shift punctuation key (`<` `?` `[` ...) commits the conversion with its full-width mark through the editor, whatever the Chinese punctuation switches say.
         if self.zhuyin_rules_apply()
             && (self
@@ -1423,6 +1440,12 @@ impl InputSession {
             if self.shuangpin_helpcode_marker(key).is_some() && !symbols.contains(char::from(key)) {
                 symbols.push(char::from(key));
             }
+        }
+        // 双拼组字末尾的 `/` 要转超级简拼、或转出来之后要撤回时同样发布：发布的键必须正是 `dispatch_character` 接受的键。
+        if (self.super_jianpin_slash_ready() || self.super_jianpin_slash_escape_ready())
+            && !symbols.contains('/')
+        {
+            symbols.push('/');
         }
         symbols
     }
@@ -1748,6 +1771,7 @@ impl InputSession {
         let original_scheme = self.temporary_original_scheme.take();
         self.local_mode = LocalInputMode::None;
         self.local_preedit.clear();
+        self.jianpin_slash_origin = None;
         self.local_candidates.clear();
         self.plugin_rows = None;
         self.dedicated_english_preedit.clear();
@@ -1937,7 +1961,7 @@ impl InputSession {
     /// `IsMidSentenceHelpcodeMarkerKey` 与 `IsEndHelpcodeMarkerKey` 的对应物：这个键是不是
     /// 辅助码触发键、记进串里的标记字符是什么。`None` 表示不是触发键，走普通路径。
     /// `;` 先让给 `ing` 韵母（`accepts_semicolon_final_at`），两侧判断顺序一致。
-    fn shuangpin_helpcode_marker(&self, value: u8) -> Option<u8> {
+    pub(super) fn shuangpin_helpcode_marker(&self, value: u8) -> Option<u8> {
         use crate::shuangpin::mid_sentence;
         if !matches!(value, b'`' | b';' | b'/' | b'\t')
             || self.scheme() != SchemeType::Shuangpin
@@ -2323,6 +2347,11 @@ impl InputSession {
             return self.edit_at_caret(Command::Backspace);
         }
         if self.local_mode != LocalInputMode::None {
+            // `/` 转出来的超级简拼删回原文时，再退格就撤回转换，回到按 `/` 之前的组字。
+            if self.super_jianpin_slash_escape_ready() {
+                self.revert_super_jianpin_slash();
+                return KeyResult::handled();
+            }
             // Backspacing the bare prefix letter leaves the mode.
             if self.local_preedit.len() <= 1 {
                 self.reset_composition();
@@ -2376,6 +2405,8 @@ impl InputSession {
             && request.raw_input_with_helpcode_marks.contains('|')
         {
             request.raw_input_with_cases.clone()
+        } else if self.local_mode != LocalInputMode::None && !self.dedicated_english {
+            self.local_raw_text().to_owned()
         } else {
             self.preedit()
         }

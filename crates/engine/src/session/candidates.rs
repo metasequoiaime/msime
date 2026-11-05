@@ -283,11 +283,12 @@ impl InputSession {
     }
 
     pub(super) fn add_local_fallback_candidate(&mut self) {
-        // An incomplete or unmatched special-mode input shows its raw text, prefix letter included, so Space commits it through the ordinary selection path (overlays.md §8.1).
+        // An incomplete or unmatched special-mode input shows its raw text, prefix letter included, so Space commits it through the ordinary selection path (overlays.md §8.1). 组字后按 `/` 转出来的超级简拼不带 `J`：那个 `J` 不是用户打的（`local_raw_text`）。
         if self.local_candidates.is_empty() && !self.local_preedit.is_empty() {
+            let text = self.local_raw_text().to_owned();
             self.local_candidates.push(WordItem::new(
-                self.local_preedit.clone(),
-                self.local_preedit.clone(),
+                text.clone(),
+                text,
                 1,
                 CandidateSource::Fallback,
                 "",

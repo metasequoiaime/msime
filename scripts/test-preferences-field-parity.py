@@ -47,6 +47,10 @@ RUST_ONLY: dict[str, set[str]] = {
 
     },
     "KeybindingPreferences": set(),
+    "LocalModePreferences": {
+        # 组字后按 / 转超级简拼（#10860）只在 Windows 与 iOS 的原生设置页提供开关；packages/ui 只修缺陷、不加新设置，macOS、Linux、HarmonyOS 按默认开，等原生设置迁移时补上。
+        "super_jianpin_slash",
+    },
     "TouchToolbarPreferences": {
         # 撤销与重做仅在 Android 原生工具栏设置页提供入口，其他宿主保留共享字段，React 设置页不显示。
         "undo",

@@ -273,6 +273,7 @@ pub fn apply_options(options: &mut SessionOptions, value: &Value) {
                         "emoji" => modes.emoji = on,
                         "kaomoji" => modes.kaomoji = on,
                         "super_jianpin" => modes.super_jianpin = on,
+                        "super_jianpin_slash" => modes.super_jianpin_slash = on,
                         "temporary_english" => modes.temporary_english = on,
                         "temporary_japanese" => modes.temporary_japanese = on,
                         _ => panic!("unknown local mode {name}"),
