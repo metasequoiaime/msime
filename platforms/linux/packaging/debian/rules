@@ -59,7 +59,8 @@ override_dh_auto_configure:
 	dh_auto_configure -- \
 	  -DCMAKE_BUILD_TYPE=Release \
 	  -DMSIME_EDITION=full \
-	  -DMSIME_ENABLE_PACKAGING=ON \
+	  -DMSIME_LOCAL_TRANSLATION_SETTINGS=ON \
+  -DMSIME_ENABLE_PACKAGING=ON \
 	  -DMSIME_ENABLE_FCITX5=ON \
 	  -DMSIME_PACKAGE_VERSION=$(DEB_VERSION_UPSTREAM) \
 	  -DMSIME_HOST_LIBRARY=$(CURDIR)/target/release/libmsime_host_api.so \
