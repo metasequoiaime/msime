@@ -1057,11 +1057,14 @@ final class ImeLetterRows {
             letterColumn.addView(row, LayoutPolicy.matchWidthWrapParams());
             boolean last = rowIndex == rows.size() - 1;
             if (last) {
-                Button separator = s.keyId(s.keyboardKey(FourteenKeyLayout.separatorFace(composing),
+                // 能画角标的键：网格辅助码可用时右上角画「辅」，上滑放下分隔符（ImeGridHelpcodeEntry）。
+                Button separator = s.keyId(s.keyboardKey(new KeyHintButton(s),
+                    FourteenKeyLayout.separatorFace(composing),
                     FourteenKeyLayout.separatorDescription(composing), this::fourteenKeySeparator),
                     "SoftSymbol");
                 KeyboardTypographyPolicy.setKeyTextSize(separator, 15);
                 if (separator instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
+                ImeGridHelpcodeEntry.bind(s, separator);
                 fourteenSeparatorKey = separator;
                 row.addView(separator, LayoutPolicy.weightedMatchParentParams(
                     edgeWeight));
@@ -1184,10 +1187,16 @@ final class ImeLetterRows {
         }
         if (fourteenSeparatorKey == null) return;
         boolean composing = separatesSyllables();
+        boolean helpcode = ImeGridHelpcodeEntry.available(s);
+        if (fourteenSeparatorKey instanceof KeyHintButton hint)
+            hint.setCornerHint(GridHelpcodePolicy.cornerHint(helpcode));
         String face = FourteenKeyLayout.separatorFace(composing);
-        if (face.contentEquals(fourteenSeparatorKey.getText())) return;
+        String description = "按键 " + GridHelpcodePolicy.separatorDescription(
+            FourteenKeyLayout.separatorDescription(composing), helpcode);
+        if (face.contentEquals(fourteenSeparatorKey.getText())
+                && description.equals(String.valueOf(fourteenSeparatorKey.getContentDescription()))) return;
         fourteenSeparatorKey.setText(face);
-        fourteenSeparatorKey.setContentDescription("按键 " + FourteenKeyLayout.separatorDescription(composing));
+        fourteenSeparatorKey.setContentDescription(description);
     }
 
     /**

@@ -659,6 +659,14 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_gridKeyRaw(JNIE
     }
     return response(env, msime_client_grid_key(static_cast<uint64_t>(handle), static_cast<uint8_t>(letter)));
 }
+// 十四／十八键网格辅助码；操作号和字母的含义由引擎判定。先拦超出单字节的值，避免截断成另一操作或字母。
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_gridHelpcodeRaw(JNIEnv *env, jclass, jlong handle, jint op, jint letter) {
+    if (op < 0 || op > 255 || letter < 0 || letter > 127) {
+        env->ThrowNew(env->FindClass("java/lang/IllegalArgumentException"), "Invalid grid helpcode operation");
+        return nullptr;
+    }
+    return response(env, msime_client_grid_helpcode(static_cast<uint64_t>(handle), static_cast<uint8_t>(op), static_cast<uint8_t>(letter)));
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_punctuationWithContextRaw(JNIEnv *env, jclass, jlong handle, jint ascii, jint preceding) {
     if (ascii < 0 || ascii > 127 || preceding < 0) {
         env->ThrowNew(env->FindClass("java/lang/IllegalArgumentException"), "Invalid punctuation context");

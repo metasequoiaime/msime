@@ -1428,8 +1428,15 @@ final class ImeLayoutRows {
     void commitNineKeyHoldOption(String text) {
         dismissNineKeyHoldOptions();
         if (s.connection == null) return;
-        s.command(2);
+        s.command(literalPrecommit());
         s.commitText(s.fullWidthOutput(text));
+    }
+
+    /** 明确选了一个字面之前怎样结束组字：网格辅助码筛空时取消组字，否则原样上屏（{@link GridHelpcodePolicy#literalPrecommitCommand}）。 */
+    private int literalPrecommit() {
+        JSONArray candidates = s.view == null ? null : s.view.optJSONArray("candidates");
+        return GridHelpcodePolicy.literalPrecommitCommand(s.gridHelpcodeDisplay(),
+            candidates == null ? 0 : candidates.length());
     }
 
     void dismissNineKeyHoldOptions() {
@@ -1835,7 +1842,7 @@ final class ImeLayoutRows {
             s.commitEnglishLiteral(text.charAt(0));
             return;
         }
-        s.command(2);
+        s.command(literalPrecommit());
         s.commitLiteralText(s.fullWidthOutput(text));
     }
 
@@ -1978,7 +1985,10 @@ final class ImeLayoutRows {
             if (slotVisible) {
                 String spelling = values.get(slot);
                 key.setText(spelling);
-                key.setContentDescription(NineKeyPanelPolicy.spellingDescription(spelling, zhuyin));
+                // 放下网格辅助码的分隔符后这里是辅助码的整串解释，不是拼音。
+                key.setContentDescription(s.gridHelpcodeDisplay().isEmpty()
+                    ? NineKeyPanelPolicy.spellingDescription(spelling, zhuyin)
+                    : GridHelpcodePolicy.choiceDescription(spelling));
             }
         }
     }

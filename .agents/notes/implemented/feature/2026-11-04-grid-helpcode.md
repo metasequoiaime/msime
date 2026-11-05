@@ -32,6 +32,15 @@ Status: implemented
 - runtime 的 `Action::GridHelpcode` 转交引擎；视图多 `grid_helpcode_available`、`grid_helpcode_display` 两项，为假或为空时不出现。`grid_helpcode_constrained` 只留在快照里：为真时 `order_presentation`（逐键重排、句首语气词、读法降位、在线座位）、落定重排和脚本插件的重排、隐藏都不运行，免得跨过匹配等级。网格组字本来就不发在线请求，不另加限制。
 - C 接口新增 `msime_client_grid_helpcode(session, op, letter)`（ABI 3 只增），`op` 0、1、2、3 对应 `Begin`、`Exact`、`Clear`、`Group`，其他值报错。
 
+### Android
+
+- 规则集中在 `GridHelpcodePolicy`（JVM 冒烟 `GridHelpcodePolicySmoke`），JNI 是 `NativeClient.gridHelpcode`。
+- 十四／十八键的分词键改为能画角标的键：这次组字能用（`grid_helpcode_available`）时右上角画「辅」、读屏说明上滑；上滑过 24 dp（与十八键横滑相同）放下分隔符，没滑过时点按照旧（`ImeGridHelpcodeEntry`）。
+- 视图的 `grid_helpcode_display` 非空就是放下了分隔符：字母键改送 `Group`，十八键双拼横滑的大写改送小写的 `Exact`；读音行在读音后面接上这段显示，不写进输入框；拼音选择区的读屏改说「选择辅助码」。
+- 系统返回键在放下分隔符、键盘显示、没有符号面板或展开候选盖着时，第一次只 `Clear`，组字和键盘留着。
+- 长按字母弹层和快捷符号这类明确选字面的入口，筛空时先取消组字（命令 3）再上屏字面，有候选时照旧原样上屏（14／18 键就是按首选结束），免得组码字母留在字面前面。
+- 设置页开关尚未接入；底行标点、空格、符号面板和实体键盘等其余入口另行核对。
+
 ## Alternatives considered
 
 - **在组码串里接辅助码，像 26 键那样解析**：能复用 26 键的触发与解析。但网格组码是代表字母，十八键双拼的大写已是精确标记，一槽里有多个允许字母也没法写进单个字符；辅助码还会随组码进组字区和上屏文字。所以只复用取码与匹配。
