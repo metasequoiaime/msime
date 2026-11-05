@@ -2,7 +2,7 @@
 //!
 //! 只在双拼、中文标点下，组字是 3 个以上的纯小写字母时触发：两个字母在双拼里正好是一个整音节，单字加 `/`（和/或、元/斤）不能被抢走。`/` 已经被别的功能占用时让位：万象式辅助码的 `/` 结束键、`/` 作辅助码前导键、`/` 出顿号。
 //!
-//! 转出来之后、简拼码还没改过时，退格和第二个 `/` 都撤回这次转换：退格回到按 `/` 之前的组字，`//` 一次得到今天单按 `/` 的结果（上屏首选再出 `/`）。`//` 在引擎里一次做完并且算已处理，不交还 runtime 再走一遍标点，否则缓存的 `spelling_symbols` 过期时会再次触发或重复上屏。
+//! 转出来之后、简拼码还没改过时，退格和第二个 `/` 都撤回这次转换：退格回到按 `/` 之前的组字，`//` 一次得到今天单按 `/` 的结果（上屏首选再出 `/`）。`//` 在引擎里一次做完并且算已处理，不交还 runtime 再走一遍标点，否则缓存的 `spelling_symbols` 过期时会再次触发或重复上屏。引擎不知道宿主高亮着哪一行，这里的 `//` 上屏首选，只给没有高亮的直接调用方（C ABI、golden、单测）；经过 runtime 的宿主由 runtime 记下转换前的高亮，`//` 先用退格撤回、再从那一行结束组字（`msime_input_runtime` 的 `jianpin_slash`），退格撤回时高亮也回到那一行。
 //!
 //! 取舍和被放弃的方案见 `.agents/notes/implemented/feature/2026-11-05-shuangpin-postfix-super-jianpin.md`。
 
@@ -95,7 +95,7 @@ impl InputSession {
         self.update_mixed_candidates();
     }
 
-    /// `//`：撤回转换，照常上屏首选（学习这次选词）再接上 `/`，正是今天单按 `/` 的结果。
+    /// `//`：撤回转换，照常上屏首选（学习这次选词）再接上 `/`。没有宿主高亮时这正是今天单按 `/` 的结果；有高亮的宿主经 runtime 走另一条路，见文件头。
     pub(super) fn escape_super_jianpin_slash(&mut self) -> KeyResult {
         self.revert_super_jianpin_slash();
         let mut result = self.finish_composition(0);
