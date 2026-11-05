@@ -1,4 +1,5 @@
 #include "CandidateCardSize.h"
+#include "CandidateShadow.h"
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -1599,5 +1600,44 @@ int main() {
     // 宽度不可用时不滚动。
     require(near(candidate_preedit_caret(10.0, true, std::nan("")).scroll, 0.0) &&
             near(candidate_preedit_caret(std::nan(""), true, 50.0).caret, 0.85));
+  }
+
+  // #10856：横排一页 6 个候选，窗口按一行定的尺寸，绘制时第 6 个却折到第二行、画在卡片外。窗口的像素宽是卡片宽向上取整再加上取整成整像素的阴影边距（card_bounds），绘制拿客户区像素换回 DIP 再排一次版；候选缩放不是 100% 时 32 DIP 的阴影不是整像素（110% 时 35.2 取 35），按没取整的 DIP 去扣，绘制时的卡片就比量出来的窄零点几 DIP，「一行放不放得下」翻面。逐档扫一遍缩放、字号和序号宽，绘制拿到的宽度必须不比量出来的窄，排出来也必须还是一行。
+  {
+    size_t checked = 0;
+    for (const unsigned dpi : {96u, 120u, 144u, 168u, 192u})
+      for (unsigned percent = 50; percent <= 200; percent += 5)
+        for (double font = 12.0; font <= 32.0; font += 1.0)
+          for (double digit = 0.0; digit < 1.0; digit += 0.137) {
+            const double scale = dpi / 96.0 * percent / 100.0;
+            CandidateCardInput input;
+            input.horizontal = true;
+            input.font_size = input.preedit_font_size = font;
+            input.logo_visible = false;
+            input.preedit_width = font * 1.5;
+            input.page_width = 40.3;
+            input.number_width = font * 0.44 + digit;
+            input.max_width = 1920.0 / scale / 2.0;
+            input.max_single_line_width = 1920.0 / scale - 32.0;
+            input.max_height = 1080.0 / scale / 2.0;
+            input.items.assign(6, CandidateItemWidths{font * 2.0});
+            const auto card = candidate_card_size(input);
+            const auto shape = candidate_card_metrics(font, font, true, false, true, {},
+                                                      input.number_width);
+            const auto one_line = [&](double width) {
+              const auto rows = candidate_page_layout(input.items, width, shape, true);
+              return near(rows.back().bounds.top, rows.front().bounds.top);
+            };
+            if (!one_line(card.width))
+              continue;
+            ++checked;
+            // 和 card_bounds 一样：阴影边距取整成像素，卡片向上取整。
+            const auto shadow = candidate_shadow_pixels({}, scale);
+            const auto client = candidate_card_pixels(card.width, scale) + shadow.left + shadow.right;
+            const double painted = candidate_card_extent(client, shadow.left, shadow.right, scale);
+            require(painted >= card.width - 1e-9);
+            require(one_line(painted));
+          }
+    require(checked > 10000);
   }
 }
