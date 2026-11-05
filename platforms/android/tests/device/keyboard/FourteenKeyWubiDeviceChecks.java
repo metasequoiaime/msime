@@ -70,8 +70,10 @@ final class FourteenKeyWubiDeviceChecks {
             // QW QW 的组码是 qq，可能的五笔码是 qq、qw、wq、ww；读音行显示首选的编码，不显示内部组码，也不写进输入框。
             t.stage = "fourteen wubi code";
             groups("Q W", "Q W");
-            t.await(t.described("编辑拼写").and(node -> node.getText() != null
-                && java.util.List.of("qq", "qw", "wq", "ww").contains(node.getText().toString())));
+            t.await(code());
+            // 组码是各组的代表字母，不是用户打的码，读音行不提供拼写编辑（#10591，与 iOS 相同）。
+            t.stage = "fourteen wubi reading is not a spelling editor";
+            absent(t.described("编辑拼写"));
             t.await(t.field("msime-test-plain").and(FourteenKeyWubiDeviceChecks::emptyField));
             t.stage = "fourteen wubi left key stays symbols while composing";
             t.await(t.described("按键 符号"));
@@ -93,7 +95,7 @@ final class FourteenKeyWubiDeviceChecks {
             // 组字中点左端的「符」：按高亮行结束组字并打开符号面板，不把 `'` 交给五笔。
             t.stage = "fourteen wubi symbol key while composing";
             groups("Q W", "Q W");
-            t.await(t.described("编辑拼写"));
+            t.await(code());
             t.tap(t.described("按键 符号"));
             t.await(t.described("符号面板"));
             t.await(t.field("msime-test-plain").and(node -> node.getText() != null
@@ -149,7 +151,7 @@ final class FourteenKeyWubiDeviceChecks {
             t.await(t.key("五98"));
             t.awaitStableBounds(t.described("按键 Q W"));
             groups("Q W", "Q W");
-            t.await(t.described("编辑拼写"));
+            t.await(code());
             t.tap(t.describedPrefix("候选 1："));
             t.await(t.field("msime-test-plain").and(node -> node.getText() != null
                 && node.getText().length() > before.length()));
@@ -230,6 +232,12 @@ final class FourteenKeyWubiDeviceChecks {
             SystemClock.sleep(100);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new AssertionError("五笔版本或布局未持久化");
+    }
+
+    /** 读音行上首选的五笔编码：QW QW 只能是 qq、qw、wq、ww。 */
+    private Predicate<AccessibilityNodeInfo> code() {
+        return node -> DeviceSmoke.equalsText("app.msime.android", node.getPackageName()) && node.getText() != null
+            && java.util.List.of("qq", "qw", "wq", "ww").contains(node.getText().toString());
     }
 
     private Predicate<AccessibilityNodeInfo> candidate(String text) {

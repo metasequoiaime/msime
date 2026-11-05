@@ -22,6 +22,12 @@ Status: implemented
 
 规则与 iOS（#10894）相同。鸿蒙 #10689 不受影响：网格组字时 `SchemeCompositionPolicy.reading` 画引擎的 `nine_key_reading`、光标钉在末尾（`SchemeCompositionPolicy.caret`），没有读音与按键的逐字对齐；14 键、18 键的读音留在候选栏（`keepsReadingOnStrip`），不走点读音编辑的入口。
 
+## 测试
+
+- `CompositionCaretPolicySmoke`：14 键 `ni'hao` 对 `bugao`、18 键 `ni'hao` 对 `bihai` 的点按、画光标和输入框点按；两张字母表用 26 个字母整串核对；换一张表（14 键对 18 键、九键对 14 键）对不上；26 键 `n` 对不上 `b`、字母对不上数字；双拼网格和五笔 14 键没有表；五笔 14 键不能编辑。
+- 设备上的 `GridSpellingEditorChecks`（`FourteenKeyDeviceSmoke` 和十八键全拼都调用它）：组字后点读音行，放大条画读音、不画组码，点第二个音节前光标落在分隔后面，「完成」收起。改前的包在第一步就失败，放大条画的是 `bugao`。
+- `FourteenKeyWubiDeviceChecks` 原来用「编辑拼写」这个描述找五笔 14 键的读音行，这次读音行不再可编辑，改为按编码文字找，并加一条断言：五笔 14 键的读音行不提供拼写编辑。断言的读音内容（qq、qw、wq、ww 之一）不变。
+
 ## Historical audit
 
 - [组字光标点按](../feature/2026-10-08-composition-caret-tap.md)：部分取代。对齐规则里「九键字母按键位对上数字」改为按这次组字的组码表，那篇的对应句已改并链到这里。
