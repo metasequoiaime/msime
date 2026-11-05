@@ -62,6 +62,8 @@ pub struct SessionOptions {
     pub strict_quanpin_helpcode: bool,
     /// 双拼辅助码的触发方式（Windows `[helpcode]` 组的双拼专属键）；只在双拼方案下生效。
     pub shuangpin_helpcode_modes: ShuangpinHelpcodeModes,
+    /// 十四／十八键组码后可以放下分隔符输入辅助码（[`crate::Session::grid_helpcode`]），默认关；还要 `helpcode` 开着、码表非空。
+    pub grid_helpcode: bool,
     pub chinese_punctuation: bool,
     pub paired_punctuation: bool,
     /// 0 follows the mode, 1 forces Chinese, 2 forces ASCII.
@@ -147,6 +149,7 @@ impl SessionOptions {
             helpcode: false,
             strict_quanpin_helpcode: false,
             shuangpin_helpcode_modes: ShuangpinHelpcodeModes::default(),
+            grid_helpcode: false,
             chinese_punctuation: true,
             paired_punctuation: true,
             punctuation_lock: 0,
@@ -206,6 +209,12 @@ pub struct SessionSnapshot {
     pub nine_key_single_character: bool,
     /// 九宫格候选按笔画筛选时所选的笔顺前缀（`hspnz`），否则为空。
     pub nine_key_strokes: String,
+    /// 这次组字能用网格辅助码（[`crate::Session::grid_helpcode`]）：十四／十八键拼音组码、开关和码表都在。
+    pub grid_helpcode_available: bool,
+    /// 放下分隔符后宿主画在读音后面的辅助码，如 `|Q[ER]`；没有分隔符时为空。不进预编辑，不上屏。
+    pub grid_helpcode_display: String,
+    /// 至少有一槽辅助码、候选是筛过的：宿主和 runtime 不能再跨行重排。只有分隔符时为假。
+    pub grid_helpcode_constrained: bool,
     /// The candidates came from the wubi mixed-pinyin fallback, not the wubi table.
     pub answered_by_pinyin_fallback: bool,
     pub wubi_unique_four_code: bool,

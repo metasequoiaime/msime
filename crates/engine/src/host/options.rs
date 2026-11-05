@@ -430,6 +430,8 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
         helpcode: options.helpcode,
         strict_quanpin_helpcode: options.strict_quanpin_helpcode,
         shuangpin_helpcode_modes: options.shuangpin_helpcode_modes,
+        // 宿主偏好还没有接线，产品会话保持关闭。
+        grid_helpcode: false,
         chinese_punctuation: options.chinese_punctuation,
         paired_punctuation: options.paired_punctuation,
         punctuation_lock: i32::from(options.punctuation_lock),
