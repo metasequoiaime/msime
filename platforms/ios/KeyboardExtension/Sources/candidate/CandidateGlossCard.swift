@@ -97,11 +97,13 @@ struct CandidateGlossCardContent: Equatable {
   }
 }
 
-/// 卡片是为哪一个候选打开的：候选条上的第几个，或者展开网格里某一代候选的某一项。卡片上的按钮动作之前，键盘按它确认这个候选还在，不把过期的译文写进文档。
+/// 卡片是为哪一个候选打开的：候选条上的第几个，或者展开网格里某一代候选的某一项。
+///
+/// 卡片跟的是组字，不是候选的代次：同一个组字里云候选、AI 候选晚到会换一代候选、挪动位置，长按那一刻正好赶上时卡片不能因此关掉（Android #10934 在设备上撞到过整句重排在长按后约 130 ms 到达）。组字变了才关；代次变了按文字重新找到这个候选，词库操作作用在新位置上。
 struct CandidateGlossCardTarget {
   enum Origin: Equatable {
-    /// 候选条上的第 `index` 个；`generation` 是打开时视图的代次，候选条不是会话视图时为 nil。
-    case strip(index: Int, generation: UInt64?)
+    /// 候选条这一页上的第 `index` 个，候选换代后按文字重新定位。
+    case strip(index: Int)
     /// 展开网格里的一项：会话完整候选列表的代次和位置，以及固定排位和高亮（长按菜单的词库操作要用）。
     case panel(generation: UInt64, globalIndex: UInt64, highlighted: Bool, fixedPosition: Int)
   }
@@ -114,6 +116,14 @@ struct CandidateGlossCardTarget {
   var offline: String
   /// 候选在不在会话的当前页上。在线翻译只为当前页的候选请求，与 PRIVACY.md 写的范围一致。
   let onCurrentPage: Bool
+  /// 打开时的组字（读音行上的拼写）。它变了卡片就关。
+  let composition: String
+
+  /// 换了一代候选后在 `texts` 里重新找到 `word`：原来的位置上还是它就留在原位，否则取第一个同字的位置；没有了返回 nil。
+  static func relocate(word: String, previous index: Int, in texts: [String]) -> Int? {
+    if texts.indices.contains(index), texts[index] == word { return index }
+    return texts.firstIndex(of: word)
+  }
 }
 
 /// 长按候选打开的释义卡片：盖住整块按键区，上面的候选栏和读音行留着。顶部是标题「释义」和收起键，中间是候选原文和各语言的译文，底部是「上屏译文」「复制译文」，原来长按菜单里的操作收进左下角的「更多操作」。

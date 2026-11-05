@@ -9134,11 +9134,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     guard isChineseMode, inputScheme.writesChinese, !isInLocalMode, visibleEmailSuffixes.isEmpty,
           visibleCandidates.indices.contains(index), index < candidatePageSize else { return false }
     openGlossCard(CandidateGlossCardTarget(
-      origin: .strip(index: index, generation: visibleInputGeneration),
+      origin: .strip(index: index),
       word: visibleCandidates[index],
       source: visibleCandidateSources.indices.contains(index) ? visibleCandidateSources[index] : -1,
       offline: visibleCandidateGlosses.indices.contains(index) ? visibleCandidateGlosses[index] : "",
-      onCurrentPage: true))
+      onCurrentPage: true, composition: visiblePreedit))
     return true
   }
 
@@ -9151,7 +9151,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       origin: .panel(generation: snapshot.generation, globalIndex: entry.index, highlighted: entry.highlighted,
                      fixedPosition: entry.fixedPosition),
       word: entry.text, source: entry.source, offline: entry.translation,
-      onCurrentPage: session.isOnCurrentPage(generation: snapshot.generation, globalIndex: entry.index)))
+      onCurrentPage: session.isOnCurrentPage(generation: snapshot.generation, globalIndex: entry.index),
+      composition: visiblePreedit))
   }
 
   /// 卡片从候选条打开时装进按键区，与其他键区面板一样；从展开网格打开时叠在网格上，关掉卡片回到网格。顶栏上盖一层透明按钮，点卡片外的候选栏就关掉卡片。
@@ -9219,28 +9220,44 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     UIAccessibility.post(notification: .layoutChanged, argument: candidatePanel ?? candidateStrip.buttons.first)
   }
 
-  /// 释义或译文到了，或者候选换了：换上新内容，候选已经不在时关掉卡片。`panelSnapshot` 是网格刚读到的完整列表。
+  /// 释义或译文到了，或者候选换了一代：换上新内容。组字变了（上屏、退格、换了输入框）才关卡片；同一个组字里换代（云候选、AI 候选晚到）按文字重新找到这个候选。`panelSnapshot` 是网格刚读到的完整列表。
   private func refreshGlossCard(panelSnapshot: CandidatePanelSnapshot? = nil) {
     guard let card = glossCard, var target = glossCardTarget else { return }
+    guard visiblePreedit == target.composition else {
+      closeGlossCard()
+      return
+    }
     switch target.origin {
-    case let .strip(index, generation):
-      guard visibleEmailSuffixes.isEmpty, visibleCandidates.indices.contains(index), visibleCandidates[index] == target.word,
-            generation == nil || generation == visibleInputGeneration else {
+    case let .strip(index):
+      guard visibleEmailSuffixes.isEmpty, !visibleCandidates.isEmpty else {
         closeGlossCard()
         return
       }
-      target.offline = visibleCandidateGlosses.indices.contains(index) ? visibleCandidateGlosses[index] : ""
-    case let .panel(generation, globalIndex, highlighted, fixedPosition):
-      // AI 回答到了时网格原地换成新的一代（`refreshCandidatePanelAnnotations`）；这个候选还在原来的位置上就跟着换过去。
-      if let panelSnapshot, let entry = panelSnapshot.entries.first(where: { $0.index == globalIndex }),
-         entry.text == target.word {
+      // 这一页上暂时找不到它时卡片留着，「更多操作」里只剩不经词库的那几项，等它回来。
+      if let found = CandidateGlossCardTarget.relocate(
+        word: target.word, previous: index, in: Array(visibleCandidates.prefix(candidatePageSize))) {
         target = CandidateGlossCardTarget(
-          origin: .panel(generation: panelSnapshot.generation, globalIndex: globalIndex, highlighted: highlighted,
-                         fixedPosition: fixedPosition),
-          word: target.word, source: target.source, offline: entry.translation, onCurrentPage: target.onCurrentPage)
-      } else if candidatePanel == nil || candidatePanelSnapshot?.generation != generation {
+          origin: .strip(index: found), word: target.word, source: target.source,
+          offline: visibleCandidateGlosses.indices.contains(found) ? visibleCandidateGlosses[found] : "",
+          onCurrentPage: target.onCurrentPage, composition: target.composition)
+      }
+    case let .panel(_, globalIndex, _, _):
+      guard candidatePanel != nil else {
         closeGlossCard()
         return
+      }
+      // 网格原地换成新的一代时（AI 回答到了，`refreshCandidatePanelAnnotations`）按文字跟过去，原位置上还是它就留在原位。
+      if let panelSnapshot {
+        let texts = panelSnapshot.entries.map(\.text)
+        let previous = panelSnapshot.entries.firstIndex { $0.index == globalIndex } ?? -1
+        if let found = CandidateGlossCardTarget.relocate(word: target.word, previous: previous, in: texts) {
+          let entry = panelSnapshot.entries[found]
+          target = CandidateGlossCardTarget(
+            origin: .panel(generation: panelSnapshot.generation, globalIndex: entry.index, highlighted: entry.highlighted,
+                           fixedPosition: entry.fixedPosition),
+            word: target.word, source: target.source, offline: entry.translation,
+            onCurrentPage: target.onCurrentPage, composition: target.composition)
+        }
       }
     }
     glossCardTarget = target
@@ -9276,8 +9293,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func glossCardMenu(_ target: CandidateGlossCardTarget) -> UIMenu? {
     let elements: [UIMenuElement]
     switch target.origin {
-    case let .strip(index, _):
-      elements = candidateMenuElements(at: index)
+    case let .strip(index):
+      // 换代后这一页上暂时没有它：词库操作没有对象，只留朗读和加入生词本。
+      elements = visibleCandidates.indices.contains(index) && visibleCandidates[index] == target.word
+        ? candidateMenuElements(at: index)
+        : personalWordbookElements(
+          candidate: target.word, glosses: glossCardContent(target).sections.map { $0.senses.joined(separator: "; ") })
     case let .panel(generation, globalIndex, highlighted, fixedPosition):
       elements = candidateMenuElements(
         generation: generation, globalIndex: globalIndex, candidate: target.word, offlineGloss: target.offline,
@@ -9298,16 +9319,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
-  /// 卡片对应的候选还是不是眼前这一个；不是的话按钮不能再把它的译文写进文档。
+  /// 卡片打开时的组字还在不在；不在了（上屏、退格、换了输入框）按钮不能再把译文写进文档。候选换代不算：上屏的是译文，用不着候选在哪个位置。
   private func glossCardTargetIsCurrent(_ target: CandidateGlossCardTarget) -> Bool {
-    switch target.origin {
-    case let .strip(index, generation):
-      return visibleCandidates.indices.contains(index) && visibleCandidates[index] == target.word
-        && (generation == nil || generation == visibleInputGeneration)
-    case let .panel(generation, globalIndex, _, _):
-      guard let value = try? session.allCandidates(), let current = try? CandidatePanelSnapshot.decode(value) else { return false }
-      return current.generation == generation && current.entries.contains { $0.index == globalIndex && $0.text == target.word }
-    }
+    visiblePreedit == target.composition
   }
 
   /// 「上屏译文」：结束组字，上屏第一目标语言的译文，不是候选原文。与长按菜单里上屏释义的做法相同。

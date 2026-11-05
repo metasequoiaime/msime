@@ -173,6 +173,58 @@ final class CandidateGlossCardTests: XCTestCase {
     XCTAssertEqual(card.notice, CandidateGlossCardContent.copied)
   }
 
+  /// 换代后按文字重新定位：原位置上还是它就留在原位，否则取第一个同字的位置，没有了是 nil。
+  func testRelocateFindsTheCandidateByTextAfterANewGeneration() {
+    XCTAssertEqual(CandidateGlossCardTarget.relocate(word: "你好", previous: 1, in: ["妳好", "你好"]), 1)
+    XCTAssertEqual(CandidateGlossCardTarget.relocate(word: "你好", previous: 1, in: ["云词", "妳好", "你好"]), 2)
+    XCTAssertEqual(CandidateGlossCardTarget.relocate(word: "你好", previous: 5, in: ["你好"]), 0)
+    XCTAssertNil(CandidateGlossCardTarget.relocate(word: "你好", previous: 0, in: ["妳好"]))
+  }
+
+  /// 同一个组字里候选换了一代（云候选、AI 候选在长按之后才到，把候选往后挤了一格）时卡片留着，跟着这个候选到新位置，「更多操作」里的词库操作也跟过去；组字变了才关。Android #10934 在设备上撞到过新的一代在长按后约 130 ms 到达、把卡片关掉。
+  func testCardSurvivesALateGenerationInTheSameCompositionAndClosesWhenTheCompositionChanges() throws {
+    setCandidateGloss(false)
+    let (controller, _) = try makeKeyboard()
+    type("nihao", in: controller)
+    let shown = try separateSessionSnapshot(typing: "nihao")
+    try XCTSkipIf(shown.candidates.count < 2, "the fixture spelling needs at least two candidates")
+    let second = try XCTUnwrap(try button("candidate-2", in: controller).accessibilityLabel?
+      .split(separator: "：").dropFirst().first.map { String($0.split(separator: "，").first ?? "") })
+
+    let chip = try button("candidate-2", in: controller)
+    let hold = try XCTUnwrap(chip.accessibilityCustomActions?.first { $0.name == "查看释义" })
+    XCTAssertTrue(hold.actionHandler?(hold) ?? false)
+    XCTAssertEqual(label("glossCardCandidate", in: try XCTUnwrap(card(in: controller)))?.text, second)
+
+    // 晚到的在线回答：同一个组字，新的一代，前面多了一个候选。
+    func padded<T>(_ values: [T], _ first: T) -> [T] { [first] + values }
+    let late = MetasequoiaInputSnapshot(
+      isHandled: true, preedit: shown.preedit, reading: shown.reading, phrasePrefix: shown.phrasePrefix,
+      candidates: padded(shown.candidates, "合成云词"), candidateCodes: padded(shown.candidateCodes, ""),
+      candidateIdentities: padded(shown.candidateIdentities, nil), generation: (shown.generation ?? 0) &+ 1_000,
+      candidateGlosses: padded(shown.candidateGlosses, ""), candidateAnnotations: padded(shown.candidateAnnotations, ""),
+      candidateSources: padded(shown.candidateSources, 0), candidateFixedPositions: padded(shown.candidateFixedPositions, 0),
+      candidateHighlighted: padded(shown.candidateHighlighted.map { _ in false }, true),
+      candidateConfidentCorrections: padded(shown.candidateConfidentCorrections, false),
+      candidatePageCount: shown.candidatePageCount, editingText: shown.editingText, caretPosition: shown.caretPosition)
+    controller.render(late)
+    controller.view.layoutIfNeeded()
+    let card = try XCTUnwrap(self.card(in: controller), "新的一代候选不关卡片")
+    XCTAssertEqual(label("glossCardCandidate", in: card)?.text, second)
+    XCTAssertTrue(keysCovered(controller))
+    XCTAssertTrue(try button("candidate-3", in: controller).accessibilityLabel?.contains("：\(second)") == true,
+                  "fixture: the candidate moved one seat right")
+    let titles = try XCTUnwrap(card.moreButton.menu).children.map(\.title)
+    XCTAssertTrue(titles.contains("优先显示") && titles.contains("固定排位"), "词库操作跟着候选到了新位置：\(titles)")
+
+    // 组字变了（多打了一个字母）才关。
+    controller.render(MetasequoiaInputSnapshot(
+      isHandled: true, preedit: shown.preedit + "m", candidates: shown.candidates,
+      generation: (shown.generation ?? 0) &+ 2_000, candidateSources: shown.candidateSources))
+    XCTAssertNil(self.card(in: controller), "组字变了关卡片")
+    XCTAssertFalse(keysCovered(controller))
+  }
+
   /// 原来长按菜单里的操作原样在「更多操作」里，选一项先关掉卡片再做那件事。
   func testOldLongPressActionsLiveInTheMoreMenu() throws {
     setCandidateGloss(false)
@@ -236,6 +288,20 @@ final class CandidateGlossCardTests: XCTestCase {
     controller.viewWillAppear(false)
     controller.view.layoutIfNeeded()
     return (controller, document)
+  }
+
+  /// 另起一个用临时目录的会话打同样的拼写，取它的快照：合成新一代候选时用它的拼写和候选，与键盘里的会话一致。
+  private func separateSessionSnapshot(typing letters: String) throws -> MetasequoiaInputSnapshot {
+    let state = FileManager.default.temporaryDirectory
+      .appendingPathComponent("msime-gloss-card-\(UUID().uuidString)", isDirectory: true)
+    addTeardownBlock { try? FileManager.default.removeItem(at: state) }
+    _ = MetasequoiaInputSessionBridge(stateRoot: state)
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    _ = bridge.cancel()
+    var typed = bridge.currentSnapshot()
+    for letter in letters { typed = bridge.handleCharacter(String(letter)) }
+    _ = bridge.cancel()
+    return typed
   }
 
   private func type(_ letters: String, in controller: KeyboardViewController) {
