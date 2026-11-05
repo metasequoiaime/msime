@@ -524,6 +524,9 @@ export function VoiceSettingsContent({
               ? "只对豆包生效；其他识别服务的标点用下面的「语音标点」"
               : undefined
           }
+          detail={
+            punctuationSupported ? undefined : "当前识别服务不支持，仅豆包语音识别可以自动加标点"
+          }
           disabled={!punctuationSupported}
           checked={voiceInput.doubao_enable_punc !== false}
           onChange={(doubao_enable_punc) => updateVoice({ doubao_enable_punc })}
