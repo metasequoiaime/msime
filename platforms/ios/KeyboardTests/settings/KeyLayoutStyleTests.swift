@@ -1112,14 +1112,12 @@ final class KeyLayoutStyleTests: XCTestCase {
       XCTAssertEqual(tall.nineKeyControls, ["⌫", "分词"], "\(scheme)")
     }
 
-    // 14/18 键画各自的字母格，五笔 14 键第三排左端是 符。
+    // 14/18 键画各自的字母格。第三排左端拼音和五笔一样画空闲时的「符」，`KeyboardPreviewFace` 因此不再区分两者。
     let quanpinEighteen = KeyboardPreviewFace(.eighteenKey, shuangpinLayout: .twentySixKey, wubiLayout: .twentySixKey)
     XCTAssertEqual(quanpinEighteen.letterGrid, .eighteenKey)
-    XCTAssertTrue(quanpinEighteen.gridSplitsSyllables)
     XCTAssertEqual(KeyboardPreviewFace(.shuangpin, shuangpinLayout: .fourteenKey, wubiLayout: .twentySixKey).letterGrid, .fourteenKey)
     let wubiFourteen = KeyboardPreviewFace(.wubi, shuangpinLayout: .eighteenKey, wubiLayout: .fourteenKey)
     XCTAssertEqual(wubiFourteen.letterGrid, .fourteenKey)
-    XCTAssertFalse(wubiFourteen.gridSplitsSyllables)
     XCTAssertFalse(wubiFourteen.nineKey)
   }
 
