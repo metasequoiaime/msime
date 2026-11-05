@@ -50,5 +50,5 @@ Status: implemented
 ## Verification
 
 - `tests/ui/input_mode_hud_layout.cpp`（CMake 目标 `windows-input-mode-hud-layout`，可移植 runner 也会跑）：发布叫醒一次、取走不叫醒、单独 `wake()` 叫醒、回调在锁外调用（回调里再取信箱不自锁）、没有登记时照常收发。没有 `set_wake` 的实现上这几条编译不过。
-- `tests/runtime/session_pump.cpp` 的模式事件用例（随 `windows-session-smoke` 等目标在 Windows 原生作业里运行）：`StatusSnapshot`、`IMESwitch`、`FocusRestored` 各三次都调用 `event_settled`，且回调里 `try_with_active` 能拿到闸门，证明它在闸门之外。
+- `tests/runtime/session_pump.cpp` 的模式事件用例（由 `windows-session-smoke` 调用，ctest 名 `windows-session`）：`StatusSnapshot`、`IMESwitch`、`FocusRestored` 各三次都调用 `event_settled`，且回调里 `try_with_active` 能拿到闸门，证明它在闸门之外。PR 上的 Windows GNU 交叉构建只编译链接它、不运行；没有哪个 CI 作业运行它（Wine 在 arm64 主机上也跑不起 `windows-session-smoke`，见 `scripts/known-failures.txt`），这几条断言要在 Windows 测试机上用 `tests/tools/run-smoke.ps1` 或 ctest 跑过才算验证。
 - `server_main.cpp`、`InputModeHudWindow.cpp`、`SessionPump.cpp`、`SessionController.cpp` 只经 MinGW 语法检查和 PR 上的 Windows 构建；Windows 实机上连续单按 Shift、在两台缩放不同的显示器之间切换的验收还没有做。
