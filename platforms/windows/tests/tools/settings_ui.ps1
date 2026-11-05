@@ -1614,7 +1614,7 @@ try {
                     # 「许可与隐私」的顺序照 macOS，末尾是「发送哪些内容」折叠区；不碰统计开关。
                     Select-PageTab $window 'about-tab-privacy' '许可与版权'
                     $content = Find-ById $window 'settings-content'
-                    foreach ($name in @('开源许可协议', '第三方组件许可', '隐私政策', '匿名使用统计', '发送哪些内容')) {
+                    foreach ($name in @('开源许可协议', '第三方组件许可', '粤语双拼键位方案', '隐私政策', '匿名使用统计', '发送哪些内容')) {
                         if (-not (Find-ByName $content $name)) { throw "About privacy tab is missing: $name" }
                     }
                     Save-Window $window "$theme-$width-about-privacy.png"

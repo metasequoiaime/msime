@@ -3,7 +3,6 @@ import type { Preferences } from "../core/preferences-model";
 import { ActionSheet, type SheetOption } from "../core/action-sheet";
 import { ChevronGlyph } from "../core/chevron-glyph";
 import { PlusGlyph } from "../core/plus-glyph";
-import { cantoneseShuangpinCredit } from "./cantonese-preferences";
 import {
   languageRemovalFallback,
   offeredLanguageSchemes,
@@ -147,7 +146,6 @@ export function LanguageCard({
     const plain = (scheme: TouchKeyboardScheme): SheetOption => ({
       value: scheme,
       label: schemeName(scheme, wubiProfile),
-      detail: scheme === "cantonese_shuangpin" ? cantoneseShuangpinCredit : undefined,
       selected: selectedIn(scheme),
     });
     // 每行的方案直接列在这一层：双拼列小鹤、自然码等，五笔列 86 和 98。再套一层子菜单，「双拼」行、方案面板、双拼面板就成了三层。

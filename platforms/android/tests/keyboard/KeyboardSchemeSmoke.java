@@ -205,10 +205,6 @@ public final class KeyboardSchemeSmoke {
             && !KeyboardScheme.CANTONESE_SHUANGPIN.installed(""));
         mapping(KeyboardScheme.CANTONESE_SHUANGPIN, "wubi", "shoudao", "cantonese", "cantonese", "shoudao");
         check(KeyboardScheme.fromPreferenceId("cantonese_shuangpin") == KeyboardScheme.CANTONESE_SHUANGPIN);
-        // 粤语双拼的键位方案由陳澍鋒设计（#9799），输入页粤拼面板的这一项下面署名；其他方案没有署名。
-        check("方案设计：陳澍鋒".equals(KeyboardScheme.CANTONESE_SHUANGPIN.designCredit()));
-        for (KeyboardScheme scheme : KeyboardScheme.values())
-            check(scheme == KeyboardScheme.CANTONESE_SHUANGPIN || scheme.designCredit() == null);
         check(KeyboardScheme.fromPreferences("cantonese", "xiaohe", "twenty_six_key", FULL) == KeyboardScheme.CANTONESE);
         check(KeyboardScheme.resolveEnabledSelection(KeyboardScheme.CANTONESE, "cantonese_shuangpin",
             List.of(KeyboardScheme.QUANPIN, KeyboardScheme.CANTONESE, KeyboardScheme.CANTONESE_SHUANGPIN), FULL)

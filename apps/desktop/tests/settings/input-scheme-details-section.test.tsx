@@ -192,7 +192,6 @@ test("粤拼方案在桌面宿主可切换为粤语双拼，触屏宿主不显�
   expect(shown("粤拼方案")).toBe(true);
   expect((screen.getByRole("radio", { name: "粤拼" }) as HTMLInputElement).checked).toBe(true);
   expect(screen.queryByText(/用 ' 分隔音节/)).not.toBeNull();
-  expect(screen.queryByText("方案设计：陳澍鋒")).toBeNull();
   expect(screen.queryByRole("combobox", { name: "双拼方案" })).toBeNull();
   fireEvent.click(screen.getByRole("radio", { name: "粤语双拼" }));
   expect(onCantoneseChange).toHaveBeenLastCalledWith({ input_method: "shuangpin" });
@@ -200,8 +199,6 @@ test("粤拼方案在桌面宿主可切换为粤语双拼，触屏宿主不显�
   rerender(<InputSchemeDetailsSection {...props} cantonese={{ input_method: "shuangpin" }} />);
   expect((screen.getByRole("radio", { name: "粤语双拼" }) as HTMLInputElement).checked).toBe(true);
   expect(screen.queryByText(/ing 和 ik 在 ; 键上/)).not.toBeNull();
-  // 选中粤语双拼时，设计者署名常驻标题下面（#9799），不收进「?」。
-  expect(shown("方案设计：陳澍鋒")).toBe(true);
   fireEvent.click(screen.getByRole("radio", { name: "粤拼" }));
   expect(onCantoneseChange).toHaveBeenLastCalledWith({ input_method: "jyutping" });
 

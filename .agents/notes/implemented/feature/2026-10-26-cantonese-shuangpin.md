@@ -16,18 +16,18 @@ issue #9799 提议为现有粤拼方案增加粤语双拼。报告附带的参�
 
 ## 署名
 
-键位方案的设计者是 #9799 的报告者 swithinchan，本名陳澍鋒，方案是他的[「粵語雙拼（自然碼兼容版）」](https://github.com/swithinchan/rime-cantonese-shuangpin)。上面的规则与那个方案的键位逐项相同（`gw`→I、`kw`→U、`ng`→V、`j`→Y、零声母 O、韵母分组包括 `;` 上的 ing、ik），代码是独立写的，不含那个仓库的文件。他随后请求把这个方案署名为他设计，维护者同意，定下的署名方式：
+键位方案的设计者是 #9799 的报告者 swithinchan，本名陳澍鋒，方案是他的[「粵語雙拼（自然碼兼容版）」](https://github.com/swithinchan/rime-cantonese-shuangpin)。上面的规则与那个方案的键位逐项相同（`gw`→I、`kw`→U、`ng`→V、`j`→Y、零声母 O、韵母分组包括 `;` 上的 ing、ik），代码是独立写的，不含那个仓库的文件。他随后请求注明用的是他的方案，维护者同意，定下的署名方式：
 
-- 界面：凡是让用户选粤语双拼的设置项，都在这个选项下面常驻一行小号次要色的「方案设计：陳澍鋒」，名字照他本人的写法用繁体；方案名不改，仍是「粤语双拼」。读屏把这一行接在选项名后面读。各平台落点：iOS「输入方案」粤拼面板的选项（`DesignOption.subtitle`，名字由 `ChineseInputScheme.designCredit` 给）；Android 输入页粤拼面板的选项（`OptionSheet.option(label, detail, …)`，名字由 `KeyboardScheme.designCredit()` 给）；共享设置页 HarmonyOS 手机「语言与方案」卡片的粤拼面板（`SheetOption.detail`）、平板的触屏方案开关列表、macOS 与 Linux 的「粤拼方案」分段选择（选中粤语双拼时作为 `detail` 常驻标题下面；分段控件没有逐项副标题，选中粤拼时不显示，免得读成粤拼的署名）；Windows WinUI 设置同一行（`row_detail`）和 Win7 设置的方案说明末行；网页引擎演示页的方案说明。
-- 文档：`docs/third-party.md` 的「粤语双拼的键位方案」一节写明设计者、仓库、#9799，以及我们的代码是独立实现、不含那个仓库的文件；`packages/web-engine/README.md` 的 `cantonese_shuangpin` 说明和 `crates/engine/src/cantonese/shuangpin.rs` 的模块文档各写一句。
-- 键盘里的方案切换卡片（iOS `schemeCard-*`、Android 与 HarmonyOS 的方案选择）不加：那是打字时的快捷切换，不是设置项，空间也只够方案名。
+- 界面：署名放在各平台「关于」里与开源许可列在一起，不放在选方案的面板里。列表里是一项「粤语双拼键位方案」，说明「陳澍鋒设计」（名字照他本人的写法用繁体），点开是一段说明：设计者、来源 #9799、他的方案仓库，以及水杉的实现是按同一套键位独立编写的。各平台跟着自己现有的列表走：iOS「开源许可」的 `LicenseNotice` 和 Android「开源许可」面板都只会打开随包文件，所以说明写成随包的 `resources/licenses/cantonese-shuangpin-scheme-NOTICE.txt`（`project.yml` 作为 App 资源，`build-apk.sh` 复制进 assets 并在打包后核对）；Android 的列表本来用文件名当标题，这一项另给中文标题。共享设置页（macOS、Linux 的「许可与隐私」，HarmonyOS 的「法律信息」）没有逐项许可列表，在「开源许可协议」或「开源许可」后面加一行（`CantoneseShuangpinCreditRow`），点开用页内对话框显示同样的说明，「查看方案仓库」打开他的仓库；鸿蒙照同组写法用「查看」按钮。Windows WinUI 在「第三方组件许可」后面加一行跳转，点开是 `ContentDialog`；Win7 设置没有弹窗的写法，说明直接写在「打开随包第三方组件许可」下面，旁边一个按钮打开方案仓库。WinUI 与 Win7 的措辞在 `AboutPageModel.h`，共享页的在 `cantonese-shuangpin-credit-row.tsx`，与随包文件说的是同一件事。
+- 文档：`docs/third-party.md` 的「粤语双拼的键位方案」一节写明设计者、仓库、#9799、我们的代码是独立实现、不含那个仓库的文件，以及各平台致谢在哪；`packages/web-engine/README.md` 的 `cantonese_shuangpin` 说明和 `crates/engine/src/cantonese/shuangpin.rs` 的模块文档各写一句。网页演示页没有关于页，方案说明里不署名。
+- 选方案的地方一律不署名：设置里的「输入方案」面板、触屏方案开关、桌面的「粤拼方案」分段选择，以及键盘里的方案切换卡片。
 
 ## Alternatives considered
 
 - **直接复制 issue 附件仓库**：实现最快，但仓库没有许可证，无法证明可再分发。
 - **把双拼码当作普通粤拼缩写交给现有分段器**：不需要新状态，但双拼码与粤拼音节边界不一一对应，无法在候选查询时恢复实际音节。
 - **把方案改名为「粵語雙拼（自然碼兼容版）」以示来源**：名字本身就带着出处。不采用：设计者要的是署名，不是改名；各平台的方案名、空格键面和读屏标签都已经是「粤语双拼」，改名要动所有入口，用户也认不出是同一个方案。
-- **只在关于页或开源许可页致谢**：一处改动就够，不碰各平台设置界面。不采用：设计者的请求是在用户选这个方案时能看到，关于页几乎没人去看，与把方案作者写在方案旁边的常见做法也不一致。
+- **在选粤语双拼的选项下面常驻一行「方案设计：陳澍鋒」**：#10950 起初就是这么做的，用户每次选这个方案都看得到设计者，比关于页显眼得多，也像输入法里把方案作者写在方案旁边的做法。不采用：维护者看了 iOS 的截图后否掉了。选方案的面板是功能选择界面，用户在那里比较的是方案本身，其他选项都只有方案名，唯独这一项多一行个人名字，读起来像广告，也打扰选择；读屏还要把名字接在选项名后面读。署名属于致谢和许可，和第三方数据、代码的许可列在一起才是它的位置。为它加的选项副标题（iOS `DesignOption.subtitle`、Android `OptionSheet` 带 `detail` 的重载、共享页 `SheetOption.detail` 等）一并撤掉。
 - **复制完整粤拼词表并生成新数据库**：候选质量可控，但重复已有受许可数据库并扩大资源包和维护面，因此先复用现有库存。
 
 ## Consequences

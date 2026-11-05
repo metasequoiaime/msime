@@ -19,12 +19,6 @@ final class DesignOptionSheetMetricsTests: XCTestCase {
     XCTAssertEqual(DesignOptionSheetMetrics.listHeight(rows: 8, limit: 451), 451)
   }
 
-  /// 带副标题的选项（粤语双拼的「方案设计：陳澍鋒」）读屏时接在选项名后面，没有副标题的只读选项名。
-  func testSubtitleFollowsTheTitleForVoiceOver() {
-    XCTAssertEqual(DesignOption(title: "粤语双拼", value: 1, subtitle: "方案设计：陳澍鋒").accessibilityTitle, "粤语双拼，方案设计：陳澍鋒")
-    XCTAssertEqual(DesignOption(title: "粤拼", value: 0).accessibilityTitle, "粤拼")
-  }
-
   func testEmptyListAndNegativeLimitTakeNoSpace() {
     XCTAssertEqual(DesignOptionSheetMetrics.listHeight(rows: 0, limit: 400), 0)
     XCTAssertEqual(DesignOptionSheetMetrics.listHeight(rows: 3, limit: -1), 0)

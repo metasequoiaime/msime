@@ -235,8 +235,7 @@ struct InputSettingsView: View {
   }
 
   private func schemeOption(_ scheme: ChineseInputScheme, title: String) -> DesignOption<LanguageChoice> {
-    DesignOption(title: title, value: .scheme(scheme), identifier: "inputScheme_\(scheme.rawValue)",
-                 subtitle: scheme.designCredit)
+    DesignOption(title: title, value: .scheme(scheme), identifier: "inputScheme_\(scheme.rawValue)")
   }
 
   /// 方案在所属语言面板里的名字，面板标题已经是语言名。

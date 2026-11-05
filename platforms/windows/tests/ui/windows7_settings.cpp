@@ -1088,11 +1088,8 @@ int main() {
     assert(store.load().snapshot->preferences().at("scheme") == "cantonese");
     assert((GetWindowLongPtrW(GetDlgItem(body, scheme_cantonese_method), GWL_STYLE) & WS_VISIBLE) != 0);
     assert(SendMessageW(GetDlgItem(body, scheme_cantonese_method), CB_GETCURSEL, 0, 0) == 0);
-    assert(caption(GetDlgItem(body, scheme_description)).find(L"方案设计") == std::wstring::npos);
     select_value(scheme_cantonese_method, 1);
     assert(store.load().snapshot->preferences().at("cantonese").at("input_method") == "shuangpin");
-    // 选中粤语双拼时说明末行署名设计者（#9799）。
-    assert(caption(GetDlgItem(body, scheme_description)).find(L"方案设计：陳澍鋒") != std::wstring::npos);
     select_value(scheme_cantonese_method, 0);
     assert(store.load().snapshot->preferences().value("cantonese", Json::object()).value("input_method", std::string{"jyutping"}) == "jyutping");
   }

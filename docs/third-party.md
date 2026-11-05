@@ -291,7 +291,7 @@ kaikki 每周覆盖同一个 URL，所以能复现构建的是 `filtered_input`�
 
 ### 粤语双拼的键位方案
 
-粤语双拼的键位方案由陳澍鋒（[swithinchan](https://github.com/swithinchan)）设计，即他的「粵語雙拼（自然碼兼容版）」（[swithinchan/rime-cantonese-shuangpin](https://github.com/swithinchan/rime-cantonese-shuangpin)），应他在 [#9799](https://github.com/metasequoiaime/msime/issues/9799) 的请求收入，并按他的要求在各平台设置里选这个方案的地方署名「方案设计：陳澍鋒」。本项目的代码（`crates/engine/src/cantonese/shuangpin.rs`）是按同一套键位独立写的实现，不含那个仓库的任何文件（schema、映射表或词表）；那个仓库没有许可证文件。粤语双拼的候选来自上文的 `msime-cantonese.db`。
+粤语双拼的键位方案由陳澍鋒（[swithinchan](https://github.com/swithinchan)）设计，即他的「粵語雙拼（自然碼兼容版）」（[swithinchan/rime-cantonese-shuangpin](https://github.com/swithinchan/rime-cantonese-shuangpin)），应他在 [#9799](https://github.com/metasequoiaime/msime/issues/9799) 的请求收入，并按他的要求在各平台「关于」里与开源许可列在一起致谢：一项「粤语双拼键位方案 · 陳澍鋒设计」，点开是设计者、来源和独立实现的说明。iOS 与 Android 的许可列表只打开随包文件，致谢是随包的 `resources/licenses/cantonese-shuangpin-scheme-NOTICE.txt`（`platforms/ios/project.yml`、`platforms/android/build-apk.sh`）；共享设置页（macOS、Linux、HarmonyOS）的 `packages/ui/src/settings/cantonese-shuangpin-credit-row.tsx`、Windows 的 `platforms/windows/settings/AboutPageModel.h` 写着同样的话。选方案的面板里不署名。本项目的代码（`crates/engine/src/cantonese/shuangpin.rs`）是按同一套键位独立写的实现，不含那个仓库的任何文件（schema、映射表或词表）；那个仓库没有许可证文件。粤语双拼的候选来自上文的 `msime-cantonese.db`。
 
 ## 笔画的数据（rime-stroke）
 

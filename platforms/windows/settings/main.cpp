@@ -5814,12 +5814,12 @@ private:
                            enabled));
   }
 
-  Border segment_row(StackPanel const &group, wchar_t glyph,
-                     std::wstring const &title, std::wstring const &subtitle,
-                     std::wstring key, std::vector<Option> const &options,
-                     std::wstring const &fallback) {
+  void segment_row(StackPanel const &group, wchar_t glyph,
+                   std::wstring const &title, std::wstring const &subtitle,
+                   std::wstring key, std::vector<Option> const &options,
+                   std::wstring const &fallback) {
     const auto current = document_.String(key, fallback);
-    return add_row(group, glyph, title, subtitle,
+    add_row(group, glyph, title, subtitle,
             segmented_control(title, options, current,
                               [this, key](std::wstring const &value) {
                                 change([&](PreferencesDocument &doc) {
@@ -13864,18 +13864,14 @@ private:
       segment_row(group, 0xE8AB, L"韩语布局",
                   L"默认两套式，可切换为罗马字。罗马字用 x 输入声母 ㅇ（xa → 아，hangug → 한국），Shift+G/D/B/J/S 输入紧音；退格删除当前拼写的最后一个拉丁字母，标点为半角",
                   L"korean.layout", {{L"dubeolsik", L"两套式"}, {L"romaja", L"罗马字"}}, L"dubeolsik");
-    // 粤语双拼与粤拼共用同一个方案和词典，做成粤拼方案下的选项，说明与共享页的「粤拼方案」相同。选中粤语双拼时标题下面常驻设计者署名（#9799），与共享页的 `detail` 相同。
-    if (scheme == L"cantonese") {
-      const bool shuangpin = document_.String(L"cantonese.input_method", L"jyutping") == L"shuangpin";
-      auto row = segment_row(group, 0xE8AB, L"粤拼方案",
-                             shuangpin
-                                 ? L"两键一个音节，第一键是声母、第二键是韵母，ing 和 ik 在 ; 键上；从第一键起按双拼解释，与粤拼同形的码（如 oi）也按双拼。数字键选词，候选为繁体字词"
-                                 : L"按不带声调的粤拼输入，用 ' 分隔音节，数字键选词，候选为繁体字词",
-                             L"cantonese.input_method", {{L"jyutping", L"粤拼"}, {L"shuangpin", L"粤语双拼"}},
-                             L"jyutping");
-      if (shuangpin)
-        row_detail(row, L"方案设计：陳澍鋒");
-    }
+    // 粤语双拼与粤拼共用同一个方案和词典，做成粤拼方案下的选项，说明与共享页的「粤拼方案」相同。
+    if (scheme == L"cantonese")
+      segment_row(group, 0xE8AB, L"粤拼方案",
+                  document_.String(L"cantonese.input_method", L"jyutping") == L"shuangpin"
+                      ? L"两键一个音节，第一键是声母、第二键是韵母，ing 和 ik 在 ; 键上；从第一键起按双拼解释，与粤拼同形的码（如 oi）也按双拼。数字键选词，候选为繁体字词"
+                      : L"按不带声调的粤拼输入，用 ' 分隔音节，数字键选词，候选为繁体字词",
+                  L"cantonese.input_method", {{L"jyutping", L"粤拼"}, {L"shuangpin", L"粤语双拼"}},
+                  L"jyutping");
     if (scheme == L"zhuyin")
       add_row(group, 0xE8AB, L"注音键盘",
               L"大千：按大千键位输入注音符号，空格为一声，6 3 4 7 为二、三、四声和轻声，候选为繁体字词",
@@ -16483,6 +16479,24 @@ private:
     dialog.XamlRoot(root_.XamlRoot());
     dialog.RequestedTheme(palette_.dark ? ElementTheme::Dark : ElementTheme::Light);
     co_return co_await show_dialog(dialog);
+  }
+
+  // 「许可与隐私」里粤语双拼键位方案的致谢（共享页 `CantoneseShuangpinCreditRow` 的对话框）：说明设计者、来源和独立实现，「查看方案仓库」打开设计者的仓库。
+  fire_and_forget show_cantonese_shuangpin_credit() {
+    auto strong = get_strong();
+    ContentDialog dialog;
+    dialog.Title(box_value(hstring(msime::settings::cantonese_shuangpin_credit_title)));
+    auto text = make_text(std::wstring(msime::settings::cantonese_shuangpin_credit_text), 14, palette_.text);
+    text.TextWrapping(TextWrapping::Wrap);
+    text.MaxWidth(420);
+    dialog.Content(text);
+    dialog.PrimaryButtonText(L"查看方案仓库");
+    dialog.CloseButtonText(L"关闭");
+    dialog.DefaultButton(ContentDialogButton::Close);
+    dialog.XamlRoot(root_.XamlRoot());
+    dialog.RequestedTheme(palette_.dark ? ElementTheme::Dark : ElementTheme::Light);
+    if (co_await show_dialog(dialog))
+      open_url(msime::settings::cantonese_shuangpin_scheme_repository);
   }
 
   // True when the user chose the dialog's primary button. WinUI shows one ContentDialog at a time and throws for a second, which inside a fire_and_forget coroutine ends the process; a click that would open another while one is up, such as a second 删除, is taken as a cancel.
@@ -25824,20 +25838,6 @@ private:
     return texts.Children().GetAt(1).as<TextBlock>();
   }
 
-  // 在标题（连同「?」）下面常驻一行次要文字，说明照旧收在「?」里：对应共享页 `Row` 的 `detail`，例如粤语双拼的设计者署名。
-  void row_detail(Border const &card, std::wstring const &text) {
-    card.Child()
-        .as<StackPanel>()
-        .Children()
-        .GetAt(0)
-        .as<Grid>()
-        .Children()
-        .GetAt(0)
-        .as<StackPanel>()
-        .Children()
-        .Append(make_text(text, 12, palette_.sub));
-  }
-
   // 说明是当前状态（版本号、安装进度、设备详情）或紧挨着按钮讲后果（注销、清除、删除）的行：不收进「?」，照旧画在标题下面。返回同一行，方便接在 add_row 外面。
   Border inline_subtitle(Border const &row) {
     row_subtitle(row);
@@ -26872,6 +26872,9 @@ private:
     add_row(privacy, 0xE8A5, L"许可与版权",
             L"水杉 IME 以 GPL-3.0 发布；第三方组件许可随应用资源提供。", copyright);
     link_row(privacy, L"第三方组件许可", L"", true, [this] { open_third_party_notices(); });
+    link_row(privacy, std::wstring(msime::settings::cantonese_shuangpin_credit_title), L"", false,
+             [this] { show_cantonese_shuangpin_credit(); },
+             std::wstring(msime::settings::cantonese_shuangpin_credit_designer));
     url_row(privacy, L"隐私政策", L"", privacy_url);
     bool_row(privacy, 0xE9D2, L"匿名使用统计", L"不含输入内容、候选和剪贴板；关闭后不再发送。",
              L"usage_reporting", true);
