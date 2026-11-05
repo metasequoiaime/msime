@@ -24212,13 +24212,13 @@ private:
     bool_row(recognition, 0xE8D2, L"边说边显示", L"识别服务支持时显示实时识别片段",
              L"voice_input.stream_inline_preedit", true);
 
-    // 「识别结果」（VoiceRecognitionResultSection）：边说边显示已经移到「识别」组，这里是结果提交策略和语音标点。
+    // 「识别结果」（VoiceRecognitionResultSection）：边说边显示已经移到「识别」组，共享设置页这一组只剩结果提交策略；「语音标点」是 Windows 原生设置独有的一行，不对应共享设置页的控件。
     auto result = add_group(page, L"识别结果");
     select_row(result, 0xE8C8, L"结果提交策略", L"由当前桌面宿主决定如何把识别结果交给前台窗口",
                L"voice_input.commit_mode",
                {{L"tsf", L"输入法会话"}, {L"sendinput", L"系统按键"}, {L"ctrl_v", L"剪贴板粘贴"}},
                L"tsf");
-    // 文案与共享设置页的 voice-punctuation-section.tsx 相同；Server 在最终结果上屏前按它处理（VoicePunctuation.h）。
+    // 这一行的文案以此处为准，Win7 设置窗口（win7/VoiceForm.h）的四个选项与之保持一致；Server 在最终结果上屏前按它处理（VoicePunctuation.h）。
     select_row(result, 0xE8D2, L"语音标点", L"对所有识别服务和 AI 润色后的结果生效，下一次识别起作用",
                L"voice_input.punctuation_mode",
                {{L"auto", L"智能添加"}, {L"omit_trailing", L"省略句末标点"},
