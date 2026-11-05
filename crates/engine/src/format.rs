@@ -18,6 +18,12 @@ pub const METADATA_SCHEMA: &str =
 /// `metadata` 里存放格式版本的那一行，与语言词库同名。
 pub const METADATA_FORMAT_VERSION: &str = crate::language_dictionary::METADATA_FORMAT_VERSION;
 
+/// `msime-pinyin.db` 里可选的「不拿来拼整句的词」表（`docs/data-formats.md` §4.5）：dict-builder 从 msime-dictionary 的 `curation/offensive-words.txt` 写入，`value` 是词或豁免写法，`exempt` 为 1 表示豁免写法。只追加的新表，不改 `FORMAT_VERSION`：旧引擎不认识它也不读它，新引擎读不到它就用编进引擎的表。
+pub const SENTENCE_EXCLUDED_TABLE: &str = "sentence_excluded";
+
+/// [`SENTENCE_EXCLUDED_TABLE`] 的建表语句。
+pub const SENTENCE_EXCLUDED_SCHEMA: &str = "CREATE TABLE sentence_excluded(value TEXT NOT NULL PRIMARY KEY, exempt INTEGER NOT NULL CHECK (exempt IN (0, 1))) WITHOUT ROWID;";
+
 /// Tables are numbered by syllable count up to this; longer keys go to the overflow bucket.
 pub const MAXIMUM_NUMBERED_SYLLABLES: usize = 7;
 /// First letters that have tables. `i`, `u` and `v` start no syllable, so they have none.

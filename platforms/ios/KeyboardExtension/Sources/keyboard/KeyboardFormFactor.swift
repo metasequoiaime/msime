@@ -7,16 +7,14 @@ enum KeyboardFormFactor: Equatable {
   case phone
   case tablet
 
-  /// 26 键手机竖屏为较矮的键帽额外留出的排间距。
+  /// 手机竖屏字母层（26 键，以及九键一族切到英文或本地模式时的字母层）在存储行距之外多留的排间距。`keyboardHeight` 按它把行距换回存储值来算标准高度。
   static let phoneLetterRowPadding: CGFloat = 4
 
-  /// 26 键手机竖屏为补回键盘总高而在键区上下增加的留白。
-  static let phoneLetterVerticalPadding: CGFloat = 10
-
-  /// 26 键手机竖屏有 `rows` 排键（含底行）时上下各留的白：每排键帽从 52pt 收到 44pt 省下 8pt，排间距多出 `phoneLetterRowPadding`，两者之差平分到上下。四排时为 `phoneLetterVerticalPadding`；顶部数字行打开时五排，为 12pt，字母键仍是 44pt。
-  static func phoneLetterVerticalPadding(rows: Int) -> CGFloat {
-    (CGFloat(rows) * 8 - CGFloat(max(rows - 1, 0)) * phoneLetterRowPadding) / 2
-  }
+  /// 26 键手机竖屏的键帽从 52pt 收到 44pt，每排省下 8pt，一半垫在键的上方、一半垫在下方，每个 44pt 键帽都落在九键 52pt 那一格的正中：键区上下各留 `phoneLetterVerticalPadding`，排与排之间在 `phoneLetterRowPadding` 之外再多 `phoneLetterSpareRowPadding`。两者都与排数无关，开不开顶部数字行都一样，键盘总高也不变。
+  ///
+  /// 以前省下的高度全部垫在键区上下（四排各 10pt，开数字行五排各 12pt），工具栏和第一排之间空出一整条。
+  static let phoneLetterVerticalPadding: CGFloat = 4
+  static let phoneLetterSpareRowPadding: CGFloat = 4
 
   static func resolve(
     idiom: UIUserInterfaceIdiom, horizontalSizeClass: UIUserInterfaceSizeClass

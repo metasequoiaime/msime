@@ -30,7 +30,7 @@ crates/engine                  同上，只经核心层 `Session`
 
 `crates/client-base`、`crates/client-core`、`crates/client-services` 和 `crates/client-providers` 与上面这条链路平行，不参与按键处理：client-base 是存储、文件锁、文本谓词和简繁转换这些不联网的底层，client-core 负责本地配置、版本、主题和固定资源的分代安装，client-services 是账号、社区、皮肤、插件、词库和打字统计这些联网或处理用户内容的服务，client-providers 是语音、服务凭据、AI 和按需资源包。依赖方向是 base → core → services 与 core → providers，services 和 providers 互不引用；`input-runtime` 只依赖 client-core，`backend-engine` 只依赖 client-base，它们的编译图里没有 reqwest、tokio 这些网络栈。`packages/ui` 是共享的 React 设置页，`apps/desktop` 是在 macOS 与 Linux 上承载它们的 Tauri 层；HarmonyOS 不经过 Tauri，`platforms/harmony/stage-settings.sh` 把 `apps/harmony` 构建进 ArkWeb 加载的 rawfile，页面经 ArkTS 原生桥和 NAPI 调用 Rust；哪些平台的设置界面用这些页面，见下面的[设置界面按平台归属](#设置界面按平台归属)。
 
-**产品本体是 `platforms/<os>` 的原生宿主。** Android、iOS、HarmonyOS、Linux、macOS、Windows 一律如此：最终安装、启动、被系统识别为输入法的都是原生宿主。Tauri/React 是跨平台共享功能与界面的公共组件，只在用到它的平台上由原生宿主承载，不单独作为某个平台的产品去启动或验收。`apps/desktop` 的目录名和 Tauri 生成的工程都不改变这一点。
+**产品本体是 `platforms/<os>` 的原生宿主。** Android、iOS、HarmonyOS、Linux、macOS、Windows 一律如此：最终安装、启动、被系统识别为输入法的都是原生宿主。Tauri/React 是跨平台共享功能与界面的公共组件，只在用到它的平台上由原生宿主承载，不单独作为某个平台的产品去启动或验收。`apps/desktop` 的目录名不改变这一点。
 
 ### 设置界面按平台归属
 
@@ -45,7 +45,7 @@ crates/engine                  同上，只经核心层 `Session`
 | HarmonyOS | 共享 React 设置页 | `pages/Settings.ets` 用 ArkWeb 加载 `stage-settings.sh` 打包的 `rawfile/settings/index.html`，ArkTS 一侧只做原生桥，不画设置表单 |
 | Windows | 现代 Windows：原生 WinUI 3；Win7：原生 Win32 | `msime-client-settings.exe`（`platforms/windows/settings/`）原生绘制全部 16 页；托盘、开始菜单和不带面板的请求都打开它（`platforms/windows/src/system/ShellSurfaces.h`）；React 设置页仍随 Tauri 的 `MSIME.exe` 安装，直接运行 `MSIME.exe` 能看到，但没有设置入口指向它；Win7 构建由 `settings/win7` 的 `msime-client-settings-win7.exe` 承载，复用同一共享 Rust 业务与偏好默认值 |
 | iOS | 原生 SwiftUI | `platforms/ios/App/Sources/`；App、`SharedUI` 和键盘扩展里都没有 WebView |
-| Android | 原生 Java | 发布的 APK（`platforms/android/build-apk.sh`）的设置 App 各页在 `java/app/msime/android/home/`，另有 `settings/`、`account/`、`community/`、`statistics/` 下的页面，不含 Tauri/React；带 React 设置的 Tauri 合包（`build-client-apk.sh`）只用于开发验证，不发布 |
+| Android | 原生 Java | 发布的 APK（`platforms/android/build-apk.sh`）的设置 App 各页在 `java/app/msime/android/home/`，另有 `settings/`、`account/`、`community/`、`statistics/` 下的页面，不含 Tauri/React |
 
 Tauri 在 macOS、Linux 和现代 Windows 上还承载共享面板：表情与符号、手写、屏幕键盘、语音、云词库和云剪贴板，Linux 另有本地剪贴板面板（`SurfaceRoute::Clipboard`，`msime-linux-settings --panel clipboard`）。现代 Windows 原生设置窗口里语音、屏幕键盘、手写、云词库和云剪贴板这 5 个面板的入口拉起 Tauri 的 `MSIME.exe`（`platforms/windows/settings/SettingsNavigation.h` 的 `shell_links::all`）；表情与符号面板不从设置窗口打开，由 Server 的托盘菜单和浮动工具栏拉起（`platforms/windows/src/system/ShellSurfaces.h` 的 `shell_surface_request`）。Win7 构建通过显式 `MSIME_WINDOWS7_CLIENT` 配置选择 `panels/win7` 原生面板，覆盖这些功能入口，不依赖 Tauri 或 WebView2；引擎、协议与共享业务归属保持。
 

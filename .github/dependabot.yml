@@ -37,7 +37,7 @@ updates:
       cargo-minor:
         update-types: [minor, patch]
 
-  # platforms/android/gradle-app is the hand-maintained Android project; apps/desktop/src-tauri/gen/android is Tauri's generated one and is regenerated rather than bumped, so it stays out.
+  # platforms/android/gradle-app 是唯一的 Android Gradle 工程。
   - package-ecosystem: gradle
     directory: /platforms/android/gradle-app
     target-branch: develop
@@ -47,13 +47,17 @@ updates:
     commit-message:
       prefix: build
     labels: [dependencies, platform/android]
-    # AGP 的大版本要求更新的 Gradle，而本工程借用 Tauri 生成工程的 Gradle wrapper（见 platforms/android/build-apk.sh），两边只能一起升。
+    # AGP 和本工程自带的 Gradle wrapper 只能一起升：AGP 9.x 要求 Gradle 9.6 以上，AGP 8.x 又用了 Gradle 9.6 删掉的内部 API，在 9.6 以上构建不了（#10769 的 9.8.2）。升 AGP 9 时连同下面的 gradle-wrapper 规则一起去掉。
     # androidx.core 1.19 起要求 AGP 9.1，同理不能单独升。#639 已经因此退回过一次，没有这条规则 Dependabot 又把两者升了上去（2026-10-01）。
+    # onnxruntime-android 只进可选 OCR 模块，版本必须与 resources/ocr-models-android.lock.json 的 runtime（来源提交、许可证文本的 URL 与哈希）和 MSIME-OCR-NOTICE.txt 一起改，升级还要重查 AAR 清单与遥测入口、重跑网络抽样（.agents/notes/implemented/feature/2026-10-24-android-offline-ocr.md）；用户拿到的又是按 SHA-256 锁定的已发布模块，不发新模块升了也没有效果。Dependabot 只改 build.gradle.kts 一行，#10565 合进去后所有 PR 的 contracts 变红、靠 #10572 撤回，#10898 又原样提了一次。这个依赖只随新模块手工升级。
     ignore:
       - dependency-name: com.android.application
         update-types: [version-update:semver-major]
       - dependency-name: androidx.core:core
         versions: [">= 1.19.0"]
+      - dependency-name: gradle-wrapper
+        versions: [">= 9.6.0"]
+      - dependency-name: com.microsoft.onnxruntime:onnxruntime-android
     groups:
       gradle-minor:
         update-types: [minor, patch]

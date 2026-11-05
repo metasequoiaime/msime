@@ -1,4 +1,4 @@
-//! The providers, one per scheme family (`R/providers/provider_registry.cpp`, `pinyin_candidate_provider.cpp`): pinyin (quanpin and shuangpin engines), wubi and Japanese. Korean syllables are the text, so a Korean query answers nothing until the user opens the Hanja list, and then the embedded Hanja table (`korean::hanja`) answers it. Cantonese is answered by `msime-cantonese.db`, which is opened the first time the scheme is activated and then kept for the session, together with the Cantonese words the user added to the personal dictionary, read from the user journal (`cantonese::UserWords`). Zhuyin's editor reads `msime-zhuyin.db` itself while it converts, so the registry opens that file the first time the scheme is activated, lends the connection to each Zhuyin scheme built and takes it back when that scheme is replaced; its list rows reach the session through the scheme, never through `query`. Stroke is answered by `msime-stroke.db` the way Cantonese is: opened the first time the scheme is activated, kept for the session, and read by `query`.
+//! The providers, one per scheme family (`R/providers/provider_registry.cpp`, `pinyin_candidate_provider.cpp`): pinyin (quanpin and shuangpin engines), wubi and Japanese. Korean syllables are the text, so a Korean query answers nothing until the user opens the Hanja list, and then the embedded Hanja table (`korean::hanja`) answers it. Cantonese is answered by `msime-cantonese.db`, which is opened the first time the scheme is activated and then kept for the session, together with the Cantonese rows of the user journal (the words the user added or typing created, and learned weights; `cantonese::UserWords`). Zhuyin's editor reads `msime-zhuyin.db` itself while it converts, so the registry opens that file the first time the scheme is activated, lends the connection to each Zhuyin scheme built and takes it back when that scheme is replaced; its list rows reach the session through the scheme, never through `query`. Stroke is answered by `msime-stroke.db` the way Cantonese is: opened the first time the scheme is activated, kept for the session, and read by `query`.
 //!
 //! The registry answers queries and lookups only. The reference also routed `create_word` / `update_weight_by_pinyin_and_word` / `delete_by_pinyin_and_word` through it; here the session writes pins, removals and frequency learning into user_dictionary itself, choosing the dictionary kind from the selected row's scheme (overlays.md §3.3), and phrases through its own canonical-pinyin `QuanpinEngine`, so a second writer path would only diverge from it.
 
@@ -167,6 +167,24 @@ impl ProviderRegistry {
         self.cantonese.as_ref().map(CantoneseDictionary::inventory)
     }
 
+    /// 粤语词库（发布的 `msime-cantonese.db` 加上日志里的粤语行）在 `key` 下有没有 `text` 这一行。粤语学习造词前用它确认词库里还没有这个词。还没激活粤语或读失败时答 true：说不准的时候当作已经有了，什么也不写。
+    pub fn cantonese_has_entry(&mut self, key: &str, text: &str) -> bool {
+        let Some(dictionary) = &self.cantonese else {
+            return true;
+        };
+        self.cantonese_user.refresh();
+        CantoneseLexicon::new(dictionary.dictionary(), Some(&self.cantonese_user))
+            .contains(key, text)
+            .unwrap_or(true)
+    }
+
+    /// 最近一次粤语查询出的行里，`key` 下的 `text` 是不是组出来的整句（`CantoneseCandidate::composed`）。只扫已有的行，不查库、不分配，选首选上屏时也能问。
+    pub fn cantonese_row_is_composed(&self, key: &str, text: &str) -> bool {
+        self.cantonese_candidates
+            .iter()
+            .any(|row| row.composed && row.key == key && row.text == text)
+    }
+
     /// 会话允许运行的方案。
     pub fn enabled(&self) -> SchemeSet {
         self.enabled
@@ -247,6 +265,21 @@ impl ProviderRegistry {
             | SchemeType::Tibetan
             | SchemeType::Stroke => None,
         }
+    }
+
+    /// `scheme` 用的词库的粗俗词表（复制只是复制一个 `Arc`）：双拼取双拼词典的，其余取全拼词典的；会话还没有对应的 provider 时是内嵌表。
+    pub(crate) fn offensive_words(
+        &self,
+        scheme: crate::types::SchemeType,
+    ) -> crate::lattice::offensive::OffensiveWords {
+        let table = if scheme == crate::types::SchemeType::Shuangpin {
+            self.shuangpin
+                .as_ref()
+                .map(ShuangpinEngine::offensive_words)
+        } else {
+            self.quanpin.as_ref().map(QuanpinEngine::offensive_words)
+        };
+        table.cloned().unwrap_or_default()
     }
 
     /// 全拼词典里每个键最好那一行的权重，供滑行输入使用；会话没有全拼 provider 时为空。

@@ -56,7 +56,7 @@ Check ($marker.Contains("(edition $Edition)")) 'DataDir ownership marker names t
 $declared = if (Test-Path -LiteralPath $declaration) { (Get-Content -LiteralPath $declaration -Raw -Encoding UTF8 | ConvertFrom-Json).edition } else { $null }
 Check ($declared -eq $Edition) "server\edition.json declares $Edition"
 # The three voice runtime libraries are what the Server loads for on-device speech recognition; Build-Client.ps1 stages them for every release package.
-foreach ($name in 'MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe', 'msime-client-settings.exe', 'MSIME.exe', 'msime-mcp.exe',
+foreach ($name in 'MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe', 'msime-client-settings.exe', 'MSIME.exe', 'msime-client-panels.exe', 'msime-mcp.exe',
     'sherpa-onnx-c-api.dll', 'onnxruntime.dll', 'onnxruntime_providers_shared.dll') {
     Check (Test-Path -LiteralPath (Join-Path $pf64 "server\$name") -PathType Leaf) "server\$name installed"
 }
@@ -135,6 +135,17 @@ $usersModify = @($rules | Where-Object {
     $_.AccessControlType -eq 'Allow' -and $_.IdentityReference.Value -eq 'S-1-5-32-545' -and
     ($_.FileSystemRights -band [Security.AccessControl.FileSystemRights]::Modify) -eq [Security.AccessControl.FileSystemRights]::Modify })
 Check ($usersModify.Count -gt 0) 'DataDir grants Users modify'
+# 用户数据目录与程序 DLL 的权限边界不同，不能向全部应用包开放。
+function CheckNoAppPackageAccess([string]$Path) {
+    $access = (Get-Acl -LiteralPath $Path).GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])
+    foreach ($packageSid in 'S-1-15-2-1', 'S-1-15-2-2') {
+        $allowed = @($access | Where-Object {
+            $_.AccessControlType -eq 'Allow' -and $_.IdentityReference.Value -eq $packageSid
+        })
+        Check ($allowed.Count -eq 0) "user data has no grant to $packageSid ($Path)"
+    }
+}
+CheckNoAppPackageAccess $app.DataDir
 $label = (& icacls $app.DataDir) -join "`n"
 Check ($label.Contains('Mandatory Label\Medium Mandatory Level')) 'DataDir carries a medium integrity label'
 
@@ -158,7 +169,14 @@ foreach ($item in $seeded.GetEnumerator()) {
     Set-Content -LiteralPath $path -Value $item.Value -NoNewline -Encoding utf8
 }
 Set-Content -LiteralPath (Join-Path $dataDir 'runtime-options.json') -Value 'smoke-stale-runtime-options' -NoNewline -Encoding utf8
+# 模拟安装过旧预览包的目录，重装必须清掉根目录和子文件上的已有授权。
+foreach ($packageSid in 'S-1-15-2-1', 'S-1-15-2-2') {
+    & icacls $dataDir /grant "*${packageSid}:(OI)(CI)RX" /T /C /Q | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "cannot seed legacy application-package ACL ($packageSid)" }
+}
 Install $dataDir 'upgrade.log'
+CheckNoAppPackageAccess $dataDir
+CheckNoAppPackageAccess (Join-Path $dataDir 'user\smoke-user.txt')
 foreach ($item in $seeded.GetEnumerator()) {
     $path = Join-Path $dataDir $item.Key
     Check ((Test-Path -LiteralPath $path -PathType Leaf) -and (Get-Content -LiteralPath $path -Raw -Encoding UTF8) -eq $item.Value) "reinstall keeps $($item.Key)"
@@ -167,6 +185,8 @@ $movedDir = Join-Path $dataDir 'moved'
 Install $movedDir 'move.log'
 $app = Get-ItemProperty -LiteralPath $appKey
 Check ($app.DataDir -eq $movedDir) "DataDir recorded as the new directory ($($app.DataDir))"
+CheckNoAppPackageAccess $movedDir
+CheckNoAppPackageAccess (Join-Path $movedDir 'user\smoke-user.txt')
 foreach ($item in $seeded.GetEnumerator()) {
     $path = Join-Path $movedDir $item.Key
     Check ((Test-Path -LiteralPath $path -PathType Leaf) -and (Get-Content -LiteralPath $path -Raw -Encoding UTF8) -eq $item.Value) "move carries $($item.Key)"

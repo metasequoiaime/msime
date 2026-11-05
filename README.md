@@ -66,7 +66,7 @@ zhoumo   →  周末   weekend   →  weekend
 
 | 平台 | 入口目录 | 宿主形态与集成方式 |
 | --- | --- | --- |
-| [Android](platforms/android/README.md) | `platforms/android/` | 输入法服务 `app.msime.android.MSIMEInputService` 跑在 `:ime` 独立进程，Java 宿主经 `platforms/android/native/client_jni.cpp` 调 host-api；发布的 APK（`build-apk.sh`）用原生 Java 设置界面，不含 Tauri/React；带 React 设置的 Tauri 合包（`build-client-apk.sh`）与输入法同包不同进程、共享私有 files/bootstrap/state，只用于开发验证，不发布；手写走 ML Kit Digital Ink |
+| [Android](platforms/android/README.md) | `platforms/android/` | 输入法服务 `app.msime.android.MSIMEInputService` 跑在 `:ime` 独立进程，Java 宿主经 `platforms/android/native/client_jni.cpp` 调 host-api；发布的 APK（`build-apk.sh`）用原生 Java 设置界面，不含 Tauri/React；手写走 ML Kit Digital Ink |
 | [iOS](platforms/ios/README.md) | `platforms/ios/` | XcodeGen 从 `project.yml` 生成的原生 App 内嵌键盘扩展 `MSIMEKeyboardExtension`，两者通过 App Group `group.app.msime.ios` 共享状态；Swift 键盘直接调 host-api，手写走 ML Kit Digital Ink |
 | [macOS](platforms/macos/README.md) | `platforms/macos/` | InputMethodKit bundle（产物名 `水杉输入法.app`，bundle id `app.msime.inputmethod.MetasequoiaIME`），Swift 后端编成 `MSIMEBackend.dylib` 随 bundle 分发，Sparkle 负责自动更新 |
 | [Linux](platforms/linux/README.md) | `platforms/linux/` | IBus 与 Fcitx5 是两个并列的系统入口，链同一份 host-api ABI；在线联想、语音、剪贴板等能力由独立 provider 进程加 systemd 用户单元承载；CPack 出 TGZ 与 DEB |
@@ -109,7 +109,7 @@ pnpm build
 
 桌面设置的应用标识和默认应用数据目录按平台命名：macOS 是 `app.msime.macos`，Windows 是 `app.msime.windows`，Linux 是 `app.msime.linux`。偏好保存在其中的 `preferences.json`。也可用绝对路径环境变量 `MSIME_CLIENT_STATE_DIR` 指向隔离开发目录。macOS 原生宿主读取同一份配置并在当前组词结束后应用更新；多个设置窗口同时保存时通过 revision 检测冲突，用户须显式重新读取后决定是否覆盖。
 
-Android 合包构建和设备测试见 [Android 宿主](platforms/android/README.md#tauri--react-共享设置合包)。合包只用于开发验证，发布的 APK 是不含 Tauri 的原生包；合包里 Tauri 设置与原生 `:ime` 服务同包、不同进程，共享私有 files/bootstrap/state，关闭设置窗口不结束输入法进程。iOS 的产品宿主是 `platforms/ios` 的原生 App，设置界面是 SwiftUI 原生页面，它嵌入原生键盘扩展并通过 App Group 共享状态；App 里没有 WebView，Tauri iOS 工程只在单独构建公共组件时产出，不作为 App 分发或启动。签名与设备安装步骤见 [iOS 宿主](platforms/ios/README.md)。
+Android 的构建和设备测试见 [Android 宿主](platforms/android/README.md)，发布的 APK 是不含 Tauri 的原生包。iOS 的产品宿主是 `platforms/ios` 的原生 App，设置界面是 SwiftUI 原生页面，它嵌入原生键盘扩展并通过 App Group 共享状态；App 里没有 WebView。签名与设备安装步骤见 [iOS 宿主](platforms/ios/README.md)。
 
 共享设置支持 shuangpin_profile：xiaohe（小鹤）、ziranma（自然码）、shoudao（首道）、microsoft（微软）、smart_abc（智能 ABC），以及 custom（自定义双拼，键位表存在 shuangpin_custom_profile）。缺省按小鹤读取，未知值拒绝；设置页在非双拼方案下禁用此选择但保留已选值。macOS 和 Linux 的设置页可以从内置方案起步编辑自定义键位、导入导出 JSON，表要通过 Engine 的校验才能保存；表不能用时输入法按小鹤运行。方案更改沿用组词结束后替换 Engine 的规则。
 
@@ -147,7 +147,7 @@ cargo test -p msime-engine --locked
 
 ## 固定词库资源
 
-`resources/desktop-dictionary.lock.json` 固定 `metasequoiaime/msime-dictionary` 已发布 `dict-v2.0.41` 的来源、长度和 SHA-256。其中 `msime-mozc_dictionary_oss_README.txt` 与 `msime-mozc_LICENSE.txt` 是日文词库的许可证全文（前者是 IPAdic 与 ICOT 的条款，后者是 Mozc 的三条款 BSD），`msime-scowl_Copyright.txt` 是 `msime-english.db` 里 SCOWL 词表的版权与许可声明，它们的条款都要求随数据一同分发，重新打包时不可省略；详见[第三方组件清单](docs/third-party.md#日文词库的分发义务)。首次下载约 270 MB。词库锁的 `source_commit` 记录这批词库是本仓库哪次提交用 `msime-dict-build` 产出的，其中 `msime-bigram.bin` 与 `msime-trigram.bin` 是整句词格仲裁的语言模型表。表缺失时 engine 不报错，只是整句路径不加权——候选照出，顺序变差，所以换词库版本时要确认 `crates/engine` 还读得了新表，并重跑句子转换评测。开发准备命令：
+`resources/desktop-dictionary.lock.json` 固定 `metasequoiaime/msime-dictionary` 已发布 `dict-v2.1.2` 的来源、长度和 SHA-256。其中 `msime-mozc_dictionary_oss_README.txt` 与 `msime-mozc_LICENSE.txt` 是日文词库的许可证全文（前者是 IPAdic 与 ICOT 的条款，后者是 Mozc 的三条款 BSD），`msime-scowl_Copyright.txt` 是 `msime-english.db` 里 SCOWL 词表的版权与许可声明，它们的条款都要求随数据一同分发，重新打包时不可省略；详见[第三方组件清单](docs/third-party.md#日文词库的分发义务)。首次下载约 320 MB。词库锁的 `source_commit` 记录这批词库是本仓库哪次提交用 `msime-dict-build` 产出的，其中 `msime-bigram.bin` 与 `msime-trigram.bin` 是整句词格仲裁的语言模型表。表缺失时 engine 不报错，只是整句路径不加权——候选照出，顺序变差，所以换词库版本时要确认 `crates/engine` 还读得了新表，并重跑句子转换评测。开发准备命令：
 
 ```sh
 cargo run -p msime-client-core --example install_resources -- target/resources

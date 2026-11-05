@@ -68,7 +68,7 @@ zhoumo   →  周末   weekend      →  weekend
 
 | 플랫폼 | 진입 디렉터리 | 호스트 형태와 통합 방식 |
 | --- | --- | --- |
-| [Android](../../platforms/android/README.md) | `platforms/android/` | 입력기 서비스 `app.msime.android.MSIMEInputService`는 `:ime` 독립 프로세스에서 실행되며, Java 호스트는 `platforms/android/native/client_jni.cpp`를 거쳐 host-api를 호출합니다. 릴리스되는 APK(`build-apk.sh`)는 네이티브 Java 설정 화면을 쓰며 Tauri/React를 포함하지 않습니다. React 설정을 포함한 Tauri 통합 패키지(`build-client-apk.sh`)는 입력기와 같은 패키지의 다른 프로세스로 비공개 files/bootstrap/state를 공유하지만, 개발용이며 릴리스하지 않습니다. 필기 입력은 ML Kit Digital Ink를 사용합니다 |
+| [Android](../../platforms/android/README.md) | `platforms/android/` | 입력기 서비스 `app.msime.android.MSIMEInputService`는 `:ime` 독립 프로세스에서 실행되며, Java 호스트는 `platforms/android/native/client_jni.cpp`를 거쳐 host-api를 호출합니다. 릴리스되는 APK(`build-apk.sh`)는 네이티브 Java 설정 화면을 쓰며 Tauri/React를 포함하지 않습니다. 필기 입력은 ML Kit Digital Ink를 사용합니다 |
 | [iOS](../../platforms/ios/README.md) | `platforms/ios/` | XcodeGen이 `project.yml`로부터 생성하는 네이티브 App에 키보드 확장 `MSIMEKeyboardExtension`이 내장되며, 둘은 App Group `group.app.msime.ios`를 통해 상태를 공유합니다. Swift 키보드가 host-api를 직접 호출하고, 필기 입력은 ML Kit Digital Ink를 사용합니다 |
 | [macOS](../../platforms/macos/README.md) | `platforms/macos/` | InputMethodKit bundle(산출물 이름 `水杉输入法.app`, bundle id `app.msime.inputmethod.MetasequoiaIME`). Swift 백엔드는 `MSIMEBackend.dylib`로 빌드되어 bundle과 함께 배포되며, Sparkle이 자동 업데이트를 담당합니다 |
 | [Linux](../../platforms/linux/README.md) | `platforms/linux/` | IBus와 Fcitx5는 나란히 있는 두 시스템 진입점으로, 동일한 host-api ABI를 링크합니다. 온라인 연상, 음성, 클립보드 등의 기능은 독립 provider 프로세스와 systemd 사용자 유닛이 담당합니다. CPack으로 TGZ와 DEB를 만듭니다 |
@@ -111,7 +111,7 @@ pnpm build
 
 데스크톱 설정의 앱 식별자와 기본 앱 데이터 디렉터리는 플랫폼별로 이름이 정해집니다: macOS는 `app.msime.macos`, Windows는 `app.msime.windows`, Linux는 `app.msime.linux`입니다. 환경설정은 그 안의 `preferences.json`에 저장됩니다. 절대 경로 환경 변수 `MSIME_CLIENT_STATE_DIR`로 격리된 개발 디렉터리를 지정할 수도 있습니다. macOS 네이티브 호스트는 같은 설정을 읽고 현재 단어 조합이 끝난 뒤 업데이트를 적용합니다. 여러 설정 창이 동시에 저장하면 revision으로 충돌을 감지하며, 사용자는 명시적으로 다시 읽은 뒤 덮어쓸지 결정해야 합니다.
 
-Android 통합 패키지 빌드와 기기 테스트는 [Android 호스트](../../platforms/android/README.md#tauri--react-共享设置合包)를 참고하십시오. 통합 패키지는 개발용이며, 릴리스되는 APK는 Tauri를 포함하지 않는 네이티브 패키지입니다. 통합 패키지에서 Tauri 설정과 네이티브 `:ime` 서비스는 같은 패키지의 다른 프로세스로 비공개 files/bootstrap/state를 공유하며, 설정 창을 닫아도 입력기 프로세스는 종료되지 않습니다. iOS의 제품 호스트는 `platforms/ios`의 네이티브 App으로, 설정 화면은 네이티브 SwiftUI 페이지입니다. 네이티브 키보드 확장을 내장하고 App Group을 통해 상태를 공유합니다. App에는 WebView가 없으며, Tauri iOS 프로젝트는 공용 컴포넌트를 따로 빌드할 때만 만들어지고 App으로 배포되거나 실행되지 않습니다. 서명과 기기 설치 절차는 [iOS 호스트](../../platforms/ios/README.md)를 참고하십시오.
+Android 빌드와 기기 테스트는 [Android 호스트](../../platforms/android/README.md)를 참고하십시오. 릴리스되는 APK는 Tauri를 포함하지 않는 네이티브 패키지입니다. iOS의 제품 호스트는 `platforms/ios`의 네이티브 App으로, 설정 화면은 네이티브 SwiftUI 페이지입니다. 네이티브 키보드 확장을 내장하고 App Group을 통해 상태를 공유합니다. App에는 WebView가 없습니다. 서명과 기기 설치 절차는 [iOS 호스트](../../platforms/ios/README.md)를 참고하십시오.
 
 공유 설정은 shuangpin_profile로 xiaohe(小鹤), ziranma(自然码), shoudao(首道), microsoft(마이크로소프트), 그리고 custom(사용자 정의 쌍병, 키 표는 shuangpin_custom_profile에 저장)을 지원합니다. 기본값은 Xiaohe로 읽으며, 알 수 없는 값은 거부합니다. 설정 페이지는 쌍병이 아닌 방식에서 이 선택을 비활성화하지만 이미 선택된 값은 유지합니다. macOS와 Linux의 설정 페이지에서는 내장 방식을 출발점으로 사용자 정의 키 배치를 편집하고 JSON으로 가져오거나 내보낼 수 있으며, 키 표는 Engine의 검사를 통과해야만 저장되고 쓸 수 없는 표일 때 입력기는 Xiaohe로 동작합니다. 방식 변경은 단어 조합이 끝난 뒤 Engine을 교체하는 규칙을 그대로 따릅니다.
 
@@ -149,7 +149,7 @@ cargo test -p msime-engine --locked
 
 ## 고정 사전 리소스
 
-`resources/desktop-dictionary.lock.json`은 `metasequoiaime/msime-dictionary`에서 발행된 `dict-v2.0.41`의 출처, 길이, SHA-256을 고정합니다. 그중 `msime-mozc_dictionary_oss_README.txt`와 `msime-mozc_LICENSE.txt`는 일본어 사전의 라이선스 전문이고(전자는 IPAdic과 ICOT의 조항, 후자는 Mozc의 3조항 BSD), `msime-scowl_Copyright.txt`는 `msime-english.db`에 들어 있는 SCOWL 단어 목록의 저작권 및 라이선스 고지입니다. 이 조항들은 모두 데이터와 함께 배포할 것을 요구하므로, 다시 패키징할 때 생략해서는 안 됩니다. 자세한 내용은 [서드파티 컴포넌트 목록](../third-party.md#日文词库的分发义务)을 참고하십시오. 최초 다운로드는 약 270 MB입니다. 사전 잠금 파일의 `source_commit`은 이 사전 묶음이 이 저장소의 어느 커밋에서 `msime-dict-build`로 생성되었는지 기록하며, 그중 `msime-bigram.bin`과 `msime-trigram.bin`은 문장 단위 단어 격자(lattice) 판정에 쓰이는 언어 모델 테이블입니다. 테이블이 없어도 engine은 오류를 내지 않고 문장 단위 경로에 가중치를 주지 않을 뿐입니다 — 후보는 그대로 나오지만 순서가 나빠지므로, 사전 버전을 바꿀 때는 `crates/engine`이 새 테이블을 여전히 읽을 수 있는지 확인하고 문장 변환 평가를 다시 실행해야 합니다. 개발 준비 명령:
+`resources/desktop-dictionary.lock.json`은 `metasequoiaime/msime-dictionary`에서 발행된 `dict-v2.1.2`의 출처, 길이, SHA-256을 고정합니다. 그중 `msime-mozc_dictionary_oss_README.txt`와 `msime-mozc_LICENSE.txt`는 일본어 사전의 라이선스 전문이고(전자는 IPAdic과 ICOT의 조항, 후자는 Mozc의 3조항 BSD), `msime-scowl_Copyright.txt`는 `msime-english.db`에 들어 있는 SCOWL 단어 목록의 저작권 및 라이선스 고지입니다. 이 조항들은 모두 데이터와 함께 배포할 것을 요구하므로, 다시 패키징할 때 생략해서는 안 됩니다. 자세한 내용은 [서드파티 컴포넌트 목록](../third-party.md#日文词库的分发义务)을 참고하십시오. 최초 다운로드는 약 320 MB입니다. 사전 잠금 파일의 `source_commit`은 이 사전 묶음이 이 저장소의 어느 커밋에서 `msime-dict-build`로 생성되었는지 기록하며, 그중 `msime-bigram.bin`과 `msime-trigram.bin`은 문장 단위 단어 격자(lattice) 판정에 쓰이는 언어 모델 테이블입니다. 테이블이 없어도 engine은 오류를 내지 않고 문장 단위 경로에 가중치를 주지 않을 뿐입니다 — 후보는 그대로 나오지만 순서가 나빠지므로, 사전 버전을 바꿀 때는 `crates/engine`이 새 테이블을 여전히 읽을 수 있는지 확인하고 문장 변환 평가를 다시 실행해야 합니다. 개발 준비 명령:
 
 ```sh
 cargo run -p msime-client-core --example install_resources -- target/resources

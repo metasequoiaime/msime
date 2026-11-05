@@ -46,5 +46,9 @@ for key in (
 ):
     assert key in model, f"Windows 整句模型设置缺少 {key}"
 assert "grammar-model-baishuang" not in model
+# 神经联想模型和语法模型也能不联网安装（#10622）：只钉住入口和请求字段。「不联网安装」一句的文字由 tests/ui/voice_settings.cpp 测，按钮和这一句是否跟着选中的模型出现由 settings_ui.ps1 测，这里不逐字钉实现（AGENTS.md「代码健康」）。
+packs = source[source.index("  void sentence_pack_row("):source.index("  void cancel_sentence_pack(")]
+for key in ('L"sentence-model-import-" + pack', 'L"files"'):
+    assert key in packs, f"Windows 整句模型缺少从文件导入的 {key}"
 
-print("windows input habits: sentence association switches, the 标准/增强 level, settled model download and locked grammar model management are present")
+print("windows input habits: sentence association switches, the 标准/增强 level, settled model download, offline import and locked grammar model management are present")

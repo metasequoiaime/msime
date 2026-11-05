@@ -1868,25 +1868,25 @@ int wmain(int argc, wchar_t **argv) {
       return std::optional<bool>(
           traditional_output->load(std::memory_order_acquire));
     });
-    // The Server owns the floating toolbar. Every other row opens a surface in
-    // the shared desktop shell, which is a separate process: with no shell
-    // installed beside this Server those rows stay visible and disabled rather
-    // than accepting a click that does nothing.
+    // Server 自己管悬浮工具栏，其余各行都在另一个进程里打开界面：设置窗口或面板宿主不在本 Server 旁边时，这些行显示但不可用，不接受一次什么都不做的点击。面板宿主由 MSIME_WINDOWS_PANEL_HOST 选定，启动时读一次，可用性判断和实际启动用同一个选择。
     const auto shell_directory = executable_directory();
     const auto configured_shell = configured_shell_command();
+    const auto panel_host = configured_panel_host();
     const auto settings_request = shell_surface_request(TrayMenuCommand::OpenSettings);
     const auto preview_request = shell_surface_request(TrayMenuCommand::OpenEmojiPanel);
     const auto settings_shell = settings_request
                                     ? shell_executable(shell_directory, configured_shell,
-                                                       *settings_request)
+                                                       *settings_request, panel_host)
                                     : std::nullopt;
     const auto preview_shell = preview_request
-                                   ? shell_executable(shell_directory, {}, *preview_request)
+                                   ? shell_executable(shell_directory, {}, *preview_request,
+                                                      panel_host)
                                    : std::nullopt;
     const ShellLaunchContext shell_context{
         config.state_root, config.state_root / L"runtime-options.json"};
     const auto launch_shell = [&](const ShellSurfaceRequest &request) {
-      const auto executable = shell_executable(shell_directory, configured_shell, request);
+      const auto executable =
+          shell_executable(shell_directory, configured_shell, request, panel_host);
       return executable && launch_shell_surface(*executable, request, shell_context);
     };
     // 首次准备运行配置后立即打开设置首页。安装器只负责安装文件和启动 Server，

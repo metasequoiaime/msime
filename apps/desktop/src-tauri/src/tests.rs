@@ -72,7 +72,7 @@ fn runtime_options_fallback_reserves_all_candidate_slots() {
     );
 }
 
-#[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
+#[cfg(unix)]
 #[test]
 fn session_provider_discovery_rejects_symlinked_or_shared_endpoints() {
     use std::os::unix::fs::{symlink, PermissionsExt};
@@ -105,12 +105,6 @@ fn session_provider_discovery_rejects_symlinked_or_shared_endpoints() {
 
     std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o755)).unwrap();
     assert!(super::discover_session_provider_in(runtime.path(), "provider.sock").is_none());
-}
-
-#[test]
-fn snapshot_restore_preflight_rejects_text_larger_than_native_limit() {
-    assert!(crate::platform::account_helpers::snapshot_text_within_limit(512 * 1024 * 1024));
-    assert!(!crate::platform::account_helpers::snapshot_text_within_limit(512 * 1024 * 1024 + 1));
 }
 
 #[test]
@@ -396,13 +390,13 @@ fn helpcode_catalog_reads_only_the_host_resource_directory() {
     .unwrap();
     let document = serde_json::json!({"resources": resources});
 
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(target_os = "linux")]
     let options = {
         let path = directory.path().join("runtime-options.json");
         std::fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
         super::DictionaryHostOptions { path }
     };
-    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    #[cfg(not(target_os = "linux"))]
     let options = super::DictionaryHostOptions {
         document: std::sync::Arc::new(document),
     };
@@ -534,288 +528,6 @@ fn ios_clipboard_history_is_permission_gated_not_preference_gated() {
     ] {
         assert!(super::clipboard_history_uses_preference(platform));
     }
-}
-
-#[test]
-fn ios_routes_only_app_group_dictionary_operations() {
-    for operation in [
-        "list",
-        "edit",
-        "import",
-        "import_personal",
-        "export",
-        "retry",
-        "dismiss_failure",
-    ] {
-        assert!(super::ios_personal_dictionary_action(
-            &serde_json::json!({ "operation": operation })
-        ));
-    }
-    for action in [
-        serde_json::json!({ "operation": "reset" }),
-        // 五笔查码只读随包码表，App 进程里的 host-api 直接回答，不经 App Group 的个人词库。
-        serde_json::json!({ "operation": "wubi_codes", "text": "你" }),
-        serde_json::json!({ "operation": "unknown" }),
-        serde_json::json!({}),
-        serde_json::Value::Null,
-    ] {
-        assert!(!super::ios_personal_dictionary_action(&action));
-    }
-}
-
-#[test]
-fn ios_first_run_host_options_use_packaged_resources_and_shared_state() {
-    let document = super::ios_host_options_document(
-        None,
-        std::path::Path::new("/fixture/resources"),
-        std::path::Path::new("/fixture/shared-state"),
-    )
-    .expect("first-run options");
-    assert_eq!(document["resources"], "/fixture/resources");
-    assert_eq!(document["state_root"], "/fixture/shared-state");
-    assert!(document.get("language_dictionaries").is_none());
-}
-
-#[test]
-fn ios_first_run_host_options_name_the_bundled_language_dictionaries() {
-    let bundle = tempfile::tempdir().expect("bundle");
-    let resources = bundle.path().join("EngineResources");
-    let dictionaries = bundle.path().join("language-dictionaries");
-    std::fs::create_dir_all(&resources).expect("resources");
-    std::fs::create_dir_all(&dictionaries).expect("dictionaries");
-    let empty = super::ios_host_options_document(None, &resources, bundle.path())
-        .expect("first-run options");
-    assert!(empty.get("language_dictionaries").is_none());
-    std::fs::write(dictionaries.join("msime-zhuyin.db"), b"fixture").expect("msime-zhuyin.db");
-    let document = super::ios_host_options_document(None, &resources, bundle.path())
-        .expect("first-run options");
-    assert_eq!(
-        document["language_dictionaries"],
-        dictionaries.to_str().expect("utf-8 path")
-    );
-}
-
-#[test]
-fn ios_named_skin_library_shares_the_apple_app_group_root() {
-    let root =
-        super::ios_custom_skin_library_root(std::path::Path::new("/fixture/app-group/MSIME"));
-    assert_eq!(root, std::path::Path::new("/fixture/app-group"));
-    assert_eq!(
-        msime_client_services::skin::custom_library::CustomSkinLibraryStore::new(root).path(),
-        std::path::Path::new("/fixture/app-group/CustomSkins/library.json")
-    );
-}
-
-#[test]
-fn ios_community_reply_library_shares_the_keyboard_app_group_file() {
-    assert_eq!(
-        super::ios_community_resource_library_path(std::path::Path::new(
-            "/fixture/app-group/MSIME"
-        )),
-        std::path::Path::new("/fixture/app-group/CommunityLibrary.json")
-    );
-}
-
-#[test]
-fn ios_prepared_host_options_are_preserved_and_malformed_json_is_rejected() {
-    let prepared = r#"{"resources":"/prepared","state_root":"/state","api_version":1}"#;
-    let document = super::ios_host_options_document(
-        Some(prepared),
-        std::path::Path::new("/unused/resources"),
-        std::path::Path::new("/unused/state"),
-    )
-    .expect("prepared options");
-    assert_eq!(document["resources"], "/prepared");
-    assert_eq!(document["state_root"], "/state");
-    assert!(super::ios_host_options_document(
-        Some("{"),
-        std::path::Path::new("/unused/resources"),
-        std::path::Path::new("/unused/state"),
-    )
-    .is_err());
-}
-
-#[test]
-fn ios_voice_batch_configuration_uses_current_preferences_and_safe_defaults() {
-    let mut preferences = msime_client_core::preferences::Preferences::default();
-    preferences.voice_input.asr_provider = "openai".into();
-    preferences.voice_input.asr_endpoint.clear();
-    preferences.voice_input.asr_model.clear();
-    preferences.voice_input.asr_token = "synthetic-current".into();
-    preferences
-        .voice_input
-        .asr_tokens
-        .insert("openai".into(), "synthetic-stale".into());
-    let configuration = crate::voice::mobile_voice_provider_configuration(&preferences).unwrap();
-    assert_eq!(configuration.provider, "openai");
-    assert_eq!(
-        configuration.endpoint,
-        "https://api.openai.com/v1/audio/transcriptions"
-    );
-    assert_eq!(configuration.model, "whisper-1");
-    assert_eq!(configuration.token, "synthetic-current");
-    assert!(configuration.headers.is_empty());
-
-    preferences.voice_input.asr_provider = "groq".into();
-    preferences.voice_input.asr_endpoint = "https://fixture.invalid/transcribe".into();
-    preferences.voice_input.asr_model = "fixture-model".into();
-    preferences.voice_input.asr_token.clear();
-    preferences
-        .voice_input
-        .asr_tokens
-        .insert("groq".into(), "synthetic-slot".into());
-    let configuration = crate::voice::mobile_voice_provider_configuration(&preferences).unwrap();
-    assert_eq!(configuration.endpoint, "https://fixture.invalid/transcribe");
-    assert_eq!(configuration.model, "fixture-model");
-    assert_eq!(configuration.token, "synthetic-slot");
-    assert!(configuration.headers.is_empty());
-}
-
-// EveryAPI and Mistral are the two transcription services the Apple client offers that the
-// shared client did not carry. They use the same multipart upload as the providers above, so
-// what has to be right is the endpoint and model each one resolves to on its own.
-#[test]
-fn ios_voice_batch_configuration_covers_everyapi_and_mistral() {
-    for (provider, endpoint, model) in [
-        (
-            "everyapi",
-            "https://api.everyapi.ai/v1/audio/transcriptions",
-            "volc.seedasr.sauc.duration",
-        ),
-        (
-            "mistral",
-            "https://api.mistral.ai/v1/audio/transcriptions",
-            "voxtral-mini-latest",
-        ),
-        (
-            "bailian",
-            "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
-            "qwen3-asr-flash",
-        ),
-    ] {
-        let mut preferences = msime_client_core::preferences::Preferences::default();
-        preferences.voice_input.asr_provider = provider.into();
-        preferences.voice_input.asr_endpoint.clear();
-        preferences.voice_input.asr_model.clear();
-        preferences
-            .voice_input
-            .asr_tokens
-            .insert(provider.into(), "synthetic-slot".into());
-        assert!(preferences.validate().is_ok());
-        let configuration =
-            crate::voice::mobile_voice_provider_configuration(&preferences).unwrap();
-        assert_eq!(configuration.provider, provider);
-        assert_eq!(configuration.endpoint, endpoint);
-        assert_eq!(configuration.model, model);
-        assert_eq!(configuration.token, "synthetic-slot");
-        assert_eq!(
-            configuration.request_format,
-            if provider == "bailian" {
-                "chat_audio"
-            } else {
-                "multipart"
-            }
-        );
-        // Only Doubao carries request headers; a batch provider that grew any would be
-        // sending something the multipart transport never validated.
-        assert!(configuration.headers.is_empty());
-    }
-}
-
-#[test]
-fn ios_keyboard_ai_preferences_resolve_origin_tokens_and_disable_incomplete_drafts() {
-    let mut preferences = msime_client_core::preferences::Preferences::default();
-    preferences.ai_assistant.enabled = true;
-    preferences.ai_assistant.provider = "deepseek".into();
-    preferences.ai_assistant.endpoint = "https://API.Example.invalid/v1/chat/completions".into();
-    preferences.ai_assistant.model = "fixture-model".into();
-    preferences.ai_assistant.tokens.insert(
-        "https://api.example.invalid:443".into(),
-        "fixture-origin-token".into(),
-    );
-    let native = super::ios_keyboard_ai_preferences(&preferences.ai_assistant);
-    assert!(native.enabled);
-    assert_eq!(native.provider, "deepSeek");
-    assert_eq!(native.token, "fixture-origin-token");
-    preferences
-        .ai_assistant
-        .tokens
-        .insert("deepseek".into(), "fixture-provider-legacy".into());
-    assert_eq!(
-        super::ios_keyboard_ai_preferences(&preferences.ai_assistant).token,
-        "fixture-origin-token"
-    );
-    assert_eq!(
-        native.prompt,
-        "请润色以下文字，保持原意，只返回修改后的文字。"
-    );
-
-    preferences.ai_assistant.prompt_id = "custom_2".into();
-    preferences.ai_assistant.prompt_custom_1 = "first slot".into();
-    preferences.ai_assistant.prompt_custom_2 = "second slot".into();
-    assert_eq!(
-        super::ios_keyboard_ai_preferences(&preferences.ai_assistant).prompt,
-        "second slot"
-    );
-    preferences.ai_assistant.prompt_custom_2 = "  ".into();
-    assert_eq!(
-        super::ios_keyboard_ai_preferences(&preferences.ai_assistant).prompt,
-        "请润色以下文字，保持原意，只返回修改后的文字。"
-    );
-
-    preferences
-        .ai_assistant
-        .tokens
-        .remove("https://api.example.invalid:443");
-    assert!(!super::ios_keyboard_ai_preferences(&preferences.ai_assistant).enabled);
-
-    preferences.ai_assistant.tokens.clear();
-    assert!(!super::ios_keyboard_ai_preferences(&preferences.ai_assistant).enabled);
-}
-
-#[test]
-fn ios_voice_doubao_configuration_uses_shared_auth_and_current_preferences() {
-    let mut preferences = msime_client_core::preferences::Preferences::default();
-    // 出厂服务是本地识别，这里要的是豆包。
-    preferences.voice_input.asr_provider = "doubao".into();
-    preferences.voice_input.asr_token = "synthetic-key".into();
-    preferences.voice_input.asr_app_key = "stale-app".into();
-    preferences.voice_input.doubao_auth_mode = "api_key".into();
-    preferences.voice_input.doubao_boosting_table_id = "fixture-table".into();
-    // The first-run value differs between the macOS test host and the mobile hosts, so state it.
-    preferences.voice_input.doubao_enable_ddc = false;
-    let configuration = crate::voice::mobile_voice_provider_configuration(&preferences).unwrap();
-    assert_eq!(configuration.provider, "doubao");
-    assert_eq!(
-        configuration.endpoint,
-        "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async"
-    );
-    assert!(configuration.model.is_empty());
-    assert!(configuration.token.is_empty());
-    assert!(configuration.enable_itn);
-    assert!(configuration.enable_punctuation);
-    assert!(!configuration.enable_ddc);
-    assert_eq!(configuration.boosting_table_id, "fixture-table");
-    assert!(configuration
-        .headers
-        .iter()
-        .any(|header| header.name == "x-api-key" && header.value == "synthetic-key"));
-    assert!(!configuration
-        .headers
-        .iter()
-        .any(|header| header.name == "x-api-app-key"));
-
-    preferences.voice_input.doubao_auth_mode = "legacy".into();
-    preferences.voice_input.asr_app_key = "synthetic-app".into();
-    let configuration = crate::voice::mobile_voice_provider_configuration(&preferences).unwrap();
-    assert!(configuration
-        .headers
-        .iter()
-        .any(|header| header.name == "x-api-app-key" && header.value == "synthetic-app"));
-    assert!(configuration
-        .headers
-        .iter()
-        .any(|header| header.name == "x-api-access-key"));
 }
 
 #[cfg(unix)]
@@ -2585,7 +2297,6 @@ fn desktop_account_storage_refuses_a_symlinked_or_oversized_store() {
     assert!(storage.load().is_err());
 }
 
-#[cfg(not(target_os = "android"))]
 #[test]
 fn the_macos_release_is_read_or_left_out() {
     let plist = concat!(
@@ -2610,7 +2321,6 @@ fn the_macos_release_is_read_or_left_out() {
 }
 
 /// The settings page reads `backupPath` and `salvaged` from a repair; only the struct's camelCase rename produces those names, and the page's own tests mock the reply, so nothing else would notice a rename dropping it.
-#[cfg(not(target_os = "ios"))]
 #[test]
 fn preferences_recovery_serializes_the_fields_the_settings_page_reads() {
     use msime_client_core::preferences::PreferencesSnapshot;
@@ -2889,7 +2599,6 @@ fn a_lookup_overtaken_by_a_new_start_time_result_is_not_kept() {
     assert_eq!(fresh.action, "up_to_date");
 }
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[test]
 fn cloud_clipboard_route_keeps_providers_ahead_of_the_account() {
     use super::{cloud_clipboard_route, CloudClipboardRoute, CommandError};
@@ -2976,7 +2685,6 @@ fn cloud_clipboard_route_keeps_providers_ahead_of_the_account() {
     );
 }
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[test]
 fn relay_only_clipboard_actions_reach_only_the_relay() {
     use super::{cloud_clipboard_route_for_action, CloudClipboardRoute};

@@ -1,0 +1,443 @@
+name: Dictionary builder artifact diff
+
+# 词库构建器（crates/dict-builder 及它读的 msime 输入）的改动没有别的门禁：它合进 develop 后，会跟着下一次与它无关的词库数据推送一起发布成新的 dict-v。这里在改动进 develop 之前，用同一份 msime-dictionary 数据分别以 PR 的构建器和基准构建器各构建一次全部产物，再由 scripts/dict_artifact_diff.py 逐文件、逐表比较，报告写进作业摘要、上传为 artifact，同仓库的 PR 上还会更新一条评论。
+#
+# 报告只是信息：只有新构建器编不过或构建失败才算失败。PR 打了 `expect-no-artifact-change` 标签（手动运行时勾选 expect_no_change）时，任何内容差异都算失败，适合声明「不改产物」的重构。标签在运行时读取，不靠事件里的快照：打上或去掉标签之后重跑这个作业即可，不用另推提交。标签事件本身不触发运行，因为 pr-triage 的 labeler 每次推送都会打标签，那样每次都会多出一个被跳过的运行盖住上一次的结果。
+#
+# 基准：PR 是合并提交的第一个父提交（即 PR 要合入的 develop），推送是推送前的 develop，手动运行是本次提交与 base_ref 的合并基点。词库数据默认取 msime-dictionary 的 main 在运行时的提交，两次构建用同一个检出，所以差异只来自构建器；该提交写在报告开头。基准构建器构建失败（例如 main 的数据已经要求新构建器）时不比较，只在报告里说明；声明不改产物时这也算失败，因为没法确认。
+#
+# 触发路径是构建器读的全部 msime 输入：crates/dict-builder、它直接用到的引擎文件（scripts/test-dict-artifact-diff.py 检查 crates/dict-builder/src 里每个 msime_engine 引用都落在这份清单里）、工作区的 Cargo.lock / Cargo.toml / rust-toolchain.toml、源数据锁、构建器复制进产物的四份许可证，以及本 workflow 和比较脚本。只有 Cargo.lock 变了时先比较两边构建器的依赖树，相同就不构建。合进 develop 后的运行由 ci-red-tracker 跟踪：它红了说明 develop 的构建器（下一次词库发布默认用的那个）构建不出当前 main 的数据。
+on:
+  pull_request:
+    paths:
+      - crates/dict-builder/**
+      - crates/engine/src/assets.rs
+      - crates/engine/src/cantonese/scheme.rs
+      - crates/engine/src/format.rs
+      - crates/engine/src/language_dictionary.rs
+      - crates/engine/src/lattice/offensive.rs
+      - crates/engine/src/lattice/offensive_words.txt
+      - crates/engine/src/nine_key.rs
+      - crates/engine/src/stroke/scheme.rs
+      - crates/engine/src/text.rs
+      - crates/engine/src/wubi/code.rs
+      - crates/engine/src/zhuyin/layout.rs
+      - Cargo.lock
+      - Cargo.toml
+      - rust-toolchain.toml
+      - resources/dictionary-sources.lock.json
+      - resources/dictionary-sources/**
+      - resources/licenses/libchewing-data-LGPL-2.1.txt
+      - resources/licenses/rime-cantonese-CC-BY-4.0.txt
+      - resources/licenses/rime-stroke-LGPL-3.0.txt
+      - resources/licenses/scowl-aspell6-en-Copyright.txt
+      - scripts/dict_artifact_diff.py
+      - .github/workflows/dict-builder-artifact-diff.yml
+  # 合进 develop 后再跑一次：记下这次合并让产物变了什么，也让 PR 能复用 develop 作用域里的源数据缓存（PR 自己存的缓存别的 PR 读不到）。
+  push:
+    branches:
+      - develop
+    paths:
+      - crates/dict-builder/**
+      - crates/engine/src/assets.rs
+      - crates/engine/src/cantonese/scheme.rs
+      - crates/engine/src/format.rs
+      - crates/engine/src/language_dictionary.rs
+      - crates/engine/src/lattice/offensive.rs
+      - crates/engine/src/lattice/offensive_words.txt
+      - crates/engine/src/nine_key.rs
+      - crates/engine/src/stroke/scheme.rs
+      - crates/engine/src/text.rs
+      - crates/engine/src/wubi/code.rs
+      - crates/engine/src/zhuyin/layout.rs
+      - Cargo.lock
+      - Cargo.toml
+      - rust-toolchain.toml
+      - resources/dictionary-sources.lock.json
+      - resources/dictionary-sources/**
+      - resources/licenses/libchewing-data-LGPL-2.1.txt
+      - resources/licenses/rime-cantonese-CC-BY-4.0.txt
+      - resources/licenses/rime-stroke-LGPL-3.0.txt
+      - resources/licenses/scowl-aspell6-en-Copyright.txt
+      - scripts/dict_artifact_diff.py
+      - .github/workflows/dict-builder-artifact-diff.yml
+  workflow_dispatch:
+    inputs:
+      base_ref:
+        description: "基准构建器：取本次运行的提交与这个 msime 分支、标签或提交的合并基点（两者相同时取上一个提交）"
+        required: false
+        default: develop
+        type: string
+      dictionary_ref:
+        description: "构建用的 msime-dictionary 分支、标签或提交"
+        required: false
+        default: main
+        type: string
+      expect_no_change:
+        description: "产物不应变化：有任何内容差异就失败"
+        required: false
+        default: false
+        type: boolean
+
+permissions: {}
+
+jobs:
+  diff:
+    name: Artifact diff
+    runs-on: depot-ubuntu-24.04-8
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      pull-requests: read
+    concurrency:
+      group: dict-builder-artifact-diff-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref_name }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    env:
+      SCCACHE_IGNORE_SERVER_IO_ERROR: '1'
+      CARGO_INCREMENTAL: '0'
+      EXPECT_NO_CHANGE_LABEL: expect-no-artifact-change
+    steps:
+      # 历史只取提交不取文件内容：解析基准要用到父提交和合并基点，构建只需要本次提交的文件。
+      - name: Checkout the builder under test
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: head
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+      - name: Resolve the base builder and the comparison mode
+        id: refs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          BASE_REF: ${{ inputs.base_ref }}
+          EXPECT_INPUT: ${{ inputs.expect_no_change }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          cd head
+          head_sha="$(git rev-parse HEAD)"
+          case "$EVENT" in
+            pull_request)
+              base_sha="$(git rev-parse HEAD^1)"
+              ;;
+            push)
+              if [[ "$BEFORE" =~ ^[0-9a-f]{40}$ && ! "$BEFORE" =~ ^0+$ ]] && git merge-base --is-ancestor "$BEFORE" HEAD; then
+                base_sha="$BEFORE"
+              else
+                base_sha="$(git rev-parse HEAD^1)"
+              fi
+              ;;
+            *)
+              ref="${BASE_REF:-develop}"
+              target="$(git rev-parse --verify --quiet "origin/$ref^{commit}" || git rev-parse --verify "$ref^{commit}")"
+              base_sha="$(git merge-base "$target" HEAD)"
+              [[ "$base_sha" != "$head_sha" ]] || base_sha="$(git rev-parse HEAD^1)"
+              ;;
+          esac
+          # 只有 Cargo.lock 落在下面这些输入里时（依赖机器人每月的批量升级、别的 crate 加依赖），后面先比较两边构建器的依赖树，相同就不构建。这份清单与上面 on.pull_request.paths 相同（目录写成前缀），scripts/test-dict-artifact-diff.py 检查两边一致。
+          inputs=(
+            crates/dict-builder
+            crates/engine/src/assets.rs
+            crates/engine/src/cantonese/scheme.rs
+            crates/engine/src/format.rs
+            crates/engine/src/language_dictionary.rs
+            crates/engine/src/lattice/offensive.rs
+            crates/engine/src/lattice/offensive_words.txt
+            crates/engine/src/nine_key.rs
+            crates/engine/src/stroke/scheme.rs
+            crates/engine/src/text.rs
+            crates/engine/src/wubi/code.rs
+            crates/engine/src/zhuyin/layout.rs
+            Cargo.lock
+            Cargo.toml
+            rust-toolchain.toml
+            resources/dictionary-sources.lock.json
+            resources/dictionary-sources
+            resources/licenses/libchewing-data-LGPL-2.1.txt
+            resources/licenses/rime-cantonese-CC-BY-4.0.txt
+            resources/licenses/rime-stroke-LGPL-3.0.txt
+            resources/licenses/scowl-aspell6-en-Copyright.txt
+            scripts/dict_artifact_diff.py
+            .github/workflows/dict-builder-artifact-diff.yml
+          )
+          lock_only=false
+          if [[ "$EVENT" != workflow_dispatch && "$(git diff --no-renames --name-only "$base_sha" "$head_sha" -- "${inputs[@]}")" == Cargo.lock ]]; then
+            lock_only=true
+          fi
+          expect=false
+          if [[ "$EVENT" == pull_request ]]; then
+            # 运行时读标签，重跑作业时用的就是当前的标签。先存下来再找，免得 grep -q 提前退出让 gh 收到 SIGPIPE、pipefail 把「找到了」变成失败。
+            labels="$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json labels --jq '.labels[].name')"
+            if grep -qxF "$EXPECT_NO_CHANGE_LABEL" <<< "$labels"; then
+              expect=true
+            fi
+          elif [[ "$EXPECT_INPUT" == true ]]; then
+            expect=true
+          fi
+          {
+            echo "head=$head_sha"
+            echo "base=$base_sha"
+            echo "expect_no_change=$expect"
+            echo "lock_only=$lock_only"
+          } >> "$GITHUB_OUTPUT"
+          echo "head $head_sha, base $base_sha, expect no change: $expect, only Cargo.lock changed: $lock_only"
+      - name: Checkout the base builder
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.refs.outputs.base }}
+          path: base
+          persist-credentials: false
+      - name: Checkout dictionary data
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: metasequoiaime/msime-dictionary
+          ref: ${{ inputs.dictionary_ref || 'main' }}
+          path: dictionary
+          persist-credentials: false
+      # 按锁下载的源数据（ECDICT、zhwiki 语料片段、区划表、SCOWL、HKCanCor，约 500 MB）。构建器只复用大小和摘要都对得上的文件，缓存旧了只会多下载，不会用错。只按 msime 的锁取键：msime-dictionary 的 upstream.lock.json 只用来核对检出里的文件，不决定下载什么。保存另起一步，构建或比较失败时也存下已经下好的文件。
+      - name: Restore the pinned dictionary sources
+        id: sources
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/dictionary-sources
+          key: dict-builder-sources-${{ hashFiles('head/resources/dictionary-sources.lock.json', 'base/resources/dictionary-sources.lock.json') }}
+          restore-keys: dict-builder-sources-
+      # Depot 的 runner 已把 SCCACHE_WEBDAV_ENDPOINT 指向 Depot Cache；sccache 装不上或起不来时照常不带缓存编译（同 ci-platforms.yml）。
+      - name: Install sccache
+        id: sccache
+        continue-on-error: true
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+      - name: Enable sccache
+        if: ${{ steps.sccache.outcome == 'success' }}
+        run: |
+          if sccache --start-server; then
+            echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          else
+            echo "::warning::sccache did not start; the Rust build runs without the compile cache"
+          fi
+      # 两棵树共用一个产物目录，第二次编译只重编工作区里的 crate。
+      - name: Install Rust
+        run: |
+          set -euo pipefail
+          (cd head && rustup toolchain install)
+          (cd base && rustup toolchain install)
+          echo "CARGO_TARGET_DIR=$RUNNER_TEMP/cargo-target" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/bin"
+      # 依赖树（包、版本、启用的特性）相同，构建器编出来的就是同一份代码，不用花两次编译和两次构建去确认产物没变。路径依赖带着检出目录（head/、base/），比较前去掉。
+      - name: Check whether the lock change reaches the builder
+        id: deps
+        if: ${{ steps.refs.outputs.lock_only == 'true' }}
+        run: |
+          set -euo pipefail
+          tree() {
+            (cd "$1" && cargo tree --locked -p msime-dict-builder --target all -e normal,build --prefix none -f '{p} {f}') | sed -E 's# \(/[^)]*\)##' | sort -u > "$RUNNER_TEMP/tree-$1.txt"
+          }
+          tree base
+          tree head
+          if cmp -s "$RUNNER_TEMP/tree-base.txt" "$RUNNER_TEMP/tree-head.txt"; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "the builder's dependency tree is the same on both sides; nothing to build"
+          else
+            diff "$RUNNER_TEMP/tree-base.txt" "$RUNNER_TEMP/tree-head.txt" || true
+          fi
+      - name: Compile the base builder
+        id: compile_base
+        if: ${{ steps.deps.outputs.skip != 'true' }}
+        continue-on-error: true
+        working-directory: base
+        run: |
+          set -euo pipefail
+          cargo build --release --locked -p msime-dict-builder
+          cp "$CARGO_TARGET_DIR/release/msime-dict-build" "$RUNNER_TEMP/bin/base"
+      - name: Compile the builder under test
+        id: compile_head
+        if: ${{ steps.deps.outputs.skip != 'true' }}
+        continue-on-error: true
+        working-directory: head
+        run: |
+          set -euo pipefail
+          cargo build --release --locked -p msime-dict-builder
+          cp "$CARGO_TARGET_DIR/release/msime-dict-build" "$RUNNER_TEMP/bin/head"
+      # 与 msime-dictionary 的 release-built-dictionaries.yml 构建同一组产物：主构建和 languages。
+      - name: Build dictionaries with the base builder
+        id: build_base
+        if: ${{ steps.compile_base.outcome == 'success' }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/out/base"
+          mkdir -p "$out"
+          "$RUNNER_TEMP/bin/base" --repository base --dictionary dictionary --cache "$RUNNER_TEMP/dictionary-sources" --out "$out"
+          "$RUNNER_TEMP/bin/base" languages --repository base --dictionary dictionary --cache "$RUNNER_TEMP/dictionary-sources" --out "$out"
+      - name: Build dictionaries with the builder under test
+        id: build_head
+        if: ${{ steps.compile_head.outcome == 'success' }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/out/head"
+          mkdir -p "$out"
+          "$RUNNER_TEMP/bin/head" --repository head --dictionary dictionary --cache "$RUNNER_TEMP/dictionary-sources" --out "$out"
+          "$RUNNER_TEMP/bin/head" languages --repository head --dictionary dictionary --cache "$RUNNER_TEMP/dictionary-sources" --out "$out"
+      - name: Save the pinned dictionary sources
+        if: ${{ !cancelled() && steps.sources.outputs.cache-hit != 'true' && (steps.build_base.outcome != 'skipped' || steps.build_head.outcome != 'skipped') }}
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/dictionary-sources
+          key: ${{ steps.sources.outputs.cache-primary-key }}
+      - name: Compare the artifacts
+        id: compare
+        if: ${{ !cancelled() }}
+        env:
+          HEAD_SHA: ${{ steps.refs.outputs.head }}
+          BASE_SHA: ${{ steps.refs.outputs.base }}
+          EXPECT_NO_CHANGE: ${{ steps.refs.outputs.expect_no_change }}
+          COMPILE_BASE: ${{ steps.compile_base.outcome }}
+          COMPILE_HEAD: ${{ steps.compile_head.outcome }}
+          BUILD_BASE: ${{ steps.build_base.outcome }}
+          BUILD_HEAD: ${{ steps.build_head.outcome }}
+          SKIP: ${{ steps.deps.outputs.skip }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          report="$RUNNER_TEMP/report"
+          mkdir -p "$report"
+          dictionary_sha="$(git -C dictionary rev-parse HEAD)"
+          server="${GITHUB_SERVER_URL:-https://github.com}"
+          status() {
+            case "$1/$2" in
+              success/success) echo "成功" ;;
+              success/*) echo "**构建失败**" ;;
+              skipped/*) echo "没有构建" ;;
+              *) echo "**编译失败**" ;;
+            esac
+          }
+          # printf 的格式串用单引号包住，Markdown 代码片段里的反引号保持字面含义。
+          # shellcheck disable=SC2016
+          {
+            printf -- '- 新构建器：[`%s`](%s/%s/commit/%s)，%s\n' "${HEAD_SHA:0:10}" "$server" "$GITHUB_REPOSITORY" "$HEAD_SHA" "$(status "$COMPILE_HEAD" "$BUILD_HEAD")"
+            printf -- '- 基准构建器：[`%s`](%s/%s/commit/%s)，%s\n' "${BASE_SHA:0:10}" "$server" "$GITHUB_REPOSITORY" "$BASE_SHA" "$(status "$COMPILE_BASE" "$BUILD_BASE")"
+            printf -- '- 词库数据：metasequoiaime/msime-dictionary [`%s`](%s/metasequoiaime/msime-dictionary/commit/%s)，两次构建相同\n' "${dictionary_sha:0:10}" "$server" "$dictionary_sha"
+            printf -- '- [workflow 运行](%s)：完整的 JSON 报告在 artifact `dict-builder-artifact-diff` 里\n' "$RUN_URL"
+          } > "$report/preamble.md"
+          diff_status=skipped
+          if [[ "$SKIP" == true ]]; then
+            printf '## 词库产物差异\n\n%s\n没有构建：这次只有 Cargo.lock 变了，两边构建器的依赖树（cargo tree）相同，产物不会变。\n' "$(cat "$report/preamble.md")" > "$report/report.md"
+          elif [[ "$BUILD_BASE" == success && "$BUILD_HEAD" == success ]]; then
+            arguments=(--base "$RUNNER_TEMP/out/base" --head "$RUNNER_TEMP/out/head" --markdown "$report/report.md" --json "$report/report.json" --preamble "$report/preamble.md")
+            [[ "$EXPECT_NO_CHANGE" != true ]] || arguments+=(--expect-no-change)
+            diff_status=0
+            python3 head/scripts/dict_artifact_diff.py "${arguments[@]}" || diff_status=$?
+            # 脚本崩溃（未捕获的异常同样以 1 退出）时没有报告：补一份，并且不让 1 被当成「声明不改产物却有差异」。
+            if [[ ! -s "$report/report.md" ]]; then
+              printf '## 词库产物差异\n\n%s\n**比较脚本出错**（exit %s），没有写出报告，见 workflow 日志。\n' "$(cat "$report/preamble.md")" "$diff_status" > "$report/report.md"
+              diff_status="crashed-$diff_status"
+            fi
+          else
+            {
+              printf '## 词库产物差异\n\n'
+              cat "$report/preamble.md"
+              printf '\n没有比较：'
+              if [[ "$BUILD_HEAD" != success ]]; then
+                printf '新构建器没能构建出产物，见 workflow 日志。\n'
+              else
+                printf '基准构建器没能用这份词库数据构建出产物（数据可能已经要求更新的构建器），没有可比较的基准。\n'
+              fi
+            } > "$report/report.md"
+          fi
+          cat "$report/report.md" >> "$GITHUB_STEP_SUMMARY"
+          echo "diff_status=$diff_status" >> "$GITHUB_OUTPUT"
+      - name: Upload the report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dict-builder-artifact-diff
+          path: ${{ runner.temp }}/report/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Check the result
+        if: ${{ !cancelled() }}
+        env:
+          EXPECT_NO_CHANGE: ${{ steps.refs.outputs.expect_no_change }}
+          COMPILE_HEAD: ${{ steps.compile_head.outcome }}
+          BUILD_HEAD: ${{ steps.build_head.outcome }}
+          BUILD_BASE: ${{ steps.build_base.outcome }}
+          COMPARE: ${{ steps.compare.outcome }}
+          DIFF_STATUS: ${{ steps.compare.outputs.diff_status }}
+          SKIP: ${{ steps.deps.outputs.skip }}
+        run: |
+          set -euo pipefail
+          failed=0
+          if [[ "$SKIP" == true ]]; then
+            echo "only Cargo.lock changed and the builder's dependency tree is the same on both sides"
+          elif [[ "$COMPILE_HEAD" != success || "$BUILD_HEAD" != success ]]; then
+            echo "::error::the builder under test failed to compile or to build the dictionaries; see the steps above"
+            failed=1
+          fi
+          if [[ "$COMPARE" != success ]]; then
+            echo "::error::writing the report failed"
+            failed=1
+          fi
+          if [[ "$SKIP" != true && "$BUILD_BASE" != success && "$BUILD_HEAD" == success ]]; then
+            if [[ "$EXPECT_NO_CHANGE" == true ]]; then
+              echo "::error::the base builder failed, so an unchanged artifact set cannot be confirmed"
+              failed=1
+            else
+              echo "::warning::the base builder failed with this dictionary data; nothing was compared"
+            fi
+          fi
+          case "${DIFF_STATUS:-skipped}" in
+            0 | skipped) ;;
+            1)
+              echo "::error::the artifacts changed although the pull request is labelled $EXPECT_NO_CHANGE_LABEL; see the job summary"
+              failed=1
+              ;;
+            *)
+              echo "::error::scripts/dict_artifact_diff.py could not compare the artifacts (exit $DIFF_STATUS)"
+              failed=1
+              ;;
+          esac
+          exit "$failed"
+
+  # 评论另起一个只有写评论权限的作业，不运行 PR 的任何代码；fork 来的 PR 拿不到写权限，只看作业摘要和 artifact。
+  comment:
+    name: Artifact diff comment
+    needs: diff
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (needs.diff.result == 'success' || needs.diff.result == 'failure') }}
+    runs-on: depot-ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      pull-requests: write
+    concurrency:
+      group: dict-builder-artifact-diff-comment-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    steps:
+      # 构建作业在上传报告前就失败时没有 artifact：照样更新评论，写明这次没有结果，不留着上一次的报告。
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true
+        with:
+          name: dict-builder-artifact-diff
+          path: report
+      - name: Update the pull request comment
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- dict-builder-artifact-diff -->';
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const report = fs.existsSync('report/report.md')
+              ? fs.readFileSync('report/report.md', 'utf8')
+              : `## 词库产物差异\n\n这次运行没有产出报告（构建作业在写出报告之前就失败了），见 [workflow 运行](${run})。\n`;
+            const body = `${marker}\n${report}`;
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number, per_page: 100 });
+            const previous = comments.find((c) => c.user.type === 'Bot' && c.body.includes(marker));
+            if (previous) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: previous.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }

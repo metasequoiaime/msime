@@ -139,6 +139,11 @@ pub struct MixedJapaneseConversion {
 }
 
 impl ImeSession {
+    /// 当前方案用的词库的粗俗词表，候选排位（`offensive_placement`）读它，和拼整句用同一张。
+    pub(crate) fn offensive_words(&self) -> crate::lattice::offensive::OffensiveWords {
+        self.registry.offensive_words(self.scheme.scheme_type())
+    }
+
     /// ime_session.cpp:42-49. `cantonese_dictionary`, `zhuyin_dictionary` and `stroke_dictionary` are where `msime-cantonese.db`, `msime-zhuyin.db` and `msime-stroke.db` are, each read only when its scheme is activated; starting in Cantonese, Zhuyin or Stroke fails as `switch_scheme` does when its file cannot be opened. `japanese_dictionary` 是 `msime-japanese.dat` 的位置，为空时读资源目录里的那份。`enabled` 是会话允许运行的方案，`scheme` 不在其中时报 `INPUT_SCHEME_NOT_ENABLED`。
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -283,6 +288,16 @@ impl ImeSession {
         self.scheme
             .as_cantonese()
             .is_some_and(crate::cantonese::CantoneseScheme::accepts_semicolon)
+    }
+
+    /// 粤语词库在 `key` 下有没有 `text` 这一行，见 `ProviderRegistry::cantonese_has_entry`。
+    pub fn cantonese_has_entry(&mut self, key: &str, text: &str) -> bool {
+        self.registry.cantonese_has_entry(key, text)
+    }
+
+    /// 粤语候选里 `key` 下的 `text` 是不是组出来的整句，见 `ProviderRegistry::cantonese_row_is_composed`。
+    pub fn cantonese_row_is_composed(&self, key: &str, text: &str) -> bool {
+        self.registry.cantonese_row_is_composed(key, text)
     }
 
     /// 会话允许运行的方案。

@@ -1,5 +1,6 @@
 package app.msime.android.test;
 
+import android.os.Build;
 import android.os.SystemClock;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
@@ -170,7 +171,8 @@ public final class AiCandidateSeatDeviceSmoke extends DeviceSmoke {
     }
 
     private void collect(AccessibilityNodeInfo node, List<String> slots) {
-        if (node == null) return;
+        // 与 DeviceSmoke.find 一样刷新旧系统缓存；否则屏幕已更新，子树仍可能停在上一键。
+        if (node == null || Build.VERSION.SDK_INT < 34 && !node.refresh()) return;
         CharSequence description = node.getContentDescription();
         if (equalsText("app.msime.android", node.getPackageName()) && description != null
                 && node.getText() != null) {

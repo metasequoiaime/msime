@@ -1,6 +1,4 @@
-// The native host's own Gradle build, separate from the Tauri bundle's generated project: that one
-// exists to wrap a WebView, this one only needs AndroidX and Material. Versions are pinned to the
-// same values the bundle resolves, so one machine fetches one set of artifacts.
+// 原生宿主的 Gradle 工程，只依赖 AndroidX 和 Material；构建入口是本目录自带的 Gradle wrapper（gradlew）。
 pluginManagement {
     repositories { google(); mavenCentral() }
 }

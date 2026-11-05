@@ -266,6 +266,7 @@ final class FourteenKeyKeyboardTests: XCTestCase {
     controller.traitOverrides.verticalSizeClass = .compact
     controller.loadViewIfNeeded()
     controller.view.frame = CGRect(x: 0, y: 0, width: 1032, height: 400)
+    controller.viewWillAppear(false)
     controller.view.layoutIfNeeded()
     defer { controller.viewDidDisappear(false) }
     let l = try button("fourteenKeyL", in: controller)

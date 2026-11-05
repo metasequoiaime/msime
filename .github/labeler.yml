@@ -9,7 +9,6 @@ platform/ios:
   - changed-files:
       - any-glob-to-any-file:
           - platforms/ios/**
-          - crates/ios-native-ffi/**
 
 platform/macos:
   - changed-files:
@@ -46,7 +45,6 @@ area/shared:
           - crates/input-runtime/**
           - crates/mcp-server/**
           - crates/path-trust/**
-          - crates/tauri-mobile-platform/**
           - shared/**
           - platforms/common/**
 

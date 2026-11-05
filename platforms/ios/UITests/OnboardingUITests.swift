@@ -2597,6 +2597,29 @@ final class OnboardingUITests: XCTestCase {
     wubiPanel.lifetime = .keepAlways
     add(wubiPanel)
     app.buttons["designOptionSheetCancel"].tap()
+
+    // 哪门语言是默认由行上的「默认」标记说明。点双拼面板里已经打勾的小鹤，也要把双拼设为默认，标记从全拼移到双拼；以前点了看不出任何变化，像是设不了默认。
+    let mandarin = app.buttons["inputLanguage_mandarin"]
+    let shuangpin = app.buttons["inputLanguage_shuangpin"]
+    XCTAssertTrue(wait(app.buttons["designOptionSheetCancel"], until: "exists == false"))
+    XCTAssertEqual(mandarin.label, "全拼，默认")
+    XCTAssertEqual(shuangpin.label, "双拼")
+    let before = XCTAttachment(screenshot: app.screenshot())
+    before.name = "Language card with quanpin as default"
+    before.lifetime = .keepAlways
+    add(before)
+    XCTAssertTrue(openSchemeSheet(.shuangpin, in: app))
+    XCTAssertTrue(app.staticTexts["点选方案即设为默认"].exists)
+    app.buttons["inputScheme_shuangpin"].tap()
+    XCTAssertTrue(wait(shuangpin, until: "label == '双拼，默认'"), shuangpin.debugDescription)
+    XCTAssertEqual(mandarin.label, "全拼")
+    let after = XCTAttachment(screenshot: app.screenshot())
+    after.name = "Language card after making shuangpin the default"
+    after.lifetime = .keepAlways
+    add(after)
+    XCTAssertTrue(openSchemeSheet(.quanpin, in: app))
+    app.buttons["inputScheme_quanpin"].tap()
+    XCTAssertTrue(wait(mandarin, until: "label == '全拼，默认'"), mandarin.debugDescription)
   }
 
   @MainActor
