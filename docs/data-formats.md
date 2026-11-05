@@ -199,7 +199,7 @@ CREATE TABLE sentence_excluded(value TEXT NOT NULL PRIMARY KEY, exempt INTEGER N
 
 这是只追加的新表，按 [§4.3](#43-文件内版本) 的规矩不改 `FORMAT_VERSION`：旧引擎按名字查表、不枚举不认识的表，带这张表的词库对它来说照常可用，只是还用内嵌表；新引擎配旧词库退回内嵌表。表随 backup 进代次的工作副本，引擎从副本读；全拼、双拼词典和联想在打开词库时各读一次。网页词库（`msime-dict-build web`）原样保留这张表。
 
-构建器一侧不是这样：加入这张表之前的 `msime-dict-build web` 枚举输入词库的表，遇到不认识的表就失败（`unexpected table sentence_excluded in the input dictionary`）。所以裁剪带这张表的 `dict-v*` 要用包含这次改动的构建器；`scripts/build-web-engine.sh` 和 `release-web-engine.yml` 用的是检出提交里的构建器，`resources/desktop-dictionary.lock.json` 换到带这张表的发布，只能在已经有这次改动的分支上做。第一个带这张表的发布是 `dict-v2.1.0`（86 个词、19 条豁免写法），桌面词库锁从它起固定的就是带表的库。
+构建器一侧不是这样：加入这张表之前的 `msime-dict-build web` 枚举输入词库的表，遇到不认识的表就失败（`unexpected table sentence_excluded in the input dictionary`）。所以裁剪带这张表的 `dict-v*` 要用包含这次改动的构建器；`scripts/build-web-engine.sh` 和 `release-web-engine.yml` 用的是检出提交里的构建器，`resources/desktop-dictionary.lock.json` 换到带这张表的发布，只能在已经有这次改动的分支上做。第一个带这张表的发布是 `dict-v2.1.0`（67 个词、19 条豁免写法，共 86 行），桌面词库锁从它起固定的就是带表的库。
 
 ## 5. `msime-english.db`
 

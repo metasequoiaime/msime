@@ -234,6 +234,8 @@ msime 用 `msime-dict-build languages` 把它们构建成 `msime-cantonese.db`�
 
 ## msime 构建时另加的输入
 
+上文「维护者清洗表」一节（逐字取自 msime-dictionary）说权重覆盖「没有从万象抄权重」，这一句不准确：覆盖表里除恢复上游权重的 546 行外，其余 1733 行写的是同一全拼下另一个词的权重减 1，那个词多是万象收录、权重改编自万象的词（例如 嗷呜 2971 是 傲物 round(323 × 9.2) = 2972 减 1），这些行的权重因此由改编后的万象权重派生。署名与改动说明以 `rime-wanxiang-CC-BY-4.0.txt` 为准，那份文件已写明这一点。
+
 下面几项不在 msime-dictionary 的 `NOTICE.md` 里：它们由 msime 仓库（`resources/dictionary-sources/`）或 msime 的 `resources/dictionary-sources.lock.json` 提供，构建器 `crates/dict-builder` 在同一次 `dict-v*` 构建里读入。
 
 | 文件 | 上游 | 上游许可 |
