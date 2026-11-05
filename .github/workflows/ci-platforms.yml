@@ -931,8 +931,8 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $build = 'target/windows-full/x64/wer-lifecycle'
+          # 脚本不调用原生命令、也不显式 exit，独立步骤里 $LASTEXITCODE 始终是 $null，不能拿它判成败；失败靠脚本自身在 'Stop' 下抛错让 pwsh 以非零退出。
           & platforms/windows/tsf/tests/Invoke-SystemWer.ps1 -BuildDirectory $build -OutputDirectory "$build/system-wer"
-          if ($LASTEXITCODE -ne 0) { throw 'x64 TSF system WER capture failed' }
       # x64 失败时不再跑 x86 系统投递，与拆分前一致；x86 的失败不让作业变红，由下一步写进摘要和注解。
       - name: Run TSF system WER delivery (x86, non-blocking)
         id: x86-system-wer
@@ -942,8 +942,8 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $build = 'target/windows-full/x86/wer-lifecycle'
+          # 脚本不调用原生命令、也不显式 exit，独立步骤里 $LASTEXITCODE 始终是 $null，不能拿它判成败；失败靠脚本自身在 'Stop' 下抛错让 pwsh 以非零退出。
           & platforms/windows/tsf/tests/Invoke-SystemWer.ps1 -BuildDirectory $build -OutputDirectory "$build/system-wer"
-          if ($LASTEXITCODE -ne 0) { throw 'x86 TSF system WER capture failed' }
       - name: Report non-blocking x86 system WER failure
         if: ${{ needs.changes.outputs.windows == 'true' && steps.x86-system-wer.outcome == 'failure' }}
         shell: pwsh
