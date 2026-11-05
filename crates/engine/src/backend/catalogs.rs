@@ -144,10 +144,11 @@ pub(super) fn dictionary(request: &Request, roots: Roots) -> Outcome {
             order = "weight DESC,value";
             path = paths.dictionary(assets::MAIN_DICTIONARY);
         }
-        "wubi" | "wubi98" | "quick" => {
+        "wubi" | "wubi98" | "wubixsj" | "quick" => {
             let wubi = match kind {
                 "wubi" => Some(WubiProfileKind::Wubi86),
                 "wubi98" => Some(WubiProfileKind::Wubi98),
+                "wubixsj" => Some(WubiProfileKind::WubiXsj),
                 _ => None,
             };
             table = wubi

@@ -1,6 +1,8 @@
 #include "InputQueue.h"
 #include "TerminalDeactivationPolicy.h"
 #include "CandidateWheel.h"
+#include "ThreadPriority.h"
+#include <windows.h>
 
 namespace msime::windows {
 std::optional<PendingReply>
@@ -505,10 +507,11 @@ InputQueue::InputQueue(FocusGate &gate, size_t clients, size_t capacity,
   }
 }
 InputQueue::~InputQueue() { stop(); }
-std::optional<std::future<InputTaskStatus>> InputQueue::submit(Task task) {
+std::optional<std::future<InputTaskStatus>>
+InputQueue::submit(Task task, InputTaskPriority priority) {
   if (!task)
     return std::nullopt;
-  Job job{std::move(task), {}, std::chrono::steady_clock::now()};
+  Job job{std::move(task), priority, {}, std::chrono::steady_clock::now()};
   auto completion = job.completion.get_future();
   {
     std::lock_guard lock(mutex_);
@@ -581,7 +584,12 @@ void InputQueue::run(FocusGate &gate, size_t clients, std::string options) {
       auto status = InputTaskStatus::Completed;
       active_task_wait_ = std::chrono::duration_cast<std::chrono::milliseconds>(
           std::chrono::steady_clock::now() - job.enqueued_at);
+      // 用户按键在等结果：只给前台任务把工作线程临时提到 Above normal，离开作用域
+      // 恢复进入时的值。维护、偏好发布和富化回填保持进程的 Normal。
       try {
+        ScopedThreadPriorityBoost foreground_boost(
+            THREAD_PRIORITY_ABOVE_NORMAL,
+            job.priority == InputTaskPriority::Foreground);
         job.task(state);
       } catch (...) {
         // No raw exception text/input escapes the queue. Stop before any later
