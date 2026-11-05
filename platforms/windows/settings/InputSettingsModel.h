@@ -1,9 +1,10 @@
 #pragma once
 #include <array>
+#include <cstddef>
 #include <string>
 #include <string_view>
 
-// 「输入」「快捷键」两页里与共享设置页逐字相同的列表、文案和判断：输入页的六个页内标签（`packages/ui/src/settings/input-tabs.ts`）、五笔选词键的校验（`wubi-preferences.ts` 的 validWubiCandidateKeys）、中文输出的说明（`traditional-chinese-output-section.tsx`）、逐个模式的各行（`local-mode-options.ts`、`local-mode-preferences.ts`）、模糊音的四组规则（`fuzzy-pinyin-preferences.ts`）和按键速查里的翻页键（`candidate-paging-options.ts` 的 pagingKeys）。不依赖 Windows 和 WinRT 头文件，方便单独测试。
+// 「输入」「快捷键」两页里与共享设置页逐字相同的列表、文案和判断：输入页的六个页内标签（`packages/ui/src/settings/input-tabs.ts`）、五笔码表版本（`input-scheme-details-section.tsx` 的 wubiProfileOptions）、五笔选词键的校验（`wubi-preferences.ts` 的 validWubiCandidateKeys）、中文输出的说明（`traditional-chinese-output-section.tsx`）、逐个模式的各行（`local-mode-options.ts`、`local-mode-preferences.ts`）、模糊音的四组规则（`fuzzy-pinyin-preferences.ts`）和按键速查里的翻页键（`candidate-paging-options.ts` 的 pagingKeys）。不依赖 Windows 和 WinRT 头文件，方便单独测试。
 namespace msime::settings::input {
 
 struct Tab {
@@ -33,6 +34,27 @@ inline constexpr std::array<Tab, 3> expression_tabs{{
     {L"gloss", L"候选释义"},
     {L"providers", L"翻译服务"},
 }};
+
+struct WubiProfile {
+  // `wubi_profile` 偏好的取值。
+  std::wstring_view id;
+  std::wstring_view title;
+};
+
+// 五笔码表版本，顺序就是「五笔方案」下拉框的顺序，名字与共享页 `wubiProfileOptions` 相同；五笔查码的结果表按同一顺序分列。
+inline constexpr std::array<WubiProfile, 3> wubi_profiles{{
+    {L"wubi86", L"86 五笔"},
+    {L"wubi98", L"98 五笔"},
+    {L"wubixsj", L"新世纪五笔"},
+}};
+
+// 存储的版本在 `wubi_profiles` 里的位置。不认识的值（更新的版本加的码表）按 86 五笔，与共享偏好库读到不认识的值时一样，下拉框和查码的「（当前）」不会落空或标错。
+inline std::size_t wubi_profile_index(std::wstring_view id) {
+  for (std::size_t index = 0; index < wubi_profiles.size(); ++index)
+    if (wubi_profiles[index].id == id)
+      return index;
+  return 0;
+}
 
 // 五笔选词键的一个键：一个英文标点，即 ASCII 的 ! 到 /、: 到 @、[ 到 `、{ 到 ~（共享页的正则 `^[!-/:-@[-`{-~]$`）。
 inline bool wubi_candidate_key(std::wstring_view key) {

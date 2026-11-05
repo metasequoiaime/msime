@@ -363,6 +363,8 @@ enum KindJson {
     Wubi98,
     QuickPhrase,
     English,
+    /// 新世纪五笔，与日志里的名字相同。
+    Wubixsj,
 }
 
 impl KindJson {
@@ -374,6 +376,7 @@ impl KindJson {
             PersonalDictionaryKind::Wubi98 => Self::Wubi98,
             PersonalDictionaryKind::QuickPhrase => Self::QuickPhrase,
             PersonalDictionaryKind::English => Self::English,
+            PersonalDictionaryKind::WubiXsj => Self::Wubixsj,
             _ => return None,
         })
     }
@@ -387,6 +390,7 @@ impl From<KindJson> for PersonalDictionaryKind {
             KindJson::Wubi98 => Self::Wubi98,
             KindJson::QuickPhrase => Self::QuickPhrase,
             KindJson::English => Self::English,
+            KindJson::Wubixsj => Self::WubiXsj,
         }
     }
 }

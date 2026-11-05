@@ -3056,6 +3056,76 @@ static void TestCaretEditSuffix(RowLayoutClient *client)
     appearance.showsCandidatePreedit = YES;
 }
 
+// 首行的「1 / 17」、展开面板的「2 / 9」、输入状态和光标后编辑提示都是 NSTextField 标签；cell 左右各有约 2pt 内边距，frame 只按 sizeWithAttributes 给宽时最后一个字形会被截掉一点（#10852）。frame 至少要有 cell 自己要的宽度。
+static void AssertLabelFitsText(NSView *view)
+{
+    if (!view) return;
+    assert([view isKindOfClass:NSTextField.class]);
+    NSTextField *label = (NSTextField *)view;
+    assert(label.stringValue.length > 0);
+    assert(NSWidth(label.frame) + 0.01 >= label.cell.cellSize.width);
+}
+
+static void TestHeaderLabelWidths(RowLayoutClient *client)
+{
+    NSString *suite = [@"app.msime.test.header-label-width." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    appearance.themeMode = @"light";
+    appearance.vertical = NO;
+    appearance.showsAppLogo = NO;
+    appearance.showsCandidatePreedit = YES;
+    appearance.showsCandidateStatus = YES;
+    appearance.showsCandidatePageNumber = YES;
+    appearance.showsCandidateExpandButton = NO;
+    appearance.candidateTranslations = NO;
+    MSIMEInputController *controller = [[MSIMEInputController alloc] init];
+    RowLayoutPanel *panel = [[RowLayoutPanel alloc] initWithContentRect:NSZeroRect
+        styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:panel forKey:@"panel"];
+    NSArray *candidates = @[@{@"text": @"水杉输入法候选窗口", @"highlighted": @YES}, @{@"text": @"页码宽度"}, @{@"text": @"测试"}];
+    NSUInteger indicators = 0, statuses = 0, hints = 0;
+    for (NSInteger percent : {100, 125, 150}) for (NSUInteger pages : {(NSUInteger)3, (NSUInteger)17}) for (NSUInteger page : {(NSUInteger)0, pages - 1}) for (BOOL caretEdit : {NO, YES}) {
+        appearance.candidateScalePercent = percent;
+        NSMutableDictionary *view = [@{@"focused": @YES, @"session": @1, @"generation": @2, @"editing_text": @"shuishan",
+            @"page": @(page), @"page_count": @(pages), @"candidates": candidates} mutableCopy];
+        if (caretEdit) {
+            view[@"caret_edit_suffix"] = @YES;
+            view[@"caret_edit_prefix"] = @"水";
+        }
+        [controller setValue:[view copy] forKey:@"view"];
+        [controller renderCandidates];
+        NSTextField *indicator = (NSTextField *)HeaderChild(panel.contentView, @"candidate-page-indicator");
+        assert(indicator && [indicator.stringValue isEqual:([NSString stringWithFormat:@"%lu / %lu", (unsigned long)(page + 1), (unsigned long)pages])]);
+        AssertLabelFitsText(indicator);
+        ++indicators;
+        if (NSView *status = HeaderChild(panel.contentView, @"candidate-status")) { AssertLabelFitsText(status); ++statuses; }
+        if (NSView *hint = HeaderChild(panel.contentView, @"candidate-caret-edit-hint")) { AssertLabelFitsText(hint); ++hints; }
+    }
+    assert(indicators > 0 && statuses > 0 && hints > 0);
+
+    // 展开面板首行的行号「2 / 9」同一写法。
+    NSMutableArray *expanded = [NSMutableArray array];
+    for (NSUInteger index = 0; index < 120; ++index) [expanded addObject:@{@"text": @"合成", @"highlighted": @(index == 0)}];
+    NSUInteger rowIndicators = 0;
+    for (NSInteger percent : {100, 125, 150}) {
+        appearance.candidateScalePercent = percent;
+        [controller setValue:expanded forKey:@"expandedCandidates"];
+        [controller setValue:@0 forKey:@"expandedCursor"];
+        [controller setValue:@0 forKey:@"expandedFirstRow"];
+        assert([controller renderExpandedCandidates]);
+        NSView *indicator = HeaderChild(panel.contentView, @"candidate-page-indicator");
+        assert(indicator);
+        AssertLabelFitsText(indicator);
+        ++rowIndicators;
+    }
+    assert(rowIndicators == 3);
+    [controller setValue:nil forKey:@"expandedCandidates"];
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 int main(int argc, char **argv)
 {
     @autoreleasepool
@@ -3121,6 +3191,13 @@ int main(int argc, char **argv)
             NSRect screen = NSScreen.mainScreen.visibleFrame;
             client.caret = NSMakeRect(NSMinX(screen) + 100, NSMidY(screen), 1, 20);
             @autoreleasepool { TestFactoryPager(client); }
+            return 0;
+        }
+        if (argc == 2 && std::string(argv[1]) == "--header-label-width") {
+            RowLayoutClient *client = [RowLayoutClient new];
+            const NSRect screen = NSScreen.mainScreen.visibleFrame;
+            client.caret = NSMakeRect(NSMidX(screen), NSMidY(screen), 1, 20);
+            @autoreleasepool { TestHeaderLabelWidths(client); }
             return 0;
         }
         if (argc == 2 && std::string(argv[1]) == "--caret-edit-suffix") {

@@ -350,6 +350,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         shuangpin_preedit_uses_raw: true,
         shuangpin_preedit_separated: false,
         force_cantonese_shuangpin: false,
+        cantonese_output_conversion: None,
         single_character_only: false,
         caret_edit_suffix: false,
         learning: false,
@@ -360,6 +361,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         fuzzy_pinyin_rules: 0,
         wubi_mixed_pinyin: false,
         wubi_z_wildcard: false,
+        wubi_reverse_code: true,
         wubi_profile: 0,
         helpcode: false,
         strict_quanpin_helpcode: false,
@@ -2108,6 +2110,51 @@ fn caret_edit_suffix_reaches_the_engine_after_composition_and_the_view() {
     read(msime_client_destroy(handle));
 }
 
+/// 粤拼输出简体是 Engine 偏好：打开后 Engine 拿到繁转简，关掉后不再转换；默认关，粤拼照旧输出繁体。
+#[test]
+fn cantonese_simplified_output_hands_the_engine_a_conversion() {
+    let mut preferences = Preferences::default();
+    assert!(!preferences.cantonese_simplified_output);
+    assert!(cantonese_output_conversion(&preferences).is_none());
+    preferences.cantonese_simplified_output = true;
+    let conversion = cantonese_output_conversion(&preferences).expect("conversion");
+    assert_eq!(conversion.apply("佢係嗰個人喎"), "佢系嗰个人喎");
+
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host(dir.path());
+    read(msime_client_focus(handle, true));
+    SESSIONS.with(|sessions| {
+        assert!(sessions.borrow()[&handle]
+            .options
+            .cantonese_output_conversion
+            .is_none());
+    });
+    let mut preferences = Preferences {
+        cantonese_simplified_output: true,
+        ..Preferences::default()
+    };
+    assert_eq!(update(handle, 1, &preferences)["value"]["deferred"], false);
+    SESSIONS.with(|sessions| {
+        let session = &sessions.borrow()[&handle];
+        assert_eq!(
+            session.options.cantonese_output_conversion,
+            Some(TextConversion(
+                msime_client_core::chinese_conversion::cantonese_to_simplified
+            ))
+        );
+        assert!(session.applied.cantonese_simplified_output);
+    });
+    preferences.cantonese_simplified_output = false;
+    update(handle, 2, &preferences);
+    SESSIONS.with(|sessions| {
+        assert!(sessions.borrow()[&handle]
+            .options
+            .cantonese_output_conversion
+            .is_none());
+    });
+    read(msime_client_destroy(handle));
+}
+
 #[test]
 fn wubi_auto_commit_unique_reaches_the_runtime_without_waiting_for_the_engine() {
     let dir = tempfile::tempdir().unwrap();
@@ -2340,7 +2387,60 @@ fn wubi_profile_reaches_engine_options() {
         assert_eq!(session.options.wubi_profile, 1);
         assert_eq!(session.applied.wubi_profile, WubiProfile::Wubi98);
     });
+    let preferences = Preferences {
+        wubi_profile: WubiProfile::WubiXsj,
+        ..preferences
+    };
+    update(handle, 2, &preferences);
+    SESSIONS.with(|sessions| {
+        let session = &sessions.borrow()[&handle];
+        assert_eq!(session.options.wubi_profile, 2);
+        assert_eq!(session.applied.wubi_profile, WubiProfile::WubiXsj);
+    });
     read(msime_client_destroy(handle));
+}
+
+/// #10790：「候选显示剩余编码」决定引擎给不给五笔候选附完整码，建会话和改偏好两条路都要带上。
+#[test]
+fn wubi_code_hint_reaches_engine_options() {
+    // 出厂默认开着，引擎照旧给五笔候选附码。
+    assert!(Preferences::default().wubi_code_hint);
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host(dir.path());
+    SESSIONS.with(|sessions| {
+        assert!(sessions.borrow()[&handle].options.wubi_reverse_code);
+    });
+    let mut preferences = Preferences {
+        scheme: InputScheme::Wubi,
+        wubi_code_hint: false,
+        ..chinese_preferences()
+    };
+    update(handle, 1, &preferences);
+    SESSIONS.with(|sessions| {
+        let session = &sessions.borrow()[&handle];
+        assert!(!session.options.wubi_reverse_code);
+        assert!(!session.applied.wubi_code_hint);
+    });
+    preferences.wubi_code_hint = true;
+    update(handle, 2, &preferences);
+    SESSIONS.with(|sessions| {
+        assert!(sessions.borrow()[&handle].options.wubi_reverse_code);
+    });
+    read(msime_client_destroy(handle));
+
+    let created_dir = tempfile::tempdir().unwrap();
+    let created = test_host_preferences(
+        created_dir.path(),
+        Preferences {
+            scheme: InputScheme::Wubi,
+            wubi_code_hint: false,
+            ..chinese_preferences()
+        },
+    );
+    SESSIONS.with(|sessions| {
+        assert!(!sessions.borrow()[&created].options.wubi_reverse_code);
+    });
+    read(msime_client_destroy(created));
 }
 
 /// 小鹤的键位，只把 ing 从 k 挪到 `;`。

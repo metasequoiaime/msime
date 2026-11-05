@@ -39,6 +39,17 @@ int main() {
         "the three punctuation and translation tabs");
 
   // 五笔选词键：各是一个英文标点，并且不同。
+  // 五笔码表版本：下拉框的顺序和名字与共享页 wubiProfileOptions 相同；不认识的存储值按 86。
+  check(wubi_profiles.size() == 3 && wubi_profiles[0].id == L"wubi86" &&
+            wubi_profiles[0].title == L"86 五笔" && wubi_profiles[1].id == L"wubi98" &&
+            wubi_profiles[1].title == L"98 五笔" && wubi_profiles[2].id == L"wubixsj" &&
+            wubi_profiles[2].title == L"新世纪五笔",
+        "the three wubi profiles in the shared order and words");
+  check(wubi_profile_index(L"wubi86") == 0 && wubi_profile_index(L"wubi98") == 1 &&
+            wubi_profile_index(L"wubixsj") == 2,
+        "each stored profile selects its own entry");
+  check(wubi_profile_index(L"wubi06") == 0 && wubi_profile_index(L"") == 0,
+        "an unknown stored profile reads as 86");
   check(valid_wubi_candidate_keys(L";", L"'"), "the default pair is valid");
   check(valid_wubi_candidate_keys(L"'", L";"), "a swapped pair is valid");
   check(valid_wubi_candidate_keys(L"[", L"~"), "brackets and tilde are punctuation");

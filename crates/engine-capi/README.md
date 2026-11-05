@@ -190,7 +190,7 @@ msime_engine_string_free(dictionaries);
 | `shuangpin.profile` | `xiaohe`、`ziranma`、`shoudao`、`microsoft`、`smart_abc`、`custom` |
 | `shuangpin.custom` | `profile` 为 `custom` 时的键位表：`{"initials": {"zh": "v", …}, "finals": {"iang": "l", …}, "zero_initials": {"a": "aa", …}}`；键是小写字母或 `;`，`ü` 写作 `v`，表不合法时建会话失败 |
 | `shuangpin.preedit_shows_keys` | 预编辑显示按键原文（缺省 true）还是还原出的全拼 |
-| `wubi` | `profile`（`wubi86`、`wubi98`）、`mixed_pinyin`（码表没有时按全拼出字）、`z_wildcard`（`z` 匹配任一码位） |
+| `wubi` | `profile`（`wubi86`、`wubi98`、`wubixsj`，最后一个是新世纪五笔，要 `msime-wubi.db` 里有 `wubixsj` 表才有候选）、`mixed_pinyin`（码表没有时按全拼出字）、`z_wildcard`（`z` 匹配任一码位） |
 | `vietnamese` | `input_method`（`telex`、`vni`）、`tone_style`（`modern` 声调在第二个元音上、`classic`） |
 | `korean.layout` | `dubeolsik`、`romaja` |
 | `helpcode` | `enabled`、`schema`（`resources/helpcodes/` 下的表名，例如 `wubi86`） |
@@ -210,7 +210,7 @@ msime_engine_string_free(dictionaries);
 
 ## 个人词典
 
-不需要会话。`msime_engine_user_dict_list` 交回 `{"entries":[{"kind":"pinyin","key":"ni'hao","value":"你好","weight":100000}],"has_more":false}`，`kind` 是 `pinyin`、`wubi`、`wubi98`、`quick_phrase`、`english`。`msime_engine_user_dict_edit` 收 `{"previous": 条目或 null, "replacement": 条目或 null, "request_id": "add-1"}`：只有 `replacement` 是新增，只有 `previous` 是删除（它要和列表里的那条完全一致），两个都有是替换；`weight` 可以省略。`request_id` 让同一次编辑重试时不重复生效。`msime_engine_user_dict_validate`（ABI 1.1 起）按新增时的同一套规则检查一条词条、交回规范化后的样子（`{"kind":"pinyin","key":"NI HAO","value":"你好"}` 交回 `key` 为 `ni'hao`、带上缺省 `weight` 的那条），不合法时返回 `MSIME_ENGINE_INVALID_ARGUMENT`，`msime_engine_last_error` 是能直接显示给用户的英文原因；它不读写文件，不需要路径，会话开着时也能调，给编辑框即时提示用。代次里没有 `msime-pinyin.db`（用 `msime_engine_prepare_runtime_for` 为没有全拼、双拼、五笔的方案准备的）时只能编辑英文词，列表也只列英文词；连 `msime-english.db` 也没有时什么词都存不下。
+不需要会话。`msime_engine_user_dict_list` 交回 `{"entries":[{"kind":"pinyin","key":"ni'hao","value":"你好","weight":100000}],"has_more":false}`，`kind` 是 `pinyin`、`wubi`、`wubi98`、`wubixsj`（新世纪五笔）、`quick_phrase`、`english`。`msime_engine_user_dict_edit` 收 `{"previous": 条目或 null, "replacement": 条目或 null, "request_id": "add-1"}`：只有 `replacement` 是新增，只有 `previous` 是删除（它要和列表里的那条完全一致），两个都有是替换；`weight` 可以省略。`request_id` 让同一次编辑重试时不重复生效。`msime_engine_user_dict_validate`（ABI 1.1 起）按新增时的同一套规则检查一条词条、交回规范化后的样子（`{"kind":"pinyin","key":"NI HAO","value":"你好"}` 交回 `key` 为 `ni'hao`、带上缺省 `weight` 的那条），不合法时返回 `MSIME_ENGINE_INVALID_ARGUMENT`，`msime_engine_last_error` 是能直接显示给用户的英文原因；它不读写文件，不需要路径，会话开着时也能调，给编辑框即时提示用。代次里没有 `msime-pinyin.db`（用 `msime_engine_prepare_runtime_for` 为没有全拼、双拼、五笔的方案准备的）时只能编辑英文词，列表也只列英文词；连 `msime-english.db` 也没有时什么词都存不下。
 
 ## 要带的数据文件
 

@@ -1,6 +1,7 @@
 #import "VoicePCMBuffer.h"
 #include "../../../../shared/voice/VoiceProviders.h"
 #include <cmath>
+#include <algorithm>
 
 @implementation MSIMEVoicePCMBuffer {
     AVAudioConverter *_converter;
@@ -47,9 +48,11 @@
             }];
         if (conversionError || status == AVAudioConverterOutputStatus_Error) return [self fail:error];
         if (output.frameLength) {
-            const float *samples = output.floatChannelData[0];
+            float *samples = output.floatChannelData[0];
             for (AVAudioFrameCount index = 0; index < output.frameLength; ++index) {
-                if (!std::isfinite(samples[index]) || std::fabs(samples[index]) > 1.0f) return [self fail:error];
+                if (!std::isfinite(samples[index])) return [self fail:error];
+                // 有界输入也会在重采样滤波时出现短暂越界；限制输出满幅，不能因此取消录音。
+                samples[index] = std::clamp(samples[index], -1.0f, 1.0f);
             }
             // The converter can append filter padding at end-of-stream, and the last admitted input buffer can run past the sample limit. Neither is kept.
             NSUInteger converted = [self convertedFrames];

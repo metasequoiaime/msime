@@ -35,6 +35,8 @@ pub(crate) const INVALID: &str = "invalid_dictionary_sync";
 const MAX_PATH_BYTES: usize = 16 * 1024;
 
 /// 同步认识的词库类别；Engine 以后多出来的类别先不同步。
+///
+/// 新世纪五笔暂不同步，也是 `None`：已经发布的客户端读到带它的检查点会整份不认，压缩时还会丢掉它。等宽松读取的版本覆盖了足够多的设备再打开。协议核心读网盘时同样跳过它（`WordKind::from_synced_name`），两边要一起改：只放开一边，写进本机的词下一轮读不出来，会被当成本机删掉的。
 fn word_kind(kind: msime_engine::host::DictionaryKind) -> Option<WordKind> {
     use msime_engine::host::DictionaryKind;
     Some(match kind {
@@ -43,6 +45,7 @@ fn word_kind(kind: msime_engine::host::DictionaryKind) -> Option<WordKind> {
         DictionaryKind::Wubi98 => WordKind::Wubi98,
         DictionaryKind::QuickPhrase => WordKind::Quick,
         DictionaryKind::English => WordKind::English,
+        DictionaryKind::WubiXsj => return None,
         _ => return None,
     })
 }
@@ -53,6 +56,7 @@ fn engine_kind(kind: WordKind) -> msime_engine::host::DictionaryKind {
         WordKind::Pinyin => DictionaryKind::Pinyin,
         WordKind::Wubi => DictionaryKind::Wubi,
         WordKind::Wubi98 => DictionaryKind::Wubi98,
+        WordKind::WubiXsj => DictionaryKind::WubiXsj,
         WordKind::Quick => DictionaryKind::QuickPhrase,
         WordKind::English => DictionaryKind::English,
     }

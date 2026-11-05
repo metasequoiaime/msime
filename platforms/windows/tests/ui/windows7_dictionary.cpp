@@ -123,11 +123,18 @@ int main(int argc, char** argv) {
     const auto combo = GetDlgItem(body, id); SendMessageW(combo, CB_SETCURSEL, index, 0);
     SendMessageW(body, WM_COMMAND, MAKEWPARAM(id, CBN_SELCHANGE), reinterpret_cast<LPARAM>(combo)); wait();
   };
+  // 本机词库在下拉框里的位置按 LocalKind 表查，加了种类（新世纪五笔、粤语）也不用改这里的数字。
+  const auto local_kind = [](std::wstring_view id) {
+    for (size_t index = 0; index < dictionary_data::model::local_kinds.size(); ++index)
+      if (dictionary_data::model::local_kinds[index].id == id) return static_cast<int>(index);
+    assert(false);
+    return -1;
+  };
   const auto select = [&](int index) {
     const auto list = GetDlgItem(body, dictionary_entries); SendMessageW(list, LB_SETCURSEL, index, 0);
     SendMessageW(body, WM_COMMAND, MAKEWPARAM(dictionary_entries, LBN_SELCHANGE), reinterpret_cast<LPARAM>(list));
   };
-  choose(dictionary_kind, 4);
+  choose(dictionary_kind, local_kind(L"quick_phrase"));
   set(dictionary_key, L"synthetic"); set(dictionary_value, L"合成短语🙂"); set(dictionary_weight, L"1234");
   click(dictionary_save);
   assert(text(dictionary_notice).find("操作已完成") != std::string::npos);
@@ -169,7 +176,7 @@ int main(int argc, char** argv) {
   click(dictionary_next); assert(SendMessageW(GetDlgItem(body, dictionary_entries), LB_GETCOUNT, 0, 0) == 8);
   click(dictionary_previous); assert(SendMessageW(GetDlgItem(body, dictionary_entries), LB_GETCOUNT, 0, 0) == 50);
   // 个人粤语词库排在本机词库最后：可编辑，按 list 读个人词条，新词默认权重 100000。
-  choose(dictionary_kind, 5);
+  choose(dictionary_kind, local_kind(L"cantonese"));
   assert(calls.back().at("operation") == "list" && calls.back().at("kind") == "cantonese");
   assert(IsWindowEnabled(GetDlgItem(body, dictionary_save)) && IsWindowEnabled(GetDlgItem(body, dictionary_import)));
   assert(text(dictionary_weight) == "100000");
@@ -177,14 +184,14 @@ int main(int argc, char** argv) {
   choose(dictionary_kind, static_cast<int>(dictionary_data::model::local_kinds.size()));
   assert(!IsWindowEnabled(GetDlgItem(body, dictionary_save)) && !IsWindowEnabled(GetDlgItem(body, dictionary_import)));
   assert(text(dictionary_page).find("尚未安装") != std::string::npos);
-  choose(dictionary_kind, 4); set(dictionary_query, L""); click(dictionary_search);
+  choose(dictionary_kind, local_kind(L"quick_phrase")); set(dictionary_query, L""); click(dictionary_search);
   corrupt_list = true; click(dictionary_search);
   assert(!IsWindowEnabled(GetDlgItem(body, dictionary_entries)) && !IsWindowEnabled(GetDlgItem(body, dictionary_delete)));
   corrupt_list = false; click(dictionary_search);
   allow = false; count = calls.size(); click(dictionary_reset); assert(calls.size() == count);
   allow = true; click(dictionary_reset);
   assert(SendMessageW(GetDlgItem(body, dictionary_entries), LB_GETCOUNT, 0, 0) == 0);
-  choose(dictionary_kind, 0); click(dictionary_user_only); set(dictionary_query, L"he"); click(dictionary_search);
+  choose(dictionary_kind, local_kind(L"pinyin")); click(dictionary_user_only); set(dictionary_query, L"he"); click(dictionary_search);
   assert(SendMessageW(GetDlgItem(body, dictionary_entries), LB_GETCOUNT, 0, 0) == 1);
   select(0); assert(text(dictionary_value) == "合成");
   assert(GetWindowLongPtrW(GetDlgItem(body, dictionary_key), GWL_STYLE) & ES_READONLY);
@@ -192,9 +199,9 @@ int main(int argc, char** argv) {
   click(dictionary_delete); assert(SendMessageW(GetDlgItem(body, dictionary_entries), LB_GETCOUNT, 0, 0) == 0);
   click(dictionary_reset); assert(SendMessageW(GetDlgItem(body, dictionary_entries), LB_GETCOUNT, 0, 0) == 1);
   select(0); assert(text(dictionary_weight) == "321");
-  choose(dictionary_kind, 3); click(dictionary_new);
+  choose(dictionary_kind, local_kind(L"english")); click(dictionary_new);
   set(dictionary_key, L"syntheticword"); set(dictionary_value, L"SyntheticWord"); click(dictionary_save);
-  choose(dictionary_kind, 4); click(dictionary_new);
+  choose(dictionary_kind, local_kind(L"quick_phrase")); click(dictionary_new);
   set(dictionary_key, L"allwords"); set(dictionary_value, L"合成全部导出🙂"); click(dictionary_save);
   click(dictionary_export_all);
   const auto all_export = msime::settings::read_settings_document(export_path).value();
@@ -236,7 +243,7 @@ int main(int argc, char** argv) {
   bad_updates = false; SendMessageW(host, WM_TIMER, 74, 0); wait_updates();
   assert(calls.back().at("command") == "status");
   // 更新查询阻塞时，词条草稿、焦点与真正保存都不能被进度轮询打断。
-  choose(dictionary_kind, 4); click(dictionary_new);
+  choose(dictionary_kind, local_kind(L"quick_phrase")); click(dictionary_new);
   set(dictionary_key, L"parallel"); set(dictionary_value, L"合成并行草稿");
   block_updates = true;
   SendMessageW(GetDlgItem(body, dictionary_updates_refresh), BM_CLICK, 0, 0);

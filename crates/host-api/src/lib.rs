@@ -52,7 +52,7 @@ use msime_engine::{
     validate_nine_key_shuangpin_table, validate_shuangpin_custom_profile, CandidateEdge,
     NineKeyShuangpinError, NineKeyShuangpinKeyHint, NineKeyShuangpinKind, NineKeyShuangpinTable,
     SchemeSet, SchemeType, ShuangpinCustomProfileError, ShuangpinCustomTable,
-    ShuangpinCustomTablePart, ShuangpinProfileKind,
+    ShuangpinCustomTablePart, ShuangpinProfileKind, TextConversion,
 };
 #[cfg(unix)]
 use msime_input_runtime::TranslationQuery;
@@ -420,6 +420,15 @@ fn session_preferences_differ(requested: &Preferences, applied: &Preferences) ->
 /// 上屏后联想只在接好了显示和按键的宿主上交给 Engine（`HostPlatform::shows_next_word_prediction`）：别的宿主收到联想会把它当成组字，数字、空格或回车可能把用户没选的词上屏。偏好随同步到达这些宿主时一律按关。
 fn next_word_prediction_applies(preferences: &Preferences) -> bool {
     ffi::host::compiled_platform().shows_next_word_prediction() && preferences.next_word_prediction
+}
+
+/// 粤拼候选的输出转换：用户在粤拼下选了简体（`cantonese_simplified_output`）时交给 Engine 繁转简，转换和去重都在 Engine 里做完，视图的 `script_conversion` 对粤拼仍为 false，宿主不再转换。
+fn cantonese_output_conversion(preferences: &Preferences) -> Option<TextConversion> {
+    preferences
+        .cantonese_simplified_output
+        .then_some(TextConversion(
+            msime_client_core::chinese_conversion::cantonese_to_simplified,
+        ))
 }
 
 fn multilingual_languages_for(
@@ -890,6 +899,7 @@ impl HostSession {
         options.shuangpin_preedit_uses_raw = preferences.shuangpin_preedit_uses_raw;
         options.shuangpin_preedit_separated = preferences.shuangpin_preedit_separated;
         options.force_cantonese_shuangpin = force_cantonese_shuangpin(scheme, &preferences);
+        options.cantonese_output_conversion = cantonese_output_conversion(&preferences);
         options.single_character_only = preferences.single_character_only;
         options.caret_edit_suffix = caret_edit_suffix_applies(&preferences);
         options.learning = preferences.learning;
@@ -901,6 +911,8 @@ impl HostSession {
         options.wubi_mixed_pinyin = preferences.wubi_mixed_pinyin;
         options.wubi_z_wildcard = preferences.wubi_z_wildcard;
         options.wubi_profile = wubi_profile_code(preferences.wubi_profile);
+        // 「候选显示剩余编码」关掉时，引擎也不再给五笔候选附完整码，宿主退回显示注释时就看不到编码（#10790）。
+        options.wubi_reverse_code = preferences.wubi_code_hint;
         options.frequency_mode = preferences.frequency.mode.as_str().into();
         options.frequency_trigger_count = preferences.frequency.trigger_count;
         options.frequency_linear_step = preferences.frequency.linear_step;
@@ -1869,6 +1881,7 @@ fn wubi_profile_code(profile: WubiProfile) -> u8 {
     match profile {
         WubiProfile::Wubi86 => 0,
         WubiProfile::Wubi98 => 1,
+        WubiProfile::WubiXsj => 2,
     }
 }
 
@@ -2479,6 +2492,7 @@ impl HostOptions {
             shuangpin_preedit_uses_raw: self.preferences.shuangpin_preedit_uses_raw,
             shuangpin_preedit_separated: self.preferences.shuangpin_preedit_separated,
             force_cantonese_shuangpin: force_cantonese_shuangpin(scheme, &self.preferences),
+            cantonese_output_conversion: cantonese_output_conversion(&self.preferences),
             single_character_only: self.preferences.single_character_only,
             caret_edit_suffix: caret_edit_suffix_applies(&self.preferences),
             learning: self.preferences.learning,
@@ -2490,6 +2504,7 @@ impl HostOptions {
             wubi_mixed_pinyin: self.preferences.wubi_mixed_pinyin,
             wubi_z_wildcard: self.preferences.wubi_z_wildcard,
             wubi_profile: wubi_profile_code(self.preferences.wubi_profile),
+            wubi_reverse_code: self.preferences.wubi_code_hint,
             frequency_mode: self.preferences.frequency.mode.as_str().into(),
             frequency_trigger_count: self.preferences.frequency.trigger_count,
             frequency_linear_step: self.preferences.frequency.linear_step,

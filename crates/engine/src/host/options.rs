@@ -16,7 +16,7 @@ use crate::types::{
     FrequencyAdjustmentOptions, FuzzyPinyinOptions, LocalModeOptions, MentionEntry,
     MixedExpressiveOptions, PluginCommand, QuickPhraseEntry, SchemeSet, SchemeType,
     SentenceAssociationOptions, ShuangpinCustomTable, ShuangpinHelpcodeModes, ShuangpinProfileKind,
-    WubiInputOptions, WubiProfileKind, DEFAULT_FIRST_PAGE_ROWS,
+    TextConversion, WubiInputOptions, WubiProfileKind, DEFAULT_FIRST_PAGE_ROWS,
 };
 use crate::user_dictionary::generation::{merge_downloaded_wubi, prepare_runtime_paths_for};
 use crate::vietnamese::{InputMethod as VietnameseInputMethod, ToneStyle as VietnameseToneStyle};
@@ -70,6 +70,8 @@ pub struct EngineOptions {
     pub shuangpin_preedit_separated: bool,
     /// 独立粤语双拼入口强制解释同形两键码；其余入口为 false。
     pub force_cantonese_shuangpin: bool,
+    /// 粤拼候选的输出转换（`SessionOptions::cantonese_output_conversion`）；`None` 输出繁体。
+    pub cantonese_output_conversion: Option<TextConversion>,
     pub learning: bool,
     /// 回车上屏英文拼写时是否学进英文词库（`SessionOptions::learn_english_on_enter`）。参照实现出厂为开。门面同时打开 `SessionOptions::learn_typed_spellings_on_enter`，所以学的不只是专用英文里打的词。
     pub learn_english_on_enter: bool,
@@ -82,8 +84,10 @@ pub struct EngineOptions {
     pub wubi_mixed_pinyin: bool,
     /// 五笔 `z` 通配（`WubiInputOptions::z_wildcard`）。
     pub wubi_z_wildcard: bool,
-    /// 0 是 86 五笔，1 是 98 五笔（`WubiProfileKind`）。
+    /// 0 是 86 五笔，1 是 98 五笔，2 是新世纪五笔（`WubiProfileKind`）。
     pub wubi_profile: u8,
+    /// 五笔方案里给五笔原生候选的注释附上完整五笔码（反查码）。只管显示，不影响候选的 `code` 字段，宿主照旧用它算剩余编码。宿主按共享偏好 `wubi_code_hint` 填：用户关掉「候选显示剩余编码」时，五笔候选旁不该再出现五笔码。拼音来的候选（混输拼音和 `z` 引导的临时拼音反查）附的是用拼音查到的五笔码，不是剩余编码，不受它管；`z` 通配查出的五笔候选也不受它管，那里的完整码回答的是 `z` 那一位是什么。默认开。
+    pub wubi_reverse_code: bool,
     pub helpcode: bool,
     /// 一码辅助码严格筛选；关闭时仍按原来的规则重排候选。
     pub strict_quanpin_helpcode: bool,
@@ -236,6 +240,7 @@ pub fn prepare_options_for(
         shuangpin_preedit_uses_raw: true,
         shuangpin_preedit_separated: false,
         force_cantonese_shuangpin: false,
+        cantonese_output_conversion: None,
         single_character_only: false,
         caret_edit_suffix: false,
         learning: false,
@@ -247,6 +252,7 @@ pub fn prepare_options_for(
         wubi_mixed_pinyin: false,
         wubi_z_wildcard: false,
         wubi_profile: WubiProfileKind::Wubi86 as u8,
+        wubi_reverse_code: true,
         helpcode: true,
         strict_quanpin_helpcode: false,
         show_helpcode: true,
@@ -365,6 +371,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
         korean_layout,
         cantonese_dictionary: PathBuf::from(&options.cantonese_dictionary),
         force_cantonese_shuangpin: options.force_cantonese_shuangpin,
+        cantonese_output_conversion: options.cantonese_output_conversion,
         zhuyin_dictionary: PathBuf::from(&options.zhuyin_dictionary),
         stroke_dictionary: PathBuf::from(&options.stroke_dictionary),
         japanese_dictionary: PathBuf::from(&options.japanese_dictionary),
