@@ -30,6 +30,11 @@ final class KeyboardAdjustOverlay: UIView {
     didSet { if capabilities != oldValue { applyCapabilities() } }
   }
 
+  /// 外框上沿到工具栏图标上沿的高度，由键盘按顶栏算好设进来。上沿把手的三道横线画在这一条里、图标之上，与 Android 相同；触摸区仍是外框上沿那一块 96×32。为 0 时横线在触摸区里居中。
+  var topGripStrip: CGFloat = 0 {
+    didSet { if topGripStrip != oldValue { topHandle.strip = topGripStrip } }
+  }
+
   /// 拖动 `part`：`dx` 向右为正、`rise` 向上为正，都是从按下到现在、在屏幕上不动的坐标里的位移。
   var onDrag: ((Part, UIGestureRecognizer.State, _ dx: CGFloat, _ rise: CGFloat) -> Void)?
   /// 读屏对 `part` 的增减（上下方向）。
@@ -89,7 +94,6 @@ final class KeyboardAdjustOverlay: UIView {
     ]
     resetButton.addAction(UIAction { [weak self] _ in self?.onReset?() }, for: .primaryActionTriggered)
     confirmButton.addAction(UIAction { [weak self] _ in self?.onConfirm?() }, for: .primaryActionTriggered)
-    accessibilityElements = [topHandle, leftHandle, resetButton, moveButton, confirmButton, rightHandle, bottomHandle]
     apply(skin: KeyboardTheme.current)
     applyCapabilities()
   }
@@ -116,6 +120,9 @@ final class KeyboardAdjustOverlay: UIView {
     rightHandle.isHidden = !capabilities.showsSideHandles
     moveButton.isHidden = !capabilities.showsMove
     moveButton.positionActionsEnabled = capabilities.width
+    // 显式的读屏顺序不看 `isHidden`：只列出显示的控件，不然横屏里藏起的柄和「移动」照样能被读屏点到。
+    let ordered: [UIView] = [topHandle, leftHandle, resetButton, moveButton, confirmButton, rightHandle, bottomHandle]
+    accessibilityElements = ordered.filter { !$0.isHidden }
     setNeedsLayout()
   }
 
@@ -181,11 +188,14 @@ final class KeyboardAdjustOverlay: UIView {
   }
 
   /// 给 `view` 装上拖动：位移按手指到窗口底边的高度和窗口里的横坐标算。键盘长高、抬高和收窄都会挪动柄本身，窗口的底边和左右却不动，所以不会追着拖动自己引起的变化跑。
+  ///
+  /// 用按下即开始的长按（时长 0、不限移动距离）而不是 `UIPanGestureRecognizer`：拖动手势要手指先移动约 10 pt 才开始，从那时算位移，边就一直落后手指这么多，比这短的拖动也根本不起作用。长按在按下时就开始，起点就是按下的位置，边跟着手指 1:1 走。
   private func track(_ view: UIView, part: Part) {
-    let pan = PartPan(target: self, action: #selector(handlePan(_:)))
-    pan.part = part
-    pan.maximumNumberOfTouches = 1
-    view.addGestureRecognizer(pan)
+    let drag = PartDrag(target: self, action: #selector(handleDrag(_:)))
+    drag.part = part
+    drag.minimumPressDuration = 0
+    drag.allowableMovement = .greatestFiniteMagnitude
+    view.addGestureRecognizer(drag)
   }
 
   private func stablePoint(_ recognizer: UIGestureRecognizer) -> CGPoint {
@@ -197,24 +207,29 @@ final class KeyboardAdjustOverlay: UIView {
     return CGPoint(x: point.x, y: window.bounds.maxY - point.y)
   }
 
-  @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {
-    guard let pan = recognizer as? PartPan, let part = pan.part else { return }
+  @objc private func handleDrag(_ recognizer: UILongPressGestureRecognizer) {
+    guard let drag = recognizer as? PartDrag, let part = drag.part else { return }
     let point = stablePoint(recognizer)
-    if recognizer.state == .began { pan.start = point }
-    let start = pan.start ?? point
+    if recognizer.state == .began { drag.start = point }
+    let start = drag.start ?? point
     onDrag?(part, recognizer.state, point.x - start.x, point.y - start.y)
-    if recognizer.state != .began && recognizer.state != .changed { pan.start = nil }
+    if recognizer.state != .began && recognizer.state != .changed { drag.start = nil }
   }
 
-  private final class PartPan: UIPanGestureRecognizer {
-    var part: Part?
-    var start: CGPoint?
+  /// 柄和「移动」的拖动，见 `track`。
+  final class PartDrag: UILongPressGestureRecognizer {
+    fileprivate(set) var part: Part?
+    fileprivate var start: CGPoint?
   }
 
   /// 拖动柄：横向的画三道横线，竖向的画两道竖线，都是半透明白色。读屏里是可调节元素。
   private final class Handle: UIView {
     let part: Part
     var onStep: ((Part, Bool) -> Void)?
+    /// 只用于上沿柄：横线画在触摸区顶上这么高的一条里（`topGripStrip`），为 0 时在触摸区里居中。
+    var strip: CGFloat = 0 {
+      didSet { if strip != oldValue { setNeedsLayout() } }
+    }
     private let lines: [UIView]
 
     init(part: Part, label: String, hint: String) {
@@ -237,14 +252,22 @@ final class KeyboardAdjustOverlay: UIView {
 
     override func layoutSubviews() {
       super.layoutSubviews()
-      let thickness: CGFloat = 1.5, gap: CGFloat = 3.5, length: CGFloat = 22
+      let thickness: CGFloat = 1.5, length: CGFloat = 22
       let vertical = part == .left || part == .right
-      let span = CGFloat(lines.count) * thickness + CGFloat(lines.count - 1) * gap
+      let gaps = CGFloat(lines.count - 1)
+      var gap: CGFloat = 3.5
+      var center = vertical ? bounds.midX : bounds.midY
+      if part == .top && strip > 0 {
+        // 上下各留 1 pt，排不下时收窄线距，最窄 1 pt。
+        gap = min(gap, max(1, (strip - 2 - CGFloat(lines.count) * thickness) / gaps))
+        center = strip / 2
+      }
+      let span = CGFloat(lines.count) * thickness + gaps * gap
       for (index, line) in lines.enumerated() {
         let offset = CGFloat(index) * (thickness + gap) - span / 2
         line.frame = vertical
-          ? CGRect(x: bounds.midX + offset, y: bounds.midY - length / 2, width: thickness, height: length)
-          : CGRect(x: bounds.midX - length / 2, y: bounds.midY + offset, width: length, height: thickness)
+          ? CGRect(x: center + offset, y: bounds.midY - length / 2, width: thickness, height: length)
+          : CGRect(x: bounds.midX - length / 2, y: center + offset, width: length, height: thickness)
       }
     }
 
