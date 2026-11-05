@@ -35,6 +35,7 @@ Status: implemented
 ## Consequences
 
 - 生效要两步跨仓。msime-dictionary 那边用这个生成器在原路径整份重新生成 `sources/cantonese/hkcancor-word-counts.txt`、用 `scripts/check_upstream.py --update` 刷新 `upstream.lock.json`，并删掉 `curation/cantonese-essay-keep.txt` 的 講咗 一行：講咗 现在有 HKCanCor 佐证（15 次），不再是会被压低的 essay 补词，留着这一行构建会失败；删掉后它照旧保留 essay 的 8809 分。只换计数文件、仍用旧构建器时，词表里的「X咗」已经按语料加权，审校词（做咗、借咗、去咗）还停在 1000；要等 `builder.lock.json` 升到包含这次改动的 msime 提交才全部生效。新数据进应用还要 `resources/language-dictionaries.lock.json` 换到那次发布（现在固定的是 `dict-v2.1.2`，连 借咗、做咗、去咗 都还没有）。所以 msime 这边的 PR 只写 `Refs #10909`。
+- 两步都已做完：msime-dictionary #135 把 `builder.lock.json` 升到本 PR 的合并提交 `dd32cafd71` 并用它重新生成计数文件（只有表头的生成器提交变了），合入后发布 `dict-v2.1.6`；`resources/language-dictionaries.lock.json` 随后换到 `dict-v2.1.6`（`scripts/resource_lock_from_sums.py` 从发布的 `msime-language-dictionaries-SHA256SUMS` 生成，`source_commit` 记构建器提交 `dd32cafd71`）。与 `dict-v2.1.2` 相比，`msime-cantonese.db` 新增 6678 条（#132 的审校词和 #133 的香港地名，`license` 变成 `CC-BY-4.0 AND LicenseRef-HK-CSDI`），改权重 21 条；按完整双拼码取最重的词，`zezo` 首选 借咗（4225，這在 1105），`zbzo` 首选 做咗（17745，早在 2121）。注音、笔画库逐表内容相同，只是文件字节不同。
 - 计数文件多了「拼出来的词」，对 `languages` 里所有读它的地方都成立：词表词的语料权重、essay 补词的佐证、`corpus_scale` 的中位数、香港字形的判定。这次实测只有前两项有变化，以后换 HKCanCor 提交时要连这几项一起看。
 - 普通粤拼 `sik zo` 的首选从 食咗 换成 識咗，是语料次数决定的（9 比 4），不是有意的取舍。
 - 审校词的权重来源多了一个：essay 没列时，同一个词的语料次数会改变它的权重。以后往 `custom/cantonese.txt` 加 HKCanCor 数到过的词，权重可能远高于 1000，审核时要看 `check-curation.yml` 的 `msime-cantonese.db` 差异。
