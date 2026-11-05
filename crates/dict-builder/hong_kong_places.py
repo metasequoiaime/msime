@@ -15,6 +15,54 @@ DIRECTORY = Path('sources/hong-kong')
 OUTPUT = DIRECTORY / 'landsd-readings.tsv'
 RULES = Path('curation/hong-kong-readings.tsv')
 FORMS = Path('curation/hong-kong-forms.tsv')
+INPUT_PATHS = (
+    *(DIRECTORY / name for name in ('landsd-place-names.geojson', 'landsd-street-names.json', 'CSDI-terms.txt')),
+    *(Path('sources/cantonese') / name for name in ('jyut6ping3.chars.dict.yaml', 'jyut6ping3.words.dict.yaml')),
+    *(Path('sources/pinyin') / name for name in ('single-chars.txt', 'rime-ice.txt', 'rime-ice-supplement.txt', 'places.txt')),
+    *(Path('sources/opencc') / name for name in ('TSCharacters.txt', 'HKVariants.txt', 'TWVariants.txt')),
+    RULES, FORMS,
+)
+
+
+def input_records(dictionary: Path) -> list[dict]:
+    records = []
+    for path in INPUT_PATHS:
+        data = (dictionary / path).read_bytes()
+        records.append({'path': path.as_posix(), 'size': len(data), 'sha256': hashlib.sha256(data).hexdigest()})
+    return records
+
+
+def generator_revision(root: Path, script: Path) -> str:
+    relative = script.relative_to(root).as_posix()
+    try:
+        committed = subprocess.check_output(['git', 'show', f'HEAD:{relative}'], cwd=root, stderr=subprocess.DEVNULL)
+    except subprocess.CalledProcessError as error:
+        raise ValueError('生成器尚未提交，不能记录为 HEAD 的产物') from error
+    if committed != script.read_bytes() or subprocess.check_output(
+        ['git', 'status', '--porcelain', '--untracked-files=no'], cwd=root
+    ):
+        raise ValueError('生成器工作区有未提交改动；请先提交再生成')
+    return subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
+
+
+def check_generated(dictionary: Path, rows: list[str], audit: dict) -> None:
+    root = dictionary / DIRECTORY
+    generated = json.loads((root / 'sources.json').read_text())['generated']
+    if generated.get('inputs') != input_records(dictionary):
+        raise ValueError('生成输入已变化或摘要不完整，请重新生成')
+    table = (dictionary / OUTPUT).read_bytes()
+    report = (root / 'audit.json').read_bytes()
+    if (generated['path'] != OUTPUT.name or generated['size'] != len(table)
+            or generated['sha256'] != hashlib.sha256(table).hexdigest()
+            or generated['audit_sha256'] != hashlib.sha256(report).hexdigest()):
+        raise ValueError('生成表或覆盖报告摘要不符')
+    commit = generated['msime_commit']
+    if not re.fullmatch('[a-f0-9]{40}', commit) or table.decode().splitlines()[0] != '# msime 仓库提交 ' + commit:
+        raise ValueError('生成器提交与表头不一致')
+    actual = [line for line in table.decode().splitlines() if line and not line.startswith('#')]
+    if (actual != rows or json.loads(report) != audit or audit['pending']
+            or generated['rows'] != len(rows) or generated['counts'] != audit['counts']):
+        raise ValueError('补充表或覆盖报告与输入不一致，或仍有待审读音')
 
 
 def han(text: str) -> bool:
@@ -34,7 +82,7 @@ def names_from_snapshot(dictionary: Path) -> dict[str, list[dict]]:
     root = dictionary / DIRECTORY
     manifest = json.loads((root / 'sources.json').read_text())
     expected = {'landsd-place-names.geojson', 'landsd-street-names.json', 'CSDI-terms.txt'}
-    if {f['path'] for f in manifest['files']} != expected:
+    if len(manifest['files']) != len(expected) or {f['path'] for f in manifest['files']} != expected:
         raise ValueError('来源清单必须完整列出街道和地方名称两份快照')
     for item in manifest['files']:
         data = (root / item['path']).read_bytes()
@@ -163,23 +211,24 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--dictionary', type=Path, required=True)
     parser.add_argument('--audit', type=Path, required=True)
-    parser.add_argument('--check', action='store_true', help='核对补充表与当前固定输入一致')
-    parser.add_argument('--write', action='store_true', help='仅在没有待审读音时写出补充表')
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--check', action='store_true', help='核对补充表与当前固定输入一致')
+    mode.add_argument('--write', action='store_true', help='仅在没有待审读音时写出补充表')
     args = parser.parse_args()
     rows, audit = generate(args.dictionary)
-    args.audit.write_text(json.dumps(audit, ensure_ascii=False, indent=2) + '\n')
     print(json.dumps(audit['counts'], ensure_ascii=False))
+    protected = [*(args.dictionary / path for path in INPUT_PATHS),
+                 args.dictionary / OUTPUT, args.dictionary / DIRECTORY / 'sources.json']
+    if args.audit.resolve() in {path.resolve() for path in protected}:
+        raise SystemExit('审计输出不能覆盖生成输入、词表或来源清单')
     if args.check:
-        actual = [line for line in (args.dictionary / OUTPUT).read_text().splitlines() if line and not line.startswith('#')]
-        if actual != rows or audit['pending']:
-            raise SystemExit('补充表与输入不一致或仍有待审读音')
+        check_generated(args.dictionary, rows, audit)
     if args.write:
         if audit['pending']:
             raise SystemExit('仍有未确认读音，请先审校；没有写出补充表')
-        root = Path(__file__).resolve().parents[2]
-        commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
-        if subprocess.check_output(['git', 'status', '--porcelain', '--untracked-files=no'], cwd=root):
-            raise SystemExit('生成器工作区有未提交改动；请先提交再生成')
+        inputs = input_records(args.dictionary)
+        script = Path(__file__).resolve()
+        commit = generator_revision(script.parents[2], script)
         header = f'# msime 仓库提交 {commit}\n# 来源、摘要与使用条款见 sources.json；读音规则见 ../../curation/hong-kong-readings.tsv。\n# 生成：python3 crates/dict-builder/hong_kong_places.py --dictionary <checkout> --audit <audit.json> --write\n# 原始中文名去重；不删除与基础词表重合的行，构建时仅插入不存在的同键同词。\n# 香港繁体名称\t简体名称\t去声调粤拼（空格）\t普通话全拼（单引号）\n'
         (args.dictionary / OUTPUT).write_text(header + '\n'.join(rows) + '\n')
         data = (args.dictionary / OUTPUT).read_bytes()
@@ -187,8 +236,15 @@ def main() -> None:
         manifest = json.loads(path.read_text())
         audit_data = (json.dumps(audit, ensure_ascii=False, indent=2) + '\n').encode()
         (args.dictionary / DIRECTORY / 'audit.json').write_bytes(audit_data)
-        manifest['generated'] = {'audit_sha256': hashlib.sha256(audit_data).hexdigest(), 'path': OUTPUT.name, 'size': len(data), 'sha256': hashlib.sha256(data).hexdigest(), 'msime_commit': commit, 'rows': len(rows), 'counts': audit['counts']}
+        manifest['generated'] = {'audit_sha256': hashlib.sha256(audit_data).hexdigest(), 'path': OUTPUT.name, 'size': len(data), 'sha256': hashlib.sha256(data).hexdigest(), 'msime_commit': commit, 'rows': len(rows), 'counts': audit['counts'], 'inputs': inputs}
         path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n')
+    saved_report = args.dictionary / DIRECTORY / 'audit.json'
+    if args.audit.resolve() == saved_report.resolve():
+        if args.check:
+            return
+        if not args.write:
+            raise SystemExit('预览报告不能覆盖已生成的 audit.json')
+    args.audit.write_text(json.dumps(audit, ensure_ascii=False, indent=2) + '\n')
 
 
 if __name__ == '__main__':

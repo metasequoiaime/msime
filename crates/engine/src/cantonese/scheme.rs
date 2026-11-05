@@ -470,7 +470,7 @@ impl CantoneseScheme {
         if !(2..=SENTENCE_MAX_SYLLABLES).contains(&count)
             || candidates.iter().any(|row| {
                 row.syllables == count
-                    || (!shuangpin && row.end == self.input.trim_end_matches('\'').len())
+                    || (!shuangpin && alternative_readings::covers_complete_input(row, &self.input))
             })
         {
             return Ok(());

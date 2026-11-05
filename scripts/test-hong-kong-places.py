@@ -3,6 +3,10 @@
 
 import importlib.util
 import json
+import hashlib
+import shutil
+import subprocess
+from unittest.mock import patch
 from pathlib import Path
 import tempfile
 import unittest
@@ -67,6 +71,86 @@ class HongKongPlaces(unittest.TestCase):
             rules.write_text('cmn\t行\tsan\thttps://example.invalid/character\n')
             with self.assertRaises(ValueError):
                 HK.load_rules(root, lexicon)
+
+    def generated_fixture(self, root):
+        for path in HK.INPUT_PATHS:
+            output = root / path
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text('合成输入\n')
+        rows = ["示例街\t示例街\tsi lai gaai\tshi'li'jie"]
+        audit = {'ready': ['示例街'], 'pending': [], 'unsupported': [],
+                 'counts': {'ready': 1, 'pending': 0, 'unsupported': 0}}
+        table = ('# msime 仓库提交 ' + 'a' * 40 + '\n' + '\n'.join(rows) + '\n').encode()
+        report = json.dumps(audit).encode()
+        (root / HK.OUTPUT).write_bytes(table)
+        (root / HK.DIRECTORY / 'audit.json').write_bytes(report)
+        manifest = {'generated': {'path': HK.OUTPUT.name, 'msime_commit': 'a' * 40,
+                    'size': len(table), 'sha256': hashlib.sha256(table).hexdigest(),
+                    'audit_sha256': hashlib.sha256(report).hexdigest(), 'inputs': HK.input_records(root),
+                    'rows': 1, 'counts': audit['counts']}}
+        (root / HK.DIRECTORY / 'sources.json').write_text(json.dumps(manifest))
+        return rows, audit
+
+    def test_check_binds_every_generation_input_and_both_outputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            rows, audit = self.generated_fixture(root)
+            HK.check_generated(root, rows, audit)
+            for path in [*HK.INPUT_PATHS, HK.OUTPUT, HK.DIRECTORY / 'audit.json']:
+                with self.subTest(path=path):
+                    target = root / path
+                    original = target.read_bytes()
+                    target.write_bytes(original + b'changed')
+                    with self.assertRaises(ValueError):
+                        HK.check_generated(root, rows, audit)
+                    target.write_bytes(original)
+
+    def test_check_does_not_repair_a_corrupt_audit_before_validation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            rows, audit = self.generated_fixture(root)
+            report = root / HK.DIRECTORY / 'audit.json'
+            report.write_text('damaged')
+            with patch.object(HK, 'generate', return_value=(rows, audit)), patch('sys.argv', [
+                'hong_kong_places.py', '--dictionary', str(root), '--audit', str(report), '--check'
+            ]), self.assertRaises(ValueError):
+                HK.main()
+            self.assertEqual(report.read_text(), 'damaged')
+
+    def test_check_preserves_valid_saved_audit_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            rows, audit = self.generated_fixture(root)
+            report = root / HK.DIRECTORY / 'audit.json'
+            original = report.read_bytes()
+            with patch.object(HK, 'generate', return_value=(rows, audit)), patch('sys.argv', [
+                'hong_kong_places.py', '--dictionary', str(root), '--audit', str(report), '--check'
+            ]):
+                HK.main()
+            self.assertEqual(report.read_bytes(), original)
+
+    @unittest.skipUnless(shutil.which('git'), '需要 Git 验证生成器提交归属')
+    def test_generator_must_exist_unchanged_in_the_recorded_commit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def git(*args):
+                return subprocess.check_output(['git', '-c', 'core.hooksPath=/dev/null',
+                    '-c', 'user.name=Synthetic', '-c', 'user.email=synthetic@example.invalid',
+                    *args], cwd=root, stderr=subprocess.DEVNULL)
+            git('init', '-q')
+            (root / 'README').write_text('合成仓库')
+            git('add', 'README')
+            git('commit', '--no-gpg-sign', '-qm', 'fixture')
+            script = root / 'generator.py'
+            script.write_text('# 合成生成器\n')
+            with self.assertRaisesRegex(ValueError, '尚未提交'):
+                HK.generator_revision(root, script)
+            git('add', 'generator.py')
+            git('commit', '--no-gpg-sign', '-qm', 'generator')
+            self.assertEqual(HK.generator_revision(root, script), git('rev-parse', 'HEAD').decode().strip())
+            script.write_text('# 已修改\n')
+            with self.assertRaisesRegex(ValueError, '未提交改动'):
+                HK.generator_revision(root, script)
 
 
 if __name__ == '__main__':

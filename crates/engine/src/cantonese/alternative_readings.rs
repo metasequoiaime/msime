@@ -2,6 +2,16 @@
 
 use super::*;
 
+/// 覆盖全部已输入字节仍可能只是末音节补全；必须连实际读音也完全吻合。
+pub(super) fn covers_complete_input(row: &CantoneseCandidate, input: &str) -> bool {
+    row.end == input.trim_end_matches('\'').len()
+        && row
+            .key
+            .bytes()
+            .filter(|&byte| byte != b' ')
+            .eq(input.bytes().filter(|&byte| byte != b'\''))
+}
+
 #[derive(Default)]
 pub(super) struct Alternatives {
     input: String,
@@ -92,6 +102,9 @@ mod tests {
             ("zaa ding", "甲乙", 100),
             ("ngoi", "己", 500),
             ("ngo i", "庚辛", 1),
+            ("aang", "甲", 100),
+            ("aa", "乙", 100),
+            ("aa ng aa", "甲丙乙", 1),
         ] {
             db.execute(
                 "INSERT INTO entries VALUES (?1, ?2, ?3)",
@@ -102,13 +115,14 @@ mod tests {
         drop(db);
         let dictionary = open_read_only(&path).unwrap();
         let inventory = Arc::new(Inventory::new([
-            "zaa", "ding", "aai", "din", "gaai", "ngoi", "ngo", "i",
+            "zaa", "ding", "aai", "din", "gaai", "ngoi", "ngo", "i", "aang", "aa", "ng",
         ]));
         for (input, expected, absent) in [
             ("zaadingaai", Some("甲丁戊"), None),
             ("zaading'aai", None, Some("甲丁戊")),
             ("zaadingaaix", None, Some("甲丁戊")),
             ("ngoi", Some("庚辛"), None),
+            ("aangaa", Some("甲丙乙"), None),
         ] {
             let mut scheme = CantoneseScheme::new(inventory.clone());
             scheme.input = input.to_owned();
@@ -125,5 +139,40 @@ mod tests {
                 assert!(rows.iter().all(|row| row.text != text));
             }
         }
+    }
+    #[test]
+    fn incomplete_full_span_does_not_hide_the_complete_prefix_sentence() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.db");
+        let db = Connection::open(&path).unwrap();
+        db.execute_batch(SCHEMA).unwrap();
+        db.execute(
+            "INSERT INTO metadata VALUES ('format_version', ?1)",
+            [crate::language_dictionary::FORMAT_VERSION.to_string()],
+        )
+        .unwrap();
+        for (key, text, weight) in [
+            ("nei", "你", 100),
+            ("hou", "好", 100),
+            ("nei hou gwong", "你號光", 10),
+        ] {
+            db.execute(
+                "INSERT INTO entries VALUES (?1, ?2, ?3)",
+                (key, text, weight),
+            )
+            .unwrap();
+        }
+        drop(db);
+        let dictionary = open_read_only(&path).unwrap();
+        let mut scheme = CantoneseScheme::new(Arc::new(Inventory::new(["nei", "hou", "gwong"])));
+        scheme.input = "neihougw".to_owned();
+        let rows = scheme.candidates(&dictionary).unwrap();
+        assert_eq!(rows[0].text, "你號光");
+        let sentence = rows
+            .iter()
+            .find(|row| row.composed && row.text == "你好")
+            .unwrap();
+        assert!(scheme.select(sentence));
+        assert_eq!(scheme.input(), "gw");
     }
 }
