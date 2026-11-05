@@ -21,6 +21,8 @@ Windows 原生设置作业在同一台 runner 顺序构建 Rust 宿主、WinUI�
 
 ## Consequences
 
+x86 真实系统投递之后改为非阻塞，失败以 warning 注解和作业摘要显示，见[x86 系统投递非阻塞](2026-11-05-windows-system-wer-x86-nonblocking.md)。
+
 两组验收并行执行，设置作业收回约五分钟余量，失败归属更清楚。代价是多一次 Windows runner 启动和小型头文件安装；不重复构建 Rust、WinUI 或完整产品。
 
 本地使用 `actionlint` 检查 workflow，比较移动前后的 WER 命令与上传路径，确认除了依赖目录迁移以外没有改变验收步骤。本机没有可连接的 Windows MSVC 主机，真实 Windows 作业结果以本 PR 的两个独立作业为准，未通过前不合并。

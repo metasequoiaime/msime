@@ -741,13 +741,19 @@ pub enum WubiProfileKind {
     #[default]
     Wubi86 = 0,
     Wubi98 = 1,
+    /// 新世纪五笔，码表 `wubixsj`。序号追加在末尾，已有的值不变。
+    WubiXsj = 2,
 }
 
 impl WubiProfileKind {
+    /// 全部版本，按序号排列。
+    pub const ALL: [Self; 3] = [Self::Wubi86, Self::Wubi98, Self::WubiXsj];
+
     pub fn from_u8(value: u8) -> Option<Self> {
         Some(match value {
             0 => Self::Wubi86,
             1 => Self::Wubi98,
+            2 => Self::WubiXsj,
             _ => return None,
         })
     }
@@ -756,6 +762,7 @@ impl WubiProfileKind {
         Some(match name {
             "wubi86" => Self::Wubi86,
             "wubi98" => Self::Wubi98,
+            "wubixsj" => Self::WubiXsj,
             _ => return None,
         })
     }
@@ -764,6 +771,7 @@ impl WubiProfileKind {
         match self {
             Self::Wubi86 => "wubi86",
             Self::Wubi98 => "wubi98",
+            Self::WubiXsj => "wubixsj",
         }
     }
 
@@ -777,6 +785,7 @@ impl WubiProfileKind {
         match self {
             Self::Wubi86 => PersonalDictionaryKind::Wubi,
             Self::Wubi98 => PersonalDictionaryKind::Wubi98,
+            Self::WubiXsj => PersonalDictionaryKind::WubiXsj,
         }
     }
 }
@@ -1509,6 +1518,28 @@ pub struct MixedExpressiveOptions {
     pub symbol_candidates: bool,
 }
 
+/// 宿主交给引擎的一段文字转换，例如粤拼输出简体时的繁转简（`SessionOptions::cantonese_output_conversion`）。引擎不带转换数据，宿主从自己的共享层传入函数；两个转换按函数地址判断相等。
+#[derive(Clone, Copy)]
+pub struct TextConversion(pub fn(&str) -> String);
+
+impl TextConversion {
+    pub fn apply(self, text: &str) -> String {
+        (self.0)(text)
+    }
+}
+
+impl PartialEq for TextConversion {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::fn_addr_eq(self.0, other.0)
+    }
+}
+
+impl std::fmt::Debug for TextConversion {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("TextConversion(..)")
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct WubiInputOptions {
     /// Answer an unmatched wubi code with quanpin candidates for the same letters.
@@ -1585,6 +1616,8 @@ pub enum PersonalDictionaryKind {
     Wubi98 = 4,
     /// 粤语，编码是不带声调的粤拼音节，以单个空格连接（与 `msime-cantonese.db` 的 `entries.key` 同一写法）。只记在用户日志里，没有工作表：粤语方案查词时从日志读出合进候选（`cantonese::UserWords`）。
     Cantonese = 5,
+    /// 新世纪五笔，写入 `wubixsj` 表，日志里的 `dictionary` 也是 `wubixsj`。序号追加在末尾，已有的值不变。
+    WubiXsj = 6,
 }
 
 impl PersonalDictionaryKind {
@@ -1596,13 +1629,14 @@ impl PersonalDictionaryKind {
             3 => Self::English,
             4 => Self::Wubi98,
             5 => Self::Cantonese,
+            6 => Self::WubiXsj,
             _ => return None,
         })
     }
 
-    /// 两版五笔共用编码规则（1..=4 个 a..=y 字母）与按码排序的写法，只是表不同。
+    /// 各版五笔共用编码规则（1..=4 个 a..=y 字母）与按码排序的写法，只是表不同。
     pub fn is_wubi(self) -> bool {
-        matches!(self, Self::Wubi | Self::Wubi98)
+        matches!(self, Self::Wubi | Self::Wubi98 | Self::WubiXsj)
     }
 
     /// 不写 `msime-pinyin.db` 的种类：英文词写在 `msime-english.db`，粤语词只记在日志里。代次里没有主词库时只有它们能编辑、列出。
@@ -1615,6 +1649,7 @@ impl PersonalDictionaryKind {
         match self {
             Self::Wubi => Some(WubiProfileKind::Wubi86.table()),
             Self::Wubi98 => Some(WubiProfileKind::Wubi98.table()),
+            Self::WubiXsj => Some(WubiProfileKind::WubiXsj.table()),
             Self::Pinyin | Self::QuickPhrase | Self::English | Self::Cantonese => None,
         }
     }
@@ -1628,6 +1663,7 @@ impl PersonalDictionaryKind {
             Self::English => "english",
             Self::Wubi98 => "wubi98",
             Self::Cantonese => "cantonese",
+            Self::WubiXsj => "wubixsj",
         }
     }
 
@@ -1639,6 +1675,7 @@ impl PersonalDictionaryKind {
             "english" => Self::English,
             "wubi98" => Self::Wubi98,
             "cantonese" => Self::Cantonese,
+            "wubixsj" => Self::WubiXsj,
             _ => return None,
         })
     }

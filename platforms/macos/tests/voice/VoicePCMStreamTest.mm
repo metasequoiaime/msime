@@ -28,8 +28,31 @@ static AVAudioPCMBuffer *Audio(double rate, AVAudioFrameCount frames) {
 }
 - (void)stopMicrophoneCapture { self.capture = nil; ++self.stops; }
 @end
+static void TestLoudCaptureKeepsStreaming(void) {
+    PCMStreamCapture *service = [PCMStreamCapture new];
+    AVAudioPCMBuffer *input = Audio(48000, 4800);
+    for (NSUInteger channel = 0; channel < 2; ++channel)
+        for (NSUInteger frame = 0; frame < input.frameLength; ++frame)
+            input.floatChannelData[channel][frame] = (frame / 100) % 2 ? -0.99f : 0.99f;
+    __block NSUInteger failures = 0;
+    NSMutableData *delivered = [NSMutableData data];
+    assert([service startPCMStreaming:^(NSData *pcm, NSError *error) {
+        if (error || !pcm) ++failures;
+        else [delivered appendData:pcm];
+    } deviceUID:nil error:nil]);
+    for (NSUInteger chunk = 0; chunk < 3; ++chunk) service.capture(input);
+    assert(!failures && delivered.length && service.stops == 0);
+    NSData *tail = [service finishPCMStreamingWithError:nil];
+    assert(tail && service.stops == 1); [delivered appendData:tail];
+    assert(delivered.length == 4800 * sizeof(float));
+    const float *samples = static_cast<const float *>(delivered.bytes);
+    for (NSUInteger frame = 0; frame < delivered.length / sizeof(float); ++frame)
+        assert(std::isfinite(samples[frame]) && std::fabs(samples[frame]) <= 1.f);
+}
+
 int main() {
     @autoreleasepool {
+        TestLoudCaptureKeepsStreaming();
         for (NSNumber *rate in @[@16000, @44100, @48000, @96000]) {
             MSIMEVoicePCMBuffer *recording = [[MSIMEVoicePCMBuffer alloc] initWithSampleLimit:NSUIntegerMax];
             NSMutableData *streamed = [NSMutableData data];
