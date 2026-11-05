@@ -341,6 +341,7 @@ impl Session {
         let wubi_reverse_codes = value.local_mode == LocalInputMode::None
             && !value.dedicated_english
             && value.scheme == SchemeType::Wubi;
+        let wildcard_query = wubi_reverse_codes && self.inner.wubi_wildcard_query_active();
         let mut annotations = value.candidate_annotations.into_iter();
         for (index, candidate) in value.candidates.into_iter().enumerate() {
             let mut annotation = annotations
@@ -355,9 +356,9 @@ impl Session {
                     annotation = compute_helpcodes(&candidate.word, uppercase_all, keymap);
                 }
             }
-            // 用户关掉「候选显示剩余编码」（`wubi_reverse_code` 为 false）时，五笔原生候选不附：宿主在没有剩余编码时退回显示这条注释，附了就成了关掉开关后剩余编码换成完整编码（#10790）。拼音来的候选（混输拼音和 `z` 临时拼音反查）照旧附：那是用拼音查五笔码的反查，不是剩余编码，开关打开时宿主也从来不给它们算剩余编码，而混输打开时没有 `z` 反查，打字时只剩这一条查码路径。
+            // 用户关掉「候选显示剩余编码」（`wubi_reverse_code` 为 false）时，五笔原生候选不附：宿主在没有剩余编码时退回显示这条注释，附了就成了关掉开关后剩余编码换成完整编码（#10790）。拼音来的候选（混输拼音和 `z` 临时拼音反查）照旧附：那是用拼音查五笔码的反查，不是剩余编码，开关打开时宿主也从来不给它们算剩余编码，而混输打开时没有 `z` 反查，打字时只剩这一条查码路径。`z` 通配查出的五笔候选也照旧附：用户正是不知道 `z` 那一位是什么才用通配，完整码就是答案；键入的码不是它的前缀，开关打开时宿主同样算不出剩余编码；通配打开时 `z` 反查也停用了。
             let reverse_code = match candidate.scheme {
-                SchemeType::Wubi => self.options.wubi_reverse_code,
+                SchemeType::Wubi => self.options.wubi_reverse_code || wildcard_query,
                 SchemeType::Quanpin | SchemeType::Shuangpin => true,
                 _ => false,
             };

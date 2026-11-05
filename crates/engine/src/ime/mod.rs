@@ -1341,6 +1341,13 @@ impl ImeSession {
             .is_some_and(|wubi| wubi.in_pinyin_lookup())
     }
 
+    /// 当前组字是五笔 `z` 通配查询（通配打开且码里有 `z`）。
+    pub fn wubi_wildcard_query_active(&self) -> bool {
+        self.scheme
+            .as_wubi()
+            .is_some_and(|wubi| wubi.wildcard_query())
+    }
+
     fn bind_wubi_scheme(&mut self) {
         let mixed_pinyin = self.wubi_options.mixed_pinyin;
         let z_wildcard = self.wubi_options.z_wildcard;

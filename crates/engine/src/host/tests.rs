@@ -3130,6 +3130,31 @@ fn the_code_hint_off_strips_only_native_wubi_codes_on_a_mixed_page() {
     assert!(annotation_of(&view, "你").contains("wqiy"));
 }
 
+/// `z` 通配查出的五笔候选照旧附完整码：用户不知道 `z` 那一位才用通配，完整码就是答案；码里没有 `z` 时照常不附。
+#[test]
+fn the_wubi_wildcard_keeps_codes_when_the_code_hint_is_off() {
+    let root = tempfile::tempdir().unwrap();
+    let mut options = pinyin_lookup_options(root.path());
+    options.wubi_z_wildcard = true;
+    options.wubi_reverse_code = false;
+    let mut session = Session::new(&options).unwrap();
+    type_text(&mut session, b"wqzb");
+    let view = session.snapshot().unwrap();
+    assert!(!view.answered_by_pinyin_fallback);
+    let annotation = annotation_of(&view, "你好");
+    assert!(annotation.contains("wqvb"), "{annotation}");
+
+    let plain_root = tempfile::tempdir().unwrap();
+    let mut plain = pinyin_lookup_options(plain_root.path());
+    plain.wubi_z_wildcard = true;
+    plain.wubi_reverse_code = false;
+    let mut session = Session::new(&plain).unwrap();
+    type_text(&mut session, b"wqv");
+    let view = session.snapshot().unwrap();
+    let annotation = annotation_of(&view, "你好");
+    assert!(!annotation.contains("wqvb"), "{annotation}");
+}
+
 /// `z` 临时拼音反查是用户主动要看编码，「候选显示剩余编码」关掉也照旧附上。
 #[test]
 fn the_pinyin_lookup_keeps_wubi_codes_when_the_code_hint_is_off() {

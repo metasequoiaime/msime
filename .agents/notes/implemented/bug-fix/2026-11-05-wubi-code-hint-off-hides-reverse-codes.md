@@ -12,10 +12,11 @@ Status: implemented
 
 ## Decision
 
-开关只管五笔原生候选的编码；拼音来的候选照旧附查到的五笔码；六个宿主都照原样显示引擎注释，由共享引擎一处决定。
+开关只管五笔原生候选的编码；拼音来的候选照旧附查到的五笔码，`z` 通配查出的候选也照旧附完整码；六个宿主都照原样显示引擎注释，由共享引擎一处决定。
 
 - `EngineOptions` 新增 `wubi_reverse_code`，`prepare_options` 给 true，出厂行为不变。host-api 建会话（`into_engine_options`）和改偏好后重建 Engine（`apply_pending`）两条路都把它填成 `preferences.wubi_code_hint`。改偏好本来就会在空闲时重建 Engine，不需要新的运行期开关。
 - 快照给五笔方案的普通候选附码时按候选的方案分：五笔原生候选只在 `wubi_reverse_code` 为 true 时附；全拼、双拼来的候选（混输拼音和 `z` 反查都是全拼行）一直附。候选的 `code` 字段不受影响，开关打开时宿主照旧用它算剩余编码。纠错提示、辅助码这些注释里的其他内容不受影响；`/`、`@` 等本地模式本来就不附反查码，也不受影响。`z` 反查只出全拼候选，所以不需要单独判断反查状态。
+- `z` 通配（`wubi_z_wildcard`）查出的五笔原生候选照旧附完整码：码里有 `z` 时（`WubiScheme::wildcard_query`，经 `ImeSession::wubi_wildcard_query_active` 和核心会话的同名访问器交给快照）不看 `wubi_reverse_code`。用户用通配正是因为不知道 `z` 那一位，完整码就是答案；键入的 `wqzb` 不是 `wqvb` 的前缀，开关打开时宿主也算不出剩余编码，显示的一直是完整码，和拼音候选一样不属于剩余编码；通配打开时 `z` 反查也停用（`pinyin_lookup_allowed`），混输关着的通配用户打字时只剩这一条查码路径。码里没有 `z` 时照常按开关。
 - Linux 两个宿主去掉按 `wubi_code_hint` 整段隐藏五笔注释的那道门控：Fcitx5 的 `showCandidateAnnotations` 在五笔方案恒为真，IBus 的候选行不再看 `wubi_code_hint`（五笔方案的 `show_helpcode_in_candidate_window` 本来恒为真）。哪些候选带编码交给引擎，于是 Linux 和其他五个宿主一样：关掉开关后五笔原生候选不带码，拼音候选和 `z` 反查带码。IBus 在没有偏好目录时切这个菜单，只改宿主副本、不会重读偏好，所以照它旁边「四码唯一自动上屏」的做法重建会话，把 override 交给引擎；Fcitx5 切菜单本来就经 `msime_client_update_preferences` 走到 host-api。
 - macOS、Windows、Android、iOS、鸿蒙不改：它们退回显示的注释里已经没有五笔原生候选的完整码。
 
@@ -24,11 +25,12 @@ Status: implemented
 - **开关也管拼音候选：关掉后任何候选旁都不出现五笔码（本 PR 第一版）。** 最强的理由是字面最简单、与 Linux 原来的规则一致，用户关掉后绝不会在候选旁看到任何编码，不会再报「关了还显示」。没有采用：拼音候选旁的码不是剩余编码，开关打开时它也一直是完整码，设置页说明「在候选后面标出还要再打哪几个字母才能单独打出它」描述的只是五笔原生候选；把它也关掉，混输打开的用户在打字时就没有任何地方能看到五笔码（混输里没有 `z` 反查），只剩设置页的「五笔查码」，等于用一个显示开关顺带拿掉了 #6789 的一条查码路径。#10790 的报告也只说「五笔候选词」。
 - **在每个宿主里关掉开关时隐藏注释，照 Linux 原来的做法。** 不需要碰引擎；但要改 macOS、Windows、Android、iOS、鸿蒙五份宿主代码，每份还要各自分辨注释里哪部分是五笔码、哪部分是纠错提示，整段隐藏会把纠错提示和拼音候选的反查码一起藏掉。引擎是附码的那一层，也是唯一知道每个候选来自五笔还是拼音的一层，在那里分最直接。
 - **保留 Linux 的整段隐藏。** Linux 宿主零改动；但同一个开关在 Linux 上关掉后 `z` 反查和混输拼音都看不到编码，其他五个平台看得到，偏好是同一份共享文档、经账号同步，用户在两台机器上会得到两种结果。去掉这道门控只删一个条件，Linux 就和其他平台一致，代价见下。
+- **`z` 通配查出的候选也跟着开关去码。** 最强的理由是「五笔原生候选一律听开关」这条规则不用例外，关掉后普通五笔码和通配码看起来一样干净。没有采用：通配结果旁的码回答的是「`z` 那一位是什么」，不是「还要再打几个字母」，开关打开时它也一直是完整码；改之前 macOS、Windows、Android、iOS、鸿蒙关掉开关时一直显示它，通配打开又停用了 `z` 反查，去掉它等于让关掉开关的通配用户在打字时看不到任何编码。通配默认关，只有主动打开它的用户会看到这些码，而且只在码里有 `z` 时出现。
 - **用核心会话的 `wubi_pinyin_lookup_active` 单独放行 `z` 反查（本 PR 第一版的做法）。** 只放行 `z` 反查、混输拼音不放行时需要它；现在按候选方案分，`z` 反查的候选本来就是全拼行，不需要这个访问器，也就不必为它开一个 `pub(crate)` 接口。
 
 ## Consequences
 
-关掉开关后，六个宿主上的五笔原生候选旁都不再出现编码；混输拼音候选和 `z` 反查的候选仍显示查到的五笔码。打开开关时行为不变。
+关掉开关后，六个宿主上的五笔原生候选旁都不再出现编码；混输拼音候选和 `z` 反查的候选仍显示查到的五笔码，`z` 通配查出的候选仍显示完整码。打开开关时行为不变。
 
 代价：关掉开关的混输用户打拼音时仍会在拼音候选旁看到五笔码。这是有意保留的反查，不是剩余编码；如果有用户明确要求连它也关掉，应当另加一个「混输候选显示五笔码」之类的开关，而不是让这个开关的含义变宽。
 
@@ -38,7 +40,7 @@ Status: implemented
 
 ## Testing
 
-- `crates/engine/src/host/tests.rs`：`wubi_reverse_codes_are_left_out_when_the_code_hint_is_off` 钉住选项关掉后五笔原生候选的注释不带完整码、`candidate_codes` 仍是完整码（去掉门控时它失败），混输拼音候选照旧带码；`the_code_hint_off_strips_only_native_wubi_codes_on_a_mixed_page` 钉住混输同一页里五笔候选去码、拼音候选留码，以及开关打开时两者都带码；`the_pinyin_lookup_keeps_wubi_codes_when_the_code_hint_is_off` 钉住 `z` 反查照旧附码。
+- `crates/engine/src/host/tests.rs`：`wubi_reverse_codes_are_left_out_when_the_code_hint_is_off` 钉住选项关掉后五笔原生候选的注释不带完整码、`candidate_codes` 仍是完整码（去掉门控时它失败），混输拼音候选照旧带码；`the_code_hint_off_strips_only_native_wubi_codes_on_a_mixed_page` 钉住混输同一页里五笔候选去码、拼音候选留码，以及开关打开时两者都带码；`the_pinyin_lookup_keeps_wubi_codes_when_the_code_hint_is_off` 钉住 `z` 反查照旧附码；`the_wubi_wildcard_keeps_codes_when_the_code_hint_is_off` 钉住通配 `wqzb` 查出的「你好」照旧带 `wqvb`、码里没有 `z` 的 `wqv` 不带（去掉通配那一条放行时它失败）。
 - `crates/host-api/src/tests.rs`：`wubi_code_hint_reaches_engine_options` 钉住出厂默认开着、建会话和改偏好两条路都把偏好映射到 `wubi_reverse_code`，切回打开后恢复。
 - `platforms/linux/fcitx5/tests/native.cpp`：五笔方案关掉开关时 `showCandidateAnnotations` 仍为真，`/` 指令行照旧带标题。
 - 没有在真机或宿主里看候选窗。
