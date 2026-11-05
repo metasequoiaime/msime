@@ -151,6 +151,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 键盘调整：盖住整块键盘的遮罩和它的预览，只在打开期间存在。
   private var adjustOverlay: KeyboardAdjustOverlay?
   private var adjustSession: KeyboardAdjustSession?
+  /// 打开键盘调整时所在输入框的 `documentIdentifier`。`textDidChange` 拿它判断换了输入框，不依赖之前打过字（`asynchronousInputDocument` 只在异步投递字母时才记下）。
+  private var adjustDocument: UUID?
   /// 整块键盘的底部抬高、宽度和水平位置（`KeyboardPlacement`），本机设置，键盘出现时从 App Group 读；遮罩打开期间是预览值。
   private var keyboardPlacement = KeyboardLayoutPreference.placement
   /// 隐私模式，在键盘出现时和点它的磁贴时读取，按键时不读 App Group。
@@ -589,6 +591,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var candidateCanvasActive = true
   /// 从 `viewWillAppear` 到 `viewWillDisappear` 之间为 true，即引擎会话应当存在的那段时间。UIKit 的外观回调可能乱序（收起之后才到的 `viewDidAppear`），词库维护和 `viewDidDisappear` 里的第二次释放都按它判断键盘是否还在屏幕上：维护会取 App Group 里的锁，键盘收起后再开始一轮，锁就可能跨过挂起（#10634）。
   private var isPresented = false
+  /// 这一次显示时键盘视图在窗口里（`viewDidAppear` 那一刻）。只有进过窗口的键盘，后来不在窗口里才说明宿主把它带走了（`maintenanceTick`，#10910）；进程内构造、从不进窗口的控制器（测试）不受影响。
+  private var appearedInWindow = false
   /// 上一次给整棵按键树换装（`applyKeyboardSkin` 里的 `recolor`）时的皮肤和 trait。`viewWillAppear` 和 `viewIsAppearing` 拿它和现在的比，都没变就不再重新换装。
   private var appliedKeySkin: KeyboardTheme?
   private var appliedKeySkinTraits: UITraitCollection?
@@ -987,6 +991,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func viewDidAppear(_ animated: Bool) {
     super.viewDidAppear(animated)
+    appearedInWindow = view.window != nil
     // 到这里键盘已经画出第一帧，视图的位图缓冲和皮肤图片都已分配；`keyboard_built` 之前的几行量不到这部分。
     DiagnosticLog.shared.write("keyboard_shown \(DiagnosticLog.MemorySample.current().fields)")
     // UIKit may publish the document identifier and keyboard type one run-loop turn after the
@@ -1014,8 +1019,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     startIdleMaintenance()
     personalDictionaryTimer?.invalidate()
     personalDictionaryTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-      MainActor.assumeIsolated { self?.startIdleMaintenance() }
+      MainActor.assumeIsolated { self?.maintenanceTick() }
     }
+  }
+
+  /// 两秒一轮的定时器。先看键盘还在不在窗口里：宿主应用被结束时扩展进程留着，控制器收不到 `viewWillDisappear`、`viewDidDisappear`，也收不到 `NSExtensionHostDidEnterBackground`，键盘视图的 `didMoveToWindow` 也不来，只是视图已经不在任何窗口里（#10910，模拟器的系统键盘里量到的）。不处理的话会话和这个定时器一直在，App Group 里的锁带进挂起（#10634 的同一条路径），所以这时按收起处理，走 `viewWillDisappear` 的全套，定时器随之停掉。宿主再拉起键盘时系统新建控制器，会话照常在 `viewWillAppear` 里重建。
+  private func maintenanceTick() {
+    if isPresented && appearedInWindow && view.window == nil {
+      DiagnosticLog.shared.write("keyboard_window_lost")
+      viewWillDisappear(false)
+      viewDidDisappear(false)
+      return
+    }
+    startIdleMaintenance()
   }
 
   /// 异步首键尚未渲染时也在输入；词间的短暂停顿不触发同步权限和词库维护。
@@ -1228,7 +1244,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     for space in spaceKeys {
       space.configuration?.contentInsets = .zero
       space.titleLabel?.adjustsFontSizeToFitWidth = true
-      space.titleLabel?.minimumScaleFactor = 0.7
+      space.titleLabel?.minimumScaleFactor = Self.narrowFunctionLabelScale
       space.accessibilityHint = Self.spaceAccessibilityHint(voice: spaceVoiceEnabled)
       space.accessibilityCustomActions = spaceAccessibilityActions()
     }
@@ -1302,7 +1318,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       asynchronousInputDocument = document
       // 换了输入框就是上一个失焦了：攒着的上屏这时写出，不等键盘收起。
       flushTypingStatistics()
-      // 键盘调整开着时换输入框，同样按确认保存并关掉遮罩。
+    }
+    // 键盘调整开着时换输入框，同样按确认保存并关掉遮罩。拿打开时记下的输入框比，没打过字也能发现。
+    if adjustOverlay != nil, let document, document != adjustDocument {
       closeKeyboardAdjust()
     }
     synchronizeInputContext()
@@ -3961,8 +3979,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       configuration.titleTextAttributesTransformer = Self.functionLabelTransformer
       layoutToggle.configuration = configuration
     }
+    // 键盘调整收窄到最窄（约 240 pt）时这个键只剩 24 pt 左右宽，15 pt 的「123」「ABC」要缩到一半左右才排得下一行；缩到 0.7 为止时被截成「12」。
     layoutToggle.titleLabel?.adjustsFontSizeToFitWidth = true
-    layoutToggle.titleLabel?.minimumScaleFactor = 0.7
+    layoutToggle.titleLabel?.minimumScaleFactor = Self.narrowFunctionLabelScale
     layoutToggle.titleLabel?.lineBreakMode = .byClipping
     layoutToggle.accessibilityIdentifier = "layoutToggleButton"
     // 长按字母层的 123 直接打开符号面板，不必再经过 #+= 层；符号层里这个键是 ABC，手势不会开始（`gestureRecognizerShouldBegin`）。长按会取消这次触摸，所以不会再切层。
@@ -4070,6 +4089,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     language.configuration?.contentInsets = .zero
     language.configuration?.titleTextAttributesTransformer = Self.functionLabelTransformer
+    language.titleLabel?.adjustsFontSizeToFitWidth = true
+    language.titleLabel?.minimumScaleFactor = Self.narrowFunctionLabelScale
+    language.titleLabel?.lineBreakMode = .byClipping
     language.accessibilityIdentifier = "bottomLanguageKey"
     language.isHidden = false
     bottomLanguageButton = language
@@ -4134,6 +4156,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     tabletLayer.configuration?.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 4)
     tabletLayer.configuration?.titleTextAttributesTransformer = Self.functionLabelTransformer
+    tabletLayer.titleLabel?.adjustsFontSizeToFitWidth = true
+    tabletLayer.titleLabel?.minimumScaleFactor = Self.narrowFunctionLabelScale
+    tabletLayer.titleLabel?.lineBreakMode = .byClipping
     tabletLayer.accessibilityIdentifier = "tabletLayerKey"
     tabletLayer.isHidden = true
     tabletLayerButton = tabletLayer
@@ -4297,6 +4322,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   /// 123 和 中 / 英：15pt medium，与字母一样固定字号。
+  /// 底行功能键（123 / ABC、中/英、空格）键面最多缩到的比例。平时排得下不缩；键盘调整把整块键盘收窄到约 240 pt 时，这些键窄到原来的六成，缩到 0.7 仍会截掉末尾。
+  static let narrowFunctionLabelScale: CGFloat = 0.5
+
   private static let functionLabelTransformer = UIConfigurationTextAttributesTransformer { attributes in
     var attributes = attributes
     attributes.font = .systemFont(ofSize: 15, weight: .medium)
@@ -9721,6 +9749,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     overlay.onReset = { [weak self] in self?.changeKeyboardAdjust { $0.reset() } }
     overlay.onConfirm = { [weak self] in self?.closeKeyboardAdjust() }
     adjustOverlay = overlay
+    adjustDocument = KeyboardHostContext.documentIdentifier(for: textDocumentProxy)
     adjustSession = KeyboardAdjustSession(
       state: KeyboardAdjustState(heightAdjustment: Int(sharedKeyboardHeightAdjustment.rounded()), placement: keyboardPlacement),
       capabilities: adjustCapabilities, containerWidth: view.bounds.width, keyBlock: currentKeyBlockHeight)
@@ -9758,6 +9787,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     adjustSession = session
     overlay.capabilities = session.capabilities
     overlay.keyboardFrame = keyboardFrameGuide.layoutFrame
+    overlay.topGripStrip = toolbarIconInset
     let state = session.state
     let lift = "抬高 \(state.placement.bottomLift) 点"
     overlay.setAccessibilityValues(
@@ -9767,12 +9797,21 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       move: session.capabilities.width ? "\(lift)，水平位置 \(state.placement.positionX / 10)%" : lift)
   }
 
+  /// 键盘外框上沿到工具栏图标上沿的距离：图标在顶栏里上下居中，跟着顶栏行高等比缩小（`KeyboardToolbarButton.contentScale`）。键盘调整的上沿把手画在这一条里，与 Android 一样在图标之上，收窄时也不压住图标。
+  private var toolbarIconInset: CGFloat {
+    guard let topRow = compositionContainer else { return 0 }
+    let row = topRow.convert(topRow.bounds, to: view)
+    let icon = KeyboardToolbarButton.iconSide * KeyboardToolbarButton.contentScale(rowHeight: row.height)
+    return max(0, row.minY - keyboardFrameGuide.layoutFrame.minY + (row.height - icon) / 2)
+  }
+
   /// 离开键盘调整：「确认」、收起键盘、换输入框和切到别的应用都走这里，一律把预览的四项存下，没有取消。高度写 App Group 和共享文档（与设置 App 的「键盘高度」同一份），抬高、宽度和水平位置只写本机 App Group。
   private func closeKeyboardAdjust() {
     guard let overlay = adjustOverlay else { return }
     overlay.removeFromSuperview()
     adjustOverlay = nil
     adjustSession = nil
+    adjustDocument = nil
     KeyboardLayoutPreference.placement = keyboardPlacement
     KeyboardLayoutPreference.heightAdjustment = Double(sharedKeyboardHeightAdjustment)
     commitTouchKeyboardGeometry()

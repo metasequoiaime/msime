@@ -47,7 +47,7 @@ pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<Strin
     );
     let curation = cantonese_curation_inputs(sources)?;
     let word_rows = cantonese::parse_words(&words)?;
-    let dictionary = cantonese::build(
+    let mut dictionary = cantonese::build(
         &characters,
         &word_rows,
         &cantonese::parse_essay(&essay)?,
@@ -56,6 +56,13 @@ pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<Strin
         &forms,
         &curation,
     )?;
+    let places = crate::hong_kong_places::load(sources)?;
+    let places_added =
+        crate::hong_kong_places::add_cantonese(&mut dictionary, &places, &curation.vetoes);
+    summaries.push(format!(
+        "{} Hong Kong names: {places_added} Cantonese entries added, existing rows unchanged",
+        places.len()
+    ));
     let database = out.join(cantonese::DATABASE);
     cantonese::write(&dictionary, &database, commit)?;
     let counts = cantonese::verify(&database, cantonese::FLOORS)?;
