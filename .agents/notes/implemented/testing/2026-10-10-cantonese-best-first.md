@@ -22,3 +22,5 @@ Status: implemented
 ## 影响
 
 完整读音的 `best` 路径少一次临时堆分配，回退到最长完整前缀和公开的多路径 `segment` 行为保持不变。
+
+香港地名的[完整词查询](../feature/2026-11-05-hong-kong-place-dictionaries.md)另用有上限的 `segment` 补查备选完整词，并缓存相同输入的路径；本篇的 `best` 入口和分配约束保持不变。
