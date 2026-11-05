@@ -27,7 +27,11 @@ final class CompositionEditorBar: UIView {
     doneButton.translatesAutoresizingMaskIntoConstraints = false
     doneButton.addAction(UIAction { _ in onDone() }, for: .primaryActionTriggered)
     addSubview(doneButton)
+    // 钉死一行的高度：按键行的高度都是从键盘剩下的高度里分出来的，编辑条只靠拼写的固有高度撑起时，根栈视图会把键盘长出来的那一行之外再多分给它几十 pt，四排键跟着变矮、往下挪。比必需低一档，隐藏时让给栈视图收起它的那条约束。
+    let rowHeight = heightAnchor.constraint(equalToConstant: Self.height)
+    rowHeight.priority = .init(999)
     NSLayoutConstraint.activate([
+      rowHeight,
       spelling.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
       spelling.topAnchor.constraint(equalTo: topAnchor, constant: 4),
       spelling.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),

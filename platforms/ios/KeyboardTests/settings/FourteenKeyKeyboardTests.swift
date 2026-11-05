@@ -608,6 +608,41 @@ final class FourteenKeyKeyboardTests: XCTestCase {
     controller.viewDidDisappear(false)
   }
 
+  /// 编辑条开关时键盘只高出、缩回编辑条那一行：系统按新的高度约束放大视图后，按键的高度和到底边的距离都不变，编辑条就是 52 pt（#10591）。模拟器的系统键盘里曾经编辑条被拉到约 90 pt、四排键各矮了约 12 pt。
+  func testOpeningTheSpellingEditorKeepsTheKeysWhereTheyAre() throws {
+    let controller = makeController(width: 390)
+    let height = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" })
+    func settle() {
+      // 系统键盘按高度约束改视图的高度，底边不动。
+      controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: height.constant)
+      controller.view.layoutIfNeeded()
+    }
+    settle()
+    try tap(["BN", "UI", "GH", "AS", "OP"], in: controller)
+    settle()
+    func keyFrames() throws -> [CGRect] {
+      try ["fourteenKeyQW", "fourteenKeyAS", "fourteenKeyBN"].map { try frame($0, in: controller) }
+    }
+    let closed = try keyFrames()
+    let closedHeight = controller.view.bounds.height
+    try button("preeditButton", in: controller).sendActions(for: .primaryActionTriggered)
+    settle()
+    let bar = try XCTUnwrap(descendants(controller.view).first { $0 is CompositionEditorBar } as? CompositionEditorBar)
+    XCTAssertFalse(bar.isHidden)
+    XCTAssertEqual(controller.view.bounds.height, closedHeight + CompositionEditorBar.height, accuracy: 0.5)
+    XCTAssertEqual(bar.bounds.height, CompositionEditorBar.height, accuracy: 0.5, "the editor row is one row tall")
+    for (before, after) in zip(closed, try keyFrames()) {
+      XCTAssertEqual(after.height, before.height, accuracy: 0.5, "a key changed height when the editor opened")
+      XCTAssertEqual(controller.view.bounds.height - after.maxY, closedHeight - before.maxY, accuracy: 0.5,
+                     "a key moved against the bottom edge when the editor opened")
+    }
+    try button("compositionEditorDone", in: controller).sendActions(for: .primaryActionTriggered)
+    settle()
+    XCTAssertEqual(controller.view.bounds.height, closedHeight, accuracy: 0.5)
+    for (before, after) in zip(closed, try keyFrames()) { XCTAssertEqual(after, before) }
+    controller.viewDidDisappear(false)
+  }
+
   /// 分词键在组码之间定一个音节分界：ZX UI 分词 AS BN 得到「西安」。
   func testTheSeparatorKeySplitsXian() throws {
     let controller = makeController(width: 390)
