@@ -1,0 +1,93 @@
+# 不进九键、14 键首屏，在中英混输里不领先、不坐优先位置（26 键上把拼写打全时除外，那时只让出首选）的英文粗俗词和蔑称（`lattice::offensive::is_offensive_english`）。本项目自写，与引擎代码同为 MPL-2.0。
+#
+# 这些词照样是英文词库里的词，在英文模式下照样查得到。表只管中英混输和九键：中文状态下英文词是插进拼音列表的，用户打的是中文，一串数字恰好拼出 negro、cumshot 这类词时它们不该出现在首屏（2026-11-04 实测 dict-v2.0.41：内容 63476 第 2 位是 Negro，尴尬 42642 第 2 位是 gangbang，跟他 43682 第 2 位是 hentai，初次 24824 第 2 位是 bitch），见 `offensive_placement`。
+#
+# 整词比较、不分大小写：英文按子串查会误伤 cocktail、Scunthorpe、assess 这类词，所以同一个词的复数和常见变形要各占一行。
+#
+# 收词标准与 `offensive_words.txt` 相同：现代口语里最常见的义项是色情或粗俗的性描写、以性或性别辱骂人的脏话、常见的粗口骂人话，或者是针对族群、性别认同的蔑称。不收：解剖与医学用语（semen、penis、vagina、anal、orgasm），中性的标准说法（porn、sex、nude），有常见的非粗俗义项的词（cock 指公鸡，dick 是人名，cum 是拉丁语介词，chink 指缝隙，coon 指浣熊，dyke 指堤坝，queer 和 gay 是自称），不涉及性的轻度骂人话（damn、crap、idiot、bastard、bullshit）。蔑称本该由词库仓库整词删掉，这里只是兜底。
+#
+# 这是临时放在引擎里的表，长期和 `offensive_words.txt` 一起由词库仓库 msime-dictionary 维护，见 `.agents/notes/implemented/bug-fix/2026-10-29-offensive-words-out-of-sentences.md`。
+#
+# 格式：一行一个小写词，`#` 开头的行和空行不算。
+
+# 色情或粗俗的性描写
+blowjob
+blowjobs
+boobs
+bukkake
+cumshot
+cumshots
+cunt
+cunts
+dildo
+dildos
+femdom
+fuck
+fucked
+fucker
+fuckers
+fucking
+fuckhead
+fucks
+gangbang
+gangbangs
+handjob
+hentai
+jizz
+milf
+milfs
+motherfucker
+motherfuckers
+pussies
+pussy
+shemale
+shemales
+tits
+titties
+titty
+
+# 脏话与粗口骂人话
+asshole
+assholes
+bitch
+bitches
+shit
+shitfaced
+shithead
+shitheads
+shitload
+shits
+shitting
+shittiest
+shitty
+slut
+sluts
+slutty
+twat
+wanker
+whore
+whores
+
+# 蔑称
+fag
+faggot
+faggots
+fags
+gook
+gooks
+kike
+kikes
+negro
+negroes
+nigga
+niggas
+nigger
+niggers
+retard
+retards
+spic
+spics
+trannies
+tranny
+wetback
+wetbacks

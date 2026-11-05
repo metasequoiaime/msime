@@ -13,6 +13,7 @@ enum KeyboardLayoutPreference {
   static let tabletSplitKey = "keyboard.tablet.split"
   static let phoneLandscapeSplitKey = "keyboard.phone.landscapeSplit"
   static let glideTypingKey = "keyboard.gesture.glide"
+  static let bilingualGlideKey = "keyboard.gesture.bilingualGlide"
   static let cursorSwipeKey = "keyboard.gesture.cursorSwipe"
   static let spaceVoiceKey = "keyboard.gesture.spaceVoice"
   static let swipeSymbolsKey = "keyboard.gesture.swipeSymbols"
@@ -175,6 +176,11 @@ enum KeyboardLayoutPreference {
   static var glideTyping: Bool {
     get { defaults.object(forKey: glideTypingKey) as? Bool ?? false }
     set { defaults.set(newValue, forKey: glideTypingKey) }
+  }
+  /// 中英混合滑行只在本机启用，缺省关闭，不改变现有中文滑行。
+  static var bilingualGlide: Bool {
+    get { defaults.object(forKey: bilingualGlideKey) as? Bool ?? false }
+    set { defaults.set(newValue, forKey: bilingualGlideKey) }
   }
   /// 「横滑键盘移动光标」：无组字时从普通字符键横滑移动文档光标。默认关，与滑行输入一样只保存在本机 App Group。
   static var cursorSwipe: Bool {

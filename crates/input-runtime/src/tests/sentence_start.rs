@@ -15,12 +15,16 @@ INSERT INTO tbl_1_a VALUES('a','a','啊',3000000);
 INSERT INTO tbl_1_a VALUES('a','a','阿',1000000);";
 
 fn runtime() -> (tempfile::TempDir, Runtime) {
+    runtime_with("")
+}
+
+fn runtime_with(extra_rows: &str) -> (tempfile::TempDir, Runtime) {
     let directory = tempfile::tempdir().unwrap();
     let options = real_engine_options(directory.path());
     let database = std::path::Path::new(&options.dictionaries).join("msime-pinyin.db");
     rusqlite::Connection::open(database)
         .unwrap()
-        .execute_batch(PARTICLE_DICTIONARY)
+        .execute_batch(&format!("{PARTICLE_DICTIONARY}\n{extra_rows}"))
         .unwrap();
     let mut runtime = Runtime::new(msime_engine::host::Session::new(&options).unwrap(), 9).unwrap();
     runtime.focus(true).unwrap();
@@ -66,5 +70,40 @@ fn a_sentence_does_not_open_with_a_final_particle() {
     runtime
         .dispatch(Action::Command(Command::CommitRaw))
         .unwrap();
+    assert_eq!(first_after_typing(&mut runtime, b"ma"), "妈");
+}
+
+/// 给每段文字一个固定分数的打分器，没列出的文字一律 -20。
+struct FixedScores(&'static [(&'static str, f32)]);
+
+impl CandidateScorer for FixedScores {
+    fn context_length(&self) -> usize {
+        64
+    }
+
+    fn log_probabilities(&mut self, _context: &str, candidates: &[&str]) -> Vec<f32> {
+        candidates
+            .iter()
+            .map(|text| {
+                self.0
+                    .iter()
+                    .find(|(known, _)| known == text)
+                    .map_or(-20.0, |(_, score)| *score)
+            })
+            .collect()
+    }
+}
+
+/// 句首单字让模型挑时，比的是「字 + 停顿」：单看「马」它沾了「马上」的光，接上逗号后「妈，」才是更常见的一句开头。
+#[test]
+fn the_model_picks_the_opening_single_character_as_a_word_followed_by_a_pause() {
+    let (_directory, mut runtime) =
+        runtime_with("INSERT INTO tbl_1_m VALUES('ma','m','马',279925);");
+    runtime.set_candidate_scorer(Some(Box::new(FixedScores(&[
+        ("马", -1.0),
+        ("妈", -3.0),
+        ("马，", -9.0),
+        ("妈，", -6.0),
+    ]))));
     assert_eq!(first_after_typing(&mut runtime, b"ma"), "妈");
 }

@@ -99,9 +99,14 @@ def validate_hap(path: Path, version: str) -> bytes:
             "resources/resfile/handwriting/handwriting-zh_CN.model",
             "resources/resfile/handwriting/HandwritingModel-LICENSE.txt",
             "resources/resfile/handwriting/Zinnia-LICENSE.txt",
+            # 整句联想「增强」的逐键重排模型（stage-resources.sh 暂存）和它必须随附的许可证；少了模型时键盘照样能用，只是悄悄退回随包的句子模型，所以在这里拦。
+            "resources/resfile/rerank-model-small/lm_step.ort",
+            "resources/resfile/rerank-model-small/model.json",
+            "resources/resfile/rerank-model-small/vocab.json",
+            "resources/resfile/licenses/rerank-model-Apache-2.0.txt",
         }
         if not required <= names:
-            raise ValueError("HAP 缺少原生库、设置页或手写资源")
+            raise ValueError("HAP 缺少原生库、设置页、手写资源或逐键重排模型")
         for prefix in ["resources/resfile/engine/", "resources/resfile/licenses/", "resources/resfile/wordbooks/"]:
             if not any(n.startswith(prefix) and not n.endswith("/") for n in names):
                 raise ValueError(f"HAP 缺少资源：{prefix}")

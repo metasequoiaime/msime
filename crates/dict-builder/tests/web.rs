@@ -344,6 +344,25 @@ fn versioned_inputs_keep_one_metadata_table() {
     }
 }
 
+/// 带不拼整句表的 release：两个输出库原样保留 `sentence_excluded`，网页引擎和桌面按同一张表拦粗俗词。
+#[test]
+fn the_sentence_excluded_table_is_kept() {
+    let (dir, pinyin, wubi) = inputs();
+    Connection::open(&pinyin)
+        .unwrap()
+        .execute_batch(&format!(
+            "{} INSERT INTO sentence_excluded VALUES('巨乳', 0); INSERT INTO sentence_excluded VALUES('巨乳症', 1);",
+            msime_engine::format::SENTENCE_EXCLUDED_SCHEMA
+        ))
+        .unwrap();
+    let out = dir.path().join("web");
+    run(&pinyin, &wubi, &out, Some(2));
+    for name in ["msime-pinyin.db", "msime-wubi86.db"] {
+        let db = open(&out.join(name));
+        assert_eq!(count(&db, "sentence_excluded"), 2, "{name}");
+    }
+}
+
 // ---- 日语模型 ----
 
 /// MSJPDT1 文件：`(读法, 词, 成本)` 按读法排好，左右上下文都是 0，1×1 的连接矩阵。

@@ -41,6 +41,26 @@ group("balance and server failures do not send the user back to the endpoint and
   }
 });
 
+group("chat 404 names the full chat endpoint and the model id (#10876)", () => {
+  const expected =
+    "服务找不到所填的接口地址或模型（HTTP 404）。接口地址要填完整的对话接口，通常以 /chat/completions 结尾；模型要填服务商控制台列出的模型 ID，并确认账号已开通该模型。";
+  check(CredentialStatusPolicy.CHAT_NOT_FOUND === expected, CredentialStatusPolicy.CHAT_NOT_FOUND);
+  check(
+    CredentialStatusPolicy.chatRejected(404) === expected,
+    CredentialStatusPolicy.chatRejected(404),
+  );
+  check(
+    CredentialStatusPolicy.chatRejected(422) ===
+      "服务拒绝请求，请检查接口地址和模型配置（HTTP 422）",
+    CredentialStatusPolicy.chatRejected(422),
+  );
+  check(
+    CredentialStatusPolicy.chatRejected(401) ===
+      "认证失败（HTTP 401），请检查 API Key 和访问权限。",
+    CredentialStatusPolicy.chatRejected(401),
+  );
+});
+
 console.log("");
 if (failures > 0) {
   throw new Error(`${failures} group(s) failed`);
