@@ -95,7 +95,7 @@ Status: implemented
 
 原有命令与结果见本次提交（`cargo test -p msime-engine`、`cargo fmt --all --check`、`cargo clippy -p msime-engine --all-targets --locked -- -D warnings`、`cargo check -p msime-host-api -p msime-input-runtime --all-targets`、`pnpm --filter @msime/desktop test`、`pnpm format:check`、`pnpm run verify-notes`）。
 
-设置界面范围：共享 React 页由 macOS、Linux 与 HarmonyOS 承载；Windows、Android、iOS 的产品设置各自原生绘制，本 PR 没有给它们增加这两个开关。Windows 的现代设置（`platforms/windows/settings/main.cpp`）与 Windows 7 设置（`win7/SchemeForm.h`）在 #10696 补上了「z 键通配」「第五码将首选上屏」，文案与缺省值照共享页和 `Preferences::default`；在那之前 Windows 用户只能关掉四码唯一自动上屏，第五码顶字关不掉，表现就像自动上屏开关无效。Android、iOS 仍没有这两个开关。Windows 原生设置和 macOS 原生外观面板不会因共享页改动自动出现新控件。真机设置窗口未验收。
+设置界面范围：共享 React 页由 macOS、Linux 与 HarmonyOS 承载；Windows、Android、iOS 的产品设置各自原生绘制，本 PR 没有给它们增加这两个开关。Windows 的现代设置（`platforms/windows/settings/main.cpp`）与 Windows 7 设置（`win7/SchemeForm.h`）在 #10696 补上了「z 键通配」「第五码将首选上屏」，文案与缺省值照共享页和 `Preferences::default`；在那之前 Windows 用户只能关掉四码唯一自动上屏，第五码顶字关不掉，表现就像自动上屏开关无效。Android 原生设置「输入」页的五笔组在 #10830 补上了「第五码将首选上屏」，同组还有「五笔拼音混输」「候选显示剩余编码」「五笔四码唯一候选自动上屏」，四项登记在 `InputFeatureToggle` 的 `WUBI` 组，`InputFeatureToggleSmoke` 逐字比对 `wubi-section.tsx` 的标题与说明；「z 键通配」Android 仍没有。iOS 仍没有这两个开关。Windows 原生设置和 macOS 原生外观面板不会因共享页改动自动出现新控件。真机设置窗口未验收。
 
 ## Related notes
 
