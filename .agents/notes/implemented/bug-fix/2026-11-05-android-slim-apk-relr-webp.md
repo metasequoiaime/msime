@@ -43,4 +43,4 @@ GitHub 渠道的 full 和拼音瘦包在 2026-11-04 的 nightly（`24852caa38`�
 - 收益：瘦包回到预警线以下约 400 KB，离硬上限约 3.4 MB；每个版本的 APK 都同样小了约 1.67 MB（非瘦包也用同一个原生库和同一批图标）。
 - 代价：余量不大，按最近几次 nightly 每天几百 KB 的自然增长，几周内会再次越过预警线；到时候要么做上面的 R8，要么把更多数据改成资源包。
 - 重新生成图标要装 webp（`brew install librsvg webp`）。
-- 验证：API 28（`smoke.sh --core`）和 API 35（完整 `smoke.sh`）模拟器装包验收，五套图标在两个级别上改前改后截图对比，`verify-native.sh` 的新检查用 nightly 原来的库、标准标签的库和 Android 标签的库各跑一次，前两个失败、第三个通过。
+- 验证：API 28（`smoke.sh --core`）和 API 35（完整 `smoke.sh`）模拟器装包验收，五套图标在两个级别上改前改后截图对比，`verify-native.sh` 的新检查用 nightly 原来的库、标准标签的库和 Android 标签的库各跑一次，前两个失败、第三个通过。PR 上的 `android-device-pr` 按 `ci-platforms.yml` 的矩阵跑 x86_64 的 API 28 `--crash-only` 和 API 35 完整验收，两个作业构建时 `verify-native.sh` 都确认了 `DT_ANDROID_RELR`。API 28 作业通过：它不跑输入套件，但 `NativeClient` 的 `System.loadLibrary("msime_android")` 要由系统链接器按 `DT_NEEDED` 加载 `libmsime_host_api.so`，加载失败就是 `UnsatisfiedLinkError`，首次启动的词库准备和 `:ime` 进程里的原生崩溃专项都过不去，所以它算 minSdk 28 上 x86_64 库的加载证据。API 35 作业只失败了「我的」多义释义一项，与 develop 上 #10937 的失败逐字相同，是内置释义数据的变化，测试样例的修复在 #10943；这是确定性的失败而不是偶发，所以没有重跑。API 29 没有单独跑，它的链接器和 API 28 一样认 `DT_ANDROID_RELR`、不认标准 `DT_RELR`。
