@@ -65,7 +65,10 @@ impl InputSession {
                 .iter()
                 .filter(|row| is_cantonese_row(row) && row.pinyin == *span)
                 .map(|row| RankedRow {
-                    text: row.word.to_string(),
+                    text: self
+                        .engine
+                        .cantonese_dictionary_word(&row.canonical_pinyin, &row.word)
+                        .to_string(),
                     weight: row.weight,
                 })
                 .collect()

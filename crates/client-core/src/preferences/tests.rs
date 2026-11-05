@@ -6376,7 +6376,7 @@ fn nine_key_shuangpin_preferences_round_trip_and_stay_out_of_documents_without_t
 }
 
 #[test]
-fn wubi_profile_defaults_to_86_and_rejects_unknown_values() {
+fn wubi_profile_defaults_to_86_and_reads_unknown_values_as_86() {
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
     let legacy = r#"{"format_version":1,"revision":3,"preferences":{"scheme":"wubi","candidate_page_size":5,"learning":false,"chinese_punctuation":true}}"#;
@@ -6398,8 +6398,62 @@ fn wubi_profile_defaults_to_86_and_rejects_unknown_values() {
     let text = fs::read_to_string(store.path()).unwrap();
     assert!(text.contains(r#""wubi_profile": "wubi98""#), "{text}");
     assert_eq!(store.load().unwrap(), saved);
-    fs::write(store.path(), text.replace("wubi98", "wubi06")).unwrap();
+    // 新世纪五笔照常存取。
+    let xsj = store
+        .save(
+            saved.revision,
+            Preferences {
+                wubi_profile: WubiProfile::WubiXsj,
+                ..saved.preferences.clone()
+            },
+        )
+        .unwrap();
+    let xsj_text = fs::read_to_string(store.path()).unwrap();
+    assert!(
+        xsj_text.contains(r#""wubi_profile": "wubixsj""#),
+        "{xsj_text}"
+    );
+    assert_eq!(store.load().unwrap(), xsj);
+    let mut submitted = serde_json::to_value(&xsj.preferences).unwrap();
+    assert_eq!(
+        Preferences::from_submission(submitted.take())
+            .unwrap()
+            .wubi_profile,
+        WubiProfile::WubiXsj
+    );
+    fs::write(store.path(), &text).unwrap();
+    // 更新的版本写下的码表版本这一版不认识：按 86 读，整份文档照常可读，其余字段不受影响；保存时写回 86。
+    for unknown in ["wubi2030", "wubi06"] {
+        fs::write(store.path(), text.replace("wubi98", unknown)).unwrap();
+        let loaded = store.load().unwrap();
+        assert_eq!(
+            loaded.preferences.wubi_profile,
+            WubiProfile::Wubi86,
+            "{unknown}"
+        );
+        assert_eq!(loaded.preferences.scheme, InputScheme::Wubi, "{unknown}");
+        assert_eq!(loaded.revision, saved.revision, "{unknown}");
+    }
+    let mut changed = store.load().unwrap();
+    changed.preferences.candidate_page_size = 7;
+    store.save(changed.revision, changed.preferences).unwrap();
+    let text = fs::read_to_string(store.path()).unwrap();
+    assert!(text.contains(r#""wubi_profile": "wubi86""#), "{text}");
+    // 不是字符串仍是读不了的文档。
+    fs::write(
+        store.path(),
+        text.replace(r#""wubi_profile": "wubi86""#, r#""wubi_profile": 2"#),
+    )
+    .unwrap();
     assert!(store.load().is_err());
+    assert_eq!(WubiProfile::parse("wubi98"), Some(WubiProfile::Wubi98));
+    assert_eq!(WubiProfile::parse("wubixsj"), Some(WubiProfile::WubiXsj));
+    assert_eq!(WubiProfile::parse("wubi2030"), None);
+    // 只放宽读盘：提交的设置仍严格校验。
+    let mut submitted = serde_json::to_value(Preferences::default()).unwrap();
+    submitted["wubi_profile"] = "wubi2030".into();
+    assert!(serde_json::from_value::<Preferences>(submitted.clone()).is_err());
+    assert!(Preferences::from_submission(submitted).is_err());
 }
 
 #[test]
@@ -10316,6 +10370,42 @@ fn documents_written_by_released_versions_load_and_save() {
     }
 }
 
+/// 已发布版本写下的文档里，五笔版本换成这一版不认识的值（更新的版本加的码表，用不存在的 `wubi2030` 代表）：整份照常读出，五笔版本按 86，其余字段与原文档读出的相同。
+#[test]
+fn released_documents_with_an_unknown_wubi_profile_still_load() {
+    for (release, document) in RELEASED_DOCUMENTS {
+        let directory = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(directory.path());
+        fs::write(store.path(), document).unwrap();
+        let original = store
+            .load()
+            .unwrap_or_else(|error| panic!("{release}: {error}"));
+        let mut value: serde_json::Value = serde_json::from_str(document).unwrap();
+        value["preferences"]["wubi_profile"] = "wubi2030".into();
+        value["preferences"]["scheme"] = "wubi".into();
+        fs::write(store.path(), serde_json::to_vec(&value).unwrap()).unwrap();
+        let loaded = store
+            .load()
+            .unwrap_or_else(|error| panic!("{release}: {error}"));
+        loaded.preferences.validate().unwrap();
+        assert_eq!(
+            loaded.preferences.wubi_profile,
+            WubiProfile::Wubi86,
+            "{release}"
+        );
+        assert_eq!(
+            Preferences {
+                scheme: original.preferences.scheme,
+                ..loaded.preferences.clone()
+            },
+            original.preferences,
+            "{release}"
+        );
+        let saved = store.save(loaded.revision, loaded.preferences).unwrap();
+        assert_eq!(store.load().unwrap(), saved, "{release}");
+    }
+}
+
 #[test]
 fn develop_documents_round_trip_through_the_tolerant_reader() {
     use TextEditButton::*;
@@ -11127,4 +11217,20 @@ fn reading_preferences_without_writing_leaves_no_lock_file() {
     assert_eq!(loaded.snapshot, saved);
     assert!(loaded.load_error.is_none());
     assert!(!directory.join("preferences.lock").exists());
+}
+
+#[test]
+fn global_voice_hotkey_is_opt_in_and_round_trips_without_changing_gestures() {
+    let old: VoiceInputPreferences = serde_json::from_value(serde_json::json!({})).unwrap();
+    assert!(!old.hotkey_global);
+    assert!(old.hotkey_ralt);
+    assert!(old.hotkey_ctrl_f9);
+    let mut enabled = old.clone();
+    enabled.hotkey_global = true;
+    let restored: VoiceInputPreferences =
+        serde_json::from_value(serde_json::to_value(&enabled).unwrap()).unwrap();
+    assert!(restored.hotkey_global);
+    assert_eq!(restored.hotkey_ralt, old.hotkey_ralt);
+    assert_eq!(restored.hotkey_ctrl_f9, old.hotkey_ctrl_f9);
+    assert_eq!(restored.hotkey_ctrl_win, old.hotkey_ctrl_win);
 }

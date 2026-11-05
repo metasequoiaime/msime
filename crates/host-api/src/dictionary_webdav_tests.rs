@@ -391,3 +391,13 @@ fn the_background_sync_starts_and_stops_through_the_c_entries() {
     );
     assert!(!directory.exists());
 }
+
+/// 新世纪五笔的词暂不经 WebDAV 同步，两个方向一致：本机词库里的 `wubixsj` 词不交给同步，协议核心读网盘时也不认 `wubixsj`（不会交来要写进本机的新世纪词条）。`engine_kind` 写全只是为了穷尽匹配。
+#[test]
+fn new_century_wubi_words_stay_out_of_webdav_sync() {
+    use msime_engine::host::DictionaryKind;
+    assert_eq!(word_kind(DictionaryKind::WubiXsj), None);
+    assert_eq!(word_kind(DictionaryKind::Wubi98), Some(WordKind::Wubi98));
+    assert_eq!(WordKind::from_synced_name("wubixsj"), None);
+    assert_eq!(engine_kind(WordKind::WubiXsj), DictionaryKind::WubiXsj);
+}

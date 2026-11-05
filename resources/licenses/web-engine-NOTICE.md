@@ -2450,9 +2450,9 @@ Not used: jyut6ping3.maps.dict.yaml (released under the Open Data Commons Open D
 
 The romanization is Jyutping, the Cantonese romanization scheme of the Linguistic Society of Hong Kong (LSHK, https://www.lshk.org/jyutping).
 
-The same Cantonese dictionary also takes ranking weights from the Hong Kong Cantonese Corpus (HKCanCor, https://github.com/fcbond/hkcancor, commit 39aeadf920e0b5ca93d0ad7792c59e740e7bdd65), the transcriptions created by Luke Kang Kwong and released under the Creative Commons Attribution 4.0 International License reproduced below (data/LICENSE in that repository). Citation: K. K. Luke and May L. Y. Wong (2015) The Hong Kong Cantonese Corpus: Design and Uses. Journal of Chinese Linguistics Monograph Series, 25, 312–333. MSIME counts how often each word of two or more Han characters occurs in data/utf8/ (msime-dictionary's sources/cantonese/hkcancor-word-counts.txt) and uses those counts, scaled to the essay's counts, as the weight of words-file entries that essay-cantonese.txt does not list. A word the corpus counts fewer than three times is held below the essay-listed words of the same reading. No text, reading or transcription of the corpus is shipped.
+The same Cantonese dictionary also takes ranking weights from the Hong Kong Cantonese Corpus (HKCanCor, https://github.com/fcbond/hkcancor, commit 39aeadf920e0b5ca93d0ad7792c59e740e7bdd65), the transcriptions created by Luke Kang Kwong and released under the Creative Commons Attribution 4.0 International License reproduced below (data/LICENSE in that repository). Citation: K. K. Luke and May L. Y. Wong (2015) The Hong Kong Cantonese Corpus: Design and Uses. Journal of Chinese Linguistics Monograph Series, 25, 312–333. MSIME counts how often each word of two or more Han characters occurs in data/utf8/ (msime-dictionary's sources/cantonese/hkcancor-word-counts.txt), counting the perfective particle 咗, which the corpus tags as a token of its own, once more together with the token right before it (做 then 咗 also counts 做咗), and uses those counts, scaled to the essay's counts, as the weight of words-file entries and of the project's reviewed words (custom/cantonese.txt) that essay-cantonese.txt does not list. A words-file entry the corpus counts fewer than three times is held below the essay-listed words of the same reading. No text, reading or transcription of the corpus is shipped.
 
-The same Cantonese dictionary also contains the words of msime-dictionary's custom/cantonese.txt (https://github.com/metasequoiaime/msime-dictionary), a hand-reviewed list of words with their Jyutping written by the MSIME project and its contributors and released under the Creative Commons Attribution 4.0 International License reproduced below. MSIME removes the tone digits, joins the syllables by spaces and weighs each word by its essay-cantonese.txt count, or by the threshold at which essay words are added when the essay does not list it; a word already in the dictionary keeps the larger weight.
+The same Cantonese dictionary also contains the words of msime-dictionary's custom/cantonese.txt (https://github.com/metasequoiaime/msime-dictionary), a hand-reviewed list of words with their Jyutping written by the MSIME project and its contributors and released under the Creative Commons Attribution 4.0 International License reproduced below. MSIME removes the tone digits, joins the syllables by spaces and weighs each word by its essay-cantonese.txt count, or, when the essay does not list it, by its HKCanCor count scaled to the essay's counts but never below the threshold at which essay words are added; a word already in the dictionary keeps the larger weight.
 
 The full text of the licence, as committed in rime-cantonese at the commit above (LICENSE-CC-BY), follows; HKCanCor's data/LICENSE grants the same licence.
 
@@ -3310,7 +3310,7 @@ Note
 | `regex-syntax` | 0.8.11 | MIT OR Apache-2.0 | L04、L05 |
 | `rink-core` | 0.9.0 | MPL-2.0 | L44 |
 | `rsqlite-vfs` | 0.1.1 | MIT | 未附带 |
-| `rusqlite` | 0.40.2 | MIT | L45 |
+| `rusqlite` | 0.41.1 | MIT | L45 |
 | `serde` | 1.0.229 | MIT OR Apache-2.0 | L32、L22 |
 | `serde_core` | 1.0.229 | MIT OR Apache-2.0 | L32、L22 |
 | `serde_json` | 1.0.154 | MIT OR Apache-2.0 | L32、L22 |
@@ -7088,7 +7088,7 @@ Exhibit B - "Incompatible With Secondary Licenses" Notice
 
 ### L45（LICENSE）
 
-用于：`rusqlite` 0.40.2
+用于：`rusqlite` 0.41.1
 
 ````text
 Copyright (c) 2014 The rusqlite developers

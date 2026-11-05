@@ -9,7 +9,7 @@ import type {
 } from "../candidate/candidate-preferences";
 import type { PunctuationPreferences } from "../settings/punctuation-preferences";
 import type { KeybindingPreferences } from "../settings/keybinding-preferences";
-import type { WubiPreferences } from "../settings/wubi-preferences";
+import type { WubiPreferences, WubiProfile } from "../settings/wubi-preferences";
 import type { VietnamesePreferences } from "../settings/vietnamese-preferences";
 import type { CantonesePreferences } from "../settings/cantonese-preferences";
 import type { KoreanPreferences } from "../settings/korean-preferences";
@@ -206,8 +206,8 @@ export type Preferences = PunctuationPreferences &
     nine_key_shuangpin_profile?: "migala2" | "migala3" | "gushi2_low" | "custom";
     /** 九键双拼的自定义表，形状同 `shuangpin_custom_profile`，键是数字；空表不写进文档。 */
     nine_key_shuangpin_custom_profile?: ShuangpinCustomProfile;
-    /** 五笔用 86 还是 98 码表，只在方案为五笔时起作用；缺省为 86。 */
-    wubi_profile?: "wubi86" | "wubi98";
+    /** 五笔用哪一版码表（86、98 或新世纪 `wubixsj`），只在方案为五笔时起作用；缺省为 86。新世纪的选择暂不随账号同步，宿主不导出它。 */
+    wubi_profile?: WubiProfile;
     /** 「输入时显示双拼键位提示」。没选过时文档里没有这一项，按关显示；macOS 那时仍沿用本机旧的选择。 */
     shuangpin_keymap_hint?: boolean;
     vietnamese?: VietnamesePreferences;
