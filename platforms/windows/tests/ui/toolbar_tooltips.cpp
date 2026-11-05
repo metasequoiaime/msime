@@ -31,6 +31,9 @@ int main() {
     require(toolbar_scheme_title("shuangpin", "unknown", "wubi86") == L"小鹤双拼");
     require(toolbar_scheme_title("wubi", "xiaohe", "wubi86") == L"五笔 86");
     require(toolbar_scheme_title("wubi", "xiaohe", "wubi98") == L"五笔 98");
+    require(toolbar_scheme_title("wubi", "xiaohe", "wubixsj") == L"五笔 新世纪");
+    // 不认识的码表版本按 86，与共享偏好库读到它时一样。
+    require(toolbar_scheme_title("wubi", "xiaohe", "wubi06") == L"五笔 86");
     require(toolbar_scheme_title("japanese", "", "") == L"日语");
     require(toolbar_scheme_title("korean", "", "") == L"韩语");
     require(toolbar_scheme_title("cantonese", "", "") == L"粤拼");

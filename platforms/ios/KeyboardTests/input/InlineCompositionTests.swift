@@ -1,3 +1,4 @@
+import ObjectiveC
 import XCTest
 import UIKit
 
@@ -117,5 +118,138 @@ final class InlineCompositionDefaultTests: XCTestCase {
       }
       XCTAssertEqual(animated, [], "按下 \(letter) 后候选条上挂着动画")
     }
+  }
+}
+
+/// 上屏要替换输入框里的拼音标记，而不是把汉字插在标记后面（#10873）。
+///
+/// 文档按自绘输入框（Flutter 的 `FlutterTextInputView` 一类）的行为建模：`insertText` 只替换当前选区并清掉标记，不碰标记文本；`setMarkedText` 替换标记文本（没有标记时替换选区）；`unmarkText` 只把标记变成普通文字。系统 `UITextView` 的 `insertText` 会顺带替换标记，所以用它测不出这个问题。
+@MainActor
+final class InlineCompositionCommitTests: XCTestCase {
+  private final class SelectionOnlyInsertDocument: NSObject, UITextDocumentProxy {
+    var text = "" as NSString
+    var selection = NSRange(location: 0, length: 0)
+    var marked: NSRange?
+    var calls: [String] = []
+    var documentIdentifier = UUID()
+    var documentInputMode: UITextInputMode? { nil }
+    var hasText: Bool { text.length > 0 }
+    var documentContextBeforeInput: String? { text.substring(to: selection.location) }
+    var documentContextAfterInput: String? { text.substring(from: NSMaxRange(selection)) }
+    var selectedText: String? { selection.length == 0 ? nil : text.substring(with: selection) }
+
+    private func replace(_ range: NSRange, with string: String) {
+      text = text.replacingCharacters(in: range, with: string) as NSString
+    }
+
+    func insertText(_ string: String) {
+      calls.append("insert \(string)")
+      replace(selection, with: string)
+      selection = NSRange(location: selection.location + (string as NSString).length, length: 0)
+      marked = nil
+    }
+
+    func setMarkedText(_ string: String, selectedRange: NSRange) {
+      calls.append("mark \(string)")
+      let range = marked ?? selection
+      replace(range, with: string)
+      let length = (string as NSString).length
+      marked = length == 0 ? nil : NSRange(location: range.location, length: length)
+      selection = NSRange(location: range.location + selectedRange.location, length: selectedRange.length)
+    }
+
+    func unmarkText() {
+      calls.append("unmark")
+      marked = nil
+    }
+
+    func deleteBackward() {
+      marked = nil
+      if selection.length > 0 {
+        replace(selection, with: "")
+      } else if selection.location > 0 {
+        replace(NSRange(location: selection.location - 1, length: 1), with: "")
+        selection.location -= 1
+      }
+      selection.length = 0
+    }
+
+    func adjustTextPosition(byCharacterOffset offset: Int) {
+      selection = NSRange(location: min(max(selection.location + offset, 0), text.length), length: 0)
+    }
+  }
+
+  private func keyboard(_ document: SelectionOnlyInsertDocument) throws -> KeyboardViewController {
+    enableAllInputSchemes()
+    let scheme = InputSchemePreference.scheme
+    addTeardownBlock { InputSchemePreference.scheme = scheme }
+    InputSchemePreference.scheme = .quanpin
+    let selector = #selector(getter: UIInputViewController.textDocumentProxy)
+    let inherited = try XCTUnwrap(class_getInstanceMethod(UIInputViewController.self, selector))
+    let original = method_getImplementation(inherited)
+    let block: @convention(block) (AnyObject) -> AnyObject = { _ in document }
+    let replacement = imp_implementationWithBlock(block)
+    if !class_addMethod(KeyboardViewController.self, selector, replacement, method_getTypeEncoding(inherited)) {
+      method_setImplementation(try XCTUnwrap(class_getInstanceMethod(KeyboardViewController.self, selector)), replacement)
+    }
+    addTeardownBlock {
+      if let own = class_getInstanceMethod(KeyboardViewController.self, selector) { method_setImplementation(own, original) }
+      imp_removeBlock(replacement)
+    }
+    let keyboard = KeyboardViewController()
+    keyboard.loadViewIfNeeded()
+    keyboard.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    keyboard.viewWillAppear(false)
+    keyboard.view.layoutIfNeeded()
+    addTeardownBlock { keyboard.viewDidDisappear(false) }
+    return keyboard
+  }
+
+  private func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap { descendants($0) } }
+
+  private func tap(_ predicate: (UIView) -> Bool, in keyboard: KeyboardViewController) throws {
+    try XCTUnwrap(descendants(keyboard.view).first(where: predicate) as? UIButton).sendActions(for: .primaryActionTriggered)
+    keyboard.view.layoutIfNeeded()
+  }
+
+  func testCommitReplacesThePinyinMarkedTextInAHostWhoseInsertTextOnlyReplacesTheSelection() throws {
+    let document = SelectionOnlyInsertDocument()
+    document.text = "甲丙"
+    document.selection = NSRange(location: 1, length: 0)
+    let keyboard = try keyboard(document)
+    keyboard.render(.init(isHandled: true, preedit: "ni'hao", editingText: "nihao"))
+    XCTAssertEqual(document.text as String, "甲ni'hao丙")
+    XCTAssertNotNil(document.marked)
+    document.calls = []
+    keyboard.render(.init(isHandled: true, commitText: "你好"))
+    XCTAssertEqual(document.calls, ["mark 你好", "unmark"])
+    XCTAssertEqual(document.text as String, "甲你好丙")
+    XCTAssertEqual(document.selection, NSRange(location: 3, length: 0))
+    XCTAssertNil(document.marked)
+  }
+
+  /// 部分选词（同一个快照里上屏一段、还剩组字）仍直接 insertText：「改标记、取消标记、再标记剩余组字」在真实跨进程代理里会让剩余组字盖掉已选汉字（#10284，见 2026-10-31-ios-cantonese-partial-commit）。
+  func testPartialCommitKeepsInsertingTheSelectedTextBeforeMarkingTheRest() throws {
+    let document = SelectionOnlyInsertDocument()
+    let keyboard = try keyboard(document)
+    keyboard.render(.init(isHandled: true, preedit: "ni'hao'a", editingText: "nihaoa"))
+    document.calls = []
+    keyboard.render(.init(isHandled: true, commitText: "你好", preedit: "a", editingText: "a"))
+    XCTAssertEqual(document.calls, ["insert 你好", "mark a"])
+  }
+
+  func testTypingAndPickingTheFirstCandidateLeavesOnlyTheChineseText() throws {
+    let document = SelectionOnlyInsertDocument()
+    let keyboard = try keyboard(document)
+    for letter in ["N", "I", "H", "A", "O"] {
+      try tap({ $0.accessibilityLabel == "字母 \(letter)" }, in: keyboard)
+    }
+    XCTAssertEqual((document.text as String).replacingOccurrences(of: "'", with: ""), "nihao")
+    try tap({ $0.accessibilityIdentifier == "candidate-1" }, in: keyboard)
+    let committed = document.text as String
+    XCTAssertFalse(committed.isEmpty)
+    XCTAssertFalse(committed.contains { $0.isASCII }, "拼音留在了输入框里：\(committed)")
+    XCTAssertEqual(document.selection, NSRange(location: document.text.length, length: 0))
+    XCTAssertNil(document.marked)
   }
 }

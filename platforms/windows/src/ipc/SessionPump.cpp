@@ -27,8 +27,8 @@ SessionPump::SessionPump(MainTransport &transport, InputQueue &input,
   if (!key_ || !event_ || !transactions_)
     throw std::invalid_argument("Missing Windows dispatch handlers");
 }
-bool SessionPump::enqueue(InputQueue::Task task) {
-  auto completion = input_.submit(std::move(task));
+bool SessionPump::enqueue(InputQueue::Task task, InputTaskPriority priority) {
+  auto completion = input_.submit(std::move(task), priority);
   return completion && completion->get() == InputTaskStatus::Completed;
 }
 void SessionPump::cleanup(const PipeTicket &ticket) noexcept {
@@ -60,7 +60,7 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
     if (!enqueue([&, ticket](InputState &state) {
           if (transport_.current(ticket))
             connected = state.connected(ticket).accepted;
-        }))
+        }, InputTaskPriority::Foreground))
       return PumpResult::QueueUnavailable;
     if (!connected)
       return PumpResult::Disconnected;
@@ -85,7 +85,7 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
               route = state.dispatch(ticket, packet);
               current_preference_revision = state.preference_revision();
             }
-          }))
+          }, InputTaskPriority::Foreground))
         return PumpResult::QueueUnavailable;
       if (!route.accepted)
         continue;
@@ -149,6 +149,13 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
       if (packet->event_type != FanyImePipeEventType::KeyEvent) {
         bool handled = false;
         bool eligible = false;
+        const bool mode_event =
+            route.route &&
+            (packet->event_type == FanyImePipeEventType::IMESwitch ||
+             packet->event_type == FanyImePipeEventType::PuncSwitch ||
+             packet->event_type == FanyImePipeEventType::DoubleSingleByteSwitch ||
+             packet->event_type == FanyImePipeEventType::StatusSnapshot ||
+             packet->event_type == FanyImePipeEventType::FocusRestored);
         if (!enqueue([&, route, packet = *packet](InputState &state) {
               if (!transport_.current(ticket))
                 return;
@@ -167,13 +174,7 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
                   packet.event_type == FanyImePipeEventType::ShowCandidateWnd &&
                   (packet.modifiers_down & FanyImePipeFlags::UiLess) == 0)
                 state.show_candidate(*route.route);
-              if (route.route &&
-                  (packet.event_type == FanyImePipeEventType::IMESwitch ||
-                   packet.event_type == FanyImePipeEventType::PuncSwitch ||
-                   packet.event_type ==
-                       FanyImePipeEventType::DoubleSingleByteSwitch ||
-                   packet.event_type == FanyImePipeEventType::StatusSnapshot ||
-                   packet.event_type == FanyImePipeEventType::FocusRestored) &&
+              if (mode_event &&
                   !state.synchronize_input_mode(*route.route, packet))
                 return;
               if (route.route &&
@@ -193,12 +194,15 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
                 eligible = true;
                 handled = event_(route, delivered_packet);
               }
-            }))
+            }, InputTaskPriority::Foreground))
           return PumpResult::QueueUnavailable;
         if (!eligible)
           continue;
         if (!handled)
           return PumpResult::DispatchFailed;
+        // 输入队列的任务已经结束，焦点锁也放开了，这时才叫醒界面线程：在事件回调里（锁内）叫醒，界面线程 try_lock 读模式正好撞上锁、读空，又要等满一轮消息循环。
+        if (mode_event && presentation_.mode_event)
+          presentation_.mode_event(*route.route);
         continue;
       }
       if (!route.route)
@@ -218,7 +222,7 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
                 } catch (const RequestRejected &error) {
                   rejected = error;
                 }
-              }))
+              }, InputTaskPriority::Foreground))
         return PumpResult::QueueUnavailable;
       if (rejected) {
         if (presentation_.rejected)
@@ -314,7 +318,7 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
               if (reply->translation_query && presentation_.translation)
                 presentation_.translation(lease, *reply);
             }
-          }))
+          }, InputTaskPriority::Foreground))
         return PumpResult::QueueUnavailable;
       if (!delivered && focus_.with_active(*route.route, [] {}))
         return PumpResult::DispatchFailed;

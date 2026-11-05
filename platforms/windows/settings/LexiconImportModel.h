@@ -274,10 +274,11 @@ struct LocalKind {
 };
 
 // 粤语既是个人词库（自己加的粤语词，经 `list` 读）也是资源词库（发布的粤语词库，经 `browse` 读），两边的 id 都是 `cantonese`，下拉框和「是不是资源词库」的判断要按所选的那一项分开，不能只看 id。
-inline constexpr std::array<LocalKind, 6> local_kinds{{
+inline constexpr std::array<LocalKind, 7> local_kinds{{
     {L"pinyin", L"中文 · 拼音", L"拼音", L"水杉IME-拼音用户词库.txt"},
     {L"wubi", L"中文 · 86 五笔", L"86 五笔", L"水杉IME-五笔用户词库.txt"},
     {L"wubi98", L"中文 · 98 五笔", L"98 五笔", L"水杉IME-98五笔用户词库.txt"},
+    {L"wubixsj", L"中文 · 新世纪五笔", L"新世纪五笔", L"水杉IME-新世纪五笔用户词库.txt"},
     {L"english", L"英文", L"英文", L"水杉IME-英文用户词库.txt"},
     {L"quick_phrase", L"快捷短语", L"快捷短语", L"水杉IME-快捷短语用户词库.txt"},
     {L"cantonese", L"中文 · 粤语", L"粤语", L"水杉IME-粤语用户词库.txt"},
@@ -362,8 +363,8 @@ inline std::wstring page_status(std::uint32_t offset, std::size_t count, bool ha
 inline constexpr std::uint64_t max_export_bytes = 32ull * 1024 * 1024;
 
 // 「导出全部」读的种类和顺序，以及每行开头的类别（`personalDictionaryExportKinds`），和「导出当前类型」的下拉框顺序不同。
-inline constexpr std::array<std::wstring_view, 6> personal_export_kinds{
-    {L"pinyin", L"wubi", L"wubi98", L"quick_phrase", L"english", L"cantonese"}};
+inline constexpr std::array<std::wstring_view, 7> personal_export_kinds{
+    {L"pinyin", L"wubi", L"wubi98", L"wubixsj", L"quick_phrase", L"english", L"cantonese"}};
 
 inline constexpr std::wstring_view personal_export_name = L"水杉用户词库.txt";
 inline constexpr std::wstring_view personal_export_header = L"# 类别\t编码\t词条\t权重\n";
