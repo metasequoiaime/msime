@@ -815,7 +815,7 @@ struct ServiceSettingsView: View {
         Button { save() } label: {
           Label("保存配置", systemImage: "checkmark.circle.fill").frame(maxWidth: .infinity)
         }
-          .buttonStyle(.borderedProminent)
+          .buttonStyle(.borderedProminent).foregroundStyle(MetasequoiaTheme.onAccent)
           .tint(MetasequoiaTheme.accent)
           .accessibilityIdentifier("saveServiceConfiguration")
         Button("删除此服务的密钥", role: .destructive) {

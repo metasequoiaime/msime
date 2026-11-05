@@ -20,8 +20,8 @@ public final class AppThemePaletteSmoke {
         new Mode(0xFF17704A, 0xFFDDEFE4, 0xFFF6FBF8, 0x2E17704A, 0xFFFFFFFF, 0xFF0F6B46),
         new Mode(0xFF5FD39A, 0xFF0C1C14, 0xFF14281D, 0xFF2A2F2A, 0xFF183526));
     static final Seed AUTUMN = new Seed("qiushan", "autumn",
-        new Mode(0xFFB5562B, 0xFFF6E9DC, 0xFFFFFBF6, 0x33B5562B, 0xFFFFFFFF, 0xFF9F4214),
-        new Mode(0xFFF0975F, 0xFF21150F, 0xFF2E1E15, 0xFF2A2F2A, 0xFF3C2618));
+        new Mode(0xFFB07800, 0xFFFAF5E8, 0xFFFFFDF6, 0x33B07800, 0xFF1A1200, 0xFF905A00),
+        new Mode(0xFFF3C14F, 0xFF1C1910, 0xFF28241A, 0xFF2A2F2A, 0xFF3D3014));
     static final Seed WINTER = new Seed("dongxue", "winter",
         new Mode(0xFF3A6A8A, 0xFFE6EEF4, 0xFFFAFCFE, 0x2E3A6A8A, 0xFFFFFFFF, 0xFF346484),
         new Mode(0xFF93C7E6, 0xFF0F1820, 0xFF18232D, 0xFF2A2F2A, 0xFF25323A));
@@ -34,29 +34,29 @@ public final class AppThemePaletteSmoke {
 
     static void autumnLight() {
         AppThemePalette p = AppThemePalette.of(AUTUMN, false);
-        expect("autumn L accent", p.accent, 0xFFB5562B);
-        expect("autumn L onAccent", p.onAccent, 0xFFFFFFFF);
-        expect("autumn L accentSoft", p.accentSoft, 0x22B5562B);
-        expect("autumn L bg", p.background, 0xFFF6E9DC);
-        expect("autumn L andCard", p.card, 0xFFFBF5EF);
-        expect("autumn L rowBg", p.rowBackground, 0xFFFFFBF6);
-        expect("autumn L hair", p.hair, 0x33B5562B);
+        expect("autumn L accent", p.accent, 0xFFB07800);
+        expect("autumn L onAccent", p.onAccent, 0xFF1A1200);
+        expect("autumn L accentSoft", p.accentSoft, 0x22B07800);
+        expect("autumn L bg", p.background, 0xFFFAF5E8);
+        expect("autumn L andCard", p.card, 0xFFFDFBF5);
+        expect("autumn L rowBg", p.rowBackground, 0xFFFFFDF6);
+        expect("autumn L hair", p.hair, 0x33B07800);
         expect("autumn L text", p.text, 0xFF191C19);
         expect("autumn L sub", p.sub, 0xFF414941);
         expect("autumn L outline", p.outline, 0xFF717970);
         expect("autumn L swOff", p.switchOff, 0xFFDFE4DB);
-        expect("autumn L logoBg", p.logoBackground, 0xFF944723);
-        expect("autumn L logoCirc", p.logoDisc, 0xFFF1DFD4);
-        expect("autumn L splash bg", p.splashBackground, 0xFF2C1A11);
-        expect("autumn L splash disc", p.splashDisc, 0xFFF6EBE6);
-        expect("autumn L splash bar", p.splashBar, 0xFFCB896B);
-        expect("autumn L splash glow", p.splashGlow, 0x57B5562B);
-        expect("autumn L stat bar", p.statBar, 0xFFDFB5A1);
-        int[] heat = {0xFFF7ECE3, 0xFFEED8CC, 0xFFE0B9A5, 0xFFD09276, 0xFFBC663F};
+        expect("autumn L logoBg", p.logoBackground, 0xFF906200);
+        expect("autumn L logoCirc", p.logoDisc, 0xFFF2E8D2);
+        expect("autumn L splash bg", p.splashBackground, 0xFF2B2108);
+        expect("autumn L splash disc", p.splashDisc, 0xFFF6EFE0);
+        expect("autumn L splash bar", p.splashBar, 0xFFC8A14D);
+        expect("autumn L splash glow", p.splashGlow, 0x57B07800);
+        expect("autumn L stat bar", p.statBar, 0xFFDEC693);
+        int[] heat = {0xFFF8F3E6, 0xFFEFE3C9, 0xFFE0C998, 0xFFCDAA5D, 0xFFB88518};
         for (int level = 0; level < heat.length; level++) expect("autumn L heat" + level, p.heat(level), heat[level]);
-        expect("autumn L kb.bg", p.keyboardBackground, 0xFFEED7C7);
-        expect("autumn L kb.key", p.keyboardKey, 0xFFFDF9F6);
-        expect("autumn L kb.spec", p.keyboardFunction, 0xFFE6C6B2);
+        expect("autumn L kb.bg", p.keyboardBackground, 0xFFF1E6CC);
+        expect("autumn L kb.key", p.keyboardKey, 0xFFFEFCF9);
+        expect("autumn L kb.spec", p.keyboardFunction, 0xFFE8D7B0);
         expect("autumn L kb.fg", p.keyboardText, 0xFF191C19);
         expect("autumn L kb.sub", p.keyboardSub, 0xFF56685A);
         expect("autumn L kb.hair", p.keyboardHair, 0x1F000000);
@@ -68,29 +68,29 @@ public final class AppThemePaletteSmoke {
 
     static void autumnDark() {
         AppThemePalette p = AppThemePalette.of(AUTUMN, true);
-        expect("autumn D accent", p.accent, 0xFFF0975F);
-        expect("autumn D onAccent", p.onAccent, 0xFF3C2618);
-        expect("autumn D accentSoft", p.accentSoft, 0x40F0975F);
-        expect("autumn D bg", p.background, 0xFF21150F);
-        expect("autumn D andCard", p.card, 0xFF2C2720);
-        expect("autumn D rowBg", p.rowBackground, 0xFF2E1E15);
+        expect("autumn D accent", p.accent, 0xFFF3C14F);
+        expect("autumn D onAccent", p.onAccent, 0xFF3D3014);
+        expect("autumn D accentSoft", p.accentSoft, 0x40F3C14F);
+        expect("autumn D bg", p.background, 0xFF1C1910);
+        expect("autumn D andCard", p.card, 0xFF2C2A1F);
+        expect("autumn D rowBg", p.rowBackground, 0xFF28241A);
         expect("autumn D hair", p.hair, 0xFF2A2F2A);
         expect("autumn D text", p.text, 0xFFE1E3DE);
         expect("autumn D sub", p.sub, 0xFFC0C9BF);
         expect("autumn D outline", p.outline, 0xFF8A9389);
         expect("autumn D swOff", p.switchOff, 0xFF323532);
-        expect("autumn D logoBg", p.logoBackground, 0xFFC57C4E);
-        expect("autumn D logoCirc", p.logoDisc, 0xFF573F2E);
-        expect("autumn D splash bg", p.splashBackground, 0xFF38271B);
-        expect("autumn D splash disc", p.splashDisc, 0xFFFDF3EC);
-        expect("autumn D splash bar", p.splashBar, 0xFFF5B68F);
-        expect("autumn D splash glow", p.splashGlow, 0x57F0975F);
-        expect("autumn D stat bar", p.statBar, 0xFF84593D);
-        int[] heat = {0xFF382D24, 0xFF4F3B2C, 0xFF775138, 0xFFA66C47, 0xFFDC8C59};
+        expect("autumn D logoBg", p.logoBackground, 0xFFC79E41);
+        expect("autumn D logoCirc", p.logoDisc, 0xFF584B2A);
+        expect("autumn D splash bg", p.splashBackground, 0xFF392F18);
+        expect("autumn D splash disc", p.splashDisc, 0xFFFEF8EA);
+        expect("autumn D splash bar", p.splashBar, 0xFFF7D484);
+        expect("autumn D splash glow", p.splashGlow, 0x57F3C14F);
+        expect("autumn D stat bar", p.statBar, 0xFF866E35);
+        int[] heat = {0xFF383322, 0xFF504528, 0xFF786331, 0xFFA7883D, 0xFFDFB24A};
         for (int level = 0; level < heat.length; level++) expect("autumn D heat" + level, p.heat(level), heat[level]);
-        expect("autumn D kb.bg", p.keyboardBackground, 0xFF2C241D);
-        expect("autumn D kb.key", p.keyboardKey, 0xFF4C453E);
-        expect("autumn D kb.spec", p.keyboardFunction, 0xFF42382E);
+        expect("autumn D kb.bg", p.keyboardBackground, 0xFF2C281C);
+        expect("autumn D kb.key", p.keyboardKey, 0xFF4D493C);
+        expect("autumn D kb.spec", p.keyboardFunction, 0xFF433D2C);
         expect("autumn D kb.fg", p.keyboardText, 0xFFE1E3DE);
         expect("autumn D kb.sub", p.keyboardSub, 0xFF93A596);
         expect("autumn D kb.hair", p.keyboardHair, 0x24FFFFFF);

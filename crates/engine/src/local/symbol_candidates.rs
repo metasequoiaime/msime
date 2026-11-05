@@ -32,6 +32,12 @@ pub const SINGLE_SYLLABLE_NAMES: [&str; 33] = [
     "圈",
 ];
 
+/// 不收作名称的常用连词：它们是全拼主库里最常打的词（所以、因为 在 dict-v2.0.55 的多字词里按权重排第 6、第 8），符号会紧跟在它们后面排第 2，打首字母 `sy`、`yw` 时也挤进第一页。∵ ∴ 用 因为号、所以号 打。
+#[cfg(test)]
+const FUNCTION_WORD_NAMES: [&str; 10] = [
+    "因为", "所以", "因此", "但是", "如果", "那么", "并且", "或者", "而且", "虽然",
+];
+
 /// 混排的一行符号，带着决定它位置的信息，规则见 `queries::place_symbol_rows`。
 #[derive(Debug, Clone, PartialEq)]
 pub struct SymbolRow {
@@ -329,6 +335,11 @@ mod tests {
                             entry.name
                         );
                     }
+                    assert!(
+                        !FUNCTION_WORD_NAMES.contains(&entry.name),
+                        "不收常用连词作名称：{}",
+                        entry.name
+                    );
                     if entry.syllables() == 1 {
                         assert!(
                             SINGLE_SYLLABLE_NAMES.contains(&entry.name),
@@ -398,6 +409,21 @@ mod tests {
         // 一个字母不查；含字母以外的字符不查。
         assert!(quanpin("d").is_empty());
         assert!(quanpin("da1yu").is_empty());
+    }
+
+    /// 因为、所以 不出符号，∵ ∴ 要打 因为号、所以号。
+    #[test]
+    fn conjunctions_offer_no_symbols() {
+        for input in ["yinwei", "suoyi", "yw", "sy"] {
+            assert!(
+                !texts(&quanpin(input))
+                    .iter()
+                    .any(|symbol| ["∵", "∴"].contains(symbol)),
+                "{input}"
+            );
+        }
+        assert_eq!(texts(&quanpin("yinweihao")), vec!["∵"]);
+        assert_eq!(texts(&quanpin("suoyihao")), vec!["∴"]);
     }
 
     #[test]

@@ -72,13 +72,13 @@ impl ClipboardKey {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RandomUnavailable;
 
-fn random<const N: usize>() -> Result<[u8; N], RandomUnavailable> {
+pub(crate) fn random<const N: usize>() -> Result<[u8; N], RandomUnavailable> {
     let mut bytes = [0u8; N];
     getrandom::fill(&mut bytes).map_err(|_| RandomUnavailable)?;
     Ok(bytes)
 }
 
-fn hkdf32(ikm: &[u8], salt: Option<&[u8]>, info: &[u8]) -> [u8; 32] {
+pub(crate) fn hkdf32(ikm: &[u8], salt: Option<&[u8]>, info: &[u8]) -> [u8; 32] {
     let mut output = [0u8; 32];
     Hkdf::<Sha256>::new(salt, ikm)
         .expand(info, &mut output)
@@ -86,7 +86,7 @@ fn hkdf32(ikm: &[u8], salt: Option<&[u8]>, info: &[u8]) -> [u8; 32] {
     output
 }
 
-fn decode_exact<const N: usize>(value: &str) -> Option<[u8; N]> {
+pub(crate) fn decode_exact<const N: usize>(value: &str) -> Option<[u8; N]> {
     B64.decode(value).ok()?.try_into().ok()
 }
 
@@ -103,6 +103,11 @@ pub fn verification_code(public_key: &[u8; 32]) -> String {
     let digest = hasher.finalize();
     let mut prefix = [0u8; 8];
     prefix.copy_from_slice(&digest[..8]);
+    grouped_digits(prefix)
+}
+
+/// 核对码的显示形式：8 字节读成大端无符号整数，对 10¹⁶ 取余，左补零到 16 位，每 4 位一组。云剪贴板和输入习惯同步（`learning_e2e`）的核对码都这样显示。
+pub(crate) fn grouped_digits(prefix: [u8; 8]) -> String {
     let digits = format!(
         "{:016}",
         u64::from_be_bytes(prefix) % 10_000_000_000_000_000
@@ -410,14 +415,14 @@ pub struct DriverError {
 }
 
 impl DriverError {
-    fn local(code: &str) -> Self {
+    pub(crate) fn local(code: &str) -> Self {
         Self {
             status: 0,
             code: code.to_owned(),
         }
     }
 
-    fn invalid_response() -> Self {
+    pub(crate) fn invalid_response() -> Self {
         Self::local("invalid_response")
     }
 
@@ -556,7 +561,7 @@ enum Readiness {
     NoKey,
 }
 
-fn sanitize_device_name(name: &str) -> String {
+pub(crate) fn sanitize_device_name(name: &str) -> String {
     name.chars()
         .filter(|character| !character.is_control())
         .take(MAX_DEVICE_NAME_CHARS)
@@ -1134,6 +1139,11 @@ struct ResumeInput {
 pub fn drive_json(input: &[u8]) -> Result<Value, String> {
     let value: Value =
         serde_json::from_slice(input).map_err(|_| "invalid cloud clipboard e2e request")?;
+    drive_value(value)
+}
+
+/// [`drive_json`] 的已解析形式，给按 `domain` 分派的入口（[`crate::cloud::e2e_drive_json`]）用。
+pub(crate) fn drive_value(value: Value) -> Result<Value, String> {
     let step = if value.get("start").is_some() {
         let input: StartInput =
             serde_json::from_value(value).map_err(|_| "invalid cloud clipboard e2e request")?;

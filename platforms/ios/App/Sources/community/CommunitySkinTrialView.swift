@@ -14,7 +14,7 @@ struct CommunitySkinTrialView: View {
           HStack {
             Button("恢复原皮肤") { finish(keep: false) }.buttonStyle(.bordered).accessibilityIdentifier("restoreTrialSkin")
             Spacer()
-            Button("保留使用") { finish(keep: true) }.buttonStyle(.borderedProminent).accessibilityIdentifier("keepTrialSkin")
+            Button("保留使用") { finish(keep: true) }.buttonStyle(.borderedProminent).foregroundStyle(MetasequoiaTheme.onAccent).accessibilityIdentifier("keepTrialSkin")
           }
         }.padding(14).background(MetasequoiaTheme.accentSoft)
         KeyboardTryoutView(focusOnAppear: true)
