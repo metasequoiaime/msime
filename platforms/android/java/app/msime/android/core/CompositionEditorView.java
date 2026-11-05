@@ -21,6 +21,8 @@ final class CompositionEditorView extends View {
     private final int touchSlop;
     private String display = "";
     private String editing = "";
+    /** 这次组字所在键盘的组码表（{@link CompositionCaretPolicy#keypad}），换算点按和拖动用。 */
+    private String keypad;
     private int offset;
     private int accent;
     private float scroll;
@@ -37,7 +39,7 @@ final class CompositionEditorView extends View {
             int direction = x < dp(28) ? -1 : x > getWidth() - dp(28) ? 1 : 0;
             if (direction != 0) {
                 // 音节分隔符不占按键，按显示下标逐格后退会停在同一个分隔符上。
-                int current = CompositionCaretPolicy.tapTarget(0, display, editing, -1, offset);
+                int current = CompositionCaretPolicy.tapTarget(0, display, editing, keypad, -1, offset);
                 int next = Math.max(0, Math.min(editing.length(), current + direction));
                 if (next != current) move.accept(next);
                 dragOrigin = widthTo(offset);
@@ -129,13 +131,15 @@ final class CompositionEditorView extends View {
         return super.performAccessibilityAction(action, arguments);
     }
 
-    void update(String display, String editing, int caret, boolean keyGrid, int foreground, int accent) {
+    void update(String display, String editing, String keypad, int caret, boolean keyGrid, int foreground,
+            int accent) {
         boolean textChanged = !this.display.equals(display);
         int previousOffset = offset;
         this.display = display;
         this.editing = editing;
+        this.keypad = keypad;
         this.accent = accent;
-        offset = Math.max(0, CompositionCaretPolicy.displayOffset(display, editing, caret, keyGrid));
+        offset = Math.max(0, CompositionCaretPolicy.displayOffset(display, editing, keypad, caret, keyGrid));
         paint.setColor(foreground);
         place();
         if (textChanged || previousOffset != offset) sendAccessibilityEvent(textChanged
@@ -176,8 +180,8 @@ final class CompositionEditorView extends View {
     }
 
     private void request(int shownOffset) {
-        int target = CompositionCaretPolicy.tapTarget(0, display, editing, -1, shownOffset);
-        int current = CompositionCaretPolicy.tapTarget(0, display, editing, -1, offset);
+        int target = CompositionCaretPolicy.tapTarget(0, display, editing, keypad, -1, shownOffset);
+        int current = CompositionCaretPolicy.tapTarget(0, display, editing, keypad, -1, offset);
         if (target >= 0 && target != current) move.accept(target);
     }
 
