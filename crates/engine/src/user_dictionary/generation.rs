@@ -532,7 +532,6 @@ pub(crate) fn merge_split_wubi(resources: &Path, main_db: &Path) -> Result<()> {
             let mut select = input.prepare(&format!("SELECT rowid,* FROM \"{table}\""))?;
             let columns: Vec<String> = select
                 .column_names()
-                .iter()
                 .map(|name| format!("\"{name}\""))
                 .collect();
             let placeholders = vec!["?"; columns.len()].join(",");
