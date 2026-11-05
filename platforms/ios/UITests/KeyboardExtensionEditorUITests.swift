@@ -1132,6 +1132,45 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     XCTAssertTrue(value.contains("你好"), "the editor holds \(value)")
   }
 
+  /// 14 键组字中拖空格：与 Android 一样先上屏首选、再移动输入框光标，不把光标挪进组码。在系统加载的扩展里打 BN UI GH AS OP 后左拖空格，输入框里有了「好」；改之前组字留着，光标走进组码，读音行变成 `bug|ao` 这样的组码。拖之前和松手后各留一张截图。
+  func testDraggingSpaceOnFourteenKeysCommitsBeforeMovingTheCaret() throws {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    let input = app.buttons["inputSettingsLink"]
+    for _ in 0..<6 where !input.isHittable { app.swipeUp() }
+    XCTAssertTrue(input.waitForExistence(timeout: 5))
+    input.tap()
+    app.buttons["inputLanguage_mandarin"].tap()
+    let option = app.buttons["inputScheme_fourteenKey"]
+    XCTAssertTrue(option.waitForExistence(timeout: 5))
+    option.tap()
+    // 选项在退场动画完成后才保存，不能在回调之前终止宿主。
+    let dismissed = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "exists == false"), object: app.buttons["designOptionSheetCancel"])
+    XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 5), .completed)
+    app.terminate()
+    let field = try focusedTryoutKeyboard(app)
+    for label in ["按键 B N", "按键 U I", "按键 G H", "按键 A S", "按键 O P"] {
+      let key = app.buttons[label].exists ? app.buttons[label] : app.keys[label]
+      XCTAssertTrue(key.waitForExistence(timeout: 5), "\(label) is missing from the 14-key face")
+      key.tap()
+    }
+    XCTAssertTrue(app.buttons["candidate-1"].waitForExistence(timeout: 8), "the candidate strip stayed empty for the 14-key nihao")
+    let reading = app.buttons["preeditButton"]
+    XCTAssertTrue(["ni'hao", "bu'hao"].contains(reading.value as? String ?? ""), "the reading row reads \(reading.value ?? "")")
+    keepScreenshot("十四键拖空格-拖之前", in: app)
+
+    let space = app.buttons["spaceKey"]
+    XCTAssertTrue(space.isHittable)
+    let start = space.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.5))
+    start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: -48, dy: 0)),
+                withVelocity: 120, thenHoldForDuration: 0.1)
+    keepScreenshot("十四键拖空格-松手后", in: app)
+    let value = (field.value as? String) ?? ""
+    XCTAssertTrue(value.contains("好"), "the drag committed the top candidate first: the editor holds \(value)")
+  }
+
   /// 原生设置保存双拼 14 键后，系统加载的扩展在独立编辑器中完成四种方案的选词上屏。
   func testFourteenKeyShuangpinProfilesCommitIntoTheSystemEditor() throws {
     let app = XCUIApplication()
