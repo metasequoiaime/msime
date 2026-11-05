@@ -3,127 +3,127 @@
     "10": {
       "cases": 94,
       "found": 0.915,
-      "mrr": 0.745,
-      "top1": 0.66,
-      "top1_char_prefix": 0.791,
+      "mrr": 0.742,
+      "top1": 0.649,
+      "top1_char_prefix": 0.793,
       "top5": 0.862,
       "top9": 0.862
     },
     "11": {
       "cases": 96,
-      "found": 0.865,
-      "mrr": 0.714,
-      "top1": 0.615,
-      "top1_char_prefix": 0.787,
-      "top5": 0.823,
-      "top9": 0.823
+      "found": 0.833,
+      "mrr": 0.693,
+      "top1": 0.594,
+      "top1_char_prefix": 0.765,
+      "top5": 0.802,
+      "top9": 0.802
     },
     "12": {
       "cases": 53,
       "found": 0.774,
       "mrr": 0.664,
       "top1": 0.604,
-      "top1_char_prefix": 0.788,
+      "top1_char_prefix": 0.78,
       "top5": 0.736,
       "top9": 0.736
     },
     "13": {
       "cases": 46,
       "found": 0.848,
-      "mrr": 0.75,
+      "mrr": 0.739,
       "top1": 0.674,
-      "top1_char_prefix": 0.796,
-      "top5": 0.848,
-      "top9": 0.848
+      "top1_char_prefix": 0.801,
+      "top5": 0.826,
+      "top9": 0.826
     },
     "14": {
       "cases": 34,
       "found": 0.824,
-      "mrr": 0.76,
+      "mrr": 0.765,
       "top1": 0.735,
-      "top1_char_prefix": 0.836,
+      "top1_char_prefix": 0.832,
       "top5": 0.794,
       "top9": 0.794
     },
     "15": {
       "cases": 28,
-      "found": 0.786,
-      "mrr": 0.626,
-      "top1": 0.571,
-      "top1_char_prefix": 0.717,
-      "top5": 0.679,
-      "top9": 0.679
+      "found": 0.857,
+      "mrr": 0.68,
+      "top1": 0.643,
+      "top1_char_prefix": 0.771,
+      "top5": 0.714,
+      "top9": 0.714
     },
     "16": {
       "cases": 22,
       "found": 0.818,
       "mrr": 0.728,
       "top1": 0.682,
-      "top1_char_prefix": 0.838,
+      "top1_char_prefix": 0.835,
       "top5": 0.773,
       "top9": 0.773
     },
     "6": {
       "cases": 217,
       "found": 0.903,
-      "mrr": 0.749,
-      "top1": 0.677,
-      "top1_char_prefix": 0.814,
-      "top5": 0.834,
-      "top9": 0.834
+      "mrr": 0.756,
+      "top1": 0.682,
+      "top1_char_prefix": 0.819,
+      "top5": 0.848,
+      "top9": 0.848
     },
     "7": {
       "cases": 178,
-      "found": 0.865,
-      "mrr": 0.721,
-      "top1": 0.64,
-      "top1_char_prefix": 0.799,
+      "found": 0.871,
+      "mrr": 0.723,
+      "top1": 0.646,
+      "top1_char_prefix": 0.802,
       "top5": 0.809,
       "top9": 0.809
     },
     "8": {
       "cases": 184,
-      "found": 0.924,
-      "mrr": 0.739,
+      "found": 0.929,
+      "mrr": 0.741,
       "top1": 0.636,
       "top1_char_prefix": 0.779,
-      "top5": 0.864,
-      "top9": 0.864
+      "top5": 0.87,
+      "top9": 0.87
     },
     "9": {
       "cases": 153,
-      "found": 0.869,
-      "mrr": 0.729,
+      "found": 0.876,
+      "mrr": 0.726,
       "top1": 0.641,
       "top1_char_prefix": 0.79,
-      "top5": 0.83,
-      "top9": 0.83
+      "top5": 0.824,
+      "top9": 0.824
     }
   },
   "by_tag": {
     "harvested": {
       "cases": 1105,
-      "found": 0.878,
-      "mrr": 0.729,
-      "top1": 0.648,
+      "found": 0.88,
+      "mrr": 0.73,
+      "top1": 0.649,
       "top1_char_prefix": 0.795,
-      "top5": 0.825,
-      "top9": 0.825
+      "top5": 0.826,
+      "top9": 0.826
     }
   },
   "cases": 1105,
   "gold_source": {
     "database": 1,
-    "generated": 969
+    "generated": 971
   },
   "overall": {
     "cases": 1105,
-    "found": 0.878,
-    "mrr": 0.729,
-    "top1": 0.648,
+    "found": 0.88,
+    "mrr": 0.73,
+    "top1": 0.649,
     "top1_char_prefix": 0.795,
-    "top5": 0.825,
-    "top9": 0.825
+    "top5": 0.826,
+    "top9": 0.826
   },
   "sample_failures": [
     {
@@ -172,7 +172,7 @@
       "gold": "也成为了泡影",
       "id": "h-0020",
       "input": "yechengweilepaoying",
-      "rank": 237,
+      "rank": 2,
       "top1": "也成为了跑赢"
     },
     {
@@ -258,13 +258,6 @@
       "input": "chuangxinyongbuguoshi",
       "rank": 2,
       "top1": "创新用不过时"
-    },
-    {
-      "gold": "去救一个奴婢",
-      "id": "h-0052",
-      "input": "qujiuyigenubi",
-      "rank": 2,
-      "top1": "去就一个奴婢"
     },
     {
       "gold": "又将去往何方",
@@ -389,7 +382,7 @@
       "gold": "开启警灯警报",
       "id": "h-0105",
       "input": "kaiqijingdengjingbao",
-      "rank": 90,
+      "rank": 3,
       "top1": "开启静等警报"
     },
     {
@@ -405,6 +398,13 @@
       "input": "womenwangnabianzou",
       "rank": 2,
       "top1": "我们往那边走"
+    },
+    {
+      "gold": "我的同桌叫军",
+      "id": "h-0120",
+      "input": "wodetongzhuojiaojun",
+      "rank": null,
+      "top1": "我的同桌叫均"
     }
   ],
   "top1_source": {

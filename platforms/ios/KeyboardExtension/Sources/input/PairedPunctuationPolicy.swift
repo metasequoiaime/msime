@@ -110,6 +110,6 @@ extension MetasequoiaInputSnapshot {
       cornerQuotes: cornerQuotes, hollowBrackets: hollowBrackets,
       enumerationCommaBackslash: enumerationCommaBackslash,
       enumerationCommaSlash: enumerationCommaSlash,
-      isPrediction: isPrediction)
+      isPrediction: isPrediction, requiresCandidateSelection: requiresCandidateSelection)
   }
 }

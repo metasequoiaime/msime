@@ -111,6 +111,9 @@ pub enum CharacterWidth {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct View {
+    /// 混合滑行仍待用户明确选词；宿主可把确认键路由到高亮候选，不得据此自动结束组字。
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub requires_candidate_selection: bool,
     /// 非组字的上屏后联想；空格、回车、数字和失焦均不自动提交这些候选。
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub prediction: bool,

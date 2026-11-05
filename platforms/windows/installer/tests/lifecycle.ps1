@@ -11,14 +11,15 @@ function Get-Block([string]$Begin, [string]$End) {
 }
 
 # ---- processes stopped before files are replaced or removed ----
-# 两种构建的安装器与 Server 必须选择相同的设置和面板入口；分别核对编译分支。
+# 两种构建的安装器与 Server 必须选择相同的设置和面板入口；分别核对编译分支。现代分支另有 MSIME_WINDOWS_PANEL_HOST=native 时的原生面板宿主，它和缺省的 MSIME.exe 都随包安装；Win7 分支只有自己的原生面板。
 $shell = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../src/system/ShellSurfaces.h') -Raw -Encoding UTF8
 $branches = [regex]::Match($shell, '(?s)#if defined\(MSIME_WINDOWS7_CLIENT\) && MSIME_WINDOWS7_CLIENT\s*(.*?)#else\s*(.*?)#endif')
 if (-not $branches.Success) { throw 'Missing explicit Win7/modern shell branches' }
-foreach ($variant in @(@(1, 'msime-client-settings-win7.exe', 'msime-client-panels-win7.exe'), @(2, 'msime-client-settings.exe', 'MSIME.exe'))) {
+foreach ($variant in @(@(1, 'msime-client-settings-win7.exe', 'msime-client-panels-win7.exe', ''), @(2, 'msime-client-settings.exe', 'MSIME.exe', 'msime-client-panels.exe'))) {
     $body = $branches.Groups[$variant[0]].Value
-    $names = [regex]::Match($body, 'if \(request\.panel\.empty\(\)\)\s*return\s*\{L"([^"]+)"\};\s*return\s*\{L"([^"]+)"\};')
-    if (-not $names.Success -or $names.Groups[1].Value -cne $variant[1] -or $names.Groups[2].Value -cne $variant[2] -or
+    $names = [regex]::Match($body, 'if \(request\.panel\.empty\(\)\)\s*return\s*\{L"([^"]+)"\};\s*(?:if \(panel_host == PanelHost::Native\)\s*return\s*\{L"([^"]+)"\};\s*)?return\s*\{L"([^"]+)"\};')
+    if (-not $names.Success -or $names.Groups[1].Value -cne $variant[1] -or $names.Groups[3].Value -cne $variant[2] -or
+        $names.Groups[2].Value -cne $variant[3] -or
         -not $script.Contains(('#define MySettingsExeName "' + $variant[1] + '"'))) {
         throw "Installer/Server entry mismatch: $($variant[1])"
     }
@@ -187,7 +188,7 @@ if ($script -notmatch '(?m)^Name: "\{code:GetDataDir\}"; Permissions: users-modi
     throw 'The data directory is not created with Users modify permission'
 }
 $ensure = Get-Block 'procedure EnsureImeUserDataDir;' 'procedure CreateWatchdogLogonTask;'
-foreach ($needle in @("AppDataPath := GetDataDir('')", '/grant *S-1-5-32-545:(OI)(CI)M /T /C /Q', '/setintegritylevel (OI)(CI)M /T /C /Q')) {
+foreach ($needle in @("AppDataPath := GetDataDir('')", '/grant *S-1-5-32-545:(OI)(CI)M /T /C /Q', '/remove:g *S-1-15-2-1 /T /C /Q', '/remove:g *S-1-15-2-2 /T /C /Q', '/setintegritylevel (OI)(CI)M /T /C /Q')) {
     if (-not $ensure.Contains($needle)) { throw "EnsureImeUserDataDir is missing $needle" }
 }
 $postInstall = Get-Block 'if CurStep = ssPostInstall then' 'procedure CurUninstallStepChanged'

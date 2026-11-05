@@ -3094,8 +3094,7 @@ class SettingsBridge {
       if (response.responseCode >= 200 && response.responseCode < 300) {
         return this.credentialReply(true, '连接成功，API Key 和模型配置有效。');
       }
-      return this.credentialReply(false,
-        CredentialStatusPolicy.rejected(response.responseCode, '服务拒绝请求，请检查接口地址和模型配置'));
+      return this.credentialReply(false, CredentialStatusPolicy.chatRejected(response.responseCode));
     } catch (error) {
       KeyboardLog.error(`chat credential unavailable: ${describeError(error)}`);
       return this.credentialReply(false, '连接失败，请检查接口地址、模型、API Key 和网络。');

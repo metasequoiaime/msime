@@ -109,7 +109,7 @@ int main() {
                     [MSIMEInputModeIDForSchemeIn(@{}, @"wubi") isEqualToString:MSIMEWubiInputModeID] &&
                     [MSIMEInputModeIDForSchemeIn(@{}, @"shuangpin") isEqualToString:MSIMEShuangpinInputModeID],
                 "The settings window would look for a mode the edition does not declare.");
-        // 菜单栏状态项（#7066）的图标与系统输入法菜单同一张：full 每个模式各有自己的，「英」是 English.tiff；五笔版没有 .Wubi，取 .Hans 上的五笔图标；缺项时回退到输入法本身的图标。
+        // 系统输入法菜单的图标查找：按模式条目取 plist 声明的那张，五笔版没有 .Wubi 时取 .Hans 上的；缺项时回退到输入法本身的图标。
         NSDictionary *fullIcons = @{@"ComponentInputModeDict": @{@"tsInputModeListKey": @{
             MSIMEChineseInputModeID: @{@"tsInputModeMenuIconFileKey": @"MSIMEClientInputMethodMenuIconChinese.tiff"},
             MSIMEShuangpinInputModeID: @{@"tsInputModeMenuIconFileKey": @"MSIMEClientInputMethodMenuIconShuangpin.tiff"},
@@ -123,7 +123,15 @@ int main() {
                     [MSIMEInputModeMenuIconFileIn(fullIcons, MSIMEShuangpinInputModeID) isEqualToString:@"MSIMEClientInputMethodMenuIconShuangpin.tiff"] &&
                     [MSIMEInputModeMenuIconFileIn(wubiIcons, MSIMEWubiInputModeID) isEqualToString:@"MSIMEClientInputMethodMenuIconWubi.tiff"] &&
                     [MSIMEInputModeMenuIconFileIn(wubiIcons, MSIMEEnglishInputModeID) isEqualToString:@"MSIMEClientInputMethodMenuIconEnglish.tiff"],
-                "The menu bar status item would not show the icon the input menu shows for the mode.");
+                "The input menu icon lookup no longer follows the plist.");
+        // 系统菜单里所有模式都是水杉标志，菜单栏状态项按模式标识自己取大字：各版本的标识前缀不同（这里用一个虚构的前缀），后缀相同；不认识的标识没有大字。
+        require([MSIMEInputModeGlyphFile(MSIMEChineseInputModeID) isEqualToString:@"MSIMEClientInputMethodMenuIconChinese.tiff"] &&
+                    [MSIMEInputModeGlyphFile(MSIMEEnglishInputModeID) isEqualToString:@"MSIMEClientInputMethodMenuIconEnglish.tiff"] &&
+                    [MSIMEInputModeGlyphFile(MSIMEWubiInputModeID) isEqualToString:@"MSIMEClientInputMethodMenuIconWubi.tiff"] &&
+                    [MSIMEInputModeGlyphFile(MSIMEKoreanInputModeID) isEqualToString:@"MSIMEClientInputMethodMenuIconKorean.tiff"] &&
+                    [MSIMEInputModeGlyphFile(@"com.example.OtherEdition.Wubi") isEqualToString:@"MSIMEClientInputMethodMenuIconWubi.tiff"] &&
+                    MSIMEInputModeGlyphFile(MSIMEInputModeIdentifier(@"Unknown")) == nil && MSIMEInputModeGlyphFile(nil) == nil,
+                "The menu bar status item would not draw the mode's own glyph.");
         require([MSIMEInputModeMenuIconFileIn(@{@"ComponentInputModeDict": @{@"tsInputModeListKey": @{}}, @"tsInputMethodIconFileKey": @"Custom.tiff"}, MSIMEJapaneseInputModeID) isEqualToString:@"Custom.tiff"] &&
                     [MSIMEInputModeMenuIconFileIn(@{}, MSIMEEnglishInputModeID) isEqualToString:@"MSIMEClientInputMethodMenuIcon.tiff"] &&
                     [MSIMEInputModeMenuIconFileIn(@{@"ComponentInputModeDict": @[]}, nil) isEqualToString:@"MSIMEClientInputMethodMenuIcon.tiff"] &&
@@ -419,11 +427,11 @@ int main() {
         require([MSIMEInputSchemeNames() isEqualToArray:@[@"quanpin", @"shuangpin", @"wubi", @"japanese", @"korean", @"cantonese", @"zhuyin", @"vietnamese", @"tibetan", @"stroke"]],
                 "The scheme names are not in the Engine's wire order.");
         // 菜单名和「添加」对话框里的语言与 InfoPlist.strings、Info.plist.in 和共享设置页的表一致。
-        require([MSIMEInputModeMenuName(MSIMETibetanInputModeID) isEqualToString:@"水杉输入法 · 藏"] &&
+        require([MSIMEInputModeMenuName(MSIMETibetanInputModeID) isEqualToString:@"水杉藏语"] &&
                     [MSIMEInputModeAddDialogLanguage(MSIMETibetanInputModeID) isEqualToString:@"藏语"],
                 "The Tibetan mode is named or grouped differently from the plist and the settings page.");
-        // 笔画在输入菜单里叫「水杉输入法 · 笔」，在系统设置「添加」对话框的「简体中文」下。
-        require([MSIMEInputModeMenuName(MSIMEStrokeInputModeID) isEqualToString:@"水杉输入法 · 笔"] &&
+        // 笔画在输入菜单里叫「水杉笔画」，在系统设置「添加」对话框的「简体中文」下。
+        require([MSIMEInputModeMenuName(MSIMEStrokeInputModeID) isEqualToString:@"水杉笔画"] &&
                     [MSIMEInputModeAddDialogLanguage(MSIMEStrokeInputModeID) isEqualToString:@"简体中文"],
                 "The Stroke mode's menu name or Add dialog language is wrong.");
         // 日文、越南文、藏文版的 中（.Hans）和 英 登记在本版本的语言下，设置窗口按 bundle 里的 TISIntendedLanguage 说去哪个语言下添加；五笔版的仍在「简体中文」下。

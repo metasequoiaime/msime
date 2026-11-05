@@ -68,7 +68,10 @@ fn assert_clean(paths: &[SentencePath]) {
     assert!(!paths.is_empty());
     for path in paths {
         assert!(
-            !path.words.iter().any(|word| offensive::is_offensive(word)),
+            !path
+                .words
+                .iter()
+                .any(|word| crate::lattice::offensive::is_offensive(word)),
             "{}",
             path.sentence
         );
@@ -218,4 +221,27 @@ fn a_typo_edge_spanning_the_whole_input_never_substitutes_an_offensive_word() {
     )
     .expect("an ordinary typo word is used");
     assert_eq!(typo.sentence, "吃食了");
+}
+
+/// 选项里换成词库读出来的表时按那张表拦：表里只有 邮局，巨乳 照常成边、邮局 不再成边。产品路径由 `SentenceNgramTables::options` 带上活动词典的表。
+#[test]
+fn the_options_table_replaces_the_embedded_one() {
+    let rows = women_you_ju_ru();
+    let table = OffensiveWords::from_entries([crate::lattice::offensive::OffensiveEntry {
+        text: "邮局".to_owned(),
+        exempt: false,
+    }])
+    .expect("a table with a listed word");
+    let options = LatticeOptions {
+        nbest: 6,
+        offensive: table,
+        ..LatticeOptions::default()
+    };
+    let paths = decode_sentences(&syllables("wo'men'you'ju'ru"), &mut lookup(&rows), &options);
+    assert!(paths
+        .iter()
+        .any(|path| path.words.iter().any(|word| word == "巨乳")));
+    assert!(paths
+        .iter()
+        .all(|path| path.words.iter().all(|word| word != "邮局")));
 }

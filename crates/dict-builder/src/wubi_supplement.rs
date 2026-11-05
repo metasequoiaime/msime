@@ -2,7 +2,9 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use crate::places_supplement::{is_han, weighted_rows};
+use crate::curation::PinyinCuration;
+use crate::msime;
+use crate::places_supplement::is_han;
 
 /// 每个字的全码：码表里该字单独出现时最长的编码。
 pub(crate) fn full_codes(rows: &[(String, &str, i64)]) -> HashMap<char, Vec<String>> {
@@ -62,36 +64,57 @@ pub(crate) struct Ranked<'a> {
     pub unique_codes_shared: usize,
 }
 
-/// 语料里同一词可能出现多次；取最大权重。
-pub(crate) fn frequencies<'a>(sources: impl IntoIterator<Item = &'a str>) -> HashMap<&'a str, i64> {
-    let mut frequency = HashMap::new();
-    for (value, _, weight) in sources.into_iter().flat_map(weighted_rows) {
-        let slot = frequency.entry(value).or_insert(weight);
-        *slot = (*slot).max(weight);
-    }
-    frequency
+/// 拼音来源里每个词的两种权重，各取同词所有读音的最大值。
+pub(crate) struct Frequencies<'a> {
+    /// 判 100 门槛用（[`pinyin_words`]）。
+    pub threshold: HashMap<&'a str, i64>,
+    /// 同码排序用（[`rank`]）。
+    pub order: HashMap<&'a str, i64>,
 }
 
+/// 语料里同一词可能出现多次；取最大权重。行按 `curation` 读（[`PinyinCuration::wubi_rows`]）：否决的行不算；权重覆盖只有第四列写了 `wubi` 的频率修正才改同码排序，而且不会让一个词掉到门槛以下，相对全拼键的降权（碎片、非标准读音、custom 越位）五笔不理。
+pub(crate) fn frequencies<'a>(
+    sources: impl IntoIterator<Item = &'a str>,
+    curation: &'a PinyinCuration,
+) -> Frequencies<'a> {
+    let mut frequencies = Frequencies {
+        threshold: HashMap::new(),
+        order: HashMap::new(),
+    };
+    for (value, threshold, order) in sources
+        .into_iter()
+        .flat_map(|source| curation.wubi_rows(source))
+    {
+        let slot = frequencies.threshold.entry(value).or_insert(threshold);
+        *slot = (*slot).max(threshold);
+        let slot = frequencies.order.entry(value).or_insert(order);
+        *slot = (*slot).max(order);
+    }
+    frequencies
+}
+
+/// 拼音来源里能做五笔词组的词：`frequency` 里权重不低于 `minimum` 的，加上 `manual`（区划表、人工词条）里不设门槛的。`curation` 整词否决的词一个也不收，`manual` 里被否决的读音也不算。
 pub(crate) fn pinyin_words<'a>(
     frequency: &'a HashMap<&'a str, i64>,
     minimum: i64,
-    curated: &[&'a str],
+    manual: &[&'a str],
+    curation: &'a PinyinCuration,
 ) -> BTreeSet<&'a str> {
     frequency
         .iter()
         .filter(|(_, weight)| **weight >= minimum)
         .map(|(word, _)| *word)
         .chain(
-            curated
+            manual
                 .iter()
-                .flat_map(|source| weighted_rows(source))
+                .flat_map(|source| curation.rows(source))
                 .map(|(word, _, _)| word),
         )
-        .filter(|word| is_word(word))
+        .filter(|word| is_word(word) && !curation.vetoes_word(word))
         .collect()
 }
 
-/// 既有行定义全码、同码最低权重和唯一四码；候选已由各版本独立筛选。
+/// 既有行定义全码、同码最低权重和唯一四码；候选已由各版本独立筛选。同码最低权重和唯一四码只算构建会写入的行（[`msime::unsupported_wubi_value`] 为假）：扩展区字的行几乎都是 0 权重，算进去会把同码补充词一律压成 0（极点表合并 rime-wubi 之后有 20538 个编码这样），而构建根本不写这些行。
 pub(crate) fn rank<'a>(
     rows: &[(String, &str, i64)],
     candidates: impl IntoIterator<Item = &'a str>,
@@ -101,7 +124,10 @@ pub(crate) fn rank<'a>(
     let codes = full_codes(rows);
     let mut lowest: HashMap<&str, i64> = HashMap::new();
     let mut per_code: HashMap<&str, usize> = HashMap::new();
-    for (code, _, weight) in rows {
+    for (code, _, weight) in rows
+        .iter()
+        .filter(|(_, value, _)| !msime::unsupported_wubi_value(value))
+    {
         let slot = lowest.entry(code.as_str()).or_insert(*weight);
         *slot = (*slot).min(*weight);
         *per_code.entry(code.as_str()).or_default() += 1;
@@ -172,12 +198,62 @@ mod tests {
         let supplement = "工人\tgong'ren\t150\n工人\tgong'reng\t10\n人民\tren'min\t99\n";
         let custom = "工人民\tgong'ren'min\t1\nASCII\ta\t100\n";
         let places = "工人日民\tgong'ren'ri'min\t1\n";
-        let frequency = frequencies([base, supplement, places, custom]);
-        assert_eq!(frequency["工人"], 150);
-        let words = pinyin_words(&frequency, 100, &[places, custom]);
+        let curation = PinyinCuration::default();
+        let frequency = frequencies([base, supplement, places, custom], &curation);
+        assert_eq!(frequency.threshold["工人"], 150);
+        assert_eq!(frequency.order["工人"], 150);
+        let words = pinyin_words(&frequency.threshold, 100, &[places, custom], &curation);
         assert_eq!(
             words.into_iter().collect::<Vec<_>>(),
             ["工人", "工人日", "工人日民", "工人民", "日工"]
         );
+    }
+
+    /// 否决的词和读音不进候选；人工词条里被否决的 工人民 也不收。权重覆盖不会让词掉出门槛：工人日 写了 `wubi` 降到 99，仍是候选，只是排序按 99；人民 写了 `wubi` 升到 100 就是候选；没写 `wubi` 的 民工 升到 100 只改拼音，五笔仍按 99 算。
+    #[test]
+    fn candidates_follow_the_curation_tables() {
+        let base = "日工\tri'gong\t100\n工人\tgong'ren\t150\n工人\tgong'reng\t10\n工人日\tgong'ren'ri\t100\n人民\tren'min\t99\n民工\tmin'gong\t99\n";
+        let custom = "工人民\tgong'ren'min\t1\n";
+        let curation = PinyinCuration::parse(
+            "日工\n工人民\n工人\tgong'ren\n",
+            "工人日\tgong'ren'ri\t99\twubi\n人民\tren'min\t100\twubi\n民工\tmin'gong\t100\n",
+        )
+        .unwrap();
+        let frequency = frequencies([base, custom], &curation);
+        assert_eq!(frequency.threshold["工人"], 10);
+        assert!(!frequency.threshold.contains_key("日工"));
+        assert_eq!(frequency.threshold["工人日"], 100);
+        assert_eq!(frequency.order["工人日"], 99);
+        assert_eq!(frequency.order["民工"], 99);
+        let words = pinyin_words(&frequency.threshold, 100, &[custom], &curation);
+        assert_eq!(words.into_iter().collect::<Vec<_>>(), ["人民", "工人日"]);
+    }
+
+    /// 同码最低权重只看构建会写入的行：`ukuy` 上 0 权重的扩展 A 区字和兼容汉字不写入，补充词的上限仍是 9；`wwna` 上只有扩展区的行，也按没有原有行算，四码唯一的统计也不把它算进去。
+    #[test]
+    fn rank_ignores_rows_the_build_leaves_out() {
+        let rows = vec![
+            ("ukbh".to_owned(), "部", 10),
+            ("uyhn".to_owned(), "门", 10),
+            ("ukuy".to_owned(), "冲凉", 10),
+            ("ukuy".to_owned(), "\u{3400}", 0),
+            ("ukuy".to_owned(), "\u{FA0C}", 0),
+            ("wwww".to_owned(), "人", 10),
+            ("nav".to_owned(), "民", 10),
+            ("wwna".to_owned(), "\u{20000}", 0),
+        ];
+        let ranked = rank(
+            &rows,
+            ["部门", "人民"],
+            &HashMap::from([("部门", 100), ("人民", 100)]),
+            9,
+        );
+        let weights: Vec<(&str, &str, i64)> = ranked
+            .entries
+            .iter()
+            .map(|entry| (entry.word, entry.code.as_str(), entry.weight))
+            .collect();
+        assert_eq!(weights, [("部门", "ukuy", 9), ("人民", "wwna", 9)]);
+        assert_eq!(ranked.unique_codes_shared, 1);
     }
 }

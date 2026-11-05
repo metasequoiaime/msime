@@ -101,6 +101,8 @@ final class KeyboardNineKeyPanelColumns {
       button.configuration?.contentInsets = .zero
       button.titleLabel?.adjustsFontSizeToFitWidth = true
       button.accessibilityIdentifier = identifier
+      // 这个 ⌫ 和键区的删除键一样按下就响退格声，动作里删笔画、删拼音时的 `playInputClick(.backspace)` 在松手里不再出声（#10768）。
+      if action == .delete { (button as? KeyboardKeyButton)?.pressSoundClass = .backspace }
       trailing.addArrangedSubview(button)
       if action == .toggleStrokes { strokeToggle = button }
       if action == .toggleSingleCharacter { singleToggle = button }

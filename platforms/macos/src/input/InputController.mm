@@ -1315,6 +1315,20 @@ static void MSIMEStartCapsLockHIDTracking() {
     if (access != kIOHIDAccessTypeGranted) return;
     IOHIDManagerRef manager = IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone);
     if (!manager) return;
+    // 必须设置设备匹配：管理器从没调用过 IOHIDManagerSetDeviceMatching 时一个设备都不枚举（传 NULL 才是全部设备），只设输入值匹配的话设备回调和输入值回调都不会来，HID 状态永远未知。只匹配键盘类设备，输入值再筛到 Caps Lock 元素。
+    CFMutableDictionaryRef keyboard = CFDictionaryCreateMutable(kCFAllocatorDefault, 2,
+                                                                &kCFTypeDictionaryKeyCallBacks,
+                                                                &kCFTypeDictionaryValueCallBacks);
+    int32_t keyboardPage = kHIDPage_GenericDesktop;
+    int32_t keyboardUsage = kHIDUsage_GD_Keyboard;
+    CFNumberRef keyboardPageNumber = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &keyboardPage);
+    CFNumberRef keyboardUsageNumber = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &keyboardUsage);
+    CFDictionarySetValue(keyboard, CFSTR(kIOHIDDeviceUsagePageKey), keyboardPageNumber);
+    CFDictionarySetValue(keyboard, CFSTR(kIOHIDDeviceUsageKey), keyboardUsageNumber);
+    CFRelease(keyboardPageNumber);
+    CFRelease(keyboardUsageNumber);
+    IOHIDManagerSetDeviceMatching(manager, keyboard);
+    CFRelease(keyboard);
     CFMutableDictionaryRef capsLock = MSIMECapsLockHIDMatching(kHIDUsage_KeyboardCapsLock);
     CFMutableDictionaryRef lockingCapsLock = MSIMECapsLockHIDMatching(kHIDUsage_KeyboardLockingCapsLock);
     const void *matches[] = {capsLock, lockingCapsLock};
@@ -9534,7 +9548,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     const msime::candidate::CandidateRowLayout &row = geometry.rows[slot];
     NSString *display = geometry.displays[slot];
     NSString *title = [NSString stringWithFormat:@"%@  %@", number, geometry.texts[slot]];
-    MSIMECandidateButton *button = [MSIMECandidateButton buttonWithTitle:title target:self action:action];
+    MSIMECandidateButton *button = MSIMEMakeCandidateButton(MSIMECandidateButton.class, title, self, action);
     button.candidateID = candidate[@"id"];
     button.accessibilityLabel = number.length ? [NSString stringWithFormat:@"%@  %@", number, display] : display;
     // 读屏先读候选本身，再说明后面那段是插件写的，免得把插件的文字当成输入法的释义或辅助码。
@@ -9581,7 +9595,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
 // 原生主题的首行展开／收起按钮，标签 -3，模板符号图沿用既有外观。
 - (MSIMECandidateButton *)expandedCandidatesToggleButton:(BOOL)expanded frame:(NSRect)frame scale:(CGFloat)scale {
     NSString *label = expanded ? @"收起候选" : @"展开候选";
-    MSIMECandidateButton *button = [MSIMECandidateButton buttonWithTitle:@"" target:self action:@selector(toggleExpandedCandidates:)];
+    MSIMECandidateButton *button = MSIMEMakeCandidateButton(MSIMECandidateButton.class, @"", self, @selector(toggleExpandedCandidates:));
     NSImage *symbol = [NSImage imageWithSystemSymbolName:expanded ? @"chevron.up" : @"chevron.down" accessibilityDescription:label];
     NSImageSymbolConfiguration *configuration = [NSImageSymbolConfiguration configurationWithPointSize:11 * scale weight:NSFontWeightSemibold];
     button.image = [symbol imageWithSymbolConfiguration:configuration] ?: symbol;
@@ -9600,7 +9614,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
 // 共享卷轴使用来源线段和字号尺寸，仍走原来的控制器身份与命令检查。
 - (MSIMECandidateButton *)skinExpandedCandidatesToggleButton:(BOOL)expanded frame:(NSRect)frame
     metrics:(msime::mac::CandidateExpandToggleMetrics)metrics {
-    MSIMECandidateExpandToggleButton *button = [MSIMECandidateExpandToggleButton buttonWithTitle:@"" target:self action:@selector(toggleExpandedCandidates:)];
+    MSIMECandidateExpandToggleButton *button = MSIMEMakeCandidateButton(MSIMECandidateExpandToggleButton.class, @"", self, @selector(toggleExpandedCandidates:));
     button.toggleMetrics = metrics;
     button.expanded = expanded;
     button.frame = frame;
@@ -10501,7 +10515,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         const CGFloat left = vertical ? inset + pageGeometry.textLeft - (listPager.buttonWidth - listPager.glyphWidth()) / 2
                                      : width - inset - listPager.marginRight - 2 * listPager.buttonWidth - listPager.gap;
         for (NSUInteger direction = 0; direction < 2; ++direction) {
-            MSIMECandidatePagerButton *button = [MSIMECandidatePagerButton buttonWithTitle:@"" target:self action:@selector(changeCandidatePage:)];
+            MSIMECandidatePagerButton *button = MSIMEMakeCandidateButton(MSIMECandidatePagerButton.class, @"", self, @selector(changeCandidatePage:));
             button.frame = NSMakeRect(left + direction * (listPager.buttonWidth + listPager.gap), bottom,
                 listPager.buttonWidth, listPager.buttonHeight);
             button.pagerMetrics = listPager;
@@ -10539,7 +10553,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
             [content.candidateContentView addSubview:indicator];
         }
         for (NSUInteger direction = 0; direction < 2; ++direction) {
-            MSIMECandidateButton *button = [MSIMECandidateButton buttonWithTitle:direction == 0 ? @"‹" : @"›" target:self action:@selector(changeCandidatePage:)];
+            MSIMECandidateButton *button = MSIMEMakeCandidateButton(MSIMECandidateButton.class, direction == 0 ? @"‹" : @"›", self, @selector(changeCandidatePage:));
             button.frame = NSMakeRect(arrowsLeft + direction * headerArrowWidth, controlsBottom, headerArrowWidth, headerRow);
             button.font = [NSFont systemFontOfSize:NSFont.systemFontSize * scale];
             button.bordered = NO;
@@ -10624,7 +10638,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         }
         if (preview > 0) {
             // 和候选行里那一格是同一个候选：点它就选那一格，身份对不上当前视图时 selectCandidate: 不做任何事。
-            MSIMECandidateButton *button = [MSIMECandidateButton buttonWithTitle:previewText target:self action:@selector(selectCandidate:)];
+            MSIMECandidateButton *button = MSIMEMakeCandidateButton(MSIMECandidateButton.class, previewText, self, @selector(selectCandidate:));
             button.identifier = @"candidate-online-preview";
             button.tag = -4;
             button.bordered = NO;
