@@ -394,6 +394,7 @@
 		5353FF255CE1356878FDCADC /* ChineseTextConversion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F529E38A8814F08E0626C2A /* ChineseTextConversion.swift */; };
 		5364F9B6D52C9C5DCA7F047D /* MSIMELogoShape.swift in Sources */ = {isa = PBXBuildFile; fileRef = 351D02547A39864AD54B844E /* MSIMELogoShape.swift */; };
 		536A5975F8E397C04234791C /* IOSRustAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7366C2C553E793581CBB1B69 /* IOSRustAccount.swift */; };
+		5429F96B3B513EFC11B90D82 /* CandidateGlossCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F179BEBF5865052746DB6DF /* CandidateGlossCard.swift */; };
 		54507CAA245D4D2107EDC4B9 /* TouchOneHandedSidePanelPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FC3FD90AEB79B885350DC86 /* TouchOneHandedSidePanelPreference.swift */; };
 		546FB7272AA13FE3950B126D /* CandidatePageSizePreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = AECD77C4832DAF8BE7348717 /* CandidatePageSizePreference.swift */; };
 		54BA845413C0DB615BFE6979 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 095C484ED3DA6A52CA13FE71 /* Security.framework */; };
@@ -454,6 +455,7 @@
 		5FA3D6EA21BEE62A3B308D06 /* TouchToolbarPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75926ED32818A748877EBC00 /* TouchToolbarPreference.swift */; };
 		5FEB8582FA119A08E0E3540F /* AppThemePalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12E4A4E6D498517749D67839 /* AppThemePalette.swift */; };
 		6105001A1AA44199C93594F7 /* CandidatePreeditStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FE263C0BC7733E7755EEF83 /* CandidatePreeditStyle.swift */; };
+		615C811CC85602553F308E17 /* CandidateGlossCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F179BEBF5865052746DB6DF /* CandidateGlossCard.swift */; };
 		617A0D11DA434946AD121454 /* PersonalWordBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42D8F99AFCDEC3F17D9F1C3B /* PersonalWordBridge.swift */; };
 		624FA42ADFF223A018E177D5 /* UsageReporting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A42FAEB342260CCA9B4D581 /* UsageReporting.swift */; };
 		6257694B916A7909C9A59283 /* IOSRustAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7366C2C553E793581CBB1B69 /* IOSRustAccount.swift */; };
@@ -526,6 +528,7 @@
 		6E25600C23681CEA72A9E093 /* rime-stroke-LGPL-3.0.txt in Resources */ = {isa = PBXBuildFile; fileRef = CC9DA57D2C03A9393C8D3153 /* rime-stroke-LGPL-3.0.txt */; };
 		6EB221D66027E769AC309E7C /* KeyboardUsageReporting.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5C089971B5D38E645D6A81A /* KeyboardUsageReporting.swift */; };
 		6EC87E439C4EDAC3C1991027 /* CandidateCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8B9143D7F2B0D1AE4E4896F /* CandidateCanvasView.swift */; };
+		6F901DCFC9B04A563DA25084 /* CandidateGlossCardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53E7200A8746016A3ABA13CA /* CandidateGlossCardTests.swift */; };
 		6FC383E38C1A5F8C125E80B7 /* FourteenKeyKeyboardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA2B8B3DA97562BBE84742FF /* FourteenKeyKeyboardTests.swift */; };
 		700183FCED3A471BFF991B5B /* librime-octagram-BSD-3-Clause.txt in Resources */ = {isa = PBXBuildFile; fileRef = F3A4C31464531A1674DE5675 /* librime-octagram-BSD-3-Clause.txt */; };
 		702EE96E7A6894EE394EC8B0 /* SharedThemeTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75C1FF3113D3D2E64FBF8F3D /* SharedThemeTestSupport.swift */; };
@@ -899,6 +902,7 @@
 		C34FDA68A261691647464421 /* CloudDictionaryEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = E26B440A7E12F7B2571844AD /* CloudDictionaryEditor.swift */; };
 		C436EBDA45153BE4BFDDFEDD /* HandwritingPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = E02CDCCB6B85652DB09992D7 /* HandwritingPreference.swift */; };
 		C4434161ADA1E2775930E031 /* KeyboardVoicePanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C85BAC20261DD7AC0622794B /* KeyboardVoicePanelView.swift */; };
+		C46AC5AB9176625261924BD8 /* CandidateGlossCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F179BEBF5865052746DB6DF /* CandidateGlossCard.swift */; };
 		C4BF79380C22B73D93D47FB7 /* rime-cantonese-CC-BY-4.0.txt in Resources */ = {isa = PBXBuildFile; fileRef = 389CD65F926C70D6B3121DC9 /* rime-cantonese-CC-BY-4.0.txt */; };
 		C4CD513E36CEDC19F781D3DA /* CandidateFontPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E68F942E62B46AD7722CE86 /* CandidateFontPreference.swift */; };
 		C4F527B6FD696DAE856E2DD4 /* HandwritingDownloadSession.m in Sources */ = {isa = PBXBuildFile; fileRef = DA3994022F73A592AC2A907B /* HandwritingDownloadSession.m */; };
@@ -1269,6 +1273,7 @@
 		0EB0EAE607F7545FA0769CF9 /* OnlineCandidateProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnlineCandidateProvider.swift; sourceTree = "<group>"; };
 		0EC3D5BE8B5DDAE3460D503D /* CandidatePanelSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CandidatePanelSnapshotTests.swift; sourceTree = "<group>"; };
 		0EEB4F9800B7BA6E118D750D /* PrivacySettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacySettingsView.swift; sourceTree = "<group>"; };
+		0F179BEBF5865052746DB6DF /* CandidateGlossCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CandidateGlossCard.swift; sourceTree = "<group>"; };
 		0F4950C6F74FAE801B8E9D22 /* StrokeKeypadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StrokeKeypadView.swift; sourceTree = "<group>"; };
 		0F9F57BB015415B3C7B59217 /* KeyboardPressAnimationCleanup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardPressAnimationCleanup.swift; sourceTree = "<group>"; };
 		0FF1B59E7410EFA9CD6BC0C3 /* stickers */ = {isa = PBXFileReference; lastKnownFileType = folder; name = stickers; path = ../../resources/stickers; sourceTree = SOURCE_ROOT; };
@@ -1421,6 +1426,7 @@
 		53134B894F392E7788B54878 /* CandidateGlossModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CandidateGlossModel.swift; sourceTree = "<group>"; };
 		5335E1ECEFA9A9E42CBE272B /* CandidatePageSizeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CandidatePageSizeTests.swift; sourceTree = "<group>"; };
 		53CF49EF428CBDDE70EB9A2F /* DiagnosticLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticLog.swift; sourceTree = "<group>"; };
+		53E7200A8746016A3ABA13CA /* CandidateGlossCardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CandidateGlossCardTests.swift; sourceTree = "<group>"; };
 		542D625F9AC28F9D0FFEE604 /* onnxruntime-ThirdPartyNotices.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "onnxruntime-ThirdPartyNotices.txt"; sourceTree = "<group>"; };
 		543C9DADA404F7AA48009C2B /* FourteenKeyLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourteenKeyLayout.swift; sourceTree = "<group>"; };
 		554DF108CE1D88971DE22972 /* CommunitySkinTrialView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommunitySkinTrialView.swift; sourceTree = "<group>"; };
@@ -2373,6 +2379,7 @@
 			isa = PBXGroup;
 			children = (
 				CDDB0545BE97FA9878404598 /* BilingualCandidateCaptionPolicy.swift */,
+				0F179BEBF5865052746DB6DF /* CandidateGlossCard.swift */,
 				44FA49473CBC55923C7B4378 /* CandidateTranslationStore.swift */,
 				0EB0EAE607F7545FA0769CF9 /* OnlineCandidateProvider.swift */,
 			);
@@ -2930,6 +2937,7 @@
 				380144EA98A8648F53897AE8 /* AISkinServiceTests.swift */,
 				450BA21EB5160527283A918F /* CandidateCanvasTests.swift */,
 				8287109EE6C4EB060ACDFD01 /* CandidateFontSizeTests.swift */,
+				53E7200A8746016A3ABA13CA /* CandidateGlossCardTests.swift */,
 				DF10D6A1277E85E40441A0EE /* CandidateMarkerTests.swift */,
 				26C5E334FDFE807831BB80BA /* GeneratedKeyboardSkinTests.swift */,
 				E00DF5D83394A67949C13336 /* KeyboardSkinDocumentTests.swift */,
@@ -3389,6 +3397,8 @@
 				1FC01A4EB54FFC01F32C54AC /* CandidateCanvasView.swift in Sources */,
 				6782B8075EAF3DB3268BE412 /* CandidateFontPreference.swift in Sources */,
 				79263B4881D743B17809D551 /* CandidateFontSizeTests.swift in Sources */,
+				615C811CC85602553F308E17 /* CandidateGlossCard.swift in Sources */,
+				6F901DCFC9B04A563DA25084 /* CandidateGlossCardTests.swift in Sources */,
 				5BBFDCED7B5B5FA18488683D /* CandidateGlossModel.swift in Sources */,
 				5CC1BAC33F81732411215F6A /* CandidateGlossPreference.swift in Sources */,
 				735B9D1415054201EF2DE465 /* CandidateMarker.swift in Sources */,
@@ -3721,6 +3731,7 @@
 				E48CAB08948264CC00812918 /* CandidateCanvasAssets.swift in Sources */,
 				6EC87E439C4EDAC3C1991027 /* CandidateCanvasView.swift in Sources */,
 				1CB44258F39426C57632FBC5 /* CandidateFontPreference.swift in Sources */,
+				C46AC5AB9176625261924BD8 /* CandidateGlossCard.swift in Sources */,
 				2AE8AB872E532BCD6C1CB795 /* CandidateGlossModel.swift in Sources */,
 				16242F93F076FF8C283C6899 /* CandidateGlossPreference.swift in Sources */,
 				B28586C994CA2F0D4425851B /* CandidateMarker.swift in Sources */,
@@ -3921,6 +3932,7 @@
 				AF432B4148005F468AFB15E7 /* CandidateCanvasAssets.swift in Sources */,
 				FCD1A4B614A117C8597A4DCB /* CandidateCanvasView.swift in Sources */,
 				C4CD513E36CEDC19F781D3DA /* CandidateFontPreference.swift in Sources */,
+				5429F96B3B513EFC11B90D82 /* CandidateGlossCard.swift in Sources */,
 				3641D6C28893CEDD8F92724F /* CandidateGlossModel.swift in Sources */,
 				84ECE7B299BACD027365F475 /* CandidateGlossModelTests.swift in Sources */,
 				DE796372C56D49A8F91724D1 /* CandidateGlossPreference.swift in Sources */,
