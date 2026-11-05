@@ -128,7 +128,7 @@ async fn exchange<S: AsyncRead + AsyncWrite + Unpin>(
         }
     }
     let mut received = 0usize;
-    // 解不开的消息照语音识别本身的做法跳过（各端宿主都经 `decode_json_frame` 解帧，解不开的不结束识别）：测试比识别更严，就会出现能正常录音、测试却报「响应无法识别」。跳过过消息的话，没等到最终结果时仍报响应无法识别，而不是连接问题。
+    // 解不开的消息跳过，与 Windows 识别时的做法一致（`DoubaoAsrClient.cpp` 对共享解码器解不开的消息不结束识别）；Android、HarmonyOS 识别遇到解不开的帧会报错结束，iOS 会当成空的最终结果，这是已知分歧，另行处理。测试不比识别更严，才不会出现能正常录音、测试却报「响应无法识别」。跳过过消息的话，没等到最终结果时仍报响应无法识别，而不是连接问题。
     let mut skipped = false;
     let ended = |skipped: bool| {
         if skipped {
@@ -167,8 +167,7 @@ async fn exchange<S: AsyncRead + AsyncWrite + Unpin>(
 
 /// `Some(true)` 是最终结果，`Some(false)` 是中间结果，`None` 是解不开、要跳过的帧。
 fn response_state(frame: &[u8]) -> Result<Option<bool>, Failure> {
-    // Error frames are failures regardless of their message text. Only the
-    // numeric code of an error frame reaches the UI.
+    // 错误帧不论消息文字如何都算失败，界面上只显示错误帧的数字错误码。
     if frame.len() >= 2 && frame[1] >> 4 == 0x0f {
         return Err(Failure::Service(
             doubao_frame::decode_error_code(frame).map(i64::from),
