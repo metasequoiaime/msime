@@ -66,6 +66,37 @@ final class SchemeDocumentSettingsTests: XCTestCase {
     XCTAssertEqual(ChineseInputScheme.wubi.title, "86 五笔")
   }
 
+  /// 新世纪五笔（`wubixsj`）是第三个版本：写进文档、读回来、切方案后都还在；方案名、空格键简称和角标不再被三元表达式说成 86。
+  func testWubiXsjProfileRoundTripsAndHasItsOwnNames() throws {
+    _ = MetasequoiaInputSessionBridge(stateRoot: state)
+    XCTAssertEqual(WubiProfilePreference.profiles, ["wubi86", "wubi98", "wubixsj"])
+    XCTAssertTrue(WubiProfilePreference.save("wubixsj", stateRoot: state))
+    XCTAssertEqual(WubiProfilePreference.profile, "wubixsj")
+    XCTAssertEqual(ChineseInputScheme.wubi.title, "新世纪五笔")
+    XCTAssertEqual(ChineseInputScheme.wubi.shortLabel, "五笔 新世纪")
+    XCTAssertEqual(WubiProfilePreference.badge(WubiProfilePreference.profile), "新")
+
+    XCTAssertTrue(InputSchemePreference.save(scheme: .quanpin, enabled: [.quanpin, .wubi], stateRoot: state))
+    XCTAssertTrue(InputSchemePreference.save(scheme: .wubi, enabled: [.quanpin, .wubi], stateRoot: state))
+    let document = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state))
+    XCTAssertEqual(document["wubi_profile"] as? String, "wubixsj")
+    XCTAssertEqual(WubiProfilePreference.profile(in: document), "wubixsj")
+
+    // 每个版本一套名字；不认识的值按 86，不是空白。
+    let versions = WubiProfilePreference.Version.allCases
+    XCTAssertEqual(versions.map(\.title), ["86 五笔", "98 五笔", "新世纪五笔"])
+    XCTAssertEqual(versions.map(\.shortTitle), ["五笔 86", "五笔 98", "五笔 新世纪"])
+    XCTAssertEqual(versions.map(\.badge), ["86", "98", "新"])
+    XCTAssertEqual(versions.map(\.onboardingDetail), ["形码 · 默认 86 版", "形码 · 当前 98 版", "形码 · 当前新世纪版"])
+    XCTAssertEqual(WubiProfilePreference.title("wubi06"), "86 五笔")
+    XCTAssertEqual(WubiProfilePreference.shortTitle("wubi06"), "五笔 86")
+    XCTAssertEqual(WubiProfilePreference.badge("wubi06"), "86")
+
+    // 再从文档换回 86，镜像跟着回来。
+    XCTAssertTrue(WubiProfilePreference.save("wubi86", stateRoot: state))
+    XCTAssertEqual(ChineseInputScheme.wubi.shortLabel, "五笔 86")
+  }
+
   // ---- App Group 镜像落后于文档（#4288）：镜像记着双拼，文档里是用户后来选的全拼 ----
 
   /// 文档选的是全拼、启用全拼双拼和手写；镜像还停在双拼，启用列表里没有手写。
@@ -230,6 +261,26 @@ final class SchemeDocumentSettingsTests: XCTestCase {
     let shortcut = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "characterSetShortcut" })
     XCTAssertEqual(shortcut.accessibilityValue, "繁体")
     XCTAssertTrue(ChineseOutputPreference.usesTraditional)
+  }
+
+  /// 粤拼下的简繁按钮只写 `cantonese_simplified_output`，全局简繁开关保持原值；默认是繁体。
+  func testCantoneseSimplifiedOutputLeavesTheGlobalSwitchAlone() throws {
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: state) {
+      $0[ChineseOutputPreference.documentKey] = true
+    })
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    XCTAssertFalse(bridge.cantoneseSimplifiedOutput)
+    XCTAssertTrue(bridge.setCantoneseSimplifiedOutput(true))
+    XCTAssertTrue(bridge.cantoneseSimplifiedOutput)
+    var document = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state))
+    XCTAssertEqual(document["cantonese_simplified_output"] as? Bool, true)
+    XCTAssertEqual(document[ChineseOutputPreference.documentKey] as? Bool, true)
+
+    XCTAssertTrue(bridge.setCantoneseSimplifiedOutput(false))
+    XCTAssertFalse(bridge.cantoneseSimplifiedOutput)
+    document = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state))
+    XCTAssertNotEqual(document["cantonese_simplified_output"] as? Bool, true)
+    XCTAssertEqual(document[ChineseOutputPreference.documentKey] as? Bool, true)
   }
 
   func testTraditionalOutputReachesTheDocument() throws {
