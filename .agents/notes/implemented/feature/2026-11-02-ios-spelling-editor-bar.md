@@ -38,5 +38,5 @@ iOS 键盘点读音打开放大拼写编辑条，界面和规则照 Android（`I
 - 26 键和九键刚打完字就看得到入口，点一下就能把光标放到拼写中间任意位置；三端（Android、iOS，以及按同一方案重写的鸿蒙）点读音后出现同一个编辑条，开关时机相同。
 - 代价：26 键和九键组字时候选从行首右移约 40pt，读音段的笔一直占着；编辑条开关会改键盘高度，组字结束时自动收起也会改一次高度，这是 iOS 上最可能出现抖动的地方，需要真机看效果。
 - 「删除光标后的字母」在手机上没有对应操作了，要点到那个字母后面再按退格。共享 C ABI 的 `DeleteForward` 和 bridge 的 `deleteForward()` 留着，桌面和测试仍在用。
-- 测试：`CompositionCaretPolicyTests` 覆盖换算；`CompositionCaretTests` 断言 26 键打字后有笔、无菜单、无障碍「编辑拼写」，点入口打开编辑条且键盘高 52pt，再点保持打开，点拼写开头和读屏调整能移光标，「完成」收起并把光标移回末尾，选候选后自动收起，九键点读音字母落到对应数字前，行距命中区不含拼音选择条下面那段。都是模拟器里进程内构造控制器的测试，没有经过系统键盘入口，也没有在真机上看过抖动。
+- 测试：`CompositionCaretPolicyTests` 覆盖换算；`CompositionCaretTests` 断言 26 键打字后有笔、无菜单、无障碍「编辑拼写」，点入口打开编辑条且键盘高 52pt，再点保持打开，点拼写开头和读屏调整能移光标，「完成」收起并把光标移回末尾，选候选后自动收起，九键点读音字母落到对应数字前，行距命中区不含拼音选择条下面那段。原来断言读音段收成零宽、第一个候选贴在行首的 `InlineCompositionDefaultTests` 两条和 `NineKeyKeyboardTests.testComposingSwapsTheToolbarForTheCandidatesInTheSameRow` 改为断言读音段不画拼写、只画笔（40 pt），候选紧跟在笔后面，拼写变长也不移动。都是模拟器里进程内构造控制器的测试，没有经过系统键盘入口，也没有在真机上看过抖动。
 - 相关笔记：[手机键盘放大读音行的点按区域](../bug-fix/2026-11-02-mobile-preedit-tap-target.md)（命中区的原决定，这次把行距补进 iOS），[Android 放大拼写条压成一行](2026-10-25-android-compact-spelling-editor.md)（编辑条的参照实现）。

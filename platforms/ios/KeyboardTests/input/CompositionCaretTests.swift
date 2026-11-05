@@ -160,6 +160,7 @@ final class CompositionCaretTests: XCTestCase {
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
     controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.viewWillAppear(false)
     controller.view.layoutIfNeeded()
     let height = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" })
     let closedHeight = height.constant
@@ -186,6 +187,7 @@ final class CompositionCaretTests: XCTestCase {
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
     controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.viewWillAppear(false)
     controller.view.layoutIfNeeded()
     for digit in "64426" {
       try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "nineKey\(digit)" } as? UIButton)

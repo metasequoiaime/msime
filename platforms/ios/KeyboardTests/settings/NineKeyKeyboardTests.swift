@@ -2614,7 +2614,7 @@ final class NineKeyKeyboardTests: XCTestCase {
   // The presentation cycle is what the device actually does: show, type, put away, show again.
   // Releasing the dictionary access on dismissal must not leave the next presentation unable to
   // convert, and a dropped keystroke would still have played its click.
-  /// 工具栏和候选共用一个顶行：空闲时只有工具栏，图标在整行里居中；组字时由候选行在原位替换它，顶行下方的内容不移动。拼写写进输入框，候选栏不画它：读音那一段收成零宽，第一个候选贴在行首，拼写变长也不移动。
+  /// 工具栏和候选共用一个顶行：空闲时只有工具栏，图标在整行里居中；组字时由候选行在原位替换它，顶行下方的内容不移动。拼写写进输入框，候选栏不画它：读音那一段只画打开放大拼写编辑条的笔（#10591，与 Android 读音的最小宽度一样是 40 pt），第一个候选紧跟在笔后面，拼写变长也不移动。
   func testComposingSwapsTheToolbarForTheCandidatesInTheSameRow() throws {
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
@@ -2648,18 +2648,22 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
     controller.view.layoutIfNeeded()
     XCTAssertTrue(toolbar.isHidden)
-    XCTAssertEqual(reading.frame.width, 0, accuracy: 0.5, "the strip draws no spelling")
-    XCTAssertTrue(try button("preeditButton", in: controller).isHidden)
+    XCTAssertEqual(reading.frame.width, 40, accuracy: 0.5, "the strip draws no spelling, only the pen")
+    let preedit = try button("preeditButton", in: controller)
+    XCTAssertFalse(preedit.isHidden)
+    XCTAssertEqual(preedit.configuration?.title ?? "", "", "the strip draws no spelling")
+    XCTAssertNotNil(preedit.configuration?.image, "the pen that opens the spelling editor")
     // 全拼宿主快照显示分词；输入框里的拼音样式预编辑使用同一出口。
     XCTAssertEqual(controller.inlineMarkedText, "ni'hao", "分词拼音写入输入框")
     let candidate = try button("candidate-1", in: controller)
     let candidateFrame = candidate.convert(candidate.bounds, to: strip)
-    XCTAssertLessThanOrEqual(candidateFrame.minX, 2.5, "the first candidate starts at the leading edge")
+    XCTAssertLessThanOrEqual(candidateFrame.minX, reading.convert(reading.bounds, to: strip).maxX + 2.5,
+                             "the first candidate starts right after the pen")
     XCTAssertGreaterThanOrEqual(candidateFrame.minY, -0.5)
     XCTAssertLessThanOrEqual(candidateFrame.maxY, idleStrip.height + 0.5)
     XCTAssertEqual(strip.frame, idleStrip, "the row keeps its height while composing")
     XCTAssertEqual(space.convert(space.bounds, to: controller.view), idleSpace, "the keys do not move")
-    attachTopRowScreenshot(of: controller, named: "Candidates from the leading edge")
+    attachTopRowScreenshot(of: controller, named: "Candidates right after the pen")
 
     for letter in "zhonghuarenmingongheguo" {
       let key = try XCTUnwrap(descendants(controller.view).first {
