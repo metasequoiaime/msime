@@ -24,7 +24,9 @@ Status: implemented
 
 1. 只在这个代次目录上取独占的 `DictionaryAccess`（`try_maintenance(path, path)`，两个根去重后只有一把锁）。每个会话建立时都以共享方式持着它所用代次上的这把锁，设置里改词这类维护也持着；取不到就跳过，下一次检查再试。不碰 `user_data` 上那把锁：所有会话都持着它，取它的独占锁会让回收永远失败（上一篇否掉 `DictionaryAccess` 的理由正在这里，只锁代次目录就避开了）。
 2. 持锁后重新问一次 `retained_generations`，避开取锁期间别的进程刚发布的新版本。
-3. 改名成 `<代次>.<进程号和纳秒的十六进制>.removing` 认领，再 `remove_dir_all`。删到一半留下的目录由引擎下次准备代次时的 `sweep_abandoned_stages` 收尾，`.removing` 后缀与它的约定一致。Windows 上目录里有打开的文件时改名可能失败，任何平台改名失败都放掉锁、保留原目录，留到下次检查重新取锁再试。不能在放掉锁之后立即重试：其他输入进程可能在这个空档取得共享租约，之后的改名和删除会破坏正在使用的代次。
+3. Unix 上改名成 `<代次>.<进程号和纳秒的十六进制>.removing` 认领，再 `remove_dir_all`（`claim_then_remove`）。删到一半留下的目录由引擎下次准备代次时的 `sweep_abandoned_stages` 收尾，`.removing` 后缀与它的约定一致。改名失败就放掉锁、保留原目录，留到下次检查重新取锁再试。不能在放掉锁之后立即重试：其他输入进程可能在这个空档取得共享租约，之后的改名和删除会破坏正在使用的代次。
+4. Windows 上不改名（`empty_then_remove`）。租约的锁文件 `.msime-dictionary-access.lock` 就在代次目录里，持锁期间它的句柄一直开着，NTFS 不允许改名还有打开文件的目录，第 3 步在 Windows 上每次都会失败，代次永远收不掉（最初的实现就是这样，评审时发现）。改成持锁时就地清空：先删 `.ready`，这一代在引擎看来从此不再就绪；删 `.ready` 失败就什么也不动。再删锁文件以外的全部内容，然后放锁，最后删锁文件和已经空了的目录。放锁之后删的只剩一个没有数据的锁文件：锁文件原则上不能删，是怕两个进程各自锁住不同的文件、以为都独占了同一份数据，而这里数据已经在持锁时删光，谁之后取到这把锁也只得到一个不就绪的空壳。
+5. 空壳必须收干净。引擎准备代次时，同名目录存在而没有 `.ready` 就重新暂存，再把暂存目录改名过去；目标非空时改名必然失败，这一代就再也准备不出来。放锁之后又有进程打开了锁文件、删不掉时会留下这样的空壳，所以候选和持锁后的复查都只保护就绪的代次：本安装包的、宿主配置的、下载版本留着的同名目录没有 `.ready` 时照样回收。引擎发布代次是整目录改名、`.ready` 已在里面，64 位十六进制名下没有 `.ready` 的目录不会是准备到一半的代次。
 
 代次里的内容都能从资源和用户日志重新准备出来，删掉一份用不上的代次不丢用户数据。
 
@@ -40,6 +42,8 @@ Status: implemented
 - **旧随包代次的回收拆出去，只回收下载版本对应的工作词库。** 理由是升级后还没重启的旧版输入法进程没有下载代次的占用凭证，`loaded.json` 也只记最近一次加载。但这类进程的会话都持着工作词库上的共享 `DictionaryAccess`，取不到独占锁就不删，会话活着时是安全的；会话之间的空档（Fcitx5 失焦即销毁会话）由宿主配置记着的那一代补上。Linux 上每次发版都会换锁，不收这一类，问题里「越积越多」的大头就还在。剩下的风险见 Consequences。
 - **只回收由 `loaded.json` 在本进程启动后记录过的代次。** 能挡住任何还没被记录的使用者。但 `loaded.json` 只记最近一次，宿主配置停在旧锁代次（`dictionary_outdated`）时它记的正是那一代，换个时刻又会被别的加载覆盖，判断不了「还有没有宿主指着它」；直接看宿主配置更准，也不需要新的记录。
 - **改名失败后先释放自己的访问锁，再立即重试改名。** Windows 上锁文件的打开句柄可能影响目录改名，释放锁后重试看起来能提高回收成功率。但释放租约后其他进程就能取得共享租约，此时重试会把正在使用的代次改名并删除。回收失败只多占一份空间，留到下次持锁再试，不能用失去互斥来换回收成功。
+- **Windows 上把锁文件挪到代次目录之外。** 改名时目录里没有打开的句柄，Unix 和 Windows 能用同一条认领路径。但锁文件的位置是引擎租约的契约，所有宿主和各个版本都按「根目录里的 `.msime-dictionary-access.lock`」取锁，挪走等于换一把锁，新旧版本进程之间的互斥随之失效，代价远大于这一处回收。
+- **Windows 上放锁后再改名认领。** 改名本身能成功，但放锁与改名之间别的进程可以取得共享租约开始用这一代，改名和删除就会破坏它，与上面「改名失败后放锁重试」被否掉的理由相同。持锁清空之后再放锁，空档里能被取到的只剩空壳。
 - **按修改时间保留最近 N 天的代次。** 不需要任何锁。但输入进程可以连跑几周，代次也不是每次加载都会写，时间判断不了有没有人在用，也解释不了 N 为什么是这个数，与上一篇否掉同类做法的理由相同。
 - **Linux 上扫掉 `resources-*` 里所有不是当前目录的。** 能顺带清掉这次修复之前留下的旧目录。但脚本只知道这一份状态记录的目录，另建的状态目录可能还指着其中某一个；只删这一次换下的那份，以前留下的在回复里告诉用户怎么判断再手动删。
 
@@ -59,6 +63,7 @@ Status: implemented
 
 - `cargo test -p msime-client-providers --lib dictionary_updates`：`retained_generations_follow_the_versions_left_on_disk` 装四个版本，断言有会话占用、最近载入、上一个、当前都在保留集合里；会话放开、再检查一次之后，被删的版本不再算；清单已删但 `loaded.json` 还记着的仍算；`installed.json` 读不出来时为 `None`。
 - `cargo test -p msime-host-api --lib dictionary_updates`：`the_generation_the_host_configuration_records_is_kept_without_a_session` 按旧锁真实准备出宿主配置，再换一份锁，没有任何会话：带着配置记着的代次调用时这一代留下，不带时被删，证明保住它的正是这条规则。`unused_working_generations_are_removed_unless_bundled_retained_or_in_use` 用真实准备出的随包代次，加上合成的几份代次：有清单的、`loaded.json` 记着的、有会话持着 `DictionaryAccess` 的、本安装包代次都留下，下载版本早已删掉的和上一个词库锁的被删；暂存目录、别的名字、指向外部目录的符号链接都不动；不留 `.removing`。会话放开、清单删掉之后下一次把它们收走；下载记录读不出来时一个都不删。
+- `cargo test -p msime-host-api --lib emptying_reclaim_removes_the_generation_and_leftover_shells`：直接走 Windows 的回收：就绪的旧代次（带子目录）被清空删掉；只剩锁文件、没有 `.ready` 的空壳即使名字是本安装包的代次也被收掉；就绪的宿主配置代次原样留下。Windows CI 的 `Build and test Windows 7 handwriting host` 一步跑这一条和其余三条回收用例，在 NTFS 上验证锁文件句柄与目录删除的真实行为；此前那一步只跑 `windows_handwriting::`，回收用例从没在 Windows 上执行过。
 - `cargo test -p msime-host-api --lib failed_generation_claim_keeps_the_lease_until_rename_returns`：注入系统拒绝改名的结果，所有回收尝试都用真实 `DictionaryAccess` 检查独占租约阻止新会话；失败后只尝试一次、原目录内容仍可读且仍可建立共享会话，下一轮成功认领后可回收。旧实现释放租约后立即重试，第二次尝试时共享租约已可取得，测试失败。
 - `python3 platforms/linux/tests/core/setup_update.py`：切换成功后换下的目录被删，新目录里硬链接过来的文件仍可读，修复运行资源时换下的坏目录也删掉；默认状态目录还指着它时留下、轮到默认状态目录自己更新时删掉；符号链接不跟过去删；随包位置（`~/.local` 前缀）不删；换下的是 `dictionary-updates/generations/<代次>` 时目录和清单都留着，输出提示由词库更新回收（这一条用上一版脚本跑，`b.db` 已被删掉而失败）。改动前的脚本在第一条断言就失败。
 - 真机验收留给设备轮：Linux 上连续装两个在线词库版本或换一次锁，再看 `~/.config/msime-client/user/dictionaries/`、`~/.config/msime-client/dictionary-updates/generations/` 和 `~/.local/share/msime-client/` 下剩下的目录，以及输入、回退是否正常。

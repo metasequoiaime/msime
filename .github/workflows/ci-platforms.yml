@@ -808,6 +808,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Windows handwriting backend tests failed' }
           cargo test --locked -p msime-host-api --lib windows_handwriting::
           if ($LASTEXITCODE -ne 0) { throw 'Windows handwriting ABI tests failed' }
+          # 工作词库代次的回收在 Windows 上走另一条路（锁文件句柄开着时目录改不了名，持锁就地清空再删），只有在 Windows 上跑才验证得到 NTFS 的真实行为。
+          cargo test --locked -p msime-host-api --lib -- dictionary_updates::tests::unused_working_generations dictionary_updates::tests::failed_generation_claim dictionary_updates::tests::emptying_reclaim dictionary_updates::tests::the_generation_the_host_configuration
+          if ($LASTEXITCODE -ne 0) { throw 'Windows working dictionary generation reclaim tests failed' }
           $toolchain = Join-Path $env:VCPKG_INSTALLATION_ROOT 'scripts/buildsystems/vcpkg.cmake'
           $output = 'target/windows-full/x64/win7-panels'
           # 复用设置窗口的最小依赖清单；普通核心验证控件，Win7 目标另做兼容验收。
