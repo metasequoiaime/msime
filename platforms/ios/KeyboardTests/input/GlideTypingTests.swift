@@ -321,7 +321,7 @@ final class GlideTypingTests: XCTestCase {
     XCTAssertEqual(preedit.accessibilityValue?.filter(\.isLetter).lowercased(), "nihaoshijie")
   }
 
-  /// 记录正式渲染器对文档的写入；组字标记不算已提交文本。
+  /// 记录正式渲染器对文档的写入；组字标记不算已提交文本，`unmarkText` 定稿的非空标记区算一次上屏（整词上屏走 `setMarkedText` 加 `unmarkText`，#10873）。
   private final class Document: NSObject, UITextDocumentProxy {
     let editor = UITextView()
     var inserted: [String] = []
@@ -334,7 +334,10 @@ final class GlideTypingTests: XCTestCase {
     func insertText(_ text: String) { inserted.append(text); editor.insertText(text) }
     func deleteBackward() { editor.deleteBackward() }
     func setMarkedText(_ text: String, selectedRange: NSRange) { editor.setMarkedText(text, selectedRange: selectedRange) }
-    func unmarkText() { editor.unmarkText() }
+    func unmarkText() {
+      if let range = editor.markedTextRange, let text = editor.text(in: range), !text.isEmpty { inserted.append(text) }
+      editor.unmarkText()
+    }
     func adjustTextPosition(byCharacterOffset offset: Int) {}
   }
 

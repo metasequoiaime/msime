@@ -160,21 +160,12 @@ final class MarkedTextCommitHostTests: XCTestCase {
   }
 
   /// 本来就遵守 UIKit 约定的宿主不因显式替换而多写或少写一遍。
-  func testTextViewHostReceivesTheCandidateExactlyOnce() async throws {
+  func testTextViewHostReceivesTheCandidateExactlyOnce() throws {
     let host = TextViewHost()
     let keyboard = try keyboard(host)
-    let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
-    let window = UIWindow(windowScene: scene)
-    window.rootViewController = UIViewController()
-    window.makeKeyAndVisible()
-    defer { window.isHidden = true }
-    host.editor = UITextView(frame: CGRect(x: 0, y: 50, width: 300, height: 160))
-    window.rootViewController?.view.addSubview(host.editor)
-    host.editor.autocorrectionType = .no
-    host.editor.becomeFirstResponder()
+    // 编辑器不放进窗口、不当第一响应者。当第一响应者时测试宿主会拉起自己的系统键盘，实测按字母排在后面的 `NineKeyKeyboardTests` 常用语面板用例随后会在顶栏显示「输入运行时尚未准备完成」、工具栏被藏起；不当第一响应者时不再出现。标记、选区与定稿仍由 `UITextView` 自己执行。
     host.editor.text = "甲丙"
     host.editor.selectedRange = NSRange(location: 1, length: 0)
-    try await Task.sleep(for: .milliseconds(50))
     keyboard.render(.init(isHandled: true, preedit: "ni'hao", editingText: "nihao"))
     XCTAssertNotNil(host.editor.markedTextRange)
     keyboard.render(.init(isHandled: true, commitText: "你好"))

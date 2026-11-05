@@ -67,6 +67,8 @@ final class QuickPhraseCursorKeyboardTests: XCTestCase {
     document.editor = UITextView(frame: CGRect(x: 0, y: 50, width: 300, height: 160))
     window.rootViewController?.view.addSubview(document.editor)
     document.editor.autocorrectionType = .no
+    // 测试宿主进程里挂着系统键盘，它的行内预测会对标记区异步生成候选。iOS 26.5 模拟器上冷启动的首轮偶发：`setMarkedText` 一返回标记区就没了、光标在文档末尾，不经键盘代码、直接对 UITextView 调用同样出现；关掉行内预测后不再出现。第三方键盘生效时宿主不跑系统键盘的预测，这里关掉它，断言只测渲染器经 UIKit 的写入。
+    document.editor.inlinePredictionType = .no
     document.editor.becomeFirstResponder()
     document.editor.text = selecting ? "甲替换丙" : "甲丙"
     document.editor.selectedRange = NSRange(location: 1, length: selecting ? 2 : 0)

@@ -43,7 +43,20 @@ Flutter 引擎的 `FlutterTextInputView.insertText` 在 flutter/flutter#191062�
 - 部分选词和就地组字方案在 Flutter 宿主里仍有残留，需要另找跨进程可验证的写法。
 - `MarkedTextCommitHostTests` 用按旧 Flutter 引擎行为写的替身代理守住整词上屏、数字页原样上屏和部分选词的调用顺序，另用原生 `UITextView` 确认正文只写一次。替身代理不等于真实 Flutter 宿主，也不覆盖跨进程代理。
 
+- 单元测试里几个内存替身文档把 `setMarkedText`、`unmarkText` 写成空操作，或只按 `insertText` 记上屏，等于假设上屏一定走 `insertText`。整词上屏换写法后，`KeyLayoutStyleTests` 的数字页韩文与藏文、`GlideTypingTests` 的双语滑行在 CI 上变红，正文其实已经写进标记区再定稿。替身改为按 UIKit 约定记标记区：`insertText` 替换它，`unmarkText` 把非空标记区算作一次上屏，断言不变。
+- 同一次 CI 里 `NineKeyKeyboardTests.testPhrasesOpenInTheKeyAreaAndCloseFromTheirIcon` 也变红，原因是新加的 `MarkedTextCommitHostTests` 原生编辑器用例把 `UITextView` 放进窗口当第一响应者：测试宿主随之拉起自己的系统键盘，按字母排在后面的常用语面板用例在顶栏显示「输入运行时尚未准备完成」，工具栏被藏起。单独跑 `NineKeyKeyboardTests` 整个类通过；只跑 `testTextViewHostReceivesTheCandidateExactlyOnce` 加常用语用例就能复现，其余四个新用例在前时不复现。原生编辑器用例改为不放进窗口、不当第一响应者，标记与定稿仍由 `UITextView` 执行。
+
+## 原生编辑器光标落到文档末尾的排查
+
+评审指出 `QuickPhraseCursorKeyboardTests.testAbsentEmptyAndInvalidSuffixKeepTheCompleteCommitAtItsEnd` 在本 PR 上光标停在 12（文档末尾），预期 11（正文末尾）。CI（Xcode 26.3 模拟器）全套单元测试里这一项通过；本机 iOS 26.5 模拟器上单独运行约四五次出现一次，只出现在新进程的第一轮。
+
+逐次记录代理调用后，失败那一次在上屏的 `setMarkedText(正文, {10, 0})` 之前，编辑器里仍是标记区 `Kt`、光标 3，与预期一致；这一次调用一返回，标记区已经没有了，光标在 12。键盘代码没有参与这一步：测试里绕过键盘、直接对 `UITextView` 先标记 `Kt`，主线程阻塞 1.5 秒后再做同样两次调用，也复现了一次。同样的调用不阻塞时连跑 16 次、光标停在正文中间时连跑十余次都正确。测试宿主进程里挂着系统键盘，日志里有它的 `[CandidateGeneration]` 输出；给测试编辑器关掉 `inlinePredictionType` 后，同一用例在同一模拟器上连跑 16 次全部通过，耗时也从失败时的 4 到 8 秒回到 1.5 秒左右。
+
+据此判断这是测试宿主里系统键盘的行内预测与直接驱动的 `UITextView` 之间的相互作用，不是新写法的调用顺序问题：第三方键盘生效时宿主不跑系统键盘的预测。测试编辑器因此关掉行内预测，断言不放宽。没有在跨进程系统扩展里确认真实宿主不会出现同样的光标跳动，这一点仍要靠 `KeyboardExtensionEditorUITests` 和真机复验。
+
 ## Verification
 
 - 修复前，`MarkedTextCommitHostTests` 在 iOS 27.0 模拟器上复现报告现象：整词上屏得到 `甲ni'hao你好丙`，数字页得到 `nini1`；修复后 5 项全部通过。
-- 真实 Flutter 宿主、闲鱼与 B 站真机均未验证，留给报告者复验。
+- 光标落到文档末尾的排查见上一节；关掉测试编辑器的行内预测后，该用例在 iOS 26.5 模拟器上连跑 16 次通过。
+- 替身文档改为记标记区、原生编辑器用例不再当第一响应者后，CI 上变红的数字页韩文、藏文、双语滑行与九键常用语面板四项在 iOS 26.5 模拟器上通过。
+- 真实 Flutter 宿主、闲鱼与 B 站真机、`KeyboardExtensionEditorUITests` 的跨进程系统编辑器用例均未验证，留给 CI 之外的系统扩展回归与报告者复验。
