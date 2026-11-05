@@ -22,7 +22,7 @@ DEFAULT_MODELS = {
     "openrouter": "openrouter/auto",
     "qwen": "qwen-plus",
     "siliconflow": "Qwen/Qwen3-8B",
-    "volcengine": "doubao-seed-1.6-flash",
+    "volcengine": "doubao-seed-2-0-mini-260428",
     "zhipu": "glm-4-flash"
   }
 }

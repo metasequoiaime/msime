@@ -168,7 +168,7 @@ std::string default_polish_model(std::string_view provider) {
   if (id == "qwen" || id == "dashscope")
     return "qwen-plus";
   if (id == "volcengine")
-    return "doubao-seed-1.6-flash";
+    return "doubao-seed-2-0-mini-260428";
   if (id == "openrouter")
     return "openrouter/auto";
   if (id == "custom")

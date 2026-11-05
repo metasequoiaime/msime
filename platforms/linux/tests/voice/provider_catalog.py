@@ -77,7 +77,7 @@ EXPECTED = {
             "kimi": "kimi-k2-0905-preview",
             "zhipu": "glm-4-flash",
             "qwen": "qwen-plus",
-            "volcengine": "doubao-seed-1.6-flash",
+            "volcengine": "doubao-seed-2-0-mini-260428",
             "openrouter": "openrouter/auto",
             "custom": ""
         }
