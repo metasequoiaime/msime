@@ -1357,9 +1357,9 @@ final class ImeLetterRows {
             }
             default -> { return null; }
         }
-        // 功能键（层切换、返回字母、表情、符号）：功能键底色、15 sp，描述按 §2.8。
+        // 功能键（层切换、返回字母、表情、符号）：功能键底色、15 sp（键窄时一行缩小，同底行的功能键），描述按 §2.8。
         key.setContentDescription(layerKey.description());
-        KeyboardTypographyPolicy.setKeyTextSize(key, 15);
+        KeyboardTypographyPolicy.setFunctionKeyTextSize(key);
         if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         s.imeStyler.styleButton(key, KeyboardKeyRole.ACCENT, s.skin);
         return key;

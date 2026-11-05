@@ -12431,8 +12431,11 @@ public final class MSIMEInputService extends InputMethodService {
         // 「键盘调整」的遮罩盖在照常画出的键盘上：工具栏、候选行和按键区都不为它让位，下面画的就是调整后的样子。
         if (keyboardAdjustOverlay != null) {
             ViewPolicy.setVisible(keyboardAdjustOverlay, keyboardAdjustActive);
+            if (floatingBar != null) floatingBar.setGripShown(!keyboardAdjustActive);
             if (keyboardAdjustActive) {
                 keyboardAdjustOverlay.setAvailability(keyboardAdjustAvailability());
+                // 浮动键盘是圆角卡片（ImeStyler.applyKeyboardSurfaceGeometry 按这个半径裁外框），括号的拐角要顺着它弯，否则被裁掉。
+                keyboardAdjustOverlay.setCornerRadius(overlayDrawn() ? pixels(FloatingKeyboardPolicy.CORNER_RADIUS_DP) : 0);
                 // 外框里排在遮罩后面加进来的面板（建视图时的各个面板、第一次打开才建的表情和符号面板）会盖在它上面，打开期间让它保持在最上层。
                 if (keyboardSurface.getChildAt(keyboardSurface.getChildCount() - 1) != keyboardAdjustOverlay)
                     keyboardAdjustOverlay.bringToFront();

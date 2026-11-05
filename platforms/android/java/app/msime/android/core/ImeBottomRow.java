@@ -120,7 +120,7 @@ final class ImeBottomRow {
                     ? KeyboardIconKey.Kind.TRASH : KeyboardIconKey.Kind.RETURN), "Enter");
             // 组词时 SVC 把 text 设成「确认」（日语「確定」），这时按文字画；其他动作文字一律画 ↵。
             key.setTextFaces(java.util.Set.of("确认", "確定"));
-            KeyboardTypographyPolicy.setKeyTextSize(key, 15);
+            KeyboardTypographyPolicy.setFunctionKeyTextSize(key);
             ViewPolicy.setTypefaceStyle(key, android.graphics.Typeface.BOLD);
             key.setKeyboardRole(KeyboardKeyRole.RETURN);
             s.imeStyler.styleButton(key, KeyboardKeyRole.RETURN, s.skin);
@@ -586,7 +586,7 @@ final class ImeBottomRow {
         if (slot == KeyboardActionRow.DesignSlot.COMMA)
             KeyboardTypographyPolicy.setKeyTextSize(key, 22);
         else if (role == KeyboardKeyRole.ACCENT)
-            KeyboardTypographyPolicy.setKeyTextSize(key, 15);
+            KeyboardTypographyPolicy.setFunctionKeyTextSize(key);
         ViewPolicy.show(key);
         parent.addView(key, params);
     }
