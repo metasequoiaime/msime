@@ -46,6 +46,7 @@
 #include "ModeMailbox.h"
 #include "PreviewConfig.h"
 #include "PreviewDispatcher.h"
+#include "ProcessPriority.h"
 #include "ProductionDispatcher.h"
 #include "ProductionPipeNames.h"
 #include "ProviderToken.h"
@@ -953,6 +954,11 @@ const char *foreground_presentation_name(
 }
 } // namespace
 int wmain(int argc, wchar_t **argv) {
+  // 登录任务的默认 Priority 7 把 CPU 调度类和内存优先级一起压低，看门狗和它拉起的
+  // Server 都继承这个状态；TSF 拉起、手工启动和以后的拉起路径也可能带进来。复位放在
+  // 任何业务线程创建之前，失败只记一行，不阻止启动。
+  const auto process_priority =
+      msime::windows::restore_interactive_process_priority();
   msime::windows::compat::initialize_windows7_process_dpi();
   // Before any thread exists: libcurl's global init is not thread-safe, and the online workers use it.
   curl_global_init(CURL_GLOBAL_DEFAULT);
@@ -1029,6 +1035,13 @@ int wmain(int argc, wchar_t **argv) {
     auto &diagnostic_log = *new DiagnosticLog(config.state_root / L"logs" / L"server.log");
     host_api_diagnostic_log.store(&diagnostic_log, std::memory_order_release);
     msime_client_set_diagnostic_sink(write_host_api_diagnostic);
+    // 只在失败时留痕：这两项各自独立，任一失败都不影响其余启动步骤。
+    if (!process_priority.cpu_ok)
+      diagnostic_log.server("Failed to restore NORMAL_PRIORITY_CLASS: error " +
+                            std::to_string(process_priority.cpu_error));
+    if (!process_priority.memory_ok)
+      diagnostic_log.server("Failed to restore MEMORY_PRIORITY_NORMAL: error " +
+                            std::to_string(process_priority.memory_error));
     // 脚本插件只在 Server 里运行；TIP 和 Server 共用同一份宿主 DLL，但 TIP 从不调用它（scripts/test-script-plugin-hosts.py）。开发构建和 release 构建一样打开：授权由设置应用（platforms/windows/settings）的授权页写入，那里写明了同一用户下的其他程序能伪造授权；提权窗口（ELEVATED）里从不运行脚本（msime_client.h）。
     msime_client_scripts_enable(true);
     // Operator notices go to the terminal of a preview run and, when the server switch is on, to the diagnostic file - the only place a managed Server's notices can be read.
