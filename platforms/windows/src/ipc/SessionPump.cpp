@@ -149,6 +149,13 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
       if (packet->event_type != FanyImePipeEventType::KeyEvent) {
         bool handled = false;
         bool eligible = false;
+        const bool mode_event =
+            route.route &&
+            (packet->event_type == FanyImePipeEventType::IMESwitch ||
+             packet->event_type == FanyImePipeEventType::PuncSwitch ||
+             packet->event_type == FanyImePipeEventType::DoubleSingleByteSwitch ||
+             packet->event_type == FanyImePipeEventType::StatusSnapshot ||
+             packet->event_type == FanyImePipeEventType::FocusRestored);
         if (!enqueue([&, route, packet = *packet](InputState &state) {
               if (!transport_.current(ticket))
                 return;
@@ -167,13 +174,7 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
                   packet.event_type == FanyImePipeEventType::ShowCandidateWnd &&
                   (packet.modifiers_down & FanyImePipeFlags::UiLess) == 0)
                 state.show_candidate(*route.route);
-              if (route.route &&
-                  (packet.event_type == FanyImePipeEventType::IMESwitch ||
-                   packet.event_type == FanyImePipeEventType::PuncSwitch ||
-                   packet.event_type ==
-                       FanyImePipeEventType::DoubleSingleByteSwitch ||
-                   packet.event_type == FanyImePipeEventType::StatusSnapshot ||
-                   packet.event_type == FanyImePipeEventType::FocusRestored) &&
+              if (mode_event &&
                   !state.synchronize_input_mode(*route.route, packet))
                 return;
               if (route.route &&
@@ -199,6 +200,9 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
           continue;
         if (!handled)
           return PumpResult::DispatchFailed;
+        // 输入队列的任务已经结束，焦点锁也放开了，这时才叫醒界面线程：在事件回调里（锁内）叫醒，界面线程 try_lock 读模式正好撞上锁、读空，又要等满一轮消息循环。
+        if (mode_event && presentation_.mode_event)
+          presentation_.mode_event(*route.route);
         continue;
       }
       if (!route.route)

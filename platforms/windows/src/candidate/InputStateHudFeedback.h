@@ -16,7 +16,7 @@ inline bool input_hud_same_focus(const FocusLease &a, const FocusLease &b) {
 class InputStateHudFeedback final {
 public:
   using Clock = std::chrono::steady_clock;
-  // 界面线程平时在 MsgWaitForMultipleObjectsEx 里最多等 50 毫秒才看一次信箱，所以发布之后要叫醒它，提示不必等满这一拍。工作线程调用；没有设置时什么也不做。
+  // 界面线程平时在 MsgWaitForMultipleObjectsEx 里最多等 50 毫秒才看一次信箱，所以发布之后要叫醒它，提示不必等满这一拍。回调在 publish 的线程上、锁外调用，必须不阻塞、不回头碰这个信箱；没有设置时什么也不做。
   void set_wake(std::function<void()> wake) {
     std::lock_guard lock(mutex_);
     wake_ = std::move(wake);
