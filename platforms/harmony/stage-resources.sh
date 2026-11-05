@@ -70,6 +70,16 @@ cp resources/licenses/sentence-model-Apache-2.0.txt "$licenses_staged/"
 cp LICENSE "$licenses_staged/GPL-3.0.txt"
 echo "Licences staged for the HAP: $licenses_staged"
 
+# 整句联想「增强」逐键重排的手机档 ONNX 模型（chinese-ime-lm 的 rerank-v2：6x256，约 8 MB），按 resources/rerank-model.lock.json 下载核对后放在 resfile/rerank-model-small：放在 engine 目录旁边而不是里面，因为放进去会被上面的锁文件校验拒绝。resfile 把它解压到 context.resourceDir/rerank-model-small，键盘在 HostOptions 的 rerank_models 里写 context.resourceDir，host-api 从那里加载（build-native.sh 编的 host 库打开了 onnx-rerank）；ONNX Runtime 只读文件，不像 SQLite 那样要在只读的安装目录里加锁，所以不复制到 filesDir。8x448 不带：与 Android 一样是手机，大模型多 31 MB，还没有量过哪台鸿蒙手机能在 10 ms 的换档线内跑完它。没有模型时退回 engine 里随包的 sentence-model.safetensors。
+rerank_source=$(python3 scripts/fetch_rerank_model.py)
+rerank_staged="$repo_root/platforms/harmony/entry/src/main/resources/resfile/rerank-model-small"
+rm -rf "$rerank_staged"
+cp -R "$rerank_source/rerank-model-small" "$rerank_staged"
+echo "Keystroke rerank model staged for the HAP: $rerank_staged"
+# 模型的许可证全文、上游 NOTICE 与训练语料要求的署名（Apache-2.0 第 4(a)、4(d) 条），以及 libmsime_host_api.so 静态链接的精简 ONNX Runtime 的 MIT 许可证和它的第三方声明，与 Android 随原生库分发的是同一份。
+cp resources/licenses/rerank-model-Apache-2.0.txt "$licenses_staged/"
+cp platforms/linux/data/licenses/onnxruntime-MIT.txt platforms/linux/data/licenses/onnxruntime-ThirdPartyNotices.txt "$licenses_staged/"
+
 # 内置音效包，由 scripts/generate_sound_packs.py 合成。放在 engine 目录旁边而不是里面，因为放进去会被上面的锁文件校验拒绝；resfile 会把它们解压到 context.resourceDir/sound-packs，也就是键盘告诉 client-services 的内置包根目录。
 sound_packs_staged="$repo_root/platforms/harmony/entry/src/main/resources/resfile/sound-packs"
 rm -rf "$sound_packs_staged"

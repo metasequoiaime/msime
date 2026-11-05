@@ -1,4 +1,6 @@
-//! `check-words`: the gate for changes to the hand-edited files in the dictionary source repository (metasequoiaime/msime-dictionary): custom/words.txt, custom/translations.txt, custom/english.txt and custom/cantonese.txt. A change to any of them may only append lines. Every appended entry must pass the parser the build uses and be new: not repeated within the change and not already in the file. Weighted entries (words, English words) must also keep their weight within the range the file already uses, and an entry already in a shipped database (a word in msime-pinyin.db's quanpin table for its pinyin, an English word and display in msime-english.db's english_words) is rejected when that database is given. A translation may override an existing source with a different gloss, as the build's last-line-wins does, but repeating the same source and gloss is a duplicate. custom/cantonese.txt 的新行还要对照 rime-cantonese 字表核对每个字的读音（与构建同一个检查），给了 msime-cantonese.db 时，库里同键同词的条目也算重复。Appended blank and `#` comment lines are skipped, as the build skips them.
+//! `check-words` 检查词库源仓库 `metasequoiaime/msime-dictionary` 的人工文件：`custom/words.txt`、`custom/translations.txt`、`custom/english.txt` 和 `custom/cantonese.txt`。这些文件只允许追加行；新增行须通过构建器的同一个解析器，不能在本次改动内或原文件里重复。带权重的词条还须落在文件已有的权重范围内；给了已发布词库时，全拼表里的同词同音、英文表里的同词同显示文本、粤语表里的同键同词都算重复。译文允许同一源词用不同释义覆盖，但同源同释义算重复。粤语新行还须按构建器的规则对照 rime-cantonese 字表核对每个字的读音。新增空行和 `#` 注释与构建时一样跳过。
+//!
+//! 构建会删掉的新词也拒绝：给了 `curation/pinyin-vetoes.txt` 时，检查拼音词的整词或读音否决；英文词按内置蔑称及给了的 `curation/english-vetoes.txt` 检查；人工译文检查其英文一侧。
 
 use std::collections::HashMap;
 
@@ -7,6 +9,7 @@ use rusqlite::Connection;
 use serde::Serialize;
 
 use crate::cantonese;
+use crate::curation::{EnglishVetoes, PinyinVetoes, PINYIN_VETOES};
 use crate::english::{
     parse_custom_english_line, parse_custom_translation, CUSTOM_ENGLISH, CUSTOM_TRANSLATIONS,
 };
@@ -138,6 +141,10 @@ pub struct Shipped<'a> {
     pub cantonese: Option<&'a Connection>,
     /// rime-cantonese 字表给每个字的读音（`cantonese::character_readings`）。检查 custom/cantonese.txt 时必须给，否则检查无法进行。
     pub cantonese_readings: Option<&'a cantonese::Readings<'a>>,
+    /// msime-dictionary 的 `curation/pinyin-vetoes.txt`：custom/words.txt 新加的词被整词否决、或这个读音被否决时拒绝，因为构建会把它删掉。
+    pub pinyin_vetoes: Option<&'a PinyinVetoes>,
+    /// 英文否决集合（构建器内置的蔑称，加上给了的 `curation/english-vetoes.txt`）：custom/english.txt 新加的词在其中时拒绝。不给时只用内置的词。
+    pub english_vetoes: Option<&'a EnglishVetoes>,
 }
 
 #[derive(Debug, Serialize)]
@@ -296,7 +303,9 @@ fn check_file(input: &Input, shipped: Shipped, report: &mut Report) -> Result<Fi
                 .and_then(|(weight, (low, high))| {
                     (!(low..=high).contains(&weight)).then_some((weight, low, high))
                 });
-        let reason = if let Some((weight, low, high)) = out_of_range {
+        let reason = if let Some(reason) = vetoed(&entry, shipped) {
+            Some(reason)
+        } else if let Some((weight, low, high)) = out_of_range {
             Some(format!(
                 "weight {weight} is outside the range {name} uses ({low} to {high})"
             ))
@@ -335,6 +344,45 @@ fn reading_rejection(kind: Kind, line: &str, shipped: Shipped) -> Result<Option<
     Ok(cantonese::check_custom_reading(&word, readings)
         .err()
         .map(|error| format!("{error:#}")))
+}
+
+/// 构建会删掉这个新词时的拒绝理由：拼音被 `curation/pinyin-vetoes.txt` 否决，英文词在英文否决集合里，或者译文的英文一侧（英译中的源词、中译英的译文）含这个集合里的词。
+fn vetoed(entry: &Entry, shipped: Shipped) -> Option<String> {
+    match entry {
+        Entry::Word { word, pinyin, .. } => {
+            let vetoes = shipped.pinyin_vetoes?;
+            if vetoes.vetoes_word(word) {
+                Some(format!(
+                    "{word} is vetoed as a whole word in {PINYIN_VETOES}"
+                ))
+            } else if vetoes.vetoes(word, pinyin) {
+                Some(format!("{word} {pinyin} is vetoed in {PINYIN_VETOES}"))
+            } else {
+                None
+            }
+        }
+        Entry::English { word, .. } => with_english_vetoes(shipped, |vetoes| {
+            vetoes
+                .source(word)
+                .map(|source| format!("{word} is vetoed by {source}"))
+        }),
+        Entry::Translation { source, gloss } => with_english_vetoes(shipped, |vetoes| {
+            let word = vetoes.vetoed_translation(source, gloss)?;
+            Some(format!(
+                "{word} is vetoed by {}, so the build leaves this translation out",
+                vetoes.source(word)?
+            ))
+        }),
+        Entry::Cantonese { .. } => None,
+    }
+}
+
+/// 用给了的英文否决集合，没给时用构建器内置的那一组。
+fn with_english_vetoes<R>(shipped: Shipped, check: impl FnOnce(&EnglishVetoes) -> R) -> R {
+    match shipped.english_vetoes {
+        Some(vetoes) => check(vetoes),
+        None => check(&EnglishVetoes::built_in()),
+    }
 }
 
 /// The rejection reason when a shipped database already has the entry.
@@ -994,5 +1042,87 @@ mod tests {
             !summary.contains("### Added to custom/words.txt"),
             "{summary}"
         );
+    }
+
+    /// 构建会删掉的新词在检查时就拒绝：拼音按给了的否决表，英文按内置蔑称和给了的否决表。
+    #[test]
+    fn vetoed_additions_are_rejected() {
+        let vetoes = PinyinVetoes::parse("别鸡巴\n上调\tshang'diao\n").unwrap();
+        let input = Input {
+            kind: Kind::Words,
+            base: BASE,
+            head: &format!(
+                "{BASE}别鸡巴\tbie'ji'ba\t5\n上调\tshang'diao\t5\n上调\tshang'tiao\t5\n"
+            ),
+        };
+        let report = check(
+            &[input],
+            Shipped {
+                pinyin_vetoes: Some(&vetoes),
+                ..Shipped::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            reasons(&report),
+            [
+                (
+                    4,
+                    "别鸡巴 is vetoed as a whole word in curation/pinyin-vetoes.txt"
+                ),
+                (5, "上调 shang'diao is vetoed in curation/pinyin-vetoes.txt")
+            ]
+        );
+        assert_eq!(report.added.len(), 1);
+
+        let english = |head: &str, vetoes: Option<&EnglishVetoes>| {
+            check(
+                &[Input {
+                    kind: Kind::English,
+                    base: ENGLISH,
+                    head,
+                }],
+                Shipped {
+                    english_vetoes: vetoes,
+                    ..Shipped::default()
+                },
+            )
+            .unwrap()
+        };
+        let head = format!("{ENGLISH}nigger\tNigger\t1\nasdfgh\tasdfgh\t1\n");
+        let report = english(&head, None);
+        assert_eq!(
+            reasons(&report),
+            [(4, "nigger is vetoed by the builder's built-in slur list")]
+        );
+        let curated = EnglishVetoes::parse("asdfgh\n").unwrap();
+        let report = english(&head, Some(&curated));
+        assert_eq!(
+            reasons(&report),
+            [
+                (4, "nigger is vetoed by the builder's built-in slur list"),
+                (5, "asdfgh is vetoed by curation/english-vetoes.txt")
+            ]
+        );
+
+        // 译文按英文一侧查：英译中的源词、中译英的译文里有被否决的词时拒绝，中文一侧不查。
+        let report = translations(&format!(
+            "{TRANSLATIONS}黑鬼\tnigger (offensive)\ntranny\t变性人\nredwood\t红杉（不是 nigger）\n"
+        ));
+        let first = TRANSLATIONS.lines().count() + 1;
+        assert_eq!(
+            reasons(&report),
+            [
+                (
+                    first,
+                    "nigger is vetoed by the builder's built-in slur list, so the build leaves this translation out"
+                ),
+                (
+                    first + 1,
+                    "tranny is vetoed by the builder's built-in slur list, so the build leaves this translation out"
+                )
+            ]
+        );
+        assert_eq!(report.added.len(), 1);
     }
 }

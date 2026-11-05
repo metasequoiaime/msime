@@ -9334,11 +9334,11 @@ fn cantonese_dictionary(directory: &std::path::Path) -> String {
     path.to_str().unwrap().to_owned()
 }
 
-/// A real Engine on the Cantonese scheme with learning on, so a learning path the scheme failed to skip would write. Focused.
-fn cantonese_runtime(directory: &std::path::Path) -> Runtime {
+/// A real Engine on the Cantonese scheme with the learning switch as given. Since #10758 Cantonese learns like Pinyin while the switch is on (frequency adjustment and words made from pieces), and writes nothing while it is off. Focused.
+fn cantonese_runtime(directory: &std::path::Path, learning: bool) -> Runtime {
     let mut options = real_engine_options(directory);
     options.scheme = CANTONESE_SCHEME;
-    options.learning = true;
+    options.learning = learning;
     options.cantonese_dictionary = cantonese_dictionary(directory);
     let session = msime_engine::host::Session::new(&options).unwrap();
     let mut runtime = Runtime::new(session, 5).unwrap();
@@ -9405,7 +9405,7 @@ fn database_rows(root: &std::path::Path) -> Vec<(String, String, i64)> {
 #[test]
 fn cantonese_digits_select_and_the_apostrophe_reaches_the_engine() {
     let directory = tempfile::tempdir().unwrap();
-    let mut runtime = cantonese_runtime(directory.path());
+    let mut runtime = cantonese_runtime(directory.path(), true);
 
     let typed = compose_cantonese(&mut runtime, "neihou");
     assert_eq!(typed.view.scheme, CANTONESE_SCHEME);
@@ -9460,37 +9460,24 @@ fn cantonese_digits_select_and_the_apostrophe_reaches_the_engine() {
     }
 }
 
-/// A row covering only the leading syllables goes to the document at once, even for a host that draws held phrase pieces, and the rest keeps composing. Nothing the user picks is learned: the journal and the main dictionary keep their rows, and the same reading comes back in the same order.
+/// A row covering only the leading syllables goes to the document at once, even for a host that draws held phrase pieces, and the rest keeps composing. With the learning switch off nothing the user picks is learned: the journal and the main dictionary keep their rows, and the same reading comes back in the same order. With the switch on Cantonese learns like Pinyin (#10758), which the Engine's own tests cover; here it only serves as the control.
 #[test]
-fn a_cantonese_partial_selection_commits_at_once_and_learns_nothing() {
-    let directory = tempfile::tempdir().unwrap();
-    let dictionaries = directory.path().join("dictionaries");
-    std::fs::create_dir_all(&dictionaries).unwrap();
-    rusqlite::Connection::open(dictionaries.join(msime_engine::assets::MAIN_DICTIONARY))
-        .unwrap()
-        .execute_batch(
-            "CREATE TABLE tbl_2_n(key TEXT, jp TEXT, value TEXT, weight INTEGER);\
-             INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',1000),('ni''hao','nh','拟好',500);",
-        )
-        .unwrap();
-
-    // The control: the same pick under Quanpin with the same options writes the journal, so the comparison below would see a Cantonese write. The baseline is taken after composing, because reading candidates can already create the journal with empty tables, so only the pick itself can change the counts.
-    let mut options = real_engine_options(directory.path());
-    options.learning = true;
-    let mut quanpin = Runtime::new(msime_engine::host::Session::new(&options).unwrap(), 5).unwrap();
-    quanpin.focus(true).unwrap();
-    for value in *b"nihao" {
-        character(&mut quanpin, value);
-    }
-    let initial = database_rows(directory.path());
-    assert_eq!(
-        character(&mut quanpin, b'2').commit.as_deref(),
-        Some("拟好")
-    );
-    drop(quanpin);
+fn a_cantonese_partial_selection_commits_at_once_and_learns_nothing_with_learning_off() {
+    // The control: the same two pieces picked with learning on make a word, so the comparison below would see a write. It runs in a directory of its own, because the learned rows are read back whatever the switch says and would reorder the candidates below. The baseline is taken after composing, because reading candidates can already create the journal with empty tables, so only the picks themselves can change the counts.
+    let control = tempfile::tempdir().unwrap();
+    let mut learning = cantonese_runtime(control.path(), true);
+    learning.set_phrase_preedit(true);
+    compose_cantonese(&mut learning, "neihou");
+    let initial = database_rows(control.path());
+    let piece = character(&mut learning, b'3');
+    assert_eq!(piece.commit.as_deref(), Some("你"));
+    let id = piece.view.candidates[1].id;
+    let rest = learning.dispatch(Action::Select(id)).unwrap();
+    assert_eq!(rest.commit.as_deref(), Some("號"));
+    drop(learning);
     msime_engine::flush_personal_learning();
     // Some table must gain rows; a journal created with empty tables does not count as a write.
-    let learned = database_rows(directory.path());
+    let learned = database_rows(control.path());
     assert!(
         learned.iter().any(|(file, table, count)| {
             let previous = initial
@@ -9499,13 +9486,14 @@ fn a_cantonese_partial_selection_commits_at_once_and_learns_nothing() {
                 .map_or(0, |(_, _, before)| *before);
             *count > previous
         }),
-        "the Quanpin pick wrote no rows: {initial:?} -> {learned:?}"
+        "the picks with learning on wrote no rows: {initial:?} -> {learned:?}"
     );
 
-    let mut runtime = cantonese_runtime(directory.path());
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = cantonese_runtime(directory.path(), false);
     runtime.set_phrase_preedit(true);
-    let before = database_rows(directory.path());
     compose_cantonese(&mut runtime, "neihou");
+    let before = database_rows(directory.path());
     let first = character(&mut runtime, b'3');
     assert!(first.handled);
     assert_eq!(first.commit.as_deref(), Some("你"));
@@ -10878,6 +10866,7 @@ mod candidate_scorer;
 
 mod prediction_rerank;
 
+mod deferred_scorer;
 mod sentence_pool;
 mod sentence_start;
 

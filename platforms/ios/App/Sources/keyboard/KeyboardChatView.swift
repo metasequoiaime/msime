@@ -127,7 +127,7 @@ struct KeyboardTryoutView: View {
               .accessibilityLabel("发送消息").accessibilityIdentifier("keyboardChatSend")
           }
         }
-        .buttonStyle(.glassProminent).buttonBorderShape(.circle).tint(MetasequoiaTheme.accent)
+        .buttonStyle(.glassProminent).buttonBorderShape(.circle).tint(MetasequoiaTheme.accent).foregroundStyle(MetasequoiaTheme.onAccent)
       }.padding(.horizontal, 16).padding(.vertical, 8)
     } else {
       HStack(spacing: 10) {

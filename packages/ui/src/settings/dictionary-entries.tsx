@@ -1,4 +1,4 @@
-import type { RefObject } from "react";
+import { useId, type RefObject } from "react";
 import type {
   DictionaryEntry,
   DictionaryLookupEntry,
@@ -49,43 +49,65 @@ export function DictionaryEntries({
   onEdit,
   onRemove,
 }: DictionaryEntriesProps) {
+  const keyHintId = useId();
+  const keyHint = dictionaryKindKeyHint(kind);
   return (
     <>
       {form && (
+        // 每一栏都是标题在上、输入框在下，栏高一致，按底边对齐后三个框和按钮才齐。
         <SettingsPhraseForm>
-          <label>
-            编码{" "}
+          <label className={settings.field}>
+            编码
             <input
+              className={settings.fieldInput}
               value={form.key}
               readOnly={form.previous?.source === "bundled"}
+              aria-describedby={keyHint ? keyHintId : undefined}
               onChange={(event) => onFormChange({ ...form, key: event.target.value })}
             />
-            <small className={settings.keyHint}>{dictionaryKindKeyHint(kind)}</small>
           </label>
-          <label>
-            {kind === "quick_phrase" ? "短语" : "词条"}{" "}
+          <label className={settings.field}>
+            {/* 光标标记怎么写是解释：在 label 里只能放悬停的「?」，文本框照旧以 label 命名。「?」和标题同一行，放在输入框前面，不在框下面另起一行。 */}
+            <span className={settings.fieldTitleRow}>
+              {kind === "quick_phrase" ? "短语" : "词条"}
+              {kind === "quick_phrase" && (
+                <InfoTip passive subject="短语">
+                  {QUICK_PHRASE_DICTIONARY_CURSOR_NOTE}
+                </InfoTip>
+              )}
+            </span>
             <input
+              className={settings.fieldInput}
               value={form.value}
               readOnly={form.previous?.source === "bundled"}
               onChange={(event) => onFormChange({ ...form, value: event.target.value })}
             />
-            {/* 光标标记怎么写是解释：在 label 里只能放悬停的「?」，文本框照旧以 label 命名。 */}
-            {kind === "quick_phrase" && (
-              <InfoTip passive subject="短语">
-                {QUICK_PHRASE_DICTIONARY_CURSOR_NOTE}
-              </InfoTip>
-            )}
           </label>
-          <label>
-            权重{" "}
+          <label className={settings.field}>
+            权重
             <input
+              className={settings.fieldNumberInput}
               type="number"
               value={form.weight}
               onChange={(event) => onFormChange({ ...form, weight: Number(event.target.value) })}
             />
           </label>
-          <ActionButton action={onSave} ariaBusy={busy} className="" disabled={busy} label="保存" />
-          <ActionButton action={onCancel} disabled={busy} label="取消" />
+          <div className={settings.phraseFormActions}>
+            <ActionButton
+              action={onSave}
+              ariaBusy={busy}
+              className="primary"
+              disabled={busy}
+              label="保存"
+            />
+            <ActionButton action={onCancel} disabled={busy} label="取消" />
+          </div>
+          {/* 编码长度是输入约束，常驻显示；放在整行末尾独占一行，不塞进「编码」那一栏把它撑高。 */}
+          {keyHint && (
+            <small id={keyHintId} className={settings.keyHint}>
+              {keyHint}
+            </small>
+          )}
         </SettingsPhraseForm>
       )}
       <DictionaryEntryList

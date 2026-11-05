@@ -27,7 +27,7 @@ def main():
         raise RuntimeError("requires dedicated msime-client-test AVD")
     if int(shell("getprop ro.build.version.sdk")) < 30:
         raise RuntimeError("system exit history requires API 30+")
-    run("root")
+    subprocess.run([adb, "-s", serial, "root"], check=True, timeout=60)
     run("wait-for-device")
     base = "/data/user/0/app.msime.android/files"
     telemetry = base + "/telemetry"

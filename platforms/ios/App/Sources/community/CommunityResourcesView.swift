@@ -442,7 +442,7 @@ struct CommunityResourceDetail: View {
               Divider()
             }
           }
-          Button("导入这版词库到本机") { confirmImport = true }.buttonStyle(.borderedProminent).disabled(busy)
+          Button("导入这版词库到本机") { confirmImport = true }.buttonStyle(.borderedProminent).foregroundStyle(MetasequoiaTheme.onAccent).disabled(busy)
             .accessibilityIdentifier("communityImportLocal")
           Text("导入会添加到本机个人词库。开启完全访问后，在键盘空闲时由引擎处理；收藏和查看更新不会自动修改词条。")
             .font(.caption).foregroundStyle(.secondary)
@@ -466,7 +466,7 @@ struct CommunityResourceDetail: View {
             try request.checkCurrent(id)
             updated = latest
             message = "已添加。在高情商回复键盘点击「模板」即可选择；只有点击生成时才会发送文字。"
-          }}.buttonStyle(.borderedProminent).disabled(busy)
+          }}.buttonStyle(.borderedProminent).foregroundStyle(MetasequoiaTheme.onAccent).disabled(busy)
         }
         Button(item.saved ? "取消收藏" : "收藏，关注后续更新") { run { id in
           try await SkinCommunityAPI.shared.saveResource(item.id, saved: !item.saved)

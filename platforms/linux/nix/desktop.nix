@@ -101,8 +101,8 @@ let
     inherit root;
     fileset = lib.fileset.unions [
       cargoSources
-      # 图标、Tauri 配置与权限声明都在编译时读；gen 下是 Android 与 Xcode 的生成工程，用不到。
-      (lib.fileset.difference (root + "/apps/desktop/src-tauri") (root + "/apps/desktop/src-tauri/gen"))
+      # 图标、Tauri 配置与权限声明都在编译时读。
+      (root + "/apps/desktop/src-tauri")
     ];
   };
   commonArgs = {
