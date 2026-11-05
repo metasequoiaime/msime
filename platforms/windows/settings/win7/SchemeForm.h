@@ -171,7 +171,8 @@ public:
     select(chinese_control_, chinese_, chinese(scheme) ? scheme : std::string{});
     if (chinese_notice_) SetWindowTextW(chinese_notice_, chinese(scheme) ? L"" : L"当前输入语言不是中文，中文方案仅在选择中文时可用。");
     SetWindowTextW(description_, scheme == "cantonese" && cantonese_shuangpin(preferences)
-        ? L"粤语双拼：两键一个音节，第一键是声母、第二键是韵母，ing 和 ik 在 ; 键上；从第一键起按双拼解释，与粤拼同形的码（如 oi）也按双拼。数字键选词，候选为繁体字词。"
+        // 末行是设计者署名（#9799），与 WinUI 设置、共享页相同。
+        ? L"粤语双拼：两键一个音节，第一键是声母、第二键是韵母，ing 和 ik 在 ; 键上；从第一键起按双拼解释，与粤拼同形的码（如 oi）也按双拼。数字键选词，候选为繁体字词。\r\n方案设计：陳澍鋒"
         : note(scheme));
     if (profile_) {
       auto options = profiles();

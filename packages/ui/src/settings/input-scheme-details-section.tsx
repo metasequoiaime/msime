@@ -5,6 +5,7 @@ import { LinkRow, Row } from "../core/platform-controls";
 import { resolveVietnamesePreferences, type VietnamesePreferences } from "./vietnamese-preferences";
 import {
   cantoneseJyutpingDescription,
+  cantoneseShuangpinCredit,
   cantoneseShuangpinDescription,
   resolveCantoneseInputMethod,
   type CantonesePreferences,
@@ -243,7 +244,7 @@ export function InputSchemeDetailsSection({
           "按两套式（두벌식）键位输入韩文字母，自动拼成音节，标点为半角",
         )
       )}
-      {/* 粤拼与粤语双拼共用同一个粤拼方案和词典，只是按键的解释不同，所以做成方案下的选项，不另加输入源。 */}
+      {/* 粤拼与粤语双拼共用同一个粤拼方案和词典，只是按键的解释不同，所以做成方案下的选项，不另加输入源。选中粤语双拼时标题下面常驻设计者署名（#9799）。 */}
       <SegmentedRow
         title="粤拼方案"
         description={
@@ -251,6 +252,7 @@ export function InputSchemeDetailsSection({
             ? cantoneseShuangpinDescription
             : cantoneseJyutpingDescription
         }
+        detail={cantoneseInputMethod === "shuangpin" ? cantoneseShuangpinCredit : undefined}
         hidden={hasTouchKeyboardSchemes || scheme !== "cantonese"}
         options={cantoneseInputSchemeOptions}
         value={cantoneseInputMethod}

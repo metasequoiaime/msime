@@ -13,7 +13,9 @@ import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.TextView;
+import androidx.annotation.Nullable;
 import androidx.core.view.AccessibilityDelegateCompat;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.accessibility.AccessibilityNodeInfoCompat;
@@ -27,12 +29,27 @@ final class SheetOptionView {
 
     static View create(Context context, CharSequence label, boolean selected, boolean nested,
             int color, boolean bold, Runnable action) {
+        return create(context, label, null, selected, nested, color, bold, action);
+    }
+
+    /** `detail` 不为空时排在选项名下面一行，13sp、次要文字色，例如粤语双拼的「方案设计：陳澍鋒」；两行都在 56dp 的行高里，读屏接在选项名后面读。 */
+    static View create(Context context, CharSequence label, @Nullable CharSequence detail, boolean selected,
+            boolean nested, int color, boolean bold, Runnable action) {
         FrameLayout row = new FrameLayout(context);
         ViewPolicy.setMinimumHeightDp(context, row, Ui.SHEET_OPTION_HEIGHT);
         ViewPolicy.makeClickable(row, context, action);
 
-        TextView text = ViewPolicy.centeredLabel(context, nested ? label + " ›" : label,
+        TextView name = ViewPolicy.centeredLabel(context, nested ? label + " ›" : label,
             Ui.TEXT_SHEET_OPTION, bold ? 600 : 400, color);
+        View text = name;
+        if (detail != null && detail.length() > 0) {
+            LinearLayout lines = LayoutPolicy.column(context);
+            ViewPolicy.setCenteredHorizontally(lines);
+            lines.addView(name);
+            lines.addView(ViewPolicy.centeredLabel(context, detail, Ui.TEXT_SHEET_HEADER, 400,
+                ThemeColorPolicy.subText(context)));
+            text = lines;
+        }
         FrameLayout.LayoutParams textParams = LayoutPolicy.frameParamsPx(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
             Gravity.CENTER);
@@ -55,7 +72,8 @@ final class SheetOptionView {
             @Override public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfoCompat info) {
                 super.onInitializeAccessibilityNodeInfo(host, info);
                 info.setClassName(Button.class.getName());
-                info.setContentDescription(nested ? label + "，更多选项" : label);
+                CharSequence spoken = detail != null && detail.length() > 0 ? label + "，" + detail : label;
+                info.setContentDescription(nested ? spoken + "，更多选项" : spoken);
                 if (selected) info.setStateDescription("已选择");
             }
         });

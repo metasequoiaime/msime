@@ -592,8 +592,13 @@ struct DesignOption<Value: Hashable>: Identifiable {
   var isDestructive = false
   var identifier: String? = nil
   var children: [DesignOption]? = nil
+  /// 选项名下面一行小号次要色的文字，例如粤语双拼的「方案设计：陳澍鋒」；VoiceOver 接在选项名后面读。
+  var subtitle: String? = nil
 
   var id: String { identifier ?? title }
+
+  /// 读屏用的名字：有副标题时接在选项名后面。
+  var accessibilityTitle: String { subtitle.map { "\(title)，\($0)" } ?? title }
 
   /// `selected` 是否就是这个选项；对父选项来说，也包括它的某个后代。
   func contains(_ selected: Value?) -> Bool {
@@ -777,25 +782,31 @@ private struct DesignOptionSheetView<Value: Hashable>: View {
   private func optionRow(_ option: DesignOption<Value>) -> some View {
     let isSelected = option.contains(selected)
     return Button { pick(option) } label: {
-      Text(option.children == nil ? option.title : option.title + " ›")
-        .font(.system(size: 19, weight: isSelected ? .semibold : .regular))
-        .foregroundStyle(option.isDestructive ? MetasequoiaTheme.danger : MetasequoiaTheme.accent)
-        .lineLimit(1).minimumScaleFactor(0.7)
-        .padding(.horizontal, 48)
-        .frame(maxWidth: .infinity)
-        .frame(height: DesignOptionSheetMetrics.rowHeight)
-        .overlay(alignment: .trailing) {
-          if isSelected {
-            Image(systemName: "checkmark").font(.system(size: 18, weight: .semibold))
-              .foregroundStyle(MetasequoiaTheme.accent)
-              .padding(.trailing, 20)
-              .accessibilityHidden(true)
-          }
+      // 副标题和选项名一起排在固定的行高里，`DesignOptionSheetMetrics` 按行数算出的列表高度不变。
+      VStack(spacing: 2) {
+        Text(option.children == nil ? option.title : option.title + " ›")
+          .font(.system(size: 19, weight: isSelected ? .semibold : .regular))
+          .foregroundStyle(option.isDestructive ? MetasequoiaTheme.danger : MetasequoiaTheme.accent)
+        if let subtitle = option.subtitle {
+          Text(subtitle).font(.system(size: 12)).foregroundStyle(MetasequoiaTheme.sub)
         }
-        .contentShape(Rectangle())
+      }
+      .lineLimit(1).minimumScaleFactor(0.7)
+      .padding(.horizontal, 48)
+      .frame(maxWidth: .infinity)
+      .frame(height: DesignOptionSheetMetrics.rowHeight)
+      .overlay(alignment: .trailing) {
+        if isSelected {
+          Image(systemName: "checkmark").font(.system(size: 18, weight: .semibold))
+            .foregroundStyle(MetasequoiaTheme.accent)
+            .padding(.trailing, 20)
+            .accessibilityHidden(true)
+        }
+      }
+      .contentShape(Rectangle())
     }
     .buttonStyle(PressFillButtonStyle())
-    .accessibilityLabel(option.title)
+    .accessibilityLabel(option.accessibilityTitle)
     .accessibilityAddTraits(isSelected ? .isSelected : [])
     .designIdentifier(option.identifier)
   }
@@ -909,9 +920,14 @@ private struct DesignOptionPopoverList<Value: Hashable>: View {
     } else {
       Button { pick(option.value) } label: {
         HStack {
-          Text(option.title)
-            .foregroundStyle(option.isDestructive ? MetasequoiaTheme.danger : Color.primary)
-            .fontWeight(isSelected ? .semibold : .regular)
+          VStack(alignment: .leading, spacing: 2) {
+            Text(option.title)
+              .foregroundStyle(option.isDestructive ? MetasequoiaTheme.danger : Color.primary)
+              .fontWeight(isSelected ? .semibold : .regular)
+            if let subtitle = option.subtitle {
+              Text(subtitle).designSubtext()
+            }
+          }
           Spacer(minLength: 8)
           if isSelected {
             Image(systemName: "checkmark").font(.system(size: 15, weight: .semibold))

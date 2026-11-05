@@ -202,6 +202,11 @@ public enum KeyboardScheme {
         return null;
     }
 
+    /** 设置里选这个方案的地方排在选项名下面的设计者署名，没有就是 null。粤语双拼的键位由陳澍鋒设计（#9799），名字照他本人的写法用繁体，与 iOS、共享设置页的同一行相同。 */
+    public String designCredit() {
+        return this == CANTONESE_SHUANGPIN ? "方案设计：陳澍鋒" : null;
+    }
+
     /** Whether this scheme can run with the HostOptions `language_dictionaries` directory `directory` and no resource pack installed; see {@link #installed(String, Set)}. */
     public boolean installed(String directory) {
         return installed(directory, Set.of());

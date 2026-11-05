@@ -5814,12 +5814,12 @@ private:
                            enabled));
   }
 
-  void segment_row(StackPanel const &group, wchar_t glyph,
-                   std::wstring const &title, std::wstring const &subtitle,
-                   std::wstring key, std::vector<Option> const &options,
-                   std::wstring const &fallback) {
+  Border segment_row(StackPanel const &group, wchar_t glyph,
+                     std::wstring const &title, std::wstring const &subtitle,
+                     std::wstring key, std::vector<Option> const &options,
+                     std::wstring const &fallback) {
     const auto current = document_.String(key, fallback);
-    add_row(group, glyph, title, subtitle,
+    return add_row(group, glyph, title, subtitle,
             segmented_control(title, options, current,
                               [this, key](std::wstring const &value) {
                                 change([&](PreferencesDocument &doc) {
@@ -13864,14 +13864,18 @@ private:
       segment_row(group, 0xE8AB, L"韩语布局",
                   L"默认两套式，可切换为罗马字。罗马字用 x 输入声母 ㅇ（xa → 아，hangug → 한국），Shift+G/D/B/J/S 输入紧音；退格删除当前拼写的最后一个拉丁字母，标点为半角",
                   L"korean.layout", {{L"dubeolsik", L"两套式"}, {L"romaja", L"罗马字"}}, L"dubeolsik");
-    // 粤语双拼与粤拼共用同一个方案和词典，做成粤拼方案下的选项，说明与共享页的「粤拼方案」相同。
-    if (scheme == L"cantonese")
-      segment_row(group, 0xE8AB, L"粤拼方案",
-                  document_.String(L"cantonese.input_method", L"jyutping") == L"shuangpin"
-                      ? L"两键一个音节，第一键是声母、第二键是韵母，ing 和 ik 在 ; 键上；从第一键起按双拼解释，与粤拼同形的码（如 oi）也按双拼。数字键选词，候选为繁体字词"
-                      : L"按不带声调的粤拼输入，用 ' 分隔音节，数字键选词，候选为繁体字词",
-                  L"cantonese.input_method", {{L"jyutping", L"粤拼"}, {L"shuangpin", L"粤语双拼"}},
-                  L"jyutping");
+    // 粤语双拼与粤拼共用同一个方案和词典，做成粤拼方案下的选项，说明与共享页的「粤拼方案」相同。选中粤语双拼时标题下面常驻设计者署名（#9799），与共享页的 `detail` 相同。
+    if (scheme == L"cantonese") {
+      const bool shuangpin = document_.String(L"cantonese.input_method", L"jyutping") == L"shuangpin";
+      auto row = segment_row(group, 0xE8AB, L"粤拼方案",
+                             shuangpin
+                                 ? L"两键一个音节，第一键是声母、第二键是韵母，ing 和 ik 在 ; 键上；从第一键起按双拼解释，与粤拼同形的码（如 oi）也按双拼。数字键选词，候选为繁体字词"
+                                 : L"按不带声调的粤拼输入，用 ' 分隔音节，数字键选词，候选为繁体字词",
+                             L"cantonese.input_method", {{L"jyutping", L"粤拼"}, {L"shuangpin", L"粤语双拼"}},
+                             L"jyutping");
+      if (shuangpin)
+        row_detail(row, L"方案设计：陳澍鋒");
+    }
     if (scheme == L"zhuyin")
       add_row(group, 0xE8AB, L"注音键盘",
               L"大千：按大千键位输入注音符号，空格为一声，6 3 4 7 为二、三、四声和轻声，候选为繁体字词",
@@ -25818,6 +25822,20 @@ private:
       texts.Children().Append(line);
     }
     return texts.Children().GetAt(1).as<TextBlock>();
+  }
+
+  // 在标题（连同「?」）下面常驻一行次要文字，说明照旧收在「?」里：对应共享页 `Row` 的 `detail`，例如粤语双拼的设计者署名。
+  void row_detail(Border const &card, std::wstring const &text) {
+    card.Child()
+        .as<StackPanel>()
+        .Children()
+        .GetAt(0)
+        .as<Grid>()
+        .Children()
+        .GetAt(0)
+        .as<StackPanel>()
+        .Children()
+        .Append(make_text(text, 12, palette_.sub));
   }
 
   // 说明是当前状态（版本号、安装进度、设备详情）或紧挨着按钮讲后果（注销、清除、删除）的行：不收进「?」，照旧画在标题下面。返回同一行，方便接在 add_row 外面。

@@ -56,6 +56,13 @@ public final class OptionSheet {
         return this;
     }
 
+    /** 一个选项名下面多一行次要文字的普通选项，例如粤语双拼的「方案设计：陳澍鋒」。 */
+    public OptionSheet option(CharSequence label, @Nullable CharSequence detail, boolean selected, Runnable action) {
+        addOption(SheetOptionView.create(context, label, detail, selected, false, ThemeColorPolicy.accent(context),
+            selected, then(action)));
+        return this;
+    }
+
     /** 一个带下一级的选项：文字后面跟 ›，点了关掉本面板并打开 `next` 给出的面板。 */
     public OptionSheet submenu(CharSequence label, boolean selected, Supplier<OptionSheet> next) {
         addOption(SheetOptionView.create(context, label, selected, true, ThemeColorPolicy.accent(context), selected,

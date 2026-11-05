@@ -51,7 +51,7 @@ const CANTONESE_SHUANGPIN_SYLLABIC = [
   ["ng", "ov"],
 ];
 const cantoneseShuangpinNote = () =>
-  `粤语双拼：每个字两键，先声母后韵母，不打声调，候选是繁体，例如 你好 = nz hb。声母照粤拼打，只有 ${CANTONESE_SHUANGPIN_INITIALS.map(([initial, key]) => `${initial || "零声母"}→${key}`).join(" ")}；鼻音 ${CANTONESE_SHUANGPIN_SYLLABIC.map(([syllable, code]) => `${syllable}→${code}`).join(" ")}。韵母键：${CANTONESE_SHUANGPIN_FINALS.map(([key, finals]) => `${key}=${finals.replaceAll(" ", "/")}`).join(" ")}。粤语词库与拼音不同，从拼音切换时会单独下载（约 3.5 MB）。`;
+  `粤语双拼：每个字两键，先声母后韵母，不打声调，候选是繁体，例如 你好 = nz hb。声母照粤拼打，只有 ${CANTONESE_SHUANGPIN_INITIALS.map(([initial, key]) => `${initial || "零声母"}→${key}`).join(" ")}；鼻音 ${CANTONESE_SHUANGPIN_SYLLABIC.map(([syllable, code]) => `${syllable}→${code}`).join(" ")}。韵母键：${CANTONESE_SHUANGPIN_FINALS.map(([key, finals]) => `${key}=${finals.replaceAll(" ", "/")}`).join(" ")}。粤语词库与拼音不同，从拼音切换时会单独下载（约 3.5 MB）。方案设计：陳澍鋒。`;
 
 const SCHEME_NOTES = {
   quanpin: "完整拼音，例如 woshizhongguoren。",

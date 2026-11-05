@@ -461,6 +461,11 @@ test("touch hosts offering Cantonese, Zhuyin, Vietnamese, Tibetan and Stroke lis
       (screen.getByRole("switch", { name: `显示输入方案 ${label}` }) as HTMLInputElement).checked,
     ).toBe(false);
   }
+  // 只有粤语双拼一行常驻设计者署名（#9799）。
+  const credit = within(group).getByText("方案设计：陳澍鋒");
+  const row = credit.parentElement?.parentElement;
+  expect(row?.textContent).toContain("粤语双拼");
+  expect(row?.textContent).not.toContain("粤拼 26 键");
 });
 
 test("a touch host without the Cantonese dictionary does not list the Cantonese touch scheme", async () => {

@@ -121,6 +121,12 @@ final class LanguageSchemesTests: XCTestCase {
     XCTAssertEqual(ChineseInputScheme.cantonese.semicolonFinalKeyAccessibilityLabel, "分号")
   }
 
+  /// 粤语双拼的键位方案由陳澍鋒设计（#9799），「输入方案」里粤拼面板的这一项下面署名；其他方案没有署名。
+  func testOnlyCantoneseShuangpinCarriesADesignCredit() {
+    XCTAssertEqual(ChineseInputScheme.cantoneseShuangpin.designCredit, "方案设计：陳澍鋒")
+    XCTAssertEqual(ChineseInputScheme.allCases.filter { $0.designCredit != nil }, [.cantoneseShuangpin])
+  }
+
   /// 手机第二排的缩进跟着 `;` 键是否真的显示走，不只看方案：微软双拼的中文模式里 `;` 填上右侧空位、第二排不缩进；切到英文 `;` 藏起来，第二排回到两侧缩进，A 到 L 与第一排同宽，不被拉宽到整排。粤语双拼走同一个条件，但它的用例要暂存粤语词库，这里用 CI 上就能跑的微软双拼守住。
   func testTheMiddleRowIndentsAgainWhenTheSemicolonKeyHides() throws {
     let previous = InputSchemePreference.scheme

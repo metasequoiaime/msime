@@ -211,6 +211,27 @@ test("the 双拼 sheet labels and selects 九键双拼 when the host has it", ()
   expect(languageRow("双拼").textContent).toContain("九键双拼");
 });
 
+test("the 粤拼 sheet credits the 粤语双拼 designer under that option only", () => {
+  const preferences = renderCard(["quanpin", "cantonese"], "cantonese", [
+    ...available,
+    "cantonese",
+    "cantonese_shuangpin",
+  ]);
+
+  fireEvent.click(languageRow("粤拼"));
+  const options = within(sheet()).getAllByRole("button", { name: /^粤/ });
+  expect(options.map((option) => option.getAttribute("aria-label") ?? option.textContent)).toEqual([
+    "粤拼",
+    "粤语双拼，方案设计：陳澍鋒",
+  ]);
+  expect(within(options[1]).getByText("方案设计：陳澍鋒")).toBeTruthy();
+  expect(within(options[0]).queryByText(/方案设计/)).toBeNull();
+  fireEvent.click(options[1]);
+
+  expect(preferences().touch_keyboard_schemes).toMatchObject({ selected: "cantonese_shuangpin" });
+  expect(languageRow("粤拼").textContent).toContain("粤语双拼");
+});
+
 test("a 五笔 profile picked straight from the 五笔 sheet sets the profile and switches to 五笔", () => {
   const preferences = renderCard(["quanpin"]);
 

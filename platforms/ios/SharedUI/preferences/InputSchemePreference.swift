@@ -31,6 +31,9 @@ enum ChineseInputScheme: String, CaseIterable {
     }
   }
 
+  /// 设置里选这个方案的地方排在选项名下面的设计者署名。粤语双拼的键位由陳澍鋒设计（#9799），名字照他本人的写法用繁体，与共享设置页、Android 的同一行相同；其他方案没有。
+  var designCredit: String? { self == .cantoneseShuangpin ? "方案设计：陳澍鋒" : nil }
+
   /// Zhuyin on the Dachen layout: the keys send the ASCII under each bopomofo, and the Engine converts the syllables in place into Traditional Chinese.
   var isZhuyin: Bool { self == .zhuyin }
 

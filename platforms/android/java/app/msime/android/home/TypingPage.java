@@ -579,8 +579,8 @@ public final class TypingPage extends ReloadingDetailPage {
         } else {
             KeyboardScheme shown = language.schemes.contains(applied) ? applied : null;
             for (KeyboardScheme scheme : offered) {
-                sheet.option(schemeLabel(scheme, preferences), scheme == shown || (shown == null && offered.size() == 1),
-                    () -> applyScheme(scheme, null));
+                sheet.option(schemeLabel(scheme, preferences), scheme.designCredit(),
+                    scheme == shown || (shown == null && offered.size() == 1), () -> applyScheme(scheme, null));
             }
         }
         sheet.destructive("移除" + language.title, () -> removeLanguage(language));

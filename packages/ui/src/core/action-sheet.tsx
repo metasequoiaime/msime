@@ -5,6 +5,8 @@ import { ChevronGlyph } from "./chevron-glyph";
 export interface SheetOption {
   value: string;
   label: string;
+  /** 选项名下面一行小号次要色的文字，例如粤语双拼的「方案设计：陳澍鋒」；读屏随选项名一起读。 */
+  detail?: string;
   /** 加粗并带勾选标记绘制：当前选择。 */
   selected?: boolean;
   /** 以红色绘制，用于移除或丢弃某些内容的选项。 */
@@ -165,9 +167,20 @@ export function ActionSheet({
                 }`}
                 disabled={item.disabled}
                 aria-current={item.selected ? "true" : undefined}
+                aria-label={item.detail ? `${item.label}，${item.detail}` : undefined}
                 onClick={() => choose(item)}
               >
-                {item.label}
+                {item.detail ? (
+                  // 两行都排在 56px 的行高里，列表高度不变。
+                  <span className="flex flex-col items-center gap-0.5 leading-tight">
+                    <span>{item.label}</span>
+                    <span className="text-[13px] font-normal [color:var(--p-sub,rgba(127,127,127,0.9))]">
+                      {item.detail}
+                    </span>
+                  </span>
+                ) : (
+                  item.label
+                )}
                 {item.submenu && <span aria-hidden="true">{" ›"}</span>}
                 {item.selected && (
                   <CheckGlyph size={18} strokeWidth={2.6} className="absolute right-5" />

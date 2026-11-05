@@ -289,6 +289,10 @@ kaikki 每周覆盖同一个 URL，所以能复现构建的是 `filtered_input`�
 
 网页引擎的 npm 包 `@msime/web-engine` 也带 `msime-cantonese.db`（粤拼和粤语双拼用）：`scripts/build-web-engine.sh` 把 `resources/language-dictionaries.lock.json` 钉住的那份原样 gzip 成 `assets/msime-cantonese.db.gz`，随词库发布的 `msime-rime_cantonese_LICENSE.txt` 原名放在旁边，`npx @msime/web-engine copy` 把两者一起复制；`web-engine-NOTICE.md` 的「粤语词库」一节写明来源，仓库许可证全文一节收 `rime-cantonese-CC-BY-4.0.txt`（`scripts/web-engine-notice.sh`）。它和辅助码表一样只在 npm 包里，不进 `web-engine-vX.Y.Z` release 的文件和清单。
 
+### 粤语双拼的键位方案
+
+粤语双拼的键位方案由陳澍鋒（[swithinchan](https://github.com/swithinchan)）设计，即他的「粵語雙拼（自然碼兼容版）」（[swithinchan/rime-cantonese-shuangpin](https://github.com/swithinchan/rime-cantonese-shuangpin)），应他在 [#9799](https://github.com/metasequoiaime/msime/issues/9799) 的请求收入，并按他的要求在各平台设置里选这个方案的地方署名「方案设计：陳澍鋒」。本项目的代码（`crates/engine/src/cantonese/shuangpin.rs`）是按同一套键位独立写的实现，不含那个仓库的任何文件（schema、映射表或词表）；那个仓库没有许可证文件。粤语双拼的候选来自上文的 `msime-cantonese.db`。
+
 ## 笔画的数据（rime-stroke）
 
 笔画方案（h 横、s 竖、p 撇、n 点、z 折）的笔顺码来自一份固定提交的上游数据，由 `msime-dict-build languages` 转换成 `msime-stroke.db`，与 `msime-cantonese.db`、`msime-zhuyin.db` 放在同一个 `language-dictionaries/` 目录、同一个语言词库资源包里。数据库不在时，笔画方案显示为不可用。

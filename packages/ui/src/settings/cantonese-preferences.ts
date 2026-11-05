@@ -12,3 +12,6 @@ export const cantoneseJyutpingDescription =
 
 export const cantoneseShuangpinDescription =
   "两键一个音节，第一键是声母、第二键是韵母，ing 和 ik 在 ; 键上；从第一键起按双拼解释，与粤拼同形的码（如 oi）也按双拼。数字键选词，候选为繁体字词";
+
+/** 粤语双拼键位方案的设计者署名（#9799）：凡是让用户选粤语双拼的地方都在选项下面常驻这一行，名字照他本人的写法用繁体。 */
+export const cantoneseShuangpinCredit = "方案设计：陳澍鋒";

@@ -3,6 +3,7 @@ import { SettingsRowStack } from "./settings-row-stack";
 import { Row } from "../core/platform-controls";
 import { ActionButton } from "../core/action-button";
 import { SwitchRow } from "./switch-row";
+import { cantoneseShuangpinCredit } from "./cantonese-preferences";
 
 export interface TouchKeyboardSchemesSectionProps {
   options: readonly (readonly [string, string])[];
@@ -48,6 +49,7 @@ export function TouchKeyboardSchemesSection({
               />
             }
             aria-label={`显示输入方案 ${label}`}
+            detail={scheme === "cantonese_shuangpin" ? cantoneseShuangpinCredit : undefined}
             checked={isEnabled}
             disabled={isEnabled && enabled.length === 1}
             onChange={(checked) => onToggle(scheme, checked)}
