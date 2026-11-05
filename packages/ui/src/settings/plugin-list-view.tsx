@@ -1,8 +1,7 @@
 import { SettingsGroupNote } from "./settings-group-note";
 import { SettingsManagerNote } from "./settings-manager-note";
 import { SettingsManagerActions } from "./settings-manager-actions";
-import { GroupList } from "../core/platform-controls";
-import * as controls from "../core/platform-controls-style";
+import { GroupList, Row } from "../core/platform-controls";
 import * as settings from "./settings-style";
 import { SettingsEmptyMessage } from "./settings-empty-message";
 import { SettingsManagerBlock } from "./settings-manager-block";
@@ -239,30 +238,25 @@ function GroupedPluginListView({
       </div>
       {hasClient && onCreate && (
         <GroupList title="制作插件">
-          <div className={controls.row}>
-            <span className={controls.rowText}>
-              <span className={controls.rowTitle}>自己制作</span>
-              <span className={controls.rowDescription}>{CREATE_DESCRIPTION}</span>
-            </span>
+          <Row title="自己制作" description={CREATE_DESCRIPTION}>
             <SettingsManagerActions as="span" className="shrink-0">
               <ActionButton action={onCreate} disabled={working} label="新建插件" />
             </SettingsManagerActions>
-          </div>
+          </Row>
         </GroupList>
       )}
       {hasClient && (
         <GroupList title="导入插件">
-          <div className={controls.row}>
-            <span className={controls.rowText}>
-              <span className={controls.rowTitle}>从文件导入</span>
-              <span className={controls.rowDescription}>
-                {scripts
-                  ? "数据插件只含音频、指令模板等数据；脚本插件（实验）带可执行代码，导入后要经授权才会运行。每个包须声明许可证"
-                  : touch
-                    ? "选一个插件的 .zip 压缩包。只含音频、指令模板等数据，不含可执行内容，每个包须声明许可证"
-                    : "只含音频、指令模板等数据，不含可执行内容，每个包须声明许可证"}
-              </span>
-            </span>
+          <Row
+            title="从文件导入"
+            description={
+              scripts
+                ? "数据插件只含音频、指令模板等数据；脚本插件（实验）带可执行代码，导入后要经授权才会运行。每个包须声明许可证"
+                : touch
+                  ? "选一个插件的 .zip 压缩包。只含音频、指令模板等数据，不含可执行内容，每个包须声明许可证"
+                  : "只含音频、指令模板等数据，不含可执行内容，每个包须声明许可证"
+            }
+          >
             <SettingsManagerActions as="span" className="shrink-0">
               {/* 手机和平板的系统文件选择器不能选文件夹，触屏插件页只收 .zip。 */}
               {!touch && (
@@ -278,7 +272,7 @@ function GroupedPluginListView({
                 label="导入 .zip"
               />
             </SettingsManagerActions>
-          </div>
+          </Row>
           {notice && <SettingsGroupNote role="status">{notice}</SettingsGroupNote>}
         </GroupList>
       )}

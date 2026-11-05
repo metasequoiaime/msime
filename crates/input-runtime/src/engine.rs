@@ -25,6 +25,20 @@ pub enum RuntimeError {
 pub trait InputEngine {
     /// 隐私输入禁止上屏后联想；不提供该能力的引擎没有状态可清。
     fn set_prediction_allowed(&mut self, _allowed: bool) {}
+    /// 上屏后联想的词库续写多取一池留给模型排序，runtime 挂上或拿掉逐键打分器、换引擎时下发；没有联想的引擎忽略它。
+    fn set_prediction_pool(&mut self, _enabled: bool) {}
+    /// 整句读法至少解出几条留给逐键打分器比较（[`msime_engine::ordering::SENTENCE_POOL`]），0 是引擎的默认条数；时机同 [`Self::set_prediction_pool`]。没有整句的引擎忽略它。
+    fn set_sentence_pool(&mut self, _paths: usize) {}
+    /// 拼整句时给前缀打分的模型（[`msime_engine::ordering::SentenceScorer`]），时机同 [`Self::set_sentence_pool`]。没有整句的引擎忽略它。
+    fn set_sentence_scorer(
+        &mut self,
+        _scorer: Option<std::sync::Arc<dyn msime_engine::ordering::SentenceScorer>>,
+    ) {
+    }
+    /// 按模型给刚上屏之后的联想排序，`before` 是这次上屏之前的文字；每次上屏只排一次。返回显示的行变了没有，没有联想的引擎什么都不做。
+    fn order_prediction(&mut self, _scorer: &mut dyn CandidateScorer, _before: &str) -> bool {
+        false
+    }
     /// Ends the committed-word context the Engine learns and ranks against. Engines without one ignore it.
     fn reset_context(&mut self) {}
     /// The committed text the Engine's neural sentence models condition on, pushed by the runtime whenever the text it keeps changes. Engines without such models ignore it.
@@ -85,6 +99,14 @@ pub trait InputEngine {
             "Engine cache reset is unsupported".into(),
         ))
     }
+    /// 按现在的整句池和整句打分器重解当前组字，见 [`crate::Runtime::settle_deferred_scorer`]。
+    fn recompute_candidates(&mut self) -> Result<(), RuntimeError> {
+        Err(RuntimeError::Engine(
+            "Engine candidate recompute is unsupported".into(),
+        ))
+    }
+    /// 把在线行（来源码，同 `EngineSnapshot::candidate_sources`）照原样放回当前组字的候选，见 [`crate::Runtime::settle_deferred_scorer`]。
+    fn restore_online_rows(&mut self, _rows: &[(String, u8)]) {}
     /// Remove cached rows for one online provider (host source 0 = cloud, 1 = AI).
     fn clear_online_candidates(&mut self, _source: u8) -> Result<(), RuntimeError> {
         Err(RuntimeError::Engine(
@@ -166,6 +188,23 @@ pub trait InputEngine {
             "Nine-key candidate filters are unsupported".into(),
         ))
     }
+    /// 引擎持有的明确选词门禁；默认适配器沿用普通确认规则。
+    fn requires_candidate_selection(&self) -> bool {
+        false
+    }
+
+    /// 可选的中英混合滑行；未实现的适配器保持不处理。
+    fn bilingual_glide(
+        &mut self,
+        _keyboard: &GlideKeyboard,
+        _points: &[GlidePoint],
+    ) -> Result<EngineResult, RuntimeError> {
+        Ok(EngineResult {
+            handled: false,
+            ..EngineResult::default()
+        })
+    }
+
     /// 滑行的一笔；没有滑行输入的引擎不处理。
     fn glide(
         &mut self,
@@ -182,6 +221,10 @@ pub trait InputEngine {
     fn snapshot(&self) -> Result<EngineSnapshot, RuntimeError>;
     /// 后续按键能继续当前五笔混输拼音时保留组字；没有混输的引擎沿用顶字。
     fn wubi_pinyin_continues(&self, _value: u8, _shift: bool) -> bool {
+        false
+    }
+    /// 顶字关掉、混输开着时，让完整四码后的下一个字母并进混输串，而不是被四码上限挡掉。没有混输的引擎什么也不做。
+    fn allow_wubi_mixed_extension(&mut self) -> bool {
         false
     }
     /// 五笔拼音混输是否打开。顶字关掉时，混输关着就没有地方容纳第五个字母，仍要顶字上屏；混输开着才让它并进混输串。
@@ -285,6 +328,21 @@ impl InputEngine for Session {
     fn set_prediction_allowed(&mut self, allowed: bool) {
         Session::set_prediction_allowed(self, allowed);
     }
+    fn set_prediction_pool(&mut self, enabled: bool) {
+        Session::set_prediction_pool(self, enabled);
+    }
+    fn set_sentence_pool(&mut self, paths: usize) {
+        Session::set_sentence_pool(self, paths);
+    }
+    fn set_sentence_scorer(
+        &mut self,
+        scorer: Option<std::sync::Arc<dyn msime_engine::ordering::SentenceScorer>>,
+    ) {
+        Session::set_sentence_scorer(self, scorer);
+    }
+    fn order_prediction(&mut self, scorer: &mut dyn CandidateScorer, before: &str) -> bool {
+        Session::order_prediction(self, scorer, before)
+    }
     fn reset_context(&mut self) {
         Session::reset_context(self);
     }
@@ -342,6 +400,13 @@ impl InputEngine for Session {
     fn reset_cache(&mut self) -> Result<(), RuntimeError> {
         Session::reset_cache(self);
         Ok(())
+    }
+    fn recompute_candidates(&mut self) -> Result<(), RuntimeError> {
+        Session::recompute_candidates(self);
+        Ok(())
+    }
+    fn restore_online_rows(&mut self, rows: &[(String, u8)]) {
+        Session::restore_online_rows(self, rows);
     }
     fn clear_online_candidates(&mut self, source: u8) -> Result<(), RuntimeError> {
         Session::clear_online_candidates(self, source)
@@ -417,6 +482,18 @@ impl InputEngine for Session {
     ) -> Result<EngineResult, RuntimeError> {
         Session::glide(self, keyboard, points).map_err(|e| RuntimeError::Engine(e.to_string()))
     }
+
+    fn bilingual_glide(
+        &mut self,
+        keyboard: &GlideKeyboard,
+        points: &[GlidePoint],
+    ) -> Result<EngineResult, RuntimeError> {
+        Session::bilingual_glide(self, keyboard, points)
+            .map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
+    fn requires_candidate_selection(&self) -> bool {
+        Session::requires_candidate_selection(self)
+    }
     fn punctuation(&mut self, value: u8) -> Result<EngineResult, RuntimeError> {
         Session::punctuation(self, value).map_err(|error| RuntimeError::Engine(error.to_string()))
     }
@@ -428,6 +505,9 @@ impl InputEngine for Session {
     }
     fn wubi_mixed_pinyin(&self) -> bool {
         Session::wubi_mixed_pinyin(self)
+    }
+    fn allow_wubi_mixed_extension(&mut self) -> bool {
+        Session::allow_wubi_mixed_extension(self)
     }
     fn grid_limit_pick_ready(&self, value: u8, grid_key: bool) -> bool {
         Session::grid_limit_pick_ready(self, value, grid_key)

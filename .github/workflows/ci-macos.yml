@@ -94,7 +94,7 @@ jobs:
               shared/*|platforms/common/*|.github/workflows/ci-macos.yml)
                 echo "build=true" >> "$GITHUB_OUTPUT"; echo "共享输入改动: $path"; exit 0 ;;
               # 工作区清单与工具链:Dependabot 的 cargo 分组只改这几个。crates/ 只列这条构建真正编译的:CMakeLists.txt 直接编 host-macos/native,cargo build -p msime-host-api 带上它依赖的 path-trust、四个 client crate、engine 和 input-runtime。host-windows、mcp-server 等改动重编 macOS 不会多发现什么,理由同下面 scripts/ 那段。
-              Cargo.toml|Cargo.lock|rust-toolchain.toml|.cargo/*|crates/host-macos/*|crates/host-api/*|crates/path-trust/*|crates/client-base/*|crates/client-core/*|crates/client-providers/*|crates/client-services/*|crates/engine/*|crates/input-runtime/*)
+              Cargo.toml|Cargo.lock|rust-toolchain.toml|.cargo/*|crates/host-macos/*|crates/host-api/*|crates/path-trust/*|crates/client-base/*|crates/client-core/*|crates/client-providers/*|crates/client-services/*|crates/engine/*|crates/input-runtime/*|crates/onnx-rerank/*)
                 echo "build=true" >> "$GITHUB_OUTPUT"; echo "Rust 输入改动: $path"; exit 0 ;;
               # scripts/ 里只有这些进得了 macOS 的构建。其余七十来个是各平台自己的契约检查,由 Core CI
               # 和 verify-local.sh 跑,改它们重编一次 macOS 不会多发现任何东西 —— 而 `scripts/*` 让每一个
@@ -102,7 +102,8 @@ jobs:
               # 机器,公开仓库的 macOS 并发额度是个位数,队列因此堵过。
               #
               # fetch_voice_runtime.py 和它读的 voice-runtime.lock.json 决定打进包里的 sherpa-onnx 运行库,由 platforms/macos/CMakeLists.txt 在构建时调用。build_backend_swift.sh、install.sh 等 macOS 专用脚本在 platforms/macos/scripts/ 下,已由 platforms/macos/* 覆盖。下面格式检查步骤引用的 scripts/format.sh 目前不存在,不再触发构建。
-              resources/voice-runtime.lock.json|scripts/fetch_voice_runtime.py|resources/opencc.lock.json|resources/licenses/OpenCC-Apache-2.0.txt|scripts/fetch_opencc.py|scripts/download_retry.py)
+              # fetch_onnxruntime.py 和它读的 onnxruntime-minimal.lock.json 决定 host 库链接的精简 ONNX Runtime(下面「Build the Rust host library」开着 onnx-rerank 编);fetch_rerank_model.py 和 rerank-model.lock.json 决定 CMakeLists.txt 放进 bundle 的两档逐键重排模型。
+              resources/voice-runtime.lock.json|scripts/fetch_voice_runtime.py|resources/opencc.lock.json|resources/licenses/OpenCC-Apache-2.0.txt|scripts/fetch_opencc.py|scripts/download_retry.py|scripts/fetch_onnxruntime.py|resources/onnxruntime-minimal.lock.json|scripts/fetch_rerank_model.py|resources/rerank-model.lock.json)
                 echo "build=true" >> "$GITHUB_OUTPUT"; echo "构建脚本改动: $path"; exit 0 ;;
             esac
           done <<< "$changed"
@@ -244,9 +245,14 @@ jobs:
       - name: Verify account gloss queue ownership
         if: ${{ matrix.build == 'true' }}
         run: /usr/bin/python3 scripts/test-macos-account-gloss-queue-owner.py
+      # 整句联想「增强」的逐键重排跑在 ONNX Runtime 上：按 resources/onnxruntime-minimal.lock.json 下载核对这台 runner 架构的精简静态库，开着 onnx-rerank 编，与 package-release.sh 的发布构建一致，arm64 与 x86_64 两条腿各自验过链接。
       - name: Build the Rust host library
         if: ${{ matrix.build == 'true' }}
-        run: cargo build --locked -p msime-host-api
+        run: |
+          set -euo pipefail
+          ORT_LIB_LOCATION="$(python3 scripts/fetch_onnxruntime.py --target "$(uname -m | sed 's/^arm64$/aarch64/')-apple-darwin")"
+          export ORT_LIB_LOCATION
+          cargo build --locked -p msime-host-api --features onnx-rerank
       # The unit tests run against a fixture rather than the released database: they assert behaviour
       # around composition, not dictionary content, and downloading 100 MB per run to do it would buy
       # nothing. The release build is what verifies the real data, against the digests in the lock.
@@ -354,6 +360,7 @@ jobs:
           python3 -c 'import json, sys; hello = json.loads(sys.argv[1]); sys.exit(0 if hello.get("type") == "hello" and hello.get("available") is True else 1)' "$hello"
           plist="$staged/Contents/Info.plist"
           plutil -lint "$plist"
+          python3 platforms/macos/tests/settings/info_plist_icons.py "$plist" "$staged/Contents/Resources"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = "app.msime.inputmethod.MetasequoiaIME"
           test "$(/usr/libexec/PlistBuddy -c 'Print :InputMethodServerControllerClass' "$plist")" = "MSIMEInputController"
           test "$(/usr/libexec/PlistBuddy -c 'Print :ComponentInputModeDict:tsInputModeListKey:app.msime.inputmethod.MetasequoiaIME.Hans:TISInputSourceID' "$plist")" = "app.msime.inputmethod.MetasequoiaIME.Hans"
@@ -367,10 +374,10 @@ jobs:
           python3 platforms/macos/tests/settings/bundle_contents.py "$wubi" --languages zh-Hans,en
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$wubi/Contents/Info.plist")" = "app.msime.inputmethod.wubi"
           test "$(/usr/libexec/PlistBuddy -c 'Print :InputMethodConnectionName' "$wubi/Contents/Info.plist")" = "app.msime.inputmethod.wubi_Connection"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :ComponentInputModeDict:tsInputModeListKey:app.msime.inputmethod.wubi.Hans:tsInputModeMenuIconFileKey' "$wubi/Contents/Info.plist")" = "MSIMEClientInputMethodMenuIconWubi.tiff"
-          # 日文、越南文、藏文版只有一个语言方案：主模式 .Hans 用这个方案的图标，主模式和「英」都登记在这个语言下（ja、vi、bo），系统设置的「添加」对话框才会把它列在这个语言下。
-          for pair in japanese:ja:Japanese vietnamese:vi:Vietnamese tibetan:bo:Tibetan; do
-            IFS=: read -r edition language icon <<< "$pair"
+          python3 platforms/macos/tests/settings/info_plist_icons.py "$wubi/Contents/Info.plist" "$wubi/Contents/Resources"
+          # 每个模式都显示产品标志；日文、越南文、藏文版的主模式和「英」仍登记在各自语言下（ja、vi、bo）。
+          for pair in japanese:ja vietnamese:vi tibetan:bo; do
+            IFS=: read -r edition language <<< "$pair"
             bundle="$RUNNER_TEMP/verify/$(python3 platforms/macos/scripts/edition_bundle.py field --edition "$edition" bundle_name)"
             ditto build/水杉输入法.app "$bundle"
             python3 platforms/macos/scripts/edition_bundle.py apply --edition "$edition" "$bundle"
@@ -380,7 +387,7 @@ jobs:
             plist="$bundle/Contents/Info.plist"
             test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = "app.msime.inputmethod.$edition"
             test "$(/usr/libexec/PlistBuddy -c 'Print :InputMethodConnectionName' "$plist")" = "app.msime.inputmethod.${edition}_Connection"
-            test "$(/usr/libexec/PlistBuddy -c "Print :ComponentInputModeDict:tsInputModeListKey:app.msime.inputmethod.$edition.Hans:tsInputModeMenuIconFileKey" "$plist")" = "MSIMEClientInputMethodMenuIcon$icon.tiff"
+            python3 platforms/macos/tests/settings/info_plist_icons.py "$plist" "$bundle/Contents/Resources"
             for mode in Hans Roman; do
               test "$(/usr/libexec/PlistBuddy -c "Print :ComponentInputModeDict:tsInputModeListKey:app.msime.inputmethod.$edition.$mode:TISIntendedLanguage" "$plist")" = "$language"
             done
@@ -458,8 +465,13 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/dictionary"
           if [[ -f platforms/macos/tests/create_fixture_dictionary.py ]]; then python3 platforms/macos/tests/create_fixture_dictionary.py "$RUNNER_TEMP/dictionary/msime-pinyin.db"; else touch "$RUNNER_TEMP/dictionary/msime-pinyin.db"; fi
+      # 同上面 build 作业：开着 onnx-rerank、链接按锁下载的精简 ONNX Runtime。
       - name: Build the Rust host library
-        run: cargo build --locked -p msime-host-api
+        run: |
+          set -euo pipefail
+          ORT_LIB_LOCATION="$(python3 scripts/fetch_onnxruntime.py --target "$(uname -m | sed 's/^arm64$/aarch64/')-apple-darwin")"
+          export ORT_LIB_LOCATION
+          cargo build --locked -p msime-host-api --features onnx-rerank
       # OBJCXX is its own CMake language here, so CXX flags alone left every .mm unsanitized. Templates such as vector<uint8_t> are instantiated on both sides, and the linker keeping one copy from each can let instrumented code check container annotations the uninstrumented half never wrote - a container-overflow inside nlohmann's lexer.
       - name: Configure with AddressSanitizer and UndefinedBehaviorSanitizer
         run: >

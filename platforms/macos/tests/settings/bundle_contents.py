@@ -6,7 +6,7 @@ elsewhere. None of that says the bundle came out right: a resource can be declar
 localisation can exist in the tree and not be copied, and a provider can be compiled into a library that
 the executable was never linked against. Every one of those is invisible until someone installs the thing.
 
-Usage: bundle_contents.py <path/to/App.app> [--languages zh-Hans,en] [--plugin-packs target/plugin-packs] [--without-voice-runtime]
+Usage: bundle_contents.py <path/to/App.app> [--languages zh-Hans,en] [--plugin-packs target/plugin-packs] [--without-voice-runtime] [--without-rerank-models]
 """
 
 import argparse
@@ -58,6 +58,8 @@ def main() -> int:
     parser.add_argument("--plugin-packs", type=Path)
     # 构建时关掉了 MSIME_BUNDLE_VOICE_RUNTIME：sherpa-onnx 运行库由设置应用作为 voice-runtime-macos 资源包下载，bundle 里不能再有它。
     parser.add_argument("--without-voice-runtime", action="store_true")
+    # 构建时关掉了 MSIME_BUNDLE_RERANK_MODELS：bundle 里不能有逐键重排的两档模型。
+    parser.add_argument("--without-rerank-models", action="store_true")
     arguments = parser.parse_args()
     bundle = arguments.bundle
     contents = bundle / "Contents"
@@ -188,6 +190,9 @@ def main() -> int:
     # 百炼请求的 Base64 编码用的 cppcodec 编进了输入法，MIT 要求随副本附带它的许可声明。
     if not (contents / "Resources" / "Licenses" / "cppcodec-MIT.txt").is_file():
         failures.append("Contents/Resources/Licenses/cppcodec-MIT.txt is missing; cppcodec, compiled into the input method, ships without its licence")
+    # 逐键重排的两档模型（chinese-ime-lm 的 rerank-v2）是 Apache-2.0，第 4(a)、4(d) 条要求随副本附上许可证全文和上游 NOTICE，训练语料要求署名随权重传播；这份文件三样都有。不带模型的版本也留着它，只是一份文本。
+    if not (contents / "Resources" / "Licenses" / "rerank-model-Apache-2.0.txt").is_file():
+        failures.append("Contents/Resources/Licenses/rerank-model-Apache-2.0.txt is missing; the keystroke rerank models ship without their licence, upstream NOTICE and corpus attribution")
     # The input engine is MPL-2.0 itself, the sound player links MPL-2.0 crates (symphonia, triple_buffer) into the input method, and the engine links rink-core.
     if not (contents / "Resources" / "Licenses" / "MPL-2.0.txt").is_file():
         failures.append("Contents/Resources/Licenses/MPL-2.0.txt is missing; the input engine and the MPL-2.0 crates of the sound player and unit conversion ship without their licence")
@@ -231,6 +236,19 @@ def main() -> int:
     # 藏文方案链接 MIT 许可的 ewts crate，它的版权和许可声明必须随二进制一起发布。
     if not (contents / "Resources" / "Licenses" / "ewts-MIT.txt").is_file():
         failures.append("Contents/Resources/Licenses/ewts-MIT.txt is missing; the ewts crate Tibetan mode links ships without its licence")
+
+    # 整句联想「增强」的两档 ONNX 模型：host-api 在输入法交给会话的随包资源目录（Contents/Resources）的上一级找 rerank-model/ 与 rerank-model-small/，放进 Contents/Resources 里它就找不到，「增强」只会挂随包的句子模型。
+    for directory in ("rerank-model", "rerank-model-small"):
+        if arguments.without_rerank_models:
+            if (contents / directory).exists():
+                failures.append(f"Contents/{directory} was staged although the build leaves the rerank models out")
+            continue
+        for name in ("lm_step.ort", "model.json", "vocab.json"):
+            path = contents / directory / name
+            if not path.is_file() or path.stat().st_size == 0:
+                failures.append(f"Contents/{directory}/{name} was not staged; 整句联想「增强」 falls back to the bundled sentence model")
+        if (resources / directory).exists():
+            failures.append(f"Contents/Resources/{directory} is where host-api does not look; the models belong in Contents/{directory}")
 
     if failures:
         for failure in failures:

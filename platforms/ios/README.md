@@ -2,19 +2,13 @@
 
 ## 目录结构
 
-App 业务位于 `App/Sources/<feature>/`，键盘扩展位于 `KeyboardExtension/Sources/<feature>/`，共享 SwiftUI/UIKit 位于 `SharedUI/<feature>/`；`KeyboardTests/`、`ServiceTests/`、`TransportTests/` 和 `UITests/` 分别覆盖键盘、服务、桥接和界面边界。Tauri 生成工程位于 `apps/desktop/src-tauri/gen/apple`，不在其中维护第二份键盘实现。
+App 业务位于 `App/Sources/<feature>/`，键盘扩展位于 `KeyboardExtension/Sources/<feature>/`，共享 SwiftUI/UIKit 位于 `SharedUI/<feature>/`；`KeyboardTests/`、`ServiceTests/`、`TransportTests/` 和 `UITests/` 分别覆盖键盘、服务、桥接和界面边界。
 
 Xcode 工程由 XcodeGen 从 `project.yml` 生成，`project.yml` 是唯一权威来源；构建前先跑一次 `xcodegen generate`。生成的工程包含设置 App、`UIInputViewController` 键盘扩展和共享 Swift 适配层。输入算法与组合状态由 Rust Engine（`crates/engine`）管理；扩展只负责宿主事件、候选展示和文本提交。键盘扩展不直接使用桌面音频采集桥接。构建前需要先按下面的步骤把词库暂存到 `target/ios/EngineResources`。
 
-`apps/desktop/src-tauri/gen/apple` 下的 Tauri 生成工程是共享设置界面的构建产物来源，使用 iOS 17 最低版本和同一 `group.app.msime.ios` App Group。它只在单独构建这个公共组件时产出（`MSIME_IOS_TAURI_COMPONENT=1`，见下文），用于开发和验证共享界面，**不作为 iOS 的产品 App 分发或启动**；产品 App 里没有 WebView，不承载这些页面。原生入口只解析系统提供的共享容器 URL 并注入状态根；偏好校验、并发 revision 和首次 HostOptions 默认文档仍由 Rust 共享层负责。生成工程链接系统 SQLite，并从既有 `target/ios/EngineResources` 嵌入固定词库。
+**iOS 的产品宿主是 `platforms/ios` 的原生 App（`MSIMEApp`）**，它承载应用生命周期、图标与设置界面，并嵌入 `MSIMEKeyboardExtension`。设置界面是 `App/Sources/` 下的原生 SwiftUI 页面，App、`SharedUI` 和键盘扩展里都没有 WebView，共享 React 设置页到不了 iOS 用户（归属见[设置界面按平台归属](../../docs/ARCHITECTURE.md#设置界面按平台归属)）。扩展继续从 `platforms/ios` 编译唯一一份原生键盘、共享 UI、宿主桥接与平台服务源码，不依赖常驻桌面服务；App 与扩展各自打包已校验词库，并通过 App Group 共享状态。真机 target 使用锁定的 ML Kit Digital Ink 8.0.0，arm64 模拟器使用明确的无识别 fallback。
 
-共享 Tauri 语音面板通过 `tauri-mobile-platform` 在 App 进程内使用 `AVAudioRecorder` 录制 16 kHz、单声道、PCM16 WAV，最长 60 秒；停止后把有界录音上传到当前 `PreferencesStore` 中选择的服务。OpenAI、SiliconFlow 和 Groq 使用 HTTPS multipart 批量转写；Doubao 使用 WSS、共享 `client-providers` 鉴权策略和帧编解码 ABI，并按 Windows 的 200 ms PCM16 分帧发送。两种传输都禁止重定向并限制接口、模型、token、音频、消息、累计响应和识别文本大小；取消会停止录音或网络请求并删除临时文件。provider 凭据只在 Rust 与原生插件之间传递，不进入 WebView、日志或键盘扩展。
-
-**iOS 的产品宿主是 `platforms/ios` 的原生 App（`MSIMEApp`）**，它承载应用生命周期、图标与设置界面，并嵌入 `MSIMEKeyboardExtension`。设置界面是 `App/Sources/` 下的原生 SwiftUI 页面，App、`SharedUI` 和键盘扩展里都没有 WebView，共享 React 设置页到不了 iOS 用户（归属见[设置界面按平台归属](../../docs/ARCHITECTURE.md#设置界面按平台归属)）。Tauri/React 在 iOS 上只是**单独构建的公共组件**，**不是产品本体，也不作为独立 App 启动**；本文写到 Tauri 语音面板、共享账号页和 `CloudClipboardPanel` 的地方，说的是这个组件工程，不是产品 App。扩展继续从 `platforms/ios` 编译唯一一份原生键盘、共享 UI、宿主桥接与平台服务源码，不依赖常驻桌面服务；App 与扩展各自打包已校验词库，并通过 App Group 共享状态。真机 target 使用锁定的 ML Kit Digital Ink 8.0.0，arm64 模拟器使用明确的无识别 fallback。
-
-共享账号页的设置同步以 MSIME-Apple 远端 `develop@81e79abec7b53e7243fb8cbe82a42a4dde1e528f` 为固定来源，上传和应用输入方案、双拼方案、简繁、九键、按键音、触感及强度、词库学习、键盘皮肤、当前自定义皮肤，以及共享输入偏好中的调频方式、触发次数和线性步长（`input.frequency_mode`、`input.frequency_trigger_count`、`input.frequency_linear_step`）。Tauri 继续由 `BackendAccountSession` 持有 Keychain 会话；WebView 只接收有界标量设置，不接收 token。iOS 平台适配器在 App Group UserDefaults 与共享 `PreferencesStore` 间同步键盘可直接修改的状态，应用前完整校验，Rust 偏好保存失败时恢复原生快照；未知平台字段原样保留在云端。iOS 英文建议开关属于键盘扩展直接读取的 App Group 原生偏好，由移动键盘反馈接口维护，不作为账号云同步字段，避免下载旧云值覆盖设备上的原生选择。凭据、联网授权、输入内容、词库和打字统计不进入设置同步。
-
-iOS 云剪贴板复用共享账号会话和 Tauri `CloudClipboardPanel`，只上传用户在面板中明确输入的文本，不读取系统剪贴板。列表、搜索、启停、添加和删除均由 `client-services` 校验后访问账号服务；复制动作通过 iOS 平台插件写入 `UIPasteboard`，限制为 4000 个 UTF-16 单元且拒绝 NUL。只有本地剪贴板历史已开启时，复制后的文本才会进入已有 App Group 历史。
+设置同步以 MSIME-Apple 远端 `develop@81e79abec7b53e7243fb8cbe82a42a4dde1e528f` 为固定来源，上传和应用输入方案、双拼方案、简繁、九键、按键音、触感及强度、词库学习、键盘皮肤、当前自定义皮肤，以及共享输入偏好中的调频方式、触发次数和线性步长（`input.frequency_mode`、`input.frequency_trigger_count`、`input.frequency_linear_step`）。iOS 平台适配器在 App Group UserDefaults 与共享 `PreferencesStore` 间同步键盘可直接修改的状态，应用前完整校验，Rust 偏好保存失败时恢复原生快照；未知平台字段原样保留在云端。iOS 英文建议开关属于键盘扩展直接读取的 App Group 原生偏好，由移动键盘反馈接口维护，不作为账号云同步字段，避免下载旧云值覆盖设备上的原生选择。凭据、联网授权、输入内容、词库和打字统计不进入设置同步。
 
 键盘的剪贴板面板在本机历史旁边多了「云端」一栏，手机上在别的设备发到云剪贴板的内容可以直接上屏。打开面板时取一次列表，之后只在点刷新时再取；不轮询、不推送，面板关掉后才回来的结果直接丢弃。点一条经 `textDocumentProxy` 插入。本机历史每条的菜单里有「发到云剪贴板」，要等面板确认已登录才可点，发送前先读一次服务端的开关，关着时什么都不发（「云剪贴板未开启」）；不会因为复制而自动上传，也不读系统剪贴板。没有完全访问时显示开启提示、不发任何请求；未登录显示「登录水杉账号后可在设备间同步剪贴板」。密码、新密码和验证码输入框（与按键统计同一条判断）里没有「云端」这一栏，面板开着时输入框变成这类字段，云端内容也随即隐藏、不能插入。键盘能读到登录态，是因为 App 把账号会话存在 App Group 的钥匙串访问组 `group.app.msime.ios` 里，这个组 App 与扩展原本就有权限，不新增 entitlement，token 也不落到 App Group 文件里。服务端每次刷新都轮换 refresh token、并在旧 token 被再次使用时吊销整个会话，所以 App 与键盘对这份会话的每一次写入（登录、刷新、更新资料、退出）都经 App Group 里 `backend-account-refresh.lock` 的 `flock` 串行，持锁后先重读钥匙串：另一个进程已轮换过就直接采用，不再拿用过的 token 去刷新；刷新回来写入前再读一次，钥匙串已被清空或换成别的账号时丢弃这次结果，不会把已退出或已切换的会话写回去。共享的钥匙串是登录态的唯一依据，每次都重新读取，被另一个进程清空就按未登录处理。拿不到共享目录时不刷新。Tauri 公共组件的 iOS 工程把会话存在 App 默认访问组，它带的键盘因此显示未登录，这是已知限制。
 
@@ -24,11 +18,11 @@ iOS 云剪贴板复用共享账号会话和 Tauri `CloudClipboardPanel`，只上
 
 本地剪贴板历史的搜索对应 Windows 剪贴板页上方的“搜索剪贴板”，同样是不分大小写的子串匹配，保持原有顺序。两处都能搜。键盘扩展没法往自己的搜索框里打字，所以键盘剪贴板页右上角的放大镜会换出一块自带的键盘（数字行加 26 个字母），剪贴板里常见的链接、验证码、电话和英文都能搜。搜索时「保存剪贴板」按钮和状态行收起、标题显示搜索词，好让手机高度的面板在字母键上方还能放下记录；「返回」先退出搜索，再关闭面板。要按中文搜，用 App 的“输入设置 → 剪贴板历史”：它和键盘通过同一个共享 ABI 读写 App Group 里的同一份历史，在这里固定、删除、清空或保存的记录，键盘下次打开剪贴板页时就能看到，反过来也一样。App 用 `PasteButton` 保存系统剪贴板，不会弹出粘贴授权提示；点一条即复制。iPhone 上右滑固定、左滑删除，每条显示三行；iPad 的宽度下每条显示六行和完整日期，固定和删除也可以用指针右键菜单。
 
-“关于水杉 → 诊断日志”对应共享偏好中的 `diagnostic_log.server`，与 macOS、Linux 的宿主日志同一个字段，随设置同步。开启后，键盘扩展在 App Group 的偏好目录写入仅所有者可读的 `diagnostic.log`，记录键盘加载（是否有完全访问、手机还是 iPad）、出现与收起、共享设置是否应用、运行时初始化或词库恢复失败，以及系统内存警告——iOS 会结束占用内存过多的键盘扩展，“键盘突然消失”的反馈最需要这一行。键盘加载（`keyboard_loaded`）、建好键盘界面（`keyboard_built`）、画出第一帧（`keyboard_shown`）、出现（`focus_in`）、共享设置应用（`preferences_applied`）以及内存警告前后（`memory_warning`、`memory_released`）这几行带进程的内存读数：`mem=` 是 `phys_footprint`，即系统判断扩展是否超限时用的数，`avail=` 是 `os_proc_available_memory()` 给出的离上限的余量，都向下取整到 MiB。按 SDK 头文件，进程「不是 App」或已经超限时这个函数返回 0，模拟器上也是 0，日志把这种 0 写成 `avail=-`，表示系统没给出余量，不表示没有上限；余量不足 1 MiB 时写的是数字 `avail=0`。键盘扩展在真机上能不能拿到余量还没有实测。`keyboard_loaded` 另带建引擎会话之前的 `base=` 和会话刚建好时的 `session=`，两者之差只有引擎会话，再与相邻几行相减就能分出界面和第一帧各占多少。`memory_released` 带 `engine_cache=reset`（没有组字，当场清了引擎缓存）或 `engine_cache=deferred`（正在组字，留到这次组字结束再清），留到组字结束的那次清完后写一行 `engine_cache_reset`，同样带读数。除这些数字外每条记录只有事件名，截到 192 字节的可打印 ASCII，不含按键、输入文字、候选、凭据、路径或服务响应；文件超过 1 MiB 时保留一个 `.1` 副本。键盘没有完全访问时无法写入 App Group，此时静默不写，不影响输入。App 的这一页可以开关、分享和清空日志；iPad 在同一页直接显示最近的记录，iPhone 另开一页查看。Windows 专用的 `diagnostic_log.tsf` 不在 iOS 显示，原值保留以便跨平台同步。反馈页同样链到这一页，并和 Windows、macOS 的反馈页一样列出 QQ 交流群（点一下复制群号）和 Telegram 群组。
+“关于水杉 → 诊断日志”对应共享偏好中的 `diagnostic_log.server`，与 macOS、Linux 的宿主日志同一个字段，随设置同步。开启后，键盘扩展在 App Group 的偏好目录写入仅所有者可读的 `diagnostic.log`，记录键盘加载（是否有完全访问、手机还是 iPad）、出现与收起、共享设置是否应用、运行时初始化或词库恢复失败，以及系统内存警告——iOS 会结束占用内存过多的键盘扩展，“键盘突然消失”的反馈最需要这一行。键盘加载（`keyboard_loaded`）、建好键盘界面（`keyboard_built`）、画出第一帧（`keyboard_shown`）、出现（`focus_in`）、共享设置应用（`preferences_applied`）以及内存警告前后（`memory_warning`、`memory_released`）这几行带进程的内存读数：`mem=` 是 `phys_footprint`，即系统判断扩展是否超限时用的数，`avail=` 是 `os_proc_available_memory()` 给出的离上限的余量，都向下取整到 MiB。按 SDK 头文件，进程「不是 App」或已经超限时这个函数返回 0，模拟器上也是 0，日志把这种 0 写成 `avail=-`，表示系统没给出余量，不表示没有上限；余量不足 1 MiB 时写的是数字 `avail=0`。键盘扩展在真机上能不能拿到余量还没有实测。`keyboard_loaded` 另带建引擎会话之前的 `base=` 和会话刚建好时的 `session=`，两者之差只有引擎会话，再与相邻几行相减就能分出界面和第一帧各占多少。`memory_released` 带 `engine_cache=reset`（没有组字，当场清了引擎缓存）或 `engine_cache=deferred`（正在组字，留到这次组字结束再清），留到组字结束的那次清完后写一行 `engine_cache_reset`，同样带读数。host-api 自己报告的行经 `msime_client_set_diagnostic_sink` 转进同一个文件，只记类别、不记细节（细节里可能有包名、路径和错误原文），写成 `host_api: <类别>`，例如音效包载入失败，以及整句联想「增强」挂上的是哪一档逐键重排：`host_api: keyboard reranker onnx large`（8x448）、`onnx small`（6x256，自测时大的超过 10 ms）、`onnx small (low memory)`（进程可用内存不到 120 MiB，没加载大的）、`bundled model`（没有 ONNX 模型，退回随包的 sentence-model.safetensors）或 `missing`。键盘进程的第一个会话在日志配置之前建立，那一次的行看不到；之后的会话和「增强」开关切换都会写。除这些数字外每条记录只有事件名，截到 192 字节的可打印 ASCII，不含按键、输入文字、候选、凭据、路径或服务响应；文件超过 1 MiB 时保留一个 `.1` 副本。键盘没有完全访问时无法写入 App Group，此时静默不写，不影响输入。App 的这一页可以开关、分享和清空日志；iPad 在同一页直接显示最近的记录，iPhone 另开一页查看。Windows 专用的 `diagnostic_log.tsf` 不在 iOS 显示，原值保留以便跨平台同步。反馈页同样链到这一页，并和 Windows、macOS 的反馈页一样列出 QQ 交流群（点一下复制群号）和 Telegram 群组。
 
 “输入设置”页的「默认中英文」读写共享文档的 `default_ime_mode`，与桌面端同一个字段。新打开的键盘从这个模式开始；按中/英键切换后，这次打开的键盘一直保持用户的选择，设置页的修改也不会在输入途中翻转模式。以前桥接层在建立会话时把它强制覆盖成 `chinese`，现在不再覆盖。桌面端用 `ime_mode_scope` 按应用记住中英文，但 iOS 不告诉键盘扩展正在哪个应用里输入，没有可以作为键的应用标识，所以 iOS 不使用这个字段（共享层的 `HostCapabilities::ime_mode_scope` 也把 iOS 排除在外）。网址、邮箱等字段带来的临时英文仍按原来的规则处理，离开字段后恢复。同一节的「沿用上次的中英文」是 iOS 上唯一能做的记忆：它对应桌面端 `ime_mode_scope` 的全局记忆，按应用的那一种在 iOS 上没有可用的键。打开后，新键盘从用户上次按中/英键（或 Shift）选的模式开始，还没切换过时仍从「默认中英文」开始；网址、邮箱字段临时切到的英文不记录。键盘进程在两次出现之间会被销毁，所以记录放在 App Group（`ImeModeMemoryPreference`），不进共享文档，也不随设置同步到其它设备；开关变化时清掉旧记录。同一页五笔组的三个开关——五笔混拼（`wubi_mixed_pinyin`）、候选显示剩余编码（`wubi_code_hint`）、四码唯一候选自动上屏（`wubi_auto_commit_unique`）——都直接读写共享文档，没有 App Group 兼容键：页面写文档，键盘把同一份文档交给 host-api，候选的剩余编码、引擎的混拼回退和四码上屏都从它读。四码上屏关闭后，四码唯一的词留在候选列表里等空格或数字键选它。
 
-键盘扩展、原生统计页（`App/Sources/settings/TypingStatisticsView.swift`）与共享 Tauri 统计页都从 App Group 的 `MSIME/typing-statistics.json` 读取聚合计数（共享 Tauri 统计页只在单独构建的 Tauri 公共组件里，不随产品 App 分发，用户看到的是原生统计页），所有读写都经 `msime_client_typing_statistics` 交给 `client-services` 的共享统计存储，与 macOS 同一条路径，并以同一锁文件串行更新。键盘为每次上屏带上本地日期和小时，共享存储据此记下每日活跃时长（两次上屏间隔不超过 10 秒计入）和每小时字数；原生统计页新增「节奏」标签，显示今日与平均速度、今日活跃、连续天数、日均、最多与最快的一天和今日时段分布，算法与共享统计页的 `activityMetrics` 一致，iPad 宽窗口一行放四格，手机两列。「趋势」标签下的「按日明细」对应 Windows 统计页的同名表格，列最近 30 个有记录的日子（日期、字数、中文、英文、数字、标点、其他、活跃、速度，「其他」收下其他文字、表情、符号和旧记录里未分类的部分，各列相加等于字数）；iPad 宽窗口照原样画九列，手机每天一行字数加一行分类小字。右上角可把全部保留的日子导出为带 BOM 的 UTF-8 CSV（活跃时长以分钟计），交给分享面板。与共享存储一致，新装时统计默认关闭，需在统计页右上角菜单里打开；已有统计文件里写着的开关状态保持不变。统计只包含分类计数，不保存实际输入文本。统计打开且有完全访问权限时，键盘还为每个软键记按下次数：26 键字母记作 `KeyA`…`KeyZ`，九键格位按格上的数字记作 `Nine0`…`Nine9`（日文假名格同样按手机键位映射），符号层的键记到产生该字符的 ANSI 键（如「！」记 `Digit1`），123、符、中/英、地球、表情、语音记作 `Soft*`，没有对应键位的键不计；按住删除连删只算一次，密码框不计，统计关闭时连内存里也不攒。计数在内存里按本地日期攒批，满 256 次、跨日（先写旧日期）、每 30 秒、键盘收起或宿主转入后台时经 `record_keys` 在统计队列里写入共享存储的 `dailyKeys`，只保存每个键每天被按下的次数，不保存顺序、时间和内容；清空统计会一并删除，保留期也同样裁剪。统计页的「按键」标签按选中的日期或累计画出 26 键键盘热力图，有九键记录时加画九宫格，另列最常按的五个键和键盘图上没有位置的「其他键」。键盘扩展收不到硬件键盘的按键事件，所以 iOS 只统计软键。
+键盘扩展与原生统计页（`App/Sources/settings/TypingStatisticsView.swift`）都从 App Group 的 `MSIME/typing-statistics.json` 读取聚合计数，所有读写都经 `msime_client_typing_statistics` 交给 `client-services` 的共享统计存储，与 macOS 同一条路径，并以同一锁文件串行更新。键盘为每次上屏带上本地日期和小时，共享存储据此记下每日活跃时长（两次上屏间隔不超过 10 秒计入）和每小时字数；原生统计页新增「节奏」标签，显示今日与平均速度、今日活跃、连续天数、日均、最多与最快的一天和今日时段分布，算法与共享统计页的 `activityMetrics` 一致，iPad 宽窗口一行放四格，手机两列。「趋势」标签下的「按日明细」对应 Windows 统计页的同名表格，列最近 30 个有记录的日子（日期、字数、中文、英文、数字、标点、其他、活跃、速度，「其他」收下其他文字、表情、符号和旧记录里未分类的部分，各列相加等于字数）；iPad 宽窗口照原样画九列，手机每天一行字数加一行分类小字。右上角可把全部保留的日子导出为带 BOM 的 UTF-8 CSV（活跃时长以分钟计），交给分享面板。与共享存储一致，新装时统计默认关闭，需在统计页右上角菜单里打开；已有统计文件里写着的开关状态保持不变。统计只包含分类计数，不保存实际输入文本。统计打开且有完全访问权限时，键盘还为每个软键记按下次数：26 键字母记作 `KeyA`…`KeyZ`，九键格位按格上的数字记作 `Nine0`…`Nine9`（日文假名格同样按手机键位映射），符号层的键记到产生该字符的 ANSI 键（如「！」记 `Digit1`），123、符、中/英、地球、表情、语音记作 `Soft*`，没有对应键位的键不计；按住删除连删只算一次，密码框不计，统计关闭时连内存里也不攒。计数在内存里按本地日期攒批，满 256 次、跨日（先写旧日期）、每 30 秒、键盘收起或宿主转入后台时经 `record_keys` 在统计队列里写入共享存储的 `dailyKeys`，只保存每个键每天被按下的次数，不保存顺序、时间和内容；清空统计会一并删除，保留期也同样裁剪。统计页的「按键」标签按选中的日期或累计画出 26 键键盘热力图，有九键记录时加画九宫格，另列最常按的五个键和键盘图上没有位置的「其他键」。键盘扩展收不到硬件键盘的按键事件，所以 iOS 只统计软键。
 
 键盘扩展通过共享宿主策略执行智能标点的三条规则。**重复标点转中文**：刚以 ASCII 上屏逗号、句点或冒号后两秒内再按同一个键，把它换成中文标点并结束这次手势；只在文档里确实还是第一次按下留下的那个字符时才触发，组字中、有候选、换了编辑器都不算。**空格转英文**：刚上屏一个中文标点后按空格，把它改回 ASCII 并吞掉空格——人是在改刚打出来的那个标点，不是打了标点再打空格；这一条默认关闭，因为它改写的是用户已经看着落下去的字符。两者的快照由键盘持有而不是放进会话：它们属于宿主的编辑器，而键盘收起时会话会被销毁重建，一个跨过那道缝还活着的手势是错的。editor generation 取 `documentIdentifier` 的前八个字节，不用 `hashValue`（Swift 的哈希按进程加种子）。第三条是**直出**：中文跟随模式且 Engine 空闲时，逗号、句点或冒号紧跟 ASCII 字母或数字**且共享偏好中对应的 `smart_punctuation_direct_letter` / `smart_punctuation_direct_digit` 已开启**时保留 ASCII——这两个开关默认关闭，未开启时仍走 Engine 的中文标点；锁定中文或英文优先；已有组合、日语、英文和本地模式仍交给 Engine。扩展只从 `UITextDocumentProxy.documentContextBeforeInput` 提取紧邻光标的一个 Unicode 标量，不保存或记录宿主文字；中文/日文键帽显示值会先映射回 Engine 的 ASCII 标点输入，缺失上下文安全回退到 Engine 标点。
 
@@ -38,7 +32,7 @@ App 的“输入设置 → 标点”页直接读写共享 `PreferencesStore`：�
 
 “输入设置 → 候选与纠错”页不显示全拼纠错开关；字母错位和相邻键误触均由 Engine 默认开启，已有明确保存的 `false` 仍生效。候选混输（`mixed_input` 的英文单词及触发字母数、符号、emoji、颜文字）仍在此页设置。符号混输（`mixed_input.symbols`，打出符号的名称时在候选里接着那个词给出符号，如「正负」后面是 ±）默认开，共享文档只在关掉时写这个键，页面读到缺键时按开显示。这些字段是嵌套对象，每次写入只合并一个子字段，其余子字段保持存储值。同一页的「以词定字」对应 `word_character.enabled`：桌面用 [ ] 或 - = 键只上屏候选的首字或末字，键盘扩展收不到硬件键（iPad 外接键盘也一样），所以 iOS 把它放进候选的长按菜单（候选栏和展开的候选面板都有），只对两个汉字以上的候选出现，`word_character.keys` 在 iOS 上不用。
 
-正在拼写的内容固定以「拼音分词」写进输入框（marked text），和 Apple 自带中文键盘、Gboard 一样，九键写的是拼音读音而不是数字；候选栏因此不再画读音，那一段收成零宽，候选从行首开始，不会随拼写变长被推着左右移动，顶栏高度也不变。没有开关：共享设置里的 `candidate_preedit_style` 和 Windows 的 `tsf_preedit_style` 在 iOS 上不读，原来 iOS 自己的「行内预编辑」「候选栏预编辑」两项已去掉。候选栏仍显示两样东西：已选定的半个词（`phrase_prefix`），否则用户选过的字既不在文档里也不在屏幕上；本地输入模式的名称，因为它说明当前在哪个模式。日语写假名读音，韩语标记它的音节。全拼 14 键的组字是组码字母（`buguo`），写进输入框没有意义，所以它不写输入框，读音照旧单独一行画在候选上面。同一页「预编辑」里剩下的「双拼显示原始按键」对应共享设置 `shuangpin_preedit_uses_raw`。「双拼显示原始按键」由 Engine 消费，关掉后双拼组字显示按键展开的拼音，例如 `ui` 显示为 `shi`，粤语双拼显示展开的粤拼，例如 `vodanz` 显示为 `ngo daa nei`（读音取首选候选用的那一个），编辑和回车上屏仍按原始按键；它和标点字段一样列在桥接层交给运行中会话的字段里，键盘进程不必重启，下次出现、空闲时就生效。
+正在拼写的内容固定以「拼音分词」写进输入框（marked text），和 Apple 自带中文键盘、Gboard 一样，九键写的是拼音读音而不是数字；候选栏因此不再画读音，那一段收成零宽，候选从行首开始，不会随拼写变长被推着左右移动，顶栏高度也不变。没有开关：共享设置里的 `candidate_preedit_style` 和 Windows 的 `tsf_preedit_style` 在 iOS 上不读，原来 iOS 自己的「行内预编辑」「候选栏预编辑」两项已去掉。候选栏仍显示两样东西：已选定的半个词（`phrase_prefix`），否则用户选过的字既不在文档里也不在屏幕上；本地输入模式的名称，因为它说明当前在哪个模式。日语写假名读音，韩语标记它的音节。全拼 14 键的组字是组码字母（`buguo`），写进输入框没有意义，所以它不写输入框，读音照旧单独一行画在候选上面。同一页「预编辑」里剩下的「双拼显示原始按键」对应共享设置 `shuangpin_preedit_uses_raw`，它开着时下面还有「原始按键按音节分隔」，对应 `shuangpin_preedit_separated`（共享设置页「双拼预编辑」的「双拼分隔」一档，#10717）：按键原样保留，只在音节之间加 `'`，例如自然码 `nimf` 显示为 `ni'mf`。「双拼显示原始按键」由 Engine 消费，关掉后双拼组字显示按键展开的拼音，例如 `ui` 显示为 `shi`，粤语双拼显示展开的粤拼，例如 `vodanz` 显示为 `ngo daa nei`（读音取首选候选用的那一个），编辑和回车上屏仍按原始按键；这两项和标点字段一样列在桥接层交给运行中会话的字段里，键盘进程不必重启，下次出现、空闲时就生效。
 
 候选栏的配色是全局主题的一部分（`global_theme`，自定义主题是 `custom_theme`，App Group 镜像 `globalTheme`），在「设置 → 主题」里选，与电脑版同步；那一页的「外部皮肤与候选颜色」对应 `custom_theme.candidate_skin`（浅色模式皮肤）、`custom_theme.candidate_skin_dark`（深色模式皮肤）、`custom_theme.candidate_colors` 和共享的 `candidate_theme`，以前在「候选栏」页，现在按全平台信息架构并入主题页的自定义主题。iOS 的候选栏是键盘的一部分，默认和按键一起用键盘主题的颜色（首选候选用强调色、不填底；跟随系统的季节配色和经典兜底在浅色下改用同一色相加深到 WCAG AA 的首选字色 `KeyboardTheme.candidateAccent`，来自 Rust 的 `candidate_accent`，回车键和开启态仍是强调色）；只有打开 iOS 独有的“候选栏使用主题配色”开关（App Group `candidate_palette_follows_desktop`，不参与同步）后，候选栏才换成 client-services 为当前主题解析出的候选配色，也就是桌面候选窗画的那一套：首选候选用主题的高亮色，背景、文字、编号和描边取自主题；`system` 没有候选配色，开关打开也仍画原生候选栏。“明暗”选跟随系统时先看共享的 `theme`，再看系统外观。选外部皮肤或改颜色会切换到「自定义」主题，并以当前主题（或外部皮肤声明的底）为底。外部皮肤在桌面放进皮肤文件夹即可，iOS 的皮肤目录在 App Group 里，“文件”看不到，所以同一处有“导入皮肤”：从“文件”选一个含 `skin.toml` 的皮肤文件夹，经与 Tauri 壳相同的 Rust 导入（`msime_client_skin_import`，先校验文件夹名和清单，同名皮肤整个替换，最多 4096 个文件、256 MB）复制进去；浅色模式和深色模式各有一个皮肤选择器：皮肤只在它清单 `base` 所属的明暗下绘制，`light`、`paper` 底的列在浅色模式，`shuishan`、`night`、`ink` 底的列在深色模式，`system` 底的两边都列、选它同时写两个槽位。选用一款时只写它所属的槽位，与共享设置页的 `applyCandidateSkin` 同一条规则（`GlobalThemePreference.applyingPackage`）：写深色槽位时清掉旧文档放在 `candidate_skin` 里的深色皮肤，写浅色槽位时若深色槽位空着、原来的 `candidate_skin` 是已装的深色或跟随系统的皮肤，先把它挪到深色槽位（已经不在的皮肤直接覆盖）；深色槽位没设时深色模式仍取 `candidate_skin`，只设过一款皮肤的旧文档照旧。取消或删除一款皮肤只清放着它的槽位。列表只列支持横排的外部皮肤，只声明一种明暗的会标出来，两个槽位里的外部皮肤都可以删除。App 用系统颜色选择器编辑文字、背景和首选高亮三种颜色，也能一键恢复皮肤颜色；iPad 并排预览浅色和深色，iPhone 只预览当前外观。主题、候选栏和输入三页顶部都有同一张候选预览卡，按当前主题、开关、候选字号和英文释义设置画出候选栏的样子。键盘下次出现时应用这些改动，不重建 Engine 会话。
 
@@ -98,7 +92,7 @@ App 的“输入设置 → 标点”页直接读写共享 `PreferencesStore`：�
 
 App「词库」里的个人词典对应 Windows 的用户词编辑：编辑器除编码和词条外还有权重（1 到 100,000,000，新词默认 100,000），列表每行显示当前权重；只改权重时仍以原词条为匹配依据排队，键盘在下次激活时交给 Engine 替换。导入除 JSON 外还有“纯中文”模式，对应 Windows 的 `importHans`：粘贴或选一个文本文件，每行一个汉字词，`#` 开头的行和空行跳过。拼音由共享 C ABI `msime_client_dictionary_hans_entries` 用随键盘扩展打包的 `msime-pinyin.db` 只读标注，不写任何用户数据，所以 App 可以先预览再入队，不必在 App 里启动 Engine 会话；含非汉字的行整批拒绝，与 Windows 一致，重复词只保留一次，单次最多 128 条（与 JSON 导入同一上限）。
 
-共享设置页的「导入词库文件」在 iOS 的 Tauri 公共组件（`apps/desktop/src-tauri/gen/apple`，不随产品分发）上同样可用，用户实际用到的是下文原生 App 的「导入个人词库」，支持与桌面相同的标准、Windows、Rime 和纯中文四种格式。桌面走 Engine 直接写入，需要维护锁，而键盘打字时持有这把锁，所以 iOS 的 Tauri 宿主把 `import` 交给原生桥：共享 C ABI `msime_client_dictionary_import_entries` 用打包词库只读解析文件，返回可入队的词条和导入报告，原生桥再把词条放进键盘下次激活时应用的 App Group 队列。Engine 不接受的行（例如简拼，或音节数与字数不符）按行号计入“跳过”，重复词只入队一次，超出队列 128 条的部分记为“文件过长”，页面给出与桌面相同的导入说明，不会因为一行有问题就整批拒绝。Android 的队列导入走同一套解析和报告。iOS 实际随包的原生 App 在「导入个人词库」里有同样的“词库文件”来源：选词库类型（拼音、五笔、英文、快捷短语）和文件格式（标准、Windows、Rime），从“文件”选一个 UTF-8 文本文件，由同一个 C ABI 在后台解析，预览里列出将入队的词条，并用与桌面相同的措辞说明跳过的行、被截断的部分和两列顺序相反的文件，确认后入队。文件格式里还有「搜狗细胞词库（.scel）」：选它时词库类型锁定为拼音，文件选择器接受 `.scel`，读出的字节（同样不超过 1 MB）先经共享 C ABI `msime_client_dictionary_scel_text` 转成标准文本，再按标准格式交给同一个解析器；只取词和拼音，权重统一为默认值 10000，读不出读音或词的词条按词序计入“跳过”。受队列上限所限，一次只能导入一个细胞词库的前 128 个词，所以 iOS 上这个来源只够试用，不算完整支持。送进解析器的只是转出文本开头的整行，最多 1001 行、不超过解析器一次收的 64 KiB：词长的词库（诗词、俗语）不到 1001 行就到 64 KiB，按字节截掉的部分同样报告为“文件过长”。共享设置页在 iOS 的 Tauri 宿主上也有这一格式（文件不超过 1 MB），同样只送开头不超过 64 KiB 的整行。
+iOS 的原生 App 在「导入个人词库」里有“词库文件”来源。桌面走 Engine 直接写入，需要维护锁，而键盘打字时持有这把锁，所以 iOS 不直接写入：共享 C ABI `msime_client_dictionary_import_entries` 用打包词库只读解析文件，返回可入队的词条和导入报告，App 再把词条放进键盘下次激活时应用的 App Group 队列。Engine 不接受的行（例如简拼，或音节数与字数不符）按行号计入“跳过”，重复词只入队一次，超出队列 128 条的部分记为“文件过长”，不会因为一行有问题就整批拒绝。Android 的队列导入走同一套解析和报告。使用时选词库类型（拼音、五笔、英文、快捷短语）和文件格式（标准、Windows、Rime），从“文件”选一个 UTF-8 文本文件，由同一个 C ABI 在后台解析，预览里列出将入队的词条，并用与桌面相同的措辞说明跳过的行、被截断的部分和两列顺序相反的文件，确认后入队。文件格式里还有「搜狗细胞词库（.scel）」：选它时词库类型锁定为拼音，文件选择器接受 `.scel`，读出的字节（同样不超过 1 MB）先经共享 C ABI `msime_client_dictionary_scel_text` 转成标准文本，再按标准格式交给同一个解析器；只取词和拼音，权重统一为默认值 10000，读不出读音或词的词条按词序计入“跳过”。受队列上限所限，一次只能导入一个细胞词库的前 128 个词，所以 iOS 上这个来源只够试用，不算完整支持。送进解析器的只是转出文本开头的整行，最多 1001 行、不超过解析器一次收的 64 KiB：词长的词库（诗词、俗语）不到 1001 行就到 64 KiB，按字节截掉的部分同样报告为“文件过长”。
 
 个人词典页的搜索框带“我的词条 / 拼音 / 五笔 / 快捷短语 / 英文”几个范围，对应 Windows 词库管理器按词库查找并调整内置词。“我的词条”只查用户自己的词；选某个词库再输入编码时，键盘在那一整个词库里按编码前缀查找，内置词条也会列出，并标“内置”。内置词条的编码和词随词库安装，不能修改：点开只能调权重，滑动可以删除。这些改动和其他编辑走同一个 App Group 队列，队列里的词条带着 `source: bundled` 标记，键盘同步时交给 Engine 就地修改，并记入日志，词库升级后依然保留。如果编辑改动了内置词条的编码或词，Engine 会拒绝。从文件导入或在表单里新建的词一律按用户词校验，不能自称内置。
 
@@ -145,6 +139,8 @@ App「词库」里的个人词典对应 Windows 的用户词编辑：编辑器�
 键盘按宿主给出的 trait 区分手机与平板形态（`KeyboardFormFactor`），不按机型判断：只有 regular 宽度的 iPad 才画平板键盘，iPad 的浮动键盘、Slide Over 与台前调度里的窄窗口是 compact 宽度，和系统键盘一样退回手机布局，停靠与浮动切换时随 size class 变化重新布局。平板键盘更高且横屏比竖屏高，第三排字母末尾带逗号和句号（中文模式显示中文标点，仍以 ASCII 交给 Engine）。平板键盘默认还有桌面键盘那样的数字行和 Tab 键（「键盘设置 → iPad → 数字行与 Tab 键」，App Group `keyboard.tablet.fullKeys`，这一节只在 iPad 上出现）：数字行在字母上方，打开时键盘加高一排而不压扁字母，和符号层的数字走同一条路径，组字时 1–9 选候选、没有组字时直接输入；Tab 在 Q 左边，宽一格半。桌面组字时 Tab 翻到下一页候选（共享的 `navigation.tab`，默认开），iOS 候选栏没有分页，只有背后的全部候选面板，所以组字且有候选时 Tab 打开这个面板；`navigation.tab` 关闭或没有组字时，结束组字并输入制表符。符号层、九键、手写和假名布局不显示数字行。横屏时还可以把键盘分成左右两半（「键盘设置 → iPad → 分离式键盘」，App Group `keyboard.tablet.split`，默认关，Tauri 设置页「屏幕键盘 → 布局」里同一个开关也只在 iPad 上出现）：只在平板形态且横屏时生效，竖屏、浮动键盘和窄窗口照常是整块键盘，旋转或台前调度改窗口大小时在布局里重新判断（`KeyboardSplitLayout`）。分开的是 26 键字母布局（全拼、双拼含微软双拼的 `;`、五笔、英文、日文罗马字、韩文等）、它们的 #+= 符号页和数字行，数字九宫格、九键、笔画、手写、注音大千和假名九键不分，各种面板也不分。每一排在中间插入键区宽度四分之一的中缝，中缝是不接触摸的死区（不交给两侧的键）；字符键从中间分、奇数时左半多一个（qwert | yuiop、asdfg | hjkl、zxcvb | nm，。），Tab、Shift 留在左半外沿，删除、逗号句号留在右半；底部那一排在空格处分开，两半各有一个同样宽的空格键，轻点和滑动移动光标都一样。键盘高度不变。iPhone 横屏也可以分（#10224）：「键盘设置 → 布局 → 分离式键盘」只在 iPhone 上列出，App Group `keyboard.phone.landscapeSplit`，默认关，不随设置同步，「恢复默认」一并还原。打开后走与 iPad 同一条分离路径（中缝四分之一、字符键从中间分、底行两个同宽的空格、键盘高度不变），键面仍是手机的，键高仍是手机横屏的 34pt；第三排在 v 和 b 之间分（iPad 那一排末尾的 ，。手机上没有，另插一段只给手机键面用的中缝）。键盘视图太窄时不分：分开后第一排字母键不到 36pt（`KeyboardSplitLayout.phoneMinimumLetterKeyWidth`，按 `(0.75 × 键区宽 − 8 × 键距) / 10` 算）就保持整块键盘。键区宽是键盘视图的宽度，不是屏幕宽度：全面屏 iPhone 横屏时系统在键盘两侧留出地球键和听写键的栏，XR 真机上键盘视图约 662pt，分开后字母键 44.4pt；默认键距下所有 iPhone 横屏都分；iPad 的浮动键盘和窄窗口虽是手机形态也不分。分离时单手模式让位。用例在 `KeyboardFormFactorTests` 的 iPhone 一节。iPad 没有 Taptic Engine，键盘的功能菜单、App 的「键盘」设置页和皮肤编辑器在非 iPhone 上不显示按键振动与振动强度；存储值不被改写，设置同步仍把它原样带给用户的 iPhone。
 
 振动强度有四档：「跟随系统」「轻」「中」「强」，默认「中」，存了认不得的值按「中」。三档分别是 `.light` 力度 0.5、`.medium` 力度 0.8、`.heavy` 力度 1.0；原先中、强两档力度都是 1.0、只差样式，单次轻敲几乎分不出来。iOS 没有接口读取系统设置里的键盘触感，「跟随系统」的意思是用系统默认的冲击反馈（`.light`、不带力度参数），不再套我们自己的力度。键盘、App 的「键盘」页与皮肤编辑器的「试一下振动」都走 `KeyboardHapticStrength` 这一份映射，Tauri 插件的 `previewKeyboardHaptics` 引用不到它，抄了同样的数值。云端只认三档，选「跟随系统」时设置同步不上传强度，账号里原来的值保持不变。
+
+按键音和振动在手指按下键盘按键的那一刻发出，与系统键盘一样，松手时不再重复（#10768，`KeyboardViewController.keyPressFeedback`、`KeyboardKeyButton.releasing`）：键盘按键都由 `makeKey` / `makeIconKey` 造出，它们在 `.touchDown` 上反馈，并在按键上记下这次已经反馈过，松手时执行的动作（包括角标、九键滑动数字、假名滑动和 18 键横滑的上屏）里的 `playInputClick` 就不再出声。候选、面板、工具栏这些不在按下时反馈的按钮，以及 `sendActions`、读屏激活，仍在动作里出声；在滚得动的容器里的键（九键左列的自定义符号表、九键面板的拼音栏）按下可能是在开始滚动，也仍在松手时反馈。长按生效（弹出九键或 14 键的长按菜单、长按空格开语音、长按 123 开符号面板）和按住退格连删的每一下照旧各有一下反馈。见 `.agents/notes/implemented/bug-fix/2026-11-03-ios-key-feedback-on-press.md`。
 
 键盘高度、键距和行距以共享文档的 `touch_*` 字段为准，App Group 只是镜像；文档里的 `touch_voice_shortcut` 是 Android 的工具栏语音按钮，iOS 工具栏不放语音按钮，不读也不写它。键盘每次出现、App 的「键盘」页每次回到前台都按文档对齐 App Group（`KeyboardLayoutPreference.mirrorGeometry`），设置页每次只写用户刚动的那一项。原先设置页只在出现时读一次、保存时四项一起写：在键盘里调过高度后回到停在后台的设置页，动一下别的控件，旧高度就随之写回文档，键盘下次出现又变回设置页的值。键盘自己调的值在组字中也写进文档（会话把偏好推迟到空闲时应用，这不算失败）；文档没写成时记 `touch_geometry_not_persisted` 日志，并按文档把 App Group 和键盘对齐，用户当场看到实际留下的值。
 
@@ -193,12 +189,9 @@ iOS 26 会默认在滚动视图边缘叠加渐隐和模糊。键盘内的候选�
 
 ```sh
 rustup target add aarch64-apple-ios aarch64-apple-ios-sim
-rustup component add llvm-tools
 ```
 
 Engine 是工作区内的纯 Rust crate `crates/engine`（`msime-engine`），随 `msime-host-api` 一起编进静态库，不需要取回源码、Boost 或任何依赖前缀；SQLite 由 `rusqlite` 的 `bundled` 特性编进同一个库。
-
-Xcode 27 的 SwiftPM 会把静态库中的 `@_cdecl` 导出内部化；当前 `swift-rs` 构建桥会使用 `llvm-tools` 中的 `llvm-objcopy` 恢复应用 package 的符号。仓库同时固定到上游 PR #79 的提交 `a83e2b2f196e3fa9605cb21c7d3b82652205c279`，使传递嵌入的 SwiftRs runtime 导出在优化构建中保持公开。缺少该组件或移除补丁时，Tauri iOS Rust 动态库会在链接阶段报告 Swift 桥符号未定义。
 
 词库必须来自仓库固定的 `resources/desktop-dictionary.lock.json`。安装器下载并校验发布文件，暂存脚本再次检查名称、长度与 SHA-256，只把锁文件列出的文件（含日文词库与英文词库各自的许可文本）复制到 `target/ios/EngineResources`：
 
@@ -219,15 +212,23 @@ platforms/ios/build-native.sh simulator
 
 `device` 目标产出 `target/ios/device/libmsime_host_api.a`，`simulator` 目标产出 arm64 的 `target/ios/simulator/libmsime_host_api.a`。
 
-一条命令完成资源暂存、键盘扩展 native 构建，并构建 iOS 的产品宿主 `MSIMEApp`（同时嵌入键盘扩展）。要改为单独构建 Tauri/React 这个公共组件，在同一条命令前加 `MSIME_IOS_TAURI_COMPONENT=1`：
+一条命令完成资源暂存、键盘扩展 native 构建，并构建 iOS 的产品宿主 `MSIMEApp`（同时嵌入键盘扩展）：
 
 ```sh
 platforms/ios/build-app.sh "$resource_dir" simulator
 ```
 
+### 中英混合滑行
+
+在「首页 → 键盘 → 手势」打开「滑行输入」和「中英混合滑行」。混合滑行默认关闭，只保存在本机。启用后可在中文全拼 26 键上交替滑入中文和英文，无需切换语言；连续滑行会保留整段组字，点击候选、空格或回车确认当前高亮项后才输入正文。确认候选的这次回车不追加换行，组字结束后恢复输入框原来的回车动作。输入标点前先选词。
+
+`women` 可能同时对应「我们」和英文 `women`，可在候选栏改选。长英文候选会为其它备选留出空间，完整词形可展开查看。英文候选保留有用的中文释义，隐藏重复的英文译文及解码拼写。混合滑行候选不参与个人词库学习；普通中文滑行和键入不受影响。
+
+设计与兼容边界见[中英文滑行](../../.agents/notes/implemented/feature/2026-11-03-bilingual-glide.md)。
+
 ## 真机签名构建
 
-产品宿主 `MSIMEApp` 的装机走 XcodeGen 工程加 CocoaPods workspace，不经过 Tauri CLI。`build-app.sh … device` 固定 `CODE_SIGNING_ALLOWED=NO`，只验证编译与打包，产物装不上真机；要装机就直接调 `xcodebuild` 并允许签名：
+产品宿主 `MSIMEApp` 的装机走 XcodeGen 工程加 CocoaPods workspace。`build-app.sh … device` 固定 `CODE_SIGNING_ALLOWED=NO`，只验证编译与打包，产物装不上真机；要装机就直接调 `xcodebuild` 并允许签名：
 
 ```sh
 resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)"
@@ -246,16 +247,6 @@ xcrun devicectl device install app --device <udid> \
 
 `fetch_voice_runtime.py` 按 `resources/voice-runtime.lock.json` 下载并校验 sherpa-onnx 运行库到 `target/voice-runtime/ios`，`MSIMEApp` 内嵌它做本地语音识别；缺了它 `xcodebuild` 会报 `There is no XCFramework found at '…/SherpaOnnxC.xcframework'`。`-allowProvisioningUpdates` 是必须的：键盘扩展的描述文件要由 Xcode 联网刷新，新设备也在这一步注册进去。App 与 `MSIMEKeyboardExtension` 都以 team `LXCL4Z68GU` 的 Apple Development 证书签名，扩展侧携带按构建模式暂存的已校验词库。
 
-下面这条是 Tauri/React 公共组件的签名构建，不是 iOS 的产品宿主装机路径：
-
-```sh
-cd apps/desktop/src-tauri/gen/apple && pod install --deployment && cd -
-APPLE_DEVELOPMENT_TEAM=LXCL4Z68GU \
-  pnpm --filter @msime/desktop tauri ios build --target aarch64 --ci
-```
-
-Tauri CLI 只把 `APPLE_DEVELOPMENT_TEAM` 应用到它自己的 App target，内嵌的 `MSIMEKeyboardExtension` 与 `MSIMESwiftRsRuntimeExports` 不会继承，签名构建会停在 `Signing for "MSIMEKeyboardExtension" requires a development team`。因此工程里为这两个 target 固定了 `DEVELOPMENT_TEAM`；`--no-sign` 构建不受影响（`CODE_SIGNING_ALLOWED=NO` 时该设置不参与）。需要换团队时在 `xcodebuild` 命令行覆盖同名设置。
-
 首次签名构建前需要在 Xcode 的 Settings → Accounts 里登录该团队的 Apple ID：App 的开发描述文件（含 `group.app.msime.ios` App Group，且已包含目标设备）本机已有，但键盘扩展的 `app.msime.ios.keyboard` 需要由 Xcode 联网创建。没有登录账号时构建会报 `No Accounts: Add a new account in Accounts settings`，并退回到不含 App Groups 能力的通配描述文件。本机的 Xcode 登录该团队之后，`app.msime.ios` 与 `app.msime.ios.keyboard` 的开发描述文件都在本地且包含目标设备。这条路径在 iPhone 17 上走通：`BUILD SUCCEEDED`，`PlugIns/MSIMEKeyboardExtension.appex` 内嵌全部十个已校验运行资源，App 由该团队的 Apple Development 证书签名，`devicectl device install app` 成功，设备上 `devicectl device info apps` 能查到「水杉输入法 / app.msime.ios / 1.0.0」。装完在系统 设置 → 通用 → 键盘 → 键盘 里添加一次「水杉输入法」，扩展即可在任意编辑器里使用。
 
 `devicectl device process launch` 需要设备处于解锁状态，锁屏时会被 `SBMainWorkspace` 以 `Locked` 拒绝（`FBSOpenApplicationErrorDomain error 7`）。
@@ -270,7 +261,7 @@ Tauri CLI 只把 `APPLE_DEVELOPMENT_TEAM` 应用到它自己的 App target，内
 - App Group：标识只写在 `MSIMEAppEdition.appGroupIdentifier` 一处，full 是 `group.app.msime.ios`，其他版本是 `group.app.msime.ios.<版本 id>`。共享容器里的一切（偏好镜像、状态根 `MSIME/`、个人词库与云词库队列、使用统计、剪贴板、语音交接、账号的刷新锁和匿名会话）以及账号会话所在的钥匙串访问组都跟着它走，两个版本装在同一台设备上互不读写。`tests/settings/ProjectConfigurationTests.py` 检查 App、键盘扩展、`SharedUI` 和 `shared/backend` 的 Swift 源码里没有别处再写死这个标识。
 - URL scheme：键盘拉起 App（「应用设置」和语音录音）用的自定义 scheme 只写在 `MSIMEAppEdition.urlScheme` 一处，full 是 `msime`，其他版本是 `msime-<版本 id>`；`KeyboardAppLauncher` 和 App 的 `onOpenURL` 都读它。多个 App 注册同一个 scheme 时系统任选一个打开，共用 `msime` 会让五笔版的语音交接落到 full 的 App Group 里。`tests/settings/ProjectConfigurationTests.py` 检查别处没有再写死 `msime://`。
 - 方案：方案页和首次引导只列本版本的入口，写共享文档的 `schemeMapping` 也丢掉本版本没有的入口；启用列表、选中方案和偏好里认不出的方案都回退到本版本的默认方案（`ChineseInputScheme.editionFallback`，full 是全拼 26 键）；手写不属于任何方案，写出的是汉字，所以只在提供中文方案的版本里有（full、拼音版、五笔版），日文、越南文和藏文版没有，背后跑本版本的默认方案；只有一个方案的版本没存过启用列表时，默认要用户自己打开的入口（越南语、藏文）也启用，与 client-core 的 `TouchKeyboardSchemePreferences::for_edition` 一致。五笔混拼开关没被用户动过时取版本的默认值（五笔版是开）：`Preferences::for_edition` 在准备宿主（`msime_client_prepare_host`）时把它写进状态目录的第一份共享文档，设置页和引擎都从这份文档读它，App Group 里不再存这个开关。非 full 版本准备宿主（`msime_client_prepare_host`）和词库快照会话时把版本 id 交给 host-api，由它按版本收窄方案、按本版本的资源锁校验词库。
-- 设置同步：原生「设置同步」和自动云同步的上传与应用都在 Rust 里按 `preferences_directory` 所属的版本过滤，用的就是 client-core 的 `filter_uploaded_account_settings`、`filter_downloaded_account_settings`：只有一个方案的版本既不上传也不应用 `input.schema` 和随它的九键开关；多方案版本把本版本没有的方案当作缺失；不提供双拼、五笔的版本不上传对应的方案细项。Tauri 公共组件的 iOS 工程走的就是 client-core 那两个函数。
+- 设置同步：原生「设置同步」和自动云同步的上传与应用都在 Rust 里按 `preferences_directory` 所属的版本过滤，用的就是 client-core 的 `filter_uploaded_account_settings`、`filter_downloaded_account_settings`：只有一个方案的版本既不上传也不应用 `input.schema` 和随它的九键开关；多方案版本把本版本没有的方案当作缺失；不提供双拼、五笔的版本不上传对应的方案细项。
 
 要发一个版本（以五笔版为例）还差这些，全部在仓库之外或需要签名身份，本分支没有做：
 
@@ -278,24 +269,9 @@ Tauri CLI 只把 `APPLE_DEVELOPMENT_TEAM` 应用到它自己的 App target，内
 2. 工程：`project.yml` 为每个版本加一对 target（App 和键盘扩展），各自设 `PRODUCT_BUNDLE_IDENTIFIER`、`CFBundleDisplayName`（水杉五笔、水杉拼音；图标与 full 相同）、上面四个 Info.plist 键、App 的 `CFBundleURLTypes`（scheme 写 `MSIMEAppEdition.urlScheme` 推出的 `msime-<id>`，`CFBundleURLName` 写本版本 App 的 bundle id），以及各自的 entitlements 文件，`com.apple.security.application-groups` 写本版本的 App Group。`ProjectConfigurationTests.py` 和 `scripts/test-ios-project-config.py` 里按 full 写死的断言要随之参数化。
 3. 资源：`stage-resources.sh` 目前固定用 full 的 `resources/desktop-dictionary.lock.json`，要改成按版本的 `resources/editions/<id>.lock.json` 暂存；五笔版不带日文词典，五笔版和拼音版都不带粤拼、注音、笔画词库。
 4. 签名与发布：在 Apple Developer 后台为每个版本注册 App ID 和 App Group，生成 App 与键盘扩展的描述文件，并在 App Store Connect 各建一条 App 记录。`release-ios.yml` 的模拟器包由 `build-app.sh` 以 `CODE_SIGNING_ALLOWED=NO` 构建，不签名；它的 TestFlight 那段的 `check_profile` 只认 `app.msime.ios`、`app.msime.ios.keyboard` 和 `group.app.msime.ios`，`upload-testflight.sh` 也只接受一对描述文件，都要按版本参数化。多个版本能否在一台设备上共存，只能在真机签名构建里验证。功能相近的多个 App 同时上架，有被 App Store 按 4.3（重复 App）拒审的风险。
-5. 不随版本走的部分：Tauri 公共组件的 iOS 工程（`apps/desktop/src-tauri/gen/apple`）只服务 full，它的 `main.mm` 和 `crates/tauri-mobile-platform` 的 `MobilePlatformPlugin.swift` 仍写死 `group.app.msime.ios`；账号钥匙串的服务名 `app.msime.backend.account` 不变，版本之间靠访问组隔离。
+5. 不随版本走的部分：账号钥匙串的服务名 `app.msime.backend.account` 不变，版本之间靠访问组隔离。
 
 确认改动真的进了产物不要用 `strings`：键面提示是运行时从引擎的 profile 表拼出来的，二进制里没有 `ing uai` 这样的字面量；`@_silgen_name` 引用的 C ABI 名也在链接时解析掉了。用 `nm` 查符号——`MetasequoiaInputSessionBridge.shuangpinKeyHints` 下应当挂着一个 `withUnsafeBytes` 闭包，`msime_client_shuangpin_key_hints` 与 `msime_engine::shuangpin::hints::ShuangpinKeyHint` 应当出现在 Rust 侧的 mangled 符号里，而旧的 `makeShuangpinHints` 应当是 0 个。
-
-Tauri 公共组件的真机产物把最后一个参数改为 `device`。真机构建会在 `apps/desktop/src-tauri/gen/apple` 执行锁定的 CocoaPods 安装，再调用 Tauri CLI；模拟器使用 `aarch64-sim` 并保留手写 fallback。
-
-该目标产出 `apps/desktop/src-tauri/gen/apple/build/arm64/水杉输入法.ipa`：arm64 单架构，`Payload/水杉输入法.app` 内嵌 `PlugIns/MSIMEKeyboardExtension.appex`，扩展侧带锁定 ML Kit Digital Ink 的资源包，App 与扩展各自打包同一份已校验 EngineResources。
-
-模拟器 bundle 默认不带签名，因此没有 App Group 授权：进程一启动就会在共享容器查找上拿到 `client is not entitled`。要在模拟器里真正安装并观察它，用 ad-hoc 签名把既有 entitlements 附上去（模拟器不校验 provisioning，这一步不需要任何开发者证书，也不改变真机的签名边界）：
-
-```sh
-app="apps/desktop/src-tauri/gen/apple/build/arm64-sim/水杉输入法.app"
-codesign -f -s - --entitlements platforms/ios/KeyboardExtension/Resources/MSIMEKeyboardExtension.entitlements "$app/PlugIns/MSIMEKeyboardExtension.appex"
-codesign -f -s - --entitlements apps/desktop/src-tauri/gen/apple/msime-desktop_iOS/msime-desktop_iOS.entitlements "$app"
-xcrun simctl install booted "$app"
-```
-
-签名后 App Group 查找成功（日志里 `container_create_or_lookup…: success`），但 iOS 27 模拟器上进程仍会在启动时 SIGTRAP，release 与 debug 构建一致，`simctl erase` 后的干净设备上同样复现。崩溃报告里实测到的调用链是 `+[NSBundle bundleWithIdentifier:]` → `_CFBundleGetBundleWithIdentifier` → `_CFBundleEnsureBundleExistsForImagePath` → `__CFBundleCopyFrameworkURLForExecutablePath` → `CFRelease` 的空指针陷阱；应用侧的调用者帧未符号化。据此推断调用方为 `wry::platform_webview_version`：它是依赖树里唯一调用 `bundleWithIdentifier` 的位置，`tauri-runtime-wry` 在 `Wry::init` 中无条件执行 `wry::webview_version().is_ok()`，且 `com.apple.WebKit` 与该函数的错误字符串都能在产物二进制里找到；wry 0.57 的同一函数未改动。这条路径在仓库代码之外，未修改任何 vendored crate。它只影响 Tauri 这个公共组件：产品宿主 `MSIMEApp` 不加载 WebView，在同一台模拟器上正常启动，要在模拟器里看界面走下面那条路。
 
 ## iPad 单手模式与侧边数字键盘
 
@@ -381,9 +357,7 @@ iOS 27 模拟器的系统键盘验收需要启用模拟器 ad-hoc 签名，并�
 - **入口搬了家。** `voiceSettingsLink` 现在是设置根列表「键盘 / 语音输入 / 手写输入」一组里的一行（`SettingsPage.voice`），用 `reachSettingsLink` 走到。同名标识符还留在 `KeyboardSettingsView` 上，而那个页面已经没有任何地方实例化——它是 `ce4a76844` 把入口搬到首页时留下的孤儿，朝它伸手会让「搬家」看起来像「缺失」。同理，皮肤页的内容分在「内置 / 我的 / 社区」三个分类里（`skinTab-0`、`skinTab-1`、`skinTab-2`）：`skinAppearanceLink` 在「内置」，`aiSkinDesignTile` 和 `customSkinEditorLink` 在「我的」，皮肤社区在「社区」，先点对应的分类，再在手机上用 `tapRevealed` / `reveal` 滚到网格下方去点。
 - **滚动没有真的发生。** SwiftUI 的 `Form` 是惰性列表，折线以下的行不在无障碍树里，所以「先 `waitForExistence` 再滚」永远等不到也永远不滚；而 `app.swipeUp()` 从屏幕中心起手，在 键盘设置 页那是键盘预览，那块把上下拖动解释成**改行间距**——表单不动，还顺手改掉了马上要读的设置。要边滚边看，并且用坐标拖拽把起点压在预览以下、标签栏以上。
 
-`MSIMEApp` 是 iOS 的产品宿主，装机以它为准，也是 `build-app.sh` 的默认产物，不需要任何开关。要单独构建 Tauri/React 这个公共组件时用 `MSIME_IOS_TAURI_COMPONENT=1` 显式选择。
-
-**上面那条 SIGTRAP 只挡 Tauri 宿主，不挡这个。** `MSIMEApp` 不加载 WebView，在 iOS 27 模拟器上界面能正常起来，键盘扩展也随它一起装进去，所以要在模拟器上看界面就走这条路：
+`MSIMEApp` 是 iOS 的产品宿主，装机以它为准，也是 `build-app.sh` 唯一的产物。`MSIMEApp` 不加载 WebView，在 iOS 27 模拟器上界面能正常起来，键盘扩展也随它一起装进去，要在模拟器上看界面就走这条路：
 
 ```sh
 platforms/ios/build-native.sh simulator
@@ -396,15 +370,6 @@ xcrun simctl launch booted app.msime.ios
 ```
 
 需要 `target/ios/EngineResources` 已按上面的暂存步骤就位，否则运行时找不到词库。
-
-共享 Tauri iOS 工程的 CocoaPods workspace 与 `Pods` 目录只为真机 ML Kit 构建生成，不提交到仓库；模拟器从干净的 XcodeGen 工程直接构建 fallback。真机目标需要先安装锁定的 CocoaPods 依赖，然后从 Tauri CLI 启动构建；CLI 会为 Xcode 中的 Rust 构建脚本建立本地控制通道，因此不要直接用独立的 `xcodebuild` 命令代替：
-
-```sh
-cd apps/desktop/src-tauri/gen/apple
-pod install --deployment
-cd ../../../../..
-pnpm --filter @msime/desktop tauri ios build --target aarch64 --no-sign --ci
-```
 
 ### 九键双拼（#6572）
 

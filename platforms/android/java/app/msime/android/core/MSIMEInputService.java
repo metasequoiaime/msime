@@ -182,6 +182,8 @@ public final class MSIMEInputService extends InputMethodService {
     ScrollView expandedCandidateScroll;
     TextView preedit;
     TextView candidatePage;
+    /** 共享偏好 `show_candidate_page_number`（#10709）；只跟实时偏好，偏好读到之前按开。 */
+    private boolean candidatePageNumberShown = true;
     KeyboardBrandMark candidateBrandMark;
     Button exitLocalModeButton;
     /** 漢 in the candidate header: converts the composing Korean syllable to Hanja, or closes its list. */
@@ -1166,6 +1168,8 @@ public final class MSIMEInputService extends InputMethodService {
         if (localModes == null) localModes = new JSONObject();
         // 候选条的配色和字号与皮肤同理：按副本重算，候选条会先铺一层出厂薄荷底、字号回到出厂的 18/15，实时偏好到了才换回来（#5933）。副本这条路径保留当前外观，也就是上次真正读到的偏好或 onCreate 按皮肤片段算好的那一份。
         if (live) applyCandidateAppearance(preferences);
+        if (live) candidatePageNumberShown = preferences == null
+            || CandidatePageLabelPolicy.shown(preferences.opt(CandidatePageLabelPolicy.PREFERENCE));
         // 键距、行距、语音快捷键、数字键顺序和双拼键位提示同理：副本里是出厂值，onStartInput 紧接着就按它重建键行，调过键距的用户每换一个输入框，键盘都先按出厂间距排一帧，实时偏好到了才跳回来。副本这条路径保留当前几何，也就是上次真正读到的偏好或 onCreate 按皮肤片段算好的那一份。键高例外：本地设置里有键高时那份是实时的，照旧跟着刷新；没有时 heightAdjustmentFrom 会退回副本里的出厂值，所以要先判断。
         if (live) applyTouchGeometry(preferences);
         else if (localSettings.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT))
@@ -2605,6 +2609,7 @@ public final class MSIMEInputService extends InputMethodService {
         clearSmartPunctuationSnapshots();
         deactivateHandwriting();
         invalidateOnlineProviders();
+        cancelPauseRerank();
         invalidateCandidateGlosses();
         if (!keepSession) stopSessionState();
         else clearEnglishSuggestions();
@@ -2615,6 +2620,7 @@ public final class MSIMEInputService extends InputMethodService {
             catch (Exception | LinkageError ignored) { /* Never log editor text or native responses. */ }
             try { NativeClient.destroy(session); } catch (LinkageError ignored) { }
             session = 0;
+            schedulePersonalLearningFlush();
             imeDebugOverlay.recordPerf(DiagnosticEventKind.ENGINE_SESSION_DESTROY,
                 SystemClock.uptimeMillis() - destroyStartedAt);
         }
@@ -2645,6 +2651,18 @@ public final class MSIMEInputService extends InputMethodService {
             if (!keepTextEdit) imeTextEditPanel.close();
         } else {
             closeToolbarPanels();
+        }
+    }
+
+    /** Android 的会话销毁不能在输入线程上冲刷所有个人上下文模型；把全局收尾排到统计工作线程。 */
+    private void schedulePersonalLearningFlush() {
+        try {
+            typingStatisticsWorker.execute(() -> {
+                try { NativeClient.flushAll(); }
+                catch (RuntimeException | LinkageError ignored) { }
+            });
+        } catch (RuntimeException ignored) {
+            // 服务正在销毁时由 onDestroy 的最后一次 flush 兜底。
         }
     }
 
@@ -2821,6 +2839,8 @@ public final class MSIMEInputService extends InputMethodService {
             // 会把它画在组字与候选条的读音前面，两件事必须一起做：请求了却不画，用户已经选中的字
             // 既不在文档里也不在屏幕上（scripts/test-phrase-preedit-hosts.py 守的就是这一半状态）。
             options.put("phrase_preedit", true);
+            // 这个宿主在停顿时调 startSettledRerank（schedulePauseRerank）：跑不进逐键预算的设备上，host-api 把整句联想「增强」的模型延后到停顿时用。
+            options.put("pause_rerank", true);
             // 没读到实时偏好时（读取失败、建会话的回退路径、没有偏好目录），选项里的偏好是出厂默认的全拼 26 键副本，九键用户的键盘会先跳回 26 键（#10389）。按上次确认的键面把副本换成九键：引擎从九键网格起来，键面照旧只按引擎视图画，画的九键和引擎一致，网格键能打字。实时偏好随后到达时照常换成用户的真实设置。
             JSONObject startupPreferences = livePreferences == null ? options.optJSONObject("preferences") : null;
             boolean hintedPreferences = false;
@@ -3654,6 +3674,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean previousCandidateGloss = candidateEnglishGloss;
         boolean previousCandidatePronunciation = candidatePronunciationEnabled;
         String previousSpellingPosition = spellingPosition;
+        boolean previousCandidatePageNumber = candidatePageNumberShown;
         boolean previousCandidateTranslations = candidateTranslationsEnabled;
         boolean previousCandidateTranslationAccount = candidateTranslationAccount;
         CandidateTranslationRoute previousCandidateTranslationRoute = candidateTranslationRoute;
@@ -3691,6 +3712,7 @@ public final class MSIMEInputService extends InputMethodService {
                 || previousCandidateGloss != candidateEnglishGloss
                 || previousCandidatePronunciation != candidatePronunciationEnabled
                 || !previousSpellingPosition.equals(spellingPosition)
+                || previousCandidatePageNumber != candidatePageNumberShown
                 || previousCandidateTranslations != candidateTranslationsEnabled
                 || previousCandidateTranslationAccount != candidateTranslationAccount
                 || !previousCandidateTranslationRoute.equals(candidateTranslationRoute)
@@ -3869,6 +3891,7 @@ public final class MSIMEInputService extends InputMethodService {
         candidateFontSize = nextFontSize;
         candidatePreeditFontSize = nextPreeditFontSize;
         candidateScalePercent = nextScalePercent;
+        candidatePageNumberShown = CandidatePageLabelPolicy.shown(preferences.opt(CandidatePageLabelPolicy.PREFERENCE));
         spellingPosition = nextSpellingPosition;
         touchKeySpacingTenths = nextKeySpacing;
         touchRowSpacingTenths = nextRowSpacing;
@@ -3970,6 +3993,8 @@ public final class MSIMEInputService extends InputMethodService {
         selectedScheme = nextSchemeConfiguration.selected();
         rememberChineseScheme();
         preferencesSnapshot = accepted;
+        // 「增强」开着而逐键重排模型没装（多半是缺省或同步来的「增强」，用户从没在设置里选过）：排一个只在不按流量计费的网络上跑的后台下载，由主进程去下；每个进程只排一次，这里不联网。
+        RerankModelDownload.scheduleIfWanted(this, preferences, installedResourcePackIds);
         refreshModeSkinLibrary(preferences);
         imeTextEditPanel.applyPreferences(preferences);
         if (!clipboardHistoryEnabled && clipboardHistory != null) {
@@ -4861,6 +4886,38 @@ public final class MSIMEInputService extends InputMethodService {
         main.postDelayed(onlineTask, OnlineCandidatePolicy.QUIET_INTERVAL_MILLIS);
     }
 
+    private final PauseRerankController<JSONObject> pauseRerank = new PauseRerankController<>(
+        new PauseRerankController.Scheduler() {
+            @Override public void post(Runnable task, long delay) { main.postDelayed(task, delay); }
+            @Override public void remove(Runnable task) { main.removeCallbacks(task); }
+        }, new PauseRerankController.Bridge<>() {
+            @Override public PauseRerankController.Reply<JSONObject> start(long handle) throws JSONException {
+                return pauseRerankReply(NativeClient.startSettledRerank(handle));
+            }
+            @Override public PauseRerankController.Reply<JSONObject> poll(long handle, long token,
+                    boolean accept) throws JSONException {
+                return pauseRerankReply(NativeClient.pollSettledRerank(handle, token, accept));
+            }
+        }, () -> session, next -> {
+            view = next;
+            if (!renderingSuppressed) render();
+        }, () -> android.util.Log.w("MSIMEHost", "Pause rerank failed"));
+
+    private PauseRerankController.Reply<JSONObject> pauseRerankReply(String response) throws JSONException {
+        JSONObject result = value(response);
+        return new PauseRerankController.Reply<>(InputViewValuePolicy.text(result, "status"),
+            NumberPolicy.strictLong(result.opt("token"), 0),
+            InputViewValuePolicy.booleanValue(result, "moved", false), result.optJSONObject("view"));
+    }
+
+    private void schedulePauseRerank() {
+        JSONArray rows = view == null ? null : view.optJSONArray("candidates");
+        pauseRerank.schedule(view != null && !InputViewValuePolicy.editingText(view).isEmpty()
+            && rows != null && rows.length() >= 2);
+    }
+
+    private void cancelPauseRerank() { pauseRerank.cancel(); }
+
     /** 在线 worker 执行网络请求；失败时释放仍属于本请求的签名。 */
     private void fetchOnlineCandidates(long targetSession, String document, long epoch,
             String requestSignature) {
@@ -5207,7 +5264,15 @@ public final class MSIMEInputService extends InputMethodService {
     boolean compositionEditable() {
         return session != 0 && view != null && CompositionCaretPolicy.editable(
             InputViewValuePolicy.scheme(view, -1), InputViewValuePolicy.textOr(view, "local_mode", "none"),
-            dedicatedEnglish, InputViewValuePolicy.editingText(view));
+            dedicatedEnglish, InputViewValuePolicy.editingText(view),
+            InputViewValuePolicy.booleanValue(view, "grid_composing", false));
+    }
+
+    /** 这次组字所在键盘的组码表：读音的字母按它对上按键（14 键的 `ni'hao` 对 `bugao`），见 CompositionCaretPolicy.keypad。 */
+    private static String compositionKeypad(JSONObject value) {
+        return CompositionCaretPolicy.keypad(InputViewValuePolicy.scheme(value, -1),
+            InputViewValuePolicy.textOr(value, "key_grid", "none"),
+            InputViewValuePolicy.booleanValue(value, "grid_composing", false));
     }
 
     /** 放大条与输入框点击都只移动引擎光标，不在宿主重建拼写。 */
@@ -5237,7 +5302,7 @@ public final class MSIMEInputService extends InputMethodService {
         String editing = InputViewValuePolicy.editingText(view);
         String composing = composingText(view, editing, true);
         int prefix = InputViewValuePolicy.textOr(view, "phrase_prefix", "").length();
-        int target = CompositionCaretPolicy.editorTapTarget(composing, editing, prefix,
+        int target = CompositionCaretPolicy.editorTapTarget(composing, editing, compositionKeypad(view), prefix,
             start, end, newStart, newEnd);
         if (target < 0) return false;
         int offset = newStart - start;
@@ -12222,10 +12287,9 @@ public final class MSIMEInputService extends InputMethodService {
         }
         String page = "";
         if (view != null && strictCandidatePage(view, "page_count") > 0) {
-            int currentPage = strictCandidatePage(view, "page");
-            int pageCount = strictCandidatePage(view, "page_count");
-            if (currentPage >= 0 && pageCount > 0)
-                page = " · " + (currentPage + 1) + "/" + pageCount;
+            String label = CandidatePageLabelPolicy.label(strictCandidatePage(view, "page"),
+                strictCandidatePage(view, "page_count"), candidatePageNumberShown);
+            if (!label.isEmpty()) page = " · " + label;
         }
         String localMode = "";
         if (view != null) {
@@ -12313,21 +12377,24 @@ public final class MSIMEInputService extends InputMethodService {
             String phrasePrefix = InputViewValuePolicy.textOr(view, "phrase_prefix", "");
             // 组字光标（#5613）：点读音行把光标移到点中的字母前；光标被移离末尾时画进读音行（「不显示」也画，下一个键就作用在那里）。读音对不上按键时退回画原始按键。
             boolean caretEditable = !idleTitle && view != null && CompositionCaretPolicy.editable(
-                InputViewValuePolicy.scheme(view, -1), localModeKey, dedicatedEnglish, editingText);
+                InputViewValuePolicy.scheme(view, -1), localModeKey, dedicatedEnglish, editingText,
+                InputViewValuePolicy.booleanValue(view, "grid_composing", false));
             int caret = caretEditable
                 ? InputViewValuePolicy.integer(view, "caret_position", editingText.length())
                 : editingText.length();
             String caretSpelling = spelling;
             // 隔着显示分隔时光标画在哪一侧，看这次组字是不是在组码网格里打的（九键、14 键、18 键的退格先删切分），不看按键是不是数字，也不看 key_grid：网格开着时硬件键盘的字母照样走 26 键，退格删的是分隔前的字母。
             boolean caretKeyGrid = InputViewValuePolicy.booleanValue(view, "grid_composing", false);
+            // 读音的字母按这次组字所在键盘的组码对上按键：九键是数字，14 键、18 键是组码字母（ni'hao 对 bugao）；26 键只认同一个字母。
+            String caretKeypad = compositionKeypad(view);
             int caretMark = caretEditable
-                ? CompositionCaretPolicy.markIndex(spelling, editingText, caret, caretKeyGrid) : -1;
+                ? CompositionCaretPolicy.markIndex(spelling, editingText, caretKeypad, caret, caretKeyGrid) : -1;
             if (caretEditable && caret < editingText.length() && caretMark < 0) {
                 caretSpelling = editingText;
-                caretMark = CompositionCaretPolicy.markIndex(editingText, editingText, caret, caretKeyGrid);
+                caretMark = CompositionCaretPolicy.markIndex(editingText, editingText, caretKeypad, caret, caretKeyGrid);
             }
             boolean spellingDrawn = caretMark >= 0 || spelling.equals(localModeTitle);
-            imeCompositionEditor.render(caretSpelling, editingText, caret, caretKeyGrid);
+            imeCompositionEditor.render(caretSpelling, editingText, caretKeypad, caret, caretKeyGrid);
             String displayText = idleTitle
                 ? (dedicatedEnglish ? "英文输入" : productName)
                 : PhrasePreeditPolicy.title(phrasePrefix, caretMark >= 0
@@ -12648,6 +12715,7 @@ public final class MSIMEInputService extends InputMethodService {
         scheduleCandidateTranslations();
         scheduleUserCandidateTranslations();
         scheduleOnlineProviders();
+        schedulePauseRerank();
         if (candidates == null) {
             imeStyler.applySkin();
             imeToolbar.styleTopRow();

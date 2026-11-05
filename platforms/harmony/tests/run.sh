@@ -8,6 +8,15 @@ if [[ ! -x "$tsc" ]]; then
   echo "TypeScript compiler not found at $tsc; run pnpm install at the repository root" >&2
   exit 1
 fi
+# 强制停止后的首次焦点可能在资源暂存或建面板的 await 期间到达；inputStart 必须先订阅，才能由 pending 留住编辑框而不让键盘首帧失去输入客户端。
+ability="$repo_root/platforms/harmony/entry/src/main/ets/inputmethodextability/KeyboardExtensionAbility.ets"
+on_create_body=$(sed -n '/^  async onCreate(want: Want): Promise<void> {$/,/^  onDestroy(): void {$/p' "$ability")
+input_start_line=$(grep -nF "engine.on('inputStart', this.started);" <<< "$on_create_body" | head -n 1 | cut -d: -f1)
+first_await_line=$(grep -nE '\bawait\b' <<< "$on_create_body" | head -n 1 | cut -d: -f1)
+if [[ -z "$input_start_line" || -z "$first_await_line" || "$input_start_line" -ge "$first_await_line" ]]; then
+  echo "KeyboardExtensionAbility must subscribe to inputStart before its first asynchronous cold-start step" >&2
+  exit 1
+fi
 # grep rather than rg: the HarmonyOS CI job installs no ripgrep, and a missing rg made this guard report a regression that was not there.
 if ! grep -qF 'StagedResources.removeDirectory(this.cacheRoot)' \
     "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeySoundPlayer.ets"; then
@@ -916,6 +925,33 @@ if ! grep -qF "KeyboardSession.shared.readAloudText(" "$repo_root/platforms/harm
   || ! grep -qF "if (generation !== HarmonyReadAloud.generation) {" "$repo_root/platforms/harmony/entry/src/main/ets/speech/HarmonyReadAloud.ets" \
   || ! grep -qF "client.readAloudText(ReadAloudPolicy.textRequest(word, ''))" "$repo_root/platforms/harmony/entry/src/main/ets/pages/Settings.ets"; then
   echo "Harmony read aloud must pass the shared layer's text to both candidate menus (the 2in1 touch long press opens for 朗读 alone too), check the candidate before speaking, close an engine created after shutdown, stay offline without downloading voices, and validate the settings page's word" >&2
+  exit 1
+fi
+# 上屏后联想（#9433）：规则由 next-word-prediction.test.ts 覆盖，视图、会话和扩展能力是 ArkTS，这里钉住接线。回车把联想交给 ReturnKeyAction（FINISH_THEN_EDITOR，照常换行或发送），空格键读屏仍按候选读「选定」；实体空格和数字、触屏数字行的数字在联想时交给运行时去选，引擎没收下的符号照样由键盘写进去；外部改动和选区移动重新聚焦清掉旧联想，键盘自己的回声不算；联想的候选不给长按管理；关闭键 × 和实体 Esc 送 Cancel；2in1 候选窗在联想时也出现；直接写进编辑器的文字先清掉联想。
+nwp_view="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets"
+nwp_session="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets"
+nwp_ability="$repo_root/platforms/harmony/entry/src/main/ets/inputmethodextability/KeyboardExtensionAbility.ets"
+nwp_insert=$(sed -n '/^  insert(text: string): void {$/,/^  }$/p' "$nwp_session")
+if ! grep -qF 'this.strokeFace(), this.prediction);' "$nwp_view" \
+  || ! grep -qF 'NextWordPredictionPolicy.composingCandidates(this.candidates.length, this.prediction)' "$nwp_view" \
+  || ! grep -qF 'KeyAccessibilityPolicy.space(this.candidates.length > 0)' "$nwp_view" \
+  || ! grep -qF '|| !KeyboardSession.shared.candidateManagementAllowed()) {' "$nwp_view" \
+  || ! grep -qF '.onClick(() => this.closePrediction())' "$nwp_view" \
+  || ! grep -qF 'KeyboardSession.shared.dismissPrediction();' "$nwp_view" \
+  || ! grep -qF 'this.refocusAfterExternalEdit(false);' "$nwp_session" \
+  || ! grep -qF 'this.refocusAfterExternalEdit(ownEcho);' "$nwp_session" \
+  || ! grep -qF 'prediction: NextWordPredictionPolicy.showing(view.prediction, entries.length)' "$nwp_session" \
+  || ! grep -qF 'this.predictionButtonStyle = NextWordPredictionPolicy.buttons(preferences.next_word_prediction_buttons);' "$nwp_session" \
+  || ! grep -qF 'this.dismissPrediction();' <<< "$nwp_insert" \
+  || ! grep -qF 'NextWordPredictionPolicy.dismissesOnKey(event.key.code,' "$nwp_ability" \
+  || ! grep -qF 'NextWordPredictionPolicy.selectionKey(numpad.keyCode, numpad.unicodeChar,' "$nwp_ability" \
+  || ! grep -qF 'if (session.pressPredictionKey(predictionKey)) {' "$nwp_ability" \
+  || ! grep -qF 'return this.apply(client.character(this.handle, ascii, false));' "$nwp_session" \
+  || ! grep -qF 'if (!KeyboardSession.shared.composing() && !KeyboardSession.shared.predicting()) {' "$nwp_view" \
+  || ! grep -qF ': !this.compositionInField && !this.prediction,' "$nwp_view" \
+  || ! grep -qF 'NextWordPredictionPolicy.composingCandidates(this.currentCandidates.length, this.predicting()) === 0) {' "$nwp_session" \
+  || [[ $(grep -cF 'KeyboardSession.shared.candidateWindowWanted()' "$nwp_ability") -ne 3 ]]; then
+  echo "Harmony post-commit prediction must hand Return to the editor, send physical Space and digits to the runtime, refocus on external edits only, skip candidate management, close on × and Esc, keep the 2in1 candidate window up and clear before direct inserts" >&2
   exit 1
 fi
 "$tsc" --project "$here/tsconfig.json"

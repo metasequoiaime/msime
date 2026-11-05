@@ -1461,6 +1461,7 @@ int main(int argc, char **argv) {
     emojiGroupResultFencing();
     require(argc == 2 || (argc == 3 && (std::string(argv[2]) == "--helpcode-trigger" ||
                                        std::string(argv[2]) == "--voice-hotkey" ||
+                                       std::string(argv[2]) == "--voice-close" ||
                                        std::string(argv[2]) == "--ai" ||
                                        std::string(argv[2]) == "--ctrl-space" ||
                                        std::string(argv[2]) == "--modifier-focus" ||
@@ -1470,8 +1471,9 @@ int main(int argc, char **argv) {
                                        std::string(argv[2]) == "--japanese-toggle" ||
                                        std::string(argv[2]) == "--local-modes" ||
                                        std::string(argv[2]) == "--smart-abc" ||
-                                       std::string(argv[2]) == "--punctuation-context")),
-            "usage: fcitx5-native-test <verified-resources> [--voice-hotkey|--ai|--ctrl-space|--modifier-focus|--mode-field-hints|--caps-lock|--app-rules|--japanese-toggle|--local-modes|--smart-abc|--punctuation-context|--helpcode-trigger]");
+                                       std::string(argv[2]) == "--punctuation-context" ||
+                                       std::string(argv[2]) == "--prediction")),
+            "usage: fcitx5-native-test <verified-resources> [--voice-hotkey|--voice-close|--ai|--ctrl-space|--modifier-focus|--mode-field-hints|--caps-lock|--app-rules|--japanese-toggle|--local-modes|--smart-abc|--punctuation-context|--prediction|--helpcode-trigger]");
     const bool ai = argc == 3 && std::string(argv[2]) == "--ai";
     const std::string suggestion = ai ? "合成候选" : "在线";
     char temporary[] = "/tmp/msime-fcitx5-test-XXXXXX";
@@ -1491,6 +1493,10 @@ int main(int argc, char **argv) {
             {"show_in_candidate_window", false}, {"trigger_key", std::string(family) == "quanpin_helpcode" ? "/" : ";"}};
     }
     options["preferences"]["candidate_page_size"] = 2;
+    if (argc == 3 && std::string(argv[2]) == "--prediction") {
+      options["preferences"]["next_word_prediction"] = true;
+      options["preferences"]["candidate_page_size"] = 5;
+    }
     options["preferences"]["clipboard_history"] = true;
     // 存着关掉的空格锁定：宿主不再读它，下面检查锁定照旧打开。
     options["preferences"]["voice_input"]["hotkey_hold_space_lock"] = false;
@@ -1795,6 +1801,63 @@ int main(int argc, char **argv) {
     require(state->voice_hotkey_hold_space_lock_,
             "a stored false no longer turns off the hold-to-lock space lock");
     require(state->view_.contains("candidates"), "focus must unpack transition view");
+    if (argc == 3 && std::string(argv[2]) == "--voice-close") {
+      const auto lease = std::filesystem::path(options.at("user_data").get<std::string>()) /
+                         std::string(msime::linux_host::kDictionaryQuiesceLeaseName);
+      const auto committed = ic.committed;
+      for (const bool maintenance : {true, false}) {
+        for (const bool failure : {false, true}) {
+          for (const bool reopen : {false, true}) {
+            require(state->ensure(), "语音关闭回归需要活动会话");
+            // promise 与 detachedJob 的 packaged_task 一样，丢弃 future 不等待工作线程。
+            // 显式控制完成时机，覆盖关闭后迟到的成功、异常和流式反馈。
+            std::promise<Json> completion;
+            state->voice_job_ = completion.get_future().share();
+            auto mailbox = std::make_shared<FcitxVoiceMailbox>();
+            state->voice_mailbox_ = mailbox;
+            state->voice_loading_ = true;
+            state->voice_cancelled_ = false;
+            state->voice_socket_.clear();
+            state->voice_generation_ = 0;
+            if (maintenance) {
+              std::ofstream(lease) << msime::linux_host::dictionary_quiesce_now_ms() + 10000 << '\n';
+              state->refreshDictionaryQuiesce();
+            } else {
+              state->close();
+            }
+            require(state->session_ == 0 && state->view_.empty(), "关闭释放会话与候选视图");
+            if (maintenance) {
+              require(!state->ensure(), "维护租约存续期间不开新会话");
+              std::filesystem::remove(lease);
+            }
+            if (reopen) require(state->ensure(), "维护结束后可立即重建会话");
+            mailbox->partial = "旧录音反馈";
+            if (failure)
+              completion.set_exception(std::make_exception_ptr(std::runtime_error("合成语音异常")));
+            else
+              completion.set_value(Json{{"text", "旧录音结果"}});
+            require(!state->refreshVoice(), "关闭后的旧录音不得上屏或重画空视图");
+            require(mailbox->cancelled.load(), "无 socket 时也取消本地流式回调");
+            require(!state->voice_job_.valid() && !state->voice_mailbox_ && !state->voice_loading_,
+                    "关闭解除旧录音的完成与反馈入口");
+            require(ic.committed == committed && !state->voice_failure_visible_,
+                    "迟到的结果或异常不提交也不显示错误提示");
+          }
+        }
+      }
+      require(state->ensure(), "旧录音关闭后会话仍可用");
+      std::promise<Json> next;
+      state->voice_job_ = next.get_future().share();
+      state->voice_loading_ = true;
+      state->voice_cancelled_ = false;
+      next.set_value(Json{{"text", "新录音结果"}});
+      require(state->refreshVoice() && ic.committed == committed + "新录音结果",
+              "关闭旧会话不影响下一轮语音提交");
+      state->close();
+      removeFixtureTree(directory);
+      std::cout << "Fcitx5 语音会话关闭与词库维护回归通过\n";
+      return 0;
+    }
     if (argc == 3 && std::string(argv[2]) == "--mode-field-hints") {
       const auto modifier = [&](fcitx::KeySym sym, bool release = false) {
         const auto held = (sym == FcitxKey_Shift_L || sym == FcitxKey_Shift_R)
@@ -2067,6 +2130,108 @@ int main(int argc, char **argv) {
       state->close();
       removeFixtureTree(directory);
       std::cout << "Fcitx5 提交前后文时序与逗号导航回归通过\n";
+      return 0;
+    }
+    // 上屏后联想（#9433）：和普通候选一样，点选、数字键选本页对应的一行、空格选高亮的首行；越过本页的数字、数字选词关着时的数字、回车和标点照常输入，标点仍是中文标点；Esc 收起；上屏之后紧跟着的 reset 回声不收起，之后的 reset 收起。
+    if (argc == 3 && std::string(argv[2]) == "--prediction") {
+      const auto press = [&](fcitx::KeySym sym) {
+        fcitx::KeyEvent event(&ic, fcitx::Key(sym));
+        engine.keyEvent(entry, event);
+        fcitx::KeyEvent release(&ic, fcitx::Key(sym), true);
+        engine.keyEvent(entry, release);
+        return event.accepted();
+      };
+      const auto predicting = [&] {
+        return msime::linux_host::view_is_prediction(state->view_) && ic.inputPanel().candidateList() &&
+               ic.inputPanel().candidateList()->size() > 0;
+      };
+      // 打 zhong，点选「中」，等联想出来。返回这一页联想的文字。
+      const auto suggest = [&] {
+        for (const auto sym : {FcitxKey_z, FcitxKey_h, FcitxKey_o, FcitxKey_n, FcitxKey_g})
+          require(press(sym), "拼音按键应参与组字");
+        for (int page = 0; page < 24; ++page) {
+          const auto &candidates = state->view_.at("candidates");
+          for (size_t index = 0; index < candidates.size(); ++index) {
+            if (candidates.at(index).value("text", std::string{}) != "中") continue;
+            const auto before = ic.committed;
+            ic.inputPanel().candidateList()->candidate(static_cast<int>(index)).select(&ic);
+            require(ic.committed == before + "中", "点选应上屏「中」");
+            require(predicting() && state->view_.at("candidates").size() >= 2, "上屏「中」之后应显示至少两行联想");
+            require(state->view_.value("editing_text", std::string{}).empty() &&
+                        ic.inputPanel().clientPreedit().toString().empty(),
+                    "联想不应有预编辑");
+            std::vector<std::string> rows;
+            for (const auto &row : state->view_.at("candidates")) rows.push_back(row.at("text").get<std::string>());
+            return rows;
+          }
+          require(press(FcitxKey_Page_Down), "候选里没有「中」");
+        }
+        throw std::runtime_error("候选里没有「中」");
+      };
+      fcitx::InputContextEvent resetEvent(&ic, fcitx::EventType::InputContextReset);
+      // 上屏之后紧跟着的 reset 是客户端对这次上屏的回声，联想留着；窗口过了之后的 reset 是光标移动，收起。
+      suggest();
+      engine.reset(entry, resetEvent);
+      require(predicting(), "上屏之后紧跟着的 reset 收起了联想");
+      std::this_thread::sleep_for(
+          std::chrono::milliseconds(msime::linux_host::PredictionResetEcho::kWindowMs + 100));
+      engine.reset(entry, resetEvent);
+      require(!predicting() && !ic.inputPanel().candidateList(), "光标移动的 reset 应收起联想");
+      // 数字键选本页对应的一行（数字行和小键盘一样），空格选高亮的首行。
+      for (const auto &[pick, row] : {std::pair<fcitx::KeySym, size_t>{FcitxKey_1, 0},
+                                      std::pair<fcitx::KeySym, size_t>{FcitxKey_KP_2, 1},
+                                      std::pair<fcitx::KeySym, size_t>{FcitxKey_space, 0}}) {
+        const auto page = suggest();
+        const auto before = ic.committed;
+        require(press(pick) && ic.committed == before + page.at(row), "联想时选词键应上屏对应的一行");
+      }
+      // 越过本页行数的数字，以及数字选词关着时的数字，都不选词：收起联想，交给应用照常输入。
+      {
+        const auto page = suggest();
+        require(page.size() < 9, "联想一页不该有九行");
+        const auto before = ic.committed;
+        require(!press(FcitxKey_9) && ic.committed == before && !predicting(), "越过本页的数字应收起联想并交给应用");
+        state->preferences_["number_row_selection"] = false;
+        suggest();
+        require(!press(FcitxKey_1) && ic.committed == before + "中" && !predicting(),
+                "数字选词关着时数字应收起联想并交给应用");
+        state->preferences_["number_row_selection"] = true;
+      }
+      suggest();
+      auto before = ic.committed;
+      require(!press(FcitxKey_Return) && ic.committed == before && !predicting(), "联想时回车应收起联想并交给应用");
+      // 逗号和句号原本是翻页键（comma_period 默认开）：联想时照常走中文标点，不能变成半角符号交给应用。
+      for (const auto &[mark, chinese] : {std::pair<fcitx::KeySym, std::string>{FcitxKey_comma, "，"},
+                                          std::pair<fcitx::KeySym, std::string>{FcitxKey_period, "。"}}) {
+        suggest();
+        ic.surroundingText().setText("中", 1, 1);
+        before = ic.committed;
+        require(press(mark) && ic.committed == before + chinese, "联想时标点应上屏中文标点");
+        require(!predicting(), "标点之后联想还在");
+      }
+      suggest();
+      before = ic.committed;
+      require(press(FcitxKey_Escape) && ic.committed == before && !predicting(), "Esc 应收起联想并被输入法吃掉");
+      // 按住退格：联想不算组字，每一次重复都交给应用删字，不会在第一下之后被吞掉。
+      suggest();
+      {
+        fcitx::KeyEvent first(&ic, fcitx::Key(FcitxKey_BackSpace));
+        engine.keyEvent(entry, first);
+        fcitx::KeyEvent repeat(&ic, fcitx::Key(FcitxKey_BackSpace));
+        engine.keyEvent(entry, repeat);
+        fcitx::KeyEvent release(&ic, fcitx::Key(FcitxKey_BackSpace), true);
+        engine.keyEvent(entry, release);
+        require(!first.accepted() && !repeat.accepted() && !predicting(), "联想时按住退格被输入法吞掉了");
+      }
+      // 点选联想上屏被点的那一行。
+      const auto page = suggest();
+      before = ic.committed;
+      ic.inputPanel().candidateList()->candidate(1).select(&ic);
+      require(ic.committed == before + page.at(1), "点选联想应上屏被点的那一行");
+      if (predicting()) press(FcitxKey_Escape);
+      state->close();
+      removeFixtureTree(directory);
+      std::cout << "Fcitx5 上屏后联想按键与点选回归通过\n";
       return 0;
     }
     // 应用例外：焦点从别的程序进入有规则的程序时从规则的模式开始；在这次停留里手动切换后让位，同一程序再次获得焦点仍是手动选的模式；换到别的程序再回来，规则重新生效。程序名是 Fcitx5 前端报告的 program()，夹具上下文自己给出。排在快捷模式那一段之前，免得那里的失败让它跑不到。
@@ -4115,13 +4280,16 @@ int main(int argc, char **argv) {
             revision, reinterpret_cast<const uint8_t *>(document.data()), document.size()));
         require(saved.value("revision", uint64_t{}) > revision, "punctuation styles saved");
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-        const auto marks = [&] { return state->view_.value("punctuation_marks", Json::object()); };
-        while (marks().value("quotes", std::string()) != quote.get<std::string>() &&
-               std::chrono::steady_clock::now() < deadline) {
+        // View.punctuation_marks 自契约第 4 版（#9241）起还带两个顿号字段，这里只核对本段改的引号和括号样式，整对象相等永远不成立。
+        const auto applied = [&] {
+          const auto marks = state->view_.value("punctuation_marks", Json::object());
+          return marks.value("quotes", Json()) == quote && marks.value("brackets", Json()) == bracket;
+        };
+        while (!applied() && std::chrono::steady_clock::now() < deadline) {
           state->refreshPreferences();
           std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
-        return marks() == Json{{"quotes", quote}, {"brackets", bracket}};
+        return applied();
       };
       require(saveStyles("corner", "hollow"), "the view reports corner quotes and hollow brackets");
       const auto beforeCorner = ic.committed;
@@ -4234,6 +4402,66 @@ int main(int argc, char **argv) {
     state->voice_ralt_held_ = false;
     state->voice_space_consumed_ = false;
     state->voice_space_locked_ = false;
+    // 按住右 Alt 时按了组合键（#10580，对齐 Windows #10581）：按键带着 Alt 交给应用，这次按住开始的录音取消、不上屏；右 Alt 的重复和松开吞掉，不重新开始按住，也不结束录音。
+    {
+      const auto committedBeforeChord = ic.committed;
+      const auto alt = fcitx::KeyStates(fcitx::KeyState::Alt);
+      state->voice_job_ = detachedJob([] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        return Json{{"text", "组合键语音"}};
+      });
+      state->voice_loading_ = true;
+      state->voice_socket_.clear();
+      state->voice_generation_ = 0;
+      // 和 requestVoice 一样从「正在录音」开始：前面的语音用例可能把浮层留在识别中，那时录音已经停了，组合键不该再取消。
+      state->wave_overlay_.reset();
+      state->wave_overlay_.listening = true;
+      state->voice_ralt_held_ = true;
+      state->voice_hold_started_ = true;
+      fcitx::KeyEvent chord(&ic, fcitx::Key(FcitxKey_F10, alt));
+      engine.keyEvent(entry, chord);
+      require(!chord.accepted(), "a key pressed during a right-Alt hold reaches the application");
+      require(!state->voice_loading_ && !state->voice_ralt_held_ && state->voice_ralt_chord_until_up_,
+              "a chord during a right-Alt hold cancels the recording the hold started");
+      fcitx::KeyEvent repeat(&ic, fcitx::Key(FcitxKey_Alt_R, alt));
+      engine.keyEvent(entry, repeat);
+      require(repeat.accepted() && !state->voice_ralt_held_ && !state->voice_loading_,
+              "right-Alt auto-repeat after a chord is swallowed without starting another hold");
+      fcitx::KeyEvent release(&ic, fcitx::Key(FcitxKey_Alt_R, alt), true);
+      engine.keyEvent(entry, release);
+      require(release.accepted() && !state->voice_ralt_chord_until_up_,
+              "right-Alt release after a chord is swallowed");
+      const auto chordDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+      while (state->voice_job_.valid() && std::chrono::steady_clock::now() < chordDeadline) {
+        state->refreshVoice();
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      }
+      require(ic.committed == committedBeforeChord, "a recording cancelled by a chord is not committed");
+      // 按住只是接管了已有的听写（Ctrl+F9 开的），组合键不取消它；按住照样结束。
+      state->voice_loading_ = true;
+      state->voice_ralt_held_ = true;
+      state->voice_hold_started_ = false;
+      fcitx::KeyEvent kept(&ic, fcitx::Key(FcitxKey_F10, alt));
+      engine.keyEvent(entry, kept);
+      require(!kept.accepted() && state->voice_loading_ && !state->voice_ralt_held_,
+              "a chord does not cancel a dictation the hold did not start");
+      fcitx::KeyEvent keptRelease(&ic, fcitx::Key(FcitxKey_Alt_R, alt), true);
+      engine.keyEvent(entry, keptRelease);
+      require(keptRelease.accepted() && state->voice_loading_,
+              "right-Alt release after a chord does not stop a dictation the hold did not start");
+      // 空格锁定之后是用户要留下的听写，组合键不算，按住也不结束。
+      state->voice_ralt_held_ = true;
+      state->voice_hold_started_ = true;
+      state->voice_space_locked_ = true;
+      fcitx::KeyEvent locked(&ic, fcitx::Key(FcitxKey_F10, alt));
+      engine.keyEvent(entry, locked);
+      require(state->voice_loading_ && state->voice_ralt_held_,
+              "a chord does not cancel a recording locked with Space");
+      state->voice_ralt_held_ = false;
+      state->voice_hold_started_ = false;
+      state->voice_space_locked_ = false;
+      state->voice_loading_ = false;
+    }
     const auto committedBeforeCancel = ic.committed;
     // 使用产品相同的后台任务；std::async 的最后一份 future 析构会等待，无法验证非阻塞取消。
     state->voice_job_ = detachedJob([] {
@@ -4672,7 +4900,8 @@ int main(int argc, char **argv) {
         reply.set_value(Json{{"query", query.dump()},
                              {"translations", Json::array()},
                              {"continue_online", false},
-                             {"pronunciations", Json{{"love", "/l\xCA\x8Cv/"}}},
+                             // 自 #10507 起读音按 pronunciation_key（「语言\n原文」）记，裸词键不再认。
+                             {"pronunciations", Json{{msime::linux_host::pronunciation_key("en", "love"), "/l\xCA\x8Cv/"}}},
                              {"_socket", state->translation_socket_}});
         state->refreshTranslations();
       };
@@ -5259,11 +5488,16 @@ int main(int argc, char **argv) {
                 "a Hanja carries its 훈음 as the annotation");
         {
           const auto *list = ic.inputPanel().candidateList().get();
-          require(list && list->size() > 0 && list->candidate(0).text().toString() == "韓  나라 이름 한, 한나라 한" &&
-                      list->candidate(0).text().size() == 2 &&
+          // 训音是汉字后面的第二段。自 #9854 起候选词翻译默认「仅当前高亮」，韩文汉字行和中文一样要译（SchemeType::shows_glosses），高亮的这一行在后面再留一段译文占位行，所以只核对前两段。
+          require(list && list->size() > 0 && list->candidate(0).text().size() >= 2 &&
+                      list->candidate(0).text().stringAt(0) == "韓" &&
+                      list->candidate(0).text().stringAt(1) == "  나라 이름 한, 한나라 한" &&
                       list->candidate(0).text().formatAt(1) ==
                           fcitx::TextFormatFlags{fcitx::TextFormatFlag::Italic, fcitx::TextFormatFlag::DontCommit},
-                  "the panel draws the 훈음 as the Hanja row's italic gloss");
+                  ("the panel draws the 훈음 as the Hanja row's italic gloss: [" +
+                   (list && list->size() > 0 ? list->candidate(0).text().toString() : std::string()) + "] parts=" +
+                   std::to_string(list && list->size() > 0 ? list->candidate(0).text().size() : 0))
+                      .c_str());
         }
         require(press(FcitxKey_F9) && candidates().empty() && preedit() == "한", "the trigger again closes the list");
         require(press(FcitxKey_F9) && first() == "韓", "a bare F9 opens it too");

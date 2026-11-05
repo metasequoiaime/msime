@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def main() -> int:
-    # 桌面的模型列表与测试请求、iOS 移动端请求都经 client-providers 的 `ai::endpoint::blocking_client_builder` 建客户端，重定向策略在那里统一关闭。桌面两个请求的实现在 client-providers 的 `ai::settings`（原生 Windows 设置窗口经 C 接口共用），`ai.rs` 只转发给它。
+    # 桌面的模型列表与测试请求都经 client-providers 的 `ai::endpoint::blocking_client_builder` 建客户端，重定向策略在那里统一关闭。桌面两个请求的实现在 client-providers 的 `ai::settings`（原生 Windows 设置窗口经 C 接口共用），`ai.rs` 只转发给它。
     builder = (ROOT / "crates/client-providers/src/ai/endpoint.rs").read_text()
     start = builder.index("pub fn blocking_client_builder")
     body = builder[start : builder.index("\n}\n", start)]
@@ -16,7 +16,6 @@ def main() -> int:
         raise SystemExit("ai::endpoint::blocking_client_builder must disable redirects")
     for path, call, minimum in (
         ("crates/client-providers/src/ai/settings.rs", "endpoint::blocking_client_builder(", 1),
-        ("apps/desktop/src-tauri/src/shared/mobile_ai.rs", "ai::endpoint::blocking_client_builder(", 2),
     ):
         source = (ROOT / path).read_text()
         if source.count(call) < minimum:

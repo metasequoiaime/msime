@@ -15,6 +15,7 @@
 - **改了文件读写、目录遍历、权限或安卓资源（drawable、主题、布局），合并前在安卓模拟器上跑过再说「验证过」。** macOS 上的单测和 CI 的编译、lint 都碰不到 Android 的限制：应用对 `/data` 只有搜索权限、SELinux 禁止应用建硬链接、Android 9 的 `GradientDrawable` 读不到带主题属性的径向渐变半径。0.3.0 带着这三个问题发出去（词库准备失败、匿名账号写不进、Android 9 一打开就崩溃），编译、lint 和 JVM 测试全绿。本机做法：`bash platforms/android/tests/device/start-emulator.sh 28`（35 同理），`MSIME_ANDROID_TEST_SERIAL=emulator-5566 bash platforms/android/tests/device/build-core-test.sh` 编出 client-base、client-core、client-providers 和 client-services 的单测，经 cargo runner `run-core-test.sh` 在设备上整套运行，再跑 msime-engine 里词库维护租约的单测，再用 `smoke.sh emulator-5566 --core` 装包验收（API 35 不带 `--core`）。CI 的 `android-device.yml` 在合进 develop 后和发版前跑同样的两步；PR 上只有改了键盘或设置界面时才在 API 35 上跑一遍（`android-device-pr`，见 `.agents/notes/implemented/process/2026-10-28-android-device-on-ui-prs.md`），API 28 和其他改动仍要靠本机跑过。
 - **PR 里的截图和效果图一律上传到 sugi.moe，嵌进 PR 正文。** 涉及界面的改动都要有对比图：改了界面、图标、配色、字体、布局或任何看得见的东西的 PR，正文的「截图」一节必须附改前和改后的图，按真实尺寸、真实底色截或画，系统会再裁剪的图标要按裁剪后的样子给；不改视觉的 PR 在这一节写「无」。上传用 `sugi up <图片>`（`curl -fsSL https://sugi.moe/install.sh | bash` 安装；维护者本机也可以用 sugi 仓库的 `bin/sugi-upload`，不限速）或 `curl -F file=@<图片> https://sugi.moe/api/upload`，也可以在 https://sugi.moe 网页上拖拽，返回的 `https://files.sugi.moe/<id>.<扩展名>` 是文件本身的直链；匿名上传每个 IP 每 10 秒最多 5 次，返回 429 就等 10 秒再传，用 `![说明](链接)` 嵌入；贴进正文之前把链接下载回来，确认是图片且与本地文件逐字节一致。sugi.moe 是项目自建的匿名图床，暂时不可用时退回 files.catbox.moe 的直链；tmpfiles.org、file.io 这类靠广告变现的匿名文件站一律不用，它们的落地页有伪装成下载按钮的恶意广告。上传是公开、永久的，自己删不掉，图里不能出现真实输入、账号、个人资料、本机路径或凭据。本机的截图照常留着，上传是另外一份。见 `.agents/notes/implemented/process/2026-11-02-pr-images-on-sugi.md`。
 - **不要把 Tauri 生成的工程当成某个平台的产品去启动、调试或验收。** 每个平台的产品本体都是 `platforms/<os>` 下的原生宿主，Tauri/React 只是公共组件，而且不是每个宿主都承载它：共享 React 设置页只在 macOS、Linux（Tauri 设置应用）和 HarmonyOS（ArkWeb 加载的 rawfile，不经过 Tauri）上作为设置界面出现，Windows 的原生宿主只拉起 Tauri 的共享面板，iOS App 与 Android 发布 APK 两者都不含（见 docs/ARCHITECTURE.md 的「设置界面按平台归属」）。装机、启动和设备验收一律针对原生宿主；`apps/desktop` 的目录名和 Tauri 生成工程里自带的 bundle id 都不构成例外。
+- **界面正在全部迁到原生，`packages/ui` 只修缺陷，不加新设置。** 新的设置功能先把校验、默认值和业务规则写进共享 Rust（`client-core` / `client-services` / `client-providers`，经 `host-api` 提供），再在已有原生设置的平台上做界面；不要往 Tauri/React 里加新页面、新面板或新入口，也不要新增任何 WebView 宿主。迁移顺序是 Windows → macOS → HarmonyOS → Linux，见 `.agents/notes/proposed/architecture/2026-11-03-all-native-ui.md`。
 
 ## 合并
 
@@ -24,6 +25,7 @@ develop 的保护规则允许管理员绕过必过检查，自动合并流程又
 - **PR 正文自己写下的合并条件有约束力。** 正文写了「保持 draft 直到报告者确认」这类条件，或验证段列着「未完成」「未运行」的本地门禁，在条件兑现、或正文改写说明为什么不再需要之前不合并；不要把 draft 转成 ready 后立刻合。只是推测、没有复现的根因不进 develop。#10521 正文写着根因只是猜测、「keep as draft until the reporter confirms」，被转成 ready 17 秒后合并，猜的根因是错的，#10548 在虚拟机里复现后重修；#10417 验证段写着「剩余仓库检查……未完成」「未能运行 Vitest」就合了，隐藏设置组时把一个缺字段读作开启的开关一起藏了起来，鸿蒙手机上用户再也关不掉（#10427）。
 - **不要为了让新改动通过去改已有回归测试的前置条件。** 关开关、换默认值、换输入去绕开一条变红的旧回归测试，就是把它守着的那个 bug 放回来。确实要改，在正文单独说明旧前置条件为什么不再成立，并保留一条按出厂默认设置跑的用例。#10419 为了让 #8619 的回归测试通过，在测试里关掉了顶字，默认设置下 `guiyi`、`xiang` 又打不出来了，靠 #10425 修回。
 - **准备合并或开了 auto-merge 之后不再往分支上推；合并前核对 `gh pr view <n> --json headRefOid` 就是本地 `git rev-parse HEAD`。** 合并之后才推上去的提交不会进 develop，也不会有任何报错。#10206 合并后推上去的 `3ce6a537b7`、#9106 合并后推上去的两个 iOS 提交都这样静默丢了，几周后才由 #10320、#10322 找回。
+- **验证段写「交给 CI」之前，先确认 CI 真的执行那条测试。** `scripts/run-checks.sh` 的 `special_checks` 里由 `scripts/verify-local.sh` 负责的检查（`windows-native-run`、`windows-32bit-compile`、`harmony-settings-bundle`）只在本地门禁里跑，CI 不跑；Windows GNU 交叉编译作业只编译 `platforms/windows/tests/` 不运行。改了这些测试覆盖的行为，就在本机跑 `python3 scripts/test-windows-native-run.py` 这类入口，跑不了就写明「未验证」，不要写「交给 CI」。#10480 把五笔顶字改成立即上屏，改了 `wubi_commit_owner.cpp`，漏了断言同一件事的 `wubi_auto_commit.cpp`，验证段写「Windows 双会话测试……交给 CI」；CI 全绿合并，此后 develop 上每个人的本地门禁都红在这一条，直到 11-02 审计才被修掉。
 
 ## 代码健康
 
@@ -35,6 +37,10 @@ develop 的保护规则允许管理员绕过必过检查，自动合并流程又
 
 ## 界面
 
+- **避免冗余的文字说明。** 不加不必要的辅助标签、描述性文字和重复解释，优先通过视觉层级、内容分组、间距、对齐方式、字体排版以及清晰的控件名称，让界面本身传达结构和含义。
+- **每一段文字都要有存在的必要。** 加任何文字之前先问：它是否提供了必要信息，还是只在重复界面已经表达清楚的内容？
+- **优先改善布局，而不是增加解释。** 界面不够清晰时，先优化布局，不要用更多解释性文字去补。保持界面简洁、目的明确、视觉平衡。
+- **简洁不能牺牲易用性。** 必要的标签、无障碍设计、输入限制说明、错误提示，以及重要操作的确认信息都要保留，绝不为了追求极简而牺牲用户体验。
 - **设置项说明一律收进标题旁的「?」，全平台。** 六个平台的设置界面都不在页面上常驻解释性说明：设置项的解释进标题旁的「?」（桌面悬停或聚焦弹出、手机点按弹出），一组共用的解释进组标题旁的「?」；状态、当前值、校验和错误、条目元信息、前置条件、宿主限制、空列表提示和紧贴按钮讲后果的一句话留在原处。共享设置页用 `Row` 的 `description`（进「?」）和 `detail`（常驻），原生设置界面用各自的「?」组件。新增设置项或改界面时按这条写，不要在标题下面加一段灰字说明。规则全文和各平台落地见 [ARCHITECTURE.md](docs/ARCHITECTURE.md) 的「设置项说明收进「?」」。
 - **改界面要留图。** 改动前后的截图都留下，PR 的验证段写明截了哪些画面；验收用的截图不要随临时文件一起删掉。
 

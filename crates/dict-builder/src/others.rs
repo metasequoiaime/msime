@@ -50,12 +50,28 @@ fn full_and_initials(pinyin: &Pinyin, keyword: &str) -> (String, String) {
     (full, initials)
 }
 
-/// `keyword<TAB>item` lines, grouped by item in first-appearance order, each keyword once per item.
-pub fn load_keyword_map(source: &str) -> Result<IndexMap<String, Vec<String>>> {
-    let mut mapping: IndexMap<String, Vec<String>> = IndexMap::new();
-    for line in text::splitlines(source) {
+/// 注释行：`#` 开头、不含制表符。`#` 开头又带制表符的行只有两种是数据行：首字段恰好是 `#`（英文关键词 `#`），或 `#` 后紧跟 U+FE0F、U+20E3（emoji `#️⃣` 的目录行和关键词行）。以前 `#` 开头一律当注释，这两种行被丢掉：`#️⃣` 落到目录外按 Symbols 排在最后，也少了 `#` 这个关键词。其余 `#` 开头又带制表符的行像是用 `#` 停用的数据行（`#鸡巴<TAB>🐔`），照收会让 `#鸡巴` 成为关键词、拒绝表也拦不住，所以报错：要停用一行就删掉它。
+fn is_comment(line: &str) -> Result<bool> {
+    let Some(rest) = line.strip_prefix('#') else {
+        return Ok(false);
+    };
+    if !line.contains('\t') {
+        return Ok(true);
+    }
+    if rest.starts_with(['\t', '\u{fe0f}', '\u{20e3}']) {
+        return Ok(false);
+    }
+    bail!("{line:?} starts with # and has a tab, so it is neither a comment nor a # or #\u{fe0f}\u{20e3} data line; delete the line instead of commenting it out")
+}
+
+/// 关键词表里的数据行：1 起的行号、关键词、表情或颜文字，都去掉了首尾空白；关键词或表情为空的行跳过。
+fn keyword_lines(source: &str) -> Result<Vec<(usize, &str, &str)>> {
+    let mut lines = Vec::new();
+    for (index, line) in text::splitlines(source).into_iter().enumerate() {
         let stripped = text::strip(line);
-        if stripped.is_empty() || stripped.starts_with('#') {
+        if stripped.is_empty()
+            || is_comment(stripped).with_context(|| format!("line {}", index + 1))?
+        {
             continue;
         }
         let (keyword, item) = stripped
@@ -65,6 +81,15 @@ pub fn load_keyword_map(source: &str) -> Result<IndexMap<String, Vec<String>>> {
         if keyword.is_empty() || item.is_empty() {
             continue;
         }
+        lines.push((index + 1, keyword, item));
+    }
+    Ok(lines)
+}
+
+/// 读取 `keyword<TAB>item` 行，按条目首次出现的顺序分组，每个条目下的关键词去重。
+pub fn load_keyword_map(source: &str) -> Result<IndexMap<String, Vec<String>>> {
+    let mut mapping: IndexMap<String, Vec<String>> = IndexMap::new();
+    for (_, keyword, item) in keyword_lines(source)? {
         let keywords = mapping.entry(item.to_owned()).or_default();
         if !keywords.iter().any(|known| known == keyword) {
             keywords.push(keyword.to_owned());
@@ -80,7 +105,7 @@ pub fn read_emoji_catalog(source: &str) -> Result<IndexMap<String, (String, i64)
     let mut catalog = IndexMap::new();
     for line in text::splitlines(source) {
         let stripped = text::strip(line);
-        if stripped.is_empty() || stripped.starts_with('#') {
+        if stripped.is_empty() || is_comment(stripped).context("emoji_catalog.txt")? {
             continue;
         }
         let fields: Vec<&str> = stripped.split('\t').collect();
@@ -347,6 +372,103 @@ pub fn build_kaomoji(
     Ok((rows, mapping.len()))
 }
 
+// ---- 关键词拒绝表 ----
+
+/// 表情与颜文字关键词的拒绝表，在 `resources/dictionary-sources/` 下；格式与收词依据见文件头。
+pub const KEYWORD_VETOES: &str = "keyword-vetoes.txt";
+/// 拒绝表管的三份关键词表，相对 `resources/dictionary-sources/`。
+pub const KEYWORD_FILES: [&str; 3] = [
+    "emoji/emoji.txt",
+    "emoji/emoji_en.txt",
+    "kaomoji/kaomoji.txt",
+];
+
+/// 拒绝表的一条：`item` 为 `None` 时拒绝这个关键词对应的任何表情或颜文字。
+struct KeywordVeto<'a> {
+    keyword: &'a str,
+    item: Option<&'a str>,
+    line: usize,
+}
+
+fn parse_keyword_vetoes(source: &str) -> Result<Vec<KeywordVeto<'_>>> {
+    let mut vetoes: Vec<KeywordVeto> = Vec::new();
+    for (index, line) in text::splitlines(text::without_bom(source))
+        .into_iter()
+        .enumerate()
+    {
+        let stripped = text::strip(line);
+        let at = index + 1;
+        if stripped.is_empty()
+            || is_comment(stripped).with_context(|| format!("{KEYWORD_VETOES}:{at}"))?
+        {
+            continue;
+        }
+        let fields: Vec<&str> = stripped.split('\t').map(text::strip).collect();
+        let (keyword, item) = match fields[..] {
+            [keyword] => (keyword, None),
+            [keyword, item] if !item.is_empty() => (keyword, Some(item)),
+            _ => bail!("{KEYWORD_VETOES}:{at}: expected keyword or keyword<TAB>item: {line:?}"),
+        };
+        if keyword.is_empty() {
+            bail!("{KEYWORD_VETOES}:{at}: the keyword is empty");
+        }
+        if vetoes.iter().any(|known| {
+            same_keyword(known.keyword, keyword) && known.item.map(strip_vs) == item.map(strip_vs)
+        }) {
+            bail!("{KEYWORD_VETOES}:{at}: {stripped:?} is listed twice");
+        }
+        vetoes.push(KeywordVeto {
+            keyword,
+            item,
+            line: at,
+        });
+    }
+    Ok(vetoes)
+}
+
+/// 关键词按原样比较，ASCII 字母不分大小写（`NMSL` 与 `nmsl`）。
+fn same_keyword(left: &str, right: &str) -> bool {
+    left.eq_ignore_ascii_case(right)
+}
+
+/// 用拒绝表检查三份关键词表（`files` 是路径和内容）：任何一行命中，或者成对条目里的表情在哪份表里都没有了，都报错并列出全部问题。三份表一起查，单跑 Emoji 或 Kaomoji 阶段时也能判断成对条目是否过期。
+pub fn check_keyword_vetoes(vetoes: &str, files: &[(&str, &str)]) -> Result<()> {
+    let vetoes = parse_keyword_vetoes(vetoes)?;
+    let mut problems = Vec::new();
+    let mut items = HashSet::new();
+    for (path, source) in files {
+        for (line, keyword, item) in keyword_lines(source).with_context(|| path.to_string())? {
+            items.insert(strip_vs(item));
+            for veto in &vetoes {
+                if same_keyword(veto.keyword, keyword)
+                    && veto
+                        .item
+                        .is_none_or(|vetoed| strip_vs(vetoed) == strip_vs(item))
+                {
+                    problems.push(format!(
+                        "{path}:{line}: {keyword} -> {item} is vetoed by {KEYWORD_VETOES}:{}",
+                        veto.line
+                    ));
+                }
+            }
+        }
+    }
+    for veto in &vetoes {
+        if let Some(item) = veto.item {
+            if !items.contains(&strip_vs(item)) {
+                problems.push(format!(
+                    "{KEYWORD_VETOES}:{}: {item} is in none of the keyword files; drop the stale line",
+                    veto.line
+                ));
+            }
+        }
+    }
+    if !problems.is_empty() {
+        bail!("{}", problems.join("; "));
+    }
+    Ok(())
+}
+
 // ---- symbols ----
 
 /// 表情面板符号页的分类与符号，采集自 tw.piliapp.com/symbol/，在 msime-dictionary（经 `--dictionary` 读取）；许可未确认，见词库仓 NOTICE.md 的「待解决」。
@@ -470,6 +592,11 @@ const PARENT_TABS: &[(&str, &[(&str, &str)])] = &[
     ),
 ];
 
+/// 符号表的注释行：单独一个 `#`，或 `# ` 加说明。符号表一行一个符号、没有制表符，不能套用关键词表的 `is_comment`；以前 `#` 开头一律当注释，项目清单分类里的 `#️⃣` 因此被丢掉，同一分类的 `*️⃣` 却在。
+fn is_piliapp_comment(line: &str) -> bool {
+    line == "#" || line.starts_with("# ")
+}
+
 /// slug -> (Chinese title, symbols). HTML entities such as `&dollar;` are decoded; a symbol repeated within a category is kept once.
 pub fn parse_piliapp(source: &str) -> IndexMap<String, (String, Vec<String>)> {
     let mut categories: IndexMap<String, (String, Vec<String>)> = IndexMap::new();
@@ -491,7 +618,7 @@ pub fn parse_piliapp(source: &str) -> IndexMap<String, (String, Vec<String>)> {
             current = Some((slug, title, Vec::new(), HashSet::new()));
             continue;
         }
-        if line.starts_with('#') {
+        if is_piliapp_comment(line) {
             continue;
         }
         let Some((_, _, symbols, seen)) = current.as_mut() else {
@@ -635,6 +762,112 @@ mod tests {
         assert_eq!(build_emoji(&mut connection, &rows, &keys).unwrap(), 12);
     }
 
+    /// `#` 开头的数据行（emoji `#️⃣` 的目录行、英文关键词 `#`）照常读进来，只有不含制表符的 `#` 行是注释。
+    #[test]
+    fn hash_led_data_lines_are_not_comments() {
+        let catalog = read_emoji_catalog(
+            "# emoji<TAB>category<TAB>sort_order\n#\u{fe0f}\u{20e3}\tSymbols\t0\n*\u{fe0f}\u{20e3}\tSymbols\t1\n",
+        )
+        .unwrap();
+        assert_eq!(
+            catalog.keys().map(String::as_str).collect::<Vec<_>>(),
+            ["#\u{fe0f}\u{20e3}", "*\u{fe0f}\u{20e3}"]
+        );
+        let en = load_keyword_map(
+            "# Format: keyword<TAB>emoji\n#\t#\u{fe0f}\u{20e3}\nkeycap: #\t#\u{fe0f}\u{20e3}\n",
+        )
+        .unwrap();
+        assert_eq!(en["#\u{fe0f}\u{20e3}"], ["#", "keycap: #"]);
+    }
+
+    /// 用 `#` 停用的数据行不会作为 `#鸡巴` 这样的关键词收进来，三份关键词表、目录和拒绝表都报错；`#` 开头不带制表符的照旧是注释。
+    #[test]
+    fn commented_out_data_lines_are_rejected() {
+        let error = load_keyword_map("# c\n#鸡巴\t🐔\n鸡\t🐔\n").unwrap_err();
+        let error = format!("{error:#}");
+        assert!(error.contains("line 2"), "{error}");
+        assert!(error.contains("delete the line"), "{error}");
+        assert!(load_keyword_map("#  鸡巴\t🐔\n").is_err());
+        assert!(read_emoji_catalog("#😀\tSmileys and emotion\t0\n").is_err());
+        assert!(check_keyword_vetoes("#nmsl\t🤬\n", &[]).is_err());
+        let error = check_keyword_vetoes("nmsl\n", &[("emoji.txt", "#草泥马\t🦙\n")]).unwrap_err();
+        let error = format!("{error:#}");
+        assert!(error.contains("emoji.txt"), "{error}");
+        assert_eq!(
+            load_keyword_map("#鸡巴 🐔\n# keyword<TAB>emoji\n")
+                .unwrap()
+                .len(),
+            0
+        );
+    }
+
+    /// 仓库里的 #️⃣ 按目录的位置排，不再落到目录外排最后。
+    #[test]
+    fn the_repository_catalog_keeps_the_keycap_number_sign() {
+        let catalog = read_emoji_catalog(&repository_file("emoji/emoji_catalog.txt")).unwrap();
+        let (category, order) = &catalog["#\u{fe0f}\u{20e3}"];
+        assert_eq!((category.as_str(), *order), ("Symbols", 1558));
+    }
+
+    fn repository_file(path: &str) -> String {
+        std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../resources/dictionary-sources")
+                .join(path),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn keyword_vetoes_reject_listed_keywords_and_pairs() {
+        let vetoes = "# c\nnmsl\n白色小方块\t▪\n";
+        let clean = "鸡\t🐔\n黑色小方块\t▪\n白色小方块\t▫\n";
+        check_keyword_vetoes(vetoes, &[("emoji.txt", clean)]).unwrap();
+
+        // 只拒绝关键词的条目不管表情，ASCII 不分大小写。
+        let error = check_keyword_vetoes(
+            vetoes,
+            &[("emoji.txt", clean), ("kaomoji.txt", "NMSL\t(-_-)\n")],
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("kaomoji.txt:1: NMSL -> (-_-)"), "{error}");
+        assert!(error.contains("keyword-vetoes.txt:2"), "{error}");
+
+        // 成对的条目只拒绝那一对，比较时忽略 U+FE0F。
+        let error = check_keyword_vetoes(vetoes, &[("emoji.txt", "白色小方块\t▪\u{fe0f}\n")])
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("emoji.txt:1: 白色小方块"), "{error}");
+
+        // 成对条目里的表情哪份表都没有了，是过期的条目。
+        let error = check_keyword_vetoes(vetoes, &[("emoji.txt", "鸡\t🐔\n")])
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("keyword-vetoes.txt:3: ▪ is in none"),
+            "{error}"
+        );
+
+        assert!(check_keyword_vetoes("nmsl\nNMSL\n", &[]).is_err());
+        assert!(check_keyword_vetoes("a\tb\tc\n", &[]).is_err());
+        assert!(check_keyword_vetoes("a\t\tb\n", &[]).is_err());
+    }
+
+    /// 仓库里的三份关键词表过得了拒绝表：删掉的粗口关键词和改正过的方块颜色没有回来。
+    #[test]
+    fn the_repository_keyword_files_pass_the_vetoes() {
+        let files: Vec<(&str, String)> = KEYWORD_FILES
+            .iter()
+            .map(|path| (*path, repository_file(path)))
+            .collect();
+        let files: Vec<(&str, &str)> = files
+            .iter()
+            .map(|(path, source)| (*path, source.as_str()))
+            .collect();
+        check_keyword_vetoes(&repository_file(KEYWORD_VETOES), &files).unwrap();
+    }
+
     #[test]
     fn kaomoji_keywords_become_pinyin_initials_or_words() {
         let pinyin = pinyin();
@@ -721,5 +954,17 @@ mod tests {
 
         let unmapped = parse_piliapp("# [piliapp/symbol/new-slug/] 新\nx\n");
         assert!(symbol_rows(&pinyin(), &unmapped).is_err());
+    }
+
+    /// 符号表里 `#` 开头的符号（项目清单的 `#️⃣`）照常收，`#` 和 `# 说明` 才是注释。
+    #[test]
+    fn piliapp_keeps_hash_led_symbols() {
+        let categories = parse_piliapp(
+            "# 特殊符号表\n#\n# [piliapp/symbol/bullet-point/] 项目清单\n#\u{fe0f}\u{20e3}\n# 说明\n#\n*\u{fe0f}\u{20e3}\n",
+        );
+        assert_eq!(
+            categories["bullet-point"].1,
+            ["#\u{fe0f}\u{20e3}", "*\u{fe0f}\u{20e3}"]
+        );
     }
 }

@@ -34,7 +34,7 @@ struct CommunityPluginsView: View {
           Button { if signedIn { publishing = true } else { showAccount = true } } label: {
             Text("发布我的插件").font(.subheadline.weight(.semibold))
           }
-          .buttonStyle(.borderedProminent)
+          .buttonStyle(.borderedProminent).foregroundStyle(MetasequoiaTheme.onAccent)
           .accessibilityIdentifier("publishCommunityPlugin")
         }
         kindFilter

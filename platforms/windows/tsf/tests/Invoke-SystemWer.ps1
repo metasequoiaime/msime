@@ -43,21 +43,26 @@ function Save-CaseOutput {
     }
   }
 }
+function Get-ThreadSnapshot {
+  param([Diagnostics.Process]$Process)
+  # 每个进程最多 128 个线程，只记 id、状态和等待原因。
+  @($Process.Threads | Select-Object -First 128 | ForEach-Object {
+    $entry = [ordered]@{ id = $_.Id }
+    try {
+      $state = $_.ThreadState
+      $entry.state = $state.ToString()
+      if ($state -eq [Diagnostics.ThreadState]::Wait) { $entry.wait_reason = $_.WaitReason.ToString() }
+    } catch { $entry.snapshot_error = $_.Exception.GetType().Name }
+    $entry
+  })
+}
 function Save-SystemWerTimeout {
   param([Diagnostics.Process]$Target, [string]$Directory, [string]$Case)
-  # 只保存本合成目标的有界状态；不采集内存、环境、命令行或其他应用的线程。
+  # 只保存本合成目标及为它工作的 WER worker 的有界状态；不采集内存、环境、命令行或其他应用的线程。
   $threads = @()
   $threadError = $null
   try {
-    $threads = @($Target.Threads | Select-Object -First 128 | ForEach-Object {
-      $entry = [ordered]@{ id = $_.Id }
-      try {
-        $state = $_.ThreadState
-        $entry.state = $state.ToString()
-        if ($state -eq [Diagnostics.ThreadState]::Wait) { $entry.wait_reason = $_.WaitReason.ToString() }
-      } catch { $entry.snapshot_error = $_.Exception.GetType().Name }
-      $entry
-    })
+    $threads = @(Get-ThreadSnapshot -Process $Target)
   } catch { $threadError = $_.Exception.GetType().Name }
   $workers = @()
   $workerError = $null
@@ -66,7 +71,16 @@ function Save-SystemWerTimeout {
     $workers = @(Get-CimInstance Win32_Process -Filter "Name = 'WerFault.exe' OR Name = 'WerFaultSecure.exe'" -OperationTimeoutSec 3 |
       Where-Object { $_.ParentProcessId -eq $Target.Id -or $_.CommandLine -match $targetPattern } |
       Select-Object -First 16 | ForEach-Object {
-        [ordered]@{ id = $_.ProcessId; name = $_.Name; parent_id = $_.ParentProcessId }
+        $workerId = $_.ProcessId
+        $worker = [ordered]@{ id = $workerId; name = $_.Name; parent_id = $_.ParentProcessId }
+        # worker 的线程等待原因用来区分下一次停顿是 WerFault 在等 WerSvc 还是在等别的；先取线程再取退出状态，受保护进程拒绝打开句柄时也能留下线程。
+        try {
+          $live = Get-Process -Id $workerId -ErrorAction Stop
+          $worker.threads = @(Get-ThreadSnapshot -Process $live)
+          $worker.has_exited = $live.HasExited
+          $live.Dispose()
+        } catch { $worker.snapshot_error = $_.Exception.GetType().Name }
+        $worker
       })
   } catch { $workerError = $_.Exception.GetType().Name }
   # 记录落盘和系统退出分别判断，不能延长期限或把已有记录当成成功退出。
@@ -86,15 +100,25 @@ function Save-SystemWerTimeout {
 }
 function Test-SystemWerStall {
   param($Snapshot, [string]$Directory)
-  # 只认 CI 上反复出现的系统侧停顿：目标仍在、恰好一个线程等 WerSvc 的 LPC 回复、其余线程全被挂起、找不到为它工作的 WerFault，且没有半成品记录。负向样本出现记录、正向样本出现多条记录都说明 helper 越权，不能靠重跑掩盖。
+  # 只认 CI 上反复出现的两种 x86 系统侧停顿，二者都是目标仍在、恰好一个线程在等、其余线程全被挂起、没有半成品记录：
+  # A 形：等待线程停在 WerSvc 的 LPC 回复上，找不到为它工作的 WerFault。
+  # B 形：等待线程停在 LPC 回复或 UserRequest 上，唯一相关的 worker 是目标自己拉起的 WerFault.exe 且一直没结束目标；负向样本 withdrawn 也出现过，那时 helper 在看到未登记后立即返回，卡住的不是 helper。
+  # WerFaultSecure、多个 worker、worker 不是目标的子进程都不认。负向样本出现记录、正向样本出现多条记录都说明 helper 越权，不能靠重跑掩盖。
   if ($Snapshot.target_has_exited -or $Snapshot.thread_snapshot_error -or $Snapshot.worker_snapshot_error) { return $false }
-  if (@($Snapshot.related_wer_workers).Count -ne 0 -or @($Snapshot.partial_records).Count -ne 0) { return $false }
+  if (@($Snapshot.partial_records).Count -ne 0) { return $false }
   $threads = @($Snapshot.target_threads)
   if ($threads.Count -eq 0) { return $false }
   foreach ($thread in $threads) {
-    if ($thread.state -ne 'Wait' -or @('LpcReply', 'Suspended') -notcontains $thread.wait_reason) { return $false }
+    if ($thread.state -ne 'Wait' -or @('LpcReply', 'UserRequest', 'Suspended') -notcontains $thread.wait_reason) { return $false }
   }
-  if (@($threads | Where-Object { $_.wait_reason -eq 'LpcReply' }).Count -ne 1) { return $false }
+  $waiting = @($threads | Where-Object { $_.wait_reason -ne 'Suspended' })
+  if ($waiting.Count -ne 1) { return $false }
+  $workers = @($Snapshot.related_wer_workers)
+  if ($workers.Count -eq 0) {
+    if ($waiting[0].wait_reason -ne 'LpcReply') { return $false }
+  } elseif ($workers.Count -eq 1) {
+    if ($workers[0].name -ne 'WerFault.exe' -or $workers[0].parent_id -ne $Snapshot.target_pid) { return $false }
+  } else { return $false }
   $expectedPath = Join-Path $Directory 'expected.json'
   if (-not (Test-Path -LiteralPath $expectedPath -PathType Leaf)) { return $false }
   $expected = Get-Content -LiteralPath $expectedPath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -104,7 +128,7 @@ function Test-SystemWerStall {
 try {
   New-Item -ItemType Directory -Path $output | Out-Null
   $key.SetValue($helper, 0, [Microsoft.Win32.RegistryValueKind]::DWord)
-  foreach ($case in @('tip', 'host', 'external', 'withdrawn', 'reopened', 'released', 'caught')) {
+  foreach ($case in @('baseline', 'tip', 'host', 'external', 'withdrawn', 'reopened', 'released', 'caught')) {
     # 系统侧停顿时整例换新目录重跑一次，重跑仍须由系统退出并通过全部断言；首次的诊断留在原目录随 artifact 上传。
     for ($attempt = 1; ; $attempt++) {
       $caseDirectory = if ($attempt -eq 1) { Join-Path $output $case } else { Join-Path $output "$case-retry" }
@@ -126,8 +150,17 @@ try {
       if ($attempt -ge 2 -or -not (Test-SystemWerStall -Snapshot $snapshot -Directory $caseDirectory)) {
         throw "$case 的系统 WER 投递超时"
       }
-      Write-Warning "$case 的目标进程停在 WerSvc 的 LPC 回复上且没有 WER worker，诊断见 $caseDirectory/timeout.json；换新目录重跑一次"
+      $stalledWorkers = @($snapshot.related_wer_workers)
+      $shape = if ($stalledWorkers.Count -eq 0) { '目标进程停在 WerSvc 的 LPC 回复上且没有 WER worker' } else { "目标进程拉起的 WerFault（pid $($stalledWorkers[0].id)）一直没有结束它" }
+      Write-Warning "$case 的$shape，诊断见 $caseDirectory/timeout.json；结束卡住的进程后换新目录重跑一次"
+      # 先结束卡住的 WerFault 再结束目标，两者都等到退出，旧 worker 不会在重跑期间继续持有目标或写原目录。按名字复核，避免 pid 已被复用时误杀。
+      $liveWorkers = @($stalledWorkers | ForEach-Object { Get-Process -Id $_.id -ErrorAction SilentlyContinue } | Where-Object { $_.ProcessName -eq 'WerFault' })
+      foreach ($worker in $liveWorkers) { $worker.Kill() }
       $process.Kill()
+      foreach ($worker in $liveWorkers) {
+        $worker.WaitForExit()
+        $worker.Dispose()
+      }
       $process.WaitForExit()
       Save-CaseOutput
       $process.Dispose()

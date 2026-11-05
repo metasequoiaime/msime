@@ -19,7 +19,7 @@
 用了谁、各自什么许可、通知文件在哪，汇总在[第三方组件清单](third-party.md)；下面几条是它没有覆盖的发布动作。
 
 - 每个平台的安装包都要带上根目录 `LICENSE` 的 GPL-3.0 全文（产品本身和 `msime-pinyin.db` 里 rime-ice 的数据都是 GPL-3.0），编进引擎的平台还要带上 `resources/licenses/MPL-2.0.txt`。各平台的文件名和位置见[第三方组件清单](third-party.md#本项目)；三个移动端由 `scripts/test-language-data-notices.py` 检查。
-- Android Gradle 模板的 Apache-2.0 文本在 `apps/desktop/src-tauri/gen/android/gradle/LICENSE-2.0.txt`，来源说明在同目录 `NOTICE.md`。
+- Android Gradle wrapper 的 Apache-2.0 文本在 `platforms/android/gradle-app/gradle/LICENSE-2.0.txt`，来源说明在同目录 `NOTICE.md`。
 - iOS ML Kit 依赖通知在 `platforms/ios/SharedResources/MLKit-NOTICES.txt` 和 `MLKit-Dependencies.txt`，Google 登录依赖通知在 `GoogleSignIn-Dependencies.txt`。
 - Windows 依赖通知由 `platforms/windows/Collect-Notices.ps1` 生成；使用说明和限制见 `platforms/windows/Notices.md`。生成器不是完整许可证审计，不能用空通知文件代替上游材料。
 - 引擎移植所源自的 C++ MSIME-Engine、每个固定词库和离线模型都必须在发布包中保留对应的版权、许可证和来源说明。资源锁文件只校验内容，不授予额外分发权。

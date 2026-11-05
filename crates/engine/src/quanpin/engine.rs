@@ -31,6 +31,11 @@ impl QuanpinEngine {
         }
     }
 
+    /// 全拼词库的粗俗词表，见 `QuanpinDictionary::offensive_words`。
+    pub(crate) fn offensive_words(&self) -> &crate::lattice::offensive::OffensiveWords {
+        self.dictionary.offensive_words()
+    }
+
     /// Double helpcode: query the base and keep matches; single: query the base and reorder; otherwise query the raw input with its segmentation, mask and fuzzy options (QE:39-81). Empty for an invalid request.
     ///
     /// Without a keymap every helpcode matches nothing: a double helpcode leaves no rows and a single one leaves the order alone. The reference fell back to a process-wide default table here, which the port does not keep; the session always passes the keymap it loaded.
@@ -45,6 +50,9 @@ impl QuanpinEngine {
         // Each setter is a no-op when the value is unchanged, so this costs nothing per keystroke. The association options and the context select the series slot rather than clearing it; only a change of the sentence-alternatives answer clears the cached lists.
         self.dictionary
             .set_sentence_alternatives(request.sentence_alternatives);
+        self.dictionary.set_sentence_pool(request.sentence_pool);
+        self.dictionary
+            .set_sentence_scorer(&request.sentence_scorer);
         self.dictionary
             .set_sentence_association(request.sentence_association.clone());
         self.dictionary.set_first_page_rows(request.first_page_rows);

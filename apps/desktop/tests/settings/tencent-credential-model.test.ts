@@ -50,18 +50,20 @@ test("地域按输入、已存凭据和默认值回退，显式空串覆盖旧�
 
 test("凭据损坏提示优先于已存状态，没有凭据时说明用户目录归属", () => {
   expect(typeof tencentCredentialEditorModel).toBe("function");
+  // 还没保存时没有状态可显示，凭据写在哪里是解释，进「在线翻译服务」的「?」。
+  expect(tencentCredentialEditorModel({ input: emptyInput, busy: false }).status).toBeNull();
   expect(tencentCredentialEditorModel({ input: emptyInput, busy: false }).description).toContain(
     "用户配置目录",
   );
   expect(
-    tencentCredentialEditorModel({ input: emptyInput, status: stored, busy: false }).description,
+    tencentCredentialEditorModel({ input: emptyInput, status: stored, busy: false }).status,
   ).toContain("留空则保留原值");
   expect(
     tencentCredentialEditorModel({
       input: emptyInput,
       status: { ...stored, tencentInvalid: true },
       busy: false,
-    }).description,
+    }).status,
   ).toContain("tencent-provider.json 无效");
 });
 

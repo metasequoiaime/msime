@@ -1,4 +1,5 @@
 #include <jni.h>
+#include <android/log.h>
 #include "msime_client.h"
 #include "../../common/HostApiString.h"
 #include "../../common/CrashRecorder.h"
@@ -97,8 +98,18 @@ constexpr jsize kPolishPromptCustomLimit = 8192;
 
 extern "C" {
 // 注入的会话存储的回调可能在 Rust 自己起的线程上发生，那里要经 JavaVM 取 env，所以加载时记下它。
+// host-api 自己恢复的失败（音效包、整句模型读不了等）和整句候选「增强」挂上的是哪一档逐键重排（`keyboard reranker onnx small`、`keyboard reranker bundled model` 等）没有出口时写 stderr，Android 应用进程的 stderr 没人读。这里转进 logcat（标签 MSIMEHost），写成 `host_api: <类别>`，只留冒号前的类别，与 iOS、macOS 一样：类别是固定的英文短语，细节可能带路径和错误原文。按 msime_client.h 的约定，这个出口可能在任何线程上被调用，不阻塞、不回调 host-api。
+static void forward_host_diagnostic(const char *line) {
+    if (!line) return;
+    const char *colon = std::strchr(line, ':');
+    size_t length = colon ? static_cast<size_t>(colon - line) : std::strlen(line);
+    if (length == 0 || length > 200) return;
+    __android_log_print(ANDROID_LOG_INFO, "MSIMEHost", "host_api: %.*s", static_cast<int>(length), line);
+}
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *) {
     msime::android::remember_java_vm(vm);
+    // 在第一个会话之前登记，会话建立时写的那一行也收得到。
+    msime_client_set_diagnostic_sink(forward_host_diagnostic);
     return JNI_VERSION_1_6;
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_loadPreferencesRaw(JNIEnv *env, jclass, jbyteArray directory) {
@@ -596,6 +607,12 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_simplifiedToTra
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_resetCacheRaw(JNIEnv *env, jclass, jlong handle) {
     return response(env, msime_client_reset_cache(static_cast<uint64_t>(handle)));
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_startSettledRerankRaw(JNIEnv *env, jclass, jlong handle) {
+    return response(env, msime_client_start_settled_rerank(static_cast<uint64_t>(handle)));
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_pollSettledRerankRaw(JNIEnv *env, jclass, jlong handle, jlong token, jboolean accept) {
+    return response(env, msime_client_poll_settled_rerank(static_cast<uint64_t>(handle), static_cast<uint64_t>(token), accept == JNI_TRUE));
+}
 JNIEXPORT void JNICALL Java_app_msime_android_NativeClient_releaseProcessCacheRaw(JNIEnv *, jclass) {
     msime_client_release_process_cache();
 }
@@ -926,6 +943,9 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_clearOnlineCand
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_destroyRaw(JNIEnv *env, jclass, jlong handle) {
     return response(env, msime_client_destroy(static_cast<uint64_t>(handle)));
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_flushAllRaw(JNIEnv *env, jclass) {
+    return response(env, msime_client_flush_all());
 }
 }
 

@@ -20,6 +20,18 @@ for title, key in expected.items():
     assert key in page, f"Windows 输入习惯页没有接入偏好键 {key}"
 
 assert "build_neural_desktop_settings(candidates);" in page
+# 「整句联想」的「标准 / 增强」写共享的 `neural_keyboard`，缺键按默认的开读；只列在带键盘模型的版本里，排在「桌面神经联想」前面。
+assert page.index("build_sentence_level_settings(candidates);") < page.index("build_neural_desktop_settings(candidates);")
+level = source[source.index("  void build_sentence_level_settings("):source.index("  void build_neural_desktop_settings(")]
+for key in (
+    "if constexpr (MSIME_EDITION_NEURAL_KEYBOARD != 0)",
+    'document_.Boolean(L"sentence_association.neural_keyboard", true)',
+    'doc.SetBoolean(L"sentence_association.neural_keyboard", value == L"enhanced")',
+    '{{L"standard", L"标准"}, {L"enhanced", L"增强"}}',
+    'add_row(group, 0xE8C1, L"整句联想", L"更准确，但更耗电", selector)',
+    'L"sentence-association-level"',
+):
+    assert key in level, f"Windows「整句联想」选择缺少 {key}"
 assert "build_sentence_model_settings(candidates);" in page
 model = source[source.index("  void build_neural_desktop_settings("):]
 for key in (
@@ -34,5 +46,9 @@ for key in (
 ):
     assert key in model, f"Windows 整句模型设置缺少 {key}"
 assert "grammar-model-baishuang" not in model
+# 神经联想模型和语法模型也能不联网安装（#10622）：只钉住入口和请求字段。「不联网安装」一句的文字由 tests/ui/voice_settings.cpp 测，按钮和这一句是否跟着选中的模型出现由 settings_ui.ps1 测，这里不逐字钉实现（AGENTS.md「代码健康」）。
+packs = source[source.index("  void sentence_pack_row("):source.index("  void cancel_sentence_pack(")]
+for key in ('L"sentence-model-import-" + pack', 'L"files"'):
+    assert key in packs, f"Windows 整句模型缺少从文件导入的 {key}"
 
-print("windows input habits: sentence association switches, settled model download and locked grammar model management are present")
+print("windows input habits: sentence association switches, the 标准/增强 level, settled model download, offline import and locked grammar model management are present")

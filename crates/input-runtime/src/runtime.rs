@@ -3,8 +3,9 @@
 
 use super::*;
 use msime_engine::ordering::{
-    apply_order_with, ensure_engine_order, rerank_needs_model, rerank_pick, rotate_to_front,
-    runner_up_order_with, ParallelOrderRows, StaticEvidence,
+    apply_order_with, ensure_engine_order, opening_particle_pick, rerank_needs_model, rerank_pick,
+    rerank_pick_within, rotate_to_front, runner_up_order_with, CandidateScorer, ParallelOrderRows,
+    SentenceScorer, StaticEvidence,
 };
 use msime_engine::touch::{KeyGeometry, KeyTouch};
 // 排序决策搬进了 `msime_engine::ordering`；`tests.rs` 仍按原来的 crate 内名字引用这几项，这里为它们重新导出。
@@ -53,6 +54,7 @@ pub enum Action {
     Glide {
         keyboard: Box<GlideKeyboard>,
         points: Vec<GlidePoint>,
+        bilingual: bool,
     },
     SelectHighlighted,
     Finish,
@@ -170,7 +172,7 @@ pub struct Runtime<E: InputEngine = Session> {
     ///
     /// Absent unless a host calls [`Runtime::set_reranker`], and absent is the only state the
     /// hosts that ship no model ever see.
-    pub(crate) reranker: Option<Reranker>,
+    pub(crate) reranker: Option<Box<dyn CandidateScorer>>,
     /// A second, larger model run once the user stops typing, when one is attached.
     ///
     /// Capacity is the most effective lever the model has — the 24M preset beats the 6.8M one by
@@ -180,7 +182,11 @@ pub struct Runtime<E: InputEngine = Session> {
     /// they are answers to different questions. While the user is typing, the first row has to be
     /// plausible now; when the user stops to read the candidates, it has to be right. The fast
     /// model owns the first job and this one owns the second.
-    pub(crate) settled_reranker: Option<Reranker>,
+    pub(crate) settled_reranker: Option<Box<dyn CandidateScorer>>,
+    /// 跑不进逐键预算的设备上，逐键打分器不挂在按键上，停在这里，等宿主停顿时由 [`Runtime::settle_deferred_scorer`] 拿去重解。与 `reranker` 不会同时有。
+    pub(crate) deferred_scorer: Option<DeferredScorer>,
+    /// 停顿重解解完以后，延后的打分器留在按键的位置上（`reranker`），直到下一次 [`Runtime::dispatch`] 才放回 `deferred_scorer`，见 [`Runtime::settle_deferred_scorer`]。这时它的包装（每片的时间预算）也放在这里。
+    deferred_mounted: Option<Option<Arc<BudgetedSentenceScorer>>>,
     /// Whether [`Runtime::rerank_settled`] runs the settled model: the product's desktop sentence model switch. On unless a host turns it off, so a caller that attaches a model and says nothing else gets it.
     pub(crate) settled_rerank_enabled: bool,
     // 开关和模型分别拥有不复用的身份，防止在途评分跨配置发布或恢复旧模型。
@@ -318,7 +324,105 @@ pub struct SettledRerankRequest {
     scheme: u8,
     answered_by_pinyin_fallback: bool,
     rows: SettledRerankRows,
-    reranker: Reranker,
+    reranker: Box<dyn CandidateScorer>,
+}
+
+/// 延后到停顿的逐键打分器（[`Runtime::set_deferred_scorer`]），连同交给引擎束搜索的那一份包了预算的整句打分器。包装在挂上时只建一次：引擎按指针认打分器，换了指针就清掉模型分备忘，分片重解就接不上了。
+pub(crate) struct DeferredScorer {
+    scorer: Box<dyn CandidateScorer>,
+    budgeted: Option<Arc<BudgetedSentenceScorer>>,
+}
+
+impl DeferredScorer {
+    fn new(scorer: Box<dyn CandidateScorer>) -> Self {
+        let budgeted = scorer.sentence_scorer().map(|inner| {
+            Arc::new(BudgetedSentenceScorer {
+                inner,
+                deadline: std::sync::Mutex::new(None),
+                exhausted: std::sync::atomic::AtomicBool::new(false),
+                scored_once: std::sync::atomic::AtomicBool::new(false),
+                failed: std::sync::atomic::AtomicBool::new(false),
+            })
+        });
+        Self { scorer, budgeted }
+    }
+}
+
+/// 一片停顿重解（[`Runtime::settle_deferred_scorer`]）里给束搜索打分的模型：到了这一片的时限就不再算，回一个空表。束搜索见分数个数不对就不给这一列加模型分、也不记备忘（`lattice::decode` 的 `BeamModel`），所以超时只让这一片的结果作废，打过的分都留着。
+pub(crate) struct BudgetedSentenceScorer {
+    inner: Arc<dyn SentenceScorer>,
+    deadline: std::sync::Mutex<Option<std::time::Instant>>,
+    exhausted: std::sync::atomic::AtomicBool,
+    scored_once: std::sync::atomic::AtomicBool,
+    failed: std::sync::atomic::AtomicBool,
+}
+
+impl BudgetedSentenceScorer {
+    fn start(&self, slice: std::time::Duration) {
+        *self
+            .deadline
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            std::time::Instant::now().checked_add(slice);
+        self.exhausted
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+        self.scored_once
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+        self.failed
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// 去掉时限：解完后打分器留在按键位置上时用。
+    fn unlimit(&self) {
+        *self
+            .deadline
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+    }
+
+    fn exhausted(&self) -> bool {
+        self.exhausted.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn failed(&self) -> bool {
+        self.failed.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
+impl SentenceScorer for BudgetedSentenceScorer {
+    fn log_probabilities(&self, context: &str, candidates: &[&str]) -> Vec<f32> {
+        if self.failed() {
+            return Vec::new();
+        }
+        let deadline = *self
+            .deadline
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // 解码前半段也占用墙钟；即使走到首个模型调用时已经超时，每片仍须至少算一次才能推进。
+        let scored_once = self
+            .scored_once
+            .swap(true, std::sync::atomic::Ordering::Relaxed);
+        if scored_once && deadline.is_some_and(|deadline| std::time::Instant::now() >= deadline) {
+            self.exhausted
+                .store(true, std::sync::atomic::Ordering::Relaxed);
+            return Vec::new();
+        }
+        let scores = self.inner.log_probabilities(context, candidates);
+        if scores.len() != candidates.len() {
+            self.failed
+                .store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        scores
+    }
+}
+
+/// 一片停顿重解的结果，见 [`Runtime::settle_deferred_scorer`]。`moved` 是候选变了没有，变了宿主要重画。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DeferredSettle {
+    /// 解完了，或者不用解。
+    Done { moved: bool },
+    /// 这一片的模型时间用完了，候选还是停顿前的；没有新按键就再调一次。
+    Continue { moved: bool },
 }
 
 /// [`score_settled_rerank`] 产生的模型和待提升的候选行。
@@ -327,7 +431,7 @@ pub struct SettledRerankScore {
     settings_epoch: Arc<()>,
     model_epoch: Arc<()>,
     promote: Option<usize>,
-    reranker: Reranker,
+    reranker: Box<dyn CandidateScorer>,
 }
 
 /// [`Runtime::apply_settled_rerank`] 对评分的发布结果。
@@ -351,7 +455,7 @@ pub fn score_settled_rerank(mut request: SettledRerankRequest) -> SettledRerankS
         )
         .with_static_evidence(&request.rows.static_evidence);
         rerank_pick(
-            &mut request.reranker,
+            request.reranker.as_mut(),
             &request.context,
             request.scheme,
             request.answered_by_pinyin_fallback,
@@ -1097,6 +1201,8 @@ impl<E: InputEngine> Runtime<E> {
             ai_context: String::new(),
             reranker: None,
             settled_reranker: None,
+            deferred_scorer: None,
+            deferred_mounted: None,
             settled_rerank_enabled: true,
             settled_settings_epoch: Arc::new(()),
             settled_model_epoch: Arc::new(()),
@@ -1169,18 +1275,156 @@ impl<E: InputEngine> Runtime<E> {
     /// lives is a packaging question that differs per platform and the runtime has no business
     /// guessing at it.
     pub fn set_reranker(&mut self, reranker: Option<Reranker>) {
-        self.reranker = reranker;
+        self.set_candidate_scorer(reranker.map(|r| Box::new(r) as Box<dyn CandidateScorer>));
     }
 
-    /// Whether a per-keystroke reranker is attached, so a host can attach or drop it when the preference that governs it changes.
+    /// 同 [`Runtime::set_reranker`]，挂任意实现了 [`CandidateScorer`] 的逐键打分器，比如需要原生运行库的模型后端。
+    ///
+    /// 挂上的打分器报 [`CandidateScorer::scores_prediction_pool_within_keystroke_budget`] 时，上屏后联想的词库续写也交给它排序（见 [`Self::order_prediction`]），引擎为此多取一池续写；拿掉打分器或它不报时，引擎只取 8 条，联想与没挂打分器时逐行相同。
+    ///
+    /// 同时拿掉延后的打分器（[`Self::set_deferred_scorer`]）：宿主关掉「增强」时调它传 `None`，停顿时也不能再跑模型。
+    pub fn set_candidate_scorer(&mut self, scorer: Option<Box<dyn CandidateScorer>>) {
+        self.deferred_scorer = None;
+        self.deferred_mounted = None;
+        self.mount_keystroke_scorer(scorer);
+    }
+
+    fn mount_keystroke_scorer(&mut self, scorer: Option<Box<dyn CandidateScorer>>) {
+        self.reranker = scorer;
+        self.engine.set_prediction_pool(self.orders_prediction());
+        self.engine.set_sentence_pool(self.sentence_pool());
+        self.engine.set_sentence_scorer(self.sentence_scorer());
+    }
+
+    /// 是否挂着逐键重排器，宿主据此在开关变化时挂上或移除。延后到停顿的模型（[`Self::set_deferred_scorer`]）也算：模型相同，只是改在停顿时运行。
     pub fn has_reranker(&self) -> bool {
-        self.reranker.is_some()
+        self.reranker.is_some() || self.deferred_scorer.is_some()
+    }
+
+    /// 挂一个只在停顿时用的逐键打分器，同时拿掉按键上的那一个。
+    ///
+    /// 逐键打分器每按一个键都要跑，还替引擎的束搜索给整句前缀打分（[`CandidateScorer::sentence_scorer`]），所以它决定的不只是顺序，还有哪些整句进得了候选。跑不进逐键预算的设备上（2026-11-04 华为畅享 90 Plus 上 6x256 整键 p95 19.5 ms，预算 10 ms），按键上不挂它，引擎照没有模型时那样解码；宿主停顿后调 [`Self::settle_deferred_scorer`]，它才挂上去、带着它把当前组字重解一遍。只在停顿时给候选换序（落定重排）不够：typing-chat-v1 整句打，换序只有 77.4%，重解与逐键一样是 85.2%。
+    pub fn set_deferred_scorer(&mut self, scorer: Option<Box<dyn CandidateScorer>>) {
+        if self.reranker.is_some() {
+            self.mount_keystroke_scorer(None);
+        }
+        self.deferred_mounted = None;
+        self.deferred_scorer = scorer.map(DeferredScorer::new);
+    }
+
+    /// 是否挂着延后到停顿的打分器（[`Self::set_deferred_scorer`]），宿主的停顿调用据此走 [`Self::settle_deferred_scorer`]。
+    pub fn has_deferred_scorer(&self) -> bool {
+        self.deferred_scorer.is_some() || self.deferred_mounted.is_some()
+    }
+
+    /// 停顿重解解完后留在按键位置上的打分器放回延后的位置：下一次派发之前调，按键照旧不带模型。换打分器会清掉引擎的整句缓存，这时组字马上要变，本来也要重查。
+    fn unmount_deferred_scorer(&mut self) {
+        let Some(budgeted) = self.deferred_mounted.take() else {
+            return;
+        };
+        if let Some(scorer) = self.reranker.take() {
+            self.deferred_scorer = Some(DeferredScorer { scorer, budgeted });
+        }
+        self.mount_keystroke_scorer(None);
+    }
+
+    /// 停顿时把延后的打分器（[`Self::set_deferred_scorer`]）挂上，带着它重解当前组字、照逐键时那样排好。一次只花大约 `slice` 的模型时间：
+    ///
+    /// - 解完了：候选换成模型排出的样子，返回 [`DeferredSettle::Done`]。打分器留在按键的位置上，到下一次 [`Self::dispatch`] 才放回去：现在摘下会清掉引擎里这个组字的整句缓存，之后才到的云、AI 候选就插不进完整的列表。
+    /// - 模型时间用完还没解完：这次解出的候选不完整，不用；摘下打分器、不带模型再解一遍，候选与停顿前相同，返回 [`DeferredSettle::Continue`]，宿主让排队的输入先走，没有新按键就再调一次。已经打过分的前缀记在引擎的备忘里（同一个包了预算的打分器，见 [`DeferredScorer`]），下一片不再算，每一片都往前推进，停顿之后再停顿也接着用。
+    /// - 模型打不了分：同样丢弃未完成的结果，不带模型重解并返回 [`DeferredSettle::Done`]，结束本次停顿；下次停顿可以重试，空分不写入备忘。
+    ///
+    /// 整段组字的模型计算都挤到停顿时做：Mac（M1 Max）上 typing-chat-v1 整句一次解完 p50 24 ms，畅享 90 Plus 要慢五倍以上，一次做完会让停顿后紧接着的按键等上一两百毫秒。分片之后按键最多等一片。
+    ///
+    /// 没有延后的打分器、没有组字、正显示上屏后联想、整句改字、光标后编辑或用户已经移动了高亮时什么都不做：最后一条是因为重解会把高亮放回首选。每一片都推进候选代次，停顿之前取到的候选身份不能再选到新的座位上。
+    pub fn settle_deferred_scorer(
+        &mut self,
+        slice: std::time::Duration,
+    ) -> Result<DeferredSettle, RuntimeError> {
+        if self.reranker.is_some()
+            || self.is_idle()
+            || self.cached.prediction
+            || self.cached.dedicated_english
+            || !self.cached.conversion.is_empty()
+            || self.cached.caret_edit_suffix
+            || self.highlighted != 0
+        {
+            return Ok(DeferredSettle::Done { moved: false });
+        }
+        let Some(DeferredScorer { scorer, budgeted }) = self.deferred_scorer.take() else {
+            return Ok(DeferredSettle::Done { moved: false });
+        };
+        let before = self.cached.candidates.clone();
+        // 换整句打分器时引擎清掉了缓存里的在线行（云、AI），宿主又不会为同一个查询再取一次：先从视图里记下，重解之后放回。
+        let online: Vec<(String, u8)> = self
+            .cached
+            .candidates
+            .iter()
+            .zip(&self.cached.candidate_sources)
+            .filter(|(_, &source)| {
+                msime_engine::CandidateSource::from_u8(source)
+                    .is_some_and(msime_engine::CandidateSource::is_online)
+            })
+            .map(|(text, &source)| (text.clone(), source))
+            .collect();
+        if let Some(budgeted) = &budgeted {
+            budgeted.start(slice);
+        }
+        self.reranker = Some(scorer);
+        self.engine.set_sentence_pool(self.sentence_pool());
+        self.engine.set_sentence_scorer(
+            budgeted
+                .clone()
+                .map(|budgeted| budgeted as Arc<dyn SentenceScorer>),
+        );
+        let decoded = self.engine.recompute_candidates();
+        let failed = budgeted.as_ref().is_some_and(|budgeted| budgeted.failed());
+        let complete = !failed
+            && budgeted
+                .as_ref()
+                .is_none_or(|budgeted| !budgeted.exhausted());
+        if decoded.is_ok() && complete {
+            // 解完了：打分器留在按键的位置上，直到下一次派发（`unmount_deferred_scorer`）。现在摘下会清掉引擎里这个组字的整句缓存，之后才到的在线行就插不进完整的列表，自成一张只有在线行的表；留着时它插进模型排好的这一张，刷新也照模型的顺序。预算放开，这时再解码（在线行到了要刷新）不该半途停下。
+            self.engine.restore_online_rows(&online);
+            if let Some(budgeted) = &budgeted {
+                budgeted.unlimit();
+            }
+            self.deferred_mounted = Some(budgeted);
+            self.advance()?;
+            self.refresh()?;
+            return Ok(DeferredSettle::Done {
+                moved: self.cached.candidates != before,
+            });
+        }
+        if let Some(scorer) = self.reranker.take() {
+            self.deferred_scorer = Some(DeferredScorer { scorer, budgeted });
+        }
+        self.mount_keystroke_scorer(None);
+        decoded?;
+        // 引擎里现在是解了一半的候选，屏幕上还是停顿前的：不带模型再解一遍，让两边一致。
+        self.engine.recompute_candidates()?;
+        self.engine.restore_online_rows(&online);
+        self.advance()?;
+        self.refresh()?;
+        let moved = self.cached.candidates != before;
+        Ok(if failed {
+            DeferredSettle::Done { moved }
+        } else {
+            DeferredSettle::Continue { moved }
+        })
     }
 
     /// 安装或移除停顿模型；替换后不得恢复在途评分携带的旧模型。
     pub fn set_settled_reranker(&mut self, reranker: Option<Reranker>) {
+        self.set_settled_candidate_scorer(
+            reranker.map(|r| Box::new(r) as Box<dyn CandidateScorer>),
+        );
+    }
+
+    /// 同 [`Runtime::set_settled_reranker`]，挂任意实现了 [`CandidateScorer`] 的停顿打分器。
+    pub fn set_settled_candidate_scorer(&mut self, scorer: Option<Box<dyn CandidateScorer>>) {
         self.settled_model_epoch = Arc::new(());
-        self.settled_reranker = reranker;
+        self.settled_reranker = scorer;
     }
 
     /// 开关改变时作废在途评分，但保留模型，重新开启时不必加载。
@@ -1296,6 +1540,11 @@ impl<E: InputEngine> Runtime<E> {
         // 重排必须推进候选代次，避免旧身份选到新座位；代次耗尽时不得重排。
         !self.settled_rerank_enabled
             || self.settled_reranker.is_none()
+            // 逐键打分器比落定模型强时，它排出的就是最终顺序，见 `CandidateScorer::supersedes_settled_rerank`。
+            || self
+                .reranker
+                .as_deref()
+                .is_some_and(CandidateScorer::supersedes_settled_rerank)
             || self.is_idle()
             || self.generation.checked_add(1).is_none()
             // 落定重排按座位挪行，插件插入的行没有引擎下标，会被当成引擎的候选挪走；有插入的行时不做。
@@ -1336,7 +1585,11 @@ impl<E: InputEngine> Runtime<E> {
         self.settled_order_scratch = order;
     }
 
-    fn restore_settled_reranker(&mut self, reranker: Reranker, model_epoch: &Arc<()>) {
+    fn restore_settled_reranker(
+        &mut self,
+        reranker: Box<dyn CandidateScorer>,
+        model_epoch: &Arc<()>,
+    ) {
         if Arc::ptr_eq(model_epoch, &self.settled_model_epoch) && self.settled_reranker.is_none() {
             self.settled_reranker = Some(reranker);
         }
@@ -1521,6 +1774,7 @@ impl<E: InputEngine> Runtime<E> {
                 .map(|(index, text)| self.candidate_row(index, text, reserve_translation)),
         );
         View {
+            requires_candidate_selection: self.engine.requires_candidate_selection(),
             prediction: self.cached.prediction,
             scheme: self.cached.scheme,
             chinese_text: scheme_type(self.cached.scheme).is_some_and(SchemeType::is_chinese),
@@ -1827,6 +2081,11 @@ impl<E: InputEngine> Runtime<E> {
             && (self.cached.prediction || self.cached.candidates.is_empty())
     }
 
+    /// 是否正显示上屏后联想。联想没有组字，[`Self::is_idle`] 照样为真；要等联想结束再做的事（例如重建 Engine）看这一项。
+    pub fn shows_prediction(&self) -> bool {
+        self.cached.prediction
+    }
+
     /// 是否有组字：暂存词段、预编辑、读音或候选任一非空。
     ///
     /// 与 [`Self::is_idle`] 的区别是不看 `snapshot_valid`：一次失败的 refresh 让快照失效，但用户眼里并没有多出一段组字，生命周期核心据此判断组字开始和结束时不能把它算进去。
@@ -2081,6 +2340,10 @@ impl<E: InputEngine> Runtime<E> {
         self.engine.set_rescoring_context(&self.ai_context);
         // 键位几何同样属于宿主：布局没变，宿主不会重发。
         self.engine.set_key_geometry(self.key_geometry.clone());
+        // 打分器挂在 runtime 上，新引擎同样要按它的速度决定多不多取联想的候选池。
+        self.engine.set_prediction_pool(self.orders_prediction());
+        self.engine.set_sentence_pool(self.sentence_pool());
+        self.engine.set_sentence_scorer(self.sentence_scorer());
         self.load_snapshot(cached);
         self.snapshot_valid = true;
         self.page_size = page_size.into();
@@ -2295,6 +2558,12 @@ impl<E: InputEngine> Runtime<E> {
             }
         }
         self.engine.set_rescoring_context(&self.ai_context);
+        // 下一次按键要按新的上文排序；后端趁用户还没按下一个键先编码好，见 `CandidateScorer::context_changed`。
+        if !self.ai_context.is_empty() {
+            if let Some(reranker) = self.reranker.as_mut() {
+                reranker.context_changed(&self.ai_context);
+            }
+        }
     }
 
     /// 回退暂存词段：普通退格在拼写末尾剩零或一个字符时恢复最近一次选词；
@@ -2837,7 +3106,8 @@ impl<E: InputEngine> Runtime<E> {
         if self.cached.prediction {
             return false;
         }
-        let mut moved = self.rerank(true);
+        let mut moved = self.lift_opening_particle();
+        moved |= self.rerank(true);
         moved |= self.demote_runner_up_readings();
         moved |= self.normalize_online_slots();
         moved
@@ -2872,18 +3142,51 @@ impl<E: InputEngine> Runtime<E> {
             } else {
                 rows
             };
-            rerank_pick(
-                reranker,
+            // 整池只比较 26 键上引擎多解的读法；键位网格（九宫格、14 键）照九条比较，见 `rerank_pick_within`。
+            let pool = if snapshot.key_grid.is_none() {
+                reranker.sentence_pool()
+            } else {
+                0
+            };
+            rerank_pick_within(
+                reranker.as_mut(),
                 &self.ai_context,
                 snapshot.scheme,
                 snapshot.answered_by_pinyin_fallback,
                 &rows,
+                pool,
             )
         };
         let Some(promote) = promote else {
             return false;
         };
         self.promote_row(promote)
+    }
+
+    /// 一句话开头单打一个音节、首选是句尾语气词时把它让开，规则见 `msime_engine::ordering::opening_particle_pick`。
+    fn lift_opening_particle(&mut self) -> bool {
+        if !self.cached.conversion.is_empty() || self.cached.caret_edit_suffix {
+            return false;
+        }
+        let promote = {
+            let snapshot = &self.cached;
+            let count = snapshot.candidates.len();
+            if count < 2
+                || snapshot.candidate_sources.len() != count
+                || snapshot.candidate_codes.len() != count
+                || snapshot.candidate_answers_key.len() != count
+                || snapshot.candidate_corrected.len() != count
+            {
+                return false;
+            }
+            opening_particle_pick(
+                self.reranker.as_deref_mut(),
+                &self.ai_context,
+                snapshot.scheme,
+                &order_rows(snapshot),
+            )
+        };
+        promote.is_some_and(|promote| self.promote_row(promote))
     }
 
     /// 把 `promote` 旋到首位，并同步候选元数据和引擎座位映射。下标为 0 或越界时不动。
@@ -3009,6 +3312,47 @@ impl<E: InputEngine> Runtime<E> {
         self.highlighted = found.unwrap_or(page_start).min(visible - 1);
     }
 
+    /// 挂着的逐键打分器在上屏时同步排一池联想仍在逐键预算之内（[`CandidateScorer::scores_prediction_pool_within_keystroke_budget`]）。引擎的联想候选池按它开关。
+    fn orders_prediction(&self) -> bool {
+        self.reranker
+            .as_deref()
+            .is_some_and(CandidateScorer::scores_prediction_pool_within_keystroke_budget)
+    }
+
+    /// 交给引擎拼整句时给前缀打分的模型：挂着的逐键打分器给出的那一份（[`CandidateScorer::sentence_scorer`]），没挂或它不给时为 `None`。
+    fn sentence_scorer(
+        &self,
+    ) -> Option<std::sync::Arc<dyn msime_engine::ordering::SentenceScorer>> {
+        self.reranker
+            .as_deref()
+            .and_then(CandidateScorer::sentence_scorer)
+    }
+
+    /// 引擎每条切分至少解出的整句读法条数：挂着的逐键打分器报的 [`CandidateScorer::sentence_pool`]；没挂或它报 0 时引擎照默认条数，候选与不挂打分器的宿主逐行相同。
+    fn sentence_pool(&self) -> usize {
+        self.reranker
+            .as_deref()
+            .map_or(0, CandidateScorer::sentence_pool)
+    }
+
+    /// 上屏后联想的词库续写交给逐键打分器排序，排序规则和「每次上屏只排一次」都在引擎里（`Session::order_prediction`）；没挂打分器、或打分器不在预算之内（[`Self::orders_prediction`]）时什么都不做。
+    ///
+    /// 在取快照之前做，引擎的行已经是最终顺序：座位就是引擎下标，选词照常按代次核对，插件的变换看到的也是排好的行。这次上屏的文字要等 [`Self::transition`] 才进 `ai_context`，所以上文只到这次上屏之前，引擎自己接上刚上屏的词；暂存的词段（`phrase_prefix`）会和这次的词一起上屏，接在上文末尾。
+    fn order_prediction(&mut self) {
+        if !self.orders_prediction() {
+            return;
+        }
+        let Some(scorer) = self.reranker.as_mut() else {
+            return;
+        };
+        let before = if self.phrase_prefix.is_empty() {
+            std::borrow::Cow::Borrowed(self.ai_context.as_str())
+        } else {
+            std::borrow::Cow::Owned(format!("{}{}", self.ai_context, self.phrase_prefix))
+        };
+        self.engine.order_prediction(scorer.as_mut(), &before);
+    }
+
     pub(crate) fn refresh(&mut self) -> Result<(), RuntimeError> {
         // 派发类调用里先问插件指令，行在取快照之前写进引擎：同一次派发，代次不变。
         self.run_command_provider();
@@ -3020,6 +3364,7 @@ impl<E: InputEngine> Runtime<E> {
         self.engine_order.clear();
         let previous_highlight = self.highlighted;
         self.highlighted = 0;
+        self.order_prediction();
         // Drop cached candidate identities even if fetching the replacement fails.
         let snapshot = match self.engine.snapshot() {
             Ok(snapshot) => snapshot,
@@ -3336,6 +3681,8 @@ impl<E: InputEngine> Runtime<E> {
     }
 
     pub fn dispatch(&mut self, action: Action) -> Result<Transition, RuntimeError> {
+        // 停顿重解解完后留在按键位置上的模型，在下一次派发前放回去：按键照旧不带模型。
+        self.unmount_deferred_scorer();
         // 桌面上只有派发类调用运行脚本插件的候选变换，旁路调用只重放，见 `transform` 模块。
         #[cfg(any(
             target_os = "macos",
@@ -3368,6 +3715,11 @@ impl<E: InputEngine> Runtime<E> {
         // has no focus. Ordinary input must still pass through unchanged.
         if !self.focused && !matches!(&action, Action::ResetCache) {
             return Ok(self.transition(empty_result(false)));
+        }
+        if self.engine.requires_candidate_selection()
+            && crate::glide_selection::is_implicit_commit(&action)
+        {
+            return Ok(self.transition(empty_result(true)));
         }
         // 空闲联想没有可编辑的组字；导航键清掉建议后交还编辑器，不能沿用普通候选的高亮导航。
         if self.cached.prediction
@@ -3514,9 +3866,9 @@ impl<E: InputEngine> Runtime<E> {
         // 四码已有五笔候选时，后续字母通常顶字上屏并开始下一组编码。混输拼音能继续当前候选的读音时，
         // 由引擎保留组字，避免把五字母拼音截成四码。判定本身是纯函数（`wubi_top_commit_on_next_key`），
         // 开关、混输、四码完整性与读音续输四项都在那里，方便单测覆盖。
-        let wubi_top_commit = match action {
+        let letter_request = match action {
             Action::Character { value, shift } if value.is_ascii_alphabetic() => {
-                wubi_top_commit_on_next_key(&WubiTopCommitRequest {
+                Some(WubiTopCommitRequest {
                     top_commit_enabled: self.wubi_fifth_code_top_commit,
                     mixed_pinyin: self.engine.wubi_mixed_pinyin(),
                     four_code_is_complete: self.snapshot_valid
@@ -3525,6 +3877,19 @@ impl<E: InputEngine> Runtime<E> {
                     pinyin_continues: self.engine.wubi_pinyin_continues(value, shift),
                 })
             }
+            _ => None,
+        };
+        // 顶字关掉、混输开着：这个小写字母并进混输串（#10696）。引擎平时只在码表答不出或读音能续写时放开四码上限，不先放开的话这一键会被挡掉。
+        if let (Action::Character { shift: false, .. }, Some(request)) = (&action, &letter_request)
+        {
+            if wubi_mixed_grows_on_next_key(request) {
+                self.engine.allow_wubi_mixed_extension();
+            }
+        }
+        let wubi_top_commit = match action {
+            Action::Character { .. } if letter_request.is_some() => letter_request
+                .as_ref()
+                .is_some_and(wubi_top_commit_on_next_key),
             // 五笔 14 键：组码不进混输拼音，四码之后的一键只能顶字，不看混输开关。
             Action::GridKey(_) => wubi_top_commit_on_next_key(&WubiTopCommitRequest {
                 top_commit_enabled: self.wubi_fifth_code_top_commit,
@@ -3649,6 +4014,27 @@ impl<E: InputEngine> Runtime<E> {
                     && self.cached.spelling_symbols.as_bytes().contains(&value) =>
             {
                 self.punctuation(value)
+            }
+            // 上屏后联想和普通候选一样选：空格选高亮的一条，数字键选当前页对应的一条。要在交给引擎之前接管，引擎收到任何按键都会先清掉联想。九键、字母网格和拿数字拼写的方案里数字是输入，越过本页的数字照常输入，都交给引擎。
+            Action::Character { value: b' ', .. } if self.cached.prediction && len > 0 => {
+                pick = Some((SelectionHow::Highlighted, self.highlighted));
+                self.select_seat(self.highlighted)
+            }
+            Action::Character { value, .. }
+                if self.cached.prediction
+                    && !self.cached.nine_key
+                    && !self.cached.key_grid.is_some_and(KeyGrid::uses_digits)
+                    && !self.cached.spelling_symbols.as_bytes().contains(&value)
+                    && candidate_digit_slot(value, self.page_size).is_some_and(|slot| {
+                        let page_start = (self.highlighted / self.page_size) * self.page_size;
+                        slot < self.page_size && page_start + slot < len
+                    }) =>
+            {
+                let page_start = (self.highlighted / self.page_size) * self.page_size;
+                let seat = page_start + candidate_digit_slot(value, self.page_size).unwrap_or(0);
+                selected_by_digit = true;
+                pick = Some((SelectionHow::Digit, seat));
+                self.select_seat(seat)
             }
             Action::Character { value, shift } => {
                 self.engine.character(value, shift).and_then(|result| {
@@ -3777,14 +4163,21 @@ impl<E: InputEngine> Runtime<E> {
             Action::Glide {
                 ref keyboard,
                 ref points,
-            } => self.engine.glide(keyboard, points),
+                bilingual,
+            } => {
+                if bilingual {
+                    self.engine.bilingual_glide(keyboard, points)
+                } else {
+                    self.engine.glide(keyboard, points)
+                }
+            }
             // A scheme that spells with Space lists it among its spelling symbols (Zhuyin's first tone, or opening its list with no syllable pending), and then the Space command is that key rather than a pick of the highlighted row.
             Action::SelectHighlighted
                 if self.cached.spelling_symbols.as_bytes().contains(&b' ') =>
             {
                 self.engine.character(b' ', false)
             }
-            Action::SelectHighlighted if len > 0 && !self.cached.prediction => {
+            Action::SelectHighlighted if len > 0 => {
                 pick = Some((SelectionHow::Highlighted, self.highlighted));
                 self.select_seat(self.highlighted)
             }
@@ -3806,6 +4199,14 @@ impl<E: InputEngine> Runtime<E> {
             }
             if raw_route {
                 self.facts.raw = result.has_commit;
+                // 没有组字时按的回车交给了应用：聊天里是发出一条消息，编辑器里是换行。记成上文里的换行，下一次打字就知道是一句话的开头（`msime_engine::lattice::decode::opens_sentence`），开头的「吗」「吧」不再排在「妈」「爸」前面。
+                if len == 0
+                    && self.phrase_prefix.is_empty()
+                    && !result.has_commit
+                    && !result.handled
+                {
+                    self.remember_commit("\n");
+                }
             }
             if top_tail > 0 {
                 self.facts.tail_chars = top_tail;
@@ -4001,6 +4402,15 @@ pub(crate) struct WubiTopCommitRequest {
 /// 的 `(top_commit_enabled || !mixed_pinyin_enabled)` 是同一个条件。`!pinyin_continues` 是水杉自己加的（#8619）：字母能继续混输拼音的读音时，无论开关如何都保留组字，否则 `guiyi` 这类首四码碰上五笔整码的拼音打不出来。
 pub(crate) fn wubi_top_commit_on_next_key(request: &WubiTopCommitRequest) -> bool {
     (request.top_commit_enabled || !request.mixed_pinyin)
+        && request.four_code_is_complete
+        && request.phrase_prefix_empty
+        && !request.pinyin_continues
+}
+
+/// 完整四码之后再敲一个字母、顶字开关关着时，这个字母是否并进混输串：混输开着、四码完整、没有暂存词段。读音能续写时引擎自己会放开长度，不必再问。
+pub(crate) fn wubi_mixed_grows_on_next_key(request: &WubiTopCommitRequest) -> bool {
+    !request.top_commit_enabled
+        && request.mixed_pinyin
         && request.four_code_is_complete
         && request.phrase_prefix_empty
         && !request.pinyin_continues

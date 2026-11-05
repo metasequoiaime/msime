@@ -2711,6 +2711,39 @@ fn shuangpin_keymap_hint_stays_out_of_the_document_until_chosen() {
     );
 }
 
+// #10717：「双拼分隔」是 `shuangpin_preedit_uses_raw` 之外单独的一个键，布尔的旧键不变，读旧键的各端和 macOS 账号同步都不受影响。
+#[test]
+fn shuangpin_preedit_separated_is_a_separate_key_left_out_until_chosen() {
+    let defaults = Preferences::default();
+    assert!(defaults.shuangpin_preedit_uses_raw);
+    assert!(!defaults.shuangpin_preedit_separated);
+    let serialized = serde_json::to_value(&defaults).unwrap();
+    assert!(serialized.get("shuangpin_preedit_separated").is_none());
+    assert_eq!(serialized["shuangpin_preedit_uses_raw"], true);
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    store
+        .save(
+            0,
+            Preferences {
+                shuangpin_preedit_separated: true,
+                ..defaults
+            },
+        )
+        .unwrap();
+    let loaded = store.load().unwrap().preferences;
+    assert!(loaded.shuangpin_preedit_uses_raw);
+    assert!(loaded.shuangpin_preedit_separated);
+    let document: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(dir.path().join("preferences.json")).unwrap(),
+    )
+    .unwrap();
+    // 旧键仍是布尔：没有新键的版本读这份文档得到的是「保留原始按键」。
+    assert_eq!(document["preferences"]["shuangpin_preedit_uses_raw"], true);
+    assert_eq!(document["preferences"]["shuangpin_preedit_separated"], true);
+}
+
 #[test]
 fn cloud_candidates_start_off_but_an_upgraded_document_keeps_them() {
     let defaults = Preferences::default();
@@ -7388,6 +7421,154 @@ fn translation_ai_recovery_migrates_a_legacy_document() {
     assert_eq!(store.load().unwrap(), snapshot);
 }
 
+/// 默认改成「增强」之前写下的文档：`neural_keyboard` 存着当时默认的 `false`，没有迁移标记。
+fn keyboard_reranker_legacy_document() -> serde_json::Value {
+    let mut legacy = serde_json::json!({
+        "format_version": 1,
+        "revision": 0,
+        "preferences": Preferences::default(),
+    });
+    let preferences = legacy["preferences"].as_object_mut().unwrap();
+    preferences["sentence_association"]["neural_keyboard"] = false.into();
+    assert_eq!(
+        preferences.remove("keyboard_reranker_migrated"),
+        Some(true.into())
+    );
+    legacy
+}
+
+// 新文档从一开始就是「增强」，并带着标记；缺 `neural_keyboard` 键时按「增强」读，缺整个 `sentence_association` 也是。
+#[test]
+fn keyboard_reranker_defaults_on_when_the_key_is_absent() {
+    let defaults = Preferences::default();
+    assert!(defaults.sentence_association.neural_keyboard);
+    assert!(defaults.sentence_association.word_lattice);
+    assert!(defaults.keyboard_reranker_migrated);
+
+    let association: SentenceAssociationPreferences =
+        serde_json::from_value(serde_json::json!({ "word_lattice": true })).unwrap();
+    assert!(association.neural_keyboard);
+    let association: SentenceAssociationPreferences =
+        serde_json::from_value(serde_json::json!({})).unwrap();
+    assert!(association.neural_keyboard);
+
+    let mut document = serde_json::to_value(Preferences::default()).unwrap();
+    document
+        .as_object_mut()
+        .unwrap()
+        .remove("sentence_association");
+    let preferences: Preferences = serde_json::from_value(document).unwrap();
+    assert!(preferences.sentence_association.neural_keyboard);
+}
+
+// 迁移本身：旧文档里词网格开着（「标准」）时改成「增强」；词网格关着（三档里的「关闭」）不动；两种都标上标记，之后选回「标准」不再被改。带着标记的文档里显式的 `false` 原样保留。
+#[test]
+fn keyboard_reranker_settle_turns_on_standard_but_keeps_off() {
+    let legacy: Preferences =
+        serde_json::from_value(keyboard_reranker_legacy_document()["preferences"].clone()).unwrap();
+    assert!(!legacy.keyboard_reranker_migrated);
+    assert!(!legacy.sentence_association.neural_keyboard);
+
+    let mut standard = legacy.clone();
+    standard.settle_keyboard_reranker_default();
+    assert!(standard.sentence_association.neural_keyboard);
+    assert!(standard.keyboard_reranker_migrated);
+    standard.sentence_association.neural_keyboard = false;
+    standard.settle_keyboard_reranker_default();
+    assert!(!standard.sentence_association.neural_keyboard);
+
+    let mut off = legacy.clone();
+    off.sentence_association.word_lattice = false;
+    off.settle_keyboard_reranker_default();
+    assert!(!off.sentence_association.neural_keyboard);
+    assert!(!off.sentence_association.word_lattice);
+    assert!(off.keyboard_reranker_migrated);
+
+    let mut enhanced = legacy;
+    enhanced.sentence_association.neural_keyboard = true;
+    enhanced.settle_keyboard_reranker_default();
+    assert!(enhanced.sentence_association.neural_keyboard);
+}
+
+// 各个已发布版本写下的文档都没有标记、存着默认的「标准」：读入时都按「增强」读，文件不变。
+#[test]
+fn released_documents_read_as_enhanced() {
+    for (release, document) in RELEASED_DOCUMENTS {
+        let directory = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(directory.path());
+        fs::write(store.path(), document).unwrap();
+        let loaded = store.load().unwrap();
+        assert!(
+            loaded.preferences.sentence_association.neural_keyboard,
+            "{release}"
+        );
+        assert!(loaded.preferences.keyboard_reranker_migrated, "{release}");
+        assert_eq!(fs::read(store.path()).unwrap(), document.as_bytes());
+    }
+}
+
+// 经过存储的完整路径：旧文档读入时迁移，文件在下一次真正的保存之前保持原样；用户随后选回「标准」，写入方的偏好里没有标记也照样落盘，再读还是「标准」；恢复默认设置回到「增强」。
+#[test]
+fn keyboard_reranker_migration_runs_once_and_an_explicit_standard_sticks() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut legacy = keyboard_reranker_legacy_document();
+    legacy["revision"] = 3.into();
+    let bytes = serde_json::to_vec(&legacy).unwrap();
+    fs::write(store.path(), &bytes).unwrap();
+
+    let loaded = store.load().unwrap();
+    assert_eq!(loaded.revision, 3);
+    assert!(loaded.preferences.sentence_association.neural_keyboard);
+    assert!(loaded.preferences.keyboard_reranker_migrated);
+    assert_eq!(store.load().unwrap(), loaded);
+    assert_eq!(fs::read(store.path()).unwrap(), bytes);
+
+    let mut standard = serde_json::to_value(&loaded.preferences).unwrap();
+    standard["sentence_association"]["neural_keyboard"] = false.into();
+    standard
+        .as_object_mut()
+        .unwrap()
+        .remove("keyboard_reranker_migrated")
+        .unwrap();
+    let standard: Preferences = serde_json::from_value(standard).unwrap();
+    assert!(!standard.keyboard_reranker_migrated);
+    let saved = store.save(3, standard).unwrap();
+    assert!(saved.preferences.keyboard_reranker_migrated);
+    let on_disk: serde_json::Value =
+        serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+    assert_eq!(
+        on_disk["preferences"]["keyboard_reranker_migrated"],
+        serde_json::Value::Bool(true)
+    );
+    assert_eq!(
+        on_disk["preferences"]["sentence_association"]["neural_keyboard"],
+        serde_json::Value::Bool(false)
+    );
+    let reloaded = store.load().unwrap();
+    assert_eq!(reloaded, saved);
+    assert!(!reloaded.preferences.sentence_association.neural_keyboard);
+
+    let restored = store.save(saved.revision, Preferences::default()).unwrap();
+    assert!(restored.preferences.sentence_association.neural_keyboard);
+}
+
+// 修复损坏文档时，没有标记的旧文档照样迁移一次。
+#[test]
+fn keyboard_reranker_recovery_migrates_a_legacy_document() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut legacy = keyboard_reranker_legacy_document();
+    legacy["preferences"]["learning"] = serde_json::json!("yes");
+    fs::write(store.path(), serde_json::to_vec(&legacy).unwrap()).unwrap();
+    assert!(store.load().is_err());
+    let (snapshot, _, salvaged) = expect_recovered(store.recover().unwrap());
+    assert!(salvaged);
+    assert!(snapshot.preferences.sentence_association.neural_keyboard);
+    assert!(snapshot.preferences.keyboard_reranker_migrated);
+    assert_eq!(store.load().unwrap(), snapshot);
+}
+
 // The source ships muting, DDC and text polishing on; `config.default.toml` says so for Windows, and macOS follows the desktop product it ports. Each is a plain voice switch, so no platform reason keeps them off there. The other hosts keep what they have shipped, and a stored value is never reinterpreted.
 #[test]
 fn voice_first_run_follows_the_source_on_desktop_ports() {
@@ -8751,6 +8932,8 @@ const NOT_CREDENTIALS: &[&str] = &[
     "custom_theme.keyboard.keyShape",
     "floating_toolbar.screen_keyboard",
     "keybindings",
+    // 整句联想默认「增强」的一次性迁移标记，名字里的 keyboard 不是凭据。
+    "keyboard_reranker_migrated",
     // 辅助码按键是普通键位偏好，不是服务凭据。
     "quanpin_helpcode.trigger_key",
     "shuangpin_helpcode.trigger_key",

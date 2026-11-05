@@ -1,0 +1,166 @@
+name: ONNX rerank backend
+
+# 按键重排的 ONNX Runtime 后端（crates/onnx-rerank 的 `runtime` 特性、host-api 与 input-runtime 的 `onnx-rerank` 特性）默认不编，别的 CI 作业都不开这些特性，所以 scorer.rs 对 `ort` 的用法、它对 CandidateScorer 的实现、host-api 里挂载与分档的代码和 golden 测试原本在哪个 runner 上都不会被编译。这里在 Linux x86_64 上开着这些特性跑 clippy，再链接精简构建的 ONNX Runtime 跑 golden 测试和 host-api 的挂载测试。静态库用 tools/onnxruntime-minimal/build.sh 现编，按 ONNX Runtime 版本、算子清单和构建脚本缓存：它们不变就不重编。
+on:
+  push:
+    branches:
+      - develop
+    paths:
+      - crates/onnx-rerank/**
+      - crates/engine/src/ordering.rs
+      - crates/engine/Cargo.toml
+      - crates/input-runtime/**
+      - crates/host-api/Cargo.toml
+      - crates/host-api/src/ffi.rs
+      - crates/host-api/src/tests.rs
+      - crates/client-providers/src/resource_packs.rs
+      - resources/rerank-model.lock.json
+      - tools/onnxruntime-minimal/**
+      - resources/onnxruntime-minimal.lock.json
+      - scripts/fetch_onnxruntime.py
+      - platforms/windows/Build-RustOutputs.ps1
+      - Cargo.toml
+      - Cargo.lock
+      - rust-toolchain.toml
+      - .github/workflows/onnx-rerank.yml
+  pull_request:
+    paths:
+      - crates/onnx-rerank/**
+      - crates/engine/src/ordering.rs
+      - crates/engine/Cargo.toml
+      - crates/input-runtime/**
+      - crates/host-api/Cargo.toml
+      - crates/host-api/src/ffi.rs
+      - crates/host-api/src/tests.rs
+      - crates/client-providers/src/resource_packs.rs
+      - resources/rerank-model.lock.json
+      - tools/onnxruntime-minimal/**
+      - resources/onnxruntime-minimal.lock.json
+      - scripts/fetch_onnxruntime.py
+      - platforms/windows/Build-RustOutputs.ps1
+      - Cargo.toml
+      - Cargo.lock
+      - rust-toolchain.toml
+      - .github/workflows/onnx-rerank.yml
+  workflow_dispatch:
+
+concurrency:
+  group: onnx-rerank-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: ONNX rerank backend (Linux x86_64)
+    runs-on: depot-ubuntu-24.04-8
+    timeout-minutes: 90
+    env:
+      SCCACHE_IGNORE_SERVER_IO_ERROR: '1'
+      CARGO_INCREMENTAL: '0'
+      ORT_WORK: ${{ github.workspace }}/target/onnxruntime-minimal
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install sccache
+        id: sccache
+        continue-on-error: true
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+      - name: Enable sccache
+        if: ${{ steps.sccache.outcome == 'success' }}
+        shell: bash
+        run: |
+          if sccache --start-server; then
+            echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          else
+            echo "::warning::sccache did not start; the Rust build runs without the compile cache"
+          fi
+      # host-api 在桌面 Linux 上经 cpal 链接 ALSA；zsh 给下面的 build.sh 用。
+      - name: Install build dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libasound2-dev libssl-dev pkgconf zsh
+          # 安装 rust-toolchain.toml 钉住的工具链和它的 clippy。
+          rustup toolchain install
+      # 不链接原生库也能做的那一半：ort-sys 没找到 ONNX Runtime 时把报错推迟到链接，clippy 照常类型检查开着特性的全部代码（含测试和 rerank_latency 示例）。
+      - name: Clippy with the ONNX backend features
+        run: cargo clippy --locked -p msime-onnx-rerank -p msime-input-runtime -p msime-host-api --all-targets --features msime-onnx-rerank/runtime,msime-input-runtime/onnx-rerank,msime-host-api/onnx-rerank -- -D warnings
+      - name: Restore the minimal ONNX Runtime
+        id: ort-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            target/onnxruntime-minimal/out/linux-x86_64/libonnxruntime.a
+            target/onnxruntime-minimal/out/linux-x86_64/libonnxruntime.a.gz
+          key: onnxruntime-minimal-linux-x86_64-v1.24.4-${{ hashFiles('tools/onnxruntime-minimal/required_operators_and_types.config', 'tools/onnxruntime-minimal/build.sh') }}
+      # 与 README 和 onnxruntime-minimal.yml 同一个版本、同一个提交；标签被改过就停下。build.sh 在 msime 发 Linux 版的同一个镜像里编，产物与发布时链接的是同一种库。
+      - name: Build the minimal ONNX Runtime
+        if: ${{ steps.ort-cache.outputs.cache-hit != 'true' }}
+        env:
+          JOBS: '8'
+        run: |
+          set -euo pipefail
+          git clone --quiet --depth 1 --branch v1.24.4 https://github.com/microsoft/onnxruntime.git "$RUNNER_TEMP/onnxruntime"
+          commit=$(git -C "$RUNNER_TEMP/onnxruntime" rev-parse HEAD)
+          if [[ "$commit" != 2d924974ef147392ced8409d36bd6d2e7fcc8a74 ]]; then echo "v1.24.4 resolved to $commit" >&2; exit 1; fi
+          zsh tools/onnxruntime-minimal/build.sh "$RUNNER_TEMP/onnxruntime" "$ORT_WORK" linux-x86_64
+      # resources/onnxruntime-minimal.lock.json 的 x86_64-unknown-linux-gnu 就是这里编出的库：发新的 onnxruntime-minimal-<版本>-r<序号> 时从这个作业的附件取 libonnxruntime.a.gz（build.sh 用 gzip -9 -n 压的），不在别的机器上另编。附件只留 14 天，发布前重跑一次即可。
+      - name: Upload the minimal ONNX Runtime
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: libonnxruntime-x86_64-unknown-linux-gnu
+          path: target/onnxruntime-minimal/out/linux-x86_64/libonnxruntime.a.gz
+          if-no-files-found: error
+          retention-days: 14
+      # golden.rs：小模型逐键打分与 ONNX Runtime 的 Python 包一致、复用缓存与从头算一致；host-api：装了模型挂它、按自测在大小两档之间选、都坏了退回随包的句子模型。
+      - name: Golden and mounting tests against ONNX Runtime
+        run: |
+          set -euo pipefail
+          export ORT_LIB_LOCATION="$ORT_WORK/out/linux-x86_64"
+          test -f "$ORT_LIB_LOCATION/libonnxruntime.a"
+          cargo test --locked -p msime-onnx-rerank --features runtime
+          cargo test --locked -p msime-host-api --features onnx-rerank --lib keyboard_reranker
+
+  # Windows 的发布（Build-RustOutputs.ps1）给 x64 宿主开着 onnx-rerank，链接锁里发布的 x86_64-pc-windows-msvc 精简库（/MD）。上面的 Linux 作业现编自己的库，碰不到 MSVC 的链接和这一份发布的库；这里用 fetch_onnxruntime.py 按锁下载核对它，跑同样的 golden 和挂载测试。只编 x64：x86 和 arm64 的宿主只给 TIP 加载，TIP 的会话不挂逐键重排，不开这个特性。
+  windows:
+    name: ONNX rerank backend (Windows x64)
+    runs-on: depot-windows-2025-8
+    timeout-minutes: 90
+    env:
+      SCCACHE_IGNORE_SERVER_IO_ERROR: '1'
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install sccache
+        id: sccache
+        continue-on-error: true
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+      - name: Enable sccache
+        if: ${{ steps.sccache.outcome == 'success' }}
+        shell: bash
+        run: |
+          if sccache --start-server; then
+            echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          else
+            echo "::warning::sccache did not start; the Rust build runs without the compile cache"
+          fi
+      - name: Golden and mounting tests against the released ONNX Runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # rust-toolchain.toml pins the compiler; this installs it from the repository root.
+          rustup toolchain install
+          if ($LASTEXITCODE -ne 0) { throw 'rustup toolchain install failed' }
+          $location = @(& python scripts/fetch_onnxruntime.py --target x86_64-pc-windows-msvc)
+          if ($LASTEXITCODE -ne 0) { throw 'fetch_onnxruntime.py failed' }
+          $env:ORT_LIB_LOCATION = $location[-1]
+          if (-not (Test-Path -LiteralPath (Join-Path $env:ORT_LIB_LOCATION 'onnxruntime.lib') -PathType Leaf)) { throw "no onnxruntime.lib in $env:ORT_LIB_LOCATION" }
+          cargo test --locked -p msime-onnx-rerank --features runtime
+          if ($LASTEXITCODE -ne 0) { throw 'msime-onnx-rerank tests failed' }
+          cargo test --locked -p msime-host-api --features onnx-rerank --lib keyboard_reranker
+          if ($LASTEXITCODE -ne 0) { throw 'host-api keyboard_reranker tests failed' }

@@ -103,6 +103,9 @@ HRESULT CKeyStateCategory::KeyStateHandler(KEYSTROKE_FUNCTION function, KeyHandl
     case FUNCTION_HOST_CANDIDATE_NAVIGATION:
         return _pTextService->_HandleHostCandidateNavigation(dto.ec, dto.pContext, dto.code);
 
+    case FUNCTION_PREDICTION_SELECT:
+        return _pTextService->_HandlePredictionSelectKey(dto.ec, dto.pContext, dto.requestId);
+
     case FUNCTION_HOST_ONLINE_CANDIDATES:
         return _pTextService->_HandleHostOnlineCandidates(dto.ec, dto.pContext, dto.prefetchedText);
 

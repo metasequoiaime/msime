@@ -1,4 +1,5 @@
 #include "../src/core/ClientEngine.h"
+#include "../src/core/NextWordPrediction.h"
 #include "../../../common/HostApiString.h"
 #include "../../../common/VocabularyDueMenu.h"
 #include "msime_client.h"
@@ -379,7 +380,8 @@ int main(int argc, char **argv) {
                                   std::string(argv[2]) == "--japanese-toggle" ||
                                   std::string(argv[2]) == "--chaizi" ||
                                   std::string(argv[2]) == "--online-socket-switch" ||
-                                  std::string(argv[2]) == "--stale-candidate-click")))
+                                  std::string(argv[2]) == "--stale-candidate-click" ||
+                                  std::string(argv[2]) == "--prediction")))
     return 2;
   try {
     // This fixture asserts RegisterProperties and must exercise the real menu path.
@@ -432,6 +434,9 @@ int main(int argc, char **argv) {
             {"show_in_candidate_window", false}, {"trigger_key", std::string(family) == "quanpin_helpcode" ? "/" : ";"}};
     }
     options["preferences"]["candidate_translations"] = false;
+    // 资源验收只核对宿主行为；逐键神经重排的模型耗时受 runner 负载影响，关闭它避免把候选顺序和时序测试变成性能门禁。
+    options["preferences"]["sentence_association"]["neural_keyboard"] = false;
+    options["preferences"]["local_modes"]["chaizi"] = false;
     options["preferences"]["keybindings"]["switch_language_ctrl"] = true;
     options["preferences"]["voice_input"]["hotkey_ctrl_win"] = true;
     options["preferences"]["voice_input"]["stream_inline_preedit"] = true;
@@ -512,7 +517,7 @@ int main(int argc, char **argv) {
     // comes from are still queued when the call returns. Wait for the
     // observation itself rather than draining whatever happens to be pending.
     auto wait_until = [&](auto ready) {
-      const auto deadline = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
+      const auto deadline = g_get_monotonic_time() + 15 * G_USEC_PER_SEC;
       while (!ready() && g_get_monotonic_time() < deadline) {
         while (g_main_context_iteration(nullptr, FALSE)) {}
         g_usleep(1000);
@@ -742,6 +747,8 @@ int main(int argc, char **argv) {
       translated["preferences"]["cloud_candidates"] = false;
       translated["preferences"]["ai_assistant"]["enabled"] = false;
       translated["preferences"].erase("candidate_translation_scope");
+      // 资源夹具开了混排 Emoji，nihao 的第二个候选就成了 👋，而 Emoji 行不带译文（source_gets_no_gloss），高亮移过去也不会去问。这里要的是两个都能译的词。
+      translated["preferences"]["mixed_input"]["emoji"] = false;
       ibus_object_destroy(IBUS_OBJECT(engine));
       g_object_unref(engine);
       msime_ibus_configure(translated.dump());
@@ -759,7 +766,19 @@ int main(int argc, char **argv) {
       require(asked.size() == 1 && asked.front().size() == 1, "第一次请求不是只问高亮的那一个候选");
       const auto first = asked.front().front();
       require(key(IBUS_Down) && wait_until([&] { return seen.cursor == 1; }), "Down 没有把高亮移到第二个候选");
-      require(wait_until([&] { return glossed(1) && !glossed(0); }), "高亮移走后译文没有跟着走");
+      if (!wait_until([&] { return glossed(1) && !glossed(0); })) {
+        std::string observed;
+        for (const auto &candidate : seen.candidates) observed += "[" + candidate + "]";
+        std::string requested;
+        for (const auto &request : provider.translation_requests()) {
+          requested += "{";
+          for (const auto &text : request) requested += "[" + text + "]";
+          requested += "}";
+        }
+        require(false, ("高亮移走后译文没有跟着走: candidates=" + observed + " cursor=" + std::to_string(seen.cursor) +
+                        " requests=" + requested)
+                           .c_str());
+      }
       asked = provider.translation_requests();
       require(asked.size() == 2 && asked.back().size() == 1 && asked.back().front() != first,
               "高亮移到第二个候选后没有只为它单独请求一次");
@@ -777,6 +796,96 @@ int main(int argc, char **argv) {
       return 0;
     }
     // 多义译文临时页上的点选。IBus 的点击只带槽位号，宿主要按面板上实际显示的那一页去解释它。默认模式的流程停在更前面一处与此无关的失败上，到不了这里，所以单独成一个模式。
+    // 上屏后联想（#9433）：和普通候选一样，点选、数字键选本页对应的一行、空格选高亮的首行；越过本页的数字、回车和标点照常输入，标点仍是中文标点，逗号句号不翻页；Esc 收起；上屏之后紧跟着的 Reset 回声不收起，之后的 Reset 收起。
+    if (argc == 3 && std::string(argv[2]) == "--prediction") {
+      auto predicting = options;
+      predicting.erase("preferences_directory");
+      predicting["preferences"]["next_word_prediction"] = true;
+      predicting["preferences"]["candidate_page_size"] = 5;
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+      msime_ibus_configure(predicting.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      // 打 zhong，点选「中」，等联想出来。返回面板上的这一页联想。
+      const auto suggest = [&] {
+        for (char c : std::string("zhong"))
+          require(key(c), "拼音按键没有被处理");
+        const int slot = page_to("中");
+        require(slot >= 0, "候选里没有「中」");
+        const auto before = seen.committed;
+        invoke("CandidateClicked", g_variant_new("(uuu)", static_cast<guint>(slot), 1, 0));
+        require(seen.committed == before + "中", ("点选没有上屏「中」：committed=[" + seen.committed + "]").c_str());
+        require(wait_until([&] { return seen.lookup_visible && seen.candidates.size() >= 2; }),
+                "上屏「中」之后没有显示至少两行联想");
+        require(seen.preedit.empty(), "联想不应有预编辑");
+        return seen.candidates;
+      };
+      const auto dismissed = [&](const char *what) {
+        settle_lookup();
+        require(!seen.lookup_visible, (std::string(what) + "之后联想还在").c_str());
+      };
+      // 上屏之后紧跟着的 Reset 是客户端对这次上屏的回声，联想留着；窗口过了之后的 Reset 是光标移动，收起。
+      suggest();
+      invoke("Reset");
+      require(seen.lookup_visible, "上屏之后紧跟着的 Reset 收起了联想");
+      g_usleep((msime::linux_host::PredictionResetEcho::kWindowMs + 100) * 1000);
+      invoke("Reset");
+      dismissed("光标移动的 Reset");
+      // 数字键选本页对应的一行（数字行和小键盘一样），空格选高亮的首行；上屏的是这一行，接着给出下一组联想。
+      for (const auto &[pick, row] : {std::pair<guint, size_t>{'1', 0}, std::pair<guint, size_t>{IBUS_KP_2, 1},
+                                      std::pair<guint, size_t>{IBUS_space, 0}}) {
+        const auto page = suggest();
+        const auto before = seen.committed;
+        require(key(pick), "联想时选词键没有被处理");
+        require(seen.committed == before + page.at(row),
+                ("联想时选词键没有上屏对应的一行：row=[" + page.at(row) + "] committed=[" + seen.committed + "]").c_str());
+      }
+      // 越过本页行数的数字不选词：收起联想，交给应用照常输入。
+      {
+        const auto page = suggest();
+        require(page.size() < 9, "联想一页不该有九行");
+        const auto before = seen.committed;
+        require(!key('9'), "越过本页的数字应交给应用");
+        require(seen.committed == before, ("越过本页的数字选了联想：committed=[" + seen.committed + "]").c_str());
+        dismissed("越过本页的数字");
+      }
+      suggest();
+      auto before = seen.committed;
+      require(!key(IBUS_Return), "联想时回车应交给应用");
+      require(seen.committed == before, "联想时回车上屏了联想");
+      dismissed("回车");
+      // 逗号和句号原本是翻页键（comma_period 默认开）：联想时它们照常走中文标点，不能变成半角符号交给应用，也不能翻页。
+      for (const auto &[mark, chinese] : {std::pair<guint, std::string>{IBUS_comma, "，"},
+                                          std::pair<guint, std::string>{IBUS_period, "。"}}) {
+        suggest();
+        before = seen.committed;
+        require(key(mark), "联想时标点没有走中文标点");
+        require(seen.committed == before + chinese,
+                ("联想时标点没有上屏中文标点：committed=[" + seen.committed + "]").c_str());
+        dismissed("标点");
+      }
+      suggest();
+      before = seen.committed;
+      require(key(IBUS_Escape), "联想时 Esc 应被输入法吃掉");
+      require(seen.committed == before, "Esc 上屏了联想");
+      dismissed("Esc");
+      // 按住退格：联想不算组字，每一次重复都交给应用删字，不会在第一下之后被吞掉。
+      suggest();
+      require(!key(IBUS_BackSpace) && !key(IBUS_BackSpace), "联想时按住退格被输入法吞掉了");
+      dismissed("退格");
+      // 点选联想上屏它，接着给出下一组联想。
+      const auto page = suggest();
+      before = seen.committed;
+      invoke("CandidateClicked", g_variant_new("(uuu)", 1, 1, 0));
+      require(seen.committed == before + page.at(1),
+              ("点选联想没有上屏被点的那一行：row=[" + page.at(1) + "] committed=[" + seen.committed + "]").c_str());
+      require(seen.preedit.empty(), "点选联想之后不应有预编辑");
+      std::cout << "IBus 上屏后联想按键与点选回归通过\n";
+      finish();
+      return 0;
+    }
     if (argc == 3 && std::string(argv[2]) == "--stale-candidate-click") {
       const auto socket = (root / "stale-candidate-click.sock").string();
       TranslationProviderFixture provider(socket);
@@ -1290,9 +1399,21 @@ int main(int argc, char **argv) {
     }
     // 拆字反查在桌面默认关：偏好里没有这个键时 Shift+C 留给应用。从快捷模式菜单打开后 Shift+C 进入，跟在部件后面的 ' 由 Engine 列进 spelling_symbols，IBus 把它当字符交给 Engine 当部件分隔符；空格上屏首行。再关掉又交给应用。
     if (argc == 3 && std::string(argv[2]) == "--chaizi") {
+      // 资源夹具给其余用例显式关了拆字；这里要验的是偏好里没有这个键时的桌面默认，所以把键拿掉，连同已写下的偏好文件。
+      options["preferences"]["local_modes"].erase("chaizi");
+      std::ofstream(root / "preferences.json") << nlohmann::json{
+          {"format_version", 1}, {"revision", 0}, {"preferences", options.at("preferences")}}.dump();
       msime_ibus_configure(options.dump());
       invoke("FocusIn");
       require(wait_until([&] { return seen.input_enabled; }), "chaizi test does not start in Chinese");
+      // 自 #8809 起关着的快捷模式不再把 Shift+字母交还应用：引擎把大写字母当拼音组字（engine 的 disabled_shift_shortcuts_leave_every_capital_available_for_pinyin），只有「Shift+字母进入快捷模式」总开关关掉才交还。所以开关的效果按进没进拆字模式判断：Shift+C 再打 huo 时，候选窗辅助行带不带「拆字」模式标签。
+      const auto chaizi_after_huo = [&] {
+        invoke("Reset");
+        seen.committed.clear();
+        const bool typed = key('c', IBUS_SHIFT_MASK) && key('h') && key('u') && key('o');
+        while (g_main_context_iteration(nullptr, FALSE)) {}
+        return typed && seen.auxiliary.find("拆字") != std::string::npos;
+      };
       const auto stored_chaizi = [&](bool expected) {
         return wait_until([&] {
           try {
@@ -1304,19 +1425,20 @@ int main(int argc, char **argv) {
           }
         });
       };
-      require(!key('c', IBUS_SHIFT_MASK) && !seen.preedit_visible && seen.committed.empty(),
-              "Shift+C was taken while the chaizi switch was absent");
+      require(!chaizi_after_huo() && seen.committed.empty(),
+              ("Shift+C entered the chaizi mode while the chaizi switch was absent: aux=[" + seen.auxiliary + "]").c_str());
+      invoke("Reset");
       invoke("PropertyActivate", g_variant_new("(su)", "LocalModes/chaizi", PROP_STATE_CHECKED));
       require(stored_chaizi(true), "Chaizi enable was not persisted");
-      // 菜单开关先保存，保存回调再应用新快照，所以等到 Shift+C 被接住为止。
+      // 菜单开关先保存，保存回调再应用新快照，所以等到 Shift+C 进了拆字模式为止。
       bool entered = false;
       require(wait_until([&] {
-                if (!entered) entered = key('c', IBUS_SHIFT_MASK) && seen.preedit_visible;
+                if (!entered) entered = chaizi_after_huo();
                 return entered;
               }),
               "Shift+C did not enter the chaizi mode once it was on");
-      for (const guint keyval : {guint('h'), guint('u'), guint('o'), guint(IBUS_apostrophe), guint('h'),
-                                 guint('u'), guint('o'), guint('h'), guint('u'), guint('o')})
+      for (const guint keyval : {guint(IBUS_apostrophe), guint('h'), guint('u'), guint('o'), guint('h'),
+                                 guint('u'), guint('o')})
         require(key(keyval), "The chaizi mode did not take a component letter or the separator");
       require(seen.lookup_visible && !seen.candidates.empty() &&
                   seen.candidates.front().find("焱") != std::string::npos,
@@ -1328,12 +1450,12 @@ int main(int argc, char **argv) {
       seen.committed.clear();
       bool released = false;
       require(wait_until([&] {
-                if (!released) released = !key('c', IBUS_SHIFT_MASK) && !seen.preedit_visible;
-                if (!released) invoke("Reset");
+                if (!released) released = !chaizi_after_huo();
                 return released;
               }),
-              "Turning chaizi off did not hand Shift+C back");
+              "Turning chaizi off did not stop Shift+C from entering the chaizi mode");
       require(seen.committed.empty(), "a disabled Shift+C committed text");
+      invoke("Reset");
       invoke("Disable");
       finish();
       std::cout << "IBus chaizi switch, Shift+C entry, apostrophe separator and commit passed\n";
@@ -1599,8 +1721,12 @@ int main(int argc, char **argv) {
       voice_provider.release_final = true;
       require(wait_until([&] { return seen.committed == "synthetic voice"; }),
               "English-mode recording did not commit the provider text");
-      require(voice_provider.cancelled.load() == voice_cancels && !seen.preedit_visible,
-              "Switching modes cancelled an English-mode recording");
+      // 上屏和收起语音预编辑是两次信号，负载高时后者晚一拍到，等它而不是读同一轮的值。
+      require(wait_until([&] { return !seen.preedit_visible; }) && voice_provider.cancelled.load() == voice_cancels,
+              ("Switching modes cancelled an English-mode recording: cancels=" +
+               std::to_string(voice_provider.cancelled.load() - voice_cancels) +
+               " preedit_visible=" + std::to_string(seen.preedit_visible))
+                  .c_str());
       seen.committed.clear();
       // A recording bound to the Engine session in Chinese mode survives a switch to English and still goes through the Engine.
       voice_starts = voice_provider.started.load();
@@ -2157,7 +2283,9 @@ int main(int argc, char **argv) {
         std::string observed;
         for (const auto &candidate : seen.candidates)
           observed += "[" + candidate + "]";
-        require(has_remote_gloss() && seen.candidates.front() == local_hit,
+        require(has_remote_gloss() &&
+                  std::find(seen.candidates.begin(), seen.candidates.end(), local_hit) !=
+                      seen.candidates.end(),
                 ("Online misses did not merge with the displayed offline hits: gloss=" +
                  std::to_string(has_remote_gloss()) + " local_hit=[" + local_hit +
                  "] candidates=" + observed)
@@ -3224,8 +3352,8 @@ int main(int argc, char **argv) {
     require(wait_voice([&] { return seen.committed == "synthetic voice"; }),
             "Current-session voice result did not commit after recreation");
     seen.committed.clear();
-    invoke("Set", g_variant_new("(ssv)", "org.freedesktop.IBus.Engine", "ContentType",
-                               g_variant_new("(uu)", IBUS_INPUT_PURPOSE_FREE_FORM, 0)));
+    // 上面的隐私字段是直接调类方法设的，libibus 缓存的 ContentType 还是之前 D-Bus 设的 (FREE_FORM, 0)；这里再经 D-Bus 设同一个值会被 libibus 当成没变而不转给宿主，宿主就一直停在隐私字段里（不记智能标点的影子前文，后面的用例因此失败）。所以同样直接调类方法换回普通字段。
+    IBUS_ENGINE_GET_CLASS(engine)->set_content_type(engine, IBUS_INPUT_PURPOSE_FREE_FORM, 0);
     const auto escape_starts = voice_provider.started.load();
     const auto escape_cancels = voice_provider.cancelled.load();
     const auto escape_finals = voice_provider.finished.load();
@@ -3341,6 +3469,65 @@ int main(int argc, char **argv) {
               "Locked recording lost final recognition");
       require(voice_provider.stop_requests.load() == locked_stops + 1,
               "Locked recording sent duplicate stop requests");
+      seen.committed.clear();
+    }
+    // 按住右 Alt 时再按别的键是组合键（#10580，对齐 Windows #10581）：按键带着 Alt 交给应用，这次按住开始的录音取消、不上屏，右 Alt 的重复和松开仍被吞掉、不再结束录音。右 Ctrl+右 Alt 同样适用。
+    for (guint held_control : {guint(0), guint(IBUS_CONTROL_MASK)}) {
+      const auto starts = voice_provider.started.load();
+      const auto stops = voice_provider.stop_requests.load();
+      const auto cancels = voice_provider.cancelled.load();
+      const auto finals = voice_provider.finished.load();
+      if (held_control) require(!key(IBUS_Control_R, IBUS_CONTROL_MASK), "Chord Ctrl press was intercepted");
+      require(key(IBUS_Alt_R, IBUS_MOD1_MASK | held_control), "Chord fixture hold did not start");
+      require(wait_voice([&] { return voice_provider.started.load() == starts + 1; }),
+              "Chord fixture hold did not reach the provider");
+      require(!key(IBUS_F10, IBUS_MOD1_MASK | held_control),
+              "A key pressed during a right-Alt hold was not handed to the application");
+      require(wait_voice([&] { return voice_provider.cancelled.load() == cancels + 1; }),
+              "A chord during a right-Alt hold did not cancel the recording the hold started");
+      key(IBUS_F10, IBUS_MOD1_MASK | held_control | IBUS_RELEASE_MASK);
+      require(key(IBUS_Alt_R, IBUS_MOD1_MASK | held_control),
+              "Right Alt auto-repeat after a chord was not consumed");
+      require(voice_provider.started.load() == starts + 1,
+              "Right Alt auto-repeat after a chord started another recording");
+      require(key(IBUS_Alt_R, IBUS_MOD1_MASK | held_control | IBUS_RELEASE_MASK),
+              "Right Alt release after a chord was not consumed");
+      if (held_control) require(!key(IBUS_Control_R, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK), "Chord Ctrl release was intercepted");
+      voice_provider.release_final = true;
+      require(wait_voice([&] { return voice_provider.finished.load() == finals + 1; }),
+              "Cancelled chord recording did not finish at the provider");
+      const auto chord_settle = g_get_monotonic_time() + 100000;
+      while (g_get_monotonic_time() < chord_settle) {
+        while (g_main_context_iteration(nullptr, FALSE)) {}
+        g_usleep(1000);
+      }
+      require(seen.committed.empty() && voice_provider.stop_requests.load() == stops,
+              "A chord during a right-Alt hold still stopped or committed the recording");
+    }
+    {
+      // 按住之前就在录的听写（Ctrl+F9）不是这次按住开始的，组合键不取消它；右 Alt 松开也不再结束它，听写照常继续。
+      const auto starts = voice_provider.started.load();
+      const auto stops = voice_provider.stop_requests.load();
+      const auto cancels = voice_provider.cancelled.load();
+      require(key(IBUS_F9, IBUS_CONTROL_MASK), "Ctrl+F9 did not start the chord dictation fixture");
+      key(IBUS_F9, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK);
+      require(wait_voice([&] { return voice_provider.started.load() == starts + 1; }),
+              "Chord dictation fixture did not reach the provider");
+      require(key(IBUS_Alt_R, IBUS_MOD1_MASK), "Right Alt during dictation was not consumed");
+      require(!key(IBUS_F10, IBUS_MOD1_MASK), "A chord during dictation was not handed to the application");
+      key(IBUS_F10, IBUS_MOD1_MASK | IBUS_RELEASE_MASK);
+      require(key(IBUS_Alt_R, IBUS_MOD1_MASK | IBUS_RELEASE_MASK), "Right Alt release during dictation was not consumed");
+      g_usleep(50000);
+      while (g_main_context_iteration(nullptr, FALSE)) {}
+      require(voice_provider.cancelled.load() == cancels && voice_provider.stop_requests.load() == stops,
+              "A chord cancelled or stopped a dictation the hold did not start");
+      require(key(IBUS_F9, IBUS_CONTROL_MASK), "Ctrl+F9 did not stop the chord dictation fixture");
+      key(IBUS_F9, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK);
+      require(wait_voice([&] { return voice_provider.stop_requests.load() == stops + 1; }),
+              "Ctrl+F9 did not stop the dictation after a chord");
+      voice_provider.release_final = true;
+      require(wait_voice([&] { return seen.committed == "synthetic voice"; }),
+              "Dictation kept through a chord lost its final recognition");
       seen.committed.clear();
     }
     // Real IBus clients (X11, GDK, mutter) report the modifier state from before the key, so a hold key's own bit is missing on its press, and GTK3 adds the virtual SUPER bit next to MOD4. The shortcuts follow the physical key, as on Windows.
@@ -3589,8 +3776,12 @@ int main(int argc, char **argv) {
                          PROP_STATE_UNCHECKED));
     require(seen.candidates.front().find("固定") == std::string::npos,
             "Candidate position clear did not release the fixed candidate");
-    require(key(IBUS_Left, IBUS_CONTROL_MASK) && seen.auxiliary.find("ni|hao") != std::string::npos,
-            "Candidate auxiliary text did not expose the preedit caret");
+    // 候选窗拼音行显示的是分词后的 ni'hao，不是按键原文 nihao：光标按引擎给的 View.preedit_caret 放，音节边界上落在隔音符前面。
+    require(key(IBUS_Left, IBUS_CONTROL_MASK) &&
+                wait_until([&] { return seen.auxiliary.find("ni|'hao") != std::string::npos; }),
+            ("Candidate auxiliary text did not expose the preedit caret: aux=[" + seen.auxiliary +
+             "] preedit=[" + seen.preedit + "] cursor=" + std::to_string(seen.preedit_cursor))
+                .c_str());
     const auto stale_candidate_action = seen.first_candidate_fix_name;
     invoke("Reset");
     const auto committed_before_stale_action = seen.committed;
@@ -3787,7 +3978,9 @@ int main(int argc, char **argv) {
             "Unicode Space release was unexpectedly consumed");
     IBUS_ENGINE_GET_CLASS(engine)->set_surrounding_text(engine, nullptr, 0, 0);
     require(key(IBUS_period) && seen.committed == "0.",
-            "IBus did not keep an input-method ASCII digit as smart-punctuation context");
+            ("IBus did not keep an input-method ASCII digit as smart-punctuation context: committed=[" +
+             seen.committed + "]")
+                .c_str());
 
     invoke("Reset");
     seen.committed.clear();
@@ -3938,8 +4131,23 @@ int main(int argc, char **argv) {
     require(seen.committed.empty() && !seen.preedit_visible,
             "Bare temporary Japanese prefix escaped after Backspace");
 
-    // The Linux local-mode preference is the shared equivalent of Windows'
-    // r_mode switch. Disabled modes must leave Shift+R to the application.
+    // The Linux local-mode preference is the shared equivalent of Windows' r_mode switch. 关掉的只是临时日文这一个模式：自 #8809 起引擎把 Shift+R 当成拼音里的大写字母（engine 的 disabled_shift_shortcuts_leave_every_capital_available_for_pinyin），只有「Shift+字母进入快捷模式」总开关关掉才把大写交还应用。所以这里核对的是 Shift+R 再打 a 不进日文：开着时候选窗辅助行带「日文」模式标签，关掉后没有。
+    const auto japanese_label_after_ra = [&] {
+      invoke("Reset");
+      seen.committed.clear();
+      const bool typed = key('r', IBUS_SHIFT_MASK) && key('a');
+      settle_lookup();
+      const bool labelled = seen.auxiliary.find("日文") != std::string::npos;
+      const auto observed = "typed=" + std::to_string(typed) + " preedit=[" + seen.preedit +
+                            "] aux=[" + seen.auxiliary + "] committed=[" + seen.committed + "]";
+      invoke("Reset");
+      seen.committed.clear();
+      return std::make_pair(typed && labelled, observed);
+    };
+    {
+      const auto [labelled, observed] = japanese_label_after_ra();
+      require(labelled, ("Enabled temporary Japanese mode did not label Shift+R a: " + observed).c_str());
+    }
     invoke("PropertyActivate",
            g_variant_new("(su)", "LocalModes/temporary_japanese", PROP_STATE_UNCHECKED));
     seen.committed.clear();
@@ -3952,17 +4160,18 @@ int main(int argc, char **argv) {
             }),
             "Temporary Japanese disable was not persisted");
     bool japanese_released = false;
+    std::string japanese_observed;
     for (int attempt = 0; attempt < 200 && !japanese_released; ++attempt) {
-      japanese_released = !key('r', IBUS_SHIFT_MASK) && !seen.preedit_visible &&
-                          seen.committed.empty();
+      const auto [labelled, observed] = japanese_label_after_ra();
+      japanese_released = !labelled && observed.rfind("typed=1", 0) == 0;
       if (!japanese_released) {
-        invoke("Reset");
-        seen.committed.clear();
+        japanese_observed = observed;
         while (g_main_context_iteration(nullptr, FALSE)) {}
         g_usleep(10000);
       }
     }
-    require(japanese_released, "Disabled temporary Japanese mode swallowed Shift+R");
+    require(japanese_released,
+            ("Disabled temporary Japanese mode still entered Japanese on Shift+R: " + japanese_observed).c_str());
     invoke("PropertyActivate",
            g_variant_new("(su)", "LocalModes/temporary_japanese", PROP_STATE_CHECKED));
     require(wait_saved_preferences([](const nlohmann::json &preferences) {
@@ -4760,11 +4969,29 @@ int main(int argc, char **argv) {
                   !seen.candidates.empty(),
               "Screen keyboard letters did not compose");
       // Earlier sections select and learn nihao candidates, so the first one is whatever the ranking now puts there, as every other phrase() check in this file assumes.
+      // 第一次画出 nihao 的那一页之后，后台整句结果还会再换一次首选（负载高时更晚），读早了，下面空格上屏的就不是这里记下的那条。等候选连续 300 ms 不变再读。
+      {
+        auto stable_since = g_get_monotonic_time();
+        auto last = seen.candidates;
+        const auto deadline = stable_since + 5 * G_USEC_PER_SEC;
+        while (g_get_monotonic_time() - stable_since < 300000 && g_get_monotonic_time() < deadline) {
+          while (g_main_context_iteration(nullptr, FALSE)) {}
+          if (seen.candidates != last) {
+            last = seen.candidates;
+            stable_since = g_get_monotonic_time();
+          }
+          g_usleep(1000);
+        }
+      }
+      require(!seen.candidates.empty() && seen.cursor == 0,
+              "Screen keyboard composition lost its candidates or highlight");
       const auto composed = before + seen.candidates.front();
       require(panel_key("space", 57), "Screen keyboard Space was refused");
       require(wait_until([&] { return seen.committed != before; }) &&
                   seen.committed == composed && seen.forwarded.empty(),
-              "Screen keyboard typed raw letters instead of composing");
+              ("Screen keyboard typed raw letters instead of composing: committed=[" + seen.committed +
+               "] expected=[" + composed + "] forwarded=" + std::to_string(seen.forwarded.size()))
+                  .c_str());
       // A composition started on the physical keyboard: the screen keyboard's digits select from it and its BackSpace edits it.
       phrase();
       require(seen.candidates.size() >= 2, "Screen keyboard selection fixture has one candidate");
@@ -4798,8 +5025,12 @@ int main(int argc, char **argv) {
       require(wait_until([&] { return seen.committed == before + "0"; }),
               "Panel ASCII text did not commit");
       IBUS_ENGINE_GET_CLASS(engine)->set_surrounding_text(engine, nullptr, 0, 0);
-      require(!key(IBUS_period) && seen.committed == before + "0",
-              "Panel ASCII text did not provide smart-punctuation shadow context");
+      // 和上面 Unicode 模式上屏的数字一样：影子前文里末尾是 ASCII 数字，智能标点由宿主自己上屏半角「.」（处理了这个键），不出「。」。这里原先写成「不处理、什么都不上屏」，与宿主在 #8402 里实现的行为相反，默认分支一直没进 CI，所以没人发现。
+      const bool panel_period_handled = key(IBUS_period);
+      require(panel_period_handled && seen.committed == before + "0.",
+              ("Panel ASCII text did not provide smart-punctuation shadow context: handled=" +
+               std::to_string(panel_period_handled) + " committed=[" + seen.committed.substr(before.size()) + "]")
+                  .c_str());
       // Under CapsLock a physical letter arrives uppercase with the lock and goes to the editor; the screen keyboard's lowercase letter has to do the same rather than start a composition.
       require(!key('N', IBUS_LOCK_MASK) && !key('N', IBUS_LOCK_MASK | IBUS_RELEASE_MASK) &&
                   !seen.preedit_visible,

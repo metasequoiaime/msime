@@ -4,6 +4,7 @@ import { EndpointSettingField } from "./endpoint-setting-field";
 import { PasswordSettingField } from "./password-setting-field";
 import { SettingField } from "./setting-field";
 import { SettingSectionTitle } from "./setting-section-title";
+import { SettingsInputDescription } from "./settings-input-description";
 import { SettingsManagerBlock } from "./settings-manager-block";
 
 import type { VoiceCredentialMessage } from "./voice-credential-model";
@@ -49,6 +50,7 @@ export function VoiceCredentialSection({
     customEndpoint,
     name,
     tokenLabel,
+    status,
     description,
     saveDisabled,
     clearDisabled,
@@ -76,6 +78,7 @@ export function VoiceCredentialSection({
   return (
     <SettingsManagerBlock role="group" aria-label={`语音${name}凭据`}>
       <SettingSectionTitle as="div" title={`${name}凭据`} description={description} />
+      <SettingsInputDescription>{status}</SettingsInputDescription>
       {doubao && (
         <SettingField
           label="流式接口"

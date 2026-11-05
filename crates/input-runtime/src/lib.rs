@@ -44,6 +44,7 @@ use msime_engine::host::{
     local_mode_counts_as_typing, Command, EngineResult, EngineSnapshot, OnlineQuerySnapshot,
     Session,
 };
+pub use msime_engine::ordering::CandidateScorer;
 use msime_engine::{
     CandidateEdge, CommandTableEntry, CommandTranslationQuery, MentionEntry, QuickPhraseEntry,
     SharedKeymap,
@@ -88,6 +89,7 @@ fn needs_dangling_segment_delimiter_backspace(raw: &str, caret: usize) -> bool {
 // Everything is re-exported: the crate has always presented one flat surface to
 // host-api and the desktop shell, and this split is for readers of the source.
 mod engine;
+mod glide_selection;
 mod multilingual;
 mod providers;
 mod runtime;

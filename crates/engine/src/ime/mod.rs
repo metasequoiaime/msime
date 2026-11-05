@@ -104,6 +104,10 @@ pub struct ImeSession {
     shuangpin_helpcode_modes: crate::types::ShuangpinHelpcodeModes,
     fuzzy: FuzzyPinyinOptions,
     sentence_alternatives: bool,
+    /// 26 键全拼的整句读法条数下限，随每个请求交给全拼引擎（`QueryRequest::sentence_pool`）。
+    sentence_pool: usize,
+    /// 26 键全拼拼整句时给前缀打分的模型，随每个请求交给全拼引擎（`QueryRequest::sentence_scorer`）。
+    sentence_scorer: crate::ordering::SentenceScorerHandle,
     /// 首页行数随每个请求交给各方案引擎；只影响词库要不要并入补全词。
     first_page_rows: FirstPageRows,
     sentence_association: SentenceAssociationOptions,
@@ -135,6 +139,11 @@ pub struct MixedJapaneseConversion {
 }
 
 impl ImeSession {
+    /// 当前方案用的词库的粗俗词表，候选排位（`offensive_placement`）读它，和拼整句用同一张。
+    pub(crate) fn offensive_words(&self) -> crate::lattice::offensive::OffensiveWords {
+        self.registry.offensive_words(self.scheme.scheme_type())
+    }
+
     /// ime_session.cpp:42-49. `cantonese_dictionary`, `zhuyin_dictionary` and `stroke_dictionary` are where `msime-cantonese.db`, `msime-zhuyin.db` and `msime-stroke.db` are, each read only when its scheme is activated; starting in Cantonese, Zhuyin or Stroke fails as `switch_scheme` does when its file cannot be opened. `japanese_dictionary` 是 `msime-japanese.dat` 的位置，为空时读资源目录里的那份。`enabled` 是会话允许运行的方案，`scheme` 不在其中时报 `INPUT_SCHEME_NOT_ENABLED`。
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -186,6 +195,8 @@ impl ImeSession {
             shuangpin_helpcode_modes: crate::types::ShuangpinHelpcodeModes::default(),
             fuzzy: FuzzyPinyinOptions::default(),
             sentence_alternatives: false,
+            sentence_pool: 0,
+            sentence_scorer: Default::default(),
             first_page_rows: FirstPageRows::default(),
             sentence_association: SentenceAssociationOptions::default(),
             rescoring_context: String::new(),
@@ -277,6 +288,16 @@ impl ImeSession {
         self.scheme
             .as_cantonese()
             .is_some_and(crate::cantonese::CantoneseScheme::accepts_semicolon)
+    }
+
+    /// 粤语词库在 `key` 下有没有 `text` 这一行，见 `ProviderRegistry::cantonese_has_entry`。
+    pub fn cantonese_has_entry(&mut self, key: &str, text: &str) -> bool {
+        self.registry.cantonese_has_entry(key, text)
+    }
+
+    /// 粤语候选里 `key` 下的 `text` 是不是组出来的整句，见 `ProviderRegistry::cantonese_row_is_composed`。
+    pub fn cantonese_row_is_composed(&self, key: &str, text: &str) -> bool {
+        self.registry.cantonese_row_is_composed(key, text)
     }
 
     /// 会话允许运行的方案。
@@ -658,6 +679,22 @@ impl ImeSession {
             .is_some_and(|wubi| wubi.has_complete_code())
     }
 
+    /// 宿主关掉了第五码顶字：混输开着时，完整四码后的下一个字母并进混输串，不再被四码上限挡掉（#10696）。
+    /// 平时只有码表答不出或读音能续写时才放开长度；这里只放开这一次，之后的查询按 `inherited_pinyin_continuation` 的「已放开、超过四码」继承。混输关着、14 键组码或码不满四位时什么也不做，返回 `false`。
+    pub fn allow_wubi_mixed_extension(&mut self) -> bool {
+        if !self.wubi_options.mixed_pinyin
+            || self.wubi_grid_composing()
+            || !self.wubi_has_complete_code()
+        {
+            return false;
+        }
+        let Some(wubi) = self.scheme.as_wubi_mut() else {
+            return false;
+        };
+        wubi.set_extended_length_allowed(true);
+        true
+    }
+
     /// 四码命中五笔时，后续小写字母能否继续当前拼音候选的完整读音或开始下一个音节。
     /// 只匹配真实读音前缀，简拼、纠错和模糊音不能把不相关的第五码当成拼音。
     /// 不看已放开的延长状态：四码时它只是从前三码“有任何全拼行”继承来的，`wqi` 的简拼或纠错行也会让 `wqiy` 之后的任意字母被当成续写，顶字就失效了。
@@ -942,6 +979,17 @@ impl ImeSession {
         self.sentence_alternatives = enabled;
     }
 
+    pub fn set_sentence_pool(&mut self, paths: usize) {
+        self.sentence_pool = paths;
+    }
+
+    pub fn set_sentence_scorer(
+        &mut self,
+        scorer: Option<std::sync::Arc<dyn crate::ordering::SentenceScorer>>,
+    ) {
+        self.sentence_scorer = crate::ordering::SentenceScorerHandle(scorer);
+    }
+
     /// Carried on every request; the engines reset their caches when it changes (overlays.md §1.6.1).
     pub fn set_sentence_association(&mut self, options: SentenceAssociationOptions) {
         self.sentence_association = options;
@@ -1141,6 +1189,8 @@ impl ImeSession {
         request.enable_quanpin_helpcode = self.quanpin_helpcode;
         request.strict_quanpin_helpcode = self.strict_quanpin_helpcode;
         request.sentence_alternatives = self.sentence_alternatives;
+        request.sentence_pool = self.sentence_pool;
+        request.sentence_scorer = self.sentence_scorer.clone();
         request.enable_quanpin_autocorrect_transposition =
             self.autocorrect_types & autocorrect_type::TRANSPOSITION != 0;
         request.enable_quanpin_autocorrect_neighbor =

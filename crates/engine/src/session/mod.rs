@@ -3,6 +3,7 @@
 //! The setters the product only sets at construction (`switch_scheme`, `set_helpcode_schema`, `set_helpcode_enabled`, `set_wubi_mixed_pinyin`, `set_personal_context_enabled`) and `candidate_key` stay public because the golden scenarios drive them. Learning undo (`set_learning_undo_enabled`, `forget_recent_commits`) is dropped.
 
 mod candidates;
+mod cantonese_learning;
 mod caret_edit;
 mod chain;
 mod clock;
@@ -30,6 +31,7 @@ use crate::diagnostics;
 use crate::error::{EngineError, Result};
 use crate::local::database::LocalDatabaseLease;
 use crate::nine_key::{KeyGrid, NineKeySession};
+use crate::ordering::CandidateScorer;
 use crate::pinyin::glide::{GlideKeyboard, GlidePoint};
 use crate::touch::{KeyGeometry, KeyTouch, TouchTuning};
 use crate::types::{
@@ -51,6 +53,8 @@ pub struct Session {
     /// 触屏的组码网格：九键的数字从 `character` 进来，14 键的字母从 `grid_key` 进来；`None` 是不用网格。
     key_grid: Option<KeyGrid>,
     shuangpin_preedit_uses_raw: bool,
+    /// `SessionOptions::shuangpin_preedit_separated`。
+    shuangpin_preedit_separated: bool,
     /// `SessionOptions::learn_typed_spellings_on_enter`。
     learn_typed_spellings_on_enter: bool,
     prediction: prediction::Prediction,
@@ -108,6 +112,7 @@ impl Session {
             nine_key,
             key_grid: None,
             shuangpin_preedit_uses_raw: options.shuangpin_preedit_uses_raw,
+            shuangpin_preedit_separated: options.shuangpin_preedit_separated,
             learn_typed_spellings_on_enter: options.learn_typed_spellings_on_enter,
             prediction: prediction::Prediction::new(
                 options.next_word_prediction,
@@ -156,6 +161,9 @@ impl Session {
         self.candidates_may_change();
         self.prediction.clear();
         let touch = self.input.pending_touch.take();
+        if let Some(result) = self.input.edit_pending_glide(value) {
+            return result;
+        }
         // English is a mode rather than a scheme, so the grid stays available in it: the same digits spell words instead of syllables. A local mode still takes the keys, and the scheme underneath must be quanpin: 拼音九宫格只认得全拼音节，注音九键走注音编辑器。九键双拼没有英文九键，专用英文里数字照常是数字。
         let grid_digit = match self.key_grid {
             Some(KeyGrid::NineKey) => (b'2'..=b'9').contains(&value),
@@ -210,6 +218,26 @@ impl Session {
             return KeyResult::unhandled();
         }
         self.input.glide(keyboard, points)
+    }
+
+    /// 一笔同时提供全拼与英文的完整候选；只在全拼字母层使用，不改变会话模式。
+    pub fn bilingual_glide(
+        &mut self,
+        keyboard: &GlideKeyboard,
+        points: &[GlidePoint],
+    ) -> KeyResult {
+        self.candidates_may_change();
+        self.prediction.clear();
+        self.input.pending_touch = None;
+        if self.key_grid.is_some() {
+            return KeyResult::unhandled();
+        }
+        self.input.bilingual_glide(keyboard, points)
+    }
+
+    /// 混合滑行的未确认组字只接受明确选词，不由宿主边界隐式上屏。
+    pub fn requires_candidate_selection(&self) -> bool {
+        self.input.glide_selection_pending && self.input.has_composition()
     }
 
     /// 上一次 [`Session::set_key_grid`]（或 [`Session::set_nine_key_enabled`]）设下的组码网格，`None` 是不用网格；新会话是 `None`。网格开着时硬件键盘的字母照样走 26 键，要知道这次组字是不是在网格里打的，看 [`Session::grid_composing`]。
@@ -326,6 +354,15 @@ impl Session {
 
     /// 一条编辑命令。`CommitRaw` 原样上屏，专用英文里打的词学进英文词库（`SessionOptions::learn_english_on_enter`），`learn_typed_spellings_on_enter` 打开时还学临时模式与拼不成音节的拼音；`CommitRawWithoutLearning` 原样上屏、不学英文词。规则见 `session/raw_commit.rs`。
     pub fn command(&mut self, command: Command) -> KeyResult {
+        if self.requires_candidate_selection()
+            && matches!(
+                command,
+                Command::CommitRaw | Command::CommitRawWithoutLearning | Command::CommitReading
+            )
+        {
+            self.input.pending_touch = None;
+            return KeyResult::handled();
+        }
         match command {
             Command::CommitRawWithoutLearning => self.commit_raw_without_learning(),
             Command::CommitRaw if self.learn_typed_spellings_on_enter => {
@@ -395,6 +432,13 @@ impl Session {
 
     /// Finishes the composition and appends the Chinese mark; unhandled when Chinese punctuation is off or locked to ASCII, or the key has no mark.
     pub fn punctuation(&mut self, value: u8) -> KeyResult {
+        if self.requires_candidate_selection() {
+            self.input.pending_touch = None;
+            return self
+                .input
+                .edit_pending_glide(value)
+                .unwrap_or_else(KeyResult::handled);
+        }
         self.candidates_may_change();
         self.prediction.clear();
         self.input.pending_touch = None;
@@ -452,7 +496,7 @@ impl Session {
                 return KeyResult::unhandled();
             };
             let diagnostic = self.input.record_personal_context(Some(&row), false, false);
-            self.show_prediction(&word, &pinyin, &row.word);
+            self.show_prediction(&word, &pinyin, &row.word, &row.word);
             return KeyResult::committed(row.word.to_string()).with_diagnostic(diagnostic);
         }
         let selected = self
@@ -605,6 +649,13 @@ impl Session {
             && self.input.engine.wubi_pinyin_continues(value)
     }
 
+    /// 第五码顶字关掉时，让完整四码后的下一个字母并进混输串；见 `ImeSession::allow_wubi_mixed_extension`。本地模式和专用英文里的字母不是五笔码，不放开。
+    pub fn allow_wubi_mixed_extension(&mut self) -> bool {
+        !self.input.dedicated_english
+            && self.input.local_mode == LocalInputMode::None
+            && self.input.engine.allow_wubi_mixed_extension()
+    }
+
     pub fn set_wubi_mixed_pinyin(&mut self, enabled: bool) {
         self.candidates_may_change();
         self.input.set_wubi_mixed_pinyin(enabled);
@@ -613,6 +664,18 @@ impl Session {
     /// 五笔拼音混输是否打开。
     pub fn wubi_mixed_pinyin(&self) -> bool {
         self.input.engine.wubi_input_options().mixed_pinyin
+    }
+
+    /// 把在线行（云候选、AI 候选）照原样放回当前组字的候选，不再核对查询，见 [`crate::host::Session::restore_online_rows`]。
+    pub fn restore_online_rows(&mut self, rows: &[(String, crate::types::CandidateSource)]) {
+        self.candidates_may_change();
+        self.input.restore_online_rows(rows);
+    }
+
+    /// 不改组字、按现在的整句池和整句打分器重新查一遍候选（`SchemeKey::Requery`），词库缓存不动，与 [`Self::reset_cache`] 不同。宿主停顿时才把逐键模型交给引擎、带着它重解一次时用，见 `msime_input_runtime::Runtime::settle_deferred_scorer`。
+    pub fn recompute_candidates(&mut self) {
+        self.candidates_may_change();
+        self.input.recompute_candidates();
     }
 
     /// 宿主的清缓存动作（维护快捷键、iOS 键盘扩展的内存告警）：清掉本会话各方案的候选缓存，并放掉进程级缓存里的日文模型和没有会话在用的个人学习模型，让不再用它们的进程能交还内存；本会话若正持有模型，照常用到会话结束。
@@ -671,6 +734,33 @@ impl Session {
     pub fn set_prediction_allowed(&mut self, allowed: bool) {
         self.candidates_may_change();
         self.prediction.set_allowed(allowed);
+    }
+
+    /// 宿主挂了候选打分器时打开：上屏后联想的词库续写多取到 32 条，由 [`Self::order_prediction`] 按模型排过之后仍只给 8 条。关着（默认）时联想与不打分的宿主逐行相同。只影响之后的联想，不改正在显示的行。
+    pub fn set_prediction_pool(&mut self, enabled: bool) {
+        self.prediction.set_pool(enabled);
+    }
+
+    /// 宿主挂了逐键打分器时，26 键全拼每条切分至少解出 `paths` 条整句读法，留给打分器从中挑首选（[`crate::ordering::SENTENCE_POOL`]）；0（默认）照不挂打分器时的条数。九键、双拼和其他方案不受影响。只影响之后的查询，不改正在显示的行。
+    /// 26 键全拼拼整句时给前缀打分的模型（[`crate::ordering::SentenceScorer`]），`None` 是不用模型。挂上的逐键打分器给出它时由 runtime 交过来，见 [`crate::ordering::CandidateScorer::sentence_scorer`]。
+    pub fn set_sentence_scorer(
+        &mut self,
+        scorer: Option<std::sync::Arc<dyn crate::ordering::SentenceScorer>>,
+    ) {
+        self.input.set_sentence_scorer(scorer);
+    }
+
+    pub fn set_sentence_pool(&mut self, paths: usize) {
+        self.input.set_sentence_pool(paths);
+    }
+
+    /// 按模型给刚上屏之后的联想排序：词库续写按「接在上文后面」的总对数概率重排（[`crate::ordering::prediction_order`]），个人习惯行原样留在前面，最后仍只给 8 条。`before` 是这次上屏之前的文字，刚上屏的那一段由会话自己接上。每次上屏只排一次，之后的调用、没有打开候选池（[`Self::set_prediction_pool`]）或没有联想时什么都不做。返回显示的行变了没有。
+    pub fn order_prediction(&mut self, scorer: &mut dyn CandidateScorer, before: &str) -> bool {
+        let changed = self.prediction.order(scorer, before);
+        if changed {
+            self.candidates_may_change();
+        }
+        changed
     }
 
     /// Disabling also ends the current context.
@@ -776,7 +866,7 @@ impl Session {
         self.snapshot_with_display_options(true, false)
     }
 
-    /// 给宿主画在屏幕上的快照：全拼的 `preedit` 按音节分开（双拼照 `shuangpin_preedit_uses_raw`），辅助码注释照常给出。[`Session::snapshot`] 的 `preedit` 保留全拼的按键原文，参考回放按它比对；其余字段两者相同。C 接口的 `msime_engine_state` 读的是这一份。
+    /// 给宿主画在屏幕上的快照：全拼的 `preedit` 按音节分开（双拼照 `shuangpin_preedit_uses_raw` 与 `shuangpin_preedit_separated`），辅助码注释照常给出。[`Session::snapshot`] 的 `preedit` 保留全拼的按键原文，参考回放按它比对；其余字段两者相同。C 接口的 `msime_engine_state` 读的是这一份。
     pub fn display_snapshot(&self) -> SessionSnapshot {
         self.snapshot_with_display_options(true, true)
     }
@@ -827,9 +917,10 @@ impl Session {
             .caret_edit_prefix()
             .filter(|_| caret_edit_suffix && !candidates.is_empty())
             .unwrap_or_default();
-        // 宿主显示全拼分词；参考回放的底层快照仍保留原文。
+        // 宿主显示全拼分词；参考回放的底层快照仍保留原文。双拼按「双拼预编辑」：拼音分词画展开的全拼，双拼分隔画按音节切开的原始按键（`raw_segmentation`，`pinyin_segmentation_with_cases` 在原始按键时取它），保留原始按键不切。
         let segmented_preedit = (segmented_quanpin && input.scheme() == SchemeType::Quanpin)
-            || (!self.shuangpin_preedit_uses_raw && input.scheme() == SchemeType::Shuangpin);
+            || (input.scheme() == SchemeType::Shuangpin
+                && (!self.shuangpin_preedit_uses_raw || self.shuangpin_preedit_separated));
         let plain_composition =
             input.local_mode == LocalInputMode::None && !input.dedicated_english;
         let preedit = if segmented_preedit && plain_composition {
@@ -1079,15 +1170,21 @@ impl Session {
             .sentence_words
             .last()
             .map_or(selected.word.as_str(), String::as_str);
-        self.show_prediction(&selected.word, &selected.canonical_pinyin, previous);
+        self.show_prediction(
+            &selected.word,
+            &selected.canonical_pinyin,
+            &selected.word,
+            previous,
+        );
     }
 
-    fn show_prediction(&mut self, word: &str, pinyin: &str, previous: &str) {
+    fn show_prediction(&mut self, word: &str, pinyin: &str, committed: &str, previous: &str) {
         let personal = self
             .input
             .personal_context_applies()
             .then_some(self.input.personal_context.as_ref());
-        self.prediction.show(word, pinyin, previous, personal);
+        self.prediction
+            .show(word, pinyin, committed, previous, personal);
     }
 }
 

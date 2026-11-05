@@ -470,11 +470,8 @@ char *msime_client_personal_wordbook_merge(const uint8_t *request, size_t length
 char *msime_client_personal_wordbook_drain(const uint8_t *request, size_t length);
 /* Scan an absolute UTF-8 skin root and return the catalog the settings page sees: {packages:[...],issues:[...]}. Reads the directory: use a worker. An unreadable root is an empty catalog; an invalid package becomes an issue and is never returned as renderable. Presenters must still check that a package supports the layout and theme before adopting its colors. Keys are camelCase, the same document the settings page consumes. Besides the colours (drawn through msime_client_resolve_theme, where a palette's translation becomes secondary) a package carries what a presenter draws itself: minWidthDip; cornerRadiusDip (0-32, null keeps the host radius); decorationTopDip, decorationWidthDip and decorationImage (package-relative, null unless decorated) placed by decorationAlign ("left"|"center"|"right"), with decorationMotion ("none"|"float"|"sway"|"breathe"|"bounce", an idle motion of the whole image while the window is on screen), decorationMotionPeriodMs (1200-8000) and decorationFrames (0 without a decoration image, 1 for a still image, the animation frame count of an APNG, GIF or WebP otherwise; a host that cannot play frames draws the first); background null or {image,fit:"cover"|"contain"|"stretch",opacity:0-1}, drawn over the surface and under the candidates, clipped to the card outline; toolbar {cornerRadiusDip|null, light, dark} where each mode is {background,border,handle,divider,icon,hover}, each #RRGGBB, #RRGGBBAA or null for the host's own. A package may also carry notices, non-fatal strings about manifest keys it parsed but does not apply here (canvas-only keys on a non-canvas base, or a canvas package's nine-slice panel and widgets, which no msime host draws); the key is absent when there are none and the package stays usable. Image paths are already confined to the package and are images; read them with msime_client_skin_resource. */
 char *msime_client_skin_catalog(const uint8_t *directory, size_t length);
-/* Scan an absolute Engine resource directory for optional custom helper-code tables. The
- * response value is an array of {schema,file_stem,name,name_en}; missing or unreadable
- * helpcodes/custom is an empty array. Display metadata comes from leading # name: and
- * # name_en: comments, while the Engine remains the owner of table parsing. */
-char *msime_client_helpcode_schemas(const uint8_t *resources, size_t length);
+/* 列出自定义辅助码表。resources 是绝对的 Engine 资源目录；state_root 是绝对的状态根（HostOptions 的 preferences_directory），没有时传 NULL 和 0。两处的 helpcodes/custom 合起来按主干排序，同一主干取状态根那份（用户自己的表放在状态根下，升级不会动它；资源目录是安装包或词库代次，是以前的位置），与 Engine 读表的顺序一致。value 是 {schema,file_stem,name,name_en} 的数组，目录不在或读不了时是空数组。显示名取开头的 # name: 和 # name_en: 注释，码表本身仍由 Engine 解析。 */
+char *msime_client_helpcode_schemas(const uint8_t *resources, size_t length, const uint8_t *state_root, size_t state_root_length);
 /* JSON {directory:absolute skin root,id:package folder}. Validates that one package with the same loader as msime_client_skin_catalog and returns one of its camelCase packages entries; an invalid, built-in, symlinked or missing package is {ok:false,error} with the loader's reason. Reads the package: resolve on a skin or appearance change, never while drawing. */
 char *msime_client_skin_package(const uint8_t *request, size_t length);
 
@@ -702,7 +699,7 @@ char *msime_client_voice_local_model_cancel(const uint8_t *request, size_t lengt
 char *msime_client_voice_local_model_remove(const uint8_t *request, size_t length);
 char *msime_client_voice_model_setting_check(const uint8_t *request, size_t length);
 /* 按需资源包存放在 <state_root>/resource-packs/<id>/；state_root 是 HostOptions 的 preferences_directory（Android: files/bootstrap/state），会话下次取得焦点时读取新发布的包。
- * 包 ID：`japanese`、`language-dictionaries`、`handwriting`、`settled-model`、`grammar-model-wanxiang`、`grammar-model-baguwen`、`grammar-model-baguwen-compact`、`offline-glosses`、`voice-runtime`、`wubi`、`voice-runtime-macos`（锁文件固定了重签的 macOS 运行库之后才有）。请求为 `length` 字节的 JSON（<=16384），响应使用标准封装。`install` 和 `adopt` 是阻塞调用，只能放在工作线程。
+ * 包 ID：`japanese`、`language-dictionaries`、`handwriting`、`settled-model`、`grammar-model-wanxiang`、`grammar-model-baguwen`、`grammar-model-baguwen-compact`、`offline-glosses`、`voice-runtime`、`wubi`、`rerank-model-small`、`voice-runtime-macos`（锁文件固定了重签的 macOS 运行库之后才有）。请求为 `length` 字节的 JSON（<=16384），响应使用标准封装。`install` 和 `adopt` 是阻塞调用，只能放在工作线程。
  * 错误为 "invalid resource pack request"、"invalid state root"、"invalid source"、"resource_pack_unknown"、"resource_pack_busy"（本进程正在安装、校验、收编或卸载该包）或 "local_model_*"。
  * resource_packs: {state_root} -> [{id, state:"missing"|"installed"|"outdated", size, schemes:[...], import_files:[{name,url,size}]}]，每包一项；size 为下载字节数，import_files 为离线安装所需文件（voice-runtime 使用归档），url 为上游下载地址。
  * resource_pack_install: {state_root, pack, sources?:["https://mirror/", ...], files?:[absolute path]} -> {path}。
@@ -875,7 +872,7 @@ char *msime_client_set_key_grid(uint64_t session, uint8_t grid);
 char *msime_client_grid_key(uint64_t session, uint8_t letter);
 /* 标出隐私会话（隐私模式、不允许学习的输入框）：不记录选词位置和上屏效率，并立即禁止、清除上屏后联想；宿主须重新读取 View，以丢弃旧候选代次。用户单独关掉学习不算隐私会话；学习本身仍由 learning 偏好决定。Value 是设下的布尔值。 */
 char *msime_client_set_private_session(uint64_t session, bool enabled);
-/* Android 的 next_word_prediction 偏好开启时，View.prediction=true 标记上屏后的空闲联想：editing_text、preedit 和 reading 为空；只有显式选择候选才上屏。空格、回车、数字、导航和失焦不提交联想；普通状态省略 prediction 字段，宿主缺省按 false 读取。 */
+/* next_word_prediction 偏好开启、而且宿主声明能显示联想（HostCapabilities.next_word_prediction，目前是 Android、Linux、macOS、Windows、iOS 与 HarmonyOS）时，View.prediction=true 标记上屏后的空闲联想：editing_text、preedit 和 reading 为空；联想和普通候选一样选：点选、数字键选本页对应的一条、空格选高亮的一条（九键、字母网格和拿数字拼写的方案里数字仍是输入，越过本页的数字照常输入）。回车、标点、退格、导航和失焦不提交联想，引擎先清掉联想再照常处理；普通状态省略 prediction 字段，宿主缺省按 false 读取。 */
 /* 中日英循环切换的状态机（`crates/client-core/src/language_cycle.rs`），一个键在 中 → 日 → 英 → 中 之间转圈。顺序来自旧版 Windows 正式版 `engine/contracts/trilingual_input.h` 的 `Next()`：中文 → 日文 → 英文 → 中文；参与循环的是「切换中英文」那一组快捷键，不是 Ctrl+Shift+J。
  * 参数：enabled 是 keybindings.trilingual_cycle；mode 是按下循环键那一刻的模式，0 中文、1 日文、2 英文；scheme 是实际在跑的方案，编号同 View.scheme；last_chinese_scheme 是要回去的中文方案（0/1/2/5/6/9），-1 表示还没记下；has_composition 是宿主会话里还有组字（已选词段或未上屏的拼音）。
  * Value 是 {mode, scheme, commit_raw}：mode 同上编号；scheme 是进入中文时要切到的方案，null 表示只换中英模式；commit_raw 为真时先原样上屏正在组的内容（已选词段保留，剩下没选的拼音串照原样出去），再换模式。value 为 null 表示这一键不循环（开关关着，这一组快捷键仍是二态切换），宿主照旧自己处理这个键。非法编号返回错误。
@@ -952,11 +949,7 @@ char *msime_client_command(uint64_t session, uint32_t command);
  * window alone without serializing a view it will discard. Inert, and immediately false, when no
  * settled model is installed. */
 char *msime_client_rerank_settled(uint64_t session);
-/* 宿主等待输入停顿后，在后台启动模型评分。
- * 无需改动或只做呈现整理时返回 {"status":"done","moved":false,"current":true}；
- * 呈现整理改变顺序时返回 {"status":"done","moved":true,"current":true,"view":...}。
- * 后台评分返回 {"status":"pending","token":N}，经 msime_client_poll_settled_rerank 轮询。
- * 每会话只运行一个任务，重复启动返回相同令牌；评分期间可以继续处理按键。 */
+/* 宿主等待输入停顿后，在后台启动模型评分。无需改动或只做呈现整理时返回 {"status":"done","moved":false,"current":true}；呈现整理改变顺序时返回 {"status":"done","moved":true,"current":true,"view":...}。后台评分返回 {"status":"pending","token":N}，经 msime_client_poll_settled_rerank 轮询；每会话只运行一个任务，重复启动返回相同令牌，评分期间可以继续处理按键。宿主在会话选项里写了 "pause_rerank": true、而这台设备跑不进逐键预算时，整句联想「增强」的模型延后到这里：当场在会话线程上带着它重解当前组字的一片（约 8 ms 的模型时间），解完返回 "done"，没解完返回 {"status":"continue","moved":false,"current":true}，宿主先处理排队的输入，没有新按键就再调一次；每片若推进了候选代次，就附带新的 view，即使 moved 为假；宿主收到 view 必须更新候选身份。 */
 char *msime_client_start_settled_rerank(uint64_t session);
 /* token 来自启动接口；评分未完成时返回 {"status":"pending","token":N}，
  * 完成后返回 {"status":"done","moved":...,"current":...}。
@@ -984,6 +977,9 @@ char *msime_client_choose_nine_key_spelling(uint64_t session, uint64_t generatio
 char *msime_client_set_nine_key_filter(uint64_t session, bool single_character,
                                        const uint8_t *strokes, size_t length);
 /* 滑行输入：手指一笔滑过字母键，由引擎解码成最可能拼出的全拼字母，像打字一样写到组字的光标处（与已有字母之间用 ' 隔开）。request 是 length 字节的 UTF-8 JSON（<=65536，拒绝未知键）：{"keys":[[x,y] x 26],"key_width":w,"key_height":h,"points":[[x,y] 或 [x,y,ms]，2..1024 个]}，keys 是 a..z 各键中心（按此次序），key_width/key_height 是一个字母键的尺寸，全部在宿主自选的同一个坐标系里；ms 是距笔画开始的毫秒数，有了它，手指在键上停一下就能确认那个键。返回与 msime_client_character 相同的输入响应。方案不是全拼、在本地模式或专用英文里、九键数字正在组字，或者没有音节跟得上这一笔时 handled=false：宿主丢掉这一笔，不得把它经过的键当作按键输入。在会话线程上、手指抬起时调用；一次触摸是滑行还是点按只由宿主判断。 */
+/* 请求可选 bilingual 布尔值（缺省 false）：开启时同笔提供全拼和英文完整词候选。
+ * View.requires_candidate_selection 为 true 时，组字等待用户明确选词；缺省 false。
+ * 宿主确认键可发送 MSIME_COMMIT_CANDIDATE 选择高亮项，不能发送原文提交或结束组字代替选词。 */
 char *msime_client_glide(uint64_t session, const uint8_t *request, size_t length);
 enum MsimeCandidateEdge { MSIME_FIRST_HAN = 0, MSIME_LAST_HAN = 1 };
 /* Engine selects one Han character and clears composition on success.
@@ -1066,7 +1062,7 @@ char *msime_client_cloud_clipboard_provider_request(const uint8_t *request,
                                                     const uint8_t *socket_path,
                                                     size_t socket_length);
 #endif
-/* 云剪贴板端到端加密的 sans-IO 驱动，所有平台都有。输入 {start,keystore,device_name} 开始一个操作，或 {resume,response} 交回上一步请求的响应；value 是 {request,state,keystore}、{done,keystore} 或 {error,keystore}。宿主发请求并保存 keystore，驱动不访问会话、不联网。协议见 docs/cloud-clipboard-e2e.md。请求最大 2 MiB。 */
+/* 云剪贴板端到端加密的 sans-IO 驱动，所有平台都有。输入 {start,keystore,device_name} 开始一个操作，或 {resume,response} 交回上一步请求的响应；value 是 {request,state,keystore}、{done,keystore} 或 {error,keystore}。宿主发请求并保存 keystore，驱动不访问会话、不联网。协议见 docs/cloud-clipboard-e2e.md。顶层可以带 domain：缺省或 "clipboard" 是云剪贴板；"learning" 是输入习惯同步的密钥与设备管理，keystore 是单独的 learning-keystore，操作和结果见 docs/learning-sync.md 的「客户端驱动」；其他值是错误。请求最大 2 MiB。 */
 char *msime_client_cloud_clipboard_e2e(const uint8_t *request, size_t request_length);
 /* Persist {target_language,translations:[{text,translation}]} in an existing
  * absolute user-data directory. Only short changed English-target glosses are

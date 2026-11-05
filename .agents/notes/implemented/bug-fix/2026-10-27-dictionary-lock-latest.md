@@ -55,6 +55,62 @@ Status: implemented
 
 评测用 `verify-local.sh` 的十三组参数（不带 `--first-page-rows`，即引擎默认的首页 6 行；挂 `sentence-model.safetensors`），另加打字流 `typing_sim --keyboard nine` 和双拼触点词级（`--jobs 5 --assert-top1-unchanged`），分三臂：develop 二进制配旧锁资源，同一个二进制配新锁资源（`--resource-lock` 指向新锁），本次的二进制（新的音节频度表）配新锁资源。十三份报告三臂逐字节相同，也与提交的基线逐字节相同；双拼触点词级同样相同；打字流只有记录资源来源的 `generation` 与 `source_commit` 两个字段变了，基线随之更新。新增的 12 个词和音节频度表的微调没有碰到任何评测用例。
 
+### 换到 dict-v2.1.0
+
+2026-11-05 锁从 `dict-v2.0.41` 换到 `dict-v2.1.0`，即词库大清洗第一轮的发布（[清洗方案](../feature/2026-11-04-dictionary-curation-tables.md)第 5 节 4.4 行）：msime-dictionary `a6b5ad6`（#128，`curation/` 否决表、覆盖表、粗俗词表、英文与释义否决、粤拼两张表，五笔 86 拆成极点表与 rime-wubi 两个文件，万象 `7ab73ee` 全套登记为上游，地名表加万象下限后重新生成）用构建器 `2f5de01dc`（#10858）构建。中间的 `dict-v2.0.42` 到 `dict-v2.0.56` 没有单独换锁，开着自动更新的设备早已用上它们，随包基线和九键音节频度表一直停在 `dict-v2.0.41`。
+
+做法与前两次相同，现在全部可以照着重跑：主锁和语言词库锁用 `scripts/resource_lock_from_sums.py --url-base https://github.com/metasequoiaime/msime-dictionary/releases/download/<tag>/` 从下载的发布附件生成（它先逐个核对文件与 `msime-SHA256SUMS.txt`，语言词库把 `msime-language-dictionaries-SHA256SUMS` 改名放进只含那六个文件的目录，`--source-commit` 给构建器提交），再与 `gh release view --json assets` 的摘要和清单的 `files` 逐项核对；`editions.py gen-locks` 生成组件锁与版本锁，full 的代次变为 `1ccceecb4f95d74bcf12768079bd5195d8bfb3f71840c3d9c8d4b3a3de46f12a`。语言词库锁的 `source_commit` 记构建器提交（与主锁和 `dict-v2.0.41` 那次一致；#10691 记成了源数据提交）。`msime-engine-dictionary-NOTICE.md` 按 `a6b5ad6` 的 `NOTICE.md` 重新同步，此前「已登记、尚未随当前词库发布的来源」里的四项都已写进那份文件，这一节删掉，只把那份文件没写的构建器内置英文蔑称挪进「msime 构建时另加的输入」。万象署名补上地名表的万象下限（719 行）。
+
+九键音节频度表按新的 `msime-pinyin.db` 重新生成：424 个音节里 368 个的总权重变了，最多 -4.3%（weng），排名的秩相关 0.99999，没有音节移动超过 3 位；同一份新词库配新旧两张表，九键、14 键词级和九键长句的 dump 配对比较 fixed / broken 都是 0。引擎单测 `shipped_syllable_frequency_covers_every_spelling_and_names_its_source` 改为要求表的来源行等于主锁里 `msime-pinyin.db` 的 sha256，换锁不重新生成表就失败；dict-builder 的 `shipped_table_is_rebuilt_from_the_locked_dictionary` 在设了 `MSIME_EVAL_RESOURCES` 时从那份词库重新生成并逐字节比较，防手改。
+
+字节变化：除日文词典、两份 Mozc 文本和 SCOWL 声明外全部变了。`msime-wubi.db` 从 95.0 MB 涨到 142.5 MB（多了新世纪表 `wubixsj`，726,674 行），全量下载从 269,814,094 字节变为 317,262,783 字节，面向用户的「首次约 270 MB」改为约 320 MB；`msime-stroke.db` 从 3.8 MB 降到 2.4 MB（扩展区门槛）。拼音库第一次带 `sentence_excluded`（67 个词、19 条豁免写法，共 86 行）。Android 的 full 与拼音瘦包不带五笔码表，不受影响；五笔版 APK、Play 版 AAB、macOS 五笔版和 web-engine 的五笔 86 包都会变大，本次没有实测。
+
+评测分三臂：提交的基线、同一个二进制配 `dict-v2.0.41`、同一个二进制配 `dict-v2.1.0`。第二臂已经与提交的基线对不上（十三份、打字流、双拼触点词级都是），基线停在 10-29，之后的引擎改动没有重录，所以基线这次一并记下那段代码漂移（逐例见下文「代码漂移」一段）；词库本身的影响看第二、三臂的配对比较（`eval_compare.py convert`，每格 fixed / broken，top-1）：
+
+| 集合 | v2.0.41 | v2.1.0 | top-1 fixed / broken |
+|---|---|---|---|
+| `sentences` | 0.800 / 0.817 / 0.817 | 同左 | 0 / 0 |
+| `harvested` | 0.494 / 0.779 / 0.875 | 0.494 / 0.776 / 0.872 | 0 / 0（top-5 坏 1：通过大改文风，文峰 按万象下限从 100 升到 1242） |
+| `neutral` | 0.651 / 0.826 / 0.881 | 0.648 / 0.824 / 0.878 | 1 / 4 |
+| `words` | 0.746 / 0.944 / 0.988 | 0.749 / 0.946 / 0.988 | 9 / 2 |
+| `nine-key` | 0.550 / 0.834 / 0.968 | 0.551 / 0.836 / 0.968 | 4 / 2 |
+| `fourteen-key` | 0.631 / 0.894 / 0.975 | 0.633 / 0.893 / 0.975 | 6 / 1 |
+| 其余七份 | | | 0 / 0（两份前缀集只有 top-5 有零星变化） |
+
+打字流 `typing_sim --keyboard nine`：test 段 cfa 0.527 → 0.530，dev 不变，整块首选修好 1、坏 0。双拼触点词级 125 组参数的 top-1 变化在 -0.001 到 +0.002 之间。`dict_eval_gate.py`（B = v2.0.41，C = v2.1.0）五道硬门槛全部通过：金标准对一个不少，must-outrank 6 行从 1 行通过到 6 行全过，全拼粗俗首屏输入 6 → 2，quanpin-words-v2 全拼 top-1 修好 48、坏 5（p = 7e-10），九键 14 / 7，14 键 21 / 8，全拼 953,156 行。
+
+坏掉的用例分三类。第一类是地名重新定权（方案 3.3），按设计：地名表的阈值随 #84 的换算从 10 改成 92，rime-ice 里已经有权重的地名不再被抬到旧的 31460，回到与万象对齐后的权重（昌吉 2999、铜川 1297、株洲 3119、黄南 2515，排到 唱机、同传、煮粥 之后；辽源、甘孜 落在地级简称下限 5115），万象下限又把万象词频更高的县名抬到同码常用词前面（金州 11261 > 锦州 10700，福安 > 伏案，德城、惠东、宝兴、定远、安吉 在九键或 14 键上压过 得逞、挥动、暴行、定员、安居）。第二类是覆盖表压低的词伤到整句：下不（26320 → 1563）、头的（145565 → 3927）、打私（19999 → 8077，比 大寺 8078 低 1）在碎片一节被压低，是黄（25480 → 254）在本地损坏一节恢复成上游 rime-ice 的值；词网格原本靠这几条拼出 我们再也下不去了、拉人头的、主要是黄复兴党部、巩固打私成果，现在 h-0488、h-1084、h-0415 三句从第 1 掉出前 5，首选分别成了 我们在腋下不去了、拉人投的、主要石磺复兴党部，h-0097 巩固打私成果 从第 3 掉出前 5（首选仍是 巩固大四成果，第 3 位换成 肱骨大四成果；neutral 的 top-5 坏 4 例就是这四句）。下不 是 下不去、下不来 的正常切分单位，打私（缉私打私）是真词，两条都是碎片规则的误伤，覆盖表文件头列出的接受代价里也没有 打私 这一句；这两条在 `dict-v2.1.2`（msime-dictionary #130）修掉：打私 记进碎片一节的误伤、那一行撤掉，下不 改成 下部 的权重减 1（5777），见下一节「换到 dict-v2.1.2」。第三类是逐键模型把首选换给了紧挨着的同长读法：九键 制动（25217）、火把（16670）不挂 `sentence-model.safetensors` 时在新词库上仍排第一（火把、过吧、锅巴、过把、活靶；制动、只懂、之东、止动），挂上之后成了 过吧、火把 和 只懂、制动。旧词库上排第二的是碎片 过把（11480）、之东（15660），模型没有拿它们换掉首选；覆盖表把它们压到 7479、10745 之后，第二位换成 过吧（8952）、只懂（10746），模型更偏向这两个，按 a709092925（#10734，逐键模型只在和首选同样多字的读法之间换）的规则把它们换到第一。词库没有把 火把、制动 压到后面，引擎的九键排序也没变，这是清洗暴露出来的模型偏好：任何一次把碎片从强首选正下方压走、让另一个同长读法补上来的降权都可能再触发，记作模型侧的问题。neutral 第四句 h-0823 重回职场花了很多力气 退到第 2（首选 重回职场化了很多力气）也只在挂模型时出现：不挂模型时新词库上它仍排第一，这句切分里 重回、职场、花了、化了、很多、力气 的权重都没变，把两份 n-gram 表换回旧的也照样退，触发它的是哪一处词库变化没有查清，同样记在模型侧。后两类记作待查的退步，基线照实记下，没有改评测用例。
+
+代码漂移：develop 上换到 `dict-v2.0.41` 那次合并（`b94ece1cf7`）的二进制配 `dict-v2.0.41`，十三份报告与提交的基线逐字节相同；它和本次的二进制在同一份 `dict-v2.0.41` 上逐例配对（top-1 fixed / broken）：`words` 0 / 11（p = 0.001），`nine-key` 51 / 59，`fourteen-key` 47 / 45，`neutral` 9 / 6，`harvested` 3 / 3，`sentences` 0 / 1，`nine-key-sentences` 2 / 2，`fourteen-key-sentences` 1 / 0，`fourteen-key-prefix` 1 / 0，`particles` 9 / 0，`particles-nine-key` 2 / 0，`particles-fourteen-key` 3 / 0，`nine-key-prefix` 0 / 0。这些全部是 10-29 之后合入的引擎改动带来的，与词库无关，但同样进了这次的基线，所以把坏掉的几处逐例记下（first-parent 二分，每一步重编 `convert_eval` 在 `dict-v2.0.41` 上看这几例的名次）：
+
+- `words` 的 11 例都从第 1 退到第 4：电子计算机（dianzijisuan）、动力装置（donglizhuang）、飞黄腾达（feihuangteng）、观念更新（guanniangeng）、坚守岗位（jianshougang）、两袖清风（liangxiuqing）、情况汇报（qingkuanghui）、双管齐下（shuangguanqi）、宣传报道（xuanchuanbao）、邮政编码（youzhengbian）、装机容量（zhuangjirong）。补全出的整词让给了三个与输入同长的读法（如 电子计算机 让给 电子计算、点子计算、点字计算），起于 a709092925（#10734）。这 11 例都是 v1 的 12 字符截断杂质（`resources/eval/README.md` 记的第一类）：输入本身是一个更短的词的完整读音，新的首选对这串输入不算错，只是按 v1 的金标准记作坏，换到 `quanpin-words-v2.tsv` 量时它们不在集合里。
+- `nine-key-sentences` 的 nk-051 周末我们去看电影吧 退到第 5（首选 周末我们去看电子你把）、nk-055 我们一起去公园散步吧 退到第 4（首选 我们一起去公园萨那他啊），同样起于 a709092925；同一段里 nk-059、nk-070 修好，top-1 持平。这两句是真的退步。
+- `sentences` 的 s-048 这个项目的进度非常顺利（zheigexiangmudejindufeichangshunli）成了 这各项目的进度非常顺利，金标准不在候选里，起于 ef2c73e7d0（#10745，单独的轻声助词也拿一份成词加分）。这一句也是真的退步。
+
+后两项和第三类的 制动、火把 都没有在本次修，记作引擎与模型侧待查的退步。`baseline-shuangpin-touch-sentences.json`（双拼触点整句，完整一组要几个小时）这次没有重录，它最后一次重录是 `c0e22eb15e`（10-29，`dict-v2.0.39`），既落后于这次的词库，也落后于之后的引擎改动，拿它比较时会看到与自己的改动无关的差别，`resources/eval/README.md` 的双拼一节写明了这一点。
+
+### 换到 dict-v2.1.2
+
+同一天锁再从 `dict-v2.1.0` 换到 `dict-v2.1.2`：msime-dictionary `c239ba1`（#130）用构建器 `24852caa38`（#10886 的合并提交）构建。中间的 `dict-v2.1.1`（#129）只把构建器升到 `24852caa38`，与 `dict-v2.1.0` 相比只有清单和 `msime-SHA256SUMS.txt` 不同，数据逐字节相同，没有单独换锁。`dict-v2.1.2` 改的就是上一节记下的两处碎片误伤：`curation/pinyin-weight-overrides.txt` 里 下不 xia'bu 从 1563 改成 5777（下部 5778 减 1，xiabu 的首选仍是 下部；九键上 下不 紧随其后排第 2，全拼上排在 夏不 和补全出的 呷哺呷哺、瑕不掩瑜、下不来 之后的第 6 位），打私 da'si 8077 那一行撤掉，打私 回到 19999（dasi 上排在 大四、打死 之后、大肆、达斯、大寺 之前）。覆盖表从 2279 行减为 2278 行，碎片一节从 1474 行减为 1473 行，写成由改编后的万象权重派生的值的行从 1733 减为 1732（下不 新的值取自 下部，仍算在内）。上游 `NOTICE.md` 同时把「没有从万象抄权重」改成写明这 1732 行的派生关系，`msime-engine-dictionary-NOTICE.md` 按 `c239ba1` 重新同步后，msime 一侧那段指出原句不准确的说明就删掉了；万象署名、`docs/third-party.md` 的行数和当前发布一并跟上。
+
+字节变化：只有 `msime-pinyin.db`（长度不变，仍是 73,891,840 字节）、清单和 `msime-SHA256SUMS.txt` 变了。`msime-pinyin.db` 的 187 个对象逐表双向比对，只有 下不、打私 两行的权重变了，行数、表结构和 metadata 都不变。`msime-wubi.db` 逐字节相同：#10886 改了 `place_offensive_last_in_wubi`（已经排得更低的粗俗五笔行不再被提权），在现在的数据上没有改动任何一行。语言词库的六个文件逐字节相同，语言词库锁只换了 URL 和 `source_commit`（仍记构建器提交）。全量下载大小不变，「首次约 320 MB」不用改。full 的代次变为 `905db0dd958a973b3d7abf67f28c75402162c1d9e16b0186952793ffa8c3d2b1`。九键音节频度表重新生成，只有 bu、xia 两个音节的总权重各多 4,214（5777 − 1563），da、si 各多 11,922（19999 − 8077），其余 420 个不变。
+
+评测与上一次一样分三臂：提交的基线（在 `dict-v2.1.0` 上录）、同一个二进制配 `dict-v2.1.0`、同一个二进制配 `dict-v2.1.2`。第二臂的十三份报告、打字流和双拼触点词级都与提交的基线相同，这次没有代码漂移。第二、三臂逐例配对（`eval_compare.py convert`，并逐条比较整张候选表）：
+
+| 集合 | v2.1.0 | v2.1.2 | top-1 fixed / broken | 候选表有变化的用例 |
+|---|---|---|---|---|
+| `neutral` | 0.648 / 0.824 / 0.878 | 0.649 / 0.826 / 0.880 | 1 / 0 | 2：h-0488 我们再也下不去了 回到第 1，h-0097 巩固打私成果 回到第 3（top-5 修好 2、坏 0） |
+| `nine-key` | 0.551 / 0.836 | 同左 | 0 / 0 | 5，最靠前的变化在第 16 名 |
+| `nine-key-prefix` | 0.193 / 0.343 | 同左 | 0 / 0 | 9，最靠前的变化在第 11 名 |
+| `fourteen-key-prefix` | 0.328 / 0.553 | 同左 | 0 / 0 | 1，在第 45 名 |
+| 其余九份 | | | 0 / 0 | 0，dump 逐字节相同 |
+
+表里数字是 top-1 / top-5（neutral 加 found）。九键和两份前缀集的 15 例都是 打私 回到 19999 后，含 打私 的候选（打私严惩、碧桃打私 一类）在第 11 名以后插进来或往前挪，金标准的名次一例都没变。另外对 xiabu、dasi、下不为例、吓不倒 单独探了一次：全拼、九键 xiabu 的首选都是 下部，dasi 的首选仍是 大四，全拼上 打私 回到第 3（大四、打死 之后），九键 dasi 上 打私 从第 59 位升到第 35 位，其余几条名次不变。
+
+打字流 `typing_sim --keyboard nine` 的两臂报告只差记下的资源代次和 `source_commit`，指标逐字节相同；双拼触点词级（`--max-syllables 2 --limit 3000`，125 组参数）两臂都与提交的基线相同。`must_outrank.py` 6 行全过，名次与 `dict-v2.1.0` 相同。`dict_eval_gate.py`（B = `dict-v2.0.41`，C = `dict-v2.1.2`）五道硬门槛全部通过，计数与 C = `dict-v2.1.0` 那次一模一样：金标准对 24,851 对一个不少，must-outrank 1 → 6 行，全拼粗俗首屏输入 6 → 2，quanpin-words-v2 全拼 top-1 修好 48、坏 5，九键 14 / 7，14 键 21 / 8，全拼 953,156 行；只有不进门槛的 neutral 参考从 1 / 4 变成 1 / 3（h-0488 不再坏）。
+
+按 `--update-baseline` 在 `dict-v2.1.2` 上重录了十三份、打字流和双拼触点词级，实际变了的只有 `baseline-neutral.json`（上面两句）和 `baseline-typing-chat-nine-key.json`（资源代次和 `source_commit`），其余逐字节相同。上一节「第二类」里剩下的 h-1084 拉人头的、h-0415 主要是黄复兴党部，以及「第三类」的 制动、火把、h-0823 都还在，`dict-v2.1.2` 没有碰它们。
+
 ## Alternatives considered
 
 - **继续锁 `dict-v2.0.24`，靠自动更新把新词库送到用户手里。** 不动锁最省事，随包基线也最保守：自动更新出问题时用户回到一份评测过的词库。但评测、`verify-local.sh` 和依赖真实词库的测试会继续量一份没人在用的词库，九键那次回归正是这样只在真机上才暴露；锁越久越远，下一次不得不换时要一次吞下的差异越大。所以不采用。
@@ -67,7 +123,7 @@ Status: implemented
 - **代价**：基线数字整体下降（见上表），这是词库数据带来的，记录在案而不是被掩盖；下一个动排序的改动要以新基线为准，包括正在 `dict-v2.0.39` 上做九键实验的 `feat/nine-key-word-ranking` 等分支。
 - **安装包体积增长需要分别验证**。macOS 已按本版本锁计算预算，Android 门槛与实际压缩体积仍待处理：
   - Android 的 full 与拼音瘦包（`platforms/android/build-apk.sh`，`MSIME_ANDROID_MAX_APK_BYTES` 默认 135,000,000）带着五笔码表。`android-v0.6.0` 的 full 瘦包已是 133,833,900 字节；`msime-wubi.db` 用 gzip -6 估算从约 7.4 MB 涨到约 44.9 MB，拼音库约多 0.4 MB，瘦包估计约 171.7 MB，超出门槛约 37 MB。2026-10-26 刚为守住这个门槛把读音表改成资源包（[英文音标候选](../feature/2026-10-26-android-candidate-pronunciation.md)），直接抬门槛与那次的取舍相反；另一条路是像 macOS 一样把五笔码表改成按需资源包（[macOS 五笔按需下载](../feature/2026-10-20-macos-on-demand-voice-runtime-and-wubi.md)）。
-  - macOS 五笔版随包带五笔码表。`package-release.sh` 的 `EngineResources` 预算现在按本版本锁中实际随包的条目逐文件向上取整到 4 KiB，加仓库随附辅助码表，再留固定 4 MiB 余量；完整性校验仍先执行，按需资源排除检查不变。新锁的五笔版预算为 198880 KiB，full 与拼音版为 110508 KiB，不再让五笔版卡在旧的 126000 KiB 固定值。资源增长由锁文件改动显式评审，额外未锁定文件不会抬高预算。轻量回归执行真实预算函数，覆盖五笔版与省略五笔的 full；尚未实际打完整 DMG。
+  - macOS 五笔版随包带五笔码表。`package-release.sh` 的 `EngineResources` 预算现在按本版本锁中实际随包的条目逐文件向上取整到 4 KiB，加仓库随附辅助码表，再留固定 4 MiB 余量；完整性校验仍先执行，按需资源排除检查不变。新锁的五笔版预算为 198880 KiB，full 与拼音版为 110508 KiB，不再让五笔版卡在旧的 126000 KiB 固定值。资源增长由锁文件改动显式评审，额外未锁定文件不会抬高预算。轻量回归执行真实预算函数，覆盖五笔版与省略五笔的 full；尚未实际打完整 DMG。预算和被量的一侧现在都在 `platforms/macos/scripts/engine_resources_budget.py`，被量的一侧按文件长度取整而不是 `du` 的已分配块数，见 [macOS 包里的 EngineResources 按文件长度量](2026-11-02-macos-engine-resources-measured-by-length.md)。
   - Android 五笔版不受 135,000,000 字节门槛约束（门槛只量 full 与拼音的 GitHub 瘦包），但 `android-v0.6.0` 的 `msime-android-wubi.apk` 已是 161,007,391 字节，按同样的估算会到约 199 MB。Play 版 AAB 是 full 瘦包加约 27 MB 语音运行库，换锁后也在约 200 MB 上下；Play 对单个模块压缩后的下载大小有上限（约 200 MB），这个数和按设备拆分后的实际下载大小本次都没有核实，发版前要用 bundletool 实测。把五笔码表改成按需资源包能同时解决这三处。
   - web-engine 受影响但没有门槛：`scripts/build-web-engine.sh` 把 `wubi86` 整张表打成 `msime-wubi86.db.gz`（`crates/dict-builder/src/web.rs` 不裁五笔表），86 表从约 13 万行涨到约 73 万行，下一个 web-engine 版本给 TapTapGo 的下载会明显变大；体积门槛只管 wasm、拼音与日文。发 web-engine 前要跑一次 `build-web-engine.sh` 看实际体积，再决定是否给 `wubi86` 加门槛或裁剪。
 - Linux 面向用户的「首次约 170 MB」在换锁前就已不准，现在全量下载约 270 MB，本次一并改为约 270 MB：`msime-linux-setup` 的 `--help` 与运行时提示、`platforms/linux/README.md`、Arch PKGBUILD、两份 Gentoo ebuild、设置页 `linux-setup-page.tsx`，以及 `linux_setup.rs` 里 `SETUP_TIMEOUT` 的注释（30 分钟对应 270 MB 只要求约 150 KB/s，超时不用改）。
@@ -86,3 +142,5 @@ Status: implemented
 - 英文：`msime-english.db` 这次字节有变，而 #10055 的真实词库验收 `mobile_english_shipped_dictionary` 是在旧词库上调的。以 `MSIME_ENGLISH_CORRECTION_TEST_DB` 分别指向两份词库运行这个被忽略的测试，94 条期望在新旧两份上都通过（exit 0）；构建机负载约 690，计时只作参考：冷启动均值 10.54 ms（旧 13.63 ms），逐键均值 3.96 ms（旧 4.26 ms）。
 - 延迟：`rerank_latency` 在新旧词库上交替各跑两轮，构建机负载 60 到 180，挂模型的 p95 旧词库 29.15、15.17 ms，新词库 16.72、97.94 ms，同一词库两轮之间的差远大于两个词库之间的差，这次量不出结论，需要在空闲机器上复测。
 - 换到 `dict-v2.0.41` 时：`gen-locks --check`、`test-editions.py`、`test-language-data-notices.py`、`test-engine-license.py`、`test-macos-package-resources.py`、`test-fetch-language-dictionaries-bounds.py`、`test-linux-setup-download-links.py`、`test-reference-feature-log.py` 通过；新发布的笔画、注音库读回的 `license` 分别是 `LGPL-3.0-only AND GPL-3.0-only AND CC-BY-4.0` 和 `LGPL-2.1-or-later AND BSD-3-Clause AND MIT`。在 Mac Studio 上 `cargo test -p msime-engine -p msime-input-runtime -p msime-host-api -p msime-client-core -p msime-engine-capi` 不设资源时 5160 项全部通过（含钉住新代次的 `full_keeps_the_desktop_lock_and_its_generation` 和音节频度表的来源行测试）；以 `MSIME_EVAL_RESOURCES` 分别指向两份词库时各 5154 项通过、6 项失败，失败的是同一组且都与换锁无关：四个 golden 真实集（按设计要 `dict-v2.0.1`）、`japanese::decoder::tests::real_model_loads` 与 `session::tests::real_resources_mix_japanese_conversions`（两版的 `msime-japanese.dat` 字节相同）。双拼触点整句集那份要跑几个小时，这次没有跑。
+- 换到 `dict-v2.1.0` 时：新锁资源用 `install_resources` 装到本机，旧锁资源由 `gh release download dict-v2.0.41` 加 `resource_lock_from_sums.py --stage` 搭出（生成的锁与提交的旧锁逐字节相同；`--stage` 用硬链接，`ResourceStore::verify` 拒绝链接数大于 1 的文件，要换成复制）。`MSIME_EVAL_RESOURCES` 指向新资源时 `cargo test -p msime-engine -p msime-dict-builder -p msime-client-core -p msime-input-runtime -p msime-host-api -p msime-client-providers -p msime-engine-capi -p msime-engine-wasm` 只有 6 项失败，在旧资源上同样失败：四个 golden 真实集（按设计要 `dict-v2.0.1`）、`real_model_loads` 与 `real_resources_mix_japanese_conversions`（日文词典两版逐字节相同）。被忽略的真实词库测试 `mobile_english_shipped_dictionary`、`cached_keypad_rows_match_per_prefix_queries_on_the_real_dictionary`、`english_keypad_shipped_dictionary_reported_words`、`english_page_append_matches_frozen_entry_on_shipped_dictionary`、粤拼与注音两项、`shipped_rime_import_retains_reported_common_character_positions` 在新词库上全部通过（前两项在 `dict-v2.0.41` 上反而失败，它们是后来对着更新的词库调的）。引擎快速上手和 C 示例在新数据包上的输出与 README 逐字相同。锁与声明的脚本检查（`gen-locks --check`、`test-language-data-notices.py`、`test-editions.py`、`test-engine-license.py`、`test-model-notices.py`、`test-resource-lock-from-sums.py` 等）与 `web-engine-notice.sh --check` 通过。整句的双拼触点基线（几个小时）这次没有重录。
+- 换到 `dict-v2.1.2` 时：`install_resources` 把新锁资源装到本机（目录名即代次 `905db0dd…`，除 `msime-pinyin.db` 和清单外与 `dict-v2.1.0` 的文件逐字节相同）。`MSIME_EVAL_RESOURCES` 指向它时 `cargo test -p msime-engine -p msime-dict-builder -p msime-client-core -p msime-input-runtime -p msime-host-api -p msime-client-providers -p msime-engine-capi -p msime-engine-wasm` 6313 项通过、6 项失败，就是 `dict-v2.1.0` 那次的同一组（四个 golden 真实集、`real_model_loads`、`real_resources_mix_japanese_conversions`）；`full_keeps_the_desktop_lock_and_its_generation`、`shipped_syllable_frequency_covers_every_spelling_and_names_its_source`、`shipped_table_is_rebuilt_from_the_locked_dictionary` 通过。被忽略的真实词库测试（英文纠错、九键英文三项、粤拼、注音、`shipped_rime_import_retains_reported_common_character_positions`）全部通过。评测、`must_outrank.py` 和 `dict_eval_gate.py` 的结果见「换到 dict-v2.1.2」一节；`bash scripts/verify-local.sh --quick` 在本机通过（quick 不跑评测集；本机没有 Docker、Windows 与 macOS 隔离构建、鸿蒙工具链，相应几项跳过）。整句的双拼触点基线这次也没有重录。

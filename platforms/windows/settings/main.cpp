@@ -1472,23 +1472,31 @@ std::optional<std::vector<std::wstring>> read_font_catalog() {
 
 // ---- 辅助码方案的来源 ----
 
-// 资源目录 helpcodes/custom 下的自定义辅助码表，与 Tauri 的 list_helpcode_schemas 相同：资源目录是输入法宿主选项（runtime-options.json）的 resources。还没有宿主选项时是失败的响应，页面当作没有自定义码表。读目录，只在 UI 线程之外调用。
+// 自定义辅助码表，与 Tauri 的 list_helpcode_schemas 相同：输入法宿主选项（runtime-options.json）里状态根 preferences_directory（即 DataDir）和资源目录 resources 下的 helpcodes/custom，同一主干取状态根那份。还没有宿主选项时是失败的响应，页面当作没有自定义码表。读目录，只在 UI 线程之外调用。
 Response helpcode_schemas_call() {
   const auto options = runtime_options_document();
   std::wstring resources;
+  std::wstring state_root;
   if (options) {
     try {
-      resources = JsonObject::Parse(text(*options)).GetNamedString(L"resources", L"").c_str();
+      const auto document = JsonObject::Parse(text(*options));
+      resources = document.GetNamedString(L"resources", L"").c_str();
+      state_root = document.GetNamedString(L"preferences_directory", L"").c_str();
     } catch (...) {
       resources.clear();
+      state_root.clear();
     }
   }
   // 与 Tauri 一样只接受绝对路径。
   if (resources.empty() || !std::filesystem::path(resources).is_absolute())
     return {"{\"ok\":false,\"error\":\"no host options\"}", false};
+  if (!state_root.empty() && !std::filesystem::path(state_root).is_absolute())
+    state_root.clear();
   const auto path = utf8(hstring(resources));
+  const auto state = utf8(hstring(state_root));
   return take_response(msime_client_helpcode_schemas(
-      reinterpret_cast<const uint8_t *>(path.data()), path.size()));
+      reinterpret_cast<const uint8_t *>(path.data()), path.size(),
+      state.empty() ? nullptr : reinterpret_cast<const uint8_t *>(state.data()), state.size()));
 }
 
 // 本安装随包带的内置声音包：Server 状态目录下的 sound-packs，与 Tauri 的 builtin_sound_packs 在 Windows 上取的 `server_state_directory()/sound-packs` 相同（StateDirectory.h 的 resolve_state_directory 是同一顺序的 C++ 版本）。目录不在时为空，只列已安装的包。会查文件系统，只在 UI 线程之外调用。
@@ -6018,7 +6026,7 @@ private:
 
   // ---- Launching ----
 
-  // The shared desktop app (MSIME.exe) is installed beside this executable.
+  // 本程序自己的路径。面板宿主（MSIME.exe 或 msime-client-panels.exe）和随包资源都装在它旁边。
   static std::filesystem::path shell_executable() {
     std::wstring buffer(MAX_PATH, L'\0');
     for (;;) {
@@ -6051,22 +6059,24 @@ private:
     auto queue = DispatcherQueue();
     const msime::windows::ShellSurfaceRequest request{
         std::string(target.panel), std::string(target.page)};
-    const auto executable = shell_executable();
+    const auto panel_host = msime::windows::configured_panel_host();
+    const auto directory = shell_executable().parent_path();
+    const auto file = msime::windows::shell_executable_names(request, panel_host).front();
     const auto context = launch_context();
     co_await resume_background();
-    std::error_code error;
+    const auto executable =
+        msime::windows::shell_executable(directory, {}, request, panel_host);
     const bool started =
-        !executable.empty() &&
-        std::filesystem::is_regular_file(executable, error) &&
-        (context ? msime::windows::launch_shell_surface(executable, request,
+        executable &&
+        (context ? msime::windows::launch_shell_surface(*executable, request,
                                                         *context)
-                 : msime::windows::launch_shell_surface(executable, request));
+                 : msime::windows::launch_shell_surface(*executable, request));
     if (started)
       co_return;
-    queue.TryEnqueue([weak] {
+    queue.TryEnqueue([weak, file] {
       if (auto self = weak.get())
         self->show_notice(
-            L"无法打开水杉输入法应用（MSIME.exe）。请重新安装输入法后再试。");
+            L"无法打开水杉输入法应用（" + file + L"）。请重新安装输入法后再试。");
     });
   }
 
@@ -12819,7 +12829,7 @@ private:
 
   // ---- 候选窗口 ----
 
-  // 共享设置「候选窗口」页的桌面版（appearance-page.tsx）：页首引导下面是四个页内标签（`candidateTabs`：布局、字体与大小、窗口样式、预编辑，page_tab_bar），标签条与标签内容之间是一张无标题卡片里的预览，每个标签里只有一组，组名与标签同名。展开候选、页码和内边距在 Windows 上没有（能力位为假），不画。「游戏」组管游戏里候选窗能不能出现，是 Windows 独有的功能开关而不是外观，不属于哪个标签，画在标签内容下面、一直显示。
+  // 共享设置「候选窗口」页的桌面版（appearance-page.tsx）：页首引导下面是四个页内标签（`candidateTabs`：布局、字体与大小、窗口样式、预编辑，page_tab_bar），标签条与标签内容之间是一张无标题卡片里的预览，每个标签里只有一组，组名与标签同名。展开候选和内边距在 Windows 上没有（能力位为假），不画；页码开关在「布局」里，排在每页候选数之后，与共享页相同。「游戏」组管游戏里候选窗能不能出现，是 Windows 独有的功能开关而不是外观，不属于哪个标签，画在标签内容下面、一直显示。
   void build_candidate_page(StackPanel const &page) {
     const auto tab = page_tab_bar(page, L"候选窗口设置",
                                   {{L"layout", L"布局"},
@@ -12844,6 +12854,10 @@ private:
                   {{L"horizontal", L"横向"}, {L"vertical", L"纵向"}},
                   L"vertical");
       candidate_page_size_row(layout);
+      // 与共享设置「候选窗口」页的同名开关相同（`HostCapabilities::candidate_page_number`，`candidate-page-number-section.tsx`）：候选窗首行的「1 / 3」和 ‹ › 一起隐藏（`CandidateLayoutSettings.h`），缺值读成开（#10709）。预览只画一页样例，没有页码，不用重画。
+      bool_row(layout, 0xE8A9, L"显示页码和翻页按钮",
+               L"关闭后候选窗不再显示「1 / 3」和 ‹ ›，仍可用键盘翻页；鼠标滚轮翻页默认关闭，需要时在「输入 › 选词与翻页」里打开。",
+               L"show_candidate_page_number", true);
       // 与共享设置「候选窗口」页的同名开关相同（`HostCapabilities::app_logo`）：新装默认关，缺值读成关。
       bool_row(layout, 0xE790, L"显示水杉 logo",
                L"在候选窗和悬浮工具栏左端显示水杉图标。", L"show_app_logo",
@@ -13791,20 +13805,32 @@ private:
       bool_row(group, 0xE765, L"输入时显示双拼键位提示",
                L"双拼输入时显示当前方案的键位图，完成上屏后自动隐藏。",
                L"shuangpin_keymap_hint", false);
-      // 与共享设置「输入 › 方案」双拼详情里的「双拼预编辑」相同，只在双拼方案下出现：偏好是布尔值 shuangpin_preedit_uses_raw，这里按原始按键 / 拼音分词两项给出，缺省是原始按键。
+      // 与共享设置「输入 › 方案」双拼详情里的「双拼预编辑」相同，只在双拼方案下出现：原始按键 / 双拼分隔 / 拼音分词三档，存成 shuangpin_preedit_uses_raw 和 shuangpin_preedit_separated 两个布尔（InputSettingsModel.h），缺省是原始按键。
+      std::vector<Option> preedit_options;
+      std::wstring preedit_value;
+      auto const stored_preedit =
+          ism::shuangpin_preedit(document_.Boolean(L"shuangpin_preedit_uses_raw", true),
+                                   document_.Boolean(L"shuangpin_preedit_separated", false));
+      for (auto const &option : ism::shuangpin_preedit_options) {
+        preedit_options.push_back({std::wstring(option.value), std::wstring(option.label)});
+        if (option.style == stored_preedit)
+          preedit_value = option.value;
+      }
       add_row(
           group, 0xE8AB, L"双拼预编辑",
-          L"保留原始双拼按键，或显示展开后的拼音分词。",
-          select_control(L"双拼预编辑",
-                         {{L"raw", L"原始按键"}, {L"pinyin", L"拼音分词"}},
-                         document_.Boolean(L"shuangpin_preedit_uses_raw", true)
-                             ? L"raw"
-                             : L"pinyin",
+          L"保留原始双拼按键、在原始按键之间按音节加分隔符，或显示展开后的拼音分词。",
+          select_control(L"双拼预编辑", std::move(preedit_options), preedit_value,
                          [this](std::wstring const &value) {
+                           auto style = ism::ShuangpinPreedit::raw;
+                           for (auto const &option : ism::shuangpin_preedit_options)
+                             if (option.value == value)
+                               style = option.style;
                            change(
                                [&](PreferencesDocument &doc) {
                                  doc.SetBoolean(L"shuangpin_preedit_uses_raw",
-                                                value == L"raw");
+                                                ism::shuangpin_preedit_uses_raw(style));
+                                 doc.SetBoolean(L"shuangpin_preedit_separated",
+                                                ism::shuangpin_preedit_separated(style));
                                },
                                false);
                          }));
@@ -13819,6 +13845,13 @@ private:
                L"在候选后面标出还要再打哪几个字母才能单独打出它。已经打完整码的候选不标。",
                L"wubi_code_hint", true);
       build_wubi_candidate_selection(group);
+      // 下面两项与共享设置页 WubiSection 的同名开关相同，缺省值取 Rust `Preferences::default`（z 通配关、顶字开）。
+      bool_row(group, 0xE8CB, L"z 键通配",
+               L"开启后 z 可匹配码表中该位置的任意字母（含首位），常用于首码不确定时起头；同时停用 z 引导的临时拼音反查。",
+               L"wubi_z_wildcard", false);
+      bool_row(group, 0xE8CB, L"第五码将首选上屏",
+               L"完整四码后再敲字母时上屏首选，并把该字母留作下一组开头；关闭只在拼音混输开启时生效，这个字母并入混输串。混输关闭时仍按顶字上屏，不会丢字。",
+               L"wubi_fifth_code_top_commit", true);
       bool_row(group, 0xE8CB, L"五笔四码唯一候选自动上屏",
                L"五笔输入达到四码且只有一个候选时，自动提交该候选。关闭后这个词留在候选列表里，用空格或数字键选它。",
                L"wubi_auto_commit_unique", true);
@@ -14223,6 +14256,23 @@ private:
     }
   }
 
+  // 「整句联想」的「标准 / 增强」，与手机宿主的同名选择写同一个 `sentence_association.neural_keyboard`：增强在每次按键时用键盘模型重排整句，默认开（缺键按开读）；host-api 只在这台电脑跑得进逐键预算时才挂上模型，跑不进时与标准相同。手机上的「关闭」在这里是「更多选项」里的「本地整句联想」；逐键重排不看词网格开没开（host-api `keyboard_reranker_enabled`），所以那一项关着时这一行照样可选，与共享设置页相同。不带键盘模型的版本没有增强可选，不列这一行。
+  void build_sentence_level_settings(StackPanel const &group) {
+    if constexpr (MSIME_EDITION_NEURAL_KEYBOARD != 0) {
+      const bool enhanced = document_.Boolean(L"sentence_association.neural_keyboard", true);
+      auto selector = select_control(
+          L"整句联想", {{L"standard", L"标准"}, {L"enhanced", L"增强"}},
+          enhanced ? L"enhanced" : L"standard",
+          [this](std::wstring const &value) {
+            change([&](PreferencesDocument &doc) {
+              doc.SetBoolean(L"sentence_association.neural_keyboard", value == L"enhanced");
+            }, false);
+          });
+      A11y::SetAutomationId(selector, L"sentence-association-level");
+      add_row(group, 0xE8C1, L"整句联想", L"更准确，但更耗电", selector);
+    }
+  }
+
   // 安装包不带落定重排模型（Prepare-PackageFiles.ps1），与共享页一样在「桌面神经联想」打开时给出它的下载行，否则开关打开了也没有模型可用。
   void build_neural_desktop_settings(StackPanel const &group) {
     bool_row(group, 0xE8C1, L"桌面神经联想",
@@ -14278,10 +14328,11 @@ private:
                          std::wstring const &title) {
     const auto status = sentence_pack_status(pack);
     const bool installing = sentence_pack_installing_.count(pack) > 0;
+    const bool importing = sentence_pack_importing_.count(pack) > 0;
     const bool removing = sentence_pack_removing_.count(pack) > 0;
     std::wstring subtitle;
     if (installing)
-      subtitle = L"正在下载和校验模型…";
+      subtitle = importing ? L"正在导入和校验模型…" : L"正在下载和校验模型…";
     else if (removing)
       subtitle = L"正在删除模型…";
     else if (status == L"installed")
@@ -14293,22 +14344,52 @@ private:
     StackPanel actions;
     actions.Orientation(Orientation::Horizontal);
     actions.Spacing(8);
+    // 没装或要更新时，除了联网下载，也可以先用浏览器下载列出的文件再「从文件导入」（与语音模型卡片的「不联网安装」相同）；导入走资源包安装的 `files`，按内容认文件，不联网。
+    StackPanel below;
+    below.Spacing(6);
     if (status != L"installed" && !installing && !removing) {
       auto download = button_control(status == L"outdated" ? L"更新" : L"下载",
-                                     [this, pack] { install_sentence_pack(pack); }, loaded_);
+                                     [this, pack] { install_sentence_pack(pack, false); }, loaded_);
       A11y::SetAutomationId(download, L"sentence-model-download-" + pack);
       actions.Children().Append(download);
+      auto import_button = button_control(L"从文件导入",
+                                          [this, pack] { install_sentence_pack(pack, true); }, loaded_);
+      A11y::SetAutomationId(import_button, L"sentence-model-import-" + pack);
+      actions.Children().Append(import_button);
+      for (auto const &entry : sentence_pack_statuses_) {
+        if (entry.id != pack || entry.import_files.empty())
+          continue;
+        auto offline = offline_install_text(entry.import_files);
+        A11y::SetAutomationId(offline, L"sentence-model-offline-" + pack);
+        below.Children().Append(offline);
+      }
     }
     if (status == L"installed" && grammar_updates_available_.count(pack) > 0 &&
         !installing && !removing)
       actions.Children().Append(
-          button_control(L"下载更新", [this, pack] { install_sentence_pack(pack); }, loaded_));
+          button_control(L"下载更新", [this, pack] { install_sentence_pack(pack, false); }, loaded_));
     if (status == L"installed" && !installing && !removing)
       actions.Children().Append(button_control(L"删除", [this, pack] { remove_sentence_pack(pack); },
                                                 loaded_));
     if (installing)
       actions.Children().Append(button_control(L"取消", [this, pack] { cancel_sentence_pack(pack); }, true));
-    inline_subtitle(add_row(group, 0xE8C1, title, subtitle, actions));
+    // 下载或导入失败的说明画在这一行里、紧挨着按钮：模型行在「候选与联想」页底部，页首的提示条滚出窗口外，失败后按钮变回原样，看上去像什么都没发生（与语音模型卡片 #10633 相同）。
+    if (const auto error = sentence_pack_errors_.find(pack);
+        error != sentence_pack_errors_.end() && !installing && !removing) {
+      InfoBar notice;
+      notice.IsOpen(true);
+      notice.IsClosable(false);
+      notice.Severity(InfoBarSeverity::Error);
+      notice.Message(hstring(error->second));
+      A11y::SetLiveSetting(notice, Automation::Peers::AutomationLiveSetting::Assertive);
+      below.Children().Append(notice);
+    }
+    FrameworkElement extra{nullptr};
+    if (below.Children().Size() > 0) {
+      below.Margin(Thickness{0, 6, 0, 0});
+      extra = below;
+    }
+    inline_subtitle(add_row(group, 0xE8C1, title, subtitle, actions, extra));
   }
 
   static std::wstring grammar_pack_for_model(std::wstring const &model) {
@@ -14320,8 +14401,8 @@ private:
 
   std::wstring sentence_pack_status(std::wstring const &id) const {
     for (auto const &status : sentence_pack_statuses_)
-      if (status.first == id)
-        return status.second;
+      if (status.id == id)
+        return status.state;
     return L"missing";
   }
 
@@ -14348,8 +14429,13 @@ private:
               const auto object = item.GetObject();
               const auto id = named_string(object, L"id");
               if (id == L"settled-model" || id == L"grammar-model-wanxiang" ||
-                  id == L"grammar-model-baguwen" || id == L"grammar-model-baguwen-compact")
-                sentence_pack_statuses_.push_back({id, named_string(object, L"state")});
+                  id == L"grammar-model-baguwen" || id == L"grammar-model-baguwen-compact") {
+                SentencePackStatus status{id, named_string(object, L"state"), {}};
+                for (auto const &file : named_objects(object, L"import_files"))
+                  status.import_files.push_back({named_string(file, L"name"), named_string(file, L"url"),
+                                                 named_number(file, L"size").value_or(0)});
+                sentence_pack_statuses_.push_back(std::move(status));
+              }
             }
             redraw_input();
           } catch (...) {
@@ -14412,10 +14498,28 @@ private:
   static void sentence_pack_progress(void *, const char *, uint64_t, uint64_t) noexcept {
   }
 
-  void install_sentence_pack(std::wstring const &id) {
+  // 「下载」「更新」「下载更新」联网安装，用已保存的下载镜像；「从文件导入」（`import`）先让用户在与语音模型相同的打开对话框里多选下载好的文件，关掉对话框不算失败，对话框打不开或给不出本机路径时说明原因，选中的路径以 `files` 交给资源包安装，不联网。两种都能用「取消」停下。`id` 按值传：打开对话框期间页面可能重画，按钮和它持有的 id 随之换掉。
+  void install_sentence_pack(std::wstring id, bool import) {
+    std::vector<std::wstring> files;
+    if (import) {
+      HRESULT failure = S_OK;
+      auto picked = pick_model_files(failure);
+      if (const auto message = vs::local_model_picker_error_message(
+              failure, picked.has_value() && picked->empty())) {
+        sentence_pack_errors_[id] = *message;
+        redraw_input();
+        return;
+      }
+      if (!picked)
+        return;
+      files = std::move(*picked);
+    }
     const auto root = state_directory();
     if (root.empty() || !root.is_absolute()) return;
+    sentence_pack_errors_.erase(id);
     sentence_pack_installing_.insert(id);
+    if (import)
+      sentence_pack_importing_.insert(id);
     redraw_input();
     JsonObject request;
     request.SetNamedValue(L"state_root", JsonValue::CreateStringValue(hstring(root.wstring())));
@@ -14424,8 +14528,13 @@ private:
         L"channel",
         JsonValue::CreateStringValue(
             hstring(current_update_channel())));
-    const auto mirror = document_.String(L"voice_input.asr_model_mirror", L"");
-    if (!mirror.empty()) {
+    if (import) {
+      JsonArray paths;
+      for (auto const &file : files)
+        paths.Append(JsonValue::CreateStringValue(hstring(file)));
+      request.SetNamedValue(L"files", paths);
+    } else if (const auto mirror = document_.String(L"voice_input.asr_model_mirror", L"");
+               !mirror.empty()) {
       JsonArray sources;
       sources.Append(JsonValue::CreateStringValue(hstring(mirror)));
       request.SetNamedValue(L"sources", sources);
@@ -14436,12 +14545,14 @@ private:
               reinterpret_cast<const uint8_t *>(body.data()), body.size(),
               &MainWindow::sentence_pack_progress, nullptr));
         },
-        [this, id](Response const &response) {
+        [this, id, import](Response const &response) {
           sentence_pack_installing_.erase(id);
+          sentence_pack_importing_.erase(id);
           if (!response.ok) {
-            if (const auto message = model_errors::error_message(
-                    model_errors::error_code(response_error(response))))
-              show_notice(*message, InfoBarSeverity::Error);
+            const auto code = model_errors::error_code(response_error(response));
+            if (const auto message = import ? vs::local_model_import_error_message(code)
+                                            : model_errors::error_message(code))
+              sentence_pack_errors_[id] = *message;
           } else {
             grammar_updates_available_.erase(id);
           }
@@ -14464,6 +14575,8 @@ private:
       co_return;
     const auto root = state_directory();
     if (root.empty() || !root.is_absolute()) co_return;
+    // 上次下载或导入（多半是「下载更新」）的失败说明属于删除前的状态，删除后行回到「下载」「从文件导入」，不能再挂着它。
+    sentence_pack_errors_.erase(id);
     sentence_pack_removing_.insert(id);
     redraw_input();
     JsonObject request;
@@ -14544,6 +14657,10 @@ private:
       // 学习选词习惯决定「高级选项」里「拼音方案调频」组画不画，改它时重画这一页。
       bool_row(candidates, 0xE82D, L"学习选词习惯", L"根据选词调整候选顺序", L"learning",
                true, true);
+      // 后加的可选键，默认关，共享序列化关着时不写它，回退值必须是 false（client-core 的 `next_word_prediction`）。位置和共享页桌面一样，紧跟学习开关。
+      bool_row(candidates, 0xE8BD, L"上屏后联想",
+               L"选词上屏后推荐后续文字，点选、按数字键或空格上屏，继续输入其他内容时消失；使用现有词库，开启学习时也参考个人词序，隐私输入不显示",
+               L"next_word_prediction", false);
       // 与共享页一样，少有人改的混输开关收在组末的「更多选项」里。
       auto candidates_more = add_more_options(
           candidates, candidates_more_open_,
@@ -14575,6 +14692,7 @@ private:
       bool_row(candidates_more, 0xE8C1, L"本地整句联想",
                L"把词库组合出的整句加入候选；关闭后仍保留单词候选",
                L"sentence_association.word_lattice", true);
+      build_sentence_level_settings(candidates);
       build_neural_desktop_settings(candidates);
       bool_row(candidates, 0xE8C1, L"去重后补充次选",
                L"某个模型的首选与已有候选重复时，显示该模型排名最高的下一条不同结果",
@@ -23979,11 +24097,7 @@ private:
   // ---- 语音输入 ----
 
   // 本地识别模型目录里的一个模型（msime_client_voice_local_models 的一项）和「不联网安装」要的一个文件。
-  struct LocalModelFile {
-    std::wstring name;
-    std::wstring url;
-    double size = 0;
-  };
+  using LocalModelFile = vs::LocalModelFile;
   struct LocalModel {
     std::wstring id, title, description;
     std::vector<std::wstring> languages;
@@ -25065,6 +25179,18 @@ private:
     block.Inlines().Append(run);
   }
 
+  // 「不联网安装」一句，语音模型卡片和整句模型行共用；文字见 `vs::offline_install_spans`。
+  TextBlock offline_install_text(std::vector<LocalModelFile> const &files) {
+    auto offline = make_text(L"", 12, palette_.sub);
+    for (auto const &span : vs::offline_install_spans(files)) {
+      if (span.url.empty())
+        append_run(offline, span.text);
+      else
+        append_link(offline, span.text, span.url);
+    }
+    return offline;
+  }
+
   FrameworkElement local_model_card(LocalModel const &model, std::wstring const &model_path) {
     const bool in_use = vs::local_model_in_use(model.path, model_path);
     const bool running = local_model_installing_.count(model.id) > 0;
@@ -25108,18 +25234,8 @@ private:
     if (!model.license_terms.empty())
       append_run(license, L"（条款：" + model.license_terms + L"）");
     lines.Children().Append(license);
-    if (!model.installed && !model.import_files.empty()) {
-      auto offline = make_text(L"", 12, palette_.sub);
-      append_run(offline, L"不联网安装：先下载 ");
-      for (size_t index = 0; index < model.import_files.size(); ++index) {
-        auto const &file = model.import_files[index];
-        if (index > 0)
-          append_run(offline, L"、");
-        append_link(offline, file.name + L"（" + vs::format_model_bytes(file.size) + L"）", file.url);
-      }
-      append_run(offline, L"，再点“从文件导入”一起选中。文件改过名也能认出。");
-      lines.Children().Append(offline);
-    }
+    if (!model.installed && !model.import_files.empty())
+      lines.Children().Append(offline_install_text(model.import_files));
     if (running || (importing && progress != local_model_progress_.end())) {
       Grid row;
       row.ColumnSpacing(8);
@@ -27346,8 +27462,17 @@ private:
   bool helpcode_more_open_ = false;
   // Windows 原生设置页的神经联想与 octagram 语法模型资源包状态。
   bool sentence_packs_requested_ = false;
-  std::vector<std::pair<std::wstring, std::wstring>> sentence_pack_statuses_;
+  // msime_client_resource_packs 的一项：安装状态，和不联网安装时要用浏览器下载、再从文件导入的文件。
+  struct SentencePackStatus {
+    std::wstring id, state;
+    std::vector<LocalModelFile> import_files;
+  };
+  std::vector<SentencePackStatus> sentence_pack_statuses_;
   std::set<std::wstring> sentence_pack_installing_;
+  // 正在安装的资源包里，从文件导入（而不是联网下载）的那些；副标题据此说「导入」。
+  std::set<std::wstring> sentence_pack_importing_;
+  // 每个资源包最近一次下载或导入失败的说明，画在它那一行里；重新开始安装时清掉。取消不算失败，不留说明。
+  std::map<std::wstring, std::wstring> sentence_pack_errors_;
   std::set<std::wstring> sentence_pack_removing_;
   std::set<std::wstring> grammar_updates_available_;
   bool grammar_updates_checking_ = false;
