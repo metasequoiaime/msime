@@ -73,6 +73,7 @@
 #include "PreferencePath.h"
 #include "PreferencesSaveFailure.h"
 #include "PunctuationSettings.h"
+#include "SentencePackModel.h"
 #include "SettingsDocumentFile.h"
 #include "SettingsMascotIntro.h"
 #include "SettingsNavIcons.h"
@@ -149,6 +150,7 @@ namespace ais = msime::settings::ai;
 namespace am = msime::settings::account;
 namespace mc = msime::settings::mcp;
 namespace ds = msime::settings::dictionary_sync;
+namespace spk = msime::settings::sentence_pack;
 
 struct Response {
   std::string text;
@@ -4340,9 +4342,11 @@ private:
     flush_pending();
     if (id == current_page_ && focus_row_.empty())
       return;
-    // 每次进入「输入」页都重读已安装的辅助码表插件。
-    if (id == "typing" && id != current_page_)
+    // 每次进入「输入」页都重读已安装的辅助码表插件和整句模型资源包状态（模型可能在别处装上或删掉，上次读失败的也借此重试）。
+    if (id == "typing" && id != current_page_) {
       helpcode_packs_stale_ = true;
+      spk::page_entered(sentence_packs_);
+    }
     // 与共享页一样，每次进入「剪贴板」页都重读历史，并重新查一次能否发到云剪贴板。
     if (id == "clip" && id != current_page_) {
       reset_cloud_clipboard_draft();
@@ -14249,11 +14253,10 @@ private:
     append_row_frame(group, save).Padding(Thickness{row_inset, 10, row_inset, 10});
   }
 
+  // 画页面时按需读一次资源包状态（SentencePackModel.h）：还没读回过、或进页后要重读，且没有正在读的。
   void request_sentence_packs() {
-    if (!indexing_ && sentence_pack_statuses_.empty() && !sentence_packs_requested_) {
-      sentence_packs_requested_ = true;
+    if (!indexing_ && spk::wants_read(sentence_packs_))
       refresh_sentence_packs();
-    }
   }
 
   // 「整句联想」的「标准 / 增强」，与手机宿主的同名选择写同一个 `sentence_association.neural_keyboard`：增强在每次按键时用键盘模型重排整句，默认开（缺键按开读）；host-api 只在这台电脑跑得进逐键预算时才挂上模型，跑不进时与标准相同。手机上的「关闭」在这里是「更多选项」里的「本地整句联想」；逐键重排不看词网格开没开（host-api `keyboard_reranker_enabled`），所以那一项关着时这一行照样可选，与共享设置页相同。不带键盘模型的版本没有增强可选，不列这一行。
@@ -14326,29 +14329,21 @@ private:
 
   void sentence_pack_row(StackPanel const &group, std::wstring const &pack,
                          std::wstring const &title) {
-    const auto status = sentence_pack_status(pack);
     const bool installing = sentence_pack_installing_.count(pack) > 0;
-    const bool importing = sentence_pack_importing_.count(pack) > 0;
     const bool removing = sentence_pack_removing_.count(pack) > 0;
-    std::wstring subtitle;
-    if (installing)
-      subtitle = importing ? L"正在导入和校验模型…" : L"正在下载和校验模型…";
-    else if (removing)
-      subtitle = L"正在删除模型…";
-    else if (status == L"installed")
-      subtitle = L"已安装；切换一次输入框后生效。";
-    else if (status == L"outdated")
-      subtitle = L"已安装的文件需要更新。";
-    else
-      subtitle = L"模型尚未安装。";
+    // 副标题和按钮由 SentencePackModel.h 决定：状态没读回时只说「正在读取」、读失败时只给「重试」，都不给「下载」（#10839）。
+    const auto view = spk::row_view(sentence_packs_.knowledge, sentence_pack_status(pack), installing,
+                                    sentence_pack_importing_.count(pack) > 0, removing,
+                                    grammar_updates_available_.count(pack) > 0);
+    const std::wstring subtitle(view.subtitle);
     StackPanel actions;
     actions.Orientation(Orientation::Horizontal);
     actions.Spacing(8);
     // 没装或要更新时，除了联网下载，也可以先用浏览器下载列出的文件再「从文件导入」（与语音模型卡片的「不联网安装」相同）；导入走资源包安装的 `files`，按内容认文件，不联网。
     StackPanel below;
     below.Spacing(6);
-    if (status != L"installed" && !installing && !removing) {
-      auto download = button_control(status == L"outdated" ? L"更新" : L"下载",
+    if (!view.install_label.empty()) {
+      auto download = button_control(std::wstring(view.install_label),
                                      [this, pack] { install_sentence_pack(pack, false); }, loaded_);
       A11y::SetAutomationId(download, L"sentence-model-download-" + pack);
       actions.Children().Append(download);
@@ -14364,15 +14359,22 @@ private:
         below.Children().Append(offline);
       }
     }
-    if (status == L"installed" && grammar_updates_available_.count(pack) > 0 &&
-        !installing && !removing)
+    if (view.update)
       actions.Children().Append(
           button_control(L"下载更新", [this, pack] { install_sentence_pack(pack, false); }, loaded_));
-    if (status == L"installed" && !installing && !removing)
+    if (view.remove)
       actions.Children().Append(button_control(L"删除", [this, pack] { remove_sentence_pack(pack); },
                                                 loaded_));
-    if (installing)
+    if (view.cancel)
       actions.Children().Append(button_control(L"取消", [this, pack] { cancel_sentence_pack(pack); }, true));
+    if (view.retry) {
+      auto retry = button_control(L"重试", [this] {
+        spk::retry(sentence_packs_);
+        redraw_sentence_packs();
+      }, true);
+      A11y::SetAutomationId(retry, L"sentence-model-retry-" + pack);
+      actions.Children().Append(retry);
+    }
     // 下载或导入失败的说明画在这一行里、紧挨着按钮：模型行在「候选与联想」页底部，页首的提示条滚出窗口外，失败后按钮变回原样，看上去像什么都没发生（与语音模型卡片 #10633 相同）。
     if (const auto error = sentence_pack_errors_.find(pack);
         error != sentence_pack_errors_.end() && !installing && !removing) {
@@ -14406,10 +14408,16 @@ private:
     return L"missing";
   }
 
+  // 同一时间只发一次读取：读的途中又要读（安装或删除刚结束、又进了这一页）时，读回后再读一次（SentencePackModel.h 的 `Catalog`）。读失败按失败记，行上给「重试」，不再当成「没装」。
   void refresh_sentence_packs() {
-    const auto root = state_directory();
-    if (root.empty() || !root.is_absolute())
+    if (!spk::begin_read(sentence_packs_))
       return;
+    const auto root = state_directory();
+    // 状态目录不可用按读失败记。这里可能正在画页面（`request_sentence_packs`），不重画：随后画的那一行已经看得到失败；安装、删除结束时调用方自己会重画。
+    if (root.empty() || !root.is_absolute()) {
+      spk::finish_read(sentence_packs_, false);
+      return;
+    }
     JsonObject request;
     request.SetNamedValue(L"state_root", JsonValue::CreateStringValue(hstring(root.wstring())));
     run_host(
@@ -14418,28 +14426,33 @@ private:
               reinterpret_cast<const uint8_t *>(body.data()), body.size()));
         },
         [this](Response const &response) {
-          if (!response.ok)
-            return;
-          try {
-            auto values = JsonObject::Parse(text(response.text)).GetNamedArray(L"value");
-            sentence_pack_statuses_.clear();
-            for (auto const &item : values) {
-              if (item.ValueType() != JsonValueType::Object)
-                continue;
-              const auto object = item.GetObject();
-              const auto id = named_string(object, L"id");
-              if (id == L"settled-model" || id == L"grammar-model-wanxiang" ||
-                  id == L"grammar-model-baguwen" || id == L"grammar-model-baguwen-compact") {
-                SentencePackStatus status{id, named_string(object, L"state"), {}};
-                for (auto const &file : named_objects(object, L"import_files"))
-                  status.import_files.push_back({named_string(file, L"name"), named_string(file, L"url"),
-                                                 named_number(file, L"size").value_or(0)});
-                sentence_pack_statuses_.push_back(std::move(status));
+          bool ok = false;
+          if (response.ok) {
+            try {
+              auto values = JsonObject::Parse(text(response.text)).GetNamedArray(L"value");
+              std::vector<SentencePackStatus> statuses;
+              for (auto const &item : values) {
+                if (item.ValueType() != JsonValueType::Object)
+                  continue;
+                const auto object = item.GetObject();
+                const auto id = named_string(object, L"id");
+                if (id == L"settled-model" || id == L"grammar-model-wanxiang" ||
+                    id == L"grammar-model-baguwen" || id == L"grammar-model-baguwen-compact") {
+                  SentencePackStatus status{id, named_string(object, L"state"), {}};
+                  for (auto const &file : named_objects(object, L"import_files"))
+                    status.import_files.push_back({named_string(file, L"name"), named_string(file, L"url"),
+                                                   named_number(file, L"size").value_or(0)});
+                  statuses.push_back(std::move(status));
+                }
               }
+              sentence_pack_statuses_ = std::move(statuses);
+              ok = true;
+            } catch (...) {
             }
-            redraw_input();
-          } catch (...) {
           }
+          if (spk::finish_read(sentence_packs_, ok))
+            refresh_sentence_packs();
+          redraw_sentence_packs();
         });
   }
 
@@ -14449,7 +14462,7 @@ private:
       return;
     grammar_updates_checking_ = true;
     grammar_updates_notice_.clear();
-    redraw_input();
+    redraw_sentence_packs();
     const auto channel = current_update_channel();
     JsonObject request;
     request.SetNamedValue(L"state_root", JsonValue::CreateStringValue(hstring(root.wstring())));
@@ -14486,12 +14499,13 @@ private:
               grammar_updates_notice_ = L"模型目录返回内容无法读取，请稍后重试。";
             }
           }
-          redraw_input();
+          redraw_sentence_packs();
         });
   }
 
-  void redraw_input() {
-    if (!closed_ && current_page_ == "input")
+  // 整句模型那几行在「输入」页（`spk::host_page`，即 "typing"）；只在当前就是这一页时重画。
+  void redraw_sentence_packs() {
+    if (!closed_ && current_page_ == spk::host_page)
       render_page(true);
   }
 
@@ -14507,7 +14521,7 @@ private:
       if (const auto message = vs::local_model_picker_error_message(
               failure, picked.has_value() && picked->empty())) {
         sentence_pack_errors_[id] = *message;
-        redraw_input();
+        redraw_sentence_packs();
         return;
       }
       if (!picked)
@@ -14520,7 +14534,7 @@ private:
     sentence_pack_installing_.insert(id);
     if (import)
       sentence_pack_importing_.insert(id);
-    redraw_input();
+    redraw_sentence_packs();
     JsonObject request;
     request.SetNamedValue(L"state_root", JsonValue::CreateStringValue(hstring(root.wstring())));
     request.SetNamedValue(L"pack", JsonValue::CreateStringValue(hstring(id)));
@@ -14557,7 +14571,7 @@ private:
             grammar_updates_available_.erase(id);
           }
           refresh_sentence_packs();
-          redraw_input();
+          redraw_sentence_packs();
         });
   }
 
@@ -14578,7 +14592,7 @@ private:
     // 上次下载或导入（多半是「下载更新」）的失败说明属于删除前的状态，删除后行回到「下载」「从文件导入」，不能再挂着它。
     sentence_pack_errors_.erase(id);
     sentence_pack_removing_.insert(id);
-    redraw_input();
+    redraw_sentence_packs();
     JsonObject request;
     request.SetNamedValue(L"state_root", JsonValue::CreateStringValue(hstring(root.wstring())));
     request.SetNamedValue(L"pack", JsonValue::CreateStringValue(hstring(id)));
@@ -14592,7 +14606,7 @@ private:
           if (!response.ok)
             show_notice(L"模型正在使用或无法删除，请先切换输入框后重试。", InfoBarSeverity::Error);
           refresh_sentence_packs();
-          redraw_input();
+          redraw_sentence_packs();
         });
   }
 
@@ -27460,8 +27474,8 @@ private:
   bool candidates_more_open_ = false;
   bool local_modes_more_open_ = false;
   bool helpcode_more_open_ = false;
-  // Windows 原生设置页的神经联想与 octagram 语法模型资源包状态。
-  bool sentence_packs_requested_ = false;
+  // Windows 原生设置页的神经联想与 octagram 语法模型资源包状态读到了哪一步（SentencePackModel.h）。
+  spk::Catalog sentence_packs_;
   // msime_client_resource_packs 的一项：安装状态，和不联网安装时要用浏览器下载、再从文件导入的文件。
   struct SentencePackStatus {
     std::wstring id, state;
