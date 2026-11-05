@@ -5264,7 +5264,15 @@ public final class MSIMEInputService extends InputMethodService {
     boolean compositionEditable() {
         return session != 0 && view != null && CompositionCaretPolicy.editable(
             InputViewValuePolicy.scheme(view, -1), InputViewValuePolicy.textOr(view, "local_mode", "none"),
-            dedicatedEnglish, InputViewValuePolicy.editingText(view));
+            dedicatedEnglish, InputViewValuePolicy.editingText(view),
+            InputViewValuePolicy.booleanValue(view, "grid_composing", false));
+    }
+
+    /** 这次组字所在键盘的组码表：读音的字母按它对上按键（14 键的 `ni'hao` 对 `bugao`），见 CompositionCaretPolicy.keypad。 */
+    private static String compositionKeypad(JSONObject value) {
+        return CompositionCaretPolicy.keypad(InputViewValuePolicy.scheme(value, -1),
+            InputViewValuePolicy.textOr(value, "key_grid", "none"),
+            InputViewValuePolicy.booleanValue(value, "grid_composing", false));
     }
 
     /** 放大条与输入框点击都只移动引擎光标，不在宿主重建拼写。 */
@@ -5294,7 +5302,7 @@ public final class MSIMEInputService extends InputMethodService {
         String editing = InputViewValuePolicy.editingText(view);
         String composing = composingText(view, editing, true);
         int prefix = InputViewValuePolicy.textOr(view, "phrase_prefix", "").length();
-        int target = CompositionCaretPolicy.editorTapTarget(composing, editing, prefix,
+        int target = CompositionCaretPolicy.editorTapTarget(composing, editing, compositionKeypad(view), prefix,
             start, end, newStart, newEnd);
         if (target < 0) return false;
         int offset = newStart - start;
@@ -12369,21 +12377,24 @@ public final class MSIMEInputService extends InputMethodService {
             String phrasePrefix = InputViewValuePolicy.textOr(view, "phrase_prefix", "");
             // 组字光标（#5613）：点读音行把光标移到点中的字母前；光标被移离末尾时画进读音行（「不显示」也画，下一个键就作用在那里）。读音对不上按键时退回画原始按键。
             boolean caretEditable = !idleTitle && view != null && CompositionCaretPolicy.editable(
-                InputViewValuePolicy.scheme(view, -1), localModeKey, dedicatedEnglish, editingText);
+                InputViewValuePolicy.scheme(view, -1), localModeKey, dedicatedEnglish, editingText,
+                InputViewValuePolicy.booleanValue(view, "grid_composing", false));
             int caret = caretEditable
                 ? InputViewValuePolicy.integer(view, "caret_position", editingText.length())
                 : editingText.length();
             String caretSpelling = spelling;
             // 隔着显示分隔时光标画在哪一侧，看这次组字是不是在组码网格里打的（九键、14 键、18 键的退格先删切分），不看按键是不是数字，也不看 key_grid：网格开着时硬件键盘的字母照样走 26 键，退格删的是分隔前的字母。
             boolean caretKeyGrid = InputViewValuePolicy.booleanValue(view, "grid_composing", false);
+            // 读音的字母按这次组字所在键盘的组码对上按键：九键是数字，14 键、18 键是组码字母（ni'hao 对 bugao）；26 键只认同一个字母。
+            String caretKeypad = compositionKeypad(view);
             int caretMark = caretEditable
-                ? CompositionCaretPolicy.markIndex(spelling, editingText, caret, caretKeyGrid) : -1;
+                ? CompositionCaretPolicy.markIndex(spelling, editingText, caretKeypad, caret, caretKeyGrid) : -1;
             if (caretEditable && caret < editingText.length() && caretMark < 0) {
                 caretSpelling = editingText;
-                caretMark = CompositionCaretPolicy.markIndex(editingText, editingText, caret, caretKeyGrid);
+                caretMark = CompositionCaretPolicy.markIndex(editingText, editingText, caretKeypad, caret, caretKeyGrid);
             }
             boolean spellingDrawn = caretMark >= 0 || spelling.equals(localModeTitle);
-            imeCompositionEditor.render(caretSpelling, editingText, caret, caretKeyGrid);
+            imeCompositionEditor.render(caretSpelling, editingText, caretKeypad, caret, caretKeyGrid);
             String displayText = idleTitle
                 ? (dedicatedEnglish ? "英文输入" : productName)
                 : PhrasePreeditPolicy.title(phrasePrefix, caretMark >= 0
