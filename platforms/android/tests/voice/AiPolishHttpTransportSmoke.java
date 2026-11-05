@@ -32,6 +32,23 @@ public final class AiPolishHttpTransportSmoke {
             "AI polish rejects numeric content instead of coercing it");
         check("".equals(JsonPolicy.strictStringOrEmpty(null)),
             "AI polish rejects null content instead of displaying it");
+        // 宿主冒烟只有 android.jar 里抛 Stub! 的 org.json，请求体本身由 requestBody 按这条判断拼出，这里钉住判断。
+        URI ark = new URI("https://ark.cn-beijing.volces.com/api/v3/chat/completions");
+        check(AiPolishHttpTransport.disablesArkSeedThinking(ark, "doubao-seed-2-0-mini-260428"),
+            "Ark Seed polish requests must turn thinking off");
+        check(AiPolishHttpTransport.disablesArkSeedThinking(
+                new URI("https://ark.cn-shanghai.volces.com/api/v3/chat/completions"), " Doubao-Seed-2-0-lite-260428"),
+            "Every Ark region and model casing counts");
+        check(!AiPolishHttpTransport.disablesArkSeedThinking(ark, "glm-5-3-flash-260828"),
+            "Other Ark models keep their own thinking default");
+        check(!AiPolishHttpTransport.disablesArkSeedThinking(ark, "ep-20261105123456-abcde"),
+            "An endpoint ID does not say which model it serves");
+        check(!AiPolishHttpTransport.disablesArkSeedThinking(
+                new URI("https://volces.com.example/v1/chat/completions"), "doubao-seed-2-0-mini-260428"),
+            "A look-alike host is not Ark");
+        check(!AiPolishHttpTransport.disablesArkSeedThinking(
+                new URI("https://api.everyapi.ai/v1/chat/completions"), "doubao-seed-2-0-mini-260428"),
+            "Gateways serving the same model name are left alone");
         System.out.println("Android AI polish authentication passed");
     }
 }
