@@ -3,26 +3,26 @@
     "2": {
       "cases": 1860,
       "found": 0.995,
-      "mrr": 0.658,
-      "top1": 0.498,
-      "top1_char_prefix": 0.531,
+      "mrr": 0.659,
+      "top1": 0.499,
+      "top1_char_prefix": 0.532,
       "top5": 0.875,
-      "top9": 0.941
+      "top9": 0.942
     },
     "3": {
       "cases": 365,
       "found": 1.0,
-      "mrr": 0.945,
-      "top1": 0.904,
-      "top1_char_prefix": 0.923,
+      "mrr": 0.95,
+      "top1": 0.915,
+      "top1_char_prefix": 0.932,
       "top5": 0.989,
       "top9": 0.989
     },
     "4": {
       "cases": 556,
       "found": 0.905,
-      "mrr": 0.902,
-      "top1": 0.899,
+      "mrr": 0.903,
+      "top1": 0.901,
       "top1_char_prefix": 0.924,
       "top5": 0.905,
       "top9": 0.905
@@ -46,10 +46,10 @@
   "overall": {
     "cases": 2791,
     "found": 0.975,
-    "mrr": 0.742,
-    "top1": 0.63,
-    "top1_char_prefix": 0.661,
-    "top5": 0.894,
+    "mrr": 0.744,
+    "top1": 0.633,
+    "top1_char_prefix": 0.663,
+    "top5": 0.893,
     "top9": 0.938
   },
   "sample_failures": [
@@ -57,7 +57,7 @@
       "gold": "阿爸",
       "id": "w-00001",
       "input": "aba",
-      "rank": 44,
+      "rank": 40,
       "top1": "暗示"
     },
     {
@@ -87,13 +87,6 @@
       "input": "anli",
       "rank": 3,
       "top1": "案例"
-    },
-    {
-      "gold": "岸上",
-      "id": "w-00145",
-      "input": "anshang",
-      "rank": 3,
-      "top1": "按上"
     },
     {
       "gold": "安息",
@@ -222,13 +215,6 @@
       "top1": "本想"
     },
     {
-      "gold": "本着",
-      "id": "w-00757",
-      "input": "benzhe",
-      "rank": 2,
-      "top1": "奔着"
-    },
-    {
       "gold": "彼岸",
       "id": "w-00766",
       "input": "bian",
@@ -247,7 +233,7 @@
       "id": "w-00865",
       "input": "bianzhu",
       "rank": 5,
-      "top1": "贬值"
+      "top1": "编制"
     },
     {
       "gold": "标语",
@@ -269,6 +255,13 @@
       "input": "bihua",
       "rank": 2,
       "top1": "笔画"
+    },
+    {
+      "gold": "冰柜",
+      "id": "w-01036",
+      "input": "binggui",
+      "rank": 2,
+      "top1": "并会"
     },
     {
       "gold": "兵力",
@@ -332,6 +325,13 @@
       "input": "bufan",
       "rank": 2,
       "top1": "不但"
+    },
+    {
+      "gold": "不和",
+      "id": "w-01333",
+      "input": "buhe",
+      "rank": 5,
+      "top1": "逼格"
     }
   ],
   "top1_source": {
