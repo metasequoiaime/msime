@@ -4731,7 +4731,7 @@ mod tests {
 
     #[test]
     fn shipped_syllable_frequency_covers_every_spelling_and_names_its_source() {
-        // 第一行是生成器写下的来源 `msime-dict-build syllable-frequency --pinyin <db>` 的 sha256，必须等于桌面词库锁固定的那份 msime-pinyin.db：换锁时没有重新生成这张表，或者表取自别的词库，这里就失败。表的内容是否真由那份词库算出，由 dict-builder 的 `shipped_table_is_rebuilt_from_the_locked_dictionary`（要 `MSIME_EVAL_RESOURCES`）逐字节核对。
+        // 第一行是生成器写下的来源 `msime-dict-build syllable-frequency --pinyin <db>` 的 sha256，必须等于桌面词库锁固定的那份 msime-pinyin.db：换锁时没有重新生成这张表，或者表取自别的词库，这里就失败。表的内容是否真由那份词库算出，由 dict-builder 的 `shipped_table_is_rebuilt_from_the_locked_dictionary`（要 `MSIME_EVAL_RESOURCES`，CI 的 Rust engine 作业按锁下载那份词库后运行它）逐字节核对。
         let source = SYLLABLE_FREQUENCY
             .lines()
             .next()
