@@ -46,6 +46,11 @@ final class CompositionEditorBar: UIView {
   @available(*, unavailable)
   required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+  /// 控制器开关编辑条只设这一层的 `isHidden`，子视图自己的 `isHidden` 不变、也还在窗口里，所以收起时在这里停掉拼写上进行中的拖动：否则组字结束时手指还按着，边缘计时器会一直走、重新打开时旧的拖动还能再挪光标。
+  override var isHidden: Bool {
+    didSet { if isHidden { spelling.stopDragging() } }
+  }
+
   /// 按引擎这一刻的组字刷新。`display` 对不上 `editing` 时画原始按键，不猜位置（与 Android 相同）。`letterGroups` 是全拼 14 键、18 键的字母网格，读音的字母按它的组码对上按键（见 `CompositionCaretPolicy`）。
   /// 背景透明，透出键盘本身的底色或皮肤图，与 Android 编辑条用键盘底色是同一个样子。
   func update(display: String, editing: String, caret: Int, keyGrid: Bool, letterGroups: LetterKeyGrid?,
@@ -133,10 +138,6 @@ final class CompositionSpellingView: UIView {
     updateBlinking()
   }
 
-  override var isHidden: Bool {
-    didSet { if isHidden { stopDragging() } }
-  }
-
   override func draw(_ rect: CGRect) {
     let text = display as NSString
     let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: foreground]
@@ -214,7 +215,7 @@ final class CompositionSpellingView: UIView {
     move(target)
   }
 
-  private func stopDragging() {
+  fileprivate func stopDragging() {
     edgeTimer?.invalidate()
     edgeTimer = nil
     guard dragging else { return }
