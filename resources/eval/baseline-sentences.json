@@ -11,12 +11,12 @@
     },
     "11": {
       "cases": 2,
-      "found": 1.0,
-      "mrr": 1.0,
-      "top1": 1.0,
-      "top1_char_prefix": 1.0,
-      "top5": 1.0,
-      "top9": 1.0
+      "found": 0.5,
+      "mrr": 0.5,
+      "top1": 0.5,
+      "top1_char_prefix": 0.545,
+      "top5": 0.5,
+      "top9": 0.5
     },
     "12": {
       "cases": 3,
@@ -50,7 +50,7 @@
       "found": 0.0,
       "mrr": 0.0,
       "top1": 0.0,
-      "top1_char_prefix": 1.0,
+      "top1_char_prefix": 0.25,
       "top5": 0.0,
       "top9": 0.0
     },
@@ -121,12 +121,12 @@
     },
     "long-sentence": {
       "cases": 8,
-      "found": 0.75,
-      "mrr": 0.688,
-      "top1": 0.625,
-      "top1_char_prefix": 0.777,
-      "top5": 0.75,
-      "top9": 0.75
+      "found": 0.625,
+      "mrr": 0.563,
+      "top1": 0.5,
+      "top1_char_prefix": 0.663,
+      "top5": 0.625,
+      "top9": 0.625
     },
     "name-place": {
       "cases": 6,
@@ -169,7 +169,7 @@
       "found": 0.667,
       "mrr": 0.667,
       "top1": 0.667,
-      "top1_char_prefix": 0.917,
+      "top1_char_prefix": 0.792,
       "top5": 0.667,
       "top9": 0.667
     }
@@ -177,16 +177,16 @@
   "cases": 60,
   "gold_source": {
     "database": 2,
-    "generated": 48
+    "generated": 47
   },
   "overall": {
     "cases": 60,
-    "found": 0.833,
-    "mrr": 0.825,
-    "top1": 0.817,
-    "top1_char_prefix": 0.918,
-    "top5": 0.833,
-    "top9": 0.833
+    "found": 0.817,
+    "mrr": 0.808,
+    "top1": 0.8,
+    "top1_char_prefix": 0.891,
+    "top5": 0.817,
+    "top9": 0.817
   },
   "sample_failures": [
     {
@@ -236,7 +236,14 @@
       "id": "s-047",
       "input": "womenxuyaozairenzhendekaolvyixia",
       "rank": null,
-      "top1": "我们需要在人真的考虑一下"
+      "top1": "我们需要在认真的考虑以下"
+    },
+    {
+      "gold": "这个项目的进度非常顺利",
+      "id": "s-048",
+      "input": "zheigexiangmudejindufeichangshunli",
+      "rank": null,
+      "top1": "这各项目的进度非常顺利"
     },
     {
       "gold": "今天下午的会议推迟到明天",
@@ -264,11 +271,11 @@
       "id": "s-060",
       "input": "womashangdao",
       "rank": null,
-      "top1": "我马上到了"
+      "top1": "我妈上到"
     }
   ],
   "top1_source": {
-    "database": 3,
-    "generated": 57
+    "database": 2,
+    "generated": 58
   }
 }

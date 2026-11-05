@@ -7928,10 +7928,10 @@ struct KeyboardView {
           .fontColor(this.skin.keyForeground).layoutWeight(1)
         Button('帮你回').enabled(!this.replyBusy).onClick(() => this.toggleReplyPolish(false))
           .backgroundColor(this.replyPolish ? this.skin.keyBackground : this.skin.accent)
-          .fontColor(this.replyPolish ? this.skin.keyForeground : this.skin.keyBackground)
+          .fontColor(this.replyPolish ? this.skin.keyForeground : this.skin.onAccent)
         Button('帮润色').enabled(!this.replyBusy).onClick(() => this.toggleReplyPolish(true))
           .backgroundColor(this.replyPolish ? this.skin.accent : this.skin.keyBackground)
-          .fontColor(this.replyPolish ? this.skin.keyBackground : this.skin.keyForeground)
+          .fontColor(this.replyPolish ? this.skin.onAccent : this.skin.keyForeground)
         if (this.replyTemplates.length > 0) {
           Text(this.replyTemplateMenu ? '风格' : '模板').fontColor(this.skin.accent)
             .onClick(() => this.replyTemplateMenu = !this.replyTemplateMenu)
@@ -8072,7 +8072,7 @@ struct KeyboardView {
               this.polishNotice = '输入位置已变化，请重新润色';
             }
           }).layoutWeight(1).height(42).backgroundColor(this.skin.accent)
-            .fontColor(this.skin.keyBackground)
+            .fontColor(this.skin.onAccent)
           Button('重新润色').enabled(!this.polishBusy).onClick(() => this.requestPolish())
             .layoutWeight(1).height(42).backgroundColor(this.skin.keyBackground)
             .fontColor(this.skin.keyForeground)

@@ -10870,6 +10870,7 @@ mod candidate_scorer;
 
 mod prediction_rerank;
 
+mod deferred_scorer;
 mod sentence_pool;
 mod sentence_start;
 

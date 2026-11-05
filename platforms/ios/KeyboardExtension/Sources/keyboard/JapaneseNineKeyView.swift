@@ -189,7 +189,8 @@ final class JapaneseNineKeyView: UIStackView {
         self.flickPreview.show(active.kana, highlighting: direction, over: button ?? self, in: self)
         button?.configuration?.title = active.kana[direction]
       case .ended:
-        self.select(index, direction: direction)
+        // 滑动接管的是这个键的那次按下，按下时已经反馈过，松手上屏不再响第二下（#10768）。
+        KeyboardKeyButton.releasing(button) { self.select(index, direction: direction) }
         self.flickPreview.hide()
         button?.configuration?.title = active.kana[0]
       case .cancelled:

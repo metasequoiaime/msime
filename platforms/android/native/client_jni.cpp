@@ -607,6 +607,12 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_simplifiedToTra
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_resetCacheRaw(JNIEnv *env, jclass, jlong handle) {
     return response(env, msime_client_reset_cache(static_cast<uint64_t>(handle)));
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_startSettledRerankRaw(JNIEnv *env, jclass, jlong handle) {
+    return response(env, msime_client_start_settled_rerank(static_cast<uint64_t>(handle)));
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_pollSettledRerankRaw(JNIEnv *env, jclass, jlong handle, jlong token, jboolean accept) {
+    return response(env, msime_client_poll_settled_rerank(static_cast<uint64_t>(handle), static_cast<uint64_t>(token), accept == JNI_TRUE));
+}
 JNIEXPORT void JNICALL Java_app_msime_android_NativeClient_releaseProcessCacheRaw(JNIEnv *, jclass) {
     msime_client_release_process_cache();
 }

@@ -374,7 +374,7 @@ struct AISkinDesignView: View {
         if !prominent {
           Button(action: action) { label.foregroundStyle(MetasequoiaTheme.accent) }.buttonStyle(.glass)
         } else {
-          Button(action: action) { label }.buttonStyle(.glassProminent)
+          Button(action: action) { label.foregroundStyle(text) }.buttonStyle(.glassProminent)
         }
       }
       .buttonBorderShape(.capsule).controlSize(.large).tint(MetasequoiaTheme.accent)

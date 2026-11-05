@@ -67,7 +67,7 @@ fi
 for abi in "${abis[@]}"; do bash platforms/android/build-native.sh "$abi" ${native_flags[@]+"${native_flags[@]}"}; done
 abi_list=$(IFS=,; echo "${abis[*]}")
 
-# 宿主用 Gradle 构建：AndroidX 和 Material 以 AAR 发布，资源要合并，R 类要按包生成。以前的 aapt2/d8 流程完全没有依赖解析，这些步骤都得在这里手写。Gradle 用 gradle-app 自带的 wrapper（8.14.3），AGP 版本固定在 gradle-app/build.gradle.kts。
+# 宿主用 Gradle 构建：AndroidX 和 Material 以 AAR 发布，资源要合并，R 类要按包生成。以前的 aapt2/d8 流程完全没有依赖解析，这些步骤都得在这里手写。Gradle 用 gradle-app 自带的 wrapper（9.5.1），AGP 版本固定在 gradle-app/build.gradle.kts。
 assets="$repo_root/target/android/host-assets"
 rm -rf "$assets"
 mkdir -p "$assets/dictionary"
