@@ -69,6 +69,7 @@ public:
 
   void refresh(const Json& preferences) {
     available_ = preferences.at("candidate_translations").get<bool>();
+    local_enabled_ = preferences.value("local_translation", Json::object()).value("enabled", false);
     TranslationServiceChoice choice;
     choice.account = preferences.at("translation_account").get<bool>();
     choice.tencent = preferences.at("tencent_tmt").at("enabled").get<bool>();
@@ -123,8 +124,10 @@ public:
       const auto selected = SendMessageW(selector_, CB_GETCURSEL, 0, 0);
       if (selected < 0 || selected > 4) return result;
       tencent_chosen_ = selected == 1;
-      result.changes = {{{"local_translation", "enabled"}, false}, {{"tencent_tmt", "enabled"}, selected == 1}, {{"niutrans", "enabled"}, selected == 2},
+      result.changes = {{{"tencent_tmt", "enabled"}, selected == 1}, {{"niutrans", "enabled"}, selected == 2},
           {{"custom_translation", "enabled"}, selected == 3}, {{"translation_account"}, selected == 4}};
+      // 默认关闭时共享序列化省略整个对象，不向严格路径编辑器提交不存在的父对象。
+      if (local_enabled_) result.changes.push_back({{"local_translation", "enabled"}, false});
       return result;
     }
     for (size_t index = 0; index < groups_.size(); ++index) {
@@ -228,6 +231,7 @@ private:
     SetWindowTextW(group.result, group.test_config && config && *group.test_config == *config ? group.test_message.c_str() : L"");
   }
 
+  bool local_enabled_ = false;
   HWND local_ = nullptr;
   HWND selector_ = nullptr;
   std::array<Group, 3> groups_{};
