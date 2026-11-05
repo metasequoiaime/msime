@@ -3,20 +3,20 @@
     "10": {
       "cases": 9,
       "found": 0.556,
-      "mrr": 0.411,
+      "mrr": 0.417,
       "top1": 0.333,
-      "top1_char_prefix": 0.544,
+      "top1_char_prefix": 0.578,
       "top5": 0.556,
       "top9": 0.556
     },
     "11": {
       "cases": 9,
-      "found": 0.556,
-      "mrr": 0.5,
-      "top1": 0.444,
-      "top1_char_prefix": 0.818,
-      "top5": 0.556,
-      "top9": 0.556
+      "found": 0.667,
+      "mrr": 0.611,
+      "top1": 0.556,
+      "top1_char_prefix": 0.838,
+      "top5": 0.667,
+      "top9": 0.667
     },
     "12": {
       "cases": 9,
@@ -68,16 +68,16 @@
       "found": 0.444,
       "mrr": 0.389,
       "top1": 0.333,
-      "top1_char_prefix": 0.722,
+      "top1_char_prefix": 0.681,
       "top5": 0.444,
       "top9": 0.444
     },
     "9": {
       "cases": 9,
       "found": 0.889,
-      "mrr": 0.684,
-      "top1": 0.667,
-      "top1_char_prefix": 0.852,
+      "mrr": 0.6,
+      "top1": 0.556,
+      "top1_char_prefix": 0.827,
       "top5": 0.667,
       "top9": 0.778
     }
@@ -95,35 +95,35 @@
     "request": {
       "cases": 18,
       "found": 0.556,
-      "mrr": 0.528,
-      "top1": 0.5,
-      "top1_char_prefix": 0.698,
+      "mrr": 0.442,
+      "top1": 0.389,
+      "top1_char_prefix": 0.669,
       "top5": 0.556,
       "top9": 0.556
     },
     "statement": {
       "cases": 52,
-      "found": 0.712,
-      "mrr": 0.568,
-      "top1": 0.519,
-      "top1_char_prefix": 0.759,
-      "top5": 0.615,
-      "top9": 0.654
+      "found": 0.731,
+      "mrr": 0.604,
+      "top1": 0.558,
+      "top1_char_prefix": 0.767,
+      "top5": 0.635,
+      "top9": 0.673
     }
   },
   "cases": 81,
   "gold_source": {
     "database": 7,
-    "generated": 50
+    "generated": 51
   },
   "overall": {
     "cases": 81,
-    "found": 0.704,
-    "mrr": 0.595,
+    "found": 0.716,
+    "mrr": 0.599,
     "top1": 0.556,
-    "top1_char_prefix": 0.758,
-    "top5": 0.63,
-    "top9": 0.667
+    "top1_char_prefix": 0.757,
+    "top5": 0.642,
+    "top9": 0.679
   },
   "sample_failures": [
     {
@@ -158,8 +158,8 @@
       "gold": "会议改到明天",
       "id": "nk-024",
       "input": "huiyigaidaomingtian",
-      "rank": 40,
-      "top1": "会议还到明天"
+      "rank": 39,
+      "top1": "会议海岛明天"
     },
     {
       "gold": "请把窗户关上",
@@ -229,7 +229,7 @@
       "id": "nk-040",
       "input": "wogangcaiquletangyinhang",
       "rank": null,
-      "top1": "我刚才去了躺赢啊你"
+      "top1": "我刚采取课堂新行"
     },
     {
       "gold": "晚上一起看电视吧",
@@ -267,18 +267,32 @@
       "top1": "天气预报说明提案由于"
     },
     {
+      "gold": "周末我们去看电影吧",
+      "id": "nk-051",
+      "input": "zhoumowomenqukandianyingba",
+      "rank": 5,
+      "top1": "周末我们去看电子你把"
+    },
+    {
       "gold": "我已经把钱转给你了",
       "id": "nk-054",
       "input": "woyijingbaqianzhuangeinile",
-      "rank": 94,
-      "top1": "我已经把前传给你了"
+      "rank": 17,
+      "top1": "我已经把山庄订了"
+    },
+    {
+      "gold": "我们一起去公园散步吧",
+      "id": "nk-055",
+      "input": "womenyiqiqugongyuansanbuba",
+      "rank": 4,
+      "top1": "我们一起去公园萨那他啊"
     },
     {
       "gold": "明天的会议改到下午了",
       "id": "nk-056",
       "input": "mingtiandehuiyigaidaoxiawule",
       "rank": null,
-      "top1": "明天的会议还到下雨了"
+      "top1": "明天的回忆海岛下雨了"
     },
     {
       "gold": "你吃完饭以后早点休息",
@@ -293,13 +307,6 @@
       "input": "nibanagehongsedebaogeiwo",
       "rank": null,
       "top1": "你报车供热的报给我"
-    },
-    {
-      "gold": "这次考试的题目有点难",
-      "id": "nk-059",
-      "input": "zhecikaoshidetimuyoudiannan",
-      "rank": 5,
-      "top1": "这次老师的题目有点难"
     },
     {
       "gold": "我们下次再来这里吃饭",
@@ -335,13 +342,6 @@
       "input": "zhegedifangwoyiqianlaiguoyici",
       "rank": 2,
       "top1": "这个地方我以前开过一次"
-    },
-    {
-      "gold": "我还以为你已经回到家了",
-      "id": "nk-070",
-      "input": "wohaiyiweiniyijinghuidaojiale",
-      "rank": null,
-      "top1": "我还以为你已经回到加了"
     },
     {
       "gold": "这是我第一次来这个地方",

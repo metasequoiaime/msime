@@ -358,7 +358,7 @@ JVM 冒烟只覆盖无 Android 依赖的策略层；焦点、选区、编辑器�
 
 ## APK 入口
 
-`build-apk.sh <已锁定词库目录>` 是本目录唯一的 APK 构建入口：Java 宿主来自 `platforms/android/java`，manifest 是 `platforms/android/AndroidManifest.xml`，图标是 `platforms/android/res/drawable/app_icon_*`，不含任何 Tauri/WebView/React。Gradle 工程是 `gradle-app`，用它自带的 Gradle wrapper（`gradle-app/gradlew`，Gradle 8.14.3，分发包按官方 SHA-256 固定）构建。从没发布过的 Tauri 合包（`build-client-apk.sh` 和 `apps/desktop/src-tauri/gen/android`）已经删掉。
+`build-apk.sh <已锁定词库目录>` 是本目录唯一的 APK 构建入口：Java 宿主来自 `platforms/android/java`，manifest 是 `platforms/android/AndroidManifest.xml`，图标是 `platforms/android/res/drawable/app_icon_*`，不含任何 Tauri/WebView/React。Gradle 工程是 `gradle-app`，用它自带的 Gradle wrapper（`gradle-app/gradlew`，Gradle 9.5.1，分发包按官方 SHA-256 固定）构建。从没发布过的 Tauri 合包（`build-client-apk.sh` 和 `apps/desktop/src-tauri/gen/android`）已经删掉。
 
 ## 设置应用
 
