@@ -2304,6 +2304,18 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     IOSSharedPaths.applicationSupport.appendingPathComponent("MSIME-read-only", isDirectory: true)
   }
 
+  /// 共享状态目录所在的容器此刻是否真的写得进：在里面独占地建一个临时文件再删掉。没有完全访问的键盘扩展在真机上会被沙盒拒绝（App Group 只读，#10945）；取不到 App Group 时容器是应用自己的 Application Support，还不存在就先建出来。
+  static func sharedStateIsWritable() -> Bool {
+    let container = IOSSharedPaths.sharedContainerOrApplicationSupport(for: MSIMEAppEdition.appGroupIdentifier)
+    try? FileManager.default.createDirectory(at: container, withIntermediateDirectories: true)
+    let probe = container.appendingPathComponent(".msime-write-probe-\(UUID().uuidString)").path
+    let descriptor = open(probe, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0o600)
+    guard descriptor >= 0 else { return false }
+    close(descriptor)
+    unlink(probe)
+    return true
+  }
+
   private static func bootstrapOptions(resources resourceOverride: URL?, stateRoot stateOverride: URL?) -> [String: Any] {
     let group = IOSSharedPaths.sharedContainerOrApplicationSupport(for: MSIMEAppEdition.appGroupIdentifier)
     let root = stateOverride ?? group.appendingPathComponent("MSIME", isDirectory: true)

@@ -27,10 +27,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let launchMemory = DiagnosticLog.MemorySample.current()
   /// 这里只准备选项、不建会话：会话一建就在 App Group 里持着词库租约和下载代次的锁，控制器创建时键盘还没出现，也可能永远不出现，进程那时被挂起，iOS 以 0xdead10cc 结束扩展（#10634）。会话在 `viewWillAppear` 里建，在 `viewWillDisappear` 里销毁，锁的持有期不超过键盘的可见期。
   ///
-  /// 第一次用到时才准备（`viewDidLoad` 一开始），那时 `hasFullAccess` 已经可信：没有完全访问时 App Group 只读，可写的准备第一步就以 EPERM 失败，键盘打不了字（#10945），所以按它选只读的准备。iOS 在用户切换完全访问时结束扩展进程，进程活着时这个值不变。
+  /// 第一次用到时才准备（`viewDidLoad` 一开始），那时 `hasFullAccess` 已经可信：没有完全访问时 App Group 只读，可写的准备第一步就以 EPERM 失败，键盘打不了字（#10945），所以这时选只读的准备。iOS 在用户切换完全访问时结束扩展进程，进程活着时这个值不变。
+  ///
+  /// 没有完全访问时再实际试写一次共享目录（`MetasequoiaInputSessionBridge.sharedStateIsWritable`），写得进就仍走可写的准备：`hasFullAccess` 只在连上键盘宿主之后才是真值，单元测试的宿主直接创建控制器、从不连上，它恒为 false，而那里的共享目录（取不到 App Group 时是应用自己的 Application Support）是可写的。只看 `hasFullAccess` 时所有用真实控制器的测试都被推到只读路径上。真机没有完全访问时试写被沙盒拒绝，结果与只看 `hasFullAccess` 相同。
   private lazy var session: MetasequoiaInputSessionBridge = {
     self.sessionPrepared = true
-    return MetasequoiaInputSessionBridge(startsSuspended: true, sharedStateWritable: self.hasFullAccess)
+    let writable = self.hasFullAccess || MetasequoiaInputSessionBridge.sharedStateIsWritable()
+    return MetasequoiaInputSessionBridge(startsSuspended: true, sharedStateWritable: writable)
   }()
   /// `session` 是否已经准备过；控制器在 `viewDidLoad` 之前就释放时 `deinit` 不能为了看一眼去准备它。
   private var sessionPrepared = false
