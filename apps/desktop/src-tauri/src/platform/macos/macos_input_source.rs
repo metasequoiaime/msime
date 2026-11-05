@@ -415,7 +415,7 @@ pub(crate) fn configure_global_voice(enabled: bool) -> Result<(), String> {
     let executable = bundle
         .join("Contents/MacOS")
         .join(input_source_executable());
-    let mut child = std::process::Command::new(executable)
+    let child = std::process::Command::new(executable)
         .args([
             "--configure-global-voice",
             if enabled { "enable" } else { "disable" },
@@ -425,22 +425,11 @@ pub(crate) fn configure_global_voice(enabled: bool) -> Result<(), String> {
         .stderr(std::process::Stdio::null())
         .spawn()
         .map_err(|_| "input_method_start_failed")?;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
-    loop {
-        if let Some(status) = child.try_wait().map_err(|_| "background_setup_failed")? {
-            return if status.success() {
-                Ok(())
-            } else {
-                Err("background_setup_failed".into())
-            };
-        }
-        if std::time::Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err("background_setup_timeout".into());
-        }
-        std::thread::sleep(std::time::Duration::from_millis(50));
-    }
+    // 原生 helper 的登记与拉起各有十秒预算，父进程保留五秒收尾余量。
+    super::super::desktop::global_voice_setup::wait_for_background_setup(
+        child,
+        super::super::desktop::global_voice_setup::BACKGROUND_SETUP_TIMEOUT,
+    )
 }
 
 fn installed_bundle_path_in(

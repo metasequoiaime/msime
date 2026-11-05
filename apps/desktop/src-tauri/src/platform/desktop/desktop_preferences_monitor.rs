@@ -142,7 +142,7 @@ mod inotify_tests {
 pub(crate) struct Monitor {
     revision: Option<u64>,
     #[cfg(target_os = "macos")]
-    global_voice: super::global_voice_setup::GlobalVoiceSetup,
+    global_voice: super::global_voice_setup::GlobalVoiceSetupWorker,
     #[cfg(target_os = "macos")]
     started: std::time::Instant,
     history: Option<Vec<ClipboardHistoryEntry>>,
@@ -153,7 +153,7 @@ impl Monitor {
         Self {
             revision: store.load().ok().map(|snapshot| snapshot.revision),
             #[cfg(target_os = "macos")]
-            global_voice: super::global_voice_setup::GlobalVoiceSetup::new(false),
+            global_voice: super::global_voice_setup::GlobalVoiceSetupWorker::new(false),
             #[cfg(target_os = "macos")]
             started: std::time::Instant::now(),
             history: None,
@@ -162,7 +162,7 @@ impl Monitor {
 
     #[cfg(target_os = "macos")]
     pub(crate) fn manage_installed_voice_host(&mut self, managed: bool) {
-        self.global_voice = super::global_voice_setup::GlobalVoiceSetup::new(managed);
+        self.global_voice = super::global_voice_setup::GlobalVoiceSetupWorker::new(managed);
     }
 
     pub(crate) fn poll<R: Runtime>(
