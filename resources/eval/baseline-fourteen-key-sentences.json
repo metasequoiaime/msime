@@ -11,17 +11,17 @@
     },
     "11": {
       "cases": 9,
-      "found": 0.667,
-      "mrr": 0.583,
-      "top1": 0.556,
-      "top1_char_prefix": 0.848,
-      "top5": 0.667,
-      "top9": 0.667
+      "found": 0.778,
+      "mrr": 0.694,
+      "top1": 0.667,
+      "top1_char_prefix": 0.869,
+      "top5": 0.778,
+      "top9": 0.778
     },
     "12": {
       "cases": 9,
       "found": 0.667,
-      "mrr": 0.563,
+      "mrr": 0.561,
       "top1": 0.556,
       "top1_char_prefix": 0.769,
       "top5": 0.556,
@@ -48,7 +48,7 @@
     "6": {
       "cases": 9,
       "found": 1.0,
-      "mrr": 0.626,
+      "mrr": 0.628,
       "top1": 0.556,
       "top1_char_prefix": 0.796,
       "top5": 0.667,
@@ -75,7 +75,7 @@
     "9": {
       "cases": 9,
       "found": 0.889,
-      "mrr": 0.672,
+      "mrr": 0.67,
       "top1": 0.667,
       "top1_char_prefix": 0.852,
       "top5": 0.667,
@@ -86,7 +86,7 @@
     "question": {
       "cases": 11,
       "found": 1.0,
-      "mrr": 0.83,
+      "mrr": 0.829,
       "top1": 0.818,
       "top1_char_prefix": 0.856,
       "top5": 0.818,
@@ -103,27 +103,27 @@
     },
     "statement": {
       "cases": 52,
-      "found": 0.808,
-      "mrr": 0.637,
-      "top1": 0.615,
-      "top1_char_prefix": 0.836,
-      "top5": 0.654,
-      "top9": 0.673
+      "found": 0.827,
+      "mrr": 0.656,
+      "top1": 0.635,
+      "top1_char_prefix": 0.84,
+      "top5": 0.673,
+      "top9": 0.692
     }
   },
   "cases": 81,
   "gold_source": {
     "database": 7,
-    "generated": 58
+    "generated": 59
   },
   "overall": {
     "cases": 81,
-    "found": 0.802,
-    "mrr": 0.654,
-    "top1": 0.63,
-    "top1_char_prefix": 0.812,
-    "top5": 0.679,
-    "top9": 0.691
+    "found": 0.815,
+    "mrr": 0.666,
+    "top1": 0.642,
+    "top1_char_prefix": 0.814,
+    "top5": 0.691,
+    "top9": 0.704
   },
   "sample_failures": [
     {
@@ -151,15 +151,15 @@
       "gold": "电脑突然死机",
       "id": "nk-023",
       "input": "diannaoturansiji",
-      "rank": 12,
+      "rank": 10,
       "top1": "电脑依然司机"
     },
     {
       "gold": "会议改到明天",
       "id": "nk-024",
       "input": "huiyigaidaomingtian",
-      "rank": 25,
-      "top1": "会议还到明天"
+      "rank": 24,
+      "top1": "会议海岛明天"
     },
     {
       "gold": "请把窗户关上",
@@ -242,14 +242,14 @@
       "gold": "天气预报说明天有雨",
       "id": "nk-050",
       "input": "tianqiyubaoshuomingtianyouyu",
-      "rank": 36,
-      "top1": "天气预报说明一案由于"
+      "rank": 64,
+      "top1": "天气预报说明远优于"
     },
     {
       "gold": "我已经把钱转给你了",
       "id": "nk-054",
       "input": "woyijingbaqianzhuangeinile",
-      "rank": 59,
+      "rank": 62,
       "top1": "我已经把前传给你了"
     },
     {
@@ -295,13 +295,6 @@
       "top1": "你们几个人一起去除但那"
     },
     {
-      "gold": "我还以为你已经回到家了",
-      "id": "nk-070",
-      "input": "wohaiyiweiniyijinghuidaojiale",
-      "rank": null,
-      "top1": "我还以为你已经回到加了"
-    },
-    {
       "gold": "这是我第一次来这个地方",
       "id": "nk-072",
       "input": "zheshiwodiyicilaizhegedifang",
@@ -319,7 +312,7 @@
       "gold": "你可以先去那里等我一下吗",
       "id": "nk-074",
       "input": "nikeyixianqunalidengwoyixiama",
-      "rank": 16,
+      "rank": 20,
       "top1": "你可以先去哪里等我一下吗"
     },
     {

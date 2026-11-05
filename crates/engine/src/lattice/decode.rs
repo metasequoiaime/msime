@@ -16,7 +16,7 @@ use std::cell::Cell;
 
 use super::cxx_sort;
 use super::ngram::{NgramTable, SENTENCE_START};
-use super::offensive;
+use super::offensive::OffensiveWords;
 use super::personal::PersonalNgram;
 use super::LatticeLookup;
 use crate::assets;
@@ -82,6 +82,8 @@ pub struct LatticeOptions<'a> {
     /// 语法模型激活时把解码最优路径以 `CandidateSource::Collocation` 行展示；
     /// 与 `include_lattice_best` 同开且指向同一句时归属 Collocation。
     pub include_collocation_best: bool,
+    /// 拼整句时不用的粗俗词表（`lattice::offensive`）：默认是编进引擎的表，产品路径用词库 `sentence_excluded` 表读出来的那张（[`SentenceNgramTables::set_offensive_words`]）。
+    pub offensive: OffensiveWords,
 }
 
 /// 多字词每音节奖励，并扣一份作为每词插入代价。九宫格跨切分比较再扣音节奖励，保留已经计入的每词代价，见 `nine_key::comparable_weight`。
@@ -169,6 +171,7 @@ impl Default for LatticeOptions<'_> {
             collocation_scorer: None,
             collocation_weight: 0.0,
             include_collocation_best: false,
+            offensive: OffensiveWords::default(),
         }
     }
 }
@@ -181,6 +184,8 @@ pub(crate) const SENTENCE_PATHS: usize = 6;
 pub(crate) struct SentenceNgramTables {
     bigram: Option<Arc<NgramTable>>,
     trigram: Option<Arc<NgramTable>>,
+    /// 活动词典的粗俗词表，随整句选项交给每次解码。
+    offensive: OffensiveWords,
 }
 
 impl SentenceNgramTables {
@@ -188,7 +193,18 @@ impl SentenceNgramTables {
         Self {
             bigram: NgramTable::shared(&paths.dictionary(assets::BIGRAM_TABLE)),
             trigram: NgramTable::shared(&paths.dictionary(assets::TRIGRAM_TABLE)),
+            offensive: OffensiveWords::default(),
         }
+    }
+
+    /// 换成活动词典自己的粗俗词表（`PinyinDatabase::offensive_words`）；不调用时用内嵌表。
+    pub(crate) fn set_offensive_words(&mut self, offensive: OffensiveWords) {
+        self.offensive = offensive;
+    }
+
+    /// 这份词典拼整句用的粗俗词表，候选排位也读它。
+    pub(crate) fn offensive_words(&self) -> &OffensiveWords {
+        &self.offensive
     }
 
     pub(crate) fn options<'a>(&self, sentence_alternatives: bool) -> LatticeOptions<'a> {
@@ -197,6 +213,7 @@ impl SentenceNgramTables {
             emit: if sentence_alternatives { 0 } else { 1 },
             bigram: self.bigram.clone(),
             trigram: self.trigram.clone(),
+            offensive: self.offensive.clone(),
             ..LatticeOptions::default()
         }
     }
@@ -493,7 +510,7 @@ pub(super) fn build_graph(
                     // 含粗俗词的词不成边（`lattice::offensive`）。过滤在 `take` 之前，但产品路径的词库查询（`query_lattice_span`）已经在 SQL 里按 `span_limit` 限了行数，拦下一个词只是让这一段少一行，没有后面的行补上来。
                     for row in rows
                         .into_iter()
-                        .filter(|row| offensive::admits_edge(&row.value, start, end, n))
+                        .filter(|row| options.offensive.admits_edge(&row.value, start, end, n))
                         .take(options.span_limit)
                     {
                         if row.value.is_empty() {
@@ -573,7 +590,7 @@ pub(super) fn build_graph_borrowed<'rows>(
                     let mut span_key = None;
                     for row in rows
                         .iter()
-                        .filter(|row| offensive::admits_edge(&row.value, start, end, n))
+                        .filter(|row| options.offensive.admits_edge(&row.value, start, end, n))
                         .take(options.span_limit)
                     {
                         if row.value.is_empty() {
@@ -1558,7 +1575,7 @@ pub(super) fn decode_typo_on_graph_with_policy(
         typo.start < typo.end
             && typo.end <= n
             && !typo.value.is_empty()
-            && !offensive::is_offensive(&typo.value)
+            && !options.offensive.is_offensive(&typo.value)
     };
     for typo in edges {
         if usable(typo) {

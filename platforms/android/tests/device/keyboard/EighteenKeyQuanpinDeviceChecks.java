@@ -58,6 +58,10 @@ final class EighteenKeyQuanpinDeviceChecks {
             t.stage = "eighteen quanpin grouped nihao";
             groups("B N", "I O", "H", "A", "I O");
             t.await(t.field("msime-test-plain").and(EighteenKeyQuanpinDeviceChecks::empty));
+            // 读音行画引擎给的读音，不是组码 bihai；放大拼写条画同一个读音。
+            String shownReading = String.valueOf(t.await(t.described("编辑拼写").and(n -> n.getText() != null
+                && n.getText().length() > 0 && !DeviceSmoke.equalsText("bihai", n.getText()))).getText());
+            GridSpellingEditorChecks.run(t, shownReading, "bihai");
             // 拼音条和候选同时出现：拼音条不能盖住候选。用屏幕坐标真实点候选，无障碍点击不走触摸分发，测不出被上层视图吞掉的点按。
             Rect spellings = bounds(t.described("18 键拼音选择"));
             Rect nihao = bounds(candidate("你好"));

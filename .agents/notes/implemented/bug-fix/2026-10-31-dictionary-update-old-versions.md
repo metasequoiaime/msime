@@ -50,4 +50,4 @@ Status: implemented
 
 ## Related notes
 
-[全平台词库独立更新](../feature/2026-10-18-dictionary-auto-update.md)定义了不可变代次、`loaded.json` 和旧会话按自己代次做快照的规则，这里在它之上补回收。[资源安装锁的释放](2026-10-15-resource-install-lock-release.md)约束 `resources.lock` 的持有范围，`ResourceStore::remove` 沿用同一套规则。
+[全平台词库独立更新](../feature/2026-10-18-dictionary-auto-update.md)定义了不可变代次、`loaded.json` 和旧会话按自己代次做快照的规则，这里在它之上补回收。[资源安装锁的释放](2026-10-15-resource-install-lock-release.md)约束 `resources.lock` 的持有范围，`ResourceStore::remove` 沿用同一套规则。[回收用不上的工作词库代次](2026-11-03-dictionary-working-generations.md)沿用这里的保留范围，回收 `user/dictionaries/` 下与已删版本同名的工作词库。
