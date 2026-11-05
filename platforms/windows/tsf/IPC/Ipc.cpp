@@ -1379,11 +1379,8 @@ struct FanyImeNamedpipeDataToTsf *TryReadDataFromServerPipeWithTimeout(uint64_t 
         return &transportUnavailableReply;
     };
     auto softMiss = [](uint64_t requestId) {
-        // Deliberately not TransportUnavailable: preedit waiters fall back to
-        // the local reading string without tearing down the reply pipe.
-        namedpipeDataFromServer = {};
-        namedpipeDataFromServer.msg_type = Global::DataFromServerMsgType::Normal;
-        namedpipeDataFromServer.request_id = requestId;
+        // 不是 TransportUnavailable：预编辑的等待方退回本地读音，不拆回包管道。也不是 Normal：数字选词会把它当成 Server「整段上屏了空文字」，见 SoftReplyMiss。
+        namedpipeDataFromServer = msime::windows::tsf::SoftReplyMiss(requestId);
         return &namedpipeDataFromServer;
     };
 
