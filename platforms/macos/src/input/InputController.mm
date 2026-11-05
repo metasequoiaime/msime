@@ -10348,7 +10348,6 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     const CGFloat statusBlock = statusTextWidth > 0 ? 2 * statusGap + scale + statusTextWidth : 0;
     // 「候选编辑：光标后」和翻页的「1 / 3」同一字号，放在翻页控件左边；它算进卡片的最小宽度，模式生效期间总能画全。
     NSString *caretEditHint = caretEditActive ? MSIMECaretEditSuffixHint : @"";
-    const NSSize caretEditHintSize = caretEditHint.length ? [caretEditHint sizeWithAttributes:@{NSFontAttributeName: statusFont}] : NSZeroSize;
     const CGFloat caretEditHintWidth = MSIMECandidateLabelWidth(caretEditHint, statusFont);
     const CGFloat caretEditHintBlock = caretEditHintWidth > 0 ? caretEditHintWidth + indicatorGap : 0;
     BOOL caretEditHintShown = caretEditHintWidth > 0;
@@ -10585,7 +10584,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         hint.font = statusFont;
         hint.alignment = NSTextAlignmentRight;
         hint.lineBreakMode = NSLineBreakByClipping;
-        const CGFloat hintHeight = ceil(caretEditHintSize.height);
+        const CGFloat hintHeight = ceil([caretEditHint sizeWithAttributes:@{NSFontAttributeName: statusFont}].height);
         const CGFloat hintRight = width - inset - (headerControlsWidth ? headerControlsWidth + indicatorGap : 0);
         hint.frame = NSMakeRect(hintRight - caretEditHintWidth, headerBottom + preeditMargin.bottom + floor((headerContentHeight - hintHeight) / 2),
                                 caretEditHintWidth, hintHeight);
