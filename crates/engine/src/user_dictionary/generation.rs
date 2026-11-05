@@ -600,7 +600,6 @@ fn merge_split_wubi_marked(resources: &Path, main_db: &Path, mark_replay: bool) 
             let mut select = input.prepare(&format!("SELECT rowid,* FROM \"{table}\""))?;
             let columns: Vec<String> = select
                 .column_names()
-                .iter()
                 .map(|name| format!("\"{name}\""))
                 .collect();
             let placeholders = vec!["?"; columns.len()].join(",");
