@@ -55,6 +55,32 @@ Status: implemented
 
 评测用 `verify-local.sh` 的十三组参数（不带 `--first-page-rows`，即引擎默认的首页 6 行；挂 `sentence-model.safetensors`），另加打字流 `typing_sim --keyboard nine` 和双拼触点词级（`--jobs 5 --assert-top1-unchanged`），分三臂：develop 二进制配旧锁资源，同一个二进制配新锁资源（`--resource-lock` 指向新锁），本次的二进制（新的音节频度表）配新锁资源。十三份报告三臂逐字节相同，也与提交的基线逐字节相同；双拼触点词级同样相同；打字流只有记录资源来源的 `generation` 与 `source_commit` 两个字段变了，基线随之更新。新增的 12 个词和音节频度表的微调没有碰到任何评测用例。
 
+### 换到 dict-v2.1.0
+
+2026-11-05 锁从 `dict-v2.0.41` 换到 `dict-v2.1.0`，即词库大清洗第一轮的发布（[清洗方案](../feature/2026-11-04-dictionary-curation-tables.md)第 5 节 4.4 行）：msime-dictionary `a6b5ad6`（#128，`curation/` 否决表、覆盖表、粗俗词表、英文与释义否决、粤拼两张表，五笔 86 拆成极点表与 rime-wubi 两个文件，万象 `7ab73ee` 全套登记为上游，地名表加万象下限后重新生成）用构建器 `2f5de01dc`（#10858）构建。中间的 `dict-v2.0.42` 到 `dict-v2.0.56` 没有单独换锁，开着自动更新的设备早已用上它们，随包基线和九键音节频度表一直停在 `dict-v2.0.41`。
+
+做法与前两次相同，现在全部可以照着重跑：主锁和语言词库锁用 `scripts/resource_lock_from_sums.py --url-base https://github.com/metasequoiaime/msime-dictionary/releases/download/<tag>/` 从下载的发布附件生成（它先逐个核对文件与 `msime-SHA256SUMS.txt`，语言词库把 `msime-language-dictionaries-SHA256SUMS` 改名放进只含那六个文件的目录，`--source-commit` 给构建器提交），再与 `gh release view --json assets` 的摘要和清单的 `files` 逐项核对；`editions.py gen-locks` 生成组件锁与版本锁，full 的代次变为 `1ccceecb4f95d74bcf12768079bd5195d8bfb3f71840c3d9c8d4b3a3de46f12a`。语言词库锁的 `source_commit` 记构建器提交（与主锁和 `dict-v2.0.41` 那次一致；#10691 记成了源数据提交）。`msime-engine-dictionary-NOTICE.md` 按 `a6b5ad6` 的 `NOTICE.md` 重新同步，此前「已登记、尚未随当前词库发布的来源」里的四项都已写进那份文件，这一节删掉，只把那份文件没写的构建器内置英文蔑称挪进「msime 构建时另加的输入」。万象署名补上地名表的万象下限（719 行）。
+
+九键音节频度表按新的 `msime-pinyin.db` 重新生成：424 个音节里 368 个的总权重变了，最多 -4.3%（weng），排名的秩相关 0.99999，没有音节移动超过 3 位；同一份新词库配新旧两张表，九键、14 键词级和九键长句的 dump 配对比较 fixed / broken 都是 0。引擎单测 `shipped_syllable_frequency_covers_every_spelling_and_names_its_source` 改为要求表的来源行等于主锁里 `msime-pinyin.db` 的 sha256，换锁不重新生成表就失败；dict-builder 的 `shipped_table_is_rebuilt_from_the_locked_dictionary` 在设了 `MSIME_EVAL_RESOURCES` 时从那份词库重新生成并逐字节比较，防手改。
+
+字节变化：除日文词典、两份 Mozc 文本和 SCOWL 声明外全部变了。`msime-wubi.db` 从 95.0 MB 涨到 142.5 MB（多了新世纪表 `wubixsj`，726,674 行），全量下载从 269,814,094 字节变为 317,262,783 字节，面向用户的「首次约 270 MB」改为约 320 MB；`msime-stroke.db` 从 3.8 MB 降到 2.4 MB（扩展区门槛）。拼音库第一次带 `sentence_excluded`（86 个词、19 条豁免写法）。Android 的 full 与拼音瘦包不带五笔码表，不受影响；五笔版 APK、Play 版 AAB、macOS 五笔版和 web-engine 的五笔 86 包都会变大，本次没有实测。
+
+评测分三臂：提交的基线、同一个二进制配 `dict-v2.0.41`、同一个二进制配 `dict-v2.1.0`。第二臂已经与提交的基线对不上（十三份、打字流、双拼触点词级都是），基线停在 10-29，之后的引擎改动没有重录，所以基线这次一并记下那段代码漂移；词库本身的影响看第二、三臂的配对比较（`eval_compare.py convert`，每格 fixed / broken，top-1）：
+
+| 集合 | v2.0.41 | v2.1.0 | top-1 fixed / broken |
+|---|---|---|---|
+| `sentences` | 0.800 / 0.817 / 0.817 | 同左 | 0 / 0 |
+| `harvested` | 0.494 / 0.779 / 0.875 | 0.494 / 0.776 / 0.872 | 0 / 0（top-5 坏 1：通过大改文风，文峰 按万象下限从 100 升到 1242） |
+| `neutral` | 0.651 / 0.826 / 0.881 | 0.648 / 0.824 / 0.878 | 1 / 4 |
+| `words` | 0.746 / 0.944 / 0.988 | 0.749 / 0.946 / 0.988 | 9 / 2 |
+| `nine-key` | 0.550 / 0.834 / 0.968 | 0.551 / 0.836 / 0.968 | 4 / 2 |
+| `fourteen-key` | 0.631 / 0.894 / 0.975 | 0.633 / 0.893 / 0.975 | 6 / 1 |
+| 其余七份 | | | 0 / 0（两份前缀集只有 top-5 有零星变化） |
+
+打字流 `typing_sim --keyboard nine`：test 段 cfa 0.527 → 0.530，dev 不变，整块首选修好 1、坏 0。双拼触点词级 125 组参数的 top-1 变化在 -0.001 到 +0.002 之间。`dict_eval_gate.py`（B = v2.0.41，C = v2.1.0）五道硬门槛全部通过：金标准对一个不少，must-outrank 6 行从 1 行通过到 6 行全过，全拼粗俗首屏输入 6 → 2，quanpin-words-v2 全拼 top-1 修好 48、坏 5（p = 7e-10），九键 14 / 7，14 键 21 / 8，全拼 953,156 行。
+
+坏掉的用例分三类。第一类是地名重新定权（方案 3.3），按设计：地名表的阈值随 #84 的换算从 10 改成 92，rime-ice 里已经有权重的地名不再被抬到旧的 31460，回到与万象对齐后的权重（昌吉 2999、铜川 1297、株洲 3119、黄南 2515，排到 唱机、同传、煮粥 之后；辽源、甘孜 落在地级简称下限 5115），万象下限又把万象词频更高的县名抬到同码常用词前面（金州 11261 > 锦州 10700，福安 > 伏案，德城、惠东、宝兴、定远、安吉 在九键或 14 键上压过 得逞、挥动、暴行、定员、安居）。第二类是碎片降权伤到整句：覆盖表把 下不（26320 → 1563）、是黄（25480 → 254）、头的（145565 → 3927）当碎片压低，词网格原本靠这几条拼出 我们再也下不去了、主要是黄复兴党部、拉人头的，现在分别成了 我们在腋下不去了、主要石磺复兴党部、拉人投的；下不 是 下不去、下不来 的正常切分单位，算误伤。第三类原因没有查清：九键 制动（25217）、火把（16670）把首选让给权重更低的 只懂（10746）、过吧（8952），两例里都是排在它们下面的碎片（之东、过把）刚被覆盖表压到紧挨着的下面，引擎这一侧的九键排序值得再看。后两类记作待查的退步，基线照实记下，没有改评测用例。
+
 ## Alternatives considered
 
 - **继续锁 `dict-v2.0.24`，靠自动更新把新词库送到用户手里。** 不动锁最省事，随包基线也最保守：自动更新出问题时用户回到一份评测过的词库。但评测、`verify-local.sh` 和依赖真实词库的测试会继续量一份没人在用的词库，九键那次回归正是这样只在真机上才暴露；锁越久越远，下一次不得不换时要一次吞下的差异越大。所以不采用。
@@ -86,3 +112,4 @@ Status: implemented
 - 英文：`msime-english.db` 这次字节有变，而 #10055 的真实词库验收 `mobile_english_shipped_dictionary` 是在旧词库上调的。以 `MSIME_ENGLISH_CORRECTION_TEST_DB` 分别指向两份词库运行这个被忽略的测试，94 条期望在新旧两份上都通过（exit 0）；构建机负载约 690，计时只作参考：冷启动均值 10.54 ms（旧 13.63 ms），逐键均值 3.96 ms（旧 4.26 ms）。
 - 延迟：`rerank_latency` 在新旧词库上交替各跑两轮，构建机负载 60 到 180，挂模型的 p95 旧词库 29.15、15.17 ms，新词库 16.72、97.94 ms，同一词库两轮之间的差远大于两个词库之间的差，这次量不出结论，需要在空闲机器上复测。
 - 换到 `dict-v2.0.41` 时：`gen-locks --check`、`test-editions.py`、`test-language-data-notices.py`、`test-engine-license.py`、`test-macos-package-resources.py`、`test-fetch-language-dictionaries-bounds.py`、`test-linux-setup-download-links.py`、`test-reference-feature-log.py` 通过；新发布的笔画、注音库读回的 `license` 分别是 `LGPL-3.0-only AND GPL-3.0-only AND CC-BY-4.0` 和 `LGPL-2.1-or-later AND BSD-3-Clause AND MIT`。在 Mac Studio 上 `cargo test -p msime-engine -p msime-input-runtime -p msime-host-api -p msime-client-core -p msime-engine-capi` 不设资源时 5160 项全部通过（含钉住新代次的 `full_keeps_the_desktop_lock_and_its_generation` 和音节频度表的来源行测试）；以 `MSIME_EVAL_RESOURCES` 分别指向两份词库时各 5154 项通过、6 项失败，失败的是同一组且都与换锁无关：四个 golden 真实集（按设计要 `dict-v2.0.1`）、`japanese::decoder::tests::real_model_loads` 与 `session::tests::real_resources_mix_japanese_conversions`（两版的 `msime-japanese.dat` 字节相同）。双拼触点整句集那份要跑几个小时，这次没有跑。
+- 换到 `dict-v2.1.0` 时：新锁资源用 `install_resources` 装到本机，旧锁资源由 `gh release download dict-v2.0.41` 加 `resource_lock_from_sums.py --stage` 搭出（生成的锁与提交的旧锁逐字节相同；`--stage` 用硬链接，`ResourceStore::verify` 拒绝链接数大于 1 的文件，要换成复制）。`MSIME_EVAL_RESOURCES` 指向新资源时 `cargo test -p msime-engine -p msime-dict-builder -p msime-client-core -p msime-input-runtime -p msime-host-api -p msime-client-providers -p msime-engine-capi -p msime-engine-wasm` 只有 6 项失败，在旧资源上同样失败：四个 golden 真实集（按设计要 `dict-v2.0.1`）、`real_model_loads` 与 `real_resources_mix_japanese_conversions`（日文词典两版逐字节相同）。被忽略的真实词库测试 `mobile_english_shipped_dictionary`、`cached_keypad_rows_match_per_prefix_queries_on_the_real_dictionary`、`english_keypad_shipped_dictionary_reported_words`、`english_page_append_matches_frozen_entry_on_shipped_dictionary`、粤拼与注音两项、`shipped_rime_import_retains_reported_common_character_positions` 在新词库上全部通过（前两项在 `dict-v2.0.41` 上反而失败，它们是后来对着更新的词库调的）。引擎快速上手和 C 示例在新数据包上的输出与 README 逐字相同。锁与声明的脚本检查（`gen-locks --check`、`test-language-data-notices.py`、`test-editions.py`、`test-engine-license.py`、`test-model-notices.py`、`test-resource-lock-from-sums.py` 等）与 `web-engine-notice.sh --check` 通过。整句的双拼触点基线（几个小时）这次没有重录。
