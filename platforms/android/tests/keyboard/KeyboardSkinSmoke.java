@@ -53,20 +53,20 @@ public final class KeyboardSkinSmoke {
 
         // 跟随系统皮肤在应用主题某一季下：底色、键、功能键按种子混色，回车与开启态用该季强调色。
         KeyboardSkin autumn = KeyboardSkin.system(false, AppThemePalette.Seed.AUTUMN);
-        check("system".equals(autumn.id()) && "#EED7C7".equals(autumn.background()));
-        check("#FDF9F6".equals(autumn.keyBackground()) && "#E6C6B2".equals(autumn.functionBackground()));
-        check("#B5562B".equals(autumn.accent()) && "#B5562B".equals(autumn.returnBackground()));
-        check("#22B5562B".equals(autumn.accentSoft()) && "#B5562B".equals(autumn.toolbarActiveIcon()));
-        check("#FDF9F6".equals(autumn.candidateSelectedBackground()) && "#9F4214".equals(autumn.candidateSelectedForeground()));
+        check("system".equals(autumn.id()) && "#F1E6CC".equals(autumn.background()));
+        check("#FEFCF9".equals(autumn.keyBackground()) && "#E8D7B0".equals(autumn.functionBackground()));
+        check("#B07800".equals(autumn.accent()) && "#B07800".equals(autumn.returnBackground()));
+        check("#22B07800".equals(autumn.accentSoft()) && "#B07800".equals(autumn.toolbarActiveIcon()));
+        check("#FEFCF9".equals(autumn.candidateSelectedBackground()) && "#905A00".equals(autumn.candidateSelectedForeground()));
         KeyboardSkin autumnDark = KeyboardSkin.system(true, AppThemePalette.Seed.AUTUMN);
-        check("#4C453E".equals(autumnDark.candidateSelectedBackground()) && "#F0975F".equals(autumnDark.candidateSelectedForeground()));
+        check("#4D493C".equals(autumnDark.candidateSelectedBackground()) && "#F3C14F".equals(autumnDark.candidateSelectedForeground()));
         check("#8FD5A6".equals(dark.candidateSelectedForeground()));
-        check("#2C241D".equals(autumnDark.background()) && "#4C453E".equals(autumnDark.keyBackground()));
-        check("#42382E".equals(autumnDark.functionBackground()) && "#3C2618".equals(autumnDark.returnForeground()));
+        check("#2C281C".equals(autumnDark.background()) && "#4D493C".equals(autumnDark.keyBackground()));
+        check("#433D2C".equals(autumnDark.functionBackground()) && "#3D3014".equals(autumnDark.returnForeground()));
         check(KeyboardSkin.system(true, null).key().equals(dark.key()));
         KeyboardSkin tinted = KeyboardSkin.palette("ink", "水墨", false, "#F4F1EA", "#FFFFFF",
             "#E4DFD4", "#1A1A1A", "#6B6B6B", "#FFFFFF", "#000000").withAppTheme(AppThemePalette.Seed.AUTUMN);
-        check("#B5562B".equals(tinted.returnBackground()) && "#F4F1EA".equals(tinted.background()));
+        check("#B07800".equals(tinted.returnBackground()) && "#F4F1EA".equals(tinted.background()));
 
         // A resolved built-in palette (the shuishan row of the shared colour table).
         KeyboardSkin shuishan = KeyboardSkin.palette("shuishan", "水杉", true, "#1E1F1C",
@@ -151,8 +151,8 @@ public final class KeyboardSkinSmoke {
         check("pebble".equals(custom.keyShape()) && "glass".equals(custom.keyMaterial()));
 
         // 工具栏品牌键取当前皮肤的强调色与键盘底色（标志 = 强调色 82% 混黑，圆盘 = 强调色 14% / 22% 混底色），与鸿蒙 keyboard-logic.test.ts、iOS KeyboardSkinTests 的期望一致；换应用主题不改命名皮肤和自定义设计的品牌键。
-        check(autumn.logoMark() == 0xFF944723 && autumn.logoDisc() == 0xFFE6C5B1);
-        check(autumnDark.logoMark() == 0xFFC57C4E && autumnDark.logoDisc() == 0xFF573D2C);
+        check(autumn.logoMark() == 0xFF906200 && autumn.logoDisc() == 0xFFE8D7AF);
+        check(autumnDark.logoMark() == 0xFFC79E41 && autumnDark.logoDisc() == 0xFF584A27);
         check(light.logoMark() == 0xFF24643D && light.logoDisc() == 0xFFC6DCCA);
         AppThemePalette.Seed winter = new AppThemePalette.Seed("dongxue", "winter",
             new AppThemePalette.Mode(0xFF3E6A8A, 0xFFEEF3F7, 0xFFFFFFFF, 0x333E6A8A, 0xFFFFFFFF),

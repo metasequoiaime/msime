@@ -4,6 +4,7 @@
 # 1.0 source: https://unicode.org/Public/emoji/1.0/emoji-data.txt
 # Format: keyword<TAB>emoji ; keyword+emoji pairs are unique
 # Skin-tone variants omitted; the five skin-tone modifiers themselves are kept
+# 注释规则：`#` 开头、不含制表符的行是注释；`#` 开头又带制表符的行只有首字段是 `#` 或 `#️⃣` 时算数据，其余让构建失败。要停用一行就删掉它（粗口或配错的关键词同时记进 keyword-vetoes.txt），不要在行首加 `#`：加了 `#` 的行会被当成关键词 `#…` 收进来。
 grinning face	😀
 grinning face with big eyes	😃
 grinning face with smiling eyes	😄

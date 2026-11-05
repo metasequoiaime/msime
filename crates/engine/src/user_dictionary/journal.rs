@@ -674,6 +674,24 @@ pub fn is_user_inserted(
         .is_some_and(|inserted| inserted != 0)
 }
 
+/// 日志里有英文词 `key`（`english_words.word`）的 upsert 行：用户在个人词库里加过它，或者选它时调过它的权重，显示形式不论。中英混输的优先位置据此放行用户自己的词（`english::takes_priority_slot_or_own`）。没有日志或读取失败时答否，不建日志。
+pub(crate) fn has_english_upsert(user_db: &Path, key: &str) -> bool {
+    if key.is_empty() {
+        return false;
+    }
+    let Some(journal) = existing_journal(user_db) else {
+        return false;
+    };
+    journal
+        .prepare_cached(
+            "SELECT 1 FROM user_dictionary_operations WHERE dictionary=?1 AND key=?2 AND operation='upsert' LIMIT 1",
+        )
+        .and_then(|mut statement| {
+            statement.exists(params![PersonalDictionaryKind::English.journal_name(), key])
+        })
+        .unwrap_or(false)
+}
+
 /// 当前候选与有效的用户覆盖权重完全一致；没有日志或读取失败时不保护首选。
 pub(crate) fn has_matching_user_weight(
     user_db: &Path,

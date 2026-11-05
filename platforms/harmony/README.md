@@ -695,6 +695,18 @@ bash platforms/harmony/stage-settings.sh   # 需先在仓库根目录 pnpm insta
 
 这个文件以前是提交进仓库的，理由是 `hvigorw assembleHap` 不调用 Node 工具链。它先是漂移过：52 个改动 `packages/ui/src` 的提交期间包一次都没重建，HarmonyOS 的设置页一直在渲染别处已经不存在的界面。为此加的门禁要求提交的产物与源码逐字节一致，于是每个改共享 UI 的 PR 都要重新生成这个 1 MB 的单行文件，任意两个同时在途的 PR 必然在它上面冲突，合并时只能再构建一次来解决。可打 HAP 本来就要先跑 `stage-resources.sh`、`build-native.sh`、`stage-voice-runtime.sh` 这些准备步骤，在同一处构建设置页，它就不可能比同一份检出里的 UI 旧，也没有东西可冲突。`scripts/test-harmony-settings-bundle.py`（`verify-local.sh` 与 HarmonyOS CI 都跑）现在检查它没有被重新提交、仍被忽略，并且仍能构建成单文件。
 
+## 整句联想「增强」的逐键重排（ONNX）
+
+arm64 的 `libmsime_host_api.so` 静态链接精简构建的 ONNX Runtime（host-api 的 `onnx-rerank` 特性），「增强」挂 chinese-ime-lm 的 6x256 逐键重排模型，与 iOS、Android 是同一个后端；armeabi-v7a 和 x86_64（模拟器）没有 ONNX Runtime 产物，照旧用随包的句子模型。来龙去脉见 `.agents/notes/implemented/architecture/2026-11-01-onnx-rerank-backend.md`。
+
+- 库：`build-native.sh` 按 `resources/onnxruntime-minimal.lock.json` 用 `scripts/fetch_onnxruntime.py` 取 `aarch64-unknown-linux-ohos` 的静态库（`tools/onnxruntime-minimal/build.sh ohos-arm64` 编出，发布在 `onnxruntime-minimal-1.24.4-r3`），开着 `onnx-rerank` 编宿主库，`ORT_CXX_STDLIB=c++_shared` 让 `ort-sys` 链 NDK 的 libc++；编完检查宿主库里有 `OrtGetApiBase`，没链进去就失败，免得 HAP 悄悄退回句子模型。
+- 模型：`stage-resources.sh` 用 `scripts/fetch_rerank_model.py` 按 `resources/rerank-model.lock.json` 取 6x256，放进 `resfile/rerank-model-small`，许可证 `rerank-model-Apache-2.0.txt` 和 ONNX Runtime 的 `onnxruntime-MIT.txt`、`onnxruntime-ThirdPartyNotices.txt` 放进 `resfile/licenses`。8x448 不带。`sign-release.py` 不让缺这几样的 HAP 签出来。
+- 目录：模型留在安装时解压出来的 `context.resourceDir/rerank-model-small`，不复制（ONNX Runtime 只读文件，不像 SQLite 要加锁）。资源目录是复制到 `filesDir/engine` 的那份，Host API 从它的上一级找不到模型，所以键盘扩展调 `KeyboardSession.useRerankModels(context.resourceDir)`，建会话时把它写进 HostOptions 的 `rerank_models`。
+- 诊断：`client_napi.cpp` 加载时登记 `msime_client_set_diagnostic_sink`，Host API 的诊断行进 hilog，标签 `MSIMEHost`。看挂的是哪一档：`hdc shell "hilog -T MSIMEHost"`，弹出键盘时有一行 `host_api: keyboard reranker …: <private>`：`onnx small` 是挂在按键上，`at pause` 是这台设备跑不进逐键预算、模型延后到停顿时用（见下一条），`bundled model` 是退回了句子模型。细节按 `%{private}` 写，正式设备上看不到毫秒数。
+- 停顿：键盘建会话时在 HostOptions 写 `pause_rerank`。跑不进逐键预算（自测一页超过 4 ms）的设备上模型不挂在按键上，停顿 300 ms 后 `KeyboardSession.schedulePauseRerank` 经 NAPI 的 `startSettledRerank` 带着它分片重解当前组字，一片约 8 ms 的模型时间，回 `continue` 时 `setTimeout(0)` 排下一片。设计与取舍见 `.agents/notes/implemented/feature/2026-11-04-harmony-pause-rerank.md`。
+
+2026-11-04 在华为畅享 90 Plus（JUY-AL50，Kirin 8000，HarmonyOS 7.0，debug 签名覆盖安装）上用 `uinput -T` 打 typing-chat-v1 test 的 115 条整句：挂在按键上整键 p95 21.1 ms，超过手机预算；延后到停顿后整键 p95 5.0 ms，首选 94/115 与挂在按键上逐条相同。四线程更慢，鸿蒙沿用两线程。
+
 ## 本地构建
 
 准备 DevEco Studio 提供的 OpenHarmony NDK，或设置 `MSIME_OHOS_NDK` 指向包含 `build/cmake/ohos.toolchain.cmake` 的 NDK。先安装依赖（根目录 `pnpm install --frozen-lockfile`）和对应 Rust target，再运行。Engine 是纯 Rust crate（`crates/engine`），SQLite 由 `rusqlite` 的 `bundled` 特性用 NDK 的编译器包装一起编进 `libmsime_host_api.so`，不需要另备设备端依赖前缀：
