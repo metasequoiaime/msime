@@ -257,7 +257,7 @@ fn a_read_only_host_does_not_read_a_shared_generation_it_cannot_lease() {
     assert_eq!(canonical(&document["dictionaries"]), canonical(&json!(app)));
 }
 
-/// 只读的文档里学习开着也不学：会话的 Engine 选项、偏好变了之后重建的 Engine 都不打开学习。
+/// 只读的文档里学习和回车学英文词开着也不学：会话的 Engine 选项、偏好变了之后重建的 Engine 都不打开它们。
 #[test]
 fn a_read_only_session_never_learns() {
     let root = tempfile::tempdir().unwrap();
@@ -275,14 +275,22 @@ fn a_read_only_session_never_learns() {
     )
     .unwrap();
     document["preferences"]["learning"] = json!(true);
+    document["preferences"]["enter_learns_english_word"] = json!(true);
     let created = create(&document);
     assert_eq!(created["ok"], true, "{created}");
     let handle = created["value"]["session"].as_u64().unwrap();
-    let learning =
-        || SESSIONS.with(|sessions| sessions.borrow().get(&handle).unwrap().options.learning);
+    // 学习和回车学英文词两个开关都关着：后者学的词写进代次里的英文词库，只读布局下就是随包资源。
+    let learning = || {
+        SESSIONS.with(|sessions| {
+            let sessions = sessions.borrow();
+            let options = &sessions.get(&handle).unwrap().options;
+            options.learning || options.learn_english_on_enter
+        })
+    };
     assert!(!learning());
     let preferences = Preferences {
         learning: true,
+        enter_learns_english_word: true,
         chinese_punctuation: !Preferences::default().chinese_punctuation,
         ..Preferences::default()
     };
@@ -391,4 +399,147 @@ fn a_read_only_keyboard_types_nihao_on_real_dictionaries() {
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
     drop(guard);
     assert_eq!(tree_listing(&state), before);
+}
+
+/// 目录树里每个普通文件的相对路径和 SHA-256。
+fn tree_digests(root: &Path) -> Vec<(PathBuf, String)> {
+    let mut entries = Vec::new();
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(path) = pending.pop() {
+        let metadata = std::fs::symlink_metadata(&path).unwrap();
+        if metadata.is_dir() {
+            for entry in std::fs::read_dir(&path).unwrap() {
+                pending.push(entry.unwrap().path());
+            }
+            continue;
+        }
+        let digest = hex::encode(Sha256::digest(std::fs::read(&path).unwrap_or_default()));
+        entries.push((path.strip_prefix(root).unwrap().to_path_buf(), digest));
+    }
+    entries.sort();
+    entries
+}
+
+/// 在 `keyboard` 上只读准备（没有共享目录，所以是只读布局；`specification` 是合成资源的清单，真实词库时不给），建两次会话，每次打 `letters`、选 `pick`（给了时），再打拼不成音节的字母回车原样上屏。返回随包资源目录前后的差别。
+fn type_on_the_read_only_layout(
+    keyboard: &Path,
+    root: &Path,
+    specification: Option<&ResourceSet>,
+    letters: &[u8],
+    pick: Option<&str>,
+) -> String {
+    let state = root.join("group/MSIME");
+    let private = root.join("keyboard-container/MSIME");
+    let before = tree_digests(keyboard);
+    // 合成的资源只对得上合成的清单，直接在它上面准备；真实词库走宿主的入口，用本版本锁定的清单。
+    let mut document = match specification {
+        Some(specification) => crate::read_only_state::prepare_on(
+            keyboard,
+            &state,
+            &private,
+            specification,
+            &[],
+            Edition::full(),
+        )
+        .unwrap(),
+        None => {
+            let document = prepare_read_only(keyboard, &state, &private);
+            assert_eq!(document["ok"], true, "{document}");
+            document["value"].clone()
+        }
+    };
+    assert_eq!(
+        canonical(&document["dictionaries"]),
+        canonical(&json!(keyboard))
+    );
+    // 出厂就开着的回车学英文词（`enter_learns_english_word`），这里写明，不依赖默认值。
+    document["preferences"]["enter_learns_english_word"] = json!(true);
+    for round in 0..2 {
+        let created = create(&document);
+        assert_eq!(created["ok"], true, "{created}");
+        let handle = created["value"]["session"].as_u64().unwrap();
+        assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+        let mut view = Value::Null;
+        for byte in letters {
+            let typed = read(msime_client_character(handle, *byte, false));
+            assert_eq!(typed["ok"], true, "{typed}");
+            view = typed["value"]["view"].clone();
+        }
+        if let Some(word) = pick {
+            let texts: Vec<&str> = view["candidates"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|candidate| candidate["text"].as_str())
+                .collect();
+            let index = texts
+                .iter()
+                .position(|text| *text == word)
+                .unwrap_or_else(|| panic!("round {round}: {texts:?}"));
+            let selected = read(msime_client_select(
+                handle,
+                view["generation"].as_u64().unwrap(),
+                index,
+            ));
+            assert_eq!(selected["value"]["commit"], word, "{selected}");
+        } else {
+            assert_eq!(read(msime_client_command(handle, 3))["ok"], true);
+        }
+        // 回车原样上屏拼不成音节的字母：可写的会话会把它学成英文词，写进代次里的 `msime-english.db`。
+        for byte in b"qwzx" {
+            let typed = read(msime_client_character(handle, *byte, false));
+            assert_eq!(typed["ok"], true, "{typed}");
+        }
+        let committed = read(msime_client_command(handle, 2));
+        assert_eq!(committed["ok"], true, "{committed}");
+        assert_eq!(committed["value"]["commit"], "qwzx", "{committed}");
+        assert_eq!(read(msime_client_focus(handle, false))["ok"], true);
+        assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+    }
+    let after = tree_digests(keyboard);
+    let changed: Vec<_> = after
+        .iter()
+        .filter(|entry| !before.contains(entry))
+        .collect();
+    let removed: Vec<_> = before
+        .iter()
+        .filter(|entry| !after.contains(entry))
+        .collect();
+    if changed.is_empty() && removed.is_empty() {
+        String::new()
+    } else {
+        format!("changed {changed:?} removed {removed:?}")
+    }
+}
+
+/// 只读布局下词库就是随包资源：会话打字、回车原样上屏之后，资源目录一个字节也没变。改前回车学英文词把词写进了随包的 `msime-english.db`，之后同一份资源的校验都以 `resource length or digest mismatch` 失败（iOS 模拟器上 App 包可写，单元测试整批因此失败）。
+#[test]
+fn a_read_only_layout_leaves_the_bundled_resources_untouched() {
+    let root = tempfile::tempdir().unwrap();
+    let keyboard = root.path().join("keyboard/EngineResources");
+    let specification = synthetic_desktop_lock(&keyboard);
+    let difference =
+        type_on_the_read_only_layout(&keyboard, root.path(), Some(&specification), b"ni", None);
+    assert!(difference.is_empty(), "{difference}");
+}
+
+/// 同上，真实词库（`MSIME_EVAL_RESOURCES` 指向暂存好的资源目录时才跑）：打 nihao 选「你好」上屏、回车原样上屏字母之后，随包资源目录一个字节也没变。
+#[test]
+fn a_read_only_layout_on_real_dictionaries_leaves_the_bundled_resources_untouched() {
+    let Some(resources) = std::env::var_os("MSIME_EVAL_RESOURCES").map(PathBuf::from) else {
+        return;
+    };
+    let root = tempfile::tempdir().unwrap();
+    let keyboard = root.path().join("keyboard/EngineResources");
+    std::fs::create_dir_all(keyboard.parent().unwrap()).unwrap();
+    let copied = std::process::Command::new("cp")
+        .arg("-R")
+        .arg(&resources)
+        .arg(&keyboard)
+        .status()
+        .unwrap();
+    assert!(copied.success());
+    let difference =
+        type_on_the_read_only_layout(&keyboard, root.path(), None, b"nihao", Some("你好"));
+    assert!(difference.is_empty(), "{difference}");
 }

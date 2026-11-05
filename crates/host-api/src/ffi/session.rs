@@ -83,6 +83,8 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
     let mut options = options.into_engine_options();
     if read_only_state {
         options.learning = false;
+        // 回车学英文词与学习开关分开，学的词写进代次里的 `msime-english.db`：只读布局下那就是随包资源，学一次资源校验就再也过不去（resource length or digest mismatch）。
+        options.learn_english_on_enter = false;
     }
     let plugin_tables = plugin_tables::PluginTables::stamp(
         plugin_roots.installed.as_deref(),

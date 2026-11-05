@@ -372,7 +372,7 @@ struct HostSession {
     settled_model_loading: Option<SettledModelSlot>,
     /// 生命周期核心的状态，只由 `msime_client_set_lifecycle` 设上。为 `None` 时（移动端宿主从不调用它）不推导任何事件，transition JSON 逐字节不变。
     lifecycle: Option<Box<lifecycle::LifecycleState>>,
-    /// 文档带 `read_only_state`（宿主对共享状态目录没有写权限，见 [`read_only_state`]）：不学习，偏好变了重建 Engine 时也不打开学习。
+    /// 文档带 `read_only_state`（宿主对共享状态目录没有写权限，见 [`read_only_state`]）：不学习、回车也不学英文词，偏好变了重建 Engine 时也不打开它们。
     read_only_state: bool,
     // Declared after runtime so the Engine is dropped before releasing access.
     /// 只读宿主在只读布局下（词库就是随包资源，没有谁维护）不取租约，为 `None`；其余会话都持着。
@@ -899,7 +899,8 @@ impl HostSession {
         options.caret_edit_suffix = caret_edit_suffix_applies(&preferences);
         options.learning = preferences.learning && !self.read_only_state;
         options.next_word_prediction = next_word_prediction_applies(&preferences);
-        options.learn_english_on_enter = preferences.enter_learns_english_word;
+        options.learn_english_on_enter =
+            preferences.enter_learns_english_word && !self.read_only_state;
         options.autocorrect_transposition = preferences.quanpin.autocorrect_transposition;
         options.autocorrect_neighbor = preferences.quanpin.autocorrect_neighbor;
         options.fuzzy_pinyin_rules = preferences.fuzzy_pinyin.active_rules();
