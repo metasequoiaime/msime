@@ -54,6 +54,8 @@ final class QuickPhraseCursorKeyboardTests: XCTestCase {
       if let own = class_getInstanceMethod(KeyboardViewController.self, selector) { method_setImplementation(own, original) }
       imp_removeBlock(replacement)
     }
+    // 会话在键盘出现时才建（#10634），出现时读到的已经是这份文档。
+    keyboard.viewWillAppear(false)
     return keyboard
   }
 

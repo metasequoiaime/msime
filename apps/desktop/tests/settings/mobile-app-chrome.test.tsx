@@ -605,23 +605,23 @@ test("the sidebar brand heads desktop sidebars and stays off phone layouts", asy
 const autumnLight: ResolvedAppTheme = {
   id: "siji",
   season: "autumn",
-  accent: "#B5562B",
-  accent_soft: "#B5562B22",
-  on_accent: "#FFFFFF",
-  background: "#F6E9DC",
-  card: "#FFFBF6",
-  hair: "#B5562B33",
-  candidate_accent: "#9F4214",
+  accent: "#B07800",
+  accent_soft: "#B0780022",
+  on_accent: "#1A1200",
+  background: "#FAF5E8",
+  card: "#FFFDF6",
+  hair: "#B0780033",
+  candidate_accent: "#905A00",
 };
 const autumnDark: ResolvedAppTheme = {
   ...autumnLight,
-  accent: "#F0975F",
-  accent_soft: "#F0975F40",
-  on_accent: "#3C2618",
-  background: "#21150F",
-  card: "#2E1E15",
+  accent: "#F3C14F",
+  accent_soft: "#F3C14F40",
+  on_accent: "#3D3014",
+  background: "#1C1910",
+  card: "#28241A",
   hair: "#FFFFFF1A",
-  candidate_accent: "#F0975F",
+  candidate_accent: "#F3C14F",
 };
 
 /** 宿主的应用主题，季节可以在页面显示期间改变，就像月份更替或在 我的 里做出选择时那样。 */
