@@ -18,11 +18,12 @@ static void Drain() {
 @end
 @interface DurationInput : NSObject
 @property(copy) AVAudioNodeTapBlock tap;
+@property AVAudioFormat *format;
 @end
 @implementation DurationInput
 - (AudioUnit)audioUnit { return nullptr; }
 - (AVAudioFormat *)inputFormatForBus:(AVAudioNodeBus)bus {
-    (void)bus; return [[AVAudioFormat alloc] initStandardFormatWithSampleRate:48000 channels:1];
+    (void)bus; return self.format ?: [[AVAudioFormat alloc] initStandardFormatWithSampleRate:48000 channels:1];
 }
 - (void)installTapOnBus:(AVAudioNodeBus)bus bufferSize:(AVAudioFrameCount)size format:(AVAudioFormat *)format block:(AVAudioNodeTapBlock)tap {
     (void)bus; (void)size; (void)format; self.tap = tap;
@@ -35,10 +36,12 @@ static void Drain() {
 @interface DurationEngine : NSObject
 @property DurationInput *inputNode;
 @property BOOL failStart;
+@property(getter=isRunning) BOOL running;
+@property NSUInteger starts;
 @end
 @implementation DurationEngine
-- (BOOL)startAndReturnError:(NSError **)error { (void)error; return !self.failStart; }
-- (void)stop {}
+- (BOOL)startAndReturnError:(NSError **)error { (void)error; ++self.starts; self.running = !self.failStart; return self.running; }
+- (void)stop { self.running = NO; }
 @end
 @interface DurationCapture : MSIMEVoiceInputService
 @property DurationEngine *engine;
@@ -127,6 +130,69 @@ int main() {
         assert(failures == 1 && service.stops == stopped);
         assert([service finishPCMRecordingWithError:nil].length == 601 * 1600 * sizeof(float));
         assert(service.stops == stopped + 1);
+        {
+            DurationCapture *startup = [DurationCapture new];
+            __block NSUInteger firstFrames = 0;
+            assert([startup startMicrophoneCapture:^(AVAudioPCMBuffer *) { ++firstFrames; } deviceUID:nil error:nil]);
+            DurationEngine *engine = startup.engine;
+            AVAudioNodeTapBlock initialTap = engine.inputNode.tap;
+            [NSNotificationCenter.defaultCenter postNotificationName:AVAudioEngineConfigurationChangeNotification object:engine];
+            Drain();
+            assert(engine.starts == 1); // 仍在运行的配置通知不能打断正常采集。
+            engine.running = NO;
+            engine.inputNode.format = [[AVAudioFormat alloc] initStandardFormatWithSampleRate:44100 channels:1];
+            [NSNotificationCenter.defaultCenter postNotificationName:AVAudioEngineConfigurationChangeNotification object:engine];
+            [NSNotificationCenter.defaultCenter postNotificationName:AVAudioEngineConfigurationChangeNotification object:engine];
+            Drain();
+            assert(engine.starts == 2 && engine.running); // 同一批通知只恢复一次。
+            initialTap(buffer, [AVAudioTime timeWithSampleTime:0 atRate:48000]);
+            assert(firstFrames == 0 && startup.recordedDuration == 0);
+            AVAudioPCMBuffer *changed = [[AVAudioPCMBuffer alloc] initWithPCMFormat:engine.inputNode.format frameCapacity:4410];
+            changed.frameLength = 4410;
+            engine.inputNode.tap(changed, [AVAudioTime timeWithSampleTime:0 atRate:44100]);
+            assert(firstFrames == 1 && startup.recordedDuration == 0.1); // 新硬件格式重新计时。
+            [startup stopMicrophoneCapture];
+        }
+        {
+            DurationCapture *startup = [DurationCapture new];
+            assert([startup startMicrophoneCapture:^(AVAudioPCMBuffer *) {} deviceUID:nil error:nil]);
+            DurationEngine *oldEngine = startup.engine;
+            oldEngine.running = NO;
+            [NSNotificationCenter.defaultCenter postNotificationName:AVAudioEngineConfigurationChangeNotification object:oldEngine];
+            [startup cancelWithError:nil];
+            assert([startup startMicrophoneCapture:^(AVAudioPCMBuffer *) {} deviceUID:nil error:nil]);
+            DurationEngine *next = startup.engine;
+            Drain();
+            assert(oldEngine.starts == 1 && !oldEngine.running && next.starts == 1 && next.running);
+            [startup stopMicrophoneCapture];
+            [NSNotificationCenter.defaultCenter postNotificationName:AVAudioEngineConfigurationChangeNotification object:next];
+            Drain();
+            assert(next.starts == 1 && !next.running); // 松手、取消和旧一轮通知都不能补开麦克风。
+        }
+        {
+            DurationCapture *startup = [DurationCapture new];
+            assert([startup startMicrophoneCapture:^(AVAudioPCMBuffer *) {} deviceUID:nil error:nil]);
+            DurationEngine *engine = startup.engine;
+            engine.running = NO; engine.failStart = YES;
+            [NSNotificationCenter.defaultCenter postNotificationName:AVAudioEngineConfigurationChangeNotification object:engine];
+            Drain();
+            assert(engine.starts == 2 && !engine.running);
+            [NSNotificationCenter.defaultCenter postNotificationName:AVAudioEngineConfigurationChangeNotification object:engine];
+            Drain();
+            assert(engine.starts == 2 && startup.recordedDuration == 0); // 恢复失败不能无限循环。
+            [startup stopMicrophoneCapture];
+        }
+        {
+            DurationCapture *startup = [DurationCapture new];
+            assert([startup startMicrophoneCapture:^(AVAudioPCMBuffer *) {} deviceUID:nil error:nil]);
+            DurationEngine *engine = startup.engine;
+            engine.inputNode.tap(buffer, [AVAudioTime timeWithSampleTime:0 atRate:48000]);
+            engine.running = NO;
+            [NSNotificationCenter.defaultCenter postNotificationName:AVAudioEngineConfigurationChangeNotification object:engine];
+            Drain();
+            assert(engine.starts == 1 && startup.recordedDuration == 0.1); // 已有录音不作为新的启动重试。
+            [startup stopMicrophoneCapture];
+        }
         // Exercise the production tap wiring without opening an audio device.
         DurationCapture *durationService = [DurationCapture new];
         __block NSUInteger delivered = 0;

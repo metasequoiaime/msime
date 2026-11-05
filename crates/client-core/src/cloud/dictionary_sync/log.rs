@@ -116,7 +116,7 @@ fn parse_op(value: &Value) -> Option<Op> {
     };
     Some(Op {
         key: WordKey::canonical(
-            WordKind::from_name(kind.as_str()?)?,
+            WordKind::from_synced_name(kind.as_str()?)?,
             code.as_str()?,
             word.as_str()?,
         )?,
@@ -267,6 +267,8 @@ impl ReplicaFile {
     }
 
     /// 逐项核对：设备编号、规范的词条、合法的时间戳、不超过 `seq` 的序号和确认位置、不重复的键。不合规的整份不认。
+    ///
+    /// 词库类别这一版不认识（更新的版本加的，例如新的五笔版本）的词条只跳过那一条，其余字段照样核对：与事件里不认识的操作一样，不让整份检查点读不了。
     pub(crate) fn into_replica(self, seq: u64) -> Option<Replica> {
         if self.entries.len() > MAX_CHECKPOINT_ENTRIES
             || self.devices.len() > super::replica::MAX_DEVICE_TABLE
@@ -285,14 +287,20 @@ impl ReplicaFile {
             }
         }
         for (kind, code, word, hlc, writer, record_seq, live) in self.entries {
-            let key = WordKey::canonical(WordKind::from_name(&kind)?, &code, &word)?;
             let record = Record {
                 live,
                 hlc: Hlc::parse(hlc)?,
                 device: self.writers.get(writer)?.clone(),
                 seq: record_seq,
             };
-            if record_seq > seq || replica.entries.insert(key, record).is_some() {
+            if record_seq > seq {
+                return None;
+            }
+            let Some(kind) = WordKind::from_synced_name(&kind) else {
+                continue;
+            };
+            let key = WordKey::canonical(kind, &code, &word)?;
+            if replica.entries.insert(key, record).is_some() {
                 return None;
             }
         }

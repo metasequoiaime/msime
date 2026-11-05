@@ -221,6 +221,34 @@ def check_sparkle_feed(errors: list[str], generator, table: dict, editions: list
             errors.append(f"edition {edition_id}: the other Sparkle keys did not survive")
 
 
+def check_background_agents(errors: list[str], generator, editions: list[dict], directory: pathlib.Path) -> None:
+    """按发布流程从同一份 full bundle 派生六个版本，检查后台路径与身份。"""
+    full = generator.full_entry()["platforms"]["macos"]
+    labels = set()
+    for entry in editions:
+        edition = entry["id"]
+        bundle = directory / edition / "synthetic.app"
+        contents = bundle / "Contents"
+        (contents / "MacOS").mkdir(parents=True)
+        (contents / "Info.plist").write_bytes(TEMPLATE.read_bytes())
+        (contents / "MacOS" / full["input_method_name"]).write_bytes(b"synthetic")
+        agent = contents / "Library/LaunchAgents/app.msime.global-voice.plist"
+        agent.parent.mkdir(parents=True)
+        raw = (MACOS / "GlobalVoiceAgent.plist.in").read_text()
+        raw = raw.replace("@MSIME_GLOBAL_VOICE_LABEL@", full["input_method_bundle_id"] + ".global-voice")
+        agent.write_text(raw.replace("@MSIME_INPUT_METHOD_NAME@", full["input_method_name"]))
+        generator.apply_to_bundle(bundle, edition)
+        body = plistlib.loads(agent.read_bytes())
+        identity = entry["platforms"]["macos"]
+        if not (bundle / body["BundleProgram"]).is_file():
+            errors.append(f"{edition}: background program does not exist")
+        if body["Label"] != identity["input_method_bundle_id"] + ".global-voice" or body["Label"] in labels:
+            errors.append(f"{edition}: background label does not isolate the edition")
+        if body["ProgramArguments"] != [identity["input_method_name"], "--global-voice-bootstrap"]:
+            errors.append(f"{edition}: background arguments use another edition")
+        labels.add(body["Label"])
+
+
 def main() -> int:
     generator = load_generator()
     table = generator.load_table()
@@ -233,6 +261,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as directory:
         for entry in editions:
             check_edition(errors, generator, table, entry, others, pathlib.Path(directory))
+        check_background_agents(errors, generator, editions, pathlib.Path(directory) / "background")
     if errors:
         for error in errors:
             print(f"FAIL: {error}")

@@ -7,16 +7,18 @@ import type {
   ScelText,
 } from "./dictionary-file";
 
-/** 一段文字（一个字或整段词）在两张五笔码表里的编码，各自短码在前；码表里没有时为空数组。 */
+/** 一段文字（一个字或整段词）在三张五笔码表里的编码，各自短码在前；码表里没有时为空数组。 */
 export interface WubiTextCodes {
   text: string;
   wubi86: string[];
   wubi98: string[];
+  /** 新世纪五笔。认识新世纪之前的宿主不回这个字段，读的时候按空数组。 */
+  wubixsj?: string[];
 }
 
 /** 词库请求 `wubi_codes` 的回答（host-api `wubi_codes_json`）。 */
 export interface WubiCodeLookup {
-  /** 整段文字作为一个词的编码；整段不是 2 到 16 个汉字或两张表都没有它时为 null。 */
+  /** 整段文字作为一个词的编码；整段不是 2 到 16 个汉字或三张表都没有它时为 null。 */
   phrase: WubiTextCodes | null;
   /** 文字里每个不同的汉字，按第一次出现的顺序。 */
   characters: WubiTextCodes[];
@@ -111,6 +113,6 @@ export interface DictionaryClient {
   dismissFailure?(request_id: string): Promise<void>;
   /** 一种词库的词条总数，含内置词条；手机「词库」页的「拼音词库」行显示它。 */
   count?(kind: LocalDictionaryKind): Promise<number>;
-  /** 五笔查码（词库请求 `wubi_codes`，只读）：`text` 里每个汉字和整段词的 86、98 五笔编码。宿主提供它时，五笔的设置下面出现「五笔查码」。 */
+  /** 五笔查码（词库请求 `wubi_codes`，只读）：`text` 里每个汉字和整段词的 86、98 和新世纪五笔编码。宿主提供它时，五笔的设置下面出现「五笔查码」。 */
   wubiCodes?(text: string): Promise<WubiCodeLookup>;
 }
