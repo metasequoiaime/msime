@@ -73,6 +73,12 @@ pub struct EngineSnapshot {
     pub nine_key_single_character: bool,
     /// `SessionSnapshot::nine_key_strokes`.
     pub nine_key_strokes: String,
+    /// `SessionSnapshot::grid_helpcode_available`.
+    pub grid_helpcode_available: bool,
+    /// `SessionSnapshot::grid_helpcode_display`.
+    pub grid_helpcode_display: String,
+    /// `SessionSnapshot::grid_helpcode_constrained`：候选是网格辅助码筛过的，runtime 不再跨行重排。
+    pub grid_helpcode_constrained: bool,
     /// 这次组字是在九宫格（九键或 14 键）里打的，见 [`crate::Session::grid_composing`]。`key_grid` 开着时硬件键盘的字母照样走全拼 26 键，这一项分得清两者。
     pub grid_composing: bool,
     /// 当前方案是双拼，且韵母或零声母编码用 `;` 作第二键：宿主把 `;` 当作字母键送给 Engine。字段名沿用微软双拼，是宿主已经在读的契约。
@@ -286,6 +292,9 @@ impl Session {
             nine_key_reading: value.nine_key_reading,
             nine_key_single_character: value.nine_key_single_character,
             nine_key_strokes: value.nine_key_strokes,
+            grid_helpcode_available: value.grid_helpcode_available,
+            grid_helpcode_display: value.grid_helpcode_display,
+            grid_helpcode_constrained: value.grid_helpcode_constrained,
             grid_composing: self.inner.grid_composing(),
             microsoft_shuangpin: self.microsoft_shuangpin(),
             shuangpin_profile: self.inner.shuangpin_layout().kind.name().to_owned(),
@@ -729,6 +738,11 @@ impl Session {
     /// Out of range is unhandled.
     pub fn choose_nine_key_spelling(&mut self, index: usize) -> Result<EngineResult> {
         Ok(result_for(self.inner.choose_nine_key_spelling(index)))
+    }
+
+    /// 见 [`crate::Session::grid_helpcode`]。
+    pub fn grid_helpcode(&mut self, op: crate::GridHelpcodeOp) -> Result<EngineResult> {
+        Ok(result_for(self.inner.grid_helpcode(op)))
     }
 
     /// 见 [`crate::Session::set_nine_key_filter`]。

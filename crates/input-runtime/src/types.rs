@@ -135,6 +135,12 @@ pub struct View {
     pub nine_key_single_character: bool,
     /// 九宫格候选当前按这几笔的笔顺前缀筛选（`hspnz`），空表示不按笔画。组字结束时清空。
     pub nine_key_strokes: String,
+    /// 这次组字能用十四／十八键网格辅助码（[`Action::GridHelpcode`]）；宿主据此画「辅」角标、接进入手势。
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub grid_helpcode_available: bool,
+    /// 放下分隔符后画在读音后面的辅助码（`|Q[ER]`），只在输入法里画，不进组字区、不上屏；没有分隔符时为空。非空时 `nine_key_spellings` 是辅助码的整串解释，不是拼音。
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub grid_helpcode_display: String,
     /// Applied touch presentation, independent of Engine-owned Chinese nine-key digit handling.
     pub touch_keyboard_layout: TouchKeyboardLayout,
     /// Applied Engine configuration, not a newer deferred preference snapshot.

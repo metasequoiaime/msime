@@ -21,6 +21,8 @@ struct TransformEngine {
     /// 非空表示正在整句改字。
     conversion: String,
     candidate_list_open: bool,
+    /// 候选是网格辅助码筛过的。
+    grid_helpcode_constrained: bool,
     /// 打满四码时报告五笔唯一码。
     wubi_unique: bool,
     /// `expand_initial_candidates` 接到末尾的候选。
@@ -77,6 +79,7 @@ impl InputEngine for TransformEngine {
             candidate_corrected: vec![false; count],
             candidate_answers_key: vec![true; count],
             candidate_list_open: self.candidate_list_open,
+            grid_helpcode_constrained: self.grid_helpcode_constrained,
             shuangpin_profile: "xiaohe".into(),
             answered_by_pinyin_fallback: false,
             wubi_unique_four_code: self.wubi_unique && self.text.len() == 4,
@@ -527,10 +530,13 @@ fn duplicate_rows_follow_their_own_rerank_and_annotation() {
 fn skipped_lists_run_no_transform_and_hide_nothing() {
     // 聚焦会取消组字，所以这些状态在聚焦之后才设。
     type Setup = fn(&mut TransformEngine);
-    let cases: [(&str, Setup); 3] = [
+    let cases: [(&str, Setup); 4] = [
         ("conversion", |engine| engine.conversion = "甲乙".into()),
         ("open list", |engine| engine.candidate_list_open = true),
         ("arrays out of step", |engine| engine.short_codes = true),
+        ("grid helpcode", |engine| {
+            engine.grid_helpcode_constrained = true
+        }),
     ];
     for (name, set) in cases {
         let mut harness = Harness::new(

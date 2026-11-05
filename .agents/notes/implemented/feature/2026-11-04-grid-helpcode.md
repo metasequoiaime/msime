@@ -14,7 +14,7 @@ Status: implemented
 
 - `NineKeySession` 只多一个字段 `helpcode: Option<GridHelpcode>`：`None` 是没有分隔符，`Some` 且零槽是只有分隔符，最多两槽。每槽是键面上的整组字母，可以确定成组内一个字母。码表和一码严格偏好在放下分隔符时取定，组字中途改设置从下一次组字起生效。
 - `Session::grid_helpcode(GridHelpcodeOp)` 有四种操作：`Begin` 放下分隔符，`Group` 追加按下的键上的整组字母，`Exact` 追加确定字母（给十八键双拼横滑这类已有的精确字母手势用），`Clear` 清掉。放下分隔符后组码不再变，`grid_key` 一律未处理，宿主把字母键改送 `Group`；两槽已满时再来的 `Group`、`Exact` 已处理、不变化。`Group`、`Exact` 只收小写：26 键双拼一码的大写是「尾字优先」，网格辅助码的大写留给与它一致的含义。分隔符之前 `grid_key` 照旧，十八键双拼的大写仍是主码的确定字母。长按字母弹层照旧结束组字再上屏字母，不进辅助码槽。
-- 开关是 `SessionOptions::grid_helpcode`，默认关；还要求当前方案的辅助码开着、码表非空。九键、九键双拼和五笔十四键不接受，所有操作都返回未处理，候选修订号也不变。宿主偏好接线之前，`host` 层建的产品会话保持关闭。
+- 开关是 `SessionOptions::grid_helpcode`，默认关；还要求当前方案的辅助码开着、码表非空。九键、九键双拼和五笔十四键不接受，所有操作都返回未处理，候选修订号也不变。
 - 有分隔符时快照的拼音选择区（`nine_key_spellings`）换成整串解释，按键面顺序展开，第一槽在外层；选中一项（`choose_nine_key_spelling`）一次锁定各槽，不上屏，宿主沿用拼音选择的代次校验。只有分隔符或各槽都已确定时没有解释。拼音选项仍留在会话里，去掉分隔符后照旧显示。
 - 退格先删槽、再去掉分隔符，这两次都不删组码；点分词键先清辅助码再照旧切分；选词、部分选词、取消、换方案或网格、移光标、向后删除、启用笔画筛选都清掉辅助码。放下分隔符时清笔画筛选，单字筛选保留。
 - 快照多三个字段：`grid_helpcode_display`（`|Q[ER]` 这样的显示，全拼都大写，双拼首码小写、次码大写，只是显示）、`grid_helpcode_available`（这次组字能不能用）和 `grid_helpcode_constrained`（至少一槽、候选是筛过的，下游不能再跨行重排）。
@@ -25,6 +25,12 @@ Status: implemented
 - 至少一槽时，刷新在查询和基础排序（含键盘模型整句重排）之后另走一段收尾：在整张已查到的列表上筛排，按覆盖再按等级稳定排序后截到 `CANDIDATE_LIMIT`，再照[粗俗词政策](../bug-fix/2026-11-04-vulgar-first-page-and-english-second-slot.md)挪出首屏。普通路径的截断位置不变。固定位置、[首页补全折算](../bug-fix/2026-10-27-nine-key-completion-discount-on-first-page.md)、[裁决标记](2026-10-29-nine-key-model-contests.md)、句子种子和英文、表情、日期混入都不做：它们为没有条件的列表而设，作用在筛过的列表上会跨过匹配等级。
 - 筛后列表里选词不调词频、不记[最近选择的位置](2026-10-17-nine-key-recent-candidate-priority.md)，那里的下标和普通列表的不是一回事；造词和个人上下文照常记。筛选时不能置顶、删除或固定位置。
 - 有条件而筛空时，首选上屏、`finish`、标点和网格组字中的其它字符键（空格、数字）都已处理、不上屏，组字留着，免得边界键先上屏、组字留在后面。有候选时数字照旧按当前页选词，与码数无关。
+
+### 偏好、runtime 与宿主接口
+
+- 偏好是 `quanpin_helpcode.grid`、`shuangpin_helpcode.grid`（`HelpcodePreferences::grid`），默认关、关着时不写进文档，按会话实际跑的方案取一份，经 `EngineOptions::grid_helpcode` 进 `SessionOptions`；改偏好与其他辅助码设置一样在空闲时重建会话。
+- runtime 的 `Action::GridHelpcode` 转交引擎；视图多 `grid_helpcode_available`、`grid_helpcode_display` 两项，为假或为空时不出现。`grid_helpcode_constrained` 只留在快照里：为真时 `order_presentation`（逐键重排、句首语气词、读法降位、在线座位）、落定重排和脚本插件的重排、隐藏都不运行，免得跨过匹配等级。网格组字本来就不发在线请求，不另加限制。
+- C 接口新增 `msime_client_grid_helpcode(session, op, letter)`（ABI 3 只增），`op` 0、1、2、3 对应 `Begin`、`Exact`、`Clear`、`Group`，其他值报错。
 
 ## Alternatives considered
 
@@ -41,4 +47,4 @@ Status: implemented
 
 ## Verification
 
-`crates/engine/src/session/tests/grid_helpcode.rs` 用合成词库覆盖四种键盘的进入、整组与确定字母、有分隔符时拒收网格键和大写字母、整串选择、满槽、退格、分词、选词、筛空吞键、有候选时数字交还、严格与不严格一码、两码、笔画与单字筛选、粗俗词挪位、学习与候选管理、码表取定、128 行之外的已查到目标，以及九键和功能关闭时一律拒绝、开关打开或只有分隔符时与普通组字相同。普通九键、十四／十八键与 26 键的既有回归和参考回放（`golden`）照旧通过。
+`crates/engine/src/session/tests/grid_helpcode.rs` 用合成词库覆盖四种键盘的进入、整组与确定字母、有分隔符时拒收网格键和大写字母、整串选择、满槽、退格、分词、选词、筛空吞键、有候选时数字交还、严格与不严格一码、两码、笔画与单字筛选、粗俗词挪位、学习与候选管理、码表取定、128 行之外的已查到目标，以及九键和功能关闭时一律拒绝、开关打开或只有分隔符时与普通组字相同。普通九键、十四／十八键与 26 键的既有回归和参考回放（`golden`）照旧通过。`crates/input-runtime/src/tests/grid_helpcode.rs` 用真实引擎走动作、视图字段和整串解释的代次校验，并以对照证明落定模型在普通列表里会挪行、在筛过的列表里不动；`candidate_transform.rs` 的跳过用例覆盖脚本插件。`crates/host-api/tests/grid_helpcode.rs` 经 C 接口验证偏好接线、默认关闭和非法操作。

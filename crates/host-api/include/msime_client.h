@@ -893,6 +893,9 @@ char *msime_client_set_key_grid(uint64_t session, uint8_t grid);
  * 五笔 14 键最多四码：四码之后的一键先把首选顶上屏，再开始下一组编码，组码里没有 z，所以 z 通配、z 拼音反查和混输拼音都不作用于它；四码唯一时与 26 键一样按偏好自动上屏。
  * 硬件键盘的字母照常经 msime_client_character 走当前方案的 26 键：字母网格组字进行中它们 handled=false，同九键。 */
 char *msime_client_grid_key(uint64_t session, uint8_t letter);
+/* 十四／十八键网格辅助码（ABI 3 新增）：op 0 在组码后放下分隔符；3 追加 letter 所在键的整组字母（letter 是组里任一个小写字母，宿主按下字母键时送它）；1 追加确定的小写字母 letter（给十八键双拼横滑这类已有的精确字母手势）；2 清掉分隔符和辅助码。op 0、2 忽略 letter，其他 op 报错；op 1、3 的 letter 不是 a-z 时 handled=false（大写也不收：26 键双拼一码的大写表示尾字优先，网格辅助码的大写留给与它一致的含义）。偏好 quanpin_helpcode.grid 或 shuangpin_helpcode.grid（按当前方案，默认 false）打开、当前方案的辅助码开着且有码表、十四／十八键拼音组字、光标在末尾时才能放下分隔符，View.grid_helpcode_available 说的就是这个；九键、九键双拼和五笔 14 键一律 handled=false。不接受时 handled=false，组字和候选不变；重复放下分隔符、两槽已满后的追加 handled=true，组字和候选也不变。和其他输入一样，每次调用都换新的 View.generation。
+ * 放下分隔符后组码不再变：msime_client_grid_key 一律 handled=false 且不变，宿主把字母键改送 op 3。op 1、3 最多填两槽，满了再来的 handled=true 且不变；View.grid_helpcode_display 是宿主画在读音后面的辅助码（如 |Q[ER]，全拼都大写，双拼首码小写、次码大写），只在输入法里画，不进组字区、不上屏；View.nine_key_spellings 换成辅助码的整串解释，选中一项（msime_client_choose_nine_key_spelling）锁定各槽，不上屏；只有分隔符或各槽都已确定时为空。退格先删槽、再去掉分隔符，都不删组码；分词键、选词、取消、移光标和笔画筛选都清掉辅助码。至少一槽而筛空时，空格、标点、数字、首选上屏和结束组字都 handled=true 且不上屏，组字留着；有候选时数字照旧选本页候选。 */
+char *msime_client_grid_helpcode(uint64_t session, uint8_t op, uint8_t letter);
 /* 标出隐私会话（隐私模式、不允许学习的输入框）：不记录选词位置和上屏效率，并立即禁止、清除上屏后联想；宿主须重新读取 View，以丢弃旧候选代次。用户单独关掉学习不算隐私会话；学习本身仍由 learning 偏好决定。Value 是设下的布尔值。 */
 char *msime_client_set_private_session(uint64_t session, bool enabled);
 /* next_word_prediction 偏好开启、而且宿主声明能显示联想（HostCapabilities.next_word_prediction，目前是 Android、Linux、macOS、Windows、iOS 与 HarmonyOS）时，View.prediction=true 标记上屏后的空闲联想：editing_text、preedit 和 reading 为空；联想和普通候选一样选：点选、数字键选本页对应的一条、空格选高亮的一条（九键、字母网格和拿数字拼写的方案里数字仍是输入，越过本页的数字照常输入）。回车、标点、退格、导航和失焦不提交联想，引擎先清掉联想再照常处理；普通状态省略 prediction 字段，宿主缺省按 false 读取。 */
