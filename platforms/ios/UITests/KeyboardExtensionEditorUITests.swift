@@ -108,6 +108,88 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     keepScreenshot("粤语逐段选词-完成", in: editor)
   }
 
+  /// 自绘输入框（Flutter 一类）的 insertText 只替换选区、不替换标记文本；全拼选词上屏后输入框里只能剩汉字，拼音不能留在前面（#10873）。编辑器是测试宿主里按这条规则写的 `SelectionOnlyInsertEditor`，经真实的跨进程键盘代理写入。
+  func testQuanpinCommitReplacesPinyinInAnEditorWhoseInsertTextOnlyReplacesTheSelection() throws {
+    #if targetEnvironment(simulator)
+    // 首次安装后先启动主应用，让系统完成键盘扩展注册。
+    let app = XCUIApplication()
+    app.launch()
+    app.terminate()
+    #endif
+    addKeyboardInSettingsIfNeeded()
+    let editor = XCUIApplication(bundleIdentifier: "app.msime.ios.keyboard-test-host")
+    editor.launchArguments = ["--selection-only-insert-editor"]
+    addTeardownBlock { @MainActor in editor.terminate() }
+    editor.launch()
+    let field = editor.descendants(matching: .any)["selectionOnlyInsertEditor"].firstMatch
+    XCTAssertTrue(field.waitForExistence(timeout: 10))
+    _ = try activeSystemKeyboard(in: editor, field: field)
+    editor.buttons["schemeButton"].tap()
+    editor.buttons["schemeCard-quanpin"].tap()
+    let language = editor.buttons["bottomLanguageKey"]
+    if language.label == "切换到中文输入" { language.tap() }
+    for letter in ["N", "I", "H", "A", "O"] {
+      let key = editor.buttons["字母 \(letter)"]
+      XCTAssertTrue(key.waitForExistence(timeout: 5), "字母 \(letter) 不在键面上")
+      key.tap()
+    }
+    let marked = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value CONTAINS %@", "ni"), object: field)
+    XCTAssertEqual(XCTWaiter.wait(for: [marked], timeout: 5), .completed, "拼音没有作为标记文本写进编辑器")
+    let leading = editor.buttons["candidate-1"]
+    XCTAssertTrue(leading.waitForExistence(timeout: 8))
+    // 词块标签是「候选词 1：你好，……」，取冒号后到第一个逗号前的正文。
+    let label = leading.label
+    let body = label.split(separator: "：", maxSplits: 1).last.map { String($0.split(separator: "，").first ?? $0) } ?? label
+    keepScreenshot("自绘输入框-选词之前", in: editor)
+    leading.tap()
+    let committed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", body), object: field)
+    let result = XCTWaiter.wait(for: [committed], timeout: 5)
+    keepScreenshot("自绘输入框-选词之后", in: editor)
+    XCTAssertEqual(result, .completed, "编辑器里应只剩「\(body)」，实际是「\((field.value as? String) ?? "")」")
+  }
+
+  /// 全拼部分选词经真实跨进程代理写进系统编辑器：`nihaov` 的结尾拼不出整句，选「你好」后剩下的字母留在组字里，文档里是「你好」接着标记的字母，已选汉字不能被剩余组字盖掉（#10374 的直接插入，#10873 改整段上屏时不能碰坏它）。不依赖粤拼词库，粤语逐段用例没暂存词库时这一项照样能跑。
+  func testQuanpinPartialSelectionKeepsCommittedPrefixInSystemEditor() throws {
+    #if targetEnvironment(simulator)
+    let app = XCUIApplication()
+    app.launch()
+    app.terminate()
+    #endif
+    addKeyboardInSettingsIfNeeded()
+    let editor = XCUIApplication(bundleIdentifier: "app.msime.ios.keyboard-test-host")
+    editor.launchArguments = ["--system-keyboard-editor"]
+    addTeardownBlock { @MainActor in editor.terminate() }
+    editor.launch()
+    let field = editor.textFields["systemKeyboardEditor"]
+    XCTAssertTrue(field.waitForExistence(timeout: 10))
+    _ = try activeSystemKeyboard(in: editor, field: field)
+    editor.buttons["schemeButton"].tap()
+    editor.buttons["schemeCard-quanpin"].tap()
+    let language = editor.buttons["bottomLanguageKey"]
+    if language.label == "切换到中文输入" { language.tap() }
+    for letter in "NIHAOV" {
+      let key = editor.buttons["字母 \(letter)"]
+      XCTAssertTrue(key.waitForExistence(timeout: 5), "字母 \(letter) 不在键面上")
+      key.tap()
+    }
+    func select(_ text: String) {
+      let pattern = "^候选词 [0-9]+：" + NSRegularExpression.escapedPattern(for: text) + "(?:，.*)?$"
+      let candidate = editor.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label MATCHES %@",
+        "candidate-", pattern)).firstMatch
+      let shown = candidate.waitForExistence(timeout: 10)
+      let labels = editor.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "candidate-"))
+        .allElementsBoundByIndex.map(\.label)
+      XCTAssertTrue(shown, "应能点选 \(text)，候选是 \(labels)")
+      candidate.tap()
+    }
+    select("你好")
+    let partial = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "value MATCHES %@", "^你好[a-z' ]+$"), object: field)
+    let result = XCTWaiter.wait(for: [partial], timeout: 5)
+    keepScreenshot("全拼部分选词-之后", in: editor)
+    XCTAssertEqual(result, .completed, "部分选词后应是「你好」接剩余字母，实际是「\((field.value as? String) ?? "")」")
+  }
+
   /// 失败时保留实际界面，区分入口、遮挡和产品行为，不能只看断言行号。
   private func keepScreenshot(_ name: String, in app: XCUIApplication) {
     let shot = XCTAttachment(screenshot: app.screenshot())

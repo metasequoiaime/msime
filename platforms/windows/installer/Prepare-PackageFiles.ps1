@@ -348,8 +348,8 @@ if ($Light) {
 else {
     Reset-Directory -LiteralPath $targetAppData
     $defaultConfigPath = Join-Path $targetAppData 'config.default.toml'
-    # 出厂配置来自本仓库的 default_config，不依赖本机是否已安装输入法。安装脚本用 onlyifdoesntexist 生成用户 config.toml，升级不会覆盖已有方案/主题。
-    [IO.File]::WriteAllText($defaultConfigPath, $defaultConfig, [Text.UTF8Encoding]::new($true))
+    # 出厂配置来自本仓库的 default_config，不依赖本机是否已安装输入法。安装脚本用 onlyifdoesntexist 生成用户 config.toml，升级不会覆盖已有方案/主题。不带 BOM，与仓库里存的那一份一致；只有 .iss 需要 BOM（见下文改写 msime_setup.iss 处），这份模板不交给 Inno Setup 解释。
+    [IO.File]::WriteAllText($defaultConfigPath, $defaultConfig, [Text.UTF8Encoding]::new($false))
 
     $targetHelpcodes = Join-Path $targetAppData 'helpcodes'
     Reset-Directory -LiteralPath $targetHelpcodes
@@ -611,9 +611,9 @@ foreach ($name in @('MetasequoiaImeTsf.dll', 'MetasequoiaImeTsf.pdb', $werHelper
     if (Test-Path -LiteralPath $staged -PathType Leaf) { Remove-Item -LiteralPath $staged -Force }
 }
 
-# 版本声明（Edition::PACKAGE_MARKER_FILE）：MSIME.exe 和 msime-mcp.exe 从自己所在的 Server 目录读它，决定连哪个版本的 Server、用哪个状态目录。只有管理员能写 Program Files，普通进程改不了它。每个版本（包括 full）都写：full 在 Windows 上也有自己的一组名字（版本表 platforms.windows），不再是引入版本之前的那组。
+# 版本声明（Edition::PACKAGE_MARKER_FILE）：MSIME.exe 和 msime-mcp.exe 从自己所在的 Server 目录读它，决定连哪个版本的 Server、用哪个状态目录。只有管理员能写 Program Files，普通进程改不了它。每个版本（包括 full）都写：full 在 Windows 上也有自己的一组名字（版本表 platforms.windows），不再是引入版本之前的那组。必须不带 BOM：JSON 不允许 BOM，serde_json 读到开头的 U+FEFF 就报错，MSIME.exe 启动检查不过直接退出，托盘的「云剪贴板…」「云词库…」点了没反应（#10816）。
 $editionMarker = Join-Path $targetServer 'edition.json'
-[IO.File]::WriteAllText($editionMarker, "{`"edition`": `"$Edition`"}`n", [Text.UTF8Encoding]::new($true))
+[IO.File]::WriteAllText($editionMarker, "{`"edition`": `"$Edition`"}`n", [Text.UTF8Encoding]::new($false))
 
 Reset-Directory -LiteralPath $targetTsf
 $targetTsf32 = Join-Path $targetTsf '32'

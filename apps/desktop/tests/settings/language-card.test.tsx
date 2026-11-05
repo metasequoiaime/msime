@@ -230,6 +230,26 @@ test("a 五笔 profile picked straight from the 五笔 sheet sets the profile an
   expect(languageRow("五笔").textContent).toContain("五笔 98");
 });
 
+test("the 五笔 sheet lists 新世纪 as its own profile and the row names it", () => {
+  const preferences = renderCard(["quanpin", "wubi"]);
+
+  fireEvent.click(languageRow("五笔"));
+  expect(
+    within(sheet())
+      .getAllByRole("button")
+      .filter((button) => button.hasAttribute("data-sheet-option"))
+      .map((button) => button.textContent),
+  ).toEqual(expect.arrayContaining(["五笔 86", "五笔 98", "五笔 新世纪"]));
+  fireEvent.click(within(sheet()).getByRole("button", { name: "五笔 新世纪" }));
+
+  expect(preferences()).toMatchObject({
+    scheme: "wubi",
+    wubi_profile: "wubixsj",
+    touch_keyboard_schemes: { selected: "wubi" },
+  });
+  expect(languageRow("五笔").textContent).toContain("五笔 新世纪");
+});
+
 test("removing a language in use turns off all its schemes and falls back to another language", () => {
   const preferences = renderCard(["quanpin", "japanese_nine_key", "japanese"], "japanese");
 

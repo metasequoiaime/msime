@@ -53,7 +53,7 @@ Windows 的读是同步的：工作线程上初始化 COM、建声音、读完�
 
 ### 入口
 
-- 候选菜单里的「朗读」，放在已有的「加入生词本」之前、同一组里（最后隔一条线的那组）。有释义能读、或候选本身是英文时出现；只有候选是英文、没有释义时，这一组只有「朗读」。鸿蒙 2in1 的触摸长按原本只出释义、没有释义就不开菜单，现在没有释义而有能读的英文时也打开，只有「朗读」一项，和右键菜单一样能读到。iOS 这一组的顺序由 `ReadAloudText.lastGroup(hasFullAccess:spoken:gloss:)` 决定，键盘控制器只把它的结果画成 `UIAction`。macOS 是标签 31，Windows 是 `CandidateMenuCommand::ReadAloud`，IBus 是 `CandidateReadAloud/<session>/<generation>/<index>`，Fcitx5 是动作 31，Android 是长按菜单的 id 3001（排序 999，「加入生词本」是 1000），iOS 是长按菜单最后那个内联组里的第一项，鸿蒙是 `READ_ALOUD`（打开菜单时记下候选原文，点下去时核对）。它不经过 Engine，不报告指针，不改组字。
+- 候选菜单里的「朗读」，放在已有的「加入生词本」之前、同一组里（最后隔一条线的那组）。有释义能读、或候选本身是英文时出现；只有候选是英文、没有释义时，这一组只有「朗读」。鸿蒙 2in1 的触摸长按原本只出释义、没有释义就不开菜单，现在没有释义而有能读的英文时也打开，只有「朗读」一项，和右键菜单一样能读到。iOS 这一组的顺序由 `ReadAloudText.lastGroup(hasFullAccess:spoken:gloss:)` 决定，键盘控制器只把它的结果画成 `UIAction`。macOS 是标签 31，Windows 是 `CandidateMenuCommand::ReadAloud`，IBus 是 `CandidateReadAloud/<session>/<generation>/<index>`，Fcitx5 是动作 31，Android 是长按菜单的 id 3001（排序 999，「加入生词本」是 1000），iOS 是长按菜单最后那个内联组里的第一项，鸿蒙是 `READ_ALOUD`（打开菜单时记下候选原文，点下去时核对；手机上在释义卡片的次要操作里，见[鸿蒙手机长按候选打开释义卡片](2026-11-05-harmony-candidate-gloss-card.md)）。它不经过 Engine，不报告指针，不改组字。
 - 背单词卡片上，卡片下面一个带喇叭图标的「朗读」按钮（共享页面是 `VocabularyReviewClient.speak`，iOS 和 Android 是原生页面上同样位置的按钮），点一下读词头，不翻开卡片、不作答；读不出来时页面上显示宿主给的那句话。
 - 不加全局快捷键，也不加组字时的快捷键：快捷键看不见，桌面端组字时 Ctrl 组合键一律交还应用，要接住就得在四个前端各改一遍按键路由，理由和[桌面候选窗的「加入生词本」](2026-11-01-desktop-candidate-personal-wordbook.md)不做快捷键相同。
 
