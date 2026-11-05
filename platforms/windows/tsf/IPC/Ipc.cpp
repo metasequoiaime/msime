@@ -1371,6 +1371,15 @@ struct FanyImeNamedpipeDataToTsf *TryReadDataFromServerPipeWithTimeout(uint64_t 
 struct FanyImeNamedpipeDataToTsf *TryReadDataFromServerPipeWithTimeout(uint64_t expectedRequestId,
                                                                        bool abortTransportOnTimeout)
 {
+    return TryReadDataFromServerPipeWithTimeout(
+        expectedRequestId, abortTransportOnTimeout,
+        msime::windows::tsf::ServerReplyWaitBudgetMs(abortTransportOnTimeout));
+}
+
+struct FanyImeNamedpipeDataToTsf *TryReadDataFromServerPipeWithTimeout(uint64_t expectedRequestId,
+                                                                       bool abortTransportOnTimeout,
+                                                                       std::size_t waitBudgetMs)
+{
     PerfTimer replyWaitTimer;
 
     auto transportUnavailable = []() {
@@ -1415,7 +1424,8 @@ struct FanyImeNamedpipeDataToTsf *TryReadDataFromServerPipeWithTimeout(uint64_t 
         }
     }
 
-    const ULONGLONG deadline = GetTickCount64() + msime::windows::tsf::kServerReplyWaitTimeoutMs;
+    // 预算由调用方给出：必须确认的回包在管道没报错时等到第二级上限，Server 只是慢（CPU 被占满）不当成断线；软回包一般只等第一级。
+    const ULONGLONG deadline = GetTickCount64() + waitBudgetMs;
 
     while (true)
     {
@@ -1471,7 +1481,9 @@ struct FanyImeNamedpipeDataToTsf *TryReadDataFromServerPipeWithTimeout(uint64_t 
             !FanyImeProtocol::IsNegotiationReply(namedpipeDataFromServer.msg_type) &&
             namedpipeDataFromServer.request_id == expectedRequestId)
         {
-            DebugTsfKeyLatency(L"reply-wait", expectedRequestId, replyWaitTimer.ElapsedMs(), S_OK);
+            const double elapsedMs = replyWaitTimer.ElapsedMs();
+            DebugTsfKeyLatency(msime::windows::tsf::IsSlowServerReply(elapsedMs) ? L"reply-wait-slow" : L"reply-wait",
+                               expectedRequestId, elapsedMs, S_OK);
             return &namedpipeDataFromServer;
         }
 

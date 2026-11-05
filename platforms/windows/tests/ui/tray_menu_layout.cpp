@@ -404,6 +404,7 @@ int main() {
   // 五笔一行跟随存储的码表版本，不认识的版本退回方案名。
   require(tray_menu_wubi_label("wubi86") == "五笔 86");
   require(tray_menu_wubi_label("wubi98") == "五笔 98");
+  require(tray_menu_wubi_label("wubixsj") == "五笔 新世纪");
   require(tray_menu_wubi_label("unknown") == "五笔");
   {
     auto wubi98 = state;
@@ -411,6 +412,14 @@ int main() {
     wubi98.wubi_profile = "wubi98";
     const auto rows = schemes_of(all, wubi98);
     require(rows[find(rows, TrayMenuCommand::SelectWubi)].label == "五笔 98" &&
+            checked(rows, TrayMenuCommand::SelectWubi));
+  }
+  {
+    auto wubixsj = state;
+    wubixsj.scheme = "wubi";
+    wubixsj.wubi_profile = "wubixsj";
+    const auto rows = schemes_of(all, wubixsj);
+    require(rows[find(rows, TrayMenuCommand::SelectWubi)].label == "五笔 新世纪" &&
             checked(rows, TrayMenuCommand::SelectWubi));
   }
   {

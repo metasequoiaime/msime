@@ -80,6 +80,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let replyModel = ReplyKeyboardModel()
   private var personalDictionaryTimer: Timer?
   private let idleMaintenance = IdleMaintenancePoll()
+  /// 键盘持着 App Group 里的锁（会话的词库租约与代次锁、快照工作者的 `worker.lock`）期间开着的 expiring activity：宿主被结束时扩展收不到任何回调、几十毫秒后就被挂起，只有它能让系统先通知、等放完锁再挂起（#10910）。`viewWillAppear` 建会话之前开，收起时会话放掉之后关。
+  private let appGroupLockActivity = AppGroupLockActivity(reason: "MSIME keyboard releases App Group locks before suspension")
   /// 「我的词条」在键盘里变了之后让词库同步记下来（`local_change`），见 `KeyboardDictionarySync`。
   private let dictionarySync = KeyboardDictionarySync()
   private var lastKeyTouchTime: TimeInterval = -.infinity
@@ -1083,6 +1085,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     KeyboardUsageReporting.presented(fullAccess: hasFullAccess)
     // 收起时销毁的会话在这里同步重建，挡在这次出现的第一帧前面；记下耗时，在设备上看它有多重。
     let rebuildsSession = session.dictionarySessionSuspended
+    appGroupLockActivity.begin { [weak self] in self?.releaseLocksBeforeSuspension() }
     let resumeStart = ProcessInfo.processInfo.systemUptime
     do {
       try session.resumeDictionarySession()
@@ -1377,6 +1380,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // throw them away.
     render(session.finishComposition())
     releaseDictionarySession()
+    endLockActivityIfReleased()
     ownEditEcho.reset()
     cancelBackspacePress()
     diagnosticDismissTimer?.invalidate()
@@ -1393,6 +1397,28 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     super.viewDidDisappear(animated)
     guard !isPresented else { return }
     releaseDictionarySession()
+    endLockActivityIfReleased()
+  }
+
+  /// 会话放掉了才结束 expiring activity：放不掉（`dictionary_suspend_failed`）时让它开着，系统要挂起之前还会经 `releaseLocksBeforeSuspension` 再放一次。
+  private func endLockActivityIfReleased() {
+    guard !session.holdsSession else { return }
+    appGroupLockActivity.end()
+  }
+
+  /// expiring activity 到期，系统马上要挂起扩展（#10910）。在主线程上同步执行，返回之前放掉 App Group 里的全部锁。还显示着就按收起走 `viewWillDisappear`、`viewDidDisappear` 的全套。iPhone XR 上量到：宿主在时活动不计时；宿主被结束后活动让扩展继续跑，通常由 `maintenanceTick` 在两秒内发现视图不在窗口里、放锁并结束活动；定时器没赶上（主线程被占着、定时器还没起）时，约 25 秒后系统发出到期，走这里。
+  private func releaseLocksBeforeSuspension() {
+    let start = ProcessInfo.processInfo.systemUptime
+    DiagnosticLog.shared.write("suspension_imminent presented=\(isPresented ? 1 : 0) window=\(viewIfLoaded?.window != nil ? 1 : 0) session_held=\(session.holdsSession ? 1 : 0)")
+    if isPresented {
+      viewWillDisappear(false)
+      viewDidDisappear(false)
+    } else {
+      snapshotWorker.stop()
+      idleMaintenance.cancel()
+      releaseDictionarySession()
+    }
+    DiagnosticLog.shared.write("suspension_released ms=\(Self.elapsedMilliseconds(since: start)) session_held=\(session.holdsSession ? 1 : 0)")
   }
 
   /// 销毁引擎会话，放掉它在 App Group 里持着的锁（词库访问租约和下载代次的共享锁）。键盘被系统挂起时还持着这些锁，iOS 以 0xdead10cc 结束扩展（#10634），所以放不掉时不能就此作罢。
@@ -2853,8 +2879,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }, for: .primaryActionTriggered)
     aiShortcut.addAction(UIAction { [weak self] _ in self?.closeKeyboardPicker(); self?.showKeyboardAI() }, for: .primaryActionTriggered)
     characterSetShortcut.addAction(UIAction { [weak self] _ in
-      guard let self else { return }
-      selectTraditionalOutput(!usesTraditionalOutput)
+      self?.toggleCharacterSet()
     }, for: .primaryActionTriggered)
     fullwidthShortcut.addAction(UIAction { [weak self] _ in
       guard let self else { return }
@@ -2915,10 +2940,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // The switches show their state as a character, the way the Windows floating toolbar does: 简/繁, 全/半, and a Chinese or ASCII comma.
     let pinned = TouchToolbarPreference(in: session.sharedPreferences)
     configure(aiShortcut, title: nil, symbol: "sparkles", label: "AI 润色", id: "aiShortcut")
-    configure(characterSetShortcut, title: usesTraditionalOutput ? "繁" : "简", symbol: nil,
+    let showsTraditional = showsTraditionalCharacterSet
+    configure(characterSetShortcut, title: showsTraditional ? "繁" : "简", symbol: nil,
               label: "简繁切换", id: "characterSetShortcut")
-    characterSetShortcut.accessibilityValue = usesTraditionalOutput ? "繁体" : "简体"
-    characterSetShortcut.isEnabled = !(isChineseMode && !inputScheme.writesChinese)
+    characterSetShortcut.accessibilityValue = showsTraditional ? "繁体" : "简体"
+    characterSetShortcut.isEnabled = characterSetSwitchApplies
     configure(fullwidthShortcut, title: fullWidthInput ? "全" : "半", symbol: nil,
               label: "全角半角", id: "fullwidthShortcut")
     fullwidthShortcut.accessibilityValue = fullWidthInput ? "全角" : "半角"
@@ -3018,9 +3044,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       },
       // 用一个开关而不是一对卡片：输出字形只是一个布尔值。
       KeyboardTool(id: "traditional", title: "繁体", accessibilityLabel: "繁体输出", face: .glyph("繁"), isToggle: true,
-                   selected: usesTraditionalOutput, enabled: !(isChineseMode && !inputScheme.writesChinese)) { [weak self] in
-        guard let self else { return }
-        selectTraditionalOutput(!usesTraditionalOutput)
+                   selected: showsTraditionalCharacterSet, enabled: characterSetSwitchApplies) { [weak self] in
+        self?.toggleCharacterSet()
       },
       KeyboardTool(id: "handwriting", title: "手写", face: .icon(.handwriting),
                    selected: isChineseMode && inputScheme == .handwriting,
@@ -7924,9 +7949,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return TypingSource(rawValue: inputScheme.rawValue) ?? .unknown
   }
 
-  /// 运行时提交替换行内预编辑；显式定位在同一次临时标记里指定选区，再取消标记提交完整正文。
+  /// 运行时提交替换行内预编辑；显式定位在同一次临时标记里指定选区，再取消标记提交完整正文。`continuesComposition` 表示同一次渲染随后还要标记剩下的组字（部分选词）。
   private func insertOwnText(_ text: String, source: TypingSource? = nil, replacingComposition: Bool = false,
-                             cursorSuffix: String? = nil) {
+                             cursorSuffix: String? = nil, continuesComposition: Bool = false) {
     let cursor = cursorSuffix.flatMap { suffix -> Int? in
       guard !suffix.isEmpty, text.utf16.suffix(suffix.utf16.count).elementsEqual(suffix.utf16) else { return nil }
       return text.utf16.count - suffix.utf16.count
@@ -7934,12 +7959,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if replacingComposition && (!inlineMarkedText.isEmpty || cursor != nil) {
       // 正文与 UTF-16 选区一起交给 UIKit，避免方向移动在 emoji、组合字符或双向文本里猜错单位。
       inlineMarkedText = ""
-      if let cursor {
-        pairedPunctuation.clear()
-        textDocumentProxy.setMarkedText(text, selectedRange: NSRange(location: cursor, length: 0))
-        textDocumentProxy.unmarkText()
-      } else {
+      if cursor == nil && continuesComposition {
+        // 部分选词：直接提交替换标记区；先重标记再 unmark、紧接着又标记剩余组字的跨进程调用，会让剩余组字覆盖已选汉字（#10284）。
         textDocumentProxy.insertText(text)
+      } else {
+        // 组字到此结束时用「改标记再取消标记」上屏，不用 insertText：系统文本框的 insertText 会替换标记文本，自绘输入框（如 Flutter 的 FlutterTextInputView）的 insertText 只替换当前选区，而选区是标记末尾的光标，拼音会留在原处、汉字插在后面（#10873）。
+        if cursor != nil { pairedPunctuation.clear() }
+        textDocumentProxy.setMarkedText(text, selectedRange: NSRange(location: cursor ?? text.utf16.count, length: 0))
+        textDocumentProxy.unmarkText()
       }
       noteOwnEdit()
     } else {
@@ -8164,7 +8191,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
       // 原组字和数字作为同一次文档替换提交；先撤标记再插数字会读到尚未更新的选区，数字可能跑到拼音前面。
       insertOwnText(commit + (appendingLiteral ?? ""), source: source,
-                    replacingComposition: snapshot.commitText != nil, cursorSuffix: suffix)
+                    replacingComposition: snapshot.commitText != nil, cursorSuffix: suffix,
+                    continuesComposition: !snapshot.preedit.isEmpty)
     }
     let wasComposing = renderedComposition
     let wasKoreanHanjaListOpen = koreanHanjaListOpen
@@ -9817,6 +9845,30 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   @objc private func saveKeyboardAdjustOnResign() {
     closeKeyboardAdjust()
+  }
+
+  /// 粤拼和粤语双拼的词库是繁体：在这两个方案下，简繁按钮切换的是粤拼自己的输出字形（`cantonese_simplified_output`，繁转简在 Engine 里做），全局简繁开关不动，切回普通话方案时仍是原来的字形。
+  private var characterSetFollowsCantonese: Bool { isChineseMode && inputScheme.isCantonese }
+
+  /// 简繁按钮和功能菜单「繁体」显示的字形：粤拼下看粤拼自己的选择，其他方案看全局开关。
+  private var showsTraditionalCharacterSet: Bool {
+    characterSetFollowsCantonese ? !session.cantoneseSimplifiedOutput : usesTraditionalOutput
+  }
+
+  /// 不写汉字或自带字形的方案（日文、韩文、注音、笔画等）下简繁按钮不可用；粤拼例外。
+  private var characterSetSwitchApplies: Bool {
+    characterSetFollowsCantonese || !(isChineseMode && !inputScheme.writesChinese)
+  }
+
+  private func toggleCharacterSet() {
+    guard characterSetFollowsCantonese else {
+      selectTraditionalOutput(!usesTraditionalOutput)
+      return
+    }
+    _ = session.setCantoneseSimplifiedOutput(!session.cantoneseSimplifiedOutput)
+    closeCandidatePanel()
+    render(session.currentSnapshot())
+    updateShortcutButtons()
   }
 
   @objc private func noteSessionInBackground() {

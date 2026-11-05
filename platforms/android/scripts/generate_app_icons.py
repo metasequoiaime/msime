@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render the launcher icons from the brand artwork (brew install librsvg).
+"""Render the launcher icons from the brand artwork (brew install librsvg webp).
 
 The icon is the standalone mark, `packages/ui/src/assets/msime.svg` - a dark rounded square whose green edge is its border, with the white stroke on it - the same picture Windows, macOS, Linux, iOS and HarmonyOS show. The launcher cuts the icon to a shape of its own choosing, so the tile is scaled until its edge meets the 72dp the mask shows and the background layer is the edge colour: on a rounded-square launcher the mask lands on the green edge and the home screen shows the same rounded square as the PC icon, the ground only filling in where the mask's corners are rounder than the tile's. This is what iOS does with its own mask.
 
@@ -88,11 +88,23 @@ def round_icon(edge: str, diameter: float) -> str:
 
 
 def render(source: Path, pixels: int, destination: Path) -> None:
+    """把 `source` 栅格化成 `pixels` 见方的无损 WebP，写到 `destination`（不带扩展名）。
+
+    rsvg-convert 先出 PNG，cwebp 再无损重编码：`-lossless -exact` 保留每个像素，连全透明像素底下的颜色也不动，解码出来与 PNG 的 RGBA 完全相同，文件约小六成。GitHub 瘦包贴着体积上限（#10810），minSdk 28 的设备都能解带透明通道的无损 WebP。上一次生成的同名 PNG 要删掉，aapt2 不接受一个 drawable 有两个文件。
+    """
     destination.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
-        ["rsvg-convert", "-w", str(pixels), "-h", str(pixels), str(source), "-o", str(destination)],
-        check=True,
-    )
+    with tempfile.TemporaryDirectory() as directory:
+        bitmap = Path(directory) / "icon.png"
+        subprocess.run(
+            ["rsvg-convert", "-w", str(pixels), "-h", str(pixels), str(source), "-o", str(bitmap)],
+            check=True,
+        )
+        subprocess.run(
+            ["cwebp", "-quiet", "-lossless", "-exact", "-z", "9", "-metadata", "none", str(bitmap),
+             "-o", str(destination.with_suffix(".webp"))],
+            check=True,
+        )
+    destination.with_suffix(".png").unlink(missing_ok=True)
 
 
 def main() -> None:
@@ -103,23 +115,23 @@ def main() -> None:
             source = Path(directory) / f"{name}.svg"
             source.write_text(plain(edge))
             for density, pixels in DENSITIES.items():
-                render(source, pixels, ROOT / f"res/drawable-{density}/app_icon_{name}.png")
+                render(source, pixels, ROOT / f"res/drawable-{density}/app_icon_{name}")
             # The adaptive foreground is the whole tile; the background layer is the edge colour, which shows wherever the mask reaches past the tile's corners.
             layer = Path(directory) / f"{name}-foreground.svg"
             layer.write_text(foreground(edge))
             for density, pixels in FOREGROUND_DENSITIES.items():
                 render(layer, pixels,
-                       ROOT / f"res/drawable-{density}/app_icon_{name}_foreground.png")
+                       ROOT / f"res/drawable-{density}/app_icon_{name}_foreground")
             # The round icon: the plain bitmap is the circle filling the bitmap; the adaptive foreground is the circle on the border of the 72dp the mask shows, over the same edge-coloured background, so a circular mask lands exactly on the ring.
             source = Path(directory) / f"{name}-round.svg"
             source.write_text(round_icon(edge, 110))
             for density, pixels in DENSITIES.items():
-                render(source, pixels, ROOT / f"res/drawable-{density}/app_icon_{name}_round.png")
+                render(source, pixels, ROOT / f"res/drawable-{density}/app_icon_{name}_round")
             layer = Path(directory) / f"{name}-round-foreground.svg"
             layer.write_text(round_icon(edge, 110 * VISIBLE))
             for density, pixels in FOREGROUND_DENSITIES.items():
                 render(layer, pixels,
-                       ROOT / f"res/drawable-{density}/app_icon_{name}_round_foreground.png")
+                       ROOT / f"res/drawable-{density}/app_icon_{name}_round_foreground")
 
 
 if __name__ == "__main__":

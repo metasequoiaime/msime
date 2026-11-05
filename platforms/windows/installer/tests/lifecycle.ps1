@@ -187,7 +187,7 @@ if ($adopt -lt 0 -or $serverGone -lt 0 -or $packageGone -lt 0 -or $adopt -gt $se
 if ($script -notmatch '(?m)^Name: "\{code:GetDataDir\}"; Permissions: users-modify') {
     throw 'The data directory is not created with Users modify permission'
 }
-$ensure = Get-Block 'procedure EnsureImeUserDataDir;' 'procedure CreateWatchdogLogonTask;'
+$ensure = Get-Block 'procedure EnsureImeUserDataDir;' 'function CreateWatchdogLogonTask: Boolean;'
 foreach ($needle in @("AppDataPath := GetDataDir('')", '/grant *S-1-5-32-545:(OI)(CI)M /T /C /Q', '/remove:g *S-1-15-2-1 /T /C /Q', '/remove:g *S-1-15-2-2 /T /C /Q', '/setintegritylevel (OI)(CI)M /T /C /Q')) {
     if (-not $ensure.Contains($needle)) { throw "EnsureImeUserDataDir is missing $needle" }
 }
