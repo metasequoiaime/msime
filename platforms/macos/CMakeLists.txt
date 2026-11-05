@@ -1685,6 +1685,7 @@ add_test(NAME global-voice-state COMMAND global-voice-state-test)
 add_test(NAME global-voice-boundaries COMMAND shortcut-test --global-voice)
 add_test(NAME global-voice-imk-fallback COMMAND shortcut-test --global-voice-imk-fallback)
 add_test(NAME global-voice-panel COMMAND shortcut-test --global-voice-panel)
+add_test(NAME voice-preference-restore COMMAND shortcut-test --voice-preference-restore)
 add_test(NAME global-voice-current-client-reentry COMMAND shortcut-test --global-voice-current-client-reentry)
 add_test(NAME global-voice-suspend-source COMMAND shortcut-test --global-voice-suspend-source)
 

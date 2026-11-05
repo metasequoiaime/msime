@@ -14524,6 +14524,62 @@ static void TestGlobalVoiceIMKFallback() {
     }
 }
 
+@interface MSIMEAppearancePreferences (VoiceRestoreTest)
+- (void)removeStoredKeys:(NSArray<NSString *> *)keys;
+@end
+@interface VoiceRestoreController : MusicClaimController
+@end
+@implementation VoiceRestoreController
+- (void)reloadPreferences {}
+@end
+static void TestVoicePreferenceRestore() {
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    NSMutableDictionary *previous = [NSMutableDictionary dictionary];
+    for (NSString *key in defaults.dictionaryRepresentation)
+        if ([key hasPrefix:@"MSIMEClientVoice"]) previous[key] = [defaults objectForKey:key];
+    NSArray *voiceKeys = @[@"MSIMEClientVoiceEnabled", @"MSIMEClientVoiceLanguage", @"MSIMEClientVoiceSoundEnabled",
+        @"MSIMEClientVoiceMuteSystemAudio", @"MSIMEClientVoiceStreamInlinePreedit"];
+    NSArray *hotkeyKeys = @[@"MSIMEClientVoiceHotkeyCtrlF9", @"MSIMEClientVoiceHotkeyRightAlt",
+        @"MSIMEClientVoiceHotkeyCtrlCommand", @"MSIMEClientVoiceHotkeyCtrlOption"];
+    for (NSUInteger scenario = 0; scenario < 3; ++scenario) {
+        NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+        NSDictionary *initial = [MSIMEClientSession loadPreferencesInDirectory:root error:nil];
+        NSMutableDictionary *document = [initial[@"preferences"] mutableCopy];
+        NSMutableDictionary *voice = [document[@"voice_input"] mutableCopy];
+        voice[@"enabled"] = @NO; voice[@"hotkey_ralt"] = @NO; voice[@"hotkey_global"] = @YES;
+        document[@"voice_input"] = voice;
+        NSDictionary *saved = [MSIMEClientSession savePreferencesInDirectory:root expectedRevision:[initial[@"revision"] unsignedLongLongValue]
+            snapshot:@{@"format_version":@1, @"revision":initial[@"revision"], @"preferences":document} error:nil];
+        assert(saved);
+        MSIMEApplySharedVoicePreferences(saved[@"preferences"][@"voice_input"], defaults);
+        MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+        VoiceRestoreController *controller = [VoiceRestoreController alloc]; controller.options = @{@"preferences_directory":root};
+        [controller setValue:appearance forKey:@"appearance"]; [controller setValue:root forKey:@"preferencesDirectory"];
+        [NSNotificationCenter.defaultCenter addObserver:controller selector:@selector(appearanceChanged:)
+            name:MSIMEAppearanceDidChangeNotification object:appearance];
+        // 分别经过语音分组、快捷键分组与整窗恢复共用的真实通知／保存路径。
+        [appearance removeStoredKeys:scenario == 0 ? voiceKeys : scenario == 1 ? hotkeyKeys : [voiceKeys arrayByAddingObjectsFromArray:hotkeyKeys]];
+        NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2];
+        NSDictionary *latest = nil;
+        do {
+            [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+            latest = [MSIMEClientSession loadPreferencesInDirectory:root error:nil];
+        } while ([latest[@"revision"] unsignedLongLongValue] <= [saved[@"revision"] unsignedLongLongValue] && deadline.timeIntervalSinceNow > 0);
+        NSDictionary *result = latest[@"preferences"][@"voice_input"];
+        assert([result[@"enabled"] isEqual:scenario == 1 ? @NO : @YES]);
+        assert([result[@"hotkey_ralt"] isEqual:scenario == 0 ? @NO : @YES]);
+        assert([result[@"hotkey_global"] isEqual:@YES]);
+        MSIMEApplySharedVoicePreferences(result, defaults);
+        assert(appearance.voiceInputEnabled == (scenario != 1));
+        assert(appearance.voiceHotkeyRightAlt == (scenario != 0));
+        [NSNotificationCenter.defaultCenter removeObserver:controller];
+        [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
+        assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
+    }
+    for (NSString *key in defaults.dictionaryRepresentation)
+        if ([key hasPrefix:@"MSIMEClientVoice"]) [defaults removeObjectForKey:key];
+    for (NSString *key in previous) [defaults setObject:previous[key] forKey:key];
+}
 static void TestGlobalVoiceBoundaries() {
     TestGlobalVoiceCurrentClientDelivery();
     {
@@ -14929,6 +14985,7 @@ int main(int argc, char **argv) {
     assert(MSIMEShouldRegisterInputSource(2, registerArguments));
     @autoreleasepool {
         [NSApplication sharedApplication];
+        if (argc == 2 && std::string(argv[1]) == "--voice-preference-restore") { TestVoicePreferenceRestore(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--global-voice-panel") { TestGlobalVoicePanelClient(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--global-voice-imk-fallback") { TestGlobalVoiceIMKFallback(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--global-voice-current-client-reentry") { TestGlobalVoiceCurrentClientReentry(); return 0; }

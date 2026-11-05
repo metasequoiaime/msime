@@ -5840,8 +5840,18 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
         id pushed = override == nil ? nil : [self valueForKey:override];
         if ([pushed isKindOfClass:NSMutableDictionary.class]) [pushed removeObjectsForKeys:owned];
     }
+    BOOL voiceReset = NO;
+    for (NSString *key in keys) {
+        if (![key hasPrefix:@"MSIMEClientVoice"]) continue;
+        id value = DefaultSettingValues()[key];
+        if (!value || value == NSNull.null) continue;
+        // 缺键在共享文档合并时表示保留旧值；恢复必须把本窗口拥有的默认值作为明确编辑。
+        [_defaults setObject:value forKey:key];
+        voiceReset = YES;
+    }
     [self refreshControls];
-    [NSNotificationCenter.defaultCenter postNotificationName:MSIMEAppearanceDidChangeNotification object:self];
+    [NSNotificationCenter.defaultCenter postNotificationName:MSIMEAppearanceDidChangeNotification object:self
+        userInfo:voiceReset ? @{MSIMEAppearanceVoicePreferencesKey:@YES} : nil];
 }
 #pragma mark - Settings document
 
