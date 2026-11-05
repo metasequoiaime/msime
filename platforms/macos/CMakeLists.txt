@@ -1719,3 +1719,10 @@ target_include_directories(embedded-translation-batch-test PRIVATE ../../crates/
 target_compile_options(embedded-translation-batch-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(embedded-translation-batch-test PRIVATE "-framework Foundation")
 add_test(NAME embedded-translation-batch COMMAND embedded-translation-batch-test)
+
+add_executable(local-translation-window-test tests/translation/LocalTranslationWindowTest.mm src/translation/LocalTranslationWindow.mm)
+target_include_directories(local-translation-window-test PRIVATE ../../crates/host-api/include)
+target_compile_options(local-translation-window-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(local-translation-window-test PRIVATE "-framework AppKit")
+add_test(NAME local-translation-window COMMAND local-translation-window-test)
+set_tests_properties(local-translation-window PROPERTIES ENVIRONMENT "CFFIXED_USER_HOME=${MSIME_TEST_HOME}")

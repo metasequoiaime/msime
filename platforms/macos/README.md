@@ -1,5 +1,7 @@
 # macOS InputMethodKit 宿主
 
+桌面内置模型的安装、语言选择与离线翻译入口见[桌面离线翻译](../../docs/local-translation.md)。
+
 ## 目录结构
 
 macOS 平台源码统一放在 `src/` 下按 `backend/`、`voice/`、`candidate/`、`input/`、`cloud/`、`dictionary/`、`settings/` 和 `core/` 分层；`tests/` 保存测试，`resources/` 保存输入法资源，`scripts/` 保存构建脚本，平台根目录只保留 CMake、资源模板和文档。

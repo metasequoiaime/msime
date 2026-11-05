@@ -527,6 +527,12 @@ Rime 上游的 octagram 语法模型格式（[lotem/librime-octagram](https://gi
 
 主构建写 `msime-dictionary-manifest.json` 和 `msime-SHA256SUMS.txt`。清单字段：`manifest_version`（1）、`profile`（`desktop`）、`format_version` 与 `engine_compatibility.dictionary_format`（都等于 `format::FORMAT_VERSION`）、`engine_compatibility.japanese_model_magic`（`MSJPDT1`）、`source`（构建所在的 msime 提交与是否有未提交改动）、`sqlite_journal_mode`（`delete`）、`format_contract_commit`、`custom_dictionary_commit`、`custom_dictionary_repository`、`custom_dictionary_path`、`references`（各上游的仓库与提交）、`mozc_revision`、`features`、`licensing`（是否含无授权输入、排除了哪些）、`files`（每个产物的 `sha256` 与 `size`）。客户端的词库更新只接受 `dictionary_format` 等于自己的 `FORMAT_VERSION` 且日文魔数为 `MSJPDT1` 的清单。引擎本身不读清单。
 
+## 桌面离线翻译模型（宿主资源包）
+
+`resource-packs/local-translation/Hy-MT2-1.8B-Q4_K_M.gguf` 由共享 `client-providers` 资源包安装器下载或从用户选择的文件导入，输入引擎不读写它。模型采用上游 GGUF 格式，分词器、模型元数据与量化张量在同一文件内；由 `local-translation` 的固定 llama.cpp 版本只读加载。来源、上游完整提交、文件名、长度和 SHA-256 均来自编译期的 `resources/local-translation-model.lock.json`，安装和每次冷加载都校验，不接受任意 GGUF 替换。
+
+偏好为 `local_translation: { enabled, target_language }`，缺字段保持关闭，语言代码必须属于共享目录。文件缺失、摘要不符或运行库不可用时翻译失败，不联网回退。宿主的候选代次和取消标记与模型文件格式无关；这项资源不改变引擎词库的 `FORMAT_VERSION`。许可与分发位置见 [第三方组件清单](third-party.md#桌面本地翻译)。
+
 ## 19. 产出方
 
 | 产物 | 产出方 |

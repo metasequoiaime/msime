@@ -143,7 +143,7 @@ src_compile() {
 	local mycmakeargs=(
 		-DBUILD_TESTING=$(usex test)
 		-DMSIME_EDITION=full
-		-DMSIME_LOCAL_TRANSLATION_SETTINGS=ON \
+		-DMSIME_LOCAL_TRANSLATION_SETTINGS=ON
 		-DMSIME_ENABLE_PACKAGING=ON
 		-DMSIME_ENABLE_FCITX5=$(usex fcitx5)
 		-DMSIME_HOST_LIBRARY="${target}/libmsime_host_api.so"
