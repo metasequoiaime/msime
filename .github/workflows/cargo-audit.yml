@@ -41,7 +41,7 @@ jobs:
           persist-credentials: false
       # taiki-e/install-action 下载 cargo-audit 的预编译二进制，CI 不编译检查工具本身。action 与工具
       # 版本都固定：升级走单独的 PR，免得新版提高 MSRV 或改变默认行为让无关的 PR 变红。
-      - uses: taiki-e/install-action@68a389c788b2cd04016ce8c80ee23b80d2ab3d68 # v2.88.1
+      - uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
         with:
           tool: cargo-audit@0.22.2
       # 只读本仓库的 Cargo.lock，不编译本仓库；公告库要联网拉取，所以这一项不属于离线可跑的 --quick 门禁。
