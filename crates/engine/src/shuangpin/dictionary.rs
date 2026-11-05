@@ -19,7 +19,7 @@ use super::utils::{convert_seg_shuangpin_to_seg_complete_pinyin, pinyin_segmenta
 use super::ShuangpinProfile;
 use crate::assets;
 use crate::cache::FifoCache;
-use crate::dictionary::pinyin::PinyinDatabase;
+use crate::dictionary::pinyin::{PinyinDatabase, TailMatch};
 use crate::dictionary::DictRow;
 use crate::helpcode::{
     match_single_helpcode, matches_double_helpcodes, HelpcodeKeymap, SingleHelpcodeMatch,
@@ -397,17 +397,27 @@ impl ShuangpinDictionary {
         if segments.is_empty() {
             return Vec::new();
         }
-        let mut rows = self.database.query_segments_keyed_flat(
+        // 双拼一个音节两键定音：最后一节打满两键、解出整音节时，末音节已经打完，只按这个音节查，不像全拼那样把 `ga` 补成 `gan`（#10842）。只打了一键的尾巴仍按前缀补全。
+        let tail = if last_code_is_complete(segmentation)
+            && segments.last().is_some_and(|last| is_intact(last))
+        {
+            TailMatch::Whole
+        } else {
+            TailMatch::Prefix
+        };
+        let mut rows = self.database.query_segments_keyed_flat_with_tail(
             &segments,
             UNLIMITED_ROWS,
             QuerySource::Shuangpin,
+            tail,
         );
         if self.profile.kind == ShuangpinProfileKind::Shoudao && segmentation == "dk" {
             // 手心的 `dk` 同时对应 `dia` 和 `den`；保留原有的 `dia`，并补查 `den`。
-            rows.extend(self.database.query_segments_keyed_flat(
+            rows.extend(self.database.query_segments_keyed_flat_with_tail(
                 &["den".to_string()],
                 UNLIMITED_ROWS,
                 QuerySource::Shuangpin,
+                TailMatch::Whole,
             ));
             rows.sort_by_key(|row| std::cmp::Reverse(row.weight));
             let mut seen = HashSet::new();
@@ -1222,6 +1232,14 @@ fn touch_slice<'a>(
     }
     let touches = &touches[..touched.len()];
     touches.iter().any(Option::is_some).then_some(touches)
+}
+
+/// 双拼切分里最后一节非空编码是否打满两键；手动分隔符留下的空节不算。
+fn last_code_is_complete(segmentation: &str) -> bool {
+    segmentation
+        .rsplit('\'')
+        .find(|piece| !piece.is_empty())
+        .is_some_and(|piece| piece.len() == 2)
 }
 
 fn prefix_group_count(segmentation: &str) -> usize {

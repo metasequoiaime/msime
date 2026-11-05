@@ -24,6 +24,15 @@ use crate::pinyin::syllables::{
     intact_pinyin_set, is_intact, prefix_pinyin_set,
 };
 
+/// 末段怎样匹配词库读音。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TailMatch {
+    /// 末段可能还没打完，按前缀补全：全拼 `ni'ha` 能查到 `ni'hao`。
+    Prefix,
+    /// 末段已是打完的整音节，只认这个音节：双拼两键定音的末段。
+    Whole,
+}
+
 pub const BUSY_TIMEOUT: Duration = Duration::from_millis(250);
 /// Weight of a word the user or learning inserts (QD:1243).
 pub const INSERTED_WEIGHT: i64 = 10_000;
@@ -138,10 +147,21 @@ impl PinyinDatabase {
         limit: usize,
         source: QuerySource,
     ) -> Vec<DictRow> {
+        self.query_segments_keyed_flat_with_tail(segments, limit, source, TailMatch::Prefix)
+    }
+
+    /// 同 `query_segments_keyed_flat`，由调用方指明末段是否已经打完。双拼末尾两键定音时传 `TailMatch::Whole`，`gu'ga` 只查 `gu'ga`，不再补成 `gu'gan`（#10842）。
+    pub fn query_segments_keyed_flat_with_tail(
+        &self,
+        segments: &[String],
+        limit: usize,
+        source: QuerySource,
+        tail: TailMatch,
+    ) -> Vec<DictRow> {
         if self.connection.is_none() || segments.is_empty() || limit == 0 {
             return Vec::new();
         }
-        let mut rows = self.query_single_cut_keyed(segments, limit, source);
+        let mut rows = self.query_single_cut_with_tail(segments, limit, source, tail);
         deduplicate_by_value(&mut rows);
         // The C++ used std::sort, which leaves ties unspecified; quanpin.md §5.2 fixes them to SQLite's row order with a stable sort.
         rows.sort_by_key(|row| std::cmp::Reverse(row.weight));
@@ -588,6 +608,16 @@ impl PinyinDatabase {
         limit: usize,
         source: QuerySource,
     ) -> Vec<DictRow> {
+        self.query_single_cut_with_tail(segments, limit, source, TailMatch::Prefix)
+    }
+
+    fn query_single_cut_with_tail(
+        &self,
+        segments: &[String],
+        limit: usize,
+        source: QuerySource,
+        tail: TailMatch,
+    ) -> Vec<DictRow> {
         let Some(table) = build_table_name(segments) else {
             return Vec::new();
         };
@@ -607,16 +637,19 @@ impl PinyinDatabase {
         }
 
         // The pattern always ends in the last segment's `%`; an inner single letter keeps its literal `%`, so that range matches nothing and the input moves on to the mixed step (QQ:854-856).
-        let pattern = build_key_like_pattern(segments);
-        let prefix = &pattern[..pattern.len() - 1];
-        let upper_bound = key_prefix_upper_bound(prefix);
-        let rows = self.rows(
-            &range_sql(&table, bound),
-            [prefix, upper_bound.as_str()],
-            query_capacity(limit),
-        );
-        if !rows.is_empty() {
-            return rows;
+        // 末段已打完时跳过这一步：范围查询只会把末段补成更长的音节，内部单字母本来就让它落空。
+        if tail == TailMatch::Prefix {
+            let pattern = build_key_like_pattern(segments);
+            let prefix = &pattern[..pattern.len() - 1];
+            let upper_bound = key_prefix_upper_bound(prefix);
+            let rows = self.rows(
+                &range_sql(&table, bound),
+                [prefix, upper_bound.as_str()],
+                query_capacity(limit),
+            );
+            if !rows.is_empty() {
+                return rows;
+            }
         }
 
         if needs_mixed_jianpin_query(segments, source) {
@@ -1425,6 +1458,37 @@ mod tests {
             QuerySource::Shuangpin,
         );
         assert_eq!(values(&shuangpin), ["时间"]);
+    }
+
+    /// #10842：末段已打完时不做前缀补全，`gu'ga` 查不到 `gu'gan`；末段可能没打完时照旧补全。
+    #[test]
+    fn whole_tail_does_not_prefix_expand_the_last_segment() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = pinyin_db(directory.path(), &[("tbl_2_g", "gu'gan", "骨干", 900)]);
+        let database = PinyinDatabase::open(&path);
+        let query = |segments: &[&str], tail| {
+            database.query_segments_keyed_flat_with_tail(
+                &strings(segments),
+                usize::MAX,
+                QuerySource::Shuangpin,
+                tail,
+            )
+        };
+        assert!(query(&["gu", "ga"], TailMatch::Whole).is_empty());
+        assert_eq!(values(&query(&["gu", "gan"], TailMatch::Whole)), ["骨干"]);
+        assert_eq!(values(&query(&["gu", "ga"], TailMatch::Prefix)), ["骨干"]);
+        assert_eq!(values(&query(&["gu", "g"], TailMatch::Prefix)), ["骨干"]);
+        // 内部单字母仍走混合简拼：末段整音节照样命中。
+        assert_eq!(values(&query(&["g", "gan"], TailMatch::Whole)), ["骨干"]);
+        // 全拼的默认入口不变：`gu'ga` 仍可能是没打完的 `gu'gan`。
+        assert_eq!(
+            values(&database.query_segments_keyed_flat(
+                &strings(&["gu", "ga"]),
+                usize::MAX,
+                QuerySource::Quanpin,
+            )),
+            ["骨干"]
+        );
     }
 
     #[test]

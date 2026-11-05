@@ -174,6 +174,27 @@ fn delimiter_only_queries_return_without_allocating() {
     }
 }
 
+/// #10842：小鹤 `guga` 两个音节都打完了，`ga` 不该补成 `gan` 带出「骨干」；`gugj` 和只打了一键尾巴的 `gug` 照常有。
+#[test]
+fn complete_last_code_is_not_prefix_expanded() {
+    let fixture = Fixture::new(
+        "BEGIN;CREATE TABLE tbl_1_g(key TEXT, jp TEXT, value TEXT, weight INTEGER);INSERT INTO tbl_1_g VALUES('gu', 'g', '骨', 100),('ga', 'g', '嘎', 100);CREATE TABLE tbl_2_g(key TEXT, jp TEXT, value TEXT, weight INTEGER);INSERT INTO tbl_2_g VALUES('gu''gan', 'gg', '骨干', 900),('gu''ang', 'ga', '谷昂', 800);COMMIT;",
+    );
+    let mut engine = fixture.engine(ShuangpinProfileKind::Xiaohe);
+    let guga = engine.query(&request("guga", false), None);
+    assert!(!words(&guga).contains(&"骨干"), "{:?}", words(&guga));
+    assert!(words(&guga).contains(&"骨"), "{:?}", words(&guga));
+    let gugj = engine.query(&request("gugj", false), None);
+    assert_eq!(words(&gugj).first(), Some(&"骨干"), "{:?}", words(&gugj));
+    let gug = engine.query(&request("gug", false), None);
+    assert!(words(&gug).contains(&"骨干"), "{:?}", words(&gug));
+    // 零声母 `aa` 两键解出整音节 `a`，同样不再补成 `ang`；只打一键 `a` 时仍补全。
+    let guaa = engine.query(&request("guaa", false), None);
+    assert!(!words(&guaa).contains(&"谷昂"), "{:?}", words(&guaa));
+    let gua = engine.query(&request("gua", false), None);
+    assert!(words(&gua).contains(&"谷昂"), "{:?}", words(&gua));
+}
+
 /// A manual delimiter leaves empty pieces in the whole-input segmentation, so several of its shorter prefix groups are the same `ni` group; the reference appended each group whole and listed 你 and 拟 once per group. A word keeps its first, longest-prefix seat (decision 2026-09-30).
 #[test]
 fn prefix_groups_list_a_word_once() {
@@ -827,6 +848,15 @@ fn real_dictionary_answers_common_readings() {
         words(&zhongguo).iter().take(3).any(|word| *word == "中国"),
         "{:?}",
         words(&zhongguo)
+    );
+    // #10842：`guga` 是打完的 gu'ga，不带出 gu'gan 的「骨干」；`gugj` 才是。
+    let guga = engine.query(&request("guga", false), None);
+    assert!(!words(&guga).contains(&"骨干"), "{:?}", words(&guga));
+    let gugan = engine.query(&request("gugj", false), None);
+    assert!(
+        words(&gugan).iter().take(3).any(|word| *word == "骨干"),
+        "{:?}",
+        words(&gugan)
     );
 }
 
