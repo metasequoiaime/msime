@@ -12,18 +12,18 @@
     "11": {
       "cases": 13,
       "found": 0.769,
-      "mrr": 0.531,
+      "mrr": 0.564,
       "top1": 0.462,
       "top1_char_prefix": 0.615,
-      "top5": 0.615,
-      "top9": 0.615
+      "top5": 0.692,
+      "top9": 0.692
     },
     "12": {
       "cases": 6,
       "found": 1.0,
-      "mrr": 0.806,
-      "top1": 0.667,
-      "top1_char_prefix": 0.681,
+      "mrr": 0.917,
+      "top1": 0.833,
+      "top1_char_prefix": 0.847,
       "top5": 1.0,
       "top9": 1.0
     },
@@ -57,24 +57,24 @@
     "16": {
       "cases": 2,
       "found": 1.0,
-      "mrr": 0.503,
-      "top1": 0.5,
-      "top1_char_prefix": 0.781,
-      "top5": 0.5,
-      "top9": 0.5
+      "mrr": 1.0,
+      "top1": 1.0,
+      "top1_char_prefix": 1.0,
+      "top5": 1.0,
+      "top9": 1.0
     },
     "4": {
       "cases": 92,
-      "found": 0.935,
-      "mrr": 0.561,
+      "found": 0.924,
+      "mrr": 0.568,
       "top1": 0.38,
-      "top1_char_prefix": 0.603,
-      "top5": 0.804,
+      "top1_char_prefix": 0.611,
+      "top5": 0.815,
       "top9": 0.815
     },
     "5": {
       "cases": 35,
-      "found": 0.886,
+      "found": 0.857,
       "mrr": 0.68,
       "top1": 0.6,
       "top1_char_prefix": 0.754,
@@ -84,20 +84,20 @@
     "6": {
       "cases": 50,
       "found": 0.92,
-      "mrr": 0.664,
-      "top1": 0.52,
-      "top1_char_prefix": 0.653,
-      "top5": 0.82,
-      "top9": 0.82
+      "mrr": 0.648,
+      "top1": 0.5,
+      "top1_char_prefix": 0.64,
+      "top5": 0.8,
+      "top9": 0.8
     },
     "7": {
       "cases": 41,
-      "found": 0.78,
-      "mrr": 0.546,
+      "found": 0.732,
+      "mrr": 0.534,
       "top1": 0.439,
-      "top1_char_prefix": 0.704,
-      "top5": 0.659,
-      "top9": 0.659
+      "top1_char_prefix": 0.69,
+      "top5": 0.634,
+      "top9": 0.634
     },
     "8": {
       "cases": 27,
@@ -111,9 +111,9 @@
     "9": {
       "cases": 21,
       "found": 0.905,
-      "mrr": 0.638,
-      "top1": 0.571,
-      "top1_char_prefix": 0.72,
+      "mrr": 0.614,
+      "top1": 0.524,
+      "top1_char_prefix": 0.693,
       "top5": 0.714,
       "top9": 0.714
     }
@@ -121,11 +121,11 @@
   "by_tag": {
     "harvested": {
       "cases": 310,
-      "found": 0.884,
-      "mrr": 0.617,
+      "found": 0.871,
+      "mrr": 0.62,
       "top1": 0.49,
-      "top1_char_prefix": 0.678,
-      "top5": 0.771,
+      "top1_char_prefix": 0.68,
+      "top5": 0.774,
       "top9": 0.777
     },
     "reported": {
@@ -141,15 +141,15 @@
   "cases": 312,
   "gold_source": {
     "database": 3,
-    "generated": 273
+    "generated": 269
   },
   "overall": {
     "cases": 312,
-    "found": 0.885,
-    "mrr": 0.62,
+    "found": 0.872,
+    "mrr": 0.623,
     "top1": 0.494,
-    "top1_char_prefix": 0.681,
-    "top5": 0.772,
+    "top1_char_prefix": 0.682,
+    "top5": 0.776,
     "top9": 0.779
   },
   "sample_failures": [
@@ -194,13 +194,6 @@
       "input": "jianchizizhukaifang",
       "rank": 2,
       "top1": "坚持自助开放"
-    },
-    {
-      "gold": "国际社会解除对伊朗实施的制裁措施",
-      "id": "p-0015",
-      "input": "guojishehuijiechuduiyilangshishidezhicaicuoshi",
-      "rank": 161,
-      "top1": "国际社会解除对伊朗事实的制裁措施"
     },
     {
       "gold": "并力来攻",
@@ -278,13 +271,6 @@
       "input": "ruhekenxiu",
       "rank": null,
       "top1": "如何肯修"
-    },
-    {
-      "gold": "他仍然希望能够加大训练量",
-      "id": "p-0037",
-      "input": "tarengranxiwangnenggoujiadaxunlianliang",
-      "rank": 2,
-      "top1": "它仍然希望能够加大训练量"
     },
     {
       "gold": "确保及时施救",
@@ -381,14 +367,14 @@
       "gold": "经理们也算过了",
       "id": "p-0064",
       "input": "jinglimenyesuanguole",
-      "rank": 207,
+      "rank": null,
       "top1": "经历们也算过了"
     },
     {
       "gold": "主业定义的是你的发展方向",
       "id": "p-0066",
       "input": "zhuyedingyideshinidefazhanfangxiang",
-      "rank": 3,
+      "rank": 2,
       "top1": "主页定义的是你的发展方向"
     },
     {
@@ -432,6 +418,20 @@
       "input": "gaojuzhongguoteseshehuizhuyiweidaqizhi",
       "rank": 2,
       "top1": "高举中国特色社会主义伟大气质"
+    },
+    {
+      "gold": "深入议政",
+      "id": "p-0079",
+      "input": "shenruyizheng",
+      "rank": 2,
+      "top1": "深入一整"
+    },
+    {
+      "gold": "共谋良策",
+      "id": "p-0080",
+      "input": "gongmouliangce",
+      "rank": 3,
+      "top1": "共谋两侧"
     }
   ],
   "top1_source": {
