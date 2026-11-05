@@ -1147,12 +1147,13 @@ begin
   );
 end;
 
-procedure CreateWatchdogLogonTask;
+function CreateWatchdogLogonTask: Boolean;
 var
   WatchdogPath: String;
   Params: String;
   ResultCode: Integer;
 begin
+  Result := False;
   ResultCode := -1;
   WatchdogPath := ExpandConstant(
     '{autopf}\{#MyEditionInstallDir}\server\{#MyWatchdogName}');
@@ -1181,6 +1182,61 @@ begin
       '输入法已经装好，不影响使用：开机后第一次切换到 {#MyAppName} 时会自动启动。' + #13#10 +
       '如果装有安全软件，可能是它拦截了创建计划任务，放行后重新运行安装程序即可恢复开机启动。',
       mbInformation, MB_OK, IDOK);
+    exit;
+  end;
+  Result := True;
+end;
+
+{ 登录任务的 Priority 默认是 7（Below normal），看门狗和它拉起的 Server 会一起被降级，任务默认
+  还在 72 小时后强制结束。schtasks /Create 没有这两个参数，用 Task Scheduler 的 COM 接口从现有
+  任务读出定义、改设置、再注册一次；COM 在 Win7 的 PowerShell 2.0 上就有，不经过任何文本编码。
+  电池上是否启动是笔记本上的出厂行为，属于单独的产品决定，这里不动。 }
+procedure ConfigureWatchdogLogonTask;
+var
+  Script: String;
+  Params: String;
+  ResultCode: Integer;
+begin
+  ResultCode := -1;
+  Script :=
+    '$ErrorActionPreference=''Stop''; ' +
+    '$n=''{#MyWatchdogTaskName}''; ' +
+    '$s=New-Object -ComObject Schedule.Service; ' +
+    '$s.Connect(); ' +
+    '$f=$s.GetFolder(''\''); ' +
+    'function Get-Definition($name) { ' +
+    '  try { return $f.GetTask($name).Definition } catch { return $null } }; ' +
+    '$d=Get-Definition $n; ' +
+    'if ($null -eq $d) { exit 1 }; ' +
+    '$d.Settings.Priority=4; ' +
+    '$d.Settings.ExecutionTimeLimit=''PT0S''; ' +
+    '$registered=$false; ' +
+    'try { $f.RegisterTaskDefinition($n,$d,6,$null,$null,3); $registered=$true } catch { }; ' +
+    'if (-not $registered) { ' +
+    '  if ($null -eq (Get-Definition $n)) { ' +
+    '    try { $f.RegisterTaskDefinition($n,$d,6,$null,$null,3); $registered=$true } catch { } } }; ' +
+    'if (-not $registered) { exit 1 }; ' +
+    '$c=Get-Definition $n; ' +
+    'if ($null -eq $c) { exit 1 }; ' +
+    'if (($c.Settings.Priority -ne 4) -or ($c.Settings.ExecutionTimeLimit -ne ''PT0S'')) { exit 1 }';
+  Params :=
+    '-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "' + Script + '"';
+  if
+    (not {#ExecNativeSys}(
+      ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+      Params,
+      '',
+      SW_HIDE,
+      ewWaitUntilTerminated,
+      ResultCode
+    )) or
+    (ResultCode <> 0)
+  then
+  begin
+    { 任务已经建好、开机自启照常，只是还带着默认的降级设置；这不是装不装得上的问题，
+      不能像创建失败那样打断安装，也不值得让用户做一个他做不了的动作，只记日志。
+      这里不记 SysErrorMessage：脚本的退出码是我们自己定的 1，不是 Win32 错误码。 }
+    Log('Configuring the watchdog logon task failed: ' + IntToStr(ResultCode));
   end;
 end;
 
@@ -1530,7 +1586,8 @@ begin
 #ifndef LightPackage
     ApplyNetworkChoiceToUserConfig;
 #endif
-    CreateWatchdogLogonTask;
+    if CreateWatchdogLogonTask then
+      ConfigureWatchdogLogonTask;
     EnsureImeUserDataDir;
     { Last: every step above that can fail raises before this, so a failed install keeps the previous data directory. }
     FinishDataDirMove;

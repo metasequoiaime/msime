@@ -1,4 +1,5 @@
 #include "InputQueue.h"
+#include <windows.h>
 #include <vector>
 
 using namespace msime::windows;
@@ -120,6 +121,49 @@ int main() {
     InputQueue queue(gate, 1, 1, "{}");
     auto invalid_join = queue.submit([&](InputState &) { queue.stop(); });
     require(invalid_join && invalid_join->get() == InputTaskStatus::Failed);
+    queue.stop();
+  }
+  {
+    // 只有前台任务把工作线程临时提到 Above normal，跑完恢复进入前的值；后台任务不动它。
+    InputQueue queue(gate, 1, 1, "{}");
+    int entry_priority = THREAD_PRIORITY_ERROR_RETURN;
+    auto sample_entry = queue.submit([&](InputState &) {
+      entry_priority = GetThreadPriority(GetCurrentThread());
+    });
+    require(sample_entry && sample_entry->get() == InputTaskStatus::Completed);
+    require(entry_priority != THREAD_PRIORITY_ERROR_RETURN);
+    // 工作线程空闲时不该停在提升状态，否则下面的比较没有意义。
+    require(entry_priority != THREAD_PRIORITY_ABOVE_NORMAL);
+
+    int background_priority = THREAD_PRIORITY_ERROR_RETURN;
+    auto background = queue.submit([&](InputState &) {
+      background_priority = GetThreadPriority(GetCurrentThread());
+    });
+    require(background && background->get() == InputTaskStatus::Completed);
+    require(background_priority == entry_priority);
+
+    int foreground_priority = THREAD_PRIORITY_ERROR_RETURN;
+    bool boost_unsupported = false;
+    auto foreground = queue.submit([&](InputState &) {
+      foreground_priority = GetThreadPriority(GetCurrentThread());
+      if (foreground_priority == THREAD_PRIORITY_ABOVE_NORMAL)
+        return;
+      // 编排没生效：先确认这台主机本身接受这个优先级，拒绝它的环境按跳过处理。
+      boost_unsupported =
+          !SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL) ||
+          GetThreadPriority(GetCurrentThread()) != THREAD_PRIORITY_ABOVE_NORMAL;
+      (void)SetThreadPriority(GetCurrentThread(), foreground_priority);
+    }, InputTaskPriority::Foreground);
+    require(foreground && foreground->get() == InputTaskStatus::Completed);
+    require(boost_unsupported ||
+            foreground_priority == THREAD_PRIORITY_ABOVE_NORMAL);
+
+    int restored_priority = THREAD_PRIORITY_ERROR_RETURN;
+    auto restored = queue.submit([&](InputState &) {
+      restored_priority = GetThreadPriority(GetCurrentThread());
+    });
+    require(restored && restored->get() == InputTaskStatus::Completed);
+    require(restored_priority == entry_priority);
     queue.stop();
   }
   {
