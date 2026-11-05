@@ -3227,7 +3227,7 @@ Creative Commons may be contacted at creativecommons.org.
 | `regex-syntax` | 0.8.11 | MIT OR Apache-2.0 | L04、L05 |
 | `rink-core` | 0.9.0 | MPL-2.0 | L44 |
 | `rsqlite-vfs` | 0.1.1 | MIT | 未附带 |
-| `rusqlite` | 0.40.2 | MIT | L45 |
+| `rusqlite` | 0.41.1 | MIT | L45 |
 | `serde` | 1.0.229 | MIT OR Apache-2.0 | L32、L22 |
 | `serde_core` | 1.0.229 | MIT OR Apache-2.0 | L32、L22 |
 | `serde_json` | 1.0.154 | MIT OR Apache-2.0 | L32、L22 |
@@ -7005,7 +7005,7 @@ Exhibit B - "Incompatible With Secondary Licenses" Notice
 
 ### L45（LICENSE）
 
-用于：`rusqlite` 0.40.2
+用于：`rusqlite` 0.41.1
 
 ````text
 Copyright (c) 2014 The rusqlite developers
