@@ -11155,3 +11155,19 @@ fn android_layout_migration_moves_the_nine_key_swipe_only_over_off_or_a_missing_
         assert_eq!(fs::read(store.path()).unwrap(), before);
     }
 }
+
+#[test]
+fn global_voice_hotkey_is_opt_in_and_round_trips_without_changing_gestures() {
+    let old: VoiceInputPreferences = serde_json::from_value(serde_json::json!({})).unwrap();
+    assert!(!old.hotkey_global);
+    assert!(old.hotkey_ralt);
+    assert!(old.hotkey_ctrl_f9);
+    let mut enabled = old.clone();
+    enabled.hotkey_global = true;
+    let restored: VoiceInputPreferences =
+        serde_json::from_value(serde_json::to_value(&enabled).unwrap()).unwrap();
+    assert!(restored.hotkey_global);
+    assert_eq!(restored.hotkey_ralt, old.hotkey_ralt);
+    assert_eq!(restored.hotkey_ctrl_f9, old.hotkey_ctrl_f9);
+    assert_eq!(restored.hotkey_ctrl_win, old.hotkey_ctrl_win);
+}

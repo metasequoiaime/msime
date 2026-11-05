@@ -7,6 +7,7 @@
 #include <sqlite3.h>
 #include <sys/resource.h>
 #import <objc/runtime.h>
+#import <ServiceManagement/ServiceManagement.h>
 #import "../settings/TestPreferenceSuite.h"
 #import "../settings/PreferenceViewLookup.h"
 
@@ -61,6 +62,8 @@ static NSControl *PreferenceControl(MSIMEAppearancePreferences *preferences, SEL
     return control;
 }
 
+#import "GlobalVoiceScopeMenuRoutingFixture.h"
+
 static void CheckMenu(NSMenu *menu, id controller) {
     // "" is a separator and "*" a submenu row, the scheme and the theme, whose action AppKit sets to submenuAction:.
     NSArray<NSString *> *actions = @[
@@ -68,7 +71,7 @@ static void CheckMenu(NSMenu *menu, id controller) {
         @"toggleTraditionalOutput:", @"toggleFullWidthInput:", @"toggleChinesePunctuation:", @"toggleCandidateTranslations:", @"",
         @"*", @"*", @"",
         @"toggleFloatingToolbar:", @"showEmoji:", @"showCloudClipboard:", @"showCloudDictionary:", @"showScreenKeyboard:", @"showHandwriting:",
-        @"showVoicePanel", @"", @"showAppearance:", @"showAbout:"
+        @"showVoicePanel", @"*", @"", @"showAppearance:", @"showAbout:"
     ];
     assert(menu.numberOfItems == (NSInteger)actions.count && !menu.autoenablesItems);
     for (NSUInteger index = 0; index < actions.count; ++index) {
@@ -9238,9 +9241,10 @@ static void TestInputMode(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     [controller setValue:session forKey:@"session"];
     NSMenu *menu = controller.menu;
     CheckMenu(menu, controller);
+    TestGlobalVoiceScopeIMKRouting(controller);
     assert([menu itemAtIndex:0].state == NSControlStateValueOn);
     assert([menu itemAtIndex:1].state == NSControlStateValueOff);
-    assert(menu.numberOfItems == 22);
+    assert(menu.numberOfItems == 23);
     assert([[menu itemAtIndex:12].title isEqual:@"悬浮工具栏"]);
     NSArray<NSString *> *toolTitles = @[@"水杉表情面板…", @"云剪贴板…", @"云词库…", @"水杉屏幕键盘…", @"手写输入…", @"开始/结束语音输入"];
     NSArray<NSString *> *toolActions = @[@"showEmoji:", @"showCloudClipboard:", @"showCloudDictionary:", @"showScreenKeyboard:", @"showHandwriting:", @"showVoicePanel"];
@@ -9248,9 +9252,14 @@ static void TestInputMode(NSUserDefaults *defaults, MSIMEAppearancePreferences *
         NSMenuItem *tool = [menu itemAtIndex:13 + index];
         assert([tool.title isEqual:toolTitles[index]] && tool.action == NSSelectorFromString(toolActions[index]));
     }
-    assert([menu itemAtIndex:19].separatorItem);
-    assert([[menu itemAtIndex:20].title isEqual:@"水杉输入法设置…"] && [menu itemAtIndex:20].action == @selector(showAppearance:));
-    assert([[menu itemAtIndex:21].title isEqual:@"关于水杉输入法…"] && [menu itemAtIndex:21].action == @selector(showAbout:));
+    NSMenuItem *scope = [menu itemAtIndex:19];
+    assert([scope.title isEqual:@"语音快捷键范围"] && scope.submenu.numberOfItems == 2);
+    for (NSMenuItem *choice in scope.submenu.itemArray) {
+        assert(choice.target == controller && choice.action == NSSelectorFromString(@"selectGlobalVoiceScope:"));
+    }
+    assert([menu itemAtIndex:20].separatorItem);
+    assert([[menu itemAtIndex:21].title isEqual:@"水杉输入法设置…"] && [menu itemAtIndex:21].action == @selector(showAppearance:));
+    assert([[menu itemAtIndex:22].title isEqual:@"关于水杉输入法…"] && [menu itemAtIndex:22].action == @selector(showAbout:));
     // Simplified output is the off state of the one 繁体输出 toggle.
     const BOOL traditionalOutput = appearance.traditionalOutput;
     appearance.traditionalOutput = NO;
@@ -14107,6 +14116,1017 @@ static void TestCrossCommitSpacing() {
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
+
+// 只替换系统入口与录音动作；真实协调器仍处理修饰键、短按与代次，不请求权限或打开麦克风。
+@interface MSIMEGlobalVoiceCoordinator (BoundaryTest)
+- (CGEventRef)observe:(CGEventRef)event type:(CGEventType)type;
+- (void)reload;
+- (void)configure;
+- (void)begin:(BOOL)holding;
+- (void)toggle;
+- (void)stop;
+- (void)cancel;
+- (void)handleHotkey:(UInt32)identifier down:(BOOL)down;
+- (BOOL)shortcutRecorderFocused;
+- (void)replayKey:(UInt32)identifier down:(BOOL)down;
+- (void)advance;
+- (void)sourceChanged:(NSNotification *)notification;
+- (void)suspended:(NSNotification *)notification;
+- (NSTimeInterval)monotonicTime;
+- (BOOL)isOwnSourceIdentifier:(NSString *)identifier;
+- (NSString *)currentSourceIdentifier;
+- (NSString *)enabledSourceIdentifier;
+- (BOOL)selectSourceIdentifier:(NSString *)identifier;
+- (id)focusIdentity;
+- (NSRunningApplication *)frontApplication;
+- (void)beginHotkeyRegistration;
+- (void)finishHotkeyRegistration;
+- (void)registerCode:(UInt32)code modifiers:(UInt32)modifiers identifier:(UInt32)identifier;
+- (void)completePreferenceReload:(NSDictionary *)snapshot;
+- (void)applySnapshot:(NSDictionary *)snapshot;
+- (BOOL)accessibilityTrusted;
+- (BOOL)keyboardListenerAvailable;
+- (SMAppService *)backgroundService;
+- (void)showFailure:(NSString *)detail;
+@end
+@interface GlobalVoiceConflictProbe : MSIMEGlobalVoiceCoordinator
+@property(nonatomic) BOOL conflict;
+@property(nonatomic) OSStatus registrationStatus;
+@property(nonatomic) NSUInteger warnings;
+@end
+@implementation GlobalVoiceConflictProbe
+- (void)reload {}
+- (BOOL)systemHotkeyConflictForCode:(UInt32)code modifiers:(UInt32)modifiers { (void)code; (void)modifiers; return _conflict; }
+- (OSStatus)registerSystemHotkeyCode:(UInt32)code modifiers:(UInt32)modifiers identifier:(UInt32)identifier key:(EventHotKeyRef *)key {
+    (void)code; (void)modifiers; (void)identifier; *key = nullptr; return _registrationStatus;
+}
+- (void)showFailure:(NSString *)detail { assert(detail.length); ++_warnings; }
+@end
+static void TestGlobalVoiceConflicts() {
+    GlobalVoiceConflictProbe *probe = [[GlobalVoiceConflictProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)nil; }];
+    probe.conflict = YES;
+    [probe registerCode:101 modifiers:controlKey identifier:0];
+    [probe registerCode:101 modifiers:controlKey identifier:0];
+    assert(probe.warnings == 1);
+    [probe beginHotkeyRegistration];
+    [probe registerCode:101 modifiers:controlKey identifier:0];
+    [probe finishHotkeyRegistration];
+    assert(probe.warnings == 1);
+    [probe registerCode:100 modifiers:controlKey identifier:0];
+    assert(probe.warnings == 2); // 改绑后的另一冲突需要反馈。
+    probe.conflict = NO;
+    [probe registerCode:100 modifiers:controlKey identifier:0];
+    probe.registrationStatus = eventHotKeyExistsErr;
+    [probe registerCode:100 modifiers:controlKey identifier:0];
+    [probe registerCode:100 modifiers:controlKey identifier:0];
+    assert(probe.warnings == 3); // 成功后重新失败，Carbon 冲突也只提示一次。
+    [probe beginHotkeyRegistration]; [probe finishHotkeyRegistration];
+    [probe registerCode:100 modifiers:controlKey identifier:0];
+    assert(probe.warnings == 4); // 移除再添加属于新的用户尝试。
+}
+
+@interface GlobalVoiceServiceProbe : NSObject
+@property(nonatomic) SMAppServiceStatus status;
+@property(nonatomic) NSUInteger registrations;
+@property(nonatomic) NSUInteger removals;
+@end
+@implementation GlobalVoiceServiceProbe
+- (BOOL)registerAndReturnError:(NSError **)error {
+    (void)error; ++_registrations; _status = SMAppServiceStatusEnabled; return YES;
+}
+- (BOOL)unregisterAndReturnError:(NSError **)error {
+    (void)error; ++_removals; _status = SMAppServiceStatusNotRegistered; return YES;
+}
+@end
+@interface GlobalVoiceRegistrationProbe : MSIMEGlobalVoiceCoordinator
+@property(nonatomic) GlobalVoiceServiceProbe *service;
+@property(nonatomic) NSUserDefaults *defaults;
+@property(nonatomic) BOOL permitted;
+@property(nonatomic) NSUInteger listeners;
+@end
+@implementation GlobalVoiceRegistrationProbe
+- (void)reload {}
+- (BOOL)ownsBackgroundHost { return YES; }
+- (BOOL)accessibilityTrusted { return _permitted; }
+- (NSUserDefaults *)backgroundDefaults { return _defaults; }
+- (NSString *)backgroundRevision { return @"synthetic-build-A"; }
+- (void)installKeyboardForVoice:(NSDictionary *)voice { (void)voice; ++_listeners; MSIMEGlobalVoiceHost().keyboard = true; }
+- (SMAppService *)backgroundService { return (id)_service; }
+- (void)showFailure:(NSString *)detail { (void)detail; }
+@end
+@interface GlobalVoiceSnapshotProbe : MSIMEGlobalVoiceCoordinator
+@property(nonatomic) BOOL permitted;
+@property(nonatomic) BOOL listener;
+@property(nonatomic) NSUInteger configurations;
+@end
+@implementation GlobalVoiceSnapshotProbe
+- (void)reload {}
+- (SMAppService *)backgroundService { return nil; }
+- (BOOL)accessibilityTrusted { return _permitted; }
+- (BOOL)keyboardListenerAvailable { return _listener; }
+- (void)configure {
+    ++_configurations;
+    [self setValue:@(NSProcessInfo.processInfo.systemUptime + 5) forKey:@"nextListenerRetry"];
+}
+@end
+@interface GlobalVoicePollingProbe : GlobalVoiceSnapshotProbe
+@property(nonatomic) NSUInteger reads;
+@property(nonatomic) NSUInteger permissionChecks;
+@end
+@implementation GlobalVoicePollingProbe
+- (void)reload { ++_reads; }
+- (BOOL)accessibilityTrusted { ++_permissionChecks; return [super accessibilityTrusted]; }
+@end
+static void TestGlobalVoicePolling() {
+    GlobalVoicePollingProbe *probe = [[GlobalVoicePollingProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)nil; }];
+    NSTimer *timer = [probe valueForKey:@"poll"];
+    assert(timer.valid && timer.timeInterval == 30);
+    [probe applySnapshot:@{@"revision":@1, @"preferences":@{@"voice_input":@{@"hotkey_global":@YES, @"enabled":@YES}}}];
+    assert(!timer.valid);
+    timer = [probe valueForKey:@"poll"];
+    assert(timer.valid && timer.timeInterval == 1);
+    [probe applySnapshot:@{@"revision":@2, @"preferences":@{@"voice_input":@{@"hotkey_global":@YES, @"enabled":@NO}}}];
+    assert(!timer.valid);
+    timer = [probe valueForKey:@"poll"];
+    assert(timer.valid && timer.timeInterval == 30);
+    const NSUInteger reads = probe.reads;
+    MSIMENotifyGlobalVoicePreferencesChanged();
+    assert(probe.reads == reads + 1); // 同进程保存不等低频兜底。
+    [timer fire];
+    assert(probe.reads == reads + 2); // 其他进程的修改仍有兜底。
+    const NSUInteger checks = probe.permissionChecks;
+    NSDictionary *disabled = @{@"revision":@2, @"preferences":@{@"voice_input":@{@"hotkey_global":@YES, @"enabled":@NO}}};
+    [probe applySnapshot:disabled];
+    assert(probe.permissionChecks == checks);
+    [probe setValue:@YES forKey:@"loading"];
+    MSIMENotifyGlobalVoicePreferencesChanged();
+    MSIMENotifyGlobalVoicePreferencesChanged();
+    assert(probe.reads == reads + 2);
+    [probe completePreferenceReload:disabled];
+    assert(probe.reads == reads + 3); // 多次通知合并追读，旧读取不能吞掉保存。
+    [probe completePreferenceReload:disabled];
+    assert(probe.reads == reads + 3);
+}
+
+@interface GlobalVoiceGestureProbe : MSIMEGlobalVoiceCoordinator
+@property(nonatomic) NSUInteger begins;
+@property(nonatomic) NSUInteger stops;
+@property(nonatomic) NSUInteger cancels;
+@property(nonatomic) NSUInteger toggles;
+@property(nonatomic) BOOL recordingShortcut;
+@property(nonatomic) NSUInteger replayedDown;
+@property(nonatomic) NSUInteger replayedUp;
+@end
+@implementation GlobalVoiceGestureProbe
+- (void)reload {}
+- (void)configure {}
+- (void)begin:(BOOL)holding { assert(holding); ++_begins; }
+- (void)stop { ++_stops; }
+- (void)cancel { ++_cancels; }
+- (void)toggle { ++_toggles; }
+- (BOOL)shortcutRecorderFocused { return _recordingShortcut; }
+- (void)replayKey:(UInt32)identifier down:(BOOL)down { assert(identifier < 2); if (down) ++_replayedDown; else ++_replayedUp; }
+@end
+
+@interface GlobalVoiceApplicationProbe : NSObject
+@property(nonatomic) pid_t processIdentifier;
+@property(nonatomic, getter=isTerminated) BOOL terminated;
+@end
+@implementation GlobalVoiceApplicationProbe
+@end
+@interface GlobalVoiceTargetProbe : NSObject <MSIMEGlobalVoiceTarget>
+@property(nonatomic) pid_t pid;
+@property(nonatomic) BOOL busy;
+@property(nonatomic) NSUInteger starts;
+@property(nonatomic) NSUInteger detachments;
+@property(nonatomic) NSUInteger retries;
+@property(nonatomic) BOOL failStart;
+@property(nonatomic) BOOL acceptsText;
+@property(nonatomic) NSUInteger commits;
+@property(nonatomic) NSUInteger preparations;
+@property(nonatomic) NSUInteger preparationRetries;
+@property(nonatomic, copy) void (^duringPreparation)(void);
+@property(nonatomic) NSUInteger deliveryAttempts;
+@end
+@implementation GlobalVoiceTargetProbe
+- (pid_t)globalVoiceTargetPID { return _pid; }
+- (BOOL)globalVoiceBusy { return _busy; }
+- (BOOL)globalVoiceProcessing { return NO; }
+- (MSIMEGlobalVoiceStartResult)startGlobalVoiceHolding:(BOOL)holding { (void)holding; ++_starts; if (_failStart) return MSIMEGlobalVoiceStartFailed; if (_retries) { --_retries; return MSIMEGlobalVoiceStartRetry; } _busy = YES; return MSIMEGlobalVoiceStartAccepted; }
+- (void)stopGlobalVoice { _busy = NO; }
+- (void)cancelGlobalVoice { _busy = NO; }
+- (void)endGlobalVoice { _busy = NO; }
+- (void)lockGlobalVoice {}
+- (void)detachGlobalVoice { ++_detachments; _busy = NO; }
+- (BOOL)prepareGlobalVoiceTextForCommit:(id)token {
+    assert(token == MSIMEGlobalVoiceHost().sessionToken); ++_preparations;
+    if (_duringPreparation) { void (^callback)(void) = _duringPreparation; _duringPreparation = nil; callback(); }
+    if (_preparationRetries) { --_preparationRetries; return NO; }
+    return _acceptsText;
+}
+- (MSIMEGlobalVoiceDeliveryResult)commitGlobalVoiceText:(NSString *)text token:(id)token {
+    assert(text.length && token == MSIMEGlobalVoiceHost().sessionToken); ++_deliveryAttempts;
+    if (!_acceptsText) return MSIMEGlobalVoiceDeliveryRetry;
+    ++_commits; return MSIMEGlobalVoiceDeliveryAccepted;
+}
+@end
+@interface GlobalVoiceSessionProbe : MSIMEGlobalVoiceCoordinator
+@property(nonatomic) NSTimeInterval clock;
+@property(nonatomic, copy) NSString *source;
+@property(nonatomic, copy) NSString *selected;
+@property(nonatomic) id focus;
+@property(nonatomic) GlobalVoiceApplicationProbe *application;
+@property(nonatomic) NSUInteger failures;
+@property(nonatomic) NSUInteger destinationQueries;
+@property(nonatomic) pid_t postedPID;
+@property(nonatomic, copy) NSString *posted;
+@property(nonatomic, copy) NSString *postedMode;
+@property(nonatomic) NSUInteger postAttempts;
+@property(nonatomic) BOOL routeUnavailable;
+@property(nonatomic) BOOL missingSource;
+@property(nonatomic) BOOL refuseSelection;
+@end
+@implementation GlobalVoiceSessionProbe
+- (void)reload {}
+- (void)configure {}
+- (BOOL)shortcutRecorderFocused { return NO; }
+- (NSTimeInterval)monotonicTime { return _clock; }
+- (NSString *)currentSourceIdentifier { return _source; }
+- (BOOL)isOwnSourceIdentifier:(NSString *)identifier { return [identifier hasPrefix:@"synthetic.msime."]; }
+- (NSString *)enabledSourceIdentifier { return _missingSource ? nil : [self isOwnSourceIdentifier:_source] ? _source : @"synthetic.msime.Hans"; }
+- (BOOL)selectSourceIdentifier:(NSString *)identifier { _selected = identifier; return !_refuseSelection; }
+- (id)focusIdentity { return _focus; }
+- (id)destinationIdentity { ++_destinationQueries; return _focus; }
+- (NSRunningApplication *)frontApplication { return (id)_application; }
+- (void)showFailure:(NSString *)detail { (void)detail; ++_failures; }
+- (MSIMEVoiceCommitOutcome)postGlobalVoiceText:(NSString *)text route:(const MSIMEVoiceCommitRoute &)route {
+    assert(route.current && route.current()); ++_postAttempts;
+    if (_routeUnavailable) return MSIMEVoiceCommitOutcome::unavailable;
+    _posted = text; _postedPID = route.pid; _postedMode = route.mode; return MSIMEVoiceCommitOutcome::posted;
+}
+@end
+
+@interface GlobalVoiceBoundaryController : MSIMEInputController
+@property(nonatomic) NSUInteger toggles;
+@end
+@implementation GlobalVoiceBoundaryController
+- (BOOL)matchesVoiceToggleHotkey:(NSEvent *)event { (void)event; return YES; }
+- (void)toggleVoiceInput:(id)sender { (void)sender; ++_toggles; }
+@end
+
+@interface GlobalVoiceCurrentClientController : MSIMEInputController
+@property(nonatomic, copy) void (^afterComposition)(GlobalVoiceCurrentClientController *);
+@end
+@implementation GlobalVoiceCurrentClientController
+- (NSDictionary *)runtimeOptions { return @{}; }
+- (void)commitComposition:(id)sender {
+    [super commitComposition:sender];
+    void (^callback)(GlobalVoiceCurrentClientController *) = _afterComposition;
+    _afterComposition = nil;
+    if (callback) callback(self);
+}
+- (void)renderCandidates {}
+@end
+
+static CGEventRef GlobalGestureEvent(CGEventType type, CGKeyCode code, CGEventFlags flags) {
+    CGEventRef event = CGEventCreateKeyboardEvent(nullptr, code, type == kCGEventKeyDown);
+    CGEventSetType(event, type); CGEventSetFlags(event, flags);
+    CGEventSetIntegerValueField(event, kCGEventSourceUnixProcessID, 0);
+    return event;
+}
+static void GlobalGestureSend(MSIMEGlobalVoiceCoordinator *probe, CGEventType type, CGKeyCode code, CGEventFlags flags) {
+    CGEventRef event = GlobalGestureEvent(type, code, flags);
+    assert([probe observe:event type:type] == event);
+    CFRelease(event);
+}
+static void GlobalGestureWait() {
+    NSDate *until = [NSDate dateWithTimeIntervalSinceNow:0.3];
+    while (until.timeIntervalSinceNow > 0) [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+}
+static GlobalVoiceGestureProbe *GlobalGestureProbe() {
+    GlobalVoiceGestureProbe *probe = [[GlobalVoiceGestureProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)nil; }];
+    [probe setValue:@YES forKey:@"enabled"];
+    [probe setValue:@{@"voice_input":@{@"hotkey_ralt":@YES}} forKey:@"preferences"];
+    return probe;
+}
+// 同字段的 IMK／AX 查询也可能重入；这里只注入合成 apply，不依赖真实系统重入时机。
+
+
+
+
+
+
+static GlobalVoiceSessionProbe *CurrentClientProbe(GlobalVoiceTargetProbe *capture,
+                                                     id<MSIMEGlobalVoiceTarget> (^delivery)(void) = nil) {
+    GlobalVoiceSessionProbe *probe = [[GlobalVoiceSessionProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)capture; }
+        deliveryTarget:^{ return (id<MSIMEGlobalVoiceDeliveryTarget>)(delivery ? delivery() : capture); }];
+    probe.application = [GlobalVoiceApplicationProbe new]; probe.application.processIdentifier = 42;
+    probe.clock = 1; probe.source = @"com.apple.keylayout.ABC";
+    return probe;
+}
+static void TestGlobalVoiceCurrentClientDelivery() {
+    for (NSString *mode in @[@"sendinput", @"ctrl_v"]) {
+        for (NSUInteger scenario = 0; scenario < 3; ++scenario) {
+            GlobalVoiceTargetProbe *capture = [GlobalVoiceTargetProbe new];
+            GlobalVoiceTargetProbe *delivery = [GlobalVoiceTargetProbe new]; delivery.acceptsText = scenario != 1;
+            delivery.preparationRetries = scenario == 0 ? 1 : 0;
+            GlobalVoiceSessionProbe *probe = CurrentClientProbe(capture, ^{ return (id<MSIMEGlobalVoiceTarget>)delivery; });
+            probe.source = @"synthetic.msime.Hans"; probe.routeUnavailable = scenario == 2;
+            [probe begin:NO]; MSIMEGlobalVoiceHost().deliver(@"synthetic route result", mode, ^{});
+            if (scenario == 2) {
+                // 仅实际发键不可用时沿既有 IMK 回退，不能重复发键。
+                assert(probe.postAttempts == 1 && delivery.commits == 1 && !capture.busy);
+            } else {
+                assert(capture.busy && delivery.commits == 0 && probe.postAttempts == 0);
+                if (scenario == 0) {
+                    delivery.duringPreparation = ^{ [probe advance]; };
+                    [probe advance];
+                    assert([probe.postedMode isEqual:mode] && probe.postAttempts == 1 && delivery.commits == 0 && !capture.busy);
+                } else {
+                    probe.clock += 3.1; [probe advance];
+                    assert(probe.failures == 1 && !capture.busy && probe.postAttempts == 0 && delivery.commits == 0);
+                }
+            }
+        }
+    }
+    for (NSString *mode in @[@"sendinput", @"ctrl_v"]) {
+        GlobalVoiceTargetProbe *capture = [GlobalVoiceTargetProbe new]; capture.pid = 42;
+        GlobalVoiceSessionProbe *probe = CurrentClientProbe(capture);
+        [probe begin:NO]; assert(capture.busy);
+        // 没有原 AX 身份且录音中换到另一应用，仍向交付时的当前应用提交。
+        probe.focus = [NSObject new]; probe.application.processIdentifier = 84;
+        MSIMEGlobalVoiceHost().deliver(@"synthetic current result", mode, ^{});
+        assert([probe.posted isEqual:@"synthetic current result"] && probe.postedPID == 84);
+        assert(probe.destinationQueries == 0 && probe.failures == 0);
+        [probe begin:NO]; assert(capture.starts == 2 && capture.busy);
+        [probe cancel];
+    }
+    {
+        GlobalVoiceTargetProbe *capture = [GlobalVoiceTargetProbe new]; capture.pid = 42;
+        __block GlobalVoiceTargetProbe *delivery = [GlobalVoiceTargetProbe new];
+        GlobalVoiceTargetProbe *previous = delivery;
+        GlobalVoiceSessionProbe *probe = CurrentClientProbe(capture, ^{ return (id<MSIMEGlobalVoiceTarget>)delivery; });
+        [probe begin:YES];
+        probe.application.processIdentifier = 84; probe.focus = [NSObject new];
+        probe.source = @"synthetic.japanese"; [probe sourceChanged:nil]; [probe advance];
+        assert(capture.busy && capture.detachments == 0);
+        delivery = [GlobalVoiceTargetProbe new]; delivery.acceptsText = YES;
+        __block BOOL completed = NO;
+        MSIMEGlobalVoiceHost().deliver(@"synthetic current result", @"tsf", ^{ completed = YES; });
+        assert(!completed && probe.selected == nil);
+        [probe setValue:@NO forKey:@"holding"]; [probe advance];
+        assert([probe.selected isEqual:@"synthetic.msime.Hans"] && !completed);
+        probe.source = @"synthetic.msime.Hans"; [probe sourceChanged:nil]; [probe advance];
+        assert(completed && delivery.commits == 1 && previous.commits == 0 && probe.destinationQueries == 0);
+        assert([probe.selected isEqual:@"synthetic.japanese"] && probe.failures == 0);
+        [probe advance]; assert(delivery.commits == 1);
+        [probe begin:NO]; assert(capture.starts == 2); [probe cancel];
+    }
+    {
+        GlobalVoiceTargetProbe *capture = [GlobalVoiceTargetProbe new];
+        GlobalVoiceSessionProbe *probe = CurrentClientProbe(capture, ^{ return (id<MSIMEGlobalVoiceTarget>)nil; });
+        probe.routeUnavailable = YES;
+        [probe begin:NO]; __block BOOL completed = NO;
+        MSIMEGlobalVoiceHost().deliver(@"synthetic result", @"tsf", ^{ completed = YES; });
+        probe.source = @"synthetic.msime.Hans"; probe.clock = 4.1; [probe advance];
+        assert(completed && probe.failures == 1 && [probe.selected isEqual:@"com.apple.keylayout.ABC"]);
+        assert([probe valueForKey:@"pendingText"] == nil);
+        [probe begin:NO]; assert(capture.starts == 2 && capture.busy); [probe cancel];
+    }
+    {
+        GlobalVoiceTargetProbe *capture = [GlobalVoiceTargetProbe new];
+        GlobalVoiceSessionProbe *probe = CurrentClientProbe(capture);
+        [probe begin:NO]; probe.source = @"synthetic.japanese"; [probe sourceChanged:nil]; [probe cancel];
+        assert(probe.selected == nil); // 录音没有改源，取消不能撤销用户自己的切换。
+    }
+    {
+        GlobalVoiceTargetProbe *capture = [GlobalVoiceTargetProbe new];
+        GlobalVoiceSessionProbe *probe = CurrentClientProbe(capture);
+        [probe begin:NO]; MSIMEGlobalVoiceHost().deliver(@"synthetic result", @"tsf", ^{});
+        probe.source = @"synthetic.other"; [probe sourceChanged:nil]; [probe advance];
+        assert(probe.failures == 1 && [probe.selected isEqual:@"synthetic.msime.Hans"]);
+        assert([probe.source isEqual:@"synthetic.other"]); // 交付中的手动改源不被恢复覆盖。
+    }
+    for (NSUInteger scenario = 0; scenario < 4; ++scenario) {
+        NSString *suite = [@"msime.synthetic.current-voice-client." stringByAppendingString:NSUUID.UUID.UUIDString];
+        NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+        MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+        GlobalVoiceCurrentClientController *controller = [GlobalVoiceCurrentClientController alloc];
+        ShortcutClient *client = [ShortcutClient new]; ShortcutSession *session = [ShortcutSession new];
+        session.finishTransition = @{@"commit":@"synthetic preedit", @"view":@{@"editing_text":@"", @"candidates":@[]}};
+        [controller setValue:appearance forKey:@"appearance"]; [controller setValue:client forKey:@"activeClient"];
+        [controller setValue:scenario == 1 ? nil : session forKey:@"session"];
+        [controller setValue:@{@"editing_text":(scenario == 0 || scenario == 3) ? @"synthetic preedit" : @"", @"candidates":@[]} forKey:@"view"];
+        MSIMEFocusedController = controller;
+        GlobalVoiceTargetProbe *owner = [GlobalVoiceTargetProbe new]; owner.busy = YES;
+        MSIMEGlobalVoiceHost().owner = owner; MSIMEGlobalVoiceHost().sessionToken = [NSObject new];
+        id token = MSIMEGlobalVoiceHost().sessionToken;
+        if (scenario == 2) token = [NSObject new];
+        ShortcutClient *next = [ShortcutClient new];
+        if (scenario == 3) controller.afterComposition = ^(GlobalVoiceCurrentClientController *current) {
+            [current setValue:next forKey:@"activeClient"];
+        };
+        const auto result = [controller commitGlobalVoiceText:@"synthetic voice" token:token];
+        assert(result == (scenario >= 2 ? MSIMEGlobalVoiceDeliveryRetry : MSIMEGlobalVoiceDeliveryAccepted));
+        if (scenario == 0) assert(([client.insertions isEqual:@[@"synthetic preedit", @"synthetic voice"]]));
+        if (scenario == 1) assert(([client.insertions isEqual:@[@"synthetic voice"]]));
+        if (scenario == 2) assert(client.insertions.count == 0 && next.insertions.count == 0);
+        if (scenario == 3) assert(([client.insertions isEqual:@[@"synthetic preedit"]]) && next.insertions.count == 0);
+        if (scenario == 3) {
+            assert([controller commitGlobalVoiceText:@"synthetic voice" token:MSIMEGlobalVoiceHost().sessionToken] == MSIMEGlobalVoiceDeliveryAccepted);
+            assert(([next.insertions isEqual:@[@"synthetic voice"]]));
+        }
+        MSIMEFocusedController = nil; MSIMEGlobalVoiceHost().owner = nil; MSIMEGlobalVoiceHost().sessionToken = nil;
+        MSIMERemoveTestPreferenceSuite(defaults, suite);
+    }
+    {
+        // 用真实 NSTextView 验证当前组字与语音的顺序；不连接真实编辑器或麦克风。
+        NSString *suite = [@"msime.synthetic.current-voice-editor." stringByAppendingString:NSUUID.UUID.UUIDString];
+        NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+        MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+        appearance.traditionalOutput = NO;
+        GlobalVoiceCurrentClientController *controller = [GlobalVoiceCurrentClientController alloc];
+        CursorEditorClient *client = [CursorEditorClient new]; client.editor = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, 300, 80)];
+        client.editor.string = @"prefix "; client.editor.selectedRange = NSMakeRange(7, 0);
+        ShortcutSession *session = [ShortcutSession new];
+        session.finishTransition = @{@"commit":@"synthetic preedit", @"view":@{@"editing_text":@"", @"candidates":@[]}};
+        [controller setValue:appearance forKey:@"appearance"]; [controller setValue:client forKey:@"activeClient"];
+        [controller setValue:session forKey:@"session"]; MSIMEFocusedController = controller;
+        [controller apply:@{@"view":@{@"editing_text":@"pending", @"preedit":@"pending", @"caret_position":@7, @"candidates":@[]}}];
+        assert(client.editor.hasMarkedText);
+        GlobalVoiceTargetProbe *owner = [GlobalVoiceTargetProbe new]; owner.busy = YES;
+        MSIMEGlobalVoiceHost().owner = owner; MSIMEGlobalVoiceHost().sessionToken = [NSObject new];
+        assert([controller commitGlobalVoiceText:@"synthetic voice" token:MSIMEGlobalVoiceHost().sessionToken] == MSIMEGlobalVoiceDeliveryAccepted);
+        assert([client.editor.string isEqual:@"prefix synthetic preeditsynthetic voice"] && !client.editor.hasMarkedText);
+        MSIMEFocusedController = nil; MSIMEGlobalVoiceHost().owner = nil; MSIMEGlobalVoiceHost().sessionToken = nil;
+        MSIMERemoveTestPreferenceSuite(defaults, suite);
+    }
+}
+
+@interface GlobalVoicePanelController : GlobalVoiceCurrentClientController
+@end
+@implementation GlobalVoicePanelController
+- (pid_t)globalVoiceTargetPID { return 0; }
+@end
+static void TestGlobalVoicePanelClient() {
+    NSString *suite = [@"msime.synthetic.panel-voice." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    appearance.traditionalOutput = NO;
+    GlobalVoicePanelController *controller = [GlobalVoicePanelController alloc];
+    ShortcutClient *client = [ShortcutClient new];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:client forKey:@"activeClient"];
+    MSIMEFocusedController = controller;
+    GlobalVoiceTargetProbe *owner = [GlobalVoiceTargetProbe new]; owner.busy = YES;
+    MSIMEGlobalVoiceHost().owner = owner; MSIMEGlobalVoiceHost().sessionToken = [NSObject new];
+    // 不激活前台应用的面板仍有有效 IMK 客户端；前台发键 PID 不决定 insertText 资格。
+    assert([controller globalVoiceTargetPID] == 0);
+    assert([controller commitGlobalVoiceText:@"synthetic panel result" token:MSIMEGlobalVoiceHost().sessionToken] == MSIMEGlobalVoiceDeliveryAccepted);
+    assert(([client.insertions isEqual:@[@"synthetic panel result"]]));
+    MSIMEFocusedController = nil;
+    assert([controller commitGlobalVoiceText:@"stale result" token:MSIMEGlobalVoiceHost().sessionToken] == MSIMEGlobalVoiceDeliveryRetry);
+    assert(client.insertions.count == 1);
+    MSIMEGlobalVoiceHost().owner = nil; MSIMEGlobalVoiceHost().sessionToken = nil;
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+static void TestGlobalVoiceCurrentClientReentry() {
+    NSString *suite = [@"msime.synthetic.current-voice-reentry." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    appearance.traditionalOutput = NO;
+    GlobalVoiceCurrentClientController *controller = [GlobalVoiceCurrentClientController alloc];
+    CursorEditorClient *client = [CursorEditorClient new]; client.editor = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, 300, 80)];
+    client.editor.string = @"prefix "; client.editor.selectedRange = NSMakeRange(7, 0);
+    ShortcutSession *session = [ShortcutSession new];
+    session.finishTransition = @{@"commit":@"oldpreedit", @"view":@{@"editing_text":@"", @"candidates":@[]}};
+    [controller setValue:appearance forKey:@"appearance"]; [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:session forKey:@"session"]; MSIMEFocusedController = controller;
+    [controller apply:@{@"view":@{@"editing_text":@"oldpreedit", @"preedit":@"oldpreedit", @"caret_position":@10, @"candidates":@[]}}];
+    GlobalVoiceTargetProbe *owner = [GlobalVoiceTargetProbe new]; owner.busy = YES;
+    MSIMEGlobalVoiceHost().owner = owner; MSIMEGlobalVoiceHost().sessionToken = [NSObject new];
+    controller.afterComposition = ^(GlobalVoiceCurrentClientController *current) {
+        // 结束旧组字时的同步客户端调用可能重入并产生新组字，必须留待下一轮处理。
+        [current apply:@{@"view":@{@"editing_text":@"newpreedit", @"preedit":@"newpreedit", @"caret_position":@10, @"candidates":@[]}}];
+        session.finishTransition = @{@"commit":@"newpreedit", @"view":@{@"editing_text":@"", @"candidates":@[]}};
+    };
+    assert([controller commitGlobalVoiceText:@"VOICE" token:MSIMEGlobalVoiceHost().sessionToken] == MSIMEGlobalVoiceDeliveryRetry);
+    assert([client.editor.string isEqual:@"prefix oldpreeditnewpreedit"] && client.editor.hasMarkedText);
+    assert([controller commitGlobalVoiceText:@"VOICE" token:MSIMEGlobalVoiceHost().sessionToken] == MSIMEGlobalVoiceDeliveryAccepted);
+    assert([client.editor.string isEqual:@"prefix oldpreeditnewpreeditVOICE"] && !client.editor.hasMarkedText);
+    assert(session.commandCalls == 2);
+    MSIMEFocusedController = nil; MSIMEGlobalVoiceHost().owner = nil; MSIMEGlobalVoiceHost().sessionToken = nil;
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+static void TestGlobalVoiceSuspendSource() {
+    for (NSString *name in @[NSWorkspaceWillSleepNotification, NSWorkspaceSessionDidResignActiveNotification, @"com.apple.screenIsLocked"]) {
+        for (NSNumber *manual in @[@NO, @YES]) {
+            GlobalVoiceTargetProbe *capture = [GlobalVoiceTargetProbe new];
+            GlobalVoiceSessionProbe *probe = CurrentClientProbe(capture, ^{ return (id<MSIMEGlobalVoiceTarget>)nil; });
+            [probe begin:NO]; MSIMEGlobalVoiceHost().deliver(@"synthetic result", @"tsf", ^{});
+            probe.source = @"synthetic.msime.Hans"; [probe sourceChanged:nil];
+            if (manual.boolValue) { probe.source = @"synthetic.other"; [probe sourceChanged:nil]; }
+            [probe suspended:[NSNotification notificationWithName:name object:nil]];
+            assert(!capture.busy && [probe valueForKey:@"pendingText"] == nil);
+            assert([probe.selected isEqual:manual.boolValue ? @"synthetic.msime.Hans" : @"com.apple.keylayout.ABC"]);
+        }
+    }
+}
+
+static void TestGlobalVoiceIMKFallback() {
+    for (NSUInteger scenario = 0; scenario < 8; ++scenario) {
+        GlobalVoiceTargetProbe *capture = [GlobalVoiceTargetProbe new];
+        __block GlobalVoiceTargetProbe *delivery = nil;
+        GlobalVoiceSessionProbe *probe = CurrentClientProbe(capture, ^{ return (id<MSIMEGlobalVoiceTarget>)delivery; });
+        probe.routeUnavailable = scenario == 1 || scenario >= 6;
+        NSString *mode = scenario == 6 ? @"ctrl_v" : scenario == 7 ? @"sendinput" : @"tsf";
+        __block NSUInteger recorded = 0;
+        if (scenario == 0) {
+            [probe setValue:@{@"traditional_chinese_output":@YES} forKey:@"preferences"];
+            MSIMEGlobalVoiceHost().didCommit = ^(NSString *text) { assert([text isEqual:@"發展"]); ++recorded; };
+        }
+        [probe begin:NO]; __block NSUInteger completions = 0;
+        MSIMEGlobalVoiceHost().deliver(scenario == 0 ? @"发展" : @"synthetic fallback result", mode, ^{ ++completions; });
+        assert(capture.busy && completions == 0);
+        probe.source = @"synthetic.msime.Hans"; [probe sourceChanged:nil];
+        if (scenario == 2 || scenario == 3) {
+            delivery = [GlobalVoiceTargetProbe new]; delivery.pid = 42; delivery.acceptsText = scenario == 2;
+        }
+        if (scenario == 4) { probe.source = @"synthetic.other"; [probe sourceChanged:nil]; }
+        if (scenario == 5) [probe cancel];
+        if (scenario == 2) {
+            probe.clock += 0.1; [probe advance];
+            assert(delivery.commits == 1 && probe.postAttempts == 0 && completions == 1 && probe.failures == 0);
+        } else {
+            if (scenario == 0) probe.application.processIdentifier = 84;
+            probe.clock += 3.1; [probe advance];
+            if (scenario == 0) {
+                assert(probe.postAttempts == 1 && [probe.postedMode isEqual:@"sendinput"] && probe.postedPID == 84);
+                assert([probe.posted isEqual:@"發展"] && recorded == 1);
+                assert(probe.failures == 0 && completions == 1 && [probe.selected isEqual:@"com.apple.keylayout.ABC"]);
+            } else if (scenario == 1) {
+                assert(probe.postAttempts == 1 && probe.failures == 1 && completions == 1);
+            } else if (scenario >= 6) {
+                // 用户明确选择的发键方式不可用后，不再次换一种模拟方式。
+                assert(probe.postAttempts == 1 && probe.failures == 1 && completions == 1);
+            } else {
+                assert(probe.postAttempts == 0 && (scenario == 5 || probe.failures == 1));
+                if (scenario == 4) assert([probe.source isEqual:@"synthetic.other"]);
+            }
+        }
+        NSUInteger attempts = probe.postAttempts; [probe advance]; assert(probe.postAttempts == attempts);
+        assert(!capture.busy && [probe valueForKey:@"pendingText"] == nil);
+        MSIMEGlobalVoiceHost().didCommit = nil;
+    }
+    for (BOOL missing : {NO, YES}) {
+        GlobalVoiceTargetProbe *capture = [GlobalVoiceTargetProbe new];
+        GlobalVoiceSessionProbe *probe = CurrentClientProbe(capture, ^{ return (id<MSIMEGlobalVoiceTarget>)nil; });
+        probe.missingSource = missing; probe.refuseSelection = !missing;
+        [probe begin:NO]; MSIMEGlobalVoiceHost().deliver(@"synthetic unavailable source", @"tsf", ^{});
+        assert(probe.postAttempts == 1 && [probe.postedMode isEqual:@"sendinput"] && !capture.busy && probe.failures == 0);
+        assert([probe.source isEqual:@"com.apple.keylayout.ABC"]);
+    }
+}
+
+@interface MSIMEAppearancePreferences (VoiceRestoreTest)
+- (void)removeStoredKeys:(NSArray<NSString *> *)keys;
+@end
+@interface VoiceRestoreController : MusicClaimController
+@end
+@implementation VoiceRestoreController
+- (void)reloadPreferences {}
+@end
+static void TestVoicePreferenceRestore() {
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    NSMutableDictionary *previous = [NSMutableDictionary dictionary];
+    for (NSString *key in defaults.dictionaryRepresentation)
+        if ([key hasPrefix:@"MSIMEClientVoice"]) previous[key] = [defaults objectForKey:key];
+    __block NSUInteger notifications = 0;
+    id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEGlobalVoicePreferencesDidChangeNotification()
+        object:nil queue:nil usingBlock:^(NSNotification *notification) { (void)notification; ++notifications; }];
+    NSArray *voiceKeys = @[@"MSIMEClientVoiceEnabled", @"MSIMEClientVoiceLanguage", @"MSIMEClientVoiceSoundEnabled",
+        @"MSIMEClientVoiceMuteSystemAudio", @"MSIMEClientVoiceStreamInlinePreedit"];
+    NSArray *hotkeyKeys = @[@"MSIMEClientVoiceHotkeyCtrlF9", @"MSIMEClientVoiceHotkeyRightAlt",
+        @"MSIMEClientVoiceHotkeyCtrlCommand", @"MSIMEClientVoiceHotkeyCtrlOption"];
+    for (NSUInteger scenario = 0; scenario < 3; ++scenario) {
+        NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+        NSDictionary *initial = [MSIMEClientSession loadPreferencesInDirectory:root error:nil];
+        NSMutableDictionary *document = [initial[@"preferences"] mutableCopy];
+        NSMutableDictionary *voice = [document[@"voice_input"] mutableCopy];
+        voice[@"enabled"] = @NO; voice[@"hotkey_ralt"] = @NO; voice[@"hotkey_global"] = @YES;
+        document[@"voice_input"] = voice;
+        NSDictionary *saved = [MSIMEClientSession savePreferencesInDirectory:root expectedRevision:[initial[@"revision"] unsignedLongLongValue]
+            snapshot:@{@"format_version":@1, @"revision":initial[@"revision"], @"preferences":document} error:nil];
+        assert(saved);
+        MSIMEApplySharedVoicePreferences(saved[@"preferences"][@"voice_input"], defaults);
+        MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+        VoiceRestoreController *controller = [VoiceRestoreController alloc]; controller.options = @{@"preferences_directory":root};
+        [controller setValue:appearance forKey:@"appearance"]; [controller setValue:root forKey:@"preferencesDirectory"];
+        [NSNotificationCenter.defaultCenter addObserver:controller selector:@selector(appearanceChanged:)
+            name:MSIMEAppearanceDidChangeNotification object:appearance];
+        // 分别经过语音分组、快捷键分组与整窗恢复共用的真实通知／保存路径。
+        [appearance removeStoredKeys:scenario == 0 ? voiceKeys : scenario == 1 ? hotkeyKeys : [voiceKeys arrayByAddingObjectsFromArray:hotkeyKeys]];
+        NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2];
+        NSDictionary *latest = nil;
+        do {
+            [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+            latest = [MSIMEClientSession loadPreferencesInDirectory:root error:nil];
+        } while (([latest[@"revision"] unsignedLongLongValue] <= [saved[@"revision"] unsignedLongLongValue] || notifications <= scenario) && deadline.timeIntervalSinceNow > 0);
+        NSDictionary *result = latest[@"preferences"][@"voice_input"];
+        assert([result[@"enabled"] isEqual:scenario == 1 ? @NO : @YES]);
+        assert([result[@"hotkey_ralt"] isEqual:scenario == 0 ? @NO : @YES]);
+        assert([result[@"hotkey_global"] isEqual:@YES]);
+        assert(notifications == scenario + 1);
+        MSIMEApplySharedVoicePreferences(result, defaults);
+        assert(appearance.voiceInputEnabled == (scenario != 1));
+        assert(appearance.voiceHotkeyRightAlt == (scenario != 0));
+        [NSNotificationCenter.defaultCenter removeObserver:controller];
+        [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
+        assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
+    }
+    for (NSString *key in defaults.dictionaryRepresentation)
+        if ([key hasPrefix:@"MSIMEClientVoice"]) [defaults removeObjectForKey:key];
+    for (NSString *key in previous) [defaults setObject:previous[key] forKey:key];
+    [NSNotificationCenter.defaultCenter removeObserver:observer];
+}
+static void TestGlobalVoiceBoundaries() {
+    TestGlobalVoiceCurrentClientDelivery();
+    {
+        GlobalVoiceTargetProbe *target = [GlobalVoiceTargetProbe new]; target.pid = 42;
+        GlobalVoiceSessionProbe *probe = [[GlobalVoiceSessionProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)target; }];
+        probe.application = [GlobalVoiceApplicationProbe new]; probe.application.processIdentifier = 42;
+        probe.clock = 1; probe.source = @"com.apple.keylayout.ABC"; probe.focus = nil;
+        [probe setValue:@YES forKey:@"enabled"];
+        [probe begin:NO]; assert(target.busy);
+        MSIMEInputController *controller = [MSIMEInputController alloc];
+        [controller showVoicePanel]; assert(!target.busy);
+        [probe advance];
+        [probe begin:NO]; assert(target.busy);
+        [controller toggleVoiceInput:nil]; assert(!target.busy);
+        [probe cancel];
+    }
+    {
+        NSUserDefaults *standard = NSUserDefaults.standardUserDefaults;
+        NSMutableDictionary *previousVoice = [NSMutableDictionary dictionary];
+        for (NSString *key in standard.dictionaryRepresentation)
+            if ([key hasPrefix:@"MSIMEClientVoice"]) previousVoice[key] = [standard objectForKey:key];
+        NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+        NSError *error = nil;
+        NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
+        assert(snapshot && !error);
+        NSMutableDictionary *document = [snapshot[@"preferences"] mutableCopy];
+        NSMutableDictionary *voice = [document[@"voice_input"] mutableCopy];
+        voice[@"hotkey_ralt"] = @YES; voice[@"hotkey_rctrl_ralt"] = @NO; voice[@"hotkey_global"] = @YES;
+        document[@"voice_input"] = voice;
+        assert(([MSIMEClientSession savePreferencesInDirectory:root expectedRevision:[snapshot[@"revision"] unsignedLongLongValue]
+            snapshot:@{@"format_version":@1, @"revision":snapshot[@"revision"], @"preferences":document} error:&error]));
+        [standard setBool:NO forKey:@"MSIMEClientVoiceHotkeyRightAlt"];
+        [standard setBool:YES forKey:@"MSIMEClientVoiceHotkeyCtrlOption"];
+        NSString *suite = [@"msime.global-voice-startup." stringByAppendingString:NSUUID.UUID.UUIDString];
+        NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+        MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+        MusicClaimController *controller = [MusicClaimController alloc]; controller.options = @{@"preferences_directory":root};
+        [controller setValue:appearance forKey:@"appearance"];
+        NSDictionary *initialSnapshot = [controller applySharedInputPreferencesBeforeFirstUse];
+        [controller applyInitialHostPreferencesFromSnapshot:initialSnapshot];
+        NSDictionary *capturedVoice = [appearance sharedPreferencesByMerging:@{}][@"voice_input"];
+        const BOOL correct = [capturedVoice[@"hotkey_ralt"] isEqual:@YES] && [capturedVoice[@"hotkey_rctrl_ralt"] isEqual:@NO];
+        // 已载入过的控制器也可能晚于设置页写回别的外观字段；这种保存不拥有语音选择。
+        [standard setBool:NO forKey:@"MSIMEClientVoiceHotkeyRightAlt"];
+        [standard setBool:YES forKey:@"MSIMEClientVoiceHotkeyCtrlOption"];
+        [controller setValue:root forKey:@"preferencesDirectory"];
+        auto waitForSave = [&](uint64_t revision, bool requireVoiceOff = false) -> NSDictionary * {
+            NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2];
+            NSDictionary *latest = nil;
+            while (deadline.timeIntervalSinceNow > 0) {
+                [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+                latest = [MSIMEClientSession loadPreferencesInDirectory:root error:nil];
+                if ([latest[@"revision"] unsignedLongLongValue] > revision &&
+                    (!requireVoiceOff || [latest[@"preferences"][@"voice_input"][@"hotkey_ralt"] isEqual:@NO])) return latest;
+            }
+            return latest;
+        };
+        NSDictionary *before = [MSIMEClientSession loadPreferencesInDirectory:root error:nil];
+        [controller persistAppearancePreferences];
+        NSDictionary *after = waitForSave([before[@"revision"] unsignedLongLongValue]);
+        const BOOL preserved = [after[@"preferences"][@"voice_input"][@"hotkey_ralt"] isEqual:@YES];
+        [controller persistAppearancePreferences];
+        [controller persistVoicePreferences];
+        // 队列中的明确编辑必须保留当时的快照，不能被晚到的载入再次改写。
+        [standard setBool:YES forKey:@"MSIMEClientVoiceHotkeyRightAlt"];
+        NSDictionary *explicitVoice = waitForSave([after[@"revision"] unsignedLongLongValue], true);
+        const BOOL nativeEditSaved = [explicitVoice[@"preferences"][@"voice_input"][@"hotkey_ralt"] isEqual:@NO];
+        [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
+        for (NSString *key in standard.dictionaryRepresentation)
+            if ([key hasPrefix:@"MSIMEClientVoice"]) [standard removeObjectForKey:key];
+        for (NSString *key in previousVoice) [standard setObject:previousVoice[key] forKey:key];
+        [NSFileManager.defaultManager removeItemAtPath:root error:nil];
+        MSIMERemoveTestPreferenceSuite(defaults, suite);
+        assert(correct && preserved && nativeEditSaved); // 首次加载与无关保存都保护新选择，明确的原生语音编辑仍可保存。
+    }
+    {
+        GlobalVoiceBoundaryController *local = [GlobalVoiceBoundaryController alloc];
+        [local setValue:[NSObject new] forKey:@"httpVoiceRequest"];
+        GlobalVoiceTargetProbe *capture = [GlobalVoiceTargetProbe new];
+        GlobalVoiceSessionProbe *probe = [[GlobalVoiceSessionProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)capture; }
+            deliveryTarget:^{ return (id<MSIMEGlobalVoiceDeliveryTarget>)local; }];
+        [probe setValue:@YES forKey:@"enabled"];
+        [probe toggle];
+        assert(local.toggles == 1 && capture.starts == 0 && MSIMEGlobalVoiceHost().owner == nil);
+        [local setValue:@YES forKey:@"httpVoiceProcessing"];
+        [probe toggle]; assert(local.toggles == 2 && capture.starts == 0);
+        [local setValue:nil forKey:@"httpVoiceRequest"];
+    }
+    {
+        GlobalVoiceTargetProbe *target = [GlobalVoiceTargetProbe new]; target.pid = 42;
+        GlobalVoiceSessionProbe *probe = [[GlobalVoiceSessionProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)target; }];
+        probe.application = [GlobalVoiceApplicationProbe new]; probe.application.processIdentifier = 42;
+        probe.clock = 1; probe.focus = [NSObject new]; probe.source = @"com.apple.keylayout.ABC";
+        [probe setValue:@YES forKey:@"enabled"];
+        [probe setValue:@{@"voice_input":@{@"hotkey_ralt":@YES}} forKey:@"preferences"];
+        const CGEventFlags option = kCGEventFlagMaskAlternate | NX_DEVICERALTKEYMASK;
+        GlobalGestureSend(probe, kCGEventFlagsChanged, 61, option); GlobalGestureWait();
+        assert(target.starts == 1 && target.busy);
+        for (CGEventType type : {kCGEventKeyDown, kCGEventKeyUp}) {
+            CGEventRef event = GlobalGestureEvent(type, 49, option);
+            assert([probe observe:event type:type] == nullptr); CFRelease(event);
+        }
+        GlobalGestureSend(probe, kCGEventKeyDown, 8, option);
+        GlobalGestureSend(probe, kCGEventKeyUp, 8, option);
+        MSIMEGlobalVoiceHost().deliver(@"synthetic result", @"sendinput", ^{});
+        assert(probe.posted == nil);
+        GlobalGestureSend(probe, kCGEventFlagsChanged, 61, 0);
+        assert(![[probe valueForKey:@"holding"] boolValue]);
+        [probe advance]; assert([probe.posted isEqual:@"synthetic result"]);
+        [probe cancel];
+    }
+    {
+        GlobalVoiceTargetProbe *target = [GlobalVoiceTargetProbe new]; target.pid = 42; target.failStart = YES;
+        GlobalVoiceSessionProbe *probe = [[GlobalVoiceSessionProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)target; }];
+        probe.application = [GlobalVoiceApplicationProbe new]; probe.application.processIdentifier = 42;
+        probe.clock = 1; probe.focus = [NSObject new]; probe.source = @"com.apple.keylayout.ABC";
+        [probe begin:NO];
+        probe.source = @"synthetic.msime.Hans";
+        [probe advance];
+        assert(target.starts == 1 && !target.busy && [probe valueForKey:@"sessionPoll"] == nil);
+        assert(probe.selected == nil);
+        [probe advance];
+        assert(target.starts == 1); // 明确失败不能反复触发提供商或权限请求。
+    }
+    {
+        GlobalVoiceTargetProbe *target = [GlobalVoiceTargetProbe new]; target.pid = 42; target.retries = 10;
+        GlobalVoiceSessionProbe *probe = [[GlobalVoiceSessionProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)target; }];
+        probe.application = [GlobalVoiceApplicationProbe new]; probe.application.processIdentifier = 42;
+        probe.clock = 1; probe.focus = [NSObject new]; probe.source = @"synthetic.msime.Hans";
+        [probe begin:YES];
+        assert(target.starts == 1 && !target.busy);
+        [probe setValue:@NO forKey:@"holding"];
+        [probe advance];
+        assert(target.starts == 1 && [probe valueForKey:@"sessionPoll"] == nil);
+    }
+    {
+        GlobalVoiceTargetProbe *target = [GlobalVoiceTargetProbe new]; target.pid = 42; target.retries = 1;
+        GlobalVoiceSessionProbe *probe = [[GlobalVoiceSessionProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)target; }];
+        probe.application = [GlobalVoiceApplicationProbe new]; probe.application.processIdentifier = 42;
+        probe.clock = 1; probe.focus = [NSObject new]; probe.source = @"synthetic.msime.Hans";
+        [probe begin:NO];
+        assert(target.starts == 1 && !target.busy);
+        [probe advance];
+        assert(target.starts == 2 && target.busy); // 客户端暂时未准备好时不能把整轮提前结束。
+        [probe cancel];
+    }
+    {
+        GlobalVoiceTargetProbe *target = [GlobalVoiceTargetProbe new]; target.pid = 42;
+        GlobalVoiceSessionProbe *probe = [[GlobalVoiceSessionProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)target; }];
+        probe.application = [GlobalVoiceApplicationProbe new]; probe.application.processIdentifier = 42;
+        probe.clock = 1; probe.focus = [NSObject new]; probe.source = @"com.apple.keylayout.ABC";
+        [probe begin:NO];
+        // 开麦克风不再依赖切源和 IMK 客户端，原输入源保持不变。
+        assert([probe valueForKey:@"sessionPoll"] != nil && target.starts == 1);
+        assert(probe.selected == nil && [probe.source isEqual:@"com.apple.keylayout.ABC"]);
+        [probe advance];
+        assert(target.starts == 1);
+        id originalFocus = probe.focus;
+        probe.focus = nil;
+        [probe advance];
+        // 同一应用的 AX 暂时无响应不能立刻停止刚启动的麦克风。
+        assert(target.detachments == 0);
+        probe.clock += 0.1; probe.focus = originalFocus;
+        [probe advance];
+        assert(target.detachments == 0 && target.busy);
+        probe.focus = nil;
+        [probe advance];
+        probe.clock += 0.31;
+        [probe advance];
+        assert(target.detachments == 0 && target.busy); // 暂时不可验证的目的地不能截断录音。
+        [probe cancel];
+    }
+    {
+        GlobalVoiceTargetProbe *capture = [GlobalVoiceTargetProbe new]; capture.pid = 42;
+        GlobalVoiceTargetProbe *delivery = [GlobalVoiceTargetProbe new]; delivery.pid = 42; delivery.acceptsText = YES;
+        GlobalVoiceSessionProbe *probe = [[GlobalVoiceSessionProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)capture; }
+            deliveryTarget:^{ return (id<MSIMEGlobalVoiceDeliveryTarget>)delivery; }];
+        probe.application = [GlobalVoiceApplicationProbe new]; probe.application.processIdentifier = 42;
+        probe.clock = 1; probe.focus = [NSObject new]; probe.source = @"com.apple.keylayout.ABC";
+        [probe begin:YES];
+        __block BOOL completed = NO;
+        MSIMEGlobalVoiceHost().deliver(@"synthetic result", @"tsf", ^{ completed = YES; });
+        assert(capture.starts == 1 && delivery.starts == 0 && delivery.commits == 0 && probe.selected == nil);
+        [probe setValue:@NO forKey:@"holding"]; [probe advance];
+        assert(!completed && delivery.commits == 0);
+        MSIMEGlobalVoiceHost().selectedMode(@"synthetic.msime.Roman");
+        probe.source = @"synthetic.msime.Roman"; [probe sourceChanged:nil]; [probe advance];
+        assert(completed && delivery.commits == 1 && probe.failures == 0);
+        assert([probe.selected isEqual:@"com.apple.keylayout.ABC"]);
+        [probe advance]; assert(delivery.commits == 1);
+    }
+    {
+        // 显式模拟输入策略不依赖 IMK；保留简繁转换并只统计一次成功提交，不发真实事件。
+        GlobalVoiceTargetProbe *target = [GlobalVoiceTargetProbe new]; target.pid = 42;
+        GlobalVoiceSessionProbe *probe = [[GlobalVoiceSessionProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)target; }];
+        probe.application = [GlobalVoiceApplicationProbe new]; probe.application.processIdentifier = 42;
+        probe.clock = 1; probe.focus = [NSObject new]; probe.source = @"com.apple.keylayout.ABC";
+        [probe setValue:@{@"traditional_chinese_output":@YES} forKey:@"preferences"];
+        [probe begin:NO];
+        __block NSUInteger recorded = 0;
+        MSIMEGlobalVoiceHost().didCommit = ^(NSString *text) { assert([text isEqual:@"發展"]); ++recorded; };
+        MSIMEGlobalVoiceHost().deliver(@"发展", @"sendinput", ^{});
+        assert([probe.posted isEqual:@"發展"] && recorded == 1 && probe.selected == nil);
+        MSIMEGlobalVoiceHost().didCommit = nil;
+    }
+    {
+        AXUIElementRef system = AXUIElementCreateSystemWide();
+        AXUIElementRef application = AXUIElementCreateApplication(getpid());
+        AXUIElementRef field = AXUIElementCreateApplication(getpid());
+        NSUInteger systemQueries = 0, applicationQueries = 0;
+        BOOL secure = NO, wrongPID = NO, unavailable = NO;
+        auto copy = [&](AXUIElementRef owner, CFStringRef key, CFTypeRef *value) -> AXError {
+            *value = nullptr;
+            if (CFEqual(key, kAXSubroleAttribute)) {
+                if (secure) *value = CFRetain(CFSTR("AXSecureTextField"));
+                return kAXErrorSuccess;
+            }
+            assert(CFEqual(key, kAXFocusedUIElementAttribute));
+            if (owner == system) { ++systemQueries; return kAXErrorCannotComplete; }
+            assert(owner == application); ++applicationQueries;
+            if (unavailable) return kAXErrorNoValue;
+            *value = CFRetain(field); return kAXErrorSuccess;
+        };
+        auto pid = [&](AXUIElementRef owner, pid_t *value) -> AXError {
+            assert(owner == field); *value = wrongPID ? getpid() + 1 : getpid(); return kAXErrorSuccess;
+        };
+        id focus = MSIMEGlobalVoiceFocusIdentityFor(getpid(), system, application, copy, pid);
+        assert(focus && CFEqual((__bridge CFTypeRef)focus, field));
+        assert(systemQueries == 1 && applicationQueries == 1);
+        secure = YES;
+        assert(!MSIMEGlobalVoiceFocusIdentityFor(getpid(), system, application, copy, pid));
+        secure = NO; wrongPID = YES;
+        assert(!MSIMEGlobalVoiceFocusIdentityFor(getpid(), system, application, copy, pid));
+        wrongPID = NO; unavailable = YES;
+        assert(!MSIMEGlobalVoiceFocusIdentityFor(getpid(), system, application, copy, pid));
+        unavailable = NO;
+        CFRelease(field); CFRelease(application); CFRelease(system);
+    }
+    {
+        GlobalVoiceRegistrationProbe *probe = [[GlobalVoiceRegistrationProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)nil; }];
+        NSString *suite = [@"msime.synthetic.global-registration." stringByAppendingString:NSUUID.UUID.UUIDString];
+        probe.defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+        probe.service = [GlobalVoiceServiceProbe new];
+        probe.service.status = SMAppServiceStatusNotFound;
+        [probe setValue:@YES forKey:@"permissionAsked"];
+        [probe setValue:@{@"voice_input":@{@"enabled":@YES, @"hotkey_global":@YES}} forKey:@"preferences"];
+        [probe configure];
+        assert(probe.service.registrations == 1 && probe.service.status == SMAppServiceStatusEnabled);
+        [probe configure];
+        assert(probe.service.registrations == 1);
+        probe.service.status = SMAppServiceStatusRequiresApproval;
+        [probe configure];
+        assert(probe.service.registrations == 1); // 等待用户批准时不重新注册。
+        [probe setValue:@{@"voice_input":@{@"hotkey_global":@NO}} forKey:@"preferences"];
+        [probe configure];
+        assert(probe.service.removals == 1);
+        probe.service.status = SMAppServiceStatusNotFound;
+        [probe configure];
+        assert(probe.service.removals == 1);
+        // 不同偏好修订不是后台批准变化的前提；正在运行的监听也要随撤销关闭。
+        probe.permitted = YES;
+        NSDictionary *snapshot = @{@"revision":@1, @"preferences":@{@"voice_input":@{@"enabled":@YES, @"hotkey_global":@YES}}};
+        [probe applySnapshot:snapshot];
+        assert(probe.listeners == 1 && MSIMEGlobalVoiceHost().keyboard);
+        probe.service.status = SMAppServiceStatusRequiresApproval;
+        [probe applySnapshot:snapshot];
+        assert(probe.listeners == 1 && !MSIMEGlobalVoiceHost().keyboard);
+        assert(probe.service.registrations == 2);
+        probe.service.status = SMAppServiceStatusEnabled;
+        [probe applySnapshot:snapshot]; assert(probe.listeners == 2 && MSIMEGlobalVoiceHost().keyboard);
+        probe.service.status = SMAppServiceStatusRequiresApproval;
+        [probe applySnapshot:nil]; assert(probe.listeners == 2 && !MSIMEGlobalVoiceHost().keyboard);
+        MSIMERemoveTestPreferenceSuite(probe.defaults, suite);
+    }
+    {
+        GlobalVoiceSnapshotProbe *probe = [[GlobalVoiceSnapshotProbe alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)nil; }];
+        [probe setValue:@YES forKey:@"enabled"];
+        NSDictionary *snapshot = @{@"revision":@1, @"preferences":@{@"voice_input":@{@"hotkey_global":@YES}}};
+        [probe applySnapshot:snapshot];
+        assert(probe.configurations == 1);
+        [probe applySnapshot:snapshot];
+        assert(probe.configurations == 1); // 拒绝权限时不反复申请。
+        probe.permitted = YES;
+        [probe applySnapshot:snapshot];
+        assert(probe.configurations == 2); // 偏好修订未变，授权后仍要启动监听。
+        [probe setValue:@0 forKey:@"nextListenerRetry"];
+        [probe applySnapshot:snapshot];
+        assert(probe.configurations == 3); // 首次建监听失败后自动重试。
+        [probe applySnapshot:snapshot];
+        assert(probe.configurations == 3); // 重试有间隔。
+        probe.listener = YES;
+        [probe setValue:@0 forKey:@"nextListenerRetry"];
+        [probe applySnapshot:snapshot];
+        assert(probe.configurations == 3); // 已有监听不能被轮询重置。
+        probe.permitted = NO;
+        [probe applySnapshot:snapshot];
+        assert(probe.configurations == 4); // 撤销权限也进入清理路径。
+        [probe setValue:@NO forKey:@"enabled"];
+        probe.permitted = YES;
+        [probe applySnapshot:snapshot];
+        assert(probe.configurations == 4);
+    }
+    const CGEventFlags rightOption = kCGEventFlagMaskAlternate | NX_DEVICERALTKEYMASK;
+    {
+        GlobalVoiceGestureProbe *probe = GlobalGestureProbe();
+        GlobalGestureSend(probe, kCGEventFlagsChanged, 61, rightOption);
+        GlobalGestureSend(probe, kCGEventFlagsChanged, 61, 0);
+        GlobalGestureWait();
+        assert(probe.begins == 0); // 松手后，延时回调不能补开录音。
+    }
+    {
+        GlobalVoiceGestureProbe *probe = GlobalGestureProbe();
+        GlobalGestureSend(probe, kCGEventFlagsChanged, 61, rightOption);
+        GlobalGestureSend(probe, kCGEventKeyDown, 8, rightOption);
+        GlobalGestureWait();
+        assert(probe.begins == 0 && probe.cancels == 1); // 普通 Option+C 仍原样交给应用。
+    }
+    {
+        GlobalVoiceGestureProbe *probe = GlobalGestureProbe();
+        GlobalGestureSend(probe, kCGEventFlagsChanged, 61, rightOption);
+        GlobalGestureWait();
+        assert(probe.begins == 1);
+        GlobalGestureSend(probe, kCGEventFlagsChanged, 61, 0);
+        GlobalGestureWait();
+        assert(probe.stops == 1);
+    }
+    {
+        GlobalVoiceGestureProbe *probe = GlobalGestureProbe();
+        probe.recordingShortcut = YES;
+        [probe handleHotkey:0 down:YES]; [probe handleHotkey:0 down:YES];
+        assert(probe.replayedDown == 1 && probe.toggles == 0);
+        probe.recordingShortcut = NO;
+        [probe handleHotkey:0 down:NO];
+        assert(probe.replayedUp == 1);
+        [probe handleHotkey:0 down:YES];
+        assert(probe.toggles == 1);
+    }
+    {
+        GlobalVoiceGestureProbe *probe = GlobalGestureProbe();
+        [probe setValue:[GlobalVoiceTargetProbe new] forKey:@"owner"];
+        GlobalGestureSend(probe, kCGEventFlagsChanged, 61, rightOption);
+        GlobalGestureWait();
+        assert(probe.toggles == 1 && probe.begins == 0);
+        GlobalGestureSend(probe, kCGEventFlagsChanged, 61, 0);
+        assert(probe.stops == 0); // 已有录音的切换在按下时完成，松手不能再切一次。
+    }
+    {
+        GlobalVoiceGestureProbe *probe = GlobalGestureProbe();
+        CGEventRef own = GlobalGestureEvent(kCGEventFlagsChanged, 61, rightOption);
+        CGEventSetIntegerValueField(own, kCGEventSourceUnixProcessID, getpid());
+        assert([probe observe:own type:kCGEventFlagsChanged] == own);
+        CFRelease(own); GlobalGestureWait();
+        assert(probe.begins == 0);
+        CGEventRef remapped = GlobalGestureEvent(kCGEventFlagsChanged, 61, rightOption);
+        CGEventSetIntegerValueField(remapped, kCGEventSourceUnixProcessID, 424242);
+        assert([probe observe:remapped type:kCGEventFlagsChanged] == remapped);
+        CFRelease(remapped); GlobalGestureWait();
+        assert(probe.begins == 1);
+    }
+    GlobalVoiceBoundaryController *controller = [GlobalVoiceBoundaryController alloc];
+    assert([controller conformsToProtocol:@protocol(MSIMEGlobalVoiceDeliveryTarget)]);
+    assert(![controller conformsToProtocol:@protocol(MSIMEGlobalVoiceTarget)]);
+    assert(![controller respondsToSelector:@selector(startGlobalVoiceHolding:)]);
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    MSIMEGlobalVoiceHost().owner = nil; MSIMEGlobalVoiceHost().sessionToken = nil;
+    MSIMEGlobalVoiceHost().toggleHandled = nil;
+    MSIMEGlobalVoiceHost().keyboard = true;
+    [controller globalVoiceHotkeyHandler](ModeKey(101, NSEventModifierFlagControl, NO));
+    assert(controller.toggles == 0);
+    MSIMEGlobalVoiceHost().toggleHandled = ^BOOL(NSEvent *event) { (void)event; return NO; };
+    [controller globalVoiceHotkeyHandler](ModeKey(101, NSEventModifierFlagControl, NO));
+    assert(controller.toggles == 1); // 监听可用但组合键注册失败时，仍保留本地绑定。
+    MSIMEGlobalVoiceHost().keyboard = false;
+    [controller globalVoiceHotkeyHandler](ModeKey(101, NSEventModifierFlagControl, NO));
+    assert(controller.toggles == 2); // 全局监听不可用时保留原有 IMK 路径。
+    MSIMEGlobalVoiceHost().toggleHandled = nil;
+}
+
 int main(int argc, char **argv) {
     const IsolatedUserHome userHome;
     const IsolatedDefaultSkinsRoot skinsRoot;
@@ -14116,6 +15136,14 @@ int main(int argc, char **argv) {
     assert(MSIMEShouldRegisterInputSource(2, registerArguments));
     @autoreleasepool {
         [NSApplication sharedApplication];
+        if (argc == 2 && std::string(argv[1]) == "--voice-preference-restore") { TestVoicePreferenceRestore(); return 0; }
+        if (argc == 2 && std::string(argv[1]) == "--global-voice-conflicts") { TestGlobalVoiceConflicts(); return 0; }
+        if (argc == 2 && std::string(argv[1]) == "--global-voice-polling") { TestGlobalVoicePolling(); return 0; }
+        if (argc == 2 && std::string(argv[1]) == "--global-voice-panel") { TestGlobalVoicePanelClient(); return 0; }
+        if (argc == 2 && std::string(argv[1]) == "--global-voice-imk-fallback") { TestGlobalVoiceIMKFallback(); return 0; }
+        if (argc == 2 && std::string(argv[1]) == "--global-voice-current-client-reentry") { TestGlobalVoiceCurrentClientReentry(); return 0; }
+        if (argc == 2 && std::string(argv[1]) == "--global-voice-suspend-source") { TestGlobalVoiceSuspendSource(); return 0; }
+        if (argc == 2 && std::string(argv[1]) == "--global-voice") { TestGlobalVoiceBoundaries(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--quick-phrase-cursor") {
             TestQuickPhraseCursorInEditors();
             TestQuickPhraseCursorThroughRealSession();

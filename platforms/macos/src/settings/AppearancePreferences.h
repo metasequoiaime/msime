@@ -10,6 +10,8 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
 FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNotification;
 /// Set to @YES in the userInfo of an MSIMEAppearanceDidChangeNotification that only moved the Chinese/English mode. The mode is not part of the shared preferences document, so observers refresh what they show but have nothing to save.
 FOUNDATION_EXPORT NSString *const MSIMEAppearanceInputModeOnlyKey;
+// 只有明确的原生语音编辑才允许把本机语音值写回共享文档。
+FOUNDATION_EXPORT NSString *const MSIMEAppearanceVoicePreferencesKey;
 
 /// 某个输入源是否已在用户的输入法列表里。输入法进程启动时把它设成 `MSIMEInputSourceIsEnabled`；测试和其它链接了设置窗口的程序不设，「菜单栏入口」提示就不出现，设置窗口也因此不必链接 Carbon。
 extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
