@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
+import plistlib
 import re
 import sys
 
@@ -282,7 +283,7 @@ def info_plist_strings(source: str, edition_id: str, table: dict | None = None) 
 
 
 def apply_to_bundle(bundle: pathlib.Path, edition_id: str) -> None:
-    """把编好的 full bundle 原地改成某个版本：Info.plist、各语言的 InfoPlist.strings 和可执行文件名。bundle 目录本身的改名由调用方负责。"""
+    """派生 bundle 的版本身份、程序名及后台项；bundle 目录本身由调用方改名。"""
     if edition_id == FULL:
         return
     table = load_table()
@@ -296,6 +297,13 @@ def apply_to_bundle(bundle: pathlib.Path, edition_id: str) -> None:
         strings.write_text(info_plist_strings(strings.read_text(encoding="utf-8"), edition_id, table), encoding="utf-8")
     name = entry["platforms"]["macos"]["input_method_name"]
     (contents / "MacOS" / executable).rename(contents / "MacOS" / name)
+    agent = contents / "Library/LaunchAgents/app.msime.global-voice.plist"
+    if agent.is_file():
+        document = plistlib.loads(agent.read_bytes())
+        document["Label"] = entry["platforms"]["macos"]["input_method_bundle_id"] + ".global-voice"
+        document["BundleProgram"] = f"Contents/MacOS/{name}"
+        document["ProgramArguments"] = [name, "--global-voice-bootstrap"]
+        agent.write_bytes(plistlib.dumps(document, sort_keys=False))
 
 
 def settings_strings(source: str, edition_id: str, table: dict | None = None) -> str:

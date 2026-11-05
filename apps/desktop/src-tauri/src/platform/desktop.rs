@@ -26,6 +26,8 @@ pub(crate) mod desktop_plugin_community;
 pub(crate) mod desktop_plugins;
 pub(crate) mod desktop_preferences_monitor;
 pub(crate) mod desktop_resource_packs;
+#[cfg(any(target_os = "macos", test))]
+pub(crate) mod global_voice_setup;
 // 设置同步卡片的四个命令，三个桌面宿主都在共享账号页上用。
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 pub(crate) mod desktop_settings_sync;

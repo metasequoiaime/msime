@@ -55,6 +55,7 @@ test("a refused entry says what the code has to look like, per dictionary", () =
   expect(pinyin).toContain("音节数需与汉字数一致");
   expect(pinyin).not.toContain("稍后重试");
   expect(dictionaryErrorMessage(refused, FALLBACK, "wubi")).toContain("1 到 4 个字母");
+  expect(dictionaryErrorMessage(refused, FALLBACK, "wubixsj")).toContain("1 到 4 个字母");
   expect(dictionaryErrorMessage(refused, FALLBACK, "quick_phrase")).toContain("只能包含英文字母");
   expect(dictionaryErrorMessage(refused, FALLBACK, "english")).toContain("字母、连字符和撇号");
   // Without a kind (the import path) it still names the problem rather than asking for a retry.

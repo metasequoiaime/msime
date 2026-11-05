@@ -404,6 +404,137 @@ fn checkpoints_with_inconsistent_contents_are_refused() {
     assert_eq!(ReplicaFile::from_replica(&replica), good);
 }
 
+/// 更新的版本加的词库类别（用不存在的 `wubi2030` 代表）这一版不认识：只跳过那几条，检查点照常读出其余的词条；那几条的其余字段仍要合规。
+#[test]
+fn checkpoint_entries_of_an_unknown_kind_are_skipped() {
+    let known = (
+        "pinyin".to_owned(),
+        "ma".to_owned(),
+        "字".to_owned(),
+        10u64 << 10,
+        0usize,
+        1u64,
+        true,
+    );
+    let foreign = (
+        "wubi2030".to_owned(),
+        "ent".to_owned(),
+        "力".to_owned(),
+        11u64 << 10,
+        0usize,
+        2u64,
+        true,
+    );
+    let file = ReplicaFile {
+        writers: vec![A.to_owned()],
+        devices: vec![(A.to_owned(), 1, AT, false)],
+        entries: vec![known.clone(), foreign.clone()],
+    };
+    let replica = file.into_replica(2).unwrap();
+    assert_eq!(
+        ReplicaFile::from_replica(&replica),
+        ReplicaFile {
+            writers: vec![A.to_owned()],
+            devices: vec![(A.to_owned(), 1, AT, false)],
+            entries: vec![known.clone()],
+        }
+    );
+    // 不认识的类别不放过其余字段：序号超过检查点、写入者下标越界仍拒绝整份。
+    for broken in [
+        (
+            foreign.0.clone(),
+            foreign.1.clone(),
+            foreign.2.clone(),
+            foreign.3,
+            0,
+            9,
+            true,
+        ),
+        (
+            foreign.0.clone(),
+            foreign.1.clone(),
+            foreign.2.clone(),
+            foreign.3,
+            1,
+            2,
+            true,
+        ),
+    ] {
+        let file = ReplicaFile {
+            writers: vec![A.to_owned()],
+            devices: vec![],
+            entries: vec![known.clone(), broken],
+        };
+        assert!(file.into_replica(2).is_none());
+    }
+}
+
+/// 新世纪五笔这一版还不经 WebDAV 同步：事件里的新世纪操作和检查点里的新世纪词条都像不认识的类别那样只跳过那一条，不交给本机词库。宿主读本机词库时也不交出新世纪的词，两边一致，写进本机的词才不会在下一轮被当成本机删掉的、向所有设备发出删除。
+#[test]
+fn new_century_wubi_words_from_the_drive_are_skipped_until_sync_carries_them() {
+    assert_eq!(WordKind::from_name("wubixsj"), Some(WordKind::WubiXsj));
+    assert_eq!(WordKind::from_synced_name("wubixsj"), None);
+    assert_eq!(WordKind::from_synced_name("wubi98"), Some(WordKind::Wubi98));
+
+    let ledger = genesis();
+    let payload = serde_json::json!({
+        "device": A,
+        "ack": 0,
+        "ops": [
+            ["wubixsj", "ent", "力", 10u64 << 10, true],
+            ["pinyin", "ma", "字", 10u64 << 10, true]
+        ]
+    });
+    let boxed = key(KEY1).seal(
+        Purpose::Event,
+        &serde_json::to_vec(&payload).unwrap(),
+        &event_aad(1, GENESIS_HEAD, AT, KEY1),
+        [1; NONCE_BYTES],
+    );
+    let bytes = serde_json::to_vec(&serde_json::json!({
+        "format": FORMAT, "version": 1, "seq": 1, "prev": GENESIS_HEAD, "at": AT,
+        "type": "ops", "key_id": KEY1, "box": boxed
+    }))
+    .unwrap();
+    let mut reader = ledger.clone();
+    let received = reader.apply(&bytes, Some(&key(KEY1))).unwrap();
+    assert_eq!(received.ops.len(), 1);
+    assert_eq!(received.ops[0].key.kind(), WordKind::Pinyin);
+    assert_eq!(reader.replica.entries.len(), 1);
+
+    let known = (
+        "pinyin".to_owned(),
+        "ma".to_owned(),
+        "字".to_owned(),
+        10u64 << 10,
+        0usize,
+        1u64,
+        true,
+    );
+    let file = ReplicaFile {
+        writers: vec![A.to_owned()],
+        devices: vec![(A.to_owned(), 1, AT, false)],
+        entries: vec![
+            known,
+            (
+                "wubixsj".to_owned(),
+                "ent".to_owned(),
+                "力".to_owned(),
+                11u64 << 10,
+                0usize,
+                2u64,
+                true,
+            ),
+        ],
+    };
+    let replica = file.into_replica(2).unwrap();
+    assert_eq!(replica.entries.len(), 1);
+    assert!(replica
+        .entries
+        .keys()
+        .all(|word| word.kind() == WordKind::Pinyin));
+}
+
 #[test]
 fn format_negotiation_accepts_only_this_version() {
     assert!(format_supported(&format_bytes()));
