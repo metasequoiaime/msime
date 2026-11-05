@@ -666,11 +666,6 @@ impl Session {
         self.input.engine.wubi_input_options().mixed_pinyin
     }
 
-    /// 当前组字是五笔 `z` 引导的临时拼音反查，见 `ImeSession::wubi_pinyin_lookup_active`。
-    pub(crate) fn wubi_pinyin_lookup_active(&self) -> bool {
-        self.input.engine.wubi_pinyin_lookup_active()
-    }
-
     /// 把在线行（云候选、AI 候选）照原样放回当前组字的候选，不再核对查询，见 [`crate::host::Session::restore_online_rows`]。
     pub fn restore_online_rows(&mut self, rows: &[(String, crate::types::CandidateSource)]) {
         self.candidates_may_change();

@@ -2346,6 +2346,8 @@ fn wubi_profile_reaches_engine_options() {
 /// #10790：「候选显示剩余编码」决定引擎给不给五笔候选附完整码，建会话和改偏好两条路都要带上。
 #[test]
 fn wubi_code_hint_reaches_engine_options() {
+    // 出厂默认开着，引擎照旧给五笔候选附码。
+    assert!(Preferences::default().wubi_code_hint);
     let dir = tempfile::tempdir().unwrap();
     let handle = test_host(dir.path());
     SESSIONS.with(|sessions| {

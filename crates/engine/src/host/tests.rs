@@ -3051,7 +3051,7 @@ fn wubi_reverse_codes_are_shown_only_in_the_wubi_scheme() {
     assert!(view.candidate_annotations[index].contains("wqvb"));
 }
 
-/// #10790：「候选显示剩余编码」关掉后，宿主在没有剩余编码时退回显示引擎注释，引擎不能再往里附完整五笔码；候选的 `code` 字段不受影响。
+/// #10790：「候选显示剩余编码」关掉后，宿主在没有剩余编码时退回显示引擎注释，引擎不能再给五笔原生候选附完整五笔码；候选的 `code` 字段不受影响。混输拼音的候选照旧附码，那是用拼音查五笔码。
 #[test]
 fn wubi_reverse_codes_are_left_out_when_the_code_hint_is_off() {
     let extra = "INSERT INTO wubi86 VALUES('wqvb','你好',300);";
@@ -3076,7 +3076,7 @@ fn wubi_reverse_codes_are_left_out_when_the_code_hint_is_off() {
     // 宿主打开开关时还要靠它算剩余编码。
     assert_eq!(view.candidate_codes[index], "wqvb");
 
-    // 混输拼音的候选也不附。
+    // 混输拼音的候选照旧附：混输打开时没有 `z` 反查，打拼音看编码是打字时唯一的查码路径（#6789）。
     let mixed_root = tempfile::tempdir().unwrap();
     let mut mixed = helpcode_fixture(mixed_root.path(), extra, "");
     mixed.scheme = SchemeType::Wubi as u8;
@@ -3085,7 +3085,49 @@ fn wubi_reverse_codes_are_left_out_when_the_code_hint_is_off() {
     let mut session = Session::new(&mixed).unwrap();
     type_text(&mut session, b"nihao");
     let view = session.snapshot().unwrap();
-    assert!(!annotation_of(&view, "你好").contains("wqvb"));
+    let index = view
+        .candidates
+        .iter()
+        .position(|word| word == "你好")
+        .unwrap();
+    assert_ne!(view.candidate_codes[index], "wqvb", "应是拼音候选");
+    assert!(
+        view.candidate_annotations[index].contains("wqvb"),
+        "{:?}",
+        view.candidate_annotations
+    );
+}
+
+/// 混输的同一页里既有五笔原生候选也有拼音候选时，开关关掉只去掉前者的编码。
+#[test]
+fn the_code_hint_off_strips_only_native_wubi_codes_on_a_mixed_page() {
+    let root = tempfile::tempdir().unwrap();
+    let extra = format!("{PINYIN_LOOKUP_SQL} INSERT INTO wubi86 VALUES('nigg','恒',100);");
+    let mut options = helpcode_fixture(root.path(), &extra, "");
+    options.scheme = SchemeType::Wubi as u8;
+    options.wubi_mixed_pinyin = true;
+    options.show_helpcode = false;
+    options.wubi_reverse_code = false;
+    let mut session = Session::new(&options).unwrap();
+    type_text(&mut session, b"ni");
+    let view = session.snapshot().unwrap();
+    assert!(!view.answered_by_pinyin_fallback);
+    let native = annotation_of(&view, "恒");
+    assert!(!native.contains("nigg"), "{native}");
+    let pinyin = annotation_of(&view, "你");
+    assert!(pinyin.contains("wqiy"), "{pinyin}");
+
+    // 开关打开时两种候选都附，出厂行为不变。
+    let on_root = tempfile::tempdir().unwrap();
+    let mut on = helpcode_fixture(on_root.path(), &extra, "");
+    on.scheme = SchemeType::Wubi as u8;
+    on.wubi_mixed_pinyin = true;
+    on.show_helpcode = false;
+    let mut session = Session::new(&on).unwrap();
+    type_text(&mut session, b"ni");
+    let view = session.snapshot().unwrap();
+    assert!(annotation_of(&view, "恒").contains("nigg"));
+    assert!(annotation_of(&view, "你").contains("wqiy"));
 }
 
 /// `z` 临时拼音反查是用户主动要看编码，「候选显示剩余编码」关掉也照旧附上。
