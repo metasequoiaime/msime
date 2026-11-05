@@ -49,3 +49,18 @@ macOS 上使用已安装的 llama.cpp `0.8.0`（提交 `8642541b2`），加载�
 上游：[模型与固定提交](https://huggingface.co/tencent/HY-MT2-1.8B-GGUF/tree/a0c709d9fac510f2c807aa3af52872340dc37a4a)、[llama.cpp](https://github.com/ggml-org/llama.cpp)、[Candle Marian 示例](https://github.com/huggingface/candle/tree/main/candle-examples/examples/marian-mt)。
 
 嵌入式 Rust 探针（`llama-cpp-2` 0.1.161，内部 llama.cpp `d81235049384534c167caea52b85a694f6103d14`）已在本机跑出英、日、法译文，首次加载约 5.1 秒，三次翻译分别约 446 / 238 / 206 毫秒。这是单次 Metal 热模型测量，不是跨设备性能承诺。真实模型回归同时验证任务开始前取消、过期截止时间、预填充后取消以及取消后新请求成功；三个桌面宿主、原生设置和资源包接线仍未完成。
+
+
+共享接线切片：`client-core::local_translation` 持有 38 项语言目录和 `local_translation.enabled/target_language` 偏好，缺字段保持关闭，不扩大云翻译语言白名单。资源包新增 `local-translation`，下载、导入和删除复用现有固定摘要安装器。旧 `every_url_is_immutable` 测试原本只认可 GitHub 来源，这次增加腾讯官方 Hugging Face 仓库的完整提交地址形式，原有来源约束保留。
+
+推理队列最多保留一个执行任务和一个等待任务，队列满返回 `local_translation_busy`；工作线程缓存同一模型，空闲 60 秒卸载。等待句柄销毁、取消、超时或卸载代次变化都会丢弃结果；加载模型使用 llama.cpp 的进度取消回调。Host API 提供目录、阻塞翻译和按请求 ID 取消三个入口，翻译只能在宿主后台线程调用。冷加载前通过资源包完整 SHA-256 校验，缺模型或未编译 `local-translation` 特性直接返回不可用，不产生网络描述符。权重校验逐个读取块检查取消和截止时间。
+
+Windows x64 GNU 的运行库交叉检查已在远程 macOS 编译机通过；首次失败是 bindgen 缺少 MinGW sysroot 与 Rust 目标，补齐 `x86_64-pc-windows-gnu` 并设置 `BINDGEN_EXTRA_CLANG_ARGS_x86_64_pc_windows_gnu=--sysroot=<MinGW sysroot>` 后通过。这仅验证运行库交叉编译，不证明 Windows 产品链接或运行。
+
+
+真实 Host API 回归暴露并修正两个生命周期问题：成功收取结果后，等待句柄不能再置取消标记，否则宿主会把成功译文丢弃；缓存模型必须在原生后端静态析构前释放，否则 Metal 的进程退出断言会中止程序。等待句柄现在只在没有收到结果时取消，工作队列支持关闭并等待线程结束；Unix 在后端初始化后登记退出清理，Windows 由 Server 在 DLL 卸载前显式调用 `msime_client_local_translation_shutdown`，避免加载器锁内等待线程。真实导入→摘要核验→后台推理→Host API 响应的回归已由失败转为通过，正常进程退出也通过。
+
+`preferences-field-parity` 的既有规则检查 React 控件。新字段按 AGENTS.md 的原生界面迁移约束加入 `RUST_ONLY` 并注明原因，不能为了这个检查向 React 加设置；三个原生入口仍是本草稿 PR 的完成条件。
+
+
+Linux 容器的共享设置应用 `cargo check -p msime-desktop --locked --all-targets` 已通过；这次补齐其资源包枚举分支，仅明确不在 React 中展示新包，没有增加 React 设置。`platforms/linux/build-container.sh` 的 122 项原生测试全部通过。Linux aarch64 CPU 上真实模型英、日、法翻译与取消测试也通过；构建绑定需要 `libclang-dev`，后续发行构建依赖必须补齐它。

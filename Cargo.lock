@@ -3393,6 +3393,7 @@ dependencies = [
  "msime-engine",
  "msime-host-windows",
  "msime-input-runtime",
+ "msime-local-translation",
  "msime-onnx-rerank",
  "msime-path-trust",
  "msime-script-runtime",
@@ -3456,6 +3457,7 @@ name = "msime-local-translation"
 version = "0.1.0"
 dependencies = [
  "llama-cpp-2",
+ "msime-client-core",
  "thiserror 2.0.21",
 ]
 

@@ -4,6 +4,9 @@
 //!
 //! 锁文件还没有固定内容的资源包（[`ResourcePack::pinned`] 为假，包括 macOS 语音运行库和 Android OCR 模块在第一次发布之前）不存在：[`ResourcePack::from_id`] 认不出它，[`list`] 不列出它，安装、导入和收编都报 `local_model_unknown`。
 
+mod local_translation;
+pub use local_translation::verified_model as verified_translation_model;
+
 use crate::resources::{ResourceSet, ON_DEMAND_JAPANESE_ARTIFACTS, ON_DEMAND_WUBI_ARTIFACTS};
 use crate::voice::local_models::{self, InstallProgress, LocalModelError, MANIFEST_FILE};
 use serde::{Deserialize, Serialize};
@@ -345,6 +348,8 @@ pub enum ResourcePack {
     AndroidOcrModule,
     /// 整句联想「增强」逐键重排的手机档 ONNX 模型（chinese-ime-lm `rerank-v2` 的 6x256）：`lm_step.ort`、`model.json`、`vocab.json`，即 `resources/rerank-model.lock.json` 里 `rerank-model-small` 那一项。Android 发布包不带它，用户选「增强」时下载；id 与 host-api 找的目录名相同，装好后会话在 `resource-packs/` 下找到它，没装时退回随包的句子模型。
     RerankModelSmall,
+    /// 桌面嵌入式翻译使用的固定 Hy-MT2 GGUF 权重。
+    LocalTranslation,
 }
 
 /// 模块清单和接口版本都编译进宿主，文件选择器不能提供自己的信任清单。
@@ -411,6 +416,14 @@ pub fn verify_installed(state_root: &Path, pack: ResourcePack) -> Result<PathBuf
 }
 
 fn verify_artifacts(directory: &Path, set: &ResourceSet) -> Result<(), LocalModelError> {
+    verify_artifacts_with_cancel(directory, set, &|| false)
+}
+
+fn verify_artifacts_with_cancel(
+    directory: &Path,
+    set: &ResourceSet,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<(), LocalModelError> {
     set.validate().map_err(|_| LocalModelError::InvalidRoot)?;
     for artifact in &set.artifacts {
         let mut input = crate::storage::open_private_file_in(&directory.join(&artifact.name))
@@ -427,6 +440,9 @@ fn verify_artifacts(directory: &Path, set: &ResourceSet) -> Result<(), LocalMode
         let mut remaining = artifact.size;
         let mut buffer = [0; 8192];
         while remaining > 0 {
+            if cancelled() {
+                return Err(LocalModelError::Cancelled);
+            }
             let limit = remaining.min(buffer.len() as u64) as usize;
             let n = input
                 .read(&mut buffer[..limit])
@@ -586,7 +602,7 @@ pub struct PackArchive {
 
 impl ResourcePack {
     /// 每一种资源包，包括锁文件还没固定内容的；只要存在的那些用 [`ResourcePack::available`]。
-    pub const ALL: [ResourcePack; 16] = [
+    pub const ALL: [ResourcePack; 17] = [
         ResourcePack::Japanese,
         ResourcePack::LanguageDictionaries,
         ResourcePack::Handwriting,
@@ -603,6 +619,7 @@ impl ResourcePack {
         ResourcePack::MacosVoiceRuntime,
         ResourcePack::AndroidOcrModule,
         ResourcePack::RerankModelSmall,
+        ResourcePack::LocalTranslation,
     ];
 
     /// 锁文件固定了内容、可以下载的资源包，顺序同 [`ResourcePack::ALL`]。
@@ -638,6 +655,7 @@ impl ResourcePack {
             ResourcePack::MacosVoiceRuntime => "voice-runtime-macos",
             ResourcePack::AndroidOcrModule => "ocr-module-android",
             ResourcePack::RerankModelSmall => "rerank-model-small",
+            ResourcePack::LocalTranslation => "local-translation",
         }
     }
 
@@ -675,7 +693,8 @@ impl ResourcePack {
             | ResourcePack::VoiceRuntime
             | ResourcePack::MacosVoiceRuntime
             | ResourcePack::AndroidOcrModule
-            | ResourcePack::RerankModelSmall => &[],
+            | ResourcePack::RerankModelSmall
+            | ResourcePack::LocalTranslation => &[],
         }
     }
 
@@ -805,6 +824,7 @@ impl ResourcePack {
             ResourcePack::VoiceRuntime => &sets[9],
             ResourcePack::Wubi => &sets[10],
             ResourcePack::RerankModelSmall => &sets[13],
+            ResourcePack::LocalTranslation => local_translation::set(),
             ResourcePack::MacosVoiceRuntime | ResourcePack::AndroidOcrModule => {
                 unreachable!("handled above")
             }
@@ -3083,6 +3103,15 @@ mod tests {
                             .nth(2)
                             .is_some_and(|commit| crate::is_lower_hex(commit, 40))
                     });
+                // Hugging Face 的模型地址同样必须固定到完整提交，不能使用 main。
+                let pinned_translation = pack == ResourcePack::LocalTranslation
+                    && url
+                        == format!(
+                            "https://huggingface.co/tencent/HY-MT2-1.8B-GGUF/resolve/{}/{}",
+                            pack.set().source_commit,
+                            artifact.name
+                        )
+                    && crate::is_lower_hex(&pack.set().source_commit, 40);
                 assert!(
                     url.starts_with(RELEASE)
                         || url.starts_with(MODEL_RELEASE)
@@ -3091,7 +3120,8 @@ mod tests {
                         || url.starts_with(OCR_MODULE_RELEASE)
                         || pinned_engine
                         || upstream_release
-                        || pinned_raw,
+                        || pinned_raw
+                        || pinned_translation,
                     "{url}"
                 );
             }

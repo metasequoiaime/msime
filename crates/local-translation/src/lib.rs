@@ -1,12 +1,16 @@
 //! 本地翻译的原生推理后端。模型路径由共享资源管理器提供；这里不下载模型、不访问网络。
 
+#[cfg(any(feature = "runtime", test))]
+mod worker;
+#[cfg(feature = "runtime")]
+pub use worker::{Pending, Worker};
+
 #[cfg(feature = "runtime")]
 mod runtime;
 #[cfg(feature = "runtime")]
 pub use runtime::Translator;
 
-mod languages;
-pub use languages::{language_name, LANGUAGES};
+pub use msime_client_core::local_translation::{language_name, LANGUAGES};
 
 pub fn validate_text(text: &str) -> Result<(), Error> {
     if text.trim().is_empty() || text.chars().count() > 256 || text.chars().any(char::is_control) {
@@ -21,6 +25,8 @@ pub fn validate_text(text: &str) -> Result<(), Error> {
 pub enum Error {
     #[error("local_translation_invalid_input")]
     InvalidInput,
+    #[error("local_translation_busy")]
+    Busy,
     #[error("local_translation_unavailable")]
     Unavailable,
     #[error("local_translation_cancelled")]

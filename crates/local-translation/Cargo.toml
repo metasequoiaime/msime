@@ -12,6 +12,7 @@ default = []
 runtime = ["dep:llama-cpp-2"]
 
 [dependencies]
+msime-client-core = { path = "../client-core" }
 thiserror.workspace = true
 llama-cpp-2 = { version = "=0.1.161", default-features = false, optional = true }
 
