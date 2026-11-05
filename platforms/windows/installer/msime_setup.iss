@@ -1,4 +1,4 @@
-; Metasequoia IME — Inno Setup script
+﻿; Metasequoia IME — Inno Setup script
 ; 源文件根目录：本脚本所在目录
 ;
 ; 编译方法：
