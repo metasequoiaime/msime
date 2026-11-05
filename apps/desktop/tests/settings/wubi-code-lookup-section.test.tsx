@@ -17,10 +17,11 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+// 编码是合成的。「好」没有 `wubixsj` 字段，模拟认识新世纪之前的宿主。
 const answer: WubiCodeLookup = {
-  phrase: { text: "你好", wubi86: ["wqvb"], wubi98: [] },
+  phrase: { text: "你好", wubi86: ["wqvb"], wubi98: [], wubixsj: ["wqvb"] },
   characters: [
-    { text: "你", wubi86: ["wq", "wqiy"], wubi98: ["wqiy"] },
+    { text: "你", wubi86: ["wq", "wqiy"], wubi98: ["wqiy"], wubixsj: ["wq", "wqiy"] },
     { text: "好", wubi86: ["vbg"], wubi98: ["vbg"] },
   ],
   truncated: false,
@@ -110,7 +111,7 @@ test("编辑文字后旧查码失败不会解除新请求的忙碌状态或显�
   expect(button.disabled).toBe(false);
 });
 
-test("查码 lists the whole word first, then every character with both profiles", async () => {
+test("查码 lists the whole word first, then every character with all three profiles", async () => {
   const lookup = vi.fn().mockResolvedValue(answer);
   render(<WubiCodeLookupSection lookup={lookup} profile="wubi98" />);
 
@@ -123,7 +124,21 @@ test("查码 lists the whole word first, then every character with both profiles
   await screen.findByRole("table", { name: "五笔编码" });
   expect(lookup).toHaveBeenCalledWith("你好");
   // 当前码表那一列标出来；码表里没有的写成 —。
-  expect(rows()).toEqual(["文字86 五笔98 五笔（当前）", "你好wqvb—", "你wq wqiywqiy", "好vbgvbg"]);
+  expect(rows()).toEqual([
+    "文字86 五笔98 五笔（当前）新世纪五笔",
+    "你好wqvb—wqvb",
+    "你wq wqiywqiywq wqiy",
+    "好vbgvbg—",
+  ]);
+});
+
+test("查码 marks the 新世纪 column when it is the current profile", async () => {
+  const lookup = vi.fn().mockResolvedValue(answer);
+  render(<WubiCodeLookupSection lookup={lookup} profile="wubixsj" />);
+  fireEvent.change(screen.getByLabelText("要查五笔编码的文字"), { target: { value: "你好" } });
+  fireEvent.click(screen.getByRole("button", { name: "查码" }));
+  await screen.findByRole("table", { name: "五笔编码" });
+  expect(rows()[0]).toBe("文字86 五笔98 五笔新世纪五笔（当前）");
 });
 
 test("查码 says so when the text has no Han characters, and when the list was cut", async () => {
@@ -141,7 +156,7 @@ test("查码 says so when the text has no Han characters, and when the list was 
   fireEvent.change(input, { target: { value: "你好…" } });
   fireEvent.click(screen.getByRole("button", { name: "查码" }));
   await screen.findByText("字太多，只列出了前 2 个不同的字。");
-  expect(rows()[0]).toBe("文字86 五笔（当前）98 五笔");
+  expect(rows()[0]).toBe("文字86 五笔（当前）98 五笔新世纪五笔");
 });
 
 test("查码 reports a failure without leaving an old result on screen", async () => {

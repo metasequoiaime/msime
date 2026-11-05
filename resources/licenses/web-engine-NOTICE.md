@@ -41,14 +41,15 @@ npm 包 `@msime/web-engine` 除上面这些文件外，还在 `assets/` 下带�
 | 数据 | 上游 | 上游许可 | 在哪个文件 |
 | --- | --- | --- | --- |
 | 拼音词条（`sources/pinyin/rime-ice.txt`、`sources/pinyin/rime-ice-supplement.txt`） | [iDvel/rime-ice](https://github.com/iDvel/rime-ice) | GPL-3.0 | `msime-pinyin.db` |
-| 行政区划地名（`sources/pinyin/places.txt`） | [modood/Administrative-divisions-of-China](https://github.com/modood/Administrative-divisions-of-China)，读音与权重下限依据 rime-ice | WTFPL（区划名称）；读音与权重依据 GPL-3.0 | `msime-pinyin.db` |
+| 行政区划地名（`sources/pinyin/places.txt`） | [modood/Administrative-divisions-of-China](https://github.com/modood/Administrative-divisions-of-China)，读音与权重下限依据 rime-ice；万象收了同一个词和读音的地名，权重另以 round(万象最高权重 × 9.2) 为下限 | WTFPL（区划名称）；读音与权重依据 GPL-3.0，万象定的下限为 CC BY 4.0 | `msime-pinyin.db` |
 | 单字表（`sources/pinyin/single-chars.txt`） | [iDvel/rime-ice](https://github.com/iDvel/rime-ice)，读音以 [mozillazg/pinyin-data](https://github.com/mozillazg/pinyin-data) 校正 | GPL-3.0 + MIT（pinyin-data，全文见下文 `resources/licenses/pinyin-data-MIT.txt`） | `msime-pinyin.db` |
-| 与万象共有的单字和词语的权重（上面三份文件的权重列） | [amzxyz/rime-wanxiang](https://github.com/amzxyz/rime-wanxiang) 发布 `v18.0.16`（提交 `7ab73ee0c7f80190004233e70f954833df64c80e`）`dicts/` 下的词库，由 msime-dictionary 去掉声调、按每份文件一个系数缩放后改编；不取任何字、词或读音 | CC BY 4.0（署名、改动说明与全文见下文 `resources/licenses/rime-wanxiang-CC-BY-4.0.txt`） | `msime-pinyin.db` |
+| 与万象共有的单字和词语的权重（上面三份文件的权重列，以及地名表里由万象下限定的权重），和由它派生的权重（`curation/pinyin-weight-overrides.txt` 里写成同一全拼下万象收录词的权重减 1 的行，这些行的词万象不收） | [amzxyz/rime-wanxiang](https://github.com/amzxyz/rime-wanxiang) 发布 `v18.0.16`（提交 `7ab73ee0c7f80190004233e70f954833df64c80e`）`dicts/` 下的词库，由 msime-dictionary 去掉声调、按每份文件一个系数缩放后改编；不取任何字、词或读音 | CC BY 4.0（署名、改动说明与全文见下文 `resources/licenses/rime-wanxiang-CC-BY-4.0.txt`） | `msime-pinyin.db` |
 | 五笔 86 码表（`sources/wubi/wubi86-jidian.txt`） | [KyleBing/rime-wubi86-jidian](https://github.com/KyleBing/rime-wubi86-jidian) | Apache-2.0（全文见下文 `resources/licenses/rime-wubi86-jidian-Apache-2.0.txt`） | `msime-wubi86.db` |
+| 五笔 86 码表里极点表没有的行（`sources/wubi/wubi86-rime-wubi.txt`） | [rime/rime-wubi](https://github.com/rime/rime-wubi) 提交 `152a0d3f3efe40cae216d1e3b338242446848d07` 的 `wubi86.dict.yaml` | LGPL-3.0，按 GPL-3.0 提供 | `msime-wubi86.db` |
 | 五笔 86 词组补充表（`sources/wubi/wubi86-supplement.txt`） | 由 msime 的 `msime-dict-build wubi86-supplement` 生成：词条取自 rime-ice 与 98 五笔表（[yanhuacuo/98wubi-tables](https://github.com/yanhuacuo/98wubi-tables)、[fcitx/fcitx5-table-extra](https://github.com/fcitx/fcitx5-table-extra)），编码按 86 词组规则由 rime-wubi86-jidian 的单字码推出 | GPL-3.0（词条依据 GPL-3.0 的 rime-ice、GPL-3.0-or-later 的 Fcitx 表与 Unlicense 的 98 五笔表；编码依据 Apache-2.0 的 jidian 单字码） | `msime-wubi86.db` |
 | 本项目自建词条（`source/FanyExtDict.txt`、`cn/phrases.txt`、msime-dictionary 的 `custom/`） | [metasequoiaime/msime-dictionary](https://github.com/metasequoiaime/msime-dictionary) | GPL-3.0 | `msime-pinyin.db` |
 
-拼音库含 rime-ice 的数据，再分发时必须保留对 rime-ice 的署名，并按 GPL-3.0 提供；GPL-3.0 全文见下文 `LICENSE`。单字读音按 pinyin-data 校正，MIT 要求随副本附上它的版权与许可声明，全文见下文 `resources/licenses/pinyin-data-MIT.txt`。拼音库里与 rime-wanxiang 共有的单字和词语的权重改编自它，CC BY 4.0 要求署名、写明改动并给出许可证，三者都在下文 `resources/licenses/rime-wanxiang-CC-BY-4.0.txt`。五笔 86 码表为 Apache-2.0，需保留署名并随附许可证全文（下文 `resources/licenses/rime-wubi86-jidian-Apache-2.0.txt`）；其中的词组补充表依据 GPL-3.0 的数据生成，随五笔库按 GPL-3.0 提供。两个库里的五笔 98 码表与快捷短语表都已清空（只留表结构）。
+拼音库含 rime-ice 的数据，再分发时必须保留对 rime-ice 的署名，并按 GPL-3.0 提供；GPL-3.0 全文见下文 `LICENSE`。单字读音按 pinyin-data 校正，MIT 要求随副本附上它的版权与许可声明，全文见下文 `resources/licenses/pinyin-data-MIT.txt`。拼音库里与 rime-wanxiang 共有的单字和词语的权重改编自它，CC BY 4.0 要求署名、写明改动并给出许可证，三者都在下文 `resources/licenses/rime-wanxiang-CC-BY-4.0.txt`。五笔 86 码表为 Apache-2.0，需保留署名并随附许可证全文（下文 `resources/licenses/rime-wubi86-jidian-Apache-2.0.txt`）；其中的词组补充表依据 GPL-3.0 的数据生成，随五笔库按 GPL-3.0 提供。两个库里的五笔 98 码表与快捷短语表都已清空（只留表结构）。从 `dict-v2.1.0` 起，拼音库按 msime-dictionary `curation/` 的否决表和覆盖表删词、改权重，五笔表不收整词否决的词、含粗俗词的行排到同码最后，拼音库另带由 `curation/offensive-words.txt` 写成的 `sentence_excluded` 表；这些都是对上面 GPL-3.0 数据的修改，逐行理由在 msime-dictionary 的提交历史里，说明见 `resources/licenses/msime-engine-dictionary-NOTICE.md`「维护者清洗表」。
 
 ## 日语模型
 
@@ -1315,9 +1316,9 @@ Creator: amzxyz (万象拼音 / rime-wanxiang). The README at that commit credit
 
 Work: the dictionaries under dicts/ at the commit above that wanxiang.dict.yaml imports: zi, jichu, lianxiang, duoyin, shici, diming, yixue, huaxue, yaopin, mingren, yiren, wuzhong, renming, taifeng and fangyan. Licensed under the Creative Commons Attribution 4.0 International License (CC BY 4.0, https://creativecommons.org/licenses/by/4.0/), as stated in the README and as committed in LICENSE at that commit.
 
-Used by MSIME: ranking weights only. MSIME's dictionary source repository, msime-dictionary (https://github.com/metasequoiaime/msime-dictionary), adapted the weights of the entries it shares with those dictionaries into its sources/pinyin/single-chars.txt, sources/pinyin/rime-ice.txt and sources/pinyin/rime-ice-supplement.txt (commit 060c102515f176ca3dfaf2a2cba1f320901ef414, msime-dictionary#84, first released in dict-v2.0.30). The dictionaries MSIME ships are built from those files, at present from release dict-v2.0.41 (source data commit 8e8b7817c91600913625edb7995a7397fbb6899a), and carry the adapted weights here:
+Used by MSIME: ranking weights only. MSIME's dictionary source repository, msime-dictionary (https://github.com/metasequoiaime/msime-dictionary), adapted the weights of the entries it shares with those dictionaries into its sources/pinyin/single-chars.txt, sources/pinyin/rime-ice.txt and sources/pinyin/rime-ice-supplement.txt (commit 060c102515f176ca3dfaf2a2cba1f320901ef414, msime-dictionary#84, first released in dict-v2.0.30), and the place-name table sources/pinyin/places.txt that MSIME's builder generates takes a weight floor from the same dictionaries (first released in dict-v2.1.0). The dictionaries MSIME ships are built from those files, at present from release dict-v2.1.2 (source data commit c239ba1a584511d15d33ff9c1c520897993f2013), and carry the adapted weights here:
 
-- msime-pinyin.db, the pinyin dictionary of every platform, of the web engine (trimmed to all single characters and the highest-weighted words) and of the engine's data pack: the weight of every entry whose word and toneless reading rime-wanxiang also lists.
+- msime-pinyin.db, the pinyin dictionary of every platform, of the web engine (trimmed to all single characters and the highest-weighted words) and of the engine's data pack: the weight of every entry whose word and toneless reading rime-wanxiang also lists, and the weight of the rows of curation/pinyin-weight-overrides.txt (described below) that are set to one below such an entry's adapted weight.
 - msime-stroke.db, the dictionary of the Stroke scheme: a character's weight is the sum of the weights of its readings in single-chars.txt, so for every character rime-wanxiang lists it is derived from the adapted character frequencies.
 
 No character, word, reading or other text is taken from rime-wanxiang. The changes made to the original work:
@@ -1326,7 +1327,10 @@ No character, word, reading or other text is taken from rime-wanxiang. The chang
 - rime-wanxiang's toned pinyin is reduced to MSIME's full pinyin spelling: tone marks removed (NFD decomposition, combining marks dropped), ü written as v, syllables joined by an apostrophe. Where the same word and toneless reading occurs more than once (different tones, or in several dictionaries), the highest weight is kept.
 - An entry of the three files that rime-wanxiang also lists gets the weight round(rime-wanxiang weight × factor); entries rime-wanxiang does not list keep their rime-ice weight, and no entry rime-wanxiang lists is added. One factor per file brings the adapted weights to the scale of the unchanged ones: the sum of the file's own weights divided by the sum of rime-wanxiang's weights over the entries both list with a weight above 10, rounded to two decimals, which is 9.42 for single-chars.txt (45175 shared entries), 9.2 for rime-ice.txt (521669) and 9.28 for rime-ice-supplement.txt (30499).
 - msime-dictionary keeps the seventeen dictionaries of dicts/ at the commit above other than abbrev, t9_abbrev and en byte for byte under sources/pinyin/wanxiang/ (including cuoyin and mixed, which give no weights), and the builder's reweight stage repeats the rewrite of the previous two items from them on every build, so the shipped weights stay aligned when one of the three files is regenerated. When msime-dictionary has curation/pinyin-reweight.txt, the stage also multiplies the weights of the renming and duoyin dictionaries by the factors that file gives before the highest weight is taken, and lowers an entry of more than one character that none of the seventeen dictionaries lists under any reading to below the highest-weighted entry of its reading whose word and reading the fifteen weighted dictionaries list with a weight of at least 100 (a threshold that file may change), except for the entries curation/pinyin-reweight-exempt.txt lists. Both steps change weights only.
+- sources/pinyin/places.txt (place names from modood/Administrative-divisions-of-China, generated by the builder's places-supplement command): when the fifteen weighted dictionaries list a place name with the same toneless reading, its weight is at least round(highest rime-wanxiang weight × 9.2), the rime-ice.txt factor above, raising it above the weight the table's own rules give and above the weight rime-ice already has; 719 entries of dict-v2.1.2's table take their weight from this floor.
 - The builder (crates/dict-builder in the MSIME repository) then merges the files into the dictionaries above; where a reading of a character is listed twice the higher weight is kept, and msime-stroke.db adds up a character's readings.
+
+msime-dictionary also used whether the seventeen dictionaries list a word or reading to pick the rows its curation tables (curation/pinyin-vetoes.txt and curation/pinyin-weight-overrides.txt, first released in dict-v2.1.0) remove or lower. Of the 2278 rows of curation/pinyin-weight-overrides.txt in dict-v2.1.2, the 546 that restore a damaged local weight write rime-ice's upstream weight. The other 1732 (233 placeholder weights, 1473 fragments that outrank a common word, 13 non-standard readings, and 13 rows that move 车件 and twelve words of custom/words.txt below a stronger word of their reading) write one below the final weight of another entry of the same full-pinyin reading, and by the rules of those sections that entry is mostly one rime-wanxiang lists, whose weight is the adapted round(rime-wanxiang weight × factor) above: for example 嗷呜 ao'wu gets 2971, one below 傲物, whose weight 2972 is round(323 × 9.2). The words of those rows are not in rime-wanxiang, but their weights are derived from the adapted rime-wanxiang weights; this is a further change to the weights, and still no character, word or reading is taken from rime-wanxiang.
 
 The dictionaries that carry these weights are otherwise built from rime-ice (GPL-3.0) and the other sources listed in msime-engine-dictionary-NOTICE.md; this notice covers only the weights taken from rime-wanxiang. amzxyz does not endorse MSIME or the way MSIME uses the work.
 
@@ -2849,6 +2853,84 @@ the avoidance of doubt, this paragraph does not form part of the public
 licenses.
 
 Creative Commons may be contacted at creativecommons.org.
+
+
+香港街道与地方名称（香港特别行政区政府地政总署，CSDI Portal）
+================================================================
+数据及其知识产权归香港特别行政区政府所有。来源为地政总署通过 CSDI Portal 发布的
+Road Centreline 与 Place Name，快照取得于 2026-11-05：
+https://portal.csdi.gov.hk/geoportal/?datasetId=landsd_rcd_1637310758814_80061
+https://portal.csdi.gov.hk/geoportal/?datasetId=landsd_rcd_1648571595120_89752
+
+msime-dictionary 的 sources/hong-kong/ 保存原始名称、来源摘要、使用条款与派生词表。
+本项目对中文名称去重、清理排版分隔符、补粤拼和普通话读音、生成简体字形并以低权重
+补入词库；不包含坐标、门牌或用户地址。地名名称数据适用以下 CSDI 使用条款，
+不改以 CC BY 4.0 或 GPL 再授权；字音的既有来源许可保持。下载、复制或分发这些
+名称时请保留政府、地政总署、CSDI Portal 署名、以上来源及以下使用条款。
+
+Terms and Conditions of Use of the CSDI Portal
+https://portal.csdi.gov.hk/csdi-webpage/doc/TNC
+Retrieved: 2026-11-05
+
+General
+
+The CSDI Portal is an online one-stop geospatial information service provided by the Development Bureau of the Government of the Hong Kong Special Administrative Region (the “Government”) to the public for obtaining geo-referenced information.
+
+In these Terms and Conditions of Use of the CSDI Portal (“Terms of Use”):
+
+“Data” include the “Spatial Data
+
+#
+
+” and all other contents provided by the Government and/or other organisations (such organisations are referred to as “the relevant organisations”) to the public on the CSDI Portal;
+
+“Spatial Data” include all data in the form of digital maps, text, graphics, drawings, diagrams, photographs, compilation of data, data specifications, metadata and Application Programming Interface (“API”).
+
+Use of Data on CSDI Portal
+
+You are allowed to browse, download, distribute, reproduce, hyperlink to and print the Data for both commercial and non-commercial purposes on a free-of-charge basis on the condition that:-
+
+you shall comply with the Terms of Use;
+
+you shall identify clearly the Government and the CSDI Portal as the source of the Data and acknowledge the Government and the relevant organisations’ ownership of the intellectual property rights in the Data and in all copies thereof including but not limited to paper copies, digital copies and copies placed on other websites;
+
+you shall indemnify the Government and the relevant organisations against any allegations or claims of infringement of the rights of any person and all costs, losses, damages and liabilities incurred by the Government and the relevant organisations, which in any case arise directly or indirectly in relation to your use, reproduction and/or distribution of the Data
+
+Disclaimer and Limitation of Liability
+
+The Data are provided by the Government and the relevant organisations to you on an “as is” and “as available” basis. No statement, representation or warranty of any kind (whether express or implied) is given by the Government or the relevant organisations in relation to the Data (including its accuracy, correctness, completeness, non-infringement, reliability, security, timeliness and appropriateness of the use of the Data in any particular circumstances). The Government or the relevant organisations shall not be liable for any errors, omissions, deficiencies, inconsistencies, misstatements or misrepresentations (express or implied), concerning any Data, and shall not have or accept any liability, obligation or responsibility whatsoever for any loss, destruction or damage (including without limitation consequential loss, destruction or damage or other costs or expenses) howsoever arising from or in respect of any use or misuse of or reliance on the Data, or any inability to use the Data (including any breakdown, suspension, non-function, mal-function or interruption of operation of the CSDI Portal).
+
+In consideration of the Government and the relevant organisations providing the Data on the CSDI Portal, by using the CSDI Portal, including the tools, you hereby unconditionally accept the Terms of Use.
+
+IF YOU DO NOT AGREE TO THE TERMS OF USE, PLEASE DO NOT USE THE CSDI PORTAL, INCLUDING THE TOOLS, OR THE DATA PROVIDED THEREON.
+
+The Terms of Use may be revised and/or amended from time to time by the Government or the relevant organisations without prior notice to any person. Accessing or using or linking to the CSDI Portal or using any Data after such amendments constitutes acceptance of such amendments. Please check the Terms of Use regularly for any revisions and/or amendments which may be made.
+
+The Government and the relevant organisations shall not be responsible for any loss or damage whatsoever arising out of or in connection with the Data. The Government reserves the right to revise, omit or edit the Data or to suspend or terminate the provision of the Data, the CSDI Portal or any part thereof at any time in its absolute discretion without giving any reason or prior notice to any person (including you).
+
+Linked Information and other Third-Party Websites
+
+The CSDI Portal may provide or assist in providing links to third-party websites through the CSDI Portal. The links are produced solely as a convenience to users of the CSDI Portal. Provision of, or assistance in providing, any links at the CSDI Portal to any third-party website does not give rise to any statement, representation or warranty, express or implied, that the Government agrees with, approves, recommends or endorses the contents of any such third-party websites. The provision of any links to third-party websites shall not constitute any form of co-operation or affiliation with the Government of any such third parties or external websites. The Government shall not have or accept any liability, obligation or responsibility whatsoever for any loss, destruction or damage (including without limitation consequential loss, destruction or damage or other costs or expenses) howsoever arising from or in respect of your use or misuse of or reliance on, or inability to use such links to any third-party website or your use or reliance on the contents of any such third-party websites. You should refer to the terms and conditions of each such third-party website when using such website.
+
+Privacy Policy
+
+The Government may record visits to the CSDI Portal without collecting your personal data. Information relating to visits to the CSDI Portal are collected by the Government for the compilation of statistical reports and the investigation and diagnosis of problems with or concerning computer systems.
+
+Intellectual Property Rights
+
+Unless otherwise indicated, the Government is the owner of the intellectual property rights of all contents available on the CSDI Portal, including but not limited to all Data.
+
+Governing Law
+
+The Terms of Use shall be governed and construed in accordance with the laws of the Hong Kong Special Administrative Region of the People’s Republic of China (“Hong Kong”). You also agree to submit to the exclusive jurisdiction of the Hong Kong Courts.
+
+Chinese text
+
+In the event of any conflict or inconsistency between the English text and the Chinese translation of these Terms of Use, the English text shall prevail.
+
+Note
+
+“Spatial data” is defined with reference to the definition of “Geospatial Data” published by the Open Geospatial Consortium as “location properties related to any terrestrial feature or phenomena”. “Location properties” may include any information about the location or area of, and relationships among, and descriptive information about geographic features and phenomena. This includes remotely sensed data, vector map data, addresses, coordinates, etc. Note that “geospatial data” is more precise in many contexts than “geographic data” because geospatial data is often used in ways that do not involve a graphic representation, or map, created from the data.”
 ````
 
 ### `resources/helpcodes/ENGINE-NOTICE.md`
@@ -3228,7 +3310,7 @@ Creative Commons may be contacted at creativecommons.org.
 | `regex-syntax` | 0.8.11 | MIT OR Apache-2.0 | L04、L05 |
 | `rink-core` | 0.9.0 | MPL-2.0 | L44 |
 | `rsqlite-vfs` | 0.1.1 | MIT | 未附带 |
-| `rusqlite` | 0.40.2 | MIT | L45 |
+| `rusqlite` | 0.41.1 | MIT | L45 |
 | `serde` | 1.0.229 | MIT OR Apache-2.0 | L32、L22 |
 | `serde_core` | 1.0.229 | MIT OR Apache-2.0 | L32、L22 |
 | `serde_json` | 1.0.154 | MIT OR Apache-2.0 | L32、L22 |
@@ -7006,7 +7088,7 @@ Exhibit B - "Incompatible With Secondary Licenses" Notice
 
 ### L45（LICENSE）
 
-用于：`rusqlite` 0.40.2
+用于：`rusqlite` 0.41.1
 
 ````text
 Copyright (c) 2014 The rusqlite developers

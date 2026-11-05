@@ -256,6 +256,11 @@ fn is_key(key: &str) -> bool {
 }
 
 impl WordVetoes {
+    /// 后续批量补词仍遵守维护者否决，不把已删除的词重新加回。
+    pub fn rejects(&self, key: &str, text: &str) -> bool {
+        self.entries.iter().any(|entry| entry.matches(key, text))
+    }
+
     /// 去掉首尾空白，跳过空行和 `#` 行。同一条写两遍、同一个词既整词否决又按读音否决、整词否决一个单字、键不是去声调的音节，都算错。
     pub fn parse(source: &str) -> Result<Self> {
         let mut vetoes = Self::default();

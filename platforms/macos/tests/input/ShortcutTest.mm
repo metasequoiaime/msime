@@ -1296,18 +1296,103 @@ static void TestSharedWubiProfile() {
     [controller setValue:prefs forKey:@"appearance"];
     [controller applySharedToolbarPreferences:@{@"scheme": @"wubi", @"wubi_profile": @"wubi98"}];
     NSPopUpButton *profile = (id)PreferenceControl(prefs, @selector(wubiProfileChanged:));
-    assert([prefs.wubiProfile isEqual:@"wubi98"] && profile.numberOfItems == 2 && profile.indexOfSelectedItem == 1);
-    assert([[profile itemAtIndex:0].title isEqual:@"86 五笔"] && [[profile itemAtIndex:1].title isEqual:@"98 五笔"]);
+    assert([prefs.wubiProfile isEqual:@"wubi98"] && profile.numberOfItems == 3 && profile.indexOfSelectedItem == 1);
+    assert([[profile itemAtIndex:0].title isEqual:@"86 五笔"] && [[profile itemAtIndex:1].title isEqual:@"98 五笔"] && [[profile itemAtIndex:2].title isEqual:@"新世纪五笔"]);
     assert([[prefs sharedPreferencesByMerging:@{@"wubi_profile": @"wubi86"}][@"wubi_profile"] isEqual:@"wubi98"]);
     [controller applySharedToolbarPreferences:@{@"wubi_profile": @"wubi06"}];
     [controller applySharedToolbarPreferences:@{@"wubi_profile": @98}];
     assert([prefs.wubiProfile isEqual:@"wubi98"]);
+    // 新世纪（wubixsj）从文档读进来选中第三项，菜单选它写回去；未知值同样不改变它。
+    [controller applySharedToolbarPreferences:@{@"wubi_profile": @"wubixsj"}];
+    assert([prefs.wubiProfile isEqual:@"wubixsj"] && profile.indexOfSelectedItem == 2);
+    assert([[prefs sharedPreferencesByMerging:@{@"wubi_profile": @"wubi86"}][@"wubi_profile"] isEqual:@"wubixsj"]);
+    [controller applySharedToolbarPreferences:@{@"wubi_profile": @"wubi06"}];
+    assert([prefs.wubiProfile isEqual:@"wubixsj"]);
     [profile selectItemAtIndex:0];
     [NSApp sendAction:profile.action to:profile.target from:profile];
     assert([prefs.wubiProfile isEqual:@"wubi86"] && [[defaults stringForKey:@"MSIMEClientWubiProfile"] isEqual:@"wubi86"]);
+    [profile selectItemAtIndex:2];
+    [NSApp sendAction:profile.action to:profile.target from:profile];
+    assert([prefs.wubiProfile isEqual:@"wubixsj"] && [[defaults stringForKey:@"MSIMEClientWubiProfile"] isEqual:@"wubixsj"]);
+    assert([[prefs sharedPreferencesByMerging:@{@"wubi_profile": @"wubi98"}][@"wubi_profile"] isEqual:@"wubixsj"]);
+    [profile selectItemAtIndex:0];
+    [NSApp sendAction:profile.action to:profile.target from:profile];
+    assert([prefs.wubiProfile isEqual:@"wubi86"]);
     assert([[prefs sharedPreferencesByMerging:@{@"wubi_profile": @"wubi98"}][@"wubi_profile"] isEqual:@"wubi86"]);
     prefs.wubiProfile = @"wubi06";
     assert([prefs.wubiProfile isEqual:@"wubi86"]);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
+// 在设置的五笔版本菜单里选新世纪，写进共享文档的 `wubi_profile` 交给真实会话后按新世纪码表出字（力 ent、男 ler、为 ytny、上 hgd）；选回 86 又按 86 码表出字，新世纪的码不再出这个字。
+static void TestWubiXsjTyping() {
+    NSString *suite = [@"msime.wubixsj-typing." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    NSPopUpButton *profile = (id)PreferenceControl(prefs, @selector(wubiProfileChanged:));
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    NSError *error = nil;
+    NSDictionary *shared = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
+    assert(shared && !error);
+    NSMutableDictionary *options = [@{@"api_version": @1, @"preferences": shared[@"preferences"]} mutableCopy];
+    for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries"]) {
+        NSString *path = [root stringByAppendingPathComponent:name];
+        assert([NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
+        options[name] = path;
+    }
+    for (NSString *path in @[[options[@"resources"] stringByAppendingPathComponent:@"msime-wubi.db"],
+                             [options[@"dictionaries"] stringByAppendingPathComponent:@"msime-pinyin.db"]]) {
+        sqlite3 *database = nullptr;
+        assert(sqlite3_open(path.fileSystemRepresentation, &database) == SQLITE_OK);
+        assert(sqlite3_exec(database,
+            "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);"
+            "CREATE TABLE wubi98(key TEXT,value TEXT,weight INTEGER);"
+            "CREATE TABLE wubixsj(key TEXT,value TEXT,weight INTEGER);"
+            "INSERT INTO wubi86 VALUES('ltn','力',10),('llb','男',10),('ylyi','为',10),('hhgg','上',10);"
+            "INSERT INTO wubixsj VALUES('ent','力',10),('ler','男',10),('ytny','为',10),('hgd','上',10);",
+            nullptr, nullptr, nullptr) == SQLITE_OK);
+        assert(sqlite3_close(database) == SQLITE_OK);
+    }
+    MSIMEClientSession *session = [[MSIMEClientSession alloc] initWithOptions:options error:&error];
+    assert(session && !error && [session setFocused:YES error:&error]);
+    __block NSUInteger revision = 0;
+    auto apply = ^{
+        NSMutableDictionary *preferences = [[prefs sharedPreferencesByMerging:shared[@"preferences"]] mutableCopy];
+        preferences[@"scheme"] = @"wubi";
+        preferences[@"learning"] = @NO;
+        preferences[@"wubi_mixed_pinyin"] = @NO;
+        preferences[@"wubi_auto_commit_unique"] = @NO;
+        NSError *applyError = nil;
+        NSDictionary *snapshot = @{@"format_version": @1, @"revision": @(++revision), @"preferences": preferences};
+        assert([[session updatePreferencesSnapshot:snapshot error:&applyError][@"deferred"] isEqual:@NO] && !applyError);
+    };
+    auto firstCandidate = ^NSString *(NSString *code) {
+        NSError *typeError = nil;
+        NSDictionary *view = nil;
+        for (NSUInteger index = 0; index < code.length; ++index)
+            view = [session typeASCII:(uint8_t)[code characterAtIndex:index] shift:NO error:&typeError][@"view"];
+        assert(view && !typeError && [view[@"scheme"] isEqual:@2] && [view[@"editing_text"] isEqual:code]);
+        NSArray *candidates = view[@"candidates"];
+        NSString *text = candidates.count ? candidates[0][@"text"] : nil;
+        assert([session command:MSIME_CANCEL error:&typeError] && !typeError);
+        return text;
+    };
+    NSDictionary<NSString *, NSString *> *xsj = @{@"ent": @"力", @"ler": @"男", @"ytny": @"为", @"hgd": @"上"};
+    NSDictionary<NSString *, NSString *> *wubi86 = @{@"ltn": @"力", @"llb": @"男", @"ylyi": @"为", @"hhgg": @"上"};
+    [profile selectItemAtIndex:2];
+    [NSApp sendAction:profile.action to:profile.target from:profile];
+    assert([[prefs sharedPreferencesByMerging:@{}][@"wubi_profile"] isEqual:@"wubixsj"]);
+    apply();
+    for (NSString *code in xsj) assert([firstCandidate(code) isEqual:xsj[code]]);
+    for (NSString *code in wubi86) assert(![firstCandidate(code) isEqual:wubi86[code]]);
+    [profile selectItemAtIndex:0];
+    [NSApp sendAction:profile.action to:profile.target from:profile];
+    assert([[prefs sharedPreferencesByMerging:@{}][@"wubi_profile"] isEqual:@"wubi86"]);
+    apply();
+    for (NSString *code in wubi86) assert([firstCandidate(code) isEqual:wubi86[code]]);
+    for (NSString *code in xsj) assert(![firstCandidate(code) isEqual:xsj[code]]);
+    assert([session closeWithError:&error] && !error);
+    [NSFileManager.defaultManager removeItemAtPath:root error:nil];
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
@@ -9236,11 +9321,14 @@ static void TestInputMode(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     assert([appearance.inputScheme isEqual:@"wubi"]);
     schemeItem = [controller.menu itemAtIndex:9];
     assert([schemeItem.title isEqual:@"输入方案（五笔 86）"]);
-    // 98 五笔时菜单项和上一级标题都写出版本。
+    // 98 五笔和新世纪五笔时菜单项和上一级标题都写出版本。
     NSString *wubiProfile = appearance.wubiProfile;
     appearance.wubiProfile = @"wubi98";
     schemeItem = [controller.menu itemAtIndex:9];
     assert([schemeItem.title isEqual:@"输入方案（五笔 98）"] && [[schemeItem.submenu itemAtIndex:2].title isEqual:@"五笔 98"]);
+    appearance.wubiProfile = @"wubixsj";
+    schemeItem = [controller.menu itemAtIndex:9];
+    assert([schemeItem.title isEqual:@"输入方案（五笔 新世纪）"] && [[schemeItem.submenu itemAtIndex:2].title isEqual:@"五笔 新世纪"]);
     appearance.wubiProfile = wubiProfile;
     schemeItem = [controller.menu itemAtIndex:9];
     assert([schemeItem.submenu itemAtIndex:2].state == NSControlStateValueOn && [schemeItem.submenu itemAtIndex:0].state == NSControlStateValueOff);
@@ -13187,6 +13275,7 @@ static void TestIdleSessionRecovery() {
         assert(sqlite3_exec(database,
             "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);"
             "CREATE TABLE wubi98(key TEXT,value TEXT,weight INTEGER);"
+            "CREATE TABLE wubixsj(key TEXT,value TEXT,weight INTEGER);"
             "INSERT INTO wubi86 VALUES('wq','你',10);", nullptr, nullptr, nullptr) == SQLITE_OK);
         assert(sqlite3_close(database) == SQLITE_OK);
     }
@@ -14204,6 +14293,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestGlossModePolicy(); }
         @autoreleasepool { TestSharedInputPreferences(); }
         @autoreleasepool { TestSharedWubiProfile(); }
+        @autoreleasepool { TestWubiXsjTyping(); }
         @autoreleasepool { TestIndependentAssistancePreferences(); }
         @autoreleasepool { TestSharedPunctuation(); }
         @autoreleasepool { TestSmartPunctuationWritesBothHalves(); }
