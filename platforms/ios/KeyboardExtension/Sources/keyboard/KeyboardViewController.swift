@@ -7923,9 +7923,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return TypingSource(rawValue: inputScheme.rawValue) ?? .unknown
   }
 
-  /// 运行时提交替换行内预编辑；显式定位在同一次临时标记里指定选区，再取消标记提交完整正文。
+  /// 运行时提交替换行内预编辑；显式定位在同一次临时标记里指定选区，再取消标记提交完整正文。`continuesComposition` 表示同一次渲染随后还要标记剩下的组字（部分选词）。
   private func insertOwnText(_ text: String, source: TypingSource? = nil, replacingComposition: Bool = false,
-                             cursorSuffix: String? = nil) {
+                             cursorSuffix: String? = nil, continuesComposition: Bool = false) {
     let cursor = cursorSuffix.flatMap { suffix -> Int? in
       guard !suffix.isEmpty, text.utf16.suffix(suffix.utf16.count).elementsEqual(suffix.utf16) else { return nil }
       return text.utf16.count - suffix.utf16.count
@@ -7933,12 +7933,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if replacingComposition && (!inlineMarkedText.isEmpty || cursor != nil) {
       // 正文与 UTF-16 选区一起交给 UIKit，避免方向移动在 emoji、组合字符或双向文本里猜错单位。
       inlineMarkedText = ""
-      if let cursor {
-        pairedPunctuation.clear()
-        textDocumentProxy.setMarkedText(text, selectedRange: NSRange(location: cursor, length: 0))
-        textDocumentProxy.unmarkText()
-      } else {
+      if cursor == nil && continuesComposition {
+        // 部分选词：直接提交替换标记区；先重标记再 unmark、紧接着又标记剩余组字的跨进程调用，会让剩余组字覆盖已选汉字（#10284）。
         textDocumentProxy.insertText(text)
+      } else {
+        // 组字到此结束时用「改标记再取消标记」上屏，不用 insertText：系统文本框的 insertText 会替换标记文本，自绘输入框（如 Flutter 的 FlutterTextInputView）的 insertText 只替换当前选区，而选区是标记末尾的光标，拼音会留在原处、汉字插在后面（#10873）。
+        if cursor != nil { pairedPunctuation.clear() }
+        textDocumentProxy.setMarkedText(text, selectedRange: NSRange(location: cursor ?? text.utf16.count, length: 0))
+        textDocumentProxy.unmarkText()
       }
       noteOwnEdit()
     } else {
@@ -8163,7 +8165,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
       // 原组字和数字作为同一次文档替换提交；先撤标记再插数字会读到尚未更新的选区，数字可能跑到拼音前面。
       insertOwnText(commit + (appendingLiteral ?? ""), source: source,
-                    replacingComposition: snapshot.commitText != nil, cursorSuffix: suffix)
+                    replacingComposition: snapshot.commitText != nil, cursorSuffix: suffix,
+                    continuesComposition: !snapshot.preedit.isEmpty)
     }
     let wasComposing = renderedComposition
     let wasKoreanHanjaListOpen = koreanHanjaListOpen
