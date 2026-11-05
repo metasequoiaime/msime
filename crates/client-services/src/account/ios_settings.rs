@@ -3,7 +3,8 @@
 //! 写回分两步：宿主先按 [`IosPreferencePlan::requested_native`] 写 App Group，再拿实际保存下来的值调 [`IosPreferencePlan::apply_shared`] 写共享偏好，后一步失败时宿主把 App Group 恢复成旧值。
 
 use super::settings_sync::{
-    frequency_account_preferences, insert_bool, insert_string, valid_haptic_strength,
+    account_wubi_schema, frequency_account_preferences, insert_bool, insert_string,
+    valid_haptic_strength,
 };
 use crate::account::{
     validate_account_preferences, AccountError, AccountPreferenceValue, AccountPreferences,
@@ -61,16 +62,11 @@ pub fn local_account_preferences(
         if let Some(profile) = profile {
             insert_string(&mut settings, "input.shuangpin_schema", profile);
         }
-        // 键盘偏好只记五笔这个方案，86 还是 98 记在共享偏好里。
+        // 键盘偏好只记五笔这个方案，86、98 还是新世纪记在共享偏好里。新世纪暂不同步，不写这个键（`settings_sync::account_wubi_schema`）。
         if schema == "wubi" {
-            insert_string(
-                &mut settings,
-                "input.wubi_schema",
-                match shared.wubi_profile {
-                    WubiProfile::Wubi86 => "wubi86",
-                    WubiProfile::Wubi98 => "wubi98",
-                },
-            );
+            if let Some(wubi) = account_wubi_schema(shared.wubi_profile) {
+                insert_string(&mut settings, "input.wubi_schema", wubi);
+            }
         }
     }
     insert_string(
@@ -216,14 +212,9 @@ impl IosPreferencePlan {
             Some(layout) => layout == "nine_key",
             None => nine_key_setting == Some(true),
         };
-        // 账号里的五笔版本有就写进共享偏好，不管云端的方案是不是五笔，与 Android、桌面和鸿蒙共用的 `settings_sync::apply_input_settings` 相同：方案是全拼、账号里留着别的设备选的 98 时，本机以后切到五笔就是 98。没有这个键的文档来自还不认识 98 五笔、或者当时不在五笔上的设备，保留本机的五笔版本。不认识的取值与其余的键一样拒绝整份文档。
+        // 账号里的五笔版本有就写进共享偏好，不管云端的方案是不是五笔，与 Android、桌面和鸿蒙共用的 `settings_sync::apply_input_settings` 相同：方案是全拼、账号里留着别的设备选的 98 时，本机以后切到五笔就是 98。没有这个键的文档来自还不认识 98 五笔、或者当时不在五笔上的设备，保留本机的五笔版本。不认识的取值（更新的版本加的码表版本）也保留本机的五笔版本，只跳过这一个键，与 `apply_input_settings` 相同；拒绝整份文档会让这台 iOS 设备从此收不到任何设置。
         let wubi_profile = string_setting(values, "input.wubi_schema")?
-            .map(|value| match value.as_str() {
-                "wubi86" => Ok(WubiProfile::Wubi86),
-                "wubi98" => Ok(WubiProfile::Wubi98),
-                _ => Err(AccountError::Invalid),
-            })
-            .transpose()?;
+            .and_then(|value| WubiProfile::parse(&value));
         let input_scheme = match string_setting(values, "input.schema")?.as_deref() {
             None => None,
             Some("quanpin") => Some(
@@ -400,8 +391,11 @@ impl IosPreferencePlan {
         if self.input_scheme.is_some() {
             select_touch_scheme(preferences, touch_scheme(&native.input_scheme)?);
         }
+        // 本机选着新世纪时账号里没有它（不导出），账号里留着的旧版本不能盖掉本机的选择。
         if let Some(value) = self.wubi_profile {
-            preferences.wubi_profile = value;
+            if account_wubi_schema(preferences.wubi_profile).is_some() {
+                preferences.wubi_profile = value;
+            }
         }
         if self.traditional_chinese_output.is_some() {
             preferences.traditional_chinese_output = native.traditional_chinese_output;
@@ -1440,7 +1434,8 @@ mod tests {
             assert_eq!(preferences.wubi_profile, expected, "{value:?}");
         }
 
-        let invalid = AccountPreferences {
+        // 不认识的版本只跳过这个键，文档里的方案照常应用，五笔版本保留本机的。
+        let unknown = AccountPreferences {
             revision: 13,
             settings: BTreeMap::from([
                 (
@@ -1453,10 +1448,9 @@ mod tests {
                 ),
             ]),
         };
-        assert_eq!(
-            IosPreferencePlan::from_cloud(&invalid),
-            Err(AccountError::Invalid)
-        );
+        let plan = IosPreferencePlan::from_cloud(&unknown).unwrap();
+        assert_eq!(plan.wubi_profile, None);
+        assert_eq!(plan.requested_native(&native).unwrap().input_scheme, "wubi");
     }
 
     /// 本地识别的停顿时间和判停灵敏度（#10310）只留在本机：共享文档里改了它们，iOS 上传的账号键值一个也不变。

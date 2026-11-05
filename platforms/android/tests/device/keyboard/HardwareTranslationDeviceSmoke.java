@@ -16,7 +16,7 @@ import org.json.JSONObject;
 /**
  * 实体键盘 Ctrl+Enter 上屏候选译文（#7079）的设备验收：单义项直接上屏；多义项打开义项页，数字选第几项、空格上屏高亮项、Esc 只关页而组字还在；释义关着时按键被吃掉、拼音不上屏；没有组字时输入法不接这个键。
  *
- * <p>键从 `uinput` 接上的 USB 键盘打进去（API 31 起；更早的系统要 `hw.keyboard=yes` 的 AVD），理由见 {@link DeviceSmoke#physicalKeyboard}。用的是随包离线英文释义：「你好」是一个义项 `hello`，「我的」是两个义项 `my; mine`。数据换了、这两个前提不成立时在对应阶段失败并说明，而不是测成别的东西。
+ * <p>键从 `uinput` 接上的 USB 键盘打进去（API 31 起；更早的系统要 `hw.keyboard=yes` 的 AVD），理由见 {@link DeviceSmoke#physicalKeyboard}。用的是随包离线英文释义：「你好」是一个义项 `hello`，「他们」是两个义项 `they; them`（清洗后的词库里「我的」只剩 `my`，#10942；不用「我们」，`women` 是英文词，会和英文候选争首选）。数据换了、这两个前提不成立时在对应阶段失败并说明，而不是测成别的东西。
  */
 public final class HardwareTranslationDeviceSmoke extends DeviceSmoke {
     // 清单已达 100 个 instrumentation：数字回归复用这个硬件按键入口，可单独运行合成事件部分。
@@ -76,17 +76,17 @@ public final class HardwareTranslationDeviceSmoke extends DeviceSmoke {
             ctrlChord(keyboard, KeyEvent.KEYCODE_ENTER);
             await(field("msime-test-plain").and(node -> equalsText("hello", node.getText())));
 
-            // 多义项：「我的」是 my; mine，Ctrl+Enter 打开义项页，候选行换成「译文 1」「译文 2」，按 2 上屏第二项。
+            // 多义项：「他们」是 they; them，Ctrl+Enter 打开义项页，候选行换成「译文 1」「译文 2」，按 2 上屏第二项。
             stage = "multi sense candidate";
-            typeWode(keyboard);
-            AccessibilityNodeInfo mine = await(glossedCandidate("我的"));
-            if (!glossOf(mine).contains(";"))
-                throw new AssertionError("The bundled gloss of 我的 no longer has several senses");
+            typeTamen(keyboard);
+            AccessibilityNodeInfo they = await(glossedCandidate("他们"));
+            if (!glossOf(they).contains(";"))
+                throw new AssertionError("The bundled gloss of 他们 no longer has several senses");
             stage = "multi sense page";
             ctrlChord(keyboard, KeyEvent.KEYCODE_ENTER);
             String second = senseOf(await(describedPrefix("译文 2：")));
             await(describedPrefix("译文 1："));
-            if (findVisible(describedPrefix("候选 1：我的")) != null)
+            if (findVisible(describedPrefix("候选 1：他们")) != null)
                 throw new AssertionError("The sense page did not replace the candidate strip; IME showed " + imeTexts());
             stage = "multi sense digit commit";
             type(keyboard, KeyEvent.KEYCODE_2);
@@ -95,16 +95,16 @@ public final class HardwareTranslationDeviceSmoke extends DeviceSmoke {
 
             // Esc 只关页：候选条回来，拼音还在组字。
             stage = "sense page escape";
-            typeWode(keyboard);
-            await(glossedCandidate("我的"));
+            typeTamen(keyboard);
+            await(glossedCandidate("他们"));
             ctrlChord(keyboard, KeyEvent.KEYCODE_ENTER);
             await(describedPrefix("译文 1："));
             type(keyboard, KeyEvent.KEYCODE_ESCAPE);
-            await(describedPrefix("候选 1：我的"));
+            await(describedPrefix("候选 1：他们"));
             if (findVisible(describedPrefix("译文 1：")) != null)
                 throw new AssertionError("Escape left the sense page open; IME showed " + imeTexts());
             // 全拼组字在输入框里按音节分词显示（#9448，见 2026-10-23-quanpin-host-preedit-segmentation.md）。
-            await(field("msime-test-plain").and(node -> equalsText(afterDigit + "wo'de", node.getText())));
+            await(field("msime-test-plain").and(node -> equalsText(afterDigit + "ta'men", node.getText())));
 
             // 再开一次页，空格上屏高亮的第一项。
             stage = "sense page space commit";
@@ -150,8 +150,9 @@ public final class HardwareTranslationDeviceSmoke extends DeviceSmoke {
         }
     }
 
-    private void typeWode(int keyboard) throws Exception {
-        type(keyboard, KeyEvent.KEYCODE_W, KeyEvent.KEYCODE_O, KeyEvent.KEYCODE_D, KeyEvent.KEYCODE_E);
+    private void typeTamen(int keyboard) throws Exception {
+        type(keyboard, KeyEvent.KEYCODE_T, KeyEvent.KEYCODE_A, KeyEvent.KEYCODE_M, KeyEvent.KEYCODE_E,
+            KeyEvent.KEYCODE_N);
     }
 
     /** 候选条上首选是 `text`、而且已经带上英文释义的那个候选；释义是异步到的，要等它出现再按 Ctrl+Enter。 */

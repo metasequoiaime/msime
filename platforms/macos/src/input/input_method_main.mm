@@ -14,6 +14,9 @@
 #import "MSIMEClientSession.h"
 #import "../candidate/CandidateSkin.h"
 #import "../voice/VoiceAudioMuter.h"
+#import "../voice/GlobalVoiceCoordinator.h"
+#import "../voice/GlobalVoiceSession.h"
+#import "../voice/GlobalVoiceBackground.h"
 #include "../core/DiagnosticLog.h"
 #include "msime_client.h"
 #include "MSIMERustClient.h"
@@ -71,6 +74,8 @@ static BOOL MSIMEScreenIsLocked(void) {
 
 int main(int argc, const char *argv[]) {
     @autoreleasepool {
+        int bootstrapExit = 0;
+        if (MSIMEHandleGlobalVoiceBootstrap(argc, argv, &bootstrapExit)) return bootstrapExit;
         if (MSIMEShouldRegisterInputSource(argc, argv)) {
             NSURL *bundleURL = NSBundle.mainBundle.bundleURL;
             NSString *identifier = NSBundle.mainBundle.bundleIdentifier;
@@ -164,6 +169,12 @@ int main(int argc, const char *argv[]) {
         if (![connectionName isKindOfClass:NSString.class] || connectionName.length == 0) return 1;
         __attribute__((objc_precise_lifetime)) IMKServer *server = [[IMKServer alloc] initWithName:connectionName bundleIdentifier:NSBundle.mainBundle.bundleIdentifier];
         if (!server) return 1;
+        __attribute__((objc_precise_lifetime)) MSIMEGlobalVoiceSession *globalSession = [MSIMEGlobalVoiceSession new];
+        MSIMEGlobalVoiceHost().didCommit = ^(NSString *text) { MSIMERecordGlobalVoiceCommit(text); };
+        __attribute__((objc_precise_lifetime)) MSIMEGlobalVoiceCoordinator *globalVoice =
+            MSIMEGlobalVoiceInstalledHost(NSBundle.mainBundle) ? [[MSIMEGlobalVoiceCoordinator alloc] initWithTarget:^{ return (id<MSIMEGlobalVoiceTarget>)globalSession; }
+                deliveryTarget:^{ return MSIMEFocusedGlobalVoiceTarget(); }] : nil;
+        (void)globalVoice;
         // 记录本版本的模式，不自动启用或关闭输入源，保留用户在系统设置中的选择。
         NSString *const offeredModesKey = @"MSIMEOfferedInputModes";
         NSArray *offeredModes = [NSUserDefaults.standardUserDefaults arrayForKey:offeredModesKey];
