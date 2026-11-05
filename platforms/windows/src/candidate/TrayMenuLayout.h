@@ -87,7 +87,7 @@ struct TrayMenuState {
   bool translations = true;
   std::string scheme = "quanpin";
   std::string shuangpin_profile = "xiaohe";
-  // 存储的 `wubi_profile`，五笔一行按它标出 86 或 98。
+  // 存储的 `wubi_profile`，五笔一行按它标出 86、98 或新世纪。
   std::string wubi_profile = "wubi86";
   // Title of the selected global theme, shown beside 主题. Empty draws no hint.
   std::string theme_title;
@@ -156,12 +156,14 @@ inline std::string tray_menu_shuangpin_label(const std::string &profile) {
     return "双拼（智能 ABC）";
   return "双拼";
 }
-// 五笔一行标出存储的码表版本，与工具栏的「五笔 86」「五笔 98」一致；不认识的版本只写方案名，不猜一个错的。
+// 五笔一行标出存储的码表版本，与工具栏的「五笔 86」「五笔 98」「五笔 新世纪」一致；不认识的版本只写方案名，不猜一个错的。
 inline std::string tray_menu_wubi_label(const std::string &profile) {
   if (profile == "wubi86")
     return "五笔 86";
   if (profile == "wubi98")
     return "五笔 98";
+  if (profile == "wubixsj")
+    return "五笔 新世纪";
   return "五笔";
 }
 // The stored `scheme` value a scheme row selects, or null for every other row.

@@ -3,6 +3,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Arrays;
 
 public final class ReadingRowPolicySmoke {
     static void check(boolean condition, String what) {
@@ -48,6 +49,17 @@ public final class ReadingRowPolicySmoke {
         // 字体度量异常（descent 小于 ascent）或负的内边距不会把行高算成负数或比设计还矮。
         check(ReadingRowPolicy.heightPx(42, 10, -10, -6) == 42, "bad metrics never shrink the row");
         check(ReadingRowPolicy.heightPx(-1, 0, 0, 0) == 0, "a negative design height is not a height");
+
+        // #10474 / #10591：读音的可点区域。行宽 1080、行高 51（含行底间距），读音那一段从 30（行首内边距之后）到 700，右边是提示、页码、漢、×。
+        // 从左到右：从行的左边缘（含行首内边距）到读音那一段的右边缘，上下占满整行。
+        check(Arrays.equals(ReadingRowPolicy.touchTarget(false, 1080, 51, 30, 700), new int[] {0, 0, 700, 51}),
+            "the tap target runs from the row start to the end of the reading's segment, full row height");
+        // 从右到左：行首在右边，区域从读音那一段的左边缘到行的右边缘。
+        check(Arrays.equals(ReadingRowPolicy.touchTarget(true, 1080, 51, 380, 1050), new int[] {380, 0, 1080, 51}),
+            "a right-to-left row extends the tap target to its right edge");
+        // 18 键拼音选择条占去右半行时，读音那一段只到行中间，选择条不在区域里。
+        check(Arrays.equals(ReadingRowPolicy.touchTarget(false, 1080, 51, 30, 540), new int[] {0, 0, 540, 51}),
+            "the 18-key spelling selector stays outside the tap target");
         System.out.println("Android reading row: the row is as tall as the reading's ink passed");
     }
 }

@@ -52,7 +52,9 @@ public:
   PumpResult run(const PipeTicket &ticket);
 
 private:
-  bool enqueue(InputQueue::Task task);
+  // 默认是后台任务；按键和按键直接引发的界面/焦点变化传 Foreground。
+  bool enqueue(InputQueue::Task task,
+               InputTaskPriority priority = InputTaskPriority::Background);
   void cleanup(const PipeTicket &ticket) noexcept;
   MainTransport &transport_;
   InputQueue &input_;

@@ -27,8 +27,8 @@ SessionPump::SessionPump(MainTransport &transport, InputQueue &input,
   if (!key_ || !event_ || !transactions_)
     throw std::invalid_argument("Missing Windows dispatch handlers");
 }
-bool SessionPump::enqueue(InputQueue::Task task) {
-  auto completion = input_.submit(std::move(task));
+bool SessionPump::enqueue(InputQueue::Task task, InputTaskPriority priority) {
+  auto completion = input_.submit(std::move(task), priority);
   return completion && completion->get() == InputTaskStatus::Completed;
 }
 void SessionPump::cleanup(const PipeTicket &ticket) noexcept {
@@ -60,7 +60,7 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
     if (!enqueue([&, ticket](InputState &state) {
           if (transport_.current(ticket))
             connected = state.connected(ticket).accepted;
-        }))
+        }, InputTaskPriority::Foreground))
       return PumpResult::QueueUnavailable;
     if (!connected)
       return PumpResult::Disconnected;
@@ -85,7 +85,7 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
               route = state.dispatch(ticket, packet);
               current_preference_revision = state.preference_revision();
             }
-          }))
+          }, InputTaskPriority::Foreground))
         return PumpResult::QueueUnavailable;
       if (!route.accepted)
         continue;
@@ -193,7 +193,7 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
                 eligible = true;
                 handled = event_(route, delivered_packet);
               }
-            }))
+            }, InputTaskPriority::Foreground))
           return PumpResult::QueueUnavailable;
         if (!eligible)
           continue;
@@ -218,7 +218,7 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
                 } catch (const RequestRejected &error) {
                   rejected = error;
                 }
-              }))
+              }, InputTaskPriority::Foreground))
         return PumpResult::QueueUnavailable;
       if (rejected) {
         if (presentation_.rejected)
@@ -314,7 +314,7 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
               if (reply->translation_query && presentation_.translation)
                 presentation_.translation(lease, *reply);
             }
-          }))
+          }, InputTaskPriority::Foreground))
         return PumpResult::QueueUnavailable;
       if (!delivered && focus_.with_active(*route.route, [] {}))
         return PumpResult::DispatchFailed;
