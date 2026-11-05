@@ -219,6 +219,7 @@ final class KeyboardKeyButton: UIButton {
       _ = nineKeySwipe.finish()
       restoreNineKeySwipeFace()
       touchDownLocation = nil
+      pressFedBack = false
     }
   }
 
@@ -276,6 +277,51 @@ final class KeyboardKeyButton: UIButton {
   func takeTouchDownLocation() -> CGPoint? {
     defer { touchDownLocation = nil }
     return touchDownLocation
+  }
+
+  // MARK: - 按下即反馈（#10768）
+
+  /// 按下时播哪一类按键音：空格、退格、回车各有一声，与它们的动作在 `playInputClick` 里用的类别相同。控制器造这几个键时设好。
+  var pressSoundClass: KeySoundClass = .standard
+
+  /// 这个键最近一次按下已经给过按键音和振动（`beginPressFeedback`），由下一次松手（`releasing`）取走。触摸被手势接管而取消时不清：滑动选假名、18 键横滑在手势结束时才上屏，那时仍算这次按下的松手。每次按下都会重写它，所以留下的标记只可能被同一次按下的松手取走。
+  private(set) var pressFedBack = false
+
+  /// 一次按下开始（`KeyboardViewController.keyPressFeedback` 在 touchDown 上调）：返回这次要不要现在就反馈，并照此重写 `pressFedBack`。滚得动的容器里的键不在按下时反馈，也要清掉上一次按下留下的标记，否则那次被取消的触摸留下的标记会让这次松手的动作不出声，这一下就什么反馈都没有。
+  func beginPressFeedback() -> Bool {
+    pressFedBack = !sitsInScrollableContent
+    return pressFedBack
+  }
+
+  /// 正在处理的松手所属的那次按下已经反馈过。为真时 `playInputClick` 不再出声，一次按键只响一下、振一下。
+  private(set) static var releasingPressThatFedBack = false
+
+  /// 在一次松手的范围里执行 `body`：按键的 `touchesEnded`（点按、角标、九键滑动数字都在里面同步上屏），以及接管了按键触摸的手势在结束时上屏的那一段。`key` 这次按下反馈过时，`body` 里的按键反馈就不再发，并取走这个标记；不是按键、或这次按下没有反馈过（候选、面板、`sendActions`、读屏激活）时照常出声。范围只在 `body` 同步执行期间有效，结束就还原，不会留给之后的任何反馈。
+  static func releasing<Result>(_ key: UIView?, _ body: () -> Result) -> Result {
+    let outer = releasingPressThatFedBack
+    let pressed = key as? KeyboardKeyButton
+    releasingPressThatFedBack = pressed?.pressFedBack ?? false
+    pressed?.pressFedBack = false
+    defer { releasingPressThatFedBack = outer }
+    return body()
+  }
+
+  /// 内容比可见区域大，也就是这个容器滚得动。差半点以内算放得下，免得排版的小数误差把放得下的列当成能滚。
+  static func scrolls(contentSize: CGSize, boundsSize: CGSize) -> Bool {
+    contentSize.width > boundsSize.width + 0.5 || contentSize.height > boundsSize.height + 0.5
+  }
+
+  /// 按键在一个滚得动的容器里，例如九键左列的自定义符号表、九键面板的拼音栏：手指按下可能是在开始滚动，反馈仍留到松手时由动作发出，滑一下列表不振。
+  var sitsInScrollableContent: Bool {
+    var node = superview
+    while let current = node {
+      if let scroll = current as? UIScrollView, scroll.isScrollEnabled,
+         Self.scrolls(contentSize: scroll.contentSize, boundsSize: scroll.bounds.size) {
+        return true
+      }
+      node = current.superview
+    }
+    return false
   }
 
   /// 「九键滑动输入数字」（#10229）：九宫格 1–9 键的数字，为 nil 时这个键不接九键滑动。控制器建九宫格时设好；同一个键在数字层、九键双拼里也是它，那时 `nineKeySwipeMode` 返回关闭。
@@ -352,6 +398,11 @@ final class KeyboardKeyButton: UIButton {
   }
 
   override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+    // 按下时已经出过声、振过，这次松手里执行的动作不再重复（#10768）。
+    Self.releasing(self) { endTouches(touches, with: event) }
+  }
+
+  private func endTouches(_ touches: Set<UITouch>, with event: UIEvent?) {
     let swiped = nineKeySwipe.finish()
     if swiped != .none {
       // 和角标一样取消而不是结束这次触摸，按键自己的点按不会再触发；还原键面之后再上屏，上屏引起的重画看到的是原来的键面。
@@ -514,9 +565,11 @@ final class KeyboardKeyButton: UIButton {
 
   private var appliedShadowBounds: CGRect?
   private var appliedShadowRadius: CGFloat?
+  var bottomHintLabel: KeyboardBottomHintLabel?
 
   override func layoutSubviews() {
     super.layoutSubviews()
+    bottomHintLabel?.layout(in: bounds)
     // 按钮自己的布局才能看到最终尺寸。控制器不再遍历整棵视图树重复更新阴影；
     // 按钮尺寸和圆角不变时，候选更新引发的布局也不必重建路径。
     if layer.shadowOpacity > 0 {

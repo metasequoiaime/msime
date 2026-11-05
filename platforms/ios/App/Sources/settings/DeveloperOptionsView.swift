@@ -221,7 +221,8 @@ private enum DeveloperDiagnostics {
     KeyboardLayoutPreference.resetToDefaults()
     let local: [(UserDefaults, [String])] = [
       (KeyboardLayoutPreference.defaults, [KeyboardLayoutPreference.tabletSplitKey, KeyboardLayoutPreference.tabletFullKeysKey,
-                                           KeyboardLayoutPreference.glideTypingKey, KeyboardLayoutPreference.cursorSwipeKey,
+                                           KeyboardLayoutPreference.glideTypingKey, KeyboardLayoutPreference.bilingualGlideKey,
+                                           KeyboardLayoutPreference.cursorSwipeKey,
                                            KeyboardLayoutPreference.oneHandedKey,
                                            KeyboardLayoutPreference.spaceVoiceKey, KeyboardLayoutPreference.swipeSymbolsKey,
                                            KeyboardLayoutPreference.swipeSymbolsDirectionKey, KeyboardLayoutPreference.letterCornerHintsKey,

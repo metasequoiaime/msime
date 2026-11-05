@@ -130,7 +130,7 @@ try {
             @{ name = "$directory-$name"; file = $name; size = (Get-Item $path).Length; sha256 = (Get-FileHash $path).Hash.ToLowerInvariant() }
         }) }
     })
-    Write-Fixture 'resources/rerank-model.lock.json' (@{ release_tag = 'rerank-v1'; models = $rerankModels } | ConvertTo-Json -Depth 6)
+    Write-Fixture 'resources/rerank-model.lock.json' (@{ release_tag = 'rerank-v2'; models = $rerankModels } | ConvertTo-Json -Depth 6)
     Write-Fixture 'target/rerank-model/rerank-model/stray.bin' 'synthetic file the lock does not name'
     Write-Fixture 'server/build-release/bin/Release/resources/stale.txt' 'synthetic stale bundle'
     & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -TargetVersion '2026.9.1'

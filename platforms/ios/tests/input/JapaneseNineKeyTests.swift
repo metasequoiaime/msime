@@ -27,6 +27,9 @@ final class JapaneseNineKeyTests: XCTestCase {
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
     controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: KeyboardViewController.defaultKeyboardHeight)
+    // 控制器创建时会话从挂起状态开始，模拟键盘真正出现以建立输入会话。
+    controller.viewWillAppear(false)
+    defer { controller.viewWillDisappear(false) }
     controller.view.layoutIfNeeded()
     let panel = try XCTUnwrap(nodes(controller.view).compactMap { $0 as? JapaneseNineKeyView }.first)
     XCTAssertFalse(panel.isHidden)

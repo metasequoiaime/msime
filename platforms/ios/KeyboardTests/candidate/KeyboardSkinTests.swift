@@ -300,13 +300,13 @@ final class KeyboardSkinTests: XCTestCase {
 
     let light = UITraitCollection(userInterfaceStyle: .light), dark = UITraitCollection(userInterfaceStyle: .dark)
     func hex(_ color: UIColor, _ traits: UITraitCollection) -> UInt32 { packed(color.resolvedColor(with: traits)) }
-    XCTAssertEqual(hex(skin.background, light), 0xEED7C7)
-    // 绿色通道算出来是 249.5；设计稿表格和 Android（`AppThemePaletteSmoke`）都写成 F9。
-    XCTAssertEqual(hex(skin.keyBackground, light), 0xFDF9F6)
-    XCTAssertEqual(hex(skin.functionKeyBackground, light), 0xE6C6B2)
-    XCTAssertEqual(hex(skin.accent, light), 0xB5562B)
-    XCTAssertEqual(hex(skin.actionBackground, light), 0xB5562B)
-    XCTAssertEqual(hex(skin.actionForeground, light), 0xFFFFFF)
+    XCTAssertEqual(hex(skin.background, light), 0xF1E6CC)
+    // 与 Android（`AppThemePaletteSmoke`）同值；落在 .5 的通道怎么取整由 `AppThemePaletteTests.testMixMatchesTheDesignTokens` 钉住。
+    XCTAssertEqual(hex(skin.keyBackground, light), 0xFEFCF9)
+    XCTAssertEqual(hex(skin.functionKeyBackground, light), 0xE8D7B0)
+    XCTAssertEqual(hex(skin.accent, light), 0xB07800)
+    XCTAssertEqual(hex(skin.actionBackground, light), 0xB07800)
+    XCTAssertEqual(hex(skin.actionForeground, light), 0x1A1200)
     XCTAssertEqual(hex(skin.keyForeground, light), 0x000000)
     XCTAssertEqual(hex(skin.secondary, light), 0x5A6B5D)
 
@@ -320,7 +320,7 @@ final class KeyboardSkinTests: XCTestCase {
 
     XCTAssertEqual(skin.accentSoft.resolvedColor(with: light).cgColor.alpha, 0x22 / 255, accuracy: 0.001)
     XCTAssertEqual(skin.accentSoft.resolvedColor(with: dark).cgColor.alpha, 0x40 / 255, accuracy: 0.001)
-    XCTAssertEqual(hex(skin.toolbarActiveBackground, light), 0xB5562B)
+    XCTAssertEqual(hex(skin.toolbarActiveBackground, light), 0xB07800)
 
     // 品牌键从当前皮肤取色，具名主题和自定义设计不再残留季节色。
     for theme in [skin, KeyboardTheme.resolve("night", document: [:]),
@@ -337,7 +337,7 @@ final class KeyboardSkinTests: XCTestCase {
     selectAppTheme("qiushan")
     let skin = KeyboardTheme.resolve(GlobalThemeCatalog.systemId, document: [:])
     let light = UITraitCollection(userInterfaceStyle: .light)
-    XCTAssertEqual(packed(skin.background.resolvedColor(with: light)), 0xEED7C7)
+    XCTAssertEqual(packed(skin.background.resolvedColor(with: light)), 0xF1E6CC)
     AppThemePalette.select("dongxue")
     let winter = try XCTUnwrap(AppThemePalette.resolved(dark: false))
     XCTAssertEqual(winter.season, "winter")
@@ -351,7 +351,7 @@ final class KeyboardSkinTests: XCTestCase {
     func ratio(_ a: UIColor, _ b: UIColor, _ traits: UITraitCollection) -> Double {
       CustomKeyboardSkin.contrast(packed(a.resolvedColor(with: traits)), packed(b.resolvedColor(with: traits)))
     }
-    let expected = ["chunya": 0x267308, "xiayin": 0x0F6B46, "qiushan": 0x9F4214, "dongxue": 0x346484] as [String: UInt32]
+    let expected = ["chunya": 0x267308, "xiayin": 0x0F6B46, "qiushan": 0x905A00, "dongxue": 0x346484] as [String: UInt32]
     for (id, candidate) in expected {
       selectAppTheme(id)
       let skin = KeyboardTheme.resolve(GlobalThemeCatalog.systemId, document: [:])

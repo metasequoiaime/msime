@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 水杉标志，与各平台相同：深色 #252525 圆角正方形带 #A8DF8E 绿边，上面一笔白色折线（packages/ui/src/assets/msime.svg）。它本身就是唯一的外框，用到它的地方都不再垫圆盘。坐标沿用设计稿：折线在 116×132 里，正方形外框围着它居中，所以画布是 132×132、整体右移 8。矢量而不是位图，因为开屏要给折线（mark）做描边动画。 -->
+<!-- 水杉标志，与各平台相同：深色 #252525 圆角正方形带 #A8DF8E 绿边，上面一笔白色折线（packages/ui/src/assets/msime.svg）。它本身就是唯一的外框，用到它的地方都不再垫圆盘。画布是 132×132，外框和折线都是 msime.svg（110×110）放大 1.2 倍：外框边长 120、圆角 26.4、绿边 6，折线宽 9.6、圆头、尖角连接（msime.svg 不写 linejoin，按 SVG 默认 miter、miter limit 4）。坐标与 packages/ui 的 brand-logo 同一套（从 x = -8 起），所以整体右移 8。矢量而不是位图，因为开屏要给折线（mark）做描边动画。 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="100dp"
     android:height="100dp"
@@ -16,10 +16,11 @@
 
         <path
             android:name="mark"
-            android:pathData="M75.8838 28.2335L39.0447 42.3579L75.8838 52.9512L39.0447 70.6066C73.8717 76.4918 106.609 81.3177 37.0431 103.637"
+            android:pathData="M76.7775 26.4735L38.7872 41.0393L76.7775 51.9637L38.7872 70.1708C74.7026 76.2399 108.462 81.2165 36.7231 104.2335"
             android:strokeColor="#FFFFFF"
-            android:strokeWidth="9"
+            android:strokeWidth="9.6"
             android:strokeLineCap="round"
-            android:strokeLineJoin="round" />
+            android:strokeLineJoin="miter"
+            android:strokeMiterLimit="4" />
     </group>
 </vector>

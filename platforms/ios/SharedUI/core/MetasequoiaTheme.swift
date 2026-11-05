@@ -20,7 +20,7 @@ enum MetasequoiaTheme {
       ? UIColor(red: 95 / 255, green: 191 / 255, blue: 132 / 255, alpha: 0.26)
       : UIColor(red: 44 / 255, green: 122 / 255, blue: 75 / 255, alpha: 0.14)
   })
-  // `accent` 填充上的前景色：浅色下为白色；深色下用 Rust 的 mix(accent 25%, #000)，因为白色放在深色模式偏浅的强调色上对比度不到 2:1。
+  // `accent` 填充上的前景色：Rust 的 `on_accent`，浅色一般是白色（秋杉的银杏金上是深色），深色是 mix(accent 25%, #000)，因为白色放在深色模式偏浅的强调色上对比度不到 2:1。
   static let onAccent = Color(uiColor: UIColor { traits in
     palette(traits)?.onAccent ?? onForestUIColor.resolvedColor(with: traits)
   })

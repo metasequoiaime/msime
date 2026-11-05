@@ -101,6 +101,7 @@ final class KoreanDubeolsikTests: XCTestCase {
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
     controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.viewWillAppear(false)
     controller.view.layoutIfNeeded()
 
     XCTAssertEqual(try button("bottomLanguageKey", in: controller).configuration?.title, "한")
@@ -187,6 +188,7 @@ final class KoreanDubeolsikTests: XCTestCase {
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
     controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.viewWillAppear(false)
     controller.view.layoutIfNeeded()
     func visibleChip(_ number: Int) -> UIButton? {
       nodes(controller.view).first { $0.accessibilityIdentifier == "candidate-\(number)" && !$0.isHidden } as? UIButton
@@ -294,6 +296,7 @@ final class KoreanDubeolsikTests: XCTestCase {
       let controller = KeyboardViewController()
       controller.loadViewIfNeeded()
       controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: KeyboardViewController.defaultKeyboardHeight)
+      controller.viewWillAppear(false)
       controller.view.layoutIfNeeded()
       for jamo in ["ㅎ", "ㅏ", "ㄴ"] {
         try key(labelled: "字母 \(jamo)", in: controller).sendActions(for: .primaryActionTriggered)

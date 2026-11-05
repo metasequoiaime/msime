@@ -1,15 +1,17 @@
 import SwiftUI
 import UIKit
 
-/// 官方水杉标志，折线取自设计稿的 116 x 132 viewBox（设计稿的笔画以外框中心为原点缩到 80%、线宽不变，四周留出边距）：一个填充的圆角正方形外框（120 x 120，圆角半径为边长的 22%，围着折线居中，所以画布向左右各扩 8，成为原点在 x = -8 的 132 x 132 正方形），上面叠白色折线描边，与 Android 的 KeyboardBrandButton 和 splash_mark.xml 画的是同一组路径。两条路径都按比例适配并居中到请求的矩形里，所以画进同一矩形的外框和描边能对齐。
+/// 官方水杉标志，就是 packages/ui/src/assets/msime.svg（110 x 110 viewBox，PC 端应用图标从它渲染）整体放大 1.2 倍：一个填充的圆角正方形外框（120 x 120，圆角半径为边长的 22%，放在原点在 x = -8 的 132 x 132 viewBox 里），上面叠白色折线描边，折线、线宽、圆头端点和尖角连接都与 msime.svg 相同，与 Android 的 KeyboardBrandButton 和 splash_mark.xml 画的是同一组路径。两条路径都按比例适配并居中到请求的矩形里，所以画进同一矩形的外框和描边能对齐。
 enum MSIMELogo {
   static let viewBox = CGRect(x: -8, y: 0, width: 132, height: 132)
   /// `M-2.15686 5.8335H117.843V125.833H-2.15686Z`.
   static let frameRect = CGRect(x: -2.15686, y: 5.8335, width: 120, height: 120)
   /// 外框圆角半径，以 viewBox 单位计：边长的 22%，与 packages/ui/src/assets/msime.svg 相同。
   static let frameCornerRadius: CGFloat = 26.4
-  /// 描边宽度，以 viewBox 单位计，用圆头端点和圆角连接绘制；使用时乘以 `scale(for:)`。
-  static let strokeWidth: CGFloat = 9
+  /// 描边宽度，以 viewBox 单位计：msime.svg 的 8 放大 1.2 倍，用圆头端点和尖角连接绘制；使用时乘以 `scale(for:)`。
+  static let strokeWidth: CGFloat = 9.6
+  /// Miter limit of the stroke's joins. SVG's default is 4 while CoreGraphics and SwiftUI default to 10; all three vertices of the mark (about 35 to 42 degrees) stay under either limit, so this only pins the value to msime.svg's explicitly.
+  static let strokeMiterLimit: CGFloat = 4
   /// 外框的填充色，所有平台的标志都是这一块深色圆角正方形，不跟随主题或皮肤的强调色（与 packages/ui/src/assets/msime.svg 相同）。
   static let fieldColor = UIColor(red: 0x25 / 255.0, green: 0x25 / 255.0, blue: 0x25 / 255.0, alpha: 1)
   /// 外框的绿边颜色。
@@ -22,15 +24,15 @@ enum MSIMELogo {
     min(rect.width / viewBox.width, rect.height / viewBox.height)
   }
 
-  /// `M75.8838 28.2335L39.0447 42.3579L75.8838 52.9512L39.0447 70.6066C73.8717 76.4918 106.609 81.3177 37.0431 103.637`.
+  /// `M76.7775 26.4735L38.7872 41.0393L76.7775 51.9637L38.7872 70.1708C74.7026 76.2399 108.462 81.2165 36.7231 104.2335`: msime.svg's `M70.7787 22.2L39.1201 34.3382L70.7787 43.4418L39.1201 58.6144C69.0496 63.672 97.1824 67.8192 37.4 87` scaled by 1.2 so its `x5 y5` frame lands on `frameRect`'s origin.
   static func strokePath(in rect: CGRect) -> CGPath {
     let point = mapper(for: rect)
     let path = CGMutablePath()
-    path.move(to: point(75.8838, 28.2335))
-    path.addLine(to: point(39.0447, 42.3579))
-    path.addLine(to: point(75.8838, 52.9512))
-    path.addLine(to: point(39.0447, 70.6066))
-    path.addCurve(to: point(37.0431, 103.637), control1: point(73.8717, 76.4918), control2: point(106.609, 81.3177))
+    path.move(to: point(76.7775, 26.4735))
+    path.addLine(to: point(38.7872, 41.0393))
+    path.addLine(to: point(76.7775, 51.9637))
+    path.addLine(to: point(38.7872, 70.1708))
+    path.addCurve(to: point(36.7231, 104.2335), control1: point(74.7026, 76.2399), control2: point(108.462, 81.2165))
     return path
   }
 
@@ -55,7 +57,8 @@ enum MSIMELogo {
     let stroke = UIBezierPath(cgPath: strokePath(in: rect))
     stroke.lineWidth = strokeWidth * scale
     stroke.lineCapStyle = .round
-    stroke.lineJoinStyle = .round
+    stroke.lineJoinStyle = .miter
+    stroke.miterLimit = strokeMiterLimit
     UIColor.white.setStroke()
     stroke.stroke()
   }
@@ -68,7 +71,7 @@ enum MSIMELogo {
   }
 }
 
-/// 标志的白色描边；用 `MSIMELogo.strokeWidth * MSIMELogo.scale(for:)` 的线宽和圆头端点、圆角连接来描。裁剪它会从起点开始画出描边，与启动页的效果一致。
+/// 标志的白色描边；用 `MSIMELogo.strokeWidth * MSIMELogo.scale(for:)` 的线宽、圆头端点和尖角连接（miter limit 为 `MSIMELogo.strokeMiterLimit`）来描。裁剪它会从起点开始画出描边，与启动页的效果一致。
 struct MSIMELogoStroke: Shape {
   func path(in rect: CGRect) -> Path { Path(MSIMELogo.strokePath(in: rect)) }
 }
@@ -90,7 +93,7 @@ struct MSIMELogoMark: View {
         MSIMELogoFrame().stroke(Color(uiColor: MSIMELogo.edgeColor), lineWidth: MSIMELogo.edgeWidth * scale)
         MSIMELogoStroke()
           .trim(from: 0, to: strokeDrawn)
-          .stroke(.white, style: StrokeStyle(lineWidth: MSIMELogo.strokeWidth * scale, lineCap: .round, lineJoin: .round))
+          .stroke(.white, style: StrokeStyle(lineWidth: MSIMELogo.strokeWidth * scale, lineCap: .round, lineJoin: .miter, miterLimit: MSIMELogo.strokeMiterLimit))
       }
     }
   }

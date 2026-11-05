@@ -547,7 +547,7 @@ if (-not $Light) {
         }
     }
 }
-# 整句联想「增强」逐键重排的两档 ONNX 模型（chinese-ime-lm 的 rerank-v1：8x448 与 6x256），scripts/fetch_rerank_model.py 按 resources/rerank-model.lock.json 下载核对到 target/rerank-model。装在 Server 目录旁边的 rerank-model 和 rerank-model-small：Server 把自己所在的目录作为模型目录告诉它的会话（src/system/RerankModelRoot.h），x64 宿主 DLL 开着 onnx-rerank（Build-RustOutputs.ps1），加载时先自测大的、打一页超过 10 ms 换小的；没有模型时退回 resources 里随包的 sentence-model.safetensors。只给带键盘神经模型的版本（版本表 features.neural_keyboard）；轻量包不带，Win7 包也不带（Win7 的宿主不链接 ONNX Runtime，见 Build-Windows7Core.ps1）。暂存前按锁核对长度和 SHA-256；设置 MSIME_REQUIRE_RERANK_MODELS=1 时缺了就失败。
+# 整句联想「增强」逐键重排的两档 ONNX 模型（chinese-ime-lm 的 rerank-v2：8x448 与 6x256），scripts/fetch_rerank_model.py 按 resources/rerank-model.lock.json 下载核对到 target/rerank-model。装在 Server 目录旁边的 rerank-model 和 rerank-model-small：Server 把自己所在的目录作为模型目录告诉它的会话（src/system/RerankModelRoot.h），x64 宿主 DLL 开着 onnx-rerank（Build-RustOutputs.ps1），加载时先自测大的、打一页超过 10 ms 换小的；没有模型时退回 resources 里随包的 sentence-model.safetensors。只给带键盘神经模型的版本（版本表 features.neural_keyboard）；轻量包不带，Win7 包也不带（Win7 的宿主不链接 ONNX Runtime，见 Build-Windows7Core.ps1）。暂存前按锁核对长度和 SHA-256；设置 MSIME_REQUIRE_RERANK_MODELS=1 时缺了就失败。
 $rerankSource = Join-Path $RepoRoot 'target/rerank-model'
 $rerankLock = Get-Content -LiteralPath (Join-Path $RepoRoot 'resources/rerank-model.lock.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 $editionNeuralKeyboard = [bool]$editionEntry[0].features.neural_keyboard
