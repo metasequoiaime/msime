@@ -4860,7 +4860,7 @@ public:
       : factory_(factory), index_(index), label_(label) {
     setCheckable(true);
   }
-  // 名字与 macOS 子菜单相同：双拼带键位方案，五笔跟随存储的码表版本显示「五笔 86」或「五笔 98」。
+  // 名字与 macOS 子菜单相同：双拼带键位方案，五笔跟随存储的码表版本显示「五笔 86」「五笔 98」或「五笔 新世纪」。
   std::string shortText(fcitx::InputContext *ic) const override {
     if (ic) return ic->propertyFor(factory_)->schemeMenuTitle(FcitxState::kSchemes[index_]);
     return label_;

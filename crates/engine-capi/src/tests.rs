@@ -395,6 +395,11 @@ fn options_reject_unknown_keys_versions_and_values() {
             "unknown field",
         ),
         ("scheme", serde_json::json!("dvorak"), "unknown variant"),
+        (
+            "wubi",
+            serde_json::json!({"profile": "wubi06"}),
+            "unknown variant",
+        ),
         ("first_page_rows", serde_json::json!(0), "first_page_rows"),
     ] {
         let mut changed = options.clone();
@@ -405,6 +410,12 @@ fn options_reject_unknown_keys_versions_and_values() {
             "{key}"
         );
         assert!(last_error().contains(needle), "{key}: {}", last_error());
+    }
+    // 三版五笔都是合法的码表版本。
+    for profile in ["wubi86", "wubi98", "wubixsj"] {
+        let mut changed = options.clone();
+        changed["wubi"] = serde_json::json!({"profile": profile});
+        free(new_session(&changed.to_string()).expect(profile));
     }
     options["paths"]["cache"] = serde_json::json!("relative/cache");
     assert_eq!(
@@ -1281,6 +1292,11 @@ fn user_dict_validate_normalizes_and_explains() {
     assert_eq!(
         validate(r#"{"kind":"english","key":"Dont","value":"don't","weight":7}"#),
         Ok(serde_json::json!({"kind": "english", "key": "dont", "value": "don't", "weight": 7}))
+    );
+    // 新世纪五笔的词条用自己的种类名，编码规则与另两版相同。
+    assert_eq!(
+        validate(r#"{"kind":"wubixsj","key":"ENT","value":"力"}"#),
+        Ok(serde_json::json!({"kind": "wubixsj", "key": "ent", "value": "力", "weight": 100000}))
     );
     for (entry, needle) in [
         (

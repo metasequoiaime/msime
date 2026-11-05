@@ -144,6 +144,13 @@ try {
     if ([IO.File]::ReadAllText((Join-Path $installer 'msime_setup.iss')) -notmatch '(?m)^#define\s+MyAppVersion\s+"2026\.9\.1"\s*$') {
         throw 'Installer version was not written into msime_setup.iss'
     }
+    # 只有 .iss 要 BOM。Server 目录的版本声明交给 serde_json 解析，带 BOM 时 MSIME.exe 启动检查不过直接退出（#10816）；出厂配置模板与仓库里那一份一样不带 BOM。Get-Content -Encoding UTF8 会吞掉 BOM，所以这里按字节查。
+    foreach ($relative in @('server_exe/edition.json', 'app_data/config.default.toml')) {
+        $stagedBytes = [IO.File]::ReadAllBytes((Join-Path $installer $relative))
+        if ($stagedBytes.Length -ge 3 -and $stagedBytes[0] -eq 0xEF -and $stagedBytes[1] -eq 0xBB -and $stagedBytes[2] -eq 0xBF) {
+            throw "$relative was staged with a UTF-8 BOM"
+        }
+    }
     # tsf_dll\arm64 包含 Arm64X TIP、它的 PDB、WER helper 和 ARM64 宿主 DLL：TIP 的 ARM64EC 那一半用的 x64 宿主由 tsf_dll\64 装进同一个版本目录。
     $arm64Staged = @(Get-ChildItem -LiteralPath (Join-Path $installer 'tsf_dll/arm64') -File | ForEach-Object Name | Sort-Object)
     if (($arm64Staged -join ',') -ne 'MetasequoiaImeCrashWer.dll,MetasequoiaImeTsf.dll,MetasequoiaImeTsf.pdb,msime_host_api_arm64.dll' -or

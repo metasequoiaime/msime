@@ -31,6 +31,7 @@ fn options(root: &Path) -> EngineOptions {
         shuangpin_preedit_uses_raw: true,
         shuangpin_preedit_separated: false,
         force_cantonese_shuangpin: false,
+        cantonese_output_conversion: None,
         single_character_only: false,
         caret_edit_suffix: false,
         learning: false,
@@ -1100,7 +1101,7 @@ fn invalid_options_return_errors_instead_of_unwinding_into_rust() {
     value.shuangpin_profile = 255;
     assert_eq!(message(&value), "Unsupported shuangpin profile");
     value.shuangpin_profile = 0;
-    value.wubi_profile = 2;
+    value.wubi_profile = 3;
     assert_eq!(message(&value), "Unsupported wubi profile");
     value.wubi_profile = 1;
     value.frequency_mode = "sometimes".into();

@@ -22,6 +22,7 @@ import { subscribeToWindowEvent } from "../core/window-focus";
 import { useMobilePopState } from "../settings/use-mobile-pop-state";
 import { logo } from "../settings/app-resources";
 import type { Preferences } from "../core/preferences-model";
+import { knownWubiProfile, type WubiProfile } from "../settings/wubi-preferences";
 import * as onboarding from "./onboarding-style";
 
 /** 首次设置选用的触屏键盘。全拼 26 键和 9 键由用户在「选择输入方式」一步里选，HarmonyOS 还可以选双拼（小鹤）和五笔；不提供全拼的版本跳过这一步，直接用版本默认方案的键盘（五笔版是五笔）。 */
@@ -214,6 +215,13 @@ interface HarmonySchemeCard {
   detail: string;
 }
 
+/** 引导页五笔卡片的副标题，写明正在用哪一版码表；不认识的值按 86。 */
+const wubiCardDetails: Record<WubiProfile, string> = {
+  wubi86: "形码 · 默认 86 版",
+  wubi98: "形码 · 当前 98 版",
+  wubixsj: "形码 · 当前新世纪版",
+};
+
 /** 设计里的四张卡片，去掉宿主或当前版本不提供的，2in1 上再去掉 9 键，因为它有硬件键盘（dc.html `onbSchemes`）。五笔那一行写明正在用哪套码表，与 Android 一致。 */
 function harmonySchemeCards(
   desktop: boolean,
@@ -248,7 +256,7 @@ function harmonySchemeCards(
       input: "wubi",
       name: "五笔",
       label: "五笔",
-      detail: wubiProfile === "wubi98" ? "形码 · 当前 98 版" : "形码 · 默认 86 版",
+      detail: wubiCardDetails[knownWubiProfile(wubiProfile)],
     },
   ];
   return all.filter(

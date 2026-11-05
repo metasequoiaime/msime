@@ -263,12 +263,13 @@ impl InputSession {
             };
             let text = candidate.word.clone();
             let key = candidate.canonical_pinyin.clone();
+            let dictionary_word = self.engine.cantonese_dictionary_word(&key, &text);
             let cantonese_row = is_cantonese_row(candidate);
             let end = candidate.pinyin.len();
             // 组句标记和调频都在拿走这一段之前取：拿走后候选换成剩下那段的。
             let pick = CantonesePick {
                 key: &key,
-                word: &text,
+                word: &dictionary_word,
                 cantonese_row,
                 composed: cantonese_row && self.engine.cantonese_row_is_composed(&key, &text),
             };
@@ -449,7 +450,8 @@ impl InputSession {
     ) -> Result<()> {
         self.canonical_phrase_engine()
             .create_word_from_canonical_pinyin(pinyin, word)?;
-        if crate::user_dictionary::wubi_learning::learn(&self.paths, word)? {
+        let profile = self.engine.wubi_input_options().profile;
+        if crate::user_dictionary::wubi_learning::learn(&self.paths, word, profile)? {
             self.engine.reset_cache();
         }
         Ok(())

@@ -206,6 +206,9 @@ def main() -> int:
     for notice in ("pinyin-data-MIT.txt", "ECDICT-MIT.txt", "rime_kaomoji_dict-MIT.txt", "python-pinyin-MIT.txt", "rime-wubi86-jidian-Apache-2.0.txt", "rime-wanxiang-CC-BY-4.0.txt"):
         if not (contents / "Resources" / "Licenses" / notice).is_file():
             failures.append(f"Contents/Resources/Licenses/{notice} is missing; the bundled dictionary data it covers ships without its licence")
+    # msime-wubi.db 里新世纪五笔（wubixsj）的单字码取自 GPL-3.0 的 byujiang/wubi06_rime，与输入法本身同一许可，不另带许可证文件，靠的就是这份全文。
+    if not (contents / "Resources" / "Licenses" / "GPL-3.0.txt").is_file():
+        failures.append("Contents/Resources/Licenses/GPL-3.0.txt is missing; the input method and the GPL-3.0 新世纪五笔 codes in msime-wubi.db ship without their licence")
     # EngineResources 里的整句重排模型（chinese-ime-lm 的 model-v1）是 Apache-2.0，第 4(a)、4(d) 条要求随副本附上许可证全文和上游 NOTICE，训练语料要求署名随权重传播；这份文件三样都有。
     if not (contents / "Resources" / "Licenses" / "sentence-model-Apache-2.0.txt").is_file():
         failures.append("Contents/Resources/Licenses/sentence-model-Apache-2.0.txt is missing; the sentence rerank model ships without its licence, upstream NOTICE and corpus attribution")
