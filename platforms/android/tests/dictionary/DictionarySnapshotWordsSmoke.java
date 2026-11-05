@@ -12,6 +12,7 @@ public final class DictionarySnapshotWordsSmoke {
         check("quickPhrase".equals(DictionarySnapshotWords.personalKind("quick_phrase")), "quick phrase kind");
         check("quickPhrase".equals(DictionarySnapshotWords.personalKind("quick")), "snapshot quick phrase kind");
         check("wubi98".equals(DictionarySnapshotWords.personalKind("wubi98")), "wubi98 kind");
+        check("wubixsj".equals(DictionarySnapshotWords.personalKind("wubixsj")), "new century wubi kind");
         check(DictionarySnapshotWords.personalKind("cangjie") == null, "unknown kind");
 
         List<DictionarySnapshotWords.Word> words = new ArrayList<>();
@@ -19,6 +20,7 @@ public final class DictionarySnapshotWordsSmoke {
             words.add(new DictionarySnapshotWords.Word("pinyin", "k" + index, "词" + index, 1));
         words.add(new DictionarySnapshotWords.Word("pinyin", "k0", "词0", 9));
         words.add(new DictionarySnapshotWords.Word("cangjie", "x", "y", 1));
+        words.add(new DictionarySnapshotWords.Word("wubixsj", "ent", "力", 1));
         words.add(new DictionarySnapshotWords.Word("quick_phrase", "zjd", "在家等", 1));
         List<List<DictionarySnapshotWords.Word>> batches = DictionarySnapshotWords.batches(words, 128);
         int total = 0;
@@ -26,8 +28,9 @@ public final class DictionarySnapshotWordsSmoke {
             check(batch.size() <= 128, "batch size");
             total += batch.size();
         }
-        check(total == 301 && batches.size() == 3, "deduped and batched: " + total);
+        check(total == 302 && batches.size() == 3, "deduped and batched: " + total);
         check("quickPhrase".equals(batches.get(2).get(batches.get(2).size() - 1).kind()), "kind converted");
+        check("wubixsj".equals(batches.get(2).get(batches.get(2).size() - 2).kind()), "new century wubi word kept");
 
         check(DictionarySnapshotWords.strictWeight(100L) == 100L, "integer snapshot weight");
         check(DictionarySnapshotWords.strictWeight(1.5d) == null, "fractional snapshot weight is rejected");

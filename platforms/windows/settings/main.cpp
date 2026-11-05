@@ -378,7 +378,7 @@ std::wstring lexicon_kind_label(std::wstring_view kind) {
 
 // What a code looks like in each dictionary, as the shared page hints it.
 std::wstring lexicon_key_hint(std::wstring_view kind) {
-  if (kind == L"wubi" || kind == L"wubi98")
+  if (kind == L"wubi" || kind == L"wubi98" || kind == L"wubixsj")
     return L"1–4 个字母";
   if (kind == L"quick_phrase")
     return L"1–32 个字母";
@@ -420,7 +420,7 @@ std::wstring dictionary_error_text(std::wstring const &code, std::wstring_view k
   if (code == L"dictionary_invalid_entry") {
     if (kind == L"pinyin")
       return L"拼音必须由完整音节组成，音节数需与汉字数一致，例如“你好”填 nihao 或 ni'hao。";
-    if (kind == L"wubi" || kind == L"wubi98")
+    if (kind == L"wubi" || kind == L"wubi98" || kind == L"wubixsj")
       return L"五笔编码须为 1 到 4 个字母。";
     if (kind == L"quick_phrase")
       return L"快捷短语编码只能包含英文字母，长度 1 到 32。";
@@ -13629,10 +13629,10 @@ private:
 
   // ---- 输入 ----
 
-  // One text's codes in the 86 and 98 tables, as `wubi_codes` answers them, short codes first.
+  // 一段文字在各码表里的编码，顺序同 `ism::wubi_profiles`（86、98、新世纪），由 `wubi_codes` 回答，短码在前。
   struct WubiTextCodes {
     std::wstring text;
-    std::vector<std::wstring> wubi86, wubi98;
+    std::array<std::vector<std::wstring>, ism::wubi_profiles.size()> codes;
   };
 
   struct WubiCodeLookup {
@@ -13641,7 +13641,7 @@ private:
     bool truncated = false;
   };
 
-  // 五笔查码, as the shared page's WubiCodeLookupSection (packages/ui/src/settings/wubi-code-lookup-section.tsx): the text goes to the dictionary request `wubi_codes`, read-only, and every distinct character (and the whole text as one word) is listed with its 86 and 98 codes, short codes first.
+  // 五笔查码与共享页的 `WubiCodeLookupSection`（`packages/ui/src/settings/wubi-code-lookup-section.tsx`）一致：文字交给只读的 `wubi_codes` 请求，列出每个不同的字和整段词在 86、98、新世纪表里的编码，短码在前。
   void build_wubi_code_lookup(StackPanel const &page) {
     auto group = add_group(page, L"五笔查码");
     TextBox input;
@@ -13692,22 +13692,24 @@ private:
             12, palette_.sub));
     }
     add_row(group, 0xE721, L"查汉字的五笔编码",
-            L"输入或粘贴汉字，列出每个字的 86 和 98 五笔编码，简码在前、全码在后。打字时也能查：五笔拼音混输关闭时先按 z 再打拼音，候选后面标着它的五笔编码。",
+            L"输入或粘贴汉字，列出每个字的 86、98 和新世纪五笔编码，简码在前、全码在后。打字时也能查：五笔拼音混输关闭时先按 z 再打拼音，候选后面标着它的五笔编码。",
             nullptr, below);
   }
 
-  // The result table: 文字, then the 86 and 98 columns, the chosen table marked （当前）; a table without the text's codes shows —.
+  // 结果表先列文字，再按 `ism::wubi_profiles` 顺序始终列出三个码表；选用的表标「（当前）」，存储值未知时与引擎一样标 86，没有编码的表显示「—」。
   FrameworkElement wubi_code_table(std::vector<WubiTextCodes> const &rows) {
     Grid table;
     table.ColumnSpacing(16);
     table.RowSpacing(6);
-    for (auto width : {GridLength{1, GridUnitType::Auto}, GridLength{1, GridUnitType::Star},
-                       GridLength{1, GridUnitType::Star}}) {
+    ColumnDefinition text_column;
+    text_column.Width(GridLength{1, GridUnitType::Auto});
+    table.ColumnDefinitions().Append(text_column);
+    for (std::size_t i = 0; i < ism::wubi_profiles.size(); ++i) {
       ColumnDefinition column;
-      column.Width(width);
+      column.Width(GridLength{1, GridUnitType::Star});
       table.ColumnDefinitions().Append(column);
     }
-    const auto profile = document_.String(L"wubi_profile", L"wubi86");
+    const auto current = ism::wubi_profile_index(document_.String(L"wubi_profile", L"wubi86"));
     const auto place = [&table](FrameworkElement const &cell, int32_t row, int32_t column) {
       Grid::SetRow(cell, row);
       Grid::SetColumn(cell, column);
@@ -13720,8 +13722,10 @@ private:
     };
     add_row_definition();
     place(make_text(L"文字", 12, palette_.sub), 0, 0);
-    place(make_text(profile == L"wubi86" ? L"86 五笔（当前）" : L"86 五笔", 12, palette_.sub), 0, 1);
-    place(make_text(profile == L"wubi98" ? L"98 五笔（当前）" : L"98 五笔", 12, palette_.sub), 0, 2);
+    for (std::size_t i = 0; i < ism::wubi_profiles.size(); ++i)
+      place(make_text(std::wstring(ism::wubi_profiles[i].title) + (i == current ? L"（当前）" : L""), 12,
+                      palette_.sub),
+            0, static_cast<int32_t>(i) + 1);
     const auto joined = [](std::vector<std::wstring> const &codes) {
       if (codes.empty())
         return std::wstring(L"—");
@@ -13736,11 +13740,11 @@ private:
       auto word = make_text(item.text, 14, palette_.text);
       word.IsTextSelectionEnabled(true);
       place(word, row, 0);
-      for (int32_t column = 1; column <= 2; ++column) {
-        auto codes = make_text(joined(column == 1 ? item.wubi86 : item.wubi98), 14, palette_.text);
+      for (std::size_t i = 0; i < item.codes.size(); ++i) {
+        auto codes = make_text(joined(item.codes[i]), 14, palette_.text);
         codes.FontFamily(FontFamily(L"Consolas"));
         codes.IsTextSelectionEnabled(true);
-        place(codes, row, column);
+        place(codes, row, static_cast<int32_t>(i) + 1);
       }
       ++row;
     }
@@ -13774,12 +13778,16 @@ private:
             if (!response.ok)
               throw std::runtime_error("wubi_codes refused");
             const auto value = JsonObject::Parse(text(response.text)).GetNamedObject(L"value");
+            // 较早的宿主没有新增码表的键，直接 `GetNamedArray` 会抛异常；缺少的那一列保持为空并显示「—」。
             const auto read = [](JsonObject const &object) {
-              WubiTextCodes codes{named_string(object, L"text"), {}, {}};
-              for (auto const &code : object.GetNamedArray(L"wubi86"))
-                codes.wubi86.emplace_back(code.GetString().c_str());
-              for (auto const &code : object.GetNamedArray(L"wubi98"))
-                codes.wubi98.emplace_back(code.GetString().c_str());
+              WubiTextCodes codes{named_string(object, L"text"), {}};
+              for (std::size_t i = 0; i < ism::wubi_profiles.size(); ++i) {
+                const hstring key{ism::wubi_profiles[i].id};
+                if (!object.HasKey(key))
+                  continue;
+                for (auto const &code : object.GetNamedArray(key))
+                  codes.codes[i].emplace_back(code.GetString().c_str());
+              }
               return codes;
             };
             WubiCodeLookup lookup;
@@ -13918,8 +13926,19 @@ private:
                          }));
     }
     if (scheme == L"wubi") {
-      select_row(group, 0xE8AB, L"五笔方案", L"", L"wubi_profile",
-                 {{L"wubi86", L"86 五笔"}, {L"wubi98", L"98 五笔"}}, L"wubi86");
+      // 下拉框的选项和名字在 InputSettingsModel.h 的 `wubi_profiles`，Win7 设置用同一张表。存储值不认识时选中 86 五笔，与共享偏好库的读法一样；只有用户自己选了才写回。
+      std::vector<Option> profiles;
+      for (auto const &profile : ism::wubi_profiles)
+        profiles.push_back({std::wstring(profile.id), std::wstring(profile.title)});
+      const auto stored_profile = document_.String(L"wubi_profile", L"wubi86");
+      auto profile_combo = select_control(
+          L"五笔方案", std::move(profiles),
+          std::wstring(ism::wubi_profiles[ism::wubi_profile_index(stored_profile)].id),
+          [this](std::wstring const &value) {
+            change([&](PreferencesDocument &doc) { doc.SetString(L"wubi_profile", value); }, false);
+          });
+      A11y::SetAutomationId(profile_combo, L"wubi-profile");
+      add_row(group, 0xE8AB, L"五笔方案", L"", profile_combo);
       bool_row(group, 0xE8D2, L"五笔拼音混输",
                L"五笔候选之后接着列出同一串字母的全拼候选，五笔编码打不出时直接出拼音候选。",
                L"wubi_mixed_pinyin", MSIME_EDITION_WUBI_MIXED_PINYIN_DEFAULT != 0);
@@ -16912,7 +16931,7 @@ private:
       lexicon_feedback_bar_.IsOpen(false);
   }
 
-  // 「查找词库」：共享页的「本地词库管理」组。进页面就列出所选词库的全部词条，搜索框输入后 280 ms 实时筛选（schedule_lexicon_search），词条和编码都能搜；词库下拉框在六个本机词库之后还有五个只读的资源词库。换词库时清空搜索框并从第一页重新列出。结果块（make_lexicon_results）装在 lexicon_results_host_ 里，查询回来时就地替换。
+  // 「查找词库」：共享页的「本地词库管理」组。进页面就列出所选词库的全部词条，搜索框输入后 280 ms 实时筛选（schedule_lexicon_search），词条和编码都能搜；词库下拉框在七个本机词库之后还有五个只读的资源词库。换词库时清空搜索框并从第一页重新列出。结果块（make_lexicon_results）装在 lexicon_results_host_ 里，查询回来时就地替换。
   void build_lexicon_lookup(StackPanel const &page) {
     auto manage = add_group(page, L"本地词库管理");
     explain_group(manage, L"默认显示所选词库的全部词条，输入文字或编码后实时筛选。个人词条可以编辑，基础词库只读。");
