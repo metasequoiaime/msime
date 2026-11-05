@@ -912,7 +912,7 @@ jobs:
           $nativeDeps = Join-Path $env:GITHUB_WORKSPACE 'target/windows-native-deps/wer'
           & (Join-Path $vcpkgRoot 'vcpkg.exe') install 'nlohmann-json:x64-windows-static-md' "--x-install-root=$nativeDeps" --disable-metrics
           if ($LASTEXITCODE -ne 0) { throw 'WER test header install failed' }
-      # 独立工程复用生产采集器和 helper，只依赖已有的头文件包，不重新构建完整产品或 Rust。两种架构的构建、callback 和 lifecycle CTest 都阻塞；真实系统投递只有 x64 阻塞，x86 照跑并上传产物，失败只在作业摘要和注解里报告。原因是 Windows 自带的 32 位 SysWOW64\WerFault.exe 处理已登记 helper 的 WOW64 故障时会自身堆损坏或在堆锁上死锁，最小空 helper 同样复现，见 #10865 和 .agents/notes/implemented/testing/2026-11-05-windows-system-wer-x86-nonblocking.md。
+      # 独立工程复用生产采集器和 helper，只依赖已有的头文件包，不重新构建完整产品或 Rust。全部步骤都阻塞。Windows 自带的 32 位 SysWOW64\WerFault.exe 处理已登记 helper 的 WOW64 故障时会自身堆损坏或在堆锁上死锁，最小空 helper 同样复现；生产 TIP 因此在 WOW64 进程里不登记 helper，x86 的系统投递只验证这条排除，见 #10865 和 .agents/notes/implemented/feature/2026-11-06-windows-tsf-wer-skip-wow64.md。
       - name: Build and test TSF WER callback and lifecycle (x64 and x86)
         if: ${{ needs.changes.outputs.windows == 'true' }}
         shell: pwsh
@@ -937,35 +937,15 @@ jobs:
           $build = 'target/windows-full/x64/wer-lifecycle'
           # 脚本不调用原生命令、也不显式 exit，独立步骤里 $LASTEXITCODE 始终是 $null，不能拿它判成败；失败靠脚本自身在 'Stop' 下抛错让 pwsh 以非零退出。
           & platforms/windows/tsf/tests/Invoke-SystemWer.ps1 -BuildDirectory $build -OutputDirectory "$build/system-wer"
-      # x64 失败时不再跑 x86 系统投递，与拆分前一致；x86 的失败不让作业变红，由下一步写进摘要和注解。
-      - name: Run TSF system WER delivery (x86, non-blocking)
-        id: x86-system-wer
+      # 32 位进程在 64 位 Windows 上是 WOW64，生产 TIP 在那里不登记 helper，x86 只跑不加载产品模块的 baseline 和走生产判定的 wow64：TIP 自有故障也要由系统直接结束、不留记录。没有登记就碰不到 SysWOW64\WerFault 的缺陷，所以照常阻塞。
+      - name: Run TSF system WER delivery (x86, WOW64 exclusion)
         if: ${{ needs.changes.outputs.windows == 'true' }}
-        continue-on-error: true
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $build = 'target/windows-full/x86/wer-lifecycle'
           # 脚本不调用原生命令、也不显式 exit，独立步骤里 $LASTEXITCODE 始终是 $null，不能拿它判成败；失败靠脚本自身在 'Stop' 下抛错让 pwsh 以非零退出。
-          & platforms/windows/tsf/tests/Invoke-SystemWer.ps1 -BuildDirectory $build -OutputDirectory "$build/system-wer"
-      - name: Report non-blocking x86 system WER failure
-        if: ${{ needs.changes.outputs.windows == 'true' && steps.x86-system-wer.outcome == 'failure' }}
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $output = 'target/windows-full/x86/wer-lifecycle/system-wer'
-          $timeouts = @(if (Test-Path -LiteralPath $output) { Get-ChildItem -LiteralPath $output -Directory | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'timeout.json') -PathType Leaf } | ForEach-Object { $_.Name } })
-          $cases = if ($timeouts.Count -gt 0) { $timeouts -join ', ' } else { '无（不是超时，看上一步日志里的断言）' }
-          Write-Output "::warning title=x86 系统 WER 投递未通过（非阻塞）::x86 系统投递失败不阻塞本作业，见 #10865。留有 timeout.json 的用例：$cases。诊断在 windows-tsf-system-wer artifact 的 x86/wer-lifecycle/system-wer/。"
-          @(
-            '## x86 系统 WER 投递未通过（非阻塞）'
-            ''
-            "x86 的构建、callback 和 lifecycle CTest 已通过，x64 系统投递已通过；x86 真实系统投递失败，按 #10865 的决定只报告不阻塞。已知原因是 Windows 自带的 32 位 SysWOW64\WerFault.exe 处理已登记 helper 的 WOW64 故障时自身堆损坏或死锁。"
-            ''
-            "- 留有 timeout.json 的用例：$cases"
-            '- 诊断：windows-tsf-system-wer artifact 的 x86/wer-lifecycle/system-wer/'
-            '- 不是超时的失败（退出码、记录数或内容不符）不属于这个已知缺陷，需要单独排查。'
-          ) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          & platforms/windows/tsf/tests/Invoke-SystemWer.ps1 -BuildDirectory $build -OutputDirectory "$build/system-wer" -Cases baseline, wow64
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ always() && needs.changes.outputs.windows == 'true' }}
         with:

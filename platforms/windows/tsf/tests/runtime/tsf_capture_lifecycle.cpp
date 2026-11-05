@@ -37,6 +37,7 @@ struct Tip {
   bool (*snapshot)(Context *) = nullptr;
   unsigned (*registered)() = nullptr;
   unsigned (*unregistered)() = nullptr;
+  int (*wow64_actual)() = nullptr;
   void (*fail_unregister)(unsigned) = nullptr;
   void (*block_refresh)() = nullptr;
   bool (*wait_refresh)(DWORD) = nullptr;
@@ -52,6 +53,7 @@ struct Tip {
     snapshot = load<decltype(snapshot)>(module, "msime_test_tsf_snapshot");
     registered = load<decltype(registered)>(module, "msime_test_tsf_registered");
     unregistered = load<decltype(unregistered)>(module, "msime_test_tsf_unregistered");
+    wow64_actual = load<decltype(wow64_actual)>(module, "msime_test_tsf_wow64_actual");
     fail_unregister = load<decltype(fail_unregister)>(module, "msime_test_tsf_fail_unregister");
     block_refresh = load<decltype(block_refresh)>(module, "msime_test_tsf_block_refresh");
     wait_refresh = load<decltype(wait_refresh)>(module, "msime_test_tsf_wait_refresh");
@@ -85,8 +87,10 @@ void tests() {
   } cleanup{temporary};
   const auto preferences = temporary / "preferences";
   require(std::filesystem::create_directory(preferences), "synthetic preferences creation failed");
+  // 生命周期用例在 x86 runner 上也是 WOW64 进程；先假装非 WOW64 覆盖采集本身，WOW64 分支在后面单独验证。
   require(SetEnvironmentVariableW(L"LOCALAPPDATA", temporary.c_str()) != FALSE &&
-          SetEnvironmentVariableW(L"MSIME_TSF_TEST_PREFERENCES", preferences.c_str()) != FALSE, "synthetic environment failed");
+          SetEnvironmentVariableW(L"MSIME_TSF_TEST_PREFERENCES", preferences.c_str()) != FALSE &&
+          SetEnvironmentVariableW(L"MSIME_TSF_TEST_WOW64", L"0") != FALSE, "synthetic environment failed");
   const HMODULE host = LoadLibraryW((directory / MSIME_EDITION_HOST_DLL).c_str());
   require(host != nullptr, "Host API boundary load failed");
   const auto initialize = load<void (*)(const char *)>(host, "msime_test_host_initialize");
@@ -292,6 +296,40 @@ void tests() {
     until([] { return GetModuleHandleW(L"MetasequoiaImeTsfLeaseTest.dll") == nullptr; }, "inherited marker leaked observer");
     require(SetEnvironmentVariableW(msime::crash::in_process_recorder_variable, nullptr) != FALSE, "marker cleanup failed");
   }
+  // WOW64 宿主（假装的和 x86 runner 上真实的）不建观察者：不读授权、不准备记录、不登记 helper、不武装，卸载也不等后台任务（#10865）。生产查询交给专项的总是系统的真实结果：x86 runner 上的 32 位测试进程是 WOW64，x64 不是。
+  BOOL wow64 = TRUE;
+  require(IsWow64Process(GetCurrentProcess(), &wow64) != FALSE, "WOW64 query failed");
+  const int actual = wow64 ? 1 : 0;
+  const auto unsupported = [&] {
+    Tip tip(directory);
+    const auto reads = consent_reads();
+    const auto prepared = preparations();
+    auto *lease = tip.acquire();
+    // 观察者若被建起，快照立刻可读，登记在首轮刷新的几毫秒内发生；等过两轮 500 ms 重试再断言没有任何动作。
+    Sleep(1200);
+    Context value{};
+    require(!tip.snapshot(&value) && tip.registered() == 0 && consent_reads() == reads && preparations() == prepared,
+            "WOW64 host started WER capture");
+    require(tip.wow64_actual() == actual, "production WOW64 query disagreed with the system");
+    tip.release(lease);
+    tip.unload();
+    require(GetModuleHandleW(L"MetasequoiaImeTsfLeaseTest.dll") == nullptr, "WOW64 host kept TIP loaded");
+  };
+  require(SetEnvironmentVariableW(L"MSIME_TSF_TEST_WOW64", L"1") != FALSE, "WOW64 override failed");
+  unsupported();
+  require(SetEnvironmentVariableW(L"MSIME_TSF_TEST_WOW64", nullptr) != FALSE, "WOW64 override removal failed");
+  if (wow64) {
+    unsupported();
+  } else {
+    Tip tip(directory);
+    auto *lease = tip.acquire();
+    tip.armed();
+    require(tip.wow64_actual() == actual && tip.registered() == 1, "native host did not register WER capture");
+    tip.release(lease);
+    tip.unload();
+    until([] { return GetModuleHandleW(L"MetasequoiaImeTsfLeaseTest.dll") == nullptr; }, "native host leaked observer");
+  }
+  require(SetEnvironmentVariableW(L"MSIME_TSF_TEST_WOW64", L"0") != FALSE, "WOW64 override restore failed");
   for (unsigned index = 0; index < 20; ++index) {
     Tip tip(directory);
     auto *lease = tip.acquire();
@@ -302,7 +340,7 @@ void tests() {
   }
   require(invalid() == 0, "capture used invalid shared ABI request or barrier timed out");
   FreeLibrary(helper); finish(); FreeLibrary(host);
-  std::puts("PASS TSF directory notifications, idle reads, shared leases, authorization and repeated DLL unload");
+  std::puts("PASS TSF directory notifications, idle reads, shared leases, authorization, WOW64 exclusion and repeated DLL unload");
 }
 }
 int main() {
