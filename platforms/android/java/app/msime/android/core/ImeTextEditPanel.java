@@ -64,7 +64,7 @@ final class ImeTextEditPanel {
         previewReads = new TextTrackpadReadQueue<>(trackpadWorker, s.main::post);
     }
 
-    /** 所有操作同屏可见；中央十字下排两角留白，父面板拦截空白处触摸。 */
+    /** 所有操作同屏可见；只有中央十字下方两个角留白，父面板拦截空白处触摸。 */
     LinearLayout build() {
         LinearLayout panel = LayoutPolicy.column(s);
         panel.setContentDescription("文本编辑面板");
