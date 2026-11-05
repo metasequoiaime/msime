@@ -7932,9 +7932,8 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         // 粤拼下切换的是粤拼自己的输出字形，全局简繁开关不动。
-        final int scheme = toolbarScheme();
-        final boolean cantonese = ChineseOutputPolicy.switchFollowsCantonese(scheme);
-        final String key = ChineseOutputPolicy.preferenceKey(scheme);
+        final boolean cantonese = characterSetFollowsCantonese();
+        final String key = ChineseOutputPolicy.preferenceKey(cantonese);
         final boolean targetValue = cantonese ? !cantoneseSimplifiedOutput : !traditionalChineseOutput;
         final long targetSession = session;
         final String targetDirectory = preferencesDirectory;
@@ -9435,17 +9434,22 @@ public final class MSIMEInputService extends InputMethodService {
 
     boolean traditionalOutputToolAvailable() {
         int scheme = view == null ? -1 : InputViewValuePolicy.scheme(view, -1);
-        // 注音本来就写繁体字，笔画的候选就是字本身，越南语和藏文不是中文（`script_conversion_applies`）。粤拼的词库也是繁体，但它有自己的简体输出开关（`cantonese_simplified_output`）。
+        // 注音本来就写繁体字，笔画的候选就是字本身，越南语和藏文不是中文（`script_conversion_applies`）。粤拼的词库也是繁体，但它有自己的简体输出开关（`cantonese_simplified_output`），英文模式下则切换全局开关，所以两种模式下都可用。
         return scheme != 3 && scheme != KoreanInputPolicy.KOREAN_SCHEME
             && (!InputSchemeTraits.known(scheme) || InputSchemeTraits.scriptConversionApplies(scheme)
-                || ChineseOutputPolicy.switchFollowsCantonese(scheme))
+                || scheme == InputSchemeTraits.CANTONESE)
             && canSaveChineseOutput();
     }
 
-    /** 简繁开关显示的字形：粤拼下看粤拼自己的选择，其余方案看全局开关。 */
+    /** 简繁开关显示的字形：粤拼下看粤拼自己的选择，其余方案和英文模式看全局开关。 */
     boolean characterSetShowsTraditional() {
         return ChineseOutputPolicy.showsTraditional(
-            toolbarScheme(), traditionalChineseOutput, cantoneseSimplifiedOutput);
+            characterSetFollowsCantonese(), traditionalChineseOutput, cantoneseSimplifiedOutput);
+    }
+
+    /** 见 {@link ChineseOutputPolicy#switchFollowsCantonese}。 */
+    private boolean characterSetFollowsCantonese() {
+        return ChineseOutputPolicy.switchFollowsCantonese(dedicatedEnglish, toolbarScheme());
     }
 
     /** 工具栏和功能面板按哪个方案决定简繁开关：有视图时读视图，会话还没给视图时按选中的键盘方案推断。 */
@@ -12485,12 +12489,11 @@ public final class MSIMEInputService extends InputMethodService {
             int scheme = toolbarScheme();
             boolean japanese = scheme == 3;
             boolean korean = scheme == KoreanInputPolicy.KOREAN_SCHEME;
-            boolean cantonese = scheme == InputSchemeTraits.CANTONESE;
             boolean zhuyin = scheme == InputSchemeTraits.ZHUYIN;
             boolean vietnamese = scheme == InputSchemeTraits.VIETNAMESE;
             boolean tibetan = scheme == InputSchemeTraits.TIBETAN;
             boolean stroke = scheme == InputSchemeTraits.STROKE;
-            // 粤拼的开关切换粤拼自己的输出字形（`cantonese_simplified_output`），所以它可用。
+            // 粤拼的开关切换粤拼自己的输出字形（`cantonese_simplified_output`），英文模式下切换全局开关，所以它可用。
             ViewPolicy.setEnabled(scriptShortcutButton,
                 !japanese && !korean && !zhuyin
                     && !vietnamese && !tibetan && !stroke && canSaveChineseOutput());
@@ -12502,7 +12505,7 @@ public final class MSIMEInputService extends InputMethodService {
                 : tibetan ? "藏文不使用简繁转换"
                 : stroke ? "笔画不使用简繁转换"
                 : traditionalOutputSaving ? "正在保存"
-                : cantonese ? (showsTraditional ? "粤拼输出繁体" : "粤拼输出简体")
+                : characterSetFollowsCantonese() ? (showsTraditional ? "粤拼输出繁体" : "粤拼输出简体")
                 : showsTraditional ? "繁体" : "简体";
             scriptShortcutButton.setContentDescription(
                 Build.VERSION.SDK_INT >= 30 ? label : label + "，" + outputState);

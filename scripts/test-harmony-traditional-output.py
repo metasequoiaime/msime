@@ -17,18 +17,6 @@ SOURCES = ROOT / "platforms/harmony/entry/src/main/ets"
 POLICY = SOURCES / "keyboard/input/ChineseOutputPolicy.ts"
 
 
-# The Cantonese branch at the top of `toggleCharacterSet`: Cantonese has its own output script, so the switch writes `cantonese_simplified_output`, flips it only once the store has taken the value, and returns the script the tile should show.
-CANTONESE_SWITCH = (
-    r"if \(this\.characterSetFollowsCantonese\(\)\) \{\s*"
-    r"(?://[^\n]*\s*)?"
-    r"if \(this\.writePreference\('cantonese_simplified_output', !this\.cantoneseSimplified\)\) \{\s*"
-    r"this\.cantoneseSimplified = !this\.cantoneseSimplified;\s*"
-    r"\}\s*"
-    r"return this\.showsTraditional\(\);\s*"
-    r"\}\s*"
-)
-
-
 def body(text: str, opening: str, closing: str) -> str:
     """The definition that starts at `opening`, or nothing when it is gone."""
     start = text.find(opening)
@@ -68,19 +56,13 @@ def main() -> int:
         "ChineseOutputPolicy.output(text, traditional, applies && source !== 18, converter)" in policy,
         "commit keeps runtime conversion boundary":
         "value.commit_context?.script_conversion === false ? commit : this.asTraditional(commit)" in session,
-        # The switch flips only once the store has taken the new value, then republishes at once, so a refused write leaves the output as it was. Under Cantonese the switch is the Cantonese branch pinned below, which returns before this write.
+        # 开关在存储接受新值之后才翻转，随即重发候选，所以被拒绝的写入不改变输出。粤拼下开关走前面的粤拼分支并在这次写入之前返回，那一支的行为由 keyboard-logic.test.ts 的 `toggledCantoneseSimplified` 用例检查。
         "switch republishes the candidates": re.search(
             r"toggleCharacterSet\(\): boolean \{\s*"
-            rf"(?:{CANTONESE_SWITCH})?"
+            r"(?:if \(this\.characterSetFollowsCantonese\(\)\) \{[^}]*\}\s*)?"
             r"if \(!this\.writePreference\('traditional_chinese_output', !this\.traditional\)\) \{\s*return this\.traditional;\s*\}\s*"
             r"this\.traditional = !this\.traditional;\s*"
             r"(?://[^\n]*\s*)?this\.publishCurrentCandidates\(\);",
-            session,
-        )
-        is not None,
-        # 粤拼下的开关只改粤拼自己的字形 `cantonese_simplified_output`：存储接受写入后才翻转，然后按粤拼字形返回，全局 `traditional_chinese_output` 不动。
-        "Cantonese switch flips only after the store takes it": re.search(
-            r"toggleCharacterSet\(\): boolean \{\s*" + CANTONESE_SWITCH,
             session,
         )
         is not None,

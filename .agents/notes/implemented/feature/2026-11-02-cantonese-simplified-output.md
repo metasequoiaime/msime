@@ -14,7 +14,7 @@ Status: implemented
 
 **转换数据**：msime-dictionary 的 `sources/opencc/` 补入 OpenCC `TSPhrases.txt`、`TSCharacters.txt`，与已有 ST* 文件取自同一个上游提交 `26753884`，原样收录；本仓 `resources/opencc.lock.json` 固定新的字典提交和两条摘要。不收 `TSCharactersExt`，上游 `t2s.json` 把它标为可能输出豆腐块。
 
-**转换函数**：`chinese_conversion::traditional_to_simplified` 按 `t2s.json` 去掉 `TSCharactersExt`：规范化兼容汉字后，对 `TSPhrases`、`TSCharacters` 组成的短路组做一遍最大正向匹配（乾淨→干净，乾隆不变）。`cantonese_to_simplified` 在字表之前保留 `CANTONESE_KEPT` 里的嗰、喎：字表会把它们转成扩展区的 𠮶、㖞，常见字体缺字，粤语简体写法也通常保留原字。嘅、咗、冇、喺、嚟、啲、佢、嘢等字表本来就没有条目，原样通过。
+**转换函数**：`chinese_conversion::traditional_to_simplified` 按 `t2s.json` 去掉 `TSCharactersExt`：规范化兼容汉字后，对 `TSPhrases`、`TSCharacters` 组成的短路组做一遍最大正向匹配（乾淨→干净，乾隆不变）。`cantonese_to_simplified` 不采用会引入原文没有的扩展区汉字（扩展 A 区，或辅助平面上的扩展 B 区及以后）的词典条目，原文保持不变。`TSCharacters` 有 257 条把基本区的字转成扩展区的字，其中不少是粤语常用字：嗰→𠮶、喎→㖞、噚→㖊（噚日）、餸→𩠌（買餸）、劏→㓥（劏房）、燶→㶶、輋→𪨶，常见字体缺字，粤语简体写法也通常保留原字。`TSPhrases` 里同类的只有二噁英→二𫫇英，不采用后退回字表得到二恶英。嘅、咗、冇、喺、嚟、啲、佢、嘢等字表本来就没有条目，原样通过。按码位判断而不是列名单：最初只列了嗰、喎，评审发现噚、餸、劏、燶同样会转成扩展区的字，名单总会漏，上游字表更新后也不会自动跟上。
 
 **在 Engine 里转换**：Engine 不依赖 client-base，也要能单独发布，所以转换以 `TextConversion(fn(&str) -> String)` 注入：`EngineOptions` 与 `SessionOptions` 的 `cantonese_output_conversion`，host-api 在偏好打开时传入 `cantonese_to_simplified`。`ProviderRegistry` 的 `fill_cantonese_candidates` 是粤拼候选文字写进 `WordItem.word` 的唯一地方，它在这里把每条候选转换后再按（字面，覆盖音节数）去重，發、髮都成了「发」时只留排在前面的那条。候选、整段上屏和分段选词上屏都取这里的文字，所以都是简体；预编辑是粤拼字母，不受影响。视图的 `script_conversion` 对粤拼仍为 false，宿主不会再转一次。`TextConversion` 按函数地址比较相等，`EngineOptions` 照旧能判断有没有变。
 
@@ -22,7 +22,7 @@ Status: implemented
 
 **学习保留词库原文**：[粤语学习](2026-11-03-cantonese-learning.md)按词库原文回放调频和造词，不能把简体输出直接写成学习键。`ime/cantonese_output.rs` 为最近一次查询保存（规范读音、显示文字）到原文的映射，与转换去重一样保留先到的候选；调频比较行、分段造词和整句造词都取这份原文，候选与上屏仍取转换后的文字。每次查询先清空映射，包括无词库、无效输入和查询失败的路径。未开启转换时不建立映射，取原文只克隆现有 `SharedString`，保持首选上屏的分配上限；不扩展公共 `WordItem` 或宿主 ABI。
 
-**宿主**：iOS、Android、HarmonyOS 在粤拼（含粤语双拼，Engine 里同为方案 5）下把简繁按钮和功能菜单的「繁」变为可用，点按改写 `cantonese_simplified_output`，按钮按它显示简或繁。判定写在可单测的地方：Android `ChineseOutputPolicy.switchFollowsCantonese` / `showsTraditional` / `preferenceKey`，HarmonyOS `input/ChineseOutputPolicy.ts` 的同名函数；iOS 在 `KeyboardViewController` 的 `characterSetFollowsCantonese`，会话桥的 `setCantoneseSimplifiedOutput` 写会话和共享文档。HarmonyOS 的 2in1 工具栏和 Ctrl+Shift+F 走同一个 `toggleCharacterSet`。
+**宿主**：iOS、Android、HarmonyOS 在粤拼（含粤语双拼，Engine 里同为方案 5）下把简繁按钮和功能菜单的「繁」变为可用，点按改写 `cantonese_simplified_output`，按钮按它显示简或繁。判定写在可单测的地方：Android `ChineseOutputPolicy.switchFollowsCantonese` / `showsTraditional` / `preferenceKey`，HarmonyOS `input/ChineseOutputPolicy.ts` 的同名函数；iOS 在 `KeyboardViewController` 的 `characterSetFollowsCantonese`，会话桥的 `setCantoneseSimplifiedOutput` 写会话和共享文档。HarmonyOS 的 2in1 工具栏和 Ctrl+Shift+F 走同一个 `toggleCharacterSet`，粤拼分支的「存储接受了才翻转」由 `ChineseOutputPolicy.toggledCantoneseSimplified` 承担并在 keyboard-logic.test.ts 用假存储检查。粤拼键盘的英文模式下三端都照旧切换全局 `traditional_chinese_output`：Android 的 `switchFollowsCantonese` 与 HarmonyOS 一样带上英文模式（`dedicatedEnglish`），iOS 要求 `isChineseMode`。
 
 macOS、Windows、Linux 这次不接：三个桌面宿主的简繁开关各自存在宿主自己的外观状态里再合进文档，接法互不相同，需要各自的构建和验证，另开 PR，正文写 `Refs #10435`。在此之前桌面上粤拼照旧输出繁体，按钮行为不变。
 
@@ -41,7 +41,7 @@ macOS、Windows、Linux 这次不接：三个桌面宿主的简繁开关各自�
 - 新键只在打开时写进文档；读不懂未知键的旧版本只在用户打开它之后读不了这份文档，与 `chinese_english_spacing` 等同类开关相同。
 - 这个偏好没有接账号同步和 MCP 偏好工具，各设备分别设置。
 - 字典 PR #113 已合入上游 `main`；本仓 OpenCC 锁已改为合并提交 `4fd95815adf5e93b7ad835f048348dd3fe341777`，逐份下载核对全部锁定文件的大小和 SHA-256 均一致，不再引用未合并的 PR 提交。
-- 保留名单目前只有嗰、喎，社区有更完整的粤语简体约定时改 `CANTONESE_KEPT`。
+- 会转成扩展区的字一律保留原字，其中也包括非粤语用字（如傌、儸），这些字在粤拼输出里保持繁体；通用的 `traditional_to_simplified` 仍照上游转换。社区有更完整的粤语简体约定时再在 `cantonese_to_simplified` 里加规则。
 - 注音和笔画同样是原生繁体方案，注入点可以复用，等有需求再接。
 - Android 的原有粤语双拼键面、会话空窗记忆、特殊韵母键读屏名称和重排模型后台准备保持现有接线；简繁输出不能以撤回这些已落地能力为代价。宿主键面回归直接抽取真实方法编译执行，覆盖粤语双拼、普通粤拼、会话空窗、普通话双拼与关闭提示开关。
 - 与最新 develop 的粤语学习合并时，行为回归先证实简体「号」被写入调频日志；修复后覆盖调频、分段「你號」及整句「我愛」的日志原文与关闭转换后的候选，并保留默认路径的分配门禁。

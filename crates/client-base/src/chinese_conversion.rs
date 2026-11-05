@@ -9,7 +9,7 @@
 //!
 //! 臺灣字形 `s2tw.json` 与臺灣惯用词 `s2twp.json` 在同样的规范化之后，先按 `STPhrases` 与地区词组的并集做最大正向匹配分段（命中的词组各成一段，连续未命中的字并成一段），再逐段先做上面的 `s2t` 转换、然后在同一段内做第二遍最大正向匹配：`s2tw` 依次查 `TWVariantsPhrases`、`TWVariants`，`s2twp` 在它们前面再加 `TWPhrases`，组内先命中的词典优先。第二遍不跨段，所以臺灣词组只在 `s2t` 的词组边界之内生效，与 OpenCC 相同。
 //!
-//! 繁转简 `traditional_to_simplified` 对应 OpenCC 的 `t2s.json`，但不带 `TSCharactersExt`（上游把它标为可能输出豆腐块）：同样先做规范化，再对 `TSPhrases` 与 `TSCharacters` 组成的短路组做一遍最大正向匹配。`cantonese_to_simplified` 是粤拼输出简体用的版本，在字表之前先保留几个粤语用字（见 `CANTONESE_KEPT`）。
+//! 繁转简 `traditional_to_simplified` 对应 OpenCC 的 `t2s.json`，但不带 `TSCharactersExt`（上游把它标为可能输出豆腐块）：同样先做规范化，再对 `TSPhrases` 与 `TSCharacters` 组成的短路组做一遍最大正向匹配。`cantonese_to_simplified` 是粤拼输出简体用的版本，词典给出的结果若带有原文没有的扩展区汉字就不采用这一条（见 `introduces_extension_ideograph`）。
 //!
 //! Where a dictionary lists several values the first is taken, as OpenCC does. Text no dictionary matches passes through unchanged; a complete ideographic description sequence (`⿰女尔`) passes through as one unit, so its components are never converted on their own.
 
@@ -33,9 +33,6 @@ const TW_VARIANTS_PHRASES: &str =
 const TW_VARIANTS: &str = include_str!(concat!(env!("MSIME_OPENCC_DIR"), "/TWVariants.txt"));
 const TS_PHRASES: &str = include_str!(concat!(env!("MSIME_OPENCC_DIR"), "/TSPhrases.txt"));
 const TS_CHARACTERS: &str = include_str!(concat!(env!("MSIME_OPENCC_DIR"), "/TSCharacters.txt"));
-
-/// 粤拼输出简体时不转的粤语用字。`TSCharacters` 把嗰转成 𠮶（扩展 B 区）、喎转成 㖞（扩展 A 区），常见字体缺字，粤语的简体写法也通常保留原字；其余粤语用字（嘅、咗、冇、喺、嚟、啲、佢、嘢）字表本来就没有条目，原样通过。
-const CANTONESE_KEPT: [&str; 2] = ["嗰", "喎"];
 
 /// 繁体输出用哪套 OpenCC 配置；偏好里存成配置名。
 #[derive(
@@ -284,7 +281,7 @@ pub fn traditional_to_simplified(text: &str) -> String {
     to_simplified(text, false)
 }
 
-/// 粤拼候选的繁转简：与 [`traditional_to_simplified`] 相同，只是 `CANTONESE_KEPT` 里的粤语用字保持原样。
+/// 粤拼候选的繁转简：与 [`traditional_to_simplified`] 相同，只是不采用会引入扩展区汉字的条目，原文保持不变。`TSCharacters` 有两百多条把基本区的字转成扩展 A 区或更后面的字，其中有不少粤语常用字（嗰→𠮶、喎→㖞、噚→㖊、餸→𩠌、劏→㓥、燶→㶶），常见字体缺字，粤语的简体写法也通常保留原字。按码位判断而不是列名单，这样上游字表更新后新增的同类条目也会保留原字。
 pub fn cantonese_to_simplified(text: &str) -> String {
     to_simplified(text, true)
 }
@@ -292,15 +289,13 @@ pub fn cantonese_to_simplified(text: &str) -> String {
 fn to_simplified(text: &str, keep_cantonese: bool) -> String {
     let normalized = convert_pass(text, |rest| tables().normalization.longest_prefix(rest));
     let tables = simplified_tables();
-    let converted = convert_pass(&normalized, |rest| {
-        tables.phrases.longest_prefix(rest).or_else(|| {
-            if keep_cantonese {
-                if let Some(kept) = CANTONESE_KEPT.iter().find(|kept| rest.starts_with(**kept)) {
-                    return Some((kept.len(), *kept));
-                }
-            }
-            tables.characters.longest_prefix(rest)
+    let lookup = |table: &Table, rest: &str| {
+        table.longest_prefix(rest).filter(|(length, value)| {
+            !keep_cantonese || !introduces_extension_ideograph(&rest[..*length], value)
         })
+    };
+    let converted = convert_pass(&normalized, |rest| {
+        lookup(&tables.phrases, rest).or_else(|| lookup(&tables.characters, rest))
     });
     match converted {
         Cow::Borrowed(_) => normalized.into_owned(),
@@ -308,9 +303,15 @@ fn to_simplified(text: &str, keep_cantonese: bool) -> String {
     }
 }
 
-/// Map each Traditional character to the Simplified character `STCharacters` derives it from, one character at a time.
+/// 转换结果里有原文没有的扩展区汉字（扩展 A 区，或辅助平面上的扩展 B 区及以后）时为真。原文本来就是扩展区的字时照常转换。
+fn introduces_extension_ideograph(source: &str, value: &str) -> bool {
+    let extension = |character: char| matches!(u32::from(character), 0x3400..=0x4DBF | 0x20000..);
+    !source.chars().any(extension) && value.chars().any(extension)
+}
+
+/// 逐字把繁体字映射成 `STCharacters` 里由它转出的那个简体字。
 ///
-/// This is not OpenCC's `t2s` (that is [`traditional_to_simplified`]): no phrase table, so a Traditional character that several Simplified ones share takes the first line that lists it. It exists to find a lookup key for a dictionary keyed by Simplified text, such as the candidate gloss tables, when the candidate itself is Traditional (a Korean Hanja like 韓, or a candidate under Traditional output). Characters no line lists, including ones that are already Simplified, pass through unchanged, and a compatibility ideograph is normalized first.
+/// 这不是 OpenCC 的 `t2s`（那是 [`traditional_to_simplified`]）：没有词组表，几个简体字共用的繁体字取第一条列出它的行。它用来给以简体为键的词典（比如候选释义表）找查询键，适用于候选本身是繁体的情形（朝鲜语汉字词如韓，或繁体输出下的候选）。没有任何一行列出的字，包括本来就是简体的字，原样通过；兼容汉字先做规范化。
 pub fn traditional_to_simplified_characters(text: &str) -> String {
     static INVERSE: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
     let inverse = INVERSE.get_or_init(|| {
@@ -591,9 +592,34 @@ mod tests {
             "佢哋喺度嘅嘢咗冇嚟啲唔系"
         );
         assert_eq!(cantonese_to_simplified("諗講囉搵"), "谂讲啰揾");
-        // 嗰、喎在字表里会变成扩展区的生僻字，粤拼输出保留原字；通用的 t2s 照上游转换。
+        // 字表会把这些粤语常用字转成扩展区的生僻字，粤拼输出保留原字，同一段里其余的字照常转换；通用的 t2s 照上游转换。
         assert_eq!(cantonese_to_simplified("嗰個喎"), "嗰个喎");
-        assert_eq!(traditional_to_simplified("嗰喎"), "𠮶㖞");
+        assert_eq!(cantonese_to_simplified("噚日買餸"), "噚日买餸");
+        assert_eq!(cantonese_to_simplified("劏雞燶飯"), "劏鸡燶饭");
+        assert_eq!(cantonese_to_simplified("輋"), "輋");
+        assert_eq!(
+            traditional_to_simplified("嗰喎噚餸劏燶輋"),
+            "𠮶㖞㖊𩠌㓥㶶𪨶"
+        );
+        // 词组表里的同类条目也不采用，退回字表：二噁英不会变成二𫫇英。
+        assert_eq!(traditional_to_simplified("二噁英"), "二𫫇英");
+        assert_eq!(cantonese_to_simplified("二噁英"), "二恶英");
+    }
+
+    #[test]
+    fn cantonese_simplification_never_introduces_extension_ideographs() {
+        let extension =
+            |character: char| matches!(u32::from(character), 0x3400..=0x4DBF | 0x20000..);
+        for line in TS_CHARACTERS.lines().chain(TS_PHRASES.lines()) {
+            let Some((source, _)) = line.split_once('\t') else {
+                continue;
+            };
+            if source.chars().any(extension) {
+                continue;
+            }
+            let converted = cantonese_to_simplified(source);
+            assert!(!converted.chars().any(extension), "{source} → {converted}");
+        }
     }
 
     #[test]

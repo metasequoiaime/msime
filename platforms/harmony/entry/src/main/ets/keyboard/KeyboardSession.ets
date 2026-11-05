@@ -3454,9 +3454,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   toggleCharacterSet(): boolean {
     if (this.characterSetFollowsCantonese()) {
       // 繁转简在 Engine 里做：偏好交给会话后 Engine 在空闲时重建，组字中切换时等这段组字结束才生效。
-      if (this.writePreference('cantonese_simplified_output', !this.cantoneseSimplified)) {
-        this.cantoneseSimplified = !this.cantoneseSimplified;
-      }
+      this.cantoneseSimplified = ChineseOutputPolicy.toggledCantoneseSimplified(this.cantoneseSimplified,
+        (key: string, value: boolean): boolean => this.writePreference(key, value));
       return this.showsTraditional();
     }
     if (!this.writePreference('traditional_chinese_output', !this.traditional)) {
