@@ -7,19 +7,24 @@ import XCTest
 /// 控制器用例和邮箱后缀的用例一样把 `textDocumentProxy` 换成内存里的文档，看得到上屏了什么。长按手势本身由 UIKit 识别，用例走同一个入口的读屏操作「查看释义」。
 @MainActor
 final class CandidateGlossCardTests: XCTestCase {
+  /// `text` 只放已上屏的文字；标记文本另记在 `marked`，取消标记时并进 `text`，插入文字时替换掉它。和真实文档一样，整段上屏走「改标记再取消标记」（#10946）时也能看到上屏了什么。
   private final class Document: NSObject, UITextDocumentProxy {
     var text = ""
+    var marked = ""
     var documentContextBeforeInput: String? { text }
     var documentContextAfterInput: String? { nil }
     var selectedText: String? { nil }
     var documentInputMode: UITextInputMode? { nil }
     var documentIdentifier = UUID()
     var hasText: Bool { !text.isEmpty }
-    func insertText(_ inserted: String) { text += inserted }
+    func insertText(_ inserted: String) { marked = ""; text += inserted }
     func deleteBackward() { if !text.isEmpty { text.removeLast() } }
     func adjustTextPosition(byCharacterOffset offset: Int) {}
-    func setMarkedText(_ markedText: String, selectedRange: NSRange) {}
-    func unmarkText() {}
+    func setMarkedText(_ markedText: String, selectedRange: NSRange) { marked = markedText }
+    func unmarkText() {
+      text += marked
+      marked = ""
+    }
   }
 
   // MARK: - 内容
