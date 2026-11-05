@@ -449,6 +449,12 @@ MDBG 每天用新导出覆盖同一个地址（`https://www.mdbg.net/chinese/exp
 | Windows | `platforms/windows/Collect-Notices.ps1` 收进 `THIRD_PARTY_NOTICES.txt`（所有版本都收：x64 宿主 DLL 都链着 ONNX Runtime，模型只在 full、pinyin 里） | 安装目录的 `THIRD_PARTY_NOTICES.txt` |
 | Android | 模型打包 PR 加一行：在 `build-native.sh` 里复制进 `assets/native-notices` | Android 关于页的「开源许可」自动列出 `native-notices` 里的文件 |
 
+## 桌面本地翻译
+
+`crates/local-translation` 的 `runtime` 特性通过 `llama-cpp-2` / `llama-cpp-sys-2` 0.1.161 嵌入 llama.cpp，不需要用户运行外部服务。Rust 绑定为 MIT OR Apache-2.0，来源提交 `e7af607ebd5ec2932709ef918c17cca2f9b0fce4`；随 crate 发布的 llama.cpp 子模块固定在 `d81235049384534c167caea52b85a694f6103d14`，MIT 许可证全文在 `resources/licenses/llama-cpp-MIT.txt`。关闭默认的 OpenMP 和服务工具特性；绑定自身仍启用底层 `common` 特性，发布链须检查它带入的原生依赖。当前实现处于接入阶段，尚未进入任何发布宿主。
+
+[腾讯 Hy-MT2 1.8B Q4_K_M](https://huggingface.co/tencent/HY-MT2-1.8B-GGUF/tree/a0c709d9fac510f2c807aa3af52872340dc37a4a) 的文件来源、大小和摘要由 `resources/local-translation-model.lock.json` 固定，模型不提交进仓库、不随安装包捆绑。该固定提交的模型许可证是 Apache-2.0，全文在 `resources/licenses/hy-mt2-Apache-2.0.txt`；保留腾讯的著作权声明，不能套用 HY-MT1.5 的社区许可证。模型使用时须在原生模型管理和各桌面第三方声明中保留名称、来源及许可证，宿主打包接线尚未完成。
+
 ## 本地语音识别
 
 语音服务选 `local` 且 `asr_model_path` 指向已安装的模型目录时，识别在设备上完成。这条路径分两部分：一份随包分发的推理运行时，和由用户在设置页按需下载的模型。**模型不随包分发**，仓库只携带下载地址、长度和 SHA-256。

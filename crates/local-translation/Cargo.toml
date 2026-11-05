@@ -1,0 +1,23 @@
+[package]
+name = "msime-local-translation"
+description = "桌面宿主的离线翻译模型推理，不执行网络请求。"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[features]
+default = []
+runtime = ["dep:llama-cpp-2"]
+
+[dependencies]
+thiserror.workspace = true
+llama-cpp-2 = { version = "=0.1.161", default-features = false, optional = true }
+
+[[example]]
+name = "translate"
+required-features = ["runtime"]
+
+[lints]
+workspace = true
