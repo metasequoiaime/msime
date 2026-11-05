@@ -364,6 +364,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         helpcode: false,
         strict_quanpin_helpcode: false,
         show_helpcode: false,
+        show_wubi_code: true,
         shuangpin_helpcode_modes: msime_engine::ShuangpinHelpcodeModes::default(),
         helpcode_schema: "ziranma".into(),
         helpcode_trigger_key: None,
@@ -5365,6 +5366,24 @@ fn helpcode_defaults_follow_preferences_for_each_pinyin_scheme() {
         assert_eq!(session.options.helpcode_schema, "lantian");
         assert!(session.options.show_helpcode);
     });
+    read(msime_client_destroy(handle));
+}
+
+#[test]
+fn wubi_code_hint_preference_reaches_engine_options() {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host(dir.path());
+    // 出厂开着，和偏好 `wubi_code_hint` 的默认值一致。
+    SESSIONS.with(|sessions| assert!(sessions.borrow()[&handle].options.show_wubi_code));
+    let mut preferences = Preferences {
+        wubi_code_hint: false,
+        ..chinese_preferences()
+    };
+    assert_eq!(update(handle, 1, &preferences)["value"]["deferred"], false);
+    SESSIONS.with(|sessions| assert!(!sessions.borrow()[&handle].options.show_wubi_code));
+    preferences.wubi_code_hint = true;
+    assert_eq!(update(handle, 2, &preferences)["value"]["deferred"], false);
+    SESSIONS.with(|sessions| assert!(sessions.borrow()[&handle].options.show_wubi_code));
     read(msime_client_destroy(handle));
 }
 

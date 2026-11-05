@@ -944,6 +944,8 @@ impl HostSession {
         options.helpcode = helpcode.enabled;
         options.strict_quanpin_helpcode = helpcode.strict_filter;
         options.show_helpcode = helpcode.show_in_candidate_window;
+        // 五笔的剩余编码开关同时管引擎注释里的五笔反查码，见 `EngineOptions::show_wubi_code`；改了它也和辅助码显示开关一样等空闲时重建 Engine 生效。
+        options.show_wubi_code = preferences.wubi_code_hint;
         options.helpcode_schema = helpcode.schema.as_str().into();
         options.helpcode_trigger_key = helpcode.trigger_key.bytes().next();
         options.shuangpin_helpcode_modes = shuangpin_helpcode_modes(helpcode.modes);
@@ -2559,6 +2561,7 @@ impl HostOptions {
             helpcode: helpcode.enabled,
             strict_quanpin_helpcode: helpcode.strict_filter,
             show_helpcode: helpcode.show_in_candidate_window,
+            show_wubi_code: self.preferences.wubi_code_hint,
             // 双拼专属的触发方式；其它方案给默认值，引擎只在双拼下读它。手改出互斥组合的文档在消费端再归一一次，与 `PreferencesStore::save` 的写入端归一一致。
             shuangpin_helpcode_modes: shuangpin_helpcode_modes(helpcode.modes),
             helpcode_schema: helpcode.schema.as_str().into(),

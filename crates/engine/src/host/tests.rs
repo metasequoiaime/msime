@@ -45,6 +45,7 @@ fn options(root: &Path) -> EngineOptions {
         helpcode: false,
         strict_quanpin_helpcode: false,
         show_helpcode: true,
+        show_wubi_code: true,
         shuangpin_helpcode_modes: crate::types::ShuangpinHelpcodeModes::default(),
         helpcode_schema: "ziranma".into(),
         helpcode_trigger_key: None,
@@ -3048,6 +3049,39 @@ fn wubi_reverse_codes_are_shown_only_in_the_wubi_scheme() {
         .position(|word| word == "你好")
         .unwrap();
     assert!(view.candidate_annotations[index].contains("wqvb"));
+}
+
+#[test]
+fn wubi_reverse_codes_follow_the_wubi_code_hint_switch() {
+    // #10790：关掉「候选显示剩余编码」后，宿主不再画剩余编码，转而原样显示引擎注释；注释里的五笔反查码必须随同一个开关一起关掉，五笔码和混输拼音候选都一样。
+    let extra = "INSERT INTO wubi86 VALUES('wqvb','你好',300);";
+    for (mixed, typed) in [(false, &b"wq"[..]), (true, &b"nihao"[..])] {
+        for shown in [true, false] {
+            let root = tempfile::tempdir().unwrap();
+            let mut options = helpcode_fixture(root.path(), extra, "");
+            options.scheme = SchemeType::Wubi as u8;
+            options.wubi_mixed_pinyin = mixed;
+            options.show_wubi_code = shown;
+            let mut session = Session::new(&options).unwrap();
+            type_text(&mut session, typed);
+            let view = session.snapshot().unwrap();
+            let index = view
+                .candidates
+                .iter()
+                .position(|word| word == "你好")
+                .unwrap();
+            assert_eq!(
+                view.candidate_annotations[index].contains("wqvb"),
+                shown,
+                "mixed={mixed} shown={shown}: {:?}",
+                view.candidate_annotations[index]
+            );
+            if !mixed {
+                // 码表行的编码照旧带给宿主，开着开关时宿主靠它算剩余编码。
+                assert_eq!(view.candidate_codes[index], "wqvb");
+            }
+        }
+    }
 }
 
 #[test]

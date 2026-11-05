@@ -352,7 +352,9 @@ impl Session {
                 }
             }
             // 五笔反查只服务五笔方案：混输拼音的候选虽然来自全拼，也一样附上五笔码；全拼和双拼方案本身不显示，那里的注释位留给辅助码和纠错提示。
-            if value.local_mode == LocalInputMode::None
+            // 偏好「候选显示剩余编码」（`show_wubi_code`）关掉时一个五笔码都不附：宿主那时不再画剩余编码，而是原样显示这里的注释，附上就成了关不掉的完整编码（#10790）。
+            if self.options.show_wubi_code
+                && value.local_mode == LocalInputMode::None
                 && !value.dedicated_english
                 && value.scheme == SchemeType::Wubi
                 && matches!(

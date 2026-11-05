@@ -5480,6 +5480,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         helpcode: false,
         strict_quanpin_helpcode: false,
         show_helpcode: true,
+        show_wubi_code: true,
         shuangpin_helpcode_modes: msime_engine::ShuangpinHelpcodeModes::default(),
         helpcode_schema: "ziranma".into(),
         helpcode_trigger_key: None,

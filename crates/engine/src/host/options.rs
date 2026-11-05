@@ -89,6 +89,8 @@ pub struct EngineOptions {
     pub strict_quanpin_helpcode: bool,
     /// Display only: filtering stays on while annotations are hidden.
     pub show_helpcode: bool,
+    /// 五笔方案的候选注释里是否附上词条的五笔反查码，宿主按偏好 `wubi_code_hint` 填；关掉后五笔候选（含混输拼音的候选）不再带五笔码，宿主算的剩余编码也一样不画。只管显示，不影响查词和排序。
+    pub show_wubi_code: bool,
     /// 双拼辅助码的触发方式（`SessionOptions::shuangpin_helpcode_modes`）；宿主按偏好 `shuangpin_helpcode.modes` 填，其它方案给默认值也不会被读。
     pub shuangpin_helpcode_modes: ShuangpinHelpcodeModes,
     pub helpcode_schema: String,
@@ -248,6 +250,7 @@ pub fn prepare_options_for(
         helpcode: true,
         strict_quanpin_helpcode: false,
         show_helpcode: true,
+        show_wubi_code: true,
         shuangpin_helpcode_modes: ShuangpinHelpcodeModes::default(),
         helpcode_schema: "ziranma".to_owned(),
         helpcode_trigger_key: None,
