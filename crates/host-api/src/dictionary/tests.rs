@@ -35,6 +35,7 @@ fn import_engine_options() -> msime_engine::host::EngineOptions {
         strict_quanpin_helpcode: false,
         show_helpcode: true,
         shuangpin_helpcode_modes: msime_engine::ShuangpinHelpcodeModes::default(),
+        grid_helpcode: false,
         helpcode_schema: "ziranma".into(),
         helpcode_trigger_key: None,
         chinese_punctuation: true,

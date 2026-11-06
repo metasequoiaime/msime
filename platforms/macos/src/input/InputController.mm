@@ -39,6 +39,7 @@
 #import "../voice/GlobalVoiceScopeMenu.h"
 #import "../voice/DoubaoVoiceRequest.h"
 #import "../voice/LocalVoiceRequest.h"
+#import "../voice/VoicePunctuation.h"
 #import "../voice/VoiceFailureMessages.h"
 #import "../core/SupportWindowController.h"
 #import "../backend/account/BackendAccountEntry.h"
@@ -2000,6 +2001,8 @@ static NSImage *MSIMECandidateLogoImage() {
     uint64_t _voiceHoldGeneration;
     BOOL _voiceHoldStarting;
     NSDictionary *_voiceThemePreferences;
+    // 本次录音的语音标点快照，与 generation 一起捕获；停采集和等待润色期间的偏好重载只影响下一次录音。
+    NSString *_voicePunctuationMode;
     NSDictionary *_menuThemePreferences;
     MSIMEDictionaryWindowController *_dictionaryWindow;
     NSTimer *_cloudTimer;
@@ -5761,6 +5764,8 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
 - (void)applyDoubaoFinalText:(NSString *)text request:(id<MSIMEStreamingVoiceRequest>)request {
     if (_doubaoVoiceRequest != request) return;
     if ([self ownsDoubaoVoiceFocus]) {
+        // 语音标点在润色之后处理；只剩标点、处理后为空时和识别结果为空一样提示没听到。
+        text = MSIMEVoicePunctuated(text, _voicePunctuationMode);
         if (!text.length) { [self reportVoiceFailure:MSIMEVoiceFailureNoSpeech]; return; }
         NSDictionary *result = text.length ? [_doubaoVoiceSession applyVoiceText:text generation:_doubaoVoiceGeneration error:nil] : nil;
         if (result) { _doubaoVoiceMarked = NO; [self applyVoiceResult:result route:_doubaoVoiceCommit]; }
@@ -5856,6 +5861,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     _doubaoVoiceSession = _session;
     _doubaoVoiceClient = _activeClient;
     _doubaoVoiceGeneration = _voiceGeneration;
+    _voicePunctuationMode = MSIMEVoicePunctuationMode(_voiceThemePreferences[@"voice_input"]);
     _doubaoVoiceProcessing = NO;
     _doubaoVoiceMarked = NO;
     _doubaoVoiceCommit = MSIMECaptureVoiceCommit(options[@"commit_mode"], _activeClient);
@@ -5964,6 +5970,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     _httpVoiceClient = _activeClient;
     _httpVoiceCommit = MSIMECaptureVoiceCommit(options[@"commit_mode"], _activeClient);
     _httpVoiceGeneration = _voiceGeneration;
+    _voicePunctuationMode = MSIMEVoicePunctuationMode(_voiceThemePreferences[@"voice_input"]);
     _httpVoiceProcessing = NO;
     __weak MSIMEInputController *weakSelf = self;
     [self bindVoiceOverlayActions];
@@ -6023,6 +6030,8 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         if (!controller || controller->_httpVoiceRequest != request) return;
         if (![controller voiceOwnsClient:client session:session] ||
             controller->_voiceGeneration != generation || !controller->_voiceService.active) { [controller cancelHTTPVoiceInput]; return; }
+        // 整句识别的结果已经过润色（HTTPVoiceRequest），这里再按语音标点处理；只剩标点、处理后为空时提示没听到。
+        if (!failure) text = MSIMEVoicePunctuated(text, controller->_voicePunctuationMode);
         if (failure || !text.length) { [controller reportVoiceFailure:failure ? MSIMEVoiceFailureProvider : MSIMEVoiceFailureNoSpeech detail:MSIMEVoiceFailureDetail(failure)]; return; }
         if (!failure && text.length && [controller voiceOwnsClient:client session:session] && controller->_voiceGeneration == generation && controller->_voiceService.active) {
             // Native host session methods are main-thread-only. Recheck the
@@ -6064,6 +6073,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     [self apply:finished];
     _liveVoiceToken = [NSObject new]; _liveVoiceSession = _session; _liveVoiceClient = _activeClient;
     _liveVoiceGeneration = _voiceGeneration; _liveVoiceSocket = [socket copy];
+    _voicePunctuationMode = MSIMEVoicePunctuationMode(_voiceThemePreferences[@"voice_input"]);
     _liveVoiceSocketLease = socket.length ? [options[@"generation"] unsignedLongLongValue] : 0;
     // External providers already own their optional polish stage. Snapshot local
     // settings at recording start through the shared native request adapter.
@@ -6106,6 +6116,8 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
 - (void)applyLiveVoiceFinalText:(NSString *)text token:(id)token {
     if (!token || token != _liveVoiceToken) return;
     if ([self ownsLiveVoiceToken:token]) {
+        // 语音标点在润色之后处理；只剩标点、处理后为空时和识别结果为空一样提示没听到。
+        text = MSIMEVoicePunctuated(text, _voicePunctuationMode);
         if (!text.length) { [self reportVoiceFailure:MSIMEVoiceFailureNoSpeech]; return; }
         NSDictionary *result = text.length ? [_liveVoiceSession applyVoiceText:text generation:_liveVoiceGeneration error:nil] : nil;
         if (result) { _liveVoiceMarked = NO; [self applyVoiceResult:result route:_liveVoiceCommit]; }

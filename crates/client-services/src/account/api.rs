@@ -6,6 +6,14 @@ use super::*;
 pub trait AccountApi: Send + Sync + 'static {
     fn providers(&self) -> Result<std::collections::HashMap<String, bool>, AccountError>;
     fn challenge(&self, provider: &str, target: &str) -> Result<AccountChallenge, AccountError>;
+    /// 登录验证码请求的详细版本，保留服务端返回的状态码和错误码。
+    fn challenge_detailed(
+        &self,
+        provider: &str,
+        target: &str,
+    ) -> Result<AccountChallenge, AccountFailure> {
+        self.challenge(provider, target).map_err(Into::into)
+    }
     fn login(&self, challenge: &str, credential: &str) -> Result<AccountTokens, AccountError>;
     fn refresh(&self, refresh_token: &str) -> Result<AccountTokens, AccountError>;
     fn profile(&self, access_token: &str) -> Result<AccountProfile, AccountError>;

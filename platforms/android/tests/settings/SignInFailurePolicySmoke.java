@@ -21,6 +21,8 @@ public final class SignInFailurePolicySmoke {
             "sending codes too often is named");
         check(SignInFailurePolicy.emailCode("account_invalid").equals("这个邮箱地址不能用来登录"),
             "a refused address is named");
+        check(SignInFailurePolicy.emailCode("account_unsupported_email_domain").contains("邮箱域名"),
+            "a custom email domain is named");
         check(SignInFailurePolicy.emailCode("account_network").contains("连不上服务器"), "offline is named");
         check(SignInFailurePolicy.emailCode("account_unavailable").startsWith("验证码没有发出"),
             "an outage still says the code was not sent");

@@ -530,6 +530,45 @@ fn ios_clipboard_history_is_permission_gated_not_preference_gated() {
     }
 }
 
+/// Linux 和 macOS 的语音面板直接把语音服务的最终文本交给前端提交，「语音标点」要在这里处理；缺省和不认识的值原样返回。
+#[cfg(unix)]
+#[test]
+fn panel_voice_text_follows_the_punctuation_mode() {
+    let document = |mode: &str| {
+        serde_json::json!({
+            "preferences": {"voice_input": {"punctuation_mode": mode}}
+        })
+    };
+    let text = "明天见，好吗？".to_owned();
+    assert_eq!(
+        crate::voice::panel_voice_punctuated(&document("omit_all"), text.clone()),
+        "明天见好吗"
+    );
+    assert_eq!(
+        crate::voice::panel_voice_punctuated(&document("omit_trailing"), text.clone()),
+        "明天见，好吗"
+    );
+    assert_eq!(
+        crate::voice::panel_voice_punctuated(&document("space"), text.clone()),
+        "明天见 好吗"
+    );
+    assert_eq!(
+        crate::voice::panel_voice_punctuated(&document("omit_all"), "。！".to_owned()),
+        ""
+    );
+    for mode in ["auto", "", "future_mode"] {
+        assert_eq!(
+            crate::voice::panel_voice_punctuated(&document(mode), text.clone()),
+            text
+        );
+    }
+    // 偏好文档里没写这一项（等于出厂的 auto）时不改动识别结果。
+    let missing = serde_json::json!({"preferences": {"voice_input": {}}});
+    assert_eq!(
+        crate::voice::panel_voice_punctuated(&missing, text.clone()),
+        text
+    );
+}
 #[cfg(unix)]
 #[test]
 fn voice_provider_options_only_forwards_known_doubao_auth_modes() {

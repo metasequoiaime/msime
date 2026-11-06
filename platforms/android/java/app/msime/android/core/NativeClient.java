@@ -502,6 +502,12 @@ public final class NativeClient {
             throw new IllegalArgumentException("Grid key must be an ASCII letter");
         return TextPolicy.utf8(gridKeyRaw(session, letter));
     }
+    /** 十四／十八键网格辅助码，`op` 0 放下分隔符、1 确定字母、2 清除、3 整组（键盘侧的常量在 GridHelpcodePolicy）；`letter` 是小写字母，0 和 2 不读它。返回与 {@link #character} 相同的输入响应。 */
+    public static String gridHelpcode(long session, int op, char letter) {
+        if (op < 0 || op > 3 || letter > 127)
+            throw new IllegalArgumentException("Invalid grid helpcode operation");
+        return TextPolicy.utf8(gridHelpcodeRaw(session, op, letter));
+    }
     public static String setEnglishMode(long session, boolean enabled) {
         return TextPolicy.utf8(setEnglishModeRaw(session, enabled));
     }
@@ -1202,6 +1208,7 @@ public final class NativeClient {
     private static native byte[] setNineKeyModeRaw(long session, boolean enabled);
     private static native byte[] setKeyGridRaw(long session, int grid);
     private static native byte[] gridKeyRaw(long session, int letter);
+    private static native byte[] gridHelpcodeRaw(long session, int op, int letter);
     private static native byte[] setPrivateSessionRaw(long session, boolean enabled);
     private static native byte[] setEnglishModeRaw(long session, boolean enabled);
     private static native byte[] mobileVoiceConfigurationRaw(byte[] directory);

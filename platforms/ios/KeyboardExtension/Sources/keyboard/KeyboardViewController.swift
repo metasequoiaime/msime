@@ -235,6 +235,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var voiceDictation: KeyboardVoiceDictation?
   /// 听写开始时的输入位置；结果回来时位置变了就不直接上屏。
   private var voiceDictationContext: KeyboardDocumentContext?
+  /// 听写开始时读到的语音标点（`voice_input.punctuation_mode`，#10595），与 Android 一样在开始聆听时取值，最终结果上屏前按它处理一次。
+  private var voiceDictationPunctuation = VoicePunctuation.auto
   /// 按住空格开始听写时手指的纵坐标，用来判断上滑取消；松手后或读屏开始的听写为 nil。
   private var voiceHoldOriginY: CGFloat?
   /// 手写区：铺满键盘宽度的书写卡片，与 Android 的 rebuildHandwritingRows、HarmonyOS 的 handwritingPad 一致；⌫ 与「重写」在底行（`handwritingRewriteButton`、`handwritingDeleteButton`）。
@@ -6014,6 +6016,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       KeyboardDocumentContext(document: $0, before: textDocumentProxy.documentContextBeforeInput,
                               selected: textDocumentProxy.selectedText, after: textDocumentProxy.documentContextAfterInput)
     }
+    voiceDictationPunctuation = VoicePunctuation.mode(session.sharedPreferences ?? MetasequoiaInputSessionBridge.loadSharedPreferences())
     voiceHoldOriginY = held ? originY : nil
     let panel = KeyboardVoicePanelView(dictationHeld: held, skin: KeyboardTheme.current)
     panel.onCancel = { [weak self] in self?.closeKeyboardPicker() }
@@ -6049,8 +6052,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       voicePanel?.showRecognizing(text: text, message: message)
     case .finished(let text):
       let context = voiceDictationContext
+      let punctuation = voiceDictationPunctuation
       endVoiceDictation()
-      insertVoiceResult(text, context: context)
+      insertVoiceResult(text, context: context, punctuation: punctuation)
     case .failed(let message, let reopensSession):
       endVoiceDictation()
       showDiagnostic(message)
@@ -6063,12 +6067,18 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func endVoiceDictation() {
     voiceDictation = nil
     voiceDictationContext = nil
+    voiceDictationPunctuation = VoicePunctuation.auto
     voiceHoldOriginY = nil
     closeKeyboardPicker()
   }
 
-  /// 输入位置还和听写开始时一样就直接上屏；变了就把结果留在语音交接里，可以在功能菜单的「语音结果」里插入（Android 留在语音结果面板里）。
-  private func insertVoiceResult(_ text: String, context: KeyboardDocumentContext?) {
+  /// 输入位置还和听写开始时一样就直接上屏；变了就把结果留在语音交接里，可以在功能菜单的「语音结果」里插入（Android 留在语音结果面板里）。所有识别服务和 App 里的润色都在这之前结束，语音标点在这里处理一次，直接上屏的和存进语音交接的都是处理后的文字，领取语音结果时不再处理；只剩标点时与 Android 一样提示没有识别到文字。
+  private func insertVoiceResult(_ recognized: String, context: KeyboardDocumentContext?, punctuation: String) {
+    guard let text = VoicePunctuation.finalText(recognized, mode: punctuation) else {
+      showDiagnostic("没有识别到文字")
+      renderCandidateStrip()
+      return
+    }
     guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
       showDiagnostic("没有听到内容，请靠近麦克风再试。")
       renderCandidateStrip()
@@ -9115,7 +9125,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     guard var configuration = button.configuration else { return }
     let skin = KeyboardTheme.current
     let annotationColor = (number == 1 || converting ? candidatePalette?.selectedTranslation : nil) ?? candidatePalette?.secondary ?? skin.secondary
-    if let palette = candidatePalette {
+    if let palette = candidatePalette, !palette.usesKeyboardStyle {
       // canvas 首选用选中色，其余透明；既有桌面配色保留「首选高亮」取色器的 hover 语义。
       configuration.background.customView = number == 1 && palette.showSelectedBar
         ? CandidateSelectionBarView(color: palette.selectedBar ?? palette.accent, layout: palette.layout,
@@ -9143,7 +9153,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let lines = (reading.map { [$0.isEmpty ? Self.pendingGlossPlaceholder : $0] } ?? []) + glosses
       + (pronunciation.map { [$0.isEmpty ? Self.pendingGlossPlaceholder : $0] } ?? [])
     // 键盘自己的配色下，首选（空格会上屏的那个）就是选中项：用皮肤的 `candidateAccent`、600 字重，其余候选用按键文字色、400 字重（dc.html `mobCands`）。浅色跟随系统时 `candidateAccent` 是加深到 WCAG AA 的强调色，其余皮肤就是强调色。桌面调色板改用选中底色标出首选。
-    let selected = candidatePalette == nil && number == 1
+    let selected = (candidatePalette?.usesKeyboardStyle ?? true) && number == 1
     let weight: UIFont.Weight = selected ? .semibold : .regular
     // A pinned word takes the accent colour, as it does in the Windows candidate window; chips are reused, so every other word is set back.
     let pinned = markers.contains(where: \.pinned)
@@ -9154,7 +9164,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let captionColor = confidentCorrection
       ? (onSelectedFill ? candidatePalette?.selectedTranslation ?? candidatePalette?.selectedText : nil) ?? accent : annotationColor
     configuration.baseForegroundColor = pinned || selected
-      ? accent
+      ? (selected ? candidatePalette?.selectedText : nil) ?? accent
       : confidentCorrection ? (onSelectedFill ? candidatePalette?.selectedText : nil) ?? accent
       : (number == 1 ? candidatePalette?.selectedText : nil) ?? candidatePalette?.text ?? skin.keyForeground
     // 在线占位行画成次要色，和真候选区分开（#6888）。

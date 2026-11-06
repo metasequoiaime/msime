@@ -2,13 +2,33 @@ import XCTest
 
 /// 光标前打到 `xxx@` 时候选栏给出的邮箱后缀，与 Android 的 `EmailSuffixPolicySmoke` 逐条对应。
 final class EmailSuffixPolicyTests: XCTestCase {
-  func testTwentyLowercaseSuffixesWithDomesticOnesFirst() {
+  func testSeventeenLowercaseSuffixesWithDomesticOnesFirst() {
     let all = EmailSuffixPolicy.suffixes
-    XCTAssertEqual(all.count, 20)
+    XCTAssertEqual(all.count, 17)
     XCTAssertEqual(Set(all).count, all.count)
     XCTAssertEqual(Array(all.prefix(7)), ["@qq.com", "@163.com", "@126.com", "@foxmail.com", "@139.com", "@189.cn", "@aliyun.com"])
     for suffix in all {
       XCTAssertTrue(suffix.hasPrefix("@") && !suffix.dropFirst().contains("@") && suffix == suffix.lowercased(), suffix)
+    }
+  }
+
+  func testApprovedCatalogAndRemovedDomains() throws {
+    let expected = [
+      "@qq.com", "@163.com", "@126.com", "@foxmail.com", "@139.com", "@189.cn", "@aliyun.com",
+      "@gmail.com", "@icloud.com", "@yahoo.com", "@proton.me", "@protonmail.com", "@aol.com",
+      "@mail.com", "@gmx.com", "@naver.com", "@yahoo.co.jp",
+    ]
+    let offered = try XCTUnwrap(EmailSuffixPolicy.match(textBeforeCursor: "review@"))
+    XCTAssertEqual(EmailSuffixPolicy.suffixes, expected)
+    XCTAssertEqual(offered.suffixes, expected)
+    for suffix in expected {
+      XCTAssertEqual(EmailSuffixPolicy.replacement(offered, suffix: suffix),
+                     .init(deleteCount: 0, insert: String(suffix.dropFirst())))
+    }
+    for domain in ["outlook.com", "hotmail.com", "live.com", "msn.com"] {
+      let prefix = try XCTUnwrap(domain.split(separator: ".").first)
+      XCTAssertNil(EmailSuffixPolicy.match(textBeforeCursor: "review@" + prefix))
+      XCTAssertNil(EmailSuffixPolicy.replacement(offered, suffix: "@" + domain))
     }
   }
 
