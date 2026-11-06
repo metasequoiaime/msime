@@ -5,17 +5,15 @@ import app.msime.android.LayoutPolicy;
 import android.graphics.Typeface;
 import android.os.Build;
 import android.util.TypedValue;
-import android.view.Menu;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
-import android.widget.PopupMenu;
 import app.msime.android.CandidateTranslationPolicy;
 import app.msime.android.core.InputViewValuePolicy;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** 候选按钮的构建与样式、展开的候选面板和候选长按菜单；从 MSIMEInputService 原样搬出，状态仍在服务里。 */
+/** 候选按钮的构建与样式、展开的候选面板和长按候选打开的释义卡片；从 MSIMEInputService 原样搬出，状态仍在服务里。 */
 final class ImeCandidates {
     private final MSIMEInputService s;
     private String styleCacheKey;
@@ -162,82 +160,26 @@ final class ImeCandidates {
         ViewPolicy.clearElevation(button);
     }
 
-    boolean showCandidateMenu(Button button, int slot, JSONObject id, String text) {
+    boolean openGlossCard(Button button, int slot, JSONObject id, String text) {
         if (!s.candidateGlossInsertionEnabled() && !s.candidateManagementEnabled()) return false;
-        return showCandidateMenu(button, slot, id, text, s.visibleCandidate(slot), false);
+        return openGlossCard(button, slot, id, text, s.visibleCandidate(slot), false);
     }
 
-    boolean showCandidateMenu(Button button, int slot, JSONObject id, String text,
-                                      JSONObject candidate, boolean expanded) {
-        return showCandidateMenu(button, slot, id, text, candidate, expanded, null);
+    boolean openGlossCard(Button button, int slot, JSONObject id, String text,
+                          JSONObject candidate, boolean expanded) {
+        return openGlossCard(button, slot, id, text, candidate, expanded, null);
     }
 
-    boolean showCandidateMenu(Button button, int slot, JSONObject id, String text,
-                              JSONObject candidate, boolean expanded, JSONObject stripSnapshot) {
+    /** 长按候选打开释义卡片（#10915），原来的长按菜单并进了卡片。 */
+    boolean openGlossCard(Button button, int slot, JSONObject id, String text,
+                          JSONObject candidate, boolean expanded, JSONObject stripSnapshot) {
         if (!s.candidateGlossInsertionEnabled() && !s.candidateManagementEnabled()) return false;
-        PopupMenu popup = new PopupMenu(s, button);
-        String translation = candidate == null || candidate.isNull("translation")
-            || !CandidateTranslationPolicy.userTranslationSourceAllowed(
-                InputViewValuePolicy.integer(candidate, "source", -1))
+        int source = candidate == null ? -1 : InputViewValuePolicy.integer(candidate, "source", -1);
+        String displayed = candidate == null || candidate.isNull("translation")
+            || !CandidateTranslationPolicy.userTranslationSourceAllowed(source)
             ? "" : JsonPolicy.strictStringOrEmpty(candidate.opt("translation"));
-        java.util.List<String> glosses = s.candidateGlossInsertionEnabled()
-            ? CandidateTranslationPolicy.insertionGlosses(translation) : java.util.List.of();
-        for (int index = 0; index < glosses.size(); index++)
-            popup.getMenu().add(Menu.NONE, 2000 + index, Menu.NONE, glosses.get(index));
-        boolean management = s.candidateManagementEnabled();
-        if (glosses.isEmpty() && !management) return false;
-        if (management) {
-            for (CandidateManagementAction action : CandidateManagementAction.values()) {
-                if (action.confirmationRequired()) {
-                    // 删除收进子菜单，和 iOS 的嵌套 UIMenu 一样：点开「删除词条…」当场展开「确认删除此词条」，
-                    // 一次长按就能删完，不用退出菜单再长按一次，也不弹对话框（#5605、#5653）。
-                    popup.getMenu().addSubMenu(Menu.NONE, Menu.NONE, action.ordinal(), action.title())
-                        .add(Menu.NONE, action.menuItemId(), Menu.NONE, action.confirmationTitle());
-                    continue;
-                }
-                popup.getMenu().add(Menu.NONE, action.menuItemId(), action.ordinal(), action.title());
-            }
-        }
-        // 「加入生词本」排在最后，和 iOS、鸿蒙的长按菜单、桌面的候选右键菜单同一个位置；只在这一行显示着可上屏的释义时出现。
-        boolean personalWordbook = CandidateManagementAction.offersPersonalWordbook(glosses);
-        // 「朗读」紧挨在它前面：有能读的英文（显示着的英文释义，或候选本身是英文）、本机又装着语音引擎时出现。
-        String readAloud = s.readAloudText(text, translation);
-        if (readAloud != null)
-            popup.getMenu().add(Menu.NONE, CandidateManagementAction.READ_ALOUD_MENU_ITEM,
-                CandidateManagementAction.READ_ALOUD_ORDER, CandidateManagementAction.READ_ALOUD_TITLE);
-        if (personalWordbook)
-            popup.getMenu().add(Menu.NONE, CandidateManagementAction.PERSONAL_WORDBOOK_MENU_ITEM,
-                CandidateManagementAction.PERSONAL_WORDBOOK_ORDER, CandidateManagementAction.PERSONAL_WORDBOOK_TITLE);
-        popup.setOnMenuItemClickListener(item -> {
-            s.imeKeyFeedback.playFeedback(button);
-            if (readAloud != null && item.getItemId() == CandidateManagementAction.READ_ALOUD_MENU_ITEM) {
-                s.readAloud(readAloud);
-                return true;
-            }
-            if (personalWordbook && item.getItemId() == CandidateManagementAction.PERSONAL_WORDBOOK_MENU_ITEM) {
-                s.addCandidateToPersonalWordbook(text, translation,
-                    candidate == null ? "" : s.candidateDisplayedReading(candidate));
-                return true;
-            }
-            int glossIndex = item.getItemId() - 2000;
-            if (glossIndex >= 0 && glossIndex < glosses.size()) {
-                if (stripSnapshot != null)
-                    s.insertStripCandidateGloss(stripSnapshot, candidate, id, text, glosses.get(glossIndex));
-                else if (expanded) s.insertExpandedCandidateGloss(candidate, id, text, glosses.get(glossIndex));
-                else s.insertCandidateGloss(slot, id, text, glosses.get(glossIndex));
-                return true;
-            }
-            CandidateManagementAction action;
-            try {
-                action = CandidateManagementAction.fromMenuItemId(item.getItemId());
-            } catch (IllegalArgumentException error) {
-                return false;
-            }
-            s.editCandidate(id, action);
-            return true;
-        });
-        popup.show();
-        return true;
+        String raw = candidate == null ? text : InputViewValuePolicy.textOr(candidate, "text", text);
+        return s.imeGlossCard.open(new ImeGlossCard.Target(text, raw, source, candidate, id, displayed));
     }
 
     Button makeCandidateButton(int slot) {
@@ -255,7 +197,7 @@ final class ImeCandidates {
             if (!AiPendingCandidatePolicy.offersMenu(InputViewValuePolicy.integer(current, "source", -1))) return false;
             String text = s.chineseCandidateOutput(InputViewValuePolicy.textOr(current, "text", ""), s.view,
                 InputViewValuePolicy.integer(current, "source", -1));
-            return showCandidateMenu(button, slot, id, text);
+            return openGlossCard(button, slot, id, text);
         });
         return button;
     }
@@ -277,7 +219,7 @@ final class ImeCandidates {
                 if (!s.candidateVersionIsCurrent(id)) return false;
                 String text = s.chineseCandidateOutput(InputViewValuePolicy.textOr(candidate, "text", ""), s.view,
                     InputViewValuePolicy.integer(candidate, "source", -1));
-                return showCandidateMenu(button, -1, id, text, candidate, false, snapshot);
+                return openGlossCard(button, -1, id, text, candidate, false, snapshot);
             });
         else button.setOnLongClickListener(null);
         // 放在绑长按之后：setOnLongClickListener 总会把按钮设成可长按，updateCandidateButton 再按来源改回去。
@@ -338,7 +280,7 @@ final class ImeCandidates {
             // 占位行不挂长按：没有可管理的词，读屏也不该提示长按（#6888）。
             if (AiPendingCandidatePolicy.offersMenu(source)) button.setOnLongClickListener(ignored -> {
                 if (!s.candidateManagementEnabled() && !s.candidateGlossInsertionEnabled()) return false;
-                return showCandidateMenu(button, -1, id, text, candidate, true);
+                return openGlossCard(button, -1, id, text, candidate, true);
             });
         }
         return button;
