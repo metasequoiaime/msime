@@ -36,5 +36,5 @@ Status: implemented
 ## Testing
 
 - `VoiceHoldDeviceChecks.assertHoldKeyGaps`：在真实输入法窗口里锁定后，量「符」与「！」、「，」与「其他」、🔓 与「已锁定」、「已锁定」与「发送」之间的横向空隙，取消行与标点行、标点行与控制行之间的纵向空隙，以及最外侧两键与键盘窗口边缘的空隙，都必须大于 0；🔓 与「符」右沿、「发送」与「其他」左沿相差不超过 1 px。弹层里换行、空格、删除两两之间也要有空隙。改之前的代码上这些键帽首尾相接，第一条断言就失败。
-- `platforms/android/check-host.sh` 钉住接线：键位经 `holdKeyParams` 取键距和行距，操作区不再直接 new 不带外边距的键位参数。把 `ImeVoiceEntry.java` 换回 develop 的版本，这一段报错退出；换回改后的版本通过。
+- `platforms/android/check-host.sh` 继续负责 Java 冒烟和设备套件编译，不检查长按面板的源码文本；键距、行距、列对齐和弹层间距由上面的设备行为断言覆盖，避免重命名或排版变化误报。
 - `voice-lifecycle.sh hold` 先删掉设备上上一轮的截图（专项在截图之前失败时不会拉回旧面板），再把锁定后的面板截图拉回 `target/android/voice-hold-panel-api<N>.png`，Android device 作业不论成败都上传为产物，PR 的改后截图取自这里。
