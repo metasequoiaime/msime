@@ -374,7 +374,7 @@ struct CommunitySkinDetail: View {
           try request.checkCurrent(id)
           updated = latest
         } } label: { Label("下载并试用", systemImage: "arrow.down.circle.fill").frame(maxWidth: .infinity) }
-          .buttonStyle(.borderedProminent).disabled(busy).accessibilityIdentifier("downloadCommunitySkin")
+          .buttonStyle(.borderedProminent).foregroundStyle(MetasequoiaTheme.onAccent).disabled(busy).accessibilityIdentifier("downloadCommunitySkin")
         if !skin.owned {
           Text("我的评分（下载后可评，可重新选择）").font(.subheadline)
           HStack {

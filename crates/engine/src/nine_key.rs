@@ -2,6 +2,11 @@
 //!
 //! The digits stay the composition: a chosen spelling only rewrites its span of digits and is remembered in `locked`, and every candidate's `pinyin` is the run of digits it consumes, so selection advances the same way whichever reading produced the row.
 
+mod grid_helpcode;
+
+use grid_helpcode::GridHelpcode;
+pub use grid_helpcode::GridHelpcodeOp;
+
 use std::borrow::Cow;
 use std::cmp::{Ordering, Reverse};
 use std::collections::{HashMap, HashSet};
@@ -11,7 +16,9 @@ use std::sync::OnceLock;
 
 use crate::assets;
 use crate::diagnostics;
-use crate::dictionary::english::{append_keypad_ranked, EnglishDictionary, KeypadRow};
+use crate::dictionary::english::{
+    append_keypad_ranked, seat_nine_key_english, EnglishDictionary, KeypadRow,
+};
 use crate::error::EngineError;
 use crate::ime::queries::{
     insert_expressive_rows, keep_expressive_rows_off_the_lead, MIXED_EXPRESSIVE_MINIMUM_INPUT,
@@ -21,12 +28,14 @@ use crate::lattice::decode::PHRASE_LENGTH_BONUS;
 use crate::lattice::neural::{
     shared_sentence_model, NeuralReranker, CONTEXT_CHARACTERS, MAX_RERANK_PATHS,
 };
+use crate::lattice::offensive::OffensiveWords;
 use crate::lattice::personal::PersonalTransition;
 use crate::lattice::SentencePath;
 use crate::local::date_time::{inline_date_time_keyword, insert_inline_date_time};
 use crate::local::emoji::{query_emoji_readings, query_kaomoji_readings, ExpressiveRow};
 use crate::local::symbol_candidates::{query_symbol_readings, SymbolRow, MIXED_SYMBOL_LIMIT};
 use crate::nine_key_shuangpin::NineKeyShuangpin;
+use crate::offensive_placement::{evict_after_positions, grid_demotion, keep_off_first_page};
 use crate::paths::RuntimePaths;
 use crate::pinyin::segment::{is_complete_pinyin_input, split_segments};
 use crate::pinyin::syllables::intact_pinyin_list;
@@ -382,6 +391,8 @@ pub struct NineKeySession {
     remember_recent: bool,
     /// 最近一次刷新是否按 `discount_completions_on_first_page` 折算过首页里的补全；置顶要知道调频写进去的权重会不会被折算挡住。
     completions_discounted: bool,
+    /// 十四／十八键组码后的网格辅助码（`grid_helpcode`）；`None` 是没有放下分隔符。
+    helpcode: Option<GridHelpcode>,
     digits: String,
     locked: Vec<String>,
     /// 用户用 `'` 切开音节的数字位置，升序，都在已锁定的部分之后。和锁定的拼写不同，切分只定下一个音节在哪里结束，两边数字的各种读法都还保留：`94'26` 可以是 xi'an，也可以是 yi'an，但不会是 xian。
@@ -505,6 +516,7 @@ impl NineKeySession {
             personal_context: true,
             remember_recent: true,
             completions_discounted: false,
+            helpcode: None,
             digits: String::new(),
             locked: Vec::new(),
             splits: Vec::new(),
@@ -667,6 +679,8 @@ impl NineKeySession {
     /// `2`..=`9`；到 `DIGIT_LIMIT` 个数字时按 `NINE_KEY_DIGIT_LIMIT` 处理（运行时会先用 `limit_pick_ready` 判断能不能替用户选掉首选再接着打）。组字中按 `'` 在光标处切开音节；在同一处再切一次，或者紧跟在锁定的拼写之后切，都没有作用。光标在数字中间时数字插在光标处，光标落在锁定的拼写里时从那个音节起解除锁定。
     pub fn character(&mut self, digit: u8) -> KeyResult {
         if digit == b'\'' {
+            // 分词键先清掉网格辅助码，再照旧切分。
+            let constrained = self.drop_grid_helpcode();
             // 英文九键的数字拼的是字母不是音节，没有可切的地方，记下的切分上屏时也只会被丢掉。
             if !self.active() || self.english_only || !self.pinyin {
                 return KeyResult::unhandled();
@@ -674,6 +688,9 @@ impl NineKeySession {
             let caret = self.caret_position();
             // 开头和锁定拼写之间的边界本来就是音节的分界，切分没有作用，锁定的拼写也不解除；只有切在一个锁定拼写中间时，才从那个音节起解除锁定，再记下切分。
             if self.on_lock_boundary(caret) || self.splits.contains(&caret) {
+                if constrained {
+                    self.refresh();
+                }
                 return KeyResult::handled();
             }
             self.unlock_from(caret);
@@ -683,6 +700,10 @@ impl NineKeySession {
             return KeyResult::handled();
         }
         if !self.grid.is_code(digit) {
+            return KeyResult::unhandled();
+        }
+        // 放下网格辅助码的分隔符后组码不再变，辅助码只从 `grid_helpcode` 进。
+        if self.helpcode.is_some() {
             return KeyResult::unhandled();
         }
         if self.digits.len() >= DIGIT_LIMIT {
@@ -710,6 +731,7 @@ impl NineKeySession {
     /// 组码已经到 `DIGIT_LIMIT`、光标在末尾，再按一个组码 `digit` 时，先选掉首选能不能腾出位置：首选要占用至少一位组码。光标在中间（用户在改前面的码）、首选不占组码或者没有候选时不行，那一键照旧按上限拦下。
     pub fn limit_pick_ready(&self, digit: u8) -> bool {
         self.active()
+            && self.helpcode.is_none()
             && self.grid.is_code(digit)
             && self.digits.len() >= DIGIT_LIMIT
             && self.caret_position() == self.digits.len()
@@ -748,8 +770,11 @@ impl NineKeySession {
         }
     }
 
-    /// 选左列的一项。音节锁进数字；字母限定下一个音节的首字母；数字直接上屏这一位。数字全部锁定时左列是最后一次锁定时的选项，选哪一项都先撤销那次锁定，相当于换选。
+    /// 选左列的一项。音节锁进数字；字母限定下一个音节的首字母；数字直接上屏这一位。数字全部锁定时左列是最后一次锁定时的选项，选哪一项都先撤销那次锁定，相当于换选。放下网格辅助码的分隔符后左列是辅助码的整串解释。
     pub fn choose_spelling(&mut self, index: usize) -> KeyResult {
+        if self.helpcode.is_some() {
+            return self.choose_grid_helpcode(index);
+        }
         let Some(choice) = self.spellings.get(index).cloned() else {
             return KeyResult::unhandled();
         };
@@ -882,7 +907,10 @@ impl NineKeySession {
         // 用过的简拼行在九键里的位置只由个人上下文模型里的计数决定（`boost_used_initials`）。这一行会记进模型时不再调全局词频：两边都挪的话一次选词挪两次，全局权重还会连带改掉 26 键里这个词的位置（#6185）。
         let recorded_initials =
             self.records_personal_use(selected_source, &selected_word) && selected_is_initials;
-        let mut diagnostic = if self.learning
+        // 选词清掉网格辅助码。筛过的列表里的下标和普通列表的不是一回事，不拿它调词频、记最近选择。
+        let filtered = self.drop_grid_helpcode();
+        let reorders = self.learning && !filtered;
+        let mut diagnostic = if reorders
             && self.frequency.mode != FrequencyAdjustmentMode::Disabled
             && index != 0
             && selected_fixed_position == 0
@@ -894,7 +922,7 @@ impl NineKeySession {
             None
         };
         // 最近选中的候选要在下一次相同数字输入中直接显示在首位。选定读法后，首候选也是显式选择，另外记到未锁定的上下文；不把单字写进个人模型，也不改主词库权重。
-        if self.learning
+        if reorders
             && selected_source.is_dictionary()
             && !selected_canonical_pinyin.is_empty()
             && !selected_is_initials
@@ -1053,6 +1081,7 @@ impl NineKeySession {
         if !self.active() {
             return KeyResult::unhandled();
         }
+        // 网格辅助码筛空时这里转给 `CommitRaw`，丢掉组字、什么也不上屏（`grid_helpcode_command`）。
         if first_index >= self.candidates.len() {
             return self.command(Command::CommitRaw);
         }
@@ -1090,6 +1119,9 @@ impl NineKeySession {
     pub fn command(&mut self, command: Command) -> KeyResult {
         if !self.active() {
             return KeyResult::unhandled();
+        }
+        if let Some(result) = self.grid_helpcode_command(command) {
+            return result;
         }
         match command {
             Command::CommitCandidate => return self.select(0),
@@ -1158,6 +1190,7 @@ impl NineKeySession {
 
     /// 结束这次组字：数字连同锁定、撤销记录、切分、首字母、光标和正在拼的词一起清掉。
     fn clear_composition(&mut self) {
+        self.helpcode = None;
         self.path_scratch.pages.clear();
         // 选词学习可能刚改了英文权重。
         self.english_rows = None;
@@ -1382,10 +1415,14 @@ impl NineKeySession {
             candidates: self.candidates.clone(),
             editing_text: self.digits.clone(),
             caret_position: self.caret_position(),
-            nine_key_spellings: self.spellings.clone(),
+            nine_key_spellings: self
+                .grid_helpcode_choices()
+                .unwrap_or_else(|| self.spellings.clone()),
             nine_key_reading: self.reading.clone(),
             nine_key_single_character: self.single_character,
             nine_key_strokes: self.strokes.clone(),
+            grid_helpcode_display: self.grid_helpcode_display(),
+            grid_helpcode_constrained: self.grid_helpcode_constrains(),
             candidate_sources: self.candidates.iter().map(|item| item.source).collect(),
             candidate_annotations: self
                 .candidates
@@ -1428,6 +1465,10 @@ impl NineKeySession {
             self.spellings.clear();
             // No syllables to offer and no pinyin to look up: the digits stand for letters only.
             self.candidates = self.english_candidates(false);
+            let vulgar = self.offensive_words();
+            keep_off_first_page(&mut self.candidates, self.first_page_rows.get(), |item| {
+                grid_demotion(item, &vulgar)
+            });
             return;
         }
         // 每个锁定都有一条撤销记录，哪怕是作废的。
@@ -1715,14 +1756,35 @@ impl NineKeySession {
             let strokes = (!self.strokes.is_empty()).then_some(&self.stroke_texts);
             candidates.retain(|item| passes_filter(&item.word, self.single_character, strokes));
         }
-        rank_candidates(
-            &mut candidates,
-            prefer_exact,
-            initials_lead,
-            boost.as_ref(),
-            grid,
-        );
+        // 网格辅助码要在整张已查到的列表上筛，先不截断。
+        let constrained = self.grid_helpcode_constrains();
+        if constrained {
+            order_candidates(
+                &mut candidates,
+                prefer_exact,
+                initials_lead,
+                boost.as_ref(),
+                grid,
+            );
+        } else {
+            rank_candidates(
+                &mut candidates,
+                prefer_exact,
+                initials_lead,
+                boost.as_ref(),
+                grid,
+            );
+        }
         self.rerank_sentences(&mut candidates);
+        if constrained {
+            self.settle_grid_helpcode(candidates, alternatives);
+            return;
+        }
+        // 粗俗词和轻度粗口不进歧义码的首屏（`offensive_placement`）。在插入英文、表情和固定位置之前挪：英文行坐的是首选之后的位置，挪动不能把它推上首选；用户固定的位置照旧生效。
+        let vulgar = self.offensive_words();
+        keep_off_first_page(&mut candidates, self.first_page_rows.get(), |item| {
+            grid_demotion(item, &vulgar)
+        });
         let mut seeds = std::mem::take(&mut self.seed_buffer);
         next_seeds(
             grid,
@@ -1742,30 +1804,21 @@ impl NineKeySession {
         // 没有任何拼音读法时（77 拼不出音节），列表本来是空的，混输开关和最短前缀保护的「拼音列表的可读性」无从谈起；这时照样给英文九键词，否则 QQ 这类词只能切到全键盘去打。
         let unanswered = candidates.is_empty();
         // 首字母和筛选都只针对拼音读法，英文词一概不列。
-        let mut english = if initial.is_some() || filtering {
+        let english = if initial.is_some() || filtering {
             Vec::new()
         } else {
             self.english_candidates(unanswered)
         };
         if !english.is_empty() {
-            // 有权重的英文保留第二位，零权重词仍接在拼音末尾；额外英文只占首页剩余空间。
-            let first = english.remove(0);
-            let slot = if first.weight > 0 {
-                candidates.len().min(1)
-            } else {
-                candidates.len()
-            };
-            candidates.insert(slot, first);
-            let extra = self
-                .english_options
-                .first_page_count
-                .saturating_sub(1)
-                .min(self.first_page_rows.get().saturating_sub(slot + 1))
-                .min(english.len());
-            if extra > 0 {
-                candidates.splice(slot + 1..slot + 1, english.drain(..extra));
-            }
-            candidates.extend(english);
+            let journal = self.paths.user(assets::USER_JOURNAL);
+            seat_nine_key_english(
+                &mut candidates,
+                english,
+                self.digits.len(),
+                &journal,
+                self.english_options.first_page_count,
+                self.first_page_rows.get(),
+            );
         }
         let mut candidates = insert_expressive_rows(candidates, emoji, kaomoji, symbols);
         // 选了首字母或在筛选时用户是在逐字拼，不加日期时间行。
@@ -1793,6 +1846,9 @@ impl NineKeySession {
             false,
         );
         keep_expressive_rows_off_the_lead(&mut candidates);
+        evict_after_positions(&mut candidates, self.first_page_rows.get(), |item| {
+            grid_demotion(item, &vulgar)
+        });
         // 混入行、固定位置都排好之后才折算，只在首页的拼音词典行之间调序：英文、固定位置这些行坐着原来的位置，首页由哪些行组成与不折算时相同。句子种子和 emoji 查读法用的也是折算前的顺序。
         self.completions_discounted = !prefer_exact
             && discount_completions_on_first_page(
@@ -2150,6 +2206,9 @@ impl NineKeySession {
         }
         if strokes.is_empty() {
             self.stroke_texts.clear();
+        } else {
+            // 笔画和网格辅助码不同时筛。
+            self.helpcode = None;
         }
         self.single_character = single_character;
         self.strokes = strokes.to_string();
@@ -2301,6 +2360,14 @@ impl NineKeySession {
             reading.push_str(syllable);
         }
         true
+    }
+
+    /// 全拼词库的粗俗词表（复制一个 `Arc`），候选排位用，和拼整句同一张；词典还没打开时是内嵌表。
+    fn offensive_words(&self) -> OffensiveWords {
+        self.dictionary
+            .as_ref()
+            .map(|dictionary| dictionary.offensive_words().clone())
+            .unwrap_or_default()
     }
 
     /// `unanswered`：拼音一行候选都没有，英文词就是整个答案，和英文模式一样不受混输开关和最短前缀限制；锁定了拼音时仍不给。
@@ -2480,10 +2547,12 @@ impl NineKeySession {
         format!("nine-key:{}:{}", self.digits, self.locked.join("'"))
     }
 
+    /// 网格辅助码筛选时不置顶、删除或固定位置：筛过的列表不是这个上下文的普通列表。
     fn editable(&self, index: usize) -> bool {
-        self.candidates
-            .get(index)
-            .is_some_and(|item| !item.canonical_pinyin.is_empty() && item.source.is_dictionary())
+        !self.grid_helpcode_constrains()
+            && self.candidates.get(index).is_some_and(|item| {
+                !item.canonical_pinyin.is_empty() && item.source.is_dictionary()
+            })
     }
 
     /// Learning and explicit management use canonical dictionary keys, never digit strings.
@@ -3490,6 +3559,18 @@ fn rank_candidates(
     boost: Option<&InitialsBoost>,
     grid: KeyGrid,
 ) {
+    order_candidates(candidates, prefer_exact, initials_lead, boost, grid);
+    candidates.truncate(CANDIDATE_LIMIT);
+}
+
+/// `rank_candidates` 不截断的部分，网格辅助码筛选前用。
+fn order_candidates(
+    candidates: &mut Vec<WordItem>,
+    prefer_exact: bool,
+    initials_lead: bool,
+    boost: Option<&InitialsBoost>,
+    grid: KeyGrid,
+) {
     if candidates.len() <= SMALL_CANDIDATE_SORT {
         candidates.sort_by_key(|item| rank_key(item, prefer_exact, initials_lead, grid));
     } else {
@@ -3502,7 +3583,6 @@ fn rank_candidates(
     if let Some(boost) = boost {
         boost_used_initials(candidates, initials_lead, boost);
     }
-    candidates.truncate(CANDIDATE_LIMIT);
 }
 
 /// 简拼行按用户用过的次数挪位（#6185），沿用调频的模式、触发次数和步长。
@@ -4716,13 +4796,27 @@ mod tests {
 
     #[test]
     fn shipped_syllable_frequency_covers_every_spelling_and_names_its_source() {
-        // 第一行记着取自哪份 msime-pinyin.db，和那一版词库发布锁里的 sha256 对得上；换词库重新生成时一起换。
+        // 第一行是生成器写下的来源 `msime-dict-build syllable-frequency --pinyin <db>` 的 sha256，必须等于桌面词库锁固定的那份 msime-pinyin.db：换锁时没有重新生成这张表，或者表取自别的词库，这里就失败。表的内容是否真由那份词库算出，由 dict-builder 的 `shipped_table_is_rebuilt_from_the_locked_dictionary`（要 `MSIME_EVAL_RESOURCES`，CI 的 Rust engine 作业按锁下载那份词库后运行它）逐字节核对。
         let source = SYLLABLE_FREQUENCY
             .lines()
             .next()
             .and_then(|line| line.strip_prefix("# msime-pinyin.db sha256="))
             .expect("source line");
-        assert!(source.len() == 64 && source.bytes().all(|byte| byte.is_ascii_hexdigit()));
+        let lock: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../resources/desktop-dictionary.lock.json"
+        ))
+        .expect("desktop dictionary lock parses");
+        let locked = lock["artifacts"]
+            .as_array()
+            .expect("lock artifacts")
+            .iter()
+            .find(|artifact| artifact["name"] == "msime-pinyin.db")
+            .and_then(|artifact| artifact["sha256"].as_str())
+            .expect("the lock pins msime-pinyin.db");
+        assert_eq!(
+            source, locked,
+            "syllable_frequency.tsv was generated from another msime-pinyin.db than resources/desktop-dictionary.lock.json pins; rerun `msime-dict-build syllable-frequency --pinyin <the locked msime-pinyin.db>`"
+        );
         // 只缺 jv、lue 这类别写：词库行记在 ju、lve 这些正写下，原先现查单字时别写同样查不到、按 1 算。
         let weights = shipped_syllable_frequency();
         let mut missing: Vec<&str> = KeyGrid::NineKey
@@ -7169,7 +7263,8 @@ mod tests {
         let fixture = fixture();
         Connection::open(fixture.paths.dictionary(assets::ENGLISH_DICTIONARY))
             .unwrap()
-            .execute_batch("INSERT INTO english_words VALUES('night','night',900),('nights','nights',800),('nightly','nightly',700);")
+            // 权重取自 dict-v2.0.41，都常见到能坐优先位置（`english::takes_priority_slot`）。
+            .execute_batch("INSERT INTO english_words VALUES('night','night',130531484),('nights','nights',21258662),('nightly','nightly',4115392);")
             .unwrap();
         for (count, page_rows, expected) in [
             (
@@ -7750,13 +7845,13 @@ INSERT INTO tbl_1_b VALUES('ba','b','巴',16099);",
         }
     }
 
-    /// 有权重的英文坐第二位，折算只在它周围的拼音行之间调序：被折算的补全仍在首页，首页里的行与不折算时相同。
+    /// 常见的英文坐第二位，折算只在它周围的拼音行之间调序：被折算的补全仍在首页，首页里的行与不折算时相同。权重取自 dict-v2.0.41。
     #[test]
     fn a_mixed_english_row_does_not_push_a_discounted_completion_off_the_first_page() {
         let fixture = fixture_with("CREATE TABLE tbl_2_c(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_c VALUES('chi''fan','cf','吃饭',1100);INSERT INTO tbl_2_c VALUES('ci''ge','cg','次格',700);CREATE TABLE tbl_2_a(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_a VALUES('ai''ge','ag','挨个',1000);INSERT INTO tbl_2_a VALUES('ai''he','ah','爱河',900);CREATE TABLE tbl_2_b(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_b VALUES('bi''he','bh','碧荷',800);INSERT INTO tbl_2_b VALUES('bi''ge','bg','笔格',600);");
         Connection::open(fixture.directory.path().join(assets::ENGLISH_DICTIONARY))
             .and_then(|db| {
-                db.execute_batch("INSERT INTO english_words VALUES('chief','chief',1000);")
+                db.execute_batch("INSERT INTO english_words VALUES('chief','chief',45699591);")
             })
             .expect("english row");
         let mut session = open(&fixture.paths, false, mixed());
@@ -8723,12 +8818,12 @@ CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl
         Connection::open(fixture.paths.dictionary(assets::ENGLISH_DICTIONARY))
             .unwrap()
             .execute(
-                "INSERT INTO english_words(word, display, weight) VALUES ('mei', 'Mei', 700)",
+                "INSERT INTO english_words(word, display, weight) VALUES ('mei', 'Mei', 5000000)",
                 [],
             )
             .unwrap();
         let mut session = open_expressive(&fixture, mixed(), BOTH_EXPRESSIVE);
-        // 九宫格的英文首行有权重时占首选之后的位置；关键词里有这个英文词的 emoji 接在它后面，接不上的排在末尾。
+        // 九宫格的英文首行常见到能坐优先位置时（`english::takes_priority_slot`）占首选之后的位置；关键词里有这个英文词的 emoji 接在它后面，接不上的排在末尾。
         type_digits(&mut session, "634");
         let listed = words(&session);
         assert_eq!(listed[..3], ["美", "Mei", "🌸"]);

@@ -70,10 +70,8 @@ jobs:
           bash scripts/rustup-install.sh x86_64-linux-android
           # NDK 用发版和 OCR 模块构建共用的 install-ndk.sh：下载偶发损坏时清掉 sdkmanager 的半截下载和没装完的目录再重装，最多三次，以固定版本和编译器都已落盘为准。2026-10-27 夜间 API 28 就是在这里报「Error on ZipFile unknown archive」后整个 job 失败的。
           bash platforms/android/install-ndk.sh
-          # sdkmanager 退出后 yes 再写会收到 SIGPIPE（退出码 141），在 pipefail 下让整步失败；它的退出码不算数，装没装上由后面的核对判断。
-          { yes || true; } | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --install \
-            'build-tools;35.0.0' 'platforms;android-35' 'platforms;android-36' \
-            emulator platform-tools 'system-images;android-${{ matrix.api }};default;x86_64' >/dev/null
+          # 模拟器和系统镜像也可能留下坏归档；脚本会清掉半截 SDK 包并重试，确认每个包的 package.xml 和可执行文件都落盘。
+          bash platforms/android/install-sdk-packages.sh "${{ matrix.api }}"
           grep -q '28.2.13676358' "$ANDROID_SDK_ROOT/ndk/28.2.13676358/source.properties"
           test -f "$ANDROID_SDK_ROOT/system-images/android-${{ matrix.api }}/default/x86_64/package.xml"
           "$ANDROID_SDK_ROOT/emulator/emulator" -accel-check
@@ -81,7 +79,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p target/android
-          nohup bash platforms/android/tests/device/start-emulator.sh ${{ matrix.api }} > target/android/emulator.log 2>&1 &
+          # 模拟器进程在后台跑完整个 job，它怎么退出原先无从得知：2026-11-04 #10881 的 API 35 在五笔查码阶段模拟器消失，emulator.log 停在一行例行的 ColorBuffer 错误上，没有任何退出记录（#10889）。这里把退出状态追加到日志末尾：137 是被 SIGKILL（多半是主机 OOM），134/139 是模拟器自己崩溃。
+          # shellcheck disable=SC2016 # $1 和 $? 要在内层 shell 里展开。
+          nohup bash -c 'bash platforms/android/tests/device/start-emulator.sh "$1"; echo "start-emulator.sh exited with status $?"' _ ${{ matrix.api }} > target/android/emulator.log 2>&1 &
           serial="emulator-$((5580 - 2 * (35 - ${{ matrix.api }})))"
           echo "SERIAL=$serial" >> "$GITHUB_ENV"
           adb="$ANDROID_SDK_ROOT/platform-tools/adb"
@@ -114,13 +114,27 @@ jobs:
           set -euo pipefail
           mkdir -p target/android
           bash platforms/android/tests/device/smoke.sh "$SERIAL" --crash-only 2>&1 | tee target/android/device-crash-smoke.log
+      # 上一步崩溃专项已经装过一次 265 MB 的 APK 并启动过应用，smoke.sh 再用 install -r 覆盖安装时，包管理器要在旧 APK、它的 dex 产物和首启准备好的数据之外再腾出一份新 APK 的空间。API 35 的 /data 余量本来就紧，2026-11-05 #10934 的 API 35 两次在这里报 INSTALL_FAILED_INSUFFICIENT_STORAGE: Failed to override installation location，验收一项没跑就停了，同一个 APK 在 API 28 和另一次重跑里都装得上。完整冒烟本来就按全新安装写（smoke.sh 里会跳过首启引导），这里先卸掉崩溃专项留下的安装再装，前后各打一次 /data 的余量，下次再报空间不足时日志里有数可查。
       - name: Install, prepare resources and accept input on the AVD
         if: ${{ matrix.smoke != '--crash-only' }}
         timeout-minutes: 90
         run: |
           set -euo pipefail
           mkdir -p target/android
+          adb="$ANDROID_SDK_ROOT/platform-tools/adb"
+          "$adb" -s "$SERIAL" shell df -h /data || true
+          if "$adb" -s "$SERIAL" shell pm path app.msime.android >/dev/null 2>&1; then
+            "$adb" -s "$SERIAL" uninstall app.msime.android
+          fi
+          "$adb" -s "$SERIAL" shell df -h /data || true
           bash platforms/android/tests/device/smoke.sh "$SERIAL" ${{ matrix.smoke }} 2>&1 | tee target/android/device-smoke.log
+      # 长按语音锁定后的面板截图（voice-lifecycle.sh hold 拉回），通过与否都上传，改长按面板的 PR 拿它做对比图（#10966）。
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: android-device-api${{ matrix.api }}-voice-hold-panel
+          path: target/android/voice-hold-panel-api*.png
+          if-no-files-found: ignore
       - name: Collect device logs
         if: (failure() || cancelled()) && env.SERIAL != ''
         run: |
@@ -128,6 +142,10 @@ jobs:
           adb="$ANDROID_SDK_ROOT/platform-tools/adb"
           timeout 30 "$adb" -s "$SERIAL" logcat -d > target/android/logcat.txt 2>&1 || true
           timeout 30 "$adb" -s "$SERIAL" logcat -d -b crash > target/android/crash.txt 2>&1 || true
+          # 模拟器中途消失时 adb 什么也拿不到，只能从主机这边找原因：内核日志里的 OOM 记录、此刻的内存，以及模拟器自带崩溃检测写下的 crashpad 数据（emulator.log 开头的 Storing crashdata in 那个目录）。
+          { free -m; echo; sudo dmesg -T | tail -n 300; } > target/android/host.txt 2>&1 || true
+          mkdir -p target/android/emulator-crash
+          cp -R /tmp/android-runner/emu-crash-*.db target/android/emulator-crash/ 2>/dev/null || true
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure() || cancelled()
         with:
@@ -138,6 +156,9 @@ jobs:
             target/android/crash.txt
             target/android/device-crash-smoke.log
             target/android/device-smoke.log
+            target/android/device-test/window.xml
+            target/android/host.txt
+            target/android/emulator-crash
           if-no-files-found: ignore
       - name: Stop the AVD
         if: always() && env.SERIAL != ''

@@ -698,6 +698,49 @@ fn old_versions_are_removed_unless_selected_loaded_or_leased() {
     );
 }
 
+/// 宿主回收工作词库代次时问这里哪些版本还留着：与 [`remove_old_versions`] 留下的版本一一对应，被删掉的版本不再算。
+#[test]
+fn retained_generations_follow_the_versions_left_on_disk() {
+    let fixture = Fixture::new();
+    let state = &fixture.context.state_root;
+    // 还没装过更新：什么都不用留，也不是读不了。
+    assert_eq!(retained_generations(state), Some(HashSet::new()));
+    let install = |tag: &str, bytes: &[u8]| {
+        fixture.release(tag, bytes, 1);
+        check_with(&fixture.context, false, &fixture).unwrap();
+        let selection = selected(state, &fixture.context.baseline).unwrap();
+        directory(state, &selection.desktop)
+            .unwrap()
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_owned()
+    };
+    let path = |name: &str| root(state).join("generations").join(name);
+    let leased = install("dict-v2.0.10", b"held by a session");
+    let session = lease(state, &path(&leased)).unwrap();
+    let loaded = install("dict-v2.0.11", b"last loaded by the input method");
+    record_loaded(state, &path(&loaded)).unwrap();
+    let previous = install("dict-v2.0.12", b"rollback target");
+    let active = install("dict-v2.0.13", b"current selection");
+    let all: HashSet<String> = [&leased, &loaded, &previous, &active]
+        .into_iter()
+        .cloned()
+        .collect();
+    assert_eq!(retained_generations(state), Some(all));
+    drop(session);
+    check_with(&fixture.context, false, &fixture).unwrap();
+    let left: HashSet<String> = [&loaded, &previous, &active].into_iter().cloned().collect();
+    assert_eq!(retained_generations(state), Some(left));
+    // 输入法载入的那一版即使清单已经不在也留着：它的会话可能还没占用凭证（旧版输入法进程）。
+    std::fs::remove_file(path(&format!("{loaded}.json"))).unwrap();
+    assert!(retained_generations(state).unwrap().contains(&loaded));
+    // 记录在却读不出来时不知道该留哪一版，调用方这次什么也不删。
+    std::fs::write(root(state).join("installed.json"), b"{").unwrap();
+    assert_eq!(retained_generations(state), None);
+}
+
 #[test]
 fn a_generation_no_version_points_to_is_left_for_the_next_install() {
     let fixture = Fixture::new();
@@ -730,6 +773,37 @@ fn only_a_downloaded_generation_can_be_leased() {
     let first = lease(state, &path).unwrap();
     let second = lease(state, &path).unwrap();
     drop((first, second));
+}
+
+/// 对状态目录没有写权限的输入宿主（iOS 键盘没有完全访问）只读打开已有的 `<代次>.lock`：锁文件不在时不建、没有凭证；在时取到的共享锁同样让清理跳过这一版。
+#[test]
+fn a_read_only_lease_uses_the_existing_lock_file_and_keeps_the_version() {
+    let fixture = Fixture::new();
+    let state = &fixture.context.state_root;
+    fixture.release("dict-v2.0.10", b"held by a read-only session", 1);
+    check_with(&fixture.context, false, &fixture).unwrap();
+    let selection = selected(state, &fixture.context.baseline).unwrap();
+    let leased = directory(state, &selection.desktop).unwrap();
+    let name = leased.file_name().unwrap().to_str().unwrap().to_owned();
+    let lock = leased.parent().unwrap().join(format!("{name}.lock"));
+    assert!(lease_read_only(state, &fixture.context.resources).is_none());
+    // 装代次的一方还没建锁文件时，只读的一方建不出来，也就没有凭证。
+    let _ = std::fs::remove_file(&lock);
+    assert!(lease_read_only(state, &leased).is_none());
+    assert!(!lock.exists());
+    drop(lease(state, &leased).unwrap());
+    let session = lease_read_only(state, &leased).unwrap();
+    fixture.release("dict-v2.0.11", b"newer", 1);
+    check_with(&fixture.context, false, &fixture).unwrap();
+    fixture.release("dict-v2.0.12", b"newest", 1);
+    check_with(&fixture.context, false, &fixture).unwrap();
+    assert!(
+        leased.is_dir(),
+        "a version a read-only session holds was removed"
+    );
+    drop(session);
+    check_with(&fixture.context, false, &fixture).unwrap();
+    assert!(!leased.exists());
 }
 
 #[test]

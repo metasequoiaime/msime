@@ -12,4 +12,5 @@ EXPORTS
   msime_test_host_resume
   msime_test_host_preparations
   msime_test_host_invalid
+  msime_test_host_invalid_reason
   msime_test_host_consent_reads

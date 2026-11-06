@@ -40,6 +40,8 @@ inline NSMenu *CreateMetasequoiaInputMenu(id target, BOOL englishMode, BOOL trad
     update.target = target; update.enabled = YES; [menu addItem:update];
     NSMenuItem *settings = [[NSMenuItem alloc] initWithTitle:[MSIMEEditionDisplayName() stringByAppendingString:@"设置…"] action:@selector(showPreferences:) keyEquivalent:@""];
     settings.target = target; settings.enabled = YES; [menu addItem:settings];
+    NSMenuItem *localTranslation = [[NSMenuItem alloc] initWithTitle:@"本地模型翻译…" action:@selector(showLocalTranslationSettings:) keyEquivalent:@""];
+    localTranslation.target = target; localTranslation.enabled = YES; [menu addItem:localTranslation];
     [menu addItem:[NSMenuItem separatorItem]];
     NSMenuItem *voice = [[NSMenuItem alloc] initWithTitle:@"开始/结束语音输入（⌃⌥V）" action:@selector(showVoicePanel) keyEquivalent:@""];
     voice.target = target; voice.enabled = YES; [menu addItem:voice];

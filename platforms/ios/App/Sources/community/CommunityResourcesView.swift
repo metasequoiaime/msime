@@ -442,7 +442,7 @@ struct CommunityResourceDetail: View {
               Divider()
             }
           }
-          Button("导入这版词库到本机") { confirmImport = true }.buttonStyle(.borderedProminent).disabled(busy)
+          Button("导入这版词库到本机") { confirmImport = true }.buttonStyle(.borderedProminent).foregroundStyle(MetasequoiaTheme.onAccent).disabled(busy)
             .accessibilityIdentifier("communityImportLocal")
           Text("导入会添加到本机个人词库。开启完全访问后，在键盘空闲时由引擎处理；收藏和查看更新不会自动修改词条。")
             .font(.caption).foregroundStyle(.secondary)
@@ -466,7 +466,7 @@ struct CommunityResourceDetail: View {
             try request.checkCurrent(id)
             updated = latest
             message = "已添加。在高情商回复键盘点击「模板」即可选择；只有点击生成时才会发送文字。"
-          }}.buttonStyle(.borderedProminent).disabled(busy)
+          }}.buttonStyle(.borderedProminent).foregroundStyle(MetasequoiaTheme.onAccent).disabled(busy)
         }
         Button(item.saved ? "取消收藏" : "收藏，关注后续更新") { run { id in
           try await SkinCommunityAPI.shared.saveResource(item.id, saved: !item.saved)
@@ -552,8 +552,8 @@ struct CommunityResourceDetail: View {
 }
 
 private extension PersonalWordKind {
-  /// 社区词库收的种类（`pinyin`、`wubi`、`quick`、`english`，见 `SkinCommunityAPI.validResource`），不含 98 五笔和粤语。
-  static let communityCases = allCases.filter { $0 != .wubi98 && $0 != .cantonese }
+  /// 社区词库收的种类（`pinyin`、`wubi`、`quick`、`english`，见 `SkinCommunityAPI.validResource`），不含 98 五笔、新世纪五笔和粤语。新加的个人词种类默认不进社区：服务端不收的种类要在这里排除，否则会自动出现在上传的种类选择里。
+  static let communityCases = allCases.filter { ![.wubi98, .wubixsj, .cantonese].contains($0) }
 }
 
 struct CommunityResourceEditor: View {
@@ -640,7 +640,7 @@ struct CommunityResourceEditor: View {
             run { id in
               let imported = try await Task.detached { try PersonalDictionaryImport.read(from: url) }.value
               try request.checkCurrent(id)
-              guard imported.entries.allSatisfy({ PersonalWordKind.communityCases.contains($0.kind) }) else { throw CommunityFailure(message: "社区词库暂不支持 98 五笔和粤语词条，请从文件中去掉后再选择。") }
+              guard imported.entries.allSatisfy({ PersonalWordKind.communityCases.contains($0.kind) }) else { throw CommunityFailure(message: "社区词库暂不支持 98 五笔、新世纪五笔和粤语词条，请从文件中去掉后再选择。") }
               let additions = CommunityUnseenItems.filter(existing: words, incoming: imported.entries)
               guard words.count + additions.count <= 128 else { throw CommunityFailure(message: "每份社区词库最多 128 条，请先精简文件。") }
               words += additions

@@ -195,7 +195,6 @@ struct SkinSettingsView: View {
   /// 一格里的键盘缩略图：带空闲状态的工具栏，键面是用户正在用的那一类键盘（`previewFace`），底行和数字行按用户的「按键布局」画。
   private func tilePreview(skin: KeyboardTheme) -> KeyboardSkinPreview {
     KeyboardSkinPreview(skin: skin, nineKey: previewFace.nineKey, letterGrid: previewFace.letterGrid,
-                        gridSplitsSyllables: previewFace.gridSplitsSyllables,
                         topStrip: .toolbar([.emoji, .phrases, .clipboard, .skin, .scheme]), letterHints: true,
                         nineKeyZero: previewFace.nineKeyZero)
   }
@@ -815,7 +814,7 @@ struct ServiceSettingsView: View {
         Button { save() } label: {
           Label("保存配置", systemImage: "checkmark.circle.fill").frame(maxWidth: .infinity)
         }
-          .buttonStyle(.borderedProminent)
+          .buttonStyle(.borderedProminent).foregroundStyle(MetasequoiaTheme.onAccent)
           .tint(MetasequoiaTheme.accent)
           .accessibilityIdentifier("saveServiceConfiguration")
         Button("删除此服务的密钥", role: .destructive) {
@@ -1002,25 +1001,42 @@ struct ServiceSettingsView: View {
       }
     }
   }
-  /// Shows a recognized result, polished first when the voice page asks for it.
+  /// 显示一段识别结果，语音页要求润色时先润色。AI 服务页的「测试」也经过这里，它的回复不是语音结果，不处理标点。语音标点（#10595）在所有识别服务和润色之后处理一次：识别原文和润色结果都存处理后的文字，「改用识别原文」和「发送到键盘」交出去的就是页面上显示的，键盘领取语音结果时不再处理。只剩标点时 `output` 留空，因为语音交接不收空白文字，状态提示没有识别到文字，与 Android 的识别窗口一致；识别原文只剩标点、润色又失败时也这样提示，不说保留了原文。
   @MainActor private func deliver(_ result: String, polish: VoicePolishSettings?, id: UUID) async throws {
+    let punctuation = kind == .voice
+      ? VoicePunctuation.mode(MetasequoiaInputSessionBridge.loadSharedPreferences()) : VoicePunctuation.auto
     if let polish, !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-      transcript = result
-      output = result
+      transcript = VoicePunctuation.finalText(result, mode: punctuation) ?? ""
+      output = transcript
       status = "识别完成，正在润色…"
       do {
         let polished = try await VoicePolishService.polish(result, settings: polish)
         try request.checkCurrent(id)
-        output = polished
+        guard let text = VoicePunctuation.finalText(polished, mode: punctuation) else {
+          output = ""
+          status = "没有识别到文字"
+          return
+        }
+        output = text
         status = "已完成"
       } catch is CancellationError {
         throw CancellationError()
       } catch {
         guard request.isCurrent(id), !Task.isCancelled else { return }
-        status = "润色失败，已保留识别原文：\(error.localizedDescription)"
+        // 识别结果只剩标点时 transcript 已是空的，没有原文可保留。
+        if transcript.isEmpty {
+          status = "没有识别到文字"
+        } else {
+          status = "润色失败，已保留识别原文：\(error.localizedDescription)"
+        }
       }
     } else {
-      output = result
+      guard let text = VoicePunctuation.finalText(result, mode: punctuation) else {
+        output = ""
+        status = "没有识别到文字"
+        return
+      }
+      output = text
       status = "已完成"
     }
   }

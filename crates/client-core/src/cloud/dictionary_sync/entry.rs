@@ -7,38 +7,56 @@ use std::fmt;
 pub const MAX_CODE_BYTES: usize = 512;
 /// 词的字节上限，与 Engine 个人词库的 `MAX_VALUE_BYTES` 相同。
 pub const MAX_WORD_BYTES: usize = 4096;
+/// 粤语音节的字母上限，与 Engine 个人词库的 `MAX_JYUTPING_SYLLABLE_LETTERS` 相同。
+const MAX_JYUTPING_SYLLABLE_LETTERS: usize = 8;
 
 /// 词库类别，名字与 Engine 日志里的 `dictionary` 列相同。按名字的字母顺序排列，词条因此有确定的顺序。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WordKind {
+    /// 粤语个人词。只在同一台设备上的两份词库之间交换（host-api 的 `user_words_mirror`）；WebDAV 同步不收它，宿主读写本机词库时就把它挡在外面（`docs/dictionary-webdav-sync.md` 的类别表里没有它，老版本读到它会整份检查点不认）。
+    Cantonese,
     English,
     Pinyin,
     Quick,
     Wubi,
     Wubi98,
+    /// 新世纪五笔。按字节比 `wubi98` < `wubixsj`，追加在末尾仍是字母顺序。WebDAV 同步暂不收它，见 [`WordKind::from_synced_name`]。
+    #[serde(rename = "wubixsj")]
+    WubiXsj,
 }
 
 impl WordKind {
     pub fn name(self) -> &'static str {
         match self {
+            Self::Cantonese => "cantonese",
             Self::English => "english",
             Self::Pinyin => "pinyin",
             Self::Quick => "quick",
             Self::Wubi => "wubi",
             Self::Wubi98 => "wubi98",
+            Self::WubiXsj => "wubixsj",
         }
     }
 
     pub fn from_name(name: &str) -> Option<Self> {
         Some(match name {
+            "cantonese" => Self::Cantonese,
             "english" => Self::English,
             "pinyin" => Self::Pinyin,
             "quick" => Self::Quick,
             "wubi" => Self::Wubi,
             "wubi98" => Self::Wubi98,
+            "wubixsj" => Self::WubiXsj,
             _ => return None,
         })
+    }
+
+    /// 从网盘读到的事件和检查点里认的类别：[`WordKind::from_name`] 去掉这一版还不经 WebDAV 同步的新世纪五笔，读到它与读到不认识的类别一样只跳过那一条。
+    ///
+    /// 两个方向必须一致。本机这一侧（host-api `dictionary_webdav::word_kind`）不把新世纪的词交给同步；网盘这一侧要是照收，写进本机的词下一轮就不在本机的「我的词条」里，核对会把它当成本机删掉的，向共享日志发出删除，所有设备上的这个词都会被删。打开同步时这里和宿主那一侧一起改。
+    pub fn from_synced_name(name: &str) -> Option<Self> {
+        Self::from_name(name).filter(|kind| *kind != Self::WubiXsj)
     }
 }
 
@@ -63,7 +81,7 @@ impl fmt::Debug for WordKey {
 }
 
 impl WordKey {
-    /// 规范化并校验：编码转成小写 ASCII，拼音的空格换成音节分隔符 `'`。规则按类别与 Engine 相同：拼音是用 `'` 隔开的小写字母音节；五笔 1 到 4 个字母；快捷短语 1 到 32 个字母或数字；英文最多 64 个字母、`-` 或 `'`。词不能为空、不超过 [`MAX_WORD_BYTES`]，不含控制字符（快捷短语可以有换行和制表符）。拼音音节是否真的存在、个数是否与字数相同由 Engine 在写入时判断。
+    /// 规范化并校验：编码转成小写 ASCII，拼音的空格换成音节分隔符 `'`。规则按类别与 Engine 相同：拼音是用 `'` 隔开的小写字母音节；五笔 1 到 4 个字母；快捷短语 1 到 32 个字母或数字；英文最多 64 个字母、`-` 或 `'`；粤语是 Engine 存进日志的写法，不带声调、以单个空格隔开的音节，每个 1 到 8 个小写字母（声调和 `'` 分隔由 Engine 在写入时收掉，这里不再规范化）。词不能为空、不超过 [`MAX_WORD_BYTES`]，不含控制字符（快捷短语可以有换行和制表符）。拼音、粤语音节是否真的存在、个数是否与字数相同由 Engine 在写入时判断。
     pub fn new(kind: WordKind, code: &str, word: &str) -> Option<Self> {
         let mut code = code.to_ascii_lowercase();
         if kind == WordKind::Pinyin {
@@ -76,7 +94,13 @@ impl WordKey {
                 WordKind::Pinyin => code
                     .split('\'')
                     .all(|syllable| !syllable.is_empty() && syllable.bytes().all(letter)),
-                WordKind::Wubi | WordKind::Wubi98 => code.len() <= 4 && code.bytes().all(letter),
+                WordKind::Cantonese => code.split(' ').all(|syllable| {
+                    (1..=MAX_JYUTPING_SYLLABLE_LETTERS).contains(&syllable.len())
+                        && syllable.bytes().all(letter)
+                }),
+                WordKind::Wubi | WordKind::Wubi98 | WordKind::WubiXsj => {
+                    code.len() <= 4 && code.bytes().all(letter)
+                }
                 WordKind::Quick => {
                     code.len() <= 32
                         && code
@@ -162,6 +186,9 @@ mod tests {
         assert!(WordKey::canonical(WordKind::Pinyin, "shui'shan", "水杉").is_some());
         assert!(WordKey::canonical(WordKind::Pinyin, "shui shan", "水杉").is_none());
         assert!(WordKey::canonical(WordKind::Wubi, "IIEE", "水杉").is_none());
+        // 粤语照 Engine 日志里的写法：音节以单个空格隔开，不带声调。
+        assert!(WordKey::canonical(WordKind::Cantonese, "nei hou", "你好").is_some());
+        assert!(WordKey::canonical(WordKind::Cantonese, "NEI HOU", "你好").is_none());
     }
 
     #[test]
@@ -173,10 +200,16 @@ mod tests {
             (WordKind::Pinyin, "shui1", "水"),
             (WordKind::Wubi, "abcde", "词"),
             (WordKind::Wubi98, "a1", "词"),
+            (WordKind::WubiXsj, "abcde", "词"),
             (WordKind::Quick, &"a".repeat(33), "词"),
             (WordKind::Quick, "a_b", "词"),
             (WordKind::English, &"a".repeat(65), "word"),
             (WordKind::English, "a b", "word"),
+            (WordKind::Cantonese, "nei'hou", "你好"),
+            (WordKind::Cantonese, "nei  hou", "你好"),
+            (WordKind::Cantonese, "nei5 hou2", "你好"),
+            (WordKind::Cantonese, " nei", "你"),
+            (WordKind::Cantonese, "abcdefghi", "字"),
             (WordKind::Pinyin, "shui", ""),
             (WordKind::Pinyin, "shui", "水\n"),
             (WordKind::English, "word", "wo\u{7f}rd"),
@@ -204,7 +237,9 @@ mod tests {
     #[test]
     fn kinds_round_trip_through_their_names_and_sort_by_name() {
         let mut kinds = [
+            WordKind::WubiXsj,
             WordKind::Wubi98,
+            WordKind::Cantonese,
             WordKind::Pinyin,
             WordKind::English,
             WordKind::Wubi,
@@ -217,6 +252,7 @@ mod tests {
         assert_eq!(names, sorted);
         for kind in kinds {
             assert_eq!(WordKind::from_name(kind.name()), Some(kind));
+            assert_eq!(serde_json::to_value(kind).unwrap(), kind.name());
         }
         assert_eq!(WordKind::from_name("bundled"), None);
     }

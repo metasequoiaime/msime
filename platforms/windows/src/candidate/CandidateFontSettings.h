@@ -1,4 +1,5 @@
 #pragma once
+#include "CandidateFontWeight.h"
 #include <algorithm>
 #include <cstdint>
 #include <mutex>
@@ -13,6 +14,9 @@ struct CandidateFontSettings {
   std::vector<std::string> fallback;
   unsigned size = 18;
   unsigned preedit_size = 15;
+  // 共享偏好 `candidate_font_weight` 的 OpenType 字重，画候选窗里除预编辑外的全部文字。
+  unsigned weight = candidate_regular_font_weight;
+  unsigned preedit_weight() const { return candidate_preedit_font_weight(weight); }
   bool valid() const {
     const auto name_valid = [](const std::string &name) {
       return !name.empty() && name.size() <= 128 &&
@@ -21,11 +25,13 @@ struct CandidateFontSettings {
     };
     return name_valid(family) && fallback.size() <= 32 &&
            std::all_of(fallback.begin(), fallback.end(), name_valid) &&
-           size >= 12 && size <= 32 && preedit_size >= 12 && preedit_size <= 32;
+           size >= 12 && size <= 32 && preedit_size >= 12 && preedit_size <= 32 &&
+           candidate_font_weight_valid(weight);
   }
   bool operator==(const CandidateFontSettings &other) const {
     return family == other.family && fallback == other.fallback &&
-           size == other.size && preedit_size == other.preedit_size;
+           size == other.size && preedit_size == other.preedit_size &&
+           weight == other.weight;
   }
 };
 
@@ -55,6 +61,16 @@ candidate_font_settings(const nlohmann::json &preferences) {
       if (size < 12 || size > 32)
         return std::nullopt;
       *target = static_cast<unsigned>(size);
+    }
+    // 常规时共享序列化不写这个键；写了却不是四档之一的文档和其他非法字段一样整份不用。
+    if (preferences.contains("candidate_font_weight")) {
+      const auto &value = preferences.at("candidate_font_weight");
+      const auto weight = value.is_string()
+                              ? candidate_font_weight(value.get<std::string>())
+                              : std::nullopt;
+      if (!weight)
+        return std::nullopt;
+      result.weight = *weight;
     }
     return result.valid() ? std::optional{std::move(result)} : std::nullopt;
   } catch (...) {

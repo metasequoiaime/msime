@@ -1,0 +1,55 @@
+# Agent Note: 桌面离线翻译改用 PLaMo 小模型
+
+Status: implemented
+
+## Problem
+
+原草稿的 HY-MT2 Q4 权重约 1.13 GB，用户拒绝该体积。对多组更小模型进行真实推理后，用户明确要求先接入 PLaMo 0.8B Q4_K_M。选型更换不改变本地翻译缺字段时默认关闭的行为。
+
+## Decision
+
+用官方固定提交 `dbeb0856cb0b004b484f190bb71dd65876297013` 的 `plamo-3-translate-0.8b-Q4_K_M.gguf` 替代草稿模型，大小 573,123,200 字节，SHA-256 `923b2f28a9856de1b8b3b610a7e59ded0b14d007466fd5dd526e6a9ecaadafdd`。保留资源包的固定来源、导入校验、冷加载校验、取消和无在线后备约束。
+
+使用官方 PFML3 翻译格式，省略源语言以识别混合输入，目标来自固定 53 项目录。简繁中文沿用已有偏好代码并映射为 `zh-hans`、`zh-hant`。控制段和用户文本分开分词，BOS 仅一次，含 `<|plamo:` 保留标记的输入拒绝推理（该分词器即使关闭特殊标记解析也能产出保留 ID，不能只依赖解析开关）；遇到模型 EOG、PFML3 tag 或 BOS 结束，不泄露后续协议段。
+
+旧模型独有的八项目标代码继续允许反序列化，不使整个偏好文档失效；当前模型请求和重新启用拒绝它们。原生窗口要求重新选择受支持的语言，不静默换成列表第一项。
+
+当前 crates.io 的 `llama-cpp-2` 0.1.161 虽认识网络结构，却报 `unknown tokenizer: plamo3`。依赖固定到上游 Rust 绑定提交 `0364f5da1c6a6ee37f507031f116ce4a09b28594`（0.1.162），其 llama.cpp 子模块固定为已实测的 `8642541b255bfb5dc39cd351a178be09013a55d6`，不跟踪浮动分支。
+
+三端原生模型窗口更新模型名称、大小和来源许可，完整 PLaMo Community License 随第三方声明打包，提供 Built with PLaMo 归属。不把社区许可标成 Apache，不打包权重；个人/非商业与商业登记和营收限制在产品文档明确说明。
+
+## Existing notes
+
+- [三个桌面宿主加载本地模型翻译](2026-11-05-embedded-desktop-translation.md)：部分取代模型、语言和提示协议决定；进程内推理、队列、取消、资源校验和原生宿主设计继续适用，原实测保留为旧模型证据。
+- 检索命中的 macOS 设置默认漂移、表达页清理、鸿蒙候选释义笔记不涉及此模型选型，保留。
+
+## Alternatives considered
+
+- HY-MT2：已有三桌面运行证据、Apache-2.0 许可宽松，但用户明确拒绝约 1.13 GB 权重。
+- PLaMo Q3：486 MB 更小，但同机实测延迟高于 Q4，部分语义退化，因此采用 573 MB Q4。
+- OPUS/Marian、T5 small、SMALL100：103–348 MB，专用模型速度快；实际样例仍发生否定反转、币种错误和人称错译。原始 Marian 两套词表修复了中日发布包乱码，但不能消除语义错误。
+- MiLMMT、LFM2、Haidass：前者质量有所改善但较大且有主客体颠倒；LFM2 只覆盖英日，Haidass 修正模板后仍有严重错误。
+
+## Testing
+
+- macOS Metal 与 Linux CPU 的实际 Rust 运行库在禁网环境下完成英、日、法及中文目标翻译，验证官方 tokenizer ID、保留标记拒绝、取消、超时和取消后重用。Host API 固定摘要导入、单条与候选批次也在禁网条件下通过。
+- Windows x64 MSVC 实际 DLL 校验、导入 PLaMo 权重并翻译英、日、法，正常 shutdown。一次合成短句探针冷启动约 10 秒、热请求约 0.2–0.35 秒，进程峰值工作集约 963 MB；Windows 未禁网，单次数据不是性能承诺。
+- 最新 Mac 定向原生 ctest 5/5 通过，覆盖共享设置、取消、重试、批次及 AppKit 窗口；当前模型窗口行为测试覆盖旧语言不误选和仍能关闭。
+- Linux IBus/Fcitx5/GTK4 full/wubi 构建、安装布局通过，125 项 ctest 无失败（其中 1 项按环境跳过）。GTK4 在 Xvfb 使用真实 Host API 加载隔离模型状态并绘制窗口。
+- Windows 原生对话框严格 MSVC 编译及共享设置测试通过，真实 DLL 与活动交互会话窗口验证 53 项语言和切换日语；PowerShell 7 的声明收集测试通过。
+- macOS 完整原生输入法宿主编译链接并启动独立模型窗口入口；当前桌面工具没有读到可访问窗口，因此不算本轮可见交互验收。截图取自真实 AppKit 控件绘制、合成 ABI 夹具。三平台均未在本轮安装发布包或验收真实编辑器输入。
+- 功能开启的 Rust clippy、共享层定向测试、固定来源检查、quick 门禁通过；quick 在远端缺 Docker/MinGW 的跳过项由实际 Linux 容器与 Windows 构建补充，不把跳过称为通过。模型、截图及日志留在忽略的 target 目录，不入库。
+
+## Consequences
+
+150 条多语言输入的测试不能代替全部 53 种语言的母语审校。PLaMo 仍会直译习语或误解复杂条件，不能宣称翻译准确率合格。模型社区许可限制商业使用；不以本项目代码许可证代替模型许可。旧模型文件不再被接受，用户需重新导入或下载；不主动删除旧权重。
+
+Windows 首次获取固定 Git 依赖时，Cargo/libgit2 会受上游子模块长路径影响。只设置 Git longpaths 不够；构建进程使用短路径 CARGO_HOME 并通过目录联接复用已有缓存，实际构建通过。依赖锁仅更换 llama 绑定及其必需的依赖移除，不顺带重选其他 crate 的宽范围依赖。
+
+## CI 获取依赖
+
+Windows 的可选 Git 依赖也会在只编译引擎 C ABI、设置库或 ONNX 时由 Cargo 解析；因此不能仅在本地开启翻译特性的构建中缩短路径。`Use-ShortCargoHome.ps1` 将原 Cargo 缓存联接到驱动器根目录的短路径，保留已有 bin/registry/git 缓存，并向后续 CI 步骤导出 CARGO_HOME。C ABI、原生设置和 ONNX 三个 Windows 作业都在第一次调用 Cargo 前启用。已有同名普通目录或指向其他缓存的联接会报错，不替换或删除。声明收集作业运行合成缓存行为测试，验证重入、环境导出及冲突保护。
+
+把依赖退回 crates.io 0.1.161 能避免源码中的长文件名，但会重新引入不支持 PLaMo 分词器的问题，因此保留已验证的固定提交。CI 的 Linux C ABI 下载 Rust 清单超时改为复用已有 `rustup-install.sh` 的四次有界重试，不吞掉最终失败。
+
+本轮在 Windows 用全新 git/checkouts 复现相同 `path too long`，仅切换到共享脚本创建的短联接后，固定 Cargo.lock 的 fetch 成功。缓存重用、重复调用、环境文件导出和已有目录保护的 PowerShell 行为测试通过；workflow 的 actionlint 与 Rust 安装重试测试通过。

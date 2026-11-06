@@ -65,6 +65,8 @@ public final class ThemeModeDeviceSmoke extends DeviceSmoke {
             Rect candidate = bounds(describedPrefix("候选 1："));
             int lightLetter = dominantColour(letter);
             int lightCandidate = dominantColour(candidate);
+            stage = "candidate row is vertically centred in the strip";
+            assertCentredInStrip(describedPrefix("候选 1："));
             stage = "dark configuration updates candidates with the keyboard";
             shellDiscard("cmd uimode night yes");
             awaitColourChange(key("n"), lightLetter);
@@ -117,7 +119,7 @@ public final class ThemeModeDeviceSmoke extends DeviceSmoke {
             publish(preferences, new JSONObject().put("format_version", 1).put("revision", revision + 5)
                 .put("preferences", synthetic).toString().getBytes(StandardCharsets.UTF_8));
             awaitColour(described("表情面板"), lightEmoji);
-            stage = "independent keyboard skin choices keep candidate theme";
+            stage = "keyboard skin choices repaint the candidate strip";
             restartIme();
             tap(field("msime-test-plain"));
             synthetic.put("theme", "system").put("emoji_theme", "follow")
@@ -129,7 +131,8 @@ public final class ThemeModeDeviceSmoke extends DeviceSmoke {
             int paperLetter = dominantColour(bounds(key("n")));
             tap(key("n"));
             tap(key("i"));
-            awaitColour(describedPrefix("候选 1："), lightCandidate);
+            // 候选条读和键盘同一明暗的皮肤选择（#10749）：换成纸白后候选不能停在跟随系统的配色上。
+            awaitColourChange(describedPrefix("候选 1："), lightCandidate);
             shellDiscard("cmd uimode night yes");
             awaitColourChange(key("n"), paperLetter);
             shellDiscard("cmd uimode night no");
@@ -141,6 +144,10 @@ public final class ThemeModeDeviceSmoke extends DeviceSmoke {
             publish(preferences, new JSONObject().put("format_version", 1).put("revision", revision + 7)
                 .put("preferences", synthetic).toString().getBytes(StandardCharsets.UTF_8));
             awaitColour(key("n"), lightLetter);
+            // 没有槽位的旧偏好里，候选条也要回到 global_theme 的配色，和改动前一样（#10749）。
+            tap(key("n"));
+            tap(key("i"));
+            awaitColour(describedPrefix("候选 1："), lightCandidate);
         } finally {
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             shellDiscard("cmd uimode night no");
@@ -160,6 +167,21 @@ public final class ThemeModeDeviceSmoke extends DeviceSmoke {
             SystemClock.sleep(100);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new AssertionError("Picker retained a theme from the previous colour mode");
+    }
+
+    /** 候选按钮只有一行字高，外面的横向候选条按整行高量出；两者的纵向中心差不超过 2 px，否则候选词贴在候选条的上半截（#10749）。 */
+    private void assertCentredInStrip(Predicate<AccessibilityNodeInfo> match) {
+        AccessibilityNodeInfo candidate = awaitStableBounds(match);
+        AccessibilityNodeInfo strip = candidate.getParent();
+        while (strip != null && !equalsText("android.widget.HorizontalScrollView", strip.getClassName()))
+            strip = strip.getParent();
+        if (strip == null) throw new AssertionError("横向候选条不可用");
+        Rect button = new Rect();
+        Rect line = new Rect();
+        candidate.getBoundsInScreen(button);
+        strip.getBoundsInScreen(line);
+        if (Math.abs(button.centerY() - line.centerY()) > 2)
+            throw new AssertionError("候选没有在候选条里纵向居中：" + button + " / " + line);
     }
 
     private Rect bounds(Predicate<AccessibilityNodeInfo> match) {

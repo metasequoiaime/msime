@@ -21,6 +21,7 @@
 #include "AltGrKeyPolicy.h"
 #include "FullwidthChordPolicy.h"
 #include "CandidateActiveKeyPolicy.h"
+#include "SmartPunctuationDeferralPolicy.h"
 #include "FanyUtils.h"
 #include "FanyLog.h"
 #include "../Utils/PerfTimer.h"
@@ -29,6 +30,7 @@
 #include "../../common/PipeMetadata.h"
 #include "../../common/SecondThirdCandidatePolicy.h"
 #include "../../common/WubiCandidateSelectionPolicy.h"
+#include "../../src/input/ModifierHotkeyPolicy.h"
 #include <atomic>
 #include <chrono>
 #include "../../../../shared/contracts/ipc_negotiation.h"
@@ -507,12 +509,43 @@ bool IsWinVk(UINT code)
     return code == VK_LWIN || code == VK_RWIN;
 }
 
-bool IsOtherKeyboardKeyDown()
+std::uint32_t ModifierHotkeyBit(UINT code)
+{
+    if (IsShiftVk(code))
+        return msime::windows::kModifierHotkeyShift;
+    if (IsControlVk(code))
+        return msime::windows::kModifierHotkeyControl;
+    if (IsAltVk(code))
+        return msime::windows::kModifierHotkeyAlt;
+    if (IsWinVk(code))
+        return msime::windows::kModifierHotkeyWin;
+    return 0;
+}
+
+std::uint32_t CaptureModifierHotkeyPhysicalState()
+{
+    std::uint32_t state = 0;
+    if ((GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0)
+        state |= msime::windows::kModifierHotkeyShift;
+    if ((GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0)
+        state |= msime::windows::kModifierHotkeyControl;
+    if ((GetAsyncKeyState(VK_MENU) & 0x8000) != 0)
+        state |= msime::windows::kModifierHotkeyAlt;
+    if ((GetAsyncKeyState(VK_LWIN) & 0x8000) != 0 ||
+        (GetAsyncKeyState(VK_RWIN) & 0x8000) != 0)
+        state |= msime::windows::kModifierHotkeyWin;
+    return state;
+}
+
+bool IsOtherKeyboardKeyDown(std::uint32_t staleModifierMask)
 {
     // Mouse buttons occupy the first virtual-key values.  Start at Backspace
     // so holding a mouse button does not turn a bare Shift into a chord.
     for (UINT code = VK_BACK; code <= 0xfe; ++code)
     {
+        const auto modifier = ModifierHotkeyBit(code);
+        if (modifier != 0 && (staleModifierMask & modifier) != 0)
+            continue;
         if (!IsShiftVk(code) && (GetAsyncKeyState(code) & 0x8000) != 0)
         {
             return true;
@@ -524,21 +557,11 @@ bool IsOtherKeyboardKeyDown()
 // GetKeyState() can lag behind the key message when a host calls TSF outside
 // its normal message dispatch. Read the physical modifier state while arming a
 // bare-key toggle so a stale thread snapshot cannot prevent the latch.
-bool IsOnlyModifierPhysicallyDown(UINT keptDownVk)
+bool IsOnlyModifierPhysicallyDown(UINT keptDownVk, std::uint32_t staleModifierMask)
 {
-    static const UINT modifiers[] = {VK_CONTROL, VK_MENU, VK_SHIFT, VK_LWIN, VK_RWIN};
-    for (const UINT modifier : modifiers)
-    {
-        if (modifier == keptDownVk)
-        {
-            continue;
-        }
-        if ((GetAsyncKeyState(modifier) & 0x8000) != 0)
-        {
-            return false;
-        }
-    }
-    return (GetAsyncKeyState(keptDownVk) & 0x8000) != 0;
+    return msime::windows::modifier_hotkey_allows_bare(
+        CaptureModifierHotkeyPhysicalState(), staleModifierMask,
+        ModifierHotkeyBit(keptDownVk));
 }
 
 // 除 Caps Lock 自己以外还有键按着：Caps Lock 是组合键的一部分，不算轻点。
@@ -663,7 +686,10 @@ LRESULT CALLBACK CMetasequoiaIME::_BareShiftKeyboardHookProc(int code, WPARAM wP
                 {
                     if (owner->_bareShiftDownMask == 0)
                     {
-                        owner->_bareShiftArmed = !IsOtherKeyboardKeyDown();
+                        owner->_staleModifierMaskAfterFocusLoss &=
+                            ~msime::windows::kModifierHotkeyShift;
+                        owner->_bareShiftArmed = !IsOtherKeyboardKeyDown(
+                            owner->_staleModifierMaskAfterFocusLoss);
                         ++owner->_bareShiftSequence;
                         if (owner->_bareShiftSequence == 0)
                         {
@@ -780,6 +806,10 @@ void CMetasequoiaIME::_TrackModifierHotkeyArming(WPARAM wParam, LPARAM lParam, b
         _bareShiftArmed = false;
     }
 
+    const auto modifier = ModifierHotkeyBit(code);
+    if (modifier != 0)
+        _staleModifierMaskAfterFocusLoss &= ~modifier;
+
     if (!isShift && !isCtrl && !isOtherModifier)
     {
         _shiftHotkeyArmed = false;
@@ -795,7 +825,9 @@ void CMetasequoiaIME::_TrackModifierHotkeyArming(WPARAM wParam, LPARAM lParam, b
 
     const auto now = std::chrono::steady_clock::now();
     // 钩子已经取消的这一轮不能被重复通知重新布防；先按着别的普通键也属于组合键。
-    if (isShift && IsOnlyModifierPhysicallyDown(VK_SHIFT) && !IsOtherKeyboardKeyDown() &&
+    if (isShift &&
+        IsOnlyModifierPhysicallyDown(VK_SHIFT, _staleModifierMaskAfterFocusLoss) &&
+        !IsOtherKeyboardKeyDown(_staleModifierMaskAfterFocusLoss) &&
         (_bareShiftHook == nullptr || _bareShiftDownMask == 0 || _bareShiftArmed))
     {
         _shiftHotkeyArmed = true;
@@ -803,7 +835,7 @@ void CMetasequoiaIME::_TrackModifierHotkeyArming(WPARAM wParam, LPARAM lParam, b
         _modifierHotkeyExpire = now + kModifierHotkeyToggleLimit;
         return;
     }
-    if (isCtrl && IsOnlyModifierPhysicallyDown(VK_CONTROL))
+    if (isCtrl && IsOnlyModifierPhysicallyDown(VK_CONTROL, _staleModifierMaskAfterFocusLoss))
     {
         _ctrlHotkeyArmed = true;
         _shiftHotkeyArmed = false;
@@ -1512,8 +1544,14 @@ Exit:
 
 STDAPI CMetasequoiaIME::OnSetFocus(BOOL fForeground)
 {
-    fForeground;
-
+    // 失焦时记录当下的物理修饰键，RDP 可能只把远端的释放事件带走；回焦后
+    // 这些旧位在本地重新看到按键之前不参与单按判定。
+    if (!fForeground)
+        _staleModifierMaskAfterFocusLoss = CaptureModifierHotkeyPhysicalState();
+    _shiftHotkeyArmed = false;
+    _ctrlHotkeyArmed = false;
+    _bareShiftArmed = false;
+    _bareShiftDownMask = 0;
     _backspaceHoldArmed = false;
 
     return S_OK;
@@ -1576,6 +1614,12 @@ void CMetasequoiaIME::_EnsureDeferredKeyProjection()
     _deferredProjectedKoreanHanjaListOpen =
         msime::windows::scheme::OpensCandidateList(Global::InputModeScheme.load(std::memory_order_relaxed)) &&
         _IsKoreanHanjaListOpen();
+}
+
+bool CMetasequoiaIME::_DeferredProjectionHasComposition() const
+{
+    return _deferredKeyProjectionValid && (_deferredProjectedInputLength > 0 || _deferredProjectedCandidateActive ||
+                                           _deferredProjectedPhraseActive);
 }
 
 void CMetasequoiaIME::_ApplyDeferredKeyProjection(const _KEYSTROKE_STATE &keyState, WCHAR wch, UINT code)
@@ -1823,6 +1867,49 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
     const UINT capturedModifiers =
         Global::CharacterModifiers(modifiersDown ? *modifiersDown : CaptureIpcModifiers(), *classifiedWch,
                                    *classifiedCode);
+    const bool projectedImeOpen = useProjection
+                                      ? _deferredProjectedImeOpen
+                                      : _pCompositionProcessorEngine->GetIMEMode(_pThreadMgr, _tfClientId) != FALSE;
+    const bool projectedPunctuationOpen =
+        useProjection ? _deferredProjectedPunctuationOpen
+                      : _pCompositionProcessorEngine->GetPunctuationMode(_pThreadMgr, _tfClientId) != FALSE;
+    const bool projectedDoubleSingleByteOpen =
+        useProjection ? _deferredProjectedDoubleSingleByteOpen
+                      : _pCompositionProcessorEngine->GetDoubleSingleByteMode(_pThreadMgr, _tfClientId) != FALSE;
+    const int scheme = Global::InputModeScheme.load(std::memory_order_relaxed);
+    // 与 _IsKeyEaten 的入口条件一致：英文模式（键盘关闭又没有中文标点）以及自己组字的方案
+    // （韩文、注音、越南文、藏文）都到不了本地改写那一步，屏障里也不能先认领，否则同一个空格
+    // 在进不进屏障时会有两套行为。
+    const bool punctuationActive =
+        projectedImeOpen || (msime::windows::scheme::UsesChinesePunctuation(scheme) &&
+                             (projectedPunctuationOpen || projectedDoubleSingleByteOpen));
+    const bool hostComposed = msime::windows::scheme::AlwaysInlinePreedit(scheme);
+    // 排到这颗键时是不是在组字。入队时看投影（含前面排队的键）；回放重分类时 useProjection 为假，
+    // 只能用宿主当前状态——投影已经包含它之后的键，拿它判断会把后面的字算进来。引擎里的组码也算
+    // 组字（与 _IsKeyEaten 的 isInputInProgress 一致）：宿主组字建起来之前它已经有内容，这时空格
+    // 是选词而不是标点转换。
+    const bool composingBeforeKey =
+        useProjection ? _DeferredProjectionHasComposition()
+                      : (_IsComposing() != FALSE || _candidateMode != CANDIDATE_NONE ||
+                         _pCompositionProcessorEngine->GetVirtualKeyLength() > 0);
+    // 空格转换和重复标点转中文只看本进程记住的上一次上屏和当前焦点，不需要 Server 的分类
+    // 结果，所以必须排在「可打印键排队」和影子分类之前认领。回放重分类也要走这里：标点和
+    // 空格先后排进队列时，排到空格那一刻武装才出现，少了这一步转换会在重分类时丢掉。
+    if ((capturedModifiers & 0b110u) == 0 && !windowsKeyDown && !IsBareModifierKey(*classifiedCode) &&
+        !_IsKeyboardDisabled() && punctuationActive && !hostComposed && !composingBeforeKey)
+    {
+        const auto claim = Global::DeferredSmartPunctuationClaimFor(*classifiedCode == VK_SPACE,
+                                                                   _CanConvertSmartPunctuationSpace(),
+                                                                   _CanRevertSmartPunctuation(*classifiedWch));
+        if (claim != Global::DeferredSmartPunctuationClaim::None)
+        {
+            keyState->Category = CATEGORY_COMPOSING;
+            keyState->Function = claim == Global::DeferredSmartPunctuationClaim::SpaceConvert
+                                     ? FUNCTION_SMART_PUNCTUATION_CONVERT
+                                     : FUNCTION_SMART_PUNCTUATION_REVERT;
+            return true;
+        }
+    }
     if (!replayedKey && (_deferredKeyClassificationPending || _HasPendingApplicationKeyReplay() || _preferenceBarrier.active() ||
          _preferenceNotificationPending.load(std::memory_order_acquire)) && (capturedModifiers & 0b110u) == 0 &&
         !windowsKeyDown && !IsBareModifierKey(*classifiedCode) && !_IsKeyboardDisabled())
@@ -1833,9 +1920,6 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
              *classifiedCode == VK_BACK || *classifiedCode == VK_ESCAPE);
         if (printable || plainEditingKey) return true;
     }
-    const bool projectedImeOpen = useProjection
-                                      ? _deferredProjectedImeOpen
-                                      : _pCompositionProcessorEngine->GetIMEMode(_pThreadMgr, _tfClientId) != FALSE;
     if (projectedImeOpen && !_serverUnavailableFallbackActive && !_IsKeyboardDisabled() &&
         IsCharacterSetInputModeToggle(*classifiedCode, capturedModifiers))
     {
@@ -1851,7 +1935,6 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
         return true;
     }
     // Korean, Zhuyin and Vietnamese have no Server-owned English candidate mode, as in _IsKeyEaten.
-    const int scheme = Global::InputModeScheme.load(std::memory_order_relaxed);
     if (projectedImeOpen && !msime::windows::scheme::AlwaysInlinePreedit(scheme) &&
         IsEnglishInputModeToggle(*classifiedCode, capturedModifiers))
     {
@@ -1883,11 +1966,10 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
     }
 
     // 只有段落编辑快捷键依赖组字状态，其余修饰键组合交给应用。
-    const bool projectedCompositionActive = useProjection
-                                                ? (_deferredProjectedInputLength > 0 ||
-                                                   _deferredProjectedCandidateActive || _deferredProjectedPhraseActive)
-                                                : (_IsComposing() || !_pCompositionProcessorEngine->GetKeyCompositionState().rawInput.empty() ||
-                                                   _candidateMode != CANDIDATE_NONE);
+    const bool projectedCompositionActive =
+        useProjection ? _DeferredProjectionHasComposition()
+                      : (_IsComposing() || !_pCompositionProcessorEngine->GetKeyCompositionState().rawInput.empty() ||
+                         _candidateMode != CANDIDATE_NONE);
     const KEYSTROKE_FUNCTION segmentEdit = SegmentEditFunction(*classifiedCode, capturedModifiers, scheme);
     if (segmentEdit != FUNCTION_NONE && !_IsKeyboardDisabled() && projectedCompositionActive)
     {
@@ -2565,9 +2647,10 @@ bool CMetasequoiaIME::_QueueDeferredKeyDown(_In_ ITfContext *pContext, WPARAM wP
     pContext->AddRef();
     DeferredKeyDown key;
     if (groupedOwner) key.groupedOwner = *groupedOwner;
-    key.kind = keyState.Category == CATEGORY_NONE && keyState.Function == FUNCTION_NONE
-                   ? DeferredKeyDown::Kind::ApplicationText
-                   : DeferredKeyDown::Kind::KeyDown;
+    // 没有功能的按键只是要打的字，队列按它分应用文本（见 Global::DeferredKeyIsApplicationText）。
+    const bool applicationText =
+        Global::DeferredKeyIsApplicationText(keyState.Category != CATEGORY_NONE, keyState.Function != FUNCTION_NONE);
+    key.kind = applicationText ? DeferredKeyDown::Kind::ApplicationText : DeferredKeyDown::Kind::KeyDown;
     key.context = pContext;
     key.wParam = wParam;
     key.lParam = lParam;
@@ -2578,7 +2661,7 @@ bool CMetasequoiaIME::_QueueDeferredKeyDown(_In_ ITfContext *pContext, WPARAM wP
     key.queuedAtMs = GetTickCount64();
     key.needsClassification = (_deferredKeyClassificationPending || _HasPendingApplicationKeyReplay() || _preferenceBarrier.active() ||
          _preferenceNotificationPending.load(std::memory_order_acquire)) &&
-        keyState.Category == CATEGORY_NONE && keyState.Function == FUNCTION_NONE;
+        applicationText;
     key.capsLockOn = (GetKeyState(VK_CAPITAL) & 1) != 0;
     key.windowsKeyDown = (GetAsyncKeyState(VK_LWIN) & 0x8000) != 0 || (GetAsyncKeyState(VK_RWIN) & 0x8000) != 0;
     key.foregroundWindow = GetForegroundWindow();
@@ -3635,34 +3718,7 @@ CMetasequoiaIME::KeyDownDispatchResult CMetasequoiaIME::_DispatchKeyDown(
         if (KeystrokeState.Function == FUNCTION_PUNCTUATION && _msgWndHandle)
         {
             PerfTimer asyncPuncTimer;
-            std::wstring punctuationCommitText;
-            const bool shouldFinalizeHighlightedCandidateWithPunctuation =
-                _candidateMode != CANDIDATE_NONE && _pCandidateListUIPresenter &&
-                Global::CommitWithHighlightedCandPunc.count(wch) > 0;
-            if (shouldFinalizeHighlightedCandidateWithPunctuation)
-            {
-                // Empty means the edit session must consume this request's
-                // candidate reply and append the punctuation derived from wch
-                // (including smart-punctuation against the candidate text).
-                punctuationCommitText.clear();
-            }
-            else if (code == VK_DECIMAL)
-            {
-                // Numpad '.' keeps ASCII '.' in Chinese punctuation mode. It is checked after the highlighted-candidate commit, so with candidates open it ends the composition with the candidate followed by '.' instead of discarding the candidate.
-                punctuationCommitText = L".";
-            }
-            else if (CCompositionProcessorEngine::IsSmartAsciiPunctuationKey(wch) &&
-                     Global::SmartPunctuationEnabled.load(std::memory_order_relaxed))
-            {
-                // Defer mapping until the edit session can inspect the
-                // preceding document character (letters/digits → ASCII).
-                punctuationCommitText.clear();
-            }
-            else
-            {
-                const WCHAR *punctuation = _pCompositionProcessorEngine->GetPunctuation(wch);
-                punctuationCommitText = punctuation ? punctuation : L"";
-            }
+            std::wstring punctuationCommitText = _PrefetchPunctuationCommitText(code, wch);
             _PostAsyncKeyRequest(WM_AsyncPunctuationCommit, code, wch, requestId, std::move(punctuationCommitText), 0,
                                  0, deferredReplayToken);
             return deferredReplayToken != 0 ? KeyDownDispatchResult::AwaitingCompletion

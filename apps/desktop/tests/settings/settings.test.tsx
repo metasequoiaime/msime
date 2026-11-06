@@ -3336,7 +3336,7 @@ test("dictionary manager queries, edits and removes Engine entries", async () =>
   // filtering a page it had already fetched.
   expect(list).toHaveBeenCalledWith(0, 100, "quick_phrase", "");
   fireEvent.click(screen.getByRole("button", { name: "编辑" }));
-  fireEvent.change(screen.getByLabelText(/^短语 /), { target: { value: "updated" } });
+  fireEvent.change(screen.getByLabelText(/^短语/), { target: { value: "updated" } });
   // The entry editor has its own 保存; 保存设置 in the footer writes the preferences document and
   // never touches the dictionary. A rename of the footer button swept this one up with it.
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
@@ -3451,7 +3451,7 @@ test("a refused pinyin entry says why instead of asking for a retry", async () =
   fireEvent.click(screen.getByRole("button", { name: /^(词库|词库管理)$/ }));
   fireEvent.change(await screen.findByLabelText("本地词库类型"), { target: { value: "pinyin" } });
   fireEvent.click(await screen.findByRole("button", { name: "新增词条" }));
-  fireEvent.change(screen.getByRole("textbox", { name: /^编码 / }), {
+  fireEvent.change(screen.getByRole("textbox", { name: "编码" }), {
     target: { value: "nhao" },
   });
   fireEvent.change(screen.getByRole("textbox", { name: "词条" }), {
@@ -3479,10 +3479,10 @@ test("dictionary manager creates entries with the Windows settings default weigh
   fireEvent.click(screen.getByRole("button", { name: /^(词库|词库管理)$/ }));
   fireEvent.click(await screen.findByRole("button", { name: "新增词条" }));
   expect(screen.getByRole("spinbutton", { name: "权重" })).toHaveProperty("value", "10");
-  fireEvent.change(screen.getByRole("textbox", { name: /^编码 / }), {
+  fireEvent.change(screen.getByRole("textbox", { name: "编码" }), {
     target: { value: "fixture-code" },
   });
-  fireEvent.change(screen.getByRole("textbox", { name: /^短语 / }), {
+  fireEvent.change(screen.getByRole("textbox", { name: /^短语/ }), {
     target: { value: "synthetic phrase" },
   });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
@@ -4658,7 +4658,14 @@ test("the theme page runs from the colour mode to the custom colours", async () 
       .getByRole("region", { name: "自定义主题" })
       .querySelectorAll("[data-row-title]"),
   ].map((title) => title.textContent);
-  expect(colours).toEqual(["候选表面色", "候选文字颜色", "候选强调色", "候选选中色", "候选悬停色"]);
+  expect(colours).toEqual([
+    "候选表面色",
+    "候选文字颜色",
+    "候选强调色",
+    "候选选中色",
+    "候选选中文字色",
+    "候选悬停色",
+  ]);
   // Linux 面板的说明放在页首，排在那些皮肤和颜色会被该面板忽略的组之前。
   const note = within(skin).getByText(/Fcitx5 正在使用你在 Fcitx5 配置中选择的经典界面主题/);
   expect(note.compareDocumentPosition(mode) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -5028,6 +5035,69 @@ test("the HarmonyOS 2-in-1 keeps the shuangpin preedit on exactly one page", asy
     }),
   ).toBeTruthy();
   expect(screen.getAllByRole("combobox", { name: "双拼预编辑", hidden: true })).toHaveLength(1);
+});
+
+// #10557：粤语双拼的展开显示也跟随这个偏好，用粤语双拼时在当前方案下就能改，不必先切到普通话双拼。
+test("macOS offers the shuangpin preedit under 粤语双拼 and saves the shared preference", async () => {
+  const cantonese: Snapshot = {
+    ...initial,
+    preferences: {
+      ...initial.preferences,
+      scheme: "cantonese",
+      cantonese: { input_method: "shuangpin" },
+    },
+  };
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...cantonese,
+    revision: 8,
+    preferences,
+  }));
+  render(
+    <SettingsPage
+      initialPage="input"
+      client={{
+        load: vi.fn().mockResolvedValue(cantonese),
+        save,
+        host: testHost({ platform: "macos" }),
+      }}
+    />,
+  );
+  await settingsReady();
+  selectSettingsTab("方案");
+  const preedit = (await screen.findByRole("combobox", {
+    name: "双拼预编辑",
+  })) as HTMLSelectElement;
+  expect(preedit.value).toBe("raw");
+  fireEvent.change(preedit, { target: { value: "pinyin" } });
+  saveSettingsNow();
+  await screen.findByText("已保存");
+  // 与普通话双拼那一行一样经 `shuangpinPreeditPatch` 写回，选粤拼分词时「双拼分隔」（#10717）一并清掉。
+  expect(save).toHaveBeenCalledWith(7, {
+    ...cantonese.preferences,
+    shuangpin_preedit_uses_raw: false,
+    shuangpin_preedit_separated: false,
+  });
+  expect(screen.getAllByRole("combobox", { name: "双拼预编辑", hidden: true })).toHaveLength(1);
+});
+
+// 鸿蒙手机的「候选栏」页按设计单独布局，双拼预编辑收在「更多选项」里；粤语双拼也跟随它，说明要写明（#10557）。
+test("the HarmonyOS phone candidate page offers the shuangpin preedit for 粤语双拼 too", async () => {
+  render(
+    <SettingsPage
+      initialPage="appearance"
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        touchKeyboardSchemes: true,
+        host: testHost({ platform: "harmony", mobile_settings: true, shuangpin_preedit: true }),
+      }}
+    />,
+  );
+  await settingsReady();
+  const preedit = screen.getByRole("combobox", { name: "双拼预编辑", hidden: true });
+  expect(preedit).toBeTruthy();
+  const description = document.getElementById(preedit.getAttribute("aria-describedby") ?? "");
+  expect(description?.textContent).toMatch(/粤语双拼/);
 });
 
 test("font family controls validate drafts and save Unicode without touching the fallback list", async () => {

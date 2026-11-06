@@ -29,6 +29,7 @@ public final class SignInFailurePolicy {
         return switch (code == null ? "" : code) {
             case "account_rate_limited" -> "发送太频繁，请稍后再试";
             case "account_invalid" -> "这个邮箱地址不能用来登录";
+            case "account_unsupported_email_domain" -> "该邮箱域名暂不支持邮箱验证码，请改用常用邮箱或手机号";
             case "account_recent_login_required" -> "需要先重新登录一次";
             case "account_unauthorized" -> "需要先登录水杉账号";
             case "account_network" -> "连不上服务器，请检查网络后再试";

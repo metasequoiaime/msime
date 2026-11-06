@@ -108,9 +108,9 @@ pub const PROVIDERS: &[AiProviderPreset] = &[
         id: "volcengine",
         title: "火山方舟 · 豆包",
         endpoint: "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
-        model: "doubao-seed-1.6-flash",
+        model: "doubao-seed-2-0-mini-260428",
         documentation: "https://ark.volcengine.com/region:cn-beijing/docs/chat-api",
-        models: &["doubao-seed-1.6-flash", "doubao-seed-1.6"],
+        models: &["doubao-seed-2-0-mini-260428", "doubao-seed-2-0-lite-260428"],
         desktop_only: false,
     },
     AiProviderPreset {

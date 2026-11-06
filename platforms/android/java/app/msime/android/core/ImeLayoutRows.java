@@ -924,7 +924,7 @@ final class ImeLayoutRows {
         if (key.getParent() instanceof android.view.ViewGroup previous) previous.removeView(key);
         if (key instanceof KeyboardPressButton press) press.setKeyboardRole(role);
         s.imeStyler.styleButton(key, role, s.skin);
-        if (role == KeyboardKeyRole.ACCENT) KeyboardTypographyPolicy.setKeyTextSize(key, 15);
+        if (role == KeyboardKeyRole.ACCENT) KeyboardTypographyPolicy.setFunctionKeyTextSize(key);
         ViewPolicy.show(key);
         addNineKey(parent, key);
     }
@@ -1978,7 +1978,10 @@ final class ImeLayoutRows {
             if (slotVisible) {
                 String spelling = values.get(slot);
                 key.setText(spelling);
-                key.setContentDescription(NineKeyPanelPolicy.spellingDescription(spelling, zhuyin));
+                // 放下网格辅助码的分隔符后这里是辅助码的整串解释，不是拼音。
+                key.setContentDescription(s.gridHelpcodeDisplay().isEmpty()
+                    ? NineKeyPanelPolicy.spellingDescription(spelling, zhuyin)
+                    : GridHelpcodePolicy.choiceDescription(spelling));
             }
         }
     }

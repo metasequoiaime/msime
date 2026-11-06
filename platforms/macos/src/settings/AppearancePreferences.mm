@@ -2,6 +2,7 @@
 #import "SettingsLayout.h"
 #import "../backend/account/BackendAccountEntry.h"
 #import "../candidate/CandidateFontCache.h"
+#import "../candidate/CandidateFontWeight.h"
 #import "../candidate/CandidateSkinPreviewView.h"
 #import "../candidate/CandidateCanvas.h"
 #import "../candidate/SkinSettingsView.h"
@@ -24,6 +25,7 @@ extern "C" bool msime_macos_uninstall_input_source(const char *bundle_path,
 #import "../voice/VoiceSettingsEntry.h"
 #import "../core/WindowPresentation.h"
 #include "ShuangpinProfileNames.h"
+#include "WubiProfileNames.h"
 #include "../candidate/CandidatePageSize.h"
 #include "../../../../shared/candidate/CandidateChromeMetrics.h"
 #include "msime_client.h"
@@ -74,6 +76,7 @@ extern "C" void MSIMEAccountPaneClose(void) __attribute__((weak_import));
 NSNotificationName const MSIMEAppearanceDidChangeNotification = @"MSIMEClientAppearanceDidChange";
 NSNotificationName const MSIMETranslationPreferencesDidSaveNotification = @"MSIMEClientTranslationPreferencesDidSave";
 NSString *const MSIMEAppearanceInputModeOnlyKey = @"MSIMEClientAppearanceInputModeOnly";
+NSString *const MSIMEAppearanceVoicePreferencesKey = @"MSIMEClientAppearanceVoicePreferences";
 static NSString *const LayoutKey = @"MSIMEClientCandidatePanelStyle";
 static NSString *const CandidateFollowCursorKey = @"MSIMEClientCandidateFollowCursor";
 static NSString *const InputModeHUDKey = @"MSIMEClientInputModeHUD";
@@ -87,8 +90,10 @@ static NSString *const SchemeKey = @"MSIMEClientInputScheme";
 static NSString *const LastSyncedSchemeKey = @"MSIMEClientLastSyncedInputScheme";
 static NSString *const ShuangpinProfileKey = @"MSIMEClientShuangpinProfile";
 static NSString *const ShuangpinPreeditKey = @"MSIMEClientShuangpinPreeditUsesRaw";
-/// 五笔码表版本：`wubi86` 或 `wubi98`，写进共享偏好文档的 `wubi_profile`。
+/// 五笔码表版本：`wubi86`、`wubi98` 或 `wubixsj`（取值表见 WubiProfileNames.h），写进共享偏好文档的 `wubi_profile`。
 static NSString *const WubiProfileKey = @"MSIMEClientWubiProfile";
+/// 认识的五笔版本原样返回，其余（缺省、未知字符串、非字符串）返回 nil。
+static NSString *MSIMEKnownWubiProfile(id value) { return [value isKindOfClass:NSString.class] && msime::mac::IsWubiProfile([value UTF8String] ?: "") ? value : nil; }
 static NSString *const LocalModesKey = @"MSIMEClientLocalModes";
 /// 「Shift+字母进入快捷模式」总开关和各模式开关存在同一张表里（共享文档的 `local_modes.shift_letter_entry`），缺省同样是开；设置窗口把它单独放在模式网格上方。
 static NSString *const ShiftLetterEntryMode = @"shift_letter_entry";
@@ -116,6 +121,7 @@ static NSString *const TextColorKey = @"MSIMEClientCandidateTextColor";
 // 文字颜色以外的候选颜色。候选窗一直在用它们画（InputController.mm 填候选行时逐个读取），但以前只能经账号推送进内存里的覆盖值，这里没法设置，重启后也留不住。编号色和边框色不在其中：macOS 上它们固定跟随主题和皮肤（选了文字颜色时编号色由它推出），宿主不读 `custom_theme.candidate_colors` 的 `number` 与 `border`，以前存下的 MSIMEClientCandidateNumberColor、MSIMEClientCandidateBorderColor 也不再读、不再写回共享文档。
 static NSString *const AccentColorKey = @"MSIMEClientCandidateAccentColor";
 static NSString *const SelectedColorKey = @"MSIMEClientCandidateSelectedColor";
+static NSString *const SelectedTextColorKey = @"MSIMEClientCandidateSelectedTextColor";
 static NSString *const HoverColorKey = @"MSIMEClientCandidateHoverColor";
 static NSString *const SurfaceColorKey = @"MSIMEClientCandidateSurfaceColor";
 /// 全局明暗和唯一还能单独覆盖它的界面（候选窗口）：候选窗按 `theme` 与 `candidate_theme` 解析自己的外观。两项以前只能从云端到达本宿主，没登录过的机器无从选择，选过的机器下次启动又会丢失。悬浮工具栏、中英文提示、菜单和各面板一律跟随颜色模式，不读各自单独的明暗设置（HostCapabilities 的 `surface_themes_follow`），以前存下的 MSIMEClientToolbarTheme 也不再读、不再写回共享文档。
@@ -136,13 +142,14 @@ static id SharedCandidateColor(NSDictionary *preferences, NSString *key, id curr
     if (!value || value == NSNull.null) return NSNull.null;
     return ValidTextColor(value) ? [value copy] : current;
 }
-/// 窗口给出取色器的四种候选颜色，每项是 {属性名, 标题, 存储键, `custom_theme.candidate_colors` 里的槽位}。用一张表代替四份「取色器、按钮、setter、存储键和分区条目」：取色器由它生成，取色器和它的「跟随皮肤」按钮以属性名为 identifier 经它路由回来，合并时按它发布，「配色」分区也按它登记存储键。
+/// 窗口给出取色器的五种候选颜色，每项是 {属性名, 标题, 存储键, `custom_theme.candidate_colors` 里的槽位}。用一张表代替五份「取色器、按钮、setter、存储键和分区条目」：取色器由它生成，取色器和它的「跟随皮肤」按钮以属性名为 identifier 经它路由回来，合并时按它发布，「配色」分区也按它登记存储键。
 ///
 /// 候选文字颜色 is not in it. It is the one colour this window already had, it is set by typing a hex value as well as by the well, and three tests name its selectors, so it keeps the row it has always had rather than being folded in and renamed.
 static NSArray<NSArray<NSString *> *> *CandidateColorControls() {
     return @[
         @[ @"candidateAccentColor", @"候选强调色", AccentColorKey, @"accent" ],
         @[ @"candidateSelectedColor", @"候选选中色", SelectedColorKey, @"selected" ],
+        @[ @"candidateSelectedTextColor", @"候选选中文字色", SelectedTextColorKey, @"selected_text" ],
         @[ @"candidateHoverColor", @"候选悬停色", HoverColorKey, @"hover" ],
         @[ @"candidateSurfaceColor", @"候选表面色", SurfaceColorKey, @"surface" ],
     ];
@@ -474,6 +481,7 @@ static NSDictionary<NSString *, NSString *> *SharedOverrideProperties() {
         TextColorKey : @"sharedTextColor",
         AccentColorKey : @"sharedAccentColor",
         SelectedColorKey : @"sharedSelectedColor",
+        SelectedTextColorKey : @"sharedSelectedTextColor",
         HoverColorKey : @"sharedHoverColor",
         SurfaceColorKey : @"sharedSurfaceColor",
         ThemeKey : @"sharedTheme",
@@ -1157,6 +1165,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSString *_sharedFontFamily;
     id _sharedCandidateEnglishFont;
     NSArray<NSString *> *_sharedFallbackFonts;
+    /// 共享文档的 `candidate_font_weight`，nil 表示文档里没有（常规）。macOS 还没有设置它的界面，只读不写。
+    NSString *_sharedCandidateFontWeight;
     NSSwitch *_inputModeHUDToggle;
     NSSwitch *_inputModeStatusItemToggle;
     NSSwitch *_appLogoToggle;
@@ -1167,6 +1177,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     id _sharedTextColor;
     id _sharedAccentColor;
     id _sharedSelectedColor;
+    id _sharedSelectedTextColor;
     id _sharedHoverColor;
     id _sharedSurfaceColor;
     id _sharedGlobalTheme;
@@ -1768,6 +1779,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     // 编号色和边框色在 macOS 上固定跟随主题，留空交给解析器推出（编号色取文字颜色或主题的值）。
     custom.candidateColors.accent = self.candidateAccentColor.UTF8String ?: "";
     custom.candidateColors.selected = self.candidateSelectedColor.UTF8String ?: "";
+    custom.candidateColors.selectedText = self.candidateSelectedTextColor.UTF8String ?: "";
     custom.candidateColors.hover = self.candidateHoverColor.UTF8String ?: "";
     custom.candidateColors.surface = self.candidateSurfaceColor.UTF8String ?: "";
     return custom;
@@ -1777,7 +1789,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     return [@[
         self.globalTheme, self.customThemeBase, self.customCandidateSkin ?: @"", self.customCandidateSkinDark ?: @"",
         self.candidateTextColor ?: @"",
-        self.candidateAccentColor ?: @"", self.candidateSelectedColor ?: @"",
+        self.candidateAccentColor ?: @"", self.candidateSelectedColor ?: @"", self.candidateSelectedTextColor ?: @"",
         self.candidateHoverColor ?: @"", self.candidateSurfaceColor ?: @"",
         self.vertical ? @"vertical" : @"horizontal", _skinsRoot.path ?: @""
     ] componentsJoinedByString:@"|"];
@@ -2157,8 +2169,8 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
 - (void)setLastSyncedInputScheme:(NSString *)value { [_defaults setObject:value forKey:LastSyncedSchemeKey]; }
 - (NSString *)shuangpinProfile { NSString *value = _sharedShuangpinProfile ?: [_defaults stringForKey:ShuangpinProfileKey]; return [@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft", @"smart_abc", @"custom"] containsObject:value] ? value : @"xiaohe"; }
 - (void)setShuangpinProfile:(NSString *)value { if (![@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft", @"smart_abc", @"custom"] containsObject:value]) value = @"xiaohe"; _sharedShuangpinProfile = nil; [_defaults setObject:value forKey:ShuangpinProfileKey]; [self preferencesChanged]; }
-- (NSString *)wubiProfile { NSString *value = _sharedWubiProfile ?: [_defaults stringForKey:WubiProfileKey]; return [@[@"wubi86", @"wubi98"] containsObject:value] ? value : @"wubi86"; }
-- (void)setWubiProfile:(NSString *)value { if (![@[@"wubi86", @"wubi98"] containsObject:value]) value = @"wubi86"; _sharedWubiProfile = nil; [_defaults setObject:value forKey:WubiProfileKey]; [self preferencesChanged]; }
+- (NSString *)wubiProfile { return MSIMEKnownWubiProfile(_sharedWubiProfile ?: [_defaults stringForKey:WubiProfileKey]) ?: @"wubi86"; }
+- (void)setWubiProfile:(NSString *)value { value = MSIMEKnownWubiProfile(value) ?: @"wubi86"; _sharedWubiProfile = nil; [_defaults setObject:value forKey:WubiProfileKey]; [self preferencesChanged]; }
 - (BOOL)shuangpinPreeditUsesRaw { if (_sharedShuangpinPreeditUsesRaw) return _sharedShuangpinPreeditUsesRaw.boolValue; return [_defaults objectForKey:ShuangpinPreeditKey] == nil ? YES : [_defaults boolForKey:ShuangpinPreeditKey]; }
 - (void)setShuangpinPreeditUsesRaw:(BOOL)value { _sharedShuangpinPreeditUsesRaw = nil; [_defaults setBool:value forKey:ShuangpinPreeditKey]; [self preferencesChanged]; }
 // 从没设置过时取本版本的默认值：五笔版默认打开混拼，full 默认关闭（与 client-core 的版本默认偏好一致）。它会被合并进共享偏好文档，所以缺省值不能是一个固定的 NO。
@@ -2354,7 +2366,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
         // 文档里的 false 只可能来自新语义下的选择：升级时把旧的原生 NO 合并进文档之前 getter 已经读作开，而共享设置页（macOS 上的主要入口）只写文档、不写原生标记。这里也认作本机已经采纳新语义，免得下一次套用云快照时把用户关掉的开关又当历史缺省恢复成开。
         if (![wubiAutoCommitUnique boolValue]) [_defaults setBool:YES forKey:WubiAutoCommitUniqueAdoptedKey];
     }
-    if ([@[@"wubi86", @"wubi98"] containsObject:wubiProfile]) _sharedWubiProfile = [wubiProfile copy];
+    if (MSIMEKnownWubiProfile(wubiProfile)) _sharedWubiProfile = [wubiProfile copy];
     if (LocalModeBoolean(wubiZWildcard)) _sharedWubiZWildcard = wubiZWildcard;
     if (LocalModeBoolean(wubiFifthCodeTopCommit)) _sharedWubiFifthCodeTopCommit = wubiFifthCodeTopCommit;
     id sentenceAssociation = preferences[@"sentence_association"];
@@ -2786,26 +2798,26 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
 - (BOOL)voiceInputEnabled { return MSIMEVoiceInputEnabled(_defaults); }
 - (void)setVoiceInputEnabled:(BOOL)value {
     [_defaults setBool:value forKey:VoiceEnabledKey];
-    [self preferencesChanged];
+    [self voicePreferencesChanged];
 }
 - (NSString *)voiceLanguage {
     return [[_defaults stringForKey:VoiceLanguageKey] isEqualToString:@"en-US"] ? @"en-US" : @"zh-CN";
 }
 - (void)setVoiceLanguage:(NSString *)value {
     [_defaults setObject:[value isEqualToString:@"en-US"] ? @"en-US" : @"zh-CN" forKey:VoiceLanguageKey];
-    [self preferencesChanged];
+    [self voicePreferencesChanged];
 }
 - (BOOL)voiceSoundEnabled {
     return [_defaults objectForKey:VoiceSoundKey] == nil || [_defaults boolForKey:VoiceSoundKey];
 }
 - (void)setVoiceSoundEnabled:(BOOL)value {
     [_defaults setBool:value forKey:VoiceSoundKey];
-    [self preferencesChanged];
+    [self voicePreferencesChanged];
 }
 - (BOOL)voiceMuteSystemAudio { return MSIMEVoiceMuteSystemAudioEnabled(_defaults); }
 - (void)setVoiceMuteSystemAudio:(BOOL)value {
     [_defaults setBool:value forKey:VoiceMuteSystemAudioKey];
-    [self preferencesChanged];
+    [self voicePreferencesChanged];
 }
 - (BOOL)voiceStreamInlinePreedit {
     return [_defaults objectForKey:VoiceStreamInlinePreeditKey] == nil ||
@@ -2813,14 +2825,14 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
 }
 - (void)setVoiceStreamInlinePreedit:(BOOL)value {
     [_defaults setBool:value forKey:VoiceStreamInlinePreeditKey];
-    [self preferencesChanged];
+    [self voicePreferencesChanged];
 }
 - (BOOL)voiceHotkeyCtrlF9 {
     return [_defaults objectForKey:VoiceHotkeyCtrlF9Key] == nil || [_defaults boolForKey:VoiceHotkeyCtrlF9Key];
 }
 - (void)setVoiceHotkeyCtrlF9:(BOOL)value {
     [_defaults setBool:value forKey:VoiceHotkeyCtrlF9Key];
-    [self preferencesChanged];
+    [self voicePreferencesChanged];
 }
 // 三个按住录音的组合键里只有「按住右 Option」（`hotkey_ralt`）默认打开，与共享默认
 // `VoiceInputPreferences::default()`、Windows、Linux 和共享设置页一致；另外两个默认关。设置窗口是独立
@@ -2829,17 +2841,17 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
 - (BOOL)voiceHotkeyRightAlt { return [_defaults objectForKey:VoiceHotkeyRightAltKey] == nil || [_defaults boolForKey:VoiceHotkeyRightAltKey]; }
 - (void)setVoiceHotkeyRightAlt:(BOOL)value {
     [_defaults setBool:value forKey:VoiceHotkeyRightAltKey];
-    [self preferencesChanged];
+    [self voicePreferencesChanged];
 }
 - (BOOL)voiceHotkeyCtrlCommand { return [_defaults boolForKey:VoiceHotkeyCtrlCommandKey]; }
 - (void)setVoiceHotkeyCtrlCommand:(BOOL)value {
     [_defaults setBool:value forKey:VoiceHotkeyCtrlCommandKey];
-    [self preferencesChanged];
+    [self voicePreferencesChanged];
 }
 - (BOOL)voiceHotkeyCtrlOption { return [_defaults boolForKey:VoiceHotkeyCtrlOptionKey]; }
 - (void)setVoiceHotkeyCtrlOption:(BOOL)value {
     [_defaults setBool:value forKey:VoiceHotkeyCtrlOptionKey];
-    [self preferencesChanged];
+    [self voicePreferencesChanged];
 }
 - (void)setInputModeShortcut:(BOOL)value {
     _sharedInputModeShortcut = nil;
@@ -2865,6 +2877,9 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
 - (NSString *)candidateEnglishFont {
     id value = _sharedCandidateEnglishFont ?: [_defaults objectForKey:CandidateEnglishFontKey];
     return ValidFontFamily(value) ? value : nil;
+}
+- (NSString *)candidateFontWeight {
+    return _sharedCandidateFontWeight ?: @"regular";
 }
 - (NSString *)candidateTextColor {
     id value = _sharedTextColor ?: [_defaults objectForKey:TextColorKey];
@@ -2961,7 +2976,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     [_defaults setObject:value ?: @"" forKey:key];
     [self preferencesChanged];
 }
-/// 五种颜色之一没有被覆盖时的样子：候选窗画它用的 token，取自按本窗口当前明暗解析出的所选主题。
+/// 六种颜色之一没有被覆盖时的样子：候选窗画它用的 token，取自按本窗口当前明暗解析出的所选主题。
 - (NSColor *)candidateSkinColorForProperty:(NSString *)property {
     NSAppearanceName match = [NSApp.effectiveAppearance
         bestMatchFromAppearancesWithNames:@[ NSAppearanceNameAqua, NSAppearanceNameDarkAqua ]];
@@ -2969,6 +2984,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     if ([property isEqual:@"candidateTextColor"]) return SkinTokenColor(tokens.text);
     if ([property isEqual:@"candidateAccentColor"]) return SkinTokenColor(tokens.accent);
     if ([property isEqual:@"candidateSelectedColor"]) return SkinTokenColor(tokens.selected);
+    if ([property isEqual:@"candidateSelectedTextColor"]) return SkinTokenColor(tokens.selectedText);
     if ([property isEqual:@"candidateHoverColor"]) return SkinTokenColor(tokens.hover);
     if ([property isEqual:@"candidateSurfaceColor"]) return SkinTokenColor(tokens.surface);
     return SkinTokenColor(tokens.border);
@@ -2977,6 +2993,8 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
 - (void)setCandidateAccentColor:(NSString *)value { _sharedAccentColor = nil; [self setCandidateColor:value storedAs:AccentColorKey]; }
 - (NSString *)candidateSelectedColor { return [self candidateColorStoredAs:SelectedColorKey shared:_sharedSelectedColor]; }
 - (void)setCandidateSelectedColor:(NSString *)value { _sharedSelectedColor = nil; [self setCandidateColor:value storedAs:SelectedColorKey]; }
+- (NSString *)candidateSelectedTextColor { return [self candidateColorStoredAs:SelectedTextColorKey shared:_sharedSelectedTextColor]; }
+- (void)setCandidateSelectedTextColor:(NSString *)value { _sharedSelectedTextColor = nil; [self setCandidateColor:value storedAs:SelectedTextColorKey]; }
 - (NSString *)candidateHoverColor { return [self candidateColorStoredAs:HoverColorKey shared:_sharedHoverColor]; }
 - (void)setCandidateHoverColor:(NSString *)value { _sharedHoverColor = nil; [self setCandidateColor:value storedAs:HoverColorKey]; }
 - (NSString *)candidateSurfaceColor { return [self candidateColorStoredAs:SurfaceColorKey shared:_sharedSurfaceColor]; }
@@ -3022,6 +3040,8 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     // Resolve a family without silently substituting a different installed family.
     // Preserve unavailable cross-platform names in preferences. Resolve installed
     // supplementary families in order, retaining system fallback at the end.
+    // 共享的候选字重作用于链上每一个字体族和最后的系统字体；族里没有这一档时用族里就近的字面。
+    const NSFontWeight weight = MSIMECandidateFontWeightValue(self.candidateFontWeight);
     NSMutableArray<NSFontDescriptor *> *resolved = [NSMutableArray array];
     NSMutableArray<NSString *> *families = [NSMutableArray array];
     if (englishFirst && self.candidateEnglishFont.length) [families addObject:self.candidateEnglishFont];
@@ -3029,10 +3049,10 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     [families addObjectsFromArray:self.fallbackFonts];
     // The family list is read afresh on every call so writes from other processes apply; only the per-family match is cached.
     for (NSString *family in families) {
-        NSFontDescriptor *matched = MSIMEInstalledFontFamilyDescriptor(family);
+        NSFontDescriptor *matched = MSIMEInstalledFontFamilyDescriptorWithWeight(family, weight);
         if (matched) [resolved addObject:matched];
     }
-    NSFont *system = [NSFont systemFontOfSize:size];
+    NSFont *system = weight == NSFontWeightRegular ? [NSFont systemFontOfSize:size] : [NSFont systemFontOfSize:size weight:weight];
     if (!resolved.count) return system;
     NSFontDescriptor *primary = resolved.firstObject;
     [resolved removeObjectAtIndex:0];
@@ -3056,6 +3076,12 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     _sharedFontSize = nil;
     [_defaults setInteger:value >= 12 && value <= 32 ? value : 18 forKey:FontKey];
     [self preferencesChanged];
+}
+- (void)voicePreferencesChanged {
+    [self refreshControls];
+    if (_silent) return;
+    [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEAppearanceDidChangeNotification object:self
+        userInfo:@{MSIMEAppearanceVoicePreferencesKey:@YES}];
 }
 - (void)preferencesChanged {
     [self resolveSelectedSkinIfChanged];
@@ -3329,6 +3355,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     _sharedTextColor = SharedCandidateColor(pickerColors, @"text", _sharedTextColor);
     _sharedAccentColor = SharedCandidateColor(pickerColors, @"accent", _sharedAccentColor);
     _sharedSelectedColor = SharedCandidateColor(pickerColors, @"selected", _sharedSelectedColor);
+    _sharedSelectedTextColor = SharedCandidateColor(pickerColors, @"selected_text", _sharedSelectedTextColor);
     _sharedHoverColor = SharedCandidateColor(pickerColors, @"hover", _sharedHoverColor);
     _sharedSurfaceColor = SharedCandidateColor(pickerColors, @"surface", _sharedSurfaceColor);
     id family = preferences[@"candidate_font_family"];
@@ -3342,6 +3369,10 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     else if (ValidFontFamily(englishFamily)) _sharedCandidateEnglishFont = [englishFamily copy];
     id fallbacks = preferences[@"candidate_fallback_fonts"];
     if (ValidFallbackFonts(fallbacks)) _sharedFallbackFonts = [[NSArray alloc] initWithArray:fallbacks copyItems:YES];
+    // 共享序列化在常规时不写这个键，所以缺省一律读作常规；认不出的值不改现在画的字重。
+    id fontWeight = preferences[@"candidate_font_weight"];
+    if (!fontWeight) _sharedCandidateFontWeight = nil;
+    else if ([MSIMECandidateFontWeightIds() containsObject:fontWeight]) _sharedCandidateFontWeight = [fontWeight copy];
     id preeditFont = preferences[@"candidate_preedit_font_size"];
     id preeditStyle = preferences[@"candidate_preedit_style"];
     if (ValidCandidateStyleInteger(preeditFont, 12, 32)) _sharedPreeditFontSize = preeditFont;
@@ -3550,9 +3581,9 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     _pinyinMatchingSchemeLabel.hidden = pinyinMatching;
     NSDictionary *profileIndexes = @{@"xiaohe": @0, @"ziranma": @1, @"shoudao": @2, @"microsoft": @3, @"smart_abc": @4};
     [_profileButton selectItemAtIndex:[profileIndexes[self.shuangpinProfile] integerValue]];
-    const BOOL wubi98 = [self.wubiProfile isEqual:@"wubi98"];
-    [_wubiSchemeButton selectItemAtIndex:wubi98 ? 1 : 0];
-    _wubiProfileLabel.stringValue = wubi98 ? @"98 五笔" : @"86 五笔";
+    const std::size_t wubiProfile = msime::mac::WubiProfileIndex(self.wubiProfile.UTF8String);
+    [_wubiSchemeButton selectItemAtIndex:(NSInteger)wubiProfile];
+    _wubiProfileLabel.stringValue = @(msime::mac::kWubiProfileNames[wubiProfile].profileTitle);
     [_preeditButton selectItemAtIndex:self.shuangpinPreeditUsesRaw ? 1 : 0];
     [_fontButton selectItemAtIndex:self.fontSize - 12];
     _englishFontFamilyControl.stringValue = self.candidateEnglishFont ?: @"";
@@ -4110,7 +4141,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     NSMutableArray<NSView *> *schemeRows = [NSMutableArray arrayWithObjects:MSIMECardHeader(@"输入方式"), MSIMECardSeparator(), nil];
     _shuangpinSchemeButton = _profileButton;
     _wubiSchemeButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    [_wubiSchemeButton addItemsWithTitles:@[@"86 五笔", @"98 五笔"]];
+    for (const auto &name : msime::mac::kWubiProfileNames) [_wubiSchemeButton addItemWithTitle:@(name.profileTitle)];
     _wubiSchemeButton.accessibilityLabel = @"五笔方案";
     _wubiSchemeButton.target = self;
     _wubiSchemeButton.action = @selector(wubiProfileChanged:);
@@ -4198,10 +4229,10 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     _shuangpinCard = MSIMECardWithViews(shuangpinRows, 0.0);
     _shuangpinCard.accessibilityLabel = @"双拼选项卡片";
     // 版本在「五笔输入」旁的弹出菜单里选，这里只显示当前所用的码表。
-    _wubiProfileLabel = [NSTextField labelWithString:[self.wubiProfile isEqual:@"wubi98"] ? @"98 五笔" : @"86 五笔"];
+    _wubiProfileLabel = [NSTextField labelWithString:@(msime::mac::kWubiProfileNames[msime::mac::WubiProfileIndex(self.wubiProfile.UTF8String)].profileTitle)];
     _wubiProfileLabel.textColor = [NSColor secondaryLabelColor];
     _wubiCard = MSIMECardWithViews(@[
-        [self settingRow:@"编码方案" control:_wubiProfileLabel aka:@[@"86 五笔", @"98 五笔", @"五笔版本"]],
+        [self settingRow:@"编码方案" control:_wubiProfileLabel aka:@[@"86 五笔", @"98 五笔", @"新世纪五笔", @"五笔版本"]],
         [self settingRow:@"四码唯一候选自动上屏" control:_wubiToggle],
         [self settingRow:@"五笔拼音混输"
                   detail:@"五笔候选之后接着列出同一串字母的全拼候选，五笔编码打不出时直接出拼音候选。"
@@ -4443,7 +4474,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
             FontKey, PreeditFontKey, CandidateScaleKey]], fontCard],
         @[[self sectionHeader:@"窗口样式" keys:@[CandidateOpacityKey, CandidateCornerRadiusKey, CandidatePaddingKey]], windowStyleCard,
           [self sectionHeader:@"配色" keys:@[ThemeKey, CandidateThemeKey, TextColorKey,
-            AccentColorKey, SelectedColorKey, HoverColorKey, SurfaceColorKey]], colorCard],
+            AccentColorKey, SelectedColorKey, SelectedTextColorKey, HoverColorKey, SurfaceColorKey]], colorCard],
         @[[self sectionHeader:@"预编辑" keys:@[CandidatePreeditKey]], preeditCard],
     ];
     // 预览控件共用同一份实例，切换标签不改偏好或丢失示例文字、明暗与展示状态。
@@ -5319,7 +5350,10 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
 - (void)quanpinHelpcodeChanged:(NSSwitch *)sender { self.quanpinHelpcodeEnabled = sender.state == NSControlStateValueOn; }
 - (void)shuangpinHelpcodeChanged:(NSSwitch *)sender { self.shuangpinHelpcodeEnabled = sender.state == NSControlStateValueOn; }
 - (void)profileChanged:(NSPopUpButton *)sender { self.shuangpinProfile = @[@"xiaohe", @"ziranma", @"shoudao", @"microsoft", @"smart_abc"][sender.indexOfSelectedItem]; }
-- (void)wubiProfileChanged:(NSPopUpButton *)sender { self.wubiProfile = sender.indexOfSelectedItem == 1 ? @"wubi98" : @"wubi86"; }
+- (void)wubiProfileChanged:(NSPopUpButton *)sender {
+    const NSInteger index = sender.indexOfSelectedItem;
+    if (index >= 0 && index < (NSInteger)msime::mac::kWubiProfileNames.size()) self.wubiProfile = @(msime::mac::kWubiProfileNames[(std::size_t)index].value);
+}
 - (void)preeditChanged:(NSPopUpButton *)sender { self.shuangpinPreeditUsesRaw = sender.indexOfSelectedItem == 1; }
 - (void)inputModeShortcutChanged:(NSSwitch *)sender { self.inputModeShortcut = sender.state == NSControlStateValueOn; }
 - (void)capsLockTapShortcutChanged:(NSSwitch *)sender { self.capsLockTapShortcut = sender.state == NSControlStateValueOn; }
@@ -5833,8 +5867,18 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
         id pushed = override == nil ? nil : [self valueForKey:override];
         if ([pushed isKindOfClass:NSMutableDictionary.class]) [pushed removeObjectsForKeys:owned];
     }
+    BOOL voiceReset = NO;
+    for (NSString *key in keys) {
+        if (![key hasPrefix:@"MSIMEClientVoice"]) continue;
+        id value = DefaultSettingValues()[key];
+        if (!value || value == NSNull.null) continue;
+        // 缺键在共享文档合并时表示保留旧值；恢复必须把本窗口拥有的默认值作为明确编辑。
+        [_defaults setObject:value forKey:key];
+        voiceReset = YES;
+    }
     [self refreshControls];
-    [NSNotificationCenter.defaultCenter postNotificationName:MSIMEAppearanceDidChangeNotification object:self];
+    [NSNotificationCenter.defaultCenter postNotificationName:MSIMEAppearanceDidChangeNotification object:self
+        userInfo:voiceReset ? @{MSIMEAppearanceVoicePreferencesKey:@YES} : nil];
 }
 #pragma mark - Settings document
 

@@ -283,7 +283,8 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     HRESULT _HandleCommitVoiceComposition(TfEditCookie ec, _In_ ITfContext *pContext, const std::wstring &text);
     HRESULT _HandleCancelVoiceComposition(TfEditCookie ec, _In_ ITfContext *pContext);
     HRESULT _HandleSmartPunctuationConvert(TfEditCookie ec, _In_ ITfContext *pContext);
-    HRESULT _HandleSmartPunctuationRevert(TfEditCookie ec, _In_ ITfContext *pContext, WCHAR wch);
+    // `code` 是按下的虚拟键：武装过期时这颗键按普通标点处理，小键盘的点要照常出 ASCII。
+    HRESULT _HandleSmartPunctuationRevert(TfEditCookie ec, _In_ ITfContext *pContext, UINT code, WCHAR wch);
 
     // key event handlers for composition object.
     HRESULT _HandleCompositionInput(TfEditCookie ec, _In_ ITfContext *pContext, WCHAR wch, uint64_t requestId, bool groupedPanelKey = false);
@@ -303,6 +304,8 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     bool _HandleHostHomeKey(TfEditCookie ec, _In_ ITfContext *pContext, uint64_t requestId, _Out_ HRESULT *outcome);
     HRESULT _HandleCompositionPunctuation(TfEditCookie ec, _In_ ITfContext *pContext, UINT code, WCHAR wch,
                                           uint64_t requestId, const std::wstring &prefetchedText);
+    // 标点键交给编辑会话之前就定下的上屏文本（`_HandleCompositionPunctuation` 的 prefetchedText）。空串表示留给编辑会话按候选或前文决议。
+    std::wstring _PrefetchPunctuationCommitText(UINT code, WCHAR wch);
     // Character immediately before the caret / composition start (0 if unavailable).
     WCHAR _GetPrecedingDocumentChar(TfEditCookie ec, _In_ ITfContext *pContext);
     // The `count` characters before the caret / composition start, in document
@@ -360,6 +363,8 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     void _ArmSmartPunctuationRevert(WCHAR ascii, WCHAR chinese, WCHAR beforeChar);
     void _ClearSmartPunctuationRevert();
     void _UpdateSmartPunctuationShadow(UINT code, WCHAR wch, bool isEaten);
+    // 一个字符由 TIP 自己写进了文档（排队等回放的应用文本）：它就是用户刚打的字，记进前文影子。
+    void _NoteSmartPunctuationDocumentText(WCHAR wch);
     void _InvalidateSmartPunctuationShadow();
     HRESULT _HandleCompositionDoubleSingleByte(TfEditCookie ec, _In_ ITfContext *pContext, WCHAR wch);
 
@@ -553,6 +558,8 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     bool _HasDeferredKeyBarrier() const;
     bool _DeferredKeyQueueHasCapacity() const;
     void _EnsureDeferredKeyProjection();
+    // 队列投影里还有组字（含候选、词段）时，后面的键要按「组字中」归类。
+    bool _DeferredProjectionHasComposition() const;
     void _ApplyDeferredKeyProjection(const _KEYSTROKE_STATE &keyState, WCHAR wch, UINT code);
     void _ApplyDeferredPreservedKeyProjection(REFGUID preservedKey);
     bool _RefreshDeferredRecoveryPrefix(_In_ ITfContext *pContext);
@@ -781,6 +788,8 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     WCHAR _smartPunctuationSpaceBeforeChar = 0;
     uint64_t _smartPunctuationSpaceFocusToken = 0;
     HWND _smartPunctuationSpaceForegroundWindow = nullptr;
+    // 标点之后又按过别的键。读不回文档时兑现要靠 SendInput 盲删一个字符，那时它必须为假。
+    bool _smartPunctuationSpaceInterrupted = false;
     bool _smartPunctuationRevertArmed = false;
     WCHAR _smartPunctuationRevertAscii = 0;
     WCHAR _smartPunctuationRevertChinese = 0;
@@ -917,6 +926,8 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     // Bare Shift/Ctrl toggle arming (Weasel-style: release within timeout).
     bool _shiftHotkeyArmed;
     bool _ctrlHotkeyArmed;
+    // RDP 切换后可能残留远程会话释放的修饰键位，直到本地再次观察到该键。
+    std::uint32_t _staleModifierMaskAfterFocusLoss;
     std::chrono::steady_clock::time_point _modifierHotkeyExpire;
     // 单按 Caps Lock 切换中英文的判定，三个桌面宿主共用一套规则（shared/input/CapsLockTap.h）。
     msime::input::CapsLockTap _capsLockTap;

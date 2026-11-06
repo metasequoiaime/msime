@@ -12,13 +12,17 @@ int main() {
   for (std::size_t index = 0; index < host::kSchemeMenuOrder.size(); ++index)
     assert(host::kInputSchemeIds[index] == host::kSchemeMenuOrder[index]);
 
-  // 方案名与 macOS 菜单相同：双拼带键位方案，五笔带码表版本，外语方案是「日语」「韩语」「越南语」「藏文」。
+  // 方案名与 macOS 菜单相同：双拼带键位方案，五笔带码表版本（86、98、新世纪，不认识的只写「五笔」），外语方案是「日语」「韩语」「越南语」「藏文」。
   assert(host::scheme_menu_title("quanpin", "xiaohe", "wubi86") == "全拼");
   assert(host::scheme_menu_title("shuangpin", "xiaohe", "wubi86") == "双拼（小鹤）");
   assert(host::scheme_menu_title("shuangpin", "smart_abc", "wubi86") == "双拼（智能 ABC）");
   assert(host::scheme_menu_title("shuangpin", "unknown", "wubi86") == "双拼");
   assert(host::scheme_menu_title("wubi", "xiaohe", "wubi86") == "五笔 86");
   assert(host::scheme_menu_title("wubi", "xiaohe", "wubi98") == "五笔 98");
+  assert(host::scheme_menu_title("wubi", "xiaohe", "wubixsj") == "五笔 新世纪");
+  assert(host::scheme_menu_title("wubi", "xiaohe", "unknown") == "五笔");
+  assert(host::menu_heading(host::menu_label::kScheme, host::scheme_menu_title("wubi", "", "wubixsj")) ==
+         "输入方案（五笔 新世纪）");
   assert(host::scheme_menu_title("japanese", "", "") == "日语");
   assert(host::scheme_menu_title("korean", "", "") == "韩语");
   assert(host::scheme_menu_title("cantonese", "", "") == "粤拼");

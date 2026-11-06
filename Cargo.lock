@@ -615,6 +615,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "86e055fa6e3e40ad6187ba25b6855eeb635d5271f8e0f0e1e9a5826b8d75bea0"
 dependencies = [
  "find-msvc-tools",
+ "jobserver",
+ "libc",
  "shlex",
 ]
 
@@ -772,6 +774,15 @@ name = "clap_lex"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
+
+[[package]]
+name = "cmake"
+version = "0.1.58"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c0f78a02292a74a88ac736019ab962ece0bc380e3f977bf72e376c5d78ff0678"
+dependencies = [
+ "cc",
+]
 
 [[package]]
 name = "cmov"
@@ -1568,6 +1579,15 @@ name = "find-msvc-tools"
 version = "0.1.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c66915cc5391097de7a2b0b972e8505aa33c0df401fd3a6811dbdb32881ba48"
+
+[[package]]
+name = "find_cuda_helper"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f9f9e65c593dd01ac77daad909ea4ad17f0d6d1776193fc8ea766356177abdad"
+dependencies = [
+ "glob",
+]
 
 [[package]]
 name = "flate2"
@@ -2688,6 +2708,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "jobserver"
+version = "0.1.35"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c00acbd29eabad4a2392fa0e921c874934dbbf4194312ad20f04a0ed67a3cb3"
+dependencies = [
+ "getrandom 0.4.3",
+ "libc",
+]
+
+[[package]]
 name = "js-sys"
 version = "0.3.105"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2831,9 +2861,9 @@ dependencies = [
 
 [[package]]
 name = "libsqlite3-sys"
-version = "0.38.2"
+version = "0.39.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1d20bef17f513b9b3004532233187769cd072d790971f4e4da0e346eb6401e8"
+checksum = "14a5f01b87b92705d07b433c06f96cbc764637d81a0bffb5734ce17cf0f9a2b3"
 dependencies = [
  "cc",
  "pkg-config",
@@ -2851,6 +2881,30 @@ name = "litemap"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47d9d19d1d6efa0109d2f65ff4c85cddd50bd572e5a00127ab10987290bcefae"
+
+[[package]]
+name = "llama-cpp-2"
+version = "0.1.162"
+source = "git+https://github.com/utilityai/llama-cpp-rs.git?rev=0364f5da1c6a6ee37f507031f116ce4a09b28594#0364f5da1c6a6ee37f507031f116ce4a09b28594"
+dependencies = [
+ "enumflags2",
+ "llama-cpp-sys-2",
+ "thiserror 2.0.21",
+ "tracing",
+ "tracing-core",
+]
+
+[[package]]
+name = "llama-cpp-sys-2"
+version = "0.1.162"
+source = "git+https://github.com/utilityai/llama-cpp-rs.git?rev=0364f5da1c6a6ee37f507031f116ce4a09b28594#0364f5da1c6a6ee37f507031f116ce4a09b28594"
+dependencies = [
+ "cc",
+ "cmake",
+ "find_cuda_helper",
+ "glob",
+ "walkdir",
+]
 
 [[package]]
 name = "lock_api"
@@ -3050,6 +3104,7 @@ dependencies = [
  "base64 0.23.1",
  "chacha20poly1305",
  "chrono",
+ "flate2",
  "getrandom 0.4.3",
  "hex",
  "hkdf",
@@ -3279,6 +3334,7 @@ dependencies = [
  "msime-engine",
  "msime-host-windows",
  "msime-input-runtime",
+ "msime-local-translation",
  "msime-onnx-rerank",
  "msime-path-trust",
  "msime-script-runtime",
@@ -3334,6 +3390,15 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "msime-local-translation"
+version = "0.1.0"
+dependencies = [
+ "llama-cpp-2",
+ "msime-client-core",
  "thiserror 2.0.21",
 ]
 
@@ -4723,9 +4788,9 @@ dependencies = [
 
 [[package]]
 name = "rusqlite"
-version = "0.40.2"
+version = "0.41.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23f2a97da3e3873c73cb2a2e71b35c40ff95e0b1eefa8d72d8499a6928c3b5b3"
+checksum = "da9bba6f3506135e120a6586df05be18b48d18896600646a4bec8f993d91a594"
 dependencies = [
  "bitflags 2.13.1",
  "fallible-iterator",
@@ -6308,6 +6373,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
 dependencies = [
  "once_cell",
+ "valuable",
 ]
 
 [[package]]
@@ -6498,6 +6564,12 @@ dependencies = [
  "serde_core",
  "wasm-bindgen",
 ]
+
+[[package]]
+name = "valuable"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
 name = "vcpkg"
@@ -7529,9 +7601,9 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "9.2.0"
+version = "9.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f5b58784007ff6e5f280ec82c8596686a3b9b5dd5836c63288d4479f84728b9"
+checksum = "848dad21639597378c3be94c59fd4de683f0f6d8a5387575896e1245737d4f37"
 dependencies = [
  "crc32fast",
  "flate2",

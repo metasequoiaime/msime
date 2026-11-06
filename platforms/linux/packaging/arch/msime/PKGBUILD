@@ -1,6 +1,6 @@
 # Maintainer: Metasequoia IME <metasequoiaime@gmail.com>
 #
-# 从 linux-v$pkgver 标签的源码构建完整版，内容与发布的 .deb/.rpm 相同：Fcitx5 插件、IBus engine、msime-linux-setup、设置窗口（Tauri 桌面二进制）、msime-mcp、语音运行库、手写模型、离线释义与粤语/注音/笔画词库。主词库（约 270 MB）不随包，与发布包一样由每个用户首次运行 `msime-linux-setup --download` 取回。
+# 从 linux-v$pkgver 标签的源码构建完整版，内容与发布的 .deb/.rpm 相同：Fcitx5 插件、IBus engine、msime-linux-setup、设置窗口（Tauri 桌面二进制）、msime-mcp、语音运行库、手写模型、离线释义与粤语/注音/笔画词库。主词库（约 320 MB）不随包，与发布包一样由每个用户首次运行 `msime-linux-setup --download` 取回。
 #
 # 本文件在仓库 platforms/linux/packaging/arch/msime/ 下维护，版本号与校验值由 platforms/linux/packaging/arch/render.py 按每次发布改写，AUR 上的副本只是它的拷贝。构建步骤与 platforms/linux/package-container.sh 一致，改那边时这里一起改。
 
@@ -41,6 +41,7 @@ depends=(
   'glib2'
   'glibc'
   'gtk3'
+  'gtk4'
   'hicolor-icon-theme'
   'libgcc'
   'libibus'
@@ -68,6 +69,7 @@ optdepends=(
 )
 makedepends=(
   'cmake'
+  'clang'
   'curl'
   'fcitx5'
   'git'
@@ -130,7 +132,7 @@ prepare() {
 build() {
   cd "$(_srcdir)"
   export CARGO_NET_OFFLINE=true
-  cargo build --release --locked -p msime-host-api
+  cargo build --release --locked -p msime-host-api --features local-translation
   cargo build --release --locked -p msime-mcp-server --bin msime-mcp
   # 桌面二进制在编译时嵌入前端，先构建前端。tauri/custom-protocol 是 `tauri build` 打开的特性，缺了它会得到加载 devUrl 的开发版；TAURI_CONFIG 设定应用报告的版本，与 package-container.sh 相同。
   pnpm --filter @msime/desktop build
@@ -141,13 +143,14 @@ build() {
   mkdir -p "$srcdir/notices"
   python platforms/linux/collect-notices.py npm "$srcdir/notices/frontend-npm-NOTICES.txt" apps/desktop
   python platforms/linux/collect-notices.py cargo "$srcdir/notices/rust-crates-NOTICES.txt" \
-    msime-host-api msime-mcp-server msime-desktop:tauri/custom-protocol
+    msime-host-api:local-translation msime-mcp-server msime-desktop:tauri/custom-protocol
 
   # MSIME_ENABLE_PACKAGING 打开与发布包相同的校验（前缀必须是 /usr、第三方声明齐全）；只用它的安装规则，不跑 CPack。
   cmake -S platforms/linux -B "$srcdir/build" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DMSIME_EDITION=full \
+    -DMSIME_LOCAL_TRANSLATION_SETTINGS=ON \
     -DMSIME_ENABLE_PACKAGING=ON \
     -DMSIME_ENABLE_FCITX5=ON \
     -DMSIME_PACKAGE_VERSION="$pkgver" \

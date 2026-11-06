@@ -1,7 +1,7 @@
 package app.msime.android;
 
 /**
- * 「键盘调整」遮罩的纯逻辑：哪些柄显示、每个柄的拖动怎样换算成键盘高度、底部抬高、宽度和水平位置，读屏的步长，以及宽度和位置在可用宽度里落到哪几个像素。不依赖 Android 运行时，由 KeyboardAdjustPolicySmoke 覆盖。
+ * 「键盘调整」遮罩的纯逻辑：哪些柄显示、每个柄的拖动怎样换算成键盘高度、底部抬高、宽度和水平位置，读屏的步长，以及宽度和位置在可用宽度里落到哪几个像素、中间一排按钮怎么排。不依赖 Android 运行时，由 KeyboardAdjustPolicySmoke 覆盖。
  *
  * <p>四个柄各自只动自己那条边，对边在屏幕上不动：上沿柄只改高度；下沿柄改底部抬高，高度反向变化同样多，上沿不动，往上拖到高度下限后整块继续上移、上沿跟着上去；左、右沿柄改宽度，同时改水平位置让另一侧边不动。「移动」整块平移，大小不变：竖直方向只改抬高，水平方向只改位置。
  *
@@ -302,5 +302,37 @@ public final class KeyboardAdjustPolicy {
     public static Horizontal stepPosition(Horizontal value, int direction) {
         return new Horizontal(value.widthPercent(), BoundsPolicy.bounded(
             value.position() + Integer.signum(direction) * POSITION_STEP, 0, MAX_POSITION));
+    }
+
+    // ---- 中间一排按钮 ----
+
+    /** 中间按钮的原尺寸宽度与按钮之间的原间距（dp），与 iOS 的 72 pt、28 pt 相同。 */
+    public static final float ACTION_WIDTH_DP = 72f;
+    public static final float ACTION_GAP_DP = 28f;
+    /** 排不下时间距最少收到多少（dp）；按钮与左右竖向把手之间也至少留这么多。 */
+    public static final float MIN_ACTION_GAP_DP = 4f;
+    /** 左右竖向把手的触摸区宽度（dp），也是上下横向把手的触摸区高度。 */
+    public static final float SIDE_GRIP_DP = 28f;
+
+    /** 中间一排按钮的按钮宽与间距（dp）。 */
+    public record ActionRow(float buttonWidth, float gap) {
+        /** {@code count} 个按钮连同间距一共多宽。 */
+        public float width(int count) {
+            return count * buttonWidth + Math.max(count - 1, 0) * gap;
+        }
+    }
+
+    /**
+     * 中间 {@code count} 个按钮在 {@code keyboardWidthDp} 宽的键盘里怎么排，规则与 iOS 相同：按钮排在左右两个竖向把手之间，和把手之间至少留 {@link #MIN_ACTION_GAP_DP}；排得下就按原尺寸（72 dp 宽、间距 28 dp），排不下先把间距收到 {@link #MIN_ACTION_GAP_DP}，还不够再把剩下的宽度平分给按钮。按钮压到把手上时，按住把手拖动就成了点「重置」或「确认」。
+     *
+     * @param sideGrips 左右把手显示着（单手、分离式和浮动键盘不显示，按钮可以用满整个宽度）
+     */
+    public static ActionRow actionRow(int count, float keyboardWidthDp, boolean sideGrips) {
+        float available = Math.max(0f, keyboardWidthDp - (sideGrips ? 2 * (SIDE_GRIP_DP + MIN_ACTION_GAP_DP) : 0f));
+        if (count <= 1) return new ActionRow(Math.min(ACTION_WIDTH_DP, available), 0f);
+        int gaps = count - 1;
+        float gap = Math.min(ACTION_GAP_DP, Math.max(MIN_ACTION_GAP_DP, (available - count * ACTION_WIDTH_DP) / gaps));
+        float width = Math.min(ACTION_WIDTH_DP, Math.max(0f, (available - gaps * gap) / count));
+        return new ActionRow(width, gap);
     }
 }

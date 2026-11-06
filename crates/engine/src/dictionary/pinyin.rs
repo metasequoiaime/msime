@@ -64,6 +64,14 @@ impl PinyinDatabase {
         self.connection.is_some()
     }
 
+    /// 这个词库的粗俗词表：带 `sentence_excluded` 表时用它，否则（没打开、旧词库没有这张表、表读不出来）用编进引擎的表，见 `lattice::offensive`。
+    pub(crate) fn offensive_words(&self) -> crate::lattice::offensive::OffensiveWords {
+        self.connection
+            .as_ref()
+            .map(crate::lattice::offensive::OffensiveWords::from_database)
+            .unwrap_or_default()
+    }
+
     /// Whether `PRAGMA data_version` moved since the last call, meaning another connection wrote the file and cached answers are stale (QD:1409-1432). The first call records the version and answers false.
     pub fn database_changed(&mut self) -> bool {
         let Some(connection) = &self.connection else {
@@ -133,12 +141,21 @@ impl PinyinDatabase {
         if self.connection.is_none() || segments.is_empty() || limit == 0 {
             return Vec::new();
         }
-        let mut rows = self.query_single_cut_keyed(segments, limit, source);
-        deduplicate_by_value(&mut rows);
-        // The C++ used std::sort, which leaves ties unspecified; quanpin.md §5.2 fixes them to SQLite's row order with a stable sort.
-        rows.sort_by_key(|row| std::cmp::Reverse(row.weight));
-        rows.truncate(limit);
-        rows
+        let rows = self.query_single_cut_keyed(segments, limit, source);
+        finish_flat_rows(rows, limit)
+    }
+
+    /// 双拼末段由两键定出时的级联：末段是确定的音节，只能原样匹配，不做前缀补全，也不按简拼展开（#10842）；其余段仍按 `QuerySource::Shuangpin` 的规则匹配。末段只按了一键时用 `query_segments_keyed_flat`。
+    pub fn query_fixed_tail_segments_keyed_flat(
+        &self,
+        segments: &[String],
+        limit: usize,
+    ) -> Vec<DictRow> {
+        if self.connection.is_none() || segments.is_empty() || limit == 0 {
+            return Vec::new();
+        }
+        let rows = self.query_fixed_tail_single_cut_keyed(segments, limit);
+        finish_flat_rows(rows, limit)
     }
 
     /// Rows of `tbl_1_<c>` whose key starts with a one-letter `prefix` (QQ:1067-1098).
@@ -644,6 +661,48 @@ impl PinyinDatabase {
         )
     }
 
+    /// 末段已定的双拼级联：先精确查整串；没有时只有前面含单键段（手动分隔）才需要按简拼扫描，扫描结果要求末段音节原样相同。前缀区间只会补全末段，纯简拼会把末段也当声母，两步都不做。
+    fn query_fixed_tail_single_cut_keyed(&self, segments: &[String], limit: usize) -> Vec<DictRow> {
+        let Some(table) = build_table_name(segments) else {
+            return Vec::new();
+        };
+        if can_match_exact_key(segments) {
+            let key = join_segments(segments);
+            let rows = self.rows(
+                &exact_sql(&table, sql_limit(limit)),
+                [key.as_str()],
+                query_capacity(limit),
+            );
+            if !rows.is_empty() {
+                return rows;
+            }
+        }
+        let source = QuerySource::Shuangpin;
+        if !needs_mixed_jianpin_query(segments, source) {
+            return Vec::new();
+        }
+        let tail = segments.last().map(String::as_str);
+        let jp = segments_to_jianpin(segments);
+        let scan_limit = sql_limit(build_mixed_jianpin_scan_limit(limit));
+        let mut rows = Vec::new();
+        self.visit_rows_until(&jianpin_sql(&table, scan_limit), [jp.as_str()], |row| {
+            if rows.len() >= limit {
+                return false;
+            }
+            if row.key.rsplit('\'').next() != tail
+                || !matches_mixed_segments(&row.key, segments, source)
+            {
+                return true;
+            }
+            if rows.capacity() == 0 {
+                rows.reserve_exact(limit.min(128));
+            }
+            rows.push(row);
+            rows.len() < limit
+        });
+        rows
+    }
+
     /// QQ:686-740：按键数生成 `IN (...)` 语句，`prepare_cached` 按语句文本分别缓存。
     fn batch_rows<K: AsRef<str>>(&self, table: &str, keys: &[K], limit: usize) -> Vec<DictRow> {
         if table.is_empty() || keys.is_empty() || limit == 0 {
@@ -1020,6 +1079,15 @@ fn query_key_is_new<'a>(
             .iter()
             .any(|existing| existing == &keys[index]),
     }
+}
+
+/// 单切分级联的收尾：按词值去重，按权重稳定排序，截断到 `limit`。
+fn finish_flat_rows(mut rows: Vec<DictRow>, limit: usize) -> Vec<DictRow> {
+    deduplicate_by_value(&mut rows);
+    // The C++ used std::sort, which leaves ties unspecified; quanpin.md §5.2 fixes them to SQLite's row order with a stable sort.
+    rows.sort_by_key(|row| std::cmp::Reverse(row.weight));
+    rows.truncate(limit);
+    rows
 }
 
 /// First occurrence wins (QQ:774-780).
@@ -1417,6 +1485,47 @@ mod tests {
             QuerySource::Shuangpin,
         );
         assert_eq!(values(&shuangpin), ["时间"]);
+    }
+
+    #[test]
+    fn fixed_tail_cascade_matches_the_tail_syllable_exactly() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = pinyin_db(
+            directory.path(),
+            &[
+                ("tbl_2_g", "gu'gan", "骨干", 1000),
+                ("tbl_2_g", "gu'gao", "鼓高", 900),
+                ("tbl_2_s", "shi'ga", "是嘎", 800),
+                ("tbl_2_s", "shi'gan", "实干", 700),
+                ("tbl_2_s", "si'ga", "四嘎", 600),
+            ],
+        );
+        let database = PinyinDatabase::open(&path);
+        // 全拼末段可能还没打完，gu'ga 照旧补全。
+        let quanpin = database.query_segments_keyed_flat(
+            &strings(&["gu", "ga"]),
+            usize::MAX,
+            QuerySource::Quanpin,
+        );
+        assert_eq!(values(&quanpin), ["骨干", "鼓高"]);
+        // 双拼两键定出的 ga 不补全（#10842）。
+        assert!(database
+            .query_fixed_tail_segments_keyed_flat(&strings(&["gu", "ga"]), usize::MAX)
+            .is_empty());
+        assert_eq!(
+            values(
+                &database
+                    .query_fixed_tail_segments_keyed_flat(&strings(&["gu", "gan"]), usize::MAX)
+            ),
+            ["骨干"]
+        );
+        // 手动分隔留下的单键 sh 仍按声母展开，末段 ga 仍须原样相同。
+        assert_eq!(
+            values(
+                &database.query_fixed_tail_segments_keyed_flat(&strings(&["sh", "ga"]), usize::MAX)
+            ),
+            ["是嘎"]
+        );
     }
 
     #[test]

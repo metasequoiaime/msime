@@ -10,6 +10,8 @@ export type VoiceInputPreferences = {
   asr_tokens?: Record<string, string>;
   asr_app_key?: string;
   doubao_auth_mode?: "api_key" | "legacy";
+  /** macOS 跨输入法触发，旧文档缺键时关闭。 */
+  hotkey_global?: boolean;
   hotkey_ralt?: boolean;
   hotkey_ctrl_f9?: boolean;
   hotkey_ctrl_win?: boolean;
@@ -48,7 +50,7 @@ export type VoiceInputPreferences = {
   pause_millis?: number;
   /** 判停灵敏度 10–90，越高越容易判定说完；缺键为 50。只留在本机。 */
   stop_sensitivity?: number;
-  /** 语音标点：识别结果上屏前怎么处理标点，缺键为 `auto`（原样）；不认识的值宿主按 `auto` 处理。目前只有 Android 读它并在设置页给出（#10558），共享设置页和其他宿主见 #10595、#10596、#10597。 */
+  /** 语音标点：识别结果上屏前怎么处理标点，缺键为 `auto`（原样）；不认识的值宿主按 `auto` 处理。 */
   punctuation_mode?: "auto" | "omit_trailing" | "omit_all" | "space";
   [key: string]: unknown;
 };

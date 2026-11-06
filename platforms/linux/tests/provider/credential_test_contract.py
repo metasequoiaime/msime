@@ -84,6 +84,85 @@ class OnlineCredentialTest(unittest.TestCase):
         self.assertEqual(loaded["model"], "fixture-model")
         self.assertEqual(loaded["profiles"]["openai"]["token"], "fixture-profile-token")
 
+    def test_ai_retired_ark_model_bindings_read_as_their_successors(self):
+        ark = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
+        gateway = "https://gateway.example/v1/chat/completions"
+        configuration = {"profiles": {
+            "volcengine": {"endpoint": ark, "model": " doubao-seed-1.6-flash ", "token": "fixture-ark-token"},
+            "custom": {"endpoint": gateway, "model": "doubao-seed-1.6", "token": "fixture-gateway-token"},
+        }}
+        with tempfile.TemporaryDirectory(prefix="msime-ai-") as directory:
+            path = Path(directory) / "ai.json"
+
+            def write(document):
+                path.write_text(json.dumps(document), encoding="utf-8")
+                path.chmod(0o600)
+
+            write(configuration)
+            loaded = online.load_ai_config(path)
+            self.assertEqual(loaded["profiles"]["volcengine"]["model"], "doubao-seed-2-0-mini-260428")
+            self.assertEqual(loaded["profiles"]["volcengine"]["token"], "fixture-ark-token")
+            # 别的服务商下的同名值不动。
+            self.assertEqual(loaded["profiles"]["custom"]["model"], "doubao-seed-1.6")
+            # 偏好读出来的接替模型和凭据对得上，请求发的也是接替模型，不用重新保存。
+            options = {"provider": "volcengine", "endpoint": ark, "model": "doubao-seed-2-0-mini-260428"}
+            with mock.patch.object(online, "fetch", return_value={"choices": [{"message": {}}]}) as fetch:
+                self.assertTrue(online.ai_credential_test(options, path))
+            self.assertEqual(fetch.call_args.args[2]["model"], "doubao-seed-2-0-mini-260428")
+            self.assertEqual(fetch.call_args.args[2]["thinking"], {"type": "disabled"})
+            self.assertEqual(fetch.call_args.args[3], "fixture-ark-token")
+            # 火山方舟槽位指向别家网关时，那边可能真有同名模型，不换。
+            write({"profiles": {"volcengine": {
+                "endpoint": gateway, "model": "doubao-seed-1.6", "token": "fixture-ark-token"}}})
+            self.assertEqual(online.load_ai_config(path)["profiles"]["volcengine"]["model"], "doubao-seed-1.6")
+            # 主机只是以 volces.com 开头的别家地址也不换。
+            write({"profiles": {"volcengine": {
+                "endpoint": "https://volces.com.example/v1/chat/completions",
+                "model": "doubao-seed-1.6", "token": "fixture-ark-token"}}})
+            self.assertEqual(online.load_ai_config(path)["profiles"]["volcengine"]["model"], "doubao-seed-1.6")
+        # 文件本身不改写。
+        self.assertEqual(configuration["profiles"]["volcengine"]["model"], " doubao-seed-1.6-flash ")
+
+    def test_ark_seed_requests_turn_off_thinking(self):
+        ark = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
+        for provider, endpoint, model, disabled in (
+                ("volcengine", ark, "doubao-seed-2-0-mini-260428", True),
+                ("custom", "https://ark.cn-shanghai.volces.com/api/v3/chat/completions",
+                 "Doubao-Seed-2-0-lite-260428", True),
+                ("volcengine", ark, "glm-5-3-flash-260828", False),
+                ("volcengine", ark, "ep-20261105123456-abcde", False),
+                ("volcengine", "https://gateway.example/v1/chat/completions", "doubao-seed-2-0-mini-260428", False),
+                ("custom", "https://volces.com.example/v1/chat/completions", "doubao-seed-2-0-mini-260428", False)):
+            with self.subTest(endpoint=endpoint, model=model):
+                config = {"provider": provider, "endpoint": endpoint, "model": model, "token": "fixture-token"}
+                options = {"enabled": True, "provider": provider, "endpoint": endpoint, "model": model}
+                query = {"ai_eligible": True, "ai_assistant": options, "pinyin_segments": ["ni"]}
+                expected = {"type": "disabled"} if disabled else None
+                reply = {"choices": [{"message": {"content": '{"candidates": []}'}}]}
+                with mock.patch.object(online, "fetch", return_value=reply) as fetch:
+                    online.ai(query, config)
+                self.assertEqual(fetch.call_args.args[2].get("thinking"), expected)
+                gloss = {"choices": [{"message": {"content": '{"translation": "hello"}'}}]}
+                with mock.patch.object(online, "load_ai_config", return_value=dict(config)), \
+                        mock.patch.object(online, "fetch", return_value=gloss) as fetch:
+                    online.ai_translation("你好", "en", options, Path("/private/ai.json"))
+                self.assertEqual(fetch.call_args.args[2].get("thinking"), expected)
+                with mock.patch.object(online, "select_ai_profile", return_value=config), \
+                        mock.patch.object(online, "fetch", return_value={"choices": []}) as fetch:
+                    online.ai_polish_test({"model": model, "prompt": "润色", "text": "合成"}, self.server)
+                self.assertEqual(fetch.call_args.args[2].get("thinking"), expected)
+                with mock.patch.object(online, "load_ai_config", return_value=dict(config)), \
+                        mock.patch.object(online, "fetch", return_value={"choices": []}) as fetch:
+                    online.ai_credential_test(options, Path("/private/ai.json"))
+                self.assertEqual(fetch.call_args.args[2].get("thinking"), expected)
+                with mock.patch.object(voice, "polish_request", return_value={"choices": []}) as post:
+                    voice.polish_credential_test(config)
+                    voice.polish("合成", config, {"polish_enabled": True, "polish_provider": provider,
+                                                  "polish_model": model})
+                self.assertEqual(post.call_count, 2)
+                for call in post.call_args_list:
+                    self.assertEqual(call.args[1].get("thinking"), expected)
+
     def test_ai_private_tokens_still_reject_control_characters(self):
         configuration = {
             "provider": "deepseek",
@@ -190,6 +269,25 @@ class VoiceCredentialTest(unittest.TestCase):
         self.assertEqual(loaded["polish"]["token"], "fixture-polish-token")
         self.assertEqual(loaded["polish"]["endpoint"], "https://fixture.invalid/chat")
         self.assertEqual(loaded["polish"]["model"], "fixture-model")
+
+    def test_voice_retired_ark_polish_model_reads_as_its_successor(self):
+        with tempfile.TemporaryDirectory(prefix="msime-voice-") as directory:
+            path = Path(directory) / "voice.json"
+
+            def read(entry):
+                path.write_text(json.dumps({"polish": entry}), encoding="utf-8")
+                path.chmod(0o600)
+                return voice.load_config(path)
+
+            loaded = read({"provider": "volcengine", "model": "doubao-seed-1.6", "token": "fixture-ark-token"})
+            self.assertEqual(loaded["polish"]["model"], "doubao-seed-2-0-lite-260428")
+            options = {"polish_provider": "volcengine", "polish_model": "doubao-seed-2-0-lite-260428"}
+            self.assertIs(voice.select_profile(loaded, options, "polish"), loaded["polish"])
+            loaded = read({"provider": "volcengine", "model": "doubao-seed-1.6-flash", "token": "fixture-ark-token",
+                           "endpoint": "https://ark.ap-southeast.bytepluses.com/api/v3/chat/completions"})
+            self.assertEqual(loaded["polish"]["model"], "doubao-seed-1.6-flash")
+            loaded = read({"provider": "deepseek", "model": "doubao-seed-1.6", "token": "fixture-token"})
+            self.assertEqual(loaded["polish"]["model"], "doubao-seed-1.6")
 
     def test_voice_private_tokens_still_reject_control_characters(self):
         configuration = {

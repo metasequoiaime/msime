@@ -49,6 +49,14 @@ public final class NativeClient {
     public static String migrateKeyLayout(String request) { return TextPolicy.utf8(migrateKeyLayoutRaw(request.getBytes(StandardCharsets.UTF_8))); }
     /** The global theme picker entries: ids, titles, appearance and built-in palettes, in picker order. */
     public static String themeCatalog() { return TextPolicy.utf8(themeCatalogRaw()); }
+    /** 共享候选选中文字色补丁；仅传当前主题和用户本次选择，不传整份偏好。 */
+    public static String candidateColorUpdate(String request) {
+        if (request == null) throw new IllegalArgumentException("invalid candidate color request");
+        byte[] payload = request.getBytes(StandardCharsets.UTF_8);
+        if (payload.length == 0 || payload.length > 1024)
+            throw new IllegalArgumentException("invalid candidate color request");
+        return TextPolicy.utf8(candidateColorUpdateRaw(payload));
+    }
     /** 解析当前主题的单种明暗配色；带 `skins_directory` 的请求会校验包资源，必须在工作线程调用。 */
     public static String resolveTheme(String request) { return TextPolicy.utf8(resolveThemeRaw(request.getBytes(StandardCharsets.UTF_8))); }
     public static String skinPackage(String request) { return TextPolicy.utf8(skinPackageRaw(request.getBytes(StandardCharsets.UTF_8))); }
@@ -494,6 +502,12 @@ public final class NativeClient {
             throw new IllegalArgumentException("Grid key must be an ASCII letter");
         return TextPolicy.utf8(gridKeyRaw(session, letter));
     }
+    /** 十四／十八键网格辅助码，`op` 0 放下分隔符、1 确定字母、2 清除、3 整组（键盘侧的常量在 GridHelpcodePolicy）；`letter` 是小写字母，0 和 2 不读它。返回与 {@link #character} 相同的输入响应。 */
+    public static String gridHelpcode(long session, int op, char letter) {
+        if (op < 0 || op > 3 || letter > 127)
+            throw new IllegalArgumentException("Invalid grid helpcode operation");
+        return TextPolicy.utf8(gridHelpcodeRaw(session, op, letter));
+    }
     public static String setEnglishMode(long session, boolean enabled) {
         return TextPolicy.utf8(setEnglishModeRaw(session, enabled));
     }
@@ -906,6 +920,14 @@ public final class NativeClient {
     public static String resetCache(long session) {
         return TextPolicy.utf8(resetCacheRaw(session));
     }
+    /** 停顿重排（`msime_client_start_settled_rerank`）：会话选项写了 `pause_rerank`、而这台设备跑不进逐键预算时，带着整句联想「增强」的模型重解当前组字的一片。回 `{status: done|continue|pending, moved, current, view?, token?}`；`continue` 时先让排队的输入走，没有新按键再调；`pending` 按令牌轮询，取消也必须以 `accept=false` 轮询到结束。收到 `view` 就更新候选身份，不依赖 `moved`。只在会话线程（主线程）调用。 */
+    public static String startSettledRerank(long session) {
+        return TextPolicy.utf8(startSettledRerankRaw(session));
+    }
+    /** 接受当前评分，或以 accept=false 持续归还取消的后台模型。 */
+    public static String pollSettledRerank(long session, long token, boolean accept) {
+        return TextPolicy.utf8(pollSettledRerankRaw(session, token, accept));
+    }
     /** Release process-level model caches after Android reports memory pressure. */
     public static void releaseProcessCache() { releaseProcessCacheRaw(); }
     /**
@@ -1131,6 +1153,7 @@ public final class NativeClient {
     private static native byte[] flushAllRaw();
     private static native int typingStatisticsEnabledRaw(byte[] directory);
     private static native byte[] themeCatalogRaw();
+    private static native byte[] candidateColorUpdateRaw(byte[] request);
     private static native byte[] resolveThemeRaw(byte[] request);
     private static native byte[] skinPackageRaw(byte[] request);
     private static native byte[] skinResourceRaw(byte[] request);
@@ -1185,6 +1208,7 @@ public final class NativeClient {
     private static native byte[] setNineKeyModeRaw(long session, boolean enabled);
     private static native byte[] setKeyGridRaw(long session, int grid);
     private static native byte[] gridKeyRaw(long session, int letter);
+    private static native byte[] gridHelpcodeRaw(long session, int op, int letter);
     private static native byte[] setPrivateSessionRaw(long session, boolean enabled);
     private static native byte[] setEnglishModeRaw(long session, boolean enabled);
     private static native byte[] mobileVoiceConfigurationRaw(byte[] directory);
@@ -1203,6 +1227,8 @@ public final class NativeClient {
     private static native byte[] voiceProviderUpdateRaw(byte[] request);
     private static native byte[] simplifiedToTraditionalRaw(byte[] text);
     private static native byte[] resetCacheRaw(long session);
+    private static native byte[] startSettledRerankRaw(long session);
+    private static native byte[] pollSettledRerankRaw(long session, long token, boolean accept);
     private static native void releaseProcessCacheRaw();
     private static native byte[] setChinesePunctuationRaw(long session, boolean enabled);
     private static native byte[] setCharacterWidthRaw(long session, boolean fullwidth);

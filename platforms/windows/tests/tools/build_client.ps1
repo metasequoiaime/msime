@@ -103,9 +103,9 @@ try {
         [Array]::IndexOf($ortFetch.Values, 'x86_64-pc-windows-msvc') -ne ([Array]::IndexOf($ortFetch.Values, '--target') + 1)) {
         throw 'ONNX Runtime fetch mismatch'
     }
-    if ([Array]::IndexOf($calls[1].Values, 'onnx-rerank') -ne ([Array]::IndexOf($calls[1].Values, '--features') + 1) -or
+    if ([Array]::IndexOf($calls[1].Values, 'onnx-rerank,local-translation') -ne ([Array]::IndexOf($calls[1].Values, '--features') + 1) -or
         $calls[1].OrtLocation -ne $global:ClientBuildOrtLocation -or
-        @($calls[11].Values + $calls[13].Values) -contains 'onnx-rerank') {
+        @($calls[11].Values + $calls[13].Values) -contains 'onnx-rerank,local-translation') {
         throw 'Only the x64 host is built with the ONNX rerank backend'
     }
     if (@($calls | Where-Object { $_.Name -eq 'cargo' -and $_.Values -contains 'clean' }).Count -ne 0) { throw 'ort-sys was cleaned although the stamped library is the locked one' }

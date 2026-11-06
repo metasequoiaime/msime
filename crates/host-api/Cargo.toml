@@ -11,6 +11,7 @@ rust-version.workspace = true
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [features]
+local-translation = ["dep:msime-local-translation"]
 telemetry-loopback = ["msime-client-services/telemetry-loopback"]
 # 随包资源目录旁边有 `rerank-model/`（`lm_step.ort`、`model.json`、`vocab.json`）时，整句联想「增强」的逐键重排改用它，没有或读不了时照旧用随包的句子模型。
 onnx-rerank = ["dep:msime-onnx-rerank"]
@@ -48,6 +49,7 @@ symphonia = { version = "0.6.1", default-features = false, features = ["wav", "p
 # 脚本插件的解释器和 ABI v1 校验（`scripts`），只在会运行脚本的桌面目标上编译：macOS、Windows 和非 ohos 的 Linux。iOS、Android、HarmonyOS 和 wasm32 的产物里没有它；Windows TIP 加载的是同一份 DLL，代码在但从不执行，因为 TIP 从不调用 `msime_client_scripts_enable`。
 [target.'cfg(any(target_os = "macos", target_os = "windows", all(target_os = "linux", not(target_env = "ohos"))))'.dependencies]
 msime-script-runtime = { path = "../script-runtime" }
+msime-local-translation = { path = "../local-translation", features = ["runtime"], optional = true }
 
 [dev-dependencies]
 msime-path-trust = { path = "../path-trust", features = ["test-support"] }

@@ -45,9 +45,33 @@ Status: implemented
 
 Java 侧 `VoicePunctuation`（`platforms/android/java/app/msime/android/voice/VoicePunctuation.java`）只认取值、调 JNI；`auto` 和空文本不进共享层，共享层调用失败时返回原文。设置页 `VoicePage` 的「识别」组在「自动添加标点」下面加「语音标点」四选一，说明收进「?」。
 
+### iOS 接线
+
+与 Android 相同，只处理最终文本，每条路径处理一次。Swift 侧 `VoicePunctuation`（`platforms/ios/SharedUI/voice/VoicePunctuation.swift`）只认取值、调 `msime_client_voice_punctuation`，`auto` 和空文本不进共享层，调用失败时返回原文；`finalText` 在识别出了内容、处理后只剩空白时返回 nil，调用方提示「没有识别到文字」。
+
+- 键盘听写：识别和润色都在后台的主 App（`VoiceSessionService`）里，它不处理标点，原样把最终结果交给键盘。键盘在开始聆听时（`startVoiceFromSpace`）读取取值，在 `KeyboardViewController.insertVoiceResult` 里处理一次，直接上屏的和因输入位置变化存进语音交接的都是处理后的文字。
+- App 语音页（「试一下」和键盘深链进来的录音页）：`ServiceSettingsView.deliver` 是三条识别路径的汇合点，润色拿带标点的识别原文（模型靠标点断句），语音标点在润色完成之后处理；识别原文和润色结果都存处理后的文字，所以「改用识别原文」和「发送到键盘」交出去的就是页面上显示的。是否只剩标点看润色之后的结果，与 Android 先润色再 `saveResult` 的顺序相同；只剩标点时结果留空，因为语音交接不收空白文字；识别原文只剩标点、润色又失败时同样提示没有识别到文字，不说保留了原文。AI 服务页的「测试」也走 `deliver`，它不处理。
+- 键盘领取「语音结果」（`showKeyboardVoice`）时不再处理，免得同一段文字处理两次。
+- 设置页 `VoiceSettingsView` 的「识别」组在「自动添加标点」下面加「语音标点」四选一，只写 `voice_input.punctuation_mode` 这一个键；选项名称和说明与 Android `VoicePage` 逐字相同，设置搜索的关键词与 Android `PageId.VOICE` 一样收「语音标点」。iOS 设置是原生 SwiftUI，没有 WebView，共享 React 设置页的这一项到不了 iOS，所以另画一行。
+- 非豆包时「自动添加标点」不能拨，但标题旁的「?」要能点开：说明讲的正是其他识别服务该用「语音标点」。整行 `.disabled` 会连「?」一起禁用（iPhone XR 真机验收里点不开），所以由 `DesignToggleRow(enabled:)` 只禁用开关本身，标题和「?」放在开关旁边而不是它的标签里，与 Android `GroupCard.Row.setEnabled` 一样。
+- 「语音标点」的说明是设置页里最长的一类，「?」气泡按旧写法 `frame(maxWidth: 280)` 定尺寸时，popover 按一行的理想高度定气泡大小，iPhone XR 上只露出中间三行、不能滚动。`DesignInfoBubble` 先量出文字宽度再固定下来，气泡高度由 Text 在这个宽度下算；这是所有「?」共用的气泡，其他长说明一并受益。
+
 ### 其他平台
 
-iOS、鸿蒙、桌面三端暂不读这个字段，各自的接线见 #10595、#10596、#10597。macOS 偏好覆盖清单（`platforms/macos/tests/settings/preference_coverage.py`）把它列为暂未接上，接上后删掉那一条。
+### 鸿蒙接线
+
+鸿蒙 NAPI 导出 `voicePunctuation`，键盘在最终结果分流之前（`deliverVoice`）处理一次，直接上屏、二合一审阅面板和输入位置变化后保留的文字都用处理后的文本，用户在审阅面板里确认的就是上屏的内容；显式提交只给出错后留下、没经过这一步的中间结果补一次。中间结果不处理，处理后为空的结果按没有识别到文字提示。成功提示和收尾定时器都以处理后的文本判断当前结果；拿识别原文比较会让去标点后的提示永久留着、语音面板不再自动收起，过期回调仍不能清掉后来的结果。设置页经 `HostCapabilities.voice_punctuation` 只在宿主声明支持时显示同一行四选一，豆包「自动添加标点」的说明明确它只影响豆包请求，这段说明同样只在宿主声明支持时出现，macOS、Linux 上不指向一个不存在的设置。
+
+### 桌面接线
+
+Windows、macOS、Linux 都在最终文本（润色之后）交给会话上屏之前处理一次，中间结果不处理；`auto` 和空文本不进共享层，共享层调用失败时保留原文，处理后为空（原文非空、只剩标点）时与识别结果为空走同一条「没有识别到文字」提示，不会无声收起。与热词纠正不同，共享层返回的空串原样保留，这条提示才触发得了。设置入口只放在已有原生设置的 Windows：原生设置页和 Win7 设置页的「识别结果」组各加一行四选一。issue 原文写的是「识别」组；这一行放进「识别结果」，那里是「识别结果怎么用」的设置。按 AGENTS.md「`packages/ui` 只修缺陷，不加新设置」，共享设置页（`packages/ui`）不加这一行；macOS 的原生设置窗口（`PreferencesWindowController`）这次也没加，Linux 还没有原生设置页。两端宿主已经读这个键，界面入口另行接到各自的原生设置；在那之前只能直接改偏好文档。
+
+- **Windows**：`VoiceInputConfig.punctuation_mode` 由 Server 读偏好时填好，`VoiceInputSession` 在润色之后、繁体转换和三条上屏路线之前调用 `voice_punctuated`（`platforms/windows/src/voice/VoicePunctuation.h`）。面板的审阅录音也是最终文本，一并处理，与 Android 每个出口都处理一致。原生设置页的「识别结果」组加同一行，「自动添加标点」补上只对豆包生效的说明；Win7 设置页加同名下拉框和一句说明。`auto` 不写进文档，而 Win7 的 `PreferencesStore::save` 只给白名单里的缺省叶字段补路径、其余缺失路径一律按 `invalid_change` 拒绝，所以 `voice_input.punctuation_mode` 要和 `quote_style` 一样列进字符串叶字段，否则第一次从 `auto` 改成别的方式时保存被拒、偏好原样不变。
+- **macOS**：`InputController` 每次读到共享偏好时保存完整文档，豆包、整句上传、本地与系统识别三条路线在开始录音、绑定本次 generation 时从 `voice_input.punctuation_mode` 取快照（`platforms/macos/src/voice/VoicePunctuation.h` 的 `MSIMEVoicePunctuationMode`），在 `applyVoiceText:` 之前、空文本判断之前调用 `MSIMEVoicePunctuated`。为兑现「下一次识别起作用」的约定（Windows 设置页的说明），录音中、停止采集后等待最终结果、等待润色时重载偏好都只改变下一次录音；停止采集不清快照，直到本次结果处理完仍使用它。三条路线由同一语音入口串行启动，沿用已有请求、客户端、会话与 generation 守卫拒绝旧回调，因此共用一个当前录音快照即可。不像其他语音偏好那样搬进 `NSUserDefaults`：`SharedVoicePreferences.h` 的映射是「缺键保留本机旧值」，而 `auto` 是出厂默认、不写进文档，从别的方式改回 `auto` 后本机会一直留着旧值，原生设置窗口保存时还会把旧值写回共享文档。
+- **Linux**：IBus 和 Fcitx5 两个宿主在开始录音时取下方式，在 `msime_voice_result_or_transcript` 之后、交给会话之前调用 `voice_punctuated`（`platforms/linux/src/voice/VoicePunctuation.h`）。不放在 Python 语音服务里：服务交回空结果时宿主会退回中间转写，只在服务里处理的话，只剩标点的结果会以带标点的中间转写上屏；源码检出时服务也加载不到 host 库。
+- **语音面板（Linux、macOS）**：面板不走上面的宿主语音路线：Tauri 的 `recognize_voice` 直接从语音服务的 socket 拿最终文本，用户再点提交经 `send_voice_text` 投给编辑器（Linux 走 `send_panel_voice_text`，macOS 走 `macos_panel_session::submit`），途中不经过 IBus、Fcitx5 或 `InputController` 的处理点。Linux 从 IBus、Fcitx5 菜单的「语音面板…」打开它，macOS 在找得到语音服务 socket 时由菜单和悬浮工具栏的语音按钮打开它，所以面板在 `recognize_voice` 交回最终文本前按本次录音前刷新过的偏好处理一次（`panel_voice_punctuated`，Rust 宿主直接调用 `voice::punctuation::apply`，`auto` 不调用）。处理在识别结束时做，而不是在提交时做：面板显示的就是会上屏的文字，用户在面板里改过的文本原样提交。
+
+iOS 已在本 PR 接入；macOS 偏好覆盖清单（`platforms/macos/tests/settings/preference_coverage.py`）已移除这一项。
 
 ### 不做
 
@@ -60,10 +84,14 @@ iOS、鸿蒙、桌面三端暂不读这个字段，各自的接线见 #10595、#
 - **把「自动添加标点」并进四选一** — 一个设置更好懂。但 `doubao_enable_punc` 是桌面三端共用的字段，并进去要同时改 Windows、macOS、Linux 的设置页和豆包请求；而且「请求时不要标点」和「上屏前去掉标点」对豆包的效果并不完全一样（前者连润色输入都不带标点）。这次保留开关，只改说明。
 - **在偏好层校验取值、非法值归回 `auto`** — 能保证文档里只有四个值。但现有字符串字段（`polish_thinking`、`language`）都不校验，校验失败在这里会让整份偏好读不了；更新版本加新选项时旧版本也会读不了。改成消费方按 `auto` 处理。
 
+- **在共享设置页的「识别结果」组给 macOS、Linux 加这一行** — 两端用户马上就能在界面里改。但 AGENTS.md 规定界面正在全部迁到原生、`packages/ui` 只修缺陷不加新设置，没有维护者的例外授权，因此撤回，入口等原生设置页。
+- **macOS 在最终结果到达时读最新标点方式** — 偏好一改就作用于尚未上屏的文字，不必保留录音快照。但这会让同一段录音因最终回调或润色的快慢而换用不同方式，违背「下一次识别起作用」的约定，因此在开始时取快照。
+
 ## Consequences
 
 - **收益**：默认用本地模型的用户第一次能去掉语音标点；一处规则对四种识别服务和润色都生效，iOS、鸿蒙、桌面接线时只需要在上屏点调一次 FFI。
-- **代价**：iOS、鸿蒙、桌面在跟进 issue 做完之前读不到这一项，桌面的共享设置页也还看不到它。`omit_all` 会让「3.5%，10:30」变成「3.5%10:30」这类紧挨在一起的写法，这是「省略所有标点」本身的含义；数字之外的全角句点、半角 `~` 等边缘写法按上面的列表处理，出现误删时改 `punctuation.rs` 的字符表并补测试。
+- **代价**：iOS 在跟进 issue 做完之前读不到这一项；鸿蒙桥接失败时保留原文，macOS、Linux 宿主读这一项但在原生设置页接上之前设置界面里改不了。`omit_all` 会让「3.5%，10:30」变成「3.5%10:30」这类紧挨在一起的写法，这是「省略所有标点」本身的含义；数字之外的全角句点、半角 `~` 等边缘写法按上面的列表处理，出现误删时改 `punctuation.rs` 的字符表并补测试。
+- **代价**：鸿蒙桥接失败时保留原文，macOS、Linux 的原生设置入口仍待接入；iOS 语音服务或键盘交接失败时保留原有失败提示，避免设置故障丢失识别内容。`omit_all` 会让「3.5%，10:30」变成「3.5%10:30」这类紧挨在一起的写法，这是「省略所有标点」本身的含义；数字之外的全角句点、半角 `~` 等边缘写法按上面的列表处理，出现误删时改 `punctuation.rs` 的字符表并补测试。
 - **语音样本上传**：打开「上传语音以改进识别」时，上传的文本是处理后的上屏文本，与此前上传润色后文本的做法一致。
 
 ## Verification
@@ -71,4 +99,16 @@ iOS、鸿蒙、桌面三端暂不读这个字段，各自的接线见 #10595、#
 - `cargo test -p msime-client-providers --lib voice::punctuation`：取值往返、issue 里的例子、句末一串标点、引号括号、句末标点在右引号右括号里面、数字和网址、拉丁单词分隔、只剩标点。
 - `cargo test -p msime-client-core --lib voice_punctuation_mode`：缺键读成 `auto` 且不写进文档，选过的值和不认识的值都能读写。
 - `cargo test -p msime-host-api --lib voice_punctuation mobile_voice_configuration_reports`：FFI 的四种方式、未知方式、只剩标点、缺字段、超长、空指针；共享解析给出归一后的 `punctuationMode`。
+- Windows `windows-voice-punctuation`（不调用、保留原文、空串保持为空），`tests/ui/windows7_voice.cpp` 断言 Win7 下拉框在缺键文档上也能写入（漏列白名单时这条断言在 CI 的 Windows native settings 上失败过）；macOS `voice-punctuation`（取值和经共享层的四种方式）与 `http-voice-controller`（会话收到处理后的文字、只剩标点时提示没听到）；Linux `linux-voice-punctuation`（取值、桩和经共享层的四种方式）。三端真机上的语音上屏仍需人工验收。
+- 接线顺序由源码契约守住：`platforms/linux/tests/core/fcitx5_contract.py` 断言 Fcitx5 和 IBus 都在 `msime_voice_result_or_transcript` 之后、判空和上屏（Fcitx5 `commitText`、IBus `msime_client_voice_apply`）之前调用 `voice_punctuated`，只剩标点时不报识别服务出错；`scripts/test-windows-voice-punctuation-order.py` 断言 Windows 在润色之后、判空提示之前、繁体转换和投递之前处理，且不在条件分支里（审阅录音同样处理）。
+- `cargo test -p msime-desktop panel_voice`：Linux、macOS 语音面板交回的最终文本按四种方式处理，缺键、`auto` 和不认识的值原样返回。
+- macOS `doubao-voice-controller`（本地模型和豆包共用的流式路线）与 `live-voice-controller`（系统识别路线）：行内预编辑开着、`omit_all` 时，带标点的中间结果原样显示，最终结果去掉标点后替换它上屏；整段只有标点时提示没听到、清掉预编辑、停掉录音并放开请求，下一次录音照常上屏。
+- 2026-11-03 macOS 真机验收（本地模型、扬声器放音进内置麦克风）：`auto`、`omit_trailing` 正确；`omit_all` 第一句两次没有上屏，另有一次按住右 Option 录音松开后不停。对照代码，这两件事都不在本 PR 的改动里：本 PR 在 macOS 只改最终文本交给 `applyVoiceText:` 之前的一步和读取偏好，按键、录音开始与结束、Esc 取消的代码与 develop 逐字相同；处理只在录音已经结束、最终结果到达之后发生，碰不到录音是否停止；「天啊，他是谁？」在 `omit_all` 下得到「天啊他是谁」，不会走空结果路线（上面两条控制器测试即此路径）。同一轮验收里 `auto` 和 `omit_trailing` 下也出现过松开后 25 秒浮层不收（结果表 18:27:44、18:29:26、18:34:26 三条 `stopped=0`），其中 `auto` 的 18:27:44 那次和随后的重试都没有上屏，与 `omit_all` 第一句一模一样，那时 `MSIMEVoicePunctuated` 在 `auto` 下原样返回、行为与 develop 一致。录音不停期间文档里出现的带标点句子是行内预编辑的中间结果（按设计不处理），杀掉输入法进程后留在了编辑器里。录音松开不停作为既有问题另行跟进；`omit_all` 和 `space` 的真机上屏需在安静环境（BlackHole 回环）重测。
 - `platforms/android/check-host.sh`：`VoicePunctuationSmoke`（取值、标签、`auto` 不进共享层、调用失败保留原文），设置搜索收录「语音标点」，`client_jni.cpp` 对共享头编译。
+- iOS `MSIMEKeyboardTests/VoicePunctuationTests`：对真实 FFI 跑取值、标签、只写一个键、四种方式、数字和时间、只剩标点；`SpaceVoicePanelTests/testVoicePunctuationAppliesOnceToTheFinalText` 经真实语音会话通知走完键盘听写，确认上屏的是处理后的文字、只剩标点时不上屏也不存进语音交接。App 语音页和设置搜索在主 App 的 SwiftUI 视图里，不在任何 XCTest target 中，由 `scripts/test-ios-voice-punctuation.py` 钉源码：`deliver` 只在语音页读取偏好，润色拿识别原文、润色后再处理，三条路径各处理一次，识别原文只剩标点时润色失败不说保留了原文，键盘领取语音结果时不再处理；搜「语音标点」能找到语音输入页；非豆包时「自动添加标点」只禁用开关、标题和「?」不在被禁用的 Toggle 里，「?」气泡按量出的文字宽度定尺寸。`MSIMEKeyboardTests/DesignInfoBubbleTests` 用 `ImageRenderer` 量气泡不给尺寸时的理想大小：「语音标点」那段说明的气泡要容得下按 280pt 折行后的每一行，一行的短说明贴着文字、不折行。
+- iPhone XR（iOS 18.7）真机验收：「语音标点」一行的位置、出厂值、选择面板、冷启动后保留、设置搜索都符合预期；发现非豆包时「自动添加标点」的「?」点不开、「语音标点」的说明气泡被裁成三行，两处已按上面修正，待真机复核。手机没有可用的语音来源（Mac 被静音、系统听写关闭），四种方式的实际上屏结果、各识别服务和润色路径还没有在真机上确认。
+- 2026-11-05 macOS 控制器回归：`doubao-voice-controller`、`http-voice-controller`、`live-voice-controller` 通过真实 `applySharedToolbarPreferences:` 在录音中和停止采集后把 `omit_all` 改回缺字段的 `auto`，验证本次仍去标点、下次保留标点；豆包与系统识别另覆盖等待润色时改档及旧润色回调，整句上传另覆盖取消后的旧 generation 回调。三条新增回归在修复前均失败。修复后 `bash scripts/verify-local.sh --quick` 通过；门禁从当前源码重建 Host API 静态库和 macOS 原生宿主，随后正式 CTest 的 `voice-punctuation`、三条控制器路线与 `live-voice-socket-route` 共 5 项全部通过。这些合成回调测试不替代真实麦克风验收。
+- iOS `MSIMEKeyboardTests/VoicePunctuationTests`：对真实 FFI 跑取值、标签、只写一个键、四种方式、数字和时间、只剩标点；`SpaceVoicePanelTests/testVoicePunctuationAppliesOnceToTheFinalText` 经真实语音会话通知走完键盘听写，确认上屏的是处理后的文字、只剩标点时不上屏也不存进语音交接。App 语音页和设置搜索在主 App 的 SwiftUI 视图里，不在任何 XCTest target 中，由 `scripts/test-ios-voice-punctuation.py` 钉源码：`deliver` 只在语音页读取偏好，润色拿识别原文、润色后再处理，三条路径各处理一次，识别原文只剩标点时润色失败不说保留了原文，键盘领取语音结果时不再处理；搜「语音标点」能找到语音输入页；非豆包时「自动添加标点」只禁用开关、标题和「?」不在被禁用的 Toggle 里，「?」气泡按量出的文字宽度定尺寸。`MSIMEKeyboardTests/DesignInfoBubbleTests` 用 `ImageRenderer` 量气泡不给尺寸时的理想大小：「语音标点」那段说明的气泡要容得下按 280pt 折行后的每一行，一行的短说明贴着文字、不折行。
+- iPhone XR（iOS 18.7）真机验收：「语音标点」一行的位置、出厂值、选择面板、冷启动后保留、设置搜索都符合预期；发现非豆包时「自动添加标点」的「?」点不开、「语音标点」的说明气泡被裁成三行，两处已按上面修正，待真机复核。手机没有可用的语音来源（Mac 被静音、系统听写关闭），四种方式的实际上屏结果、各识别服务和润色路径还没有在真机上确认。
+- 2026-11-05 macOS 控制器回归：`doubao-voice-controller`、`http-voice-controller`、`live-voice-controller` 通过真实 `applySharedToolbarPreferences:` 在录音中和停止采集后把 `omit_all` 改回缺字段的 `auto`，验证本次仍去标点、下次保留标点；豆包与系统识别另覆盖等待润色时改档及旧润色回调，整句上传另覆盖取消后的旧 generation 回调。三条新增回归在修复前均失败。修复后 `bash scripts/verify-local.sh --quick` 通过；门禁从当前源码重建 Host API 静态库和 macOS 原生宿主，随后正式 CTest 的 `voice-punctuation`、三条控制器路线与 `live-voice-socket-route` 共 5 项全部通过。这些合成回调测试不替代真实麦克风验收。
+- `platforms/harmony/tests/voice-result-lifecycle.test.ts`：执行真实 `deliverVoice` 方法，以合成会话和可推进的时钟覆盖原文不变、去掉标点、标点替为空格、过期回调及仅标点的空结果；修复前文本变化用例在提示未清除处失败；二合一审阅路径断言面板显示处理后的文本且不直接上屏，在先显示原文的实现上失败。

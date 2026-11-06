@@ -99,6 +99,14 @@ pub trait InputEngine {
             "Engine cache reset is unsupported".into(),
         ))
     }
+    /// 按现在的整句池和整句打分器重解当前组字，见 [`crate::Runtime::settle_deferred_scorer`]。
+    fn recompute_candidates(&mut self) -> Result<(), RuntimeError> {
+        Err(RuntimeError::Engine(
+            "Engine candidate recompute is unsupported".into(),
+        ))
+    }
+    /// 把在线行（来源码，同 `EngineSnapshot::candidate_sources`）照原样放回当前组字的候选，见 [`crate::Runtime::settle_deferred_scorer`]。
+    fn restore_online_rows(&mut self, _rows: &[(String, u8)]) {}
     /// Remove cached rows for one online provider (host source 0 = cloud, 1 = AI).
     fn clear_online_candidates(&mut self, _source: u8) -> Result<(), RuntimeError> {
         Err(RuntimeError::Engine(
@@ -170,6 +178,15 @@ pub trait InputEngine {
             "Nine-key spelling selection is unsupported".into(),
         ))
     }
+    /// 十四／十八键网格辅助码的分隔符、确定字母和清除；没有网格辅助码的引擎不处理。
+    fn grid_helpcode(&mut self, _op: GridHelpcodeOp) -> Result<EngineResult, RuntimeError> {
+        Ok(EngineResult {
+            handled: false,
+            has_commit: false,
+            commit: String::new(),
+            diagnostic: String::new(),
+        })
+    }
     /// 九宫格候选只留单字、按笔顺前缀筛选；没有九宫格的引擎不支持。
     fn set_nine_key_filter(
         &mut self,
@@ -180,6 +197,23 @@ pub trait InputEngine {
             "Nine-key candidate filters are unsupported".into(),
         ))
     }
+    /// 引擎持有的明确选词门禁；默认适配器沿用普通确认规则。
+    fn requires_candidate_selection(&self) -> bool {
+        false
+    }
+
+    /// 可选的中英混合滑行；未实现的适配器保持不处理。
+    fn bilingual_glide(
+        &mut self,
+        _keyboard: &GlideKeyboard,
+        _points: &[GlidePoint],
+    ) -> Result<EngineResult, RuntimeError> {
+        Ok(EngineResult {
+            handled: false,
+            ..EngineResult::default()
+        })
+    }
+
     /// 滑行的一笔；没有滑行输入的引擎不处理。
     fn glide(
         &mut self,
@@ -376,6 +410,13 @@ impl InputEngine for Session {
         Session::reset_cache(self);
         Ok(())
     }
+    fn recompute_candidates(&mut self) -> Result<(), RuntimeError> {
+        Session::recompute_candidates(self);
+        Ok(())
+    }
+    fn restore_online_rows(&mut self, rows: &[(String, u8)]) {
+        Session::restore_online_rows(self, rows);
+    }
     fn clear_online_candidates(&mut self, source: u8) -> Result<(), RuntimeError> {
         Session::clear_online_candidates(self, source)
             .map_err(|error| RuntimeError::Engine(error.to_string()))
@@ -435,6 +476,9 @@ impl InputEngine for Session {
         Session::choose_nine_key_spelling(self, index)
             .map_err(|e| RuntimeError::Engine(e.to_string()))
     }
+    fn grid_helpcode(&mut self, op: GridHelpcodeOp) -> Result<EngineResult, RuntimeError> {
+        Session::grid_helpcode(self, op).map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
     fn set_nine_key_filter(
         &mut self,
         single_character: bool,
@@ -449,6 +493,18 @@ impl InputEngine for Session {
         points: &[GlidePoint],
     ) -> Result<EngineResult, RuntimeError> {
         Session::glide(self, keyboard, points).map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
+
+    fn bilingual_glide(
+        &mut self,
+        keyboard: &GlideKeyboard,
+        points: &[GlidePoint],
+    ) -> Result<EngineResult, RuntimeError> {
+        Session::bilingual_glide(self, keyboard, points)
+            .map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
+    fn requires_candidate_selection(&self) -> bool {
+        Session::requires_candidate_selection(self)
     }
     fn punctuation(&mut self, value: u8) -> Result<EngineResult, RuntimeError> {
         Session::punctuation(self, value).map_err(|error| RuntimeError::Engine(error.to_string()))

@@ -9,6 +9,50 @@ import subprocess
 import sys
 import time
 
+# 夹具每 100ms 用临时文件加改名整份替换 status.json，读到的只会是完整文档；读空或读失败只能是这一次 adb shell 本身的问题，重试几次再下结论。
+STATUS_ATTEMPTS = 5
+STATUS_RETRY_DELAY = .1
+
+
+def describe(result):
+    """一次 adb 调用的原始输出，失败说明里带上它，不必再去翻 logcat 猜是哪一步读坏了。"""
+    return "returncode={} stdout={!r} stderr={!r}".format(
+        result.returncode, result.stdout.decode(errors="replace"), result.stderr.decode(errors="replace"))
+
+
+def read_status(cat, sleep=time.sleep):
+    """读夹具状态，返回（文档，最后一次读取结果）；文件确实不存在时立刻返回空文档，读空、adb 失败或解析失败重试，重试用完仍返回空文档。"""
+    for attempt in range(STATUS_ATTEMPTS):
+        result = cat()
+        text = result.stdout.decode(errors="replace").strip()
+        if result.returncode == 0 and text:
+            try:
+                return json.loads(text), result
+            except json.JSONDecodeError:
+                pass
+        elif result.returncode != 0 and b"No such file or directory" in result.stderr + result.stdout:
+            # 夹具还没写出第一份状态：start() 靠空文档继续等待，不算读取失败。
+            return {}, result
+        if attempt + 1 < STATUS_ATTEMPTS:
+            sleep(STATUS_RETRY_DELAY)
+    return {}, result
+
+
+def process_mismatch(original_pid, current, status_result, pidof_result):
+    """核对夹具与真实 :ime 仍是最初那个进程，返回失败说明，未变时返回 None；只有确实看到另一个 pid 才判为重启，状态读不到时报告原始输出。"""
+    status_pid = current.get("pid")
+    actual = pidof_result.stdout.decode(errors="replace").strip()
+    if status_pid is not None and status_pid != original_pid:
+        return "fixture restarted instead of observing consent: status pid {}, original {}, pidof :ime {!r}".format(
+            status_pid, original_pid, actual)
+    if actual and actual != str(original_pid):
+        return "actual :ime process changed: pidof {!r}, original {}".format(actual, original_pid)
+    if not actual:
+        return "actual :ime process not found (original {}): {}".format(original_pid, describe(pidof_result))
+    if status_pid is None:
+        return "fixture status unreadable while :ime kept pid {}: {}".format(original_pid, describe(status_result))
+    return None
+
 
 def main():
     sdk = Path(os.environ.get("ANDROID_SDK_ROOT", os.environ.get("ANDROID_HOME", "")))
@@ -18,8 +62,13 @@ def main():
     if serial not in expected:
         raise RuntimeError("requires dedicated API 28/35 AVD")
 
+    def execute(*args, data=None):
+        return subprocess.run([adb, "-s", serial, *args], input=data, capture_output=True, timeout=60)
+
     def run(*args, data=None, check=True):
-        result = subprocess.run([adb, "-s", serial, *args], input=data, capture_output=True, check=check, timeout=60)
+        result = execute(*args, data=data)
+        if check and result.returncode != 0:
+            raise RuntimeError("adb " + " ".join(args) + " failed: " + describe(result))
         return result.stdout.decode().strip()
 
     def shell(command, **kwargs):
@@ -27,7 +76,7 @@ def main():
 
     if run("emu", "avd", "name").splitlines()[0] != expected[serial]:
         raise RuntimeError("requires repository-owned AVD")
-    run("root")
+    subprocess.run([adb, "-s", serial, "root"], check=True, timeout=60)
     run("wait-for-device")
     base = "/data/user/0/app.msime.android/files"
     fixture = base + "/synthetic-telemetry-watch"
@@ -52,11 +101,11 @@ def main():
             time.sleep(.25)
         raise AssertionError(label)
 
+    def status_with_result():
+        return read_status(lambda: execute("shell", "cat " + shlex.quote(fixture + "/status.json")))
+
     def status():
-        try:
-            return json.loads(read(fixture + "/status.json", check=False))
-        except json.JSONDecodeError:
-            return {}
+        return status_with_result()[0]
 
     def active():
         current = status()
@@ -102,8 +151,9 @@ def main():
         write(preferences, json.dumps(document))
 
     def same_process(original):
-        assert status().get("pid") == original["pid"], "fixture restarted instead of observing consent"
-        assert shell("pidof app.msime.android:ime") == str(original["pid"]), "actual :ime process"
+        current, result = status_with_result()
+        mismatch = process_mismatch(original["pid"], current, result, execute("shell", "pidof app.msime.android:ime"))
+        assert mismatch is None, mismatch
 
     def fault(kind, enabled):
         original = wait(active if enabled else inactive, "fault consent preparation")

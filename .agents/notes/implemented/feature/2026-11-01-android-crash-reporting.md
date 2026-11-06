@@ -14,6 +14,10 @@ Android 通过 Host API 读取共享授权代次和偏好目录，Java 层在 Ap
 
 构建脚本为每个 ABI 保留 Rust/JNI 的调试符号并归档构建清单；API 28 和 API 35 设备工作流都独立运行 crash-only 门禁，API 28 验证真实 `:ime` 的 Java/JNI 现场与授权撤回，API 35 另验证 `ApplicationExitInfo` 系统退出和 ANR，API 35 随后运行完整输入冒烟，避免既有 UI/设备故障掩盖崩溃链路并直接覆盖 minSdk 的现场路径。发布工作流上传并长期保存原生符号，测试使用合成身份和故障数据。
 
+三个遥测夹具的 `adb root` 准备命令直接继承 stdout/stderr，以便 CI 保留 ADB 自身的失败原因；仍只执行一次，保留 `check=True` 和 60 秒上限，失败立即停止，不进入后续设备修改。其他读取命令仍捕获输出，不把偏好或诊断文件内容写进日志。#10755 的 API 35 检查暴露了这个诊断缺口；adbd 重启本身不能证明提权成功，也不足以解释客户端非零退出，因此恢复日志不等于修复该设备失败。
+
+设备工作流在失败时上传 `smoke.sh` 已生成的 `window.xml`，让首页准备超时保留最后一次实际读取的界面状态。#10695 的 API 35 验收在遥测之前报首页准备超时，原有 artifact 只有日志，无法判断轮询未满足的界面条件；上传现有文件不新增设备操作，也不改变轮询、重试或超时。专用 CI 模拟器只运行合成数据，不把真实用户设备的界面树纳入上传。
+
 ## Alternatives considered
 
 - **只依赖 `ApplicationExitInfo`**：它无法覆盖现场致命信号，也不能保证扩展会话归属；因此保留 Java/JNI 现场记录并用系统退出做延迟补录。
@@ -31,6 +35,8 @@ Android 通过 Host API 读取共享授权代次和偏好目录，Java 层在 Ap
 - `telemetry-authority.py` 是手动运行的夹具，没有接进 `smoke.sh` 或 workflow：它请求的 `-e phase authority` 原先在 `DiagnosticConsentDeviceSmoke` 里没有分派，会落进默认分支误报通过，现已分派到 `ReportingAuthorityDeviceChecks`，但仍没有 CI 证据。
 - `smoke.sh` 的单次 instrumentation 上限只在显式设置环境变量时生效；API 35 完整输入冒烟此前三次失败在 NumberPadDeviceSmoke（`status 124`），原因是本 PR 先前引入的 300 秒默认上限，不是 runner 基线。
 - develop 已有 Android API 28 `ci-red` 跟踪单；本切片保留独立 crash-only 结果，不把既有完整输入冒烟失败算作采集通过或失败。
+
+- `scripts/test-android-telemetry-root-diagnostics.py` 用合成 ADB 进程运行三个真实夹具，验证提权非零退出时 stdout/stderr 与退出码保留、只请求一次提权、后续命令不执行；它只证明失败诊断和停止行为，不代表设备遥测验收通过。
 
 ## Consequences
 

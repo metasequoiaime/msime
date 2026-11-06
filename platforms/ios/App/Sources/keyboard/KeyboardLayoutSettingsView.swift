@@ -23,6 +23,7 @@ struct KeyboardLayoutSettingsView: View {
   /// 「大屏单手时侧边显示数字键盘」（共享偏好 `touch_one_handed_side_panel`），取自共享文档。
   @State private var oneHandSidePad = TouchOneHandedSidePanelPreference.load() == .numberPad
   @State private var glideTyping = KeyboardLayoutPreference.glideTyping
+  @State private var bilingualGlide = KeyboardLayoutPreference.bilingualGlide
   @State private var cursorSwipe = KeyboardLayoutPreference.cursorSwipe
   @State private var swipeSymbols = KeyboardLayoutPreference.swipeSymbols
   @State private var swipeSymbolsDirection = KeyboardLayoutPreference.swipeSymbolsDirection
@@ -113,7 +114,7 @@ struct KeyboardLayoutSettingsView: View {
     return VStack(spacing: 6) {
       grip
       KeyboardSkinPreview(
-        skin: skin, nineKey: face.nineKey, letterGrid: face.letterGrid, gridSplitsSyllables: face.gridSplitsSyllables,
+        skin: skin, nineKey: face.nineKey, letterGrid: face.letterGrid,
         layout: KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing, showsBottomLanguage: !hideLanguageKey),
         heightAdjustment: height, keyLayout: previewKeyLayout, nineKeyZero: face.nineKeyZero
       )
@@ -214,7 +215,7 @@ struct KeyboardLayoutSettingsView: View {
         DesignDivider()
         DesignSelectRow(
           title: "五笔键盘",
-          info: "五笔使用的字母键布局，86 和 98 五笔共用",
+          info: "五笔使用的字母键布局，86、98 和新世纪五笔共用",
           options: TouchWubiLayoutPreference.Layout.allCases.map {
             DesignOption(title: $0.title, value: $0, identifier: "wubiKeyboard\($0.rawValue)")
           },
@@ -403,6 +404,14 @@ struct KeyboardLayoutSettingsView: View {
                         KeyboardLayoutPreference.glideTyping = enabled
                       }))
       .accessibilityIdentifier("appGlideTypingSwitch")
+      DesignDivider()
+      DesignToggleRow(title: "中英混合滑行", info: "在全拼 26 键上滑行，同时提供中文和英文候选，无需切换中英文。中英文均可连续多笔组字，点击候选、空格或回车选择当前候选；下一笔和语言边界不会自动确认。",
+                      enabled: glideTyping,
+                      isOn: Binding(get: { bilingualGlide }, set: { enabled in
+                        bilingualGlide = enabled
+                        KeyboardLayoutPreference.bilingualGlide = enabled
+                      }))
+        .accessibilityIdentifier("appBilingualGlideSwitch")
       DesignDivider()
       DesignToggleRow(title: "横滑键盘移动光标", info: "无组字时从字符键左右滑动；开启滑行输入时，字母键优先输入拼音",
                       isOn: Binding(get: { cursorSwipe }, set: { enabled in
@@ -666,6 +675,7 @@ struct KeyboardLayoutSettingsView: View {
     tabletSplit = KeyboardLayoutPreference.tabletSplit
     phoneSplit = KeyboardLayoutPreference.phoneLandscapeSplit
     glideTyping = KeyboardLayoutPreference.glideTyping
+    bilingualGlide = KeyboardLayoutPreference.bilingualGlide
     cursorSwipe = KeyboardLayoutPreference.cursorSwipe
     swipeSymbols = KeyboardLayoutPreference.swipeSymbols
     swipeSymbolsDirection = KeyboardLayoutPreference.swipeSymbolsDirection

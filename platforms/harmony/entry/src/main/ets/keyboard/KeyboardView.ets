@@ -43,6 +43,11 @@ import { SchemeTraits } from './SchemeTraits';
 import { HardwareKeyRouter } from './HardwareKeyRouter';
 import { KoreanCompositionPolicy } from './input/KoreanCompositionPolicy';
 import { CandidateManagementAction, ManagementAction } from './candidate/CandidateManagementAction';
+import { CandidateGlossCard } from './candidate/CandidateGlossCard';
+import {
+  CandidateGlossCardPolicy, GlossCard, GlossCardLookup, GlossCardOrigin, GLOSS_CARD_COPIED
+} from './candidate/CandidateGlossCardPolicy';
+import { TranslationCandidate } from './candidate/TranslationPolicy';
 import { NextWordPredictionPolicy } from './candidate/NextWordPredictionPolicy';
 import { CandidateFontFamilyPolicy } from './candidate/CandidateFontFamilyPolicy';
 import { CandidateChipWidth } from './candidate/CandidateChipWidth';
@@ -55,6 +60,9 @@ import { CandidateLogoPolicy } from './candidate/CandidateLogoPolicy';
 import { CandidateDecorationLayout, CandidateDecorationRect } from './candidate/CandidateDecorationLayout';
 import { PreeditCaretPolicy } from './candidate/PreeditCaretPolicy';
 import { CandidatePreeditStylePolicy, VisibleComposition } from './candidate/CandidatePreeditStylePolicy';
+import { ReadingRowEditMenu } from './candidate/ReadingRowEditMenu';
+import { ReadingRowEditAction, ReadingRowEditMenuPolicy } from './candidate/ReadingRowEditMenuPolicy';
+import { ReadingRowEditPolicy } from './candidate/ReadingRowEditPolicy';
 import { CandidateTranslationStyle } from './candidate/CandidateTranslationStyle';
 import { CandidateLayoutPolicy, CandidateSkinGeometry, CandidateSkinPolicy } from './candidate/CandidateSkinPolicy';
 import { CandidateWheelPolicy } from './candidate/CandidateWheelPolicy';
@@ -296,6 +304,8 @@ const READING_WITH_SPELLINGS_MAX_WIDTH: string = '50%';
 const READING_SPELLING_FONT_SIZE: number = 13;
 const READING_SPELLING_PADDING_VP: number = 6;
 const READING_SPELLING_GAP_VP: number = 8;
+/** 读音行可点开编辑时拼写提示的不透明度，比照常画出的读音淡，表明拼写正在输入框里。 */
+const READING_HINT_OPACITY: number = 0.5;
 const CANDIDATE_BAR_GAP_VP: number = 2;
 const CHIP_HEIGHT_VP: number = 34;
 const CHIP_MIN_WIDTH_VP: number = 30;
@@ -538,6 +548,9 @@ struct KeyboardView {
   @State phrasePrefix: string = '';
   /** 手机上拼写正写在输入框里，候选栏不画读音；见 `KeyboardSession.compositionInField`。 */
   @State compositionInField: boolean = false;
+  /** 点手机读音行后，把正写在输入框里的拼写也展开到候选栏，方便继续修改。 */
+  @State compositionEditing: boolean = false;
+  @State compositionEditMenu: boolean = false;
   @State spellings: string[] = [];
   @State engineScheme: number = 0;
   /** Whether the scheme's openable candidate list (the Korean Hanja list, the Zhuyin list) is on the strip, as the Engine last reported it. */
@@ -551,7 +564,7 @@ struct KeyboardView {
   @State shuangpinProfile: string = 'xiaohe';
   /** 双拼触屏字母组码布局；26/14/18 键独立于当前双拼方案保存。 */
   @State shuangpinLayout: string = 'twenty_six_key';
-  /** 五笔触屏字母键布局；26/14 键独立于 86 / 98 版保存。 */
+  /** 五笔触屏字母键布局；26/14 键独立于五笔版本保存。 */
   @State wubiLayout: string = 'twenty_six_key';
   // 方案、中英文、123 层、本地模式和横竖屏决定手写区要不要多一行（`handwritingExtraRows`），变了就重定面板高度，见 `syncStripHeight`。
   @State @Watch('syncStripHeight') localMode: string = 'none';
@@ -562,6 +575,9 @@ struct KeyboardView {
   @State managing: number = -1;
   /** Touch offers only a translation; mouse right-click keeps desktop management actions. */
   @State touchCandidateMenu: boolean = false;
+  /** 手机长按候选打开的释义卡片（#10915），没打开时为 null。 */
+  @State glossCard: GlossCard | null = null;
+  private glossCardSerial: number = 0;
   @State feedback: FeedbackSettings = KeyboardFeedback.DEFAULTS;
   @State traditional: boolean = false;
   /** Chinese punctuation, mirrored from the session so the strip's pill and the panel's tile redraw when it flips. */
@@ -707,7 +723,7 @@ struct KeyboardView {
   @State caseMode: LetterCaseMode = LetterCaseMode.LOWERCASE;
   @State skin: KeyboardSkin = KeyboardSkin.fromTheme('system', 'system', null, false);
   @State @Watch('syncStripHeight') scheme: SchemeDefinition = KeyboardScheme.fallback();
-  /** 五笔版本：方案仍是同一个五笔，只换卡片和工具栏上的「86」「98」字样；单独设成状态，只改版本时也会重绘。 */
+  /** 五笔版本：方案仍是同一个五笔，只换卡片、工具栏和空格键上的「86」「98」「新世纪」字样；单独设成状态，只改版本时也会重绘。 */
   @State wubiProfile: string = KeyboardScheme.WUBI_86;
   @State handwritingStrokes: HandwritingStroke[] = [];
   @State handwritingRedo: HandwritingStroke[] = [];
@@ -715,6 +731,8 @@ struct KeyboardView {
   @State handwritingNotice: string = '';
   @State handwritingBusy: boolean = false;
   @State voiceText: string = '';
+  // voiceText 是否已经过 deliverVoice 的标点处理；识别器写入新文本时清除，用户在面板里编辑不改变它。
+  private voiceTextPunctuated: boolean = false;
   @State voiceNotice: string = '';
   @State voiceBusy: boolean = false;
   @State voiceFinishing: boolean = false;
@@ -894,6 +912,8 @@ struct KeyboardView {
   @State keyPreview: KeyPreviewFrame | null = null;
   /** 气泡所属按键对应的手指，这样别处抬起的手指不会撤掉仍被按住的键的气泡；未显示时为 -1。 */
   private keyPreviewFinger: number = -1;
+  /** 这一次按下落在按键区里不是键的地方（九键左列的拼写列表）：那里的处理器先置上，冒泡到 `keyPressTouch` 时读掉并清掉，这次按下不振动（#10757）。 */
+  private keyPressOutsideKeys: boolean = false;
   /** 字母键上可能输入角标提示而不是字母的触摸。 */
   private letterHints: LetterHintGesture = new LetterHintGesture();
   /** 中文组字中的 26 键竖向滑动辅助码；与角标手势分开跟踪，长按仍保留角标。 */
@@ -1072,12 +1092,15 @@ struct KeyboardView {
       if (this.surface === SURFACE_GEOMETRY) {
         this.show(SURFACE_NONE);
       }
+      this.closeGlossCard();
     };
     KeyboardSession.shared.onPanelHidden = (): void => {
       // 收起键盘、换输入框（detach）或切到别的应用时离开键盘调整，按确认保存（见 `show`）；不离开的话下次显示时遮罩还盖着。
       if (this.surface === SURFACE_GEOMETRY) {
         this.show(SURFACE_NONE);
       }
+      // 释义卡片同样在收起时关掉；系统的返回手势收起键盘，也走这里。
+      this.closeGlossCard();
       // 面板收起时视图不会销毁（aboutToDisappear 不会执行）。还在走的空格长按计时要取消，否则收起后它照样到点开始录音。
       this.cancelSpaceLongPress();
       if (!VoiceRecognitionPolicy.cancelsOnHide(this.touchDesign(), this.voiceBusy, this.voiceFinishing)) {
@@ -1095,6 +1118,7 @@ struct KeyboardView {
       this.nineKeyQuickMarks = [];
       this.candidates = state.candidates;
       this.editing = state.editing;
+      this.refreshGlossCard();
       this.editingCaret = state.editingCaret;
       this.candidatePage = state.page;
       this.candidatePageCount = state.pageCount;
@@ -1108,6 +1132,10 @@ struct KeyboardView {
       this.enumerationCommaBackslash = state.enumerationCommaBackslash;
       this.enumerationCommaSlash = state.enumerationCommaSlash;
       this.engineScheme = state.scheme;
+      this.compositionEditing = ReadingRowEditPolicy.keepsExpanded(this.compositionEditing, this.touchReadingRowEditable());
+      // 切到粤拼时简繁磁贴改看粤拼自己的字形（`cantonese_simplified_output`），切回来再看全局开关。
+      this.traditional = KeyboardSession.shared.showsTraditional();
+      this.compositionEditMenu = this.compositionEditMenu && this.touchReadingRowEditable();
       this.candidateListOpen = state.candidateListOpen;
       this.prediction = state.prediction;
       this.japanese = state.scheme === JAPANESE_SCHEME && !state.english
@@ -1752,6 +1780,7 @@ struct KeyboardView {
         return;
       }
       const finger: number = event.changedTouches[0].id;
+      KeyboardSession.shared.keyUp(finger);
       if (this.glideActive) {
         // 该行的 `glideTouch` 接下来会收到这次抬起并发送轨迹。
         this.abandonLetterHint(finger);
@@ -1871,6 +1900,40 @@ struct KeyboardView {
       this.keyPreview = null;
       this.keyPreviewFinger = -1;
     }
+  }
+
+  /**
+   * 按键区按下即振动（#10757，`KeyPressFeedback`）：触屏键盘上 `keyFaces` 画着按键时，每根手指按下就交给会话振动，抬起或取消时交还这次按下，会话在点击处理完之后撤回没用掉的那一下。面板、键盘调整这些不是按键的界面不经过这里，仍在上屏时振动。
+   */
+  private keyPressTouch(event: TouchEvent): void {
+    if (event.type === TouchType.Down) {
+      const outsideKeys: boolean = this.keyPressOutsideKeys;
+      this.keyPressOutsideKeys = false;
+      if (outsideKeys || !this.keyFacesShowKeys()) {
+        return;
+      }
+      for (const touch of event.changedTouches) {
+        KeyboardSession.shared.keyDown(touch.id);
+      }
+    } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+      for (const touch of event.changedTouches) {
+        KeyboardSession.shared.keyUp(touch.id);
+      }
+    }
+  }
+
+  /** `keyFaces` 此刻画的是不是按键（`handedKeys`），而不是某个面板或键盘调整；条件与 `keyFaces` 的分支一一对应。 */
+  private keyFacesShowKeys(): boolean {
+    if (this.surface === SURFACE_GEOMETRY) {
+      return false;
+    }
+    if (this.isTools() && this.editing.length === 0 && this.candidates.length === 0) {
+      return false;
+    }
+    return this.surface !== SURFACE_EXPANDED && this.surface !== SURFACE_CLIPBOARD
+      && this.surface !== SURFACE_PHRASES && this.surface !== SURFACE_REPLY && this.surface !== SURFACE_POLISH
+      && this.surface !== SURFACE_VOICE && !this.isPicker() && this.surface !== SURFACE_EMOJI
+      && this.surface !== SURFACE_SYMBOLS;
   }
 
   /** 键盘上任何位置的每次按下都会在按键自身的处理器之后到达这里：若气泡对应的手指已不在屏幕上，说明它的抬起事件丢给了在其下方被重建的键，气泡随之撤掉。 */
@@ -2010,6 +2073,7 @@ struct KeyboardView {
     this.glideReset();
     if (request !== null) {
       // A stroke the Engine declines (handled false) is dropped: its keys are never typed in its place.
+      KeyboardSession.shared.keyUp(touch.id);
       KeyboardSession.shared.glide(request);
     }
   }
@@ -2987,6 +3051,9 @@ struct KeyboardView {
       this.expandedBuilt = 0;
       this.expandedListIdentity = '';
       this.expandedGloss = -1;
+      if (this.glossCard !== null && this.glossCard.origin === 'expanded') {
+        this.glossCard = null;
+      }
     }
     if (surface === SURFACE_TOOLS) {
       // 按键反馈的文件设置页也会写；工具面板的开关照它画，也照它改，读旧值会把设置页选的档位写回去。会话每次获得焦点都重读这个文件，读不到时保留上次的值，所以取会话持有的副本。
@@ -3024,6 +3091,7 @@ struct KeyboardView {
     if (this.expandedGloss >= this.expanded.length) {
       this.expandedGloss = -1;
     }
+    this.refreshGlossCard();
   }
 
   /** 滚到离已建格子底边不到一屏，或第一批没填够一屏多时，追加下一批。 */
@@ -3512,7 +3580,7 @@ struct KeyboardView {
       // 键盘调整开着时保留正在预览的四项：设置页中途保存引起的重载不能把预览盖回旧值，离开时按确认存下（与 Android 相同）。
       this.readAdjustValues();
     }
-    this.traditional = KeyboardSession.shared.usesTraditional();
+    this.traditional = KeyboardSession.shared.showsTraditional();
     this.chinesePunctuation = KeyboardSession.shared.usesChinesePunctuation();
     this.punctuationLocked = !KeyboardSession.shared.punctuationToggles();
     this.fullWidth = KeyboardSession.shared.isFullWidth();
@@ -3715,8 +3783,7 @@ struct KeyboardView {
       case 'shoudao':
         return '双拼 · 首道';
       case 'wubi':
-        return KeyboardScheme.normalizedWubiProfile(this.wubiProfile) === KeyboardScheme.WUBI_98
-          ? '五笔 98' : '五笔 86';
+        return KeyboardScheme.wubiSpaceLabel(this.wubiProfile);
       case 'japanese':
       case 'japanese_nine_key':
         return '日语';
@@ -3809,6 +3876,24 @@ struct KeyboardView {
     return CandidatePreeditStylePolicy.visible(KeyboardFormFactor.isDesktop()
       ? this.settings.candidateShowPreedit : !this.compositionInField && !this.prediction,
       this.phrasePrefix, this.editing, this.localMode);
+  }
+
+  /** 候选栏读音行画出来的组字：未点开时与 `visibleComposition` 相同，手机读音行点开后画出拼写和光标；见 ReadingRowEditPolicy。 */
+  private touchVisibleComposition(): VisibleComposition {
+    return ReadingRowEditPolicy.visible(KeyboardFormFactor.isDesktop(), this.settings.candidateShowPreedit,
+      this.compositionInField, this.compositionEditing, this.phrasePrefix, this.editing, this.localMode);
+  }
+
+  /** 读音行能不能点开编辑拼写，见 ReadingRowEditPolicy.editable。 */
+  private touchReadingRowEditable(): boolean {
+    return ReadingRowEditPolicy.editable(KeyboardFormFactor.isDesktop(), this.compositionInField, this.editing,
+      SchemeTraits.locksCaret(this.engineScheme), this.localMode, this.phrasePrefix);
+  }
+
+  /** 读音行可点开但还没点开时弱化画出的拼写提示，见 ReadingRowEditPolicy.hint。 */
+  private readingRowHint(): string {
+    return ReadingRowEditPolicy.hint(this.touchReadingRowEditable(), this.compositionEditing, this.phrasePrefix,
+      this.editing, this.touchVisibleComposition());
   }
 
   /** One candidate row without the reserved gloss line; see KeyboardMetrics.candidateRowHeightVp. */
@@ -3945,8 +4030,8 @@ struct KeyboardView {
       secondary: this.skin.secondary,
       accent: this.skin.accent,
       selected: TRANSPARENT,
-      // 首选画在字母键色的底片上，字用皮肤的首选字色（浅色季节配色加深到 WCAG AA）。
-      selectedText: this.skin.candidateAccent,
+      // 首选画在字母键色的底片上，字用皮肤的首选字色（浅色季节配色加深到 WCAG AA）；自定义主题设了候选选中文字色时用它（#10740）。
+      selectedText: this.settings.candidateTouchSelectedText ?? this.skin.candidateAccent,
       selectedNumber: this.skin.accent,
       hover: TRANSPARENT,
       showSelectedBar: false
@@ -4099,8 +4184,9 @@ struct KeyboardView {
 
   /** 候选条的读音行要不要占位。没有 canvas 时一直占位，候选不会因为它出现、消失而上下移动；有 canvas 时只在有东西显示时占位，见 `stripCanvasContentHeight`。 */
   private readingRowShown(): boolean {
-    return this.settings.candidateCanvas === null || this.diagnostic.length > 0 || this.visibleComposition().caret
-      || this.visibleComposition().text.length > 0 || this.readingRowSpellings();
+    const composition: VisibleComposition = this.touchVisibleComposition();
+    return this.settings.candidateCanvas === null || this.diagnostic.length > 0 || composition.caret
+      || composition.text.length > 0 || this.readingRowHint().length > 0 || this.readingRowSpellings();
   }
 
   /** canvas 在候选条里至少要让出的内容高度：34vp 的候选通道，读音行占位时再加它和间距，都按「候选栏大小」缩放。皮肤的留白按它缩放，高亮因此不会画到面板外面。 */
@@ -4928,7 +5014,7 @@ struct KeyboardView {
               .fontFamily(this.candidateFontFamily())
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
-          } else if (this.visibleComposition().caret) {
+          } else if (this.touchVisibleComposition().caret) {
             // 分段键移动的光标，与 2in1 组合行上的一样。
             Text(PreeditCaretPolicy.split(this.editing, this.editingCaret).before)
               .fontSize(this.stripSized(PREEDIT_FONT_SIZE))
@@ -4949,7 +5035,7 @@ struct KeyboardView {
               .maxLines(1)
           } else {
             // 拼写写在输入框里：这一行保留位置但不画拼写，候选不会因此上下移动；短语中已选定的部分和本地模式的触发符仍会显示。
-            Text(this.visibleComposition().text)
+            Text(this.touchVisibleComposition().text)
               .fontSize(this.stripSized(PREEDIT_FONT_SIZE))
               .letterSpacing(PREEDIT_LETTER_SPACING)
               .fontColor(this.skin.secondary)
@@ -4957,6 +5043,18 @@ struct KeyboardView {
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .constraintSize({ maxWidth: this.readingRowSpellings() ? READING_WITH_SPELLINGS_MAX_WIDTH : '100%' })
+            if (this.readingRowHint().length > 0) {
+              // 可以点开编辑时弱化画出拼写，用户看得见这一行能点；点开后由上面的分支照常画拼写和光标。
+              Text(this.readingRowHint())
+                .fontSize(this.stripSized(PREEDIT_FONT_SIZE))
+                .letterSpacing(PREEDIT_LETTER_SPACING)
+                .fontColor(this.skin.secondary)
+                .opacity(READING_HINT_OPACITY)
+                .fontFamily(this.candidateFontFamily())
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                .flexShrink(1)
+            }
           }
           if (this.readingRowSpellings()) {
             // 14 键的拼音选择条在读音右侧横向滚动，不盖住下面的候选，三端位置相同。内容与九键左列相同：先完整音节，再列下一键上能作声母的大写字母；点音节锁定，退格先撤销锁定。
@@ -4988,6 +5086,19 @@ struct KeyboardView {
         .height(this.stripSized(PREEDIT_LINE_VP))
         .padding({ left: PREEDIT_INDENT_VP })
         .clip(true)
+        .onClick((): void => {
+          if (this.touchReadingRowEditable()) {
+            this.compositionEditing = true;
+            this.compositionEditMenu = true;
+          }
+        })
+        .responseRegion({ x: 0, y: 0, width: '100%', height: this.stripSized(PREEDIT_LINE_VP + CANDIDATE_BAR_GAP_VP) })
+        .bindMenu(this.compositionEditMenu, this.touchReadingRowEditable()
+          ? ReadingRowEditMenu.items(this.editing, this.editingCaret, (action: ReadingRowEditAction): void => {
+            if (this.touchReadingRowEditable()) ReadingRowEditMenuPolicy.dispatch(action, KeyboardSession.shared);
+            this.compositionEditMenu = false;
+          }) : [], { title: '编辑拼写', placement: Placement.BottomLeft, showInSubWindow: false,
+          onDisappear: (): void => { this.compositionEditMenu = false; } })
         // canvas 在 50vp 的条里只留得出候选通道那么高，空着的读音行这时不占位（`None` 不参与布局）；有东西显示时照常占位，边框跟着再缩一些，见 `stripCanvasContentHeight`。
         .visibility(this.readingRowShown() ? Visibility.Visible : Visibility.None)
 
@@ -6076,6 +6187,12 @@ struct KeyboardView {
           .scrollBar(BarState.Off)
           .width('100%')
           .height('100%')
+          // 拼写列表不是键：滚动或点选拼写的按下不振动，与 Android 一样（#10757）。不拦冒泡，键盘根上的 `pruneKeyPreview` 照样看得到这次按下。
+          .onTouch((event: TouchEvent): void => {
+            if (event.type === TouchType.Down) {
+              this.keyPressOutsideKeys = true;
+            }
+          })
         } else {
           ForEach(NineKeyLayout.punctuation(), (symbol: string, index: number) => {
             Column() {
@@ -6272,6 +6389,7 @@ struct KeyboardView {
         const touch: TouchObject = event.changedTouches[0];
         if (this.nineKeySwipes.up(key.input, touch.id) === NineKeySwipe.DIGIT) {
           this.endNineKeySwipeFace(key.input);
+          KeyboardSession.shared.keyUp(touch.id);
           this.typeNineKeySwipeDigit(key);
         }
       }
@@ -6288,7 +6406,7 @@ struct KeyboardView {
       return;
     }
     KeyboardSession.shared.softKeyPress(KeyIdPolicy.nineKey(key.input));
-    KeyboardSession.shared.holdFeedback();
+    KeyboardSession.shared.keyFeedback();
     KeyboardSession.shared.finishComposition();
     KeyboardSession.shared.insert(digit);
   }
@@ -6502,6 +6620,7 @@ struct KeyboardView {
         const touch: TouchObject = event.changedTouches[0];
         const letter: string = this.eighteenSwipes.up(key.letters, touch.id, touch.windowX, touch.windowY);
         this.endEighteenSwipeFace(key.letters);
+        KeyboardSession.shared.keyUp(touch.id);
         this.typeEighteenKeyLetter(key, letter);
       }
     } else if (event.type === TouchType.Cancel) {
@@ -6865,6 +6984,7 @@ struct KeyboardView {
         return;
       }
       if (this.commaSwipe.up(touch.windowX, touch.windowY, Date.now())) {
+        KeyboardSession.shared.keyUp(touch.id);
         KeyboardSession.shared.softKeyPress(KeyIdPolicy.character(','));
         KeyboardSession.shared.punctuation(0x2e);
       }
@@ -7367,6 +7487,9 @@ struct KeyboardView {
       if (event.type === TouchType.Down) {
         this.startBackspace();
       } else if (event.type === TouchType.Up) {
+        for (const touch of event.changedTouches) {
+          KeyboardSession.shared.keyUp(touch.id);
+        }
         this.finishBackspace();
       } else if (event.type === TouchType.Cancel) {
         this.cancelBackspace();
@@ -7487,6 +7610,9 @@ struct KeyboardView {
         if (outcome === SpaceGestureOutcome.VOICE_FINISH || outcome === SpaceGestureOutcome.VOICE_CANCEL) {
           this.endSpaceVoice(outcome === SpaceGestureOutcome.VOICE_FINISH);
         } else if (!this.dragged && event.type === TouchType.Up) {
+          for (const touch of event.changedTouches) {
+            KeyboardSession.shared.keyUp(touch.id);
+          }
           this.activateSpace();
         }
       }
@@ -7929,10 +8055,10 @@ struct KeyboardView {
           .fontColor(this.skin.keyForeground).layoutWeight(1)
         Button('帮你回').enabled(!this.replyBusy).onClick(() => this.toggleReplyPolish(false))
           .backgroundColor(this.replyPolish ? this.skin.keyBackground : this.skin.accent)
-          .fontColor(this.replyPolish ? this.skin.keyForeground : this.skin.keyBackground)
+          .fontColor(this.replyPolish ? this.skin.keyForeground : this.skin.onAccent)
         Button('帮润色').enabled(!this.replyBusy).onClick(() => this.toggleReplyPolish(true))
           .backgroundColor(this.replyPolish ? this.skin.accent : this.skin.keyBackground)
-          .fontColor(this.replyPolish ? this.skin.keyBackground : this.skin.keyForeground)
+          .fontColor(this.replyPolish ? this.skin.onAccent : this.skin.keyForeground)
         if (this.replyTemplates.length > 0) {
           Text(this.replyTemplateMenu ? '风格' : '模板').fontColor(this.skin.accent)
             .onClick(() => this.replyTemplateMenu = !this.replyTemplateMenu)
@@ -8073,7 +8199,7 @@ struct KeyboardView {
               this.polishNotice = '输入位置已变化，请重新润色';
             }
           }).layoutWeight(1).height(42).backgroundColor(this.skin.accent)
-            .fontColor(this.skin.keyBackground)
+            .fontColor(this.skin.onAccent)
           Button('重新润色').enabled(!this.polishBusy).onClick(() => this.requestPolish())
             .layoutWeight(1).height(42).backgroundColor(this.skin.keyBackground)
             .fontColor(this.skin.keyForeground)
@@ -8132,6 +8258,7 @@ struct KeyboardView {
     this.pendingRemoval = -1;
     this.managing = -1;
     this.touchCandidateMenu = false;
+    this.glossCard = null;
     if (action.id === 'READ_ALOUD') {
       // 和「加入生词本」一样先核对这一格还是打开菜单时的那个候选，再读打开菜单时共享层答的那段英文。
       if (index < 0 || index >= this.candidates.length || action.spoken === undefined ||
@@ -8218,9 +8345,13 @@ struct KeyboardView {
     this.touchCandidateMenu = false;
     this.managing = -1;
     const candidate: CandidateEntry = this.candidates[index];
-    // A 2in1 touch screen keeps the gloss alone, because its right click already opens management. A phone has no right click, so its long press is the only way to 优先显示, 固定排位 and 删除词条, and opens the whole menu the way Android's does.
+    // 2in1 触屏长按只给释义，词库操作在右键菜单里。手机没有右键，长按是到达优先显示、固定排位和删除词条的唯一入口：它打开释义卡片（#10915），整份菜单放在卡片的次要操作里。
     const glossOnly: boolean = KeyboardFormFactor.isDesktop();
-    if (glossOnly && CandidateManagementAction.touchActions(
+    if (!glossOnly) {
+      this.openGlossCard('strip', index);
+      return;
+    }
+    if (CandidateManagementAction.touchActions(
       candidate.annotation, candidate.annotationIsTranslation, candidate.text,
       KeyboardSession.shared.readAloudText(
         candidate.text, candidate.annotationIsTranslation ? candidate.annotation : '')).length === 0) {
@@ -8228,8 +8359,135 @@ struct KeyboardView {
     }
     this.punctuation = false;
     this.brackets = false;
-    this.touchCandidateMenu = glossOnly;
+    this.touchCandidateMenu = true;
     this.managing = index;
+  }
+
+  /** 打开释义卡片：先画本机已有的译文，还要问在线服务的语言请求回来以后再换上，期间写「正在查询译文」。 */
+  private openGlossCard(origin: GlossCardOrigin, index: number): void {
+    const texts: string[] = this.glossCardTexts(origin);
+    const subject: TranslationCandidate | null = origin === 'strip'
+      ? KeyboardSession.shared.pageTranslationCandidate(index)
+      : index >= 0 && index < this.expanded.length ? this.expanded[index].subject : null;
+    if (index < 0 || index >= texts.length || subject === null) {
+      return;
+    }
+    this.punctuation = false;
+    this.brackets = false;
+    this.managing = -1;
+    this.touchCandidateMenu = false;
+    this.expandedGloss = -1;
+    this.pendingRemoval = -1;
+    const lookup: GlossCardLookup | null = KeyboardSession.shared.glossCardLookup(subject);
+    const serial: number = ++this.glossCardSerial;
+    this.glossCard = CandidateGlossCardPolicy.card(origin, index, texts[index], subject, lookup,
+      this.glossCardActions(origin, index), serial, this.editing);
+    if (lookup !== null && this.glossCard.pending) {
+      this.fetchGlossCard(subject, lookup, serial, true);
+    }
+  }
+
+  /** 为卡片问在线服务。候选栏换一代候选（停顿后的整句重解）会让进行中的请求作废，卡片还开着时按本机此刻的答案再问一次；再作废就按本机已有的画。 */
+  private fetchGlossCard(subject: TranslationCandidate, lookup: GlossCardLookup, serial: number, retry: boolean): void {
+    KeyboardSession.shared.glossCardFetch(subject, lookup).then((fetched: GlossCardLookup | null): void => {
+      const card: GlossCard | null = this.glossCard;
+      if (card === null || card.serial !== serial) {
+        return;
+      }
+      if (fetched === null && retry) {
+        const again: GlossCardLookup | null = KeyboardSession.shared.glossCardLookup(subject);
+        if (again !== null && CandidateGlossCardPolicy.pending(again)) {
+          this.fetchGlossCard(subject, again, serial, false);
+          return;
+        }
+        this.glossCard = CandidateGlossCardPolicy.withLookup(card, again);
+        return;
+      }
+      this.glossCard = CandidateGlossCardPolicy.withLookup(card, fetched ?? CandidateGlossCardPolicy.settled(lookup));
+    });
+  }
+
+  private closeGlossCard(): void {
+    this.glossCard = null;
+    this.pendingRemoval = -1;
+  }
+
+  /** 卡片打开的那一处此刻各格的原文：候选栏这一页，或展开面板的整份列表。 */
+  private glossCardTexts(origin: GlossCardOrigin): string[] {
+    return origin === 'strip'
+      ? this.candidates.map((entry: CandidateEntry): string => entry.text)
+      : this.expanded.map((row: ExpandedCandidate): string => row.text);
+  }
+
+  /** 原来长按菜单里的操作：候选栏是手机长按的整份菜单，展开面板只有上屏释义。 */
+  private glossCardActions(origin: GlossCardOrigin, index: number): ManagementAction[] {
+    return origin === 'strip' ? this.managementActionsFor(index, false) : this.expandedGlossActionsFor(index);
+  }
+
+  /** 候选栏重画或展开列表重取以后：组字变了就关掉卡片；没变（例如停顿后的整句重解只是换了一代、重排了顺序）就按原文找到这个候选现在的位置，换上那一格此刻的菜单（释义晚到时会多出上屏释义）。它不在这一页了，菜单先留着，点下去时再找。 */
+  private refreshGlossCard(): void {
+    const card: GlossCard | null = this.glossCard;
+    if (card === null) {
+      return;
+    }
+    if (!CandidateGlossCardPolicy.stillComposing(card, this.editing)) {
+      this.closeGlossCard();
+      return;
+    }
+    const index: number = CandidateGlossCardPolicy.currentIndex(card, this.glossCardTexts(card.origin));
+    if (index >= 0) {
+      this.glossCard = CandidateGlossCardPolicy.withActions(card, this.glossCardActions(card.origin, index), index);
+    }
+  }
+
+  /** 「上屏译文」：先上屏第一目标语言的译文，再结束组字，与上屏释义同一个顺序。 */
+  private commitGlossCard(): void {
+    const card: GlossCard | null = this.glossCard;
+    this.closeGlossCard();
+    if (card === null || card.translation === null || !CandidateGlossCardPolicy.stillComposing(card, this.editing)) {
+      return;
+    }
+    KeyboardSession.shared.insert(card.translation);
+    KeyboardSession.shared.cancel();
+    if (card.origin === 'expanded') {
+      this.show(SURFACE_NONE);
+    }
+    this.diagnostic = CandidateGlossCardPolicy.commitAnnouncement(card.translation);
+    this.clearDiagnosticLater();
+  }
+
+  /** 「复制译文」：写进系统剪贴板，卡片留着；成没成都在候选栏说一句。 */
+  private copyGlossCard(): void {
+    const card: GlossCard | null = this.glossCard;
+    if (card === null || card.translation === null) {
+      return;
+    }
+    KeyboardSession.shared.copyText(card.translation).then((code: number | undefined | null): void => {
+      this.diagnostic = code === null ? GLOSS_CARD_COPIED : CandidateGlossCardPolicy.copyFailureNotice(code);
+      this.clearDiagnosticLater();
+    });
+  }
+
+  /** 卡片次要操作行里的一项：候选栏的照原来的菜单执行，展开面板的上屏释义照原来的路径上屏。 */
+  private glossCardAction(action: ManagementAction): void {
+    const card: GlossCard | null = this.glossCard;
+    if (card === null) {
+      return;
+    }
+    // 词库操作按序号做，序号按原文在这一代候选里重新找：卡片开着时候选可能已经重排。找不到就什么也不做，关掉卡片。
+    const index: number = CandidateGlossCardPolicy.currentIndex(card, this.glossCardTexts(card.origin));
+    if (index < 0) {
+      this.closeGlossCard();
+      return;
+    }
+    if (card.origin === 'strip') {
+      // 执行了就关掉卡片；「删除词条…」第一次只是待确认，卡片留着。
+      this.manageCandidate(action, index);
+      return;
+    }
+    this.closeGlossCard();
+    this.expandedGloss = index;
+    this.insertExpandedGloss();
   }
 
   /** All three at once: they are one decision about how the keyboard is laid out. */
@@ -8697,6 +8955,7 @@ struct KeyboardView {
     voiceConfiguration.local_stop_sensitivity =
       VoiceRecordingBehaviourPolicy.stopSensitivity(voiceConfiguration, this.voicePauseEnds && !fromHotkey);
     this.voiceText = '';
+    this.voiceTextPunctuated = false;
     this.voiceHeard = '';
     this.voiceLevel = 0;
     this.voiceNotice = '正在聆听…';
@@ -8711,6 +8970,7 @@ struct KeyboardView {
       if (text.length > 0
           && (final || VoiceRecordingBehaviourPolicy.showsInterimResults(voiceConfiguration))) {
         this.voiceText = VoiceRecognitionPolicy.result(text);
+        this.voiceTextPunctuated = false;
         if (!final && this.touchDesign()) {
           this.voiceHeard = this.voiceText;
         }
@@ -8770,6 +9030,14 @@ struct KeyboardView {
         (this.voiceText.length > 0 ? '已忽略过期的语音结果。' : '没有识别到语音。');
       return;
     }
+    // 最终结果在分流前处理一次标点：审阅面板和保留待插入的文字都显示处理后的文本，用户确认的就是上屏的内容。
+    const punctuated: string = KeyboardSession.shared.voicePunctuation(accepted);
+    this.voiceText = punctuated;
+    this.voiceTextPunctuated = true;
+    if (punctuated.length === 0) {
+      this.voiceNotice = '没有识别到文字。';
+      return;
+    }
     if (!VoiceRecognitionPolicy.skipsReview(this.touchDesign(), this.surface === SURFACE_VOICE)) {
       this.voiceNotice = '识别完成，可提交结果。';
       return;
@@ -8778,13 +9046,14 @@ struct KeyboardView {
       this.voiceNotice = '输入位置已变化，结果已保留，可点插入文字。';
       return;
     }
-    KeyboardSession.shared.insertVoiceResult(accepted);
+    KeyboardSession.shared.markVoicePunctuationApplied();
+    KeyboardSession.shared.insertVoiceResult(punctuated);
     this.voiceText = '';
     this.voiceNotice = '';
-    this.voiceDone = accepted;
+    this.voiceDone = punctuated;
     this.voiceDoneTimer = setTimeout((): void => {
       this.voiceDoneTimer = -1;
-      if (this.voiceDone !== accepted) {
+      if (this.voiceDone !== punctuated) {
         return;
       }
       this.voiceDone = '';
@@ -8870,6 +9139,7 @@ struct KeyboardView {
     // Cancelled rather than finished: nothing was recognised, so there is nothing to announce.
     KeyboardSession.shared.setVoiceRecording(false, true);
     this.voiceText = '';
+    this.voiceTextPunctuated = false;
     this.voiceNotice = '已取消语音识别';
     KeyboardSession.shared.voiceCancel();
     this.voiceGeneration = 0;
@@ -8880,8 +9150,17 @@ struct KeyboardView {
     if (text.length === 0 || this.voiceBusy) {
       return;
     }
-    KeyboardSession.shared.insertVoiceResult(text);
+    // deliverVoice 已处理过的最终结果（含用户在面板里改过的）原样上屏；只有出错后留下的中间结果在这里补一次处理。
+    const punctuated: string = this.voiceTextPunctuated
+      ? text : KeyboardSession.shared.voicePunctuation(text);
+    if (punctuated.length === 0) {
+      this.voiceNotice = '没有识别到文字。';
+      return;
+    }
+    KeyboardSession.shared.markVoicePunctuationApplied();
+    KeyboardSession.shared.insertVoiceResult(punctuated);
     this.voiceText = '';
+    this.voiceTextPunctuated = false;
     this.voiceNotice = '已提交';
   }
 
@@ -9602,6 +9881,9 @@ struct KeyboardView {
         if ($$.kana[direction].length > 0) {
           KeyboardSession.shared.softKeyPress(KeyIdPolicy.japaneseKana(keyIndex));
         }
+        for (const touch of event.changedTouches) {
+          KeyboardSession.shared.keyUp(touch.id);
+        }
         this.sendKana($$, direction);
         this.flickKeyIndex = -1;
         this.flickDirection = DIRECTION_CENTRE;
@@ -9675,10 +9957,14 @@ struct KeyboardView {
    */
   /** The one action the expanded panel's long press offers, or none when the row lost its gloss. */
   private expandedGlossActions(): ManagementAction[] {
-    if (this.expandedGloss < 0 || this.expandedGloss >= this.expanded.length) {
+    return this.expandedGlossActionsFor(this.expandedGloss);
+  }
+
+  private expandedGlossActionsFor(index: number): ManagementAction[] {
+    if (index < 0 || index >= this.expanded.length) {
       return [];
     }
-    const row: ExpandedCandidate = this.expanded[this.expandedGloss];
+    const row: ExpandedCandidate = this.expanded[index];
     if (!row.annotationIsTranslation) {
       return [];
     }
@@ -9710,13 +9996,18 @@ struct KeyboardView {
   }
 
   private managementActions(): ManagementAction[] {
+    return this.managementActionsFor(this.managing, this.touchCandidateMenu);
+  }
+
+  /** 第 `index` 个候选的长按菜单；`touchOnly` 是 2in1 触屏长按的那一份（释义和最后一组）。 */
+  private managementActionsFor(index: number, touchOnly: boolean): ManagementAction[] {
     const managed: CandidateEntry | null =
-      this.managing >= 0 && this.managing < this.candidates.length
-        ? this.candidates[this.managing] : null;
+      index >= 0 && index < this.candidates.length
+        ? this.candidates[index] : null;
     // 「朗读」要读的英文：显示着的英文释义（Engine 的注释不算），或候选本身是英文。
     const spoken: string | null = managed === null ? null : KeyboardSession.shared.readAloudText(
       managed.text, managed.annotationIsTranslation ? managed.annotation : '');
-    if (this.touchCandidateMenu) {
+    if (touchOnly) {
       return managed === null ? [] : CandidateManagementAction.touchActions(
         managed.annotation, managed.annotationIsTranslation, managed.text, spoken);
     }
@@ -9977,7 +10268,10 @@ struct KeyboardView {
                 })
                 // 原版对这里的长按给出与工具条上相同的注释。只给注释：管理操作按页面而不是按这个列表编号，所以这里没有对它们有意义的序号。
                 .gesture(LongPressGesture().onAction(() => {
-                  if (this.expanded[cell.index].annotationIsTranslation) {
+                  // 手机上打开释义卡片（#10915），卡片里仍有上屏释义这一项。
+                  if (!KeyboardFormFactor.isDesktop()) {
+                    this.openGlossCard('expanded', cell.index);
+                  } else if (this.expanded[cell.index].annotationIsTranslation) {
                     this.expandedGloss = cell.index;
                   }
                 }))
@@ -11923,6 +12217,48 @@ struct KeyboardView {
     })
   }
 
+  /** 释义卡片盖住按键区；候选栏那一段是一层透明的点按区，点它关掉卡片，这一下不落到候选上。 */
+  @Builder
+  glossCardOverlay() {
+    Column() {
+      Column()
+        .width('100%')
+        .height(this.overlayTopInset())
+        .accessibilityLevel('no')
+        .onClick(() => this.closeGlossCard())
+      Column() {
+        CandidateGlossCard({
+          card: this.glossCard!,
+          foreground: this.skin.keyForeground,
+          secondary: this.skin.secondary,
+          accent: this.skin.accent,
+          surface: this.skin.keyBackground,
+          hair: this.skin.hair,
+          primaryBackground: this.skin.actionBackground,
+          primaryForeground: this.skin.actionForeground,
+          buttonBackground: this.skin.functionKeyBackground,
+          buttonForeground: this.skin.functionKeyForeground,
+          onCommit: (): void => this.commitGlossCard(),
+          onCopy: (): void => this.copyGlossCard(),
+          onClose: (): void => this.closeGlossCard(),
+          onAction: (action: ManagementAction): void => this.glossCardAction(action)
+        })
+      }
+      .width('100%')
+      .layoutWeight(1)
+      // 键面色可能是半透明的，垫一层键盘底色，下面的按键不透出来。
+      .backgroundColor(this.skin.background)
+      .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
+    }
+    .width('100%')
+    .height('100%')
+    .padding({
+      left: KeyboardMetrics.TOUCH_ROOT_HORIZONTAL_PADDING_VP + this.adjustFrame().left,
+      right: KeyboardMetrics.TOUCH_ROOT_HORIZONTAL_PADDING_VP + this.adjustFrame().right,
+      bottom: KeyboardMetrics.TOUCH_ROOT_BOTTOM_PADDING_VP + this.adjustFrame().lift
+    })
+  }
+
   @Builder
   keyboardStack() {
     Stack({ alignContent: Alignment.Top }) {
@@ -11962,6 +12298,9 @@ struct KeyboardView {
           right: this.overlayHorizontalInset() + this.adjustFrame().right,
           top: this.overlayTopInset()
         })
+      }
+      if (this.glossCard !== null) {
+        this.glossCardOverlay()
       }
       if (this.keyPreview !== null) {
         // 按键预览气泡，在所有内容之上只绘制一次，且不接收触摸。第一行键的气泡会向上伸进工具条，两者在同一个窗口里。
@@ -12027,10 +12366,13 @@ struct KeyboardView {
         }
         .width('100%')
         .margin({ top: this.stripShown() ? KeyboardMetrics.STRIP_GAP_VP : 0 })
+        // 按键的触摸处理完之后冒泡到这里：手指落在按键上就振动，抬手上屏时不再振（#10757）。
+        .onTouch((event: TouchEvent): void => this.keyPressTouch(event))
       }
       .width('100%')
       // 键盘调整时遮罩下的工具条和按键只是预览：读屏整块跳过，免得双击落到遮罩下的「表情」或按键上，读屏只走遮罩上的柄和按钮（`adjustOverlay`），与 Android 的 IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS、iOS 的 accessibilityViewIsModal 相同。
-      .accessibilityLevel(this.surface === SURFACE_GEOMETRY ? 'no-hide-descendants' : 'auto')
+      .accessibilityLevel(CandidateGlossCardPolicy.keysAccessibilityLevel(this.surface === SURFACE_GEOMETRY,
+        this.glossCard !== null))
       // 键盘调整收窄或挪开时两侧多让出 `adjustFrame` 的左右，底部抬高时下面多让出抬高的那一段：让出的地方只有键盘底色，点了不落到按键上。
       .padding({
         left: KeyboardMetrics.TOUCH_ROOT_HORIZONTAL_PADDING_VP + this.adjustFrame().left,

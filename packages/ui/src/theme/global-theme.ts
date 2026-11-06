@@ -69,12 +69,14 @@ export type ThemeCatalogEntry = {
 /** `msime_client_theme_catalog()`. */
 export type ThemeCatalog = { themes: ThemeCatalogEntry[]; default: GlobalTheme };
 
-/** The seven candidate colour pickers of the custom theme, each `#RRGGBB` or unset. */
+/** The eight candidate colour pickers of the custom theme, each `#RRGGBB` or unset. */
 export type CustomCandidateColors = {
   text?: string | null;
   number?: string | null;
   accent?: string | null;
   selected?: string | null;
+  /** 选中候选的文字颜色（#10740），压过由选中底色、皮肤包和强调色推出的选中文字色。 */
+  selected_text?: string | null;
   hover?: string | null;
   surface?: string | null;
   border?: string | null;
@@ -309,7 +311,7 @@ function readableText(background: string): string {
   return luminance > 0.179 ? "#000000" : "#FFFFFF";
 }
 
-/** The candidate palette `resolve()` gives a custom theme over `base`, layered the same way: the base palette, then `packagePalette` (the package's palette for the drawn mode, only when the package is drawn in that layout and mode), then the pickers. A text picker also sets the numbers at `9D` alpha unless the number picker is set, the secondary text is the package's translation colour or else the numbers, and over a built-in base the selected row, hover fill, selected text and selected numbers follow the final accent, text and numbers unless set. A selected-row picker instead gives the selected text black or white by the row's luminance, with the selected numbers that colour at `9D` alpha, so a chosen highlight stays readable. `null` when nothing is set, like the Rust palette. `custom-theme-parity.json`, written by the Rust tests, pins this to `resolve()`. */
+/** The candidate palette `resolve()` gives a custom theme over `base`, layered the same way: the base palette, then `packagePalette` (the package's palette for the drawn mode, only when the package is drawn in that layout and mode), then the pickers. A text picker also sets the numbers at `9D` alpha unless the number picker is set, the secondary text is the package's translation colour or else the numbers, and over a built-in base the selected row, hover fill, selected text and selected numbers follow the final accent, text and numbers unless set. A selected-row picker instead gives the selected text black or white by the row's luminance, with the selected numbers that colour at `9D` alpha, so a chosen highlight stays readable; a selected-text picker beats both and gives the selected numbers its own colour at `9D`. `null` when nothing is set, like the Rust palette. `custom-theme-parity.json`, written by the Rust tests, pins this to `resolve()`. */
 export function customCandidatePalette(
   base: GlobalTheme | undefined,
   colors: CustomCandidateColors | undefined,
@@ -329,7 +331,9 @@ export function customCandidatePalette(
   const number = explicitNumber ?? basePalette?.number ?? null;
   const accent = slot("accent") ?? basePalette?.accent ?? null;
   const pickedSelected = picked(colors?.selected);
-  const pickedSelectedText = pickedSelected ? readableText(pickedSelected) : null;
+  // 选中文字取色器最优先，其次是选中底色取色器按亮度推出的黑白（#10740，与 `resolve()` 同序）。
+  const pickedSelectedText =
+    picked(colors?.selected_text) ?? (pickedSelected ? readableText(pickedSelected) : null);
   const palette: CandidateThemePalette = {
     surface: slot("surface") ?? basePalette?.surface ?? null,
     border: slot("border") ?? basePalette?.border ?? null,

@@ -53,6 +53,8 @@ struct Fixture {
     multilingual_conversion: Option<msime_engine::host::session::MultilingualComposition>,
     /// 边缘选字回归直接给出引擎已确认的字符，不在夹具里复制汉字判断。
     edge_commits: Option<[String; 2]>,
+    /// 引擎快照的 `grid_helpcode_constrained`：候选是网格辅助码筛过的。
+    grid_helpcode_constrained: bool,
 }
 
 #[cfg(unix)]
@@ -1065,6 +1067,7 @@ impl InputEngine for Fixture {
             nine_key_reading: String::new(),
             nine_key_single_character: false,
             nine_key_strokes: String::new(),
+            grid_helpcode_constrained: self.grid_helpcode_constrained,
             candidate_codes: self.codes.clone(),
             candidate_annotations: self
                 .words
@@ -1105,6 +1108,7 @@ impl InputEngine for Fixture {
             editing_text: self.text.clone(),
             multilingual_conversion: self.multilingual_conversion.clone(),
             caret_position: self.text.len(),
+            helpcode_trigger: None,
             segment_raw_boundaries: vec![],
             candidates: if self.text.is_empty() {
                 vec![]
@@ -1805,6 +1809,7 @@ fn runtime() -> Runtime<Fixture> {
             grid_limit: 0,
             multilingual_conversion: None,
             edge_commits: None,
+            grid_helpcode_constrained: false,
         },
         5,
     )
@@ -1865,6 +1870,7 @@ fn several_candidates_from_one_provider_take_their_seat_as_a_group() {
                 grid_limit: 0,
                 multilingual_conversion: None,
                 edge_commits: None,
+                grid_helpcode_constrained: false,
             },
             9,
         )
@@ -2116,6 +2122,7 @@ fn promoted_english_candidate_keeps_the_first_seat_with_cloud_and_ai() {
                 grid_limit: 0,
                 multilingual_conversion: None,
                 edge_commits: None,
+                grid_helpcode_constrained: false,
             },
             9,
         )
@@ -2456,6 +2463,7 @@ fn a_chosen_phrase_piece_waits_for_the_rest_of_the_phrase() {
                 grid_limit: 0,
                 multilingual_conversion: None,
                 edge_commits: None,
+                grid_helpcode_constrained: false,
             },
             5,
         )
@@ -2564,6 +2572,7 @@ fn a_phrase_piece_survives_the_reading_being_deleted() {
             grid_limit: 0,
             multilingual_conversion: None,
             edge_commits: None,
+            grid_helpcode_constrained: false,
         },
         5,
     )
@@ -2791,6 +2800,7 @@ impl InputEngine for PhraseEngine {
             display_reading: String::new(),
             editing_text: self.reading.clone(),
             caret_position: self.caret.min(self.reading.len()),
+            helpcode_trigger: None,
             segment_raw_boundaries: Vec::new(),
             conversion: self.conversion.clone(),
             candidates: if self.reading.is_empty() {
@@ -3443,6 +3453,7 @@ fn candidate_codes_follow_candidates_in_page_and_complete_snapshots() {
             grid_limit: 0,
             multilingual_conversion: None,
             edge_commits: None,
+            grid_helpcode_constrained: false,
         },
         2,
     )
@@ -5466,6 +5477,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         shuangpin_preedit_uses_raw: true,
         shuangpin_preedit_separated: false,
         force_cantonese_shuangpin: false,
+        cantonese_output_conversion: None,
         single_character_only: false,
         caret_edit_suffix: false,
         learning: false,
@@ -5476,11 +5488,13 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         fuzzy_pinyin_rules: 0,
         wubi_mixed_pinyin: false,
         wubi_z_wildcard: false,
+        wubi_reverse_code: true,
         wubi_profile: 0,
         helpcode: false,
         strict_quanpin_helpcode: false,
         show_helpcode: true,
         shuangpin_helpcode_modes: msime_engine::ShuangpinHelpcodeModes::default(),
+        grid_helpcode: false,
         helpcode_schema: "ziranma".into(),
         helpcode_trigger_key: None,
         chinese_punctuation: true,
@@ -5855,6 +5869,47 @@ fn temporary_japanese_long_vowels_are_spelling_on_both_host_routes() {
             assert_eq!(transition.view.local_mode, "none");
         }
     }
+}
+
+/// #10731：辅助码前导键进了视图，宿主画按键原文时才能把它插回去；两位码齐了就从 JSON 里消失。
+#[test]
+fn helpcode_trigger_reaches_the_view_json() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut options = real_engine_options(directory.path());
+    options.helpcode = true;
+    options.helpcode_trigger_key = Some(b';');
+    let session = msime_engine::host::Session::new(&options).unwrap();
+    let mut runtime = Runtime::new(session, 5).unwrap();
+    runtime.focus(true).unwrap();
+    let mut press = |value: u8| {
+        runtime
+            .dispatch(Action::Character {
+                value,
+                shift: false,
+            })
+            .unwrap()
+    };
+    press(b'n');
+    let typed = press(b'i');
+    assert!(serde_json::to_value(&typed.view).unwrap()["helpcode_trigger"].is_null());
+    let entered = press(b';');
+    assert!(entered.handled);
+    assert_eq!(entered.view.editing_text, "ni");
+    assert_eq!(entered.view.preedit, "ni;");
+    assert_eq!(entered.view.preedit_caret, 3);
+    assert_eq!(
+        serde_json::to_value(&entered.view).unwrap()["helpcode_trigger"],
+        serde_json::json!({"key": ";", "position": 2})
+    );
+    let one = press(b'f');
+    assert_eq!(one.view.editing_text, "niF");
+    assert_eq!(one.view.preedit, "ni';F");
+    let two = press(b'r');
+    assert_eq!(two.view.helpcode_trigger, None);
+    assert!(serde_json::to_value(&two.view)
+        .unwrap()
+        .get("helpcode_trigger")
+        .is_none());
 }
 
 #[test]
@@ -6597,6 +6652,7 @@ impl InputEngine for DigitCommitsEngine {
             display_reading: self.reading.clone(),
             editing_text: self.reading.clone(),
             caret_position: self.reading.len(),
+            helpcode_trigger: None,
             segment_raw_boundaries: Vec::new(),
             candidates: words,
             ..EngineSnapshot::default()
@@ -7190,7 +7246,7 @@ fn wubi_literal_marks_do_not_open_table_modes() {
 
 #[test]
 fn a_wubi_wildcard_four_code_never_tops_on_the_fifth_key() {
-    for profile in [0, 1] {
+    for profile in [0, 1, 2] {
         for mixed in [false, true] {
             let directory = tempfile::tempdir().unwrap();
             let mut options = real_engine_options(directory.path());
@@ -7208,7 +7264,9 @@ fn a_wubi_wildcard_four_code_never_tops_on_the_fifth_key() {
                 "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
                  INSERT INTO wubi86 VALUES('wqty','合成甲',100),('wqry','合成乙',90);
                  CREATE TABLE wubi98(key TEXT,value TEXT,weight INTEGER);
-                 INSERT INTO wubi98 SELECT * FROM wubi86;",
+                 INSERT INTO wubi98 SELECT * FROM wubi86;
+                 CREATE TABLE wubixsj(key TEXT,value TEXT,weight INTEGER);
+                 INSERT INTO wubixsj SELECT * FROM wubi86;",
             )
             .unwrap();
             let mut runtime =
@@ -7229,7 +7287,7 @@ fn a_wubi_wildcard_four_code_never_tops_on_the_fifth_key() {
 
 #[test]
 fn mixed_wubi_continues_a_pinyin_reading_past_a_native_four_code() {
-    for profile in [0, 1] {
+    for profile in [0, 1, 2] {
         for mixed in [false, true] {
             for (next, shift, continues) in [
                 (b'i', false, true),
@@ -7252,6 +7310,8 @@ fn mixed_wubi_continues_a_pinyin_reading_past_a_native_four_code() {
                         INSERT INTO wubi86 VALUES('guiy','合成甲',100),('guiy','合成乙',90);
                         CREATE TABLE wubi98(key TEXT,value TEXT,weight INTEGER);
                         INSERT INTO wubi98 SELECT * FROM wubi86;
+                        CREATE TABLE wubixsj(key TEXT,value TEXT,weight INTEGER);
+                        INSERT INTO wubixsj SELECT * FROM wubi86;
                         CREATE TABLE tbl_2_g(key TEXT,jp TEXT,value TEXT,weight INTEGER);
                         INSERT INTO tbl_2_g VALUES('gui''yi','gy','合成',1000);",
                 )
@@ -7745,6 +7805,7 @@ impl InputEngine for WubiMixedEngine {
             display_reading: String::new(),
             editing_text: self.reading.clone(),
             caret_position: self.reading.len(),
+            helpcode_trigger: None,
             segment_raw_boundaries: Vec::new(),
             candidates: words,
             caret_edit_suffix: self.caret_edit_suffix && count > 0,
@@ -7878,6 +7939,7 @@ fn withholding_runtime(offered: usize, withheld: usize, page_size: u8) -> Runtim
             grid_limit: 0,
             multilingual_conversion: None,
             edge_commits: None,
+            grid_helpcode_constrained: false,
         },
         page_size,
     )
@@ -8893,6 +8955,7 @@ impl InputEngine for SpellingMarksEngine {
             display_reading: String::new(),
             editing_text: self.text.clone(),
             caret_position: self.text.len(),
+            helpcode_trigger: None,
             segment_raw_boundaries: Vec::new(),
             candidates: Vec::new(),
             ..EngineSnapshot::default()
@@ -9334,11 +9397,11 @@ fn cantonese_dictionary(directory: &std::path::Path) -> String {
     path.to_str().unwrap().to_owned()
 }
 
-/// A real Engine on the Cantonese scheme with learning on, so a learning path the scheme failed to skip would write. Focused.
-fn cantonese_runtime(directory: &std::path::Path) -> Runtime {
+/// A real Engine on the Cantonese scheme with the learning switch as given. Since #10758 Cantonese learns like Pinyin while the switch is on (frequency adjustment and words made from pieces), and writes nothing while it is off. Focused.
+fn cantonese_runtime(directory: &std::path::Path, learning: bool) -> Runtime {
     let mut options = real_engine_options(directory);
     options.scheme = CANTONESE_SCHEME;
-    options.learning = true;
+    options.learning = learning;
     options.cantonese_dictionary = cantonese_dictionary(directory);
     let session = msime_engine::host::Session::new(&options).unwrap();
     let mut runtime = Runtime::new(session, 5).unwrap();
@@ -9405,7 +9468,7 @@ fn database_rows(root: &std::path::Path) -> Vec<(String, String, i64)> {
 #[test]
 fn cantonese_digits_select_and_the_apostrophe_reaches_the_engine() {
     let directory = tempfile::tempdir().unwrap();
-    let mut runtime = cantonese_runtime(directory.path());
+    let mut runtime = cantonese_runtime(directory.path(), true);
 
     let typed = compose_cantonese(&mut runtime, "neihou");
     assert_eq!(typed.view.scheme, CANTONESE_SCHEME);
@@ -9460,37 +9523,24 @@ fn cantonese_digits_select_and_the_apostrophe_reaches_the_engine() {
     }
 }
 
-/// A row covering only the leading syllables goes to the document at once, even for a host that draws held phrase pieces, and the rest keeps composing. Nothing the user picks is learned: the journal and the main dictionary keep their rows, and the same reading comes back in the same order.
+/// A row covering only the leading syllables goes to the document at once, even for a host that draws held phrase pieces, and the rest keeps composing. With the learning switch off nothing the user picks is learned: the journal and the main dictionary keep their rows, and the same reading comes back in the same order. With the switch on Cantonese learns like Pinyin (#10758), which the Engine's own tests cover; here it only serves as the control.
 #[test]
-fn a_cantonese_partial_selection_commits_at_once_and_learns_nothing() {
-    let directory = tempfile::tempdir().unwrap();
-    let dictionaries = directory.path().join("dictionaries");
-    std::fs::create_dir_all(&dictionaries).unwrap();
-    rusqlite::Connection::open(dictionaries.join(msime_engine::assets::MAIN_DICTIONARY))
-        .unwrap()
-        .execute_batch(
-            "CREATE TABLE tbl_2_n(key TEXT, jp TEXT, value TEXT, weight INTEGER);\
-             INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',1000),('ni''hao','nh','拟好',500);",
-        )
-        .unwrap();
-
-    // The control: the same pick under Quanpin with the same options writes the journal, so the comparison below would see a Cantonese write. The baseline is taken after composing, because reading candidates can already create the journal with empty tables, so only the pick itself can change the counts.
-    let mut options = real_engine_options(directory.path());
-    options.learning = true;
-    let mut quanpin = Runtime::new(msime_engine::host::Session::new(&options).unwrap(), 5).unwrap();
-    quanpin.focus(true).unwrap();
-    for value in *b"nihao" {
-        character(&mut quanpin, value);
-    }
-    let initial = database_rows(directory.path());
-    assert_eq!(
-        character(&mut quanpin, b'2').commit.as_deref(),
-        Some("拟好")
-    );
-    drop(quanpin);
+fn a_cantonese_partial_selection_commits_at_once_and_learns_nothing_with_learning_off() {
+    // The control: the same two pieces picked with learning on make a word, so the comparison below would see a write. It runs in a directory of its own, because the learned rows are read back whatever the switch says and would reorder the candidates below. The baseline is taken after composing, because reading candidates can already create the journal with empty tables, so only the picks themselves can change the counts.
+    let control = tempfile::tempdir().unwrap();
+    let mut learning = cantonese_runtime(control.path(), true);
+    learning.set_phrase_preedit(true);
+    compose_cantonese(&mut learning, "neihou");
+    let initial = database_rows(control.path());
+    let piece = character(&mut learning, b'3');
+    assert_eq!(piece.commit.as_deref(), Some("你"));
+    let id = piece.view.candidates[1].id;
+    let rest = learning.dispatch(Action::Select(id)).unwrap();
+    assert_eq!(rest.commit.as_deref(), Some("號"));
+    drop(learning);
     msime_engine::flush_personal_learning();
     // Some table must gain rows; a journal created with empty tables does not count as a write.
-    let learned = database_rows(directory.path());
+    let learned = database_rows(control.path());
     assert!(
         learned.iter().any(|(file, table, count)| {
             let previous = initial
@@ -9499,13 +9549,14 @@ fn a_cantonese_partial_selection_commits_at_once_and_learns_nothing() {
                 .map_or(0, |(_, _, before)| *before);
             *count > previous
         }),
-        "the Quanpin pick wrote no rows: {initial:?} -> {learned:?}"
+        "the picks with learning on wrote no rows: {initial:?} -> {learned:?}"
     );
 
-    let mut runtime = cantonese_runtime(directory.path());
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = cantonese_runtime(directory.path(), false);
     runtime.set_phrase_preedit(true);
-    let before = database_rows(directory.path());
     compose_cantonese(&mut runtime, "neihou");
+    let before = database_rows(directory.path());
     let first = character(&mut runtime, b'3');
     assert!(first.handled);
     assert_eq!(first.commit.as_deref(), Some("你"));
@@ -10878,6 +10929,8 @@ mod candidate_scorer;
 
 mod prediction_rerank;
 
+mod deferred_scorer;
+mod grid_helpcode;
 mod sentence_pool;
 mod sentence_start;
 

@@ -293,6 +293,9 @@ private:
   std::optional<ComponentFailureSite> failure_site_;
   unsigned font_size_ = 16;
   unsigned preedit_font_size_ = 16;
+  // 共享偏好 `candidate_font_weight`：预编辑以外的候选窗文字用 font_weight_，预编辑用 preedit_weight_（至少半粗）。缺省就是原来的常规和半粗。
+  DWRITE_FONT_WEIGHT font_weight_ = DWRITE_FONT_WEIGHT_NORMAL;
+  DWRITE_FONT_WEIGHT preedit_weight_ = DWRITE_FONT_WEIGHT_SEMI_BOLD;
   // Direct2D's imaging factory is a COM server, and this thread is the Server's
   // own UI thread, which otherwise never enters an apartment.
   struct Apartment {
@@ -363,6 +366,8 @@ private:
   float decoration_offset_ = 0.0f;
   // 内容卡片（行、首行和点击都按它的坐标排）四周的透明空白，DIP。没有 canvas 时就是阴影边距；canvas 时由 card_bounds 和 decoration_offset_ 一起算：面板四周的空白（阴影边距加外留白或挂件伸出去的距离）再加上 canvas_offset_。
   CandidateShadowInsets shadow_insets_{};
+  // 同一组空白里阴影边距那部分取整后的设备像素，card_bounds 按它给窗口留边；shadow_insets_ 的阴影部分就是它除回 DIP，绘制扣掉的也是它（candidate_card_extent）。
+  CandidateShadowPixels shadow_pixels_{};
   CandidateSkinCanvas canvas_;
   // canvas_ 的挂件按 z_index 分成面板之下和面板之上两层。
   CandidateCanvasLayers canvas_layers_;

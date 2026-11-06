@@ -2,6 +2,7 @@
 #include "../../common/HostApiString.h"
 #include "../../common/CrashRecorder.h"
 #include "key_sound_render.h"
+#include <hilog/log.h>
 #include <napi/native_api.h>
 #include <zlib.h>
 #include <cerrno>
@@ -419,6 +420,8 @@ static napi_value SnapshotRestore(napi_env env, napi_callback_info info) {
 TEXT_ENTRY(VoiceHotwordCorrect, msime_client_voice_hotword_correct)
 // 本地模型最终文本里的汉字数字改写成数字；纯函数，只改写不自带 ITN 的 kind。
 TEXT_ENTRY(VoiceNormalizeNumbers, msime_client_voice_normalize_numbers)
+// 识别结果上屏前按共享偏好处理标点；只由最终结果路径调用。
+TEXT_ENTRY(VoicePunctuation, msime_client_voice_punctuation)
 TEXT_ENTRY(VoiceLocalModels, msime_client_voice_local_models)
 TEXT_ENTRY(VoiceLocalModelCancel, msime_client_voice_local_model_cancel)
 
@@ -1241,9 +1244,22 @@ static napi_value ResolveOnlineCandidates(napi_env env, napi_callback_info info)
         return response(env, call(handle));                                                         \
     }
 
+static napi_value PollSettledRerank(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    uint64_t handle = 0;
+    uint64_t token = 0;
+    bool accept = false;
+    if (!arguments(env, info, 3, argv) || !argumentHandle(env, argv[0], handle)
+            || !argumentHandle(env, argv[1], token) || !argumentFlag(env, argv[2], accept)) {
+        return invalid(env, "Expected a session handle, a rerank token and a boolean");
+    }
+    return response(env, msime_client_poll_settled_rerank(handle, token, accept));
+}
+
 HANDLE_ENTRY(SnapshotDiscard, msime_client_snapshot_discard)
 HANDLE_ENTRY(View, msime_client_view)
 HANDLE_ENTRY(ResetCache, msime_client_reset_cache)
+HANDLE_ENTRY(StartSettledRerank, msime_client_start_settled_rerank)
 HANDLE_ENTRY(AllCandidates, msime_client_all_candidates)
 HANDLE_ENTRY(TranslationQuery, msime_client_translation_query)
 HANDLE_ENTRY(Destroy, msime_client_destroy)
@@ -1843,6 +1859,8 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("releaseGlossCaches", ReleaseGlossCaches),
         ENTRY("englishCompletions", EnglishCompletions),
         ENTRY("resetCache", ResetCache),
+        ENTRY("startSettledRerank", StartSettledRerank),
+        ENTRY("pollSettledRerank", PollSettledRerank),
         ENTRY("translationGlossSave", TranslationGlossSave),
         ENTRY("translationPlan", TranslationPlan),
         ENTRY("googleLoopback", GoogleLoopback),
@@ -1953,6 +1971,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("voiceHotwords", VoiceHotwords),
         ENTRY("voiceHotwordCorrect", VoiceHotwordCorrect),
         ENTRY("voiceNormalizeNumbers", VoiceNormalizeNumbers),
+        ENTRY("voicePunctuation", VoicePunctuation),
         ENTRY("voiceLocalModels", VoiceLocalModels),
         ENTRY("voiceLocalModelInstall", VoiceLocalModelInstall),
         ENTRY("voiceLocalModelCancel", VoiceLocalModelCancel),
@@ -1977,6 +1996,20 @@ static napi_module client_module = {
     .reserved = { nullptr },
 };
 
+// host-api 自己恢复的失败（音效包、整句模型读不了等）和整句联想「增强」挂上的是哪一档逐键重排（`keyboard reranker onnx small`、`keyboard reranker bundled model`、`keyboard reranker over budget` 等）没有出口时写 stderr，鸿蒙应用进程的 stderr 没人读，装好以后看不出键盘用的是哪个模型。这里转进 hilog（domain 与 ArkTS 侧 KeyboardLog 相同，标签 MSIMEHost），写成 `host_api: <类别>: <细节>`：类别是冒号前固定的英文短语，按 %{public} 写；细节可能带路径和错误原文，按 %{private} 写，正式设备上 hilog 把它记成 <private>，与 Android、iOS 只留类别相同，只有关掉 hilog 隐私开关的调试设备才看得到自测的毫秒数。按 msime_client.h 的约定，这个出口可能在任何线程上被调用，不阻塞、不回调 host-api。
+static void ForwardHostDiagnostic(const char *line) {
+    if (line == nullptr) return;
+    const char *colon = std::strchr(line, ':');
+    size_t length = colon != nullptr ? static_cast<size_t>(colon - line) : std::strlen(line);
+    if (length == 0 || length > 200) return;
+    const std::string category(line, length);
+    const char *detail = colon != nullptr ? colon + 1 : "";
+    while (*detail == ' ') ++detail;
+    OH_LOG_Print(LOG_APP, LOG_INFO, 0x0051, "MSIMEHost", "host_api: %{public}s: %{private}s", category.c_str(), detail);
+}
+
 extern "C" __attribute__((constructor)) void RegisterClientModule(void) {
+    // 在第一个会话之前登记，会话建立时写的那一行也收得到；设置应用和键盘扩展各自加载这个模块，各登记一次。
+    msime_client_set_diagnostic_sink(ForwardHostDiagnostic);
     napi_module_register(&client_module);
 }

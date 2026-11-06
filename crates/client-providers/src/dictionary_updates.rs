@@ -117,6 +117,37 @@ pub fn lease(state: &Path, resources: &Path) -> Option<GenerationLease> {
     })
 }
 
+/// [`lease`]，但只读打开已有的 `<代次>.lock`，不建：给对状态目录没有写权限的输入宿主用（iOS 键盘没有完全访问）。锁文件是装这个代次的 App 建的；不在时为 `None`，调用方不能在没有凭证的情况下用这个代次。
+pub fn lease_read_only(state: &Path, resources: &Path) -> Option<GenerationLease> {
+    let generations = std::fs::canonicalize(root(state).join("generations")).ok()?;
+    let resources = std::fs::canonicalize(resources).ok()?;
+    let name = resources.file_name()?.to_str()?;
+    if resources.parent()? != generations || !is_generation(name) {
+        return None;
+    }
+    let file =
+        file_lock::open_existing_lock_file_read_only(generations.join(format!("{name}.lock")))
+            .ok()?;
+    Some(GenerationLease {
+        _lock: file_lock::ScopedFileLock::try_shared(file).ok()??,
+    })
+}
+
+/// `resources` 是不是 `state` 下的一个下载代次（[`lease`] 会去锁它的那种目录）。
+pub fn is_downloaded_generation(state: &Path, resources: &Path) -> bool {
+    let (Ok(generations), Ok(resources)) = (
+        std::fs::canonicalize(root(state).join("generations")),
+        std::fs::canonicalize(resources),
+    ) else {
+        return false;
+    };
+    resources.parent() == Some(generations.as_path())
+        && resources
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(is_generation)
+}
+
 fn is_generation(name: &str) -> bool {
     name.len() == 64 && name.bytes().all(|b| b.is_ascii_hexdigit())
 }
@@ -202,6 +233,44 @@ fn remove_old_versions(state: &Path) {
             let _ = std::fs::remove_file(generations.join(format!("{name}.lock")));
         }
     }
+}
+
+/// 还留着的下载版本的桌面代次：`installed.json` 的当前和可回退的上一个、`loaded.json` 记录的，以及 `generations/` 下还有清单 `<代次>.json` 的（[`remove_old_versions`] 因为有会话占用或删不掉而留下的版本都在其中）。宿主为每个词库版本准备的工作词库 `user/dictionaries/<代次>` 用的就是这个名字，宿主据此回收下载版本已经删掉的那些（#10735）。清单只看文件名、不读内容：多留一份只是多占空间，少留会删掉还要用的。`generations/` 路径上有符号链接、读不了（不存在除外），或者 `installed.json`、`loaded.json` 在却读不出来时为 `None`，调用方这次什么也不删。
+pub fn retained_generations(state: &Path) -> Option<HashSet<String>> {
+    let folder = root(state);
+    let generations = folder.join("generations");
+    msime_path_trust::reject_symlinked_components(&generations).ok()?;
+    // 文件不在是正常的（还没装过更新、输入法还没建过会话）；在却读不出来时不知道它记着哪一版，不能当作没有。
+    fn optional<T: serde::de::DeserializeOwned>(path: &Path) -> Option<Option<T>> {
+        match std::fs::symlink_metadata(path) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Some(None),
+            _ => read(path).ok().map(Some),
+        }
+    }
+    let mut retained = HashSet::new();
+    let installed: Installed = optional(&folder.join("installed.json"))?.unwrap_or_default();
+    for selection in installed.active.iter().chain(installed.previous.iter()) {
+        retained.insert(selection.desktop.generation().ok()?);
+    }
+    if let Some(loaded) = optional::<Loaded>(&folder.join(LOADED))? {
+        retained.insert(loaded.resources.file_name()?.to_str()?.to_owned());
+    }
+    let entries = match std::fs::read_dir(&generations) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Some(retained),
+        Err(_) => return None,
+    };
+    for entry in entries {
+        let name = entry.ok()?.file_name();
+        if let Some(name) = name
+            .to_str()
+            .and_then(|name| name.strip_suffix(".json"))
+            .filter(|name| is_generation(name))
+        {
+            retained.insert(name.to_owned());
+        }
+    }
+    Some(retained)
 }
 
 #[derive(Serialize, Deserialize)]

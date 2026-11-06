@@ -359,7 +359,7 @@ final class CustomServiceTests: XCTestCase {
 
   func testEngineCodecsPreserveTextAndAudioAndRejectMalformedResponses() throws {
     let text = "你好\n\"测试\""
-    let data = try AppServicesBridge.polishBody("fixture", prompt: "润色", text: text)
+    let data = try AppServicesBridge.polishBody("fixture", endpoint: URL(string: "https://fixture.invalid/v1/chat/completions")!, prompt: "润色", text: text)
     let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     let messages = try XCTUnwrap(json["messages"] as? [[String: String]])
     XCTAssertEqual(messages.last?["content"], text)
@@ -430,14 +430,28 @@ final class CustomServiceTests: XCTestCase {
     XCTAssertThrowsError(try AppServicesBridge.parseResponse(polish, voice: false))
   }
 
+  func testPolishBodyTurnsOffThinkingOnlyForArkSeedModels() throws {
+    func thinking(_ endpoint: String, _ model: String) throws -> [String: String]? {
+      let data = try AppServicesBridge.polishBody(model, endpoint: XCTUnwrap(URL(string: endpoint)), prompt: "润色", text: "合成文本")
+      return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])["thinking"] as? [String: String]
+    }
+    let ark = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
+    XCTAssertEqual(try thinking(ark, "doubao-seed-2-0-mini-260428"), ["type": "disabled"])
+    XCTAssertEqual(try thinking("https://ark.cn-shanghai.volces.com/api/v3/chat/completions", "Doubao-Seed-2-0-lite-260428"), ["type": "disabled"])
+    XCTAssertNil(try thinking(ark, "glm-5-3-flash-260828"))
+    XCTAssertNil(try thinking(ark, "ep-20261105123456-abcde"))
+    XCTAssertNil(try thinking("https://volces.com.example/v1/chat/completions", "doubao-seed-2-0-mini-260428"))
+    XCTAssertNil(try thinking("https://fixture.invalid/v1/chat/completions", "doubao-seed-2-0-mini-260428"))
+  }
+
   func testPolishBodyRejectsAnOversizedPromptBeforeBuildingTheRequest() {
     XCTAssertThrowsError(try AppServicesBridge.polishBody(
-      "fixture", prompt: String(repeating: "提示", count: 16_385), text: "合成文本"))
+      "fixture", endpoint: URL(string: "https://fixture.invalid/v1/chat/completions")!, prompt: String(repeating: "提示", count: 16_385), text: "合成文本"))
   }
 
   func testPolishBodyRejectsAnOversizedUnicodeTextBeforeBuildingTheRequest() {
     XCTAssertThrowsError(try AppServicesBridge.polishBody(
-      "fixture", prompt: "润色", text: String(repeating: "😀", count: 8_193)))
+      "fixture", endpoint: URL(string: "https://fixture.invalid/v1/chat/completions")!, prompt: "润色", text: String(repeating: "😀", count: 8_193)))
   }
 
   func testTranscriptionBodyRejectsOversizedAudioBeforeBuildingTheRequest() {
@@ -518,8 +532,9 @@ final class CustomServiceTests: XCTestCase {
     }
   }
 
-  /// 与共享 Rust 的 `rejected_status_message` 相同：402 和 5xx 不再把用户打发去改接口地址。
+  /// 与共享 Rust 的 `rejected_status_message` 相同：402 和 5xx 不再把用户打发去改接口地址；对话接口的 404 说清地址要到 /chat/completions、模型要填模型 ID（#10876）。
   func testConnectionTestNamesBalanceAndServerFailuresByStatus() async throws {
+    XCTAssertEqual(CredentialStatusPolicy.chatNotFound, "服务找不到所填的接口地址或模型（HTTP 404）。接口地址要填完整的对话接口，通常以 /chat/completions 结尾；模型要填服务商控制台列出的模型 ID，并确认账号已开通该模型。")
     let session = URLSessionConfiguration.ephemeral
     session.protocolClasses = [FixtureProtocol.self]
     var configuration = CustomServiceConfiguration()
@@ -529,7 +544,8 @@ final class CustomServiceTests: XCTestCase {
       (.ai, 402, "账户余额不足（HTTP 402），请到服务商控制台充值后重试。"),
       (.ai, 429, "服务限流或额度不足（HTTP 429），请稍后重试。"),
       (.ai, 503, "服务暂时不可用（HTTP 503），请稍后重试；一直如此时，请确认该服务支持所填的模型。"),
-      (.ai, 404, "服务拒绝请求，请检查接口地址和模型配置（HTTP 404）"),
+      (.ai, 404, CredentialStatusPolicy.chatNotFound),
+      (.ai, 422, "服务拒绝请求，请检查接口地址和模型配置（HTTP 422）"),
       (.voice, 500, "服务暂时不可用（HTTP 500），请稍后重试；一直如此时，请确认该服务支持所填的模型。"),
       (.voice, 404, "转写测试未成功，请检查接口地址、模型和服务对静音音频的支持（HTTP 404）"),
     ]

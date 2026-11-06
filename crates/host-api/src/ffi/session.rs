@@ -61,6 +61,7 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
     let statistics_recorded_elsewhere = options.selection_statistics == Some(false);
     let keyboard_reranker_allowed = options.keyboard_reranker != Some(false);
     let recorded_rerank_models = options.rerank_models.clone();
+    let pause_rerank = options.pause_rerank == Some(true);
     // 聚焦时据此重新查找按需下载的资源包，见 `HostSession::refresh_resource_packs`。
     let state_root = absolute_state_root(options.preferences_directory.as_deref());
     let recorded_language_dictionaries = options
@@ -76,7 +77,15 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
     let edition = options.edition();
     let quick_phrase_candidates_requested = options.quick_phrase_candidates.unwrap_or(false);
     let korean_romaja_requested = options.korean_romaja.unwrap_or(false);
+    // 对共享状态目录没有写权限的宿主（iOS 键盘没有完全访问，#10945）：学到的东西写不进去，不学；租约只读打开已有的锁文件。
+    let read_only_state = options.read_only_state == Some(true);
+    let statistics_recorded_elsewhere = statistics_recorded_elsewhere || read_only_state;
     let mut options = options.into_engine_options();
+    if read_only_state {
+        options.learning = false;
+        // 回车学英文词与学习开关分开，学的词写进代次里的 `msime-english.db`：只读布局下那就是随包资源，学一次资源校验就再也过不去（resource length or digest mismatch）。
+        options.learn_english_on_enter = false;
+    }
     let plugin_tables = plugin_tables::PluginTables::stamp(
         plugin_roots.installed.as_deref(),
         plugin_roots.builtin_packs.as_deref(),
@@ -92,22 +101,39 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
         &applied.plugins,
         &plugin_roots,
     ));
-    let dictionary_access = DictionaryAccess::try_session(
-        std::path::Path::new(&options.user_data),
-        std::path::Path::new(&options.dictionaries),
-    )
-    .map_err(|_| "dictionary access unavailable".to_owned())?
-    .ok_or_else(|| "dictionary maintenance busy".to_owned())?;
-    // 在 Engine 打开资源文件之前占用下载的词库代次，会话活着时设置宿主不会把它当旧版本删掉。随包资源、鸿蒙键盘的镜像或者锁文件建不了时没有凭证，不影响输入。
-    let generation_lease = state_root.as_deref().and_then(|state| {
-        msime_client_providers::dictionary_updates::lease(
-            state,
-            std::path::Path::new(&options.resources),
+    // 只读宿主的只读布局读的是随包资源，没有谁会改它，不取租约。
+    let dictionary_access = if read_only_state && options.dictionaries == options.resources {
+        None
+    } else {
+        let lease = if read_only_state {
+            DictionaryAccess::try_session_read_only
+        } else {
+            DictionaryAccess::try_session
+        };
+        Some(
+            lease(
+                std::path::Path::new(&options.user_data),
+                std::path::Path::new(&options.dictionaries),
+            )
+            .map_err(|_| "dictionary access unavailable".to_owned())?
+            .ok_or_else(|| "dictionary maintenance busy".to_owned())?,
         )
+    };
+    // 在 Engine 打开资源文件之前占用下载的词库代次，会话活着时设置宿主不会把它当旧版本删掉。随包资源、鸿蒙键盘的镜像或者锁文件建不了时没有凭证，不影响输入。只读宿主只读打开装代次时建好的锁文件。
+    let generation_lease = state_root.as_deref().and_then(|state| {
+        let resources = std::path::Path::new(&options.resources);
+        if read_only_state {
+            msime_client_providers::dictionary_updates::lease_read_only(state, resources)
+        } else {
+            msime_client_providers::dictionary_updates::lease(state, resources)
+        }
     });
     let mut engine = Session::new(&options).map_err(|e| e.to_string())?;
-    // 设置宿主据此判断下载的词库代次是否已经生效。写不进状态目录（例如 iOS 键盘没有完全访问）时设置页退回原来的判断，不影响输入，所以不让会话因此失败。
-    if let Some(state) = state_root.as_deref().filter(|_| usage == SessionUse::Input) {
+    // 设置宿主据此判断下载的词库代次是否已经生效。写不进状态目录（例如 iOS 键盘没有完全访问）时设置页退回原来的判断，不影响输入，所以不让会话因此失败；只读宿主干脆不写。
+    if let Some(state) = state_root
+        .as_deref()
+        .filter(|_| usage == SessionUse::Input && !read_only_state)
+    {
         let _ = msime_client_providers::dictionary_updates::record_loaded(
             state,
             std::path::Path::new(&options.resources),
@@ -170,6 +196,7 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
             plugin_roots.builtin_sounds.as_deref(),
             state_root.as_deref(),
             sentence_model_path.as_deref(),
+            pause_rerank,
         ))
     } else {
         runtime.set_candidate_scorer(keyboard_reranker(
@@ -260,12 +287,14 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
                 keyboard_reranker_source,
                 keyboard_reranker_loading,
                 keyboard_reranker_allowed,
+                pause_rerank,
                 recorded_rerank_models,
                 recorded_settled_model,
                 settled_model,
                 settled_model_attached,
                 settled_model_loading: None,
                 lifecycle: None,
+                read_only_state,
                 _dictionary_access: dictionary_access,
                 _generation_lease: generation_lease,
             },

@@ -139,6 +139,7 @@ test("Windows settings sync invokes the same four commands as the mobile hosts",
   const invoke = vi.fn(async () => undefined);
   const sync = createDesktopSettingsSync(
     invoke as unknown as Parameters<typeof createDesktopSettingsSync>[0],
+    "windows",
   );
   const preferences = { revision: 3, settings: { "input.learning": true } };
 
@@ -155,4 +156,17 @@ test("Windows settings sync invokes the same four commands as the mobile hosts",
   ]);
   // Windows 没有要重新打开的键盘，应用后的提示不能沿用移动端的说法。
   expect(sync.appliedMessage).toBe("已应用云端设置。");
+});
+
+test("settings sync description lists the shared settings page keys only on Linux and macOS", () => {
+  const invoke = vi.fn(async () => undefined) as unknown as Parameters<
+    typeof createDesktopSettingsSync
+  >[0];
+  // Windows 原生设置没有这几项，client-services 也不为它导出。
+  expect(createDesktopSettingsSync(invoke, "windows").description).not.toContain("快捷短语混输");
+  for (const platform of ["linux", "macos"] as const) {
+    const description = createDesktopSettingsSync(invoke, platform).description;
+    expect(description).toContain("快捷短语混输");
+    expect(description).toContain("AI 候选翻译");
+  }
 });

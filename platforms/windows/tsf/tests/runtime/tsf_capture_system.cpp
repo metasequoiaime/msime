@@ -44,8 +44,8 @@ bool caught(void (*crash)()) {
   return false;
 }
 void run(const std::string &mode, const std::filesystem::path &root) {
-  require(mode == "tip" || mode == "host" || mode == "external" || mode == "withdrawn" ||
-          mode == "reopened" || mode == "released" || mode == "caught", "unknown system WER case");
+  require(mode == "baseline" || mode == "tip" || mode == "host" || mode == "external" || mode == "withdrawn" ||
+          mode == "reopened" || mode == "released" || mode == "caught" || mode == "wow64", "unknown system WER case");
   require(root.is_absolute() && std::filesystem::is_directory(root), "synthetic output directory missing");
   require(SetEnvironmentVariableW(L"LOCALAPPDATA", root.c_str()) &&
           SetEnvironmentVariableW(L"MSIME_TSF_TEST_PREFERENCES", root.c_str()) &&
@@ -57,10 +57,27 @@ void run(const std::string &mode, const std::filesystem::path &root) {
   // 关闭弹窗用 WER 自己的标志，不能用 SEM_NOGPFAULTERRORBOX 把整个系统投递路径也关掉。
   // 负向样本不需要排队关键报告；x86 WER 在不归属本 helper 的异常上排队时可能把
   // 合成进程挂在 LPC 回复上，导致测试把系统的异步处置误判成 helper 失败。
-  const auto wer_flags = (mode == "external" || mode == "withdrawn" || mode == "released" || mode == "caught")
+  const auto wer_flags = (mode == "baseline" || mode == "external" || mode == "withdrawn" || mode == "released" || mode == "caught" ||
+                          mode == "wow64")
       ? WER_FAULT_REPORTING_FLAG_NOHEAP | WER_FAULT_REPORTING_NO_UI
       : WER_FAULT_REPORTING_FLAG_QUEUE | WER_FAULT_REPORTING_FLAG_NOHEAP | WER_FAULT_REPORTING_NO_UI;
   require(SUCCEEDED(WerSetFlags(wer_flags)), "WER flags failed");
+  if (mode == "baseline") {
+    // 在加载任何产品模块、创建采集线程或登记 helper 之前走同一条系统故障路径。
+    // 基线超时能证明没有产品采集器也会停住；基线通过本身不能排除产品影响。
+    require(GetModuleHandleW(MSIME_EDITION_HOST_DLL) == nullptr &&
+            GetModuleHandleW(L"MetasequoiaImeTsfLeaseTest.dll") == nullptr &&
+            GetModuleHandleW(L"MetasequoiaImeCrashWer.dll") == nullptr,
+            "baseline unexpectedly loaded a capture module");
+    const nlohmann::json expected{{"mode", mode}, {"record_expected", false},
+      {"inherited_error_mode", inherited_error_mode}, {"effective_error_mode", GetErrorMode()}};
+    std::ofstream stream(root / "expected.json", std::ios::binary);
+    stream << expected.dump(2);
+    stream.close();
+    require(!stream.fail(), "baseline snapshot could not be saved");
+    external_crash();
+    throw std::runtime_error("baseline fatal fault unexpectedly returned");
+  }
   wchar_t buffer[32768]{};
   const auto length = GetModuleFileNameW(nullptr, buffer, 32768);
   require(length && length < 32768, "test executable path unavailable");
@@ -78,7 +95,27 @@ void run(const std::string &mode, const std::filesystem::path &root) {
   const auto release = load<void (*)(void *)>(tip, "msime_test_tsf_release");
   const auto snapshot = load<bool (*)(Context *)>(tip, "msime_test_tsf_snapshot");
   const auto tip_crash = load<void (*)()>(tip, "msime_test_tsf_crash");
+  const auto registered = load<unsigned (*)()>(tip, "msime_test_tsf_registered");
   initialize(root.u8string().c_str());
+  if (mode == "wow64") {
+    // 生产路径：不改写 WOW64 查询，32 位进程跑在 WOW64 里时 TIP 不登记 helper（#10865）。连 TIP 自有故障也必须由系统直接结束、不留记录，有缺陷的 SysWOW64\WerFault 不会被牵进来。
+    BOOL wow64 = FALSE;
+    require(IsWow64Process(GetCurrentProcess(), &wow64) && wow64, "wow64 case must run in a WOW64 process");
+    require(SetEnvironmentVariableW(L"MSIME_TSF_TEST_WOW64", nullptr) != FALSE, "WOW64 override removal failed");
+    require(acquire() != nullptr, "TIP lease failed");
+    // 观察者若被建起，登记在首轮刷新的几毫秒内发生；等过两轮 500 ms 重试再断言。
+    Sleep(1200);
+    Context value{};
+    require(!snapshot(&value) && registered() == 0, "WOW64 host registered WER capture");
+    const nlohmann::json expected{{"mode", mode}, {"record_expected", false},
+      {"inherited_error_mode", inherited_error_mode}, {"effective_error_mode", GetErrorMode()}};
+    std::ofstream stream(root / "expected.json", std::ios::binary);
+    stream << expected.dump(2);
+    stream.close();
+    require(!stream.fail(), "WOW64 snapshot could not be saved");
+    tip_crash();
+    throw std::runtime_error("WOW64 fatal fault unexpectedly returned");
+  }
   void *lease = acquire();
   Context first{};
   until([&] { return snapshot(&first) && first.armed == 1; }, "real WER registration did not arm TIP");

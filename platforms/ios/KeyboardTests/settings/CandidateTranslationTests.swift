@@ -420,13 +420,14 @@ final class CandidateTranslationTests: XCTestCase {
     store.cancel()
   }
 
-  func testExpandedPanelRendersAnnotationsAndDeferredMenus() throws {
+  func testExpandedPanelRendersAnnotationsAndOpensTheGlossCardOnLongPress() throws {
+    var holds: [Int] = []
     let panel = KeyboardCandidatePanelView(
       candidates: ["你好", "泥嚎"], preedit: "nihao",
       annotations: [
         KeyboardCandidateAnnotation(text: "hello\nこんにちは", accessibilityDescription: "释义"),
         .none,
-      ], display: { $0 }, menuElements: { _ in [UIAction(title: "hello") { _ in }] },
+      ], display: { $0 }, onLongPress: { holds.append($0) },
       onSelect: { _ in }, onClose: {})
     panel.frame = CGRect(x: 0, y: 0, width: 390, height: 240)
     panel.layoutIfNeeded()
@@ -436,8 +437,12 @@ final class CandidateTranslationTests: XCTestCase {
     let title = try XCTUnwrap(glossed.configuration?.attributedTitle.map { String($0.characters) })
     XCTAssertEqual(title.split(separator: "\n", omittingEmptySubsequences: false),
                    ["你好", "hello", "こんにちは"])
-    XCTAssertTrue(glossed.menu?.children.first is UIDeferredMenuElement)
-    XCTAssertFalse(glossed.showsMenuAsPrimaryAction)
+    // 长按不再弹系统菜单，而是交给键盘打开释义卡片；读屏用户用「查看释义」操作做同一件事。
+    XCTAssertNil(glossed.menu)
+    XCTAssertTrue(glossed.gestureRecognizers?.contains { $0 is UILongPressGestureRecognizer } == true)
+    let hold = try XCTUnwrap(glossed.accessibilityCustomActions?.first { $0.name == "查看释义" })
+    XCTAssertTrue(hold.actionHandler?(hold) ?? false)
+    XCTAssertEqual(holds, [0])
 
     let bare = try XCTUnwrap(
       descendants(panel).first { $0.accessibilityIdentifier == "panelCandidate-2" } as? UIButton)

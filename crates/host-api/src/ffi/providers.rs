@@ -197,6 +197,27 @@ fn selected_translation_services(
     account_allowed: bool,
     session_ai_credential: Option<&SessionAiCredential>,
 ) -> Result<TranslationServices, &'static str> {
+    if cfg!(any(
+        target_os = "macos",
+        target_os = "windows",
+        all(target_os = "linux", not(target_env = "ohos"))
+    )) && preferences.local_translation.enabled
+    {
+        return Ok(TranslationServices {
+            // 普通候选受候选翻译开关控制；显式 /fy 调用会传 true。
+            // 关闭时仍返回独占的空服务，不能落到保留的云配置。
+            provider: if account_allowed {
+                TranslationService::Local
+            } else {
+                TranslationService::Off
+            },
+            translation_account: false,
+            custom_translation: None,
+            tencent_tmt: None,
+            niutrans: None,
+            ai_assistant: None,
+        });
+    }
     let custom_translation = &preferences.custom_translation;
     let tencent = &preferences.tencent_tmt;
     // The MSIME account gloss endpoint (api.msime.app) is used only when the user explicitly chose it and no service of their own takes precedence. Tencent counts only with usable secrets, because its default `enabled: true` is not a user choice.
@@ -335,6 +356,7 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
                 }
                 return Ok(json!({
                     "generation": command.generation,
+                    "state_root": matches!(services.provider, TranslationService::Local).then_some(session.state_root.as_deref()).flatten(),
                     "sentence": true,
                     "target_language": "zh",
                     "target_languages": ["zh"],
@@ -431,6 +453,7 @@ impl TranslationDocument<'_> {
         let preferences = self.preferences;
         let english_gloss = self.english_gloss;
         let persist_english_translation = translate
+            && !preferences.local_translation.enabled
             && matches!(
                 preferences.translation_target_language,
                 msime_client_core::preferences::TranslationTargetLanguage::En
@@ -500,6 +523,18 @@ impl TranslationDocument<'_> {
                 ai_assistant: None,
             }
         };
+        if matches!(services.provider, TranslationService::Local) {
+            rows.retain(|row| {
+                row["source"].as_u64().is_some_and(|source| {
+                    u8::try_from(source).is_ok_and(|source| {
+                        !msime_client_core::translation::source_gets_no_gloss(source)
+                    })
+                })
+            });
+            if rows.is_empty() {
+                return Ok(None);
+            }
+        }
         let mut query = json!({
             "generation": self.generation,
             "target_language": serde_json::to_value(preferences.translation_target_language)
@@ -525,6 +560,13 @@ impl TranslationDocument<'_> {
             "user_data": (english_gloss || persist_english_translation)
                 .then(|| self.user_data.to_owned()),
         });
+        if matches!(services.provider, TranslationService::Local) {
+            query["target_language"] = json!(preferences.local_translation.target_language);
+            query["target_languages"] = json!([preferences.local_translation.target_language]);
+            query["state_root"] = json!(self.state_root);
+            // 本地结果不写入只按云目标语言索引的旧英文翻译缓存。
+            query["user_data"] = Value::Null;
+        }
         // Omitted rather than empty, so a host with no offline dictionary installed sees the query it always did.
         if !offline_gloss_languages.is_empty() {
             query["offline_gloss_languages"] = json!(offline_gloss_languages);
@@ -677,7 +719,7 @@ pub unsafe extern "C" fn msime_client_cloud_clipboard_provider_request(
     })
 }
 
-/// 云剪贴板端到端加密的 sans-IO 驱动：开始一个操作或交回上一步请求的响应，得到下一步要发的请求、结果或错误。格式见 `docs/cloud-clipboard-e2e.md` 的「客户端驱动」。不访问会话，也不打开任何连接；请求最大 2 MiB（交回的列表正文最多 50 条、每条约 16 KiB 密文）。
+/// 端到端加密的 sans-IO 驱动：开始一个操作或交回上一步请求的响应，得到下一步要发的请求、结果或错误。格式见 `docs/cloud-clipboard-e2e.md` 的「客户端驱动」。请求顶层的 `domain` 缺省为 `clipboard`（云剪贴板）；为 `learning` 时是输入习惯同步的驱动，操作和结果见 `docs/learning-sync.md` 的「客户端驱动」。不访问会话，也不打开任何连接；请求最大 2 MiB（交回的列表正文最多 50 条、每条约 16 KiB 密文）。
 ///
 /// # Safety
 /// `request` must point to a readable UTF-8 JSON buffer of `request_length` bytes. The buffer is
@@ -691,7 +733,7 @@ pub unsafe extern "C" fn msime_client_cloud_clipboard_e2e(
         if request.is_null() || request_length > CLOUD_CLIPBOARD_E2E_REQUEST_LIMIT {
             return Err("invalid cloud clipboard e2e buffer".into());
         }
-        msime_client_core::cloud::clipboard_e2e::drive_json(unsafe {
+        msime_client_core::cloud::e2e_drive_json(unsafe {
             std::slice::from_raw_parts(request, request_length)
         })
     })

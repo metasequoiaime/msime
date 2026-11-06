@@ -12,7 +12,7 @@ Status: implemented
 
 - msime-dictionary 新增 `custom/cantonese.txt`，每行 `词<TAB>带声调粤拼`，一个汉字一个音节、音节间一个空格，`#` 行与空行跳过，写繁体字形，只追加。第一行是「周杰倫	zau1 git6 leon4」。这份文件是本项目自己的数据，以 CC BY 4.0 提供（`custom/` 其余文件是 GPL-3.0），这样 `msime-cantonese.db` 的 `license` 仍是单一的 `CC-BY-4.0`；署名写进 `resources/licenses/rime-cantonese-CC-BY-4.0.txt`，`scripts/test-language-data-notices.py` 要求那份文本保留 `custom/cantonese.txt` 这一段。
 - `msime-dict-build languages` 读它（`cantonese::CUSTOM`、`cantonese::custom_source`、`cantonese::parse_custom`）。每一行必须满足：两个及以上汉字；音节数等于字数；每个字去声调后的音节是 `jyut6ping3.chars.dict.yaml` 给这个字的读音之一；同一个词在同一个去声调键下不出现两次。任何一行不满足，整次构建失败并写出行号。
-- 收录的词在 words、essay、HKCanCor 三轮之后并入：权重取 essay 分数（「周杰倫」711），essay 没列时取 `ESSAY_WORD_MIN_COUNT`；已有条目只升不降，什么都不删。`Dictionary::custom_words` 记新增或抬高了多少行，写进构建摘要。
+- 收录的词在 words、essay、HKCanCor 三轮之后并入：权重取 essay 分数（「周杰倫」711），essay 没列时取 HKCanCor 次数换算到 essay 尺度的值，不到 `ESSAY_WORD_MIN_COUNT` 时取门槛（最初只取门槛，改动见[HKCanCor 把「咗」拼回前一个词计数](../bug-fix/2026-11-05-cantonese-perfective-pairs.md)）；已有条目只升不降，什么都不删。`Dictionary::custom_words` 记新增或抬高了多少行，写进构建摘要。
 - checkout 里没有这个文件（加它之前的 msime-dictionary 提交）时按空表构建，摘要写「custom/cantonese.txt is not in the checkout」。用加入前的提交构建出的库与 `dict-v2.0.41` 逐字节相同。
 - `check-words` 新增 `Kind::Cantonese`：`--cantonese-base`/`--cantonese-head` 必须和 `--cantonese-characters`（checkout 的字表）一起给，新行走构建同一套解析与读音检查；判重键是（去声调粤拼，词），只差声调的两行算重复；给了 `--cantonese-db` 时，已发布库里同键同词的条目也拒绝。报告里写原样的带声调粤拼。base 文件先整体走一遍 `cantonese::parse_custom`：上游字表换版后旧行的读音不在了，或有人绕过门禁写进两行只差声调的同词，构建会失败，check-words 此时也以退出码 2 停下，而不是继续把投稿判为通过。
 

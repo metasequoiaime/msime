@@ -127,6 +127,12 @@ pub(super) struct InputSession {
     pub personal_reranked: bool,
     /// The list before the personal rerank; learning, pinning and index-0 checks use this order.
     pub ranking_candidates: Option<Vec<WordItem>>,
+    /// 中英混合滑行的一笔及其完整候选；普通编辑改变拼写或光标后失效。
+    pub glide_candidates: Option<(String, Vec<WordItem>)>,
+    /// 混合滑行的组字只能明确选词上屏；普通拼写编辑不解除此门禁。
+    pub glide_selection_pending: bool,
+    /// 只在当前会话保留最近一次滑行选词的语言倾向，不写个人词库。
+    pub glide_prefers_english: Option<bool>,
     /// Caret-prefix decoding (overlays.md §7.6).
     pub prefix_active: bool,
     pub prefix_query_input: String,
@@ -174,6 +180,7 @@ impl InputSession {
             options.japanese_dictionary.clone(),
         )?;
         engine.set_force_cantonese_shuangpin(options.force_cantonese_shuangpin);
+        engine.set_cantonese_output_conversion(options.cantonese_output_conversion);
         engine.set_autocorrect_types(0);
         engine.set_quanpin_helpcode_enabled(true);
         engine.set_strict_quanpin_helpcode(options.strict_quanpin_helpcode);
@@ -250,6 +257,9 @@ impl InputSession {
             typo_profile: PersonalTypoProfile::shared(&journal),
             personal_reranked: false,
             ranking_candidates: None,
+            glide_candidates: None,
+            glide_selection_pending: false,
+            glide_prefers_english: None,
             prefix_active: false,
             prefix_query_input: String::new(),
             prefix_candidates: Vec::new(),
@@ -1576,6 +1586,9 @@ impl InputSession {
 
     /// The displayed list of whichever view is active.
     pub fn candidates(&self) -> &[WordItem] {
+        if let Some((_, rows)) = &self.glide_candidates {
+            return rows;
+        }
         if let Some(edit) = &self.conversion {
             return edit.rows();
         }
@@ -1718,6 +1731,8 @@ impl InputSession {
 
     /// Clears caret, phrase progress, pending sequence, local mode, dedicated preedit and caches; returns from temporary Japanese.
     pub fn reset_composition(&mut self) {
+        self.glide_candidates = None;
+        self.glide_selection_pending = false;
         self.date_time_menu_page = None;
         self.helpcode_entry = None;
         self.caret = None;

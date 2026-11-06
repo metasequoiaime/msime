@@ -119,7 +119,8 @@ struct TabletSettingsView: View {
 
   @ViewBuilder private func detail(_ destination: Destination) -> some View {
     switch destination {
-    case .page(let page): page.destination
+    // 侧栏搜索结果同手机：带上命中的关键词；详情按选中项重建（`.id(selection)`），换选中项时才按新的查询定起始分段。
+    case .page(let page): page.destination(searchAnchor: page.searchAnchor(for: query))
     }
   }
 }

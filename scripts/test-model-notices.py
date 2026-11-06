@@ -38,8 +38,7 @@ MODELS = {
         "lock": "resources/rerank-model.lock.json",
         "also_pinned_by": (),
         "release": "https://github.com/metasequoiaime/chinese-ime-lm/releases/tag/rerank-v2",
-        # The Hugging Face repositories still hold rerank-v1, so the licence does not name them for these weights.
-        "hugging_face": (),
+        "hugging_face": ("https://huggingface.co/msime/pinyin-ime-keystroke-reranker-25M", "https://huggingface.co/msime/pinyin-ime-keystroke-reranker-8M"),
         # The attribution field of both pinned model.json files (and of the ONNX graph metadata of each lm_step.ort), verbatim.
         "attribution": "Trained on the Chinese portion of C4 (ODC-BY, https://huggingface.co/datasets/allenai/c4), FineWeb-2 (cmn_Hani) (ODC-BY, https://huggingface.co/datasets/HuggingFaceFW/fineweb-2), LCCC (MIT, https://github.com/thu-coai/CDial-GPT) and synthetic one-sided chat messages written by DeepSeek deepseek-v4-pro for this project (neural/teacher/gen_chat.py) (DeepSeek Terms of Use, outputs assigned to the user and usable to train other models, https://cdn.deepseek.com/policies/en-US/deepseek-terms-of-use.html).",
         "notice_phrases": (NOTICE_HEAD, "C4 中文部分（ODC-BY）", "LCCC（MIT）", "FineWeb-2 中文（cmn_Hani）部分（ODC-BY）", "元数据 `attribution` 字段里"),

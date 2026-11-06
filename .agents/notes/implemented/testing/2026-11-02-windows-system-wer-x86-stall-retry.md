@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-`platforms/windows/tsf/tests/Invoke-SystemWer.ps1` 给每个用例 45 s 等目标进程由系统 WER 结束，超时就让 Native Platform CI 的 Windows native settings 失败。2026-11-01 前后的 28 次 CI 里这一步失败 3 次（develop 推送 `41340814014`，PR `41331683904`、`41326203044`），加上更早的 `41327717560`，四次都是 x86，分别卡在 `tip`、`reopened` 和两次 `external`，x64 没有出现过。重跑同一个 job 就通过，失败与改动无关，却挡住了不相干的 PR 合并。
+`platforms/windows/tsf/tests/Invoke-SystemWer.ps1` 给每个用例 45 s 等目标进程由系统 WER 结束，超时就让 Native Platform CI 的 Windows TSF system WER 作业失败。2026-11-01 前后的 28 次 CI 里这一步失败 3 次（develop 推送 `41340814014`，PR `41331683904`、`41326203044`），加上更早的 `41327717560`，四次都是 x86，分别卡在 `tip`、`reopened` 和两次 `external`，x64 没有出现过。重跑同一个 job 就通过，失败与改动无关，却挡住了不相干的 PR 合并。
 
 停顿有两种形态，共同点是目标进程没退出、恰好一个线程在等、其余线程全部 `Suspended`、没有 `.werpartial`，正向样本的记录已经完整落盘，负向样本一条记录都没有，helper 没有越权。
 
@@ -34,8 +34,14 @@ Status: implemented
 
 ## Consequences
 
+- 连续重试仍超时的后续调查见[不加载产品模块的系统对照](2026-11-04-windows-system-wer-baseline.md)。基线用于取得因果证据，不替代根因修复或放宽这里的失败条件。
+
 - 单个用例偶发停顿不再挡 PR；同一用例连续两次停顿，或出现任何不符合上述形态的超时，仍然失败。代价是：一个只是偶发让目标卡住的真实回归，可能被这一次重跑放过。不过这种回归也得表现成「挂起、单线程等待、记录合规」，B 形还要求卡住的是目标自己拉起的 `WerFault`，才会被重跑；每次重跑都会在日志留 warning，诊断也随 artifact 保留。
 - B 形的根因还没定论。`timeout.json` 现在带 `WerFault` 的线程等待原因，下一次 B 形停顿可以据此区分 `WerFault` 在等 WerSvc（WOW64 / 系统侧）还是在等别的；若重跑后同一形态再次停住，先看这份诊断再决定下一步。
 - 重跑分支依赖 pwsh 7 的 `Process.Kill()` 在进程已退出时不抛异常：结束 `WerFault` 后目标可能先自行退出。CI 这一步固定用 `shell: pwsh`；Windows PowerShell 5.1 下这个竞态会抛 `MethodInvocationException`。
 - 在 win-runner 上用 pwsh 7.5.1 和 Windows PowerShell 5.1 验证过：`41371083017`、`41396949560` 两份 CI 诊断判为 B 形停顿，A 形诊断仍判为停顿；`UserRequest` 但无 worker、`WerFaultSecure`、worker 不是目标的子进程、两个 worker、两个线程在等、有线程在运行、其他等待原因、全部挂起、半成品记录、负向样本有记录、正向样本两条记录、目标已退出、两类快照失败、缺 `expected.json` 都判为不重跑。用改名为 `WerFault.exe` 的子进程验证过 `Save-SystemWerTimeout` 能记下 worker 的线程数组和退出状态，以及重跑分支的结束顺序能让两者都退出。
-- 带重跑的完整脚本只能在 PR 的 Windows native settings job 里跑通，本机和 win-runner 上都没有跑过真实的系统 WER 投递，也没有复现过真实的 B 形停顿。
+- 带重跑的完整脚本需要在 PR 的 Windows TSF system WER job 里运行，本机和 win-runner 上都没有跑过真实的系统 WER 投递，也没有复现过真实的 B 形停顿。
+
+2026-11-05 的对照把两种停顿都定位到 Windows 自带的 32 位 `SysWOW64\WerFault.exe` 自身堆损坏或在堆锁上死锁，最小空 helper 同样复现；x86 系统投递先改为非阻塞观测（[x86 系统投递非阻塞](../../archived/testing/2026-11-05-windows-system-wer-x86-nonblocking.md)），随后产品在 WOW64 宿主里不再登记 helper，x86 只跑不登记的 `baseline` 和 `wow64` 并恢复阻塞，见[WOW64 宿主不做进程外采集](../feature/2026-11-06-windows-tsf-wer-skip-wow64.md)。本笔记的重试规则仍在脚本里，对所有用例照常生效。
+
+系统专项与设置作业的运行归属见[独立 WER 作业](2026-11-04-windows-wer-independent-ci.md)。#10844 与 #10755 的新诊断证明同一用例重试后仍可能停顿；这类失败继续保留，独立作业不修改本笔记的重试条件或成功标准。

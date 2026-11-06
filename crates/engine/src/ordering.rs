@@ -624,6 +624,15 @@ pub fn rerank_pick_within<'a, R: OrderRowSource<'a> + ?Sized>(
                         best = index;
                     }
                 }
+                // Readings that differ from the pick only in 他/她/它 are decided by the model alone; see differs_only_in_third_person.
+                let leader = subset[best];
+                for index in 0..count {
+                    if neural[index] > neural[best]
+                        && differs_only_in_third_person(subset[index], leader)
+                    {
+                        best = index;
+                    }
+                }
                 return (best != 0).then(|| considered[best]);
             }
         }
@@ -635,6 +644,24 @@ pub fn rerank_pick_within<'a, R: OrderRowSource<'a> + ?Sized>(
                 && !corrected_key,
         })
     })
+}
+
+/// 两条读法是否只在第三人称代词「他」「她」「它」上不同（字数相同，其余逐字相同，至少有一处不同）。
+///
+/// 这几个字同音，词网格分不出来，只能按词频排，而词频说的是语料里哪个更常见，不是这句话指的是谁；该用哪一个只有上文知道。整句池里两条读法只差代词时，混合分里那 0.3 的词网格分只会把模型的判断往高频的「他」那边拉：2026-11-04 的聊天集里，「你记得跟她说谢谢」「她说上次你修好的那个灯」模型都选对了，混合后分别以 0.002 和 0.004 输给了「他」。所以这种情况下只看模型分。在 366 段带上文、含代词的聊天句（合成聊天开发集加单人聊天集）上，6x256 从 203 到 216（改对 20、改错 7，p = 0.019），8x448 从 226 到 235（改对 13、改错 4，p = 0.049）；整套单人聊天集（330 段）6x256 改对 2、改错 0，8x448 改对 0、改错 1；sentences 四套 1,580 句两个模型都一句没变。
+pub fn differs_only_in_third_person(a: &str, b: &str) -> bool {
+    let pronoun = |c: char| matches!(c, '他' | '她' | '它');
+    let mut differs = false;
+    let mut left = a.chars();
+    let mut right = b.chars();
+    loop {
+        match (left.next(), right.next()) {
+            (None, None) => return differs,
+            (Some(x), Some(y)) if x == y => {}
+            (Some(x), Some(y)) if pronoun(x) && pronoun(y) => differs = true,
+            _ => return false,
+        }
+    }
 }
 
 /// 一句话开头单打一个音节、首选却是句尾语气词（`ma` 的「吗」、`ba` 的「吧」）时，该提到首位的那一行；不是这种情形时为 `None`。
@@ -859,6 +886,18 @@ pub fn runner_up_order_with<'a, R: OrderRowSource<'a> + ?Sized>(
     rows: &R,
     touch_supported: &[bool],
 ) -> Option<Vec<usize>> {
+    runner_up_order_pooled(scheme, rows, touch_supported, 0)
+}
+
+/// [`runner_up_order_with`]，`pool` 是这张表解码时引擎拿到的整句池（`Session::set_sentence_pool`，runtime 按挂着的逐键打分器给，键位网格上是 0）。
+///
+/// 池超过默认条数时，全拼引擎把另一种切分的整句读法挪进主切分整句的座位，好让模型比较它们（`quanpin::series::defer_pooled_sentences`）；那种切分的音节数不同时（wenjian 的 wen'jian 和 wen'ji'an），读法字数也不同，只按第一条读法的字数认读法就一条也认不出来，模型比完以后它们原地留在词库词前面（#10998）。所以这时字数不同、同样读满整串的词网格行也算读法：排在最前的那一条坐到它后面最后一个读满整串的词库词之后，其余挪到表尾；第一条读法后面留的 `keep - 1` 条仍只从同字数的读法里取。没有池时引擎本来就把另一种切分的读法排在主切分的整串词之后，那里的第一条常常就是用户要的句子（chulia 的「处理啊」在第 6 位），这时照旧只按字数认，结果逐字节不变。取舍和评测见 `.agents/notes/implemented/bug-fix/2026-11-06-pooled-readings-of-other-segmentations.md`。
+pub fn runner_up_order_pooled<'a, R: OrderRowSource<'a> + ?Sized>(
+    scheme: u8,
+    rows: &R,
+    touch_supported: &[bool],
+    pool: usize,
+) -> Option<Vec<usize>> {
     // The lattice runs from two syllables (a single syllable is never decoded), so a shorter candidate reached the list some other way and is not a reading of the same sentence. Japanese kana are the case that proves it: あ and ア are both Generated and both one character. Two rather than three because two-syllable keys are where the lattice's runner-up readings otherwise fill the first page ahead of dictionary words: on quanpin-words-v1 this moves two-syllable top5 from 0.883 to 0.924 with top1 unchanged.
     const SENTENCE_SYLLABLES: usize = 2;
     // From this many characters a reading is a sentence rather than a word, and the page keeps `SENTENCE_READINGS` of them.
@@ -895,92 +934,113 @@ pub fn runner_up_order_with<'a, R: OrderRowSource<'a> + ?Sized>(
         1
     };
     // Every lattice reading of the full key, in list order. The first stays where it is, the next `keep - 1` are seated right behind it, and the rest go to the back in their existing order. `keep` is at most three, so rescanning the rows costs less than allocating separate reading and membership arrays.
-    let is_reading = |index: usize| {
+    let seated = |index: usize| {
         let row = rows.get(index);
         lattice(index, &row) && row.text.chars().count() == width
     };
-    // 先只扫描输出顺序，常见的整句候选已经连续时直接返回，避免为最终排列分配缓冲。
+    // 整句池让引擎挪过座位时（见 [`runner_up_order_pooled`]），字数不同、同样读满整串的词网格行是另一种切分的读法。只有全拼和五笔的拼音回退走全拼引擎的整句池。
+    let pooled = pool > crate::lattice::decode::SENTENCE_PATHS
+        && matches!(
+            scheme_type(scheme),
+            Some(SchemeType::Quanpin | SchemeType::Wubi)
+        );
+    let other_reading = |index: usize| {
+        let row = rows.get(index);
+        let characters = row.text.chars().count();
+        pooled
+            && row.answers_key
+            && lattice(index, &row)
+            && characters >= SENTENCE_SYLLABLES
+            && characters != width
+    };
+    // 另一种切分里排在最前的读法留一条，坐到它后面最后一个读满整串的词库词之后，也就是没有整句池时引擎给它的位置；其余的和多出来的读法一起挪到表尾。
+    let first_other = (0..count).find(|&index| other_reading(index));
+    let anchor = first_other.and_then(|first| {
+        (first + 1..count).rev().find(|&index| {
+            let row = rows.get(index);
+            row.answers_key && !row.corrected && DICTIONARY_SOURCES.contains(&row.source)
+        })
+    });
+    // 按新顺序逐个交出旧座位。先走一遍只判断是不是恒等排列：常见的整句候选已经连续时直接返回，不为最终排列分配缓冲。
+    let walk = |emit: &mut dyn FnMut(usize)| {
+        let mut seated_seen = 0;
+        for index in 0..count {
+            if seated(index) {
+                if seated_seen == 0 {
+                    emit(index);
+                    let mut kept = 1;
+                    for next in index + 1..count {
+                        if kept == keep {
+                            break;
+                        }
+                        if seated(next) {
+                            emit(next);
+                            kept += 1;
+                        }
+                    }
+                }
+                seated_seen += 1;
+                continue;
+            }
+            if Some(index) == first_other {
+                if anchor.is_none() {
+                    emit(index);
+                }
+                continue;
+            }
+            if other_reading(index) {
+                continue;
+            }
+            emit(index);
+            if Some(index) == anchor {
+                emit(first_other.expect("an anchor follows the first other reading"));
+            }
+        }
+        let mut seated_seen = 0;
+        for index in 0..count {
+            if seated(index) {
+                if seated_seen >= keep {
+                    emit(index);
+                }
+                seated_seen += 1;
+            } else if other_reading(index) && Some(index) != first_other {
+                emit(index);
+            }
+        }
+    };
     let mut output = 0;
     let mut identity = true;
-    let mut reading_seen = 0;
-    for index in 0..count {
-        if !is_reading(index) {
-            identity &= output == index;
-            output += 1;
-            continue;
-        }
-        if reading_seen == 0 {
-            identity &= output == index;
-            output += 1;
-            let mut kept = 1;
-            for next in index + 1..count {
-                if is_reading(next) {
-                    if kept == keep {
-                        break;
-                    }
-                    identity &= output == next;
-                    output += 1;
-                    kept += 1;
-                }
-            }
-        }
-        reading_seen += 1;
-    }
-    reading_seen = 0;
-    for index in 0..count {
-        if is_reading(index) {
-            if reading_seen >= keep {
-                identity &= output == index;
-                output += 1;
-            }
-            reading_seen += 1;
-        }
-    }
+    walk(&mut |index| {
+        identity &= output == index;
+        output += 1;
+    });
     debug_assert_eq!(output, count);
     if identity {
         return None;
     }
-
     let mut order = Vec::with_capacity(count);
-    let mut reading_seen = 0;
-    for index in 0..count {
-        if !is_reading(index) {
-            order.push(index);
-            continue;
-        }
-        if reading_seen == 0 {
-            order.push(index);
-            let mut kept = 1;
-            for next in index + 1..count {
-                if is_reading(next) {
-                    if kept == keep {
-                        break;
-                    }
-                    order.push(next);
-                    kept += 1;
-                }
-            }
-        }
-        reading_seen += 1;
-    }
-    reading_seen = 0;
-    for index in 0..count {
-        if is_reading(index) {
-            if reading_seen >= keep {
-                order.push(index);
-            }
-            reading_seen += 1;
-        }
-    }
+    walk(&mut |index| order.push(index));
     debug_assert_eq!(order.len(), count);
-    if order.iter().enumerate().all(|(seat, index)| seat == *index) {
-        return None;
-    }
     Some(order)
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_third_person_pronouns_may_differ() {
+        assert!(super::differs_only_in_third_person(
+            "你记得跟她说谢谢",
+            "你记得跟他说谢谢"
+        ));
+        assert!(super::differs_only_in_third_person("它不让碰", "她不让碰"));
+        // 同一条读法不算「只差代词」。
+        assert!(!super::differs_only_in_third_person("他说", "他说"));
+        // 别的字不同、字数不同都不算。
+        assert!(!super::differs_only_in_third_person("他说谢谢", "她说射射"));
+        assert!(!super::differs_only_in_third_person("他说", "他说了"));
+        assert!(!super::differs_only_in_third_person("他们", "你们"));
+    }
+
     use super::*;
 
     fn row(text: &str, source: u8) -> OrderRow<'_> {
@@ -1336,6 +1396,83 @@ mod tests {
             row("你", 0),
         ];
         assert_eq!(runner_up_order(0, &rows), Some(vec![0, 2, 1]));
+    }
+
+    /// wenjian：首条读法是两字的 wen'jian，整句池把另一种切分 wen'ji'an 的三字读法放在主切分整句的座位上。降位后它们不再排在读满整串的词库词前面：排在最前的「问及按」坐到最后一个整串词库词「稳健」之后，其余挪到表尾。
+    #[test]
+    fn readings_of_another_segmentation_go_behind_the_words() {
+        let partial = |text| OrderRow {
+            answers_key: false,
+            ..row(text, 0)
+        };
+        let rows = [
+            row("文件", 0),
+            row("问间", LATTICE_SOURCE),
+            row("问及按", LATTICE_SOURCE),
+            row("文集按", LATTICE_SOURCE),
+            partial("文件夹"),
+            row("稳健", 0),
+            row("问见", LATTICE_SOURCE),
+            partial("文"),
+        ];
+        assert_eq!(
+            runner_up_order_pooled(0, &rows, &[], 32),
+            Some(vec![0, 1, 4, 5, 2, 7, 3, 6])
+        );
+        // 五笔混输拼音走同一个全拼引擎，同一条规则。
+        assert_eq!(
+            runner_up_order_pooled(SchemeType::Wubi as u8, &rows, &[], SENTENCE_POOL),
+            Some(vec![0, 1, 4, 5, 2, 7, 3, 6])
+        );
+        // 没有整句池时引擎没挪过座位，照旧只按字数认：三字读法留在原位。
+        assert_eq!(
+            runner_up_order(0, &rows),
+            Some(vec![0, 1, 2, 3, 4, 5, 7, 6])
+        );
+        assert_eq!(
+            runner_up_order_pooled(0, &rows, &[], 6),
+            runner_up_order(0, &rows)
+        );
+        // 双拼不走全拼引擎的整句池。
+        let shuangpin = SchemeType::Shuangpin as u8;
+        assert_eq!(
+            runner_up_order_pooled(shuangpin, &rows, &[], 32),
+            runner_up_order(shuangpin, &rows)
+        );
+    }
+
+    /// wuliji：首条读法三个字，后面留的两条只从同一种切分的读法里取。另一种切分排在最前的读法后面没有读满整串的词库词时留在原位，其余挪到表尾。
+    #[test]
+    fn kept_readings_come_from_the_leading_segmentation() {
+        let partial = |text| OrderRow {
+            answers_key: false,
+            ..row(text, 0)
+        };
+        let rows = [
+            row("乌力吉", 0),
+            row("物理及", LATTICE_SOURCE),
+            row("误立即及", LATTICE_SOURCE),
+            row("物理机", LATTICE_SOURCE),
+            row("物理即", LATTICE_SOURCE),
+            row("物理急", LATTICE_SOURCE),
+            partial("物理"),
+            row("屋里及时", LATTICE_SOURCE),
+        ];
+        assert_eq!(
+            runner_up_order_pooled(0, &rows, &[], 32),
+            Some(vec![0, 1, 3, 4, 2, 6, 5, 7])
+        );
+    }
+
+    /// 只回答按键前缀或补全到按键之后的生成行不是整串的读法，字数不同时留在原位。
+    #[test]
+    fn other_widths_need_a_whole_key_reading() {
+        let completion = OrderRow {
+            answers_key: false,
+            ..row("问及按们", LATTICE_SOURCE)
+        };
+        let rows = [row("问间", LATTICE_SOURCE), completion, row("文件", 0)];
+        assert_eq!(runner_up_order_pooled(0, &rows, &[], 32), None);
     }
 
     /// 带触点查出的双拼表里，落点支持的纠错整句不算整句读法：前三条字面读法照旧留在前面、其余挪到表尾，纠错行留在引擎给的座位上。没有触点时它和别的读法一样被挪走。

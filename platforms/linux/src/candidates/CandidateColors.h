@@ -254,8 +254,13 @@ inline CandidateTheme candidate_theme_colors(const nlohmann::json &resolved, boo
     colors.selected_number = selected_number ? selected_number : colors.selected_text;
   } else {
     colors.selected = native.selected;
-    colors.selected_text = native.selected_text;
-    colors.selected_number = native.selected_number;
+    // 选中底留给平台时，主题仍可能给出选中行的前景：`system` 底上的选中文字取色器（#10740）。它画在原生的实心选中底上，所以半透明的序号合成在选中底上。
+    const auto on_selection = [&](const char *key) -> std::optional<std::uint32_t> {
+      if (const auto value = slot(key)) return composite_color(value->rgb, value->alpha, native.selected);
+      return std::nullopt;
+    };
+    colors.selected_text = on_selection("selected_text").value_or(native.selected_text);
+    colors.selected_number = on_selection("selected_number").value_or(native.selected_number);
   }
   // The outline, composited because Fcitx5's classic UI paints the border with the SOURCE operator: a translucent one would show the desktop through the panel. A fully transparent border means none.
   if (const auto border = slot("border")) {

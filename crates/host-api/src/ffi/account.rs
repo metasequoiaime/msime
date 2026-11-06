@@ -396,8 +396,8 @@ fn apple_web_started(started: msime_client_services::account::AppleWebSignIn) ->
     })
 }
 
-/// 给已登录账号添加登录方式的一步：失败时按 #8201 新操作的规则带细节（需要最近登录是 `account_recent_login_required`，断网是 `account_network`，限流带 `retry_after_seconds`）。
-fn link(
+/// 详细账号操作：失败时保留 #8201 新操作的状态码、服务端错误码和重试秒数。
+fn detailed(
     operation: impl FnOnce() -> Result<Value, msime_client_services::account::AccountFailure>,
 ) -> Result<Value, Failure> {
     operation().map_err(Failure::from)
@@ -409,8 +409,17 @@ fn run(session: &Session, action: AccountAction) -> Result<Value, Failure> {
         AccountAction::RequestCode {
             provider,
             target,
+            purpose: Purpose::Login,
+        } => detailed(|| {
+            Ok(value(ChallengeResponse::from(
+                session.request_code_detailed(&provider, &target)?,
+            ))?)
+        }),
+        AccountAction::RequestCode {
+            provider,
+            target,
             purpose: Purpose::Link,
-        } => link(|| {
+        } => detailed(|| {
             Ok(value(ChallengeResponse::from(
                 session.link_request_code(&provider, &target)?,
             ))?)
@@ -419,7 +428,7 @@ fn run(session: &Session, action: AccountAction) -> Result<Value, Failure> {
             challenge_id,
             code,
             purpose: Purpose::Link,
-        } => link(|| Ok(status(Some(session.link_email(&challenge_id, &code)?))?)),
+        } => detailed(|| Ok(status(Some(session.link_email(&challenge_id, &code)?))?)),
         // 绑定只走 ID token 流程（Android 的 Credential Manager），回环流程不能绑定。
         AccountAction::GoogleChallenge {
             target: Some(_),
@@ -428,12 +437,12 @@ fn run(session: &Session, action: AccountAction) -> Result<Value, Failure> {
         AccountAction::GoogleChallenge {
             target: None,
             purpose: Purpose::Link,
-        } => link(|| Ok(nonce_challenge(session.link_google_id_token_challenge()?)?)),
+        } => detailed(|| Ok(nonce_challenge(session.link_google_id_token_challenge()?)?)),
         AccountAction::GoogleTokenLogin {
             challenge_id,
             id_token,
             purpose: Purpose::Link,
-        } => link(|| {
+        } => detailed(|| {
             Ok(status(Some(
                 session.link_google_id_token(&challenge_id, &id_token)?,
             ))?)
@@ -441,12 +450,12 @@ fn run(session: &Session, action: AccountAction) -> Result<Value, Failure> {
         AccountAction::AppleWebStart {
             app,
             purpose: Purpose::Link,
-        } => link(|| Ok(apple_web_started(session.link_apple_web_start(&app)?))),
+        } => detailed(|| Ok(apple_web_started(session.link_apple_web_start(&app)?))),
         AccountAction::AppleWebLogin {
             grant,
             code_verifier,
             purpose: Purpose::Link,
-        } => link(|| {
+        } => detailed(|| {
             Ok(status(Some(
                 session.link_apple_web(&grant, &code_verifier)?,
             ))?)

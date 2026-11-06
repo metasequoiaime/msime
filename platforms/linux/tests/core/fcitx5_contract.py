@@ -127,7 +127,7 @@ assert "msime-wubi-auto-commit-unique" in source
 assert "wubi_auto_commit_unique" in source
 assert "msime-shuangpin-profile" in source
 assert "cycleShuangpinProfile" in source
-# 五笔在输入方案子菜单和「输入方案（…）」一行里都按共享偏好 `wubi_profile` 标出 86 或 98：两处都经 schemeMenuTitle 取 MenuLabels.h 的 scheme_menu_title，它对五笔调 wubi_scheme_label。
+# 五笔在输入方案子菜单和「输入方案（…）」一行里都按共享偏好 `wubi_profile` 标出 86、98 或新世纪：两处都经 schemeMenuTitle 取 MenuLabels.h 的 scheme_menu_title，它对五笔调 wubi_scheme_label。
 menu_labels = (root / "src/core/MenuLabels.h").read_text()
 assert source.count("schemeMenuTitle(") >= 3
 assert 'value("wubi_profile", std::string("wubi86"))' in source
@@ -1021,5 +1021,25 @@ vocabulary_activate = body(source, "class FcitxVocabularyAction : public fcitx::
 assert "menuTarget()" in vocabulary_activate and "restricted()" in vocabulary_activate
 assert "ibus_prop_list_append(items, vocabulary_due_property(engine));" in body(ibus_source, "IBusProperty *desktop_tools_property(IBusEngine *engine) {", "\n}\n")
 assert "sync_vocabulary_row(engine);" in body(ibus_source, "void render(IBusEngine *engine, const Json &view) {", "\n}\n")
+
+
+# 语音标点（VoicePunctuation.h）：最终文本先退回中间转写，再按语音标点处理，之后才判空、交给 Engine 和上屏；处理成空串时提示没识别到文字，不报识别服务出错。挪到退回转写之前会让带标点的中间转写原样上屏，挪到上屏之后则不起作用。
+fcitx_voice = source[source.index("text = msime_voice_result_or_transcript(") :]
+assert (
+    fcitx_voice.index("msime_voice_result_or_transcript(")
+    < fcitx_voice.index("msime::linux_host::voice_punctuated(")
+    < fcitx_voice.index("if (!text.empty()) { commitText(text, msime::linux_host::TypingSource::Voice)")
+)
+assert "showVoiceFailure(!recognisedBeforePunctuation && providerError" in fcitx_voice
+assert "voice_punctuation_mode_ = msime::linux_host::voice_punctuation_mode(preferences_);" in source
+ibus_voice = ibus_source[ibus_source.index("auto recognised_text = msime_voice_result_or_transcript(") :]
+assert (
+    ibus_voice.index("msime_voice_result_or_transcript(")
+    < ibus_voice.index("msime::linux_host::voice_punctuated(")
+    < ibus_voice.index("if (text.empty()) {")
+    < ibus_voice.index("msime_client_voice_apply(")
+)
+assert "result->provider_failed && !recognised_before_punctuation" in ibus_voice
+assert "result->punctuation_mode = punctuation_mode;" in ibus_source
 
 print("Fcitx5 addon metadata passed")

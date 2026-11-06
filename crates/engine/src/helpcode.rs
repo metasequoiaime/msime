@@ -304,28 +304,52 @@ pub fn is_quanpin_double_help_mode(pinyin_with_cases: &str) -> bool {
     bytes.len() > 2 && bytes[bytes.len() - 2..].iter().all(u8::is_ascii_uppercase)
 }
 
+/// 一个词参与辅助码匹配的两个字母：单字是它的码的第一、二位，词语是首字、尾字各自的码的首位。`pair` 说两位都在、能当两码整体比：单字的码正好两位，词语首尾字都有码。一码、两码的匹配都从这里取，按多个候选字母匹配时（网格辅助码的整组）每个词只查一次码表。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct HelpcodeEnds {
+    pub(crate) first: Option<u8>,
+    pub(crate) last: Option<u8>,
+    pub(crate) pair: bool,
+}
+
+pub(crate) fn helpcode_ends(word: &str, keymap: &HelpcodeKeymap) -> HelpcodeEnds {
+    if word.is_empty() {
+        return HelpcodeEnds::default();
+    }
+    if count_han_chars(word) == 1 {
+        let Some(code) = keymap.code(word).map(str::as_bytes) else {
+            return HelpcodeEnds::default();
+        };
+        return HelpcodeEnds {
+            first: code.first().copied(),
+            last: code.get(1).copied(),
+            pair: code.len() == 2,
+        };
+    }
+    let initial = |character: &str| {
+        keymap
+            .code(character)
+            .and_then(|code| code.as_bytes().first().copied())
+    };
+    let (first, last) = (initial(first_han_char(word)), initial(last_han_char(word)));
+    HelpcodeEnds {
+        first,
+        last,
+        pair: first.is_some() && last.is_some(),
+    }
+}
+
 pub fn match_single_helpcode(
     word: &str,
     help_code: &str,
     keymap: &HelpcodeKeymap,
 ) -> SingleHelpcodeMatch {
-    if word.is_empty() || help_code.len() != 1 {
+    if help_code.len() != 1 {
         return SingleHelpcodeMatch::None;
     }
-    let letter = help_code.as_bytes()[0];
-    let (matches_first, matches_last) = if count_han_chars(word) == 1 {
-        let Some(code) = keymap.code(word).map(str::as_bytes) else {
-            return SingleHelpcodeMatch::None;
-        };
-        (code[0] == letter, code.get(1) == Some(&letter))
-    } else {
-        let initial = |character: &str| keymap.code(character).map(|code| code.as_bytes()[0]);
-        (
-            initial(first_han_char(word)) == Some(letter),
-            initial(last_han_char(word)) == Some(letter),
-        )
-    };
-    match (matches_first, matches_last) {
+    let letter = Some(help_code.as_bytes()[0]);
+    let ends = helpcode_ends(word, keymap);
+    match (ends.first == letter, ends.last == letter) {
         (true, true) => SingleHelpcodeMatch::Both,
         (true, false) => SingleHelpcodeMatch::First,
         (false, true) => SingleHelpcodeMatch::Last,
@@ -334,24 +358,12 @@ pub fn match_single_helpcode(
 }
 
 pub fn matches_double_helpcodes(word: &str, help_codes: &str, keymap: &HelpcodeKeymap) -> bool {
-    if word.is_empty() || help_codes.len() != 2 {
+    if help_codes.len() != 2 {
         return false;
     }
     let expected = help_codes.as_bytes();
-    if count_han_chars(word) == 1 {
-        return keymap
-            .code(word)
-            .is_some_and(|code| code.as_bytes() == expected);
-    }
-    match (
-        keymap.code(first_han_char(word)),
-        keymap.code(last_han_char(word)),
-    ) {
-        (Some(first), Some(last)) => {
-            first.as_bytes()[0] == expected[0] && last.as_bytes()[0] == expected[1]
-        }
-        _ => false,
-    }
+    let ends = helpcode_ends(word, keymap);
+    ends.pair && ends.first == Some(expected[0]) && ends.last == Some(expected[1])
 }
 
 /// First and Both matches, then Last, then the rest, each stable; unchanged unless `help_code` is one letter.

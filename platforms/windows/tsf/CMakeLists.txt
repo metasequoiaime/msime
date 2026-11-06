@@ -32,6 +32,17 @@ else()
   target_compile_options(msime-tsf-smart-punctuation-fingerprint-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 endif()
 add_test(NAME msime-tsf-smart-punctuation-fingerprint COMMAND msime-tsf-smart-punctuation-fingerprint-test)
+# 延迟键屏障里的智能标点：策略逐条钉住，接线按源码检查。
+add_executable(msime-tsf-deferred-smart-punctuation-test tests/input/deferred_smart_punctuation.cpp)
+target_compile_features(msime-tsf-deferred-smart-punctuation-test PRIVATE cxx_std_17)
+target_include_directories(msime-tsf-deferred-smart-punctuation-test PRIVATE Global)
+if(MSVC)
+  target_compile_options(msime-tsf-deferred-smart-punctuation-test PRIVATE /UNDEBUG /W4 /WX /utf-8)
+else()
+  target_compile_options(msime-tsf-deferred-smart-punctuation-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+endif()
+add_test(NAME msime-tsf-deferred-smart-punctuation
+  COMMAND msime-tsf-deferred-smart-punctuation-test ${CMAKE_CURRENT_SOURCE_DIR})
 add_executable(msime-tsf-client-key-router-test tests/input/client_key_router.cpp)
 target_compile_features(msime-tsf-client-key-router-test PRIVATE cxx_std_17)
 target_include_directories(msime-tsf-client-key-router-test PRIVATE . Global IME Header Key)
@@ -69,10 +80,23 @@ foreach(path_standard IN ITEMS 17 20)
   endif()
   add_test(NAME msime-tsf-host-path-${path_standard} COMMAND msime-tsf-host-path-${path_standard}-test)
 endforeach()
+add_executable(msime-tsf-host-delay-path-test tests/runtime/host_delay_path.cpp)
+target_compile_features(msime-tsf-host-delay-path-test PRIVATE cxx_std_17)
+target_include_directories(msime-tsf-host-delay-path-test PRIVATE .)
+if(MSVC)
+  target_compile_options(msime-tsf-host-delay-path-test PRIVATE /UNDEBUG /W4 /WX /utf-8)
+else()
+  target_compile_options(msime-tsf-host-delay-path-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+endif()
+add_test(NAME msime-tsf-host-delay-path COMMAND msime-tsf-host-delay-path-test)
 add_test(NAME msime-tsf-host-library-config COMMAND "${CMAKE_COMMAND}"
   "-DSOURCE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}"
   "-DTEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/host-library-config-test"
   -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/host_library_config.cmake")
+add_test(NAME msime-tsf-arm64x-delay-load COMMAND "${CMAKE_COMMAND}"
+  "-DSOURCE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}"
+  "-DTEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/arm64x-delay-load-test"
+  -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/arm64x_delay_load.cmake")
 add_executable(msime-tsf-quick-phrase-cursor-edit-test tests/input/quick_phrase_cursor_edit.cpp)
 add_executable(msime-tsf-quick-phrase-cursor-reply-test tests/input/quick_phrase_cursor_reply.cpp)
 foreach(cursor_test IN ITEMS edit reply)
@@ -174,7 +198,7 @@ target_compile_features(msime-tsf-candidate-selection-slot-test PRIVATE cxx_std_
 add_test(NAME msime-tsf-candidate-selection-slot COMMAND msime-tsf-candidate-selection-slot-test)
 add_executable(msime-tsf-reply-wait-policy-test tests/input/reply_wait_policy.cpp)
 target_compile_features(msime-tsf-reply-wait-policy-test PRIVATE cxx_std_17)
-add_test(NAME msime-tsf-reply-wait-policy COMMAND msime-tsf-reply-wait-policy-test)
+add_test(NAME msime-tsf-reply-wait-policy COMMAND msime-tsf-reply-wait-policy-test ${CMAKE_CURRENT_SOURCE_DIR})
 # 反向端点重连要连带重开 Main，焦点回执等不到就是传输失败：这两条决定了重连循环会不会停。
 add_executable(msime-tsf-pipe-recovery-policy-test tests/input/pipe_recovery_policy.cpp)
 target_compile_features(msime-tsf-pipe-recovery-policy-test PRIVATE cxx_std_17)
@@ -325,6 +349,14 @@ endif()
 add_test(NAME msime-tsf-candidate-overlay-policy COMMAND msime-tsf-candidate-overlay-policy-test)
 set(MSIME_HOST_LIBRARY "" CACHE FILEPATH "Cargo-built host library or import library matching the TSF architecture")
 include("${CMAKE_CURRENT_SOURCE_DIR}/RequireHostLibrary.cmake")
+get_filename_component(msime_tsf_host_library_name "${MSIME_HOST_LIBRARY}" NAME)
+if(msime_tsf_host_library_name MATCHES "^lib(.+\\.dll)\\.a$")
+  set(MSIME_TSF_HOST_DLL_NAME "${CMAKE_MATCH_1}")
+elseif(msime_tsf_host_library_name MATCHES "^(.+\\.dll)\\.lib$")
+  set(MSIME_TSF_HOST_DLL_NAME "${CMAKE_MATCH_1}")
+else()
+  message(FATAL_ERROR "Cannot derive the TSF host DLL name from MSIME_HOST_LIBRARY=${MSIME_HOST_LIBRARY}")
+endif()
 enable_language(RC)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/TelemetryWer.cmake")
@@ -360,6 +392,7 @@ add_library(msime-tsf SHARED
   TsfCrashCapture.h TsfCrashCapture.cpp
   IME/MetasequoiaIME.rc
   IME/MetasequoiaIME.def
+  TsfHostDelayLoad.cpp
 )
 add_dependencies(msime-tsf msime-tsf-crash-wer)
 add_dependencies(msime-tsf-class-factory-test msime-tsf)
@@ -385,6 +418,12 @@ if(MINGW)
 endif()
 target_link_libraries(msime-tsf PRIVATE "${MSIME_HOST_LIBRARY}")
 set_target_properties(msime-tsf PROPERTIES OUTPUT_NAME MetasequoiaImeTsf)
+target_compile_definitions(msime-tsf PRIVATE
+  MSIME_TSF_HOST_DLL_NAME=L\"${MSIME_TSF_HOST_DLL_NAME}\")
+if(MSVC)
+  target_link_options(msime-tsf PRIVATE "/DELAYLOAD:${MSIME_TSF_HOST_DLL_NAME}")
+  target_link_libraries(msime-tsf PRIVATE delayimp)
+endif()
 install(TARGETS msime-tsf
   RUNTIME DESTINATION bin
   LIBRARY DESTINATION lib
@@ -430,7 +469,10 @@ if(MSIME_TSF_ARM64X)
     target_sources(msime-tsf PRIVATE ${msime_arm64_objects})
     # CMake puts /machine:ARM64EC into the default linker flags for this platform, after the target's own options, where it would win and produce an ARM64EC image (x64 machine type, no ARM64 view) instead.
     string(REGEX REPLACE "/[Mm][Aa][Cc][Hh][Ii][Nn][Ee]:[Aa][Rr][Mm]64[Ee][Cc]" "" CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS}")
-    target_link_options(msime-tsf PRIVATE /MACHINE:ARM64X "${msime_arm64_definition}" ${msime_arm64_libraries})
+    include("${CMAKE_CURRENT_SOURCE_DIR}/Arm64XDelayLoad.cmake")
+    msime_arm64x_delay_load_options("${MSIME_TSF_ARM64X_RESPONSE}" msime_arm64_delay_options)
+    target_link_options(msime-tsf PRIVATE /MACHINE:ARM64X "${msime_arm64_definition}"
+      ${msime_arm64_libraries} ${msime_arm64_delay_options})
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${MSIME_TSF_ARM64X_RESPONSE}")
   else()
     message(FATAL_ERROR "MSIME_TSF_ARM64X must be empty, ARM64 or ARM64EC, not ${MSIME_TSF_ARM64X}")

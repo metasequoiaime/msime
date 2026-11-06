@@ -31,6 +31,7 @@ fn options(root: &Path) -> EngineOptions {
         shuangpin_preedit_uses_raw: true,
         shuangpin_preedit_separated: false,
         force_cantonese_shuangpin: false,
+        cantonese_output_conversion: None,
         single_character_only: false,
         caret_edit_suffix: false,
         learning: false,
@@ -41,11 +42,13 @@ fn options(root: &Path) -> EngineOptions {
         fuzzy_pinyin_rules: 0,
         wubi_mixed_pinyin: false,
         wubi_z_wildcard: false,
+        wubi_reverse_code: true,
         wubi_profile: 0,
         helpcode: false,
         strict_quanpin_helpcode: false,
         show_helpcode: true,
         shuangpin_helpcode_modes: crate::types::ShuangpinHelpcodeModes::default(),
+        grid_helpcode: false,
         helpcode_schema: "ziranma".into(),
         helpcode_trigger_key: None,
         chinese_punctuation: true,
@@ -1024,6 +1027,41 @@ fn helpcode_settings_reach_the_real_engine() {
     assert!(Session::new(&value).is_err());
 }
 
+// #10731：宿主快照带着前导键，`preedit` 里已经插好，光标落在 `preedit` 末尾；`editing_text` 和 `caret_position` 仍是按键原文。
+#[test]
+fn helpcode_trigger_reaches_the_host_snapshot() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut value = options(dir.path());
+    value.helpcode = true;
+    value.helpcode_trigger_key = Some(b';');
+    let mut session = Session::new(&value).unwrap();
+    type_text(&mut session, b"ni");
+    assert_eq!(session.snapshot().unwrap().helpcode_trigger, None);
+    assert!(session.character(b';', false).unwrap().handled);
+    let snapshot = session.snapshot().unwrap();
+    assert_eq!(snapshot.preedit, "ni;");
+    assert_eq!(snapshot.preedit_caret, 3);
+    assert_eq!(snapshot.editing_text, "ni");
+    assert_eq!(snapshot.caret_position, 2);
+    assert_eq!(
+        snapshot.helpcode_trigger,
+        Some(crate::HelpcodeTrigger {
+            key: ';',
+            position: 2
+        })
+    );
+    type_text(&mut session, b"f");
+    let snapshot = session.snapshot().unwrap();
+    assert_eq!(snapshot.preedit, "ni';F");
+    assert_eq!(snapshot.preedit_caret, 5);
+    assert_eq!(snapshot.editing_text, "niF");
+    type_text(&mut session, b"r");
+    let snapshot = session.snapshot().unwrap();
+    assert_eq!(snapshot.preedit, "ni'FR");
+    assert_eq!(snapshot.preedit_caret, 5);
+    assert_eq!(snapshot.helpcode_trigger, None);
+}
+
 #[test]
 fn custom_helpcode_table_is_loaded_by_the_engine_session() {
     let dir = tempfile::tempdir().unwrap();
@@ -1099,7 +1137,7 @@ fn invalid_options_return_errors_instead_of_unwinding_into_rust() {
     value.shuangpin_profile = 255;
     assert_eq!(message(&value), "Unsupported shuangpin profile");
     value.shuangpin_profile = 0;
-    value.wubi_profile = 2;
+    value.wubi_profile = 3;
     assert_eq!(message(&value), "Unsupported wubi profile");
     value.wubi_profile = 1;
     value.frequency_mode = "sometimes".into();
@@ -2091,7 +2129,7 @@ fn commit_raw_applies_windows_english_learning_policy() {
     assert_eq!(learned, "hello");
 }
 
-// 随包的 msime-english.db 按 Google unigram 计数给权重，拼音词库用的是自己的尺度，英文权重说明不了中文权重的高低（#1040、#1063 两次按权重提英文都撤回了）。所以输入能切成完整音节时（这里的 `ni`），混输从不让英文领先拼音的首选：不凭随包权重，不因为上屏过，也不因为置顶过；置顶只在英文词之间调顺序。英文只在拼音拆不开、英文完全匹配整段输入，或者用户把它固定在第一位时才领先，那条规则不比较权重，见 `CandidateQueries::mixed`。
+// 随包的 msime-english.db 按 Google unigram 计数给权重（这里的两个词都常见到能坐首选之后的优先位置，见 `english::takes_priority_slot`），拼音词库用的是自己的尺度，英文权重说明不了中文权重的高低（#1040、#1063 两次按权重提英文都撤回了）。所以输入能切成完整音节时（这里的 `ni`），混输从不让英文领先拼音的首选：不凭随包权重，不因为上屏过，也不因为置顶过；置顶只在英文词之间调顺序。英文只在拼音拆不开、英文完全匹配整段输入，或者用户把它固定在第一位时才领先，那条规则不比较权重，见 `CandidateQueries::mixed`。
 #[test]
 fn mixed_english_never_outranks_chinese_on_complete_pinyin() {
     const ENGLISH: u8 = 4;
@@ -2115,8 +2153,8 @@ fn mixed_english_never_outranks_chinese_on_complete_pinyin() {
             .unwrap()
             .execute_batch(&format!(
                 "{ENGLISH_SCHEMA}
-                 INSERT INTO english_words VALUES('nimbus','Nimbus',50000);
-                 INSERT INTO english_words VALUES('ninja','Ninja',30000);"
+                 INSERT INTO english_words VALUES('nimbus','Nimbus',5000000);
+                 INSERT INTO english_words VALUES('ninja','Ninja',3000000);"
             ))
             .unwrap();
     }
@@ -3048,6 +3086,124 @@ fn wubi_reverse_codes_are_shown_only_in_the_wubi_scheme() {
         .position(|word| word == "你好")
         .unwrap();
     assert!(view.candidate_annotations[index].contains("wqvb"));
+}
+
+/// #10790：「候选显示剩余编码」关掉后，宿主在没有剩余编码时退回显示引擎注释，引擎不能再给五笔原生候选附完整五笔码；候选的 `code` 字段不受影响。混输拼音的候选照旧附码，那是用拼音查五笔码。
+#[test]
+fn wubi_reverse_codes_are_left_out_when_the_code_hint_is_off() {
+    let extra = "INSERT INTO wubi86 VALUES('wqvb','你好',300);";
+
+    let native_root = tempfile::tempdir().unwrap();
+    let mut native = helpcode_fixture(native_root.path(), extra, "");
+    native.scheme = SchemeType::Wubi as u8;
+    native.wubi_reverse_code = false;
+    let mut session = Session::new(&native).unwrap();
+    type_text(&mut session, b"wq");
+    let view = session.snapshot().unwrap();
+    let index = view
+        .candidates
+        .iter()
+        .position(|word| word == "你好")
+        .unwrap();
+    assert!(
+        !view.candidate_annotations[index].contains("wqvb"),
+        "{:?}",
+        view.candidate_annotations
+    );
+    // 宿主打开开关时还要靠它算剩余编码。
+    assert_eq!(view.candidate_codes[index], "wqvb");
+
+    // 混输拼音的候选照旧附：混输打开时没有 `z` 反查，打拼音看编码是打字时唯一的查码路径（#6789）。
+    let mixed_root = tempfile::tempdir().unwrap();
+    let mut mixed = helpcode_fixture(mixed_root.path(), extra, "");
+    mixed.scheme = SchemeType::Wubi as u8;
+    mixed.wubi_mixed_pinyin = true;
+    mixed.wubi_reverse_code = false;
+    let mut session = Session::new(&mixed).unwrap();
+    type_text(&mut session, b"nihao");
+    let view = session.snapshot().unwrap();
+    let index = view
+        .candidates
+        .iter()
+        .position(|word| word == "你好")
+        .unwrap();
+    assert_ne!(view.candidate_codes[index], "wqvb", "应是拼音候选");
+    assert!(
+        view.candidate_annotations[index].contains("wqvb"),
+        "{:?}",
+        view.candidate_annotations
+    );
+}
+
+/// 混输的同一页里既有五笔原生候选也有拼音候选时，开关关掉只去掉前者的编码。
+#[test]
+fn the_code_hint_off_strips_only_native_wubi_codes_on_a_mixed_page() {
+    let root = tempfile::tempdir().unwrap();
+    let extra = format!("{PINYIN_LOOKUP_SQL} INSERT INTO wubi86 VALUES('nigg','恒',100);");
+    let mut options = helpcode_fixture(root.path(), &extra, "");
+    options.scheme = SchemeType::Wubi as u8;
+    options.wubi_mixed_pinyin = true;
+    options.show_helpcode = false;
+    options.wubi_reverse_code = false;
+    let mut session = Session::new(&options).unwrap();
+    type_text(&mut session, b"ni");
+    let view = session.snapshot().unwrap();
+    assert!(!view.answered_by_pinyin_fallback);
+    let native = annotation_of(&view, "恒");
+    assert!(!native.contains("nigg"), "{native}");
+    let pinyin = annotation_of(&view, "你");
+    assert!(pinyin.contains("wqiy"), "{pinyin}");
+
+    // 开关打开时两种候选都附，出厂行为不变。
+    let on_root = tempfile::tempdir().unwrap();
+    let mut on = helpcode_fixture(on_root.path(), &extra, "");
+    on.scheme = SchemeType::Wubi as u8;
+    on.wubi_mixed_pinyin = true;
+    on.show_helpcode = false;
+    let mut session = Session::new(&on).unwrap();
+    type_text(&mut session, b"ni");
+    let view = session.snapshot().unwrap();
+    assert!(annotation_of(&view, "恒").contains("nigg"));
+    assert!(annotation_of(&view, "你").contains("wqiy"));
+}
+
+/// `z` 通配查出的五笔候选照旧附完整码：用户不知道 `z` 那一位才用通配，完整码就是答案；码里没有 `z` 时照常不附。
+#[test]
+fn the_wubi_wildcard_keeps_codes_when_the_code_hint_is_off() {
+    let root = tempfile::tempdir().unwrap();
+    let mut options = pinyin_lookup_options(root.path());
+    options.wubi_z_wildcard = true;
+    options.wubi_reverse_code = false;
+    let mut session = Session::new(&options).unwrap();
+    type_text(&mut session, b"wqzb");
+    let view = session.snapshot().unwrap();
+    assert!(!view.answered_by_pinyin_fallback);
+    let annotation = annotation_of(&view, "你好");
+    assert!(annotation.contains("wqvb"), "{annotation}");
+
+    let plain_root = tempfile::tempdir().unwrap();
+    let mut plain = pinyin_lookup_options(plain_root.path());
+    plain.wubi_z_wildcard = true;
+    plain.wubi_reverse_code = false;
+    let mut session = Session::new(&plain).unwrap();
+    type_text(&mut session, b"wqv");
+    let view = session.snapshot().unwrap();
+    let annotation = annotation_of(&view, "你好");
+    assert!(!annotation.contains("wqvb"), "{annotation}");
+}
+
+/// `z` 临时拼音反查是用户主动要看编码，「候选显示剩余编码」关掉也照旧附上。
+#[test]
+fn the_pinyin_lookup_keeps_wubi_codes_when_the_code_hint_is_off() {
+    let root = tempfile::tempdir().unwrap();
+    let mut options = pinyin_lookup_options(root.path());
+    options.wubi_reverse_code = false;
+    let mut session = Session::new(&options).unwrap();
+    type_text(&mut session, b"znihao");
+    let view = session.snapshot().unwrap();
+    assert!(view.answered_by_pinyin_fallback);
+    let annotation = annotation_of(&view, "你好");
+    assert!(annotation.contains("wqvb"), "{annotation}");
 }
 
 #[test]

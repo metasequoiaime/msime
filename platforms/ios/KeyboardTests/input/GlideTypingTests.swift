@@ -1,3 +1,4 @@
+import ObjectiveC
 import UIKit
 import XCTest
 
@@ -5,16 +6,21 @@ import XCTest
 @MainActor
 final class GlideTypingTests: XCTestCase {
   private var storedGlide: Any?
+  private var storedBilingual: Any?
 
   override func setUp() {
     super.setUp()
     enableAllInputSchemes()
     storedGlide = KeyboardLayoutPreference.defaults.object(forKey: KeyboardLayoutPreference.glideTypingKey)
+    storedBilingual = KeyboardLayoutPreference.defaults.object(forKey: KeyboardLayoutPreference.bilingualGlideKey)
+    KeyboardLayoutPreference.bilingualGlide = false
   }
 
   override func tearDown() {
     if let storedGlide { KeyboardLayoutPreference.defaults.set(storedGlide, forKey: KeyboardLayoutPreference.glideTypingKey) }
     else { KeyboardLayoutPreference.defaults.removeObject(forKey: KeyboardLayoutPreference.glideTypingKey) }
+    if let storedBilingual { KeyboardLayoutPreference.defaults.set(storedBilingual, forKey: KeyboardLayoutPreference.bilingualGlideKey) }
+    else { KeyboardLayoutPreference.defaults.removeObject(forKey: KeyboardLayoutPreference.bilingualGlideKey) }
     super.tearDown()
   }
 
@@ -89,6 +95,15 @@ final class GlideTypingTests: XCTestCase {
   }
 
   // MARK: - 请求
+
+  func testBilingualRequestIsExplicitAndDoesNotChangeTheDefaultRequest() throws {
+    let samples = Self.stroke("hello")
+    let original = try decode(XCTUnwrap(GlideTyping.request(frames: Self.frames, samples: samples)))
+    XCTAssertNil(original["bilingual"])
+    let mixed = try decode(XCTUnwrap(GlideTyping.request(frames: Self.frames, samples: samples, bilingual: true)))
+    XCTAssertEqual(mixed["bilingual"] as? Bool, true)
+    XCTAssertEqual(mixed["points"] as? [[Double]], original["points"] as? [[Double]])
+  }
 
   func testDownsamplingKeepsBothEndsWithinTheLimit() {
     let short = Array(0..<10)
@@ -278,6 +293,181 @@ final class GlideTypingTests: XCTestCase {
     glide.onEnded(Self.stroke("nihao", in: frames), frames)
     let preedit = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "preeditButton" } as? UIButton)
     XCTAssertEqual(preedit.accessibilityValue?.filter(\.isLetter), "nihao")
+  }
+
+  func testTheBilingualSettingRoutesAnEnglishStrokeThroughTheChineseKeyboard() throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    KeyboardLayoutPreference.bilingualGlide = true
+    let controller = keyboard(.quanpin, glide: true)
+    let glide = try gesture(controller)
+    let frames = glide.keyFrames()
+    XCTAssertTrue(glide.isArmed())
+    glide.onEnded(Self.stroke("hello", in: frames), frames)
+    let preedit = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "preeditButton" } as? UIButton)
+    XCTAssertEqual(preedit.accessibilityValue?.filter(\.isLetter).lowercased(), "hello")
+  }
+
+  func testConsecutiveBilingualChineseStrokesKeepTheWholeComposition() throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    KeyboardLayoutPreference.bilingualGlide = true
+    let controller = keyboard(.quanpin, glide: true)
+    let glide = try gesture(controller)
+    let frames = glide.keyFrames()
+    glide.onEnded(Self.stroke("nihao", in: frames), frames)
+    glide.onEnded(Self.stroke("shijie", in: frames), frames)
+    let preedit = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "preeditButton" } as? UIButton)
+    XCTAssertEqual(preedit.accessibilityValue?.filter(\.isLetter).lowercased(), "nihaoshijie")
+  }
+
+  /// 记录正式渲染器对文档的写入；组字标记不算已提交文本，取消标记时留下的文字（「改标记再取消标记」的上屏）才算。
+  private final class Document: NSObject, UITextDocumentProxy {
+    let editor = UITextView()
+    var inserted: [String] = []
+    private var marked = ""
+    var documentIdentifier = UUID()
+    var documentInputMode: UITextInputMode? { editor.textInputMode }
+    var hasText: Bool { editor.hasText }
+    var documentContextBeforeInput: String? { editor.text }
+    var documentContextAfterInput: String? { "" }
+    var selectedText: String? { nil }
+    func insertText(_ text: String) { marked = ""; inserted.append(text); editor.insertText(text) }
+    func deleteBackward() { editor.deleteBackward() }
+    func setMarkedText(_ text: String, selectedRange: NSRange) {
+      marked = text
+      editor.setMarkedText(text, selectedRange: selectedRange)
+    }
+    func unmarkText() {
+      if !marked.isEmpty { inserted.append(marked) }
+      marked = ""
+      editor.unmarkText()
+    }
+    func adjustTextPosition(byCharacterOffset offset: Int) {}
+  }
+
+  func testOnlyExplicitSelectionWritesBilingualGlidesIntoTheDocument() throws {
+    let document = Document()
+    let selector = #selector(getter: UIInputViewController.textDocumentProxy)
+    let inherited = try XCTUnwrap(class_getInstanceMethod(UIInputViewController.self, selector))
+    let original = method_getImplementation(inherited)
+    let block: @convention(block) (AnyObject) -> AnyObject = { _ in document }
+    let replacement = imp_implementationWithBlock(block)
+    if !class_addMethod(KeyboardViewController.self, selector, replacement, method_getTypeEncoding(inherited)) {
+      method_setImplementation(try XCTUnwrap(class_getInstanceMethod(KeyboardViewController.self, selector)), replacement)
+    }
+    defer {
+      if let own = class_getInstanceMethod(KeyboardViewController.self, selector) { method_setImplementation(own, original) }
+      imp_removeBlock(replacement)
+    }
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    KeyboardLayoutPreference.bilingualGlide = true
+    let controller = keyboard(.quanpin, glide: true)
+    defer { controller.viewDidDisappear(false) }
+    let glide = try gesture(controller)
+    let frames = glide.keyFrames()
+    for selection in ["candidate-1", "spaceKey", "returnKey"] {
+      for words in [["nihao", "shijie"], ["nihao", "hello"], ["hello", "nihao"], ["hello", "world"]] {
+        document.inserted = []
+        for spelling in words {
+          glide.onEnded(Self.stroke(spelling, in: frames), frames)
+          XCTAssertTrue(document.inserted.isEmpty, "下一笔不能写入上一笔的首选")
+        }
+        let preedit = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "preeditButton" } as? UIButton)
+        try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == selection } as? UIButton)
+          .sendActions(for: .primaryActionTriggered)
+        XCTAssertEqual(document.inserted.count, 1)
+        let committed = try XCTUnwrap(document.inserted.first)
+        XCTAssertFalse(committed.isEmpty)
+        XCTAssertFalse(committed.contains("\n"), "确认候选不能顺带换行")
+        XCTAssertTrue(preedit.accessibilityValue?.isEmpty ?? true, "明确确认后清除组字")
+      }
+    }
+  }
+
+  func testBilingualEnglishCandidatesHideRedundantEnglishCaptions() throws {
+    setCandidateGloss(true)
+    let previous = InputSchemePreference.scheme
+    let primary = CandidateTranslationPreference.primaryIndex
+    defer { InputSchemePreference.scheme = previous; CandidateTranslationPreference.primaryIndex = primary }
+    CandidateTranslationPreference.primaryIndex = 0
+    KeyboardLayoutPreference.bilingualGlide = true
+    let controller = keyboard(.quanpin, glide: true)
+    defer { controller.viewDidDisappear(false) }
+    controller.render(MetasequoiaInputSnapshot(
+      isHandled: true, preedit: "hello", candidates: ["hello", "你好"],
+      candidateGlosses: ["greeting; hello", "hello"], candidateAnnotations: ["hello", ""],
+      candidateSources: [0, 0], candidatePageCount: 1, editingText: "hello", caretPosition: 5))
+    controller.view.layoutIfNeeded()
+    let english = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "candidate-1" } as? UIButton)
+    let chinese = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "candidate-2" } as? UIButton)
+    XCTAssertFalse(english.accessibilityLabel?.contains("还需输入 hello") == true)
+    XCTAssertFalse(english.accessibilityLabel?.contains("释义 greeting") == true)
+    XCTAssertTrue(chinese.accessibilityLabel?.contains("释义 hello") == true)
+  }
+
+  func testBilingualEnglishCandidatesKeepUsefulChineseMeaningsWithoutSpellingHints() throws {
+    setCandidateGloss(true)
+    let previous = InputSchemePreference.scheme
+    let primary = CandidateTranslationPreference.primaryIndex
+    defer { InputSchemePreference.scheme = previous; CandidateTranslationPreference.primaryIndex = primary }
+    CandidateTranslationPreference.primaryIndex = 0
+    KeyboardLayoutPreference.bilingualGlide = true
+    let controller = keyboard(.quanpin, glide: true)
+    defer { controller.viewDidDisappear(false) }
+    controller.render(MetasequoiaInputSnapshot(
+      isHandled: true, preedit: "helo", candidates: ["hello"],
+      candidateGlosses: ["嘿；喂"], candidateAnnotations: ["helo"], candidateSources: [0],
+      candidatePageCount: 1, editingText: "helo", caretPosition: 4))
+    let english = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "candidate-1" } as? UIButton)
+    XCTAssertTrue(english.accessibilityLabel?.contains("释义 嘿；喂") == true)
+    XCTAssertFalse(english.accessibilityLabel?.contains("还需输入 helo") == true)
+  }
+
+  func testBilingualCaptionFilteringPreservesOtherTargetsAndOrdinaryTyping() {
+    XCTAssertNil(BilingualCandidateCaptionPolicy.gloss("greeting", candidate: "hello", target: "EN", enabled: true))
+    XCTAssertEqual(BilingualCandidateCaptionPolicy.gloss("bonjour", candidate: "hello", target: "FR", enabled: true), "bonjour")
+    XCTAssertEqual(BilingualCandidateCaptionPolicy.gloss("greeting", candidate: "hello", target: "EN", enabled: false), "greeting")
+    XCTAssertEqual(BilingualCandidateCaptionPolicy.annotation("hello'world", candidate: "hello world", enabled: true), "")
+    XCTAssertEqual(BilingualCandidateCaptionPolicy.annotation("helo", candidate: "hello", enabled: true), "")
+    XCTAssertEqual(BilingualCandidateCaptionPolicy.annotation("helo", candidate: "hello", enabled: false), "helo")
+  }
+
+  func testEveryBilingualEnglishAlternativeHidesTheDecodedSpelling() throws {
+    setCandidateGloss(true)
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    KeyboardLayoutPreference.bilingualGlide = true
+    let controller = keyboard(.quanpin, glide: true)
+    defer { controller.viewDidDisappear(false) }
+    for (spelling, words) in [
+      ("test", ["test", "rest", "teat"]),
+      ("transmission", ["translations", "transmissions", "transmission"])
+    ] {
+      controller.render(MetasequoiaInputSnapshot(
+        isHandled: true, preedit: spelling, candidates: words + ["你好"],
+        candidateGlosses: ["检验", "样例释义", "另一释义", "hello"],
+        candidateAnnotations: Array(repeating: spelling, count: words.count) + ["nihao"],
+        candidateSources: [0, 0, 0, 0], candidatePageCount: 1,
+        editingText: spelling, caretPosition: spelling.count))
+      controller.view.layoutIfNeeded()
+      for index in words.indices {
+        let chip = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "candidate-\(index + 1)" } as? UIButton)
+        XCTAssertFalse(chip.accessibilityLabel?.contains("还需输入") == true, "第 \(index + 1) 个英文候选仍带了解码拼写")
+        XCTAssertTrue(chip.accessibilityLabel?.contains("释义") == true)
+        if spelling == "test", let title = chip.configuration?.attributedTitle {
+          let attributed = NSAttributedString(title)
+          let font = try XCTUnwrap(attributed.attribute(.font, at: 0, effectiveRange: nil) as? UIFont)
+          let insets = chip.configuration?.contentInsets ?? .zero
+          let minimum = (words[index] as NSString).size(withAttributes: [.font: font]).width + insets.leading + insets.trailing
+          XCTAssertGreaterThanOrEqual(chip.bounds.width, minimum - 0.5, "短英文标题不能压成逐字母换行")
+        }
+      }
+      let chinese = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "candidate-4" } as? UIButton)
+      XCTAssertTrue(chinese.accessibilityLabel?.contains("还需输入 nihao") == true)
+      XCTAssertTrue(chinese.accessibilityLabel?.contains("释义 hello") == true)
+    }
   }
 
   func testNewFingersHitTheKeyAreaItselfWhileAGlideRuns() throws {

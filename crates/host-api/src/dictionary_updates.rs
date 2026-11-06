@@ -64,10 +64,20 @@ pub(crate) fn request(
                 let mut task = context.clone();
                 task.mirrors = saved_mirrors(options, Path::new(state));
                 let automatic = command == "automatic";
+                let configured = configured_generation(options);
                 if std::thread::Builder::new()
                     .name("dictionary-update".into())
                     .spawn(move || {
-                        let _ = updates::check(&task, automatic);
+                        // 与下载版本同一个时机回收工作词库：装好了新版本，或确认已是最新。
+                        if updates::check(&task, automatic).is_ok_and(|status| {
+                            matches!(status.phase.as_str(), "ready" | "current")
+                        }) {
+                            remove_unused_working_generations(
+                                &task.state_root,
+                                &task.baseline,
+                                configured.as_deref(),
+                            );
+                        }
                         if let Ok(mut running) = tasks.lock() {
                             running.remove(&task.state_root);
                         }
@@ -85,6 +95,158 @@ pub(crate) fn request(
         _ => return Err("dictionary_update_invalid".into()),
     };
     serde_json::to_value(status).map_err(|_| "dictionary_update_invalid".into())
+}
+
+/// 回收再也用不上的工作词库代次（#10735）。宿主为每个词库版本在 `<state>/user/dictionaries/<代次>` 准备一份工作词库（主词库、英文词库和 n-gram 表的副本，回放过用户日志，一份几十到上百 MB），代次就是那一版资源集合的 `generation()`：随包词库是本安装包的词库锁，在线更新的是下载版本的桌面代次。以前这里只建不删，每装一个新版本、每升级一次换了词库锁，就多留一份。
+///
+/// 留下：本安装包词库锁的代次，宿主配置记着的那一代（`configured`，即发来请求的 HostOptions 的 `dictionaries`），和下载版本还留着的那些（[`updates::retained_generations`]：当前、可回退的上一个、输入法最近载入的、有会话占用而没删的）。宿主配置那一代不能只靠锁保护：Linux 上自己下载的词库在升级换锁后刷新报 `dictionary_outdated`，宿主按设计继续用 `runtime-options.json` 记着的旧锁代次，而 Fcitx5 每次失焦都销毁会话、建会话时不重新准备代次，没有焦点的那一刻谁也不持锁，删了它之后每次建会话都失败，重启宿主也准备不回来。Linux 和 Android 的设置应用每次请求都现读 `runtime-options.json`，这里拿到的就是输入法此刻在用的那份。其余 64 位十六进制名字的目录逐个先取这一个目录上的独占词库访问锁：每个会话都以共享方式持着它所用代次的这把锁（`DictionaryAccess::try_session`），设置里改词这类维护也持着它，取不到就说明还有人在用，跳过，下次再试。升级后还没重启的旧版输入法进程用的就是上一个词库锁的代次，它的会话活着时也因此不会被删。取到锁之后再问一次哪些版本还留着，避开在这期间刚发布的新版本，然后回收：Unix 上改名成 `<代次>.<随机串>.removing` 认领再删（[`claim_then_remove`]），删到一半留下的目录由引擎准备代次时清理暂存目录的那一步收尾（`.removing` 后缀与它约定一致）；Windows 上持锁时锁文件句柄开着、目录改不了名，改成持锁就地清空、放锁后再删空目录（[`empty_then_remove`]）。两种做法失败时都保留现场留到下次持锁再试，不能释放租约后对还有数据的目录无锁重试。
+///
+/// 代次里的内容都能从资源和用户日志重新准备出来，但仍在使用的目录必须受租约保护。回收失败时只多留一份，不能绕过锁继续删除。
+pub(crate) fn remove_unused_working_generations(
+    state: &Path,
+    baseline: &ResourceSet,
+    configured: Option<&str>,
+) {
+    #[cfg(windows)]
+    let reclaim = empty_then_remove;
+    #[cfg(not(windows))]
+    let reclaim = |parent: &Path, name: &str, access: crate::DictionaryAccess| {
+        claim_then_remove(parent, name, access, |source, target| {
+            std::fs::rename(source, target)
+        })
+    };
+    remove_unused_working_generations_using(state, baseline, configured, reclaim);
+}
+
+fn remove_unused_working_generations_using(
+    state: &Path,
+    baseline: &ResourceSet,
+    configured: Option<&str>,
+    mut reclaim: impl FnMut(&Path, &str, crate::DictionaryAccess),
+) {
+    let Ok(current) = baseline.generation() else {
+        return;
+    };
+    let parent = state.join("user").join("dictionaries");
+    if !state.is_absolute() || msime_path_trust::reject_symlinked_components(&parent).is_err() {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(&parent) else {
+        return;
+    };
+    // 本安装包和宿主配置的代次只在就绪时留下：没有 `.ready` 的同名目录是上次 Windows 回收放锁后没删完的空壳，引擎准备代次时改名发布到非空目录必然失败，不删它这一代就再也准备不出来。
+    let candidates: Vec<String> = entries
+        .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
+        .filter(|name| {
+            name.len() == 64
+                && name.bytes().all(|b| b.is_ascii_hexdigit())
+                && ((*name != current && Some(name.as_str()) != configured)
+                    || !generation_ready(&parent.join(name)))
+        })
+        .collect();
+    for name in candidates {
+        let path = parent.join(&name);
+        if !std::fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.is_dir()) {
+            continue;
+        }
+        // 两个根是同一个目录，去重后只取这个代次上的一把锁，不碰用户目录上那把（所有会话都持着它）。
+        let Ok(Some(access)) = crate::DictionaryAccess::try_maintenance(&path, &path) else {
+            continue;
+        };
+        let Some(retained) = updates::retained_generations(state) else {
+            return;
+        };
+        let protected =
+            name == current || Some(name.as_str()) == configured || retained.contains(&name);
+        if protected && generation_ready(&path) {
+            continue;
+        }
+        reclaim(&parent, &name, access);
+    }
+}
+
+/// 代次目录里有没有普通文件的 `.ready`，与引擎判断代次就绪的规则一致。
+fn generation_ready(path: &Path) -> bool {
+    std::fs::symlink_metadata(path.join(msime_engine::assets::GENERATION_READY))
+        .is_ok_and(|metadata| metadata.is_file())
+}
+
+/// Unix 上的回收：持着独占租约把代次改名成 `<代次>.<随机串>.removing` 认领，放锁后再删。改名失败就保留原目录，留到下次持锁再试，不能释放租约后无锁重试。
+#[cfg(any(not(windows), test))]
+fn claim_then_remove(
+    parent: &Path,
+    name: &str,
+    access: crate::DictionaryAccess,
+    mut rename: impl FnMut(&Path, &Path) -> std::io::Result<()>,
+) {
+    let claimed = parent.join(format!("{name}.{}.removing", attempt()));
+    let moved = rename(&parent.join(name), &claimed).is_ok();
+    drop(access);
+    if moved {
+        let _ = std::fs::remove_dir_all(&claimed);
+    }
+}
+
+/// Windows 上的回收。租约的锁文件就在代次目录里，持锁时它的句柄开着，NTFS 不允许改名还有打开文件的目录，Unix 那种持锁改名认领在这里每次都失败。改成持锁时就地清空：先删 `.ready`，这一代从此在引擎看来不再就绪，再删锁文件以外的所有内容；放锁之后才删锁文件和已经空了的目录。
+///
+/// 锁文件原则上不能删（换了文件，两个进程会各自锁住不同的文件）。引擎打开锁文件时没有设 `share_mode`，std 在 Windows 上默认带 `FILE_SHARE_DELETE`，所以即使放锁后别的进程已经打开并锁住了它，这里的删除照样成功：NTFS 的 POSIX 删除语义下（Windows 10 1903 起）名字立即消失、目录随之删掉，那个进程锁着的是一个已经脱离目录的文件；旧删除语义下（Windows 7）文件只进入待删除状态，它关掉句柄之前同一路径上新的取锁会被拒绝，目录删不掉，之后留下的是一个空目录。这两种情况都安全，因为删锁文件时代次里已经没有任何数据：锁住脱离的文件或待删除的文件，保护的都只是一个不就绪的空壳，用它建会话也会失败。没删完的空壳（空目录、还在待删除的锁文件、或进程在放锁和删锁文件之间退出留下的锁文件）下一轮检查再收；空壳挡住引擎重新准备同名代次，所以下一轮即使这一代又成了本安装包或宿主配置的代次也照样收掉。删 `.ready` 失败时什么也不动，这一代保持完整。
+#[cfg(any(windows, test))]
+fn empty_then_remove(parent: &Path, name: &str, access: crate::DictionaryAccess) {
+    use msime_engine::access::LOCK_FILE;
+    let path = parent.join(name);
+    match std::fs::remove_file(path.join(msime_engine::assets::GENERATION_READY)) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => return,
+    }
+    // 删锁文件的前提是所有数据都已清空。读取目录或删除数据失败时保留同一把协调锁，
+    // 不能把仍有数据的代次误当空壳，让其他进程在下一轮取到另一把锁。
+    let Ok(entries) = std::fs::read_dir(&path) else {
+        return;
+    };
+    for entry in entries {
+        let Ok(entry) = entry else {
+            return;
+        };
+        if entry.file_name() == LOCK_FILE {
+            continue;
+        }
+        let entry = entry.path();
+        let metadata = match std::fs::symlink_metadata(&entry) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(_) => return,
+        };
+        let removed = if metadata.is_dir() {
+            std::fs::remove_dir_all(&entry)
+        } else {
+            std::fs::remove_file(&entry)
+        };
+        if removed.is_err_and(|error| error.kind() != std::io::ErrorKind::NotFound) {
+            return;
+        }
+    }
+    drop(access);
+    let _ = std::fs::remove_file(path.join(LOCK_FILE));
+    let _ = std::fs::remove_dir(&path);
+}
+
+/// 宿主配置的工作词库目录（HostOptions 的 `dictionaries`）的代次名。只取文件名，不核对它是不是在 `user/dictionaries/` 下：多留一份只是多占空间。
+fn configured_generation(options: &HostOptions) -> Option<String> {
+    Path::new(&options.dictionaries)
+        .file_name()?
+        .to_str()
+        .map(str::to_owned)
+}
+
+/// 认领目录名里的随机串：引擎只认字母数字，这里用进程号和当前纳秒的十六进制。
+#[cfg(any(not(windows), test))]
+fn attempt() -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos())
+        .unwrap_or_default();
+    format!("{:x}{nanos:x}", std::process::id())
 }
 
 /// 用户在设置里保存的下载镜像（`voice_input.asr_model_mirror`，资源包下载也用它）。读实时的偏好文件，用户改了镜像不必等宿主重新准备；读不了时退回宿主文档里的偏好副本。空串表示没填。
@@ -412,6 +574,271 @@ mod tests {
         // 更新记录里的随包目录没有码表时不回退。
         std::fs::remove_dir_all(resources.join("helpcodes")).unwrap();
         assert_eq!(crate::recorded_helpcode_bundle(&state, &baseline), None);
+    }
+
+    /// #10735：每个词库版本在 `user/dictionaries/<代次>` 留一份工作词库。本安装包词库锁的、下载版本还留着的、还有会话或维护在用的留下，其余的删掉；不是代次名字的目录（暂存目录、别的东西）和符号链接不碰。
+    #[test]
+    fn unused_working_generations_are_removed_unless_bundled_retained_or_in_use() {
+        let root = tempfile::tempdir().unwrap();
+        let resources = root.path().join("resources");
+        let state = root.path().join("state");
+        let mut baseline = crate::tests::synthetic_desktop_lock(&resources);
+        hash_files(&resources, &mut baseline, "dict-v2.0.9");
+        // 随包词库真正准备出来的工作词库，名字就是词库锁的代次。
+        let document: Value = serde_json::from_str(
+            &crate::prepare_host_with_updates(&resources, &state, Edition::full(), &baseline)
+                .unwrap(),
+        )
+        .unwrap();
+        let dictionaries = state.join("user/dictionaries");
+        let bundled = dictionaries.join(baseline.generation().unwrap());
+        assert_eq!(
+            Path::new(document["dictionaries"].as_str().unwrap()),
+            bundled
+        );
+        let working = |name: &str| {
+            let path = dictionaries.join(name);
+            std::fs::create_dir_all(&path).unwrap();
+            std::fs::write(path.join("msime-pinyin.db"), b"working copy").unwrap();
+            std::fs::write(
+                path.join(msime_engine::assets::GENERATION_READY),
+                b"ready\n",
+            )
+            .unwrap();
+            path
+        };
+        let generation = |digit: char| digit.to_string().repeat(64);
+        // 下载版本还留着清单的（当前、上一个、删不掉的）。
+        let retained = working(&generation('1'));
+        let downloads = state.join("dictionary-updates/generations");
+        std::fs::create_dir_all(&downloads).unwrap();
+        std::fs::write(downloads.join(format!("{}.json", generation('1'))), b"{}").unwrap();
+        // 输入法最近载入的那一版。
+        let loaded = working(&generation('2'));
+        std::fs::create_dir_all(downloads.join(generation('2'))).unwrap();
+        updates::record_loaded(&state, &downloads.join(generation('2'))).unwrap();
+        // 下载版本早已删掉的，和升级前那个词库锁的。
+        let removed = working(&generation('3'));
+        let previous_bundle = working(&generation('4'));
+        // 还有会话在用的（例如升级后还没重启的旧版输入法）。
+        let in_use = working(&generation('5'));
+        let session = crate::DictionaryAccess::try_session(&state.join("user"), &in_use)
+            .unwrap()
+            .unwrap();
+        let staging = dictionaries.join(format!("{}.attempt.incoming", generation('6')));
+        std::fs::create_dir_all(&staging).unwrap();
+        let unrelated = dictionaries.join("custom");
+        std::fs::create_dir_all(&unrelated).unwrap();
+        #[cfg(unix)]
+        let linked = {
+            let outside = root.path().join("outside");
+            std::fs::create_dir_all(&outside).unwrap();
+            std::fs::write(outside.join("keep"), b"keep").unwrap();
+            let linked = dictionaries.join(generation('7'));
+            std::os::unix::fs::symlink(&outside, &linked).unwrap();
+            linked
+        };
+
+        remove_unused_working_generations(&state, &baseline, None);
+        for path in [&bundled, &retained, &loaded, &in_use, &staging, &unrelated] {
+            assert!(path.is_dir(), "{path:?}");
+        }
+        assert!(bundled.join("msime-pinyin.db").is_file());
+        for path in [&removed, &previous_bundle] {
+            assert!(!path.exists(), "{path:?}");
+        }
+        #[cfg(unix)]
+        {
+            assert!(std::fs::symlink_metadata(&linked).unwrap().is_symlink());
+            assert!(root.path().join("outside/keep").is_file());
+        }
+        let claimed = |dictionaries: &Path| {
+            std::fs::read_dir(dictionaries)
+                .unwrap()
+                .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
+                .filter(|name| name.ends_with(".removing"))
+                .count()
+        };
+        assert_eq!(claimed(&dictionaries), 0);
+
+        // 会话结束、下载版本也删掉之后，下一次检查把它们收走；本安装包的那份始终留着。
+        drop(session);
+        std::fs::remove_file(downloads.join(format!("{}.json", generation('1')))).unwrap();
+        remove_unused_working_generations(&state, &baseline, None);
+        assert!(!in_use.exists() && !retained.exists());
+        assert!(bundled.is_dir() && loaded.is_dir());
+        assert_eq!(claimed(&dictionaries), 0);
+
+        // 下载记录读不出来时不知道该留哪一版，什么也不删。
+        let unknown = working(&generation('8'));
+        std::fs::write(state.join("dictionary-updates/installed.json"), b"{").unwrap();
+        remove_unused_working_generations(&state, &baseline, None);
+        assert!(unknown.is_dir());
+    }
+
+    #[test]
+    fn failed_generation_claim_keeps_the_lease_until_rename_returns() {
+        let root = tempfile::tempdir().unwrap();
+        let resources = root.path().join("resources");
+        let state = root.path().join("state");
+        let mut baseline = crate::tests::synthetic_desktop_lock(&resources);
+        hash_files(&resources, &mut baseline, "dict-v2.0.9");
+        let obsolete = state.join("user/dictionaries").join("a".repeat(64));
+        std::fs::create_dir_all(&obsolete).unwrap();
+        std::fs::write(obsolete.join("synthetic.db"), b"synthetic generation").unwrap();
+        let mut attempts = 0;
+
+        let mut rename = |source: &Path, _: &Path| {
+            attempts += 1;
+            assert_eq!(source, obsolete);
+            // 模拟系统拒绝改名，同时用真实访问锁检查任何一次尝试都有独占租约保护。
+            assert!(
+                crate::DictionaryAccess::try_session(source, source)
+                    .unwrap()
+                    .is_none(),
+                "改名期间不能有新会话取得共享租约"
+            );
+            Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied))
+        };
+        remove_unused_working_generations_using(&state, &baseline, None, |parent, name, access| {
+            claim_then_remove(parent, name, access, &mut rename)
+        });
+
+        assert_eq!(attempts, 1, "失败后留到下次检查，不能释放租约后重试");
+        assert_eq!(
+            std::fs::read(obsolete.join("synthetic.db")).unwrap(),
+            b"synthetic generation"
+        );
+        let session = crate::DictionaryAccess::try_session(&obsolete, &obsolete)
+            .unwrap()
+            .expect("失败后旧代次仍能建立会话");
+        drop(session);
+        remove_unused_working_generations(&state, &baseline, None);
+        assert!(!obsolete.exists(), "下次持锁认领成功后仍可回收");
+    }
+
+    /// Windows 的回收不改名：持锁时先删 `.ready` 和锁文件以外的内容，放锁后再删锁文件和空目录。上次没删完的空壳即使名字是本安装包或宿主配置的代次也收掉，否则引擎再也准备不出这一代：只剩锁文件的（进程在放锁和删锁文件之间退出）和空目录（旧删除语义下锁文件待删除、别的进程关掉句柄后留下的）都算；就绪的宿主配置代次照旧留下。
+    #[test]
+    fn emptying_reclaim_removes_the_generation_and_leftover_shells() {
+        use msime_engine::access::LOCK_FILE;
+        use msime_engine::assets::GENERATION_READY;
+        let root = tempfile::tempdir().unwrap();
+        let resources = root.path().join("resources");
+        let state = root.path().join("state");
+        let mut baseline = crate::tests::synthetic_desktop_lock(&resources);
+        hash_files(&resources, &mut baseline, "dict-v2.0.9");
+        let dictionaries = state.join("user/dictionaries");
+        let obsolete = dictionaries.join("a".repeat(64));
+        std::fs::create_dir_all(obsolete.join("nested")).unwrap();
+        std::fs::write(obsolete.join("msime-pinyin.db"), b"working copy").unwrap();
+        std::fs::write(obsolete.join("nested/table"), b"table").unwrap();
+        std::fs::write(obsolete.join(GENERATION_READY), b"ready\n").unwrap();
+        let configured = "b".repeat(64);
+        let kept = dictionaries.join(&configured);
+        std::fs::create_dir_all(&kept).unwrap();
+        std::fs::write(kept.join("msime-pinyin.db"), b"working copy").unwrap();
+        std::fs::write(kept.join(GENERATION_READY), b"ready\n").unwrap();
+        let shell = dictionaries.join(baseline.generation().unwrap());
+        std::fs::create_dir_all(&shell).unwrap();
+        std::fs::write(shell.join(LOCK_FILE), b"").unwrap();
+        let empty = dictionaries.join("c".repeat(64));
+        std::fs::create_dir_all(&empty).unwrap();
+
+        remove_unused_working_generations_using(
+            &state,
+            &baseline,
+            Some(&configured),
+            empty_then_remove,
+        );
+
+        assert!(!obsolete.exists(), "就绪的旧代次被清空并删掉");
+        assert!(!shell.exists(), "本安装包代次名下只剩锁文件的空壳被收掉");
+        assert!(!empty.exists(), "空目录的空壳被收掉");
+        assert!(kept.join("msime-pinyin.db").is_file());
+        assert!(kept.join(GENERATION_READY).is_file());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn emptying_reclaim_keeps_the_lock_until_all_data_was_removed() {
+        use msime_engine::access::LOCK_FILE;
+        use msime_engine::assets::GENERATION_READY;
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let root = tempfile::tempdir().unwrap();
+        let name = "a".repeat(64);
+        let generation = root.path().join(&name);
+        std::fs::create_dir(&generation).unwrap();
+        let data = generation.join("synthetic.db");
+        std::fs::write(&data, b"synthetic working data").unwrap();
+        std::fs::write(generation.join(GENERATION_READY), b"ready\n").unwrap();
+        // 模拟杀毒扫描等未共享删除权限的外部读者：回收拿得到租约，但删不了这个文件。
+        let reader = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1 | 2)
+            .open(&data)
+            .unwrap();
+        let lease = crate::DictionaryAccess::try_maintenance(&generation, &generation)
+            .unwrap()
+            .unwrap();
+        empty_then_remove(root.path(), &name, lease);
+        assert!(data.is_file(), "外部句柄仍阻止数据文件删除");
+        assert!(
+            generation.join(LOCK_FILE).is_file(),
+            "仍有数据时必须保留原协调锁，不能让下一轮取到另一把锁"
+        );
+        drop(reader);
+        let lease = crate::DictionaryAccess::try_maintenance(&generation, &generation)
+            .unwrap()
+            .unwrap();
+        empty_then_remove(root.path(), &name, lease);
+        assert!(!generation.exists(), "外部读者退出后下一轮回收成功");
+    }
+
+    /// #10735：Linux 上自己下载的词库在升级换锁后刷新报 `dictionary_outdated`，宿主继续用 runtime-options.json 记着的旧锁代次。Fcitx5 失焦就销毁会话，此刻没有任何会话持锁，这一代也既不是新的随包代次、也不是下载版本；只有宿主配置记着它，删了输入法就再也建不了会话。
+    #[test]
+    fn the_generation_the_host_configuration_records_is_kept_without_a_session() {
+        let root = tempfile::tempdir().unwrap();
+        let resources = root.path().join("resources");
+        let state = root.path().join("state");
+        let mut previous = crate::tests::synthetic_desktop_lock(&resources);
+        hash_files(&resources, &mut previous, "dict-v2.0.9");
+        // 升级前按旧锁准备好的宿主配置，就是 runtime-options.json 里那份。
+        let document: Value = serde_json::from_str(
+            &crate::prepare_host_with_updates(&resources, &state, Edition::full(), &previous)
+                .unwrap(),
+        )
+        .unwrap();
+        let options: HostOptions = serde_json::from_value(document).unwrap();
+        let outdated = state
+            .join("user/dictionaries")
+            .join(previous.generation().unwrap());
+        assert_eq!(Path::new(&options.dictionaries), outdated);
+        assert!(outdated
+            .join(msime_engine::assets::GENERATION_READY)
+            .is_file());
+        // 升级换了词库锁；用户下载的那份词库没人替换，新锁的代次从来没准备过。
+        let mut upgraded = previous.clone();
+        let changed = resources.join(&upgraded.artifacts[0].name);
+        let mut bytes = std::fs::read(&changed).unwrap();
+        bytes.extend_from_slice(b"upgraded");
+        std::fs::write(&changed, bytes).unwrap();
+        hash_files(&resources, &mut upgraded, "dict-v2.0.10");
+        assert_ne!(
+            upgraded.generation().unwrap(),
+            previous.generation().unwrap()
+        );
+
+        let configured = configured_generation(&options);
+        assert_eq!(
+            configured.as_deref(),
+            Some(previous.generation().unwrap().as_str())
+        );
+        remove_unused_working_generations(&state, &upgraded, configured.as_deref());
+        assert!(outdated.join("msime-pinyin.db").is_file(), "{outdated:?}");
+        // 宿主配置换到别的代次之后，这一代才按无人再用回收。
+        remove_unused_working_generations(&state, &upgraded, None);
+        assert!(!outdated.exists());
     }
 
     /// 检查任务用的镜像来自设置里保存的 `voice_input.asr_model_mirror`：读实时偏好文件，不用准备宿主时那份副本；实时文件读不了时才用副本。

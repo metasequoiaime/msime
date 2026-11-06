@@ -231,6 +231,9 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_voiceWebSocketE
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_voiceProviderUpdateRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kVoiceProviderRequestLimit, msime_client_voice_provider_update);
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_candidateColorUpdateRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, 1024, msime_client_candidate_color_update);
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_resolveThemeRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kThemeRequestLimit, msime_client_resolve_theme);
 }
@@ -607,6 +610,12 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_simplifiedToTra
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_resetCacheRaw(JNIEnv *env, jclass, jlong handle) {
     return response(env, msime_client_reset_cache(static_cast<uint64_t>(handle)));
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_startSettledRerankRaw(JNIEnv *env, jclass, jlong handle) {
+    return response(env, msime_client_start_settled_rerank(static_cast<uint64_t>(handle)));
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_pollSettledRerankRaw(JNIEnv *env, jclass, jlong handle, jlong token, jboolean accept) {
+    return response(env, msime_client_poll_settled_rerank(static_cast<uint64_t>(handle), static_cast<uint64_t>(token), accept == JNI_TRUE));
+}
 JNIEXPORT void JNICALL Java_app_msime_android_NativeClient_releaseProcessCacheRaw(JNIEnv *, jclass) {
     msime_client_release_process_cache();
 }
@@ -652,6 +661,14 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_gridKeyRaw(JNIE
         return nullptr;
     }
     return response(env, msime_client_grid_key(static_cast<uint64_t>(handle), static_cast<uint8_t>(letter)));
+}
+// 十四／十八键网格辅助码；操作号和字母的含义由引擎判定。先拦超出单字节的值，避免截断成另一操作或字母。
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_gridHelpcodeRaw(JNIEnv *env, jclass, jlong handle, jint op, jint letter) {
+    if (op < 0 || op > 255 || letter < 0 || letter > 127) {
+        env->ThrowNew(env->FindClass("java/lang/IllegalArgumentException"), "Invalid grid helpcode operation");
+        return nullptr;
+    }
+    return response(env, msime_client_grid_helpcode(static_cast<uint64_t>(handle), static_cast<uint8_t>(op), static_cast<uint8_t>(letter)));
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_punctuationWithContextRaw(JNIEnv *env, jclass, jlong handle, jint ascii, jint preceding) {
     if (ascii < 0 || ascii > 127 || preceding < 0) {

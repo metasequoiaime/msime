@@ -54,6 +54,8 @@ final class QuickPhraseCursorKeyboardTests: XCTestCase {
       if let own = class_getInstanceMethod(KeyboardViewController.self, selector) { method_setImplementation(own, original) }
       imp_removeBlock(replacement)
     }
+    // 会话在键盘出现时才建（#10634），出现时读到的已经是这份文档。
+    keyboard.viewWillAppear(false)
     return keyboard
   }
 
@@ -68,8 +70,8 @@ final class QuickPhraseCursorKeyboardTests: XCTestCase {
     document.editor.becomeFirstResponder()
     document.editor.text = selecting ? "甲替换丙" : "甲丙"
     document.editor.selectedRange = NSRange(location: 1, length: selecting ? 2 : 0)
-    // 先让编辑器应用初始选区；待测的旧组字、短语提交和后续组字可以在同一事件里连续发生。
-    try await Task.sleep(for: .milliseconds(50))
+    // 先让编辑器应用初始选区、接好输入会话；待测的旧组字、短语提交和后续组字可以在同一事件里连续发生。整套跑时只等 50ms 不够：会话还没接好，「改标记再取消标记」之后光标会被挪到文末，或者改动根本没写进去（实测排在 PluginKeyboardTests、PunctuationSettingsTests 之后必现），等 500ms 后稳定。
+    try await Task.sleep(for: .milliseconds(500))
     return window
   }
 

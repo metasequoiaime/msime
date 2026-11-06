@@ -42,9 +42,9 @@ pub fn delete_dictionary_candidate(
     }
     let table = match kind {
         PersonalDictionaryKind::Pinyin => super::journal::pinyin_table(key),
-        PersonalDictionaryKind::Wubi | PersonalDictionaryKind::Wubi98 => {
-            kind.wubi_table().map(str::to_owned)
-        }
+        PersonalDictionaryKind::Wubi
+        | PersonalDictionaryKind::Wubi98
+        | PersonalDictionaryKind::WubiXsj => kind.wubi_table().map(str::to_owned),
         PersonalDictionaryKind::English => Some("english_words".to_owned()),
         // 粤语词没有工作表；候选窗不对粤语行开放删除（`is_editable_source`）。
         PersonalDictionaryKind::QuickPhrase | PersonalDictionaryKind::Cantonese => None,
@@ -92,7 +92,7 @@ pub fn delete_dictionary_candidate(
     Ok(())
 }
 
-/// Add an entered English word (1..=64 ASCII letters) at `weight` and journal it as a user insert; a word already known is a no-op success (J:1212-1246).
+/// 把回车原样上屏的英文词（1 到 64 个 ASCII 字母）按 `weight` 学进英文词库，并在日志里记一条用户插入；已经认识的词什么也不做、照样算成功（J:1212-1246）。全小写的输入在词库已有这个词的另一种大小写写法（ETF、USB、Figma）时也算认识：小写多半只是没按 Shift，另学一份小写会让候选里同时出现 `ETF` 和 `etf`。
 pub fn learn_entered_english_word(
     english_db: &Path,
     user_db: &Path,
@@ -109,6 +109,16 @@ pub fn learn_entered_english_word(
     let weight = weight.max(0);
     ensure_english_schema(english_db)?;
     let connection = open_dictionary_for_writing(english_db)?;
+    if display == word {
+        let cased: bool = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM english_words WHERE word=?1 AND display<>?1)",
+            params![word],
+            |row| row.get(0),
+        )?;
+        if cased {
+            return Ok(());
+        }
+    }
     let inserted = connection.execute(
         "INSERT OR IGNORE INTO english_words(word,display,weight) VALUES(?1,?2,?3)",
         params![word, display, weight],
@@ -286,6 +296,32 @@ mod tests {
         assert_eq!(
             count(&journal, "SELECT count(*) FROM user_dictionary_operations"),
             1
+        );
+        // 全小写的输入遇到词库里已有的另一种写法（Help、刚学的 Rustacean）也算认识，不另学一份小写。
+        for typed in ["help", "rustacean"] {
+            learn_entered_english_word(&dir.english_db(), &journal, typed, 10).unwrap();
+            assert_eq!(
+                count(
+                    &dir.english_db(),
+                    &format!("SELECT count(*) FROM english_words WHERE word='{typed}'")
+                ),
+                1,
+                "{typed}"
+            );
+        }
+        assert_eq!(
+            count(&journal, "SELECT count(*) FROM user_dictionary_operations"),
+            1
+        );
+        // 词库没有的小写词照常学；有意打的大写写法照常另学一份。
+        learn_entered_english_word(&dir.english_db(), &journal, "etf", 10).unwrap();
+        learn_entered_english_word(&dir.english_db(), &journal, "HELP", 10).unwrap();
+        assert_eq!(
+            count(
+                &dir.english_db(),
+                "SELECT count(*) FROM english_words WHERE display IN ('etf','HELP')"
+            ),
+            2
         );
     }
 

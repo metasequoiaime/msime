@@ -41,6 +41,9 @@ fn frozen_snapshot(session: &Session) -> Result<EngineSnapshot> {
         nine_key_reading: value.nine_key_reading,
         nine_key_single_character: value.nine_key_single_character,
         nine_key_strokes: value.nine_key_strokes,
+        grid_helpcode_available: value.grid_helpcode_available,
+        grid_helpcode_display: value.grid_helpcode_display,
+        grid_helpcode_constrained: value.grid_helpcode_constrained,
         grid_composing: session.inner.grid_composing(),
         microsoft_shuangpin: session.microsoft_shuangpin(),
         shuangpin_profile: session.inner.shuangpin_layout().kind.name().to_owned(),
@@ -53,6 +56,7 @@ fn frozen_snapshot(session: &Session) -> Result<EngineSnapshot> {
         },
         editing_text: value.editing_text,
         caret_position: value.caret_position,
+        helpcode_trigger: value.helpcode_trigger,
         preedit_caret,
         segment_raw_boundaries: segment_raw_boundaries
             .into_iter()

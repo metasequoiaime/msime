@@ -139,6 +139,11 @@ pub struct ShuangpinDictionary {
 }
 
 impl ShuangpinDictionary {
+    /// 这份词库的粗俗词表，见 `QuanpinDictionary::offensive_words`。
+    pub(crate) fn offensive_words(&self) -> &crate::lattice::offensive::OffensiveWords {
+        self.sentence_tables.offensive_words()
+    }
+
     pub fn new(profile: &'static ShuangpinProfile, paths: &RuntimePaths) -> Self {
         // READWRITE without CREATE: a missing dictionary stays missing and every query answers empty (SD:54-70).
         let mut database = PinyinDatabase::open(&paths.dictionary(assets::MAIN_DICTIONARY));
@@ -147,6 +152,7 @@ impl ShuangpinDictionary {
             database.warm_up();
             // 在构造时加载并保留表，避免共享淘汰后在按键路径重新读表。
             sentence_tables = SentenceNgramTables::load(paths);
+            sentence_tables.set_offensive_words(database.offensive_words());
             // Records the data version so the first cache hit has something to compare with.
             database.database_changed();
         }
@@ -391,18 +397,27 @@ impl ShuangpinDictionary {
         if segments.is_empty() {
             return Vec::new();
         }
-        let mut rows = self.database.query_segments_keyed_flat(
-            &segments,
-            UNLIMITED_ROWS,
-            QuerySource::Shuangpin,
-        );
-        if self.profile.kind == ShuangpinProfileKind::Shoudao && segmentation == "dk" {
-            // 手心的 `dk` 同时对应 `dia` 和 `den`；保留原有的 `dia`，并补查 `den`。
-            rows.extend(self.database.query_segments_keyed_flat(
-                &["den".to_string()],
+        // 末段两键已经定出音节（`guga` 的 ga），只能原样匹配，不能再补全成 gan、gao（#10842）；末段只按了一键时它只是声母或零声母音节的首键，照旧前缀补全。
+        let fixed_tail = segmentation
+            .rsplit('\'')
+            .find(|piece| matches!(piece.len(), 1 | 2))
+            .is_some_and(|piece| piece.len() == 2);
+        let mut rows = if fixed_tail {
+            self.database
+                .query_fixed_tail_segments_keyed_flat(&segments, UNLIMITED_ROWS)
+        } else {
+            self.database.query_segments_keyed_flat(
+                &segments,
                 UNLIMITED_ROWS,
                 QuerySource::Shuangpin,
-            ));
+            )
+        };
+        if self.profile.kind == ShuangpinProfileKind::Shoudao && segmentation == "dk" {
+            // 手心的 `dk` 同时对应 `dia` 和 `den`；保留原有的 `dia`，并补查 `den`。
+            rows.extend(
+                self.database
+                    .query_fixed_tail_segments_keyed_flat(&["den".to_string()], UNLIMITED_ROWS),
+            );
             rows.sort_by_key(|row| std::cmp::Reverse(row.weight));
             let mut seen = HashSet::new();
             rows.retain(|row| seen.insert(row.value.clone()));

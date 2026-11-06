@@ -7,6 +7,7 @@
 //! The React surface only learns which providers have a credential and the endpoint and model each one is bound to. Secrets travel from the webview into this process and never back.
 
 use super::config_home;
+use msime_client_core::preferences::volcengine_successor_model;
 use msime_client_core::{has_disallowed_control_with_options, is_ascii_graphic, is_bounded_chars};
 use reqwest::Url;
 use serde::Serialize;
@@ -405,10 +406,16 @@ fn ai_status(document: &Map<String, Value>) -> Result<Vec<AiCredentialStatus>, C
     let mut status = Vec::with_capacity(entries.len());
     for (provider, entry) in &entries {
         validate_ai_entry(entry).map_err(|_| CredentialError::Existing)?;
+        let endpoint = trim_pasted(entry_text(entry, "endpoint"));
+        let mut model = trim_pasted(entry_text(entry, "model"));
+        // 偏好读出时已把火山方舟的下线模型换成接替模型，online provider 读这个文件时也照同一张表换（`load_ai_config`），这里报给设置页的绑定跟着换，否则设置页会提示凭据与上方设置不一致。文件本身等下一次保存才改写。
+        if provider == "volcengine" {
+            model = volcengine_successor_model(endpoint, model).unwrap_or(model);
+        }
         status.push(AiCredentialStatus {
             provider: provider.clone(),
-            endpoint: trim_pasted(entry_text(entry, "endpoint")).to_owned(),
-            model: trim_pasted(entry_text(entry, "model")).to_owned(),
+            endpoint: endpoint.to_owned(),
+            model: model.to_owned(),
         });
     }
     Ok(status)
@@ -1111,6 +1118,53 @@ mod tests {
             }]
         );
         assert!(!status.ai_invalid && status.tencent.is_none());
+    }
+
+    #[test]
+    fn reports_a_retired_ark_model_binding_as_its_successor() {
+        let temp = directory();
+        let root = temp.path().join("msime-client");
+        let ark = "https://ark.cn-beijing.volces.com/api/v3/chat/completions";
+        save_ai_in(
+            &root,
+            "volcengine",
+            ark,
+            "doubao-seed-1.6-flash",
+            Some("ark-key"),
+        )
+        .unwrap();
+        save_ai_in(
+            &root,
+            "custom",
+            "https://gateway.example/v1/chat/completions",
+            "doubao-seed-1.6",
+            Some("gateway-key"),
+        )
+        .unwrap();
+        let status = status_in(&root).unwrap();
+        // 偏好里同一个旧名字读出来是 mini，设置页拿这里的绑定去比，两边一致才不会提示要重新保存。
+        assert_eq!(
+            status.ai,
+            vec![
+                AiCredentialStatus {
+                    provider: "custom".into(),
+                    endpoint: "https://gateway.example/v1/chat/completions".into(),
+                    model: "doubao-seed-1.6".into(),
+                },
+                AiCredentialStatus {
+                    provider: "volcengine".into(),
+                    endpoint: ark.into(),
+                    model: "doubao-seed-2-0-mini-260428".into(),
+                },
+            ]
+        );
+        // 只改报给设置页的值，文件等用户下一次保存才改写，密钥原样留着。
+        let document = read(&root.join(AI_FILE));
+        assert_eq!(
+            document["profiles"]["volcengine"]["model"],
+            "doubao-seed-1.6-flash"
+        );
+        assert_eq!(document["profiles"]["volcengine"]["token"], "ark-key");
     }
 
     #[test]
