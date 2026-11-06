@@ -172,6 +172,8 @@ final class ImeTextEditPanel {
         middle.addView(title, LayoutPolicy.frameMatchParentParams());
         recentClip = LayoutPolicy.row(s);
         ViewPolicy.setCenteredVertically(recentClip);
+        // 上下各留 4 dp，与工具栏「最近复制」一行相同，预览不顶到面板上沿。
+        LayoutPolicy.setPaddingDp(recentClip, s, 0, 4, 0, 4);
         recentClip.setContentDescription("最近复制");
         ImeToolbar.RecentClipViews chip = s.imeToolbar.addRecentClipChip(recentClip);
         for (Button button : new Button[] {chip.paste(), chip.action(), chip.dismiss()})

@@ -87,9 +87,10 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
                     if (keyBounds.isEmpty() || !panelBounds.contains(keyBounds))
                         throw new AssertionError("Editor key is outside panel: " + description);
                 }
-                Rect pasted = bounds(await(described("粘贴")));
+                // 排序页把「复制」往下挪了一格：左列第一格变成「剪切」，「复制」在它下面。
+                Rect cut = bounds(await(described("剪切")));
                 Rect copied = bounds(await(described("复制")));
-                if (pasted.top >= copied.top || pasted.left != copied.left)
+                if (cut.top >= copied.top || cut.left != copied.left)
                     throw new AssertionError("Keyboard ignored the saved side order");
                 stage = "editor space shortcut";
                 click("插入空格");
@@ -115,7 +116,7 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
             stage = "selection key face stays filled while extending";
             settledKeyFace("取消选择", face -> face != idleFace);
             click("取消选择");
-            await(described("选择模式").and(node -> equalsText("选择", node.getText()) && !node.isSelected()));
+            await(described("选择模式").and(node -> equalsText("开始选择", node.getText()) && !node.isSelected()));
             stage = "selection key face restores";
             settledKeyFace("选择模式", face -> face == idleFace);
             click("光标右移");
@@ -126,6 +127,7 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
             click("复制");
             stage = "preview while panel stays open";
             await(described(PREVIEW));
+            saveScreenshot("text-edit-recent-copy.png");
             if (!before.equals(bounds(awaitStableBounds(described("文本编辑面板")))))
                 throw new AssertionError("Copy moved text edit panel");
             stage = "cut using panel";
@@ -225,28 +227,33 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
             : "settings delete system " + key);
     }
 
-    /** 与已合并的触控板共存；切换移动区不能遮住侧边操作与文档边界。 */
+    /** 与触控板共存：触控板不能遮住侧边操作、文档首尾和底排正中的开关；触控板模式的「选择」在触控板右上角。 */
     private void checkTrackpadCoexistence(String mode) throws Exception {
-        click("切换为触控板");
+        click("触控板");
+        await(described("触控板").and(AccessibilityNodeInfo::isChecked));
         Rect pad = bounds(awaitStableBounds(describedPrefix("文本编辑触控板")));
         Rect panel = bounds(awaitStableBounds(described("文本编辑面板")));
         if (pad.isEmpty() || !panel.contains(pad))
             throw new AssertionError("Trackpad is outside " + mode + " panel");
         for (String description : new String[] {"全选", "复制", "剪切", "粘贴", "移到开头", "移到结尾",
-                "退格", "打开数字键盘", "插入空格", "插入换行，长按打开符号", "选择模式", "移到行首", "移到行尾", "选择当前行"}) {
+                "退格", "打开数字键盘", "插入空格", "插入换行，长按打开符号", "触控板"}) {
             Rect key = bounds(awaitStableBounds(described(description).and(AccessibilityNodeInfo::isClickable)));
             if (key.isEmpty() || !panel.contains(key) || Rect.intersects(pad, key))
                 throw new AssertionError("Trackpad covered editor key in " + mode + ": " + description);
         }
-        click("切换为方向键");
+        Rect select = bounds(awaitStableBounds(described("选择模式").and(AccessibilityNodeInfo::isClickable)));
+        if (select.isEmpty() || !pad.contains(select) || select.centerX() < pad.centerX() || select.centerY() > pad.centerY())
+            throw new AssertionError("Trackpad selection toggle is not in the trackpad's top-right corner in " + mode);
+        click("触控板");
         await(described("光标左移"));
+        await(described("触控板").and(node -> !node.isChecked()));
         checkAllKeyBounds(mode);
     }
 
     private void checkAllKeyBounds(String mode) throws Exception {
         Rect panel = bounds(awaitStableBounds(described("文本编辑面板")));
         String[] descriptions = {"光标左移", "光标上移", "选择模式", "光标下移", "光标右移",
-            "全选", "复制", "剪切", "粘贴", "移到开头", "移到结尾", "退格", "打开数字键盘", "插入空格", "插入换行，长按打开符号", "移到行首", "移到行尾", "选择当前行"};
+            "全选", "复制", "剪切", "粘贴", "移到开头", "触控板", "移到结尾", "退格", "打开数字键盘", "插入空格", "插入换行，长按打开符号"};
         Rect[] keys = new Rect[descriptions.length];
         int minimumWidth = Integer.MAX_VALUE, minimumHeight = Integer.MAX_VALUE, lowestBottom = Integer.MIN_VALUE;
         for (int index = 0; index < descriptions.length; index++) {
@@ -262,7 +269,7 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
             lowestBottom = Math.max(lowestBottom, keys[index].bottom);
         }
         float density = getTargetContext().getResources().getDisplayMetrics().density;
-        // #10967：底排是左列第四个侧键、⇤、第八个侧键、⇥ 和换行，五个键排满；只放一个侧键时那一行其余位置全是空白。
+        // #10967：底排五个键排满：左列第四个侧键、⇤、触控板开关、⇥ 和换行。
         int bottomRow = 0;
         for (Rect key : keys) if (Math.abs(key.bottom - lowestBottom) <= 1) bottomRow++;
         if (bottomRow < 5)
@@ -270,10 +277,14 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
         // 只记录合成窗口的几何尺寸；可见与可点击不等于已验收触控舒适度。
         System.out.println("Text editor layout " + mode + ": panel=" + panel.width() + "x" + panel.height()
             + "px, minimum key=" + minimumWidth / density + "x" + minimumHeight / density + "dp");
+        saveScreenshot("text-edit-line-" + mode + ".png");
+    }
+
+    /** 截图存到产品包的外部文件目录，供人工核对；只是留证，不参与判定。 */
+    private void saveScreenshot(String name) throws Exception {
         android.graphics.Bitmap image = automation.takeScreenshot();
         if (image == null) throw new AssertionError("Synthetic editor screenshot unavailable");
-        try (var output = new java.io.FileOutputStream(new File(getTargetContext().getExternalFilesDir(null),
-                "text-edit-line-" + mode + ".png"))) {
+        try (var output = new java.io.FileOutputStream(new File(getTargetContext().getExternalFilesDir(null), name))) {
             if (!image.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output))
                 throw new AssertionError("Synthetic editor screenshot failed");
         } finally { image.recycle(); }
@@ -301,7 +312,10 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
         changed.put(1, first);
         awaitOrder(preferences, changed);
         openOrderSettings();
-        await(node -> equalsText("1. 粘贴", node.getText()));
+        await(node -> equalsText("1. 剪切", node.getText()));
+        // 排序页只列七个可见动作，选择行不在里面。
+        if (visible(node -> node.getText() != null && node.getText().toString().endsWith(". 选择行")))
+            throw new AssertionError("Text edit order sheet lists the hidden select-line action");
         tap(node -> equalsText("重置", node.getText()) && node.isClickable());
         await(node -> equalsText("1. 复制", node.getText()));
         tap(node -> equalsText("保存", node.getText()) && node.isClickable());
