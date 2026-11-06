@@ -151,6 +151,10 @@ pub fn test_chat(service: &str, config: &Value, transport: &impl ProbeTransport)
         "siliconflow" => body["enable_thinking"] = json!(false),
         _ => {}
     }
+    // 方舟的豆包 Seed 默认思考，测试和真实请求一样关掉（规则见 `ai::disables_ark_seed_thinking`）。
+    if crate::ai::disables_ark_seed_thinking(value("provider"), endpoint, model) {
+        body["thinking"] = json!({"type": "disabled"});
+    }
     // 聚合服务不能按 provider 判断模型能力，只对文档明确支持的模型降低探测思考量。
     let canonical = model
         .rsplit('/')
@@ -459,6 +463,42 @@ mod tests {
             assert_eq!(body[limit], 512);
             assert!(body.get(absent).is_none());
             assert!(body.get("thinking").is_none());
+        }
+    }
+
+    #[test]
+    fn credential_probe_turns_off_thinking_for_ark_seed_models() {
+        struct Recording(RefCell<Vec<Value>>);
+        impl ProbeTransport for Recording {
+            fn post(&self, _: &str, _: &str, body: &Value) -> Result<u16, ProbeFailure> {
+                self.0.borrow_mut().push(body.clone());
+                Ok(200)
+            }
+        }
+        let ark = "https://ark.cn-beijing.volces.com/api/v3/chat/completions";
+        for (endpoint, model, disabled) in [
+            (ark, "doubao-seed-2-0-mini-260428", true),
+            (ark, "glm-5-3-flash-260828", false),
+            (ark, "ep-20261105123456-abcde", false),
+            (
+                "https://gateway.example/v1/chat/completions",
+                "doubao-seed-2-0-mini-260428",
+                false,
+            ),
+        ] {
+            for service in ["ai.assistant", "voice.polish"] {
+                let fake = Recording(RefCell::default());
+                let request = json!({"provider": "volcengine", "token": "synthetic-key",
+                    "endpoint": endpoint, "model": model});
+                assert!(test_chat(service, &request, &fake).ok);
+                let bodies = fake.0.borrow();
+                assert_eq!(
+                    bodies[0].get("thinking"),
+                    disabled.then(|| json!({"type": "disabled"})).as_ref(),
+                    "{service} {endpoint} {model}"
+                );
+                assert_eq!(bodies[0]["max_tokens"], 512);
+            }
         }
     }
 

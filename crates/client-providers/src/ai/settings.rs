@@ -144,9 +144,9 @@ pub fn parse_models(body: &[u8]) -> Result<Vec<String>, AiSettingsError> {
     Ok(models)
 }
 
-/// 测试请求的 JSON 体：不流式、温度 0.2，提示词作 system、待润色文字作 user。
-pub fn test_body(model: &str, prompt: &str, text: &str) -> Value {
-    serde_json::json!({
+/// 测试请求的 JSON 体：不流式、温度 0.2，提示词作 system、待润色文字作 user。接口地址属于火山方舟、模型是豆包 Seed 时关掉默认开着的思考，与真实的润色请求一致（`ai::disables_ark_seed_thinking`）。
+pub fn test_body(endpoint: &str, model: &str, prompt: &str, text: &str) -> Value {
+    let mut body = serde_json::json!({
         "model": model,
         "stream": false,
         "temperature": 0.2,
@@ -154,7 +154,11 @@ pub fn test_body(model: &str, prompt: &str, text: &str) -> Value {
             {"role": "system", "content": prompt},
             {"role": "user", "content": text}
         ]
-    })
+    });
+    if super::disables_ark_seed_thinking("", endpoint, model) {
+        body["thinking"] = serde_json::json!({"type": "disabled"});
+    }
+    body
 }
 
 /// 「测试」：用 `prompt` 让模型润色 `text`，POST 到接口地址本身，返回回复文字（去掉首尾空白）。模型不能为空、最多 256 字节；提示词可以为空，文字不能为空。会联网，最长约 15 秒，不要在界面线程上调用。
@@ -175,8 +179,9 @@ pub fn test_polish(
         return Err(AiSettingsError::Invalid);
     }
     let client = client(&endpoint).ok_or(AiSettingsError::TestUnavailable)?;
+    let body = test_body(endpoint.as_str(), model, prompt, text);
     let response = authorize(client.post(endpoint), token)
-        .json(&test_body(model, prompt, text))
+        .json(&body)
         .send()
         .and_then(reqwest::blocking::Response::error_for_status)
         .map_err(|_| AiSettingsError::TestUnavailable)?;
@@ -338,7 +343,13 @@ mod tests {
 
     #[test]
     fn test_body_sends_the_prompt_as_system_and_the_text_as_user() {
-        let body = test_body("model-a", "提示词", "文字");
+        let body = test_body(
+            "https://synthetic.invalid/v1/chat/completions",
+            "model-a",
+            "提示词",
+            "文字",
+        );
+        assert!(body.get("thinking").is_none());
         assert_eq!(body["model"], "model-a");
         assert_eq!(body["stream"], false);
         assert_eq!(body["temperature"], 0.2);
@@ -346,6 +357,16 @@ mod tests {
         assert_eq!(body["messages"][0]["content"], "提示词");
         assert_eq!(body["messages"][1]["role"], "user");
         assert_eq!(body["messages"][1]["content"], "文字");
+    }
+
+    #[test]
+    fn test_body_turns_off_thinking_for_ark_seed_models() {
+        let ark = "https://ark.cn-beijing.volces.com/api/v3/chat/completions";
+        let body = test_body(ark, "doubao-seed-2-0-mini-260428", "提示词", "文字");
+        assert_eq!(body["thinking"], serde_json::json!({"type": "disabled"}));
+        assert!(test_body(ark, "glm-5-3-flash-260828", "提示词", "文字")
+            .get("thinking")
+            .is_none());
     }
 
     #[test]
