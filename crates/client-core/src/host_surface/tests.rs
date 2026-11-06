@@ -307,6 +307,9 @@ fn capabilities_describe_each_host() {
     assert!(macos.app_logo);
     assert!(windows.app_logo);
     assert!(linux.app_logo);
+    assert!(macos.traditional_chinese_variants);
+    assert!(linux.traditional_chinese_variants);
+    assert!(!windows.traditional_chinese_variants);
     // 只有向会话报告大写锁定的宿主提供「大写锁定时使用英文标点」，目前是 macOS 和 Linux；快捷短语编码进普通候选也是这两个。
     for platform in [
         HostPlatform::Windows,
