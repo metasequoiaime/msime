@@ -72,6 +72,8 @@ final class CandidateTranslationStore {
   private var debounce: Timer?
   /// Requests belong to the visible candidate strip; cancel them when the keyboard leaves it.
   private var tasks: [UUID: Task<Void, Never>] = [:]
+  /// 释义卡片为长按的那一个候选发出的请求（`requestSingle`）。候选条换页的刷新和取消不碰它，卡片关上、换服务或内存告急时取消。
+  private var singleTask: Task<Void, Never>?
   /// The keyboard process lives long; only the page on screen needs its glosses kept.
   private let cacheLimit: Int
   init(service: any CandidateTranslationService = ProviderCandidateTranslationService(route: .none), scope: String = "none",
@@ -86,6 +88,7 @@ final class CandidateTranslationStore {
     guard scope != self.scope else { return }
     self.scope = scope
     cancel()
+    cancelSingle()
     cache.removeAll()
     signature = nil
   }
@@ -143,8 +146,33 @@ final class CandidateTranslationStore {
   /// page will request them again after the warning has passed.
   func clearCacheForMemoryPressure() {
     cancel()
+    cancelSingle()
     cache.removeAll(keepingCapacity: false)
   }
+  /// 释义卡片打开时为长按的那一个候选请求一次译文：不等打字停顿，也不改候选条那一页的请求状态，所以候选条随后的刷新不会把它取消。已经有译文的语言不再请求，和候选条一样跳过不翻译的来源和不含汉字的候选；失败不重试。返回是否发出了请求。
+  @discardableResult
+  func requestSingle(word: String, source: Int, codes: [String]) -> Bool {
+    cancelSingle()
+    guard !Self.sourceGetsNoGloss(source), Self.translatable(word) else { return false }
+    let missing = codes.filter { cache["\($0)|\(word)"] == nil }
+    guard !missing.isEmpty else { return false }
+    let service = service
+    let scope = scope
+    singleTask = Task { [weak self] in
+      for code in missing {
+        guard let glosses = try? await service.translate(words: [word], target: code) else { continue }
+        guard !Task.isCancelled, let self, self.scope == scope else { return }
+        _ = self.absorb(code: code, words: [word], glosses: glosses)
+      }
+    }
+    return true
+  }
+
+  func cancelSingle() {
+    singleTask?.cancel()
+    singleTask = nil
+  }
+
   private static func signature(_ values: [String]) -> String {
      values.reduce(into: "\(values.count):") { result, value in
        result += "\(value.utf8.count):\(value)"

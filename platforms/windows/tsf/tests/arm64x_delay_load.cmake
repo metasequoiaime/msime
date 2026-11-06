@@ -1,10 +1,26 @@
 include("${SOURCE_ROOT}/Arm64XDelayLoad.cmake")
 file(MAKE_DIRECTORY "${TEST_ROOT}")
-foreach(host IN ITEMS msime_host_api_arm64.dll msime_host_api_wubi_arm64.dll)
+# A response file in the form /LINKREPROFULLPATHRSP writes: one quoted absolute path per input file, the module definition as /DEF:, and no linker options, so no /DELAYLOAD line (run 42128918255 failed on exactly that assumption).
+foreach(host IN ITEMS msime_host_api_arm64.dll msime_host_api_wubi_arm64.dll msime_host_api_japanese_arm64.dll)
   set(response "${TEST_ROOT}/${host}.rsp")
-  file(WRITE "${response}" "\"C:/build/native.obj\"\n\"C:/build/${host}.lib\"\n/DELAYLOAD:${host}\n/DEBUG\n")
+  file(WRITE "${response}" "\"C:\\build\\arm64\\arm64\\msime-tsf.dir\\RelWithDebInfo\\DllMain.obj\"\n\"C:\\build\\arm64\\arm64\\msime-tsf.dir\\RelWithDebInfo\\MetasequoiaIME.res\"\n/DEF:\"C:\\src\\platforms\\windows\\tsf\\IME\\MetasequoiaIME.def\"\n\"C:\\build\\arm64\\${host}.lib\"\n\"C:\\Program Files\\Microsoft Visual Studio\\18\\Enterprise\\VC\\Tools\\MSVC\\14.51.36231\\lib\\arm64\\delayimp.lib\"\n\"C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.26100.0\\um\\arm64\\ole32.lib\"\n\"C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.26100.0\\um\\arm64\\kernel32.lib\"\n")
   msime_arm64x_delay_load_options("${response}" options)
   if(NOT options STREQUAL "/DELAYLOAD:${host}")
     message(FATAL_ERROR "Native host delay import lost: ${options}")
+  endif()
+endforeach()
+
+# Without the host import library, or with two of them, the ARM64EC pass must stop instead of linking a native half whose host import is static or ambiguous.
+set(rejected "${TEST_ROOT}/rejected.cmake")
+file(WRITE "${rejected}" "include(\"${SOURCE_ROOT}/Arm64XDelayLoad.cmake\")\nmsime_arm64x_delay_load_options(\"\${RESPONSE}\" options)\n")
+set(no_host "${TEST_ROOT}/no-host.rsp")
+file(WRITE "${no_host}" "\"C:\\build\\DllMain.obj\"\n/DEF:\"C:\\src\\MetasequoiaIME.def\"\n\"C:\\sdk\\arm64\\ole32.lib\"\n")
+set(two_hosts "${TEST_ROOT}/two-hosts.rsp")
+file(WRITE "${two_hosts}" "\"C:\\build\\DllMain.obj\"\n\"C:\\build\\msime_host_api_arm64.dll.lib\"\n\"C:\\build\\msime_host_api_wubi_arm64.dll.lib\"\n")
+foreach(response IN ITEMS "${no_host}" "${two_hosts}")
+  execute_process(COMMAND "${CMAKE_COMMAND}" "-DRESPONSE=${response}" -P "${rejected}"
+    RESULT_VARIABLE result ERROR_VARIABLE error)
+  if(result EQUAL 0 OR NOT error MATCHES "rebuild the ARM64 pass")
+    message(FATAL_ERROR "${response} was not rejected: ${error}")
   endif()
 endforeach()

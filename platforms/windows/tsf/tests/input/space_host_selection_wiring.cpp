@@ -88,6 +88,10 @@ int main(int argc, char **argv) {
            "a partial selection no longer falls back to the host page slot");
     expect_before(worker, "ServerReplyDecidesSelection(reply->msg_type)", "if (!localSlotSelected) return S_FALSE;",
                   "the local slot is used only when no Server reply decided");
+    // 读不到回复（软等待超时）时的帧来自 SoftReplyMiss，不再是 Normal 加空文字；否则数字选词把超时当成 Server 的决定，选不中就整段重放（#10826）。
+    const std::string ipc = read(root + "/IPC/Ipc.cpp");
+    expect(ipc, "namedpipeDataFromServer = msime::windows::tsf::SoftReplyMiss(requestId);", true,
+           "a soft reply miss is reported as a missed reply, not as a Server decision");
     // 宿主会话这一页比 Server 那一页短时，数字照样去读回复，不在宿主会话这一页上越界就返回。
     const std::string byNumber = between(presenter, "HRESULT CMetasequoiaIME::_HandleCandidateSelectByNumber(", "\n}\n");
     expect(byNumber, "_HandleCandidateWorker(ec, pContext, requestId, prefetchedText, /*localSlotSelected=*/false)", true,

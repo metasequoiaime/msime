@@ -500,7 +500,7 @@ private struct PersonalWordEditor: View {
 
   /// 拼音和五笔编码都是小写字母，拼音音节用 ' 或空格分隔，所以其他字符在输入或粘贴时就被丢弃，与设计稿的添加词条对话框一致。智能标点会把输入的 ' 变成 ’，读回时再当作 '。粤拼另外留下声调数字 1–6，由 Engine 保存时去掉。快捷短语和英文有各自的规则（英文编码可以含连字符），由 Engine 在保存时检查。
   private func sanitizeCode(_ key: String) {
-    guard [.pinyin, .wubi, .wubi98, .cantonese].contains(word.kind) else { return }
+    guard [.pinyin, .wubi, .wubi98, .wubixsj, .cantonese].contains(word.kind) else { return }
     let clean = word.kind == .cantonese ? Self.sanitizedCantoneseCode(key) : Self.sanitizedCode(key)
     if clean != key { word.key = clean }
   }
