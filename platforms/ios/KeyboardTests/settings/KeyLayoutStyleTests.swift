@@ -219,7 +219,7 @@ final class KeyLayoutStyleTests: XCTestCase {
     XCTAssertEqual(TouchBottomRowLayout.nineKeyStandardKeyCount(globe: true, language: false), 5)
   }
 
-  /// 手机的数字行是整整一排：五排键加四个排间距；26 键收紧的键帽省下的高度分到每排上下，字母键仍是 44pt。iPad 的第五排仍只看「数字行与 Tab 键」。
+  /// 手机的数字行是整整一排：五排键加四个排间距；26 键使用 44pt 字母键帽和用户设置的排距。iPad 的第五排仍只看「数字行与 Tab 键」。
   func testPhoneNumberRowAddsAFullRow() {
     let phone = KeyboardFormFactor.phone
     XCTAssertEqual(phone.keyRows(numberRow: false, phoneNumberRow: true), 5)
@@ -228,10 +228,7 @@ final class KeyLayoutStyleTests: XCTestCase {
     // 2 + 50 + 4 + 5 × 52 + 4 × 7 + 4。
     XCTAssertEqual(phone.keyboardHeight(topRow: 50, rowSpacing: 7, landscape: false, handwriting: false, phoneNumberRow: true), 348)
     XCTAssertEqual(phone.keyboardHeight(topRow: 50, rowSpacing: 11, landscape: false, handwriting: false, letterKeys: true,
-                                        phoneNumberRow: true), 348)
-    // 26 键每排省下的 8pt 一半在上一半在下：上下留白 4pt，排间距多 4 + 4pt，五排加起来正好补回 5 × 8pt。
-    XCTAssertEqual(2 * KeyboardFormFactor.phoneLetterVerticalPadding
-                     + 4 * (KeyboardFormFactor.phoneLetterRowPadding + KeyboardFormFactor.phoneLetterSpareRowPadding), 5 * 8)
+                                        phoneNumberRow: true), 364)
     XCTAssertEqual(KeyboardHeightPercent.portraitKeyBlockHeight(tablet: false, numberRow: false, rowSpacing: 7, phoneNumberRow: true),
                    5 * 52 + 4 * 7)
   }
@@ -478,10 +475,10 @@ final class KeyLayoutStyleTests: XCTestCase {
         let digit = try button("numberRowKey1", in: controller)
         func frame(_ view: UIView) -> CGRect { view.convert(view.bounds, to: controller.view) }
         XCTAssertEqual(frame(digit).minY - frame(strip).maxY,
-                       KeyboardFormFactor.phone.topRowGap + KeyboardFormFactor.phoneLetterVerticalPadding, accuracy: 0.5)
+                       KeyboardFormFactor.phone.topRowGap
+                         + KeyboardFormFactor.phoneLetterVerticalPadding(rows: 5), accuracy: 0.5)
         XCTAssertEqual(frame(letter).minY - frame(digit).maxY,
-                       CGFloat(KeyboardLayoutPreference.rowSpacing) + KeyboardFormFactor.phoneLetterRowPadding
-                         + KeyboardFormFactor.phoneLetterSpareRowPadding, accuracy: 0.5)
+                       CGFloat(KeyboardLayoutPreference.rowSpacing), accuracy: 0.5)
         attach(controller, "26 键 数字行")
       }
       // 数字页（借用的九宫格）上补充行占住这一排。
