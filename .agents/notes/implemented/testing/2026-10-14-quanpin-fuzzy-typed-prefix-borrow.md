@@ -10,6 +10,8 @@ Status: implemented
 
 输入由 `split_segments` 按撇号原样切分，完整拼接必等于原参数。前缀循环从原参数借用 `&str`，每轮按最后一个撇号缩短，无路径也照常推进，预算和顺序保持不变。行追加接收可转为 `Cow<str>` 的即时值，查找与完整键核对借用其文本；冷缓存按原容量复制自己的读法，只有确实取得首行才 `into_owned` 给最终候选，其余行复制首行的同一读法。已有 `String` 参数直接转移，保留首行可能有的额外容量。
 
+首行接管读法、其余行复制读法这一条已由[模糊前缀页共用文字字段](2026-11-06-fuzzy-row-page-shared-text.md)取代：行缓存按长度复制一份读法，冷热页的各行都与缓存共用它；前缀视图推进和无消费者不拥有的规则仍按本篇。
+
 ## Existing decisions
 
 按模糊前缀、`typed`、`append_cached_fuzzy_rows`、`fuzzy_candidates` 检索活跃树。已有[模糊行缓存索引](2026-10-11-fuzzy-row-cache-key-borrow.md)持有哈希与完整字段核对，[行投影](2026-10-14-quanpin-row-cache-projection.md)持有惰性行迭代与首行接管，部分重叠并互链，保持各自决定；本篇只收窄无消费者读法的拥有时机。[系列前缀借用](2026-10-14-quanpin-series-prefix-borrow.md)提供逐次缩短字符串视图的局部参考，但它需要规范键匹配与拥有回退，模糊入口没有别名规范化，不能照搬该回退。[模糊路径复用](2026-10-09-fuzzy-path-reuse.md)只改 beam 路径容器，无关并保留。
