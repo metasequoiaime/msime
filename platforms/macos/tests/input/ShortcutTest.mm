@@ -6356,6 +6356,8 @@ static void TestModeSwitchReachesTheSessionBeforeTheNextKey() {
 
 // #4288：用户在设置页选了全拼，下次再用又回到双拼。方案在宿主里有两份：共享偏好文档里的 `scheme` 是所有界面（设置页、`msime config set`、云端同步和本输入法自己）都写的那份，NSUserDefaults 的 `MSIMEClientInputScheme` 只有本输入法自己写。外观设置读文档里的值，没读到时退回 NSUserDefaults，而文档要等激活之后在后台载入。所以输入法进程重新启动后（重新登录、重启、更新），控制器在载入文档之前就按 NSUserDefaults 里本输入法上次写下的旧方案行事：把菜单栏选到「双」、把旧方案记为已同步，这期间的任何一次保存都会把旧方案写回文档，用户选的全拼就此丢失。这里用一个新的外观对象模拟新启动的进程：NSUserDefaults 里留着旧的双拼，文档里是用户后来选的全拼。
 static void TestFreshProcessActsOnTheSharedSchemeNotTheStaleLocalOne() {
+    Method baseDeactivation = class_getInstanceMethod(IMKInputController.class, @selector(deactivateServer:));
+    IMP originalDeactivation = method_setImplementation(baseDeactivation, (IMP)+[](id, SEL, id) {});
     NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
     NSError *error = nil;
     NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
@@ -6395,6 +6397,8 @@ static void TestFreshProcessActsOnTheSharedSchemeNotTheStaleLocalOne() {
     SettleWindowLayout();
     NSDictionary *stored = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
     assert(!error && [stored[@"preferences"][@"scheme"] isEqual:@"quanpin"]);
+    // 保存会排入异步重载；夹具交接前正常失焦，避免迟到结果改写下一用例的全局语音缓存。
+    [controller deactivateServer:client];
     MSIMEFocusedController = nil;
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 
@@ -6409,10 +6413,12 @@ static void TestFreshProcessActsOnTheSharedSchemeNotTheStaleLocalOne() {
     [controller systemDidReportInputMode:MSIMEJapaneseInputModeID client:client];
     assert([prefs.inputScheme isEqual:@"japanese"] && [prefs.lastChineseScheme isEqual:@"quanpin"]);
 
+    [controller deactivateServer:client];
     MSIMEFocusedController = nil;
     MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
     [NSFileManager.defaultManager removeItemAtPath:root error:nil];
     MSIMERemoveTestPreferenceSuite(defaults, suite);
+    method_setImplementation(baseDeactivation, originalDeactivation);
 }
 
 @interface StartupVoiceController : ModeController
@@ -8794,6 +8800,31 @@ static void TestPerApplicationPunctuationAndWidth() {
     assert(prefs.runtimeChinesePunctuation);
     [controller setEnglishInputMode:NO];
     prefs.punctuationLock = @"follow";
+
+    // #10954: English chosen in one application and Chinese chosen again in another, under the global scope, brings the first one back in Chinese mode with Chinese punctuation. Switching to English used to write English punctuation as that application's own toggle, which only a switch back inside the same application ever cleared.
+    [prefs resetRuntimePunctuationForActiveApplication];
+    [controller setEnglishInputMode:YES];
+    assert(prefs.englishMode && !prefs.runtimeChinesePunctuation);
+    session.nextTransition = @{@"handled": @NO, @"view": @{@"editing_text": @"", @"candidates": @[]}};
+    [controller handleEvent:ModeKey(0, 0, NO) client:b];
+    assert(prefs.englishMode && !prefs.runtimeChinesePunctuation);
+    [controller setEnglishInputMode:NO];
+    assert(!prefs.englishMode && prefs.runtimeChinesePunctuation);
+    [controller handleEvent:ModeKey(0, 0, NO) client:a];
+    session.nextTransition = nil;
+    assert(!prefs.englishMode && prefs.runtimeChinesePunctuation && session.chinesePunctuation);
+    // Entering the English candidate mode from English mode and leaving it again (Ctrl+Shift+E) is Chinese mode too, so it has Chinese punctuation all the way.
+    [controller setEnglishInputMode:YES];
+    [controller toggleDedicatedEnglishMode:nil];
+    assert(!prefs.englishMode && session.dedicatedEnglish && prefs.runtimeChinesePunctuation);
+    [controller toggleDedicatedEnglishMode:nil];
+    assert(!prefs.englishMode && !session.dedicatedEnglish && prefs.runtimeChinesePunctuation);
+    // A toggle the user made in English mode is still theirs to keep until the mode changes.
+    [controller setEnglishInputMode:YES];
+    [controller floatingToolbarDidRequestTogglePunctuation:nil];
+    assert(prefs.englishMode && prefs.runtimeChinesePunctuation);
+    [controller setEnglishInputMode:NO];
+    assert(!prefs.englishMode && prefs.runtimeChinesePunctuation);
     prefs.runtimeChinesePunctuation = NO;
 
     // Leaving the input method (the TSF Deactivate counterpart) clears the toggles of every app together, as it does the modes.

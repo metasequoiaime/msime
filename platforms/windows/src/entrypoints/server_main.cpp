@@ -954,6 +954,11 @@ const char *foreground_presentation_name(
 }
 } // namespace
 int wmain(int argc, wchar_t **argv) {
+  // 先析构会话和翻译 worker，再等待共享模型释放；不在 DLL 加载器锁内等待。
+  struct EmbeddedTranslationShutdown {
+    ~EmbeddedTranslationShutdown() { msime_client_local_translation_shutdown(); }
+  } embedded_translation_shutdown;
+
   // 登录任务的默认 Priority 7 把 CPU 调度类和内存优先级一起压低，看门狗和它拉起的
   // Server 都继承这个状态；TSF 拉起、手工启动和以后的拉起路径也可能带进来。复位放在
   // 任何业务线程创建之前，失败只记一行，不阻止启动。

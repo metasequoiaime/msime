@@ -38,11 +38,18 @@ int main() {
   assert(visible.visible && visible.preedit == "synthetic");
   assert(visible.session == 2 && visible.generation == 3);
   assert(visible.x == 12 && visible.y == 34);
-  assert(visible.preedit_caret == std::string::npos);
+  // 按键送达的投影也放插入点（#10792）。这个视图没有 preedit_caret，退回 preedit_display_caret：preedit 和 editing_text 相同、没有 caret_position，落在末尾。
+  assert(visible.preedit_caret == visible.preedit.size());
   assert(visible.candidates.size() == 2 &&
          !visible.candidates[0].actions_available &&
          visible.candidates[1].actions_available && !visible.traditional_output);
   assert(!visible.game_host);
+  // 视图带引擎的 preedit_caret 时按它放，不再按 caret_position 换算。
+  reply.source.transition["view"]["preedit_caret"] = 3;
+  reply.source.transition["view"]["caret_position"] = 9;
+  const auto engine_caret = candidate_presentation(lease, reply, packet);
+  assert(engine_caret.visible && engine_caret.preedit_caret == 3);
+  reply.source.transition = {{"view", view}};
   // 游戏会话的标记来自包元数据，不改变可见性和坐标。
   packet.modifiers_down = PipeMetadata::GameHost;
   const auto game = candidate_presentation(lease, reply, packet);

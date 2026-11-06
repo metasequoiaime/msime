@@ -397,7 +397,7 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
     }
 
     /**
-     * 下沿柄、左右柄和「移动」在真机上的效果与落盘：抬高只抬键区、上沿不动并按目标总距离存进「键盘底部高度」的两项；右边收窄时左边不动、左边收窄时右边不动；「移动」左右移位置；收起键盘照「确认」保存；「重置」加「确认」四项都回默认。关掉键盘底栏，排除手势导航 AVD 上底栏的 40 dp。
+     * 下沿柄、左右柄和「移动」在真机上的效果与落盘：抬高只抬键区、上沿不动并按目标总距离存进「键盘底部高度」的两项；右边收窄时左边不动、左边收窄时右边不动；「移动」左右移位置；收起键盘照「确认」保存；「重置」加「确认」四项都回默认；收到最窄时中间三个按钮让开左右柄、彼此隔开。关掉键盘底栏，排除手势导航 AVD 上底栏的 40 dp。
      */
     private void checkLiftWidthAndMove(File localSettings) throws Exception {
         float density = getTargetContext().getResources().getDisplayMetrics().density;
@@ -477,6 +477,53 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
         Rect resetQ = awaitMovedKey("q", widerQ);
         if (Math.abs(resetQ.left - q.left) > edgeTolerance || Math.abs(keyBounds("空格").bottom - space.bottom) > tolerance)
             throw new AssertionError("Reset did not return the keyboard to its default place: " + q + " -> " + resetQ);
+
+        // 最窄的键盘里中间三个按钮仍排在左右柄之间，彼此、与柄都至少隔 4 dp（KeyboardAdjustPolicy.actionRow），按钮不窄于 48 dp：按钮压到柄上时，按住柄拖动会点成「重置」或「确认」。
+        stage = "narrowest keyboard keeps the middle buttons clear of the side handles";
+        openHeightBar();
+        for (int guard = 0; guard < 20 && canStep(RIGHT_HANDLE, AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD); guard++)
+            stepHandle(RIGHT_HANDLE, AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD, 1);
+        Rect left = settledBounds(handle(LEFT_HANDLE));
+        Rect right = settledBounds(handle(RIGHT_HANDLE));
+        Rect reset = settledBounds(described("重置").and(AccessibilityNodeInfo::isClickable));
+        Rect move = settledBounds(handle(MOVE_BUTTON));
+        Rect done = settledBounds(described("确认").and(AccessibilityNodeInfo::isClickable));
+        // 柄的宽度按四舍五入换成像素，按钮向下取整，各自差不到一个像素。
+        int clearance = (int) (4 * density) - 1;
+        String row = "handles " + left + " " + right + ", buttons " + reset + " " + move + " " + done;
+        if (reset.left - left.right < clearance || right.left - done.right < clearance)
+            throw new AssertionError("The middle buttons crowd the side handles on the narrowest keyboard: " + row);
+        if (move.left - reset.right < clearance || done.left - move.right < clearance)
+            throw new AssertionError("The middle buttons touch each other on the narrowest keyboard: " + row);
+        if (Math.min(reset.width(), Math.min(move.width(), done.width())) < Math.round(48 * density) - 1)
+            throw new AssertionError("A middle button is narrower than 48 dp on the narrowest keyboard: " + row);
+        tap(described("重置").and(AccessibilityNodeInfo::isClickable));
+        confirm();
+        awaitLocalSetting(localSettings, WIDTH_SETTING, value -> value == 100, "the full width after the narrowest check");
+    }
+
+    /** 柄此刻是否还提供这个读屏动作（到了范围的一头就不提供）。 */
+    private boolean canStep(String value, AccessibilityNodeInfo.AccessibilityAction action) {
+        AccessibilityNodeInfo node = await(handle(value));
+        node.refresh();
+        return node.getActionList().contains(action);
+    }
+
+    /** 等节点的屏幕位置连续两次读到相同再返回：读屏动作改了宽度之后，遮罩要再排一次版按钮才落到新位置。 */
+    private Rect settledBounds(java.util.function.Predicate<AccessibilityNodeInfo> match) {
+        Rect previous = null;
+        long deadline = SystemClock.uptimeMillis() + 5000;
+        while (true) {
+            AccessibilityNodeInfo node = await(match);
+            node.refresh();
+            Rect bounds = new Rect();
+            node.getBoundsInScreen(bounds);
+            if (bounds.equals(previous)) return bounds;
+            if (SystemClock.uptimeMillis() > deadline)
+                throw new AssertionError("Bounds never settled: " + previous + " -> " + bounds);
+            previous = bounds;
+            SystemClock.sleep(150);
+        }
     }
 
     /** 等某个键离开 {@code before} 的位置并停稳：确认后外框重新布局、窗口恢复停靠，有一两帧的过渡。 */

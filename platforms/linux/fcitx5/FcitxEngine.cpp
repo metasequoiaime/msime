@@ -1,5 +1,7 @@
+#include "../src/settings/LocalTranslationLauncher.h"
 #include "msime_client.h"
 #include "../../common/HostApiString.h"
+#include "../src/candidates/EmbeddedTranslation.h"
 #include "../../common/HostApiString.h"
 #ifdef MSIME_FCITX5_TELEMETRY
 #include "Telemetry.h"
@@ -1803,13 +1805,14 @@ public:
     for (const auto *key : {"candidate_translations", "candidate_translation_scope", "candidate_english_gloss",
                             "candidate_pronunciation",
                             "translation_target_language", "translation_secondary_language",
-                            "translation_account", "custom_translation", "niutrans",
+                            "local_translation", "translation_account", "custom_translation", "niutrans",
                             "tencent_tmt"}) {
       if (before.value(key, Json(nullptr)) != after.value(key, Json(nullptr))) return true;
     }
     return false;
   }
   void invalidateTranslationRequests() {
+    embedded_translation_.cancel();
     ++translation_epoch_;
     translation_query_.clear();
     translation_pending_.clear();
@@ -2362,6 +2365,19 @@ public:
     translation_manual_sentence_ = manual_sentence;
     translation_session_ = session_;
     translation_job_epoch_ = translation_epoch_;
+    if (!glossStage && query.value("provider", std::string{}) == "local") {
+      auto token = embedded_translation_.begin(std::to_string(query.at("generation").get<uint64_t>()));
+      translation_job_ = detachedJob([query, encoded, token, fence = translation_socket_] {
+        auto raw = msime::linux_host::embedded_translation(query, token);
+        auto result = raw ? response(raw.release()) : Json::object();
+        if (!result.is_object()) result = Json::object();
+        result["query"] = encoded;
+        result["_socket"] = fence;
+        result["answered"] = result.contains("translations");
+        return result;
+      });
+      return;
+    }
     // 离线词典查询里的候选取自这份查询：「仅当前高亮」时主查询只有高亮那一个候选，不能换成视图的整页。
     const bool dictionary = offlineDictionary(query);
     auto glossRequest = Json{{"generation", msime::linux_host::strict_json_required_integer<uint64_t>(query.at("generation"))},
@@ -2479,7 +2495,7 @@ public:
   void translateSentence() {
     constexpr size_t kMaxSentenceChars = 512;
     if (!session_ || !ic_.hasFocus() || restricted() || privateInput() ||
-        translation_socket_.empty() || translation_job_.valid())
+        translation_job_.valid())
       return;
     try {
       auto query = response(msime_client_translation_query(session_));
@@ -2491,9 +2507,11 @@ public:
       const auto text = selected->value("text", std::string{});
       if (text.empty() || msime::linux_host::utf8_scalar_count(text) > kMaxSentenceChars)
         return;
-      query = sentenceTranslationQuery(
-          std::move(query), text,
-          preferences_.value("translation_target_language", std::string("en")));
+      const bool embedded = query.value("provider", std::string{}) == "local";
+      if (!embedded && translation_socket_.empty()) return;
+      const auto target = embedded ? query.at("target_language").get<std::string>()
+                                   : preferences_.value("translation_target_language", std::string("en"));
+      query = sentenceTranslationQuery(std::move(query), text, target);
       translation_pending_.clear();
       startTranslation(query, false, Json::array(), true);
     } catch (...) {}
@@ -2503,6 +2521,7 @@ public:
       const bool allowed = session_ && ic_.hasFocus() && !restricted() && !privateInput();
       const auto query = allowed ? response(msime_client_translation_query(session_)) : Json();
       const auto encodedQuery = query.is_object() ? query.dump() : std::string{};
+      embedded_translation_.observe(query.is_object() ? std::to_string(query.value("generation", uint64_t{0})) : std::string{});
       if (translation_job_.valid()) {
         if (translation_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
         auto result = translation_job_.get();
@@ -4325,6 +4344,7 @@ public:
   uint64_t translation_epoch_ = 0;
   uint64_t translation_job_epoch_ = 0;
   std::shared_future<Json> translation_job_;
+  msime::translation::EmbeddedState embedded_translation_;
   std::string clipboard_path_;
   Json clipboard_items_ = Json::array();
   uint64_t clipboard_generation_ = 0;
@@ -5851,7 +5871,9 @@ public:
       auto *state = ic->propertyFor(factory_);
       if (!state || state->restricted() ||
           (std::strcmp(panel_, "voice") == 0 && !state->voice_enabled_)) return;
-      launchDesktopPanel(panel_);
+      if (std::strcmp(panel_, "local-translation") == 0)
+        msime::linux_host::launch_local_translation(state->options_path_);
+      else launchDesktopPanel(panel_);
     } catch (...) {}
   }
 private:
@@ -7307,6 +7329,7 @@ public:
              {&website_action_, MSIME_EDITION_FCITX5_ADDON "-website"},
              {&toolbar_separator_, MSIME_EDITION_FCITX5_ADDON "-toolbar-separator"},
              {&dictionary_action_, MSIME_EDITION_FCITX5_ADDON "-dictionary"},
+             {&local_translation_action_, MSIME_EDITION_FCITX5_ADDON "-local-translation"},
              {&settings_action_, MSIME_EDITION_FCITX5_ADDON "-settings"},
              {&about_action_, MSIME_EDITION_FCITX5_ADDON "-about"},
              {&scheme_quanpin_action_, MSIME_EDITION_FCITX5_ADDON "-scheme-quanpin"},
@@ -7790,6 +7813,9 @@ public:
         {&keyboard_action_, true}, {&handwriting_action_, MSIME_EDITION_HANDWRITING != 0},
         // 语音要往有焦点的输入框里写，失焦后托盘上不列它。
         {&voice_action_, state->session_ && state->voice_enabled_ && focused}, {&voice_cancel_action_, focused},
+#ifdef MSIME_HAS_LOCAL_TRANSLATION_SETTINGS
+        {&local_translation_action_, true},
+#endif
         {&settings_action_, true}, {&about_action_, true},
         {&dictionary_action_, true}, {&maintenance_action_, focused}, {&nine_key_action_, true},
         {&clipboard_action_, focused}, {&cloud_clipboard_action_, focused}, {&emoji_action_, focused},
@@ -8146,6 +8172,7 @@ public:
   bool vocabulary_listed_ = false;
   FcitxDesktopPanelAction desktop_cloud_clipboard_action_{&factory_, "cloud-clipboard", msime::linux_host::menu_label::kCloudClipboard};
   FcitxDesktopPanelAction dictionary_action_{&factory_, "dictionary", msime::linux_host::menu_label::kDictionary};
+  FcitxDesktopPanelAction local_translation_action_{&factory_, "local-translation", "本地模型翻译…"};
   FcitxDesktopPanelAction settings_action_{&factory_, "settings", msime::linux_host::menu_label::kSettings};
   FcitxToolbarAction toolbar_action_;
   fcitx::Menu toolbar_menu_;

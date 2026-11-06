@@ -23,6 +23,8 @@ RUST = ROOT / "crates/client-core/src/preferences.rs"
 # Rust fields with no control on the settings page, and why.
 RUST_ONLY: dict[str, set[str]] = {
     "Preferences": {
+        # 嵌入式翻译只接三个桌面的原生入口；AGENTS.md 禁止向 React 新增设置，入口随同草稿 PR 接线。
+        "local_translation",
         # 智能标点默认开的一次性迁移标记，不是设置：读入时由 client-core 设上，保存时只增不减，设置页不显示也不写它。
         "smart_punctuation_migrated",
         # AI 辅助翻译统一成显式选择时的一次性迁移标记，不是设置：读入时由 client-core 设上，保存时只增不减，设置页不显示也不写它。

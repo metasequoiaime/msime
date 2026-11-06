@@ -12,7 +12,7 @@
 FROM rust:1.97.1-bookworm@sha256:0e2bcaef56d041a486784e54104a81aebe0da44bd03019bd70bc0401e42e4a97
 RUN apt-get update && apt-get install -y --no-install-recommends \
   cmake ninja-build pkg-config python3 \
-  libasound2-dev \
+  libasound2-dev libgtk-4-dev libclang-dev \
   libibus-1.0-dev libxkbcommon-dev nlohmann-json3-dev \
   libwayland-dev wayland-protocols libx11-dev libxfixes-dev libxrandr-dev \
   libfcitx5core-dev libfcitx5utils-dev libfcitx5config-dev libcairo2-dev \
