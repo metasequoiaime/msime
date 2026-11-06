@@ -10,7 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import org.json.JSONObject;
 
-/** 用真实密码框验收自动数字行、跨输入框保留及系统输入法切换复位。 */
+/** 用真实密码框验收自动数字行、同一应用内跨输入框保留及系统输入法切换复位；换应用和关开关的复位只由 JVM 冒烟 AutomaticNumberRowSmoke 覆盖。 */
 public class AutomaticNumberRowDeviceSmoke extends DeviceSmoke {
     @Override protected String successDescription() {
         return "password number row activates, retains across editors and resets after IME switching without changing preferences";

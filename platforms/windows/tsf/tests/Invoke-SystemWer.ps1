@@ -2,7 +2,10 @@
 param(
   [Parameter(Mandatory = $true)][string]$BuildDirectory,
   [Parameter(Mandatory = $true)][string]$OutputDirectory,
-  [string]$Configuration = 'RelWithDebInfo'
+  [string]$Configuration = 'RelWithDebInfo',
+  # 默认跑采集本身的八个用例。x86 进程在 64 位 Windows 上是 WOW64，生产代码在那里不登记 helper（#10865），只能跑 baseline 和 wow64。
+  [ValidateSet('baseline', 'tip', 'host', 'external', 'withdrawn', 'reopened', 'released', 'caught', 'wow64')]
+  [string[]]$Cases = @('baseline', 'tip', 'host', 'external', 'withdrawn', 'reopened', 'released', 'caught')
 )
 $ErrorActionPreference = 'Stop'
 $payload = Join-Path (Resolve-Path -LiteralPath $BuildDirectory).Path "capture-test-payload/$Configuration"
@@ -128,7 +131,7 @@ function Test-SystemWerStall {
 try {
   New-Item -ItemType Directory -Path $output | Out-Null
   $key.SetValue($helper, 0, [Microsoft.Win32.RegistryValueKind]::DWord)
-  foreach ($case in @('baseline', 'tip', 'host', 'external', 'withdrawn', 'reopened', 'released', 'caught')) {
+  foreach ($case in $Cases) {
     # 系统侧停顿时整例换新目录重跑一次，重跑仍须由系统退出并通过全部断言；首次的诊断留在原目录随 artifact 上传。
     for ($attempt = 1; ; $attempt++) {
       $caseDirectory = if ($attempt -eq 1) { Join-Path $output $case } else { Join-Path $output "$case-retry" }
