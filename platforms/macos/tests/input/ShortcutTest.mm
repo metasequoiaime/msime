@@ -7542,6 +7542,21 @@ static void TestCapsLockTap() {
     // 撤回之后系统报来的「大写锁定关」不会再切换，也不用报告。
     assert(![controller handleEvent:capsOff(1.2) client:client]);
     assert(prefs.englishMode && session.capsLockCalls == reports);
+
+    // 首个事件没有实体按住位时，不能把未知状态当作已经松手；后续的修饰键事件才完成轻点判定。
+    prefs.englishMode = NO;
+    session.capsLock = NO;
+    gCapsNow = 1300; gCapsHeld = false; gCapsHIDKnown = false; gCapsHIDHeld = false;
+    const NSUInteger releasesBeforeDelayedState = gCapsReleases;
+    assert([controller handleEvent:capsOn(1.3) client:client]);
+    assert(gCapsReleases == releasesBeforeDelayedState && !prefs.englishMode && !session.capsLock && gCapsHIDStarts > 0);
+    gCapsNow = 1350;
+    [controller pollCapsLockTap];
+    assert(gCapsReleases == releasesBeforeDelayedState && !prefs.englishMode);
+    assert([controller handleEvent:capsOff(1.35) client:client]);
+    assert(gCapsReleases == releasesBeforeDelayedState + 1 && prefs.englishMode && !session.capsLock);
+    assert(![controller handleEvent:capsOff(1.4) client:client]);
+
     // 再轻点一次切回中文。
     gCapsNow = 2000; gCapsHeld = true;
     assert(![controller handleEvent:capsOn(2.0) client:client]);
