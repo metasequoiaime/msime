@@ -96,7 +96,6 @@
 		136EC132A4C880E0E2C886C8 /* PersonalDictionaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D568B29EC474A5A2B36A15A /* PersonalDictionaryView.swift */; };
 		13874BE962112BD4DABA2776 /* DefaultImeModeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06E8A8E6142CFA3FF2724809 /* DefaultImeModeTests.swift */; };
 		13A026D923B4DD8B686F9FB8 /* libhangul-hanja-BSD-3-Clause.txt in Resources */ = {isa = PBXBuildFile; fileRef = 8C92EC1BE74542186076DE51 /* libhangul-hanja-BSD-3-Clause.txt */; };
-		B3D1199B76D5DF485F20A3BF /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = 9776B18C73C12963EBD7C59F /* LICENSE */; };
 		142B7ABA1C8C96A007AB51EF /* CloudClipboardRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = E61012216361C7060D0B5D98 /* CloudClipboardRelay.swift */; };
 		148526D31B561FBA609D1C05 /* KeyboardSkinCollection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89FAEEA3C7B2D7B657583FAA /* KeyboardSkinCollection.swift */; };
 		1489F67A852A5E256743954F /* GlideTypingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EFA1091F801BE229EF1EC2D /* GlideTypingTests.swift */; };
@@ -1585,7 +1584,6 @@
 		8FFA351B25B4B763FC91766B /* DictionaryLearningPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictionaryLearningPreference.swift; sourceTree = "<group>"; };
 		90BC92FC1B37877C543213DF /* SharedNumber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedNumber.swift; sourceTree = "<group>"; };
 		915C95E1A1B908177DA4877A /* BoundedFileReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoundedFileReader.swift; sourceTree = "<group>"; };
-		9776B18C73C12963EBD7C59F /* LICENSE */ = {isa = PBXFileReference; path = LICENSE; sourceTree = "<group>"; };
 		9193DB05DC287621A66825EB /* PersonalDictionaryHansImportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalDictionaryHansImportTests.swift; sourceTree = "<group>"; };
 		920D79E6663A0EC9A134F120 /* CandidatePaletteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CandidatePaletteTests.swift; sourceTree = "<group>"; };
 		927C918D7BFAD1A07BA6622E /* SchemeDocumentSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemeDocumentSettingsTests.swift; sourceTree = "<group>"; };
