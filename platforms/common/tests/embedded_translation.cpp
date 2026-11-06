@@ -1,31 +1,37 @@
 #include "../EmbeddedTranslation.h"
 #include <cassert>
+#include <condition_variable>
 #include <cstdlib>
 #include <cstring>
-#include <thread>
+#include <mutex>
 
 namespace {
-std::atomic<bool> registered{false};
+std::mutex mutex;
+std::condition_variable changed;
+bool registered = false;
+bool early_cancel = false;
 std::atomic<bool> cancellation{false};
 std::atomic<int> calls{0};
 std::atomic<int> cancellations{0};
 }
 extern "C" char *msime_client_local_translation_query(const uint8_t *, size_t) {
+  std::unique_lock<std::mutex> lock(mutex);
   ++calls;
-  // 模拟取消发生在 Rust 工作项登记之前；宿主必须持续发送取消，不能只发一次。
-  std::this_thread::sleep_for(std::chrono::milliseconds(80));
+  changed.notify_all();
+  // 确认收到一次无效的早取消后才登记，不能用固定休眠猜测 CI 线程调度。
+  assert(changed.wait_for(lock, std::chrono::seconds(5), [] { return early_cancel; }));
   registered = true;
-  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-  while (!cancellation && std::chrono::steady_clock::now() < deadline)
-    std::this_thread::sleep_for(std::chrono::milliseconds(5));
-  assert(cancellation);
+  assert(changed.wait_for(lock, std::chrono::seconds(5), [] { return cancellation.load(); }));
   auto *reply = static_cast<char *>(std::malloc(3));
   std::memcpy(reply, "{}", 3);
   return reply;
 }
 extern "C" void msime_client_local_translation_cancel(const uint8_t *, size_t) {
+  std::lock_guard<std::mutex> lock(mutex);
   ++cancellations;
   if (registered) cancellation = true;
+  else early_cancel = true;
+  changed.notify_all();
 }
 extern "C" void msime_client_string_free(char *text) { std::free(text); }
 
@@ -43,7 +49,10 @@ int main() {
   auto result = std::async(std::launch::async, [second] {
     return embedded("{}", "cancel-during-registration", [second] { return second->load(); });
   });
-  while (calls == 0) std::this_thread::yield();
+  {
+    std::unique_lock<std::mutex> lock(mutex);
+    assert(changed.wait_for(lock, std::chrono::seconds(5), [] { return calls > 0; }));
+  }
   state.observe("third");
   assert(!result.get());
   assert(cancellation && cancellations > 1);
