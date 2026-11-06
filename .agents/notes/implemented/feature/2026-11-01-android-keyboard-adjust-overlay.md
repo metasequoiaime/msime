@@ -20,9 +20,10 @@ Status: implemented
 
 ### 界面
 
-- 整块键盘（工具栏或候选行加按键区）上盖一层黑色、约 45% 不透明（`0x73000000`）的遮罩 `KeyboardAdjustOverlay`，下面的键盘照常画作实时预览，但触摸全被遮罩接走。遮罩四角画皮肤强调色（`skin.accent()`）的直角括号，标出键盘外框。遮罩是外框 `PanelSurface` 的普通子视图，外框按键盘列的底部内边距给它底边距，所以它正好盖住外框，不盖底栏、底部抬高和导航栏那一截；那一截在调整期间同样不接受触摸（`PanelSurface.onInterceptTouchEvent`）。
-- 拖动柄：上沿正中、下沿正中各一个横向把手（三道横线），左右两沿垂直居中各一个竖向把手（两道竖线），都画在外框以内：调整期间输入法窗口铺满，`onComputeInsets` 只把外框的矩形算作可触摸区域，画到框外的柄点不到。
-- 中间一排三个按钮，白色图标加文字：「重置」（逆时针回转箭头）、「移动」（四向箭头）、「确认」（圆圈里的对勾）。图标经 `generate_keyboard_icons.py` 加进 `KeyboardIconPaths`（`ADJUST_RESET`、`ADJUST_MOVE`、`ADJUST_CONFIRM`，Lucide 风格）。三个按钮加两个竖向把手不超过最窄的键盘（240 dp）。
+- 整块键盘（工具栏或候选行加按键区）上盖一层黑色、约 45% 不透明（`0x73000000`）的遮罩 `KeyboardAdjustOverlay`，下面的键盘照常画作实时预览，但触摸全被遮罩接走。遮罩四角画皮肤强调色（`skin.accent()`）的直角括号，标出键盘外框。浮动键盘的外框是 12 dp 圆角卡片（`ImeStyler` 按 `FloatingKeyboardPolicy.CORNER_RADIUS_DP` 裁外轮廓），四个括号的拐角改成与卡片同心的圆弧（`KeyboardAdjustOverlay.setCornerRadius`），弧外各留一段直线；直角括号的拐角正好落在被裁掉的地方，验收时浮动键盘四角只剩两段断开的短线。浮动键盘的拖动条在外框里、遮罩下面，四个角都是卡片的圆角，所以四个都弯（鸿蒙的拖动条在遮罩上方，只弯下面两个）。遮罩是外框 `PanelSurface` 的普通子视图，外框按键盘列的底部内边距给它底边距，所以它正好盖住外框，不盖底栏、底部抬高和导航栏那一截；那一截在调整期间同样不接受触摸（`PanelSurface.onInterceptTouchEvent`）。
+- 拖动柄：上沿正中、下沿正中各一个横向把手（三道横线），左右两沿垂直居中各一个竖向把手（两道竖线），都画在外框以内：调整期间输入法窗口铺满，`onComputeInsets` 只把外框的矩形算作可触摸区域，画到框外的柄点不到。浮动键盘调整期间藏起拖动条中间的横条（`FloatingKeyboardBar.setGripShown`，只设 INVISIBLE，这一行的高度不变）：遮罩接走全部触摸、浮动时也没有「移动」，横条拖不动，而上沿柄的三道线正好画在它上面，验收时两组横线叠在一起。
+- 中间一排三个按钮，白色图标加文字：「重置」（逆时针回转箭头）、「移动」（四向箭头）、「确认」（圆圈里的对勾）。图标经 `generate_keyboard_icons.py` 加进 `KeyboardIconPaths`（`ADJUST_RESET`、`ADJUST_MOVE`、`ADJUST_CONFIRM`，Lucide 风格）。按钮的宽度和间距与 iOS、鸿蒙同一条规则（`KeyboardAdjustPolicy.actionRow`）：按钮排在左右两个竖向把手之间，与把手至少隔 4 dp；排得下就按原尺寸 72 dp 宽、间距 28 dp，排不下先把间距收到 4 dp，还不够再把剩下的宽度平分给按钮；左右柄不显示（浮动、单手、分离式、横屏）时去掉它们的占位。最窄的 240 dp 键盘里三个按钮各 56 dp、间距 4 dp。原来是三个固定 60 dp、彼此没有间距的按钮挤在正中，宽键盘上也贴在一起，和 iOS、鸿蒙的排法对不上。
+- 底行和符号、数字层的文字功能键（符、123、中/英、ABC、#+=，以及组词时回车上的「确认」）原来固定 15 sp，键盘收窄到 240 dp 时「123」折成「12」「3」两行。改为 `KeyboardTypographyPolicy.setFunctionKeyTextSize`：只占一行，排得下时仍是 15 sp，键窄时最小缩到 10 sp。
 
 ### 每个柄只动自己那条边，对边在屏幕上不动（下沿柄往上拖到高度下限后例外）
 
@@ -82,5 +83,6 @@ Status: implemented
   - 手机横屏、浮动键盘、单手、分离式键盘里宽度和位置不生效，回到竖屏或停靠后存着的值才重新生效；设置页没有宽度和位置的控件，只能在键盘里调，或者在这里「重置」。
   - 「键盘调整」打开期间工具栏、候选行和自动填充行照常画在遮罩下面，不再像内联条那样替换工具栏行。
   - 撤销误操作只能再拖回去或重置。
-- 测试：`KeyboardAdjustPolicySmoke` 覆盖哪些柄显示、上沿只改高度且受窗口封顶、下沿一比一互换、高度到 75% 后抬高继续增加且高度停在下限（含一次拖动跨过下限）、抬高到 0 或上限停住、左右柄另一侧边不动（含 240 dp 下限）、「移动」大小不变、读屏范围和步长；`AndroidLocalSettingsSmoke` 覆盖新键的范围、不同步、`keyboardAdjustEdits` 只写生效且变了的项和抬高的存法、`withEdits` 与写盘同一套校验；`LocalBackupPolicySmoke` 确认两项随本地备份走；`ms_w2_kb_ViewLogicSmoke` 钉住遮罩的颜色和说明；`FunctionPanelModelSmoke`、`SettingsSearchIndexSmoke` 钉住改名和搜索。以上由 `platforms/android/check-host.sh` 运行。设备套件 `KeyboardHeightDeviceSmoke` 改为驱动遮罩：上沿到 130%、窗口上限和 75%，返回键收起即保存且没有「取消」，重置，下沿抬 24 dp 时第一行键不动、空格上移 24 dp 并按 24 dp 存，右柄收窄到 80% 时左边不动，「移动」移到最右，左柄加宽时右边不动且收起即保存，重置加确认回到四项默认；`checkDragKeepsEditorFrame` 保留编辑器边框不动的断言，并加上抬高和收窄时边框也不动。`BottomPaddingHeightDeviceSmoke` 加了调整期间按预览抬高、关上后回到存着的值，以及 80% 贴左时外框的左右内边距。
-- 未验证：设备套件只在本机编译过，没有在模拟器或真机上跑（本机没有可用模拟器），交给 PR 上的 CI；照片皮肤、平板 720 dp 外框里的收窄、API 28 全高窗口两侧的触摸都还没有人在设备上看过。
+- 测试：`KeyboardAdjustPolicySmoke` 覆盖哪些柄显示、上沿只改高度且受窗口封顶、下沿一比一互换、高度到 75% 后抬高继续增加且高度停在下限（含一次拖动跨过下限）、抬高到 0 或上限停住、左右柄另一侧边不动（含 240 dp 下限）、「移动」大小不变、读屏范围和步长、中间一排按钮的宽度与间距（宽键盘原尺寸、只差一点时只收间距、最窄键盘让开左右柄且按钮不小于 48 dp、240–720 dp 各宽度都不压柄、不显示左右柄时用满宽度）；`AndroidLocalSettingsSmoke` 覆盖新键的范围、不同步、`keyboardAdjustEdits` 只写生效且变了的项和抬高的存法、`withEdits` 与写盘同一套校验；`LocalBackupPolicySmoke` 确认两项随本地备份走；`ms_w2_kb_ViewLogicSmoke` 钉住遮罩的颜色和说明；`FunctionPanelModelSmoke`、`SettingsSearchIndexSmoke` 钉住改名和搜索。以上由 `platforms/android/check-host.sh` 运行。设备套件 `KeyboardHeightDeviceSmoke` 改为驱动遮罩：上沿到 130%、窗口上限和 75%，返回键收起即保存且没有「取消」，重置，下沿抬 24 dp 时第一行键不动、空格上移 24 dp 并按 24 dp 存，右柄收窄到 80% 时左边不动，「移动」移到最右，左柄加宽时右边不动且收起即保存，重置加确认回到四项默认，收到最窄时中间三个按钮与左右柄、按钮彼此之间都至少隔 4 dp 且按钮不窄于 48 dp；`checkDragKeepsEditorFrame` 保留编辑器边框不动的断言，并加上抬高和收窄时边框也不动。`BottomPaddingHeightDeviceSmoke` 加了调整期间按预览抬高、关上后回到存着的值，以及 80% 贴左时外框的左右内边距。
+- 验收（2026-11-05，API 35 专用模拟器 `msime-client-test`，1080×2400、420 dpi，最窄键盘是 60% 即 247 dp）：`KeyboardHeightDeviceSmoke` 与 `BottomPaddingHeightDeviceSmoke` 通过。第一次跑时新加的最窄检查失败：按钮离左柄只有 9 px（应为 4 dp 即 10.5 px），原因是按钮宽和间距换像素时四舍五入，三个按钮加两段间距比 `actionRow` 算的宽了约 2 px；`KeyboardAdjustOverlay.onMeasure` 改为向下取整后通过。同一台模拟器上用 adb 截了改前改后：停靠全宽、收到最窄、最窄时的字母层和数字层、浮动键盘，四个问题在改前都能看到，改后都没有了。
+- 未验证：照片皮肤、平板 720 dp 外框里的收窄、API 28 全高窗口两侧的触摸都还没有人在设备上看过。

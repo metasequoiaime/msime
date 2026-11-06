@@ -3718,34 +3718,7 @@ CMetasequoiaIME::KeyDownDispatchResult CMetasequoiaIME::_DispatchKeyDown(
         if (KeystrokeState.Function == FUNCTION_PUNCTUATION && _msgWndHandle)
         {
             PerfTimer asyncPuncTimer;
-            std::wstring punctuationCommitText;
-            const bool shouldFinalizeHighlightedCandidateWithPunctuation =
-                _candidateMode != CANDIDATE_NONE && _pCandidateListUIPresenter &&
-                Global::CommitWithHighlightedCandPunc.count(wch) > 0;
-            if (shouldFinalizeHighlightedCandidateWithPunctuation)
-            {
-                // Empty means the edit session must consume this request's
-                // candidate reply and append the punctuation derived from wch
-                // (including smart-punctuation against the candidate text).
-                punctuationCommitText.clear();
-            }
-            else if (code == VK_DECIMAL)
-            {
-                // Numpad '.' keeps ASCII '.' in Chinese punctuation mode. It is checked after the highlighted-candidate commit, so with candidates open it ends the composition with the candidate followed by '.' instead of discarding the candidate.
-                punctuationCommitText = L".";
-            }
-            else if (CCompositionProcessorEngine::IsSmartAsciiPunctuationKey(wch) &&
-                     Global::SmartPunctuationEnabled.load(std::memory_order_relaxed))
-            {
-                // Defer mapping until the edit session can inspect the
-                // preceding document character (letters/digits → ASCII).
-                punctuationCommitText.clear();
-            }
-            else
-            {
-                const WCHAR *punctuation = _pCompositionProcessorEngine->GetPunctuation(wch);
-                punctuationCommitText = punctuation ? punctuation : L"";
-            }
+            std::wstring punctuationCommitText = _PrefetchPunctuationCommitText(code, wch);
             _PostAsyncKeyRequest(WM_AsyncPunctuationCommit, code, wch, requestId, std::move(punctuationCommitText), 0,
                                  0, deferredReplayToken);
             return deferredReplayToken != 0 ? KeyDownDispatchResult::AwaitingCompletion
