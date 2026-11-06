@@ -9993,7 +9993,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var phoneLetterVerticalInset: CGFloat {
     guard showsPhoneLetterRows && !isLandscape,
           !TouchKeyLayoutOffering.nineKeySchemes.contains(inputScheme) else { return 0 }
-    return KeyboardFormFactor.phoneLetterVerticalPadding
+    return KeyboardFormFactor.phoneLetterVerticalPadding(
+      rows: formFactor.keyRows(numberRow: false, phoneNumberRow: showsPhoneNumberRow))
   }
 
   /// 隐藏或恢复顶栏下面的所有行，以及它们旁边的单手模式侧栏和 iPad 单手的侧边数字键盘。这些行保留布局，键盘高度不变；它们只是不再绘制、不再接收触摸。

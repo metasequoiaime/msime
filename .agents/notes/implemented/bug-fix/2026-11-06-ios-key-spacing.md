@@ -8,7 +8,7 @@ iOS 26 键竖屏把 44pt 字母键帽收紧后，额外在键区上下和每个�
 
 ## Decision
 
-- 26 键竖屏保留 44pt 键帽的上下对齐留白，但移除排间距中重复叠加的 `phoneLetterSpareRowPadding`。各排只保留用户设置的排距和一份对齐间距，键盘外框高度不变。
+- 26 键竖屏保留 44pt 键帽的上下对齐留白（四排 10pt、五排 12pt），但移除排间距中重复叠加的 `phoneLetterSpareRowPadding`。各排只保留用户设置的排距和一份对齐间距，键盘外框高度不变。
 - 原有布局决定见 [触屏按键布局样式](../feature/2026-10-27-touch-key-layout-styles.md)；本次只修正 iOS 26 键排距，不改变共享偏好或其他平台。
 
 ## Alternatives considered
@@ -24,5 +24,5 @@ iOS 26 键竖屏把 44pt 字母键帽收紧后，额外在键区上下和每个�
 
 - `git diff --check`
 - `pnpm run verify-notes`
-- iOS 定向测试已尝试运行，但本机缺少 `target/ios` 资源目录和 `target/voice-runtime/ios/SherpaOnnxC.xcframework`，Xcode 在资源复制阶段终止，未进入测试执行。
+- iOS 定向测试：远端 iOS 27 模拟器已完成资源准备、原生编译；首轮测试暴露五排布局的键高回归，修正为按排数计算上下补偿后需重跑。
 

@@ -10,8 +10,13 @@ enum KeyboardFormFactor: Equatable {
   /// 手机竖屏字母层在存储行距之外保留的上下对齐间距。
   static let phoneLetterRowPadding: CGFloat = 4
 
-  /// 26 键手机竖屏的键帽从 52pt 收到 44pt，键区上下各留 4pt；排间距只保留一份额外对齐间距，避免重复叠加。
-  static let phoneLetterVerticalPadding: CGFloat = 4
+  /// 26 键手机竖屏的键帽从 52pt 收到 44pt，键区上下各留 10pt；排间距只保留一份额外对齐间距，避免重复叠加。
+  static let phoneLetterVerticalPadding: CGFloat = 10
+
+  /// 26 键手机竖屏有 `rows` 排键时，上下各留的补偿空间。五排时多出的一排也要保持 44pt 键帽。
+  static func phoneLetterVerticalPadding(rows: Int) -> CGFloat {
+    (CGFloat(rows) * 8 - CGFloat(max(rows - 1, 0)) * phoneLetterRowPadding) / 2
+  }
 
   static func resolve(
     idiom: UIUserInterfaceIdiom, horizontalSizeClass: UIUserInterfaceSizeClass
