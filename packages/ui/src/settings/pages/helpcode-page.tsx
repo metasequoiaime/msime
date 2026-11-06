@@ -267,6 +267,8 @@ export function HelpcodeSettingsGroup({
     const setModes = (patch: Partial<ShuangpinHelpcodeModes>) =>
       onChange({ [key]: { ...current, modes: { ...modes, ...patch } } });
     const disabled = !current.enabled || (showManualTab && modes.manual_tab);
+    // 引擎只在末尾直接和逐音节直接都关着时认末尾间接触发键（`apply_request_options` 清掉 `end_helpcodes`），这三行照同一判据置灰，存的值不动。
+    const endTriggerDisabled = disabled || modes.direct || modes.direct_helpcode;
     return (
       <Fragment>
         {showManualTab && (
@@ -280,7 +282,7 @@ export function HelpcodeSettingsGroup({
         )}
         <SwitchRow
           title={`${label}末尾直接辅助码`}
-          description="完整音节后直接接辅助码"
+          description="完整音节后直接接辅助码；打开时末尾间接触发不生效"
           disabled={disabled}
           checked={modes.direct}
           onChange={(direct) => setModes({ direct })}
@@ -288,21 +290,21 @@ export function HelpcodeSettingsGroup({
         <SwitchRow
           title={`${label}末尾间接触发（分号）`}
           description="完整音节后按分号，再输入一到两个辅助码字母；微软双拼的分号优先补全韵母"
-          disabled={disabled}
+          disabled={endTriggerDisabled}
           checked={modes.trigger_semicolon}
           onChange={(trigger_semicolon) => setModes({ trigger_semicolon })}
         />
         <SwitchRow
           title={`${label}末尾间接触发（反引号）`}
           description="完整音节后按反引号，再输入一到两个辅助码字母"
-          disabled={disabled}
+          disabled={endTriggerDisabled}
           checked={modes.trigger_backtick}
           onChange={(trigger_backtick) => setModes({ trigger_backtick })}
         />
         <SwitchRow
           title={`${label}末尾间接触发（大写字母）`}
           description="完整音节后输入大写字母作为辅助码"
-          disabled={disabled}
+          disabled={endTriggerDisabled}
           checked={modes.trigger_uppercase}
           onChange={(trigger_uppercase) => setModes({ trigger_uppercase })}
         />

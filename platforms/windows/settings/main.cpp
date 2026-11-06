@@ -14947,12 +14947,13 @@ private:
                            [field](hm::Mode const &mode) { return mode.field == field; });
     };
     const bool helpcode_on = document_.Boolean(L"shuangpin_helpcode.enabled", true);
+    const bool direct = value(find(L"direct"));
     const bool mid_sentence = value(find(L"mid_sentence"));
     const bool direct_helpcode = value(find(L"direct_helpcode"));
     for (auto const &mode : hm::shuangpin_modes)
       bool_row(group, 0xE8CB, L"双拼" + std::wstring(mode.title), std::wstring(mode.description),
                prefix + std::wstring(mode.field), mode.fallback, true,
-               hm::mode_enabled(mode, helpcode_on, mid_sentence, direct_helpcode));
+               hm::mode_enabled(mode, helpcode_on, direct, mid_sentence, direct_helpcode));
   }
 
   // 方案下拉框的两份来源。自定义码表只读一次，与共享页一样；辅助码表插件每次进入「输入」页重读，在别处导入或删除的包下次进来就能看到。两者都在 UI 线程之外读，读完内容有变化才重画。
