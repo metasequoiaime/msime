@@ -624,7 +624,7 @@ pub enum TextEditButton {
     SelectLine,
 }
 
-/// 从左列上到下，再到右列前三格，最后一个放在左下角；换行固定在右下角。
+/// 从左列上到下，再到右列前三格，最后一个放在底排正中；换行固定在右下角。
 pub fn default_text_edit_button_order() -> Vec<TextEditButton> {
     use TextEditButton::*;
     vec![

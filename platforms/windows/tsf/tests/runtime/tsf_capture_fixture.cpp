@@ -9,6 +9,8 @@
 
 namespace {
 std::atomic<unsigned> registered{0}, unregistered{0}, failures{0};
+// 生产查询交来的真实 WOW64 结果，-1 表示本次加载还没查过。
+std::atomic<int> wow64_actual{-1};
 bool system_wer() {
   wchar_t value[2]{};
   return GetEnvironmentVariableW(L"MSIME_TSF_TEST_SYSTEM_WER", value, 2) == 1 && value[0] == L'1';
@@ -33,6 +35,14 @@ extern "C" HRESULT msime_test_wer_register(PCWSTR path, PVOID context) {
   ++registered;
   if (system_wer()) return WerRegisterRuntimeExceptionModule(path, context);
   return S_OK;
+}
+// MSIME_TSF_TEST_WOW64 为 1 或 0 时改写成假装 WOW64 或非 WOW64，未设置时照用系统结果；查询在每次加载 DLL 后的首个租约发生一次。
+extern "C" BOOL msime_test_wow64_process(BOOL actual) {
+  wow64_actual = actual ? 1 : 0;
+  wchar_t value[2]{};
+  if (GetEnvironmentVariableW(L"MSIME_TSF_TEST_WOW64", value, 2) == 1 && (value[0] == L'0' || value[0] == L'1'))
+    return value[0] == L'1';
+  return actual;
 }
 extern "C" HRESULT msime_test_wer_unregister(PCWSTR path, PVOID context) {
   ++unregistered;
@@ -63,6 +73,7 @@ void *msime_test_tsf_acquire() { return new msime::tsf::TsfCrashCapture(); }
 void msime_test_tsf_release(void *lease) { delete static_cast<msime::tsf::TsfCrashCapture *>(lease); }
 unsigned msime_test_tsf_registered() { return registered.load(); }
 unsigned msime_test_tsf_unregistered() { return unregistered.load(); }
+int msime_test_tsf_wow64_actual() { return wow64_actual.load(); }
 void msime_test_tsf_fail_unregister(unsigned count) { failures = count; }
 void msime_test_tsf_block_refresh() {
   if (!refresh_barrier.entered) refresh_barrier.entered = CreateEventW(nullptr, TRUE, FALSE, nullptr);

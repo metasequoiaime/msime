@@ -149,6 +149,7 @@ jobs:
             target/android/crash.txt
             target/android/device-crash-smoke.log
             target/android/device-smoke.log
+            target/android/device-test/window.xml
             target/android/host.txt
             target/android/emulator-crash
           if-no-files-found: ignore
