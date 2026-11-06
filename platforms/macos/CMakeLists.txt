@@ -315,7 +315,7 @@ set_target_properties(MSIMEClientInputMethod PROPERTIES MACOSX_BUNDLE_INFO_PLIST
 set(MSIME_LEGAL_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/Licenses")
 file(MAKE_DIRECTORY "${MSIME_LEGAL_DIRECTORY}")
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../LICENSE" "${MSIME_LEGAL_DIRECTORY}/GPL-3.0.txt" COPYONLY)
-foreach(MSIME_TRANSLATION_LICENSE llama-cpp-MIT.txt llama-cpp-rs-Apache-2.0.txt hy-mt2-Apache-2.0.txt)
+foreach(MSIME_TRANSLATION_LICENSE llama-cpp-MIT.txt llama-cpp-rs-Apache-2.0.txt plamo-community-license.txt)
   configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/${MSIME_TRANSLATION_LICENSE}"
     "${MSIME_LEGAL_DIRECTORY}/${MSIME_TRANSLATION_LICENSE}" COPYONLY)
 endforeach()

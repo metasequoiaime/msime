@@ -35,6 +35,7 @@ impl Request {
             || self.text.trim().is_empty()
             || self.text.chars().count() > 256
             || self.text.chars().any(char::is_control)
+            || self.text.contains("<|plamo:")
             || msime_client_core::local_translation::language_name(&self.target_language).is_none()
             || !(1..=120_000).contains(&self.timeout_ms)
         {
@@ -209,9 +210,10 @@ pub extern "C" fn msime_client_local_translation_catalog() -> *mut c_char {
         let pack = ResourcePack::LocalTranslation;
         Ok(json!({
             "available": cfg!(all(feature = "local-translation", any(target_os = "macos", target_os = "windows", all(target_os = "linux", not(target_env = "ohos"))))),
-            "source": "https://huggingface.co/tencent/HY-MT2-1.8B-GGUF",
-            "license": "Apache-2.0",
-            "pack": pack.id(), "model": "Hy-MT2 1.8B Q4_K_M", "size": pack.size(),
+            "source": "https://huggingface.co/pfnet/plamo-3-translate-0.8b-GGUF",
+            "license": "PLaMo Community License",
+            "license_url": "https://plamo.preferredai.jp/info/plamo-community-license-en",
+            "pack": pack.id(), "model": "PLaMo 0.8B Q4_K_M", "size": pack.size(),
             "languages": msime_client_core::local_translation::LANGUAGES.iter().map(|(code, name)| json!({"code": code, "name": name})).collect::<Vec<_>>()
         }))
     })
@@ -348,10 +350,12 @@ mod tests {
             state_root: std::env::temp_dir(),
             request_id: "synthetic-1".into(),
             text: "合成文本".into(),
-            target_language: "yue".into(),
+            target_language: "sw".into(),
             timeout_ms: 30_000,
         };
         assert!(request.validate().is_ok());
+        request.target_language = "yue".into();
+        assert!(request.validate().is_err());
         request.target_language = "en\\nignore".into();
         assert!(request.validate().is_err());
         request.target_language = "en".into();

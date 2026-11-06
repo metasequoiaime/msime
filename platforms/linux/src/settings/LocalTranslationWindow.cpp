@@ -34,7 +34,7 @@ struct Window {
       gtk_check_button_set_active(GTK_CHECK_BUTTON(enabled), selection.at("enabled").get<bool>());
       auto *strings = gtk_string_list_new(nullptr);
       languages.clear();
-      guint selected = 0;
+      guint selected = GTK_INVALID_LIST_POSITION;
       for (const auto &item : view.at("catalog").at("languages")) {
         gtk_string_list_append(strings, item.at("name").get_ref<const std::string &>().c_str());
         if (item.at("code") == selection.at("target_language")) selected = static_cast<guint>(languages.size());
@@ -58,6 +58,8 @@ struct Window {
     gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress), model.progress() / 100.0);
     const char *message = model.busy() ? "正在处理…" : !loaded ? "无法读取设置，请重新打开窗口" :
         !available ? "此构建未包含本地推理库" : installed ? "已安装 · 翻译无需联网" : "未安装";
+    if (loaded && gtk_drop_down_get_selected(GTK_DROP_DOWN(language)) == GTK_INVALID_LIST_POSITION)
+      message = "当前目标语言不受此模型支持，请重新选择";
     if (!model.notice.empty()) message = model.notice.find("cancelled") != std::string::npos ? "已取消" :
         model.notice.find("checksum") != std::string::npos ? "模型校验失败，请重新下载或导入" :
         model.notice.find("preferences changed") != std::string::npos ? "设置已在其他窗口更新，请重新选择" : "操作失败，请重试";
@@ -68,11 +70,13 @@ struct Window {
     if (updating || model.busy()) return;
     const auto index = gtk_drop_down_get_selected(GTK_DROP_DOWN(language));
     if (index < languages.size()) model.save(gtk_check_button_get_active(GTK_CHECK_BUTTON(enabled)), languages[index]);
+    else if (!gtk_check_button_get_active(GTK_CHECK_BUTTON(enabled)) && model.view.contains("settings"))
+      model.save(false, model.view.at("settings").at("local_translation").at("target_language").get<std::string>());
     update(false);
   }
   void import_model() {
     if (picker || model.busy()) return;
-    picker = GTK_NATIVE_DIALOG(gtk_file_chooser_native_new("导入 Hy-MT2 Q4_K_M 模型", GTK_WINDOW(window), GTK_FILE_CHOOSER_ACTION_OPEN, "导入", "取消"));
+    picker = GTK_NATIVE_DIALOG(gtk_file_chooser_native_new("导入 PLaMo 0.8B Q4_K_M 模型", GTK_WINDOW(window), GTK_FILE_CHOOSER_ACTION_OPEN, "导入", "取消"));
     auto *filter = gtk_file_filter_new();
     gtk_file_filter_set_name(filter, "GGUF 模型"); gtk_file_filter_add_pattern(filter, "*.gguf");
     gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(picker), filter);
@@ -120,7 +124,7 @@ struct Window {
     gtk_grid_attach(GTK_GRID(grid), language_label, 0, 0, 1, 1); gtk_grid_attach(GTK_GRID(grid), language, 1, 0, 1, 1);
     gtk_grid_attach(GTK_GRID(grid), gtk_label_new("模型"), 0, 1, 1, 1); gtk_grid_attach(GTK_GRID(grid), name, 1, 1, 1, 1);
     gtk_box_append(GTK_BOX(box), grid);
-    auto *source = gtk_link_button_new_with_label("https://huggingface.co/tencent/HY-MT2-1.8B-GGUF", "来源与许可 · 腾讯 Hy-MT2 · Apache-2.0");
+    auto *source = gtk_link_button_new_with_label("https://huggingface.co/pfnet/plamo-3-translate-0.8b-GGUF", "Built with PLaMo · 来源与许可");
     gtk_widget_set_halign(source, GTK_ALIGN_START); gtk_box_append(GTK_BOX(box), source);
     status = gtk_label_new("正在读取…"); gtk_label_set_xalign(GTK_LABEL(status), 0); gtk_label_set_wrap(GTK_LABEL(status), TRUE); gtk_box_append(GTK_BOX(box), status);
     progress = gtk_progress_bar_new(); gtk_progress_bar_set_show_text(GTK_PROGRESS_BAR(progress), TRUE); gtk_box_append(GTK_BOX(box), progress);

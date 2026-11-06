@@ -16,7 +16,7 @@ try {
         'resources/licenses/rime-wubi86-jidian-Apache-2.0.txt', 'resources/licenses/rime-wanxiang-CC-BY-4.0.txt',
         'resources/licenses/sentence-model-Apache-2.0.txt',
         'resources/licenses/llama-cpp-MIT.txt', 'resources/licenses/llama-cpp-rs-Apache-2.0.txt',
-        'resources/licenses/hy-mt2-Apache-2.0.txt',
+        'resources/licenses/plamo-community-license.txt',
         'resources/licenses/Zinnia-LICENSE.txt', 'resources/licenses/Administrative-divisions-of-China-WTFPL.txt',
         'resources/licenses/libhangul-hanja-BSD-3-Clause.txt', 'resources/licenses/librime-octagram-BSD-3-Clause.txt',
         'resources/licenses/libcxx-Apache-2.0-WITH-LLVM-exception.txt',

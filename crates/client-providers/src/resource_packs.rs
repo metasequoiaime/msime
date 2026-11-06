@@ -348,7 +348,7 @@ pub enum ResourcePack {
     AndroidOcrModule,
     /// 整句联想「增强」逐键重排的手机档 ONNX 模型（chinese-ime-lm `rerank-v2` 的 6x256）：`lm_step.ort`、`model.json`、`vocab.json`，即 `resources/rerank-model.lock.json` 里 `rerank-model-small` 那一项。Android 发布包不带它，用户选「增强」时下载；id 与 host-api 找的目录名相同，装好后会话在 `resource-packs/` 下找到它，没装时退回随包的句子模型。
     RerankModelSmall,
-    /// 桌面嵌入式翻译使用的固定 Hy-MT2 GGUF 权重。
+    /// 桌面嵌入式翻译使用的固定 PLaMo GGUF 权重。
     LocalTranslation,
 }
 
@@ -3107,10 +3107,10 @@ mod tests {
                 let pinned_translation = pack == ResourcePack::LocalTranslation
                     && url
                         == format!(
-                            "https://huggingface.co/tencent/HY-MT2-1.8B-GGUF/resolve/{}/{}",
-                            pack.set().source_commit,
-                            artifact.name
-                        )
+                        "https://huggingface.co/pfnet/plamo-3-translate-0.8b-GGUF/resolve/{}/{}",
+                        pack.set().source_commit,
+                        artifact.name
+                    )
                     && crate::is_lower_hex(&pack.set().source_commit, 40);
                 assert!(
                     url.starts_with(RELEASE)

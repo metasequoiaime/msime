@@ -25,6 +25,26 @@ fn real_model_translates_multiple_languages_and_rejects_cancelled_work() {
             .expect("translation");
         assert!(output.contains(expected), "language={language}");
     }
+    let chinese = model
+        .translate(
+            "The file is saved at /tmp/example.txt.",
+            "zh",
+            Instant::now() + Duration::from_secs(30),
+            &|| false,
+        )
+        .unwrap();
+    assert!(chinese.contains("/tmp/example.txt"));
+    assert!(chinese.contains("文件"));
+    assert!(!chinese.contains("<|plamo:"));
+    let negation = model
+        .translate(
+            "我不是不想去，只是今天没时间。",
+            "en",
+            Instant::now() + Duration::from_secs(30),
+            &|| false,
+        )
+        .unwrap();
+    assert!(negation.to_lowercase().contains("not that"));
     assert_eq!(
         model.translate(
             input,

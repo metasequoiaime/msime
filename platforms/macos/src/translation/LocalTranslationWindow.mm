@@ -90,7 +90,7 @@ NSString *errorMessage(NSDictionary *envelope) {
         @[[NSTextField labelWithString:@"目标语言"], _language],
         @[[NSTextField labelWithString:@"模型"], _model]]];
     grid.rowSpacing = 16;
-    NSButton *source = [NSButton buttonWithTitle:@"来源与许可 · 腾讯 Hy-MT2 · Apache-2.0" target:self action:@selector(showSource:)];
+    NSButton *source = [NSButton buttonWithTitle:@"Built with PLaMo · 来源与许可" target:self action:@selector(showSource:)];
     source.bordered = NO;
     NSStackView *stack = [NSStackView stackViewWithViews:@[grid, source, _status, _indicator, actions]];
     stack.orientation = NSUserInterfaceLayoutOrientationVertical;
@@ -108,7 +108,7 @@ NSString *errorMessage(NSDictionary *envelope) {
 }
 - (void)showSource:(id)sender {
     (void)sender;
-    [NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:@"https://huggingface.co/tencent/HY-MT2-1.8B-GGUF"]];
+    [NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:@"https://huggingface.co/pfnet/plamo-3-translate-0.8b-GGUF"]];
 }
 - (void)updateControls {
     const BOOL loaded = _settings != nil;
@@ -145,14 +145,18 @@ NSString *errorMessage(NSDictionary *envelope) {
                 owner->_model.stringValue = [NSString stringWithFormat:@"%@ · %@", catalog[@"model"] ?: @"模型不可用",
                     [NSByteCountFormatter stringFromByteCount:[catalog[@"size"] longLongValue] countStyle:NSByteCountFormatterCountStyleFile]];
                 [owner->_language removeAllItems];
+                BOOL supported = NO;
                 for (NSDictionary *language in owner->_languages) {
                     [owner->_language addItemWithTitle:language[@"name"]];
                     owner->_language.lastItem.representedObject = language[@"code"];
-                    if ([language[@"code"] isEqual:settings[@"local_translation"][@"target_language"]])
-                        [owner->_language selectItem:owner->_language.lastItem];
+                    if ([language[@"code"] isEqual:settings[@"local_translation"][@"target_language"]]) {
+                        [owner->_language selectItem:owner->_language.lastItem]; supported = YES;
+                    }
                 }
+                if (!supported) [owner->_language selectItem:nil];
                 owner->_enabled.state = [settings[@"local_translation"][@"enabled"] boolValue] ? NSControlStateValueOn : NSControlStateValueOff;
                 owner->_status.stringValue = !settings ? errorMessage(settingsEnvelope) : !owner->_available ? @"此构建未包含本地推理库" : installed ? @"已安装 · 翻译无需联网" : @"未安装";
+                if (settings && !supported) owner->_status.stringValue = @"当前目标语言不受此模型支持，请重新选择";
                 if (owner->_statusOverride) { owner->_status.stringValue = owner->_statusOverride; owner->_statusOverride = nil; }
                 [owner updateControls];
             });
@@ -161,10 +165,13 @@ NSString *errorMessage(NSDictionary *envelope) {
 }
 - (void)save:(id)sender {
     (void)sender;
-    if (_busy || !_settings || !_language.selectedItem.representedObject) return;
+    if (_busy || !_settings) return;
+    NSString *target = _language.selectedItem.representedObject;
+    if (!target && _enabled.state == NSControlStateValueOn) return;
+    if (!target) target = _settings[@"local_translation"][@"target_language"];
     NSDictionary *request = @{@"directory":_directory, @"update":@{
         @"expected_revision":_settings[@"revision"], @"enabled":@(_enabled.state == NSControlStateValueOn),
-        @"target_language":_language.selectedItem.representedObject}};
+        @"target_language":target}};
     [self perform:^{ return call(msime_client_local_translation_settings, request); }];
 }
 - (void)perform:(NSDictionary *(^)(void))operation {
@@ -211,7 +218,7 @@ NSString *errorMessage(NSDictionary *envelope) {
     if (_busy) return;
     NSOpenPanel *panel = [NSOpenPanel openPanel];
     panel.canChooseDirectories = NO; panel.allowsMultipleSelection = NO;
-    panel.title = @"导入 Hy-MT2 Q4_K_M 模型";
+    panel.title = @"导入 PLaMo 0.8B Q4_K_M 模型";
     [panel beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse result) {
         if (result == NSModalResponseOK && panel.URL.isFileURL) [self installFiles:@[panel.URL.path]];
     }];

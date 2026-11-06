@@ -56,7 +56,7 @@ struct Window {
     add(L"BUTTON", L"从文件导入…", BS_PUSHBUTTON | WS_TABSTOP, Import, 128, 232, 114, 30);
     add(L"BUTTON", L"删除模型…", BS_PUSHBUTTON | WS_TABSTOP, Remove, 252, 232, 104, 30);
     add(L"BUTTON", L"取消", BS_PUSHBUTTON | WS_TABSTOP, Cancel, 366, 232, 90, 30);
-    add(L"BUTTON", L"来源与许可 · 腾讯 Hy-MT2 · Apache-2.0", BS_PUSHBUTTON | WS_TABSTOP, Source, 24, 278, 380, 30);
+    add(L"BUTTON", L"Built with PLaMo · 来源与许可", BS_PUSHBUTTON | WS_TABSTOP, Source, 24, 278, 380, 30);
     SendMessageW(control(Progress), PBM_SETRANGE32, 0, 100);
     SetTimer(hwnd, 1, 100, nullptr);
     update(false);
@@ -92,6 +92,8 @@ struct Window {
     SendMessageW(control(Progress), PBM_SETPOS, static_cast<WPARAM>(model.progress()), 0);
     const wchar_t *status = model.busy() ? L"正在处理…" : !loaded ? L"无法读取设置，请重新打开窗口" :
         !available ? L"此构建未包含本地推理库" : installed ? L"已安装 · 翻译无需联网" : L"未安装";
+    if (loaded && SendMessageW(control(Language), CB_GETCURSEL, 0, 0) == CB_ERR)
+      status = L"当前目标语言不受此模型支持，请重新选择";
     if (!model.notice.empty()) {
       status = model.notice.find("cancelled") != std::string::npos ? L"已取消" :
           model.notice.find("checksum") != std::string::npos ? L"模型校验失败，请重新下载或导入" :
@@ -100,20 +102,22 @@ struct Window {
     SetWindowTextW(control(Status), status);
   }
   void command(int id, int notification) {
-    if (id == Source) { ShellExecuteW(hwnd, L"open", L"https://huggingface.co/tencent/HY-MT2-1.8B-GGUF", nullptr, nullptr, SW_SHOWNORMAL); return; }
+    if (id == Source) { ShellExecuteW(hwnd, L"open", L"https://huggingface.co/pfnet/plamo-3-translate-0.8b-GGUF", nullptr, nullptr, SW_SHOWNORMAL); return; }
     if (id == Cancel) { model.cancel(); return; }
     if (model.busy()) return;
     if ((id == Enabled && notification == BN_CLICKED) || (id == Language && notification == CBN_SELCHANGE)) {
       const auto index = SendMessageW(control(Language), CB_GETCURSEL, 0, 0);
       if (index >= 0 && static_cast<size_t>(index) < languages.size())
         model.save(SendMessageW(control(Enabled), BM_GETCHECK, 0, 0) == BST_CHECKED, languages[static_cast<size_t>(index)]);
+      else if (id == Enabled && SendMessageW(control(Enabled), BM_GETCHECK, 0, 0) != BST_CHECKED && model.view.contains("settings"))
+        model.save(false, model.view.at("settings").at("local_translation").at("target_language").get<std::string>());
     } else if (id == Download) model.install();
     else if (id == Import) {
       wchar_t path[32768]{};
       OPENFILENAMEW picker{}; picker.lStructSize = sizeof(picker); picker.hwndOwner = hwnd;
       picker.lpstrFilter = L"GGUF 模型\0*.gguf\0所有文件\0*.*\0\0";
       picker.lpstrFile = path; picker.nMaxFile = 32768;
-      picker.lpstrTitle = L"导入 Hy-MT2 Q4_K_M 模型";
+      picker.lpstrTitle = L"导入 PLaMo 0.8B Q4_K_M 模型";
       picker.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
       if (GetOpenFileNameW(&picker)) model.install({utf8(path)});
     } else if (id == Remove && MessageBoxW(hwnd, L"删除后需重新下载或导入才能离线翻译。", L"删除本地翻译模型？", MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) == IDYES) model.remove();

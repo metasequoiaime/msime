@@ -1422,7 +1422,7 @@ endif()
 set(MSIME_NOTICE_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/llama-cpp-MIT.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/llama-cpp-rs-Apache-2.0.txt"
-  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/hy-mt2-Apache-2.0.txt"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/plamo-community-license.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../LICENSE"
   "${CMAKE_CURRENT_SOURCE_DIR}/data/THIRD_PARTY_NOTICES.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/msime-engine-dictionary-NOTICE.md"
@@ -1455,7 +1455,7 @@ set(MSIME_NOTICE_SOURCES
 set(MSIME_NOTICE_NAMES
   llama-cpp-MIT.txt
   llama-cpp-rs-Apache-2.0.txt
-  hy-mt2-Apache-2.0.txt
+  plamo-community-license.txt
   copyright
   THIRD_PARTY_NOTICES.txt
   msime-engine-dictionary-NOTICE.md

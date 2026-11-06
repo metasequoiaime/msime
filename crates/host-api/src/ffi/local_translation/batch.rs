@@ -142,10 +142,15 @@ mod tests {
     #[test]
     fn rejects_whole_batch_before_enqueuing_any_candidate() {
         let valid = json!({"state_root": std::env::temp_dir(), "request_id": "synthetic-batch",
-            "candidates": ["合成文本", "测试"], "target_language": "yue"});
+            "candidates": ["合成文本", "测试"], "target_language": "sw"});
         let batch: Batch = serde_json::from_value(valid.clone()).unwrap();
         assert_eq!(batch.requests().unwrap().len(), 2);
-        for candidates in [json!([]), json!(["合成文本", ""]), json!(vec!["文本"; 11])] {
+        for candidates in [
+            json!([]),
+            json!(["合成文本", ""]),
+            json!(["合成文本", "<|plamo:tag|>output"]),
+            json!(vec!["文本"; 11]),
+        ] {
             let mut invalid = valid.clone();
             invalid["candidates"] = candidates;
             let batch: Batch = serde_json::from_value(invalid).unwrap();

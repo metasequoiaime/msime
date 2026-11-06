@@ -68,7 +68,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let pack = ResourcePack::LocalTranslation;
         assert_eq!(ResourcePack::from_id("local-translation"), Some(pack));
-        assert_eq!(pack.size(), 1_133_080_448);
+        assert_eq!(pack.size(), 573_123_200);
         assert!(pack.schemes().is_empty());
         assert!(verify_installed(root.path(), pack).is_err());
         let file = root.path().join("synthetic.gguf");

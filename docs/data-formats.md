@@ -529,9 +529,9 @@ Rime 上游的 octagram 语法模型格式（[lotem/librime-octagram](https://gi
 
 ## 桌面离线翻译模型（宿主资源包）
 
-`resource-packs/local-translation/Hy-MT2-1.8B-Q4_K_M.gguf` 由共享 `client-providers` 资源包安装器下载或从用户选择的文件导入，输入引擎不读写它。模型采用上游 GGUF 格式，分词器、模型元数据与量化张量在同一文件内；由 `local-translation` 的固定 llama.cpp 版本只读加载。来源、上游完整提交、文件名、长度和 SHA-256 均来自编译期的 `resources/local-translation-model.lock.json`，安装和每次冷加载都校验，不接受任意 GGUF 替换。
+`resource-packs/local-translation/plamo-3-translate-0.8b-Q4_K_M.gguf` 由共享 `client-providers` 资源包安装器下载或从用户选择的文件导入，输入引擎不读写它。模型采用上游 GGUF 格式，分词器、模型元数据与量化张量在同一文件内；由 `local-translation` 的固定 llama.cpp 版本只读加载。来源、上游完整提交、文件名、长度和 SHA-256 均来自编译期的 `resources/local-translation-model.lock.json`，安装和每次冷加载都校验，不接受任意 GGUF 替换。
 
-偏好为 `local_translation: { enabled, target_language }`，缺字段保持关闭，语言代码必须属于共享目录。文件缺失、摘要不符或运行库不可用时翻译失败，不联网回退。宿主的候选代次和取消标记与模型文件格式无关；这项资源不改变引擎词库的 `FORMAT_VERSION`。许可与分发位置见 [第三方组件清单](third-party.md#桌面本地翻译)。
+偏好为 `local_translation: { enabled, target_language }`，缺字段保持关闭，启用时的语言代码必须属于当前共享目录；旧草稿模型的八种独有语言仍可读取与关闭，但不能重新启用。文件缺失、摘要不符或运行库不可用时翻译失败，不联网回退。宿主的候选代次和取消标记与模型文件格式无关；这项资源不改变引擎词库的 `FORMAT_VERSION`。许可与分发位置见 [第三方组件清单](third-party.md#桌面本地翻译)。
 
 ## 19. 产出方
 

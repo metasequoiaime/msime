@@ -89,11 +89,11 @@ fn local_translation_settings_response_contains_no_credentials() {
     let initial = call(Value::Null);
     assert_eq!(initial["ok"], true);
     let revision = initial["value"]["revision"].as_u64().unwrap();
-    let update = json!({"expected_revision": revision, "enabled": true, "target_language": "bo"});
+    let update = json!({"expected_revision": revision, "enabled": true, "target_language": "sw"});
     let saved = call(update.clone());
     assert_eq!(saved["ok"], true);
     assert_eq!(saved["value"].as_object().unwrap().len(), 2);
-    assert_eq!(saved["value"]["local_translation"]["target_language"], "bo");
+    assert_eq!(saved["value"]["local_translation"]["target_language"], "sw");
     assert_eq!(call(update)["ok"], false);
 }
 

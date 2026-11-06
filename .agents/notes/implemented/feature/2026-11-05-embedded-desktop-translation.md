@@ -8,6 +8,8 @@ Status: implemented
 
 ## Decision
 
+模型、语言目录与提示协议由 [PLaMo 小模型接入](2026-11-06-plamo-embedded-translation.md) 部分取代；下文 HY-MT2 选型与实测保留为原实现依据。队列、资源校验和宿主约束继续适用。
+
 翻译规则、语言目录、模型安装和推理由共享 Rust 层提供，宿主负责原生设置、后台调度和带代次的候选结果应用。推理不进入引擎或按键线程，不启动 HTTP 服务，失败不回退在线翻译。新偏好缺字段保持关闭；不改变已有翻译默认值。
 
 `client-core::local_translation` 持有 38 项模型语言/变体目录和 `local_translation.enabled/target_language`，并通过修订号 CAS 保存。启用本地翻译时关闭云翻译的选择标记、保留凭据；关闭本地翻译不自动恢复云服务。现有云服务的语言白名单保持原样。只承诺模型目录内的选项，不宣称覆盖所有语言。

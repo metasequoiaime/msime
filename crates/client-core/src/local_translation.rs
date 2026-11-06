@@ -1,13 +1,11 @@
-//! Hy-MT2 官方模型卡的语言目录；语言代码不能由自由文本提示词替代。
+//! PLaMo 官方模型卡的语言目录；语言代码不能由自由文本提示词替代。
 
 pub const LANGUAGES: &[(&str, &str)] = &[
-    ("zh", "中文"),
+    ("zh", "简体中文"),
     ("en", "英语"),
     ("fr", "法语"),
-    ("pt", "葡萄牙语"),
     ("es", "西班牙语"),
     ("ja", "日语"),
-    ("tr", "土耳其语"),
     ("ru", "俄语"),
     ("ar", "阿拉伯语"),
     ("ko", "韩语"),
@@ -21,7 +19,6 @@ pub const LANGUAGES: &[(&str, &str)] = &[
     ("hi", "印地语"),
     ("zh-Hant", "繁体中文"),
     ("pl", "波兰语"),
-    ("cs", "捷克语"),
     ("nl", "荷兰语"),
     ("km", "高棉语"),
     ("my", "缅甸语"),
@@ -33,12 +30,30 @@ pub const LANGUAGES: &[(&str, &str)] = &[
     ("he", "希伯来语"),
     ("bn", "孟加拉语"),
     ("ta", "泰米尔语"),
-    ("uk", "乌克兰语"),
-    ("bo", "藏语"),
     ("kk", "哈萨克语"),
-    ("mn", "蒙古语"),
-    ("ug", "维吾尔语"),
-    ("yue", "粤语"),
+    ("az", "阿塞拜疆语"),
+    ("be", "白俄罗斯语"),
+    ("bg", "保加利亚语"),
+    ("ca", "加泰罗尼亚语"),
+    ("ceb", "宿务语"),
+    ("et", "爱沙尼亚语"),
+    ("eu", "巴斯克语"),
+    ("hr", "克罗地亚语"),
+    ("hu", "匈牙利语"),
+    ("hy", "亚美尼亚语"),
+    ("jv", "爪哇语"),
+    ("ka", "格鲁吉亚语"),
+    ("lt", "立陶宛语"),
+    ("lv", "拉脱维亚语"),
+    ("ml", "马拉雅拉姆语"),
+    ("ne", "尼泊尔语"),
+    ("pa", "旁遮普语"),
+    ("si", "僧伽罗语"),
+    ("sk", "斯洛伐克语"),
+    ("sl", "斯洛文尼亚语"),
+    ("sr", "塞尔维亚语"),
+    ("sw", "斯瓦希里语"),
+    ("uz", "乌兹别克语"),
 ];
 
 pub fn language_name(code: &str) -> Option<&'static str> {
@@ -70,8 +85,13 @@ impl LocalTranslationPreferences {
         self == &Self::default()
     }
 
+    // 旧草稿模型的目标保留可读，避免模型更换使整个偏好文档失效；重新启用必须选受支持的语言。
     pub fn validate(&self) -> bool {
         language_name(&self.target_language).is_some()
+            || matches!(
+                self.target_language.as_str(),
+                "pt" | "tr" | "cs" | "uk" | "bo" | "mn" | "ug" | "yue"
+            )
     }
 }
 
@@ -80,7 +100,9 @@ pub fn apply_selection(
     preferences: &mut crate::preferences::Preferences,
     selection: LocalTranslationPreferences,
 ) -> Result<(), crate::preferences::PreferencesError> {
-    if !selection.validate() {
+    if !selection.validate()
+        || (selection.enabled && language_name(&selection.target_language).is_none())
+    {
         return Err(crate::preferences::PreferencesError::InvalidLocalTranslation);
     }
     if selection.enabled {
@@ -210,5 +232,30 @@ mod tests {
         assert!(!crate::translation::is_supported_translation_language(
             "yue"
         ));
+    }
+}
+
+#[cfg(test)]
+mod plamo_tests {
+    use super::*;
+    #[test]
+    fn retired_targets_remain_readable_but_cannot_be_enabled() {
+        for target in ["pt", "tr", "cs", "uk", "bo", "mn", "ug", "yue"] {
+            let mut preferences = crate::preferences::Preferences::default();
+            preferences.local_translation = LocalTranslationPreferences {
+                enabled: true,
+                target_language: target.into(),
+            };
+            assert!(preferences.validate().is_ok());
+            let selection = preferences.local_translation.clone();
+            assert!(apply_selection(&mut preferences, selection).is_err());
+            let selection = LocalTranslationPreferences {
+                enabled: false,
+                target_language: target.into(),
+            };
+            assert!(apply_selection(&mut preferences, selection).is_ok());
+        }
+        assert_eq!(LANGUAGES.len(), 53);
+        assert!(language_name("sw").is_some());
     }
 }

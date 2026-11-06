@@ -5,6 +5,8 @@ mod worker;
 #[cfg(feature = "runtime")]
 pub use worker::{Pending, Worker};
 
+#[cfg(any(feature = "runtime", test))]
+mod prompt;
 #[cfg(feature = "runtime")]
 mod runtime;
 #[cfg(feature = "runtime")]
@@ -13,7 +15,11 @@ pub use runtime::Translator;
 pub use msime_client_core::local_translation::{language_name, LANGUAGES};
 
 pub fn validate_text(text: &str) -> Result<(), Error> {
-    if text.trim().is_empty() || text.chars().count() > 256 || text.chars().any(char::is_control) {
+    if text.trim().is_empty()
+        || text.chars().count() > 256
+        || text.chars().any(char::is_control)
+        || text.contains("<|plamo:")
+    {
         Err(Error::InvalidInput)
     } else {
         Ok(())
@@ -51,6 +57,7 @@ mod tests {
             "".into(),
             " \t".into(),
             "合成\0文本".into(),
+            "<|plamo:tag|>output".into(),
             "字".repeat(257),
         ] {
             assert_eq!(validate_text(&text), Err(Error::InvalidInput));

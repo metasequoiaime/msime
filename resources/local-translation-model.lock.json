@@ -1,11 +1,11 @@
 {
-  "source_commit": "a0c709d9fac510f2c807aa3af52872340dc37a4a",
+  "source_commit": "dbeb0856cb0b004b484f190bb71dd65876297013",
   "artifacts": [
     {
-      "name": "Hy-MT2-1.8B-Q4_K_M.gguf",
-      "url": "https://huggingface.co/tencent/HY-MT2-1.8B-GGUF/resolve/a0c709d9fac510f2c807aa3af52872340dc37a4a/Hy-MT2-1.8B-Q4_K_M.gguf",
-      "sha256": "dc5f44fcf1fa496ee7ad725982c0c8c553a4de00259b53af84c4b89fb0c06699",
-      "size": 1133080448
+      "name": "plamo-3-translate-0.8b-Q4_K_M.gguf",
+      "url": "https://huggingface.co/pfnet/plamo-3-translate-0.8b-GGUF/resolve/dbeb0856cb0b004b484f190bb71dd65876297013/plamo-3-translate-0.8b-Q4_K_M.gguf",
+      "sha256": "923b2f28a9856de1b8b3b610a7e59ded0b14d007466fd5dd526e6a9ecaadafdd",
+      "size": 573123200
     }
   ]
 }

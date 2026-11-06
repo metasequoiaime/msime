@@ -18,7 +18,7 @@ static char *reply(id value) {
 }
 extern "C" char *msime_client_local_translation_catalog() {
     assert(!NSThread.isMainThread);
-    return reply(@{@"available":@YES, @"model":@"Hy-MT2 1.8B Q4_K_M", @"size":@1133080448,
+    return reply(@{@"available":@YES, @"model":@"PLaMo 0.8B Q4_K_M", @"size":@573123200,
         @"languages":@[@{@"code":@"en", @"name":@"英语"}, @{@"code":@"ja", @"name":@"日语"}]});
 }
 extern "C" char *msime_client_local_translation_settings(const uint8_t *request, size_t length) {
@@ -88,6 +88,14 @@ int main() {
         assert([choices.selectedItem.representedObject isEqual:@"ja"]);
         NSTextField *status = [window valueForKey:@"status"];
         assert([status.stringValue containsString:@"其他窗口"]);
+        // 旧模型目标保留可读，但不能冒充已经选择了目录第一项。
+        conflict = false; language = @"yue"; [window refresh]; settle(window);
+        assert(!choices.selectedItem);
+        assert([status.stringValue containsString:@"重新选择"]);
+        [window save:toggle]; settle(window);
+        assert([language isEqual:@"yue"]);
+        toggle.state = NSControlStateValueOff; [window save:toggle]; settle(window);
+        assert(!enabled && [language isEqual:@"yue"]);
         [window close];
     }
 }

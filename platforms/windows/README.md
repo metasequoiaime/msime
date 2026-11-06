@@ -808,3 +808,7 @@ Win7 使用独立版本源 `platforms/windows/version-win7.txt`；现代 Windows
 Win7 验收基线为 Windows 7 SP1 x64，已安装 KB4474419、KB4490628、KB2921916，使用受信任测试签名和开启 UIAccess 的最终安装包。安装、升级保留合成数据、嵌套迁移、双架构 COM／TSF、看门狗、ACL 和显式卸载均通过；最终安装路径中的设置系统对话框打开／取消、x64 与 x86 系统记事本的真实拼音按键、可见候选与“你好”提交通过，Server 持续运行，英文出厂默认值保持。
 
 独立 Win7 SP1 x86 已通过完整安装、升级保留合成数据、嵌套迁移、卸载和重启后系统记事本真实输入；直通实体 USB 双向音频设备的同源 Server 录音、播放渲染、提示音，以及安装核心的 16 kHz 单声道采集均通过，未保存麦克风内容或作人工音质评价。生产服务使用隔离合成账号验证匿名注册、服务与社区目录、AI、AI 翻译，以及真实云词库新增、完整备份和恢复；原生 ASR 与润色针对合成语音或合成句子获得非空结果。部分在线测试经显式代理访问 HTTPS，不代表直连、普通账号交互登录或全部模型均通过。现代 Windows 的同源完整包回归和各项证据见[产品构建记录](../../.agents/notes/implemented/feature/2026-10-24-windows7-product-build.md)。正式版由 `release-windows7.yml` 在 `main` 手动触发并开启 `publish`，发布页提供两个安装包、各自摘要和 `SHA256SUMS`；未签名包不提供 `UIAccess`，需按发布页核对摘要。
+
+### 离线翻译依赖的路径长度
+
+嵌入式 PLaMo 使用固定 Git 提交的 `llama-cpp-2`，其上游子模块包含较长文件名。Windows 的 Cargo/libgit2 检出子模块时可能超过路径长度限制，仅设置 Git 的 `core.longpaths=true` 不能解决。构建进程应把 `CARGO_HOME` 指向较短路径（例如 `F:\c`）；可用目录联接指向原 Cargo 缓存，避免重新下载依赖，不必修改机器全局 Git 配置。模型运行不依赖 Git 或网络。
