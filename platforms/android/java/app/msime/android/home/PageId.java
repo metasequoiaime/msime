@@ -14,7 +14,7 @@ import java.util.List;
  *
  * <p>页面类的约束见 {@link DetailPage}：必须是 public 类、有 public 无参构造器、参数只放在 arguments Bundle 里。
  *
- * <p>关键词取自对应设计图上的行标题，搜索时与标题一起匹配；{@link #LEXICON_DETAIL} 和 {@link #CLIPBOARD_EDIT} 需要参数才能打开，{@link #COMMUNITY} 要从功能页带着作品类型进去，所以都没有关键词，不出现在搜索结果里。页面里新加的开关、导航和滑块行要同时把行标题加进这里，否则设置首页搜不到它（#6132 的「浮动键盘」就是这样漏掉的）；`tests/home/SettingsSearchIndexSmoke.java` 逐页核对。
+ * <p>关键词取自对应设计图上的行标题，搜索时与标题一起匹配；{@link #LEXICON_DETAIL} 和 {@link #CLIPBOARD_EDIT} 需要参数才能打开，{@link #COMMUNITY} 要从功能页带着作品类型进去，所以都没有关键词，不出现在搜索结果里。页面里新加的开关、导航和滑块行要同时把行标题加进这里，否则设置首页搜不到它（#6132 的「浮动键盘」就是这样漏掉的）；`tests/home/SettingsSearchIndexSmoke.java` 逐页核对。搜索结果打开页面时带上命中的关键词（`HostDeepLink.ARG_ROW`），页面切到标题与它完全相同的那一行所在的分类、滚过去并高亮，关键词是分类标题时直接打开那个分类，所以关键词照抄行标题和分类标题；别名（例如「键盘调整」）找不到同名的行，打开时停在页面开头。
  */
 public enum PageId {
     SKINS("SkinsPage", "皮肤", HostDeepLink.TAB_SETTINGS,
