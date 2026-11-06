@@ -42,6 +42,8 @@
 @end
 @interface HTTPHostFixture : NSObject
 @property NSUInteger submissions;
+@property(copy) NSString *expectedText;
+@property uint64_t expectedGeneration;
 - (NSDictionary *)applyVoiceText:(NSString *)text generation:(uint64_t)generation error:(NSError **)error;
 @end
 @implementation HTTPHostFixture
@@ -57,7 +59,7 @@
 // 换客户端聚焦之前控制器不论属性变没变都报告一次字段属性；这个夹具没有选择加入生命周期核心，按库的约定答 0。
 - (uint32_t)setFieldTraits:(uint32_t)traits { (void)traits; return 0; }
 - (NSDictionary *)applyVoiceText:(NSString *)text generation:(uint64_t)generation error:(NSError **)error {
-    (void)error; assert(NSThread.isMainThread && generation == 42 && [text isEqual:@"synthetic"]);
+    (void)error; assert(NSThread.isMainThread && generation == (self.expectedGeneration ?: 42) && [text isEqual:(self.expectedText ?: @"synthetic")]);
     ++self.submissions; return @{@"commit": text};
 }
 @end
@@ -101,6 +103,7 @@
 @property NSUInteger failures;
 @end
 @implementation HTTPOverlayFixture
+- (void)applyThemePreferences:(NSDictionary *)preferences { (void)preferences; }
 - (void)setInputLevel:(float)level { self.lastLevel = level; ++self.levelUpdates; }
 - (void)dismissProcessing { self.dismissed = YES; }
 - (void)setListening:(BOOL)listening { self.phase = listening ? 1 : 0; self.failure = 0; }
@@ -137,6 +140,18 @@ OSStatus OrderSet(AudioObjectID object, const AudioObjectPropertyAddress *addres
 - (void)playStartCueThen:(void (^)(void))completion { [audioEvents addObject:@"start"]; [super playStartCueThen:completion]; }
 - (void)playStopCue { [audioEvents addObject:@"stop"]; [super playStopCue]; }
 @end
+
+static void ApplyPunctuationPreferences(MSIMEInputController *controller, NSString *mode) {
+    [NSApplication sharedApplication];
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    NSDictionary *old = [defaults volatileDomainForName:NSArgumentDomain];
+    NSMutableDictionary *arguments = [old mutableCopy] ?: [NSMutableDictionary dictionary];
+    arguments[@"MSIMEClientVoiceEnabled"] = @YES;
+    [defaults setVolatileDomain:arguments forName:NSArgumentDomain];
+    NSDictionary *voice = mode ? @{ @"punctuation_mode": mode } : @{};
+    [controller applySharedToolbarPreferences:@{@"voice_input": voice}];
+    [defaults setVolatileDomain:old forName:NSArgumentDomain];
+}
 
 int main() {
     @autoreleasepool {
@@ -244,6 +259,54 @@ int main() {
         [controller finishHTTPVoiceInput];
         controller.requestFixture.completion(@"", nil);
         assert(overlay.failure == MSIMEVoiceFailureNoSpeech && !capture.active);
+        // 语音标点：省略句末标点时，会话收到去掉句末标点的文字；识别结果只剩标点时和空结果一样提示没听到。
+        ApplyPunctuationPreferences(controller, @"omit_trailing");
+        assert([controller startHTTPVoiceInputWithOptions:@{}]);
+        [controller finishHTTPVoiceInput];
+        const NSUInteger beforePunctuated = session.submissions;
+        controller.requestFixture.completion(@"synthetic。", nil);
+        assert(session.submissions == beforePunctuated + 1 && !capture.active);
+        assert([controller startHTTPVoiceInputWithOptions:@{}]);
+        [controller finishHTTPVoiceInput];
+        const NSUInteger beforePunctuationOnly = overlay.failures;
+        controller.requestFixture.completion(@"。", nil);
+        assert(overlay.failure == MSIMEVoiceFailureNoSpeech && overlay.failures == beforePunctuationOnly + 1);
+        assert(session.submissions == beforePunctuated + 1 && !capture.active);
+        ApplyPunctuationPreferences(controller, nil);
+        // 整句上传和润色的回调晚于停采集，期间读到的新偏好不能改写这次录音。
+        for (NSNumber *processing in @[@NO, @YES]) {
+            ApplyPunctuationPreferences(controller, @"omit_all");
+            assert([controller startHTTPVoiceInputWithOptions:@{}]);
+            if (processing.boolValue) [controller finishHTTPVoiceInput];
+            ApplyPunctuationPreferences(controller, nil);
+            if (!processing.boolValue) [controller finishHTTPVoiceInput];
+            const NSUInteger beforeReload = session.submissions;
+            controller.requestFixture.completion(@"synthetic。", nil);
+            assert(session.submissions == beforeReload + 1 && !capture.active);
+            session.expectedText = @"synthetic。";
+            assert([controller startHTTPVoiceInputWithOptions:@{}]);
+            [controller finishHTTPVoiceInput];
+            controller.requestFixture.completion(@"synthetic。", nil);
+            assert(session.submissions == beforeReload + 2 && !capture.active);
+            session.expectedText = nil;
+        }
+        ApplyPunctuationPreferences(controller, @"omit_all");
+        assert([controller startHTTPVoiceInputWithOptions:@{}]);
+        [controller finishHTTPVoiceInput];
+        HTTPRequestFixture *obsoletePunctuation = controller.requestFixture;
+        [controller cancelHTTPVoiceInput];
+        ApplyPunctuationPreferences(controller, nil);
+        [controller setValue:@43 forKey:@"voiceGeneration"];
+        assert([controller startHTTPVoiceInputWithOptions:@{}]);
+        const NSUInteger beforeObsolete = session.submissions;
+        obsoletePunctuation.completion(@"obsolete。", nil);
+        assert(session.submissions == beforeObsolete && capture.active);
+        session.expectedText = @"synthetic。"; session.expectedGeneration = 43;
+        [controller finishHTTPVoiceInput];
+        controller.requestFixture.completion(@"synthetic。", nil);
+        assert(session.submissions == beforeObsolete + 1 && !capture.active);
+        session.expectedText = nil; session.expectedGeneration = 0;
+        [controller setValue:@42 forKey:@"voiceGeneration"];
         assert([controller startHTTPVoiceInputWithOptions:@{}]);
         [controller finishHTTPVoiceInput];
         [controller setValue:[MSIMEVoiceClientFixture new] forKey:@"activeClient"];

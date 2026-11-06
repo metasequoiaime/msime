@@ -1406,6 +1406,7 @@ int wmain(int argc, wchar_t **argv) {
           // 空格锁定固定为开（hotkey_hold_space_lock 保持默认的 true）：空格只在按住录音组合键期间才被拦下，平常打字不受影响，设置页也不再给这个开关（`voice_space_lock_switch`）。
           next.stream_inline_preedit = input.value("stream_inline_preedit", true);
           next.commit_mode = input.value("commit_mode", std::string{"tsf"});
+          next.punctuation_mode = input.value("punctuation_mode", std::string{"auto"});
           next.endpoint = input.value("asr_endpoint", std::string{});
           next.model = input.value("asr_model", std::string{});
           // Read before the tokens: the slot lookup is keyed on them.
