@@ -28,6 +28,7 @@ HARNESS = r'''
 #include "WubiCandidateSelectionPolicy.h"
 #include "LocalModeKeyPolicy.h"
 #include "AltGrKeyPolicy.h"
+#include "SmartPunctuationDeferralPolicy.h"
 #include "HostKoreanKey.h"
 using std::min;
 using UINT = unsigned;
@@ -169,6 +170,7 @@ struct CMetasequoiaIME {
     bool _DeferredKeyQueueHasCapacity() const { return _deferredKeyDowns.size() < 64; }
     void _ScheduleDeferredKeyDownDrain() {}
     void _EnsureDeferredKeyProjection();
+    bool _DeferredProjectionHasComposition() const;
     void _ApplyDeferredKeyProjection(const _KEYSTROKE_STATE &, WCHAR, UINT);
     bool _QueueDeferredKeyDown(ITfContext *, WPARAM, LPARAM, WCHAR, UINT, const _KEYSTROKE_STATE &,
                                const msime::panel_key::Owner * = nullptr);
@@ -203,6 +205,11 @@ struct CMetasequoiaIME {
     void _NoteKeyEventIpcFailure() {}
     uint64_t _CaptureFocusSessionToken() const { return 11; }
     bool _IsFocusSessionCurrent(uint64_t, ITfContext * = nullptr) const { return true; }
+    // 智能标点的武装只存在本进程里；测试直接置位，验证屏障会不会先认领它们。
+    bool smartSpaceArmed = false;
+    WCHAR smartRevertAscii = 0;
+    bool _CanConvertSmartPunctuationSpace() const { return smartSpaceArmed; }
+    bool _CanRevertSmartPunctuation(WCHAR wch) const { return smartRevertAscii != 0 && wch == smartRevertAscii; }
     void _ClearDeferredKeyDowns() {
         _wubiCommitOwner.clear();
         ++_deferredKeyFocusGeneration;
@@ -298,6 +305,154 @@ int main() {
         f.ime._DrainOneDeferredKeyDown();
         check(f.ime.dispatched.size() == 1 && f.ime._deferredKeyDowns.empty() && f.context.refs == 1,
               "released preference transition dispatches the following key exactly once");
+    }
+    // 屏障把可打印键排进应用文本队列之前，必须先认领两条本地命令：否则空格会被当成
+    // 普通空格插进文档，刚打出的中文标点再也换不回 ASCII（QQ 这类慢宿主里间歇发生）。
+    {
+        Fixture f;
+        f.finishSelection(L"", false);
+        f.ime._preferenceNotificationPending.store(true);
+        f.ime.smartSpaceArmed = true;
+        check(f.capture(VK_SPACE, L' '), "barrier captures the space that converts punctuation");
+        check(f.ime._deferredKeyDowns.back().keyState.Function == FUNCTION_SMART_PUNCTUATION_CONVERT &&
+              f.ime._deferredKeyDowns.back().kind == CMetasequoiaIME::DeferredKeyDown::Kind::KeyDown,
+              "space conversion is claimed as an IME command before printable keys are queued as text");
+        f.ime.smartSpaceArmed = false;
+        f.ime._preferenceNotificationPending.store(false);
+    }
+    {
+        Fixture f;
+        f.finishSelection(L"", false);
+        f.ime._preferenceNotificationPending.store(true);
+        f.ime.smartRevertAscii = L'.';
+        check(f.capture(VK_OEM_PERIOD, L'.'), "barrier captures the repeat-to-Chinese gesture");
+        check(f.ime._deferredKeyDowns.back().keyState.Function == FUNCTION_SMART_PUNCTUATION_REVERT,
+              "repeat-to-Chinese is claimed as an IME command before printable keys are queued as text");
+        f.ime.smartRevertAscii = 0;
+        f.ime._preferenceNotificationPending.store(false);
+    }
+    // 英文模式（键盘关闭又没有中文标点）里空格不该被认领：与 _IsKeyEaten 的入口条件一致。
+    {
+        Fixture f;
+        f.finishSelection(L"", false);
+        f.ime._preferenceNotificationPending.store(true);
+        f.ime._deferredKeyProjectionValid = false;
+        f.engine.imeOpen = false;
+        f.engine.punctuationOpen = false;
+        f.engine.fullwidth = false;
+        f.ime.smartSpaceArmed = true;
+        check(f.capture(VK_SPACE, L' '), "closed-keyboard space stays captured");
+        check(f.ime._deferredKeyDowns.back().keyState.Function != FUNCTION_SMART_PUNCTUATION_CONVERT,
+              "a closed keyboard never claims the punctuation conversion");
+        f.ime.smartSpaceArmed = false;
+        f.engine.imeOpen = true;
+        f.ime._preferenceNotificationPending.store(false);
+    }
+    // 自己组字的方案（韩文等）里空格是组字键，空格转换同样不该抢先。
+    {
+        Fixture f;
+        f.finishSelection(L"", false);
+        f.ime._preferenceNotificationPending.store(true);
+        f.ime._deferredKeyProjectionValid = false;
+        Global::InputModeScheme = msime::windows::scheme::Korean;
+        f.ime.smartSpaceArmed = true;
+        check(f.capture(VK_SPACE, L' '), "host-composed space stays captured");
+        check(f.ime._deferredKeyDowns.back().keyState.Function != FUNCTION_SMART_PUNCTUATION_CONVERT,
+              "a host-composed scheme never claims the punctuation conversion");
+        f.ime.smartSpaceArmed = false;
+        Global::InputModeScheme = msime::windows::scheme::Quanpin;
+        f.ime._preferenceNotificationPending.store(false);
+    }
+    // 组字中（当前的或投影里的）空格是选词，不许被认领成标点转换。
+    for (bool liveComposition : {true, false}) {
+        Fixture f;
+        f.finishSelection(L"", false);
+        f.ime._preferenceNotificationPending.store(true);
+        if (liveComposition) {
+            f.engine.current = {L"ht", 2, false, false};
+            f.ime._deferredKeyProjectionValid = false;
+        }
+        else {
+            f.ime._EnsureDeferredKeyProjection();
+            f.ime._deferredProjectedInputLength = 2;
+        }
+        f.ime.smartSpaceArmed = true;
+        check(f.capture(VK_SPACE, L' '), "composing space stays captured");
+        check(f.ime._deferredKeyDowns.back().keyState.Function != FUNCTION_SMART_PUNCTUATION_CONVERT,
+              "a composing space is never claimed as a punctuation conversion");
+        f.ime.smartSpaceArmed = false;
+        f.ime._preferenceNotificationPending.store(false);
+    }
+    // 标点和空格先后排进同一个屏障时，空格入队那一刻武装还不存在（标点还没回放上屏），
+    // 认领必须发生在排空重分类时，否则空格按应用文本插进文档，转换照样丢。
+    {
+        Fixture f;
+        f.finishSelection(L"", false);
+        f.engine.punctuationOpen = true;
+        f.ime._deferredKeyClassificationPending = true;
+        f.ime._deferredKeyProjectionValid = false;
+        check(f.capture(VK_OEM_PERIOD, L'.'), "punctuation behind the barrier is queued as text");
+        check(f.capture(VK_SPACE, L' '), "space behind the barrier is queued as text");
+        f.ime.smartSpaceArmed = true; // 标点先回放上屏，武装这时才出现
+        f.ime._DrainOneDeferredKeyDown();
+        check(f.ime.dispatched.size() == 1 && f.ime.dispatched[0] == FUNCTION_PUNCTUATION,
+              "queued punctuation replays as an IME punctuation command");
+        f.ime._DrainOneDeferredKeyDown();
+        check(f.ime.dispatched.size() == 2 && f.ime.dispatched[1] == FUNCTION_SMART_PUNCTUATION_CONVERT,
+              "a space replayed after the queued punctuation still converts");
+        check(f.ime.applicationText.empty(), "the claimed space is not inserted as application text");
+        f.ime.smartSpaceArmed = false;
+    }
+    {
+        Fixture f;
+        f.finishSelection(L"", false);
+        f.ime._deferredKeyClassificationPending = true;
+        f.ime._deferredKeyProjectionValid = false;
+        check(f.capture(VK_OEM_PERIOD, L'.'), "repeat key behind the barrier is queued as text");
+        f.ime.smartRevertAscii = L'.'; // ASCII 先上屏，重复标点的武装这时才出现
+        f.ime._DrainOneDeferredKeyDown();
+        check(f.ime.dispatched.size() == 1 && f.ime.dispatched[0] == FUNCTION_SMART_PUNCTUATION_REVERT,
+              "a repeat key replayed after the barrier claims the revert command");
+        f.ime.smartRevertAscii = 0;
+    }
+    // 回放重分类时投影里已经有后面排队的字母：不能用投影判断「排到空格时有没有组字」，
+    // 否则先打出的标点和空格会被后来的字母挡掉。
+    {
+        Fixture f;
+        f.finishSelection(L"", false);
+        f.engine.punctuationOpen = true;
+        f.ime._deferredKeyClassificationPending = true;
+        f.ime._deferredKeyProjectionValid = false;
+        check(f.capture(VK_OEM_PERIOD, L'.'), "punctuation behind the barrier is queued as text");
+        check(f.capture(VK_SPACE, L' '), "space behind the barrier is queued as text");
+        f.ime._deferredKeyClassificationPending = false;
+        check(f.capture('N', L'n') && !f.ime._deferredKeyDowns.back().needsClassification,
+              "a letter classified behind the queue projects a composition");
+        check(f.ime._deferredKeyProjectionValid && f.ime._deferredProjectedInputLength == 1,
+              "the projection carries the queued letter");
+        f.ime.smartSpaceArmed = true;
+        f.ime._DrainOneDeferredKeyDown();
+        check(f.ime.dispatched.size() == 1 && f.ime.dispatched[0] == FUNCTION_PUNCTUATION,
+              "queued punctuation replays first");
+        f.ime._DrainOneDeferredKeyDown();
+        check(f.ime.dispatched.size() == 2 && f.ime.dispatched[1] == FUNCTION_SMART_PUNCTUATION_CONVERT,
+              "a later projected composition does not block the earlier space");
+        f.ime.smartSpaceArmed = false;
+    }
+    // 反过来：排到时宿主已经在组字，这颗空格属于组字（选词），不能被标点转换抢走。
+    {
+        Fixture f;
+        f.finishSelection(L"", false);
+        f.ime._deferredKeyClassificationPending = true;
+        f.ime._deferredKeyProjectionValid = false;
+        check(f.capture(VK_SPACE, L' '), "space behind the barrier is queued as text");
+        f.engine.current = {L"ni", 2, false, false};
+        f.ime.smartSpaceArmed = true;
+        f.ime._DrainOneDeferredKeyDown();
+        check(f.ime.dispatched.size() == 1 && f.ime.dispatched[0] == FUNCTION_CONVERT,
+              "a replayed space belongs to the composition it lands in");
+        f.engine.current = {};
+        f.ime.smartSpaceArmed = false;
     }
     {
         Fixture f;

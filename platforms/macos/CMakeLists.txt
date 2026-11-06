@@ -112,7 +112,7 @@ target_include_directories(apple-client PUBLIC ../../shared/apple src ../../crat
 # build of these same sources compiles that block out - UIKit's document proxy takes a plain string.
 # CoreAudio and AudioToolbox for host-api's microphone capture (cpal), which every consumer of the archive links whether or not it records.
 # reqwest 的 system-proxy 功能通过 SystemConfiguration 读取系统代理设置。
-set(MSIME_HOST_LIBRARY_FRAMEWORKS "-framework Foundation" "-framework Security" "-framework CoreText" "-framework CoreAudio" "-framework AudioToolbox" "-framework SystemConfiguration")
+set(MSIME_HOST_LIBRARY_FRAMEWORKS "-framework Foundation" "-framework Security" "-framework CoreText" "-framework CoreAudio" "-framework AudioToolbox" "-framework SystemConfiguration" "-framework Metal" "-framework MetalKit" "-framework Accelerate")
 target_link_libraries(apple-client PUBLIC "${MSIME_HOST_LIBRARY}" ${SQLITE_TARGET} ${MSIME_HOST_LIBRARY_FRAMEWORKS} "-framework AppKit")
 target_sources(msime-voice-local PRIVATE src/voice/HelperCrashCapture.mm ../common/Telemetry.cpp)
 target_compile_definitions(msime-voice-local PRIVATE MSIME_VOICE_CRASH_CAPTURE)
@@ -178,6 +178,8 @@ target_sources(MSIMEClientInputMethod PRIVATE src/voice/DoubaoVoiceRequest.mm sr
 target_sources(MSIMEClientInputMethod PRIVATE src/core/DesktopInputSession.mm)
 target_sources(MSIMEClientInputMethod PRIVATE src/core/UsageReporting.mm)
 target_sources(MSIMEClientInputMethod PRIVATE src/core/DesktopCloudClipboard.mm)
+target_sources(MSIMEClientInputMethod PRIVATE src/voice/GlobalVoiceCoordinator.mm src/voice/GlobalVoiceBackground.mm src/voice/GlobalVoiceSession.mm)
+target_link_libraries(MSIMEClientInputMethod PRIVATE "-framework ServiceManagement")
 target_link_libraries(MSIMEClientInputMethod PRIVATE "-framework ApplicationServices" "-framework CoreGraphics" "-framework CoreText" "-framework UniformTypeIdentifiers")
 file(GLOB_RECURSE MSIME_BACKEND_SWIFT CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/account/*.swift"
@@ -313,6 +315,10 @@ set_target_properties(MSIMEClientInputMethod PROPERTIES MACOSX_BUNDLE_INFO_PLIST
 set(MSIME_LEGAL_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/Licenses")
 file(MAKE_DIRECTORY "${MSIME_LEGAL_DIRECTORY}")
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../LICENSE" "${MSIME_LEGAL_DIRECTORY}/GPL-3.0.txt" COPYONLY)
+foreach(MSIME_TRANSLATION_LICENSE llama-cpp-MIT.txt llama-cpp-rs-Apache-2.0.txt plamo-community-license.txt)
+  configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/${MSIME_TRANSLATION_LICENSE}"
+    "${MSIME_LEGAL_DIRECTORY}/${MSIME_TRANSLATION_LICENSE}" COPYONLY)
+endforeach()
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/resources/Licenses/THIRD_PARTY_NOTICES.txt" "${MSIME_LEGAL_DIRECTORY}/THIRD_PARTY_NOTICES.txt" COPYONLY)
 # 固定词库发布里的词库数据、stage-resources.sh 放进 EngineResources/helpcodes 的辅助码表的来源声明（Engine 带来的五套、加加和五笔 86），以及 zinnia（crates/engine/src/handwriting 移植了它的识别器，host-api 链接进来）。第一份和最后一份来自 resources/licenses，是各平台随包的同一份副本。
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/msime-engine-dictionary-NOTICE.md" "${MSIME_LEGAL_DIRECTORY}/msime-engine-dictionary-NOTICE.md" COPYONLY)
@@ -328,6 +334,7 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/ECDICT-MIT.
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime_kaomoji_dict-MIT.txt" "${MSIME_LEGAL_DIRECTORY}/rime_kaomoji_dict-MIT.txt" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/python-pinyin-MIT.txt" "${MSIME_LEGAL_DIRECTORY}/python-pinyin-MIT.txt" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-wubi86-jidian-Apache-2.0.txt" "${MSIME_LEGAL_DIRECTORY}/rime-wubi86-jidian-Apache-2.0.txt" COPYONLY)
+# msime-wubi.db 里新世纪五笔表的单字码取自 byujiang/wubi06_rime（GPL-3.0，许可由转载者给出），与输入法本身同一许可，由上面的 GPL-3.0.txt 覆盖，不另带许可证文件；来源说明在 THIRD_PARTY_NOTICES.txt 和词库 NOTICE。
 # msime-pinyin.db 与语言词库资源包的 msime-stroke.db 里与 rime-wanxiang 共有的词条和单字，权重改编自 amzxyz/rime-wanxiang（CC BY 4.0）；CC BY 4.0 第 3(a) 条要求署名、改动说明和许可证随副本分发，这份文件三者都有。
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-wanxiang-CC-BY-4.0.txt" "${MSIME_LEGAL_DIRECTORY}/rime-wanxiang-CC-BY-4.0.txt" COPYONLY)
 # The place names `@` mode offers, compiled into the engine from modood/Administrative-divisions-of-China (WTFPL).
@@ -379,6 +386,15 @@ set_source_files_properties(${MSIME_HELPCODE_RESOURCES} PROPERTIES MACOSX_PACKAG
 # The Dock takes its label from the bundle's filename — not CFBundleDisplayName, CFBundleName or a
 # localized InfoPlist.strings, all of which it ignores here. Naming the product is the only lever.
 set_target_properties(MSIMEClientInputMethod PROPERTIES OUTPUT_NAME "${MSIME_INPUT_METHOD_NAME}")
+# 登录引导程序复用同一输入法应用，按版本标识区分后台项。
+execute_process(COMMAND "${Python3_EXECUTABLE}" "${MSIME_EDITION_SCRIPT}" field --edition "${MSIME_EDITION}" input_method_bundle_id
+  OUTPUT_VARIABLE MSIME_GLOBAL_VOICE_BUNDLE_ID OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+set(MSIME_GLOBAL_VOICE_LABEL "${MSIME_GLOBAL_VOICE_BUNDLE_ID}.global-voice")
+configure_file(GlobalVoiceAgent.plist.in "${CMAKE_CURRENT_BINARY_DIR}/global-voice/app.msime.global-voice.plist" @ONLY)
+target_sources(MSIMEClientInputMethod PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/global-voice/app.msime.global-voice.plist")
+set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/global-voice/app.msime.global-voice.plist"
+  PROPERTIES MACOSX_PACKAGE_LOCATION "Library/LaunchAgents")
+
 # The preferences window runs under NSApplicationActivationPolicyRegular, so the bundle appears in
 # the Dock and needs an icon; without CFBundleIconFile plus the file itself it shows the generic one.
 target_sources(MSIMEClientInputMethod PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethod.icns")
@@ -583,7 +599,7 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/backend-rust-session-stor
     -target "${CMAKE_HOST_SYSTEM_PROCESSOR}-apple-macosx${CMAKE_OSX_DEPLOYMENT_TARGET}"
     -I "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/rust"
     ${MSIME_BACKEND_RUST_STORE_SOURCES} "${MSIME_HOST_LIBRARY}" -lsqlite3 -lc++
-    -framework Foundation -framework Security -framework CoreText -framework CoreAudio -framework AudioToolbox -framework AppKit -framework SystemConfiguration
+    -framework Foundation -framework Security -framework CoreText -framework CoreAudio -framework AudioToolbox -framework AppKit -framework SystemConfiguration -framework Metal -framework MetalKit -framework Accelerate
     -o "${CMAKE_CURRENT_BINARY_DIR}/backend-rust-session-store-test"
   DEPENDS ${MSIME_BACKEND_RUST_STORE_SOURCES} "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/rust/MSIMERustClient.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/rust/module.modulemap" "${MSIME_HOST_LIBRARY}" VERBATIM)
@@ -657,7 +673,7 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-swift-host-test"
     -target "${CMAKE_HOST_SYSTEM_PROCESSOR}-apple-macosx${CMAKE_OSX_DEPLOYMENT_TARGET}"
     ${MSIME_EMOJI_SWIFT_HOST_SOURCES}
     -Xlinker -force_load -Xlinker "$<TARGET_FILE:apple-client>"
-    "${MSIME_HOST_LIBRARY}" -lsqlite3 -lc++ -framework Foundation -framework Security -framework CoreText -framework CoreAudio -framework AudioToolbox -framework AppKit -framework SystemConfiguration
+    "${MSIME_HOST_LIBRARY}" -lsqlite3 -lc++ -framework Foundation -framework Security -framework CoreText -framework CoreAudio -framework AudioToolbox -framework AppKit -framework SystemConfiguration -framework Metal -framework MetalKit -framework Accelerate
     -o "${CMAKE_CURRENT_BINARY_DIR}/emoji-swift-host-test"
   DEPENDS ${MSIME_EMOJI_SWIFT_HOST_SOURCES} apple-client "${MSIME_HOST_LIBRARY}" VERBATIM)
 add_custom_target(emoji-swift-host-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/emoji-swift-host-test")
@@ -816,6 +832,11 @@ add_test(NAME floating-toolbar-behavior COMMAND floating-toolbar-behavior-test)
 add_executable(vim-mode-test tests/core/VimModeTest.cpp)
 target_compile_options(vim-mode-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 add_test(NAME vim-mode COMMAND vim-mode-test)
+add_executable(global-voice-scope-menu-test tests/voice/GlobalVoiceScopeMenuTest.mm)
+target_compile_options(global-voice-scope-menu-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(global-voice-scope-menu-test PRIVATE apple-client "-framework AppKit" "-framework InputMethodKit")
+add_test(NAME global-voice-scope-menu COMMAND global-voice-scope-menu-test)
+
 add_executable(shared-voice-preferences-test tests/voice/SharedVoicePreferencesTest.mm)
 target_compile_options(shared-voice-preferences-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(shared-voice-preferences-test PRIVATE "-framework Foundation")
@@ -1085,6 +1106,22 @@ add_executable(voice-session-delivery-test tests/voice/VoiceSessionDeliveryTest.
 target_compile_options(voice-session-delivery-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(voice-session-delivery-test PRIVATE apple-client "-framework AVFoundation" "-framework Speech" "-framework CoreAudio" "-framework AudioToolbox")
 add_test(NAME voice-session-delivery COMMAND voice-session-delivery-test)
+add_executable(global-voice-session-test tests/voice/GlobalVoiceSessionTest.mm
+  src/voice/GlobalVoiceSession.mm src/voice/VoiceInputService.mm src/voice/VoicePCMBuffer.mm
+  src/voice/VoiceWaveOverlay.mm src/voice/VoiceCuePlayer.mm src/voice/VoiceAudioMuter.mm
+  src/voice/LocalVoiceRequest.mm src/voice/DoubaoVoiceRequest.mm src/voice/HTTPVoiceRequest.mm)
+target_compile_options(global-voice-session-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(global-voice-session-test PRIVATE apple-client msime-voice-providers
+  "-framework AppKit" "-framework AVFoundation" "-framework Speech" "-framework CoreAudio" "-framework AudioToolbox")
+add_test(NAME global-voice-session COMMAND global-voice-session-test)
+add_executable(global-voice-background-test tests/voice/GlobalVoiceBackgroundTest.mm src/voice/GlobalVoiceBackground.mm)
+target_compile_options(global-voice-background-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(global-voice-background-test PRIVATE "-framework Foundation" "-framework ServiceManagement")
+add_test(NAME global-voice-background COMMAND global-voice-background-test)
+add_executable(voice-socket-lease-test tests/voice/VoiceSocketLeaseTest.mm tests/voice/VoiceSocketLeaseOtherEntry.mm)
+target_compile_options(voice-socket-lease-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(voice-socket-lease-test PRIVATE "-framework Foundation")
+add_test(NAME voice-socket-lease COMMAND voice-socket-lease-test)
 add_executable(shortcut-test tests/input/ShortcutTest.mm src/core/DiagnosticLog.cpp src/core/BoundedFileReader.mm src/core/UpdateController.mm src/settings/AppearancePreferences.mm src/candidate/CandidateSkin.cpp src/candidate/CandidateSkinPreviewView.mm src/candidate/SkinSettingsView.mm src/core/ChineseTextConversion.mm src/settings/ShuangpinKeymapPanel.mm src/input/InputSourceRegistration.mm src/core/FloatingToolbarPanel.mm src/dictionary/DictionaryWindowController.mm src/core/ClientDictionaryRuntime.mm)
 target_compile_options(shortcut-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(shortcut-test PRIVATE apple-client "-framework AppKit" "-framework InputMethodKit" "-framework Carbon" "-framework ApplicationServices")
@@ -1094,7 +1131,8 @@ target_compile_options(shortcut-test PRIVATE "-F${MSIME_SPARKLE_ROOT}")
 target_link_libraries(shortcut-test PRIVATE "${MSIME_SPARKLE_FRAMEWORK}")
 target_sources(shortcut-test PRIVATE src/settings/PreferencesWindowController.mm src/core/SupportWindowController.mm src/candidate/CandidateSkinAppearance.mm src/core/ScreenKeyboardPanel.mm src/voice/VoiceInputService.mm src/voice/VoicePCMBuffer.mm src/voice/VoiceWaveOverlay.mm src/voice/VoiceCuePlayer.mm src/voice/VoiceAudioMuter.mm src/voice/VoiceSettings.mm src/voice/VoiceProviderSettings.mm src/cloud/CloudCandidateRequest.mm src/core/CustomTranslationBatch.mm)
 target_sources(shortcut-test PRIVATE src/voice/HTTPVoiceRequest.mm src/voice/DoubaoVoiceRequest.mm src/voice/LocalVoiceRequest.mm src/core/DesktopInputSession.mm)
-target_sources(shortcut-test PRIVATE src/core/DesktopCloudClipboard.mm)
+target_sources(shortcut-test PRIVATE src/core/DesktopCloudClipboard.mm src/voice/GlobalVoiceCoordinator.mm src/voice/GlobalVoiceBackground.mm)
+target_link_libraries(shortcut-test PRIVATE "-framework ServiceManagement")
 target_link_libraries(shortcut-test PRIVATE msime-voice-providers)
 target_link_libraries(shortcut-test PRIVATE "-framework AudioToolbox")
 target_link_libraries(MSIMEClientInputMethod PRIVATE "-framework AudioToolbox")
@@ -1307,6 +1345,8 @@ add_test(NAME candidate-host-appearance COMMAND candidate-row-layout-test --host
 add_test(NAME candidate-adaptive-layout COMMAND candidate-row-layout-test --adaptive)
 # 光标后编辑：视图字段、首行右侧的提示和首选开头画淡。
 add_test(NAME candidate-caret-edit-suffix COMMAND candidate-row-layout-test --caret-edit-suffix)
+# 首行页码、展开面板行号、输入状态和光标后编辑提示的标签宽度要容下 NSTextField 的 cell 内边距（#10852）。
+add_test(NAME candidate-header-label-width COMMAND candidate-row-layout-test --header-label-width)
 # 计时动效独立启动事件循环，不承接大排版矩阵的窗口与图层回调。
 add_test(NAME candidate-declared-motion COMMAND candidate-row-layout-test --declared-motion)
 # 大皮肤矩阵各自运行，保留 CI 的单项时限和全部排版断言。
@@ -1645,6 +1685,19 @@ target_compile_options(typing-effect-panel-test PRIVATE -fobjc-arc -Wall -Wextra
 target_link_libraries(typing-effect-panel-test PRIVATE "-framework AppKit" "-framework QuartzCore")
 add_test(NAME typing-effect-panel COMMAND typing-effect-panel-test)
 
+add_executable(global-voice-state-test tests/voice/GlobalVoiceStateTest.cpp)
+target_compile_options(global-voice-state-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME global-voice-state COMMAND global-voice-state-test)
+
+add_test(NAME global-voice-boundaries COMMAND shortcut-test --global-voice)
+add_test(NAME global-voice-imk-fallback COMMAND shortcut-test --global-voice-imk-fallback)
+add_test(NAME global-voice-conflicts COMMAND shortcut-test --global-voice-conflicts)
+add_test(NAME global-voice-polling COMMAND shortcut-test --global-voice-polling)
+add_test(NAME global-voice-panel COMMAND shortcut-test --global-voice-panel)
+add_test(NAME voice-preference-restore COMMAND shortcut-test --voice-preference-restore)
+add_test(NAME global-voice-current-client-reentry COMMAND shortcut-test --global-voice-current-client-reentry)
+add_test(NAME global-voice-suspend-source COMMAND shortcut-test --global-voice-suspend-source)
+
 # 其余测试也换一个主目录（#10728）。控制器经 runtime-options.json 找到偏好目录，语音静音的恢复日志、资源包这些也都按 Application Support 定位；不换的话，在装着输入法的开发机上跑测试，会把测试进程里的设置（连同它们放进 NSArgumentDomain 的临时值）写进这台机器正在用的 preferences.json。CFFIXED_USER_HOME 只换 NSHomeDirectory 和 Application Support，NSUserDefaults 仍在真实的 ~/Library/Preferences。上面已经给了自己主目录的测试保持不变。
 set(MSIME_TEST_HOME "${CMAKE_CURRENT_BINARY_DIR}/test-home")
 file(MAKE_DIRECTORY "${MSIME_TEST_HOME}")
@@ -1655,3 +1708,21 @@ foreach(msime_test IN LISTS msime_tests)
     set_property(TEST ${msime_test} APPEND PROPERTY ENVIRONMENT "CFFIXED_USER_HOME=${MSIME_TEST_HOME}")
   endif()
 endforeach()
+
+# 控制器测试直接包含 InputController.mm，适配器随它们共用的 apple-client 链接。
+target_sources(apple-client PRIVATE src/cloud/EmbeddedTranslationBatch.mm src/translation/LocalTranslationWindow.mm)
+
+include(../common/tests/embedded_translation.cmake)
+
+add_executable(embedded-translation-batch-test tests/cloud/EmbeddedTranslationBatchTest.mm src/cloud/EmbeddedTranslationBatch.mm)
+target_include_directories(embedded-translation-batch-test PRIVATE ../../crates/host-api/include)
+target_compile_options(embedded-translation-batch-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(embedded-translation-batch-test PRIVATE "-framework Foundation")
+add_test(NAME embedded-translation-batch COMMAND embedded-translation-batch-test)
+
+add_executable(local-translation-window-test tests/translation/LocalTranslationWindowTest.mm src/translation/LocalTranslationWindow.mm)
+target_include_directories(local-translation-window-test PRIVATE ../../crates/host-api/include)
+target_compile_options(local-translation-window-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(local-translation-window-test PRIVATE "-framework AppKit")
+add_test(NAME local-translation-window COMMAND local-translation-window-test)
+set_tests_properties(local-translation-window PROPERTIES ENVIRONMENT "CFFIXED_USER_HOME=${MSIME_TEST_HOME}")

@@ -1,20 +1,23 @@
 import { StatusMessage } from "../core/status-message";
 import type { WubiCodeLookup, WubiTextCodes } from "../dictionary/dictionary-contracts";
-import type { WubiProfile } from "./wubi-preferences";
+import { knownWubiProfile, wubiProfiles, type WubiProfile } from "./wubi-preferences";
 
 export interface WubiCodeLookupResultsProps {
   result: WubiCodeLookup | null;
   profile?: WubiProfile;
 }
 
-/** 只展示宿主返回的两套编码、空结果及截断提示，不发起查询。 */
-export function WubiCodeLookupResults({ result, profile = "wubi86" }: WubiCodeLookupResultsProps) {
-  const columns: [WubiProfile, string][] = [
-    ["wubi86", "86 五笔"],
-    ["wubi98", "98 五笔"],
-  ];
+const columnTitles: Record<WubiProfile, string> = {
+  wubi86: "86 五笔",
+  wubi98: "98 五笔",
+  wubixsj: "新世纪五笔",
+};
+
+/** 只展示宿主返回的三套编码、空结果及截断提示，不发起查询。三列总是都画：宿主没有回新世纪那一列（认识它之前的宿主）时显示为空。 */
+export function WubiCodeLookupResults({ result, profile }: WubiCodeLookupResultsProps) {
+  const current = knownWubiProfile(profile);
   const codes = (item: WubiTextCodes, column: WubiProfile) => {
-    const list = column === "wubi98" ? item.wubi98 : item.wubi86;
+    const list = item[column] ?? [];
     return list.length > 0 ? list.join(" ") : "—";
   };
   const rows = result ? [...(result.phrase ? [result.phrase] : []), ...result.characters] : [];
@@ -32,10 +35,12 @@ export function WubiCodeLookupResults({ result, profile = "wubi86" }: WubiCodeLo
           >
             <thead>
               <tr>
-                <th scope="col">文字</th>
-                {columns.map(([column, title]) => (
+                <th scope="col" className="whitespace-nowrap">
+                  文字
+                </th>
+                {wubiProfiles.map((column) => (
                   <th scope="col" key={column}>
-                    {column === profile ? `${title}（当前）` : title}
+                    {column === current ? `${columnTitles[column]}（当前）` : columnTitles[column]}
                   </th>
                 ))}
               </tr>
@@ -44,7 +49,7 @@ export function WubiCodeLookupResults({ result, profile = "wubi86" }: WubiCodeLo
               {rows.map((item, index) => (
                 <tr key={`${index}-${item.text}`}>
                   <td className="text-body">{item.text}</td>
-                  {columns.map(([column]) => (
+                  {wubiProfiles.map((column) => (
                     <td key={column} className="font-mono">
                       {codes(item, column)}
                     </td>

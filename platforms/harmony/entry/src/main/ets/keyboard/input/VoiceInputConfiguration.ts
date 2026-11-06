@@ -73,6 +73,8 @@ export interface VoiceInputConfiguration {
   polish_prompt_custom_3: string;
   doubao_enable_itn: boolean;
   doubao_enable_punc: boolean;
+  /** 识别结果上屏前的共享标点处理方式；缺键和未知值按 `auto`。 */
+  punctuation_mode?: "auto" | "omit_trailing" | "omit_all" | "space";
   doubao_enable_ddc: boolean;
   doubao_boosting_table_id: string;
 }
@@ -115,6 +117,7 @@ export const DEFAULT_VOICE_INPUT_CONFIGURATION: VoiceInputConfiguration = {
   polish_prompt_custom_3: "",
   doubao_enable_itn: true,
   doubao_enable_punc: true,
+  punctuation_mode: "auto",
   doubao_enable_ddc: false,
   doubao_boosting_table_id: "",
 };

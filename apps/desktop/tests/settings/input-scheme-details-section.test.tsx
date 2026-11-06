@@ -114,6 +114,74 @@ test("双拼预编辑 sits in the Shuangpin details and appears only under Shuan
   expect(screen.queryByLabelText("双拼预编辑")).toBeNull();
 });
 
+// #10557：粤语双拼也跟随 shuangpin_preedit_uses_raw，用粤语双拼的人不必先切到普通话双拼才找得到这一行。
+test("双拼预编辑 also appears under 粤语双拼 and writes the same preference", () => {
+  const onShuangpinPreeditChange = vi.fn();
+  const props = {
+    scheme: "cantonese" as const,
+    shuangpinProfile: "xiaohe" as const,
+    hasTouchKeyboardSchemes: false,
+    shuangpinPreedit: "raw" as const,
+    onShuangpinProfileChange: vi.fn(),
+    onShuangpinPreeditChange,
+  };
+  const { rerender } = render(
+    <InputSchemeDetailsSection {...props} cantonese={{ input_method: "shuangpin" }} />,
+  );
+  const preedit = screen.getByLabelText("双拼预编辑") as HTMLSelectElement;
+  expect(preedit.value).toBe("raw");
+  expect(Array.from(preedit.options).map((option) => option.textContent)).toEqual([
+    "原始按键",
+    "粤拼分词",
+  ]);
+  expect(screen.getByText(/展开后的粤拼/)).toBeTruthy();
+  fireEvent.change(preedit, { target: { value: "pinyin" } });
+  expect(onShuangpinPreeditChange).toHaveBeenCalledWith("pinyin");
+  // 其余双拼行仍只属于普通话双拼。
+  expect(screen.queryByRole("combobox", { name: "双拼方案" })).toBeNull();
+
+  // 引擎的粤语双拼不读「双拼分隔」（#10717）：存着双拼分隔时它显示原始按键，这一行照实选中「原始按键」，不出现空白的下拉框。
+  rerender(
+    <InputSchemeDetailsSection
+      {...props}
+      shuangpinPreedit="separated"
+      cantonese={{ input_method: "shuangpin" }}
+    />,
+  );
+  expect((screen.getByLabelText("双拼预编辑") as HTMLSelectElement).value).toBe("raw");
+  rerender(
+    <InputSchemeDetailsSection
+      {...props}
+      shuangpinPreedit="pinyin"
+      cantonese={{ input_method: "shuangpin" }}
+    />,
+  );
+  const expanded = screen.getByLabelText("双拼预编辑") as HTMLSelectElement;
+  expect(expanded.value).toBe("pinyin");
+  fireEvent.change(expanded, { target: { value: "raw" } });
+  expect(onShuangpinPreeditChange).toHaveBeenLastCalledWith("raw");
+
+  // 普通粤拼没有按键要展开，宿主不画双拼预编辑或在触屏宿主上时也不出现。
+  rerender(<InputSchemeDetailsSection {...props} />);
+  expect(screen.queryByLabelText("双拼预编辑")).toBeNull();
+  rerender(
+    <InputSchemeDetailsSection
+      {...props}
+      shuangpinPreedit={undefined}
+      cantonese={{ input_method: "shuangpin" }}
+    />,
+  );
+  expect(screen.queryByLabelText("双拼预编辑")).toBeNull();
+  rerender(
+    <InputSchemeDetailsSection
+      {...props}
+      hasTouchKeyboardSchemes
+      cantonese={{ input_method: "shuangpin" }}
+    />,
+  );
+  expect(screen.queryByLabelText("双拼预编辑")).toBeNull();
+});
+
 test("updates the Shuangpin keymap toggle when provided", () => {
   const onShuangpinKeymapHintChange = vi.fn();
   render(
@@ -318,7 +386,7 @@ test("Tibetan describes its syllable keys and shows no Vietnamese rows", () => {
   expect(screen.queryByRole("radiogroup", { name: "声调位置" })).toBeNull();
 });
 
-test("changes the Wubi profile between 86 and 98 under Wubi", () => {
+test("changes the Wubi profile between 86, 98 and 新世纪 under Wubi", () => {
   const onWubiProfileChange = vi.fn();
   render(
     <InputSchemeDetailsSection
@@ -335,9 +403,27 @@ test("changes the Wubi profile between 86 and 98 under Wubi", () => {
   expect(Array.from(profile.options).map((option) => option.textContent)).toEqual([
     "86 五笔",
     "98 五笔",
+    "新世纪五笔",
   ]);
   fireEvent.change(profile, { target: { value: "wubi98" } });
   expect(onWubiProfileChange).toHaveBeenCalledWith("wubi98");
+  fireEvent.change(profile, { target: { value: "wubixsj" } });
+  expect(onWubiProfileChange).toHaveBeenLastCalledWith("wubixsj");
+});
+
+test("a Wubi profile this version does not know shows as 86", () => {
+  render(
+    <InputSchemeDetailsSection
+      scheme="wubi"
+      shuangpinProfile="xiaohe"
+      wubiProfile={"wubi2030" as never}
+      hasTouchKeyboardSchemes={false}
+      onShuangpinProfileChange={vi.fn()}
+    />,
+  );
+  expect((screen.getByRole("combobox", { name: "五笔方案" }) as HTMLSelectElement).value).toBe(
+    "wubi86",
+  );
 });
 
 test("touch hosts show the Wubi profile only while the Wubi keyboard is enabled", () => {

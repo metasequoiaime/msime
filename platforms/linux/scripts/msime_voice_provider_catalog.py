@@ -22,7 +22,7 @@ DEFAULT_MODELS = {
     "openrouter": "openrouter/auto",
     "qwen": "qwen-plus",
     "siliconflow": "Qwen/Qwen3-8B",
-    "volcengine": "doubao-seed-1.6-flash",
+    "volcengine": "doubao-seed-2-0-mini-260428",
     "zhipu": "glm-4-flash"
   }
 }
@@ -63,6 +63,10 @@ REQUEST_FORMATS = {
   "openai": "multipart",
   "siliconflow": "multipart",
   "zhipu": "multipart"
+}
+VOLCENGINE_SUCCESSOR_MODELS = {
+  "doubao-seed-1.6": "doubao-seed-2-0-lite-260428",
+  "doubao-seed-1.6-flash": "doubao-seed-2-0-mini-260428"
 }
 ASR_PROVIDERS = set(DEFAULT_MODELS["asr"])
 POLISH_PROVIDERS = set(DEFAULT_MODELS["polish"])

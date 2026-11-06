@@ -19,6 +19,9 @@ $documents = [Collections.Generic.List[string]]::new()
 $documents.Add("MSIME third-party notice collection`nThis collection is not a license-completeness or redistribution-authorization assessment. Nested third-party archives, Rust/frontend and other distribution-specific notices must also be supplied and reviewed.`n")
 # 随数据和代码一起提交的声明。安装包不带手写模型：设置应用按需下载模型时一并下载它的 LGPL-2.1 许可证（HandwritingModel-LICENSE.txt，在 resources/handwriting-model.lock.json 里和模型锁在一起），所以模型的许可证随下载走，这里不收集；zinnia 本身的许可证保留，因为宿主库编进了从它移植的识别器。输入引擎（crates/engine 与 crates/path-trust）是本仓库自己的 Rust crate，按 MPL-2.0 授权，它们的 LICENSE 由 collect-notices.py 收进作为补充声明传入的 rust-crates-NOTICES.txt；安装包整体按根目录的 LICENSE 分发（以 LICENSE.txt 带着），所以这里没有单独的条目。
 foreach ($notice in @(
+    @('resources/licenses/llama-cpp-rs-Apache-2.0.txt', 'llama-cpp-2 / llama-cpp-sys-2 0.1.162（Git 提交 0364f5da1c6a6ee37f507031f116ce4a09b28594），Apache-2.0'),
+    @('resources/licenses/llama-cpp-MIT.txt', 'llama.cpp 本地翻译推理库，MIT'),
+    @('resources/licenses/plamo-community-license.txt', 'PLaMo 离线翻译模型，PLaMo Community License'),
     @('resources/licenses/msime-engine-dictionary-NOTICE.md', 'Dictionary data (msime-pinyin.db, msime-wubi.db, msime-english.db, msime-others.db, msime-bigram.bin, msime-trigram.bin)'),
     @('resources/helpcodes/ENGINE-NOTICE.md', 'Helpcode tables (lantian, ziranma, shouyou2_0, shouyouplus, xiaohe)'),
     @('resources/licenses/pinyin-data-MIT.txt', 'Single-character readings of msime-pinyin.db, corrected against mozillazg/pinyin-data, and per-character readings of the emoji, kaomoji and symbol keywords in msime-others.db from the pinyin crate''s copy of the same data, MIT'),

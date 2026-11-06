@@ -34,6 +34,10 @@ import java.util.function.IntFunction;
  * <p>设计稿里普通分组是直角的 rowBg 色块、语言卡才是 r16 的 andCard，这是原型的不一致；按设计令牌的建议统一成 r16 andCard。颜色全部取主题属性。
  */
 public final class GroupCard {
+    /** 分组和卡片在视图上的标记，{@link #searchTarget} 据此从一段标题文字认出它是哪一行或哪一组。 */
+    private static final String GROUP_TAG = "msime-group";
+    private static final String CARD_TAG = "msime-group-card";
+
     private final Context context;
     private final LinearLayout group;
     private final LinearLayout card;
@@ -45,6 +49,7 @@ public final class GroupCard {
     private GroupCard(ViewGroup parent, @Nullable CharSequence title) {
         context = parent.getContext();
         group = LayoutPolicy.column(context);
+        group.setTag(GROUP_TAG);
         LinearLayout.LayoutParams groupParams = LayoutPolicy.matchWidthWrapParams();
         if (parent.getChildCount() > 0) groupParams.topMargin = DimensionPolicy.pixels(context, Ui.GROUP_GAP);
 
@@ -62,8 +67,19 @@ public final class GroupCard {
         card = LayoutPolicy.roundedColumn(context, ThemeColorPolicy.card(context), Ui.GROUP_RADIUS);
         // 行的按压波纹裁在卡片圆角里，首尾两行不会露出直角。
         card.setClipToOutline(true);
+        card.setTag(CARD_TAG);
         group.addView(card, LayoutPolicy.matchWidthWrapParams());
         parent.addView(group, groupParams);
+    }
+
+    /** 设置首页搜索定位到 `label` 时要高亮的那块：`label` 在卡片里某一行中时是这一行，是分组标题时是这一组的卡片；不在任何分组里时为 null。 */
+    @Nullable static View searchTarget(View label) {
+        for (View node = label; node.getParent() instanceof View parent; node = parent) {
+            Object tag = parent.getTag();
+            if (CARD_TAG.equals(tag)) return node;
+            if (GROUP_TAG.equals(tag)) return parent.findViewWithTag(CARD_TAG);
+        }
+        return null;
     }
 
     /** 在 `parent`（详情页的内容列）末尾加一组；`title` 为空时只有卡片。 */

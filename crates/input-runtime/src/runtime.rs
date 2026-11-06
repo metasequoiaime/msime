@@ -4,8 +4,8 @@
 use super::*;
 use msime_engine::ordering::{
     apply_order_with, ensure_engine_order, opening_particle_pick, rerank_needs_model, rerank_pick,
-    rerank_pick_within, rotate_to_front, runner_up_order_with, CandidateScorer, ParallelOrderRows,
-    SentenceScorer, StaticEvidence,
+    rerank_pick_within, rotate_to_front, runner_up_order_pooled, CandidateScorer,
+    ParallelOrderRows, SentenceScorer, StaticEvidence,
 };
 use msime_engine::touch::{KeyGeometry, KeyTouch};
 // 排序决策搬进了 `msime_engine::ordering`；`tests.rs` 仍按原来的 crate 内名字引用这几项，这里为它们重新导出。
@@ -1811,6 +1811,7 @@ impl<E: InputEngine> Runtime<E> {
             display_reading: self.cached.display_reading.clone(),
             editing_text: self.cached.editing_text.clone(),
             caret_position: self.cached.caret_position,
+            helpcode_trigger: self.cached.helpcode_trigger,
             preedit_caret: self.cached.preedit_caret,
             conversion: self.cached.conversion.clone(),
             conversion_focus_start: self.cached.conversion_focus_start,
@@ -3249,10 +3250,17 @@ impl<E: InputEngine> Runtime<E> {
         {
             return false;
         }
-        let Some(order) = runner_up_order_with(
+        // 引擎解码这张表时用的整句池：池让引擎挪过另一种切分的读法，降位才要连它们一起认（#10998）。键位网格的表不经整句池，与 `rerank` 一样给 0。
+        let pool = if snapshot.key_grid.is_none() {
+            self.sentence_pool()
+        } else {
+            0
+        };
+        let Some(order) = runner_up_order_pooled(
             snapshot.scheme,
             &order_rows(snapshot),
             &snapshot.candidate_touch_supported,
+            pool,
         ) else {
             return false;
         };
@@ -3404,6 +3412,7 @@ impl<E: InputEngine> Runtime<E> {
                     display_reading: String::new(),
                     editing_text: String::new(),
                     caret_position: 0,
+                    helpcode_trigger: None,
                     preedit_caret: 0,
                     segment_raw_boundaries: vec![],
                     candidates: Vec::new(),
@@ -3464,6 +3473,7 @@ impl<E: InputEngine> Runtime<E> {
         if cached.preedit != previous.preedit
             || cached.editing_text != previous.editing_text
             || cached.caret_position != previous.caret_position
+            || cached.helpcode_trigger != previous.helpcode_trigger
             || cached.reading != previous.reading
             || cached.display_reading != previous.display_reading
             || cached.conversion != previous.conversion

@@ -114,13 +114,27 @@ jobs:
           set -euo pipefail
           mkdir -p target/android
           bash platforms/android/tests/device/smoke.sh "$SERIAL" --crash-only 2>&1 | tee target/android/device-crash-smoke.log
+      # 上一步崩溃专项已经装过一次 265 MB 的 APK 并启动过应用，smoke.sh 再用 install -r 覆盖安装时，包管理器要在旧 APK、它的 dex 产物和首启准备好的数据之外再腾出一份新 APK 的空间。API 35 的 /data 余量本来就紧，2026-11-05 #10934 的 API 35 两次在这里报 INSTALL_FAILED_INSUFFICIENT_STORAGE: Failed to override installation location，验收一项没跑就停了，同一个 APK 在 API 28 和另一次重跑里都装得上。完整冒烟本来就按全新安装写（smoke.sh 里会跳过首启引导），这里先卸掉崩溃专项留下的安装再装，前后各打一次 /data 的余量，下次再报空间不足时日志里有数可查。
       - name: Install, prepare resources and accept input on the AVD
         if: ${{ matrix.smoke != '--crash-only' }}
         timeout-minutes: 90
         run: |
           set -euo pipefail
           mkdir -p target/android
+          adb="$ANDROID_SDK_ROOT/platform-tools/adb"
+          "$adb" -s "$SERIAL" shell df -h /data || true
+          if "$adb" -s "$SERIAL" shell pm path app.msime.android >/dev/null 2>&1; then
+            "$adb" -s "$SERIAL" uninstall app.msime.android
+          fi
+          "$adb" -s "$SERIAL" shell df -h /data || true
           bash platforms/android/tests/device/smoke.sh "$SERIAL" ${{ matrix.smoke }} 2>&1 | tee target/android/device-smoke.log
+      # 长按语音锁定后的面板截图（voice-lifecycle.sh hold 拉回），通过与否都上传，改长按面板的 PR 拿它做对比图（#10966）。
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: android-device-api${{ matrix.api }}-voice-hold-panel
+          path: target/android/voice-hold-panel-api*.png
+          if-no-files-found: ignore
       - name: Collect device logs
         if: (failure() || cancelled()) && env.SERIAL != ''
         run: |
@@ -142,6 +156,7 @@ jobs:
             target/android/crash.txt
             target/android/device-crash-smoke.log
             target/android/device-smoke.log
+            target/android/device-test/window.xml
             target/android/host.txt
             target/android/emulator-crash
           if-no-files-found: ignore

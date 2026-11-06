@@ -1,5 +1,7 @@
 # Windows Server 会话适配
 
+桌面内置模型的安装、语言选择与离线翻译入口见[桌面离线翻译](../../docs/local-translation.md)。
+
 ## 首次运行引导
 
 完整安装完成后，安装器启动生产 `Server`；Server 首次准备 `runtime-options.json` 成功时，经现有 Shell 路由自动打开同目录的设置窗口首页。设置页顶部的输入法状态卡会检查本版本是否已加入 Windows 的键盘列表、是否为当前输入法，并提供「去添加」和「设为默认」操作；系统拒绝自动修改时会打开「设置 → 时间和语言 → 语言和区域」供用户手动完成。已经存在运行配置的升级、普通重启、TSF 按需拉起和隔离预览不会重复打开引导。Windows 7 使用同一首次准备时机，但打开兼容的原生设置窗口。输入法状态由 Windows 原生接口读取，不能把“设置窗口已打开”当成系统配置已完成。
@@ -316,7 +318,7 @@ ctest --test-dir target/windows-full/x64/wer-lifecycle -C RelWithDebInfo --outpu
 platforms/windows/tsf/tests/Invoke-SystemWer.ps1 -BuildDirectory target/windows-full/x64/wer-lifecycle -OutputDirectory C:/msime-tests/wer-system-new-run
 ```
 
-`OutputDirectory` 必须是尚不存在的合成目录。系统专项临时将本次 helper 的完整路径加入当前用户的 WER 允许列表，结束时只删除自己的值；不改通用 WER 策略、不调用产品上传入口。它验证 TIP/Host API 自有故障、外部故障、授权撤回重开、最后租约释放和被宿主捕获的异常，分别核对系统退出码与落盘。x86 的系统 WER 偶尔会把挂起的目标停在 WerSvc 的 LPC 回复上、不再结束它；脚本只对这种已确认的形态在 `<用例>-retry` 目录重跑一次，重跑仍须通过全部断言，首次诊断保留在原目录的 `timeout.json`。x86 将构建目录改为 `target/windows-full/x86/wer-lifecycle`、架构改为 `Win32`，使用不同输出目录。脚本带 UTF-8 BOM，可直接由 Windows PowerShell 5 执行。生产安装器和 Arm64X 已接线；合成控制器与系统回调通过仍不等于完整 TIP 产品、真实编辑器、ARM64 或后台验收，范围见[TSF 采集笔记](../../.agents/notes/implemented/feature/2026-11-01-windows-tsf-wer-capture.md)。
+`OutputDirectory` 必须是尚不存在的合成目录。系统专项临时将本次 helper 的完整路径加入当前用户的 WER 允许列表，结束时只删除自己的值；不改通用 WER 策略、不调用产品上传入口。它验证 TIP/Host API 自有故障、外部故障、授权撤回重开、最后租约释放和被宿主捕获的异常，分别核对系统退出码与落盘。x86 的系统 WER 偶尔会把挂起的目标停在 WerSvc 的 LPC 回复上、不再结束它；脚本只对这种已确认的形态在 `<用例>-retry` 目录重跑一次，重跑仍须通过全部断言，首次诊断保留在原目录的 `timeout.json`。这类停顿已定位到 Windows 自带的 32 位 `SysWOW64\WerFault.exe` 处理已登记 helper 的故障时自身堆损坏或死锁，用户那边就是经典错误框或崩溃的应用一直挂着，所以 TIP 在 WOW64 进程（x64 和 ARM64 Windows 上的 32 位宿主）里不建观察者、不登记 helper，这些宿主没有进程外采集，32 位原生 Windows 照常采集，见[WOW64 宿主不做进程外采集](../../.agents/notes/implemented/feature/2026-11-06-windows-tsf-wer-skip-wow64.md)。x86 将构建目录改为 `target/windows-full/x86/wer-lifecycle`、架构改为 `Win32`，使用不同输出目录，并加 `-Cases baseline, wow64`：x86 测试进程本身就是 WOW64，其余用例在那里不会武装；`wow64` 用例走生产判定，要求 TIP 不登记、连 TIP 自有故障也由系统直接结束且不留记录。两种架构都阻塞。生命周期 CTest 用 `MSIME_TSF_TEST_WOW64`（`1` 假装 WOW64，`0` 假装不是）改写查询结果，在 x64 和 x86 上都覆盖两个分支；要在 x86 上复现那个系统缺陷，可设 `MSIME_TSF_TEST_WOW64=0` 后跑默认用例。脚本带 UTF-8 BOM，可直接由 Windows PowerShell 5 执行。生产安装器和 Arm64X 已接线；合成控制器与系统回调通过仍不等于完整 TIP 产品、真实编辑器、ARM64 或后台验收，范围见[TSF 采集笔记](../../.agents/notes/implemented/feature/2026-11-01-windows-tsf-wer-capture.md)。
 
 `bash tests/tools/check-cross.sh /absolute/nlohmann-include-root` 使用 x86_64/i686 MinGW 分别编译适配器、测试源和 `shared/contracts` 中的 IPC 契约，验证 32/64 位 COFF 和 Windows SDK 键码断言；另将不依赖 Rust 的编码测试链接为 Windows PE。不会链接 Windows Rust 库，也不执行 Windows 二进制。会话测试覆盖真实 Unicode 输入、锁定词库第二页数字选词、配置延迟、客户端/焦点/线程拒绝及本地取消不回复。
 
@@ -806,3 +808,7 @@ Win7 使用独立版本源 `platforms/windows/version-win7.txt`；现代 Windows
 Win7 验收基线为 Windows 7 SP1 x64，已安装 KB4474419、KB4490628、KB2921916，使用受信任测试签名和开启 UIAccess 的最终安装包。安装、升级保留合成数据、嵌套迁移、双架构 COM／TSF、看门狗、ACL 和显式卸载均通过；最终安装路径中的设置系统对话框打开／取消、x64 与 x86 系统记事本的真实拼音按键、可见候选与“你好”提交通过，Server 持续运行，英文出厂默认值保持。
 
 独立 Win7 SP1 x86 已通过完整安装、升级保留合成数据、嵌套迁移、卸载和重启后系统记事本真实输入；直通实体 USB 双向音频设备的同源 Server 录音、播放渲染、提示音，以及安装核心的 16 kHz 单声道采集均通过，未保存麦克风内容或作人工音质评价。生产服务使用隔离合成账号验证匿名注册、服务与社区目录、AI、AI 翻译，以及真实云词库新增、完整备份和恢复；原生 ASR 与润色针对合成语音或合成句子获得非空结果。部分在线测试经显式代理访问 HTTPS，不代表直连、普通账号交互登录或全部模型均通过。现代 Windows 的同源完整包回归和各项证据见[产品构建记录](../../.agents/notes/implemented/feature/2026-10-24-windows7-product-build.md)。正式版由 `release-windows7.yml` 在 `main` 手动触发并开启 `publish`，发布页提供两个安装包、各自摘要和 `SHA256SUMS`；未签名包不提供 `UIAccess`，需按发布页核对摘要。
+
+### 离线翻译依赖的路径长度
+
+嵌入式 PLaMo 使用固定 Git 提交的 `llama-cpp-2`，其上游子模块包含较长文件名。Windows 的 Cargo/libgit2 检出子模块时可能超过路径长度限制，仅设置 Git 的 `core.longpaths=true` 不能解决。构建进程应把 `CARGO_HOME` 指向较短路径（例如 `F:\c`）；可用目录联接指向原 Cargo 缓存，避免重新下载依赖，不必修改机器全局 Git 配置。本机可运行 `./platforms/windows/Use-ShortCargoHome.ps1 -ShortHome F:\mc`；它复用当前 Cargo 缓存，并拒绝覆盖已有的不相干目录。CI 的 C ABI、原生设置和 ONNX 作业在首次解析依赖前调用同一脚本。模型运行不依赖 Git 或网络。

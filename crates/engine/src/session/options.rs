@@ -9,8 +9,8 @@ use crate::types::{
     CandidateSource, CommandTableEntry, EnglishInputOptions, FrequencyAdjustmentOptions,
     FuzzyPinyinOptions, LocalInputMode, LocalModeOptions, MentionEntry, MixedExpressiveOptions,
     PluginCommand, QuickPhraseEntry, SchemeSet, SchemeType, SentenceAssociationOptions,
-    ShuangpinCustomTable, ShuangpinHelpcodeModes, ShuangpinProfileKind, WordItem, WubiInputOptions,
-    DEFAULT_FIRST_PAGE_ROWS,
+    ShuangpinCustomTable, ShuangpinHelpcodeModes, ShuangpinProfileKind, TextConversion, WordItem,
+    WubiInputOptions, DEFAULT_FIRST_PAGE_ROWS,
 };
 use crate::vietnamese::{InputMethod as VietnameseInputMethod, ToneStyle as VietnameseToneStyle};
 
@@ -38,6 +38,8 @@ pub struct SessionOptions {
     pub cantonese_dictionary: PathBuf,
     /// 独立粤语双拼入口强制按两键码解释，普通粤拼入口仍按现有规则自动识别。
     pub force_cantonese_shuangpin: bool,
+    /// 粤拼候选上屏前经过的转换；`None` 照词库原样输出（繁体）。宿主在用户选了粤拼输出简体时传入繁转简，转换后同一读音段里字面相同的候选只留第一条。
+    pub cantonese_output_conversion: Option<TextConversion>,
     /// Where `msime-zhuyin.db` is; empty when the host has none. Read only when Zhuyin is activated, which fails without it.
     pub zhuyin_dictionary: PathBuf,
     /// Where `msime-stroke.db` is; empty when the host has none. Read only when Stroke is activated, which fails without it.
@@ -132,6 +134,7 @@ impl SessionOptions {
             korean_layout: crate::KoreanLayout::Dubeolsik,
             cantonese_dictionary: PathBuf::new(),
             force_cantonese_shuangpin: false,
+            cantonese_output_conversion: None,
             zhuyin_dictionary: PathBuf::new(),
             stroke_dictionary: PathBuf::new(),
             japanese_dictionary: PathBuf::new(),
@@ -179,6 +182,15 @@ impl SessionOptions {
     }
 }
 
+/// 显式辅助码前导键（`SessionOptions::helpcode_trigger_key`）在组字里的显示位置。前导键只是会话里的状态，不进 `editing_text`，宿主画按键原文时按这里把它插回去，用户才看得见自己已经进了辅助码（#10731）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub struct HelpcodeTrigger {
+    /// 前导键本身，ASCII 标点。
+    pub key: char,
+    /// 插在 `editing_text` 的第几个字节之前；后面是已经输入的辅助码（0 或 1 位）。
+    pub position: usize,
+}
+
 /// A value copy of the composition; safe to hand to another thread. `candidate_sources`, `candidate_annotations` and `candidate_answers_key` are aligned with `candidates`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SessionSnapshot {
@@ -196,6 +208,8 @@ pub struct SessionSnapshot {
     /// The ASCII source text; `caret_position` is a byte offset into it.
     pub editing_text: String,
     pub caret_position: usize,
+    /// 前导键在等辅助码（还没输或只输了一位）时它在 `editing_text` 里的位置，否则为 `None`。显示快照的 `preedit` 已经把它紧挨着插在辅助码前面（`ni;`、全拼 `ni';F`），只插不删；`editing_text` 和光标不含它，前导键只在光标位于末尾时生效，所以光标总在它后面。
+    pub helpcode_trigger: Option<HelpcodeTrigger>,
     pub nine_key_spellings: Vec<String>,
     /// 九键组字时的读音行：首选候选覆盖的数字显示成它的拼音，其余数字按 `preedit` 原样显示（`xi'an`、`yi'c`、`ni'hao'9`）；首选不是拼音候选时为空。只用于显示，`preedit` 仍是数字。
     pub nine_key_reading: String,

@@ -159,6 +159,8 @@ const CHINESE_MAIN_COMPONENT: &str = "chinese-main";
 /// - 落定重排模型只给中文整句重排，不带中文主词库（版本表 `resources.components` 没有 `chinese-main`：日文、越南文和藏文版）的版本不列出也不下载它，与打包时不装它的规则相同。其他版本在没有随包模型时列出：会话总是优先用随包的那份，有它时下载的用不上。
 fn offered_by(pack: ResourcePack, edition: &Edition, installation: &Installation) -> bool {
     match pack {
+        // 新的本地翻译设置只由原生宿主管理，不在冻结的 React 资源入口中添加功能。
+        ResourcePack::LocalTranslation => false,
         ResourcePack::Japanese => installation.platform == DesktopPlatform::Macos,
         ResourcePack::LanguageDictionaries => match installation.platform {
             DesktopPlatform::Macos => true,

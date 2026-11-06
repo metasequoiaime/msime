@@ -40,7 +40,7 @@ use panel_input::{send_panel_key_windows, send_panel_text_windows, windows_panel
 use platform::community_resources;
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use platform::desktop::desktop_cloud_dictionary;
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 use platform::desktop::desktop_settings_sync;
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 use platform::desktop::{
@@ -2017,12 +2017,15 @@ fn start_desktop_preferences_monitor(
     store: std::sync::Arc<PreferencesStore>,
     history: Arc<Mutex<ClipboardHistoryStore>>,
     #[cfg(target_os = "linux")] history_path: PathBuf,
+    #[cfg(target_os = "macos")] manages_global_voice: bool,
 ) {
     let app = app.clone();
     let _ = std::thread::Builder::new()
         .name("msime-preferences-monitor".to_owned())
         .spawn(move || {
             let mut monitor = desktop_preferences_monitor::Monitor::new(&store);
+            #[cfg(target_os = "macos")]
+            monitor.manage_installed_voice_host(manages_global_voice);
             #[cfg(target_os = "macos")]
             let mut last_change_count = msime_host_macos::clipboard_snapshot(
                 store
@@ -5041,6 +5044,8 @@ pub fn run() {
                 }
             }
             #[cfg(target_os = "macos")]
+            let manages_global_voice;
+            #[cfg(target_os = "macos")]
             let macos_launch = {
                 let options_override = std::env::var_os("MSIME_CLIENT_HOST_OPTIONS")
                     .or_else(|| std::env::var_os("MSIME_IBUS_OPTIONS"));
@@ -5051,6 +5056,12 @@ pub fn run() {
                 } else {
                     None
                 };
+                manages_global_voice = platform::desktop::global_voice_setup::owns_installed_host(
+                    resources_directory.as_deref().and_then(std::path::Path::parent)
+                        .is_some_and(macos_input_source::is_packaged_resource_directory),
+                    options_override.is_none(), state_override.is_none(),
+                    macos_launch::native_locator_root().ok().as_ref() == Some(&application_directory),
+                );
                 let launch = macos_launch::resolve_with_resources(
                     &application_directory,
                     resources_directory.as_deref(),
@@ -5146,6 +5157,8 @@ pub fn run() {
                 Arc::clone(&clipboard_state.0),
                 #[cfg(target_os = "linux")]
                 directory.join("clipboard_history.json"),
+                #[cfg(target_os = "macos")]
+                manages_global_voice,
             );
             #[cfg(target_os = "linux")]
             {
@@ -5672,13 +5685,13 @@ pub fn run() {
             desktop_account::account_delete,
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             desktop_account::account_forget,
-            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             desktop_settings_sync::account_preferences_schema,
-            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             desktop_settings_sync::account_preferences_load,
-            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             desktop_settings_sync::account_preferences_upload,
-            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             desktop_settings_sync::account_preferences_apply,
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
             desktop_candidate_skin_community::candidate_skin_community_list,

@@ -1,6 +1,6 @@
-//! Windows 和 Linux 的「设置同步」：把本机的共享偏好上传到账号，或把账号里的设置应用到本机。
+//! Windows、Linux 和 macOS 的「设置同步」：把本机的共享偏好上传到账号，或把账号里的设置应用到本机。
 //!
-//! 页面是 iOS、Android 也在用的设置同步卡片，四个命令的名字和返回值与移动端相同。上传、应用的只有各平台共有的 `input.*` 键（`settings_sync::export_desktop_settings`、`apply_desktop_settings`）：Windows 和 Linux 的设置就是共享偏好文档，桌面专属的设置在账号文档里只有 macOS 原生偏好的 `platform.macos.*`，这两个平台都不去改它，账号文档里也没有 Linux 自己的键，所以候选窗口、快捷键和皮肤这些桌面设置不随设置同步。应用走与设置页保存相同的 [`crate::save_preferences_impl`]，按读到时的修订号写入，期间本机设置变过就拒绝，同时把新偏好同步进运行时选项：Windows 的 Server、Linux 的 IBus 和 Fcitx5 宿主都从那里当场读到新设置。
+//! 页面是 iOS、Android 也在用的设置同步卡片，四个命令的名字和返回值与移动端相同。上传、应用的是各平台共有的 `input.*` 键，加上本机设置页能改的几项共享偏好（`settings_sync::export_desktop_settings`、`apply_desktop_settings`，按宿主区分）：三个桌面的设置就是共享偏好文档。桌面专属的设置在账号文档里只有 macOS 原生回退窗口上传的 `platform.macos.*`，三个宿主都不去改它，账号文档里也没有 Linux 自己的键，所以候选窗口、快捷键和皮肤这些桌面设置不随设置同步。macOS 的账号入口在 0.51 起改走共享账号页后，原生窗口那条同步只剩回退，这里补上主路径（#10747）。应用走与设置页保存相同的 [`crate::save_preferences_impl`]，按读到时的修订号写入，期间本机设置变过就拒绝，同时把新偏好同步进运行时选项：Windows 的 Server、Linux 的 IBus 和 Fcitx5 宿主、macOS 输入法与设置页保存后一样读到新设置。
 
 use crate::platform::account_helpers::call_session;
 use crate::platform::desktop::desktop_account::AccountState;

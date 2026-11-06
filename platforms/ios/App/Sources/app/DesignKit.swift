@@ -567,10 +567,13 @@ struct DesignSliderRow: View {
 }
 
 /// 从底部选项面板中选一个值的行：右侧是 16pt 的当前值和箭头。带子项的选项会打开第二层面板。
+///
+/// `enabled` 为 false 时整行半透明、点了不弹选项面板，标题旁的「?」照样能点开说明。不要对整行用 `.disabled`：整行是一个按钮，禁用会传到标签里的「?」。与 `DesignToggleRow` 的 `enabled` 同一规则。
 struct DesignSelectRow<Value: Hashable>: View {
   let title: String
   var subtitle: String? = nil
   var info: String? = nil
+  var enabled = true
   let options: [DesignOption<Value>]
   @Binding var selection: Value
   var sheetTitle: String? = nil
@@ -579,12 +582,13 @@ struct DesignSelectRow<Value: Hashable>: View {
   var onSelect: ((Value) -> Void)? = nil
   @State private var presented = false
 
-  init(title: String, subtitle: String? = nil, info: String? = nil, options: [DesignOption<Value>],
+  init(title: String, subtitle: String? = nil, info: String? = nil, enabled: Bool = true, options: [DesignOption<Value>],
        selection: Binding<Value>, sheetTitle: String? = nil, sheetMessage: String? = nil, identifier: String? = nil,
        onSelect: ((Value) -> Void)? = nil) {
     self.title = title
     self.subtitle = subtitle
     self.info = info
+    self.enabled = enabled
     self.options = options
     _selection = selection
     self.sheetTitle = sheetTitle
@@ -595,17 +599,30 @@ struct DesignSelectRow<Value: Hashable>: View {
 
   private var valueTitle: String { DesignOption.title(of: selection, in: options) ?? "" }
 
-  var body: some View {
-    Button { presented = true } label: {
-      DesignRowLayout(title: title, subtitle: subtitle, info: info) {
-        HStack(spacing: 8) {
-          Text(valueTitle).font(.system(size: 16)).foregroundStyle(MetasequoiaTheme.sub).lineLimit(1)
-          DesignChevron()
-        }
+  private var rowLabel: some View {
+    DesignRowLayout(title: title, subtitle: subtitle, info: info) {
+      HStack(spacing: 8) {
+        Text(valueTitle).font(.system(size: 16)).foregroundStyle(MetasequoiaTheme.sub).lineLimit(1)
+          // 不可用时整行不再是被禁用的按钮，读屏不会自己报出「不可用」，补在当前值上；不给整行加禁用特征，免得「?」也被当成不可用。
+          .accessibilityLabel(enabled ? valueTitle : "\(valueTitle)，不可用")
+        DesignChevron()
       }
     }
-    .buttonStyle(PressFillButtonStyle())
-    .accessibilityValue(valueTitle)
+  }
+
+  var body: some View {
+    Group {
+      if enabled {
+        Button { presented = true } label: { rowLabel }
+          .buttonStyle(PressFillButtonStyle())
+          .accessibilityValue(valueTitle)
+      } else {
+        // 不可用时不包按钮，「?」就不在被禁用的按钮里；标题、当前值和「?」各自可被读屏找到。
+        rowLabel
+          .opacity(DesignToggleRow.disabledOpacity)
+          .accessibilityElement(children: .contain)
+      }
+    }
     .designIdentifier(identifier)
     .designOptionSheet(isPresented: $presented, title: sheetTitle, message: sheetMessage, options: options,
                        selected: selection) { value in

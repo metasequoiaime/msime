@@ -46,7 +46,7 @@ TypeScript 的 `WubiTextCodes`、`WubiCodeLookup` 和 `WubiCodeLookupClient` 归
 - macOS、Linux：Tauri 设置应用的 `dictionary` 客户端（`apps/desktop/src/main.tsx`）发 `dictionary_request`，到 `dictionary_request_json`。
 - Android：分发的产品是 `build-apk.sh` 打的原生宿主（`release-android.yml`），没有 WebView，共享设置页那一组到不了用户手里，所以原生设置的「输入」页（`TypingPage`）在启用了五笔、五笔码表也在本机时加一组「五笔」（full 和拼音版瘦包的码表按需下载，见 [Android 五笔码表按需下载](2026-10-28-android-on-demand-wubi.md)），里面一行「五笔查码」打开原生的 `WubiLookupPage`：文本框、「查码」按钮和结果卡片，每行是文字和 86、98 两列编码，文字与排法照共享设置页（`WubiCodeLookupPolicy`）。查码在设置应用进程里经 `NativeClient.personalDictionaryRequest` 发 `wubi_codes`，`personal_dictionary_request_json` 在入口直接回答、不排队，只读打开安装时解出来的 `msime-wubi.db`。Tauri 合包（`build-client-apk.sh`）的共享前端仍经 `mobileDictionary` 带上 `wubiCodes`，走同一个入口。
 - HarmonyOS：`apps/harmony/src/main.tsx` 的 `dictionary` 客户端经桥方法 `dictionary` 到 `KeyboardSession.dictionary`，再到 `msime_client_dictionary`。
-- Windows：设置窗口是原生 WinUI 的 `msime-client-settings.exe`（`platforms/windows/settings/main.cpp`），自己不画查码组，但同目录的共享应用 `MSIME.exe` 画「输入」页，它用的就是上面 macOS、Linux 那个 `dictionary` 客户端，`dictionary_request` 在 Windows 上同样到 `dictionary_request_json`。所以 WinUI「输入」页的五笔组末尾加一行「五笔查码」，和辅助码插件那一行一样用 `nav::shell_links::input` 打开共享应用的「输入」页。这一行不能省：五笔版只提供五笔，辅助码组不显示，原来本窗口没有任何一行通到共享应用的「输入」页。
+- Windows：设置窗口是原生 WinUI 的 `msime-client-settings.exe`（`platforms/windows/settings/main.cpp`），「输入」页选五笔时在方案组后面画自己的「五笔查码」组：文本框、「查码」按钮和结果表，经 `msime_client_settings_dictionary` 发 `wubi_codes`。结果表的列按 `settings/InputSettingsModel.h` 的 `wubi_profiles` 排（86、98、新世纪），三列总是都在，宿主回答里缺某一列的键时那一列写「—」，当前码表标「（当前）」，存储值不认识时按 86。Win7 设置（`settings/win7/SchemeForm.h`）用同一张表，把每个字的三行编码写进只读文本框。
 - iOS：分发的产品是原生 `MSIMEApp`（`platforms/ios/README.md`），没有 WebView，承载不了共享设置页。「输入设置」（`InputSettingsView`，`platforms/ios/App/Sources/app/OnboardingView.swift`）的「更多」组在启用了五笔时，三个五笔开关后面加一行「五笔查码」，打开原生的 `WubiCodeLookupView`，文字和排法照共享设置页（`WubiCodeLookup`）。查码在 App 进程里经 `MetasequoiaInputSessionBridge.wubiCodes`：先 `msime_client_prepare_host` 解析选项，再 `msime_client_dictionary` 发 `{operation:"wubi_codes",text}`；资源目录取 `PersonalDictionaryBridge.packagedResources`。App 包里只有词库清单，找到的是键盘扩展包里的 `EngineResources`，和键盘准备宿主用的是同一个目录：状态目录里的资源校验标记（`verified-resources.json`）记着目录路径，App 若用别的路径准备，键盘下次启动会把整套词库重新哈希一遍。共享前端的 iOS 工程（`apps/desktop/src-tauri/gen/apple`）仍经 `mobileDictionary` 带上 `wubiCodes`，但那个工程只是公共组件，不作为产品分发。`z` 反查在 iOS 键盘上照常可用，它在共享引擎里。
 
 Android 原生页的 `WubiLookupRequestState` 也按输入文字和请求代次保存忙碌状态及结果：编辑时清掉旧表格、允许新查询，旧回答不再覆盖新结果；视图销毁时解除未完成请求的忙碌状态，已经完成的结果继续留在 ViewModel 中。`HostTask` 只向发起请求时那棵视图交回结果，旋转后不会调用旧完成回调，因此只靠回调解除 `busy` 会把新视图的查码按钮永久锁住。
@@ -77,7 +77,7 @@ iOS 原生页同样用 `WubiLookupRequestState` 管理输入、请求身份和�
 - 代价：混输关闭时，五笔里单独按 `z` 不再原样输入 `z`，而是开始一个反查组字。反查的预编辑显示键入的原文（`znihao`），没有拼音分词。反查不支持撇号分隔，这一点与混输相同。
 - 反查的拼音候选按拼音词库原有的顺序排列，不受个人学习影响，也不留下学习记录。
 - 公共查询状态与结果展示可以独立复用，代价是维护两个新增公共接口。客户端更换只清展示状态，不改变已发出请求的宿主执行；旧请求不能更新当前界面。
-- iOS 和 Android 的产品设置里各有一个原生的「五笔查码」页（见上文两条），文字和排法照共享设置页，改一处要同时改三处：`wubi-code-lookup-section.tsx` 与 `wubi-code-lookup-results.tsx`、`WubiCodeLookupPolicy.java`、`WubiCodeLookup.swift`。Windows 经 WinUI「输入」页的一行跳到共享应用里查。
+- iOS、Android 和 Windows 的产品设置里各有一个原生的「五笔查码」（见上文三条），文字和排法照共享设置页，改一处要同时改这几处：`wubi-code-lookup-section.tsx` 与 `wubi-code-lookup-results.tsx`、`WubiCodeLookupPolicy.java`、`WubiCodeLookup.swift`、Windows 的 `main.cpp`（`wubi_code_table`）与 `win7/SchemeForm.h`（`lookup_result`）。
 
 ## Verification
 

@@ -57,6 +57,7 @@ import { AppThemeStore } from '../keyboard/skin/AppThemeStore';
 import { FeedbackSettings } from '../keyboard/KeyboardFeedback';
 import { VoiceCaptureDevice } from '../keyboard/input/VoiceCaptureDevicePolicy';
 import { OsVersionPolicy } from '../keyboard/input/OsVersionPolicy';
+import { VoicePolishRequestPolicy } from '../keyboard/input/VoicePolishRequestPolicy';
 import {
   AiCatalogPage, AiModelCatalogPolicy
 } from '../keyboard/settings/AiModelCatalogPolicy';
@@ -535,6 +536,7 @@ interface AiTestBody {
   stream: boolean;
   temperature: number;
   messages: AiMessageRequest[];
+  thinking?: ThinkingOptions;
 }
 
 interface AiReply<T> {
@@ -2838,6 +2840,8 @@ class SettingsBridge {
         { role: 'user', content: request.text }
       ]
     };
+    // 测试和真实的润色请求一样，方舟的豆包 Seed 关掉默认开着的思考。
+    if (VoicePolishRequestPolicy.disablesArkSeedThinking(endpoint, model)) body.thinking = { type: 'disabled' };
     // ArkTS has no object spread; headers() hands back a fresh record, so adding to it is safe.
     const header: Record<string, string> = AiAuthenticationPolicy.headers(endpoint, token);
     header['Content-Type'] = 'application/json';
@@ -3078,7 +3082,9 @@ class SettingsBridge {
       max_tokens: 1,
       messages: [{ role: 'user', content: 'Reply OK' }]
     };
-    if (provider === 'deepseek') body.thinking = { type: 'disabled' };
+    if (provider === 'deepseek' || VoicePolishRequestPolicy.disablesArkSeedThinking(endpoint, model)) {
+      body.thinking = { type: 'disabled' };
+    }
     if (provider === 'siliconflow') body.enable_thinking = false;
     const request = http.createHttp();
     installNoRedirectGuard(request);

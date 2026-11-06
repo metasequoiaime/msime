@@ -46,6 +46,7 @@
 #include "ModeMailbox.h"
 #include "PreviewConfig.h"
 #include "PreviewDispatcher.h"
+#include "ProcessPriority.h"
 #include "ProductionDispatcher.h"
 #include "ProductionPipeNames.h"
 #include "ProviderToken.h"
@@ -953,6 +954,16 @@ const char *foreground_presentation_name(
 }
 } // namespace
 int wmain(int argc, wchar_t **argv) {
+  // 先析构会话和翻译 worker，再等待共享模型释放；不在 DLL 加载器锁内等待。
+  struct EmbeddedTranslationShutdown {
+    ~EmbeddedTranslationShutdown() { msime_client_local_translation_shutdown(); }
+  } embedded_translation_shutdown;
+
+  // 登录任务的默认 Priority 7 把 CPU 调度类和内存优先级一起压低，看门狗和它拉起的
+  // Server 都继承这个状态；TSF 拉起、手工启动和以后的拉起路径也可能带进来。复位放在
+  // 任何业务线程创建之前，失败只记一行，不阻止启动。
+  const auto process_priority =
+      msime::windows::restore_interactive_process_priority();
   msime::windows::compat::initialize_windows7_process_dpi();
   // Before any thread exists: libcurl's global init is not thread-safe, and the online workers use it.
   curl_global_init(CURL_GLOBAL_DEFAULT);
@@ -1029,6 +1040,13 @@ int wmain(int argc, wchar_t **argv) {
     auto &diagnostic_log = *new DiagnosticLog(config.state_root / L"logs" / L"server.log");
     host_api_diagnostic_log.store(&diagnostic_log, std::memory_order_release);
     msime_client_set_diagnostic_sink(write_host_api_diagnostic);
+    // 只在失败时留痕：这两项各自独立，任一失败都不影响其余启动步骤。
+    if (!process_priority.cpu_ok)
+      diagnostic_log.server("Failed to restore NORMAL_PRIORITY_CLASS: error " +
+                            std::to_string(process_priority.cpu_error));
+    if (!process_priority.memory_ok)
+      diagnostic_log.server("Failed to restore MEMORY_PRIORITY_NORMAL: error " +
+                            std::to_string(process_priority.memory_error));
     // 脚本插件只在 Server 里运行；TIP 和 Server 共用同一份宿主 DLL，但 TIP 从不调用它（scripts/test-script-plugin-hosts.py）。开发构建和 release 构建一样打开：授权由设置应用（platforms/windows/settings）的授权页写入，那里写明了同一用户下的其他程序能伪造授权；提权窗口（ELEVATED）里从不运行脚本（msime_client.h）。
     msime_client_scripts_enable(true);
     // Operator notices go to the terminal of a preview run and, when the server switch is on, to the diagnostic file - the only place a managed Server's notices can be read.
@@ -1166,6 +1184,10 @@ int wmain(int argc, wchar_t **argv) {
     // a newly connected client may dispatch its first key immediately.
     startup_stage = "workers";
     InputStateHudFeedback hud_feedback;
+    // 提示由别的线程发布或改变，界面线程绘制，而界面线程在消息循环里最多等 50 毫秒才看一轮。给界面线程投一条空消息把这一轮叫醒，提示不必等满这一拍才出现。两处要叫醒：信箱里发布了提示（切简繁、日语、清缓存这些工作线程），以及管道上的模式事件落地（单按 Shift 切中英文走的是这条，界面线程靠读模式才知道要出提示，见下面的 pump_presentation.mode_event）。
+    const DWORD ui_thread = GetCurrentThreadId();
+    const auto wake_ui_thread = [ui_thread] { PostThreadMessageW(ui_thread, WM_NULL, 0, 0); };
+    hud_feedback.set_wake(wake_ui_thread);
     InputStateHudModeTracker hud_mode_tracker;
     CharacterSetClickWorker character_set_clicks(
         [traditional_output, &hud_feedback, directory = config.state_root](
@@ -1432,6 +1454,8 @@ int wmain(int argc, wchar_t **argv) {
       if (reply.dedicated_english_change)
         hud_feedback.publish(dedicated_english_hud(*reply.dedicated_english_change), lease);
     };
+    // 模式事件落地、焦点锁放开之后叫醒界面线程，它这一轮就能读到新模式并出中英切换提示。
+    pump_presentation.mode_event = [wake_ui_thread](const FocusLease &) { wake_ui_thread(); };
     // 单个按键被拒（RequestRejected）只断开那一个客户端，原因写进 Server 日志；不然日志里只剩随后的重连，看不出是哪一项校验没过。
     pump_presentation.rejected = [&diagnostic_log](const std::string &line) {
       diagnostic_log.server(line);

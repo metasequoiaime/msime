@@ -58,7 +58,11 @@ Java 侧 `VoicePunctuation`（`platforms/android/java/app/msime/android/voice/Vo
 
 ### 其他平台
 
-鸿蒙、桌面两端暂不读这个字段，各自的接线见 #10596、#10597。macOS 偏好覆盖清单（`platforms/macos/tests/settings/preference_coverage.py`）把它列为暂未接上，接上后删掉那一条。
+### 鸿蒙接线
+
+鸿蒙 NAPI 导出 `voicePunctuation`，键盘在最终结果分流之前（`deliverVoice`）处理一次，直接上屏、二合一审阅面板和输入位置变化后保留的文字都用处理后的文本，用户在审阅面板里确认的就是上屏的内容；显式提交只给出错后留下、没经过这一步的中间结果补一次。中间结果不处理，处理后为空的结果按没有识别到文字提示。成功提示和收尾定时器都以处理后的文本判断当前结果；拿识别原文比较会让去标点后的提示永久留着、语音面板不再自动收起，过期回调仍不能清掉后来的结果。设置页经 `HostCapabilities.voice_punctuation` 只在宿主声明支持时显示同一行四选一，豆包「自动添加标点」的说明明确它只影响豆包请求，这段说明同样只在宿主声明支持时出现，macOS、Linux 上不指向一个不存在的设置。
+
+桌面三端暂不读这个字段，接线见 #10597。macOS 偏好覆盖清单（`platforms/macos/tests/settings/preference_coverage.py`）把它列为暂未接上，接上后删掉那一条。
 
 ### 不做
 
@@ -74,7 +78,7 @@ Java 侧 `VoicePunctuation`（`platforms/android/java/app/msime/android/voice/Vo
 ## Consequences
 
 - **收益**：默认用本地模型的用户第一次能去掉语音标点；一处规则对四种识别服务和润色都生效，iOS、鸿蒙、桌面接线时只需要在上屏点调一次 FFI。
-- **代价**：鸿蒙、桌面在跟进 issue 做完之前读不到这一项，桌面的共享设置页也还看不到它。`omit_all` 会让「3.5%，10:30」变成「3.5%10:30」这类紧挨在一起的写法，这是「省略所有标点」本身的含义；数字之外的全角句点、半角 `~` 等边缘写法按上面的列表处理，出现误删时改 `punctuation.rs` 的字符表并补测试。
+- **代价**：桌面在跟进 issue 做完之前读不到这一项。鸿蒙桥接失败时保留原文，iOS 语音服务或键盘交接失败时保留原有失败提示，避免设置故障丢失识别内容。`omit_all` 会让「3.5%，10:30」变成「3.5%10:30」这类紧挨在一起的写法，这是「省略所有标点」本身的含义；数字之外的全角句点、半角 `~` 等边缘写法按上面的列表处理，出现误删时改 `punctuation.rs` 的字符表并补测试。
 - **语音样本上传**：打开「上传语音以改进识别」时，上传的文本是处理后的上屏文本，与此前上传润色后文本的做法一致。
 
 ## Verification
@@ -85,3 +89,4 @@ Java 侧 `VoicePunctuation`（`platforms/android/java/app/msime/android/voice/Vo
 - `platforms/android/check-host.sh`：`VoicePunctuationSmoke`（取值、标签、`auto` 不进共享层、调用失败保留原文），设置搜索收录「语音标点」，`client_jni.cpp` 对共享头编译。
 - iOS `MSIMEKeyboardTests/VoicePunctuationTests`：对真实 FFI 跑取值、标签、只写一个键、四种方式、数字和时间、只剩标点；`SpaceVoicePanelTests/testVoicePunctuationAppliesOnceToTheFinalText` 经真实语音会话通知走完键盘听写，确认上屏的是处理后的文字、只剩标点时不上屏也不存进语音交接。App 语音页和设置搜索在主 App 的 SwiftUI 视图里，不在任何 XCTest target 中，由 `scripts/test-ios-voice-punctuation.py` 钉源码：`deliver` 只在语音页读取偏好，润色拿识别原文、润色后再处理，三条路径各处理一次，识别原文只剩标点时润色失败不说保留了原文，键盘领取语音结果时不再处理；搜「语音标点」能找到语音输入页；非豆包时「自动添加标点」只禁用开关、标题和「?」不在被禁用的 Toggle 里，「?」气泡按量出的文字宽度定尺寸。`MSIMEKeyboardTests/DesignInfoBubbleTests` 用 `ImageRenderer` 量气泡不给尺寸时的理想大小：「语音标点」那段说明的气泡要容得下按 280pt 折行后的每一行，一行的短说明贴着文字、不折行。
 - iPhone XR（iOS 18.7）真机验收：「语音标点」一行的位置、出厂值、选择面板、冷启动后保留、设置搜索都符合预期；发现非豆包时「自动添加标点」的「?」点不开、「语音标点」的说明气泡被裁成三行，两处已按上面修正，待真机复核。手机没有可用的语音来源（Mac 被静音、系统听写关闭），四种方式的实际上屏结果、各识别服务和润色路径还没有在真机上确认。
+- `platforms/harmony/tests/voice-result-lifecycle.test.ts`：执行真实 `deliverVoice` 方法，以合成会话和可推进的时钟覆盖原文不变、去掉标点、标点替为空格、过期回调及仅标点的空结果；修复前文本变化用例在提示未清除处失败；二合一审阅路径断言面板显示处理后的文本且不直接上屏，在先显示原文的实现上失败。

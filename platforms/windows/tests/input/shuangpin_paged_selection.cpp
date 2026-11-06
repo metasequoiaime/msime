@@ -2,6 +2,8 @@
 #include "ipc/ReplyComposer.h"
 #include "../../tsf/EngineSessionAdapter.h"
 #include "../../tsf/HostServerSelection.h"
+#include "../../tsf/IPC/ReplyWaitPolicy.h"
+#include "../../../../shared/contracts/quick_phrase_cursor_pipe.h"
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -192,6 +194,34 @@ void ignored_past_last_page() {
           "a key the Server ignored selects nothing in the host session");
   s.same();
 }
+
+// 数字键的回复没在软等待里到（#10826：CPU 吃紧时 Server 回包超过 100ms）。按键已经送到 Server，它照样选中并上屏了这个词；TIP 读到的是 SoftReplyMiss，必须按「读不到回复」退回本地这一页上按键位置的那一项（_HandleCandidateWorker），两边各上屏一次同一个词。以前软等待的结果帧是 Normal、文字为空，被当成 Server 的决定：宿主会话找不到空文字，选词返回 S_FALSE，延迟队列把整段读音连同数字键重放一遍，CPU 一直吃紧就一遍遍重来，最多八次后丢掉。
+void reply_missed_selects_local_slot() {
+  phase = "digit reply missed";
+  const auto root = std::filesystem::temp_directory_path() /
+      ("msime-shuangpin-paging-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::filesystem::create_directories(root);
+  struct Cleanup { std::filesystem::path root;
+    ~Cleanup() { std::error_code error; std::filesystem::remove_all(root, error); }
+  } cleanup{root};
+  Sessions s(make_options(root));
+  s.type("nihc");
+  const auto host_page = s.tip_view();
+  require(host_page.candidates.size() > 2 && host_page.candidates[2].text == "泥好", "the host page shows the synthetic word at slot 3");
+  const auto chosen = s.key('3', L'3');
+  require(chosen.committed_text == std::optional<std::string>("泥好"), "the Server selects and commits the word on its own");
+  const auto missed = msime::windows::tsf::SoftReplyMiss(s.request);
+  require(missed.request_id == s.request, "the missed frame names the request it waited for");
+  require(!msime::tsf::ServerReplyDecidesSelection(missed.msg_type), "a reply that never arrived is not a Server decision");
+  require(!FanyImeQuickPhraseCursorPipe::SuffixUnits(missed.msg_type, false) &&
+          missed.msg_type != FanyImeReplyType::CommitExactText && missed.msg_type != FanyImeReplyType::TransportUnavailable,
+          "a missed reply is neither text to commit nor a broken transport");
+  // 和 _SelectHighlightedHostCandidate 不带回复时一样：选本地高亮项（按键位置的那一项）的文字。
+  const auto outcome = msime::tsf::SelectHostCandidateByText(s.tip, host_page, host_page.candidates[2].text, &s.raw, &s.error);
+  require(outcome == HostSelectionOutcome::Selected, "the host session selects its own slot");
+  require(json::parse(s.raw).at("value").at("commit") == "泥好", "the host session commits the same word once");
+  s.same();
+}
 } // namespace
 
 int main(int argc, char **argv) {
@@ -207,6 +237,7 @@ int main(int argc, char **argv) {
     scenario(Paging::Keyboard, 2, '3', "拟", true);
     scenario(Paging::Keyboard, 1, '5', "鲵好", false);
     ignored_past_last_page();
+    reply_missed_selects_local_slot();
   } catch (const std::exception &error) {
     std::fprintf(stderr, "FAIL at %s: %s\n", phase, error.what());
     return EXIT_FAILURE;

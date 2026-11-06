@@ -1,4 +1,4 @@
-import type { WubiProfile } from "./wubi-preferences";
+import { knownWubiProfile, type WubiProfile } from "./wubi-preferences";
 import type { InputScheme } from "../core/input-scheme";
 import { LinkRow, Row } from "../core/platform-controls";
 
@@ -67,6 +67,7 @@ function wubiProfileOptions() {
     <>
       <option value="wubi86">86 五笔</option>
       <option value="wubi98">98 五笔</option>
+      <option value="wubixsj">新世纪五笔</option>
     </>
   );
 }
@@ -83,7 +84,7 @@ export interface InputSchemeDetailsSectionProps {
   shuangpinKeymapHint?: boolean;
   /** Linux 宿主：键位图只画给报根窗口坐标光标的 X11 客户端（`platforms/linux/src/overlay/ShuangpinKeymapX11Surface.h`），描述照实说明在哪里不显示。 */
   linux?: boolean;
-  /** 「双拼预编辑」的当前样式（保留原始按键、双拼分隔或显示拼音分词）；宿主不画双拼预编辑（`HostCapabilities.shuangpin_preedit` 为假）或在触屏宿主上时不传，这一行不出现。 */
+  /** 「双拼预编辑」的当前样式（保留原始按键、双拼分隔或显示拼音分词，粤语双拼展开的是粤拼）；宿主不画双拼预编辑（`HostCapabilities.shuangpin_preedit` 为假）或在触屏宿主上时不传，这一行不出现。 */
   shuangpinPreedit?: ShuangpinPreeditStyle;
   onShuangpinProfileChange: (profile: ShuangpinProfile) => void;
   /** 宿主能校验自定义双拼表时传入，打开自定义双拼的编辑页。有它时方案里多一项「自定义双拼」：选它先打开编辑页，在那里保存一张能用的表才切过去，与 MCP 不让选一张不能用的表相同；已经是自定义双拼时下面多一行「编辑自定义键位」。 */
@@ -155,6 +156,9 @@ export function InputSchemeDetailsSection({
   const cantoneseInputMethod = resolveCantoneseInputMethod(cantonese);
   // 双拼的各行只在双拼方案下出现：其他方案下它们改不了正在用的方案，原先灰着显示的双拼方案也只是多出来的一行。
   const hideShuangpinRows = hideChineseSchemeOptions || scheme !== "shuangpin";
+  // 粤语双拼的预编辑也跟随 `shuangpin_preedit_uses_raw`（#10557），在粤拼方案下选了粤语双拼时给出同一行；普通粤拼打的就是粤拼，没有按键要展开。
+  const cantoneseShuangpin =
+    !hasTouchKeyboardSchemes && scheme === "cantonese" && cantoneseInputMethod === "shuangpin";
   // 单一布局只展示输入说明；韩语在声明能力的桌面宿主上另给布局选择。
   const schemeNote = (
     shown: InputSchemeDetailsScheme,
@@ -201,7 +205,7 @@ export function InputSchemeDetailsSection({
           onChange={onShuangpinKeymapHintChange ?? (() => {})}
         />
       )}
-      {/* 双拼预编辑以前在「候选窗口」页，对所有人显示，说明却写着只在双拼下生效；放到这里只在双拼方案下出现。 */}
+      {/* 双拼预编辑以前在「候选窗口」页，对所有人显示，说明却写着只在双拼下生效；放到这里只在双拼方案下出现；粤语双拼的同一行在下面的粤拼方案之后。 */}
       {shuangpinPreedit !== undefined && !hideShuangpinRows && (
         <PreeditStyleRow
           title="双拼预编辑"
@@ -211,11 +215,11 @@ export function InputSchemeDetailsSection({
           onChange={(value) => onShuangpinPreeditChange?.(value as ShuangpinPreeditStyle)}
         />
       )}
-      {/* 五笔方案在 86 与 98 码表之间切换，个人词条和学习记录按版本分开存；触屏宿主没有方案选择器，启用了五笔键盘时也在这里选。 */}
+      {/* 五笔方案在 86、98 和新世纪码表之间切换，个人词条和学习记录按版本分开存；触屏宿主没有方案选择器，启用了五笔键盘时也在这里选。偏好里不认识的值按 86 显示。 */}
       <SelectRow
         title="五笔方案"
         hidden={hasTouchKeyboardSchemes ? !touchKeyboardHasWubi : scheme !== "wubi"}
-        value={wubiProfile}
+        value={knownWubiProfile(wubiProfile)}
         onChange={(event) => onWubiProfileChange?.(event.target.value as WubiProfile)}
       >
         {wubiProfileOptions()}
@@ -256,6 +260,16 @@ export function InputSchemeDetailsSection({
         value={cantoneseInputMethod}
         onChange={(input_method) => onCantoneseChange?.({ ...cantonese, input_method })}
       />
+      {shuangpinPreedit !== undefined && cantoneseShuangpin && (
+        <PreeditStyleRow
+          title="双拼预编辑"
+          description="保留原始粤语双拼按键，或显示展开后的粤拼。与普通话双拼共用这一项。"
+          mode="cantonese_shuangpin"
+          // 引擎的粤语双拼不读「双拼分隔」，存着双拼分隔时它显示的就是原始按键，这一行照实选中「原始按键」；改这一行与普通话双拼的同名行一样经 `shuangpinPreeditPatch` 写回，选粤拼分词时分隔一并清掉。
+          value={shuangpinPreedit === "pinyin" ? "pinyin" : "raw"}
+          onChange={(value) => onShuangpinPreeditChange?.(value as ShuangpinPreeditStyle)}
+        />
+      )}
       {schemeNote("zhuyin", "注音键盘", zhuyinLayoutOptions, zhuyinDescription)}
       {schemeNote("stroke", "笔画方案", strokeLayoutOptions, strokeDescription)}
       <SegmentedRow

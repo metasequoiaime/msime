@@ -10,6 +10,7 @@ import sqlite3
 import subprocess
 import tempfile
 import threading
+import time
 
 
 def fixture(root):
@@ -17,6 +18,10 @@ def fixture(root):
         CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
         CREATE TABLE tbl_2_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);
         CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
+        CREATE TABLE wubi98(key TEXT,value TEXT,weight INTEGER);
+        CREATE TABLE wubixsj(key TEXT,value TEXT,weight INTEGER);
+        INSERT INTO wubi86 VALUES('lt','力',100);
+        INSERT INTO wubixsj VALUES('ent','力',100);
         CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);
         CREATE INDEX idx_quick_parases_key_weight ON quick_parases(key,weight DESC);
     """
@@ -32,6 +37,25 @@ def fixture(root):
         "cache": str(root / "cache"), "preferences_directory": str(root), "preferences": {},
     }), encoding="utf-8")
     return options
+
+
+def check_wubi_profiles(send):
+    """选新世纪五笔后查码只读 wubixsj 表；切回 86 后又只读 wubi86 表。合成表里「力」在 86 是 lt、在新世纪是 ent，98 表是空的。"""
+    def first(code):
+        result = send("tools/call", {"name": "lookup_candidates", "arguments": {"code": code, "scheme": "wubi", "limit": 5}})
+        assert not result.get("isError", False), result
+        candidates = result["structuredContent"]["candidates"]
+        return candidates[0]["text"] if candidates and candidates[0]["origin"] == "dictionary" else None
+
+    for profile, own, other in (("wubixsj", "ent", "lt"), ("wubi86", "lt", "ent")):
+        # 服务器每秒只收一次写入，前一次是上面的种子写入或上一轮。
+        time.sleep(1.1)
+        current = send("tools/call", {"name": "get_preferences", "arguments": {}})["structuredContent"]
+        result = send("tools/call", {"name": "update_preferences", "arguments": {
+            "expected_revision": current["revision"], "wubi_profile": profile}})
+        assert not result.get("isError", False) and result["structuredContent"]["wubi_profile"] == profile, result
+        assert first(own) == "力", (profile, own)
+        assert first(other) != "力", (profile, other)
 
 
 def verify(program):
@@ -92,6 +116,8 @@ def verify(program):
                 assert not result.get("isError", False) and isinstance(result.get("structuredContent"), dict)
                 result = send("tools/call", {"name": "list_quick_phrases", "arguments": {}})
                 assert not result.get("isError", False) and result["structuredContent"]["phrases"] == [], result
+                if flags:
+                    check_wubi_profiles(send)
             finally:
                 process.stdin.close()
                 try:
@@ -102,7 +128,7 @@ def verify(program):
                 reader.join(timeout=5)
                 process.stdout.close()
                 process.stderr.close()
-        print(f"{program.parent.name}: MCP CLI, initialize, tools/list, permissions and synthetic read calls passed")
+        print(f"{program.parent.name}: MCP CLI, initialize, tools/list, permissions, synthetic read calls and wubi profiles passed")
 
 
 if __name__ == "__main__":

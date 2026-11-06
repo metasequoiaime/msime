@@ -10,6 +10,8 @@ export type VoiceInputPreferences = {
   asr_tokens?: Record<string, string>;
   asr_app_key?: string;
   doubao_auth_mode?: "api_key" | "legacy";
+  /** macOS 跨输入法触发，旧文档缺键时关闭。 */
+  hotkey_global?: boolean;
   hotkey_ralt?: boolean;
   hotkey_ctrl_f9?: boolean;
   hotkey_ctrl_win?: boolean;

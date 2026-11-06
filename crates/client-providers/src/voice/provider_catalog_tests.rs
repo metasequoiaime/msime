@@ -129,7 +129,7 @@ fn new_polish_presets_match_the_reference_endpoints() {
         (
             "volcengine",
             "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
-            "doubao-seed-1.6-flash",
+            "doubao-seed-2-0-mini-260428",
         ),
         (
             "openrouter",
