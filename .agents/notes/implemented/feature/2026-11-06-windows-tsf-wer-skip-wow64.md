@@ -17,15 +17,16 @@ CI 上这只是红灯；落到用户那里，就是开启崩溃上报的用户�
 
 ## Decision
 
-`platforms/windows/tsf/TsfCrashCapture.cpp` 的 `capture_supported_host()` 在令牌检查之前先调 `wow64_process()`：`IsWow64Process(GetCurrentProcess())` 为 TRUE 时判为不支持，查询失败也按 WOW64 处理。结果与 AppContainer、低完整性判定放在同一个原子缓存里，于是 WOW64 宿主的 `acquire()` 直接返回无租约：不建观察者、不读授权、不调 Host API 准备记录、不调 `WerRegisterRuntimeExceptionModule`，DLL 卸载也不等后台任务。
+`platforms/windows/tsf/TsfCrashCapture.cpp` 的 `capture_supported_host()` 在令牌检查之前先调 `wow64_process()`：当前进程是 WOW64 客体时判为不支持，查询失败也按 WOW64 处理。结果与 AppContainer、低完整性判定放在同一个原子缓存里，于是 WOW64 宿主的 `acquire()` 直接返回无租约：不建观察者、不读授权、不调 Host API 准备记录、不调 `WerRegisterRuntimeExceptionModule`，DLL 卸载也不等后台任务。
 
-- `IsWow64Process` 对 x64 上的 x86 进程和 ARM64 上的 x86 进程都返回 TRUE，对原生 64 位进程（包括 ARM64 上模拟运行的 x64）和 32 位原生 Windows 返回 FALSE。它从 XP SP2 起就在 kernel32 里，Win7 TIP 可以直接导入，不需要 `GetProcAddress` 取 `IsWow64Process2`。
+- 判定优先用 `IsWow64Process2`（`GetProcAddress` 按名字从 kernel32 取，Win7 TIP 的导入表不变）：进程机器类型不是 `IMAGE_FILE_MACHINE_UNKNOWN` 就是 WOW64 客体，x64 和 ARM64 上的 x86 进程都算；原生 64 位进程、ARM64 上模拟运行的 x64 进程和 32 位原生 Windows 都不算。取不到 `IsWow64Process2` 的系统（Win7 到 Windows 10 1511 之前）退回 `IsWow64Process`，那些系统里没有 Windows on Arm，两者答案相同。
+- 不直接只用 `IsWow64Process`：它的文档对 Windows on Arm 上的 x86 进程自相矛盾，同一段既说「ARM64 处理器上的 WOW64 返回 TRUE」，又说「Windows 10 on ARM 上的 32 位应用返回 FALSE」，Remarks 里要求改用 `IsWow64Process2`。安装器在 Windows on Arm 上同样注册 32 位 TIP，如果在那里拿到 FALSE，x86 宿主就会照旧登记 helper，正是本条要避免的情况；这一点没有 ARM64 机器实测，所以选不依赖这句文档的写法。
 - 32 位原生 Windows 不是 WOW64，照常登记采集。对照只在 64 位 Windows 上做过，停顿出在 WOW64 目标改由 `SysWOW64\WerFault.exe` 处理的那条路径上；32 位原生 Windows 没有做过对照，Windows 11 也已没有 32 位版本。x64、ARM64 TIP 不受影响。
 - 安装器照旧为 x86 helper 写允许列表值。只放进允许列表、不登记的配置在对照里是 0 / 450，32 位原生 Windows 仍要用它，所以不动。
 
 测试边界与 `msime_test_wer_register` 同一个模式：`MSIME_TSF_CRASH_CAPTURE_TEST` 下，生产查询把系统的真实结果交给夹具的 `msime_test_wow64_process(actual)`，夹具按 `MSIME_TSF_TEST_WOW64`（`1` 假装 WOW64，`0` 假装不是，未设置照用真实结果）改写，并记下真实结果供用例核对。
 
-- `tsf_capture_lifecycle.cpp` 先把它设成 `0`，原有采集用例在 x86 runner 上照旧覆盖；随后假装 WOW64，断言整轮没有快照、没有登记、没有授权读取和准备，且 DLL 立即卸载；再取消改写，断言夹具收到的真实结果与 `IsWow64Process` 一致，并按真实结果断言 x86 不武装、x64 武装并登记一次。
+- `tsf_capture_lifecycle.cpp` 先把它设成 `0`，原有采集用例在 x86 runner 上照旧覆盖；随后假装 WOW64，断言整轮没有快照、没有登记、没有授权读取和准备，且 DLL 立即卸载；再取消改写，断言夹具收到的真实结果与测试进程自己用 `IsWow64Process` 查到的一致（CI 的 runner 都是 x64 Windows，两种查询在那里答案相同），并按真实结果断言 x86 不武装、x64 武装并登记一次。
 - 合成 Host API（`tsf_capture_host.cpp`）原来在清理请求到达时按当前授权判违约，而生产代码读到「已关闭」先解除武装、再请求清理；生命周期用例一看到解除武装就重新开启授权，清理晚一步到达就被误记一次违约。本 PR 的 x86 生命周期失败过一次（作业 127682113843），失败信息只有聚合计数：那次运行只用了 6.4 秒，10 秒的屏障超时不可能发生，begin 请求字段是确定的，剩下的只有这条清理竞态和写授权标记文件失败两种，前者是已知的时序窗口。现在按最近一次授权读取判断，这才是生产代码要守的契约；违约计数同时记下第一次违约的原因，再失败时信息里直接写出是哪一类。
 - `tsf_capture_system.cpp` 新增 `wow64` 用例：在真实 WOW64 进程里不改写查询，确认 TIP 不登记后触发 TIP 自有故障，要求系统以 `0xC0000005` 结束进程、不留记录。`Invoke-SystemWer.ps1` 加 `-Cases` 参数，默认仍是原来的八个用例。
 
@@ -38,7 +39,7 @@ CI 上这只是红灯；落到用户那里，就是开启崩溃上报的用户�
 - **保持登记，只在 CI 里把 x86 系统投递降为非阻塞观测（#10920 的做法）**：不动产品代码，x86 TSF 进程外采集照常；但用户侧的错误框和永久挂起照旧发生，CI 的 x86 红绿也不再有意义。输入法不能把第三方应用的崩溃变成挂起，被取代。
 - **维持阻塞，把「目标停在 `NtRaiseHardError`，或 32 位 WerFault 停在 faultrep 插件初始化、事件日志有它的 `0xC0000374`」认定为已知系统缺陷豁免（#10865 方向 2）**：判据比按等待原因猜更准；但要在 CI 里带 cdb 抓栈和事件日志解析，本质仍是对系统缺陷的豁免，用户侧问题也没解决。不采用。
 - **在 WOW64 里登记，但给 WerFault 加看门狗或改 WER 标志**：挂起发生在系统 WerFault 进程里，TIP 无法在宿主崩溃后再运行代码去结束它；对照已证明换标志不消除。不可行。
-- **用 `GetProcAddress` 取 `IsWow64Process2` 并按 `processMachine` 判定，取不到再退回 `IsWow64Process`**：能顺带知道原生架构，但这里只需要「是不是 WOW64」，`IsWow64Process` 在所有支持的系统和 ARM64 上都给出同样的答案，多一条分支只多一处要测的代码。不采用。
+- **只用 `IsWow64Process`，直接导入**：少一条分支；但它的文档对 Windows on Arm 上的 x86 进程给出相反的两种说法，并建议改用 `IsWow64Process2`，Windows on Arm 又是要排除的目标之一。最初的实现是这样写的，独立复审时改成优先 `IsWow64Process2`。不采用。
 - **在 x86 上保留直接登记的观测用例（非阻塞），用来发现微软何时修好**：每次 PR 多跑几分钟、带一条已知会随机失败的警告，换来的信号很少有人看。要复查时设 `MSIME_TSF_TEST_WOW64=0` 跑默认用例即可。不采用。
 - **再加重试或延长期限**：#10865 明确禁止；有实例 150 / 150 停顿，重试也无效。不采用。
 

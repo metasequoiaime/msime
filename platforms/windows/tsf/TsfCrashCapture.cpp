@@ -379,10 +379,19 @@ void CALLBACK observe(PTP_CALLBACK_INSTANCE instance, void *context) noexcept {
   }
 }
 
-// 32 位宿主跑在 WOW64 里（x64 和 ARM64 上的 x86 进程都是）时，登记了 helper 的故障改由 SysWOW64\WerFault.exe 处理，它会自身堆损坏或在堆锁上死锁：用户看到经典的应用程序错误框，或者崩溃的应用一直挂着不退出。没有 CRT 的空 helper 一样触发，不登记时从不触发，见 #10865。输入法不能把第三方应用的崩溃变成挂起，所以 WOW64 宿主不做进程外采集。IsWow64Process 在 ARM64 上对 x86 进程同样返回 TRUE，XP SP2 起就有，Win7 TIP 也能直接导入；查询失败按 WOW64 处理，不冒险登记。
+// 32 位宿主跑在 WOW64 里（x64 和 ARM64 上的 x86 进程都是）时，登记了 helper 的故障改由 SysWOW64\WerFault.exe 处理，它会自身堆损坏或在堆锁上死锁：用户看到经典的应用程序错误框，或者崩溃的应用一直挂着不退出。没有 CRT 的空 helper 一样触发，不登记时从不触发，见 #10865。输入法不能把第三方应用的崩溃变成挂起，所以 WOW64 宿主不做进程外采集。优先用 IsWow64Process2：它的进程机器类型不是 IMAGE_FILE_MACHINE_UNKNOWN 就是 WOW64 客体，x64 和 ARM64 上的 x86 进程都算，ARM64 上模拟运行的 x64 进程不算。IsWow64Process 的文档对 Windows on Arm 上的 x86 进程自相矛盾（同一段既说 ARM64 上的 WOW64 返回 TRUE，又说 Windows 10 on ARM 上的 32 位应用返回 FALSE），并建议改用 IsWow64Process2，所以只在 IsWow64Process2 不存在的系统上（Win7 到 Windows 10 1511 之前，都没有 Windows on Arm）退回它。IsWow64Process2 按名字动态取，Win7 TIP 的导入表不变。查询失败按 WOW64 处理，不冒险登记。
 bool wow64_process() {
+  using Query = BOOL(WINAPI *)(HANDLE, USHORT *, USHORT *);
+  const HMODULE kernel32 = GetModuleHandleW(L"kernel32.dll");
+  const auto query = kernel32 ? reinterpret_cast<Query>(reinterpret_cast<void *>(GetProcAddress(kernel32, "IsWow64Process2")))
+                              : nullptr;
   BOOL wow64 = TRUE;
-  if (!IsWow64Process(GetCurrentProcess(), &wow64)) wow64 = TRUE;
+  if (query) {
+    USHORT process = IMAGE_FILE_MACHINE_UNKNOWN, native = IMAGE_FILE_MACHINE_UNKNOWN;
+    wow64 = !query(GetCurrentProcess(), &process, &native) || process != IMAGE_FILE_MACHINE_UNKNOWN;
+  } else if (!IsWow64Process(GetCurrentProcess(), &wow64)) {
+    wow64 = TRUE;
+  }
 #if defined(MSIME_TSF_CRASH_CAPTURE_TEST)
   wow64 = msime_test_wow64_process(wow64);
 #endif
