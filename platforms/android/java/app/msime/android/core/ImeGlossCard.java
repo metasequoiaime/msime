@@ -34,6 +34,9 @@ final class ImeGlossCard {
     private final MSIMEInputService s;
     private final ExecutorService worker = Executors.newSingleThreadExecutor(
         ThreadPolicy.namedDaemonFactory("msime-gloss-card"));
+    // 单独请求译文要联网（最长等到超时），另开一个线程：放在 worker 上会让下一次打开卡片的离线释义和账号核对排在它后面，卡片一直显示「正在请求译文…」。
+    private final ExecutorService network = Executors.newSingleThreadExecutor(
+        ThreadPolicy.namedDaemonFactory("msime-gloss-card-network"));
     private LinearLayout root;
     private View shield;
     private Target target;
@@ -145,18 +148,24 @@ final class ImeGlossCard {
     }
 
     /**
-     * 每次 render 调用：会话换了（换了输入框）、组字结束或组字变了（实体键盘还能打字），卡片就不再属于眼前的候选，关掉。
+     * 每次 render 调用：会话换了（换了输入框）、组字结束或组字变了（实体键盘还能打字），卡片就不再属于眼前的候选，关掉；从联想候选打开的卡片在联想消失时关掉。
      *
      * <p>候选只是换了一代（停顿后的整句重排、云候选和 AI 候选到达）而组字没变时卡片留着：停顿重排正好在用户停下来、伸手长按的那一刻到达，按换代关卡片会让卡片刚打开就消失。卡片上的内容属于候选文字，换代不影响它；要用候选身份的词库操作在执行时按文字在新一代里重新找（{@link #currentId}）。
      */
     void sync() {
         if (!visible()) return;
-        if (s.session != session || s.view == null || !s.hasEngineComposition()
-                || !editingText.equals(InputViewValuePolicy.editingText(s.view))) close();
+        if (s.session != session || s.view == null
+                || !editingText.equals(InputViewValuePolicy.editingText(s.view))) {
+            close();
+            return;
+        }
+        // 上屏后的联想候选没有组字，长按它打开的卡片在联想还显示着时留着；联想没了（移了光标、换了输入框）就关掉。
+        if (editingText.isEmpty() && !s.view.optBoolean("prediction", false)) close();
     }
 
     void shutdown() {
         worker.shutdownNow();
+        network.shutdownNow();
     }
 
     // ---- 译文 ----
@@ -289,7 +298,7 @@ final class ImeGlossCard {
         CandidateTranslationStore store = store();
         if (missing.isEmpty() || store == null) return;
         String raw = target.raw();
-        onlinePending = store.request(raw, missing, worker, arrived -> {
+        onlinePending = store.request(raw, missing, network, arrived -> {
             if (opened != epoch) return;
             onlinePending = false;
             copyCached(store);

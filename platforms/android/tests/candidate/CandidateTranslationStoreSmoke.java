@@ -362,17 +362,17 @@ public final class CandidateTranslationStoreSmoke {
             cardWorker.shutdownNow();
         }
         FakeScheduler clearedScheduler = new FakeScheduler();
-        java.util.concurrent.atomic.AtomicInteger clearedCalls = new java.util.concurrent.atomic.AtomicInteger();
+        java.util.concurrent.atomic.AtomicReference<Boolean> clearedArrived = new java.util.concurrent.atomic.AtomicReference<>();
         ExecutorService clearedWorker = Executors.newSingleThreadExecutor();
         CandidateTranslationStore clearedStore = new CandidateTranslationStore(
             (texts, target) -> List.of("old account"), clearedWorker, clearedScheduler, generation -> { });
         clearedWorker.shutdown();
-        check(clearedStore.request("水杉", List.of("en"), Runnable::run, value -> clearedCalls.incrementAndGet()),
+        check(clearedStore.request("水杉", List.of("en"), Runnable::run, clearedArrived::set),
             "request is sent");
         clearedStore.clear();
         clearedScheduler.runPosted();
-        check(clearedStore.gloss("水杉", "en") == null && clearedCalls.get() == 0,
-            "an answer arriving after the cache was cleared is dropped");
+        check(clearedStore.gloss("水杉", "en") == null && Boolean.FALSE.equals(clearedArrived.get()),
+            "an answer arriving after the cache was cleared is dropped and the card stops waiting");
         check(!clearedStore.boundTo(null) && !clearedStore.boundTo("1:a"), "an unbound store belongs to no account");
         clearedStore.bindTo("1:a");
         check(clearedStore.boundTo("1:a") && !clearedStore.boundTo("2:a"), "boundTo only reads the binding");

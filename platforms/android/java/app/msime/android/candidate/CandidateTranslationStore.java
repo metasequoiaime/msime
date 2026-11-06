@@ -135,7 +135,7 @@ public final class CandidateTranslationStore {
     /**
      * 释义卡片为一个候选单独请求一次（#10915）：只问缓存里还没有的目标语言，不经过防抖，也不取消排着的整页请求；回答照整页请求的规则清洗后进同一份缓存，之后整页刷新问到这个词时直接用。缓存清空（换服务、换凭据、换账号）之后才到的回答丢掉。
      *
-     * <p>{@code executor} 由调用方给：整页请求的 worker 只排得下一个任务、新任务挤掉旧的，单独请求放在那里可能一声不响地被下一次按键挤掉，卡片就一直等着。{@code done} 在主线程上调用，参数是这次有没有新译文；没有要问的（不是中文、每种语言都已经有了）时不发请求、不调用它并返回 false。
+     * <p>{@code executor} 由调用方给：整页请求的 worker 只排得下一个任务、新任务挤掉旧的，单独请求放在那里可能一声不响地被下一次按键挤掉，卡片就一直等着。{@code done} 在主线程上调用，参数是这次有没有新译文（缓存清空后才到的回答丢掉，参数为 false）；没有要问的（不是中文、每种语言都已经有了）时不发请求、不调用它并返回 false。
      */
     public boolean request(String word, List<String> targets, java.util.concurrent.Executor executor,
                            java.util.function.Consumer<Boolean> done) {
@@ -161,7 +161,11 @@ public final class CandidateTranslationStore {
                     }
                 }
                 scheduler.post(() -> {
-                    if (stale.getAsBoolean()) return;
+                    // 缓存清空后才到的回答丢掉，但照样告诉调用方「没有新译文」，卡片不会一直停在请求中。
+                    if (stale.getAsBoolean()) {
+                        done.accept(false);
+                        return;
+                    }
                     boolean arrived = false;
                     for (Map.Entry<String, String> answer : answers.entrySet()) {
                         String value = usable(answer.getValue(), word);
