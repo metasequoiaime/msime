@@ -59,6 +59,8 @@ public final class AboutPage extends DetailPage {
     private static final String PRIVACY = "https://msime.app/privacy/";
     private static final String REPOSITORY = "https://github.com/metasequoiaime/msime";
     private static final int MAX_NOTICE_CHARS = 200_000;
+    /** 粤语双拼键位方案设计者陳澍鋒的致谢（#9799），与 iOS、共享设置页同一份说明（`resources/licenses/cantonese-shuangpin-scheme-NOTICE.txt`）；不是许可证，但致谢与许可列在一处，不放进选方案的面板。 */
+    private static final String CANTONESE_SHUANGPIN_CREDIT = "cantonese-shuangpin-scheme-NOTICE.txt";
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
     /** 检查更新药丸的几种状态。 */
@@ -378,7 +380,7 @@ public final class AboutPage extends DetailPage {
                 for (String file : files) found.add("native-notices/" + abis[0] + "/" + file);
             }
         }
-        for (String fixed : new String[] {"client-LICENSE.txt", "emoji-combinations-NOTICE.txt", "helpcodes/NOTICE.md", "helpcodes/NOTICE-jiajia.md",
+        for (String fixed : new String[] {"client-LICENSE.txt", CANTONESE_SHUANGPIN_CREDIT, "emoji-combinations-NOTICE.txt", "helpcodes/NOTICE.md", "helpcodes/NOTICE-jiajia.md",
                 "helpcodes/NOTICE-wubi86.md", "offline-glosses/offline-glosses-NOTICE.txt",
                 // 背单词内置词书取自 ECDICT（MIT），许可声明随词书一起打进 assets/wordbooks。
                 "wordbooks/wordbooks-NOTICE.txt"}) {
@@ -429,6 +431,7 @@ public final class AboutPage extends DetailPage {
     private String noticeTitle(String path) {
         String name = path.substring(path.lastIndexOf('/') + 1);
         if ("client-LICENSE.txt".equals(name)) return getString(R.string.app_name);
+        if (CANTONESE_SHUANGPIN_CREDIT.equals(name)) return "粤语双拼键位方案 · 陳澍鋒设计";
         int dot = name.lastIndexOf('.');
         return dot > 0 ? name.substring(0, dot) : name;
     }

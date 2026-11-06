@@ -445,6 +445,8 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
   /// The Engine's ASCII spelling and the caret inside it, as a byte offset. The caret leaves the end only when the user moves it (dragging the space bar while composing), which is the Windows host's ← / → editing of the input string.
   let editingText: String
   let caretPosition: Int
+  /// View 的 `grid_composing`：这次组字是在九键、14 键、18 键、九键双拼的组码网格里打的。光标隔着只在显示时才有的分隔时画在哪一侧看它（`CompositionCaretPolicy.markIndex`），与 Android 相同。
+  let gridComposing: Bool
   /// View 的 `punctuation_marks`：中文标点下 `'` 出「」、`"` 出『』（直角引号），`[` `]` 出〖〗（空心括号）。host-api 已按繁体输出开关解析好 `corner_when_traditional`，键盘画键面和补全成对标点时读它，不自己解析偏好。
   let cornerQuotes: Bool
   let hollowBrackets: Bool
@@ -476,7 +478,7 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
        candidatePageCount: Int = 0, answeredByPinyinFallback: Bool = false,
        diagnosticText: String? = nil, localMode: String = "none",
        nineKeySpellings: [String] = [], nineKeyReading: String = "", nineKeySingleCharacter: Bool = false,
-       nineKeyStrokes: String = "", editingText: String = "", caretPosition: Int = 0,
+       nineKeyStrokes: String = "", editingText: String = "", caretPosition: Int = 0, gridComposing: Bool = false,
        cornerQuotes: Bool = false, hollowBrackets: Bool = false,
        enumerationCommaBackslash: Bool = true, enumerationCommaSlash: Bool = false,
        isPrediction: Bool = false, requiresCandidateSelection: Bool = false) {
@@ -507,6 +509,7 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
     self.nineKeyStrokes = nineKeyStrokes
     self.editingText = editingText
     self.caretPosition = caretPosition
+    self.gridComposing = gridComposing
     self.cornerQuotes = cornerQuotes
     self.hollowBrackets = hollowBrackets
     self.enumerationCommaBackslash = enumerationCommaBackslash
@@ -1084,6 +1087,19 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     updateAndPersist { preferences in
       preferences["traditional_chinese_output"] = enabled
     }
+  }
+
+  /// 粤拼和粤语双拼输出简体（`cantonese_simplified_output`）：写进运行中的会话和共享文档。繁转简在 Engine 出候选时做，组字中切换时等这段组字结束才生效；全局的 `traditional_chinese_output` 不动。
+  @discardableResult
+  func setCantoneseSimplifiedOutput(_ enabled: Bool) -> Bool {
+    updateAndPersist { preferences in
+      preferences["cantonese_simplified_output"] = enabled
+    }
+  }
+
+  /// 文档里记的粤拼输出字形；没记过时为繁体（false）。
+  var cantoneseSimplifiedOutput: Bool {
+    sharedPreferences?["cantonese_simplified_output"] as? Bool ?? false
   }
 
   /// 键盘功能菜单里的模糊音：在运行中的会话和共享文档里切换 `fuzzy_pinyin.enabled`，保留设置 app 选好的规则。如果文档里一条规则都没选，或者从未初始化过，打开时会启用全部规则，这样开关总会改变 Engine 接受的输入。
@@ -2390,6 +2406,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       nineKeyStrokes: view["nine_key_strokes"] as? String ?? "",
       editingText: editingText,
       caretPosition: caretPosition,
+      gridComposing: try strictBool(view["grid_composing"], fallback: false),
       cornerQuotes: marks["quotes"] as? String == "corner",
       hollowBrackets: marks["brackets"] as? String == "hollow",
       enumerationCommaBackslash: marks["enumeration_comma_backslash"] as? Bool ?? true,

@@ -407,7 +407,7 @@ final class LanguageSchemesTests: XCTestCase {
     XCTAssertTrue(TouchShuangpinLayoutPreference.save(.twentySixKey, stateRoot: state))
     XCTAssertTrue(TouchWubiLayoutPreference.save(.fourteenKey, stateRoot: state))
     XCTAssertEqual(TouchWubiLayoutPreference.layout, .fourteenKey, "the App Group mirror follows a saved document")
-    for profile in ["wubi98", "wubi86"] {
+    for profile in ["wubi98", "wubixsj", "wubi86"] {
       XCTAssertTrue(WubiProfilePreference.save(profile, stateRoot: state))
       let reloaded = MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state)
       XCTAssertEqual(TouchWubiLayoutPreference.layout(in: reloaded), .fourteenKey, profile)

@@ -141,6 +141,10 @@ mod inotify_tests {
 /// One shared polling state for all desktop shells. Input capture remains in the host.
 pub(crate) struct Monitor {
     revision: Option<u64>,
+    #[cfg(target_os = "macos")]
+    global_voice: super::global_voice_setup::GlobalVoiceSetupWorker,
+    #[cfg(target_os = "macos")]
+    started: std::time::Instant,
     history: Option<Vec<ClipboardHistoryEntry>>,
 }
 
@@ -148,8 +152,17 @@ impl Monitor {
     pub(crate) fn new(store: &PreferencesStore) -> Self {
         Self {
             revision: store.load().ok().map(|snapshot| snapshot.revision),
+            #[cfg(target_os = "macos")]
+            global_voice: super::global_voice_setup::GlobalVoiceSetupWorker::new(false),
+            #[cfg(target_os = "macos")]
+            started: std::time::Instant::now(),
             history: None,
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn manage_installed_voice_host(&mut self, managed: bool) {
+        self.global_voice = super::global_voice_setup::GlobalVoiceSetupWorker::new(managed);
     }
 
     pub(crate) fn poll<R: Runtime>(
@@ -159,6 +172,20 @@ impl Monitor {
         history: &Mutex<ClipboardHistoryStore>,
     ) {
         let Ok(snapshot) = store.load() else { return };
+        #[cfg(target_os = "macos")]
+        {
+            let enabled = snapshot.preferences.voice_input.hotkey_global
+                && snapshot.preferences.voice_input.enabled;
+            if let Err(category) =
+                self.global_voice
+                    .poll(enabled, self.started.elapsed(), |enabled| {
+                        crate::platform::macos::macos_input_source::configure_global_voice(enabled)
+                    })
+            {
+                eprintln!("MSIME global voice setup: {category}");
+            }
+        }
+
         if let Ok(mut history) = history.lock() {
             history.set_limit(snapshot.preferences.clipboard_history_limit);
         }

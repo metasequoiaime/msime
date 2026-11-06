@@ -3,6 +3,8 @@
 //! The corpus is conversational Hong Kong Cantonese from 1997–98, word-segmented and tagged, about 160 thousand tokens. rime-cantonese's essay is mostly written Chinese and lacks the commonest colloquial words (我哋, 佢哋, 嗰啲, 有冇), so `cantonese.rs` weighs a word the essay does not list by its count here.
 //!
 //! Each transcription holds `<sent_tag>` blocks with one `word/part-of-speech/jyutping/` token per line. A token's count is the number of such lines with that word, summed over every file and part of speech. A line that does not split into exactly those three fields and an empty fourth is not a token the corpus vouches for (the transcribers' `○/#/#/@` placeholder for an unclear syllable, `？幾/m/gei2/@`), and is counted as skipped rather than read. Only words of two or more characters, all of them Han, are written: single characters are weighed by the essay alone, and the corpus' Latin letters, digits and punctuation are not dictionary words.
+//!
+//! 完成体助词「咗」在语料里总是单独一个标注（`做/v/zou6/`、`咗/u/zo2/`），词库里的 做咗、借咗、買咗 因此一次也数不到，只能拿词表或门槛的兜底权重，排在同一双拼码上 essay 收的 早在、這在 之后（#10909）。所以同一个 `<sent_tag>` 块里紧跟在一个全汉字标注后面的「咗」，另把两者拼起来按一个词再计一次（`做` + `咗` 计 `做咗`）；拼出的词与语料本来就整体标注的同形词（除咗、為咗）合计。只拼「咗」：语料的 `u` 类还有 嘅、到、下、啲、過、得、住、晒、返 等，全部拼合时 essay 收的碎片也有了佐证（返返 压过 犯法、睇過 压过 太過），换算系数也跟着变，见 msime 的 `.agents/notes/implemented/bug-fix/2026-11-05-cantonese-perfective-pairs.md`。
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -21,7 +23,12 @@ pub struct Counts {
     pub files: usize,
     pub tokens: usize,
     pub skipped: usize,
+    /// 拼进前一个标注计数的「咗」的个数。
+    pub perfective_pairs: usize,
 }
+
+/// 单独标注、要拼进前一个标注计数的完成体助词。
+pub const PERFECTIVE: &str = "咗";
 
 fn is_han(c: char) -> bool {
     matches!(c, '\u{3400}'..='\u{4dbf}' | '\u{4e00}'..='\u{9fff}' | '\u{f900}'..='\u{faff}' | '\u{20000}'..='\u{323af}')
@@ -33,30 +40,45 @@ pub fn count(files: &[(&str, &str)]) -> Result<Counts> {
     for (name, source) in files {
         let mut inside = false;
         let mut blocks = 0;
+        // 同一块里紧挨着的上一个有效标注；块的边界和跳过的行都把它清掉，「咗」只和真正相邻的标注拼。
+        let mut previous: Option<&str> = None;
         for line in source.lines() {
             let line = line.trim();
             match line {
                 "<sent_tag>" if !inside => {
                     inside = true;
                     blocks += 1;
+                    previous = None;
                 }
                 "<sent_tag>" => bail!("{name}: <sent_tag> inside <sent_tag>"),
-                "</sent_tag>" => inside = false,
+                "</sent_tag>" => {
+                    inside = false;
+                    previous = None;
+                }
                 "" => {}
                 _ if inside => {
                     let fields: Vec<&str> = line.split('/').collect();
                     let [word, part, reading, ""] = fields[..] else {
                         counts.skipped += 1;
+                        previous = None;
                         continue;
                     };
                     if word.is_empty() || part.is_empty() || reading.is_empty() {
                         counts.skipped += 1;
+                        previous = None;
                         continue;
                     }
                     counts.tokens += 1;
                     if word.chars().count() >= 2 && word.chars().all(is_han) {
                         *counts.words.entry(word.to_owned()).or_insert(0) += 1;
                     }
+                    if word == PERFECTIVE {
+                        if let Some(head) = previous.filter(|head| head.chars().all(is_han)) {
+                            *counts.words.entry(format!("{head}{word}")).or_insert(0) += 1;
+                            counts.perfective_pairs += 1;
+                        }
+                    }
+                    previous = Some(word);
                 }
                 _ => {}
             }
@@ -89,7 +111,7 @@ pub fn render(counts: &Counts, provenance: &Provenance) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "# 香港粤语语料库（HKCanCor）词频表，由 msime 仓库提交 {} 的 crates/dict-builder/src/hkcancor.rs 以 `msime-dict-build hkcancor-counts --cache <dir> --out {OUTPUT}` 生成；不要手工编辑。", provenance.generator_commit);
     let _ = writeln!(out, "# 上游：https://github.com/fcbond/hkcancor 提交 {} 的 data/utf8/ 下 {} 个转写文件（K. K. Luke and May L. Y. Wong, The Hong Kong Cantonese Corpus: Design and Uses, Journal of Chinese Linguistics Monograph Series 25, 2015；CC BY 4.0，见上游 data/LICENSE）。", provenance.upstream_commit, counts.files);
-    let _ = writeln!(out, "# 计数：<sent_tag> 块里每行一个 词/词性/粤拼/ 标注，一行计一次，不分词性、跨文件相加；拆不成这三段加空尾段的行（转写者的 ○/#/#/@ 占位等）不计。共 {} 个标注，跳过 {} 行。只写出两个及以上汉字组成的词，单字、字母、数字与标点不写；不与其他文件对照去重，每个词一行。", counts.tokens, counts.skipped);
+    let _ = writeln!(out, "# 计数：<sent_tag> 块里每行一个 词/词性/粤拼/ 标注，一行计一次，不分词性、跨文件相加；拆不成这三段加空尾段的行（转写者的 ○/#/#/@ 占位等）不计。共 {} 个标注，跳过 {} 行。只写出两个及以上汉字组成的词，单字、字母、数字与标点不写；不与其他文件对照去重，每个词一行。紧跟在一个全汉字标注后面的「{PERFECTIVE}」另与它拼成一个词再计一次（做 + {PERFECTIVE} 计 做{PERFECTIVE}），与整体标注的同形词合计，共拼了 {} 个。", counts.tokens, counts.skipped, counts.perfective_pairs);
     for (count, word) in ordered {
         let _ = writeln!(out, "{word}\t{}", -count);
     }
@@ -134,6 +156,33 @@ mod tests {
         words.sort_unstable();
         // 去 is one character and CD is not Han, so neither is written; 𠻺 is outside the BMP.
         assert_eq!(words, [("嗰啲", 2), ("我哋", 4), ("𠻺吓", 2)]);
+    }
+
+    #[test]
+    fn a_perfective_particle_is_counted_with_the_token_before_it() {
+        // 做 咗 拼成 做咗；整体标注的 除咗 与拼出的 除咗 合计；占位行隔开的 借 与 咗 不拼；块首的 咗 前面没有标注；字母标注 CD 后面的 咗 不拼。
+        let file = "<sent_tag>\n做/v/zou6/\n咗/u/zo2/\n除咗/p/ceoi4zo2/\n除/p/ceoi4/\n咗/u/zo2/\n</sent_tag>\n<sent_tag>\n咗/u/zo2/\n借/v/ze3/\n○/#/#/@\n咗/u/zo2/\nCD/n/si1di1/\n咗/u/zo2/\n唔記得/v/m4gei3dak1/\n咗/u/zo2/\n</sent_tag>\n";
+        let counts = count(&[("x", file)]).unwrap();
+        let mut words: Vec<(&str, i64)> = counts
+            .words
+            .iter()
+            .map(|(word, count)| (word.as_str(), *count))
+            .collect();
+        words.sort_unstable();
+        assert_eq!(
+            words,
+            [("做咗", 1), ("唔記得", 1), ("唔記得咗", 1), ("除咗", 2)]
+        );
+        assert_eq!(counts.perfective_pairs, 3);
+        assert_eq!((counts.tokens, counts.skipped), (12, 1));
+        let rendered = render(
+            &counts,
+            &Provenance {
+                upstream_commit: "39aeadf920e0b5ca93d0ad7792c59e740e7bdd65",
+                generator_commit: "0123456789abcdef0123456789abcdef01234567",
+            },
+        );
+        assert!(rendered.contains("共拼了 3 个。"), "{rendered}");
     }
 
     #[test]

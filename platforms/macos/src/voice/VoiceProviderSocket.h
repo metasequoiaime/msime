@@ -1,4 +1,7 @@
 #pragma once
+#include <atomic>
+#include <cstdint>
+#include <limits>
 
 #import <Foundation/Foundation.h>
 #import "../settings/RuntimeOptions.h"
@@ -44,4 +47,14 @@ static inline NSString *MSIMEVoiceProviderSocket(void) {
         optionsPath = [[NSBundle.mainBundle pathForResource:@"runtime-options" ofType:@"json"] copy];
     return MSIMEVoiceProviderSocketFromOptionsPath(optionsPath, NSProcessInfo.processInfo.environment,
                                                    NSFileManager.defaultManager);
+}
+
+// socket 服务按宿主 PID 与租约匹配；不同 IMK 核心会话不能复用各自从 1 开始的代次。
+inline uint64_t MSIMENextVoiceSocketLease() {
+    static std::atomic<uint64_t> next{0};
+    uint64_t value = next.load(std::memory_order_relaxed);
+    while (value != std::numeric_limits<uint64_t>::max()) {
+        if (next.compare_exchange_weak(value, value + 1, std::memory_order_relaxed)) return value + 1;
+    }
+    return 0;
 }

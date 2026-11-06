@@ -42,9 +42,9 @@ pub fn delete_dictionary_candidate(
     }
     let table = match kind {
         PersonalDictionaryKind::Pinyin => super::journal::pinyin_table(key),
-        PersonalDictionaryKind::Wubi | PersonalDictionaryKind::Wubi98 => {
-            kind.wubi_table().map(str::to_owned)
-        }
+        PersonalDictionaryKind::Wubi
+        | PersonalDictionaryKind::Wubi98
+        | PersonalDictionaryKind::WubiXsj => kind.wubi_table().map(str::to_owned),
         PersonalDictionaryKind::English => Some("english_words".to_owned()),
         // 粤语词没有工作表；候选窗不对粤语行开放删除（`is_editable_source`）。
         PersonalDictionaryKind::QuickPhrase | PersonalDictionaryKind::Cantonese => None,

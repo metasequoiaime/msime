@@ -972,7 +972,7 @@ fn describe(positions: &[&[String]], description: &mut String) {
     }
 }
 
-fn deduplicate_candidates(candidates: &mut Vec<CantoneseCandidate>) {
+pub(crate) fn deduplicate_candidates(candidates: &mut Vec<CantoneseCandidate>) {
     if candidates.len() <= SMALL_CANDIDATE_DEDUP {
         let mut write = 0;
         for read in 0..candidates.len() {
