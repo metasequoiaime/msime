@@ -492,8 +492,9 @@ final class ImeVoiceEntry {
         int rowGap = s.halfSpacingPixels(s.touchRowSpacingTenths) * 2;
         int utilityHeight = s.pixels(44) + rowGap;
         LinearLayout actions = LayoutPolicy.column(s);
-        // 键帽自己带半个键距的外边距，容器只补到设计的 6 dp 键区边距。
-        int edge = BoundsPolicy.nonNegative(s.pixels(KeyboardGeometry.DESIGN_PADDING_HORIZONTAL_DP) - keyGap / 2);
+        // 键帽自己带半个键距的外边距，容器只补到设计的 6 dp 键区边距。面板没能盖住功能行时（没有可见的功能行）仍挂在键区里，键区已经补过这份边距，再补一次最外侧键帽就离屏幕边缘约 9 dp。
+        int edge = coveredActionRow == null ? 0
+            : BoundsPolicy.nonNegative(s.pixels(KeyboardGeometry.DESIGN_PADDING_HORIZONTAL_DP) - keyGap / 2);
         ViewPolicy.setHorizontalPaddingPreservingVertical(actions, edge);
         LinearLayout cancelRow = LayoutPolicy.row(s);
         cancelRow.addView(new View(s), holdKeyParams(0, utilityHeight, 1));

@@ -13,7 +13,7 @@ Status: implemented
 ## Decision
 
 - **间距跟用户的键区设置走。** 新增 `holdKeyParams(width, slotHeight, weight)`：键位四周各留半个键距（`s.halfSpacingPixels(s.touchKeySpacingTenths)`）和半个行距（`touchRowSpacingTenths`），相邻键帽之间正好一个键距，上下两行之间一个行距，与普通键区和回复面板（`ImePanels.applyReplyGeometry`）取同一组设置。`slotHeight` 是含行距的整格高度，键帽高度扣掉上下两个半行距。
-- **左右边距与键区一致。** 操作区容器按 `DESIGN_PADDING_HORIZONTAL_DP - 半个键距` 补左右内边距，最外侧键帽距屏幕边缘 6 dp，和键区的算法相同。
+- **左右边距与键区一致。** 操作区容器按 `DESIGN_PADDING_HORIZONTAL_DP - 半个键距` 补左右内边距，最外侧键帽距屏幕边缘 6 dp，和键区的算法相同。只在面板盖住了功能行、搬到键区外面时补：没有可见功能行时面板仍挂在键区（`keyRows`）里，键区本身已经有这份内边距，再补一次最外侧键帽会离屏幕边缘约 9 dp。
 - **空位也带外边距。** 取消行两侧和标点行中间的空位用同一份参数，同一行每格扣掉的外边距一样多，按权重分到的列宽才和上下行一致。
 - **最下一行与上一行同列。** 「松开发送」先拿两个键距的宽度，剩下的再按 1:3:1 分。这样 🔓、「发送」和「符」「其他」一样宽，「松开发送」正好占中间三列加两个键距；只给三键加外边距的话，🔓 的右沿会比「符」偏出约 4/5 个半键距（默认设置约 2.4 dp）。
 - **控制行整格高度不变。** 仍取被覆盖的原功能行高度，键帽在这一格里上下各让半个行距，和原功能行的键帽同一位置，按住原空格的手指照样落在「松开发送」上。新增的上方两行行距由 weight=1 的 `VoiceListeningView` 让出，面板总高度不变。
@@ -35,4 +35,4 @@ Status: implemented
 
 - `VoiceHoldDeviceChecks.assertHoldKeyGaps`：在真实输入法窗口里锁定后，量「符」与「！」、「，」与「其他」、🔓 与「已锁定」、「已锁定」与「发送」之间的横向空隙，取消行与标点行、标点行与控制行之间的纵向空隙，以及最外侧两键与键盘窗口边缘的空隙，都必须大于 0；🔓 与「符」右沿、「发送」与「其他」左沿相差不超过 1 px。弹层里换行、空格、删除两两之间也要有空隙。改之前的代码上这些键帽首尾相接，第一条断言就失败。
 - `platforms/android/check-host.sh` 钉住接线：键位经 `holdKeyParams` 取键距和行距，操作区不再直接 new 不带外边距的键位参数。把 `ImeVoiceEntry.java` 换回 develop 的版本，这一段报错退出；换回改后的版本通过。
-- `voice-lifecycle.sh hold` 把锁定后的面板截图拉回 `target/android/voice-hold-panel-api<N>.png`，Android device 作业不论成败都上传为产物，PR 的改后截图取自这里。
+- `voice-lifecycle.sh hold` 先删掉设备上上一轮的截图（专项在截图之前失败时不会拉回旧面板），再把锁定后的面板截图拉回 `target/android/voice-hold-panel-api<N>.png`，Android device 作业不论成败都上传为产物，PR 的改后截图取自这里。
