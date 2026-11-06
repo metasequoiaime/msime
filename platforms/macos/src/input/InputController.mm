@@ -1346,10 +1346,9 @@ static void MSIMEStartCapsLockHIDTracking() {
     IOHIDManagerRegisterDeviceMatchingCallback(manager, &MSIMECapsLockHIDDeviceMatched, nullptr);
     IOHIDManagerRegisterDeviceRemovalCallback(manager, &MSIMECapsLockHIDDeviceRemoved, nullptr);
     IOHIDManagerRegisterInputValueCallback(manager, &MSIMECapsLockHIDInputValue, nullptr);
-    IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), kCFRunLoopDefaultMode);
+    // 同一个管理器只能调度一次：第二次 IOHIDManagerScheduleWithRunLoop 会在 IOKit 里以「Schedule failed queue: runLoop:」断言中止整个输入法进程（#10999）。CommonModes 已经包含默认模式，也覆盖事件跟踪和模态面板期间的模式。
     IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), kCFRunLoopCommonModes);
     if (IOHIDManagerOpen(manager, kIOHIDOptionsTypeNone) != kIOReturnSuccess) {
-        IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), kCFRunLoopDefaultMode);
         IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), kCFRunLoopCommonModes);
         CFRelease(manager);
         return;
