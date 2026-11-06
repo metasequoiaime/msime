@@ -2,9 +2,9 @@ import XCTest
 
 /// 光标前打到 `xxx@` 时候选栏给出的邮箱后缀，与 Android 的 `EmailSuffixPolicySmoke` 逐条对应。
 final class EmailSuffixPolicyTests: XCTestCase {
-  func testTwentyLowercaseSuffixesWithDomesticOnesFirst() {
+  func testSeventeenLowercaseSuffixesWithDomesticOnesFirst() {
     let all = EmailSuffixPolicy.suffixes
-    XCTAssertEqual(all.count, 20)
+    XCTAssertEqual(all.count, 17)
     XCTAssertEqual(Set(all).count, all.count)
     XCTAssertEqual(Array(all.prefix(7)), ["@qq.com", "@163.com", "@126.com", "@foxmail.com", "@139.com", "@189.cn", "@aliyun.com"])
     for suffix in all {
@@ -27,6 +27,12 @@ final class EmailSuffixPolicyTests: XCTestCase {
   func testFinishedOrUnknownDomainOffersNothing() {
     XCTAssertNil(EmailSuffixPolicy.match(textBeforeCursor: "abc@163.com"))
     XCTAssertNil(EmailSuffixPolicy.match(textBeforeCursor: "abc@example.org"))
+  }
+
+  func testRemovedMicrosoftDomainsOfferNothing() {
+    for domain in ["outlook.com", "hotmail.com", "live.com", "msn.com"] {
+      XCTAssertNil(EmailSuffixPolicy.match(textBeforeCursor: "abc@\(domain)"), domain)
+    }
   }
 
   func testOnlyTheCharacterBeforeTheLastAtIsChecked() {
