@@ -13,7 +13,7 @@ const TRIGGERS: [(&str, &str); 4] = [("www", "."), ("http", ":"), ("https", ":")
 const EMAIL_KEY: char = '@';
 
 /// 常用邮箱后缀，国内常用的在前，然后是海外的。与 Android、iOS、鸿蒙宿主各自的后缀表（任何输入框里打到 `xxx@` 时候选栏给出）是同一份、同一个顺序，`scripts/test-email-suffixes.py` 核对四处一致。
-pub const EMAIL_SUFFIXES: [&str; 20] = [
+pub const EMAIL_SUFFIXES: [&str; 17] = [
     "@qq.com",
     "@163.com",
     "@126.com",
@@ -22,9 +22,6 @@ pub const EMAIL_SUFFIXES: [&str; 20] = [
     "@189.cn",
     "@aliyun.com",
     "@gmail.com",
-    "@outlook.com",
-    "@hotmail.com",
-    "@live.com",
     "@icloud.com",
     "@yahoo.com",
     "@proton.me",
@@ -210,7 +207,7 @@ mod tests {
         let all = email_completions("zhangsan@");
         assert_eq!(all.len(), EMAIL_SUFFIXES.len());
         assert_eq!(all[0], "zhangsan@qq.com");
-        assert_eq!(all[19], "zhangsan@yahoo.co.jp");
+        assert_eq!(all[16], "zhangsan@yahoo.co.jp");
         assert_eq!(
             email_completions("abc@1"),
             ["abc@163.com", "abc@126.com", "abc@139.com", "abc@189.cn"]

@@ -234,6 +234,8 @@ extension BackendRustClient.Failure: LocalizedError {
     case "account_banned", "community_account_banned": return BackendAccountClient.Failure.moderationMessages["account_banned"]
     case "account_invalid", "invalid_cloud_clipboard", "invalid_cloud_dictionary", "community_invalid", "snapshot_invalid":
       return "填写的内容无效，请检查后重试。"
+    case "account_unsupported_email_domain":
+      return "该邮箱域名暂不支持邮箱验证码，请改用常用邮箱或手机号。"
     case "account_unauthorized", "community_unauthorized": return "登录已失效，请重新登录。"
     case "account_conflict", "snapshot_conflict", "community_conflict": return "云端内容已被其他设备更新，请刷新后重新确认。"
     case "account_rate_limited", "community_rate_limited":

@@ -16,7 +16,7 @@ public final class EmailSuffixPolicy {
     /** 常用邮箱后缀：国内常用的在前，然后是海外的。符号面板「网络」分类和候选栏用同一份、同一个顺序。引擎网址模式的邮箱补全（`crates/engine/src/local/url.rs` 的 `EMAIL_SUFFIXES`）也是这一份，iOS 和 HarmonyOS 键盘的后缀表同样是它的副本，`scripts/test-email-suffixes.py` 核对四处一致。 */
     public static final List<String> SUFFIXES = List.of(
         "@qq.com", "@163.com", "@126.com", "@foxmail.com", "@139.com", "@189.cn", "@aliyun.com",
-        "@gmail.com", "@outlook.com", "@hotmail.com", "@live.com", "@icloud.com", "@yahoo.com",
+        "@gmail.com", "@icloud.com", "@yahoo.com",
         "@proton.me", "@protonmail.com", "@aol.com", "@mail.com", "@gmx.com", "@naver.com", "@yahoo.co.jp");
 
     /**

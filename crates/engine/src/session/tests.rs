@@ -15306,6 +15306,7 @@ INSERT INTO quick_parases VALUES('qq','腾讯',20);"
 }
 
 mod caret_suffix;
+mod grid_helpcode;
 mod lifecycle;
 mod offensive_placement;
 mod prediction_pool;
