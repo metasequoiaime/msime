@@ -4,11 +4,14 @@ import app.msime.android.DimensionPolicy;
 
 import app.msime.android.ThemeColorPolicy;
 import android.animation.ValueAnimator;
+import android.graphics.Rect;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.LinearLayout;
 import android.widget.FrameLayout;
 import android.widget.TextView;
@@ -44,6 +47,10 @@ import app.msime.android.WindowInsetsPolicy;
 public abstract class DetailPage extends HomeTabFragment {
     /** tab 根页在 arguments 里的标记。键名带连字符，外部深链的参数键（`HostDeepLink.isAllowedArgKey`）伪造不了它。 */
     private static final String ARG_TAB_ROOT = "detail-tab-root";
+    /** 搜索定位高亮的强调色不透明度（0–255）、停留和褪去的时长。 */
+    private static final int SEARCH_HIGHLIGHT_ALPHA = 56;
+    private static final long SEARCH_HIGHLIGHT_HOLD_MILLIS = 700;
+    private static final long SEARCH_HIGHLIGHT_FADE_MILLIS = 900;
     /** 根页的标题起始边距，与设置 tab 收起后的顶栏（`page_keyboard.xml` 的 `keyboard_bar`）一致。 */
     private static final int TAB_ROOT_TITLE_START = 20;
 
@@ -72,6 +79,8 @@ public abstract class DetailPage extends HomeTabFragment {
     @Nullable private SegmentedControl sectionTabs;
     private List<String> visibleSections = List.of();
     private String shownSection = "";
+    /** 设置首页搜索结果要定位的那一行的标题（{@link HostDeepLink#ARG_ROW}），还没找到时非空。行可能要等页面异步读完设置才画出来，所以每次布局后找一遍；找到、用户自己切分类或滚动页面时清空。 */
+    @Nullable private String pendingRow;
 
     /** 页面显式声明分类顺序；空列表表示没有分类导航。 */
     protected List<String> sectionTitles() { return List.of(); }
@@ -99,6 +108,11 @@ public abstract class DetailPage extends HomeTabFragment {
         String requested = args == null ? null : args.getString(HostDeepLink.ARG_SECTION);
         String first = requested != null && sectionTitles().contains(requested) ? requested : initialSection();
         section = state == null ? first : state.getString("detail-section", first);
+        // 搜索结果带来的目标只在首次打开时用；旋转和进程恢复后留在用户自己切到的分类和滚动位置。目标就是一个分类的标题（「社区插件」）时直接打开那个分类，否则等内容画出来再找那一行。
+        String row = state == null && args != null ? args.getString(HostDeepLink.ARG_ROW) : null;
+        String rowSection = SettingsSearchAnchorPolicy.section(sectionTitles(), row);
+        if (rowSection != null) section = rowSection;
+        else if (row != null && !row.trim().isEmpty()) pendingRow = row;
         if (!sectionTitles().contains(section) && !sectionTitles().isEmpty()) section = sectionTitles().get(0);
     }
 
@@ -168,6 +182,7 @@ public abstract class DetailPage extends HomeTabFragment {
         sectionTabs.setOnSelect(index -> {
             if (index >= visibleSections.size()) return;
             section = visibleSections.get(index);
+            pendingRow = null;
             View focus = requireView().findFocus();
             if (focus != null) {
                 focus.clearFocus();
@@ -244,6 +259,8 @@ public abstract class DetailPage extends HomeTabFragment {
         int threshold = DimensionPolicy.pixels(requireContext(), Ui.COLLAPSE_THRESHOLD);
         scroll.setOnScrollChangeListener((NestedScrollView.OnScrollChangeListener)
             (ignored, x, y, oldX, oldY) -> {
+                // 定位搜索目标之前用户已经自己滚动了，就不再把页面拉走。
+                if (y != oldY) pendingRow = null;
                 setCollapsed(y > threshold, true);
                 onScrollChanged(y);
             });
@@ -255,12 +272,18 @@ public abstract class DetailPage extends HomeTabFragment {
         LinearLayout column = view.findViewById(R.id.ms_detail_column);
         buildContent(column, args == null ? new Bundle() : args);
         updateSections(column);
-        if (sectionTabs != null) column.getViewTreeObserver().addOnGlobalLayoutListener(() -> updateSections(column));
+        if (sectionTabs != null || pendingRow != null) {
+            column.getViewTreeObserver().addOnGlobalLayoutListener(() -> {
+                updateSections(column);
+                revealPendingRow(column);
+            });
+        }
         // 重建后 NestedScrollView 自己恢复滚动位置，顶栏随之直接落在对应的状态，不再播放过渡。
         scroll.post(() -> setCollapsed(scroll.getScrollY() > threshold, false));
     }
 
     @Override public void onDestroyView() {
+        pendingRow = null;
         sections.clear();
         sectionTabs = null;
         visibleSections = List.of();
@@ -282,6 +305,73 @@ public abstract class DetailPage extends HomeTabFragment {
     /** 大标题行右侧放页面自己的操作的容器。窄屏上这里的按钮会挤占大标题的宽度，按钮多于一个时放进内容里的卡片（词库页就是这样，#5682）。 */
     protected final LinearLayout headerActions() {
         return requireView().findViewById(R.id.ms_detail_actions);
+    }
+
+    /**
+     * 定位搜索结果要找的那一行：在各分类里找标题等于目标的文字（{@link SettingsSearchAnchorPolicy#labels}），按分类顺序取第一处。行在别的分类里时先切过去并返回，等这次切换排好版的下一次布局再滚动，否则行的位置还是隐藏时的。找不到时什么也不做，下一次布局再找。
+     */
+    private void revealPendingRow(LinearLayout column) {
+        String anchor = pendingRow;
+        if (anchor == null || getView() == null) return;
+        TextView label = findLabel(column, anchor);
+        if (label == null) return;
+        String owner = sectionOf(label, column);
+        if (owner != null && !owner.equals(section)) {
+            section = owner;
+            updateSections(column);
+            return;
+        }
+        pendingRow = null;
+        View target = GroupCard.searchTarget(label);
+        if (target == null) target = label;
+        NestedScrollView scroll = scrollView();
+        Rect bounds = new Rect();
+        target.getDrawingRect(bounds);
+        scroll.offsetDescendantRectToMyCoords(target, bounds);
+        // 行放在可见区的中间：上面有固定的分类导航，下面有底部导航栏，贴边放都可能被盖住。
+        scroll.scrollTo(0, Math.max(0, bounds.top - Math.max(0, (scroll.getHeight() - bounds.height()) / 2)));
+        highlight(target);
+    }
+
+    /** 深度优先找标题等于 `anchor` 的文字；隐藏的视图连同子树跳过，只有分类列例外，它们只是没被选中。 */
+    @Nullable private TextView findLabel(View view, String anchor) {
+        if (view instanceof TextView text && SettingsSearchAnchorPolicy.labels(text.getText(), anchor)) return text;
+        if (!(view instanceof ViewGroup group)) return null;
+        for (int i = 0; i < group.getChildCount(); i++) {
+            View child = group.getChildAt(i);
+            if (child.getVisibility() != View.VISIBLE && !sections.containsValue(child)) continue;
+            TextView found = findLabel(child, anchor);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    /** `view` 所在分类的标题；不在任何分类列里（页面没有分类，或放在分类之外）时为 null。 */
+    @Nullable private String sectionOf(View view, LinearLayout column) {
+        for (View node = view; node != null && node != column; node = node.getParent() instanceof View parent ? parent : null) {
+            for (Map.Entry<String, LinearLayout> entry : sections.entrySet()) {
+                if (entry.getValue() == node) return entry.getKey();
+            }
+        }
+        return null;
+    }
+
+    /** 定位到的那一行先铺一层淡淡的强调色，停一下再褪掉，让用户看出搜到的是哪一行；读屏的焦点也移到这一行。 */
+    private void highlight(View target) {
+        ColorDrawable wash = new ColorDrawable(ThemeColorPolicy.accent(requireContext()));
+        wash.setAlpha(SEARCH_HIGHLIGHT_ALPHA);
+        target.setForeground(wash);
+        ValueAnimator fade = ValueAnimator.ofInt(SEARCH_HIGHLIGHT_ALPHA, 0);
+        fade.setStartDelay(SEARCH_HIGHLIGHT_HOLD_MILLIS);
+        fade.setDuration(SEARCH_HIGHLIGHT_FADE_MILLIS);
+        fade.addUpdateListener(animation -> wash.setAlpha((int) animation.getAnimatedValue()));
+        fade.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(android.animation.Animator animation) {
+                if (target.getForeground() == wash) target.setForeground(null);
+            }
+        });
+        fade.start();
+        target.performAccessibilityAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS, null);
     }
 
     /** 页面的滚动区，需要滚到某一组时用。 */
