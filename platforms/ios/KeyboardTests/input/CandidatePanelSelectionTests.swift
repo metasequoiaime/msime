@@ -62,9 +62,10 @@ final class CandidatePanelSelectionTests: XCTestCase {
   func testLargePanelReusesVisibleButtonsAndKeepsTailSelectionAfterRotation() throws {
     for threeColumns in [false, true] {
       var selections: [Int] = []
+      var holds: [Int] = []
       let panel = KeyboardCandidatePanelView(
         candidates: (0..<10000).map { "合成词\($0)" }, preedit: "y", showsHeader: false,
-        display: { $0 }, menuElements: { _ in [UIAction(title: "合成管理", handler: { _ in })] },
+        display: { $0 }, onLongPress: { holds.append($0) },
         onSelect: { selections.append($0) }, onClose: {},
         columns: threeColumns ? (UIView(), UIView()) : nil)
       let controller = UIViewController()
@@ -88,7 +89,11 @@ final class CandidatePanelSelectionTests: XCTestCase {
         collection.layoutIfNeeded()
         let last = try XCTUnwrap(candidateButtons(panel).first { $0.accessibilityIdentifier == "panelCandidate-10000" })
         XCTAssertTrue(last.accessibilityLabel?.contains("合成词9999") == true)
-        XCTAssertNotNil(last.menu)
+        // 复用的格子长按时报的是它眼下显示的候选，不是它第一次显示的那个。
+        XCTAssertTrue(last.gestureRecognizers?.contains { $0 is UILongPressGestureRecognizer } == true)
+        let hold = try XCTUnwrap(last.accessibilityCustomActions?.first { $0.name == "查看释义" })
+        XCTAssertTrue(hold.actionHandler?(hold) ?? false)
+        XCTAssertEqual(holds.last, 9999)
         last.sendActions(for: .primaryActionTriggered)
         XCTAssertEqual(selections.last, 9999)
         XCTAssertLessThan(candidateButtons(panel).count, 200)
