@@ -727,8 +727,8 @@ jobs:
     name: Windows native settings
     # 留在 GitHub 托管的 runner：冒烟要把设置窗口撑到 1000×780，Depot 的 Windows 机型主屏只有 800×600，显卡也只报这一档分辨率。
     runs-on: windows-2025
-    # 完整 WinUI、Win7 设置、手写及多版本门禁已实测耗时 39 分钟，保留冷构建余量。
-    timeout-minutes: 60
+    # 完整 WinUI、Win7 设置、手写及多版本门禁没有编译缓存，每次都是冷构建。2026-11-05 到 11-06 跑满全部步骤的 107 次里中位 52.8 分钟、p95 56.0、最长 59.4，已经贴着原来的 60 分钟；取 p95 的 1.5 倍向上取整到 5 的倍数。
+    timeout-minutes: 85
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
