@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use unicode_segmentation::UnicodeSegmentation;
 
 pub mod candidate_color;
-
+mod clipboard_retention;
 mod reporting_authority;
 pub use reporting_authority::{ReportingAuthority, ReportingAuthorization};
 mod reporting_consent;
@@ -6185,17 +6185,10 @@ impl PreferencesStore {
         Ok(history.push(text)?)
     }
 
-    /// Clear only while history is still disabled, using the same lock order
-    /// as capture so another settings writer cannot re-enable between checks.
+    /// 仅在偏好仍为关闭时清空；偏好锁始终先于历史锁。
     pub fn clear_disabled_clipboard_history(&self) -> Result<(), PreferencesError> {
-        let _lock = self.lock()?;
-        if !self.read_locked()?.preferences.clipboard_history {
-            let mut history = crate::clipboard::ClipboardHistoryStore::open(
-                self.directory.join("clipboard_history.json"),
-            );
-            history.clear()?;
-        }
-        Ok(())
+        self.clear_disabled_clipboard_history_at(&self.directory.join("clipboard_history.json"))
+            .map(|_| ())
     }
 
     /// Compare-and-swap prevents stale settings windows or IME hosts losing updates.
