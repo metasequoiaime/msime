@@ -120,6 +120,8 @@ export const checkGridItem =
 
 /** HarmonyOS 手机的选择行和分段行：整行是一个按钮，点开选择弹窗，末端显示当前值和一个小箭头。 */
 export const pickerRow = `${row} w-full cursor-pointer border-0 text-left [font-family:inherit] active:bg-[var(--p-press)] disabled:cursor-default disabled:opacity-50`;
+/** 变灰且带说明的选择行：不是按钮，整行半透明，标题旁的「?」照样能点（见 `PickerRow`）。 */
+export const pickerRowDisabled = `${row} opacity-50`;
 export const pickerValue =
   "flex max-w-[55%] min-w-0 shrink-0 items-center gap-1.5 text-[16px] [color:var(--p-sub)]";
 export const pickerValueText = "min-w-0 truncate";

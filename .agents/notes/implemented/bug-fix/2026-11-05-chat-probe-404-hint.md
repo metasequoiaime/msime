@@ -13,7 +13,7 @@ Status: implemented
 - 对话探测（AI 辅助、语音润色）收到 HTTP 404 时，提示固定为 `CHAT_NOT_FOUND_MESSAGE`：「服务找不到所填的接口地址或模型（HTTP 404）。接口地址要填完整的对话接口，通常以 /chat/completions 结尾；模型要填服务商控制台列出的模型 ID，并确认账号已开通该模型。」这句话对预设和自定义服务商都成立：所有预设的对话地址都以 `/chat/completions` 结尾，自定义服务商最常见的 404 正是只填了基础地址。其余状态码照旧走 `rejected_status_message`。
 - `rejected_status_message` 本身不改：整句识别探测 `credential::asr::test` 也用它，转写接口不是 `/chat/completions`，不能给它这句话。
 - iOS 的 `CredentialStatusPolicy.chatNotFound`（只在 `kind == .ai` 时用）和 HarmonyOS 的 `CredentialStatusPolicy.CHAT_NOT_FOUND` / `chatRejected` 与 Rust 逐字相同；macOS、Windows、Linux、Android 的设置页都经 `credential::test_service` 走 Rust，自动得到新文案。
-- 预设火山方舟的默认模型这次不改，留给维护者确认（见 Consequences）。
+- 预设火山方舟的默认模型这次不改，留给维护者确认（见 Consequences）；之后由 [预设火山方舟的默认模型换成 Seed 2.0 LTS](2026-11-05-ark-default-model.md) 换成 `doubao-seed-2-0-mini-260428`。
 
 ## 历史笔记审计
 

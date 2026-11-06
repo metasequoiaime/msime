@@ -134,36 +134,31 @@ struct CandidateOptionsSettingsView: View {
                           isOn: stored("mixed_input", "enabled", $mixedEnabled))
             .accessibilityIdentifier("mixedInputEnabled")
           DesignDivider()
-          DesignToggleRow(title: "中英混输", info: "中文输入时在候选中补充英文单词",
+          // 候选混输关着时下面几行变灰，但「?」仍能点开：用行的 `enabled`，不要对整行用 `.disabled`（那会连「?」一起禁用）。
+          DesignToggleRow(title: "中英混输", info: "中文输入时在候选中补充英文单词", enabled: mixedEnabled,
                           isOn: stored("mixed_input", "english", $english))
             .accessibilityIdentifier("mixedEnglish")
-            .disabled(!mixedEnabled)
           DesignDivider()
           stepperRow("触发字母数", value: "\(minimumPrefix)", binding: stored("mixed_input", "minimum_prefix", $minimumPrefix),
-                     in: 1...8, identifier: "mixedEnglishMinimumPrefix", info: "达到此长度后补全英文；26 键中更短的完整词仍可选")
-          .disabled(!mixedEnabled || !english)
-          .opacity(mixedEnabled && english ? 1 : 0.45)
+                     in: 1...8, identifier: "mixedEnglishMinimumPrefix", info: "达到此长度后补全英文；26 键中更短的完整词仍可选",
+                     enabled: mixedEnabled && english)
           DesignDivider()
           stepperRow("首页英文候选数", value: "\(firstPageCount)",
                      binding: stored("mixed_input", "first_page_count", $firstPageCount),
-                     in: 1...3, identifier: "mixedEnglishFirstPageCount", info: "首页有空间时优先排列的英文候选数")
-          .disabled(!mixedEnabled || !english)
-          .opacity(mixedEnabled && english ? 1 : 0.45)
+                     in: 1...3, identifier: "mixedEnglishFirstPageCount", info: "首页有空间时优先排列的英文候选数",
+                     enabled: mixedEnabled && english)
           DesignDivider()
-          DesignToggleRow(title: "符号混输", info: "打出符号的名称时在候选中加入对应符号，如「正负」后面是 ±", isOn: stored("mixed_input", "symbols", $symbols))
+          DesignToggleRow(title: "符号混输", info: "打出符号的名称时在候选中加入对应符号，如「正负」后面是 ±", enabled: mixedEnabled,
+                          isOn: stored("mixed_input", "symbols", $symbols))
             .accessibilityIdentifier("mixedSymbols")
-            .disabled(!mixedEnabled)
-            .opacity(mixedEnabled ? 1 : 0.45)
           DesignDivider()
-          DesignToggleRow(title: "emoji 混输", info: "在候选中加入匹配的 emoji，紧跟在它描绘的那个词后面", isOn: stored("mixed_input", "emoji", $emoji))
+          DesignToggleRow(title: "emoji 混输", info: "在候选中加入匹配的 emoji，紧跟在它描绘的那个词后面", enabled: mixedEnabled,
+                          isOn: stored("mixed_input", "emoji", $emoji))
             .accessibilityIdentifier("mixedEmoji")
-            .disabled(!mixedEnabled)
-            .opacity(mixedEnabled ? 1 : 0.45)
           DesignDivider()
-          DesignToggleRow(title: "颜文字混输", info: "在候选中加入匹配的颜文字，排在同一个词的 emoji 之后", isOn: stored("mixed_input", "kaomoji", $kaomoji))
+          DesignToggleRow(title: "颜文字混输", info: "在候选中加入匹配的颜文字，排在同一个词的 emoji 之后", enabled: mixedEnabled,
+                          isOn: stored("mixed_input", "kaomoji", $kaomoji))
             .accessibilityIdentifier("mixedKaomoji")
-            .disabled(!mixedEnabled)
-            .opacity(mixedEnabled ? 1 : 0.45)
           DesignDivider()
           DesignToggleRow(title: "以词定字", info: "长按词语候选，只上屏首字或末字",
                           isOn: stored("word_character", "enabled", $wordCharacter))
@@ -213,15 +208,17 @@ struct CandidateOptionsSettingsView: View {
   /// 带标题、说明「?」、当前值和步进器的一行，布局同 DesignKit 的行。
   private func stepperRow<Value: Strideable>(
     _ title: String, value: String, binding: Binding<Value>, in range: ClosedRange<Value>, identifier: String,
-    info: String
+    info: String, enabled: Bool = true
   ) -> some View {
-    stepperRow(title, value: value, binding: binding, in: range, identifier: identifier, info: info) { EmptyView() }
+    stepperRow(title, value: value, binding: binding, in: range, identifier: identifier, info: info, enabled: enabled) {
+      EmptyView()
+    }
   }
 
   /// 同上，标题下面另画一段内容（例如编码字号的预览）；`info` 仍收进「?」。
   private func stepperRow<Value: Strideable, Detail: View>(
     _ title: String, value: String, binding: Binding<Value>, in range: ClosedRange<Value>, identifier: String,
-    info: String? = nil, @ViewBuilder detail: () -> Detail
+    info: String? = nil, enabled: Bool = true, @ViewBuilder detail: () -> Detail
   ) -> some View {
     HStack(spacing: 12) {
       VStack(alignment: .leading, spacing: 2) {
@@ -231,11 +228,14 @@ struct CandidateOptionsSettingsView: View {
       Spacer(minLength: 8)
       Text(value).font(.system(size: 16)).foregroundStyle(MetasequoiaTheme.sub).monospacedDigit()
         .accessibilityHidden(true)
+      // 不可用时只禁用步进器，标题旁的「?」照样能点开，与 `DesignToggleRow` 的 `enabled` 同一规则。
       Stepper(title, value: binding, in: range)
         .labelsHidden()
+        .disabled(!enabled)
         .accessibilityValue(value)
         .accessibilityIdentifier(identifier)
     }
+    .opacity(enabled ? 1 : DesignToggleRow.disabledOpacity)
     .padding(.vertical, 8)
     .padding(.horizontal, 20)
     .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)

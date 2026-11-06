@@ -14,7 +14,7 @@ Status: implemented
 
 - **各端共用同一张表**：字段、顺序、标题和「?」里的说明与共享页 `modesRows` 逐字相同。每端的表放在一处，并由该端的测试核对：Windows 是 `platforms/windows/settings/HelpcodeModesModel.h`（WinUI 和 Win7 共用，`tests/ui/helpcode_modes_model.cpp`），Android 是 `HelpcodeModesPolicy`（`HelpcodeModesPolicySmoke`），iOS 是 `HelpcodeSettingsView` 的扩展（`KeyboardTests/settings/HelpcodeModesTests.swift`）。
 - **缺值读法**：每一行缺字段时的值等于 `ShuangpinHelpcodeModes::default()`：`direct`、`trigger_semicolon`、`mid_sentence_backtick`、`direct_helpcode_slash` 为开，其余为关。这一段等于出厂值时 client-core 不写进文档，所以老文档里通常根本没有 `modes`。`strict_filter` 缺字段时为关。三端的测试都把这几个值钉住。
-- **置灰规则与共享页相同**：双拼辅助码关着时，触发方式全部置灰（Android 在辅助码关着时整组不画）。句中的三枚触发键还要「句中间接辅助码」开着，两种结束方式还要「逐音节直接辅助码」开着。「一码严格筛选」随这一族的辅助码开关置灰。
+- **置灰规则与共享页相同**：双拼辅助码关着时，触发方式全部置灰（Android 在辅助码关着时整组不画）。末尾间接的三枚触发键还要「末尾直接辅助码」和「逐音节直接辅助码」都关着，照引擎的生效条件置灰、不改存的值（[末尾间接触发置灰](../bug-fix/2026-11-06-helpcode-end-trigger-grey-out.md)）。句中的三枚触发键还要「句中间接辅助码」开着，两种结束方式还要「逐音节直接辅助码」开着。「一码严格筛选」随这一族的辅助码开关置灰。
 - **iOS 禁用时保留说明入口**：严格筛选和触发方式依赖前置开关时，只禁用 `Toggle` 本身，标题旁的「?」与开关同级，说明里的外接键盘限制仍能阅读。可用时继续用原生 `Toggle` 标签，保留点标题切换的行为。不能把 `.disabled` 放在含说明的整行上，因为 SwiftUI 会把禁用状态传给标签中的说明按钮。
 - **互斥只在 client-core**：句中间接开着时同一枚触发键归句中，句中间接和逐音节直接不同时开。这两条由 client-core 在写入端归一。原生页面不复制这条规则，改动后整页重读并显示归一后的值：WinUI 的 `bool_row` 传 `redraw=true`，Win7 在保存完成后刷新表单，Android 的 `savePreferences` 会重读，iOS 的绑定在保存后调用 `reload()`。
 - **写入只改一个字段**：`modes` 里的其他键原样保留，包括从 macOS 同步来的 `manual_tab`。WinUI 和 Android 写到 `shuangpin_helpcode.modes.<字段>`，缺的中间层由各自的写入工具补上。Win7 的 `PreferencesStore` 不会补造中间对象，所以 Win7 在读到的 `modes` 对象上改好这一项，再把整段写回；这条路径和两族的 `strict_filter` 都登记在它的可选路径白名单里。iOS 经 `merge` 写回 `modes` 对象。

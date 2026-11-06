@@ -17,10 +17,8 @@ public final class AiPolishHttpTransport implements AiPolishClient.Transport {
             throws AiPolishClient.Failure {
         HttpURLConnection connection = null;
         try {
-            JSONObject body = new JSONObject().put("model", configuration.model())
-                .put("messages", new JSONArray()
-                    .put(new JSONObject().put("role", "system").put("content", configuration.prompt()))
-                    .put(new JSONObject().put("role", "user").put("content", text)));
+            JSONObject body = requestBody(configuration.endpoint(), configuration.model(),
+                configuration.prompt(), text);
             byte[] bytes = TextPolicy.utf8Bytes(body.toString());
             connection = (HttpURLConnection) AiEndpointPolicy.open(configuration.endpoint().toURL());
             HttpURLConnection target = connection;
@@ -63,6 +61,28 @@ public final class AiPolishHttpTransport implements AiPolishClient.Transport {
             cancellation.detach();
             if (connection != null) connection.disconnect();
         }
+    }
+
+    static JSONObject requestBody(URI endpoint, String model, String prompt, String text)
+            throws JSONException {
+        JSONObject body = new JSONObject().put("model", model)
+            .put("messages", new JSONArray()
+                .put(new JSONObject().put("role", "system").put("content", prompt))
+                .put(new JSONObject().put("role", "user").put("content", text)));
+        if (disablesArkSeedThinking(endpoint, model))
+            body.put("thinking", new JSONObject().put("type", "disabled"));
+        return body;
+    }
+
+    /**
+     * 火山方舟上的豆包 Seed 默认开着深度思考，润色要显式发 thinking.type = disabled。方舟深度思考文档（https://docs.volcengine.com/docs/82379/1449737 ，2026-11-05 查）列出的 doubao-seed-* 全部支持 disabled，同平台的别的模型不一定（glm-5-3-flash-260828 只支持 enabled），所以接口地址属于 volces.com 且模型属于这个系列才算。与 client-providers 的 disables_ark_seed_thinking 一致。
+     */
+    static boolean disablesArkSeedThinking(URI endpoint, String model) {
+        String host = endpoint.getHost();
+        if (host == null || model == null) return false;
+        host = host.toLowerCase(java.util.Locale.ROOT);
+        return (host.equals("volces.com") || host.endsWith(".volces.com"))
+            && model.trim().toLowerCase(java.util.Locale.ROOT).startsWith("doubao-seed-");
     }
 
     static Map<String, String> authenticationHeaders(URI endpoint, String token) {
