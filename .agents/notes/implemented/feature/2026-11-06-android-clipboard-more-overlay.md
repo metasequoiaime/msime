@@ -29,7 +29,7 @@ iOS 和鸿蒙的剪贴板没有这个菜单（#10177 只改了 Android，两端�
 
 - **收益**：打开菜单时列表的滚动位置和卡片位置都不变，左边不再留空白；滚到中间也能直接打开，不跳回顶部；进入详情记下的滚动位置不用再按菜单高度折算。
 - **代价**：菜单开着时列表区的第一下点按只用来收起菜单，想直接点某张卡片要点两下；「返回顶部」「撤销」被浮层盖住时，点它们的位置也只是收起菜单，撤销倒数照走。
-- 菜单不再随列表滚动，必须整个放得进浮层：三项各 36dp、间距 4dp、上下内边距各 4dp，加上 2dp 上边距共 126dp；键区最矮是 `KeyboardHeightPolicy.keyAreaHeightDp` 在调整量 -46dp 时的约 162dp，减去 32dp 顶行还剩约 130dp，放得下，所以菜单外不再套一层滚动。以后菜单再加项，或键区下限再调低，要重新算这笔账。
+- 菜单不再随列表滚动，必须整个放得进浮层：三项各 36dp、间距 4dp、上下内边距各 4dp，加上 2dp 上边距共 126dp；键区最矮是 `KeyboardHeightPolicy.keyAreaHeightDp` 在调整量 -46dp、行距取下限 4dp（`KeyboardSpacingPolicy.MIN_ROW_SPACING_TENTHS`）时的 52×4 − 46 + 4×4 = 178dp，减去 32dp 顶行还剩 146dp，放得下，所以菜单外不再套一层滚动。以后菜单再加项，或键区下限再调低，要重新算这笔账。
 - 依赖菜单的设备验收（`ClipboardCategoriesDeviceSmoke`、`ClipboardExportDeviceSmoke`、`ClipboardSegmentDragDeviceSmoke`）按无障碍说明找节点、走 `ACTION_CLICK`，不做坐标命中，不受浮层影响。
 
 ## Verification
