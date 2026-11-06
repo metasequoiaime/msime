@@ -4972,6 +4972,91 @@ fn composed_words_become_both_wubi_profiles_only_when_learning_is_enabled() {
     }
 }
 
+/// 新世纪五笔读 `wubixsj` 表：同一个字的码与 86 不同（力 86 是 `lt`、新世纪是 `ent`；为 `ylyi` / `ytny`；上 `hhgg` / `hgd`），选着新世纪时出的是新世纪的码，86 的码不再出它；选着 86 时反过来。从拼音造的词也只在选着新世纪时学进 `wubixsj`。
+#[test]
+fn the_new_century_profile_answers_from_its_own_table() {
+    const TABLES: &str = "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+        INSERT INTO tbl_1_n VALUES('nan','n','男',100);
+        CREATE TABLE tbl_1_l(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+        INSERT INTO tbl_1_l VALUES('li','l','力',100);
+        CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+        CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER,UNIQUE(key,value));
+        INSERT INTO wubi86 VALUES('lt','力',100),('llb','男',100),('ylyi','为',100),('hhgg','上',100);
+        CREATE TABLE wubi98(key TEXT,value TEXT,weight INTEGER,UNIQUE(key,value));
+        INSERT INTO wubi98 VALUES('ent','办',100);
+        CREATE TABLE wubixsj(key TEXT,value TEXT,weight INTEGER,UNIQUE(key,value));
+        INSERT INTO wubixsj VALUES('ent','力',100),('ler','男',100),('ytny','为',100),('hgd','上',100);";
+    let fixture = Fixture::new(TABLES);
+    let wubi = |profile: crate::WubiProfileKind| {
+        fixture.session_with(|options| {
+            options.scheme = SchemeType::Wubi;
+            options.wubi.profile = profile;
+            options.learning = false;
+        })
+    };
+    let mut session = wubi(crate::WubiProfileKind::WubiXsj);
+    for (code, word) in [("ent", "力"), ("ler", "男"), ("ytny", "为"), ("hgd", "上")] {
+        type_text(&mut session, code);
+        assert_eq!(words(&session), [word], "{code}");
+        assert_eq!(
+            select_word(&mut session, word).commit.as_deref(),
+            Some(word)
+        );
+    }
+    drop(session);
+    for code in ["lt", "ylyi", "hhgg"] {
+        let mut session = wubi(crate::WubiProfileKind::WubiXsj);
+        type_text(&mut session, code);
+        assert!(words(&session).is_empty(), "{code}: {:?}", words(&session));
+    }
+    let mut session = wubi(crate::WubiProfileKind::Wubi86);
+    type_text(&mut session, "lt");
+    assert_eq!(words(&session), ["力"]);
+    let mut session = wubi(crate::WubiProfileKind::Wubi86);
+    type_text(&mut session, "ent");
+    assert!(words(&session).is_empty(), "{:?}", words(&session));
+    drop(session);
+
+    // 拼音造词：选着 86 时不写 `wubixsj`，选着新世纪时写，码按新世纪单字全码取（男 ler + 力 ent → leen）。
+    for (profile, learned) in [
+        (crate::WubiProfileKind::Wubi86, 0),
+        (crate::WubiProfileKind::WubiXsj, 1),
+    ] {
+        let fixture = Fixture::new(TABLES);
+        let mut session = fixture.session_with(|options| {
+            options.scheme = SchemeType::Quanpin;
+            options.wubi.profile = profile;
+            options.learning = true;
+        });
+        type_text(&mut session, "nanli");
+        assert_eq!(
+            select_word(&mut session, "男").commit.as_deref(),
+            Some("男")
+        );
+        assert_eq!(
+            select_word(&mut session, "力").commit.as_deref(),
+            Some("力")
+        );
+        drop(session);
+        assert_eq!(
+            count(
+                &fixture.main_db(),
+                "SELECT count(*) FROM wubixsj WHERE key='leen' AND value='男力'"
+            ),
+            learned,
+            "{profile:?}"
+        );
+        assert_eq!(
+            count(
+                &fixture.journal(),
+                "SELECT count(*) FROM user_dictionary_operations WHERE dictionary='wubixsj'"
+            ),
+            learned,
+            "{profile:?}"
+        );
+    }
+}
+
 /// A generated quanpin sentence selected beside a native wubi row is learned as a pinyin phrase (the per-row guards of `learn_sentence_candidate` and `follows_pinyin`); the wubi row itself writes nothing to the pinyin side.
 #[test]
 fn a_quanpin_sentence_beside_a_wubi_row_is_learned_and_the_wubi_row_is_not() {
@@ -10934,6 +11019,43 @@ fn cantonese_rows_are_not_edited_and_learn_nothing_with_learning_off() {
     assert_eq!(words(&session), ["你好", "妳好", "你", "妳"]);
 }
 
+/// 测试用的输出转换：只认夹具里的繁体字，代替宿主的繁转简。
+fn synthetic_cantonese_simplification(text: &str) -> String {
+    text.replace('妳', "你")
+        .replace('號', "号")
+        .replace('愛', "爱")
+}
+
+#[test]
+fn cantonese_output_conversion_rewrites_and_deduplicates_rows() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let cantonese = cantonese_dictionary(fixture.path());
+    let conversion = crate::TextConversion(synthetic_cantonese_simplification);
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Cantonese;
+        options.cantonese_dictionary = cantonese.clone();
+        options.cantonese_output_conversion = Some(conversion);
+    });
+
+    // 妳好、妳转换后与你好、你相同，同一读音段只留排在前面的那条。
+    type_text(&mut session, "neihou");
+    assert_eq!(words(&session), ["你好", "你"]);
+    let result = session.select(1);
+    assert_eq!(result.commit.as_deref(), Some("你"));
+    assert_eq!(session.snapshot().editing_text, "hou");
+    assert_eq!(words(&session), ["好", "号"]);
+    assert_eq!(session.select(1).commit.as_deref(), Some("号"));
+    assert!(session.snapshot().preedit.is_empty());
+
+    // 默认学习留下的「你號」和原有词库行，在不传转换时都输出繁体原文。
+    let mut plain = fixture.session_with(|options| {
+        options.scheme = SchemeType::Cantonese;
+        options.cantonese_dictionary = cantonese;
+    });
+    type_text(&mut plain, "neihou");
+    assert_eq!(words(&plain), ["你號", "你好", "妳好", "你", "妳"]);
+}
+
 fn cantonese_learning_options(
     cantonese: &Path,
     mode: FrequencyAdjustmentMode,
@@ -15188,3 +15310,5 @@ mod lifecycle;
 mod offensive_placement;
 mod prediction_pool;
 mod raw_commit;
+
+mod cantonese_output;

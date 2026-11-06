@@ -100,6 +100,8 @@ cp platforms/android/third_party/noto-emoji/*.txt platforms/android/third_party/
 mkdir -p "$assets/native-notices/androidx-autofill"
 cp platforms/android/third_party/androidx-autofill/*.txt "$assets/native-notices/androidx-autofill/"
 cp LICENSE "$assets/client-LICENSE.txt"
+# 粤语双拼键位方案设计者的致谢（#9799），关于页「开源许可」列出；与 iOS 共用同一份说明。
+cp resources/licenses/cantonese-shuangpin-scheme-NOTICE.txt "$assets/"
 # 组合表情只提取上游短语，必须与 BSD 版权通知一同分发。
 cp shared/emoji-combinations/emoji-combinations*.txt "$assets/"
 # 辅助码表不在词库发布里，由仓库自带在 resources/helpcodes。Bootstrap 把它们解到资源目录下的 helpcodes/，Engine 从那里读（crates/engine/src/assets.rs 列出七个文件），安装包每次变化都会替换它们。
@@ -247,6 +249,9 @@ for name in emoji-combinations.txt emoji-combinations-NOTICE.txt; do
     echo "Combination emoji asset differs or is missing: $name" >&2; exit 1;
   }
 done
+unzip -p "$output" "${entry_prefix}assets/cantonese-shuangpin-scheme-NOTICE.txt" | cmp - resources/licenses/cantonese-shuangpin-scheme-NOTICE.txt || {
+  echo "The Cantonese shuangpin credit is missing from the package or differs" >&2; exit 1;
+}
 apk_entries=$(unzip -Z1 "$output" | sed -n "s|^$entry_prefix||p")
 # 表情包目录里的每个文件都要进最终包：少一张图，网格里就是一个空格子，点了也发不出去。
 for sticker in resources/stickers/shuishan/*; do

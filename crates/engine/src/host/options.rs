@@ -16,9 +16,11 @@ use crate::types::{
     FrequencyAdjustmentOptions, FuzzyPinyinOptions, LocalModeOptions, MentionEntry,
     MixedExpressiveOptions, PluginCommand, QuickPhraseEntry, SchemeSet, SchemeType,
     SentenceAssociationOptions, ShuangpinCustomTable, ShuangpinHelpcodeModes, ShuangpinProfileKind,
-    WubiInputOptions, WubiProfileKind, DEFAULT_FIRST_PAGE_ROWS,
+    TextConversion, WubiInputOptions, WubiProfileKind, DEFAULT_FIRST_PAGE_ROWS,
 };
-use crate::user_dictionary::generation::{merge_downloaded_wubi, prepare_runtime_paths_for};
+use crate::user_dictionary::generation::{
+    merge_downloaded_wubi, open_prepared_runtime_paths_for, prepare_runtime_paths_for,
+};
 use crate::vietnamese::{InputMethod as VietnameseInputMethod, ToneStyle as VietnameseToneStyle};
 
 const MAX_TRANSLATION_SIDECAR_BYTES: u64 = 1024 * 1024;
@@ -70,6 +72,8 @@ pub struct EngineOptions {
     pub shuangpin_preedit_separated: bool,
     /// 独立粤语双拼入口强制解释同形两键码；其余入口为 false。
     pub force_cantonese_shuangpin: bool,
+    /// 粤拼候选的输出转换（`SessionOptions::cantonese_output_conversion`）；`None` 输出繁体。
+    pub cantonese_output_conversion: Option<TextConversion>,
     pub learning: bool,
     /// 回车上屏英文拼写时是否学进英文词库（`SessionOptions::learn_english_on_enter`）。参照实现出厂为开。门面同时打开 `SessionOptions::learn_typed_spellings_on_enter`，所以学的不只是专用英文里打的词。
     pub learn_english_on_enter: bool,
@@ -82,8 +86,10 @@ pub struct EngineOptions {
     pub wubi_mixed_pinyin: bool,
     /// 五笔 `z` 通配（`WubiInputOptions::z_wildcard`）。
     pub wubi_z_wildcard: bool,
-    /// 0 是 86 五笔，1 是 98 五笔（`WubiProfileKind`）。
+    /// 0 是 86 五笔，1 是 98 五笔，2 是新世纪五笔（`WubiProfileKind`）。
     pub wubi_profile: u8,
+    /// 五笔方案里给五笔原生候选的注释附上完整五笔码（反查码）。只管显示，不影响候选的 `code` 字段，宿主照旧用它算剩余编码。宿主按共享偏好 `wubi_code_hint` 填：用户关掉「候选显示剩余编码」时，五笔候选旁不该再出现五笔码。拼音来的候选（混输拼音和 `z` 引导的临时拼音反查）附的是用拼音查到的五笔码，不是剩余编码，不受它管；`z` 通配查出的五笔候选也不受它管，那里的完整码回答的是 `z` 那一位是什么。默认开。
+    pub wubi_reverse_code: bool,
     pub helpcode: bool,
     /// 一码辅助码严格筛选；关闭时仍按原来的规则重排候选。
     pub strict_quanpin_helpcode: bool,
@@ -220,9 +226,53 @@ pub fn prepare_options_for(
         content_id,
         enabled_schemes,
     )?;
+    Ok(options_for_paths(&paths, enabled_schemes))
+}
+
+/// [`prepare_options_for`] 的只读版本：打开别的进程已经准备好的代次，不写 `user_data` 和代次（`open_prepared_runtime_paths_for`），产品默认值相同。给对共享状态目录没有写权限的宿主用（iOS 键盘没有完全访问）；代次没准备好或缺东西时报错，调用方改用 [`read_only_layout_options_for`]。
+pub fn open_prepared_options_for(
+    resources: &str,
+    user_data: &str,
+    cache: &str,
+    content_id: &str,
+    enabled_schemes: SchemeSet,
+) -> Result<EngineOptions> {
+    let paths = open_prepared_runtime_paths_for(
+        Path::new(resources),
+        Path::new(user_data),
+        Path::new(cache),
+        content_id,
+        enabled_schemes,
+    )?;
+    Ok(options_for_paths(&paths, enabled_schemes))
+}
+
+/// 只读布局：代次目录就是 `resources`，词库只读、不准备代次；`user_data` 和 `cache` 是宿主自己能写的目录，没有就建。给拿不到已准备代次的只读宿主用（iOS 键盘没有完全访问，App 还没准备过这个版本的代次）：打得出字，但没有用户词库和学到的东西。产品默认值与 [`prepare_options_for`] 相同。
+pub fn read_only_layout_options_for(
+    resources: &str,
+    user_data: &str,
+    cache: &str,
+    enabled_schemes: SchemeSet,
+) -> Result<EngineOptions> {
+    let paths = RuntimePaths {
+        resources: PathBuf::from(resources),
+        user_data: PathBuf::from(user_data),
+        cache: PathBuf::from(cache),
+        dictionaries: PathBuf::from(resources),
+    };
+    paths.validate()?;
+    msime_path_trust::reject_symlinked_components(&paths.user_data)?;
+    msime_path_trust::reject_symlinked_components(&paths.cache)?;
+    fs::create_dir_all(&paths.user_data)?;
+    fs::create_dir_all(&paths.cache)?;
+    Ok(options_for_paths(&paths, enabled_schemes))
+}
+
+/// `paths` 上的产品默认选项，见 [`prepare_options`]。
+fn options_for_paths(paths: &RuntimePaths, enabled_schemes: SchemeSet) -> EngineOptions {
     // The C++ handed the paths back through `u8string()`; every root came in as UTF-8 and the generation only appends an ASCII content id, so the lossy conversion never actually replaces anything.
     let text = |path: &Path| path.to_string_lossy().into_owned();
-    Ok(EngineOptions {
+    EngineOptions {
         resources: text(&paths.resources),
         user_data: text(&paths.user_data),
         cache: text(&paths.cache),
@@ -234,6 +284,7 @@ pub fn prepare_options_for(
         shuangpin_preedit_uses_raw: true,
         shuangpin_preedit_separated: false,
         force_cantonese_shuangpin: false,
+        cantonese_output_conversion: None,
         single_character_only: false,
         caret_edit_suffix: false,
         learning: false,
@@ -245,6 +296,7 @@ pub fn prepare_options_for(
         wubi_mixed_pinyin: false,
         wubi_z_wildcard: false,
         wubi_profile: WubiProfileKind::Wubi86 as u8,
+        wubi_reverse_code: true,
         helpcode: true,
         strict_quanpin_helpcode: false,
         show_helpcode: true,
@@ -308,7 +360,7 @@ pub fn prepare_options_for(
         stroke_dictionary: String::new(),
         japanese_dictionary: String::new(),
         wubi_dictionary: String::new(),
-    })
+    }
 }
 
 /// `options_for`: map and validate (`UNSUPPORTED_INPUT_SCHEME`, `UNSUPPORTED_SHUANGPIN_PROFILE`, `UNSUPPORTED_WUBI_PROFILE`, `UNSUPPORTED_FREQUENCY_MODE`, `UNSUPPORTED_VIETNAMESE_METHOD`, `UNSUPPORTED_VIETNAMESE_TONE_STYLE`), and refresh the translations sidecar in the generation directory.
@@ -362,6 +414,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
         korean_layout,
         cantonese_dictionary: PathBuf::from(&options.cantonese_dictionary),
         force_cantonese_shuangpin: options.force_cantonese_shuangpin,
+        cantonese_output_conversion: options.cantonese_output_conversion,
         zhuyin_dictionary: PathBuf::from(&options.zhuyin_dictionary),
         stroke_dictionary: PathBuf::from(&options.stroke_dictionary),
         japanese_dictionary: PathBuf::from(&options.japanese_dictionary),

@@ -356,6 +356,8 @@ export const voiceHotwords: (request: string) => Promise<string>;
 export const voiceHotwordCorrect: (request: string) => string;
 /** `{text, kind}` -> `{text}`：本地模型最终文本里的汉字数字改写成数字，只改写不自带 ITN 的 kind，其他原样返回。 */
 export const voiceNormalizeNumbers: (request: string) => string;
+/** `{text, mode}` -> `{text}`：按共享语音标点偏好处理最终识别结果。 */
+export const voicePunctuation: (request: string) => string;
 export const voiceLocalModels: (request: string) => string;
 /** Downloads and installs one catalog model on a native worker thread; `progress` receives each `{id,stage,downloaded,total}` document on the JS thread. */
 export const voiceLocalModelInstall: (

@@ -66,7 +66,7 @@ try {
         if ((Test-Path -LiteralPath $release -PathType Container) -and $ortStamped -ne $ortDigest) {
             Invoke-RustBuild cargo @('clean', '-p', 'ort-sys', '--release', '--target', $triple)
         }
-        $hostBuild += @('--features', 'onnx-rerank')
+        $hostBuild += @('--features', 'onnx-rerank,local-translation')
     }
     Invoke-RustBuild cargo $hostBuild
     if ($Architecture -eq 'x64') {

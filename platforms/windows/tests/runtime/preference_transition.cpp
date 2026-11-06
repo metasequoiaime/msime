@@ -48,6 +48,21 @@ int main() {
     barrier.begin(78); barrier.sent(15);
     require(barrier.receive({0, 15, 78, 4}, 78));
     require(barrier.complete(45) && !barrier.active());
+    // 引擎会话随 Deactivate 销毁后再激活（#10867）：reset() 记得 45 已经套过，同一修订不再触发应用，新会话就一直停在默认方案。
+    barrier.reset();
+    require(barrier.receive({45, 0, 0, 0}, 78) && !barrier.active());
+    barrier.forget_applied();
+    require(barrier.applied() == 0 && barrier.target() == 0 && !barrier.active() && !barrier.awaiting_reply());
+    // 修订号没变，新会话照样要套一次。
+    require(barrier.receive({45, 0, 0, 0}, 79) && barrier.active());
+    require(barrier.complete(45) && !barrier.active() && barrier.applied() == 45);
+    // 旧会话还在路上的请求回执：屏障不在进行中，照样拒绝，不会被当成新会话的有序切换。
+    barrier.begin(79); barrier.sent(16); barrier.forget_applied();
+    require(!barrier.receive({46, 16, 79, 5}, 79) && !barrier.active());
+    // 清零后新的有序切换照常：请求、回执、完成。
+    barrier.begin(80); barrier.sent(17);
+    require(barrier.receive({47, 17, 80, 6}, 80) && barrier.active());
+    require(!barrier.complete(46) && barrier.complete(47) && !barrier.active());
     std::cout << "Preference transition tests passed\n";
     return 0;
   } catch (const std::exception &error) { std::cerr << error.what() << '\n'; return 1; }

@@ -437,8 +437,11 @@ impl UnixSocketProvider {
         {
             return None;
         }
-        // Translation switched off: no candidate text leaves the host, not even to the local provider.
-        if query.provider == TranslationService::Off {
+        // 关闭或内嵌模型翻译都不向外部 Provider 发送候选文本。
+        if matches!(
+            query.provider,
+            TranslationService::Off | TranslationService::Local
+        ) {
             return Some(Vec::new());
         }
         let mut stream = self.connect()?;

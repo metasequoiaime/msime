@@ -68,7 +68,7 @@ pub(crate) fn validate_clipboard_page(value: &AccountClipboardPage) -> Result<()
 fn dictionary_code_is_well_formed(kind: DictionaryKind, code: &str) -> bool {
     match kind {
         DictionaryKind::Pinyin => crate::dictionary::pinyin_code_is_well_formed(code, true),
-        DictionaryKind::Wubi | DictionaryKind::Wubi98 => {
+        DictionaryKind::Wubi | DictionaryKind::Wubi98 | DictionaryKind::Wubixsj => {
             crate::dictionary::wubi_code_is_well_formed(code)
         }
         DictionaryKind::Quick => {
@@ -301,7 +301,7 @@ pub(super) fn validate_dictionary_value(
     validate_dictionary_fields(kind, code, word)?;
     let code_limit = match kind {
         DictionaryKind::Pinyin => 256,
-        DictionaryKind::Wubi | DictionaryKind::Wubi98 => 4,
+        DictionaryKind::Wubi | DictionaryKind::Wubi98 | DictionaryKind::Wubixsj => 4,
         DictionaryKind::Quick => 32,
         DictionaryKind::English => 64,
     };

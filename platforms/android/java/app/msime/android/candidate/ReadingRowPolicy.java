@@ -1,7 +1,7 @@
 package app.msime.android;
 
 /**
- * 组词时候选栏上方读音行的高度。
+ * 组词时候选栏上方读音行的高度，以及读音在这一行里的可点区域。
  *
  * <p>设计稿里这一行是 14dp，按系统字体不放大时 12sp 的读音排的。读音的字号跟设置「预编辑字号」走（{@link #textSizeSp}，由 {@code ImeStyler.applySkin} 设置，#6107），还按系统字体缩放走（最多放大到 1.15 倍），厂商字体（如 vivo）的 ascent 到 descent 也比默认字体高。行高固定 14dp 时，y、g、p 这类字母的下伸部被行底切掉，y 看起来像 v，g 只剩上半截（#5591）。所以行高取设计高度和读音文字实际高度（字体 ascent 到 descent，再加上下内边距）里大的那个。内边距包括读音行底部和候选行之间固定的间距（{@code ImeToolbar.READING_GAP_DP}），字号再大这段间距也不会被读音占掉。
  */
@@ -33,5 +33,18 @@ public final class ReadingRowPolicy {
     public static int heightPx(int designPx, int ascent, int descent, int verticalPadding) {
         int text = BoundsPolicy.nonNegative(descent - ascent) + BoundsPolicy.nonNegative(verticalPadding);
         return BoundsPolicy.atLeast(text, BoundsPolicy.nonNegative(designPx));
+    }
+
+    /**
+     * 读音的可点区域（#10474），读音行自己的坐标，依次是 left、top、right、bottom：读音所在那一段（{@code preeditFrame}，从行首到右边的提示、页码、漢、× 为止）的整个宽度，靠行首一侧延到行的边缘（含行的起始内边距），上下占满整行（含行底和候选行之间的间距）。从右到左排时行首在右边。三端点读音行编辑拼写的命中区以它为准（#10591）。
+     *
+     * @param rtl 读音行从右到左排
+     * @param rowWidth 读音行的宽度
+     * @param rowHeight 读音行的高度
+     * @param frameLeft 读音那一段在读音行里的左边缘
+     * @param frameRight 读音那一段在读音行里的右边缘
+     */
+    public static int[] touchTarget(boolean rtl, int rowWidth, int rowHeight, int frameLeft, int frameRight) {
+        return rtl ? new int[] {frameLeft, 0, rowWidth, rowHeight} : new int[] {0, 0, frameRight, rowHeight};
     }
 }

@@ -5,7 +5,7 @@
 #include <string_view>
 
 namespace msime::windows {
-// 语言按钮提示里的方案名，与 macOS 工具栏的 schemeTitle 用同一套名字：双拼写出键位（小鹤双拼等），五笔写出码表版本。不认识的键位按 macOS 的规范化当作小鹤；用户自己定义的键位（`custom`）是真实存在的一种键位，写「自定义双拼」：把它说成小鹤双拼，提示和读屏就报错了用户正在用的方案。不认识的方案返回空串，提示只说动作。
+// 语言按钮提示里的方案名，与 macOS 工具栏的 schemeTitle 用同一套名字：双拼写出键位（小鹤双拼等），五笔写出码表版本（86、98、新世纪），不认识的版本按 86，与共享偏好库读到它时一样。不认识的键位按 macOS 的规范化当作小鹤；用户自己定义的键位（`custom`）是真实存在的一种键位，写「自定义双拼」：把它说成小鹤双拼，提示和读屏就报错了用户正在用的方案。不认识的方案返回空串，提示只说动作。
 inline std::wstring toolbar_scheme_title(std::string_view scheme,
                                          std::string_view shuangpin_profile,
                                          std::string_view wubi_profile) {
@@ -24,8 +24,13 @@ inline std::wstring toolbar_scheme_title(std::string_view scheme,
       return L"自定义双拼";
     return L"小鹤双拼";
   }
-  if (scheme == "wubi")
-    return wubi_profile == "wubi98" ? L"五笔 98" : L"五笔 86";
+  if (scheme == "wubi") {
+    if (wubi_profile == "wubi98")
+      return L"五笔 98";
+    if (wubi_profile == "wubixsj")
+      return L"五笔 新世纪";
+    return L"五笔 86";
+  }
   if (scheme == "japanese")
     return L"日语";
   if (scheme == "korean")

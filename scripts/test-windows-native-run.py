@@ -57,6 +57,7 @@ ARGUMENTS = {
     "input/wubi_commit_owner.cpp": ["platforms/windows/tests/input/fixtures/msime-wubi-commit-owner.db"],
     "input/backspace_selected_phrase.cpp": ["platforms/windows/tests/input/fixtures/msime-phrase-backspace.db"],
     "input/shuangpin_paged_selection.cpp": ["platforms/windows/tests/input/fixtures/msime-shuangpin-paging.db"],
+    "input/host_session_preferences.cpp": ["platforms/windows/tests/input/fixtures/msime-shuangpin-paging.db"],
     "input/host_online_candidates.cpp": ["platforms/windows/tests/input/fixtures/msime-pinyin-online.db"],
     "input/cloud_seat_navigation.cpp": ["platforms/windows/tests/input/fixtures/msime-pinyin-online.db"],
     "core/installer_launch.cpp": ["platforms/windows/installer/msime_setup.iss"],
@@ -101,6 +102,8 @@ COMPANIONS: dict[str, tuple[list[str], bool]] = {
          "src/input/ChineseTextConversion.cpp", "tsf/EngineSessionAdapter.cpp", "tsf/EngineResponse.cpp"],
         True,
     ),
+    # TIP 新建宿主会话时立即套上偏好快照（#10867）：真实会话，合成词库。
+    "input/host_session_preferences.cpp": (["tsf/EngineSessionAdapter.cpp", "tsf/EngineResponse.cpp"], True),
     "candidate/cloud_candidate_worker.cpp": (["src/candidate/CloudCandidateWorker.cpp"], True),
     "candidate/ai_candidate_worker.cpp": (["src/candidate/AiCandidateWorker.cpp"], True),
     "candidate/translation_worker.cpp": (["src/candidate/TranslationWorker.cpp"], True),
@@ -118,6 +121,8 @@ COMPANIONS: dict[str, tuple[list[str], bool]] = {
     "candidate/wubi_code_hint.cpp": (["src/input/ChineseTextConversion.cpp"], True),
     "input/chinese_conversion.cpp": (["src/input/ChineseTextConversion.cpp"], True),
     "input/preedit_caret.cpp": (["src/input/ChineseTextConversion.cpp"], True),
+    # 按键送达的候选窗投影（插入点、游戏会话、UiLess 隐藏）；以前缺这一项被当成 Windows 专属跳过，断言过时了也没人发现（#10792）。
+    "ui/candidate_initialization.cpp": (["src/input/ChineseTextConversion.cpp"], True),
     "ui/candidate_render_request.cpp": (["src/input/ChineseTextConversion.cpp"], True),
     "core/candidate_continuation_pipe.cpp": (["src/ipc/ReplyCodec.cpp"], False),
     # 方向键让过云占位席位：真实 Server 会话的回复合成、候选窗投影与 TIP 宿主会话的导航（#10665）。

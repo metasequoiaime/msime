@@ -33,22 +33,25 @@ pub use crate::wubi::lookup::{
     WubiCodeLookup, WubiTextCodes, MAX_LOOKUP_CHARACTERS as MAX_WUBI_LOOKUP_CHARACTERS,
 };
 pub use dictionary::{
-    add_cantonese_words, cached_dictionary_state_revision, count_learning_habits, dictionary_edit,
-    dictionary_edit_batch, dictionary_edit_bundled, dictionary_edit_collection_batch,
-    dictionary_entries, dictionary_entries_for_kind, dictionary_entries_source,
-    dictionary_export_entries, dictionary_export_entries_for_kind, dictionary_state_revision,
-    dictionary_table_entries, dictionary_validate, dictionary_validate_previous, habit_is_storable,
-    merge_dictionary_state, merge_learning_habits, replay_user_dictionary, reset_learned_data,
-    stage_dictionary_state, stream_dictionary_state, stream_learning_habits, DictionaryApplied,
-    DictionaryEdit, DictionaryEntry, DictionaryKind, DictionaryPage, DictionaryStateMerge,
-    LearningHabit, LearningHabitsMerge, SnapshotReadError,
+    add_cantonese_words, cached_dictionary_state_revision, carry_dictionary_rows,
+    count_learning_habits, dictionary_edit, dictionary_edit_batch, dictionary_edit_bundled,
+    dictionary_edit_collection_batch, dictionary_entries, dictionary_entries_for_kind,
+    dictionary_entries_source, dictionary_export_entries, dictionary_export_entries_for_kind,
+    dictionary_state_revision, dictionary_table_entries, dictionary_validate,
+    dictionary_validate_previous, habit_is_storable, merge_dictionary_state, merge_learning_habits,
+    replay_user_dictionary, reset_learned_data, stage_dictionary_state, stream_dictionary_state,
+    stream_learning_habits, DictionaryApplied, DictionaryEdit, DictionaryEntry, DictionaryKind,
+    DictionaryPage, DictionaryStateMerge, LearningHabit, LearningHabitsMerge, SnapshotReadError,
 };
 pub use glosses::{
     candidate_glosses, candidate_glosses_with_user, candidate_target_glosses, english_completions,
     english_correction_display, english_corrections, english_phonetics, phonetics,
     release_gloss_caches, save_candidate_gloss, PHONETIC_LANGUAGES,
 };
-pub use options::{prepare_options, prepare_options_for, EngineOptions};
+pub use options::{
+    open_prepared_options_for, prepare_options, prepare_options_for, read_only_layout_options_for,
+    EngineOptions,
+};
 pub use session::{
     local_mode_counts_as_typing, Command, EngineResult, EngineSnapshot, OnlineQuerySnapshot,
     Session,
