@@ -4658,7 +4658,14 @@ test("the theme page runs from the colour mode to the custom colours", async () 
       .getByRole("region", { name: "自定义主题" })
       .querySelectorAll("[data-row-title]"),
   ].map((title) => title.textContent);
-  expect(colours).toEqual(["候选表面色", "候选文字颜色", "候选强调色", "候选选中色", "候选悬停色"]);
+  expect(colours).toEqual([
+    "候选表面色",
+    "候选文字颜色",
+    "候选强调色",
+    "候选选中色",
+    "候选选中文字色",
+    "候选悬停色",
+  ]);
   // Linux 面板的说明放在页首，排在那些皮肤和颜色会被该面板忽略的组之前。
   const note = within(skin).getByText(/Fcitx5 正在使用你在 Fcitx5 配置中选择的经典界面主题/);
   expect(note.compareDocumentPosition(mode) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

@@ -298,6 +298,15 @@ int main() {
   require(selected_picked.selected_text == resolved.selected_text &&
           selected_picked.selected_number == resolved.selected_number &&
           !selected_picked.selected_translation && selected_picked.selected_bar);
+  // #10740：选中文字取色器同样压过皮肤包的选中文字、选中编号和选中释义，留下解析层按取色器给出的颜色。
+  auto purple_text = resolved;
+  purple_text.selected_text = candidate_rgb(0x7B3FBF);
+  purple_text.selected_number = candidate_rgb(0x7B3FBF, 0x9D / 255.0f);
+  const auto selected_text_picked = apply_candidate_skin_extra_slots(
+      purple_text, slots, Json{{"selected_text", "#7b3fbf"}}, true);
+  require(selected_text_picked.selected_text == candidate_rgb(0x7B3FBF) &&
+          selected_text_picked.selected_number == purple_text.selected_number &&
+          !selected_text_picked.selected_translation && selected_text_picked.selected_bar);
   // Without the package's selected_translation the selected row's gloss is derived from the selected text on the opaque fill, so the package's #0000ff no longer applies and the row keeps one foreground colour; the other rows are unchanged.
   const auto picked_gloss = candidate_row_translation_color(selected_picked, true);
   require(picked_gloss ==

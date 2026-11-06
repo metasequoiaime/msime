@@ -121,6 +121,7 @@ static NSString *const TextColorKey = @"MSIMEClientCandidateTextColor";
 // 文字颜色以外的候选颜色。候选窗一直在用它们画（InputController.mm 填候选行时逐个读取），但以前只能经账号推送进内存里的覆盖值，这里没法设置，重启后也留不住。编号色和边框色不在其中：macOS 上它们固定跟随主题和皮肤（选了文字颜色时编号色由它推出），宿主不读 `custom_theme.candidate_colors` 的 `number` 与 `border`，以前存下的 MSIMEClientCandidateNumberColor、MSIMEClientCandidateBorderColor 也不再读、不再写回共享文档。
 static NSString *const AccentColorKey = @"MSIMEClientCandidateAccentColor";
 static NSString *const SelectedColorKey = @"MSIMEClientCandidateSelectedColor";
+static NSString *const SelectedTextColorKey = @"MSIMEClientCandidateSelectedTextColor";
 static NSString *const HoverColorKey = @"MSIMEClientCandidateHoverColor";
 static NSString *const SurfaceColorKey = @"MSIMEClientCandidateSurfaceColor";
 /// 全局明暗和唯一还能单独覆盖它的界面（候选窗口）：候选窗按 `theme` 与 `candidate_theme` 解析自己的外观。两项以前只能从云端到达本宿主，没登录过的机器无从选择，选过的机器下次启动又会丢失。悬浮工具栏、中英文提示、菜单和各面板一律跟随颜色模式，不读各自单独的明暗设置（HostCapabilities 的 `surface_themes_follow`），以前存下的 MSIMEClientToolbarTheme 也不再读、不再写回共享文档。
@@ -141,13 +142,14 @@ static id SharedCandidateColor(NSDictionary *preferences, NSString *key, id curr
     if (!value || value == NSNull.null) return NSNull.null;
     return ValidTextColor(value) ? [value copy] : current;
 }
-/// 窗口给出取色器的四种候选颜色，每项是 {属性名, 标题, 存储键, `custom_theme.candidate_colors` 里的槽位}。用一张表代替四份「取色器、按钮、setter、存储键和分区条目」：取色器由它生成，取色器和它的「跟随皮肤」按钮以属性名为 identifier 经它路由回来，合并时按它发布，「配色」分区也按它登记存储键。
+/// 窗口给出取色器的五种候选颜色，每项是 {属性名, 标题, 存储键, `custom_theme.candidate_colors` 里的槽位}。用一张表代替五份「取色器、按钮、setter、存储键和分区条目」：取色器由它生成，取色器和它的「跟随皮肤」按钮以属性名为 identifier 经它路由回来，合并时按它发布，「配色」分区也按它登记存储键。
 ///
 /// 候选文字颜色 is not in it. It is the one colour this window already had, it is set by typing a hex value as well as by the well, and three tests name its selectors, so it keeps the row it has always had rather than being folded in and renamed.
 static NSArray<NSArray<NSString *> *> *CandidateColorControls() {
     return @[
         @[ @"candidateAccentColor", @"候选强调色", AccentColorKey, @"accent" ],
         @[ @"candidateSelectedColor", @"候选选中色", SelectedColorKey, @"selected" ],
+        @[ @"candidateSelectedTextColor", @"候选选中文字色", SelectedTextColorKey, @"selected_text" ],
         @[ @"candidateHoverColor", @"候选悬停色", HoverColorKey, @"hover" ],
         @[ @"candidateSurfaceColor", @"候选表面色", SurfaceColorKey, @"surface" ],
     ];
@@ -479,6 +481,7 @@ static NSDictionary<NSString *, NSString *> *SharedOverrideProperties() {
         TextColorKey : @"sharedTextColor",
         AccentColorKey : @"sharedAccentColor",
         SelectedColorKey : @"sharedSelectedColor",
+        SelectedTextColorKey : @"sharedSelectedTextColor",
         HoverColorKey : @"sharedHoverColor",
         SurfaceColorKey : @"sharedSurfaceColor",
         ThemeKey : @"sharedTheme",
@@ -1174,6 +1177,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     id _sharedTextColor;
     id _sharedAccentColor;
     id _sharedSelectedColor;
+    id _sharedSelectedTextColor;
     id _sharedHoverColor;
     id _sharedSurfaceColor;
     id _sharedGlobalTheme;
@@ -1775,6 +1779,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     // 编号色和边框色在 macOS 上固定跟随主题，留空交给解析器推出（编号色取文字颜色或主题的值）。
     custom.candidateColors.accent = self.candidateAccentColor.UTF8String ?: "";
     custom.candidateColors.selected = self.candidateSelectedColor.UTF8String ?: "";
+    custom.candidateColors.selectedText = self.candidateSelectedTextColor.UTF8String ?: "";
     custom.candidateColors.hover = self.candidateHoverColor.UTF8String ?: "";
     custom.candidateColors.surface = self.candidateSurfaceColor.UTF8String ?: "";
     return custom;
@@ -1784,7 +1789,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     return [@[
         self.globalTheme, self.customThemeBase, self.customCandidateSkin ?: @"", self.customCandidateSkinDark ?: @"",
         self.candidateTextColor ?: @"",
-        self.candidateAccentColor ?: @"", self.candidateSelectedColor ?: @"",
+        self.candidateAccentColor ?: @"", self.candidateSelectedColor ?: @"", self.candidateSelectedTextColor ?: @"",
         self.candidateHoverColor ?: @"", self.candidateSurfaceColor ?: @"",
         self.vertical ? @"vertical" : @"horizontal", _skinsRoot.path ?: @""
     ] componentsJoinedByString:@"|"];
@@ -2971,7 +2976,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     [_defaults setObject:value ?: @"" forKey:key];
     [self preferencesChanged];
 }
-/// 五种颜色之一没有被覆盖时的样子：候选窗画它用的 token，取自按本窗口当前明暗解析出的所选主题。
+/// 六种颜色之一没有被覆盖时的样子：候选窗画它用的 token，取自按本窗口当前明暗解析出的所选主题。
 - (NSColor *)candidateSkinColorForProperty:(NSString *)property {
     NSAppearanceName match = [NSApp.effectiveAppearance
         bestMatchFromAppearancesWithNames:@[ NSAppearanceNameAqua, NSAppearanceNameDarkAqua ]];
@@ -2979,6 +2984,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     if ([property isEqual:@"candidateTextColor"]) return SkinTokenColor(tokens.text);
     if ([property isEqual:@"candidateAccentColor"]) return SkinTokenColor(tokens.accent);
     if ([property isEqual:@"candidateSelectedColor"]) return SkinTokenColor(tokens.selected);
+    if ([property isEqual:@"candidateSelectedTextColor"]) return SkinTokenColor(tokens.selectedText);
     if ([property isEqual:@"candidateHoverColor"]) return SkinTokenColor(tokens.hover);
     if ([property isEqual:@"candidateSurfaceColor"]) return SkinTokenColor(tokens.surface);
     return SkinTokenColor(tokens.border);
@@ -2987,6 +2993,8 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
 - (void)setCandidateAccentColor:(NSString *)value { _sharedAccentColor = nil; [self setCandidateColor:value storedAs:AccentColorKey]; }
 - (NSString *)candidateSelectedColor { return [self candidateColorStoredAs:SelectedColorKey shared:_sharedSelectedColor]; }
 - (void)setCandidateSelectedColor:(NSString *)value { _sharedSelectedColor = nil; [self setCandidateColor:value storedAs:SelectedColorKey]; }
+- (NSString *)candidateSelectedTextColor { return [self candidateColorStoredAs:SelectedTextColorKey shared:_sharedSelectedTextColor]; }
+- (void)setCandidateSelectedTextColor:(NSString *)value { _sharedSelectedTextColor = nil; [self setCandidateColor:value storedAs:SelectedTextColorKey]; }
 - (NSString *)candidateHoverColor { return [self candidateColorStoredAs:HoverColorKey shared:_sharedHoverColor]; }
 - (void)setCandidateHoverColor:(NSString *)value { _sharedHoverColor = nil; [self setCandidateColor:value storedAs:HoverColorKey]; }
 - (NSString *)candidateSurfaceColor { return [self candidateColorStoredAs:SurfaceColorKey shared:_sharedSurfaceColor]; }
@@ -3347,6 +3355,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     _sharedTextColor = SharedCandidateColor(pickerColors, @"text", _sharedTextColor);
     _sharedAccentColor = SharedCandidateColor(pickerColors, @"accent", _sharedAccentColor);
     _sharedSelectedColor = SharedCandidateColor(pickerColors, @"selected", _sharedSelectedColor);
+    _sharedSelectedTextColor = SharedCandidateColor(pickerColors, @"selected_text", _sharedSelectedTextColor);
     _sharedHoverColor = SharedCandidateColor(pickerColors, @"hover", _sharedHoverColor);
     _sharedSurfaceColor = SharedCandidateColor(pickerColors, @"surface", _sharedSurfaceColor);
     id family = preferences[@"candidate_font_family"];
@@ -4465,7 +4474,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
             FontKey, PreeditFontKey, CandidateScaleKey]], fontCard],
         @[[self sectionHeader:@"窗口样式" keys:@[CandidateOpacityKey, CandidateCornerRadiusKey, CandidatePaddingKey]], windowStyleCard,
           [self sectionHeader:@"配色" keys:@[ThemeKey, CandidateThemeKey, TextColorKey,
-            AccentColorKey, SelectedColorKey, HoverColorKey, SurfaceColorKey]], colorCard],
+            AccentColorKey, SelectedColorKey, SelectedTextColorKey, HoverColorKey, SurfaceColorKey]], colorCard],
         @[[self sectionHeader:@"预编辑" keys:@[CandidatePreeditKey]], preeditCard],
     ];
     // 预览控件共用同一份实例，切换标签不改偏好或丢失示例文字、明暗与展示状态。

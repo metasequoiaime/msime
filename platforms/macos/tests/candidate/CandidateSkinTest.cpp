@@ -385,6 +385,19 @@ int main() {
         CheckColor(light.tokens.selected, 0xE8E8E8);
         CheckColor(light.tokens.selectedText, 0x000000);
         CheckColor(light.tokens.selectedNumber, 0x000000, 0x9D / 255.f);
+        // #10740：选中文字取色器压过选中底推出的黑白；system 底上只设它时，选中底仍是原生实心底，字和序号用取色器的颜色。
+        msime::mac::CustomTheme pickedText = lightFill;
+        pickedText.candidateColors.selectedText = "#7B3FBF";
+        const auto purple = msime::mac::ResolveSkin("custom", pickedText, dark, "horizontal", {});
+        CheckColor(purple.tokens.selected, 0xE8E8E8);
+        CheckColor(purple.tokens.selectedText, 0x7B3FBF);
+        CheckColor(purple.tokens.selectedNumber, 0x7B3FBF, 0x9D / 255.f);
+        msime::mac::CustomTheme onlyText;
+        onlyText.candidateColors.selectedText = "#7B3FBF";
+        const auto native = msime::mac::ResolveSkin("custom", onlyText, dark, "horizontal", {});
+        assert(SameColor(native.tokens.selected, NativeCandidateTokens(dark).selected));
+        CheckColor(native.tokens.selectedText, 0x7B3FBF);
+        CheckColor(native.tokens.selectedNumber, 0x7B3FBF, 0x9D / 255.f);
         // A custom theme over a built-in one takes that theme's mode and fills the unpicked slots from it.
         picked.base = "night";
         const auto overNight = msime::mac::ResolveSkin("custom", picked, dark, "horizontal", {});

@@ -45,7 +45,7 @@ function pickerTitles(fold: HTMLElement) {
   return Array.from(fold.querySelectorAll("[data-row-title]"), (title) => title.textContent);
 }
 
-// 取色器收在「自定义配色」里、默认收起；悬停色也在其中，系统底色上推不出悬停色，深色自定义表面只能靠它。读编号色和边框色的宿主（Android、iOS）七个都给。
+// 取色器收在「自定义配色」里、默认收起；悬停色也在其中，系统底色上推不出悬停色，深色自定义表面只能靠它。读编号色和边框色的宿主（Android、iOS）八个都给。
 test("the colour pickers sit in a collapsed 自定义配色 fold, hover included", async () => {
   const group = await openSkinPage("windows", {
     candidate_border_color: true,
@@ -60,12 +60,13 @@ test("the colour pickers sit in a collapsed 自定义配色 fold, hover included
     "候选编号颜色",
     "候选强调色",
     "候选选中色",
+    "候选选中文字色",
     "候选悬停色",
     "候选边框色",
   ]);
 });
 
-// 桌面宿主的编号色和边框色固定跟随主题（宿主不读这两个槽位），不给取色器；其余五个照旧。
+// 桌面宿主的编号色和边框色固定跟随主题（宿主不读这两个槽位），不给取色器；其余六个照旧。
 test.each(["macos", "windows", "linux"])(
   "%s offers no number or border colour picker",
   async (platform) => {
@@ -76,6 +77,7 @@ test.each(["macos", "windows", "linux"])(
       "候选文字颜色",
       "候选强调色",
       "候选选中色",
+      "候选选中文字色",
       "候选悬停色",
     ]);
     expect(screen.queryByLabelText("候选编号颜色")).toBeNull();

@@ -109,7 +109,8 @@ export function customCandidatePalette(base, colors, packagePalette) {
   const number = explicitNumber ?? basePalette?.number ?? null;
   const accent = slot("accent") ?? basePalette?.accent ?? null;
   const pickedSelected = picked(colors?.selected);
-  const pickedSelectedText = pickedSelected ? readableText(pickedSelected) : null;
+  // 选中文字取色器最优先，其次是选中底色取色器按亮度推出的黑白，与 `resolve()` 同序。
+  const pickedSelectedText = picked(colors?.selected_text) ?? (pickedSelected ? readableText(pickedSelected) : null);
   const palette = {
     surface: slot("surface") ?? basePalette?.surface ?? null,
     border: slot("border") ?? basePalette?.border ?? null,
