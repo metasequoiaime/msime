@@ -35,7 +35,7 @@ final class KeyboardFormFactorTests: XCTestCase {
     // 更宽的排间距加在键盘总高上，而不是从键高里扣。
     XCTAssertEqual(phone.keyboardHeight(topRow: 50, rowSpacing: 10, landscape: false, handwriting: false), 298)
     // 26 键使用 44pt 键帽时保留键盘外框高度。
-    XCTAssertEqual(phone.keyboardHeight(topRow: 50, rowSpacing: 11, landscape: false, handwriting: false, letterKeys: true), 289)
+    XCTAssertEqual(phone.keyboardHeight(topRow: 50, rowSpacing: 11, landscape: false, handwriting: false, letterKeys: true), 301)
     XCTAssertEqual(phone.keyboardHeight(topRow: 50, rowSpacing: 7, landscape: true, handwriting: false, letterKeys: true),
                    phone.keyboardHeight(topRow: 50, rowSpacing: 7, landscape: true, handwriting: false))
     // 数字行是整整一排键，平板加一排的高度而不是压扁字母。
@@ -91,14 +91,14 @@ final class KeyboardFormFactorTests: XCTestCase {
     }
     let phone = try layout(tablet: false, width: 393)
     XCTAssertEqual(phone.height, KeyboardViewController.defaultKeyboardHeight)
-    // 排间距是存储的 7pt 加一份对齐间距。
-    XCTAssertEqual(phone.space.minY - phone.key.maxY, 11, accuracy: 0.5)
+    // 排间距直接使用存储的 7pt。
+    XCTAssertEqual(phone.space.minY - phone.key.maxY, 7, accuracy: 0.5)
     XCTAssertEqual(phone.key.height, 44, accuracy: 0.5)
     XCTAssertEqual(phone.space.height, 44, accuracy: 0.5)
     XCTAssertEqual(phone.strip.minY, 2, accuracy: 0.5)
     XCTAssertEqual(phone.strip.minX, 3, accuracy: 0.5)
     XCTAssertEqual(phone.strip.maxX, 393 - 3, accuracy: 0.5)
-    XCTAssertEqual(phone.space.maxY, phone.height - 14, accuracy: 0.5)
+    XCTAssertEqual(phone.space.maxY, phone.height - 20, accuracy: 0.5)
     let withRow = try layout(tablet: true, width: 820)
     XCTAssertEqual(withRow.key.height, 54, accuracy: 0.5)
     XCTAssertEqual(withRow.strip.minX, 8, accuracy: 0.5)

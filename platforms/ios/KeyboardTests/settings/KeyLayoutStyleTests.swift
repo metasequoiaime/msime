@@ -228,7 +228,7 @@ final class KeyLayoutStyleTests: XCTestCase {
     // 2 + 50 + 4 + 5 × 52 + 4 × 7 + 4。
     XCTAssertEqual(phone.keyboardHeight(topRow: 50, rowSpacing: 7, landscape: false, handwriting: false, phoneNumberRow: true), 348)
     XCTAssertEqual(phone.keyboardHeight(topRow: 50, rowSpacing: 11, landscape: false, handwriting: false, letterKeys: true,
-                                        phoneNumberRow: true), 348)
+                                        phoneNumberRow: true), 364)
     XCTAssertEqual(KeyboardHeightPercent.portraitKeyBlockHeight(tablet: false, numberRow: false, rowSpacing: 7, phoneNumberRow: true),
                    5 * 52 + 4 * 7)
   }
