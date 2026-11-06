@@ -22,11 +22,16 @@ interface PolishMessage {
   content: string;
 }
 
+interface PolishThinking {
+  type: string;
+}
+
 interface PolishRequestBody {
   model: string;
   stream: boolean;
   temperature: number;
   messages: PolishMessage[];
+  thinking?: PolishThinking;
 }
 
 /** 按需润色识别结果，不把凭据或原始响应写入日志。 */
@@ -68,6 +73,7 @@ export class HarmonyVoicePolisher {
         { role: 'user', content: VoicePolishRequestPolicy.userMessage(text) }
       ]
     };
+    if (VoicePolishRequestPolicy.disablesArkSeedThinking(endpoint, model)) body.thinking = { type: 'disabled' };
     const request: http.HttpRequest = http.createHttp();
     installNoRedirectGuard(request);
     this.request = request;
