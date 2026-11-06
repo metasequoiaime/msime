@@ -7,15 +7,12 @@ enum KeyboardFormFactor: Equatable {
   case phone
   case tablet
 
-  /// 手机竖屏字母层在存储行距之外保留的上下对齐间距。
-  static let phoneLetterRowPadding: CGFloat = 4
-
-  /// 26 键手机竖屏的键帽从 52pt 收到 44pt，键区上下各留 10pt；排间距只保留一份额外对齐间距，避免重复叠加。
-  static let phoneLetterVerticalPadding: CGFloat = 10
+  /// 26 键手机竖屏四排字母键的上下补偿留白。
+  static let phoneLetterVerticalPadding: CGFloat = 16
 
   /// 26 键手机竖屏有 `rows` 排键时，上下各留的补偿空间。五排时多出的一排也要保持 44pt 键帽。
   static func phoneLetterVerticalPadding(rows: Int) -> CGFloat {
-    (CGFloat(rows) * 8 - CGFloat(max(rows - 1, 0)) * phoneLetterRowPadding) / 2
+    CGFloat(rows) * 4
   }
 
   static func resolve(
@@ -72,11 +69,9 @@ enum KeyboardFormFactor: Equatable {
     let keyBlock = KeyboardHeightPercent.keyBlockHeight(
       keyHeight: keyHeight(landscape: landscape, handwriting: handwriting, letterKeys: letterKeys),
       rows: rows, rowSpacing: rowSpacing)
-    let standardRowSpacing = rowSpacing - (self == .phone && !landscape && letterKeys
-      ? Self.phoneLetterRowPadding : 0)
     let standardBlock = KeyboardHeightPercent.keyBlockHeight(
       keyHeight: keyHeight(landscape: landscape, handwriting: handwriting),
-      rows: rows, rowSpacing: standardRowSpacing)
+      rows: rows, rowSpacing: rowSpacing)
     // 26 键的键帽从 52pt 收紧到 44pt 后，保留原来的键盘外框高度，省下的空间用于键帽高度。
     let letterHeightCompensation = self == .phone && letterKeys ? standardBlock - keyBlock : 0
     return padding.top + topRow + (topRow > 0 ? topRowGap : 0)

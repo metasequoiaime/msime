@@ -478,7 +478,7 @@ final class KeyLayoutStyleTests: XCTestCase {
                        KeyboardFormFactor.phone.topRowGap
                          + KeyboardFormFactor.phoneLetterVerticalPadding(rows: 5), accuracy: 0.5)
         XCTAssertEqual(frame(letter).minY - frame(digit).maxY,
-                       CGFloat(KeyboardLayoutPreference.rowSpacing) + KeyboardFormFactor.phoneLetterRowPadding, accuracy: 0.5)
+                       CGFloat(KeyboardLayoutPreference.rowSpacing), accuracy: 0.5)
         attach(controller, "26 键 数字行")
       }
       // 数字页（借用的九宫格）上补充行占住这一排。

@@ -9812,14 +9812,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     formFactor == .phone && letterRowViews.first?.isHidden == false
   }
 
-  /// 手机竖屏 26 键在存储行距之外保留一份对齐间距；不再重复叠加第二份排距。
+  /// 手机竖屏 26 键沿用用户设置的排距；收紧键帽省下的空间放在键区上下。
   private var keyRowSpacing: CGFloat {
-    let letterPadding: CGFloat = showsPhoneLetterRows && !isLandscape
-      ? KeyboardFormFactor.phoneLetterRowPadding : 0
-    return CGFloat(KeyboardLayoutPreference.rowSpacing) + letterPadding
+    CGFloat(KeyboardLayoutPreference.rowSpacing)
   }
 
-  /// 按键列使用 `keyRowSpacing`，不再额外叠加收紧键帽省下的空间。
+  /// 按键列使用用户设置的排距。
   private var keyColumnSpacing: CGFloat {
     keyRowSpacing
   }

@@ -20,6 +20,8 @@ iOS 26 键竖屏把 44pt 字母键帽收紧后，额外在键区上下和每个�
 - 26 键竖屏的排间距从 15pt 收到 11pt，键盘外框、候选栏位置和上下对齐不变；九键、平板和横屏布局不受影响。
 - `KeyboardFormFactor` 相关几何测试与面板高度测试同步固定新的排距。
 
+后续排距决定见 [iOS 26 键排距回到用户设置值](2026-11-07-ios-letter-spacing-default.md)。
+
 ## Verification
 
 - `git diff --check`
