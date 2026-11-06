@@ -1735,8 +1735,8 @@ group("SymbolPanelPolicy", () => {
     "the symbol panel keeps its stable category order",
   );
   check(
-    symbolCategories.map((category) => category.symbols.length).join(",") === "30,79,40,50,48",
-    "the complete committed symbol catalog is present",
+    symbolCategories.map((category) => category.symbols.length).join(",") === "30,79,40,50,45",
+    "保留完整符号目录，网络分类按已移除三个微软后缀的目录验收",
   );
   check(
     symbolCategories.every((category) => category.title.length > 0 && category.symbols.length > 0),
@@ -8275,7 +8275,7 @@ group("the word being completed is read backwards from the caret", () => {
 // 与 Android 的 EmailSuffixPolicySmoke 逐条相同（#6147），另加宿主何时读上文。
 group("光标前打到 xxx@ 时给出邮箱后缀", () => {
   const all: string[] = EMAIL_SUFFIXES;
-  check(all.length === 20 && new Set(all).size === all.length, "twenty distinct suffixes");
+  check(all.length === 17 && new Set(all).size === all.length, "17 个不同的常用邮箱后缀");
   check(
     all.slice(0, 7).join(" ") ===
       "@qq.com @163.com @126.com @foxmail.com @139.com @189.cn @aliyun.com",
