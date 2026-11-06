@@ -133,8 +133,10 @@ pub async fn account_request_code(
     provider: String,
     target: String,
 ) -> Result<ChallengeResponse, crate::CommandError> {
-    call_session(&state.session, move |session| {
-        session.request_code(&provider, &target).map(Into::into)
+    call_session_detailed(&state.session, move |session| {
+        session
+            .request_code_detailed(&provider, &target)
+            .map(Into::into)
     })
     .await
 }

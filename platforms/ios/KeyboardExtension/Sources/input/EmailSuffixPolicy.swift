@@ -8,7 +8,7 @@ enum EmailSuffixPolicy {
   static let maxContext = 64
 
   /// 常用邮箱后缀：国内常用的在前，然后是海外的。与 Android 的 `EmailSuffixPolicy.SUFFIXES` 和引擎网址模式的 `EMAIL_SUFFIXES`（`crates/engine/src/local/url.rs`）是同一份、同一个顺序，`scripts/test-email-suffixes.py` 核对各处一致，所以保持为一行字面量。
-  static let suffixes = ["@qq.com", "@163.com", "@126.com", "@foxmail.com", "@139.com", "@189.cn", "@aliyun.com", "@gmail.com", "@outlook.com", "@hotmail.com", "@live.com", "@icloud.com", "@yahoo.com", "@proton.me", "@protonmail.com", "@aol.com", "@mail.com", "@gmx.com", "@naver.com", "@yahoo.co.jp"]
+  static let suffixes = ["@qq.com", "@163.com", "@126.com", "@foxmail.com", "@139.com", "@189.cn", "@aliyun.com", "@gmail.com", "@icloud.com", "@yahoo.com", "@proton.me", "@protonmail.com", "@aol.com", "@mail.com", "@gmx.com", "@naver.com", "@yahoo.co.jp"]
 
   /// 光标前已经打到 `@` 之后的一段：`typedDomain` 是 `@` 之后已经打的域名（原样，可能为空），`suffixes` 是以它开头的后缀，按 `suffixes` 的顺序，至少一个。
   struct Match: Equatable {

@@ -1978,7 +1978,10 @@ final class ImeLayoutRows {
             if (slotVisible) {
                 String spelling = values.get(slot);
                 key.setText(spelling);
-                key.setContentDescription(NineKeyPanelPolicy.spellingDescription(spelling, zhuyin));
+                // 放下网格辅助码的分隔符后这里是辅助码的整串解释，不是拼音。
+                key.setContentDescription(s.gridHelpcodeDisplay().isEmpty()
+                    ? NineKeyPanelPolicy.spellingDescription(spelling, zhuyin)
+                    : GridHelpcodePolicy.choiceDescription(spelling));
             }
         }
     }

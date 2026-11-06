@@ -72,6 +72,10 @@ RUST_ONLY: dict[str, set[str]] = {
         # Windows 游戏候选兜底点挪到客户区上部的开关，给聊天行在画面上沿的游戏（DNF）用；按设计没有设置界面入口（WinUI、React 页和 MCP 白名单都不含它），只能手改 preferences.json，见 .agents/notes/implemented/feature/2026-10-08-windows-game-candidate-overlay.md。
         "overlay_anchor_top",
     },
+    "HelpcodePreferences": {
+        # 14/18 键辅助码（上滑分词键放下分隔符）只有 Android 键盘有入口，开关只在 Android 原生「输入 › 辅助码」里；桌面没有字母网格，React 设置页不显示。见 .agents/notes/implemented/feature/2026-11-04-grid-helpcode.md。
+        "grid",
+    },
 }
 
 

@@ -6,7 +6,7 @@ import java.util.List;
 public final class EmailSuffixPolicySmoke {
     public static void main(String[] args) {
         List<String> all = EmailSuffixPolicy.SUFFIXES;
-        check(all.size() == 20 && all.size() == new java.util.HashSet<>(all).size(), "twenty distinct suffixes");
+        check(all.size() == 17 && all.size() == new java.util.HashSet<>(all).size(), "seventeen distinct suffixes");
         check(all.subList(0, 7).equals(List.of("@qq.com", "@163.com", "@126.com", "@foxmail.com", "@139.com",
             "@189.cn", "@aliyun.com")), "domestic suffixes come first");
         for (String suffix : all)

@@ -1560,6 +1560,35 @@ impl AccountApi for BackendAccountClient {
         Ok(challenge)
     }
 
+    fn challenge_detailed(
+        &self,
+        provider: &str,
+        target: &str,
+    ) -> Result<AccountChallenge, AccountFailure> {
+        validate_challenge_request(provider, target)?;
+        #[derive(Serialize)]
+        struct Body<'a> {
+            provider: &'a str,
+            target: &'a str,
+            purpose: &'static str,
+        }
+        let challenge = self.json_detailed(
+            Method::POST,
+            "/v1/auth/challenges",
+            None,
+            Some(&Body {
+                provider,
+                target,
+                purpose: "login",
+            }),
+            MAX_JSON_BYTES,
+            MAX_JSON_BYTES,
+            Duration::from_secs(30),
+        )?;
+        validate_challenge(&challenge)?;
+        Ok(challenge)
+    }
+
     fn login(&self, challenge: &str, credential: &str) -> Result<AccountTokens, AccountError> {
         validate_login_request(challenge, credential)?;
         #[derive(Serialize)]

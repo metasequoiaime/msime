@@ -17,6 +17,18 @@
       "android": "没有完成，请稍后再试"
     },
     {
+      "code": "account_unsupported_email_domain",
+      "from": [
+        {
+          "status": 400,
+          "server_code": "unsupported_email_domain"
+        }
+      ],
+      "shared": "该邮箱域名暂不支持邮箱验证码，请改用常用邮箱或手机号。",
+      "apple": "该邮箱域名暂不支持邮箱验证码，请改用常用邮箱或手机号。",
+      "android": "该邮箱域名暂不支持邮箱验证码，请改用常用邮箱或手机号"
+    },
+    {
       "code": "account_avatar_invalid",
       "from": [],
       "shared": "请选择 1 MiB 以内的 PNG 或 JPEG 图片。",
