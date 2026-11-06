@@ -10,7 +10,7 @@
 
 #include "msime_client.h"
 #include "../../../common/HostApiString.h"
-#include "../../../common/EmbeddedTranslation.h"
+#include "../../../common/EmbeddedTranslationRetry.h"
 
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
@@ -820,7 +820,7 @@ TranslationWorker::translate(const FocusLease &lease, const std::string &query_b
       auto request = query;
       const auto id = msime::translation::next_request_id();
       request["request_id"] = id;
-      auto raw = msime::translation::embedded(request.dump(), id, cancelled);
+      auto raw = msime::translation::embedded_with_retry(std::move(request), id, cancelled);
       if (!raw) return std::nullopt;
       const auto result = nlohmann::json::parse(raw.get());
       if (!result.value("ok", false)) return std::nullopt;
