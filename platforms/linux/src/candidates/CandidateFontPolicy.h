@@ -25,6 +25,8 @@ struct CandidateFont {
   // candidate_english_font. Windows draws candidate text in this face first and falls back for the glyphs it lacks, and macOS and Android name it ahead of the primary family; a Pango family list resolves per glyph the same way, so the Linux answer is to put it first. Empty when unset, which leaves the description exactly as it was before the setting existed.
   std::string english_family{};
   int scale_percent = 100;
+  // candidate_font_weight 的 OpenType 字重（400、500、600、700）。常规时描述里不写样式词，与这个设置出现之前逐字节相同。
+  int weight = 400;
 };
 
 inline constexpr const char *kDefaultCandidateFontFamily = "Noto Sans SC";
@@ -33,6 +35,14 @@ inline constexpr int kDefaultCandidateFontSize = 18;
 inline const std::vector<std::string> &default_candidate_fallback_fonts() {
   static const std::vector<std::string> fonts{"Noto Sans SC", "Microsoft YaHei"};
   return fonts;
+}
+
+// 共享偏好 `candidate_font_weight`（client-core 的 `CandidateFontWeight`）的 OpenType 字重，常规时不写进文档；认不出的值按常规。scripts/test-candidate-font-weight-parity.py 核对它与 Rust 和另外两端的字重表一致。
+inline int candidate_font_weight_value(std::string_view id) {
+  if (id == "medium") return 500;
+  if (id == "semibold") return 600;
+  if (id == "bold") return 700;
+  return 400;
 }
 
 // Reads the shared font preferences the way the preference store defaults them, so a document written before a key existed describes the same font as one that spells the default out.
@@ -59,7 +69,23 @@ inline CandidateFont read_candidate_font(const nlohmann::json &preferences) {
   if (const auto english = preferences.find("candidate_english_font");
       english != preferences.end() && english->is_string())
     font.english_family = english->get<std::string>();
+  if (const auto weight = preferences.find("candidate_font_weight");
+      weight != preferences.end() && weight->is_string())
+    font.weight = candidate_font_weight_value(weight->get<std::string>());
   return font;
+}
+
+// 预编辑行一直是半粗，候选文字选得更粗时跟到同一档（`CandidateFontWeight::preedit_value`）。
+inline constexpr int candidate_preedit_font_weight(int weight) { return weight > 600 ? weight : 600; }
+
+// 字重在 Pango 描述里的样式词，放在字体列表之后、字号之前；常规为空。面板按它在每个字体族里挑最接近的字面，族里没有这一档时由 fontconfig 就近选或合成加粗，取决于桌面的字体配置。
+inline const char *candidate_font_weight_word(int weight) {
+  switch (weight) {
+  case 500: return "Medium";
+  case 600: return "Semi-Bold";
+  case 700: return "Bold";
+  default: return "";
+  }
 }
 
 inline std::string trimmed_font_family(const std::string &value) {
@@ -113,7 +139,7 @@ inline int scaled_candidate_font_size(const CandidateFont &font) {
   return std::max(1, (size * scale + 50) / 100);
 }
 
-// 描述先列选了的英文字体，再列主字体和回退字体，去掉重复；字体列表以逗号结尾，名字以 Pango 认得的样式词（"Bold"、"Light"）结尾时仍算名字的一部分。
+// 描述先列选了的英文字体，再列主字体和回退字体，去掉重复；字体列表以逗号结尾，名字以 Pango 认得的样式词（"Bold"、"Light"）结尾时仍算名字的一部分。逗号之后才是真正的样式词：选了字重时写在这里。
 inline std::string candidate_pango_font(const CandidateFont &font,
                                         CandidateFontUnit unit = CandidateFontUnit::Pixels) {
   std::vector<std::string> families;
@@ -132,6 +158,10 @@ inline std::string candidate_pango_font(const CandidateFont &font,
     description += family;
   }
   if (!description.empty()) description += ",";
+  if (const std::string_view weight = candidate_font_weight_word(font.weight); !weight.empty()) {
+    if (!description.empty()) description += ' ';
+    description += weight;
+  }
   const int size = scaled_candidate_font_size(font);
   if (!description.empty()) description += ' ';
   description += candidate_font_size_text(size, unit);

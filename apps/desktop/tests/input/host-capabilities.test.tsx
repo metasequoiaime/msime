@@ -448,6 +448,7 @@ test("candidate appearance follows host capabilities", async () => {
   expect(screen.queryByLabelText("预编辑字号")).toBeNull();
   expect(screen.getByLabelText("候选强调色")).toBeTruthy();
   expect(screen.getByLabelText("候选选中色")).toBeTruthy();
+  expect(screen.getByLabelText("候选选中文字色")).toBeTruthy();
   expect(screen.queryByLabelText("候选悬停色")).toBeNull();
   expect(screen.queryByLabelText("候选边框色")).toBeNull();
   expect(screen.getByLabelText("候选文字颜色")).toBeTruthy();

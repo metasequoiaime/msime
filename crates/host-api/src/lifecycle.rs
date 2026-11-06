@@ -123,9 +123,10 @@ impl InputClass {
             | Action::FirstCandidate
             | Action::LastCandidate
             | Action::FirstCandidateOrHome => Self::Navigation,
-            Action::SegmentBackspace | Action::SegmentMoveLeft | Action::SegmentMoveRight => {
-                Self::Edit
-            }
+            Action::SegmentBackspace
+            | Action::SegmentMoveLeft
+            | Action::SegmentMoveRight
+            | Action::GridHelpcode(_) => Self::Edit,
             Action::Finish | Action::FinishOnFocusLoss => Self::Commit,
             Action::Command(command) => match command {
                 Command::Backspace

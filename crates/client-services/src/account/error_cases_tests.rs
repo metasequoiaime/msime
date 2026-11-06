@@ -146,6 +146,7 @@ fn every_code_rust_can_give_has_a_shared_case() {
             Some("no_verified_email"),
             Some("qq_link_code_not_found"),
             Some("qq_link_limit"),
+            Some("unsupported_email_domain"),
             Some("server_busy"),
             Some("feedback_too_large"),
             Some("screenshot_too_large"),

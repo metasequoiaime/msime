@@ -109,6 +109,9 @@ int main() {
     assert(count() == invalid_before && store.load().snapshot->revision() == revision);
     set(Form::asr_endpoint,L"https://synthetic.example.test/audio"); click(Form::save);
     choose(Form::hold_key,2); click(Form::save); assert(voice().at("hotkey_ctrl_win") == true && voice().at("hotkey_ralt") == false && voice().at("hotkey_rctrl_ralt") == false);
+    // 语音标点缺键时显示「智能添加」，选中后写进 voice_input.punctuation_mode。
+    assert(SendMessageW(control(Form::voice_punctuation),CB_GETCURSEL,0,0) == 0 && !voice().contains("punctuation_mode"));
+    choose(Form::voice_punctuation,2); click(Form::save); assert(voice().at("punctuation_mode") == "omit_all");
     choose(Form::asr_provider,provider_index("asr","doubao"));
     empty_devices = true; click(Form::device_refresh);
     assert(!IsWindowEnabled(control(Form::enabled)) && text(Form::device_status).find("未检测到麦克风") != std::string::npos);

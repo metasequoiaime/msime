@@ -34,10 +34,10 @@ pub(crate) const MAX_REQUEST_BYTES: usize = 2 * 1024 * 1024;
 pub(crate) const INVALID: &str = "invalid_dictionary_sync";
 const MAX_PATH_BYTES: usize = 16 * 1024;
 
-/// 同步认识的词库类别；Engine 以后多出来的类别先不同步。
+/// 同步认识的词库类别；Engine 以后多出来的类别先不同步。粤语只在 `cantonese` 为真时算（见 [`EngineDictionary::with_cantonese`]）。
 ///
 /// 新世纪五笔暂不同步，也是 `None`：已经发布的客户端读到带它的检查点会整份不认，压缩时还会丢掉它。等宽松读取的版本覆盖了足够多的设备再打开。协议核心读网盘时同样跳过它（`WordKind::from_synced_name`），两边要一起改：只放开一边，写进本机的词下一轮读不出来，会被当成本机删掉的。
-fn word_kind(kind: msime_engine::host::DictionaryKind) -> Option<WordKind> {
+fn word_kind(kind: msime_engine::host::DictionaryKind, cantonese: bool) -> Option<WordKind> {
     use msime_engine::host::DictionaryKind;
     Some(match kind {
         DictionaryKind::Pinyin => WordKind::Pinyin,
@@ -45,6 +45,7 @@ fn word_kind(kind: msime_engine::host::DictionaryKind) -> Option<WordKind> {
         DictionaryKind::Wubi98 => WordKind::Wubi98,
         DictionaryKind::QuickPhrase => WordKind::Quick,
         DictionaryKind::English => WordKind::English,
+        DictionaryKind::Cantonese if cantonese => WordKind::Cantonese,
         DictionaryKind::WubiXsj => return None,
         _ => return None,
     })
@@ -59,6 +60,7 @@ fn engine_kind(kind: WordKind) -> msime_engine::host::DictionaryKind {
         WordKind::WubiXsj => DictionaryKind::WubiXsj,
         WordKind::Quick => DictionaryKind::QuickPhrase,
         WordKind::English => DictionaryKind::English,
+        WordKind::Cantonese => DictionaryKind::Cantonese,
     }
 }
 
@@ -77,6 +79,8 @@ pub(crate) struct EngineDictionary<'a> {
     hosts: Option<msime_client_services::dictionary::quiesce::QuiescedHosts<'a, fn()>>,
     /// 上一次读到的权重：删除时 Engine 要核对它。
     weights: HashMap<WordKey, i64>,
+    /// 粤语个人词也算「我的词条」。WebDAV 同步不收它们（网盘上的格式没有这个类别），只有同一台设备上两份词库之间的交换（`user_words_mirror`）打开。
+    cantonese: bool,
 }
 
 impl<'a> EngineDictionary<'a> {
@@ -94,7 +98,14 @@ impl<'a> EngineDictionary<'a> {
             #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
             hosts: None,
             weights: HashMap::new(),
+            cantonese: false,
         }
+    }
+
+    /// 连粤语个人词一起读写。只给同一台设备上的 `user_words_mirror` 用：粤语词不出这台设备，WebDAV 同步照旧不碰它们。
+    pub(crate) fn with_cantonese(mut self) -> Self {
+        self.cantonese = true;
+        self
     }
 
     fn read(&mut self) -> Result<BTreeSet<WordKey>, LocalError> {
@@ -112,8 +123,8 @@ impl<'a> EngineDictionary<'a> {
             } = record
             {
                 // 编码或词不合同步的规则（例如超长）的词条不同步，留在本机。
-                if let Some(word) =
-                    word_kind(*kind).and_then(|kind| WordKey::canonical(kind, key, value))
+                if let Some(word) = word_kind(*kind, self.cantonese)
+                    .and_then(|kind| WordKey::canonical(kind, key, value))
                 {
                     weights.insert(word.clone(), *weight);
                     words.insert(word);
@@ -193,13 +204,15 @@ impl<'a> EngineDictionary<'a> {
         for (index, ((change, _), (previous, replacement))) in
             changes.iter().zip(&entries).enumerate()
         {
-            if crate::validate_personal_dictionary_edit(
-                self.options,
-                previous.as_ref(),
-                replacement.as_ref(),
-                &change.request_id,
-            )
-            .is_ok()
+            // 不收的类别（WebDAV 同步收到的粤语词）不写：写进去也读不回来，下一次核对会当成本机删掉了。
+            if (self.cantonese || change.key.kind() != WordKind::Cantonese)
+                && crate::validate_personal_dictionary_edit(
+                    self.options,
+                    previous.as_ref(),
+                    replacement.as_ref(),
+                    &change.request_id,
+                )
+                .is_ok()
             {
                 indexes.push(index);
             }

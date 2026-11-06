@@ -157,7 +157,7 @@ final class CandidateSkinPreviewRow: CandidateCanvasHostView {
     layer.cornerRadius = canvas?.panelLoaded != true ? 12 : 0
     for (index, item) in items.enumerated() {
       item.1.textColor = palette.number
-      item.2.textColor = index == 0 && canvas?.panelLoaded == true ? palette.selectedText ?? palette.text : palette.text
+      item.2.textColor = index == 0 ? palette.selectedText ?? palette.text : palette.text
       item.0.backgroundColor = index == 0 ? (canvas?.panelLoaded != true ? palette.hover : palette.selected) : .clear
       item.0.layer.cornerRadius = canvas?.itemCornerRadius ?? 9
       item.0.layer.borderWidth = canvas?.panelLoaded != true ? 1 : 0

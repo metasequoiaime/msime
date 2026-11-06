@@ -6,9 +6,9 @@ pub(crate) use msime_client_services::account::page::providers_response;
 pub(crate) use msime_client_services::account::page::{
     ChallengeResponse, ProfileResponse, ProvidersResponse, StatusResponse,
 };
-// 设置同步只接在 Windows 和 Linux 的账号会话上。
+// 设置同步接在三个桌面宿主（Windows、Linux、macOS）的账号会话上，其他目标不用。
 #[cfg_attr(
-    not(any(target_os = "windows", target_os = "linux")),
+    not(any(target_os = "windows", target_os = "linux", target_os = "macos")),
     allow(unused_imports)
 )]
 pub(crate) use msime_client_services::account::page::PreferenceSchemaResponse;
