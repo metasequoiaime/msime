@@ -9,6 +9,7 @@ struct WelcomeFlowView: View {
   @Environment(\.colorScheme) private var colorScheme
   @State private var page = 0
   @State private var scheme = InputSchemePreference.scheme
+  @State private var wubiProfile = WubiProfilePreference.profile
   @State private var showsGloss = InputHabitPreference.mirrored.glossEnabled
   @State private var glossSaveFailed = false
   @State private var choicesPending = OnboardingChoices.shared.hasPending
@@ -149,7 +150,8 @@ struct WelcomeFlowView: View {
           HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
               Text(choice.title).font(.system(size: 16, weight: .semibold)).foregroundStyle(.primary)
-              Text(choice.detail).designSubtext()
+              Text(choice.scheme == .wubi ? WubiProfilePreference.Version(known: wubiProfile).onboardingDetail : choice.detail)
+                .designSubtext()
             }
             Spacer()
             radio(selected: scheme == choice.scheme)
@@ -167,7 +169,10 @@ struct WelcomeFlowView: View {
       }
     }
     .onAppear {
-      InputSchemePreference.mirror(MetasequoiaInputSessionBridge.loadSharedPreferences())
+      let document = MetasequoiaInputSessionBridge.loadSharedPreferences()
+      InputSchemePreference.mirror(document)
+      if let document { WubiProfilePreference.mirror(document) }
+      wubiProfile = WubiProfilePreference.profile
       scheme = OnboardingChoices.shared.scheme ?? InputSchemePreference.scheme
     }
   }
@@ -304,7 +309,7 @@ struct WelcomeFlowView: View {
     }
   }
 
-  /// 只列本版本提供的入口：五笔版只剩五笔，拼音版没有五笔。
+  /// 只列本版本提供的入口：五笔版只剩五笔，拼音版没有五笔。五笔这一行的副标题写正在用的码表，画的时候按 `wubiProfile` 换掉这里的 86 版。
   private static let schemeChoices: [(scheme: ChineseInputScheme, title: String, detail: String)] = [
     (.quanpin, "全拼 26 键", "最常用，完整拼音"),
     (.nineKey, "全拼 9 键", "单手更顺手"),

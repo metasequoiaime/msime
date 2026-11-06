@@ -2,7 +2,7 @@ import XCTest
 
 final class WubiLookupRequestStateTests: XCTestCase {
   private func answer(_ text: String) -> WubiCodeLookup {
-    WubiCodeLookup(phrase: nil, characters: [.init(text: text, wubi86: ["ab"], wubi98: ["cd"])],
+    WubiCodeLookup(phrase: nil, characters: [.init(text: text, wubi86: ["ab"], wubi98: ["cd"], wubixsj: ["ef"])],
                    truncated: false)
   }
 
