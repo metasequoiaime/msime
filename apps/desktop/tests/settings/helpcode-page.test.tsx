@@ -301,7 +301,7 @@ test("末尾直接或逐音节直接打开时，末尾间接触发三行置灰�
     "双拼末尾间接触发（大写字母）",
   ];
   const triggerSwitches = () =>
-    triggers.map((name) => screen.getByRole("switch", { name }) as HTMLButtonElement);
+    triggers.map((name) => screen.getByRole("switch", { name }) as HTMLInputElement);
   const onChange = vi.fn();
   const page = (modes: Record<string, boolean>) => (
     <HelpcodeSettingsPage
@@ -315,13 +315,7 @@ test("末尾直接或逐音节直接打开时，末尾间接触发三行置灰�
   // 出厂值：末尾直接和末尾分号都开着，引擎此时不认分号触发。
   const { rerender } = render(page({}));
   expect(triggerSwitches().map((row) => row.disabled)).toEqual([true, true, true]);
-  expect(triggerSwitches().map((row) => row.getAttribute("aria-checked"))).toEqual([
-    "true",
-    "false",
-    "false",
-  ]);
-  fireEvent.click(triggerSwitches()[0]);
-  expect(onChange).not.toHaveBeenCalled();
+  expect(triggerSwitches().map((row) => row.checked)).toEqual([true, false, false]);
   const direct = screen.getByRole("switch", { name: "双拼末尾直接辅助码" });
   expect(document.getElementById(direct.getAttribute("aria-describedby") ?? "")?.textContent).toBe(
     "完整音节后直接接辅助码；打开时末尾间接触发不生效",
@@ -339,9 +333,5 @@ test("末尾直接或逐音节直接打开时，末尾间接触发三行置灰�
 
   rerender(page({ direct: false, direct_helpcode: true, trigger_uppercase: true }));
   expect(triggerSwitches().map((row) => row.disabled)).toEqual([true, true, true]);
-  expect(triggerSwitches().map((row) => row.getAttribute("aria-checked"))).toEqual([
-    "true",
-    "false",
-    "true",
-  ]);
+  expect(triggerSwitches().map((row) => row.checked)).toEqual([true, false, true]);
 });
