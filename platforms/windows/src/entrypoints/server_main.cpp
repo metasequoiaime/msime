@@ -1406,6 +1406,7 @@ int wmain(int argc, wchar_t **argv) {
           // 空格锁定固定为开（hotkey_hold_space_lock 保持默认的 true）：空格只在按住录音组合键期间才被拦下，平常打字不受影响，设置页也不再给这个开关（`voice_space_lock_switch`）。
           next.stream_inline_preedit = input.value("stream_inline_preedit", true);
           next.commit_mode = input.value("commit_mode", std::string{"tsf"});
+          next.punctuation_mode = input.value("punctuation_mode", std::string{"auto"});
           next.endpoint = input.value("asr_endpoint", std::string{});
           next.model = input.value("asr_model", std::string{});
           // Read before the tokens: the slot lookup is keyed on them.
@@ -1681,9 +1682,11 @@ int wmain(int argc, wchar_t **argv) {
         });
     startup_stage = "candidate_window";
     DesktopCandidateSettings candidate_settings;
+    // 启动配置里没有字重，先按常规画；读到偏好后字重随 candidate_font_settings 一起发过来。
     candidate_settings.fonts = {config.candidate_font, config.candidate_fallback_fonts,
         static_cast<unsigned>(config.candidate_font_size),
-        static_cast<unsigned>(config.candidate_preedit_font_size)};
+        static_cast<unsigned>(config.candidate_preedit_font_size),
+        candidate_regular_font_weight};
     candidate_settings.layout = CandidateLayoutSettings::decode(candidate_layout->load(std::memory_order_acquire));
     candidate_settings.mouse_wheel = candidate_mouse_wheel->load(std::memory_order_acquire);
     DesktopCandidates candidates({

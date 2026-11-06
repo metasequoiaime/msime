@@ -144,7 +144,7 @@ public:
     for (size_t index = 0; index < modes_.size(); ++index)
       if (modes_[index])
         EnableWindow(modes_[index], enabled && helpcode::mode_enabled(helpcode::shuangpin_modes[index],
-            families_[1].on, on(L"mid_sentence"), on(L"direct_helpcode")));
+            families_[1].on, on(L"direct"), on(L"mid_sentence"), on(L"direct_helpcode")));
   }
 
   std::vector<Change> command(WPARAM event) const {

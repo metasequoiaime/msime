@@ -459,7 +459,10 @@ fn my_words(options: &Value) -> BTreeSet<WordKey> {
     let engine = HostOptions::from_document(options.clone())
         .unwrap()
         .into_engine_options();
-    EngineDictionary::new(&engine, false).words().unwrap()
+    EngineDictionary::new(&engine, false)
+        .with_cantonese()
+        .words()
+        .unwrap()
 }
 
 #[test]
@@ -574,6 +577,66 @@ fn two_engine_dictionaries_converge_through_their_publications() {
         (json!(1), json!(0))
     );
     assert_eq!(my_words(&keyboard).len(), 5);
+}
+
+/// 设置页加的粤语词要进键盘自己的日志，粤语方案才出得了候选；删掉也一样跟过去。
+#[test]
+fn a_cantonese_word_added_in_settings_reaches_the_keyboard_and_so_does_its_removal() {
+    let root = tempfile::tempdir().unwrap();
+    let settings = host_options_with_main_dictionary(&root.path().join("settings"));
+    let keyboard = host_options_with_main_dictionary(&root.path().join("keyboard"));
+    // 设置页可以带声调、用 ' 分隔着写，Engine 存成不带声调、空格分隔。
+    seed(&settings, &[("cantonese", "nei5'hou2", "你好")]);
+    let group = root.path().join("group");
+    let settings_file = group.join("settings/user-words/words.json");
+    let keyboard_file = group.join("keyboard/user-words/words.json");
+    let sync = |options: &Value, side: &str| {
+        let (own, theirs) = if side == "settings" {
+            (&settings_file, &keyboard_file)
+        } else {
+            (&keyboard_file, &settings_file)
+        };
+        let reply = call(json!({
+            "operation": "sync",
+            "side": side,
+            "options": options,
+            "directory": root.path().join(format!("{side}-mirror")).to_str().unwrap(),
+            "theirs": theirs.to_str().unwrap(),
+            "publish": own.to_str().unwrap(),
+        }));
+        assert_eq!(reply["ok"], true, "{reply}");
+        reply["value"].clone()
+    };
+    let cantonese_list = |options: &Value| {
+        let listed = unsafe_call(
+            crate::msime_client_dictionary,
+            json!({"options": options, "action": {"operation": "list", "offset": 0, "limit": 10, "kind": "cantonese"}}),
+        );
+        assert_eq!(listed["ok"], true, "{listed}");
+        listed["value"]["entries"].clone()
+    };
+
+    assert_eq!(sync(&settings, "settings")["captured"], 1);
+    // 发布文件里的粤语词条仍是第 1 版格式，只多了一个类别名。
+    let published = Publication::decode(&std::fs::read(&settings_file).unwrap()).unwrap();
+    let nei_hou = WordKey::new(WordKind::Cantonese, "nei hou", "你好").unwrap();
+    assert_eq!(published.entries.keys().collect::<Vec<_>>(), vec![&nei_hou]);
+    assert_eq!(sync(&keyboard, "keyboard")["applied"], 1);
+    // 键盘这边按新粤语词的默认权重写进去，不会排在发布的同音词后面。
+    assert_eq!(
+        cantonese_list(&keyboard),
+        json!([{"kind": "cantonese", "key": "nei hou", "value": "你好", "weight": 100000, "source": "user"}])
+    );
+    assert_eq!(my_words(&settings), my_words(&keyboard));
+
+    let removed = unsafe_call(
+        crate::msime_client_dictionary,
+        json!({"options": settings, "action": {"operation": "edit", "previous": {"kind": "cantonese", "key": "nei hou", "value": "你好", "weight": 100}, "replacement": null, "request_id": "remove-nei-hou"}}),
+    );
+    assert_eq!(removed["ok"], true, "{removed}");
+    assert_eq!(sync(&settings, "settings")["captured"], 1);
+    assert_eq!(sync(&keyboard, "keyboard")["applied"], 1);
+    assert_eq!(cantonese_list(&keyboard), json!([]));
 }
 
 #[test]

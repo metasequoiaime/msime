@@ -58,6 +58,8 @@ inline std::wstring error_message(std::wstring_view code) {
     return L"该账号已被封禁，暂时无法使用账号相关功能";
   if (code == L"account_invalid")
     return L"填写的内容无效，请检查后重试。";
+  if (code == L"account_unsupported_email_domain")
+    return L"该邮箱域名暂不支持邮箱验证码，请改用常用邮箱或手机号。";
   if (code == L"account_avatar_invalid")
     return L"请选择 1 MiB 以内的 PNG 或 JPEG 图片。";
   if (code == L"account_unauthorized")

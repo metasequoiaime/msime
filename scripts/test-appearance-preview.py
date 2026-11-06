@@ -77,7 +77,7 @@ def verify_helpcode_display(page, preview):
     expect(preview.locator("[data-preview-layout] .cand-helpcode")).to_have_count(count)
 
 def verify_text_color(page, preview):
-    # The seven candidate colour pickers are the custom theme's, on 主题; the preview they drive is on 候选窗口.
+    # The eight candidate colour pickers are the custom theme's, on 主题; the preview they drive is on 候选窗口.
     text = preview.locator("[data-preview-layout] .cand:not(.first) .text").first
     number = preview.locator("[data-preview-layout] .cand:not(.first) .num, [data-preview-layout] .cand:not(.first) .cand-no").first
     open_page(page, "候选窗口")

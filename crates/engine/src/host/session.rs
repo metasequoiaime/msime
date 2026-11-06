@@ -73,6 +73,12 @@ pub struct EngineSnapshot {
     pub nine_key_single_character: bool,
     /// `SessionSnapshot::nine_key_strokes`.
     pub nine_key_strokes: String,
+    /// `SessionSnapshot::grid_helpcode_available`.
+    pub grid_helpcode_available: bool,
+    /// `SessionSnapshot::grid_helpcode_display`.
+    pub grid_helpcode_display: String,
+    /// `SessionSnapshot::grid_helpcode_constrained`：候选是网格辅助码筛过的，runtime 不再跨行重排。
+    pub grid_helpcode_constrained: bool,
     /// 这次组字是在九宫格（九键或 14 键）里打的，见 [`crate::Session::grid_composing`]。`key_grid` 开着时硬件键盘的字母照样走全拼 26 键，这一项分得清两者。
     pub grid_composing: bool,
     /// 当前方案是双拼，且韵母或零声母编码用 `;` 作第二键：宿主把 `;` 当作字母键送给 Engine。字段名沿用微软双拼，是宿主已经在读的契约。
@@ -86,6 +92,8 @@ pub struct EngineSnapshot {
     pub display_reading: String,
     pub editing_text: String,
     pub caret_position: usize,
+    /// 辅助码前导键在等辅助码时它在 `editing_text` 里的位置（`SessionSnapshot::helpcode_trigger`），`preedit` 已经带着它；宿主画 `editing_text` 时把 `key` 插在 `position` 处，光标随之后移。
+    pub helpcode_trigger: Option<crate::HelpcodeTrigger>,
     /// 组字光标在 `preedit` 里的位置，按 Unicode 标量计：`caret_position` 是 `editing_text` 里的偏移，而 `preedit` 可能是分词或展开过的拼写（全拼 `ni'hao`、双拼「拼音分词」的 `shi'shi`），宿主画 `preedit` 时用这一项放光标，不要拿 `caret_position` 去数 `preedit` 的字母。两者没有可靠对应时在 `preedit` 末尾（见 `preedit_caret.rs`）。
     pub preedit_caret: usize,
     pub segment_raw_boundaries: Vec<u64>,
@@ -286,6 +294,9 @@ impl Session {
             nine_key_reading: value.nine_key_reading,
             nine_key_single_character: value.nine_key_single_character,
             nine_key_strokes: value.nine_key_strokes,
+            grid_helpcode_available: value.grid_helpcode_available,
+            grid_helpcode_display: value.grid_helpcode_display,
+            grid_helpcode_constrained: value.grid_helpcode_constrained,
             grid_composing: self.inner.grid_composing(),
             microsoft_shuangpin: self.microsoft_shuangpin(),
             shuangpin_profile: self.inner.shuangpin_layout().kind.name().to_owned(),
@@ -298,6 +309,7 @@ impl Session {
             },
             editing_text: value.editing_text,
             caret_position: value.caret_position,
+            helpcode_trigger: value.helpcode_trigger,
             preedit_caret,
             segment_raw_boundaries: segment_raw_boundaries
                 .into_iter()
@@ -729,6 +741,11 @@ impl Session {
     /// Out of range is unhandled.
     pub fn choose_nine_key_spelling(&mut self, index: usize) -> Result<EngineResult> {
         Ok(result_for(self.inner.choose_nine_key_spelling(index)))
+    }
+
+    /// 见 [`crate::Session::grid_helpcode`]。
+    pub fn grid_helpcode(&mut self, op: crate::GridHelpcodeOp) -> Result<EngineResult> {
+        Ok(result_for(self.inner.grid_helpcode(op)))
     }
 
     /// 见 [`crate::Session::set_nine_key_filter`]。

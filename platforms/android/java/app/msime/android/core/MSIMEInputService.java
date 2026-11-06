@@ -5231,13 +5231,29 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    /** 字母网格的一键：小写送整组首字母，十八键双拼横滑的大写标记限定精确字母，均由引擎在同一网格组字。不走 {@link #type} 的辅助码、分号和英文直出路径；引擎不收时不输入。 */
+    /** 字母网格的一键：小写送整组首字母，十八键双拼横滑的大写标记限定精确字母，均由引擎在同一网格组字。放下网格辅助码的分隔符后改送辅助码（{@link GridHelpcodePolicy#letterOp}）。不走 {@link #type} 的辅助码、分号和英文直出路径；引擎不收时不输入。 */
     boolean gridKey(char letter) {
+        int helpcode = GridHelpcodePolicy.letterOp(gridHelpcodeDisplay(), letter);
+        if (helpcode != GridHelpcodePolicy.NONE) return gridHelpcode(helpcode, Character.toLowerCase(letter));
         clearQuickDeleteUndo();
         if (session == 0) return false;
         try {
             return apply(timedEngineCall(() -> NativeClient.gridKey(session, letter)));
         } catch (JSONException | LinkageError error) { fail(error); return true; }
+    }
+
+    /** 十四／十八键网格辅助码的一个操作（{@link GridHelpcodePolicy}）；引擎不收时什么也不变。 */
+    boolean gridHelpcode(int op, char letter) {
+        clearQuickDeleteUndo();
+        if (session == 0) return false;
+        try {
+            return apply(timedEngineCall(() -> NativeClient.gridHelpcode(session, op, letter)));
+        } catch (JSONException | LinkageError error) { fail(error); return true; }
+    }
+
+    /** 视图里放下分隔符后的辅助码显示，空串是没有分隔符。 */
+    String gridHelpcodeDisplay() {
+        return view == null ? "" : InputViewValuePolicy.textOr(view, "grid_helpcode_display", "");
     }
 
     private boolean helpcodeCompositionEligible() {
@@ -6465,6 +6481,10 @@ public final class MSIMEInputService extends InputMethodService {
             if (japaneseConversionIndex != null && command(1)) return;
             if (command(11)) return;
         }
+        // 网格辅助码筛空时回车和空格、标点一样留着组字；引擎这时的原样上屏会丢掉组字。
+        JSONArray gridCandidates = view == null ? null : view.optJSONArray("candidates");
+        if (GridHelpcodePolicy.holdsEnter(gridHelpcodeDisplay(),
+                gridCandidates == null ? 0 : gridCandidates.length())) return;
         if (command(2)) return;
         EditorInfo info = getCurrentInputEditorInfo();
         int action = info == null ? EditorInfo.IME_ACTION_NONE : info.imeOptions & EditorInfo.IME_MASK_ACTION;
@@ -6571,6 +6591,12 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (keyCode == KeyEvent.KEYCODE_BACK && imeGlossCard.visible()) {
             imeGlossCard.close();
+            return true;
+        }
+        // 放下了网格辅助码的分隔符时，第一次返回只清辅助码，组字和键盘留着。
+        if (keyCode == KeyEvent.KEYCODE_BACK && GridHelpcodePolicy.backClears(gridHelpcodeDisplay(),
+                isInputViewShown(), candidatePanelOpen || ViewPolicy.isVisible(symbolPanel))) {
+            gridHelpcode(GridHelpcodePolicy.CLEAR, (char) 0);
             return true;
         }
         if (event.getRepeatCount() == 0
@@ -6988,7 +7014,11 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     KeyboardPressButton keyboardKey(String label, String description, Runnable action) {
-        KeyboardPressButton button = new KeyboardPressButton(this);
+        return keyboardKey(new KeyboardPressButton(this), label, description, action);
+    }
+
+    /** 同上，键是调用方给的（例如要画角标的 {@link KeyHintButton}）。 */
+    <T extends KeyboardPressButton> T keyboardKey(T button, String label, String description, Runnable action) {
         KeyboardTypographyPolicy.normalizeKeyCap(button);
         KeyboardTypographyPolicy.setKeyTextSize(button, KeyboardTypographyPolicy.DEFAULT_KEY_TEXT_SP);
         ViewPolicy.setAllCapsFalse(button);
@@ -7230,9 +7260,11 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     /**
-     * 按各面板自己的明暗解析主题；屏幕键盘优先使用该明暗专用的皮肤选择。
+     * 按各面板自己的明暗解析主题。屏幕键盘、候选条、表情和手写面板都用这一明暗下的键盘皮肤选择（`android_keyboard_skin_light` / `android_keyboard_skin_dark`），缺槽或引用的设计不在库里时读旧的 `global_theme`（{@link app.msime.android.KeyboardSkinModeChoice#selected}）。
      *
      * <p>面板自己的 `dark` 或 `light` 优先；`follow` 跟随应用的明暗（`theme`），应用为 `system` 时跟随 Android 的夜间模式。缺失或不认识的值按 `follow` 处理，旧快照因此保持键盘原来的明暗，不会跳回浅色。所选主题属于另一种明暗时按 `system` 画（{@link KeyboardSkin#effectiveTheme}），键盘因此始终和这块面板的明暗一致。
+     *
+     * <p>候选条、表情和手写原先只读 `global_theme`，可 Android 上已经没有入口写它（#10749）：用户在皮肤页换了键盘皮肤，候选条仍停在按应用主题着色的跟随系统配色上，和键盘对不上。候选皮肤包仍然优先，覆盖顺序见 {@link CandidateSkinResolver#paletteFor}。
      */
     private KeyboardSkin surfaceSkin(JSONObject preferences, String key) {
         return surfaceSkin(preferences, key, systemDark());
@@ -7243,23 +7275,18 @@ public final class MSIMEInputService extends InputMethodService {
         String appMode = preferences == null ? "system"
             : InputViewValuePolicy.textOr(preferences, "theme", "system");
         boolean dark = KeyboardSkin.resolveDark(surfaceMode, appMode, systemDark);
-        String globalTheme = preferences == null ? "system"
-            : InputViewValuePolicy.textOr(preferences, "global_theme", "system");
         JSONObject customTheme = preferences == null ? null
             : preferences.optJSONObject("custom_theme");
-        if ("screen_keyboard_theme".equals(key)) {
-            app.msime.android.KeyboardSkinModeChoice.Selected selected =
-                app.msime.android.KeyboardSkinModeChoice.selected(preferences, dark, modeSkinLibrary);
-            globalTheme = selected.theme();
-            if (selected.libraryId() != null) {
-                try {
-                    customTheme = customTheme == null ? new JSONObject() : new JSONObject(customTheme.toString());
-                    customTheme.put("keyboard", selected.design());
-                }
-                catch (JSONException error) { return KeyboardSkin.system(dark); }
+        app.msime.android.KeyboardSkinModeChoice.Selected selected =
+            app.msime.android.KeyboardSkinModeChoice.selected(preferences, dark, modeSkinLibrary);
+        if (selected.libraryId() != null) {
+            try {
+                customTheme = customTheme == null ? new JSONObject() : new JSONObject(customTheme.toString());
+                customTheme.put("keyboard", selected.design());
             }
+            catch (JSONException error) { return KeyboardSkin.system(dark); }
         }
-        return themeSkin(KeyboardSkin.effectiveTheme(themeCatalog(), globalTheme, dark), customTheme, dark);
+        return themeSkin(KeyboardSkin.effectiveTheme(themeCatalog(), selected.theme(), dark), customTheme, dark);
     }
 
     /** 在偏好工作线程读取设计库；读取失败时槽位引用自然回退旧主题。 */
@@ -7284,9 +7311,19 @@ public final class MSIMEInputService extends InputMethodService {
                 modeSkinLibrary = result;
                 JSONObject current = preferencesSnapshot == null ? null : preferencesSnapshot.optJSONObject("preferences");
                 if (current == null) return;
-                KeyboardSkin updated = keyboardSkin(current);
-                if (!skin.key().equals(updated.key())) {
-                    skin = updated;
+                // 候选条、表情和手写也按槽位取皮肤：槽位是我的设计时，库读完前它们和键盘一样先用旧主题，这里要一起换上，否则冷启动后候选条一直停在旧主题上，直到下一次偏好变化。
+                String previousSkin = skin.displayKey(imeStyler.appThemeSeed());
+                String previousEmojiSkin = emojiSkin.displayKey(imeStyler.appThemeSeed());
+                String previousHandwritingSkin = handwritingSkin.displayKey(imeStyler.appThemeSeed());
+                String previousAppearance = candidateAppearance.key();
+                skin = keyboardSkin(current);
+                emojiSkin = surfaceSkin(current, "emoji_theme");
+                handwritingSkin = surfaceSkin(current, "handwriting_theme");
+                candidateAppearance = candidateAppearanceFor(current);
+                if (!previousSkin.equals(skin.displayKey(imeStyler.appThemeSeed()))
+                        || !previousEmojiSkin.equals(emojiSkin.displayKey(imeStyler.appThemeSeed()))
+                        || !previousHandwritingSkin.equals(handwritingSkin.displayKey(imeStyler.appThemeSeed()))
+                        || !previousAppearance.equals(candidateAppearance.key())) {
                     imeStyler.applySkin();
                     render();
                 }
@@ -7816,7 +7853,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    /** 键盘皮肤面板只保存当前明暗的键盘选择短引用；候选窗和另一种明暗的选择不变。 */
+    /** 键盘皮肤面板只保存当前明暗的键盘选择短引用；另一种明暗的选择不变。候选条、表情和手写也按这一明暗的选择取皮肤（见 {@link #surfaceSkin}），候选皮肤包槽位不变。 */
     void saveKeyboardSkin(String identifier, JSONObject design, String libraryId) {
         if (skinSaving || traditionalOutputSaving || session == 0
                 || preferencesSnapshot == null || preferencesDirectory.isEmpty()) return;
@@ -7850,6 +7887,15 @@ public final class MSIMEInputService extends InputMethodService {
         skin = design == null ? keyboardSkin(preferences) : KeyboardSkin.custom(design,
             KeyboardSkin.resolveDark(InputViewValuePolicy.textOr(preferences, "screen_keyboard_theme", "follow"),
                 InputViewValuePolicy.textOr(preferences, "theme", "system"), systemDark()));
+        // 让还没返回的设计库读取作废：它的回调按保存前的 preferencesSnapshot 重算四块面板，不论这次换的是库里已有的设计、内置主题还是刚装的设计，都会在保存往返期间把它们一起退回旧皮肤（#10749）。写入成功后 applyPreferencesSnapshot 会重读设计库；写入失败时 finishKeyboardSkinSave 按已接受的偏好重读。
+        ++modeSkinLibraryGeneration;
+        // 候选条、表情和手写经 surfaceSkin 按设计库解析 `design:` 槽位。原槽位是内置主题时库是空的，刚从社区装进来的设计也还不在库里；不先补上，保存往返期间键盘已是新设计，候选条却回退到旧主题（#10749）。写入成功后重读的设计库会替换掉这份临时副本；写入失败时槽位回到原值，多出的这一项没人引用。
+        if (design != null && libraryId != null
+                && modeSkinLibrary.stream().noneMatch(item -> libraryId.equals(item.id()))) {
+            java.util.List<CustomSkinLibrary.Item> library = new java.util.ArrayList<>(modeSkinLibrary);
+            library.add(new CustomSkinLibrary.Item(libraryId, libraryId, design));
+            modeSkinLibrary = java.util.List.copyOf(library);
+        }
         emojiSkin = surfaceSkin(preferences, "emoji_theme");
         handwritingSkin = surfaceSkin(preferences, "handwriting_theme");
         candidateAppearance = candidateAppearanceFor(preferences);
@@ -7933,6 +7979,8 @@ public final class MSIMEInputService extends InputMethodService {
             emojiSkin = surfaceSkin(accepted, "emoji_theme");
             handwritingSkin = surfaceSkin(accepted, "handwriting_theme");
             candidateAppearance = candidateAppearanceFor(accepted);
+            // 保存时作废过还没返回的设计库读取，失败后按已接受的偏好重读一次，读完回调会再按库重算四块面板。
+            if (accepted != null) refreshModeSkinLibrary(accepted);
             showKeyboardSkinStatus("皮肤切换失败，已恢复原皮肤");
         }
         imeStyler.applySkin();
@@ -10939,6 +10987,8 @@ public final class MSIMEInputService extends InputMethodService {
         nineKeySpellingScroll.addView(nineKeySpellings);
         ViewPolicy.hide(nineKeySpellingScroll);
         candidates = LayoutPolicy.row(this);
+        // 这一行拿到的是候选行的整高（HorizontalScrollView 不带参数 addView 时按 MATCH_PARENT 量高），候选按钮只有一行字高；不设纵向居中时 LinearLayout 按顶端摆，候选词和首选 chip 都贴在候选条上半截（#10749）。九键拼音行同样居中（ImeLayoutRows）。
+        ViewPolicy.setCenteredVertically(candidates);
         horizontalCandidateScroll = new HorizontalScrollView(this);
         // 和九键拼音行一样不要滚动条：候选条只有一行高，默认滚动条贴在底边，浅色皮肤上是一条细灰线（#5933 录屏里看得到）。
         horizontalCandidateScroll.setHorizontalScrollBarEnabled(false);
@@ -12398,6 +12448,8 @@ public final class MSIMEInputService extends InputMethodService {
                     && drawsKeyGrid(displayedTouchLayout(view))) {
                 nineKeyPreedit = InputViewValuePolicy.textOr(view, "nine_key_reading", "");
                 if (nineKeyPreedit.isEmpty()) nineKeyPreedit = InputViewValuePolicy.textOr(view, "preedit", "");
+                // 网格辅助码只画在读音行上，不进输入框的组字区。
+                nineKeyPreedit = GridHelpcodePolicy.reading(nineKeyPreedit, gridHelpcodeDisplay());
             }
             String spelling = !nineKeyPreedit.isEmpty() ? nineKeyPreedit
                 : reading.isEmpty() ? editingText : reading;

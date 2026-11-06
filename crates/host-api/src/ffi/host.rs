@@ -2302,9 +2302,10 @@ enum MobileClipboardAction {
         replacement: String,
     },
     Clear,
+    ClearIfDisabled,
 }
 
-/// 移动端结构化剪贴板历史：`directory/MSIME` 存历史；可选的 `preferences_directory` 单独指定容量偏好所在目录，省略时沿用 `directory`。移动端访问由宿主权限控制，不读取或改变桌面自动记录开关。
+/// 移动端结构化剪贴板历史：`directory/MSIME` 存历史；`preferences_directory` 指定容量与开关的偏好目录，省略时沿用 `directory`。`clear_if_disabled` 在偏好锁内确认仍为关闭才清空；显式 `clear` 不受开关限制，其他动作保持原行为。
 /// # Safety
 /// `request` points to `length` readable JSON bytes. Null is rejected.
 #[no_mangle]
@@ -2494,6 +2495,12 @@ pub unsafe extern "C" fn msime_client_mobile_clipboard_history(
                     "limit": history.limit(),
                     "entries": history.entries()
                 }))
+            }
+            MobileClipboardAction::ClearIfDisabled => {
+                let cleared = PreferencesStore::new(preferences_root)
+                    .clear_disabled_clipboard_history_at(&root.join("MSIME/clipboard_history.json"))
+                    .map_err(|_| "mobile clipboard retention check failed")?;
+                Ok(json!({"cleared": cleared}))
             }
             MobileClipboardAction::Clear => {
                 history

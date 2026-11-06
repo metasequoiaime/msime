@@ -1,7 +1,9 @@
 #pragma once
 
 #include "EmbeddedTranslation.h"
+#include <algorithm>
 #include <nlohmann/json.hpp>
+#include <algorithm>
 #include <thread>
 
 namespace msime::translation {
@@ -26,9 +28,9 @@ inline host_api::OwnedString embedded_with_retry(
     if (envelope.value("ok", false) ||
         envelope.value("error", std::string{}) != "local_translation_busy") return result;
     // 旧请求取消尚未收尾时等待空位；退避和每次推理共用同一个截止时间。
-    const auto retry = std::min(deadline, Clock::now() + Milliseconds(100));
+    const auto retry = (std::min)(deadline, Clock::now() + Milliseconds(100));
     while (!cancelled() && Clock::now() < retry)
-      std::this_thread::sleep_until(std::min(retry, Clock::now() + Milliseconds(20)));
+      std::this_thread::sleep_until((std::min)(retry, Clock::now() + Milliseconds(20)));
   }
   return cancelled() ? host_api::own_string(nullptr) : std::move(result);
 } catch (...) {

@@ -36,8 +36,9 @@ public final class ClipboardCapacityDeviceSmoke extends DeviceSmoke {
             owner.stage = "save one hundred entry limit with history on";
             if (!savePair(loadPreferences, savePreferences, context, 100, true))
                 throw new AssertionError("Clipboard capacity could not be saved");
-            verifyMode(context, owner, "MAIN");
-            verifyMode(context, owner, "VISITOR");
+            verifyMode(context, owner, "MAIN", false);
+            verifyMode(context, owner, "VISITOR", false);
+            verifyMode(context, owner, "MAIN", true);
         } finally {
             try {
                 if (!savePair(loadPreferences, savePreferences, context, originalLimit, originalHistory))
@@ -52,7 +53,7 @@ public final class ClipboardCapacityDeviceSmoke extends DeviceSmoke {
         }
     }
 
-    private static void verifyMode(Context context, DeviceSmoke owner, String modeName) throws Exception {
+    private static void verifyMode(Context context, DeviceSmoke owner, String modeName, boolean delayedDisable) throws Exception {
         ClassLoader loader = context.getClassLoader();
         Class<?> modeClass = loader.loadClass("app.msime.android.ClipboardModePolicy$Mode");
         Object mode = null;
@@ -73,8 +74,10 @@ public final class ClipboardCapacityDeviceSmoke extends DeviceSmoke {
             String rejected = (String) add.invoke(history, String.format(java.util.Locale.ROOT,
                 "Synthetic clipboard %s %03d", mode, index));
             if (rejected != null) throw new AssertionError("Synthetic clipboard entry was rejected");
+            if (index == 0 && delayedDisable)
+                ClipboardRetentionRaceDeviceChecks.deliverOldDisable(owner, loader, history, mode);
         }
-        owner.stage = "reopen sixty entries in " + mode;
+        owner.stage = (delayedDisable ? "reopen after delayed disable in " : "reopen sixty entries in ") + mode;
         Object reopened = forMode.invoke(null, context, mode);
         int retained = ((List<?>) load.invoke(reopened)).size();
         int reopenedLimit = (Integer) limit.invoke(reopened);

@@ -49,7 +49,7 @@ use msime_engine::{
     CandidateEdge, CommandTableEntry, CommandTranslationQuery, MentionEntry, QuickPhraseEntry,
     SharedKeymap,
 };
-pub use msime_engine::{GlideKeyboard, GlidePoint, KeyGrid};
+pub use msime_engine::{GlideKeyboard, GlidePoint, GridHelpcodeOp, KeyGrid};
 /// 脚本插件的 `/` 指令：宿主把会运行的插件声明的指令按执行顺序经 [`Runtime::set_plugin_commands`] 交给引擎，由引擎决定哪些生效。
 pub use msime_engine::{PluginCommand, PluginCommandQuery};
 use serde::{Deserialize, Serialize};

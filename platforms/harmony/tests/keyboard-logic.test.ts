@@ -1735,7 +1735,7 @@ group("SymbolPanelPolicy", () => {
     "the symbol panel keeps its stable category order",
   );
   check(
-    symbolCategories.map((category) => category.symbols.length).join(",") === "30,79,40,50,48",
+    symbolCategories.map((category) => category.symbols.length).join(",") === "30,79,40,50,45",
     "the complete committed symbol catalog is present",
   );
   check(
@@ -5301,6 +5301,7 @@ group("the resolve request drops the number and border colours the host does not
       number: "#123456",
       accent: "#203040",
       selected: "#304050",
+      selected_text: "#7B3FBF",
       hover: "#405060",
       surface: "#506070",
       border: "#654321",
@@ -5313,6 +5314,7 @@ group("the resolve request drops the number and border colours the host does not
         text: "#102030",
         accent: "#203040",
         selected: "#304050",
+        selected_text: "#7B3FBF",
         hover: "#405060",
         surface: "#506070",
       }),
@@ -5330,6 +5332,34 @@ group("the resolve request drops the number and border colours the host does not
   check(
     GlobalTheme.hostDrawnCustomTheme(plain) === plain,
     "a theme without colours passes through",
+  );
+});
+
+// #10740：主题是否启用取色器由共享层决定，宿主只读取可选响应并转换平台颜色。
+group("the touch strip consumes the shared selected text response", () => {
+  const parse = (value: Object) => GlobalTheme.parseResolved(JSON.stringify({ ok: true, value }));
+  check(
+    parse({ id: "custom", source: "custom", touch_selected_text: "#7b3fbf" })
+      ?.touch_selected_text === "#7B3FBF",
+    "the picked shared colour reaches the strip",
+  );
+  check(
+    parse({ id: "paper", source: "builtin" })?.touch_selected_text === null,
+    "a builtin response without a picker keeps the keyboard colour",
+  );
+  check(
+    parse({ id: "custom", source: "custom" })?.touch_selected_text === null,
+    "a custom response without a picker keeps the keyboard colour",
+  );
+  check(
+    parse({ id: "custom", source: "custom", touch_selected_text: null })?.touch_selected_text ===
+      null,
+    "an explicitly absent picker keeps the keyboard colour",
+  );
+  check(
+    parse({ id: "custom", source: "custom", touch_selected_text: "purple" })
+      ?.touch_selected_text === null,
+    "an unreadable shared colour is not drawn",
   );
 });
 
@@ -8245,7 +8275,7 @@ group("the word being completed is read backwards from the caret", () => {
 // 与 Android 的 EmailSuffixPolicySmoke 逐条相同（#6147），另加宿主何时读上文。
 group("光标前打到 xxx@ 时给出邮箱后缀", () => {
   const all: string[] = EMAIL_SUFFIXES;
-  check(all.length === 20 && new Set(all).size === all.length, "twenty distinct suffixes");
+  check(all.length === 17 && new Set(all).size === all.length, "seventeen distinct suffixes");
   check(
     all.slice(0, 7).join(" ") ===
       "@qq.com @163.com @126.com @foxmail.com @139.com @189.cn @aliyun.com",

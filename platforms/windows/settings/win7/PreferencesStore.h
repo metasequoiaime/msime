@@ -78,7 +78,9 @@ public:
       const bool optional_style = change.value.is_string() &&
           (change.path == std::vector<std::string>{"quote_style"} ||
            change.path == std::vector<std::string>{"bracket_style"} ||
-           change.path == std::vector<std::string>{"last_chinese_scheme"});
+           change.path == std::vector<std::string>{"last_chinese_scheme"} ||
+           // 语音标点是 auto 时共享序列化不写这一项，第一次改成别的取值要能补上叶字段。
+           change.path == std::vector<std::string>{"voice_input", "punctuation_mode"});
       const bool optional_font = change.value.is_string() && change.path == std::vector<std::string>{"candidate_english_font"};
       const bool optional_radius = (change.value.is_number_integer() || change.value.is_null()) &&
           change.path == std::vector<std::string>{"candidate_corner_radius"};

@@ -57,6 +57,21 @@ final class HelpcodeModesTests: XCTestCase {
     XCTAssertTrue(HelpcodeSettingsView.modeEnabled(mode("direct_helpcode_slash"), helpcodeOn: true, stored: ["direct_helpcode": true]))
   }
 
+  /// 引擎只在末尾直接和逐音节直接都关着时认末尾间接触发键（`apply_request_options`）：出厂值的末尾直接开着，这三行置灰；两者都关时才可改，句中间接不影响它们。
+  func testEndTriggersFollowDirectAndDirectHelpcode() {
+    for field in ["trigger_semicolon", "trigger_backtick", "trigger_uppercase"] {
+      XCTAssertFalse(HelpcodeSettingsView.modeEnabled(mode(field), helpcodeOn: true, stored: [:]), field)
+      XCTAssertFalse(HelpcodeSettingsView.modeEnabled(mode(field), helpcodeOn: true, stored: ["direct": true]), field)
+      XCTAssertFalse(HelpcodeSettingsView.modeEnabled(mode(field), helpcodeOn: true, stored: ["direct": false, "direct_helpcode": true]), field)
+      XCTAssertTrue(HelpcodeSettingsView.modeEnabled(mode(field), helpcodeOn: true, stored: ["direct": false]), field)
+      XCTAssertTrue(HelpcodeSettingsView.modeEnabled(mode(field), helpcodeOn: true, stored: ["direct": false, "mid_sentence": true]), field)
+      XCTAssertFalse(HelpcodeSettingsView.modeEnabled(mode(field), helpcodeOn: false, stored: ["direct": false]), field)
+    }
+    // 置灰不改值：出厂的末尾分号仍读作开。
+    XCTAssertTrue(HelpcodeSettingsView.modeValue(mode("trigger_semicolon"), stored: [:]))
+    XCTAssertEqual(mode("direct").info, "完整音节后直接接辅助码；打开时末尾间接触发不生效")
+  }
+
   /// 触屏键盘上的分号、反引号和 / 按字面上屏，用到它们的行在说明里写明要外接键盘。
   func testTouchUnreachableKeysSayHardwareKeyboard() {
     let hardware: Set<String> = ["trigger_semicolon", "trigger_backtick", "mid_sentence_backtick", "mid_sentence_semicolon", "direct_helpcode_slash"]
