@@ -29,6 +29,7 @@ extern "C" bool msime_macos_uninstall_input_source(const char *bundle_path,
 #include "../candidate/CandidatePageSize.h"
 #include "../../../../shared/candidate/CandidateChromeMetrics.h"
 #include "msime_client.h"
+#include "../../../common/ChineseTextConversion.h"
 #include "../core/VimMode.h"
 #include <sys/stat.h>
 
@@ -1137,6 +1138,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSSwitch *_mixedKaomojiToggle;
     NSSwitch *_mixedSymbolToggle;
     NSNumber *_sharedTraditionalOutput;
+    NSString *_sharedTraditionalVariant;
     NSNumber *_sharedFullWidthInput;
     NSNumber *_sharedCloudCandidates;
     NSSwitch *_cloudCandidatesToggle;
@@ -2332,6 +2334,12 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     }
     id traditional = preferences[@"traditional_chinese_output"];
     if (LocalModeBoolean(traditional)) _sharedTraditionalOutput = traditional;
+    // 缺省 s2t 不写进文档；缺键或认不出的值都按 s2t，避免上次的 s2tw 粘在会话里。
+    id variant = preferences[@"traditional_chinese_variant"];
+    if ([@[@"s2t", @"s2tw", @"s2twp"] containsObject:variant])
+        _sharedTraditionalVariant = [variant copy];
+    else
+        _sharedTraditionalVariant = nil;
     id characterWidth = preferences[@"character_width"];
     if ([characterWidth isEqual:@"fullwidth"] || [characterWidth isEqual:@"halfwidth"])
         _sharedFullWidthInput = @([characterWidth isEqual:@"fullwidth"]);
@@ -2539,6 +2547,11 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     [_inputModeRuleOverrides removeAllObjects];
 }
 - (BOOL)traditionalOutput { return _sharedTraditionalOutput ? _sharedTraditionalOutput.boolValue : [_defaults boolForKey:TraditionalKey]; }
+- (uint32_t)traditionalChineseVariant {
+    NSString *name = _sharedTraditionalVariant;
+    if (![name isKindOfClass:NSString.class] || !name.UTF8String) return 0;
+    return msime::host_api::traditional_variant_code(name.UTF8String);
+}
 - (BOOL)fullWidthInput { return _sharedFullWidthInput ? _sharedFullWidthInput.boolValue : [_defaults boolForKey:FullWidthKey]; }
 - (BOOL)chinesePunctuation { if (_sharedChinesePunctuation) return _sharedChinesePunctuation.boolValue; return [_defaults objectForKey:ChinesePunctuationKey] == nil ? YES : [_defaults boolForKey:ChinesePunctuationKey]; }
 // 智能标点和重复标点转中文默认开，与 client-core 的 smart_punctuation_default 相同；共享文档总带着这两个键（旧文档里的旧默认 false 在读入时已一次性改过来），这里的回退只在文档载入之前起作用。
