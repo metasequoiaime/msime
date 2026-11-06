@@ -63,6 +63,15 @@ int main()
         require([MetasequoiaEdgeHanCharacter(MetasequoiaChineseOutputString(@"头发", YES), NO) isEqualToString:@"髮"] &&
                     [MetasequoiaEdgeHanCharacter(MetasequoiaChineseOutputString(@"皇后", YES), NO) isEqualToString:@"后"],
                 "Edge extraction over the converted phrase lost the phrase-level character.");
+        require([MetasequoiaChineseOutputString(@"吃", YES, 0) isEqualToString:@"喫"] &&
+                    [MetasequoiaChineseOutputString(@"吃", YES, 1) isEqualToString:@"吃"] &&
+                    [MetasequoiaChineseOutputString(@"里面", YES, 0) isEqualToString:@"裏面"] &&
+                    [MetasequoiaChineseOutputString(@"里面", YES, 1) isEqualToString:@"裡面"] &&
+                    [MetasequoiaChineseOutputString(@"软件", YES, 1) isEqualToString:@"軟件"] &&
+                    [MetasequoiaChineseOutputString(@"软件", YES, 2) isEqualToString:@"軟體"],
+                "Traditional variants did not follow OpenCC s2t / s2tw / s2twp.");
+        require([MetasequoiaChineseOutputString(@"软件", YES, 3) isEqualToString:@"软件"],
+                "An unknown variant should keep the original text.");
     }
     return 0;
 }
