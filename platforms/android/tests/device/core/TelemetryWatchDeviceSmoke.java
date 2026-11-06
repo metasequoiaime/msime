@@ -109,6 +109,9 @@ public final class TelemetryWatchDeviceSmoke extends Instrumentation {
                 if (command.equals("native")) {
                     fault = true;
                     android.os.Process.sendSignal(android.os.Process.myPid(), 6);
+                    // sendSignal 走 kill()，信号异步投递给整个进程。马上抛错会走到 finish()，AM 随即以 finished inst 强停整个包、用 SIGKILL 抢在原生崩溃处理写完 .crash 之前杀掉进程，所以先等信号把进程带走，等不到才算失败。
+                    long signalDeadline = SystemClock.uptimeMillis() + 30000;
+                    while (SystemClock.uptimeMillis() < signalDeadline) SystemClock.sleep(100);
                     throw new AssertionError("fatal signal returned");
                 }
                 if (command.equals("end")) {

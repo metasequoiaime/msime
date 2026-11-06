@@ -5434,11 +5434,10 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         if (!view) { if (error) NSBeep(); return; }
         [self apply:@{@"view":view}];
     }
-    // A Chinese/English switch puts punctuation back in step with the mode, as the reference's SyncPunctuationWithImeMode does: English mode gets English punctuation unless punctuation_lock pins Chinese. Returning to Chinese goes back to the saved starting value, the macOS adaptation for the shared chinese_punctuation setting. Set before the mode is saved so the resulting sync and toolbar refresh already see it.
+    // A Chinese/English switch puts punctuation back in step with the mode, as the reference's SyncPunctuationWithImeMode does: English mode gets English punctuation unless punctuation_lock pins Chinese, and Chinese mode gets the saved starting value, the macOS adaptation for the shared chinese_punctuation setting. Both directions only drop this application's toggle, because -runtimeChinesePunctuation already derives exactly that from the lock and the mode. A runtime override therefore only ever records the user's own Ctrl+. or toolbar choice. Writing English punctuation as an override here left it behind whenever the mode came back to Chinese some other way - Shift in another application under the global scope, leaving the English candidate mode, an application rule taking over again - and gave Chinese mode English punctuation (#10954). Done before the mode is saved so the resulting sync and toolbar refresh already see it.
     if (changed) {
         _englishPunctuation = {};
-        if (enabled) _appearance.runtimeChinesePunctuation = [_appearance.punctuationLock isEqual:@"chinese"];
-        else [_appearance resetRuntimePunctuationForActiveApplication];
+        [_appearance resetRuntimePunctuationForActiveApplication];
     }
     _appearance.englishMode = enabled;
     if (enabled && _englishOnlineCandidatesEnabled && !_session && _activeClient) [self prepareSession];
