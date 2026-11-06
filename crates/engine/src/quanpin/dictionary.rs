@@ -31,7 +31,7 @@ use crate::lattice::neural::{
 use crate::lattice::personal::{PersonalNgram, PersonalTransition};
 use crate::lattice::{SentencePath, TypoEdgeSource};
 use crate::paths::RuntimePaths;
-use crate::pinyin::fuzzy::{fuzzy_segmentations, FUZZY_SEGMENTATION_LIMIT};
+use crate::pinyin::fuzzy::{fuzzy_segmentations, fuzzy_variant_count, FUZZY_SEGMENTATION_LIMIT};
 use crate::pinyin::graph::{
     build_syllable_graph, enumerate_complete_segmentations, SYLLABLE_GRAPH_PATH_LIMIT,
 };
@@ -42,6 +42,7 @@ use crate::pinyin::segment::{
 use crate::pinyin::syllables::{
     has_only_complete_pinyin_segments, normalize_umlaut_aliases, sparse_pinyin_fallback_segments,
 };
+use crate::shared_string::SharedString;
 use crate::text::{count_han_chars, last_characters};
 use crate::time::Instant;
 use crate::types::{
@@ -114,11 +115,31 @@ struct CachedFuzzyCandidates {
 #[derive(Clone)]
 struct CachedFuzzyRows {
     rules: u32,
+    /// 展开路径用的上限，经 [`fuzzy_row_key_limit`] 归一：路径不受上限截断时记作 `FUZZY_SEGMENTATION_LIMIT`，所以同一段读音在不同的剩余预算下仍是同一项。
     limit: usize,
-    typed: String,
+    /// 这段读音，也是命中时每个候选的 `pinyin`：各候选与缓存共用这一份。
+    typed: SharedString,
     /// 这一项查过的模糊路径条数。路径只由规则、上限和这段读音决定，所以命中时直接按它扣预算，不再把路径算一遍。
     path_count: usize,
-    rows: Vec<DictRow>,
+    rows: Vec<FuzzyRow>,
+}
+
+/// 模糊前缀页的一行。文字字段是 `SharedString`，投影成候选时只加引用计数，候选与缓存页共用同一份字符串；任何一边原地改写时按写时复制先复制。
+#[derive(Clone, Debug, PartialEq)]
+struct FuzzyRow {
+    key: SharedString,
+    value: SharedString,
+    weight: i64,
+}
+
+impl From<DictRow> for FuzzyRow {
+    fn from(row: DictRow) -> Self {
+        Self {
+            key: row.key.into(),
+            value: row.value.into(),
+            weight: row.weight,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -585,12 +606,16 @@ impl QuanpinDictionary {
             }
         }
         self.validate_row_caches();
-        let segments: Vec<&str> = if segmentation.is_empty() {
+        let segments: Vec<CountedSyllable<'_>> = if segmentation.is_empty() {
             Vec::new()
         } else {
             let count = segmentation.bytes().filter(|&byte| byte == b'\'').count() + 1;
             let mut segments = Vec::with_capacity(count);
-            segments.extend(segmentation.split('\''));
+            let mut combinations = 1usize;
+            segments.extend(segmentation.split('\'').map(|text| {
+                combinations = combinations.saturating_mul(fuzzy_variant_count(text, options));
+                CountedSyllable { text, combinations }
+            }));
             segments
         };
         let mut result = Vec::new();
@@ -603,13 +628,19 @@ impl QuanpinDictionary {
             if count < segments.len() {
                 typed = typed.rsplit_once('\'').map_or("", |(prefix, _)| prefix);
             }
+            let combinations = segments[count - 1].combinations;
+            // 每个音节都只有原读法：展开不出路径，原来也是展开后发现为空就跳过，行缓存里不会有这一项。
+            if combinations <= 1 {
+                continue;
+            }
             let prefix = &segments[..count];
             let limit = FUZZY_SEGMENTATION_LIMIT.min(budget);
-            // 行缓存的键（规则、上限、这段读音）已经定下了路径，命中时按记下的路径条数扣预算，不再展开路径；九键开着模糊音时每键要走二三十条切分，展开路径是模糊音多出来的开销里的一大块（#10457）。
+            let key_limit = fuzzy_row_key_limit(combinations, limit);
+            // 行缓存的键（规则、归一后的上限、这段读音）已经定下了路径，命中时按记下的路径条数扣预算，不再展开路径；九键开着模糊音时每键要走二三十条切分，展开路径是模糊音多出来的开销里的一大块（#10457）。
             let uncached = match append_cached_fuzzy_rows(
                 &mut self.fuzzy_row_cache,
                 options.rules,
-                limit,
+                key_limit,
                 typed,
                 &mut result,
             ) {
@@ -620,16 +651,14 @@ impl QuanpinDictionary {
                 Err(uncached) => uncached,
             };
             let paths = fuzzy_segmentations(prefix, options, limit);
-            if paths.is_empty() {
-                continue;
-            }
+            debug_assert_eq!(paths.len(), combinations.min(limit) - 1);
             budget -= paths.len();
             append_queried_fuzzy_rows(
                 &self.database,
                 &mut self.fuzzy_row_cache,
                 &paths,
                 options.rules,
-                limit,
+                key_limit,
                 uncached,
                 &mut result,
             );
@@ -2052,14 +2081,14 @@ fn append_cached_fuzzy_rows<'a>(
     let hash = fuzzy_row_cache_hash(rules, limit, &typed);
     match cache.get_ref(&hash) {
         Some(cached) if fuzzy_row_cache_key_matches(cached, rules, limit, &typed) => {
-            append_fuzzy_items(cached.rows.iter().cloned(), typed, result);
+            append_fuzzy_items(&cached.rows, &cached.typed, result);
             Ok(cached.path_count)
         }
         _ => Err(typed),
     }
 }
 
-/// 行缓存没命中：按展开好的路径查库，冷页保留原缓存副本与 SQLite 页容量策略。
+/// 行缓存没命中：按展开好的路径查库，整页连同这段读音存进行缓存，再像命中时一样投影进结果，候选与缓存页共用文字字段。
 fn append_queried_fuzzy_rows<'a>(
     database: &PinyinDatabase,
     cache: &mut FifoCache<u64, CachedFuzzyRows>,
@@ -2069,50 +2098,58 @@ fn append_queried_fuzzy_rows<'a>(
     typed: impl Into<Cow<'a, str>>,
     result: &mut Vec<WordItem>,
 ) {
-    let typed = typed.into();
+    // 按长度复制一份：缓存页一直留着它，调用方交来的缓冲区可能带着多余的容量。
+    let typed = SharedString::from(typed.into().as_ref());
     let hash = fuzzy_row_cache_hash(rules, limit, &typed);
-    let rows = database.query_exact_segmentations_keyed_flat(paths, FUZZY_ROW_LIMIT);
+    let page = database.query_exact_segmentations_keyed_flat(paths, FUZZY_ROW_LIMIT);
+    // 按行数申请：原地收集会沿用 SQLite 页按上限预留的整块缓冲区，缓存页就一直占着它。
+    let mut rows = Vec::with_capacity(page.len());
+    rows.extend(page.into_iter().map(FuzzyRow::from));
+    append_fuzzy_items(&rows, &typed, result);
     cache.insert(
         hash,
         CachedFuzzyRows {
             rules,
             limit,
-            typed: typed.as_ref().to_owned(),
+            typed,
             path_count: paths.len(),
-            rows: rows.clone(),
+            rows,
         },
     );
-    append_fuzzy_items(rows.into_iter(), typed, result);
 }
 
-/// 取得首行才拥有匹配码，已有拥有值直接接管；其余行复制同一读法。
-fn append_fuzzy_items(
-    mut rows: impl ExactSizeIterator<Item = DictRow>,
-    typed: Cow<'_, str>,
-    result: &mut Vec<WordItem>,
-) {
+/// 把一页模糊行投影成候选：读音、完整拼音和词面都只加引用计数。
+fn append_fuzzy_items(rows: &[FuzzyRow], typed: &SharedString, result: &mut Vec<WordItem>) {
     result.reserve(rows.len());
-    if let Some(row) = rows.next() {
-        let mut item = WordItem::new(
-            typed.into_owned(),
-            row.value,
-            row.weight,
-            CandidateSource::Database,
-            row.key,
-        );
-        item.fuzzy = true;
-        result.push(item);
+    result.extend(rows.iter().map(|row| WordItem {
+        pinyin: typed.clone(),
+        canonical_pinyin: row.key.clone(),
+        word: row.value.clone(),
+        weight: row.weight,
+        source: CandidateSource::Database,
+        fuzzy: true,
+        ..WordItem::default()
+    }));
+}
+
+/// 模糊合并切开的一个音节，连同到它为止的前缀的读法组合数（各音节读法个数饱和相乘），即这一前缀不受上限截断时能展开的路径条数加一。
+struct CountedSyllable<'a> {
+    text: &'a str,
+    combinations: usize,
+}
+
+impl AsRef<str> for CountedSyllable<'_> {
+    fn as_ref(&self) -> &str {
+        self.text
     }
-    for row in rows {
-        let mut item = WordItem::new(
-            result.last().expect("首个模糊候选已插入").pinyin.clone(),
-            row.value,
-            row.weight,
-            CandidateSource::Database,
-            row.key,
-        );
-        item.fuzzy = true;
-        result.push(item);
+}
+
+/// 行缓存键里的上限。同一组音节展开出的路径只取决于 `limit` 与读法组合数 `combinations` 中较小的那个（见 [`fuzzy_segmentations`]），所以不受上限截断（`combinations <= limit`）时一律记作 `FUZZY_SEGMENTATION_LIMIT`：九键一键的二三十条切分各自剩下的预算不同，同一段读音前缀原来会因为上限不同而反复查库（#10457）。受截断时保留实际上限。键里的数总是「用它展开会得到同样的路径」，所以命中项与重新查库完全相同。
+fn fuzzy_row_key_limit(combinations: usize, limit: usize) -> usize {
+    if combinations <= limit {
+        FUZZY_SEGMENTATION_LIMIT
+    } else {
+        limit
     }
 }
 

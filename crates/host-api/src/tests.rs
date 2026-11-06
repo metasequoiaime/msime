@@ -23295,6 +23295,8 @@ mod initial_learning;
 mod lifecycle_traces;
 mod plugin_authoring;
 mod quick_phrase_cursor;
+#[cfg(unix)]
+mod read_only_state;
 #[cfg(any(
     target_os = "macos",
     target_os = "windows",

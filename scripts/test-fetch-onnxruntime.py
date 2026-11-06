@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """用合成的压缩包验证精简版 ONNX Runtime 的下载核对和解压，并核对锁文件的形状、它与算子清单的对应。不联网。"""
+import contextlib
 import gzip
 import hashlib
 import io
@@ -7,6 +8,7 @@ import json
 import sys
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest.mock import patch
 
@@ -97,6 +99,33 @@ class InstallTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as out, serve(packed + b"tail"):
             with self.assertRaisesRegex(SystemExit, "larger than the lock"):
                 fetch_onnxruntime.install(artifact, Path(out))
+
+    def test_gateway_timeouts_are_retried_until_the_download_succeeds(self):
+        # 2026-11-05 iOS CI 下载这个库时 GitHub 连续回了四次 504；这里经真实的 download_retry 重放，只把网络和等待换掉。
+        library = b"static library bytes" * 100
+        artifact, packed = artifact_for(library)
+        outcomes = [urllib.error.HTTPError(artifact["url"], 504, "Gateway Time-out", {}, None) for _ in range(4)] + [Response(packed)]
+        with tempfile.TemporaryDirectory() as out, contextlib.redirect_stderr(io.StringIO()), \
+                patch.object(fetch_onnxruntime.download_retry.urllib.request, "urlopen", side_effect=outcomes) as fetch, \
+                patch.object(fetch_onnxruntime.download_retry.time, "sleep") as sleep:
+            out = Path(out)
+            fetch_onnxruntime.install(artifact, out)
+            self.assertEqual((out / "libonnxruntime.a").read_bytes(), library)
+            self.assertEqual(fetch.call_count, 5)
+            self.assertEqual([call.args[0] for call in sleep.call_args_list], list(fetch_onnxruntime.download_retry.RETRY_DELAYS[:4]))
+
+    def test_a_checksum_mismatch_is_not_retried(self):
+        # 响应完整收到但摘要不对，说明发布的文件或锁有问题，再下一次结果一样：立刻失败，只请求一次。
+        artifact, _ = artifact_for(b"the real library")
+        tampered = gzip.compress(b"something else!!", mtime=0)
+        artifact["size"] = len(tampered)
+        with tempfile.TemporaryDirectory() as out, \
+                patch.object(fetch_onnxruntime.download_retry.urllib.request, "urlopen", side_effect=lambda *_args, **_kwargs: Response(tampered)) as fetch, \
+                patch.object(fetch_onnxruntime.download_retry.time, "sleep") as sleep:
+            with self.assertRaisesRegex(SystemExit, "expected"):
+                fetch_onnxruntime.install(artifact, Path(out))
+            self.assertEqual(fetch.call_count, 1)
+            sleep.assert_not_called()
 
     def test_plain_http_is_refused(self):
         artifact, _ = artifact_for(b"x", url="http://example.invalid/libonnxruntime-test.a.gz")
