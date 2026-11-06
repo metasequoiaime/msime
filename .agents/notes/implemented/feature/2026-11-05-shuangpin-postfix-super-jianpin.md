@@ -18,7 +18,7 @@ Status: implemented
 - 回车和无匹配时的兜底行都用 `local_raw_text()`：经 `/` 进入时去掉开头的 `J`，回车上屏 `nuu`，与组字中回车上屏原文一致；Shift+J 进入的 J 模式仍上屏带 `J` 的原文（#7616）。经 `/` 进入时那段原文记在 `InputSession::jianpin_slash_origin`（按内容比较，因为 J 模式能在光标处改字），`reset_composition` 清掉它。
 - 开关是 `local_modes.super_jianpin_slash`：依附 `super_jianpin`，不受 `shift_letter_entry` 管；出厂开，缺这个键的旧文档读作开，开着时不写进文档（与 `symbol`、`date_time_menu` 同一写法）。经 host-api 的 `EngineOptions::local_super_jianpin_slash` 进引擎的 `LocalModeOptions::super_jianpin_slash`；网页引擎写死关，与它关掉 `super_jianpin` 一致。`/` 被谁占用的规则另有偏好层的 `msime_client_core::jianpin_slash::super_jianpin_slash_conflict`，与引擎的让位条件一致。
 - 界面：Windows 原生设置（含 Win7 设置，共用 `InputSettingsModel.h` 的 `local_modes` 表）在「超级简拼(J 模式)」下加一行「组字后按 / 转超级简拼」，超级简拼关着时变灰；iOS 的快捷模式页加同名开关，同样跟着超级简拼置灰。禁用只落在开关上，标题旁的「?」仍能打开说明；不能对包含说明按钮的整行使用 `.disabled`。说明都进「?」，其中再次按 `/` 明确写成上屏转换前高亮的候选，与 runtime 的实际行为一致。
-- 宿主不加按键路由：六个平台都按 View 的 `spelling_symbols` 把发布的符号当字符送进引擎，与万象式 `/` 走同一条路。
+- 普通符号入口按 View 的 `spelling_symbols` 将发布的符号交给引擎。iOS 数字九宫格另有原样上屏入口，真机复验发现它把双拼 `nuu` 加 `/` 直接写成 `nuu/`；该入口现在仅为双拼的 `/` 增加拼写符号优先处理，是否可用及辅助码占用仍由引擎发布结果决定。普通数字、全拼数字页和未发布 `/` 的双拼仍原样上屏；自定义侧栏仍按用户配置的字面文本处理。
 
 ## Alternatives considered
 
@@ -37,7 +37,7 @@ Status: implemented
 
 ## Consequences
 
-- **收益**：双拼用户打了 3 个以上声母后按 `/` 就能改查超级简拼，全部双拼方案（小鹤、自然码、手心、微软、智能 ABC、自定义）按各自的声母键位读回完整声母；六个平台不改按键路由就拿到这个行为。
+- **收益**：双拼用户打了 3 个以上声母后按 `/` 就能改查超级简拼，全部双拼方案（小鹤、自然码、手心、微软、智能 ABC、自定义）按各自的声母键位读回完整声母；六个平台共用引擎行为；iOS 数字九宫格另补双拼 `/` 的拼写路由。
 - **代价**：默认开改变了老用户的一处手感——双拼、中文标点、`/` 没被占用时，组字有 3 个以上纯小写字母就按 `/`，例如多音节词接斜杠（公斤/米 `gsjn/`），或开着末尾直接辅码时「单字 + 辅码 + `/`」（`yrj/`），会进简拼而不是上屏首选。保留旧结果有三条路：`//` 一次得到「首选 + /」；退格回到原组字；先按空格再按 `/`。单字加 `/`（2 个字母）不受影响。全小写的中英混打（`and/`）同样会触发，不做「首选是英文就不触发」这类启发式，免得规则不可预测。
 - **已知缺口**：macOS、Linux、HarmonyOS 的设置是共享 React 页，按 AGENTS.md「packages/ui 只修缺陷，不加新设置」不加开关，这三个平台按默认开拿到功能，想关只能整项关掉超级简拼，或改偏好文档、用 MCP；等原生设置迁移时补上。Android 没有 `local_modes` 设置页，`super_jianpin` 本身也没有开关，不新开页面。Android 键盘「更多」工具页的超级简拼只是一个入口按钮，按偏好置灰，不是开关，所以也不加后置简拼的开关。原生设置页还没有调用 `super_jianpin_slash_conflict` 来给开关置灰并写明占用者：Windows 设置直接读写偏好 JSON、iOS 设置直接读写偏好字典，接它要给 host-api 新开一个 C 导出再接到 C++ 与 Swift 两侧，不在这个 PR 里做，现在只在「?」里写明哪些情况下 `/` 让位。账号设置同步的字段表（`crates/client-services/src/account/settings_sync.rs`）的 `local_modes` 只收 `symbol` 和 `date_time_menu`，`super_jianpin` 等其余模式开关都不同步，这个键跟着它们不同步。手机键盘没有新键，也没有候选栏「简拼」按钮，那属于键盘界面、要三端同步，另开 issue。
 - **重访信号**：反馈里出现「打斜杠变成简拼」的误触多于「找不到后置简拼」时，重新考虑默认值或最少字母数。
@@ -49,3 +49,5 @@ Status: implemented
 - Windows 设置冒烟（`platforms/windows/tests/tools/settings_ui.ps1`，CI 的 Windows native settings 作业）搜索「组字后按 / 转超级简拼」，断言它与「超级简拼(J 模式)」在同一个展开的折叠区里，并截图。
 - `cargo test -p msime-client-core`：`jianpin_slash::tests` 覆盖缺键读作开、默认不写、关掉后往返、三种占用各自的原因。
 - Windows 设置表的 `platforms/windows/tests/ui/input_settings_model.cpp` 覆盖新行的默认值、依附超级简拼、不受 Shift+字母总开关管。
+
+- iOS `NumberPadJianpinSlashTests` 经真实键盘控制器的数字页按钮覆盖出厂双拼转换、退格撤回、关闭入口后的字面行为、单音节和全拼不触发；同时复跑数字页已有多方案、藏文和全拼分隔符回归。
