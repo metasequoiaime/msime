@@ -111,6 +111,8 @@ struct SkinColors
     std::string border;
     std::string text;
     std::string number;
+    // 候选选中文字色：只有自定义主题的取色器（`custom_theme.candidate_colors.selected_text`，#10740）用它，皮肤包的 `selected_text` 由共享解析器自己读。
+    std::string selectedText;
     // Secondary candidate text (the translation); the shared resolver passes it on as `secondary`.
     std::string translation;
     std::optional<bool> showSelectedBar;
@@ -429,7 +431,7 @@ struct CustomTheme
     std::string candidateSkin;
     // 深色槽位 `custom_theme.candidate_skin_dark`：深色模式画的外部皮肤包，空串表示没有。
     std::string candidateSkinDark;
-    // The seven candidate pickers, each `#RRGGBB` or empty for unset. showSelectedBar is unused.
+    // The candidate pickers, each `#RRGGBB` or empty for unset; macOS sends text, accent, selected, selectedText, hover and surface. showSelectedBar is unused.
     SkinColors candidateColors;
 };
 

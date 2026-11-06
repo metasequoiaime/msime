@@ -28,8 +28,8 @@ pub(crate) mod desktop_preferences_monitor;
 pub(crate) mod desktop_resource_packs;
 #[cfg(any(target_os = "macos", test))]
 pub(crate) mod global_voice_setup;
-// 设置同步卡片的四个命令；macOS 由输入法自己的账号窗口同步它的原生设置。
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+// 设置同步卡片的四个命令，三个桌面宿主都在共享账号页上用。
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 pub(crate) mod desktop_settings_sync;
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 pub(crate) mod desktop_typing_upload;

@@ -2,6 +2,8 @@
 
 Status: implemented
 
+「候选窗、表情、手写继续按现有全局主题读取」由[候选条、表情和手写面板跟随键盘的分明暗皮肤选择](../bug-fix/2026-11-03-android-candidate-strip-follows-keyboard-skin.md)部分取代：Android 上已没有入口写 `global_theme`，三块面板改读同一明暗的槽位；槽位格式、缺槽回退和候选皮肤包槽位保持。
+
 ## Problem
 
 Android 皮肤页只列出当前明暗可用的内置主题，但卡片没有说明适配范围。`global_theme` 及 `custom_theme.keyboard` 各只有一份，浅色时选一款键盘皮肤会覆盖深色时的选择。已有的 `candidate_skin` 和 `candidate_skin_dark` 是候选窗皮肤包标识，不能存键盘主题或设计。

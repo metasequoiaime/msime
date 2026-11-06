@@ -54,6 +54,7 @@
 #include "AppInputModeRuleList.h"
 #include "CandidateCanvasPreview.h"
 #include "CandidateFontPresets.h"
+#include "CandidateFontWeight.h"
 #include "CandidatePalette.h"
 #include "CandidateWindowStyle.h"
 #include "ClientAgent.h"
@@ -12086,7 +12087,7 @@ private:
 
   // ---- 候选颜色 ----
 
-  // 「自定义主题」组「自定义配色」里的五个取色器（编号色和边框色跟随主题，见 ThemeSkinModel.h 的 color_slots）。没设的颜色在色块上显示候选窗口当前明暗下的默认色，与共享页按预览明暗取默认色一样。
+  // 「自定义主题」组「自定义配色」里的六个取色器（编号色和边框色跟随主题，见 ThemeSkinModel.h 的 color_slots）。没设的颜色在色块上显示候选窗口当前明暗下的默认色，与共享页按预览明暗取默认色一样。
   void candidate_color_rows(StackPanel const &group) {
     const bool light = !candidate_dark();
     for (const auto &slot : sk::color_slots) {
@@ -12123,7 +12124,7 @@ private:
     }
   }
 
-  // 色块打开 WinUI 的取色器；拖动时颜色随时写入并重画轮播里「自定义」卡片的样例（update_custom_theme_card），停下后保存，取色器关上时整页重画。「跟随主题」把这一项交还给底下的主题：文字、强调、选中和悬停的按钮在没设颜色时是按下的，再点不起作用；表面色的没有按下状态，点它总会清掉那一项。
+  // 色块打开 WinUI 的取色器；拖动时颜色随时写入并重画轮播里「自定义」卡片的样例（update_custom_theme_card），停下后保存，取色器关上时整页重画。「跟随主题」把这一项交还给底下的主题：文字、强调、选中、选中文字和悬停的按钮在没设颜色时是按下的，再点不起作用；表面色的没有按下状态，点它总会清掉那一项。
   FrameworkElement candidate_color_control(sk::ColorSlot const &slot, std::wstring const &key,
                                            bool set, std::wstring const &shown) {
     const std::wstring title(slot.title);
@@ -12642,6 +12643,13 @@ private:
       if (!family.empty())
         family_chain += L"," + family;
     const auto preview_font = FontFamily(hstring(family_chain));
+    // 字重与候选窗一致：候选文字按 `candidate_font_weight`，拼音行至少半粗。
+    const auto weight_id = document_.String(L"candidate_font_weight", L"regular");
+    unsigned body_weight = msime::windows::candidate_regular_font_weight;
+    for (const auto &option : msime::windows::candidate_font_weights)
+      if (std::wstring(option.id.begin(), option.id.end()) == weight_id)
+        body_weight = option.weight;
+    const auto preview_weight = Windows::UI::Text::FontWeight{static_cast<uint16_t>(body_weight)};
     // Scale, opacity and radius through the rules the card itself uses (CandidateWindowStyle.h): the user's radius, else the drawn package's, else the theme's.
     const auto style = candidate_window_style();
     const double scale = style.scale();
@@ -12719,7 +12727,8 @@ private:
             scale;
         auto pre = make_text(L"ni'mf", preedit_size, to_color(theme.accent));
         pre.FontFamily(preview_font);
-        pre.FontWeight(Windows::UI::Text::FontWeight{600});
+        pre.FontWeight(Windows::UI::Text::FontWeight{
+            static_cast<uint16_t>(msime::windows::candidate_preedit_font_weight(body_weight))});
         pre.VerticalAlignment(VerticalAlignment::Center);
         head.Children().Append(pre);
         Border caret;
@@ -12782,6 +12791,7 @@ private:
           theme, theme.text, highlighted, false);
       auto number =
           make_text(std::to_wstring(i + 1), font * 0.8 * scale, to_color(number_color));
+      number.FontWeight(preview_weight);
       number.VerticalAlignment(VerticalAlignment::Center);
       cell.Children().Append(number);
       // 辅助码紧跟在候选后面、同字号同色，写成「你们(rR)」，与共享页的样例相同；自己输入的示例文字没有辅助码。
@@ -12791,12 +12801,14 @@ private:
       A11y::SetAutomationId(candidate, hstring(L"candidate-preview-word-" + std::to_wstring(i)));
       candidate.TextWrapping(TextWrapping::NoWrap);
       candidate.FontFamily(preview_font);
+      candidate.FontWeight(preview_weight);
       words.Children().Append(candidate);
       if (helpcode && samples.empty()) {
         auto suffix = make_text(std::wstring(L"(") + code + L")", font * scale,
                                 to_color(row_color));
         suffix.TextWrapping(TextWrapping::NoWrap);
         suffix.FontFamily(preview_font);
+        suffix.FontWeight(preview_weight);
         words.Children().Append(suffix);
       }
       cell.Children().Append(words);
@@ -12878,6 +12890,12 @@ private:
       const bool main_font = candidate_font_rows(font);
       number_select_row(font, 0xE8E9, L"字号", L"", L"candidate_font_size",
                         candidate_font_sizes(), 18, L"");
+      // 共享偏好 `candidate_font_weight`（#10748），四档和字重在 CandidateFontWeight.h；缺值是常规，等于这一项出现之前的画法。
+      std::vector<Option> weights;
+      for (const auto &option : msime::windows::candidate_font_weights)
+        weights.push_back({std::wstring(option.id.begin(), option.id.end()), std::wstring(option.label)});
+      select_row(font, 0xE8DD, L"字重", L"作用于候选、注释、序号和释义，拼音行至少半粗。字体没有这一档字面时按最接近的字面显示。",
+                 L"candidate_font_weight", std::move(weights), L"regular");
       candidate_english_font_row(font, !main_font);
       candidate_percent_row(font, L"整体大小", L"candidate_scale_percent", 75, 150,
                             L"字号与窗口尺寸一起缩放");

@@ -1207,12 +1207,12 @@ int main() {
       require(near(candidate_item_natural_width(read, shape, false),
                    40.0 + shape.translation_gap + 60.0 + shape.number_and_bar +
                        shape.item_padding_right));
-      CandidateCardInput page;
-      page.items = {plain, plain, plain};
-      page.wrapped = measure;
-      const auto without = candidate_card_size(page);
-      page.items = {plain, read, plain};
-      require(near(candidate_card_size(page).height, without.height));
+      CandidateCardInput reading_page;
+      reading_page.items = {plain, plain, plain};
+      reading_page.wrapped = measure;
+      const auto without = candidate_card_size(reading_page);
+      reading_page.items = {plain, read, plain};
+      require(near(candidate_card_size(reading_page).height, without.height));
       // 两行比一行候选高（小字号、高的回退字体）时这一行跟着长高，别的行不变。
       two_lines = shape.candidate_row + 6.0;
       const auto taller = candidate_page_layout({plain, read, plain}, 400.0, shape, false, measure);

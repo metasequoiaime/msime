@@ -77,7 +77,7 @@ pub use nine_key::KeyGrid;
 pub use paths::RuntimePaths;
 pub use pinyin::glide::{GlideKeyboard, GlidePoint};
 pub use punctuation::{BracketMarks, PunctuationMarks, QuoteMarks};
-pub use session::{Clock, Session, SessionOptions, SessionSnapshot};
+pub use session::{Clock, HelpcodeTrigger, Session, SessionOptions, SessionSnapshot};
 pub use types::{
     autocorrect_type, fuzzy_rule, request_autocorrect_mask, CandidateEdge, CandidateSource,
     Command, CommandTableEntry, CommandTranslationQuery, EnglishInputOptions, FirstPageRows,

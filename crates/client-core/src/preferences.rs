@@ -14,6 +14,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use unicode_segmentation::UnicodeSegmentation;
 
+pub mod candidate_color;
 mod clipboard_retention;
 mod reporting_authority;
 pub use reporting_authority::{ReportingAuthority, ReportingAuthorization};
@@ -967,6 +968,10 @@ impl CustomTheme {
                 &colors.selected,
                 PreferencesError::InvalidCandidateSelectedColor,
             ),
+            (
+                &colors.selected_text,
+                PreferencesError::InvalidCandidateSelectedTextColor,
+            ),
             (&colors.hover, PreferencesError::InvalidCandidateHoverColor),
             (
                 &colors.surface,
@@ -1007,7 +1012,7 @@ impl CustomTheme {
     }
 }
 
-/// The seven candidate colour pickers, each `#RRGGBB` or unset.
+/// 八个候选颜色取色器，每项为 `#RRGGBB` 或未设置。
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CustomCandidateColors {
@@ -1019,6 +1024,9 @@ pub struct CustomCandidateColors {
     pub accent: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub selected: Option<String>,
+    /// 选中候选（高亮行）的文字颜色（#10740）。没设时照旧推导：设了选中底色取色器时按底色亮度取黑或白，否则取皮肤包的 `selected_text`，再没有时内置底上取强调色；设了它就压过这几项，选中编号取同色的 `9D` 透明度。取值顺序见 `skin::theme::resolve`。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selected_text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hover: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2109,6 +2117,9 @@ pub struct Preferences {
     pub candidate_english_font: Option<String>,
     #[serde(default = "default_candidate_fallback_fonts")]
     pub candidate_fallback_fonts: Vec<String>,
+    /// 桌面候选窗文字的字重（#10748），作用于主字体、英文字体和回退字体画的全部候选窗文字；预编辑行至少半粗，见 [`CandidateFontWeight::preedit_value`]。字体族没有这一档字面时由宿主按就近的字面画。macOS、Windows 和 Linux 的候选窗读它，移动端键盘不读。默认常规，等于这个字段出现之前的画法，默认时不写进文档。
+    #[serde(default, skip_serializing_if = "is_default_candidate_font_weight")]
+    pub candidate_font_weight: CandidateFontWeight,
     pub learning: bool,
     /// 回车上屏英文时把该英文单词写入英文词库，之后可作为候选出现（Windows `input.enter_learns_english_word`）。Windows 正式版 `installer/default_config/config.default.toml` 出厂为 `true`，所以等于出厂值时文档里不写这个键，没有它的旧版本照样按开启读；关掉后回车照常上屏，只是不学词。
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
@@ -2934,6 +2945,43 @@ fn default_candidate_max_width() -> u16 {
 
 fn default_candidate_columns() -> u8 {
     6
+}
+
+/// 候选窗文字的字重。只有这四档：中文字体的字面大多落在这几档之间，更细或更轻的档位多数字体没有，选了也只会落到同一个字面上；斜体不提供，汉字没有真斜体，系统只能把字形硬倾斜。宿主各抄了一份字重表（macOS、Windows、Linux），scripts/test-candidate-font-weight-parity.py 核对它们的取值、数值和预编辑下限与这里一致。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CandidateFontWeight {
+    #[default]
+    Regular,
+    Medium,
+    Semibold,
+    Bold,
+}
+
+impl CandidateFontWeight {
+    /// OpenType / CSS 的数值字重，DirectWrite 和 Pango 直接用这个刻度；macOS 换成对应的 `NSFontWeight`。
+    pub const fn value(self) -> u16 {
+        match self {
+            Self::Regular => 400,
+            Self::Medium => 500,
+            Self::Semibold => 600,
+            Self::Bold => 700,
+        }
+    }
+
+    /// 预编辑行的字重：一直是半粗，候选文字选得更粗时跟到同一档，首行不会比候选还细。
+    pub const fn preedit_value(self) -> u16 {
+        let value = self.value();
+        if value > 600 {
+            value
+        } else {
+            600
+        }
+    }
+}
+
+fn is_default_candidate_font_weight(value: &CandidateFontWeight) -> bool {
+    *value == CandidateFontWeight::default()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -4475,6 +4523,7 @@ impl Default for Preferences {
             candidate_font_family: default_candidate_font_family(),
             candidate_english_font: None,
             candidate_fallback_fonts: default_candidate_fallback_fonts(),
+            candidate_font_weight: CandidateFontWeight::default(),
             learning: true,
             enter_learns_english_word: true,
             quanpin: QuanpinPreferences::default(),
@@ -5626,6 +5675,8 @@ pub enum PreferencesError {
     InvalidCandidateAccentColor,
     #[error("candidate selected color must be #RRGGBB or omitted")]
     InvalidCandidateSelectedColor,
+    #[error("candidate selected text color must be #RRGGBB or omitted")]
+    InvalidCandidateSelectedTextColor,
     #[error("candidate hover color must be #RRGGBB or omitted")]
     InvalidCandidateHoverColor,
     #[error("candidate surface color must be #RRGGBB or omitted")]

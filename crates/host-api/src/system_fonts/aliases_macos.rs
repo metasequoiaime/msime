@@ -1,10 +1,6 @@
 //! Resolve a stored face name to the family a stylesheet can match.
 //!
-//! The reference host does this on DirectWrite because a font preference can hold a face name -
-//! `仓耳今楷05 W03` rather than `仓耳今楷05` - and a stylesheet matches families, not faces. macOS has
-//! the same split: the settings preview renders through CSS while the candidate window asks CoreText
-//! for the name directly, and CoreText accepts a PostScript name where CSS does not. Without this the
-//! two disagree about which font the user chose, and only the preview is wrong.
+//! 参考宿主在 DirectWrite 上做这件事，因为字体偏好里可能存的是字面名（`仓耳今楷05 W03` 而不是 `仓耳今楷05`），而样式表只认字体族、不认字面。macOS 上设置页的预览走 CSS，同样只认族名，所以这里把字面名或 PostScript 名换成它所属的族名再交给预览。候选窗不经过这里：`CandidateFontCache.mm` 只接受本机已激活的字体族名，存着字面名时画系统字体，和预览并不一致；字重由 `candidate_font_weight` 单独选择（#10748），不靠字面名。
 //!
 //! CoreText never fails a name lookup: an unknown name yields a substituted font rather than null. So
 //! the answer is only used when the font that came back is the one that was asked for - by PostScript
