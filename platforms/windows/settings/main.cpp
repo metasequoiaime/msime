@@ -16500,6 +16500,24 @@ private:
     co_return co_await show_dialog(dialog);
   }
 
+  // 「许可与隐私」里粤语双拼键位方案的致谢（共享页 `CantoneseShuangpinCreditRow` 的对话框）：说明设计者、来源和独立实现，「查看方案仓库」打开设计者的仓库。
+  fire_and_forget show_cantonese_shuangpin_credit() {
+    auto strong = get_strong();
+    ContentDialog dialog;
+    dialog.Title(box_value(hstring(msime::settings::cantonese_shuangpin_credit_title)));
+    auto text = make_text(std::wstring(msime::settings::cantonese_shuangpin_credit_text), 14, palette_.text);
+    text.TextWrapping(TextWrapping::Wrap);
+    text.MaxWidth(420);
+    dialog.Content(text);
+    dialog.PrimaryButtonText(L"查看方案仓库");
+    dialog.CloseButtonText(L"关闭");
+    dialog.DefaultButton(ContentDialogButton::Close);
+    dialog.XamlRoot(root_.XamlRoot());
+    dialog.RequestedTheme(palette_.dark ? ElementTheme::Dark : ElementTheme::Light);
+    if (co_await show_dialog(dialog))
+      open_url(msime::settings::cantonese_shuangpin_scheme_repository);
+  }
+
   // True when the user chose the dialog's primary button. WinUI shows one ContentDialog at a time and throws for a second, which inside a fire_and_forget coroutine ends the process; a click that would open another while one is up, such as a second 删除, is taken as a cancel.
   Windows::Foundation::IAsyncOperation<bool> show_dialog(ContentDialog dialog) {
     if (dialog_open_)
@@ -26873,6 +26891,9 @@ private:
     add_row(privacy, 0xE8A5, L"许可与版权",
             L"水杉 IME 以 GPL-3.0 发布；第三方组件许可随应用资源提供。", copyright);
     link_row(privacy, L"第三方组件许可", L"", true, [this] { open_third_party_notices(); });
+    link_row(privacy, std::wstring(msime::settings::cantonese_shuangpin_credit_title), L"", false,
+             [this] { show_cantonese_shuangpin_credit(); },
+             std::wstring(msime::settings::cantonese_shuangpin_credit_designer));
     url_row(privacy, L"隐私政策", L"", privacy_url);
     bool_row(privacy, 0xE9D2, L"匿名使用统计", L"不含输入内容、候选和剪贴板；关闭后不再发送。",
              L"usage_reporting", true);

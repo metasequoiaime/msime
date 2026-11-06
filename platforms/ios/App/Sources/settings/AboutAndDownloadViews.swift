@@ -349,6 +349,8 @@ private struct LicenseNotice: Identifiable {
     LicenseNotice(file: "rerank-model-Apache-2.0", title: "chinese-ime-lm 逐键重排模型", detail: "整句联想「增强」 · Apache-2.0 与语料署名"),
     LicenseNotice(file: "libhangul-hanja-BSD-3-Clause", title: "libhangul 汉字表", detail: "韩文 · BSD-3-Clause"),
     LicenseNotice(file: "rime-cantonese-CC-BY-4.0", title: "rime-cantonese", detail: "粤语 · CC BY 4.0"),
+    // 不是许可证，是对粤语双拼键位方案设计者的致谢（#9799），排在粤语词库旁边。
+    LicenseNotice(file: "cantonese-shuangpin-scheme-NOTICE", title: "粤语双拼键位方案", detail: "陳澍鋒设计"),
     LicenseNotice(file: "libchewing-data-LGPL-2.1", title: "libchewing-data", detail: "注音 · LGPL-2.1"),
     LicenseNotice(file: "rime-stroke-LGPL-3.0", title: "rime-stroke", detail: "笔画 · LGPL-3.0"),
     LicenseNotice(file: "vi-MIT", title: "vi", detail: "越南文 · MIT"),

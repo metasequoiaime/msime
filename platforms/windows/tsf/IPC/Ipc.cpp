@@ -1090,6 +1090,38 @@ void DebugTsfKeyLatency(const wchar_t *stage, uint64_t requestId, double elapsed
     QueueTsfDiagnosticLog(message);
 }
 
+void DebugTsfSmartPunctuation(WCHAR preceding, bool shadowValid, bool asciiResult)
+{
+    if (!Global::TsfDiagnosticLogEnabled.load(std::memory_order_relaxed))
+    {
+        return;
+    }
+
+    // Only the class of the character is recorded: the preceding character is
+    // the user's text, and which key asked is what the settings page already
+    // says. Both facts stay classes, so the log cannot be read as content.
+    const wchar_t *before = L"other";
+    if (preceding == 0)
+    {
+        before = L"none";
+    }
+    else if (preceding >= L'0' && preceding <= L'9')
+    {
+        before = L"digit";
+    }
+    else if ((preceding >= L'A' && preceding <= L'Z') || (preceding >= L'a' && preceding <= L'z'))
+    {
+        before = L"letter";
+    }
+
+    const std::wstring message = fmt::format(L"[msime][smart-punctuation] before={} shadow={} result={} process={}\n",
+                                             before, shadowValid ? L"yes" : L"no",
+                                             asciiResult ? L"ascii" : L"chinese",
+                                             Global::current_process_name.empty() ? L"unknown"
+                                                                                 : Global::current_process_name);
+    QueueTsfDiagnosticLog(message);
+}
+
 void DebugTsfIssue47(const wchar_t *stage, uint64_t requestId, UINT code, WCHAR wch, UINT category, UINT function,
                      int eaten, BOOL composing, size_t virtualKeyLength, HRESULT result, uint64_t correlationToken)
 {
