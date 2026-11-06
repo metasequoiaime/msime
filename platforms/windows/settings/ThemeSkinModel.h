@@ -5,7 +5,7 @@
 #include <string_view>
 #include <vector>
 
-// 「主题」页皮肤包卡片和候选颜色取色器的规则，照共享设置的 `packages/ui/src/theme/global-theme.ts`（skinSlot、applyCandidateSkin、removeCandidateSkin、customThemeBase、candidateSkinFor、skinDrawsIn）、`settings/theme-selection-updates.ts`（updateCandidateColor）、`settings/pages/skin-page.tsx`（使用中的皮肤、卡片停在哪一款、两种明暗各用哪款的说明）、`settings/settings-options.ts`（内置主题卡片的说明 globalThemeDescription）、`settings/theme-carousel.tsx`（轮播停在哪张卡片）、`skin/external-skins.tsx`（ExternalSkinCard 的明暗、能否选用和文案）和 `settings/candidate-colors-section.tsx`（五个取色器、它们的默认色和「跟随主题」按钮；编号色和边框色跟随主题，不给取色器）。不依赖 Windows 和 WinRT 头文件，方便单独测试。
+// 「主题」页皮肤包卡片和候选颜色取色器的规则，照共享设置的 `packages/ui/src/theme/global-theme.ts`（skinSlot、applyCandidateSkin、removeCandidateSkin、customThemeBase、candidateSkinFor、skinDrawsIn）、`settings/theme-selection-updates.ts`（updateCandidateColor）、`settings/pages/skin-page.tsx`（使用中的皮肤、卡片停在哪一款、两种明暗各用哪款的说明）、`settings/settings-options.ts`（内置主题卡片的说明 globalThemeDescription）、`settings/theme-carousel.tsx`（轮播停在哪张卡片）、`skin/external-skins.tsx`（ExternalSkinCard 的明暗、能否选用和文案）和 `settings/candidate-colors-section.tsx`（六个取色器、它们的默认色和「跟随主题」按钮；编号色和边框色跟随主题，不给取色器）。不依赖 Windows 和 WinRT 头文件，方便单独测试。
 namespace msime::settings::skins {
 
 // 以某个 base 为底的皮肤包放在哪个槽位：固定明暗的内置主题给出它自己的明暗，`system` 两个槽位都放（skinSlot 的 null）。
@@ -275,12 +275,13 @@ struct ColorSlot {
   std::wstring_view dark;
 };
 
-// 先是背景，然后是写在背景上的内容，再是一行可能处于的各种状态。编号色和边框色跟随主题（HostCapabilities 的 candidate_number_color、candidate_border_color 在 Windows 为假，Server 的 candidate_theme_values 也不读存下的值），所以只列五个，与共享页一致。
+// 先是背景，然后是写在背景上的内容，再是一行可能处于的各种状态。编号色和边框色跟随主题（HostCapabilities 的 candidate_number_color、candidate_border_color 在 Windows 为假，Server 的 candidate_theme_values 也不读存下的值），所以只列六个，与共享页一致。选中文字色（#10740）紧跟选中色，没设时色块显示原生选中行的白字。
 inline constexpr ColorSlot color_slots[] = {
     {L"surface", L"候选表面色", L"候选表面色跟随主题", false, L"#ffffff", L"#202020"},
     {L"text", L"候选文字颜色", L"", true, L"#1a1a1a", L"#e9e8e8"},
     {L"accent", L"候选强调色", L"候选强调色跟随主题", true, L"#1a73e8", L"#8ab4f8"},
     {L"selected", L"候选选中色", L"候选选中色跟随主题", true, L"#e8e8e8", L"#3e3e3e"},
+    {L"selected_text", L"候选选中文字色", L"候选选中文字色跟随主题", true, L"#ffffff", L"#ffffff"},
     {L"hover", L"候选悬停色", L"候选悬停色跟随主题", true, L"#ececec", L"#414141"},
 };
 

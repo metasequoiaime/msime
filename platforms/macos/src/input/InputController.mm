@@ -12,6 +12,7 @@
 #import "../cloud/EmbeddedTranslationBatch.h"
 #import "../translation/LocalTranslationWindow.h"
 #import "../candidate/CandidatePlacement.h"
+#import "../candidate/CandidateFontWeight.h"
 #import "../candidate/CandidateWindowLevel.h"
 #import "../candidate/CandidateGlossSenses.h"
 #import "InputSourceRegistration.h"
@@ -1010,7 +1011,7 @@ static double MSIMEDecorationMotionMargin(const msime::mac::ResolvedSkin &skin) 
     return skin.decorationMotion != msime::mac::DecorationMotion::none ? msime::mac::kDecorationMotionMargin : 0.0;
 }
 
-// The reading in the candidate window's top row is set semibold (dc.html L1325) at the size the user picked for it. A resolved family is named by its face (Menlo-Regular), which pins the weight, so the face is swapped for the family and the fallback cascade is kept; a family whose nearest heavier face is bold draws bold, and one with no heavier face keeps its regular one.
+// 候选窗首行的拼音用半粗（dc.html L1325）、用户给它选的字号；候选字重选得比半粗更粗时跟到同一档（`MSIMECandidatePreeditFontWeightValue`）。解析出的字体以字面命名（Menlo-Regular），字面名会钉死字重，所以换回族名并保留回退链；族里最近的更粗字面是粗体就画粗体，没有更粗字面的保留它自己的字面。
 static NSFont *MSIMECandidatePreeditFont(MSIMEAppearancePreferences *appearance) {
     const CGFloat size = appearance.preeditFontSize * MSIMECandidateScale(appearance);
     NSFont *regular = [appearance candidateFontOfSize:size englishFirst:YES];
@@ -1019,7 +1020,7 @@ static NSFont *MSIMECandidatePreeditFont(MSIMEAppearancePreferences *appearance)
         [attributes removeObjectForKey:NSFontNameAttribute];
         attributes[NSFontFamilyAttribute] = regular.familyName;
     }
-    attributes[NSFontTraitsAttribute] = @{NSFontWeightTrait: @(NSFontWeightSemibold)};
+    attributes[NSFontTraitsAttribute] = @{NSFontWeightTrait: @(MSIMECandidatePreeditFontWeightValue(appearance.candidateFontWeight))};
     return [NSFont fontWithDescriptor:[NSFontDescriptor fontDescriptorWithFontAttributes:attributes] size:size] ?: regular;
 }
 
@@ -10084,7 +10085,8 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     _expandedFirstRow = MIN(_expandedFirstRow, rows - 1);
 
     const BOOL pageControls = !skin.expandPanel.value_or(false) && _appearance.showsCandidatePageNumber;
-    NSFont *indicatorFont = [NSFont monospacedDigitSystemFontOfSize:MSIMECandidatePageIndicatorPointSize * scale weight:NSFontWeightRegular];
+    // 行号、页码和首行状态用系统字体，字重跟候选字重（#10748），与 Windows、Linux 一样；常规时与原来相同。
+    NSFont *indicatorFont = [NSFont monospacedDigitSystemFontOfSize:MSIMECandidatePageIndicatorPointSize * scale weight:MSIMECandidateFontWeightValue(_appearance.candidateFontWeight)];
     // 「第几行 / 共几行」要知道总行数；自动适应按需排版，不显示行号，只留收起按钮。
     const BOOL rowIndicatorShown = pageControls && !adaptive;
     NSString *rowIndicator = [NSString stringWithFormat:@"%lu / %lu", (unsigned long)(cursorRow + 1), (unsigned long)rows];
@@ -10482,7 +10484,8 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     if (adaptive || _filteredFixedPages) [self reportAdaptiveDisplayPage];
     // 「1 / 3」只在知道总页数时显示；自动适应只留 ‹ ›。
     const BOOL pageIndicatorShown = pageControls && !adaptive;
-    NSFont *pageIndicatorFont = [NSFont monospacedDigitSystemFontOfSize:MSIMECandidatePageIndicatorPointSize * scale weight:NSFontWeightRegular];
+    // 页码、首行状态和光标后编辑提示用系统字体，字重跟候选字重（#10748），与 Windows、Linux 一样；常规时与原来相同。
+    NSFont *pageIndicatorFont = [NSFont monospacedDigitSystemFontOfSize:MSIMECandidatePageIndicatorPointSize * scale weight:MSIMECandidateFontWeightValue(_appearance.candidateFontWeight)];
     NSString *pageIndicator = pageIndicatorShown ? [NSString stringWithFormat:@"%lu / %lu", (unsigned long)(page + 1), (unsigned long)pageCount] : @"";
     const CGFloat pageIndicatorWidth = pageIndicatorShown ? MSIMECandidateLabelWidth(pageIndicator, pageIndicatorFont) : 0;
     const CGFloat pageControlsWidth = (pageControls ? (pageIndicatorShown ? pageIndicatorWidth + indicatorGap : 0) + 2 * arrowWidth : 0) +
@@ -10502,7 +10505,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     const BOOL statusVisible = _appearance.showsCandidateStatus && preedit.length;
     NSString *statusText = statusVisible ? MSIMECandidateStatusText([self schemeTitleForScheme:[self viewSchemeName]], _view,
                                                                      _appearance.traditionalOutput, _appearance.runtimeFullWidthInput) : @"";
-    NSFont *statusFont = [NSFont systemFontOfSize:MSIMECandidatePageIndicatorPointSize * scale weight:NSFontWeightRegular];
+    NSFont *statusFont = [NSFont systemFontOfSize:MSIMECandidatePageIndicatorPointSize * scale weight:MSIMECandidateFontWeightValue(_appearance.candidateFontWeight)];
     const CGFloat statusGap = 8 * scale;
     const CGFloat statusTextWidth = MSIMECandidateLabelWidth(statusText, statusFont);
     const CGFloat statusBlock = statusTextWidth > 0 ? 2 * statusGap + scale + statusTextWidth : 0;

@@ -53,6 +53,8 @@ public final class KeyboardSkin {
     private final String platformAccentSoft;
     /** 触屏候选条首选的字色：跟随系统皮肤取应用主题的 `candidateAccent`（浅色加深到 WCAG AA），其余皮肤就是 accent。 */
     private final String candidateAccent;
+    /** 共享解析器的触屏首选文字色，只在工厂构造完成之前赋值。 */
+    private Integer touchSelectedText;
 
     /** A flat palette: the M3 tokens or a resolved theme's keyboard. No border, no shadow, radius 8. */
     private KeyboardSkin(String id, String title, String description, boolean dark,
@@ -206,10 +208,12 @@ public final class KeyboardSkin {
     public KeyboardSkin withAppTheme(AppThemePalette.Seed seed) {
         if (seed == null || designed) return this;
         AppThemePalette palette = AppThemePalette.of(seed, dark);
-        return new KeyboardSkin(id, title, description, dark, background, keyBackground,
+        KeyboardSkin themed = new KeyboardSkin(id, title, description, dark, background, keyBackground,
             actionBackground, keyForeground, secondary, accent, onAccent, hairline, toolbarIcon,
             colorString(palette.accent), colorString(palette.onAccent),
             colorString(palette.accentSoft), candidateAccent);
+        themed.touchSelectedText = touchSelectedText;
+        return themed;
     }
 
     /** 设计稿的 classic 应用主题（不可选，只作没有应用主题时的基础色）：浅色 accent #2C7A4B、bg #F7FBF3，深色 accent #8FD5A6、bg #111411、onAccent #003920。浅色的首选字色是同一色相加深后的 #267547：#2C7A4B 在键盘底色 #DFECDF 上只有约 4.3:1，#267547 约 4.6:1。 */
@@ -265,7 +269,16 @@ public final class KeyboardSkin {
         }
         return resolved(JsonPolicy.strictString(theme.opt("id"), "system"), title,
             JsonPolicy.strictString(theme.opt("appearance")),
-            hostDark, slots, customDesign == null ? null : CustomKeyboardSkin.from(customDesign));
+            hostDark, slots, customDesign == null ? null : CustomKeyboardSkin.from(customDesign),
+            JsonPolicy.strictString(theme.opt("touch_selected_text")));
+    }
+
+    /** 已读取共享响应后的键盘与触屏候选文字色适配，不重新判断主题规则。 */
+    static KeyboardSkin resolved(String id, String title, String appearance, boolean hostDark,
+            Map<String, String> keyboard, CustomKeyboardSkin customDesign, String selectedText) {
+        KeyboardSkin skin = resolved(id, title, appearance, hostDark, keyboard, customDesign);
+        skin.touchSelectedText = CandidateSelectedTextPolicy.resolvedColour(selectedText);
+        return skin;
     }
 
     /** The slots of a resolved theme's `keyboard` object. */
@@ -509,6 +522,8 @@ public final class KeyboardSkin {
     private boolean namedTheme() { return !designed && !"system".equals(id); }
     /** 首选候选 chip 的底：字母键的颜色（kb.key）。 */
     public String candidateSelectedBackground() { return keyBackground; }
+    /** 触屏候选条消费共享结果；缺字段时沿用既有键盘配色。 */
+    public Integer touchSelectedText() { return touchSelectedText; }
     /** 首选候选 chip 的字，600 字重：跟随系统皮肤是应用主题的首选字色（浅色加深到 WCAG AA），其余皮肤是自己的强调色。 */
     public String candidateSelectedForeground() { return candidateAccent; }
     /** 键面角标、空格上的方案短名（kbSub）；与 {@link #secondary()} 相同。 */

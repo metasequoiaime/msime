@@ -25,8 +25,10 @@ struct CandidatePalette: Equatable {
   static var followsDesktop: Bool { defaults.bool(forKey: followsDesktopKey) }
 
   static let themes: [(id: String, title: String)] = [("follow", "跟随系统"), ("light", "浅色"), ("dark", "深色")]
-  /// The `custom_theme.candidate_colors` slots the App edits; the document may carry more (number, accent, selected, border), which are honoured but left to the desktop.
-  static let editableColors: [(slot: String, title: String)] = [("text", "文字"), ("surface", "背景"), ("hover", "首选高亮")]
+  /// App 可编辑的 `custom_theme.candidate_colors` 槽位；文档中的编号、强调、选中底色和边框色仍会生效，但由桌面设置。`selected_text`（首选文字，#10740）指定首选候选字色，优先于主题推导的强调色。
+  static let editableColors: [(slot: String, title: String)] = [
+    ("text", "文字"), ("surface", "背景"), ("hover", "首选高亮"), ("selected_text", "首选文字"),
+  ]
 
   /// 开关关闭或主题未提供候选色时返回 nil；成功绘制面板后才允许使用贴图配色。
   static func active(in preferences: [String: Any]?, systemDark: Bool, skinsRoot: URL? = ExternalCandidateSkin.defaultRoot,

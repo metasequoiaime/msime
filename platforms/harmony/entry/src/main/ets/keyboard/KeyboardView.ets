@@ -4030,8 +4030,8 @@ struct KeyboardView {
       secondary: this.skin.secondary,
       accent: this.skin.accent,
       selected: TRANSPARENT,
-      // 首选画在字母键色的底片上，字用皮肤的首选字色（浅色季节配色加深到 WCAG AA）。
-      selectedText: this.skin.candidateAccent,
+      // 首选画在字母键色的底片上，字用皮肤的首选字色（浅色季节配色加深到 WCAG AA）；自定义主题设了候选选中文字色时用它（#10740）。
+      selectedText: this.settings.candidateTouchSelectedText ?? this.skin.candidateAccent,
       selectedNumber: this.skin.accent,
       hover: TRANSPARENT,
       showSelectedBar: false

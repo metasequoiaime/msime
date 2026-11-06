@@ -92,6 +92,17 @@ final class CandidatePaletteTests: XCTestCase {
     XCTAssertEqual(explicit.number.cgColor.alpha, 1)
   }
 
+  /// #10740：首选文字取色器写 `selected_text`，候选条首选候选（和展开面板的选中项）的字用它，压过 base 推出的强调色；它也在 App 可编辑、可一键恢复的取色器里。
+  func testSelectedTextPickerColoursTheSelectedCandidate() throws {
+    XCTAssertTrue(CandidatePalette.editableColors.contains { $0.slot == "selected_text" })
+    let picked = CandidatePalette.resolve(
+      custom(["base": "paper", "candidate_colors": ["selected_text": "#7B3FBF"]]), systemDark: false)
+    XCTAssertEqual(hex(try XCTUnwrap(picked.selectedText)), "#7B3FBF")
+    XCTAssertEqual(picked.accent, try builtIn("paper").accent)
+    let derived = CandidatePalette.resolve(custom(["base": "paper"]), systemDark: false)
+    XCTAssertEqual(derived.selectedText, try builtIn("paper").accent)
+  }
+
   /// 取色器叠在 base 之上；一个格式错误的取色器会让 client-services 拒绝整个自定义主题，候选条于是画原生 token。
   func testPickersOverTheBaseAndMalformedColours() throws {
     let picked = CandidatePalette.resolve(

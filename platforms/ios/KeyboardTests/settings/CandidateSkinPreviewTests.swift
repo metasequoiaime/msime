@@ -77,6 +77,31 @@ final class CandidateSkinPreviewTests: XCTestCase {
     add(attachment)
   }
 
+  func testSelectedTextColourWithoutCanvasChangesOnlyTheFirstCandidate() throws {
+    let view = CandidateSkinPreviewRow()
+    view.frame = CGRect(x: 0, y: 0, width: 320, height: 64)
+    var palette = CandidatePalette.resolve([
+      "global_theme": "custom",
+      "custom_theme": ["base": "paper", "candidate_colors": ["selected_text": "#FF3B30"]],
+    ], systemDark: false)
+    view.apply(CandidateSkinPreview.Snapshot(palette: palette, canvas: nil))
+    func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap(descendants) }
+    let labels = descendants(view).compactMap { $0 as? UILabel }
+    let first = try XCTUnwrap(labels.first { $0.text == "水杉" })
+    XCTAssertEqual(ThemeColor.hex(first.textColor), "#FF3B30")
+    for word in ["输入", "输入法"] {
+      XCTAssertEqual(try XCTUnwrap(labels.first { $0.text == word }).textColor, palette.text)
+    }
+    for number in ["1", "2", "3"] {
+      XCTAssertEqual(try XCTUnwrap(labels.first { $0.text == number }).textColor, palette.number)
+    }
+    attach(view, name: "selected-text-preview-without-canvas")
+    // 解析器没有提供选中文字色时，首选仍回退到普通文字色。
+    palette.selectedText = nil
+    view.apply(CandidateSkinPreview.Snapshot(palette: palette, canvas: nil))
+    XCTAssertEqual(first.textColor, palette.text)
+  }
+
   func testModeAndSameIDResourceReloadUseActualCanvasAndPalette() async throws {
     let root = try fixture()
     let coordinator = CandidateSkinPreview.Coordinator()
