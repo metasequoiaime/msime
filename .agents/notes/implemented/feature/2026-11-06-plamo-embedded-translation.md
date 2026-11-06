@@ -45,3 +45,11 @@ Status: implemented
 150 条多语言输入的测试不能代替全部 53 种语言的母语审校。PLaMo 仍会直译习语或误解复杂条件，不能宣称翻译准确率合格。模型社区许可限制商业使用；不以本项目代码许可证代替模型许可。旧模型文件不再被接受，用户需重新导入或下载；不主动删除旧权重。
 
 Windows 首次获取固定 Git 依赖时，Cargo/libgit2 会受上游子模块长路径影响。只设置 Git longpaths 不够；构建进程使用短路径 CARGO_HOME 并通过目录联接复用已有缓存，实际构建通过。依赖锁仅更换 llama 绑定及其必需的依赖移除，不顺带重选其他 crate 的宽范围依赖。
+
+## CI 获取依赖
+
+Windows 的可选 Git 依赖也会在只编译引擎 C ABI、设置库或 ONNX 时由 Cargo 解析；因此不能仅在本地开启翻译特性的构建中缩短路径。`Use-ShortCargoHome.ps1` 将原 Cargo 缓存联接到驱动器根目录的短路径，保留已有 bin/registry/git 缓存，并向后续 CI 步骤导出 CARGO_HOME。C ABI、原生设置和 ONNX 三个 Windows 作业都在第一次调用 Cargo 前启用。已有同名普通目录或指向其他缓存的联接会报错，不替换或删除。声明收集作业运行合成缓存行为测试，验证重入、环境导出及冲突保护。
+
+把依赖退回 crates.io 0.1.161 能避免源码中的长文件名，但会重新引入不支持 PLaMo 分词器的问题，因此保留已验证的固定提交。CI 的 Linux C ABI 下载 Rust 清单超时改为复用已有 `rustup-install.sh` 的四次有界重试，不吞掉最终失败。
+
+本轮在 Windows 用全新 git/checkouts 复现相同 `path too long`，仅切换到共享脚本创建的短联接后，固定 Cargo.lock 的 fetch 成功。缓存重用、重复调用、环境文件导出和已有目录保护的 PowerShell 行为测试通过；workflow 的 actionlint 与 Rust 安装重试测试通过。

@@ -811,4 +811,4 @@ Win7 验收基线为 Windows 7 SP1 x64，已安装 KB4474419、KB4490628、KB292
 
 ### 离线翻译依赖的路径长度
 
-嵌入式 PLaMo 使用固定 Git 提交的 `llama-cpp-2`，其上游子模块包含较长文件名。Windows 的 Cargo/libgit2 检出子模块时可能超过路径长度限制，仅设置 Git 的 `core.longpaths=true` 不能解决。构建进程应把 `CARGO_HOME` 指向较短路径（例如 `F:\c`）；可用目录联接指向原 Cargo 缓存，避免重新下载依赖，不必修改机器全局 Git 配置。模型运行不依赖 Git 或网络。
+嵌入式 PLaMo 使用固定 Git 提交的 `llama-cpp-2`，其上游子模块包含较长文件名。Windows 的 Cargo/libgit2 检出子模块时可能超过路径长度限制，仅设置 Git 的 `core.longpaths=true` 不能解决。构建进程应把 `CARGO_HOME` 指向较短路径（例如 `F:\c`）；可用目录联接指向原 Cargo 缓存，避免重新下载依赖，不必修改机器全局 Git 配置。本机可运行 `./platforms/windows/Use-ShortCargoHome.ps1 -ShortHome F:\mc`；它复用当前 Cargo 缓存，并拒绝覆盖已有的不相干目录。CI 的 C ABI、原生设置和 ONNX 作业在首次解析依赖前调用同一脚本。模型运行不依赖 Git 或网络。
