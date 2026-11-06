@@ -111,19 +111,22 @@ public final class CandidateGlossDeviceSmoke extends DeviceSmoke {
         await(described("固定到首位"));
         await(described("取消固定"));
         // 「加入生词本」只在显示着可上屏的释义时出现，「你好」有 hello。
-        await(described("加入生词本"));
+        stage = "gloss card personal wordbook action is reachable";
+        revealAction("加入生词本");
 
         // 有英文释义时，朗读入口是否出现取决于设备实际安装的 TTS 服务；不把模拟器缺引擎当成免验条件。
         stage = "gloss card read aloud availability";
         boolean speechEngineInstalled = !getTargetContext().getPackageManager().queryIntentServices(
             new android.content.Intent(android.speech.tts.TextToSpeech.Engine.INTENT_ACTION_TTS_SERVICE), 0).isEmpty();
         if (speechEngineInstalled) {
+            revealAction("朗读");
             await(described("朗读").and(AccessibilityNodeInfo::isEnabled));
         } else {
             awaitGone(described("朗读"));
         }
 
         stage = "gloss card removal asks in place";
+        revealAction("删除词条…");
         tap(described("删除词条…"));
         await(described("确认删除此词条"));
 
@@ -182,6 +185,18 @@ public final class CandidateGlossDeviceSmoke extends DeviceSmoke {
         await(field("msime-test-plain").and(node -> equalsText("hellohello", node.getText())));
         awaitGone(cardTitle());
         typeGreeting();
+    }
+
+    /** 横向操作栏只暴露当前视口；实际滚动找到按钮，不能把屏幕外节点当作已经可用。 */
+    private void revealAction(String label) {
+        for (int attempt = 0; attempt < 6; attempt++) {
+            if (findVisible(described(label).and(AccessibilityNodeInfo::isEnabled)) != null) return;
+            AccessibilityNodeInfo strip = await(described("更多操作").and(AccessibilityNodeInfo::isScrollable));
+            strip.performAction(attempt < 3 ? AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+                : AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD);
+            SystemClock.sleep(400);
+        }
+        await(described(label).and(AccessibilityNodeInfo::isEnabled));
     }
 
     private Predicate<AccessibilityNodeInfo> cardTitle() {
