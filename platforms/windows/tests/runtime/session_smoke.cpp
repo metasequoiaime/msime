@@ -310,6 +310,17 @@ int main(int argc, char **argv) {
       std::cout << "Windows Server boundary: local-mode routing passed\n";
       return 0;
     }
+    // `--session-workers` 只跑 SessionController、输入队列和会话 worker 这一段（session_workers.cpp，包括点箭头翻页后候选窗换页），同样不需要词库。整套冒烟在 Wine 下停在这一段之前的已知失败上（scripts/known-failures.txt 的 `wine windows-session-smoke`），这样这一段仍能真跑。
+#ifdef _WIN32
+    const bool session_workers_only = argc == 2 && std::wstring_view(argv[1]) == L"--session-workers";
+#else
+    const bool session_workers_only = argc == 2 && std::string_view(argv[1]) == "--session-workers";
+#endif
+    if (session_workers_only) {
+      session_worker_tests(options.dump());
+      std::cout << "Windows Server boundary: session workers passed\n";
+      return 0;
+    }
     if (argc == 2) {
       const auto resources = std::filesystem::path(argv[1]);
       require(resources.is_absolute(), "Expected absolute resource directory");

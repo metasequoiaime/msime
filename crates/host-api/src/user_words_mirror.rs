@@ -1,6 +1,6 @@
 //! `msime_client_user_words_mirror`：同一台设备上两个各有一份 Engine 日志的进程之间交换「我的词条」，让两份收敛成同一组词条。HarmonyOS 从 API 12 起设置应用和输入法扩展各在自己的沙箱里，各有一份个人词库，这个入口就是为它写的；请求和结果见 `include/msime_client.h`，取舍见 `.agents/notes/implemented/feature/2026-10-27-harmony-unified-user-words.md`。
 //!
-//! 「我的词条」与 WebDAV 同步说的是同一组词：Engine 日志里 `user_inserted` 而且没删的词条，身份是（词库类别、编码、词），权重和学习记录不交换（读写都经 [`EngineDictionary`]，与 `dictionary_webdav` 用同一个实现）。
+//! 「我的词条」与 WebDAV 同步说的是同一组词：Engine 日志里 `user_inserted` 而且没删的词条，身份是（词库类别、编码、词），权重和学习记录不交换（读写都经 [`EngineDictionary`]，与 `dictionary_webdav` 用同一个实现）。只有一处不同：这里连粤语个人词也交换（[`EngineDictionary::with_cantonese`]），WebDAV 同步不收它们。设置应用里加的粤语词要到键盘的日志里，粤语方案出候选时才带得上。
 //!
 //! 模型：每一边在自己的私有目录里给每个词条记一个「最后写入者胜」的寄存器（时间戳、在不在），外加本机词库里实际有没有它（`applied`），并把寄存器表发布到两边都读得到的地方（鸿蒙的共享沙箱）。一次 `sync` 按固定顺序做：
 //!
@@ -621,7 +621,7 @@ pub(crate) fn request_json(bytes: &[u8]) -> Result<Value, String> {
     };
 
     // 移动端从不请输入法让出词库（`quiesce` 为假），所以让出时的通知用不到。
-    let mut local = EngineDictionary::announcing(&engine, false, || {});
+    let mut local = EngineDictionary::announcing(&engine, false, || {}).with_cantonese();
     let (report, failure) = run(
         request.side,
         &mut state,

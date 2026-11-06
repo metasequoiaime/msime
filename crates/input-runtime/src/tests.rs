@@ -1105,6 +1105,7 @@ impl InputEngine for Fixture {
             editing_text: self.text.clone(),
             multilingual_conversion: self.multilingual_conversion.clone(),
             caret_position: self.text.len(),
+            helpcode_trigger: None,
             segment_raw_boundaries: vec![],
             candidates: if self.text.is_empty() {
                 vec![]
@@ -2791,6 +2792,7 @@ impl InputEngine for PhraseEngine {
             display_reading: String::new(),
             editing_text: self.reading.clone(),
             caret_position: self.caret.min(self.reading.len()),
+            helpcode_trigger: None,
             segment_raw_boundaries: Vec::new(),
             conversion: self.conversion.clone(),
             candidates: if self.reading.is_empty() {
@@ -5466,6 +5468,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         shuangpin_preedit_uses_raw: true,
         shuangpin_preedit_separated: false,
         force_cantonese_shuangpin: false,
+        cantonese_output_conversion: None,
         single_character_only: false,
         caret_edit_suffix: false,
         learning: false,
@@ -5476,6 +5479,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         fuzzy_pinyin_rules: 0,
         wubi_mixed_pinyin: false,
         wubi_z_wildcard: false,
+        wubi_reverse_code: true,
         wubi_profile: 0,
         helpcode: false,
         strict_quanpin_helpcode: false,
@@ -5855,6 +5859,47 @@ fn temporary_japanese_long_vowels_are_spelling_on_both_host_routes() {
             assert_eq!(transition.view.local_mode, "none");
         }
     }
+}
+
+/// #10731：辅助码前导键进了视图，宿主画按键原文时才能把它插回去；两位码齐了就从 JSON 里消失。
+#[test]
+fn helpcode_trigger_reaches_the_view_json() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut options = real_engine_options(directory.path());
+    options.helpcode = true;
+    options.helpcode_trigger_key = Some(b';');
+    let session = msime_engine::host::Session::new(&options).unwrap();
+    let mut runtime = Runtime::new(session, 5).unwrap();
+    runtime.focus(true).unwrap();
+    let mut press = |value: u8| {
+        runtime
+            .dispatch(Action::Character {
+                value,
+                shift: false,
+            })
+            .unwrap()
+    };
+    press(b'n');
+    let typed = press(b'i');
+    assert!(serde_json::to_value(&typed.view).unwrap()["helpcode_trigger"].is_null());
+    let entered = press(b';');
+    assert!(entered.handled);
+    assert_eq!(entered.view.editing_text, "ni");
+    assert_eq!(entered.view.preedit, "ni;");
+    assert_eq!(entered.view.preedit_caret, 3);
+    assert_eq!(
+        serde_json::to_value(&entered.view).unwrap()["helpcode_trigger"],
+        serde_json::json!({"key": ";", "position": 2})
+    );
+    let one = press(b'f');
+    assert_eq!(one.view.editing_text, "niF");
+    assert_eq!(one.view.preedit, "ni';F");
+    let two = press(b'r');
+    assert_eq!(two.view.helpcode_trigger, None);
+    assert!(serde_json::to_value(&two.view)
+        .unwrap()
+        .get("helpcode_trigger")
+        .is_none());
 }
 
 #[test]
@@ -6597,6 +6642,7 @@ impl InputEngine for DigitCommitsEngine {
             display_reading: self.reading.clone(),
             editing_text: self.reading.clone(),
             caret_position: self.reading.len(),
+            helpcode_trigger: None,
             segment_raw_boundaries: Vec::new(),
             candidates: words,
             ..EngineSnapshot::default()
@@ -7190,7 +7236,7 @@ fn wubi_literal_marks_do_not_open_table_modes() {
 
 #[test]
 fn a_wubi_wildcard_four_code_never_tops_on_the_fifth_key() {
-    for profile in [0, 1] {
+    for profile in [0, 1, 2] {
         for mixed in [false, true] {
             let directory = tempfile::tempdir().unwrap();
             let mut options = real_engine_options(directory.path());
@@ -7208,7 +7254,9 @@ fn a_wubi_wildcard_four_code_never_tops_on_the_fifth_key() {
                 "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
                  INSERT INTO wubi86 VALUES('wqty','合成甲',100),('wqry','合成乙',90);
                  CREATE TABLE wubi98(key TEXT,value TEXT,weight INTEGER);
-                 INSERT INTO wubi98 SELECT * FROM wubi86;",
+                 INSERT INTO wubi98 SELECT * FROM wubi86;
+                 CREATE TABLE wubixsj(key TEXT,value TEXT,weight INTEGER);
+                 INSERT INTO wubixsj SELECT * FROM wubi86;",
             )
             .unwrap();
             let mut runtime =
@@ -7229,7 +7277,7 @@ fn a_wubi_wildcard_four_code_never_tops_on_the_fifth_key() {
 
 #[test]
 fn mixed_wubi_continues_a_pinyin_reading_past_a_native_four_code() {
-    for profile in [0, 1] {
+    for profile in [0, 1, 2] {
         for mixed in [false, true] {
             for (next, shift, continues) in [
                 (b'i', false, true),
@@ -7252,6 +7300,8 @@ fn mixed_wubi_continues_a_pinyin_reading_past_a_native_four_code() {
                         INSERT INTO wubi86 VALUES('guiy','合成甲',100),('guiy','合成乙',90);
                         CREATE TABLE wubi98(key TEXT,value TEXT,weight INTEGER);
                         INSERT INTO wubi98 SELECT * FROM wubi86;
+                        CREATE TABLE wubixsj(key TEXT,value TEXT,weight INTEGER);
+                        INSERT INTO wubixsj SELECT * FROM wubi86;
                         CREATE TABLE tbl_2_g(key TEXT,jp TEXT,value TEXT,weight INTEGER);
                         INSERT INTO tbl_2_g VALUES('gui''yi','gy','合成',1000);",
                 )
@@ -7745,6 +7795,7 @@ impl InputEngine for WubiMixedEngine {
             display_reading: String::new(),
             editing_text: self.reading.clone(),
             caret_position: self.reading.len(),
+            helpcode_trigger: None,
             segment_raw_boundaries: Vec::new(),
             candidates: words,
             caret_edit_suffix: self.caret_edit_suffix && count > 0,
@@ -8893,6 +8944,7 @@ impl InputEngine for SpellingMarksEngine {
             display_reading: String::new(),
             editing_text: self.text.clone(),
             caret_position: self.text.len(),
+            helpcode_trigger: None,
             segment_raw_boundaries: Vec::new(),
             candidates: Vec::new(),
             ..EngineSnapshot::default()

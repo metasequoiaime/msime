@@ -424,6 +424,9 @@ test("macOS drops the rows its host fixes or does not read", async () => {
   // 豆包：不画识别语言，标点开关和边说边显示在「识别」组里。
   expect(screen.queryByLabelText("识别语言")).toBeNull();
   expect(screen.getByRole("switch", { name: "自动添加标点" })).toBeTruthy();
+  // 桌面宿主不声明 voice_punctuation，不画「语音标点」，豆包标点开关也不能指向它。
+  expect(screen.queryByLabelText("语音标点")).toBeNull();
+  expect(screen.queryByText("只对豆包生效；其他识别服务的标点用「语音标点」处理")).toBeNull();
   expect(screen.getByRole("switch", { name: "边说边显示" })).toBeTruthy();
   // 三个按住录音的组合键是一个选择，空格锁定不再是开关，Ctrl+F9 收在更多选项里。
   expect(screen.getByRole("combobox", { name: "按住录音" })).toBeTruthy();

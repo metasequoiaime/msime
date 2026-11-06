@@ -22,6 +22,14 @@ impl DictionaryAccess {
         )
     }
 
+    /// 只读打开已有锁文件取共享租约，见 `msime_engine::DictionaryAccess::try_session_read_only`。
+    pub fn try_session_read_only(user: &Path, dictionaries: &Path) -> io::Result<Option<Self>> {
+        Ok(
+            msime_engine::DictionaryAccess::try_session_read_only(user, dictionaries)?
+                .map(|lease| Self { lease }),
+        )
+    }
+
     /// Acquire exclusive maintenance access without waiting. `None` means sessions/writers are active.
     pub fn try_maintenance(user: &Path, dictionaries: &Path) -> io::Result<Option<Self>> {
         Ok(

@@ -1,5 +1,7 @@
 # macOS InputMethodKit 宿主
 
+桌面内置模型的安装、语言选择与离线翻译入口见[桌面离线翻译](../../docs/local-translation.md)。
+
 ## 目录结构
 
 macOS 平台源码统一放在 `src/` 下按 `backend/`、`voice/`、`candidate/`、`input/`、`cloud/`、`dictionary/`、`settings/` 和 `core/` 分层；`tests/` 保存测试，`resources/` 保存输入法资源，`scripts/` 保存构建脚本，平台根目录只保留 CMake、资源模板和文档。
@@ -156,7 +158,7 @@ SwiftUI 设置同步覆盖 28 个当前宿主偏好：全局主题、自定义�
 
 浮动工具栏沿 Windows 前台策略适配 macOS：输入法激活且用户开启工具栏时显示；全屏应用中也会在打字时显示。工具栏跟随输入法的选中而不是输入框焦点：切换应用、点桌面或切到没有输入框的窗口时它保持显示，切换到其他输入源时隐藏。连续 10 秒没有键盘输入时自动隐藏，再次输入时恢复；点击或拖动工具栏会重新计时，后台偏好刷新和普通焦点切换不会唤醒已经空闲隐藏的工具栏。检测只读取窗口几何，不记录应用名称、窗口标题或输入内容。工具栏最左侧的水杉 logo 兼作拖动柄（来源 `ToolbarDragHandle` 的那条 `#8E8CD8` 竖条不再单独绘制），鼠标悬停时显示张开手形光标，按住即可拖动面板，其后是一条分隔线再接按钮；按钮本身不会拖动面板。logo 是品牌标识，不随主题变色；其余配色按主题契约从候选调色板派生：按钮悬停与按下的圆角底色取候选行悬停色（跟随系统时深色为白色 0.10、浅色为黑色 0.06 透明度），分隔线取候选边框色。
 
-账号入口走共享设置页的 `settings:account` 路由；桌面设置不可用时回退到随 bundle 加载的 SwiftUI 账号窗口，不要求手填账号 ID。登录账号由 Rust 持有（#8201）：后端 dylib 收下 Rust 函数表后注册本进程的会话存储（`BackendRustAccount`，登录会话是 `account-session.json`、匿名会话在 App Group，锁文件与 Tauri 设置应用相同），SwiftUI 账号窗口的登录、改名、退出和注销经 `msime_client_account`，读不了会话时显示原因、不当作已退出；「本机账号」卡片（匿名账号的改名、退出、注销）仍用 Swift 的匿名会话。原生的云剪贴板、云词库和整份快照窗口经 Rust（`msime_client_account_cloud_clipboard`，带本机的电脑名称作设备名；`msime_client_cloud_dictionary`，中转文件放在 `$TMPDIR` 下按进程分开的私有目录，导出和备份由 Rust 直接换进用户选的位置）；桌面设置同步经 `msime_client_account` 的 `preferences_schema`、`preferences_load`、`preferences_put`（`platform.macos.*` 的映射留在 Swift）；给 Tauri 面板的云剪贴板和云词库 IPC 同样经 Rust。社区资源和「完整词库目录」「云端候选与排序」两页与 iOS 共用，仍由 Swift 的共享账号会话管理，与 Rust 共用 `account-refresh.lock`。云剪贴板入口读 Rust 的登录状态：已登录时打开该账号的剪贴板，未登录或读取会话失败时打开登录窗口，不要求手填 access token。本入口不迁移旧 Keychain 条目。云剪贴板是端到端加密的（`docs/cloud-clipboard-e2e.md`）：后端 dylib 不链接 Rust 库，`input_method_main.mm` 加载它之后经 `MSIMEInstallRustClient` 把一张带版本号的 Rust 函数表（`shared/backend/rust/MSIMERustClient.h`）交给它；原生云剪贴板窗口和给 Tauri 面板的 IPC 都经其中的 `msime_client_account_cloud_clipboard`，端到端加密驱动、令牌和密钥串都在 Rust 里。密钥串是与 `account-session.json` 同目录的 `cloud-clipboard-keystore`（仅本人可读写、原子替换），输入法、独立设置窗口与 Tauri 面板共用，退出登录时随会话一起删除。原生云剪贴板窗口显示本机的核对码、等待本机批准的设备（允许 / 拒绝）和设备列表（移除），以及重置；给 Tauri 面板的 IPC 只放行面板会发的动作（Rust 还认的置顶、保留期和清空不放行），原样转发 Rust 的结果形状，失败时 `error` 是 Rust 或驱动给出的错误码，参数不合法是 `invalid`。`backend-account-entry` 测试验证原生到窗口的分派及接口缺失处理，`backend-library-load` 验证实际 dylib 的账号类与选择器，以及 `MSIMEInstallRustClient` 收下合格的函数表、拒收版本或大小不对的表。
+账号入口走共享设置页的 `settings:account` 路由；桌面设置不可用时回退到随 bundle 加载的 SwiftUI 账号窗口，不要求手填账号 ID。共享账号页登录后有与 Windows、Linux 相同的「设置同步」卡片（四个 `account_preferences_*` 命令，`apps/desktop/src-tauri/src/platform/desktop/desktop_settings_sync.rs` 三个桌面共用）：上传、应用的是各平台共有的 `input.*` 键（输入方案、繁简、双拼和五笔版本、词库学习、调频和标点），加上与 Linux 相同的快捷短语混输、语法模型、符号模式、日期菜单、第二三候选和 AI 候选翻译（client-services 的 `DesktopHost::MacOS`），应用走与设置页保存相同的路径。候选窗口、主题皮肤、翻页快捷键这些桌面设置不随它同步；账号文档里旧版原生窗口上传的 `platform.macos.*` 快照它不读也不写，仍由下面的 SwiftUI 回退窗口处理。登录账号由 Rust 持有（#8201）：后端 dylib 收下 Rust 函数表后注册本进程的会话存储（`BackendRustAccount`，登录会话是 `account-session.json`、匿名会话在 App Group，锁文件与 Tauri 设置应用相同），SwiftUI 账号窗口的登录、改名、退出和注销经 `msime_client_account`，读不了会话时显示原因、不当作已退出；「本机账号」卡片（匿名账号的改名、退出、注销）仍用 Swift 的匿名会话。原生的云剪贴板、云词库和整份快照窗口经 Rust（`msime_client_account_cloud_clipboard`，带本机的电脑名称作设备名；`msime_client_cloud_dictionary`，中转文件放在 `$TMPDIR` 下按进程分开的私有目录，导出和备份由 Rust 直接换进用户选的位置）；桌面设置同步经 `msime_client_account` 的 `preferences_schema`、`preferences_load`、`preferences_put`（`platform.macos.*` 的映射留在 Swift）；给 Tauri 面板的云剪贴板和云词库 IPC 同样经 Rust。社区资源和「完整词库目录」「云端候选与排序」两页与 iOS 共用，仍由 Swift 的共享账号会话管理，与 Rust 共用 `account-refresh.lock`。云剪贴板入口读 Rust 的登录状态：已登录时打开该账号的剪贴板，未登录或读取会话失败时打开登录窗口，不要求手填 access token。本入口不迁移旧 Keychain 条目。云剪贴板是端到端加密的（`docs/cloud-clipboard-e2e.md`）：后端 dylib 不链接 Rust 库，`input_method_main.mm` 加载它之后经 `MSIMEInstallRustClient` 把一张带版本号的 Rust 函数表（`shared/backend/rust/MSIMERustClient.h`）交给它；原生云剪贴板窗口和给 Tauri 面板的 IPC 都经其中的 `msime_client_account_cloud_clipboard`，端到端加密驱动、令牌和密钥串都在 Rust 里。密钥串是与 `account-session.json` 同目录的 `cloud-clipboard-keystore`（仅本人可读写、原子替换），输入法、独立设置窗口与 Tauri 面板共用，退出登录时随会话一起删除。原生云剪贴板窗口显示本机的核对码、等待本机批准的设备（允许 / 拒绝）和设备列表（移除），以及重置；给 Tauri 面板的 IPC 只放行面板会发的动作（Rust 还认的置顶、保留期和清空不放行），原样转发 Rust 的结果形状，失败时 `error` 是 Rust 或驱动给出的错误码，参数不合法是 `invalid`。`backend-account-entry` 测试验证原生到窗口的分派及接口缺失处理，`backend-library-load` 验证实际 dylib 的账号类与选择器，以及 `MSIMEInstallRustClient` 收下合格的函数表、拒收版本或大小不对的表。
 
 ## 输入源菜单与输入模式
 
@@ -180,7 +182,7 @@ SwiftUI 设置同步覆盖 28 个当前宿主偏好：全局主题、自定义�
 
 候选辅助码后缀由引擎的宿主接口按辅助码注释规则给出（`crates/engine/src/host/`，映射由 `crates/engine/src/helpcode.rs` 加载），按当前会话自身资源目录与辅助码方案加载不可变映射；仅启用辅助码的全拼/双拼普通模式和超级简拼附加后缀，Unicode、日期、快捷短语等合成模式及五笔/日语不附加。未提供共享或本地覆盖时按 Windows 基线使用全拼自然码且隐藏、双拼蓝天且显示。共享 JSON 候选新增 `annotation` 字符串，原 `text` 和候选 ID 不变；macOS 候选面板把后缀（或五笔编码提示）作为文字之后独立的一段绘制，间隔 4 点，同行放不下时移到文字下方并按列宽换行；tooltip 与辅助功能标签仍使用原文加后缀。两者都在繁体展示转换之后显示，上屏仍只提交 Engine 原文。映射缺失时后缀为空，不读取其他会话的全局映射。共享偏好现有延迟应用机制确保组合期间不切换映射；旧宿主无 annotation 字段仍显示原文。
 
-设置应用「输入 → 辅助码」可分别为全拼、双拼选择辅助码触发键：Shift 加字母（默认），或分号、斜杠、反斜杠、反引号、等号。选了标点后，在拼音组字末尾按该键，再输入一到两个辅助码字母即可筛选，Shift 加字母仍然可用；没有组字、光标在拼音中间、英文和快捷模式下这些键保持原来的作用，微软双拼未完成的半音节优先把分号当韵母。是否接收由 Engine 判断并经 `spelling_symbols` 发布，`InputController` 收到列着的键就当字符交给 Engine，排在 `=` 翻页、智能标点和以词定字之前。
+设置应用「输入 → 辅助码」可分别为全拼、双拼选择辅助码触发键：Shift 加字母（默认），或分号、斜杠、反斜杠、反引号、等号。选了标点后，在拼音组字末尾按该键，再输入一到两个辅助码字母即可筛选，Shift 加字母仍然可用；没有组字、光标在拼音中间、英文和快捷模式下这些键保持原来的作用，微软双拼未完成的半音节优先把分号当韵母。是否接收由 Engine 判断并经 `spelling_symbols` 发布，`InputController` 收到列着的键就当字符交给 Engine，排在 `=` 翻页、智能标点和以词定字之前。按下的触发键会显示在行内组字和候选窗的拼音行里：刚按下时是 `ni;`，打了一位码时行内原始按键样式是 `ni;F`、拼音行是 `ni';F`，两位码打齐后它不再显示，未输码时退格把它连同辅助码输入一起退掉（[辅助码前导键在组字区显示](../../.agents/notes/implemented/feature/2026-11-03-helpcode-trigger-visible.md)）。
 
 全拼的字母错位纠正与邻键误触纠正默认分别开启，已有对应字段或原生设置显式保存为 `false` 时保持关闭。云端外观快照里的 `platform.macos.autocorrect` 与 `platform.macos.helpcode` 是固定云端契约的字段，只按原样往返，不再决定两项纠错或全拼/双拼辅助码的开关。
 
@@ -262,6 +264,20 @@ AI 候选与候选释义相互独立：与来源的 `ai_eligible` / `UpdateAiInp
 
 录音提示音是产品自己的 `start.mp3` / `end.mp3`，CMake 直接从 `platforms/windows/installer/assets/audios/` 放进 bundle 的 `Resources/audios/`，仓库里不另存一份。`VoiceCuePlayer.mm` 启动时一次性解码为 `NSSound`，每次播放先 `stop` 再 `play`，与来源 `cue_player.cpp` 一样从头重播。某一个文件缺失或解码失败时该侧回落到系统的 Glass / Pop 并写一行日志，而来源此时不出声：这里宁可保留一个能听见的开始 / 结束反馈。`voice-cue-player` 与 `bundle-contents` 覆盖这两点。
 
+macOS 的 `voice_input.hotkey_global` 控制语音快捷键是否跨输入法生效；缺字段或 `false` 时仍只在水杉输入法中生效。已有启用配置继续使用同一组按住录音键、`Control+F9` 和自定义语音组合键从其他输入法触发。选择水杉输入法后，从系统输入法菜单的「语音快捷键范围」选择「仅水杉输入法」或「任意输入法」；勾选态直接读取共享偏好。原有快捷键编辑仍在设置页，范围入口不扩展 React 或已冻结的 AppKit 回退设置窗口。此菜单作为本 PR 提议的[窄范围原生入口](../../.agents/notes/implemented/architecture/2026-11-04-global-voice-native-menu.md)，仍需维护者接受迁移期例外。后台项使用 macOS 13 起的 `SMAppService`，需要在系统设置「通用 > 登录项与扩展」允许水杉后台运行；全局键盘监听需要辅助功能权限，系统拒绝监听时还会提示检查输入监控。麦克风、系统识别与各服务商的授权继续使用原有语音流程。
+
+跨输入法按住说话等待 250 毫秒，期间组合成普通修饰键快捷键或松手就不开始录音。录音直接复用原生语音服务，不等待输入源切换或 IMK 激活，也不要求开始前存在输入框。结果按交付时的当前输入客户端处理，不跨录音追踪原应用或 AX 字段；睡眠、锁屏与取消继续结束本轮。
+
+最终文字按用户选择的提交策略交付。默认 IMK 路径只在松手后选择已启用的水杉输入源，最多等 3 秒取得当前客户端；按普通输入法路径结束现有组字，再追加语音。当前客户端不需要 AX 可编辑字段或光标矩形才能接收文字。默认全局会话在现有等待预算结束仍没有 IMK 客户端时，自动尝试一次既有系统按键通道；不使用剪贴板，现有控制器忙碌或组字准备未完成时不绕过它，显式提交策略与局部录音保持原样。临时选择的输入源在交付或完整取消后恢复到交付前用户实际选择的源，交付中的手动切换仍优先。中间转写只放在波形窗口里；没有 Copy 恢复窗口、最近结果或等待用户处理后才能录下一轮的结果槽。
+
+录音代次、会话令牌和当前 IMK 控制器继续隔离迟到回调。没有可用客户端且有界等待失败时，使用既有错误浮层并释放本轮，下一次手势可以重试。模拟按键只能确认投递，不能确认编辑器已接受文字；用户在说话或交付时更换焦点会改变接收位置，与普通键盘一致。此交付决定见[按当前输入客户端交付](../../.agents/notes/implemented/simplification/2026-11-04-global-voice-current-client-delivery.md)。
+
+`global-voice-conflicts` 隔离系统热键注册，覆盖相同冲突去重、改绑、恢复成功及移除后重新添加。
+
+`global-voice-polling` 验证关闭时三十秒兜底、启用时每秒观察权限，以及同进程保存即时唤醒；`global-voice-scope-menu` 还校验只有保存成功才通知。
+
+`global-voice-panel` 用合成的非激活面板客户端验证 IMK 交付不依赖前台发键 PID。`global-voice-state` 与 `global-voice-boundaries` 覆盖输入源恢复、手动切换、短按、普通修饰键组合、待完成识别、目标丢失与双入口去重。它们使用合成客户端，不代替真实登录启动、系统权限、录键按钮及编辑器的装机验收。
+
 「录音时静音其他声音」按来源的时序：开始提示音播完再静音，结束、取消与失败时先恢复再播结束提示音，所以两段提示音都听得见；录音在开始提示音播完前就结束时不会再去静音。macOS 13（部署目标）没有只静音其他进程的公开接口，`VoiceAudioMuter.mm` 仍静音整台默认输出设备；14.2 起的 CoreAudio process tap 能做到，但要抬高部署目标并申请「系统录音」权限，为一个静音选项不值得。静音期间监听默认输出设备，插拔耳机或连上 AirPods 时恢复原设备、静音新设备；用户自己已静音的设备不接管，事后也不解除。崩溃恢复记录最多同时记 8 台欠恢复的设备；仍找不到的设备留在记录里，但不挡住下一次录音静音当前设备。`voice-audio-muter`、`voice-mute-recovery` 与 `http-voice-controller` 覆盖切换、恢复与提示音顺序。
 
 录音时长按实际上传的格式封顶，不再在 60 秒处作废。批量识别上传的是共享层编出的 16 位 WAV，上限与来源同为 20 MiB（`shared/voice/VoiceProviders.h` 的 `batch_upload_sample_limit`，16 kHz 下约 655 秒），再扣掉 SiliconFlow 两端的补静音，保证录满的一段对每家都编得出来。本地模型不走批量上传，经 `msime-voice-local` 助手流式识别，不受这条上限约束。录满上限时宿主像用户松开一样结束录音：浮层转为「识别中...」、播结束提示音、提交已录的部分。来源的做法是攒下全部音频、提交时报「超过 20 MiB 上传限制」并丢掉整段；这里提交前 11 分钟的文字，内存也有界。豆包流式不设长度上限，缓冲只保留尚未发送的样本，只保留 30 秒请求超时与结束后等最终结果的 30 秒，不再有按 60 秒录音估出的 100 秒整场时限。
@@ -276,7 +292,7 @@ AI 候选与候选释义相互独立：与来源的 `ai_eligible` / `UpdateAiInp
 
 ## 标点
 
-中文标点的勾选框（宿主偏好 `MSIMEClientChinesePunctuation`，共享字段 `chinese_punctuation`）同样只是每个应用的起始值：Ctrl + . 与悬浮工具栏的标点按钮只切换当前应用、不保存，中英文切换让标点重新跟上模式，对应来源的 `SyncPunctuationWithImeMode`：进入英文模式时标点变为英文（标点锁定固定为中文时除外），回到中文模式时丢掉当前应用的切换、回到起始值；从本输入法切到别的输入源后所有应用回到起始值，普通的焦点切换不会。英文模式与来源输入法关闭时一样仍转换中文标点：标点锁定固定为中文，或锁定跟随且进入英文模式后用 Ctrl + . 或工具栏打开了中文标点时，不带 Command/Control/Option 的 ASCII 标点按 Engine 正向表换成中文标点（引号交替、书名号嵌套，模式切换或换客户端后重新开始），小键盘不转换，其余键交给应用。英文模式下标点锁定固定为中文或英文时，Ctrl + . 与工具栏保持锁定值，对应来源的 `ResolvePunctuationOpen`。成对标点和标点锁定跟随 Windows 基线迁移到候选设置。成对标点默认开启；组合中按左符号键时引擎把候选连同左符号一起提交（`nihao(` 上屏 `你好（`），宿主按提交末字符照样补上右符号、把引号改写为左引号，而用空格或数字选中的、本身以引号或括号结尾的候选原样上屏。普通中文方案（全拼、双拼、五笔、粤拼、笔画）的 `{` `}` 在到达这条路线前由宿主拦成「/」，成对标点打开时 `{` 出「」、`}` 跨过补出的」（见下文的键位段）；其余仍走这条路线的情况（日文方案、独立英文与本地模式）在中文标点与成对标点都打开时，`{` 上屏 `{` 并把 `}` 留在光标后（全角输入为 `｛｝`），组合中则先上屏高亮候选再开这一对，与来源 `_GetPairedPunctuationClosingFor` 及 Linux 宿主专用英文的花括号补全一致。标点锁定默认跟随中文标点，也可固定为中文或英文；设置值分别写入宿主偏好域，并按共享 `paired_punctuation`、`punctuation_lock` 字段同步。输入会话只通过 `MSIMEClientSession` 调用 Engine 的运行时覆盖，重建会话时恢复覆盖值；原生控件和替身会话测试覆盖默认、持久化、非法值和同步路径。
+中文标点的勾选框（宿主偏好 `MSIMEClientChinesePunctuation`，共享字段 `chinese_punctuation`）同样只是每个应用的起始值：Ctrl + . 与悬浮工具栏的标点按钮只切换当前应用、不保存，中英文切换让标点重新跟上模式，对应来源的 `SyncPunctuationWithImeMode`：进入英文模式时标点变为英文（标点锁定固定为中文时除外），回到中文模式时回到起始值。两个方向都只是丢掉当前应用的切换、让标点按模式推导，不把英文标点记成这个应用的切换，所以模式经由别的途径回到中文（全局作用域下在另一个应用切回中文、退出英文候选模式、应用例外规则重新生效）时也是中文标点；从本输入法切到别的输入源后所有应用回到起始值，普通的焦点切换不会。英文模式与来源输入法关闭时一样仍转换中文标点：标点锁定固定为中文，或锁定跟随且进入英文模式后用 Ctrl + . 或工具栏打开了中文标点时，不带 Command/Control/Option 的 ASCII 标点按 Engine 正向表换成中文标点（引号交替、书名号嵌套，模式切换或换客户端后重新开始），小键盘不转换，其余键交给应用。英文模式下标点锁定固定为中文或英文时，Ctrl + . 与工具栏保持锁定值，对应来源的 `ResolvePunctuationOpen`。成对标点和标点锁定跟随 Windows 基线迁移到候选设置。成对标点默认开启；组合中按左符号键时引擎把候选连同左符号一起提交（`nihao(` 上屏 `你好（`），宿主按提交末字符照样补上右符号、把引号改写为左引号，而用空格或数字选中的、本身以引号或括号结尾的候选原样上屏。普通中文方案（全拼、双拼、五笔、粤拼、笔画）的 `{` `}` 在到达这条路线前由宿主拦成「/」，成对标点打开时 `{` 出「」、`}` 跨过补出的」（见下文的键位段）；其余仍走这条路线的情况（日文方案、独立英文与本地模式）在中文标点与成对标点都打开时，`{` 上屏 `{` 并把 `}` 留在光标后（全角输入为 `｛｝`），组合中则先上屏高亮候选再开这一对，与来源 `_GetPairedPunctuationClosingFor` 及 Linux 宿主专用英文的花括号补全一致。标点锁定默认跟随中文标点，也可固定为中文或英文；设置值分别写入宿主偏好域，并按共享 `paired_punctuation`、`punctuation_lock` 字段同步。输入会话只通过 `MSIMEClientSession` 调用 Engine 的运行时覆盖，重建会话时恢复覆盖值；原生控件和替身会话测试覆盖默认、持久化、非法值和同步路径。
 
 引号样式与方头括号样式（共享偏好 `quote_style`、`bracket_style`，在共享设置页「标点」组，紧跟「中文标点」）下 Engine 让 `'` 出「」、`"` 出『』，`[` `]` 出〖〗，「繁体输出时用直角引号」随繁体输出开关变化；契约第 5 版起引擎标点表让 `{` `}` 固定出「」（不交替、与样式无关），与 macOS 普通中文方案在到达引擎前由宿主拦成的「/」相同（见下文的键位段）；到达引擎的日文等方案按这张表出字。宿主的成对表 `MSIMEPunctuationPairs` 含『』〖〗，引号改回前半个也认」』，空格转换反查认这几个字；英文模式下固定中文标点时按 View 的 `punctuation_marks` 出字，其中 `{` `}` 也按契约第 5 版固定出「/」（连按不再交替，`}` 不再出『』）。
 

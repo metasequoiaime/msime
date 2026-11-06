@@ -40,56 +40,8 @@
      5,
      7
     ],
-    "candidate_count": 5,
-    "candidates": [
-     {
-      "word": "你好",
-      "pinyin": "niha",
-      "canonical_pinyin": "ni'hao",
-      "source": 0,
-      "scheme": "shuangpin",
-      "weight": 200,
-      "annotation": "(aE)",
-      "answers_key": false
-     },
-     {
-      "word": "拟好",
-      "pinyin": "niha",
-      "canonical_pinyin": "ni'hao",
-      "source": 0,
-      "scheme": "shuangpin",
-      "weight": 100,
-      "annotation": "(cE)",
-      "answers_key": false
-     },
-     {
-      "word": "𠀀方案𠮷",
-      "pinyin": "niha",
-      "canonical_pinyin": "ni'hao",
-      "source": 0,
-      "scheme": "shuangpin",
-      "weight": 90,
-      "answers_key": false
-     },
-     {
-      "word": "C语言 2",
-      "pinyin": "niha",
-      "canonical_pinyin": "ni'hao",
-      "source": 0,
-      "scheme": "shuangpin",
-      "weight": 80,
-      "answers_key": false
-     },
-     {
-      "word": "GitHub",
-      "pinyin": "niha",
-      "canonical_pinyin": "ni'hao",
-      "source": 0,
-      "scheme": "shuangpin",
-      "weight": 70,
-      "answers_key": false
-     }
-    ]
+    "candidate_count": 0,
+    "candidates": []
    }
   }
  ]

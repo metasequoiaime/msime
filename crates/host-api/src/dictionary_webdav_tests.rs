@@ -78,6 +78,32 @@ fn the_engine_dictionary_reads_my_words_and_writes_bounded_batches() {
     assert_eq!(local.words().unwrap().len(), 3);
 }
 
+/// 网盘上的格式没有粤语这个类别：WebDAV 同步既不读出本机的粤语词，收到了也不写进来；同一台设备上两份词库之间的交换照样带上它们。
+#[test]
+fn cantonese_words_stay_out_of_the_webdav_sync_but_not_out_of_the_mirror() {
+    let root = tempfile::tempdir().unwrap();
+    let options = host_options_with_main_dictionary(root.path());
+    seed(
+        &options,
+        &[
+            ("pinyin", "ni'hao", "你好"),
+            ("cantonese", "nei hou", "你好"),
+        ],
+    );
+    let engine = engine(&options);
+    let nihao = WordKey::new(WordKind::Pinyin, "ni'hao", "你好").unwrap();
+    let nei_hou = WordKey::new(WordKind::Cantonese, "nei hou", "你好").unwrap();
+    let mut webdav = EngineDictionary::new(&engine, false);
+    assert_eq!(webdav.words().unwrap(), BTreeSet::from([nihao.clone()]));
+    let gwong = WordKey::new(WordKind::Cantonese, "gwong dung waa", "廣東話").unwrap();
+    assert_eq!(
+        webdav.apply(&[change(gwong, true, "1")]).unwrap(),
+        vec![LocalOutcome::Rejected]
+    );
+    let mut mirror = EngineDictionary::new(&engine, false).with_cantonese();
+    assert_eq!(mirror.words().unwrap(), BTreeSet::from([nei_hou, nihao]));
+}
+
 /// 叫醒输入法的次数：`announce` 是 `fn()`，带不了闭包里的计数。
 #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 static ANNOUNCED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
@@ -390,4 +416,17 @@ fn the_background_sync_starts_and_stops_through_the_c_entries() {
         "nothing is running"
     );
     assert!(!directory.exists());
+}
+
+/// 新世纪五笔的词暂不经 WebDAV 同步，两个方向一致：本机词库里的 `wubixsj` 词不交给同步，协议核心读网盘时也不认 `wubixsj`（不会交来要写进本机的新世纪词条）。`engine_kind` 写全只是为了穷尽匹配。
+#[test]
+fn new_century_wubi_words_stay_out_of_webdav_sync() {
+    use msime_engine::host::DictionaryKind;
+    assert_eq!(word_kind(DictionaryKind::WubiXsj, false), None);
+    assert_eq!(
+        word_kind(DictionaryKind::Wubi98, false),
+        Some(WordKind::Wubi98)
+    );
+    assert_eq!(WordKind::from_synced_name("wubixsj"), None);
+    assert_eq!(engine_kind(WordKind::WubiXsj), DictionaryKind::WubiXsj);
 }

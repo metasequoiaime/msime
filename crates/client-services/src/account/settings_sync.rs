@@ -409,11 +409,12 @@ pub fn account_input_schema(scheme: InputScheme) -> Option<&'static str> {
     }
 }
 
-/// 五笔版本在账号里的取值，即 `input.wubi_schema`。
-pub fn account_wubi_schema(profile: WubiProfile) -> &'static str {
+/// 五笔版本在账号里的取值，即 `input.wubi_schema`。新世纪五笔暂不跨设备同步，为 `None`：已经发布的 iOS 读到不认识的版本会拒绝整份账号设置，所以不写这个值，账号保留上次记录的版本，与 [`shuangpin_schema`] 对待账号未收录的方案相同。
+pub fn account_wubi_schema(profile: WubiProfile) -> Option<&'static str> {
     match profile {
-        WubiProfile::Wubi86 => "wubi86",
-        WubiProfile::Wubi98 => "wubi98",
+        WubiProfile::Wubi86 => Some("wubi86"),
+        WubiProfile::Wubi98 => Some("wubi98"),
+        WubiProfile::WubiXsj => None,
     }
 }
 
@@ -666,11 +667,9 @@ pub(super) fn insert_input_settings(
     }
     // 五笔版本只随五笔方案上传（与 iOS、鸿蒙一致）：上传是合并进账号文档的，不在五笔上时本机的缺省 86 不该盖掉账号里别的设备选的 98。
     if preferences.scheme == InputScheme::Wubi {
-        insert_string(
-            settings,
-            "input.wubi_schema",
-            account_wubi_schema(preferences.wubi_profile),
-        );
+        if let Some(schema) = account_wubi_schema(preferences.wubi_profile) {
+            insert_string(settings, "input.wubi_schema", schema);
+        }
     }
     insert_bool(settings, "input.learning", preferences.learning);
     insert_string(
@@ -745,25 +744,34 @@ pub(super) fn insert_input_settings(
     );
 }
 
-/// 共用 [`export_desktop_settings`] 和 [`apply_desktop_settings`] 的两个桌面宿主。它们共用各平台的 `input.*` 键，但设置页能改的共享偏好不一样，只有本机能改、运行时也读的键才导出和应用：上传是合并进账号文档的，本机改不了的键上传的只是默认值，会盖掉别的设备上用户的选择；应用本机没有开关的键，用户既看不到也改不回来。
+/// 共用 [`export_desktop_settings`] 和 [`apply_desktop_settings`] 的三个桌面宿主。它们共用各平台的 `input.*` 键，但设置页能改的共享偏好不一样，只有本机能改、运行时也读的键才导出和应用：上传是合并进账号文档的，本机改不了的键上传的只是默认值，会盖掉别的设备上用户的选择；应用本机没有开关的键，用户既看不到也改不回来。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum DesktopHost {
     /// 原生设置窗口只提供语法模型；快捷短语混输、符号模式、日期菜单、第二三候选和 AI 候选翻译都没有开关。
     Windows,
     /// 共享设置页：快捷短语混输、语法模型、符号模式、日期菜单、第二三候选和 AI 候选翻译都能改，运行时都读。思考强度的两个选项页面上有，但 Linux 的服务提供程序固定不思考，不导出。
     Linux,
+    /// 共享设置页，与 Linux 同一套：上面六组设置在 macOS 上都有控件（快捷短语混输靠 `HostCapabilities::quick_phrase_candidates`，macOS 声明了它），输入法运行时都读（`platforms/macos/tests/settings/preference_coverage.py` 逐项核对）。macOS 还能改两个思考强度和三个切换热键，这次不同步：思考强度只在 DeepSeek 接口上生效，接口地址和凭据不随设置同步，单独同步档位没有意义；切换热键应用时要和本机未同步的开关（Shift+空格切换、语音热键等）逐个查冲突，整份写入可能被 `Preferences::validate` 拒绝，需要另做按键跳过的应用。原生回退窗口上传的 `platform.macos.*` 快照不读也不写。
+    MacOS,
 }
 
 impl DesktopHost {
-    /// client-services 在宿主本机编译：Windows 的 Server 与原生设置、Linux 的 IBus 与 Fcitx5 各自链接自己的一份。macOS 不走桌面导出（它上传 `platform.macos.*`），这里读作 Linux 不会被用到。
+    /// client-services 在宿主本机编译：Windows 的 Server 与原生设置、Linux 的 IBus 与 Fcitx5、macOS 的设置应用各自链接自己的一份。
     const CURRENT: Self = if cfg!(target_os = "windows") {
         Self::Windows
+    } else if cfg!(target_os = "macos") {
+        Self::MacOS
     } else {
         Self::Linux
     };
+
+    /// 设置界面是共享设置页的宿主（Linux、macOS）：除语法模型外还能改快捷短语混输、符号模式、日期菜单、第二三候选和 AI 候选翻译。
+    fn shared_settings_page(self) -> bool {
+        matches!(self, Self::Linux | Self::MacOS)
+    }
 }
 
-/// 桌面宿主（Windows、Linux）导出成账号文档的键值：各平台共有的 `input.*` 键，加上本机设置页能改的共享偏好（见 [`DesktopHost`]）。桌面专属的设置（候选窗口、快捷键、皮肤）在账号文档里只有 `platform.macos.*`，那是 macOS 原生偏好的映射，Windows 和 Linux 不写，免得改掉 macOS 的设置。调用方再按版本（`edition::filter_uploaded_account_settings`）和服务端字段表过滤，然后合并上传。
+/// 桌面宿主（Windows、Linux、macOS）导出成账号文档的键值：各平台共有的 `input.*` 键，加上本机设置页能改的共享偏好（见 [`DesktopHost`]）。候选窗口、快捷键、皮肤这些桌面专属设置在账号文档里只有 `platform.macos.*`，那是 macOS 原生回退窗口的快照，三个宿主都不写，免得盖掉旧版 macOS 上传的设置。调用方再按版本（`edition::filter_uploaded_account_settings`）和服务端字段表过滤，然后合并上传。
 pub fn export_desktop_settings(
     preferences: &Preferences,
 ) -> BTreeMap<String, AccountPreferenceValue> {
@@ -777,7 +785,7 @@ pub(super) fn export_desktop_settings_for(
     let mut settings = BTreeMap::new();
     insert_input_settings(&mut settings, preferences);
     insert_grammar_model(&mut settings, preferences);
-    if host == DesktopHost::Linux {
+    if host.shared_settings_page() {
         insert_quick_phrase_mixing(&mut settings, preferences);
         insert_local_mode_extras(&mut settings, preferences);
         insert_second_third_candidate(&mut settings, preferences);
@@ -1131,12 +1139,12 @@ fn apply_input_settings(applier: &mut Applier<'_>) -> Result<(), AccountError> {
         };
         Some(())
     })?;
+    // 不认识的版本（更新的版本加的码表版本）只跳过这个键，保留本机的五笔版本，文档里其余的键照常应用。本机选着新世纪时不导出这个键（`account_wubi_schema`），合并回写时也不能拿账号里留着的旧版本盖掉本机的选择。
     applier.set_string("input.wubi_schema", |preferences, value| {
-        preferences.wubi_profile = match value {
-            "wubi86" => WubiProfile::Wubi86,
-            "wubi98" => WubiProfile::Wubi98,
-            _ => return None,
-        };
+        if account_wubi_schema(preferences.wubi_profile).is_none() {
+            return Some(());
+        }
+        preferences.wubi_profile = WubiProfile::parse(value)?;
         Some(())
     })?;
     applier.set_bool("input.learning", |preferences, value| {
@@ -1320,7 +1328,7 @@ pub(super) fn apply_desktop_settings_for(
     };
     apply_input_settings(&mut applier)?;
     apply_grammar_model(&mut applier)?;
-    if host == DesktopHost::Linux {
+    if host.shared_settings_page() {
         apply_quick_phrase_mixing(&mut applier)?;
         apply_local_mode_extras(&mut applier)?;
         apply_second_third_candidate(&mut applier)?;
@@ -1342,7 +1350,7 @@ pub(super) fn apply_desktop_settings_for(
     })
 }
 
-/// Windows 和 Linux「设置同步」的上传：本机的 `input.*` 设置按版本过滤（单方案版本不上传方案，多方案版本只上传本版本提供的方案）、只留服务端字段表收录的键，合并进云端文档，再按读到云端文档时的会话代次上传，期间退出或换号就取消。一个键都没有时报告服务不可用。共享应用（`desktop_settings_sync.rs`，Windows 和 Linux）和原生设置窗口（host-api 的 `msime_client_account`）都调这里。
+/// Windows、Linux 和 macOS「设置同步」的上传：本机的 `input.*` 设置按版本过滤（单方案版本不上传方案，多方案版本只上传本版本提供的方案）、只留服务端字段表收录的键，合并进云端文档，再按读到云端文档时的会话代次上传，期间退出或换号就取消。一个键都没有时报告服务不可用。共享应用（`desktop_settings_sync.rs`，Windows、Linux 和 macOS）和 Windows 原生设置窗口（host-api 的 `msime_client_account`）都调这里。
 pub fn upload_desktop_settings<A: super::AccountApi, S: super::AccountSessionStorage>(
     session: &super::BackendAccountSession<A, S>,
     store: &crate::preferences::PreferencesStore,
@@ -1365,7 +1373,7 @@ pub fn upload_desktop_settings<A: super::AccountApi, S: super::AccountSessionSto
     session.put_preferences_with_generation(&merged, generation, &user_id)
 }
 
-/// Windows 和 Linux「设置同步」的应用：把页面刚下载的账号设置（`preferences`）按版本过滤（单方案版本不应用方案，多方案版本把本版本没有的方案当作缺失）后应用到本机偏好，返回读到本机偏好时的修订号和应用后的偏好，由调用方按这个修订号比较并交换写回。`user_id` 是页面下载时的账号，期间退出、换号或重新登录就以 `Cancelled` 失败。共享应用和原生设置窗口都调这里。
+/// Windows、Linux 和 macOS「设置同步」的应用：把页面刚下载的账号设置（`preferences`）按版本过滤（单方案版本不应用方案，多方案版本把本版本没有的方案当作缺失）后应用到本机偏好，返回读到本机偏好时的修订号和应用后的偏好，由调用方按这个修订号比较并交换写回。`user_id` 是页面下载时的账号，期间退出、换号或重新登录就以 `Cancelled` 失败。共享应用和原生设置窗口都调这里。
 pub fn prepare_desktop_settings_apply<A: super::AccountApi, S: super::AccountSessionStorage>(
     session: &super::BackendAccountSession<A, S>,
     store: &crate::preferences::PreferencesStore,

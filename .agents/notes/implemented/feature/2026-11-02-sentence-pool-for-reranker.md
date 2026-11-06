@@ -21,7 +21,7 @@ Status: implemented
 
 - **由打分器报，runtime 下发。** `CandidateScorer::sentence_pool` 默认 0；runtime 在 `set_candidate_scorer` / `set_reranker` 和换引擎时把挂着的打分器报的数经 `InputEngine::set_sentence_pool` 交给引擎，与上屏后联想的候选池（`set_prediction_pool`）同一个时机。没挂打分器、或挂的是随包 `model-v1`（`Reranker` 不覆盖默认值）时为 0，引擎照 6 条，候选与以前逐行相同。`model-v1` 不报，是因为它在 Pixel 3 XL 上本来就超出逐键预算，多比较三条只会更慢，也没有量过它在更大的池里挑得怎样（下面「Alternatives considered」里 2026-10-14 的那次试验是它）。
 - **只在全拼的主路径生效。** `Session::set_sentence_pool` → `QueryRequest::sentence_pool` → `QuanpinDictionary::set_sentence_pool`，`merge_sentences_with_typos` 里取 `nbest = max(nbest, sentence_pool)`。九键有自己的一份 `QuanpinDictionary`，不经过这条请求，不受影响；双拼和其他方案也不变。条数变了就清掉整句解码缓存、束前缀缓存和整条答案缓存。
-- **多出来的读法不挤掉别的切分。** 全拼对同一串字母常有几条合法切分（`fangan` 是 fan'gan 和 fang'an，`womenan` 是 wo'me'nan 和 wo'men'an），备选切分的整句排在主切分的整句后面（[备选切分补整句](../bug-fix/2026-10-20-quanpin-alternative-series.md)）。以前主切分 6 条加备选切分的前三条正好填满九个比较位，主切分的错切由模型从备选切分里救回来；主切分解 9 条以后，备选切分的整句被挤到第十位，dev 上「两个方案都挺好的」变成「两个反感都挺好的」。所以 `series::defer_pooled_sentences` 把主切分超出 6 条的读法挪到所有备选切分的整句之后：有备选切分时，进入比较的行与以前完全相同，多解的读法只填原来空着的比较位。
+- **多出来的读法不挤掉别的切分。** 全拼对同一串字母常有几条合法切分（`fangan` 是 fan'gan 和 fang'an，`womenan` 是 wo'me'nan 和 wo'men'an），备选切分的整句排在主切分的整句后面（[备选切分补整句](../bug-fix/2026-10-20-quanpin-alternative-series.md)）。以前主切分 6 条加备选切分的前三条正好填满九个比较位，主切分的错切由模型从备选切分里救回来；主切分解 9 条以后，备选切分的整句被挤到第十位，dev 上「两个方案都挺好的」变成「两个反感都挺好的」。所以 `series::defer_pooled_sentences` 把主切分超出 6 条的读法挪到所有备选切分的整句之后：有备选切分时，进入比较的行与以前完全相同，多解的读法只填原来空着的比较位。 这些挪进主切分座位的读法在模型比完以后怎么降位（音节数不同的切分，比如 wenjian 的 wen'ji'an），见[整句池挪进来的另一种切分读法](../bug-fix/2026-11-06-pooled-readings-of-other-segmentations.md)。
 - **比较集合和混合规则不变。** 仍是前九条回答整串的候选，词网格逐字分与模型逐字分等权混合（[静态证据](../bug-fix/2026-10-14-rerank-static-evidence.md)）。
 
 ## 评测

@@ -77,7 +77,7 @@ pub use nine_key::KeyGrid;
 pub use paths::RuntimePaths;
 pub use pinyin::glide::{GlideKeyboard, GlidePoint};
 pub use punctuation::{BracketMarks, PunctuationMarks, QuoteMarks};
-pub use session::{Clock, Session, SessionOptions, SessionSnapshot};
+pub use session::{Clock, HelpcodeTrigger, Session, SessionOptions, SessionSnapshot};
 pub use types::{
     autocorrect_type, fuzzy_rule, request_autocorrect_mask, CandidateEdge, CandidateSource,
     Command, CommandTableEntry, CommandTranslationQuery, EnglishInputOptions, FirstPageRows,
@@ -86,8 +86,8 @@ pub use types::{
     NineKeyShuangpinTable, OnlineInputMode, OnlineQuery, PersonalDictionaryEntry,
     PersonalDictionaryKind, PluginCommand, PluginCommandQuery, QuickPhraseEntry, SchemeSet,
     SchemeType, SentenceAssociationOptions, ShuangpinCustomTable, ShuangpinHelpcodeModes,
-    ShuangpinProfileKind, SyllableHelpcode, WordItem, WubiInputOptions, WubiProfileKind,
-    DEFAULT_FIRST_PAGE_ROWS,
+    ShuangpinProfileKind, SyllableHelpcode, TextConversion, WordItem, WubiInputOptions,
+    WubiProfileKind, DEFAULT_FIRST_PAGE_ROWS,
 };
 // 辅助码表：`SessionOptions::helpcode_table` 与 `Session::set_helpcode_table` 收的就是它，宿主自己读表（辅助码表插件、没有文件系统的网页）时用这几项。
 pub use helpcode::{load_helpcode_keymap, load_helpcode_keymap_in, HelpcodeKeymap, SharedKeymap};

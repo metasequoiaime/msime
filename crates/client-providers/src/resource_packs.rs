@@ -4,6 +4,9 @@
 //!
 //! 锁文件还没有固定内容的资源包（[`ResourcePack::pinned`] 为假，包括 macOS 语音运行库和 Android OCR 模块在第一次发布之前）不存在：[`ResourcePack::from_id`] 认不出它，[`list`] 不列出它，安装、导入和收编都报 `local_model_unknown`。
 
+mod local_translation;
+pub use local_translation::verified_model as verified_translation_model;
+
 use crate::resources::{ResourceSet, ON_DEMAND_JAPANESE_ARTIFACTS, ON_DEMAND_WUBI_ARTIFACTS};
 use crate::voice::local_models::{self, InstallProgress, LocalModelError, MANIFEST_FILE};
 use serde::{Deserialize, Serialize};
@@ -197,6 +200,64 @@ fn fetch_grammar_catalog() -> Result<GrammarCatalog, LocalModelError> {
     Ok(catalog)
 }
 
+/// 编译进来的 `grammar-models.lock.json` 改写成一份只有稳定通道的目录。锁文件随程序一起审过，比在线目录更可信，所以不需要再钉来源。
+fn locked_grammar_catalog() -> GrammarCatalog {
+    let models = [
+        ResourcePack::GrammarWanxiang,
+        ResourcePack::GrammarBaguwen,
+        ResourcePack::GrammarBaguwenCompact,
+    ]
+    .into_iter()
+    .map(|pack| {
+        let set = pack.set();
+        GrammarCatalogModel {
+            id: pack
+                .id()
+                .strip_prefix("grammar-model-")
+                .expect("grammar pack id has the grammar-model- prefix")
+                .to_owned(),
+            channel: "stable".into(),
+            source_commit: set.source_commit.clone(),
+            artifact: set.artifacts[0].clone(),
+            format: "gram-v1".into(),
+        }
+    })
+    .collect();
+    GrammarCatalog { version: 1, models }
+}
+
+/// 已安装语法模型 `msime-model.json` 里记录的文件摘要；没装或标记文件读不出来时为 `None`。
+fn installed_grammar_sha256(state_root: &Path, pack: ResourcePack) -> Option<String> {
+    local_models::installed_manifest(&root(state_root), pack.id()).and_then(|manifest| {
+        manifest
+            .get("artifacts")?
+            .as_array()?
+            .first()?
+            .get("sha256")?
+            .as_str()
+            .map(str::to_owned)
+    })
+}
+
+/// 安装用的模型目录。在线目录直连 raw.githubusercontent.com，国内网络常常读不到，而模型文件本身可以走用户镜像和项目镜像；目录读不到或被整份作废时，改用编译进来的锁文件，不让目录这一步挡住整次安装（#10761）。只用于用户发起的安装，主动检查更新仍要求读到在线目录，否则会把锁文件里的旧版本当成更新。
+///
+/// 只有这个模型还没装（`installed_sha256` 为 `None`），或者装着的正是锁文件里那份字节时才退回；装着别的版本时照旧返回目录错误。「下载更新」和首次下载走的是同一个安装入口，在线目录会随 develop 前进，而锁文件随版本固定，装着的可能比锁文件新，摘要又看不出先后，退回会悄悄把它换成锁文件里的旧版本还报成功。
+///
+/// 锁文件里万象 LTS 的摘要可能已经落后于上游原地替换的文件，这时下载完会按摘要不符失败，和没有目录时一样不会装上未审过的字节。
+fn grammar_catalog_for_install(
+    fetched: Result<GrammarCatalog, LocalModelError>,
+    pack: ResourcePack,
+    installed_sha256: Option<&str>,
+) -> Result<GrammarCatalog, LocalModelError> {
+    fetched.or_else(|error| {
+        let locked = &pack.set().artifacts[0].sha256;
+        if installed_sha256.is_some_and(|sha| !sha.eq_ignore_ascii_case(locked)) {
+            return Err(error);
+        }
+        Ok(locked_grammar_catalog())
+    })
+}
+
 /// 联网获取当前模型目录并比较已安装模型的本地快照；不下载、不替换任何文件。
 pub fn check_grammar_updates(
     state_root: &Path,
@@ -209,16 +270,7 @@ pub fn check_grammar_updates(
         let Some(pack) = ResourcePack::from_id(&pack_id) else {
             continue;
         };
-        let current =
-            local_models::installed_manifest(&root(state_root), pack.id()).and_then(|manifest| {
-                manifest
-                    .get("artifacts")?
-                    .as_array()?
-                    .first()?
-                    .get("sha256")?
-                    .as_str()
-                    .map(str::to_owned)
-            });
+        let current = installed_grammar_sha256(state_root, pack);
         if current.as_deref() != Some(model.artifact.sha256.as_str()) {
             updates.push(GrammarModelUpdate {
                 pack: pack.id(),
@@ -345,6 +397,8 @@ pub enum ResourcePack {
     AndroidOcrModule,
     /// 整句联想「增强」逐键重排的手机档 ONNX 模型（chinese-ime-lm `rerank-v2` 的 6x256）：`lm_step.ort`、`model.json`、`vocab.json`，即 `resources/rerank-model.lock.json` 里 `rerank-model-small` 那一项。Android 发布包不带它，用户选「增强」时下载；id 与 host-api 找的目录名相同，装好后会话在 `resource-packs/` 下找到它，没装时退回随包的句子模型。
     RerankModelSmall,
+    /// 桌面嵌入式翻译使用的固定 PLaMo GGUF 权重。
+    LocalTranslation,
 }
 
 /// 模块清单和接口版本都编译进宿主，文件选择器不能提供自己的信任清单。
@@ -411,6 +465,14 @@ pub fn verify_installed(state_root: &Path, pack: ResourcePack) -> Result<PathBuf
 }
 
 fn verify_artifacts(directory: &Path, set: &ResourceSet) -> Result<(), LocalModelError> {
+    verify_artifacts_with_cancel(directory, set, &|| false)
+}
+
+fn verify_artifacts_with_cancel(
+    directory: &Path,
+    set: &ResourceSet,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<(), LocalModelError> {
     set.validate().map_err(|_| LocalModelError::InvalidRoot)?;
     for artifact in &set.artifacts {
         let mut input = crate::storage::open_private_file_in(&directory.join(&artifact.name))
@@ -427,6 +489,9 @@ fn verify_artifacts(directory: &Path, set: &ResourceSet) -> Result<(), LocalMode
         let mut remaining = artifact.size;
         let mut buffer = [0; 8192];
         while remaining > 0 {
+            if cancelled() {
+                return Err(LocalModelError::Cancelled);
+            }
             let limit = remaining.min(buffer.len() as u64) as usize;
             let n = input
                 .read(&mut buffer[..limit])
@@ -586,7 +651,7 @@ pub struct PackArchive {
 
 impl ResourcePack {
     /// 每一种资源包，包括锁文件还没固定内容的；只要存在的那些用 [`ResourcePack::available`]。
-    pub const ALL: [ResourcePack; 16] = [
+    pub const ALL: [ResourcePack; 17] = [
         ResourcePack::Japanese,
         ResourcePack::LanguageDictionaries,
         ResourcePack::Handwriting,
@@ -603,6 +668,7 @@ impl ResourcePack {
         ResourcePack::MacosVoiceRuntime,
         ResourcePack::AndroidOcrModule,
         ResourcePack::RerankModelSmall,
+        ResourcePack::LocalTranslation,
     ];
 
     /// 锁文件固定了内容、可以下载的资源包，顺序同 [`ResourcePack::ALL`]。
@@ -638,6 +704,7 @@ impl ResourcePack {
             ResourcePack::MacosVoiceRuntime => "voice-runtime-macos",
             ResourcePack::AndroidOcrModule => "ocr-module-android",
             ResourcePack::RerankModelSmall => "rerank-model-small",
+            ResourcePack::LocalTranslation => "local-translation",
         }
     }
 
@@ -675,7 +742,8 @@ impl ResourcePack {
             | ResourcePack::VoiceRuntime
             | ResourcePack::MacosVoiceRuntime
             | ResourcePack::AndroidOcrModule
-            | ResourcePack::RerankModelSmall => &[],
+            | ResourcePack::RerankModelSmall
+            | ResourcePack::LocalTranslation => &[],
         }
     }
 
@@ -805,6 +873,7 @@ impl ResourcePack {
             ResourcePack::VoiceRuntime => &sets[9],
             ResourcePack::Wubi => &sets[10],
             ResourcePack::RerankModelSmall => &sets[13],
+            ResourcePack::LocalTranslation => local_translation::set(),
             ResourcePack::MacosVoiceRuntime | ResourcePack::AndroidOcrModule => {
                 unreachable!("handled above")
             }
@@ -1260,7 +1329,11 @@ pub fn install_for_channel(
         local_models::check_root(&root(state_root))?;
         crate::storage::create_directory_and_check(&root(state_root))
             .map_err(LocalModelError::from)?;
-        let catalog = fetch_grammar_catalog()?;
+        let catalog = grammar_catalog_for_install(
+            fetch_grammar_catalog(),
+            pack,
+            installed_grammar_sha256(state_root, pack).as_deref(),
+        )?;
         let model_id = match pack {
             ResourcePack::GrammarWanxiang => "wanxiang",
             ResourcePack::GrammarBaguwen => "baguwen",
@@ -1649,6 +1722,79 @@ mod tests {
         let mut invalid = channels;
         invalid.models.push(invalid.models[0].clone());
         assert!(validate_grammar_catalog(&invalid).is_err());
+    }
+
+    /// 国内网络常常连不上 raw.githubusercontent.com。读不到在线目录时，没装过的模型改用编译进来的锁文件安装，三个可下载的语法模型都要能从中找到，地址、长度、摘要和上游提交与锁文件一致；读得到时照用在线目录。
+    #[test]
+    fn grammar_install_falls_back_to_lock_when_catalog_unavailable() {
+        use msime_client_core::preferences::UpdateChannel;
+        let packs = [
+            ResourcePack::GrammarWanxiang,
+            ResourcePack::GrammarBaguwen,
+            ResourcePack::GrammarBaguwenCompact,
+        ];
+        for channel in [
+            UpdateChannel::Stable,
+            UpdateChannel::Beta,
+            UpdateChannel::Nightly,
+        ] {
+            let catalog = grammar_catalog_for_install(
+                Err(LocalModelError::Network("connection refused".into())),
+                ResourcePack::GrammarWanxiang,
+                None,
+            )
+            .unwrap();
+            validate_grammar_catalog(&catalog).unwrap();
+            let selected = select_grammar_models(&catalog, channel);
+            assert_eq!(selected.len(), 3);
+            for pack in packs {
+                let model = selected
+                    .iter()
+                    .find(|model| format!("grammar-model-{}", model.id) == pack.id())
+                    .unwrap_or_else(|| panic!("{} missing from fallback", pack.id()));
+                let locked = &pack.set().artifacts[0];
+                assert_eq!(model.source_commit, pack.set().source_commit);
+                assert_eq!(model.artifact.name, locked.name);
+                assert_eq!(model.artifact.url, locked.url);
+                assert_eq!(model.artifact.sha256, locked.sha256);
+                assert_eq!(model.artifact.size, locked.size);
+            }
+        }
+
+        let mut fetched: GrammarCatalog = serde_json::from_str(EMBEDDED_GRAMMAR_CATALOG).unwrap();
+        fetched.models[0].source_commit = "b".repeat(40);
+        let catalog = grammar_catalog_for_install(
+            Ok(fetched),
+            ResourcePack::GrammarWanxiang,
+            Some(&"c".repeat(64)),
+        )
+        .unwrap();
+        assert_eq!(catalog.models[0].source_commit, "b".repeat(40));
+    }
+
+    /// 「下载更新」和首次下载走同一个安装入口。已经装着和锁文件不同的版本（例如从更新过的在线目录装的）时，读不到目录不能退回锁文件，否则会悄悄换回锁文件里的旧版本还报成功；装着的正是锁文件那份字节时退回只是原样重装，可以放行。
+    #[test]
+    fn grammar_install_lock_fallback_never_replaces_a_different_installed_version() {
+        for pack in [
+            ResourcePack::GrammarWanxiang,
+            ResourcePack::GrammarBaguwen,
+            ResourcePack::GrammarBaguwenCompact,
+        ] {
+            let locked = pack.set().artifacts[0].sha256.clone();
+            let error = grammar_catalog_for_install(
+                Err(LocalModelError::Network("connection refused".into())),
+                pack,
+                Some(&"c".repeat(64)),
+            )
+            .unwrap_err();
+            assert!(matches!(error, LocalModelError::Network(_)), "{error:?}");
+            grammar_catalog_for_install(
+                Err(LocalModelError::Network("connection refused".into())),
+                pack,
+                Some(&locked.to_ascii_uppercase()),
+            )
+            .unwrap();
+        }
     }
 
     /// 伪造一个已发布的资源包目录：所有文件加上当前的 `msime-model.json`。
@@ -3083,6 +3229,15 @@ mod tests {
                             .nth(2)
                             .is_some_and(|commit| crate::is_lower_hex(commit, 40))
                     });
+                // Hugging Face 的模型地址同样必须固定到完整提交，不能使用 main。
+                let pinned_translation = pack == ResourcePack::LocalTranslation
+                    && url
+                        == format!(
+                        "https://huggingface.co/pfnet/plamo-3-translate-0.8b-GGUF/resolve/{}/{}",
+                        pack.set().source_commit,
+                        artifact.name
+                    )
+                    && crate::is_lower_hex(&pack.set().source_commit, 40);
                 assert!(
                     url.starts_with(RELEASE)
                         || url.starts_with(MODEL_RELEASE)
@@ -3091,7 +3246,8 @@ mod tests {
                         || url.starts_with(OCR_MODULE_RELEASE)
                         || pinned_engine
                         || upstream_release
-                        || pinned_raw,
+                        || pinned_raw
+                        || pinned_translation,
                     "{url}"
                 );
             }

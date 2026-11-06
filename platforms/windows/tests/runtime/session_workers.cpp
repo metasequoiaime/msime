@@ -667,6 +667,60 @@ void session_worker_tests(const std::string &options) {
     require(commits == 1 && controller.failure() == ControllerFailure::None);
     controller.stop();
   }
+  {
+    // 点首行的 ‹ › 箭头或滚一格（request_page）之后，候选窗的快照要立即换成新的一页。以前 Server 把 page_candidate 回的整次转移（commit、view…）原样当作 view 交给信箱，信箱读不到 session 就把这一帧丢了：引擎已经翻页，候选窗还画着旧的一页，直到下一个按键；再点一次箭头带的是旧一代的身份，又被当成过期请求拒绝，看起来就是「点了不翻页」。
+    IdleTransport transport;
+    RegistrationInbox inbox(2);
+    PipeTicket ticket{42, {1, 2, 3}};
+    SessionController controller(
+        transport, inbox, 1, 8, options,
+        [](InputState &state, const FocusLease &lease,
+           const FanyImeNamedpipeData &packet) {
+          return state.configured_key(lease, packet, TsfPreeditStyle::Local, {});
+        },
+        [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; },
+        [] { return true; }, [&] { transport.close(ticket); });
+    transport.add(ticket);
+    require(inbox.push(ticket));
+    FanyImeNamedpipeData packet{};
+    packet.client_id = ticket.client;
+    packet.event_type = FanyImePipeEventType::ClientActivated;
+    packet.request_id = 77;
+    transport.push(packet);
+    // 和上一段一样用 Shift+T 进日期时间模式打 rq：每页两个候选、不止一页，不需要词库。
+    packet.event_type = FanyImePipeEventType::KeyEvent;
+    packet.request_id = 1;
+    for (char c : std::string("Trq")) {
+      ++packet.request_id;
+      packet.keycode = c >= 'a' && c <= 'z' ? c - 'a' + 'A' : c;
+      packet.wch = c;
+      packet.modifiers_down = c == 'T' ? 1 : 0;
+      transport.push(packet);
+    }
+    transport.wait_started(5);
+    const auto first = controller.candidate_view();
+    require(first && first->visible && first->translation_page == 0 && first->page == 0 &&
+            first->page_count > 1 && !first->candidates.empty());
+    // 箭头 ›：一次一页，带着画着的那一页的身份。
+    const CandidatePage next{first->lease, first->session, first->generation, false, 1u};
+    require(controller.request_page(next) == CandidatePageRequestResult::Sent);
+    const auto second = controller.candidate_view();
+    require(second && second->visible && second->session == first->session &&
+            second->generation > first->generation && second->page == 1 &&
+            !second->candidates.empty() &&
+            second->candidates.front().text != first->candidates.front().text);
+    // 从刚画出的这一页再点 ‹：身份是新的一代，Server 接受并翻回第一页。
+    const CandidatePage back{second->lease, second->session, second->generation, true, 1u};
+    require(controller.request_page(back) == CandidatePageRequestResult::Sent);
+    const auto third = controller.candidate_view();
+    require(third && third->visible && third->generation > second->generation &&
+            third->page == 0 && third->candidates.size() == first->candidates.size() &&
+            third->candidates.front().text == first->candidates.front().text);
+    // 旧一页的身份仍然被拒绝，不会把已经换掉的那一页再翻一次。
+    require(controller.request_page(next) == CandidatePageRequestResult::Rejected);
+    require(transport.current(ticket) && controller.failure() == ControllerFailure::None);
+    controller.stop();
+  }
   FocusGate gate;
   InputQueue queue(gate, 2, 16, options);
   IdleTransport transport;

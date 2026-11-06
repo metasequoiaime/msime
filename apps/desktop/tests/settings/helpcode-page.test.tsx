@@ -293,3 +293,45 @@ test("不支持 Tab 的宿主不提供启用入口", () => {
   render(<HelpcodeSettingsPage value={{}} mobile={false} showShiftEntry onChange={vi.fn()} />);
   expect(screen.queryByRole("switch", { name: "双拼手动辅助码（Tab）" })).toBeNull();
 });
+
+test("末尾直接或逐音节直接打开时，末尾间接触发三行置灰且保留存的值", () => {
+  const triggers = [
+    "双拼末尾间接触发（分号）",
+    "双拼末尾间接触发（反引号）",
+    "双拼末尾间接触发（大写字母）",
+  ];
+  const triggerSwitches = () =>
+    triggers.map((name) => screen.getByRole("switch", { name }) as HTMLInputElement);
+  const onChange = vi.fn();
+  const page = (modes: Record<string, boolean>) => (
+    <HelpcodeSettingsPage
+      value={{ shuangpin_helpcode: { enabled: true, schema: "lantian", modes } as never }}
+      mobile={false}
+      showShiftEntry
+      onChange={onChange}
+    />
+  );
+
+  // 出厂值：末尾直接和末尾分号都开着，引擎此时不认分号触发。
+  const { rerender } = render(page({}));
+  expect(triggerSwitches().map((row) => row.disabled)).toEqual([true, true, true]);
+  expect(triggerSwitches().map((row) => row.checked)).toEqual([true, false, false]);
+  const direct = screen.getByRole("switch", { name: "双拼末尾直接辅助码" });
+  expect(document.getElementById(direct.getAttribute("aria-describedby") ?? "")?.textContent).toBe(
+    "完整音节后直接接辅助码；打开时末尾间接触发不生效",
+  );
+
+  rerender(page({ direct: false, trigger_uppercase: true }));
+  expect(triggerSwitches().map((row) => row.disabled)).toEqual([false, false, false]);
+  fireEvent.click(triggerSwitches()[1]);
+  expect(onChange.mock.calls[0][0].shuangpin_helpcode.modes).toMatchObject({
+    direct: false,
+    trigger_backtick: true,
+    trigger_semicolon: true,
+    trigger_uppercase: true,
+  });
+
+  rerender(page({ direct: false, direct_helpcode: true, trigger_uppercase: true }));
+  expect(triggerSwitches().map((row) => row.disabled)).toEqual([true, true, true]);
+  expect(triggerSwitches().map((row) => row.checked)).toEqual([true, false, true]);
+});

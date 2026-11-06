@@ -106,7 +106,7 @@ user_data/
 
 **工作副本**是用户可写的持久数据，不是缓存：学习、删词、个人词典编辑直接写它，日志同时记一份；换代次时由日志回放补齐。工作副本保持回滚日志模式（不切 WAL），因为重置学习数据把它们挪作备份时不带旁路文件。
 
-**五笔反查索引**：`CREATE INDEX IF NOT EXISTS idx_wubi86_value ON wubi86("value")` 和 `idx_wubi98_value`，只在代次副本里补建；失败只记日志，反查照常正确，只是慢。
+**五笔反查索引**：`CREATE INDEX IF NOT EXISTS idx_wubi86_value ON wubi86("value")`、`idx_wubi98_value` 和 `idx_wubixsj_value`，表在才建，只在代次副本里补建；失败只记日志，反查照常正确，只是慢。
 
 ## 4. `msime-pinyin.db`
 
@@ -261,11 +261,12 @@ CREATE TABLE IF NOT EXISTS user_dictionary_operations(
 | `pinyin` | 主库的全拼表（按 [§4.1](#41-拼音表) 的规则选表，同时写 `jp`） | `'` 分隔的全拼 |
 | `wubi` | 主库的 `wubi86` | 1 到 4 个 `a`-`y` |
 | `wubi98` | 主库的 `wubi98` | 同上 |
+| `wubixsj` | 主库的 `wubixsj`（新世纪五笔） | 同上 |
 | `quick` | 主库的 `quick_parases` | 1 到 32 个字母或数字 |
 | `english` | 英文库的 `english_words`，`display` 列是展示形式 | 1 到 64 个字母 |
 | `cantonese` | 不回放，计为跳过：粤语方案查词时直接读日志里的 upsert 行，并进 `msime-cantonese.db` 的候选（`cantonese::UserWords`），同一个词两边都有时取较大的权重。`user_inserted=1` 是用户加的词和打字造的词，`user_inserted=0` 是粤语调频写下的权重（`cantonese::learning`）。词库快照不收这些行，整份换上快照时宿主从旧日志抄进新的一代（`add_cantonese_words`，`user_inserted` 照原样） | 不带声调的粤拼音节，单个空格分隔（与 [§13](#13-语言词库msime-cantonesedbmsime-zhuyindbmsime-strokedb) 的 `entries.key` 同一写法） |
 
-`operation='delete'` 是墓碑，回放时删除对应行；`user_inserted=1` 表示用户自己加的词（删除后仍记着它曾是用户的）。权重低于 1 的 `pinyin` upsert 是旧版调频留下的，回放时跳过，`ensure_user_database` 会把它们删掉。代次里没有对应表的行（只读英文库的代次里的非英文行，还没有五笔表时的五笔行）计为跳过，留在日志里。**未知的 `dictionary` 值和存不进去的 `key` 算失败行，任何一行失败整次回放回滚、代次准备被拒**，所以新增取值必须先让引擎认得它，再往日志里写。`cantonese` 是这样加进来的最近一个取值：认得它之前的引擎（降级安装）遇到用户加过粤语词的日志会拒绝准备新代次。
+`operation='delete'` 是墓碑，回放时删除对应行；`user_inserted=1` 表示用户自己加的词（删除后仍记着它曾是用户的）。权重低于 1 的 `pinyin` upsert 是旧版调频留下的，回放时跳过，`ensure_user_database` 会把它们删掉。代次里没有对应表的行（只读英文库的代次里的非英文行，还没有五笔表时的五笔行，词库还没有 `wubixsj` 表时的新世纪行；只看这一行自己的表）计为跳过，留在日志里。`wubixsj` 行只出自选着新世纪五笔的用户：新世纪方案下的调频、删词和手动加的词，以及选着新世纪时拼音造词派生的五笔词（`user_dictionary::wubi_learning`）；86/98 用户的日志里不会出现它。这一版不认识的 `dictionary` 值（更新的版本加的种类，降级后读到）同样计为跳过、留在日志里，回到认识它的版本时照常回放。**存不进去的 `key` 算失败行，任何一行失败整次回放回滚、代次准备被拒。** 跳过未知取值是从 2026-11 的版本开始的，更早发布的引擎仍把未知取值算失败行，所以新增取值时要说明降级到那些版本不受支持，或者等宽松读取的版本覆盖了足够多的用户再往日志里写。`cantonese` 加进来时还没有这条宽松读取：认得它之前的引擎（降级安装）遇到用户加过粤语词的日志会拒绝准备新代次。
 
 ### 6.3 其余表
 
@@ -526,6 +527,12 @@ Rime 上游的 octagram 语法模型格式（[lotem/librime-octagram](https://gi
 
 主构建写 `msime-dictionary-manifest.json` 和 `msime-SHA256SUMS.txt`。清单字段：`manifest_version`（1）、`profile`（`desktop`）、`format_version` 与 `engine_compatibility.dictionary_format`（都等于 `format::FORMAT_VERSION`）、`engine_compatibility.japanese_model_magic`（`MSJPDT1`）、`source`（构建所在的 msime 提交与是否有未提交改动）、`sqlite_journal_mode`（`delete`）、`format_contract_commit`、`custom_dictionary_commit`、`custom_dictionary_repository`、`custom_dictionary_path`、`references`（各上游的仓库与提交）、`mozc_revision`、`features`、`licensing`（是否含无授权输入、排除了哪些）、`files`（每个产物的 `sha256` 与 `size`）。客户端的词库更新只接受 `dictionary_format` 等于自己的 `FORMAT_VERSION` 且日文魔数为 `MSJPDT1` 的清单。引擎本身不读清单。
 
+## 桌面离线翻译模型（宿主资源包）
+
+`resource-packs/local-translation/plamo-3-translate-0.8b-Q4_K_M.gguf` 由共享 `client-providers` 资源包安装器下载或从用户选择的文件导入，输入引擎不读写它。模型采用上游 GGUF 格式，分词器、模型元数据与量化张量在同一文件内；由 `local-translation` 的固定 llama.cpp 版本只读加载。来源、上游完整提交、文件名、长度和 SHA-256 均来自编译期的 `resources/local-translation-model.lock.json`，安装和每次冷加载都校验，不接受任意 GGUF 替换。
+
+偏好为 `local_translation: { enabled, target_language }`，缺字段保持关闭，启用时的语言代码必须属于当前共享目录；旧草稿模型的八种独有语言仍可读取与关闭，但不能重新启用。文件缺失、摘要不符或运行库不可用时翻译失败，不联网回退。宿主的候选代次和取消标记与模型文件格式无关；这项资源不改变引擎词库的 `FORMAT_VERSION`。许可与分发位置见 [第三方组件清单](third-party.md#桌面本地翻译)。
+
 ## 19. 产出方
 
 | 产物 | 产出方 |
@@ -570,7 +577,7 @@ dict-builder 的其他子命令（`places`、`hanja`、`syllable-frequency`）�
 | `msime-bigram.bin`、`msime-trigram.bin` | 计数来自中文维基百科（CC-BY-SA-4.0），词表是 GPL-3.0 的 `msime-pinyin.db` |
 | `msime-others.db` | emoji 数据与颜文字（`resources/dictionary-sources/kaomoji/kaomoji.txt`）的来源都未记录，PiliApp 符号未声明许可，再分发前需另行确认 |
 | `msime-japanese.dat` | Mozc 开源词库：Google 三条款 BSD 加词典目录的 IPAdic、ICOT、冲绳辞書条款；分发时必须附 `msime-mozc_dictionary_oss_README.txt` 与 `msime-mozc_LICENSE.txt` |
-| `msime-cantonese.db` | CC-BY-4.0（rime-cantonese、HKCanCor，以及 msime-dictionary 的人工词表 `custom/cantonese.txt`，本项目以 CC BY 4.0 提供） |
+| `msime-cantonese.db` | CC-BY-4.0（rime-cantonese、HKCanCor，以及 msime-dictionary 的人工词表 `custom/cantonese.txt`）；含 `sources/hong-kong/` 地名时另遵循香港政府 CSDI 使用条款，`license` 为 `CC-BY-4.0 AND LicenseRef-HK-CSDI` |
 | `msime-zhuyin.db` | LGPL-2.1-or-later（libchewing-data）；补充词表（McBopomofo 的 `BPMFMappings.txt`）源自 libtabe 的 `tsi.src`，为 BSD-3-Clause，McBopomofo 的改动与词频 `phrase.occ` 为 MIT（文件内记为 `LGPL-2.1-or-later AND BSD-3-Clause AND MIT`，`dict-v2.0.40` 及以前的发布只记了 `LGPL-2.1-or-later`） |
 | `msime-stroke.db` | LGPL-3.0（rime-stroke），权重取自 GPL-3.0 的 rime-ice 字频，其中与万象共有读音的字频为 CC-BY-4.0（rime-wanxiang；文件内记为 `LGPL-3.0-only AND GPL-3.0-only AND CC-BY-4.0`，`dict-v2.0.40` 及以前的发布只记了 `LGPL-3.0-only AND GPL-3.0-only`） |
 | `sentence-model.safetensors` | Apache-2.0（权重）；训练语料 C4 中文部分 ODC-BY、LCCC MIT，署名在 `__metadata__` 里 |

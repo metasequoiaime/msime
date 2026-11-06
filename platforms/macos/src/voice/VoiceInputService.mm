@@ -9,6 +9,8 @@
 #include <memory>
 #include <mutex>
 #include <atomic>
+#include <cmath>
+#import <os/log.h>
 static BOOL MSIMEVoiceStrictGeneration(id value, uint64_t *result) {
     if (![value isKindOfClass:NSNumber.class] ||
         CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID() ||
@@ -23,8 +25,8 @@ static BOOL MSIMEVoiceStrictGeneration(id value, uint64_t *result) {
 namespace {
 struct PCMStreamAdmission { std::mutex mutex; bool live = true; };
 }
-@implementation MSIMEVoiceInputService { __weak MSIMEClientSession *_session; BOOL _active; AVAudioEngine *_audioEngine; SFSpeechRecognizer *_recognizer; SFSpeechAudioBufferRecognitionRequest *_speechRequest; SFSpeechRecognitionTask *_speechTask; id<MSIMEBackendSpeechAnalyzerSession> _analyzer; uint64_t _transcriptionGeneration; MSIMEVoicePCMBuffer *_pcmRecording; std::shared_ptr<PCMStreamAdmission> _pcmStreamLive; std::shared_ptr<msime::voice::CaptureDuration> _captureDuration; NSTimeInterval _recordedDuration; }
-- (NSTimeInterval)recordedDuration { return _captureDuration ? _captureDuration->seconds() : _recordedDuration; }
+@implementation MSIMEVoiceInputService { __weak MSIMEClientSession *_session; BOOL _active; AVAudioEngine *_audioEngine; SFSpeechRecognizer *_recognizer; SFSpeechAudioBufferRecognitionRequest *_speechRequest; SFSpeechRecognitionTask *_speechTask; id<MSIMEBackendSpeechAnalyzerSession> _analyzer; uint64_t _transcriptionGeneration; MSIMEVoicePCMBuffer *_pcmRecording; std::shared_ptr<PCMStreamAdmission> _pcmStreamLive; std::shared_ptr<msime::voice::CaptureDuration> _captureDuration; NSTimeInterval _recordedDuration; id _captureObserver; uint64_t _captureGeneration; BOOL _captureTapInstalled; BOOL _captureRetried; }
+- (NSTimeInterval)recordedDuration { return _recordedDuration + (_captureDuration ? _captureDuration->seconds() : 0); }
 - (AVAuthorizationStatus)microphoneAuthorizationStatus { return [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio]; }
 - (void)requestMicrophonePermission:(void (^)(BOOL))completion { [AVCaptureDevice requestAccessForMediaType:AVMediaTypeAudio completionHandler:^(BOOL granted) { dispatch_async(dispatch_get_main_queue(), ^{ completion(granted); }); }]; }
 - (SFSpeechRecognizerAuthorizationStatus)speechAuthorizationStatus { return [SFSpeechRecognizer authorizationStatus]; }
@@ -117,14 +119,32 @@ struct PCMStreamAdmission { std::mutex mutex; bool live = true; };
     if (_audioEngine) return YES;
     _recordedDuration = 0;
     _captureDuration.reset();
+    _captureRetried = NO;
     _audioEngine = [self makeAudioEngine];
-    AVAudioInputNode *input = _audioEngine.inputNode;
-    if (!MSIMEConfigureVoiceCaptureDevice(deviceUID, input.audioUnit, error)) {
-        _audioEngine = nil;
+    const uint64_t generation = ++_captureGeneration;
+    __weak MSIMEVoiceInputService *weakSelf = self;
+    _captureObserver = [NSNotificationCenter.defaultCenter addObserverForName:AVAudioEngineConfigurationChangeNotification
+        object:_audioEngine queue:nil usingBlock:^(NSNotification *notification) {
+            AVAudioEngine *engine = notification.object;
+            // 通知在 AVFoundation 内部队列上到达；退出通知栈后再操作引擎，避免同步拆卸死锁。
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [weakSelf recoverStartupEngine:engine generation:generation handler:bufferHandler deviceUID:deviceUID];
+            });
+        }];
+    if ([self installCaptureTapOnEngine:_audioEngine handler:bufferHandler deviceUID:deviceUID error:error]) return YES;
+    [self clearMicrophoneEngine];
+    return NO;
+}
+- (BOOL)installCaptureTapOnEngine:(AVAudioEngine *)engine handler:(MSIMEVoiceAudioBuffer)bufferHandler
+                       deviceUID:(NSString *)deviceUID error:(NSError **)error {
+    AVAudioInputNode *input = engine.inputNode;
+    if (!MSIMEConfigureVoiceCaptureDevice(deviceUID, input.audioUnit, error)) return NO;
+    AVAudioFormat *format = [input inputFormatForBus:0];
+    if (!format || !std::isfinite(format.sampleRate) || format.sampleRate <= 0 || !format.channelCount) {
+        if (error) *error = [NSError errorWithDomain:@"app.msime.client.voice" code:6
+            userInfo:@{NSLocalizedDescriptionKey:@"麦克风音频格式尚未就绪"}];
         return NO;
     }
-    AVAudioFormat *format = [input inputFormatForBus:0];
-    NSError *tapError = nil;
     SFSpeechAudioBufferRecognitionRequest *speechRequest = _speechRequest;
     id<MSIMEBackendSpeechAnalyzerSession> analyzer = _analyzer;
     auto duration = std::make_shared<msime::voice::CaptureDuration>(format.sampleRate);
@@ -134,23 +154,43 @@ struct PCMStreamAdmission { std::mutex mutex; bool live = true; };
         if (!duration->append(buffer.frameLength)) return;
         [speechRequest appendAudioPCMBuffer:buffer]; [analyzer appendBuffer:buffer]; bufferHandler(buffer);
     };
-    // AVAudioInputNode exposes the tap API without an NSError parameter on
-    // the macOS SDKs supported by this host. Keep the deprecated warning
-    // local to this call rather than selecting a non-existent overload.
+    // 当前最低 SDK 的输入节点 tap 没有 NSError 重载；只在这一处抑制旧接口警告。
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
     [input installTapOnBus:0 bufferSize:1024 format:format block:capture];
 #pragma clang diagnostic pop
-    if (tapError) { duration->finish(); _captureDuration.reset(); _audioEngine = nil; if (error) *error = tapError; return NO; }
-    NSError *startError = nil;
-    if (![_audioEngine startAndReturnError:&startError]) { duration->finish(); _captureDuration.reset(); [input removeTapOnBus:0]; _audioEngine = nil; if (error) *error = startError; return NO; }
-    return YES;
+    _captureTapInstalled = YES;
+    if ([engine startAndReturnError:error]) return YES;
+    _recordedDuration += duration->finish(); _captureDuration.reset();
+    [input removeTapOnBus:0]; _captureTapInstalled = NO;
+    return NO;
+}
+- (void)recoverStartupEngine:(AVAudioEngine *)engine generation:(uint64_t)generation
+                    handler:(MSIMEVoiceAudioBuffer)handler deviceUID:(NSString *)deviceUID {
+    if (_audioEngine != engine || _captureGeneration != generation || _captureRetried ||
+        engine.running || self.recordedDuration > 0) return;
+    // 仅恢复同一轮、首帧之前被系统停掉的引擎，最多一次；结束或新一轮的通知都不能补开麦克风。
+    _captureRetried = YES;
+    if (_captureDuration) { _recordedDuration += _captureDuration->finish(); _captureDuration.reset(); }
+    if (_captureTapInstalled) { [engine.inputNode removeTapOnBus:0]; _captureTapInstalled = NO; }
+    // 保留识别请求和 PCM 流，按硬件的新格式重装 tap；不能借 stopMicrophoneCapture 提前结束识别。
+    const BOOL recovered = [self installCaptureTapOnEngine:engine handler:handler deviceUID:deviceUID error:nil];
+    os_log(OS_LOG_DEFAULT, "MSIME voice capture: startup recovery succeeded=%{public}d", recovered);
+    // 恢复失败保持无帧状态，由全局首帧超时显示错误；不循环重试或跳过用户的松手/取消。
 }
 - (AVAudioEngine *)makeAudioEngine { return [AVAudioEngine new]; }
-- (void)stopMicrophoneCapture {
-    if (_captureDuration) { _recordedDuration = _captureDuration->finish(); _captureDuration.reset(); }
+- (void)clearMicrophoneEngine {
+    ++_captureGeneration;
+    if (_captureObserver) { [NSNotificationCenter.defaultCenter removeObserver:_captureObserver]; _captureObserver = nil; }
+    if (_captureDuration) { _recordedDuration += _captureDuration->finish(); _captureDuration.reset(); }
     if (!_audioEngine) return;
-    [_audioEngine.inputNode removeTapOnBus:0]; [_audioEngine stop]; _audioEngine = nil; [_speechRequest endAudio]; [_analyzer finishAudio];
+    if (_captureTapInstalled) { [_audioEngine.inputNode removeTapOnBus:0]; _captureTapInstalled = NO; }
+    [_audioEngine stop]; _audioEngine = nil;
+}
+- (void)stopMicrophoneCapture {
+    const BOOL captured = _audioEngine != nil;
+    [self clearMicrophoneEngine];
+    if (captured) { [_speechRequest endAudio]; [_analyzer finishAudio]; }
 }
 - (BOOL)startTranscriptionWithLanguage:(NSString *)language textHandler:(void (^)(NSString *, BOOL))handler error:(NSError **)error {
     if ([SFSpeechRecognizer authorizationStatus] != SFSpeechRecognizerAuthorizationStatusAuthorized) { if (error) *error = [NSError errorWithDomain:@"app.msime.client.voice" code:2 userInfo:@{NSLocalizedDescriptionKey: @"语音识别权限未授权"}]; return NO; }

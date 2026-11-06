@@ -3,6 +3,7 @@
 #include "ControlText.h"
 #include "PreferencesStore.h"
 #include "SettingsWindow.h"
+#include "../HelpcodeModesModel.h"
 #include "../../../../shared/contracts/msime_edition.h"
 #include <commctrl.h>
 #include <algorithm>
@@ -17,8 +18,14 @@ struct HelpcodeSources {
   std::vector<HelpcodeOption> packs;
 };
 
+// 控件 ID 从 helpcode_first 起：每族三个（开关、方案、显示，`族 * 3 + 0..2`），接着两族的「一码严格筛选」，再接双拼的十一种触发方式，一共 19 个，下一段从 helpcode_first + 20 开始。
 class HelpcodeForm {
 public:
+  static constexpr int strict_first = 6;
+  static constexpr int modes_first = strict_first + 2;
+  static constexpr int control_count = modes_first + static_cast<int>(helpcode::shuangpin_modes.size());
+  static_assert(helpcode_first + control_count <= scheme_language, "helpcode controls overlap the next range");
+
   static bool offered() {
     for (std::string_view scheme : {MSIME_EDITION_INPUT_SCHEMES})
       if (scheme == "quanpin" || scheme == "shuangpin") return true;
@@ -38,9 +45,18 @@ public:
           WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, base + 1, top + 40, 240);
       family.show = row(L"BUTTON", index == 0 ? L"在候选窗口中显示全拼辅助码" : L"在候选窗口中显示双拼辅助码",
           WS_TABSTOP | BS_AUTOCHECKBOX | BS_NOTIFY, base + 2, top + 84, 28);
-      top += 138;
+      family.strict = row(L"BUTTON", index == 0 ? L"全拼一码严格筛选" : L"双拼一码严格筛选",
+          WS_TABSTOP | BS_AUTOCHECKBOX | BS_NOTIFY, helpcode_first + strict_first + static_cast<int>(index), top + 128, 28);
+      top += 182;
     }
-    return top;
+    // 双拼辅助码的触发方式接在双拼一族后面，顺序和文案见 HelpcodeModesModel.h。
+    for (size_t index = 0; index < modes_.size(); ++index) {
+      const auto title = L"双拼" + std::wstring(helpcode::shuangpin_modes[index].title);
+      modes_[index] = row(L"BUTTON", title.c_str(), WS_TABSTOP | BS_AUTOCHECKBOX | BS_NOTIFY,
+          helpcode_first + modes_first + static_cast<int>(index), top, 28);
+      top += 44;
+    }
+    return top + 10;
   }
 
   static bool valid(const Json& preferences) {
@@ -51,6 +67,16 @@ public:
       for (const auto* key : {"enabled", "show_in_candidate_window"})
         if (!group.contains(key) || !group.at(key).is_boolean()) return false;
       if (!group.contains("schema") || !group.at("schema").is_string()) return false;
+      // 这两项等于出厂值时 client-core 不写进文档，缺了按出厂值读；在的话类型要对。
+      if (group.contains("strict_filter") && !group.at("strict_filter").is_boolean()) return false;
+      if (group.contains("modes")) {
+        const auto& modes = group.at("modes");
+        if (!modes.is_object()) return false;
+        for (const auto& mode : helpcode::shuangpin_modes) {
+          const auto field = narrow(mode.field);
+          if (modes.contains(field) && !modes.at(field).is_boolean()) return false;
+        }
+      }
     }
     if (preferences.contains("plugins")) {
       const auto& plugins = preferences.at("plugins");
@@ -70,6 +96,7 @@ public:
       family.on = group.at("enabled").get<bool>();
       SendMessageW(family.enabled, BM_SETCHECK, family.on ? BST_CHECKED : BST_UNCHECKED, 0);
       SendMessageW(family.show, BM_SETCHECK, group.at("show_in_candidate_window").get<bool>() ? BST_CHECKED : BST_UNCHECKED, 0);
+      SendMessageW(family.strict, BM_SETCHECK, group.value("strict_filter", false) ? BST_CHECKED : BST_UNCHECKED, 0);
       family.options = {{"lantian", L"蓝天小雨点"}, {"ziranma", L"自然码"},
           {"shouyou2_0", L"首右2.0"}, {"shouyouplus", L"首右plus"},
           {"xiaohe", L"小鹤"}, {"jiajia", L"加加"}, {"wubi86", L"五笔 86"}};
@@ -92,6 +119,12 @@ public:
         if (family.options[option].value == selected) SendMessageW(family.schema, CB_SETCURSEL, option, 0);
       }
     }
+    // 存下整段 `modes`（可能带着 macOS 同步来的 manual_tab），改一项时在它上面改，别的键原样留着。
+    stored_modes_ = preferences.at(group_key(1)).value("modes", Json::object());
+    for (size_t index = 0; index < modes_.size(); ++index) {
+      mode_values_[index] = mode_value(index);
+      SendMessageW(modes_[index], BM_SETCHECK, mode_values_[index] ? BST_CHECKED : BST_UNCHECKED, 0);
+    }
   }
 
   void enable(bool enabled) {
@@ -101,13 +134,38 @@ public:
       EnableWindow(family.enabled, enabled);
       EnableWindow(family.schema, enabled && family.on);
       EnableWindow(family.show, enabled);
+      EnableWindow(family.strict, enabled && family.on);
     }
+    const auto on = [this](std::wstring_view field) {
+      for (size_t index = 0; index < modes_.size(); ++index)
+        if (helpcode::shuangpin_modes[index].field == field) return mode_values_[index];
+      return false;
+    };
+    for (size_t index = 0; index < modes_.size(); ++index)
+      if (modes_[index])
+        EnableWindow(modes_[index], enabled && helpcode::mode_enabled(helpcode::shuangpin_modes[index],
+            families_[1].on, on(L"direct"), on(L"mid_sentence"), on(L"direct_helpcode")));
   }
 
   std::vector<Change> command(WPARAM event) const {
     if (!offered() || !enabled_) return {};
     const int offset = LOWORD(event) - helpcode_first;
-    if (offset < 0 || offset >= 6) return {};
+    if (offset < 0 || offset >= control_count) return {};
+    if (offset >= strict_first) {
+      if (HIWORD(event) != BN_CLICKED) return {};
+      if (offset < modes_first) {
+        const auto index = static_cast<size_t>(offset - strict_first);
+        const HWND strict = families_[index].strict;
+        if (!IsWindowEnabled(strict)) return {};
+        return {{{group_key(index), "strict_filter"}, SendMessageW(strict, BM_GETCHECK, 0, 0) == BST_CHECKED}};
+      }
+      // 整段 `modes` 写回去：缺这一段时文档里没有它，只能整段补上；互斥由 client-core 在写入端归一，保存后整页按归一后的值刷新。
+      const auto index = static_cast<size_t>(offset - modes_first);
+      if (!IsWindowEnabled(modes_[index])) return {};
+      auto modes = stored_modes_;
+      modes[narrow(helpcode::shuangpin_modes[index].field)] = SendMessageW(modes_[index], BM_GETCHECK, 0, 0) == BST_CHECKED;
+      return {{{group_key(1), "modes"}, std::move(modes)}};
+    }
     const size_t index = static_cast<size_t>(offset / 3);
     const auto& family = families_[index];
     if (offset % 3 != 1 && HIWORD(event) == BN_CLICKED)
@@ -131,16 +189,32 @@ public:
   }
 
 private:
+  static std::string narrow(std::wstring_view value) {
+    std::string result;
+    for (const auto letter : value) result.push_back(static_cast<char>(letter));
+    return result;
+  }
+
+  // 文档里的值，缺这一项时按 client-core 的出厂值。
+  bool mode_value(size_t index) const {
+    const auto& mode = helpcode::shuangpin_modes[index];
+    return stored_modes_.value(narrow(mode.field), mode.fallback);
+  }
+
   static const char* group_key(size_t index) { return index == 0 ? "quanpin_helpcode" : "shuangpin_helpcode"; }
   static const char* pack_key(size_t index) { return index == 0 ? "helpcode_pack_quanpin" : "helpcode_pack_shuangpin"; }
   struct Family {
     HWND enabled = nullptr;
     HWND schema = nullptr;
     HWND show = nullptr;
+    HWND strict = nullptr;
     bool on = false;
     std::vector<HelpcodeOption> options;
   };
   std::array<Family, 2> families_{};
+  std::array<HWND, helpcode::shuangpin_modes.size()> modes_{};
+  std::array<bool, helpcode::shuangpin_modes.size()> mode_values_{};
+  Json stored_modes_ = Json::object();
   Json plugins_ = Json::object();
   bool enabled_ = false;
 };

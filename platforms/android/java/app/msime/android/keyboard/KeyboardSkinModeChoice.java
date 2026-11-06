@@ -3,7 +3,7 @@ package app.msime.android;
 import java.util.List;
 import org.json.JSONObject;
 
-/** Android 键盘在一种明暗下的选择；候选窗仍使用共享的全局主题。 */
+/** Android 键盘在一种明暗下的皮肤选择；候选条、表情和手写面板按自己的明暗读同一份选择（#10749），候选皮肤包槽位另行生效。 */
 public final class KeyboardSkinModeChoice {
     public record Selected(String theme, JSONObject design, String libraryId) {}
 

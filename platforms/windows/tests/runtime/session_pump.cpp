@@ -1177,6 +1177,14 @@ void session_pump_tests(const std::string &options) {
                              original.end());
     size_t keys = 0;
     size_t notifications = 0;
+    // 模式事件落地之后在管道线程上通知一次，那时焦点锁已经放开：界面线程被叫醒后立刻 try_lock 读模式，不会因为工作线程还攥着锁而扑空、再等满消息循环那一拍。
+    size_t mode_events = 0;
+    SessionPump::Presentation presentation;
+    presentation.mode_event = [&](const FocusLease &lease) {
+      ++mode_events;
+      require(!queue.on_worker_thread());
+      require(gate.try_with_active(lease, [] {}));
+    };
     SessionPump pump(
         transport, queue, gate,
         [&](InputState &state, const FocusLease &focus,
@@ -1202,9 +1210,9 @@ void session_pump_tests(const std::string &options) {
           if (packet.event_type == event)
             ++notifications;
           return true;
-        });
+        }, presentation);
     require(pump.run(transport.ticket) == PumpResult::Disconnected);
-    require(keys == 13 && notifications == 3);
+    require(keys == 13 && notifications == 3 && mode_events == 3);
     queue.stop();
   }
   for (int mode = 0; mode < 6; ++mode) {

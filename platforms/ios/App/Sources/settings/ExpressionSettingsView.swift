@@ -55,15 +55,14 @@ struct ExpressionSettingsView: View {
                           isOn: stored(NextWordPredictionButtons.enabledKey, $nextWordPrediction, group: .intelligence))
             .accessibilityIdentifier("nextWordPredictionToggle")
           DesignDivider()
-          // 联想按键的样式只在开启上屏后联想后可选，关着时整行变灰，与 Android 一样。
-          DesignSelectRow(title: "联想栏按键", info: Self.predictionButtonsInfo,
+          // 联想按键的样式只在开启上屏后联想后可选，关着时整行变灰，与 Android 一样；用 `enabled` 而不是 `.disabled`，「?」仍能点开。
+          DesignSelectRow(title: "联想栏按键", info: Self.predictionButtonsInfo, enabled: nextWordPrediction,
                           options: NextWordPredictionButtons.allCases.map { DesignOption(title: $0.title, value: $0) },
                           selection: SharedPreferenceBinding.custom(state: $predictionButtons, onSave: { record($0, group: .intelligence) }) {
                             $0[NextWordPredictionButtons.documentKey] = $1.rawValue
                           },
                           sheetTitle: "联想栏按键", sheetMessage: Self.predictionButtonsInfo,
                           identifier: "nextWordPredictionButtonsPicker")
-            .disabled(!nextWordPrediction)
           DesignDivider()
           DesignToggleRow(title: "英文联想", info: "保留原文并提供纠错，空格默认采用纠错结果", isOn: $englishSuggestions)
             .accessibilityIdentifier("englishSuggestionsToggle")

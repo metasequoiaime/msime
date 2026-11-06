@@ -86,6 +86,8 @@ pub struct EngineSnapshot {
     pub display_reading: String,
     pub editing_text: String,
     pub caret_position: usize,
+    /// 辅助码前导键在等辅助码时它在 `editing_text` 里的位置（`SessionSnapshot::helpcode_trigger`），`preedit` 已经带着它；宿主画 `editing_text` 时把 `key` 插在 `position` 处，光标随之后移。
+    pub helpcode_trigger: Option<crate::HelpcodeTrigger>,
     /// 组字光标在 `preedit` 里的位置，按 Unicode 标量计：`caret_position` 是 `editing_text` 里的偏移，而 `preedit` 可能是分词或展开过的拼写（全拼 `ni'hao`、双拼「拼音分词」的 `shi'shi`），宿主画 `preedit` 时用这一项放光标，不要拿 `caret_position` 去数 `preedit` 的字母。两者没有可靠对应时在 `preedit` 末尾（见 `preedit_caret.rs`）。
     pub preedit_caret: usize,
     pub segment_raw_boundaries: Vec<u64>,
@@ -298,6 +300,7 @@ impl Session {
             },
             editing_text: value.editing_text,
             caret_position: value.caret_position,
+            helpcode_trigger: value.helpcode_trigger,
             preedit_caret,
             segment_raw_boundaries: segment_raw_boundaries
                 .into_iter()
@@ -337,6 +340,11 @@ impl Session {
             caret_edit_suffix: value.caret_edit_suffix,
             caret_edit_prefix: value.caret_edit_prefix,
         };
+        // 五笔反查只服务五笔方案：混输拼音的候选虽然来自全拼，也一样附上五笔码；全拼和双拼方案本身不显示，那里的注释位留给辅助码和纠错提示。
+        let wubi_reverse_codes = value.local_mode == LocalInputMode::None
+            && !value.dedicated_english
+            && value.scheme == SchemeType::Wubi;
+        let wildcard_query = wubi_reverse_codes && self.inner.wubi_wildcard_query_active();
         let mut annotations = value.candidate_annotations.into_iter();
         for (index, candidate) in value.candidates.into_iter().enumerate() {
             let mut annotation = annotations
@@ -351,15 +359,13 @@ impl Session {
                     annotation = compute_helpcodes(&candidate.word, uppercase_all, keymap);
                 }
             }
-            // 五笔反查只服务五笔方案：混输拼音的候选虽然来自全拼，也一样附上五笔码；全拼和双拼方案本身不显示，那里的注释位留给辅助码和纠错提示。
-            if value.local_mode == LocalInputMode::None
-                && !value.dedicated_english
-                && value.scheme == SchemeType::Wubi
-                && matches!(
-                    candidate.scheme,
-                    SchemeType::Quanpin | SchemeType::Shuangpin | SchemeType::Wubi
-                )
-            {
+            // 用户关掉「候选显示剩余编码」（`wubi_reverse_code` 为 false）时，五笔原生候选不附：宿主在没有剩余编码时退回显示这条注释，附了就成了关掉开关后剩余编码换成完整编码（#10790）。拼音来的候选（混输拼音和 `z` 临时拼音反查）照旧附：那是用拼音查五笔码的反查，不是剩余编码，开关打开时宿主也从来不给它们算剩余编码，而混输打开时没有 `z` 反查，打字时只剩这一条查码路径。`z` 通配查出的五笔候选也照旧附：用户正是不知道 `z` 那一位是什么才用通配，完整码就是答案；键入的码不是它的前缀，开关打开时宿主同样算不出剩余编码；通配打开时 `z` 反查也停用了。
+            let reverse_code = match candidate.scheme {
+                SchemeType::Wubi => self.options.wubi_reverse_code || wildcard_query,
+                SchemeType::Quanpin | SchemeType::Shuangpin => true,
+                _ => false,
+            };
+            if wubi_reverse_codes && reverse_code {
                 let code = self.candidate_wubi_code_for_display_item(index, &candidate);
                 if let Some(code) = code {
                     if !annotation.contains(code) {

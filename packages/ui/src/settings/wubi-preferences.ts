@@ -1,4 +1,13 @@
-export type WubiProfile = "wubi86" | "wubi98";
+/** 五笔码表版本，与 client-core `WubiProfile` 的序列化名一致：`wubixsj` 是新世纪五笔。 */
+export type WubiProfile = "wubi86" | "wubi98" | "wubixsj";
+
+/** 设置页列出版本的顺序。 */
+export const wubiProfiles: readonly WubiProfile[] = ["wubi86", "wubi98", "wubixsj"];
+
+/** 把偏好里的值读成已知版本：缺省和这一版不认识的值（更新的宿主写的）按 86 显示，与引擎和 client-core 的缺省一致。各处的文案表都用它取键，不要再写 `=== "wubi98" ? … : …`，那样会把新加的版本静默显示成 86。 */
+export function knownWubiProfile(profile: string | null | undefined): WubiProfile {
+  return wubiProfiles.find((known) => known === profile) ?? "wubi86";
+}
 
 export type WubiCandidateSelectionPreferences = {
   enabled: boolean;

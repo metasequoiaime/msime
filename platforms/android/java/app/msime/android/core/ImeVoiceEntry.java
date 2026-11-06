@@ -470,26 +470,51 @@ final class ImeVoiceEntry {
         return button;
     }
 
-    /** 控制行（🔓 | 松开发送 | 发送）排在最下面、与原功能行同高，压着原空格的手指落在「松开发送」上，水平左滑到锁定、右滑到发送（#10327）。 */
+    /** 长按面板的半个键距，与它盖住的键区取同一个值（注音大千键面会收窄键距，见 {@link KeyboardSpacingPolicy#layoutKeySpacing}），容器左右内边距才能直接用 {@link ImeStyler#keyAreaEdgePadding}。 */
+    private int halfHoldKeyGap() {
+        return s.halfSpacingPixels(KeyboardSpacingPolicy.layoutKeySpacing(s.touchKeySpacingTenths, s.displayedTouchLayout(s.view)));
+    }
+
+    /**
+     * 长按操作区和编辑弹层里一个键位的排版参数：键帽四周各留半个键距、半个行距，与普通键区的键位（ImeStyler.applyKeyboardGeometry）和回复面板一样取用户的键区设置，相邻键帽之间正好隔一个键距、上下两行隔一个行距（#10966）。
+     *
+     * <p>{@code slotHeight} 是含行距的整格高度，键帽高度要扣掉上下两个半行距。空位也用这份参数，同一行里各格扣掉的外边距一样多，按权重分到的列宽才和上下行对齐。
+     */
+    private LinearLayout.LayoutParams holdKeyParams(int width, int slotHeight, float weight) {
+        int horizontal = halfHoldKeyGap();
+        int vertical = s.halfSpacingPixels(s.touchRowSpacingTenths);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+            width, BoundsPolicy.atLeast(slotHeight - vertical * 2, 1), weight);
+        params.setMargins(horizontal, vertical, horizontal, vertical);
+        return params;
+    }
+
+    /** 控制行（🔓 | 松开发送 | 发送）排在最下面、与原功能行同高，压着原空格的手指落在「松开发送」上，水平左滑到锁定、右滑到发送（#10327）。各键之间留键距、行间留行距，左右与键区一样距屏幕边缘 6 dp（#10966）。 */
     private void buildHoldActions() {
         if (!(listeningPanel instanceof LinearLayout column)) return;
         if (actionsRow != null) column.removeView(actionsRow);
+        int keyGap = halfHoldKeyGap() * 2;
+        int rowGap = s.halfSpacingPixels(s.touchRowSpacingTenths) * 2;
+        int utilityHeight = s.pixels(44) + rowGap;
         LinearLayout actions = LayoutPolicy.column(s);
+        // 键帽自己带半个键距的外边距，容器只补到设计的 6 dp 键区边距。面板没能盖住功能行时（没有可见的功能行）仍挂在键区里，键区已经补过这份边距，再补一次最外侧键帽就离屏幕边缘约 9 dp。
+        int edge = coveredActionRow == null ? 0 : s.imeStyler.keyAreaEdgePadding();
+        ViewPolicy.setHorizontalPaddingPreservingVertical(actions, edge);
         LinearLayout cancelRow = LayoutPolicy.row(s);
-        cancelRow.addView(new View(s), new LinearLayout.LayoutParams(0, 1, 1));
+        cancelRow.addView(new View(s), holdKeyParams(0, utilityHeight, 1));
         holdCancelButton = holdButton("取消", "取消本次语音", this::cancel);
-        cancelRow.addView(holdCancelButton, new LinearLayout.LayoutParams(0, s.pixels(44), 2));
-        cancelRow.addView(new View(s), new LinearLayout.LayoutParams(0, 1, 1));
+        cancelRow.addView(holdCancelButton, holdKeyParams(0, utilityHeight, 2));
+        cancelRow.addView(new View(s), holdKeyParams(0, utilityHeight, 1));
         actions.addView(cancelRow, LayoutPolicy.matchWidthWrapParams());
         LinearLayout utilities = LayoutPolicy.row(s);
         utilities.addView(holdButton("符", "锁定语音中打开符号", () -> {
             if (locked) s.imePanels.showSymbolPanel();
-        }), new LinearLayout.LayoutParams(0, s.pixels(44), 1));
-        utilities.addView(holdPunctuation("！", "？"), new LinearLayout.LayoutParams(0, s.pixels(44), 1));
-        utilities.addView(new View(s), new LinearLayout.LayoutParams(0, 1, 1));
-        utilities.addView(holdPunctuation("，", "。"), new LinearLayout.LayoutParams(0, s.pixels(44), 1));
+        }), holdKeyParams(0, utilityHeight, 1));
+        utilities.addView(holdPunctuation("！", "？"), holdKeyParams(0, utilityHeight, 1));
+        utilities.addView(new View(s), holdKeyParams(0, utilityHeight, 1));
+        utilities.addView(holdPunctuation("，", "。"), holdKeyParams(0, utilityHeight, 1));
         Button other = holdButton("其他", "锁定语音编辑操作", this::toggleEditPopup);
-        utilities.addView(other, new LinearLayout.LayoutParams(0, s.pixels(44), 1));
+        utilities.addView(other, holdKeyParams(0, utilityHeight, 1));
         holdUtilities = utilities;
         enableHoldUtilities(false);
         actions.addView(utilities, LayoutPolicy.matchWidthWrapParams());
@@ -497,12 +522,13 @@ final class ImeVoiceEntry {
             ? coveredActionRow.getHeight() : s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP);
         LinearLayout controls = LayoutPolicy.row(s);
         holdLockButton = holdButton("🔓", "滑到此处松手锁定录音", () -> {});
-        controls.addView(holdLockButton, new LinearLayout.LayoutParams(0, rowHeight, 1));
+        controls.addView(holdLockButton, holdKeyParams(0, rowHeight, 1));
         holdSpaceButton = holdButton("松开发送", "长按模式，松开发送", () -> {});
-        controls.addView(holdSpaceButton, new LinearLayout.LayoutParams(0, rowHeight, 3));
+        // 「松开发送」占上一行中间三列，连同其间的两个键距；先给它这两个键距的宽度，余下按 1:3:1 分，🔓 和「发送」才与「符」「其他」同宽。
+        controls.addView(holdSpaceButton, holdKeyParams(keyGap * 2, rowHeight, 3));
         holdSendButton = holdButton("发送", "发送本次语音", this::finishListening);
         finishButton = holdSendButton;
-        controls.addView(holdSendButton, new LinearLayout.LayoutParams(0, rowHeight, 1));
+        controls.addView(holdSendButton, holdKeyParams(0, rowHeight, 1));
         actions.addView(controls, LayoutPolicy.matchWidthWrapParams());
         column.addView(actions, LayoutPolicy.matchWidthWrapParams());
         actionsRow = actions;
@@ -543,6 +569,9 @@ final class ImeVoiceEntry {
         if (!locked || !(holdUtilities instanceof ViewGroup group)) return;
         View anchor = group.getChildAt(group.getChildCount() - 1);
         LinearLayout content = LayoutPolicy.row(s);
+        // 三个键之间和四周同样留键距、行距，弹层按含间距的格子算宽高（#10966）。
+        int keyGap = halfHoldKeyGap() * 2;
+        int rowGap = s.halfSpacingPixels(s.touchRowSpacingTenths) * 2;
         String[] labels = {"换行", "空格", "删除"};
         for (int index = 0; index < labels.length; index++) {
             int action = index;
@@ -550,16 +579,16 @@ final class ImeVoiceEntry {
                 if (!locked) return;
                 if (action == 2) s.deleteCodePointBeforeCursor();
                 else s.commitText(action == 0 ? "\n" : " ", TypingSource.LOCAL);
-            }), new LinearLayout.LayoutParams(s.pixels(56), s.pixels(44)));
+            }), holdKeyParams(s.pixels(56), s.pixels(44) + rowGap, 0));
         }
         s.imeStyler.applySkinBackground(content);
-        PopupWindow popup = new PopupWindow(content, s.pixels(168), s.pixels(44), false);
+        int width = (s.pixels(56) + keyGap) * labels.length, height = s.pixels(44) + rowGap;
+        PopupWindow popup = new PopupWindow(content, width, height, false);
         popup.setOutsideTouchable(false);
         editPopup = popup;
         popup.setOnDismissListener(() -> { if (editPopup == popup) editPopup = null; });
         // IME 子窗口的屏幕原点不为零，按锚点偏移定位，避免重复叠加窗口坐标。
-        popup.showAsDropDown(anchor, anchor.getWidth() - s.pixels(168),
-            -anchor.getHeight() - s.pixels(44));
+        popup.showAsDropDown(anchor, anchor.getWidth() - width, -anchor.getHeight() - height);
         ScreenCaptureProtection.apply(popup);
     }
 

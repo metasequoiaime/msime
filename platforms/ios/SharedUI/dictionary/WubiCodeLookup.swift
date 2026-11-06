@@ -2,12 +2,22 @@ import Foundation
 
 /// 五笔查码（#6789）的回答：词库请求 `{operation:"wubi_codes", text}`（host-api `wubi_codes_json`），与共享设置页 `wubi-code-lookup-section.tsx` 读的是同一个形状，排法和文字也照它。
 ///
-/// `phrase` 是整段文字作为一个词的编码（整段不是 2 到 16 个汉字、或两张表都没有它时为空），`characters` 是每个不同的汉字，按第一次出现的顺序；编码各自短码在前。码表里没有的一列是空数组。
+/// `phrase` 是整段文字作为一个词的编码（整段不是 2 到 16 个汉字、或三张表都没有它时为空），`characters` 是每个不同的汉字，按第一次出现的顺序；编码各自短码在前。码表里没有的一列是空数组；认识新世纪之前的宿主不回 `wubixsj`，也按空数组读，查码页照样画三列。
 struct WubiCodeLookup: Equatable, Sendable {
   struct Codes: Equatable, Sendable {
     let text: String
     let wubi86: [String]
     let wubi98: [String]
+    let wubixsj: [String]
+
+    /// 一列的编码，列的顺序就是 `WubiProfilePreference.Version.allCases`。
+    func codes(_ column: WubiProfilePreference.Version) -> [String] {
+      switch column {
+      case .wubi86: wubi86
+      case .wubi98: wubi98
+      case .wubixsj: wubixsj
+      }
+    }
   }
 
   enum Failure: Error {
@@ -16,7 +26,7 @@ struct WubiCodeLookup: Equatable, Sendable {
 
   /// 输入框最多收的字符数；宿主拒绝超过 4096 字节的文字，一千个汉字（扩展区的字每个 4 字节）也在这之内。
   static let maximumLength = 1000
-  static let description = "输入或粘贴汉字，列出每个字的 86 和 98 五笔编码，简码在前、全码在后。打字时也能查：五笔拼音混输关闭时先按 z 再打拼音，候选后面标着它的五笔编码。"
+  static let description = "输入或粘贴汉字，列出每个字的 86、98 和新世纪五笔编码，简码在前、全码在后。打字时也能查：五笔拼音混输关闭时先按 z 再打拼音，候选后面标着它的五笔编码。"
   static let failed = "查码失败，请稍后重试。"
   static let nothing = "没有可以查的汉字。"
 
@@ -44,7 +54,13 @@ struct WubiCodeLookup: Equatable, Sendable {
           let wubi86 = item["wubi86"] as? [String], let wubi98 = item["wubi98"] as? [String] else {
       throw Failure.invalidResponse
     }
-    return Codes(text: text, wubi86: wubi86, wubi98: wubi98)
+    let wubixsj: [String]
+    switch item["wubixsj"] {
+    case nil: wubixsj = []
+    case let list as [String]: wubixsj = list
+    default: throw Failure.invalidResponse
+    }
+    return Codes(text: text, wubi86: wubi86, wubi98: wubi98, wubixsj: wubixsj)
   }
 
   /// 输入框里有不是空白的字才查。
@@ -53,10 +69,8 @@ struct WubiCodeLookup: Equatable, Sendable {
   }
 
   /// 列标题：当前所选的码表后面标「（当前）」，不认识的版本按 86，与键盘相同。
-  static func columnTitle(_ column: String, profile: String) -> String {
-    let current = profile == "wubi98" ? "wubi98" : "wubi86"
-    let title = column == "wubi98" ? "98 五笔" : "86 五笔"
-    return column == current ? "\(title)（当前）" : title
+  static func columnTitle(_ column: WubiProfilePreference.Version, profile: String) -> String {
+    column == WubiProfilePreference.Version(known: profile) ? "\(column.title)（当前）" : column.title
   }
 
   /// 一列的编码，空格分开；码表里没有时是「—」。
@@ -64,9 +78,11 @@ struct WubiCodeLookup: Equatable, Sendable {
     list.isEmpty ? "—" : list.joined(separator: " ")
   }
 
-  /// 读屏念的一行：文字和两列编码。
+  /// 读屏念的一行：文字和三列编码。
   static func spoken(_ item: Codes, profile: String) -> String {
-    "\(item.text)，\(columnTitle("wubi86", profile: profile)) \(codes(item.wubi86))，\(columnTitle("wubi98", profile: profile)) \(codes(item.wubi98))"
+    ([item.text] + WubiProfilePreference.Version.allCases.map { column in
+      "\(columnTitle(column, profile: profile)) \(codes(item.codes(column)))"
+    }).joined(separator: "，")
   }
 
   /// 不同的字太多、后面没有列出时的提示。

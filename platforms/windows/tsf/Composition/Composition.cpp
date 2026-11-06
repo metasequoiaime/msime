@@ -12,6 +12,7 @@
 #include "FanyDefines.h"
 #include "Ipc.h"
 #include "SmartPunctuationFingerprint.h"
+#include "SmartPunctuationDeferralPolicy.h"
 #include "../Utils/PerfTimer.h"
 
 namespace
@@ -120,6 +121,27 @@ bool AreCaretModifiersPhysicallyDown()
         }
     }
     return false;
+}
+
+// 只按了修饰键不算「标点之后又按了别的键」：它们什么都不改，光标前的字符还是那个标点。
+bool IsSmartPunctuationModifierKey(UINT code)
+{
+    switch (code)
+    {
+    case VK_SHIFT:
+    case VK_LSHIFT:
+    case VK_RSHIFT:
+    case VK_CONTROL:
+    case VK_LCONTROL:
+    case VK_RCONTROL:
+    case VK_MENU:
+    case VK_LMENU:
+    case VK_RMENU:
+    case VK_CAPITAL:
+        return true;
+    default:
+        return false;
+    }
 }
 
 WCHAR SmartPunctuationAsciiFor(WCHAR chinese)
@@ -337,6 +359,7 @@ void CMetasequoiaIME::_ClearSmartPunctuationSpace()
     _smartPunctuationSpaceBeforeChar = 0;
     _smartPunctuationSpaceFocusToken = 0;
     _smartPunctuationSpaceForegroundWindow = nullptr;
+    _smartPunctuationSpaceInterrupted = false;
 }
 
 void CMetasequoiaIME::_ClearSmartPunctuationRevert()
@@ -389,6 +412,7 @@ HRESULT CMetasequoiaIME::_HandleSmartPunctuationConvert(TfEditCookie ec, _In_ IT
 {
     const WCHAR chinese = _smartPunctuationSpaceChinese;
     const WCHAR beforeChar = _smartPunctuationSpaceBeforeChar;
+    const bool interrupted = _smartPunctuationSpaceInterrupted;
     const WCHAR ascii = SmartPunctuationAsciiFor(chinese);
     _ClearSmartPunctuationSpace();
     if (ascii == 0)
@@ -403,6 +427,14 @@ HRESULT CMetasequoiaIME::_HandleSmartPunctuationConvert(TfEditCookie ec, _In_ IT
     // its own proof that it is the one that armed: the same punctuation is
     // usually somewhere else in the document too.
     if ((preceding != 0 && preceding != chinese) || !_SmartPunctuationFingerprintMatches(ec, pContext, beforeChar))
+    {
+        CStringRange space;
+        space.Set(L" ", 1);
+        return _AddCharAndFinalize(ec, pContext, &space);
+    }
+    // 读不回文档又被打断：两条兑现路径都不能走。盲删会删掉用户后来打的字；原地改写
+    // （ShiftStart + SetText）在终端代理存储里会报成功但什么都不改，空格就被吞了。
+    if (preceding == 0 && interrupted)
     {
         CStringRange space;
         space.Set(L" ", 1);
@@ -466,7 +498,7 @@ HRESULT CMetasequoiaIME::_HandleSmartPunctuationConvert(TfEditCookie ec, _In_ IT
     return S_OK;
 }
 
-HRESULT CMetasequoiaIME::_HandleSmartPunctuationRevert(TfEditCookie ec, _In_ ITfContext *pContext, WCHAR wch)
+HRESULT CMetasequoiaIME::_HandleSmartPunctuationRevert(TfEditCookie ec, _In_ ITfContext *pContext, UINT code, WCHAR wch)
 {
     const WCHAR ascii = _smartPunctuationRevertAscii;
     const WCHAR chinese = _smartPunctuationRevertChinese;
@@ -475,7 +507,33 @@ HRESULT CMetasequoiaIME::_HandleSmartPunctuationRevert(TfEditCookie ec, _In_ ITf
     const bool sameKey = wch == ascii || (ascii == L'/' && wch == L'\\');
     if (ascii == 0 || chinese == 0 || !sameKey)
     {
-        return E_INVALIDARG;
+        // 武装在排队等回放时可能已经过期（重复标点只有 2 秒窗口）或已被清掉。这颗键已经被吃掉，返回失败会把它整个丢掉；直接写下按的字又绕过了标点决议（「1.」后再按 `.` 得到「1..」而不是「1.。」），前文影子也不更新。按这颗键没被认领时 _IsKeyEaten 会给它的分类走同一个处理函数，同一颗键进不进屏障结果一样。
+        if (wch == 0)
+        {
+            return E_INVALIDARG;
+        }
+        if (_pCompositionProcessorEngine != nullptr &&
+            _pCompositionProcessorEngine->GetPunctuationMode(_pThreadMgr, _tfClientId) &&
+            _pCompositionProcessorEngine->IsPunctuation(wch))
+        {
+            return _HandleCompositionPunctuation(ec, pContext, code, wch, FANY_IME_NO_REQUEST_ID,
+                                                 _PrefetchPunctuationCommitText(code, wch));
+        }
+        if (_pCompositionProcessorEngine != nullptr &&
+            _pCompositionProcessorEngine->GetDoubleSingleByteMode(_pThreadMgr, _tfClientId) &&
+            _pCompositionProcessorEngine->IsDoubleSingleByte(wch))
+        {
+            return _HandleCompositionDoubleSingleByte(ec, pContext, wch);
+        }
+        // 不吃的键原样交给应用，这里替它写进文档，和排队的应用文本一样记进前文影子。
+        CStringRange typed;
+        typed.Set(&wch, 1);
+        const HRESULT hr = _AddCharAndFinalize(ec, pContext, &typed);
+        if (SUCCEEDED(hr))
+        {
+            _NoteSmartPunctuationDocumentText(wch);
+        }
+        return hr;
     }
 
     const WCHAR preceding = _GetPrecedingDocumentChar(ec, pContext);
@@ -932,6 +990,16 @@ void CMetasequoiaIME::_UpdateSmartPunctuationShadow(UINT code, WCHAR wch, bool i
     _smartPunctuationShadowValid = true;
 }
 
+void CMetasequoiaIME::_NoteSmartPunctuationDocumentText(WCHAR wch)
+{
+    if (wch == 0 || std::iswprint(static_cast<wint_t>(wch)) == 0)
+    {
+        return;
+    }
+    _smartPunctuationShadowChar = wch;
+    _smartPunctuationShadowValid = true;
+}
+
 void CMetasequoiaIME::_NoteKeyForSmartPunctuation(UINT code, WCHAR wch, bool isEaten)
 {
     // The replacement message normally runs before another input event. If it
@@ -945,9 +1013,28 @@ void CMetasequoiaIME::_NoteKeyForSmartPunctuation(UINT code, WCHAR wch, bool isE
         _pendingSmartPunctuationDeadline = 0;
     }
 
-    if (_smartPunctuationSpaceArmed && !_CanConvertSmartPunctuationSpace())
+    if (_smartPunctuationSpaceArmed &&
+        !Global::SmartPunctuationArmStillBelongsToDocument(
+            _smartPunctuationSpaceFocusToken, _CaptureFocusSessionToken(),
+            GetForegroundWindow() == _smartPunctuationSpaceForegroundWindow))
     {
         _ClearSmartPunctuationSpace();
+    }
+    // 标点之后又按了别的键：读不回文档时兑现要靠盲删一个字符（见
+    // _HandleSmartPunctuationConvert），那时这条手势不能再兑现。只按修饰键不算；空格键本身
+    // 除外，它就是兑现；退格直接把武装作废——和 macOS 下一个键就消费武装的语义一致。
+    const bool armedSpace = _smartPunctuationSpaceArmed;
+    const bool convertingSpace = armedSpace && code == VK_SPACE && _CanConvertSmartPunctuationSpace();
+    if (armedSpace && !convertingSpace)
+    {
+        if (code == VK_BACK)
+        {
+            _ClearSmartPunctuationSpace();
+        }
+        else if (!IsSmartPunctuationModifierKey(code))
+        {
+            _smartPunctuationSpaceInterrupted = true;
+        }
     }
     if (_smartPunctuationRevertArmed && !_CanRevertSmartPunctuation(wch))
     {
@@ -956,7 +1043,7 @@ void CMetasequoiaIME::_NoteKeyForSmartPunctuation(UINT code, WCHAR wch, bool isE
 
     // Preserve the local conversion arm through OnTestKeyDown and OnKeyDown;
     // the edit session consumes it after both key-sink passes complete.
-    if (code == VK_SPACE && _CanConvertSmartPunctuationSpace())
+    if (convertingSpace)
     {
         return;
     }
@@ -1053,6 +1140,12 @@ std::wstring CMetasequoiaIME::_ResolveSmartPunctuation(WCHAR wch, WCHAR precedin
             committedAscii = false;
         }
     }
+
+    // 决议用的是什么前文：影子还在就用影子，否则只能问文档。QQ 这类读不回前文的宿主里，
+    // 「时好时坏」就是这两者的差别，所以连类别一起记下来（不记字符）。
+    DebugTsfSmartPunctuation(precedingChar,
+                             _smartPunctuationShadowValid && precedingChar == _smartPunctuationShadowChar,
+                             committedAscii);
 
     _smartPunctuationKey = wch;
     _smartPunctuationPrecedingChar = precedingChar;

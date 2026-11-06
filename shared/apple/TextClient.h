@@ -49,6 +49,8 @@ void MSIMEApplyTransitionWithWriteGuard(NSDictionary *transition, id<MSIMETextCl
                                        BOOL *clientHasMarkedText, BOOL (^isCurrent)(void));
 // UTF-16 display offset shared by marked text and the candidate preedit row.
 NSUInteger MSIMEPreeditCaretPosition(NSString *editing, NSString *preedit, id position);
+// 视图的 preedit 去掉辅助码前导键（View.helpcode_trigger，#10731）后的拼写，给拿 preedit 当码记东西的地方用（候选置顶）：前导键只是显示，按下它前后的码应当相同。没有前导键或字段不合法时原样返回 preedit。
+NSString *MSIMEPreeditWithoutHelpcodeTrigger(NSString *preedit, id editing, id trigger);
 
 // Returns the single UTF-16 character immediately following the selection,
 // or nil when the host cannot safely expose document context.

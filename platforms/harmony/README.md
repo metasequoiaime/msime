@@ -36,7 +36,7 @@ AI 生成类功能的总闸关着时，社区也不列 AI 生成的皮肤：设�
 
 ### 「我的词条」只有一份
 
-两个进程各有一份 Engine 日志（各自的 `files/state/user/msime_user.db`），这一点没有变：学习记录、候选顺序和固定位置只在键盘里，设置应用不打字。变的是「我的词条」——日志里 `user_inserted` 而且没删的词条，也就是设置页「我的词条」列出的、WebDAV 网盘同步的那一组，身份是（词库类别、编码、词）：两份经共享沙箱交换，收敛成同一组。以前键盘打字学到的词只在键盘那份里，设置页改的、导入的词只在设置应用那份里。规则在 Rust 的 `msime_client_user_words_mirror`（`crates/host-api/src/user_words_mirror.rs`，C 头文件里有完整说明），宿主一侧是 `keyboard/UserWordsMirror.ets` 和 `keyboard/UserWordsMirrorPolicy.ts`（`tests/user-words-mirror-policy.test.ts`，调用点由 `scripts/test-harmony-user-words-mirror.py` 守着）。决定与备选见 `.agents/notes/implemented/feature/2026-10-27-harmony-unified-user-words.md`。
+两个进程各有一份 Engine 日志（各自的 `files/state/user/msime_user.db`），这一点没有变：学习记录、候选顺序和固定位置只在键盘里，设置应用不打字。变的是「我的词条」——日志里 `user_inserted` 而且没删的词条，也就是设置页「我的词条」列出的、WebDAV 网盘同步的那一组，再加上设置页里加的粤语词（WebDAV 不同步它们，但键盘的粤语方案要从键盘自己的日志里读到它们才出候选），身份是（词库类别、编码、词）：两份经共享沙箱交换，收敛成同一组。以前键盘打字学到的词只在键盘那份里，设置页改的、导入的词只在设置应用那份里。规则在 Rust 的 `msime_client_user_words_mirror`（`crates/host-api/src/user_words_mirror.rs`，C 头文件里有完整说明），宿主一侧是 `keyboard/UserWordsMirror.ets` 和 `keyboard/UserWordsMirrorPolicy.ts`（`tests/user-words-mirror-policy.test.ts`，调用点由 `scripts/test-harmony-user-words-mirror.py` 守着）。决定与备选见 `.agents/notes/implemented/feature/2026-10-27-harmony-unified-user-words.md`。
 
 - 每一边在自己的 `files/state/user-words/` 里给每个词条记一个「最后写入者胜」的寄存器（时间戳、在不在），发布到 `<共享目录>/msime/<settings|keyboard>/user-words/words.json`。这个文件不走上面的清单和指纹，由两边的 Rust 直接原子替换和读取。
 - 设置应用：窗口回到前台和每次改完设置之后（与上面的镜像发布同一时机），在工作线程上先排空它自己的个人词库队列，再合并键盘的发布、发布自己的；本方日志、队列和键盘的发布都没变时不做。导入的个人词库文件、云词库下载和命名词库的词都走这个队列，API 12 起键盘排空的是它自己沙箱里的那个，所以这些词以前从来没进过任何一份词库；现在由设置应用写进它的词库，再交换到键盘。
@@ -436,9 +436,11 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 共享偏好 `touch_quanpin_shift`（设置页「屏幕键盘 › 布局」的「组字时保留 Shift」）默认开启，全拼 26 键组字时第三排左端保留 ⇧，点一下臂辅助码（Shift+字母），不再换成「分词」键；明确写 `false` 后改为分词，九键、14 键和 18 键自带的分词键不受它影响。键盘在 `KeyboardSession` 准备偏好时按 `!== false` 读它（缺键、类型错都按开），`KeyboardView` 的 `usesQuanpinSeparator()` 和键面 `faceKey()` 都按它分支，开关变化即重画。账号同步键是 `platform.harmony.quanpin_shift`。
 
-全拼或双拼组字时，Shift 加字母以大写字母交给 Engine（`ChineseHelpcodePolicy.letterInput`）：Engine 只把组字中的大写字母当辅助码，不看 Shift 标志。双拼「末尾间接触发（大写字母）」和「句中触发键（大写字母）」也走这条路。分号、反引号、`/` 和「辅助码触发键」这些间接触发键在符号层里按：它们此刻会开一段辅助码时，Engine 把它们列进 `spelling_symbols`，2in1 符号行的 `tapSymbol` 按 `HardwareKeyRouter.touchSpells` 当字符送进去，外接键盘同样如此；触屏 123 层（画成「；」的分号键）和数字九宫格经 `typeHelpcodeTrigger`（`ChineseHelpcodePolicy.layerTrigger`）先交给 Engine，收下就回到字母层接着打辅助码字母，不收才照常上屏键面。全拼和双拼的「辅助码触发键」在设置页「输入 › 辅助码 › 更多选项」，宿主能力 `helpcode_trigger_key` 在 HarmonyOS 和 Linux 上打开。
+全拼或双拼组字时，Shift 加字母以大写字母交给 Engine（`ChineseHelpcodePolicy.letterInput`）：Engine 只把组字中的大写字母当辅助码，不看 Shift 标志。双拼「末尾间接触发（大写字母）」和「句中触发键（大写字母）」也走这条路。分号、反引号、`/` 和「辅助码触发键」这些间接触发键在符号层里按：它们此刻会开一段辅助码时，Engine 把它们列进 `spelling_symbols`，2in1 符号行的 `tapSymbol` 按 `HardwareKeyRouter.touchSpells` 当字符送进去，外接键盘同样如此；触屏 123 层（画成「；」的分号键）和数字九宫格经 `typeHelpcodeTrigger`（`ChineseHelpcodePolicy.layerTrigger`）先交给 Engine，收下就回到字母层接着打辅助码字母，不收才照常上屏键面。全拼和双拼的「辅助码触发键」在设置页「输入 › 辅助码 › 更多选项」，宿主能力 `helpcode_trigger_key` 在 HarmonyOS 和 Linux 上打开。按下的触发键会画在读音行和 2in1 原始按键样式的预上屏文字里（`drawnReading`、`drawnCaret` 经 `HelpcodeTriggerPolicy` 插入）：刚按下时是 `ni;`，打了一位码时原始按键样式是 `ni;F`、拼音样式是 `ni';F`，两位码打齐后它不再显示，未输码时退格把它连同辅助码输入一起退掉（[辅助码前导键在组字区显示](../../.agents/notes/implemented/feature/2026-11-03-helpcode-trigger-visible.md)）。
 
 振动三档以前只差时长（10/20/35 ms）、强度固定，摸不出差别。现在每档用一个预置效果加拉开的强度（`KeyboardFeedback.plan`：轻 `haptic.effect.soft` 35、中 `haptic.effect.sharp` 70、强 `haptic.effect.hard` 100），设备不支持该效果（`isSupportEffectSync`，结果按效果缓存）时退回 8/20/40 ms。新增「跟随系统」（`system`）：用 `usage: 'touch'` 和 `haptic.clock.timer`、不带强度，振不振、多强由系统的触感反馈设置决定。按键反馈文件每次聚焦都重读，设置页改了档位不必等输入法重启。这些强度是按 SDK 6.1.1（API 24）的类型声明写的，还没在真机上逐档摸过。
+
+触屏键盘的按键在手指按下时就振动，抬手上屏时不再振第二次（#10757）：装着按键的那一列在按键的触摸处理完之后收到按下，交给 `KeyboardSession.keyDown` 振动并留一个令牌，上屏路径的 `tapFeedback` 先消耗令牌；抬手后 `KeyPressFeedback.RELEASE_GRACE_MS` 撤回没用掉的令牌。`holdFeedback` 是长按确认，照常振动。九键左列的拼写列表不是键：按下时它先置上 `keyPressOutsideKeys`，冒泡到容器时这次按下不振动，滚动和点选拼写与以前一样不振。按键音仍由各键的点击经 `softKeyPress` 在抬手时出声：按下时在容器上拿不到是哪个键。规则在 `input/KeyPressFeedback.ts`，`key-press-feedback.test.ts` 覆盖；决定见[移动键盘按下即给按键反馈](../../.agents/notes/implemented/feature/2026-11-03-mobile-key-feedback-on-press.md)。
 
 ## 候选词的译文此前只能看，不能用
 

@@ -182,6 +182,21 @@ test("HarmonyOS 关于 has the hero, 法律信息 with 查看 buttons and teleme
   expect(within(about).getByRole("switch", { name: "匿名使用统计" })).toBeTruthy();
 });
 
+// 粤语双拼的键位方案由陳澍鋒设计（#9799）：鸿蒙把致谢排在「法律信息」的「开源许可」下面，按同组的写法用「查看」按钮。
+test("HarmonyOS 法律信息 credits the 粤语双拼 designer under 开源许可", async () => {
+  const openExternalUrl = renderAbout({});
+  const about = await screen.findByRole("group", { name: "关于" });
+  await within(about).findByText("版本 1.4.2 · HarmonyOS");
+  expect(within(about).getByText("陳澍鋒设计")).toBeTruthy();
+
+  fireEvent.click(within(about).getByRole("button", { name: "查看粤语双拼键位方案的致谢" }));
+  const dialog = await screen.findByRole("alertdialog", { name: "粤语双拼键位方案" });
+  expect(dialog.textContent).toContain("#9799");
+  fireEvent.click(within(dialog).getByRole("button", { name: "关闭" }));
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  expect(openExternalUrl).not.toHaveBeenCalled();
+});
+
 test("the 2in1 names its form factor in the version line and keeps its download rows", async () => {
   renderAbout({ mobile_settings: false, panel_windows: true });
   const about = await screen.findByRole("group", { name: "关于" });

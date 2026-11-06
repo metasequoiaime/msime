@@ -4,6 +4,7 @@ import { useSettingsForm } from "../settings-form-context";
 import { GroupList, LinkRow, Row } from "../../core/platform-controls";
 import { MascotIllustration } from "../../core/mascot";
 import { LicenseRows } from "../license-rows";
+import { CantoneseShuangpinCreditRow } from "../cantonese-shuangpin-credit-row";
 import { TelemetryRow, TelemetrySection } from "../telemetry-section";
 import { PrivacyConsentRow } from "../privacy-consent-row";
 import { ScreenCaptureProtectionGroup } from "../screen-capture-protection-row";
@@ -229,6 +230,7 @@ export function AboutSettingsPage() {
                   label="查看"
                 />
               </Row>
+              <CantoneseShuangpinCreditRow harmony openExternalUrl={openExternalUrl} />
             </GroupList>
             <TelemetrySection
               value={draft?.usage_reporting}
@@ -254,6 +256,7 @@ export function AboutSettingsPage() {
             {(macosPlatform || windowsPlatform) && (
               <LicenseRows openThirdPartyLicenses={client.openThirdPartyLicenses} />
             )}
+            <CantoneseShuangpinCreditRow harmony={false} openExternalUrl={openExternalUrl} />
             <LinkRow title="隐私政策" external onClick={openPrivacy} />
             <TelemetryRow
               value={draft?.usage_reporting}
