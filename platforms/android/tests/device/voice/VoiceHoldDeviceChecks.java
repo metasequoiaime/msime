@@ -104,6 +104,7 @@ final class VoiceHoldDeviceChecks {
                 if (t.find(window.getRoot(), t.described("键盘功能行")) != null)
                     throw new AssertionError("Original keyboard action row remains visible");
             captureKeyboard();
+            assertHoldKeyGaps();
             t.stage = "locked punctuation tap and swipe";
             t.tap(t.described("锁定语音：点按！，上滑？"));
             swipe(t.described("锁定语音：点按，，上滑。"));
@@ -113,6 +114,11 @@ final class VoiceHoldDeviceChecks {
             Rect other = bounds(t.described("锁定语音编辑操作"));
             Rect space = bounds(t.described("锁定语音空格"));
             if (space.bottom > other.top + 2) throw new AssertionError("Edit popup not above its anchor");
+            t.stage = "locked edit popup keys keep key gaps";
+            Rect newline = bounds(t.described("锁定语音换行"));
+            Rect delete = bounds(t.described("锁定语音删除"));
+            gap(newline.right, space.left, "popup 换行 and 空格");
+            gap(space.right, delete.left, "popup 空格 and 删除");
             t.stage = "locked popup inserts a space";
             t.tap(t.described("锁定语音空格"));
             text("！。 ");
@@ -180,6 +186,38 @@ final class VoiceHoldDeviceChecks {
             if (original == null) Files.deleteIfExists(preferences.toPath()); else t.publish(preferences, original);
             t.restartIme();
         }
+    }
+
+    /** 锁定后的操作键像普通键区一样彼此隔开（#10966）：同行相邻键留键距、上下行留行距，不贴屏幕边缘；最下一行的 🔓 和「发送」与上一行的「符」「其他」同列。 */
+    private void assertHoldKeyGaps() {
+        t.stage = "locked hold keys keep key and row gaps";
+        Rect cancel = bounds(t.described("取消本次语音"));
+        Rect symbol = bounds(t.described("锁定语音中打开符号"));
+        Rect exclaim = bounds(t.described("锁定语音：点按！，上滑？"));
+        Rect comma = bounds(t.described("锁定语音：点按，，上滑。"));
+        Rect other = bounds(t.described("锁定语音编辑操作"));
+        Rect lock = bounds(t.described("滑到此处松手锁定录音"));
+        Rect held = bounds(t.described("录音已锁定，点击发送或取消结束"));
+        Rect send = bounds(t.described("发送本次语音"));
+        gap(symbol.right, exclaim.left, "符 and ！");
+        gap(comma.right, other.left, "， and 其他");
+        gap(lock.right, held.left, "lock and locked space");
+        gap(held.right, send.left, "locked space and send");
+        gap(cancel.bottom, symbol.top, "cancel row and utility row");
+        gap(symbol.bottom, lock.top, "utility row and control row");
+        Rect screen = new Rect();
+        for (android.view.accessibility.AccessibilityWindowInfo window : t.automation.getWindows())
+            if (window.getType() == android.view.accessibility.AccessibilityWindowInfo.TYPE_INPUT_METHOD)
+                window.getBoundsInScreen(screen);
+        gap(screen.left, symbol.left, "keyboard edge and 符");
+        gap(other.right, screen.right, "其他 and keyboard edge");
+        if (Math.abs(lock.right - symbol.right) > 1 || Math.abs(send.left - other.left) > 1)
+            throw new AssertionError("Control row columns drift from the utility row: "
+                + lock + " " + symbol + " " + send + " " + other);
+    }
+
+    private static void gap(int before, int after, String what) {
+        if (after <= before) throw new AssertionError("No gap between " + what + ": " + before + " >= " + after);
     }
 
     /** 仅保存合成输入法窗口的像素，编辑器不进入截图。 */

@@ -1682,6 +1682,22 @@ if ! rg -qF 'fail(PlatformSpeechPolicy.message(error))' "$voice_activity" \
   echo "Android platform speech callbacks must keep coded errors, the activity hand-off, the uncut pause and the level reset" >&2
   exit 1
 fi
+# 长按语音锁定后的操作区和「其他」编辑弹层像普通键区一样留键距、行距（#10966）。0.6.0 的这些键用不带外边距的 LayoutParams，键帽横竖连成一片、顶到屏幕边缘。实际间隙由 VoiceHoldDeviceChecks.assertHoldKeyGaps 在设备上量；排版在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：每个键位经 holdKeyParams 取与键区相同的键距（halfHoldKeyGap）和用户的行距，操作区不再直接 new 不带外边距的键位参数，容器只在盖住功能行后按键区同样的 keyAreaEdgePadding 补左右内边距，弹层的宽高按含间距的格子算。
+if ! rg -qF 'int horizontal = halfHoldKeyGap();' "$voice_entry" \
+  || ! rg -qF 'int edge = coveredActionRow == null ? 0 : s.imeStyler.keyAreaEdgePadding();' "$voice_entry" \
+  || ! rg -qF 'int vertical = s.halfSpacingPixels(s.touchRowSpacingTenths);' "$voice_entry" \
+  || ! rg -qF 'params.setMargins(horizontal, vertical, horizontal, vertical);' "$voice_entry" \
+  || ! rg -qF 'ViewPolicy.setHorizontalPaddingPreservingVertical(actions, edge);' "$voice_entry" \
+  || ! rg -qF 'controls.addView(holdSpaceButton, holdKeyParams(keyGap * 2, rowHeight, 3));' "$voice_entry" \
+  || ! rg -qF 'int width = (s.pixels(56) + keyGap) * labels.length, height = s.pixels(44) + rowGap;' "$voice_entry" \
+  || rg -qF 'new LinearLayout.LayoutParams(0, s.pixels(44)' "$voice_entry" \
+  || rg -qF 'new LinearLayout.LayoutParams(0, rowHeight' "$voice_entry" \
+  || rg -qF 'new LinearLayout.LayoutParams(s.pixels(56), s.pixels(44))' "$voice_entry" \
+  || rg -qF 'new LinearLayout.LayoutParams(0, buttonHeight' "$voice_entry" \
+  || rg -qF 'new LinearLayout.LayoutParams(0, controlHeight' "$voice_entry"; then
+  echo "Android voice hold keys must keep the user's key and row spacing between caps (#10966)" >&2
+  exit 1
+fi
 # The JNI translation unit is the one place a Java declaration and a shared FFI signature have to agree, and nothing else in this script reads it: a method declared native in Java compiles whether or not the C++ side exists. Compiling it for the real target catches that without the full native build, which needs vcpkg, the Rust Android targets and the pinned speech runtime. A machine without the pinned NDK skips it and says so.
 ndk=${MSIME_ANDROID_NDK:-${android_sdk}/ndk/28.2.13676358}
 case $(uname -s) in
