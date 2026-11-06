@@ -234,6 +234,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var voiceDictation: KeyboardVoiceDictation?
   /// 听写开始时的输入位置；结果回来时位置变了就不直接上屏。
   private var voiceDictationContext: KeyboardDocumentContext?
+  /// 听写开始时读到的语音标点（`voice_input.punctuation_mode`，#10595），与 Android 一样在开始聆听时取值，最终结果上屏前按它处理一次。
+  private var voiceDictationPunctuation = VoicePunctuation.auto
   /// 按住空格开始听写时手指的纵坐标，用来判断上滑取消；松手后或读屏开始的听写为 nil。
   private var voiceHoldOriginY: CGFloat?
   /// 手写区：铺满键盘宽度的书写卡片，与 Android 的 rebuildHandwritingRows、HarmonyOS 的 handwritingPad 一致；⌫ 与「重写」在底行（`handwritingRewriteButton`、`handwritingDeleteButton`）。
@@ -6004,6 +6006,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       KeyboardDocumentContext(document: $0, before: textDocumentProxy.documentContextBeforeInput,
                               selected: textDocumentProxy.selectedText, after: textDocumentProxy.documentContextAfterInput)
     }
+    voiceDictationPunctuation = VoicePunctuation.mode(session.sharedPreferences ?? MetasequoiaInputSessionBridge.loadSharedPreferences())
     voiceHoldOriginY = held ? originY : nil
     let panel = KeyboardVoicePanelView(dictationHeld: held, skin: KeyboardTheme.current)
     panel.onCancel = { [weak self] in self?.closeKeyboardPicker() }
@@ -6039,8 +6042,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       voicePanel?.showRecognizing(text: text, message: message)
     case .finished(let text):
       let context = voiceDictationContext
+      let punctuation = voiceDictationPunctuation
       endVoiceDictation()
-      insertVoiceResult(text, context: context)
+      insertVoiceResult(text, context: context, punctuation: punctuation)
     case .failed(let message, let reopensSession):
       endVoiceDictation()
       showDiagnostic(message)
@@ -6053,12 +6057,18 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func endVoiceDictation() {
     voiceDictation = nil
     voiceDictationContext = nil
+    voiceDictationPunctuation = VoicePunctuation.auto
     voiceHoldOriginY = nil
     closeKeyboardPicker()
   }
 
-  /// 输入位置还和听写开始时一样就直接上屏；变了就把结果留在语音交接里，可以在功能菜单的「语音结果」里插入（Android 留在语音结果面板里）。
-  private func insertVoiceResult(_ text: String, context: KeyboardDocumentContext?) {
+  /// 输入位置还和听写开始时一样就直接上屏；变了就把结果留在语音交接里，可以在功能菜单的「语音结果」里插入（Android 留在语音结果面板里）。所有识别服务和 App 里的润色都在这之前结束，语音标点在这里处理一次，直接上屏的和存进语音交接的都是处理后的文字，领取语音结果时不再处理；只剩标点时与 Android 一样提示没有识别到文字。
+  private func insertVoiceResult(_ recognized: String, context: KeyboardDocumentContext?, punctuation: String) {
+    guard let text = VoicePunctuation.finalText(recognized, mode: punctuation) else {
+      showDiagnostic("没有识别到文字")
+      renderCandidateStrip()
+      return
+    }
     guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
       showDiagnostic("没有听到内容，请靠近麦克风再试。")
       renderCandidateStrip()
