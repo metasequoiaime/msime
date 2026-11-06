@@ -50,6 +50,12 @@ public final class FloatingKeyboardBar extends LinearLayout {
 
     public void setListener(Listener value) { listener = value; }
 
+    /** 显示或藏起中间的横条，拖动区的位置和这一行的高度不变。「键盘调整」打开时藏起：遮罩接走全部触摸，浮动键盘在那里也没有「移动」，横条拖不动；遮罩的上沿柄正好画在它上面，两者叠在一起。 */
+    public void setGripShown(boolean shown) {
+        int visibility = shown ? VISIBLE : INVISIBLE;
+        if (grip.getVisibility() != visibility) grip.setVisibility(visibility);
+    }
+
     /** 横条与停靠图标的颜色（kbFg；横条绘制时取 35%）。 */
     public void setColors(int foreground) {
         grip.color = ColorPolicy.withAlpha(foreground, .35f);

@@ -1,5 +1,6 @@
 package app.msime.android;
 
+import app.msime.android.KeyboardAdjustPolicy.ActionRow;
 import app.msime.android.KeyboardAdjustPolicy.Availability;
 import app.msime.android.KeyboardAdjustPolicy.Horizontal;
 import app.msime.android.KeyboardAdjustPolicy.Part;
@@ -7,7 +8,7 @@ import app.msime.android.KeyboardAdjustPolicy.Range;
 import app.msime.android.KeyboardAdjustPolicy.Vertical;
 
 /**
- * 「键盘调整」遮罩的纯逻辑：哪些柄显示、每条边拖动只动自己那条边（对边在屏幕上不动）、抬高与宽度位置的换算、读屏范围和步长。
+ * 「键盘调整」遮罩的纯逻辑：哪些柄显示、每条边拖动只动自己那条边（对边在屏幕上不动）、抬高与宽度位置的换算、读屏范围和步长、中间一排按钮的宽度与间距。
  */
 public final class KeyboardAdjustPolicySmoke {
     /** 一台约 800 dp 高的竖屏手机：窗口封顶不低于设计上限 129，整段 75–170% 都能拖。 */
@@ -23,6 +24,7 @@ public final class KeyboardAdjustPolicySmoke {
         topHandle();
         bottomHandle();
         move();
+        actionRow();
         widthGeometry();
         sideHandles();
         accessibility();
@@ -142,10 +144,34 @@ public final class KeyboardAdjustPolicySmoke {
             "a full-width keyboard has nowhere to move");
     }
 
+    private static void actionRow() {
+        // 宽键盘按原尺寸排：72 dp 的按钮、28 dp 的间距，与 iOS 相同。
+        ActionRow phone = KeyboardAdjustPolicy.actionRow(3, 392, true);
+        check(phone.buttonWidth() == 72f && phone.gap() == 28f, "a phone-wide keyboard uses the full spacing: " + phone);
+        // 最窄的键盘里，中间三个按钮加左右两个竖向把手必须并排放得下，按钮与柄之间至少隔 4 dp，按住柄不会点到按钮。60% 只会比 240 dp 更宽，浮动键盘最窄也是 240 dp 且不显示左右柄。
+        ActionRow narrowest = KeyboardAdjustPolicy.actionRow(3, KeyboardAdjustPolicy.MIN_WIDTH_DP, true);
+        float clear = 2 * (KeyboardAdjustPolicy.SIDE_GRIP_DP + KeyboardAdjustPolicy.MIN_ACTION_GAP_DP);
+        check(narrowest.width(3) + clear <= KeyboardAdjustPolicy.MIN_WIDTH_DP + 0.001f,
+            "the three buttons and both side grips fit the narrowest keyboard: " + narrowest);
+        check(narrowest.gap() == KeyboardAdjustPolicy.MIN_ACTION_GAP_DP, "the gaps shrink to 4 dp first: " + narrowest);
+        check(narrowest.buttonWidth() >= 48f, "the buttons stay at least a 48 dp touch target: " + narrowest);
+        // 只差一点放不下时只收间距，按钮还是原宽。
+        ActionRow tight = KeyboardAdjustPolicy.actionRow(3, 3 * 72 + 2 * 10 + clear, true);
+        check(tight.buttonWidth() == 72f && Math.abs(tight.gap() - 10f) < 0.001f, "the gaps give way before the buttons: " + tight);
+        for (int width = KeyboardAdjustPolicy.MIN_WIDTH_DP; width <= 720; width += 7) {
+            for (int count = 2; count <= 3; count++) {
+                ActionRow row = KeyboardAdjustPolicy.actionRow(count, width, true);
+                check(row.width(count) + clear <= width + 0.001f, "the row stays clear of the grips at " + width + " dp");
+                check(row.gap() >= KeyboardAdjustPolicy.MIN_ACTION_GAP_DP && row.gap() <= KeyboardAdjustPolicy.ACTION_GAP_DP
+                    && row.buttonWidth() <= KeyboardAdjustPolicy.ACTION_WIDTH_DP, "spacing stays within its bounds at " + width + " dp");
+            }
+        }
+        // 不显示左右柄（浮动、单手、分离式）时按钮可以用满宽度：最窄的浮动键盘也排得下原尺寸的两个按钮。
+        ActionRow floating = KeyboardAdjustPolicy.actionRow(2, KeyboardAdjustPolicy.MIN_WIDTH_DP, false);
+        check(floating.buttonWidth() == 72f && floating.gap() == 28f, "the floating keyboard keeps the full spacing: " + floating);
+    }
+
     private static void widthGeometry() {
-        // 最窄的键盘里，中间三个按钮加左右两个竖向把手必须并排放得下，按钮不压到柄上（三个按钮之间没有间距）。60% 只会比 240 dp 更宽，浮动键盘最窄也是 240 dp 且不显示左右柄。
-        check(3 * KeyboardAdjustOverlay.ACTION_WIDTH_DP + 2 * KeyboardAdjustOverlay.GRIP_SHORT_DP
-            <= KeyboardAdjustPolicy.MIN_WIDTH_DP, "the three buttons and both side grips fit the narrowest keyboard");
         check(KeyboardAdjustPolicy.minWidthPx(PHONE_PX, PHONE_MIN_PX) == 660, "240 dp beats 60% on a phone");
         check(KeyboardAdjustPolicy.minWidthPx(2000, 660) == 1200, "60% beats 240 dp on a wide surface");
         check(KeyboardAdjustPolicy.minWidthPx(500, 660) == 500, "never wider than the space");

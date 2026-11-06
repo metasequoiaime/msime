@@ -42,6 +42,6 @@ Status: implemented
 - 在 win-runner 上用 pwsh 7.5.1 和 Windows PowerShell 5.1 验证过：`41371083017`、`41396949560` 两份 CI 诊断判为 B 形停顿，A 形诊断仍判为停顿；`UserRequest` 但无 worker、`WerFaultSecure`、worker 不是目标的子进程、两个 worker、两个线程在等、有线程在运行、其他等待原因、全部挂起、半成品记录、负向样本有记录、正向样本两条记录、目标已退出、两类快照失败、缺 `expected.json` 都判为不重跑。用改名为 `WerFault.exe` 的子进程验证过 `Save-SystemWerTimeout` 能记下 worker 的线程数组和退出状态，以及重跑分支的结束顺序能让两者都退出。
 - 带重跑的完整脚本需要在 PR 的 Windows TSF system WER job 里运行，本机和 win-runner 上都没有跑过真实的系统 WER 投递，也没有复现过真实的 B 形停顿。
 
-2026-11-05 的对照把两种停顿都定位到 Windows 自带的 32 位 `SysWOW64\WerFault.exe` 自身堆损坏或在堆锁上死锁，最小空 helper 同样复现；x86 系统投递从此改为非阻塞观测，本笔记的重试规则仍在脚本里，见[x86 系统投递非阻塞](2026-11-05-windows-system-wer-x86-nonblocking.md)。
+2026-11-05 的对照把两种停顿都定位到 Windows 自带的 32 位 `SysWOW64\WerFault.exe` 自身堆损坏或在堆锁上死锁，最小空 helper 同样复现；x86 系统投递先改为非阻塞观测（[x86 系统投递非阻塞](../../archived/testing/2026-11-05-windows-system-wer-x86-nonblocking.md)），随后产品在 WOW64 宿主里不再登记 helper，x86 只跑不登记的 `baseline` 和 `wow64` 并恢复阻塞，见[WOW64 宿主不做进程外采集](../feature/2026-11-06-windows-tsf-wer-skip-wow64.md)。本笔记的重试规则仍在脚本里，对所有用例照常生效。
 
 系统专项与设置作业的运行归属见[独立 WER 作业](2026-11-04-windows-wer-independent-ci.md)。#10844 与 #10755 的新诊断证明同一用例重试后仍可能停顿；这类失败继续保留，独立作业不修改本笔记的重试条件或成功标准。

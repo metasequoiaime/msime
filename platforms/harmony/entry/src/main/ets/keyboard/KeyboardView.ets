@@ -731,6 +731,8 @@ struct KeyboardView {
   @State handwritingNotice: string = '';
   @State handwritingBusy: boolean = false;
   @State voiceText: string = '';
+  // voiceText 是否已经过 deliverVoice 的标点处理；识别器写入新文本时清除，用户在面板里编辑不改变它。
+  private voiceTextPunctuated: boolean = false;
   @State voiceNotice: string = '';
   @State voiceBusy: boolean = false;
   @State voiceFinishing: boolean = false;
@@ -910,6 +912,8 @@ struct KeyboardView {
   @State keyPreview: KeyPreviewFrame | null = null;
   /** 气泡所属按键对应的手指，这样别处抬起的手指不会撤掉仍被按住的键的气泡；未显示时为 -1。 */
   private keyPreviewFinger: number = -1;
+  /** 这一次按下落在按键区里不是键的地方（九键左列的拼写列表）：那里的处理器先置上，冒泡到 `keyPressTouch` 时读掉并清掉，这次按下不振动（#10757）。 */
+  private keyPressOutsideKeys: boolean = false;
   /** 字母键上可能输入角标提示而不是字母的触摸。 */
   private letterHints: LetterHintGesture = new LetterHintGesture();
   /** 中文组字中的 26 键竖向滑动辅助码；与角标手势分开跟踪，长按仍保留角标。 */
@@ -1776,6 +1780,7 @@ struct KeyboardView {
         return;
       }
       const finger: number = event.changedTouches[0].id;
+      KeyboardSession.shared.keyUp(finger);
       if (this.glideActive) {
         // 该行的 `glideTouch` 接下来会收到这次抬起并发送轨迹。
         this.abandonLetterHint(finger);
@@ -1895,6 +1900,40 @@ struct KeyboardView {
       this.keyPreview = null;
       this.keyPreviewFinger = -1;
     }
+  }
+
+  /**
+   * 按键区按下即振动（#10757，`KeyPressFeedback`）：触屏键盘上 `keyFaces` 画着按键时，每根手指按下就交给会话振动，抬起或取消时交还这次按下，会话在点击处理完之后撤回没用掉的那一下。面板、键盘调整这些不是按键的界面不经过这里，仍在上屏时振动。
+   */
+  private keyPressTouch(event: TouchEvent): void {
+    if (event.type === TouchType.Down) {
+      const outsideKeys: boolean = this.keyPressOutsideKeys;
+      this.keyPressOutsideKeys = false;
+      if (outsideKeys || !this.keyFacesShowKeys()) {
+        return;
+      }
+      for (const touch of event.changedTouches) {
+        KeyboardSession.shared.keyDown(touch.id);
+      }
+    } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+      for (const touch of event.changedTouches) {
+        KeyboardSession.shared.keyUp(touch.id);
+      }
+    }
+  }
+
+  /** `keyFaces` 此刻画的是不是按键（`handedKeys`），而不是某个面板或键盘调整；条件与 `keyFaces` 的分支一一对应。 */
+  private keyFacesShowKeys(): boolean {
+    if (this.surface === SURFACE_GEOMETRY) {
+      return false;
+    }
+    if (this.isTools() && this.editing.length === 0 && this.candidates.length === 0) {
+      return false;
+    }
+    return this.surface !== SURFACE_EXPANDED && this.surface !== SURFACE_CLIPBOARD
+      && this.surface !== SURFACE_PHRASES && this.surface !== SURFACE_REPLY && this.surface !== SURFACE_POLISH
+      && this.surface !== SURFACE_VOICE && !this.isPicker() && this.surface !== SURFACE_EMOJI
+      && this.surface !== SURFACE_SYMBOLS;
   }
 
   /** 键盘上任何位置的每次按下都会在按键自身的处理器之后到达这里：若气泡对应的手指已不在屏幕上，说明它的抬起事件丢给了在其下方被重建的键，气泡随之撤掉。 */
@@ -2034,6 +2073,7 @@ struct KeyboardView {
     this.glideReset();
     if (request !== null) {
       // A stroke the Engine declines (handled false) is dropped: its keys are never typed in its place.
+      KeyboardSession.shared.keyUp(touch.id);
       KeyboardSession.shared.glide(request);
     }
   }
@@ -6147,6 +6187,12 @@ struct KeyboardView {
           .scrollBar(BarState.Off)
           .width('100%')
           .height('100%')
+          // 拼写列表不是键：滚动或点选拼写的按下不振动，与 Android 一样（#10757）。不拦冒泡，键盘根上的 `pruneKeyPreview` 照样看得到这次按下。
+          .onTouch((event: TouchEvent): void => {
+            if (event.type === TouchType.Down) {
+              this.keyPressOutsideKeys = true;
+            }
+          })
         } else {
           ForEach(NineKeyLayout.punctuation(), (symbol: string, index: number) => {
             Column() {
@@ -6343,6 +6389,7 @@ struct KeyboardView {
         const touch: TouchObject = event.changedTouches[0];
         if (this.nineKeySwipes.up(key.input, touch.id) === NineKeySwipe.DIGIT) {
           this.endNineKeySwipeFace(key.input);
+          KeyboardSession.shared.keyUp(touch.id);
           this.typeNineKeySwipeDigit(key);
         }
       }
@@ -6359,7 +6406,7 @@ struct KeyboardView {
       return;
     }
     KeyboardSession.shared.softKeyPress(KeyIdPolicy.nineKey(key.input));
-    KeyboardSession.shared.holdFeedback();
+    KeyboardSession.shared.keyFeedback();
     KeyboardSession.shared.finishComposition();
     KeyboardSession.shared.insert(digit);
   }
@@ -6573,6 +6620,7 @@ struct KeyboardView {
         const touch: TouchObject = event.changedTouches[0];
         const letter: string = this.eighteenSwipes.up(key.letters, touch.id, touch.windowX, touch.windowY);
         this.endEighteenSwipeFace(key.letters);
+        KeyboardSession.shared.keyUp(touch.id);
         this.typeEighteenKeyLetter(key, letter);
       }
     } else if (event.type === TouchType.Cancel) {
@@ -6936,6 +6984,7 @@ struct KeyboardView {
         return;
       }
       if (this.commaSwipe.up(touch.windowX, touch.windowY, Date.now())) {
+        KeyboardSession.shared.keyUp(touch.id);
         KeyboardSession.shared.softKeyPress(KeyIdPolicy.character(','));
         KeyboardSession.shared.punctuation(0x2e);
       }
@@ -7438,6 +7487,9 @@ struct KeyboardView {
       if (event.type === TouchType.Down) {
         this.startBackspace();
       } else if (event.type === TouchType.Up) {
+        for (const touch of event.changedTouches) {
+          KeyboardSession.shared.keyUp(touch.id);
+        }
         this.finishBackspace();
       } else if (event.type === TouchType.Cancel) {
         this.cancelBackspace();
@@ -7558,6 +7610,9 @@ struct KeyboardView {
         if (outcome === SpaceGestureOutcome.VOICE_FINISH || outcome === SpaceGestureOutcome.VOICE_CANCEL) {
           this.endSpaceVoice(outcome === SpaceGestureOutcome.VOICE_FINISH);
         } else if (!this.dragged && event.type === TouchType.Up) {
+          for (const touch of event.changedTouches) {
+            KeyboardSession.shared.keyUp(touch.id);
+          }
           this.activateSpace();
         }
       }
@@ -8900,6 +8955,7 @@ struct KeyboardView {
     voiceConfiguration.local_stop_sensitivity =
       VoiceRecordingBehaviourPolicy.stopSensitivity(voiceConfiguration, this.voicePauseEnds && !fromHotkey);
     this.voiceText = '';
+    this.voiceTextPunctuated = false;
     this.voiceHeard = '';
     this.voiceLevel = 0;
     this.voiceNotice = '正在聆听…';
@@ -8914,6 +8970,7 @@ struct KeyboardView {
       if (text.length > 0
           && (final || VoiceRecordingBehaviourPolicy.showsInterimResults(voiceConfiguration))) {
         this.voiceText = VoiceRecognitionPolicy.result(text);
+        this.voiceTextPunctuated = false;
         if (!final && this.touchDesign()) {
           this.voiceHeard = this.voiceText;
         }
@@ -8973,6 +9030,14 @@ struct KeyboardView {
         (this.voiceText.length > 0 ? '已忽略过期的语音结果。' : '没有识别到语音。');
       return;
     }
+    // 最终结果在分流前处理一次标点：审阅面板和保留待插入的文字都显示处理后的文本，用户确认的就是上屏的内容。
+    const punctuated: string = KeyboardSession.shared.voicePunctuation(accepted);
+    this.voiceText = punctuated;
+    this.voiceTextPunctuated = true;
+    if (punctuated.length === 0) {
+      this.voiceNotice = '没有识别到文字。';
+      return;
+    }
     if (!VoiceRecognitionPolicy.skipsReview(this.touchDesign(), this.surface === SURFACE_VOICE)) {
       this.voiceNotice = '识别完成，可提交结果。';
       return;
@@ -8981,13 +9046,14 @@ struct KeyboardView {
       this.voiceNotice = '输入位置已变化，结果已保留，可点插入文字。';
       return;
     }
-    KeyboardSession.shared.insertVoiceResult(accepted);
+    KeyboardSession.shared.markVoicePunctuationApplied();
+    KeyboardSession.shared.insertVoiceResult(punctuated);
     this.voiceText = '';
     this.voiceNotice = '';
-    this.voiceDone = accepted;
+    this.voiceDone = punctuated;
     this.voiceDoneTimer = setTimeout((): void => {
       this.voiceDoneTimer = -1;
-      if (this.voiceDone !== accepted) {
+      if (this.voiceDone !== punctuated) {
         return;
       }
       this.voiceDone = '';
@@ -9073,6 +9139,7 @@ struct KeyboardView {
     // Cancelled rather than finished: nothing was recognised, so there is nothing to announce.
     KeyboardSession.shared.setVoiceRecording(false, true);
     this.voiceText = '';
+    this.voiceTextPunctuated = false;
     this.voiceNotice = '已取消语音识别';
     KeyboardSession.shared.voiceCancel();
     this.voiceGeneration = 0;
@@ -9083,8 +9150,17 @@ struct KeyboardView {
     if (text.length === 0 || this.voiceBusy) {
       return;
     }
-    KeyboardSession.shared.insertVoiceResult(text);
+    // deliverVoice 已处理过的最终结果（含用户在面板里改过的）原样上屏；只有出错后留下的中间结果在这里补一次处理。
+    const punctuated: string = this.voiceTextPunctuated
+      ? text : KeyboardSession.shared.voicePunctuation(text);
+    if (punctuated.length === 0) {
+      this.voiceNotice = '没有识别到文字。';
+      return;
+    }
+    KeyboardSession.shared.markVoicePunctuationApplied();
+    KeyboardSession.shared.insertVoiceResult(punctuated);
     this.voiceText = '';
+    this.voiceTextPunctuated = false;
     this.voiceNotice = '已提交';
   }
 
@@ -9804,6 +9880,9 @@ struct KeyboardView {
         // One press of the cell per tap or flick, whichever direction it lands on; a direction with no label types nothing and counts nothing, as on iOS.
         if ($$.kana[direction].length > 0) {
           KeyboardSession.shared.softKeyPress(KeyIdPolicy.japaneseKana(keyIndex));
+        }
+        for (const touch of event.changedTouches) {
+          KeyboardSession.shared.keyUp(touch.id);
         }
         this.sendKana($$, direction);
         this.flickKeyIndex = -1;
@@ -12287,6 +12366,8 @@ struct KeyboardView {
         }
         .width('100%')
         .margin({ top: this.stripShown() ? KeyboardMetrics.STRIP_GAP_VP : 0 })
+        // 按键的触摸处理完之后冒泡到这里：手指落在按键上就振动，抬手上屏时不再振（#10757）。
+        .onTouch((event: TouchEvent): void => this.keyPressTouch(event))
       }
       .width('100%')
       // 键盘调整时遮罩下的工具条和按键只是预览：读屏整块跳过，免得双击落到遮罩下的「表情」或按键上，读屏只走遮罩上的柄和按钮（`adjustOverlay`），与 Android 的 IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS、iOS 的 accessibilityViewIsModal 相同。

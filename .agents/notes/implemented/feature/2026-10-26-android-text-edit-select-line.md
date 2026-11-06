@@ -21,7 +21,7 @@ Status: implemented
 
 ## Consequences
 
-选择行依赖编辑器提供完整 `ExtractedText`；密码框、部分 WebView 或只返回部分文本的输入框会显示不支持提示，不会猜测范围。面板高度增加一行，八个侧键均可通过现有顺序设置移动。
+选择行依赖编辑器提供完整 `ExtractedText`；密码框、部分 WebView 或只返回部分文本的输入框会显示不支持提示，不会猜测范围。八个侧键均可通过现有顺序设置移动。加一行承载第八个侧键的布局让底部留下整行空白，已由[四行网格](../bug-fix/2026-11-06-android-text-edit-panel-four-rows.md)取代：网格仍是四行，第八个侧键放在底排正中。
 
 ## Verification
 

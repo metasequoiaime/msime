@@ -112,13 +112,29 @@ public final class StaleCandidateDeviceSmoke extends Instrumentation {
                 check(field(type, "view").get(service) == current, "stale expanded button changed view");
                 stage = "stale continuous strip preserves session";
                 staleStrip.performClick();
-                Method stripGloss = type.getDeclaredMethod("insertStripCandidateGloss", JSONObject.class,
-                    JSONObject.class, JSONObject.class, String.class, String.class);
-                stripGloss.setAccessible(true);
-                stripGloss.invoke(service, old, old.getJSONArray("candidates").getJSONObject(0),
-                    id, old.getJSONArray("candidates").getJSONObject(0).getString("text"), "synthetic gloss");
                 check(field(type, "session").getLong(service) == session, "stale strip stopped session");
                 check(field(type, "view").get(service) == current, "stale strip changed view");
+                // 长按候选打开的释义卡片（#10915）取代了原来带着候选快照上屏译文的长按菜单：卡片属于打开它时的组字，组字一变就关，关掉以后它的按钮再也点不到，不会把旧组字的译文写进编辑器。
+                stage = "stale gloss card closes";
+                Object card = field(type, "imeGlossCard").get(service);
+                Class<?> targetType = loader.loadClass("app.msime.android.ImeGlossCard$Target");
+                java.lang.reflect.Constructor<?> target = targetType.getDeclaredConstructors()[0];
+                target.setAccessible(true);
+                JSONObject first = current.getJSONArray("candidates").getJSONObject(0);
+                Method open = card.getClass().getDeclaredMethod("open", targetType);
+                open.setAccessible(true);
+                Method visible = card.getClass().getDeclaredMethod("visible");
+                visible.setAccessible(true);
+                Method sync = card.getClass().getDeclaredMethod("sync");
+                sync.setAccessible(true);
+                check((Boolean) open.invoke(card, target.newInstance(first.getString("text"), first.getString("text"),
+                    first.optInt("source", 0), first, first.getJSONObject("id"), "")), "gloss card opened");
+                check((Boolean) visible.invoke(card), "gloss card visible");
+                field(type, "view").set(service, old);
+                sync.invoke(card);
+                check(!(Boolean) visible.invoke(card), "gloss card outlived its composition");
+                field(type, "view").set(service, current);
+                check(field(type, "session").getLong(service) == session, "stale gloss card stopped session");
                 stage = "stale spelling preserves session";
                 Object rows = field(type, "imeLayoutRows").get(service);
                 Method spelling = rows.getClass().getDeclaredMethod("chooseNineKeySpelling", long.class, long.class, int.class);

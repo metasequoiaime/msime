@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-用共用的私有映射消费 `IntoIterator<Item=DictRow>`。热缓存用 `rows.iter().cloned()` 惰性提供行，只复制最终候选需要的字段，不建立完整的中间向量；冷页仍沿用原缓存页克隆和拥有型迭代。单字母分支直接以原匹配码构造 `pinyin`，完整键直接交给 `canonical_pinyin`，不经过被替换字段。`expand_initial_candidates` 同样直接消费 SQLite 页，以单字母构造最终显示读法。原 `QuanpinDictionary::query_initial` 包装只由展开调用，没有从 crate 导出；优化后移除该闲置内部入口。`PinyinDatabase::query_initial`、九键使用的简拼查询与 `initial_items` 的完整读法语义保持原样。模糊行缓存辅助函数直接向结果追加候选，热页传入惰性克隆迭代，冷页仍克隆缓存后消费原 SQLite 页；首行取得拥有型匹配码（已有拥有值直接接管，借用前缀按[延迟拥有](2026-10-14-quanpin-fuzzy-typed-prefix-borrow.md)复制），其余行复制该读法，保留原容量与路径预算。最终候选继续拥有全部字符串；普通切分、长词与初始字母保持原键、顺序和默认元数据。
+用共用的私有映射消费 `IntoIterator<Item=DictRow>`。热缓存用 `rows.iter().cloned()` 惰性提供行，只复制最终候选需要的字段，不建立完整的中间向量；冷页仍沿用原缓存页克隆和拥有型迭代。单字母分支直接以原匹配码构造 `pinyin`，完整键直接交给 `canonical_pinyin`，不经过被替换字段。`expand_initial_candidates` 同样直接消费 SQLite 页，以单字母构造最终显示读法。原 `QuanpinDictionary::query_initial` 包装只由展开调用，没有从 crate 导出；优化后移除该闲置内部入口。`PinyinDatabase::query_initial`、九键使用的简拼查询与 `initial_items` 的完整读法语义保持原样。模糊行缓存辅助函数直接向结果追加候选，热页传入惰性克隆迭代，冷页仍克隆缓存后消费原 SQLite 页；首行取得拥有型匹配码（已有拥有值直接接管，借用前缀按[延迟拥有](2026-10-14-quanpin-fuzzy-typed-prefix-borrow.md)复制），其余行复制该读法，保留原容量与路径预算。最终候选继续拥有全部字符串；普通切分、长词与初始字母保持原键、顺序和默认元数据。模糊行缓存这一部分已由[模糊前缀页共用文字字段](2026-11-06-fuzzy-row-page-shared-text.md)取代：缓存页存 `FuzzyRow`，投影只加引用计数，不再逐行复制。
 
 ## Existing decisions
 

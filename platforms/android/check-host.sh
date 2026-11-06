@@ -938,19 +938,10 @@ if ! rg -A 6 'private void removeClipboardItemAfterAuthentication\(' \
   echo "Android single clipboard deletion must keep an undo snapshot via removeMany (#10080)" >&2
   exit 1
 fi
-# 删除候选词的确认收在长按菜单的子菜单里（ImeCandidates），与 iOS 的嵌套 UIMenu 一致：点开「删除词条…」当场展开「确认删除此词条」，一次长按删完；不弹 AlertDialog（#5605、#5653：输入法服务没有 Activity 的窗口令牌，对话框要么加不上窗口、让输入法进程崩掉，要么抢走编辑器的窗口焦点，两种情况键盘都会被收起），也不要退出去再长按一次的两步确认。
+# 输入法服务不弹 AlertDialog（#5605、#5653：输入法服务没有 Activity 的窗口令牌，对话框要么加不上窗口、让输入法进程崩掉，要么抢走编辑器的窗口焦点，两种情况键盘都会被收起）。删除候选词的确认就地画在释义卡片里（#10915），由 CandidateGlossDeviceSmoke 在设备上点过。
 if rg -q 'new AlertDialog' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
   echo "Android input method service must not raise AlertDialog; confirm inside the keyboard (#5605, #5653)" >&2
-  exit 1
-fi
-if ! rg -q 'addSubMenu\(Menu\.NONE, Menu\.NONE, action\.ordinal\(\), action\.title\(\)\)' \
-    "$repo_root/platforms/android/java/app/msime/android/core/ImeCandidates.java" \
-  || ! rg -q 'action\.confirmationTitle\(\)' \
-    "$repo_root/platforms/android/java/app/msime/android/core/ImeCandidates.java" \
-  || ! rg -q 'String confirmationTitle\(\)' \
-    "$repo_root/platforms/android/java/app/msime/android/candidate/CandidateManagementAction.java"; then
-  echo "Android candidate removal must confirm through the long-press submenu (#7793)" >&2
   exit 1
 fi
 # 「添加到常用语」经常用语存储写入（校验、去重、上限和同步标记都在那里），它要等文件锁，必须放在工作线程上，不能在主线程卡住键盘（#5909）。和常用语面板的读取同在 commonPhrasesWorker 上，不排在建会话的偏好读取和词库同步后面（#10086）。
@@ -1657,16 +1648,17 @@ if ! rg -q '<action android:name="android\.intent\.action\.TTS_SERVICE" />' "$re
   echo "Android manifest must query android.intent.action.TTS_SERVICE for read aloud" >&2
   exit 1
 fi
-# 「朗读」的接线在 ImeCandidates、MSIMEInputService 和 VocabularyReviewPage 里，JVM 冒烟碰不到，这里钉住：长按菜单加上这一项、点下去交给服务朗读，键盘服务销毁时和背单词页离开时都断开语音引擎。
-read_aloud_candidates="$repo_root/platforms/android/java/app/msime/android/core/ImeCandidates.java"
+# 「朗读」在释义卡片里：只有装了语音引擎时才出现，设备冒烟不断言它，所以这里钉住 ImeGlossCard 把它接到 s.readAloud。
+if ! rg -qF 'addSecondary(row, CandidateManagementAction.READ_ALOUD_TITLE, KeyboardKeyRole.ACCENT, () -> s.readAloud(readAloud));' "$repo_root/platforms/android/java/app/msime/android/core/ImeGlossCard.java"; then
+  echo "Android gloss card must offer read aloud through s.readAloud" >&2
+  exit 1
+fi
+# 键盘服务销毁时和背单词页离开时都要断开语音引擎。
 read_aloud_service="$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"
 read_aloud_review="$repo_root/platforms/android/java/app/msime/android/home/VocabularyReviewPage.java"
-if ! rg -qF 'popup.getMenu().add(Menu.NONE, CandidateManagementAction.READ_ALOUD_MENU_ITEM,' "$read_aloud_candidates" \
-  || ! rg -qF 'item.getItemId() == CandidateManagementAction.READ_ALOUD_MENU_ITEM' "$read_aloud_candidates" \
-  || ! rg -qF 's.readAloud(readAloud);' "$read_aloud_candidates" \
-  || ! awk '/public void onDestroy\(\)/ { inside = 1 } inside && /readAloudSpeaker\.shutdown\(\);/ { found = 1 } inside && /^    }$/ { exit } END { exit !found }' "$read_aloud_service" \
+if ! awk '/public void onDestroy\(\)/ { inside = 1 } inside && /readAloudSpeaker\.shutdown\(\);/ { found = 1 } inside && /^    }$/ { exit } END { exit !found }' "$read_aloud_service" \
   || ! rg -qF 'if (speaker != null) speaker.shutdown();' "$read_aloud_review"; then
-  echo "Android read aloud must add and route the candidate menu item and shut the speaker down with the service and the review page" >&2
+  echo "Android read aloud must shut the speaker down with the service and the review page" >&2
   exit 1
 fi
 # 键区里的系统识别服务是 SpeechRecognizer 回调接线，JVM 冒烟只能覆盖 PlatformSpeechPolicy 和 ImeVoiceEntry.choose 这些纯逻辑，这里守住回调里不能被悄悄改回去的几处（#5553）：两条入口都按错误码提示、空结果不冒用错误码，权限拒绝或聆听前启动失败时转交识别窗口，系统识别服务和豆包流式不被 1.5 s 停顿截断（豆包整句流式说到 15 秒才回第一段结果，#9886），说完后收回音量光圈。
@@ -2036,8 +2028,10 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/java/app/msime/android/home/LoginConsentPolicy.java" \
   "$repo_root/platforms/android/java/app/msime/android/home/OnboardingChoicePolicy.java" \
   "$repo_root/platforms/android/java/app/msime/android/home/HelpcodeChoicePolicy.java" \
+  "$repo_root/platforms/android/java/app/msime/android/home/HelpcodeModesPolicy.java" \
   "$repo_root/platforms/android/java/app/msime/android/home/KeyLayoutStylesPolicy.java" \
   "$repo_root/platforms/android/java/app/msime/android/home/ReorderPolicy.java" \
+  "$repo_root/platforms/android/java/app/msime/android/home/SettingsSearchAnchorPolicy.java" \
   "$repo_root/platforms/android/gradle-app/ocr-module/src/main/java/app/msime/ocr/module/OcrPipeline.java" \
   "${test_sources[@]}"
 # 可选 OCR 模块的前后处理只用 Java 标准库，跟宿主的纯 Java 模型一起编译，由 tests/ocr/OcrPipelineSmoke.java 覆盖；模块里调用 ONNX Runtime 和 Android 图形接口的 OcrModule 只由 Gradle 编译。
