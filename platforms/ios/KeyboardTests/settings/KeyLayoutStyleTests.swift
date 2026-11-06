@@ -475,7 +475,8 @@ final class KeyLayoutStyleTests: XCTestCase {
         let digit = try button("numberRowKey1", in: controller)
         func frame(_ view: UIView) -> CGRect { view.convert(view.bounds, to: controller.view) }
         XCTAssertEqual(frame(digit).minY - frame(strip).maxY,
-                       KeyboardFormFactor.phone.topRowGap + KeyboardFormFactor.phoneLetterVerticalPadding, accuracy: 0.5)
+                       KeyboardFormFactor.phone.topRowGap
+                         + KeyboardFormFactor.phoneLetterVerticalPadding(rows: 5), accuracy: 0.5)
         XCTAssertEqual(frame(letter).minY - frame(digit).maxY,
                        CGFloat(KeyboardLayoutPreference.rowSpacing) + KeyboardFormFactor.phoneLetterRowPadding, accuracy: 0.5)
         attach(controller, "26 键 数字行")
