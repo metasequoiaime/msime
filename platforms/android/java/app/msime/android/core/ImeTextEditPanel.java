@@ -417,10 +417,13 @@ final class ImeTextEditPanel {
     private void configureTrackpad() {
         if (trackpad == null) return;
         if (trackpadSettings != null) {
+            // 触控板盖在方向区上，底色、外框圆角跟网格画的方向区一致。
+            KeyboardSkin themed = s.imeStyler.themed(s.skin);
             trackpad.configure(trackpadSettings.horizontalDp(), trackpadSettings.verticalDp(),
                 trackpadSettings.tapSelection(), trackpadSettings.trail(),
-                android.graphics.Color.parseColor(s.skin.background()),
-                android.graphics.Color.parseColor(s.skin.keyForeground()), android.graphics.Color.parseColor(s.skin.accent()));
+                android.graphics.Color.parseColor(themed.keyBackground()),
+                android.graphics.Color.parseColor(themed.keyForeground()), android.graphics.Color.parseColor(themed.accent()),
+                TextEditPanelGrid.surfaceRadius(s, themed));
         }
         boolean enabled = trackpadSettings != null && (trackpadSettings.enabled() || temporaryTrackpad);
         ViewPolicy.setVisible(trackpad, enabled);

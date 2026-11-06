@@ -32,6 +32,11 @@ public final class TextEditPanelGrid extends ViewGroup {
         setWillNotDraw(false);
     }
 
+    /** 方向区外框的圆角（像素）；触控板盖在上面时用同一个值。 */
+    public static float surfaceRadius(Context context, KeyboardSkin skin) {
+        return DimensionPolicy.floatPixels(context, Math.max(4, skin.cornerRadius()));
+    }
+
     /** 侧键四周的键距；触控板按同一个值对齐方向区外框。 */
     public int keyMargin() { return margin; }
 
@@ -46,7 +51,7 @@ public final class TextEditPanelGrid extends ViewGroup {
         background = Color.parseColor(skin.keyBackground());
         lineColor = ColorPolicy.withAlpha(Color.parseColor(skin.keyForeground()), .18f);
         accent = Color.parseColor(skin.accent());
-        radius = DimensionPolicy.floatPixels(getContext(), Math.max(4, skin.cornerRadius()));
+        radius = surfaceRadius(getContext(), skin);
         for (int index = 0; index < keys.size(); index++)
             if (TextEditPanelModel.isCentral(keys.get(index))
                     && getChildAt(index) instanceof TextEditPanelButton central)
