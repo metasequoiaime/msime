@@ -39,17 +39,30 @@ public final class HelpcodeModesPolicySmoke {
         check(HelpcodeModesPolicy.mode("mid_sentence").title().equals("双拼句中间接辅助码"), "mid-sentence title");
         check(HelpcodeModesPolicy.mode("direct_helpcode_slash").title().equals("双拼逐音节直接（/ 结束）"), "slash title");
 
-        // 置灰：句中三枚触发键随句中间接，两种结束方式随逐音节直接，其余总能改（辅助码关着时整组不画）。
-        for (String field : List.of("direct", "trigger_semicolon", "trigger_backtick", "trigger_uppercase", "mid_sentence", "direct_helpcode")) {
-            check(HelpcodeModesPolicy.enabled(HelpcodeModesPolicy.mode(field), false, false), "top-level rows are always editable: " + field);
+        // 置灰：末尾间接三枚触发键要末尾直接和逐音节直接都关着，句中三枚触发键随句中间接，两种结束方式随逐音节直接，其余总能改（辅助码关着时整组不画）。参数依次是末尾直接、句中间接、逐音节直接。
+        for (String field : List.of("direct", "mid_sentence", "direct_helpcode")) {
+            check(HelpcodeModesPolicy.enabled(HelpcodeModesPolicy.mode(field), true, false, true), "top-level rows are always editable: " + field);
+            check(HelpcodeModesPolicy.enabled(HelpcodeModesPolicy.mode(field), false, false, false), "top-level rows are always editable: " + field);
         }
+        // 引擎只在末尾直接和逐音节直接都关着时认末尾间接触发键（`apply_request_options`），出厂值的末尾直接开着，所以这三行出厂时置灰。
+        for (String field : List.of("trigger_semicolon", "trigger_backtick", "trigger_uppercase")) {
+            Mode mode = HelpcodeModesPolicy.mode(field);
+            check(mode.parent() == HelpcodeModesPolicy.Parent.END_TRIGGER, "end triggers hang off direct and direct_helpcode: " + field);
+            check(!HelpcodeModesPolicy.enabled(mode, true, false, false), "end triggers are greyed while direct is on: " + field);
+            check(!HelpcodeModesPolicy.enabled(mode, false, false, true), "end triggers are greyed while direct_helpcode is on: " + field);
+            check(!HelpcodeModesPolicy.enabled(mode, true, false, true), "end triggers are greyed while both are on: " + field);
+            check(HelpcodeModesPolicy.enabled(mode, false, false, false), "end triggers open when both are off: " + field);
+            check(HelpcodeModesPolicy.enabled(mode, false, true, false), "mid_sentence does not grey the end triggers: " + field);
+        }
+        check(HelpcodeModesPolicy.mode("direct").help().equals("完整音节后直接接辅助码；打开时末尾间接触发不生效"),
+            "the direct row says it turns the end triggers off");
         for (String field : List.of("mid_sentence_backtick", "mid_sentence_semicolon", "mid_sentence_uppercase")) {
-            check(!HelpcodeModesPolicy.enabled(HelpcodeModesPolicy.mode(field), false, true), "mid-sentence keys follow mid_sentence");
-            check(HelpcodeModesPolicy.enabled(HelpcodeModesPolicy.mode(field), true, false), "mid-sentence keys open with mid_sentence");
+            check(!HelpcodeModesPolicy.enabled(HelpcodeModesPolicy.mode(field), false, false, true), "mid-sentence keys follow mid_sentence");
+            check(HelpcodeModesPolicy.enabled(HelpcodeModesPolicy.mode(field), true, true, false), "mid-sentence keys open with mid_sentence");
         }
         for (String field : List.of("direct_helpcode_slash", "direct_helpcode_uppercase")) {
-            check(!HelpcodeModesPolicy.enabled(HelpcodeModesPolicy.mode(field), true, false), "terminators follow direct_helpcode");
-            check(HelpcodeModesPolicy.enabled(HelpcodeModesPolicy.mode(field), false, true), "terminators open with direct_helpcode");
+            check(!HelpcodeModesPolicy.enabled(HelpcodeModesPolicy.mode(field), false, true, false), "terminators follow direct_helpcode");
+            check(HelpcodeModesPolicy.enabled(HelpcodeModesPolicy.mode(field), true, false, true), "terminators open with direct_helpcode");
         }
 
         // 触屏键盘把分号、反引号和 / 按字面上屏，用到它们的那几行在说明里写明要外接键盘；大写字母和直接接码在触屏上能用，不加。
